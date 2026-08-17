@@ -9,7 +9,7 @@
  * same key append_ticket_frame seals NewSessionTickets under) -- exposed so
  * the caller can also thread it to wired_srvboot_id.ticket_key for OPENING a
  * presented ticket (RFC 8446 4.2.11 resumption is symmetric: one key seals
- * and opens). QUIC_TICKET_KEY_LEN bytes, valid for the process lifetime.
+ * and opens). TICKET_KEY_LEN bytes, valid for the process lifetime.
  * @return a pointer to the fixed ticket key. */
 const u8* wired_srvloop_ticket_key(void);
 

@@ -7,14 +7,13 @@ static void test_hs_clienthello_roundtrip(void) {
     random[i] = (u8)i;
     pub[i]    = (u8)(0x40 + i);
   }
-  usz total =
-      hs_build_hello(out, sizeof(out), QUIC_HS_CLIENT_HELLO, random, pub);
-  CHECK(total != 0 && out[0] == QUIC_HS_CLIENT_HELLO);
+  usz total = hs_build_hello(out, sizeof(out), HS_CLIENT_HELLO, random, pub);
+  CHECK(total != 0 && out[0] == HS_CLIENT_HELLO);
 
   u8  type;
   usz body_len;
   usz body = hs_parse(wired_span_of(out, total), &type, &body_len);
-  CHECK(body == 4 && type == QUIC_HS_CLIENT_HELLO && body_len == total - 4);
+  CHECK(body == 4 && type == HS_CLIENT_HELLO && body_len == total - 4);
 
   u8 got[32];
   CHECK(hs_peer_share(out + body, body_len, got) == 1);
@@ -28,12 +27,11 @@ static void test_hs_serverhello_roundtrip(void) {
     random[i] = (u8)(i * 2);
     pub[i]    = (u8)(0x90 + i);
   }
-  usz total =
-      hs_build_hello(out, sizeof(out), QUIC_HS_SERVER_HELLO, random, pub);
+  usz total = hs_build_hello(out, sizeof(out), HS_SERVER_HELLO, random, pub);
   u8  type;
   usz body_len;
   usz body = hs_parse(wired_span_of(out, total), &type, &body_len);
-  CHECK(type == QUIC_HS_SERVER_HELLO);
+  CHECK(type == HS_SERVER_HELLO);
   CHECK(hs_peer_share(out + body, body_len, got) == 1 && got[5] == pub[5]);
 }
 

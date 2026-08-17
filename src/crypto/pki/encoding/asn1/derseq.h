@@ -1,5 +1,5 @@
-#ifndef QUIC_ASN1_DERSEQ_H
-#define QUIC_ASN1_DERSEQ_H
+#ifndef ASN1_DERSEQ_H
+#define ASN1_DERSEQ_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

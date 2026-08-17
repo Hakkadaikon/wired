@@ -23,7 +23,7 @@
  * bits are a rotation of v1's), so this always needs the packet's own
  * Version field alongside byte0, never byte0 alone. */
 static int srvboot_is_long_initial(u8 byte0, u32 version) {
-  return packet_long_type(byte0, version) == QUIC_PT_INITIAL;
+  return packet_long_type(byte0, version) == PT_INITIAL;
 }
 
 /* 1 if dg has room for a long header prefix (byte0 + 4-byte version) and
@@ -67,7 +67,7 @@ static int srvboot_set_cids(
  * restart -- the one situation the token exists for. */
 static void srvboot_set_reset_token(
     const wired_srvboot_conn* conn, const wired_srvboot_id* id) {
-  u8 key[QUIC_SRESET_KEY], token[QUIC_SRESET_TOKEN];
+  u8 key[SRESET_KEY], token[SRESET_TOKEN];
   sreset_key_derive(id->cert_seed, key);
   sreset_token(key, id->scid, id->scid_len, token);
   wired_server_set_reset_token(conn->s, token);
@@ -188,7 +188,7 @@ static int srvboot_seal_flight(
  * flight (EncryptedExtensions + 9 CERTIFICATE entries + CertificateVerify +
  * Finished) with headroom -- matches srvrun_conn.boot_hs, the buffer this
  * flight is copied into for retransmission. See
- * QUIC_TLS_CERT_CHAIN_MAX/WIRED_CERTRELOAD_CHAIN_MAX. */
+ * TLS_CERT_CHAIN_MAX/WIRED_CERTRELOAD_CHAIN_MAX. */
 #define SRVBOOT_SH_MAX 512
 #define SRVBOOT_HS_FLIGHT_MAX 16384
 
@@ -348,7 +348,7 @@ usz wired_srvboot_partial_ack(
 
 int wired_srvboot_is_zerortt(const u8* dg, usz len) {
   if (!srvboot_is_initial_sized(dg, len)) return 0;
-  return packet_long_type(dg[0], be_get_be32(dg + 1)) == QUIC_PT_0RTT;
+  return packet_long_type(dg[0], be_get_be32(dg + 1)) == PT_0RTT;
 }
 
 /* 1 if a has room for one more buffered 0-RTT datagram of dg's size --

@@ -1,5 +1,5 @@
-#ifndef QUIC_QPACKDYN_INSERT_ENCODE_H
-#define QUIC_QPACKDYN_INSERT_ENCODE_H
+#ifndef QPACKDYN_INSERT_ENCODE_H
+#define QPACKDYN_INSERT_ENCODE_H
 
 #include "app/qpack/qpack/field.h"
 

@@ -11,7 +11,7 @@ static int is_live(const qpack_dyn* t, u64 abs_index) {
 int qpack_dyn_get(const qpack_dyn* t, u64 abs_index, qpack_field* out) {
   if (!is_live(t, abs_index)) return 0;
   usz                    off  = (usz)(abs_index - t->dropped);
-  usz                    slot = (t->head + off) % QUIC_QPACK_DYN_MAX_ENTRIES;
+  usz                    slot = (t->head + off) % QPACK_DYN_MAX_ENTRIES;
   const qpack_dyn_entry* e    = &t->ring[slot];
   out->name                   = wired_span_of(e->name, e->name_len);
   out->value                  = wired_span_of(e->value, e->value_len);

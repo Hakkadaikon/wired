@@ -1,5 +1,5 @@
-#ifndef QUIC_VPN_VPN_OPEN_H
-#define QUIC_VPN_VPN_OPEN_H
+#ifndef VPN_VPN_OPEN_H
+#define VPN_VPN_OPEN_H
 
 #include "transport/packet/protect/protect/protect.h"
 
@@ -19,7 +19,7 @@ typedef struct {
 
 /* On success returns 1 with *payload viewing the decrypted frames inside
  * pkt; on authentication failure returns 0 (AES-128-GCM; equivalent to
- * vpn_open_suite with suite = QUIC_TLS_AES_128_GCM_SHA256). */
+ * vpn_open_suite with suite = TLS_AES_128_GCM_SHA256). */
 int vpn_open(const protect_keys* k, const vpn_desc* d, wired_span* payload);
 
 /* Same as vpn_open, but opens under the given negotiated TLS 1.3 cipher

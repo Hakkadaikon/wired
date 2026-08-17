@@ -53,7 +53,7 @@ static usz cr_build_ack(const connrunner* r, wired_obuf* out) {
  * data, and for a retransmission whose original bytes the store no longer
  * holds. */
 static usz cr_build_ping(wired_obuf* out) {
-  return frame_put_simple(out->p, out->cap, QUIC_FRAME_PING);
+  return frame_put_simple(out->p, out->cap, FRAME_PING);
 }
 
 void connrunner_capture_rtx(connrunner* r) {
@@ -118,7 +118,7 @@ void connrunner_track_sent(connrunner* r, const connrunner_sent_in* in) {
  * loss (RFC 9002 6.1.2) has no loss_delay to use; pass an effectively infinite
  * delay so detection relies purely on the packet threshold (6.1.1). When an RTT
  * estimate lands, replace this with max(SRTT, latest)*9/8 (kTimeThreshold). */
-#define QUIC_CONNRUNNER_NO_RTT_DELAY (1ull << 62)
+#define CONNRUNNER_NO_RTT_DELAY (1ull << 62)
 
 /* Feed the oldest sentmeta-lost pn into the resend slot only when the loop
  * captured none of its own (RFC 9002 13.3). */
@@ -131,13 +131,13 @@ void connrunner_track_loss_ex(connrunner* r, u64 now, u64* lost, usz* n) {
   if (!r->io.disp.has_ack)
     return; /* largest_acked is only valid after an ACK */
   sentmeta_loss_in in = {
-      r->io.disp.largest_acked, now, QUIC_CONNRUNNER_NO_RTT_DELAY};
+      r->io.disp.largest_acked, now, CONNRUNNER_NO_RTT_DELAY};
   sentmeta_detect_loss(&r->sent, &in, (sentmeta_u64out){lost, n});
   if (take_lost(r, *n)) r->rtx_pn = lost[0], r->rtx_held = 1;
 }
 
 void connrunner_track_loss(connrunner* r, u64 now) {
-  u64 lost[QUIC_SENTMETA_CAP];
+  u64 lost[SENTMETA_CAP];
   usz n;
   connrunner_track_loss_ex(r, now, lost, &n);
 }

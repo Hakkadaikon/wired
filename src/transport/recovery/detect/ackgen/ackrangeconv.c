@@ -8,7 +8,7 @@ static int raw_layout_ok(usz n) { return n >= 1 && n % 2 == 1; }
  * itself, must fit f->ranges[]. */
 static int range_count_ok(usz n) {
   usz pairs = (n - 1) / 2;
-  return pairs + 1 <= QUIC_ACK_MAX_RANGES;
+  return pairs + 1 <= ACK_MAX_RANGES;
 }
 
 /* Fill f->ranges[0] (the First ACK Range) from largest and raw[0]. */

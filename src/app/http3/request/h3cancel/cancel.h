@@ -1,5 +1,5 @@
-#ifndef QUIC_H3CANCEL_H
-#define QUIC_H3CANCEL_H
+#ifndef H3CANCEL_H
+#define H3CANCEL_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

@@ -1,5 +1,5 @@
-#ifndef QUIC_CLIENT_CLIENT_H
-#define QUIC_CLIENT_CLIENT_H
+#ifndef CLIENT_CLIENT_H
+#define CLIENT_CLIENT_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -19,13 +19,13 @@
  * wrappers). The data-path logic is libc-free and split out so it can be driven
  * by buffer injection (client_feed) without a real socket. */
 
-#define QUIC_CLIENT_HELLO_MAX 1024
-#define QUIC_CLIENT_DATAGRAM_MAX 1500
+#define CLIENT_HELLO_MAX 1024
+#define CLIENT_DATAGRAM_MAX 1500
 
 enum {
-  QUIC_CLIENT_HS_INITIAL = 0, /* exchanging ClientHello/ServerHello */
-  QUIC_CLIENT_HS_AUTH,        /* handshake secret ready, fullhs driving */
-  QUIC_CLIENT_HS_CONFIRMED
+  CLIENT_HS_INITIAL = 0, /* exchanging ClientHello/ServerHello */
+  CLIENT_HS_AUTH,        /* handshake secret ready, fullhs driving */
+  CLIENT_HS_CONFIRMED
 };
 
 /** RFC 9000 5/7: a UDP-socket-backed QUIC client driving the TLS 1.3
@@ -38,8 +38,8 @@ typedef struct {
   int       phase;              /* QUIC_CLIENT_HS_* */
   u8        sh_transcript[512]; /* ClientHello..ServerHello bytes for fullhs */
   usz       sh_len;
-  u8        my_priv[QUIC_ECDHE_LEN];
-  u8        my_pub[QUIC_ECDHE_LEN];
+  u8        my_priv[ECDHE_LEN];
+  u8        my_pub[ECDHE_LEN];
   const u8* host;         /* expected server name, view (caller-owned) */
   usz       host_len;     /* 0 skips the SAN hostname check */
   u64       now;          /* YYYYMMDDHHMMSS; 0 skips the validity check */

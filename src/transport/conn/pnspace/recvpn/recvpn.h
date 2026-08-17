@@ -1,5 +1,5 @@
-#ifndef QUIC_RECVPN_RECVPN_H
-#define QUIC_RECVPN_RECVPN_H
+#ifndef RECVPN_RECVPN_H
+#define RECVPN_RECVPN_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -8,8 +8,7 @@
  * and a sliding bitmap of the window below it, which is enough to detect
  * duplicates and to find the contiguous run for the ACK's first range. */
 
-#define QUIC_RECVPN_WINDOW \
-  64 /* packets below `largest` tracked in the bitmap */
+#define RECVPN_WINDOW 64 /* packets below `largest` tracked in the bitmap */
 
 /** Sliding window of received packet numbers for one packet number space. */
 typedef struct {

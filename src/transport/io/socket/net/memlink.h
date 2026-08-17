@@ -1,5 +1,5 @@
-#ifndef QUIC_NET_MEMLINK_H
-#define QUIC_NET_MEMLINK_H
+#ifndef NET_MEMLINK_H
+#define NET_MEMLINK_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -7,18 +7,18 @@
  * carries packets between two endpoints entirely in user memory. No socket,
  * no syscall — this is how the kernel-free end-to-end path moves bytes. */
 
-#define QUIC_MEMLINK_SLOTS 16
-#define QUIC_MEMLINK_MTU 1500
+#define MEMLINK_SLOTS 16
+#define MEMLINK_MTU 1500
 
 /** One queued datagram's bytes and length. */
 typedef struct {
-  u8  data[QUIC_MEMLINK_MTU];
+  u8  data[MEMLINK_MTU];
   usz len;
 } memlink_dgram;
 
 /** A fixed-capacity FIFO of datagrams, carrying packets in user memory. */
 typedef struct {
-  memlink_dgram slots[QUIC_MEMLINK_SLOTS];
+  memlink_dgram slots[MEMLINK_SLOTS];
   usz           head, tail, count;
 } memlink;
 

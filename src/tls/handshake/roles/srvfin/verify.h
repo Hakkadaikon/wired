@@ -1,5 +1,5 @@
-#ifndef QUIC_SRVFIN_VERIFY_H
-#define QUIC_SRVFIN_VERIFY_H
+#ifndef SRVFIN_VERIFY_H
+#define SRVFIN_VERIFY_H
 
 #include "common/bytes/span/span.h"
 #include "crypto/kdf/hkdf/hkdf.h"
@@ -12,7 +12,7 @@
  * Finished. Returns 1 on a match, 0 on any malformed message or mismatch. */
 int srvfin_verify_client_finished(
     wired_span client_finished_msg,
-    const u8   client_hs_traffic_secret[QUIC_HKDF_PRK],
-    const u8   transcript_hash[QUIC_SHA256_DIGEST]);
+    const u8   client_hs_traffic_secret[HKDF_PRK],
+    const u8   transcript_hash[SHA256_DIGEST]);
 
 #endif

@@ -630,5 +630,5 @@ SDK does not implement, excluded from the coverage denominator:
 - (§8) Qualitative security guidance (fairness schemes, suspicious-activity
   detection via H3_EXCESSIVE_LOAD, client-side session-count
   self-limiting) — informational, not a directly testable server
-  requirement; `QUIC_H3_EXCESSIVE_LOAD` is defined (RFC 9114) but this
+  requirement; `H3_EXCESSIVE_LOAD` is defined (RFC 9114) but this
   draft only recommends its use, it does not require it.

@@ -7,7 +7,7 @@
  * from the original filter except every jump now targets idx38, the
  * relocated XDP_PASS trap; idx15-31 are the new core-routing block; idx32-39
  * are the rx_queue_index fallback + shared redirect-map epilogue). */
-static const u64 xbt_golden[QUIC_XDPBPF_PROG_LEN] = {
+static const u64 xbt_golden[XDPBPF_PROG_LEN] = {
     0x0000000000001261ULL, 0x0000000000041361ULL, 0x00000000000025bfULL,
     0x0000002a00000507ULL, 0x000000000021352dULL, 0x00000000000c2469ULL,
     0x00000008001f0455ULL, 0x00000000000e2471ULL, 0x00000045001d0455ULL,
@@ -26,19 +26,19 @@ static const u64 xbt_golden[QUIC_XDPBPF_PROG_LEN] = {
 /* The built program matches the hand-computed golden array exactly,
  * including the byte-swapped port at idx14 and the map fd at idx33. */
 static void test_xdpbpf_prog_build_golden(void) {
-  u64 out[QUIC_XDPBPF_PROG_LEN];
-  CHECK(xdpbpf_prog_build(out, 5, 4433) == QUIC_XDPBPF_PROG_LEN);
-  for (usz i = 0; i < QUIC_XDPBPF_PROG_LEN; i++) CHECK(out[i] == xbt_golden[i]);
+  u64 out[XDPBPF_PROG_LEN];
+  CHECK(xdpbpf_prog_build(out, 5, 4433) == XDPBPF_PROG_LEN);
+  for (usz i = 0; i < XDPBPF_PROG_LEN; i++) CHECK(out[i] == xbt_golden[i]);
 }
 
 /* Rebuilding with a different map fd and port changes only idx14 (dport) and
  * idx33 (the map-fd LDDW); every other instruction is byte-identical to the
  * golden program. */
 static void test_xdpbpf_prog_build_patches_two_words(void) {
-  u64 out[QUIC_XDPBPF_PROG_LEN];
+  u64 out[XDPBPF_PROG_LEN];
   usz diffs = 0;
-  CHECK(xdpbpf_prog_build(out, 9, 1234) == QUIC_XDPBPF_PROG_LEN);
-  for (usz i = 0; i < QUIC_XDPBPF_PROG_LEN; i++)
+  CHECK(xdpbpf_prog_build(out, 9, 1234) == XDPBPF_PROG_LEN);
+  for (usz i = 0; i < XDPBPF_PROG_LEN; i++)
     if (out[i] != xbt_golden[i]) diffs++;
   CHECK(diffs == 2);
   CHECK(out[14] != xbt_golden[14]);
@@ -96,8 +96,8 @@ static void xbt_check_branch(const u64* prog, usz idx, int expect_target) {
  * built program -- catches an index shift from a future edit without ever
  * touching BPF_PROG_LOAD. */
 static void test_xdpbpf_core_routing_branch_offsets_correct(void) {
-  u64 prog[QUIC_XDPBPF_PROG_LEN];
-  CHECK(xdpbpf_prog_build(prog, 5, 4433) == QUIC_XDPBPF_PROG_LEN);
+  u64 prog[XDPBPF_PROG_LEN];
+  CHECK(xdpbpf_prog_build(prog, 5, 4433) == XDPBPF_PROG_LEN);
 
   /* prologue's dport-miss jump (idx14) still lands on the relocated PASS. */
   xbt_check_branch(prog, 4, 38);
@@ -132,9 +132,9 @@ static void test_xdpbpf_core_routing_branch_offsets_correct(void) {
  * boundary-check scratch register (r5) nor the header-byte scratch (r4) --
  * traced instruction-by-instruction rather than assumed. */
 static void test_xdpbpf_core_routing_no_register_clobber(void) {
-  u64      prog[QUIC_XDPBPF_PROG_LEN];
+  u64      prog[XDPBPF_PROG_LEN];
   xbt_insn short_key, long_key, fallback_key, map_fd_load, redirect_call;
-  CHECK(xdpbpf_prog_build(prog, 5, 4433) == QUIC_XDPBPF_PROG_LEN);
+  CHECK(xdpbpf_prog_build(prog, 5, 4433) == XDPBPF_PROG_LEN);
 
   short_key     = xbt_decode(prog[22]); /* LDXB r2,r2,43 */
   long_key      = xbt_decode(prog[30]); /* LDXB r2,r2,48 */
@@ -153,9 +153,9 @@ static void test_xdpbpf_core_routing_no_register_clobber(void) {
 /* A short-header packet's core-id byte sits at absolute offset 43 (idx
  * CHECK_LONG+1's LDXB), matching 42 (UDP payload start) + 1 (flags byte). */
 static void test_xdpbpf_prog_routes_short_header_by_core_id_byte(void) {
-  u64      prog[QUIC_XDPBPF_PROG_LEN];
+  u64      prog[XDPBPF_PROG_LEN];
   xbt_insn in;
-  CHECK(xdpbpf_prog_build(prog, 5, 4433) == QUIC_XDPBPF_PROG_LEN);
+  CHECK(xdpbpf_prog_build(prog, 5, 4433) == XDPBPF_PROG_LEN);
   in = xbt_decode(prog[22]);
   CHECK(in.code == 0x71 /* LDXB */ && in.src == 2 && in.off == 43);
 }
@@ -163,9 +163,9 @@ static void test_xdpbpf_prog_routes_short_header_by_core_id_byte(void) {
 /* A long-header packet's core-id byte sits at absolute offset 48, matching
  * 42 + 1(flags) + 4(version) + 1(dcid-len field). */
 static void test_xdpbpf_prog_routes_long_header_by_core_id_byte(void) {
-  u64      prog[QUIC_XDPBPF_PROG_LEN];
+  u64      prog[XDPBPF_PROG_LEN];
   xbt_insn in;
-  CHECK(xdpbpf_prog_build(prog, 5, 4433) == QUIC_XDPBPF_PROG_LEN);
+  CHECK(xdpbpf_prog_build(prog, 5, 4433) == XDPBPF_PROG_LEN);
   in = xbt_decode(prog[30]);
   CHECK(in.code == 0x71 /* LDXB */ && in.src == 2 && in.off == 48);
 }
@@ -175,8 +175,8 @@ static void test_xdpbpf_prog_routes_long_header_by_core_id_byte(void) {
  * through to idx29, a bare JA to the fallback block (idx32), never to the
  * idx30 LDXB this test's sibling above found. */
 static void test_xdpbpf_zero_length_dcid_falls_back(void) {
-  u64 prog[QUIC_XDPBPF_PROG_LEN];
-  CHECK(xdpbpf_prog_build(prog, 5, 4433) == QUIC_XDPBPF_PROG_LEN);
+  u64 prog[XDPBPF_PROG_LEN];
+  CHECK(xdpbpf_prog_build(prog, 5, 4433) == XDPBPF_PROG_LEN);
   xbt_check_branch(prog, 29, 32); /* fallthrough-of-JNE's JA -> fallback */
 }
 
@@ -187,9 +187,9 @@ static void test_xdpbpf_zero_length_dcid_falls_back(void) {
  * template always used. This test pins that both boundary checks are indeed
  * JGT_REG (the "too short" comparison), not some other opcode. */
 static void test_xdpbpf_short_packet_falls_back(void) {
-  u64      prog[QUIC_XDPBPF_PROG_LEN];
+  u64      prog[XDPBPF_PROG_LEN];
   xbt_insn short_bound, long_bound;
-  CHECK(xdpbpf_prog_build(prog, 5, 4433) == QUIC_XDPBPF_PROG_LEN);
+  CHECK(xdpbpf_prog_build(prog, 5, 4433) == XDPBPF_PROG_LEN);
   short_bound = xbt_decode(prog[17]);
   long_bound  = xbt_decode(prog[26]);
   CHECK(short_bound.code == 0x2d /* JGT_REG */);
@@ -199,12 +199,12 @@ static void test_xdpbpf_short_packet_falls_back(void) {
 /* The golden program (map_fd, port=4433) loads and the verifier accepts it,
  * proving the instruction encoding is correct. */
 static void test_xdpbpf_prog_load_accepts_golden(i64 map_fd) {
-  u64 prog[QUIC_XDPBPF_PROG_LEN];
+  u64 prog[XDPBPF_PROG_LEN];
   u8  log[256];
   i64 prog_fd;
   xdpbpf_prog_build(prog, (i32)map_fd, 4433);
-  prog_fd = xdpbpf_prog_load(
-      prog, QUIC_XDPBPF_PROG_LEN, wired_mspan_of(log, sizeof log));
+  prog_fd =
+      xdpbpf_prog_load(prog, XDPBPF_PROG_LEN, wired_mspan_of(log, sizeof log));
   CHECK(prog_fd >= 0);
   xbt_close_if_open(prog_fd);
 }
@@ -212,13 +212,13 @@ static void test_xdpbpf_prog_load_accepts_golden(i64 map_fd) {
 /* A program with one corrupted word (insn4's jump offset, the boundary
  * check) is rejected by the verifier. */
 static void test_xdpbpf_prog_load_rejects_corrupted(i64 map_fd) {
-  u64 bad[QUIC_XDPBPF_PROG_LEN];
+  u64 bad[XDPBPF_PROG_LEN];
   u8  log[256];
   i64 bad_fd;
   xdpbpf_prog_build(bad, (i32)map_fd, 4433);
   bad[4] = bad[4] ^ 0x00ffULL;
-  bad_fd = xdpbpf_prog_load(
-      bad, QUIC_XDPBPF_PROG_LEN, wired_mspan_of(log, sizeof log));
+  bad_fd =
+      xdpbpf_prog_load(bad, XDPBPF_PROG_LEN, wired_mspan_of(log, sizeof log));
   CHECK(bad_fd < 0);
   xbt_close_if_open(bad_fd);
 }

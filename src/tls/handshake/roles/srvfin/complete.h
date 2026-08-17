@@ -1,5 +1,5 @@
-#ifndef QUIC_SRVFIN_COMPLETE_H
-#define QUIC_SRVFIN_COMPLETE_H
+#ifndef SRVFIN_COMPLETE_H
+#define SRVFIN_COMPLETE_H
 
 #include "crypto/kdf/keys/keyset.h"
 #include "tls/keys/schedule_drive/keyschedule.h"

@@ -1,5 +1,5 @@
-#ifndef QUIC_ENDPOINT_ENDPOINT_H
-#define QUIC_ENDPOINT_ENDPOINT_H
+#ifndef ENDPOINT_ENDPOINT_H
+#define ENDPOINT_ENDPOINT_H
 
 #include "common/bytes/span/span.h"
 #include "tls/handshake/core/tls/initial.h"

@@ -8,7 +8,7 @@
 /* RFC 9001 5.4.1: long header (byte0 high bit set) masks 4 low bits, short 5.
  */
 static u8 form_mask(u8 byte0) {
-  return (byte0 & 0x80) ? QUIC_HP_LONG_MASK : QUIC_HP_SHORT_MASK;
+  return (byte0 & 0x80) ? HP_LONG_MASK : HP_SHORT_MASK;
 }
 
 /* Mask byte0 and the pn_len packet-number bytes at pn_off (RFC 9001 5.4.1). */

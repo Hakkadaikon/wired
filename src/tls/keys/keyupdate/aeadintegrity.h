@@ -1,5 +1,5 @@
-#ifndef QUIC_KEYUPDATE_AEADINTEGRITY_H
-#define QUIC_KEYUPDATE_AEADINTEGRITY_H
+#ifndef KEYUPDATE_AEADINTEGRITY_H
+#define KEYUPDATE_AEADINTEGRITY_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -10,8 +10,8 @@
  * AEAD_CHACHA20_POLY1305 it is 2^36 (RFC 9001 Table 3). Once the limit is
  * reached, the connection MUST be closed with AEAD_LIMIT_REACHED (0x0f). */
 
-#define QUIC_AEAD_INTEGRITY_LIMIT_AESGCM (1ULL << 52)
-#define QUIC_AEAD_INTEGRITY_LIMIT_CHACHA (1ULL << 36)
+#define AEAD_INTEGRITY_LIMIT_AESGCM (1ULL << 52)
+#define AEAD_INTEGRITY_LIMIT_CHACHA (1ULL << 36)
 
 /* Returns 1 if auth_failures (packets that failed AEAD authentication under
  * one key) has reached the AEAD's integrity limit, 0 otherwise. is_chacha

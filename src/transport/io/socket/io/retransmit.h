@@ -1,5 +1,5 @@
-#ifndef QUIC_IO_RETRANSMIT_H
-#define QUIC_IO_RETRANSMIT_H
+#ifndef IO_RETRANSMIT_H
+#define IO_RETRANSMIT_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -7,16 +7,16 @@
  * packet is declared lost (RFC 9002 6), its frames are queued here and later
  * resent in a new packet with a strictly greater packet number. */
 
-#define QUIC_RTX_SLOTS 64
-#define QUIC_RTX_FRAME 1200
+#define RTX_SLOTS 64
+#define RTX_FRAME 1200
 
 typedef struct {
-  u8  data[QUIC_RTX_FRAME];
+  u8  data[RTX_FRAME];
   usz len;
 } rtx_frame;
 
 typedef struct {
-  rtx_frame slots[QUIC_RTX_SLOTS];
+  rtx_frame slots[RTX_SLOTS];
   usz       head; /* next slot to pop */
   usz       tail; /* next slot to push */
   usz       count;

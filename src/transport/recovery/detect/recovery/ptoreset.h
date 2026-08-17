@@ -1,5 +1,5 @@
-#ifndef QUIC_RECOVERY_PTORESET_H
-#define QUIC_RECOVERY_PTORESET_H
+#ifndef RECOVERY_PTORESET_H
+#define RECOVERY_PTORESET_H
 
 #include "common/platform/sys/syscall.h"
 

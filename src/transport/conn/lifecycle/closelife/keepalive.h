@@ -1,5 +1,5 @@
-#ifndef QUIC_CLOSELIFE_KEEPALIVE_H
-#define QUIC_CLOSELIFE_KEEPALIVE_H
+#ifndef CLOSELIFE_KEEPALIVE_H
+#define CLOSELIFE_KEEPALIVE_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -1,12 +1,12 @@
 #include "test.h"
 
-static void fill_nst_key(u8 key[QUIC_TICKET_KEY_LEN], u8 v) {
-  for (usz i = 0; i < QUIC_TICKET_KEY_LEN; i++) key[i] = v;
+static void fill_nst_key(u8 key[TICKET_KEY_LEN], u8 v) {
+  for (usz i = 0; i < TICKET_KEY_LEN; i++) key[i] = v;
 }
 
 static ticket nst_sample_ticket(void) {
   ticket t;
-  for (usz i = 0; i < QUIC_TICKET_SECRET_LEN; i++) t.secret[i] = (u8)(i + 1);
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++) t.secret[i] = (u8)(i + 1);
   t.issued_at     = 1720000000ULL;
   t.lifetime_secs = 7200;
   t.age_add       = 0; /* overwritten by tls_new_session_ticket_encode */
@@ -23,21 +23,21 @@ static u32 nst_wire_age_add(const u8* out) {
 /* The encoded message starts with the NewSessionTicket handshake type and a
  * self-consistent 24-bit length (RFC 8446 4 handshake framing). */
 static void test_nst_header(void) {
-  u8     key[QUIC_TICKET_KEY_LEN];
+  u8     key[TICKET_KEY_LEN];
   ticket t = nst_sample_ticket();
   u8     out[256];
   usz    n;
   fill_nst_key(key, 0x11);
   n = tls_new_session_ticket_encode(out, sizeof out, &t, key, 0);
   CHECK(n > 4);
-  CHECK(out[0] == QUIC_HS_NEW_SESSION_TICKET);
+  CHECK(out[0] == HS_NEW_SESSION_TICKET);
   usz body = ((usz)out[1] << 16) | ((usz)out[2] << 8) | out[3];
   CHECK(4 + body == n);
 }
 
 /* Too small a buffer is rejected, not overrun. */
 static void test_nst_no_room(void) {
-  u8     key[QUIC_TICKET_KEY_LEN];
+  u8     key[TICKET_KEY_LEN];
   ticket t = nst_sample_ticket();
   u8     out[8];
   fill_nst_key(key, 0x22);
@@ -50,7 +50,7 @@ static void test_nst_no_room(void) {
  * extensions block. QUIC always advertises 0xffffffff here (RFC 9001 4.6.1 --
  * QUIC bounds 0-RTT via transport parameters, not this TLS field). */
 static void test_nst_early_data_ext(void) {
-  u8     key[QUIC_TICKET_KEY_LEN];
+  u8     key[TICKET_KEY_LEN];
   ticket t = nst_sample_ticket();
   u8     out[256];
   usz    n;
@@ -62,7 +62,7 @@ static void test_nst_early_data_ext(void) {
   CHECK(4 + body == n);
   /* extensions_len(2) + early_data ext(4+4) = 10 trailing bytes, right after
    * the fixed 11-byte prefix + sealed ticket. */
-  usz ext_off = 4 + 11 + QUIC_TICKET_SEALED_LEN + 2;
+  usz ext_off = 4 + 11 + TICKET_SEALED_LEN + 2;
   CHECK(ext_off < n);
   CHECK(tlsext_early_data_nst_parse(out + ext_off, n - ext_off, &got));
   CHECK(got == 0xffffffff);
@@ -71,13 +71,13 @@ static void test_nst_early_data_ext(void) {
 /* max_early_data_size 0 (the default) omits the extension: extensions_len
  * stays 0, matching the pre-existing wire format exactly. */
 static void test_nst_no_early_data_ext(void) {
-  u8     key[QUIC_TICKET_KEY_LEN];
+  u8     key[TICKET_KEY_LEN];
   ticket t = nst_sample_ticket();
   u8     out[256];
   usz    n;
   fill_nst_key(key, 0x77);
   n               = tls_new_session_ticket_encode(out, sizeof out, &t, key, 0);
-  usz ext_len_off = 4 + 11 + QUIC_TICKET_SEALED_LEN;
+  usz ext_len_off = 4 + 11 + TICKET_SEALED_LEN;
   CHECK(n == ext_len_off + 2);
   CHECK(out[ext_len_off] == 0 && out[ext_len_off + 1] == 0);
 }
@@ -86,13 +86,13 @@ static void test_nst_no_early_data_ext(void) {
  * same key restores the original secret/lifetime (the field this SDK needs
  * for later resumption); a bogus key must reject it. */
 static void test_nst_roundtrip(void) {
-  u8         key[QUIC_TICKET_KEY_LEN];
+  u8         key[TICKET_KEY_LEN];
   ticket     t = nst_sample_ticket();
   u8         out[256];
   usz        n;
   wired_span sealed;
   ticket     opened;
-  u8         wrong_key[QUIC_TICKET_KEY_LEN];
+  u8         wrong_key[TICKET_KEY_LEN];
 
   fill_nst_key(key, 0x33);
   n = tls_new_session_ticket_encode(out, sizeof out, &t, key, 0);
@@ -102,7 +102,7 @@ static void test_nst_roundtrip(void) {
   CHECK(ticket_open(sealed, key, &opened) == 1);
   CHECK(opened.lifetime_secs == t.lifetime_secs);
   CHECK(opened.issued_at == t.issued_at);
-  for (usz i = 0; i < QUIC_TICKET_SECRET_LEN; i++)
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++)
     CHECK(opened.secret[i] == t.secret[i]);
   /* RFC 8446 4.6.1: the wire ticket_age_add and the value sealed inside the
    * ticket (recovered here via ticket_open) are the same random draw,
@@ -119,7 +119,7 @@ static void test_nst_roundtrip(void) {
  * is statistically negligible for a 32-bit random draw, so a single mismatch
  * proves randomness without flaking). */
 static void test_nst_age_add_random(void) {
-  u8     key[QUIC_TICKET_KEY_LEN];
+  u8     key[TICKET_KEY_LEN];
   ticket t = nst_sample_ticket();
   u8     out1[256], out2[256];
   fill_nst_key(key, 0x88);
@@ -132,7 +132,7 @@ static void test_nst_age_add_random(void) {
  * 604800 seconds (7 days)." A ticket built with a longer lifetime_secs is
  * clamped to 604800 on the wire, not passed through verbatim. */
 static void test_nst_lifetime_clamped_to_7days(void) {
-  u8         key[QUIC_TICKET_KEY_LEN];
+  u8         key[TICKET_KEY_LEN];
   ticket     t = nst_sample_ticket();
   u8         out[256];
   usz        n;
@@ -150,7 +150,7 @@ static void test_nst_lifetime_clamped_to_7days(void) {
 /* A lifetime already within the 7-day bound passes through unchanged --
  * the clamp must not shorten a compliant ticket. */
 static void test_nst_lifetime_within_bound_unchanged(void) {
-  u8         key[QUIC_TICKET_KEY_LEN];
+  u8         key[TICKET_KEY_LEN];
   ticket     t = nst_sample_ticket();
   u8         out[256];
   usz        n;
@@ -167,7 +167,7 @@ static void test_nst_lifetime_within_bound_unchanged(void) {
 
 /* A truncated message (shorter than its own header claims) is rejected. */
 static void test_nst_parse_truncated(void) {
-  u8         key[QUIC_TICKET_KEY_LEN];
+  u8         key[TICKET_KEY_LEN];
   ticket     t = nst_sample_ticket();
   u8         out[256];
   usz        n;

@@ -1,5 +1,5 @@
-#ifndef QUIC_ECDSASIG_DER_INT_H
-#define QUIC_ECDSASIG_DER_INT_H
+#ifndef ECDSASIG_DER_INT_H
+#define ECDSASIG_DER_INT_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_SENTMETA_RECORD_H
-#define QUIC_SENTMETA_RECORD_H
+#ifndef SENTMETA_RECORD_H
+#define SENTMETA_RECORD_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -7,7 +7,7 @@
  * allocation. Tracks per-PN time_sent / ack_eliciting / in_flight / sent_bytes
  * and a running total of in-flight bytes (RFC 9002 7.4 bytes_in_flight). */
 
-#define QUIC_SENTMETA_CAP 256
+#define SENTMETA_CAP 256
 
 typedef struct {
   u64 pn;
@@ -19,7 +19,7 @@ typedef struct {
 } sentmeta_pkt;
 
 typedef struct {
-  sentmeta_pkt pkts[QUIC_SENTMETA_CAP];
+  sentmeta_pkt pkts[SENTMETA_CAP];
   usz          count;
   usz          total_in_flight;
 } sentmeta;
@@ -44,7 +44,7 @@ int sentmeta_on_sent(sentmeta* m, const sentmeta_out* pkt);
  * accounting lives in one place (RFC 9002 7.4). */
 void sentmeta_reclaim(sentmeta* m, usz i);
 
-/* Index of the slot holding pn, or QUIC_SENTMETA_CAP if not tracked. */
+/* Index of the slot holding pn, or SENTMETA_CAP if not tracked. */
 usz sentmeta_find(const sentmeta* m, u64 pn);
 
 #endif

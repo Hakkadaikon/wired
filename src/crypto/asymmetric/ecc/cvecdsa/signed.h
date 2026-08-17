@@ -1,5 +1,5 @@
-#ifndef QUIC_CVECDSA_SIGNED_H
-#define QUIC_CVECDSA_SIGNED_H
+#ifndef CVECDSA_SIGNED_H
+#define CVECDSA_SIGNED_H
 
 #include "common/platform/sys/syscall.h"
 

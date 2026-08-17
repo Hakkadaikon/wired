@@ -1,5 +1,5 @@
-#ifndef QUIC_DGDELIVER_DG_LOSS_H
-#define QUIC_DGDELIVER_DG_LOSS_H
+#ifndef DGDELIVER_DG_LOSS_H
+#define DGDELIVER_DG_LOSS_H
 
 #include "common/platform/sys/syscall.h"
 

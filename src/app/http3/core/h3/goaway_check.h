@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_GOAWAY_CHECK_H
-#define QUIC_H3_GOAWAY_CHECK_H
+#ifndef H3_GOAWAY_CHECK_H
+#define H3_GOAWAY_CHECK_H
 
 #include "common/platform/sys/syscall.h"
 

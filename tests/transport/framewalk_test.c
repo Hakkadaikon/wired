@@ -13,7 +13,7 @@
 static void test_framewalk_sequence(void) {
   u8  buf[64];
   usz n = 0;
-  n += frame_put_simple(buf + n, sizeof(buf) - n, QUIC_FRAME_PING);
+  n += frame_put_simple(buf + n, sizeof(buf) - n, FRAME_PING);
   crypto_frame cf = {.offset = 0, .length = 3, .data = (const u8*)"abc"};
   n += frame_put_crypto(buf + n, sizeof(buf) - n, &cf);
   stream_frame sf = {
@@ -23,7 +23,7 @@ static void test_framewalk_sequence(void) {
       .data      = (const u8*)"hi",
       .fin       = 1};
   n += frame_put_stream(buf + n, sizeof(buf) - n, &sf);
-  n += frame_put_simple(buf + n, sizeof(buf) - n, QUIC_FRAME_PADDING);
+  n += frame_put_simple(buf + n, sizeof(buf) - n, FRAME_PADDING);
 
   framewalk it;
   framewalk_init(&it, buf, n);
@@ -31,16 +31,16 @@ static void test_framewalk_sequence(void) {
   framewalk_item fr;
 
   CHECK(framewalk_next(&it, &fr) == 1);
-  CHECK(fr.type == QUIC_FRAME_PING && fr.start == buf && fr.remaining == n);
+  CHECK(fr.type == FRAME_PING && fr.start == buf && fr.remaining == n);
 
   CHECK(framewalk_next(&it, &fr) == 1);
-  CHECK(fr.type == QUIC_FRAME_CRYPTO);
+  CHECK(fr.type == FRAME_CRYPTO);
 
   CHECK(framewalk_next(&it, &fr) == 1);
-  CHECK((fr.type & 0xf8) == QUIC_FRAME_STREAM_BASE);
+  CHECK((fr.type & 0xf8) == FRAME_STREAM_BASE);
 
   CHECK(framewalk_next(&it, &fr) == 1);
-  CHECK(fr.type == QUIC_FRAME_PADDING);
+  CHECK(fr.type == FRAME_PADDING);
 
   CHECK(framewalk_next(&it, &fr) == 0);
 }
@@ -62,17 +62,17 @@ static void test_framewalk_datagram_len_then_ping(void) {
   usz            n  = 0;
   datagram_frame df = {.length = 3, .data = (const u8*)"xyz"};
   n += datagram_encode(wired_mspan_of(buf + n, sizeof(buf) - n), &df, 1);
-  n += frame_put_simple(buf + n, sizeof(buf) - n, QUIC_FRAME_PING);
+  n += frame_put_simple(buf + n, sizeof(buf) - n, FRAME_PING);
 
   framewalk it;
   framewalk_init(&it, buf, n);
   framewalk_item fr;
 
   CHECK(framewalk_next(&it, &fr) == 1);
-  CHECK(fr.type == QUIC_FRAME_DATAGRAM_LEN);
+  CHECK(fr.type == FRAME_DATAGRAM_LEN);
 
   CHECK(framewalk_next(&it, &fr) == 1);
-  CHECK(fr.type == QUIC_FRAME_PING);
+  CHECK(fr.type == FRAME_PING);
 
   CHECK(framewalk_next(&it, &fr) == 0);
 }
@@ -90,7 +90,7 @@ static void test_framewalk_datagram_no_len_consumes_rest(void) {
   framewalk_item fr;
 
   CHECK(framewalk_next(&it, &fr) == 1);
-  CHECK(fr.type == QUIC_FRAME_DATAGRAM);
+  CHECK(fr.type == FRAME_DATAGRAM);
   CHECK(fr.remaining == n);
 
   CHECK(framewalk_next(&it, &fr) == 0);
@@ -105,17 +105,17 @@ static void test_framewalk_reset_stream_then_ping(void) {
   usz                n  = 0;
   reset_stream_frame rf = {.stream_id = 4, .error_code = 1, .final_size = 0};
   n += reset_stream_encode(buf + n, sizeof(buf) - n, &rf);
-  n += frame_put_simple(buf + n, sizeof(buf) - n, QUIC_FRAME_PING);
+  n += frame_put_simple(buf + n, sizeof(buf) - n, FRAME_PING);
 
   framewalk it;
   framewalk_init(&it, buf, n);
   framewalk_item fr;
 
   CHECK(framewalk_next(&it, &fr) == 1);
-  CHECK(fr.type == QUIC_FRAME_RESET_STREAM);
+  CHECK(fr.type == FRAME_RESET_STREAM);
 
   CHECK(framewalk_next(&it, &fr) == 1);
-  CHECK(fr.type == QUIC_FRAME_PING);
+  CHECK(fr.type == FRAME_PING);
 
   CHECK(framewalk_next(&it, &fr) == 0);
 }
@@ -125,17 +125,17 @@ static void test_framewalk_stop_sending_then_ping(void) {
   usz                n  = 0;
   stop_sending_frame sf = {.stream_id = 4, .error_code = 2};
   n += stop_sending_encode(buf + n, sizeof(buf) - n, &sf);
-  n += frame_put_simple(buf + n, sizeof(buf) - n, QUIC_FRAME_PING);
+  n += frame_put_simple(buf + n, sizeof(buf) - n, FRAME_PING);
 
   framewalk it;
   framewalk_init(&it, buf, n);
   framewalk_item fr;
 
   CHECK(framewalk_next(&it, &fr) == 1);
-  CHECK(fr.type == QUIC_FRAME_STOP_SENDING);
+  CHECK(fr.type == FRAME_STOP_SENDING);
 
   CHECK(framewalk_next(&it, &fr) == 1);
-  CHECK(fr.type == QUIC_FRAME_PING);
+  CHECK(fr.type == FRAME_PING);
 
   CHECK(framewalk_next(&it, &fr) == 0);
 }
@@ -146,17 +146,17 @@ static void test_framewalk_reset_stream_at_then_ping(void) {
   reset_stream_at_frame rf = {
       .stream_id = 4, .error_code = 3, .final_size = 10, .reliable_size = 5};
   n += reset_stream_at_encode(buf + n, sizeof(buf) - n, &rf);
-  n += frame_put_simple(buf + n, sizeof(buf) - n, QUIC_FRAME_PING);
+  n += frame_put_simple(buf + n, sizeof(buf) - n, FRAME_PING);
 
   framewalk it;
   framewalk_init(&it, buf, n);
   framewalk_item fr;
 
   CHECK(framewalk_next(&it, &fr) == 1);
-  CHECK(fr.type == QUIC_FRAME_RESET_STREAM_AT);
+  CHECK(fr.type == FRAME_RESET_STREAM_AT);
 
   CHECK(framewalk_next(&it, &fr) == 1);
-  CHECK(fr.type == QUIC_FRAME_PING);
+  CHECK(fr.type == FRAME_PING);
 
   CHECK(framewalk_next(&it, &fr) == 0);
 }
@@ -169,7 +169,7 @@ static void fw_check_then_ping(const u8* buf, usz n, u64 want_type) {
   CHECK(framewalk_next(&it, &fr) == 1);
   CHECK(fr.type == want_type);
   CHECK(framewalk_next(&it, &fr) == 1);
-  CHECK(fr.type == QUIC_FRAME_PING);
+  CHECK(fr.type == FRAME_PING);
   CHECK(framewalk_next(&it, &fr) == 0);
 }
 
@@ -185,60 +185,60 @@ static void test_framewalk_flow_frames_then_ping(void) {
   usz n;
 
   n = max_data_encode(buf, sizeof buf, &(data_frame){77});
-  n += frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
-  fw_check_then_ping(buf, n, QUIC_FRAME_MAX_DATA);
+  n += frame_put_simple(buf + n, sizeof buf - n, FRAME_PING);
+  fw_check_then_ping(buf, n, FRAME_MAX_DATA);
 
   n = data_blocked_encode(buf, sizeof buf, &(data_frame){77});
-  n += frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
-  fw_check_then_ping(buf, n, QUIC_FRAME_DATA_BLOCKED);
+  n += frame_put_simple(buf + n, sizeof buf - n, FRAME_PING);
+  fw_check_then_ping(buf, n, FRAME_DATA_BLOCKED);
 
   n = max_stream_data_encode(buf, sizeof buf, &(stream_data_frame){4, 524288});
-  n += frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
-  fw_check_then_ping(buf, n, QUIC_FRAME_MAX_STREAM_DATA);
+  n += frame_put_simple(buf + n, sizeof buf - n, FRAME_PING);
+  fw_check_then_ping(buf, n, FRAME_MAX_STREAM_DATA);
 
   n = stream_data_blocked_encode(
       buf, sizeof buf, &(stream_data_frame){4, 524288});
-  n += frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
-  fw_check_then_ping(buf, n, QUIC_FRAME_STREAM_DATA_BLOCKED);
+  n += frame_put_simple(buf + n, sizeof buf - n, FRAME_PING);
+  fw_check_then_ping(buf, n, FRAME_STREAM_DATA_BLOCKED);
 
   n = max_streams_encode(buf, sizeof buf, &(streams_frame){10, 0});
-  n += frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
-  fw_check_then_ping(buf, n, QUIC_FRAME_MAX_STREAMS_BIDI);
+  n += frame_put_simple(buf + n, sizeof buf - n, FRAME_PING);
+  fw_check_then_ping(buf, n, FRAME_MAX_STREAMS_BIDI);
 
   n = max_streams_encode(buf, sizeof buf, &(streams_frame){10, 1});
-  n += frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
-  fw_check_then_ping(buf, n, QUIC_FRAME_MAX_STREAMS_UNI);
+  n += frame_put_simple(buf + n, sizeof buf - n, FRAME_PING);
+  fw_check_then_ping(buf, n, FRAME_MAX_STREAMS_UNI);
 
   n = streams_blocked_encode(buf, sizeof buf, &(streams_frame){10, 0});
-  n += frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
-  fw_check_then_ping(buf, n, QUIC_FRAME_STREAMS_BLOCKED_BIDI);
+  n += frame_put_simple(buf + n, sizeof buf - n, FRAME_PING);
+  fw_check_then_ping(buf, n, FRAME_STREAMS_BLOCKED_BIDI);
 
   n = streams_blocked_encode(buf, sizeof buf, &(streams_frame){10, 1});
-  n += frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
-  fw_check_then_ping(buf, n, QUIC_FRAME_STREAMS_BLOCKED_UNI);
+  n += frame_put_simple(buf + n, sizeof buf - n, FRAME_PING);
+  fw_check_then_ping(buf, n, FRAME_STREAMS_BLOCKED_UNI);
 }
 
 static void test_framewalk_conn_frames_then_ping(void) {
   u8       buf[64];
   usz      n;
-  const u8 pathdata[QUIC_PATH_DATA] = {1, 2, 3, 4, 5, 6, 7, 8};
+  const u8 pathdata[PATH_DATA] = {1, 2, 3, 4, 5, 6, 7, 8};
 
   n = new_token_encode(
       buf, sizeof buf, &(new_token_frame){5, (const u8*)"token"});
-  n += frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
-  fw_check_then_ping(buf, n, QUIC_FRAME_NEW_TOKEN);
+  n += frame_put_simple(buf + n, sizeof buf - n, FRAME_PING);
+  fw_check_then_ping(buf, n, FRAME_NEW_TOKEN);
 
   n = retire_cid_encode(buf, sizeof buf, 7);
-  n += frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
-  fw_check_then_ping(buf, n, QUIC_FRAME_RETIRE_CID);
+  n += frame_put_simple(buf + n, sizeof buf - n, FRAME_PING);
+  fw_check_then_ping(buf, n, FRAME_RETIRE_CID);
 
-  n = path_encode(buf, sizeof buf, QUIC_FRAME_PATH_CHALLENGE, pathdata);
-  n += frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
-  fw_check_then_ping(buf, n, QUIC_FRAME_PATH_CHALLENGE);
+  n = path_encode(buf, sizeof buf, FRAME_PATH_CHALLENGE, pathdata);
+  n += frame_put_simple(buf + n, sizeof buf - n, FRAME_PING);
+  fw_check_then_ping(buf, n, FRAME_PATH_CHALLENGE);
 
-  n = path_encode(buf, sizeof buf, QUIC_FRAME_PATH_RESPONSE, pathdata);
-  n += frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
-  fw_check_then_ping(buf, n, QUIC_FRAME_PATH_RESPONSE);
+  n = path_encode(buf, sizeof buf, FRAME_PATH_RESPONSE, pathdata);
+  n += frame_put_simple(buf + n, sizeof buf - n, FRAME_PING);
+  fw_check_then_ping(buf, n, FRAME_PATH_RESPONSE);
 }
 
 /* The exact real-world shape: NEW_CONNECTION_ID coalesced ahead of a request
@@ -248,7 +248,7 @@ static void test_framewalk_ncid_then_stream(void) {
   usz        n;
   ncid_frame nf = {.seq = 1, .retire_prior_to = 0, .cid_len = 8};
   for (usz i = 0; i < 8; i++) nf.cid[i] = (u8)i;
-  for (usz i = 0; i < QUIC_NCID_TOKEN; i++) nf.token[i] = (u8)(0x40 + i);
+  for (usz i = 0; i < NCID_TOKEN; i++) nf.token[i] = (u8)(0x40 + i);
   n = ncid_encode(buf, sizeof buf, &nf);
   CHECK(n > 0);
   stream_frame sf = {
@@ -263,9 +263,9 @@ static void test_framewalk_ncid_then_stream(void) {
   framewalk_item fr;
   framewalk_init(&it, buf, n);
   CHECK(framewalk_next(&it, &fr) == 1);
-  CHECK(fr.type == QUIC_FRAME_NEW_CID);
+  CHECK(fr.type == FRAME_NEW_CID);
   CHECK(framewalk_next(&it, &fr) == 1);
-  CHECK((fr.type & 0xf8) == QUIC_FRAME_STREAM_BASE);
+  CHECK((fr.type & 0xf8) == FRAME_STREAM_BASE);
   CHECK(framewalk_next(&it, &fr) == 0);
 }
 

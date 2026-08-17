@@ -1,5 +1,5 @@
-#ifndef QUIC_MIDDLEBOX_H
-#define QUIC_MIDDLEBOX_H
+#ifndef MIDDLEBOX_H
+#define MIDDLEBOX_H
 
 #include "common/platform/sys/syscall.h"
 

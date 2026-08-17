@@ -1,5 +1,5 @@
-#ifndef QUIC_STREAM_STREAM_LIMIT_H
-#define QUIC_STREAM_STREAM_LIMIT_H
+#ifndef STREAM_STREAM_LIMIT_H
+#define STREAM_STREAM_LIMIT_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -10,7 +10,7 @@
  * exceed 2^60 (a larger value is a FRAME_ENCODING_ERROR / illegal stream ID).
  */
 
-#define QUIC_MAX_STREAMS_LIMIT (((u64)1) << 60)
+#define MAX_STREAMS_LIMIT (((u64)1) << 60)
 
 /* Whether a MAX_STREAMS value is within the legal range (<= 2^60). */
 int stream_max_streams_ok(u64 max_streams);

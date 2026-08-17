@@ -1,5 +1,5 @@
-#ifndef QUIC_STREAM_BIDI_H
-#define QUIC_STREAM_BIDI_H
+#ifndef STREAM_BIDI_H
+#define STREAM_BIDI_H
 
 #include "transport/stream/data/stream/stream.h"
 

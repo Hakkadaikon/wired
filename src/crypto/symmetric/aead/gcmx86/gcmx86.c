@@ -148,7 +148,7 @@ static void gcmx86_ctr(const gcmx86* x, u8 j[16], wired_span in, u8* out) {
 }
 
 /* J0 = nonce || 0x00000001 (SP 800-38D 7.1, 96-bit IV). */
-static void gcmx86_j0(u8 j[16], const u8 nonce[QUIC_GCMX86_NONCE]) {
+static void gcmx86_j0(u8 j[16], const u8 nonce[GCMX86_NONCE]) {
   for (usz i = 0; i < 12; i++) j[i] = nonce[i];
   j[12] = 0;
   j[13] = 0;
@@ -178,14 +178,14 @@ void gcmx86_init(gcmx86* x, const u8 key[16]) {
   aes128   a;
   gcmx86_v zero = {0};
   aes128_init(&a, key); /* cold path: reuse the scalar key schedule */
-  for (usz i = 0; i < QUIC_AES_RK_WORDS; i++)
+  for (usz i = 0; i < AES_RK_WORDS; i++)
     be_put_be32((u8*)x->rk + 4 * i, a.rk[i]); /* be words = FIPS bytes */
   gcmx86_store(x->h, gcmx86_aes(x, zero));    /* H = E(K, 0^128), 6.4 */
 }
 
 usz gcmx86_seal(
     const gcmx86* x,
-    const u8      nonce[QUIC_GCMX86_NONCE],
+    const u8      nonce[GCMX86_NONCE],
     wired_span    aad,
     wired_span    pt,
     u8*           out) {
@@ -194,18 +194,18 @@ usz gcmx86_seal(
   for (usz i = 0; i < 16; i++) j[i] = j0[i];
   gcmx86_ctr(x, j, pt, out);
   gcmx86_tag(x, j0, aad, wired_span_of(out, pt.n), out + pt.n);
-  return pt.n + QUIC_GCMX86_TAG;
+  return pt.n + GCMX86_TAG;
 }
 
 usz gcmx86_open(
     const gcmx86* x,
-    const u8      nonce[QUIC_GCMX86_NONCE],
+    const u8      nonce[GCMX86_NONCE],
     wired_span    aad,
     wired_span    ct,
     u8*           out) {
   u8 j[16], want[16];
-  if (ct.n < QUIC_GCMX86_TAG) return 0;
-  wired_span body = wired_span_of(ct.p, ct.n - QUIC_GCMX86_TAG);
+  if (ct.n < GCMX86_TAG) return 0;
+  wired_span body = wired_span_of(ct.p, ct.n - GCMX86_TAG);
   gcmx86_j0(j, nonce);
   gcmx86_tag(x, j, aad, body, want);
   if (ct_diff16(want, ct.p + body.n) != 0)

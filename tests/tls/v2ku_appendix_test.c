@@ -51,10 +51,10 @@ static void test_v2ku_appendix_key_iv_hp(void) {
 
 /* RFC 9369 3.3.2 "quicv2 ku": the key-update secret the appendix derives
  * (unused further in its own example) matches ku_next_secret_v under
- * QUIC_VERSION_2 -- the E-13 fix this vector depends on. */
+ * VERSION_2 -- the E-13 fix this vector depends on. */
 static void test_v2ku_appendix_ku(void) {
   u8 ku[32];
-  ku_next_secret_v(QUIC_VERSION_2, A5_SECRET, ku);
+  ku_next_secret_v(VERSION_2, A5_SECRET, ku);
   for (usz i = 0; i < 32; i++) CHECK(ku[i] == A5_KU[i]);
 }
 

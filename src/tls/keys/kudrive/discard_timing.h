@@ -1,5 +1,5 @@
-#ifndef QUIC_KUDRIVE_DISCARD_TIMING_H
-#define QUIC_KUDRIVE_DISCARD_TIMING_H
+#ifndef KUDRIVE_DISCARD_TIMING_H
+#define KUDRIVE_DISCARD_TIMING_H
 
 #include "common/platform/sys/syscall.h"
 

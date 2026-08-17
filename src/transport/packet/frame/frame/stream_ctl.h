@@ -1,14 +1,14 @@
-#ifndef QUIC_FRAME_STREAM_CTL_H
-#define QUIC_FRAME_STREAM_CTL_H
+#ifndef FRAME_STREAM_CTL_H
+#define FRAME_STREAM_CTL_H
 
 #include "common/platform/sys/syscall.h"
 
 /** RFC 9000 19.4/19.5 stream control frames. RESET_STREAM abruptly terminates
  * the sending part of a stream; STOP_SENDING requests the peer to stop. */
 
-#define QUIC_FRAME_RESET_STREAM 0x04
-#define QUIC_FRAME_STOP_SENDING 0x05
-#define QUIC_FRAME_RESET_STREAM_AT 0x24
+#define FRAME_RESET_STREAM 0x04
+#define FRAME_STOP_SENDING 0x05
+#define FRAME_RESET_STREAM_AT 0x24
 
 typedef struct {
   u64 stream_id;

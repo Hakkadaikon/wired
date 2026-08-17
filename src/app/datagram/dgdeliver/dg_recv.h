@@ -1,5 +1,5 @@
-#ifndef QUIC_DGDELIVER_DG_RECV_H
-#define QUIC_DGDELIVER_DG_RECV_H
+#ifndef DGDELIVER_DG_RECV_H
+#define DGDELIVER_DG_RECV_H
 
 #include "common/bytes/span/span.h"
 

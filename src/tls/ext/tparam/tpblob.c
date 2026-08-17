@@ -77,8 +77,7 @@ usz tparam_put_preferred_address(
   usz        vlen = pa_build_value(v, sizeof(v), pa);
   wired_obuf out  = obuf_of(buf, cap);
   if (vlen == 0) return 0;
-  return tparam_put_blob(
-      &out, QUIC_TP_PREFERRED_ADDRESS, wired_span_of(v, vlen));
+  return tparam_put_blob(&out, TP_PREFERRED_ADDRESS, wired_span_of(v, vlen));
 }
 
 /* Read a big-endian 16-bit port at *off into *port. Returns 1 if present. */
@@ -131,7 +130,7 @@ static int pa_parse_value(wired_span v, struct preferred_address* pa) {
  * uninitialized-value analysis. */
 static int pa_blob_is_preferred_address(usz r, u64 id) {
   if (r == 0) return 0;
-  return id == QUIC_TP_PREFERRED_ADDRESS;
+  return id == TP_PREFERRED_ADDRESS;
 }
 
 usz tparam_get_preferred_address(

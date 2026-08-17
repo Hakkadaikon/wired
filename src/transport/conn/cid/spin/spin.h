@@ -1,5 +1,5 @@
-#ifndef QUIC_SPIN_SPIN_H
-#define QUIC_SPIN_SPIN_H
+#ifndef SPIN_SPIN_H
+#define SPIN_SPIN_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -9,7 +9,7 @@
  * round trip, letting on-path observers measure RTT. It is the third bit
  * (0x20) of a short header's first byte. */
 
-#define QUIC_SPIN_BIT 0x20
+#define SPIN_BIT 0x20
 
 /* The spin bit value to send next, given our role (is_server) and the spin
  * bit observed on the peer's highest-numbered packet. Returns 0 or 1. */

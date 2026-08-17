@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_APPKEYS_H
-#define QUIC_TLS_APPKEYS_H
+#ifndef TLS_APPKEYS_H
+#define TLS_APPKEYS_H
 
 #include "common/bytes/span/span.h"
 #include "crypto/kdf/hkdf/hkdf.h"
@@ -9,7 +9,7 @@
  * handshake bytes hashed for the traffic secret, is_server selects the
  * "s ap traffic"/"c ap traffic" label. */
 typedef struct {
-  const u8*  master; /* QUIC_HKDF_PRK bytes */
+  const u8*  master; /* HKDF_PRK bytes */
   wired_span transcript;
   int        is_server;
 } app_keys_in;
@@ -19,7 +19,7 @@ typedef struct {
  * = Derive-Secret(Master, "c ap traffic"/"s ap traffic", transcript), then
  * expand the QUIC key/iv/hp for the requested (is_server) direction
  * (AES_128_GCM_SHA256; equivalent to tls_app_keys_suite with suite =
- * QUIC_TLS_AES_128_GCM_SHA256). */
+ * TLS_AES_128_GCM_SHA256). */
 void tls_app_keys(const app_keys_in* in, initial_keys* out);
 
 /* Same as tls_app_keys, but sizes the derived key/hp for the given

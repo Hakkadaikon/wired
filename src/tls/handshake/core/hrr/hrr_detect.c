@@ -13,7 +13,7 @@ static int hrr_random_matches(const u8* random) {
 
 /* A parsed message can hold a ServerHello random at body offset 2. */
 static int hrr_has_random(usz hdr, u8 type, usz body_len) {
-  return hdr != 0 && type == QUIC_HS_SERVER_HELLO && body_len >= 34;
+  return hdr != 0 && type == HS_SERVER_HELLO && body_len >= 34;
 }
 
 int hrr_is_hello_retry(const u8* sh_msg, usz len) {

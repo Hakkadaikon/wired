@@ -1,5 +1,5 @@
-#ifndef QUIC_SRESETDRIVE_ONRESET_H
-#define QUIC_SRESETDRIVE_ONRESET_H
+#ifndef SRESETDRIVE_ONRESET_H
+#define SRESETDRIVE_ONRESET_H
 
 #include "common/platform/sys/syscall.h"
 

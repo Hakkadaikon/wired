@@ -1,5 +1,5 @@
-#ifndef QUIC_CONNIO_CONNIO_H
-#define QUIC_CONNIO_CONNIO_H
+#ifndef CONNIO_CONNIO_H
+#define CONNIO_CONNIO_H
 
 #include "common/bytes/span/span.h"
 #include "transport/conn/lifecycle/conn/pnspace.h"
@@ -28,9 +28,9 @@ typedef struct {
   framedispatch_state disp;   /* dispatch view over the above + loop.sent */
   u8       dcid[WIRED_MAX_CID_LEN]; /* Destination Connection ID for headers */
   u8       dcid_len;
-  u8       byte0;                 /* long-header first byte for built packets */
-  pnspaces tx;                    /* RFC 9000 12.3: per-space next send PN */
-  u64      rx_pn[QUIC_PNS_COUNT]; /* per-space next expected inbound PN */
+  u8       byte0;            /* long-header first byte for built packets */
+  pnspaces tx;               /* RFC 9000 12.3: per-space next send PN */
+  u64      rx_pn[PNS_COUNT]; /* per-space next expected inbound PN */
 } connio;
 
 /** The header parameters for a fresh connio, besides its DCID. */

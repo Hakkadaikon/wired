@@ -3,11 +3,11 @@
 /* The connection is abandoned only when no offered version (ignoring reserved
  * GREASE values) is one we support. */
 void test_abandon(void) {
-  u32     support[2] = {QUIC_VERSION_1, QUIC_VERSION_2};
+  u32     support[2] = {VERSION_1, VERSION_2};
   verlist sup        = verlist_of(support, 2);
 
   /* a supported version is offered -> do not abandon */
-  u32 ok[1] = {QUIC_VERSION_2};
+  u32 ok[1] = {VERSION_2};
   CHECK(version_must_abandon(verlist_of(ok, 1), sup) == 0);
 
   /* only unsupported versions offered -> abandon */
@@ -24,6 +24,6 @@ void test_abandon(void) {
   CHECK(version_must_abandon(verlist_of(grease, 1), sup) == 1);
 
   /* GREASE alongside a supported version -> not abandoned */
-  u32 mixed[2] = {0x0a0a0a0au, QUIC_VERSION_1};
+  u32 mixed[2] = {0x0a0a0a0au, VERSION_1};
   CHECK(version_must_abandon(verlist_of(mixed, 2), sup) == 0);
 }

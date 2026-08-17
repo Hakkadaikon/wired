@@ -1,5 +1,5 @@
-#ifndef QUIC_RNG_CIDGEN_H
-#define QUIC_RNG_CIDGEN_H
+#ifndef RNG_CIDGEN_H
+#define RNG_CIDGEN_H
 
 #include "common/platform/sys/syscall.h"
 

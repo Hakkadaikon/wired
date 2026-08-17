@@ -1,5 +1,5 @@
-#ifndef QUIC_PKTBUILD_FRAMEPACK_H
-#define QUIC_PKTBUILD_FRAMEPACK_H
+#ifndef PKTBUILD_FRAMEPACK_H
+#define PKTBUILD_FRAMEPACK_H
 
 #include "common/bytes/span/span.h"
 

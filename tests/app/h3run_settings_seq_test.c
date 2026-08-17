@@ -7,14 +7,14 @@ static void test_settings_first_required(void) {
       h3_settings_first(&s, 0x01) == 0); /* CANCEL_PUSH: H3_MISSING_SETTINGS */
 
   h3_settings_state ok = {0};
-  CHECK(h3_settings_first(&ok, QUIC_H3_FRAME_SETTINGS) == 1);
+  CHECK(h3_settings_first(&ok, H3_FRAME_SETTINGS) == 1);
 }
 
 /* RFC 9114 7.2.4: SETTINGS occurs exactly once. */
 static void test_settings_once(void) {
   h3_settings_state s = {0};
-  CHECK(h3_settings_first(&s, QUIC_H3_FRAME_SETTINGS) == 1);
-  CHECK(h3_settings_first(&s, QUIC_H3_FRAME_SETTINGS) == 0); /* 2nd SETTINGS */
+  CHECK(h3_settings_first(&s, H3_FRAME_SETTINGS) == 1);
+  CHECK(h3_settings_first(&s, H3_FRAME_SETTINGS) == 0); /* 2nd SETTINGS */
 }
 
 void test_h3run_settings_seq(void) {

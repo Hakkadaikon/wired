@@ -16,7 +16,7 @@ static int put_pair(
 
 /* The frame type is 0x03 when ECN counts are present, else 0x02. */
 static u64 ack_type(const ack_frame* f) {
-  return f->has_ecn ? QUIC_FRAME_ACK_ECN : QUIC_FRAME_ACK;
+  return f->has_ecn ? FRAME_ACK_ECN : FRAME_ACK;
 }
 
 /* Write type, largest, ack_delay (three varints). Returns 1 ok, 0. */
@@ -55,8 +55,8 @@ static int put_ack_pairs(wired_obuf* o, const ack_frame* f) {
   return ok;
 }
 
-/* A frame must carry between 1 and QUIC_ACK_MAX_RANGES ranges. */
-static int ranges_ok(usz n) { return n != 0 && n <= QUIC_ACK_MAX_RANGES; }
+/* A frame must carry between 1 and ACK_MAX_RANGES ranges. */
+static int ranges_ok(usz n) { return n != 0 && n <= ACK_MAX_RANGES; }
 
 /* Write all (Gap, Range Length) pairs then any ECN counts. */
 static int put_ack_pairs_ecn(wired_obuf* o, const ack_frame* f) {
@@ -138,7 +138,7 @@ static int take_ack_pairs(wired_span in, usz* off, ackdec* d) {
 }
 
 /* The decoded range count plus the first range must fit our fixed array. */
-static int count_fits(u64 count) { return count + 1 <= QUIC_ACK_MAX_RANGES; }
+static int count_fits(u64 count) { return count + 1 <= ACK_MAX_RANGES; }
 
 /* Read the prologue and bound-check the range count together. */
 static int take_ack_prologue(wired_span in, usz* off, ackdec* d) {
@@ -167,7 +167,7 @@ usz ack_decode(const u8* buf, usz n, ack_frame* f) {
   wired_span in  = wired_span_of(buf, n);
   usz        off = 1; /* type byte */
   ackdec     d   = {f, 0, 0, 0};
-  f->has_ecn     = (buf[0] == QUIC_FRAME_ACK_ECN);
+  f->has_ecn     = (buf[0] == FRAME_ACK_ECN);
   if (!take_ack_prologue(in, &off, &d)) return 0;
   if (!take_ack_rest(in, &off, &d)) return 0;
   f->n_ranges = (usz)d.count + 1;

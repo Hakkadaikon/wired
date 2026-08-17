@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_FIELDSIZE_H
-#define QUIC_H3_FIELDSIZE_H
+#ifndef H3_FIELDSIZE_H
+#define H3_FIELDSIZE_H
 
 #include "common/platform/sys/syscall.h"
 

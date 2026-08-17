@@ -1,5 +1,5 @@
-#ifndef QUIC_IDLEDRIVE_CLOSESEND_H
-#define QUIC_IDLEDRIVE_CLOSESEND_H
+#ifndef IDLEDRIVE_CLOSESEND_H
+#define IDLEDRIVE_CLOSESEND_H
 
 /* RFC 9000 10.2: an immediate close sends a CONNECTION_CLOSE and enters the
  * closing state. It is warranted either on an error or when the idle timeout

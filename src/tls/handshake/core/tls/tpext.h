@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_TPEXT_H
-#define QUIC_TLS_TPEXT_H
+#ifndef TLS_TPEXT_H
+#define TLS_TPEXT_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -8,7 +8,7 @@
  * (quic_transport_parameters, extension_type 0x39). The wire form is the
  * TLS Extension: 2-byte extension_type, 2-byte extension_data length, data. */
 
-#define QUIC_TPEXT_TYPE 0x39
+#define TPEXT_TYPE 0x39
 
 /* Wrap tp in the extension. Returns bytes written into out, or 0 if it does
  * not fit or tp.n exceeds 0xFFFF. */

@@ -13,10 +13,10 @@ static void test_blob_token(void) {
   u64        id;
   wired_span v;
   wired_obuf ob = obuf_of(buf, sizeof(buf));
-  usz        w  = tparam_put_blob(
-      &ob, QUIC_TP_STATELESS_RESET_TOKEN, wired_span_of(tok, 16));
+  usz        w =
+      tparam_put_blob(&ob, TP_STATELESS_RESET_TOKEN, wired_span_of(tok, 16));
   usz r = tparam_get_blob(wired_span_of(buf, w), &id, &v);
-  CHECK(w != 0 && r == w && id == QUIC_TP_STATELESS_RESET_TOKEN);
+  CHECK(w != 0 && r == w && id == TP_STATELESS_RESET_TOKEN);
   CHECK(v.n == 16 && mem_eq(v.p, tok, 16));
 }
 
@@ -27,9 +27,9 @@ static void test_blob_variable_cid(void) {
   wired_span v;
   wired_obuf ob = obuf_of(buf, sizeof(buf));
   usz        w  = tparam_put_blob(
-      &ob, QUIC_TP_INITIAL_SOURCE_CONNECTION_ID, wired_span_of(cid, 8));
+      &ob, TP_INITIAL_SOURCE_CONNECTION_ID, wired_span_of(cid, 8));
   usz r = tparam_get_blob(wired_span_of(buf, w), &id, &v);
-  CHECK(w != 0 && r == w && id == QUIC_TP_INITIAL_SOURCE_CONNECTION_ID);
+  CHECK(w != 0 && r == w && id == TP_INITIAL_SOURCE_CONNECTION_ID);
   CHECK(v.n == 8 && mem_eq(v.p, cid, 8));
 }
 
@@ -38,10 +38,10 @@ static void test_blob_empty(void) {
   u64        id;
   wired_span v;
   wired_obuf ob = obuf_of(buf, sizeof(buf));
-  usz        w  = tparam_put_blob(
-      &ob, QUIC_TP_DISABLE_ACTIVE_MIGRATION, wired_span_of(buf, 0));
+  usz        w =
+      tparam_put_blob(&ob, TP_DISABLE_ACTIVE_MIGRATION, wired_span_of(buf, 0));
   usz r = tparam_get_blob(wired_span_of(buf, w), &id, &v);
-  CHECK(w != 0 && r == w && id == QUIC_TP_DISABLE_ACTIVE_MIGRATION && v.n == 0);
+  CHECK(w != 0 && r == w && id == TP_DISABLE_ACTIVE_MIGRATION && v.n == 0);
 }
 
 static void test_blob_truncated(void) {
@@ -50,8 +50,8 @@ static void test_blob_truncated(void) {
   u64        id;
   wired_span v;
   wired_obuf ob = obuf_of(buf, sizeof(buf));
-  usz        w  = tparam_put_blob(
-      &ob, QUIC_TP_STATELESS_RESET_TOKEN, wired_span_of(tok, 16));
+  usz        w =
+      tparam_put_blob(&ob, TP_STATELESS_RESET_TOKEN, wired_span_of(tok, 16));
   CHECK(tparam_get_blob(wired_span_of(buf, w - 1), &id, &v) == 0);
 }
 

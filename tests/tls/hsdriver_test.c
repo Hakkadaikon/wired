@@ -6,24 +6,24 @@
  * index `stop`. Asserts every step is accepted; verifies cert before the
  * peer's Finished so the auth gate is open. */
 static void drive_until(hsdriver* s, int stop) {
-  if (stop > 0) CHECK(hsdriver_recv(s, QUIC_HSD_CLIENT_HELLO, 0) == 1);
-  if (stop > 1) CHECK(hsdriver_recv(s, QUIC_HSD_SERVER_HELLO, 0) == 1);
-  if (stop > 2) CHECK(hsdriver_recv(s, QUIC_HSD_ENCRYPTED_EXT, 1) == 1);
-  if (stop > 3) CHECK(hsdriver_recv(s, QUIC_HSD_CERTIFICATE, 1) == 1);
-  if (stop > 4) CHECK(hsdriver_recv(s, QUIC_HSD_CERT_VERIFY, 1) == 1);
+  if (stop > 0) CHECK(hsdriver_recv(s, HSD_CLIENT_HELLO, 0) == 1);
+  if (stop > 1) CHECK(hsdriver_recv(s, HSD_SERVER_HELLO, 0) == 1);
+  if (stop > 2) CHECK(hsdriver_recv(s, HSD_ENCRYPTED_EXT, 1) == 1);
+  if (stop > 3) CHECK(hsdriver_recv(s, HSD_CERTIFICATE, 1) == 1);
+  if (stop > 4) CHECK(hsdriver_recv(s, HSD_CERT_VERIFY, 1) == 1);
   if (stop > 5) hsdriver_cert_verified(s);
-  if (stop > 5) CHECK(hsdriver_recv(s, QUIC_HSD_FINISHED, 1) == 1);
+  if (stop > 5) CHECK(hsdriver_recv(s, HSD_FINISHED, 1) == 1);
 }
 
 /* RFC 8446 4: server flight may not begin before ClientHello is received. */
 static void test_server_does_not_send_before_clienthello(void) {
   hsdriver s;
   hsdriver_init(&s, 1);
-  CHECK(hsdriver_recv(&s, QUIC_HSD_SERVER_HELLO, 0) == 0);
-  CHECK(hsdriver_recv(&s, QUIC_HSD_ENCRYPTED_EXT, 1) == 0);
+  CHECK(hsdriver_recv(&s, HSD_SERVER_HELLO, 0) == 0);
+  CHECK(hsdriver_recv(&s, HSD_ENCRYPTED_EXT, 1) == 0);
   /* once ClientHello lands, ServerHello is accepted */
-  CHECK(hsdriver_recv(&s, QUIC_HSD_CLIENT_HELLO, 0) == 1);
-  CHECK(hsdriver_recv(&s, QUIC_HSD_SERVER_HELLO, 0) == 1);
+  CHECK(hsdriver_recv(&s, HSD_CLIENT_HELLO, 0) == 1);
+  CHECK(hsdriver_recv(&s, HSD_SERVER_HELLO, 0) == 1);
 }
 
 /* RFC 8446 4.4.2/4.4.3: server Finished is rejected until Certificate and
@@ -33,10 +33,10 @@ static void test_server_finished_rejected_before_auth(void) {
   hsdriver_init(&s, 0);
   drive_until(&s, 5); /* CH..CV accepted, but cert NOT marked verified */
   CHECK(s.cert_verified == 0);
-  CHECK(hsdriver_recv(&s, QUIC_HSD_FINISHED, 1) == 0);
+  CHECK(hsdriver_recv(&s, HSD_FINISHED, 1) == 0);
   /* after verification it is accepted */
   hsdriver_cert_verified(&s);
-  CHECK(hsdriver_recv(&s, QUIC_HSD_FINISHED, 1) == 1);
+  CHECK(hsdriver_recv(&s, HSD_FINISHED, 1) == 1);
 }
 
 /* RFC 9001 4: keys promote Initial -> Handshake -> 1-RTT, no skipping. */
@@ -44,16 +44,16 @@ static void test_keys_promote_in_strict_order(void) {
   hsdriver s;
   hsdriver_init(&s, 0);
   /* a Handshake-level message before any Initial-level one is rejected */
-  CHECK(hsdriver_recv(&s, QUIC_HSD_ENCRYPTED_EXT, 1) == 0);
+  CHECK(hsdriver_recv(&s, HSD_ENCRYPTED_EXT, 1) == 0);
   /* the legal flight promotes the level monotonically */
   hsdriver_init(&s, 0);
-  CHECK(hsdriver_recv(&s, QUIC_HSD_CLIENT_HELLO, 0) == 1);
-  CHECK(s.level == QUIC_HSD_PROT_INITIAL);
-  CHECK(hsdriver_recv(&s, QUIC_HSD_SERVER_HELLO, 0) == 1);
-  CHECK(hsdriver_recv(&s, QUIC_HSD_ENCRYPTED_EXT, 1) == 1);
-  CHECK(s.level == QUIC_HSD_PROT_HANDSHAKE);
+  CHECK(hsdriver_recv(&s, HSD_CLIENT_HELLO, 0) == 1);
+  CHECK(s.level == HSD_PROT_INITIAL);
+  CHECK(hsdriver_recv(&s, HSD_SERVER_HELLO, 0) == 1);
+  CHECK(hsdriver_recv(&s, HSD_ENCRYPTED_EXT, 1) == 1);
+  CHECK(s.level == HSD_PROT_HANDSHAKE);
   /* a 1-RTT message cannot arrive while still at Handshake mid-flight */
-  CHECK(hsdriver_recv(&s, QUIC_HSD_HANDSHAKE_DONE, 2) == 0);
+  CHECK(hsdriver_recv(&s, HSD_HANDSHAKE_DONE, 2) == 0);
 }
 
 /* Each message must be carried at exactly its defined level (RFC 9001 4). */
@@ -61,11 +61,11 @@ static void test_message_carried_at_defined_level(void) {
   hsdriver s;
   hsdriver_init(&s, 0);
   /* ClientHello at Handshake level is wrong */
-  CHECK(hsdriver_recv(&s, QUIC_HSD_CLIENT_HELLO, 1) == 0);
-  CHECK(hsdriver_recv(&s, QUIC_HSD_CLIENT_HELLO, 0) == 1);
+  CHECK(hsdriver_recv(&s, HSD_CLIENT_HELLO, 1) == 0);
+  CHECK(hsdriver_recv(&s, HSD_CLIENT_HELLO, 0) == 1);
   /* EncryptedExtensions at Initial level is wrong */
-  CHECK(hsdriver_recv(&s, QUIC_HSD_SERVER_HELLO, 0) == 1);
-  CHECK(hsdriver_recv(&s, QUIC_HSD_ENCRYPTED_EXT, 0) == 0);
+  CHECK(hsdriver_recv(&s, HSD_SERVER_HELLO, 0) == 1);
+  CHECK(hsdriver_recv(&s, HSD_ENCRYPTED_EXT, 0) == 0);
 }
 
 /* RFC 8446 4.4: CertificateVerify may not precede Certificate; no forward
@@ -73,13 +73,13 @@ static void test_message_carried_at_defined_level(void) {
 static void test_out_of_order_rejected(void) {
   hsdriver s;
   hsdriver_init(&s, 0);
-  CHECK(hsdriver_recv(&s, QUIC_HSD_CLIENT_HELLO, 0) == 1);
-  CHECK(hsdriver_recv(&s, QUIC_HSD_SERVER_HELLO, 0) == 1);
+  CHECK(hsdriver_recv(&s, HSD_CLIENT_HELLO, 0) == 1);
+  CHECK(hsdriver_recv(&s, HSD_SERVER_HELLO, 0) == 1);
   /* jump past EE/Cert straight to CertificateVerify */
-  CHECK(hsdriver_recv(&s, QUIC_HSD_CERT_VERIFY, 1) == 0);
-  CHECK(hsdriver_recv(&s, QUIC_HSD_ENCRYPTED_EXT, 1) == 1);
+  CHECK(hsdriver_recv(&s, HSD_CERT_VERIFY, 1) == 0);
+  CHECK(hsdriver_recv(&s, HSD_ENCRYPTED_EXT, 1) == 1);
   /* CertificateVerify before Certificate */
-  CHECK(hsdriver_recv(&s, QUIC_HSD_CERT_VERIFY, 1) == 0);
+  CHECK(hsdriver_recv(&s, HSD_CERT_VERIFY, 1) == 0);
 }
 
 /* not confirmed before complete; confirmed implies complete (RFC 9001 4.1.2).
@@ -95,7 +95,7 @@ static void test_not_confirmed_before_complete(void) {
   hsdriver_init(&s2, 0);
   drive_until(&s2, 5);
   hsdriver_cert_verified(&s2);
-  CHECK(hsdriver_recv(&s2, QUIC_HSD_HANDSHAKE_DONE, 2) == 0);
+  CHECK(hsdriver_recv(&s2, HSD_HANDSHAKE_DONE, 2) == 0);
   CHECK(hsdriver_confirmed(&s2) == 0);
 }
 
@@ -105,7 +105,7 @@ static void test_full_handshake_reaches_confirmed(void) {
   hsdriver_init(&s, 0);
   drive_until(&s, 6);
   CHECK(hsdriver_complete(&s) == 1);
-  CHECK(hsdriver_recv(&s, QUIC_HSD_HANDSHAKE_DONE, 2) == 1);
+  CHECK(hsdriver_recv(&s, HSD_HANDSHAKE_DONE, 2) == 1);
   CHECK(hsdriver_confirmed(&s) == 1);
   CHECK(hsdriver_complete(&s) == 1);
 }

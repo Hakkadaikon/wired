@@ -1,5 +1,5 @@
-#ifndef QUIC_STREAM_STREAMSTATE_H
-#define QUIC_STREAM_STREAMSTATE_H
+#ifndef STREAM_STREAMSTATE_H
+#define STREAM_STREAMSTATE_H
 
 #include "transport/stream/flow/flow/streams.h"
 

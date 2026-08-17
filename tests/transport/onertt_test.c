@@ -2,7 +2,7 @@
 
 static void onertt_keys(initial_keys* k, aes128* hp) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, k);
+  initial_derive(wired_span_of(dcid, 8), 1, VERSION_1, k);
   aes128_init(hp, k->hp);
 }
 
@@ -82,7 +82,7 @@ static usz seal_truncated(
     const u8*           pl,
     usz                 pl_len,
     u8*                 out) {
-  u8     nonce[QUIC_INITIAL_IV], mask[5];
+  u8     nonce[INITIAL_IV], mask[5];
   aes128 aead;
   usz    pn_off  = 1u + dcid_len;
   usz    hdr_len = pn_off + pn_len;
@@ -95,9 +95,9 @@ static usz seal_truncated(
   gcm_ctx g = {&aead, nonce, {out, hdr_len}};
   gcm_seal(&g, wired_span_of(pl, pl_len), out + hdr_len);
   hp_mask(hp, out + pn_off + 4, mask);
-  hp_fields hf = {&out[0], out + pn_off, pn_len, QUIC_HP_SHORT_MASK};
+  hp_fields hf = {&out[0], out + pn_off, pn_len, HP_SHORT_MASK};
   hp_apply(mask, &hf);
-  return hdr_len + pl_len + QUIC_GCM_TAG;
+  return hdr_len + pl_len + GCM_TAG;
 }
 
 /* RFC 9000 A.3: a 1-RTT packet sealed with a non-zero PN that is truncated to

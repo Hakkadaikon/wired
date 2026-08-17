@@ -19,24 +19,21 @@
 /* Append a handshake message to the raw transcript, clamping at the cap so a
  * malformed flight can never overrun. Returns 1 if it fit. */
 static int tr_add(fullhs* h, const u8* msg, usz len) {
-  if (len > QUIC_FULLHS_TRANSCRIPT_MAX - h->tr_len) return 0;
+  if (len > FULLHS_TRANSCRIPT_MAX - h->tr_len) return 0;
   for (usz i = 0; i < len; i++) h->tr[h->tr_len + i] = msg[i];
   h->tr_len += len;
   return 1;
 }
 
 /* RFC 8446 4.4.1: Transcript-Hash over every message buffered so far. */
-static void tr_hash(const fullhs* h, u8 out[QUIC_SHA256_DIGEST]) {
+static void tr_hash(const fullhs* h, u8 out[SHA256_DIGEST]) {
   wired_sha256(h->tr, h->tr_len, out);
 }
 
 /* RFC 8446 7.1: one direction's handshake traffic secret over the transcript
  * through ServerHello. is_server selects "s hs traffic"/"c hs traffic". */
 static void hs_traffic(
-    const u8   hs[QUIC_HKDF_PRK],
-    wired_span sh,
-    int        is_server,
-    u8         out[QUIC_HKDF_PRK]) {
+    const u8 hs[HKDF_PRK], wired_span sh, int is_server, u8 out[HKDF_PRK]) {
   const char*      label = is_server ? "s hs traffic" : "c hs traffic";
   derive_secret_in in    = {hs, wired_span_of((const u8*)label, 12), sh};
   tls_derive_secret(&in, out);
@@ -50,7 +47,7 @@ static void hs_traffic(
  * is prepended first, exactly like tlsdriver.c's own build_transcript does
  * for the handshake-secret derivation. */
 static void seed_secrets(fullhs* h, const u8* sh, usz sh_len) {
-  u8         hs[QUIC_HKDF_PRK];
+  u8         hs[HKDF_PRK];
   const u8*  ecdhe;
   wired_span tr_span;
   tlsdriver_shared_secret(h->tls, &ecdhe);
@@ -69,9 +66,9 @@ static void seed_secrets(fullhs* h, const u8* sh, usz sh_len) {
  * (Handshake). The tlsdriver derived keys for these but left the order machine
  * at the start, so replay them here. */
 static void prime_order(fullhs* h) {
-  hsdriver_recv(&h->tls->hs, QUIC_HSD_CLIENT_HELLO, QUIC_HSD_PROT_INITIAL);
-  hsdriver_recv(&h->tls->hs, QUIC_HSD_SERVER_HELLO, QUIC_HSD_PROT_INITIAL);
-  hsdriver_recv(&h->tls->hs, QUIC_HSD_ENCRYPTED_EXT, QUIC_HSD_PROT_HANDSHAKE);
+  hsdriver_recv(&h->tls->hs, HSD_CLIENT_HELLO, HSD_PROT_INITIAL);
+  hsdriver_recv(&h->tls->hs, HSD_SERVER_HELLO, HSD_PROT_INITIAL);
+  hsdriver_recv(&h->tls->hs, HSD_ENCRYPTED_EXT, HSD_PROT_HANDSHAKE);
 }
 
 int fullhs_init(fullhs* h, tlsdriver* tls, wired_span sh) {
@@ -110,7 +107,7 @@ static int fold_finished(fullhs* h, const u8* fin, usz len) {
 
 /* The peer's protection level for handshake-flight messages is Handshake. */
 static int order_ok(fullhs* h, u8 msg_type) {
-  return hsdriver_recv(&h->tls->hs, msg_type, QUIC_HSD_PROT_HANDSHAKE);
+  return hsdriver_recv(&h->tls->hs, msg_type, HSD_PROT_HANDSHAKE);
 }
 
 /* RFC 5280 6.1: the certificate window covers policy_now (0 skips). */
@@ -142,14 +139,14 @@ static int fullhs_chain_parse(
     wired_span cert_msg, const tls_cert_chain_out* out) {
   wired_span ctx;
   wired_span body =
-      wired_span_of(cert_msg.p + QUIC_HS_HEADER, cert_msg.n - QUIC_HS_HEADER);
+      wired_span_of(cert_msg.p + HS_HEADER, cert_msg.n - HS_HEADER);
   return tls_cert_chain(body, &ctx, out);
 }
 
 /* RFC 5280 6.1: when a trust store is set, the whole wire chain must chain
  * link-by-link to one of its anchors. NULL store skips. */
 static int fullhs_chain_ok(const fullhs* h, const tls_cert_entry* e, usz n) {
-  wired_span certs[QUIC_TLS_CERT_CHAIN_MAX];
+  wired_span certs[TLS_CERT_CHAIN_MAX];
   if (h->castore == 0) return 1;
   for (usz i = 0; i < n; i++)
     certs[i] = wired_span_of(e[i].cert_data, e[i].cert_len);
@@ -193,10 +190,10 @@ static void fullhs_cert_record(fullhs* h, const fullhs_chain_rec_in* in) {
 /* On any reject nothing is recorded, so the CertificateVerify signature can
  * never verify and cert_verified stays shut. */
 static int fullhs_cert_take(fullhs* h, wired_span cert_msg) {
-  tls_cert_entry      e[QUIC_TLS_CERT_CHAIN_MAX];
+  tls_cert_entry      e[TLS_CERT_CHAIN_MAX];
   usz                 n;
   fullhs_chain_rec_in rec;
-  tls_cert_chain_out  out = {e, QUIC_TLS_CERT_CHAIN_MAX, &n};
+  tls_cert_chain_out  out = {e, TLS_CERT_CHAIN_MAX, &n};
   if (!fullhs_chain_accept(h, cert_msg, &out)) return 0;
   rec.base = h->tr_len;
   if (!tr_add(h, cert_msg.p, cert_msg.n)) return 0;
@@ -208,17 +205,17 @@ static int fullhs_cert_take(fullhs* h, wired_span cert_msg) {
 }
 
 int fullhs_recv_cert(fullhs* h, const u8* cert_msg, usz len) {
-  if (!order_ok(h, QUIC_HSD_CERTIFICATE)) return 0;
+  if (!order_ok(h, HSD_CERTIFICATE)) return 0;
   return fullhs_cert_take(h, wired_span_of(cert_msg, len));
 }
 
 /* Verify the CertificateVerify signature over the transcript hash through the
  * Certificate message (the message body precedes the running hash). */
 static int cv_verify(fullhs* h, wired_span cv_msg, u16 scheme) {
-  u16           sig_scheme;
-  wired_span    sig, body = wired_span_of(
-                         cv_msg.p + QUIC_HS_HEADER, cv_msg.n - QUIC_HS_HEADER);
-  u8            th[QUIC_SHA256_DIGEST];
+  u16        sig_scheme;
+  wired_span sig,
+      body = wired_span_of(cv_msg.p + HS_HEADER, cv_msg.n - HS_HEADER);
+  u8            th[SHA256_DIGEST];
   certverify_in in;
   if (!tls_certverify_parse(body, &sig_scheme, &sig)) return 0;
   tr_hash(h, th);
@@ -231,7 +228,7 @@ static int cv_verify(fullhs* h, wired_span cv_msg, u16 scheme) {
 
 int fullhs_recv_certverify(fullhs* h, wired_span cv_msg, u16 scheme) {
   if (!cv_verify(h, cv_msg, scheme)) return 0;
-  if (!order_ok(h, QUIC_HSD_CERT_VERIFY)) return 0;
+  if (!order_ok(h, HSD_CERT_VERIFY)) return 0;
   hsdriver_cert_verified(&h->tls->hs);
   return tr_add(h, cv_msg.p, cv_msg.n);
 }
@@ -240,37 +237,37 @@ int fullhs_recv_certverify(fullhs* h, wired_span cv_msg, u16 scheme) {
  * secret over the current transcript. Checked before the order machine is
  * advanced so a bad Finished never marks the handshake complete. */
 static int fin_verifies(fullhs* h, const u8* fin_msg, usz len) {
-  u8 th[QUIC_SHA256_DIGEST];
-  if (len != QUIC_HS_HEADER + QUIC_TLS_VERIFY_DATA) return 0;
+  u8 th[SHA256_DIGEST];
+  if (len != HS_HEADER + TLS_VERIFY_DATA) return 0;
   tr_hash(h, th);
-  return tls_finished_check(h->hs_traffic_peer, th, fin_msg + QUIC_HS_HEADER);
+  return tls_finished_check(h->hs_traffic_peer, th, fin_msg + HS_HEADER);
 }
 
 int fullhs_recv_finished(fullhs* h, const u8* fin_msg, usz len) {
   if (!fin_verifies(h, fin_msg, len)) return 0;
-  if (!order_ok(h, QUIC_HSD_FINISHED)) return 0;
+  if (!order_ok(h, HSD_FINISHED)) return 0;
   return fold_finished(h, fin_msg, len);
 }
 
 int fullhs_send_finished(fullhs* h, wired_obuf* out) {
-  u8 th[QUIC_SHA256_DIGEST];
-  if (out->cap < QUIC_HS_HEADER + QUIC_TLS_VERIFY_DATA) return 0;
-  out->p[0] = QUIC_HSD_FINISHED;
+  u8 th[SHA256_DIGEST];
+  if (out->cap < HS_HEADER + TLS_VERIFY_DATA) return 0;
+  out->p[0] = HSD_FINISHED;
   out->p[1] = 0;
   out->p[2] = 0;
-  out->p[3] = QUIC_TLS_VERIFY_DATA;
+  out->p[3] = TLS_VERIFY_DATA;
   tr_hash(h, th);
-  tls_finished_verify_data(h->hs_traffic_self, th, out->p + QUIC_HS_HEADER);
-  out->len = QUIC_HS_HEADER + QUIC_TLS_VERIFY_DATA;
+  tls_finished_verify_data(h->hs_traffic_self, th, out->p + HS_HEADER);
+  out->len = HS_HEADER + TLS_VERIFY_DATA;
   return fold_finished(h, out->p, out->len);
 }
 
 /* Install the 1-RTT keys for our send direction, unlocking 1-RTT sending. */
 static void install_app(fullhs* h) {
   const initial_keys* k;
-  int which = h->is_server ? QUIC_KS_SERVER_AP : QUIC_KS_CLIENT_AP;
+  int                 which = h->is_server ? KS_SERVER_AP : KS_CLIENT_AP;
   if (keysched_get(&h->tls->ks, which, &k))
-    keyset_install(&h->tls->keys, QUIC_LEVEL_ONERTT, k);
+    keyset_install(&h->tls->keys, LEVEL_ONERTT, k);
 }
 
 /* RFC 8446 7.1: application_traffic_secret_0 is derived over the transcript
@@ -284,10 +281,9 @@ int fullhs_advance_application(fullhs* h) {
 }
 
 int fullhs_confirmed(fullhs* h) {
-  if (!hsdriver_recv(&h->tls->hs, QUIC_HSD_HANDSHAKE_DONE, QUIC_HSD_PROT_1RTT))
-    return 0;
+  if (!hsdriver_recv(&h->tls->hs, HSD_HANDSHAKE_DONE, HSD_PROT_1RTT)) return 0;
   if (key_should_discard_handshake(hsdriver_confirmed(&h->tls->hs)))
-    keyset_discard(&h->tls->keys, QUIC_LEVEL_HANDSHAKE);
+    keyset_discard(&h->tls->keys, LEVEL_HANDSHAKE);
   return 1;
 }
 

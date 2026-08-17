@@ -12,17 +12,17 @@ static void test_alpnver_require(void) {
 
 /* RFC 7301 3.2 / RFC 9114: classify the selected protocol name. */
 static void test_alpnver_protocol(void) {
-  CHECK(alpnver_protocol(H3, sizeof H3) == QUIC_ALPNVER_PROTO_H3);
-  CHECK(alpnver_protocol(SPDY, sizeof SPDY) == QUIC_ALPNVER_PROTO_NONE);
-  CHECK(alpnver_protocol(H3, 0) == QUIC_ALPNVER_PROTO_NONE);
+  CHECK(alpnver_protocol(H3, sizeof H3) == ALPNVER_PROTO_H3);
+  CHECK(alpnver_protocol(SPDY, sizeof SPDY) == ALPNVER_PROTO_NONE);
+  CHECK(alpnver_protocol(H3, 0) == ALPNVER_PROTO_NONE);
 }
 
 /* RFC 9368 / RFC 9000 7.4: h3 stays valid across compatible versions. */
 static void test_alpnver_compatible(void) {
-  CHECK(alpnver_compatible(QUIC_VERSION_1, H3, sizeof H3) == 1);
-  CHECK(alpnver_compatible(QUIC_VERSION_2, H3, sizeof H3) == 1);
+  CHECK(alpnver_compatible(VERSION_1, H3, sizeof H3) == 1);
+  CHECK(alpnver_compatible(VERSION_2, H3, sizeof H3) == 1);
   CHECK(alpnver_compatible(0xdeadbeef, H3, sizeof H3) == 0); /* unknown ver */
-  CHECK(alpnver_compatible(QUIC_VERSION_1, SPDY, sizeof SPDY) == 0);
+  CHECK(alpnver_compatible(VERSION_1, SPDY, sizeof SPDY) == 0);
 }
 
 void test_alpnver(void) {

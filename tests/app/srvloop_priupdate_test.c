@@ -121,7 +121,7 @@ static void test_srvloop_priupdate_on_request_stream_unexpected(void) {
   CHECK(flen > 0);
   priupdate_dispatch(&l, frame, flen);
 
-  CHECK(l.priupdate_violation == QUIC_H3_FRAME_UNEXPECTED);
+  CHECK(l.priupdate_violation == H3_FRAME_UNEXPECTED);
 }
 
 /* 9218-014: a request-variant PRIORITY_UPDATE naming an element id outside
@@ -144,10 +144,10 @@ static void test_srvloop_priupdate_bad_id_error(void) {
   CHECK(flen > 0);
   priupdate_dispatch(&l, frame, flen);
 
-  CHECK(l.priupdate_violation == QUIC_H3_ID_ERROR);
+  CHECK(l.priupdate_violation == H3_ID_ERROR);
   {
     int i = wired_srvloop_slot_for(&l, 4);
-    CHECK(l.streams[i].priority.urgency == QUIC_H3_URGENCY_DEFAULT);
+    CHECK(l.streams[i].priority.urgency == H3_URGENCY_DEFAULT);
   }
 }
 
@@ -160,8 +160,7 @@ static usz settings_ctrl_payload(u8* out, usz cap) {
   wired_obuf sob = obuf_of(sf, sizeof sf);
   usz        i;
   if (cap < 1) return 0;
-  if (!h3_frame_put(
-          &sob, QUIC_H3_FRAME_SETTINGS, wired_span_of((const u8*)"", 0)))
+  if (!h3_frame_put(&sob, H3_FRAME_SETTINGS, wired_span_of((const u8*)"", 0)))
     return 0;
   if (cap < 1 + sob.len) return 0;
   out[0] = 0x00;
@@ -190,7 +189,7 @@ static void test_srvloop_ctrl_settings_latches_peer_ctrl(void) {
   priupdate_dispatch(&l, frame, flen);
 
   CHECK(l.peer_ctrl.settings_seen == 1);
-  CHECK(l.peer_ctrl.error == QUIC_H3_ERR_NONE);
+  CHECK(l.peer_ctrl.error == H3_ERR_NONE);
 }
 
 /* RFC 9114 7.2.4: a control stream whose first frame is something other than
@@ -213,7 +212,7 @@ static void test_srvloop_ctrl_first_frame_not_settings_missing(void) {
   priupdate_dispatch(&l, frame, flen);
 
   CHECK(l.peer_ctrl.settings_seen == 0);
-  CHECK(l.peer_ctrl.error == QUIC_H3_ERR_MISSING_SETTINGS);
+  CHECK(l.peer_ctrl.error == H3_ERR_MISSING_SETTINGS);
 }
 
 /* RFC 9218 10: wired_srvloop_priority_of reads back an open stream's current

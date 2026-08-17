@@ -1,5 +1,5 @@
-#ifndef QUIC_CASTORE_PATHVALIDATE_H
-#define QUIC_CASTORE_PATHVALIDATE_H
+#ifndef CASTORE_PATHVALIDATE_H
+#define CASTORE_PATHVALIDATE_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

@@ -3,7 +3,7 @@
 #include "test.h"
 
 static int tr_digest_eq(const u8* got, const char* hex) {
-  for (usz i = 0; i < QUIC_SHA256_DIGEST; i++) {
+  for (usz i = 0; i < SHA256_DIGEST; i++) {
     u8 hi = hex[i * 2], lo = hex[i * 2 + 1];
     u8 b = (u8)(((hi <= '9' ? hi - '0' : hi - 'a' + 10) << 4) |
                 (lo <= '9' ? lo - '0' : lo - 'a' + 10));
@@ -15,7 +15,7 @@ static int tr_digest_eq(const u8* got, const char* hex) {
 /* Empty transcript hashes the empty string (RFC 8446 4.4.1). */
 static void test_transcript_empty(void) {
   transcript t;
-  u8         d[QUIC_SHA256_DIGEST];
+  u8         d[SHA256_DIGEST];
   transcript_init(&t);
   transcript_hash(&t, d);
   CHECK(tr_digest_eq(
@@ -25,7 +25,7 @@ static void test_transcript_empty(void) {
 /* One added message hashes to that message's SHA-256. */
 static void test_transcript_one(void) {
   transcript t;
-  u8         d[QUIC_SHA256_DIGEST];
+  u8         d[SHA256_DIGEST];
   transcript_init(&t);
   transcript_add(&t, (const u8*)"abc", 3);
   transcript_hash(&t, d);
@@ -36,7 +36,7 @@ static void test_transcript_one(void) {
 /* Cumulative: two messages hash to the concatenation. */
 static void test_transcript_two(void) {
   transcript t;
-  u8         d[QUIC_SHA256_DIGEST];
+  u8         d[SHA256_DIGEST];
   transcript_init(&t);
   transcript_add(&t, (const u8*)"abc", 3);
   transcript_add(&t, (const u8*)"def", 3);
@@ -48,7 +48,7 @@ static void test_transcript_two(void) {
 /* Snapshotting must not disturb the running state. */
 static void test_transcript_snapshot_nondestructive(void) {
   transcript t;
-  u8         d1[QUIC_SHA256_DIGEST], d2[QUIC_SHA256_DIGEST];
+  u8         d1[SHA256_DIGEST], d2[SHA256_DIGEST];
   transcript_init(&t);
   transcript_add(&t, (const u8*)"abc", 3);
   transcript_hash(&t, d1);

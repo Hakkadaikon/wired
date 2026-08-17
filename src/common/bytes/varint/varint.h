@@ -1,5 +1,5 @@
-#ifndef QUIC_VARINT_H
-#define QUIC_VARINT_H
+#ifndef VARINT_H
+#define VARINT_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -7,7 +7,7 @@
 /* RFC 9000 16. Variable-length integer encoding.
  * 2-bit prefix in MSB of first byte selects length 1/2/4/8. */
 
-#define QUIC_VARINT_MAX 0x3FFFFFFFFFFFFFFFULL
+#define VARINT_MAX 0x3FFFFFFFFFFFFFFFULL
 
 /* Bytes needed to encode v. Returns 0 if v exceeds the 62-bit range. */
 usz varint_len(u64 v);

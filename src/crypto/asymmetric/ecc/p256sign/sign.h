@@ -1,5 +1,5 @@
-#ifndef QUIC_P256SIGN_SIGN_H
-#define QUIC_P256SIGN_SIGN_H
+#ifndef P256SIGN_SIGN_H
+#define P256SIGN_SIGN_H
 
 #include "common/platform/sys/syscall.h"
 

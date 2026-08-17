@@ -1,5 +1,5 @@
-#ifndef QUIC_DATAGRAM_DGCHECK_H
-#define QUIC_DATAGRAM_DGCHECK_H
+#ifndef DATAGRAM_DGCHECK_H
+#define DATAGRAM_DGCHECK_H
 
 #include "common/platform/sys/syscall.h"
 

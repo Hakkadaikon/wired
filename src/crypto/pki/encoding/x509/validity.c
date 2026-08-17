@@ -83,7 +83,7 @@ static int validity_bounds(wired_span val, u64* nb, u64* na) {
 static int reach_validity(wired_span tbs, wired_span* v) {
   derseq c;
   if (!tbs_to_validity(tbs, &c)) return 0;
-  return derseq_next_tagged(&c, QUIC_DER_SEQUENCE, v);
+  return derseq_next_tagged(&c, DER_SEQUENCE, v);
 }
 
 /* notBefore <= now <= notAfter. */

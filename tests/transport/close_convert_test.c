@@ -11,7 +11,7 @@ static void test_close_needs_convert_matrix(void) {
 /* Conversion always targets the transport close type 0x1c. */
 static void test_close_converted_type(void) {
   CHECK(close_converted_type() == 0x1c);
-  CHECK(close_converted_type() != QUIC_CLOSE_APPLICATION);
+  CHECK(close_converted_type() != CLOSE_APPLICATION);
 }
 
 void test_close_convert(void) {

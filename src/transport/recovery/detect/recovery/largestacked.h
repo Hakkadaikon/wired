@@ -1,5 +1,5 @@
-#ifndef QUIC_RECOVERY_LARGESTACKED_H
-#define QUIC_RECOVERY_LARGESTACKED_H
+#ifndef RECOVERY_LARGESTACKED_H
+#define RECOVERY_LARGESTACKED_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -123,7 +123,7 @@ static void build_signed(const u8 transcript_hash[32], u8 out[130]) {
 int tls_certverify_ed25519(
     wired_span sig, const u8 transcript_hash[32], const u8 pubkey[32]) {
   u8 content[130];
-  if (sig.n != QUIC_ED25519_SIG) return 0;
+  if (sig.n != ED25519_SIG) return 0;
   build_signed(transcript_hash, content);
   return ed25519_verify(sig.p, content, sizeof(content), pubkey);
 }

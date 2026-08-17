@@ -1,5 +1,5 @@
-#ifndef QUIC_PACKET_PNLEN_H
-#define QUIC_PACKET_PNLEN_H
+#ifndef PACKET_PNLEN_H
+#define PACKET_PNLEN_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_CC_CUBIC_H
-#define QUIC_CC_CUBIC_H
+#ifndef CC_CUBIC_H
+#define CC_CUBIC_H
 
 #include "common/platform/sys/syscall.h"
 

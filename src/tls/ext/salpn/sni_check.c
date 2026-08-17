@@ -9,7 +9,7 @@
  * any is present and well-formed. */
 static int sni_take_host(const u8* ch_msg, usz ch_len, wired_span* host) {
   wired_span ext;
-  if (!salpn_find_extension(wired_span_of(ch_msg, ch_len), QUIC_SNI_TYPE, &ext))
+  if (!salpn_find_extension(wired_span_of(ch_msg, ch_len), SNI_TYPE, &ext))
     return 0;
   return salpn_extract_sni(ext, host);
 }
@@ -17,7 +17,6 @@ static int sni_take_host(const u8* ch_msg, usz ch_len, wired_span* host) {
 salpn_sni_outcome salpn_sni_check(
     const u8* ch_msg, usz ch_len, wired_span tbs) {
   wired_span host;
-  if (!sni_take_host(ch_msg, ch_len, &host)) return QUIC_SALPN_SNI_ABSENT;
-  return x509_san_matches(tbs, host) ? QUIC_SALPN_SNI_MATCH
-                                     : QUIC_SALPN_SNI_MISMATCH;
+  if (!sni_take_host(ch_msg, ch_len, &host)) return SALPN_SNI_ABSENT;
+  return x509_san_matches(tbs, host) ? SALPN_SNI_MATCH : SALPN_SNI_MISMATCH;
 }

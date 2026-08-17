@@ -4,10 +4,10 @@
  * is recovered from the leading bit pattern (RFC 9204 4.3). */
 static void test_qpack_enc_instr_roundtrip(void) {
   qpack_enc_kind kinds[] = {
-      QUIC_QPACK_ENC_SET_CAPACITY,
-      QUIC_QPACK_ENC_INSERT_NAME_REF,
-      QUIC_QPACK_ENC_INSERT_LITERAL,
-      QUIC_QPACK_ENC_DUPLICATE,
+      QPACK_ENC_SET_CAPACITY,
+      QPACK_ENC_INSERT_NAME_REF,
+      QPACK_ENC_INSERT_LITERAL,
+      QPACK_ENC_DUPLICATE,
   };
   for (usz i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
     u8  buf[8];
@@ -24,9 +24,9 @@ static void test_qpack_enc_instr_roundtrip(void) {
 /* Every decoder-stream instruction round-trips (RFC 9204 4.4). */
 static void test_qpack_dec_instr_roundtrip(void) {
   qpack_dec_kind kinds[] = {
-      QUIC_QPACK_DEC_SECTION_ACK,
-      QUIC_QPACK_DEC_STREAM_CANCEL,
-      QUIC_QPACK_DEC_INSERT_COUNT,
+      QPACK_DEC_SECTION_ACK,
+      QPACK_DEC_STREAM_CANCEL,
+      QPACK_DEC_INSERT_COUNT,
   };
   for (usz i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
     u8  buf[8];
@@ -45,11 +45,11 @@ static void test_qpack_dec_instr_roundtrip(void) {
 static void test_qpack_instr_pattern(void) {
   u8          buf[2];
   wired_mspan b = wired_mspan_of(buf, sizeof(buf));
-  qpack_dec_instr_encode(b, QUIC_QPACK_DEC_SECTION_ACK, 0);
+  qpack_dec_instr_encode(b, QPACK_DEC_SECTION_ACK, 0);
   CHECK((buf[0] & 0x80) == 0x80);
-  qpack_dec_instr_encode(b, QUIC_QPACK_DEC_INSERT_COUNT, 0);
+  qpack_dec_instr_encode(b, QPACK_DEC_INSERT_COUNT, 0);
   CHECK((buf[0] & 0xc0) == 0x00);
-  qpack_dec_instr_encode(b, QUIC_QPACK_DEC_STREAM_CANCEL, 0);
+  qpack_dec_instr_encode(b, QPACK_DEC_STREAM_CANCEL, 0);
   CHECK((buf[0] & 0xc0) == 0x40);
 }
 
@@ -58,7 +58,7 @@ static void test_qpack_instr_truncated(void) {
   u8 buf[8];
   /* A value needing a continuation byte, then cut to just the prefix byte. */
   usz w = qpack_enc_instr_encode(
-      wired_mspan_of(buf, sizeof(buf)), QUIC_QPACK_ENC_DUPLICATE, 1000);
+      wired_mspan_of(buf, sizeof(buf)), QPACK_ENC_DUPLICATE, 1000);
   CHECK(w > 1);
   qpack_enc_kind k;
   u64            v;

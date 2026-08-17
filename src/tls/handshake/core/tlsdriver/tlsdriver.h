@@ -1,5 +1,5 @@
-#ifndef QUIC_TLSDRIVER_TLSDRIVER_H
-#define QUIC_TLSDRIVER_TLSDRIVER_H
+#ifndef TLSDRIVER_TLSDRIVER_H
+#define TLSDRIVER_TLSDRIVER_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -22,7 +22,7 @@
  * Orchestration only: every parse/derivation is delegated to the verified
  * components. */
 
-#define QUIC_TLSDRIVER_CRYPTO_MAX 64
+#define TLSDRIVER_CRYPTO_MAX 64
 
 /** The real-TLS handshake driver's state: CRYPTO reassembly, the handshake
  * order machine, key schedule and installed keys, our ECDHE key pair and the
@@ -34,11 +34,11 @@ typedef struct {
   keysched  ks;   /* order-driven key schedule */
   keyset    keys; /* installed per-level key sets */
   int       is_server;
-  u8        my_priv[QUIC_ECDHE_LEN];
-  u8        my_pub[QUIC_ECDHE_LEN];
-  u8        shared[QUIC_ECDHE_LEN];
+  u8        my_priv[ECDHE_LEN];
+  u8        my_pub[ECDHE_LEN];
+  u8        shared[ECDHE_LEN];
   /* RFC 8446 4.2.7 NamedGroup negotiated for this handshake's key_share;
-   * QUIC_GROUP_X25519 unless tlsdriver_set_group selects otherwise. */
+   * GROUP_X25519 unless tlsdriver_set_group selects otherwise. */
   u16       group;
   int       hs_ready; /* 1 once the handshake secret is derived */
   const u8* sni;      /* ClientHello server_name, view (caller-owned) */
@@ -63,8 +63,8 @@ typedef struct {
  * key set and CRYPTO reassembly. is_server selects the role. */
 void tlsdriver_init(
     tlsdriver* d,
-    const u8   my_priv[QUIC_ECDHE_LEN],
-    const u8   my_pub[QUIC_ECDHE_LEN],
+    const u8   my_priv[ECDHE_LEN],
+    const u8   my_pub[ECDHE_LEN],
     int        is_server);
 
 /* RFC 6066 3: set the server_name carried in our ClientHello. sni is a view;
@@ -73,8 +73,8 @@ void tlsdriver_init(
 void tlsdriver_set_sni(tlsdriver* d, const u8* sni, usz sni_len);
 
 /* RFC 8446 4.2.7: select the NamedGroup for this handshake's key_share
- * (QUIC_GROUP_X25519 or QUIC_GROUP_SECP256R1). tlsdriver_init defaults
- * to QUIC_GROUP_X25519; call this right after init, before building or
+ * (GROUP_X25519 or GROUP_SECP256R1). tlsdriver_init defaults
+ * to GROUP_X25519; call this right after init, before building or
  * receiving any handshake message, to use secp256r1 instead. my_priv/my_pub
  * passed to init must already hold the matching key pair (32-byte x25519
  * scalar/point, or 32-byte P-256 scalar + 65-byte SEC1 uncompressed point). */

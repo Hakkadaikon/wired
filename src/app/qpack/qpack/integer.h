@@ -1,5 +1,5 @@
-#ifndef QUIC_QPACK_INTEGER_H
-#define QUIC_QPACK_INTEGER_H
+#ifndef QPACK_INTEGER_H
+#define QPACK_INTEGER_H
 
 #include "common/bytes/span/span.h"
 

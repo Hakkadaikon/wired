@@ -29,9 +29,8 @@ usz p256cert_sigalg(wired_obuf* out) {
   u8           inner[16];
   p256cert_enc e = {inner, sizeof(inner), 0, 1};
   p256cert_put(
-      &e, QUIC_DER_OID,
-      wired_span_of(oid_ecdsa_sha256, sizeof(oid_ecdsa_sha256)));
-  return p256cert_wrap(&e, QUIC_DER_SEQUENCE, out);
+      &e, DER_OID, wired_span_of(oid_ecdsa_sha256, sizeof(oid_ecdsa_sha256)));
+  return p256cert_wrap(&e, DER_SEQUENCE, out);
 }
 
 /* RFC 5280 4.1.2.4. AttributeTypeAndValue SEQUENCE{ id-at-commonName, value }.
@@ -39,11 +38,11 @@ usz p256cert_sigalg(wired_obuf* out) {
 static usz pc_build_atv(wired_obuf* out) {
   u8           inner[64];
   p256cert_enc e = {inner, sizeof(inner), 0, 1};
-  p256cert_put(&e, QUIC_DER_OID, wired_span_of(pc_oid_cn, sizeof(pc_oid_cn)));
+  p256cert_put(&e, DER_OID, wired_span_of(pc_oid_cn, sizeof(pc_oid_cn)));
   p256cert_put(
       &e, 0x0c,
       wired_span_of(pc_cn_value, sizeof(pc_cn_value) - 1)); /* UTF8String */
-  return p256cert_wrap(&e, QUIC_DER_SEQUENCE, out);
+  return p256cert_wrap(&e, DER_SEQUENCE, out);
 }
 
 /* RFC 5280 4.1.2.4. Name SEQUENCE{ SET{ SEQUENCE{ id-at-commonName, value }}}.
@@ -53,8 +52,8 @@ static usz pc_build_name(wired_obuf* out) {
   wired_obuf   ao = obuf_of(atv, sizeof(atv));
   wired_obuf   ro = obuf_of(rdn, sizeof(rdn));
   p256cert_enc er = p256cert_loaded(atv, pc_build_atv(&ao));
-  p256cert_enc es = p256cert_loaded(rdn, p256cert_wrap(&er, QUIC_DER_SET, &ro));
-  return p256cert_wrap(&es, QUIC_DER_SEQUENCE, out);
+  p256cert_enc es = p256cert_loaded(rdn, p256cert_wrap(&er, DER_SET, &ro));
+  return p256cert_wrap(&es, DER_SEQUENCE, out);
 }
 
 /* W3C WebTransport serverCertificateHashes rejects any cert whose validity
@@ -96,7 +95,7 @@ static usz pc_build_validity(u64 now_secs, wired_obuf* out) {
     p256cert_put(
         &e, 0x17, wired_span_of(pc_not_after, sizeof(pc_not_after) - 1));
   }
-  return p256cert_wrap(&e, QUIC_DER_SEQUENCE, out);
+  return p256cert_wrap(&e, DER_SEQUENCE, out);
 }
 
 /* RFC 5280 4.1. Emit version, serial, signature AlgID, issuer onto e. */
@@ -123,7 +122,7 @@ static usz pc_build_gennames(const u8* san_ipv4, wired_obuf* out) {
       &e, PC_SAN_DNSNAME_TAG,
       wired_span_of(pc_cn_value, sizeof(pc_cn_value) - 1));
   if (san_ipv4) p256cert_put(&e, PC_SAN_IPADDR_TAG, wired_span_of(san_ipv4, 4));
-  return p256cert_wrap(&e, QUIC_DER_SEQUENCE, out);
+  return p256cert_wrap(&e, DER_SEQUENCE, out);
 }
 
 /* RFC 5280 4.1.2.9. Extension SEQUENCE{ extnID, extnValue OCTET STRING }.
@@ -133,9 +132,9 @@ static usz pc_build_san_ext(const u8* san_ipv4, wired_obuf* out) {
   wired_obuf   go = obuf_of(gn, sizeof(gn));
   p256cert_enc eg = p256cert_loaded(gn, pc_build_gennames(san_ipv4, &go));
   p256cert_enc e  = {ext, sizeof(ext), 0, 1};
-  p256cert_put(&e, QUIC_DER_OID, wired_span_of(pc_oid_san, sizeof(pc_oid_san)));
-  p256cert_put(&e, QUIC_DER_OCTET_STRING, wired_span_of(eg.buf, eg.off));
-  return p256cert_wrap(&e, QUIC_DER_SEQUENCE, out);
+  p256cert_put(&e, DER_OID, wired_span_of(pc_oid_san, sizeof(pc_oid_san)));
+  p256cert_put(&e, DER_OCTET_STRING, wired_span_of(eg.buf, eg.off));
+  return p256cert_wrap(&e, DER_SEQUENCE, out);
 }
 
 /* RFC 5280 4.1.2.9. extensions [3] EXPLICIT { SEQUENCE OF Extension }. */
@@ -144,8 +143,7 @@ static usz pc_build_extensions(const u8* san_ipv4, wired_obuf* out) {
   wired_obuf   eo = obuf_of(ext, sizeof(ext));
   wired_obuf   so = obuf_of(seq, sizeof(seq));
   p256cert_enc ee = p256cert_loaded(ext, pc_build_san_ext(san_ipv4, &eo));
-  p256cert_enc es =
-      p256cert_loaded(seq, p256cert_wrap(&ee, QUIC_DER_SEQUENCE, &so));
+  p256cert_enc es = p256cert_loaded(seq, p256cert_wrap(&ee, DER_SEQUENCE, &so));
   return p256cert_wrap(&es, PC_EXTENSIONS_TAG, out);
 }
 
@@ -168,6 +166,6 @@ int p256cert_tbs(
   p256cert_put_pre(&e, wired_span_of(name, nn)); /* subject */
   p256cert_put_pre(&e, wired_span_of(spki, so.len));
   p256cert_put_pre(&e, wired_span_of(exts, pc_build_extensions(san_ipv4, &xo)));
-  out->len = p256cert_wrap(&e, QUIC_DER_SEQUENCE, out);
+  out->len = p256cert_wrap(&e, DER_SEQUENCE, out);
   return out->len != 0;
 }

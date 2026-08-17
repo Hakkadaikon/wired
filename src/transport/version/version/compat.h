@@ -1,5 +1,5 @@
-#ifndef QUIC_VERSION_COMPAT_H
-#define QUIC_VERSION_COMPAT_H
+#ifndef VERSION_COMPAT_H
+#define VERSION_COMPAT_H
 
 #include "transport/version/version/version.h"
 

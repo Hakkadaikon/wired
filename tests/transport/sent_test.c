@@ -34,9 +34,9 @@ static void test_sent_packet_threshold_3(void) {
   sent_on_send(&s, &(sent_out){5, 10, 0});
   sent_on_ack(&s, 5);
   CHECK(sent_detect_loss(&s) == 2);
-  CHECK(s.pkts[0].state == QUIC_PKT_LOST);
-  CHECK(s.pkts[1].state == QUIC_PKT_LOST);
-  CHECK(s.pkts[2].state == QUIC_PKT_INFLIGHT);
+  CHECK(s.pkts[0].state == PKT_LOST);
+  CHECK(s.pkts[1].state == PKT_LOST);
+  CHECK(s.pkts[2].state == PKT_INFLIGHT);
 }
 
 /* An acked packet is never later marked lost (acked/lost exclusivity). */
@@ -48,7 +48,7 @@ static void test_sent_acked_never_lost(void) {
   sent_on_ack(&s, 1); /* pn 1 acked */
   sent_on_ack(&s, 5);
   sent_detect_loss(&s);
-  CHECK(s.pkts[0].state == QUIC_PKT_ACKED); /* stays acked, not lost */
+  CHECK(s.pkts[0].state == PKT_ACKED); /* stays acked, not lost */
   /* bytes_in_flight: pn1 acked, pn5 acked -> 0 */
   CHECK(s.bytes_in_flight == 0);
 }

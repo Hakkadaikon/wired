@@ -8,7 +8,7 @@
 static usz apply_capacity(
     qpack_dyn* t, u64 capacity, u64 max_table_capacity, u16* err) {
   if (!qpack_capacity_within_limit(capacity, max_table_capacity)) {
-    *err = QUIC_QPACK_ENCODER_STREAM_ERROR;
+    *err = QPACK_ENCODER_STREAM_ERROR;
     return 0;
   }
   qpack_dyn_set_capacity(t, (usz)capacity);
@@ -19,7 +19,7 @@ static usz apply_capacity(
  * kind matches) -- split out so qdyn_enc_apply_capacity's own branch
  * count stays at the CCN gate. */
 static int is_set_capacity(usz used, qpack_enc_kind kind) {
-  return used != 0 && kind == QUIC_QPACK_ENC_SET_CAPACITY;
+  return used != 0 && kind == QPACK_ENC_SET_CAPACITY;
 }
 
 usz qdyn_enc_apply_capacity(

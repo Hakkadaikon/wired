@@ -1,5 +1,5 @@
-#ifndef QUIC_VNDRIVE_ACCEPT_H
-#define QUIC_VNDRIVE_ACCEPT_H
+#ifndef VNDRIVE_ACCEPT_H
+#define VNDRIVE_ACCEPT_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/version/version/version.h"

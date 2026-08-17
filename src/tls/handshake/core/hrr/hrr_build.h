@@ -1,5 +1,5 @@
-#ifndef QUIC_HRR_BUILD_H
-#define QUIC_HRR_BUILD_H
+#ifndef HRR_BUILD_H
+#define HRR_BUILD_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

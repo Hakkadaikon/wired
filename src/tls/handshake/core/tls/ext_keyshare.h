@@ -1,10 +1,10 @@
-#ifndef QUIC_TLS_EXT_KEYSHARE_H
-#define QUIC_TLS_EXT_KEYSHARE_H
+#ifndef TLS_EXT_KEYSHARE_H
+#define TLS_EXT_KEYSHARE_H
 
 #include "common/platform/sys/syscall.h"
 #include "tls/handshake/core/tls/handshake.h"
 
-/* RFC 8446 4.2.8: key_share, extension_type 0x0033 (QUIC_EXT_KEY_SHARE). The
+/* RFC 8446 4.2.8: key_share, extension_type 0x0033 (EXT_KEY_SHARE). The
  * ClientHello body is a 2-byte client_shares length followed by KeyShareEntry
  * (group(2) + key length(2) + key). Supported groups: x25519 (32-byte key,
  * RFC 7748) and secp256r1 (65-byte SEC1 uncompressed key, RFC 8446 4.2.8.2 /

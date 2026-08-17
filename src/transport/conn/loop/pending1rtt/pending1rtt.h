@@ -1,5 +1,5 @@
-#ifndef QUIC_PENDING1RTT_PENDING1RTT_H
-#define QUIC_PENDING1RTT_PENDING1RTT_H
+#ifndef PENDING1RTT_PENDING1RTT_H
+#define PENDING1RTT_PENDING1RTT_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -14,18 +14,18 @@
  */
 
 /** One stored datagram's capacity, sized to a common Ethernet MTU. */
-#define QUIC_PENDING1RTT_MAX_LEN 1500
+#define PENDING1RTT_MAX_LEN 1500
 
 /** Maximum number of packets held at once. Bounded: RFC 9001 5.7 buffering
  * is a courtesy for reordered packets around the handshake boundary, not an
  * unbounded queue an attacker could use to exhaust memory. */
-#define QUIC_PENDING1RTT_CAP 4
+#define PENDING1RTT_CAP 4
 
 /** Fixed-capacity FIFO of stored raw datagrams awaiting handshake
  * completion. */
 typedef struct {
-  u8  buf[QUIC_PENDING1RTT_CAP][QUIC_PENDING1RTT_MAX_LEN];
-  usz len[QUIC_PENDING1RTT_CAP];
+  u8  buf[PENDING1RTT_CAP][PENDING1RTT_MAX_LEN];
+  usz len[PENDING1RTT_CAP];
   usz count; /* number of slots in use, filled from index 0 */
 } pending1rtt;
 
@@ -37,7 +37,7 @@ void pending1rtt_init(pending1rtt* q);
 int pending1rtt_should_defer(int handshake_complete);
 
 /** Store one datagram's bytes. Returns 1 on success, 0 if it exceeds
- * QUIC_PENDING1RTT_MAX_LEN or the queue is already at QUIC_PENDING1RTT_CAP
+ * PENDING1RTT_MAX_LEN or the queue is already at PENDING1RTT_CAP
  * (both fail closed: the caller drops the packet rather than blocking). */
 int pending1rtt_store(pending1rtt* q, const u8* data, usz len);
 

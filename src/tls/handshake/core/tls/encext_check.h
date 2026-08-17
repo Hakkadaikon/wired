@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_ENCEXT_CHECK_H
-#define QUIC_TLS_ENCEXT_CHECK_H
+#ifndef TLS_ENCEXT_CHECK_H
+#define TLS_ENCEXT_CHECK_H
 
 /* RFC 9001 8.2: an endpoint that receives a TLS EncryptedExtensions message
  * without the quic_transport_parameters extension MUST close the connection

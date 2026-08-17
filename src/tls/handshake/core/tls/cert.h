@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_CERT_H
-#define QUIC_TLS_CERT_H
+#ifndef TLS_CERT_H
+#define TLS_CERT_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -32,7 +32,7 @@ int tls_cert_parse(wired_span buf, wired_span* context, tls_cert_entry* first);
  * amplificationlimit case deliberately serves a 9-certificate chain to
  * inflate the server's Handshake flight for its RFC 9000 8.1
  * anti-amplification check; matches WIRED_CERTRELOAD_CHAIN_MAX). */
-#define QUIC_TLS_CERT_CHAIN_MAX 10
+#define TLS_CERT_CHAIN_MAX 10
 
 /** Destination for tls_cert_chain: entries[0..cap-1] and the count
  * actually written. */
@@ -62,7 +62,7 @@ int tls_cert_chain(
 int tls_certverify_parse(wired_span buf, u16* scheme, wired_span* sig);
 
 /** RFC 8446 4.2.3: the ed25519 SignatureScheme code point. */
-#define QUIC_TLS_SCHEME_ED25519 0x0807
+#define TLS_SCHEME_ED25519 0x0807
 
 /** Verify a server's CertificateVerify Ed25519 signature (RFC 8446 4.4.3).
  * The signed content is 64 octets of 0x20, the context string "TLS 1.3,

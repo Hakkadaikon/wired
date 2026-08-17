@@ -137,7 +137,7 @@ static usz decode_line(
 /* A request pseudo-header kind has a (value, len) slot in wired_h3reqdrive_req.
  */
 static int is_request_pseudo(h3_ph_kind k) {
-  return k >= QUIC_H3_PH_METHOD && k <= QUIC_H3_PH_PROTOCOL;
+  return k >= H3_PH_METHOD && k <= H3_PH_PROTOCOL;
 }
 
 /* 1 if the recovered line's name is exactly the NUL-terminated s. */
@@ -406,7 +406,7 @@ int wired_h3reqdrive_recv_get(
  * are discarded (a trailer's regular fields are unused by this SDK); only
  * the name classification and scratch bookkeeping matter here. */
 static int trailer_line_ok(const rline* L) {
-  return line_ok(L) && h3_ph_classify(L->name, L->name_len) == QUIC_H3_PH_NONE;
+  return line_ok(L) && h3_ph_classify(L->name, L->name_len) == H3_PH_NONE;
 }
 
 static int trailer_step_line(rd_cursor* cur) {

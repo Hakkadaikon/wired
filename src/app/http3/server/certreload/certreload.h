@@ -15,7 +15,7 @@
  * (leaf + intermediates). Sized past quic-interop-runner's amplificationlimit
  * case, which deliberately serves a 9-certificate chain to inflate the
  * server's Handshake flight for its RFC 9000 8.1 anti-amplification check;
- * matches QUIC_TLS_CERT_CHAIN_MAX (sdrv/cert.h) so a chain this loader
+ * matches TLS_CERT_CHAIN_MAX (sdrv/cert.h) so a chain this loader
  * accepts is never rejected downstream at the TLS flight-build layer. */
 #define WIRED_CERTRELOAD_CHAIN_MAX 10
 

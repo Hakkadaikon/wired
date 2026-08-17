@@ -11,12 +11,12 @@ static void store(rtx_queue* q, const u8* frame, usz len) {
   rtx_frame* s = &q->slots[q->tail];
   for (usz i = 0; i < len; i++) s->data[i] = frame[i];
   s->len  = len;
-  q->tail = (q->tail + 1) % QUIC_RTX_SLOTS;
+  q->tail = (q->tail + 1) % RTX_SLOTS;
   q->count++;
 }
 
 int rtx_push(rtx_queue* q, const u8* frame, usz len) {
-  if (q->count == QUIC_RTX_SLOTS || len > QUIC_RTX_FRAME) return 0;
+  if (q->count == RTX_SLOTS || len > RTX_FRAME) return 0;
   store(q, frame, len);
   return 1;
 }
@@ -25,7 +25,7 @@ int rtx_push(rtx_queue* q, const u8* frame, usz len) {
 static usz take(rtx_queue* q, u8* out) {
   rtx_frame* s = &q->slots[q->head];
   for (usz i = 0; i < s->len; i++) out[i] = s->data[i];
-  q->head = (q->head + 1) % QUIC_RTX_SLOTS;
+  q->head = (q->head + 1) % RTX_SLOTS;
   q->count--;
   return s->len;
 }

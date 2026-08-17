@@ -1,5 +1,5 @@
-#ifndef QUIC_HP_HP_H
-#define QUIC_HP_HP_H
+#ifndef HP_HP_H
+#define HP_HP_H
 
 #include "crypto/symmetric/aead/aes/aes.h"
 
@@ -7,12 +7,12 @@
  * AES-ECB(hp_key, sample); sample is 16 ciphertext bytes taken at
  * pn_offset+4. byte0's low bits and the packet number bytes are masked. */
 
-#define QUIC_HP_SAMPLE 16
-#define QUIC_HP_LONG_MASK 0x0f  /* long header: mask 4 low bits of byte0 */
-#define QUIC_HP_SHORT_MASK 0x1f /* short header: mask 5 low bits of byte0 */
+#define HP_SAMPLE 16
+#define HP_LONG_MASK 0x0f  /* long header: mask 4 low bits of byte0 */
+#define HP_SHORT_MASK 0x1f /* short header: mask 5 low bits of byte0 */
 
 /* Compute the 5-byte header-protection mask from a 16-byte sample. */
-void hp_mask(const aes128* hp, const u8 sample[QUIC_HP_SAMPLE], u8 mask[5]);
+void hp_mask(const aes128* hp, const u8 sample[HP_SAMPLE], u8 mask[5]);
 
 /** Header fields covered by protection: byte0, the packet-number bytes, and
  * which low bits of byte0 are masked (long 0x0f / short 0x1f). */

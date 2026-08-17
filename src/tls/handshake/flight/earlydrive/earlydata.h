@@ -1,5 +1,5 @@
-#ifndef QUIC_EARLYDRIVE_EARLYDATA_H
-#define QUIC_EARLYDRIVE_EARLYDATA_H
+#ifndef EARLYDRIVE_EARLYDATA_H
+#define EARLYDRIVE_EARLYDATA_H
 
 /* RFC 9001 4.5 / RFC 9000 9: drives the interaction between 0-RTT (early
  * data) and connection migration. The 0-RTT keys, the resumption ticket, the

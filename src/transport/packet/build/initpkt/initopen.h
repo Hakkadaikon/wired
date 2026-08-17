@@ -1,5 +1,5 @@
-#ifndef QUIC_INITPKT_INITOPEN_H
-#define QUIC_INITPKT_INITOPEN_H
+#ifndef INITPKT_INITOPEN_H
+#define INITPKT_INITOPEN_H
 
 #include "common/bytes/span/span.h"
 #include "transport/version/version/version.h"
@@ -9,7 +9,7 @@
  * protection, and AEAD-opens the payload in place. On success *crypto views
  * the recovered frame bytes within pkt. Returns 1 on success, 0 on
  * authentication failure or short input. Equivalent to
- * initpkt_open_ver(dcid, QUIC_VERSION_1, pkt, crypto). */
+ * initpkt_open_ver(dcid, VERSION_1, pkt, crypto). */
 int initpkt_open(wired_span dcid, wired_mspan pkt, wired_span* crypto);
 
 /* RFC 9001 5.2 / RFC 9369 3.3.1: same as initpkt_open, but deriving

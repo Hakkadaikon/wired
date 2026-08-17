@@ -3,10 +3,10 @@
 /* A loop set up so the only gate under test is the named one: keys installed,
  * path validated (anti-amp lifted), congestion window wide open. */
 static void mk(evloop* c) {
-  evloop_init_in in = {QUIC_LEVEL_INITIAL, 1u << 20, 10};
+  evloop_init_in in = {LEVEL_INITIAL, 1u << 20, 10};
   evloop_init(c, &in);
   initial_keys k = {0};
-  keyset_install(&c->gate.keys, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&c->gate.keys, LEVEL_INITIAL, &k);
   c->gate.validated = 1;
 }
 
@@ -91,7 +91,7 @@ static void test_idle_moves_to_draining(void) {
   c.idle.armed              = 1;
   c.idle.deadline           = 0;
   evloop_step(&c, 1);
-  CHECK(c.gate.phase != QUIC_CONNLOOP_ACTIVE);
+  CHECK(c.gate.phase != CONNLOOP_ACTIVE);
   u64 pn = c.next_pn;
   evloop_step(&c, 2);
   CHECK(c.next_pn == pn); /* no normal send once draining */
@@ -158,7 +158,7 @@ static void test_pto_probe_under_antiamp(void) {
   mk(&c);
   c.bytes_in_flight      = 10;
   c.gate.sent.e[0].used  = 1;
-  c.gate.sent.e[0].state = QUIC_SP_INFLIGHT;
+  c.gate.sent.e[0].state = SP_INFLIGHT;
   c.gate.validated       = 0;
   c.gate.recv_bytes      = 0; /* no budget */
   c.gate.sent_bytes      = 0;
@@ -183,7 +183,7 @@ static void test_recv_under_antiamp_resets_and_fires_pto(void) {
   c.gate.sent_bytes      = 0;
   c.bytes_in_flight      = 10;
   c.gate.sent.e[0].used  = 1;
-  c.gate.sent.e[0].state = QUIC_SP_INFLIGHT;
+  c.gate.sent.e[0].state = SP_INFLIGHT;
   c.pto.armed            = 1;
   c.pto.deadline         = 1000000; /* far future: would not fire on its own */
   evloop_on_receive(&c, 1);         /* the datagram that unblocks anti-amp */
@@ -274,16 +274,16 @@ static void test_close_never_returns_active(void) {
   evloop c;
   mk(&c);
   evloop_close(&c, 0);
-  CHECK(c.gate.phase != QUIC_CONNLOOP_ACTIVE);
+  CHECK(c.gate.phase != CONNLOOP_ACTIVE);
   evloop_close(&c, 1);
-  CHECK(c.gate.phase != QUIC_CONNLOOP_ACTIVE);
+  CHECK(c.gate.phase != CONNLOOP_ACTIVE);
 }
 
 /* RFC 9000 10.2: a closed connection does no further loop work. */
 static void test_closed_does_nothing(void) {
   evloop c;
   mk(&c);
-  c.gate.phase              = QUIC_CONNLOOP_CLOSED;
+  c.gate.phase              = CONNLOOP_CLOSED;
   c.have_new_data           = 1;
   c.gate.handshake_complete = 1;
   evloop_on_receive(&c, 1);
@@ -334,12 +334,12 @@ static void test_discard_keys_resets_pto_and_loss_timers(void) {
   c.pto.deadline  = 5;
   c.loss.armed    = 1;
   c.loss.deadline = 5;
-  evloop_discard_keys(&c, QUIC_LEVEL_INITIAL);
+  evloop_discard_keys(&c, LEVEL_INITIAL);
   CHECK(c.pto.armed == 0);
   CHECK(c.loss.armed == 0);
   {
     const initial_keys* out = 0;
-    CHECK(keyset_for_level(&c.gate.keys, QUIC_LEVEL_INITIAL, &out) == 0);
+    CHECK(keyset_for_level(&c.gate.keys, LEVEL_INITIAL, &out) == 0);
   }
 }
 
@@ -348,8 +348,8 @@ static void test_discard_keys_resets_pto_and_loss_timers(void) {
 static void test_discard_keys_idempotent(void) {
   evloop c;
   mk(&c);
-  evloop_discard_keys(&c, QUIC_LEVEL_INITIAL);
-  evloop_discard_keys(&c, QUIC_LEVEL_INITIAL);
+  evloop_discard_keys(&c, LEVEL_INITIAL);
+  evloop_discard_keys(&c, LEVEL_INITIAL);
   CHECK(c.pto.armed == 0);
   CHECK(c.loss.armed == 0);
 }
@@ -362,10 +362,10 @@ static void test_discard_keys_clears_sent_and_inflight_bytes(void) {
   mk(&c);
   c.bytes_in_flight      = 1200;
   c.gate.sent.e[0].used  = 1;
-  c.gate.sent.e[0].state = QUIC_SP_INFLIGHT;
+  c.gate.sent.e[0].state = SP_INFLIGHT;
   c.gate.sent.e[0].pn    = 7;
   CHECK(sentpkt_count(&c.gate.sent) == 1);
-  evloop_discard_keys(&c, QUIC_LEVEL_INITIAL);
+  evloop_discard_keys(&c, LEVEL_INITIAL);
   CHECK(c.bytes_in_flight == 0);
   CHECK(sentpkt_count(&c.gate.sent) == 0);
 }

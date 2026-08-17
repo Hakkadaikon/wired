@@ -1,5 +1,5 @@
-#ifndef QUIC_KEYS_PROMOTE_H
-#define QUIC_KEYS_PROMOTE_H
+#ifndef KEYS_PROMOTE_H
+#define KEYS_PROMOTE_H
 
 #include "crypto/kdf/keys/keyset.h"
 

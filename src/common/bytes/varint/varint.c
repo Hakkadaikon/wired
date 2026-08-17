@@ -4,7 +4,7 @@
 
 usz varint_len(u64 v) {
   /* index by how many of the 4 thresholds v exceeds */
-  static const u64 max[4] = {0x3F, 0x3FFF, 0x3FFFFFFF, QUIC_VARINT_MAX};
+  static const u64 max[4] = {0x3F, 0x3FFF, 0x3FFFFFFF, VARINT_MAX};
   static const usz len[5] = {1, 2, 4, 8, 0};
   usz              i      = 0;
   while (i < 4 && v > max[i]) i++;

@@ -1,5 +1,5 @@
-#ifndef QUIC_ASN1_DER_H
-#define QUIC_ASN1_DER_H
+#ifndef ASN1_DER_H
+#define ASN1_DER_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -8,13 +8,13 @@
  * Length short form (<128) and long form 0x81/0x82 (1/2 octet length). */
 
 /* X.690 8. Universal class tags used by X.509 (RFC 5280). */
-#define QUIC_DER_INTEGER 0x02
-#define QUIC_DER_BIT_STRING 0x03
-#define QUIC_DER_OCTET_STRING 0x04
-#define QUIC_DER_NULL 0x05
-#define QUIC_DER_OID 0x06
-#define QUIC_DER_SEQUENCE 0x30
-#define QUIC_DER_SET 0x31
+#define DER_INTEGER 0x02
+#define DER_BIT_STRING 0x03
+#define DER_OCTET_STRING 0x04
+#define DER_NULL 0x05
+#define DER_OID 0x06
+#define DER_SEQUENCE 0x30
+#define DER_SET 0x31
 
 /** One decoded TLV: its tag, a view of its value, and the octets it consumed
  * (header + value) from the input. */

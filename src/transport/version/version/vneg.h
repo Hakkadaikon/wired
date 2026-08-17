@@ -1,5 +1,5 @@
-#ifndef QUIC_VERSION_VNEG_H
-#define QUIC_VERSION_VNEG_H
+#ifndef VERSION_VNEG_H
+#define VERSION_VNEG_H
 
 #include "transport/version/version/version.h"
 
@@ -9,17 +9,17 @@
  * VERSION_NEGOTIATION_ERROR. */
 
 typedef enum {
-  QUIC_VNEG_INITIAL = 0,
-  QUIC_VNEG_REACTED, /* reacted to one VN packet, retrying */
-  QUIC_VNEG_CONFIRMED,
-  QUIC_VNEG_ERROR /* VERSION_NEGOTIATION_ERROR */
+  VNEG_INITIAL = 0,
+  VNEG_REACTED, /* reacted to one VN packet, retrying */
+  VNEG_CONFIRMED,
+  VNEG_ERROR /* VERSION_NEGOTIATION_ERROR */
 } vneg_phase;
 
 typedef struct {
   vneg_phase phase;
   u32        negotiated; /* the confirmed negotiated version */
   u8         reacted;    /* latched once we reacted to a VN packet */
-  u32        supported[QUIC_VI_MAX_AVAILABLE]; /* our supported versions */
+  u32        supported[VI_MAX_AVAILABLE]; /* our supported versions */
   usz        n_supported;
 } vneg;
 

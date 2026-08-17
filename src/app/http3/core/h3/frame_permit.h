@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_FRAME_PERMIT_H
-#define QUIC_H3_FRAME_PERMIT_H
+#ifndef H3_FRAME_PERMIT_H
+#define H3_FRAME_PERMIT_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -12,9 +12,9 @@
  */
 
 enum {
-  QUIC_H3_STREAM_KIND_CONTROL = 0,
-  QUIC_H3_STREAM_KIND_REQUEST = 1,
-  QUIC_H3_STREAM_KIND_PUSH    = 2
+  H3_STREAM_KIND_CONTROL = 0,
+  H3_STREAM_KIND_REQUEST = 1,
+  H3_STREAM_KIND_PUSH    = 2
 };
 
 /* Returns 1 if frame_type is permitted on a stream of stream_kind, else 0. */

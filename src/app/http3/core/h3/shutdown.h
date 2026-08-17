@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_SHUTDOWN_H
-#define QUIC_H3_SHUTDOWN_H
+#ifndef H3_SHUTDOWN_H
+#define H3_SHUTDOWN_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_IO_UDPTRANSPORT_H
-#define QUIC_IO_UDPTRANSPORT_H
+#ifndef IO_UDPTRANSPORT_H
+#define IO_UDPTRANSPORT_H
 
 #include "common/platform/sys/syscall.h"
 

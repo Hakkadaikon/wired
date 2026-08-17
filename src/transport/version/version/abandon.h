@@ -1,5 +1,5 @@
-#ifndef QUIC_VERSION_ABANDON_H
-#define QUIC_VERSION_ABANDON_H
+#ifndef VERSION_ABANDON_H
+#define VERSION_ABANDON_H
 
 #include "transport/version/version/version.h"
 

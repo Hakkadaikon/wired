@@ -11,12 +11,12 @@ static void enqueue(memlink* l, const u8* buf, usz len) {
   memlink_dgram* d = &l->slots[l->tail];
   for (usz i = 0; i < len; i++) d->data[i] = buf[i];
   d->len  = len;
-  l->tail = (l->tail + 1) % QUIC_MEMLINK_SLOTS;
+  l->tail = (l->tail + 1) % MEMLINK_SLOTS;
   l->count++;
 }
 
 int memlink_send(memlink* l, const u8* buf, usz len) {
-  if (l->count == QUIC_MEMLINK_SLOTS || len > QUIC_MEMLINK_MTU) return 0;
+  if (l->count == MEMLINK_SLOTS || len > MEMLINK_MTU) return 0;
   enqueue(l, buf, len);
   return 1;
 }
@@ -25,7 +25,7 @@ int memlink_send(memlink* l, const u8* buf, usz len) {
 static usz dequeue(memlink* l, u8* out) {
   memlink_dgram* d = &l->slots[l->head];
   for (usz i = 0; i < d->len; i++) out[i] = d->data[i];
-  l->head = (l->head + 1) % QUIC_MEMLINK_SLOTS;
+  l->head = (l->head + 1) % MEMLINK_SLOTS;
   l->count--;
   return d->len;
 }

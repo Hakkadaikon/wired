@@ -7,7 +7,7 @@
 usz tls_sni_encode(wired_obuf* out, wired_span host) {
   usz off = 3;
   if (host.n > 0xFFFF || off + host.n > out->cap) return 0;
-  out->p[0] = QUIC_SNI_HOST_NAME;
+  out->p[0] = SNI_HOST_NAME;
   be_put_be16(out->p + 1, (u16)host.n);
   bytes_put(
       wired_mspan_of(out->p, out->cap), &off,
@@ -20,7 +20,7 @@ usz tls_sni_encode(wired_obuf* out, wired_span host) {
 static int sni_head(wired_span buf, usz* len) {
   if (buf.n < 3) return 0;
   *len = (usz)buf.p[1] << 8 | buf.p[2];
-  return buf.p[0] == QUIC_SNI_HOST_NAME && 3 + *len <= buf.n;
+  return buf.p[0] == SNI_HOST_NAME && 3 + *len <= buf.n;
 }
 
 usz tls_sni_decode(wired_span buf, wired_span* host) {

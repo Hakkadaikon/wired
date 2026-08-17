@@ -1,19 +1,19 @@
-#ifndef QUIC_TLS_EXT_ALGS_H
-#define QUIC_TLS_EXT_ALGS_H
+#ifndef TLS_EXT_ALGS_H
+#define TLS_EXT_ALGS_H
 
 #include "common/platform/sys/syscall.h"
-#include "tls/handshake/core/tls/handshake.h" /* QUIC_GROUP_X25519 */
+#include "tls/handshake/core/tls/handshake.h" /* GROUP_X25519 */
 
 /* RFC 8446 4.2.7: supported_groups, extension_type 0x000a.
  * RFC 8446 4.2.3: signature_algorithms, extension_type 0x000d. Both bodies are
  * a 2-byte list length followed by 2-byte entries. */
 
-#define QUIC_EXT_SUPPORTED_GROUPS 0x000a
-#define QUIC_EXT_SIGNATURE_ALGORITHMS 0x000d
+#define EXT_SUPPORTED_GROUPS 0x000a
+#define EXT_SIGNATURE_ALGORITHMS 0x000d
 
-#define QUIC_SIG_ECDSA_SECP256R1_SHA256 0x0403
-#define QUIC_SIG_RSA_PSS_RSAE_SHA256 0x0804
-#define QUIC_SIG_ED25519 0x0807
+#define SIG_ECDSA_SECP256R1_SHA256 0x0403
+#define SIG_RSA_PSS_RSAE_SHA256 0x0804
+#define SIG_ED25519 0x0807
 
 /* Encode supported_groups offering x25519 only. Returns bytes written into
  * buf (cap total), or 0 if it does not fit. */

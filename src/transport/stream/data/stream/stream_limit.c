@@ -3,7 +3,7 @@
 #include "transport/stream/data/stream/stream_id.h"
 
 int stream_max_streams_ok(u64 max_streams) {
-  return max_streams <= QUIC_MAX_STREAMS_LIMIT;
+  return max_streams <= MAX_STREAMS_LIMIT;
 }
 
 int stream_max_id(const stream_kind* k, u64 max_streams, u64* out) {

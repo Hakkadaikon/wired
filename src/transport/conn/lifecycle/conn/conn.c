@@ -5,21 +5,21 @@
 /* RFC 9000 phase + lifecycle. Forward only through open phases; any open
  * phase may close or drain; both converge to Closed. Closed never reopens. */
 static const fsm_row phase_rows[] = {
-    {QUIC_PHASE_INITIAL, QUIC_CONN_EV_HS_PROGRESS, QUIC_PHASE_HANDSHAKE},
-    {QUIC_PHASE_HANDSHAKE, QUIC_CONN_EV_HS_CONFIRMED, QUIC_PHASE_CONFIRMED},
-    {QUIC_PHASE_INITIAL, QUIC_CONN_EV_CLOSE, QUIC_PHASE_CLOSING},
-    {QUIC_PHASE_HANDSHAKE, QUIC_CONN_EV_CLOSE, QUIC_PHASE_CLOSING},
-    {QUIC_PHASE_CONFIRMED, QUIC_CONN_EV_CLOSE, QUIC_PHASE_CLOSING},
-    {QUIC_PHASE_INITIAL, QUIC_CONN_EV_DRAIN, QUIC_PHASE_DRAINING},
-    {QUIC_PHASE_HANDSHAKE, QUIC_CONN_EV_DRAIN, QUIC_PHASE_DRAINING},
-    {QUIC_PHASE_CONFIRMED, QUIC_CONN_EV_DRAIN, QUIC_PHASE_DRAINING},
-    {QUIC_PHASE_CLOSING, QUIC_CONN_EV_CLOSED, QUIC_PHASE_CLOSED},
-    {QUIC_PHASE_DRAINING, QUIC_CONN_EV_CLOSED, QUIC_PHASE_CLOSED},
+    {PHASE_INITIAL, CONN_EV_HS_PROGRESS, PHASE_HANDSHAKE},
+    {PHASE_HANDSHAKE, CONN_EV_HS_CONFIRMED, PHASE_CONFIRMED},
+    {PHASE_INITIAL, CONN_EV_CLOSE, PHASE_CLOSING},
+    {PHASE_HANDSHAKE, CONN_EV_CLOSE, PHASE_CLOSING},
+    {PHASE_CONFIRMED, CONN_EV_CLOSE, PHASE_CLOSING},
+    {PHASE_INITIAL, CONN_EV_DRAIN, PHASE_DRAINING},
+    {PHASE_HANDSHAKE, CONN_EV_DRAIN, PHASE_DRAINING},
+    {PHASE_CONFIRMED, CONN_EV_DRAIN, PHASE_DRAINING},
+    {PHASE_CLOSING, CONN_EV_CLOSED, PHASE_CLOSED},
+    {PHASE_DRAINING, CONN_EV_CLOSED, PHASE_CLOSED},
 };
 
 void conn_init(conn* c) {
-  c->phase = QUIC_PHASE_INITIAL;
-  for (usz i = 0; i < QUIC_PN_SPACE_COUNT; i++) c->next_pn[i] = 0;
+  c->phase = PHASE_INITIAL;
+  for (usz i = 0; i < PN_SPACE_COUNT; i++) c->next_pn[i] = 0;
 }
 
 int conn_step(conn* c, conn_event ev) {
@@ -33,8 +33,8 @@ int conn_step(conn* c, conn_event ev) {
 /* The Application space may only be used once the handshake is confirmed
  * (and while the connection is still open). */
 static int app_space_allowed(const conn* c, pn_space space) {
-  if (space != QUIC_PN_APPLICATION) return 1;
-  return c->phase == QUIC_PHASE_CONFIRMED;
+  if (space != PN_APPLICATION) return 1;
+  return c->phase == PHASE_CONFIRMED;
 }
 
 int conn_next_pn(conn* c, pn_space space, u64* pn) {

@@ -1,5 +1,5 @@
-#ifndef QUIC_P256_ECDSA_VERIFY_H
-#define QUIC_P256_ECDSA_VERIFY_H
+#ifndef P256_ECDSA_VERIFY_H
+#define P256_ECDSA_VERIFY_H
 
 #include "common/platform/sys/syscall.h"
 

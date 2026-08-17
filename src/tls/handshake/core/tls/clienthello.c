@@ -17,7 +17,7 @@ static usz put_prefix(u8* out, usz off, const u8 random[32]) {
   for (usz i = 0; i < 32; i++) out[off + 2 + i] = random[i];
   out[off + 34] = 0;
   be_put_be16(out + off + 35, 2);
-  be_put_be16(out + off + 37, QUIC_TLS_AES128_GCM_SHA256);
+  be_put_be16(out + off + 37, TLS_AES128_GCM_SHA256);
   out[off + 39] = 1;
   out[off + 40] = 0;
   return off + 41;
@@ -60,8 +60,7 @@ static int append_sni(wired_obuf* out, wired_span sni) {
   if (sni.n == 0) return 1;
   e = tls_sni_encode(&bob, sni);
   be_put_be16(body, (u16)e);
-  return (e != 0) &
-         append_wrapped(out, QUIC_SNI_TYPE, wired_span_of(body, e + 2));
+  return (e != 0) & append_wrapped(out, SNI_TYPE, wired_span_of(body, e + 2));
 }
 
 /* ALPN offering h3 (RFC 7301). */
@@ -69,7 +68,7 @@ static int append_alpn(wired_obuf* out) {
   u8         body[16];
   wired_obuf bob = obuf_of(body, sizeof(body));
   usz        a   = tls_alpn_encode(&bob, wired_span_of((const u8*)"h3", 2));
-  return (a != 0) & append_wrapped(out, QUIC_ALPN_TYPE, wired_span_of(body, a));
+  return (a != 0) & append_wrapped(out, ALPN_TYPE, wired_span_of(body, a));
 }
 
 /* quic_transport_parameters (RFC 9001 8.2). */
@@ -114,7 +113,7 @@ static usz build_client_hello(
     const u8*                  pub,
     const clienthello_exts_in* exts,
     wired_obuf*                out) {
-  usz off = hs_begin(out->p, out->cap, QUIC_HS_CLIENT_HELLO);
+  usz off = hs_begin(out->p, out->cap, HS_CLIENT_HELLO);
   usz block_start;
   if (off == 0 || off + 41 + 2 > out->cap)
     return 0; /* header + prefix + ext_len */
@@ -126,7 +125,7 @@ static usz build_client_hello(
 }
 
 usz tls_client_hello(const clienthello_in* in, wired_obuf* out) {
-  clienthello_exts_in exts = {in->sni, in->tp, QUIC_GROUP_X25519, 32};
+  clienthello_exts_in exts = {in->sni, in->tp, GROUP_X25519, 32};
   return build_client_hello(in->random, in->pub, &exts, out);
 }
 

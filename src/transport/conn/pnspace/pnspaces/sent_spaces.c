@@ -3,7 +3,7 @@
 #include "transport/recovery/rtx/sentpkt/ack_process.h"
 
 void pnspaces_sent_init(pnspaces_sent* s) {
-  for (int i = 0; i < QUIC_PNS_COUNT; i++) sentpkt_init(&s->t[i]);
+  for (int i = 0; i < PNS_COUNT; i++) sentpkt_init(&s->t[i]);
 }
 
 int pnspaces_on_send(pnspaces_sent* s, int space, const sentpkt_out* pkt) {

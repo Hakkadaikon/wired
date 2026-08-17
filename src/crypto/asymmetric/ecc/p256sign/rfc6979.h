@@ -1,5 +1,5 @@
-#ifndef QUIC_P256SIGN_RFC6979_H
-#define QUIC_P256SIGN_RFC6979_H
+#ifndef P256SIGN_RFC6979_H
+#define P256SIGN_RFC6979_H
 
 #include "common/platform/sys/syscall.h"
 

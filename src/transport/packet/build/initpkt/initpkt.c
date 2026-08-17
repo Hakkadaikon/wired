@@ -34,8 +34,8 @@ static int build_payload(
  * 17.2 for v1, RFC 9369 3.2 for v2). 0 for a version this SDK cannot encode
  * type bits for. */
 static u8 initpkt_byte0(u32 version) {
-  int wire = version == QUIC_VERSION_2 ? v2_packet_type(QUIC_LT_INITIAL)
-                                       : v1_packet_type(QUIC_LT_INITIAL);
+  int wire = version == VERSION_2 ? v2_packet_type(LT_INITIAL)
+                                  : v1_packet_type(LT_INITIAL);
   return wire < 0 ? 0 : (u8)(0xC0 | (wire << 4));
 }
 
@@ -79,5 +79,5 @@ int initpkt_build_ver(u32 version, const initpkt_desc* d, wired_obuf* out) {
 /* RFC 9000 17.2.2: emit a complete Initial long header carrying the SCID and an
  * empty Token, padded to the 1200-byte datagram floor. */
 int initpkt_build(const initpkt_desc* d, wired_obuf* out) {
-  return initpkt_build_ver(QUIC_VERSION_1, d, out);
+  return initpkt_build_ver(VERSION_1, d, out);
 }

@@ -13,18 +13,17 @@ typedef struct {
 } instr_spec;
 
 static const instr_spec enc_specs[] = {
-    [QUIC_QPACK_ENC_SET_CAPACITY] = {0x20, 0xe0, 5}, /* 001 */
-    [QUIC_QPACK_ENC_INSERT_NAME_REF] =
-        {0x80, 0x80, 6}, /* 1   (T bit is in prefix) */
-    [QUIC_QPACK_ENC_INSERT_LITERAL] =
-        {0x40, 0xc0, 5},                          /* 01  (H bit is in prefix) */
-    [QUIC_QPACK_ENC_DUPLICATE] = {0x00, 0xe0, 5}, /* 000 */
+    [QPACK_ENC_SET_CAPACITY] = {0x20, 0xe0, 5}, /* 001 */
+    [QPACK_ENC_INSERT_NAME_REF] =
+        {0x80, 0x80, 6},                          /* 1   (T bit is in prefix) */
+    [QPACK_ENC_INSERT_LITERAL] = {0x40, 0xc0, 5}, /* 01  (H bit is in prefix) */
+    [QPACK_ENC_DUPLICATE]      = {0x00, 0xe0, 5}, /* 000 */
 };
 
 static const instr_spec dec_specs[] = {
-    [QUIC_QPACK_DEC_SECTION_ACK]   = {0x80, 0x80, 7}, /* 1  */
-    [QUIC_QPACK_DEC_STREAM_CANCEL] = {0x40, 0xc0, 6}, /* 01 */
-    [QUIC_QPACK_DEC_INSERT_COUNT]  = {0x00, 0xc0, 6}, /* 00 */
+    [QPACK_DEC_SECTION_ACK]   = {0x80, 0x80, 7}, /* 1  */
+    [QPACK_DEC_STREAM_CANCEL] = {0x40, 0xc0, 6}, /* 01 */
+    [QPACK_DEC_INSERT_COUNT]  = {0x00, 0xc0, 6}, /* 00 */
 };
 
 /* Encode value under the given spec: its pattern in the high bits, value in an

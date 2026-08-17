@@ -1,5 +1,5 @@
-#ifndef QUIC_CONNRUNNER_SEND_H
-#define QUIC_CONNRUNNER_SEND_H
+#ifndef CONNRUNNER_SEND_H
+#define CONNRUNNER_SEND_H
 
 #include "transport/conn/loop/connrunner/connrunner.h"
 
@@ -45,7 +45,7 @@ void connrunner_track_sent(connrunner* r, const connrunner_sent_in* in);
 void connrunner_track_loss(connrunner* r, u64 now);
 
 /* Same detection pass as connrunner_track_loss, but also returns the
- * full lost-pn set into lost[0..*n) (capacity QUIC_SENTMETA_CAP) for a caller
+ * full lost-pn set into lost[0..*n) (capacity SENTMETA_CAP) for a caller
  * that needs to recognize a specific pn among them (e.g. RFC 8899 DPLPMTUD's
  * outstanding probe) rather than just the oldest one. */
 void connrunner_track_loss_ex(connrunner* r, u64 now, u64* lost, usz* n);

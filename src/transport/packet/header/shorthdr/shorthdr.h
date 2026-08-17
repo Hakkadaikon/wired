@@ -1,5 +1,5 @@
-#ifndef QUIC_SHORTHDR_SHORTHDR_H
-#define QUIC_SHORTHDR_SHORTHDR_H
+#ifndef SHORTHDR_SHORTHDR_H
+#define SHORTHDR_SHORTHDR_H
 
 #include "common/bytes/span/span.h"
 

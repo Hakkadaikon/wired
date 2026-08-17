@@ -1,5 +1,5 @@
-#ifndef QUIC_ACKGEN_ACKRANGECONV_H
-#define QUIC_ACKGEN_ACKRANGECONV_H
+#ifndef ACKGEN_ACKRANGECONV_H
+#define ACKGEN_ACKRANGECONV_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/packet/frame/frame/ack.h"
@@ -16,7 +16,7 @@
  * Length, raw[2k-1] = Gap, raw[2k] = Range Length for k >= 1); n is its
  * element count (odd, >= 1). largest is the frame's Largest Acknowledged.
  * Fills f->ranges[]/f->n_ranges. Returns 1 on success, 0 if n is not a valid
- * odd count or the range count would exceed QUIC_ACK_MAX_RANGES. */
+ * odd count or the range count would exceed ACK_MAX_RANGES. */
 int ackrangeconv_to_frame(u64 largest, const u64* raw, usz n, ack_frame* f);
 
 #endif

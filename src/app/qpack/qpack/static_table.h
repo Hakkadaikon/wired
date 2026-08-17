@@ -1,5 +1,5 @@
-#ifndef QUIC_QPACK_STATIC_TABLE_H
-#define QUIC_QPACK_STATIC_TABLE_H
+#ifndef QPACK_STATIC_TABLE_H
+#define QPACK_STATIC_TABLE_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -7,7 +7,7 @@
  * entries at indices 0..98. Names and values are NUL-terminated C strings
  * (an empty value is ""). */
 
-#define QUIC_QPACK_STATIC_COUNT 99
+#define QPACK_STATIC_COUNT 99
 
 /* Look up entry `index`, storing its name and value. Returns 1 ok, 0 if
  * index is out of range. */

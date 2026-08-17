@@ -1,5 +1,5 @@
-#ifndef QUIC_H3REQENC_REQUEST_HEADERS_H
-#define QUIC_H3REQENC_REQUEST_HEADERS_H
+#ifndef H3REQENC_REQUEST_HEADERS_H
+#define H3REQENC_REQUEST_HEADERS_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

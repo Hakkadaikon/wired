@@ -193,7 +193,7 @@ static void test_fullhs_policy_gate(void) {
   tlsdriver cltls, svtls;
   fullhs    cl, sv;
   u8        sh[512], cert_seed[32], cert_msg[768];
-  u8        th[QUIC_SHA256_DIGEST], cv[256], svfin[64];
+  u8        th[SHA256_DIGEST], cv[256], svfin[64];
   usz       shn, cert_msg_len, cv_len, n;
 
   fp_new_client(&cltls, &svtls, &cl, sh, &shn);
@@ -213,7 +213,7 @@ static void test_fullhs_policy_gate(void) {
   }
   CHECK(
       fullhs_recv_certverify(
-          &sv, wired_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
+          &sv, wired_span_of(cv, cv_len), TLS_SCHEME_ED25519) == 1);
   {
     wired_obuf ob = obuf_of(svfin, sizeof(svfin));
     CHECK(fullhs_send_finished(&sv, &ob) == 1);
@@ -224,7 +224,7 @@ static void test_fullhs_policy_gate(void) {
   CHECK(fullhs_recv_cert(&cl, cert_msg, cert_msg_len) == 0);
   CHECK(
       fullhs_recv_certverify(
-          &cl, wired_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 0);
+          &cl, wired_span_of(cv, cv_len), TLS_SCHEME_ED25519) == 0);
   CHECK(fullhs_recv_finished(&cl, svfin, n) == 0);
   CHECK(fullhs_is_complete(&cl) == 0);
 }

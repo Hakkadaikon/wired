@@ -1,5 +1,5 @@
-#ifndef QUIC_PATH_PREFADDR_H
-#define QUIC_PATH_PREFADDR_H
+#ifndef PATH_PREFADDR_H
+#define PATH_PREFADDR_H
 
 /* RFC 9000 9.6: migrating to a server's preferred_address requires the new
  * path to be validated and the handshake confirmed. */

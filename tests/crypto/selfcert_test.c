@@ -13,7 +13,7 @@ static void test_der_tlv_roundtrip(void) {
   u8         out[8];
   wired_obuf o   = obuf_of(out, sizeof(out));
   const u8   v[] = {0xaa, 0xbb};
-  CHECK(selfcert_der_tlv(QUIC_DER_INTEGER, wired_span_of(v, 2), &o) == 1);
+  CHECK(selfcert_der_tlv(DER_INTEGER, wired_span_of(v, 2), &o) == 1);
   CHECK(o.len == 4 && out[0] == 0x02 && out[1] == 0x02);
 
   der_tlv t;
@@ -28,9 +28,7 @@ static void test_der_tlv_longform(void) {
   u8         big[200] = {0};
   u8         out[210];
   wired_obuf o = obuf_of(out, sizeof(out));
-  CHECK(
-      selfcert_der_tlv(QUIC_DER_OCTET_STRING, wired_span_of(big, 200), &o) ==
-      1);
+  CHECK(selfcert_der_tlv(DER_OCTET_STRING, wired_span_of(big, 200), &o) == 1);
   CHECK(out[1] == 0x81 && out[2] == 200 && o.len == 203);
 }
 
@@ -39,7 +37,7 @@ static void test_der_tlv_overflow(void) {
   u8         out[3];
   wired_obuf o   = obuf_of(out, sizeof(out));
   const u8   v[] = {1, 2, 3, 4};
-  CHECK(selfcert_der_tlv(QUIC_DER_INTEGER, wired_span_of(v, 4), &o) == 0);
+  CHECK(selfcert_der_tlv(DER_INTEGER, wired_span_of(v, 4), &o) == 0);
 }
 
 /* RFC 8410 4. The built SPKI exposes the same 32-byte Ed25519 key. */

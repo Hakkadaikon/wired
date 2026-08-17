@@ -21,8 +21,7 @@ int ecdsasig_encode(
   usz        len = 0;
   wired_obuf o   = obuf_of(out, cap);
   if (!sig_body(r, s, body, &len)) return 0;
-  if (!selfcert_der_tlv(QUIC_DER_SEQUENCE, wired_span_of(body, len), &o))
-    return 0;
+  if (!selfcert_der_tlv(DER_SEQUENCE, wired_span_of(body, len), &o)) return 0;
   *out_len = o.len;
   return 1;
 }

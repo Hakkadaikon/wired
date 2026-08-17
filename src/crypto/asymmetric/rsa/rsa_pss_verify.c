@@ -4,7 +4,7 @@
 #include "crypto/asymmetric/rsa/pss.h"
 #include "crypto/asymmetric/rsa/rsa_verify.h"
 
-#define RSA_PSS_MAX ((usz)QUIC_BN_LIMBS * 8)
+#define RSA_PSS_MAX ((usz)BN_LIMBS * 8)
 
 /* Significant bits in a nonzero octet (1..8). */
 static usz rsa_byte_bits(u8 b) {
@@ -32,7 +32,7 @@ static usz rsa_modbits(const u8* n, usz n_len) {
 
 /* e = 65537 (RFC 8017 common public exponent). */
 static void pss_e_f4(bn* e) {
-  for (usz i = 0; i < QUIC_BN_LIMBS; i++) e->v[i] = 0;
+  for (usz i = 0; i < BN_LIMBS; i++) e->v[i] = 0;
   e->v[0] = 65537;
 }
 

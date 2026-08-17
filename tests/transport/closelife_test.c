@@ -6,9 +6,9 @@ static void test_life_idle_silent_close(void) {
   life_init(&l, 3, 5);
   life_tick(&l);
   life_tick(&l);
-  CHECK(l.phase == QUIC_LIFE_OPEN);
+  CHECK(l.phase == LIFE_OPEN);
   life_tick(&l); /* third tick reaches idle_max */
-  CHECK(l.phase == QUIC_LIFE_CLOSED && l.sent_close == 0);
+  CHECK(l.phase == LIFE_CLOSED && l.sent_close == 0);
 }
 
 /* Receiving a packet resets the idle timer. */
@@ -21,7 +21,7 @@ static void test_life_recv_resets_idle(void) {
   CHECK(l.idle_ticks == 0);
   life_tick(&l);
   life_tick(&l);
-  CHECK(l.phase == QUIC_LIFE_OPEN); /* did not close: timer was reset */
+  CHECK(l.phase == LIFE_OPEN); /* did not close: timer was reset */
 }
 
 /* Immediate close enters CLOSING (sent_close set) and drains to CLOSED. */
@@ -29,10 +29,10 @@ static void test_life_immediate_close(void) {
   life l;
   life_init(&l, 10, 2);
   life_close(&l);
-  CHECK(l.phase == QUIC_LIFE_CLOSING && l.sent_close == 1);
+  CHECK(l.phase == LIFE_CLOSING && l.sent_close == 1);
   life_tick(&l);
   life_tick(&l);
-  CHECK(l.phase == QUIC_LIFE_CLOSED);
+  CHECK(l.phase == LIFE_CLOSED);
 }
 
 /* Peer CONNECTION_CLOSE enters DRAINING (no sent_close) and drains to CLOSED.
@@ -41,10 +41,10 @@ static void test_life_draining(void) {
   life l;
   life_init(&l, 10, 2);
   life_on_peer_close(&l);
-  CHECK(l.phase == QUIC_LIFE_DRAINING && l.sent_close == 0);
+  CHECK(l.phase == LIFE_DRAINING && l.sent_close == 0);
   life_tick(&l);
   life_tick(&l);
-  CHECK(l.phase == QUIC_LIFE_CLOSED);
+  CHECK(l.phase == LIFE_CLOSED);
 }
 
 /* Stateless reset closes immediately. */
@@ -52,7 +52,7 @@ static void test_life_reset(void) {
   life l;
   life_init(&l, 10, 10);
   life_on_reset(&l);
-  CHECK(l.phase == QUIC_LIFE_CLOSED);
+  CHECK(l.phase == LIFE_CLOSED);
 }
 
 /* CLOSED is terminal and the lifecycle is one-way: no event reopens it. */
@@ -65,14 +65,14 @@ static void test_life_closed_terminal(void) {
   life_close(&l);
   life_on_peer_close(&l);
   life_on_reset(&l);
-  CHECK(l.phase == QUIC_LIFE_CLOSED); /* stays closed through everything */
+  CHECK(l.phase == LIFE_CLOSED); /* stays closed through everything */
 
   /* once CLOSING, a peer close does not move back to open/draining */
   life l2;
   life_init(&l2, 10, 10);
   life_close(&l2);
   life_on_peer_close(&l2);
-  CHECK(l2.phase == QUIC_LIFE_CLOSING); /* did not reopen or switch */
+  CHECK(l2.phase == LIFE_CLOSING); /* did not reopen or switch */
 }
 
 /* A sent ack-eliciting packet resets the idle timer (RFC 9000 10.1). */
@@ -85,7 +85,7 @@ static void test_life_send_resets_idle(void) {
   CHECK(l.idle_ticks == 0);
   life_tick(&l);
   life_tick(&l);
-  CHECK(l.phase == QUIC_LIFE_OPEN); /* did not close: timer was reset */
+  CHECK(l.phase == LIFE_OPEN); /* did not close: timer was reset */
 }
 
 /* Entering the close path notifies the app exactly once (RFC 9000 10.2). */
@@ -97,13 +97,13 @@ static void test_life_notify_once_on_close(void) {
   CHECK(l.notified == 1);
   /* a later peer close is ignored (one-way), so no second notification */
   life_on_peer_close(&l);
-  CHECK(l.notified == 1 && l.phase == QUIC_LIFE_CLOSING);
+  CHECK(l.notified == 1 && l.phase == LIFE_CLOSING);
 
   /* peer close path also notifies once */
   life d;
   life_init(&d, 10, 2);
   life_on_peer_close(&d);
-  CHECK(d.notified == 1 && d.phase == QUIC_LIFE_DRAINING);
+  CHECK(d.notified == 1 && d.phase == LIFE_DRAINING);
 }
 
 /* An idle silent close does NOT notify the app (RFC 9000 10.1). */
@@ -112,7 +112,7 @@ static void test_life_idle_close_does_not_notify(void) {
   life_init(&l, 2, 5);
   life_tick(&l);
   life_tick(&l); /* idle silent close */
-  CHECK(l.phase == QUIC_LIFE_CLOSED && l.notified == 0);
+  CHECK(l.phase == LIFE_CLOSED && l.notified == 0);
 }
 
 void test_closelife(void) {

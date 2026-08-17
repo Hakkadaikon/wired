@@ -5,9 +5,9 @@ static void test_h3control_single(void) {
   h3_control c;
   h3_control_init(&c);
   h3_control_open(&c);
-  CHECK(c.control_open == 1 && c.error == QUIC_H3_ERR_NONE);
+  CHECK(c.control_open == 1 && c.error == H3_ERR_NONE);
   h3_control_open(&c);
-  CHECK(c.error == QUIC_H3_ERR_STREAM_CREATION);
+  CHECK(c.error == H3_ERR_STREAM_CREATION);
 }
 
 /* Closing the control stream is a critical-stream error. */
@@ -16,7 +16,7 @@ static void test_h3control_closed_critical(void) {
   h3_control_init(&c);
   h3_control_open(&c);
   h3_control_closed(&c);
-  CHECK(c.error == QUIC_H3_ERR_CLOSED_CRITICAL);
+  CHECK(c.error == H3_ERR_CLOSED_CRITICAL);
 }
 
 /* The first control frame must be SETTINGS; a second SETTINGS is unexpected. */
@@ -25,13 +25,13 @@ static void test_h3control_settings(void) {
   h3_control_init(&c);
   /* first frame not SETTINGS -> missing */
   h3_control_frame(&c, 0);
-  CHECK(c.error == QUIC_H3_ERR_MISSING_SETTINGS);
+  CHECK(c.error == H3_ERR_MISSING_SETTINGS);
 
   h3_control_init(&c);
   h3_control_frame(&c, 1); /* SETTINGS first */
-  CHECK(c.settings_seen == 1 && c.error == QUIC_H3_ERR_NONE);
+  CHECK(c.settings_seen == 1 && c.error == H3_ERR_NONE);
   h3_control_frame(&c, 1); /* second SETTINGS */
-  CHECK(c.error == QUIC_H3_ERR_FRAME_UNEXPECTED);
+  CHECK(c.error == H3_ERR_FRAME_UNEXPECTED);
 }
 
 /* GOAWAY ids are monotonically non-increasing. */
@@ -39,14 +39,13 @@ static void test_h3control_goaway_monotone(void) {
   h3_control c;
   h3_control_init(&c);
   h3_control_goaway(&c, 8);
-  CHECK(
-      c.goaway_seen == 1 && c.goaway_limit == 8 && c.error == QUIC_H3_ERR_NONE);
+  CHECK(c.goaway_seen == 1 && c.goaway_limit == 8 && c.error == H3_ERR_NONE);
   /* a smaller id is accepted and lowers the limit */
   h3_control_goaway(&c, 4);
-  CHECK(c.goaway_limit == 4 && c.error == QUIC_H3_ERR_NONE);
+  CHECK(c.goaway_limit == 4 && c.error == H3_ERR_NONE);
   /* a larger id is an ID error */
   h3_control_goaway(&c, 6);
-  CHECK(c.error == QUIC_H3_ERR_ID);
+  CHECK(c.error == H3_ERR_ID);
 }
 
 /* After GOAWAY, requests at or above the limit are refused; below pass. */

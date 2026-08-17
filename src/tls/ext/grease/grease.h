@@ -1,5 +1,5 @@
-#ifndef QUIC_GREASE_GREASE_H
-#define QUIC_GREASE_GREASE_H
+#ifndef GREASE_GREASE_H
+#define GREASE_GREASE_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -8,8 +8,8 @@
  * advertise the grease_quic_bit transport parameter, an endpoint may send
  * packets with this bit set to 0 and must accept such packets. */
 
-#define QUIC_TP_GREASE_QUIC_BIT 0x2ab2
-#define QUIC_BIT_MASK 0x40
+#define TP_GREASE_QUIC_BIT 0x2ab2
+#define BIT_MASK 0x40
 
 /* Encode the grease_quic_bit transport parameter (id, empty value) into buf
  * of cap bytes. Returns bytes written, or 0. */

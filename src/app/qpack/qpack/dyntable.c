@@ -19,14 +19,13 @@ usz qpack_dyn_size(const qpack_dyn* t) { return t->size; }
 static void evict_oldest(qpack_dyn* t) {
   qpack_dyn_entry* e = &t->ring[t->head];
   t->size -= entry_size(e->name_len, e->value_len);
-  t->head = (t->head + 1) % QUIC_QPACK_DYN_MAX_ENTRIES;
+  t->head = (t->head + 1) % QPACK_DYN_MAX_ENTRIES;
   t->count--;
   t->dropped++;
 }
 
 static int fits_fields(const qpack_field* f) {
-  return f->name.n <= QUIC_QPACK_DYN_MAX_NAME &&
-         f->value.n <= QUIC_QPACK_DYN_MAX_VALUE;
+  return f->name.n <= QPACK_DYN_MAX_NAME && f->value.n <= QPACK_DYN_MAX_VALUE;
 }
 
 static int over_capacity(const qpack_dyn* t, usz need) {
@@ -41,7 +40,7 @@ static void make_room(qpack_dyn* t, usz need) {
 static int can_insert(const qpack_dyn* t, usz need, const qpack_field* f) {
   if (!fits_fields(f)) return 0;
   if (need > t->capacity) return 0;
-  return t->count < QUIC_QPACK_DYN_MAX_ENTRIES;
+  return t->count < QPACK_DYN_MAX_ENTRIES;
 }
 
 static void copy_field(u8* dst, wired_span src) {
@@ -49,7 +48,7 @@ static void copy_field(u8* dst, wired_span src) {
 }
 
 static void store_entry(qpack_dyn* t, const qpack_field* f) {
-  usz              slot = (t->head + t->count) % QUIC_QPACK_DYN_MAX_ENTRIES;
+  usz              slot = (t->head + t->count) % QPACK_DYN_MAX_ENTRIES;
   qpack_dyn_entry* e    = &t->ring[slot];
   copy_field(e->name, f->name);
   copy_field(e->value, f->value);

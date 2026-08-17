@@ -1,5 +1,5 @@
-#ifndef QUIC_WT_SESSION_SESSION_H
-#define QUIC_WT_SESSION_SESSION_H
+#ifndef WT_SESSION_SESSION_H
+#define WT_SESSION_SESSION_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

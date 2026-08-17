@@ -6,7 +6,7 @@ static void test_tokentype_retry(void) {
   wired_obuf ob = obuf_of(out, sizeof(out));
   usz        w  = token_tag_retry(&ob, wired_span_of(body, sizeof(body)));
   CHECK(w == 1 + sizeof(body));
-  CHECK(out[0] == QUIC_TOKEN_TAG_RETRY && out[1] == 0xAA && out[2] == 0xBB);
+  CHECK(out[0] == TOKEN_TAG_RETRY && out[1] == 0xAA && out[2] == 0xBB);
   CHECK(token_is_retry(out, w) == 1);
 }
 
@@ -15,7 +15,7 @@ static void test_tokentype_newtoken(void) {
   u8         out[8];
   wired_obuf ob = obuf_of(out, sizeof(out));
   usz        w  = token_tag_newtoken(&ob, wired_span_of(body, sizeof(body)));
-  CHECK(out[0] == QUIC_TOKEN_TAG_NEWTOKEN);
+  CHECK(out[0] == TOKEN_TAG_NEWTOKEN);
   CHECK(token_is_retry(out, w) == 0);
 }
 

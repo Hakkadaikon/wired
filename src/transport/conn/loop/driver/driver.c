@@ -8,23 +8,23 @@
  * the first and sends the rest. Each sent or received message advances both
  * peers' order machines one step, so the two flights interleave into exactly
  * this sequence. */
-static const u8 g_order[QUIC_DRIVER_FLIGHT_MAX][2] = {
-    {QUIC_HSD_CLIENT_HELLO, QUIC_HSD_PROT_INITIAL},
-    {QUIC_HSD_SERVER_HELLO, QUIC_HSD_PROT_INITIAL},
-    {QUIC_HSD_ENCRYPTED_EXT, QUIC_HSD_PROT_HANDSHAKE},
-    {QUIC_HSD_CERTIFICATE, QUIC_HSD_PROT_HANDSHAKE},
-    {QUIC_HSD_CERT_VERIFY, QUIC_HSD_PROT_HANDSHAKE},
-    {QUIC_HSD_FINISHED, QUIC_HSD_PROT_HANDSHAKE},
-    {QUIC_HSD_HANDSHAKE_DONE, QUIC_HSD_PROT_1RTT},
+static const u8 g_order[DRIVER_FLIGHT_MAX][2] = {
+    {HSD_CLIENT_HELLO, HSD_PROT_INITIAL},
+    {HSD_SERVER_HELLO, HSD_PROT_INITIAL},
+    {HSD_ENCRYPTED_EXT, HSD_PROT_HANDSHAKE},
+    {HSD_CERTIFICATE, HSD_PROT_HANDSHAKE},
+    {HSD_CERT_VERIFY, HSD_PROT_HANDSHAKE},
+    {HSD_FINISHED, HSD_PROT_HANDSHAKE},
+    {HSD_HANDSHAKE_DONE, HSD_PROT_1RTT},
 };
-#define G_ORDER_LEN QUIC_DRIVER_FLIGHT_MAX
+#define G_ORDER_LEN DRIVER_FLIGHT_MAX
 
 void driver_init(driver* d, int is_server, wired_span dcid) {
   initial_keys   k0  = {0};
   connio_init_in cin = {is_server, 0x43, 1u << 20};
   connio_init(&d->io, dcid, &cin);
   d->io.loop.validated = 1; /* RFC 9000 8.1: test path is pre-validated */
-  keyset_install(&d->io.loop.keys, QUIC_LEVEL_INITIAL, &k0);
+  keyset_install(&d->io.loop.keys, LEVEL_INITIAL, &k0);
   hsdriver_init(&d->hs, is_server);
   keysched_init(&d->ks);
   d->is_server = is_server;
@@ -37,7 +37,7 @@ void driver_init(driver* d, int is_server, wired_span dcid) {
 
 void driver_feed(driver* d, const u8* dgram, usz len) {
   usz i;
-  if (len > QUIC_DRIVER_DGRAM_CAP) len = QUIC_DRIVER_DGRAM_CAP;
+  if (len > DRIVER_DGRAM_CAP) len = DRIVER_DGRAM_CAP;
   for (i = 0; i < len; i++) d->in_buf[i] = dgram[i];
   d->in_len = len;
 }
@@ -74,20 +74,20 @@ static void install_level(driver* d, int level, int which) {
 static void derive_for(driver* d, u8 msg_type) {
   static const u8 ecdhe[32] = {0};
   static const u8 tr[1]     = {0};
-  if (msg_type == QUIC_HSD_SERVER_HELLO) {
+  if (msg_type == HSD_SERVER_HELLO) {
     keysched_advance_handshake(
         &d->ks, wired_span_of(ecdhe, sizeof(ecdhe)), wired_span_of(tr, 1));
-    install_level(d, QUIC_LEVEL_HANDSHAKE, QUIC_KS_CLIENT_HS);
-  } else if (msg_type == QUIC_HSD_FINISHED) {
+    install_level(d, LEVEL_HANDSHAKE, KS_CLIENT_HS);
+  } else if (msg_type == HSD_FINISHED) {
     keysched_advance_master(&d->ks, tr, 1);
-    install_level(d, QUIC_LEVEL_ONERTT, QUIC_KS_CLIENT_AP);
+    install_level(d, LEVEL_ONERTT, KS_CLIENT_AP);
   }
 }
 
 /* RFC 8446 4.4: CertificateVerify marks the peer authenticated, opening the
  * gate hsdriver enforces before the Finished step. */
 static void advance_order(driver* d, u8 msg_type, u8 level) {
-  if (msg_type == QUIC_HSD_CERT_VERIFY) hsdriver_cert_verified(&d->hs);
+  if (msg_type == HSD_CERT_VERIFY) hsdriver_cert_verified(&d->hs);
   hsdriver_recv(&d->hs, msg_type, level);
 }
 
@@ -110,7 +110,7 @@ static int can_recv(const driver* d) {
  * a single byte was recovered, 0 if the open was gated/failed. Clears the
  * inbox either way. */
 static int open_message(driver* d, u8 level, u8* msg) {
-  u8         got[QUIC_DRIVER_DGRAM_CAP];
+  u8         got[DRIVER_DGRAM_CAP];
   wired_obuf gb = obuf_of(got, sizeof(got));
   int ok    = connio_recv(&d->io, level, wired_mspan_of(d->in_buf, d->in_len));
   d->in_len = 0;

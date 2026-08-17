@@ -1,5 +1,5 @@
-#ifndef QUIC_PATH_PATH_H
-#define QUIC_PATH_PATH_H
+#ifndef PATH_PATH_H
+#define PATH_PATH_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -9,7 +9,7 @@
  * 3x received); migration to a path is confirmed only after validation, and
  * at most one path is the confirmed active target. */
 
-#define QUIC_PATH_COUNT 2
+#define PATH_COUNT 2
 
 /** Per-path validation and anti-amplification state (RFC 9000 8.2/9). */
 typedef struct {
@@ -23,7 +23,7 @@ typedef struct {
 
 /** The set of tracked paths and which one is currently active. */
 typedef struct {
-  path_state paths[QUIC_PATH_COUNT];
+  path_state paths[PATH_COUNT];
   usz        active; /* index of the active path */
 } path;
 

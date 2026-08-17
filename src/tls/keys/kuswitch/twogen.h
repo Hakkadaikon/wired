@@ -1,5 +1,5 @@
-#ifndef QUIC_KUSWITCH_TWOGEN_H
-#define QUIC_KUSWITCH_TWOGEN_H
+#ifndef KUSWITCH_TWOGEN_H
+#define KUSWITCH_TWOGEN_H
 
 #include "tls/handshake/core/tls/initial.h"
 

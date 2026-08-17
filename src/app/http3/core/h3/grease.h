@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_GREASE_H
-#define QUIC_H3_GREASE_H
+#ifndef H3_GREASE_H
+#define H3_GREASE_H
 
 #include "common/platform/sys/syscall.h"
 

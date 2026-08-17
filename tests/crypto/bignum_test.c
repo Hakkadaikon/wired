@@ -21,7 +21,7 @@ static void test_bn_from_be_short(void) {
   bn a;
   bn_from_be(&a, be, 3);
   CHECK(a.v[0] == 0x10000);
-  for (usz i = 1; i < QUIC_BN_LIMBS; i++) CHECK(a.v[i] == 0);
+  for (usz i = 1; i < BN_LIMBS; i++) CHECK(a.v[i] == 0);
 }
 
 static void test_bn_cmp_zero(void) {

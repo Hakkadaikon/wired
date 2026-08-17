@@ -33,7 +33,7 @@ static void test_p256_keygen_boundary(void) {
 /* --- SEC1 uncompressed encode/decode round trip -------------------------- */
 
 static void test_p256_pubkey_roundtrip(void) {
-  u8       priv[32], pub[QUIC_P256_PUBKEY_LEN];
+  u8       priv[32], pub[P256_PUBKEY_LEN];
   ec_point p;
   CHECK(p256_keygen(priv) == 1);
   CHECK(p256_pubkey_encode(pub, priv) == 1);
@@ -51,7 +51,7 @@ static void test_p256_pubkey_roundtrip(void) {
 }
 
 static void test_p256_pubkey_decode_rejects_bad_prefix(void) {
-  u8       pub[QUIC_P256_PUBKEY_LEN] = {0};
+  u8       pub[P256_PUBKEY_LEN] = {0};
   ec_point p;
   pub[0] = 0x02; /* compressed form: not supported */
   CHECK(p256_pubkey_decode(pub, &p) == 0);
@@ -59,7 +59,7 @@ static void test_p256_pubkey_decode_rejects_bad_prefix(void) {
 
 /* 1 * G == G: hand-computable base case for the encoder. */
 static void test_p256_pubkey_encode_scalar_one(void) {
-  u8 priv[32] = {0}, pub[QUIC_P256_PUBKEY_LEN], gx[32], gy[32];
+  u8 priv[32] = {0}, pub[P256_PUBKEY_LEN], gx[32], gy[32];
   priv[31]    = 1;
   CHECK(p256_pubkey_encode(pub, priv) == 1);
   p256_fp_to_be(gx, p256_g.x);
@@ -76,7 +76,7 @@ static void test_p256_pubkey_encode_scalar_one(void) {
  * the primary source itself). */
 static void test_p256_ecdh_symmetry(void) {
   u8 priv_a[32], priv_b[32];
-  u8 pub_a[QUIC_P256_PUBKEY_LEN], pub_b[QUIC_P256_PUBKEY_LEN];
+  u8 pub_a[P256_PUBKEY_LEN], pub_b[P256_PUBKEY_LEN];
   u8 secret_a[32], secret_b[32];
   CHECK(p256_keygen(priv_a) == 1);
   CHECK(p256_keygen(priv_b) == 1);
@@ -91,7 +91,7 @@ static void test_p256_ecdh_symmetry(void) {
  * scalar multiplication). */
 static void test_p256_ecdh_scalar_one(void) {
   u8 priv_one[32] = {0};
-  u8 priv_b[32], pub_b[QUIC_P256_PUBKEY_LEN], secret[32];
+  u8 priv_b[32], pub_b[P256_PUBKEY_LEN], secret[32];
   priv_one[31] = 1;
   CHECK(p256_keygen(priv_b) == 1);
   CHECK(p256_pubkey_encode(pub_b, priv_b) == 1);
@@ -104,7 +104,7 @@ static void test_p256_ecdh_scalar_one(void) {
 static void test_p256_ecdh_scalar_max(void) {
   u8      priv_max[32];
   p256_fe one = {1, 0, 0, 0}, nm1;
-  u8      priv_b[32], pub_b[QUIC_P256_PUBKEY_LEN], secret[32];
+  u8      priv_b[32], pub_b[P256_PUBKEY_LEN], secret[32];
   p256_fp_sub(nm1, (fpab){p256_n, one}, p256_n);
   p256_fp_to_be(priv_max, nm1);
   CHECK(p256_keygen(priv_b) == 1);
@@ -113,7 +113,7 @@ static void test_p256_ecdh_scalar_max(void) {
 }
 
 static void test_p256_ecdh_rejects_bad_peer_key(void) {
-  u8 priv[32], pub_bad[QUIC_P256_PUBKEY_LEN] = {0}, secret[32];
+  u8 priv[32], pub_bad[P256_PUBKEY_LEN] = {0}, secret[32];
   CHECK(p256_keygen(priv) == 1);
   pub_bad[0] = 0x02;
   CHECK(p256_ecdh(secret, priv, pub_bad) == 0);

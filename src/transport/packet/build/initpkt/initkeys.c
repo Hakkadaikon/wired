@@ -13,5 +13,5 @@ void initpkt_derive_ver(
 /* RFC 9001 5.2 */
 void initpkt_derive(
     wired_span dcid, initial_keys* client_keys, initial_keys* server_keys) {
-  initpkt_derive_ver(dcid, QUIC_VERSION_1, client_keys, server_keys);
+  initpkt_derive_ver(dcid, VERSION_1, client_keys, server_keys);
 }

@@ -1,5 +1,5 @@
-#ifndef QUIC_H3SETTINGS_CONTROL_SETTINGS_H
-#define QUIC_H3SETTINGS_CONTROL_SETTINGS_H
+#ifndef H3SETTINGS_CONTROL_SETTINGS_H
+#define H3SETTINGS_CONTROL_SETTINGS_H
 
 #include "app/http3/core/h3settings/settings_build.h"
 #include "common/platform/sys/syscall.h"

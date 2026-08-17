@@ -15,24 +15,23 @@
  * frozen 32-byte x25519 copy never reaches (tlsdriver_set_group's own
  * doc: the caller writes the group's real key pair in afterward). */
 static void set_p256_identity(tlsdriver* d, const u8 priv[32]) {
-  tlsdriver_set_group(d, QUIC_GROUP_SECP256R1);
+  tlsdriver_set_group(d, GROUP_SECP256R1);
   for (usz i = 0; i < 32; i++) d->my_priv[i] = priv[i];
   CHECK(p256_pubkey_encode(d->my_pub, priv) == 1);
 }
 
 /* Build a minimal ServerHello (RFC 8446 4.1.3) carrying supported_versions
  * and a single secp256r1 key_share for pub (65-byte SEC1 uncompressed). */
-static usz build_sh_p256(u8* out, usz cap, const u8 pub[QUIC_P256_PUBKEY_LEN]) {
+static usz build_sh_p256(u8* out, usz cap, const u8 pub[P256_PUBKEY_LEN]) {
   u8               random[32];
   wired_obuf       ob = obuf_of(out, cap);
-  shbuild_group_in in = {
-      random,
-      wired_span_of((const u8*)0, 0),
-      0x1301,
-      pub,
-      0,
-      QUIC_GROUP_SECP256R1,
-      QUIC_P256_PUBKEY_LEN};
+  shbuild_group_in in = {random,
+                         wired_span_of((const u8*)0, 0),
+                         0x1301,
+                         pub,
+                         0,
+                         GROUP_SECP256R1,
+                         P256_PUBKEY_LEN};
   for (usz i = 0; i < 32; i++) random[i] = (u8)(0x10 + i);
   CHECK(shbuild_server_hello_group(&in, &ob) == 1);
   return ob.len;

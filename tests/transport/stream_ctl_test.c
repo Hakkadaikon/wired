@@ -6,7 +6,7 @@ static void test_reset_stream(void) {
       .stream_id = 9, .error_code = 0x101, .final_size = 4096};
   u8  buf[32];
   usz w = reset_stream_encode(buf, sizeof(buf), &in);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_RESET_STREAM);
+  CHECK(w != 0 && buf[0] == FRAME_RESET_STREAM);
 
   reset_stream_frame out;
   usz                r = reset_stream_decode(buf, w, &out);
@@ -21,7 +21,7 @@ static void test_stop_sending(void) {
   stop_sending_frame in = {.stream_id = 7, .error_code = 0x202};
   u8                 buf[32];
   usz                w = stop_sending_encode(buf, sizeof(buf), &in);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_STOP_SENDING);
+  CHECK(w != 0 && buf[0] == FRAME_STOP_SENDING);
 
   stop_sending_frame out;
   usz                r = stop_sending_decode(buf, w, &out);
@@ -41,7 +41,7 @@ static void test_reset_stream_at(void) {
       .reliable_size = 100};
   u8  buf[32];
   usz w = reset_stream_at_encode(buf, sizeof(buf), &in);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_RESET_STREAM_AT);
+  CHECK(w != 0 && buf[0] == FRAME_RESET_STREAM_AT);
 
   reset_stream_at_frame out;
   usz                   r = reset_stream_at_decode(buf, w, &out);

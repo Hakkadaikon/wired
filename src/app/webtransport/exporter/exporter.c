@@ -7,8 +7,8 @@
 /* 1 iff label and app_context both fit their 8-bit length-prefixed fields
  * (draft-ietf-webtrans-http3-15 4.8). */
 static int ctx_fields_fit(wired_span label, wired_span app_context) {
-  return label.n <= QUIC_WT_EXPORTER_CTX_LABEL_MAX &&
-         app_context.n <= QUIC_WT_EXPORTER_CTX_CONTEXT_MAX;
+  return label.n <= WT_EXPORTER_CTX_LABEL_MAX &&
+         app_context.n <= WT_EXPORTER_CTX_CONTEXT_MAX;
 }
 
 /* Append one 8-bit-length-prefixed field (label or app_context) at *off,
@@ -45,12 +45,12 @@ usz wt_exporter_ctx_encode(
 
 /* draft-ietf-webtrans-http3-15 4.8 */
 int wt_exporter(
-    const u8    exporter_secret[QUIC_HKDF_PRK],
+    const u8    exporter_secret[HKDF_PRK],
     u64         session_id,
     wired_span  label,
     wired_span  app_context,
     wired_mspan okm) {
-  u8  ctx[QUIC_WT_EXPORTER_CTX_MAX];
+  u8  ctx[WT_EXPORTER_CTX_MAX];
   usz ctx_len =
       wt_exporter_ctx_encode(session_id, label, app_context, ctx, sizeof ctx);
   static const u8 exporter_label[] = "EXPORTER-WebTransport";

@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_TRANSCRIPT_H
-#define QUIC_TLS_TRANSCRIPT_H
+#ifndef TLS_TRANSCRIPT_H
+#define TLS_TRANSCRIPT_H
 
 #include "crypto/symmetric/hash/hash/sha256.h"
 
@@ -22,6 +22,6 @@ void transcript_add(transcript* t, const u8* msg, usz len);
 /** Running hash at the current point; t is left unchanged.
  * @param t transcript state
  * @param out receives the transcript hash */
-void transcript_hash(const transcript* t, u8 out[QUIC_SHA256_DIGEST]);
+void transcript_hash(const transcript* t, u8 out[SHA256_DIGEST]);
 
 #endif

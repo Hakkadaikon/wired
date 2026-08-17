@@ -1,10 +1,10 @@
 #include "tls/handshake/core/tls/chguard.h"
 
 /* RFC 8446 4.2: track extension_types seen so far in one ClientHello. */
-#define QUIC_CHGUARD_MAX_SEEN 32
+#define CHGUARD_MAX_SEEN 32
 
 typedef struct {
-  unsigned seen[QUIC_CHGUARD_MAX_SEEN];
+  unsigned seen[CHGUARD_MAX_SEEN];
   usz      count;
 } chguard_seen;
 
@@ -17,7 +17,7 @@ static int chguard_type_seen(const chguard_seen* s, unsigned type) {
 
 /* True if type is new and there is room to record it. */
 static int chguard_can_record(const chguard_seen* s, unsigned type) {
-  return s->count < QUIC_CHGUARD_MAX_SEEN && !chguard_type_seen(s, type);
+  return s->count < CHGUARD_MAX_SEEN && !chguard_type_seen(s, type);
 }
 
 /* One extension TLV's decoded type and total (header+data) length. */
@@ -71,15 +71,15 @@ int chguard_require_algs(int found_sig_algs, int found_groups) {
 }
 
 /* RFC 8446 4.2's registry, restricted to the extension_type code points this
- * SDK recognizes elsewhere (grep 'QUIC_EXT_\|QUIC_TLSEXT_T_\|QUIC_SNI_TYPE\|
- * QUIC_ALPN_TYPE' across src/tls): every one of these IS specified for
+ * SDK recognizes elsewhere (grep 'QUIC_EXT_\|QUIC_TLSEXT_T_\|SNI_TYPE\|
+ * ALPN_TYPE' across src/tls): every one of these IS specified for
  * ClientHello, so none is CH-illegal. oid_filters (48) is the one RFC 8446
  * extension_type specified ONLY for CertificateRequest, never ClientHello --
  * the sole code point this table treats as a violation if seen in a CH. */
-#define QUIC_CHGUARD_OID_FILTERS 48
+#define CHGUARD_OID_FILTERS 48
 
 static int ch_legal_ext_type(unsigned type) {
-  return type != QUIC_CHGUARD_OID_FILTERS;
+  return type != CHGUARD_OID_FILTERS;
 }
 
 /* One TLV's extension_type is CH-legal (see ch_legal_ext_type above). */

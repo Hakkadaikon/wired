@@ -91,15 +91,15 @@ struct lp_fix {
  * never be the constraining factor here. */
 static usz lp_client_tp(u8* tp, usz cap) {
   wired_obuf tob  = obuf_of(tp, cap);
-  usz        n1   = tparam_put_int(&tob, QUIC_TP_INITIAL_MAX_DATA, 1u << 24);
+  usz        n1   = tparam_put_int(&tob, TP_INITIAL_MAX_DATA, 1u << 24);
   wired_obuf tob2 = obuf_of(tp + n1, cap - n1);
-  usz        n2   = tparam_put_int(
-      &tob2, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 1u << 24);
+  usz        n2 =
+      tparam_put_int(&tob2, TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 1u << 24);
   /* RFC 9000 18.2: a real client grants the server uni streams (Chrome
    * does); without this every server-initiated relay open is refused by
    * the peer-limit gate and fixture-driven WT tests starve. */
   wired_obuf tob3 = obuf_of(tp + n1 + n2, cap - n1 - n2);
-  usz        n3   = tparam_put_int(&tob3, QUIC_TP_INITIAL_MAX_STREAMS_UNI, 100);
+  usz        n3   = tparam_put_int(&tob3, TP_INITIAL_MAX_STREAMS_UNI, 100);
   return n1 + n2 + n3;
 }
 
@@ -133,8 +133,8 @@ static void lp_make_client_hello(struct lp_fix* f) {
  * cipher_select path rather than a test-only shortcut. */
 static void lp_make_client_hello_chacha(struct lp_fix* f) {
   lp_make_client_hello(f);
-  f->ch[LP_CH_CIPHER_SUITE_OFF] = (u8)(QUIC_TLS_CHACHA20_POLY1305_SHA256 >> 8);
-  f->ch[LP_CH_CIPHER_SUITE_OFF + 1] = (u8)QUIC_TLS_CHACHA20_POLY1305_SHA256;
+  f->ch[LP_CH_CIPHER_SUITE_OFF]     = (u8)(TLS_CHACHA20_POLY1305_SHA256 >> 8);
+  f->ch[LP_CH_CIPHER_SUITE_OFF + 1] = (u8)TLS_CHACHA20_POLY1305_SHA256;
 }
 
 /* Bring the server to FLIGHT_SENT (Handshake keys derived) and init the loop.
@@ -186,9 +186,9 @@ static void lp_make_client_finished(struct lp_fix* f) {
   transcript_add(&tr, f->flight, f->flight_len);
   transcript_hash(&tr, th);
 
-  off = hs_begin(f->cli_fin, sizeof(f->cli_fin), QUIC_HS_FINISHED);
+  off = hs_begin(f->cli_fin, sizeof(f->cli_fin), HS_FINISHED);
   tls_finished_verify_data(c_traffic, th, f->cli_fin + off);
-  f->cli_fin_len = off + QUIC_TLS_VERIFY_DATA;
+  f->cli_fin_len = off + TLS_VERIFY_DATA;
   hs_finish(f->cli_fin, f->cli_fin_len);
 }
 
@@ -199,7 +199,7 @@ static usz client_seal_handshake(
   const initial_keys* k;
   aes128              hp;
   wired_obuf          ob = {pkt, cap, 0};
-  CHECK(keysched_get(&f->s.sched, QUIC_KS_CLIENT_HS, &k) == 1);
+  CHECK(keysched_get(&f->s.sched, KS_CLIENT_HS, &k) == 1);
   aes128_init(&hp, k->hp);
   srvwire_seal_in in = {
       wired_span_of((const u8*)0, 0),
@@ -222,7 +222,7 @@ static usz client_seal_handshake_pn(
   const initial_keys* k;
   aes128              hp;
   wired_obuf          ob = {pkt, cap, 0};
-  CHECK(keysched_get(&f->s.sched, QUIC_KS_CLIENT_HS, &k) == 1);
+  CHECK(keysched_get(&f->s.sched, KS_CLIENT_HS, &k) == 1);
   aes128_init(&hp, k->hp);
   srvwire_seal_in in = {
       wired_span_of((const u8*)0, 0),
@@ -243,7 +243,7 @@ static usz client_seal_onertt(
   const initial_keys* k;
   aes128              hp;
   usz                 total = 0;
-  CHECK(keysched_get(&f->s.sched, QUIC_KS_CLIENT_AP, &k) == 1);
+  CHECK(keysched_get(&f->s.sched, KS_CLIENT_AP, &k) == 1);
   aes128_init(&hp, k->hp);
   protect_keys      pk = {k, &hp};
   hspkt_onertt_desc d  = {
@@ -292,7 +292,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
   wired_obuf    hob = {hpkt, sizeof hpkt, 0}, oob = {opkt, sizeof opkt, 0};
   lp_make_client_hello_chacha(&f);
   lp_drive_to_flight(&f);
-  CHECK(f.s.sdrv.cipher_suite == QUIC_TLS_CHACHA20_POLY1305_SHA256);
+  CHECK(f.s.sdrv.cipher_suite == TLS_CHACHA20_POLY1305_SHA256);
 
   /* Handshake: server seals its flight with SERVER_HS; the client opens it
    * with the peer-direction CLIENT_HS... no, the client OPENS a server-
@@ -307,14 +307,14 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
         wired_span_of(g_cli_scid, 6), 0, -1,
         wired_span_of(f.flight, f.flight_len), 0};
     CHECK(wired_srvloop_send_handshake(&f.s, &in, &hob));
-    CHECK(keysched_get(&f.s.sched, QUIC_KS_SERVER_HS, &shs) == 1);
+    CHECK(keysched_get(&f.s.sched, KS_SERVER_HS, &shs) == 1);
     aes128_init(&hp, shs->hp);
     {
       protect_keys pk = {shs, &hp};
       CHECK(
           srvwire_open_handshake_suite(
-              QUIC_TLS_CHACHA20_POLY1305_SHA256, &pk,
-              wired_mspan_of(hpkt, hob.len), &tls) == 1);
+              TLS_CHACHA20_POLY1305_SHA256, &pk, wired_mspan_of(hpkt, hob.len),
+              &tls) == 1);
       CHECK(tls.n == f.flight_len);
       for (usz i = 0; i < tls.n; i++) CHECK(tls.p[i] == f.flight[i]);
     }
@@ -332,7 +332,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
     lp_make_client_finished(&f);
     /* client_seal_handshake is AES-fixed; this connection negotiated
      * ChaCha20, so seal the client Finished with it directly instead. */
-    CHECK(keysched_get(&f.s.sched, QUIC_KS_CLIENT_HS, &chs) == 1);
+    CHECK(keysched_get(&f.s.sched, KS_CLIENT_HS, &chs) == 1);
     {
       protect_keys    cpk = {chs, 0};
       srvwire_seal_in cin = {
@@ -346,7 +346,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
       wired_obuf cob = {cpkt, sizeof cpkt, 0};
       CHECK(
           srvwire_seal_handshake_suite(
-              QUIC_TLS_CHACHA20_POLY1305_SHA256, &cpk, &cin, &cob) == 1);
+              TLS_CHACHA20_POLY1305_SHA256, &cpk, &cin, &cob) == 1);
       clen = cob.len;
     }
     CHECK(
@@ -354,7 +354,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
             &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen),
             &oob) == 1);
     CHECK(wired_server_is_confirmed(&f.s) == 1);
-    CHECK(keysched_get(&f.s.sched, QUIC_KS_SERVER_AP, &sap) == 1);
+    CHECK(keysched_get(&f.s.sched, KS_SERVER_AP, &sap) == 1);
     aes128_init(&hp, sap->hp);
     {
       /* oob coalesces a long-header Handshake ACK ahead of the 1-RTT
@@ -370,7 +370,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
             wired_mspan_of(opkt + offs[1], lens[1]), 6, 0};
         CHECK(
             hspkt_onertt_open_suite(
-                QUIC_TLS_CHACHA20_POLY1305_SHA256, &pk, &d, &pl) == 1);
+                TLS_CHACHA20_POLY1305_SHA256, &pk, &d, &pl) == 1);
       }
       CHECK(pl.n > 0);
     }
@@ -390,7 +390,7 @@ static void test_srvloop_open_chacha(void) {
   usz           clen, rlen, slen;
   lp_make_client_hello_chacha(&f);
   lp_drive_to_flight(&f);
-  CHECK(f.s.sdrv.cipher_suite == QUIC_TLS_CHACHA20_POLY1305_SHA256);
+  CHECK(f.s.sdrv.cipher_suite == TLS_CHACHA20_POLY1305_SHA256);
 
   /* Handshake open: the client's Finished, sealed under CLIENT_HS ChaCha20
    * keys straight from the schedule (mirrors client_seal_handshake, but
@@ -398,7 +398,7 @@ static void test_srvloop_open_chacha(void) {
   {
     const initial_keys* chs;
     lp_make_client_finished(&f);
-    CHECK(keysched_get(&f.s.sched, QUIC_KS_CLIENT_HS, &chs) == 1);
+    CHECK(keysched_get(&f.s.sched, KS_CLIENT_HS, &chs) == 1);
     {
       protect_keys    pk = {chs, 0};
       srvwire_seal_in in = {
@@ -412,7 +412,7 @@ static void test_srvloop_open_chacha(void) {
       wired_obuf cob = {cpkt, sizeof cpkt, 0};
       CHECK(
           srvwire_seal_handshake_suite(
-              QUIC_TLS_CHACHA20_POLY1305_SHA256, &pk, &in, &cob) == 1);
+              TLS_CHACHA20_POLY1305_SHA256, &pk, &in, &cob) == 1);
       clen = cob.len;
     }
   }
@@ -431,7 +431,7 @@ static void test_srvloop_open_chacha(void) {
         wired_span_of((const u8*)"h", 1), wired_span_of(0, 0)};
     CHECK(wired_h3reqdrive_send_method(0, &in, &rob));
     rlen = rob.len;
-    CHECK(keysched_get(&f.s.sched, QUIC_KS_CLIENT_AP, &cap) == 1);
+    CHECK(keysched_get(&f.s.sched, KS_CLIENT_AP, &cap) == 1);
     {
       protect_keys      pk = {cap, 0};
       hspkt_onertt_desc d  = {
@@ -440,7 +440,7 @@ static void test_srvloop_open_chacha(void) {
       wired_obuf rb = {rpkt, sizeof rpkt, 0};
       CHECK(
           hspkt_onertt_build_suite(
-              QUIC_TLS_CHACHA20_POLY1305_SHA256, &pk, &d, &rb) == 1);
+              TLS_CHACHA20_POLY1305_SHA256, &pk, &d, &rb) == 1);
       slen = rb.len;
     }
   }
@@ -464,7 +464,7 @@ static void test_srvloop_wrong_direction_open_fails(void) {
   wired_span          tls = {0, 0};
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
-  CHECK(keysched_get(&f.s.sched, QUIC_KS_SERVER_HS, &own) == 1);
+  CHECK(keysched_get(&f.s.sched, KS_SERVER_HS, &own) == 1);
   aes128_init(&ownhp, own->hp);
   {
     wired_srvloop_send_in sin = {
@@ -479,7 +479,7 @@ static void test_srvloop_wrong_direction_open_fails(void) {
     CHECK(
         srvwire_open_handshake(&ownpk, wired_mspan_of(pkt, ob.len), &tls) == 1);
   }
-  CHECK(keysched_get(&f.s.sched, QUIC_KS_CLIENT_HS, &peer) == 1);
+  CHECK(keysched_get(&f.s.sched, KS_CLIENT_HS, &peer) == 1);
   aes128_init(&peerhp, peer->hp);
   {
     protect_keys peerpk = {peer, &peerhp};
@@ -523,7 +523,7 @@ static void test_srvloop_forged_finished_no_promote(void) {
   CHECK(wired_server_is_confirmed(&f.s) == 0);
   {
     const initial_keys* k;
-    CHECK(keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 0);
+    CHECK(keyset_for_level(&f.s.keys, LEVEL_ONERTT, &k) == 0);
   }
 }
 
@@ -533,7 +533,7 @@ static int client_open_onertt(
     struct lp_fix* f, u8* pkt, usz len, const u8** pl, usz* pll) {
   const initial_keys* k;
   aes128              hp;
-  CHECK(keysched_get(&f->s.sched, QUIC_KS_SERVER_AP, &k) == 1);
+  CHECK(keysched_get(&f->s.sched, KS_SERVER_AP, &k) == 1);
   aes128_init(&hp, k->hp);
   protect_keys           pk = {k, &hp};
   hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
@@ -660,7 +660,7 @@ static usz client_seal_onertt_pn(
   const initial_keys* k;
   aes128              hp;
   usz                 total = 0;
-  CHECK(keysched_get(&f->s.sched, QUIC_KS_CLIENT_AP, &k) == 1);
+  CHECK(keysched_get(&f->s.sched, KS_CLIENT_AP, &k) == 1);
   aes128_init(&hp, k->hp);
   protect_keys      pk = {k, &hp};
   hspkt_onertt_desc d  = {
@@ -681,7 +681,7 @@ static void check_acks_pn(const u8* pl, usz pll, u64 pn) {
   int            found = 0;
   framewalk_init(&it, pl, pll);
   while (framewalk_next(&it, &fr))
-    if (fr.type == QUIC_FRAME_ACK) {
+    if (fr.type == FRAME_ACK) {
       ack_frame a;
       CHECK(ack_decode(fr.start, fr.remaining, &a) > 0);
       CHECK(a.ranges[0].hi == pn);
@@ -695,7 +695,7 @@ static void check_acks_pn(const u8* pl, usz pll, u64 pn) {
 /* Either ACK frame type (RFC 9000 19.3): 0x02 (no ECN counts) or 0x03 (with
  * them, RFC 9000 19.3.2) -- callers that don't care which decode either. */
 static int is_ack_type(u64 type) {
-  return type == QUIC_FRAME_ACK || type == QUIC_FRAME_ACK_ECN;
+  return type == FRAME_ACK || type == FRAME_ACK_ECN;
 }
 
 static int find_ack_frame(const u8* pl, usz pll, ack_frame* out) {
@@ -762,7 +762,7 @@ static int client_open_handshake(
     struct lp_fix* f, const u8* pkt, usz len, const u8** pl, usz* pll) {
   const initial_keys* k;
   aes128              hp;
-  CHECK(keysched_get(&f->s.sched, QUIC_KS_SERVER_HS, &k) == 1);
+  CHECK(keysched_get(&f->s.sched, KS_SERVER_HS, &k) == 1);
   aes128_init(&hp, k->hp);
   protect_keys pk = {k, &hp};
   wired_span   v;
@@ -867,8 +867,8 @@ static usz lp_build_headers_stream(
   wired_obuf sob = obuf_of(out, cap);
   CHECK(h3req_enc_pseudo(pin, &fob) == 1);
   CHECK(
-      h3_frame_put(
-          &hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fields, fob.len)) != 0);
+      h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fields, fob.len)) !=
+      0);
   {
     stream_frame sf = {0, 0, hob.len, h3buf, fin};
     CHECK(appdata_stream_frame(&sf, &sob) == 1);
@@ -1119,11 +1119,11 @@ static usz lp_uni_stream(u8* out, usz cap, u64 stream_id, u8 lead) {
  * instruction (RFC 9204 4.3.1). */
 static usz lp_qpack_encoder_set_capacity(
     u8* out, usz cap, u64 stream_id, u64 capacity) {
-  u8          body[8];
-  wired_mspan mb = wired_mspan_of(body + 1, sizeof body - 1);
-  usz n = qpack_enc_instr_encode(mb, QUIC_QPACK_ENC_SET_CAPACITY, capacity);
+  u8           body[8];
+  wired_mspan  mb = wired_mspan_of(body + 1, sizeof body - 1);
+  usz          n = qpack_enc_instr_encode(mb, QPACK_ENC_SET_CAPACITY, capacity);
   stream_frame sf;
-  body[0] = QUIC_H3_STREAM_QPACK_ENCODER;
+  body[0] = H3_STREAM_QPACK_ENCODER;
   sf      = (stream_frame){stream_id, 0, 1 + n, body, 0};
   return frame_put_stream(out, cap, &sf);
 }
@@ -1210,7 +1210,7 @@ static usz lp_split_post_frames(
   rlen = rob.len;
   CHECK(frame_get_stream(reqb, rlen, &sf) > 0);
   hb = h3_frame_get(wired_span_of(sf.data, (usz)sf.length), &hf);
-  CHECK(hb > 0 && hf.type == QUIC_H3_FRAME_HEADERS);
+  CHECK(hb > 0 && hf.type == H3_FRAME_HEADERS);
   CHECK(appdata_frame_flat(0, 0, sf.data, hb, 0, hp, hcap, hl));
   CHECK(appdata_frame_flat(
       0, hb, sf.data + hb, (usz)sf.length - hb, 1, dp, dcap, dl));
@@ -1243,7 +1243,7 @@ static usz lp_split_post_frames_on(
   rlen = rob.len;
   CHECK(frame_get_stream(reqb, rlen, &sf) > 0);
   hb = h3_frame_get(wired_span_of(sf.data, (usz)sf.length), &hf);
-  CHECK(hb > 0 && hf.type == QUIC_H3_FRAME_HEADERS);
+  CHECK(hb > 0 && hf.type == H3_FRAME_HEADERS);
   CHECK(appdata_frame_flat(stream_id, 0, sf.data, hb, 0, hp, hcap, hl));
   CHECK(appdata_frame_flat(
       stream_id, hb, sf.data + hb, (usz)sf.length - hb, 1, dp, dcap, dl));
@@ -1496,7 +1496,7 @@ static void test_srvloop_wt_bidi_stream_not_request(void) {
 
 /* hq-interop (see hq09.h) end to end -- a single client
  * bidi STREAM frame carrying "GET <path>\r\n" with FIN set, on a
- * connection whose ALPN negotiation is forced to QUIC_SALPN_HQ (the
+ * connection whose ALPN negotiation is forced to SALPN_HQ (the
  * negotiation itself is covered independently by tests/tls/negotiate_test.c
  * and eebuild_test.c; this only exercises what a resolved hq-interop
  * connection does with a request). The reassembled bytes must decode as an
@@ -1508,7 +1508,7 @@ static void test_srvloop_hq09_recv_get_produces_request(void) {
   usz           glen, slen;
   ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
-  f.s.sdrv.alpn     = QUIC_SALPN_HQ;
+  f.s.sdrv.alpn     = SALPN_HQ;
   f.l.resp_external = 1; /* real deployments always set this (srvrun.c);
                           * srvloop's own response_frame (unset case) never
                           * negotiates hq-interop. */
@@ -2057,7 +2057,7 @@ static void test_srvloop_second_qpack_encoder_stream_violation(void) {
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  CHECK(f.l.qpack_stream_violation == QUIC_H3_STREAM_CREATION_ERROR);
+  CHECK(f.l.qpack_stream_violation == H3_STREAM_CREATION_ERROR);
 }
 
 /* RFC 9204 4.3.1 (9204-020/9204-033): a Set Dynamic Table Capacity
@@ -2097,7 +2097,7 @@ static void test_srvloop_qpack_encoder_set_capacity_over_limit(void) {
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.h3.qdyn.capacity == 0);
-  CHECK(f.l.qpack_stream_violation == QUIC_QPACK_ENCODER_STREAM_ERROR);
+  CHECK(f.l.qpack_stream_violation == QPACK_ENCODER_STREAM_ERROR);
 }
 
 /* An unrecognized uni stream type (neither control/QPACK/WebTransport) does
@@ -2594,7 +2594,7 @@ static int find_ticket_crypto(const u8* pl, usz pll, wired_span* sealed) {
   framewalk_init(&it, pl, pll);
   while (framewalk_next(&it, &fr)) {
     crypto_frame cf;
-    if (fr.type != QUIC_FRAME_CRYPTO) continue;
+    if (fr.type != FRAME_CRYPTO) continue;
     if (frame_get_crypto(fr.start, fr.remaining, &cf) == 0) continue;
     if (tls_new_session_ticket_parse(wired_span_of(cf.data, cf.length), sealed))
       return 1;
@@ -2694,7 +2694,7 @@ static void test_srvloop_ack_eliciting_records_pn_and_pending(void) {
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  CHECK(recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 1);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[PNS_APP], 7) == 1);
   CHECK(f.l.app_ack_policy.pending == 1);
 }
 
@@ -2715,7 +2715,7 @@ static void test_srvloop_ack_non_eliciting_not_recorded(void) {
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  CHECK(recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 0);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[PNS_APP], 7) == 0);
   CHECK(f.l.app_ack_policy.pending == 0);
 }
 
@@ -2822,10 +2822,10 @@ static void test_srvloop_ack_duplicate_pn_not_double_counted(void) {
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  CHECK(recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 1);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[PNS_APP], 7) == 1);
 }
 
-/* A pn older than the QUIC_RECVPN_WINDOW (64 packets behind the
+/* A pn older than the RECVPN_WINDOW (64 packets behind the
  * current largest) is outside recvpn's tracked bitmap -- receiving one
  * again must not fabricate a new ACK-owed signal. */
 static void test_srvloop_ack_stale_pn_outside_window_ignored(void) {
@@ -2836,7 +2836,7 @@ static void test_srvloop_ack_stale_pn_outside_window_ignored(void) {
   ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(
-      &f, QUIC_RECVPN_WINDOW + 100, ping, 1, spkt, sizeof spkt);
+      &f, RECVPN_WINDOW + 100, ping, 1, spkt, sizeof spkt);
   ob = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
@@ -2845,10 +2845,10 @@ static void test_srvloop_ack_stale_pn_outside_window_ignored(void) {
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  CHECK(recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 1) == 0);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[PNS_APP], 1) == 0);
 }
 
-/* The receive window boundary (a pn exactly QUIC_RECVPN_WINDOW behind
+/* The receive window boundary (a pn exactly RECVPN_WINDOW behind
  * the current largest) is still tracked -- the boundary itself belongs to
  * the window, only pns strictly older fall outside it. */
 static void test_srvloop_ack_recvpn_window_boundary(void) {
@@ -2863,12 +2863,12 @@ static void test_srvloop_ack_recvpn_window_boundary(void) {
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   ackpolicy_on_ack_sent(&f.l.app_ack_policy);
-  slen = client_seal_onertt_pn(
-      &f, 1 + QUIC_RECVPN_WINDOW, ping, 1, spkt, sizeof spkt);
+  slen =
+      client_seal_onertt_pn(&f, 1 + RECVPN_WINDOW, ping, 1, spkt, sizeof spkt);
   ob = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  CHECK(recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 1) == 1);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[PNS_APP], 1) == 1);
 }
 
 /* A large forward jump in pn (heavy loss, then one packet arriving far
@@ -2900,8 +2900,8 @@ static void test_srvloop_ack_large_pn_jump_handled_by_existing_recvpn(void) {
   CHECK(a.ranges[0].hi == 100000 && a.ranges[0].lo == 100000);
 }
 
-/* Exactly QUIC_ACK_MAX_RANGES (32) single-packet ranges, all within
- * recvpn's QUIC_RECVPN_WINDOW (64) -- receiving pn 1, 3, 5, ..., 63 (32
+/* Exactly ACK_MAX_RANGES (32) single-packet ranges, all within
+ * recvpn's RECVPN_WINDOW (64) -- receiving pn 1, 3, 5, ..., 63 (32
  * odd packet numbers, every even one missing) yields 32 independent ranges,
  * proving the window comfortably reaches the range-count ceiling without
  * ack_encode rejecting the frame. */
@@ -2931,12 +2931,12 @@ static void test_srvloop_ack_ranges_within_window_all_included(void) {
     CHECK(client_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
     CHECK(find_ack_frame(pl, pll, &a) == 1);
   }
-  CHECK(a.n_ranges == QUIC_ACK_MAX_RANGES);
+  CHECK(a.n_ranges == ACK_MAX_RANGES);
   CHECK(a.ranges[0].hi == 63 && a.ranges[0].lo == 63);
-  CHECK(a.ranges[QUIC_ACK_MAX_RANGES - 1].hi == 1);
+  CHECK(a.ranges[ACK_MAX_RANGES - 1].hi == 1);
 }
 
-/* One more single-packet range than QUIC_ACK_MAX_RANGES (33, all within the
+/* One more single-packet range than ACK_MAX_RANGES (33, all within the
  * 64-pn recvpn window) must not corrupt srvloop -- app_ack_encode_ranges
  * (respond.c, called directly here as in the tests above) falls back to
  * appending nothing rather than a truncated/overflowing ACK frame; it is
@@ -2964,8 +2964,7 @@ static void test_srvloop_ack_encode_overflow_falls_back_safely(void) {
   {
     u8  buf[512];
     usz n = app_ack_encode_ranges(&f.l, buf, sizeof buf);
-    CHECK(
-        n == 0); /* 33 ranges overflow QUIC_ACK_MAX_RANGES: no ACK, no crash */
+    CHECK(n == 0); /* 33 ranges overflow ACK_MAX_RANGES: no ACK, no crash */
   }
 }
 
@@ -2980,13 +2979,13 @@ static void test_srvloop_ack_pn_spaces_independent(void) {
   usz           slen;
   ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
-  CHECK(recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_HANDSHAKE], f.l.hs_rx_pn) == 1);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[PNS_HANDSHAKE], f.l.hs_rx_pn) == 1);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  CHECK(recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 1);
-  CHECK(recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_HANDSHAKE], 7) == 0);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[PNS_APP], 7) == 1);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[PNS_HANDSHAKE], 7) == 0);
 }
 
 /* With nothing pending on the App pn space and no request decoded,
@@ -3596,9 +3595,9 @@ static usz client_seal_onertt_pn_gen(
   aes128              hp;
   usz                 total = 0;
   if (steps_ahead == 1) {
-    u8 next_secret[QUIC_HKDF_PRK];
+    u8 next_secret[HKDF_PRK];
     kuswitch_next_keys(s->ku_secret, &next, next_secret);
-    bytes_memcpy(next.hp, s->ku.cur.hp, QUIC_INITIAL_HP);
+    bytes_memcpy(next.hp, s->ku.cur.hp, INITIAL_HP);
     use   = &next;
     phase = 1 - phase;
   }
@@ -3685,15 +3684,15 @@ static int client_open_onertt_gen1(
     struct lp_fix* f, u8* pkt, usz len, const u8** pl, usz* pll) {
   const u8*    secret;
   initial_keys next;
-  u8           next_secret[QUIC_HKDF_PRK];
+  u8           next_secret[HKDF_PRK];
   aes128       hp;
   wired_span   v;
   CHECK(keysched_server_ap_secret(&f->s.sched, &secret) == 1);
   kuswitch_next_keys(secret, &next, next_secret);
   {
     const initial_keys* gen0;
-    CHECK(keysched_get(&f->s.sched, QUIC_KS_SERVER_AP, &gen0) == 1);
-    bytes_memcpy(next.hp, gen0->hp, QUIC_INITIAL_HP);
+    CHECK(keysched_get(&f->s.sched, KS_SERVER_AP, &gen0) == 1);
+    bytes_memcpy(next.hp, gen0->hp, INITIAL_HP);
   }
   aes128_init(&hp, next.hp);
   {
@@ -3899,7 +3898,7 @@ static void test_srvloop_recv_follows_repeated_key_updates_across_generations(
 
 /* A 0-RTT packet (long header, type bits 0x1 -- RFC 9000 17.2.3)
  * sealed under the driver's own derived early keys opens through
- * wired_srvloop_recv, reporting QUIC_LEVEL_ONERTT (RFC 9000 12.3: 0-RTT and
+ * wired_srvloop_recv, reporting LEVEL_ONERTT (RFC 9000 12.3: 0-RTT and
  * 1-RTT share the App packet number space) and recovering the original
  * payload. */
 static void test_srvloop_recv_zerortt_opens_with_early_keys(void) {
@@ -3953,7 +3952,7 @@ static void test_srvloop_recv_zerortt_opens_with_early_keys(void) {
 
   ri = (wired_srvloop_recv_in){wired_mspan_of(pkt, ob.len), 0};
   CHECK(wired_srvloop_recv(&s, &ri, &ro) == 1);
-  CHECK(ro.level == QUIC_LEVEL_ONERTT);
+  CHECK(ro.level == LEVEL_ONERTT);
   CHECK(ro.payload.n == sizeof(payload));
   for (usz i = 0; i < sizeof(payload); i++)
     CHECK(ro.payload.p[i] == payload[i]);

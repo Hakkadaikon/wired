@@ -34,11 +34,11 @@ static void test_schedule_directions(void) {
       &s_keys_from_client);
 
   /* server-direction keys are identical whoever derives them */
-  for (usz i = 0; i < QUIC_INITIAL_KEY; i++)
+  for (usz i = 0; i < INITIAL_KEY; i++)
     CHECK(s_keys.key[i] == s_keys_from_client.key[i]);
   /* the two directions differ (client key != server key) */
   int differ = 0;
-  for (usz i = 0; i < QUIC_INITIAL_KEY; i++)
+  for (usz i = 0; i < INITIAL_KEY; i++)
     differ |= (c_keys.key[i] != s_keys.key[i]);
   CHECK(differ);
 }
@@ -58,9 +58,9 @@ static void test_schedule_early(void) {
   tls_early_keys(psk_a, ch, sizeof(ch), &ka2);
   tls_early_keys(psk_b, ch, sizeof(ch), &kb);
 
-  for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(ka.key[i] == ka2.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) CHECK(ka.key[i] == ka2.key[i]);
   int differ = 0;
-  for (usz i = 0; i < QUIC_INITIAL_KEY; i++) differ |= (ka.key[i] != kb.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) differ |= (ka.key[i] != kb.key[i]);
   CHECK(differ); /* different PSK -> different early keys */
 
   /* early keys differ from handshake keys built from the same bytes as a
@@ -69,7 +69,7 @@ static void test_schedule_early(void) {
   tls_handshake_keys(
       &(handshake_keys_in){psk_a, wired_span_of(ch, sizeof(ch)), 0}, &hk);
   differ = 0;
-  for (usz i = 0; i < QUIC_INITIAL_KEY; i++) differ |= (ka.key[i] != hk.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) differ |= (ka.key[i] != hk.key[i]);
   CHECK(differ);
 }
 

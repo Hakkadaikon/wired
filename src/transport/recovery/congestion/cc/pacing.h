@@ -1,5 +1,5 @@
-#ifndef QUIC_CC_PACING_H
-#define QUIC_CC_PACING_H
+#ifndef CC_PACING_H
+#define CC_PACING_H
 
 #include "common/platform/sys/syscall.h"
 

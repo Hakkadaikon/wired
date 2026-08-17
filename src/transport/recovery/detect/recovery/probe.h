@@ -1,5 +1,5 @@
-#ifndef QUIC_RECOVERY_PROBE_H
-#define QUIC_RECOVERY_PROBE_H
+#ifndef RECOVERY_PROBE_H
+#define RECOVERY_PROBE_H
 
 #include "common/platform/sys/syscall.h"
 

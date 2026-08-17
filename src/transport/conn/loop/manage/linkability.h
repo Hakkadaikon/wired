@@ -1,5 +1,5 @@
-#ifndef QUIC_MANAGE_LINKABILITY_H
-#define QUIC_MANAGE_LINKABILITY_H
+#ifndef MANAGE_LINKABILITY_H
+#define MANAGE_LINKABILITY_H
 
 #include "common/platform/sys/syscall.h"
 

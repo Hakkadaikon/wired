@@ -49,14 +49,14 @@ static void test_xdpmac_full_evicts_round_robin(void) {
   u8     mac[6];
   u8     got[6];
   xdpmac_init(&c);
-  for (u32 n = 0; n < QUIC_XDPMAC_CAP + 1; n++) {
+  for (u32 n = 0; n < XDPMAC_CAP + 1; n++) {
     xm_mac(n, mac);
     xdpmac_learn(&c, xm_ip(n), mac);
   }
-  CHECK(xdpmac_lookup(&c, xm_ip(0), got) == 0); /* oldest evicted */
-  CHECK(xdpmac_lookup(&c, xm_ip(QUIC_XDPMAC_CAP), got) == 1); /* newest */
-  CHECK(got[0] == (u8)QUIC_XDPMAC_CAP);
-  for (u32 n = 1; n < QUIC_XDPMAC_CAP; n++)
+  CHECK(xdpmac_lookup(&c, xm_ip(0), got) == 0);          /* oldest evicted */
+  CHECK(xdpmac_lookup(&c, xm_ip(XDPMAC_CAP), got) == 1); /* newest */
+  CHECK(got[0] == (u8)XDPMAC_CAP);
+  for (u32 n = 1; n < XDPMAC_CAP; n++)
     CHECK(xdpmac_lookup(&c, xm_ip(n), got) == 1); /* survivors intact */
 }
 

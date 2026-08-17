@@ -139,7 +139,7 @@ static void test_sdrv_nonempty_session_id_rejected(void) {
     sdrv_init(&s, &din);
   }
   CHECK(!sdrv_recv_client_hello(&s, ch2, ch2_len));
-  CHECK(sdrv_last_error(&s) == QUIC_ERR_PROTOCOL_VIOLATION);
+  CHECK(sdrv_last_error(&s) == ERR_PROTOCOL_VIOLATION);
 }
 
 /* Build a ClientHello with a real x25519 key_share, sized for the caller. An
@@ -224,9 +224,9 @@ static void test_sdrv_external_chain(void) {
    * not an internally generated one. */
   {
     wired_span         ctx;
-    tls_cert_entry     entries[QUIC_TLS_CERT_CHAIN_MAX];
+    tls_cert_entry     entries[TLS_CERT_CHAIN_MAX];
     usz                count;
-    tls_cert_chain_out co = {entries, QUIC_TLS_CERT_CHAIN_MAX, &count};
+    tls_cert_chain_out co = {entries, TLS_CERT_CHAIN_MAX, &count};
     CHECK(tls_cert_chain(wired_span_of(cm + 4, cml - 4), &ctx, &co));
     CHECK(count == 2);
     CHECK(entries[0].cert_len == sizeof(quic_realchain_leaf_der));
@@ -240,7 +240,7 @@ static void test_sdrv_external_chain(void) {
      * real public key over the transcript through Certificate. */
     {
       transcript tr;
-      u8         th[QUIC_SHA256_DIGEST];
+      u8         th[SHA256_DIGEST];
       transcript_init(&tr);
       transcript_add(&tr, ch, ch_len);
       transcript_add(&tr, sh, sh_len);
@@ -324,7 +324,7 @@ static void test_sdrv_external_chain_wrong_key(void) {
 
   {
     transcript tr;
-    u8         th[QUIC_SHA256_DIGEST];
+    u8         th[SHA256_DIGEST];
     transcript_init(&tr);
     transcript_add(&tr, ch, ch_len);
     transcript_add(&tr, sh, sh_len);
@@ -345,7 +345,7 @@ static void test_sdrv_external_chain_wrong_key(void) {
   }
 }
 
-/* chain_count over QUIC_TLS_CERT_CHAIN_MAX(10) fails the flight closed:
+/* chain_count over TLS_CERT_CHAIN_MAX(10) fails the flight closed:
  * nothing to send, sdrv_build_server_flight returns 0. 11 entries (one
  * past the limit) alternating leaf/intermediate DER -- sdrv_take_chain's
  * count check fires before any entry is copied, so the flight buffer never
@@ -386,7 +386,7 @@ static void test_sdrv_chain_overflow(void) {
   }
 }
 
-/* chain_count AT QUIC_TLS_CERT_CHAIN_MAX(10, the amplificationlimit
+/* chain_count AT TLS_CERT_CHAIN_MAX(10, the amplificationlimit
  * boundary minus one for the odd/even leaf-intermediate alternation) builds
  * successfully -- exercises the SDK's own real 9-cert amplificationlimit
  * target, one flight buffer sized for it (16KB, matching srvrun_conn's
@@ -467,7 +467,7 @@ static void test_sdrv_recv_client_hello_stores_peer_max_datagram_frame_size(
   usz        tp_len;
   usz        ch_len;
   sdrv       s;
-  tp_len = tparam_put_int(&tob, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, 65535);
+  tp_len = tparam_put_int(&tob, TP_MAX_DATAGRAM_FRAME_SIZE, 65535);
   CHECK(tp_len != 0);
   sdrv_dgram_test_setup(&s, cli_pub, srv_random);
   ch_len = sdrv_test_client_hello_tp(
@@ -487,7 +487,7 @@ static void test_sdrv_recv_client_hello_no_max_datagram_param_stays_zero(void) {
   usz        tp_len;
   usz        ch_len;
   sdrv       s;
-  tp_len = tparam_put_int(&tob, QUIC_TP_MAX_IDLE_TIMEOUT, 30000);
+  tp_len = tparam_put_int(&tob, TP_MAX_IDLE_TIMEOUT, 30000);
   CHECK(tp_len != 0);
   sdrv_dgram_test_setup(&s, cli_pub, srv_random);
   ch_len = sdrv_test_client_hello_tp(
@@ -522,7 +522,7 @@ static void test_sdrv_recv_client_hello_stores_peer_initial_max_data(void) {
   usz        tp_len;
   usz        ch_len;
   sdrv       s;
-  tp_len = tparam_put_int(&tob, QUIC_TP_INITIAL_MAX_DATA, 1048576);
+  tp_len = tparam_put_int(&tob, TP_INITIAL_MAX_DATA, 1048576);
   CHECK(tp_len != 0);
   sdrv_dgram_test_setup(&s, cli_pub, srv_random);
   ch_len = sdrv_test_client_hello_tp(
@@ -542,7 +542,7 @@ static void test_sdrv_recv_client_hello_no_initial_max_data_stays_zero(void) {
   usz        tp_len;
   usz        ch_len;
   sdrv       s;
-  tp_len = tparam_put_int(&tob, QUIC_TP_MAX_IDLE_TIMEOUT, 30000);
+  tp_len = tparam_put_int(&tob, TP_MAX_IDLE_TIMEOUT, 30000);
   CHECK(tp_len != 0);
   sdrv_dgram_test_setup(&s, cli_pub, srv_random);
   ch_len = sdrv_test_client_hello_tp(
@@ -565,8 +565,7 @@ test_sdrv_recv_client_hello_stores_peer_initial_max_stream_data_bidi_local(
   usz        tp_len;
   usz        ch_len;
   sdrv       s;
-  tp_len =
-      tparam_put_int(&tob, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 262144);
+  tp_len = tparam_put_int(&tob, TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 262144);
   CHECK(tp_len != 0);
   sdrv_dgram_test_setup(&s, cli_pub, srv_random);
   ch_len = sdrv_test_client_hello_tp(
@@ -588,7 +587,7 @@ test_sdrv_recv_client_hello_no_initial_max_stream_data_bidi_local_stays_zero(
   usz        tp_len;
   usz        ch_len;
   sdrv       s;
-  tp_len = tparam_put_int(&tob, QUIC_TP_MAX_IDLE_TIMEOUT, 30000);
+  tp_len = tparam_put_int(&tob, TP_MAX_IDLE_TIMEOUT, 30000);
   CHECK(tp_len != 0);
   sdrv_dgram_test_setup(&s, cli_pub, srv_random);
   ch_len = sdrv_test_client_hello_tp(
@@ -612,8 +611,7 @@ test_sdrv_recv_client_hello_stores_peer_initial_max_stream_data_bidi_remote(
   usz        tp_len;
   usz        ch_len;
   sdrv       s;
-  tp_len =
-      tparam_put_int(&tob, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE, 131072);
+  tp_len = tparam_put_int(&tob, TP_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE, 131072);
   CHECK(tp_len != 0);
   sdrv_dgram_test_setup(&s, cli_pub, srv_random);
   ch_len = sdrv_test_client_hello_tp(
@@ -635,7 +633,7 @@ static void test_sdrv_recv_client_hello_stores_peer_initial_max_stream_data_uni(
   usz        tp_len;
   usz        ch_len;
   sdrv       s;
-  tp_len = tparam_put_int(&tob, QUIC_TP_INITIAL_MAX_STREAM_DATA_UNI, 65536);
+  tp_len = tparam_put_int(&tob, TP_INITIAL_MAX_STREAM_DATA_UNI, 65536);
   CHECK(tp_len != 0);
   sdrv_dgram_test_setup(&s, cli_pub, srv_random);
   ch_len = sdrv_test_client_hello_tp(
@@ -657,7 +655,7 @@ test_sdrv_recv_client_hello_no_server_initiated_stream_credit_stays_zero(void) {
   usz        tp_len;
   usz        ch_len;
   sdrv       s;
-  tp_len = tparam_put_int(&tob, QUIC_TP_MAX_IDLE_TIMEOUT, 30000);
+  tp_len = tparam_put_int(&tob, TP_MAX_IDLE_TIMEOUT, 30000);
   CHECK(tp_len != 0);
   sdrv_dgram_test_setup(&s, cli_pub, srv_random);
   ch_len = sdrv_test_client_hello_tp(
@@ -756,11 +754,11 @@ static void test_sdrv_recv_client_hello_dup_tp_rejected(void) {
   usz        tp_len;
   usz        ch_len;
   sdrv       s;
-  tp_len = tparam_put_int(&tob, QUIC_TP_MAX_IDLE_TIMEOUT, 30000);
+  tp_len = tparam_put_int(&tob, TP_MAX_IDLE_TIMEOUT, 30000);
   CHECK(tp_len != 0);
   {
     wired_obuf tail = obuf_of(tpbuf + tp_len, sizeof(tpbuf) - tp_len);
-    usz        w    = tparam_put_int(&tail, QUIC_TP_MAX_IDLE_TIMEOUT, 1000);
+    usz        w    = tparam_put_int(&tail, TP_MAX_IDLE_TIMEOUT, 1000);
     CHECK(w != 0);
     tp_len += w;
   }
@@ -769,7 +767,7 @@ static void test_sdrv_recv_client_hello_dup_tp_rejected(void) {
       ch, sizeof(ch), cli_pub, srv_random, wired_span_of(tpbuf, tp_len));
   CHECK(ch_len != 0);
   CHECK(!sdrv_recv_client_hello(&s, ch, ch_len));
-  CHECK(sdrv_last_error(&s) == QUIC_ERR_TRANSPORT_PARAMETER_ERROR);
+  CHECK(sdrv_last_error(&s) == ERR_TRANSPORT_PARAMETER_ERROR);
 }
 
 /* RFC 9368 4: a well-formed version_information transport parameter (RFC
@@ -781,11 +779,11 @@ static void test_sdrv_recv_client_hello_version_information_ok(void) {
   wired_obuf          tob = obuf_of(tpbuf, sizeof(tpbuf));
   usz                 tp_len, ch_len, vi_len;
   sdrv                s;
-  version_information vi = {QUIC_VERSION_1, 1, {QUIC_VERSION_1}};
+  version_information vi = {VERSION_1, 1, {VERSION_1}};
   vi_len                 = verinfo_encode(vibuf, sizeof(vibuf), &vi);
   CHECK(vi_len != 0);
   tp_len = tparam_put_blob(
-      &tob, QUIC_TP_VERSION_INFORMATION, wired_span_of(vibuf, vi_len));
+      &tob, TP_VERSION_INFORMATION, wired_span_of(vibuf, vi_len));
   CHECK(tp_len != 0);
   sdrv_dgram_test_setup(&s, cli_pub, srv_random);
   ch_len = sdrv_test_client_hello_tp(
@@ -809,14 +807,14 @@ static void test_sdrv_recv_client_hello_version_information_malformed_rejected(
   usz        tp_len, ch_len;
   sdrv       s;
   tp_len = tparam_put_blob(
-      &tob, QUIC_TP_VERSION_INFORMATION, wired_span_of(vibuf, sizeof(vibuf)));
+      &tob, TP_VERSION_INFORMATION, wired_span_of(vibuf, sizeof(vibuf)));
   CHECK(tp_len != 0);
   sdrv_dgram_test_setup(&s, cli_pub, srv_random);
   ch_len = sdrv_test_client_hello_tp(
       ch, sizeof(ch), cli_pub, srv_random, wired_span_of(tpbuf, tp_len));
   CHECK(ch_len != 0);
   CHECK(!sdrv_recv_client_hello(&s, ch, ch_len));
-  CHECK(sdrv_last_error(&s) == QUIC_ERR_TRANSPORT_PARAMETER_ERROR);
+  CHECK(sdrv_last_error(&s) == ERR_TRANSPORT_PARAMETER_ERROR);
 }
 
 /* A driver initialized with an arbitrary-but-fixed key set, enough to drive
@@ -1056,7 +1054,7 @@ static void test_sdrv_tp_walk_rejects_overclaimed_exts_len(void) {
     srv_random[i] = (u8)(0xa0 + i);
   }
   wired_x25519_base(cli_pub, cli_priv);
-  tp_len = tparam_put_int(&tob, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, 65535);
+  tp_len = tparam_put_int(&tob, TP_MAX_DATAGRAM_FRAME_SIZE, 65535);
   CHECK(tp_len != 0);
   ch_len = sdrv_test_client_hello_tp(
       scratch, sizeof(scratch), cli_pub, srv_random,
@@ -1198,14 +1196,13 @@ static void test_sdrv_suite_aes_only(void) {
   wired_x25519_base(cli_pub, cli_priv);
   ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
   CHECK(ch_len != 0);
-  sdrv_test_set_suite(ch, QUIC_TLS_AES_128_GCM_SHA256);
+  sdrv_test_set_suite(ch, TLS_AES_128_GCM_SHA256);
 
   sdrv_test_negotiate(&s, ch, ch_len, sh, sizeof(sh), &sh_len);
-  CHECK(s.cipher_suite == QUIC_TLS_AES_128_GCM_SHA256);
+  CHECK(s.cipher_suite == TLS_AES_128_GCM_SHA256);
   CHECK(
       (u16)(sh[SDRV_TEST_SH_CIPHER_SUITE_OFF] << 8 |
-            sh[SDRV_TEST_SH_CIPHER_SUITE_OFF + 1]) ==
-      QUIC_TLS_AES_128_GCM_SHA256);
+            sh[SDRV_TEST_SH_CIPHER_SUITE_OFF + 1]) == TLS_AES_128_GCM_SHA256);
 }
 
 /* A single CHACHA20_POLY1305_SHA256 offer negotiates CHACHA20_POLY1305_
@@ -1222,14 +1219,14 @@ static void test_sdrv_suite_chacha_only(void) {
   wired_x25519_base(cli_pub, cli_priv);
   ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
   CHECK(ch_len != 0);
-  sdrv_test_set_suite(ch, QUIC_TLS_CHACHA20_POLY1305_SHA256);
+  sdrv_test_set_suite(ch, TLS_CHACHA20_POLY1305_SHA256);
 
   sdrv_test_negotiate(&s, ch, ch_len, sh, sizeof(sh), &sh_len);
-  CHECK(s.cipher_suite == QUIC_TLS_CHACHA20_POLY1305_SHA256);
+  CHECK(s.cipher_suite == TLS_CHACHA20_POLY1305_SHA256);
   CHECK(
       (u16)(sh[SDRV_TEST_SH_CIPHER_SUITE_OFF] << 8 |
             sh[SDRV_TEST_SH_CIPHER_SUITE_OFF + 1]) ==
-      QUIC_TLS_CHACHA20_POLY1305_SHA256);
+      TLS_CHACHA20_POLY1305_SHA256);
 }
 
 /* Offering both CHACHA20_POLY1305_SHA256 and AES_128_GCM_SHA256 (in that
@@ -1247,17 +1244,17 @@ static void test_sdrv_suite_prefers_aes(void) {
   wired_x25519_base(cli_pub, cli_priv);
   ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
   CHECK(ch_len != 0);
-  sdrv_test_set_suite(ch, QUIC_TLS_CHACHA20_POLY1305_SHA256);
-  ch2_len = sdrv_test_prepend_suite(
-      ch2, ch, ch_len, QUIC_TLS_CHACHA20_POLY1305_SHA256);
+  sdrv_test_set_suite(ch, TLS_CHACHA20_POLY1305_SHA256);
+  ch2_len =
+      sdrv_test_prepend_suite(ch2, ch, ch_len, TLS_CHACHA20_POLY1305_SHA256);
   /* now offers [CHACHA20_POLY1305_SHA256, CHACHA20_POLY1305_SHA256]; patch
    * the second (originally-single) entry back to AES so the offer is
    * [CHACHA, AES] -- CHACHA first, AES second, AES must still win. */
   sdrv_test_set_suite(
-      ch2 + 2, QUIC_TLS_AES_128_GCM_SHA256); /* shifted by the +2 splice */
+      ch2 + 2, TLS_AES_128_GCM_SHA256); /* shifted by the +2 splice */
 
   sdrv_test_negotiate(&s, ch2, ch2_len, sh, sizeof(sh), &sh_len);
-  CHECK(s.cipher_suite == QUIC_TLS_AES_128_GCM_SHA256);
+  CHECK(s.cipher_suite == TLS_AES_128_GCM_SHA256);
 }
 
 /* A suite this SDK implements neither AEAD for (AES_256_GCM_SHA384, no
@@ -1280,7 +1277,7 @@ static void test_sdrv_suite_no_overlap_fails(void) {
   wired_x25519_base(srv_pub, srv_priv);
   ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
   CHECK(ch_len != 0);
-  sdrv_test_set_suite(ch, QUIC_TLS_AES_256_GCM_SHA384);
+  sdrv_test_set_suite(ch, TLS_AES_256_GCM_SHA384);
 
   {
     sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
@@ -1391,7 +1388,7 @@ static void test_sdrv_retry_advertises_true_odcid_not_key_derivation_dcid(
   CHECK(tpext_decode(wired_span_of(ee + 15, eel - 15), &tp) != 0);
 
   /* the wire TP is the true ODCID, never the Retry SCID used for keys. */
-  CHECK(stp_parse(tp, QUIC_TP_ORIGINAL_DESTINATION_CONNECTION_ID, &cido) == 1);
+  CHECK(stp_parse(tp, TP_ORIGINAL_DESTINATION_CONNECTION_ID, &cido) == 1);
   CHECK(
       cid.n == sizeof(true_odcid) &&
       tparam_cid_match(cid, wired_span_of(true_odcid, sizeof(true_odcid))));
@@ -1491,7 +1488,7 @@ static usz sdrv_test_psk_truncate_len(usz psk_ext_off, usz id_len) {
  * secret). Test-side mirror so fixtures compute a binder over the same PSK
  * sdrv.c will derive when it opens the ticket. */
 static void sdrv_test_psk_from_res_master(
-    const u8 res_master_secret[QUIC_TICKET_SECRET_LEN], u8 psk_out[32]) {
+    const u8 res_master_secret[TICKET_SECRET_LEN], u8 psk_out[32]) {
   hkdf_label l = {"resumption", 10, {0, 0}};
   hkdf_expand_label(res_master_secret, &l, wired_mspan_of(psk_out, 32));
 }
@@ -1501,10 +1498,10 @@ static void sdrv_test_psk_from_res_master(
  * resumption_master_secret (secret) and the PSK actually derived from it
  * (psk) are both known to the test. */
 typedef struct {
-  u8  ticket_key[QUIC_TICKET_KEY_LEN];
-  u8  secret[QUIC_TICKET_SECRET_LEN]; /* resumption_master_secret */
-  u8  psk[32];                        /* HKDF-Expand-Label(secret, ...) */
-  u8  sealed[QUIC_TICKET_SEALED_LEN];
+  u8  ticket_key[TICKET_KEY_LEN];
+  u8  secret[TICKET_SECRET_LEN]; /* resumption_master_secret */
+  u8  psk[32];                   /* HKDF-Expand-Label(secret, ...) */
+  u8  sealed[TICKET_SEALED_LEN];
   u8  ch[600];
   usz ch_len;
   u8  cli_pub[32], srv_random[32];
@@ -1523,7 +1520,7 @@ static void sdrv_psk_fixture_init(sdrv_psk_fixture* f) {
     cli_priv[i]      = (u8)(i + 1);
     f->srv_random[i] = (u8)(0xa0 + i);
   }
-  for (usz i = 0; i < QUIC_TICKET_SECRET_LEN; i++) {
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
     f->secret[i] = (u8)(0x50 + i);
     t.secret[i]  = f->secret[i];
   }
@@ -1574,7 +1571,7 @@ static void test_sdrv_psk_valid_ticket_and_binder_accepted(void) {
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
   u8               ch2[700];
-  u8               binder[QUIC_HKDF_PRK];
+  u8               binder[HKDF_PRK];
   usz              ch2_len, psk_ext_off, trunc_len;
   u8               sh[256], flight[2048];
   wired_obuf       sh_ob, fl_ob;
@@ -1588,12 +1585,12 @@ static void test_sdrv_psk_valid_ticket_and_binder_accepted(void) {
 
   /* Placeholder binder first, to learn the extension's own offset and the
    * truncation length -- pre_shared_key's wire size does not depend on the
-   * binder's content, only its length (fixed at QUIC_HKDF_PRK here), so the
+   * binder's content, only its length (fixed at HKDF_PRK here), so the
    * offsets computed from this placeholder pass are exactly the ones the
    * real binder (computed below) will also occupy. */
   {
-    u8            zero_binder[QUIC_HKDF_PRK] = {0};
-    tlsext_psk_in psk                        = {
+    u8            zero_binder[HKDF_PRK] = {0};
+    tlsext_psk_in psk                   = {
         wired_span_of(f.sealed, sizeof(f.sealed)), 0,
         wired_span_of(zero_binder, sizeof(zero_binder))};
     ch2_len = sdrv_test_append_psk(
@@ -1650,7 +1647,7 @@ static void test_sdrv_psk_without_modes_rejected(void) {
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
   u8               ch2[700];
-  u8               binder[QUIC_HKDF_PRK] = {0};
+  u8               binder[HKDF_PRK] = {0};
   usz              ch2_len;
   tlsext_psk_in    psk;
   sdrv_psk_fixture_init(&f);
@@ -1683,7 +1680,7 @@ static void test_sdrv_psk_not_last_rejected(void) {
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
   u8               ch2[700];
-  u8               binder[QUIC_HKDF_PRK];
+  u8               binder[HKDF_PRK];
   usz              ch2_len, psk_ext_off, trunc_len;
   u8               trailer[16];
   usz              trailer_len;
@@ -1695,8 +1692,8 @@ static void test_sdrv_psk_not_last_rejected(void) {
   }
   wired_x25519_base(srv_pub, srv_priv);
   {
-    u8            zero_binder[QUIC_HKDF_PRK] = {0};
-    tlsext_psk_in psk                        = {
+    u8            zero_binder[HKDF_PRK] = {0};
+    tlsext_psk_in psk                   = {
         wired_span_of(f.sealed, sizeof(f.sealed)), 0,
         wired_span_of(zero_binder, sizeof(zero_binder))};
     ch2_len = sdrv_test_append_psk(
@@ -1743,11 +1740,11 @@ static void test_sdrv_psk_not_last_rejected(void) {
 static usz sdrv_test_0rtt_ch(
     sdrv_psk_fixture* f, u8* ch2, usz ch2_cap, usz* psk_ext_off) {
   usz ch2_len;
-  u8  binder[QUIC_HKDF_PRK];
+  u8  binder[HKDF_PRK];
   usz trunc_len;
   {
-    u8            zero_binder[QUIC_HKDF_PRK] = {0};
-    tlsext_psk_in psk                        = {
+    u8            zero_binder[HKDF_PRK] = {0};
+    tlsext_psk_in psk                   = {
         wired_span_of(f->sealed, sizeof(f->sealed)), 0,
         wired_span_of(zero_binder, sizeof(zero_binder))};
     ch2_len = sdrv_test_append_early_data_then_psk(
@@ -1795,9 +1792,9 @@ static void test_sdrv_early_data_accepted_derives_keys(void) {
   CHECK(s.early_data_accepted == 1);
   tls_early_keys(f.psk, ch2, ch2_len, &want);
   CHECK(sdrv_early_keys(&s, &got) == 1);
-  for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(got.key[i] == want.key[i]);
-  for (usz i = 0; i < QUIC_INITIAL_IV; i++) CHECK(got.iv[i] == want.iv[i]);
-  for (usz i = 0; i < QUIC_INITIAL_HP; i++) CHECK(got.hp[i] == want.hp[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) CHECK(got.key[i] == want.key[i]);
+  for (usz i = 0; i < INITIAL_IV; i++) CHECK(got.iv[i] == want.iv[i]);
+  for (usz i = 0; i < INITIAL_HP; i++) CHECK(got.hp[i] == want.hp[i]);
 }
 
 /* pre_shared_key accepted but no early_data extension -- ordinary PSK
@@ -1808,7 +1805,7 @@ static void test_sdrv_psk_without_early_data_no_0rtt(void) {
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
   u8               ch2[700];
-  u8               binder[QUIC_HKDF_PRK];
+  u8               binder[HKDF_PRK];
   usz              ch2_len, psk_ext_off, trunc_len;
   initial_keys     got;
   sdrv_psk_fixture_init(&f);
@@ -1818,8 +1815,8 @@ static void test_sdrv_psk_without_early_data_no_0rtt(void) {
   }
   wired_x25519_base(srv_pub, srv_priv);
   {
-    u8            zero_binder[QUIC_HKDF_PRK] = {0};
-    tlsext_psk_in psk                        = {
+    u8            zero_binder[HKDF_PRK] = {0};
+    tlsext_psk_in psk                   = {
         wired_span_of(f.sealed, sizeof(f.sealed)), 0,
         wired_span_of(zero_binder, sizeof(zero_binder))};
     ch2_len = sdrv_test_append_psk(
@@ -1895,8 +1892,8 @@ static void test_sdrv_psk_ticket_open_fails_falls_back(void) {
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
   u8               ch2[700];
-  u8               garbage[QUIC_TICKET_SEALED_LEN];
-  u8               binder[QUIC_HKDF_PRK] = {0};
+  u8               garbage[TICKET_SEALED_LEN];
+  u8               binder[HKDF_PRK] = {0};
   usz              ch2_len, psk_ext_off;
   sdrv_psk_fixture_init(&f);
   for (usz i = 0; i < 32; i++) {
@@ -1930,7 +1927,7 @@ static void test_sdrv_psk_binder_mismatch_aborts(void) {
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
   u8               ch2[700];
-  u8               wrong_binder[QUIC_HKDF_PRK];
+  u8               wrong_binder[HKDF_PRK];
   usz              ch2_len, psk_ext_off;
   sdrv_psk_fixture_init(&f);
   for (usz i = 0; i < 32; i++) {
@@ -1966,7 +1963,7 @@ static void test_sdrv_psk_tampered_transcript_aborts(void) {
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
   u8               ch2[700];
-  u8               binder[QUIC_HKDF_PRK];
+  u8               binder[HKDF_PRK];
   usz              ch2_len, psk_ext_off, trunc_len;
   sdrv_psk_fixture_init(&f);
   for (usz i = 0; i < 32; i++) {
@@ -1976,8 +1973,8 @@ static void test_sdrv_psk_tampered_transcript_aborts(void) {
   wired_x25519_base(srv_pub, srv_priv);
 
   {
-    u8            zero_binder[QUIC_HKDF_PRK] = {0};
-    tlsext_psk_in psk                        = {
+    u8            zero_binder[HKDF_PRK] = {0};
+    tlsext_psk_in psk                   = {
         wired_span_of(f.sealed, sizeof(f.sealed)), 0,
         wired_span_of(zero_binder, sizeof(zero_binder))};
     ch2_len = sdrv_test_append_psk(
@@ -2036,14 +2033,13 @@ static void sdrv_test_sni_outcome(wired_span sni, salpn_sni_outcome want) {
 
 /* No server_name offered -> ABSENT. */
 static void test_sdrv_sni_absent(void) {
-  sdrv_test_sni_outcome(wired_span_of(0, 0), QUIC_SALPN_SNI_ABSENT);
+  sdrv_test_sni_outcome(wired_span_of(0, 0), SALPN_SNI_ABSENT);
 }
 
 /* server_name matches the self-signed certificate's "localhost" SAN. */
 static void test_sdrv_sni_match(void) {
   const u8 host[] = "localhost";
-  sdrv_test_sni_outcome(
-      wired_span_of(host, sizeof(host) - 1), QUIC_SALPN_SNI_MATCH);
+  sdrv_test_sni_outcome(wired_span_of(host, sizeof(host) - 1), SALPN_SNI_MATCH);
 }
 
 /* server_name names a host the certificate does not cover. RFC 6066 3: this
@@ -2052,11 +2048,11 @@ static void test_sdrv_sni_match(void) {
 static void test_sdrv_sni_mismatch(void) {
   const u8 host[] = "unrelated.example";
   sdrv_test_sni_outcome(
-      wired_span_of(host, sizeof(host) - 1), QUIC_SALPN_SNI_MISMATCH);
+      wired_span_of(host, sizeof(host) - 1), SALPN_SNI_MISMATCH);
 }
 
 /* RFC 6066 3: sdrv_enforce_sni is the opt-in a caller uses to turn a
- * QUIC_SALPN_SNI_MISMATCH into an actual rejection (recv_client_hello itself
+ * SALPN_SNI_MISMATCH into an actual rejection (recv_client_hello itself
  * never fails on a mismatch, see sdrv_check_sni's doc). */
 static void sdrv_test_enforce_sni(
     wired_span sni, salpn_sni_outcome outcome, int want_ok) {
@@ -2084,27 +2080,27 @@ static void sdrv_test_enforce_sni(
   CHECK(sdrv_sni_outcome(&s) == outcome);
   CHECK(sdrv_enforce_sni(&s) == want_ok);
   if (!want_ok)
-    CHECK(sdrv_last_error(&s) == err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME));
+    CHECK(sdrv_last_error(&s) == err_crypto(TLS_ALERT_UNRECOGNIZED_NAME));
 }
 
 /* A mismatch fails enforce_sni and records unrecognized_name. */
 static void test_sdrv_enforce_sni_mismatch_rejects(void) {
   const u8 host[] = "unrelated.example";
   sdrv_test_enforce_sni(
-      wired_span_of(host, sizeof(host) - 1), QUIC_SALPN_SNI_MISMATCH, 0);
+      wired_span_of(host, sizeof(host) - 1), SALPN_SNI_MISMATCH, 0);
 }
 
 /* A match is a no-op: enforce_sni succeeds, last_error stays 0. */
 static void test_sdrv_enforce_sni_match_ok(void) {
   const u8 host[] = "localhost";
   sdrv_test_enforce_sni(
-      wired_span_of(host, sizeof(host) - 1), QUIC_SALPN_SNI_MATCH, 1);
+      wired_span_of(host, sizeof(host) - 1), SALPN_SNI_MATCH, 1);
 }
 
 /* RFC 6066 3: no server_name offered is not a mismatch -- enforce_sni is a
  * no-op. */
 static void test_sdrv_enforce_sni_absent_ok(void) {
-  sdrv_test_enforce_sni(wired_span_of(0, 0), QUIC_SALPN_SNI_ABSENT, 1);
+  sdrv_test_enforce_sni(wired_span_of(0, 0), SALPN_SNI_ABSENT, 1);
 }
 
 void test_sdrv(void) {
@@ -2307,12 +2303,11 @@ void test_sdrv(void) {
     CHECK(next_hs(flight2, hs2_len, &q, &ee2, &ee2l));
     CHECK(tpext_decode(wired_span_of(ee2 + 15, ee2l - 15), &tp) != 0);
 
-    CHECK(
-        stp_parse(tp, QUIC_TP_ORIGINAL_DESTINATION_CONNECTION_ID, &cido) == 1);
+    CHECK(stp_parse(tp, TP_ORIGINAL_DESTINATION_CONNECTION_ID, &cido) == 1);
     CHECK(
         cid.n == sizeof(client_dcid) &&
         tparam_cid_match(cid, wired_span_of(client_dcid, sizeof(client_dcid))));
-    CHECK(stp_parse(tp, QUIC_TP_INITIAL_SOURCE_CONNECTION_ID, &cido) == 1);
+    CHECK(stp_parse(tp, TP_INITIAL_SOURCE_CONNECTION_ID, &cido) == 1);
     CHECK(
         cid.n == sizeof(server_scid) &&
         tparam_cid_match(cid, wired_span_of(server_scid, sizeof(server_scid))));
@@ -2322,7 +2317,7 @@ void test_sdrv(void) {
     {
       u64     dgram_size = 0;
       stp_out dgo        = {&dgram_size, 0};
-      CHECK(stp_parse(tp, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, &dgo) == 1);
+      CHECK(stp_parse(tp, TP_MAX_DATAGRAM_FRAME_SIZE, &dgo) == 1);
       CHECK(dgram_size == 65535);
     }
   }

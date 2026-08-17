@@ -4,8 +4,7 @@
 
 usz grease_encode(u8* buf, usz cap) {
   usz off = 0;
-  if (!varint_put(wired_mspan_of(buf, cap), &off, QUIC_TP_GREASE_QUIC_BIT))
-    return 0;
+  if (!varint_put(wired_mspan_of(buf, cap), &off, TP_GREASE_QUIC_BIT)) return 0;
   if (!varint_put(wired_mspan_of(buf, cap), &off, 0))
     return 0; /* empty value */
   return off;
@@ -15,7 +14,7 @@ usz grease_encode(u8* buf, usz cap) {
 static int take_grease_id(const u8* buf, usz n, usz* off) {
   u64 id;
   if (!varint_take(wired_span_of(buf, n), off, &id)) return 0;
-  return id == QUIC_TP_GREASE_QUIC_BIT;
+  return id == TP_GREASE_QUIC_BIT;
 }
 
 /* Read id then length; require the grease id and an empty value. */
@@ -33,6 +32,6 @@ usz grease_decode(const u8* buf, usz n) {
 }
 
 int grease_accept_byte0(u8 byte0, int peer_greases) {
-  if (peer_greases) return 1;          /* any QUIC Bit value is acceptable */
-  return (byte0 & QUIC_BIT_MASK) != 0; /* otherwise the bit must be set */
+  if (peer_greases) return 1;     /* any QUIC Bit value is acceptable */
+  return (byte0 & BIT_MASK) != 0; /* otherwise the bit must be set */
 }

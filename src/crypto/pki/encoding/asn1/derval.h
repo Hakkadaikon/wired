@@ -1,5 +1,5 @@
-#ifndef QUIC_ASN1_DERVAL_H
-#define QUIC_ASN1_DERVAL_H
+#ifndef ASN1_DERVAL_H
+#define ASN1_DERVAL_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

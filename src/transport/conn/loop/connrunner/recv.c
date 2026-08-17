@@ -9,7 +9,7 @@
 #include "transport/packet/header/dcidresolve/dcidresolve.h"
 #include "transport/recovery/rtx/sentmeta/on_ack.h"
 
-#define QUIC_CONNRUNNER_MAXPKTS 8 /* coalesced packets per datagram */
+#define CONNRUNNER_MAXPKTS 8 /* coalesced packets per datagram */
 
 /* RFC 9000 12.2: a coalesced packet whose Destination Connection ID differs
  * from the connection's own is ignored (not just this packet dropped as
@@ -28,7 +28,7 @@ static int dcid_matches(const connrunner* r, wired_mspan pkt) {
  * off its Key Phase bit; -1 means the generation it names has no key, so the
  * packet is dropped. Long-header levels are not key-phase gated. */
 static int phase_admits(connrunner* r, u8 byte0, int level) {
-  if (level != QUIC_LEVEL_ONERTT) return 1;
+  if (level != LEVEL_ONERTT) return 1;
   return connrunner_recv_keygen(r, byte0) != -1;
 }
 
@@ -79,10 +79,10 @@ static void feed_loop(connrunner* r, int elicited) {
 }
 
 usz connrunner_process_datagram(connrunner* r, wired_mspan dgram) {
-  const u8* pkts[QUIC_CONNRUNNER_MAXPKTS];
-  usz       offs[QUIC_CONNRUNNER_MAXPKTS], lens[QUIC_CONNRUNNER_MAXPKTS], n, i;
+  const u8* pkts[CONNRUNNER_MAXPKTS];
+  usz       offs[CONNRUNNER_MAXPKTS], lens[CONNRUNNER_MAXPKTS], n, i;
   usz       accepted = 0;
-  pktlist   out      = {pkts, offs, lens, QUIC_CONNRUNNER_MAXPKTS};
+  pktlist   out      = {pkts, offs, lens, CONNRUNNER_MAXPKTS};
   n                  = udploop_split(wired_span_of(dgram.p, dgram.n), &out);
   for (i = 0; i < n; i++) {
     int elicited = 0;
@@ -107,6 +107,6 @@ static void ack_one(sentmeta* m, usz i, u64 largest) {
 
 void connrunner_track_acks(connrunner* r) {
   if (!r->io.disp.has_ack) return;
-  for (usz i = 0; i < QUIC_SENTMETA_CAP; i++)
+  for (usz i = 0; i < SENTMETA_CAP; i++)
     ack_one(&r->sent, i, r->io.disp.largest_acked);
 }

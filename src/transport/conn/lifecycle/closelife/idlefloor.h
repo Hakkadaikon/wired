@@ -1,5 +1,5 @@
-#ifndef QUIC_CLOSELIFE_IDLEFLOOR_H
-#define QUIC_CLOSELIFE_IDLEFLOOR_H
+#ifndef CLOSELIFE_IDLEFLOOR_H
+#define CLOSELIFE_IDLEFLOOR_H
 
 #include "common/platform/sys/syscall.h"
 

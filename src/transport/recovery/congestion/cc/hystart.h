@@ -1,5 +1,5 @@
-#ifndef QUIC_CC_HYSTART_H
-#define QUIC_CC_HYSTART_H
+#ifndef CC_HYSTART_H
+#define CC_HYSTART_H
 
 #include "common/platform/sys/syscall.h"
 

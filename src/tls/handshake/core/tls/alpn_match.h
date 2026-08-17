@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_ALPN_MATCH_H
-#define QUIC_TLS_ALPN_MATCH_H
+#ifndef TLS_ALPN_MATCH_H
+#define TLS_ALPN_MATCH_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

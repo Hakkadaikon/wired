@@ -1,5 +1,5 @@
-#ifndef QUIC_KEYS_KEYSET_H
-#define QUIC_KEYS_KEYSET_H
+#ifndef KEYS_KEYSET_H
+#define KEYS_KEYSET_H
 
 #include "common/platform/sys/syscall.h"
 #include "tls/handshake/core/tls/initial.h"
@@ -11,18 +11,18 @@
  * an installed flag.
  */
 
-#define QUIC_LEVEL_INITIAL 0   /**< Initial packet protection level */
-#define QUIC_LEVEL_HANDSHAKE 1 /**< Handshake packet protection level */
-#define QUIC_LEVEL_ONERTT 2    /**< 1-RTT packet protection level */
-#define QUIC_KEYSET_LEVELS 3   /**< number of protection levels */
+#define LEVEL_INITIAL 0   /**< Initial packet protection level */
+#define LEVEL_HANDSHAKE 1 /**< Handshake packet protection level */
+#define LEVEL_ONERTT 2    /**< 1-RTT packet protection level */
+#define KEYSET_LEVELS 3   /**< number of protection levels */
 
 /**
  * Per-protection-level key store: one AES-128-GCM key set per level plus an
  * installed flag.
  */
 typedef struct {
-  initial_keys keys[QUIC_KEYSET_LEVELS]; /**< key/iv/hp per level */
-  int installed[QUIC_KEYSET_LEVELS];     /**< 1 once keys[level] is valid */
+  initial_keys keys[KEYSET_LEVELS];      /**< key/iv/hp per level */
+  int          installed[KEYSET_LEVELS]; /**< 1 once keys[level] is valid */
 } keyset;
 
 /**

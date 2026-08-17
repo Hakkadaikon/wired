@@ -69,7 +69,7 @@ static void test_sha384_pad_boundary(void) {
 static void test_sha384_is_sha512_truncation(void) {
   static const u8 msg[] = "abc";
   u8              d384[48];
-  u8              d512_from_384_state[QUIC_SHA512_DIGEST];
+  u8              d512_from_384_state[SHA512_DIGEST];
   sha512_ctx      s;
 
   sha384(msg, 3, d384);

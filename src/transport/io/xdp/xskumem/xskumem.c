@@ -2,11 +2,11 @@
 
 void xskumem_alloc_init(xskumem_alloc* a, u64 base_addr, u32 nframes) {
   u32 n = nframes;
-  if (n > QUIC_XSKUMEM_FRAMES) {
-    n = QUIC_XSKUMEM_FRAMES;
+  if (n > XSKUMEM_FRAMES) {
+    n = XSKUMEM_FRAMES;
   }
   for (u32 i = 0; i < n; i++) {
-    a->free[i] = base_addr + (u64)i * QUIC_XSKUMEM_FRAME_SIZE;
+    a->free[i] = base_addr + (u64)i * XSKUMEM_FRAME_SIZE;
   }
   a->nfree = n;
 }
@@ -20,7 +20,7 @@ i64 xskumem_alloc_get(xskumem_alloc* a) {
 }
 
 void xskumem_alloc_put(xskumem_alloc* a, u64 addr) {
-  if (a->nfree >= QUIC_XSKUMEM_FRAMES) {
+  if (a->nfree >= XSKUMEM_FRAMES) {
     return;
   }
   a->free[a->nfree] = addr;

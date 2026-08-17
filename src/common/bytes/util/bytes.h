@@ -1,5 +1,5 @@
-#ifndef QUIC_UTIL_BYTES_H
-#define QUIC_UTIL_BYTES_H
+#ifndef UTIL_BYTES_H
+#define UTIL_BYTES_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

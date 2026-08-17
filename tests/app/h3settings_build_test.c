@@ -7,19 +7,19 @@ void test_h3settings_build(void) {
   wired_obuf    ob = {buf, sizeof buf, 0};
   CHECK(h3settings_build(&in, &ob) == 1);
   usz n = ob.len;
-  CHECK(n > 2 && buf[0] == QUIC_H3_FRAME_SETTINGS);
+  CHECK(n > 2 && buf[0] == H3_FRAME_SETTINGS);
 
   /* length field matches the remaining payload bytes */
   h3_frame f;
   usz      r = h3_frame_get(wired_span_of(buf, n), &f);
-  CHECK(r == n && f.type == QUIC_H3_FRAME_SETTINGS && f.payload_len == n - 2);
+  CHECK(r == n && f.type == H3_FRAME_SETTINGS && f.payload_len == n - 2);
 
   /* read the (id,value) pairs back via the existing SETTINGS codec */
   h3_settings s;
   usz         sr = h3_settings_get(buf, n, &s);
   CHECK(sr == n && s.n == 3);
   CHECK(
-      s.pairs[0].id == QUIC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE &&
+      s.pairs[0].id == H3_SETTINGS_MAX_FIELD_SECTION_SIZE &&
       s.pairs[0].value == 0x4000);
   CHECK(s.pairs[1].id == 0x01 && s.pairs[1].value == 0);
   CHECK(s.pairs[2].id == 0x07 && s.pairs[2].value == 100);
@@ -41,7 +41,7 @@ void test_h3settings_build_connect_protocol(void) {
   usz         sr = h3_settings_get(buf, ob.len, &s);
   CHECK(sr == ob.len && s.n == 4);
   CHECK(
-      s.pairs[3].id == QUIC_H3_SETTINGS_ENABLE_CONNECT_PROTOCOL &&
+      s.pairs[3].id == H3_SETTINGS_ENABLE_CONNECT_PROTOCOL &&
       s.pairs[3].value == 1);
 }
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_EXT_VERSIONS_H
-#define QUIC_TLS_EXT_VERSIONS_H
+#ifndef TLS_EXT_VERSIONS_H
+#define TLS_EXT_VERSIONS_H
 
 #include "common/platform/sys/syscall.h"
 #include "tls/handshake/core/tls/handshake.h"
@@ -7,7 +7,7 @@
 /* RFC 8446 4.2.1: supported_versions, extension_type 0x002b. In ClientHello
  * the body is a 1-byte list length followed by 2-byte versions. */
 
-#define QUIC_TLS13_VERSION 0x0304
+#define TLS13_VERSION 0x0304
 
 /* Encode the supported_versions extension offering TLS 1.3 only. Returns
  * bytes written into buf (cap total), or 0 if it does not fit. */

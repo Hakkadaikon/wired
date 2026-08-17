@@ -1,5 +1,5 @@
-#ifndef QUIC_DGPRIORITY_DGPRIORITY_H
-#define QUIC_DGPRIORITY_DGPRIORITY_H
+#ifndef DGPRIORITY_DGPRIORITY_H
+#define DGPRIORITY_DGPRIORITY_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -18,8 +18,8 @@
  * (transport-level, RFC 9221) independent of HTTP/3 (application-level,
  * RFC 9218). */
 
-#define QUIC_DGPRIORITY_DEFAULT 3
-#define QUIC_DGPRIORITY_MAX 7
+#define DGPRIORITY_DEFAULT 3
+#define DGPRIORITY_MAX 7
 
 /* True if u is a valid urgency value (0..7). */
 int dgpriority_valid(u8 u);

@@ -2,7 +2,7 @@
 
 /* Compare a computed digest against a hex literal. */
 static int digest_eq(const u8* got, const char* hex) {
-  for (usz i = 0; i < QUIC_SHA256_DIGEST; i++) {
+  for (usz i = 0; i < SHA256_DIGEST; i++) {
     u8 hi = hex[i * 2], lo = hex[i * 2 + 1];
     u8 b = (u8)(((hi <= '9' ? hi - '0' : hi - 'a' + 10) << 4) |
                 (lo <= '9' ? lo - '0' : lo - 'a' + 10));
@@ -13,7 +13,7 @@ static int digest_eq(const u8* got, const char* hex) {
 
 /* NIST FIPS 180-4 sample vectors. */
 static void test_sha256_vectors(void) {
-  u8 d[QUIC_SHA256_DIGEST];
+  u8 d[SHA256_DIGEST];
   wired_sha256((const u8*)"", 0, d);
   CHECK(digest_eq(
       d, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"));
@@ -30,7 +30,7 @@ static void test_sha256_vectors(void) {
 
 /* Streaming in pieces must match the one-shot digest. */
 static void test_sha256_streaming(void) {
-  u8 a[QUIC_SHA256_DIGEST], b[QUIC_SHA256_DIGEST];
+  u8 a[SHA256_DIGEST], b[SHA256_DIGEST];
   wired_sha256((const u8*)"hello world", 11, a);
   sha256_ctx s;
   sha256_init(&s);
@@ -39,7 +39,7 @@ static void test_sha256_streaming(void) {
   sha256_final(&s, b);
   CHECK(digest_eq(
       a, "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"));
-  for (usz i = 0; i < QUIC_SHA256_DIGEST; i++) CHECK(a[i] == b[i]);
+  for (usz i = 0; i < SHA256_DIGEST; i++) CHECK(a[i] == b[i]);
 }
 
 void test_sha256(void) {

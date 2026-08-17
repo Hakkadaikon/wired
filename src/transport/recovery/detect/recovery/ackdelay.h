@@ -1,5 +1,5 @@
-#ifndef QUIC_RECOVERY_ACKDELAY_H
-#define QUIC_RECOVERY_ACKDELAY_H
+#ifndef RECOVERY_ACKDELAY_H
+#define RECOVERY_ACKDELAY_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -7,7 +7,7 @@
  * scaled down by 2^ack_delay_exponent before encoding, and scaled back up on
  * receipt. The default exponent is 3 (a multiplier of 8). */
 
-#define QUIC_ACK_DELAY_EXPONENT_DEFAULT 3
+#define ACK_DELAY_EXPONENT_DEFAULT 3
 
 /* Encode a delay in microseconds into the ACK Delay field value using the
  * local ack_delay_exponent. */

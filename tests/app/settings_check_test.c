@@ -14,7 +14,7 @@ static void test_settings_allowed(void) {
   CHECK(h3_setting_allowed(0x00) == 1); /* below */
   CHECK(h3_setting_allowed(0x01) == 1); /* just below */
   CHECK(h3_setting_allowed(0x06) == 1); /* MAX_FIELD_SECTION_SIZE */
-  CHECK(h3_setting_allowed(QUIC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE) == 1);
+  CHECK(h3_setting_allowed(H3_SETTINGS_MAX_FIELD_SECTION_SIZE) == 1);
   CHECK(h3_setting_allowed(0x07) == 1); /* just above */
 }
 

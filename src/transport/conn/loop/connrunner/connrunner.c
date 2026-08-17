@@ -62,7 +62,7 @@ static usz advance_stop_sending_reset(connrunner* r, usz out) {
 /* RFC 8899: reconcile the outstanding probe against this round's ack/loss
  * results, mirroring connrunner_track_acks/track_loss's own detection. */
 static void advance_pmtu_reconcile(connrunner* r, u64 now) {
-  u64 lost[QUIC_SENTMETA_CAP];
+  u64 lost[SENTMETA_CAP];
   usz n;
   connrunner_track_loss_ex(r, now, lost, &n);
   connrunner_pmtu_reconcile(r, lost, n, now);
@@ -158,7 +158,7 @@ void connrunner_iterate(connrunner* r, u64 now) {
 
 /* Progress halts once closed; otherwise iterate up to the bound. */
 static int run_done(const connrunner* r, usz i, usz max) {
-  return i >= max || r->loop.gate.phase == QUIC_CONNLOOP_CLOSED;
+  return i >= max || r->loop.gate.phase == CONNLOOP_CLOSED;
 }
 
 void connrunner_run(connrunner* r, u64 now, usz max_iterations) {

@@ -1,5 +1,5 @@
-#ifndef QUIC_P256_FIELD_H
-#define QUIC_P256_FIELD_H
+#ifndef P256_FIELD_H
+#define P256_FIELD_H
 
 #include "common/platform/sys/syscall.h"
 

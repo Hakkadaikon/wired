@@ -105,9 +105,9 @@ static void make_client_finished(struct srv_fix* f) {
   transcript_add(&tr, f->flight, f->flight_len);
   transcript_hash(&tr, th); /* through server Finished */
 
-  off = hs_begin(f->cli_fin, sizeof(f->cli_fin), QUIC_HS_FINISHED);
+  off = hs_begin(f->cli_fin, sizeof(f->cli_fin), HS_FINISHED);
   tls_finished_verify_data(c_traffic, th, f->cli_fin + off);
-  f->cli_fin_len = off + QUIC_TLS_VERIFY_DATA;
+  f->cli_fin_len = off + TLS_VERIFY_DATA;
   hs_finish(f->cli_fin, f->cli_fin_len);
 }
 
@@ -134,8 +134,8 @@ static void test_server_happy(void) {
   CHECK(wired_server_is_confirmed(&f.s) == 0);
   {
     const initial_keys* k;
-    CHECK(keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 0);
-    CHECK(keyset_for_level(&f.s.keys, QUIC_LEVEL_HANDSHAKE, &k) == 1);
+    CHECK(keyset_for_level(&f.s.keys, LEVEL_ONERTT, &k) == 0);
+    CHECK(keyset_for_level(&f.s.keys, LEVEL_HANDSHAKE, &k) == 1);
   }
 
   make_client_finished(&f);
@@ -146,7 +146,7 @@ static void test_server_happy(void) {
   CHECK(f.s.phase == WIRED_SERVER_HS_CONFIRMED);
   {
     const initial_keys* k;
-    CHECK(keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 1);
+    CHECK(keyset_for_level(&f.s.keys, LEVEL_ONERTT, &k) == 1);
   }
 
   /* HANDSHAKE_DONE exactly once. */
@@ -185,7 +185,7 @@ static void test_server_forged_finished(void) {
   CHECK(f.s.phase == WIRED_SERVER_HS_FLIGHT_SENT);
   {
     const initial_keys* k;
-    CHECK(keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 0);
+    CHECK(keyset_for_level(&f.s.keys, LEVEL_ONERTT, &k) == 0);
   }
   hd_ob = obuf_of(hsdone, sizeof(hsdone));
   CHECK(wired_server_handshake_done(&f.s, &hd_ob) == 0);
@@ -212,7 +212,7 @@ static void test_server_flight_before_ch(void) {
   CHECK(wired_server_build_flight(&f.s, rnd, &fo) == 0);
   {
     const initial_keys* k;
-    CHECK(keyset_for_level(&f.s.keys, QUIC_LEVEL_HANDSHAKE, &k) == 0);
+    CHECK(keyset_for_level(&f.s.keys, LEVEL_HANDSHAKE, &k) == 0);
   }
 }
 
@@ -237,7 +237,7 @@ static void test_server_fin_before_flight(void) {
   /* still CH_RECVD: any Finished-like payload must not promote */
   {
     u8  fin[40];
-    usz off = hs_begin(fin, sizeof(fin), QUIC_HS_FINISHED);
+    usz off = hs_begin(fin, sizeof(fin), HS_FINISHED);
     for (usz i = 0; i < 32; i++) fin[off + i] = 0;
     hs_finish(fin, off + 32);
     plen = srv_wrap_crypto(fin, off + 32, payload, sizeof(payload));
@@ -300,8 +300,8 @@ static void test_server_ap_keys_match_client(void) {
   plen = srv_wrap_crypto(f.cli_fin, f.cli_fin_len, payload, sizeof(payload));
   CHECK(wired_server_feed(&f.s, payload, plen) == 1);
   CHECK(wired_server_is_confirmed(&f.s) == 1);
-  check_dir_matches(&f, QUIC_KS_SERVER_AP, 1);
-  check_dir_matches(&f, QUIC_KS_CLIENT_AP, 0);
+  check_dir_matches(&f, KS_SERVER_AP, 1);
+  check_dir_matches(&f, KS_CLIENT_AP, 0);
 }
 
 /* Init a server driver with the same fixed self-signed key material
@@ -329,9 +329,7 @@ static void test_server_sni_mismatch_rejected(void) {
   init_plain_server(&f.s);
   CHECK(wired_server_recv_initial(&f.s, f.ch, f.ch_len) == 0);
   CHECK(f.s.phase == WIRED_SERVER_HS_INITIAL);
-  CHECK(
-      sdrv_last_error(&f.s.sdrv) ==
-      err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME));
+  CHECK(sdrv_last_error(&f.s.sdrv) == err_crypto(TLS_ALERT_UNRECOGNIZED_NAME));
 }
 
 /* A server_name matching the self-signed cert's "localhost" SAN is accepted
@@ -426,23 +424,22 @@ static void test_server_keylog_path_writes_line(void) {
  * ticket offers is HKDF-Expand-Label(resumption_master_secret,
  * "resumption", ticket_nonce, 32), empty ticket_nonce. */
 static void srvt_psk_from_res_master(
-    const u8 res_master_secret[QUIC_TICKET_SECRET_LEN], u8 psk_out[32]) {
+    const u8 res_master_secret[TICKET_SECRET_LEN], u8 psk_out[32]) {
   hkdf_label l = {"resumption", 10, {0, 0}};
   hkdf_expand_label(res_master_secret, &l, wired_mspan_of(psk_out, 32));
 }
 
 typedef struct {
-  u8 ticket_key[QUIC_TICKET_KEY_LEN];
-  u8 secret[QUIC_TICKET_SECRET_LEN]; /* resumption_master_secret */
-  u8 psk[32];                        /* HKDF-Expand-Label(secret, ...) */
-  u8 sealed[QUIC_TICKET_SEALED_LEN];
+  u8 ticket_key[TICKET_KEY_LEN];
+  u8 secret[TICKET_SECRET_LEN]; /* resumption_master_secret */
+  u8 psk[32];                   /* HKDF-Expand-Label(secret, ...) */
+  u8 sealed[TICKET_SEALED_LEN];
 } srvt_psk_fixture;
 
 static void srvt_psk_fixture_init(srvt_psk_fixture* f) {
   ticket t = {{0}, 0, 7200, 0};
-  for (usz i = 0; i < QUIC_TICKET_KEY_LEN; i++)
-    f->ticket_key[i] = (u8)(0xd0 + i);
-  for (usz i = 0; i < QUIC_TICKET_SECRET_LEN; i++) {
+  for (usz i = 0; i < TICKET_KEY_LEN; i++) f->ticket_key[i] = (u8)(0xd0 + i);
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
     f->secret[i] = (u8)(0x60 + i);
     t.secret[i]  = f->secret[i];
   }
@@ -496,12 +493,12 @@ static void make_psk_client_hello(
     u8*                     ch2,
     usz                     ch2_cap,
     usz*                    ch2_len) {
-  u8  binder[QUIC_HKDF_PRK];
+  u8  binder[HKDF_PRK];
   usz psk_ext_off, trunc_len;
   make_client_hello(f);
   {
-    u8            zero_binder[QUIC_HKDF_PRK] = {0};
-    tlsext_psk_in psk                        = {
+    u8            zero_binder[HKDF_PRK] = {0};
+    tlsext_psk_in psk                   = {
         wired_span_of(pf->sealed, sizeof(pf->sealed)), 0,
         wired_span_of(zero_binder, sizeof(zero_binder))};
     *ch2_len =
@@ -583,9 +580,9 @@ static void make_client_finished_psk(
   transcript_add(&tr, f->flight, f->flight_len);
   transcript_hash(&tr, th); /* through server Finished */
 
-  off = hs_begin(f->cli_fin, sizeof(f->cli_fin), QUIC_HS_FINISHED);
+  off = hs_begin(f->cli_fin, sizeof(f->cli_fin), HS_FINISHED);
   tls_finished_verify_data(c_traffic, th, f->cli_fin + off);
-  f->cli_fin_len = off + QUIC_TLS_VERIFY_DATA;
+  f->cli_fin_len = off + TLS_VERIFY_DATA;
   hs_finish(f->cli_fin, f->cli_fin_len);
 }
 
@@ -648,7 +645,7 @@ static void test_server_psk_accepted_keys_match_client(void) {
     usz                 tr_sh_len = 0;
     for (usz i = 0; i < f.ch_len; i++) tr_sh[tr_sh_len++] = f.ch[i];
     for (usz i = 0; i < f.sh_len; i++) tr_sh[tr_sh_len++] = f.sh[i];
-    CHECK(keysched_get(&f.s.sched, QUIC_KS_SERVER_HS, &got) == 1);
+    CHECK(keysched_get(&f.s.sched, KS_SERVER_HS, &got) == 1);
     tls_handshake_keys(
         &(handshake_keys_in){want_hs, wired_span_of(tr_sh, tr_sh_len), 1},
         &want);
@@ -666,10 +663,10 @@ static void test_server_psk_accepted_keys_match_client(void) {
   {
     const initial_keys* got;
     initial_keys        want;
-    CHECK(keysched_get(&f.s.sched, QUIC_KS_SERVER_AP, &got) == 1);
+    CHECK(keysched_get(&f.s.sched, KS_SERVER_AP, &got) == 1);
     client_ap_keys_psk(&f, &pf, 1, &want);
     CHECK(ap_keys_eq(got, &want));
-    CHECK(keysched_get(&f.s.sched, QUIC_KS_CLIENT_AP, &got) == 1);
+    CHECK(keysched_get(&f.s.sched, KS_CLIENT_AP, &got) == 1);
     client_ap_keys_psk(&f, &pf, 0, &want);
     CHECK(ap_keys_eq(got, &want));
   }
@@ -681,7 +678,7 @@ static void test_server_psk_accepted_keys_match_client(void) {
  * on another file's include order). */
 static int srvt_keys_differ(const initial_keys* a, const initial_keys* b) {
   int d = 0;
-  for (usz i = 0; i < QUIC_INITIAL_KEY; i++) d |= (a->key[i] != b->key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) d |= (a->key[i] != b->key[i]);
   return d;
 }
 
@@ -701,7 +698,7 @@ static void test_server_psk_keys_differ_from_plain(void) {
   make_psk_client_hello(&f, &pf, ch2, sizeof(ch2), &ch2_len);
   drive_psk_to_flight(&f, &pf, ch2, ch2_len);
 
-  CHECK(keysched_get(&f.s.sched, QUIC_KS_SERVER_HS, &got) == 1);
+  CHECK(keysched_get(&f.s.sched, KS_SERVER_HS, &got) == 1);
   client_ap_keys(&f, 1, &plain); /* plain (non-PSK) derivation, same ecdhe */
   CHECK(srvt_keys_differ(got, &plain));
 }

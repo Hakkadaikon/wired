@@ -40,15 +40,15 @@ static void test_retry_roundtrip(void) {
   const u8 dcid[3]  = {0xD0, 0xD1, 0xD2};
   const u8 scid[2]  = {0x50, 0x51};
   const u8 token[5] = {0x10, 0x11, 0x12, 0x13, 0x14};
-  u8       tag[QUIC_RETRY_TAG_LEN];
-  for (usz i = 0; i < QUIC_RETRY_TAG_LEN; i++) tag[i] = (u8)(0xA0 + i);
+  u8       tag[RETRY_TAG_LEN];
+  for (usz i = 0; i < RETRY_TAG_LEN; i++) tag[i] = (u8)(0xA0 + i);
 
   u8         buf[64];
   retry_desc rd = {
       1, wired_span_of(dcid, 3), wired_span_of(scid, 2),
       wired_span_of(token, 5), tag};
   usz w = retry_build(buf, sizeof(buf), &rd);
-  CHECK(w == 5 + 1 + 3 + 1 + 2 + 5 + QUIC_RETRY_TAG_LEN);
+  CHECK(w == 5 + 1 + 3 + 1 + 2 + 5 + RETRY_TAG_LEN);
   CHECK(buf[0] == 0xF0 && buf[4] == 1); /* type Retry, version 1 */
 
   retry_packet r;
@@ -61,10 +61,10 @@ static void test_retry_roundtrip(void) {
 }
 
 static void test_retry_truncated(void) {
-  const u8   dcid[1]                 = {0x01};
-  const u8   scid[1]                 = {0x02};
-  const u8   token[1]                = {0x03};
-  u8         tag[QUIC_RETRY_TAG_LEN] = {0};
+  const u8   dcid[1]            = {0x01};
+  const u8   scid[1]            = {0x02};
+  const u8   token[1]           = {0x03};
+  u8         tag[RETRY_TAG_LEN] = {0};
   u8         buf[64];
   retry_desc rd = {
       1, wired_span_of(dcid, 1), wired_span_of(scid, 1),
@@ -77,8 +77,7 @@ static void test_retry_truncated(void) {
    * the buffer must be too small to even hold byte0..version + a CID + tag. */
   retry_packet r;
   CHECK(retry_parse(buf, 6, &r) == 0); /* too small for header + tag */
-  CHECK(
-      retry_parse(buf, QUIC_RETRY_TAG_LEN + 6, &r) == 0); /* CID len overruns */
+  CHECK(retry_parse(buf, RETRY_TAG_LEN + 6, &r) == 0); /* CID len overruns */
   CHECK(retry_build(buf, 4, &rd) == 0);
 }
 

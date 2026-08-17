@@ -1,5 +1,5 @@
-#ifndef QUIC_LOSSTIME_LOSSTIME_H
-#define QUIC_LOSSTIME_LOSSTIME_H
+#ifndef LOSSTIME_LOSSTIME_H
+#define LOSSTIME_LOSSTIME_H
 
 #include "common/platform/sys/syscall.h"
 

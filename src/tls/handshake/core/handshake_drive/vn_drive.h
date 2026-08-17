@@ -1,5 +1,5 @@
-#ifndef QUIC_HANDSHAKE_DRIVE_VN_DRIVE_H
-#define QUIC_HANDSHAKE_DRIVE_VN_DRIVE_H
+#ifndef HANDSHAKE_DRIVE_VN_DRIVE_H
+#define HANDSHAKE_DRIVE_VN_DRIVE_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

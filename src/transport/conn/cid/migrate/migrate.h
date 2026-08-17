@@ -1,5 +1,5 @@
-#ifndef QUIC_MIGRATE_MIGRATE_H
-#define QUIC_MIGRATE_MIGRATE_H
+#ifndef MIGRATE_MIGRATE_H
+#define MIGRATE_MIGRATE_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_SFLIGHT_CERTVERIFY_BUILD_H
-#define QUIC_SFLIGHT_CERTVERIFY_BUILD_H
+#ifndef SFLIGHT_CERTVERIFY_BUILD_H
+#define SFLIGHT_CERTVERIFY_BUILD_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

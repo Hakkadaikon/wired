@@ -1,5 +1,5 @@
-#ifndef QUIC_STREAM_STREAM_ID_H
-#define QUIC_STREAM_STREAM_ID_H
+#ifndef STREAM_STREAM_ID_H
+#define STREAM_STREAM_ID_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -8,8 +8,8 @@
  * 0=bidirectional, 1=unidirectional). The remaining bits are a sequence
  * number within that of the four stream types. */
 
-#define QUIC_STREAM_INITIATOR_BIT 0x1 /* 0 client, 1 server */
-#define QUIC_STREAM_DIR_BIT 0x2       /* 0 bidi, 1 uni */
+#define STREAM_INITIATOR_BIT 0x1 /* 0 client, 1 server */
+#define STREAM_DIR_BIT 0x2       /* 0 bidi, 1 uni */
 
 /* Whether the stream was initiated by the client (vs the server). */
 int stream_is_client_initiated(u64 id);

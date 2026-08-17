@@ -2,12 +2,12 @@
 
 #include "common/bytes/util/be.h"
 
-#define QUIC_TLSEXT_T_EARLY_DATA 0x002a
+#define TLSEXT_T_EARLY_DATA 0x002a
 
 /* RFC 8446 4.2.10: ClientHello form is type(2) + ext_data len(2) = 0. */
 int tlsext_early_data_ch(u8* out, usz cap, usz* out_len) {
   if (cap < 4) return 0;
-  be_put_be16(out, QUIC_TLSEXT_T_EARLY_DATA);
+  be_put_be16(out, TLSEXT_T_EARLY_DATA);
   be_put_be16(out + 2, 0);
   *out_len = 4;
   return 1;
@@ -17,7 +17,7 @@ int tlsext_early_data_ch(u8* out, usz cap, usz* out_len) {
  */
 int tlsext_early_data_nst(u32 max_size, wired_obuf* out) {
   if (out->cap < 8) return 0;
-  be_put_be16(out->p, QUIC_TLSEXT_T_EARLY_DATA);
+  be_put_be16(out->p, TLSEXT_T_EARLY_DATA);
   be_put_be16(out->p + 2, 4);
   be_put_be32(out->p + 4, max_size);
   out->len = 8;
@@ -26,7 +26,7 @@ int tlsext_early_data_nst(u32 max_size, wired_obuf* out) {
 
 /* The 4-byte header names early_data with a 4-byte body fully readable. */
 static int nst_framed(const u8* out, usz n) {
-  return n >= 8 && ((u16)out[0] << 8 | out[1]) == QUIC_TLSEXT_T_EARLY_DATA &&
+  return n >= 8 && ((u16)out[0] << 8 | out[1]) == TLSEXT_T_EARLY_DATA &&
          ((usz)out[2] << 8 | out[3]) == 4;
 }
 

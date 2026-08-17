@@ -62,5 +62,5 @@ int der_seq(wired_span buf, wired_span* val) {
   der_tlv t;
   if (!der_read(buf, &t)) return 0;
   *val = t.val;
-  return t.tag == QUIC_DER_SEQUENCE;
+  return t.tag == DER_SEQUENCE;
 }

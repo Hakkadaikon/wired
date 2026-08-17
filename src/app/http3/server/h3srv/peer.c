@@ -5,7 +5,7 @@
 
 /* RFC 9114 7.2.4: SETTINGS already recorded and another SETTINGS arrives. */
 static int is_second_settings(const wired_h3srv_state* st, u64 ft) {
-  return st->peer_settings && ft == QUIC_H3_FRAME_SETTINGS;
+  return st->peer_settings && ft == H3_FRAME_SETTINGS;
 }
 
 /* RFC 9114 6.2.1: a control stream is already open and another opens. */
@@ -15,7 +15,7 @@ static int is_second_control(const wired_h3srv_state* st, u64 ft) {
 
 /* RFC 9114 7.2.4: the first frame on the control stream is not SETTINGS. */
 static int is_missing_settings(const wired_h3srv_state* st, u64 ft) {
-  return (ft != QUIC_H3_FRAME_SETTINGS) && ((void)st, 1);
+  return (ft != H3_FRAME_SETTINGS) && ((void)st, 1);
 }
 
 /* Violation classifiers scanned in priority order; first match wins. */
@@ -23,9 +23,9 @@ static const struct {
   int (*hit)(const wired_h3srv_state*, u64);
   u16 code;
 } peer_control_rules[] = {
-    {is_second_settings, QUIC_H3_FRAME_UNEXPECTED},
-    {is_second_control, QUIC_H3_STREAM_CREATION_ERROR},
-    {is_missing_settings, QUIC_H3_MISSING_SETTINGS},
+    {is_second_settings, H3_FRAME_UNEXPECTED},
+    {is_second_control, H3_STREAM_CREATION_ERROR},
+    {is_missing_settings, H3_MISSING_SETTINGS},
 };
 
 /* Classify the violation, leaving 0 when the frame is an acceptable
@@ -50,10 +50,8 @@ int wired_h3srv_on_peer_control(
 /* The peer_qpack_* flag st owns for stream_type, or 0 if stream_type is not a
  * QPACK stream type. */
 static u8* qpack_flag_for(wired_h3srv_state* st, u64 stream_type) {
-  if (stream_type == QUIC_H3_STREAM_QPACK_ENCODER)
-    return &st->peer_qpack_encoder;
-  if (stream_type == QUIC_H3_STREAM_QPACK_DECODER)
-    return &st->peer_qpack_decoder;
+  if (stream_type == H3_STREAM_QPACK_ENCODER) return &st->peer_qpack_encoder;
+  if (stream_type == H3_STREAM_QPACK_DECODER) return &st->peer_qpack_decoder;
   return 0;
 }
 
@@ -63,7 +61,7 @@ int wired_h3srv_on_peer_qpack(
   *err     = 0;
   if (!flag) return 1;
   if (*flag) {
-    *err = QUIC_H3_STREAM_CREATION_ERROR;
+    *err = H3_STREAM_CREATION_ERROR;
     return 0;
   }
   *flag = 1;

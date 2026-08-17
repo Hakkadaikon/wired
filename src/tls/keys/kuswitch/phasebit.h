@@ -1,5 +1,5 @@
-#ifndef QUIC_KUSWITCH_PHASEBIT_H
-#define QUIC_KUSWITCH_PHASEBIT_H
+#ifndef KUSWITCH_PHASEBIT_H
+#define KUSWITCH_PHASEBIT_H
 
 #include "common/platform/sys/syscall.h"
 

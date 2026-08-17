@@ -1,5 +1,5 @@
-#ifndef QUIC_CONN_CONNTABLE_H
-#define QUIC_CONN_CONNTABLE_H
+#ifndef CONN_CONNTABLE_H
+#define CONN_CONNTABLE_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/packet/header/packet/header.h"
@@ -14,8 +14,8 @@
  * hundreds of concurrent connections a single-threaded UDP server handles;
  * switch to a hash index if that scan ever shows up in a profile. */
 
-#ifndef QUIC_CONNTABLE_CAP
-#define QUIC_CONNTABLE_CAP 64
+#ifndef WIRED_CONNTABLE_CAP
+#define WIRED_CONNTABLE_CAP 64
 #endif
 
 typedef struct {

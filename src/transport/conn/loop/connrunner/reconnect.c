@@ -40,8 +40,8 @@ static void rederive_initial(connrunner* r) {
   usz          off = 0;
   initial_derive(
       wired_span_of(r->retry.dcid, r->retry.dcid_len), r->io.loop.is_server,
-      QUIC_VERSION_1, &k);
-  keyset_install(&r->io.loop.keys, QUIC_LEVEL_INITIAL, &k);
+      VERSION_1, &k);
+  keyset_install(&r->io.loop.keys, LEVEL_INITIAL, &k);
   bytes_put(
       wired_mspan_of(r->io.dcid, sizeof r->io.dcid), &off,
       wired_span_of(r->retry.dcid, r->retry.dcid_len));
@@ -79,12 +79,12 @@ static int vn_reconnect(connrunner* r, u32 chosen) {
 int connrunner_recv_vn(connrunner* r, const vn_lists* l, u32* chosen) {
   if (!vn_ok(r, l->offered.list, l->offered.n)) return 0; /* downgrade/late */
   if (!vndrive_select(l->offered, l->supported, chosen))
-    return QUIC_CONNRUNNER_VN_ABORT; /* RFC 9000 6.2: no common version */
+    return CONNRUNNER_VN_ABORT; /* RFC 9000 6.2: no common version */
   return vn_reconnect(r, *chosen);
 }
 
 /* RFC 9000 6.2: the client's supported versions in preference order. */
-static const u32 g_supported[2] = {QUIC_VERSION_2, QUIC_VERSION_1};
+static const u32 g_supported[2] = {VERSION_2, VERSION_1};
 
 /* Read the i-th offered version (4 big-endian bytes) from a VN list view. */
 static u32 vn_version_at(const u8* versions, usz i) {
@@ -92,10 +92,10 @@ static u32 vn_version_at(const u8* versions, usz i) {
   return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3];
 }
 
-/* Copy up to QUIC_VERS_OFFERED offered versions out of the parsed VN view. */
-#define QUIC_VERS_OFFERED 16
+/* Copy up to VERS_OFFERED offered versions out of the parsed VN view. */
+#define VERS_OFFERED 16
 static usz vn_offered(const vneg_packet* v, u32* out) {
-  usz n = v->count < QUIC_VERS_OFFERED ? v->count : QUIC_VERS_OFFERED;
+  usz n = v->count < VERS_OFFERED ? v->count : VERS_OFFERED;
   for (usz i = 0; i < n; i++) out[i] = vn_version_at(v->versions, i);
   return n;
 }
@@ -104,7 +104,7 @@ static usz vn_offered(const vneg_packet* v, u32* out) {
  * offered list; a malformed packet is consumed (1) without action. */
 static int drive_vn(connrunner* r, const u8* pkt, usz len) {
   vneg_packet v;
-  u32         offered[QUIC_VERS_OFFERED], chosen;
+  u32         offered[VERS_OFFERED], chosen;
   vn_lists    l;
   if (vneg_parse(pkt, len, &v) == 0) return 1;
   l.offered   = verlist_of(offered, vn_offered(&v, offered));
@@ -141,7 +141,7 @@ static int is_vneg(const u8* pkt, usz len) {
 /* Route a long-header packet that is a Retry or VN; 0 if it is neither. */
 static int drive_long(connrunner* r, const u8* pkt, usz len) {
   if (is_vneg(pkt, len)) return drive_vn(r, pkt, len);
-  if (packet_long_type(pkt[0], QUIC_VERSION_1) == QUIC_PT_RETRY)
+  if (packet_long_type(pkt[0], VERSION_1) == PT_RETRY)
     return drive_retry(r, pkt, len);
   return 0;
 }

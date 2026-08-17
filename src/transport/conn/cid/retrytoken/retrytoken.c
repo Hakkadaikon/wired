@@ -3,7 +3,7 @@
 #include "common/bytes/util/ct.h"
 #include "crypto/symmetric/hash/hash/hmac.h"
 
-#define QUIC_RETRYTOKEN_MSG 64 /* addr + odcid, both bounded small */
+#define RETRYTOKEN_MSG 64 /* addr + odcid, both bounded small */
 
 static void copy_bytes(u8* dst, const u8* src, usz len) {
   for (usz i = 0; i < len; i++) dst[i] = src[i];
@@ -12,54 +12,53 @@ static void copy_bytes(u8* dst, const u8* src, usz len) {
 /* Concatenate addr and odcid into msg; returns the combined length, or 0 if
  * they do not fit. */
 static usz build_msg(u8* msg, const retrytoken_in* in) {
-  if (in->addr.n + in->odcid.n > QUIC_RETRYTOKEN_MSG) return 0;
+  if (in->addr.n + in->odcid.n > RETRYTOKEN_MSG) return 0;
   copy_bytes(msg, in->addr.p, in->addr.n);
   copy_bytes(msg + in->addr.n, in->odcid.p, in->odcid.n);
   return in->addr.n + in->odcid.n;
 }
 
 void retrytoken_make(
-    const u8             key[QUIC_RETRYTOKEN_KEY],
+    const u8             key[RETRYTOKEN_KEY],
     const retrytoken_in* in,
-    u8                   token[QUIC_RETRYTOKEN_LEN]) {
-  u8  msg[QUIC_RETRYTOKEN_MSG];
+    u8                   token[RETRYTOKEN_LEN]) {
+  u8  msg[RETRYTOKEN_MSG];
   usz n = build_msg(msg, in);
-  hmac_sha256(
-      wired_span_of(key, QUIC_RETRYTOKEN_KEY), wired_span_of(msg, n), token);
+  hmac_sha256(wired_span_of(key, RETRYTOKEN_KEY), wired_span_of(msg, n), token);
 }
 
 int retrytoken_verify(
-    const u8             key[QUIC_RETRYTOKEN_KEY],
+    const u8             key[RETRYTOKEN_KEY],
     const retrytoken_in* in,
-    const u8             token[QUIC_RETRYTOKEN_LEN]) {
-  u8 want[QUIC_RETRYTOKEN_LEN];
+    const u8             token[RETRYTOKEN_LEN]) {
+  u8 want[RETRYTOKEN_LEN];
   retrytoken_make(key, in, want);
   return ct_diff32(want, token) == 0;
 }
 
 usz retrytoken_wire_make(
-    const u8   key[QUIC_RETRYTOKEN_KEY],
+    const u8   key[RETRYTOKEN_KEY],
     wired_span addr,
     wired_span odcid,
-    u8         token[QUIC_RETRYTOKEN_WIRE_MAX]) {
+    u8         token[RETRYTOKEN_WIRE_MAX]) {
   retrytoken_in in = {addr, odcid};
   if (odcid.n > 20) return 0;
   token[0] = (u8)odcid.n;
   copy_bytes(token + 1, odcid.p, odcid.n);
   retrytoken_make(key, &in, token + 1 + odcid.n);
-  return 1 + odcid.n + QUIC_RETRYTOKEN_LEN;
+  return 1 + odcid.n + RETRYTOKEN_LEN;
 }
 
 /* 1 if the framing holds: odcid_len within the CID cap and the token long
  * enough to carry it plus the HMAC. */
 static int retrytoken_wire_framed(wired_span token) {
-  if (token.n < 1 + QUIC_RETRYTOKEN_LEN) return 0;
+  if (token.n < 1 + RETRYTOKEN_LEN) return 0;
   if (token.p[0] > 20) return 0;
-  return token.n == (usz)1 + token.p[0] + QUIC_RETRYTOKEN_LEN;
+  return token.n == (usz)1 + token.p[0] + RETRYTOKEN_LEN;
 }
 
 int retrytoken_wire_verify(
-    const u8    key[QUIC_RETRYTOKEN_KEY],
+    const u8    key[RETRYTOKEN_KEY],
     wired_span  addr,
     wired_span  token,
     wired_span* odcid) {

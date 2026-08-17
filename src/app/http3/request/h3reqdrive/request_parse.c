@@ -25,7 +25,7 @@ static int find_headers_step(
   if (!used) return 0;
   if (!find_headers_frame_ok(f, r)) return 0;
   *off += used;
-  return f->type != QUIC_H3_FRAME_HEADERS;
+  return f->type != H3_FRAME_HEADERS;
 }
 
 /* RFC 9114 9 / 7.2.8: walk the request stream's HTTP/3 frames, skipping any
@@ -39,7 +39,7 @@ static int find_headers(
   usz      off = 0;
   while (find_headers_step(h3, &off, &f, r)) {
   }
-  if (f.type != QUIC_H3_FRAME_HEADERS) return 0;
+  if (f.type != H3_FRAME_HEADERS) return 0;
   *fs  = wired_span_of(f.payload, (usz)f.payload_len);
   *end = off;
   return 1;
@@ -54,7 +54,7 @@ static int body_step(wired_span h3, usz* off, wired_h3reqdrive_req* r) {
   usz      used = h3_frame_get(wired_span_of(h3.p + *off, h3.n - *off), &f);
   if (!used) return 0;
   *off += used;
-  if (f.type != QUIC_H3_FRAME_DATA) return -1;
+  if (f.type != H3_FRAME_DATA) return -1;
   r->body     = f.payload;
   r->body_len = (usz)f.payload_len;
   return 1;
@@ -94,7 +94,7 @@ static int body_skip_step(wired_span h3, usz* off) {
   usz      used = h3_frame_get(wired_span_of(h3.p + *off, h3.n - *off), &f);
   if (!used) return 0;
   *off += used;
-  return f.type == QUIC_H3_FRAME_DATA ? 1 : -1;
+  return f.type == H3_FRAME_DATA ? 1 : -1;
 }
 
 /* One body_skip_step, folded to "keep walking or not": advances off past the
@@ -132,7 +132,7 @@ static int trailer_frame_at(wired_span h3, usz off, h3_frame* tf) {
 static int trailer_headers_at(wired_span h3, usz off, wired_span* trailer_fs) {
   h3_frame tf = {0};
   if (!trailer_frame_at(h3, off, &tf)) return 0;
-  if (tf.type != QUIC_H3_FRAME_HEADERS) return 0;
+  if (tf.type != H3_FRAME_HEADERS) return 0;
   *trailer_fs = wired_span_of(tf.payload, (usz)tf.payload_len);
   return 1;
 }

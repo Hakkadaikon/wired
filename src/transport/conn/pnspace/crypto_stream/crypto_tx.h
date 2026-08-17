@@ -1,5 +1,5 @@
-#ifndef QUIC_CRYPTO_STREAM_TX_H
-#define QUIC_CRYPTO_STREAM_TX_H
+#ifndef CRYPTO_STREAM_TX_H
+#define CRYPTO_STREAM_TX_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

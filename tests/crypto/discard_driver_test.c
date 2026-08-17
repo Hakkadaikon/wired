@@ -12,14 +12,14 @@ void test_discard_driver(void) {
   keyset_init(&st);
 
   initial_keys k;
-  for (int i = 0; i < QUIC_INITIAL_KEY; i++) k.key[i] = (u8)i;
+  for (int i = 0; i < INITIAL_KEY; i++) k.key[i] = (u8)i;
 
-  keyset_install(&st, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&st, LEVEL_INITIAL, &k);
   const initial_keys* out = 0;
-  CHECK(keyset_for_level(&st, QUIC_LEVEL_INITIAL, &out) == 1);
+  CHECK(keyset_for_level(&st, LEVEL_INITIAL, &out) == 1);
 
-  CHECK(keyset_discard(&st, QUIC_LEVEL_INITIAL) == 1);
-  CHECK(keyset_for_level(&st, QUIC_LEVEL_INITIAL, &out) == 0);
+  CHECK(keyset_discard(&st, LEVEL_INITIAL) == 1);
+  CHECK(keyset_for_level(&st, LEVEL_INITIAL, &out) == 0);
 
   CHECK(keyset_discard(&st, 3) == 0);
 }

@@ -1,5 +1,5 @@
-#ifndef QUIC_X509_RSA_PUBKEY_H
-#define QUIC_X509_RSA_PUBKEY_H
+#ifndef X509_RSA_PUBKEY_H
+#define X509_RSA_PUBKEY_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

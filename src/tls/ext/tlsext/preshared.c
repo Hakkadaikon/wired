@@ -2,7 +2,7 @@
 
 #include "common/bytes/util/be.h"
 
-#define QUIC_TLSEXT_T_PRE_SHARED_KEY 0x0029
+#define TLSEXT_T_PRE_SHARED_KEY 0x0029
 
 static void psk_copy(u8* dst, const u8* src, usz n) {
   for (usz i = 0; i < n; i++) dst[i] = src[i];
@@ -20,7 +20,7 @@ int tlsext_pre_shared_key(const tlsext_psk_in* in, wired_obuf* out) {
   usz total      = psk_total(id_len, binder_len);
   u8* p          = out->p;
   if (out->cap < total) return 0;
-  be_put_be16(p, QUIC_TLSEXT_T_PRE_SHARED_KEY);
+  be_put_be16(p, TLSEXT_T_PRE_SHARED_KEY);
   be_put_be16(p + 2, (u16)(total - 4));
   be_put_be16(p + 4, (u16)(2 + id_len + 4));
   be_put_be16(p + 6, (u16)id_len);
@@ -36,8 +36,7 @@ int tlsext_pre_shared_key(const tlsext_psk_in* in, wired_obuf* out) {
 /* The 4-byte header names pre_shared_key with the full body readable. */
 static int psk_header_ok(const u8* out, usz n) {
   usz dlen = (usz)out[2] << 8 | out[3];
-  return n >= 4 &&
-         ((u16)out[0] << 8 | out[1]) == QUIC_TLSEXT_T_PRE_SHARED_KEY &&
+  return n >= 4 && ((u16)out[0] << 8 | out[1]) == TLSEXT_T_PRE_SHARED_KEY &&
          4 + dlen <= n;
 }
 

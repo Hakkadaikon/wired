@@ -1,5 +1,5 @@
-#ifndef QUIC_FRAMEDISPATCH_DISPATCH_STATE_H
-#define QUIC_FRAMEDISPATCH_DISPATCH_STATE_H
+#ifndef FRAMEDISPATCH_DISPATCH_STATE_H
+#define FRAMEDISPATCH_DISPATCH_STATE_H
 
 #include "common/bytes/span/span.h"
 #include "transport/recovery/rtx/sentpkt/sentpkt.h"

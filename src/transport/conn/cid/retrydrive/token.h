@@ -1,5 +1,5 @@
-#ifndef QUIC_RETRYDRIVE_TOKEN_H
-#define QUIC_RETRYDRIVE_TOKEN_H
+#ifndef RETRYDRIVE_TOKEN_H
+#define RETRYDRIVE_TOKEN_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/conn/cid/retrydrive/reconnect.h"

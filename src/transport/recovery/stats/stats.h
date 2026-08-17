@@ -1,5 +1,5 @@
-#ifndef QUIC_STATS_STATS_H
-#define QUIC_STATS_STATS_H
+#ifndef STATS_STATS_H
+#define STATS_STATS_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/recovery/congestion/cc/cc.h"
@@ -22,7 +22,7 @@ typedef struct {
 } stats_cc;
 
 /** Read-only external view of sent-packet tracking (RFC 9002 A). lost is the
- * count of tracked slots currently in QUIC_PKT_LOST state. */
+ * count of tracked slots currently in PKT_LOST state. */
 typedef struct {
   u64 bytes_in_flight;
   usz lost;

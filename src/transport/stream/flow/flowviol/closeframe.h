@@ -1,5 +1,5 @@
-#ifndef QUIC_FLOWVIOL_CLOSEFRAME_H
-#define QUIC_FLOWVIOL_CLOSEFRAME_H
+#ifndef FLOWVIOL_CLOSEFRAME_H
+#define FLOWVIOL_CLOSEFRAME_H
 
 #include "common/bytes/span/span.h"
 

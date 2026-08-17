@@ -26,7 +26,7 @@ void evloop_init(evloop* c, const evloop_init_in* in) {
 }
 
 void evloop_on_receive(evloop* c, int ack_eliciting) {
-  if (c->rx_n >= QUIC_EVLOOP_QCAP) return;
+  if (c->rx_n >= EVLOOP_QCAP) return;
   c->rx[c->rx_n++].ack_eliciting = ack_eliciting;
 }
 
@@ -64,7 +64,7 @@ static int timer_fires(const evloop_timer* t, u64 now) {
 /* RFC 9002 6.1: the loss timer pulls the oldest in-flight packet out and
  * queues its data for retransmission under a fresh number. */
 static void loss_act(evloop* c) {
-  if (c->rtx_n >= QUIC_EVLOOP_QCAP) return;
+  if (c->rtx_n >= EVLOOP_QCAP) return;
   c->rtx[c->rtx_n].pn  = c->next_pn; /* placeholder: the lost original */
   c->rtx[c->rtx_n].len = c->send_len;
   c->rtx_n++;
@@ -109,7 +109,7 @@ static void phase_timers(evloop* c, u64 now) {
 /* RFC 9002 7.7 / RFC 9000 8.1: a send needs BOTH the congestion window open and
  * the anti-amplification budget -- neither gate alone admits it. */
 static int send_permitted(const evloop* c) {
-  if (c->gate.phase != QUIC_CONNLOOP_ACTIVE) return 0;
+  if (c->gate.phase != CONNLOOP_ACTIVE) return 0;
   if (!cwndctl_can_send(c->bytes_in_flight, c->cwnd, c->send_len)) return 0;
   return antiamp_ok(c);
 }
@@ -150,7 +150,7 @@ static void phase_send(evloop* c) {
 }
 
 void evloop_step(evloop* c, u64 now) {
-  if (c->gate.phase == QUIC_CONNLOOP_CLOSED) return;
+  if (c->gate.phase == CONNLOOP_CLOSED) return;
   phase_receive(c, now);
   phase_timers(c, now);
   phase_send(c);
@@ -158,7 +158,7 @@ void evloop_step(evloop* c, u64 now) {
 
 /* Progress halts once closed; otherwise iterate up to the bound. */
 static int step_done(const evloop* c, usz i, usz max) {
-  return i >= max || c->gate.phase == QUIC_CONNLOOP_CLOSED;
+  return i >= max || c->gate.phase == CONNLOOP_CLOSED;
 }
 
 void evloop_run(evloop* c, u64 now, usz max_iterations) {

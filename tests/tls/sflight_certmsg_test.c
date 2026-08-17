@@ -16,9 +16,9 @@ static void test_certchain_two_roundtrip(void) {
   usz                  body_len;
   u8                   type;
   wired_span           ctx;
-  tls_cert_entry       entries[QUIC_TLS_CERT_CHAIN_MAX];
+  tls_cert_entry       entries[TLS_CERT_CHAIN_MAX];
   usz                  count;
-  tls_cert_chain_out   co = {entries, QUIC_TLS_CERT_CHAIN_MAX, &count};
+  tls_cert_chain_out   co = {entries, TLS_CERT_CHAIN_MAX, &count};
 
   CHECK(sflight_certificate_chain(&in, &ob));
   CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
@@ -47,9 +47,9 @@ static void test_certchain_single_equals_legacy(void) {
   for (usz i = 0; i < ob_chain.len; i++) CHECK(out_chain[i] == out_legacy[i]);
 }
 
-/* count 0 and count > QUIC_TLS_CERT_CHAIN_MAX are rejected; count 2 is fine. */
+/* count 0 and count > TLS_CERT_CHAIN_MAX are rejected; count 2 is fine. */
 static void test_certchain_bounds(void) {
-  const wired_span certs[QUIC_TLS_CERT_CHAIN_MAX + 1] = {
+  const wired_span certs[TLS_CERT_CHAIN_MAX + 1] = {
       wired_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
       wired_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der)),
       wired_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
@@ -60,7 +60,7 @@ static void test_certchain_bounds(void) {
   wired_obuf           ob1 = obuf_of(out, sizeof(out));
   wired_obuf           ob2 = obuf_of(out, sizeof(out));
   sflight_certchain_in in0 = {certs, 0};
-  sflight_certchain_in in1 = {certs, QUIC_TLS_CERT_CHAIN_MAX + 1};
+  sflight_certchain_in in1 = {certs, TLS_CERT_CHAIN_MAX + 1};
   sflight_certchain_in in2 = {certs, 2};
 
   CHECK(!sflight_certificate_chain(&in0, &ob0));

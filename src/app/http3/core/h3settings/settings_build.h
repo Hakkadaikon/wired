@@ -1,5 +1,5 @@
-#ifndef QUIC_H3SETTINGS_SETTINGS_BUILD_H
-#define QUIC_H3SETTINGS_SETTINGS_BUILD_H
+#ifndef H3SETTINGS_SETTINGS_BUILD_H
+#define H3SETTINGS_SETTINGS_BUILD_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

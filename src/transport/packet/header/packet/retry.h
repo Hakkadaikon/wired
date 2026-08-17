@@ -1,10 +1,10 @@
-#ifndef QUIC_PACKET_RETRY_H
-#define QUIC_PACKET_RETRY_H
+#ifndef PACKET_RETRY_H
+#define PACKET_RETRY_H
 
 #include "common/bytes/span/span.h"
 #include "transport/packet/header/packet/header.h"
 
-#define QUIC_RETRY_TAG_LEN 16
+#define RETRY_TAG_LEN 16
 
 /** RFC 9000 17.2.5 Retry packet. token is a view into the parsed buffer on
  * parse, or the caller's buffer on build. tag is the 16-byte Retry Integrity
@@ -17,7 +17,7 @@ typedef struct {
   u8        scid[WIRED_MAX_CID_LEN];
   const u8* token;
   usz       token_len;
-  u8        tag[QUIC_RETRY_TAG_LEN];
+  u8        tag[RETRY_TAG_LEN];
 } retry_packet;
 
 /** Everything a Retry packet carries: version, CIDs, token, 16-byte tag. */

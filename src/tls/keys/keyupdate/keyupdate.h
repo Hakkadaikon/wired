@@ -1,5 +1,5 @@
-#ifndef QUIC_KEYUPDATE_KEYUPDATE_H
-#define QUIC_KEYUPDATE_KEYUPDATE_H
+#ifndef KEYUPDATE_KEYUPDATE_H
+#define KEYUPDATE_KEYUPDATE_H
 
 #include "common/platform/sys/syscall.h"
 

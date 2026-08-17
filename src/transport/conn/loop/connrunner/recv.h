@@ -1,5 +1,5 @@
-#ifndef QUIC_CONNRUNNER_RECV_H
-#define QUIC_CONNRUNNER_RECV_H
+#ifndef CONNRUNNER_RECV_H
+#define CONNRUNNER_RECV_H
 
 #include "transport/conn/loop/connrunner/connrunner.h"
 

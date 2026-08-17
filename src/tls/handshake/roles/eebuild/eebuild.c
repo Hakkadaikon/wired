@@ -37,10 +37,10 @@ int eebuild_encrypted_extensions(
   usz        off, alpn_len, ext, ed;
   wired_obuf eob;
   if (!eebuild_fits(transport_params.n, out->cap)) return 0;
-  off = hs_begin(out->p, out->cap, QUIC_HS_ENCRYPTED_EXT);
+  off = hs_begin(out->p, out->cap, HS_ENCRYPTED_EXT);
   if (!salpn_build_response(
           alpn, out->p + off + 2, out->cap - off - 2, &alpn_len))
-    return 0; /* QUIC_SALPN_NONE or too small -- either way, nothing built */
+    return 0; /* SALPN_NONE or too small -- either way, nothing built */
   eob = obuf_of(out->p + off + 2 + alpn_len, out->cap - off - 2 - alpn_len);
   ext = tpext_encode(&eob, transport_params);
   ed  = eebuild_early_data(

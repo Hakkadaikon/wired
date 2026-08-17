@@ -28,12 +28,12 @@ u64 clock_epoch_to_ymdhms(u64 secs) {
 
 u64 clock_ymdhms(void) {
   timespec ts = {0};
-  if (wired_arch_clock_gettime(QUIC_CLOCK_REALTIME, &ts) != 0) return 0;
+  if (wired_arch_clock_gettime(CLOCK_REALTIME, &ts) != 0) return 0;
   return clock_epoch_to_ymdhms((u64)ts.sec);
 }
 
 u64 wired_clock_epoch_secs(void) {
   timespec ts = {0};
-  if (wired_arch_clock_gettime(QUIC_CLOCK_REALTIME, &ts) != 0) return 0;
+  if (wired_arch_clock_gettime(CLOCK_REALTIME, &ts) != 0) return 0;
   return (u64)ts.sec;
 }

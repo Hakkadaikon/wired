@@ -85,7 +85,7 @@ static void test_dispatch_ping(void) {
   sentpkt             t;
   flow_credit         c;
   ds_init(&st, &s, &t, &c);
-  u8 buf[1] = {QUIC_FRAME_PING};
+  u8 buf[1] = {FRAME_PING};
   CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, 1)) == 1);
   CHECK(st.ack_eliciting == 1);
   CHECK(st.close == 0);
@@ -113,7 +113,7 @@ static void test_dispatch_padding(void) {
   sentpkt             t;
   flow_credit         c;
   ds_init(&st, &s, &t, &c);
-  u8 buf[1] = {QUIC_FRAME_PADDING};
+  u8 buf[1] = {FRAME_PADDING};
   CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, 1)) == 1);
   CHECK(st.ack_eliciting == 0);
   CHECK(st.close == 0);
@@ -145,7 +145,7 @@ static void test_dispatch_datagram_malformed(void) {
   sentpkt             t;
   flow_credit         c;
   ds_init(&st, &s, &t, &c);
-  u8 buf[3] = {QUIC_FRAME_DATAGRAM_LEN, 0x40, 0xff}; /* length varint = 255 */
+  u8 buf[3] = {FRAME_DATAGRAM_LEN, 0x40, 0xff}; /* length varint = 255 */
   CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, sizeof buf)) == 0);
   CHECK(st.has_datagram == 0);
 }
@@ -171,9 +171,7 @@ static void test_dispatch_new_token_violation(void) {
   new_token_frame f = {4, (const u8*)"tokn"};
   u8              buf[16];
   usz             n = new_token_encode(buf, sizeof buf, &f);
-  CHECK(
-      framedispatch_handle(&st, QUIC_FRAME_NEW_TOKEN, wired_span_of(buf, n)) ==
-      0);
+  CHECK(framedispatch_handle(&st, FRAME_NEW_TOKEN, wired_span_of(buf, n)) == 0);
   CHECK(st.violation == 1);
 }
 
@@ -188,8 +186,8 @@ static void test_dispatch_handshake_done_violation(void) {
   u8  buf[1];
   usz n = handshake_done_encode(buf, sizeof buf);
   CHECK(
-      framedispatch_handle(
-          &st, QUIC_FRAME_HANDSHAKE_DONE, wired_span_of(buf, n)) == 0);
+      framedispatch_handle(&st, FRAME_HANDSHAKE_DONE, wired_span_of(buf, n)) ==
+      0);
   CHECK(st.violation == 1);
 }
 
@@ -200,21 +198,21 @@ static void test_dispatch_no_violation_on_normal_frame(void) {
   sentpkt             t;
   flow_credit         c;
   ds_init(&st, &s, &t, &c);
-  u8 buf[1] = {QUIC_FRAME_PING};
+  u8 buf[1] = {FRAME_PING};
   CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, 1)) == 1);
   CHECK(st.violation == 0);
 }
 
 /* Standalone ack-eliciting predicate (RFC 9000 13.2.1). */
 static void test_dispatch_ack_eliciting_predicate(void) {
-  CHECK(framedispatch_ack_eliciting(QUIC_FRAME_PADDING) == 0);
-  CHECK(framedispatch_ack_eliciting(QUIC_FRAME_ACK) == 0);
-  CHECK(framedispatch_ack_eliciting(QUIC_FRAME_ACK_ECN) == 0);
-  CHECK(framedispatch_ack_eliciting(QUIC_FRAME_CONN_CLOSE_TPT) == 0);
-  CHECK(framedispatch_ack_eliciting(QUIC_FRAME_CONN_CLOSE_APP) == 0);
-  CHECK(framedispatch_ack_eliciting(QUIC_FRAME_PING) == 1);
-  CHECK(framedispatch_ack_eliciting(QUIC_FRAME_STREAM_BASE) == 1);
-  CHECK(framedispatch_ack_eliciting(QUIC_FRAME_MAX_DATA) == 1);
+  CHECK(framedispatch_ack_eliciting(FRAME_PADDING) == 0);
+  CHECK(framedispatch_ack_eliciting(FRAME_ACK) == 0);
+  CHECK(framedispatch_ack_eliciting(FRAME_ACK_ECN) == 0);
+  CHECK(framedispatch_ack_eliciting(FRAME_CONN_CLOSE_TPT) == 0);
+  CHECK(framedispatch_ack_eliciting(FRAME_CONN_CLOSE_APP) == 0);
+  CHECK(framedispatch_ack_eliciting(FRAME_PING) == 1);
+  CHECK(framedispatch_ack_eliciting(FRAME_STREAM_BASE) == 1);
+  CHECK(framedispatch_ack_eliciting(FRAME_MAX_DATA) == 1);
 }
 
 /* RFC 9000 3.5: STOP_SENDING makes the receiving endpoint owe an automatic
@@ -229,8 +227,8 @@ static void test_dispatch_stop_sending_owes_reset(void) {
   u8                 buf[16];
   usz                n = stop_sending_encode(buf, sizeof buf, &f);
   CHECK(
-      framedispatch_handle(
-          &st, QUIC_FRAME_STOP_SENDING, wired_span_of(buf, n)) == 1);
+      framedispatch_handle(&st, FRAME_STOP_SENDING, wired_span_of(buf, n)) ==
+      1);
   CHECK(st.stop_sending_owed == 1);
   CHECK(st.stop_sending_stream_id == 9);
   CHECK(st.stop_sending_error_code == 0x42);
@@ -249,8 +247,8 @@ static void test_dispatch_reset_stream(void) {
   u8                 buf[32];
   usz                n = reset_stream_encode(buf, sizeof buf, &f);
   CHECK(
-      framedispatch_handle(
-          &st, QUIC_FRAME_RESET_STREAM, wired_span_of(buf, n)) == 1);
+      framedispatch_handle(&st, FRAME_RESET_STREAM, wired_span_of(buf, n)) ==
+      1);
   CHECK(st.has_reset_stream == 1);
   CHECK(st.reset_stream_stream_id == 3);
   CHECK(st.reset_stream_error_code == 0x9);

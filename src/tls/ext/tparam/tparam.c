@@ -54,7 +54,7 @@ usz tparam_get_int(wired_span buf, u64* id, u64* value) {
  * the same (id, length, value) TLV shape, so a generic length-only walk
  * (via tparam_get_blob) is enough to collect every id -- no need to
  * know which parameters are ints vs blobs here. */
-#define QUIC_TPARAM_MAX_SEEN 32
+#define TPARAM_MAX_SEEN 32
 
 /* True if id is already present in seen[0..count). */
 static int id_seen(const u64* seen, usz count, u64 id) {
@@ -65,13 +65,13 @@ static int id_seen(const u64* seen, usz count, u64 id) {
 
 /* Bookkeeping for one no_duplicates() scan. */
 typedef struct {
-  u64 seen[QUIC_TPARAM_MAX_SEEN];
+  u64 seen[TPARAM_MAX_SEEN];
   usz count;
 } tparam_seen;
 
 /* True if id is new and there is room to record it. */
 static int can_record(const tparam_seen* s, u64 id) {
-  return s->count < QUIC_TPARAM_MAX_SEEN && !id_seen(s->seen, s->count, id);
+  return s->count < TPARAM_MAX_SEEN && !id_seen(s->seen, s->count, id);
 }
 
 /* Read one TLV at buf.p+off and record its id. Returns bytes consumed, or 0

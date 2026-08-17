@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_CONTENTLEN_H
-#define QUIC_H3_CONTENTLEN_H
+#ifndef H3_CONTENTLEN_H
+#define H3_CONTENTLEN_H
 
 #include "common/platform/sys/syscall.h"
 

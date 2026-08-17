@@ -1,5 +1,5 @@
-#ifndef QUIC_KEYS_DISCARD_DRIVER_H
-#define QUIC_KEYS_DISCARD_DRIVER_H
+#ifndef KEYS_DISCARD_DRIVER_H
+#define KEYS_DISCARD_DRIVER_H
 
 #include "crypto/kdf/keys/keyset.h"
 

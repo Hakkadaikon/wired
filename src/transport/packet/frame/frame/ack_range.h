@@ -1,5 +1,5 @@
-#ifndef QUIC_FRAME_ACK_RANGE_H
-#define QUIC_FRAME_ACK_RANGE_H
+#ifndef FRAME_ACK_RANGE_H
+#define FRAME_ACK_RANGE_H
 
 #include "common/platform/sys/syscall.h"
 

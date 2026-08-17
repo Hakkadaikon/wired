@@ -1,5 +1,5 @@
-#ifndef QUIC_CC_CCLOSS_H
-#define QUIC_CC_CCLOSS_H
+#ifndef CC_CCLOSS_H
+#define CC_CCLOSS_H
 
 #include "common/platform/sys/syscall.h"
 

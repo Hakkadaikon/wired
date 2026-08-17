@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_FIRSTFRAME_H
-#define QUIC_H3_FIRSTFRAME_H
+#ifndef H3_FIRSTFRAME_H
+#define H3_FIRSTFRAME_H
 
 #include "app/http3/core/h3/frame_permit.h"
 #include "common/platform/sys/syscall.h"

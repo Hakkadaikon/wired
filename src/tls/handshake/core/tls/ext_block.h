@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_EXT_BLOCK_H
-#define QUIC_TLS_EXT_BLOCK_H
+#ifndef TLS_EXT_BLOCK_H
+#define TLS_EXT_BLOCK_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

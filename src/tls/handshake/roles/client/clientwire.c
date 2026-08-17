@@ -9,7 +9,7 @@
 /* RFC 9001 4 / 5: client real-wire codec. Seal own-direction (CLIENT_*),
  * open peer-direction (SERVER_*). */
 
-#define QUIC_CLIENTWIRE_CH_MAX 1024
+#define CLIENTWIRE_CH_MAX 1024
 
 /* A directional key plus its header-protection cipher, both derived together.
  */
@@ -38,7 +38,7 @@ static usz cw_client_hello(client* c, u8* ch, usz cap) {
 /* RFC 9001 5.2 */
 int client_build_initial_wire(
     client* c, const clientwire_hdr_in* hdr, wired_obuf* out) {
-  u8  ch[QUIC_CLIENTWIRE_CH_MAX];
+  u8  ch[CLIENTWIRE_CH_MAX];
   usz ch_len = cw_client_hello(c, ch, sizeof(ch));
   if (ch_len == 0) return 0;
   initpkt_desc d = {
@@ -67,7 +67,7 @@ int client_seal_handshake_wire(
       in->tls,
       0};
   protect_keys pk;
-  if (!cw_dir_key(c, QUIC_KS_CLIENT_HS, &dk)) return 0;
+  if (!cw_dir_key(c, KS_CLIENT_HS, &dk)) return 0;
   pk = (protect_keys){dk.k, &dk.hp};
   return srvwire_seal_handshake(&pk, &si, out);
 }
@@ -79,7 +79,7 @@ int client_open_handshake_wire(
   cw_dirkey    dk;
   protect_keys pk;
   (void)in->dcid_len;
-  if (!cw_dir_key(c, QUIC_KS_SERVER_HS, &dk)) return 0;
+  if (!cw_dir_key(c, KS_SERVER_HS, &dk)) return 0;
   pk = (protect_keys){dk.k, &dk.hp};
   return srvwire_open_handshake(&pk, in->pkt, tls);
 }
@@ -88,7 +88,7 @@ int client_open_handshake_wire(
 int client_send_appdata_wire(client* c, const appdata_tx* in, wired_obuf* out) {
   cw_dirkey    dk;
   protect_keys pk;
-  if (!cw_dir_key(c, QUIC_KS_CLIENT_AP, &dk)) return 0;
+  if (!cw_dir_key(c, KS_CLIENT_AP, &dk)) return 0;
   pk = (protect_keys){dk.k, &dk.hp};
   return appdata_send(&pk, in, out);
 }
@@ -109,7 +109,7 @@ static int cw_dcid_is_ours(wired_mspan pkt, wired_span scid) {
  * derived; both gate opening the packet. */
 static int cw_recv_ok(client* c, const clientwire_recv_in* in, cw_dirkey* dk) {
   if (!cw_dcid_is_ours(in->pkt, in->scid)) return 0;
-  return cw_dir_key(c, QUIC_KS_SERVER_AP, dk);
+  return cw_dir_key(c, KS_SERVER_AP, dk);
 }
 
 /* RFC 9001 5: open a 1-RTT packet with SERVER_AP (peer direction), but first

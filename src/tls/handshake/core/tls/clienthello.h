@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_CLIENTHELLO_H
-#define QUIC_TLS_CLIENTHELLO_H
+#ifndef TLS_CLIENTHELLO_H
+#define TLS_CLIENTHELLO_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -23,8 +23,8 @@ usz tls_client_hello(const clienthello_in* in, wired_obuf* out);
 
 /** Same as clienthello_in, but the key_share's NamedGroup (RFC 8446
  * 4.2.7) and pub's length are explicit instead of the frozen x25519/32-byte
- * pair -- pub must point at pub_len bytes (32 for QUIC_GROUP_X25519, 65 for
- * QUIC_GROUP_SECP256R1). */
+ * pair -- pub must point at pub_len bytes (32 for GROUP_X25519, 65 for
+ * GROUP_SECP256R1). */
 typedef struct {
   const u8*  random; /* 32 bytes */
   const u8*  pub;    /* pub_len bytes */

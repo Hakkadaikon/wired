@@ -16,7 +16,7 @@ void test_h3settings_control_settings(void) {
   /* the bytes after the type are a SETTINGS frame */
   h3_frame f;
   usz      r = h3_frame_get(wired_span_of(buf + consumed, n - consumed), &f);
-  CHECK(r == n - consumed && f.type == QUIC_H3_FRAME_SETTINGS);
+  CHECK(r == n - consumed && f.type == H3_FRAME_SETTINGS);
 
   /* the first control frame passes the settings-sequence gate */
   h3_settings_state st = {0};
@@ -45,7 +45,7 @@ void test_h3settings_control_settings_advertises_connect_protocol(void) {
 
   int found = 0;
   for (usz i = 0; i < s.n; i++)
-    if (s.pairs[i].id == QUIC_H3_SETTINGS_ENABLE_CONNECT_PROTOCOL) found = 1;
+    if (s.pairs[i].id == H3_SETTINGS_ENABLE_CONNECT_PROTOCOL) found = 1;
   CHECK(found == 1);
 }
 

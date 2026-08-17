@@ -12,11 +12,10 @@ static void test_derseq_two_ints(void) {
   u8         tag;
   wired_span val;
   CHECK(derseq_next(&c, &tag, &val) == 1);
-  CHECK(tag == QUIC_DER_INTEGER && val.n == 1 && val.p[0] == 0x01);
+  CHECK(tag == DER_INTEGER && val.n == 1 && val.p[0] == 0x01);
   CHECK(derseq_next(&c, &tag, &val) == 1);
   CHECK(
-      tag == QUIC_DER_INTEGER && val.n == 2 && val.p[0] == 0x01 &&
-      val.p[1] == 0x00);
+      tag == DER_INTEGER && val.n == 2 && val.p[0] == 0x01 && val.p[1] == 0x00);
   CHECK(derseq_next(&c, &tag, &val) == 0); /* end */
 }
 
@@ -29,18 +28,18 @@ static void test_derseq_nested(void) {
   u8         tag;
   wired_span val;
   CHECK(derseq_next(&c, &tag, &val) == 1);
-  CHECK(tag == QUIC_DER_SEQUENCE && val.n == 3);
+  CHECK(tag == DER_SEQUENCE && val.n == 3);
   /* descend into the inner sequence's value */
   derseq inner;
   derseq_init(&inner, val);
   u8         itag;
   wired_span ival;
   CHECK(derseq_next(&inner, &itag, &ival) == 1);
-  CHECK(itag == QUIC_DER_INTEGER && ival.n == 1 && ival.p[0] == 0x07);
+  CHECK(itag == DER_INTEGER && ival.n == 1 && ival.p[0] == 0x07);
   CHECK(derseq_next(&inner, &itag, &ival) == 0);
   /* back to outer */
   CHECK(derseq_next(&c, &tag, &val) == 1);
-  CHECK(tag == QUIC_DER_INTEGER && val.n == 1 && val.p[0] == 0x09);
+  CHECK(tag == DER_INTEGER && val.n == 1 && val.p[0] == 0x09);
   CHECK(derseq_next(&c, &tag, &val) == 0);
 }
 

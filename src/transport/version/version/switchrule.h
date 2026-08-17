@@ -1,5 +1,5 @@
-#ifndef QUIC_VERSION_SWITCHRULE_H
-#define QUIC_VERSION_SWITCHRULE_H
+#ifndef VERSION_SWITCHRULE_H
+#define VERSION_SWITCHRULE_H
 
 #include "common/platform/sys/syscall.h"
 

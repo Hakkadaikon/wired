@@ -1,6 +1,6 @@
 #include "crypto/kdf/hkdf/hkdf.h"
 
-void hkdf_extract(wired_span salt, wired_span ikm, u8 prk[QUIC_HKDF_PRK]) {
+void hkdf_extract(wired_span salt, wired_span ikm, u8 prk[HKDF_PRK]) {
   hmac_sha256(salt, ikm, prk);
 }
 
@@ -13,37 +13,37 @@ typedef struct {
 /* Compute T(i) = HMAC(prk, T(i-1) || info || i) in place: t.p holds T(i-1)
  * of length t.n (0 for T(1)) and receives the 32-byte T(i). */
 static void expand_block(const hkdf_xctx* c, wired_mspan t, u8 counter) {
-  u8  buf[QUIC_SHA256_DIGEST + 256 + 1];
+  u8  buf[SHA256_DIGEST + 256 + 1];
   usz n = 0;
   for (usz i = 0; i < t.n; i++) buf[n++] = t.p[i];
   for (usz i = 0; i < c->info.n; i++) buf[n++] = c->info.p[i];
   buf[n++] = counter;
-  hmac_sha256(wired_span_of(c->prk, QUIC_HKDF_PRK), wired_span_of(buf, n), t.p);
+  hmac_sha256(wired_span_of(c->prk, HKDF_PRK), wired_span_of(buf, n), t.p);
 }
 
-/* Copy up to QUIC_SHA256_DIGEST bytes of t into okm+off, bounded by len. */
-static usz emit(u8* okm, usz off, usz len, const u8 t[QUIC_SHA256_DIGEST]) {
-  usz take = (len - off < QUIC_SHA256_DIGEST) ? len - off : QUIC_SHA256_DIGEST;
+/* Copy up to SHA256_DIGEST bytes of t into okm+off, bounded by len. */
+static usz emit(u8* okm, usz off, usz len, const u8 t[SHA256_DIGEST]) {
+  usz take = (len - off < SHA256_DIGEST) ? len - off : SHA256_DIGEST;
   for (usz i = 0; i < take; i++) okm[off + i] = t[i];
   return off + take;
 }
 
 /* HKDF-Expand inputs are in range: L <= 255*HashLen and info fits buf. */
 static int expand_ok(usz info_len, usz len) {
-  return len <= (usz)255 * QUIC_SHA256_DIGEST && info_len <= 256;
+  return len <= (usz)255 * SHA256_DIGEST && info_len <= 256;
 }
 
-int hkdf_expand(const u8 prk[QUIC_HKDF_PRK], wired_span info, wired_mspan okm) {
-  u8          t[QUIC_SHA256_DIGEST] = {0};
-  hkdf_xctx   c                     = {prk, info};
-  wired_mspan tp                    = {t, 0};
-  usz         off                   = 0;
-  u8          counter               = 1;
+int hkdf_expand(const u8 prk[HKDF_PRK], wired_span info, wired_mspan okm) {
+  u8          t[SHA256_DIGEST] = {0};
+  hkdf_xctx   c                = {prk, info};
+  wired_mspan tp               = {t, 0};
+  usz         off              = 0;
+  u8          counter          = 1;
   if (!expand_ok(info.n, okm.n)) return 0;
   while (off < okm.n) {
     expand_block(&c, tp, counter);
     off  = emit(okm.p, off, okm.n, t);
-    tp.n = QUIC_SHA256_DIGEST;
+    tp.n = SHA256_DIGEST;
     counter++;
   }
   return 1;
@@ -71,7 +71,7 @@ static usz build_label(u8* info, const hkdf_label* l, usz len) {
 }
 
 int hkdf_expand_label(
-    const u8 prk[QUIC_HKDF_PRK], const hkdf_label* l, wired_mspan okm) {
+    const u8 prk[HKDF_PRK], const hkdf_label* l, wired_mspan okm) {
   u8  info[2 + 1 + 6 + 64 + 1 + 64];
   usz info_len;
   if (l->label_len > 64 || l->ctx.n > 64) return 0;
@@ -79,8 +79,7 @@ int hkdf_expand_label(
   return hkdf_expand(prk, wired_span_of(info, info_len), okm);
 }
 
-void hkdf_extract_384(
-    wired_span salt, wired_span ikm, u8 prk[QUIC_HKDF_PRK_384]) {
+void hkdf_extract_384(wired_span salt, wired_span ikm, u8 prk[HKDF_PRK_384]) {
   hmac_sha384(salt, ikm, prk);
 }
 
@@ -94,39 +93,38 @@ typedef struct {
  * of length t.n (0 for T(1)) and receives the 48-byte T(i). */
 static void expand_block_384(
     const hkdf_xctx_384* c, wired_mspan t, u8 counter) {
-  u8  buf[QUIC_SHA384_DIGEST + 256 + 1];
+  u8  buf[SHA384_DIGEST + 256 + 1];
   usz n = 0;
   for (usz i = 0; i < t.n; i++) buf[n++] = t.p[i];
   for (usz i = 0; i < c->info.n; i++) buf[n++] = c->info.p[i];
   buf[n++] = counter;
-  hmac_sha384(
-      wired_span_of(c->prk, QUIC_HKDF_PRK_384), wired_span_of(buf, n), t.p);
+  hmac_sha384(wired_span_of(c->prk, HKDF_PRK_384), wired_span_of(buf, n), t.p);
 }
 
-/* Copy up to QUIC_SHA384_DIGEST bytes of t into okm+off, bounded by len. */
-static usz emit_384(u8* okm, usz off, usz len, const u8 t[QUIC_SHA384_DIGEST]) {
-  usz take = (len - off < QUIC_SHA384_DIGEST) ? len - off : QUIC_SHA384_DIGEST;
+/* Copy up to SHA384_DIGEST bytes of t into okm+off, bounded by len. */
+static usz emit_384(u8* okm, usz off, usz len, const u8 t[SHA384_DIGEST]) {
+  usz take = (len - off < SHA384_DIGEST) ? len - off : SHA384_DIGEST;
   for (usz i = 0; i < take; i++) okm[off + i] = t[i];
   return off + take;
 }
 
 /* HKDF-Expand inputs are in range: L <= 255*HashLen and info fits buf. */
 static int expand_ok_384(usz info_len, usz len) {
-  return len <= (usz)255 * QUIC_SHA384_DIGEST && info_len <= 256;
+  return len <= (usz)255 * SHA384_DIGEST && info_len <= 256;
 }
 
 int hkdf_expand_384(
-    const u8 prk[QUIC_HKDF_PRK_384], wired_span info, wired_mspan okm) {
-  u8            t[QUIC_SHA384_DIGEST] = {0};
-  hkdf_xctx_384 c                     = {prk, info};
-  wired_mspan   tp                    = {t, 0};
-  usz           off                   = 0;
-  u8            counter               = 1;
+    const u8 prk[HKDF_PRK_384], wired_span info, wired_mspan okm) {
+  u8            t[SHA384_DIGEST] = {0};
+  hkdf_xctx_384 c                = {prk, info};
+  wired_mspan   tp               = {t, 0};
+  usz           off              = 0;
+  u8            counter          = 1;
   if (!expand_ok_384(info.n, okm.n)) return 0;
   while (off < okm.n) {
     expand_block_384(&c, tp, counter);
     off  = emit_384(okm.p, off, okm.n, t);
-    tp.n = QUIC_SHA384_DIGEST;
+    tp.n = SHA384_DIGEST;
     counter++;
   }
   return 1;
@@ -154,7 +152,7 @@ static usz build_label_384(u8* info, const hkdf_label* l, usz len) {
 }
 
 int hkdf_expand_label_384(
-    const u8 prk[QUIC_HKDF_PRK_384], const hkdf_label* l, wired_mspan okm) {
+    const u8 prk[HKDF_PRK_384], const hkdf_label* l, wired_mspan okm) {
   u8  info[2 + 1 + 6 + 64 + 1 + 64];
   usz info_len;
   if (l->label_len > 64 || l->ctx.n > 64) return 0;

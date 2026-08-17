@@ -1,5 +1,5 @@
-#ifndef QUIC_APPDATA_APP_RECV_H
-#define QUIC_APPDATA_APP_RECV_H
+#ifndef APPDATA_APP_RECV_H
+#define APPDATA_APP_RECV_H
 
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/protect/protect/protect.h"

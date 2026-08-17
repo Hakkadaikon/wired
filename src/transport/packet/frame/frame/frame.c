@@ -24,7 +24,7 @@ usz frame_put_simple(u8* buf, usz cap, u8 type) {
 
 /* Write type, offset, length varints. Returns 1 ok, 0 on overflow. */
 static int put_crypto_hdr(wired_obuf* o, const crypto_frame* f) {
-  if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, QUIC_FRAME_CRYPTO))
+  if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, FRAME_CRYPTO))
     return 0;
   if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->offset)) return 0;
   return varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->length);
@@ -52,9 +52,9 @@ usz frame_get_crypto(const u8* buf, usz n, crypto_frame* f) {
 
 /* STREAM type byte: base 0x08 plus OFF (when offset!=0), always LEN, FIN. */
 static u8 stream_type(const stream_frame* f) {
-  u8 t = QUIC_FRAME_STREAM_BASE | QUIC_STREAM_LEN;
-  if (f->offset != 0) t |= QUIC_STREAM_OFF;
-  if (f->fin) t |= QUIC_STREAM_FIN;
+  u8 t = FRAME_STREAM_BASE | STREAM_LEN;
+  if (f->offset != 0) t |= STREAM_OFF;
+  if (f->fin) t |= STREAM_FIN;
   return t;
 }
 
@@ -88,7 +88,7 @@ usz frame_put_stream(u8* buf, usz cap, const stream_frame* f) {
  * is set. Returns 1 ok, 0. */
 static int take_opt_offset(wired_span in, usz* off, u64* offset) {
   *offset = 0;
-  if ((in.p[0] & QUIC_STREAM_OFF) == 0) return 1;
+  if ((in.p[0] & STREAM_OFF) == 0) return 1;
   return varint_take(wired_span_of(in.p, in.n), off, offset);
 }
 
@@ -97,7 +97,7 @@ static int take_opt_offset(wired_span in, usz* off, u64* offset) {
  * packet's last frame -- Chrome ships its CONNECT HEADERS this way, so
  * reading a phantom Length varint here truncated every browser request). */
 static int take_opt_length(wired_span in, usz* off, u64* length) {
-  if ((in.p[0] & QUIC_STREAM_LEN) == 0) {
+  if ((in.p[0] & STREAM_LEN) == 0) {
     *length = in.n - *off;
     return 1;
   }
@@ -114,7 +114,7 @@ static int take_stream_hdr(wired_span in, usz* off, stream_frame* f) {
 usz frame_get_stream(const u8* buf, usz n, stream_frame* f) {
   wired_span in  = wired_span_of(buf, n);
   usz        off = 1; /* type byte */
-  f->fin         = (buf[0] & QUIC_STREAM_FIN) ? 1 : 0;
+  f->fin         = (buf[0] & STREAM_FIN) ? 1 : 0;
   if (!take_stream_hdr(in, &off, f)) return 0;
   f->data = buf + off;
   return view_end(in, off, f->length);
@@ -128,7 +128,7 @@ static int put_opt_frame_type(wired_obuf* o, const conn_close_frame* f) {
 
 /* Write the type byte and error code varints. Returns 1 ok, 0. */
 static int put_cc_prefix(wired_obuf* o, const conn_close_frame* f) {
-  u8 type = f->is_app ? QUIC_FRAME_CONN_CLOSE_APP : QUIC_FRAME_CONN_CLOSE_TPT;
+  u8 type = f->is_app ? FRAME_CONN_CLOSE_APP : FRAME_CONN_CLOSE_TPT;
   if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, type)) return 0;
   return varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->error_code);
 }
@@ -163,7 +163,7 @@ static int take_cc_hdr(wired_span in, usz* off, conn_close_frame* f) {
 usz frame_get_conn_close(const u8* buf, usz n, conn_close_frame* f) {
   wired_span in  = wired_span_of(buf, n);
   usz        off = 1; /* type byte */
-  f->is_app      = (buf[0] == QUIC_FRAME_CONN_CLOSE_APP) ? 1 : 0;
+  f->is_app      = (buf[0] == FRAME_CONN_CLOSE_APP) ? 1 : 0;
   if (!take_cc_hdr(in, &off, f)) return 0;
   f->reason = buf + off;
   return view_end(in, off, f->reason_len);

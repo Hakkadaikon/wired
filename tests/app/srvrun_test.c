@@ -33,15 +33,15 @@ static const srvrun_cfg* srvrun_test_envcfg(void) {
  * sr_test_conns below): ONE static array, not one per call site. Each
  * srvrun_conn embeds wired_srvloop, whose WT receive windows
  * (WIRED_SRVLOOP_WT_BUF_CAP) this repo wants sized for real throughput, not
- * a stack (or per-test BSS) budget -- one static QUIC_CONNTABLE_CAP-sized
+ * a stack (or per-test BSS) budget -- one static WIRED_CONNTABLE_CAP-sized
  * array shared by every test costs the same BSS regardless of how many test
  * functions reuse it; independent per-test statics each pay the full array's
  * cost again, and once the window grows past a few KB that sums to a
  * multi-gigabyte BSS the loader cannot even map. */
-static srvrun_conn g_test_conns[QUIC_CONNTABLE_CAP];
+static srvrun_conn g_test_conns[WIRED_CONNTABLE_CAP];
 
 /* Zero the shared conns[] and hand back a pointer to it, mirroring what each
- * call site's own `srvrun_conn conns[QUIC_CONNTABLE_CAP] = {0};` used to
+ * call site's own `srvrun_conn conns[WIRED_CONNTABLE_CAP] = {0};` used to
  * declare locally. */
 static srvrun_conn* sr_test_conns(void) {
   bytes_memset(g_test_conns, 0, sizeof g_test_conns);
@@ -121,9 +121,8 @@ static int sr_find_path_challenge(const u8* pl, usz pll, u8 data_out[8]) {
   framewalk_item fr;
   framewalk_init(&it, pl, pll);
   while (framewalk_next(&it, &fr)) {
-    if (frame_classify(fr.type) != QUIC_FK_PATH_CHALLENGE) continue;
-    if (path_decode(
-            fr.start, fr.remaining, QUIC_FRAME_PATH_CHALLENGE, data_out))
+    if (frame_classify(fr.type) != FK_PATH_CHALLENGE) continue;
+    if (path_decode(fr.start, fr.remaining, FRAME_PATH_CHALLENGE, data_out))
       return 1;
   }
   return 0;
@@ -154,10 +153,10 @@ static void test_srvrun_shutdown_rejects_new_initial(void) {
  * enforced at the claim step new connections funnel through. */
 static void test_srvrun_shutdown_refuses_slot_claim(void) {
   srvrun_step_ctx ctx;
-  conntable       table[QUIC_CONNTABLE_CAP];
+  conntable       table[WIRED_CONNTABLE_CAP];
   srvrun_state    st      = {table, 0};
   u8              dcid[8] = {1, 2, 3, 4, 5, 6, 7, 8};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   ctx = (srvrun_step_ctx){0, 0, &st, 0, 0};
   srvrun_test_set_shutdown(1);
   CHECK(srvrun_claim_slot(&ctx, wired_span_of(dcid, 8), 1) == -1);
@@ -233,7 +232,7 @@ static void test_srvrun_unconfirmed_owes_nothing(void) {
 /* DRAIN COMPLETE: srvrun_all_drained is 1 once every slot is down. */
 static void test_srvrun_all_drained_true_when_all_down(void) {
   srvrun_state st;
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_conn* conns = sr_test_conns();
   st                 = (srvrun_state){table, conns};
   CHECK(srvrun_all_drained(&st) == 1);
@@ -242,7 +241,7 @@ static void test_srvrun_all_drained_true_when_all_down(void) {
 /* DRAIN PENDING: one slot still up -> not drained. */
 static void test_srvrun_all_drained_false_when_one_up(void) {
   srvrun_state st;
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_conn* conns = sr_test_conns();
   conns[3].up        = 1;
   st                 = (srvrun_state){table, conns};
@@ -270,27 +269,26 @@ static void test_srvrun_close_drained_seals_h3_no_error(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   CHECK(
-      srvrun_seal_app_close(&c, QUIC_H3_NO_ERROR, wired_span_of(0, 0), &pktb) ==
-      1);
+      srvrun_seal_app_close(&c, H3_NO_ERROR, wired_span_of(0, 0), &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = frame_get_conn_close(pl, pll, &ccf);
   CHECK(rn != 0 && rn == pll);
   CHECK(ccf.is_app == 1);
-  CHECK(ccf.error_code == QUIC_H3_NO_ERROR);
+  CHECK(ccf.error_code == H3_NO_ERROR);
 }
 
 /* DISPATCH: srvrun_close_drained sends exactly one CONNECTION_CLOSE per slot
  * still up, and none for a slot that never came up. */
 static void test_srvrun_close_drained_dispatch(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   srvrun_state st;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   st = (srvrun_state){table, conns};
@@ -348,17 +346,17 @@ static void test_srvrun_close_grease_id_zero_or_reserved(void) {
 
 /* RFC 9114 8.1 / 9114-077: h3_error_send_value, the function
  * srvrun_close_drained wires srvrun_close_grease_id's result through, only
- * ever substitutes for QUIC_H3_NO_ERROR -- any other code passes through
+ * ever substitutes for H3_NO_ERROR -- any other code passes through
  * unchanged even when a (nonsensical here, but exercising the guard) grease
  * id is supplied. */
 static void test_srvrun_close_drained_error_value_wiring(void) {
-  CHECK(h3_error_send_value(QUIC_H3_NO_ERROR, 0) == QUIC_H3_NO_ERROR);
+  CHECK(h3_error_send_value(H3_NO_ERROR, 0) == H3_NO_ERROR);
   CHECK(
-      h3_error_send_value(QUIC_H3_NO_ERROR, h3_grease_value(5)) ==
+      h3_error_send_value(H3_NO_ERROR, h3_grease_value(5)) ==
       h3_grease_value(5));
   CHECK(
-      h3_error_send_value(QUIC_H3_GENERAL_PROTOCOL_ERROR, h3_grease_value(5)) ==
-      QUIC_H3_GENERAL_PROTOCOL_ERROR);
+      h3_error_send_value(H3_GENERAL_PROTOCOL_ERROR, h3_grease_value(5)) ==
+      H3_GENERAL_PROTOCOL_ERROR);
 }
 
 #define SYS_unlinkat 263
@@ -1064,7 +1062,7 @@ static const u8 g_sr_odcid[8] = {0x11, 0x22, 0x33, 0x44,
 static void test_srvrun_accept_rekeys_to_slot_scid(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
@@ -1073,18 +1071,18 @@ static void test_srvrun_accept_rekeys_to_slot_scid(void) {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
-    conntable_init(table, QUIC_CONNTABLE_CAP);
+    conntable_init(table, WIRED_CONNTABLE_CAP);
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
   }
   CHECK(st.conns[0].up == 1);
   /* the Initial's DCID keeps routing here (RFC 9000 7.2/17.2.2: a client
    * Initial retransmitted before it has seen the new SCID must still reach
    * this same slot, not spawn a duplicate connection) ... */
-  CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == 0);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == 0);
   /* ...and so does the slot's generated SCID */
   CHECK(
       conntable_find(
-          table, QUIC_CONNTABLE_CAP, st.conns[0].scid, id.scid_len) == 0);
+          table, WIRED_CONNTABLE_CAP, st.conns[0].scid, id.scid_len) == 0);
 }
 
 /* RFC 9000 14/14.1: a datagram carrying an Initial packet below the
@@ -1094,7 +1092,7 @@ static void test_srvrun_accept_rekeys_to_slot_scid(void) {
 static void test_srvrun_size_violation_discards_no_slot(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, sr_test_conns()};
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
@@ -1104,11 +1102,11 @@ static void test_srvrun_size_violation_discards_no_slot(void) {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
-    conntable_init(table, QUIC_CONNTABLE_CAP);
+    conntable_init(table, WIRED_CONNTABLE_CAP);
     srvrun_serve(&ctx, wired_mspan_of(dg, 1199)); /* below the 1200 floor */
   }
   CHECK(st.conns[0].up == 0); /* no slot claimed */
-  CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
 }
 
 /* RFC 9000 5.2.2: a refused new connection gets an unpadded server Initial
@@ -1139,7 +1137,7 @@ static void test_srvrun_new_conn_refusal_wire_content(void) {
   usz              rn = frame_get_conn_close(frames.p, frames.n, &cc);
   CHECK(rn != 0 && rn == frames.n);
   CHECK(cc.is_app == 0);
-  CHECK(cc.error_code == QUIC_ERR_CONNECTION_REFUSED);
+  CHECK(cc.error_code == ERR_CONNECTION_REFUSED);
 }
 
 /* A non-Initial or malformed-DCID datagram is never eligible to open a new
@@ -1165,14 +1163,14 @@ static void test_srvrun_full_conntable_sends_refusal(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               dg[1500];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   /* fill every slot with an unrelated live connection */
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) {
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
     u8 cid[8] = {(u8)i, 1, 2, 3, 4, 5, 6, 7};
-    CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, cid, 8) >= 0);
+    CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, cid, 8) >= 0);
   }
   sr_make_id(&id, priv, pub, seed, rnd);
   {
@@ -1186,7 +1184,7 @@ static void test_srvrun_full_conntable_sends_refusal(void) {
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
   }
   /* no slot was claimed for the refused client */
-  CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
 }
 
 /* Shared fixture for the full-table eviction tests below: fill every
@@ -1194,10 +1192,10 @@ static void test_srvrun_full_conntable_sends_refusal(void) {
  * zeroed body with up=1 and the supplied last_ms. */
 static void sr_fill_table_busy(
     conntable* table, srvrun_conn* conns, u64 last_ms) {
-  conntable_init(table, QUIC_CONNTABLE_CAP);
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) {
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
     u8 cid[8] = {(u8)i, 1, 2, 3, 4, 5, 6, 7};
-    CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, cid, 8) >= 0);
+    CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, cid, 8) >= 0);
     conns[i]         = (srvrun_conn){0};
     conns[i].up      = 1;
     conns[i].last_ms = last_ms;
@@ -1212,11 +1210,11 @@ static void sr_fill_table_busy(
 static void test_srvrun_full_table_evicts_oldest_idle_slot(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
-  int              last = QUIC_CONNTABLE_CAP - 1; /* the victim slot */
-  u8 lastcid[8]         = {(u8)(QUIC_CONNTABLE_CAP - 1), 1, 2, 3, 4, 5, 6, 7};
+  int              last = WIRED_CONNTABLE_CAP - 1; /* the victim slot */
+  u8 lastcid[8]         = {(u8)(WIRED_CONNTABLE_CAP - 1), 1, 2, 3, 4, 5, 6, 7};
   sr_fill_table_busy(table, st.conns, 4500); /* idle 500ms: under grace */
   st.conns[last].last_ms = 100;              /* the one aged-out slot */
   sr_make_id(&id, priv, pub, seed, rnd);
@@ -1228,8 +1226,8 @@ static void test_srvrun_full_table_evicts_oldest_idle_slot(void) {
     wired_span      dcid = wired_span_of(g_sr_odcid, 8);
     CHECK(srvrun_route_or_evict(&ctx, dcid, wired_mspan_of(dg, total)) == last);
   }
-  CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, lastcid, 8) == -1);
-  CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == last);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, lastcid, 8) == -1);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == last);
 }
 
 /* Grace floor: when every slot has been active within the last second, a
@@ -1238,7 +1236,7 @@ static void test_srvrun_full_table_evicts_oldest_idle_slot(void) {
 static void test_srvrun_full_table_all_active_still_refuses(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   sr_fill_table_busy(table, st.conns, 4500); /* all idle only 500ms */
@@ -1250,10 +1248,10 @@ static void test_srvrun_full_table_all_active_still_refuses(void) {
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 5000, 0};
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
   }
-  CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) {
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
     u8 cid[8] = {(u8)i, 1, 2, 3, 4, 5, 6, 7};
-    CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, cid, 8) == (int)i);
+    CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, cid, 8) == (int)i);
   }
 }
 
@@ -1262,7 +1260,7 @@ static void test_srvrun_full_table_all_active_still_refuses(void) {
 static void test_srvrun_full_table_grace_boundary_admits(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer    = {0};
   srvrun_state     st      = {table, g_srvrun_state.conns};
   u8               cid0[8] = {0, 1, 2, 3, 4, 5, 6, 7};
@@ -1277,15 +1275,15 @@ static void test_srvrun_full_table_grace_boundary_admits(void) {
     wired_span      dcid = wired_span_of(g_sr_odcid, 8);
     CHECK(srvrun_route_or_evict(&ctx, dcid, wired_mspan_of(dg, total)) == 0);
   }
-  CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, cid0, 8) == -1);
-  CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == 0);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, cid0, 8) == -1);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == 0);
 }
 
 /* An Initial whose DCID routes to an EXISTING slot (a retransmit) never
  * enters the eviction path, however stale the rest of the table is -- the
  * routed slot itself especially must survive. */
 static void test_srvrun_full_table_retransmit_routes_no_evict(void) {
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   sockaddr     peer = {0};
   srvrun_state st   = {table, g_srvrun_state.conns};
   u8           dg[1500];
@@ -1302,9 +1300,9 @@ static void test_srvrun_full_table_retransmit_routes_no_evict(void) {
     wired_span      dcid = wired_span_of(cid3, 8);
     CHECK(srvrun_route_or_evict(&ctx, dcid, wired_mspan_of(dg, total)) == 3);
   }
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) {
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
     u8 cid[8] = {(u8)i, 1, 2, 3, 4, 5, 6, 7};
-    CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, cid, 8) == (int)i);
+    CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, cid, 8) == (int)i);
   }
 }
 
@@ -1313,7 +1311,7 @@ static void test_srvrun_full_table_retransmit_routes_no_evict(void) {
 static void test_srvrun_full_table_short_header_no_evict(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   u8               short_hdr[64];
@@ -1327,9 +1325,9 @@ static void test_srvrun_full_table_short_header_no_evict(void) {
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 5000, 0};
     srvrun_serve(&ctx, wired_mspan_of(short_hdr, sizeof short_hdr));
   }
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) {
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
     u8 cid[8] = {(u8)i, 1, 2, 3, 4, 5, 6, 7};
-    CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, cid, 8) == (int)i);
+    CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, cid, 8) == (int)i);
   }
 }
 
@@ -1442,7 +1440,7 @@ static void test_srvrun_wtsend_ring_rolling_reclaim(void) {
 static void test_srvrun_stateless_reset_seal_token_and_size(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
-  u8               out[128], key[QUIC_SRESET_KEY], want[QUIC_SRESET_TOKEN];
+  u8               out[128], key[SRESET_KEY], want[SRESET_TOKEN];
   u8               dcid[8] = {0xd0, 1, 2, 3, 4, 5, 6, 7};
   wired_obuf       ob      = obuf_of(out, sizeof out);
   sr_make_id(&id, priv, pub, seed, rnd);
@@ -1453,10 +1451,10 @@ static void test_srvrun_stateless_reset_seal_token_and_size(void) {
         srvrun_seal_stateless_reset(&cfg, wired_span_of(dcid, 8), 64, &ob) ==
         1);
   }
-  CHECK(ob.len >= QUIC_SRESET_MIN && ob.len < 64);
+  CHECK(ob.len >= SRESET_MIN && ob.len < 64);
   sreset_key_derive(seed, key);
   sreset_token(key, dcid, 8, want);
-  CHECK(ct_diffn(out + ob.len - QUIC_SRESET_TOKEN, want, 16) == 0);
+  CHECK(ct_diffn(out + ob.len - SRESET_TOKEN, want, 16) == 0);
 }
 
 /* The token must be reproducible across a server restart -- two independent
@@ -1486,8 +1484,8 @@ static void test_srvrun_stateless_reset_token_survives_restart(void) {
   }
   CHECK(
       ct_diffn(
-          out1 + ob1.len - QUIC_SRESET_TOKEN,
-          out2 + ob2.len - QUIC_SRESET_TOKEN, 16) == 0);
+          out1 + ob1.len - SRESET_TOKEN, out2 + ob2.len - SRESET_TOKEN, 16) ==
+      0);
 }
 
 /* Only an orphan SHORT-header datagram big enough to answer smaller draws a
@@ -1504,8 +1502,7 @@ static void test_srvrun_stateless_reset_gates(void) {
           wired_span_of(dcid, 8), wired_mspan_of(initial, total)) == 0);
   CHECK(
       srvrun_sreset_applies(
-          wired_span_of(dcid, 8), wired_mspan_of(short_hdr, QUIC_SRESET_MIN)) ==
-      0);
+          wired_span_of(dcid, 8), wired_mspan_of(short_hdr, SRESET_MIN)) == 0);
   CHECK(
       srvrun_sreset_applies(
           wired_span_of((const u8*)0, 0),
@@ -1523,12 +1520,12 @@ static void test_srvrun_stateless_reset_gates(void) {
 static void test_srvrun_unknown_dcid_short_header_sends_reset(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   u8               short_hdr[64];
   usz              tx_before;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   short_hdr[0] = 0x40;
   for (usz i = 1; i < sizeof short_hdr; i++) short_hdr[i] = (u8)(0x30 + i);
   sr_make_id(&id, priv, pub, seed, rnd);
@@ -1549,7 +1546,7 @@ static void test_srvrun_unknown_dcid_short_header_sends_reset(void) {
 static void test_srvrun_open_slot_xdp_embeds_core_id(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz          total    = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
@@ -1569,7 +1566,7 @@ static void test_srvrun_open_slot_xdp_embeds_core_id(void) {
         0,
         0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
-    conntable_init(table, QUIC_CONNTABLE_CAP);
+    conntable_init(table, WIRED_CONNTABLE_CAP);
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
   }
   CHECK(st.conns[0].up == 1);
@@ -1580,7 +1577,7 @@ static void test_srvrun_open_slot_xdp_embeds_core_id(void) {
 static void test_srvrun_open_slot_xdp_embeds_core_id_zero(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz          total    = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
@@ -1598,7 +1595,7 @@ static void test_srvrun_open_slot_xdp_embeds_core_id_zero(void) {
         0,
         0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
-    conntable_init(table, QUIC_CONNTABLE_CAP);
+    conntable_init(table, WIRED_CONNTABLE_CAP);
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
   }
   CHECK(st.conns[0].up == 1);
@@ -1626,7 +1623,7 @@ static void test_srvrun_open_slot_stamps_qlog_group(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
   u8               odcid2[8] = {0xb2, 0xb2, 0xb2, 0xb2, 0xb2, 0xb2, 0xb2, 0xb2};
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz              total;
@@ -1638,7 +1635,7 @@ static void test_srvrun_open_slot_stamps_qlog_group(void) {
     srvrun_cfg cfg = {
         .id = &id, .xdp = &fake_xdp, .env = &g_srvrun_env, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
-    conntable_init(table, QUIC_CONNTABLE_CAP);
+    conntable_init(table, WIRED_CONNTABLE_CAP);
     total = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
     total = sr_build_client_initial(dg, sizeof dg, odcid2, 8);
@@ -1684,7 +1681,7 @@ static void test_srvrun_issue_cid_xdp_embeds_core_id(void) {
 static void test_srvrun_initial_retransmit_resends_cached_flight(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
@@ -1695,7 +1692,7 @@ static void test_srvrun_initial_retransmit_resends_cached_flight(void) {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
-    conntable_init(table, QUIC_CONNTABLE_CAP);
+    conntable_init(table, WIRED_CONNTABLE_CAP);
     srvrun_test_reset_send_count();
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
     CHECK(st.conns[0].up == 1);
@@ -1720,7 +1717,7 @@ static void test_srvrun_initial_retransmit_resends_cached_flight(void) {
    * regenerated scid and reset the boot cache */
   CHECK(
       conntable_find(
-          table, QUIC_CONNTABLE_CAP, st.conns[0].scid, id.scid_len) == 0);
+          table, WIRED_CONNTABLE_CAP, st.conns[0].scid, id.scid_len) == 0);
   for (usz i = 0; i < id.scid_len; i++)
     CHECK(st.conns[0].scid[i] == first_scid[i]);
   CHECK(st.conns[0].boot_ini_len == first_boot_ini_len);
@@ -1923,11 +1920,11 @@ static void test_srvrun_boot_antiamp_sent_includes_initial_and_handshake(void) {
  * tail). Also confirms repeated release attempts against an unchanged
  * budget are idempotent (no partial/garbage sends). */
 static void test_srvrun_boot_antiamp_client_silent_no_crash(void) {
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   srvrun_state     st = {table, sr_test_conns()};
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_id(&id, priv, pub, seed, rnd);
   sr_antiamp_seed_flight(&st.conns[0]);
   st.conns[0].up            = 1;
@@ -1964,7 +1961,7 @@ static void test_srvrun_conn_rx_bytes_counts_malformed_datagram(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
   u8               garbage[37];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
@@ -1975,7 +1972,7 @@ static void test_srvrun_conn_rx_bytes_counts_malformed_datagram(void) {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
-    conntable_init(table, QUIC_CONNTABLE_CAP);
+    conntable_init(table, WIRED_CONNTABLE_CAP);
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
     CHECK(st.conns[0].up == 1);
     rx_after_boot = st.conns[0].boot_rx_bytes;
@@ -2023,9 +2020,9 @@ static void test_srvrun_resend_boot_flight_respects_antiamp_budget(void) {
  * for a fresh boot doesn't inherit a stale budget from the connection it
  * replaces. */
 static void test_srvrun_free_slot_resets_antiamp_state(void) {
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_state st = {table, sr_test_conns()};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   st.conns[0].boot_rx_bytes   = 5000;
   st.conns[0].boot_tx_bytes   = 4000;
   st.conns[0].boot_dgram_sent = 3;
@@ -2063,7 +2060,7 @@ static usz sr_append_handshake_pkt(u8* dg, usz off, const u8* dcid, u8 n) {
 static void test_srvrun_coalesced_handshake_not_boot_retransmit(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500], dg2[1500];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
@@ -2073,7 +2070,7 @@ static void test_srvrun_coalesced_handshake_not_boot_retransmit(void) {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
-    conntable_init(table, QUIC_CONNTABLE_CAP);
+    conntable_init(table, WIRED_CONNTABLE_CAP);
     srvrun_test_reset_send_count();
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
     CHECK(st.conns[0].up == 1);
@@ -2119,7 +2116,7 @@ static void test_srvrun_split_ch_boots_across_datagrams(void) {
   client           c;
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               ch[512], dg1[1400], dg2[1400];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz              n    = sr_raw_ch(&c, ch, sizeof ch);
@@ -2132,18 +2129,18 @@ static void test_srvrun_split_ch_boots_across_datagrams(void) {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
-    conntable_init(table, QUIC_CONNTABLE_CAP);
+    conntable_init(table, WIRED_CONNTABLE_CAP);
     st.conns[0].up       = 0;
     st.conns[0].boot.any = 0;
     srvrun_serve(&ctx, wired_mspan_of(dg1, n1));
     CHECK(st.conns[0].up == 0); /* half a ClientHello: no boot yet */
-    CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == 0);
+    CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == 0);
     srvrun_serve(&ctx, wired_mspan_of(dg2, n2));
   }
   CHECK(st.conns[0].up == 1);
   CHECK(
       conntable_find(
-          table, QUIC_CONNTABLE_CAP, st.conns[0].scid, id.scid_len) == 0);
+          table, WIRED_CONNTABLE_CAP, st.conns[0].scid, id.scid_len) == 0);
 }
 
 /* A boot that never completes is reclaimed by the idle sweep, and the freed
@@ -2153,7 +2150,7 @@ static void test_srvrun_stalled_boot_swept(void) {
   client           c;
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               ch[512], dg1[1400], dg2[1400], d1[1400], d2[1400];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz              n    = sr_raw_ch(&c, ch, sizeof ch);
@@ -2167,14 +2164,14 @@ static void test_srvrun_stalled_boot_swept(void) {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 1000, 0};
-    conntable_init(table, QUIC_CONNTABLE_CAP);
+    conntable_init(table, WIRED_CONNTABLE_CAP);
     st.conns[0].up       = 0;
     st.conns[0].boot.any = 0;
     srvrun_serve(&ctx, wired_mspan_of(dg1, n1));
     CHECK(st.conns[0].boot.any == 1);
     srvrun_sweep_idle(srvrun_test_envcfg(), &st, 1000 + WIRED_SRVRUN_IDLE_MS);
     /* reclaimed: table entry gone, accumulator emptied */
-    CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
+    CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
     CHECK(st.conns[0].boot.any == 0);
     /* the same slot claims and boots a fresh attempt */
     srvrun_serve(&ctx, wired_mspan_of(d1, n1));
@@ -2189,7 +2186,7 @@ static void test_srvrun_alien_version_claims_no_slot(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               dg[1200] = {0};
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   dg[0]                 = 0xd3;
@@ -2202,12 +2199,12 @@ static void test_srvrun_alien_version_claims_no_slot(void) {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
-    conntable_init(table, QUIC_CONNTABLE_CAP);
+    conntable_init(table, WIRED_CONNTABLE_CAP);
     st.conns[0].up = 0;
     srvrun_serve(&ctx, wired_mspan_of(dg, sizeof dg));
   }
   CHECK(st.conns[0].up == 0);
-  CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, dg + 6, 6) == -1);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, dg + 6, 6) == -1);
 }
 
 /* UNCLAIM ON FAILURE: an Initial-shaped datagram whose cold start fails must
@@ -2216,7 +2213,7 @@ static void test_srvrun_failed_accept_unclaims(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               junk[64] = {0xc3, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8, 0};
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   sr_make_id(&id, priv, pub, seed, rnd);
@@ -2224,14 +2221,14 @@ static void test_srvrun_failed_accept_unclaims(void) {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
-    conntable_init(table, QUIC_CONNTABLE_CAP);
+    conntable_init(table, WIRED_CONNTABLE_CAP);
     srvrun_serve(&ctx, wired_mspan_of(junk, sizeof junk));
   }
   CHECK(st.conns[0].up == 0);
   /* no live entry remains for the junk DCID... */
-  CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, junk + 6, 8) == -1);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, junk + 6, 8) == -1);
   /* ...and the slot itself is still claimable */
-  CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, junk + 6, 8) == 0);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, junk + 6, 8) == 0);
 }
 
 /* PEER CLOSE FREES THE SLOT (RFC 9000 10.2.2): a routed CONNECTION_CLOSE
@@ -2243,17 +2240,17 @@ static void test_srvrun_peer_close_frees_slot(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               obuf[1024], cc[32], spkt[1024];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   wired_obuf       ob   = {obuf, sizeof obuf, 0};
   conn_close_frame ccf  = {0, 0, 0, 0, 0};
   usz              ccn, slen;
   sr_make_id(&id, priv, pub, seed, rnd);
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&st.conns[0], &f, &ob);
   /* route the fixture's 1-RTT DCID (its iscid) to slot 0 */
-  CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, g_cli_scid, 6) == 0);
   ccn = frame_put_conn_close(cc, sizeof cc, &ccf);
   CHECK(ccn > 0);
   slen = client_seal_onertt(&f, cc, ccn, spkt, sizeof spkt);
@@ -2292,14 +2289,14 @@ static void test_srvrun_peer_close_frees_slot(void) {
     srvrun_serve(&ctx, wired_mspan_of(spkt, slen));
     /* slot freed: up cleared, DCID no longer routes */
     CHECK(st.conns[0].up == 0);
-    CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == -1);
+    CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_cli_scid, 6) == -1);
     /* no reply was sent for the close (draining sends nothing) — the close
      * datagram itself is still logged as received */
     CHECK(sr_qlog_count("packet_sent") == 0);
     /* a later datagram on the dead DCID is dropped without new state */
     srvrun_serve(&ctx, wired_mspan_of(spkt, slen));
     CHECK(st.conns[0].up == 0);
-    CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == -1);
+    CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_cli_scid, 6) == -1);
   }
   srvrunt_qlog_unlink();
 }
@@ -2308,24 +2305,24 @@ static void test_srvrun_peer_close_frees_slot(void) {
  * advertised max_idle_timeout, keeps an active one, and the freed slot is
  * claimable again. */
 static void test_srvrun_idle_sweep_evicts_expired(void) {
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_state st    = {table, g_srvrun_state.conns};
   u8           k1[4] = {1, 1, 1, 1}, k2[4] = {2, 2, 2, 2};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   st.conns[0].up      = 1;
   st.conns[0].last_ms = 1000;
   st.conns[1].up      = 1;
   st.conns[1].last_ms = 20000;
-  CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, k1, 4) == 0);
-  CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, k2, 4) == 1);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, k1, 4) == 0);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, k2, 4) == 1);
   srvrun_sweep_idle(srvrun_test_envcfg(), &st, 1000 + WIRED_SRVRUN_IDLE_MS);
   /* the expired slot is gone, the active one survives */
   CHECK(st.conns[0].up == 0);
-  CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, k1, 4) == -1);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, k1, 4) == -1);
   CHECK(st.conns[1].up == 1);
-  CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, k2, 4) == 1);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, k2, 4) == 1);
   /* the freed slot is claimable again */
-  CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, k1, 4) == 0);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, k1, 4) == 0);
 }
 
 /* A connection torn down (here, idle sweep) mid-streaming-response
@@ -2335,11 +2332,11 @@ static void test_srvrun_idle_sweep_evicts_expired(void) {
  * the pool), and that row is leaked for the server's whole remaining
  * lifetime. */
 static void test_srvrun_idle_sweep_releases_bigbuf_row(void) {
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_state st    = {table, g_srvrun_state.conns};
   u8           k1[4] = {9, 9, 9, 9};
   int          row;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   wired_srvbigbuf_init(
       &g_srvrun_env.bigbuf, &g_srvrun_env.bigbuf_rows[0][0],
       WIRED_SRVBIGBUF_ROW_CAP);
@@ -2351,7 +2348,7 @@ static void test_srvrun_idle_sweep_releases_bigbuf_row(void) {
       wired_srvbigbuf_claim(
           &g_srvrun_env.bigbuf, &st.conns[0].resp[0].bigbuf_row) != 0);
   row = st.conns[0].resp[0].bigbuf_row;
-  CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, k1, 4) == 0);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, k1, 4) == 0);
   srvrun_sweep_idle(srvrun_test_envcfg(), &st, 1000 + WIRED_SRVRUN_IDLE_MS);
   CHECK(st.conns[0].up == 0);
   /* the row is free again: claiming it (or any row, with only 2 total)
@@ -2367,14 +2364,14 @@ static void test_srvrun_idle_sweep_releases_bigbuf_row(void) {
 /* ACTIVITY REFRESH (RFC 9000 10.1): every datagram routed to a slot stamps
  * its last-activity time, so a served connection never counts as idle. */
 static void test_srvrun_serve_slot_touches_last_ms(void) {
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_state st    = {table, g_srvrun_state.conns};
   sockaddr     peer  = {0};
   u8           sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header */
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   srvrun_step_ctx ctx = {&cfg, &peer, &st, 12345, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   st.conns[2].up      = 0;
   st.conns[2].last_ms = 0;
   srvrun_serve_slot(&ctx, 2, wired_mspan_of(sh, sizeof sh));
@@ -2385,14 +2382,14 @@ static void test_srvrun_serve_slot_touches_last_ms(void) {
  * srvrun_step_ctx.ecn, RFC 3168 codepoint 2 = ECT(0)) reaches the routed
  * slot's wired_srvloop cumulative counter via wired_srvloop_ecn_note. */
 static void test_srvrun_serve_slot_notes_ecn(void) {
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_state st    = {table, g_srvrun_state.conns};
   sockaddr     peer  = {0};
   u8           sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header */
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 2}; /* ecn=2: ECT(0) */
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   st.conns[2] = (srvrun_conn){0};
   srvrun_serve_slot(&ctx, 2, wired_mspan_of(sh, sizeof sh));
   CHECK(st.conns[2].l.ecn_ect0 == 1);
@@ -2427,7 +2424,7 @@ static void test_srvrun_rebind_updates_peer_port(void) {
   srvrun_conn   c;
   wired_obuf    ob = {0};
   u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      old_peer = {0}, new_peer = {0};
   srvrun_state  st = {table, &c};
   ob               = (wired_obuf){obuf, sizeof obuf, 0};
@@ -2435,7 +2432,7 @@ static void test_srvrun_rebind_updates_peer_port(void) {
   wired_udp_addr(&old_peer, 4433, (const u8[4]){127, 0, 0, 1});
   wired_udp_addr(&new_peer, 9999, (const u8[4]){127, 0, 0, 1});
   c.peer = old_peer;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
@@ -2456,7 +2453,7 @@ static void test_srvrun_rebind_updates_peer_addr(void) {
   srvrun_conn   c;
   wired_obuf    ob = {0};
   u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      old_peer = {0}, new_peer = {0};
   srvrun_state  st = {table, &c};
   ob               = (wired_obuf){obuf, sizeof obuf, 0};
@@ -2464,7 +2461,7 @@ static void test_srvrun_rebind_updates_peer_addr(void) {
   wired_udp_addr(&old_peer, 4433, (const u8[4]){127, 0, 0, 1});
   wired_udp_addr(&new_peer, 4433, (const u8[4]){10, 0, 0, 2});
   c.peer = old_peer;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
@@ -2483,14 +2480,14 @@ static void test_srvrun_rebind_noop_when_address_unchanged(void) {
   srvrun_conn   c;
   wired_obuf    ob = {0};
   u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      peer = {0};
   srvrun_state  st   = {table, &c};
   ob                 = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   wired_udp_addr(&peer, 4433, (const u8[4]){127, 0, 0, 1});
   c.peer = peer;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
@@ -2510,7 +2507,7 @@ static void test_srvrun_rebind_port_and_addr_independent(void) {
   srvrun_conn   c;
   wired_obuf    ob = {0};
   u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      base = {0}, port_only = {0};
   srvrun_state  st = {table, &c};
   ob               = (wired_obuf){obuf, sizeof obuf, 0};
@@ -2518,7 +2515,7 @@ static void test_srvrun_rebind_port_and_addr_independent(void) {
   wired_udp_addr(&base, 4433, (const u8[4]){127, 0, 0, 1});
   wired_udp_addr(&port_only, 5555, (const u8[4]){127, 0, 0, 1});
   c.peer = base;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
@@ -2536,13 +2533,13 @@ static void test_srvrun_rebind_port_and_addr_independent(void) {
  * whatever srvrun_open_slot recorded even though this datagram arrives from
  * a different source. */
 static void test_srvrun_rebind_noop_during_boot(void) {
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_state st        = {table, g_srvrun_state.conns};
   sockaddr     boot_peer = {0}, other_peer = {0};
   u8           sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* not Initial */
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   wired_udp_addr(&boot_peer, 4433, (const u8[4]){127, 0, 0, 1});
   wired_udp_addr(&other_peer, 9999, (const u8[4]){127, 0, 0, 2});
   st.conns[0]      = (srvrun_conn){0};
@@ -2561,13 +2558,13 @@ static void test_srvrun_rebind_noop_during_boot(void) {
  * runs (mirrors the existing test_srvrun_serve_slot_touches_last_ms
  * baseline: last_ms/boot_rx_bytes bookkeeping still proceeds). */
 static void test_srvrun_rebind_noop_on_unused_slot(void) {
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_state st    = {table, g_srvrun_state.conns};
   sockaddr     peer  = {0};
   u8           sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   wired_udp_addr(&peer, 9999, (const u8[4]){127, 0, 0, 2});
   st.conns[3] = (srvrun_conn){0}; /* up == 0: unused slot */
   {
@@ -2591,19 +2588,19 @@ static void test_srvrun_rebind_subsequent_send_targets_new_peer(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               obuf[1024], spkt[1024];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         from, rebound;
   srvrun_state     st      = {table, g_srvrun_state.conns};
   wired_obuf       ob      = {obuf, sizeof obuf, 0};
   u8               ping[1] = {0x01};
   usz              slen;
   sr_make_id(&id, priv, pub, seed, rnd);
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&st.conns[0], &f, &ob);
   wired_udp_addr(&from, 4433, (const u8[4]){127, 0, 0, 1});
   st.conns[0].peer = from;
   wired_udp_addr(&rebound, 4433, (const u8[4]){127, 0, 0, 2});
-  CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, g_cli_scid, 6) == 0);
   slen = client_seal_onertt(&f, ping, sizeof ping, spkt, sizeof spkt);
   {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2622,7 +2619,7 @@ static void test_srvrun_path_challenge_generated_on_rebind(void) {
   srvrun_conn   c;
   wired_obuf    ob = {0};
   u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      old_peer = {0}, new_peer = {0};
   srvrun_state  st          = {table, &c};
   int           any_nonzero = 0;
@@ -2631,7 +2628,7 @@ static void test_srvrun_path_challenge_generated_on_rebind(void) {
   wired_udp_addr(&old_peer, 4433, (const u8[4]){127, 0, 0, 1});
   wired_udp_addr(&new_peer, 9999, (const u8[4]){127, 0, 0, 1});
   c.peer = old_peer;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
@@ -2642,7 +2639,7 @@ static void test_srvrun_path_challenge_generated_on_rebind(void) {
   CHECK(c.migrate.detected == 1);
   CHECK(c.migrate.challenged == 1);
   CHECK(c.migrate.validated == 0);
-  for (usz i = 0; i < QUIC_PATH_DATA; i++)
+  for (usz i = 0; i < PATH_DATA; i++)
     if (c.path_challenge_data[i]) any_nonzero = 1;
   CHECK(any_nonzero == 1);
 }
@@ -2657,18 +2654,18 @@ static void test_srvrun_path_challenge_sent_to_new_peer(void) {
   wired_obuf    ob = {0};
   u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
   u8            out[256];
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      old_peer = {0}, new_peer = {0};
   srvrun_state  st = {table, &c};
   const u8*     pl;
   usz           pll;
-  u8            wire_data[QUIC_PATH_DATA];
+  u8            wire_data[PATH_DATA];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   wired_udp_addr(&old_peer, 4433, (const u8[4]){127, 0, 0, 1});
   wired_udp_addr(&new_peer, 9999, (const u8[4]){127, 0, 0, 1});
   c.peer = old_peer;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
@@ -2714,7 +2711,7 @@ static void sr_confirm_and_rebind(
   sr_make_confirmed_conn(c, f, &ob);
   sr_path_test_peers(&old_peer, new_peer);
   c->peer = old_peer;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
@@ -2730,12 +2727,12 @@ static void sr_send_path_response(
     struct lp_fix*  f,
     srvrun_state*   st,
     const sockaddr* peer,
-    const u8        resp_data[QUIC_PATH_DATA]) {
+    const u8        resp_data[PATH_DATA]) {
   u8         fr[16], spkt[1024];
   usz        fl, slen;
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-  fl = path_encode(fr, sizeof fr, QUIC_FRAME_PATH_RESPONSE, resp_data);
+  fl             = path_encode(fr, sizeof fr, FRAME_PATH_RESPONSE, resp_data);
   CHECK(fl > 0);
   slen = client_seal_onertt(f, fr, fl, spkt, sizeof spkt);
   {
@@ -2749,7 +2746,7 @@ static void sr_send_path_response(
 static void test_srvrun_path_response_matching_validates(void) {
   struct lp_fix f;
   srvrun_conn   c;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      new_peer;
   srvrun_state  st = {table, &c};
   sr_confirm_and_rebind(&c, &f, table, &st, &new_peer);
@@ -2764,12 +2761,12 @@ static void test_srvrun_path_response_matching_validates(void) {
 static void test_srvrun_path_response_mismatch_does_not_validate(void) {
   struct lp_fix f;
   srvrun_conn   c;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      new_peer;
-  u8            wrong[QUIC_PATH_DATA];
+  u8            wrong[PATH_DATA];
   srvrun_state  st = {table, &c};
   sr_confirm_and_rebind(&c, &f, table, &st, &new_peer);
-  for (usz i = 0; i < QUIC_PATH_DATA; i++)
+  for (usz i = 0; i < PATH_DATA; i++)
     wrong[i] = (u8)(c.path_challenge_data[i] ^ 0xff);
   wrong[0] ^= 0x01; /* differs by at least one bit even if XOR above
                      * happened to reproduce the original by coincidence */
@@ -2786,15 +2783,15 @@ static void test_srvrun_path_response_without_challenge_is_noop(void) {
   srvrun_conn   c;
   wired_obuf    ob = {0};
   u8            obuf[1024];
-  conntable     table[QUIC_CONNTABLE_CAP];
-  sockaddr      peer                      = {0};
-  srvrun_state  st                        = {table, &c};
-  u8            resp_data[QUIC_PATH_DATA] = {1, 2, 3, 4, 5, 6, 7, 8};
-  ob                                      = (wired_obuf){obuf, sizeof obuf, 0};
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      peer                 = {0};
+  srvrun_state  st                   = {table, &c};
+  u8            resp_data[PATH_DATA] = {1, 2, 3, 4, 5, 6, 7, 8};
+  ob                                 = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   wired_udp_addr(&peer, 4433, (const u8[4]){127, 0, 0, 1});
   c.peer = peer;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   CHECK(c.migrate.challenged == 0);
   sr_send_path_response(&f, &st, &peer, resp_data);
   CHECK(c.migrate.challenged == 0);
@@ -2809,10 +2806,10 @@ static void test_srvrun_path_challenge_rearmed_on_second_rebind(void) {
   srvrun_conn   c;
   wired_obuf    ob = {0};
   u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      old_peer = {0}, mid_peer = {0}, final_peer = {0};
   srvrun_state  st = {table, &c};
-  u8            first_challenge[QUIC_PATH_DATA];
+  u8            first_challenge[PATH_DATA];
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   ob             = (wired_obuf){obuf, sizeof obuf, 0};
@@ -2821,12 +2818,12 @@ static void test_srvrun_path_challenge_rearmed_on_second_rebind(void) {
   wired_udp_addr(&mid_peer, 5555, (const u8[4]){127, 0, 0, 1});
   wired_udp_addr(&final_peer, 9999, (const u8[4]){127, 0, 0, 1});
   c.peer = old_peer;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   {
     srvrun_step_ctx ctx = {&cfg, &mid_peer, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, wired_mspan_of(sh, sizeof sh)); /* rebind #1 */
   }
-  for (usz i = 0; i < QUIC_PATH_DATA; i++)
+  for (usz i = 0; i < PATH_DATA; i++)
     first_challenge[i] = c.path_challenge_data[i];
   {
     srvrun_step_ctx ctx = {&cfg, &final_peer, &st, 0, 0};
@@ -2844,13 +2841,13 @@ static void test_srvrun_path_challenge_rearmed_on_second_rebind(void) {
  * (srvrun_awaiting_confirm) short-circuits before srvrun_arm_path_challenge
  * is ever reached. */
 static void test_srvrun_path_challenge_noop_during_boot(void) {
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_state st        = {table, g_srvrun_state.conns};
   sockaddr     boot_peer = {0}, other_peer = {0};
   u8           sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   wired_udp_addr(&boot_peer, 4433, (const u8[4]){127, 0, 0, 1});
   wired_udp_addr(&other_peer, 9999, (const u8[4]){127, 0, 0, 2});
   st.conns[0]      = (srvrun_conn){0};
@@ -2872,7 +2869,7 @@ static void test_srvrun_path_challenge_rng_failure_sends_nothing(void) {
   srvrun_conn   c;
   wired_obuf    ob = {0};
   u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      old_peer = {0}, new_peer = {0};
   srvrun_state  st = {table, &c};
   usz           send_before;
@@ -2880,7 +2877,7 @@ static void test_srvrun_path_challenge_rng_failure_sends_nothing(void) {
   sr_make_confirmed_conn(&c, &f, &ob);
   sr_path_test_peers(&old_peer, &new_peer);
   c.peer = old_peer;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   send_before = srvrun_test_send_count();
   srvrun_test_force_challenge_rng_fail(1);
   {
@@ -2902,7 +2899,7 @@ static void test_srvrun_path_challenge_rng_failure_sends_nothing(void) {
  * at least 1200 bytes, so a path that drops larger datagrams cannot be used
  * to validate at a smaller effective MTU. */
 static void test_srvrun_pad_path_challenge_expands_to_1200(void) {
-  u8 out[QUIC_MIN_INITIAL_DATAGRAM];
+  u8 out[MIN_INITIAL_DATAGRAM];
   for (usz i = 0; i < sizeof out; i++) out[i] = 0xaa;
   CHECK(srvrun_pad_path_challenge(out, 40, sizeof out) == 1200);
   CHECK(out[39] == 0xaa); /* sealed packet bytes untouched */
@@ -2932,15 +2929,15 @@ static void sr_serve_onertt(
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               obuf[1024], spkt[1024];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   wired_obuf       ob   = {obuf, sizeof obuf, 0};
   usz              slen;
   sr_make_id(&id, priv, pub, seed, rnd);
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&st.conns[0], &f, &ob);
-  CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, g_cli_scid, 6) == 0);
   slen = client_seal_onertt(&f, pl, pln, spkt, sizeof spkt);
   {
     srvrun_cfg cfg = {
@@ -2989,14 +2986,14 @@ static void test_srvrun_qlog_skips_undecryptable(void) {
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               obuf[1024];
   u8               junk[32] = {0x40, 'C', 'L', 'I', 'S', 'C', 'I', 9, 9, 9};
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   wired_obuf       ob   = {obuf, sizeof obuf, 0};
   sr_make_id(&id, priv, pub, seed, rnd);
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&st.conns[0], &f, &ob);
-  CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, g_cli_scid, 6) == 0);
   srvrunt_qlog_unlink();
   {
     srvrun_cfg cfg = {
@@ -3039,7 +3036,7 @@ static void test_srvrun_qlog_skips_undecryptable(void) {
 static void test_srvrun_qlog_records_initial(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
@@ -3076,7 +3073,7 @@ static void test_srvrun_qlog_records_initial(void) {
         0,
         0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
-    conntable_init(table, QUIC_CONNTABLE_CAP);
+    conntable_init(table, WIRED_CONNTABLE_CAP);
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
   }
   CHECK(st.conns[0].up == 1);
@@ -3090,7 +3087,7 @@ static void test_srvrun_qlog_skips_failed_accept(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               junk[64] = {0xc3, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8, 0};
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   sr_make_id(&id, priv, pub, seed, rnd);
@@ -3126,7 +3123,7 @@ static void test_srvrun_qlog_skips_failed_accept(void) {
         0,
         0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
-    conntable_init(table, QUIC_CONNTABLE_CAP);
+    conntable_init(table, WIRED_CONNTABLE_CAP);
     srvrun_serve(&ctx, wired_mspan_of(junk, sizeof junk));
   }
   CHECK(sr_qlog_count("packet_received") == 0);
@@ -3141,11 +3138,11 @@ static void test_srvrun_batch_serves_each(void) {
   u8               priv[32], pub[32], seed[32], rnd[32];
   static u8        dgs[2][1500];
   mmsg_buf         bufs[2];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   srvrun_state     st        = {table, g_srvrun_state.conns};
   const u8         odcid2[8] = {0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22};
   sr_make_id(&id, priv, pub, seed, rnd);
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   bufs[0].buf = wired_mspan_of(dgs[0], sizeof dgs[0]);
   bufs[0].len =
       (u32)sr_build_client_initial(dgs[0], sizeof dgs[0], g_sr_odcid, 8);
@@ -3359,7 +3356,7 @@ static void test_srvrun_parallel_responses_three_streams(void) {
   sr_stream_bucket         buckets[3]      = {0};
   static const u64         stream_ids[3]   = {0, 4, 8};
   static const char* const paths[3]        = {"/a", "/b", "/c"};
-  conntable                table[QUIC_CONNTABLE_CAP];
+  conntable                table[WIRED_CONNTABLE_CAP];
   srvrun_state             st = {table, g_srvrun_state.conns};
   wired_obuf               ob = {obuf, sizeof obuf, 0};
   sockaddr                 srv, from;
@@ -3367,11 +3364,11 @@ static void test_srvrun_parallel_responses_three_streams(void) {
   usz                      off, slen;
   if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   sr_make_id(&id, priv, pub, seed, rnd);
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&st.conns[0], &f, &ob);
   st.conns[0].l.resp_external = 1;
   st.conns[0].peer            = srv;
-  CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, g_cli_scid, 6) == 0);
   for (usz i = 0; i < 3; i++) {
     buckets[i].buf = asm_bufs[i];
     buckets[i].cap = sizeof asm_bufs[i];
@@ -3472,7 +3469,7 @@ static void test_srvrun_takeover_streams_large_body(void) {
   static u8        asm_buf[4096];
   u8               pre[64];
   wired_obuf       preb = {pre, sizeof pre, 0};
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   srvrun_state     st = {table, g_srvrun_state.conns};
   wired_obuf       ob = {obuf, sizeof obuf, 0};
   sockaddr         srv, from;
@@ -3481,11 +3478,11 @@ static void test_srvrun_takeover_streams_large_body(void) {
   int              fin = 0;
   if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   sr_make_id(&id, priv, pub, seed, rnd);
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&st.conns[0], &f, &ob);
   st.conns[0].l.resp_external = 1;
   st.conns[0].peer            = srv;
-  CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, g_cli_scid, 6) == 0);
   {
     wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
@@ -3532,7 +3529,7 @@ static void test_srvrun_takeover_streams_large_body(void) {
 static void test_srvrun_cc_algo_selected(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
@@ -3547,7 +3544,7 @@ static void test_srvrun_cc_algo_selected(void) {
         0,
         0,
         0,
-        QUIC_CC_ALGO_CUBIC,
+        CC_ALGO_CUBIC,
         0,
         0,
         0,
@@ -3568,12 +3565,12 @@ static void test_srvrun_cc_algo_selected(void) {
         0,
         0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
-    conntable_init(table, QUIC_CONNTABLE_CAP);
+    conntable_init(table, WIRED_CONNTABLE_CAP);
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
   }
   CHECK(st.conns[0].up == 1);
-  CHECK(st.conns[0].cc.algo == QUIC_CC_ALGO_CUBIC);
-  CHECK(st.conns[0].cc.cwnd == QUIC_CC_INIT_WINDOW);
+  CHECK(st.conns[0].cc.algo == CC_ALGO_CUBIC);
+  CHECK(st.conns[0].cc.cwnd == CC_INIT_WINDOW);
 }
 
 /* HYSTART WIRING: rising round RTTs feed the detector and end slow start
@@ -3781,9 +3778,7 @@ static void test_srvrun_pace_interval_equals_poll_no_extra_round(void) {
   cc_init(&c.cc);
   c.cc.cwnd = 240000;
   c.srtt_ms = 4000;
-  CHECK(
-      pacing_interval(c.srtt_ms, c.cc.cwnd, QUIC_MAX_DATAGRAM) ==
-      SRVRUN_PTO_MS);
+  CHECK(pacing_interval(c.srtt_ms, c.cc.cwnd, MAX_DATAGRAM) == SRVRUN_PTO_MS);
   srvrun_pace_next(&ctx, &c);
   CHECK(c.next_send_ms == 1000 + SRVRUN_PTO_MS);
 }
@@ -3801,8 +3796,7 @@ static void test_srvrun_pace_interval_over_poll_waits(void) {
   c.cc.cwnd = 230000;
   c.srtt_ms = 4000;
   CHECK(
-      pacing_interval(c.srtt_ms, c.cc.cwnd, QUIC_MAX_DATAGRAM) ==
-      SRVRUN_PTO_MS + 1);
+      pacing_interval(c.srtt_ms, c.cc.cwnd, MAX_DATAGRAM) == SRVRUN_PTO_MS + 1);
   srvrun_pace_next(&ctx, &c);
   CHECK(c.next_send_ms == 1000 + SRVRUN_PTO_MS + 1);
 }
@@ -3918,7 +3912,7 @@ static void test_srvrun_slice_piggybacks_deferred_ack(void) {
   c->resp[0].stream_id = 0;
   wired_sendsess_arm(&c->resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
   /* a received 1-RTT packet to acknowledge, already past the delay window */
-  pnspaces_on_recv(&c->l.ack_recv, QUIC_PNS_APP, 0);
+  pnspaces_on_recv(&c->l.ack_recv, PNS_APP, 0);
   c->l.app_ack_policy.pending = 2;
   c->l.ack_defer              = 1;
   {
@@ -3944,7 +3938,7 @@ static void test_srvrun_deferred_ack_flushed_without_slice(void) {
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(c, &f, &ob);
-  pnspaces_on_recv(&c->l.ack_recv, QUIC_PNS_APP, 0);
+  pnspaces_on_recv(&c->l.ack_recv, PNS_APP, 0);
   c->l.app_ack_policy.pending = 2; /* due right now, no delay needed */
   c->l.ack_defer              = 1;
   {
@@ -3969,11 +3963,11 @@ static void test_srvrun_pace_rate_bbr_uses_btl_bw(void) {
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   srvrun_step_ctx ctx = {&cfg, 0, 0, 1000, 0};
-  cc_init_algo(&c.cc, QUIC_CC_ALGO_BBR);
+  cc_init_algo(&c.cc, CC_ALGO_BBR);
   c.srtt_ms        = 30;
-  c.cc.bbr.btl_bw  = 100;               /* B/ms */
-  c.cc.bbr.phase   = QUIC_BBR_PROBE_BW; /* cycle 0: pacing gain 125% */
-  c.pace_refill_ms = 990;               /* 10ms elapsed at now = 1000 */
+  c.cc.bbr.btl_bw  = 100;          /* B/ms */
+  c.cc.bbr.phase   = BBR_PROBE_BW; /* cycle 0: pacing gain 125% */
+  c.pace_refill_ms = 990;          /* 10ms elapsed at now = 1000 */
   srvrun_pace_refill(&ctx, &c);
   CHECK(c.pace_tokens == 10 * 125); /* 10ms x (125% x 100 B/ms) */
 }
@@ -3986,7 +3980,7 @@ static void test_srvrun_pace_subms_still_unlimited(void) {
   cc_init(&c.cc);
   c.cc.cwnd = 5000000000ULL;
   c.srtt_ms = 30;
-  CHECK(pacing_interval(c.srtt_ms, c.cc.cwnd, QUIC_MAX_DATAGRAM) == 0);
+  CHECK(pacing_interval(c.srtt_ms, c.cc.cwnd, MAX_DATAGRAM) == 0);
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
@@ -4306,9 +4300,9 @@ static void test_srvrun_busy_poll_off_uses_any_waiting_branch(void) {
   srvrun_state st = {0, 0};
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-  conntable  table[QUIC_CONNTABLE_CAP];
+  conntable  table[WIRED_CONNTABLE_CAP];
   srvrun_conn* conns = sr_test_conns();
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   st = (srvrun_state){table, conns};
   CHECK(cfg.busy_poll == 0);
   /* nothing in flight: srvrun_wait_input returns 1 without touching poll(2)
@@ -4324,9 +4318,9 @@ static void test_srvrun_busy_poll_on_never_blocks_wait(void) {
   srvrun_state st = {0, 0};
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-  conntable  table[QUIC_CONNTABLE_CAP];
+  conntable  table[WIRED_CONNTABLE_CAP];
   srvrun_conn* conns = sr_test_conns();
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   st                           = (srvrun_state){table, conns};
   conns[0].up                  = 1;
   conns[0].resp[0].in_use      = 1;
@@ -4344,7 +4338,7 @@ static void test_srvrun_busy_poll_step_never_blocks(void) {
   mmsg_buf     bufs[2];
   static u8    storage[2][256];
   srvrun_state st = {0, 0};
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_conn* conns = sr_test_conns();
   srvrun_cfg   cfg;
   CHECK(fd >= 0);
@@ -4353,7 +4347,7 @@ static void test_srvrun_busy_poll_step_never_blocks(void) {
   cfg =
       (srvrun_cfg){fd, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, &g_srvrun_env,
                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   st          = (srvrun_state){table, conns};
   bufs[0].buf = wired_mspan_of(storage[0], sizeof storage[0]);
   bufs[1].buf = wired_mspan_of(storage[1], sizeof storage[1]);
@@ -4372,13 +4366,13 @@ static void test_srvrun_busy_poll_step_never_blocks(void) {
  * fire (the s3-voice-loss qlog showed retransmits stalled ~30s behind
  * continuous voice traffic). */
 static void test_srvrun_polling_pto_tick(void) {
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_conn* conns = sr_test_conns();
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   srvrun_state st;
   u64          armed;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   st                   = (srvrun_state){table, conns};
   g_srvrun_pto_next_ms = 0;
   g_srvrun_pto_spin    = 0;
@@ -4507,13 +4501,13 @@ static void sr_set_req(
  * and no WT session is created. */
 static void test_srvrun_normal_request_unaffected_by_wt_branch(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 0, 0, 0);
   {
@@ -4650,7 +4644,7 @@ static void test_srvrun_wt_bidi_stream_buffer_full_sends_reset(void) {
   CHECK(c.l.wt_streams[0].in_use == 0);  /* freed, not left claimed forever */
   CHECK(
       srvrun_seal_wt_busy_reset(
-          &c, 996, wired_wterrmap_to_http3(QUIC_WTERR_BUFFERED_STREAM_REJECTED),
+          &c, 996, wired_wterrmap_to_http3(WTERR_BUFFERED_STREAM_REJECTED),
           &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = reset_stream_decode(pl, pll, &rs);
@@ -4693,18 +4687,18 @@ static void test_srvrun_wt_abort_frames_match_stream_type(void) {
    * packet carries that one frame and nothing else. */
   { /* client uni (id % 4 == 2): STOP_SENDING alone */
     wired_obuf pktb = obuf_of(pkt, sizeof pkt);
-    CHECK(srvrun_seal_wt_busy_reset(&c, 6, QUIC_H3_REQUEST_REJECTED, &pktb));
+    CHECK(srvrun_seal_wt_busy_reset(&c, 6, H3_REQUEST_REJECTED, &pktb));
     CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
-    CHECK(pl[0] == QUIC_FRAME_STOP_SENDING);
+    CHECK(pl[0] == FRAME_STOP_SENDING);
     n = stop_sending_decode(pl, pll, &ss);
     CHECK(n != 0 && n == pll);
     CHECK(ss.stream_id == 6);
   }
   { /* server uni (id % 4 == 3): RESET_STREAM alone */
     wired_obuf pktb = obuf_of(pkt, sizeof pkt);
-    CHECK(srvrun_seal_wt_busy_reset(&c, 7, QUIC_H3_REQUEST_REJECTED, &pktb));
+    CHECK(srvrun_seal_wt_busy_reset(&c, 7, H3_REQUEST_REJECTED, &pktb));
     CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
-    CHECK(pl[0] == QUIC_FRAME_RESET_STREAM);
+    CHECK(pl[0] == FRAME_RESET_STREAM);
     n = reset_stream_decode(pl, pll, &rs);
     CHECK(n != 0 && n == pll);
     CHECK(rs.stream_id == 7);
@@ -4744,13 +4738,13 @@ static void test_srvrun_wt_uni_stream_buffer_full_sends_reset(void) {
  * handler. */
 static void test_srvrun_wt_connect_establishes_session(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -4775,13 +4769,13 @@ static void test_srvrun_wt_connect_establishes_session(void) {
  * through to the app handler either. */
 static void test_srvrun_wt_connect_before_client_settings_rejected(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   conns[0].l.peer_ctrl.settings_seen = 0; /* client SETTINGS not yet seen */
   sr_set_req(&conns[0], 1, 1, 4);
@@ -4804,13 +4798,13 @@ static void test_srvrun_wt_connect_before_client_settings_rejected(void) {
  * new gate does not regress the ordinary path. */
 static void test_srvrun_wt_connect_after_client_settings_establishes(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   conns[0].l.peer_ctrl.settings_seen = 1; /* client SETTINGS already seen */
   sr_set_req(&conns[0], 1, 1, 4);
@@ -4834,13 +4828,13 @@ static const u8 sr_wt_protocol_d7[] = "webtransport";
 
 static void test_srvrun_wt_connect_webtransport_token(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   conns[0].l.req.protocol     = sr_wt_protocol_d7;
@@ -4870,13 +4864,13 @@ static const u8 sr_wt_protocol_unknown[] = "carrier-pigeon";
 
 static void test_srvrun_wt_connect_unsupported_protocol_gets_501(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   conns[0].l.req.protocol     = sr_wt_protocol_unknown;
@@ -4900,13 +4894,13 @@ static void test_srvrun_wt_connect_unsupported_protocol_gets_501(void) {
  * CONNECT-specific handling yet). */
 static void test_srvrun_plain_connect_no_protocol_no_wt_session(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 0, 4);
   {
@@ -4926,13 +4920,13 @@ static void test_srvrun_plain_connect_no_protocol_no_wt_session(void) {
  * malformed CONNECT-shaped request). */
 static void test_srvrun_wt_connect_missing_scheme_no_session(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   conns[0].l.req.scheme     = 0;
@@ -4953,13 +4947,13 @@ static void test_srvrun_wt_connect_missing_scheme_no_session(void) {
  * same fallthrough as the missing-:scheme case above. */
 static void test_srvrun_wt_connect_missing_path_no_session(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   conns[0].l.req.path     = 0;
@@ -4980,13 +4974,13 @@ static void test_srvrun_wt_connect_missing_path_no_session(void) {
  * recognized -- same fallthrough. */
 static void test_srvrun_wt_connect_missing_authority_no_session(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   conns[0].l.req.authority     = 0;
@@ -5007,12 +5001,12 @@ static void test_srvrun_wt_connect_missing_authority_no_session(void) {
  * (positive case -- presence alone is not a rejection reason). */
 static void test_srvrun_wt_connect_origin_ok_establishes(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   conns[0].l.req.origin     = sr_wt_origin_ok;
@@ -5035,12 +5029,12 @@ static void test_srvrun_wt_connect_origin_ok_establishes(void) {
  * created, but a response is still armed (the 403). */
 static void test_srvrun_wt_connect_origin_malformed_403(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   conns[0].l.req.origin     = sr_wt_origin_ok; /* present, but... */
@@ -5077,13 +5071,13 @@ static void sr_wt_resource_check_404(
 
 static void test_srvrun_wt_resource_check_404_no_session(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -5122,13 +5116,13 @@ static void sr_wt_resource_check_accept(
 
 static void test_srvrun_wt_resource_check_accept_establishes_session(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                        = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_resource_check_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -5154,13 +5148,13 @@ static void test_srvrun_wt_resource_check_accept_establishes_session(void) {
  * guard in place. */
 static void test_srvrun_second_wt_connect_rejected_429(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -5202,7 +5196,7 @@ static void test_srvrun_second_wt_connect_rejected_429(void) {
  * carry the right error code and stream id. */
 static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
   struct lp_fix      f;
-  conntable          table[QUIC_CONNTABLE_CAP];
+  conntable          table[WIRED_CONNTABLE_CAP];
   srvrun_conn*       conns = sr_test_conns();
   wired_obuf         ob;
   u8                 obuf[1024];
@@ -5215,7 +5209,7 @@ static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
   usz                rn, sn;
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -5241,17 +5235,16 @@ static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
       conns[0].resp[0].sess.active ==
       1); /* the 429 was armed, same as before */
   CHECK(
-      srvrun_seal_wt_busy_reset(
-          &conns[0], 8, QUIC_H3_REQUEST_REJECTED, &pktb) == 1);
+      srvrun_seal_wt_busy_reset(&conns[0], 8, H3_REQUEST_REJECTED, &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = reset_stream_decode(pl, pll, &rs);
   CHECK(rn != 0);
   CHECK(rs.stream_id == 8);
-  CHECK(rs.error_code == QUIC_H3_REQUEST_REJECTED);
+  CHECK(rs.error_code == H3_REQUEST_REJECTED);
   sn = stop_sending_decode(pl + rn, pll - rn, &ss);
   CHECK(sn != 0);
   CHECK(ss.stream_id == 8);
-  CHECK(ss.error_code == QUIC_H3_REQUEST_REJECTED);
+  CHECK(ss.error_code == H3_REQUEST_REJECTED);
   CHECK(rn + sn == pll); /* nothing else in the packet */
 }
 
@@ -5265,13 +5258,13 @@ static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
  * verification style. */
 static void test_srvrun_incomplete_request_stream_sends_reset(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   u64           tx_pn_before;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   conns[0].l.streams[0].stream_id = 12;
   conns[0].l.incomplete_slots[0]  = 0;
@@ -5298,13 +5291,13 @@ static void test_srvrun_incomplete_request_stream_sends_reset(void) {
  * not reject a well-formed id. */
 static void test_srvrun_wt_connect_client_bidi_id_establishes_session(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 8);
   {
@@ -5332,7 +5325,7 @@ static void test_srvrun_wt_connect_client_bidi_id_establishes_session(void) {
  * decode-back verification. */
 static void test_srvrun_wt_connect_non_client_bidi_id_rejected(void) {
   struct lp_fix      f;
-  conntable          table[QUIC_CONNTABLE_CAP];
+  conntable          table[WIRED_CONNTABLE_CAP];
   srvrun_conn*       conns = sr_test_conns();
   wired_obuf         ob;
   u8                 obuf[1024];
@@ -5345,7 +5338,7 @@ static void test_srvrun_wt_connect_non_client_bidi_id_rejected(void) {
   usz                rn, sn;
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 5); /* 5 & 3 == 1: server bidi, not client bidi */
   {
@@ -5358,16 +5351,16 @@ static void test_srvrun_wt_connect_non_client_bidi_id_rejected(void) {
   }
   CHECK(conns[0].wt_active == 0);
   CHECK(g_sr_wt_handler_calls == 0); /* rejected, not routed to app handler */
-  CHECK(srvrun_seal_wt_busy_reset(&conns[0], 5, QUIC_H3_ID_ERROR, &pktb) == 1);
+  CHECK(srvrun_seal_wt_busy_reset(&conns[0], 5, H3_ID_ERROR, &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = reset_stream_decode(pl, pll, &rs);
   CHECK(rn != 0);
   CHECK(rs.stream_id == 5);
-  CHECK(rs.error_code == QUIC_H3_ID_ERROR);
+  CHECK(rs.error_code == H3_ID_ERROR);
   sn = stop_sending_decode(pl + rn, pll - rn, &ss);
   CHECK(sn != 0);
   CHECK(ss.stream_id == 5);
-  CHECK(ss.error_code == QUIC_H3_ID_ERROR);
+  CHECK(ss.error_code == H3_ID_ERROR);
   CHECK(rn + sn == pll); /* nothing else in the packet */
 }
 
@@ -5392,12 +5385,12 @@ static void test_srvrun_seal_app_close_is_application_level(void) {
   sr_make_confirmed_conn(&c, &f, &ob);
   CHECK(
       srvrun_seal_app_close(
-          &c, QUIC_H3_FRAME_ERROR, wired_span_of(reason, 14), &pktb) == 1);
+          &c, H3_FRAME_ERROR, wired_span_of(reason, 14), &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = frame_get_conn_close(pl, pll, &ccf);
   CHECK(rn != 0 && rn == pll);
   CHECK(ccf.is_app == 1);
-  CHECK(ccf.error_code == QUIC_H3_FRAME_ERROR);
+  CHECK(ccf.error_code == H3_FRAME_ERROR);
   CHECK(ccf.reason_len == 14);
   {
     int eq = 1;
@@ -5423,8 +5416,7 @@ static void test_srvrun_seal_app_close_empty_reason(void) {
   sr_make_confirmed_conn(&c, &f, &ob);
   CHECK(
       srvrun_seal_app_close(
-          &c, QUIC_H3_FRAME_ERROR, wired_span_of((const u8*)"", 0), &pktb) ==
-      1);
+          &c, H3_FRAME_ERROR, wired_span_of((const u8*)"", 0), &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = frame_get_conn_close(pl, pll, &ccf);
   CHECK(rn != 0 && rn == pll);
@@ -5448,7 +5440,7 @@ static void test_srvrun_send_app_close_does_not_crash(void) {
   ob             = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   srvrun_send_app_close(
-      &cfg, &c, QUIC_H3_FRAME_ERROR, wired_span_of((const u8*)"x", 1));
+      &cfg, &c, H3_FRAME_ERROR, wired_span_of((const u8*)"x", 1));
   CHECK(1);
 }
 
@@ -5460,14 +5452,14 @@ static void test_srvrun_send_app_close_does_not_crash(void) {
  * app handler), matching the pre-existing accept-path assertions. */
 static void test_srvrun_first_wt_connect_no_reset_stream(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   u64           tx_pn_before;
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   tx_pn_before = conns[0].l.tx_pn;
@@ -5496,13 +5488,13 @@ static void test_srvrun_first_wt_connect_no_reset_stream(void) {
  * -- see the comment on srvrun_free_slot for why that finer-grained signal
  * does not exist yet. */
 static void test_srvrun_idle_sweep_closes_wt_session(void) {
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   struct lp_fix f;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -5533,13 +5525,13 @@ static void test_srvrun_idle_sweep_closes_wt_session(void) {
  * stays up (conns[0].up is never touched by srvrun_on_step for this), only
  * the session closes. */
 static void test_srvrun_connect_stream_reset_closes_wt_session(void) {
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   struct lp_fix f;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -5574,7 +5566,7 @@ static void test_srvrun_connect_stream_reset_closes_wt_session(void) {
  * later reused stream id is never mistaken for the dead one. */
 static void test_srvrun_connect_stream_reset_resets_owned_wt_bidi_stream(void) {
   struct lp_fix      f;
-  conntable          table[QUIC_CONNTABLE_CAP];
+  conntable          table[WIRED_CONNTABLE_CAP];
   srvrun_conn*       conns = sr_test_conns();
   wired_obuf         ob;
   u8                 obuf[1024];
@@ -5588,7 +5580,7 @@ static void test_srvrun_connect_stream_reset_resets_owned_wt_bidi_stream(void) {
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   ob             = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -5622,14 +5614,14 @@ static void test_srvrun_connect_stream_reset_resets_owned_wt_bidi_stream(void) {
  * offered to resets it with WT_SESSION_GONE and frees its slot too. */
 static void test_srvrun_connect_stream_reset_resets_owned_wt_uni_stream(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   ob             = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -5654,14 +5646,14 @@ static void test_srvrun_connect_stream_reset_resets_owned_wt_uni_stream(void) {
 static void test_srvrun_connect_stream_reset_leaves_other_sessions_streams(
     void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   ob             = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -5696,14 +5688,14 @@ static void test_srvrun_connect_stream_reset_leaves_other_sessions_streams(
 static void test_srvrun_connect_stream_reset_leaves_unoffered_stream_untouched(
     void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   ob             = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -5726,13 +5718,13 @@ static void test_srvrun_connect_stream_reset_leaves_unoffered_stream_untouched(
  * not the CONNECT stream itself) must not touch the session -- only the exact
  * connect_stream_id id closes it. */
 static void test_srvrun_other_stream_reset_does_not_close_wt_session(void) {
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   struct lp_fix f;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -5786,12 +5778,12 @@ static void sr_wt_on_stream_reset(
 
 static void test_srvrun_wt_reset_mapped_delivers_app_error_code(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -5859,12 +5851,12 @@ static void test_srvrun_wt_reset_mapped_delivers_app_error_code(void) {
  * garbage app_error_code. */
 static void test_srvrun_wt_reset_unmapped_delivers_no_app_error_code(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -5926,12 +5918,12 @@ static void test_srvrun_wt_reset_unmapped_delivers_no_app_error_code(void) {
  * delivers nothing -- WebTransport has no notion of that stream. */
 static void test_srvrun_wt_reset_unrelated_stream_not_delivered(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -5985,13 +5977,13 @@ static void test_srvrun_wt_reset_unrelated_stream_not_delivered(void) {
 /* REGRESSION: a step with no stream-close latched (closed_stream_seen == 0)
  * leaves an established WT session untouched. */
 static void test_srvrun_no_stream_close_leaves_wt_session(void) {
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   struct lp_fix f;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -6017,19 +6009,19 @@ static void test_srvrun_no_stream_close_leaves_wt_session(void) {
  * down exactly as before -- srvrun_free_slot is the most commonly hit
  * teardown path, so a crash or behavior change here would be severe. */
 static void test_srvrun_idle_sweep_without_wt_unaffected(void) {
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_conn* conns = sr_test_conns();
   srvrun_state st    = {table, conns};
   u8           k[4]  = {9, 9, 9, 9};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   conns[0].up        = 1;
   conns[0].last_ms   = 1000;
   conns[0].wt_active = 0;
-  CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, k, 4) == 0);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, k, 4) == 0);
   srvrun_sweep_idle(srvrun_test_envcfg(), &st, 1000 + WIRED_SRVRUN_IDLE_MS);
   CHECK(conns[0].up == 0);
   CHECK(conns[0].wt_active == 0);
-  CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, k, 4) == -1);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, k, 4) == -1);
 }
 
 /* QUIC DATAGRAM SEND (RFC 9221 5): srvrun_queue_datagram queues a payload,
@@ -6224,7 +6216,7 @@ static void sr_dg_handler(void* app_ctx, wired_wt_session* s, wired_span data) {
  * test_srvrun_wt_connect_establishes_session uses (Extended CONNECT), so the
  * connection's wt_active/wt fields are real, not hand-set. */
 static void sr_establish_wt(srvrun_conn* conns, conntable* table, u64 sid) {
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   /* WTH3-009/042 and WTH3-007: this helper establishes a session directly
    * (some callers skip sr_make_confirmed_conn's own defaults), so satisfy
    * both the client-SETTINGS-seen gate and the required-transport-parameter
@@ -6255,7 +6247,7 @@ static const u8 sr_rxdg_content[] = {0xaa, 0xbb, 0xcc};
 
 static void test_srvrun_rx_datagram_delivers_to_callback(void) {
   struct lp_fix  f;
-  conntable      table[QUIC_CONNTABLE_CAP];
+  conntable      table[WIRED_CONNTABLE_CAP];
   srvrun_conn*   conns = sr_test_conns();
   wired_obuf     ob;
   u8             obuf[1024], payload[64], spkt[1024], out[1024];
@@ -6319,7 +6311,7 @@ static void test_srvrun_rx_datagram_delivers_to_callback(void) {
  * reachable via the wire in the test above) to keep this test focused on the
  * drain loop itself. */
 static void test_srvrun_rx_datagram_multiple_all_delivered(void) {
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_conn* conns = sr_test_conns();
   usz          i;
   sr_establish_wt(conns, table, 4);
@@ -6374,7 +6366,7 @@ static void test_srvrun_rx_datagram_multiple_all_delivered(void) {
  * queue without crashing (this SDK's "0/NULL disables the optional feature"
  * convention). */
 static void test_srvrun_rx_datagram_no_callback_still_drains(void) {
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_conn* conns = sr_test_conns();
   sr_establish_wt(conns, table, 4);
   conns[0].l.rx_datagrams[0].buf[0] = 0x01; /* qsid=1 (4/4), valid prefix */
@@ -6503,16 +6495,16 @@ static void test_srvrun_rx_datagram_unknown_semantics_aborts_stream(void) {
     CHECK(srvrun_test_send_count() == 1);
   }
   CHECK(g_srdg_calls == 0);
-  CHECK(srvrun_seal_wt_busy_reset(&c, 8, QUIC_H3_DATAGRAM_ERROR, &pktb) == 1);
+  CHECK(srvrun_seal_wt_busy_reset(&c, 8, H3_DATAGRAM_ERROR, &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = reset_stream_decode(pl, pll, &rs);
   CHECK(rn != 0);
   CHECK(rs.stream_id == 8);
-  CHECK(rs.error_code == QUIC_H3_DATAGRAM_ERROR);
+  CHECK(rs.error_code == H3_DATAGRAM_ERROR);
   sn = stop_sending_decode(pl + rn, pll - rn, &ss);
   CHECK(sn != 0);
   CHECK(ss.stream_id == 8);
-  CHECK(ss.error_code == QUIC_H3_DATAGRAM_ERROR);
+  CHECK(ss.error_code == H3_DATAGRAM_ERROR);
   CHECK(rn + sn == pll);
 }
 
@@ -6581,16 +6573,16 @@ static void test_srvrun_rx_datagram_beyond_stream_limit_h3_id_error(void) {
     CHECK(srvrun_test_send_count() == 1);
   }
   CHECK(g_srdg_calls == 0);
-  CHECK(srvrun_seal_wt_busy_reset(&c, 400, QUIC_H3_ID_ERROR, &pktb) == 1);
+  CHECK(srvrun_seal_wt_busy_reset(&c, 400, H3_ID_ERROR, &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = reset_stream_decode(pl, pll, &rs);
   CHECK(rn != 0);
   CHECK(rs.stream_id == 400);
-  CHECK(rs.error_code == QUIC_H3_ID_ERROR);
+  CHECK(rs.error_code == H3_ID_ERROR);
   sn = stop_sending_decode(pl + rn, pll - rn, &ss);
   CHECK(sn != 0);
   CHECK(ss.stream_id == 400);
-  CHECK(ss.error_code == QUIC_H3_ID_ERROR);
+  CHECK(ss.error_code == H3_ID_ERROR);
   CHECK(rn + sn == pll);
 }
 
@@ -6723,12 +6715,12 @@ static void test_srvrun_rx_datagram_oversized_qsid_closes_conn(void) {
   ob                      = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   CHECK(srvrun_seal_app_close(
-      &c, QUIC_H3_DATAGRAM_ERROR, wired_span_of(reason, 36), &pktb));
+      &c, H3_DATAGRAM_ERROR, wired_span_of(reason, 36), &pktb));
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = frame_get_conn_close(pl, pll, &ccf);
   CHECK(rn != 0 && rn == pll);
   CHECK(ccf.is_app == 1);
-  CHECK(ccf.error_code == QUIC_H3_DATAGRAM_ERROR);
+  CHECK(ccf.error_code == H3_DATAGRAM_ERROR);
 }
 
 /* NOT-YET-ESTABLISHED SESSION (RFC 9297 2.1 / 9297-009): a datagram whose
@@ -6861,12 +6853,12 @@ static void test_srvrun_seal_transport_close_is_transport_level(void) {
   ob                      = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   CHECK(srvrun_seal_transport_close(
-      &c, QUIC_ERR_PROTOCOL_VIOLATION, wired_span_of(reason, 18), &pktb));
+      &c, ERR_PROTOCOL_VIOLATION, wired_span_of(reason, 18), &pktb));
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = frame_get_conn_close(pl, pll, &ccf);
   CHECK(rn != 0 && rn == pll);
   CHECK(ccf.is_app == 0);
-  CHECK(ccf.error_code == QUIC_ERR_PROTOCOL_VIOLATION);
+  CHECK(ccf.error_code == ERR_PROTOCOL_VIOLATION);
 }
 
 /* RFC 9221 3: a DATAGRAM frame whose payload exceeds this
@@ -7267,7 +7259,7 @@ static void test_srvrun_wt_uni_stream_data_delivered_on_offer(void) {
  * client/server pair sr_make_confirmed_conn builds elsewhere in this file. */
 static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
@@ -7276,7 +7268,7 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
   const u8*     pl;
   usz           pll;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
 
   /* Step 1: Extended CONNECT (:protocol=webtransport-h3, stream 4)
@@ -7477,12 +7469,12 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
  * id. */
 static void test_srvrun_wt_accept_second_session_below_limit(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -7519,13 +7511,13 @@ static void test_srvrun_wt_accept_second_session_below_limit(void) {
  * session path always was, and no new slot is created. */
 static void test_srvrun_wt_reject_at_session_limit(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -7568,13 +7560,13 @@ static void test_srvrun_wt_reject_at_session_limit(void) {
  * into its session slot. */
 static void test_srvrun_wt_accept_records_path(void) {
   struct lp_fix   f;
-  conntable       table[QUIC_CONNTABLE_CAP];
+  conntable       table[WIRED_CONNTABLE_CAP];
   srvrun_conn*    conns = sr_test_conns();
   wired_obuf      ob;
   u8              obuf[1024];
   static const u8 custom_path[] = "/wt/room-1";
   ob                            = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   conns[0].l.req.path     = custom_path;
@@ -7597,14 +7589,14 @@ static void test_srvrun_wt_accept_records_path(void) {
  * values coexist -- neither overwrites the other's recorded path. */
 static void test_srvrun_wt_distinct_paths_coexist(void) {
   struct lp_fix   f;
-  conntable       table[QUIC_CONNTABLE_CAP];
+  conntable       table[WIRED_CONNTABLE_CAP];
   srvrun_conn*    conns = sr_test_conns();
   wired_obuf      ob;
   u8              obuf[1024];
   static const u8 path_a[] = "/wt/a";
   static const u8 path_b[] = "/wt/b";
   ob                       = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   conns[0].l.req.path     = path_a;
@@ -7709,12 +7701,12 @@ static void test_srvrun_wt_foreign_dgram_id_rejected(void) {
  * completely untouched. */
 static void test_srvrun_wt_close_one_session_leaves_others_untouched(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -7772,12 +7764,12 @@ static void test_srvrun_wt_drain_one_session_leaves_others_untouched(void) {
  * rather than rejected. */
 static void test_srvrun_wt_close_frees_slot_for_new_accept(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -7827,13 +7819,13 @@ static void test_srvrun_wt_close_frees_slot_for_new_accept(void) {
 /* WHOLE-CONNECTION TEARDOWN: srvrun_free_slot (peer close / idle sweep /
  * boot failure) closes EVERY currently open session, not just one. */
 static void test_srvrun_wt_free_slot_closes_all_open_sessions(void) {
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   struct lp_fix f;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -7871,13 +7863,13 @@ static void test_srvrun_wt_free_slot_closes_all_open_sessions(void) {
  * the multi-session generalization of the existing single-session
  * regression test above. */
 static void test_srvrun_wt_connect_stream_close_closes_only_that_session(void) {
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   struct lp_fix f;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -7917,12 +7909,12 @@ static void test_srvrun_wt_connect_stream_close_closes_only_that_session(void) {
  * slot (and only its own) reusable again. */
 static void test_srvrun_wt_all_slots_cycle_through_open_and_close(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -8055,9 +8047,9 @@ static void test_srvrun_wt_session_limit_fits_stream_table_capacity(void) {
  * callback whose signature carries no such handle), so tests exercising it
  * must isolate themselves from whatever an earlier test left behind. */
 static void sr_reset_global_table(void) {
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
     g_srvrun_state.conns[i] = (srvrun_conn){0};
-  conntable_init(g_srvrun_table, QUIC_CONNTABLE_CAP);
+  conntable_init(g_srvrun_table, WIRED_CONNTABLE_CAP);
 }
 
 /* BROADCAST: every connection with an active WT session gets the payload
@@ -8101,7 +8093,7 @@ static void test_srvrun_broadcast_datagram_skips_unused_slot(void) {
   CHECK(
       wired_server_broadcast_datagram(
           wired_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
     CHECK(g_srvrun_state.conns[i].dg_pending == 0);
 }
 
@@ -8528,7 +8520,7 @@ static void test_srvrun_streaming_refills_before_full_ack(void) {
   sr_stream_total_len = 300;
   sr_stream_round_cap = 100;
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.s.sdrv.alpn = SALPN_HQ;
   c.cc.cwnd     = 1u << 20;
   sr_set_req(&c, 0, 0, 0);
   {
@@ -8567,7 +8559,7 @@ static void test_srvrun_streaming_bigbuf_exhausted_falls_back_to_fixed_row(
       fixed_cap + 10; /* needs 2 rounds even on the fixed row */
   sr_stream_round_cap = fixed_cap;
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.s.sdrv.alpn = SALPN_HQ;
   c.cc.cwnd     = 1u << 20;
   sr_set_req(&c, 0, 0, 0);
   wired_srvbigbuf_init(
@@ -8612,7 +8604,7 @@ static void test_srvrun_streaming_mid_round_read_error_truncates(void) {
   sr_stream_round_cap      = 100;
   sr_stream_fail_at_offset = 100; /* round 1 (offset 100) fails */
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.s.sdrv.alpn = SALPN_HQ;
   c.cc.cwnd     = 1u << 20;
   sr_set_req(&c, 0, 0, 0);
   {
@@ -8653,7 +8645,7 @@ static void test_srvrun_streaming_file_shrinks_completes_with_actual_bytes(
   sr_stream_shrinks_to =
       150; /* the source actually only has 150 bytes past round 0 */
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.s.sdrv.alpn = SALPN_HQ;
   c.cc.cwnd     = 1u << 20;
   sr_set_req(&c, 0, 0, 0);
   {
@@ -8694,7 +8686,7 @@ static void test_srvrun_streaming_round_fin_suppressed_until_final(void) {
   sr_stream_total_len = 200;
   sr_stream_round_cap = 100;
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.s.sdrv.alpn = SALPN_HQ;
   c.cc.cwnd     = 1u << 20;
   sr_set_req(&c, 0, 0, 0);
   {
@@ -8740,7 +8732,7 @@ static void test_srvrun_streaming_next_round_armed_after_done(void) {
   sr_stream_total_len = 300;
   sr_stream_round_cap = 100;
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.s.sdrv.alpn = SALPN_HQ;
   c.cc.cwnd     = 1u << 20; /* isolate streaming from cwnd gating */
   sr_set_req(&c, 0, 0, 0);
   {
@@ -8773,7 +8765,7 @@ static void test_srvrun_streaming_final_round_releases_slot(void) {
   sr_stream_total_len = 150;
   sr_stream_round_cap = 100;
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.s.sdrv.alpn = SALPN_HQ;
   c.cc.cwnd     = 1u << 20;
   sr_set_req(&c, 0, 0, 0);
   {
@@ -8812,7 +8804,7 @@ static void test_srvrun_streaming_stream_offset_accumulates_across_rounds(
   sr_stream_total_len        = 300;
   sr_stream_round_cap        = 100;
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.s.sdrv.alpn = SALPN_HQ;
   c.cc.cwnd     = 1u << 20;
   sr_set_req(&c, 0, 0, 0);
   {
@@ -8860,8 +8852,8 @@ static void test_srvrun_streaming_concurrent_requests_do_not_corrupt_each_other(
   sr_stream_round_cap = 100;
   sr_make_confirmed_conn(&ca, &fa, &oba);
   sr_make_confirmed_conn(&cb, &fb, &obb);
-  ca.s.sdrv.alpn = QUIC_SALPN_HQ;
-  cb.s.sdrv.alpn = QUIC_SALPN_HQ;
+  ca.s.sdrv.alpn = SALPN_HQ;
+  cb.s.sdrv.alpn = SALPN_HQ;
   ca.cc.cwnd = cb.cc.cwnd = 1u << 20;
   sr_set_req(&ca, 0, 0, 0);
   sr_set_req(&cb, 0, 0, 0);
@@ -8916,7 +8908,7 @@ static void test_srvrun_streaming_later_round_uses_own_stream_not_sibling(
   sr_stream_total_len      = 200;
   sr_stream_round_cap      = 100;
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.s.sdrv.alpn = SALPN_HQ;
   c.cc.cwnd     = 1u << 20;
   {
     srvrun_cfg cfg = {
@@ -9026,7 +9018,7 @@ static void test_srvrun_streaming_body_exactly_row_cap_single_round(void) {
   sr_stream_total_len = cap;
   sr_stream_round_cap = cap + 1000; /* bigger than the buffer, never binds */
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.s.sdrv.alpn = SALPN_HQ;
   c.cc.cwnd     = 1u << 20;
   sr_set_req(&c, 0, 0, 0);
   {
@@ -9058,7 +9050,7 @@ static void test_srvrun_streaming_body_row_cap_plus_one_streams(void) {
   sr_stream_total_len = pool_cap + 1;
   sr_stream_round_cap = pool_cap + 1000; /* never the limiting factor */
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.s.sdrv.alpn = SALPN_HQ;
   c.cc.cwnd     = 1u << 20;
   sr_set_req(&c, 0, 0, 0);
   wired_srvbigbuf_init(
@@ -9105,7 +9097,7 @@ static void test_srvrun_streaming_last_round_not_shrunk_to_fixed(void) {
   sr_stream_total_len = pool_cap + 10; /* small final round (10 bytes) */
   sr_stream_round_cap = pool_cap;      /* round 0 fills the pool row exactly */
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.s.sdrv.alpn = SALPN_HQ;
   c.cc.cwnd     = 1u << 20;
   sr_set_req(&c, 0, 0, 0);
   wired_srvbigbuf_init(
@@ -9151,7 +9143,7 @@ static void test_srvrun_streaming_rearm_respects_existing_send_gates(void) {
   sr_stream_total_len = 300;
   sr_stream_round_cap = 100;
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.s.sdrv.alpn = SALPN_HQ;
   c.cc.cwnd     = 1u << 20;
   sr_set_req(&c, 0, 0, 0);
   {
@@ -9186,7 +9178,7 @@ static void test_srvrun_hq09_resp_has_no_h3_framing(void) {
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.s.sdrv.alpn = SALPN_HQ;
   sr_set_req(&c, 0, 0, 0);
   {
     srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -9233,7 +9225,7 @@ static void test_srvrun_hq09_missing_file_arms_empty_body(void) {
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.s.sdrv.alpn = SALPN_HQ;
   sr_set_req(&c, 0, 0, 0);
   {
     srvrun_cfg cfg = {
@@ -9437,16 +9429,16 @@ static void test_srvrun_fifth_sequential_get_reuses_freed_slot(void) {
  * than assuming a fixed probe interval. */
 static void test_srvrun_pto_budget_exhausted_tears_down_connection(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_state  st = {table, g_srvrun_state.conns};
   wired_obuf    ob;
   u8            obuf[1024];
   u64           now = 0;
   ob                = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&st.conns[0], &f, &ob);
   st.conns[0].cc.cwnd = 1u << 20;
-  CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, g_cli_scid, 6) == 0);
   {
     srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  0, &g_srvrun_env,        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -9487,16 +9479,16 @@ static void test_srvrun_pto_budget_exhausted_tears_down_connection(void) {
  * probe it. */
 static void test_srvrun_pto_not_due_within_rtt_window(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_state  st = {table, g_srvrun_state.conns};
   wired_obuf    ob;
   u8            obuf[1024];
   u64           sent_at, deadline_ms;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&st.conns[0], &f, &ob);
   st.conns[0].cc.cwnd = 1u << 20;
-  CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, g_cli_scid, 6) == 0);
   {
     srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  0, &g_srvrun_env,        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -9557,16 +9549,16 @@ static u64 sr_rotate_ku(srvrun_step_ctx* ctx, srvrun_conn* c, u64 now_ms) {
  * old read keys for no more than three times the PTO"). */
 static void test_srvrun_ku_old_keys_retained_within_3pto_window(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_state  st = {table, g_srvrun_state.conns};
   wired_obuf    ob;
   u8            obuf[1024];
   u64           rotated_at, floor_ms;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&st.conns[0], &f, &ob);
   st.conns[0].cc.cwnd = 1u << 20;
-  CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, g_cli_scid, 6) == 0);
   {
     srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  0, &g_srvrun_env,        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -9590,16 +9582,16 @@ static void test_srvrun_ku_old_keys_retained_within_3pto_window(void) {
  * short still retains, per the test above). */
 static void test_srvrun_ku_old_keys_discarded_after_3pto_window(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_state  st = {table, g_srvrun_state.conns};
   wired_obuf    ob;
   u8            obuf[1024];
   u64           rotated_at, floor_ms;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&st.conns[0], &f, &ob);
   st.conns[0].cc.cwnd = 1u << 20;
-  CHECK(conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, g_cli_scid, 6) == 0);
   {
     srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  0, &g_srvrun_env,        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -10267,12 +10259,12 @@ static void test_srvrun_pmtu_ack_raises_validated(void) {
      * fresh pn and record it the same way that function does. */
     probe_pn             = c.l.tx_pn++;
     c.pmtu_probe_pn      = probe_pn;
-    c.pmtu_probe_size    = QUIC_PMTU_BASE + QUIC_PMTU_STEP;
+    c.pmtu_probe_size    = PMTU_BASE + PMTU_STEP;
     c.pmtu_probe_sent_ms = 0;
 
     srvrun_feed_ack_range(&c, probe_pn, probe_pn, 10);
 
-    CHECK(c.pmtu.validated == QUIC_PMTU_BASE + QUIC_PMTU_STEP);
+    CHECK(c.pmtu.validated == PMTU_BASE + PMTU_STEP);
     CHECK(c.pmtu_probe_pn == SRVRUN_PMTU_NO_PROBE);
   }
 }
@@ -10292,12 +10284,12 @@ static void test_srvrun_pmtu_ack_outside_range_no_effect(void) {
   {
     probe_pn             = c.l.tx_pn++;
     c.pmtu_probe_pn      = probe_pn;
-    c.pmtu_probe_size    = QUIC_PMTU_BASE + QUIC_PMTU_STEP;
+    c.pmtu_probe_size    = PMTU_BASE + PMTU_STEP;
     c.pmtu_probe_sent_ms = 0;
 
     srvrun_feed_ack_range(&c, probe_pn + 1, probe_pn + 5, 10);
 
-    CHECK(c.pmtu.validated == QUIC_PMTU_BASE);
+    CHECK(c.pmtu.validated == PMTU_BASE);
     CHECK(c.pmtu_probe_pn == probe_pn);
   }
 }
@@ -10317,13 +10309,13 @@ static void test_srvrun_pmtu_timeout_reaped_as_loss(void) {
   srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
   pmtu_init(&c.pmtu);
   c.pmtu_probe_pn      = 7;
-  c.pmtu_probe_size    = QUIC_PMTU_BASE + QUIC_PMTU_STEP;
+  c.pmtu_probe_size    = PMTU_BASE + PMTU_STEP;
   c.pmtu_probe_sent_ms = 0;
   c.pmtu.probe         = c.pmtu_probe_size;
   c.pmtu.probe_sent_at = 0;
 
   /* now_ms far enough past probe_sent_at (us) to clear PROBE_TIMER. */
-  ctx.now_ms = QUIC_PMTU_PROBE_TIMER_US / 1000 + 1000;
+  ctx.now_ms = PMTU_PROBE_TIMER_US / 1000 + 1000;
 
   srvrun_pmtu_probe_candidate(&c, ctx.now_ms * 1000);
 
@@ -10331,18 +10323,18 @@ static void test_srvrun_pmtu_timeout_reaped_as_loss(void) {
   CHECK(c.pmtu_probe_pn == SRVRUN_PMTU_NO_PROBE);
 }
 
-/* RFC 8899 4.4: QUIC_PMTU_MAX is the target WIRE size (datagram bytes on the
+/* RFC 8899 4.4: PMTU_MAX is the target WIRE size (datagram bytes on the
  * path), not a plaintext payload length -- srvrun_pmtu_send_probe must leave
  * room in its size-`size` buffer for the short header (1 + dcid.n + 4) and
  * the AEAD tag on top of the PING+PADDING payload it builds. Drive
  * c.pmtu.validated to the point where pmtu_next_probe's candidate is
- * QUIC_PMTU_MAX itself (the worst case: validated + QUIC_PMTU_STEP >=
+ * PMTU_MAX itself (the worst case: validated + PMTU_STEP >=
  * ceiling) and call srvrun_pmtu_try_probe through a real, key-bearing
  * connection (sr_make_confirmed_conn) so the only way this can fail is the
  * seal-vs-buffer-size bug, not missing keys.
  *
  * Before the fix: srvrun_seal_pmtu_probe's need (hdr+payload+tag) overflows
- * buf[QUIC_PMTU_MAX] whenever size is this close to the ceiling, so seal
+ * buf[PMTU_MAX] whenever size is this close to the ceiling, so seal
  * fails every time, srvrun_pmtu_send_probe unconditionally returns 1 without
  * ever setting pmtu_probe_pn, and pmtu_next_probe keeps re-offering the
  * same candidate forever -- an infinite busy loop in the caller
@@ -10362,10 +10354,10 @@ static void test_srvrun_pmtu_probe_at_ceiling_does_not_spin(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   pmtu_init(&c.pmtu);
-  /* candidate() = min(validated + QUIC_PMTU_STEP, ceiling); pushing
-   * validated to QUIC_PMTU_MAX - 1 makes that min resolve to the ceiling
-   * (QUIC_PMTU_MAX) itself -- the exact size that used to overflow buf[]. */
-  c.pmtu.validated = QUIC_PMTU_MAX - 1;
+  /* candidate() = min(validated + PMTU_STEP, ceiling); pushing
+   * validated to PMTU_MAX - 1 makes that min resolve to the ceiling
+   * (PMTU_MAX) itself -- the exact size that used to overflow buf[]. */
+  c.pmtu.validated = PMTU_MAX - 1;
   /* sr_make_confirmed_conn zeroes srvrun_conn, leaving pmtu_probe_pn at 0 --
    * a real pn, not "no probe outstanding". Without this,
    * srvrun_pmtu_probe_outstanding reads the zeroed field as an already-
@@ -10384,7 +10376,7 @@ static void test_srvrun_pmtu_probe_at_ceiling_does_not_spin(void) {
 
   CHECK(i < 8); /* did not exhaust the bounded retry budget */
   CHECK(srvrun_pmtu_probe_outstanding(&c)); /* a probe actually got sealed */
-  CHECK(c.pmtu_probe_size == QUIC_PMTU_MAX);
+  CHECK(c.pmtu_probe_size == PMTU_MAX);
 }
 
 /* cfg->cc_algo == 0 selects the build's default congestion controller
@@ -10393,20 +10385,20 @@ static void test_srvrun_pmtu_probe_at_ceiling_does_not_spin(void) {
  * Cubic); a non-zero runtime choice still wins. A build wanting NewReno as
  * its default overrides -DWIRED_CC_ALGO_DEFAULT=0 instead (an explicit
  * runtime NewReno request is indistinguishable from "unset" because
- * QUIC_CC_ALGO_NEWRENO is itself 0). */
+ * CC_ALGO_NEWRENO is itself 0). */
 static void test_srvrun_cc_algo_zero_means_build_default(void) {
   srvrun_cfg cfg = {0};
-  CHECK(srvrun_cc_algo(&cfg) == QUIC_CC_ALGO_CUBIC);
-  cfg.cc_algo = QUIC_CC_ALGO_BBR;
-  CHECK(srvrun_cc_algo(&cfg) == QUIC_CC_ALGO_BBR);
-  cfg.cc_algo = QUIC_CC_ALGO_CUBIC;
-  CHECK(srvrun_cc_algo(&cfg) == QUIC_CC_ALGO_CUBIC);
+  CHECK(srvrun_cc_algo(&cfg) == CC_ALGO_CUBIC);
+  cfg.cc_algo = CC_ALGO_BBR;
+  CHECK(srvrun_cc_algo(&cfg) == CC_ALGO_BBR);
+  cfg.cc_algo = CC_ALGO_CUBIC;
+  CHECK(srvrun_cc_algo(&cfg) == CC_ALGO_CUBIC);
 }
 
 /* Every full-size slice at the DPLPMTUD-maximum MPS must reach the
  * in-flight log: bytes consumed from the sendq == bytes logged in flight.
  * srvrun_send_stream_slice's plaintext buffer was a fixed 1400 bytes while
- * pmtu_mps can reach QUIC_PMTU_MAX - QUIC_PMTU_OVERHEAD (1411), so
+ * pmtu_mps can reach PMTU_MAX - PMTU_OVERHEAD (1411), so
  * once the search completed, every full-size slice failed frame encoding
  * AFTER wired_sendsess_take had consumed its bytes -- black-holed (never
  * logged, so never loss-detected or retransmitted), a permanent stream
@@ -10414,7 +10406,7 @@ static void test_srvrun_cc_algo_zero_means_build_default(void) {
  * consumption also exhausted conn credit and produced a DATA_BLOCKED for
  * bytes that never existed on the wire. */
 static void test_srvrun_pump_full_mps_slice_reaches_log(void) {
-  static u8     body[3 * (QUIC_PMTU_MAX - QUIC_PMTU_OVERHEAD)];
+  static u8     body[3 * (PMTU_MAX - PMTU_OVERHEAD)];
   struct lp_fix f;
   srvrun_conn   c;
   wired_obuf    ob = {0};
@@ -10424,7 +10416,7 @@ static void test_srvrun_pump_full_mps_slice_reaches_log(void) {
   c.cc.cwnd     = 1u << 20;
   c.conn_credit = 1u << 24;
   pmtu_init(&c.pmtu);
-  c.pmtu.validated        = QUIC_PMTU_MAX; /* search complete: mps = 1411 */
+  c.pmtu.validated        = PMTU_MAX; /* search complete: mps = 1411 */
   c.pmtu_probe_pn         = SRVRUN_PMTU_NO_PROBE;
   c.resp[0].in_use        = 1;
   c.resp[0].stream_id     = 0;
@@ -10856,11 +10848,11 @@ static srvrun_cfg sr_boot_pto_cfg(void) {
  * proof test_srvrun_initial_retransmit_resends_cached_flight uses for the
  * receive-triggered path. */
 static void test_srvrun_boot_pto_resends_after_deadline(void) {
-  conntable       table[QUIC_CONNTABLE_CAP];
+  conntable       table[WIRED_CONNTABLE_CAP];
   srvrun_state    st  = {table, sr_test_conns()};
   srvrun_cfg      cfg = sr_boot_pto_cfg();
   srvrun_step_ctx ctx = {&cfg, 0, &st, 1025, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   srvrun_test_reset_send_count();
   srvrun_boot_pto_slot(&ctx, 0);
@@ -10872,12 +10864,12 @@ static void test_srvrun_boot_pto_resends_after_deadline(void) {
 /* Well before the deadline, no resend happens and the probe count
  * stays untouched -- the boundary complement to the test above. */
 static void test_srvrun_boot_pto_no_resend_before_deadline(void) {
-  conntable       table[QUIC_CONNTABLE_CAP];
+  conntable       table[WIRED_CONNTABLE_CAP];
   srvrun_state    st  = {table, sr_test_conns()};
   srvrun_cfg      cfg = sr_boot_pto_cfg();
   srvrun_step_ctx ctx = {
       &cfg, 0, &st, 500, 0}; /* well under the 1024ms floor */
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   srvrun_test_reset_send_count();
   srvrun_boot_pto_slot(&ctx, 0);
@@ -10888,11 +10880,11 @@ static void test_srvrun_boot_pto_no_resend_before_deadline(void) {
 /* Once confirmed, the boot PTO timer never fires again, regardless of
  * how far past the old boot deadline now_ms sits. */
 static void test_srvrun_boot_pto_stops_after_confirm(void) {
-  conntable       table[QUIC_CONNTABLE_CAP];
+  conntable       table[WIRED_CONNTABLE_CAP];
   srvrun_state    st  = {table, sr_test_conns()};
   srvrun_cfg      cfg = sr_boot_pto_cfg();
   srvrun_step_ctx ctx = {&cfg, 0, &st, 1025, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   st.conns[0].s.phase = WIRED_SERVER_HS_CONFIRMED;
   srvrun_test_reset_send_count();
@@ -10905,11 +10897,11 @@ static void test_srvrun_boot_pto_stops_after_confirm(void) {
  * have fired -- the confirm check runs first (srvrun_boot_pto_waiting), so
  * the race resolves to "stopped", never a stray extra resend. */
 static void test_srvrun_boot_pto_confirm_race_stops_immediately(void) {
-  conntable       table[QUIC_CONNTABLE_CAP];
+  conntable       table[WIRED_CONNTABLE_CAP];
   srvrun_state    st  = {table, sr_test_conns()};
   srvrun_cfg      cfg = sr_boot_pto_cfg();
   srvrun_step_ctx ctx = {&cfg, 0, &st, 1025, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   /* one real probe first, to prove the timer was live at all */
   srvrun_test_reset_send_count();
@@ -10928,11 +10920,11 @@ static void test_srvrun_boot_pto_confirm_race_stops_immediately(void) {
  * successive deadline doubles (RFC 9002 6.2 exponential backoff, the same
  * kInitialRtt-derived 1024ms base). */
 static void test_srvrun_boot_pto_budget_exhausted_frees_slot(void) {
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_state st  = {table, sr_test_conns()};
   srvrun_cfg   cfg = sr_boot_pto_cfg();
   u64          now = 1025;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   for (int i = 0; i < SRVRUN_PTO_MAX - 1; i++) {
     srvrun_step_ctx tick = {&cfg, 0, &st, now, 0};
@@ -10950,11 +10942,11 @@ static void test_srvrun_boot_pto_budget_exhausted_frees_slot(void) {
 /* One probe short of the budget, the slot survives and keeps
  * resending -- the boundary complement to the test above. */
 static void test_srvrun_boot_pto_budget_not_yet_exhausted_keeps_slot(void) {
-  conntable    table[QUIC_CONNTABLE_CAP];
+  conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_state st  = {table, sr_test_conns()};
   srvrun_cfg   cfg = sr_boot_pto_cfg();
   u64          now = 1025;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   for (int i = 0; i < SRVRUN_PTO_MAX - 1; i++) {
     srvrun_step_ctx tick = {&cfg, 0, &st, now, 0};
@@ -10971,11 +10963,11 @@ static void test_srvrun_boot_pto_budget_not_yet_exhausted_keeps_slot(void) {
  * mid-ClientHello-reassembly, or a boot that failed) is a no-op: no send, no
  * probe count, no teardown, regardless of how far now_ms has advanced. */
 static void test_srvrun_boot_pto_noop_without_sent_flight(void) {
-  conntable       table[QUIC_CONNTABLE_CAP];
+  conntable       table[WIRED_CONNTABLE_CAP];
   srvrun_state    st  = {table, sr_test_conns()};
   srvrun_cfg      cfg = sr_boot_pto_cfg();
   srvrun_step_ctx ctx = {&cfg, 0, &st, 1000000, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   st.conns[0].boot_ini_len = 0;
   srvrun_test_reset_send_count();
@@ -10988,11 +10980,11 @@ static void test_srvrun_boot_pto_noop_without_sent_flight(void) {
 /* A slot that is not up at all (never accepted, or already freed) is
  * a no-op -- srvrun_awaiting_confirm requires c->up. */
 static void test_srvrun_boot_pto_noop_when_not_up(void) {
-  conntable       table[QUIC_CONNTABLE_CAP];
+  conntable       table[WIRED_CONNTABLE_CAP];
   srvrun_state    st  = {table, sr_test_conns()};
   srvrun_cfg      cfg = sr_boot_pto_cfg();
   srvrun_step_ctx ctx = {&cfg, 0, &st, 1000000, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   st.conns[0].up = 0;
   srvrun_test_reset_send_count();
@@ -11006,11 +10998,11 @@ static void test_srvrun_boot_pto_noop_when_not_up(void) {
  * the immediately following srvrun_boot_pto_slot call must NOT also fire, or
  * the same flight would go out twice for one round. */
 static void test_srvrun_boot_pto_no_double_send_after_client_retransmit(void) {
-  conntable       table[QUIC_CONNTABLE_CAP];
+  conntable       table[WIRED_CONNTABLE_CAP];
   srvrun_state    st  = {table, sr_test_conns()};
   srvrun_cfg      cfg = sr_boot_pto_cfg();
   srvrun_step_ctx ctx = {&cfg, 0, &st, 1025, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   /* the client's own Initial retransmit arrives first this round */
   srvrun_resend_boot_flight(&ctx, &st.conns[0]);
@@ -11047,7 +11039,7 @@ static void test_srvrun_partial_ch_acked_and_rekeyed(void) {
   u8               ch[2048], dg[1400];
   client           c;
   u8               cpriv[32], cpub[32];
-  conntable        table[QUIC_CONNTABLE_CAP];
+  conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, sr_test_conns()};
   usz              n, nd;
@@ -11062,14 +11054,14 @@ static void test_srvrun_partial_ch_acked_and_rekeyed(void) {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
-    conntable_init(table, QUIC_CONNTABLE_CAP);
+    conntable_init(table, WIRED_CONNTABLE_CAP);
     srvrun_test_reset_send_count();
     srvrun_serve(&ctx, wired_mspan_of(dg, nd));
     CHECK(st.conns[0].up == 0);          /* still pending */
     CHECK(st.conns[0].boot.opened == 1); /* the half was absorbed */
     CHECK(srvrun_test_send_count() > 0); /* ...and acked */
     /* pre-switch retransmits still route: the entry keeps the ODCID */
-    CHECK(conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == 0);
+    CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == 0);
     /* the client's post-switch DCID (our scid) reaches the SAME pending
      * slot via the boot-scid fallback, never a competing fresh claim */
     CHECK(
@@ -11175,7 +11167,7 @@ static int sr_has_handshake_done(const u8* pl, usz pll) {
   framewalk_item fr;
   framewalk_init(&it, pl, pll);
   while (framewalk_next(&it, &fr))
-    if (fr.type == QUIC_FRAME_HANDSHAKE_DONE) return 1;
+    if (fr.type == FRAME_HANDSHAKE_DONE) return 1;
   return 0;
 }
 
@@ -11263,7 +11255,7 @@ static void test_srvrun_reconfirm_idempotent_bytes(void) {
  * datagram triggers nothing. */
 static void test_srvrun_serve_slot_reconfirms_on_handshake_probe(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_state  st   = {table, sr_test_conns()};
   sockaddr      peer = {0};
   wired_obuf    ob   = {0};
@@ -11273,7 +11265,7 @@ static void test_srvrun_serve_slot_reconfirms_on_handshake_probe(void) {
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   srvrun_step_ctx ctx = {&cfg, &peer, &st, 5, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&st.conns[2], &f, &ob);
   CHECK(st.conns[2].l.confirm_frames_len != 0); /* cache primed at confirm */
@@ -11755,7 +11747,7 @@ static void sr_wt_resource_check_redirect(
 
 static void test_srvrun_wt_resource_check_redirect_3xx_with_location(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
@@ -11764,7 +11756,7 @@ static void test_srvrun_wt_resource_check_redirect_3xx_with_location(void) {
   h3conn_resp   resp;
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -11805,13 +11797,13 @@ static void test_srvrun_wt_resource_check_redirect_3xx_with_location(void) {
  * a real session-establishing 2xx. */
 static void test_srvrun_wt_status_excludes_capsule_forbidden_headers(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -11864,12 +11856,12 @@ static void srn_wt_start(
  * unquoted value). */
 static void test_srvrun_wt_negotiate_picks_first_client_choice(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   srn_wt_set_avail(&conns[0], "\"foo\", \"bar\"");
@@ -11887,12 +11879,12 @@ static void test_srvrun_wt_negotiate_picks_first_client_choice(void) {
  * response carries no wt-protocol header. */
 static void test_srvrun_wt_negotiate_no_common_no_header(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   srn_wt_set_avail(&conns[0], "\"foo\"");
@@ -11907,12 +11899,12 @@ static void test_srvrun_wt_negotiate_no_common_no_header(void) {
  * as before negotiation existed, no wt-protocol header. */
 static void test_srvrun_wt_negotiate_absent_offer_no_header(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   bytes_memset(g_srvrun_respstore[0][0], 0, 256);
@@ -11928,12 +11920,12 @@ static void test_srvrun_wt_negotiate_absent_offer_no_header(void) {
  * wt-protocol header, session still accepted. */
 static void test_srvrun_wt_negotiate_bad_syntax_no_header(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   srn_wt_set_avail(&conns[0], "foo");
@@ -11948,12 +11940,12 @@ static void test_srvrun_wt_negotiate_bad_syntax_no_header(void) {
  * when the client sent an offer -- identical to the pre-negotiation 200. */
 static void test_srvrun_wt_negotiate_disabled_unchanged(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   srn_wt_set_avail(&conns[0], "\"foo\"");
@@ -11990,13 +11982,13 @@ static void srn_wt_on_session(
  * recorded :path and the negotiated raw token (not its sf-string form). */
 static void test_srvrun_wt_on_session_notified_once(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                  = (wired_obuf){obuf, sizeof obuf, 0};
   g_srn_wt_sess_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   srn_wt_set_avail(&conns[0], "\"chat\"");
@@ -12013,13 +12005,13 @@ static void test_srvrun_wt_on_session_notified_once(void) {
  * span. */
 static void test_srvrun_wt_on_session_empty_protocol(void) {
   struct lp_fix f;
-  conntable     table[QUIC_CONNTABLE_CAP];
+  conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
   wired_obuf    ob;
   u8            obuf[1024];
   ob                  = (wired_obuf){obuf, sizeof obuf, 0};
   g_srn_wt_sess_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   srn_wt_start(table, conns, 0, srn_wt_on_session);
@@ -12032,13 +12024,13 @@ static void test_srvrun_wt_on_session_empty_protocol(void) {
 static void test_srvrun_wt_on_session_two_sessions_each_path(void) {
   static const u8 second_path[] = "/two";
   struct lp_fix   f;
-  conntable       table[QUIC_CONNTABLE_CAP];
+  conntable       table[WIRED_CONNTABLE_CAP];
   srvrun_conn*    conns = sr_test_conns();
   wired_obuf      ob;
   u8              obuf[1024];
   ob                  = (wired_obuf){obuf, sizeof obuf, 0};
   g_srn_wt_sess_calls = 0;
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   srn_wt_start(table, conns, 0, srn_wt_on_session);
@@ -12859,7 +12851,7 @@ static void test_srvrun_wt_stream_reply_exceeding_max_data_refused(void) {
  * FLOW_CONTROL_ERROR mapped through wired_wterrmap_to_http3 -- the expected
  * wire value is hand-derived the same way test_srvrun_connect_stream_reset_
  * resets_owned_wt_bidi_stream derives WT_SESSION_GONE's: first=0x52e4a40fa8db,
- * n=QUIC_WTERR_FLOW_CONTROL_ERROR=0x045d4487 (73375879), h = first + n +
+ * n=WTERR_FLOW_CONTROL_ERROR=0x045d4487 (73375879), h = first + n +
  * floor(n/0x1e) = 0x52e4a40fa8db + 73375879 + 2446062 (floor(73375879/30))
  * = 0x52e4a92b442e. Also proves the violation latch itself is cleared (a
  * later step must not re-close an already-closed slot) and the session's
@@ -12867,7 +12859,7 @@ static void test_srvrun_wt_stream_reply_exceeding_max_data_refused(void) {
  * close's WT_SESSION_GONE path does. */
 static void test_srvrun_close_wt_flow_violations_resets_session(void) {
   struct lp_fix      f;
-  conntable          table[QUIC_CONNTABLE_CAP];
+  conntable          table[WIRED_CONNTABLE_CAP];
   srvrun_conn*       conns = sr_test_conns();
   wired_obuf         ob;
   u8                 obuf[1024];
@@ -12881,7 +12873,7 @@ static void test_srvrun_close_wt_flow_violations_resets_session(void) {
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   ob             = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, QUIC_CONNTABLE_CAP);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   sr_set_req(&conns[0], 1, 1, 4);
   {
@@ -14231,7 +14223,7 @@ static void srvrun_test_on_wt_close(void* ctx, wired_wt_session* s) {
  * state on the session pointer must hear about the teardown before the
  * conn slot (and thus the pointer) is reused by a later client. */
 static void test_srvrun_free_slot_fires_wt_close(void) {
-  static conntable table[QUIC_CONNTABLE_CAP];
+  static conntable table[WIRED_CONNTABLE_CAP];
   srvrun_conn*     c   = &g_srvrun_env.conns[0];
   srvrun_state     st  = {table, g_srvrun_env.conns};
   srvrun_cfg       cfg = {0};

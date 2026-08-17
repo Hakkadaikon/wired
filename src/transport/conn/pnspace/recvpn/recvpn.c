@@ -9,7 +9,7 @@ void recvpn_init(recvpn* r) {
 /* For pn below largest: in the window and its bit is set. */
 static int below_seen(const recvpn* r, u64 pn) {
   u64 delta = r->largest - pn;
-  if (delta > QUIC_RECVPN_WINDOW) return 0; /* fell out of the window */
+  if (delta > RECVPN_WINDOW) return 0; /* fell out of the window */
   return (int)((r->bitmap >> (delta - 1)) & 1u);
 }
 
@@ -37,7 +37,7 @@ static void recvpn_advance(recvpn* r, u64 pn) {
 /* Set the bit for a pn at or below largest, if it is within the window. */
 static void mark_below(recvpn* r, u64 pn) {
   u64 delta = r->largest - pn;
-  if (delta == 0 || delta > QUIC_RECVPN_WINDOW) return;
+  if (delta == 0 || delta > RECVPN_WINDOW) return;
   r->bitmap |= (u64)1 << (delta - 1);
 }
 
@@ -56,7 +56,7 @@ void recvpn_record(recvpn* r, u64 pn) {
 
 /* Whether the run continues at offset i below largest. */
 static int run_continues(const recvpn* r, u64 i) {
-  return i < QUIC_RECVPN_WINDOW && ((r->bitmap >> i) & 1u);
+  return i < RECVPN_WINDOW && ((r->bitmap >> i) & 1u);
 }
 
 u64 recvpn_first_range(const recvpn* r) {

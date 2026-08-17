@@ -1,5 +1,5 @@
-#ifndef QUIC_PIPELINE_FRAMEWALK_H
-#define QUIC_PIPELINE_FRAMEWALK_H
+#ifndef PIPELINE_FRAMEWALK_H
+#define PIPELINE_FRAMEWALK_H
 
 #include "common/platform/sys/syscall.h"
 

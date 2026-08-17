@@ -18,9 +18,9 @@
  * Retry are not driven by this loop. */
 static void test_packet_level(void) {
   int lv;
-  CHECK(connrunner_packet_level(0xc3, &lv) == 1 && lv == QUIC_LEVEL_INITIAL);
-  CHECK(connrunner_packet_level(0xe3, &lv) == 1 && lv == QUIC_LEVEL_HANDSHAKE);
-  CHECK(connrunner_packet_level(0x43, &lv) == 1 && lv == QUIC_LEVEL_ONERTT);
+  CHECK(connrunner_packet_level(0xc3, &lv) == 1 && lv == LEVEL_INITIAL);
+  CHECK(connrunner_packet_level(0xe3, &lv) == 1 && lv == LEVEL_HANDSHAKE);
+  CHECK(connrunner_packet_level(0x43, &lv) == 1 && lv == LEVEL_ONERTT);
   CHECK(connrunner_packet_level(0xd3, &lv) == 0); /* 0-RTT */
   CHECK(connrunner_packet_level(0xf3, &lv) == 0); /* Retry */
 }
@@ -30,19 +30,19 @@ static void test_packet_level(void) {
 static void arm(connio* io) {
   initial_keys k     = {0};
   io->loop.validated = 1;
-  keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&io->loop.keys, LEVEL_INITIAL, &k);
 }
 
 static const u8 g_dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
 
 static void mk_runner(connrunner* r, int is_server) {
   sockaddr           peer = {0};
-  connrunner_init_in in   = {
-      -1, &peer, QUIC_LEVEL_INITIAL, 1u << 20, 64, is_server, 0xc3, 1u << 20};
+  connrunner_init_in in   = {-1, &peer,     LEVEL_INITIAL, 1u << 20,
+                             64, is_server, 0xc3,          1u << 20};
   connrunner_init(r, wired_span_of(g_dcid, 8), &in);
   arm(&r->io);
   r->loop.gate.validated = 1; /* lift anti-amp on the loop side */
-  keyset_install(&r->loop.gate.keys, QUIC_LEVEL_INITIAL, &(initial_keys){0});
+  keyset_install(&r->loop.gate.keys, LEVEL_INITIAL, &(initial_keys){0});
 }
 
 /* RFC 9001 5 / RFC 9000 13.2.1: a sealed ack-eliciting packet fed to
@@ -67,7 +67,7 @@ static void test_process_datagram_owes_ack(void) {
   u8  pkt[256];
   usz n;
   {
-    connio_send_in sin = {QUIC_LEVEL_INITIAL, wired_span_of(frames, fl)};
+    connio_send_in sin = {LEVEL_INITIAL, wired_span_of(frames, fl)};
     wired_obuf     ob  = obuf_of(pkt, sizeof(pkt));
     n                  = connio_send(&cl, &sin, &ob);
   }
@@ -105,7 +105,7 @@ static void test_process_datagram_dcid_mismatch_ignored(void) {
   u8  pkt[256];
   usz n;
   {
-    connio_send_in sin = {QUIC_LEVEL_INITIAL, wired_span_of(frames, fl)};
+    connio_send_in sin = {LEVEL_INITIAL, wired_span_of(frames, fl)};
     wired_obuf     ob  = obuf_of(pkt, sizeof(pkt));
     n                  = connio_send(&cl, &sin, &ob);
   }
@@ -132,8 +132,8 @@ static void test_unparseable_owes_nothing(void) {
 static void test_flush_sends_ack(void) {
   connrunner r;
   mk_runner(&r, 1);
-  r.io.rx_pn[QUIC_LEVEL_INITIAL] = 3; /* highest received = 2 */
-  r.loop.ack_owed                = 1; /* an ACK is owed */
+  r.io.rx_pn[LEVEL_INITIAL] = 3; /* highest received = 2 */
+  r.loop.ack_owed           = 1; /* an ACK is owed */
 
   int kind = connrunner_pending_kind(&r);
   CHECK(kind == 1); /* ACK has priority */
@@ -214,11 +214,11 @@ static void test_advance_roundtrip(void) {
   mk_runner(&r, 1);
 
   u8  frames[8];
-  usz fl = frame_put_simple(frames, sizeof(frames), QUIC_FRAME_PING);
+  usz fl = frame_put_simple(frames, sizeof(frames), FRAME_PING);
   u8  pkt[256];
   usz n;
   {
-    connio_send_in sin = {QUIC_LEVEL_INITIAL, wired_span_of(frames, fl)};
+    connio_send_in sin = {LEVEL_INITIAL, wired_span_of(frames, fl)};
     wired_obuf     ob  = obuf_of(pkt, sizeof(pkt));
     n                  = connio_send(&cl, &sin, &ob);
   }
@@ -230,8 +230,7 @@ static void test_advance_roundtrip(void) {
   CHECK(r.loop.ack_owed == 0);
 
   /* the sealed reply is a real ACK frame the peer can open */
-  CHECK(
-      connio_recv(&cl, QUIC_LEVEL_INITIAL, wired_mspan_of(r.txbuf, out)) == 1);
+  CHECK(connio_recv(&cl, LEVEL_INITIAL, wired_mspan_of(r.txbuf, out)) == 1);
 }
 
 /* RFC 9000 10.2: a closed connection does no further work in advance. */
@@ -250,10 +249,10 @@ static void test_advance_closed_idle(void) {
 static void connrunner_arm_onertt(connio* io) {
   initial_keys k     = {0};
   io->loop.validated = 1;
-  keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
-  keyset_install(&io->loop.keys, QUIC_LEVEL_HANDSHAKE, &k);
-  keyset_install(&io->loop.keys, QUIC_LEVEL_ONERTT, &k);
-  io->loop.send_level         = QUIC_LEVEL_HANDSHAKE;
+  keyset_install(&io->loop.keys, LEVEL_INITIAL, &k);
+  keyset_install(&io->loop.keys, LEVEL_HANDSHAKE, &k);
+  keyset_install(&io->loop.keys, LEVEL_ONERTT, &k);
+  io->loop.send_level         = LEVEL_HANDSHAKE;
   io->loop.handshake_complete = 1;
 }
 
@@ -279,7 +278,7 @@ static void test_advance_closes_on_violation(void) {
   u8  pkt[256];
   usz n;
   {
-    connio_send_in sin = {QUIC_LEVEL_ONERTT, wired_span_of(frame, fl)};
+    connio_send_in sin = {LEVEL_ONERTT, wired_span_of(frame, fl)};
     wired_obuf     ob  = obuf_of(pkt, sizeof pkt);
     n                  = connio_send(&cl, &sin, &ob);
   }
@@ -291,8 +290,7 @@ static void test_advance_closes_on_violation(void) {
     CHECK(r.io.disp.violation == 0); /* the flag fired and was cleared */
 
     /* the client's own connio opens it and sees a real transport close */
-    CHECK(
-        connio_recv(&cl, QUIC_LEVEL_ONERTT, wired_mspan_of(r.txbuf, out)) == 1);
+    CHECK(connio_recv(&cl, LEVEL_ONERTT, wired_mspan_of(r.txbuf, out)) == 1);
     CHECK(cl.disp.close == 1);
   }
 }
@@ -311,13 +309,13 @@ static void test_advance_closes_on_aead_limit(void) {
   connio_init(&cl, wired_span_of(g_dcid, 8), &cin);
   connrunner_arm_onertt(&cl);
   connrunner_arm_onertt(&r.io);
-  r.io.loop.auth_fail_count = QUIC_AEAD_INTEGRITY_LIMIT_AESGCM - 1;
+  r.io.loop.auth_fail_count = AEAD_INTEGRITY_LIMIT_AESGCM - 1;
 
   u8  frame[1] = {0x01}; /* PING, ack-eliciting */
   u8  pkt[256];
   usz pn;
   {
-    connio_send_in sin = {QUIC_LEVEL_ONERTT, wired_span_of(frame, 1)};
+    connio_send_in sin = {LEVEL_ONERTT, wired_span_of(frame, 1)};
     wired_obuf     ob  = obuf_of(pkt, sizeof pkt);
     pn                 = connio_send(&cl, &sin, &ob);
   }
@@ -329,8 +327,7 @@ static void test_advance_closes_on_aead_limit(void) {
     CHECK(out != 0); /* a CONNECTION_CLOSE was sealed, not silence */
     CHECK(r.io.loop.aead_limit == 0); /* the flag fired and was cleared */
 
-    CHECK(
-        connio_recv(&cl, QUIC_LEVEL_ONERTT, wired_mspan_of(r.txbuf, out)) == 1);
+    CHECK(connio_recv(&cl, LEVEL_ONERTT, wired_mspan_of(r.txbuf, out)) == 1);
     CHECK(cl.disp.close == 1);
   }
 }
@@ -356,7 +353,7 @@ static void test_advance_sends_stop_sending_reset(void) {
   u8  pkt[256];
   usz pn;
   {
-    connio_send_in sin = {QUIC_LEVEL_ONERTT, wired_span_of(frame, fl)};
+    connio_send_in sin = {LEVEL_ONERTT, wired_span_of(frame, fl)};
     wired_obuf     ob  = obuf_of(pkt, sizeof pkt);
     pn                 = connio_send(&cl, &sin, &ob);
   }
@@ -367,8 +364,7 @@ static void test_advance_sends_stop_sending_reset(void) {
     CHECK(out != 0); /* a RESET_STREAM was sealed, not silence */
     CHECK(r.io.disp.stop_sending_owed == 0); /* the flag fired and cleared */
 
-    CHECK(
-        connio_recv(&cl, QUIC_LEVEL_ONERTT, wired_mspan_of(r.txbuf, out)) == 1);
+    CHECK(connio_recv(&cl, LEVEL_ONERTT, wired_mspan_of(r.txbuf, out)) == 1);
     CHECK(
         cl.disp.reset_stream_stream_id == 5 &&
         cl.disp.reset_stream_error_code == 0x77);
@@ -385,7 +381,7 @@ static usz seal_ack(connio* peer, u64 largest, u8* out, usz cap) {
   usz fl         = ack_encode(frames, sizeof(frames), &f);
   CHECK(fl != 0 && frames[0] == 0x02); /* a real ACK frame was encoded */
   {
-    connio_send_in sin = {QUIC_LEVEL_INITIAL, wired_span_of(frames, fl)};
+    connio_send_in sin = {LEVEL_INITIAL, wired_span_of(frames, fl)};
     wired_obuf     ob  = obuf_of(out, cap);
     return connio_send(peer, &sin, &ob);
   }
@@ -407,7 +403,7 @@ static void test_sentmeta_inflight_tracking(void) {
   usz out = connrunner_advance(&r, 1, wired_mspan_of((u8*)0, 0));
   CHECK(out != 0);                      /* a packet went on the wire */
   CHECK(r.sent.total_in_flight == out); /* its bytes are counted in flight */
-  CHECK(sentmeta_find(&r.sent, 0) != QUIC_SENTMETA_CAP); /* pn 0 tracked */
+  CHECK(sentmeta_find(&r.sent, 0) != SENTMETA_CAP); /* pn 0 tracked */
 
   r.loop.have_new_data = 0;
   u8  ack[256];
@@ -416,7 +412,7 @@ static void test_sentmeta_inflight_tracking(void) {
   connrunner_advance(&r, 2, wired_mspan_of(ack, an));
   CHECK(r.io.disp.has_ack == 1);      /* the ACK was opened and dispatched */
   CHECK(r.sent.total_in_flight == 0); /* acked -> dropped from in flight */
-  CHECK(sentmeta_find(&r.sent, 0) == QUIC_SENTMETA_CAP);
+  CHECK(sentmeta_find(&r.sent, 0) == SENTMETA_CAP);
 }
 
 /* RFC 9002 6.1.1 / 13.3: a tracked packet kPacketThreshold below the largest
@@ -436,7 +432,7 @@ static void test_sentmeta_loss_feeds_rtx(void) {
   connrunner_track_loss(&r, 1);
   CHECK(r.rtx_held == 1); /* pn 0 is 3 below largest -> lost */
   CHECK(r.rtx_pn == 0);
-  CHECK(sentmeta_find(&r.sent, 0) == QUIC_SENTMETA_CAP); /* reclaimed */
+  CHECK(sentmeta_find(&r.sent, 0) == SENTMETA_CAP); /* reclaimed */
 }
 
 /* A runner with a 1-RTT key installed and the key-update state seeded from it;
@@ -444,10 +440,10 @@ static void test_sentmeta_loss_feeds_rtx(void) {
  * produce distinct next-generation keys. */
 static void mk_ku(connrunner* r, int confirmed) {
   mk_runner(r, 0);
-  keyset_install(&r->io.loop.keys, QUIC_LEVEL_ONERTT, &(initial_keys){0});
+  keyset_install(&r->io.loop.keys, LEVEL_ONERTT, &(initial_keys){0});
   r->io.loop.handshake_confirmed = confirmed;
   connrunner_keyupdate_init(r);
-  for (usz i = 0; i < QUIC_HKDF_PRK; i++) r->ku_secret[i] = (u8)(i + 1);
+  for (usz i = 0; i < HKDF_PRK; i++) r->ku_secret[i] = (u8)(i + 1);
 }
 
 /* RFC 9001 6.2: a peer phase change before the handshake is confirmed must not
@@ -705,7 +701,7 @@ static void test_vn_no_common_abort(void) {
   u32 offered[1] = {0xdead0000u}, supported[2] = {VER_B, VER_A}, chosen = 0;
   CHECK(
       recv_vn_flat(&r, offered, 1, supported, 2, &chosen) ==
-      QUIC_CONNRUNNER_VN_ABORT);
+      CONNRUNNER_VN_ABORT);
 }
 
 /* RFC 9000 6.2: a VN arriving after the handshake progressed is ignored. */

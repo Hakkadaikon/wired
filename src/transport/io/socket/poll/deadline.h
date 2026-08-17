@@ -1,5 +1,5 @@
-#ifndef QUIC_POLL_DEADLINE_H
-#define QUIC_POLL_DEADLINE_H
+#ifndef POLL_DEADLINE_H
+#define POLL_DEADLINE_H
 
 #include "common/platform/sys/syscall.h"
 

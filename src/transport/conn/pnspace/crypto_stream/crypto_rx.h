@@ -1,5 +1,5 @@
-#ifndef QUIC_CRYPTO_STREAM_RX_H
-#define QUIC_CRYPTO_STREAM_RX_H
+#ifndef CRYPTO_STREAM_RX_H
+#define CRYPTO_STREAM_RX_H
 
 #include "transport/stream/flow/flow/reassemble.h"
 

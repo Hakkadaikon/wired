@@ -11,13 +11,12 @@ static void srvxdpbpf_close_fd(i64* fd) {
 /* Reset every fd to -1, then create the XSKMAP and load the redirect-filter
  * program built around it. Returns 0, or the first negative errno. */
 static i64 srvxdpbpf_load(wired_srvxdpbpf* b, u16 port) {
-  u64 insns[QUIC_XDPBPF_PROG_LEN];
+  u64 insns[XDPBPF_PROG_LEN];
   b->prog_fd = b->link_fd = -1;
   b->map_fd               = xdpbpf_map_create(WIRED_SRVXDPBPF_MAP_ENTRIES);
   if (b->map_fd < 0) return b->map_fd;
   xdpbpf_prog_build(insns, (i32)b->map_fd, port);
-  b->prog_fd =
-      xdpbpf_prog_load(insns, QUIC_XDPBPF_PROG_LEN, wired_mspan_of(0, 0));
+  b->prog_fd = xdpbpf_prog_load(insns, XDPBPF_PROG_LEN, wired_mspan_of(0, 0));
   return b->prog_fd < 0 ? b->prog_fd : 0;
 }
 

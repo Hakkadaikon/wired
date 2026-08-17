@@ -18,7 +18,7 @@ void test_sflight_encext(void) {
   CHECK(sflight_encrypted_extensions(wired_span_of(tp, sizeof(tp)), &ob));
   /* handshake header: type 0x08 and a length that matches ob.len. */
   CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
-  CHECK(type == QUIC_HS_ENCRYPTED_EXT);
+  CHECK(type == HS_ENCRYPTED_EXT);
   CHECK(4 + body_len == ob.len);
 
   /* body: 2-byte extensions length then the 0x39 extension. */

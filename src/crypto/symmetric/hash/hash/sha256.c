@@ -66,9 +66,9 @@ static void compress(sha256_ctx* s, const u8* p) {
 /* Absorb whole 64-byte blocks straight from data; returns bytes consumed. */
 static usz absorb_blocks(sha256_ctx* s, const u8* data, usz len) {
   usz off = 0;
-  while (len - off >= QUIC_SHA256_BLOCK) {
+  while (len - off >= SHA256_BLOCK) {
     compress(s, data + off);
-    off += QUIC_SHA256_BLOCK;
+    off += SHA256_BLOCK;
   }
   return off;
 }
@@ -82,7 +82,7 @@ static void buffer(sha256_ctx* s, const u8* data, usz n) {
 /* Bytes to pull from data to complete a pending partial block, or 0 if
  * there is no partial block or not enough data to fill it. */
 static usz pending_take(const sha256_ctx* s, usz len) {
-  usz want = QUIC_SHA256_BLOCK - s->buf_len;
+  usz want = SHA256_BLOCK - s->buf_len;
   return (s->buf_len != 0 && len >= want) ? want : 0;
 }
 
@@ -122,7 +122,7 @@ static void pad_message(sha256_ctx* s) {
   while (s->buf_len != 56) sha256_update(s, &b, 1);
 }
 
-void sha256_final(sha256_ctx* s, u8 out[QUIC_SHA256_DIGEST]) {
+void sha256_final(sha256_ctx* s, u8 out[SHA256_DIGEST]) {
   u64 bits = s->total * 8;
   u8  lenbe[8];
   for (usz i = 0; i < 8; i++) lenbe[i] = (u8)(bits >> (56 - i * 8));
@@ -131,7 +131,7 @@ void sha256_final(sha256_ctx* s, u8 out[QUIC_SHA256_DIGEST]) {
   for (usz i = 0; i < 8; i++) put_be32(out + i * 4, s->h[i]);
 }
 
-void wired_sha256(const u8* data, usz len, u8 out[QUIC_SHA256_DIGEST]) {
+void wired_sha256(const u8* data, usz len, u8 out[SHA256_DIGEST]) {
   sha256_ctx s;
   sha256_init(&s);
   sha256_update(&s, data, len);

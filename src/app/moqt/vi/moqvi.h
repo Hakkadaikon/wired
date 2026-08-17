@@ -1,5 +1,5 @@
-#ifndef QUIC_MOQVI_H
-#define QUIC_MOQVI_H
+#ifndef MOQVI_H
+#define MOQVI_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

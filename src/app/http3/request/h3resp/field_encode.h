@@ -1,5 +1,5 @@
-#ifndef QUIC_H3RESP_FIELD_ENCODE_H
-#define QUIC_H3RESP_FIELD_ENCODE_H
+#ifndef H3RESP_FIELD_ENCODE_H
+#define H3RESP_FIELD_ENCODE_H
 
 #include "app/qpack/qpack/field.h"
 #include "common/bytes/span/span.h"

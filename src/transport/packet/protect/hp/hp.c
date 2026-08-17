@@ -1,7 +1,7 @@
 #include "transport/packet/protect/hp/hp.h"
 
-void hp_mask(const aes128* hp, const u8 sample[QUIC_HP_SAMPLE], u8 mask[5]) {
-  u8 block[QUIC_AES_BLOCK];
+void hp_mask(const aes128* hp, const u8 sample[HP_SAMPLE], u8 mask[5]) {
+  u8 block[AES_BLOCK];
   aes128_encrypt(hp, sample, block);
   for (usz i = 0; i < 5; i++) mask[i] = block[i];
 }

@@ -1,12 +1,12 @@
-#ifndef QUIC_RECOVERY_RTT_H
-#define QUIC_RECOVERY_RTT_H
+#ifndef RECOVERY_RTT_H
+#define RECOVERY_RTT_H
 
 #include "common/platform/sys/syscall.h"
 
 /* RFC 9002 5: RTT estimation. Times are in microseconds. */
 
-#define QUIC_RTT_INITIAL_US 333000 /* kInitialRtt = 333ms */
-#define QUIC_RTT_GRANULARITY 1000  /* kGranularity = 1ms */
+#define RTT_INITIAL_US 333000 /* kInitialRtt = 333ms */
+#define RTT_GRANULARITY 1000  /* kGranularity = 1ms */
 
 typedef struct {
   u64 min_rtt;

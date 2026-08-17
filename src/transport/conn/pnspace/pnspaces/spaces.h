@@ -1,5 +1,5 @@
-#ifndef QUIC_PNSPACES_SPACES_H
-#define QUIC_PNSPACES_SPACES_H
+#ifndef PNSPACES_SPACES_H
+#define PNSPACES_SPACES_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/conn/lifecycle/conn/pnspace.h"

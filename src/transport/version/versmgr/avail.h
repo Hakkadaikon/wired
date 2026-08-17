@@ -1,5 +1,5 @@
-#ifndef QUIC_VERSMGR_AVAIL_H
-#define QUIC_VERSMGR_AVAIL_H
+#ifndef VERSMGR_AVAIL_H
+#define VERSMGR_AVAIL_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/version/version/version.h"
@@ -8,11 +8,11 @@
  * preference order, and matches it against a peer's Available Versions to pick
  * a compatible version. */
 
-#define QUIC_VERS_MAX 16
+#define VERS_MAX 16
 
 typedef struct {
   usz n;
-  u32 versions[QUIC_VERS_MAX]; /* preference order, most preferred first */
+  u32 versions[VERS_MAX]; /* preference order, most preferred first */
 } vers_set;
 
 /* Initialise s to this endpoint's supported set (v2 then v1). */

@@ -2,7 +2,7 @@
 
 /* RFC 9002 6.1.1: pn is kPacketThreshold or more below largest_acked. */
 static int sentmeta_by_packet(u64 largest_acked, u64 pn) {
-  return largest_acked >= pn + QUIC_SENTMETA_PACKET_THRESHOLD;
+  return largest_acked >= pn + SENTMETA_PACKET_THRESHOLD;
 }
 
 /* RFC 9002 6.1.2: sent at or before now - loss_delay. */
@@ -24,7 +24,7 @@ static int sentmeta_lost_slot(
 void sentmeta_detect_loss(
     sentmeta* m, const sentmeta_loss_in* in, sentmeta_u64out lost) {
   *lost.n = 0;
-  for (usz i = 0; i < QUIC_SENTMETA_CAP; i++) {
+  for (usz i = 0; i < SENTMETA_CAP; i++) {
     if (!sentmeta_lost_slot(m, i, in)) continue;
     lost.out[(*lost.n)++] = m->pkts[i].pn;
     sentmeta_reclaim(m, i);

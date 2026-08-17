@@ -1,5 +1,5 @@
-#ifndef QUIC_FRAME_CRYPTO_OFFSET_H
-#define QUIC_FRAME_CRYPTO_OFFSET_H
+#ifndef FRAME_CRYPTO_OFFSET_H
+#define FRAME_CRYPTO_OFFSET_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -5,27 +5,27 @@
 /* A HEADERS frame is the leading header section from START, otherwise the
  * trailer section (allowed only after the leading HEADERS or some DATA). */
 static int on_headers(h3_req_state* state) {
-  if (*state == QUIC_H3_REQ_START) {
-    *state = QUIC_H3_REQ_HEADERS;
+  if (*state == H3_REQ_START) {
+    *state = H3_REQ_HEADERS;
     return 1;
   }
-  if (*state == QUIC_H3_REQ_TRAILERS) return 0;
-  *state = QUIC_H3_REQ_TRAILERS; /* trailer after HEADERS or DATA */
+  if (*state == H3_REQ_TRAILERS) return 0;
+  *state = H3_REQ_TRAILERS; /* trailer after HEADERS or DATA */
   return 1;
 }
 
 /* DATA is allowed only after the leading HEADERS (and may repeat); never
  * before HEADERS and never after the trailer section. */
 static int on_data(h3_req_state* state) {
-  if (*state == QUIC_H3_REQ_HEADERS || *state == QUIC_H3_REQ_DATA) {
-    *state = QUIC_H3_REQ_DATA;
+  if (*state == H3_REQ_HEADERS || *state == H3_REQ_DATA) {
+    *state = H3_REQ_DATA;
     return 1;
   }
   return 0;
 }
 
 int h3_reqstream_frame(h3_req_state* state, u64 frame_type) {
-  if (frame_type == QUIC_H3_FRAME_HEADERS) return on_headers(state);
-  if (frame_type == QUIC_H3_FRAME_DATA) return on_data(state);
+  if (frame_type == H3_FRAME_HEADERS) return on_headers(state);
+  if (frame_type == H3_FRAME_DATA) return on_data(state);
   return 0; /* RFC 9114 7.1: other frame types are not valid here */
 }

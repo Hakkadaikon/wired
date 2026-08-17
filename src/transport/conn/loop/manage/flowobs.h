@@ -1,5 +1,5 @@
-#ifndef QUIC_MANAGE_FLOWOBS_H
-#define QUIC_MANAGE_FLOWOBS_H
+#ifndef MANAGE_FLOWOBS_H
+#define MANAGE_FLOWOBS_H
 
 #include "common/platform/sys/syscall.h"
 

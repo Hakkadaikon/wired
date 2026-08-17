@@ -1,5 +1,5 @@
-#ifndef QUIC_VERSION_V2KEYS_H
-#define QUIC_VERSION_V2KEYS_H
+#ifndef VERSION_V2KEYS_H
+#define VERSION_V2KEYS_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/version/version/version.h"
@@ -7,7 +7,7 @@
 /* RFC 9369 3.3: QUIC v2 uses a different Initial salt and HKDF-Expand-Label
  * prefix than v1. These pick the right constants for a given version. */
 
-#define QUIC_INITIAL_SALT_LEN 20
+#define INITIAL_SALT_LEN 20
 
 /* Point *salt at the 20-byte Initial salt for `version` and set *len.
  * v1 (RFC 9001 5.2) and v2 (RFC 9369 3.3.1) differ. Returns 1 if the version

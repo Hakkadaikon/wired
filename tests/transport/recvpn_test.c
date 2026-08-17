@@ -20,7 +20,7 @@ static void test_recvpn_window(void) {
   recvpn r;
   recvpn_init(&r);
   recvpn_record(&r, 100);
-  CHECK(recvpn_seen(&r, 100 - QUIC_RECVPN_WINDOW - 5) == 0);
+  CHECK(recvpn_seen(&r, 100 - RECVPN_WINDOW - 5) == 0);
   CHECK(recvpn_seen(&r, 200) == 0); /* newer than largest */
 }
 

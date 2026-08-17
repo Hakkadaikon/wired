@@ -6,7 +6,7 @@
 #include "common/bytes/varint/varint.h"
 
 /* RFC 9114 6.2.1: control stream type. */
-#define QUIC_H3_CONTROL_STREAM_TYPE 0x00
+#define H3_CONTROL_STREAM_TYPE 0x00
 
 /* RFC 9114 6.2 / 7.2.4 */
 int h3conn_open_control(int advertise_wt, u8* out, usz cap, usz* out_len) {
@@ -18,7 +18,7 @@ int h3conn_open_control(int advertise_wt, u8* out, usz cap, usz* out_len) {
 static int skip_control_type(const u8* s, usz len, usz* off) {
   u64 type = 0;
   usz n    = varint_decode(s, len, &type);
-  if (!n || type != QUIC_H3_CONTROL_STREAM_TYPE) return 0;
+  if (!n || type != H3_CONTROL_STREAM_TYPE) return 0;
   *off = n;
   return 1;
 }

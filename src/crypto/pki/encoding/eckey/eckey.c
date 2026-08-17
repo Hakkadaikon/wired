@@ -11,14 +11,13 @@ static int eckey_open(wired_span der, derseq* c, u64* v) {
   wired_span body, iv;
   if (!der_seq(der, &body)) return 0;
   derseq_init(c, body);
-  return derseq_next_tagged(c, QUIC_DER_INTEGER, &iv) &&
-         der_uint(iv.p, iv.n, v);
+  return derseq_next_tagged(c, DER_INTEGER, &iv) && der_uint(iv.p, iv.n, v);
 }
 
 /* RFC 5915 3. privateKey OCTET STRING: exactly the 32-byte scalar. */
 static int eckey_scalar(derseq* c, u8 out[32]) {
   wired_span priv;
-  if (!derseq_next_tagged(c, QUIC_DER_OCTET_STRING, &priv)) return 0;
+  if (!derseq_next_tagged(c, DER_OCTET_STRING, &priv)) return 0;
   if (priv.n != 32) return 0;
   bytes_memcpy(out, priv.p, 32);
   return 1;
@@ -33,8 +32,8 @@ static int eckey_sec1_at(derseq* c, u64 v, u8 out[32]) {
 /* RFC 5958 2. Skip AlgorithmIdentifier, view the privateKey octets. */
 static int eckey_pkcs8_unwrap(derseq* c, wired_span* inner) {
   wired_span alg;
-  return derseq_next_tagged(c, QUIC_DER_SEQUENCE, &alg) &&
-         derseq_next_tagged(c, QUIC_DER_OCTET_STRING, inner);
+  return derseq_next_tagged(c, DER_SEQUENCE, &alg) &&
+         derseq_next_tagged(c, DER_OCTET_STRING, inner);
 }
 
 /* RFC 5958 2. The privateKey octets hold a SEC1 ECPrivateKey. */
@@ -69,11 +68,10 @@ static usz eckey_build_ed25519_alg(wired_obuf* out) {
   u8         oid[8];
   wired_obuf o = obuf_of(oid, sizeof(oid));
   if (!selfcert_der_tlv(
-          QUIC_DER_OID,
-          wired_span_of(eckey_oid_ed25519, sizeof(eckey_oid_ed25519)), &o))
+          DER_OID, wired_span_of(eckey_oid_ed25519, sizeof(eckey_oid_ed25519)),
+          &o))
     return 0;
-  if (!selfcert_der_tlv(QUIC_DER_SEQUENCE, wired_span_of(oid, o.len), out))
-    return 0;
+  if (!selfcert_der_tlv(DER_SEQUENCE, wired_span_of(oid, o.len), out)) return 0;
   return out->len;
 }
 
@@ -82,10 +80,9 @@ static usz eckey_build_ed25519_alg(wired_obuf* out) {
 static usz eckey_build_ed25519_privkey(const u8 seed[32], wired_obuf* out) {
   u8         inner[34];
   wired_obuf io = obuf_of(inner, sizeof(inner));
-  if (!selfcert_der_tlv(QUIC_DER_OCTET_STRING, wired_span_of(seed, 32), &io))
+  if (!selfcert_der_tlv(DER_OCTET_STRING, wired_span_of(seed, 32), &io))
     return 0;
-  if (!selfcert_der_tlv(
-          QUIC_DER_OCTET_STRING, wired_span_of(inner, io.len), out))
+  if (!selfcert_der_tlv(DER_OCTET_STRING, wired_span_of(inner, io.len), out))
     return 0;
   return out->len;
 }
@@ -108,7 +105,7 @@ static int eckey_assemble(const wired_span* parts, wired_obuf* out) {
         wired_mspan_of(body, sizeof(body)), &off,
         wired_span_of(parts[i].p, parts[i].n));
   if (!ok) return 0;
-  return selfcert_der_tlv(QUIC_DER_SEQUENCE, wired_span_of(body, off), out);
+  return selfcert_der_tlv(DER_SEQUENCE, wired_span_of(body, off), out);
 }
 
 int wired_eckey_ed25519_pkcs8_encode(const u8 seed[32], wired_obuf* out) {
@@ -136,9 +133,9 @@ static int eckey_curve25519_scalar(wired_span inner, u8 out[32]) {
 static int eckey_curve25519_privkey(derseq* c, u8 out[32]) {
   wired_span outer, inner;
   derseq     ic;
-  if (!derseq_next_tagged(c, QUIC_DER_OCTET_STRING, &outer)) return 0;
+  if (!derseq_next_tagged(c, DER_OCTET_STRING, &outer)) return 0;
   derseq_init(&ic, outer);
-  if (!derseq_next_tagged(&ic, QUIC_DER_OCTET_STRING, &inner)) return 0;
+  if (!derseq_next_tagged(&ic, DER_OCTET_STRING, &inner)) return 0;
   return eckey_curve25519_scalar(inner, out);
 }
 
@@ -149,7 +146,7 @@ static int eckey_curve25519_open(wired_span key_der, derseq* c) {
   u64        v;
   if (!eckey_open(key_der, c, &v)) return 0;
   if (v != 0) return 0;
-  return derseq_next_tagged(c, QUIC_DER_SEQUENCE, &alg);
+  return derseq_next_tagged(c, DER_SEQUENCE, &alg);
 }
 
 int wired_eckey_curve25519_priv(wired_span key_der, u8 out[32]) {

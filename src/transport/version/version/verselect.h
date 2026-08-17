@@ -1,5 +1,5 @@
-#ifndef QUIC_VERSION_VERSELECT_H
-#define QUIC_VERSION_VERSELECT_H
+#ifndef VERSION_VERSELECT_H
+#define VERSION_VERSELECT_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/version/version/verinfo.h"

@@ -1,5 +1,5 @@
-#ifndef QUIC_SESSION_SESSION_H
-#define QUIC_SESSION_SESSION_H
+#ifndef SESSION_SESSION_H
+#define SESSION_SESSION_H
 
 #include "common/bytes/span/span.h"
 #include "crypto/symmetric/aead/aes/aes.h"

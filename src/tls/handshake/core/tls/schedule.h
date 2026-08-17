@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_SCHEDULE_H
-#define QUIC_TLS_SCHEDULE_H
+#ifndef TLS_SCHEDULE_H
+#define TLS_SCHEDULE_H
 
 #include "common/bytes/span/span.h"
 #include "crypto/kdf/hkdf/hkdf.h"
@@ -12,17 +12,17 @@
  * bytes (no "tls13 " prefix, that is added by hkdf), messages the transcript
  * bytes to hash. */
 typedef struct {
-  const u8*  secret; /* QUIC_HKDF_PRK bytes */
+  const u8*  secret; /* HKDF_PRK bytes */
   wired_span label;
   wired_span messages;
 } derive_secret_in;
 
 /* Derive-Secret(secret, label, messages) = HKDF-Expand-Label(secret, label,
  * Hash(messages), Hash.length). Writes a 32-byte secret. */
-void tls_derive_secret(const derive_secret_in* in, u8 out[QUIC_HKDF_PRK]);
+void tls_derive_secret(const derive_secret_in* in, u8 out[HKDF_PRK]);
 
 /* Handshake Secret = HKDF-Extract(derived-from-early, ECDHE shared secret). */
-void tls_handshake_secret(const u8 ecdhe[32], u8 out[QUIC_HKDF_PRK]);
+void tls_handshake_secret(const u8 ecdhe[32], u8 out[HKDF_PRK]);
 
 /* RFC 8446 7.1, PSK (resumption) branch: Early Secret = HKDF-Extract(0, PSK)
  * instead of HKDF-Extract(0, 0), then the same
@@ -31,13 +31,13 @@ void tls_handshake_secret(const u8 ecdhe[32], u8 out[QUIC_HKDF_PRK]);
  * PSK-only / 0-RTT-without-DHE mode), so only the Early Secret input
  * changes. */
 void tls_handshake_secret_psk(
-    const u8 psk[QUIC_HKDF_PRK], const u8 ecdhe[32], u8 out[QUIC_HKDF_PRK]);
+    const u8 psk[HKDF_PRK], const u8 ecdhe[32], u8 out[HKDF_PRK]);
 
 /** tls_handshake_keys inputs: hs_secret is the Handshake Secret,
  * transcript the handshake bytes hashed for the traffic secret, is_server
  * selects the "s hs traffic"/"c hs traffic" label. */
 typedef struct {
-  const u8*  hs_secret; /* QUIC_HKDF_PRK bytes */
+  const u8*  hs_secret; /* HKDF_PRK bytes */
   wired_span transcript;
   int        is_server;
 } handshake_keys_in;
@@ -45,7 +45,7 @@ typedef struct {
 /* From the handshake secret and the handshake transcript, derive one side's
  * (is_server) handshake-level QUIC packet protection keys (AES_128_GCM_
  * SHA256; equivalent to tls_handshake_keys_suite with suite =
- * QUIC_TLS_AES_128_GCM_SHA256). */
+ * TLS_AES_128_GCM_SHA256). */
 void tls_handshake_keys(const handshake_keys_in* in, initial_keys* out);
 
 /* Same as tls_handshake_keys, but sizes the derived key/hp for the given
@@ -59,7 +59,7 @@ void tls_handshake_keys_suite(
  * ClientHello transcript and expand the QUIC key/iv/hp. Only the client
  * direction exists for 0-RTT. */
 void tls_early_keys(
-    const u8      psk[QUIC_HKDF_PRK],
+    const u8      psk[HKDF_PRK],
     const u8*     client_hello,
     usz           client_hello_len,
     initial_keys* out);

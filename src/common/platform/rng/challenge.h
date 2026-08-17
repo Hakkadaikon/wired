@@ -1,5 +1,5 @@
-#ifndef QUIC_RNG_CHALLENGE_H
-#define QUIC_RNG_CHALLENGE_H
+#ifndef RNG_CHALLENGE_H
+#define RNG_CHALLENGE_H
 
 #include "common/platform/sys/syscall.h"
 

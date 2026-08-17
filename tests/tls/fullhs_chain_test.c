@@ -98,7 +98,7 @@ static usz fc_build_cert_msg(const u8 seed[32], u8* out, usz cap) {
 /* A Certificate handshake message wrapping k DER certs, leaf first. */
 static usz fc_cert_msg(
     u8* out, const u8* const* certs, const usz* lens, usz k) {
-  usz off = QUIC_HS_HEADER + 4, list, body;
+  usz off = HS_HEADER + 4, list, body;
   for (usz i = 0; i < k; i++) {
     usz n        = lens[i];
     out[off]     = (u8)(n >> 16);
@@ -109,16 +109,16 @@ static usz fc_cert_msg(
     out[off + 4 + n] = 0;
     off += n + 5;
   }
-  list                    = off - QUIC_HS_HEADER - 4;
-  body                    = list + 4;
-  out[0]                  = 0x0b;
-  out[1]                  = (u8)(body >> 16);
-  out[2]                  = (u8)(body >> 8);
-  out[3]                  = (u8)body;
-  out[QUIC_HS_HEADER]     = 0; /* request context */
-  out[QUIC_HS_HEADER + 1] = (u8)(list >> 16);
-  out[QUIC_HS_HEADER + 2] = (u8)(list >> 8);
-  out[QUIC_HS_HEADER + 3] = (u8)list;
+  list               = off - HS_HEADER - 4;
+  body               = list + 4;
+  out[0]             = 0x0b;
+  out[1]             = (u8)(body >> 16);
+  out[2]             = (u8)(body >> 8);
+  out[3]             = (u8)body;
+  out[HS_HEADER]     = 0; /* request context */
+  out[HS_HEADER + 1] = (u8)(list >> 16);
+  out[HS_HEADER + 2] = (u8)(list >> 8);
+  out[HS_HEADER + 3] = (u8)list;
   return off;
 }
 
@@ -132,7 +132,7 @@ static void test_fullhs_chain_stale_buffer(void) {
   tlsdriver cltls, svtls;
   fullhs    cl;
   u8        sh[512], cert_seed[32], buf[768], cv[256];
-  u8        th[QUIC_SHA256_DIGEST];
+  u8        th[SHA256_DIGEST];
   usz       shn, buf_len, cv_len;
   fc_new_client(&cltls, &svtls, &cl, sh, &shn);
   for (usz i = 0; i < 32; i++) cert_seed[i] = (u8)(70 + i);
@@ -147,7 +147,7 @@ static void test_fullhs_chain_stale_buffer(void) {
   }
   CHECK(
       fullhs_recv_certverify(
-          &cl, wired_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
+          &cl, wired_span_of(cv, cv_len), TLS_SCHEME_ED25519) == 1);
 }
 
 /* A [leaf, intermediate] message is fully retained: both certs are
@@ -200,7 +200,7 @@ static void test_fullhs_castore_wrong_root(void) {
   castore       store;
   castore_entry roots[2];
   u8            sh[512], cert_seed[32], cert_msg[768];
-  u8            th[QUIC_SHA256_DIGEST], cv[256], svfin[64];
+  u8            th[SHA256_DIGEST], cv[256], svfin[64];
   usz           shn, cert_msg_len, cv_len, n;
   fc_new_client(&cltls, &svtls, &cl, sh, &shn);
   CHECK(fullhs_init(&sv, &svtls, wired_span_of(sh, shn)) == 1);
@@ -224,7 +224,7 @@ static void test_fullhs_castore_wrong_root(void) {
   }
   CHECK(
       fullhs_recv_certverify(
-          &sv, wired_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
+          &sv, wired_span_of(cv, cv_len), TLS_SCHEME_ED25519) == 1);
   {
     wired_obuf ob = obuf_of(svfin, sizeof(svfin));
     CHECK(fullhs_send_finished(&sv, &ob) == 1);
@@ -234,7 +234,7 @@ static void test_fullhs_castore_wrong_root(void) {
   CHECK(fullhs_recv_cert(&cl, cert_msg, cert_msg_len) == 0);
   CHECK(
       fullhs_recv_certverify(
-          &cl, wired_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 0);
+          &cl, wired_span_of(cv, cv_len), TLS_SCHEME_ED25519) == 0);
   CHECK(fullhs_recv_finished(&cl, svfin, n) == 0);
   CHECK(fullhs_is_complete(&cl) == 0);
 }

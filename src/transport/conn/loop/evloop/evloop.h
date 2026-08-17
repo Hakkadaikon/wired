@@ -1,5 +1,5 @@
-#ifndef QUIC_EVLOOP_EVLOOP_H
-#define QUIC_EVLOOP_EVLOOP_H
+#ifndef EVLOOP_EVLOOP_H
+#define EVLOOP_EVLOOP_H
 
 #include "transport/conn/loop/connloop/connloop.h"
 
@@ -12,7 +12,7 @@
  * owed ACK, the retransmission queue, the congestion window, the key
  * generation) and feeds it through the existing components in order. */
 
-#define QUIC_EVLOOP_QCAP 64
+#define EVLOOP_QCAP 64
 
 /** One queued receive: whether it owes an ACK (RFC 9000 13.2.1). */
 typedef struct {
@@ -40,11 +40,11 @@ typedef struct {
   int level;   /* protection level the loop sends/receives at */
   u64 next_pn; /* RFC 9002 A.1: monotonic, never reused */
 
-  evloop_rx rx[QUIC_EVLOOP_QCAP];
+  evloop_rx rx[EVLOOP_QCAP];
   usz       rx_n;
   int       ack_owed; /* RFC 9000 13.2.1: an ACK is pending */
 
-  evloop_rtx rtx[QUIC_EVLOOP_QCAP];
+  evloop_rtx rtx[EVLOOP_QCAP];
   usz        rtx_n;         /* RFC 9002 6: data awaiting retransmission */
   int        have_new_data; /* application has fresh data to originate */
   usz        send_len;      /* bytes per outgoing packet */

@@ -1,12 +1,12 @@
-#ifndef QUIC_HSPTO_HSPTO_H
-#define QUIC_HSPTO_HSPTO_H
+#ifndef HSPTO_HSPTO_H
+#define HSPTO_HSPTO_H
 
 #include "common/platform/sys/syscall.h"
 
 /* RFC 9002 6.2.2.1: handshake-space PTO. Before the handshake is confirmed
  * max_ack_delay is excluded from the PTO. Times in us. Extends pto.c. */
 
-#define QUIC_HSPTO_GRANULARITY 1000 /* kGranularity = 1ms */
+#define HSPTO_GRANULARITY 1000 /* kGranularity = 1ms */
 
 /** RTT inputs to the PTO computation. */
 typedef struct {

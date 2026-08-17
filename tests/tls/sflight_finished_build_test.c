@@ -6,7 +6,7 @@
 /* RFC 8446 4.4.4: the built Finished must carry verify_data that the existing
  * verifier accepts for the same key and transcript hash. */
 void test_sflight_finished_build(void) {
-  u8         key[QUIC_HKDF_PRK];
+  u8         key[HKDF_PRK];
   u8         thash[32];
   u8         out[40];
   usz        body_len;
@@ -18,8 +18,8 @@ void test_sflight_finished_build(void) {
 
   CHECK(sflight_finished(key, thash, &ob));
   CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
-  CHECK(type == QUIC_HS_FINISHED);
-  CHECK(body_len == QUIC_TLS_VERIFY_DATA);
+  CHECK(type == HS_FINISHED);
+  CHECK(body_len == TLS_VERIFY_DATA);
 
   /* the body is verify_data the verifier accepts. */
   CHECK(tls_finished_check(key, thash, out + 4));

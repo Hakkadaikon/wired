@@ -1,5 +1,5 @@
-#ifndef QUIC_LOSSDRIVE_LOSSDELAY_H
-#define QUIC_LOSSDRIVE_LOSSDELAY_H
+#ifndef LOSSDRIVE_LOSSDELAY_H
+#define LOSSDRIVE_LOSSDELAY_H
 
 #include "common/platform/sys/syscall.h"
 

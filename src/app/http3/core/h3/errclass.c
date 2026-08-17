@@ -4,9 +4,9 @@
 #include "app/http3/core/h3/grease.h"
 
 int h3_error_is_known(u64 code) {
-  /* RFC 9114 8.1: contiguous block QUIC_H3_NO_ERROR..QUIC_H3_VERSION_FALLBACK.
+  /* RFC 9114 8.1: contiguous block H3_NO_ERROR..H3_VERSION_FALLBACK.
    */
-  return code >= QUIC_H3_NO_ERROR && code <= QUIC_H3_VERSION_FALLBACK;
+  return code >= H3_NO_ERROR && code <= H3_VERSION_FALLBACK;
 }
 
 int h3_error_is_reserved(u64 code) {
@@ -14,6 +14,6 @@ int h3_error_is_reserved(u64 code) {
 }
 
 u64 h3_error_send_value(u64 code, u64 grease_id) {
-  if (code != QUIC_H3_NO_ERROR) return code;
+  if (code != H3_NO_ERROR) return code;
   return grease_id ? grease_id : code;
 }

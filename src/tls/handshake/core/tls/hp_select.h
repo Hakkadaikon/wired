@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_HP_SELECT_H
-#define QUIC_TLS_HP_SELECT_H
+#ifndef TLS_HP_SELECT_H
+#define TLS_HP_SELECT_H
 
 #include "common/platform/sys/syscall.h"
 

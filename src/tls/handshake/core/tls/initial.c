@@ -15,7 +15,7 @@ static wired_span ilabel_build(u8* buf, u32 version, const char* suffix) {
   const char* prefix;
   usz         prefix_len, n = 0;
   if (!version_label_prefix(version, &prefix, &prefix_len)) {
-    version_label_prefix(QUIC_VERSION_1, &prefix, &prefix_len);
+    version_label_prefix(VERSION_1, &prefix, &prefix_len);
   }
   bytes_memcpy(buf, prefix, prefix_len);
   n += prefix_len;
@@ -33,17 +33,17 @@ static void derive_field(const u8* secret, wired_span label, wired_mspan out) {
 /* From the per-side initial secret, fill key/iv/hp (RFC 9001 5.1 / RFC 9369
  * 3.3.1 labels). */
 static void derive_keys(
-    const u8 secret[QUIC_HKDF_PRK], u32 version, initial_keys* out) {
+    const u8 secret[HKDF_PRK], u32 version, initial_keys* out) {
   u8 buf[7 + SUFFIX_MAX];
   derive_field(
       secret, ilabel_build(buf, version, "key"),
-      wired_mspan_of(out->key, QUIC_INITIAL_KEY));
+      wired_mspan_of(out->key, INITIAL_KEY));
   derive_field(
       secret, ilabel_build(buf, version, "iv"),
-      wired_mspan_of(out->iv, QUIC_INITIAL_IV));
+      wired_mspan_of(out->iv, INITIAL_IV));
   derive_field(
       secret, ilabel_build(buf, version, "hp"),
-      wired_mspan_of(out->hp, QUIC_INITIAL_HP));
+      wired_mspan_of(out->hp, INITIAL_HP));
 }
 
 /* The 20-byte Initial salt for `version`, falling back to v1's if unknown
@@ -52,7 +52,7 @@ static wired_span initial_salt(u32 version) {
   const u8* salt;
   usz       len;
   if (!version_initial_salt(version, &salt, &len))
-    version_initial_salt(QUIC_VERSION_1, &salt, &len);
+    version_initial_salt(VERSION_1, &salt, &len);
   return wired_span_of(salt, len);
 }
 
@@ -70,12 +70,12 @@ static wired_span side_label(u8* buf, int is_server) {
 
 void initial_derive(
     wired_span dcid, int is_server, u32 version, initial_keys* out) {
-  u8 initial_secret[QUIC_HKDF_PRK];
-  u8 side_secret[QUIC_HKDF_PRK];
+  u8 initial_secret[HKDF_PRK];
+  u8 side_secret[HKDF_PRK];
   u8 buf[SUFFIX_MAX];
   hkdf_extract(initial_salt(version), dcid, initial_secret);
   derive_field(
       initial_secret, side_label(buf, is_server),
-      wired_mspan_of(side_secret, QUIC_HKDF_PRK));
+      wired_mspan_of(side_secret, HKDF_PRK));
   derive_keys(side_secret, version, out);
 }

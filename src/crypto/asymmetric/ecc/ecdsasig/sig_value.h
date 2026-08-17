@@ -1,5 +1,5 @@
-#ifndef QUIC_ECDSASIG_SIG_VALUE_H
-#define QUIC_ECDSASIG_SIG_VALUE_H
+#ifndef ECDSASIG_SIG_VALUE_H
+#define ECDSASIG_SIG_VALUE_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_FULLHS_FULLHS_H
-#define QUIC_FULLHS_FULLHS_H
+#ifndef FULLHS_FULLHS_H
+#define FULLHS_FULLHS_H
 
 #include "common/bytes/span/span.h"
 #include "crypto/pki/trust/castore/castore.h"
@@ -10,7 +10,7 @@
 /* Upper bound on the buffered handshake transcript (CH..our Finished). Sized
  * so a real-web certificate chain (leaf + intermediates, RSA included) plus
  * the rest of the flight fits. */
-#define QUIC_FULLHS_TRANSCRIPT_MAX 8192
+#define FULLHS_TRANSCRIPT_MAX 8192
 
 /** RFC 8446 4.4 / RFC 9001 4.1: full handshake driver. Picks up where the
  * tlsdriver leaves off (handshake secret derived over ClientHello..ServerHello)
@@ -26,20 +26,20 @@
 
 typedef struct {
   tlsdriver* tls; /* handshake-secret-ready driver, borrowed */
-  u8  tr[QUIC_FULLHS_TRANSCRIPT_MAX]; /* raw transcript bytes, CH onward */
-  usz tr_len;
-  usz master_tr_len; /* transcript length through the server Finished */
-  int is_server;
-  u8  hs_traffic_peer[QUIC_HKDF_PRK]; /* peer-direction hs traffic secret */
-  u8  hs_traffic_self[QUIC_HKDF_PRK]; /* own-direction hs traffic secret */
-  const u8* peer_cert; /* end-entity cert; points into tr (owned copy) */
-  usz       peer_cert_len;
-  u64       policy_now;      /* YYYYMMDDHHMMSS; 0 skips the validity check */
-  const u8* policy_host;     /* expected SAN dNSName, view (caller-owned) */
-  usz       policy_host_len; /* 0 skips the hostname check */
-  usz cert_off[QUIC_TLS_CERT_CHAIN_MAX]; /* each wire cert, offset into tr */
-  usz cert_lens[QUIC_TLS_CERT_CHAIN_MAX];
-  usz cert_count;
+  u8         tr[FULLHS_TRANSCRIPT_MAX]; /* raw transcript bytes, CH onward */
+  usz        tr_len;
+  usz        master_tr_len; /* transcript length through the server Finished */
+  int        is_server;
+  u8         hs_traffic_peer[HKDF_PRK]; /* peer-direction hs traffic secret */
+  u8         hs_traffic_self[HKDF_PRK]; /* own-direction hs traffic secret */
+  const u8*  peer_cert; /* end-entity cert; points into tr (owned copy) */
+  usz        peer_cert_len;
+  u64        policy_now;      /* YYYYMMDDHHMMSS; 0 skips the validity check */
+  const u8*  policy_host;     /* expected SAN dNSName, view (caller-owned) */
+  usz        policy_host_len; /* 0 skips the hostname check */
+  usz        cert_off[TLS_CERT_CHAIN_MAX]; /* each wire cert, offset into tr */
+  usz        cert_lens[TLS_CERT_CHAIN_MAX];
+  usz        cert_count;
   const castore* castore; /* NULL (init default) skips chain checks */
 } fullhs;
 

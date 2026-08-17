@@ -4,7 +4,7 @@ static void test_max_data(void) {
   data_frame in = {.value = 1048576};
   u8         buf[16];
   usz        w = max_data_encode(buf, sizeof(buf), &in);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_MAX_DATA);
+  CHECK(w != 0 && buf[0] == FRAME_MAX_DATA);
 
   data_frame out;
   usz        r = max_data_decode(buf, w, &out);
@@ -16,7 +16,7 @@ static void test_data_blocked(void) {
   data_frame in = {.value = 65536};
   u8         buf[16];
   usz        w = data_blocked_encode(buf, sizeof(buf), &in);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_DATA_BLOCKED);
+  CHECK(w != 0 && buf[0] == FRAME_DATA_BLOCKED);
 
   data_frame out;
   usz        r = data_blocked_decode(buf, w, &out);
@@ -28,7 +28,7 @@ static void test_max_stream_data(void) {
   stream_data_frame in = {.stream_id = 4, .value = 16384};
   u8                buf[16];
   usz               w = max_stream_data_encode(buf, sizeof(buf), &in);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_MAX_STREAM_DATA);
+  CHECK(w != 0 && buf[0] == FRAME_MAX_STREAM_DATA);
 
   stream_data_frame out;
   usz               r = max_stream_data_decode(buf, w, &out);
@@ -40,7 +40,7 @@ static void test_stream_data_blocked(void) {
   stream_data_frame in = {.stream_id = 8, .value = 100};
   u8                buf[16];
   usz               w = stream_data_blocked_encode(buf, sizeof(buf), &in);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_STREAM_DATA_BLOCKED);
+  CHECK(w != 0 && buf[0] == FRAME_STREAM_DATA_BLOCKED);
 
   stream_data_frame out;
   usz               r = stream_data_blocked_decode(buf, w, &out);
@@ -52,7 +52,7 @@ static void test_max_streams_bidi(void) {
   streams_frame in = {.max_streams = 50, .uni = 0};
   u8            buf[16];
   usz           w = max_streams_encode(buf, sizeof(buf), &in);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_MAX_STREAMS_BIDI);
+  CHECK(w != 0 && buf[0] == FRAME_MAX_STREAMS_BIDI);
 
   streams_frame out;
   usz           r = max_streams_decode(buf, w, &out);
@@ -64,7 +64,7 @@ static void test_max_streams_uni(void) {
   streams_frame in = {.max_streams = 7, .uni = 1};
   u8            buf[16];
   usz           w = max_streams_encode(buf, sizeof(buf), &in);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_MAX_STREAMS_UNI);
+  CHECK(w != 0 && buf[0] == FRAME_MAX_STREAMS_UNI);
 
   streams_frame out;
   usz           r = max_streams_decode(buf, w, &out);
@@ -75,7 +75,7 @@ static void test_streams_blocked_bidi(void) {
   streams_frame in = {.max_streams = 12, .uni = 0};
   u8            buf[16];
   usz           w = streams_blocked_encode(buf, sizeof(buf), &in);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_STREAMS_BLOCKED_BIDI);
+  CHECK(w != 0 && buf[0] == FRAME_STREAMS_BLOCKED_BIDI);
 
   streams_frame out;
   usz           r = streams_blocked_decode(buf, w, &out);
@@ -87,7 +87,7 @@ static void test_streams_blocked_uni(void) {
   streams_frame in = {.max_streams = 3, .uni = 1};
   u8            buf[16];
   usz           w = streams_blocked_encode(buf, sizeof(buf), &in);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_STREAMS_BLOCKED_UNI);
+  CHECK(w != 0 && buf[0] == FRAME_STREAMS_BLOCKED_UNI);
 
   streams_frame out;
   usz           r = streams_blocked_decode(buf, w, &out);

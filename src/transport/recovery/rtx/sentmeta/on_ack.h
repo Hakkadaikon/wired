@@ -1,5 +1,5 @@
-#ifndef QUIC_SENTMETA_ON_ACK_H
-#define QUIC_SENTMETA_ON_ACK_H
+#ifndef SENTMETA_ON_ACK_H
+#define SENTMETA_ON_ACK_H
 
 #include "transport/recovery/rtx/sentmeta/record.h"
 

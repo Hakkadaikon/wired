@@ -1,5 +1,5 @@
-#ifndef QUIC_CRECV_COLLECT_H
-#define QUIC_CRECV_COLLECT_H
+#ifndef CRECV_COLLECT_H
+#define CRECV_COLLECT_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -10,13 +10,13 @@
  * contiguous prefix from offset 0 is exposed to TLS. Fixed buffer, no alloc. */
 
 /** Reassembly buffer capacity in bytes. */
-#define QUIC_CRECV_BUF 2048
+#define CRECV_BUF 2048
 
 /** CRYPTO stream reassembly state. */
 typedef struct {
-  u8  buf[QUIC_CRECV_BUF];    /**< reassembled CRYPTO stream bytes */
-  u8  filled[QUIC_CRECV_BUF]; /**< 1 where a byte has been written */
-  usz received_to;            /**< contiguous bytes available from offset 0 */
+  u8  buf[CRECV_BUF];    /**< reassembled CRYPTO stream bytes */
+  u8  filled[CRECV_BUF]; /**< 1 where a byte has been written */
+  usz received_to;       /**< contiguous bytes available from offset 0 */
 } crecv;
 
 /** Start with an empty reassembly buffer.

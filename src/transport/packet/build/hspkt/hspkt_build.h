@@ -1,5 +1,5 @@
-#ifndef QUIC_HSPKT_HSPKT_BUILD_H
-#define QUIC_HSPKT_HSPKT_BUILD_H
+#ifndef HSPKT_HSPKT_BUILD_H
+#define HSPKT_HSPKT_BUILD_H
 
 #include "transport/packet/protect/protect/protect.h"
 
@@ -18,7 +18,7 @@ typedef struct {
 /* Seal with the Handshake keys k and write the protected packet into out;
  * length to out->len. Returns 1 on success, 0 on overflow (AES-128-GCM;
  * equivalent to hspkt_build_suite with suite =
- * QUIC_TLS_AES_128_GCM_SHA256). */
+ * TLS_AES_128_GCM_SHA256). */
 int hspkt_build(const protect_keys* k, const hspkt_desc* d, wired_obuf* out);
 
 /* Same as hspkt_build, but seals under the given negotiated TLS 1.3

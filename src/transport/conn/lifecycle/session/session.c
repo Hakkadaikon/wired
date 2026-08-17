@@ -9,8 +9,8 @@
 #include "transport/packet/protect/protect/protect.h"
 #include "transport/version/version/version.h"
 
-#define QUIC_SESSION_CA 0x0a000001u
-#define QUIC_SESSION_SA 0x0a000002u
+#define SESSION_CA 0x0a000001u
+#define SESSION_SA 0x0a000002u
 
 /* Wrap a QUIC packet in UDP+IPv4 and push it onto the link (no syscall). */
 static int link_tx(memlink* l, wired_span qpkt, ipv4addrs addrs) {
@@ -19,8 +19,7 @@ static int link_tx(memlink* l, wired_span qpkt, ipv4addrs addrs) {
   wired_obuf ub   = obuf_of(udp, sizeof(udp));
   usz        un   = udp4_build(&ub, &meta, qpkt);
   ipv4_build(
-      ip,
-      &(ipv4_head){(u16)(20 + un), addrs.src, addrs.dst, QUIC_IP_PROTO_UDP});
+      ip, &(ipv4_head){(u16)(20 + un), addrs.src, addrs.dst, IP_PROTO_UDP});
   for (usz i = 0; i < 20; i++) frame[i] = ip[i];
   for (usz i = 0; i < un; i++) frame[20 + i] = udp[i];
   return memlink_send(l, frame, 20 + un);
@@ -42,9 +41,9 @@ static usz link_rx(memlink* l, wired_obuf* out, ipv4addrs addrs) {
   u8  frame[1520];
   usz fn = memlink_recv(l, frame, sizeof(frame));
   if (!env_ok(wired_span_of(frame, fn), addrs)) return 0;
-  usz qlen = fn - 20 - QUIC_UDP_HDR;
+  usz qlen = fn - 20 - UDP_HDR;
   usz n    = (qlen < out->cap) ? qlen : out->cap;
-  copy_n(out->p, frame + 20 + QUIC_UDP_HDR, n);
+  copy_n(out->p, frame + 20 + UDP_HDR, n);
   return qlen;
 }
 
@@ -62,7 +61,7 @@ static void fill_header(u8 hdr[18], u8 byte0, const u8 dcid[8], u8 pn_low) {
 void session_init(session* s, const session_init_in* in) {
   endpoint_init(&s->ep, in->priv, in->dcid);
   conn_init(&s->conn);
-  initial_derive(wired_span_of(in->dcid, 8), 0, QUIC_VERSION_1, &s->ikeys);
+  initial_derive(wired_span_of(in->dcid, 8), 0, VERSION_1, &s->ikeys);
   aes128_init(&s->ihp, s->ikeys.hp);
   s->link      = in->link;
   s->is_server = in->is_server;
@@ -73,8 +72,8 @@ void session_init(session* s, const session_init_in* in) {
 int session_client_hello(session* s) {
   u8  hello[256], crypto[300], hdr[18], out[1200];
   u8  rnd[32] = {0};
-  usz hl      = hs_build_hello(
-      hello, sizeof(hello), QUIC_HS_CLIENT_HELLO, rnd, s->ep.pub);
+  usz hl =
+      hs_build_hello(hello, sizeof(hello), HS_CLIENT_HELLO, rnd, s->ep.pub);
   crypto_frame cf = {.offset = 0, .length = hl, .data = hello};
   usz          cl = frame_put_crypto(crypto, sizeof(crypto), &cf);
   fill_header(hdr, 0xc3, s->dcid, 1);
@@ -85,8 +84,7 @@ int session_client_hello(session* s) {
   usz pn = protect_seal(&k, &io);
   if (pn == 0) return 0;
   return link_tx(
-      s->link, wired_span_of(out, pn),
-      (ipv4addrs){QUIC_SESSION_CA, QUIC_SESSION_SA});
+      s->link, wired_span_of(out, pn), (ipv4addrs){SESSION_CA, SESSION_SA});
 }
 
 /* Decode a received Initial's CRYPTO frame and extract the peer's share. */
@@ -111,12 +109,12 @@ static usz open_initial(session* s, u8* pkt, usz rn) {
 int session_accept(session* s) {
   u8         pkt[1200];
   wired_obuf ob = obuf_of(pkt, sizeof(pkt));
-  usz rn = link_rx(s->link, &ob, (ipv4addrs){QUIC_SESSION_CA, QUIC_SESSION_SA});
-  usz pl = open_initial(s, pkt, rn);
+  usz        rn = link_rx(s->link, &ob, (ipv4addrs){SESSION_CA, SESSION_SA});
+  usz        pl = open_initial(s, pkt, rn);
   if (pl == 0) return 0;
   if (!read_share(pkt, pl, s->peer_pub)) return 0;
   s->have_peer = 1;
-  conn_step(&s->conn, QUIC_CONN_EV_HS_PROGRESS);
+  conn_step(&s->conn, CONN_EV_HS_PROGRESS);
   return 1;
 }
 
@@ -139,19 +137,19 @@ static int agree_both(session* client, session* server, wired_span tr) {
 int session_finish(session* client, session* server, wired_span transcript) {
   if (!server->have_peer) return 0;
   if (!agree_both(client, server, transcript)) return 0;
-  conn_step(&client->conn, QUIC_CONN_EV_HS_CONFIRMED);
-  conn_step(&server->conn, QUIC_CONN_EV_HS_CONFIRMED);
+  conn_step(&client->conn, CONN_EV_HS_CONFIRMED);
+  conn_step(&server->conn, CONN_EV_HS_CONFIRMED);
   return 1;
 }
 
 /* Our own IPv4 address on the link, by role. */
 static u32 my_addr(int is_server) {
-  return is_server ? QUIC_SESSION_SA : QUIC_SESSION_CA;
+  return is_server ? SESSION_SA : SESSION_CA;
 }
 
 /* The peer's IPv4 address on the link, by role. */
 static u32 peer_addr(int is_server) {
-  return is_server ? QUIC_SESSION_CA : QUIC_SESSION_SA;
+  return is_server ? SESSION_CA : SESSION_SA;
 }
 
 int session_send_stream(session* s, const session_msg* m) {

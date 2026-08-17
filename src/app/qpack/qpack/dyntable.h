@@ -1,5 +1,5 @@
-#ifndef QUIC_QPACK_DYNTABLE_H
-#define QUIC_QPACK_DYNTABLE_H
+#ifndef QPACK_DYNTABLE_H
+#define QPACK_DYNTABLE_H
 
 #include "app/qpack/qpack/field.h"
 
@@ -8,23 +8,23 @@
  * entries are evicted when capacity is exceeded. Names and values are stored
  * inline with fixed per-field upper bounds (no allocation, no libc). */
 
-#define QUIC_QPACK_DYN_MAX_ENTRIES 64
-#define QUIC_QPACK_DYN_MAX_NAME 256
-#define QUIC_QPACK_DYN_MAX_VALUE 1024
+#define QPACK_DYN_MAX_ENTRIES 64
+#define QPACK_DYN_MAX_NAME 256
+#define QPACK_DYN_MAX_VALUE 1024
 
 /** RFC 9204 3.2. One inserted (name, value) pair stored in the dynamic
  * table, with its byte lengths. */
 typedef struct {
-  u8  name[QUIC_QPACK_DYN_MAX_NAME];   /**< entry name bytes */
-  u8  value[QUIC_QPACK_DYN_MAX_VALUE]; /**< entry value bytes */
-  usz name_len;                        /**< bytes used in name */
-  usz value_len;                       /**< bytes used in value */
+  u8  name[QPACK_DYN_MAX_NAME];   /**< entry name bytes */
+  u8  value[QPACK_DYN_MAX_VALUE]; /**< entry value bytes */
+  usz name_len;                   /**< bytes used in name */
+  usz value_len;                  /**< bytes used in value */
 } qpack_dyn_entry;
 
 /** RFC 9204 3.2. A QPACK dynamic table instance: the entry ring, its live
  * range, and the byte-size accounting eviction and capacity changes use. */
 typedef struct {
-  qpack_dyn_entry ring[QUIC_QPACK_DYN_MAX_ENTRIES]; /**< entry storage */
+  qpack_dyn_entry ring[QPACK_DYN_MAX_ENTRIES]; /**< entry storage */
   usz             head;     /**< physical slot of the oldest live entry */
   usz             count;    /**< number of live entries */
   u64             dropped;  /**< absolute index of the oldest live entry */

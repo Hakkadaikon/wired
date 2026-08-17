@@ -8,8 +8,8 @@ static void test_availfilter_grease_excluded(void) {
 
 /* Real versions are usable. */
 static void test_availfilter_real_usable(void) {
-  CHECK(verinfo_is_usable(QUIC_VERSION_1) == 1);
-  CHECK(verinfo_is_usable(QUIC_VERSION_2) == 1);
+  CHECK(verinfo_is_usable(VERSION_1) == 1);
+  CHECK(verinfo_is_usable(VERSION_2) == 1);
 }
 
 void test_availfilter(void) {

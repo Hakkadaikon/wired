@@ -36,10 +36,10 @@ static void test_hrr_build_no_cookie(void) {
   const u8 * body, *ext, *sv, *kse;
   wired_obuf ob = obuf_of(out, sizeof out);
 
-  CHECK(hrr_build(QUIC_GROUP_X25519, wired_span_of(0, 0), &ob) == 1);
+  CHECK(hrr_build(GROUP_X25519, wired_span_of(0, 0), &ob) == 1);
   len = ob.len;
   CHECK(hs_parse(wired_span_of(out, len), &type, &body_len) == 4);
-  CHECK(type == QUIC_HS_SERVER_HELLO);
+  CHECK(type == HS_SERVER_HELLO);
 
   body = out + 4;
   CHECK(hrrt_rd16(body) == 0x0303); /* legacy_version */
@@ -49,11 +49,11 @@ static void test_hrr_build_no_cookie(void) {
   ext_total = hrrt_rd16(ext);
   ext += 2;
 
-  sv = hrr_find_ext(ext, ext_total, QUIC_EXT_SUPPORTED_VERSIONS, &elen);
+  sv = hrr_find_ext(ext, ext_total, EXT_SUPPORTED_VERSIONS, &elen);
   CHECK(sv != 0 && elen == 2 && hrrt_rd16(sv) == 0x0304);
 
-  kse = hrr_find_ext(ext, ext_total, QUIC_EXT_KEY_SHARE, &elen);
-  CHECK(kse != 0 && elen == 2 && hrrt_rd16(kse) == QUIC_GROUP_X25519);
+  kse = hrr_find_ext(ext, ext_total, EXT_KEY_SHARE, &elen);
+  CHECK(kse != 0 && elen == 2 && hrrt_rd16(kse) == GROUP_X25519);
 
   CHECK(hrr_find_ext(ext, ext_total, 44, &elen) == 0); /* no cookie */
 }
@@ -65,7 +65,7 @@ static void test_hrr_build_cookie(void) {
   const u8 * ext, *c;
   wired_obuf ob = obuf_of(out, sizeof out);
 
-  CHECK(hrr_build(QUIC_GROUP_X25519, wired_span_of(ck, 5), &ob) == 1);
+  CHECK(hrr_build(GROUP_X25519, wired_span_of(ck, 5), &ob) == 1);
   ext       = out + 4 + 38;
   ext_total = hrrt_rd16(ext);
   ext += 2;
@@ -77,7 +77,7 @@ static void test_hrr_build_cookie(void) {
 static void test_hrr_build_overflow(void) {
   u8         out[16];
   wired_obuf ob = obuf_of(out, 8);
-  CHECK(hrr_build(QUIC_GROUP_X25519, wired_span_of(0, 0), &ob) == 0);
+  CHECK(hrr_build(GROUP_X25519, wired_span_of(0, 0), &ob) == 0);
 }
 
 /* RFC 8446 4.4.1: message_hash is msg_type 254, the usual 4-byte handshake

@@ -7,7 +7,7 @@ static void test_fill_readable(void) {
   p.revents = 0xFFFF; /* dirty; fill must clear it */
   poll_fill_readable(&p, 7);
   CHECK(p.fd == 7);
-  CHECK(p.events == QUIC_POLLIN);
+  CHECK(p.events == POLLIN);
   CHECK(p.events == 0x001);
   CHECK(p.revents == 0);
 }
@@ -34,7 +34,7 @@ static void test_min_deadline(void) {
 
 /* O_NONBLOCK is OR-ed in without disturbing existing flags. */
 static void test_nonblock_flags(void) {
-  CHECK(QUIC_O_NONBLOCK == 0x800);
+  CHECK(O_NONBLOCK == 0x800);
   CHECK(poll_nonblock_flags(0) == 0x800);
   CHECK(poll_nonblock_flags(0x2) == 0x802);   /* keep O_RDWR */
   CHECK(poll_nonblock_flags(0x800) == 0x800); /* idempotent */

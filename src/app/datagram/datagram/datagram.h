@@ -1,5 +1,5 @@
-#ifndef QUIC_DATAGRAM_DATAGRAM_H
-#define QUIC_DATAGRAM_DATAGRAM_H
+#ifndef DATAGRAM_DATAGRAM_H
+#define DATAGRAM_DATAGRAM_H
 
 #include "common/bytes/span/span.h"
 
@@ -7,12 +7,12 @@
  * no length (data runs to the packet end); 0x31 carries an explicit length.
  * Datagrams are ack-eliciting but never retransmitted. */
 
-#define QUIC_FRAME_DATAGRAM 0x30     /* no LEN */
-#define QUIC_FRAME_DATAGRAM_LEN 0x31 /* LEN bit set */
-#define QUIC_DATAGRAM_LEN_BIT 0x01
+#define FRAME_DATAGRAM 0x30     /* no LEN */
+#define FRAME_DATAGRAM_LEN 0x31 /* LEN bit set */
+#define DATAGRAM_LEN_BIT 0x01
 
 /* max_datagram_frame_size transport parameter (RFC 9221 3). */
-#define QUIC_TP_MAX_DATAGRAM_FRAME_SIZE 0x20
+#define TP_MAX_DATAGRAM_FRAME_SIZE 0x20
 
 /** RFC 9221: a decoded DATAGRAM frame view (data borrowed in place). */
 typedef struct {

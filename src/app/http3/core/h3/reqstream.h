@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_REQSTREAM_H
-#define QUIC_H3_REQSTREAM_H
+#ifndef H3_REQSTREAM_H
+#define H3_REQSTREAM_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -12,10 +12,10 @@
 /** RFC 9114 4.1: a request/response stream's expected frame-ordering state.
  */
 typedef enum {
-  QUIC_H3_REQ_START = 0, /* nothing received; expecting leading HEADERS */
-  QUIC_H3_REQ_HEADERS,   /* leading HEADERS seen; DATA or trailer may follow */
-  QUIC_H3_REQ_DATA,      /* at least one DATA seen */
-  QUIC_H3_REQ_TRAILERS   /* trailing HEADERS seen; nothing more allowed */
+  H3_REQ_START = 0, /* nothing received; expecting leading HEADERS */
+  H3_REQ_HEADERS,   /* leading HEADERS seen; DATA or trailer may follow */
+  H3_REQ_DATA,      /* at least one DATA seen */
+  H3_REQ_TRAILERS   /* trailing HEADERS seen; nothing more allowed */
 } h3_req_state;
 
 /* Feed the next frame type on a request stream. Returns 1 if the frame is

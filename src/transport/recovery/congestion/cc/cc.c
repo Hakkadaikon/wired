@@ -4,10 +4,10 @@
 #include "transport/recovery/congestion/cc/cubic.h"
 #include "transport/recovery/congestion/cc/pacing.h"
 
-void cc_init(cc* c) { cc_init_algo(c, QUIC_CC_ALGO_NEWRENO); }
+void cc_init(cc* c) { cc_init_algo(c, CC_ALGO_NEWRENO); }
 
 void cc_init_algo(cc* c, int algo) {
-  c->cwnd           = QUIC_CC_INIT_WINDOW;
+  c->cwnd           = CC_INIT_WINDOW;
   c->ssthresh       = ~(u64)0; /* "infinite" until the first loss */
   c->in_recovery    = 0;
   c->recovery_start = 0;
@@ -23,8 +23,8 @@ void cc_init_algo(cc* c, int algo) {
 /* Grow the window: exponential in slow start, linear in avoidance. */
 static void grow(cc* c, u64 acked) {
   u64 inc = (c->cwnd < c->ssthresh)
-                ? acked                                     /* slow start */
-                : (u64)QUIC_MAX_DATAGRAM * acked / c->cwnd; /* avoidance */
+                ? acked                                /* slow start */
+                : (u64)MAX_DATAGRAM * acked / c->cwnd; /* avoidance */
   c->cwnd += inc;
 }
 
@@ -41,8 +41,7 @@ static void grow_cubic(cc* c, u64 acked, u64 now) {
     grow(c, acked);
     return;
   }
-  target =
-      cubic_w(now - c->epoch_ms, c->k_ms, c->w_max_seg) * QUIC_MAX_DATAGRAM;
+  target = cubic_w(now - c->epoch_ms, c->k_ms, c->w_max_seg) * MAX_DATAGRAM;
   if (target > c->cwnd) c->cwnd = target;
 }
 
@@ -53,7 +52,7 @@ static void feed_bbr(cc* c, u64 acked, u64 sent_time, u64 now) {
 }
 
 static void grow_algo(cc* c, u64 acked, u64 now) {
-  if (c->algo == QUIC_CC_ALGO_CUBIC) {
+  if (c->algo == CC_ALGO_CUBIC) {
     grow_cubic(c, acked, now);
     return;
   }
@@ -61,7 +60,7 @@ static void grow_algo(cc* c, u64 acked, u64 now) {
 }
 
 void cc_on_ack(cc* c, u64 acked, u64 sent_time, u64 now) {
-  if (c->algo == QUIC_CC_ALGO_BBR) {
+  if (c->algo == CC_ALGO_BBR) {
     feed_bbr(c, acked, sent_time, now);
     return;
   }
@@ -72,16 +71,16 @@ void cc_on_ack(cc* c, u64 acked, u64 sent_time, u64 now) {
 /* RFC 9438 4.6/4.7: remember W_max (fast convergence), re-anchor the cubic
  * epoch at this loss, shrink by beta_cubic (0.7). */
 static u64 loss_window_cubic(cc* c, u64 now) {
-  u64 w_seg    = c->cwnd / QUIC_MAX_DATAGRAM;
+  u64 w_seg    = c->cwnd / MAX_DATAGRAM;
   c->w_max_seg = cubic_wmax_fastconv(w_seg, c->w_max_seg);
   c->k_ms      = cubic_k_ms(c->w_max_seg);
   c->epoch_ms  = now;
-  return u64_max(c->cwnd * 7 / 10, QUIC_CC_MIN_WINDOW);
+  return u64_max(c->cwnd * 7 / 10, CC_MIN_WINDOW);
 }
 
 static u64 loss_window(cc* c, u64 now) {
-  if (c->algo == QUIC_CC_ALGO_CUBIC) return loss_window_cubic(c, now);
-  return u64_max(c->cwnd / 2, QUIC_CC_MIN_WINDOW);
+  if (c->algo == CC_ALGO_CUBIC) return loss_window_cubic(c, now);
+  return u64_max(c->cwnd / 2, CC_MIN_WINDOW);
 }
 
 void cc_on_loss(cc* c, u64 sent_time, u64 now) {
@@ -92,7 +91,7 @@ void cc_on_loss(cc* c, u64 sent_time, u64 now) {
   c->recovery_start = now;
 }
 
-void cc_on_persistent(cc* c) { c->cwnd = QUIC_CC_MIN_WINDOW; }
+void cc_on_persistent(cc* c) { c->cwnd = CC_MIN_WINDOW; }
 
 /* The bandwidth-delay product in bytes (btl_bw B/ms x rtprop ms). */
 static u64 bbr_bdp(const cc* c) { return c->bbr.btl_bw * c->bbr.rtprop_ms; }
@@ -100,12 +99,12 @@ static u64 bbr_bdp(const cc* c) { return c->bbr.btl_bw * c->bbr.rtprop_ms; }
 /* A starved round -- far fewer bytes delivered than the window would carry
  * (loss-stalled, idle, or app-limited) -- proves nothing about the
  * bottleneck: its sample may only RAISE the estimate. Feeding it into the
- * max filter would age the real peak out within QUIC_BBR_BW_WIN rounds and
+ * max filter would age the real peak out within BBR_BW_WIN rounds and
  * spiral cwnd down to the floor (observed live: a startup loss storm
  * starved a few rounds, btl_bw collapsed, and the transfer never
  * recovered). */
 static int bbr_round_counts(const cc* c, u64 rate) {
-  int starved = c->round_bytes + QUIC_MAX_DATAGRAM < c->cwnd;
+  int starved = c->round_bytes + MAX_DATAGRAM < c->cwnd;
   return !starved || rate > c->bbr.btl_bw;
 }
 
@@ -132,18 +131,17 @@ static void bbr_round_close(cc* c, u64 now_ms) {
  * so ACK clocking survives a collapsed estimate -- at 2 packets a
  * delayed-ACK peer measures rtt ~2x rtprop and the tiny bandwidth estimate
  * becomes self-consistent (a 2400-byte cwnd fixed point, observed live). */
-#define QUIC_CC_BBR_MIN_CWND (4 * QUIC_MAX_DATAGRAM)
+#define CC_BBR_MIN_CWND (4 * MAX_DATAGRAM)
 
 /* cwnd = cwnd_gain x BDP once the estimators have data. */
 static void bbr_set_cwnd(cc* c) {
   u64 bdp = bbr_bdp(c);
   if (!bdp) return;
-  c->cwnd =
-      u64_max(bbr_cwnd_gain_pct(&c->bbr) * bdp / 100, QUIC_CC_BBR_MIN_CWND);
+  c->cwnd = u64_max(bbr_cwnd_gain_pct(&c->bbr) * bdp / 100, CC_BBR_MIN_CWND);
 }
 
 void cc_bbr_tick(cc* c, u64 inflight_bytes, u64 now_ms) {
-  if (c->algo != QUIC_CC_ALGO_BBR) return;
+  if (c->algo != CC_ALGO_BBR) return;
   bbr_round_close(c, now_ms);
   bbr_drained(&c->bbr, inflight_bytes <= bbr_bdp(c));
   if (!bbr_check_probe_rtt(&c->bbr, now_ms))
@@ -169,6 +167,6 @@ static u64 newreno_pacing_ms(const cc* c, u64 srtt_ms, u64 mtu) {
 }
 
 u64 cc_pacing_ms(const cc* c, u64 srtt_ms, u64 mtu) {
-  if (c->algo == QUIC_CC_ALGO_BBR) return bbr_pacing_ms(c, mtu);
+  if (c->algo == CC_ALGO_BBR) return bbr_pacing_ms(c, mtu);
   return newreno_pacing_ms(c, srtt_ms, mtu);
 }

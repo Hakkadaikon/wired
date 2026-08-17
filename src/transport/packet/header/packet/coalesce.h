@@ -1,5 +1,5 @@
-#ifndef QUIC_PACKET_COALESCE_H
-#define QUIC_PACKET_COALESCE_H
+#ifndef PACKET_COALESCE_H
+#define PACKET_COALESCE_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -16,11 +16,9 @@ static void test_moqsess_establish(void) {
   moqsess s;
   moqsess_init(&s);
   CHECK(moqsess_should_buffer(&s) == 1);
-  CHECK(
-      moqsess_step(&s, QUIC_MOQSESS_EV_SENT_SETUP) == QUIC_MOQSESS_CLOSE_NONE);
+  CHECK(moqsess_step(&s, MOQSESS_EV_SENT_SETUP) == MOQSESS_CLOSE_NONE);
   CHECK(moqsess_established(&s) == 0);
-  CHECK(
-      moqsess_step(&s, QUIC_MOQSESS_EV_RECV_SETUP) == QUIC_MOQSESS_CLOSE_NONE);
+  CHECK(moqsess_step(&s, MOQSESS_EV_RECV_SETUP) == MOQSESS_CLOSE_NONE);
   CHECK(moqsess_established(&s) == 1);
   CHECK(moqsess_should_buffer(&s) == 0);
 }
@@ -31,11 +29,11 @@ static void test_moqsess_establish(void) {
 static void test_moqsess_established_accepts_request(void) {
   moqsess s;
   moqsess_init(&s);
-  moqsess_step(&s, QUIC_MOQSESS_EV_SENT_SETUP);
-  moqsess_step(&s, QUIC_MOQSESS_EV_RECV_SETUP);
+  moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
+  moqsess_step(&s, MOQSESS_EV_RECV_SETUP);
   CHECK(moqsess_established(&s) == 1);
   CHECK(moqsess_should_buffer(&s) == 0);
-  CHECK(s.state == QUIC_MOQSESS_ESTABLISHED);
+  CHECK(s.state == MOQSESS_ESTABLISHED);
 }
 
 /* Pipelined request right after sending own SETUP (peer's not yet
@@ -44,11 +42,10 @@ static void test_moqsess_established_accepts_request(void) {
 static void test_moqsess_pipeline_before_peer_setup(void) {
   moqsess s;
   moqsess_init(&s);
-  moqsess_step(&s, QUIC_MOQSESS_EV_SENT_SETUP);
-  CHECK(s.state == QUIC_MOQSESS_SETUP_HALF);
+  moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
+  CHECK(s.state == MOQSESS_SETUP_HALF);
   CHECK(moqsess_may_reject_request(&s) == 0);
-  CHECK(
-      moqsess_step(&s, QUIC_MOQSESS_EV_RECV_SETUP) == QUIC_MOQSESS_CLOSE_NONE);
+  CHECK(moqsess_step(&s, MOQSESS_EV_RECV_SETUP) == MOQSESS_CLOSE_NONE);
   CHECK(moqsess_established(&s) == 1);
 }
 
@@ -61,9 +58,9 @@ static void test_moqsess_buffer_before_setup_then_deliver(void) {
   moqsess s;
   moqsess_init(&s);
   CHECK(moqsess_should_buffer(&s) == 1); /* stream arrives here */
-  moqsess_step(&s, QUIC_MOQSESS_EV_RECV_SETUP);
+  moqsess_step(&s, MOQSESS_EV_RECV_SETUP);
   CHECK(moqsess_should_buffer(&s) == 1); /* still half-open */
-  moqsess_step(&s, QUIC_MOQSESS_EV_SENT_SETUP);
+  moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
   CHECK(moqsess_should_buffer(&s) == 0); /* now deliverable */
 }
 
@@ -74,8 +71,8 @@ static void test_moqsess_pre_setup_reset_window(void) {
   moqsess s;
   moqsess_init(&s);
   CHECK(moqsess_should_buffer(&s) == 1);
-  moqsess_step(&s, QUIC_MOQSESS_EV_SENT_SETUP);
-  moqsess_step(&s, QUIC_MOQSESS_EV_RECV_SETUP);
+  moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
+  moqsess_step(&s, MOQSESS_EV_RECV_SETUP);
   CHECK(moqsess_should_buffer(&s) == 0);
 }
 
@@ -84,12 +81,11 @@ static void test_moqsess_pre_setup_reset_window(void) {
 static void test_moqsess_goaway_reject_new_request(void) {
   moqsess s;
   moqsess_init(&s);
-  moqsess_step(&s, QUIC_MOQSESS_EV_SENT_SETUP);
-  moqsess_step(&s, QUIC_MOQSESS_EV_RECV_SETUP);
-  CHECK(
-      moqsess_step(&s, QUIC_MOQSESS_EV_SEND_GOAWAY) == QUIC_MOQSESS_CLOSE_NONE);
+  moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
+  moqsess_step(&s, MOQSESS_EV_RECV_SETUP);
+  CHECK(moqsess_step(&s, MOQSESS_EV_SEND_GOAWAY) == MOQSESS_CLOSE_NONE);
   CHECK(moqsess_may_reject_request(&s) == 1);
-  CHECK(s.state == QUIC_MOQSESS_ESTABLISHED);
+  CHECK(s.state == MOQSESS_ESTABLISHED);
 }
 
 /* Established session, GOAWAY received: the receiver should not initiate
@@ -99,12 +95,11 @@ static void test_moqsess_goaway_reject_new_request(void) {
 static void test_moqsess_goaway_clean_shutdown(void) {
   moqsess s;
   moqsess_init(&s);
-  moqsess_step(&s, QUIC_MOQSESS_EV_SENT_SETUP);
-  moqsess_step(&s, QUIC_MOQSESS_EV_RECV_SETUP);
-  CHECK(
-      moqsess_step(&s, QUIC_MOQSESS_EV_RECV_GOAWAY) == QUIC_MOQSESS_CLOSE_NONE);
+  moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
+  moqsess_step(&s, MOQSESS_EV_RECV_SETUP);
+  CHECK(moqsess_step(&s, MOQSESS_EV_RECV_GOAWAY) == MOQSESS_CLOSE_NONE);
   CHECK(moqsess_suppress_own_requests(&s) == 1);
-  CHECK(s.state == QUIC_MOQSESS_ESTABLISHED);
+  CHECK(s.state == MOQSESS_ESTABLISHED);
 }
 
 /* ---------- violation / abnormal ---------- */
@@ -114,11 +109,11 @@ static void test_moqsess_goaway_clean_shutdown(void) {
 static void test_moqsess_goaway_timeout_closes(void) {
   moqsess s;
   moqsess_init(&s);
-  moqsess_step(&s, QUIC_MOQSESS_EV_SEND_GOAWAY);
+  moqsess_step(&s, MOQSESS_EV_SEND_GOAWAY);
   CHECK(
-      moqsess_step(&s, QUIC_MOQSESS_EV_GOAWAY_TIMEOUT) ==
-      QUIC_MOQSESS_CLOSE_GOAWAY_TIMEOUT);
-  CHECK(s.state == QUIC_MOQSESS_CLOSED);
+      moqsess_step(&s, MOQSESS_EV_GOAWAY_TIMEOUT) ==
+      MOQSESS_CLOSE_GOAWAY_TIMEOUT);
+  CHECK(s.state == MOQSESS_CLOSED);
 }
 
 /* New request stream's first message is not a First-type message ->
@@ -127,22 +122,22 @@ static void test_moqsess_goaway_timeout_closes(void) {
 static void test_moqsess_bad_first_message(void) {
   moqsess s;
   moqsess_init(&s);
-  moqsess_step(&s, QUIC_MOQSESS_EV_SENT_SETUP);
-  moqsess_step(&s, QUIC_MOQSESS_EV_RECV_SETUP);
+  moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
+  moqsess_step(&s, MOQSESS_EV_RECV_SETUP);
   CHECK(
-      moqsess_step(&s, QUIC_MOQSESS_EV_BAD_FIRST) ==
-      QUIC_MOQSESS_CLOSE_PROTOCOL_VIOLATION);
+      moqsess_step(&s, MOQSESS_EV_BAD_FIRST) ==
+      MOQSESS_CLOSE_PROTOCOL_VIOLATION);
 }
 
 /* Request ID parity does not match the sender -> INVALID_REQUEST_ID. */
 static void test_moqsess_bad_request_id_parity(void) {
   moqsess s;
   moqsess_init(&s);
-  moqsess_step(&s, QUIC_MOQSESS_EV_SENT_SETUP);
-  moqsess_step(&s, QUIC_MOQSESS_EV_RECV_SETUP);
+  moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
+  moqsess_step(&s, MOQSESS_EV_RECV_SETUP);
   CHECK(
-      moqsess_step(&s, QUIC_MOQSESS_EV_BAD_REQUEST_ID) ==
-      QUIC_MOQSESS_CLOSE_INVALID_REQUEST_ID);
+      moqsess_step(&s, MOQSESS_EV_BAD_REQUEST_ID) ==
+      MOQSESS_CLOSE_INVALID_REQUEST_ID);
 }
 
 /* A reused Request ID -> also INVALID_REQUEST_ID (same event/output as
@@ -150,12 +145,12 @@ static void test_moqsess_bad_request_id_parity(void) {
 static void test_moqsess_duplicate_request_id(void) {
   moqsess s;
   moqsess_init(&s);
-  moqsess_step(&s, QUIC_MOQSESS_EV_SENT_SETUP);
-  moqsess_step(&s, QUIC_MOQSESS_EV_RECV_SETUP);
+  moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
+  moqsess_step(&s, MOQSESS_EV_RECV_SETUP);
   CHECK(
-      moqsess_step(&s, QUIC_MOQSESS_EV_BAD_REQUEST_ID) ==
-      QUIC_MOQSESS_CLOSE_INVALID_REQUEST_ID);
-  CHECK(s.state == QUIC_MOQSESS_CLOSED);
+      moqsess_step(&s, MOQSESS_EV_BAD_REQUEST_ID) ==
+      MOQSESS_CLOSE_INVALID_REQUEST_ID);
+  CHECK(s.state == MOQSESS_CLOSED);
 }
 
 /* Unknown message type, or a Length/Body mismatch, on the control stream
@@ -163,21 +158,21 @@ static void test_moqsess_duplicate_request_id(void) {
 static void test_moqsess_malformed_control_message(void) {
   moqsess s;
   moqsess_init(&s);
-  moqsess_step(&s, QUIC_MOQSESS_EV_RECV_SETUP);
+  moqsess_step(&s, MOQSESS_EV_RECV_SETUP);
   CHECK(
-      moqsess_step(&s, QUIC_MOQSESS_EV_MALFORMED_CTRL) ==
-      QUIC_MOQSESS_CLOSE_PROTOCOL_VIOLATION);
+      moqsess_step(&s, MOQSESS_EV_MALFORMED_CTRL) ==
+      MOQSESS_CLOSE_PROTOCOL_VIOLATION);
 }
 
 /* Control stream closed at the transport layer -> PROTOCOL_VIOLATION. */
 static void test_moqsess_ctrl_stream_transport_close(void) {
   moqsess s;
   moqsess_init(&s);
-  moqsess_step(&s, QUIC_MOQSESS_EV_SENT_SETUP);
-  moqsess_step(&s, QUIC_MOQSESS_EV_RECV_SETUP);
+  moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
+  moqsess_step(&s, MOQSESS_EV_RECV_SETUP);
   CHECK(
-      moqsess_step(&s, QUIC_MOQSESS_EV_CTRL_CLOSED) ==
-      QUIC_MOQSESS_CLOSE_PROTOCOL_VIOLATION);
+      moqsess_step(&s, MOQSESS_EV_CTRL_CLOSED) ==
+      MOQSESS_CLOSE_PROTOCOL_VIOLATION);
 }
 
 /* Unidirectional stream with an unknown head type identifier ->
@@ -185,24 +180,23 @@ static void test_moqsess_ctrl_stream_transport_close(void) {
 static void test_moqsess_unknown_uni_stream_type(void) {
   moqsess s;
   moqsess_init(&s);
-  moqsess_step(&s, QUIC_MOQSESS_EV_SENT_SETUP);
-  moqsess_step(&s, QUIC_MOQSESS_EV_RECV_SETUP);
+  moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
+  moqsess_step(&s, MOQSESS_EV_RECV_SETUP);
   CHECK(
-      moqsess_step(&s, QUIC_MOQSESS_EV_UNKNOWN_UNI) ==
-      QUIC_MOQSESS_CLOSE_PROTOCOL_VIOLATION);
+      moqsess_step(&s, MOQSESS_EV_UNKNOWN_UNI) ==
+      MOQSESS_CLOSE_PROTOCOL_VIOLATION);
 }
 
 /* A 2nd GOAWAY on the same control stream -> PROTOCOL_VIOLATION. */
 static void test_moqsess_second_goaway(void) {
   moqsess s;
   moqsess_init(&s);
-  moqsess_step(&s, QUIC_MOQSESS_EV_SENT_SETUP);
-  moqsess_step(&s, QUIC_MOQSESS_EV_RECV_SETUP);
+  moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
+  moqsess_step(&s, MOQSESS_EV_RECV_SETUP);
+  CHECK(moqsess_step(&s, MOQSESS_EV_RECV_GOAWAY) == MOQSESS_CLOSE_NONE);
   CHECK(
-      moqsess_step(&s, QUIC_MOQSESS_EV_RECV_GOAWAY) == QUIC_MOQSESS_CLOSE_NONE);
-  CHECK(
-      moqsess_step(&s, QUIC_MOQSESS_EV_RECV_GOAWAY) ==
-      QUIC_MOQSESS_CLOSE_PROTOCOL_VIOLATION);
+      moqsess_step(&s, MOQSESS_EV_RECV_GOAWAY) ==
+      MOQSESS_CLOSE_PROTOCOL_VIOLATION);
 }
 
 /* Client GOAWAY with a non-zero New Session URI Length, received by the
@@ -210,11 +204,11 @@ static void test_moqsess_second_goaway(void) {
 static void test_moqsess_goaway_bad_uri(void) {
   moqsess s;
   moqsess_init(&s);
-  moqsess_step(&s, QUIC_MOQSESS_EV_SENT_SETUP);
-  moqsess_step(&s, QUIC_MOQSESS_EV_RECV_SETUP);
+  moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
+  moqsess_step(&s, MOQSESS_EV_RECV_SETUP);
   CHECK(
-      moqsess_step(&s, QUIC_MOQSESS_EV_RECV_GOAWAY_BAD_URI) ==
-      QUIC_MOQSESS_CLOSE_PROTOCOL_VIOLATION);
+      moqsess_step(&s, MOQSESS_EV_RECV_GOAWAY_BAD_URI) ==
+      MOQSESS_CLOSE_PROTOCOL_VIOLATION);
 }
 
 /* Same peer opens a 2nd control stream -> PROTOCOL_VIOLATION (Session
@@ -222,23 +216,23 @@ static void test_moqsess_goaway_bad_uri(void) {
 static void test_moqsess_second_control_stream(void) {
   moqsess s;
   moqsess_init(&s);
-  moqsess_step(&s, QUIC_MOQSESS_EV_SENT_SETUP);
-  moqsess_step(&s, QUIC_MOQSESS_EV_RECV_SETUP);
+  moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
+  moqsess_step(&s, MOQSESS_EV_RECV_SETUP);
   CHECK(
-      moqsess_step(&s, QUIC_MOQSESS_EV_SECOND_CTRL) ==
-      QUIC_MOQSESS_CLOSE_PROTOCOL_VIOLATION);
+      moqsess_step(&s, MOQSESS_EV_SECOND_CTRL) ==
+      MOQSESS_CLOSE_PROTOCOL_VIOLATION);
 }
 
 /* Once closed, further events are no-ops: the close reason is sticky. */
 static void test_moqsess_closed_is_sticky(void) {
   moqsess s;
   moqsess_init(&s);
-  moqsess_step(&s, QUIC_MOQSESS_EV_CTRL_CLOSED);
-  CHECK(s.state == QUIC_MOQSESS_CLOSED);
+  moqsess_step(&s, MOQSESS_EV_CTRL_CLOSED);
+  CHECK(s.state == MOQSESS_CLOSED);
   CHECK(
-      moqsess_step(&s, QUIC_MOQSESS_EV_SENT_SETUP) ==
-      QUIC_MOQSESS_CLOSE_PROTOCOL_VIOLATION);
-  CHECK(s.state == QUIC_MOQSESS_CLOSED);
+      moqsess_step(&s, MOQSESS_EV_SENT_SETUP) ==
+      MOQSESS_CLOSE_PROTOCOL_VIOLATION);
+  CHECK(s.state == MOQSESS_CLOSED);
 }
 
 /* ===================== B. Subscribe lifecycle ===================== */
@@ -246,10 +240,10 @@ static void test_moqsess_closed_is_sticky(void) {
 /* SUBSCRIBE -> SUBSCRIBE_OK establishes the subscription. */
 static void test_moqsub_subscribe_establish(void) {
   moqsub s;
-  moqsub_init(&s, QUIC_MOQSUB_ROLE_SUBSCRIBER);
-  CHECK(moqsub_step(&s, QUIC_MOQSUB_EV_OPEN) == 1);
-  CHECK(s.state == QUIC_MOQSUB_PENDING);
-  CHECK(moqsub_step(&s, QUIC_MOQSUB_EV_OK) == 1);
+  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  CHECK(moqsub_step(&s, MOQSUB_EV_OPEN) == 1);
+  CHECK(s.state == MOQSUB_PENDING);
+  CHECK(moqsub_step(&s, MOQSUB_EV_OK) == 1);
   CHECK(moqsub_established(&s) == 1);
 }
 
@@ -257,18 +251,18 @@ static void test_moqsub_subscribe_establish(void) {
  * FORWARD == 1. */
 static void test_moqsub_object_delivery_after_subscribe(void) {
   moqsub s;
-  moqsub_init(&s, QUIC_MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OPEN);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OK);
+  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
+  moqsub_step(&s, MOQSUB_EV_OK);
   CHECK(moqsub_may_forward(&s, 1) == 1);
 }
 
 /* PUBLISH -> PUBLISH_OK (REQUEST_OK) establishes the subscription. */
 static void test_moqsub_publish_establish(void) {
   moqsub s;
-  moqsub_init(&s, QUIC_MOQSUB_ROLE_PUBLISHER);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OPEN);
-  CHECK(moqsub_step(&s, QUIC_MOQSUB_EV_OK) == 1);
+  moqsub_init(&s, MOQSUB_ROLE_PUBLISHER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
+  CHECK(moqsub_step(&s, MOQSUB_EV_OK) == 1);
   CHECK(moqsub_established(&s) == 1);
 }
 
@@ -276,10 +270,10 @@ static void test_moqsub_publish_establish(void) {
  * allows forwarding); the later PUBLISH_OK still establishes normally. */
 static void test_moqsub_object_before_publish_ok(void) {
   moqsub s;
-  moqsub_init(&s, QUIC_MOQSUB_ROLE_PUBLISHER);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OPEN);
+  moqsub_init(&s, MOQSUB_ROLE_PUBLISHER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
   CHECK(moqsub_may_forward(&s, 1) == 1); /* Object arrives here */
-  CHECK(moqsub_step(&s, QUIC_MOQSUB_EV_OK) == 1);
+  CHECK(moqsub_step(&s, MOQSUB_EV_OK) == 1);
   CHECK(moqsub_established(&s) == 1);
 }
 
@@ -287,9 +281,9 @@ static void test_moqsub_object_before_publish_ok(void) {
  * control messages (OK/PUBLISH_DONE) are unaffected by the gate. */
 static void test_moqsub_forward_state_zero_blocks_objects(void) {
   moqsub s;
-  moqsub_init(&s, QUIC_MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OPEN);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OK);
+  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
+  moqsub_step(&s, MOQSUB_EV_OK);
   CHECK(moqsub_may_forward(&s, 0) == 0);
   CHECK(moqsub_established(&s) == 1); /* OK/PUBLISH_DONE still legal */
 }
@@ -297,10 +291,10 @@ static void test_moqsub_forward_state_zero_blocks_objects(void) {
 /* REQUEST_UPDATE leaves an established subscription's state unchanged. */
 static void test_moqsub_update_keeps_established(void) {
   moqsub s;
-  moqsub_init(&s, QUIC_MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OPEN);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OK);
-  CHECK(moqsub_step(&s, QUIC_MOQSUB_EV_UPDATE) == 1);
+  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
+  moqsub_step(&s, MOQSUB_EV_OK);
+  CHECK(moqsub_step(&s, MOQSUB_EV_UPDATE) == 1);
   CHECK(moqsub_established(&s) == 1);
 }
 
@@ -310,13 +304,13 @@ static void test_moqsub_update_keeps_established(void) {
  * site, checked before this event fires). */
 static void test_moqsub_publish_done_terminates_and_reclaims(void) {
   moqsub s;
-  moqsub_init(&s, QUIC_MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OPEN);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OK);
+  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
+  moqsub_step(&s, MOQSUB_EV_OK);
   CHECK(moqsub_may_send_publish_done(0) == 1); /* 0 open streams */
-  CHECK(moqsub_step(&s, QUIC_MOQSUB_EV_PUBLISH_DONE) == 1);
+  CHECK(moqsub_step(&s, MOQSUB_EV_PUBLISH_DONE) == 1);
   CHECK(moqsub_terminated(&s) == 1);
-  CHECK(s.term_reason == QUIC_MOQSUB_TERM_PUBLISH_DONE);
+  CHECK(s.term_reason == MOQSUB_TERM_PUBLISH_DONE);
   CHECK(s.pending_ok == 0); /* already responded via OK, no late OK owed */
 }
 
@@ -325,9 +319,9 @@ static void test_moqsub_publish_done_terminates_and_reclaims(void) {
  * send that late OK). */
 static void test_moqsub_publish_done_before_response_defers_ok(void) {
   moqsub s;
-  moqsub_init(&s, QUIC_MOQSUB_ROLE_PUBLISHER);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OPEN);
-  CHECK(moqsub_step(&s, QUIC_MOQSUB_EV_PUBLISH_DONE) == 1);
+  moqsub_init(&s, MOQSUB_ROLE_PUBLISHER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
+  CHECK(moqsub_step(&s, MOQSUB_EV_PUBLISH_DONE) == 1);
   CHECK(moqsub_terminated(&s) == 1);
   CHECK(s.pending_ok == 1);
   CHECK(s.responded == 1); /* exactly-one-response satisfied by late OK */
@@ -337,11 +331,11 @@ static void test_moqsub_publish_done_before_response_defers_ok(void) {
  * response: the request is not failed and still awaits a response. */
 static void test_moqsub_requester_early_fin_not_failed(void) {
   moqsub s;
-  moqsub_init(&s, QUIC_MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OPEN);
-  CHECK(moqsub_step(&s, QUIC_MOQSUB_EV_FIN_REQ) == 1);
+  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
+  CHECK(moqsub_step(&s, MOQSUB_EV_FIN_REQ) == 1);
   CHECK(moqsub_terminated(&s) == 0);
-  CHECK(s.state == QUIC_MOQSUB_PENDING);
+  CHECK(s.state == MOQSUB_PENDING);
 }
 
 /* Cancelling an established subscription: STOP_SENDING terminates it, and
@@ -349,12 +343,12 @@ static void test_moqsub_requester_early_fin_not_failed(void) {
  * longer forwardable" once terminated). */
 static void test_moqsub_cancel_established(void) {
   moqsub s;
-  moqsub_init(&s, QUIC_MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OPEN);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OK);
-  CHECK(moqsub_step(&s, QUIC_MOQSUB_EV_STOP_SENDING) == 1);
+  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
+  moqsub_step(&s, MOQSUB_EV_OK);
+  CHECK(moqsub_step(&s, MOQSUB_EV_STOP_SENDING) == 1);
   CHECK(moqsub_terminated(&s) == 1);
-  CHECK(s.term_reason == QUIC_MOQSUB_TERM_STOP_SENDING);
+  CHECK(s.term_reason == MOQSUB_TERM_STOP_SENDING);
   CHECK(moqsub_may_forward(&s, 1) == 0);
 }
 
@@ -363,11 +357,11 @@ static void test_moqsub_cancel_established(void) {
  * still terminates. */
 static void test_moqsub_cancel_after_fin(void) {
   moqsub s;
-  moqsub_init(&s, QUIC_MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OPEN);
-  moqsub_step(&s, QUIC_MOQSUB_EV_FIN_REQ);
+  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
+  moqsub_step(&s, MOQSUB_EV_FIN_REQ);
   CHECK(s.fin_req == 1);
-  CHECK(moqsub_step(&s, QUIC_MOQSUB_EV_STOP_SENDING) == 1);
+  CHECK(moqsub_step(&s, MOQSUB_EV_STOP_SENDING) == 1);
   CHECK(moqsub_terminated(&s) == 1);
 }
 
@@ -375,11 +369,11 @@ static void test_moqsub_cancel_after_fin(void) {
  * is ever sent for it. */
 static void test_moqsub_subscribe_rejected(void) {
   moqsub s;
-  moqsub_init(&s, QUIC_MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OPEN);
-  CHECK(moqsub_step(&s, QUIC_MOQSUB_EV_ERROR) == 1);
+  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
+  CHECK(moqsub_step(&s, MOQSUB_EV_ERROR) == 1);
   CHECK(moqsub_terminated(&s) == 1);
-  CHECK(s.term_reason == QUIC_MOQSUB_TERM_ERROR);
+  CHECK(s.term_reason == MOQSUB_TERM_ERROR);
   CHECK(moqsub_may_forward(&s, 1) == 0);
 }
 
@@ -387,11 +381,11 @@ static void test_moqsub_subscribe_rejected(void) {
  * the receiving direction; the subscription terminates. */
 static void test_moqsub_publish_rejected(void) {
   moqsub s;
-  moqsub_init(&s, QUIC_MOQSUB_ROLE_PUBLISHER);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OPEN);
-  CHECK(moqsub_step(&s, QUIC_MOQSUB_EV_ERROR) == 1);
+  moqsub_init(&s, MOQSUB_ROLE_PUBLISHER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
+  CHECK(moqsub_step(&s, MOQSUB_EV_ERROR) == 1);
   CHECK(moqsub_terminated(&s) == 1);
-  CHECK(s.term_reason == QUIC_MOQSUB_TERM_ERROR);
+  CHECK(s.term_reason == MOQSUB_TERM_ERROR);
 }
 
 /* ---------- violation / abnormal ---------- */
@@ -400,11 +394,11 @@ static void test_moqsub_publish_rejected(void) {
  * a local termination alone: session_fault is set. */
 static void test_moqsub_duplicate_response_is_session_fault(void) {
   moqsub s;
-  moqsub_init(&s, QUIC_MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OPEN);
-  CHECK(moqsub_step(&s, QUIC_MOQSUB_EV_OK) == 1);
+  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
+  CHECK(moqsub_step(&s, MOQSUB_EV_OK) == 1);
   CHECK(s.session_fault == 0);
-  CHECK(moqsub_step(&s, QUIC_MOQSUB_EV_OK) == 0);
+  CHECK(moqsub_step(&s, MOQSUB_EV_OK) == 0);
   CHECK(s.session_fault == 1);
 }
 
@@ -412,12 +406,12 @@ static void test_moqsub_duplicate_response_is_session_fault(void) {
  * the requester treats the request as failed and terminates. */
 static void test_moqsub_early_fin_before_response(void) {
   moqsub s;
-  moqsub_init(&s, QUIC_MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, QUIC_MOQSUB_EV_OPEN);
-  CHECK(moqsub_step(&s, QUIC_MOQSUB_EV_FIN_RESP) == 1);
+  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
+  CHECK(moqsub_step(&s, MOQSUB_EV_FIN_RESP) == 1);
   CHECK(s.fin_resp == 1);
   CHECK(s.responded == 0);
-  CHECK(moqsub_step(&s, QUIC_MOQSUB_EV_STOP_SENDING) == 1);
+  CHECK(moqsub_step(&s, MOQSUB_EV_STOP_SENDING) == 1);
   CHECK(moqsub_terminated(&s) == 1);
 }
 

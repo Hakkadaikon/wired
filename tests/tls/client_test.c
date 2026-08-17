@@ -92,7 +92,7 @@ static usz client_build_cert_msg(const u8 seed[32], u8* out, usz cap) {
 
 /* RFC 9000 14.1: the Initial built by start is padded to 1200 bytes. */
 static void test_client_initial_padded(void) {
-  u8     cl_priv[32], cl_pub[32], dg[QUIC_CLIENT_DATAGRAM_MAX];
+  u8     cl_priv[32], cl_pub[32], dg[CLIENT_DATAGRAM_MAX];
   client c;
   usz    len;
   for (usz i = 0; i < 32; i++) cl_priv[i] = (u8)(7 + i);
@@ -116,7 +116,7 @@ static void test_client_feed_serverhello(void) {
   wired_x25519_base(cl_pub, cl_priv);
   wired_x25519_base(sv_pub, sv_priv);
   tlsdriver_init(&c.tls, cl_priv, cl_pub, 0);
-  c.phase    = QUIC_CLIENT_HS_INITIAL;
+  c.phase    = CLIENT_HS_INITIAL;
   c.sh_len   = 0;
   c.now      = 0; /* no cert policy: legacy behavior */
   c.host     = 0;
@@ -138,7 +138,7 @@ static void test_client_feed_serverhello(void) {
     fl = ob.len;
   }
   CHECK(client_feed(&c, frame, fl) == 1);
-  CHECK(c.phase == QUIC_CLIENT_HS_AUTH);
+  CHECK(c.phase == CLIENT_HS_AUTH);
 }
 
 /* RFC 8446 4.4 / RFC 9001 4.1: client_run_handshake reaches confirmed by
@@ -149,7 +149,7 @@ static void test_client_e2e_confirmed(void) {
   fullhs    sv;
   tlsdriver svtls;
   u8        sh[256], cert_seed[32], cert_msg[768];
-  u8        th[QUIC_SHA256_DIGEST], cv[256], svfin[64];
+  u8        th[SHA256_DIGEST], cv[256], svfin[64];
   u8        cl_priv[32], cl_pub[32], sv_priv[32], sv_pub[32];
   usz       shn, cert_msg_len, cv_len, n;
 
@@ -169,7 +169,7 @@ static void test_client_e2e_confirmed(void) {
   CHECK(tlsdriver_handshake_secret_ready(&svtls) == 1);
   CHECK(fullhs_init(&c.hs, &c.tls, wired_span_of(sh, shn)) == 1);
   CHECK(fullhs_init(&sv, &svtls, wired_span_of(sh, shn)) == 1);
-  c.phase = QUIC_CLIENT_HS_AUTH;
+  c.phase = CLIENT_HS_AUTH;
   c.fd    = -1;
 
   for (usz i = 0; i < 32; i++) cert_seed[i] = (u8)(90 + i);
@@ -185,7 +185,7 @@ static void test_client_e2e_confirmed(void) {
   }
   CHECK(
       fullhs_recv_certverify(
-          &sv, wired_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
+          &sv, wired_span_of(cv, cv_len), TLS_SCHEME_ED25519) == 1);
   {
     wired_obuf ob = obuf_of(svfin, sizeof(svfin));
     CHECK(fullhs_send_finished(&sv, &ob) == 1);
@@ -213,7 +213,7 @@ static void policy_client(
   wired_x25519_base(cl_pub, cl_priv);
   wired_x25519_base(sv_pub, sv_priv);
   tlsdriver_init(&c->tls, cl_priv, cl_pub, 0);
-  c->phase    = QUIC_CLIENT_HS_INITIAL;
+  c->phase    = CLIENT_HS_INITIAL;
   c->sh_len   = 0;
   c->fd       = -1;
   c->now      = now;
@@ -235,7 +235,7 @@ static void policy_client(
     fl = ob.len;
   }
   CHECK(client_feed(c, frame, fl) == 1); /* injects the policy */
-  CHECK(c->phase == QUIC_CLIENT_HS_AUTH);
+  CHECK(c->phase == CLIENT_HS_AUTH);
 }
 
 /* RFC 5280 6.1: with an expired clock the Certificate is refused via the
@@ -265,7 +265,7 @@ static void test_client_policy_valid(void) {
   fullhs    sv;
   tlsdriver svtls;
   u8        sh[256], cert_seed[32], cert_msg[768];
-  u8        th[QUIC_SHA256_DIGEST], cv[256], svfin[64];
+  u8        th[SHA256_DIGEST], cv[256], svfin[64];
   u8        cl_priv[32], cl_pub[32], sv_priv[32], sv_pub[32];
   usz       shn, cert_msg_len, cv_len, n;
 
@@ -282,7 +282,7 @@ static void test_client_policy_valid(void) {
   CHECK(fullhs_init(&sv, &svtls, wired_span_of(sh, shn)) == 1);
   /* what feed_initial injects for a client with an in-window clock */
   fullhs_set_policy(&c.hs, 20270101000000ULL, wired_span_of(0, 0));
-  c.phase = QUIC_CLIENT_HS_AUTH;
+  c.phase = CLIENT_HS_AUTH;
   c.fd    = -1;
 
   for (usz i = 0; i < 32; i++) cert_seed[i] = (u8)(100 + i);
@@ -297,7 +297,7 @@ static void test_client_policy_valid(void) {
   }
   CHECK(
       fullhs_recv_certverify(
-          &sv, wired_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
+          &sv, wired_span_of(cv, cv_len), TLS_SCHEME_ED25519) == 1);
   {
     wired_obuf ob = obuf_of(svfin, sizeof(svfin));
     CHECK(fullhs_send_finished(&sv, &ob) == 1);
@@ -315,7 +315,7 @@ static usz rc_cert_msg(u8* out) {
   const u8* certs[2] = {quic_realchain_leaf_der, quic_realchain_int_der};
   usz       lens[2]  = {
       sizeof(quic_realchain_leaf_der), sizeof(quic_realchain_int_der)};
-  usz off = QUIC_HS_HEADER + 4, list, body;
+  usz off = HS_HEADER + 4, list, body;
   for (usz i = 0; i < 2; i++) {
     usz n        = lens[i];
     out[off]     = (u8)(n >> 16);
@@ -326,16 +326,16 @@ static usz rc_cert_msg(u8* out) {
     out[off + 4 + n] = 0;
     off += n + 5;
   }
-  list                    = off - QUIC_HS_HEADER - 4;
-  body                    = list + 4;
-  out[0]                  = 0x0b;
-  out[1]                  = (u8)(body >> 16);
-  out[2]                  = (u8)(body >> 8);
-  out[3]                  = (u8)body;
-  out[QUIC_HS_HEADER]     = 0;
-  out[QUIC_HS_HEADER + 1] = (u8)(list >> 16);
-  out[QUIC_HS_HEADER + 2] = (u8)(list >> 8);
-  out[QUIC_HS_HEADER + 3] = (u8)list;
+  list               = off - HS_HEADER - 4;
+  body               = list + 4;
+  out[0]             = 0x0b;
+  out[1]             = (u8)(body >> 16);
+  out[2]             = (u8)(body >> 8);
+  out[3]             = (u8)body;
+  out[HS_HEADER]     = 0;
+  out[HS_HEADER + 1] = (u8)(list >> 16);
+  out[HS_HEADER + 2] = (u8)(list >> 8);
+  out[HS_HEADER + 3] = (u8)list;
   return off;
 }
 
@@ -375,8 +375,8 @@ static usz rc_sign_cv(const fullhs* h, u8* cv) {
   cv[1]  = 0;
   cv[2]  = (u8)(body >> 8);
   cv[3]  = (u8)body;
-  cv[4]  = (u8)(QUIC_TLS_SCHEME_ECDSA_P256 >> 8);
-  cv[5]  = (u8)QUIC_TLS_SCHEME_ECDSA_P256;
+  cv[4]  = (u8)(TLS_SCHEME_ECDSA_P256 >> 8);
+  cv[5]  = (u8)TLS_SCHEME_ECDSA_P256;
   cv[6]  = (u8)(dn >> 8);
   cv[7]  = (u8)dn;
   for (usz i = 0; i < dn; i++) cv[8 + i] = der[i];
@@ -408,7 +408,7 @@ static void test_client_castore_confirmed(void) {
   client_reach_hs_secret(&c.tls, &svtls, sv_pub, sh, &shn);
   CHECK(fullhs_init(&c.hs, &c.tls, wired_span_of(sh, shn)) == 1);
   CHECK(fullhs_init(&sv, &svtls, wired_span_of(sh, shn)) == 1);
-  c.phase = QUIC_CLIENT_HS_AUTH;
+  c.phase = CLIENT_HS_AUTH;
   c.fd    = -1;
   /* what feed_initial injects for a fully armed client */
   fullhs_set_policy(
@@ -429,7 +429,7 @@ static void test_client_castore_confirmed(void) {
   CHECK(fullhs_recv_cert(&sv, certmsg, n) == 1);
   CHECK(
       fullhs_recv_certverify(
-          &sv, wired_span_of(cv, cv_len), QUIC_TLS_SCHEME_ECDSA_P256) == 1);
+          &sv, wired_span_of(cv, cv_len), TLS_SCHEME_ECDSA_P256) == 1);
   {
     wired_obuf ob = obuf_of(svfin, sizeof(svfin));
     CHECK(fullhs_send_finished(&sv, &ob) == 1);

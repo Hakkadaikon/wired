@@ -1,5 +1,5 @@
-#ifndef QUIC_P256CERT_ENC_H
-#define QUIC_P256CERT_ENC_H
+#ifndef P256CERT_ENC_H
+#define P256CERT_ENC_H
 
 #include "common/bytes/span/span.h"
 #include "common/bytes/util/bytes.h"

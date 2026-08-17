@@ -1,5 +1,5 @@
-#ifndef QUIC_CONNRUNNER_LEVEL_H
-#define QUIC_CONNRUNNER_LEVEL_H
+#ifndef CONNRUNNER_LEVEL_H
+#define CONNRUNNER_LEVEL_H
 
 #include "common/platform/sys/syscall.h"
 

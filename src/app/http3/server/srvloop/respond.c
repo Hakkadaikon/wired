@@ -41,7 +41,7 @@ static int emit_handshake_ack(const wired_srvloop_conn* c, wired_obuf* out) {
   wired_srvloop_dirkeys dk;
   u8                    frames[16];
   usz                   fl;
-  if (!wired_srvloop_seal_keys(c->s, QUIC_LEVEL_HANDSHAKE, &dk)) return 0;
+  if (!wired_srvloop_seal_keys(c->s, LEVEL_HANDSHAKE, &dk)) return 0;
   fl = encode_ack_one(frames, sizeof frames, c->l->hs_rx_pn);
   if (fl == 0) return 0;
   protect_keys pk = {dk.keys, &dk.hp};
@@ -74,7 +74,7 @@ static int build_settings_frame(wired_srvloop* l, wired_obuf* out) {
  * ponytail: one fixed key for the process lifetime, no rotation; a real
  * deployment needs periodic key rotation (and multi-key acceptance during
  * overlap) so a leaked key does not compromise every ticket ever issued. */
-static const u8 g_ticket_key[QUIC_TICKET_KEY_LEN] = {
+static const u8 g_ticket_key[TICKET_KEY_LEN] = {
     0x77, 0x69, 0x72, 0x65, 0x64, 0x2d, 0x74, 0x6b, 0x74, 0x2d, 0x6b,
     0x65, 0x79, 0x2d, 0x30, 0x30, 0x77, 0x69, 0x72, 0x65, 0x64, 0x2d,
     0x74, 0x6b, 0x74, 0x2d, 0x6b, 0x65, 0x79, 0x2d, 0x30, 0x31};
@@ -105,7 +105,7 @@ static usz build_ticket_message(const wired_server* s, u8* msg, usz msg_cap) {
 /* Seal a fresh session ticket and append it as a CRYPTO frame
  * (RFC 9000 19.6) to a 1-RTT payload. */
 static int append_ticket_frame(const wired_server* s, wired_obuf* out) {
-  u8           msg[64 + QUIC_TICKET_SEALED_LEN];
+  u8           msg[64 + TICKET_SEALED_LEN];
   crypto_frame cf;
   usz          written;
   usz          mlen = build_ticket_message(s, msg, sizeof msg);
@@ -182,20 +182,20 @@ static void app_ack_set_ecn(const wired_srvloop* l, ack_frame* f) {
  * has waited (ack_delay_encode, RFC 9000 19.3/13.2.5), and this
  * connection's cumulative ECN counts (RFC 9000 19.3.2, app_ack_set_ecn).
  * Returns the encoded length, 0 if the window is empty or encoding fails
- * (e.g. the range count would overflow QUIC_ACK_MAX_RANGES -- caller then
+ * (e.g. the range count would overflow ACK_MAX_RANGES -- caller then
  * sends no ACK this round rather than a corrupt one). */
 static usz app_ack_encode_ranges(wired_srvloop* l, u8* buf, usz cap) {
-  u64       raw[2 * QUIC_ACK_MAX_RANGES + 1];
+  u64       raw[2 * ACK_MAX_RANGES + 1];
   u64       largest;
   u64obuf   ranges = {raw, sizeof raw / sizeof raw[0], 0};
   ack_frame f      = {0};
   if (!pnspaces_ack_ranges(
-          &l->ack_recv, QUIC_PNS_APP, &(pnspaces_ack_out){&largest, &ranges}))
+          &l->ack_recv, PNS_APP, &(pnspaces_ack_out){&largest, &ranges}))
     return 0;
   if (!ackrangeconv_to_frame(largest, raw, ranges.len, &f)) return 0;
   f.ack_delay = ack_delay_encode(
       (l->now_ms - l->app_ack_policy.since_tick) * 1000,
-      QUIC_ACK_DELAY_EXPONENT_DEFAULT);
+      ACK_DELAY_EXPONENT_DEFAULT);
   app_ack_set_ecn(l, &f);
   return ack_encode(buf, cap, &f);
 }
@@ -355,7 +355,7 @@ static int emit_response(const wired_srvloop_conn* c, wired_obuf* out) {
  * 13.2.1/13.2.2) -- unlike the piggyback callers above, this packet exists
  * solely to carry the ACK, so the delay window matters here. */
 static int emit_ack_only(const wired_srvloop_conn* c, wired_obuf* out) {
-  u8  pl[288]; /* room for QUIC_ACK_MAX_RANGES ranges, not just one pn */
+  u8  pl[288]; /* room for ACK_MAX_RANGES ranges, not just one pn */
   usz a = app_ack_append_if_due(c->l, pl, sizeof pl);
   if (a == 0) return 0;
   wired_srvloop_send_in sin = {

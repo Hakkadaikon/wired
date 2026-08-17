@@ -1,5 +1,5 @@
-#ifndef QUIC_FLOW_FINALSIZE_H
-#define QUIC_FLOW_FINALSIZE_H
+#ifndef FLOW_FINALSIZE_H
+#define FLOW_FINALSIZE_H
 
 #include "common/platform/sys/syscall.h"
 

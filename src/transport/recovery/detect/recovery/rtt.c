@@ -4,8 +4,8 @@
 
 void rtt_init(rtt* r) {
   r->min_rtt      = 0;
-  r->smoothed_rtt = QUIC_RTT_INITIAL_US;
-  r->rttvar       = QUIC_RTT_INITIAL_US / 2;
+  r->smoothed_rtt = RTT_INITIAL_US;
+  r->rttvar       = RTT_INITIAL_US / 2;
   r->have_sample  = 0;
 }
 
@@ -54,7 +54,7 @@ void rtt_sample(
 }
 
 u64 rtt_pto(const rtt* r, u64 max_ack_delay) {
-  u64 var = u64_max(4 * r->rttvar, QUIC_RTT_GRANULARITY);
+  u64 var = u64_max(4 * r->rttvar, RTT_GRANULARITY);
   return r->smoothed_rtt + var + max_ack_delay;
 }
 

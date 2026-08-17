@@ -1,5 +1,5 @@
-#ifndef QUIC_WTCAPSULE_WTCAPSULE_H
-#define QUIC_WTCAPSULE_WTCAPSULE_H
+#ifndef WTCAPSULE_WTCAPSULE_H
+#define WTCAPSULE_WTCAPSULE_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -37,12 +37,12 @@
 
 /** Maximum WT_CLOSE_SESSION application error message length, in bytes
  * (draft-ietf-webtrans-http3-15 SS4.2). */
-#define QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX 1024
+#define WTCAPSULE_CLOSE_MESSAGE_MAX 1024
 
 /** Encode a WT_CLOSE_SESSION capsule (type 0x2843) into out.
  *
  * Rejects (returns 0, leaves out unmodified) if message.n exceeds
- * QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX -- this is a WebTransport wire-format
+ * WTCAPSULE_CLOSE_MESSAGE_MAX -- this is a WebTransport wire-format
  * constraint, checked independently of whether out happens to have room.
  *
  * @param out             destination buffer view
@@ -73,7 +73,7 @@ int wtcapsule_encode_drain(wired_obuf* out);
  *
  * Also returns 0, *at unchanged, if the capsule IS type 0x2843 but
  * malformed: its value is too short to hold the 32-bit error code, or its
- * message exceeds QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX bytes.
+ * message exceeds WTCAPSULE_CLOSE_MESSAGE_MAX bytes.
  *
  * @param data            the buffer to decode from
  * @param at              in/out cursor offset within data

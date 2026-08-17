@@ -149,7 +149,7 @@ static int find_trailing_ack(const u8* frames, usz n, ack_frame* ack) {
   framewalk_item fr;
   framewalk_init(&it, frames, n);
   while (framewalk_next(&it, &fr))
-    if (fr.type == QUIC_FRAME_ACK)
+    if (fr.type == FRAME_ACK)
       return ack_decode(fr.start, fr.remaining, ack) != 0;
   return 0;
 }

@@ -1,5 +1,5 @@
-#ifndef QUIC_PROTECTCS_PROTECTCS_H
-#define QUIC_PROTECTCS_PROTECTCS_H
+#ifndef PROTECTCS_PROTECTCS_H
+#define PROTECTCS_PROTECTCS_H
 
 #include "common/bytes/span/span.h"
 

@@ -5,8 +5,7 @@
 
 /* Write type then stream_id (two varints). Returns 1 ok, 0 on overflow. */
 static int put_rs_head(wired_obuf* o, const reset_stream_frame* f) {
-  if (!varint_put(
-          wired_mspan_of(o->p, o->cap), &o->len, QUIC_FRAME_RESET_STREAM))
+  if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, FRAME_RESET_STREAM))
     return 0;
   return varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->stream_id);
 }
@@ -41,8 +40,7 @@ usz reset_stream_decode(const u8* buf, usz n, reset_stream_frame* f) {
 
 /* Write type then stream_id. Returns 1 ok, 0 on overflow. */
 static int put_ss_head(wired_obuf* o, const stop_sending_frame* f) {
-  if (!varint_put(
-          wired_mspan_of(o->p, o->cap), &o->len, QUIC_FRAME_STOP_SENDING))
+  if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, FRAME_STOP_SENDING))
     return 0;
   return varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->stream_id);
 }
@@ -69,8 +67,7 @@ static int rs_at_size_ok(const reset_stream_at_frame* f) {
 
 /* Write type, stream_id, error_code. Returns 1 ok, 0 on overflow. */
 static int put_rsat_head(wired_obuf* o, const reset_stream_at_frame* f) {
-  if (!varint_put(
-          wired_mspan_of(o->p, o->cap), &o->len, QUIC_FRAME_RESET_STREAM_AT))
+  if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, FRAME_RESET_STREAM_AT))
     return 0;
   if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->stream_id))
     return 0;

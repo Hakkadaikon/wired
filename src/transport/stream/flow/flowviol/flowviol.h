@@ -1,5 +1,5 @@
-#ifndef QUIC_FLOWVIOL_H
-#define QUIC_FLOWVIOL_H
+#ifndef FLOWVIOL_H
+#define FLOWVIOL_H
 
 #include "transport/stream/flow/flow/dual_flow.h"
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_PROTECT_PROTECT_H
-#define QUIC_PROTECT_PROTECT_H
+#ifndef PROTECT_PROTECT_H
+#define PROTECT_PROTECT_H
 
 #include "common/bytes/span/span.h"
 #include "crypto/symmetric/aead/aes/aes.h"
@@ -18,8 +18,7 @@ typedef struct {
 
 /* Compute the 12-byte AEAD nonce: iv with the packet number XORed into its
  * low bytes (RFC 9001 5.3). */
-void protect_nonce(
-    const u8 iv[QUIC_INITIAL_IV], u64 pn, u8 nonce[QUIC_INITIAL_IV]);
+void protect_nonce(const u8 iv[INITIAL_IV], u64 pn, u8 nonce[INITIAL_IV]);
 
 /** One Initial packet to protect. hdr is the unprotected header ending with
  * the packet number; pn_off is the packet number's offset within hdr and
@@ -37,7 +36,7 @@ typedef struct {
 /* Write header + ciphertext + tag into io->out, apply header protection in
  * place, and return the total protected length, or 0 if it does not fit
  * (AES-128-GCM; equivalent to protect_seal_suite with suite =
- * QUIC_TLS_AES_128_GCM_SHA256). */
+ * TLS_AES_128_GCM_SHA256). */
 usz protect_seal(const protect_keys* k, const protect_seal_io* io);
 
 /* Same as protect_seal, but seals under the given negotiated TLS 1.3
@@ -63,7 +62,7 @@ typedef struct {
 /* Removes header protection in place, then verifies and decrypts the payload
  * into pkt's payload region. Returns the plaintext length, or 0 if
  * authentication fails (AES-128-GCM; equivalent to protect_open_suite
- * with suite = QUIC_TLS_AES_128_GCM_SHA256). */
+ * with suite = TLS_AES_128_GCM_SHA256). */
 usz protect_open(const protect_keys* k, const protect_open_io* io);
 
 /* Same as protect_open, but opens under the given negotiated TLS 1.3

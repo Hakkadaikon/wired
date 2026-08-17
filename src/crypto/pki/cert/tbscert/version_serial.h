@@ -1,5 +1,5 @@
-#ifndef QUIC_TBSCERT_VERSION_SERIAL_H
-#define QUIC_TBSCERT_VERSION_SERIAL_H
+#ifndef TBSCERT_VERSION_SERIAL_H
+#define TBSCERT_VERSION_SERIAL_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

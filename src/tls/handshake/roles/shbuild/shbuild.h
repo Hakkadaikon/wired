@@ -1,5 +1,5 @@
-#ifndef QUIC_SHBUILD_H
-#define QUIC_SHBUILD_H
+#ifndef SHBUILD_H
+#define SHBUILD_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -32,8 +32,8 @@ int shbuild_server_hello(const shbuild_in* in, wired_obuf* out);
 
 /** Same as shbuild_in, but the key_share's NamedGroup (RFC 8446 4.2.7)
  * and server_pub's length are explicit instead of the frozen x25519/32-byte
- * pair -- server_pub must point at pub_len bytes (32 for QUIC_GROUP_X25519,
- * 65 for QUIC_GROUP_SECP256R1). */
+ * pair -- server_pub must point at pub_len bytes (32 for GROUP_X25519,
+ * 65 for GROUP_SECP256R1). */
 typedef struct {
   const u8*  random;
   wired_span session_id;

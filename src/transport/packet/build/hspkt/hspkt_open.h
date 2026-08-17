@@ -1,5 +1,5 @@
-#ifndef QUIC_HSPKT_HSPKT_OPEN_H
-#define QUIC_HSPKT_HSPKT_OPEN_H
+#ifndef HSPKT_HSPKT_OPEN_H
+#define HSPKT_HSPKT_OPEN_H
 
 #include "transport/packet/protect/protect/protect.h"
 
@@ -8,7 +8,7 @@
  * AEAD-opens the payload in place with k. On success *payload views the
  * plaintext within pkt. Returns 1 on success, 0 on authentication failure or
  * short input (AES-128-GCM; equivalent to hspkt_open_suite with suite =
- * QUIC_TLS_AES_128_GCM_SHA256). */
+ * TLS_AES_128_GCM_SHA256). */
 int hspkt_open(const protect_keys* k, wired_mspan pkt, wired_span* payload);
 
 /* Same as hspkt_open, but opens under the given negotiated TLS 1.3

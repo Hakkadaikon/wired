@@ -1,5 +1,5 @@
-#ifndef QUIC_TPVERIFY_CTCID_H
-#define QUIC_TPVERIFY_CTCID_H
+#ifndef TPVERIFY_CTCID_H
+#define TPVERIFY_CTCID_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

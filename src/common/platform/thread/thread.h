@@ -1,5 +1,5 @@
-#ifndef QUIC_THREAD_H
-#define QUIC_THREAD_H
+#ifndef THREAD_H
+#define THREAD_H
 
 #include "common/platform/sys/syscall.h"
 

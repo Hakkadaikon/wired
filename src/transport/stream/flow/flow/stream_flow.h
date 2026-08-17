@@ -1,5 +1,5 @@
-#ifndef QUIC_FLOW_STREAM_FLOW_H
-#define QUIC_FLOW_STREAM_FLOW_H
+#ifndef FLOW_STREAM_FLOW_H
+#define FLOW_STREAM_FLOW_H
 
 #include "common/platform/sys/syscall.h"
 

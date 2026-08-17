@@ -12,7 +12,7 @@
 static void cur_keys(const connrunner* r, initial_keys* out) {
   const initial_keys* k;
   initial_keys        z = {0};
-  *out = keyset_for_level(&r->io.loop.keys, QUIC_LEVEL_ONERTT, &k) ? *k : z;
+  *out = keyset_for_level(&r->io.loop.keys, LEVEL_ONERTT, &k) ? *k : z;
 }
 
 void connrunner_keyupdate_init(connrunner* r) {
@@ -20,7 +20,7 @@ void connrunner_keyupdate_init(connrunner* r) {
   usz          i;
   cur_keys(r, &gen0);
   kuswitch_init(&r->ku, &gen0);
-  for (i = 0; i < QUIC_HKDF_PRK; i++) r->ku_secret[i] = 0;
+  for (i = 0; i < HKDF_PRK; i++) r->ku_secret[i] = 0;
   r->ku_phase         = 0; /* RFC 9001 6.2: generation 0 => phase bit 0 */
   r->ku_completed_at  = (u64)-1;
   r->ku_sent_in_phase = 0;
@@ -76,14 +76,14 @@ static int may_initiate(const connrunner* r, const connrunner_ku_in* in) {
  */
 static void do_initiate(connrunner* r) {
   initial_keys next = {0};
-  u8           next_secret[QUIC_HKDF_PRK];
+  u8           next_secret[HKDF_PRK];
   /* RFC 9369 3.3.2: the negotiated version (client's sent_version, absent a
    * Version Negotiation reconnect) picks "quic ku" (v1) vs "quicv2 ku" (v2).
    */
   kuswitch_next_keys_v(r->sent_version, r->ku_secret, &next, next_secret);
   kuswitch_rotate(&r->ku, &next); /* derive/rotate ... */
-  for (usz i = 0; i < QUIC_HKDF_PRK; i++) r->ku_secret[i] = next_secret[i];
-  keyset_install(&r->io.loop.keys, QUIC_LEVEL_ONERTT, &next);
+  for (usz i = 0; i < HKDF_PRK; i++) r->ku_secret[i] = next_secret[i];
+  keyset_install(&r->io.loop.keys, LEVEL_ONERTT, &next);
   kuswitch_apply_phase(&r->ku_phase, r->ku.generation); /* ... before toggle */
   r->ku_unacked       = 1;
   r->ku_completed_at  = (u64)-1; /* RFC 9001 6.2: reset clocks */

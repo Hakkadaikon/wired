@@ -1,12 +1,12 @@
-#ifndef QUIC_TLS_CIPHER_H
-#define QUIC_TLS_CIPHER_H
+#ifndef TLS_CIPHER_H
+#define TLS_CIPHER_H
 
 #include "common/platform/sys/syscall.h"
 
 /* RFC 8446 B.4 cipher suite code points. */
-#define QUIC_TLS_AES_128_GCM_SHA256 0x1301
-#define QUIC_TLS_AES_256_GCM_SHA384 0x1302
-#define QUIC_TLS_CHACHA20_POLY1305_SHA256 0x1303
+#define TLS_AES_128_GCM_SHA256 0x1301
+#define TLS_AES_256_GCM_SHA384 0x1302
+#define TLS_CHACHA20_POLY1305_SHA256 0x1303
 
 /* Returns 1 if the suite has an implemented AEAD (0x1301/0x1303), else 0. */
 int cipher_supported(u16 suite);

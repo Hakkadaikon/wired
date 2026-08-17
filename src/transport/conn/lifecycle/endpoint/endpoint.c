@@ -8,7 +8,7 @@ void endpoint_init(endpoint* e, const u8 priv[32], const u8 dcid[8]) {
 }
 
 int endpoint_agree(endpoint* e, const endpoint_peer* p) {
-  u8                shared[32], hs_secret[QUIC_HKDF_PRK];
+  u8                shared[32], hs_secret[HKDF_PRK];
   handshake_keys_in in;
   if (!wired_x25519(shared, e->priv, p->peer_pub)) return 0;
   tls_handshake_secret(shared, hs_secret);

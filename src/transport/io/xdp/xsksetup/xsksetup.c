@@ -10,35 +10,35 @@
  * PF_XDP=44 (bits/socket.h:88, AF_XDP is an alias), SOL_XDP=283
  * (bits/socket.h:171). SOCK_RAW=3 is the standard Linux socket type value
  * (linux/net.h), used here per the plan's `socket(AF_XDP, SOCK_RAW, 0)`. */
-#define QUIC_AF_XDP 44
-#define QUIC_SOCK_RAW 3
-#define QUIC_SOL_XDP 283
+#define AF_XDP 44
+#define SOCK_RAW 3
+#define SOL_XDP 283
 
 /* setsockopt/getsockopt names (linux/if_xdp.h:74-80). */
-#define QUIC_XDP_MMAP_OFFSETS 1
-#define QUIC_XDP_RX_RING 2
-#define QUIC_XDP_TX_RING 3
-#define QUIC_XDP_UMEM_REG 4
-#define QUIC_XDP_UMEM_FILL_RING 5
-#define QUIC_XDP_UMEM_COMPLETION_RING 6
-#define QUIC_XDP_STATISTICS 7
+#define XDP_MMAP_OFFSETS 1
+#define XDP_RX_RING 2
+#define XDP_TX_RING 3
+#define XDP_UMEM_REG 4
+#define XDP_UMEM_FILL_RING 5
+#define XDP_UMEM_COMPLETION_RING 6
+#define XDP_STATISTICS 7
 
 /* mmap pgoff per ring (linux/if_xdp.h:109 onward): RX=0, TX=1<<31,
  * FILL=1<<32, COMPLETION=(1<<32)|(1<<31). */
-#define QUIC_XDP_PGOFF_RX_RING 0ULL
-#define QUIC_XDP_PGOFF_TX_RING 0x80000000ULL
-#define QUIC_XDP_PGOFF_FILL_RING 0x100000000ULL
-#define QUIC_XDP_PGOFF_COMPLETION_RING 0x180000000ULL
+#define XDP_PGOFF_RX_RING 0ULL
+#define XDP_PGOFF_TX_RING 0x80000000ULL
+#define XDP_PGOFF_FILL_RING 0x100000000ULL
+#define XDP_PGOFF_COMPLETION_RING 0x180000000ULL
 
 /* mmap/mman constants (asm-generic/mman-common.h, bits/mman-linux.h):
  * PROT_READ=0x1, PROT_WRITE=0x2, MAP_SHARED=0x01, MAP_PRIVATE=0x02,
  * MAP_ANONYMOUS=0x20, MAP_POPULATE=0x8000. */
-#define QUIC_PROT_READ 0x1
-#define QUIC_PROT_WRITE 0x2
-#define QUIC_MAP_SHARED 0x01
-#define QUIC_MAP_PRIVATE 0x02
-#define QUIC_MAP_ANONYMOUS 0x20
-#define QUIC_MAP_POPULATE 0x8000
+#define PROT_READ 0x1
+#define PROT_WRITE 0x2
+#define MAP_SHARED 0x01
+#define MAP_PRIVATE 0x02
+#define MAP_ANONYMOUS 0x20
+#define MAP_POPULATE 0x8000
 
 /* struct sockaddr_xdp (linux/if_xdp.h:48-54), 16 bytes: family/flags are u16,
  * ifindex/queue_id/shared_umem_fd are u32. */
@@ -78,8 +78,7 @@ typedef struct {
 
 static i64 xsksetup_mmap(usz len, u64 pgoff, i64 fd) {
   return wired_arch_mmap(
-      0, len, QUIC_PROT_READ | QUIC_PROT_WRITE,
-      QUIC_MAP_SHARED | QUIC_MAP_POPULATE, fd, pgoff);
+      0, len, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, fd, pgoff);
 }
 
 static i64 xsksetup_munmap(void* addr, usz len) {
@@ -103,30 +102,27 @@ static void xsksetup_unwind(xsk* x) {
  * via XDP_UMEM_REG. */
 static i64 xsksetup_umem(xsk* x) {
   i64          r;
-  xsk_umem_reg reg = {0, QUIC_XSKSETUP_UMEM_LEN, QUIC_XSKSETUP_FRAME_SIZE, 0, 0,
-                      0};
+  xsk_umem_reg reg = {0, XSKSETUP_UMEM_LEN, XSKSETUP_FRAME_SIZE, 0, 0, 0};
   r                = wired_arch_mmap(
-      0, QUIC_XSKSETUP_UMEM_LEN, QUIC_PROT_READ | QUIC_PROT_WRITE,
-      QUIC_MAP_PRIVATE | QUIC_MAP_ANONYMOUS, -1, 0);
+      0, XSKSETUP_UMEM_LEN, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS,
+      -1, 0);
   if (r < 0) return r;
   x->umem     = (u8*)r;
-  x->umem_len = QUIC_XSKSETUP_UMEM_LEN;
+  x->umem_len = XSKSETUP_UMEM_LEN;
   reg.addr    = (u64)x->umem;
-  r           = wired_arch_setsockopt(
-      x->fd, QUIC_SOL_XDP, QUIC_XDP_UMEM_REG, &reg, sizeof reg);
+  r = wired_arch_setsockopt(x->fd, SOL_XDP, XDP_UMEM_REG, &reg, sizeof reg);
   return r;
 }
 
 /* Set the entry count of all four rings via their respective setsockopts. */
 static i64 xsksetup_ring_size(i64 fd, int name) {
-  u32 n = QUIC_XSKSETUP_RING_ENTRIES;
-  return wired_arch_setsockopt(fd, QUIC_SOL_XDP, name, &n, sizeof n);
+  u32 n = XSKSETUP_RING_ENTRIES;
+  return wired_arch_setsockopt(fd, SOL_XDP, name, &n, sizeof n);
 }
 
 static i64 xsksetup_ring_sizes(xsk* x) {
   static const int names[4] = {
-      QUIC_XDP_UMEM_FILL_RING, QUIC_XDP_UMEM_COMPLETION_RING, QUIC_XDP_RX_RING,
-      QUIC_XDP_TX_RING};
+      XDP_UMEM_FILL_RING, XDP_UMEM_COMPLETION_RING, XDP_RX_RING, XDP_TX_RING};
   for (usz i = 0; i < 4; i++) {
     i64 r = xsksetup_ring_size(x->fd, names[i]);
     if (r < 0) return r;
@@ -138,7 +134,7 @@ static i64 xsksetup_ring_sizes(xsk* x) {
  * entry_size (entry_size is 16 for rx/tx's xdp_desc, 8 for the bare u64
  * addresses of fill/comp). */
 static usz xsksetup_ring_len(const xsk_ring_offset* o, usz entry_size) {
-  return (usz)o->desc + QUIC_XSKSETUP_RING_ENTRIES * entry_size;
+  return (usz)o->desc + XSKSETUP_RING_ENTRIES * entry_size;
 }
 
 static void xsksetup_view(
@@ -146,7 +142,7 @@ static void xsksetup_view(
   v->producer = (u32*)((u8*)base + o->producer);
   v->consumer = (u32*)((u8*)base + o->consumer);
   v->desc     = (u8*)base + o->desc;
-  v->size     = QUIC_XSKSETUP_RING_ENTRIES;
+  v->size     = XSKSETUP_RING_ENTRIES;
 }
 
 /* mmap one ring at the given pgoff/offsets-entry_size and init its
@@ -175,22 +171,22 @@ static i64 xsksetup_map_one(
 /* fill/comp share the 8-byte (bare u64 address) entry size. */
 static i64 xsksetup_map_fill_comp(xsk* x, const xsk_mmap_offsets* mo) {
   i64 r = xsksetup_map_one(
-      x, &x->fill, &x->map_fill, &x->map_fill_len, QUIC_XDP_PGOFF_FILL_RING,
-      &mo->fr, 8);
+      x, &x->fill, &x->map_fill, &x->map_fill_len, XDP_PGOFF_FILL_RING, &mo->fr,
+      8);
   if (r < 0) return r;
   return xsksetup_map_one(
-      x, &x->comp, &x->map_comp, &x->map_comp_len,
-      QUIC_XDP_PGOFF_COMPLETION_RING, &mo->cr, 8);
+      x, &x->comp, &x->map_comp, &x->map_comp_len, XDP_PGOFF_COMPLETION_RING,
+      &mo->cr, 8);
 }
 
 /* rx/tx share the 16-byte xdp_desc entry size. */
 static i64 xsksetup_map_rx_tx(xsk* x, const xsk_mmap_offsets* mo) {
   i64 r = xsksetup_map_one(
-      x, &x->rx, &x->map_rx, &x->map_rx_len, QUIC_XDP_PGOFF_RX_RING, &mo->rx,
+      x, &x->rx, &x->map_rx, &x->map_rx_len, XDP_PGOFF_RX_RING, &mo->rx,
       sizeof(xdp_desc));
   if (r < 0) return r;
   return xsksetup_map_one(
-      x, &x->tx, &x->map_tx, &x->map_tx_len, QUIC_XDP_PGOFF_TX_RING, &mo->tx,
+      x, &x->tx, &x->map_tx, &x->map_tx_len, XDP_PGOFF_TX_RING, &mo->tx,
       sizeof(xdp_desc));
 }
 
@@ -202,25 +198,23 @@ static i64 xsksetup_map_rings(xsk* x, const xsk_mmap_offsets* mo) {
 
 static i64 xsksetup_get_offsets(i64 fd, xsk_mmap_offsets* mo) {
   u32 len = sizeof(*mo);
-  return wired_arch_getsockopt(
-      fd, QUIC_SOL_XDP, QUIC_XDP_MMAP_OFFSETS, mo, &len);
+  return wired_arch_getsockopt(fd, SOL_XDP, XDP_MMAP_OFFSETS, mo, &len);
 }
 
 static i64 xsksetup_bind(xsk* x, const xsk_cfg* cfg) {
-  xsk_sockaddr sa = {
-      QUIC_AF_XDP, cfg->bind_flags, cfg->ifindex, cfg->queue_id, 0};
+  xsk_sockaddr sa = {AF_XDP, cfg->bind_flags, cfg->ifindex, cfg->queue_id, 0};
   return wired_arch_bind(x->fd, &sa, sizeof sa);
 }
 
-/* Push every RX-pool frame address (0..QUIC_XSKSETUP_UMEM_FRAMES/2, matching
+/* Push every RX-pool frame address (0..XSKSETUP_UMEM_FRAMES/2, matching
  * xskumem's RX/TX pool split) onto the fill ring so the kernel has frames to
  * receive into as soon as bind completes. */
 static void xsksetup_prime_fill(xsk* x) {
-  u32 n   = QUIC_XSKSETUP_UMEM_FRAMES / 2;
+  u32 n   = XSKSETUP_UMEM_FRAMES / 2;
   u32 idx = 0;
   u32 got = xskring_prod_reserve(&x->fill, n, &idx);
   for (u32 i = 0; i < got; i++)
-    *xskring_addr_at(&x->fill, idx + i) = (u64)i * QUIC_XSKSETUP_FRAME_SIZE;
+    *xskring_addr_at(&x->fill, idx + i) = (u64)i * XSKSETUP_FRAME_SIZE;
   xskring_prod_submit(&x->fill, got);
 }
 
@@ -255,7 +249,7 @@ static i64 xsksetup_build(xsk* x, const xsk_cfg* cfg) {
 i64 xsksetup_open(xsk* x, const xsk_cfg* cfg) {
   i64 r;
   *x    = (xsk){0};
-  x->fd = wired_arch_socket(QUIC_AF_XDP, QUIC_SOCK_RAW, 0);
+  x->fd = wired_arch_socket(AF_XDP, SOCK_RAW, 0);
   if (x->fd < 0) return x->fd;
   r = xsksetup_build(x, cfg);
   if (r < 0) {
@@ -277,6 +271,5 @@ i64 xsksetup_kick_tx(i64 fd) {
 
 i64 xsksetup_stats(i64 fd, u64 out[6]) {
   u32 len = 6 * sizeof(u64);
-  return wired_arch_getsockopt(
-      fd, QUIC_SOL_XDP, QUIC_XDP_STATISTICS, out, &len);
+  return wired_arch_getsockopt(fd, SOL_XDP, XDP_STATISTICS, out, &len);
 }

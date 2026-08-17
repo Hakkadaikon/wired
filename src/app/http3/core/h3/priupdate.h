@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_PRIUPDATE_H
-#define QUIC_H3_PRIUPDATE_H
+#ifndef H3_PRIUPDATE_H
+#define H3_PRIUPDATE_H
 
 #include "app/http3/core/h3/priority.h"
 #include "common/bytes/span/span.h"
@@ -10,8 +10,8 @@
  * Priority Field Value, plus the RFC 8941-shaped dictionary parser for that
  * value (`u=0..7`, `i`). */
 
-#define QUIC_H3_FRAME_PRIORITY_UPDATE 0x0F0700
-#define QUIC_H3_FRAME_PRIORITY_UPDATE_PUSH 0x0F0701
+#define H3_FRAME_PRIORITY_UPDATE 0x0F0700
+#define H3_FRAME_PRIORITY_UPDATE_PUSH 0x0F0701
 
 /** RFC 9218 7: a decoded PRIORITY_UPDATE frame. */
 typedef struct {

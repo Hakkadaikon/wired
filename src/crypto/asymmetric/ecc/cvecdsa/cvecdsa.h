@@ -1,5 +1,5 @@
-#ifndef QUIC_CVECDSA_CVECDSA_H
-#define QUIC_CVECDSA_CVECDSA_H
+#ifndef CVECDSA_CVECDSA_H
+#define CVECDSA_CVECDSA_H
 
 #include "common/platform/sys/syscall.h"
 

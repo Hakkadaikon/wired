@@ -1,5 +1,5 @@
-#ifndef QUIC_SELFCERT_DERENC_H
-#define QUIC_SELFCERT_DERENC_H
+#ifndef SELFCERT_DERENC_H
+#define SELFCERT_DERENC_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

@@ -19,10 +19,10 @@ void test_appkeys(void) {
   tls_app_keys(
       &(app_keys_in){ms, wired_span_of(transcript, sizeof(transcript)), 1}, &s);
 
-  for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(c.key[i] == c2.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) CHECK(c.key[i] == c2.key[i]);
 
   int differ = 0;
-  for (usz i = 0; i < QUIC_INITIAL_KEY; i++) differ |= (c.key[i] != s.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) differ |= (c.key[i] != s.key[i]);
   CHECK(differ); /* client vs server direction differ */
 
   /* "c ap traffic" keys differ from "c hs traffic" keys over same inputs */
@@ -32,6 +32,6 @@ void test_appkeys(void) {
           ms, wired_span_of(transcript, sizeof(transcript)), 0},
       &hk);
   differ = 0;
-  for (usz i = 0; i < QUIC_INITIAL_KEY; i++) differ |= (c.key[i] != hk.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) differ |= (c.key[i] != hk.key[i]);
   CHECK(differ);
 }

@@ -16,8 +16,7 @@ static void test_moqkvp_take_even_num(void) {
   moqkvp   kv;
 
   CHECK(
-      moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) ==
-      QUIC_MOQKVP_OK);
+      moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) == MOQKVP_OK);
   CHECK(kv.type == 0);
   CHECK(!kv.is_raw);
   CHECK(kv.num == 37);
@@ -33,8 +32,7 @@ static void test_moqkvp_take_odd_raw(void) {
   moqkvp   kv;
 
   CHECK(
-      moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) ==
-      QUIC_MOQKVP_OK);
+      moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) == MOQKVP_OK);
   CHECK(kv.type == 1);
   CHECK(kv.is_raw);
   CHECK(kv.raw.n == 3);
@@ -52,12 +50,10 @@ static void test_moqkvp_take_delta_accumulates(void) {
   moqkvp   kv;
 
   CHECK(
-      moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) ==
-      QUIC_MOQKVP_OK);
+      moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) == MOQKVP_OK);
   CHECK(kv.type == 2 && !kv.is_raw && kv.num == 5);
   CHECK(
-      moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) ==
-      QUIC_MOQKVP_OK);
+      moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) == MOQKVP_OK);
   CHECK(kv.type == 5);
   CHECK(kv.is_raw);
   CHECK(kv.raw.n == 1 && kv.raw.p[0] == 0xAA);
@@ -74,8 +70,7 @@ static void test_moqkvp_take_nonminimal_delta(void) {
   moqkvp   kv;
 
   CHECK(
-      moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) ==
-      QUIC_MOQKVP_OK);
+      moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) == MOQKVP_OK);
   CHECK(kv.type == 0 && kv.num == 37);
   CHECK(off == 3);
 }
@@ -89,8 +84,7 @@ static void test_moqkvp_take_nonminimal_even_value(void) {
   moqkvp   kv;
 
   CHECK(
-      moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) ==
-      QUIC_MOQKVP_OK);
+      moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) == MOQKVP_OK);
   CHECK(kv.type == 0 && kv.num == 37);
   CHECK(off == 3);
 }
@@ -106,19 +100,18 @@ static void test_moqkvp_take_type_overflow(void) {
 
   CHECK(
       moqkvp_take(wired_span_of(d1, sizeof d1), &off, &prev, &kv) ==
-      QUIC_MOQKVP_VIOLATION);
+      MOQKVP_VIOLATION);
   CHECK(off == 0 && prev == (u64)-1);
 
   CHECK(
-      moqkvp_take(wired_span_of(d0, sizeof d0), &off, &prev, &kv) ==
-      QUIC_MOQKVP_OK);
+      moqkvp_take(wired_span_of(d0, sizeof d0), &off, &prev, &kv) == MOQKVP_OK);
   CHECK(kv.type == (u64)-1 && kv.is_raw && kv.raw.n == 0);
 }
 
 /* Shared backing store for the Length boundary pair. 1.4.3 caps Length at
- * 2^16-1, so the accept case carries QUIC_MOQKVP_MAX_LEN real bytes and the
+ * 2^16-1, so the accept case carries MOQKVP_MAX_LEN real bytes and the
  * reject case one more; both use the production limit constant. */
-static u8 moqkvp_len_buf[3 + QUIC_MOQKVP_MAX_LEN + 1];
+static u8 moqkvp_len_buf[3 + MOQKVP_MAX_LEN + 1];
 
 /* TEST 7: Length 65535 (c0 ff ff, 3-byte varint) with full data: accepted. */
 static void test_moqkvp_take_len_65535_accepted(void) {
@@ -130,16 +123,16 @@ static void test_moqkvp_take_len_65535_accepted(void) {
   moqkvp_len_buf[1] = 0xC0; /* Length 65535 as 3-byte varint */
   moqkvp_len_buf[2] = 0xFF;
   moqkvp_len_buf[3] = 0xFF;
-  for (usz i = 0; i < QUIC_MOQKVP_MAX_LEN; i++) moqkvp_len_buf[4 + i] = (u8)i;
+  for (usz i = 0; i < MOQKVP_MAX_LEN; i++) moqkvp_len_buf[4 + i] = (u8)i;
 
   CHECK(
       moqkvp_take(
-          wired_span_of(moqkvp_len_buf, 4 + QUIC_MOQKVP_MAX_LEN), &off, &prev,
-          &kv) == QUIC_MOQKVP_OK);
+          wired_span_of(moqkvp_len_buf, 4 + MOQKVP_MAX_LEN), &off, &prev,
+          &kv) == MOQKVP_OK);
   CHECK(kv.type == 1 && kv.is_raw);
-  CHECK(kv.raw.n == QUIC_MOQKVP_MAX_LEN);
-  CHECK(kv.raw.p[QUIC_MOQKVP_MAX_LEN - 1] == (u8)(QUIC_MOQKVP_MAX_LEN - 1));
-  CHECK(off == 4 + QUIC_MOQKVP_MAX_LEN);
+  CHECK(kv.raw.n == MOQKVP_MAX_LEN);
+  CHECK(kv.raw.p[MOQKVP_MAX_LEN - 1] == (u8)(MOQKVP_MAX_LEN - 1));
+  CHECK(off == 4 + MOQKVP_MAX_LEN);
 }
 
 /* TEST 8: Length 65536 (c1 00 00) with the data actually present: still a
@@ -157,7 +150,7 @@ static void test_moqkvp_take_len_65536_violation(void) {
   CHECK(
       moqkvp_take(
           wired_span_of(moqkvp_len_buf, sizeof moqkvp_len_buf), &off, &prev,
-          &kv) == QUIC_MOQKVP_VIOLATION);
+          &kv) == MOQKVP_VIOLATION);
   CHECK(off == 0 && prev == 0);
 }
 
@@ -171,13 +164,13 @@ static void test_moqkvp_take_truncated_insufficient(void) {
 
   CHECK(
       moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) ==
-      QUIC_MOQKVP_INSUFFICIENT);
+      MOQKVP_INSUFFICIENT);
   CHECK(off == 0 && prev == 0);
 
   /* empty input: even the Delta varint is missing */
   CHECK(
       moqkvp_take(wired_span_of(0, 0), &off, &prev, &kv) ==
-      QUIC_MOQKVP_INSUFFICIENT);
+      MOQKVP_INSUFFICIENT);
 }
 
 /* TEST 10: encode -> decode round-trip with Delta accumulation; the encoded
@@ -204,7 +197,7 @@ static void test_moqkvp_roundtrip(void) {
 static void test_moqkvp_put_rejects(void) {
   u8     buf[8];
   moqkvp back     = {1, 0, 0, {0, 0}};
-  moqkvp too_long = {3, 1, 0, {moqkvp_len_buf, QUIC_MOQKVP_MAX_LEN + 1}};
+  moqkvp too_long = {3, 1, 0, {moqkvp_len_buf, MOQKVP_MAX_LEN + 1}};
   moqkvp ok       = {2, 0, 7, {0, 0}};
   usz    off      = 0;
   u64    prev     = 2;

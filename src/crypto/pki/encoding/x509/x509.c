@@ -20,7 +20,7 @@
 static int alg_oid(wired_span alg, wired_span* oid) {
   derseq c;
   derseq_init(&c, alg);
-  return derseq_next_tagged(&c, QUIC_DER_OID, oid);
+  return derseq_next_tagged(&c, DER_OID, oid);
 }
 
 /* Read one element of the outer SEQUENCE, keeping its header-included span
@@ -39,7 +39,7 @@ static int outer_next(derseq* c, wired_span* whole, der_tlv* e) {
 static int take_tbs(derseq* c, x509* out) {
   der_tlv e;
   if (!outer_next(c, &out->tbs, &e)) return 0;
-  return e.tag == QUIC_DER_SEQUENCE;
+  return e.tag == DER_SEQUENCE;
 }
 
 /* RFC 5280 4.1.1.2. signatureAlgorithm: pull out its OID. */
@@ -47,7 +47,7 @@ static int take_alg(derseq* c, x509* out) {
   wired_span whole;
   der_tlv    e;
   if (!outer_next(c, &whole, &e)) return 0;
-  if (e.tag != QUIC_DER_SEQUENCE) return 0;
+  if (e.tag != DER_SEQUENCE) return 0;
   return alg_oid(e.val, &out->sig_alg_oid);
 }
 
@@ -57,7 +57,7 @@ static int take_sig(derseq* c, x509* out) {
   der_tlv    e;
   if (!outer_next(c, &whole, &e)) return 0;
   out->sig = e.val;
-  return e.tag == QUIC_DER_BIT_STRING;
+  return e.tag == DER_BIT_STRING;
 }
 
 /* RFC 5280 4.1. The three fields in order: tbs, algorithm, signature. */
@@ -119,7 +119,7 @@ static int ext_id_is(wired_span e, wired_span oid) {
   derseq     f;
   wired_span id;
   derseq_init(&f, e);
-  if (!derseq_next_tagged(&f, QUIC_DER_OID, &id)) return 0;
+  if (!derseq_next_tagged(&f, DER_OID, &id)) return 0;
   return der_oid_equal(id, oid);
 }
 
@@ -138,7 +138,7 @@ static int ext_critical(wired_span e) {
   u8         tag;
   wired_span id, v;
   derseq_init(&f, e);
-  if (!derseq_next_tagged(&f, QUIC_DER_OID, &id)) return 0;
+  if (!derseq_next_tagged(&f, DER_OID, &id)) return 0;
   if (!derseq_next(&f, &tag, &v)) return 0;
   return is_true_boolean(tag, v);
 }
@@ -151,7 +151,7 @@ static int ext_value(wired_span e, wired_span* val) {
   wired_span o;
   derseq_init(&f, e);
   while (derseq_next(&f, &tag, &o))
-    if (tag == QUIC_DER_OCTET_STRING) {
+    if (tag == DER_OCTET_STRING) {
       *val = o;
       return 1;
     }
@@ -198,7 +198,7 @@ static const wired_span known_ext_oids[] = {
 static int ext_id(wired_span e, wired_span* id) {
   derseq f;
   derseq_init(&f, e);
-  return derseq_next_tagged(&f, QUIC_DER_OID, id);
+  return derseq_next_tagged(&f, DER_OID, id);
 }
 
 /* 1 if id matches one of the known extension OIDs. */

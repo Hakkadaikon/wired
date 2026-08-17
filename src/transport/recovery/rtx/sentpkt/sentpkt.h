@@ -1,14 +1,14 @@
-#ifndef QUIC_SENTPKT_SENTPKT_H
-#define QUIC_SENTPKT_SENTPKT_H
+#ifndef SENTPKT_SENTPKT_H
+#define SENTPKT_SENTPKT_H
 
 #include "common/platform/sys/syscall.h"
 
 /* RFC 9002 A.1: sent-packet tracking. Fixed-capacity ring buffer, no
  * dynamic allocation. Each slot records one in-flight packet. */
 
-#define QUIC_SENTPKT_CAP 256
+#define SENTPKT_CAP 256
 
-enum { QUIC_SP_INFLIGHT = 0, QUIC_SP_ACKED, QUIC_SP_LOST };
+enum { SP_INFLIGHT = 0, SP_ACKED, SP_LOST };
 
 typedef struct {
   u64 pn;
@@ -20,7 +20,7 @@ typedef struct {
 } sentpkt_entry;
 
 typedef struct {
-  sentpkt_entry e[QUIC_SENTPKT_CAP];
+  sentpkt_entry e[SENTPKT_CAP];
 } sentpkt;
 
 void sentpkt_init(sentpkt* t);

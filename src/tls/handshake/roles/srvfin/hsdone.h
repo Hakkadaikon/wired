@@ -1,5 +1,5 @@
-#ifndef QUIC_SRVFIN_HSDONE_H
-#define QUIC_SRVFIN_HSDONE_H
+#ifndef SRVFIN_HSDONE_H
+#define SRVFIN_HSDONE_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -7,7 +7,7 @@
  * (type 0x1e) once the handshake is complete, to signal confirmation to the
  * client. It is sent exactly once. */
 
-#define QUIC_SRVFIN_HANDSHAKE_DONE 0x1e
+#define SRVFIN_HANDSHAKE_DONE 0x1e
 
 /* 1 if the server should send HANDSHAKE_DONE now: complete and not yet sent. */
 int srvfin_should_send_handshake_done(int handshake_complete, int already_sent);

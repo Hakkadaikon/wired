@@ -1,5 +1,5 @@
-#ifndef QUIC_CONNRUNNER_KEYUPDATE_H
-#define QUIC_CONNRUNNER_KEYUPDATE_H
+#ifndef CONNRUNNER_KEYUPDATE_H
+#define CONNRUNNER_KEYUPDATE_H
 
 #include "transport/conn/loop/connrunner/connrunner.h"
 

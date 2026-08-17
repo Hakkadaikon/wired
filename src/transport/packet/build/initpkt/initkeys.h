@@ -1,12 +1,12 @@
-#ifndef QUIC_INITPKT_INITKEYS_H
-#define QUIC_INITPKT_INITKEYS_H
+#ifndef INITPKT_INITKEYS_H
+#define INITPKT_INITKEYS_H
 
 #include "common/bytes/span/span.h"
 #include "tls/handshake/core/tls/initial.h"
 
 /* RFC 9001 5.2: derive both the client and server Initial protection keys from
  * the Destination Connection ID of the client's first Initial packet, under
- * QUIC v1. Equivalent to initpkt_derive_ver(dcid, QUIC_VERSION_1, ...). */
+ * QUIC v1. Equivalent to initpkt_derive_ver(dcid, VERSION_1, ...). */
 void initpkt_derive(
     wired_span dcid, initial_keys* client_keys, initial_keys* server_keys);
 

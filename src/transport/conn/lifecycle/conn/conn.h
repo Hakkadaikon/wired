@@ -1,34 +1,34 @@
-#ifndef QUIC_CONN_CONN_H
-#define QUIC_CONN_CONN_H
+#ifndef CONN_CONN_H
+#define CONN_CONN_H
 
 #include "common/platform/sys/syscall.h"
 
 /** RFC 9000 handshake phase + connection lifecycle. Forward-only through the
  * open phases; any open phase may move to closing/draining, both -> closed. */
 typedef enum {
-  QUIC_PHASE_INITIAL = 0,
-  QUIC_PHASE_HANDSHAKE,
-  QUIC_PHASE_CONFIRMED,
-  QUIC_PHASE_CLOSING,
-  QUIC_PHASE_DRAINING,
-  QUIC_PHASE_CLOSED
+  PHASE_INITIAL = 0,
+  PHASE_HANDSHAKE,
+  PHASE_CONFIRMED,
+  PHASE_CLOSING,
+  PHASE_DRAINING,
+  PHASE_CLOSED
 } phase;
 
 /** Events that drive conn_step's phase transitions. */
 typedef enum {
-  QUIC_CONN_EV_HS_PROGRESS,  /* Initial -> Handshake */
-  QUIC_CONN_EV_HS_CONFIRMED, /* Handshake -> Confirmed */
-  QUIC_CONN_EV_CLOSE,        /* any open phase -> Closing */
-  QUIC_CONN_EV_DRAIN,        /* any open phase -> Draining */
-  QUIC_CONN_EV_CLOSED        /* Closing/Draining -> Closed */
+  CONN_EV_HS_PROGRESS,  /* Initial -> Handshake */
+  CONN_EV_HS_CONFIRMED, /* Handshake -> Confirmed */
+  CONN_EV_CLOSE,        /* any open phase -> Closing */
+  CONN_EV_DRAIN,        /* any open phase -> Draining */
+  CONN_EV_CLOSED        /* Closing/Draining -> Closed */
 } conn_event;
 
 /** RFC 9000 12.3: three independent packet number spaces. */
 typedef enum {
-  QUIC_PN_INITIAL = 0,
-  QUIC_PN_HANDSHAKE,
-  QUIC_PN_APPLICATION,
-  QUIC_PN_SPACE_COUNT
+  PN_INITIAL = 0,
+  PN_HANDSHAKE,
+  PN_APPLICATION,
+  PN_SPACE_COUNT
 } pn_space;
 
 /** A connection's phase plus the next packet number per space. Each space's
@@ -36,7 +36,7 @@ typedef enum {
  * forbids reuse and non-monotonic packet numbers. */
 typedef struct {
   phase phase;
-  u64   next_pn[QUIC_PN_SPACE_COUNT];
+  u64   next_pn[PN_SPACE_COUNT];
 } conn;
 
 /* Initialize a connection: Initial phase, all packet numbers start at 0. */

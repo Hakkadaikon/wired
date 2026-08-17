@@ -21,7 +21,7 @@ static void test_settings_dup_repeat(void) {
 static void test_settings_dup_full(void) {
   h3_settings_seen s;
   h3_settings_seen_init(&s);
-  for (u64 i = 0; i < QUIC_H3_SETTINGS_SEEN_MAX; i++)
+  for (u64 i = 0; i < H3_SETTINGS_SEEN_MAX; i++)
     CHECK(h3_settings_mark(&s, 0x100 + i) == 1);
   CHECK(h3_settings_mark(&s, 0x999) == 0);
 }

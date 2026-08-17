@@ -148,7 +148,7 @@ struct sdt_client {
 static usz sdt_build_ch_with_dg_tp(struct sdt_client* cx, u8* ch, usz cap) {
   u8         tp[32];
   wired_obuf tob = obuf_of(tp, sizeof tp);
-  usz        tn  = tparam_put_int(&tob, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, 65535);
+  usz        tn  = tparam_put_int(&tob, TP_MAX_DATAGRAM_FRAME_SIZE, 65535);
   /* RFC 9000 18.2: the server's send-credit gates (srvrun_can_send_new) now
    * consult initial_max_data/initial_max_stream_data_bidi_local from this
    * ClientHello -- without them the server's WT-status 2xx response is
@@ -156,12 +156,12 @@ static usz sdt_build_ch_with_dg_tp(struct sdt_client* cx, u8* ch, usz cap) {
    * (the DATAGRAM broadcast echo). Generously high so it never binds. */
   {
     wired_obuf tob2 = obuf_of(tp + tn, sizeof tp - tn);
-    tn += tparam_put_int(&tob2, QUIC_TP_INITIAL_MAX_DATA, 1u << 24);
+    tn += tparam_put_int(&tob2, TP_INITIAL_MAX_DATA, 1u << 24);
   }
   {
     wired_obuf tob3 = obuf_of(tp + tn, sizeof tp - tn);
-    tn += tparam_put_int(
-        &tob3, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 1u << 24);
+    tn +=
+        tparam_put_int(&tob3, TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 1u << 24);
   }
   static const u8 random[32] = {0};
   clienthello_in  in         = {
@@ -389,7 +389,7 @@ static int sdt_seed_fullhs(struct sdt_client* cx, const u8* ee, usz ee_len) {
  * overwrite fullhs_init's CH||SH||EE-tainted versions -- see this
  * function group's file-level doc for why. */
 static int sdt_rederive_finished_secrets(struct sdt_client* cx) {
-  u8               hs[QUIC_HKDF_PRK];
+  u8               hs[HKDF_PRK];
   const u8*        shared;
   derive_secret_in peer_in, self_in;
   if (!tlsdriver_shared_secret(&cx->c.tls, &shared)) return 0;
@@ -419,7 +419,7 @@ static int sdt_feed_cert(struct sdt_client* cx, const u8* m, usz n) {
   return fullhs_recv_cert(&cx->c.hs, m, n);
 }
 static int sdt_feed_certverify(struct sdt_client* cx, const u8* m, usz n) {
-  u16 scheme = (u16)((m[QUIC_HS_HEADER] << 8) | m[QUIC_HS_HEADER + 1]);
+  u16 scheme = (u16)((m[HS_HEADER] << 8) | m[HS_HEADER + 1]);
   return fullhs_recv_certverify(&cx->c.hs, wired_span_of(m, n), scheme);
 }
 static int sdt_feed_finished(struct sdt_client* cx, const u8* m, usz n) {
@@ -430,9 +430,9 @@ static const struct {
   u8 type;
   int (*fn)(struct sdt_client*, const u8*, usz);
 } sdt_hs_feed_table[] = {
-    {QUIC_HSD_CERTIFICATE, sdt_feed_cert},
-    {QUIC_HSD_CERT_VERIFY, sdt_feed_certverify},
-    {QUIC_HS_FINISHED, sdt_feed_finished},
+    {HSD_CERTIFICATE, sdt_feed_cert},
+    {HSD_CERT_VERIFY, sdt_feed_certverify},
+    {HS_FINISHED, sdt_feed_finished},
 };
 
 static int sdt_feed_one_hs_msg(struct sdt_client* cx, const u8* m, usz n) {
@@ -462,7 +462,7 @@ static usz sdt_hs_msg_total(const u8* p, usz off, usz n) {
  * the byte offset just past EE, or 0 on a malformed flight. */
 /* total is a well-formed, in-bounds EncryptedExtensions message at p[0..). */
 static int sdt_is_ee(const u8* p, usz total) {
-  return total != 0 && p[0] == QUIC_HSD_ENCRYPTED_EXT;
+  return total != 0 && p[0] == HSD_ENCRYPTED_EXT;
 }
 
 static usz sdt_consume_ee(struct sdt_client* cx, const u8* p, usz n) {
@@ -538,7 +538,7 @@ static int sdt_open_onertt(
   const initial_keys* k;
   aes128              hp;
   wired_span          v;
-  if (!keysched_get(&cx->c.tls.ks, QUIC_KS_SERVER_AP, &k)) return 0;
+  if (!keysched_get(&cx->c.tls.ks, KS_SERVER_AP, &k)) return 0;
   aes128_init(&hp, k->hp);
   {
     protect_keys           pk = {k, &hp};
@@ -679,8 +679,7 @@ static usz sdt_build_connect(u8* out, usz cap) {
       wired_span_of((const u8*)"/", 1),
       wired_span_of((const u8*)"webtransport", 12)};
   if (!h3req_enc_pseudo(&pin, &fob)) return 0;
-  if (!h3_frame_put(
-          &hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fields, fob.len)))
+  if (!h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fields, fob.len)))
     return 0;
   return hob.len;
 }
@@ -706,7 +705,7 @@ static usz sdt_seal_stream(
       wired_span_of(g_sdt_cli_scid, 6), pn, stream_id,
       wired_span_of(payload, plen), 0};
   wired_obuf ob = obuf_of(out, cap);
-  if (!keysched_get(&cx->c.tls.ks, QUIC_KS_CLIENT_AP, &k)) return 0;
+  if (!keysched_get(&cx->c.tls.ks, KS_CLIENT_AP, &k)) return 0;
   aes128_init(&hp, k->hp);
   {
     protect_keys pk = {k, &hp};
@@ -726,8 +725,7 @@ static int sdt_send_client_settings(struct sdt_client* cx) {
   u8         stream_bytes[9], settings_frame[8], pkt[256];
   wired_obuf fob = obuf_of(settings_frame, sizeof settings_frame);
   usz        plen, flen;
-  if (!h3_frame_put(
-          &fob, QUIC_H3_FRAME_SETTINGS, wired_span_of((const u8*)"", 0)))
+  if (!h3_frame_put(&fob, H3_FRAME_SETTINGS, wired_span_of((const u8*)"", 0)))
     return 0;
   stream_bytes[0] = 0x00; /* control stream type varint */
   flen            = 1;
@@ -827,7 +825,7 @@ static int sdt_wait_connect_2xx(struct sdt_client* cx, int max_tries) {
 static int sdt_client_ap_key(struct sdt_client* cx, protect_keys* pk) {
   const initial_keys* k;
   static aes128       hp; /* outlives the call, mirrors cw_dirkey's shape */
-  if (!keysched_get(&cx->c.tls.ks, QUIC_KS_CLIENT_AP, &k)) return 0;
+  if (!keysched_get(&cx->c.tls.ks, KS_CLIENT_AP, &k)) return 0;
   aes128_init(&hp, k->hp);
   *pk = (protect_keys){k, &hp};
   return 1;
@@ -883,7 +881,7 @@ static int sdt_bytes_eq(const u8* a, const u8* b, usz n) {
 }
 
 static int sdt_is_datagram_frame(const framewalk_item* fr) {
-  return fr->type == QUIC_FRAME_DATAGRAM || fr->type == QUIC_FRAME_DATAGRAM_LEN;
+  return fr->type == FRAME_DATAGRAM || fr->type == FRAME_DATAGRAM_LEN;
 }
 
 /* fr is a DATAGRAM frame (RFC 9221 5) whose payload equals want[0..want_len).
@@ -1066,7 +1064,7 @@ static void test_srvthreads_datagram_self_echo(void) {
  * became per-(conn,stream) (1 MiB -> 4 MiB) and the srvbigbuf pool (1.25
  * MiB) was added, then past 45 MiB once every connection's WT bidi+uni
  * slots got a real-throughput-sized receive window
- * (WIRED_SRVLOOP_WT_BUF_CAP: 12 slots * QUIC_CONNTABLE_CAP=64 conns) --
+ * (WIRED_SRVLOOP_WT_BUF_CAP: 12 slots * WIRED_CONNTABLE_CAP=64 conns) --
  * that call cannot be used in a static array bound, so this constant must
  * track it by hand (see srvinbox_test.c's g_sib_env_storage sizing note for
  * the crash this exact gap caused). Measured ~112 MiB after the WT receive

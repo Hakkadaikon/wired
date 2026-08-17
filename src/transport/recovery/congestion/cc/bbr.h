@@ -1,5 +1,5 @@
-#ifndef QUIC_CC_BBR_H
-#define QUIC_CC_BBR_H
+#ifndef CC_BBR_H
+#define CC_BBR_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -11,25 +11,25 @@
  * percentages. This is the pure state core — BDP/cwnd arithmetic and the
  * delivery-rate sampler live with the caller. */
 
-#define QUIC_BBR_STARTUP 0
-#define QUIC_BBR_DRAIN 1
-#define QUIC_BBR_PROBE_BW 2
-#define QUIC_BBR_PROBE_RTT 3
+#define BBR_STARTUP 0
+#define BBR_DRAIN 1
+#define BBR_PROBE_BW 2
+#define BBR_PROBE_RTT 3
 
 /** Rounds the bottleneck-bandwidth max filter spans (BBRBtlBwFilterLen). */
-#define QUIC_BBR_BW_WIN 10
+#define BBR_BW_WIN 10
 /** RTprop validity window in ms (RTpropFilterLen, 10s). */
-#define QUIC_BBR_RTPROP_WIN_MS 10000
+#define BBR_RTPROP_WIN_MS 10000
 /** PROBE_RTT dwell in ms (ProbeRTTDuration, 200ms). */
-#define QUIC_BBR_PROBE_RTT_MS 200
+#define BBR_PROBE_RTT_MS 200
 
 typedef struct {
-  int phase;                   /**< QUIC_BBR_* */
-  u64 bw_win[QUIC_BBR_BW_WIN]; /**< per-round delivery-rate samples */
-  usz bw_idx;                  /**< next slot in bw_win (ring) */
-  u64 btl_bw;        /**< max of bw_win: bottleneck bandwidth estimate */
-  u64 full_bw;       /**< growth baseline for the full-pipe check */
-  int full_bw_cnt;   /**< rounds without 1.25x growth (3 fills the pipe) */
+  int phase;              /**< QUIC_BBR_* */
+  u64 bw_win[BBR_BW_WIN]; /**< per-round delivery-rate samples */
+  usz bw_idx;             /**< next slot in bw_win (ring) */
+  u64 btl_bw;             /**< max of bw_win: bottleneck bandwidth estimate */
+  u64 full_bw;            /**< growth baseline for the full-pipe check */
+  int full_bw_cnt;        /**< rounds without 1.25x growth (3 fills the pipe) */
   int filled;        /**< full-pipe latch; never clears (BBRCheckFullPipe) */
   int cycle_idx;     /**< PROBE_BW gain-cycle position, 0..7 */
   u64 rtprop_ms;     /**< windowed-min round-trip propagation delay */

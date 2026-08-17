@@ -64,7 +64,7 @@ static int copy_int32(derseq* c, u8 out[32]) {
   wired_span s;
   const u8*  v;
   usz        len;
-  if (!derseq_next_tagged(c, QUIC_DER_INTEGER, &s)) return 0;
+  if (!derseq_next_tagged(c, DER_INTEGER, &s)) return 0;
   v   = s.p;
   len = s.n;
   cv_strip_pad(&v, &len);
@@ -115,7 +115,7 @@ static int verify_rsa(wired_span cert, wired_span sig, const u8 hash[32]) {
 /* RFC 5280 4.1.2.7: a 32-byte raw key wrapped in the BIT STRING's leading
  * unused-bits octet (0x00). */
 static int is_ed25519_bits(wired_span bits) {
-  return bits.n == QUIC_ED25519_PUBKEY + 1 && bits.p[0] == 0x00;
+  return bits.n == ED25519_PUBKEY + 1 && bits.p[0] == 0x00;
 }
 
 /* The 32-byte Ed25519 public key from the certificate, past the unused-bits
@@ -131,7 +131,7 @@ static int ed25519_key(wired_span cert, const u8** key) {
 static int verify_ed25519(
     wired_span cert, wired_span sig, const u8 content[130]) {
   const u8* key;
-  if (sig.n != QUIC_ED25519_SIG) return 0;
+  if (sig.n != ED25519_SIG) return 0;
   if (!ed25519_key(cert, &key)) return 0;
   return ed25519_verify(sig.p, content, 130, key);
 }
@@ -140,9 +140,9 @@ static int verify_ed25519(
 static int verify_hashed(const certverify_in* in, const u8 content[130]) {
   u8 hash[32];
   wired_sha256(content, 130, hash);
-  if (in->scheme == QUIC_TLS_SCHEME_ECDSA_P256)
+  if (in->scheme == TLS_SCHEME_ECDSA_P256)
     return verify_ecdsa(in->cert, in->sig, hash);
-  if (in->scheme == QUIC_TLS_SCHEME_RSA_PSS_SHA256)
+  if (in->scheme == TLS_SCHEME_RSA_PSS_SHA256)
     return verify_rsa(in->cert, in->sig, hash);
   return 0;
 }
@@ -150,7 +150,7 @@ static int verify_hashed(const certverify_in* in, const u8 content[130]) {
 int tls_verify_cert_signature(const certverify_in* in) {
   u8 content[130];
   cv_build_signed(in->transcript_hash, content);
-  if (in->scheme == QUIC_TLS_SCHEME_ED25519)
+  if (in->scheme == TLS_SCHEME_ED25519)
     return verify_ed25519(in->cert, in->sig, content);
   return verify_hashed(in, content);
 }

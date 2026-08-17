@@ -1,5 +1,5 @@
-#ifndef QUIC_QPACK_DYNGET_H
-#define QUIC_QPACK_DYNGET_H
+#ifndef QPACK_DYNGET_H
+#define QPACK_DYNGET_H
 
 #include "app/qpack/qpack/dyntable.h"
 

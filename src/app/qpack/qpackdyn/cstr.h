@@ -1,5 +1,5 @@
-#ifndef QUIC_QPACKDYN_CSTR_H
-#define QUIC_QPACKDYN_CSTR_H
+#ifndef QPACKDYN_CSTR_H
+#define QPACKDYN_CSTR_H
 
 #include "common/platform/sys/syscall.h"
 

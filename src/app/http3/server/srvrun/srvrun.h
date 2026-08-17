@@ -147,7 +147,7 @@ typedef struct {
   /** QUIC_CC_ALGO_* for fresh connections. 0 selects the build's default
    * (WIRED_CC_ALGO_DEFAULT in srvrun.c -- Cubic unless the build overrides
    * it); a build wanting NewReno overrides -DWIRED_CC_ALGO_DEFAULT=0, since
-   * an explicit runtime NewReno request (QUIC_CC_ALGO_NEWRENO == 0) is
+   * an explicit runtime NewReno request (CC_ALGO_NEWRENO == 0) is
    * indistinguishable from "unset". */
   int cc_algo;
 } wired_srvrun_obs;
@@ -559,7 +559,7 @@ int wired_server_wt_send_datagram_to(wired_wt_session* s, wired_span payload);
  * WT queues). Callable only from inside the server's own loop (a callback).
  * @param s the session to close
  * @param app_error_code the WebTransport application error code to report
- * @param message UTF-8 reason, message.n <= QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX
+ * @param message UTF-8 reason, message.n <= WTCAPSULE_CLOSE_MESSAGE_MAX
  *   (copied at call time, so it need not outlive the call); a longer message
  *   is truncated to the cap
  * @return 1 queued, 0 when s resolves to no live connection */

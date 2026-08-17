@@ -7,7 +7,7 @@ static void test_ack_single_range(void) {
   in.ranges[0].lo = 7;
   u8  buf[32];
   usz w = ack_encode(buf, sizeof(buf), &in);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_ACK);
+  CHECK(w != 0 && buf[0] == FRAME_ACK);
 
   ack_frame out;
   usz       r = ack_decode(buf, w, &out);
@@ -64,7 +64,7 @@ static void test_ack_ecn(void) {
   in.ranges[0].lo = 48;
   u8  buf[48];
   usz w = ack_encode(buf, sizeof(buf), &in);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_ACK_ECN);
+  CHECK(w != 0 && buf[0] == FRAME_ACK_ECN);
 
   ack_frame out;
   usz       r = ack_decode(buf, w, &out);

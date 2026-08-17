@@ -1,5 +1,5 @@
-#ifndef QUIC_CLOSELIFE_DRAINING_H
-#define QUIC_CLOSELIFE_DRAINING_H
+#ifndef CLOSELIFE_DRAINING_H
+#define CLOSELIFE_DRAINING_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_MAXSTREAMS_MAXSTREAMS_H
-#define QUIC_MAXSTREAMS_MAXSTREAMS_H
+#ifndef MAXSTREAMS_MAXSTREAMS_H
+#define MAXSTREAMS_MAXSTREAMS_H
 
 #include "common/bytes/span/span.h"
 

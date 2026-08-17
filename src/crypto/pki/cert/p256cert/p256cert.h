@@ -1,5 +1,5 @@
-#ifndef QUIC_P256CERT_P256CERT_H
-#define QUIC_P256CERT_P256CERT_H
+#ifndef P256CERT_P256CERT_H
+#define P256CERT_P256CERT_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

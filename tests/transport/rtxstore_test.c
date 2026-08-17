@@ -24,7 +24,7 @@ static void test_rtxstore_miss(void) {
 
 static void test_rtxstore_too_large(void) {
   rtxbytes  st;
-  static u8 big[QUIC_RTXBYTES_FRAME + 1];
+  static u8 big[RTXBYTES_FRAME + 1];
 
   rtxbytes_init(&st);
   CHECK(rtxbytes_store(&st, 1, wired_span_of(big, sizeof big)) == 0);

@@ -49,19 +49,17 @@ static void test_certverify_parse(void) {
  * a signature that does not verify. (A positive case needs a real keypair;
  * the underlying Ed25519 verify is covered by RFC 8032 vectors.) */
 static void test_certverify_ed25519(void) {
-  u8 th[32], pk[32], sig[QUIC_ED25519_SIG];
+  u8 th[32], pk[32], sig[ED25519_SIG];
   for (usz i = 0; i < 32; i++) {
     th[i] = (u8)i;
     pk[i] = (u8)(i + 1);
   }
-  for (usz i = 0; i < QUIC_ED25519_SIG; i++) sig[i] = 0;
+  for (usz i = 0; i < ED25519_SIG; i++) sig[i] = 0;
 
   CHECK(
       tls_certverify_ed25519(wired_span_of(sig, 32), th, pk) ==
       0); /* wrong length */
-  CHECK(
-      tls_certverify_ed25519(wired_span_of(sig, QUIC_ED25519_SIG), th, pk) ==
-      0);
+  CHECK(tls_certverify_ed25519(wired_span_of(sig, ED25519_SIG), th, pk) == 0);
 
   /* the signed content is deterministic and well-formed */
   u8 c1[130], c2[130];

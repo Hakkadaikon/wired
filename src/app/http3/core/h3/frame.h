@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_FRAME_H
-#define QUIC_H3_FRAME_H
+#ifndef H3_FRAME_H
+#define H3_FRAME_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -9,22 +9,22 @@
  * QPACK-encoded field section; the QPACK dynamic table of RFC 9204 is out of
  * scope here, so the field block is passed through verbatim). */
 
-#define QUIC_H3_FRAME_DATA 0x00
-#define QUIC_H3_FRAME_HEADERS 0x01
-#define QUIC_H3_FRAME_CANCEL_PUSH 0x03
-#define QUIC_H3_FRAME_SETTINGS 0x04
-#define QUIC_H3_FRAME_PUSH_PROMISE 0x05
-#define QUIC_H3_FRAME_GOAWAY 0x07
-#define QUIC_H3_FRAME_MAX_PUSH_ID 0x0d
+#define H3_FRAME_DATA 0x00
+#define H3_FRAME_HEADERS 0x01
+#define H3_FRAME_CANCEL_PUSH 0x03
+#define H3_FRAME_SETTINGS 0x04
+#define H3_FRAME_PUSH_PROMISE 0x05
+#define H3_FRAME_GOAWAY 0x07
+#define H3_FRAME_MAX_PUSH_ID 0x0d
 
 /* RFC 9114 6.2 unidirectional stream types. */
-#define QUIC_H3_STREAM_CONTROL 0x00
-#define QUIC_H3_STREAM_PUSH 0x01
-#define QUIC_H3_STREAM_QPACK_ENCODER 0x02
-#define QUIC_H3_STREAM_QPACK_DECODER 0x03
+#define H3_STREAM_CONTROL 0x00
+#define H3_STREAM_PUSH 0x01
+#define H3_STREAM_QPACK_ENCODER 0x02
+#define H3_STREAM_QPACK_DECODER 0x03
 
 /* draft-ietf-webtrans-http3-15 4.3: WebTransport unidirectional stream. */
-#define QUIC_H3_STREAM_WEBTRANSPORT 0x54
+#define H3_STREAM_WEBTRANSPORT 0x54
 
 /* draft-ietf-webtrans-http3-15 4.3: the WT_STREAM signal a WebTransport bidi
  * stream (client- or server-initiated) MUST send as the varint-encoded value
@@ -32,33 +32,33 @@
  * varint range (RFC 9000 16, max 0x3F), so on the wire it is the 2-byte
  * encoding {0x40, 0x41} — decode with varint_take/varint_decode,
  * never compare a raw leading byte to 0x41. */
-#define QUIC_H3_STREAM_WEBTRANSPORT_BIDI 0x41
+#define H3_STREAM_WEBTRANSPORT_BIDI 0x41
 
 /* RFC 9114 8.1 error codes. */
-#define QUIC_H3_NO_ERROR 0x0100
-#define QUIC_H3_GENERAL_PROTOCOL_ERROR 0x0101
-#define QUIC_H3_INTERNAL_ERROR 0x0102
-#define QUIC_H3_STREAM_CREATION_ERROR 0x0103
-#define QUIC_H3_CLOSED_CRITICAL_STREAM 0x0104
-#define QUIC_H3_FRAME_UNEXPECTED 0x0105
-#define QUIC_H3_FRAME_ERROR 0x0106
-#define QUIC_H3_EXCESSIVE_LOAD 0x0107
-#define QUIC_H3_ID_ERROR 0x0108
-#define QUIC_H3_SETTINGS_ERROR 0x0109
-#define QUIC_H3_MISSING_SETTINGS 0x010a
-#define QUIC_H3_REQUEST_REJECTED 0x010b
-#define QUIC_H3_REQUEST_CANCELLED 0x010c
-#define QUIC_H3_REQUEST_INCOMPLETE 0x010d
-#define QUIC_H3_MESSAGE_ERROR 0x010e
-#define QUIC_H3_CONNECT_ERROR 0x010f
-#define QUIC_H3_VERSION_FALLBACK 0x0110
+#define H3_NO_ERROR 0x0100
+#define H3_GENERAL_PROTOCOL_ERROR 0x0101
+#define H3_INTERNAL_ERROR 0x0102
+#define H3_STREAM_CREATION_ERROR 0x0103
+#define H3_CLOSED_CRITICAL_STREAM 0x0104
+#define H3_FRAME_UNEXPECTED 0x0105
+#define H3_FRAME_ERROR 0x0106
+#define H3_EXCESSIVE_LOAD 0x0107
+#define H3_ID_ERROR 0x0108
+#define H3_SETTINGS_ERROR 0x0109
+#define H3_MISSING_SETTINGS 0x010a
+#define H3_REQUEST_REJECTED 0x010b
+#define H3_REQUEST_CANCELLED 0x010c
+#define H3_REQUEST_INCOMPLETE 0x010d
+#define H3_MESSAGE_ERROR 0x010e
+#define H3_CONNECT_ERROR 0x010f
+#define H3_VERSION_FALLBACK 0x0110
 
 /* RFC 9297 2.1: an HTTP/3 connection error for a malformed or out-of-range
  * HTTP Datagram Quarter Stream ID. */
-#define QUIC_H3_DATAGRAM_ERROR 0x33
+#define H3_DATAGRAM_ERROR 0x33
 
 /* RFC 9114 7.2.4.1 SETTINGS parameter. */
-#define QUIC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE 0x06
+#define H3_SETTINGS_MAX_FIELD_SECTION_SIZE 0x06
 
 /* 11 defined pairs this SDK ever builds (MAX_FIELD_SECTION_SIZE, QPACK's
  * two, ENABLE_CONNECT_PROTOCOL, H3_DATAGRAM, WebTransport session-negotiation
@@ -66,7 +66,7 @@
  * 5.5's SETTINGS_WT_INITIAL_MAX_STREAMS_UNI/BIDI/MAX_DATA) plus one slot for
  * an optional grease identifier (RFC 9114 7.2.4.1 / 9114-064,
  * h3settings_build's append_grease). */
-#define QUIC_H3_SETTINGS_MAX 12
+#define H3_SETTINGS_MAX 12
 
 /** RFC 9114 7.2.4: a SETTINGS frame's payload, as decoded (Identifier,
  * Value) pairs. */
@@ -75,7 +75,7 @@ typedef struct {
   struct {
     u64 id;
     u64 value;
-  } pairs[QUIC_H3_SETTINGS_MAX];
+  } pairs[H3_SETTINGS_MAX];
 } h3_settings;
 
 /** RFC 9114 7.2 decoded frame head + payload view (payload borrowed in

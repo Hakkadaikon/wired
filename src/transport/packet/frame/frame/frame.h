@@ -1,22 +1,22 @@
-#ifndef QUIC_FRAME_FRAME_H
-#define QUIC_FRAME_FRAME_H
+#ifndef FRAME_FRAME_H
+#define FRAME_FRAME_H
 
 #include "common/platform/sys/syscall.h"
 
 /* RFC 9000 19: frame types. The type itself is a varint; the common ones
  * below fit in a single byte. */
 
-#define QUIC_FRAME_PADDING 0x00
-#define QUIC_FRAME_PING 0x01
-#define QUIC_FRAME_CRYPTO 0x06
-#define QUIC_FRAME_STREAM_BASE 0x08 /* 0x08-0x0f, low 3 bits = OFF/LEN/FIN */
-#define QUIC_FRAME_CONN_CLOSE_TPT 0x1c
-#define QUIC_FRAME_CONN_CLOSE_APP 0x1d
+#define FRAME_PADDING 0x00
+#define FRAME_PING 0x01
+#define FRAME_CRYPTO 0x06
+#define FRAME_STREAM_BASE 0x08 /* 0x08-0x0f, low 3 bits = OFF/LEN/FIN */
+#define FRAME_CONN_CLOSE_TPT 0x1c
+#define FRAME_CONN_CLOSE_APP 0x1d
 
 /* STREAM type bits (RFC 9000 19.8). */
-#define QUIC_STREAM_FIN 0x01
-#define QUIC_STREAM_LEN 0x02
-#define QUIC_STREAM_OFF 0x04
+#define STREAM_FIN 0x01
+#define STREAM_LEN 0x02
+#define STREAM_OFF 0x04
 
 /** A CRYPTO frame: offset + a view into the data (not copied). */
 typedef struct {

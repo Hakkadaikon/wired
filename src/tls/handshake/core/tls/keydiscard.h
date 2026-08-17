@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_KEYDISCARD_H
-#define QUIC_TLS_KEYDISCARD_H
+#ifndef TLS_KEYDISCARD_H
+#define TLS_KEYDISCARD_H
 
 /* RFC 9001 4.9.1: Initial keys are discarded once Handshake keys are
  * available; Handshake keys are discarded once the handshake is confirmed

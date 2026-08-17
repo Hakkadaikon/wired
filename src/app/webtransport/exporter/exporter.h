@@ -1,5 +1,5 @@
-#ifndef QUIC_WT_EXPORTER_EXPORTER_H
-#define QUIC_WT_EXPORTER_EXPORTER_H
+#ifndef WT_EXPORTER_EXPORTER_H
+#define WT_EXPORTER_EXPORTER_H
 
 #include "common/bytes/span/span.h"
 #include "crypto/kdf/hkdf/hkdf.h"
@@ -23,15 +23,14 @@
  * 8-bit length fields).
  */
 
-#define QUIC_WT_EXPORTER_CTX_LABEL_MAX 255
-#define QUIC_WT_EXPORTER_CTX_CONTEXT_MAX 255
+#define WT_EXPORTER_CTX_LABEL_MAX 255
+#define WT_EXPORTER_CTX_CONTEXT_MAX 255
 /* 8 (session id) + 1 + label + 1 + context, at the two max lengths. */
-#define QUIC_WT_EXPORTER_CTX_MAX                \
-  (8 + 1 + QUIC_WT_EXPORTER_CTX_LABEL_MAX + 1 + \
-   QUIC_WT_EXPORTER_CTX_CONTEXT_MAX)
+#define WT_EXPORTER_CTX_MAX \
+  (8 + 1 + WT_EXPORTER_CTX_LABEL_MAX + 1 + WT_EXPORTER_CTX_CONTEXT_MAX)
 
 /* Serialize the WebTransport Exporter Context struct into out (capacity
- * QUIC_WT_EXPORTER_CTX_MAX or more). Returns the serialized length, or 0 if
+ * WT_EXPORTER_CTX_MAX or more). Returns the serialized length, or 0 if
  * label or app_context exceeds its 255-byte field, or out lacks capacity.
  * @param session_id  the WebTransport session's identity (its CONNECT
  *   stream ID, session.h's wired_wt_session.connect_stream_id)
@@ -54,7 +53,7 @@ usz wt_exporter_ctx_encode(
  * @return 1 on success, 0 if label/app_context exceed 255 bytes or okm's
  *   length does not fit hkdf_expand_label */
 int wt_exporter(
-    const u8    exporter_secret[QUIC_HKDF_PRK],
+    const u8    exporter_secret[HKDF_PRK],
     u64         session_id,
     wired_span  label,
     wired_span  app_context,

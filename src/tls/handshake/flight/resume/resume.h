@@ -1,5 +1,5 @@
-#ifndef QUIC_RESUME_RESUME_H
-#define QUIC_RESUME_RESUME_H
+#ifndef RESUME_RESUME_H
+#define RESUME_RESUME_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -11,15 +11,15 @@
  * ticket (RFC 9000 8.1, 17.2.5): the resumed Initial carries both the Retry
  * token and the resumption PSK. */
 
-#define QUIC_RESUME_TICKET_MAX 512
+#define RESUME_TICKET_MAX 512
 
 /* RFC 1035 3.1: a full domain name is at most 255 octets. */
-#define QUIC_RESUME_SNI_MAX 255
+#define RESUME_SNI_MAX 255
 
 /** RFC 8446 4.6.1: a stored session ticket plus the resumption PSK and
  * transport-parameter/SNI metadata needed to attempt 0-RTT on it later. */
 typedef struct {
-  u8  ticket[QUIC_RESUME_TICKET_MAX];
+  u8  ticket[RESUME_TICKET_MAX];
   usz ticket_len;
   u64 issued_at; /* RFC 8446 4.6.1 ticket issuance time */
   u32 lifetime;  /* ticket_lifetime, seconds */
@@ -29,7 +29,7 @@ typedef struct {
   int have_psk; /* 1 when psk holds a value */
   /** RFC 6066 3: the server_name the original session was established
    * under, or sni_len 0 when none was offered. */
-  u8  sni[QUIC_RESUME_SNI_MAX];
+  u8  sni[RESUME_SNI_MAX];
   usz sni_len;
 } resume;
 
@@ -42,7 +42,7 @@ typedef struct {
   const u8* psk;       /* 32-byte resumption PSK, or 0 when unknown */
   /** RFC 6066 3: the server_name this session was established under (a view
    * kept alive only for the call), or n 0 when none was offered. Longer than
-   * QUIC_RESUME_SNI_MAX is truncated to it. */
+   * RESUME_SNI_MAX is truncated to it. */
   wired_span sni;
 } resume_store_in;
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_CONN_DEMUX_H
-#define QUIC_CONN_DEMUX_H
+#ifndef CONN_DEMUX_H
+#define CONN_DEMUX_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

@@ -1,5 +1,5 @@
-#ifndef QUIC_QPACKDYN_FIELD_ENCODE_H
-#define QUIC_QPACKDYN_FIELD_ENCODE_H
+#ifndef QPACKDYN_FIELD_ENCODE_H
+#define QPACKDYN_FIELD_ENCODE_H
 
 #include "common/bytes/span/span.h"
 

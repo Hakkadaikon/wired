@@ -10,7 +10,7 @@ static int seen(const h3_settings_seen* s, u64 id) {
 }
 
 int h3_settings_mark(h3_settings_seen* s, u64 id) {
-  if (s->n >= QUIC_H3_SETTINGS_SEEN_MAX) return 0;
+  if (s->n >= H3_SETTINGS_SEEN_MAX) return 0;
   if (seen(s, id)) return 0;
   s->ids[s->n++] = id;
   return 1;

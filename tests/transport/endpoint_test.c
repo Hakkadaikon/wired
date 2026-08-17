@@ -13,7 +13,7 @@ static usz tx(memlink* l, const u8* qpkt, usz qlen, u32 src, u32 dst) {
   udp4meta   meta = {{4433, 4433}, {src, dst}};
   wired_obuf ub   = obuf_of(udp, sizeof(udp));
   usz        un   = udp4_build(&ub, &meta, wired_span_of(qpkt, qlen));
-  ipv4_build(ip, &(ipv4_head){(u16)(20 + un), src, dst, QUIC_IP_PROTO_UDP});
+  ipv4_build(ip, &(ipv4_head){(u16)(20 + un), src, dst, IP_PROTO_UDP});
   for (usz i = 0; i < 20; i++) frame[i] = ip[i];
   for (usz i = 0; i < un; i++) frame[20 + i] = udp[i];
   memlink_send(l, frame, 20 + un);
@@ -28,9 +28,8 @@ static usz rx(memlink* l, u8* qpkt, usz cap, u32 src, u32 dst) {
   if (fn == 0 || !ipv4_check(frame)) return 0;
   if (!udp4_check(wired_span_of(frame + 20, un), (ipv4addrs){src, dst}))
     return 0;
-  usz qlen = un - QUIC_UDP_HDR;
-  for (usz i = 0; i < qlen && i < cap; i++)
-    qpkt[i] = frame[20 + QUIC_UDP_HDR + i];
+  usz qlen = un - UDP_HDR;
+  for (usz i = 0; i < qlen && i < cap; i++) qpkt[i] = frame[20 + UDP_HDR + i];
   return qlen;
 }
 
@@ -40,8 +39,7 @@ static usz make_client_initial(
     endpoint* c, const initial_keys* ik, const aes128* hp, u8* out, usz cap) {
   u8  hello[256], crypto[300], hdr[18];
   u8  rnd[32] = {0};
-  usz hl =
-      hs_build_hello(hello, sizeof(hello), QUIC_HS_CLIENT_HELLO, rnd, c->pub);
+  usz hl = hs_build_hello(hello, sizeof(hello), HS_CLIENT_HELLO, rnd, c->pub);
   crypto_frame cf = {.offset = 0, .length = hl, .data = hello};
   usz          cl = frame_put_crypto(crypto, sizeof(crypto), &cf);
   for (usz i = 0; i < 18; i++) hdr[i] = 0;
@@ -92,7 +90,7 @@ static void test_endpoint_handshake(void) {
 
   initial_keys cik; /* client Initial keys (both sides derive) */
   aes128       chp;
-  initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &cik);
+  initial_derive(wired_span_of(dcid, 8), 0, VERSION_1, &cik);
   aes128_init(&chp, cik.hp);
 
   memlink link;
@@ -128,7 +126,7 @@ static void test_endpoint_handshake(void) {
         &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 1},
         &cl_sees_server);
   }
-  for (usz i = 0; i < QUIC_INITIAL_KEY; i++)
+  for (usz i = 0; i < INITIAL_KEY; i++)
     CHECK(cl_sees_server.key[i] == sv.hs_keys.key[i]);
 
   /* 1-RTT STREAM data round-trips under the agreed (server) handshake keys */

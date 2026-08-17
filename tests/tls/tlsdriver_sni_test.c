@@ -23,7 +23,7 @@ static void test_tlsdriver_sni_present(void) {
   tlsdriver_set_sni(&d, (const u8*)"example.com", 11);
   w = tlsdriver_raw_client_hello(&d, ch, sizeof(ch));
   CHECK(w > 0);
-  CHECK(salpn_find_extension(wired_span_of(ch, w), QUIC_SNI_TYPE, &ext) == 1);
+  CHECK(salpn_find_extension(wired_span_of(ch, w), SNI_TYPE, &ext) == 1);
   CHECK(salpn_extract_sni(ext, &host) == 1);
   CHECK(host.n == 11 && host.p[0] == 'e' && host.p[10] == 'm');
 }
@@ -37,7 +37,7 @@ static void test_tlsdriver_sni_absent(void) {
   sni_driver(&d);
   w = tlsdriver_raw_client_hello(&d, ch, sizeof(ch));
   CHECK(w > 0);
-  CHECK(salpn_find_extension(wired_span_of(ch, w), QUIC_SNI_TYPE, &ext) == 0);
+  CHECK(salpn_find_extension(wired_span_of(ch, w), SNI_TYPE, &ext) == 0);
 }
 
 void test_tlsdriver_sni(void) {

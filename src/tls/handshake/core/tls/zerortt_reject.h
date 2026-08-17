@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_ZERORTT_REJECT_H
-#define QUIC_TLS_ZERORTT_REJECT_H
+#ifndef TLS_ZERORTT_REJECT_H
+#define TLS_ZERORTT_REJECT_H
 
 #include "common/platform/sys/syscall.h"
 

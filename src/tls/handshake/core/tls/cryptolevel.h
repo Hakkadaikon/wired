@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_CRYPTOLEVEL_H
-#define QUIC_TLS_CRYPTOLEVEL_H
+#ifndef TLS_CRYPTOLEVEL_H
+#define TLS_CRYPTOLEVEL_H
 
 #include "common/platform/sys/syscall.h"
 

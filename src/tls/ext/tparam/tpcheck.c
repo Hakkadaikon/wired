@@ -36,10 +36,10 @@ typedef struct {
 } tp_range_row;
 
 static const tp_range_row tp_range[] = {
-    {QUIC_TP_MAX_UDP_PAYLOAD_SIZE, 1200, 0xffffffffffffffffull},
-    {QUIC_TP_ACK_DELAY_EXPONENT, 0, 20},
-    {QUIC_TP_MAX_ACK_DELAY, 0, 16383},
-    {QUIC_TP_ACTIVE_CONNECTION_ID_LIMIT, 2, 0xffffffffffffffffull},
+    {TP_MAX_UDP_PAYLOAD_SIZE, 1200, 0xffffffffffffffffull},
+    {TP_ACK_DELAY_EXPONENT, 0, 20},
+    {TP_MAX_ACK_DELAY, 0, 16383},
+    {TP_ACTIVE_CONNECTION_ID_LIMIT, 2, 0xffffffffffffffffull},
 };
 
 /* The range row for id, or 0 if id carries no range constraint. */

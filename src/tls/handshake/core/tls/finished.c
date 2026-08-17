@@ -3,16 +3,15 @@
 #include "crypto/symmetric/hash/hash/hmac.h"
 
 void tls_finished_verify_data(
-    const u8 base_key[QUIC_HKDF_PRK],
-    const u8 transcript_hash[QUIC_SHA256_DIGEST],
-    u8       out[QUIC_TLS_VERIFY_DATA]) {
-  u8         finished_key[QUIC_SHA256_DIGEST];
+    const u8 base_key[HKDF_PRK],
+    const u8 transcript_hash[SHA256_DIGEST],
+    u8       out[TLS_VERIFY_DATA]) {
+  u8         finished_key[SHA256_DIGEST];
   hkdf_label l = {"finished", 8, {0, 0}};
-  hkdf_expand_label(
-      base_key, &l, wired_mspan_of(finished_key, QUIC_SHA256_DIGEST));
+  hkdf_expand_label(base_key, &l, wired_mspan_of(finished_key, SHA256_DIGEST));
   hmac_sha256(
-      wired_span_of(finished_key, QUIC_SHA256_DIGEST),
-      wired_span_of(transcript_hash, QUIC_SHA256_DIGEST), out);
+      wired_span_of(finished_key, SHA256_DIGEST),
+      wired_span_of(transcript_hash, SHA256_DIGEST), out);
 }
 
 /* Constant-time 32-byte digest comparison: 0 if equal. */
@@ -23,10 +22,10 @@ static u8 digest_diff(const u8 a[32], const u8 b[32]) {
 }
 
 int tls_finished_check(
-    const u8 base_key[QUIC_HKDF_PRK],
-    const u8 transcript_hash[QUIC_SHA256_DIGEST],
-    const u8 received[QUIC_TLS_VERIFY_DATA]) {
-  u8 want[QUIC_TLS_VERIFY_DATA];
+    const u8 base_key[HKDF_PRK],
+    const u8 transcript_hash[SHA256_DIGEST],
+    const u8 received[TLS_VERIFY_DATA]) {
+  u8 want[TLS_VERIFY_DATA];
   tls_finished_verify_data(base_key, transcript_hash, want);
   return digest_diff(want, received) == 0;
 }

@@ -4,12 +4,12 @@
 
 /* RFC 9000 17.2.4: byte0 long-header form (0x80), fixed bit (0x40), type bits
  * 5-4 = Handshake (0x2), and a 4-byte packet-number length (low bits 0x03). */
-#define QUIC_HSPKT_BYTE0 0xe3
+#define HSPKT_BYTE0 0xe3
 
 /* RFC 9000 17.2.4: the long header shared by hspkt_build and
  * hspkt_build_suite. */
 static tx_desc hspkt_tx_desc(const hspkt_desc* d) {
-  return (tx_desc){QUIC_HSPKT_BYTE0,    d->dcid, d->scid,    0,
+  return (tx_desc){HSPKT_BYTE0,         d->dcid, d->scid,    0,
                    wired_span_of(0, 0), d->pn,   d->payload, 0 /* v1 */};
 }
 

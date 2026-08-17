@@ -1,15 +1,14 @@
-#ifndef QUIC_RECOVERY_PTO_H
-#define QUIC_RECOVERY_PTO_H
+#ifndef RECOVERY_PTO_H
+#define RECOVERY_PTO_H
 
 #include "common/platform/sys/syscall.h"
 
 /* RFC 9002 6.2.1: PTO computation and exponential backoff. Times in us. */
 
-#define QUIC_PTO_GRANULARITY 1000 /* kGranularity = 1ms */
-#define QUIC_PTO_BACKOFF_MAX \
-  16 /* cap the shift so pto*2^count cannot overflow */
+#define PTO_GRANULARITY 1000 /* kGranularity = 1ms */
+#define PTO_BACKOFF_MAX 16   /* cap the shift so pto*2^count cannot overflow */
 
-/* 2^count, clamped at 2^QUIC_PTO_BACKOFF_MAX. */
+/* 2^count, clamped at 2^PTO_BACKOFF_MAX. */
 u64 pto_backoff(u32 count);
 
 /** RTT inputs to the PTO computation. */

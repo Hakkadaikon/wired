@@ -1,5 +1,5 @@
-#ifndef QUIC_TPVERIFY_RSCID_H
-#define QUIC_TPVERIFY_RSCID_H
+#ifndef TPVERIFY_RSCID_H
+#define TPVERIFY_RSCID_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

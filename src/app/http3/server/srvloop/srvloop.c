@@ -224,7 +224,7 @@ static void note_app_rx_long(wired_srvloop* l, wired_mspan pkt) {
 
 static void note_app_rx(
     wired_srvloop* l, wired_server* s, const srvloop_opened* o) {
-  if (o->level != QUIC_LEVEL_ONERTT) return;
+  if (o->level != LEVEL_ONERTT) return;
   if (app_pkt_is_long(o->pkt.p[0]))
     note_app_rx_long(l, o->pkt);
   else
@@ -244,7 +244,7 @@ static u64 hs_largest_pn(const wired_srvloop* l) {
  * the Finished unacknowledged and the client PTO-retransmits it for seconds. */
 static void note_hs_rx(wired_srvloop* l, const srvloop_opened* o) {
   lhdr h;
-  if (o->level != QUIC_LEVEL_HANDSHAKE) return;
+  if (o->level != LEVEL_HANDSHAKE) return;
   if (!lhdr_parse(wired_span_of(o->pkt.p, o->pkt.n), 0, &h)) return;
   l->hs_rx_pn = pnum_decode(
       o->pkt.p + h.pn_off, lhdr_pn_len(o->pkt.p[0]), hs_largest_pn(l));
@@ -814,7 +814,7 @@ void wired_srvloop_wt_window_slide(
 
 /* RFC 9000 19.19: 1 if type is either CONNECTION_CLOSE variant. */
 static int srvloop_close_type(u64 type) {
-  return type == QUIC_FRAME_CONN_CLOSE_TPT || type == QUIC_FRAME_CONN_CLOSE_APP;
+  return type == FRAME_CONN_CLOSE_TPT || type == FRAME_CONN_CLOSE_APP;
 }
 
 /* RFC 9000 10.2.2: 1 if the opened payload carries a CONNECTION_CLOSE frame
@@ -852,7 +852,7 @@ static void srvloop_collect_acks(wired_srvloop* l, wired_span pl) {
   framewalk_item fr;
   framewalk_init(&it, pl.p, pl.n);
   while (framewalk_next(&it, &fr))
-    if (frame_classify(fr.type) == QUIC_FK_ACK)
+    if (frame_classify(fr.type) == FK_ACK)
       srvloop_take_ack(l, fr.start, fr.remaining);
 }
 
@@ -906,14 +906,14 @@ static void step_dispatch(const wired_srvloop_conn* conn, wired_span payload) {
  * own branch count at the CCN gate. */
 static void step_note_ack_owed(
     wired_srvloop* l, wired_span payload, int level) {
-  if (level == QUIC_LEVEL_ONERTT)
+  if (level == LEVEL_ONERTT)
     srvloop_note_ack_owed(
-        &l->ack_recv, QUIC_PNS_APP, &l->app_ack_policy, payload, l->app_rx_pn,
+        &l->ack_recv, PNS_APP, &l->app_ack_policy, payload, l->app_rx_pn,
         l->now_ms);
-  if (level == QUIC_LEVEL_HANDSHAKE)
+  if (level == LEVEL_HANDSHAKE)
     srvloop_note_ack_owed(
-        &l->ack_recv, QUIC_PNS_HANDSHAKE, &l->hs_ack_policy, payload,
-        l->hs_rx_pn, l->now_ms);
+        &l->ack_recv, PNS_HANDSHAKE, &l->hs_ack_policy, payload, l->hs_rx_pn,
+        l->now_ms);
 }
 
 /* RFC 9001 5 / 5.1: open one coalesced packet slice and walk its frames. A
@@ -935,7 +935,7 @@ static void step_one(const wired_srvloop_conn* conn, wired_mspan pkt) {
    * entries by pn in the 1-RTT space only, so an ACK opened at the Initial/
    * Handshake level could otherwise hit an unrelated 1-RTT pn by
    * coincidence. */
-  if (ro.level == QUIC_LEVEL_ONERTT) srvloop_collect_acks(l, ro.payload);
+  if (ro.level == LEVEL_ONERTT) srvloop_collect_acks(l, ro.payload);
   note_app_rx(l, s, &o);
   note_hs_rx(l, &o);
   step_note_ack_owed(l, ro.payload, ro.level);

@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_TICKETVERSION_H
-#define QUIC_TLS_TICKETVERSION_H
+#ifndef TLS_TICKETVERSION_H
+#define TLS_TICKETVERSION_H
 
 #include "common/platform/sys/syscall.h"
 

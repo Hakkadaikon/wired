@@ -144,7 +144,7 @@ static void sc_clamp(u8 a[32]) {
 
 /* Public key A = [clamp(SHA512(seed)[0:32])]B encoded (RFC 8032 5.1.5). */
 int ed25519_keypair(
-    const u8 seed[QUIC_ED25519_SEED], u8 public_key[QUIC_ED25519_PUBKEY]) {
+    const u8 seed[ED25519_SEED], u8 public_key[ED25519_PUBKEY]) {
   u8 h[64], a[32];
   ge B, A;
   sha512(seed, 32, h);
@@ -169,10 +169,10 @@ static void hash_r(u8 r[32], const u8 prefix[32], const u8* msg, usz msg_len) {
 
 /* sig = R || S where R = [r]B, S = (r + k*a) mod L (RFC 8032 5.1.6). */
 int ed25519_sign(
-    const u8  seed[QUIC_ED25519_SEED],
+    const u8  seed[ED25519_SEED],
     const u8* msg,
     usz       msg_len,
-    u8        sig[QUIC_ED25519_SIG]) {
+    u8        sig[ED25519_SIG]) {
   u8 h[64], a[32], r[32], k[32];
   u8 A_enc[32];
   ge B, R, A;
@@ -191,10 +191,10 @@ int ed25519_sign(
 }
 
 int ed25519_verify(
-    const u8  sig[QUIC_ED25519_SIG],
+    const u8  sig[ED25519_SIG],
     const u8* msg,
     usz       msg_len,
-    const u8  pubkey[QUIC_ED25519_PUBKEY]) {
+    const u8  pubkey[ED25519_PUBKEY]) {
   ge        A;
   u8        k[32];
   const u8* R = sig;

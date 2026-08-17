@@ -26,7 +26,7 @@ static void test_h3srv_priupdate_control_push_ok(void) {
 static void test_h3srv_priupdate_wrong_stream_unexpected(void) {
   u16 err = 0;
   CHECK(!wired_h3srv_priupdate_check(0, 0, 0, &err));
-  CHECK(err == QUIC_H3_FRAME_UNEXPECTED);
+  CHECK(err == H3_FRAME_UNEXPECTED);
 }
 
 /* 9218-014: a request-variant element id outside the client-initiated bidi
@@ -34,13 +34,13 @@ static void test_h3srv_priupdate_wrong_stream_unexpected(void) {
 static void test_h3srv_priupdate_bad_id_error(void) {
   u16 err = 0;
   CHECK(!wired_h3srv_priupdate_check(1, 0, 1, &err)); /* client uni */
-  CHECK(err == QUIC_H3_ID_ERROR);
+  CHECK(err == H3_ID_ERROR);
   err = 0;
   CHECK(!wired_h3srv_priupdate_check(1, 0, 2, &err)); /* server bidi */
-  CHECK(err == QUIC_H3_ID_ERROR);
+  CHECK(err == H3_ID_ERROR);
   err = 0;
   CHECK(!wired_h3srv_priupdate_check(1, 0, 3, &err)); /* server uni */
-  CHECK(err == QUIC_H3_ID_ERROR);
+  CHECK(err == H3_ID_ERROR);
 }
 
 /* Boundary: id 0 and a large id both on the client bidi id space (low bits
@@ -60,7 +60,7 @@ static void test_h3srv_priupdate_id_boundaries(void) {
 static void test_h3srv_priupdate_wrong_stream_outranks_id(void) {
   u16 err = 0;
   CHECK(!wired_h3srv_priupdate_check(0, 0, 1, &err));
-  CHECK(err == QUIC_H3_FRAME_UNEXPECTED);
+  CHECK(err == H3_FRAME_UNEXPECTED);
 }
 
 void test_h3srv_priupdate(void) {

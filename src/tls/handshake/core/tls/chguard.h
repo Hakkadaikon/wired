@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_CHGUARD_H
-#define QUIC_TLS_CHGUARD_H
+#ifndef TLS_CHGUARD_H
+#define TLS_CHGUARD_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

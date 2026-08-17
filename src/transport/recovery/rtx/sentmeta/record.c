@@ -1,15 +1,15 @@
 #include "transport/recovery/rtx/sentmeta/record.h"
 
 void sentmeta_init(sentmeta* m) {
-  for (usz i = 0; i < QUIC_SENTMETA_CAP; i++) m->pkts[i].used = 0;
+  for (usz i = 0; i < SENTMETA_CAP; i++) m->pkts[i].used = 0;
   m->count           = 0;
   m->total_in_flight = 0;
 }
 
-/* First free slot, or QUIC_SENTMETA_CAP when the ring is full. */
+/* First free slot, or SENTMETA_CAP when the ring is full. */
 static usz sentmeta_free_slot(const sentmeta* m) {
   usz i = 0;
-  while (i < QUIC_SENTMETA_CAP && m->pkts[i].used) i++;
+  while (i < SENTMETA_CAP && m->pkts[i].used) i++;
   return i;
 }
 
@@ -24,7 +24,7 @@ static void sentmeta_store(sentmeta_pkt* p, const sentmeta_out* pkt) {
 
 int sentmeta_on_sent(sentmeta* m, const sentmeta_out* pkt) {
   usz i = sentmeta_free_slot(m);
-  if (i == QUIC_SENTMETA_CAP) return 0;
+  if (i == SENTMETA_CAP) return 0;
   sentmeta_store(&m->pkts[i], pkt);
   m->count++;
   if (pkt->in_flight) m->total_in_flight += pkt->sent_bytes;
@@ -43,6 +43,6 @@ static int sentmeta_holds(const sentmeta_pkt* p, u64 pn) {
 
 usz sentmeta_find(const sentmeta* m, u64 pn) {
   usz i = 0;
-  while (i < QUIC_SENTMETA_CAP && !sentmeta_holds(&m->pkts[i], pn)) i++;
+  while (i < SENTMETA_CAP && !sentmeta_holds(&m->pkts[i], pn)) i++;
   return i;
 }

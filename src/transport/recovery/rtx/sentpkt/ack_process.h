@@ -1,5 +1,5 @@
-#ifndef QUIC_SENTPKT_ACK_PROCESS_H
-#define QUIC_SENTPKT_ACK_PROCESS_H
+#ifndef SENTPKT_ACK_PROCESS_H
+#define SENTPKT_ACK_PROCESS_H
 
 #include "transport/recovery/rtx/sentpkt/sentpkt.h"
 

@@ -17,7 +17,7 @@ int crypto_stream_recv(crypto_rx* r, u64 offset, wired_span data) {
 int crypto_stream_recv_ec(
     crypto_rx* r, u64 offset, wired_span data, u64* error_code) {
   if (crypto_stream_recv(r, offset, data)) return 1;
-  *error_code = QUIC_EC_CRYPTO_BUFFER_EXCEEDED;
+  *error_code = EC_CRYPTO_BUFFER_EXCEEDED;
   return 0;
 }
 

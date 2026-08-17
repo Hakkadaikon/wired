@@ -1,5 +1,5 @@
-#ifndef QUIC_CLIENT_CLIENTWIRE_H
-#define QUIC_CLIENT_CLIENTWIRE_H
+#ifndef CLIENT_CLIENTWIRE_H
+#define CLIENT_CLIENTWIRE_H
 
 #include "tls/handshake/roles/client/client.h"
 #include "transport/packet/frame/frame/frame.h"

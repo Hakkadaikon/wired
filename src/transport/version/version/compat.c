@@ -1,9 +1,7 @@
 #include "transport/version/version/compat.h"
 
 /* RFC 9368 2.1: a version is compatible with itself. */
-static int is_known(u32 v) {
-  return v == QUIC_VERSION_1 || v == QUIC_VERSION_2;
-}
+static int is_known(u32 v) { return v == VERSION_1 || v == VERSION_2; }
 
 int version_compatible(u32 a, u32 b) {
   if (a == b) return is_known(a);    /* unknown versions: no known mapping */

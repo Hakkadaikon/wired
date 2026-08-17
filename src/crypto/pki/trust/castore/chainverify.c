@@ -32,9 +32,9 @@ static const struct {
   usz         len;
   chv_hash_fn fn;
 } chv_hashes[] = {
-    {QUIC_X509_HASH_SHA256, 32, wired_sha256},
-    {QUIC_X509_HASH_SHA384, 48, sha384},
-    {QUIC_X509_HASH_SHA512, 64, sha512},
+    {X509_HASH_SHA256, 32, wired_sha256},
+    {X509_HASH_SHA384, 48, sha384},
+    {X509_HASH_SHA512, 64, sha512},
 };
 
 static int chv_hash_select(u8 kind, usz* hlen, chv_hash_fn* fn) {
@@ -102,7 +102,7 @@ static int fits_scalar(usz len) { return len >= 1 && len <= 32; }
 /* Copy one INTEGER element of c into a 32-byte big-endian field. */
 static int chv_copy_int32(derseq* c, u8 out[32]) {
   wired_span v;
-  if (!derseq_next_tagged(c, QUIC_DER_INTEGER, &v)) return 0;
+  if (!derseq_next_tagged(c, DER_INTEGER, &v)) return 0;
   chv_strip_pad(&v);
   if (!fits_scalar(v.n)) return 0;
   chv_left_pad32(out, v);
@@ -144,7 +144,7 @@ static void chv_left_pad48(u8 out[48], wired_span v) {
 /* Copy one INTEGER element of c into a 48-byte big-endian field. */
 static int chv_copy_int48(derseq* c, u8 out[48]) {
   wired_span v;
-  if (!derseq_next_tagged(c, QUIC_DER_INTEGER, &v)) return 0;
+  if (!derseq_next_tagged(c, DER_INTEGER, &v)) return 0;
   chv_strip_pad(&v);
   if (!fits_scalar48(v.n)) return 0;
   chv_left_pad48(out, v);
@@ -207,8 +207,7 @@ static int verify_rsa_key(
 /* RFC 5280 6.1.3. Dispatch on the sigAlg's key kind, cross-checked against
  * the issuer's actual SPKI key type. */
 static int verify_by_key(const chv_signed* sg, wired_span alg, wired_span key) {
-  if (sg->sa.key_kind == QUIC_X509_SIG_ECDSA)
-    return verify_ecdsa_key(sg, alg, key);
+  if (sg->sa.key_kind == X509_SIG_ECDSA) return verify_ecdsa_key(sg, alg, key);
   return verify_rsa_key(sg, alg, key);
 }
 

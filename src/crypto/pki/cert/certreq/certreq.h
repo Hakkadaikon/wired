@@ -1,5 +1,5 @@
-#ifndef QUIC_CERTREQ_H
-#define QUIC_CERTREQ_H
+#ifndef CERTREQ_H
+#define CERTREQ_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

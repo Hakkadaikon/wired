@@ -1,5 +1,5 @@
-#ifndef QUIC_H3REQENC_HEADER_ENCODE_H
-#define QUIC_H3REQENC_HEADER_ENCODE_H
+#ifndef H3REQENC_HEADER_ENCODE_H
+#define H3REQENC_HEADER_ENCODE_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

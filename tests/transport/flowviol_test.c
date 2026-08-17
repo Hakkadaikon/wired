@@ -9,14 +9,14 @@ static void test_flowviol_data_overrun(void) {
   CHECK(
       flowviol_check(&(flow_usage){1001, 1000}, &(flow_usage){0, 100}, &ec) ==
       1);
-  CHECK(ec == QUIC_EC_FLOW_CONTROL_ERROR);
+  CHECK(ec == EC_FLOW_CONTROL_ERROR);
 }
 
 static void test_flowviol_stream_limit(void) {
   u64 ec = 0xff;
   /* count 3 against max_streams 3: a further open is over the limit */
   CHECK(flowviol_check(&(flow_usage){0, 1000}, &(flow_usage){3, 3}, &ec) == 1);
-  CHECK(ec == QUIC_EC_STREAM_LIMIT_ERROR);
+  CHECK(ec == EC_STREAM_LIMIT_ERROR);
 }
 
 static void test_flowviol_none(void) {
@@ -32,7 +32,7 @@ static void test_flowviol_data_before_streams(void) {
   /* both over: connection-level data wins -> FLOW_CONTROL_ERROR */
   CHECK(
       flowviol_check(&(flow_usage){2000, 1000}, &(flow_usage){5, 3}, &ec) == 1);
-  CHECK(ec == QUIC_EC_FLOW_CONTROL_ERROR);
+  CHECK(ec == EC_FLOW_CONTROL_ERROR);
 }
 
 void test_flowviol(void) {

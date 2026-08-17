@@ -3,11 +3,11 @@
 /* RFC 9001 4. */
 
 static int level_valid(int level) {
-  return level >= 0 && level < QUIC_KEYSET_LEVELS;
+  return level >= 0 && level < KEYSET_LEVELS;
 }
 
 void keyset_init(keyset* state) {
-  for (int i = 0; i < QUIC_KEYSET_LEVELS; i++) state->installed[i] = 0;
+  for (int i = 0; i < KEYSET_LEVELS; i++) state->installed[i] = 0;
 }
 
 int keyset_install(keyset* state, int level, const initial_keys* keys) {

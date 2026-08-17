@@ -1,5 +1,5 @@
-#ifndef QUIC_MOQKVP_H
-#define QUIC_MOQKVP_H
+#ifndef MOQKVP_H
+#define MOQKVP_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -21,15 +21,15 @@
 
 /** Maximum Value length in bytes for an odd (length-prefixed) Type
  * (draft-ietf-moq-transport-19 1.4.3: 2^16-1). */
-#define QUIC_MOQKVP_MAX_LEN 0xFFFF
+#define MOQKVP_MAX_LEN 0xFFFF
 
 /** moqkvp_take results. INSUFFICIENT means the input ended mid-pair
  * (may be benign if more bytes can still arrive); VIOLATION means the pair
- * itself is illegal (Type overflow or Length > QUIC_MOQKVP_MAX_LEN) and no
+ * itself is illegal (Type overflow or Length > MOQKVP_MAX_LEN) and no
  * amount of further input can fix it. Callers close with different codes. */
-#define QUIC_MOQKVP_OK 1
-#define QUIC_MOQKVP_INSUFFICIENT 0
-#define QUIC_MOQKVP_VIOLATION (-1)
+#define MOQKVP_OK 1
+#define MOQKVP_INSUFFICIENT 0
+#define MOQKVP_VIOLATION (-1)
 
 /** One decoded (or to-be-encoded) Key-Value-Pair. */
 typedef struct {
@@ -41,7 +41,7 @@ typedef struct {
 
 /** Decode the next Key-Value-Pair at *off within buf.
  *
- * On QUIC_MOQKVP_OK, advances *off past the pair, updates *prev_type to
+ * On MOQKVP_OK, advances *off past the pair, updates *prev_type to
  * the decoded absolute Type (feed the same variable, initialized to 0, to
  * every take of one list), and fills *out (out->raw borrows buf). On any
  * other return, *off and *prev_type are left unmodified.
@@ -50,8 +50,8 @@ typedef struct {
  * @param off       in/out cursor within buf
  * @param prev_type in/out cumulative Type (0 before the first pair)
  * @param out       decoded pair on success
- * @return QUIC_MOQKVP_OK, QUIC_MOQKVP_INSUFFICIENT (truncated), or
- *   QUIC_MOQKVP_VIOLATION (Type overflow / Length too large)
+ * @return MOQKVP_OK, MOQKVP_INSUFFICIENT (truncated), or
+ *   MOQKVP_VIOLATION (Type overflow / Length too large)
  */
 int moqkvp_take(wired_span buf, usz* off, u64* prev_type, moqkvp* out);
 
@@ -67,7 +67,7 @@ int moqkvp_take(wired_span buf, usz* off, u64* prev_type, moqkvp* out);
  * @param prev_type in/out cumulative Type (0 before the first pair)
  * @param kv        pair to encode
  * @return 1 ok, 0 if kv->type < *prev_type, kv->raw.n exceeds
- *   QUIC_MOQKVP_MAX_LEN, or buf has no room
+ *   MOQKVP_MAX_LEN, or buf has no room
  */
 int moqkvp_put(wired_mspan buf, usz* off, u64* prev_type, const moqkvp* kv);
 

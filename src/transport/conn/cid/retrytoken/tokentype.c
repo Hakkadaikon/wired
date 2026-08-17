@@ -16,13 +16,13 @@ static usz tag(wired_obuf* out, u8 t, wired_span body) {
 }
 
 usz token_tag_retry(wired_obuf* out, wired_span body) {
-  return tag(out, QUIC_TOKEN_TAG_RETRY, body);
+  return tag(out, TOKEN_TAG_RETRY, body);
 }
 
 usz token_tag_newtoken(wired_obuf* out, wired_span body) {
-  return tag(out, QUIC_TOKEN_TAG_NEWTOKEN, body);
+  return tag(out, TOKEN_TAG_NEWTOKEN, body);
 }
 
 int token_is_retry(const u8* token, usz len) {
-  return len > 0 && token[0] == QUIC_TOKEN_TAG_RETRY;
+  return len > 0 && token[0] == TOKEN_TAG_RETRY;
 }

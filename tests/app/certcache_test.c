@@ -158,7 +158,7 @@ static void test_certcache_sni_localhost_match(void) {
     sdrv_init(&s, &din);
   }
   CHECK(sdrv_recv_client_hello(&s, ch, ch_len));
-  CHECK(sdrv_sni_outcome(&s) == QUIC_SALPN_SNI_MATCH);
+  CHECK(sdrv_sni_outcome(&s) == SALPN_SNI_MATCH);
 }
 
 void test_certcache(void) {

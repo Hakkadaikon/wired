@@ -1,5 +1,5 @@
-#ifndef QUIC_QPACK_RELINDEX_H
-#define QUIC_QPACK_RELINDEX_H
+#ifndef QPACK_RELINDEX_H
+#define QPACK_RELINDEX_H
 
 #include "common/platform/sys/syscall.h"
 

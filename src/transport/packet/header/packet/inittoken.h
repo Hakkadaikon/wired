@@ -1,5 +1,5 @@
-#ifndef QUIC_PACKET_INITTOKEN_H
-#define QUIC_PACKET_INITTOKEN_H
+#ifndef PACKET_INITTOKEN_H
+#define PACKET_INITTOKEN_H
 
 #include "common/bytes/span/span.h"
 

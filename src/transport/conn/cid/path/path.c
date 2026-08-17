@@ -1,7 +1,7 @@
 #include "transport/conn/cid/path/path.h"
 
 void path_init(path* p) {
-  for (usz i = 0; i < QUIC_PATH_COUNT; i++) {
+  for (usz i = 0; i < PATH_COUNT; i++) {
     p->paths[i].challenge         = 0;
     p->paths[i].challenge_sent_at = 0;
     p->paths[i].bytes_sent        = 0;
@@ -36,7 +36,7 @@ int path_can_send(const path* p, usz path, u64 n) {
 
 /* Clear the confirmed flag on every path (a new confirm supersedes the old). */
 static void clear_confirmed(path* p) {
-  for (usz i = 0; i < QUIC_PATH_COUNT; i++) p->paths[i].confirmed = 0;
+  for (usz i = 0; i < PATH_COUNT; i++) p->paths[i].confirmed = 0;
 }
 
 int path_confirm(path* p, usz path) {

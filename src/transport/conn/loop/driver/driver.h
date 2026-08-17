@@ -1,5 +1,5 @@
-#ifndef QUIC_DRIVER_DRIVER_H
-#define QUIC_DRIVER_DRIVER_H
+#ifndef DRIVER_DRIVER_H
+#define DRIVER_DRIVER_H
 
 #include "tls/handshake/core/tls/hsdriver.h"
 #include "tls/keys/schedule_drive/keyschedule.h"
@@ -14,8 +14,8 @@
  * message through connio. The driver only orchestrates; every gating and
  * ordering decision is delegated to the verified components. */
 
-#define QUIC_DRIVER_DGRAM_CAP 256
-#define QUIC_DRIVER_FLIGHT_MAX 7
+#define DRIVER_DGRAM_CAP 256
+#define DRIVER_FLIGHT_MAX 7
 
 /** The connection driver: ties the handshake order machine, key schedule,
  * and connio transport together and runs them to completion. */
@@ -29,8 +29,8 @@ typedef struct {
   u64      tx_off;  /* STREAM offset carrying the next outbound message */
   usz      in_len;  /* queued inbound datagram length (0 = none) */
   usz      out_len; /* produced outbound datagram length (0 = none) */
-  u8       in_buf[QUIC_DRIVER_DGRAM_CAP];
-  u8       out_buf[QUIC_DRIVER_DGRAM_CAP];
+  u8       in_buf[DRIVER_DGRAM_CAP];
+  u8       out_buf[DRIVER_DGRAM_CAP];
 } driver;
 
 /* Initialize an active connection driver as client (is_server 0) or server

@@ -1,5 +1,5 @@
-#ifndef QUIC_QPACK_STRING_H
-#define QUIC_QPACK_STRING_H
+#ifndef QPACK_STRING_H
+#define QPACK_STRING_H
 
 #include "common/bytes/span/span.h"
 

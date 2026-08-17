@@ -31,7 +31,7 @@ static int recv_handshake(
     const wired_srvloop_recv_in* in,
     wired_srvloop_recv_out*      out) {
   wired_srvloop_dirkeys dk;
-  if (!wired_srvloop_open_keys(s, QUIC_LEVEL_HANDSHAKE, &dk)) return 0;
+  if (!wired_srvloop_open_keys(s, LEVEL_HANDSHAKE, &dk)) return 0;
   protect_keys pk = {dk.keys, &dk.hp};
   return hspkt_open_suite(s->sdrv.cipher_suite, &pk, in->dgram, &out->payload);
 }
@@ -84,12 +84,12 @@ static int onertt_try(
  * lockstep with the recv side's rotate. */
 static void onertt_rotate_send(wired_server* s) {
   initial_keys send_next;
-  u8           send_next_secret[QUIC_HKDF_PRK];
+  u8           send_next_secret[HKDF_PRK];
   kuswitch_next_keys_suite(
       s->sdrv.cipher_suite, s->ku_send_secret, &send_next, send_next_secret);
-  bytes_memcpy(send_next.hp, s->ku_send.cur.hp, QUIC_AEAD_KEY_MAX);
+  bytes_memcpy(send_next.hp, s->ku_send.cur.hp, AEAD_KEY_MAX);
   kuswitch_rotate(&s->ku_send, &send_next);
-  bytes_memcpy(s->ku_send_secret, send_next_secret, QUIC_HKDF_PRK);
+  bytes_memcpy(s->ku_send_secret, send_next_secret, HKDF_PRK);
 }
 
 /* RFC 9001 6.3: a next-generation candidate that actually decrypts confirms
@@ -101,7 +101,7 @@ static void onertt_rotate_send(wired_server* s) {
 static void onertt_rotate_to(
     wired_server* s, const initial_keys* next, const u8* next_secret) {
   kuswitch_rotate(&s->ku, next);
-  bytes_memcpy(s->ku_secret, next_secret, QUIC_HKDF_PRK);
+  bytes_memcpy(s->ku_secret, next_secret, HKDF_PRK);
   onertt_rotate_send(s);
 }
 
@@ -127,11 +127,11 @@ static int onertt_try_next_gen(
     const u8                     save[RECV_ONERTT_HDR_MAX],
     wired_srvloop_recv_out*      out) {
   initial_keys next;
-  u8           next_secret[QUIC_HKDF_PRK];
+  u8           next_secret[HKDF_PRK];
   kuswitch_next_keys_suite(
       s->sdrv.cipher_suite, s->ku_secret, &next, next_secret);
   /* RFC 9001 6.1: hp is unchanged across an update. */
-  bytes_memcpy(next.hp, s->ku.cur.hp, QUIC_AEAD_KEY_MAX);
+  bytes_memcpy(next.hp, s->ku.cur.hp, AEAD_KEY_MAX);
   if (!onertt_try(s, in, &next, save, out)) return 0;
   onertt_rotate_to(s, &next, next_secret);
   return 1;
@@ -171,7 +171,7 @@ static int recv_at_level(
  * handles that framing. Only tried when this connection actually accepted
  * 0-RTT (sdrv_early_keys). RFC 9000 12.3: 0-RTT and 1-RTT share the App
  * packet number space, so a successfully opened 0-RTT packet is reported as
- * QUIC_LEVEL_ONERTT -- every downstream consumer (ACK bookkeeping, frame
+ * LEVEL_ONERTT -- every downstream consumer (ACK bookkeeping, frame
  * dispatch) already handles that level unmodified. */
 static int recv_zerortt(
     wired_server* s, const wired_srvloop_recv_in* in, wired_span* payload) {
@@ -192,7 +192,7 @@ static int recv_zerortt(
  * here); v2 0-RTT is out of scope until v2 connections are accepted at this
  * layer. */
 static int recv_is_zerortt(u8 byte0) {
-  return packet_long_type(byte0, QUIC_VERSION_1) == QUIC_PT_0RTT;
+  return packet_long_type(byte0, VERSION_1) == PT_0RTT;
 }
 
 /* byte0 already known non-empty; picks the 0-RTT path or the normal
@@ -203,7 +203,7 @@ static int recv_dispatch(
     const wired_srvloop_recv_in* in,
     wired_srvloop_recv_out*      out) {
   if (recv_is_zerortt(in->dgram.p[0])) {
-    out->level = QUIC_LEVEL_ONERTT;
+    out->level = LEVEL_ONERTT;
     return recv_zerortt(s, in, &out->payload);
   }
   if (!connrunner_packet_level(in->dgram.p[0], &out->level)) return 0;

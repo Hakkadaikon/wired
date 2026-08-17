@@ -15,8 +15,8 @@ static void test_error_crypto(void) {
 
 static void test_error_transport(void) {
   /* a transport code is not in the CRYPTO range */
-  CHECK(err_is_crypto(QUIC_ERR_PROTOCOL_VIOLATION) == 0);
-  CHECK(QUIC_ERR_NO_ERROR == 0x00 && QUIC_ERR_NO_VIABLE_PATH == 0x10);
+  CHECK(err_is_crypto(ERR_PROTOCOL_VIOLATION) == 0);
+  CHECK(ERR_NO_ERROR == 0x00 && ERR_NO_VIABLE_PATH == 0x10);
 }
 
 void test_error(void) {

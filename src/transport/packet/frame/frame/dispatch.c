@@ -9,55 +9,54 @@ typedef struct {
 } kind_row;
 
 static const kind_row TABLE[] = {
-    {0x00, QUIC_FK_PADDING},
-    {0x01, QUIC_FK_PING},
-    {0x02, QUIC_FK_ACK},
-    {0x03, QUIC_FK_ACK},
-    {0x04, QUIC_FK_RESET_STREAM},
-    {0x05, QUIC_FK_STOP_SENDING},
-    {0x06, QUIC_FK_CRYPTO},
-    {0x07, QUIC_FK_NEW_TOKEN},
-    {0x08, QUIC_FK_STREAM},
-    {0x09, QUIC_FK_STREAM},
-    {0x0a, QUIC_FK_STREAM},
-    {0x0b, QUIC_FK_STREAM},
-    {0x0c, QUIC_FK_STREAM},
-    {0x0d, QUIC_FK_STREAM},
-    {0x0e, QUIC_FK_STREAM},
-    {0x0f, QUIC_FK_STREAM},
-    {0x10, QUIC_FK_MAX_DATA},
-    {0x11, QUIC_FK_MAX_STREAM_DATA},
-    {0x12, QUIC_FK_MAX_STREAMS},
-    {0x13, QUIC_FK_MAX_STREAMS},
-    {0x14, QUIC_FK_DATA_BLOCKED},
-    {0x15, QUIC_FK_STREAM_DATA_BLOCKED},
-    {0x16, QUIC_FK_STREAMS_BLOCKED},
-    {0x17, QUIC_FK_STREAMS_BLOCKED},
-    {0x18, QUIC_FK_NEW_CONNECTION_ID},
-    {0x19, QUIC_FK_RETIRE_CONNECTION_ID},
-    {0x1a, QUIC_FK_PATH_CHALLENGE},
-    {0x1b, QUIC_FK_PATH_RESPONSE},
-    {0x1c, QUIC_FK_CONNECTION_CLOSE},
-    {0x1d, QUIC_FK_CONNECTION_CLOSE},
-    {0x1e, QUIC_FK_HANDSHAKE_DONE},
-    {0x30, QUIC_FK_DATAGRAM},
-    {0x31, QUIC_FK_DATAGRAM},
-    {0x24, QUIC_FK_RESET_STREAM_AT}};
+    {0x00, FK_PADDING},
+    {0x01, FK_PING},
+    {0x02, FK_ACK},
+    {0x03, FK_ACK},
+    {0x04, FK_RESET_STREAM},
+    {0x05, FK_STOP_SENDING},
+    {0x06, FK_CRYPTO},
+    {0x07, FK_NEW_TOKEN},
+    {0x08, FK_STREAM},
+    {0x09, FK_STREAM},
+    {0x0a, FK_STREAM},
+    {0x0b, FK_STREAM},
+    {0x0c, FK_STREAM},
+    {0x0d, FK_STREAM},
+    {0x0e, FK_STREAM},
+    {0x0f, FK_STREAM},
+    {0x10, FK_MAX_DATA},
+    {0x11, FK_MAX_STREAM_DATA},
+    {0x12, FK_MAX_STREAMS},
+    {0x13, FK_MAX_STREAMS},
+    {0x14, FK_DATA_BLOCKED},
+    {0x15, FK_STREAM_DATA_BLOCKED},
+    {0x16, FK_STREAMS_BLOCKED},
+    {0x17, FK_STREAMS_BLOCKED},
+    {0x18, FK_NEW_CONNECTION_ID},
+    {0x19, FK_RETIRE_CONNECTION_ID},
+    {0x1a, FK_PATH_CHALLENGE},
+    {0x1b, FK_PATH_RESPONSE},
+    {0x1c, FK_CONNECTION_CLOSE},
+    {0x1d, FK_CONNECTION_CLOSE},
+    {0x1e, FK_HANDSHAKE_DONE},
+    {0x30, FK_DATAGRAM},
+    {0x31, FK_DATAGRAM},
+    {0x24, FK_RESET_STREAM_AT}};
 
 frame_kind frame_classify(u64 type) {
   usz n = sizeof(TABLE) / sizeof(TABLE[0]);
   for (usz i = 0; i < n; i++)
     if (TABLE[i].type == type) return (frame_kind)TABLE[i].kind;
-  return QUIC_FK_UNKNOWN;
+  return FK_UNKNOWN;
 }
 
 /* Only ACK, PADDING, and CONNECTION_CLOSE are non-ack-eliciting. */
 static int non_eliciting(frame_kind k) {
-  return k == QUIC_FK_PADDING || k == QUIC_FK_ACK ||
-         k == QUIC_FK_CONNECTION_CLOSE;
+  return k == FK_PADDING || k == FK_ACK || k == FK_CONNECTION_CLOSE;
 }
 
 int frame_ack_eliciting(frame_kind kind) {
-  if (kind == QUIC_FK_UNKNOWN) return 0;
+  if (kind == FK_UNKNOWN) return 0;
   return !non_eliciting(kind);
 }

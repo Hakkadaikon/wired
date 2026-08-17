@@ -1,5 +1,5 @@
-#ifndef QUIC_ALPNVER_ALPNVER_H
-#define QUIC_ALPNVER_ALPNVER_H
+#ifndef ALPNVER_ALPNVER_H
+#define ALPNVER_ALPNVER_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -12,15 +12,15 @@
 
 /** Known application protocols carried over QUIC. */
 typedef enum {
-  QUIC_ALPNVER_PROTO_NONE = 0, /* unknown / not a QUIC application protocol */
-  QUIC_ALPNVER_PROTO_H3   = 1  /* HTTP/3, ALPN "h3" (RFC 9114) */
+  ALPNVER_PROTO_NONE = 0, /* unknown / not a QUIC application protocol */
+  ALPNVER_PROTO_H3   = 1  /* HTTP/3, ALPN "h3" (RFC 9114) */
 } alpnver_proto;
 
 /* RFC 9001 8.1: returns 1 if an ALPN protocol was selected (non-empty),
  * 0 if none was (the handshake must then fail with no_application_protocol). */
 int alpnver_require(const u8* selected_alpn, usz len);
 
-/* Classify a selected ALPN name. Returns QUIC_ALPNVER_PROTO_NONE for an
+/* Classify a selected ALPN name. Returns ALPNVER_PROTO_NONE for an
  * unknown protocol (RFC 7301 3.2). */
 alpnver_proto alpnver_protocol(const u8* alpn, usz len);
 

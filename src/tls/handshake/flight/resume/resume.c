@@ -13,16 +13,15 @@ static void resume_take_psk(resume* r, const u8* psk) {
 }
 
 /* RFC 6066 3: remember the server_name this session was established under,
- * truncated to QUIC_RESUME_SNI_MAX (RFC 1035 3.1's 255-octet name bound). */
+ * truncated to RESUME_SNI_MAX (RFC 1035 3.1's 255-octet name bound). */
 static void resume_take_sni(resume* r, wired_span sni) {
-  r->sni_len = u64_min(sni.n, QUIC_RESUME_SNI_MAX);
+  r->sni_len = u64_min(sni.n, RESUME_SNI_MAX);
   for (usz i = 0; i < r->sni_len; i++) r->sni[i] = sni.p[i];
 }
 
 int resume_store(resume* r, wired_span ticket, const resume_store_in* in) {
   usz off = 0;
-  if (!bytes_put(
-          wired_mspan_of(r->ticket, QUIC_RESUME_TICKET_MAX), &off, ticket))
+  if (!bytes_put(wired_mspan_of(r->ticket, RESUME_TICKET_MAX), &off, ticket))
     return 0;
   r->ticket_len  = ticket.n;
   r->issued_at   = in->issued_at;
@@ -85,7 +84,7 @@ usz resume_session(const resume* r, u8* out, usz cap) {
 static int resume_blob_len_ok(wired_span blob, usz* tlen) {
   if (blob.n < RESUME_BLOB_HDR) return 0;
   *tlen = be_get_be16(blob.p + 52);
-  return *tlen <= QUIC_RESUME_TICKET_MAX && blob.n == RESUME_BLOB_HDR + *tlen;
+  return *tlen <= RESUME_TICKET_MAX && blob.n == RESUME_BLOB_HDR + *tlen;
 }
 
 int resume_set_session(resume* r, wired_span blob) {

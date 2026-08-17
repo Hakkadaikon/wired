@@ -24,11 +24,11 @@ static int stream_violation(u64 stream_count, u64 max_streams) {
 int flowviol_check(
     const flow_usage* data, const flow_usage* streams, u64* error_code) {
   if (data_violation(data->used, data->max)) {
-    *error_code = QUIC_EC_FLOW_CONTROL_ERROR;
+    *error_code = EC_FLOW_CONTROL_ERROR;
     return 1;
   }
   if (stream_violation(streams->used, streams->max)) {
-    *error_code = QUIC_EC_STREAM_LIMIT_ERROR;
+    *error_code = EC_STREAM_LIMIT_ERROR;
     return 1;
   }
   return 0;

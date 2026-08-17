@@ -4,8 +4,7 @@
 #include "common/bytes/varint/varint.h"
 
 static u64 priupdate_wire_type(int push) {
-  return push ? QUIC_H3_FRAME_PRIORITY_UPDATE_PUSH
-              : QUIC_H3_FRAME_PRIORITY_UPDATE;
+  return push ? H3_FRAME_PRIORITY_UPDATE_PUSH : H3_FRAME_PRIORITY_UPDATE;
 }
 
 /* RFC 9218 7.1: type varint, length varint, then element id + field value. */
@@ -25,9 +24,9 @@ usz h3_priupdate_put(u8* buf, usz cap, const h3_priupdate* f) {
 
 /* 1 if type names either PRIORITY_UPDATE variant, recording which. */
 static int priupdate_type(u64 type, h3_priupdate* f) {
-  f->push = type == QUIC_H3_FRAME_PRIORITY_UPDATE_PUSH;
-  return type == QUIC_H3_FRAME_PRIORITY_UPDATE ||
-         type == QUIC_H3_FRAME_PRIORITY_UPDATE_PUSH;
+  f->push = type == H3_FRAME_PRIORITY_UPDATE_PUSH;
+  return type == H3_FRAME_PRIORITY_UPDATE ||
+         type == H3_FRAME_PRIORITY_UPDATE_PUSH;
 }
 
 /* The two leading varints, in order. */

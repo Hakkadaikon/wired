@@ -4,21 +4,21 @@
 
 /* Stream-kind bits packed into a per-frame mask (control=1, request=2, push=4).
  */
-#define C (1 << QUIC_H3_STREAM_KIND_CONTROL)
-#define R (1 << QUIC_H3_STREAM_KIND_REQUEST)
-#define P (1 << QUIC_H3_STREAM_KIND_PUSH)
+#define C (1 << H3_STREAM_KIND_CONTROL)
+#define R (1 << H3_STREAM_KIND_REQUEST)
+#define P (1 << H3_STREAM_KIND_PUSH)
 
 /* RFC 9114 7.2: streams on which each defined frame type 0x00..0x0d is
  * permitted, indexed by type. Gaps (0x02, 0x06, 0x08..0x0c) and any type
  * outside the table are unknown/grease and permitted everywhere (7.2.8). */
 static const int permit_tab[] = {
-    [QUIC_H3_FRAME_DATA]         = R | P, /* 7.2.1 */
-    [QUIC_H3_FRAME_HEADERS]      = R | P, /* 7.2.2 */
-    [QUIC_H3_FRAME_CANCEL_PUSH]  = C,     /* 7.2.3 */
-    [QUIC_H3_FRAME_SETTINGS]     = C,     /* 7.2.4 */
-    [QUIC_H3_FRAME_PUSH_PROMISE] = R,     /* 7.2.5 */
-    [QUIC_H3_FRAME_GOAWAY]       = C,     /* 7.2.6 */
-    [QUIC_H3_FRAME_MAX_PUSH_ID]  = C      /* 7.2.7 */
+    [H3_FRAME_DATA]         = R | P, /* 7.2.1 */
+    [H3_FRAME_HEADERS]      = R | P, /* 7.2.2 */
+    [H3_FRAME_CANCEL_PUSH]  = C,     /* 7.2.3 */
+    [H3_FRAME_SETTINGS]     = C,     /* 7.2.4 */
+    [H3_FRAME_PUSH_PROMISE] = R,     /* 7.2.5 */
+    [H3_FRAME_GOAWAY]       = C,     /* 7.2.6 */
+    [H3_FRAME_MAX_PUSH_ID]  = C      /* 7.2.7 */
 };
 
 #define PERMIT_TAB_N (sizeof permit_tab / sizeof permit_tab[0])
@@ -46,6 +46,6 @@ static int is_http2_only_reserved(u64 frame_type) {
 }
 
 int h3_frame_recv_ok(u64 frame_type) {
-  if (frame_type == QUIC_H3_FRAME_PUSH_PROMISE) return 0;
+  if (frame_type == H3_FRAME_PUSH_PROMISE) return 0;
   return !is_http2_only_reserved(frame_type);
 }

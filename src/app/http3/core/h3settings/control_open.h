@@ -1,5 +1,5 @@
-#ifndef QUIC_H3SETTINGS_CONTROL_OPEN_H
-#define QUIC_H3SETTINGS_CONTROL_OPEN_H
+#ifndef H3SETTINGS_CONTROL_OPEN_H
+#define H3SETTINGS_CONTROL_OPEN_H
 
 #include "common/platform/sys/syscall.h"
 

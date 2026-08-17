@@ -24,7 +24,7 @@ int p256_keygen(u8 priv[32]) {
   return 0; /* astronomically unlikely: rejection rate is ~2^-32 */
 }
 
-int p256_pubkey_encode(u8 out[QUIC_P256_PUBKEY_LEN], const u8 priv[32]) {
+int p256_pubkey_encode(u8 out[P256_PUBKEY_LEN], const u8 priv[32]) {
   ec_point p;
   ec_mul(&p, priv, &p256_g);
   if (p.inf) return 0;
@@ -34,7 +34,7 @@ int p256_pubkey_encode(u8 out[QUIC_P256_PUBKEY_LEN], const u8 priv[32]) {
   return 1;
 }
 
-int p256_pubkey_decode(const u8 in[QUIC_P256_PUBKEY_LEN], ec_point* out) {
+int p256_pubkey_decode(const u8 in[P256_PUBKEY_LEN], ec_point* out) {
   if (in[0] != 0x04) return 0;
   p256_fp_from_be(out->x, in + 1);
   p256_fp_from_be(out->y, in + 33);
@@ -43,7 +43,7 @@ int p256_pubkey_decode(const u8 in[QUIC_P256_PUBKEY_LEN], ec_point* out) {
 }
 
 int p256_ecdh(
-    u8 out[32], const u8 priv[32], const u8 peer_pub[QUIC_P256_PUBKEY_LEN]) {
+    u8 out[32], const u8 priv[32], const u8 peer_pub[P256_PUBKEY_LEN]) {
   ec_point peer, shared;
   if (!p256_pubkey_decode(peer_pub, &peer)) return 0;
   ec_mul(&shared, priv, &peer);

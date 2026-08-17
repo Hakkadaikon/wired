@@ -14,7 +14,7 @@ static void strip_pad(wired_span* v) {
 
 /* Read one INTEGER from the cursor, stripping a sign pad. */
 static int next_int(derseq* c, wired_span* v) {
-  if (!derseq_next_tagged(c, QUIC_DER_INTEGER, v)) return 0;
+  if (!derseq_next_tagged(c, DER_INTEGER, v)) return 0;
   if (v->n == 0) return 0;
   strip_pad(v);
   return 1;
@@ -30,7 +30,7 @@ static int into_rsa_seq(wired_span key, derseq* c) {
   wired_span seq;
   if (!has_bitstr_prefix(key)) return 0;
   derseq_init(c, wired_span_of(key.p + 1, key.n - 1));
-  if (!derseq_next_tagged(c, QUIC_DER_SEQUENCE, &seq)) return 0;
+  if (!derseq_next_tagged(c, DER_SEQUENCE, &seq)) return 0;
   derseq_init(c, seq);
   return 1;
 }

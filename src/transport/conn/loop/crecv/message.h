@@ -1,5 +1,5 @@
-#ifndef QUIC_CRECV_MESSAGE_H
-#define QUIC_CRECV_MESSAGE_H
+#ifndef CRECV_MESSAGE_H
+#define CRECV_MESSAGE_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/conn/loop/crecv/collect.h"

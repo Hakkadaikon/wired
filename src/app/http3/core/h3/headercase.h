@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_HEADERCASE_H
-#define QUIC_H3_HEADERCASE_H
+#ifndef H3_HEADERCASE_H
+#define H3_HEADERCASE_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_SFLIGHT_ENCEXT_H
-#define QUIC_SFLIGHT_ENCEXT_H
+#ifndef SFLIGHT_ENCEXT_H
+#define SFLIGHT_ENCEXT_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
