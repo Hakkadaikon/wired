@@ -1,0 +1,53 @@
+name: Interop image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "examples/word_list/**"
+      - "examples/webtransport_interop/**"
+      - "interop/**"
+      - ".github/workflows/interop-image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: build server binaries
+        run: |
+          nix develop -c sh -c '
+            just gen-ninja
+            ninja examples/word_list/wired_server
+            ninja examples/webtransport_interop/wired_server
+          '
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: build and push QUIC image
+        run: |
+          docker build -t ghcr.io/hakkadaikon/wired-interop:latest -f interop/Dockerfile .
+          docker push ghcr.io/hakkadaikon/wired-interop:latest
+
+      - name: build and push WebTransport image
+        run: |
+          docker build -t ghcr.io/hakkadaikon/wired-interop-wt:latest -f interop/Dockerfile.webtransport .
+          docker push ghcr.io/hakkadaikon/wired-interop-wt:latest
+
+      # A freshly pushed GHCR package defaults to private, which blocks an
+      # anonymous `docker pull` from quic-interop-runner's CI. Only the first
+      # push needs this; ghcr.io/hakkadaikon/wired-interop{,-wt} -> Package
+      # settings -> Change visibility -> Public.
