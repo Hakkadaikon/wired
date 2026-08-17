@@ -20,7 +20,7 @@
  * presenting address and covers the whole token with integrity protection,
  * so a modified token is rejected (8.1.4). Replay limiting (8.1.4) is a
  * single-use check the caller performs over the nonce field, e.g. with
- * quic_zerortt_seen_check (transport/conn/loop/manage/zerortt_seen.h) -- the
+ * zerortt_seen_check (transport/conn/loop/manage/zerortt_seen.h) -- the
  * nonce is already a fresh unique identity per token, so no new data
  * structure is needed for that check. */
 
@@ -41,7 +41,7 @@
  * timestamp -- never produce the same token). Writes exactly
  * QUIC_NEWTOKEN_WIRE_LEN bytes to token. Returns 1 on success, 0 if the
  * CSPRNG failed. */
-int quic_newtoken_wire_make(
+int newtoken_wire_make(
     const u8   key[QUIC_NEWTOKEN_KEY],
     wired_span addr,
     u64        now_secs,
@@ -54,7 +54,7 @@ int quic_newtoken_wire_make(
  * expiry; a token from the future, e.g. a manipulated timestamp, is also
  * rejected). On success returns 1 and sets *issued_at and *nonce (a view
  * into token, for the caller's own replay check). Returns 0 otherwise. */
-int quic_newtoken_wire_verify(
+int newtoken_wire_verify(
     const u8    key[QUIC_NEWTOKEN_KEY],
     wired_span  addr,
     wired_span  token,

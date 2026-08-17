@@ -2,7 +2,7 @@
 
 #include "common/bytes/util/num.h"
 
-u64 quic_pto_backoff(u32 count) {
+u64 pto_backoff(u32 count) {
   u32 shift = (count < QUIC_PTO_BACKOFF_MAX) ? count : QUIC_PTO_BACKOFF_MAX;
   return (u64)1 << shift;
 }
@@ -13,7 +13,7 @@ static u64 base_pto(u64 srtt, u64 rttvar, u64 max_ack_delay) {
   return srtt + var + max_ack_delay;
 }
 
-u64 quic_pto_duration(quic_pto_rtt rtt, u64 max_ack_delay, u32 backoff_count) {
+u64 pto_duration(pto_rtt rtt, u64 max_ack_delay, u32 backoff_count) {
   return base_pto(rtt.srtt, rtt.rttvar, max_ack_delay) *
-         quic_pto_backoff(backoff_count);
+         pto_backoff(backoff_count);
 }

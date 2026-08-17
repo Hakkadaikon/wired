@@ -8,6 +8,6 @@
  * GREASE values) is one it supports. Returns 1 when the connection must be
  * abandoned. */
 
-int quic_version_must_abandon(quic_verlist offered, quic_verlist we_support);
+int version_must_abandon(verlist offered, verlist we_support);
 
 #endif

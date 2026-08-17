@@ -25,9 +25,9 @@ static void test_roundtrip_stream(void) {
 
   /* server decodes the request STREAM frame and sees a HEADERS field section */
   {
-    quic_stream_frame f;
-    wired_span        fs = {0, 0};
-    CHECK(quic_frame_get_stream(req, req_ob.len, &f));
+    stream_frame f;
+    wired_span   fs = {0, 0};
+    CHECK(frame_get_stream(req, req_ob.len, &f));
     CHECK(f.stream_id == 0);
     CHECK(quic_h3req_recv_first_headers(
         wired_span_of(f.data, (usz)f.length), &fs));
@@ -64,8 +64,8 @@ static void test_roundtrip_onertt(void) {
   }
   /* seal: re-wrap the HTTP/3 bytes as a sealed 1-RTT STREAM packet */
   {
-    quic_stream_frame f;
-    CHECK(quic_frame_get_stream(h3, h3_ob.len, &f));
+    stream_frame f;
+    CHECK(frame_get_stream(h3, h3_ob.len, &f));
     CHECK(appdata_send_flat(
         &k, &hp, dcid, 4, 1, f.stream_id, f.data, (usz)f.length, f.fin, pkt,
         sizeof(pkt), &total));

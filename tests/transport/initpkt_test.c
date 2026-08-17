@@ -1,11 +1,11 @@
 #include "test.h"
 
 /* RFC 9001 A.1: DCID 0x8394c8f03e515708 yields the known client Initial key,
- * iv, and hp. quic_initpkt_derive must reproduce these for the client side. */
+ * iv, and hp. initpkt_derive must reproduce these for the client side. */
 static void test_initpkt_keys_rfc(void) {
   const u8     dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   initial_keys ck, sk;
-  quic_initpkt_derive(wired_span_of(dcid, 8), &ck, &sk);
+  initpkt_derive(wired_span_of(dcid, 8), &ck, &sk);
 
   const u8 want_key[16] = {0x1f, 0x36, 0x96, 0x13, 0xdd, 0x76, 0xd5, 0x46,
                            0x77, 0x30, 0xef, 0xcb, 0xe3, 0xb1, 0xa2, 0x2d};
@@ -28,17 +28,17 @@ static void test_initpkt_roundtrip(void) {
   const u8 scid[4] = {0xde, 0xad, 0xbe, 0xef};
   const u8 ch[]    = {'C', 'l', 'i', 'e', 'n', 't', 'H', 'e', 'l', 'l', 'o'};
 
-  u8                pkt[1300];
-  quic_initpkt_desc d = {
+  u8           pkt[1300];
+  initpkt_desc d = {
       wired_span_of(dcid, 8), wired_span_of(scid, 4),
       wired_span_of(ch, sizeof(ch)), 2, 0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_initpkt_build(&d, &o));
+  CHECK(initpkt_build(&d, &o));
   /* RFC 9000 14.1: the datagram reaches the 1200-byte minimum */
   CHECK(o.len >= 1200);
 
   wired_span crypto;
-  CHECK(quic_initpkt_open(
+  CHECK(initpkt_open(
       wired_span_of(dcid, 8), wired_mspan_of(pkt, o.len), &crypto));
   /* the recovered frames begin with a CRYPTO frame (type 0x06) carrying CH */
   CHECK(crypto.p[0] == 0x06);
@@ -51,16 +51,16 @@ static void test_initpkt_roundtrip(void) {
  * ClientHello's later chunk reassembles at its true position
  * (RFC 9000 19.6). */
 static void test_initpkt_crypto_offset(void) {
-  const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  const u8          ch[]    = {'t', 'a', 'i', 'l'};
-  u8                pkt[1300];
-  quic_initpkt_desc d = {
+  const u8     dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  const u8     ch[]    = {'t', 'a', 'i', 'l'};
+  u8           pkt[1300];
+  initpkt_desc d = {
       wired_span_of(dcid, 8), wired_span_of((const u8*)0, 0),
       wired_span_of(ch, sizeof(ch)), 1, 7};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
   wired_span crypto;
-  CHECK(quic_initpkt_build(&d, &o));
-  CHECK(quic_initpkt_open(
+  CHECK(initpkt_build(&d, &o));
+  CHECK(initpkt_open(
       wired_span_of(dcid, 8), wired_mspan_of(pkt, o.len), &crypto));
   /* CRYPTO frame: type, offset varint (7), length varint (4), the chunk */
   CHECK(crypto.p[0] == 0x06);
@@ -70,17 +70,17 @@ static void test_initpkt_crypto_offset(void) {
 
 /* A tampered ciphertext byte makes open fail (AEAD authentication). */
 static void test_initpkt_tamper(void) {
-  const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  const u8          ch[]    = {'h', 'i'};
-  u8                pkt[1300];
-  quic_initpkt_desc d = {
+  const u8     dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  const u8     ch[]    = {'h', 'i'};
+  u8           pkt[1300];
+  initpkt_desc d = {
       wired_span_of(dcid, 8), wired_span_of((const u8*)0, 0),
       wired_span_of(ch, sizeof(ch)), 7, 0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_initpkt_build(&d, &o));
+  CHECK(initpkt_build(&d, &o));
   pkt[o.len - 1] ^= 0x01;
   wired_span crypto;
-  CHECK(!quic_initpkt_open(
+  CHECK(!initpkt_open(
       wired_span_of(dcid, 8), wired_mspan_of(pkt, o.len), &crypto));
 }
 

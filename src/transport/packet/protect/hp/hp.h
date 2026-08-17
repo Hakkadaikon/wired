@@ -12,8 +12,7 @@
 #define QUIC_HP_SHORT_MASK 0x1f /* short header: mask 5 low bits of byte0 */
 
 /* Compute the 5-byte header-protection mask from a 16-byte sample. */
-void quic_hp_mask(
-    const aes128* hp, const u8 sample[QUIC_HP_SAMPLE], u8 mask[5]);
+void hp_mask(const aes128* hp, const u8 sample[QUIC_HP_SAMPLE], u8 mask[5]);
 
 /** Header fields covered by protection: byte0, the packet-number bytes, and
  * which low bits of byte0 are masked (long 0x0f / short 0x1f). */
@@ -22,9 +21,9 @@ typedef struct {
   u8* pn;
   usz pn_len;
   u8  bits_mask;
-} quic_hp_fields;
+} hp_fields;
 
 /* Apply (or remove — XOR is its own inverse) header protection in place. */
-void quic_hp_apply(const u8 mask[5], const quic_hp_fields* f);
+void hp_apply(const u8 mask[5], const hp_fields* f);
 
 #endif

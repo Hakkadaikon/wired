@@ -17,11 +17,11 @@
 #define QUIC_PT_RETRY 3
 
 /* True if byte0 has the long-header form bit (RFC 9000 17.2). */
-int quic_packet_is_long(u8 byte0);
+int packet_is_long(u8 byte0);
 
 /* Logical long-header type for byte0 under `version`, or QUIC_PT_NONE if it
  * is not a long header or version is neither QUIC_VERSION_1 nor
  * QUIC_VERSION_2. Does not check the fixed bit. */
-int quic_packet_long_type(u8 byte0, u32 version);
+int packet_long_type(u8 byte0, u32 version);
 
 #endif

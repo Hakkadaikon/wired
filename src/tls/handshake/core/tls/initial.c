@@ -14,8 +14,8 @@
 static wired_span ilabel_build(u8* buf, u32 version, const char* suffix) {
   const char* prefix;
   usz         prefix_len, n = 0;
-  if (!quic_version_label_prefix(version, &prefix, &prefix_len)) {
-    quic_version_label_prefix(QUIC_VERSION_1, &prefix, &prefix_len);
+  if (!version_label_prefix(version, &prefix, &prefix_len)) {
+    version_label_prefix(QUIC_VERSION_1, &prefix, &prefix_len);
   }
   bytes_memcpy(buf, prefix, prefix_len);
   n += prefix_len;
@@ -51,8 +51,8 @@ static void derive_keys(
 static wired_span initial_salt(u32 version) {
   const u8* salt;
   usz       len;
-  if (!quic_version_initial_salt(version, &salt, &len))
-    quic_version_initial_salt(QUIC_VERSION_1, &salt, &len);
+  if (!version_initial_salt(version, &salt, &len))
+    version_initial_salt(QUIC_VERSION_1, &salt, &len);
   return wired_span_of(salt, len);
 }
 

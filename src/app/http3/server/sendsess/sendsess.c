@@ -141,7 +141,7 @@ void wired_sendsess_ack(wired_sendsess* s, u64 lo, u64 hi) {
 /* RFC 9002 6.1.1: 1 if in-flight entry e is past the packet threshold. */
 static int sendsess_lost_by_packet(
     const wired_sent_slice* e, u64 largest_acked) {
-  return quic_loss_by_packet(largest_acked, e->pn);
+  return loss_by_packet(largest_acked, e->pn);
 }
 
 /* RFC 9002 6.1.2: 1 if in-flight entry e has sat unacknowledged past the
@@ -149,8 +149,8 @@ static int sendsess_lost_by_packet(
  * the packet threshold alone still applies via sendsess_lost. */
 static int sendsess_lost_by_time(
     const wired_sent_slice* e, u64 now_ms, u64 srtt_us) {
-  quic_loss_when when = {now_ms * 1000, e->sent_ms * 1000};
-  return srtt_us && quic_loss_by_time(when, srtt_us, srtt_us);
+  loss_when when = {now_ms * 1000, e->sent_ms * 1000};
+  return srtt_us && loss_by_time(when, srtt_us, srtt_us);
 }
 
 /* RFC 9002 6.1: "A packet is declared lost if it meets all of the following

@@ -5,8 +5,7 @@
 #include "transport/packet/header/packet/retry.h"
 
 /* Copy the parsed token and the Retry SCID (the next DCID) to the outputs. */
-static void retry_emit(
-    const quic_retry_packet* r, const retry_process_out* out) {
+static void retry_emit(const retry_packet* r, const retry_process_out* out) {
   usz off = 0;
   bytes_put(
       wired_mspan_of(out->token->p, out->token->cap), &off,
@@ -21,8 +20,8 @@ static void retry_emit(
 
 int retry_process(
     wired_span retry_pkt, wired_span orig_dcid, const retry_process_out* out) {
-  quic_retry_packet r;
-  if (quic_retry_parse(retry_pkt.p, retry_pkt.n, &r) == 0) return 0;
+  retry_packet r;
+  if (retry_parse(retry_pkt.p, retry_pkt.n, &r) == 0) return 0;
   if (!retry_verify(orig_dcid, retry_pkt)) return 0;
   retry_emit(&r, out);
   return 1;

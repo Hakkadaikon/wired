@@ -13,8 +13,8 @@ static const u8 g_priupdate_cli_scid[6] = {'p', 'r', 'i', 'u', 'p', 'd'};
  * one is a static helper in a sibling test TU, not a shared symbol). */
 static usz priupdate_stream_frame(
     u8* out, usz cap, u64 id, u64 offset, const u8* data, usz len, u8 fin) {
-  quic_stream_frame sf = {id, offset, len, data, fin};
-  return quic_frame_put_stream(out, cap, &sf);
+  stream_frame sf = {id, offset, len, data, fin};
+  return frame_put_stream(out, cap, &sf);
 }
 
 /* The peer's client uni control stream id (RFC 9000 2.1 low bits 10) used by

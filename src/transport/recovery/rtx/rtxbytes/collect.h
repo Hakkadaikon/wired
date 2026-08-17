@@ -14,11 +14,10 @@
 typedef struct {
   const u64* pns;
   usz        n;
-} quic_lost_pns;
+} lost_pns;
 
 /* Returns 1 on success with out->len set to the concatenated length, or 0 if
  * out->cap is too small. */
-int quic_rtxbytes_collect(
-    const quic_rtxbytes* st, quic_lost_pns lost, wired_obuf* out);
+int rtxbytes_collect(const rtxbytes* st, lost_pns lost, wired_obuf* out);
 
 #endif

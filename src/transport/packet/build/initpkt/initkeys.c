@@ -1,7 +1,7 @@
 #include "transport/packet/build/initpkt/initkeys.h"
 
 /* RFC 9001 5.2 / RFC 9369 3.3.1 */
-void quic_initpkt_derive_ver(
+void initpkt_derive_ver(
     wired_span    dcid,
     u32           version,
     initial_keys* client_keys,
@@ -11,7 +11,7 @@ void quic_initpkt_derive_ver(
 }
 
 /* RFC 9001 5.2 */
-void quic_initpkt_derive(
+void initpkt_derive(
     wired_span dcid, initial_keys* client_keys, initial_keys* server_keys) {
-  quic_initpkt_derive_ver(dcid, QUIC_VERSION_1, client_keys, server_keys);
+  initpkt_derive_ver(dcid, QUIC_VERSION_1, client_keys, server_keys);
 }

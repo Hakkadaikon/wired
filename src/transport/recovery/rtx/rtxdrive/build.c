@@ -2,10 +2,9 @@
 
 #include "transport/recovery/rtx/rtxbytes/rebuild.h"
 
-int quic_rtxdrive_build(
-    const quic_rtxbytes* store, u64 lost_pn, wired_obuf* out) {
+int rtxdrive_build(const rtxbytes* store, u64 lost_pn, wired_obuf* out) {
   wired_span frame;
 
-  if (!quic_rtxbytes_get(store, lost_pn, &frame)) return (out->len = 0, 1);
-  return quic_rtxbytes_rebuild(frame, out);
+  if (!rtxbytes_get(store, lost_pn, &frame)) return (out->len = 0, 1);
+  return rtxbytes_rebuild(frame, out);
 }

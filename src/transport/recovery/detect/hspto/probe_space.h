@@ -10,7 +10,7 @@
 #define QUIC_HSPTO_SPACE_APPLICATION 2
 
 /* Returns the space (0=Initial, 1=Handshake, 2=Application) to probe. */
-int quic_hspto_probe_space(
+int hspto_probe_space(
     int initial_inflight, int handshake_inflight, int handshake_confirmed);
 
 #endif

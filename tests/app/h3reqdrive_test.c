@@ -725,7 +725,7 @@ static void test_reqdrive_onertt(void) {
   wired_obuf           req_ob = {req, sizeof req, 0};
   usz                  total = 0, rf_len = 0;
   wired_h3reqdrive_req r;
-  quic_stream_frame    f;
+  stream_frame         f;
   u64                  sid = 0, off = 0;
   const u8*            sdata = 0;
   usz                  slen  = 0;
@@ -737,7 +737,7 @@ static void test_reqdrive_onertt(void) {
       &(wired_h3reqdrive_get_in){
           wired_span_of(path, sizeof path), wired_span_of(auth, sizeof auth)},
       &req_ob));
-  CHECK(quic_frame_get_stream(req, req_ob.len, &f));
+  CHECK(frame_get_stream(req, req_ob.len, &f));
   CHECK(appdata_send_flat(
       &k, &hp, dcid, 4, 1, f.stream_id, f.data, (usz)f.length, f.fin, pkt,
       sizeof(pkt), &total));

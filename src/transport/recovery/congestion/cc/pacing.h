@@ -7,6 +7,6 @@
  * interval = N * packet_size * srtt / cwnd with N = 5/4. Times in us. */
 
 /* 0 when cwnd is 0 (nothing in flight, send immediately). */
-u64 quic_pacing_interval(u64 srtt, u64 cwnd, u64 packet_size);
+u64 pacing_interval(u64 srtt, u64 cwnd, u64 packet_size);
 
 #endif

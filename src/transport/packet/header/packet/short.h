@@ -13,9 +13,9 @@ typedef struct {
   u8         key_phase;
   u64        pn;
   usz        pn_len;
-} quic_short_desc;
+} short_desc;
 
 /* Returns bytes written into buf (cap total), or 0 on bad args / no room. */
-usz quic_short_build(u8* buf, usz cap, const quic_short_desc* d);
+usz short_build(u8* buf, usz cap, const short_desc* d);
 
 #endif

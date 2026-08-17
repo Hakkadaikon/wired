@@ -212,7 +212,7 @@ static void test_sendsess_packet_threshold_requires_later_ack(void) {
 }
 
 /* srtt_us == 0 (no RTT sample yet) must not spuriously satisfy the time
- * threshold -- quic_loss_by_time's elapsed>=threshold could otherwise fire
+ * threshold -- loss_by_time's elapsed>=threshold could otherwise fire
  * on any elapsed time with threshold computed from a zero RTT. Same setup
  * as above but srtt_us=0: pn 4 must stay in flight. */
 static void test_sendsess_time_threshold_skipped_without_rtt_sample(void) {

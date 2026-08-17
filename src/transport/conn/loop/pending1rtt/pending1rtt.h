@@ -27,30 +27,29 @@ typedef struct {
   u8  buf[QUIC_PENDING1RTT_CAP][QUIC_PENDING1RTT_MAX_LEN];
   usz len[QUIC_PENDING1RTT_CAP];
   usz count; /* number of slots in use, filled from index 0 */
-} quic_pending1rtt;
+} pending1rtt;
 
 /** Start empty. */
-void quic_pending1rtt_init(quic_pending1rtt* q);
+void pending1rtt_init(pending1rtt* q);
 
 /** RFC 9001 5.7: 1 if incoming 1-RTT packets must not be processed yet
  * (the handshake is not complete). */
-int quic_pending1rtt_should_defer(int handshake_complete);
+int pending1rtt_should_defer(int handshake_complete);
 
 /** Store one datagram's bytes. Returns 1 on success, 0 if it exceeds
  * QUIC_PENDING1RTT_MAX_LEN or the queue is already at QUIC_PENDING1RTT_CAP
  * (both fail closed: the caller drops the packet rather than blocking). */
-int quic_pending1rtt_store(quic_pending1rtt* q, const u8* data, usz len);
+int pending1rtt_store(pending1rtt* q, const u8* data, usz len);
 
 /** Number of packets currently stored. */
-usz quic_pending1rtt_count(const quic_pending1rtt* q);
+usz pending1rtt_count(const pending1rtt* q);
 
 /** Take the packet at FIFO position i (0 = oldest) without removing it;
  * *data points into q, *len is its length. Returns 1 if i < count. */
-int quic_pending1rtt_peek(
-    const quic_pending1rtt* q, usz i, const u8** data, usz* len);
+int pending1rtt_peek(const pending1rtt* q, usz i, const u8** data, usz* len);
 
 /** Empty the queue (call once the handshake completes and every stored
  * packet has been re-fed through the normal receive path). */
-void quic_pending1rtt_clear(quic_pending1rtt* q);
+void pending1rtt_clear(pending1rtt* q);
 
 #endif

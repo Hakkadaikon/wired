@@ -9,10 +9,10 @@
  * carried over unchanged. */
 
 /* True if the connection ID changed, breaking observer linkability. */
-int quic_linkability_broken(u64 old_cid, u64 new_cid);
+int linkability_broken(u64 old_cid, u64 new_cid);
 
 /* True if a migration happened without changing the connection ID, leaving
  * the endpoint linkable across the migration. */
-int quic_linkability_at_risk(int migrated, int cid_changed);
+int linkability_at_risk(int migrated, int cid_changed);
 
 #endif

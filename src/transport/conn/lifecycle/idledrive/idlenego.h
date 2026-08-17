@@ -7,6 +7,6 @@
  * endpoints' advertised values, where 0 means "no limit advertised". */
 
 /* min of the non-zero values; the other if one is 0; 0 if both are 0. */
-u64 quic_idledrive_effective(u64 local_timeout, u64 peer_timeout);
+u64 idledrive_effective(u64 local_timeout, u64 peer_timeout);
 
 #endif

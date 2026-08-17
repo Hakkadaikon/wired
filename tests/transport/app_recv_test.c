@@ -41,12 +41,12 @@ static void test_recv_offset(void) {
   usz flen = 0;
   CHECK(appdata_frame_flat(
       12, 256, body, sizeof(body), 0, frame, sizeof(frame), &flen));
-  u8                     pkt[128];
-  quic_protect_keys      pk = {&k, &hp};
-  quic_hspkt_onertt_desc bd = {
+  u8                pkt[128];
+  protect_keys      pk = {&k, &hp};
+  hspkt_onertt_desc bd = {
       wired_span_of(dcid, 4), 3, wired_span_of(frame, flen), 0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_hspkt_onertt_build(&pk, &bd, &o));
+  CHECK(hspkt_onertt_build(&pk, &bd, &o));
   usz total = o.len;
 
   u64       sid = 0, off = 0;
@@ -70,12 +70,12 @@ static void test_recv_empty_payload(void) {
   const u8     dcid[4] = {4, 4, 4, 4};
   recv_keys(&k, &hp);
 
-  u8                     pkt[128];
-  quic_protect_keys      pk = {&k, &hp};
-  quic_hspkt_onertt_desc bd = {
+  u8                pkt[128];
+  protect_keys      pk = {&k, &hp};
+  hspkt_onertt_desc bd = {
       wired_span_of(dcid, 4), 1, wired_span_of((const u8*)"", 0), 0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_hspkt_onertt_build(&pk, &bd, &o));
+  CHECK(hspkt_onertt_build(&pk, &bd, &o));
   usz total = o.len;
 
   u64       sid = 0, off = 0;
@@ -95,13 +95,13 @@ static void test_recv_malformed(void) {
   recv_keys(&k, &hp);
 
   /* type 0x0a (STREAM|LEN), stream_id 0, Length=10 but no data bytes. */
-  const u8               bad[] = {0x0a, 0x00, 0x0a};
-  u8                     pkt[128];
-  quic_protect_keys      pk = {&k, &hp};
-  quic_hspkt_onertt_desc bd = {
+  const u8          bad[] = {0x0a, 0x00, 0x0a};
+  u8                pkt[128];
+  protect_keys      pk = {&k, &hp};
+  hspkt_onertt_desc bd = {
       wired_span_of(dcid, 4), 2, wired_span_of(bad, sizeof(bad)), 0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_hspkt_onertt_build(&pk, &bd, &o));
+  CHECK(hspkt_onertt_build(&pk, &bd, &o));
   usz total = o.len;
 
   u64       sid = 0, off = 0;

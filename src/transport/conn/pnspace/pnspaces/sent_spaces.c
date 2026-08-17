@@ -2,20 +2,19 @@
 
 #include "transport/recovery/rtx/sentpkt/ack_process.h"
 
-void quic_pnspaces_sent_init(quic_pnspaces_sent* s) {
-  for (int i = 0; i < QUIC_PNS_COUNT; i++) quic_sentpkt_init(&s->t[i]);
+void pnspaces_sent_init(pnspaces_sent* s) {
+  for (int i = 0; i < QUIC_PNS_COUNT; i++) sentpkt_init(&s->t[i]);
 }
 
-int quic_pnspaces_on_send(
-    quic_pnspaces_sent* s, int space, const quic_sentpkt_out* pkt) {
-  return quic_sentpkt_on_send(&s->t[space], pkt);
+int pnspaces_on_send(pnspaces_sent* s, int space, const sentpkt_out* pkt) {
+  return sentpkt_on_send(&s->t[space], pkt);
 }
 
-void quic_pnspaces_on_ack(
-    quic_pnspaces_sent* s, const quic_pnspaces_ack_in* in, quic_u64out acked) {
-  quic_ack_process(&s->t[in->space], &in->ackset, acked);
+void pnspaces_on_ack(
+    pnspaces_sent* s, const pnspaces_ack_in* in, u64out acked) {
+  ack_process(&s->t[in->space], &in->ackset, acked);
 }
 
-usz quic_pnspaces_sent_count(const quic_pnspaces_sent* s, int space) {
-  return quic_sentpkt_count(&s->t[space]);
+usz pnspaces_sent_count(const pnspaces_sent* s, int space) {
+  return sentpkt_count(&s->t[space]);
 }

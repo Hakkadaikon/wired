@@ -47,9 +47,9 @@ int wired_srvloop_send_handshake(
       in->ack_pn,
       in->payload,
       in->crypto_off};
-  quic_protect_keys k;
+  protect_keys k;
   if (!wired_srvloop_seal_keys(s, QUIC_LEVEL_HANDSHAKE, &dk)) return 0;
-  k = (quic_protect_keys){dk.keys, &dk.hp};
+  k = (protect_keys){dk.keys, &dk.hp};
   return quic_srvwire_seal_handshake_suite(s->sdrv.cipher_suite, &k, &wi, out);
 }
 
@@ -67,20 +67,20 @@ static int send_onertt_keys(
     const wired_server*    s,
     wired_srvloop_dirkeys* dk,
     aes128*                hp,
-    quic_protect_keys*     out) {
+    protect_keys*          out) {
   if (s->ku_seeded) {
     aes128_init(hp, s->ku_send.cur.hp);
-    *out = (quic_protect_keys){&s->ku_send.cur, hp};
+    *out = (protect_keys){&s->ku_send.cur, hp};
     return 1;
   }
   if (!wired_srvloop_seal_keys(s, QUIC_LEVEL_ONERTT, dk)) return 0;
-  *out = (quic_protect_keys){dk->keys, &dk->hp};
+  *out = (protect_keys){dk->keys, &dk->hp};
   return 1;
 }
 
 /* RFC 9001 5 / 5.1 / 6: 1-RTT payload sealed with the own-direction
  * SERVER_AP, its Key Phase bit set to this endpoint's current send-side
- * generation (quic_hspkt_onertt_build's byte0 has no way to infer the
+ * generation (hspkt_onertt_build's byte0 has no way to infer the
  * phase from the keys alone -- the wire bit is the only signal a peer
  * uses to detect an update, RFC 9001 6.3). 0 (generation 0's phase) before
  * kuswitch is seeded, matching send_onertt_keys's own fallback. */
@@ -88,9 +88,9 @@ int wired_srvloop_send_onertt(
     const wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out) {
   wired_srvloop_dirkeys dk;
   aes128                hp;
-  quic_protect_keys     pk;
-  int phase = s->ku_seeded ? keyphase_bit(s->ku_send.generation) : 0;
-  quic_hspkt_onertt_desc d = {in->cli_scid, in->pn, in->payload, phase};
+  protect_keys          pk;
+  int phase           = s->ku_seeded ? keyphase_bit(s->ku_send.generation) : 0;
+  hspkt_onertt_desc d = {in->cli_scid, in->pn, in->payload, phase};
   if (!send_onertt_keys(s, &dk, &hp, &pk)) return 0;
-  return quic_hspkt_onertt_build_suite(s->sdrv.cipher_suite, &pk, &d, out);
+  return hspkt_onertt_build_suite(s->sdrv.cipher_suite, &pk, &d, out);
 }

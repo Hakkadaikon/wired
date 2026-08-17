@@ -17,7 +17,7 @@ typedef struct {
   const u8* key;
   const u8* iv;
   const u8* hp_key;
-} quic_protectcs_keys;
+} protectcs_keys;
 
 /** One in-place seal: pkt holds the header followed by payload_len plaintext
  * bytes; the packet number (pn, encoded in pn_len bytes) sits at pn_off. */
@@ -27,30 +27,26 @@ typedef struct {
   u8  pn_len;
   u64 pn;
   usz payload_len;
-} quic_protectcs_seal_io;
+} protectcs_seal_io;
 
 /* Seal in place: encrypts the payload (AEAD over the header as AAD), appends
  * the 16-byte tag, then applies header protection. Writes the total protected
  * length to *out_len and returns 1, or 0 on an unknown suite. */
-int quic_protectcs_seal(
-    const quic_protectcs_keys*    k,
-    const quic_protectcs_seal_io* io,
-    usz*                          out_len);
+int protectcs_seal(
+    const protectcs_keys* k, const protectcs_seal_io* io, usz* out_len);
 
 /** One in-place open: pkt holds a protected packet with the packet number at
  * pn_off. */
 typedef struct {
   wired_mspan pkt;
   usz         pn_off;
-} quic_protectcs_open_io;
+} protectcs_open_io;
 
 /* Open in place: removes header protection (recovering pn_len from byte0),
  * verifies and decrypts the payload, and points *payload at the plaintext
  * within pkt. Returns 1 on success, 0 on an unknown suite or authentication
  * failure. */
-int quic_protectcs_open(
-    const quic_protectcs_keys*    k,
-    const quic_protectcs_open_io* io,
-    wired_span*                   payload);
+int protectcs_open(
+    const protectcs_keys* k, const protectcs_open_io* io, wired_span* payload);
 
 #endif

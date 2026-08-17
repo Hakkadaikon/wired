@@ -97,7 +97,7 @@ static void test_v2ku_appendix_header_protection(void) {
   const u8 want_header[4] = {0x55, 0x58, 0xb1, 0xc6};
   u8       mask[5];
   u8       header[4] = {0x42, 0x00, 0xbf, 0xf4};
-  quic_hp_chacha_mask(A5_HP, sample, mask);
+  hp_chacha_mask(A5_HP, sample, mask);
   for (usz i = 0; i < 5; i++) CHECK(mask[i] == want_mask[i]);
   /* RFC 9001 5.4.1: short header masks the low 5 bits of byte0. */
   header[0] ^= mask[0] & 0x1f;

@@ -1,7 +1,6 @@
 #include "transport/io/xdp/xskumem/xskumem.h"
 
-void quic_xskumem_alloc_init(
-    quic_xskumem_alloc* a, u64 base_addr, u32 nframes) {
+void xskumem_alloc_init(xskumem_alloc* a, u64 base_addr, u32 nframes) {
   u32 n = nframes;
   if (n > QUIC_XSKUMEM_FRAMES) {
     n = QUIC_XSKUMEM_FRAMES;
@@ -12,7 +11,7 @@ void quic_xskumem_alloc_init(
   a->nfree = n;
 }
 
-i64 quic_xskumem_alloc_get(quic_xskumem_alloc* a) {
+i64 xskumem_alloc_get(xskumem_alloc* a) {
   if (a->nfree == 0) {
     return -1;
   }
@@ -20,7 +19,7 @@ i64 quic_xskumem_alloc_get(quic_xskumem_alloc* a) {
   return (i64)a->free[a->nfree];
 }
 
-void quic_xskumem_alloc_put(quic_xskumem_alloc* a, u64 addr) {
+void xskumem_alloc_put(xskumem_alloc* a, u64 addr) {
   if (a->nfree >= QUIC_XSKUMEM_FRAMES) {
     return;
   }

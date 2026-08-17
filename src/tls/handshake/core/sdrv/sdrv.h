@@ -63,7 +63,7 @@ typedef struct {
    * sdrv_recv_client_hello when the ClientHello carries early_data
    * (0x002a) alongside an accepted pre_shared_key AND the presented ticket
    * is on its first use (RFC 8446 8.1 single-use enforcement,
-   * quic_zerortt_seen_check). A replayed ticket's early_data is refused
+   * zerortt_seen_check). A replayed ticket's early_data is refused
    * (this stays 0) even though psk_accepted may still be 1 -- 0-RTT alone is
    * rejected, ordinary PSK/1-RTT resumption still proceeds. */
   int early_data_accepted;

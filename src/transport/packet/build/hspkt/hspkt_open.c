@@ -6,23 +6,19 @@
 /* RFC 9000 17.2.4 / RFC 9001 5.4: parse the complete Handshake long header
  * (no Token) for the packet-number offset and Length, then remove header
  * protection and AEAD-open the payload in place. */
-int quic_hspkt_open(
-    const quic_protect_keys* k, wired_mspan pkt, wired_span* payload) {
-  quic_lhdr h;
-  if (!quic_lhdr_parse(wired_span_of(pkt.p, pkt.n), 0, &h)) return 0;
-  quic_vpn_desc d = {pkt, h.pn_off, h.length};
-  return quic_vpn_open(k, &d, payload);
+int hspkt_open(const protect_keys* k, wired_mspan pkt, wired_span* payload) {
+  lhdr h;
+  if (!lhdr_parse(wired_span_of(pkt.p, pkt.n), 0, &h)) return 0;
+  vpn_desc d = {pkt, h.pn_off, h.length};
+  return vpn_open(k, &d, payload);
 }
 
-/* Same as quic_hspkt_open, but opens under the given negotiated TLS 1.3
+/* Same as hspkt_open, but opens under the given negotiated TLS 1.3
  * cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
-int quic_hspkt_open_suite(
-    u16                      suite,
-    const quic_protect_keys* k,
-    wired_mspan              pkt,
-    wired_span*              payload) {
-  quic_lhdr h;
-  if (!quic_lhdr_parse(wired_span_of(pkt.p, pkt.n), 0, &h)) return 0;
-  quic_vpn_desc d = {pkt, h.pn_off, h.length};
-  return quic_vpn_open_suite(suite, k, &d, payload);
+int hspkt_open_suite(
+    u16 suite, const protect_keys* k, wired_mspan pkt, wired_span* payload) {
+  lhdr h;
+  if (!lhdr_parse(wired_span_of(pkt.p, pkt.n), 0, &h)) return 0;
+  vpn_desc d = {pkt, h.pn_off, h.length};
+  return vpn_open_suite(suite, k, &d, payload);
 }

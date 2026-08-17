@@ -19,7 +19,7 @@ static int recv_initial(
     wired_server*                s,
     const wired_srvloop_recv_in* in,
     wired_srvloop_recv_out*      out) {
-  return quic_initpkt_open(
+  return initpkt_open(
       wired_span_of(s->sdrv.odcid, s->sdrv.odcid_len), in->dgram,
       &out->payload);
 }
@@ -32,16 +32,15 @@ static int recv_handshake(
     wired_srvloop_recv_out*      out) {
   wired_srvloop_dirkeys dk;
   if (!wired_srvloop_open_keys(s, QUIC_LEVEL_HANDSHAKE, &dk)) return 0;
-  quic_protect_keys pk = {dk.keys, &dk.hp};
-  return quic_hspkt_open_suite(
-      s->sdrv.cipher_suite, &pk, in->dgram, &out->payload);
+  protect_keys pk = {dk.keys, &dk.hp};
+  return hspkt_open_suite(s->sdrv.cipher_suite, &pk, in->dgram, &out->payload);
 }
 
-/* quic_hspkt_onertt_open mutates byte0 and the pn bytes in place (header
+/* hspkt_onertt_open mutates byte0 and the pn bytes in place (header
  * protection removal, RFC 9001 5.4.1) even on an AEAD failure -- a failed
  * attempt against one key generation must not corrupt the bytes a retry
  * against another generation needs. Cap: pn_off + a 4-byte pn (the longest
- * possible), the same bound quic_hspkt_unprotect itself uses. */
+ * possible), the same bound hspkt_unprotect itself uses. */
 #define RECV_ONERTT_HDR_MAX 24
 
 static usz onertt_hdr_len(u8 dcid_len) { return 1u + (usz)dcid_len + 4u; }
@@ -60,7 +59,7 @@ static void onertt_restore(
 
 /* Try opening with one key candidate; restores the header bytes first so a
  * prior failed attempt against a different generation left no residue
- * (quic_hspkt_onertt_open mutates the datagram's own bytes in place through
+ * (hspkt_onertt_open mutates the datagram's own bytes in place through
  * its pkt view, regardless of how many wired_mspan copies wrap it). */
 static int onertt_try(
     wired_server*                s,
@@ -71,11 +70,10 @@ static int onertt_try(
   aes128 hp;
   aes128_init(&hp, keys->hp);
   {
-    quic_protect_keys           pk = {keys, &hp};
-    quic_hspkt_onertt_open_desc d  = {
-        in->dgram, s->sdrv.iscid_len, in->largest_pn};
+    protect_keys           pk = {keys, &hp};
+    hspkt_onertt_open_desc d  = {in->dgram, s->sdrv.iscid_len, in->largest_pn};
     onertt_restore(in->dgram, s->sdrv.iscid_len, save);
-    return quic_hspkt_onertt_open_suite(
+    return hspkt_onertt_open_suite(
         s->sdrv.cipher_suite, &pk, &d, &out->payload);
   }
 }
@@ -169,7 +167,7 @@ static int recv_at_level(
 }
 
 /* RFC 9000 17.2.3 / RFC 9001 4.6.1: a 0-RTT packet is a long header with no
- * Token field, exactly like Handshake -- quic_hspkt_open_suite already
+ * Token field, exactly like Handshake -- hspkt_open_suite already
  * handles that framing. Only tried when this connection actually accepted
  * 0-RTT (sdrv_early_keys). RFC 9000 12.3: 0-RTT and 1-RTT share the App
  * packet number space, so a successfully opened 0-RTT packet is reported as
@@ -182,19 +180,19 @@ static int recv_zerortt(
   if (!sdrv_early_keys(&s->sdrv, &keys)) return 0;
   aes128_init(&hp, keys.hp);
   {
-    quic_protect_keys pk = {&keys, &hp};
-    return quic_hspkt_open_suite(s->sdrv.cipher_suite, &pk, in->dgram, payload);
+    protect_keys pk = {&keys, &hp};
+    return hspkt_open_suite(s->sdrv.cipher_suite, &pk, in->dgram, payload);
   }
 }
 
 /* 1 if byte0 wears a v1 0-RTT long header (RFC 9000 17.2.3) -- read before
  * header protection removal, so only the form/type bits are trustworthy
- * yet. v1-only, matching quic_connrunner_packet_level's own scope (this
+ * yet. v1-only, matching connrunner_packet_level's own scope (this
  * loop runs before a connection's negotiated version is otherwise known
  * here); v2 0-RTT is out of scope until v2 connections are accepted at this
  * layer. */
 static int recv_is_zerortt(u8 byte0) {
-  return quic_packet_long_type(byte0, QUIC_VERSION_1) == QUIC_PT_0RTT;
+  return packet_long_type(byte0, QUIC_VERSION_1) == QUIC_PT_0RTT;
 }
 
 /* byte0 already known non-empty; picks the 0-RTT path or the normal
@@ -208,7 +206,7 @@ static int recv_dispatch(
     out->level = QUIC_LEVEL_ONERTT;
     return recv_zerortt(s, in, &out->payload);
   }
-  if (!quic_connrunner_packet_level(in->dgram.p[0], &out->level)) return 0;
+  if (!connrunner_packet_level(in->dgram.p[0], &out->level)) return 0;
   return recv_at_level(s, in, out);
 }
 

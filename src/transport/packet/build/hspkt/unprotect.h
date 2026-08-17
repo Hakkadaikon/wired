@@ -18,22 +18,20 @@ typedef struct {
   usz         pn_off;
   u8          bits_mask;
   u64         largest_pn;
-} quic_hspkt_unprotect_desc;
+} hspkt_unprotect_desc;
 
 /* On success *payload views the plaintext within pkt. Returns 1 on success,
  * 0 on auth failure or short input (AES-128-GCM; equivalent to
- * quic_hspkt_unprotect_suite with suite = QUIC_TLS_AES_128_GCM_SHA256). */
-int quic_hspkt_unprotect(
-    const quic_protect_keys*         k,
-    const quic_hspkt_unprotect_desc* d,
-    wired_span*                      payload);
+ * hspkt_unprotect_suite with suite = QUIC_TLS_AES_128_GCM_SHA256). */
+int hspkt_unprotect(
+    const protect_keys* k, const hspkt_unprotect_desc* d, wired_span* payload);
 
-/* Same as quic_hspkt_unprotect, but opens under the given negotiated TLS 1.3
+/* Same as hspkt_unprotect, but opens under the given negotiated TLS 1.3
  * cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
-int quic_hspkt_unprotect_suite(
-    u16                              suite,
-    const quic_protect_keys*         k,
-    const quic_hspkt_unprotect_desc* d,
-    wired_span*                      payload);
+int hspkt_unprotect_suite(
+    u16                         suite,
+    const protect_keys*         k,
+    const hspkt_unprotect_desc* d,
+    wired_span*                 payload);
 
 #endif

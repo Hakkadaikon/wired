@@ -1,7 +1,7 @@
 /* libFuzzer harness for post-handshake connection I/O: with keys already
  * installed at every protection level (RFC 9001 4/5), split the fuzzer input
  * into its coalesced packets (RFC 9000 12.2) and feed each one through
- * quic_connio_recv -- open, dispatch every recovered frame (STREAM, ACK,
+ * connio_recv -- open, dispatch every recovered frame (STREAM, ACK,
  * MAX_DATA, STOP_SENDING, RESET_STREAM, ...). Mirrors cloudflare/quiche's
  * packets_posths_server target: fuzz the steady-state receive path without
  * paying for a real handshake. Hosted build only -- mirrors tests/run.c's
@@ -78,12 +78,12 @@
 /* Install a dummy key at every protection level and fast-forward the gating
  * state to look like a connection that just finished its handshake: send
  * level at Handshake (so the next promotion may reach 1-RTT), handshake
- * marked complete, address validated. No real TLS runs -- quic_connio_recv's
+ * marked complete, address validated. No real TLS runs -- connio_recv's
  * AEAD open/frame-dispatch path runs the same whether the key material is
  * real or zeroed, and connio_test.c's arm_onertt proves that. */
-static void arm_onertt(quic_connio *io, int is_server) {
-  quic_connio_init_in in = {is_server, 0x43, 1u << 20};
-  quic_connio_init(io, wired_span_of((const u8 *)"\x01\x02\x03\x04", 4), &in);
+static void arm_onertt(connio *io, int is_server) {
+  connio_init_in in = {is_server, 0x43, 1u << 20};
+  connio_init(io, wired_span_of((const u8 *)"\x01\x02\x03\x04", 4), &in);
 
   initial_keys k = {0};
   keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
@@ -94,7 +94,7 @@ static void arm_onertt(quic_connio *io, int is_server) {
   io->loop.handshake_complete = 1;
 }
 
-/* quic_connio_recv opens its datagram in place (header protection removal,
+/* connio_recv opens its datagram in place (header protection removal,
  * then AEAD), but libFuzzer's input buffer is `const` and must never be
  * mutated -- so each coalesced packet is copied into a scratch buffer first,
  * same as a real UDP receive would hand connio_recv its own read buffer
@@ -106,31 +106,31 @@ static void arm_onertt(quic_connio *io, int is_server) {
  * byte selects (RFC 9000 17.2/17.3), same mapping the real receive loop
  * uses. A packet whose first byte maps to no loop-handled level (0-RTT,
  * Retry) is simply skipped -- there is nothing post-handshake to fuzz there. */
-static void feed_one(quic_connio *io, const u8 *data, usz len) {
+static void feed_one(connio *io, const u8 *data, usz len) {
   static u8 scratch[SCRATCH_CAP];
   int       level;
   if (len == 0 || len > SCRATCH_CAP) return;
-  if (!quic_connrunner_packet_level(data[0], &level)) return;
+  if (!connrunner_packet_level(data[0], &level)) return;
   for (usz i = 0; i < len; i++) scratch[i] = data[i];
-  quic_connio_recv(io, level, wired_mspan_of(scratch, len));
+  connio_recv(io, level, wired_mspan_of(scratch, len));
 }
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   const u8 *buf = (const u8 *)data;
   usz       n   = (usz)size;
 
-  quic_connio io;
+  connio io;
   arm_onertt(&io, 1); /* server: the quiche posths_server target's shape */
 
   /* RFC 9000 12.2: walk every coalesced packet in the datagram and feed each
-   * one through the post-handshake receive path in turn. quic_coalesce_next
+   * one through the post-handshake receive path in turn. coalesce_next
    * consumes the cursor's offset on every yield (or stops), so this loop is
    * bounded by the input length -- no manual iteration cap needed, same as
    * fuzz_header.c. */
-  quic_coalesce_iter it;
-  quic_coalesce_begin(&it, buf, n);
-  quic_coalesced pkt;
-  while (quic_coalesce_next(&it, &pkt)) {
+  coalesce_iter it;
+  coalesce_begin(&it, buf, n);
+  coalesced pkt;
+  while (coalesce_next(&it, &pkt)) {
     feed_one(&io, pkt.data, pkt.len);
   }
 

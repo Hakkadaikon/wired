@@ -17,14 +17,14 @@ typedef struct {
   usz*       pkt_offsets;
   usz*       pkt_lens;
   usz        max_pkts;
-} quic_pktlist;
+} pktlist;
 
 /* Split an already-received datagram (dgram.p, dgram.n) into its coalesced
  * packets, writing into out. Returns the number of packets found. */
-usz quic_udploop_split(wired_span dgram, const quic_pktlist* out);
+usz udploop_split(wired_span dgram, const pktlist* out);
 
 /* Receive one datagram from fd into buf and split it into out. Returns the
  * number of QUIC packets; 0 on EAGAIN/empty/error. */
-usz quic_udploop_rx(i64 fd, wired_mspan buf, const quic_pktlist* out);
+usz udploop_rx(i64 fd, wired_mspan buf, const pktlist* out);
 
 #endif

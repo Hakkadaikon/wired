@@ -76,9 +76,9 @@ static void fp_new_client(
   CHECK(tlsdriver_recv_crypto(sv, frame, fl) == 1);
   *shn = fp_build_sh(sh, 512, sv_pub);
   {
-    wired_obuf                 ob  = obuf_of(frame, sizeof(frame));
-    quic_crypto_stream_emit_in ein = {0, 256};
-    CHECK(quic_crypto_stream_emit(wired_span_of(sh, *shn), &ein, &ob) == 1);
+    wired_obuf            ob  = obuf_of(frame, sizeof(frame));
+    crypto_stream_emit_in ein = {0, 256};
+    CHECK(crypto_stream_emit(wired_span_of(sh, *shn), &ein, &ob) == 1);
     fl = ob.len;
   }
   CHECK(tlsdriver_recv_crypto(cl, frame, fl) == 1);

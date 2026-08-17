@@ -15,8 +15,8 @@ alpnver_proto alpnver_protocol(const u8* alpn, usz len) {
 }
 
 /* RFC 9368 / RFC 9000 7.4: known protocol stays valid across compatible
- * versions. quic_version_compatible(v, v) is true only for known versions. */
+ * versions. version_compatible(v, v) is true only for known versions. */
 int alpnver_compatible(u32 version, const u8* alpn, usz len) {
   if (alpnver_protocol(alpn, len) == QUIC_ALPNVER_PROTO_NONE) return 0;
-  return quic_version_compatible(version, version);
+  return version_compatible(version, version);
 }

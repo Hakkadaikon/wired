@@ -7,14 +7,14 @@
 typedef struct {
   const u64* p; /**< pointer to the first element */
   usz        n; /**< element count */
-} quic_u64view;
+} u64view;
 
 /** A fixed-capacity u64 output buffer; the callee fills *len. */
 typedef struct {
   u64* p;   /**< destination buffer */
   usz  cap; /**< capacity in elements */
   usz  len; /**< out: elements actually written */
-} quic_u64obuf;
+} u64obuf;
 
 /* RFC 9000 19.3: an ACK frame reports the Largest Acknowledged packet number
  * and a descending list of contiguous ranges separated by gaps. This builds
@@ -30,7 +30,6 @@ typedef struct {
  *
  * ranges->cap bounds the write. Returns 1 on success, 0 if received_pns is
  * empty or ranges->cap is too small. */
-int quic_ackgen_build_ranges(
-    quic_u64view received_pns, u64* largest, quic_u64obuf* ranges);
+int ackgen_build_ranges(u64view received_pns, u64* largest, u64obuf* ranges);
 
 #endif

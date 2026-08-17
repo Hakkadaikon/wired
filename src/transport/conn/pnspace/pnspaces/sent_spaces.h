@@ -10,31 +10,29 @@
  * acknowledged independently; an ACK in one space never touches another. */
 
 /** Per packet-number-space sent-packet tracking (RFC 9000 13): one
- * quic_sentpkt table per space, acknowledged independently. */
+ * sentpkt table per space, acknowledged independently. */
 typedef struct {
-  quic_sentpkt t[QUIC_PNS_COUNT];
-} quic_pnspaces_sent;
+  sentpkt t[QUIC_PNS_COUNT];
+} pnspaces_sent;
 
-void quic_pnspaces_sent_init(quic_pnspaces_sent* s);
+void pnspaces_sent_init(pnspaces_sent* s);
 
 /* Record an in-flight packet in `space` only. Returns 1 on success, 0 if that
  * space's table is full. */
-int quic_pnspaces_on_send(
-    quic_pnspaces_sent* s, int space, const quic_sentpkt_out* pkt);
+int pnspaces_on_send(pnspaces_sent* s, int space, const sentpkt_out* pkt);
 
 /** The space an ACK applies to, plus its ranges (RFC 9000 19.3). */
 typedef struct {
-  int         space;
-  quic_ackset ackset;
-} quic_pnspaces_ack_in;
+  int    space;
+  ackset ackset;
+} pnspaces_ack_in;
 
 /* Process an ACK against `in->space` only; other spaces are untouched. Acked
  * packet numbers are appended to newly_acked_pns and *n_acked set to the
  * count. */
-void quic_pnspaces_on_ack(
-    quic_pnspaces_sent* s, const quic_pnspaces_ack_in* in, quic_u64out acked);
+void pnspaces_on_ack(pnspaces_sent* s, const pnspaces_ack_in* in, u64out acked);
 
 /* In-flight count recorded in `space`. */
-usz quic_pnspaces_sent_count(const quic_pnspaces_sent* s, int space);
+usz pnspaces_sent_count(const pnspaces_sent* s, int space);
 
 #endif

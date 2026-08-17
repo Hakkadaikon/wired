@@ -19,9 +19,9 @@ static int same(const u8* a, const u8* b, usz n) {
 static void test_salt_values(void) {
   const u8* s;
   usz       len;
-  CHECK(quic_version_initial_salt(QUIC_VERSION_1, &s, &len) == 1);
+  CHECK(version_initial_salt(QUIC_VERSION_1, &s, &len) == 1);
   CHECK(len == 20 && same(s, V1_GOLDEN, 20));
-  CHECK(quic_version_initial_salt(QUIC_VERSION_2, &s, &len) == 1);
+  CHECK(version_initial_salt(QUIC_VERSION_2, &s, &len) == 1);
   CHECK(len == 20 && same(s, V2_GOLDEN, 20));
 }
 
@@ -31,7 +31,7 @@ static void test_salts_differ(void) { CHECK(!same(V1_GOLDEN, V2_GOLDEN, 20)); }
 static void test_unknown_version(void) {
   const u8* s   = (const u8*)0x1;
   usz       len = 99;
-  CHECK(quic_version_initial_salt(0xdeadbeefu, &s, &len) == 0);
+  CHECK(version_initial_salt(0xdeadbeefu, &s, &len) == 0);
   CHECK(s == (const u8*)0x1 && len == 99); /* outputs untouched */
 }
 
@@ -39,11 +39,11 @@ static void test_unknown_version(void) {
 static void test_label_prefix(void) {
   const char* p;
   usz         len;
-  CHECK(quic_version_label_prefix(QUIC_VERSION_1, &p, &len) == 1);
+  CHECK(version_label_prefix(QUIC_VERSION_1, &p, &len) == 1);
   CHECK(len == 5 && p[0] == 'q' && p[4] == ' ');
-  CHECK(quic_version_label_prefix(QUIC_VERSION_2, &p, &len) == 1);
+  CHECK(version_label_prefix(QUIC_VERSION_2, &p, &len) == 1);
   CHECK(len == 7 && p[4] == 'v' && p[5] == '2' && p[6] == ' ');
-  CHECK(quic_version_label_prefix(0u, &p, &len) == 0);
+  CHECK(version_label_prefix(0u, &p, &len) == 0);
 }
 
 void test_v2keys(void) {

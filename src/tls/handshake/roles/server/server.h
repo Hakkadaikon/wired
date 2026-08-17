@@ -44,16 +44,16 @@ enum {
 /** Server-side handshake orchestrator state, initialized by
  * wired_server_init. */
 typedef struct {
-  i64           fd;           /**< UDP socket; <0 until a socket is opened */
-  quic_sockaddr peer;         /**< the client's UDP address (set by pump) */
-  sdrv          sdrv;         /**< server-side TLS handshake driver */
-  keysched      sched;        /**< RFC 8446 7.1 order-driven key schedule */
-  keyset        keys;         /**< per-protection-level QUIC key sets */
-  srvfin_state  fin;          /**< client-Finished verification state */
-  quic_crecv    crecv;        /**< CRYPTO stream reassembly buffer */
-  int           phase;        /**< WIRED_SERVER_HS_* */
-  int           hs_done_sent; /**< HANDSHAKE_DONE emitted (at most once) */
-  u8  server_priv[32];        /**< RFC 7748 x25519 private (owns the ECDHE) */
+  i64          fd;              /**< UDP socket; <0 until a socket is opened */
+  sockaddr     peer;            /**< the client's UDP address (set by pump) */
+  sdrv         sdrv;            /**< server-side TLS handshake driver */
+  keysched     sched;           /**< RFC 8446 7.1 order-driven key schedule */
+  keyset       keys;            /**< per-protection-level QUIC key sets */
+  srvfin_state fin;             /**< client-Finished verification state */
+  crecv        crecv;           /**< CRYPTO stream reassembly buffer */
+  int          phase;           /**< WIRED_SERVER_HS_* */
+  int          hs_done_sent;    /**< HANDSHAKE_DONE emitted (at most once) */
+  u8           server_priv[32]; /**< RFC 7748 x25519 private (owns the ECDHE) */
   u8  tr[WIRED_SERVER_TRANSCRIPT_MAX]; /**< raw handshake transcript bytes */
   usz tr_len;                /**< bytes through the latest folded message */
   usz tr_through_sh;         /**< transcript length through ServerHello */
@@ -140,7 +140,7 @@ void wired_server_set_limits(
 
 /** Advertise this 16-byte stateless_reset_token (RFC 9000 10.3.1/18.2) for
  * the server's handshake SCID in the transport parameters. Derive it from a
- * restart-stable secret (quic_sreset_key_derive + quic_sreset_token) so a
+ * restart-stable secret (sreset_key_derive + sreset_token) so a
  * rebooted server can still produce it. Call before the flight is built;
  * never calling it simply omits the TP.
  * @param s the server

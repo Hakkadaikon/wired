@@ -41,9 +41,9 @@ int client_build_initial_wire(
   u8  ch[QUIC_CLIENTWIRE_CH_MAX];
   usz ch_len = cw_client_hello(c, ch, sizeof(ch));
   if (ch_len == 0) return 0;
-  quic_initpkt_desc d = {
+  initpkt_desc d = {
       hdr->dcid, hdr->scid, wired_span_of(ch, ch_len), hdr->pn, 0};
-  return quic_initpkt_build(&d, out);
+  return initpkt_build(&d, out);
 }
 
 /* RFC 9001 5.2: open the server Initial with the server-direction keys. */
@@ -66,32 +66,31 @@ int client_seal_handshake_wire(
       -1,
       in->tls,
       0};
-  quic_protect_keys pk;
+  protect_keys pk;
   if (!cw_dir_key(c, QUIC_KS_CLIENT_HS, &dk)) return 0;
-  pk = (quic_protect_keys){dk.k, &dk.hp};
+  pk = (protect_keys){dk.k, &dk.hp};
   return quic_srvwire_seal_handshake(&pk, &si, out);
 }
 
 /* RFC 9001 5: open a server Handshake flight with SERVER_HS (peer direction).
  */
 int client_open_handshake_wire(
-    client* c, const quic_appdata_pkt* in, wired_span* tls) {
-  cw_dirkey         dk;
-  quic_protect_keys pk;
+    client* c, const appdata_pkt* in, wired_span* tls) {
+  cw_dirkey    dk;
+  protect_keys pk;
   (void)in->dcid_len;
   if (!cw_dir_key(c, QUIC_KS_SERVER_HS, &dk)) return 0;
-  pk = (quic_protect_keys){dk.k, &dk.hp};
+  pk = (protect_keys){dk.k, &dk.hp};
   return quic_srvwire_open_handshake(&pk, in->pkt, tls);
 }
 
 /* RFC 9001 5: send 1-RTT application data with CLIENT_AP (own direction). */
-int client_send_appdata_wire(
-    client* c, const quic_appdata_tx* in, wired_obuf* out) {
-  cw_dirkey         dk;
-  quic_protect_keys pk;
+int client_send_appdata_wire(client* c, const appdata_tx* in, wired_obuf* out) {
+  cw_dirkey    dk;
+  protect_keys pk;
   if (!cw_dir_key(c, QUIC_KS_CLIENT_AP, &dk)) return 0;
-  pk = (quic_protect_keys){dk.k, &dk.hp};
-  return quic_appdata_send(&pk, in, out);
+  pk = (protect_keys){dk.k, &dk.hp};
+  return appdata_send(&pk, in, out);
 }
 
 /* RFC 9000 5.1: a short-header 1-RTT packet's DCID (pkt[1 .. 1+scid_len]) must
@@ -116,12 +115,12 @@ static int cw_recv_ok(client* c, const clientwire_recv_in* in, cw_dirkey* dk) {
 /* RFC 9001 5: open a 1-RTT packet with SERVER_AP (peer direction), but first
  * drop it unless its DCID matches our SCID (RFC 9000 5.1). */
 int client_recv_appdata_wire(
-    client* c, const clientwire_recv_in* in, quic_stream_frame* out) {
-  cw_dirkey         dk;
-  quic_protect_keys pk;
-  quic_appdata_pkt  ap;
+    client* c, const clientwire_recv_in* in, stream_frame* out) {
+  cw_dirkey    dk;
+  protect_keys pk;
+  appdata_pkt  ap;
   if (!cw_recv_ok(c, in, &dk)) return 0;
-  pk = (quic_protect_keys){dk.k, &dk.hp};
-  ap = (quic_appdata_pkt){in->pkt, (u8)in->scid.n};
-  return quic_appdata_recv(&pk, &ap, out);
+  pk = (protect_keys){dk.k, &dk.hp};
+  ap = (appdata_pkt){in->pkt, (u8)in->scid.n};
+  return appdata_recv(&pk, &ap, out);
 }

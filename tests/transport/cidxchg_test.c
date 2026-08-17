@@ -3,12 +3,10 @@
 /* RFC 9000 7.2: the client seeds a random first DCID and its own SCID; the
  * send DCID starts equal to that first DCID. */
 static void test_cidxchg_init(void) {
-  quic_cidxchg x;
-  u8           dcid[8] = {9, 8, 7, 6, 5, 4, 3, 2};
-  u8           scid[4] = {1, 2, 3, 4};
-  CHECK(
-      quic_cidxchg_init(&x, wired_span_of(dcid, 8), wired_span_of(scid, 4)) ==
-      1);
+  cidxchg x;
+  u8      dcid[8] = {9, 8, 7, 6, 5, 4, 3, 2};
+  u8      scid[4] = {1, 2, 3, 4};
+  CHECK(cidxchg_init(&x, wired_span_of(dcid, 8), wired_span_of(scid, 4)) == 1);
   CHECK(x.dcid_len == 8 && x.dcid[0] == 9 && x.dcid[7] == 2);
   CHECK(x.own_scid_len == 4 && x.own_scid[3] == 4);
   CHECK(x.init_dcid_len == 8 && x.init_dcid[0] == 9);
@@ -17,12 +15,12 @@ static void test_cidxchg_init(void) {
 /* RFC 9000 7.2: once the server's SCID is seen, it becomes the send DCID; the
  * recorded first DCID (the ODCID) is left untouched. */
 static void test_cidxchg_switch_dcid(void) {
-  quic_cidxchg x;
-  u8           dcid[8] = {9, 8, 7, 6, 5, 4, 3, 2};
-  u8           scid[4] = {1, 2, 3, 4};
-  u8           srv[5]  = {11, 12, 13, 14, 15};
-  quic_cidxchg_init(&x, wired_span_of(dcid, 8), wired_span_of(scid, 4));
-  CHECK(quic_cidxchg_on_server_scid(&x, srv, 5) == 1);
+  cidxchg x;
+  u8      dcid[8] = {9, 8, 7, 6, 5, 4, 3, 2};
+  u8      scid[4] = {1, 2, 3, 4};
+  u8      srv[5]  = {11, 12, 13, 14, 15};
+  cidxchg_init(&x, wired_span_of(dcid, 8), wired_span_of(scid, 4));
+  CHECK(cidxchg_on_server_scid(&x, srv, 5) == 1);
   CHECK(x.dcid_len == 5 && x.dcid[0] == 11 && x.dcid[4] == 15);
   CHECK(x.init_dcid_len == 8 && x.init_dcid[0] == 9); /* ODCID unchanged */
 }
@@ -30,44 +28,43 @@ static void test_cidxchg_switch_dcid(void) {
 /* RFC 9000 7.3: the server records the first Initial's DCID, then a matching
  * ODCID transport parameter verifies and a differing one is rejected. */
 static void test_cidxchg_odcid_roundtrip(void) {
-  quic_cidxchg x;
-  u8           first[8] = {1, 2, 3, 4, 5, 6, 7, 8};
-  u8           bad[8]   = {1, 2, 3, 4, 5, 6, 7, 9};
+  cidxchg x;
+  u8      first[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  u8      bad[8]   = {1, 2, 3, 4, 5, 6, 7, 9};
   CHECK(
-      quic_cidxchg_init(
+      cidxchg_init(
           &x, wired_span_of((const u8*)0, 0), wired_span_of((const u8*)0, 0)) ==
       1);
-  CHECK(quic_cidxchg_remember_odcid(&x, first, 8) == 1);
-  CHECK(quic_cidxchg_verify_odcid(&x, first, 8) == 1);
-  CHECK(quic_cidxchg_verify_odcid(&x, bad, 8) == 0);   /* byte differs */
-  CHECK(quic_cidxchg_verify_odcid(&x, first, 7) == 0); /* length differs */
+  CHECK(cidxchg_remember_odcid(&x, first, 8) == 1);
+  CHECK(cidxchg_verify_odcid(&x, first, 8) == 1);
+  CHECK(cidxchg_verify_odcid(&x, bad, 8) == 0);   /* byte differs */
+  CHECK(cidxchg_verify_odcid(&x, first, 7) == 0); /* length differs */
 }
 
 /* The client path: verify ODCID against the DCID seeded at init. */
 static void test_cidxchg_client_verify(void) {
-  quic_cidxchg x;
-  u8           dcid[6] = {21, 22, 23, 24, 25, 26};
-  quic_cidxchg_init(&x, wired_span_of(dcid, 6), wired_span_of(dcid, 6));
-  quic_cidxchg_on_server_scid(&x, dcid, 6); /* switch must not lose ODCID */
-  CHECK(quic_cidxchg_verify_odcid(&x, dcid, 6) == 1);
+  cidxchg x;
+  u8      dcid[6] = {21, 22, 23, 24, 25, 26};
+  cidxchg_init(&x, wired_span_of(dcid, 6), wired_span_of(dcid, 6));
+  cidxchg_on_server_scid(&x, dcid, 6); /* switch must not lose ODCID */
+  CHECK(cidxchg_verify_odcid(&x, dcid, 6) == 1);
 }
 
 /* Boundary: 0-length and the maximum 20-byte CID are accepted; 21 rejected. */
 static void test_cidxchg_len_bounds(void) {
-  quic_cidxchg x;
-  u8           big[21] = {0};
+  cidxchg x;
+  u8      big[21] = {0};
   CHECK(
-      quic_cidxchg_init(&x, wired_span_of(big, 20), wired_span_of(big, 20)) ==
-          1 &&
+      cidxchg_init(&x, wired_span_of(big, 20), wired_span_of(big, 20)) == 1 &&
       x.dcid_len == 20);
   CHECK(
-      quic_cidxchg_init(&x, wired_span_of(big, 21), wired_span_of(big, 0)) ==
+      cidxchg_init(&x, wired_span_of(big, 21), wired_span_of(big, 0)) ==
       0); /* dcid too long */
   CHECK(
-      quic_cidxchg_init(&x, wired_span_of(big, 0), wired_span_of(big, 21)) ==
+      cidxchg_init(&x, wired_span_of(big, 0), wired_span_of(big, 21)) ==
       0); /* scid too long */
-  CHECK(quic_cidxchg_on_server_scid(&x, big, 21) == 0);
-  CHECK(quic_cidxchg_remember_odcid(&x, big, 21) == 0);
+  CHECK(cidxchg_on_server_scid(&x, big, 21) == 0);
+  CHECK(cidxchg_remember_odcid(&x, big, 21) == 0);
 }
 
 /* RFC 9000 7.3: ISCID/RSCID are verified with the tpverify primitives the

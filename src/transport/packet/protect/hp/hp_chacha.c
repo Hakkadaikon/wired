@@ -2,7 +2,7 @@
 
 #include "crypto/symmetric/aead/chacha/chacha20.h"
 
-void quic_hp_chacha_mask(const u8 hp_key[32], const u8 sample[16], u8 mask[5]) {
+void hp_chacha_mask(const u8 hp_key[32], const u8 sample[16], u8 mask[5]) {
   /* RFC 9001 5.4.2 */
   u32 counter = (u32)sample[0] | ((u32)sample[1] << 8) |
                 ((u32)sample[2] << 16) | ((u32)sample[3] << 24);

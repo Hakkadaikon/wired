@@ -5,7 +5,7 @@
 #include "common/bytes/varint/varint.h"
 #include "transport/packet/header/packet/ptype.h"
 
-void quic_coalesce_begin(quic_coalesce_iter* it, const u8* dgram, usz total) {
+void coalesce_begin(coalesce_iter* it, const u8* dgram, usz total) {
   it->dgram = dgram;
   it->total = total;
   it->off   = 0;
@@ -27,7 +27,7 @@ static int skip_cid(const u8* buf, usz n, usz* p) {
  * skip_long_prefix, before this is read). */
 static int has_token(const u8* buf) {
   u32 version = be_get_be32(buf + 1);
-  return quic_packet_long_type(buf[0], version) == QUIC_PT_INITIAL;
+  return packet_long_type(buf[0], version) == QUIC_PT_INITIAL;
 }
 
 /* Skip the Initial token (a varint length plus that many bytes). */
@@ -82,7 +82,7 @@ static usz long_packet_len(const u8* buf, usz n, usz off) {
 }
 
 /* Emit a packet [off, off+len) and advance the cursor by len. */
-static int coalesce_emit(quic_coalesce_iter* it, quic_coalesced* out, usz len) {
+static int coalesce_emit(coalesce_iter* it, coalesced* out, usz len) {
   if (len == 0) return 0;
   out->data = it->dgram + it->off;
   out->len  = len;
@@ -90,7 +90,7 @@ static int coalesce_emit(quic_coalesce_iter* it, quic_coalesced* out, usz len) {
   return 1;
 }
 
-int quic_coalesce_next(quic_coalesce_iter* it, quic_coalesced* out) {
+int coalesce_next(coalesce_iter* it, coalesced* out) {
   usz rest = it->total - it->off;
   if (it->off >= it->total) return 0;
   if ((it->dgram[it->off] & 0x80) == 0)

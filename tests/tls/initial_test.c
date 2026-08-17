@@ -69,7 +69,7 @@ static void test_initial_v2_server(void) {
 /* v2's derivation must thread the pinned v2 Initial salt (v2keys_test.c's
  * V2_GOLDEN, RFC 9369 3.3.1) through HKDF-Extract, not a locally
  * hard-coded copy: reproduce client_initial_secret by hand from
- * quic_version_initial_salt(QUIC_VERSION_2, ...) plus the "client in" /
+ * version_initial_salt(QUIC_VERSION_2, ...) plus the "client in" /
  * "quicv2 key" labels, and confirm it reproduces initial_derive's
  * key. */
 static void test_initial_v2_uses_pinned_salt(void) {
@@ -81,7 +81,7 @@ static void test_initial_v2_uses_pinned_salt(void) {
   hkdf_label   cl = {"client in", 9, {0, 0}};
   hkdf_label   kl = {"quicv2 key", 10, {0, 0}};
   initial_keys got;
-  CHECK(quic_version_initial_salt(QUIC_VERSION_2, &salt, &salt_len) == 1);
+  CHECK(version_initial_salt(QUIC_VERSION_2, &salt, &salt_len) == 1);
   hkdf_extract(wired_span_of(salt, salt_len), wired_span_of(dcid, 8), secret);
   hkdf_expand_label(secret, &cl, wired_mspan_of(side, QUIC_HKDF_PRK));
   hkdf_expand_label(side, &kl, wired_mspan_of(want_key, QUIC_INITIAL_KEY));

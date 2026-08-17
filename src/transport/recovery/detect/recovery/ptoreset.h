@@ -5,6 +5,6 @@
 
 /* RFC 9002 6.2.1: the PTO backoff is reset when an ack-eliciting packet is
  * acknowledged. Returns 1 when the count and timer should be reset. */
-int quic_pto_should_reset(int ack_received, u64 ack_eliciting_in_flight);
+int pto_should_reset(int ack_received, u64 ack_eliciting_in_flight);
 
 #endif

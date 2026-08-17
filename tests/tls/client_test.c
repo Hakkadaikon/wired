@@ -68,9 +68,9 @@ static void client_reach_hs_secret(
   CHECK(tlsdriver_recv_crypto(sv, frame, fl) == 1);
   *shn = client_build_sh(sh, 256, sv_pub);
   {
-    wired_obuf                 ob  = obuf_of(frame, sizeof(frame));
-    quic_crypto_stream_emit_in ein = {0, 256};
-    CHECK(quic_crypto_stream_emit(wired_span_of(sh, *shn), &ein, &ob) == 1);
+    wired_obuf            ob  = obuf_of(frame, sizeof(frame));
+    crypto_stream_emit_in ein = {0, 256};
+    CHECK(crypto_stream_emit(wired_span_of(sh, *shn), &ein, &ob) == 1);
     fl = ob.len;
   }
   CHECK(tlsdriver_recv_crypto(cl, frame, fl) == 1);
@@ -132,9 +132,9 @@ static void test_client_feed_serverhello(void) {
 
   shn = client_build_sh(sh, sizeof(sh), sv_pub);
   {
-    wired_obuf                 ob  = obuf_of(frame, sizeof(frame));
-    quic_crypto_stream_emit_in ein = {0, 256};
-    CHECK(quic_crypto_stream_emit(wired_span_of(sh, shn), &ein, &ob) == 1);
+    wired_obuf            ob  = obuf_of(frame, sizeof(frame));
+    crypto_stream_emit_in ein = {0, 256};
+    CHECK(crypto_stream_emit(wired_span_of(sh, shn), &ein, &ob) == 1);
     fl = ob.len;
   }
   CHECK(client_feed(&c, frame, fl) == 1);
@@ -229,9 +229,9 @@ static void policy_client(
   CHECK(tlsdriver_recv_crypto(svtls, frame, fl) == 1);
   shn = client_build_sh(sh, sizeof(sh), sv_pub);
   {
-    wired_obuf                 ob  = obuf_of(frame, sizeof(frame));
-    quic_crypto_stream_emit_in ein = {0, 256};
-    CHECK(quic_crypto_stream_emit(wired_span_of(sh, shn), &ein, &ob) == 1);
+    wired_obuf            ob  = obuf_of(frame, sizeof(frame));
+    crypto_stream_emit_in ein = {0, 256};
+    CHECK(crypto_stream_emit(wired_span_of(sh, shn), &ein, &ob) == 1);
     fl = ob.len;
   }
   CHECK(client_feed(c, frame, fl) == 1); /* injects the policy */

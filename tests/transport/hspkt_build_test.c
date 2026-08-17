@@ -20,20 +20,20 @@ static void test_hspkt_build_roundtrip(void) {
   const u8 frames[] = {0x06, 0x00, 0x02, 'E', 'E'};
   hspkt_keys(&k, &hp);
 
-  u8                pkt[128];
-  quic_protect_keys pk = {&k, &hp};
-  quic_hspkt_desc   d  = {
+  u8           pkt[128];
+  protect_keys pk = {&k, &hp};
+  hspkt_desc   d  = {
       wired_span_of(dcid, 5), wired_span_of(scid, 3), 9,
       wired_span_of(frames, sizeof(frames))};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_hspkt_build(&pk, &d, &o));
+  CHECK(hspkt_build(&pk, &d, &o));
   /* RFC 9000 17.2.4 complete header: byte0(1)+version(4)+dcid_len(1)+dcid(5)
    * +scid_len(1)+scid(3)+Length(1-byte varint)+pn(4) = 20, then payload+tag.
    * No Token field for Handshake. */
   CHECK(o.len == 20u + sizeof(frames) + 16u);
 
   wired_span out;
-  CHECK(quic_hspkt_open(&pk, wired_mspan_of(pkt, o.len), &out));
+  CHECK(hspkt_open(&pk, wired_mspan_of(pkt, o.len), &out));
   CHECK(out.n == sizeof(frames));
   for (usz i = 0; i < sizeof(frames); i++) CHECK(out.p[i] == frames[i]);
 }
@@ -48,13 +48,13 @@ static void test_hspkt_build_byte0(void) {
   const u8     frames[] = {0x06, 0x00, 0x01, 'X'};
   hspkt_keys(&k, &hp);
 
-  u8                pkt[128];
-  quic_protect_keys pk = {&k, &hp};
-  quic_hspkt_desc   d  = {
+  u8           pkt[128];
+  protect_keys pk = {&k, &hp};
+  hspkt_desc   d  = {
       wired_span_of(dcid, 4), wired_span_of((const u8*)0, 0), 1,
       wired_span_of(frames, sizeof(frames))};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_hspkt_build(&pk, &d, &o));
+  CHECK(hspkt_build(&pk, &d, &o));
   CHECK((pkt[0] & 0x80) == 0x80); /* long header form */
   CHECK((pkt[0] & 0x30) == 0x20); /* type bits = Handshake (0x2) */
 }
@@ -67,16 +67,16 @@ static void test_hspkt_build_tamper(void) {
   const u8     frames[] = {0x06, 0x00, 0x02, 'h', 'i'};
   hspkt_keys(&k, &hp);
 
-  u8                pkt[128];
-  quic_protect_keys pk = {&k, &hp};
-  quic_hspkt_desc   d  = {
+  u8           pkt[128];
+  protect_keys pk = {&k, &hp};
+  hspkt_desc   d  = {
       wired_span_of(dcid, 4), wired_span_of((const u8*)0, 0), 3,
       wired_span_of(frames, sizeof(frames))};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_hspkt_build(&pk, &d, &o));
+  CHECK(hspkt_build(&pk, &d, &o));
   pkt[o.len - 1] ^= 0x01;
   wired_span out;
-  CHECK(!quic_hspkt_open(&pk, wired_mspan_of(pkt, o.len), &out));
+  CHECK(!hspkt_open(&pk, wired_mspan_of(pkt, o.len), &out));
 }
 
 void test_hspkt_build(void) {

@@ -29,14 +29,14 @@
  * derived shared secret, the negotiated group, SNI, and the ClientHello
  * transcript needed to derive the handshake secret. */
 typedef struct {
-  quic_crypto_rx rx;   /* CRYPTO frame reassembly */
-  hsdriver       hs;   /* handshake message order machine */
-  keysched       ks;   /* order-driven key schedule */
-  keyset         keys; /* installed per-level key sets */
-  int            is_server;
-  u8             my_priv[QUIC_ECDHE_LEN];
-  u8             my_pub[QUIC_ECDHE_LEN];
-  u8             shared[QUIC_ECDHE_LEN];
+  crypto_rx rx;   /* CRYPTO frame reassembly */
+  hsdriver  hs;   /* handshake message order machine */
+  keysched  ks;   /* order-driven key schedule */
+  keyset    keys; /* installed per-level key sets */
+  int       is_server;
+  u8        my_priv[QUIC_ECDHE_LEN];
+  u8        my_pub[QUIC_ECDHE_LEN];
+  u8        shared[QUIC_ECDHE_LEN];
   /* RFC 8446 4.2.7 NamedGroup negotiated for this handshake's key_share;
    * QUIC_GROUP_X25519 unless tlsdriver_set_group selects otherwise. */
   u16       group;

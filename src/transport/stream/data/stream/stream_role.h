@@ -10,9 +10,9 @@
  * am_client is non-zero when the local endpoint is the client. */
 
 /* True if the local endpoint may send on the given stream. */
-int quic_stream_can_send(int am_client, u64 stream_id);
+int stream_can_send(int am_client, u64 stream_id);
 
 /* True if the local endpoint may receive on the given stream. */
-int quic_stream_can_receive(int am_client, u64 stream_id);
+int stream_can_receive(int am_client, u64 stream_id);
 
 #endif

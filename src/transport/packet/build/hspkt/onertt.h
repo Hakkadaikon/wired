@@ -13,30 +13,28 @@
  * defaults to 0 for every caller that never rotates (position-initialized
  * literals omitting it get 0, generation 0's phase, matching k's keys
  * before any update). A caller that DOES rotate (srvloop/send.c) must pass
- * its own current generation's phase bit; quic_hspkt_onertt_build has no
+ * its own current generation's phase bit; hspkt_onertt_build has no
  * way to infer it from k alone. */
 typedef struct {
   wired_span dcid;
   u64        pn;
   wired_span payload;
   int        phase_bit;
-} quic_hspkt_onertt_desc;
+} hspkt_onertt_desc;
 
 /* Build one protected 1-RTT packet into out; length to out->len.
  * Returns 1 on success, 0 on overflow (AES-128-GCM; equivalent to
- * quic_hspkt_onertt_build_suite with suite = QUIC_TLS_AES_128_GCM_SHA256). */
-int quic_hspkt_onertt_build(
-    const quic_protect_keys*      k,
-    const quic_hspkt_onertt_desc* d,
-    wired_obuf*                   out);
+ * hspkt_onertt_build_suite with suite = QUIC_TLS_AES_128_GCM_SHA256). */
+int hspkt_onertt_build(
+    const protect_keys* k, const hspkt_onertt_desc* d, wired_obuf* out);
 
-/* Same as quic_hspkt_onertt_build, but seals under the given negotiated TLS
+/* Same as hspkt_onertt_build, but seals under the given negotiated TLS
  * 1.3 cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
-int quic_hspkt_onertt_build_suite(
-    u16                           suite,
-    const quic_protect_keys*      k,
-    const quic_hspkt_onertt_desc* d,
-    wired_obuf*                   out);
+int hspkt_onertt_build_suite(
+    u16                      suite,
+    const protect_keys*      k,
+    const hspkt_onertt_desc* d,
+    wired_obuf*              out);
 
 /** One received 1-RTT packet to open in place. largest_pn is the largest
  * packet number already received in the 1-RTT space (0 before any), used to
@@ -46,22 +44,22 @@ typedef struct {
   wired_mspan pkt;
   u8          dcid_len;
   u64         largest_pn;
-} quic_hspkt_onertt_open_desc;
+} hspkt_onertt_open_desc;
 
 /* On success *payload views the plaintext within pkt. Returns 1 on success,
  * 0 on authentication failure or short input (AES-128-GCM; equivalent to
- * quic_hspkt_onertt_open_suite with suite = QUIC_TLS_AES_128_GCM_SHA256). */
-int quic_hspkt_onertt_open(
-    const quic_protect_keys*           k,
-    const quic_hspkt_onertt_open_desc* d,
-    wired_span*                        payload);
+ * hspkt_onertt_open_suite with suite = QUIC_TLS_AES_128_GCM_SHA256). */
+int hspkt_onertt_open(
+    const protect_keys*           k,
+    const hspkt_onertt_open_desc* d,
+    wired_span*                   payload);
 
-/* Same as quic_hspkt_onertt_open, but opens under the given negotiated TLS
+/* Same as hspkt_onertt_open, but opens under the given negotiated TLS
  * 1.3 cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
-int quic_hspkt_onertt_open_suite(
-    u16                                suite,
-    const quic_protect_keys*           k,
-    const quic_hspkt_onertt_open_desc* d,
-    wired_span*                        payload);
+int hspkt_onertt_open_suite(
+    u16                           suite,
+    const protect_keys*           k,
+    const hspkt_onertt_open_desc* d,
+    wired_span*                   payload);
 
 #endif

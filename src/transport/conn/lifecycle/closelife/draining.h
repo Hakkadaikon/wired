@@ -7,12 +7,12 @@
  * period of 3*PTO, during which it sends no new packets and only receives. */
 
 /* The draining period in the same time unit as `pto`. */
-u64 quic_draining_period(u64 pto);
+u64 draining_period(u64 pto);
 
 /* True once now has reached close_time + 3*PTO (draining is over). */
-int quic_draining_done(u64 close_time, u64 now, u64 pto);
+int draining_done(u64 close_time, u64 now, u64 pto);
 
 /* Whether sending is permitted: forbidden while in_draining is set. */
-int quic_draining_may_send(int in_draining);
+int draining_may_send(int in_draining);
 
 #endif

@@ -13,43 +13,42 @@ typedef enum {
   QUIC_VNEG_REACTED, /* reacted to one VN packet, retrying */
   QUIC_VNEG_CONFIRMED,
   QUIC_VNEG_ERROR /* VERSION_NEGOTIATION_ERROR */
-} quic_vneg_phase;
+} vneg_phase;
 
 typedef struct {
-  quic_vneg_phase phase;
-  u32             negotiated; /* the confirmed negotiated version */
-  u8              reacted;    /* latched once we reacted to a VN packet */
-  u32             supported[QUIC_VI_MAX_AVAILABLE]; /* our supported versions */
-  usz             n_supported;
-} quic_vneg;
+  vneg_phase phase;
+  u32        negotiated; /* the confirmed negotiated version */
+  u8         reacted;    /* latched once we reacted to a VN packet */
+  u32        supported[QUIC_VI_MAX_AVAILABLE]; /* our supported versions */
+  usz        n_supported;
+} vneg;
 
 /* Initialize with our own supported versions (preference order). */
-void quic_vneg_init(quic_vneg* v, const u32* supported, usz n);
+void vneg_init(vneg* v, const u32* supported, usz n);
 
 /* True if version is one we support. */
-int quic_vneg_supports(const quic_vneg* v, u32 version);
+int vneg_supports(const vneg* v, u32 version);
 
 /* Validate the peer's version_information against `in_use` (the version the
  * connection is actually using). Returns 1 if it passes the downgrade checks,
  * 0 (and sets phase to ERROR) if Chosen mismatches in_use, Available is
  * empty, or Chosen is not in Available. */
-int quic_vneg_check_downgrade(
-    quic_vneg* v, const quic_version_info* vi, u32 in_use);
+int vneg_check_downgrade(vneg* v, const version_info* vi, u32 in_use);
 
 /* A received Version Negotiation packet: the version we originally sent and
  * the server's offered list. */
 typedef struct {
-  u32          original;
-  quic_verlist offered;
-} quic_vn_packet;
+  u32     original;
+  verlist offered;
+} vn_packet;
 
 /* React to a Version Negotiation packet. Ignored (returns 0) if we already
  * reacted, or if it lists our original version, or if no mutually supported
  * version is offered. On success picks a mutual version into *chosen, latches
  * the reaction, and returns 1. */
-int quic_vneg_react(quic_vneg* v, const quic_vn_packet* pkt, u32* chosen);
+int vneg_react(vneg* v, const vn_packet* pkt, u32* chosen);
 
 /* Confirm `version` as negotiated; it must not change afterwards. */
-void quic_vneg_confirm(quic_vneg* v, u32 version);
+void vneg_confirm(vneg* v, u32 version);
 
 #endif

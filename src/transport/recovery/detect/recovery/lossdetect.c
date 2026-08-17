@@ -2,7 +2,7 @@
 
 #include "common/bytes/util/num.h"
 
-int quic_loss_by_packet(u64 largest_acked, u64 pn) {
+int loss_by_packet(u64 largest_acked, u64 pn) {
   return largest_acked >= pn + QUIC_LOSS_PACKET_THRESHOLD;
 }
 
@@ -12,7 +12,7 @@ static u64 time_threshold(u64 srtt, u64 latest_rtt) {
   return rtt * QUIC_LOSS_TIME_NUM / QUIC_LOSS_TIME_DEN;
 }
 
-int quic_loss_by_time(quic_loss_when when, u64 srtt, u64 latest_rtt) {
+int loss_by_time(loss_when when, u64 srtt, u64 latest_rtt) {
   u64 elapsed = (when.now > when.sent_time) ? when.now - when.sent_time : 0;
   return elapsed >= time_threshold(srtt, latest_rtt);
 }

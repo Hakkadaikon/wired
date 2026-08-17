@@ -8,6 +8,6 @@
  * the client actually chose, a downgrade attack may have stripped the
  * negotiation. Returns 1 when a downgrade is suspected. */
 
-int quic_version_downgrade_detected(u32 client_chose, u32 server_reported);
+int version_downgrade_detected(u32 client_chose, u32 server_reported);
 
 #endif

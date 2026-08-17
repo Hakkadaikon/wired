@@ -11,21 +11,20 @@
 typedef struct {
   u64 ce;
   u64 ect0;
-} quic_ecn_counts;
+} ecn_counts;
 
 /* 1 if both CE and ECT(0) counts did not decrease, else 0. */
-int quic_ecn_counts_valid(quic_ecn_counts prev, quic_ecn_counts next);
+int ecn_counts_valid(ecn_counts prev, ecn_counts next);
 
 /* 1 if the CE count increased. */
-int quic_ecn_ce_increased(u64 prev_ce, u64 new_ce);
+int ecn_ce_increased(u64 prev_ce, u64 new_ce);
 
 /* RFC 9002 7.1.2: "An increase in the CE count is treated as one instance of
  * congestion detection and is handled as if the endpoint had detected a
  * packet loss" -- when the CE count rose since prev_ce, apply the same
- * window reduction quic_cc_on_loss uses (never twice for one recovery
+ * window reduction cc_on_loss uses (never twice for one recovery
  * period, same in_recovery/recovery_start gating as an ordinary loss). A
  * no-op when the CE count did not increase. */
-void quic_ecn_on_ce_increase(
-    quic_cc* c, u64 prev_ce, u64 new_ce, u64 sent_time, u64 now);
+void ecn_on_ce_increase(cc* c, u64 prev_ce, u64 new_ce, u64 sent_time, u64 now);
 
 #endif

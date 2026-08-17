@@ -27,7 +27,7 @@ void tlsdriver_init(
     d->my_pub[i]  = my_pub[i];
   }
   for (i = 0; i < QUIC_ECDHE_LEN; i++) d->shared[i] = 0;
-  quic_crypto_stream_rx_init(&d->rx);
+  crypto_stream_rx_init(&d->rx);
   hsdriver_init(&d->hs, is_server);
   keysched_init(&d->ks);
   keyset_init(&d->keys);
@@ -61,16 +61,16 @@ usz tlsdriver_raw_client_hello(tlsdriver* d, u8* out, usz cap) {
 }
 
 int tlsdriver_client_hello(tlsdriver* d, wired_obuf* out) {
-  u8                         ch[512];
-  usz                        n  = tlsdriver_raw_client_hello(d, ch, sizeof(ch));
-  quic_crypto_stream_emit_in in = {0, QUIC_TLSDRIVER_CRYPTO_MAX};
+  u8                    ch[512];
+  usz                   n  = tlsdriver_raw_client_hello(d, ch, sizeof(ch));
+  crypto_stream_emit_in in = {0, QUIC_TLSDRIVER_CRYPTO_MAX};
   if (n == 0) return 0;
   /* RFC 8446 4.4.1: keep our own emitted ClientHello bytes so derive_
    * handshake can prepend them to the ServerHello transcript later -- see
    * the field's doc comment in tlsdriver.h. */
   bytes_memcpy(d->transcript_ch, ch, n);
   d->transcript_ch_len = n;
-  return quic_crypto_stream_emit(wired_span_of(ch, n), &in, out);
+  return crypto_stream_emit(wired_span_of(ch, n), &in, out);
 }
 
 /* Skip a 1-byte-length-prefixed vector at p (session_id, compression).
@@ -191,8 +191,7 @@ static int derive_handshake_secret(
     tlsdriver* d, const u8* msg, usz n, const u8 peer_pub[QUIC_ECDHE_LEN]) {
   u8  transcript[1024];
   usz tn;
-  if (!quic_crypto_stream_ecdhe_group(
-          d->group, d->my_priv, peer_pub, d->shared))
+  if (!crypto_stream_ecdhe_group(d->group, d->my_priv, peer_pub, d->shared))
     return 0;
   tn = build_transcript(d, msg, n, transcript, sizeof transcript);
   if (tn == 0) return 0;
@@ -236,11 +235,11 @@ static int derive_handshake(tlsdriver* d, const u8* msg, usz n) {
  * overflow (RFC 9000 7.5: d->last_error is set to CRYPTO_BUFFER_EXCEEDED in
  * the latter case). */
 static int feed_one(tlsdriver* d, wired_span frame, usz* p) {
-  quic_crypto_frame f;
-  usz used = quic_frame_get_crypto(frame.p + *p, frame.n - *p, &f);
+  crypto_frame f;
+  usz          used = frame_get_crypto(frame.p + *p, frame.n - *p, &f);
   if (used == 0) return 0;
   *p += used;
-  return quic_crypto_stream_recv_ec(
+  return crypto_stream_recv_ec(
       &d->rx, f.offset, wired_span_of(f.data, (usz)f.length), &d->last_error);
 }
 
@@ -256,7 +255,7 @@ static int feed_all(tlsdriver* d, wired_span frame) {
  * writing the length to out->len. Returns 1 if any bytes are ready. */
 static int reassemble(tlsdriver* d, wired_span frame, wired_obuf* out) {
   if (!feed_all(d, frame)) return 0;
-  return quic_crypto_stream_read(&d->rx, out) && out->len != 0;
+  return crypto_stream_read(&d->rx, out) && out->len != 0;
 }
 
 int tlsdriver_recv_crypto(tlsdriver* d, const u8* crypto_frame, usz len) {

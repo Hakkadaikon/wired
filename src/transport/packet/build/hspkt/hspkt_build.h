@@ -13,21 +13,17 @@ typedef struct {
   wired_span scid;
   u64        pn;
   wired_span payload;
-} quic_hspkt_desc;
+} hspkt_desc;
 
 /* Seal with the Handshake keys k and write the protected packet into out;
  * length to out->len. Returns 1 on success, 0 on overflow (AES-128-GCM;
- * equivalent to quic_hspkt_build_suite with suite =
+ * equivalent to hspkt_build_suite with suite =
  * QUIC_TLS_AES_128_GCM_SHA256). */
-int quic_hspkt_build(
-    const quic_protect_keys* k, const quic_hspkt_desc* d, wired_obuf* out);
+int hspkt_build(const protect_keys* k, const hspkt_desc* d, wired_obuf* out);
 
-/* Same as quic_hspkt_build, but seals under the given negotiated TLS 1.3
+/* Same as hspkt_build, but seals under the given negotiated TLS 1.3
  * cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
-int quic_hspkt_build_suite(
-    u16                      suite,
-    const quic_protect_keys* k,
-    const quic_hspkt_desc*   d,
-    wired_obuf*              out);
+int hspkt_build_suite(
+    u16 suite, const protect_keys* k, const hspkt_desc* d, wired_obuf* out);
 
 #endif

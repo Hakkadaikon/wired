@@ -8,12 +8,12 @@
  * state. */
 
 typedef struct {
-  quic_send_state send;
-  quic_recv_state recv;
-} quic_bidi;
+  send_state send;
+  recv_state recv;
+} bidi;
 
-void quic_bidi_init(quic_bidi* b);
+void bidi_init(bidi* b);
 
-int quic_bidi_closed(const quic_bidi* b);
+int bidi_closed(const bidi* b);
 
 #endif

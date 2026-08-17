@@ -113,10 +113,10 @@ static void make_client_finished(struct srv_fix* f) {
 
 /* Wrap a TLS message as a CRYPTO-frame payload for wired_server_feed. */
 static usz srv_wrap_crypto(const u8* msg, usz len, u8* out, usz cap) {
-  usz                        n;
-  wired_obuf                 ob  = obuf_of(out, cap);
-  quic_crypto_stream_emit_in ein = {0, 256};
-  if (!quic_crypto_stream_emit(wired_span_of(msg, len), &ein, &ob)) return 0;
+  usz                   n;
+  wired_obuf            ob  = obuf_of(out, cap);
+  crypto_stream_emit_in ein = {0, 256};
+  if (!crypto_stream_emit(wired_span_of(msg, len), &ein, &ob)) return 0;
   n = ob.len;
   return n;
 }

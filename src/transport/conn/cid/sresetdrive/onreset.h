@@ -8,6 +8,6 @@
  * no further packets are sent and no close frame is emitted. */
 
 /* 1 if a detected reset (is_reset != 0) means the connection must close. */
-int quic_sresetdrive_on_detected(int is_reset);
+int sresetdrive_on_detected(int is_reset);
 
 #endif

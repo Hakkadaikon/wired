@@ -106,7 +106,7 @@ static void test_srvwire_handshake_roundtrip(void) {
       -1,
       wired_span_of(fl, sizeof fl),
       0};
-  quic_protect_keys pk = {&k, &hp};
+  protect_keys pk = {&k, &hp};
   CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
   wired_span tls = {0, 0};
   CHECK(quic_srvwire_open_handshake(&pk, wired_mspan_of(pkt, ob.len), &tls));
@@ -134,10 +134,10 @@ static void test_srvwire_handshake_wrong_key(void) {
       -1,
       wired_span_of(fl, sizeof fl),
       0};
-  quic_protect_keys pk = {&k, &hp};
+  protect_keys pk = {&k, &hp};
   CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
-  wired_span        tls   = {0, 0};
-  quic_protect_keys badpk = {&bad, &hp};
+  wired_span   tls   = {0, 0};
+  protect_keys badpk = {&bad, &hp};
   CHECK(
       !quic_srvwire_open_handshake(&badpk, wired_mspan_of(pkt, ob.len), &tls));
 }
@@ -145,13 +145,13 @@ static void test_srvwire_handshake_wrong_key(void) {
 /* Walk the decrypted frames and decode the ACK frame among them (RFC
  * 9000 12.4), confirming the flight carries one. Returns 1 if found and
  * decoded. */
-static int find_trailing_ack(const u8* frames, usz n, quic_ack_frame* ack) {
-  quic_framewalk      it;
-  quic_framewalk_item fr;
-  quic_framewalk_init(&it, frames, n);
-  while (quic_framewalk_next(&it, &fr))
+static int find_trailing_ack(const u8* frames, usz n, ack_frame* ack) {
+  framewalk      it;
+  framewalk_item fr;
+  framewalk_init(&it, frames, n);
+  while (framewalk_next(&it, &fr))
     if (fr.type == QUIC_FRAME_ACK)
-      return quic_ack_decode(fr.start, fr.remaining, ack) != 0;
+      return ack_decode(fr.start, fr.remaining, ack) != 0;
   return 0;
 }
 
@@ -160,16 +160,16 @@ static int find_trailing_ack(const u8* frames, usz n, quic_ack_frame* ack) {
  * Acknowledged equals the received client packet number, alongside the CRYPTO.
  */
 static void test_srvwire_initial_acks_client(void) {
-  const u8       dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  const u8       scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
-  const u8       sh[] = {'S', 'e', 'r', 'v', 'e', 'r', 'H', 'e', 'l', 'l', 'o'};
-  initial_keys   ck, sk;
-  aes128         hp;
-  u8             pkt[1300];
-  wired_obuf     ob = {pkt, sizeof pkt, 0};
-  const u8*      frames;
-  usz            fl;
-  quic_ack_frame ack;
+  const u8     dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  const u8     scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
+  const u8     sh[] = {'S', 'e', 'r', 'v', 'e', 'r', 'H', 'e', 'l', 'l', 'o'};
+  initial_keys ck, sk;
+  aes128       hp;
+  u8           pkt[1300];
+  wired_obuf   ob = {pkt, sizeof pkt, 0};
+  const u8*    frames;
+  usz          fl;
+  ack_frame    ack;
   quic_srvwire_seal_in in = {
       wired_span_of(dcid, 8),
       wired_span_of(dcid, 8),
@@ -179,12 +179,12 @@ static void test_srvwire_initial_acks_client(void) {
       wired_span_of(sh, sizeof sh),
       0};
   CHECK(quic_srvwire_seal_initial(&in, &ob));
-  quic_initpkt_derive(wired_span_of(dcid, 8), &ck, &sk);
+  initpkt_derive(wired_span_of(dcid, 8), &ck, &sk);
   aes128_init(&hp, sk.hp);
-  quic_protect_keys pk = {&sk, &hp};
-  quic_rx_desc      rd = {wired_mspan_of(pkt, ob.len), 1};
-  wired_span        fv;
-  CHECK(quic_rx_packet(&pk, &rd, &fv));
+  protect_keys pk = {&sk, &hp};
+  rx_desc      rd = {wired_mspan_of(pkt, ob.len), 1};
+  wired_span   fv;
+  CHECK(rx_packet(&pk, &rd, &fv));
   frames = fv.p;
   fl     = fv.n;
   CHECK(find_trailing_ack(frames, fl, &ack));
@@ -196,16 +196,16 @@ static void test_srvwire_initial_acks_client(void) {
 /* RFC 9000 13.2.1: a Handshake flight likewise acknowledges a received
  * Handshake-space packet (here PN 3) with a trailing ACK frame. */
 static void test_srvwire_handshake_acks_client(void) {
-  const u8       dcid[6] = {'C', 'I', 'D', 'x', 'y', 'z'};
-  const u8       scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
-  const u8       fl_in[] = {'E', 'E', 'F', 'i', 'n'};
-  initial_keys   k;
-  aes128         hp;
-  u8             pkt[512];
-  wired_obuf     ob = {pkt, sizeof pkt, 0};
-  const u8*      frames;
-  usz            fl;
-  quic_ack_frame ack;
+  const u8     dcid[6] = {'C', 'I', 'D', 'x', 'y', 'z'};
+  const u8     scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
+  const u8     fl_in[] = {'E', 'E', 'F', 'i', 'n'};
+  initial_keys k;
+  aes128       hp;
+  u8           pkt[512];
+  wired_obuf   ob = {pkt, sizeof pkt, 0};
+  const u8*    frames;
+  usz          fl;
+  ack_frame    ack;
   hs_keys(&k, &hp);
   quic_srvwire_seal_in in = {
       wired_span_of((const u8*)0, 0),
@@ -215,12 +215,12 @@ static void test_srvwire_handshake_acks_client(void) {
       3,
       wired_span_of(fl_in, sizeof fl_in),
       0};
-  quic_protect_keys pk = {&k, &hp};
+  protect_keys pk = {&k, &hp};
   CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
-  quic_protect_keys pk2 = {&k, &hp};
-  quic_rx_desc      rd2 = {wired_mspan_of(pkt, ob.len), 0};
-  wired_span        fv2;
-  CHECK(quic_rx_packet(&pk2, &rd2, &fv2));
+  protect_keys pk2 = {&k, &hp};
+  rx_desc      rd2 = {wired_mspan_of(pkt, ob.len), 0};
+  wired_span   fv2;
+  CHECK(rx_packet(&pk2, &rd2, &fv2));
   frames = fv2.p;
   fl     = fv2.n;
   CHECK(find_trailing_ack(frames, fl, &ack));

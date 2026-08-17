@@ -20,7 +20,7 @@
  * who sent it, and the addressing needed to reflect a reply. */
 typedef struct {
   /** peer ip+port in kernel sockaddr_in form (big-endian port and address) */
-  quic_sockaddr src;
+  sockaddr src;
   /** the frame's eth source MAC (the peer's) */
   u8 peer_mac[6];
   /** the frame's eth destination MAC (ours) */
@@ -33,7 +33,7 @@ typedef struct {
   const u8* payload;
   /** byte length of the UDP payload */
   usz payload_len;
-} quic_xdpframe_rx;
+} xdpframe_rx;
 
 /** Parse one received frame. Accepts only ethertype IPv4, IHL=5, an
  * unfragmented datagram, protocol UDP, and consistent frame / IP total /
@@ -44,18 +44,18 @@ typedef struct {
  * @param frame the received frame bytes
  * @param out   receives the payload view and peer info (views into frame)
  * @return 1 accepted, 0 rejected. */
-int quic_xdpframe_parse(wired_span frame, quic_xdpframe_rx* out);
+int xdpframe_parse(wired_span frame, xdpframe_rx* out);
 
 /** Addressing for one outgoing frame: the MACs plus the ports and addresses
- * consumed by the IPv4 and UDP builders (host order, as in quic_udp4meta). */
+ * consumed by the IPv4 and UDP builders (host order, as in udp4meta). */
 typedef struct {
   /** eth destination MAC (the peer's) */
   u8 dst_mac[6];
   /** eth source MAC (ours) */
   u8 src_mac[6];
   /** UDP ports and IPv4 addresses in host order */
-  quic_udp4meta udp;
-} quic_xdpframe_tx;
+  udp4meta udp;
+} xdpframe_tx;
 
 /** Build a complete eth+IPv4+UDP frame around payload, with the IPv4 header
  * checksum and the pseudo-header UDP checksum filled in.
@@ -63,7 +63,6 @@ typedef struct {
  * @param m       addressing for the frame
  * @param payload the UDP payload (the QUIC datagram)
  * @return QUIC_XDPFRAME_HDRS + payload.n, or 0 if frame.n is too small. */
-usz quic_xdpframe_build(
-    wired_mspan frame, const quic_xdpframe_tx* m, wired_span payload);
+usz xdpframe_build(wired_mspan frame, const xdpframe_tx* m, wired_span payload);
 
 #endif

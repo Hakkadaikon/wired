@@ -2,7 +2,7 @@
 
 /* RFC 9000 A.2: the fewest bytes b (1..4) with 2*num_unacked < 2^(8b),
  * where num_unacked is the range from largest_acked to the packet sent. */
-usz quic_pnum_len(u64 full_pn, u64 largest_acked) {
+usz pnum_len(u64 full_pn, u64 largest_acked) {
   u64 need = (full_pn - largest_acked) * 2;
   usz b    = 1;
   while (b < 4 && need >= ((u64)1 << (8 * b))) b++;
@@ -10,7 +10,7 @@ usz quic_pnum_len(u64 full_pn, u64 largest_acked) {
 }
 
 /* Write the low nbytes of v big-endian. */
-usz quic_pnum_encode(u8* buf, u64 full_pn, usz nbytes) {
+usz pnum_encode(u8* buf, u64 full_pn, usz nbytes) {
   usz i = nbytes;
   while (i-- > 0) {
     buf[i] = (u8)(full_pn & 0xFF);
@@ -43,7 +43,7 @@ static u64 nearest(u64 candidate, u64 expected, u64 win) {
   return candidate;
 }
 
-u64 quic_pnum_decode(const u8* buf, usz nbytes, u64 largest_pn) {
+u64 pnum_decode(const u8* buf, usz nbytes, u64 largest_pn) {
   u64 truncated = read_be(buf, nbytes);
   u64 bits      = nbytes * 8;
   u64 win       = (u64)1 << bits;

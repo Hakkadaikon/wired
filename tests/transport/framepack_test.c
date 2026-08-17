@@ -12,7 +12,7 @@ void test_framepack(void) {
 
   u8         out[16];
   wired_obuf o = obuf_of(out, sizeof(out));
-  CHECK(quic_pktbuild_framepack(&o, frames, 3) == 1);
+  CHECK(pktbuild_framepack(&o, frames, 3) == 1);
   CHECK(o.len == 5);
   CHECK(out[0] == 0x00 && out[1] == 0x01);
   CHECK(out[2] == 0x02 && out[3] == 0xAA && out[4] == 0xBB);
@@ -20,10 +20,10 @@ void test_framepack(void) {
   /* cap overflow: returns 0 */
   u8         tiny[4];
   wired_obuf t = obuf_of(tiny, sizeof(tiny));
-  CHECK(quic_pktbuild_framepack(&t, frames, 3) == 0);
+  CHECK(pktbuild_framepack(&t, frames, 3) == 0);
 
   /* zero frames -> empty payload */
   wired_obuf z = obuf_of(out, sizeof(out));
-  CHECK(quic_pktbuild_framepack(&z, frames, 0) == 1);
+  CHECK(pktbuild_framepack(&z, frames, 0) == 1);
   CHECK(z.len == 0);
 }

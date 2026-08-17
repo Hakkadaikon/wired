@@ -13,7 +13,7 @@ static int put_new_token_head(wired_obuf* o, u64 length) {
   return varint_put(wired_mspan_of(o->p, o->cap), &o->len, length);
 }
 
-usz quic_new_token_encode(u8* buf, usz cap, const quic_new_token_frame* f) {
+usz new_token_encode(u8* buf, usz cap, const new_token_frame* f) {
   wired_obuf o = obuf_of(buf, cap);
   if (!put_new_token_head(&o, f->length)) return 0;
   if (!bytes_put(
@@ -25,14 +25,14 @@ usz quic_new_token_encode(u8* buf, usz cap, const quic_new_token_frame* f) {
 
 /* Point f->token at f->length bytes at *off (in.n total). Returns 1 ok, 0 if
  * the token runs past in.n. */
-static int take_token_view(wired_span in, usz* off, quic_new_token_frame* f) {
+static int take_token_view(wired_span in, usz* off, new_token_frame* f) {
   if (*off + (usz)f->length > in.n) return 0;
   f->token = in.p + *off;
   *off += (usz)f->length;
   return 1;
 }
 
-usz quic_new_token_decode(const u8* buf, usz n, quic_new_token_frame* f) {
+usz new_token_decode(const u8* buf, usz n, new_token_frame* f) {
   usz off = 1; /* type byte */
   if (!varint_take(wired_span_of(buf, n), &off, &f->length)) return 0;
   if (!take_token_view(wired_span_of(buf, n), &off, f)) return 0;
@@ -41,7 +41,7 @@ usz quic_new_token_decode(const u8* buf, usz n, quic_new_token_frame* f) {
 
 /* --- RETIRE_CONNECTION_ID (19.16) --- */
 
-usz quic_retire_cid_encode(u8* buf, usz cap, u64 seq) {
+usz retire_cid_encode(u8* buf, usz cap, u64 seq) {
   usz off = 0;
   if (!varint_put(wired_mspan_of(buf, cap), &off, QUIC_FRAME_RETIRE_CID))
     return 0;
@@ -49,7 +49,7 @@ usz quic_retire_cid_encode(u8* buf, usz cap, u64 seq) {
   return off;
 }
 
-usz quic_retire_cid_decode(const u8* buf, usz n, u64* seq) {
+usz retire_cid_decode(const u8* buf, usz n, u64* seq) {
   usz off = 1; /* type byte */
   if (!varint_take(wired_span_of(buf, n), &off, seq)) return 0;
   return off;
@@ -57,7 +57,7 @@ usz quic_retire_cid_decode(const u8* buf, usz n, u64* seq) {
 
 /* --- PATH_CHALLENGE / PATH_RESPONSE (19.17 / 19.18) --- */
 
-usz quic_path_encode(u8* buf, usz cap, u8 type, const u8 data[QUIC_PATH_DATA]) {
+usz path_encode(u8* buf, usz cap, u8 type, const u8 data[QUIC_PATH_DATA]) {
   usz off = 0;
   if (cap == 0) return 0;
   buf[off++] = type;
@@ -72,7 +72,7 @@ static int type_is(const u8* buf, usz n, u8 type) {
   return n != 0 && buf[0] == type;
 }
 
-usz quic_path_decode(const u8* buf, usz n, u8 type, u8 data[QUIC_PATH_DATA]) {
+usz path_decode(const u8* buf, usz n, u8 type, u8 data[QUIC_PATH_DATA]) {
   usz off = 1; /* type byte */
   if (!type_is(buf, n, type)) return 0;
   if (!bytes_take(
@@ -83,13 +83,13 @@ usz quic_path_decode(const u8* buf, usz n, u8 type, u8 data[QUIC_PATH_DATA]) {
 
 /* --- HANDSHAKE_DONE (19.20) --- */
 
-usz quic_handshake_done_encode(u8* buf, usz cap) {
+usz handshake_done_encode(u8* buf, usz cap) {
   if (cap == 0) return 0;
   buf[0] = QUIC_FRAME_HANDSHAKE_DONE;
   return 1;
 }
 
-usz quic_handshake_done_decode(const u8* buf, usz n) {
+usz handshake_done_decode(const u8* buf, usz n) {
   if (n == 0 || buf[0] != QUIC_FRAME_HANDSHAKE_DONE) return 0;
   return 1;
 }

@@ -48,10 +48,10 @@ static usz fullhs_build_sh(u8* out, usz cap, const u8 pub[32]) {
 }
 
 static usz fullhs_wrap_crypto(u8* out, usz cap, const u8* msg, usz n) {
-  usz                        w   = 0;
-  wired_obuf                 ob  = obuf_of(out, cap);
-  quic_crypto_stream_emit_in ein = {0, 256};
-  CHECK(quic_crypto_stream_emit(wired_span_of(msg, n), &ein, &ob) == 1);
+  usz                   w   = 0;
+  wired_obuf            ob  = obuf_of(out, cap);
+  crypto_stream_emit_in ein = {0, 256};
+  CHECK(crypto_stream_emit(wired_span_of(msg, n), &ein, &ob) == 1);
   w = ob.len;
   return w;
 }

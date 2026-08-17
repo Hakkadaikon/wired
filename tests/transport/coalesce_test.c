@@ -27,17 +27,17 @@ static void test_coalesce_split(void) {
   dg[n++] = 2;
   dg[n++] = 3;
 
-  quic_coalesce_iter it;
-  quic_coalesced     p;
-  quic_coalesce_begin(&it, dg, n);
+  coalesce_iter it;
+  coalesced     p;
+  coalesce_begin(&it, dg, n);
 
-  CHECK(quic_coalesce_next(&it, &p) == 1);
+  CHECK(coalesce_next(&it, &p) == 1);
   CHECK(p.len == initial_len && p.data[0] == 0xC0);
 
-  CHECK(quic_coalesce_next(&it, &p) == 1);
+  CHECK(coalesce_next(&it, &p) == 1);
   CHECK(p.len == 4 && p.data[0] == 0x40); /* short runs to the end */
 
-  CHECK(quic_coalesce_next(&it, &p) == 0); /* exhausted */
+  CHECK(coalesce_next(&it, &p) == 0); /* exhausted */
 }
 
 /* A long header whose Length runs past the datagram is malformed. */
@@ -55,10 +55,10 @@ static void test_coalesce_truncated(void) {
   dg[n++] = 20; /* Length 20 but only a few bytes follow */
   dg[n++] = 0xAA;
 
-  quic_coalesce_iter it;
-  quic_coalesced     p;
-  quic_coalesce_begin(&it, dg, n);
-  CHECK(quic_coalesce_next(&it, &p) == 0);
+  coalesce_iter it;
+  coalesced     p;
+  coalesce_begin(&it, dg, n);
+  CHECK(coalesce_next(&it, &p) == 0);
 }
 
 void test_coalesce(void) {

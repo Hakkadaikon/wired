@@ -19,12 +19,11 @@ static u8 level_byte0(int level) {
   return level_is_initial(level) ? 0xc3 : 0xe3;
 }
 
-void quic_connio_init(
-    quic_connio* io, wired_span dcid, const quic_connio_init_in* in) {
+void connio_init(connio* io, wired_span dcid, const connio_init_in* in) {
   usz i;
-  quic_connloop_init(&io->loop, in->is_server);
-  quic_stream_read_init(&io->stream);
-  quic_flow_credit_init(&io->credit, in->initial_max_data);
+  connloop_init(&io->loop, in->is_server);
+  stream_read_init(&io->stream);
+  flow_credit_init(&io->credit, in->initial_max_data);
   io->disp.stream            = &io->stream;
   io->disp.sent              = &io->loop.sent;
   io->disp.credit            = &io->credit;
@@ -37,64 +36,61 @@ void quic_connio_init(
   io->disp.has_reset_stream  = 0;
   io->byte0                  = in->byte0;
   io->dcid_len               = (u8)dcid.n;
-  quic_pnspaces_init(&io->tx);
+  pnspaces_init(&io->tx);
   for (i = 0; i < QUIC_PNS_COUNT; i++) io->rx_pn[i] = 0;
   for (i = 0; i < dcid.n; i++) io->dcid[i] = dcid.p[i];
 }
 
 /* RFC 9000 12.3: a protection level and its packet number space share the same
  * index (Initial=0, Handshake=1, 1-RTT/Application=2). */
-u64 quic_connio_tx_next(const quic_connio* io, int level) {
+u64 connio_tx_next(const connio* io, int level) {
   return io->tx.pn.next[level];
 }
 
-u64 quic_connio_rx_next(const quic_connio* io, int level) {
-  return io->rx_pn[level];
-}
+u64 connio_rx_next(const connio* io, int level) { return io->rx_pn[level]; }
 
 /* RFC 9000 12.3: once a space has issued its highest legal packet number
  * (2^62-1), the sender must stop sending in it -- silently, without a
  * CONNECTION_CLOSE. Checked ahead of the other send gates so an exhausted
- * space never reaches quic_connloop_on_send. */
-static int pn_space_ready(const quic_connio* io, int level) {
-  return !quic_pnspaces_exhausted(&io->tx, level);
+ * space never reaches connloop_on_send. */
+static int pn_space_ready(const connio* io, int level) {
+  return !pnspaces_exhausted(&io->tx, level);
 }
 
 /* RFC 9001 4: a level may send only once its keys are installed and the
  * connloop gate (level monotonicity, anti-amp, phase) admits the packet. */
 static int send_ready(
-    quic_connio* io, const quic_connio_send_in* in, const initial_keys** keys) {
+    connio* io, const connio_send_in* in, const initial_keys** keys) {
   /* ponytail: ack-eliciting hard-set to 1; frames here always elicit (STREAM/
    * PING). Classify frames[0] if a non-eliciting-only send is ever needed.
    * RFC 9000 12.3: gate with the SELECTED space's own next packet number. */
-  quic_connloop_send_in sin = {
-      in->level, 1, quic_connio_tx_next(io, in->level), in->frames.n};
+  connloop_send_in sin = {
+      in->level, 1, connio_tx_next(io, in->level), in->frames.n};
   if (!pn_space_ready(io, in->level)) return 0;
-  return quic_connloop_on_send(&io->loop, &sin) &&
+  return connloop_on_send(&io->loop, &sin) &&
          keyset_for_level(&io->loop.keys, in->level, keys);
 }
 
-usz quic_connio_send(
-    quic_connio* io, const quic_connio_send_in* in, wired_obuf* out) {
+usz connio_send(connio* io, const connio_send_in* in, wired_obuf* out) {
   const initial_keys* keys;
   aes128              hp;
   usz                 n;
   if (!send_ready(io, in, &keys)) return 0;
   aes128_init(&hp, keys->hp);
-  quic_protect_keys k    = {keys, &hp};
-  wired_span        none = wired_span_of((const u8*)0, 0);
-  quic_tx_desc      t    = {
+  protect_keys k    = {keys, &hp};
+  wired_span   none = wired_span_of((const u8*)0, 0);
+  tx_desc      t    = {
       level_byte0(in->level),
       wired_span_of(io->dcid, io->dcid_len),
       none,
       level_is_initial(in->level),
       none,
-      quic_connio_tx_next(io, in->level),
+      connio_tx_next(io, in->level),
       in->frames,
       0 /* QUIC v1 */};
-  n = quic_tx_packet(&k, &t, wired_mspan_of(out->p, out->cap));
+  n = tx_packet(&k, &t, wired_mspan_of(out->p, out->cap));
   if (n) {
-    quic_pnspaces_next_pn(&io->tx, in->level); /* advance only on success */
+    pnspaces_next_pn(&io->tx, in->level); /* advance only on success */
     out->len = n;
   }
   return n;
@@ -102,18 +98,18 @@ usz quic_connio_send(
 
 /* RFC 9000 12.4: walk the recovered payload and dispatch each frame into the
  * receive state. Returns 1 if every frame was handled. */
-static int dispatch_all(quic_connio* io, wired_span frames) {
-  quic_framewalk      it;
-  quic_framewalk_item fr;
-  int                 ok = 1;
-  quic_framewalk_init(&it, frames.p, frames.n);
-  while (quic_framewalk_next(&it, &fr))
-    ok &= quic_framedispatch_handle(
+static int dispatch_all(connio* io, wired_span frames) {
+  framewalk      it;
+  framewalk_item fr;
+  int            ok = 1;
+  framewalk_init(&it, frames.p, frames.n);
+  while (framewalk_next(&it, &fr))
+    ok &= framedispatch_handle(
         &io->disp, fr.type, wired_span_of(fr.start, fr.remaining));
   return ok;
 }
 
-/* The protection level and datagram quic_connio_recv opens. */
+/* The protection level and datagram connio_recv opens. */
 typedef struct {
   int         level;
   wired_mspan datagram;
@@ -122,37 +118,37 @@ typedef struct {
 /* RFC 9001 4: a level may process a datagram only once its keys are installed
  * and the connloop gate (phase, discarded level) admits it. */
 static int recv_ready(
-    quic_connio* io, const connio_recv_in* in, const initial_keys** keys) {
-  return quic_connloop_on_recv(&io->loop, in->level, in->datagram.n) &&
+    connio* io, const connio_recv_in* in, const initial_keys** keys) {
+  return connloop_on_recv(&io->loop, in->level, in->datagram.n) &&
          keyset_for_level(&io->loop.keys, in->level, keys);
 }
 
 /* RFC 9000 8.1: a server validates the client's address upon successfully
  * receiving a Handshake packet, lifting the anti-amplification limit. */
-static int validates_address(const quic_connio* io, int level) {
+static int validates_address(const connio* io, int level) {
   return io->loop.is_server && level == QUIC_LEVEL_HANDSHAKE;
 }
 
 /* Post-decrypt receive bookkeeping: advance the read PN, lift the amp limit on
  * a server's first Handshake packet (RFC 9000 8.1), then dispatch frames. */
-static int recv_accept(quic_connio* io, int level, wired_span frames) {
+static int recv_accept(connio* io, int level, wired_span frames) {
   io->rx_pn[level]++; /* RFC 9000 12.3: advance only the inbound space */
-  if (validates_address(io, level)) quic_connloop_validate(&io->loop);
+  if (validates_address(io, level)) connloop_validate(&io->loop);
   return dispatch_all(io, frames);
 }
 
-int quic_connio_recv(quic_connio* io, int level, wired_mspan datagram) {
+int connio_recv(connio* io, int level, wired_mspan datagram) {
   const initial_keys* keys;
   aes128              hp;
   wired_span          frames;
   connio_recv_in      in = {level, datagram};
   if (!recv_ready(io, &in, &keys)) return 0;
   aes128_init(&hp, keys->hp);
-  quic_protect_keys k = {keys, &hp};
-  quic_rx_desc      d = {datagram, level_is_initial(level)};
-  if (!quic_rx_packet(&k, &d, &frames)) {
+  protect_keys k = {keys, &hp};
+  rx_desc      d = {datagram, level_is_initial(level)};
+  if (!rx_packet(&k, &d, &frames)) {
     /* RFC 9001 6.6: this layer only ever runs AES-128-GCM (is_chacha=0). */
-    quic_connloop_on_auth_fail(&io->loop, 0);
+    connloop_on_auth_fail(&io->loop, 0);
     return 0;
   }
   return recv_accept(io, level, frames);
@@ -161,64 +157,62 @@ int quic_connio_recv(quic_connio* io, int level, wired_mspan datagram) {
 /* RFC 9000 19.19: encode a transport CONNECTION_CLOSE(PROTOCOL_VIOLATION)
  * frame into buf. Returns bytes written, or 0 on overflow. */
 static usz violation_close_frame(u8* buf, usz cap) {
-  quic_conn_close_frame cc = {
-      0, QUIC_ERR_PROTOCOL_VIOLATION, 0, 0, (const u8*)0};
-  return quic_frame_put_conn_close(buf, cap, &cc);
+  conn_close_frame cc = {0, QUIC_ERR_PROTOCOL_VIOLATION, 0, 0, (const u8*)0};
+  return frame_put_conn_close(buf, cap, &cc);
 }
 
-usz quic_connio_close_on_violation(quic_connio* io, wired_obuf* out) {
-  u8                  frame[16];
-  usz                 fl;
-  quic_connio_send_in sin;
+usz connio_close_on_violation(connio* io, wired_obuf* out) {
+  u8             frame[16];
+  usz            fl;
+  connio_send_in sin;
   if (!io->disp.violation) return 0;
   io->disp.violation = 0;
   fl                 = violation_close_frame(frame, sizeof frame);
   if (!fl) return 0;
-  sin = (quic_connio_send_in){QUIC_LEVEL_ONERTT, wired_span_of(frame, fl)};
-  return quic_connio_send(io, &sin, out);
+  sin = (connio_send_in){QUIC_LEVEL_ONERTT, wired_span_of(frame, fl)};
+  return connio_send(io, &sin, out);
 }
 
 /* RFC 9000 19.19: encode a transport CONNECTION_CLOSE(AEAD_LIMIT_REACHED)
  * frame into buf. Returns bytes written, or 0 on overflow. */
 static usz aead_limit_close_frame(u8* buf, usz cap) {
-  quic_conn_close_frame cc = {
-      0, QUIC_ERR_AEAD_LIMIT_REACHED, 0, 0, (const u8*)0};
-  return quic_frame_put_conn_close(buf, cap, &cc);
+  conn_close_frame cc = {0, QUIC_ERR_AEAD_LIMIT_REACHED, 0, 0, (const u8*)0};
+  return frame_put_conn_close(buf, cap, &cc);
 }
 
 /* RFC 9001 6.6: if the AEAD integrity limit was reached (recorded by
- * quic_connloop_on_auth_fail), seal a transport CONNECTION_CLOSE carrying
+ * connloop_on_auth_fail), seal a transport CONNECTION_CLOSE carrying
  * AEAD_LIMIT_REACHED as a 1-RTT packet into out and clear the flag. Returns
  * the sealed length, or 0 if the limit was not reached or the seal failed. */
-usz quic_connio_close_on_aead_limit(quic_connio* io, wired_obuf* out) {
-  u8                  frame[16];
-  usz                 fl;
-  quic_connio_send_in sin;
+usz connio_close_on_aead_limit(connio* io, wired_obuf* out) {
+  u8             frame[16];
+  usz            fl;
+  connio_send_in sin;
   if (!io->loop.aead_limit) return 0;
   io->loop.aead_limit = 0;
   fl                  = aead_limit_close_frame(frame, sizeof frame);
   if (!fl) return 0;
-  sin = (quic_connio_send_in){QUIC_LEVEL_ONERTT, wired_span_of(frame, fl)};
-  return quic_connio_send(io, &sin, out);
+  sin = (connio_send_in){QUIC_LEVEL_ONERTT, wired_span_of(frame, fl)};
+  return connio_send(io, &sin, out);
 }
 
 /* RFC 9000 3.5/19.4: encode a RESET_STREAM echoing a STOP_SENDING's stream
  * ID and error code verbatim. Returns bytes written, or 0 on overflow. */
 static usz stop_sending_reset_frame(
-    u8* buf, usz cap, const quic_framedispatch_state* d) {
-  quic_reset_stream_frame f = {
+    u8* buf, usz cap, const framedispatch_state* d) {
+  reset_stream_frame f = {
       d->stop_sending_stream_id, d->stop_sending_error_code, 0};
-  return quic_reset_stream_encode(buf, cap, &f);
+  return reset_stream_encode(buf, cap, &f);
 }
 
-usz quic_connio_send_stop_sending_reset(quic_connio* io, wired_obuf* out) {
-  u8                  frame[32];
-  usz                 fl;
-  quic_connio_send_in sin;
+usz connio_send_stop_sending_reset(connio* io, wired_obuf* out) {
+  u8             frame[32];
+  usz            fl;
+  connio_send_in sin;
   if (!io->disp.stop_sending_owed) return 0;
   io->disp.stop_sending_owed = 0;
   fl = stop_sending_reset_frame(frame, sizeof frame, &io->disp);
   if (!fl) return 0;
-  sin = (quic_connio_send_in){QUIC_LEVEL_ONERTT, wired_span_of(frame, fl)};
-  return quic_connio_send(io, &sin, out);
+  sin = (connio_send_in){QUIC_LEVEL_ONERTT, wired_span_of(frame, fl)};
+  return connio_send(io, &sin, out);
 }

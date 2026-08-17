@@ -10,18 +10,18 @@
 #include "transport/recovery/rtx/sentpkt/ack_process.h"
 
 /* RFC 9000 19.8: feed a STREAM frame's bytes into the read buffer. */
-static int on_stream(quic_framedispatch_state* st, const u8* frame, usz len) {
-  quic_stream_frame f;
-  if (quic_frame_get_stream(frame, len, &f) == 0) return 0;
-  return quic_stream_read_push(
+static int on_stream(framedispatch_state* st, const u8* frame, usz len) {
+  stream_frame f;
+  if (frame_get_stream(frame, len, &f) == 0) return 0;
+  return stream_read_push(
       st->stream, f.offset, wired_span_of(f.data, f.length));
 }
 
 /* RFC 9000 19.3: an ACK frame is decoded to its ranges, then replayed as the
  * wire (first_len, gap, range_len, ...) form the sent table consumes. */
-static int on_ack(quic_framedispatch_state* st, const u8* frame, usz len) {
-  quic_ack_frame f;
-  if (quic_ack_decode(frame, len, &f) == 0) return 0;
+static int on_ack(framedispatch_state* st, const u8* frame, usz len) {
+  ack_frame f;
+  if (ack_decode(frame, len, &f) == 0) return 0;
   st->has_ack =
       1; /* RFC 9000 19.3: expose Largest Acknowledged to the runner */
   st->largest_acked = f.ranges[0].hi;
@@ -32,24 +32,24 @@ static int on_ack(quic_framedispatch_state* st, const u8* frame, usz len) {
     wire[w++] = f.ranges[i - 1].lo - f.ranges[i].hi - 2;
     wire[w++] = f.ranges[i].hi - f.ranges[i].lo;
   }
-  u64         acked[QUIC_SENTPKT_CAP];
-  usz         n      = 0;
-  quic_ackset ackset = {f.ranges[0].hi, wire, w};
-  quic_ack_process(st->sent, &ackset, (quic_u64out){acked, &n});
+  u64    acked[QUIC_SENTPKT_CAP];
+  usz    n      = 0;
+  ackset ackset = {f.ranges[0].hi, wire, w};
+  ack_process(st->sent, &ackset, (u64out){acked, &n});
   return 1;
 }
 
 /* RFC 9000 19.9: MAX_DATA raises the peer's send limit; mirror it as our
  * credit's advertised max so a later overrun is detectable. */
-static int on_max_data(quic_framedispatch_state* st, const u8* frame, usz len) {
-  quic_data_frame f;
-  if (quic_max_data_decode(frame, len, &f) == 0) return 0;
+static int on_max_data(framedispatch_state* st, const u8* frame, usz len) {
+  data_frame f;
+  if (max_data_decode(frame, len, &f) == 0) return 0;
   st->credit->max_data = f.value;
   return 1;
 }
 
 /* RFC 9000 19.19: record that the peer is closing. */
-static int on_close(quic_framedispatch_state* st, const u8* frame, usz len) {
+static int on_close(framedispatch_state* st, const u8* frame, usz len) {
   (void)frame;
   (void)len;
   st->close = 1;
@@ -59,7 +59,7 @@ static int on_close(quic_framedispatch_state* st, const u8* frame, usz len) {
 /* RFC 9221 5: decode a DATAGRAM frame and expose its payload view to a
  * higher layer (e.g. a future WebTransport session) to drain later; malformed
  * input is rejected so the caller can close the connection. */
-static int on_datagram(quic_framedispatch_state* st, const u8* frame, usz len) {
+static int on_datagram(framedispatch_state* st, const u8* frame, usz len) {
   wired_span f = wired_span_of(frame, len);
   if (!quic_dgdeliver_extract(f, &st->datagram)) return 0;
   st->has_datagram = 1;
@@ -68,7 +68,7 @@ static int on_datagram(quic_framedispatch_state* st, const u8* frame, usz len) {
 
 /* PADDING (19.1) and PING (19.2) carry no state beyond the ack-eliciting
  * flag handled by the caller. */
-static int on_noop(quic_framedispatch_state* st, const u8* frame, usz len) {
+static int on_noop(framedispatch_state* st, const u8* frame, usz len) {
   (void)st;
   (void)frame;
   (void)len;
@@ -78,10 +78,9 @@ static int on_noop(quic_framedispatch_state* st, const u8* frame, usz len) {
 /* RFC 9000 3.5: record that an automatic RESET_STREAM is owed, copying the
  * stream ID and error code verbatim from the STOP_SENDING frame. The actual
  * send is the caller's job (same shape as on_datagram above). */
-static int on_stop_sending(
-    quic_framedispatch_state* st, const u8* frame, usz len) {
-  quic_stop_sending_frame f;
-  if (quic_stop_sending_decode(frame, len, &f) == 0) return 0;
+static int on_stop_sending(framedispatch_state* st, const u8* frame, usz len) {
+  stop_sending_frame f;
+  if (stop_sending_decode(frame, len, &f) == 0) return 0;
   st->stop_sending_owed       = 1;
   st->stop_sending_stream_id  = f.stream_id;
   st->stop_sending_error_code = f.error_code;
@@ -91,19 +90,18 @@ static int on_stop_sending(
 /* RFC 9000 19.4: record a received RESET_STREAM's terminated stream ID and
  * error code; further state-machine effects belong to a different layer
  * (RFC 9000 3.2's receiving-part transition), out of scope here. */
-static int on_reset_stream(
-    quic_framedispatch_state* st, const u8* frame, usz len) {
-  quic_reset_stream_frame f;
-  if (quic_reset_stream_decode(frame, len, &f) == 0) return 0;
+static int on_reset_stream(framedispatch_state* st, const u8* frame, usz len) {
+  reset_stream_frame f;
+  if (reset_stream_decode(frame, len, &f) == 0) return 0;
   st->has_reset_stream        = 1;
   st->reset_stream_stream_id  = f.stream_id;
   st->reset_stream_error_code = f.error_code;
   return 1;
 }
 
-typedef int (*handler)(quic_framedispatch_state*, const u8*, usz);
+typedef int (*handler)(framedispatch_state*, const u8*, usz);
 
-/* RFC 9000 12.4: one handler per frame kind, indexed by quic_frame_kind. */
+/* RFC 9000 12.4: one handler per frame kind, indexed by frame_kind. */
 static const handler handlers[] = {
     [QUIC_FK_PADDING]          = on_noop,
     [QUIC_FK_PING]             = on_noop,
@@ -116,25 +114,25 @@ static const handler handlers[] = {
     [QUIC_FK_RESET_STREAM]     = on_reset_stream,
 };
 
-int quic_framedispatch_ack_eliciting(u64 frame_type) {
-  return quic_frame_ack_eliciting(quic_frame_classify(frame_type));
+int framedispatch_ack_eliciting(u64 frame_type) {
+  return frame_ack_eliciting(frame_classify(frame_type));
 }
 
 /* The registered handler for kind, or 0 if it has no table row. */
-static handler handler_for(quic_frame_kind k) {
+static handler handler_for(frame_kind k) {
   return (k < sizeof handlers / sizeof handlers[0]) ? handlers[k] : 0;
 }
 
-int quic_framedispatch_handle(
-    quic_framedispatch_state* st, u64 frame_type, wired_span frame) {
-  quic_frame_kind k = quic_frame_classify(frame_type);
-  handler         h;
-  if (quic_frame_server_recv_forbidden(k)) {
+int framedispatch_handle(
+    framedispatch_state* st, u64 frame_type, wired_span frame) {
+  frame_kind k = frame_classify(frame_type);
+  handler    h;
+  if (frame_server_recv_forbidden(k)) {
     st->violation = 1;
     return 0;
   }
   h = handler_for(k);
   if (h == 0) return 0;
-  st->ack_eliciting |= (u8)quic_frame_ack_eliciting(k);
+  st->ack_eliciting |= (u8)frame_ack_eliciting(k);
   return h(st, frame.p, frame.n);
 }

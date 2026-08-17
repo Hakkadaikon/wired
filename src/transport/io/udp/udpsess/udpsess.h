@@ -10,7 +10,7 @@
  * peer's address changes. A new path is fully migrated to only after it is
  * validated (9.3); until then the old path is kept (9.3.3, so it can still be
  * acked). Each path uses a distinct destination CID to avoid linkability across
- * paths (9.5). This drives an existing quic_udp_transport; it opens no new
+ * paths (9.5). This drives an existing udp_transport; it opens no new
  * sockets and issues no sendto/recvfrom itself. */
 
 #define QUIC_UDPSESS_PATHS 2
@@ -22,46 +22,44 @@ typedef struct {
   u16       peer_port; /* host order */
   const u8* dcid;      /* destination CID used on this path (view, not owned) */
   u8        dcid_len;
-} quic_udpsess_path;
+} udpsess_path;
 
 /** A connection migration session: the underlying transport plus each
  * known path and which one is currently active. */
 typedef struct {
-  quic_udp_transport* t;
-  quic_udpsess_path   paths[QUIC_UDPSESS_PATHS];
+  udp_transport* t;
+  udpsess_path   paths[QUIC_UDPSESS_PATHS];
   usz active; /* index of the path the transport currently sends to */
-} quic_udpsess;
+} udpsess;
 
 /* Bind a session to an open transport. path 0 is the active path, seeded from
  * the transport's current peer and the given DCID. */
-void quic_udpsess_init(quic_udpsess* s, quic_udp_transport* t, wired_span dcid);
+void udpsess_init(udpsess* s, udp_transport* t, wired_span dcid);
 
 /** A candidate peer address: big-endian addr, host-order port. */
 typedef struct {
   u32 addr;
   u16 port;
-} quic_udpsess_peer;
+} udpsess_peer;
 
 /* Record the candidate peer address for a path (RFC 9000 9.3). This does not
  * change the active send target; the old path is retained until migration. */
-void quic_udpsess_set_peer(
-    quic_udpsess* s, usz path, const quic_udpsess_peer* peer);
+void udpsess_set_peer(udpsess* s, usz path, const udpsess_peer* peer);
 
 /* Associate a destination CID with a path (RFC 9000 9.5). */
-void quic_udpsess_set_dcid(quic_udpsess* s, usz path, wired_span dcid);
+void udpsess_set_dcid(udpsess* s, usz path, wired_span dcid);
 
 /* Whether migration to a new path is permitted (RFC 9000 9.3): only once that
  * path has been validated. */
-int quic_udpsess_can_migrate(const quic_udpsess* s, int new_path_validated);
+int udpsess_can_migrate(const udpsess* s, int new_path_validated);
 
 /* Switch the transport's send target to `path` (RFC 9000 9.3). Refused unless
  * new_path_validated and the path has a peer address. Returns 1 on migration.
  */
-int quic_udpsess_migrate(quic_udpsess* s, usz path, int new_path_validated);
+int udpsess_migrate(udpsess* s, usz path, int new_path_validated);
 
 /* The destination CID to use on `path` (RFC 9000 9.5). Writes the view into
  * *dcid and returns 1; returns 0 for an out-of-range or unset path. */
-int quic_udpsess_dcid_for_path(
-    const quic_udpsess* s, usz path, wired_span* dcid);
+int udpsess_dcid_for_path(const udpsess* s, usz path, wired_span* dcid);
 
 #endif

@@ -3,18 +3,17 @@
 #include "common/bytes/util/be.h"
 #include "common/bytes/varint/varint.h"
 
-int quic_version_is_reserved(u32 version) {
+int version_is_reserved(u32 version) {
   return (version & 0x0f0f0f0fu) == 0x0a0a0a0au; /* 0x?a?a?a?a pattern */
 }
 
 /* The value bytes are: Chosen Version (4) + each Available Version (4). */
-static usz vi_value_len(const quic_version_info* vi) {
+static usz vi_value_len(const version_info* vi) {
   return 4 + 4 * vi->n_available;
 }
 
 /* Write the Chosen Version and all Available Versions as big-endian u32. */
-static void version_put_versions(
-    u8* buf, usz off, const quic_version_info* vi) {
+static void version_put_versions(u8* buf, usz off, const version_info* vi) {
   be_put_be32(buf + off, vi->chosen);
   for (usz i = 0; i < vi->n_available; i++)
     be_put_be32(buf + off + 4 + 4 * i, vi->available[i]);
@@ -29,7 +28,7 @@ typedef struct {
 
 /* Write the id and length varints; return 1 ok with *w->off advanced, 0 if no
  * room or too many Available Versions. */
-static int put_vi_head(const version_wcursor* w, const quic_version_info* vi) {
+static int put_vi_head(const version_wcursor* w, const version_info* vi) {
   if (vi->n_available > QUIC_VI_MAX_AVAILABLE) return 0;
   if (!varint_put(
           wired_mspan_of(w->buf, w->cap), w->off, QUIC_TP_VERSION_INFORMATION))
@@ -37,7 +36,7 @@ static int put_vi_head(const version_wcursor* w, const quic_version_info* vi) {
   return varint_put(wired_mspan_of(w->buf, w->cap), w->off, vi_value_len(vi));
 }
 
-usz quic_version_info_encode(u8* buf, usz cap, const quic_version_info* vi) {
+usz version_info_encode(u8* buf, usz cap, const version_info* vi) {
   usz             off  = 0;
   usz             vlen = vi_value_len(vi);
   version_wcursor w    = {buf, cap, &off};
@@ -76,7 +75,7 @@ static int take_vi_head(const version_rcursor* r, u64* vlen) {
 }
 
 /* Fill chosen + available from the value bytes (count = available count). */
-static void read_versions(const u8* value, quic_version_info* vi, usz count) {
+static void read_versions(const u8* value, version_info* vi, usz count) {
   vi->chosen      = version_rd_be32(value);
   vi->n_available = count;
   for (usz i = 0; i < count; i++)
@@ -88,7 +87,7 @@ static int vi_fits(usz off, u64 vlen, usz n) {
   return off + vlen <= n && (vlen / 4 - 1) <= QUIC_VI_MAX_AVAILABLE;
 }
 
-usz quic_version_info_decode(const u8* buf, usz n, quic_version_info* vi) {
+usz version_info_decode(const u8* buf, usz n, version_info* vi) {
   usz             off = 0;
   u64             vlen;
   version_rcursor r = {buf, n, &off};

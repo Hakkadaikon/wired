@@ -17,8 +17,8 @@ int quic_h3conn_send_response(
   if (!quic_h3resp_build(resp->status, resp->content_type, resp->body, &h3ob))
     return 0;
   {
-    quic_stream_frame f = {stream_id, 0, h3ob.len, h3, 1};
-    if (!quic_appdata_stream_frame(&f, out)) return 0;
+    stream_frame f = {stream_id, 0, h3ob.len, h3, 1};
+    if (!appdata_stream_frame(&f, out)) return 0;
     return 1;
   }
 }
@@ -64,9 +64,9 @@ static int decode_status(const u8* fs, usz n, u16* status) {
 
 /* RFC 9114 4.1 / RFC 9000 19.8 */
 int quic_h3conn_recv_response(wired_span stream_data, quic_h3conn_resp* resp) {
-  quic_stream_frame f;
-  quic_h3req_resp   rp = {0};
-  if (!quic_frame_get_stream(stream_data.p, stream_data.n, &f)) return 0;
+  stream_frame    f;
+  quic_h3req_resp rp = {0};
+  if (!frame_get_stream(stream_data.p, stream_data.n, &f)) return 0;
   if (!quic_h3req_resp_parse(wired_span_of(f.data, (usz)f.length), &rp))
     return 0;
   resp->body = rp.body;

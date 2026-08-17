@@ -15,7 +15,7 @@
  * slot instead of a generic descriptor array: push/pop do their own
  * check+write+publish / check+read+release in one call each, since a
  * datagram producer/consumer never needs to split reservation from
- * publication the way the AF_XDP rings do. Unlike xskring's quic_xskring
+ * publication the way the AF_XDP rings do. Unlike xskring's xskring
  * side struct, there is no per-side cached_prod/cached_cons field -- push/
  * pop are stateless across calls, so every full/empty look re-reads the
  * shared prod/cons cell (still just one extra ACQUIRE load in the common
@@ -54,7 +54,7 @@ void wired_srvinbox_ring_init(wired_srvinbox_ring* r);
 
 /** Push one message (producer side only). If the ring looks full, cons is
  * re-read with ACQUIRE and the fullness re-checked once before dropping --
- * the same look-then-recheck idiom as quic_xskring_prod_reserve, folded
+ * the same look-then-recheck idiom as xskring_prod_reserve, folded
  * into one call since a datagram producer never needs a separate
  * reserve/submit split.
  * @param r ring to push into
@@ -67,7 +67,7 @@ int wired_srvinbox_push(wired_srvinbox_ring* r, const u8* data, usz len);
 
 /** Pop one message (consumer side only) into out_buf. If the ring looks
  * empty, prod is re-read with ACQUIRE and re-checked once before reporting
- * empty -- mirrors quic_xskring_cons_peek's look-then-recheck idiom.
+ * empty -- mirrors xskring_cons_peek's look-then-recheck idiom.
  * out_cap must be >= the popped message's length or nothing is popped (the
  * slot stays queued, so a caller that always passes a WIRED_SRVINBOX_SLOT_MAX
  * buffer never hits this): this SDK's callers all forward straight into a

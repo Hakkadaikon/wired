@@ -16,22 +16,22 @@
 typedef struct {
   wired_span addr;
   wired_span odcid;
-} quic_retrytoken_in;
+} retrytoken_in;
 
 /* Generate a Retry token for a client address and original DCID under the
  * server key. */
-void quic_retrytoken_make(
-    const u8                  key[QUIC_RETRYTOKEN_KEY],
-    const quic_retrytoken_in* in,
-    u8                        token[QUIC_RETRYTOKEN_LEN]);
+void retrytoken_make(
+    const u8             key[QUIC_RETRYTOKEN_KEY],
+    const retrytoken_in* in,
+    u8                   token[QUIC_RETRYTOKEN_LEN]);
 
 /* Validate a presented token: it must equal the token the server would have
  * generated for this address and original DCID. Constant-time. Returns 1 if
  * valid. */
-int quic_retrytoken_verify(
-    const u8                  key[QUIC_RETRYTOKEN_KEY],
-    const quic_retrytoken_in* in,
-    const u8                  token[QUIC_RETRYTOKEN_LEN]);
+int retrytoken_verify(
+    const u8             key[QUIC_RETRYTOKEN_KEY],
+    const retrytoken_in* in,
+    const u8             token[QUIC_RETRYTOKEN_LEN]);
 
 /* Longest wire token: odcid_len(1) + a 20-byte ODCID + the HMAC. */
 #define QUIC_RETRYTOKEN_WIRE_MAX (1 + 20 + QUIC_RETRYTOKEN_LEN)
@@ -43,7 +43,7 @@ int quic_retrytoken_verify(
  * the token's authenticity still rests entirely on the HMAC). Returns bytes
  * written (1 + odcid.n + QUIC_RETRYTOKEN_LEN), or 0 when odcid exceeds 20
  * bytes. */
-usz quic_retrytoken_wire_make(
+usz retrytoken_wire_make(
     const u8   key[QUIC_RETRYTOKEN_KEY],
     wired_span addr,
     wired_span odcid,
@@ -53,7 +53,7 @@ usz quic_retrytoken_wire_make(
  * returns 1 and sets *odcid to the embedded ODCID (a view into token).
  * Returns 0 on a malformed token (bad length framing) or an HMAC mismatch.
  * Constant-time in the HMAC compare. */
-int quic_retrytoken_wire_verify(
+int retrytoken_wire_verify(
     const u8    key[QUIC_RETRYTOKEN_KEY],
     wired_span  addr,
     wired_span  token,

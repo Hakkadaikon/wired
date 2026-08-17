@@ -15,13 +15,13 @@ typedef struct {
   usz token_len;
   u8  dcid[WIRED_MAX_CID_LEN]; /* new DCID = Retry SCID */
   u8  dcid_len;
-} quic_retrydrive_state;
+} retrydrive_state;
 
 /* RFC 9000 17.2.5.2: record the accepted Retry into out: store the token for
  * later Initials, adopt retry_scid as the new DCID, and flag Initial key
  * re-derivation. Returns 0 (and leaves out untouched) if the token or SCID
  * exceeds the buffers; 1 on success. */
-int quic_retrydrive_apply(
-    wired_span retry_token, wired_span retry_scid, quic_retrydrive_state* out);
+int retrydrive_apply(
+    wired_span retry_token, wired_span retry_scid, retrydrive_state* out);
 
 #endif

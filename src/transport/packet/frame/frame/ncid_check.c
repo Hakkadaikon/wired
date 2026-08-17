@@ -7,6 +7,6 @@ static int ncid_check_cid_len_ok(u8 cid_len) {
 }
 
 /* RFC 9000 19.15: Retire Prior To must not exceed the Sequence Number. */
-int quic_ncid_check(u64 seq, u64 retire_prior_to, u8 cid_len) {
+int ncid_check(u64 seq, u64 retire_prior_to, u8 cid_len) {
   return retire_prior_to <= seq && ncid_check_cid_len_ok(cid_len);
 }

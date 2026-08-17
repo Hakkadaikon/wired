@@ -209,7 +209,7 @@ static usz client_seal_handshake(
       -1,
       wired_span_of(msg, mlen),
       0};
-  quic_protect_keys pk = {k, &hp};
+  protect_keys pk = {k, &hp};
   CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
   return ob.len;
 }
@@ -232,7 +232,7 @@ static usz client_seal_handshake_pn(
       -1,
       wired_span_of(msg, mlen),
       0};
-  quic_protect_keys pk = {k, &hp};
+  protect_keys pk = {k, &hp};
   CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
   return ob.len;
 }
@@ -245,12 +245,12 @@ static usz client_seal_onertt(
   usz                 total = 0;
   CHECK(keysched_get(&f->s.sched, QUIC_KS_CLIENT_AP, &k) == 1);
   aes128_init(&hp, k->hp);
-  quic_protect_keys      pk = {k, &hp};
-  quic_hspkt_onertt_desc d  = {
+  protect_keys      pk = {k, &hp};
+  hspkt_onertt_desc d  = {
       wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), 0,
       wired_span_of(pl, pln), 0};
   wired_obuf o = obuf_of(pkt, cap);
-  CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
+  CHECK(hspkt_onertt_build(&pk, &d, &o));
   total = o.len;
   return total;
 }
@@ -310,7 +310,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
     CHECK(keysched_get(&f.s.sched, QUIC_KS_SERVER_HS, &shs) == 1);
     aes128_init(&hp, shs->hp);
     {
-      quic_protect_keys pk = {shs, &hp};
+      protect_keys pk = {shs, &hp};
       CHECK(
           quic_srvwire_open_handshake_suite(
               QUIC_TLS_CHACHA20_POLY1305_SHA256, &pk,
@@ -334,7 +334,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
      * ChaCha20, so seal the client Finished with it directly instead. */
     CHECK(keysched_get(&f.s.sched, QUIC_KS_CLIENT_HS, &chs) == 1);
     {
-      quic_protect_keys    cpk = {chs, 0};
+      protect_keys         cpk = {chs, 0};
       quic_srvwire_seal_in cin = {
           wired_span_of((const u8*)0, 0),
           wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
@@ -359,17 +359,17 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
     {
       /* oob coalesces a long-header Handshake ACK ahead of the 1-RTT
        * packet (RFC 9000 12.2) -- split it the way the client would. */
-      const u8*    pkts[4];
-      usz          offs[4], lens[4];
-      quic_pktlist plist = {pkts, offs, lens, 4};
-      usz np = quic_udploop_split(wired_span_of(opkt, oob.len), &plist);
+      const u8* pkts[4];
+      usz       offs[4], lens[4];
+      pktlist   plist = {pkts, offs, lens, 4};
+      usz       np    = udploop_split(wired_span_of(opkt, oob.len), &plist);
       CHECK(np == 2);
       {
-        quic_protect_keys           pk = {sap, &hp};
-        quic_hspkt_onertt_open_desc d  = {
+        protect_keys           pk = {sap, &hp};
+        hspkt_onertt_open_desc d  = {
             wired_mspan_of(opkt + offs[1], lens[1]), 6, 0};
         CHECK(
-            quic_hspkt_onertt_open_suite(
+            hspkt_onertt_open_suite(
                 QUIC_TLS_CHACHA20_POLY1305_SHA256, &pk, &d, &pl) == 1);
       }
       CHECK(pl.n > 0);
@@ -400,7 +400,7 @@ static void test_srvloop_open_chacha(void) {
     lp_make_client_finished(&f);
     CHECK(keysched_get(&f.s.sched, QUIC_KS_CLIENT_HS, &chs) == 1);
     {
-      quic_protect_keys    pk = {chs, 0};
+      protect_keys         pk = {chs, 0};
       quic_srvwire_seal_in in = {
           wired_span_of((const u8*)0, 0),
           wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
@@ -433,13 +433,13 @@ static void test_srvloop_open_chacha(void) {
     rlen = rob.len;
     CHECK(keysched_get(&f.s.sched, QUIC_KS_CLIENT_AP, &cap) == 1);
     {
-      quic_protect_keys      pk = {cap, 0};
-      quic_hspkt_onertt_desc d  = {
+      protect_keys      pk = {cap, 0};
+      hspkt_onertt_desc d  = {
           wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len), 1,
           wired_span_of(reqb, rlen), 0};
       wired_obuf rb = {rpkt, sizeof rpkt, 0};
       CHECK(
-          quic_hspkt_onertt_build_suite(
+          hspkt_onertt_build_suite(
               QUIC_TLS_CHACHA20_POLY1305_SHA256, &pk, &d, &rb) == 1);
       slen = rb.len;
     }
@@ -475,7 +475,7 @@ static void test_srvloop_wrong_direction_open_fails(void) {
   /* SERVER_HS (own / client-peer) opens it; CLIENT_HS (server-open) must NOT.
    */
   {
-    quic_protect_keys ownpk = {own, &ownhp};
+    protect_keys ownpk = {own, &ownhp};
     CHECK(
         quic_srvwire_open_handshake(
             &ownpk, wired_mspan_of(pkt, ob.len), &tls) == 1);
@@ -483,7 +483,7 @@ static void test_srvloop_wrong_direction_open_fails(void) {
   CHECK(keysched_get(&f.s.sched, QUIC_KS_CLIENT_HS, &peer) == 1);
   aes128_init(&peerhp, peer->hp);
   {
-    quic_protect_keys peerpk = {peer, &peerhp};
+    protect_keys peerpk = {peer, &peerhp};
     CHECK(
         quic_srvwire_open_handshake(
             &peerpk, wired_mspan_of(pkt, ob.len), &tls) == 0);
@@ -536,10 +536,10 @@ static int client_open_onertt(
   aes128              hp;
   CHECK(keysched_get(&f->s.sched, QUIC_KS_SERVER_AP, &k) == 1);
   aes128_init(&hp, k->hp);
-  quic_protect_keys           pk = {k, &hp};
-  quic_hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
-  wired_span                  v;
-  if (!quic_hspkt_onertt_open(&pk, &d, &v)) return 0;
+  protect_keys           pk = {k, &hp};
+  hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
+  wired_span             v;
+  if (!hspkt_onertt_open(&pk, &d, &v)) return 0;
   *pl  = v.p;
   *pll = v.n;
   return 1;
@@ -549,8 +549,8 @@ static int client_open_onertt(
  * stream (id 3) whose data leads with the control type 0x00 + SETTINGS, and
  * then a HANDSHAKE_DONE (0x1e) frame (RFC 9114 6.2.1 / RFC 9000 19.20). */
 static void check_settings_and_done(const u8* pl, usz pll) {
-  quic_stream_frame sf;
-  usz               n = quic_frame_get_stream(pl, pll, &sf);
+  stream_frame sf;
+  usz          n = frame_get_stream(pl, pll, &sf);
   CHECK(n > 0);
   CHECK(sf.stream_id == 3); /* first server unidirectional stream */
   CHECK(sf.length > 0 && sf.data[0] == 0x00); /* control stream type */
@@ -578,8 +578,8 @@ static void test_srvloop_full_roundtrip(void) {
       1);
   CHECK(wired_server_is_confirmed(&f.s) == 1);
   /* The reply coalesces a Handshake ACK (long header) and a 1-RTT packet. */
-  quic_pktlist plist = {pkts, offs, lens, 4};
-  np                 = quic_udploop_split(wired_span_of(out, ob.len), &plist);
+  pktlist plist = {pkts, offs, lens, 4};
+  np            = udploop_split(wired_span_of(out, ob.len), &plist);
   CHECK(np == 2);
   CHECK((out[offs[0]] & 0x80) != 0); /* slice 0: long-header Handshake ACK */
   {
@@ -647,8 +647,8 @@ static void test_srvloop_response_dcid_is_client_scid(void) {
       wired_srvloop_step(
           &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen), &ob) ==
       1);
-  quic_pktlist plist = {pkts, offs, lens, 4};
-  np                 = quic_udploop_split(wired_span_of(out, ob.len), &plist);
+  pktlist plist = {pkts, offs, lens, 4};
+  np            = udploop_split(wired_span_of(out, ob.len), &plist);
   CHECK(np == 2);                                    /* Handshake ACK + 1-RTT */
   CHECK(onertt_dcid_is(out + offs[1], cli_scid, 6)); /* DCID == client SCID */
   CHECK(
@@ -663,12 +663,12 @@ static usz client_seal_onertt_pn(
   usz                 total = 0;
   CHECK(keysched_get(&f->s.sched, QUIC_KS_CLIENT_AP, &k) == 1);
   aes128_init(&hp, k->hp);
-  quic_protect_keys      pk = {k, &hp};
-  quic_hspkt_onertt_desc d  = {
+  protect_keys      pk = {k, &hp};
+  hspkt_onertt_desc d  = {
       wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), pn,
       wired_span_of(pl, pln), 0};
   wired_obuf o = obuf_of(pkt, cap);
-  CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
+  CHECK(hspkt_onertt_build(&pk, &d, &o));
   total = o.len;
   return total;
 }
@@ -677,14 +677,14 @@ static usz client_seal_onertt_pn(
  * acknowledges pn (RFC 9000 19.3) — this is what stops the client
  * retransmitting. */
 static void check_acks_pn(const u8* pl, usz pll, u64 pn) {
-  quic_framewalk      it;
-  quic_framewalk_item fr;
-  int                 found = 0;
-  quic_framewalk_init(&it, pl, pll);
-  while (quic_framewalk_next(&it, &fr))
+  framewalk      it;
+  framewalk_item fr;
+  int            found = 0;
+  framewalk_init(&it, pl, pll);
+  while (framewalk_next(&it, &fr))
     if (fr.type == QUIC_FRAME_ACK) {
-      quic_ack_frame a;
-      CHECK(quic_ack_decode(fr.start, fr.remaining, &a) > 0);
+      ack_frame a;
+      CHECK(ack_decode(fr.start, fr.remaining, &a) > 0);
       CHECK(a.ranges[0].hi == pn);
       found = 1;
     }
@@ -699,13 +699,13 @@ static int is_ack_type(u64 type) {
   return type == QUIC_FRAME_ACK || type == QUIC_FRAME_ACK_ECN;
 }
 
-static int find_ack_frame(const u8* pl, usz pll, quic_ack_frame* out) {
-  quic_framewalk      it;
-  quic_framewalk_item fr;
-  quic_framewalk_init(&it, pl, pll);
-  while (quic_framewalk_next(&it, &fr))
+static int find_ack_frame(const u8* pl, usz pll, ack_frame* out) {
+  framewalk      it;
+  framewalk_item fr;
+  framewalk_init(&it, pl, pll);
+  while (framewalk_next(&it, &fr))
     if (is_ack_type(fr.type))
-      return quic_ack_decode(fr.start, fr.remaining, out) > 0;
+      return ack_decode(fr.start, fr.remaining, out) > 0;
   return 0;
 }
 
@@ -757,7 +757,7 @@ static void test_srvloop_onertt_get_is_acked(void) {
 }
 
 /* Open a server-sealed Handshake packet with the client's peer key (SERVER_HS)
- * and return its raw decrypted frame payload (quic_hspkt_open, not srvwire's
+ * and return its raw decrypted frame payload (hspkt_open, not srvwire's
  * CRYPTO extractor — the ACK-only flight carries no CRYPTO frame). */
 static int client_open_handshake(
     struct lp_fix* f, const u8* pkt, usz len, const u8** pl, usz* pll) {
@@ -765,9 +765,9 @@ static int client_open_handshake(
   aes128              hp;
   CHECK(keysched_get(&f->s.sched, QUIC_KS_SERVER_HS, &k) == 1);
   aes128_init(&hp, k->hp);
-  quic_protect_keys pk = {k, &hp};
-  wired_span        v;
-  if (!quic_hspkt_open(&pk, wired_mspan_of((u8*)pkt, len), &v)) return 0;
+  protect_keys pk = {k, &hp};
+  wired_span   v;
+  if (!hspkt_open(&pk, wired_mspan_of((u8*)pkt, len), &v)) return 0;
   *pl  = v.p;
   *pll = v.n;
   return 1;
@@ -793,8 +793,8 @@ static void test_srvloop_handshake_ack_tracks_pn(void) {
       wired_srvloop_step(
           &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen), &ob) ==
       1);
-  quic_pktlist plist = {pkts, offs, lens, 4};
-  np                 = quic_udploop_split(wired_span_of(out, ob.len), &plist);
+  pktlist plist = {pkts, offs, lens, 4};
+  np            = udploop_split(wired_span_of(out, ob.len), &plist);
   CHECK(np == 2);
   CHECK((out[offs[0]] & 0x80) != 0); /* slice 0: long-header Handshake ACK */
   CHECK(client_open_handshake(&f, out + offs[0], lens[0], &pl, &pll) == 1);
@@ -806,18 +806,18 @@ static void test_srvloop_handshake_ack_tracks_pn(void) {
  * stream (id 0) — regardless of frame order (RFC 9114 6.2.1 / 4.1, RFC 9000
  * 19.20). The 200's STREAM frame (type byte onward) is fed to recv_response. */
 static void check_confirm_and_200_payload(const u8* pl, usz pll) {
-  quic_framewalk      it;
-  quic_framewalk_item fr;
-  int                 settings = 0, done = 0, ok200 = 0;
-  quic_framewalk_init(&it, pl, pll);
-  while (quic_framewalk_next(&it, &fr)) {
-    u64               type  = fr.type;
-    const u8*         frame = fr.start;
-    usz               rem   = fr.remaining;
-    quic_stream_frame sf;
-    quic_h3conn_resp  resp_out = {0};
+  framewalk      it;
+  framewalk_item fr;
+  int            settings = 0, done = 0, ok200 = 0;
+  framewalk_init(&it, pl, pll);
+  while (framewalk_next(&it, &fr)) {
+    u64              type  = fr.type;
+    const u8*        frame = fr.start;
+    usz              rem   = fr.remaining;
+    stream_frame     sf;
+    quic_h3conn_resp resp_out = {0};
     if (type == 0x1e) done = 1;
-    if (type < 0x08 || type > 0x0f || !quic_frame_get_stream(frame, rem, &sf))
+    if (type < 0x08 || type > 0x0f || !frame_get_stream(frame, rem, &sf))
       continue;
     if (sf.stream_id == 3) settings = 1;
     if (sf.stream_id == 0 &&
@@ -836,7 +836,7 @@ static void lp_confirm_via_dispatch(struct lp_fix* f) {
   u8                   scratch[512];
   wired_h3reqdrive_req req;
   int                  got = 0;
-  quic_crypto_frame    cf;
+  crypto_frame         cf;
   u8                   payload[256];
   usz                  plen;
   lp_make_client_hello(f);
@@ -845,7 +845,7 @@ static void lp_confirm_via_dispatch(struct lp_fix* f) {
   cf.offset = 0;
   cf.length = f->cli_fin_len;
   cf.data   = f->cli_fin;
-  plen      = quic_frame_put_crypto(payload, sizeof payload, &cf);
+  plen      = frame_put_crypto(payload, sizeof payload, &cf);
   {
     wired_srvloop_reqacc      acc = lp_reqacc(&f->l);
     wired_srvloop_dispatch_in in  = {
@@ -871,8 +871,8 @@ static usz lp_build_headers_stream(
       quic_h3_frame_put(
           &hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fields, fob.len)) != 0);
   {
-    quic_stream_frame sf = {0, 0, hob.len, h3buf, fin};
-    CHECK(quic_appdata_stream_frame(&sf, &sob) == 1);
+    stream_frame sf = {0, 0, hob.len, h3buf, fin};
+    CHECK(appdata_stream_frame(&sf, &sob) == 1);
   }
   return sob.len;
 }
@@ -968,8 +968,8 @@ static void test_srvloop_confirm_and_200_coalesce(void) {
   /* Reply: [Handshake ACK (long)][one 1-RTT packet: SETTINGS + HANDSHAKE_DONE
    * + 200]. Short-header packets carry no length, so confirm and 200 share a
    * single 1-RTT payload rather than two coalesced 1-RTT packets. */
-  quic_pktlist plist = {pkts, offs, lens, 4};
-  np                 = quic_udploop_split(wired_span_of(out, ob.len), &plist);
+  pktlist plist = {pkts, offs, lens, 4};
+  np            = udploop_split(wired_span_of(out, ob.len), &plist);
   CHECK(np == 2);
   CHECK((out[offs[0]] & 0x80) != 0); /* slice 0: long-header Handshake ACK */
   {
@@ -1014,9 +1014,9 @@ static usz lp_pad_prefix(u8* dst, const u8* src, usz n) {
 
 /* Build a dispatcher payload [PADDING][CRYPTO(msg)] (RFC 9000 12.4 / 19.6). */
 static usz lp_padding_then_crypto(u8* out, usz cap, const u8* msg, usz mlen) {
-  quic_crypto_frame cf = {0, (u64)mlen, msg};
-  out[0]               = 0x00; /* leading PADDING, as curl/quiche emit */
-  return 1 + quic_frame_put_crypto(out + 1, cap - 1, &cf);
+  crypto_frame cf = {0, (u64)mlen, msg};
+  out[0]          = 0x00; /* leading PADDING, as curl/quiche emit */
+  return 1 + frame_put_crypto(out + 1, cap - 1, &cf);
 }
 
 /* NON-CRYPTO-FIRST handshake: a Handshake payload that leads with PADDING
@@ -1111,8 +1111,8 @@ static void test_srvloop_coalesced_finished_behind_leading(void) {
 /* Build a STREAM frame on `stream_id` whose data is one type byte `lead`
  * (RFC 9114 6.2: control 0x00 / QPACK encoder 0x02 / decoder 0x03). */
 static usz lp_uni_stream(u8* out, usz cap, u64 stream_id, u8 lead) {
-  quic_stream_frame sf = {stream_id, 0, 1, &lead, 0};
-  return quic_frame_put_stream(out, cap, &sf);
+  stream_frame sf = {stream_id, 0, 1, &lead, 0};
+  return frame_put_stream(out, cap, &sf);
 }
 
 /* Build a STREAM frame on stream_id opening a QPACK encoder stream (RFC 9204
@@ -1124,10 +1124,10 @@ static usz lp_qpack_encoder_set_capacity(
   wired_mspan mb = wired_mspan_of(body + 1, sizeof body - 1);
   usz         n =
       quic_qpack_enc_instr_encode(mb, QUIC_QPACK_ENC_SET_CAPACITY, capacity);
-  quic_stream_frame sf;
+  stream_frame sf;
   body[0] = QUIC_H3_STREAM_QPACK_ENCODER;
-  sf      = (quic_stream_frame){stream_id, 0, 1 + n, body, 0};
-  return quic_frame_put_stream(out, cap, &sf);
+  sf      = (stream_frame){stream_id, 0, 1 + n, body, 0};
+  return frame_put_stream(out, cap, &sf);
 }
 
 /* STREAM ID CLASSIFICATION (RFC 9000 2.1, RFC 9114 6.2): a 1-RTT payload that
@@ -1201,7 +1201,7 @@ static usz lp_split_post_frames(
     u8* hp, usz hcap, usz* hl, u8* dp, usz dcap, usz* dl) {
   u8                       reqb[256];
   usz                      rlen = 0, hb;
-  quic_stream_frame        sf;
+  stream_frame             sf;
   quic_h3_frame            hf   = {0};
   const u8*                body = (const u8*)"hi";
   wired_h3reqdrive_send_in in   = {
@@ -1210,7 +1210,7 @@ static usz lp_split_post_frames(
   wired_obuf rob = {reqb, sizeof reqb, 0};
   CHECK(wired_h3reqdrive_send_method(0, &in, &rob));
   rlen = rob.len;
-  CHECK(quic_frame_get_stream(reqb, rlen, &sf) > 0);
+  CHECK(frame_get_stream(reqb, rlen, &sf) > 0);
   hb = quic_h3_frame_get(wired_span_of(sf.data, (usz)sf.length), &hf);
   CHECK(hb > 0 && hf.type == QUIC_H3_FRAME_HEADERS);
   CHECK(appdata_frame_flat(0, 0, sf.data, hb, 0, hp, hcap, hl));
@@ -1235,7 +1235,7 @@ static usz lp_split_post_frames_on(
     usz*      dl) {
   u8                       reqb[256];
   usz                      rlen = 0, hb;
-  quic_stream_frame        sf;
+  stream_frame             sf;
   quic_h3_frame            hf = {0};
   wired_h3reqdrive_send_in in = {
       wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"/", 1),
@@ -1243,7 +1243,7 @@ static usz lp_split_post_frames_on(
   wired_obuf rob = {reqb, sizeof reqb, 0};
   CHECK(wired_h3reqdrive_send_method(stream_id, &in, &rob));
   rlen = rob.len;
-  CHECK(quic_frame_get_stream(reqb, rlen, &sf) > 0);
+  CHECK(frame_get_stream(reqb, rlen, &sf) > 0);
   hb = quic_h3_frame_get(wired_span_of(sf.data, (usz)sf.length), &hf);
   CHECK(hb > 0 && hf.type == QUIC_H3_FRAME_HEADERS);
   CHECK(appdata_frame_flat(stream_id, 0, sf.data, hb, 0, hp, hcap, hl));
@@ -1439,9 +1439,9 @@ static void test_srvloop_two_streams_reassemble_independently(void) {
  * id's offset-0 STREAM frame with that leading varint plus one application
  * byte behind it. */
 static usz lp_wt_bidi_stream(u8* out, usz cap, u64 stream_id) {
-  u8                sig[3] = {0x40, 0x41, 'X'};
-  quic_stream_frame sf     = {stream_id, 0, sizeof sig, sig, 0};
-  return quic_frame_put_stream(out, cap, &sf);
+  u8           sig[3] = {0x40, 0x41, 'X'};
+  stream_frame sf     = {stream_id, 0, sizeof sig, sig, 0};
+  return frame_put_stream(out, cap, &sf);
 }
 
 /* STREAM ID CLASSIFICATION (draft-ietf-webtrans-http3-15 4.3): a stream
@@ -1515,9 +1515,9 @@ static void test_srvloop_hq09_recv_get_produces_request(void) {
                           * srvloop's own response_frame (unset case) never
                           * negotiates hq-interop. */
   {
-    static const u8   line[] = "GET /file1.txt\r\n";
-    quic_stream_frame sf     = {0, 0, sizeof(line) - 1, line, 1};
-    glen                     = quic_frame_put_stream(get, sizeof get, &sf);
+    static const u8 line[] = "GET /file1.txt\r\n";
+    stream_frame    sf     = {0, 0, sizeof(line) - 1, line, 1};
+    glen                   = frame_put_stream(get, sizeof get, &sf);
   }
   CHECK(glen != 0);
   slen = client_seal_onertt(&f, get, glen, spkt, sizeof spkt);
@@ -1546,8 +1546,8 @@ static usz lp_stream_frame_at(
     const u8* data,
     usz       data_len,
     u8        fin) {
-  quic_stream_frame sf = {stream_id, offset, data_len, data, fin};
-  return quic_frame_put_stream(out, cap, &sf);
+  stream_frame sf = {stream_id, offset, data_len, data, fin};
+  return frame_put_stream(out, cap, &sf);
 }
 
 /* WINDOW UNIT TESTS (draft-ietf-webtrans-http3-15 4.3 / RFC 9000 2.2): direct
@@ -1913,9 +1913,9 @@ static void test_srvloop_wt_stream_without_session_no_crash(void) {
  * offset-0 STREAM frame with that leading 3-byte signal plus one
  * application byte behind it. */
 static usz lp_wt_uni_stream(u8* out, usz cap, u64 stream_id) {
-  u8                sig[4] = {0x40, 0x54, (u8)stream_id, 'X'};
-  quic_stream_frame sf     = {stream_id, 0, sizeof sig, sig, 0};
-  return quic_frame_put_stream(out, cap, &sf);
+  u8           sig[4] = {0x40, 0x54, (u8)stream_id, 'X'};
+  stream_frame sf     = {stream_id, 0, sizeof sig, sig, 0};
+  return frame_put_stream(out, cap, &sf);
 }
 
 /* NEW UNI STREAM CLASSIFICATION (draft-ietf-webtrans-http3-15 4.3): a WT-typed
@@ -2129,12 +2129,12 @@ static void test_srvloop_uni_unrecognized_type_no_crash(void) {
  * mechanism that already absorbs this: it only latches closed_stream_id,
  * independent of whether the stream's purpose was ever classified. */
 static void test_srvloop_uni_reset_before_type_no_crash(void) {
-  struct lp_fix           f;
-  u8                      payload[64], out[1024], spkt[1024];
-  usz                     off = 0, slen;
-  wired_obuf              ob  = {out, sizeof out, 0};
-  quic_reset_stream_frame rs  = {2, 0x100, 0};
-  off = quic_reset_stream_encode(payload, sizeof payload, &rs);
+  struct lp_fix      f;
+  u8                 payload[64], out[1024], spkt[1024];
+  usz                off = 0, slen;
+  wired_obuf         ob  = {out, sizeof out, 0};
+  reset_stream_frame rs  = {2, 0x100, 0};
+  off                    = reset_stream_encode(payload, sizeof payload, &rs);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
@@ -2415,12 +2415,12 @@ static void test_srvloop_wt_signal_mid_stream_latches_violation(void) {
   u8            out[1024], spkt[1024];
   u8            sig[3] = {0x40, 0x41, 'X'}; /* same 2-byte signal varint
                                              * lp_wt_bidi_stream uses */
-  quic_stream_frame sf = {4, 3, sizeof sig, sig, 0};
-  u8                payload[64];
-  usz               plen, slen;
-  wired_obuf        ob = {out, sizeof out, 0};
+  stream_frame sf = {4, 3, sizeof sig, sig, 0};
+  u8           payload[64];
+  usz          plen, slen;
+  wired_obuf   ob = {out, sizeof out, 0};
   lp_confirm(&f, &ob);
-  plen = quic_frame_put_stream(payload, sizeof payload, &sf);
+  plen = frame_put_stream(payload, sizeof payload, &sf);
   CHECK(plen != 0);
   slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
@@ -2593,13 +2593,13 @@ static void test_srvloop_handler_body_echoed(void) {
  * NewSessionTicket (RFC 8446 4.6.1) and return its sealed ticket bytes via
  * *sealed. Returns 1 if found. */
 static int find_ticket_crypto(const u8* pl, usz pll, wired_span* sealed) {
-  quic_framewalk      it;
-  quic_framewalk_item fr;
-  quic_framewalk_init(&it, pl, pll);
-  while (quic_framewalk_next(&it, &fr)) {
-    quic_crypto_frame cf;
+  framewalk      it;
+  framewalk_item fr;
+  framewalk_init(&it, pl, pll);
+  while (framewalk_next(&it, &fr)) {
+    crypto_frame cf;
     if (fr.type != QUIC_FRAME_CRYPTO) continue;
-    if (quic_frame_get_crypto(fr.start, fr.remaining, &cf) == 0) continue;
+    if (frame_get_crypto(fr.start, fr.remaining, &cf) == 0) continue;
     if (tls_new_session_ticket_parse(wired_span_of(cf.data, cf.length), sealed))
       return 1;
   }
@@ -2624,8 +2624,8 @@ static void test_srvloop_ticket_sent_on_confirm(void) {
   CHECK(f.l.ticket_sent == 1);
   /* The confirming datagram coalesces a long-header Handshake ACK ahead of the
    * 1-RTT packet (RFC 9000 12.2); split it before opening as 1-RTT. */
-  quic_pktlist plist = {pkts, offs, lens, 4};
-  np                 = quic_udploop_split(wired_span_of(out, ob.len), &plist);
+  pktlist plist = {pkts, offs, lens, 4};
+  np            = udploop_split(wired_span_of(out, ob.len), &plist);
   CHECK(np == 2);
   CHECK(client_open_onertt(&f, out + offs[1], lens[1], &pl, &pll) == 1);
   CHECK(find_ticket_crypto(pl, pll, &sealed) == 1);
@@ -2671,14 +2671,14 @@ static void test_srvloop_ticket_not_resent(void) {
  * CONNECTION_CLOSE variants (0x1c transport, 0x1d application) and nothing
  * else. */
 static void test_srvloop_close_frame_detected(void) {
-  u8                    cc[32];
-  u8                    ping[1] = {0x01};
-  quic_conn_close_frame tpt     = {0, 0, 0, 0, 0};
-  quic_conn_close_frame app     = {1, 0, 0, 0, 0};
-  usz                   n = quic_frame_put_conn_close(cc, sizeof cc, &tpt);
+  u8               cc[32];
+  u8               ping[1] = {0x01};
+  conn_close_frame tpt     = {0, 0, 0, 0, 0};
+  conn_close_frame app     = {1, 0, 0, 0, 0};
+  usz              n       = frame_put_conn_close(cc, sizeof cc, &tpt);
   CHECK(n > 0);
   CHECK(srvloop_has_close(wired_span_of(cc, n)) == 1);
-  n = quic_frame_put_conn_close(cc, sizeof cc, &app);
+  n = frame_put_conn_close(cc, sizeof cc, &app);
   CHECK(n > 0);
   CHECK(srvloop_has_close(wired_span_of(cc, n)) == 1);
   CHECK(srvloop_has_close(wired_span_of(ping, 1)) == 0);
@@ -2686,7 +2686,7 @@ static void test_srvloop_close_frame_detected(void) {
 
 /* An ack-eliciting 1-RTT packet (here, a PING frame) records its pn
  * into the App packet-number-space's receive window and marks an ACK owed
- * (quic_ackpolicy pending). */
+ * (ackpolicy pending). */
 static void test_srvloop_ack_eliciting_records_pn_and_pending(void) {
   struct lp_fix f;
   wired_obuf    ob;
@@ -2698,7 +2698,7 @@ static void test_srvloop_ack_eliciting_records_pn_and_pending(void) {
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 1);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 1);
   CHECK(f.l.app_ack_policy.pending == 1);
 }
 
@@ -2706,25 +2706,25 @@ static void test_srvloop_ack_eliciting_records_pn_and_pending(void) {
  * into the receive window and does not raise the ACK-owed pending count --
  * receiving only ACKs is never itself a reason to ACK. */
 static void test_srvloop_ack_non_eliciting_not_recorded(void) {
-  struct lp_fix  f;
-  wired_obuf     ob;
-  u8             out[1024], fr[16], spkt[1024];
-  usz            fl, slen;
-  quic_ack_frame ackf = {0, 1, {{0, 0}}, 0, 0, 0, 0};
-  ob                  = (wired_obuf){out, sizeof out, 0};
+  struct lp_fix f;
+  wired_obuf    ob;
+  u8            out[1024], fr[16], spkt[1024];
+  usz           fl, slen;
+  ack_frame     ackf = {0, 1, {{0, 0}}, 0, 0, 0, 0};
+  ob                 = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
-  fl = quic_ack_encode(fr, sizeof fr, &ackf);
+  fl = ack_encode(fr, sizeof fr, &ackf);
   CHECK(fl > 0);
   slen = client_seal_onertt_pn(&f, 7, fr, fl, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 0);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 0);
   CHECK(f.l.app_ack_policy.pending == 0);
 }
 
 /* With nothing ever received on the App pn space, no ACK is owed
- * (quic_ackpolicy starts at pending == 0) -- a fresh connection's very
+ * (ackpolicy starts at pending == 0) -- a fresh connection's very
  * first step (the Handshake confirm alone, no 1-RTT packet yet) must not
  * synthesize an App-space ACK out of nothing. */
 static void test_srvloop_ack_no_eliciting_no_ack(void) {
@@ -2734,22 +2734,22 @@ static void test_srvloop_ack_no_eliciting_no_ack(void) {
   lp_confirm(&f, &ob);
   CHECK(f.l.app_ack_policy.pending == 0);
   CHECK(
-      quic_ackpolicy_should_ack(
+      ackpolicy_should_ack(
           &f.l.app_ack_policy, f.l.now_ms, WIRED_SRVLOOP_MAX_ACK_DELAY_MS) ==
       0);
 }
 
 /* A single lost packet between two received ones (pn 7 then pn 9,
- * skipping 8) yields a two-range ACK -- the gap in quic_recvpn's window
+ * skipping 8) yields a two-range ACK -- the gap in recvpn's window
  * surfaces as a second (Gap, Length) pair in the encoded frame (RFC 9000
  * 19.3). Forcing the delay window open (now_ms advanced past since_tick)
  * so the second step's own step_note_ack_owed piggyback actually fires. */
 static void test_srvloop_ack_single_gap_two_ranges(void) {
-  struct lp_fix  f;
-  wired_obuf     ob;
-  u8             out[1024], ping[1] = {0x01}, spkt[1024];
-  usz            slen;
-  quic_ack_frame a;
+  struct lp_fix f;
+  wired_obuf    ob;
+  u8            out[1024], ping[1] = {0x01}, spkt[1024];
+  usz           slen;
+  ack_frame     a;
   ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
@@ -2773,14 +2773,14 @@ static void test_srvloop_ack_single_gap_two_ranges(void) {
 }
 
 /* Reordered arrival (pn 9 before pn 7, the opposite wire order from the
- * previous test) still yields the same two ranges -- quic_recvpn's bitmap is
+ * previous test) still yields the same two ranges -- recvpn's bitmap is
  * order-independent. */
 static void test_srvloop_ack_reordered_pns_still_correct(void) {
-  struct lp_fix  f;
-  wired_obuf     ob;
-  u8             out[1024], ping[1] = {0x01}, spkt[1024];
-  usz            slen;
-  quic_ack_frame a;
+  struct lp_fix f;
+  wired_obuf    ob;
+  u8            out[1024], ping[1] = {0x01}, spkt[1024];
+  usz           slen;
+  ack_frame     a;
   ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 9, ping, 1, spkt, sizeof spkt);
@@ -2804,7 +2804,7 @@ static void test_srvloop_ack_reordered_pns_still_correct(void) {
 }
 
 /* Receiving the same pn twice (retransmit/duplicate delivery) must not
- * double-count the pending ACK counter -- quic_recvpn_seen already reflects
+ * double-count the pending ACK counter -- recvpn_seen already reflects
  * the pn as seen, so the second arrival is a duplicate the receive path
  * should recognize before crediting another pending increment. */
 static void test_srvloop_ack_duplicate_pn_not_double_counted(void) {
@@ -2821,16 +2821,16 @@ static void test_srvloop_ack_duplicate_pn_not_double_counted(void) {
   CHECK(f.l.app_ack_policy.pending == 1);
   /* app_ack_append's piggyback already cleared pending on this same step's
    * reply, so re-arm it deterministically before re-sending pn 7. */
-  quic_ackpolicy_on_ack_sent(&f.l.app_ack_policy);
+  ackpolicy_on_ack_sent(&f.l.app_ack_policy);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 1);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 1);
 }
 
 /* A pn older than the QUIC_RECVPN_WINDOW (64 packets behind the
- * current largest) is outside quic_recvpn's tracked bitmap -- receiving one
+ * current largest) is outside recvpn's tracked bitmap -- receiving one
  * again must not fabricate a new ACK-owed signal. */
 static void test_srvloop_ack_stale_pn_outside_window_ignored(void) {
   struct lp_fix f;
@@ -2844,12 +2844,12 @@ static void test_srvloop_ack_stale_pn_outside_window_ignored(void) {
   ob = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  quic_ackpolicy_on_ack_sent(&f.l.app_ack_policy);
+  ackpolicy_on_ack_sent(&f.l.app_ack_policy);
   slen = client_seal_onertt_pn(&f, 1, ping, 1, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 1) == 0);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 1) == 0);
 }
 
 /* The receive window boundary (a pn exactly QUIC_RECVPN_WINDOW behind
@@ -2866,24 +2866,24 @@ static void test_srvloop_ack_recvpn_window_boundary(void) {
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  quic_ackpolicy_on_ack_sent(&f.l.app_ack_policy);
+  ackpolicy_on_ack_sent(&f.l.app_ack_policy);
   slen = client_seal_onertt_pn(
       &f, 1 + QUIC_RECVPN_WINDOW, ping, 1, spkt, sizeof spkt);
   ob = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 1) == 1);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 1) == 1);
 }
 
 /* A large forward jump in pn (heavy loss, then one packet arriving far
- * ahead) must not corrupt quic_recvpn's sliding bitmap -- the new pn becomes
+ * ahead) must not corrupt recvpn's sliding bitmap -- the new pn becomes
  * the largest and is acked as its own single-packet range. */
 static void test_srvloop_ack_large_pn_jump_handled_by_existing_recvpn(void) {
-  struct lp_fix  f;
-  wired_obuf     ob;
-  u8             out[1024], ping[1] = {0x01}, spkt[1024];
-  usz            slen;
-  quic_ack_frame a;
+  struct lp_fix f;
+  wired_obuf    ob;
+  u8            out[1024], ping[1] = {0x01}, spkt[1024];
+  usz           slen;
+  ack_frame     a;
   ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 1, ping, 1, spkt, sizeof spkt);
@@ -2905,17 +2905,17 @@ static void test_srvloop_ack_large_pn_jump_handled_by_existing_recvpn(void) {
 }
 
 /* Exactly QUIC_ACK_MAX_RANGES (32) single-packet ranges, all within
- * quic_recvpn's QUIC_RECVPN_WINDOW (64) -- receiving pn 1, 3, 5, ..., 63 (32
+ * recvpn's QUIC_RECVPN_WINDOW (64) -- receiving pn 1, 3, 5, ..., 63 (32
  * odd packet numbers, every even one missing) yields 32 independent ranges,
  * proving the window comfortably reaches the range-count ceiling without
- * quic_ack_encode rejecting the frame. */
+ * ack_encode rejecting the frame. */
 static void test_srvloop_ack_ranges_within_window_all_included(void) {
-  struct lp_fix  f;
-  wired_obuf     ob;
-  u8             out[1024], ping[1] = {0x01}, spkt[1024];
-  usz            slen;
-  quic_ack_frame a;
-  u64            pn;
+  struct lp_fix f;
+  wired_obuf    ob;
+  u8            out[1024], ping[1] = {0x01}, spkt[1024];
+  usz           slen;
+  ack_frame     a;
+  u64           pn;
   ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   for (pn = 1; pn <= 61; pn += 2) {
@@ -2984,14 +2984,13 @@ static void test_srvloop_ack_pn_spaces_independent(void) {
   usz           slen;
   ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
-  CHECK(
-      quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_HANDSHAKE], f.l.hs_rx_pn) == 1);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_HANDSHAKE], f.l.hs_rx_pn) == 1);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 1);
-  CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_HANDSHAKE], 7) == 0);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 1);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_HANDSHAKE], 7) == 0);
 }
 
 /* With nothing pending on the App pn space and no request decoded,
@@ -3008,7 +3007,7 @@ static void test_srvloop_ack_nothing_pending_no_ack_frame_emitted(void) {
   lp_confirm(&f, &ob);
   CHECK(f.l.app_ack_policy.pending == 0);
   CHECK(
-      quic_ackpolicy_should_ack(
+      ackpolicy_should_ack(
           &f.l.app_ack_policy, f.l.now_ms, WIRED_SRVLOOP_MAX_ACK_DELAY_MS) ==
       0);
   {
@@ -3020,14 +3019,14 @@ static void test_srvloop_ack_nothing_pending_no_ack_frame_emitted(void) {
 
 /* The ACK frame's ack_delay field reflects the actual elapsed time
  * since the oldest unacked eliciting packet arrived (RFC 9000 19.3),
- * encoded via quic_ack_delay_encode -- not left at a fixed 0 regardless of
+ * encoded via ack_delay_encode -- not left at a fixed 0 regardless of
  * how long the server waited. */
 static void test_srvloop_ack_delay_field_encodes_actual_delay(void) {
-  struct lp_fix  f;
-  wired_obuf     ob;
-  u8             out[1024], ping[1] = {0x01}, spkt[1024];
-  usz            slen;
-  quic_ack_frame a;
+  struct lp_fix f;
+  wired_obuf    ob;
+  u8            out[1024], ping[1] = {0x01}, spkt[1024];
+  usz           slen;
+  ack_frame     a;
   ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
@@ -3039,7 +3038,7 @@ static void test_srvloop_ack_delay_field_encodes_actual_delay(void) {
     u8  buf[288];
     usz n = app_ack_encode_ranges(&f.l, buf, sizeof buf);
     CHECK(n > 0);
-    CHECK(quic_ack_decode(buf, n, &a) > 0);
+    CHECK(ack_decode(buf, n, &a) > 0);
     CHECK(a.ack_delay > 0);
   }
 }
@@ -3050,11 +3049,11 @@ static void test_srvloop_ack_delay_field_encodes_actual_delay(void) {
  * -- the pre-existing non-ECN wire format is unaffected by ECN support
  * existing at all. */
 static void test_srvloop_ack_ecn_always_disabled(void) {
-  struct lp_fix  f;
-  wired_obuf     ob;
-  u8             out[1024], ping[1] = {0x01}, spkt[1024];
-  usz            slen;
-  quic_ack_frame a;
+  struct lp_fix f;
+  wired_obuf    ob;
+  u8            out[1024], ping[1] = {0x01}, spkt[1024];
+  usz           slen;
+  ack_frame     a;
   ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
@@ -3101,11 +3100,11 @@ static void test_srvloop_ecn_counts_accumulate_on_receive(void) {
  * connection sends carries them (has_ecn=1, type 0x03), with each field
  * matching the counter it mirrors. */
 static void test_srvloop_ack_includes_ecn_counts_when_nonzero(void) {
-  struct lp_fix  f;
-  wired_obuf     ob;
-  u8             out[1024], ping[1] = {0x01}, spkt[1024];
-  usz            slen;
-  quic_ack_frame a;
+  struct lp_fix f;
+  wired_obuf    ob;
+  u8            out[1024], ping[1] = {0x01}, spkt[1024];
+  usz           slen;
+  ack_frame     a;
   ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   wired_srvloop_ecn_note(&f.l, 2); /* ECT(0) */
@@ -3149,11 +3148,11 @@ static void test_srvloop_ack_delay_window_boundary(void) {
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(
-      quic_ackpolicy_should_ack(
+      ackpolicy_should_ack(
           &f.l.app_ack_policy, f.l.app_ack_policy.since_tick,
           WIRED_SRVLOOP_MAX_ACK_DELAY_MS) == 0); /* not yet due */
   CHECK(
-      quic_ackpolicy_should_ack(
+      ackpolicy_should_ack(
           &f.l.app_ack_policy,
           f.l.app_ack_policy.since_tick + WIRED_SRVLOOP_MAX_ACK_DELAY_MS,
           WIRED_SRVLOOP_MAX_ACK_DELAY_MS) == 1); /* exactly due */
@@ -3161,28 +3160,28 @@ static void test_srvloop_ack_delay_window_boundary(void) {
 
 /* RFC 9000 13.2.2: a second ack-eliciting packet arriving while the
  * first is still unacked forces an immediate ACK, even at elapsed time 0
- * (well within the delay window) -- proven by quic_ackpolicy_should_ack
+ * (well within the delay window) -- proven by ackpolicy_should_ack
  * itself (a direct, non-destructive check of the 2-pending case), since
  * driving a second real wired_srvloop_step would immediately act on that
  * due-ness via emit_ack_only and clear pending back to 0 before this test
  * could observe it. */
 static void test_srvloop_ack_second_eliciting_forces_immediate(void) {
-  quic_ackpolicy p;
-  quic_ackpolicy_init(&p);
-  quic_ackpolicy_on_eliciting(&p, 0);
+  ackpolicy p;
+  ackpolicy_init(&p);
+  ackpolicy_on_eliciting(&p, 0);
   CHECK(p.pending == 1);
   CHECK(
-      quic_ackpolicy_should_ack(&p, 0, WIRED_SRVLOOP_MAX_ACK_DELAY_MS) ==
+      ackpolicy_should_ack(&p, 0, WIRED_SRVLOOP_MAX_ACK_DELAY_MS) ==
       0); /* one pending, no delay elapsed: not yet due */
-  quic_ackpolicy_on_eliciting(&p, 0);
+  ackpolicy_on_eliciting(&p, 0);
   CHECK(p.pending == 2);
   CHECK(
-      quic_ackpolicy_should_ack(&p, 0, WIRED_SRVLOOP_MAX_ACK_DELAY_MS) ==
+      ackpolicy_should_ack(&p, 0, WIRED_SRVLOOP_MAX_ACK_DELAY_MS) ==
       1); /* second pending: due immediately, delay window irrelevant */
 }
 
 /* Once app_ack_append actually encodes and sends an ACK, pending is
- * cleared (quic_ackpolicy_on_ack_sent) so the next due-check starts fresh
+ * cleared (ackpolicy_on_ack_sent) so the next due-check starts fresh
  * rather than staying stuck at "due" forever. */
 static void test_srvloop_ack_sent_clears_pending_state(void) {
   struct lp_fix f;
@@ -3242,14 +3241,14 @@ static void test_srvloop_produce_ack_only_ignores_pacing(void) {
  * max_data_seen -- the connection-level send credit ceiling the caller
  * (srvrun.c) may now raise its own running credit to. */
 static void test_srvloop_gather_max_data_raises_credit(void) {
-  struct lp_fix   f;
-  wired_obuf      ob;
-  u8              out[1024], fr[16], spkt[1024];
-  usz             fl, slen;
-  quic_data_frame md = {2000000};
-  ob                 = (wired_obuf){out, sizeof out, 0};
+  struct lp_fix f;
+  wired_obuf    ob;
+  u8            out[1024], fr[16], spkt[1024];
+  usz           fl, slen;
+  data_frame    md = {2000000};
+  ob               = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
-  fl = quic_max_data_encode(fr, sizeof fr, &md);
+  fl = max_data_encode(fr, sizeof fr, &md);
   CHECK(fl > 0);
   slen = client_seal_onertt(&f, fr, fl, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
@@ -3264,16 +3263,16 @@ static void test_srvloop_gather_max_data_raises_credit(void) {
  * a running high-water mark within the step, mirroring RFC 9000 4.1's
  * "never decreases" at the gather layer itself. */
 static void test_srvloop_gather_max_data_keeps_running_high(void) {
-  struct lp_fix   f;
-  wired_obuf      ob;
-  u8              out[1024], fr[32], spkt[1024];
-  usz             fl, fl2, slen;
-  quic_data_frame lo = {1000}, hi = {5000};
+  struct lp_fix f;
+  wired_obuf    ob;
+  u8            out[1024], fr[32], spkt[1024];
+  usz           fl, fl2, slen;
+  data_frame    lo = {1000}, hi = {5000};
   ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
-  fl = quic_max_data_encode(fr, sizeof fr, &hi);
+  fl = max_data_encode(fr, sizeof fr, &hi);
   CHECK(fl > 0);
-  fl2 = quic_max_data_encode(fr + fl, sizeof fr - fl, &lo);
+  fl2 = max_data_encode(fr + fl, sizeof fr - fl, &lo);
   CHECK(fl2 > 0);
   slen = client_seal_onertt(&f, fr, fl + fl2, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
@@ -3375,14 +3374,14 @@ static void test_srvloop_gather_max_streams_uni(void) {
  * resolves which resp[] slot stream_id names and raises that slot's own
  * running credit. */
 static void test_srvloop_gather_max_stream_data_raises_credit(void) {
-  struct lp_fix          f;
-  wired_obuf             ob;
-  u8                     out[1024], fr[32], spkt[1024];
-  usz                    fl, slen;
-  quic_stream_data_frame msd = {4, 300000};
-  ob                         = (wired_obuf){out, sizeof out, 0};
+  struct lp_fix     f;
+  wired_obuf        ob;
+  u8                out[1024], fr[32], spkt[1024];
+  usz               fl, slen;
+  stream_data_frame msd = {4, 300000};
+  ob                    = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
-  fl = quic_max_stream_data_encode(fr, sizeof fr, &msd);
+  fl = max_stream_data_encode(fr, sizeof fr, &msd);
   CHECK(fl > 0);
   slen = client_seal_onertt(&f, fr, fl, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
@@ -3400,22 +3399,22 @@ static void test_srvloop_gather_max_stream_data_raises_credit(void) {
  * silently dropped another's. */
 static void test_srvloop_gather_max_stream_data_keeps_every_distinct_stream(
     void) {
-  struct lp_fix          f;
-  wired_obuf             ob;
-  u8                     out[1024], fr[96], spkt[1024];
-  usz                    at   = 0, fl, slen;
-  quic_stream_data_frame msd0 = {4, 100000};
-  quic_stream_data_frame msd1 = {8, 200000};
-  quic_stream_data_frame msd2 = {12, 300000};
-  ob                          = (wired_obuf){out, sizeof out, 0};
+  struct lp_fix     f;
+  wired_obuf        ob;
+  u8                out[1024], fr[96], spkt[1024];
+  usz               at   = 0, fl, slen;
+  stream_data_frame msd0 = {4, 100000};
+  stream_data_frame msd1 = {8, 200000};
+  stream_data_frame msd2 = {12, 300000};
+  ob                     = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
-  fl = quic_max_stream_data_encode(fr + at, sizeof(fr) - at, &msd0);
+  fl = max_stream_data_encode(fr + at, sizeof(fr) - at, &msd0);
   CHECK(fl > 0);
   at += fl;
-  fl = quic_max_stream_data_encode(fr + at, sizeof(fr) - at, &msd1);
+  fl = max_stream_data_encode(fr + at, sizeof(fr) - at, &msd1);
   CHECK(fl > 0);
   at += fl;
-  fl = quic_max_stream_data_encode(fr + at, sizeof(fr) - at, &msd2);
+  fl = max_stream_data_encode(fr + at, sizeof(fr) - at, &msd2);
   CHECK(fl > 0);
   at += fl;
   slen = client_seal_onertt(&f, fr, at, spkt, sizeof spkt);
@@ -3436,18 +3435,18 @@ static void test_srvloop_gather_max_stream_data_keeps_every_distinct_stream(
  * newest value for a given stream matters, same as the old single-latch
  * behavior when there was only ever one stream to raise. */
 static void test_srvloop_gather_max_stream_data_same_stream_overwrites(void) {
-  struct lp_fix          f;
-  wired_obuf             ob;
-  u8                     out[1024], fr[64], spkt[1024];
-  usz                    at   = 0, fl, slen;
-  quic_stream_data_frame msd0 = {4, 100000};
-  quic_stream_data_frame msd1 = {4, 500000};
-  ob                          = (wired_obuf){out, sizeof out, 0};
+  struct lp_fix     f;
+  wired_obuf        ob;
+  u8                out[1024], fr[64], spkt[1024];
+  usz               at   = 0, fl, slen;
+  stream_data_frame msd0 = {4, 100000};
+  stream_data_frame msd1 = {4, 500000};
+  ob                     = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
-  fl = quic_max_stream_data_encode(fr + at, sizeof(fr) - at, &msd0);
+  fl = max_stream_data_encode(fr + at, sizeof(fr) - at, &msd0);
   CHECK(fl > 0);
   at += fl;
-  fl = quic_max_stream_data_encode(fr + at, sizeof(fr) - at, &msd1);
+  fl = max_stream_data_encode(fr + at, sizeof(fr) - at, &msd1);
   CHECK(fl > 0);
   at += fl;
   slen = client_seal_onertt(&f, fr, at, spkt, sizeof spkt);
@@ -3481,15 +3480,15 @@ static void test_srvloop_no_flowctl_frame_leaves_latches_unset(void) {
  * CONNECTION_CLOSE marks the loop peer-closed; the ordinary confirm exchange
  * never does, and re-arming the loop clears the mark. */
 static void test_srvloop_peer_close_sets_flag(void) {
-  struct lp_fix         f;
-  wired_obuf            ob;
-  u8                    out[1024], cc[32], spkt[1024];
-  usz                   ccn, slen;
-  quic_conn_close_frame ccf = {0, 0, 0, 0, 0};
-  ob                        = (wired_obuf){out, sizeof out, 0};
+  struct lp_fix    f;
+  wired_obuf       ob;
+  u8               out[1024], cc[32], spkt[1024];
+  usz              ccn, slen;
+  conn_close_frame ccf = {0, 0, 0, 0, 0};
+  ob                   = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   CHECK(f.l.peer_closed == 0); /* normal handshake never sets it */
-  ccn = quic_frame_put_conn_close(cc, sizeof cc, &ccf);
+  ccn = frame_put_conn_close(cc, sizeof cc, &ccf);
   CHECK(ccn > 0);
   slen = client_seal_onertt(&f, cc, ccn, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
@@ -3504,12 +3503,12 @@ static void test_srvloop_peer_close_sets_flag(void) {
  * 1-RTT payload are copied to the loop's per-step list; a payload with no
  * ACK leaves the list empty (reset each step). */
 static void test_srvloop_collects_ack_ranges(void) {
-  struct lp_fix  f;
-  wired_obuf     ob;
-  u8             out[1024], fr[64], spkt[1024];
-  usz            fl, slen;
-  quic_ack_frame af = {0};
-  ob                = (wired_obuf){out, sizeof out, 0};
+  struct lp_fix f;
+  wired_obuf    ob;
+  u8            out[1024], fr[64], spkt[1024];
+  usz           fl, slen;
+  ack_frame     af = {0};
+  ob               = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   /* no ACK in anything so far this step path */
   {
@@ -3525,7 +3524,7 @@ static void test_srvloop_collects_ack_ranges(void) {
   af.ranges[0].lo = 7;
   af.ranges[1].hi = 4;
   af.ranges[1].lo = 4;
-  fl              = quic_ack_encode(fr, sizeof fr, &af);
+  fl              = ack_encode(fr, sizeof fr, &af);
   CHECK(fl > 0);
   slen = client_seal_onertt(&f, fr, fl, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
@@ -3609,12 +3608,12 @@ static usz client_seal_onertt_pn_gen(
   }
   aes128_init(&hp, use->hp);
   {
-    quic_protect_keys      pk = {use, &hp};
-    quic_hspkt_onertt_desc d  = {
+    protect_keys      pk = {use, &hp};
+    hspkt_onertt_desc d  = {
         wired_span_of(s->sdrv.iscid, s->sdrv.iscid_len), pn,
         wired_span_of(pl, pln), phase};
     wired_obuf o = obuf_of(pkt, cap);
-    CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
+    CHECK(hspkt_onertt_build(&pk, &d, &o));
     total = o.len;
   }
   return total;
@@ -3702,9 +3701,9 @@ static int client_open_onertt_gen1(
   }
   aes128_init(&hp, next.hp);
   {
-    quic_protect_keys           pk = {&next, &hp};
-    quic_hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
-    if (!quic_hspkt_onertt_open(&pk, &d, &v)) return 0;
+    protect_keys           pk = {&next, &hp};
+    hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
+    if (!hspkt_onertt_open(&pk, &d, &v)) return 0;
   }
   *pl  = v.p;
   *pll = v.n;
@@ -3937,12 +3936,12 @@ static void test_srvloop_recv_zerortt_opens_with_early_keys(void) {
   aes128_init(&hp, s.sdrv.early_keys.hp);
   /* RFC 9000 17.2.3: build the 0-RTT long header directly (byte0 = form
    * 0x80 | fixed 0x40 | type 0x1 (0-RTT) << 4 | pn_len-1) via the raw
-   * quic_tx_packet_suite primitive -- quic_hspkt_build hardcodes byte0 to
+   * tx_packet_suite primitive -- hspkt_build hardcodes byte0 to
    * Handshake's type bits, and byte0 is covered by the AEAD's AAD, so the
    * type must be set before sealing, not patched into the output after. */
   {
-    quic_protect_keys pk = {&s.sdrv.early_keys, &hp};
-    quic_tx_desc      d  = {
+    protect_keys pk = {&s.sdrv.early_keys, &hp};
+    tx_desc      d  = {
         0xd3,
         wired_span_of(g_cli_scid, 6),
         wired_span_of(g_cli_scid, 6),
@@ -3951,7 +3950,7 @@ static void test_srvloop_recv_zerortt_opens_with_early_keys(void) {
         0,
         wired_span_of(payload, sizeof(payload)),
         0};
-    ob.len = quic_tx_packet_suite(
+    ob.len = tx_packet_suite(
         s.sdrv.cipher_suite, &pk, &d, wired_mspan_of(pkt, sizeof(pkt)));
     CHECK(ob.len != 0);
   }
@@ -4011,8 +4010,8 @@ static void test_srvloop_step_zerortt_records_real_pn(void) {
   f.s.sdrv.early_data_accepted = 1;
   aes128_init(&hp, f.s.sdrv.early_keys.hp);
   {
-    quic_protect_keys pk = {&f.s.sdrv.early_keys, &hp};
-    quic_tx_desc      d  = {
+    protect_keys pk = {&f.s.sdrv.early_keys, &hp};
+    tx_desc      d  = {
         0xd3,
         wired_span_of(g_cli_scid, 6),
         wired_span_of(g_cli_scid, 6),
@@ -4021,7 +4020,7 @@ static void test_srvloop_step_zerortt_records_real_pn(void) {
         3, /* pn 3: nonzero, distinct from every other space's pn */
         wired_span_of(payload, sizeof(payload)),
         0};
-    slen = quic_tx_packet_suite(
+    slen = tx_packet_suite(
         f.s.sdrv.cipher_suite, &pk, &d, wired_mspan_of(pkt, sizeof(pkt)));
     CHECK(slen != 0);
   }
@@ -4038,7 +4037,7 @@ static void test_srvloop_step_zerortt_records_real_pn(void) {
 static void test_srvloop_touched_mask_reaches_high_slots(void) {
   static wired_srvloop l;
   u64                  touched = 0;
-  quic_stream_frame    sf;
+  stream_frame         sf;
   static const u8      scid[1] = {1};
   static const u8      body[1] = {0};
   CHECK(wired_srvloop_init(&l, scid, 1));

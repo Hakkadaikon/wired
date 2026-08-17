@@ -64,13 +64,12 @@ int client_seal_handshake_wire(
  * in->dcid_len is our connection id length. Returns 1, or 0 if the key is not
  * derived or on authentication failure. */
 int client_open_handshake_wire(
-    client* c, const quic_appdata_pkt* in, wired_span* tls);
+    client* c, const appdata_pkt* in, wired_span* tls);
 
 /* RFC 9001 5: seal application data (e.g. an HTTP/3 GET) into a 1-RTT packet
  * under the client's own-direction key (CLIENT_AP). Returns 1, or 0 if the key
  * is not derived or on overflow. */
-int client_send_appdata_wire(
-    client* c, const quic_appdata_tx* in, wired_obuf* out);
+int client_send_appdata_wire(client* c, const appdata_tx* in, wired_obuf* out);
 
 /** The received packet bytes (opened in place) and our own SCID it must route
  * to (RFC 9000 5.1). */
@@ -85,6 +84,6 @@ typedef struct {
  * not ours. Fills *out (stream_id/offset/data/fin). Returns 1, or 0 on a DCID
  * mismatch, undrived key, or auth failure. */
 int client_recv_appdata_wire(
-    client* c, const clientwire_recv_in* in, quic_stream_frame* out);
+    client* c, const clientwire_recv_in* in, stream_frame* out);
 
 #endif

@@ -31,11 +31,11 @@ enum {
 /** RFC 9000 5/7: a UDP-socket-backed QUIC client driving the TLS 1.3
  * handshake to confirmation, plus the peer address and handshake state. */
 typedef struct {
-  i64           fd; /* UDP socket; <0 until init succeeds */
-  quic_sockaddr peer;
-  tlsdriver     tls;
-  fullhs        hs;
-  int           phase;          /* QUIC_CLIENT_HS_* */
+  i64       fd; /* UDP socket; <0 until init succeeds */
+  sockaddr  peer;
+  tlsdriver tls;
+  fullhs    hs;
+  int       phase;              /* QUIC_CLIENT_HS_* */
   u8        sh_transcript[512]; /* ClientHello..ServerHello bytes for fullhs */
   usz       sh_len;
   u8        my_priv[QUIC_ECDHE_LEN];

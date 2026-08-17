@@ -25,7 +25,7 @@ typedef struct {
 } wired_srvxdpbpf;
 
 /** Create the XSKMAP (WIRED_SRVXDPBPF_MAP_ENTRIES slots), build and load the
- * redirect-filter program around it (quic_xdpbpf_prog_build, dport == port),
+ * redirect-filter program around it (xdpbpf_prog_build, dport == port),
  * and attach it to the interface with a BPF link. On any failure, everything
  * already built is closed in reverse order and every fd is left at -1.
  * @param b            output; all three fds valid on success, -1 on failure

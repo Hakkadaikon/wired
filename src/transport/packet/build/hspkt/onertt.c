@@ -25,87 +25,84 @@ static usz build_short_header(u8* hdr, wired_span dcid, u64 pn, int phase_bit) {
 
 /* RFC 9001 5.3/5.4: seal payload after the header, then header-protect with
  * the short-header byte0 mask. */
-int quic_hspkt_onertt_build(
-    const quic_protect_keys*      k,
-    const quic_hspkt_onertt_desc* d,
-    wired_obuf*                   out) {
-  u8             nonce[QUIC_INITIAL_IV], mask[5];
-  aes128         aead;
-  u8*            o       = out->p;
-  usz            hdr_len = build_short_header(o, d->dcid, d->pn, d->phase_bit);
-  usz            pn_off  = 1u + d->dcid.n;
-  usz            need    = hdr_len + d->payload.n + QUIC_GCM_TAG;
-  quic_hp_fields hf      = {o, o + pn_off, 4, QUIC_HP_SHORT_MASK};
+int hspkt_onertt_build(
+    const protect_keys* k, const hspkt_onertt_desc* d, wired_obuf* out) {
+  u8        nonce[QUIC_INITIAL_IV], mask[5];
+  aes128    aead;
+  u8*       o       = out->p;
+  usz       hdr_len = build_short_header(o, d->dcid, d->pn, d->phase_bit);
+  usz       pn_off  = 1u + d->dcid.n;
+  usz       need    = hdr_len + d->payload.n + QUIC_GCM_TAG;
+  hp_fields hf      = {o, o + pn_off, 4, QUIC_HP_SHORT_MASK};
   if (need > out->cap) return 0;
-  quic_protect_nonce(k->keys->iv, d->pn, nonce);
+  protect_nonce(k->keys->iv, d->pn, nonce);
   aes128_init(&aead, k->keys->key);
   gcm_ctx g = {&aead, nonce, {o, hdr_len}};
   gcm_seal(&g, d->payload, o + hdr_len);
-  quic_hp_mask(k->hp, o + pn_off + 4, mask);
-  quic_hp_apply(mask, &hf);
+  hp_mask(k->hp, o + pn_off + 4, mask);
+  hp_apply(mask, &hf);
   out->len = need;
   return 1;
 }
 
 /* RFC 9001 5 / RFC 9000 A.3 */
-int quic_hspkt_onertt_open(
-    const quic_protect_keys*           k,
-    const quic_hspkt_onertt_open_desc* d,
-    wired_span*                        payload) {
-  quic_hspkt_unprotect_desc u = {
+int hspkt_onertt_open(
+    const protect_keys*           k,
+    const hspkt_onertt_open_desc* d,
+    wired_span*                   payload) {
+  hspkt_unprotect_desc u = {
       d->pkt, 5u + (usz)d->dcid_len, 1u + (usz)d->dcid_len, QUIC_HP_SHORT_MASK,
       d->largest_pn};
-  return quic_hspkt_unprotect(k, &u, payload);
+  return hspkt_unprotect(k, &u, payload);
 }
 
 /* Seal d->payload after the short header already written at o (build_short_
- * header), under suite. op.iv is the raw key IV (quic_aead_suite_seal
+ * header), under suite. op.iv is the raw key IV (aead_suite_seal
  * derives the nonce itself: iv XOR pn), not a precomputed nonce. Returns 1
  * on success, 0 on overflow/unknown suite. */
 static int onertt_seal_suite(
-    u16                           suite,
-    const quic_protect_keys*      k,
-    const quic_hspkt_onertt_desc* d,
-    u8*                           o,
-    usz                           hdr_len,
-    usz                           need,
-    wired_obuf*                   out) {
-  quic_aead_suite_op op;
+    u16                      suite,
+    const protect_keys*      k,
+    const hspkt_onertt_desc* d,
+    u8*                      o,
+    usz                      hdr_len,
+    usz                      need,
+    wired_obuf*              out) {
+  aead_suite_op op;
   if (need > out->cap) return 0;
-  op = (quic_aead_suite_op){
-      suite, k->keys->key, k->keys->iv, d->pn, {o, hdr_len}};
-  return quic_aead_suite_seal(&op, d->payload, o + hdr_len) != 0;
+  op = (aead_suite_op){suite, k->keys->key, k->keys->iv, d->pn, {o, hdr_len}};
+  return aead_suite_seal(&op, d->payload, o + hdr_len) != 0;
 }
 
-/* Same as quic_hspkt_onertt_build, but seals under the given negotiated TLS
+/* Same as hspkt_onertt_build, but seals under the given negotiated TLS
  * 1.3 cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
-int quic_hspkt_onertt_build_suite(
-    u16                           suite,
-    const quic_protect_keys*      k,
-    const quic_hspkt_onertt_desc* d,
-    wired_obuf*                   out) {
-  u8             mask[5];
-  u8*            o       = out->p;
-  usz            hdr_len = build_short_header(o, d->dcid, d->pn, d->phase_bit);
-  usz            pn_off  = 1u + d->dcid.n;
-  usz            need    = hdr_len + d->payload.n + aead_tag_len(suite);
-  quic_hp_fields hf      = {o, o + pn_off, 4, QUIC_HP_SHORT_MASK};
+int hspkt_onertt_build_suite(
+    u16                      suite,
+    const protect_keys*      k,
+    const hspkt_onertt_desc* d,
+    wired_obuf*              out) {
+  u8        mask[5];
+  u8*       o       = out->p;
+  usz       hdr_len = build_short_header(o, d->dcid, d->pn, d->phase_bit);
+  usz       pn_off  = 1u + d->dcid.n;
+  usz       need    = hdr_len + d->payload.n + aead_tag_len(suite);
+  hp_fields hf      = {o, o + pn_off, 4, QUIC_HP_SHORT_MASK};
   if (!onertt_seal_suite(suite, k, d, o, hdr_len, need, out)) return 0;
-  if (!quic_hp_suite_mask(suite, k->keys->hp, o + pn_off + 4, mask)) return 0;
-  quic_hp_apply(mask, &hf);
+  if (!hp_suite_mask(suite, k->keys->hp, o + pn_off + 4, mask)) return 0;
+  hp_apply(mask, &hf);
   out->len = need;
   return 1;
 }
 
-/* Same as quic_hspkt_onertt_open, but opens under the given negotiated TLS
+/* Same as hspkt_onertt_open, but opens under the given negotiated TLS
  * 1.3 cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
-int quic_hspkt_onertt_open_suite(
-    u16                                suite,
-    const quic_protect_keys*           k,
-    const quic_hspkt_onertt_open_desc* d,
-    wired_span*                        payload) {
-  quic_hspkt_unprotect_desc u = {
+int hspkt_onertt_open_suite(
+    u16                           suite,
+    const protect_keys*           k,
+    const hspkt_onertt_open_desc* d,
+    wired_span*                   payload) {
+  hspkt_unprotect_desc u = {
       d->pkt, 5u + (usz)d->dcid_len, 1u + (usz)d->dcid_len, QUIC_HP_SHORT_MASK,
       d->largest_pn};
-  return quic_hspkt_unprotect_suite(suite, k, &u, payload);
+  return hspkt_unprotect_suite(suite, k, &u, payload);
 }

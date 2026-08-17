@@ -165,7 +165,7 @@ usz wired_srvboot_vneg(wired_span dg, u8* out, usz cap);
  * (RFC 9000 19.6), and the server may not build its flight until the whole
  * message is contiguous. */
 typedef struct {
-  quic_crecv   cr;  /**< CRYPTO stream reassembly buffer */
+  crecv        cr;  /**< CRYPTO stream reassembly buffer */
   wired_header hdr; /**< the first datagram's header: its DCID is the ODCID
                        the Initial keys derive from (fixed for the whole
                        boot), its SCID the id the server replies to */

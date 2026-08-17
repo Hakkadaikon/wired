@@ -12,9 +12,9 @@ static int r_rx(
     u8*                 pkt,
     usz                 n,
     wired_span*         frames) {
-  quic_protect_keys k = {ik, hp};
-  quic_rx_desc      d = {wired_mspan_of(pkt, n), 1};
-  return quic_rx_packet(&k, &d, frames);
+  protect_keys k = {ik, hp};
+  rx_desc      d = {wired_mspan_of(pkt, n), 1};
+  return rx_packet(&k, &d, frames);
 }
 
 /* RFC 9001 5: rx recovers the exact multi-frame payload that tx sealed. */
@@ -27,20 +27,17 @@ static void test_rxpacket_payload_view(void) {
 
   u8  frames[8];
   usz fl = 0;
-  fl +=
-      quic_frame_put_simple(frames + fl, sizeof(frames) - fl, QUIC_FRAME_PING);
-  fl += quic_frame_put_simple(
-      frames + fl, sizeof(frames) - fl, QUIC_FRAME_PADDING);
-  fl +=
-      quic_frame_put_simple(frames + fl, sizeof(frames) - fl, QUIC_FRAME_PING);
+  fl += frame_put_simple(frames + fl, sizeof(frames) - fl, QUIC_FRAME_PING);
+  fl += frame_put_simple(frames + fl, sizeof(frames) - fl, QUIC_FRAME_PADDING);
+  fl += frame_put_simple(frames + fl, sizeof(frames) - fl, QUIC_FRAME_PING);
   CHECK(fl == 3);
 
-  u8                pkt[256];
-  quic_protect_keys k    = {&ik, &hp};
-  wired_span        none = wired_span_of((const u8*)0, 0);
-  quic_tx_desc      td   = {0xc3, wired_span_of(dcid, 8),    none, 1, none,
-                            5,    wired_span_of(frames, fl), 0};
-  usz n = quic_tx_packet(&k, &td, wired_mspan_of(pkt, sizeof(pkt)));
+  u8           pkt[256];
+  protect_keys k    = {&ik, &hp};
+  wired_span   none = wired_span_of((const u8*)0, 0);
+  tx_desc      td   = {0xc3, wired_span_of(dcid, 8),    none, 1, none,
+                       5,    wired_span_of(frames, fl), 0};
+  usz          n    = tx_packet(&k, &td, wired_mspan_of(pkt, sizeof(pkt)));
   CHECK(n != 0);
 
   wired_span got;
@@ -67,12 +64,12 @@ static usz build_pkt(initial_keys* ik, aes128* hp, u8* pkt, usz cap) {
   usz             fl = 0;
   initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, ik);
   aes128_init(hp, ik->hp);
-  fl += quic_frame_put_simple(frames + fl, sizeof(frames), QUIC_FRAME_PING);
-  quic_protect_keys k    = {ik, hp};
-  wired_span        none = wired_span_of((const u8*)0, 0);
-  quic_tx_desc      td   = {0xc3, wired_span_of(dcid, 8),    none, 1, none,
-                            5,    wired_span_of(frames, fl), 0};
-  return quic_tx_packet(&k, &td, wired_mspan_of(pkt, cap));
+  fl += frame_put_simple(frames + fl, sizeof(frames), QUIC_FRAME_PING);
+  protect_keys k    = {ik, hp};
+  wired_span   none = wired_span_of((const u8*)0, 0);
+  tx_desc      td   = {0xc3, wired_span_of(dcid, 8),    none, 1, none,
+                       5,    wired_span_of(frames, fl), 0};
+  return tx_packet(&k, &td, wired_mspan_of(pkt, cap));
 }
 
 /* RFC 9001 5.2: a packet whose AEAD tag is flipped must be dropped, not crash.

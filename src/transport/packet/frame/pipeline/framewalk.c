@@ -10,7 +10,7 @@
 #include "transport/packet/frame/frame/ncid.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
 
-void quic_framewalk_init(quic_framewalk* it, const u8* frames, usz len) {
+void framewalk_init(framewalk* it, const u8* frames, usz len) {
   it->cur       = frames;
   it->remaining = len;
 }
@@ -18,20 +18,20 @@ void quic_framewalk_init(quic_framewalk* it, const u8* frames, usz len) {
 /* RFC 9000 19.3/19.6/19.8/19.19, RFC 9221 5: each measurable multi-byte kind's
  * length comes from its own decoder, which returns total bytes consumed. */
 static usz ack_len(const u8* buf, usz n) {
-  quic_ack_frame f;
-  return quic_ack_decode(buf, n, &f);
+  ack_frame f;
+  return ack_decode(buf, n, &f);
 }
 static usz crypto_len(const u8* buf, usz n) {
-  quic_crypto_frame f;
-  return quic_frame_get_crypto(buf, n, &f);
+  crypto_frame f;
+  return frame_get_crypto(buf, n, &f);
 }
 static usz stream_len(const u8* buf, usz n) {
-  quic_stream_frame f;
-  return quic_frame_get_stream(buf, n, &f);
+  stream_frame f;
+  return frame_get_stream(buf, n, &f);
 }
 static usz conn_close_len(const u8* buf, usz n) {
-  quic_conn_close_frame f;
-  return quic_frame_get_conn_close(buf, n, &f);
+  conn_close_frame f;
+  return frame_get_conn_close(buf, n, &f);
 }
 /* RFC 9221 5: type 0x30 has no Length field and runs to the end of the packet;
  * type 0x31 carries an explicit Length varint. quic_datagram_decode already
@@ -47,16 +47,16 @@ static usz datagram_len(const u8* buf, usz n) {
  * measurable frame instead of stalling when one is coalesced with other
  * frames in the same payload. */
 static usz reset_stream_len(const u8* buf, usz n) {
-  quic_reset_stream_frame f;
-  return quic_reset_stream_decode(buf, n, &f);
+  reset_stream_frame f;
+  return reset_stream_decode(buf, n, &f);
 }
 static usz stop_sending_len(const u8* buf, usz n) {
-  quic_stop_sending_frame f;
-  return quic_stop_sending_decode(buf, n, &f);
+  stop_sending_frame f;
+  return stop_sending_decode(buf, n, &f);
 }
 static usz reset_stream_at_len(const u8* buf, usz n) {
-  quic_reset_stream_at_frame f;
-  return quic_reset_stream_at_decode(buf, n, &f);
+  reset_stream_at_frame f;
+  return reset_stream_at_decode(buf, n, &f);
 }
 /* RFC 9000 19.7/19.9-19.18: the flow-control and connection-management
  * frames a real peer coalesces with STREAM/ACK frames. Each reuses its own
@@ -64,48 +64,48 @@ static usz reset_stream_at_len(const u8* buf, usz n) {
  * a row here the walk stops at the frame and everything after it in the
  * packet is dropped while the pn still gets ACKed (permanent data loss). */
 static usz max_data_len(const u8* buf, usz n) {
-  quic_data_frame f;
-  return quic_max_data_decode(buf, n, &f);
+  data_frame f;
+  return max_data_decode(buf, n, &f);
 }
 static usz data_blocked_len(const u8* buf, usz n) {
-  quic_data_frame f;
-  return quic_data_blocked_decode(buf, n, &f);
+  data_frame f;
+  return data_blocked_decode(buf, n, &f);
 }
 static usz max_stream_data_len(const u8* buf, usz n) {
-  quic_stream_data_frame f;
-  return quic_max_stream_data_decode(buf, n, &f);
+  stream_data_frame f;
+  return max_stream_data_decode(buf, n, &f);
 }
 static usz stream_data_blocked_len(const u8* buf, usz n) {
-  quic_stream_data_frame f;
-  return quic_stream_data_blocked_decode(buf, n, &f);
+  stream_data_frame f;
+  return stream_data_blocked_decode(buf, n, &f);
 }
 static usz max_streams_len(const u8* buf, usz n) {
-  quic_streams_frame f;
-  return quic_max_streams_decode(buf, n, &f);
+  streams_frame f;
+  return max_streams_decode(buf, n, &f);
 }
 static usz streams_blocked_len(const u8* buf, usz n) {
-  quic_streams_frame f;
-  return quic_streams_blocked_decode(buf, n, &f);
+  streams_frame f;
+  return streams_blocked_decode(buf, n, &f);
 }
 static usz new_token_len(const u8* buf, usz n) {
-  quic_new_token_frame f;
-  return quic_new_token_decode(buf, n, &f);
+  new_token_frame f;
+  return new_token_decode(buf, n, &f);
 }
 static usz ncid_len(const u8* buf, usz n) {
-  quic_ncid_frame f;
-  return quic_ncid_decode(buf, n, &f);
+  ncid_frame f;
+  return ncid_decode(buf, n, &f);
 }
 static usz retire_cid_len(const u8* buf, usz n) {
   u64 seq;
-  return quic_retire_cid_decode(buf, n, &seq);
+  return retire_cid_decode(buf, n, &seq);
 }
 static usz path_challenge_len(const u8* buf, usz n) {
   u8 data[QUIC_PATH_DATA];
-  return quic_path_decode(buf, n, QUIC_FRAME_PATH_CHALLENGE, data);
+  return path_decode(buf, n, QUIC_FRAME_PATH_CHALLENGE, data);
 }
 static usz path_response_len(const u8* buf, usz n) {
   u8 data[QUIC_PATH_DATA];
-  return quic_path_decode(buf, n, QUIC_FRAME_PATH_RESPONSE, data);
+  return path_decode(buf, n, QUIC_FRAME_PATH_RESPONSE, data);
 }
 
 /* Single-byte kinds (PADDING/PING/HANDSHAKE_DONE) have no table row; they are
@@ -139,7 +139,7 @@ static const len_row LEN_TABLE[] = {
 
 /* Length of a frame the walker measures via a decoder, or 0 if kind has no
  * table row (an unmeasurable kind). */
-static usz decoded_len(quic_frame_kind kind, const u8* buf, usz n) {
+static usz decoded_len(frame_kind kind, const u8* buf, usz n) {
   usz i, rows = sizeof LEN_TABLE / sizeof LEN_TABLE[0];
   for (i = 0; i < rows; i++)
     if (LEN_TABLE[i].kind == kind) return LEN_TABLE[i].fn(buf, n);
@@ -147,28 +147,28 @@ static usz decoded_len(quic_frame_kind kind, const u8* buf, usz n) {
 }
 
 /* Single-byte frames carry no body (RFC 9000 19.1/19.2/19.20). */
-static int single_byte(quic_frame_kind kind) {
+static int single_byte(frame_kind kind) {
   return kind == QUIC_FK_PADDING || kind == QUIC_FK_PING ||
          kind == QUIC_FK_HANDSHAKE_DONE;
 }
 
 /* Bytes the frame at buf occupies, or 0 if the walker cannot measure it. */
 static usz frame_len(u64 type, const u8* buf, usz n) {
-  quic_frame_kind kind = quic_frame_classify(type);
+  frame_kind kind = frame_classify(type);
   if (single_byte(kind)) return 1;
   return decoded_len(kind, buf, n);
 }
 
 /* Measure the frame at the cursor, validating it fits. Returns its length or 0.
  */
-static usz measure(const quic_framewalk* it, u64* type) {
+static usz measure(const framewalk* it, u64* type) {
   usz len;
   if (varint_decode(it->cur, it->remaining, type) == 0) return 0;
   len = frame_len(*type, it->cur, it->remaining);
   return len > it->remaining ? 0 : len;
 }
 
-int quic_framewalk_next(quic_framewalk* it, quic_framewalk_item* out) {
+int framewalk_next(framewalk* it, framewalk_item* out) {
   usz len;
   if (it->remaining == 0) return 0;
   len = measure(it, &out->type);

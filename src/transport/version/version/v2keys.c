@@ -16,7 +16,7 @@ static const u8* salt_for(u32 version) {
   return 0;
 }
 
-int quic_version_initial_salt(u32 version, const u8** salt, usz* len) {
+int version_initial_salt(u32 version, const u8** salt, usz* len) {
   const u8* s = salt_for(version);
   if (!s) return 0;
   *salt = s;
@@ -24,7 +24,7 @@ int quic_version_initial_salt(u32 version, const u8** salt, usz* len) {
   return 1;
 }
 
-int quic_version_label_prefix(u32 version, const char** prefix, usz* len) {
+int version_label_prefix(u32 version, const char** prefix, usz* len) {
   if (version == QUIC_VERSION_1) {
     *prefix = "quic ";
     *len    = 5;

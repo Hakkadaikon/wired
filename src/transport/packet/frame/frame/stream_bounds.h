@@ -9,6 +9,6 @@
 #define QUIC_MAX_OFFSET ((u64)1 << 62) /* exclusive upper bound (2^62) */
 
 /* Returns 1 if offset + length stays within [0, 2^62-1], 0 otherwise. */
-int quic_stream_bounds_ok(u64 offset, u64 length);
+int stream_bounds_ok(u64 offset, u64 length);
 
 #endif

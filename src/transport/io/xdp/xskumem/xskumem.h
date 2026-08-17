@@ -20,7 +20,7 @@ typedef struct {
   u64 free[QUIC_XSKUMEM_FRAMES]; /**< free frame addresses (offsets into UMEM)
                                   */
   u32 nfree;                     /**< number of valid entries in free[] */
-} quic_xskumem_alloc;
+} xskumem_alloc;
 
 /** Push nframes frame addresses (base_addr + i*QUIC_XSKUMEM_FRAME_SIZE, for
  * i in [0, nframes)) onto the free list. nframes must be <=
@@ -29,17 +29,17 @@ typedef struct {
  * @param a         allocator to initialize
  * @param base_addr UMEM base offset for frame 0
  * @param nframes   number of frames to seed the free list with */
-void quic_xskumem_alloc_init(quic_xskumem_alloc* a, u64 base_addr, u32 nframes);
+void xskumem_alloc_init(xskumem_alloc* a, u64 base_addr, u32 nframes);
 
 /** Pop one frame address from the free list.
  * @param a allocator
  * @return the frame address, or -1 if the free list is empty. */
-i64 quic_xskumem_alloc_get(quic_xskumem_alloc* a);
+i64 xskumem_alloc_get(xskumem_alloc* a);
 
 /** Push a frame address back onto the free list. A no-op (defensive against a
  * double put) if the free list is already at capacity.
  * @param a    allocator
  * @param addr frame address to return */
-void quic_xskumem_alloc_put(quic_xskumem_alloc* a, u64 addr);
+void xskumem_alloc_put(xskumem_alloc* a, u64 addr);
 
 #endif

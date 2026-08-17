@@ -40,9 +40,9 @@ static usz build_sh_p256(u8* out, usz cap, const u8 pub[QUIC_P256_PUBKEY_LEN]) {
 
 /* Wrap a whole TLS message in one CRYPTO frame at offset 0. */
 static usz wrap_crypto_p256(u8* out, usz cap, const u8* msg, usz n) {
-  wired_obuf                 ob  = obuf_of(out, cap);
-  quic_crypto_stream_emit_in ein = {0, 256};
-  CHECK(quic_crypto_stream_emit(wired_span_of(msg, n), &ein, &ob) == 1);
+  wired_obuf            ob  = obuf_of(out, cap);
+  crypto_stream_emit_in ein = {0, 256};
+  CHECK(crypto_stream_emit(wired_span_of(msg, n), &ein, &ob) == 1);
   return ob.len;
 }
 

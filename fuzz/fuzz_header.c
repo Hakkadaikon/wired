@@ -32,14 +32,14 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   u8 out[256];
   wired_header_build_long(out, sizeof(out), &h);
 
-  /* quic_coalesce_next: walk every coalesced packet in the datagram. A
+  /* coalesce_next: walk every coalesced packet in the datagram. A
    * non-terminating loop here is itself a bug worth finding, so let
    * libFuzzer's -timeout catch it rather than papering over it with an
    * iteration cap. */
-  quic_coalesce_iter it;
-  quic_coalesce_begin(&it, buf, n);
-  quic_coalesced pkt;
-  while (quic_coalesce_next(&it, &pkt)) {}
+  coalesce_iter it;
+  coalesce_begin(&it, buf, n);
+  coalesced pkt;
+  while (coalesce_next(&it, &pkt)) {}
 
   return 0;
 }

@@ -166,7 +166,7 @@ static void bpf_prog_epilogue(u64 out[QUIC_XDPBPF_PROG_LEN]) {
 
 /* Fixed filter template (see xdpbpf.h for the full semantics); dport
  * (idx14) and map_fd (the LDDW at BPF_IDX_REDIRECT) are patched per call by
- * quic_xdpbpf_prog_build. */
+ * xdpbpf_prog_build. */
 static void bpf_prog_template(u64 out[QUIC_XDPBPF_PROG_LEN]) {
   bpf_prog_prologue(out);
   bpf_prog_header_split(out);
@@ -175,8 +175,7 @@ static void bpf_prog_template(u64 out[QUIC_XDPBPF_PROG_LEN]) {
   bpf_prog_epilogue(out);
 }
 
-usz quic_xdpbpf_prog_build(
-    u64 out[QUIC_XDPBPF_PROG_LEN], i32 map_fd, u16 port) {
+usz xdpbpf_prog_build(u64 out[QUIC_XDPBPF_PROG_LEN], i32 map_fd, u16 port) {
   bpf_prog_template(out);
   out[14] = bpf_insn(
       BPF_INSN_JNE_IMM, 4, 0, bpf_off(14, BPF_IDX_PASS), bpf_htons(port));
@@ -194,7 +193,7 @@ typedef struct {
   u32 map_flags;
 } bpf_attr_map_create;
 
-i64 quic_xdpbpf_map_create(u32 max_entries) {
+i64 xdpbpf_map_create(u32 max_entries) {
   bpf_attr_map_create attr = {BPF_MAP_TYPE_XSKMAP, 4, 4, max_entries, 0};
   return wired_arch_bpf(BPF_MAP_CREATE, &attr, sizeof attr);
 }
@@ -208,7 +207,7 @@ typedef struct {
   u64 flags;
 } bpf_attr_map_update;
 
-i64 quic_xdpbpf_map_set(i64 map_fd, u32 key, u32 xsk_fd) {
+i64 xdpbpf_map_set(i64 map_fd, u32 key, u32 xsk_fd) {
   bpf_attr_map_update attr = {(u32)map_fd, (u64)&key, (u64)&xsk_fd, 0};
   return wired_arch_bpf(BPF_MAP_UPDATE_ELEM, &attr, sizeof attr);
 }
@@ -231,7 +230,7 @@ static void prog_load_attach_log(bpf_attr_prog_load* attr, wired_mspan log) {
   attr->log_buf   = (u64)log.p;
 }
 
-i64 quic_xdpbpf_prog_load(const u64* insns, u32 cnt, wired_mspan log) {
+i64 xdpbpf_prog_load(const u64* insns, u32 cnt, wired_mspan log) {
   static const u8    license[] = "Dual MIT/GPL";
   bpf_attr_prog_load attr      = {
       BPF_PROG_TYPE_XDP, cnt, (u64)insns, (u64)license, 0, 0, 0};
@@ -248,7 +247,7 @@ typedef struct {
   u32 flags;
 } bpf_attr_link_create;
 
-i64 quic_xdpbpf_link_create(i64 prog_fd, u32 ifindex, u32 flags) {
+i64 xdpbpf_link_create(i64 prog_fd, u32 ifindex, u32 flags) {
   bpf_attr_link_create attr = {
       (u32)prog_fd, ifindex, BPF_ATTACH_TYPE_XDP, flags};
   return wired_arch_bpf(BPF_LINK_CREATE, &attr, sizeof attr);

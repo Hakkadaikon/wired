@@ -7,6 +7,6 @@
  * splits into a little-endian 32-bit counter (sample[0..3]) and a 96-bit
  * nonce (sample[4..15]); the mask is the first 5 bytes of the ChaCha20
  * keystream block for (hp_key, counter, nonce). */
-void quic_hp_chacha_mask(const u8 hp_key[32], const u8 sample[16], u8 mask[5]);
+void hp_chacha_mask(const u8 hp_key[32], const u8 sample[16], u8 mask[5]);
 
 #endif

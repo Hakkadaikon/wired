@@ -10,9 +10,9 @@
 
 /* True if an application close in an Initial/Handshake packet needs conversion
  * to a transport close. */
-int quic_close_needs_convert(int is_app_close, int in_handshake);
+int close_needs_convert(int is_app_close, int in_handshake);
 
 /* The frame type to use after conversion: transport CONNECTION_CLOSE (0x1c). */
-int quic_close_converted_type(void);
+int close_converted_type(void);
 
 #endif

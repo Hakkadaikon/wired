@@ -9,6 +9,6 @@
  *
  * Given a packet's first byte and whether it is the last packet in the
  * datagram, returns 1 if its placement is allowed, 0 otherwise. */
-int quic_coalesce_short_must_be_last(u8 byte0, int is_last);
+int coalesce_short_must_be_last(u8 byte0, int is_last);
 
 #endif
