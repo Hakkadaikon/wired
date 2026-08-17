@@ -87,22 +87,22 @@ static void ctr_inc(u8 c[16]) {
 
 /* AES-CTR keystream state: key schedule plus the running counter block. */
 typedef struct {
-  const quic_aes128* a;
-  u8                 ctr[16];
-} quic_gcm_ctr;
+  const aes128* a;
+  u8            ctr[16];
+} gcm_ctr;
 
 /* XOR up to 16 keystream bytes E(K,ctr) into out; returns bytes done. */
-static usz ctr_chunk(quic_gcm_ctr* c, wired_span in, u8* out) {
+static usz ctr_chunk(gcm_ctr* c, wired_span in, u8* out) {
   u8  ks[16];
   usz n = (in.n < 16) ? in.n : 16;
-  quic_aes128_encrypt(c->a, c->ctr, ks);
+  aes128_encrypt(c->a, c->ctr, ks);
   for (usz i = 0; i < n; i++) out[i] = in.p[i] ^ ks[i];
   ctr_inc(c->ctr);
   return n;
 }
 
 /* XOR keystream E(K, counter) over in, advancing the counter. */
-static void ctr_xor(quic_gcm_ctr* c, wired_span in, u8* out) {
+static void ctr_xor(gcm_ctr* c, wired_span in, u8* out) {
   usz off = 0;
   while (off < in.n)
     off += ctr_chunk(c, wired_span_of(in.p + off, in.n - off), out + off);
@@ -110,17 +110,17 @@ static void ctr_xor(quic_gcm_ctr* c, wired_span in, u8* out) {
 
 /* Per-invocation GHASH state: the inputs plus H = E(K, 0^128) and J0. */
 typedef struct {
-  const quic_gcm_ctx* g;
-  u8                  h[16];
-  u8                  j0[16];
-} quic_gcm_st;
+  const gcm_ctx* g;
+  u8             h[16];
+  u8             j0[16];
+} gcm_st;
 
 /* Build H = E(K, 0^128) and J0 = nonce || 0x00000001. */
-static void gcm_setup(const quic_gcm_ctx* g, quic_gcm_st* st) {
+static void gcm_setup(const gcm_ctx* g, gcm_st* st) {
   u8 zero[16];
   st->g = g;
   for (usz i = 0; i < 16; i++) zero[i] = 0;
-  quic_aes128_encrypt(g->aes, zero, st->h);
+  aes128_encrypt(g->aes, zero, st->h);
   for (usz i = 0; i < 12; i++) st->j0[i] = g->nonce[i];
   st->j0[12] = 0;
   st->j0[13] = 0;
@@ -129,14 +129,14 @@ static void gcm_setup(const quic_gcm_ctx* g, quic_gcm_st* st) {
 }
 
 /* Start the data counter at J0+1 (J0 itself encrypts the tag). */
-static void data_ctr(const quic_gcm_st* st, quic_gcm_ctr* c) {
+static void data_ctr(const gcm_st* st, gcm_ctr* c) {
   c->a = st->g->aes;
   for (usz i = 0; i < 16; i++) c->ctr[i] = st->j0[i];
   ctr_inc(c->ctr);
 }
 
 /* Compute the authentication tag over the AAD and ct using H and J0. */
-static void gcm_tag(const quic_gcm_st* st, wired_span ct, u8 tag[16]) {
+static void gcm_tag(const gcm_st* st, wired_span ct, u8 tag[16]) {
   u8 y[16], lens[16], ej0[16];
   for (usz i = 0; i < 16; i++) y[i] = 0;
   ghash_bytes(st->h, y, st->g->aad.p, st->g->aad.n);
@@ -144,55 +144,55 @@ static void gcm_tag(const quic_gcm_st* st, wired_span ct, u8 tag[16]) {
   put_be64(lens, (u64)st->g->aad.n * 8);
   put_be64(lens + 8, (u64)ct.n * 8);
   ghash_block(st->h, y, lens);
-  quic_aes128_encrypt(st->g->aes, st->j0, ej0);
+  aes128_encrypt(st->g->aes, st->j0, ej0);
   for (usz i = 0; i < 16; i++) tag[i] = y[i] ^ ej0[i];
 }
 
 /* Recover the original 16-byte AES-128 key from the first four round-key
- * words (quic_aes128_init sets rk[0..3] to the key itself, FIPS 197 5.2). */
-static void gcm_key_from_aes128(const quic_aes128* a, u8 key[16]) {
-  for (usz i = 0; i < 4; i++) quic_put_be32(key + 4 * i, a->rk[i]);
+ * words (aes128_init sets rk[0..3] to the key itself, FIPS 197 5.2). */
+static void gcm_key_from_aes128(const aes128* a, u8 key[16]) {
+  for (usz i = 0; i < 4; i++) be_put_be32(key + 4 * i, a->rk[i]);
 }
 
-/* Build an AES-NI key schedule from the scalar quic_aes128 already held by
+/* Build an AES-NI key schedule from the scalar aes128 already held by
  * g. Repeated per call by design (ponytail: caching would need per-
  * connection state this task doesn't touch; one AES key schedule + one AES
  * block is microseconds, already measured acceptable. Upgrade path: cache
- * the expanded quic_gcmx86 on quic_aes128 itself if profiling ever shows the
+ * the expanded gcmx86 on aes128 itself if profiling ever shows the
  * expansion cost matters). */
-static void gcm_x86_from(const quic_gcm_ctx* g, quic_gcmx86* x) {
+static void gcm_x86_from(const gcm_ctx* g, gcmx86* x) {
   u8 key[16];
   gcm_key_from_aes128(g->aes, key);
-  quic_gcmx86_init(x, key);
+  gcmx86_init(x, key);
 }
 
-/* quic_gcmx86_open returns the plaintext length, so it cannot distinguish an
+/* gcmx86_open returns the plaintext length, so it cannot distinguish an
  * authentic empty plaintext (ct.n == QUIC_GCM_TAG, returns 0) from AUTH_FAIL
  * (also returns 0). For that one boundary case, verify the tag directly with
  * the scalar GHASH tag computation (cheap: zero-length body) instead of
  * trusting the ambiguous return value. */
-static int gcm_open_x86_empty(const quic_gcm_ctx* g, wired_span ct) {
-  quic_gcm_st st;
-  u8          want[16];
+static int gcm_open_x86_empty(const gcm_ctx* g, wired_span ct) {
+  gcm_st st;
+  u8     want[16];
   gcm_setup(g, &st);
   gcm_tag(&st, wired_span_of(ct.p, 0), want);
-  return quic_ct_diff16(want, ct.p) == 0;
+  return ct_diff16(want, ct.p) == 0;
 }
 
-static int gcm_open_x86(const quic_gcm_ctx* g, wired_span ct, u8* pt) {
-  quic_gcmx86 x;
+static int gcm_open_x86(const gcm_ctx* g, wired_span ct, u8* pt) {
+  gcmx86 x;
   if (ct.n == QUIC_GCM_TAG) return gcm_open_x86_empty(g, ct);
   gcm_x86_from(g, &x);
-  return quic_gcmx86_open(&x, g->nonce, g->aad, ct, pt) != 0;
+  return gcmx86_open(&x, g->nonce, g->aad, ct, pt) != 0;
 }
 
-usz quic_gcm_seal(const quic_gcm_ctx* g, wired_span pt, u8* out) {
-  quic_gcm_st  st;
-  quic_gcm_ctr c;
-  if (quic_gcmx86_supported()) {
-    quic_gcmx86 x;
+usz gcm_seal(const gcm_ctx* g, wired_span pt, u8* out) {
+  gcm_st  st;
+  gcm_ctr c;
+  if (gcmx86_supported()) {
+    gcmx86 x;
     gcm_x86_from(g, &x);
-    return quic_gcmx86_seal(&x, g->nonce, g->aad, pt, out);
+    return gcmx86_seal(&x, g->nonce, g->aad, pt, out);
   }
   gcm_setup(g, &st);
   data_ctr(&st, &c);
@@ -202,50 +202,50 @@ usz quic_gcm_seal(const quic_gcm_ctx* g, wired_span pt, u8* out) {
 }
 
 /* Scalar-path body: verify the tag, then decrypt on success. Split out of
- * quic_gcm_open so its CCN stays under budget alongside the dispatch. */
-static int gcm_open_scalar(const quic_gcm_ctx* g, wired_span ct, u8* pt) {
-  quic_gcm_st  st;
-  quic_gcm_ctr c;
-  u8           want[16];
-  wired_span   body = wired_span_of(ct.p, ct.n - QUIC_GCM_TAG);
+ * gcm_open so its CCN stays under budget alongside the dispatch. */
+static int gcm_open_scalar(const gcm_ctx* g, wired_span ct, u8* pt) {
+  gcm_st     st;
+  gcm_ctr    c;
+  u8         want[16];
+  wired_span body = wired_span_of(ct.p, ct.n - QUIC_GCM_TAG);
   gcm_setup(g, &st);
   gcm_tag(&st, body, want);
-  if (quic_ct_diff16(want, ct.p + body.n) != 0)
+  if (ct_diff16(want, ct.p + body.n) != 0)
     return 0; /* reject: leave pt untouched */
   data_ctr(&st, &c);
   ctr_xor(&c, body, pt);
   return 1;
 }
 
-int quic_gcm_open(const quic_gcm_ctx* g, wired_span ct, u8* pt) {
+int gcm_open(const gcm_ctx* g, wired_span ct, u8* pt) {
   if (ct.n < QUIC_GCM_TAG) return 0;
-  if (quic_gcmx86_supported()) return gcm_open_x86(g, ct, pt);
+  if (gcmx86_supported()) return gcm_open_x86(g, ct, pt);
   return gcm_open_scalar(g, ct, pt);
 }
 
 /* AES-256-GCM (RFC 8446 Appendix B.4, 0x1302). Same mode of operation as
- * AES-128-GCM above; only the block cipher call (quic_aes256_encrypt) and
+ * AES-128-GCM above; only the block cipher call (aes256_encrypt) and
  * the types carrying it differ. GHASH/counter helpers (ghash_bytes,
  * ghash_block, ctr_inc, put_be64) are shared, not duplicated. */
 
 /* AES-256-CTR keystream state: key schedule plus the running counter block. */
 typedef struct {
-  const quic_aes256* a;
-  u8                 ctr[16];
-} quic_gcm256_ctr;
+  const aes256* a;
+  u8            ctr[16];
+} gcm256_ctr;
 
 /* XOR up to 16 keystream bytes E(K,ctr) into out; returns bytes done. */
-static usz ctr_chunk256(quic_gcm256_ctr* c, wired_span in, u8* out) {
+static usz ctr_chunk256(gcm256_ctr* c, wired_span in, u8* out) {
   u8  ks[16];
   usz n = (in.n < 16) ? in.n : 16;
-  quic_aes256_encrypt(c->a, c->ctr, ks);
+  aes256_encrypt(c->a, c->ctr, ks);
   for (usz i = 0; i < n; i++) out[i] = in.p[i] ^ ks[i];
   ctr_inc(c->ctr);
   return n;
 }
 
 /* XOR keystream E(K, counter) over in, advancing the counter. */
-static void ctr_xor256(quic_gcm256_ctr* c, wired_span in, u8* out) {
+static void ctr_xor256(gcm256_ctr* c, wired_span in, u8* out) {
   usz off = 0;
   while (off < in.n)
     off += ctr_chunk256(c, wired_span_of(in.p + off, in.n - off), out + off);
@@ -253,17 +253,17 @@ static void ctr_xor256(quic_gcm256_ctr* c, wired_span in, u8* out) {
 
 /* Per-invocation GHASH state: the inputs plus H = E(K, 0^128) and J0. */
 typedef struct {
-  const quic_gcm256_ctx* g;
-  u8                     h[16];
-  u8                     j0[16];
-} quic_gcm256_st;
+  const gcm256_ctx* g;
+  u8                h[16];
+  u8                j0[16];
+} gcm256_st;
 
 /* Build H = E(K, 0^128) and J0 = nonce || 0x00000001. */
-static void gcm_setup256(const quic_gcm256_ctx* g, quic_gcm256_st* st) {
+static void gcm_setup256(const gcm256_ctx* g, gcm256_st* st) {
   u8 zero[16];
   st->g = g;
   for (usz i = 0; i < 16; i++) zero[i] = 0;
-  quic_aes256_encrypt(g->aes, zero, st->h);
+  aes256_encrypt(g->aes, zero, st->h);
   for (usz i = 0; i < 12; i++) st->j0[i] = g->nonce[i];
   st->j0[12] = 0;
   st->j0[13] = 0;
@@ -272,14 +272,14 @@ static void gcm_setup256(const quic_gcm256_ctx* g, quic_gcm256_st* st) {
 }
 
 /* Start the data counter at J0+1 (J0 itself encrypts the tag). */
-static void data_ctr256(const quic_gcm256_st* st, quic_gcm256_ctr* c) {
+static void data_ctr256(const gcm256_st* st, gcm256_ctr* c) {
   c->a = st->g->aes;
   for (usz i = 0; i < 16; i++) c->ctr[i] = st->j0[i];
   ctr_inc(c->ctr);
 }
 
 /* Compute the authentication tag over the AAD and ct using H and J0. */
-static void gcm_tag256(const quic_gcm256_st* st, wired_span ct, u8 tag[16]) {
+static void gcm_tag256(const gcm256_st* st, wired_span ct, u8 tag[16]) {
   u8 y[16], lens[16], ej0[16];
   for (usz i = 0; i < 16; i++) y[i] = 0;
   ghash_bytes(st->h, y, st->g->aad.p, st->g->aad.n);
@@ -287,13 +287,13 @@ static void gcm_tag256(const quic_gcm256_st* st, wired_span ct, u8 tag[16]) {
   put_be64(lens, (u64)st->g->aad.n * 8);
   put_be64(lens + 8, (u64)ct.n * 8);
   ghash_block(st->h, y, lens);
-  quic_aes256_encrypt(st->g->aes, st->j0, ej0);
+  aes256_encrypt(st->g->aes, st->j0, ej0);
   for (usz i = 0; i < 16; i++) tag[i] = y[i] ^ ej0[i];
 }
 
-usz quic_gcm256_seal(const quic_gcm256_ctx* g, wired_span pt, u8* out) {
-  quic_gcm256_st  st;
-  quic_gcm256_ctr c;
+usz gcm256_seal(const gcm256_ctx* g, wired_span pt, u8* out) {
+  gcm256_st  st;
+  gcm256_ctr c;
   gcm_setup256(g, &st);
   data_ctr256(&st, &c);
   ctr_xor256(&c, pt, out);
@@ -301,15 +301,15 @@ usz quic_gcm256_seal(const quic_gcm256_ctx* g, wired_span pt, u8* out) {
   return pt.n + QUIC_GCM_TAG;
 }
 
-int quic_gcm256_open(const quic_gcm256_ctx* g, wired_span ct, u8* pt) {
-  quic_gcm256_st  st;
-  quic_gcm256_ctr c;
-  u8              want[16];
+int gcm256_open(const gcm256_ctx* g, wired_span ct, u8* pt) {
+  gcm256_st  st;
+  gcm256_ctr c;
+  u8         want[16];
   if (ct.n < QUIC_GCM_TAG) return 0;
   wired_span body = wired_span_of(ct.p, ct.n - QUIC_GCM_TAG);
   gcm_setup256(g, &st);
   gcm_tag256(&st, body, want);
-  if (quic_ct_diff16(want, ct.p + body.n) != 0)
+  if (ct_diff16(want, ct.p + body.n) != 0)
     return 0; /* reject: leave pt untouched */
   data_ctr256(&st, &c);
   ctr_xor256(&c, body, pt);

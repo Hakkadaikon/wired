@@ -7,8 +7,8 @@ static void test_rng_distinct_and_full(void) {
     a[i] = 0xAA;
     b[i] = 0xAA;
   }
-  CHECK(quic_rng_bytes(a, 32) == 1);
-  CHECK(quic_rng_bytes(b, 32) == 1);
+  CHECK(rng_bytes(a, 32) == 1);
+  CHECK(rng_bytes(b, 32) == 1);
   /* a changed from the 0xAA sentinel: the buffer was actually written */
   int written = 0;
   for (usz i = 0; i < 32; i++)

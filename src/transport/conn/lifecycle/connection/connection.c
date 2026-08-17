@@ -12,7 +12,7 @@
 
 void quic_connection_init(
     quic_connection* c, const quic_connection_init_in* in) {
-  quic_keyset_init(&c->keys);
+  keyset_init(&c->keys);
   quic_conn_init(&c->conn);
   c->link      = in->link;
   c->is_server = in->is_server;
@@ -21,11 +21,11 @@ void quic_connection_init(
 
 int quic_connection_send(quic_connection* c, int level, wired_span frames) {
   const quic_initial_keys* k;
-  quic_aes128              hp;
+  aes128                   hp;
   u8                       out[QUIC_MEMLINK_MTU];
   usz                      n;
-  if (!quic_keyset_for_level(&c->keys, level, &k)) return 0;
-  quic_aes128_init(&hp, k->hp);
+  if (!keyset_for_level(&c->keys, level, &k)) return 0;
+  aes128_init(&hp, k->hp);
   quic_protect_keys pk   = {k, &hp};
   wired_span        none = wired_span_of((const u8*)0, 0);
   quic_tx_desc      t    = {CONN_BYTE0, wired_span_of(c->dcid, CONN_DCID_LEN),
@@ -42,10 +42,10 @@ int quic_connection_send(quic_connection* c, int level, wired_span frames) {
  * view, so it outlives this call (until c's next recv). */
 static int recv_open(
     quic_connection* c, const quic_initial_keys* k, wired_span* frames) {
-  quic_aes128 hp;
-  usz         rn = quic_memlink_recv(c->link, c->rxbuf, sizeof(c->rxbuf));
+  aes128 hp;
+  usz    rn = quic_memlink_recv(c->link, c->rxbuf, sizeof(c->rxbuf));
   if (rn == 0) return 0;
-  quic_aes128_init(&hp, k->hp);
+  aes128_init(&hp, k->hp);
   quic_protect_keys pk = {k, &hp};
   quic_rx_desc      d  = {wired_mspan_of(c->rxbuf, rn), 1};
   return quic_rx_packet(&pk, &d, frames);
@@ -54,7 +54,7 @@ static int recv_open(
 int quic_connection_recv(quic_connection* c, int level, quic_framewalk* iter) {
   const quic_initial_keys* k;
   wired_span               frames;
-  if (!quic_keyset_for_level(&c->keys, level, &k)) return 0;
+  if (!keyset_for_level(&c->keys, level, &k)) return 0;
   if (!recv_open(c, k, &frames)) return 0;
   quic_framewalk_init(iter, frames.p, frames.n);
   return 1;

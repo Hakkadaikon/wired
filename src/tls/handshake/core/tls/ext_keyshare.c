@@ -20,11 +20,11 @@ usz quic_tls_ext_key_share(
   usz entry = 4 + pub_len;   /* group(2) ke_len(2) key */
   usz total = 4 + 2 + entry; /* type(2) ext_len(2) shares_len(2) entry */
   if (cap < total) return 0;
-  quic_put_be16(buf, QUIC_EXT_KEY_SHARE);
-  quic_put_be16(buf + 2, (u16)(2 + entry)); /* ext_data length */
-  quic_put_be16(buf + 4, (u16)entry);       /* client_shares length */
-  quic_put_be16(buf + 6, group);
-  quic_put_be16(buf + 8, (u16)pub_len);
+  be_put_be16(buf, QUIC_EXT_KEY_SHARE);
+  be_put_be16(buf + 2, (u16)(2 + entry)); /* ext_data length */
+  be_put_be16(buf + 4, (u16)entry);       /* client_shares length */
+  be_put_be16(buf + 6, group);
+  be_put_be16(buf + 8, (u16)pub_len);
   for (usz i = 0; i < pub_len; i++) buf[10 + i] = pub[i];
   return total;
 }
@@ -33,8 +33,8 @@ usz quic_tls_ext_key_share(
  * recognised group whose declared key length matches the group and fits in
  * n; *klen receives the key length. */
 static int entry_hdr_ok(const u8* buf, usz n, usz* klen) {
-  *klen = group_key_len(quic_get_be16(buf));
-  if (*klen == 0 || quic_get_be16(buf + 2) != *klen) return 0;
+  *klen = group_key_len(be_get_be16(buf));
+  if (*klen == 0 || be_get_be16(buf + 2) != *klen) return 0;
   return 4 + *klen <= n;
 }
 
@@ -49,10 +49,9 @@ int quic_tls_ext_key_share_parse(
     const u8* buf, usz n, u16* group, u8* pub, usz* pub_len, usz pub_cap) {
   usz klen, key = 4;
   if (!entry_ok(buf, n, &klen) || klen > pub_cap) return 0;
-  *group   = quic_get_be16(buf);
+  *group   = be_get_be16(buf);
   *pub_len = klen;
-  return quic_take_bytes(
-      wired_span_of(buf, n), &key, wired_mspan_of(pub, klen));
+  return bytes_take(wired_span_of(buf, n), &key, wired_mspan_of(pub, klen));
 }
 
 /* The KeyShareEntry's key_exchange length lies within avail bytes from its
@@ -61,14 +60,14 @@ int quic_tls_ext_key_share_parse(
 static int ks_entry_fits(const u8* e, usz avail) {
   usz kelen;
   if (avail < 4) return 0;
-  kelen = quic_get_be16(e + 2);
+  kelen = be_get_be16(e + 2);
   return 4 + kelen <= avail;
 }
 
 /* The 2-byte client_shares length is present and bounds a list within n. */
 static int ks_list_len(const u8* buf, usz n, usz* list) {
   if (n < 2) return 0;
-  *list = quic_get_be16(buf);
+  *list = be_get_be16(buf);
   return 2 + *list <= n;
 }
 
@@ -76,15 +75,14 @@ static int ks_list_len(const u8* buf, usz n, usz* list) {
  * key fits in pub_cap; *klen receives the key length. */
 static int ks_entry_matches(
     const u8* buf, usz avail, u16 want_group, usz pub_cap, usz* klen) {
-  if (quic_get_be16(buf) != want_group) return 0;
+  if (be_get_be16(buf) != want_group) return 0;
   return entry_ok(buf, avail, klen) && *klen <= pub_cap;
 }
 
 /* Copy the matched entry's key (klen bytes, starting 4 past buf) into pub. */
 static int ks_take_key(const u8* buf, usz end, usz off, usz klen, u8* pub) {
   usz key = off + 4;
-  return quic_take_bytes(
-      wired_span_of(buf, end), &key, wired_mspan_of(pub, klen));
+  return bytes_take(wired_span_of(buf, end), &key, wired_mspan_of(pub, klen));
 }
 
 /* Scan the KeyShareEntry list in buf[off..end) for want_group; on success
@@ -103,7 +101,7 @@ static int ks_find_group(
       *pub_len = klen;
       return ks_take_key(buf, end, *off, klen, pub);
     }
-    *off += 4 + quic_get_be16(buf + *off + 2);
+    *off += 4 + be_get_be16(buf + *off + 2);
   }
   return 0;
 }

@@ -44,74 +44,74 @@ static const u8 pt_tbs_any_and_policy_x[] = {
 /* RFC 5280 6.1.2: the initial tree is the root node "anyPolicy" (non-empty).
  */
 static void test_tree_init_nonempty(void) {
-  quic_x509_policy_tree t;
-  quic_x509_policy_tree_init(&t);
-  CHECK(quic_x509_policy_tree_nonempty(&t) == 1);
+  x509_policy_tree t;
+  x509_policy_tree_init(&t);
+  CHECK(x509_policy_tree_nonempty(&t) == 1);
 }
 
 /* RFC 5280 6.1.3 (d)(1): a certificate with no certificatePolicies extension
  * at all prunes the tree to empty. */
 static void test_tree_fold_no_ext_empties(void) {
-  quic_x509_policy_tree t;
-  quic_x509_policy_tree_init(&t);
-  quic_x509_policy_tree_fold(
+  x509_policy_tree t;
+  x509_policy_tree_init(&t);
+  x509_policy_tree_fold(
       &t, wired_span_of(pt_tbs_no_ext, sizeof(pt_tbs_no_ext)), 0);
-  CHECK(quic_x509_policy_tree_nonempty(&t) == 0);
+  CHECK(x509_policy_tree_nonempty(&t) == 0);
 }
 
 /* An anyPolicy statement does not narrow (nor empty) the tree. */
 static void test_tree_fold_any_policy_stays_nonempty(void) {
-  quic_x509_policy_tree t;
-  quic_x509_policy_tree_init(&t);
-  quic_x509_policy_tree_fold(
+  x509_policy_tree t;
+  x509_policy_tree_init(&t);
+  x509_policy_tree_fold(
       &t, wired_span_of(pt_tbs_any_policy, sizeof(pt_tbs_any_policy)), 0);
-  CHECK(quic_x509_policy_tree_nonempty(&t) == 1);
+  CHECK(x509_policy_tree_nonempty(&t) == 1);
 }
 
 /* A specific policy statement narrows the root anyPolicy to that policy
  * (still non-empty). */
 static void test_tree_fold_specific_narrows_nonempty(void) {
-  quic_x509_policy_tree t;
-  quic_x509_policy_tree_init(&t);
-  quic_x509_policy_tree_fold(
+  x509_policy_tree t;
+  x509_policy_tree_init(&t);
+  x509_policy_tree_fold(
       &t, wired_span_of(pt_tbs_policy_x, sizeof(pt_tbs_policy_x)), 0);
-  CHECK(quic_x509_policy_tree_nonempty(&t) == 1);
+  CHECK(x509_policy_tree_nonempty(&t) == 1);
 }
 
 /* Two certificates asserting disjoint specific policies (no policy mapping)
  * intersect to empty: the second certificate does not carry policy_x. */
 static void test_tree_fold_disjoint_policies_empties(void) {
-  quic_x509_policy_tree t;
-  quic_x509_policy_tree_init(&t);
-  quic_x509_policy_tree_fold(
+  x509_policy_tree t;
+  x509_policy_tree_init(&t);
+  x509_policy_tree_fold(
       &t, wired_span_of(pt_tbs_policy_x, sizeof(pt_tbs_policy_x)), 0);
-  quic_x509_policy_tree_fold(
+  x509_policy_tree_fold(
       &t, wired_span_of(pt_tbs_policy_y, sizeof(pt_tbs_policy_y)), 0);
-  CHECK(quic_x509_policy_tree_nonempty(&t) == 0);
+  CHECK(x509_policy_tree_nonempty(&t) == 0);
 }
 
 /* The same specific policy asserted twice intersects to itself (stays
  * non-empty). */
 static void test_tree_fold_same_policy_twice_stays_nonempty(void) {
-  quic_x509_policy_tree t;
-  quic_x509_policy_tree_init(&t);
-  quic_x509_policy_tree_fold(
+  x509_policy_tree t;
+  x509_policy_tree_init(&t);
+  x509_policy_tree_fold(
       &t, wired_span_of(pt_tbs_policy_x, sizeof(pt_tbs_policy_x)), 0);
-  quic_x509_policy_tree_fold(
+  x509_policy_tree_fold(
       &t, wired_span_of(pt_tbs_policy_x, sizeof(pt_tbs_policy_x)), 0);
-  CHECK(quic_x509_policy_tree_nonempty(&t) == 1);
+  CHECK(x509_policy_tree_nonempty(&t) == 1);
 }
 
 /* Once pruned to empty, the tree stays empty (monotonic pruning) even when a
  * later certificate asserts anyPolicy. */
 static void test_tree_fold_empty_is_monotonic(void) {
-  quic_x509_policy_tree t;
-  quic_x509_policy_tree_init(&t);
-  quic_x509_policy_tree_fold(
+  x509_policy_tree t;
+  x509_policy_tree_init(&t);
+  x509_policy_tree_fold(
       &t, wired_span_of(pt_tbs_no_ext, sizeof(pt_tbs_no_ext)), 0);
-  quic_x509_policy_tree_fold(
+  x509_policy_tree_fold(
       &t, wired_span_of(pt_tbs_any_policy, sizeof(pt_tbs_any_policy)), 0);
-  CHECK(quic_x509_policy_tree_nonempty(&t) == 0);
+  CHECK(x509_policy_tree_nonempty(&t) == 0);
 }
 
 /* RFC 5280 6.1.3 (d)(2): once inhibit_anypolicy has taken effect (the
@@ -119,23 +119,23 @@ static void test_tree_fold_empty_is_monotonic(void) {
  * absent -- the tree narrows to the certificate's explicit set instead of
  * staying unconstrained. */
 static void test_tree_fold_any_policy_inhibited_narrows(void) {
-  quic_x509_policy_tree t;
-  quic_x509_policy_tree_init(&t);
-  quic_x509_policy_tree_fold(
+  x509_policy_tree t;
+  x509_policy_tree_init(&t);
+  x509_policy_tree_fold(
       &t, wired_span_of(pt_tbs_any_policy, sizeof(pt_tbs_any_policy)), 1);
-  CHECK(quic_x509_policy_tree_nonempty(&t) == 0);
+  CHECK(x509_policy_tree_nonempty(&t) == 0);
 }
 
 /* An anyPolicy + policy_x statement, inhibited: anyPolicy is stripped but
  * policy_x survives, so the tree narrows to {policy_x} (still non-empty). */
 static void test_tree_fold_any_and_specific_inhibited_keeps_specific(void) {
-  quic_x509_policy_tree t;
-  quic_x509_policy_tree_init(&t);
-  quic_x509_policy_tree_fold(
+  x509_policy_tree t;
+  x509_policy_tree_init(&t);
+  x509_policy_tree_fold(
       &t,
       wired_span_of(pt_tbs_any_and_policy_x, sizeof(pt_tbs_any_and_policy_x)),
       1);
-  CHECK(quic_x509_policy_tree_nonempty(&t) == 1);
+  CHECK(x509_policy_tree_nonempty(&t) == 1);
 }
 
 void test_policytree(void) {

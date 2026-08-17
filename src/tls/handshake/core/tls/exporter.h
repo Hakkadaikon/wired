@@ -36,7 +36,7 @@ void quic_tls_exporter_master_secret(
  * @param okm        receives exactly okm.n bytes of exported keying
  *                   material
  * @return 1 on success, 0 if a length does not fit (see
- *   quic_hkdf_expand_label) */
+ *   hkdf_expand_label) */
 int quic_tls_exporter(
     const u8    secret[QUIC_HKDF_PRK],
     wired_span  label,

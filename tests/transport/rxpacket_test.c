@@ -8,7 +8,7 @@
 /* Open one Initial packet; returns 1 and the frames view on success. */
 static int r_rx(
     const quic_initial_keys* ik,
-    const quic_aes128*       hp,
+    const aes128*            hp,
     u8*                      pkt,
     usz                      n,
     wired_span*              frames) {
@@ -21,9 +21,9 @@ static int r_rx(
 static void test_rxpacket_payload_view(void) {
   const u8          dcid[8] = {9, 8, 7, 6, 5, 4, 3, 2};
   quic_initial_keys ik;
-  quic_aes128       hp;
+  aes128            hp;
   quic_initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, &ik);
-  quic_aes128_init(&hp, ik.hp);
+  aes128_init(&hp, ik.hp);
 
   u8  frames[8];
   usz fl = 0;
@@ -54,19 +54,19 @@ static void test_rxpacket_payload_view(void) {
  * the length check must reject the packet before they are ever read. */
 static void test_rxpacket_too_short(void) {
   quic_initial_keys ik     = {0};
-  quic_aes128       hp     = {0};
+  aes128            hp     = {0};
   u8                buf[4] = {0};
   wired_span        got;
   CHECK(r_rx(&ik, &hp, buf, sizeof(buf), &got) == 0);
 }
 
 /* Build one valid Initial packet for the rejection tests. dcid is fixed. */
-static usz build_pkt(quic_initial_keys* ik, quic_aes128* hp, u8* pkt, usz cap) {
+static usz build_pkt(quic_initial_keys* ik, aes128* hp, u8* pkt, usz cap) {
   static const u8 dcid[8] = {9, 8, 7, 6, 5, 4, 3, 2};
   u8              frames[3];
   usz             fl = 0;
   quic_initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, ik);
-  quic_aes128_init(hp, ik->hp);
+  aes128_init(hp, ik->hp);
   fl += quic_frame_put_simple(frames + fl, sizeof(frames), QUIC_FRAME_PING);
   quic_protect_keys k    = {ik, hp};
   wired_span        none = wired_span_of((const u8*)0, 0);
@@ -79,7 +79,7 @@ static usz build_pkt(quic_initial_keys* ik, quic_aes128* hp, u8* pkt, usz cap) {
  */
 static void test_rxpacket_tampered_tag(void) {
   quic_initial_keys ik;
-  quic_aes128       hp;
+  aes128            hp;
   u8                pkt[256];
   wired_span        got;
   usz               n = build_pkt(&ik, &hp, pkt, sizeof(pkt));
@@ -91,7 +91,7 @@ static void test_rxpacket_tampered_tag(void) {
 /* RFC 9001 5.2: a packet truncated below its tag must be dropped, not crash. */
 static void test_rxpacket_truncated_payload(void) {
   quic_initial_keys ik;
-  quic_aes128       hp;
+  aes128            hp;
   u8                pkt[256];
   wired_span        got;
   usz               n = build_pkt(&ik, &hp, pkt, sizeof(pkt));
@@ -105,7 +105,7 @@ static void test_rxpacket_truncated_payload(void) {
  * Length varint at offset 16; widen it so length > bytes that remain. */
 static void test_rxpacket_oversized_length(void) {
   quic_initial_keys ik;
-  quic_aes128       hp;
+  aes128            hp;
   u8                pkt[256];
   wired_span        got;
   usz               n = build_pkt(&ik, &hp, pkt, sizeof(pkt));
@@ -120,7 +120,7 @@ static void test_rxpacket_oversized_length(void) {
 static void test_rxpacket_wrong_key(void) {
   static const u8   other[8] = {1, 1, 1, 1, 1, 1, 1, 1};
   quic_initial_keys ik, wrong;
-  quic_aes128       hp;
+  aes128            hp;
   u8                pkt[256];
   wired_span        got;
   usz               n = build_pkt(&ik, &hp, pkt, sizeof(pkt));

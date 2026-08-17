@@ -35,7 +35,7 @@ static void test_p256sign_known_vector(void) {
   psign_hb32(PS_R, wr);
   psign_hb32(PS_S, ws);
   wired_sha256((const u8*)"sample", 6, h);
-  CHECK(quic_p256sign_sign(priv, h, r, s) == 1);
+  CHECK(p256sign_sign(priv, h, r, s) == 1);
   for (usz i = 0; i < 32; i++) CHECK(r[i] == wr[i]);
   for (usz i = 0; i < 32; i++) CHECK(s[i] == ws[i]);
 }
@@ -47,8 +47,8 @@ static void ps_roundtrip(const u8* msg, usz len) {
   psign_hb32(PS_QX, qx);
   psign_hb32(PS_QY, qy);
   wired_sha256(msg, len, h);
-  CHECK(quic_p256sign_sign(priv, h, r, s) == 1);
-  CHECK(quic_ecdsa_p256_verify(qx, qy, r, s, h) == 1);
+  CHECK(p256sign_sign(priv, h, r, s) == 1);
+  CHECK(ecdsa_p256_verify(qx, qy, r, s, h) == 1);
 }
 
 static void test_p256sign_ps_roundtrip(void) {
@@ -71,7 +71,7 @@ static void test_p256sign_low_s(void) {
   psign_hb32(PS_X, priv);
   psign_hb32(PS_NHALF, nhalf);
   wired_sha256((const u8*)"test", 4, h);
-  CHECK(quic_p256sign_sign(priv, h, r, s) == 1);
+  CHECK(p256sign_sign(priv, h, r, s) == 1);
   CHECK(le32(s, nhalf) == 1);
   CHECK(le32(r, zero) == 0);
   CHECK(le32(s, zero) == 0);
@@ -86,8 +86,8 @@ static void test_p256sign_verify_rejects_zero(void) {
   psign_hb32(PS_R, r);
   psign_hb32(PS_S, s);
   wired_sha256((const u8*)"sample", 6, h);
-  CHECK(quic_ecdsa_p256_verify(qx, qy, zero, s, h) == 0);
-  CHECK(quic_ecdsa_p256_verify(qx, qy, r, zero, h) == 0);
+  CHECK(ecdsa_p256_verify(qx, qy, zero, s, h) == 0);
+  CHECK(ecdsa_p256_verify(qx, qy, r, zero, h) == 0);
 }
 
 /* n (P-256 group order), big-endian. s == n or s > n-1 must be rejected. */
@@ -106,8 +106,8 @@ static void test_p256sign_verify_rejects_s_out_of_range(void) {
   psign_hb32(PS_N, s_n);
   psign_hb32(PS_N_PLUS_1, s_np1);
   wired_sha256((const u8*)"sample", 6, h);
-  CHECK(quic_ecdsa_p256_verify(qx, qy, r, s_n, h) == 0);
-  CHECK(quic_ecdsa_p256_verify(qx, qy, r, s_np1, h) == 0);
+  CHECK(ecdsa_p256_verify(qx, qy, r, s_n, h) == 0);
+  CHECK(ecdsa_p256_verify(qx, qy, r, s_np1, h) == 0);
 }
 
 /* One signature drives the fixed-base multiply exactly once: the r, s
@@ -117,7 +117,7 @@ static void test_p256sign_single_mulg(void) {
   psign_hb32(PS_X, priv);
   wired_sha256((const u8*)"sample", 6, h);
   ps_mulg_count = 0;
-  CHECK(quic_p256sign_sign(priv, h, r, s) == 1);
+  CHECK(p256sign_sign(priv, h, r, s) == 1);
   CHECK(ps_mulg_count == 1);
 }
 

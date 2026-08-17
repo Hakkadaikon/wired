@@ -60,36 +60,36 @@ static int time_value(u8 tag, wired_span v, u64* out) {
 }
 
 /* Position c before the validity element, inside the tbs SEQUENCE value. */
-static int tbs_to_validity(wired_span tbs, quic_derseq* c) {
-  return quic_x509_tbs_cursor(tbs, c) && quic_derseq_skip(c, VALIDITY_SKIP);
+static int tbs_to_validity(wired_span tbs, derseq* c) {
+  return x509_tbs_cursor(tbs, c) && derseq_skip(c, VALIDITY_SKIP);
 }
 
 /* Read one Time element of c into *out. */
-static int next_time(quic_derseq* c, u64* out) {
+static int next_time(derseq* c, u64* out) {
   u8         tag;
   wired_span v;
-  if (!quic_derseq_next(c, &tag, &v)) return 0;
+  if (!derseq_next(c, &tag, &v)) return 0;
   return time_value(tag, v, out);
 }
 
 /* RFC 5280 4.1.2.5. Extract notBefore and notAfter from the Validity value. */
 static int validity_bounds(wired_span val, u64* nb, u64* na) {
-  quic_derseq c;
-  quic_derseq_init(&c, val);
+  derseq c;
+  derseq_init(&c, val);
   return next_time(&c, nb) && next_time(&c, na);
 }
 
 /* The Validity SEQUENCE value out of tbs. */
 static int reach_validity(wired_span tbs, wired_span* v) {
-  quic_derseq c;
+  derseq c;
   if (!tbs_to_validity(tbs, &c)) return 0;
-  return quic_derseq_next_tagged(&c, QUIC_DER_SEQUENCE, v);
+  return derseq_next_tagged(&c, QUIC_DER_SEQUENCE, v);
 }
 
 /* notBefore <= now <= notAfter. */
 static int in_window(u64 nb, u64 na, u64 now) { return nb <= now && now <= na; }
 
-int quic_x509_validity_ok(wired_span tbs, u64 now) {
+int x509_validity_ok(wired_span tbs, u64 now) {
   wired_span v;
   u64        nb, na;
   if (!reach_validity(tbs, &v)) return 0;
@@ -111,7 +111,7 @@ static void utctime_fields(u64 ymdhms, u8 out[12]) {
     put_2digits((ymdhms / divisor[i]) % 100, out + 2 * i);
 }
 
-void quic_x509_utctime_encode(u64 ymdhms, u8 out[13]) {
+void x509_utctime_encode(u64 ymdhms, u8 out[13]) {
   utctime_fields(ymdhms, out);
   out[12] = 'Z';
 }

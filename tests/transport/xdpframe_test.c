@@ -36,7 +36,7 @@ static void test_xdpframe_rx_golden(void) {
   CHECK(quic_xdpframe_parse(wired_span_of(xdpft_golden, 60), &rx) == 1);
   CHECK(rx.src.family == want_src.family);
   CHECK(rx.src.port_be == want_src.port_be);
-  CHECK(quic_ct_diffn(rx.src.addr, want_src.addr, 16) == 0);
+  CHECK(ct_diffn(rx.src.addr, want_src.addr, 16) == 0);
   CHECK(xdpft_mac_eq(rx.peer_mac, xdpft_golden + 6));
   CHECK(xdpft_mac_eq(rx.our_mac, xdpft_golden));
   CHECK(rx.our_ip == wired_udp_addr4_be(&want_dst));
@@ -150,7 +150,7 @@ static void test_xdpframe_reflect(void) {
   wired_udp_addr(&want_src, 4433, (const u8[]){10, 7, 0, 1});
   wired_udp_addr(&want_peer, 5555, (const u8[]){10, 7, 0, 2});
   CHECK(rr.src.port_be == want_src.port_be);
-  CHECK(quic_ct_diffn(rr.src.addr, want_src.addr, 16) == 0);
+  CHECK(ct_diffn(rr.src.addr, want_src.addr, 16) == 0);
   CHECK(rr.dport == 5555 && rr.our_ip == wired_udp_addr4_be(&want_peer));
   CHECK(xdpft_mac_eq(rr.peer_mac, rx.our_mac));
   CHECK(xdpft_mac_eq(rr.our_mac, rx.peer_mac));

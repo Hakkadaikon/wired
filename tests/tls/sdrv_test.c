@@ -99,8 +99,8 @@ static void test_sdrv_session_id_echo(void) {
   }
   CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
   {
-    wired_obuf           sh_ob = quic_obuf_of(sh, sizeof(sh));
-    wired_obuf           fl_ob = quic_obuf_of(flight, sizeof(flight));
+    wired_obuf           sh_ob = obuf_of(sh, sizeof(sh));
+    wired_obuf           fl_ob = obuf_of(flight, sizeof(flight));
     quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
     CHECK(quic_sdrv_build_server_flight(&s, srv_random, &fo));
   }
@@ -170,8 +170,8 @@ static void sdrv_test_drive(
     u8*                      flight,
     usz                      flight_cap,
     usz*                     hs_len) {
-  wired_obuf           sh_ob = quic_obuf_of(sh, sh_cap);
-  wired_obuf           fl_ob = quic_obuf_of(flight, flight_cap);
+  wired_obuf           sh_ob = obuf_of(sh, sh_cap);
+  wired_obuf           fl_ob = obuf_of(flight, flight_cap);
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
   quic_sdrv_init(s, in);
   CHECK(quic_sdrv_recv_client_hello(s, ch, ch_len));
@@ -264,20 +264,20 @@ static void test_sdrv_external_chain(void) {
     /* the parsed chain, plus the golden root as the trust anchor, validates
      * as an RFC 5280 6.1 path. */
     {
-      quic_castore_entry roots[1];
-      quic_castore       store;
-      wired_span         path[3] = {
+      castore_entry roots[1];
+      castore       store;
+      wired_span    path[3] = {
           wired_span_of(entries[0].cert_data, entries[0].cert_len),
           wired_span_of(entries[1].cert_data, entries[1].cert_len),
           wired_span_of(
               quic_realchain_root_der, sizeof(quic_realchain_root_der))};
-      quic_castore_init(&store, roots, 1);
+      castore_init(&store, roots, 1);
       CHECK(
-          quic_castore_add(
+          castore_add(
               &store, wired_span_of(
                           quic_realchain_root_der,
                           sizeof(quic_realchain_root_der))) == 1);
-      CHECK(quic_castore_validate_chain(&store, path, 3) == 1);
+      CHECK(castore_validate_chain(&store, path, 3) == 1);
     }
   }
 }
@@ -377,8 +377,8 @@ static void test_sdrv_chain_overflow(void) {
 
   {
     quic_sdrv_init_in in = {srv_priv, srv_pub, cert_priv, chain, 11, 0, 0, 0};
-    wired_obuf        sh_ob = quic_obuf_of(sh, sizeof(sh));
-    wired_obuf        fl_ob = quic_obuf_of(flight, sizeof(flight));
+    wired_obuf        sh_ob = obuf_of(sh, sizeof(sh));
+    wired_obuf        fl_ob = obuf_of(flight, sizeof(flight));
     quic_sdrv_flight_out fo = {&sh_ob, &fl_ob};
     quic_sdrv_init(&s, &in);
     CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
@@ -415,8 +415,8 @@ static void test_sdrv_flight_nine_cert_chain(void) {
 
   {
     quic_sdrv_init_in    in = {srv_priv, srv_pub, cert_priv, chain, 9, 0, 0, 0};
-    wired_obuf           sh_ob = quic_obuf_of(sh, sizeof(sh));
-    wired_obuf           fl_ob = quic_obuf_of(flight, sizeof(flight));
+    wired_obuf           sh_ob = obuf_of(sh, sizeof(sh));
+    wired_obuf           fl_ob = obuf_of(flight, sizeof(flight));
     quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
     quic_sdrv_init(&s, &in);
     CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
@@ -464,7 +464,7 @@ static void test_sdrv_recv_client_hello_stores_peer_max_datagram_frame_size(
     void) {
   u8         cli_pub[32], srv_random[32];
   u8         tpbuf[16], ch[512];
-  wired_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  wired_obuf tob = obuf_of(tpbuf, sizeof(tpbuf));
   usz        tp_len;
   usz        ch_len;
   quic_sdrv  s;
@@ -484,7 +484,7 @@ static void test_sdrv_recv_client_hello_stores_peer_max_datagram_frame_size(
 static void test_sdrv_recv_client_hello_no_max_datagram_param_stays_zero(void) {
   u8         cli_pub[32], srv_random[32];
   u8         tpbuf[16], ch[512];
-  wired_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  wired_obuf tob = obuf_of(tpbuf, sizeof(tpbuf));
   usz        tp_len;
   usz        ch_len;
   quic_sdrv  s;
@@ -519,7 +519,7 @@ static void test_sdrv_recv_client_hello_no_tp_ext_stays_zero(void) {
 static void test_sdrv_recv_client_hello_stores_peer_initial_max_data(void) {
   u8         cli_pub[32], srv_random[32];
   u8         tpbuf[16], ch[512];
-  wired_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  wired_obuf tob = obuf_of(tpbuf, sizeof(tpbuf));
   usz        tp_len;
   usz        ch_len;
   quic_sdrv  s;
@@ -539,7 +539,7 @@ static void test_sdrv_recv_client_hello_stores_peer_initial_max_data(void) {
 static void test_sdrv_recv_client_hello_no_initial_max_data_stays_zero(void) {
   u8         cli_pub[32], srv_random[32];
   u8         tpbuf[16], ch[512];
-  wired_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  wired_obuf tob = obuf_of(tpbuf, sizeof(tpbuf));
   usz        tp_len;
   usz        ch_len;
   quic_sdrv  s;
@@ -562,7 +562,7 @@ test_sdrv_recv_client_hello_stores_peer_initial_max_stream_data_bidi_local(
     void) {
   u8         cli_pub[32], srv_random[32];
   u8         tpbuf[16], ch[512];
-  wired_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  wired_obuf tob = obuf_of(tpbuf, sizeof(tpbuf));
   usz        tp_len;
   usz        ch_len;
   quic_sdrv  s;
@@ -585,7 +585,7 @@ test_sdrv_recv_client_hello_no_initial_max_stream_data_bidi_local_stays_zero(
     void) {
   u8         cli_pub[32], srv_random[32];
   u8         tpbuf[16], ch[512];
-  wired_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  wired_obuf tob = obuf_of(tpbuf, sizeof(tpbuf));
   usz        tp_len;
   usz        ch_len;
   quic_sdrv  s;
@@ -609,7 +609,7 @@ test_sdrv_recv_client_hello_stores_peer_initial_max_stream_data_bidi_remote(
     void) {
   u8         cli_pub[32], srv_random[32];
   u8         tpbuf[16], ch[512];
-  wired_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  wired_obuf tob = obuf_of(tpbuf, sizeof(tpbuf));
   usz        tp_len;
   usz        ch_len;
   quic_sdrv  s;
@@ -632,7 +632,7 @@ static void test_sdrv_recv_client_hello_stores_peer_initial_max_stream_data_uni(
     void) {
   u8         cli_pub[32], srv_random[32];
   u8         tpbuf[16], ch[512];
-  wired_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  wired_obuf tob = obuf_of(tpbuf, sizeof(tpbuf));
   usz        tp_len;
   usz        ch_len;
   quic_sdrv  s;
@@ -655,7 +655,7 @@ static void
 test_sdrv_recv_client_hello_no_server_initiated_stream_credit_stays_zero(void) {
   u8         cli_pub[32], srv_random[32];
   u8         tpbuf[16], ch[512];
-  wired_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  wired_obuf tob = obuf_of(tpbuf, sizeof(tpbuf));
   usz        tp_len;
   usz        ch_len;
   quic_sdrv  s;
@@ -754,14 +754,14 @@ static void test_sdrv_recv_client_hello_missing_tp_ext_rejected(void) {
 static void test_sdrv_recv_client_hello_dup_tp_rejected(void) {
   u8         cli_pub[32], srv_random[32];
   u8         tpbuf[32], ch[512];
-  wired_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  wired_obuf tob = obuf_of(tpbuf, sizeof(tpbuf));
   usz        tp_len;
   usz        ch_len;
   quic_sdrv  s;
   tp_len = quic_tparam_put_int(&tob, QUIC_TP_MAX_IDLE_TIMEOUT, 30000);
   CHECK(tp_len != 0);
   {
-    wired_obuf tail = quic_obuf_of(tpbuf + tp_len, sizeof(tpbuf) - tp_len);
+    wired_obuf tail = obuf_of(tpbuf + tp_len, sizeof(tpbuf) - tp_len);
     usz        w = quic_tparam_put_int(&tail, QUIC_TP_MAX_IDLE_TIMEOUT, 1000);
     CHECK(w != 0);
     tp_len += w;
@@ -780,7 +780,7 @@ static void test_sdrv_recv_client_hello_dup_tp_rejected(void) {
 static void test_sdrv_recv_client_hello_version_information_ok(void) {
   u8                       cli_pub[32], srv_random[32];
   u8                       vibuf[16], tpbuf[32], ch[512];
-  wired_obuf               tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  wired_obuf               tob = obuf_of(tpbuf, sizeof(tpbuf));
   usz                      tp_len, ch_len, vi_len;
   quic_sdrv                s;
   quic_version_information vi = {QUIC_VERSION_1, 1, {QUIC_VERSION_1}};
@@ -807,7 +807,7 @@ static void test_sdrv_recv_client_hello_version_information_malformed_rejected(
   u8         cli_pub[32], srv_random[32];
   u8         vibuf[3] = {0, 0, 1};
   u8         tpbuf[32], ch[512];
-  wired_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  wired_obuf tob = obuf_of(tpbuf, sizeof(tpbuf));
   usz        tp_len, ch_len;
   quic_sdrv  s;
   tp_len = quic_tparam_put_blob(
@@ -981,7 +981,7 @@ static void test_sdrv_recv_client_hello_dup_ext_rejected(void) {
   exts_len =
       (usz)ch[SDRV_TEST_EXTS_LEN_OFF] << 8 | ch[SDRV_TEST_EXTS_LEN_OFF + 1];
   for (usz i = 0; i < dup_len; i++) ch[ch_len + i] = dup[i];
-  quic_put_be16(ch + SDRV_TEST_EXTS_LEN_OFF, (u16)(exts_len + dup_len));
+  be_put_be16(ch + SDRV_TEST_EXTS_LEN_OFF, (u16)(exts_len + dup_len));
   quic_hs_finish(ch, ch_len + dup_len);
   ch_len += dup_len;
   CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
@@ -1004,7 +1004,7 @@ static void test_sdrv_recv_client_hello_oid_filters_rejected(void) {
       (usz)ch[SDRV_TEST_EXTS_LEN_OFF] << 8 | ch[SDRV_TEST_EXTS_LEN_OFF + 1];
   for (usz i = 0; i < sizeof(oid_filters_ext); i++)
     ch[ch_len + i] = oid_filters_ext[i];
-  quic_put_be16(
+  be_put_be16(
       ch + SDRV_TEST_EXTS_LEN_OFF, (u16)(exts_len + sizeof(oid_filters_ext)));
   quic_hs_finish(ch, ch_len + sizeof(oid_filters_ext));
   ch_len += sizeof(oid_filters_ext);
@@ -1051,7 +1051,7 @@ static void test_sdrv_keyshare_walk_rejects_overclaimed_exts_len(void) {
 static void test_sdrv_tp_walk_rejects_overclaimed_exts_len(void) {
   u8  cli_priv[32], cli_pub[32], srv_random[32], scratch[512], tpbuf[16], *ch;
   usz ch_len, tp_len;
-  wired_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  wired_obuf tob = obuf_of(tpbuf, sizeof(tpbuf));
   quic_sdrv  s;
   for (usz i = 0; i < 32; i++) {
     cli_priv[i]   = (u8)(i + 1);
@@ -1383,8 +1383,8 @@ static void test_sdrv_retry_advertises_true_odcid_not_key_derivation_dcid(
   CHECK(ch_len != 0);
   CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
   {
-    wired_obuf           sh_ob = quic_obuf_of(sh, sizeof(sh));
-    wired_obuf           fl_ob = quic_obuf_of(flight, sizeof(flight));
+    wired_obuf           sh_ob = obuf_of(sh, sizeof(sh));
+    wired_obuf           fl_ob = obuf_of(flight, sizeof(flight));
     quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
     CHECK(quic_sdrv_build_server_flight(&s, srv_random, &fo));
     hs_len = fl_ob.len;
@@ -1430,7 +1430,7 @@ static usz sdrv_test_append_psk(
   usz        old_exts_len;
   u8         modes[8], scratch[128];
   usz        modes_len;
-  wired_obuf eob = quic_obuf_of(scratch, sizeof(scratch));
+  wired_obuf eob = obuf_of(scratch, sizeof(scratch));
   if (!quic_tlsext_psk_modes(modes, sizeof(modes), &modes_len)) return 0;
   if (!quic_tlsext_pre_shared_key(psk, &eob)) return 0;
   if (ch_len + modes_len + eob.len > out_cap) return 0;
@@ -1439,7 +1439,7 @@ static usz sdrv_test_append_psk(
   for (usz i = 0; i < modes_len; i++) out[ch_len + i] = modes[i];
   *psk_ext_off = ch_len + modes_len;
   for (usz i = 0; i < eob.len; i++) out[ch_len + modes_len + i] = scratch[i];
-  quic_put_be16(out + exts_len_off, (u16)(old_exts_len + modes_len + eob.len));
+  be_put_be16(out + exts_len_off, (u16)(old_exts_len + modes_len + eob.len));
   quic_hs_finish(out, ch_len + modes_len + eob.len);
   return ch_len + modes_len + eob.len;
 }
@@ -1463,7 +1463,7 @@ static usz sdrv_test_append_early_data_then_psk(
   u8         ed[4], modes[8];
   usz        ed_len, modes_len;
   u8         scratch[128];
-  wired_obuf eob  = quic_obuf_of(scratch, sizeof(scratch));
+  wired_obuf eob  = obuf_of(scratch, sizeof(scratch));
   usz        head = ch_len;
   if (!quic_tlsext_early_data_ch(ed, sizeof(ed), &ed_len)) return 0;
   if (!quic_tlsext_psk_modes(modes, sizeof(modes), &modes_len)) return 0;
@@ -1477,7 +1477,7 @@ static usz sdrv_test_append_early_data_then_psk(
   head += modes_len;
   *psk_ext_off = head;
   for (usz i = 0; i < eob.len; i++) out[head + i] = scratch[i];
-  quic_put_be16(
+  be_put_be16(
       out + exts_len_off, (u16)(old_exts_len + ed_len + modes_len + eob.len));
   quic_hs_finish(out, head + eob.len);
   return head + eob.len;
@@ -1498,8 +1498,8 @@ static usz sdrv_test_psk_truncate_len(usz psk_ext_off, usz id_len) {
  * sdrv.c will derive when it opens the ticket. */
 static void sdrv_test_psk_from_res_master(
     const u8 res_master_secret[QUIC_TICKET_SECRET_LEN], u8 psk_out[32]) {
-  quic_hkdf_label l = {"resumption", 10, {0, 0}};
-  quic_hkdf_expand_label(res_master_secret, &l, wired_mspan_of(psk_out, 32));
+  hkdf_label l = {"resumption", 10, {0, 0}};
+  hkdf_expand_label(res_master_secret, &l, wired_mspan_of(psk_out, 32));
 }
 
 /* A resumption PSK setup shared by the accept/fallback/abort tests: an sdrv
@@ -1566,8 +1566,8 @@ static void test_sdrv_psk_absent_leaves_full_handshake_unchanged(void) {
   }
   CHECK(quic_sdrv_recv_client_hello(&s, f.ch, f.ch_len));
   CHECK(s.psk_accepted == 0);
-  sh_ob = quic_obuf_of(sh, sizeof(sh));
-  fl_ob = quic_obuf_of(flight, sizeof(flight));
+  sh_ob = obuf_of(sh, sizeof(sh));
+  fl_ob = obuf_of(flight, sizeof(flight));
   fo    = (quic_sdrv_flight_out){&sh_ob, &fl_ob};
   CHECK(quic_sdrv_build_server_flight(&s, f.srv_random, &fo));
 }
@@ -1626,8 +1626,8 @@ static void test_sdrv_psk_valid_ticket_and_binder_accepted(void) {
   CHECK(quic_sdrv_recv_client_hello(&s, ch2, ch2_len));
   CHECK(s.psk_accepted == 1);
   for (usz i = 0; i < 32; i++) CHECK(s.psk_secret[i] == f.psk[i]);
-  sh_ob = quic_obuf_of(sh, sizeof(sh));
-  fl_ob = quic_obuf_of(flight, sizeof(flight));
+  sh_ob = obuf_of(sh, sizeof(sh));
+  fl_ob = obuf_of(flight, sizeof(flight));
   fo    = (quic_sdrv_flight_out){&sh_ob, &fl_ob};
   CHECK(quic_sdrv_build_server_flight(&s, f.srv_random, &fo));
 }
@@ -1646,13 +1646,13 @@ static usz sdrv_test_append_psk_no_modes(
   usz        exts_len_off = SDRV_TEST_EXTS_LEN_OFF;
   usz        old_exts_len;
   u8         scratch[128];
-  wired_obuf eob = quic_obuf_of(scratch, sizeof(scratch));
+  wired_obuf eob = obuf_of(scratch, sizeof(scratch));
   if (!quic_tlsext_pre_shared_key(psk, &eob)) return 0;
   if (ch_len + eob.len > out_cap) return 0;
   for (usz i = 0; i < ch_len; i++) out[i] = ch[i];
   old_exts_len = (usz)out[exts_len_off] << 8 | out[exts_len_off + 1];
   for (usz i = 0; i < eob.len; i++) out[ch_len + i] = scratch[i];
-  quic_put_be16(out + exts_len_off, (u16)(old_exts_len + eob.len));
+  be_put_be16(out + exts_len_off, (u16)(old_exts_len + eob.len));
   quic_hs_finish(out, ch_len + eob.len);
   return ch_len + eob.len;
 }
@@ -1738,7 +1738,7 @@ static void test_sdrv_psk_not_last_rejected(void) {
   exts_len =
       (usz)ch2[SDRV_TEST_EXTS_LEN_OFF] << 8 | ch2[SDRV_TEST_EXTS_LEN_OFF + 1];
   for (usz i = 0; i < trailer_len; i++) ch2[ch2_len + i] = trailer[i];
-  quic_put_be16(ch2 + SDRV_TEST_EXTS_LEN_OFF, (u16)(exts_len + trailer_len));
+  be_put_be16(ch2 + SDRV_TEST_EXTS_LEN_OFF, (u16)(exts_len + trailer_len));
   quic_hs_finish(ch2, ch2_len + trailer_len);
   ch2_len += trailer_len;
 
@@ -2029,7 +2029,7 @@ static void test_sdrv_psk_tampered_transcript_aborts(void) {
 
 /* RFC 6066 3: quic_sdrv_recv_client_hello checks a ClientHello's server_name
  * against the driver's own certificate. In self-signed mode the generated
- * certificate's dNSName SAN is "localhost" (quic_p256cert_tbs). */
+ * certificate's dNSName SAN is "localhost" (p256cert_tbs). */
 static void sdrv_test_sni_outcome(wired_span sni, quic_salpn_sni_outcome want) {
   u8        cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32], cert_priv[32];
   u8        ch[512], srv_random[32];
@@ -2107,7 +2107,7 @@ static void sdrv_test_enforce_sni(
   if (!want_ok)
     CHECK(
         quic_sdrv_last_error(&s) ==
-        quic_err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME));
+        err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME));
 }
 
 /* A mismatch fails enforce_sni and records unrecognized_name. */
@@ -2223,8 +2223,8 @@ void test_sdrv(void) {
   }
   CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
   {
-    wired_obuf           sh_ob = quic_obuf_of(sh, sizeof(sh));
-    wired_obuf           fl_ob = quic_obuf_of(flight, sizeof(flight));
+    wired_obuf           sh_ob = obuf_of(sh, sizeof(sh));
+    wired_obuf           fl_ob = obuf_of(flight, sizeof(flight));
     quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
     CHECK(quic_sdrv_build_server_flight(&s, srv_random, &fo));
     sh_len = sh_ob.len;
@@ -2254,17 +2254,16 @@ void test_sdrv(void) {
    * an uncompressed secp256r1 point), not Ed25519. This is what BoringSSL
    * (curl/quiche) requires; prove it from the Certificate message bytes. */
   {
-    quic_x509           crt;
+    x509                crt;
     quic_tls_cert_entry ee_cert;
     wired_span          ctx;
     wired_span          alg_oid, spki_key;
     u8                  px[32], py[32];
     CHECK(quic_tls_cert_parse(wired_span_of(cm + 4, cml - 4), &ctx, &ee_cert));
-    CHECK(quic_x509_parse(
-        wired_span_of(ee_cert.cert_data, ee_cert.cert_len), &crt));
-    CHECK(quic_x509_public_key(crt.tbs, &alg_oid, &spki_key));
-    CHECK(quic_x509_is_ec(alg_oid) == 1);
-    CHECK(quic_x509_ec_pubkey(spki_key, px, py) == 1);
+    CHECK(x509_parse(wired_span_of(ee_cert.cert_data, ee_cert.cert_len), &crt));
+    CHECK(x509_public_key(crt.tbs, &alg_oid, &spki_key));
+    CHECK(x509_is_ec(alg_oid) == 1);
+    CHECK(x509_ec_pubkey(spki_key, px, py) == 1);
   }
 
   /* CertificateVerify verifies against the server's self-built P-256
@@ -2322,8 +2321,8 @@ void test_sdrv(void) {
         &(wired_obuf){ch2, sizeof(ch2), 0});
     CHECK(quic_sdrv_recv_client_hello(&s2, ch2, ch_len));
     {
-      wired_obuf           sh_ob = quic_obuf_of(sh2, sizeof(sh2));
-      wired_obuf           fl_ob = quic_obuf_of(flight2, sizeof(flight2));
+      wired_obuf           sh_ob = obuf_of(sh2, sizeof(sh2));
+      wired_obuf           fl_ob = obuf_of(flight2, sizeof(flight2));
       quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
       CHECK(quic_sdrv_build_server_flight(&s2, srv_random, &fo));
       hs2_len = fl_ob.len;
@@ -2364,8 +2363,8 @@ void test_sdrv(void) {
     quic_transcript_add(&tr, ch, ch_len);
     quic_transcript_add(&tr, sh, sh_len);
     quic_transcript_hash(&tr, fin_th); /* through ServerHello */
-    quic_hkdf_label shl = {"s hs traffic", 12, {fin_th, 32}};
-    quic_hkdf_expand_label(hs, &shl, wired_mspan_of(s_traffic, 32));
+    hkdf_label shl = {"s hs traffic", 12, {fin_th, 32}};
+    hkdf_expand_label(hs, &shl, wired_mspan_of(s_traffic, 32));
     quic_transcript_add(&tr, ee, eel);
     quic_transcript_add(&tr, cm, cml);
     quic_transcript_add(&tr, cv, cvl);

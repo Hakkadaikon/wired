@@ -40,7 +40,7 @@ static int append_ack(wired_obuf* frames, i64 ack_pn) {
   wired_obuf tail;
   usz        a;
   if (ack_pn < 0) return 1;
-  tail = quic_obuf_of(frames->p + frames->len, frames->cap - frames->len);
+  tail = obuf_of(frames->p + frames->len, frames->cap - frames->len);
   a    = put_ack_one(&tail, (u64)ack_pn);
   if (a == 0) return 0;
   frames->len += a;
@@ -96,12 +96,12 @@ static int srvwire_initial_tx_lean_ver(
     wired_obuf*                 fb,
     wired_obuf*                 out) {
   quic_initial_keys ck, sk;
-  quic_aes128       hp;
+  aes128            hp;
   usz               total;
   u8                byte0 = srvwire_initial_byte0(version);
   if (byte0 == 0) return 0;
   quic_initpkt_derive_ver(in->dcid, version, &ck, &sk);
-  quic_aes128_init(&hp, sk.hp);
+  aes128_init(&hp, sk.hp);
   quic_protect_keys k = {&sk, &hp};
   quic_tx_desc      t = {
       byte0,
@@ -139,7 +139,7 @@ static int srvwire_initial_tx_ver(
 int quic_srvwire_seal_initial_ver(
     u32 version, const quic_srvwire_seal_in* in, wired_obuf* out) {
   u8         frames[1200]; /* RFC 9000 14.1: room to PADDING to 1200 */
-  wired_obuf fb = quic_obuf_of(frames, sizeof frames);
+  wired_obuf fb = obuf_of(frames, sizeof frames);
   if (!srvwire_emit_frames(in, &fb)) return 0;
   return srvwire_initial_tx_ver(version, in, &fb, out);
 }
@@ -155,8 +155,8 @@ int quic_srvwire_seal_initial(const quic_srvwire_seal_in* in, wired_obuf* out) {
 int quic_srvwire_seal_initial_frames(
     const quic_srvwire_seal_in* in, wired_obuf* out) {
   u8         frames[1200];
-  wired_obuf fb = quic_obuf_of(frames, sizeof frames);
-  if (!quic_put_bytes(wired_mspan_of(fb.p, fb.cap), &fb.len, in->tls)) return 0;
+  wired_obuf fb = obuf_of(frames, sizeof frames);
+  if (!bytes_put(wired_mspan_of(fb.p, fb.cap), &fb.len, in->tls)) return 0;
   if (!append_ack(&fb, in->ack_pn)) return 0;
   return srvwire_initial_tx_ver(QUIC_VERSION_1, in, &fb, out);
 }
@@ -164,8 +164,8 @@ int quic_srvwire_seal_initial_frames(
 int quic_srvwire_seal_initial_frames_lean(
     const quic_srvwire_seal_in* in, wired_obuf* out) {
   u8         frames[64];
-  wired_obuf fb = quic_obuf_of(frames, sizeof frames);
-  if (!quic_put_bytes(wired_mspan_of(fb.p, fb.cap), &fb.len, in->tls)) return 0;
+  wired_obuf fb = obuf_of(frames, sizeof frames);
+  if (!bytes_put(wired_mspan_of(fb.p, fb.cap), &fb.len, in->tls)) return 0;
   if (!append_ack(&fb, in->ack_pn)) return 0;
   return srvwire_initial_tx_lean(in, &fb, out);
 }
@@ -174,11 +174,11 @@ int quic_srvwire_seal_initial_frames_lean(
 int quic_srvwire_open_initial(
     const quic_srvwire_open_initial_in* in, wired_mspan pkt, wired_span* tls) {
   quic_initial_keys ck, sk;
-  quic_aes128       hp;
+  aes128            hp;
   wired_span        frames;
   (void)in->pn;
   quic_initpkt_derive(in->dcid, &ck, &sk);
-  quic_aes128_init(&hp, sk.hp);
+  aes128_init(&hp, sk.hp);
   quic_protect_keys k = {&sk, &hp};
   quic_rx_desc      d = {pkt, 1};
   if (!quic_rx_packet(&k, &d, &frames)) return 0;
@@ -192,7 +192,7 @@ int quic_srvwire_seal_handshake(
     const quic_srvwire_seal_in* in,
     wired_obuf*                 out) {
   u8         frames[2048];
-  wired_obuf fb = quic_obuf_of(frames, sizeof frames);
+  wired_obuf fb = obuf_of(frames, sizeof frames);
   if (!srvwire_emit_frames(in, &fb)) return 0;
   quic_hspkt_desc d = {
       in->hdr_dcid, in->scid, in->pn, wired_span_of(frames, fb.len)};
@@ -216,7 +216,7 @@ int quic_srvwire_seal_handshake_suite(
     const quic_srvwire_seal_in* in,
     wired_obuf*                 out) {
   u8         frames[2048];
-  wired_obuf fb = quic_obuf_of(frames, sizeof frames);
+  wired_obuf fb = obuf_of(frames, sizeof frames);
   if (!srvwire_emit_frames(in, &fb)) return 0;
   quic_hspkt_desc d = {
       in->hdr_dcid, in->scid, in->pn, wired_span_of(frames, fb.len)};

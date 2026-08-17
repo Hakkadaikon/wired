@@ -298,14 +298,14 @@ int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len);
  * check against. A QUIC_SALPN_SNI_MISMATCH never fails the handshake on its
  * own (RFC 6066 3 permits continuing); a caller that wants to enforce
  * unrecognized_name checks this and closes with
- * quic_err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME) itself.
+ * err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME) itself.
  * @param s driver state
  * @return the last checked SNI outcome. */
 quic_salpn_sni_outcome quic_sdrv_sni_outcome(const quic_sdrv* s);
 
 /** RFC 6066 3: opt-in enforcement of the last checked SNI outcome. A
  * QUIC_SALPN_SNI_MISMATCH sets s->last_error to
- * quic_err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME) and fails; MATCH and
+ * err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME) and fails; MATCH and
  * ABSENT are no-ops. Call right after a successful
  * quic_sdrv_recv_client_hello when the caller wants unrecognized_name
  * enforced instead of RFC 6066 3's silent-continue default.

@@ -48,7 +48,7 @@ static void test_rtt_sample_ignores_max_ack_delay_before_confirm(void) {
   /* ack_delay(40000) > max_ack_delay(25000), but not confirmed: use 40000
    * unclamped. adjusted_rtt = 150000 - 40000 = 110000. */
   quic_rtt_sample(&r, 150000, 40000, 25000, 0);
-  u64 want_var = quic_u64_absdiff(100000, 110000);
+  u64 want_var = u64_absdiff(100000, 110000);
   CHECK(r.rttvar == (3 * 50000 + want_var) / 4);
   CHECK(r.smoothed_rtt == (7 * 100000 + 110000) / 8);
 }
@@ -62,7 +62,7 @@ static void test_rtt_sample_clamps_ack_delay_after_confirm(void) {
   /* ack_delay(40000) > max_ack_delay(25000), confirmed: clamp to 25000.
    * adjusted_rtt = 150000 - 25000 = 125000. */
   quic_rtt_sample(&r, 150000, 40000, 25000, 1);
-  u64 want_var = quic_u64_absdiff(100000, 125000);
+  u64 want_var = u64_absdiff(100000, 125000);
   CHECK(r.rttvar == (3 * 50000 + want_var) / 4);
   CHECK(r.smoothed_rtt == (7 * 100000 + 125000) / 8);
 }
@@ -76,7 +76,7 @@ static void test_rtt_sample_uses_ack_delay_after_confirm_when_smaller(void) {
   /* ack_delay(10000) < max_ack_delay(25000), confirmed: use 10000.
    * adjusted_rtt = 150000 - 10000 = 140000. */
   quic_rtt_sample(&r, 150000, 10000, 25000, 1);
-  u64 want_var = quic_u64_absdiff(100000, 140000);
+  u64 want_var = u64_absdiff(100000, 140000);
   CHECK(r.rttvar == (3 * 50000 + want_var) / 4);
   CHECK(r.smoothed_rtt == (7 * 100000 + 140000) / 8);
 }

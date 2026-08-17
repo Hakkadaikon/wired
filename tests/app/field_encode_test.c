@@ -21,7 +21,7 @@ static void test_field_encode_status_201(void) {
   usz                pl;
   quic_qpack_nameref r = {0, 0, 0};
   u8                 val[8];
-  wired_obuf         vb = quic_obuf_of(val, sizeof val);
+  wired_obuf         vb = obuf_of(val, sizeof val);
   CHECK(quic_h3resp_encode_headers(201, 0, &ob) == 1);
   CHECK(out[0] == 0x00 && out[1] == 0x00);
   pl = quic_qpack_literal_namref_decode(
@@ -72,7 +72,7 @@ static void test_field_encode_headers_content_type_literal(void) {
   usz                pl;
   quic_qpack_nameref r = {0, 0, 0};
   u8                 val[32];
-  wired_obuf         vb = quic_obuf_of(val, sizeof val);
+  wired_obuf         vb = obuf_of(val, sizeof val);
   CHECK(quic_h3resp_encode_headers(200, "text/javascript", &ob) == 1);
   pl = quic_qpack_literal_namref_decode(
       wired_span_of(out + 3, ob.len - 3), &r, &vb);

@@ -10,7 +10,7 @@ static int resp_append_body(wired_span body, wired_obuf* out) {
   wired_obuf ob;
   usz        n;
   if (!body.n) return 1;
-  ob = quic_obuf_of(out->p + out->len, out->cap - out->len);
+  ob = obuf_of(out->p + out->len, out->cap - out->len);
   n  = quic_h3_frame_put(&ob, QUIC_H3_FRAME_DATA, body);
   if (!n) return 0;
   out->len += n;
@@ -26,7 +26,7 @@ static usz put_headers(
     const quic_qpack_field* extra,
     wired_obuf*             out) {
   u8         field[192];
-  wired_obuf fob = quic_obuf_of(field, sizeof field);
+  wired_obuf fob = obuf_of(field, sizeof field);
   if (!quic_h3resp_encode_headers_field(status, content_type, extra, &fob))
     return 0;
   return quic_h3_frame_put(
@@ -36,7 +36,7 @@ static usz put_headers(
 /* RFC 9114 4.1 */
 int quic_h3resp_build(
     u16 status, const char* content_type, wired_span body, wired_obuf* out) {
-  wired_obuf head = quic_obuf_of(out->p, out->cap);
+  wired_obuf head = obuf_of(out->p, out->cap);
   usz        off  = put_headers(status, content_type, 0, &head);
   if (!off) return 0;
   out->len = off;
@@ -49,9 +49,8 @@ static int prefix_data_hdr(u64 body_len, wired_obuf* out) {
   usz off = out->len;
   int ok;
   if (!body_len) return 1;
-  ok = quic_varint_put(
-           wired_mspan_of(out->p, out->cap), &off, QUIC_H3_FRAME_DATA) &
-       quic_varint_put(wired_mspan_of(out->p, out->cap), &off, body_len);
+  ok = varint_put(wired_mspan_of(out->p, out->cap), &off, QUIC_H3_FRAME_DATA) &
+       varint_put(wired_mspan_of(out->p, out->cap), &off, body_len);
   if (!ok) return 0;
   out->len = off;
   return 1;
@@ -63,7 +62,7 @@ int quic_h3resp_prefix_field(
     u64                     body_len,
     const quic_qpack_field* extra,
     wired_obuf*             out) {
-  wired_obuf head = quic_obuf_of(out->p, out->cap);
+  wired_obuf head = obuf_of(out->p, out->cap);
   usz        off  = put_headers(status, content_type, extra, &head);
   if (!off) return 0;
   out->len = off;

@@ -76,12 +76,12 @@ static u64 loss_window_cubic(quic_cc* c, u64 now) {
   c->w_max_seg = quic_cubic_wmax_fastconv(w_seg, c->w_max_seg);
   c->k_ms      = quic_cubic_k_ms(c->w_max_seg);
   c->epoch_ms  = now;
-  return quic_u64_max(c->cwnd * 7 / 10, QUIC_CC_MIN_WINDOW);
+  return u64_max(c->cwnd * 7 / 10, QUIC_CC_MIN_WINDOW);
 }
 
 static u64 loss_window(quic_cc* c, u64 now) {
   if (c->algo == QUIC_CC_ALGO_CUBIC) return loss_window_cubic(c, now);
-  return quic_u64_max(c->cwnd / 2, QUIC_CC_MIN_WINDOW);
+  return u64_max(c->cwnd / 2, QUIC_CC_MIN_WINDOW);
 }
 
 void quic_cc_on_loss(quic_cc* c, u64 sent_time, u64 now) {
@@ -125,7 +125,7 @@ static void bbr_round_feed(quic_cc* c, u64 now_ms, u64 rate) {
 /* Close the sample round once at least one rtprop (min 1ms) has elapsed. */
 static void bbr_round_close(quic_cc* c, u64 now_ms) {
   u64 span = now_ms - c->round_start_ms;
-  u64 need = quic_u64_max(c->bbr.rtprop_ms, 1);
+  u64 need = u64_max(c->bbr.rtprop_ms, 1);
   if (span < need || !c->round_bytes) return;
   bbr_round_feed(c, now_ms, c->round_bytes / span);
 }
@@ -140,7 +140,7 @@ static void bbr_round_close(quic_cc* c, u64 now_ms) {
 static void bbr_set_cwnd(quic_cc* c) {
   u64 bdp = bbr_bdp(c);
   if (!bdp) return;
-  c->cwnd = quic_u64_max(
+  c->cwnd = u64_max(
       quic_bbr_cwnd_gain_pct(&c->bbr) * bdp / 100, QUIC_CC_BBR_MIN_CWND);
 }
 
@@ -157,7 +157,7 @@ void quic_cc_bbr_tick(quic_cc* c, u64 inflight_bytes, u64 now_ms) {
 static u64 bbr_pacing_ms(const quic_cc* c, u64 mtu) {
   u64 rate = quic_bbr_pacing_gain_pct(&c->bbr) * c->bbr.btl_bw / 100;
   if (!rate) return 0;
-  return quic_u64_max(mtu / rate, 1);
+  return u64_max(mtu / rate, 1);
 }
 
 /* NewReno/CUBIC pacing: RFC 9002 7.7 interval, floored at 1ms once an RTT
@@ -167,7 +167,7 @@ static u64 bbr_pacing_ms(const quic_cc* c, u64 mtu) {
  * of packets in one step and overflowing the network simulator's queue. */
 static u64 newreno_pacing_ms(const quic_cc* c, u64 srtt_ms, u64 mtu) {
   u64 ms = quic_pacing_interval(srtt_ms, c->cwnd, mtu);
-  return srtt_ms ? quic_u64_max(ms, 1) : ms;
+  return srtt_ms ? u64_max(ms, 1) : ms;
 }
 
 u64 quic_cc_pacing_ms(const quic_cc* c, u64 srtt_ms, u64 mtu) {

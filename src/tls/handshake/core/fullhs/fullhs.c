@@ -98,7 +98,7 @@ void quic_fullhs_set_policy(quic_fullhs* h, u64 now, wired_span host) {
   h->policy_host_len = host.n;
 }
 
-void quic_fullhs_set_castore(quic_fullhs* h, const quic_castore* store) {
+void quic_fullhs_set_castore(quic_fullhs* h, const castore* store) {
   h->castore = store;
 }
 
@@ -117,20 +117,20 @@ static int order_ok(quic_fullhs* h, u8 msg_type) {
 }
 
 /* RFC 5280 6.1: the certificate window covers policy_now (0 skips). */
-static int fullhs_time_ok(const quic_fullhs* h, const quic_x509* x) {
-  return h->policy_now == 0 || quic_x509_validity_ok(x->tbs, h->policy_now);
+static int fullhs_time_ok(const quic_fullhs* h, const x509* x) {
+  return h->policy_now == 0 || x509_validity_ok(x->tbs, h->policy_now);
 }
 
 /* RFC 6125: a SAN dNSName matches policy_host (length 0 skips). */
-static int fullhs_host_ok(const quic_fullhs* h, const quic_x509* x) {
+static int fullhs_host_ok(const quic_fullhs* h, const x509* x) {
   return h->policy_host_len == 0 ||
-         quic_x509_san_matches(
+         x509_san_matches(
              x->tbs, wired_span_of(h->policy_host, h->policy_host_len));
 }
 
 static int fullhs_policy_checks(const quic_fullhs* h, const u8* cert, usz n) {
-  quic_x509 x;
-  if (!quic_x509_parse(wired_span_of(cert, n), &x)) return 0;
+  x509 x;
+  if (!x509_parse(wired_span_of(cert, n), &x)) return 0;
   return fullhs_time_ok(h, &x) && fullhs_host_ok(h, &x);
 }
 
@@ -157,7 +157,7 @@ static int fullhs_chain_ok(
   if (h->castore == 0) return 1;
   for (usz i = 0; i < n; i++)
     certs[i] = wired_span_of(e[i].cert_data, e[i].cert_len);
-  return quic_castore_validate_chain(h->castore, certs, n);
+  return castore_validate_chain(h->castore, certs, n);
 }
 
 /* The leaf passes the acceptance policy and the chain anchors to the store. */
@@ -279,7 +279,7 @@ static void install_app(quic_fullhs* h) {
   const quic_initial_keys* k;
   int which = h->is_server ? QUIC_KS_SERVER_AP : QUIC_KS_CLIENT_AP;
   if (quic_keysched_get(&h->tls->ks, which, &k))
-    quic_keyset_install(&h->tls->keys, QUIC_LEVEL_ONERTT, k);
+    keyset_install(&h->tls->keys, QUIC_LEVEL_ONERTT, k);
 }
 
 /* RFC 8446 7.1: application_traffic_secret_0 is derived over the transcript
@@ -296,8 +296,8 @@ int quic_fullhs_confirmed(quic_fullhs* h) {
   if (!quic_hsdriver_recv(
           &h->tls->hs, QUIC_HSD_HANDSHAKE_DONE, QUIC_HSD_PROT_1RTT))
     return 0;
-  if (quic_key_should_discard_handshake(quic_hsdriver_confirmed(&h->tls->hs)))
-    quic_keyset_discard(&h->tls->keys, QUIC_LEVEL_HANDSHAKE);
+  if (key_should_discard_handshake(quic_hsdriver_confirmed(&h->tls->hs)))
+    keyset_discard(&h->tls->keys, QUIC_LEVEL_HANDSHAKE);
   return 1;
 }
 

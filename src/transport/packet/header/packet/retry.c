@@ -8,7 +8,7 @@ static int retry_put_cid(wired_obuf* out, wired_span cid) {
   if (out->len + 1 + cid.n > out->cap) return 0;
   out->p[out->len] = (u8)cid.n;
   out->len += 1;
-  return quic_put_bytes(
+  return bytes_put(
       wired_mspan_of(out->p, out->cap), &out->len, wired_span_of(cid.p, cid.n));
 }
 
@@ -20,17 +20,17 @@ static int retry_fits(usz cap, const quic_retry_desc* d) {
 }
 
 usz quic_retry_build(u8* buf, usz cap, const quic_retry_desc* d) {
-  wired_obuf out = quic_obuf_of(buf, cap);
+  wired_obuf out = obuf_of(buf, cap);
   out.len        = 5;
   if (!retry_fits(cap, d)) return 0;
   buf[0] = 0xF0; /* RFC 9000 17.2.5: long form, fixed bit, type Retry (0x3) */
-  quic_put_be32(buf + 1, d->version);
+  be_put_be32(buf + 1, d->version);
   retry_put_cid(&out, d->dcid); /* room checked above */
   retry_put_cid(&out, d->scid);
-  quic_put_bytes(
+  bytes_put(
       wired_mspan_of(out.p, out.cap), &out.len,
       wired_span_of(d->token.p, d->token.n));
-  quic_put_bytes(
+  bytes_put(
       wired_mspan_of(out.p, out.cap), &out.len,
       wired_span_of(d->tag, QUIC_RETRY_TAG_LEN));
   return out.len;
@@ -44,7 +44,7 @@ static int retry_take_cid(wired_span buf, usz* off, wired_mspan* dst) {
   if (len > WIRED_MAX_CID_LEN) return 0;
   *off += 1;
   dst->n = len;
-  return quic_take_bytes(
+  return bytes_take(
       wired_span_of(buf.p, buf.n), off, wired_mspan_of(dst->p, len));
 }
 
@@ -72,7 +72,7 @@ static int take_token_tag(wired_span buf, usz off, quic_retry_packet* r) {
   if (off > tag_off) return 0;
   r->token     = buf.p + off;
   r->token_len = tag_off - off;
-  return quic_take_bytes(
+  return bytes_take(
       wired_span_of(buf.p, buf.n), &tag_off,
       wired_mspan_of(r->tag, QUIC_RETRY_TAG_LEN));
 }

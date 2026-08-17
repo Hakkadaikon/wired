@@ -88,13 +88,13 @@ static usz cr_build_frames(
 usz quic_connrunner_flush_sends(quic_connrunner* r, u64 sent_before, int kind) {
   u8         frames[64];
   usz        fl;
-  wired_obuf fb = quic_obuf_of(frames, sizeof(frames));
+  wired_obuf fb = obuf_of(frames, sizeof(frames));
   if (r->loop.next_pn == sent_before) return 0; /* loop sent nothing */
   fl = cr_build_frames(r, kind, &fb);
   if (fl == 0) return 0;
   {
     quic_connio_send_in sin = {r->loop.level, wired_span_of(frames, fl)};
-    wired_obuf          ob  = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
+    wired_obuf          ob  = obuf_of(r->txbuf, sizeof(r->txbuf));
     return quic_connio_send(&r->io, &sin, &ob);
   }
 }

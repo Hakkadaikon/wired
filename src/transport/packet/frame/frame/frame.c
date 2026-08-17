@@ -24,24 +24,22 @@ usz quic_frame_put_simple(u8* buf, usz cap, u8 type) {
 
 /* Write type, offset, length varints. Returns 1 ok, 0 on overflow. */
 static int put_crypto_hdr(wired_obuf* o, const quic_crypto_frame* f) {
-  if (!quic_varint_put(
-          wired_mspan_of(o->p, o->cap), &o->len, QUIC_FRAME_CRYPTO))
+  if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, QUIC_FRAME_CRYPTO))
     return 0;
-  if (!quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->offset))
-    return 0;
-  return quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->length);
+  if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->offset)) return 0;
+  return varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->length);
 }
 
 usz quic_frame_put_crypto(u8* buf, usz cap, const quic_crypto_frame* f) {
-  wired_obuf o = quic_obuf_of(buf, cap);
+  wired_obuf o = obuf_of(buf, cap);
   if (!put_crypto_hdr(&o, f)) return 0;
   return write_bytes(&o, f->data, f->length);
 }
 
 /* Read offset and length varints at *off. Returns 1 ok, 0 on bad input. */
 static int take_crypto_hdr(wired_span in, usz* off, quic_crypto_frame* f) {
-  if (!quic_varint_take(wired_span_of(in.p, in.n), off, &f->offset)) return 0;
-  return quic_varint_take(wired_span_of(in.p, in.n), off, &f->length);
+  if (!varint_take(wired_span_of(in.p, in.n), off, &f->offset)) return 0;
+  return varint_take(wired_span_of(in.p, in.n), off, &f->length);
 }
 
 usz quic_frame_get_crypto(const u8* buf, usz n, quic_crypto_frame* f) {
@@ -63,25 +61,25 @@ static u8 stream_type(const quic_stream_frame* f) {
 /* Write the offset varint only when nonzero (OFF bit). Returns 1 ok, 0. */
 static int put_opt_offset(wired_obuf* o, u64 offset) {
   if (offset == 0) return 1;
-  return quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, offset);
+  return varint_put(wired_mspan_of(o->p, o->cap), &o->len, offset);
 }
 
 /* Write the type and stream id varints. Returns 1 ok, 0. */
 static int put_stream_prefix(wired_obuf* o, const quic_stream_frame* f) {
-  if (!quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, stream_type(f)))
+  if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, stream_type(f)))
     return 0;
-  return quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->stream_id);
+  return varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->stream_id);
 }
 
 /* Write type, stream id, optional offset, and length varints. */
 static int put_stream_hdr(wired_obuf* o, const quic_stream_frame* f) {
   if (!put_stream_prefix(o, f)) return 0;
   if (!put_opt_offset(o, f->offset)) return 0;
-  return quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->length);
+  return varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->length);
 }
 
 usz quic_frame_put_stream(u8* buf, usz cap, const quic_stream_frame* f) {
-  wired_obuf o = quic_obuf_of(buf, cap);
+  wired_obuf o = obuf_of(buf, cap);
   if (!put_stream_hdr(&o, f)) return 0;
   return write_bytes(&o, f->data, f->length);
 }
@@ -91,7 +89,7 @@ usz quic_frame_put_stream(u8* buf, usz cap, const quic_stream_frame* f) {
 static int take_opt_offset(wired_span in, usz* off, u64* offset) {
   *offset = 0;
   if ((in.p[0] & QUIC_STREAM_OFF) == 0) return 1;
-  return quic_varint_take(wired_span_of(in.p, in.n), off, offset);
+  return varint_take(wired_span_of(in.p, in.n), off, offset);
 }
 
 /* RFC 9000 19.8: the Length field is present only when the LEN bit is set;
@@ -103,13 +101,12 @@ static int take_opt_length(wired_span in, usz* off, u64* length) {
     *length = in.n - *off;
     return 1;
   }
-  return quic_varint_take(wired_span_of(in.p, in.n), off, length);
+  return varint_take(wired_span_of(in.p, in.n), off, length);
 }
 
 /* Read stream id, optional offset (when OFF set), and length at *off. */
 static int take_stream_hdr(wired_span in, usz* off, quic_stream_frame* f) {
-  if (!quic_varint_take(wired_span_of(in.p, in.n), off, &f->stream_id))
-    return 0;
+  if (!varint_take(wired_span_of(in.p, in.n), off, &f->stream_id)) return 0;
   if (!take_opt_offset(in, off, &f->offset)) return 0;
   return take_opt_length(in, off, &f->length);
 }
@@ -126,26 +123,26 @@ usz quic_frame_get_stream(const u8* buf, usz n, quic_stream_frame* f) {
 /* Write the frame_type varint only for the transport variant. Returns 1/0. */
 static int put_opt_frame_type(wired_obuf* o, const quic_conn_close_frame* f) {
   if (f->is_app) return 1;
-  return quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->frame_type);
+  return varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->frame_type);
 }
 
 /* Write the type byte and error code varints. Returns 1 ok, 0. */
 static int put_cc_prefix(wired_obuf* o, const quic_conn_close_frame* f) {
   u8 type = f->is_app ? QUIC_FRAME_CONN_CLOSE_APP : QUIC_FRAME_CONN_CLOSE_TPT;
-  if (!quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, type)) return 0;
-  return quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->error_code);
+  if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, type)) return 0;
+  return varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->error_code);
 }
 
 /* Write type byte, error code, optional frame_type, and reason length. */
 static int put_cc_hdr(wired_obuf* o, const quic_conn_close_frame* f) {
   if (!put_cc_prefix(o, f)) return 0;
   if (!put_opt_frame_type(o, f)) return 0;
-  return quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->reason_len);
+  return varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->reason_len);
 }
 
 usz quic_frame_put_conn_close(
     u8* buf, usz cap, const quic_conn_close_frame* f) {
-  wired_obuf o = quic_obuf_of(buf, cap);
+  wired_obuf o = obuf_of(buf, cap);
   if (!put_cc_hdr(&o, f)) return 0;
   return write_bytes(&o, f->reason, f->reason_len);
 }
@@ -155,15 +152,14 @@ static int take_opt_frame_type(
     wired_span in, usz* off, quic_conn_close_frame* f) {
   f->frame_type = 0;
   if (f->is_app) return 1;
-  return quic_varint_take(wired_span_of(in.p, in.n), off, &f->frame_type);
+  return varint_take(wired_span_of(in.p, in.n), off, &f->frame_type);
 }
 
 /* Read error code, optional frame_type, and reason length at *off. */
 static int take_cc_hdr(wired_span in, usz* off, quic_conn_close_frame* f) {
-  if (!quic_varint_take(wired_span_of(in.p, in.n), off, &f->error_code))
-    return 0;
+  if (!varint_take(wired_span_of(in.p, in.n), off, &f->error_code)) return 0;
   if (!take_opt_frame_type(in, off, f)) return 0;
-  return quic_varint_take(wired_span_of(in.p, in.n), off, &f->reason_len);
+  return varint_take(wired_span_of(in.p, in.n), off, &f->reason_len);
 }
 
 usz quic_frame_get_conn_close(const u8* buf, usz n, quic_conn_close_frame* f) {

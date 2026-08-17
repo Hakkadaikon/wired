@@ -90,15 +90,15 @@ struct lp_fix {
  * (cwnd, log capacity, ...), not flow control, so the credit itself must
  * never be the constraining factor here. */
 static usz lp_client_tp(u8* tp, usz cap) {
-  wired_obuf tob = quic_obuf_of(tp, cap);
+  wired_obuf tob = obuf_of(tp, cap);
   usz        n1 = quic_tparam_put_int(&tob, QUIC_TP_INITIAL_MAX_DATA, 1u << 24);
-  wired_obuf tob2 = quic_obuf_of(tp + n1, cap - n1);
+  wired_obuf tob2 = obuf_of(tp + n1, cap - n1);
   usz        n2   = quic_tparam_put_int(
       &tob2, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 1u << 24);
   /* RFC 9000 18.2: a real client grants the server uni streams (Chrome
    * does); without this every server-initiated relay open is refused by
    * the peer-limit gate and fixture-driven WT tests starve. */
-  wired_obuf tob3 = quic_obuf_of(tp + n1 + n2, cap - n1 - n2);
+  wired_obuf tob3 = obuf_of(tp + n1 + n2, cap - n1 - n2);
   usz n3 = quic_tparam_put_int(&tob3, QUIC_TP_INITIAL_MAX_STREAMS_UNI, 100);
   return n1 + n2 + n3;
 }
@@ -148,8 +148,8 @@ static void lp_drive_to_flight(struct lp_fix* f) {
   wired_x25519_base(srv_pub, srv_priv);
 
   wired_server_init_in sin   = {srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, 0};
-  wired_obuf           sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
-  wired_obuf           fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
+  wired_obuf           sh_ob = obuf_of(f->sh, sizeof(f->sh));
+  wired_obuf           fl_ob = obuf_of(f->flight, sizeof(f->flight));
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
   wired_server_init(&f->s, &sin);
   CHECK(
@@ -181,8 +181,8 @@ static void lp_make_client_finished(struct lp_fix* f) {
   quic_transcript_add(&tr, f->ch, f->ch_len);
   quic_transcript_add(&tr, f->sh, f->sh_len);
   quic_transcript_hash(&tr, th);
-  quic_hkdf_label chl = {"c hs traffic", 12, {th, 32}};
-  quic_hkdf_expand_label(hs, &chl, wired_mspan_of(c_traffic, 32));
+  hkdf_label chl = {"c hs traffic", 12, {th, 32}};
+  hkdf_expand_label(hs, &chl, wired_mspan_of(c_traffic, 32));
   quic_transcript_add(&tr, f->flight, f->flight_len);
   quic_transcript_hash(&tr, th);
 
@@ -197,10 +197,10 @@ static void lp_make_client_finished(struct lp_fix* f) {
 static usz client_seal_handshake(
     struct lp_fix* f, const u8* msg, usz mlen, u8* pkt, usz cap) {
   const quic_initial_keys* k;
-  quic_aes128              hp;
+  aes128                   hp;
   wired_obuf               ob = {pkt, cap, 0};
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_HS, &k) == 1);
-  quic_aes128_init(&hp, k->hp);
+  aes128_init(&hp, k->hp);
   quic_srvwire_seal_in in = {
       wired_span_of((const u8*)0, 0),
       wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
@@ -220,10 +220,10 @@ static usz client_seal_handshake(
 static usz client_seal_handshake_pn(
     struct lp_fix* f, u64 pn, const u8* msg, usz mlen, u8* pkt, usz cap) {
   const quic_initial_keys* k;
-  quic_aes128              hp;
+  aes128                   hp;
   wired_obuf               ob = {pkt, cap, 0};
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_HS, &k) == 1);
-  quic_aes128_init(&hp, k->hp);
+  aes128_init(&hp, k->hp);
   quic_srvwire_seal_in in = {
       wired_span_of((const u8*)0, 0),
       wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
@@ -241,15 +241,15 @@ static usz client_seal_handshake_pn(
 static usz client_seal_onertt(
     struct lp_fix* f, const u8* pl, usz pln, u8* pkt, usz cap) {
   const quic_initial_keys* k;
-  quic_aes128              hp;
+  aes128                   hp;
   usz                      total = 0;
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_AP, &k) == 1);
-  quic_aes128_init(&hp, k->hp);
+  aes128_init(&hp, k->hp);
   quic_protect_keys      pk = {k, &hp};
   quic_hspkt_onertt_desc d  = {
       wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), 0,
       wired_span_of(pl, pln), 0};
-  wired_obuf o = quic_obuf_of(pkt, cap);
+  wired_obuf o = obuf_of(pkt, cap);
   CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
   total = o.len;
   return total;
@@ -301,14 +301,14 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
    * roundtrip tests in this file do. */
   {
     const quic_initial_keys* shs;
-    quic_aes128              hp;
+    aes128                   hp;
     wired_span               tls = {0, 0};
     wired_srvloop_send_in    in  = {
         wired_span_of(g_cli_scid, 6), 0, -1,
         wired_span_of(f.flight, f.flight_len), 0};
     CHECK(wired_srvloop_send_handshake(&f.s, &in, &hob));
     CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_SERVER_HS, &shs) == 1);
-    quic_aes128_init(&hp, shs->hp);
+    aes128_init(&hp, shs->hp);
     {
       quic_protect_keys pk = {shs, &hp};
       CHECK(
@@ -325,7 +325,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
   {
     const quic_initial_keys* sap;
     const quic_initial_keys* chs;
-    quic_aes128              hp;
+    aes128                   hp;
     wired_span               pl = {0, 0};
     u8                       cpkt[1024];
     usz                      clen;
@@ -355,7 +355,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
             &oob) == 1);
     CHECK(wired_server_is_confirmed(&f.s) == 1);
     CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_SERVER_AP, &sap) == 1);
-    quic_aes128_init(&hp, sap->hp);
+    aes128_init(&hp, sap->hp);
     {
       /* oob coalesces a long-header Handshake ACK ahead of the 1-RTT
        * packet (RFC 9000 12.2) -- split it the way the client would. */
@@ -460,12 +460,12 @@ static void test_srvloop_wrong_direction_open_fails(void) {
   u8                       pkt[2300];
   wired_obuf               ob = {pkt, sizeof pkt, 0};
   const quic_initial_keys *own, *peer;
-  quic_aes128              ownhp, peerhp;
+  aes128                   ownhp, peerhp;
   wired_span               tls = {0, 0};
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_SERVER_HS, &own) == 1);
-  quic_aes128_init(&ownhp, own->hp);
+  aes128_init(&ownhp, own->hp);
   {
     wired_srvloop_send_in sin = {
         wired_span_of(g_cli_scid, 6), 0, -1,
@@ -481,7 +481,7 @@ static void test_srvloop_wrong_direction_open_fails(void) {
             &ownpk, wired_mspan_of(pkt, ob.len), &tls) == 1);
   }
   CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_CLIENT_HS, &peer) == 1);
-  quic_aes128_init(&peerhp, peer->hp);
+  aes128_init(&peerhp, peer->hp);
   {
     quic_protect_keys peerpk = {peer, &peerhp};
     CHECK(
@@ -524,7 +524,7 @@ static void test_srvloop_forged_finished_no_promote(void) {
   CHECK(wired_server_is_confirmed(&f.s) == 0);
   {
     const quic_initial_keys* k;
-    CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 0);
+    CHECK(keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 0);
   }
 }
 
@@ -533,9 +533,9 @@ static void test_srvloop_forged_finished_no_promote(void) {
 static int client_open_onertt(
     struct lp_fix* f, u8* pkt, usz len, const u8** pl, usz* pll) {
   const quic_initial_keys* k;
-  quic_aes128              hp;
+  aes128                   hp;
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_SERVER_AP, &k) == 1);
-  quic_aes128_init(&hp, k->hp);
+  aes128_init(&hp, k->hp);
   quic_protect_keys           pk = {k, &hp};
   quic_hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
   wired_span                  v;
@@ -659,15 +659,15 @@ static void test_srvloop_response_dcid_is_client_scid(void) {
 static usz client_seal_onertt_pn(
     struct lp_fix* f, u64 pn, const u8* pl, usz pln, u8* pkt, usz cap) {
   const quic_initial_keys* k;
-  quic_aes128              hp;
+  aes128                   hp;
   usz                      total = 0;
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_AP, &k) == 1);
-  quic_aes128_init(&hp, k->hp);
+  aes128_init(&hp, k->hp);
   quic_protect_keys      pk = {k, &hp};
   quic_hspkt_onertt_desc d  = {
       wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), pn,
       wired_span_of(pl, pln), 0};
-  wired_obuf o = quic_obuf_of(pkt, cap);
+  wired_obuf o = obuf_of(pkt, cap);
   CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
   total = o.len;
   return total;
@@ -762,9 +762,9 @@ static void test_srvloop_onertt_get_is_acked(void) {
 static int client_open_handshake(
     struct lp_fix* f, const u8* pkt, usz len, const u8** pl, usz* pll) {
   const quic_initial_keys* k;
-  quic_aes128              hp;
+  aes128                   hp;
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_SERVER_HS, &k) == 1);
-  quic_aes128_init(&hp, k->hp);
+  aes128_init(&hp, k->hp);
   quic_protect_keys pk = {k, &hp};
   wired_span        v;
   if (!quic_hspkt_open(&pk, wired_mspan_of((u8*)pkt, len), &v)) return 0;
@@ -863,9 +863,9 @@ static void lp_confirm_via_dispatch(struct lp_fix* f) {
 static usz lp_build_headers_stream(
     const quic_h3req_pseudo_in* pin, int fin, u8* out, usz cap) {
   u8         fields[256], h3buf[300];
-  wired_obuf fob = quic_obuf_of(fields, sizeof fields);
-  wired_obuf hob = quic_obuf_of(h3buf, sizeof h3buf);
-  wired_obuf sob = quic_obuf_of(out, cap);
+  wired_obuf fob = obuf_of(fields, sizeof fields);
+  wired_obuf hob = obuf_of(h3buf, sizeof h3buf);
+  wired_obuf sob = obuf_of(out, cap);
   CHECK(quic_h3req_enc_pseudo(pin, &fob) == 1);
   CHECK(
       quic_h3_frame_put(
@@ -3599,22 +3599,22 @@ static usz client_seal_onertt_pn_gen(
   quic_initial_keys        next;
   const quic_initial_keys* use   = &s->ku.cur;
   int                      phase = (int)quic_keyphase_bit(s->ku.generation);
-  quic_aes128              hp;
+  aes128                   hp;
   usz                      total = 0;
   if (steps_ahead == 1) {
     u8 next_secret[QUIC_HKDF_PRK];
     quic_kuswitch_next_keys(s->ku_secret, &next, next_secret);
-    quic_memcpy(next.hp, s->ku.cur.hp, QUIC_INITIAL_HP);
+    bytes_memcpy(next.hp, s->ku.cur.hp, QUIC_INITIAL_HP);
     use   = &next;
     phase = 1 - phase;
   }
-  quic_aes128_init(&hp, use->hp);
+  aes128_init(&hp, use->hp);
   {
     quic_protect_keys      pk = {use, &hp};
     quic_hspkt_onertt_desc d  = {
         wired_span_of(s->sdrv.iscid, s->sdrv.iscid_len), pn,
         wired_span_of(pl, pln), phase};
-    wired_obuf o = quic_obuf_of(pkt, cap);
+    wired_obuf o = obuf_of(pkt, cap);
     CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
     total = o.len;
   }
@@ -3692,16 +3692,16 @@ static int client_open_onertt_gen1(
   const u8*         secret;
   quic_initial_keys next;
   u8                next_secret[QUIC_HKDF_PRK];
-  quic_aes128       hp;
+  aes128            hp;
   wired_span        v;
   CHECK(quic_keysched_server_ap_secret(&f->s.sched, &secret) == 1);
   quic_kuswitch_next_keys(secret, &next, next_secret);
   {
     const quic_initial_keys* gen0;
     CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_SERVER_AP, &gen0) == 1);
-    quic_memcpy(next.hp, gen0->hp, QUIC_INITIAL_HP);
+    bytes_memcpy(next.hp, gen0->hp, QUIC_INITIAL_HP);
   }
-  quic_aes128_init(&hp, next.hp);
+  aes128_init(&hp, next.hp);
   {
     quic_protect_keys           pk = {&next, &hp};
     quic_hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
@@ -3914,8 +3914,8 @@ static void test_srvloop_recv_zerortt_opens_with_early_keys(void) {
   u8                     psk[32], ch[64];
   u8                     payload[8] = {1, 2, 3, 4, 5, 6, 7, 8};
   u8                     pkt[256];
-  wired_obuf             ob = quic_obuf_of(pkt, sizeof(pkt));
-  quic_aes128            hp;
+  wired_obuf             ob = obuf_of(pkt, sizeof(pkt));
+  aes128                 hp;
   wired_srvloop_recv_in  ri;
   wired_srvloop_recv_out ro;
   for (usz i = 0; i < 32; i++) {
@@ -3935,7 +3935,7 @@ static void test_srvloop_recv_zerortt_opens_with_early_keys(void) {
   quic_tls_early_keys(psk, ch, sizeof(ch), &s.sdrv.early_keys);
   s.sdrv.early_data_accepted = 1;
 
-  quic_aes128_init(&hp, s.sdrv.early_keys.hp);
+  aes128_init(&hp, s.sdrv.early_keys.hp);
   /* RFC 9000 17.2.3: build the 0-RTT long header directly (byte0 = form
    * 0x80 | fixed 0x40 | type 0x1 (0-RTT) << 4 | pn_len-1) via the raw
    * quic_tx_packet_suite primitive -- quic_hspkt_build hardcodes byte0 to
@@ -4000,7 +4000,7 @@ static void test_srvloop_step_zerortt_records_real_pn(void) {
   struct lp_fix f;
   u8            psk[32], out[1024], pkt[256];
   wired_obuf    ob = {out, sizeof out, 0};
-  quic_aes128   hp;
+  aes128        hp;
   const u8      payload[1] = {0x01}; /* RFC 9000 19.2: a bare PING frame,
                                       * ack-eliciting and self-contained */
   usz slen;
@@ -4010,7 +4010,7 @@ static void test_srvloop_step_zerortt_records_real_pn(void) {
   /* White-box, same as test_srvloop_recv_zerortt_opens_with_early_keys. */
   quic_tls_early_keys(psk, f.ch, f.ch_len, &f.s.sdrv.early_keys);
   f.s.sdrv.early_data_accepted = 1;
-  quic_aes128_init(&hp, f.s.sdrv.early_keys.hp);
+  aes128_init(&hp, f.s.sdrv.early_keys.hp);
   {
     quic_protect_keys pk = {&f.s.sdrv.early_keys, &hp};
     quic_tx_desc      d  = {

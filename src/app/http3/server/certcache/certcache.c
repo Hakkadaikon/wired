@@ -24,14 +24,14 @@ static const u8* certcache_san(const u8* ip) {
 static void certcache_build(wired_certcache* c, const wired_srvboot_id* id) {
   ec_point q;
   u8       pub_x[32], pub_y[32];
-  quic_ec_mul(&q, id->cert_seed, &quic_p256_g);
-  quic_fp_to_be(pub_x, q.x);
-  quic_fp_to_be(pub_y, q.y);
+  ec_mul(&q, id->cert_seed, &p256_g);
+  p256_fp_to_be(pub_x, q.x);
+  p256_fp_to_be(pub_y, q.y);
   {
-    quic_p256cert_key k = {
+    p256cert_key k = {
         id->cert_seed, pub_x, pub_y, certcache_san(id->san_ipv4), id->now_secs};
-    wired_obuf o = quic_obuf_of(c->der, sizeof(c->der));
-    quic_p256cert_build(&k, &o);
+    wired_obuf o = obuf_of(c->der, sizeof(c->der));
+    p256cert_build(&k, &o);
     c->chain[0] = wired_span_of(c->der, o.len);
   }
   c->primed = 1;

@@ -33,7 +33,7 @@ static void test_pseudo_roundtrip(void) {
   int                  is_static = 0;
   usz                  used;
   u8                   val[32];
-  wired_obuf           vb = quic_obuf_of(val, sizeof val);
+  wired_obuf           vb = obuf_of(val, sizeof val);
   quic_qpack_nameref   nr = {0, 0, 0};
   const char *         nm, *vv;
   quic_h3req_pseudo_in in = {
@@ -73,7 +73,7 @@ static void test_pseudo_overflow(void) {
  * mirroring the wire shape wired_h3reqdrive_recv_get expects. */
 static usz wrap_stream(const u8* fs, usz fs_len, u8* out, usz cap) {
   u8         h3[192];
-  wired_obuf h3b = quic_obuf_of(h3, sizeof h3);
+  wired_obuf h3b = obuf_of(h3, sizeof h3);
   CHECK(
       quic_h3_frame_put(
           &h3b, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len)) > 0);
@@ -93,7 +93,7 @@ static void test_pseudo_protocol_roundtrip(void) {
       wired_span_of(a, sizeof a - 1), wired_span_of(p, sizeof p - 1),
       wired_span_of(proto, sizeof proto - 1)};
   u8         fs[128];
-  wired_obuf fsb = quic_obuf_of(fs, sizeof fs);
+  wired_obuf fsb = obuf_of(fs, sizeof fs);
   CHECK(quic_h3req_enc_pseudo(&in, &fsb) == 1);
 
   u8  stream[256];
@@ -121,14 +121,14 @@ static void test_pseudo_protocol_omitted(void) {
       wired_span_of(a, sizeof a - 1), wired_span_of(p, sizeof p - 1),
       wired_span_of(0, 0)};
   u8         fs_with[128], fs_without[128];
-  wired_obuf a_ob = quic_obuf_of(fs_with, sizeof fs_with);
+  wired_obuf a_ob = obuf_of(fs_with, sizeof fs_with);
   CHECK(quic_h3req_enc_pseudo(&in, &a_ob) == 1);
 
   /* Same fields via the 4-field struct (no protocol member set at all,
    * relying on the struct's zero-initialized tail) produce identical bytes. */
   quic_h3req_pseudo_in in2 = {
       in.method, in.scheme, in.authority, in.path, wired_span_of(0, 0)};
-  wired_obuf b_ob = quic_obuf_of(fs_without, sizeof fs_without);
+  wired_obuf b_ob = obuf_of(fs_without, sizeof fs_without);
   CHECK(quic_h3req_enc_pseudo(&in2, &b_ob) == 1);
 
   CHECK(a_ob.len == b_ob.len);

@@ -35,7 +35,7 @@ void quic_connrunner_init(
 static usz advance_close_on_violation(quic_connrunner* r, usz out) {
   wired_obuf ob;
   if (out) return out;
-  ob = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
+  ob = obuf_of(r->txbuf, sizeof(r->txbuf));
   return quic_connio_close_on_violation(&r->io, &ob);
 }
 
@@ -45,7 +45,7 @@ static usz advance_close_on_violation(quic_connrunner* r, usz out) {
 static usz advance_close_on_aead_limit(quic_connrunner* r, usz out) {
   wired_obuf ob;
   if (out) return out;
-  ob = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
+  ob = obuf_of(r->txbuf, sizeof(r->txbuf));
   return quic_connio_close_on_aead_limit(&r->io, &ob);
 }
 
@@ -55,7 +55,7 @@ static usz advance_close_on_aead_limit(quic_connrunner* r, usz out) {
 static usz advance_stop_sending_reset(quic_connrunner* r, usz out) {
   wired_obuf ob;
   if (out) return out;
-  ob = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
+  ob = obuf_of(r->txbuf, sizeof(r->txbuf));
   return quic_connio_send_stop_sending_reset(&r->io, &ob);
 }
 
@@ -76,7 +76,7 @@ static usz advance_pmtu_probe(quic_connrunner* r, usz out, u64 now) {
   usz sealed;
   if (out || !r->loop.gate.handshake_confirmed) return out;
   {
-    wired_obuf ob = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
+    wired_obuf ob = obuf_of(r->txbuf, sizeof(r->txbuf));
     sealed        = quic_connrunner_pmtu_build_probe(r, &ob, now);
   }
   return sealed;
@@ -151,7 +151,7 @@ void quic_connrunner_iterate(quic_connrunner* r, u64 now) {
     usz         one = out;
     quic_udpdst dst = {r->fd, &r->peer};
     quic_pktsrc src = {r->txbuf, &one, 1};
-    wired_obuf  ob  = quic_obuf_of(r->rxbuf, sizeof(r->rxbuf));
+    wired_obuf  ob  = obuf_of(r->rxbuf, sizeof(r->rxbuf));
     quic_udploop_tx(&dst, &src, &ob);
   }
 }

@@ -12,13 +12,13 @@
 
 /* 64 windows x 15 nonzero digits x (x, y) as 4 little-endian u64 limbs each
  * (same limb order as p256_fe). Row i, digit d (1..15): limbs at
- * quic_p256fixed_table[i] + (d - 1) * 8, x first then y. */
-extern const u64 quic_p256fixed_table[64][120];
+ * p256fixed_table[i] + (d - 1) * 8, x first then y. */
+extern const u64 p256fixed_table[64][120];
 
 /* out = scalar * G in affine coordinates as p256_fe limbs (the shape
- * p256sign's r-computation consumes directly; use quic_fp_to_be for wire
+ * p256sign's r-computation consumes directly; use p256_fp_to_be for wire
  * bytes). scalar is big-endian 32 bytes, any value < 2^256. Returns 0 when
  * the result is the point at infinity (scalar == 0 mod n), 1 otherwise. */
-int quic_p256fixed_mul_g(p256_fe out_x, p256_fe out_y, const u8 scalar[32]);
+int p256fixed_mul_g(p256_fe out_x, p256_fe out_y, const u8 scalar[32]);
 
 #endif

@@ -7,7 +7,7 @@ static void test_stream_read_contiguous(void) {
   CHECK(quic_stream_read_push(&s, 0, wired_span_of(in, 3)) == 1);
 
   u8         out[8];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   quic_stream_read_pull(&s, &ob);
   CHECK(ob.len == 3);
   CHECK(out[0] == 1 && out[1] == 2 && out[2] == 3);
@@ -27,7 +27,7 @@ static void test_stream_read_stops_at_gap(void) {
   CHECK(quic_stream_read_push(&s, 4, wired_span_of(b, 2)) == 1);
 
   u8         out[8];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   quic_stream_read_pull(&s, &ob);
   CHECK(ob.len == 2); /* only the prefix before the gap */
   CHECK(out[0] == 10 && out[1] == 11);
@@ -43,7 +43,7 @@ static void test_stream_read_fills_gap_then_continues(void) {
   quic_stream_read_push(&s, 4, wired_span_of(b, 2));
 
   u8         out[8];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   quic_stream_read_pull(&s, &ob);
   CHECK(ob.len == 2);
 
@@ -61,11 +61,11 @@ static void test_stream_read_respects_cap(void) {
   quic_stream_read_push(&s, 0, wired_span_of(in, 4));
 
   u8         out[8];
-  wired_obuf small = quic_obuf_of(out, 2); /* cap of 2 limits the pull */
+  wired_obuf small = obuf_of(out, 2); /* cap of 2 limits the pull */
   quic_stream_read_pull(&s, &small);
   CHECK(small.len == 2);
   CHECK(out[0] == 1 && out[1] == 2);
-  wired_obuf rest = quic_obuf_of(out, 8);
+  wired_obuf rest = obuf_of(out, 8);
   quic_stream_read_pull(&s, &rest);
   CHECK(rest.len == 2);
   CHECK(out[0] == 3 && out[1] == 4);

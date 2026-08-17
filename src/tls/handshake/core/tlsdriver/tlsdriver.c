@@ -30,7 +30,7 @@ void quic_tlsdriver_init(
   quic_crypto_stream_rx_init(&d->rx);
   quic_hsdriver_init(&d->hs, is_server);
   quic_keysched_init(&d->ks);
-  quic_keyset_init(&d->keys);
+  keyset_init(&d->keys);
   d->is_server         = is_server;
   d->group             = QUIC_GROUP_X25519;
   d->hs_ready          = 0;
@@ -70,7 +70,7 @@ int quic_tlsdriver_client_hello(quic_tlsdriver* d, wired_obuf* out) {
   /* RFC 8446 4.4.1: keep our own emitted ClientHello bytes so derive_
    * handshake can prepend them to the ServerHello transcript later -- see
    * the field's doc comment in tlsdriver.h. */
-  quic_memcpy(d->transcript_ch, ch, n);
+  bytes_memcpy(d->transcript_ch, ch, n);
   d->transcript_ch_len = n;
   return quic_crypto_stream_emit(wired_span_of(ch, n), &in, out);
 }
@@ -168,7 +168,7 @@ static int peer_keyshare(
 static void install_handshake_keys(quic_tlsdriver* d) {
   const quic_initial_keys* k;
   if (quic_keysched_get(&d->ks, QUIC_KS_CLIENT_HS, &k))
-    quic_keyset_install(&d->keys, QUIC_LEVEL_HANDSHAKE, k);
+    keyset_install(&d->keys, QUIC_LEVEL_HANDSHAKE, k);
   d->hs_ready = 1;
 }
 
@@ -183,8 +183,8 @@ static usz build_transcript(
     const quic_tlsdriver* d, const u8* msg, usz n, u8* buf, usz cap) {
   usz total = d->transcript_ch_len + n;
   if (total > cap) return 0;
-  quic_memcpy(buf, d->transcript_ch, d->transcript_ch_len);
-  quic_memcpy(buf + d->transcript_ch_len, msg, n);
+  bytes_memcpy(buf, d->transcript_ch, d->transcript_ch_len);
+  bytes_memcpy(buf + d->transcript_ch_len, msg, n);
   return total;
 }
 
@@ -223,7 +223,7 @@ static int derive_handshake_secret(
 static void save_server_side_transcript_ch(
     quic_tlsdriver* d, const u8* msg, usz n) {
   if (!d->is_server) return;
-  quic_memcpy(d->transcript_ch, msg, n);
+  bytes_memcpy(d->transcript_ch, msg, n);
   d->transcript_ch_len = n;
 }
 
@@ -269,7 +269,7 @@ static int reassemble(quic_tlsdriver* d, wired_span frame, wired_obuf* out) {
 int quic_tlsdriver_recv_crypto(
     quic_tlsdriver* d, const u8* crypto_frame, usz len) {
   u8         msg[512];
-  wired_obuf out = quic_obuf_of(msg, sizeof(msg));
+  wired_obuf out = obuf_of(msg, sizeof(msg));
   if (!reassemble(d, wired_span_of(crypto_frame, len), &out)) return 0;
   return derive_handshake(d, msg, out.len);
 }

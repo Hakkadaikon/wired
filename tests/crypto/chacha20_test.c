@@ -15,7 +15,7 @@ static usz uh(const char* hex, u8* out) {
 /* RFC 8439 A.1 test vector 1: all-zero key, nonce, counter 0. */
 static void test_chacha_block(void) {
   u8 key[32] = {0}, nonce[12] = {0}, ks[64], want[64];
-  quic_chacha20_block(key, 0, nonce, ks);
+  chacha20_block(key, 0, nonce, ks);
   uh("76b8e0ada0f13d90405d6ae55386bd28bdd219b8a08ded1aa836efcc8b770dc7"
      "da41597c5157488d7724e03fb8d84a376a43b8f41518a11cc387b669b2ee6586",
      want);
@@ -39,8 +39,8 @@ static void test_chacha_encrypt(void) {
      "07ca0dbf500d6a6156a38e088a22b65e52bc514d16ccf806818ce91ab7793736"
      "5af90bbf74a35be6b40b8eedf2785e42874d",
      want);
-  quic_chacha_ctx c = {key, nonce, 1};
-  quic_chacha20_xor(&c, wired_span_of(pt, n), ct);
+  chacha_ctx c = {key, nonce, 1};
+  chacha20_xor(&c, wired_span_of(pt, n), ct);
   for (usz i = 0; i < n; i++) CHECK(ct[i] == want[i]);
 }
 

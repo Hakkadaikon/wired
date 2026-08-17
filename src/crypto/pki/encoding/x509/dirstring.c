@@ -68,7 +68,7 @@ static int cursor_next_space(dirstring_cursor* c, u8* out) {
 static int cursor_next(dirstring_cursor* c, u8* out) {
   if (c->i >= c->s.n) return 0;
   if (is_space(c->s.p[c->i])) return cursor_next_space(c, out);
-  *out = quic_ascii_lower(c->s.p[c->i]);
+  *out = ascii_lower(c->s.p[c->i]);
   c->i++;
   c->emitted = 1;
   return 1;
@@ -107,7 +107,7 @@ static int cursors_equal(dirstring_cursor* a, dirstring_cursor* b) {
   return 1;
 }
 
-int quic_x509_dirstring_ci_equal(wired_span a, wired_span b) {
+int x509_dirstring_ci_equal(wired_span a, wired_span b) {
   dirstring_cursor ca, cb;
   if (either_non_ascii(a, b)) return dirstring_bytes_eq(a, b);
   cursor_init(&ca, a);
@@ -118,11 +118,11 @@ int quic_x509_dirstring_ci_equal(wired_span a, wired_span b) {
 /* AttributeTypeAndValue ::= SEQUENCE { type OID, value ANY }. View the type
  * OID and the value TLV's content octets. */
 static int atv_parts(wired_span atv, wired_span* oid, wired_span* val) {
-  quic_derseq c;
-  u8          tag;
-  quic_derseq_init(&c, atv);
-  if (!quic_derseq_next_tagged(&c, QUIC_DER_OID, oid)) return 0;
-  return quic_derseq_next(&c, &tag, val);
+  derseq c;
+  u8     tag;
+  derseq_init(&c, atv);
+  if (!derseq_next_tagged(&c, QUIC_DER_OID, oid)) return 0;
+  return derseq_next(&c, &tag, val);
 }
 
 /* View both elements' parts; 0 if either is malformed. */
@@ -142,8 +142,8 @@ static int atv_pair_parts(
 static int atv_ci_equal(wired_span a, wired_span b) {
   wired_span oid_a, val_a, oid_b, val_b;
   if (!atv_pair_parts(a, b, &oid_a, &val_a, &oid_b, &val_b)) return 0;
-  if (!quic_der_oid_equal(oid_a, oid_b)) return 0;
-  return quic_x509_dirstring_ci_equal(val_a, val_b);
+  if (!der_oid_equal(oid_a, oid_b)) return 0;
+  return x509_dirstring_ci_equal(val_a, val_b);
 }
 
 /* One step of a parallel derseq walk: advance both cursors, comparing
@@ -153,11 +153,11 @@ static int atv_ci_equal(wired_span a, wired_span b) {
 typedef int (*dirstring_elem_eq)(wired_span, wired_span);
 
 static int parallel_step(
-    quic_derseq* ca, quic_derseq* cb, dirstring_elem_eq elem_eq, int* done) {
+    derseq* ca, derseq* cb, dirstring_elem_eq elem_eq, int* done) {
   u8         ta, tb;
   wired_span va, vb;
-  int        ok_a = quic_derseq_next(ca, &ta, &va);
-  int        ok_b = quic_derseq_next(cb, &tb, &vb);
+  int        ok_a = derseq_next(ca, &ta, &va);
+  int        ok_b = derseq_next(cb, &tb, &vb);
   if (ok_a != ok_b) return 0;
   *done = !ok_a;
   return *done || elem_eq(va, vb);
@@ -167,10 +167,10 @@ static int parallel_step(
  * element count and elem_eq to hold on every pair (in encoded order). */
 static int parallel_seq_equal(
     wired_span a, wired_span b, dirstring_elem_eq elem_eq) {
-  quic_derseq ca, cb;
-  int         done = 0;
-  quic_derseq_init(&ca, a);
-  quic_derseq_init(&cb, b);
+  derseq ca, cb;
+  int    done = 0;
+  derseq_init(&ca, a);
+  derseq_init(&cb, b);
   while (!done)
     if (!parallel_step(&ca, &cb, elem_eq, &done)) return 0;
   return 1;
@@ -187,11 +187,11 @@ static int rdn_ci_equal(wired_span a, wired_span b) {
  * malformed. */
 static int name_pair_content(
     wired_span a, wired_span b, wired_span* seq_a, wired_span* seq_b) {
-  if (!quic_der_seq(a, seq_a)) return 0;
-  return quic_der_seq(b, seq_b);
+  if (!der_seq(a, seq_a)) return 0;
+  return der_seq(b, seq_b);
 }
 
-int quic_x509_dn_equal_ci(wired_span a, wired_span b) {
+int x509_dn_equal_ci(wired_span a, wired_span b) {
   wired_span seq_a, seq_b;
   if (!name_pair_content(a, b, &seq_a, &seq_b)) return 0;
   return parallel_seq_equal(seq_a, seq_b, rdn_ci_equal);

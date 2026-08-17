@@ -31,7 +31,7 @@ static void cw_derive_keys(quic_client* c) {
 static void test_cw_initial_roundtrip(void) {
   quic_client            c;
   u8                     priv[32], pub[32], pkt[1300];
-  wired_obuf             ob  = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf             ob  = obuf_of(pkt, sizeof(pkt));
   quic_clientwire_hdr_in hdr = {
       wired_span_of(cw_dcid, 8), wired_span_of(cw_scid, 4), 0};
   for (usz i = 0; i < 32; i++) priv[i] = (u8)(7 + i);
@@ -54,7 +54,7 @@ static void test_cw_open_server_initial(void) {
   const u8             sh[] = {0x02, 0x00, 0x00, 0x02, 0xab, 0xcd};
   u8                   pkt[1300];
   wired_span           tls;
-  wired_obuf           ob = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf           ob = obuf_of(pkt, sizeof(pkt));
   quic_srvwire_seal_in in = {
       wired_span_of(cw_dcid, 8),
       wired_span_of(cw_dcid, 8),
@@ -83,18 +83,18 @@ static void test_cw_handshake_roundtrip(void) {
   usz                      total = 0;
   wired_span               tls;
   const quic_initial_keys *chs, *shs;
-  quic_aes128              hp;
+  aes128                   hp;
   quic_clientwire_seal_in  sin = {
       {wired_span_of(cw_dcid, 8), wired_span_of(cw_scid, 4), 0},
       wired_span_of(fin, sizeof(fin))};
-  wired_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf ob = obuf_of(pkt, sizeof(pkt));
   cw_derive_keys(&c);
 
   /* client seals with CLIENT_HS; peer opens with the same client key. */
   CHECK(quic_client_seal_handshake_wire(&c, &sin, &ob) == 1);
   total = ob.len;
   CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_CLIENT_HS, &chs) == 1);
-  quic_aes128_init(&hp, chs->hp);
+  aes128_init(&hp, chs->hp);
   {
     wired_span        sp;
     quic_protect_keys pk = {chs, &hp};
@@ -105,9 +105,9 @@ static void test_cw_handshake_roundtrip(void) {
 
   /* client opens a flight sealed with SERVER_HS (peer direction). */
   CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_SERVER_HS, &shs) == 1);
-  quic_aes128_init(&hp, shs->hp);
+  aes128_init(&hp, shs->hp);
   {
-    wired_obuf           ob2 = quic_obuf_of(pkt, sizeof(pkt));
+    wired_obuf           ob2 = obuf_of(pkt, sizeof(pkt));
     quic_srvwire_seal_in in  = {
         wired_span_of((const u8*)0, 0),
         wired_span_of(cw_dcid, 8),
@@ -138,7 +138,7 @@ static void test_cw_wrong_direction_fails(void) {
   quic_clientwire_seal_in sin = {
       {wired_span_of(cw_dcid, 8), wired_span_of(cw_scid, 4), 0},
       wired_span_of(fin, sizeof(fin))};
-  wired_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf ob = obuf_of(pkt, sizeof(pkt));
   cw_derive_keys(&c);
   CHECK(quic_client_seal_handshake_wire(&c, &sin, &ob) == 1);
   /* opening own-sealed packet with the peer-direction open key must fail. */
@@ -160,9 +160,9 @@ static void test_cw_onertt_roundtrip(void) {
   const u8*                data = 0;
   int                      fin  = 0;
   const quic_initial_keys *cap, *sap;
-  quic_aes128              hp;
+  aes128                   hp;
   quic_appdata_tx          tx;
-  wired_obuf               ob = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf               ob = obuf_of(pkt, sizeof(pkt));
   quic_stream_frame        sf;
   cw_derive_keys(&c);
 
@@ -172,7 +172,7 @@ static void test_cw_onertt_roundtrip(void) {
   CHECK(quic_client_send_appdata_wire(&c, &tx, &ob) == 1);
   total = ob.len;
   CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_CLIENT_AP, &cap) == 1);
-  quic_aes128_init(&hp, cap->hp);
+  aes128_init(&hp, cap->hp);
   CHECK(
       appdata_recv_flat(
           cap, &hp, pkt, total, 8, &sid, &off, &data, &dlen, &fin) == 1);
@@ -181,7 +181,7 @@ static void test_cw_onertt_roundtrip(void) {
   /* server 200 sealed with SERVER_AP; its DCID is the client's SCID (RFC 9000
    * 5.1), so the client opens it with SERVER_AP and accepts the DCID. */
   CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_SERVER_AP, &sap) == 1);
-  quic_aes128_init(&hp, sap->hp);
+  aes128_init(&hp, sap->hp);
   CHECK(
       appdata_send_flat(
           sap, &hp, cw_scid, 4, 0, 0, ok, sizeof(ok), 1, pkt, sizeof(pkt),
@@ -207,11 +207,11 @@ static void test_cw_onertt_wrong_dcid_dropped(void) {
   u8                       pkt[256];
   usz                      total = 0;
   const quic_initial_keys* sap;
-  quic_aes128              hp;
+  aes128                   hp;
   quic_stream_frame        sf;
   cw_derive_keys(&c);
   CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_SERVER_AP, &sap) == 1);
-  quic_aes128_init(&hp, sap->hp);
+  aes128_init(&hp, sap->hp);
   /* a validly sealed 200, but addressed to a DCID that is not our SCID. */
   CHECK(
       appdata_send_flat(

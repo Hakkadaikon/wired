@@ -10,16 +10,15 @@ usz wired_wtwire_signal_put(u8* buf, usz cap, int bidi, u64 session_id) {
   static const u8 sig[2] = {0x54, 0x41};
   wired_mspan     m      = wired_mspan_of(buf, cap);
   usz             off    = 0;
-  if (!quic_varint_put(m, &off, sig[bidi != 0])) return 0;
-  if (!quic_varint_put(m, &off, session_id)) return 0;
+  if (!varint_put(m, &off, sig[bidi != 0])) return 0;
+  if (!varint_put(m, &off, session_id)) return 0;
   return off;
 }
 
 /* RFC 9297 2.1: HTTP Datagrams are prefixed with the quarter stream ID. */
 usz quic_wtwire_qsid_put(u8* buf, usz cap, u64 session_id) {
   usz off = 0;
-  if (!quic_varint_put(wired_mspan_of(buf, cap), &off, session_id / 4))
-    return 0;
+  if (!varint_put(wired_mspan_of(buf, cap), &off, session_id / 4)) return 0;
   return off;
 }
 
@@ -31,7 +30,7 @@ usz quic_wtwire_qsid_put(u8* buf, usz cap, u64 session_id) {
 usz wired_wtwire_qsid_take(wired_span dg, u64* session_id) {
   usz off = 0;
   u64 qsid;
-  if (!quic_varint_take(dg, &off, &qsid)) return 0;
+  if (!varint_take(dg, &off, &qsid)) return 0;
   if (qsid > WTWIRE_QSID_MAX) return 0;
   *session_id = qsid * 4;
   return off;
@@ -80,8 +79,8 @@ int wired_wtwire_get_parse(wired_span line, wired_span* file) {
 usz wired_wtwire_get_put(u8* buf, usz cap, wired_span filename) {
   wired_mspan m   = wired_mspan_of(buf, cap);
   usz         off = 0;
-  if (!quic_put_bytes(m, &off, wired_span_of((const u8*)"GET ", 4))) return 0;
-  if (!quic_put_bytes(m, &off, filename)) return 0;
+  if (!bytes_put(m, &off, wired_span_of((const u8*)"GET ", 4))) return 0;
+  if (!bytes_put(m, &off, filename)) return 0;
   return off;
 }
 
@@ -120,8 +119,8 @@ static usz wtwire_put_nl(wired_mspan m, usz off) {
 usz wired_wtwire_push_head_put(u8* buf, usz cap, wired_span basename) {
   wired_mspan m   = wired_mspan_of(buf, cap);
   usz         off = 0;
-  if (!quic_put_bytes(m, &off, wired_span_of((const u8*)"PUSH ", 5))) return 0;
-  if (!quic_put_bytes(m, &off, basename)) return 0;
+  if (!bytes_put(m, &off, wired_span_of((const u8*)"PUSH ", 5))) return 0;
+  if (!bytes_put(m, &off, basename)) return 0;
   return wtwire_put_nl(m, off);
 }
 

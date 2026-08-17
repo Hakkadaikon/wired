@@ -9,19 +9,19 @@
 /* RFC 8446 4.3.2: write the signature_algorithms extension (type, ext_data
  * length, scheme list length, schemes) at out. Returns bytes written. */
 static usz put_sig_algs(u8* out, wired_span sa) {
-  quic_put_be16(out, QUIC_EXT_SIGNATURE_ALGORITHMS);
-  quic_put_be16(out + 2, (u16)(sa.n + 2));
-  quic_put_be16(out + 4, (u16)sa.n);
+  be_put_be16(out, QUIC_EXT_SIGNATURE_ALGORITHMS);
+  be_put_be16(out + 2, (u16)(sa.n + 2));
+  be_put_be16(out + 4, (u16)sa.n);
   for (usz i = 0; i < sa.n; i++) out[6 + i] = sa.p[i];
   return 6 + sa.n;
 }
 
-int quic_certreq_build(wired_span sig_algs, wired_obuf* out) {
+int certreq_build(wired_span sig_algs, wired_obuf* out) {
   usz off = quic_hs_begin(out->p, out->cap, QUIC_HS_CERTIFICATE_REQUEST);
   usz ext = sig_algs.n + 6;
   if (off == 0 || off + 3 + ext > out->cap) return 0;
-  out->p[off] = 0;                           /* empty context */
-  quic_put_be16(out->p + off + 1, (u16)ext); /* extensions length */
+  out->p[off] = 0;                         /* empty context */
+  be_put_be16(out->p + off + 1, (u16)ext); /* extensions length */
   put_sig_algs(out->p + off + 3, sig_algs);
   out->len = off + 3 + ext;
   quic_hs_finish(out->p, out->len);
@@ -68,13 +68,13 @@ static int find_sig_algs(wired_span ext, wired_span* sa) {
 }
 
 /* Split the validated body and find signature_algorithms. RFC 8446 4.3.2. */
-static int certreq_parse_body(wired_span b, quic_certreq* out) {
+static int certreq_parse_body(wired_span b, certreq* out) {
   wired_span ext;
   if (!split_body(b, &out->ctx, &ext)) return 0;
   return find_sig_algs(ext, &out->sig_algs);
 }
 
-int quic_certreq_parse(wired_span msg, quic_certreq* out) {
+int certreq_parse(wired_span msg, certreq* out) {
   u8  type;
   usz body_len;
   usz off = quic_hs_parse(wired_span_of(msg.p, msg.n), &type, &body_len);

@@ -9,7 +9,7 @@
 static void test_hrr_group_extract(void) {
   u8         out[256];
   u16        group = 0;
-  wired_obuf ob    = quic_obuf_of(out, sizeof out);
+  wired_obuf ob    = obuf_of(out, sizeof out);
   CHECK(quic_hrr_build(QUIC_GROUP_X25519, wired_span_of(0, 0), &ob) == 1);
   CHECK(quic_hrr_selected_group(out, ob.len, &group) == 1);
   CHECK(group == QUIC_GROUP_X25519);
@@ -19,7 +19,7 @@ static void test_hrr_group_extract(void) {
 static void test_hrr_group_with_cookie(void) {
   u8         out[256], ck[3] = {9, 8, 7};
   u16        group = 0;
-  wired_obuf ob    = quic_obuf_of(out, sizeof out);
+  wired_obuf ob    = obuf_of(out, sizeof out);
   CHECK(quic_hrr_build(QUIC_GROUP_X25519, wired_span_of(ck, 3), &ob) == 1);
   CHECK(quic_hrr_selected_group(out, ob.len, &group) == 1);
   CHECK(group == QUIC_GROUP_X25519);

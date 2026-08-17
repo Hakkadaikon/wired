@@ -7,8 +7,8 @@
 static int xdpf_eth(wired_span frame, quic_xdpframe_rx* out) {
   quic_eth_head eh;
   if (!quic_eth_parse(frame, &eh)) return 0;
-  quic_memcpy(out->peer_mac, eh.src, 6);
-  quic_memcpy(out->our_mac, eh.dst, 6);
+  bytes_memcpy(out->peer_mac, eh.src, 6);
+  bytes_memcpy(out->our_mac, eh.dst, 6);
   return eh.ethertype == QUIC_ETH_TYPE_IPV4;
 }
 
@@ -26,7 +26,7 @@ static int xdpf_ver_ihl_ok(const u8* ip) {
 
 /* Not a fragment: MF and the 13-bit fragment offset both zero. */
 static int xdpf_unfragmented(const u8* ip) {
-  return (quic_get_be16(ip + 6) & 0x3fffu) == 0;
+  return (be_get_be16(ip + 6) & 0x3fffu) == 0;
 }
 
 /* Version 4, IHL >= 5 words, protocol UDP, and not a fragment. */
@@ -40,7 +40,7 @@ static int xdpf_ip_ok(const u8* ip) {
  * frame end; anything past it is ethernet minimum-frame padding and is
  * ignored. */
 static int xdpf_ip_len_ok(const u8* ip, usz hlen, usz rem) {
-  u16 total = quic_get_be16(ip + 2);
+  u16 total = be_get_be16(ip + 2);
   return total >= hlen + QUIC_UDP_HDR && (usz)total <= rem;
 }
 
@@ -50,13 +50,13 @@ static int xdpf_ip_len_ok(const u8* ip, usz hlen, usz rem) {
 static int xdpf_udp(const u8* ip, usz hlen, quic_xdpframe_rx* out) {
   const u8*     udp = ip + hlen;
   quic_sockaddr dst;
-  if (quic_get_be16(udp + 4) != quic_get_be16(ip + 2) - hlen) return 0;
-  wired_udp_addr(&out->src, quic_get_be16(udp), ip + 12);
+  if (be_get_be16(udp + 4) != be_get_be16(ip + 2) - hlen) return 0;
+  wired_udp_addr(&out->src, be_get_be16(udp), ip + 12);
   wired_udp_addr(&dst, 0, ip + 16);
   out->our_ip      = wired_udp_addr4_be(&dst);
-  out->dport       = quic_get_be16(udp + 2);
+  out->dport       = be_get_be16(udp + 2);
   out->payload     = udp + QUIC_UDP_HDR;
-  out->payload_len = (usz)quic_get_be16(udp + 4) - QUIC_UDP_HDR;
+  out->payload_len = (usz)be_get_be16(udp + 4) - QUIC_UDP_HDR;
   return 1;
 }
 
@@ -76,8 +76,8 @@ int quic_xdpframe_parse(wired_span frame, quic_xdpframe_rx* out) {
 /* Write the eth header at the frame start. */
 static void xdpf_put_eth(u8* p, const quic_xdpframe_tx* m) {
   quic_eth_head eh;
-  quic_memcpy(eh.dst, m->dst_mac, 6);
-  quic_memcpy(eh.src, m->src_mac, 6);
+  bytes_memcpy(eh.dst, m->dst_mac, 6);
+  bytes_memcpy(eh.src, m->src_mac, 6);
   eh.ethertype = QUIC_ETH_TYPE_IPV4;
   quic_eth_build(p, &eh);
 }
@@ -92,7 +92,7 @@ usz quic_xdpframe_build(
   if (frame.n < total) return 0;
   xdpf_put_eth(frame.p, m);
   quic_ipv4_build(frame.p + QUIC_ETH_HDR, &ih);
-  ob = quic_obuf_of(
+  ob = obuf_of(
       frame.p + QUIC_XDPFRAME_HDRS - QUIC_UDP_HDR,
       frame.n - QUIC_ETH_HDR - QUIC_IPV4_HDR);
   quic_udp4_build(&ob, &m->udp, payload);

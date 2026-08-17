@@ -15,14 +15,14 @@
  */
 typedef struct {
   const quic_initial_keys* k;
-  quic_aes128              hp;
+  aes128                   hp;
 } cw_dirkey;
 
 /* Fetch the directional key `which` from the client's schedule and initialize
  * its header-protection cipher. Returns 1, or 0 if the key is not derived. */
 static int cw_dir_key(quic_client* c, int which, cw_dirkey* dk) {
   if (!quic_keysched_get(&c->tls.ks, which, &dk->k)) return 0;
-  quic_aes128_init(&dk->hp, dk->k->hp);
+  aes128_init(&dk->hp, dk->k->hp);
   return 1;
 }
 

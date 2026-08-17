@@ -18,7 +18,7 @@ int quic_flow_send_record(quic_flow_send* f, u64 n) {
 }
 
 void quic_flow_send_update_max(quic_flow_send* f, u64 max_data) {
-  f->max_data = quic_u64_max(f->max_data, max_data);
+  f->max_data = u64_max(f->max_data, max_data);
 }
 
 int quic_flow_send_blocked(const quic_flow_send* f, u64 want) {

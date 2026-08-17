@@ -8,11 +8,10 @@
  * high: gap = prev.lo - cur.hi - 2 (RFC 9000 19.3). */
 static int put_pair(
     wired_obuf* o, const quic_ack_range* prev, const quic_ack_range* cur) {
-  if (!quic_varint_put(
+  if (!varint_put(
           wired_mspan_of(o->p, o->cap), &o->len, prev->lo - cur->hi - 2))
     return 0;
-  return quic_varint_put(
-      wired_mspan_of(o->p, o->cap), &o->len, cur->hi - cur->lo);
+  return varint_put(wired_mspan_of(o->p, o->cap), &o->len, cur->hi - cur->lo);
 }
 
 /* The frame type is 0x03 when ECN counts are present, else 0x02. */
@@ -22,24 +21,23 @@ static u64 ack_type(const quic_ack_frame* f) {
 
 /* Write type, largest, ack_delay (three varints). Returns 1 ok, 0. */
 static int put_ack_meta(wired_obuf* o, const quic_ack_frame* f) {
-  if (!quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, ack_type(f)))
+  if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, ack_type(f))) return 0;
+  if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->ranges[0].hi))
     return 0;
-  if (!quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->ranges[0].hi))
-    return 0;
-  return quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->ack_delay);
+  return varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->ack_delay);
 }
 
 /* Write two consecutive varints. Returns 1 ok, 0 on overflow. */
 static int put_two(wired_obuf* o, u64 a, u64 b) {
-  if (!quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, a)) return 0;
-  return quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, b);
+  if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, a)) return 0;
+  return varint_put(wired_mspan_of(o->p, o->cap), &o->len, b);
 }
 
 /* Append the ECN counts (ECT0, ECT1, CE) when present. Returns 1 ok, 0. */
 static int put_ack_ecn(wired_obuf* o, const quic_ack_frame* f) {
   if (!f->has_ecn) return 1;
   if (!put_two(o, f->ect0, f->ect1)) return 0;
-  return quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->ce);
+  return varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->ce);
 }
 
 /* Encode the fixed prologue: type, largest, ack_delay, range count, first. */
@@ -73,7 +71,7 @@ static int put_ack_body(wired_obuf* o, const quic_ack_frame* f) {
 }
 
 usz quic_ack_encode(u8* buf, usz cap, const quic_ack_frame* f) {
-  wired_obuf o = quic_obuf_of(buf, cap);
+  wired_obuf o = obuf_of(buf, cap);
   if (!ranges_ok(f->n_ranges)) return 0;
   if (!put_ack_body(&o, f)) return 0;
   return o.len;
@@ -89,15 +87,14 @@ typedef struct {
 
 /* Read largest, ack_delay, range count (three varints). Returns 1 ok, 0. */
 static int take_ack_meta(wired_span in, usz* off, ackdec* d) {
-  if (!quic_varint_take(wired_span_of(in.p, in.n), off, &d->largest)) return 0;
-  if (!quic_varint_take(wired_span_of(in.p, in.n), off, &d->f->ack_delay))
-    return 0;
-  return quic_varint_take(wired_span_of(in.p, in.n), off, &d->count);
+  if (!varint_take(wired_span_of(in.p, in.n), off, &d->largest)) return 0;
+  if (!varint_take(wired_span_of(in.p, in.n), off, &d->f->ack_delay)) return 0;
+  return varint_take(wired_span_of(in.p, in.n), off, &d->count);
 }
 
 /* Read the First ACK Range and require it not to underflow below zero. */
 static int take_first(wired_span in, usz* off, ackdec* d) {
-  if (!quic_varint_take(wired_span_of(in.p, in.n), off, &d->first)) return 0;
+  if (!varint_take(wired_span_of(in.p, in.n), off, &d->first)) return 0;
   return d->first <= d->largest;
 }
 
@@ -117,8 +114,8 @@ static int pair_fits(u64 prev_lo, u64 gap, u64 len) {
 
 /* Read two consecutive varints into v[0], v[1]. Returns 1 ok, 0 truncated. */
 static int take_two(wired_span in, usz* off, u64 v[2]) {
-  if (!quic_varint_take(wired_span_of(in.p, in.n), off, &v[0])) return 0;
-  return quic_varint_take(wired_span_of(in.p, in.n), off, &v[1]);
+  if (!varint_take(wired_span_of(in.p, in.n), off, &v[0])) return 0;
+  return varint_take(wired_span_of(in.p, in.n), off, &v[1]);
 }
 
 /* Read one (Gap, Range Length) pair into ranges[i] from ranges[i-1]. cur
@@ -157,7 +154,7 @@ static int take_ack_ecn(wired_span in, usz* off, quic_ack_frame* f) {
   if (!take_two(in, off, e)) return 0;
   f->ect0 = e[0];
   f->ect1 = e[1];
-  return quic_varint_take(wired_span_of(in.p, in.n), off, &f->ce);
+  return varint_take(wired_span_of(in.p, in.n), off, &f->ce);
 }
 
 /* Read the ranges then any ECN counts after the prologue. */

@@ -18,12 +18,12 @@ static const u8 oid_name_constraints[] = {0x55, 0x1d, 0x1e};
 /* The NameConstraints extnValue SEQUENCE, if the extension is present. */
 static int nc_locate(wired_span tbs, wired_span* val) {
   wired_span raw;
-  if (!quic_x509_find_ext(
+  if (!x509_find_ext(
           tbs,
           wired_span_of(oid_name_constraints, sizeof(oid_name_constraints)),
           &raw))
     return 0;
-  return quic_der_seq(raw, val);
+  return der_seq(raw, val);
 }
 
 /* Find the [0] permittedSubtrees or [1] excludedSubtrees element inside the
@@ -32,12 +32,12 @@ static int nc_locate(wired_span tbs, wired_span* val) {
  * more to reach the SEQUENCE OF GeneralSubtree content. Returns 0 if that
  * half is absent or malformed. */
 static int nc_half(wired_span seq, u8 want_tag, wired_span* subtrees) {
-  quic_derseq c;
-  u8          tag;
-  wired_span  v;
-  quic_derseq_init(&c, seq);
-  while (quic_derseq_next(&c, &tag, &v))
-    if (tag == want_tag) return quic_der_seq(v, subtrees);
+  derseq     c;
+  u8         tag;
+  wired_span v;
+  derseq_init(&c, seq);
+  while (derseq_next(&c, &tag, &v))
+    if (tag == want_tag) return der_seq(v, subtrees);
   return 0;
 }
 
@@ -45,10 +45,10 @@ static int nc_half(wired_span seq, u8 want_tag, wired_span* subtrees) {
  * the directoryName CHOICE arm; 0 if base is some other GeneralName form
  * (out of scope, RFC 5280 4.2.1.10) or the element is malformed. */
 static int subtree_directoryname_base(wired_span subtree, wired_span* base) {
-  quic_derseq c;
-  u8          tag;
-  quic_derseq_init(&c, subtree);
-  if (!quic_derseq_next(&c, &tag, base)) return 0;
+  derseq c;
+  u8     tag;
+  derseq_init(&c, subtree);
+  if (!derseq_next(&c, &tag, base)) return 0;
   return tag == NC_DIRECTORYNAME_TAG;
 }
 
@@ -78,8 +78,8 @@ static int rdns_prefix_ok(wired_span base_rdns, wired_span name_rdns) {
 
 static int dn_within_base(wired_span base, wired_span name) {
   wired_span base_rdns, name_rdns;
-  if (!quic_der_seq(base, &base_rdns)) return 0;
-  if (!quic_der_seq(name, &name_rdns)) return 0;
+  if (!der_seq(base, &base_rdns)) return 0;
+  if (!der_seq(name, &name_rdns)) return 0;
   return rdns_prefix_ok(base_rdns, name_rdns);
 }
 
@@ -100,12 +100,12 @@ static void subtree_fold(
  * 1 if some directoryName entry covers subject. */
 static int subtrees_scan(
     wired_span subtrees, wired_span subject, int* any_directoryname) {
-  quic_derseq c;
-  u8          tag;
-  wired_span  e;
-  int         covered = 0;
-  quic_derseq_init(&c, subtrees);
-  while (quic_derseq_next(&c, &tag, &e))
+  derseq     c;
+  u8         tag;
+  wired_span e;
+  int        covered = 0;
+  derseq_init(&c, subtrees);
+  while (derseq_next(&c, &tag, &e))
     subtree_fold(e, subject, any_directoryname, &covered);
   return covered;
 }
@@ -132,7 +132,7 @@ static int excluded_ok(wired_span seq, wired_span subject) {
   return !subtrees_scan(excluded, subject, &any_dn);
 }
 
-int quic_x509_name_constraints_permit(wired_span cert_tbs, wired_span subject) {
+int x509_name_constraints_permit(wired_span cert_tbs, wired_span subject) {
   wired_span seq;
   if (!nc_locate(cert_tbs, &seq)) return 1;
   if (!permitted_ok(seq, subject)) return 0;

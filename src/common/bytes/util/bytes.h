@@ -22,7 +22,7 @@
  * @param src bytes to append
  * @return 1 ok, 0 if no room.
  */
-static inline int quic_put_bytes(wired_mspan buf, usz* off, wired_span src) {
+static inline int bytes_put(wired_mspan buf, usz* off, wired_span src) {
   if (*off + src.n > buf.n) return 0;
   for (usz i = 0; i < src.n; i++) buf.p[*off + i] = src.p[i];
   *off += src.n;
@@ -40,7 +40,7 @@ static inline int quic_put_bytes(wired_mspan buf, usz* off, wired_span src) {
  * @param dst destination; exactly dst.n bytes are copied
  * @return 1 ok, 0 if truncated.
  */
-static inline int quic_take_bytes(wired_span buf, usz* off, wired_mspan dst) {
+static inline int bytes_take(wired_span buf, usz* off, wired_mspan dst) {
   if (*off + dst.n > buf.n) return 0;
   for (usz i = 0; i < dst.n; i++) dst.p[i] = buf.p[*off + i];
   *off += dst.n;
@@ -62,7 +62,7 @@ static inline int quic_take_bytes(wired_span buf, usz* off, wired_mspan dst) {
  * @param n   number of bytes to copy
  * @return dst
  */
-static inline void* quic_memcpy(void* dst, const void* src, usz n) {
+static inline void* bytes_memcpy(void* dst, const void* src, usz n) {
   u8*       d = dst;
   const u8* s = src;
   for (usz i = 0; i < n; i++) d[i] = s[i];
@@ -70,14 +70,14 @@ static inline void* quic_memcpy(void* dst, const void* src, usz n) {
 }
 
 /**
- * Freestanding byte fill. See quic_memcpy() for why the SDK owns this.
+ * Freestanding byte fill. See bytes_memcpy() for why the SDK owns this.
  *
  * @param dst buffer to fill
  * @param c   fill byte (truncated to u8)
  * @param n   number of bytes to fill
  * @return dst
  */
-static inline void* quic_memset(void* dst, int c, usz n) {
+static inline void* bytes_memset(void* dst, int c, usz n) {
   u8* d = dst;
   for (usz i = 0; i < n; i++) d[i] = (u8)c;
   return dst;
@@ -101,7 +101,7 @@ static inline usz wired_cstr_len(const char* s) {
  * @param c input octet
  * @return lowercased octet
  */
-static inline u8 quic_ascii_lower(u8 c) {
+static inline u8 ascii_lower(u8 c) {
   return (c >= 'A' && c <= 'Z') ? (u8)(c | 0x20) : c;
 }
 
@@ -114,11 +114,11 @@ static inline u8 quic_ascii_lower(u8 c) {
  * @param b second span
  * @return 1 if equal length and equal after ASCII case-folding, 0 otherwise.
  */
-static inline int quic_ascii_dns_eq(wired_span a, wired_span b) {
+static inline int ascii_dns_eq(wired_span a, wired_span b) {
   usz diff = 0;
   if (a.n != b.n) return 0;
   for (usz i = 0; i < a.n; i++)
-    diff |= (usz)(quic_ascii_lower(a.p[i]) ^ quic_ascii_lower(b.p[i]));
+    diff |= (usz)(ascii_lower(a.p[i]) ^ ascii_lower(b.p[i]));
   return diff == 0;
 }
 

@@ -1,16 +1,16 @@
 #include "test.h"
 
-static void recv_keys(quic_initial_keys* k, quic_aes128* hp) {
+static void recv_keys(quic_initial_keys* k, aes128* hp) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, k);
-  quic_aes128_init(hp, k->hp);
+  aes128_init(hp, k->hp);
 }
 
 /* RFC 9001 5: a 1-RTT packet sealed with one app key does not open under a
  * different dcid_len (header recovery / AEAD nonce mismatch). */
 static void test_recv_wrong_dcidlen(void) {
   quic_initial_keys k;
-  quic_aes128       hp;
+  aes128            hp;
   const u8          dcid[5] = {1, 2, 3, 4, 5};
   const u8          body[]  = {'z'};
   recv_keys(&k, &hp);
@@ -31,7 +31,7 @@ static void test_recv_wrong_dcidlen(void) {
 /* RFC 9000 19.8: nonzero send offset is recovered by recv. */
 static void test_recv_offset(void) {
   quic_initial_keys k;
-  quic_aes128       hp;
+  aes128            hp;
   const u8          dcid[4] = {7, 7, 7, 7};
   const u8          body[]  = {'p', 'q'};
   recv_keys(&k, &hp);
@@ -45,7 +45,7 @@ static void test_recv_offset(void) {
   quic_protect_keys      pk = {&k, &hp};
   quic_hspkt_onertt_desc bd = {
       wired_span_of(dcid, 4), 3, wired_span_of(frame, flen), 0};
-  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf o = obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_onertt_build(&pk, &bd, &o));
   usz total = o.len;
 
@@ -66,7 +66,7 @@ static void test_recv_offset(void) {
  * decoded as a STREAM frame (no out-of-bounds read of the type byte). */
 static void test_recv_empty_payload(void) {
   quic_initial_keys k;
-  quic_aes128       hp;
+  aes128            hp;
   const u8          dcid[4] = {4, 4, 4, 4};
   recv_keys(&k, &hp);
 
@@ -74,7 +74,7 @@ static void test_recv_empty_payload(void) {
   quic_protect_keys      pk = {&k, &hp};
   quic_hspkt_onertt_desc bd = {
       wired_span_of(dcid, 4), 1, wired_span_of((const u8*)"", 0), 0};
-  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf o = obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_onertt_build(&pk, &bd, &o));
   usz total = o.len;
 
@@ -90,7 +90,7 @@ static void test_recv_empty_payload(void) {
  * malformed; recv returns 0. */
 static void test_recv_malformed(void) {
   quic_initial_keys k;
-  quic_aes128       hp;
+  aes128            hp;
   const u8          dcid[4] = {5, 5, 5, 5};
   recv_keys(&k, &hp);
 
@@ -100,7 +100,7 @@ static void test_recv_malformed(void) {
   quic_protect_keys      pk = {&k, &hp};
   quic_hspkt_onertt_desc bd = {
       wired_span_of(dcid, 4), 2, wired_span_of(bad, sizeof(bad)), 0};
-  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf o = obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_onertt_build(&pk, &bd, &o));
   usz total = o.len;
 
@@ -116,7 +116,7 @@ static void test_recv_malformed(void) {
  * through the 1-RTT path. */
 static void test_recv_large_stream_id(void) {
   quic_initial_keys k;
-  quic_aes128       hp;
+  aes128            hp;
   const u8          dcid[4] = {6, 6, 6, 6};
   const u8          body[]  = {'k'};
   recv_keys(&k, &hp);

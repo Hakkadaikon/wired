@@ -17,7 +17,7 @@ void test_eebuild(void) {
   u8         type;
   const u8*  body;
   wired_span tpd;
-  wired_obuf ob = quic_obuf_of(out, sizeof(out));
+  wired_obuf ob = obuf_of(out, sizeof(out));
 
   CHECK(quic_eebuild_encrypted_extensions(
       QUIC_SALPN_H3, wired_span_of(tp, sizeof(tp)), 0, &ob));
@@ -42,7 +42,7 @@ void test_eebuild(void) {
   CHECK(tpd.p[0] == 0xaa && tpd.p[4] == 0xee);
 
   /* a tight cap (one byte short) must be refused. */
-  ob = quic_obuf_of(out, ob.len - 1);
+  ob = obuf_of(out, ob.len - 1);
   CHECK(!quic_eebuild_encrypted_extensions(
       QUIC_SALPN_H3, wired_span_of(tp, sizeof(tp)), 0, &ob));
 
@@ -58,8 +58,8 @@ static void test_eebuild_early_data_accepted(void) {
   u8         out[128], out_no_ed[128];
   usz        body_len, body_len_no_ed;
   u8         type;
-  wired_obuf ob      = quic_obuf_of(out, sizeof(out));
-  wired_obuf ob_noed = quic_obuf_of(out_no_ed, sizeof(out_no_ed));
+  wired_obuf ob      = obuf_of(out, sizeof(out));
+  wired_obuf ob_noed = obuf_of(out_no_ed, sizeof(out_no_ed));
 
   CHECK(quic_eebuild_encrypted_extensions(
       QUIC_SALPN_H3, wired_span_of(tp, sizeof(tp)), 1, &ob));
@@ -85,7 +85,7 @@ void test_eebuild_selects_hq(void) {
   usz        body_len;
   u8         type;
   const u8*  body;
-  wired_obuf ob = quic_obuf_of(out, sizeof(out));
+  wired_obuf ob = obuf_of(out, sizeof(out));
 
   CHECK(quic_eebuild_encrypted_extensions(
       QUIC_SALPN_HQ, wired_span_of(tp, sizeof(tp)), 0, &ob));
@@ -101,7 +101,7 @@ void test_eebuild_selects_hq(void) {
 void test_eebuild_rejects_no_negotiation(void) {
   const u8   tp[5] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee};
   u8         out[128];
-  wired_obuf ob = quic_obuf_of(out, sizeof(out));
+  wired_obuf ob = obuf_of(out, sizeof(out));
   CHECK(!quic_eebuild_encrypted_extensions(
       QUIC_SALPN_NONE, wired_span_of(tp, sizeof(tp)), 0, &ob));
 }

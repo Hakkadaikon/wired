@@ -12,7 +12,7 @@ static void test_tparam_roundtrip(void) {
   for (usz i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
     u8         buf[32];
     u64        id, val;
-    wired_obuf ob = quic_obuf_of(buf, sizeof(buf));
+    wired_obuf ob = obuf_of(buf, sizeof(buf));
     usz        w  = quic_tparam_put_int(&ob, cases[i].id, cases[i].val);
     usz        r  = quic_tparam_get_int(wired_span_of(buf, w), &id, &val);
     CHECK(w != 0 && r == w && id == cases[i].id && val == cases[i].val);
@@ -22,12 +22,12 @@ static void test_tparam_roundtrip(void) {
 static void test_tparam_truncated(void) {
   u8         buf[32];
   u64        id, val;
-  wired_obuf ob = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf ob = obuf_of(buf, sizeof(buf));
   usz        w  = quic_tparam_put_int(&ob, QUIC_TP_INITIAL_MAX_DATA, 1048576);
   /* feeding fewer bytes than encoded must fail */
   CHECK(quic_tparam_get_int(wired_span_of(buf, w - 1), &id, &val) == 0);
   /* no room to encode */
-  wired_obuf tiny = quic_obuf_of(buf, 1);
+  wired_obuf tiny = obuf_of(buf, 1);
   CHECK(quic_tparam_put_int(&tiny, QUIC_TP_INITIAL_MAX_DATA, 1048576) == 0);
 }
 
@@ -41,7 +41,7 @@ static void test_tparam_max_datagram_frame_size(void) {
   for (usz i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
     u8         buf[32];
     u64        id, val;
-    wired_obuf ob = quic_obuf_of(buf, sizeof(buf));
+    wired_obuf ob = obuf_of(buf, sizeof(buf));
     usz w = quic_tparam_put_int(&ob, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, cases[i]);
     usz r = quic_tparam_get_int(wired_span_of(buf, w), &id, &val);
     CHECK(
@@ -54,16 +54,16 @@ static void test_tparam_max_datagram_frame_size(void) {
  * TRANSPORT_PARAMETER_ERROR. */
 static void test_tparam_no_duplicates(void) {
   u8         buf[64];
-  wired_obuf ob = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf ob = obuf_of(buf, sizeof(buf));
   usz        w1 = quic_tparam_put_int(&ob, QUIC_TP_MAX_IDLE_TIMEOUT, 30000);
   CHECK(quic_tparam_no_duplicates(wired_span_of(buf, w1)) == 1);
 
-  wired_obuf ob2 = quic_obuf_of(buf + w1, sizeof(buf) - w1);
+  wired_obuf ob2 = obuf_of(buf + w1, sizeof(buf) - w1);
   usz        w2  = quic_tparam_put_int(&ob2, QUIC_TP_INITIAL_MAX_DATA, 1000);
   CHECK(quic_tparam_no_duplicates(wired_span_of(buf, w1 + w2)) == 1);
 
   /* same id again: duplicate */
-  wired_obuf ob3 = quic_obuf_of(buf + w1 + w2, sizeof(buf) - w1 - w2);
+  wired_obuf ob3 = obuf_of(buf + w1 + w2, sizeof(buf) - w1 - w2);
   usz        w3  = quic_tparam_put_int(&ob3, QUIC_TP_MAX_IDLE_TIMEOUT, 1);
   CHECK(quic_tparam_no_duplicates(wired_span_of(buf, w1 + w2 + w3)) == 0);
 }

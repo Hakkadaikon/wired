@@ -11,8 +11,8 @@
 
 typedef u64 p384_fe[6];
 
-extern const p384_fe quic_p384_p;
-extern const p384_fe quic_p384_n;
+extern const p384_fe p384_p;
+extern const p384_fe p384_n;
 
 /** Montgomery parameters for one odd modulus m (R = 2^384). */
 typedef struct {
@@ -20,41 +20,41 @@ typedef struct {
   p384_fe rr;
   p384_fe one;
   u64     n0inv;
-} quic_mont384;
+} mont384;
 
-extern const quic_mont384 quic_p384_mont_p;
-extern const quic_mont384 quic_p384_mont_n;
+extern const mont384 p384_mont_p;
+extern const mont384 p384_mont_n;
 
 /* Operand pair (a, b) for the two-input modular ops. Two borrowed limb
  * pointers passed by value, so a call stays register-only. */
 typedef struct {
   const u64* a;
   const u64* b;
-} quic_fp384ab;
+} fp384ab;
 
-void quic_mont384_mul(p384_fe r, quic_fp384ab ab, const quic_mont384* mont);
-void quic_mont384_inv(p384_fe r, const p384_fe a, const quic_mont384* mont);
+void mont384_mul(p384_fe r, fp384ab ab, const mont384* mont);
+void mont384_inv(p384_fe r, const p384_fe a, const mont384* mont);
 
-void quic_fp384_set(p384_fe r, const p384_fe a);
-int  quic_fp384_eq(const p384_fe a, const p384_fe b);
-int  quic_fp384_is_zero(const p384_fe a);
-int  quic_fp384_lt(const p384_fe a, const p384_fe b);
+void fp384_set(p384_fe r, const p384_fe a);
+int  fp384_eq(const p384_fe a, const p384_fe b);
+int  fp384_is_zero(const p384_fe a);
+int  fp384_lt(const p384_fe a, const p384_fe b);
 
-void quic_fp384_reduce(p384_fe r, const p384_fe a, const p384_fe m);
-void quic_fp384_add(p384_fe r, quic_fp384ab ab, const p384_fe m);
-void quic_fp384_sub(p384_fe r, quic_fp384ab ab, const p384_fe m);
-void quic_fp384_mul(p384_fe r, quic_fp384ab ab, const p384_fe m);
-void quic_fp384_sqr(p384_fe r, const p384_fe a, const p384_fe m);
+void fp384_reduce(p384_fe r, const p384_fe a, const p384_fe m);
+void fp384_add(p384_fe r, fp384ab ab, const p384_fe m);
+void fp384_sub(p384_fe r, fp384ab ab, const p384_fe m);
+void fp384_mul(p384_fe r, fp384ab ab, const p384_fe m);
+void fp384_sqr(p384_fe r, const p384_fe a, const p384_fe m);
 
 /* Fast Solinas reduction, modulus fixed to p (NOT usable for the order n). */
-void quic_fp384_mul_p(p384_fe r, const p384_fe a, const p384_fe b);
-void quic_fp384_sqr_p(p384_fe r, const p384_fe a);
+void fp384_mul_p(p384_fe r, const p384_fe a, const p384_fe b);
+void fp384_sqr_p(p384_fe r, const p384_fe a);
 
-void quic_fp384_inv(p384_fe r, const p384_fe a, const p384_fe m);
-void quic_fp384_inv_p(p384_fe r, const p384_fe a);
+void fp384_inv(p384_fe r, const p384_fe a, const p384_fe m);
+void fp384_inv_p(p384_fe r, const p384_fe a);
 
 /* Big-endian 48-byte load/store. */
-void quic_fp384_from_be(p384_fe r, const u8 b[48]);
-void quic_fp384_to_be(u8 b[48], const p384_fe a);
+void fp384_from_be(p384_fe r, const u8 b[48]);
+void fp384_to_be(u8 b[48], const p384_fe a);
 
 #endif

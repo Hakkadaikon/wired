@@ -35,11 +35,11 @@ static const p256_fe ecpk_p256_b = {
 /* rhs = x^3 - 3x + b mod p (the P-256 curve equation's right-hand side). */
 static void p256_curve_rhs(p256_fe rhs, const p256_fe x) {
   p256_fe x2, three_x, three = {3, 0, 0, 0};
-  quic_fp_sqr_p(x2, x);
-  quic_fp_mul_p(rhs, x2, x);
-  quic_fp_mul_p(three_x, three, x);
-  quic_fp_sub(rhs, (quic_fpab){rhs, three_x}, quic_p256_p);
-  quic_fp_add(rhs, (quic_fpab){rhs, ecpk_p256_b}, quic_p256_p);
+  p256_fp_sqr_p(x2, x);
+  p256_fp_mul_p(rhs, x2, x);
+  p256_fp_mul_p(three_x, three, x);
+  p256_fp_sub(rhs, (fpab){rhs, three_x}, p256_p);
+  p256_fp_add(rhs, (fpab){rhs, ecpk_p256_b}, p256_p);
 }
 
 /* r = a^((p+1)/4) mod p, the modular square root: valid because P-256's p is
@@ -47,18 +47,18 @@ static void p256_curve_rhs(p256_fe rhs, const p256_fe x) {
  * (a^((p+1)/4))^2 = a^((p+1)/2) = a * a^((p-1)/2) = a (Euler's criterion).
  * Exponent precomputed as (p+1)/4 = 0x3fffffffc0000000400000000000000000
  * 000000400000000000000000000000 (256-bit little-endian limbs below);
- * square-and-multiply mirrors quic_fp_inv_p's shape. */
+ * square-and-multiply mirrors p256_fp_inv_p's shape. */
 static void p256_sqrt(p256_fe r, const p256_fe a) {
   static const p256_fe e = {
       0x0000000000000000ULL, 0x0000000040000000ULL, 0x4000000000000000ULL,
       0x3fffffffc0000000ULL};
   p256_fe base;
-  quic_fp_set(base, a);
+  p256_fp_set(base, a);
   r[0] = 1;
   r[1] = r[2] = r[3] = 0;
   for (usz bit = 0; bit < 256; bit++) {
-    if ((e[bit / 64] >> (bit & 63)) & 1) quic_fp_mul_p(r, r, base);
-    quic_fp_sqr_p(base, base);
+    if ((e[bit / 64] >> (bit & 63)) & 1) p256_fp_mul_p(r, r, base);
+    p256_fp_sqr_p(base, base);
   }
 }
 
@@ -70,8 +70,7 @@ static void p256_y_from_x(p256_fe y, const p256_fe x, int want_odd) {
   p256_fe rhs;
   p256_curve_rhs(rhs, x);
   p256_sqrt(y, rhs);
-  if ((int)(y[0] & 1) != want_odd)
-    quic_fp_sub(y, (quic_fpab){quic_p256_p, y}, quic_p256_p);
+  if ((int)(y[0] & 1) != want_odd) p256_fp_sub(y, (fpab){p256_p, y}, p256_p);
 }
 
 /* y^2 == x^3 - 3x + b mod p: confirms the recovered point is genuinely on
@@ -79,8 +78,8 @@ static void p256_y_from_x(p256_fe y, const p256_fe x, int want_odd) {
 static int p256_on_curve(const p256_fe x, const p256_fe y) {
   p256_fe rhs, lhs;
   p256_curve_rhs(rhs, x);
-  quic_fp_sqr_p(lhs, y);
-  return quic_fp_eq(lhs, rhs);
+  p256_fp_sqr_p(lhs, y);
+  return p256_fp_eq(lhs, rhs);
 }
 
 /* SEC1 2.3.4 / RFC 5480 2.2. Decompress a 34-byte compressed BIT STRING
@@ -90,15 +89,15 @@ static int decompress_p256(wired_span key, u8 x[32], u8 y[32]) {
   p256_fe xf, yf;
   int     want_odd = key.p[1] == 0x03;
   copy32(x, key.p + 2);
-  quic_fp_from_be(xf, x);
-  if (!quic_fp_lt(xf, quic_p256_p)) return 0;
+  p256_fp_from_be(xf, x);
+  if (!p256_fp_lt(xf, p256_p)) return 0;
   p256_y_from_x(yf, xf, want_odd);
   if (!p256_on_curve(xf, yf)) return 0;
-  quic_fp_to_be(y, yf);
+  p256_fp_to_be(y, yf);
   return 1;
 }
 
-int quic_x509_ec_pubkey(wired_span spki_key, u8 x[32], u8 y[32]) {
+int x509_ec_pubkey(wired_span spki_key, u8 x[32], u8 y[32]) {
   if (is_uncompressed(spki_key)) {
     copy32(x, spki_key.p + 2);
     copy32(y, spki_key.p + 34);
@@ -133,11 +132,11 @@ static const p384_fe ecpk_p384_b = {
 /* rhs = x^3 - 3x + b mod p (the P-384 curve equation's right-hand side). */
 static void p384_curve_rhs(p384_fe rhs, const p384_fe x) {
   p384_fe x2, three_x, three = {3, 0, 0, 0, 0, 0};
-  quic_fp384_sqr(x2, x, quic_p384_p);
-  quic_fp384_mul(rhs, (quic_fp384ab){x2, x}, quic_p384_p);
-  quic_fp384_mul(three_x, (quic_fp384ab){three, x}, quic_p384_p);
-  quic_fp384_sub(rhs, (quic_fp384ab){rhs, three_x}, quic_p384_p);
-  quic_fp384_add(rhs, (quic_fp384ab){rhs, ecpk_p384_b}, quic_p384_p);
+  fp384_sqr(x2, x, p384_p);
+  fp384_mul(rhs, (fp384ab){x2, x}, p384_p);
+  fp384_mul(three_x, (fp384ab){three, x}, p384_p);
+  fp384_sub(rhs, (fp384ab){rhs, three_x}, p384_p);
+  fp384_add(rhs, (fp384ab){rhs, ecpk_p384_b}, p384_p);
 }
 
 /* r = a^((p+1)/4) mod p: P-384's p is also 3 mod 4 (FIPS 186-4 D.1.2.4), so
@@ -148,12 +147,12 @@ static void p384_sqrt(p384_fe r, const p384_fe a) {
                             0xffffffffffffffffULL, 0xffffffffffffffffULL,
                             0xffffffffffffffffULL, 0x3fffffffffffffffULL};
   p384_fe              base;
-  quic_fp384_set(base, a);
+  fp384_set(base, a);
   r[0] = 1;
   r[1] = r[2] = r[3] = r[4] = r[5] = 0;
   for (usz bit = 0; bit < 384; bit++) {
-    if ((e[bit / 64] >> (bit & 63)) & 1) quic_fp384_mul_p(r, r, base);
-    quic_fp384_sqr_p(base, base);
+    if ((e[bit / 64] >> (bit & 63)) & 1) fp384_mul_p(r, r, base);
+    fp384_sqr_p(base, base);
   }
 }
 
@@ -161,30 +160,29 @@ static void p384_y_from_x(p384_fe y, const p384_fe x, int want_odd) {
   p384_fe rhs;
   p384_curve_rhs(rhs, x);
   p384_sqrt(y, rhs);
-  if ((int)(y[0] & 1) != want_odd)
-    quic_fp384_sub(y, (quic_fp384ab){quic_p384_p, y}, quic_p384_p);
+  if ((int)(y[0] & 1) != want_odd) fp384_sub(y, (fp384ab){p384_p, y}, p384_p);
 }
 
 static int p384_on_curve(const p384_fe x, const p384_fe y) {
   p384_fe rhs, lhs;
   p384_curve_rhs(rhs, x);
-  quic_fp384_sqr(lhs, y, quic_p384_p);
-  return quic_fp384_eq(lhs, rhs);
+  fp384_sqr(lhs, y, p384_p);
+  return fp384_eq(lhs, rhs);
 }
 
 static int decompress_p384(wired_span key, u8 x[48], u8 y[48]) {
   p384_fe xf, yf;
   int     want_odd = key.p[1] == 0x03;
   copy48(x, key.p + 2);
-  quic_fp384_from_be(xf, x);
-  if (!quic_fp384_lt(xf, quic_p384_p)) return 0;
+  fp384_from_be(xf, x);
+  if (!fp384_lt(xf, p384_p)) return 0;
   p384_y_from_x(yf, xf, want_odd);
   if (!p384_on_curve(xf, yf)) return 0;
-  quic_fp384_to_be(y, yf);
+  fp384_to_be(y, yf);
   return 1;
 }
 
-int quic_x509_ec_pubkey384(wired_span spki_key, u8 x[48], u8 y[48]) {
+int x509_ec_pubkey384(wired_span spki_key, u8 x[48], u8 y[48]) {
   if (is_uncompressed384(spki_key)) {
     copy48(x, spki_key.p + 2);
     copy48(y, spki_key.p + 50);

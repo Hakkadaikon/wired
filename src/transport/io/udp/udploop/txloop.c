@@ -6,7 +6,7 @@ usz quic_udploop_pack(const quic_pktsrc* src, wired_obuf* out) {
   usz       off = 0;
   const u8* p   = src->pkts;
   for (usz i = 0; i < src->n_pkts; i++) {
-    if (!quic_put_bytes(
+    if (!bytes_put(
             wired_mspan_of(out->p, out->cap), &off,
             wired_span_of(p, src->pkt_lens[i])))
       return 0;

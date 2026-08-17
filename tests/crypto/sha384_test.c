@@ -30,11 +30,11 @@ static void test_sha384_vectors(void) {
       "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmno"
       "ijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu";
   u8 got[48];
-  quic_sha384((const u8*)"", 0, got);
+  sha384((const u8*)"", 0, got);
   CHECK(s384_eq(got, want_empty));
-  quic_sha384((const u8*)"abc", 3, got);
+  sha384((const u8*)"abc", 3, got);
   CHECK(s384_eq(got, want_abc));
-  quic_sha384(two_block, sizeof(two_block) - 1, got);
+  sha384(two_block, sizeof(two_block) - 1, got);
   CHECK(s384_eq(got, want_two));
 }
 
@@ -53,30 +53,30 @@ static void test_sha384_pad_boundary(void) {
       0xe1, 0x91, 0x19, 0xd8, 0xc3, 0x17, 0x79, 0xa3, 0x8f, 0x79, 0x1f, 0xcd};
   u8 msg[112], got[48];
   for (usz i = 0; i < sizeof(msg); i++) msg[i] = 'a';
-  quic_sha384(msg, 111, got);
+  sha384(msg, 111, got);
   CHECK(s384_eq(got, want_111));
-  quic_sha384(msg, 112, got);
+  sha384(msg, 112, got);
   CHECK(s384_eq(got, want_112));
 }
 
 /* FIPS 180-4 5.3.4: "SHA-384 ... truncating the final hash value ... to its
- * leftmost 384 bits". quic_sha384_final (sha384.c) is exactly this: run the
+ * leftmost 384 bits". sha384_final (sha384.c) is exactly this: run the
  * shared SHA-512 compression to a 64-byte digest, then keep the leftmost 48
- * bytes. Verify that generalization directly: running quic_sha512_final (the
- * untruncated 64-byte finisher) on a context seeded by quic_sha384_init must
- * produce a digest whose first 48 bytes equal quic_sha384's output, and whose
+ * bytes. Verify that generalization directly: running sha512_final (the
+ * untruncated 64-byte finisher) on a context seeded by sha384_init must
+ * produce a digest whose first 48 bytes equal sha384's output, and whose
  * last 16 bytes are simply discarded, not folded in some other way. */
 static void test_sha384_is_sha512_truncation(void) {
   static const u8 msg[] = "abc";
   u8              d384[48];
   u8              d512_from_384_state[QUIC_SHA512_DIGEST];
-  quic_sha512_ctx s;
+  sha512_ctx      s;
 
-  quic_sha384(msg, 3, d384);
+  sha384(msg, 3, d384);
 
-  quic_sha384_init(&s);
-  quic_sha512_update(&s, msg, 3);
-  quic_sha512_final(&s, d512_from_384_state);
+  sha384_init(&s);
+  sha512_update(&s, msg, 3);
+  sha512_final(&s, d512_from_384_state);
 
   for (usz i = 0; i < 48; i++) CHECK(d512_from_384_state[i] == d384[i]);
 }

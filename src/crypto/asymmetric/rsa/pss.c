@@ -24,7 +24,7 @@ static int pss_top_bits_clear(u8 top, usz zero_bits) {
 /* DB = maskedDB XOR dbMask, then clear the leftmost zero_bits (step 8-9). */
 static void pss_unmask_db(wired_mspan db, const u8* h, usz zero_bits) {
   u8 mask[PSS_MAX_EM];
-  quic_mgf1_sha256((wired_span){h, 32}, (wired_mspan){mask, db.n});
+  mgf1_sha256((wired_span){h, 32}, (wired_mspan){mask, db.n});
   for (usz i = 0; i < db.n; i++) db.p[i] ^= mask[i];
   db.p[0] &= (u8)(0xff >> zero_bits);
 }
@@ -39,14 +39,14 @@ static int pss_padding_ok(const u8* db, usz db_len, usz salt_len) {
 
 /* H' = SHA-256(0x00*8 || mHash || salt); compare to H (step 12-14). */
 static int pss_hprime_eq(const u8* mhash, wired_span salt, const u8* h) {
-  u8              zeros[8] = {0};
-  u8              hp[32];
-  quic_sha256_ctx s;
-  quic_sha256_init(&s);
-  quic_sha256_update(&s, zeros, 8);
-  quic_sha256_update(&s, mhash, 32);
-  quic_sha256_update(&s, salt.p, salt.n);
-  quic_sha256_final(&s, hp);
+  u8         zeros[8] = {0};
+  u8         hp[32];
+  sha256_ctx s;
+  sha256_init(&s);
+  sha256_update(&s, zeros, 8);
+  sha256_update(&s, mhash, 32);
+  sha256_update(&s, salt.p, salt.n);
+  sha256_final(&s, hp);
   u8 d = 0;
   for (usz i = 0; i < 32; i++) d |= hp[i] ^ h[i];
   return d == 0;
@@ -83,7 +83,7 @@ static int pss_db_consistent(wired_span em_db, usz zero_bits, const u8* mhash) {
   return pss_hprime_eq(mhash, salt, h);
 }
 
-int quic_emsa_pss_verify(wired_span em, usz em_bits, wired_span mhash) {
+int emsa_pss_verify(wired_span em, usz em_bits, wired_span mhash) {
   if (pss_prefix_bad(em, mhash.n, em_bits)) return 0;
   usz db_len    = pss_db_len(em.n, mhash.n);
   usz zero_bits = pss_top_zero_bits(em.n, em_bits);

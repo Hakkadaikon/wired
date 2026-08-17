@@ -22,10 +22,10 @@ static usz gcm256_hb(const char* hex, u8* out) {
  * round trip (encrypt then decrypt back to the same plaintext) was verified
  * there before transcription. */
 static void test_gcm256_kat(void) {
-  u8          key[32], iv[12], pt[64], aad[32], want_ct[64], want_tag[16];
-  u8          ct[64 + 16]; /* ciphertext || tag */
-  quic_aes256 a;
-  u8          ivbuf[16];
+  u8     key[32], iv[12], pt[64], aad[32], want_ct[64], want_tag[16];
+  u8     ct[64 + 16]; /* ciphertext || tag */
+  aes256 a;
+  u8     ivbuf[16];
   gcm256_hb(
       "feffe9928665731c6d6a8f9467308308"
       "feffe9928665731c6d6a8f9467308308",
@@ -44,27 +44,27 @@ static void test_gcm256_kat(void) {
       want_ct);
   gcm256_hb("76fc6ece0f4e1768cddf8853bb2d551b", want_tag);
 
-  quic_aes256_init(&a, key);
-  quic_gcm256_ctx g = {&a, iv, {aad, al}};
-  quic_gcm256_seal(&g, wired_span_of(pt, pl), ct);
+  aes256_init(&a, key);
+  gcm256_ctx g = {&a, iv, {aad, al}};
+  gcm256_seal(&g, wired_span_of(pt, pl), ct);
   for (usz i = 0; i < pl; i++) CHECK(ct[i] == want_ct[i]);
   for (usz i = 0; i < 16; i++) CHECK(ct[pl + i] == want_tag[i]);
 }
 
 /* Round-trip plus tamper detection (AUTH_FAIL leaves pt untouched). */
 static void test_gcm256_open(void) {
-  u8          key[32] = {0}, iv[12] = {0};
-  u8          pt[20], ct[36], dec[20]; /* ct = ciphertext || tag */
-  quic_aes256 a;
+  u8     key[32] = {0}, iv[12] = {0};
+  u8     pt[20], ct[36], dec[20]; /* ct = ciphertext || tag */
+  aes256 a;
   for (usz i = 0; i < 20; i++) {
     pt[i]  = (u8)i;
     dec[i] = 0xCC;
   }
-  quic_aes256_init(&a, key);
-  quic_gcm256_ctx g = {&a, iv, {(const u8*)"hdr", 3}};
-  quic_gcm256_seal(&g, wired_span_of(pt, 20), ct);
+  aes256_init(&a, key);
+  gcm256_ctx g = {&a, iv, {(const u8*)"hdr", 3}};
+  gcm256_seal(&g, wired_span_of(pt, 20), ct);
 
-  CHECK(quic_gcm256_open(&g, wired_span_of(ct, 36), dec) == 1);
+  CHECK(gcm256_open(&g, wired_span_of(ct, 36), dec) == 1);
   for (usz i = 0; i < 20; i++) CHECK(dec[i] == pt[i]);
 
   /* flip one tag bit: must reject and not overwrite dec */
@@ -72,31 +72,31 @@ static void test_gcm256_open(void) {
   u8 bad[36];
   for (usz i = 0; i < 36; i++) bad[i] = ct[i];
   bad[20] ^= 1;
-  CHECK(quic_gcm256_open(&g, wired_span_of(bad, 36), dec) == 0);
+  CHECK(gcm256_open(&g, wired_span_of(bad, 36), dec) == 0);
   for (usz i = 0; i < 20; i++) CHECK(dec[i] == 0xCC);
 
   /* flip one AAD byte: must reject */
-  quic_gcm256_ctx g2 = {&a, iv, {(const u8*)"HDR", 3}};
-  CHECK(quic_gcm256_open(&g2, wired_span_of(ct, 36), dec) == 0);
+  gcm256_ctx g2 = {&a, iv, {(const u8*)"HDR", 3}};
+  CHECK(gcm256_open(&g2, wired_span_of(ct, 36), dec) == 0);
 }
 
 /* AES-128-GCM and AES-256-GCM keyed with the same 128-bit prefix bytes must
  * diverge: proves quic_gcm256_* is not silently falling back to the AES-128
  * path (the two ctx/seal/open pairs are genuinely independent). */
 static void test_gcm256_differs_from_gcm128(void) {
-  u8          key128[16] = {0}, key256[32] = {0}, iv[12] = {0};
-  u8          pt[16] = {0};
-  u8          ct128[16 + 16], ct256[16 + 16];
-  quic_aes128 a128;
-  quic_aes256 a256;
+  u8     key128[16] = {0}, key256[32] = {0}, iv[12] = {0};
+  u8     pt[16] = {0};
+  u8     ct128[16 + 16], ct256[16 + 16];
+  aes128 a128;
+  aes256 a256;
 
-  quic_aes128_init(&a128, key128);
-  quic_gcm_ctx g128 = {&a128, iv, {0, 0}};
-  quic_gcm_seal(&g128, wired_span_of(pt, 16), ct128);
+  aes128_init(&a128, key128);
+  gcm_ctx g128 = {&a128, iv, {0, 0}};
+  gcm_seal(&g128, wired_span_of(pt, 16), ct128);
 
-  quic_aes256_init(&a256, key256);
-  quic_gcm256_ctx g256 = {&a256, iv, {0, 0}};
-  quic_gcm256_seal(&g256, wired_span_of(pt, 16), ct256);
+  aes256_init(&a256, key256);
+  gcm256_ctx g256 = {&a256, iv, {0, 0}};
+  gcm256_seal(&g256, wired_span_of(pt, 16), ct256);
 
   int same = 1;
   for (usz i = 0; i < 16 + 16; i++)

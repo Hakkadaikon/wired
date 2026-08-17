@@ -7,8 +7,8 @@
 /* RFC 8446 4.2.10: ClientHello form is type(2) + ext_data len(2) = 0. */
 int quic_tlsext_early_data_ch(u8* out, usz cap, usz* out_len) {
   if (cap < 4) return 0;
-  quic_put_be16(out, QUIC_TLSEXT_T_EARLY_DATA);
-  quic_put_be16(out + 2, 0);
+  be_put_be16(out, QUIC_TLSEXT_T_EARLY_DATA);
+  be_put_be16(out + 2, 0);
   *out_len = 4;
   return 1;
 }
@@ -17,9 +17,9 @@ int quic_tlsext_early_data_ch(u8* out, usz cap, usz* out_len) {
  */
 int quic_tlsext_early_data_nst(u32 max_size, wired_obuf* out) {
   if (out->cap < 8) return 0;
-  quic_put_be16(out->p, QUIC_TLSEXT_T_EARLY_DATA);
-  quic_put_be16(out->p + 2, 4);
-  quic_put_be32(out->p + 4, max_size);
+  be_put_be16(out->p, QUIC_TLSEXT_T_EARLY_DATA);
+  be_put_be16(out->p + 2, 4);
+  be_put_be32(out->p + 4, max_size);
   out->len = 8;
   return 1;
 }

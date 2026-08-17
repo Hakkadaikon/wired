@@ -7,7 +7,7 @@ static const u8 scid[]  = {0x11, 0x22, 0x33, 0x44, 0x55};
 
 /* Build server TPs for (odcid, scid) into buf; returns the encoded length. */
 static usz stp_build(u8* buf, usz cap) {
-  wired_obuf ob = quic_obuf_of(buf, cap);
+  wired_obuf ob = obuf_of(buf, cap);
   wired_span od = wired_span_of(odcid, sizeof(odcid));
   wired_span sc = wired_span_of(scid, sizeof(scid));
   return quic_stp_build_server(od, sc, &ob) ? ob.len : 0;
@@ -22,7 +22,7 @@ static int parse_int(wired_span tp, u64 param_id, u64* v) {
 
 /* Append one integer TP at ob->len (mirrors stp/server_tp.c's put_int). */
 static int put_int_at(wired_obuf* ob, u64 id, u64 val) {
-  wired_obuf tail = quic_obuf_of(ob->p + ob->len, ob->cap - ob->len);
+  wired_obuf tail = obuf_of(ob->p + ob->len, ob->cap - ob->len);
   usz        w    = quic_tparam_put_int(&tail, id, val);
   ob->len += w;
   return w != 0;
@@ -88,7 +88,7 @@ static void test_server_tp_retry_scid(void) {
   wired_span   b;
   quic_stp_out bo     = {0, &b};
   const u8     rsc[6] = {9, 8, 7, 6, 5, 4};
-  wired_obuf   ob     = quic_obuf_of(buf, sizeof buf);
+  wired_obuf   ob     = obuf_of(buf, sizeof buf);
   wired_span   od     = wired_span_of(odcid, sizeof odcid);
   wired_span   sc     = wired_span_of(scid, sizeof scid);
   CHECK(
@@ -117,7 +117,7 @@ static void test_server_tp_stateless_reset_token(void) {
   wired_span   b;
   quic_stp_out bo = {0, &b};
   u8           tok[16];
-  wired_obuf   ob = quic_obuf_of(buf, sizeof buf);
+  wired_obuf   ob = obuf_of(buf, sizeof buf);
   wired_span   od = wired_span_of(odcid, sizeof odcid);
   wired_span   sc = wired_span_of(scid, sizeof scid);
   for (usz i = 0; i < 16; i++) tok[i] = (u8)(0xe0 + i);
@@ -158,7 +158,7 @@ static void test_server_tp_parse_absent(void) {
 static void test_client_tp_extract(void) {
   u8         buf[64];
   u64        v;
-  wired_obuf ob = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf ob = obuf_of(buf, sizeof(buf));
   CHECK(put_int_at(&ob, QUIC_TP_INITIAL_MAX_DATA, 49152));
   CHECK(put_int_at(&ob, QUIC_TP_INITIAL_MAX_STREAMS_BIDI, 3));
   wired_span tp = wired_span_of(buf, ob.len);
@@ -177,7 +177,7 @@ static int tp_int_value(const u8* tp, usz n, u64 want, u64* val) {
     off += used;
     if (id != want) continue;
     usz voff = 0;
-    return quic_varint_take(v, &voff, val);
+    return varint_take(v, &voff, val);
   }
   return 0;
 }

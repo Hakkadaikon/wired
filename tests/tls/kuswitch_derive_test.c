@@ -17,13 +17,11 @@ void test_kuswitch_derive(void) {
   for (usz i = 0; i < 32; i++) CHECK(next_secret[i] == expect_secret[i]);
 
   /* key/iv match Expand-Label from that secret */
-  u8              ek[QUIC_INITIAL_KEY], ev[QUIC_INITIAL_IV];
-  quic_hkdf_label lk = {"quic key", 8, {0, 0}};
-  quic_hkdf_label li = {"quic iv", 7, {0, 0}};
-  quic_hkdf_expand_label(
-      expect_secret, &lk, wired_mspan_of(ek, QUIC_INITIAL_KEY));
-  quic_hkdf_expand_label(
-      expect_secret, &li, wired_mspan_of(ev, QUIC_INITIAL_IV));
+  u8         ek[QUIC_INITIAL_KEY], ev[QUIC_INITIAL_IV];
+  hkdf_label lk = {"quic key", 8, {0, 0}};
+  hkdf_label li = {"quic iv", 7, {0, 0}};
+  hkdf_expand_label(expect_secret, &lk, wired_mspan_of(ek, QUIC_INITIAL_KEY));
+  hkdf_expand_label(expect_secret, &li, wired_mspan_of(ev, QUIC_INITIAL_IV));
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(next.key[i] == ek[i]);
   for (usz i = 0; i < QUIC_INITIAL_IV; i++) CHECK(next.iv[i] == ev[i]);
 
@@ -51,9 +49,9 @@ void test_kuswitch_derive_suite_chacha20_full_key(void) {
   u8 next_secret[32];
   quic_kuswitch_next_keys_suite(0x1303, cur, &next, next_secret);
 
-  u8              ek[32];
-  quic_hkdf_label lk = {"quic key", 8, {0, 0}};
-  quic_hkdf_expand_label(next_secret, &lk, wired_mspan_of(ek, 32));
+  u8         ek[32];
+  hkdf_label lk = {"quic key", 8, {0, 0}};
+  hkdf_expand_label(next_secret, &lk, wired_mspan_of(ek, 32));
   for (usz i = 0; i < 32; i++) CHECK(next.key[i] == ek[i]);
 }
 

@@ -12,19 +12,19 @@ typedef struct {
   const u8* p;
   usz       off;
   usz       len;
-} quic_derseq;
+} derseq;
 
 /* Init over a SEQUENCE value (the bytes after its tag+length). */
-void quic_derseq_init(quic_derseq* c, wired_span seq);
+void derseq_init(derseq* c, wired_span seq);
 
 /* Read the next element. Sets *tag, *val and advances the cursor.
  * Returns 1 ok, 0 at end or on a malformed element. */
-int quic_derseq_next(quic_derseq* c, u8* tag, wired_span* val);
+int derseq_next(derseq* c, u8* tag, wired_span* val);
 
 /* Read the next element, requiring tag want. Returns 1 ok, 0 otherwise. */
-int quic_derseq_next_tagged(quic_derseq* c, u8 want, wired_span* val);
+int derseq_next_tagged(derseq* c, u8 want, wired_span* val);
 
 /* Advance the cursor past n elements. Returns 1 if all were present. */
-int quic_derseq_skip(quic_derseq* c, usz n);
+int derseq_skip(derseq* c, usz n);
 
 #endif

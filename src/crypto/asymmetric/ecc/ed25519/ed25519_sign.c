@@ -7,7 +7,7 @@
  * public keypair/sign/verify API. Group/field arithmetic lives in
  * ed25519_field.c. */
 
-typedef quic_ed_ge ge;
+typedef ed_ge ge;
 
 /* L = 2^252 + 27742317777372353535851937790883648493, little-endian. */
 static const u8 ORDER_L[32] = {0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,
@@ -60,13 +60,13 @@ static void sc_reduce64(u8 out[32], const u8 in[64]) {
 
 /* k = SHA-512(R || A || M) mod L (RFC 8032 5.1.7 step 2). */
 static void hash_k(u8 k[32], const u8* R, const u8* A, wired_span msg) {
-  quic_sha512_ctx h;
-  u8              digest[64];
-  quic_sha512_init(&h);
-  quic_sha512_update(&h, R, 32);
-  quic_sha512_update(&h, A, 32);
-  quic_sha512_update(&h, msg.p, msg.n);
-  quic_sha512_final(&h, digest);
+  sha512_ctx h;
+  u8         digest[64];
+  sha512_init(&h);
+  sha512_update(&h, R, 32);
+  sha512_update(&h, A, 32);
+  sha512_update(&h, msg.p, msg.n);
+  sha512_final(&h, digest);
   sc_reduce64(k, digest);
 }
 
@@ -80,10 +80,10 @@ static int bytes_equal(const u8 a[32], const u8 b[32]) {
 static int compute_rhs(
     u8 out[32], const u8 k[32], const ge* A, const u8 R[32]) {
   ge kA, rhs;
-  quic_ed_ge_scalarmult(&kA, k, A);
-  if (!quic_ed_ge_decode(&rhs, R)) return 0;
-  quic_ed_ge_add(&rhs, &rhs, &kA);
-  quic_ed_ge_encode(out, &rhs);
+  ed_ge_scalarmult(&kA, k, A);
+  if (!ed_ge_decode(&rhs, R)) return 0;
+  ed_ge_add(&rhs, &rhs, &kA);
+  ed_ge_encode(out, &rhs);
   return 1;
 }
 
@@ -93,9 +93,9 @@ static int check_equation(
   ge B, sB;
   u8 lhs[32], want[32];
   if (!compute_rhs(want, k, A, R)) return 0;
-  quic_ed_ge_base(&B);
-  quic_ed_ge_scalarmult(&sB, S, &B);
-  quic_ed_ge_encode(lhs, &sB);
+  ed_ge_base(&B);
+  ed_ge_scalarmult(&sB, S, &B);
+  ed_ge_encode(lhs, &sB);
   return bytes_equal(lhs, want);
 }
 
@@ -143,32 +143,32 @@ static void sc_clamp(u8 a[32]) {
 }
 
 /* Public key A = [clamp(SHA512(seed)[0:32])]B encoded (RFC 8032 5.1.5). */
-int quic_ed25519_keypair(
+int ed25519_keypair(
     const u8 seed[QUIC_ED25519_SEED], u8 public_key[QUIC_ED25519_PUBKEY]) {
   u8 h[64], a[32];
   ge B, A;
-  quic_sha512(seed, 32, h);
+  sha512(seed, 32, h);
   for (usz i = 0; i < 32; i++) a[i] = h[i];
   sc_clamp(a);
-  quic_ed_ge_base(&B);
-  quic_ed_ge_scalarmult(&A, a, &B);
-  quic_ed_ge_encode(public_key, &A);
+  ed_ge_base(&B);
+  ed_ge_scalarmult(&A, a, &B);
+  ed_ge_encode(public_key, &A);
   return 1;
 }
 
 /* r = SHA512(prefix || msg) mod L (RFC 8032 5.1.6 step 2). */
 static void hash_r(u8 r[32], const u8 prefix[32], const u8* msg, usz msg_len) {
-  quic_sha512_ctx h;
-  u8              digest[64];
-  quic_sha512_init(&h);
-  quic_sha512_update(&h, prefix, 32);
-  quic_sha512_update(&h, msg, msg_len);
-  quic_sha512_final(&h, digest);
+  sha512_ctx h;
+  u8         digest[64];
+  sha512_init(&h);
+  sha512_update(&h, prefix, 32);
+  sha512_update(&h, msg, msg_len);
+  sha512_final(&h, digest);
   sc_reduce64(r, digest);
 }
 
 /* sig = R || S where R = [r]B, S = (r + k*a) mod L (RFC 8032 5.1.6). */
-int quic_ed25519_sign(
+int ed25519_sign(
     const u8  seed[QUIC_ED25519_SEED],
     const u8* msg,
     usz       msg_len,
@@ -176,21 +176,21 @@ int quic_ed25519_sign(
   u8 h[64], a[32], r[32], k[32];
   u8 A_enc[32];
   ge B, R, A;
-  quic_sha512(seed, 32, h);
+  sha512(seed, 32, h);
   for (usz i = 0; i < 32; i++) a[i] = h[i];
   sc_clamp(a);
-  quic_ed_ge_base(&B);
-  quic_ed_ge_scalarmult(&A, a, &B);
-  quic_ed_ge_encode(A_enc, &A);
+  ed_ge_base(&B);
+  ed_ge_scalarmult(&A, a, &B);
+  ed_ge_encode(A_enc, &A);
   hash_r(r, h + 32, msg, msg_len);
-  quic_ed_ge_scalarmult(&R, r, &B);
-  quic_ed_ge_encode(sig, &R);
+  ed_ge_scalarmult(&R, r, &B);
+  ed_ge_encode(sig, &R);
   hash_k(k, sig, A_enc, (wired_span){msg, msg_len});
   sc_muladd(sig + 32, k, a, r);
   return 1;
 }
 
-int quic_ed25519_verify(
+int ed25519_verify(
     const u8  sig[QUIC_ED25519_SIG],
     const u8* msg,
     usz       msg_len,
@@ -200,7 +200,7 @@ int quic_ed25519_verify(
   const u8* R = sig;
   const u8* S = sig + 32;
   if (sc_ge(S, ORDER_L)) return 0; /* S must be < L */
-  if (!quic_ed_ge_decode(&A, pubkey)) return 0;
+  if (!ed_ge_decode(&A, pubkey)) return 0;
   hash_k(k, R, pubkey, (wired_span){msg, msg_len});
   return check_equation(S, k, &A, R);
 }

@@ -31,7 +31,7 @@ static void cv_th(u8 th[32]) {
 static void test_cvecdsa_signed_content(void) {
   u8 th[32], c[130];
   cv_th(th);
-  quic_cvecdsa_signed_content(th, c);
+  cvecdsa_signed_content(th, c);
   for (usz i = 0; i < 64; i++) CHECK(c[i] == 0x20);
   CHECK(c[64] == 'T' && c[65] == 'L' && c[66] == 'S');
   CHECK(c[97] == 0x00);
@@ -45,7 +45,7 @@ static void test_cvecdsa_header(void) {
   u8  type = 0;
   cv_hb32(CV_X, priv);
   cv_th(th);
-  CHECK(quic_cvecdsa_build(priv, th, msg, sizeof msg, &n) == 1);
+  CHECK(cvecdsa_build(priv, th, msg, sizeof msg, &n) == 1);
   CHECK(quic_hs_parse(wired_span_of(msg, n), &type, &body_len) == 4);
   CHECK(type == 0x0f);
   CHECK(4 + body_len == n);
@@ -78,12 +78,12 @@ static void test_cvecdsa_verify_roundtrip(void) {
   cv_hb32(CV_QX, qx);
   cv_hb32(CV_QY, qy);
   cv_th(th);
-  CHECK(quic_cvecdsa_build(priv, th, msg, sizeof msg, &n) == 1);
-  quic_cvecdsa_signed_content(th, c);
+  CHECK(cvecdsa_build(priv, th, msg, sizeof msg, &n) == 1);
+  cvecdsa_signed_content(th, c);
   wired_sha256(c, 130, h);
   /* DER at msg+8: SEQ(0x30) len, INT(0x02) rlen r..., INT(0x02) slen s... */
   cv_der_extract(msg + 8, r, s);
-  CHECK(quic_ecdsa_p256_verify(qx, qy, r, s, h) == 1);
+  CHECK(ecdsa_p256_verify(qx, qy, r, s, h) == 1);
 }
 
 /* Too-small buffer is rejected. */
@@ -92,7 +92,7 @@ static void test_cvecdsa_no_room(void) {
   usz n = 0;
   cv_hb32(CV_X, priv);
   cv_th(th);
-  CHECK(quic_cvecdsa_build(priv, th, msg, sizeof msg, &n) == 0);
+  CHECK(cvecdsa_build(priv, th, msg, sizeof msg, &n) == 0);
 }
 
 void test_cvecdsa(void) {

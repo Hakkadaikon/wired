@@ -24,7 +24,7 @@ void quic_driver_init(quic_driver* d, int is_server, wired_span dcid) {
   quic_connio_init_in cin = {is_server, 0x43, 1u << 20};
   quic_connio_init(&d->io, dcid, &cin);
   d->io.loop.validated = 1; /* RFC 9000 8.1: test path is pre-validated */
-  quic_keyset_install(&d->io.loop.keys, QUIC_LEVEL_INITIAL, &k0);
+  keyset_install(&d->io.loop.keys, QUIC_LEVEL_INITIAL, &k0);
   quic_hsdriver_init(&d->hs, is_server);
   quic_keysched_init(&d->ks);
   d->is_server = is_server;
@@ -65,7 +65,7 @@ static int sends_index(const quic_driver* d, u8 pos) {
 static void install_level(quic_driver* d, int level, int which) {
   const quic_initial_keys* k;
   if (quic_keysched_get(&d->ks, which, &k))
-    quic_keyset_install(&d->io.loop.keys, level, k);
+    keyset_install(&d->io.loop.keys, level, k);
 }
 
 /* RFC 8446 7.1: derive and install the keys a handled message unlocks.
@@ -111,7 +111,7 @@ static int can_recv(const quic_driver* d) {
  * inbox either way. */
 static int open_message(quic_driver* d, u8 level, u8* msg) {
   u8         got[QUIC_DRIVER_DGRAM_CAP];
-  wired_obuf gb = quic_obuf_of(got, sizeof(got));
+  wired_obuf gb = obuf_of(got, sizeof(got));
   int        ok =
       quic_connio_recv(&d->io, level, wired_mspan_of(d->in_buf, d->in_len));
   d->in_len = 0;
@@ -161,7 +161,7 @@ static int do_send(quic_driver* d) {
   fl            = quic_frame_put_stream(frames, sizeof(frames), &stf);
   {
     quic_connio_send_in sin = {level, wired_span_of(frames, fl)};
-    wired_obuf          ob  = quic_obuf_of(d->out_buf, sizeof(d->out_buf));
+    wired_obuf          ob  = obuf_of(d->out_buf, sizeof(d->out_buf));
     n                       = quic_connio_send(&d->io, &sin, &ob);
   }
   if (n == 0) return 0;

@@ -9,7 +9,7 @@ static void test_ext_block_concat(void) {
   wired_obuf out;
   CHECK(quic_tls_ext_block_begin(buf, sizeof(buf), &off) == 1);
   CHECK(off == 2);
-  out     = quic_obuf_of(buf, sizeof(buf));
+  out     = obuf_of(buf, sizeof(buf));
   out.len = off;
   CHECK(quic_tls_ext_append(&out, wired_span_of(v, vw)) == 1);
   CHECK(quic_tls_ext_append(&out, wired_span_of(g, gw)) == 1);
@@ -35,7 +35,7 @@ static void test_ext_block_append_guard(void) {
   usz        off;
   wired_obuf out;
   quic_tls_ext_block_begin(buf, sizeof(buf), &off);
-  out     = quic_obuf_of(buf, sizeof(buf));
+  out     = obuf_of(buf, sizeof(buf));
   out.len = off;
   /* 7 bytes past the 2-byte length overflow the 8-byte buffer */
   CHECK(quic_tls_ext_append(&out, wired_span_of(ext, 7)) == 0);

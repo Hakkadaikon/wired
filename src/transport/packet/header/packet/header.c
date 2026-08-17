@@ -95,7 +95,7 @@ static void write_cids(wired_obuf* out, const wired_header* h) {
 }
 
 usz wired_header_build_long(u8* buf, usz cap, const wired_header* h) {
-  wired_obuf out = quic_obuf_of(buf, cap);
+  wired_obuf out = obuf_of(buf, cap);
   out.len        = put_long_prefix(buf, cap, h);
   if (out.len != 0) write_cids(&out, h);
   return out.len;

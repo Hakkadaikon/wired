@@ -9,7 +9,7 @@ i64 wired_srvpoll_spin_step(i64 fd, quic_mmsg_buf* bufs, usz count) {
 }
 
 /* ponytail: spin-count-based backoff, not time-based -- this repo's only
- * clock (quic_clock_mono_ms) is millisecond-granular, far coarser than one
+ * clock (clock_mono_ms) is millisecond-granular, far coarser than one
  * empty spin, so it cannot threshold a single iteration. Counting spins
  * reuses the arch adapter's PAUSE hint already established above (no new
  * syscall, freestanding-safe). */

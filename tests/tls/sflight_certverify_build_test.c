@@ -23,11 +23,11 @@ void test_sflight_certverify_build(void) {
   u8         type;
   u16        scheme;
   wired_span sig;
-  wired_obuf ob = quic_obuf_of(out, sizeof(out));
+  wired_obuf ob = obuf_of(out, sizeof(out));
 
   for (usz i = 0; i < 32; i++) seed[i] = (u8)(i + 7);
   for (usz i = 0; i < 32; i++) thash[i] = (u8)(0x40 + i);
-  CHECK(quic_ed25519_keypair(seed, pub));
+  CHECK(ed25519_keypair(seed, pub));
 
   CHECK(quic_sflight_certificate_verify(seed, thash, &ob));
   CHECK(quic_hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
@@ -42,12 +42,12 @@ void test_sflight_certverify_build(void) {
 
   /* the signature verifies over the RFC 8446 4.4.3 signed content. */
   rebuild_signed(thash, content);
-  CHECK(quic_ed25519_verify(sig.p, content, 130, pub));
+  CHECK(ed25519_verify(sig.p, content, 130, pub));
 
   /* a tampered transcript hash must not verify. */
   content[129] ^= 0x01;
-  CHECK(!quic_ed25519_verify(sig.p, content, 130, pub));
+  CHECK(!ed25519_verify(sig.p, content, 130, pub));
 
-  ob = quic_obuf_of(out, 4);
+  ob = obuf_of(out, 4);
   CHECK(!quic_sflight_certificate_verify(seed, thash, &ob));
 }

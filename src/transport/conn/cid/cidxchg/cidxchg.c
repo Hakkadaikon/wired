@@ -8,8 +8,7 @@ static int cidxchg_fits(u8 a, u8 b) { return a <= 20 && b <= 20; }
 
 static void cidxchg_set(u8* dst, u8* dst_len, wired_span src) {
   usz off = 0;
-  quic_put_bytes(
-      wired_mspan_of(dst, 20), &off, wired_span_of(src.p, (u8)src.n));
+  bytes_put(wired_mspan_of(dst, 20), &off, wired_span_of(src.p, (u8)src.n));
   *dst_len = (u8)src.n;
 }
 

@@ -15,7 +15,7 @@ static void cvec_put_hash(u8* out, const u8* transcript_hash) {
   for (usz i = 0; i < 32; i++) out[i] = transcript_hash[i];
 }
 
-void quic_cvecdsa_signed_content(const u8 transcript_hash[32], u8 out[130]) {
+void cvecdsa_signed_content(const u8 transcript_hash[32], u8 out[130]) {
   cvec_fill_pad(out);
   cvec_put_ctx(out + 64);
   out[97] = 0x00;

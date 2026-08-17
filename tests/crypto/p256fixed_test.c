@@ -10,23 +10,23 @@
 static void pf_check_eq_generic(const u8 k[32]) {
   ec_point g;
   p256_fe  x, y;
-  int      fin = quic_p256fixed_mul_g(x, y, k);
-  quic_ec_mul(&g, k, &quic_p256_g);
+  int      fin = p256fixed_mul_g(x, y, k);
+  ec_mul(&g, k, &p256_g);
   CHECK(fin == !g.inf);
   if (!fin) return;
-  CHECK(quic_fp_eq(x, g.x));
-  CHECK(quic_fp_eq(y, g.y));
+  CHECK(p256_fp_eq(x, g.x));
+  CHECK(p256_fp_eq(y, g.y));
 }
 
 /* 1*G is the base point itself (FIPS 186-4 D.1.2.3 coordinates, as encoded
- * in quic_p256_g in p256_point.c). */
+ * in p256_g in p256_point.c). */
 static void test_p256fixed_one_is_g(void) {
   u8      k[32] = {0};
   p256_fe x, y;
   k[31] = 1;
-  CHECK(quic_p256fixed_mul_g(x, y, k));
-  CHECK(quic_fp_eq(x, quic_p256_g.x));
-  CHECK(quic_fp_eq(y, quic_p256_g.y));
+  CHECK(p256fixed_mul_g(x, y, k));
+  CHECK(p256_fp_eq(x, p256_g.x));
+  CHECK(p256_fp_eq(y, p256_g.y));
 }
 
 /* Boundary scalars: 0 and n map to infinity (return 0); 1, 2, n-1 match the
@@ -36,11 +36,11 @@ static void test_p256fixed_boundary(void) {
   p256_fe x, y, one                          = {1, 0, 0, 0}, nm1v;
   k1[31] = 1;
   k2[31] = 2;
-  quic_fp_to_be(nb, quic_p256_n);
-  quic_fp_sub(nm1v, (quic_fpab){quic_p256_n, one}, quic_p256_n);
-  quic_fp_to_be(nm1, nm1v);
-  CHECK(!quic_p256fixed_mul_g(x, y, k0));
-  CHECK(!quic_p256fixed_mul_g(x, y, nb));
+  p256_fp_to_be(nb, p256_n);
+  p256_fp_sub(nm1v, (fpab){p256_n, one}, p256_n);
+  p256_fp_to_be(nm1, nm1v);
+  CHECK(!p256fixed_mul_g(x, y, k0));
+  CHECK(!p256fixed_mul_g(x, y, nb));
   pf_check_eq_generic(k1);
   pf_check_eq_generic(k2);
   pf_check_eq_generic(nm1);
@@ -76,7 +76,7 @@ static void test_p256fixed_differential(void) {
 }
 
 /* RFC 6979 Appendix A.2.5 "sample": (k*G).x mod n equals the vector's r,
- * with k derived by the repo's own vector-checked quic_p256sign_k (same
+ * with k derived by the repo's own vector-checked p256sign_k (same
  * scheme as tests/crypto/p256_point_test.c, no new external constants). */
 static void pf_hb32(const char* hex, u8 out[32]) {
   for (usz i = 0; i < 32; i++) {
@@ -96,10 +96,10 @@ static void test_p256fixed_rfc6979_vector(void) {
   pf_hb32(priv_hex, priv);
   pf_hb32(wr_hex, wr);
   wired_sha256((const u8*)"sample", 6, hash);
-  quic_p256sign_k(priv, hash, kb);
-  CHECK(quic_p256fixed_mul_g(x, y, kb));
-  quic_fp_reduce(r, x, quic_p256_n);
-  quic_fp_to_be(rb, r);
+  p256sign_k(priv, hash, kb);
+  CHECK(p256fixed_mul_g(x, y, kb));
+  p256_fp_reduce(r, x, p256_n);
+  p256_fp_to_be(rb, r);
   for (usz i = 0; i < 32; i++) CHECK(rb[i] == wr[i]);
 }
 

@@ -58,9 +58,7 @@ static int rsa_f4_val(const u8* e) {
   return e[0] == 0x01 && e[1] == 0x00 && e[2] == 0x01;
 }
 
-int quic_rsa_e_is_f4(const u8* e, usz e_len) {
-  return e_len == 3 && rsa_f4_val(e);
-}
+int rsa_e_is_f4(const u8* e, usz e_len) { return e_len == 3 && rsa_f4_val(e); }
 
 /* Constant-time equality over len octets. 1 if equal, else 0. */
 static int ct_equal(const u8* a, const u8* b, usz len) {
@@ -70,7 +68,7 @@ static int ct_equal(const u8* a, const u8* b, usz len) {
 }
 
 /* e = 65537 (RFC 8017 common public exponent). */
-static void rsa_e_f4(quic_bn* e) {
+static void rsa_e_f4(bn* e) {
   for (usz i = 0; i < QUIC_BN_LIMBS; i++) e->v[i] = 0;
   e->v[0] = 65537;
 }
@@ -89,37 +87,36 @@ static int sizes_bad(usz n_len, usz sig_len, usz hash_len) {
 }
 
 /* Sizes acceptable and the exponent is the supported F4. */
-static int rsa_inputs_ok(const quic_rsa_pub* pub, usz sig_len, usz hash_len) {
+static int rsa_inputs_ok(const rsa_pub* pub, usz sig_len, usz hash_len) {
   if (sizes_bad(pub->n.n, sig_len, hash_len)) return 0;
-  return quic_rsa_e_is_f4(pub->e.p, pub->e.n);
+  return rsa_e_is_f4(pub->e.p, pub->e.n);
 }
 
 /* Signature and modulus as bignums, plus the modulus octet length. */
 typedef struct {
-  quic_bn bn_s;
-  quic_bn bn_n;
-  usz     n_len;
+  bn  bn_s;
+  bn  bn_n;
+  usz n_len;
 } rsav_sn;
 
 /* RFC 8017 8.2.2 steps 2-4: m = s^e mod n, then EM compare. s,n already <
  * range. */
 static int rsa_check(const rsav_sn* c, wired_span h) {
-  quic_bn bn_e, m;
+  bn bn_e, m;
   rsa_e_f4(&bn_e);
-  quic_bn_modexp(&m, &c->bn_s, (quic_bn_expmod){&bn_e, &c->bn_n});
+  bn_modexp(&m, &c->bn_s, (bn_expmod){&bn_e, &c->bn_n});
   u8 got[QUIC_BN_LIMBS * 8], want[QUIC_BN_LIMBS * 8];
-  quic_bn_to_be(&m, got, c->n_len);
+  bn_to_be(&m, got, c->n_len);
   if (!emsa_pkcs1(want, c->n_len, h)) return 0;
   return ct_equal(got, want, c->n_len);
 }
 
-int quic_rsa_pkcs1_verify(
-    const quic_rsa_pub* pub, wired_span sig, wired_span msg_hash) {
+int rsa_pkcs1_verify(const rsa_pub* pub, wired_span sig, wired_span msg_hash) {
   if (!rsa_inputs_ok(pub, sig.n, msg_hash.n)) return 0;
   rsav_sn c;
   c.n_len = pub->n.n;
-  quic_bn_from_be(&c.bn_n, pub->n.p, pub->n.n);
-  quic_bn_from_be(&c.bn_s, sig.p, sig.n);
-  if (quic_bn_cmp(&c.bn_s, &c.bn_n) >= 0) return 0; /* RFC 8017 8.2.2 */
+  bn_from_be(&c.bn_n, pub->n.p, pub->n.n);
+  bn_from_be(&c.bn_s, sig.p, sig.n);
+  if (bn_cmp(&c.bn_s, &c.bn_n) >= 0) return 0; /* RFC 8017 8.2.2 */
   return rsa_check(&c, msg_hash);
 }

@@ -19,6 +19,6 @@ quic_salpn_sni_outcome quic_salpn_sni_check(
     const u8* ch_msg, usz ch_len, wired_span tbs) {
   wired_span host;
   if (!sni_take_host(ch_msg, ch_len, &host)) return QUIC_SALPN_SNI_ABSENT;
-  return quic_x509_san_matches(tbs, host) ? QUIC_SALPN_SNI_MATCH
-                                          : QUIC_SALPN_SNI_MISMATCH;
+  return x509_san_matches(tbs, host) ? QUIC_SALPN_SNI_MATCH
+                                     : QUIC_SALPN_SNI_MISMATCH;
 }

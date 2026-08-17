@@ -10,23 +10,23 @@
 #define QUIC_VARINT_MAX 0x3FFFFFFFFFFFFFFFULL
 
 /* Bytes needed to encode v. Returns 0 if v exceeds the 62-bit range. */
-usz quic_varint_len(u64 v);
+usz varint_len(u64 v);
 
-/* Encode v into buf (must hold quic_varint_len(v) bytes).
+/* Encode v into buf (must hold varint_len(v) bytes).
  * Returns bytes written, or 0 if v out of range. */
-usz quic_varint_encode(u8* buf, u64 v);
+usz varint_encode(u8* buf, u64 v);
 
 /* Decode from buf of n readable bytes into *out.
  * Returns bytes consumed, or 0 if n too small for the encoded length. */
-usz quic_varint_decode(const u8* buf, usz n, u64* out);
+usz varint_decode(const u8* buf, usz n, u64* out);
 
 /* Cursor helpers shared by TLV codecs (frames, transport params). Each
  * decodes/encodes one varint at buf+*off and advances *off on success. */
 
 /* Returns 1 ok, 0 if truncated. */
-int quic_varint_take(wired_span buf, usz* off, u64* out);
+int varint_take(wired_span buf, usz* off, u64* out);
 
 /* Returns 1 ok, 0 if out of range or no room within cap. */
-int quic_varint_put(wired_mspan buf, usz* off, u64 v);
+int varint_put(wired_mspan buf, usz* off, u64 v);
 
 #endif

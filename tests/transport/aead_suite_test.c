@@ -12,13 +12,13 @@ void test_aead_suite(void) {
       QUIC_TLS_AES_128_GCM_SHA256, key, iv, 2, wired_span_of(aad, 7)};
   usz n = quic_aead_suite_seal(&aes, wired_span_of(pt, 20), ct);
   CHECK(n == 20 + 16);
-  quic_aes128 a;
-  quic_aes128_init(&a, key);
+  aes128 a;
+  aes128_init(&a, key);
   u8 nonce[12], want[36]; /* ciphertext || tag */
   for (usz i = 0; i < 12; i++) nonce[i] = iv[i];
   nonce[11] ^= 2;
-  quic_gcm_ctx g = {&a, nonce, {aad, 7}};
-  quic_gcm_seal(&g, wired_span_of(pt, 20), want);
+  gcm_ctx g = {&a, nonce, {aad, 7}};
+  gcm_seal(&g, wired_span_of(pt, 20), want);
   for (usz i = 0; i < 36; i++) CHECK(ct[i] == want[i]);
 
   /* AES seal -> open round-trips. */

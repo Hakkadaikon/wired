@@ -28,12 +28,12 @@
 #define QUIC_ERR_CRYPTO_BASE 0x0100
 
 /* Build a CRYPTO_ERROR code from a TLS alert (0..255). */
-u64 quic_err_crypto(u8 tls_alert);
+u64 err_crypto(u8 tls_alert);
 
 /* True if code is in the CRYPTO_ERROR range. */
-int quic_err_is_crypto(u64 code);
+int err_is_crypto(u64 code);
 
 /* Extract the TLS alert from a CRYPTO_ERROR code (low byte). */
-u8 quic_err_alert(u64 code);
+u8 err_alert(u64 code);
 
 #endif

@@ -15,7 +15,7 @@
  * verify under certs[i+1]'s key. The tail certs[n_certs-1] must chain to a
  * trust anchor in s: a registered root whose subject equals the tail's issuer
  * (and which signs the tail). Returns 1 if the whole path validates, else 0. */
-int quic_castore_validate_chain(
-    const quic_castore* s, const wired_span* certs, usz n_certs);
+int castore_validate_chain(
+    const castore* s, const wired_span* certs, usz n_certs);
 
 #endif

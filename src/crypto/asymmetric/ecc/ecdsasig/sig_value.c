@@ -9,19 +9,19 @@
  * Returns 1 ok with *len set, 0 on encode failure. */
 static int sig_body(const u8 r[32], const u8 s[32], u8* body, usz* len) {
   usz rn = 0, sn = 0;
-  if (!quic_ecdsasig_encode_integer(r, body, 35, &rn)) return 0;
-  if (!quic_ecdsasig_encode_integer(s, body + rn, 35, &sn)) return 0;
+  if (!ecdsasig_encode_integer(r, body, 35, &rn)) return 0;
+  if (!ecdsasig_encode_integer(s, body + rn, 35, &sn)) return 0;
   *len = rn + sn;
   return 1;
 }
 
-int quic_ecdsasig_encode(
+int ecdsasig_encode(
     const u8 r[32], const u8 s[32], u8* out, usz cap, usz* out_len) {
   u8         body[70];
   usz        len = 0;
-  wired_obuf o   = quic_obuf_of(out, cap);
+  wired_obuf o   = obuf_of(out, cap);
   if (!sig_body(r, s, body, &len)) return 0;
-  if (!quic_selfcert_der_tlv(QUIC_DER_SEQUENCE, wired_span_of(body, len), &o))
+  if (!selfcert_der_tlv(QUIC_DER_SEQUENCE, wired_span_of(body, len), &o))
     return 0;
   *out_len = o.len;
   return 1;

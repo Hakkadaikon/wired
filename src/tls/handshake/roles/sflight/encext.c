@@ -17,9 +17,9 @@ int quic_sflight_encrypted_extensions(
   wired_obuf eob;
   if (!encext_fits(transport_params.n, out->cap)) return 0;
   off = quic_hs_begin(out->p, out->cap, QUIC_HS_ENCRYPTED_EXT);
-  eob = quic_obuf_of(out->p + off + 2, out->cap - off - 2);
+  eob = obuf_of(out->p + off + 2, out->cap - off - 2);
   ext = quic_tpext_encode(&eob, transport_params);
-  quic_put_be16(out->p + off, (u16)ext); /* extensions block length */
+  be_put_be16(out->p + off, (u16)ext); /* extensions block length */
   out->len = off + 2 + ext;
   quic_hs_finish(out->p, out->len);
   return 1;

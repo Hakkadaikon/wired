@@ -12,8 +12,7 @@
 static void cur_keys(const quic_connrunner* r, quic_initial_keys* out) {
   const quic_initial_keys* k;
   quic_initial_keys        z = {0};
-  *out =
-      quic_keyset_for_level(&r->io.loop.keys, QUIC_LEVEL_ONERTT, &k) ? *k : z;
+  *out = keyset_for_level(&r->io.loop.keys, QUIC_LEVEL_ONERTT, &k) ? *k : z;
 }
 
 void quic_connrunner_keyupdate_init(quic_connrunner* r) {
@@ -86,7 +85,7 @@ static void do_initiate(quic_connrunner* r) {
   quic_kuswitch_next_keys_v(r->sent_version, r->ku_secret, &next, next_secret);
   quic_kuswitch_rotate(&r->ku, &next); /* derive/rotate ... */
   for (usz i = 0; i < QUIC_HKDF_PRK; i++) r->ku_secret[i] = next_secret[i];
-  quic_keyset_install(&r->io.loop.keys, QUIC_LEVEL_ONERTT, &next);
+  keyset_install(&r->io.loop.keys, QUIC_LEVEL_ONERTT, &next);
   quic_kuswitch_apply_phase(
       &r->ku_phase, r->ku.generation); /* ... before toggle */
   r->ku_unacked       = 1;

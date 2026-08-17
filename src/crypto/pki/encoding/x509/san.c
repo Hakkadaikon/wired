@@ -16,13 +16,11 @@ static const u8 oid_san[] = {0x55, 0x1d, 0x11};
 static const u8 san_oid_cn[] = {0x55, 0x04, 0x03};
 
 /* RFC 5280 4.1. tbs elements before subject (version already skipped by
- * quic_x509_tbs_cursor): serialNumber, signature, issuer, validity. */
+ * x509_tbs_cursor): serialNumber, signature, issuer, validity. */
 #define SAN_SUBJECT_SKIP 4
 
 /* RFC 6125 6.4.1: hostname comparison is ASCII case-insensitive. */
-static int dns_eq(wired_span a, wired_span b) {
-  return quic_ascii_dns_eq(a, b);
-}
+static int dns_eq(wired_span a, wired_span b) { return ascii_dns_eq(a, b); }
 
 /* Offset of the first '.' in name, or its length if none. */
 static usz first_dot(wired_span name) {
@@ -89,9 +87,9 @@ static int entry_matches(wired_span e, wired_span host) {
 /* RFC 5280 4.2.1.6. The GeneralNames SEQUENCE value inside the extnValue. */
 static int san_names(wired_span tbs, wired_span* names) {
   wired_span san;
-  if (!quic_x509_find_ext(tbs, wired_span_of(oid_san, sizeof(oid_san)), &san))
+  if (!x509_find_ext(tbs, wired_span_of(oid_san, sizeof(oid_san)), &san))
     return 0;
-  return quic_der_seq(san, names);
+  return der_seq(san, names);
 }
 
 /* One GeneralNames element: if it is a dNSName, records that (*found_dnsname
@@ -108,12 +106,12 @@ static void names_match_one(
  * that alone rules out the RFC 6125 6.4.4 CN-ID fallback, matched entries or
  * not. Returns 1 on a matching dNSName. */
 static int names_match(wired_span gn, wired_span host, int* found_dnsname) {
-  quic_derseq names;
-  u8          tag;
-  wired_span  e;
-  int         match = 0;
-  quic_derseq_init(&names, gn);
-  while (quic_derseq_next(&names, &tag, &e))
+  derseq     names;
+  u8         tag;
+  wired_span e;
+  int        match = 0;
+  derseq_init(&names, gn);
+  while (derseq_next(&names, &tag, &e))
     names_match_one(tag, e, host, found_dnsname, &match);
   return match;
 }
@@ -121,24 +119,24 @@ static int names_match(wired_span gn, wired_span host, int* found_dnsname) {
 /* RFC 5280 4.1.2.4. One AttributeTypeAndValue's value, if its type is
  * id-at-commonName. */
 static int atv_cn_value(wired_span atv, wired_span* val) {
-  quic_derseq f;
-  u8          tag;
-  wired_span  id;
-  quic_derseq_init(&f, atv);
-  if (!quic_derseq_next_tagged(&f, QUIC_DER_OID, &id)) return 0;
-  if (!quic_der_oid_equal(id, wired_span_of(san_oid_cn, sizeof(san_oid_cn))))
+  derseq     f;
+  u8         tag;
+  wired_span id;
+  derseq_init(&f, atv);
+  if (!derseq_next_tagged(&f, QUIC_DER_OID, &id)) return 0;
+  if (!der_oid_equal(id, wired_span_of(san_oid_cn, sizeof(san_oid_cn))))
     return 0;
-  return quic_derseq_next(&f, &tag, val);
+  return derseq_next(&f, &tag, val);
 }
 
 /* RFC 5280 4.1.2.4. One RelativeDistinguishedName (a SET of ATVs): the first
  * commonName value found in it, if any. */
 static int rdn_cn_value(wired_span rdn, wired_span* val) {
-  quic_derseq f;
-  u8          tag;
-  wired_span  atv;
-  quic_derseq_init(&f, rdn);
-  while (quic_derseq_next(&f, &tag, &atv))
+  derseq     f;
+  u8         tag;
+  wired_span atv;
+  derseq_init(&f, rdn);
+  while (derseq_next(&f, &tag, &atv))
     if (atv_cn_value(atv, val)) return 1;
   return 0;
 }
@@ -146,30 +144,30 @@ static int rdn_cn_value(wired_span rdn, wired_span* val) {
 /* RFC 5280 4.1.2.4. Name SEQUENCE OF RDN: the first commonName value found
  * across every RDN, if any. */
 static int name_cn_value(wired_span name_seq, wired_span* val) {
-  quic_derseq f;
-  u8          tag;
-  wired_span  rdn;
-  quic_derseq_init(&f, name_seq);
-  while (quic_derseq_next(&f, &tag, &rdn))
+  derseq     f;
+  u8         tag;
+  wired_span rdn;
+  derseq_init(&f, name_seq);
+  while (derseq_next(&f, &tag, &rdn))
     if (rdn_cn_value(rdn, val)) return 1;
   return 0;
 }
 
 /* RFC 5280 4.1: a tbs cursor positioned right before the subject Name
  * element (past version, serialNumber, signature, issuer, validity). */
-static int subject_cursor(wired_span tbs, quic_derseq* c) {
-  if (!quic_x509_tbs_cursor(tbs, c)) return 0;
-  return quic_derseq_skip(c, SAN_SUBJECT_SKIP);
+static int subject_cursor(wired_span tbs, derseq* c) {
+  if (!x509_tbs_cursor(tbs, c)) return 0;
+  return derseq_skip(c, SAN_SUBJECT_SKIP);
 }
 
 /* RFC 5280 4.1: locate and read the subject Name's commonName value out of
  * tbs. Returns 1 and sets *val on success, 0 if the certificate carries no
  * commonName. */
 static int subject_cn(wired_span tbs, wired_span* val) {
-  quic_derseq c;
-  wired_span  subject;
+  derseq     c;
+  wired_span subject;
   if (!subject_cursor(tbs, &c)) return 0;
-  if (!quic_derseq_next_tagged(&c, QUIC_DER_SEQUENCE, &subject)) return 0;
+  if (!derseq_next_tagged(&c, QUIC_DER_SEQUENCE, &subject)) return 0;
   return name_cn_value(subject, val);
 }
 
@@ -181,7 +179,7 @@ static int cn_id_matches(wired_span tbs, wired_span host) {
   return entry_matches(cn, host);
 }
 
-int quic_x509_san_matches(wired_span tbs, wired_span hostname) {
+int x509_san_matches(wired_span tbs, wired_span hostname) {
   wired_span gn;
   int        found_dnsname = 0;
   int        match         = 0;

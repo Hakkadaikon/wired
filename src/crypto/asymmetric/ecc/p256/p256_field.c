@@ -1,16 +1,16 @@
 #include "crypto/asymmetric/ecc/p256/p256_field.h"
 
 /* FIPS 186-4 D.1.2.3 / D.2.3. */
-const p256_fe quic_p256_p = {
+const p256_fe p256_p = {
     0xffffffffffffffffULL, 0x00000000ffffffffULL, 0x0000000000000000ULL,
     0xffffffff00000001ULL};
-const p256_fe quic_p256_n = {
+const p256_fe p256_n = {
     0xf3b9cac2fc632551ULL, 0xbce6faada7179e84ULL, 0xffffffffffffffffULL,
     0xffffffff00000000ULL};
 
 /* Montgomery contexts (R = 2^256). Constants precomputed and cross-checked:
  * n0inv = -m[0]^-1 mod 2^64, rr = R^2 mod m, one = R mod m. */
-const quic_mont quic_p256_mont_p = {
+const mont p256_mont_p = {
     {0xffffffffffffffffULL, 0x00000000ffffffffULL, 0x0000000000000000ULL,
      0xffffffff00000001ULL},
     {0x0000000000000003ULL, 0xfffffffbffffffffULL, 0xfffffffffffffffeULL,
@@ -18,7 +18,7 @@ const quic_mont quic_p256_mont_p = {
     {0x0000000000000001ULL, 0xffffffff00000000ULL, 0xffffffffffffffffULL,
      0x00000000fffffffeULL},
     0x0000000000000001ULL};
-const quic_mont quic_p256_mont_n = {
+const mont p256_mont_n = {
     {0xf3b9cac2fc632551ULL, 0xbce6faada7179e84ULL, 0xffffffffffffffffULL,
      0xffffffff00000000ULL},
     {0x83244c95be79eea2ULL, 0x4699799c49bd6fa6ULL, 0x2845b2392b6bec59ULL,
@@ -27,17 +27,17 @@ const quic_mont quic_p256_mont_n = {
      0x00000000ffffffffULL},
     0xccd1c8aaee00bc4fULL};
 
-void quic_fp_set(p256_fe r, const p256_fe a) {
+void p256_fp_set(p256_fe r, const p256_fe a) {
   for (usz i = 0; i < 4; i++) r[i] = a[i];
 }
 
-int quic_fp_is_zero(const p256_fe a) {
+int p256_fp_is_zero(const p256_fe a) {
   u64 d = 0;
   for (usz i = 0; i < 4; i++) d |= a[i];
   return d == 0;
 }
 
-int quic_fp_eq(const p256_fe a, const p256_fe b) {
+int p256_fp_eq(const p256_fe a, const p256_fe b) {
   u64 d = 0;
   for (usz i = 0; i < 4; i++) d |= a[i] ^ b[i];
   return d == 0;
@@ -50,7 +50,7 @@ static int fe_ge(const p256_fe a, const p256_fe b) {
   return 1;
 }
 
-int quic_fp_lt(const p256_fe a, const p256_fe b) { return !fe_ge(a, b); }
+int p256_fp_lt(const p256_fe a, const p256_fe b) { return !fe_ge(a, b); }
 
 /* r = a - b assuming a >= b; ignores final borrow. */
 static void fe_sub_raw(p256_fe r, const p256_fe a, const p256_fe b) {
@@ -73,7 +73,7 @@ static u64 fe_add_raw(p256_fe t, const p256_fe a, const p256_fe b) {
   return (u64)c;
 }
 
-void quic_fp_add(p256_fe r, quic_fpab ab, const p256_fe m) {
+void p256_fp_add(p256_fe r, fpab ab, const p256_fe m) {
   p256_fe t;
   u64     carry = fe_add_raw(t, ab.a, ab.b);
   /* Single subtract of m suffices since a,b < m (sum < 2m). */
@@ -81,10 +81,10 @@ void quic_fp_add(p256_fe r, quic_fpab ab, const p256_fe m) {
   if (over)
     fe_sub_raw(r, t, m);
   else
-    quic_fp_set(r, t);
+    p256_fp_set(r, t);
 }
 
-void quic_fp_sub(p256_fe r, quic_fpab ab, const p256_fe m) {
+void p256_fp_sub(p256_fe r, fpab ab, const p256_fe m) {
   if (fe_ge(ab.a, ab.b))
     fe_sub_raw(r, ab.a, ab.b);
   else {
@@ -159,14 +159,14 @@ static void wide_sub_shifted(u64 w[8], const p256_fe m, usz sh) {
   }
 }
 
-void quic_fp_mul(p256_fe r, quic_fpab ab, const p256_fe m) {
+void p256_fp_mul(p256_fe r, fpab ab, const p256_fe m) {
   u64 w[8];
   fe_mul_wide(w, ab.a, ab.b);
   fe_reduce_wide(r, w, m);
 }
 
-void quic_fp_sqr(p256_fe r, const p256_fe a, const p256_fe m) {
-  quic_fp_mul(r, (quic_fpab){a, a}, m);
+void p256_fp_sqr(p256_fe r, const p256_fe a, const p256_fe m) {
+  p256_fp_mul(r, (fpab){a, a}, m);
 }
 
 /* FIPS 186-4 D.2.5 fast reduction modulo the P-256 prime p = 2^256 - 2^224 +
@@ -174,7 +174,7 @@ void quic_fp_sqr(p256_fe r, const p256_fe a, const p256_fe m) {
  * c0..c15 (c0 least significant); p's special form lets the reduction be a few
  * 256-bit add/subtracts of words rearranged from the high half, replacing the
  * generic bit-at-a-time long division (which cost ~885ms per scalar mul). The
- * generic quic_fp_mul stays for the group order n; this path is p only.
+ * generic p256_fp_mul stays for the group order n; this path is p only.
  * Correctness is pinned by a differential test against the generic reducer. */
 
 /* The c-th 32-bit word of the 512-bit accumulator (c in 0..15). */
@@ -203,13 +203,13 @@ static const u8 P256_TERMS[9][8] = {
     {14, 15, 0xff, 9, 10, 11, 0xff, 13}};     /* s9 (subtract) */
 
 /* A 256-bit term is < 2^256 < 2p, so at most one subtraction of p brings it
- * below p (the precondition of quic_fp_add / quic_fp_sub). */
+ * below p (the precondition of p256_fp_add / p256_fp_sub). */
 static void reduce_once_p(p256_fe r) {
-  if (fe_ge(r, quic_p256_p)) fe_sub_raw(r, r, quic_p256_p);
+  if (fe_ge(r, p256_p)) fe_sub_raw(r, r, p256_p);
 }
 
 /* Build term row `t` (0..8) from the 512-bit accumulator into fe out, reduced
- * below p so it satisfies the < p precondition of quic_fp_add / quic_fp_sub. */
+ * below p so it satisfies the < p precondition of p256_fp_add / p256_fp_sub. */
 static void build_term(p256_fe out, const u64 w[8], usz t) {
   u64 e[8];
   for (usz i = 0; i < 8; i++)
@@ -220,12 +220,12 @@ static void build_term(p256_fe out, const u64 w[8], usz t) {
 
 /* r += t (mod p), one reduced add. */
 static void fp_add_p(p256_fe r, const p256_fe t) {
-  quic_fp_add(r, (quic_fpab){r, t}, quic_p256_p);
+  p256_fp_add(r, (fpab){r, t}, p256_p);
 }
 
 /* r -= t (mod p), one reduced sub. */
 static void fp_sub_p(p256_fe r, const p256_fe t) {
-  quic_fp_sub(r, (quic_fpab){r, t}, quic_p256_p);
+  p256_fp_sub(r, (fpab){r, t}, p256_p);
 }
 
 /* r = s1 + 2*s2 + 2*s3 + s4 + s5 (the additive half). */
@@ -260,15 +260,15 @@ static void fp_reduce_p256(p256_fe r, const u64 w[8]) {
   reduce_sub_half(r, w);
 }
 
-void quic_fp_mul_p(p256_fe r, const p256_fe a, const p256_fe b) {
+void p256_fp_mul_p(p256_fe r, const p256_fe a, const p256_fe b) {
   u64 w[8];
   fe_mul_wide(w, a, b);
   fp_reduce_p256(r, w);
 }
 
-void quic_fp_sqr_p(p256_fe r, const p256_fe a) { quic_fp_mul_p(r, a, a); }
+void p256_fp_sqr_p(p256_fe r, const p256_fe a) { p256_fp_mul_p(r, a, a); }
 
-void quic_fp_reduce(p256_fe r, const p256_fe a, const p256_fe m) {
+void p256_fp_reduce(p256_fe r, const p256_fe a, const p256_fe m) {
   u64 w[8];
   for (usz i = 0; i < 4; i++) {
     w[i]     = a[i];
@@ -278,17 +278,16 @@ void quic_fp_reduce(p256_fe r, const p256_fe a, const p256_fe m) {
 }
 
 /* r = a^(m-2) mod m via square-and-multiply (Fermat); m must be prime. */
-void quic_fp_inv(p256_fe r, const p256_fe a, const p256_fe m) {
+void p256_fp_inv(p256_fe r, const p256_fe a, const p256_fe m) {
   p256_fe base, e, two = {2, 0, 0, 0};
   /* e = m - 2 in plain integers (m >= 3, no wrap). */
   fe_sub_raw(e, m, two);
-  quic_fp_set(base, a);
+  p256_fp_set(base, a);
   r[0] = 1;
   r[1] = r[2] = r[3] = 0;
   for (usz bit = 0; bit < 256; bit++) {
-    if ((e[bit / 64] >> (bit & 63)) & 1)
-      quic_fp_mul(r, (quic_fpab){r, base}, m);
-    quic_fp_sqr(base, base, m);
+    if ((e[bit / 64] >> (bit & 63)) & 1) p256_fp_mul(r, (fpab){r, base}, m);
+    p256_fp_sqr(base, base, m);
   }
 }
 
@@ -314,7 +313,7 @@ static void cios_mul_row(u64 t[6], u64 ai, const p256_fe b) {
   t[5] = (u64)(c >> 64);
 }
 
-static void cios_reduce_row(u64 t[6], const quic_mont* mont) {
+static void cios_reduce_row(u64 t[6], const mont* mont) {
   u64               u = t[0] * mont->n0inv;
   unsigned __int128 c = (unsigned __int128)u * mont->m[0] + t[0];
   c >>= 64;
@@ -343,7 +342,7 @@ static void mont_finalize(p256_fe r, const u64 t[6], const p256_fe m) {
 }
 
 /* r = a * b * R^-1 mod m (Montgomery product). a,b < m. */
-void quic_mont_mul(p256_fe r, quic_fpab ab, const quic_mont* mont) {
+void mont_mul(p256_fe r, fpab ab, const mont* mont) {
   u64 t[6] = {0, 0, 0, 0, 0, 0};
   for (usz i = 0; i < 4; i++) {
     cios_mul_row(t, ab.a[i], ab.b);
@@ -353,39 +352,38 @@ void quic_mont_mul(p256_fe r, quic_fpab ab, const quic_mont* mont) {
 }
 
 /* Two CIOS products: a*R (to Montgomery form via rr), then (aR)*b*R^-1 =
- * a*b mod n. Side-channel posture matches quic_mont_mul's own
+ * a*b mod n. Side-channel posture matches mont_mul's own
  * (mont_finalize's public-modulus conditional subtract) -- neither
  * strengthened nor weakened by this fast path. */
-void quic_fp_mul_n(p256_fe r, quic_fpab ab) {
+void p256_fp_mul_n(p256_fe r, fpab ab) {
   p256_fe am;
-  quic_mont_mul(am, (quic_fpab){ab.a, quic_p256_mont_n.rr}, &quic_p256_mont_n);
-  quic_mont_mul(r, (quic_fpab){am, ab.b}, &quic_p256_mont_n);
+  mont_mul(am, (fpab){ab.a, p256_mont_n.rr}, &p256_mont_n);
+  mont_mul(r, (fpab){am, ab.b}, &p256_mont_n);
 }
 
-void quic_fp_reduce_n(p256_fe r, const p256_fe a) {
-  quic_fp_set(r, a);
-  if (fe_ge(r, quic_p256_n)) fe_sub_raw(r, r, quic_p256_n);
+void p256_fp_reduce_n(p256_fe r, const p256_fe a) {
+  p256_fp_set(r, a);
+  if (fe_ge(r, p256_n)) fe_sub_raw(r, r, p256_n);
 }
 
 /* from Montgomery form: r = a * R^-1 mod m = mont_mul(a, 1). */
-static void mont_from(p256_fe r, const p256_fe a, const quic_mont* mont) {
+static void mont_from(p256_fe r, const p256_fe a, const mont* mont) {
   p256_fe one = {1, 0, 0, 0};
-  quic_mont_mul(r, (quic_fpab){a, one}, mont);
+  mont_mul(r, (fpab){a, one}, mont);
 }
 
 /* acc <- acc^16 (4 in-place Montgomery squarings, one window's worth). */
-static void mont_sqr4(p256_fe acc, const quic_mont* mont) {
-  for (usz i = 0; i < 4; i++) quic_mont_mul(acc, (quic_fpab){acc, acc}, mont);
+static void mont_sqr4(p256_fe acc, const mont* mont) {
+  for (usz i = 0; i < 4; i++) mont_mul(acc, (fpab){acc, acc}, mont);
 }
 
 /* tbl[i] = a^i in Montgomery form (tbl[0] = R, the Montgomery one), the
  * 4-bit-window multiplier table. */
-static void mont_inv_table(
-    p256_fe tbl[16], const p256_fe a, const quic_mont* mont) {
-  quic_fp_set(tbl[0], mont->one);
-  quic_mont_mul(tbl[1], (quic_fpab){a, mont->rr}, mont); /* to Montgomery */
+static void mont_inv_table(p256_fe tbl[16], const p256_fe a, const mont* mont) {
+  p256_fp_set(tbl[0], mont->one);
+  mont_mul(tbl[1], (fpab){a, mont->rr}, mont); /* to Montgomery */
   for (usz i = 2; i < 16; i++)
-    quic_mont_mul(tbl[i], (quic_fpab){tbl[i - 1], tbl[1]}, mont);
+    mont_mul(tbl[i], (fpab){tbl[i - 1], tbl[1]}, mont);
 }
 
 /* a^(m-2) mod m via Montgomery mul (Fermat inverse), 4-bit windows over the
@@ -394,31 +392,30 @@ static void mont_inv_table(
  * depends only on the public modulus, never on a, and the multiply is
  * unconditional (tbl[0] is the Montgomery one), so the operation sequence
  * stays input-independent. */
-void quic_mont_inv(p256_fe r, const p256_fe a, const quic_mont* mont) {
+void mont_inv(p256_fe r, const p256_fe a, const mont* mont) {
   p256_fe e, acc, tbl[16], two = {2, 0, 0, 0};
   fe_sub_raw(e, mont->m, two); /* exponent m-2 */
   mont_inv_table(tbl, a, mont);
-  quic_fp_set(acc, mont->one); /* acc = R mod m (Montgomery one) */
+  p256_fp_set(acc, mont->one); /* acc = R mod m (Montgomery one) */
   for (usz w = 64; w-- > 0;) {
     mont_sqr4(acc, mont);
-    quic_mont_mul(
-        acc, (quic_fpab){acc, tbl[(e[w / 16] >> ((w & 15) * 4)) & 15]}, mont);
+    mont_mul(acc, (fpab){acc, tbl[(e[w / 16] >> ((w & 15) * 4)) & 15]}, mont);
   }
   mont_from(r, acc, mont); /* back from Montgomery form */
 }
 
 /* r <- r^(2^k): k in-place Solinas squarings. */
 static void fp_sqr_k(p256_fe r, usz k) {
-  for (usz i = 0; i < k; i++) quic_fp_sqr_p(r, r);
+  for (usz i = 0; i < k; i++) p256_fp_sqr_p(r, r);
 }
 
 /* t == a^(2^k - 1) -> t = a^(2^(2k) - 1): the all-ones doubling step of the
  * Fermat ladder (k squarings then one multiply by the saved half). */
 static void fp_ones_double(p256_fe t, usz k) {
   p256_fe half;
-  quic_fp_set(half, t);
+  p256_fp_set(half, t);
   fp_sqr_k(t, k);
-  quic_fp_mul_p(t, t, half);
+  p256_fp_mul_p(t, t, half);
 }
 
 /* a^(p-2) mod p via the fast Solinas mul/sqr: Fermat inverse specialised to
@@ -427,38 +424,38 @@ static void fp_ones_double(p256_fe t, usz k) {
  * assembling p-2's bit pattern (1^32, 0^31 1, 0^96, 1^94 01) from the
  * 2^k - 1 ladder t2..t32. The chain is a constant sequence (p-2 is public),
  * so the operations never depend on a. */
-void quic_fp_inv_p(p256_fe r, const p256_fe a) {
+void p256_fp_inv_p(p256_fe r, const p256_fe a) {
   p256_fe t2, t4, t8, t16, t32;
-  quic_fp_set(t2, a);
+  p256_fp_set(t2, a);
   fp_ones_double(t2, 1); /* a^(2^2 - 1) */
-  quic_fp_set(t4, t2);
+  p256_fp_set(t4, t2);
   fp_ones_double(t4, 2); /* a^(2^4 - 1) */
-  quic_fp_set(t8, t4);
+  p256_fp_set(t8, t4);
   fp_ones_double(t8, 4); /* a^(2^8 - 1) */
-  quic_fp_set(t16, t8);
+  p256_fp_set(t16, t8);
   fp_ones_double(t16, 8); /* a^(2^16 - 1) */
-  quic_fp_set(t32, t16);
+  p256_fp_set(t32, t16);
   fp_ones_double(t32, 16); /* a^(2^32 - 1) */
-  quic_fp_set(r, t32);
+  p256_fp_set(r, t32);
   fp_sqr_k(r, 32);
-  quic_fp_mul_p(r, r, a); /* top 64 bits: 1^32 0^31 1 */
+  p256_fp_mul_p(r, r, a); /* top 64 bits: 1^32 0^31 1 */
   fp_sqr_k(r, 128);
-  quic_fp_mul_p(r, r, t32); /* 0^96 then 1^32 */
+  p256_fp_mul_p(r, r, t32); /* 0^96 then 1^32 */
   fp_sqr_k(r, 32);
-  quic_fp_mul_p(r, r, t32);
+  p256_fp_mul_p(r, r, t32);
   fp_sqr_k(r, 16);
-  quic_fp_mul_p(r, r, t16);
+  p256_fp_mul_p(r, r, t16);
   fp_sqr_k(r, 8);
-  quic_fp_mul_p(r, r, t8);
+  p256_fp_mul_p(r, r, t8);
   fp_sqr_k(r, 4);
-  quic_fp_mul_p(r, r, t4);
+  p256_fp_mul_p(r, r, t4);
   fp_sqr_k(r, 2);
-  quic_fp_mul_p(r, r, t2); /* low half: 1^94 so far */
+  p256_fp_mul_p(r, r, t2); /* low half: 1^94 so far */
   fp_sqr_k(r, 2);
-  quic_fp_mul_p(r, r, a); /* trailing bits 01 */
+  p256_fp_mul_p(r, r, a); /* trailing bits 01 */
 }
 
-void quic_fp_from_be(p256_fe r, const u8 b[32]) {
+void p256_fp_from_be(p256_fe r, const u8 b[32]) {
   for (usz i = 0; i < 4; i++) {
     u64 v = 0;
     for (usz j = 0; j < 8; j++) v = (v << 8) | b[i * 8 + j];
@@ -466,7 +463,7 @@ void quic_fp_from_be(p256_fe r, const u8 b[32]) {
   }
 }
 
-void quic_fp_to_be(u8 b[32], const p256_fe a) {
+void p256_fp_to_be(u8 b[32], const p256_fe a) {
   for (usz i = 0; i < 4; i++)
     for (usz j = 0; j < 8; j++) b[i * 8 + j] = (u8)(a[3 - i] >> (56 - 8 * j));
 }

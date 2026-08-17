@@ -148,7 +148,7 @@ static void poly_finish(poly* st, u8 tag[16]) {
   }
 }
 
-void quic_poly1305(
+void poly1305(
     const u8  key[QUIC_POLY1305_KEY],
     const u8* msg,
     usz       len,

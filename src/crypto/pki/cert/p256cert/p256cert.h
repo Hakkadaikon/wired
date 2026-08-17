@@ -26,12 +26,12 @@ typedef struct {
   const u8* y;
   const u8* san_ipv4; /**< 4 bytes, network byte order, or 0 to omit */
   u64       now_secs; /**< UNIX epoch seconds, or 0 for the fixed window */
-} quic_p256cert_key;
+} p256cert_key;
 
 /* RFC 5280 4.1 / SEC1. Build a self-signed ECDSA P-256 X.509 certificate
  * (self-issued CN=localhost, fixed validity, secp256r1 SPKI,
  * ecdsa-with-SHA256 signature) from the key into out, setting out->len.
  * Returns 1 ok, 0 on failure. */
-int quic_p256cert_build(const quic_p256cert_key* k, wired_obuf* out);
+int p256cert_build(const p256cert_key* k, wired_obuf* out);
 
 #endif

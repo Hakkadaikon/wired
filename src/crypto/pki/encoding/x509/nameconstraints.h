@@ -6,7 +6,7 @@
 
 /* RFC 5280 4.2.1.10 / 6.1.4 (g). cert's nameConstraints extension, applied to
  * subject: subject (a directoryName-form Name, header included, as returned
- * by quic_x509_subject/quic_x509_issuer) must fall within every permitted
+ * by x509_subject/x509_issuer) must fall within every permitted
  * directoryName subtree (if any are present) and outside every excluded
  * directoryName subtree. GeneralName forms other than directoryName ([0]-[3],
  * [5]-[8]) are not produced by this SDK's subject/SAN readers, so subtree
@@ -21,6 +21,6 @@
  * not constrain directoryName), 0 if excluded, not covered by any permitted
  * subtree when at least one is present, or the extension is malformed (fail
  * closed). */
-int quic_x509_name_constraints_permit(wired_span cert_tbs, wired_span subject);
+int x509_name_constraints_permit(wired_span cert_tbs, wired_span subject);
 
 #endif

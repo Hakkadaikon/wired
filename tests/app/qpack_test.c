@@ -51,7 +51,7 @@ static void test_qpack_integer_62bit_boundary(void) {
 static void test_qpack_string(void) {
   const u8   s[] = {'h', 'e', 'l', 'l', 'o'};
   u8         buf[16], out[16];
-  wired_obuf ob = quic_obuf_of(out, sizeof(out));
+  wired_obuf ob = obuf_of(out, sizeof(out));
   usz        w  = quic_qpack_string_encode(
       wired_mspan_of(buf, sizeof(buf)), wired_span_of(s, 5));
   CHECK(w != 0);

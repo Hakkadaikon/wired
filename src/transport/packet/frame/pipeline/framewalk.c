@@ -163,7 +163,7 @@ static usz frame_len(u64 type, const u8* buf, usz n) {
  */
 static usz measure(const quic_framewalk* it, u64* type) {
   usz len;
-  if (quic_varint_decode(it->cur, it->remaining, type) == 0) return 0;
+  if (varint_decode(it->cur, it->remaining, type) == 0) return 0;
   len = frame_len(*type, it->cur, it->remaining);
   return len > it->remaining ? 0 : len;
 }

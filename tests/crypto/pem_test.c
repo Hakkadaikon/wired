@@ -64,7 +64,7 @@ static int pem_one(const char* txt, usz txt_len, wired_obuf* out) {
 
 static void test_pem_leaf_golden(void) {
   u8         buf[512];
-  wired_obuf der   = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf der   = obuf_of(buf, sizeof(buf));
   usz        at    = 0;
   wired_span label = {0, 0};
   wired_span txt   = pem_text(pem_leaf, sizeof(pem_leaf) - 1);
@@ -74,24 +74,24 @@ static void test_pem_leaf_golden(void) {
       &der, quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)));
   CHECK(at == txt.n);
   /* no further block */
-  der = quic_obuf_of(buf, sizeof(buf));
+  der = obuf_of(buf, sizeof(buf));
   CHECK(wired_pem_next(txt, &at, &label, &der) == 0);
 }
 
 static void test_pem_fullchain(void) {
   u8         buf[512];
-  wired_obuf der   = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf der   = obuf_of(buf, sizeof(buf));
   usz        at    = 0;
   wired_span label = {0, 0};
   wired_span txt   = pem_text(pem_chain, sizeof(pem_chain) - 1);
   CHECK(wired_pem_next(txt, &at, &label, &der) == 1);
   CHECK(pem_bytes_eq(
       &der, quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)));
-  der = quic_obuf_of(buf, sizeof(buf));
+  der = obuf_of(buf, sizeof(buf));
   CHECK(wired_pem_next(txt, &at, &label, &der) == 1);
   CHECK(pem_bytes_eq(
       &der, quic_realchain_int_der, sizeof(quic_realchain_int_der)));
-  der = quic_obuf_of(buf, sizeof(buf));
+  der = obuf_of(buf, sizeof(buf));
   CHECK(wired_pem_next(txt, &at, &label, &der) == 0);
 }
 
@@ -99,23 +99,23 @@ static void test_pem_fullchain(void) {
  * wrapping), through both padding shapes. */
 static void test_pem_padding(void) {
   u8         buf[8];
-  wired_obuf der    = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf der    = obuf_of(buf, sizeof(buf));
   const char two[]  = "-----BEGIN X-----\nZg==\n-----END X-----\n";
   const char one[]  = "-----BEGIN X-----\nZm8=\n-----END X-----\n";
   const char none[] = "-----BEGIN X-----\nZm9v\n-----END X-----\n";
   CHECK(pem_one(two, sizeof(two) - 1, &der) == 1);
   CHECK(pem_bytes_eq(&der, (const u8*)"f", 1));
-  der = quic_obuf_of(buf, sizeof(buf));
+  der = obuf_of(buf, sizeof(buf));
   CHECK(pem_one(one, sizeof(one) - 1, &der) == 1);
   CHECK(pem_bytes_eq(&der, (const u8*)"fo", 2));
-  der = quic_obuf_of(buf, sizeof(buf));
+  der = obuf_of(buf, sizeof(buf));
   CHECK(pem_one(none, sizeof(none) - 1, &der) == 1);
   CHECK(pem_bytes_eq(&der, (const u8*)"foo", 3));
 }
 
 static void test_pem_line_shapes(void) {
   u8         buf[8];
-  wired_obuf der = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf der = obuf_of(buf, sizeof(buf));
   /* CRLF line endings */
   const char crlf[] = "-----BEGIN X-----\r\nZm9vYmFy\r\n-----END X-----\r\n";
   CHECK(pem_one(crlf, sizeof(crlf) - 1, &der) == 1);
@@ -124,7 +124,7 @@ static void test_pem_line_shapes(void) {
   const char bare[] = "-----BEGIN X-----\nZm9v\n-----END X-----";
   usz        at     = 0;
   wired_span label  = {0, 0};
-  der               = quic_obuf_of(buf, sizeof(buf));
+  der               = obuf_of(buf, sizeof(buf));
   CHECK(
       wired_pem_next(pem_text(bare, sizeof(bare) - 1), &at, &label, &der) == 1);
   CHECK(at == sizeof(bare) - 1);
@@ -133,7 +133,7 @@ static void test_pem_line_shapes(void) {
 
 static void test_pem_surrounding_text(void) {
   u8         buf[8];
-  wired_obuf der   = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf der   = obuf_of(buf, sizeof(buf));
   usz        at    = 0;
   wired_span label = {0, 0};
   const char txt[] =
@@ -149,27 +149,27 @@ static void test_pem_surrounding_text(void) {
 
 static void test_pem_reject(void) {
   u8         buf[8];
-  wired_obuf der = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf der = obuf_of(buf, sizeof(buf));
   /* invalid base64 character */
   const char bad[] = "-----BEGIN X-----\nZm$v\n-----END X-----\n";
   CHECK(pem_one(bad, sizeof(bad) - 1, &der) == 0);
   /* incomplete final quantum */
   const char shrt[] = "-----BEGIN X-----\nZm9\n-----END X-----\n";
-  der               = quic_obuf_of(buf, sizeof(buf));
+  der               = obuf_of(buf, sizeof(buf));
   CHECK(pem_one(shrt, sizeof(shrt) - 1, &der) == 0);
   /* END line missing */
   const char noend[] = "-----BEGIN X-----\nZm9v\n";
-  der                = quic_obuf_of(buf, sizeof(buf));
+  der                = obuf_of(buf, sizeof(buf));
   CHECK(pem_one(noend, sizeof(noend) - 1, &der) == 0);
   /* no block at all */
   const char plain[] = "no pem here\n";
-  der                = quic_obuf_of(buf, sizeof(buf));
+  der                = obuf_of(buf, sizeof(buf));
   CHECK(pem_one(plain, sizeof(plain) - 1, &der) == 0);
 }
 
 static void test_pem_capacity(void) {
   u8         buf[2];
-  wired_obuf der   = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf der   = obuf_of(buf, sizeof(buf));
   const char txt[] = "-----BEGIN X-----\nZm9v\n-----END X-----\n";
   CHECK(pem_one(txt, sizeof(txt) - 1, &der) == 0);
 }

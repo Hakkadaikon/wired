@@ -7,7 +7,7 @@
  * via the arch adapter's instruction wrappers (common/arch/x8664/simd128.h;
  * no intrinsics headers: this tree is libc-free). Same AEAD as
  * crypto/symmetric/aead/gcm (RFC 9001 5.3), roughly two orders of
- * magnitude faster per block. Callers must gate on quic_gcmx86_supported()
+ * magnitude faster per block. Callers must gate on gcmx86_supported()
  * and fall back to the scalar quic_gcm_* path when it returns 0. */
 
 #define QUIC_GCMX86_NONCE 12
@@ -24,32 +24,32 @@
 typedef struct __attribute__((aligned(16))) {
   u8 rk[11][16]; /**< round keys 0..10, 16 bytes each */
   u8 h[16];      /**< GHASH subkey H = AES_K(0^128) */
-} quic_gcmx86;
+} gcmx86;
 
 /* 1 when the CPU has both AES-NI and PCLMULQDQ (CPUID.1:ECX bits 25 and 1),
  * 0 otherwise. Result is cached after the first call. */
-int quic_gcmx86_supported(void);
+int gcmx86_supported(void);
 
 /* Expand key into the round-key schedule and precompute H. Call only when
- * quic_gcmx86_supported() returned 1. */
-void quic_gcmx86_init(quic_gcmx86* x, const u8 key[16]);
+ * gcmx86_supported() returned 1. */
+void gcmx86_init(gcmx86* x, const u8 key[16]);
 
 /* Seal: out receives ciphertext || 16-byte tag. Returns pt.n + 16. */
-usz quic_gcmx86_seal(
-    const quic_gcmx86* x,
-    const u8           nonce[QUIC_GCMX86_NONCE],
-    wired_span         aad,
-    wired_span         pt,
-    u8*                out);
+usz gcmx86_seal(
+    const gcmx86* x,
+    const u8      nonce[QUIC_GCMX86_NONCE],
+    wired_span    aad,
+    wired_span    pt,
+    u8*           out);
 
 /* Open: ct spans ciphertext || 16-byte tag. On tag mismatch returns 0 and
  * writes nothing. On success writes ct.n - 16 plaintext bytes to out and
  * returns that length (an authentic empty plaintext also returns 0). */
-usz quic_gcmx86_open(
-    const quic_gcmx86* x,
-    const u8           nonce[QUIC_GCMX86_NONCE],
-    wired_span         aad,
-    wired_span         ct,
-    u8*                out);
+usz gcmx86_open(
+    const gcmx86* x,
+    const u8      nonce[QUIC_GCMX86_NONCE],
+    wired_span    aad,
+    wired_span    ct,
+    u8*           out);
 
 #endif

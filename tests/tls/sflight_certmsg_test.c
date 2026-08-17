@@ -12,7 +12,7 @@ static void test_certchain_two_roundtrip(void) {
       wired_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der))};
   quic_sflight_certchain_in in = {certs, 2};
   u8                        out[2048];
-  wired_obuf                ob = quic_obuf_of(out, sizeof(out));
+  wired_obuf                ob = obuf_of(out, sizeof(out));
   usz                       body_len;
   u8                        type;
   wired_span                ctx;
@@ -34,12 +34,12 @@ static void test_certchain_two_roundtrip(void) {
 
 /* A 1-entry chain output is byte-identical to the legacy single-cert path. */
 static void test_certchain_single_equals_legacy(void) {
-  const u8   der[7] = {0x30, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05};
-  wired_span cert   = wired_span_of(der, sizeof(der));
-  u8         out_chain[64], out_legacy[64];
-  wired_obuf ob_chain          = quic_obuf_of(out_chain, sizeof(out_chain));
-  wired_obuf ob_legacy         = quic_obuf_of(out_legacy, sizeof(out_legacy));
-  quic_sflight_certchain_in in = {&cert, 1};
+  const u8                  der[7] = {0x30, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05};
+  wired_span                cert   = wired_span_of(der, sizeof(der));
+  u8                        out_chain[64], out_legacy[64];
+  wired_obuf                ob_chain  = obuf_of(out_chain, sizeof(out_chain));
+  wired_obuf                ob_legacy = obuf_of(out_legacy, sizeof(out_legacy));
+  quic_sflight_certchain_in in        = {&cert, 1};
 
   CHECK(quic_sflight_certificate_chain(&in, &ob_chain));
   CHECK(quic_sflight_certificate(cert, &ob_legacy));
@@ -56,9 +56,9 @@ static void test_certchain_bounds(void) {
       wired_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der)),
       wired_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der))};
   u8                        out[4096];
-  wired_obuf                ob0 = quic_obuf_of(out, sizeof(out));
-  wired_obuf                ob1 = quic_obuf_of(out, sizeof(out));
-  wired_obuf                ob2 = quic_obuf_of(out, sizeof(out));
+  wired_obuf                ob0 = obuf_of(out, sizeof(out));
+  wired_obuf                ob1 = obuf_of(out, sizeof(out));
+  wired_obuf                ob2 = obuf_of(out, sizeof(out));
   quic_sflight_certchain_in in0 = {certs, 0};
   quic_sflight_certchain_in in1 = {certs, QUIC_TLS_CERT_CHAIN_MAX + 1};
   quic_sflight_certchain_in in2 = {certs, 2};
@@ -74,7 +74,7 @@ static void test_certchain_no_room(void) {
       wired_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
       wired_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der))};
   u8                        out[16];
-  wired_obuf                ob = quic_obuf_of(out, sizeof(out));
+  wired_obuf                ob = obuf_of(out, sizeof(out));
   quic_sflight_certchain_in in = {certs, 2};
 
   CHECK(!quic_sflight_certificate_chain(&in, &ob));
@@ -89,7 +89,7 @@ void test_sflight_certmsg(void) {
   u8                  type;
   wired_span          ctx;
   quic_tls_cert_entry first;
-  wired_obuf          ob = quic_obuf_of(out, sizeof(out));
+  wired_obuf          ob = obuf_of(out, sizeof(out));
 
   CHECK(quic_sflight_certificate(wired_span_of(der, sizeof(der)), &ob));
   CHECK(quic_hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
@@ -101,7 +101,7 @@ void test_sflight_certmsg(void) {
   CHECK(first.cert_len == sizeof(der));
   CHECK(first.cert_data[0] == 0x30 && first.cert_data[6] == 0x05);
 
-  ob = quic_obuf_of(out, 4);
+  ob = obuf_of(out, 4);
   CHECK(!quic_sflight_certificate(wired_span_of(der, sizeof(der)), &ob));
 
   test_certchain_two_roundtrip();

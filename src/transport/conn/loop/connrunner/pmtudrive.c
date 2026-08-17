@@ -22,7 +22,7 @@ void quic_connrunner_pmtu_init(quic_connrunner* r) {
 static usz build_ping_padding(u8* buf, usz cap, usz size) {
   if (size == 0 || size > cap) return 0;
   buf[0] = QUIC_FRAME_PING;
-  quic_memset(buf + 1, QUIC_FRAME_PADDING, size - 1);
+  bytes_memset(buf + 1, QUIC_FRAME_PADDING, size - 1);
   return size;
 }
 

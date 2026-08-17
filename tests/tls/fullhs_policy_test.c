@@ -69,14 +69,14 @@ static void fp_new_client(
   quic_tlsdriver_init(cl, cl_priv, cl_pub, 0);
   quic_tlsdriver_init(sv, sv_priv, sv_pub, 1);
   {
-    wired_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    wired_obuf ob = obuf_of(frame, sizeof(frame));
     CHECK(quic_tlsdriver_client_hello(cl, &ob) == 1);
     fl = ob.len;
   }
   CHECK(quic_tlsdriver_recv_crypto(sv, frame, fl) == 1);
   *shn = fp_build_sh(sh, 512, sv_pub);
   {
-    wired_obuf                 ob  = quic_obuf_of(frame, sizeof(frame));
+    wired_obuf                 ob  = obuf_of(frame, sizeof(frame));
     quic_crypto_stream_emit_in ein = {0, 256};
     CHECK(quic_crypto_stream_emit(wired_span_of(sh, *shn), &ein, &ob) == 1);
     fl = ob.len;
@@ -91,9 +91,9 @@ static void fp_new_client(
  * real ClientHello/ServerHello exchange produced. */
 static usz fp_build_cert_msg(const u8 seed[32], u8* out, usz cap) {
   u8         der[512];
-  wired_obuf dob = quic_obuf_of(der, sizeof(der));
-  wired_obuf mob = quic_obuf_of(out, cap);
-  CHECK(quic_selfcert_build(seed, &dob) == 1);
+  wired_obuf dob = obuf_of(der, sizeof(der));
+  wired_obuf mob = obuf_of(out, cap);
+  CHECK(selfcert_build(seed, &dob) == 1);
   CHECK(quic_sflight_certificate(wired_span_of(der, dob.len), &mob) == 1);
   return mob.len;
 }
@@ -141,12 +141,12 @@ static usz fp_p256_cert_msg(u8* msg) {
   usz      clen;
   ec_point q;
   for (usz i = 0; i < 32; i++) priv[i] = (u8)(3 + i);
-  quic_ec_mul(&q, priv, &quic_p256_g);
-  quic_fp_to_be(x, q.x);
-  quic_fp_to_be(y, q.y);
-  quic_p256cert_key k = {priv, x, y, 0, 0};
-  wired_obuf        o = quic_obuf_of(cert, sizeof(cert));
-  CHECK(quic_p256cert_build(&k, &o) == 1);
+  ec_mul(&q, priv, &p256_g);
+  p256_fp_to_be(x, q.x);
+  p256_fp_to_be(y, q.y);
+  p256cert_key k = {priv, x, y, 0, 0};
+  wired_obuf   o = obuf_of(cert, sizeof(cert));
+  CHECK(p256cert_build(&k, &o) == 1);
   clen = o.len;
   return fp_wrap_cert(msg, cert, clen);
 }
@@ -207,7 +207,7 @@ static void test_fullhs_policy_gate(void) {
   /* the server (no policy) authenticates itself and signs its Finished */
   CHECK(quic_fullhs_recv_cert(&sv, cert_msg, cert_msg_len) == 1);
   {
-    wired_obuf cvob = quic_obuf_of(cv, sizeof(cv));
+    wired_obuf cvob = obuf_of(cv, sizeof(cv));
     wired_sha256(sv.tr, sv.tr_len, th);
     CHECK(quic_sflight_certificate_verify(cert_seed, th, &cvob) == 1);
     cv_len = cvob.len;
@@ -216,7 +216,7 @@ static void test_fullhs_policy_gate(void) {
       quic_fullhs_recv_certverify(
           &sv, wired_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
   {
-    wired_obuf ob = quic_obuf_of(svfin, sizeof(svfin));
+    wired_obuf ob = obuf_of(svfin, sizeof(svfin));
     CHECK(quic_fullhs_send_finished(&sv, &ob) == 1);
     n = ob.len;
   }

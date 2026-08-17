@@ -3,7 +3,7 @@
 #include "app/http3/core/h3/grease.h" /* quic_h3_grease_value */
 #include "app/http3/core/h3settings/control_open.h"
 #include "app/http3/core/h3settings/settings_build.h"
-#include "common/platform/rng/rng.h" /* quic_rng_bytes */
+#include "common/platform/rng/rng.h" /* rng_bytes */
 
 /* RFC 9114 7.2.4.1 default: unlimited field section size is the absence of the
  * setting; we advertise concrete defaults so the peer (e.g. curl) sees them. */
@@ -40,7 +40,7 @@
  */
 static u64 control_settings_grease_id(void) {
   u8 b;
-  if (!quic_rng_bytes(&b, 1)) return 0;
+  if (!rng_bytes(&b, 1)) return 0;
   if (b & 1) return 0;
   return quic_h3_grease_value(b);
 }
@@ -77,7 +77,7 @@ int quic_h3settings_control_stream(
   quic_h3settings_in in  = control_settings_in(advertise_wt);
   wired_obuf         ob;
   if (!quic_h3settings_control_prefix(out, cap, &pre)) return 0;
-  ob = quic_obuf_of(out + pre, cap - pre);
+  ob = obuf_of(out + pre, cap - pre);
   if (!quic_h3settings_build(&in, &ob)) return 0;
   *out_len = pre + ob.len;
   return 1;

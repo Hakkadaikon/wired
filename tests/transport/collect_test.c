@@ -9,7 +9,7 @@ static void test_collect_lost_streams(void) {
   const u8      s2[]   = {0x08, 0x04, 0x03, 'b', 'y', 'e'};
   const u64     lost[] = {10, 11, 12, 99};
   u8            out[64];
-  wired_obuf    ob = quic_obuf_of(out, sizeof out);
+  wired_obuf    ob = obuf_of(out, sizeof out);
 
   quic_rtxbytes_init(&st);
   quic_rtxbytes_store(&st, 10, wired_span_of(s1, sizeof s1));
@@ -27,7 +27,7 @@ static void test_collect_no_room(void) {
   const u8      s1[]   = {0x08, 0x00, 0x02, 'h', 'i'};
   const u64     lost[] = {10};
   u8            out[3];
-  wired_obuf    ob = quic_obuf_of(out, sizeof out);
+  wired_obuf    ob = obuf_of(out, sizeof out);
 
   quic_rtxbytes_init(&st);
   quic_rtxbytes_store(&st, 10, wired_span_of(s1, sizeof s1));

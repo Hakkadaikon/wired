@@ -19,14 +19,14 @@ typedef struct {
 /* RFC 9001 5.3: AEAD-open ciphertext at pkt+hdr_len using header as AAD.
  * hdr_len is the true header length (pn_off + recovered pn_len). */
 static int aead_open(const hsunprot_ctx* c, usz hdr_len, u64 pn) {
-  u8          nonce[QUIC_INITIAL_IV];
-  quic_aes128 aead;
-  u8*         pkt    = c->d->pkt.p;
-  usz         ct_len = c->d->pkt.n - hdr_len - QUIC_GCM_TAG;
+  u8     nonce[QUIC_INITIAL_IV];
+  aes128 aead;
+  u8*    pkt    = c->d->pkt.p;
+  usz    ct_len = c->d->pkt.n - hdr_len - QUIC_GCM_TAG;
   quic_protect_nonce(c->keys->iv, pn, nonce);
-  quic_aes128_init(&aead, c->keys->key);
-  quic_gcm_ctx g = {&aead, nonce, {pkt, hdr_len}};
-  return quic_gcm_open(
+  aes128_init(&aead, c->keys->key);
+  gcm_ctx g = {&aead, nonce, {pkt, hdr_len}};
+  return gcm_open(
       &g, wired_span_of(pkt + hdr_len, ct_len + QUIC_GCM_TAG), pkt + hdr_len);
 }
 

@@ -32,8 +32,8 @@ static void test_chapoly_rfc(void) {
       want_ct);
   uh2("1ae10b594f09e26a7e902ecbd0600691", want_tag);
 
-  quic_chapoly_ctx c = {key, nonce, {aad, al}};
-  quic_chapoly_seal(&c, wired_span_of(pt, n), ct);
+  chapoly_ctx c = {key, nonce, {aad, al}};
+  chapoly_seal(&c, wired_span_of(pt, n), ct);
   for (usz i = 0; i < n; i++) CHECK(ct[i] == want_ct[i]);
   for (usz i = 0; i < 16; i++) CHECK(ct[n + i] == want_tag[i]);
 }
@@ -45,15 +45,15 @@ static void test_chapoly_open(void) {
     pt[i]  = (u8)(i * 7);
     dec[i] = 0xCC;
   }
-  quic_chapoly_ctx c = {key, nonce, {(const u8*)"aad", 3}};
-  quic_chapoly_seal(&c, wired_span_of(pt, 20), ct);
-  CHECK(quic_chapoly_open(&c, wired_span_of(ct, 36), dec));
+  chapoly_ctx c = {key, nonce, {(const u8*)"aad", 3}};
+  chapoly_seal(&c, wired_span_of(pt, 20), ct);
+  CHECK(chapoly_open(&c, wired_span_of(ct, 36), dec));
   for (usz i = 0; i < 20; i++) CHECK(dec[i] == pt[i]);
   /* tamper the tag: reject, leave dec untouched */
   for (usz i = 0; i < 20; i++) dec[i] = 0xCC;
   for (usz i = 0; i < 36; i++) bad[i] = ct[i];
   bad[20 + 7] ^= 0x80;
-  CHECK(quic_chapoly_open(&c, wired_span_of(bad, 36), dec) == 0);
+  CHECK(chapoly_open(&c, wired_span_of(bad, 36), dec) == 0);
   for (usz i = 0; i < 20; i++) CHECK(dec[i] == 0xCC);
 }
 

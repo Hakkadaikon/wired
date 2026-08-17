@@ -7,9 +7,9 @@
 
 /* golden1: subject/SAN example.com + *.example.com. */
 static wired_span golden1_tbs(void) {
-  quic_x509 c;
+  x509 c;
   CHECK(
-      quic_x509_parse(
+      x509_parse(
           wired_span_of(quic_chain_golden1, sizeof(quic_chain_golden1)), &c) ==
       1);
   return c.tbs;

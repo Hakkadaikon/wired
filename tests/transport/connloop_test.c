@@ -6,8 +6,8 @@ static void test_send_level_never_regresses(void) {
   quic_connloop_init(&c, 1);
   c.validated = 1; /* lift anti-amp so the gate under test is the level */
   quic_initial_keys k = {0};
-  quic_keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
-  quic_keyset_install(&c.keys, QUIC_LEVEL_HANDSHAKE, &k);
+  keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&c.keys, QUIC_LEVEL_HANDSHAKE, &k);
 
   CHECK(
       quic_connloop_on_send(
@@ -34,9 +34,9 @@ static void test_no_app_data_before_handshake_complete(void) {
   quic_connloop_init(&c, 1);
   c.validated         = 1;
   quic_initial_keys k = {0};
-  quic_keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
-  quic_keyset_install(&c.keys, QUIC_LEVEL_HANDSHAKE, &k);
-  quic_keyset_install(&c.keys, QUIC_LEVEL_ONERTT, &k);
+  keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&c.keys, QUIC_LEVEL_HANDSHAKE, &k);
+  keyset_install(&c.keys, QUIC_LEVEL_ONERTT, &k);
   quic_connloop_on_send(
       &c, &(quic_connloop_send_in){QUIC_LEVEL_INITIAL, 1, 0, 10});
   quic_connloop_on_send(
@@ -62,7 +62,7 @@ static void test_server_send_capped_3x_recv(void) {
   quic_connloop c;
   quic_connloop_init(&c, 1);
   quic_initial_keys k = {0};
-  quic_keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
 
   quic_connloop_on_recv(&c, QUIC_LEVEL_INITIAL, 100); /* budget = 300 */
   CHECK(c.recv_bytes == 100);
@@ -85,7 +85,7 @@ static void test_validate_lifts_3x_cap(void) {
   quic_connloop c;
   quic_connloop_init(&c, 1);
   quic_initial_keys k = {0};
-  quic_keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
 
   quic_connloop_on_recv(&c, QUIC_LEVEL_INITIAL, 100); /* budget = 300 */
   CHECK(
@@ -118,7 +118,7 @@ static void test_closed_processes_no_packet(void) {
   quic_connloop c;
   quic_connloop_init(&c, 1);
   quic_initial_keys k = {0};
-  quic_keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
   c.phase    = QUIC_CONNLOOP_CLOSED;
   u64 before = c.recv_bytes;
   CHECK(quic_connloop_on_recv(&c, QUIC_LEVEL_INITIAL, 50) == 0);
@@ -132,7 +132,7 @@ static void test_ack_removes_tracked_packet(void) {
   quic_connloop_init(&c, 1);
   c.validated         = 1;
   quic_initial_keys k = {0};
-  quic_keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
   quic_connloop_on_send(
       &c, &(quic_connloop_send_in){QUIC_LEVEL_INITIAL, 1, 0, 10});
   quic_connloop_on_send(
@@ -160,7 +160,7 @@ static void test_pto_sends_probe_keeps_inflight(void) {
   quic_connloop_init(&c, 1);
   c.validated         = 1;
   quic_initial_keys k = {0};
-  quic_keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
 
   /* empty in-flight: PTO refuses, stays disarmed */
   CHECK(
@@ -209,7 +209,7 @@ static void test_closing_sends_no_app_data(void) {
   c.validated          = 1;
   c.handshake_complete = 1;
   quic_initial_keys k  = {0};
-  quic_keyset_install(&c.keys, QUIC_LEVEL_ONERTT, &k);
+  keyset_install(&c.keys, QUIC_LEVEL_ONERTT, &k);
   c.send_level = QUIC_LEVEL_HANDSHAKE;
   quic_connloop_close(&c, 0); /* -> closing */
   CHECK(
@@ -222,9 +222,9 @@ static void test_no_recv_at_discarded_level(void) {
   quic_connloop c;
   quic_connloop_init(&c, 1);
   quic_initial_keys k = {0};
-  quic_keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
   CHECK(quic_connloop_on_recv(&c, QUIC_LEVEL_INITIAL, 10) == 1);
-  quic_keyset_discard(&c.keys, QUIC_LEVEL_INITIAL);
+  keyset_discard(&c.keys, QUIC_LEVEL_INITIAL);
   /* after discard: processing at that level refused */
   CHECK(quic_connloop_on_recv(&c, QUIC_LEVEL_INITIAL, 10) == 0);
 }
@@ -241,8 +241,8 @@ static void test_handshake_progress_reaches_confirmed(void) {
   quic_initial_keys k = {0};
   int               lv;
   for (lv = QUIC_LEVEL_INITIAL; lv <= QUIC_LEVEL_ONERTT; lv++) {
-    quic_keyset_install(&cl.keys, lv, &k);
-    quic_keyset_install(&sv.keys, lv, &k);
+    keyset_install(&cl.keys, lv, &k);
+    keyset_install(&sv.keys, lv, &k);
   }
   /* Initial then Handshake exchange */
   CHECK(

@@ -7,10 +7,10 @@
  * order (Initial -> Handshake -> 1-RTT); no level may be skipped. */
 
 /* 1 if new_level is exactly one above current_max_level, else 0. */
-int quic_key_promote_ok(int current_max_level, int new_level);
+int key_promote_ok(int current_max_level, int new_level);
 
 /* RFC 9001 4.9: the highest protection level used to send. Once the TLS
  * handshake is complete, 1-RTT keys are used; until then, Handshake. */
-int quic_key_send_level(int handshake_complete, int handshake_confirmed);
+int key_send_level(int handshake_complete, int handshake_confirmed);
 
 #endif

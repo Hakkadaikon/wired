@@ -9,11 +9,10 @@ static void kuswitch_derive_key_iv(
     const u8           next_secret[QUIC_HKDF_PRK],
     quic_initial_keys* next_keys,
     usz                key_len) {
-  quic_hkdf_label lk = {"quic key", 8, {0, 0}};
-  quic_hkdf_label li = {"quic iv", 7, {0, 0}};
-  quic_hkdf_expand_label(
-      next_secret, &lk, wired_mspan_of(next_keys->key, key_len));
-  quic_hkdf_expand_label(
+  hkdf_label lk = {"quic key", 8, {0, 0}};
+  hkdf_label li = {"quic iv", 7, {0, 0}};
+  hkdf_expand_label(next_secret, &lk, wired_mspan_of(next_keys->key, key_len));
+  hkdf_expand_label(
       next_secret, &li, wired_mspan_of(next_keys->iv, QUIC_INITIAL_IV));
 }
 

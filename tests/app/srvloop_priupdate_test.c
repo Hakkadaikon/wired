@@ -158,7 +158,7 @@ static void test_srvloop_priupdate_bad_id_error(void) {
  * (WTH3-009/042). */
 static usz settings_ctrl_payload(u8* out, usz cap) {
   u8         sf[8];
-  wired_obuf sob = quic_obuf_of(sf, sizeof sf);
+  wired_obuf sob = obuf_of(sf, sizeof sf);
   usz        i;
   if (cap < 1) return 0;
   if (!quic_h3_frame_put(

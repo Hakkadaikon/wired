@@ -4,7 +4,7 @@
  * the standard library since it lives outside src/.
  *
  * A certificate parser's job is to safely reject arbitrary bytes, so no
- * structured seed is needed: raw DER bytes drive both quic_x509_parse and,
+ * structured seed is needed: raw DER bytes drive both x509_parse and,
  * on success, the tbsCertificate sub-parsers and extension lookup. */
 #include <stddef.h>
 #include <stdint.h>
@@ -18,22 +18,22 @@
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   wired_span cert = wired_span_of((const u8 *)data, (usz)size);
 
-  quic_x509 x;
-  if (!quic_x509_parse(cert, &x)) return 0;
+  x509 x;
+  if (!x509_parse(cert, &x)) return 0;
 
   /* tbsCertificate is well-formed enough to have been sliced out above;
    * fuzz its own structured sub-parsers on the same bytes. */
-  quic_tbscert tbs;
-  quic_tbscert_parse(x.tbs, &tbs);
+  tbscert tbs;
+  tbscert_parse(x.tbs, &tbs);
 
-  quic_derseq c;
-  quic_x509_tbs_cursor(x.tbs, &c);
+  derseq c;
+  x509_tbs_cursor(x.tbs, &c);
 
   /* RFC 5280 4.2.1.9 basicConstraints OID, walked regardless of whether it
    * is actually present — exercises the extensions-scan path too. */
   static const u8 basic_constraints_oid[] = {0x55, 0x1d, 0x13};
   wired_span       val;
-  quic_x509_find_ext(x.tbs, wired_span_of(basic_constraints_oid, 3), &val);
+  x509_find_ext(x.tbs, wired_span_of(basic_constraints_oid, 3), &val);
 
   return 0;
 }

@@ -2,7 +2,7 @@
 
 #include "test.h"
 
-/* --- quic_x509_dirstring_ci_equal: raw DirectoryString content octets --- */
+/* --- x509_dirstring_ci_equal: raw DirectoryString content octets --- */
 
 static const u8 dst_hello[]        = {'H', 'e', 'l', 'l', 'o'};
 static const u8 dst_hello_lower[]  = {'h', 'e', 'l', 'l', 'o'};
@@ -18,7 +18,7 @@ static const u8 dst_non_ascii_c[]  = {0xc3, 0xa8}; /* differs */
 /* RFC 4518 2.3 (ASCII scope): differing case compares equal. */
 static void test_dirstring_case_insensitive(void) {
   CHECK(
-      quic_x509_dirstring_ci_equal(
+      x509_dirstring_ci_equal(
           wired_span_of(dst_hello, sizeof(dst_hello)),
           wired_span_of(dst_hello_lower, sizeof(dst_hello_lower))) == 1);
 }
@@ -26,7 +26,7 @@ static void test_dirstring_case_insensitive(void) {
 /* Genuinely different content does not match. */
 static void test_dirstring_different_rejects(void) {
   CHECK(
-      quic_x509_dirstring_ci_equal(
+      x509_dirstring_ci_equal(
           wired_span_of(dst_hello, sizeof(dst_hello)),
           wired_span_of(dst_world, sizeof(dst_world))) == 0);
 }
@@ -35,7 +35,7 @@ static void test_dirstring_different_rejects(void) {
  * "A  B" == "A B". */
 static void test_dirstring_internal_space_collapses(void) {
   CHECK(
-      quic_x509_dirstring_ci_equal(
+      x509_dirstring_ci_equal(
           wired_span_of(dst_internal_ws, sizeof(dst_internal_ws)),
           wired_span_of(dst_internal_one, sizeof(dst_internal_one))) == 1);
 }
@@ -44,7 +44,7 @@ static void test_dirstring_internal_space_collapses(void) {
  * "AB". */
 static void test_dirstring_leading_trailing_trimmed(void) {
   CHECK(
-      quic_x509_dirstring_ci_equal(
+      x509_dirstring_ci_equal(
           wired_span_of(dst_padded, sizeof(dst_padded)),
           wired_span_of(dst_bare, sizeof(dst_bare))) == 1);
 }
@@ -53,7 +53,7 @@ static void test_dirstring_leading_trailing_trimmed(void) {
  * comparison: identical bytes still match. */
 static void test_dirstring_non_ascii_identical_matches(void) {
   CHECK(
-      quic_x509_dirstring_ci_equal(
+      x509_dirstring_ci_equal(
           wired_span_of(dst_non_ascii_a, sizeof(dst_non_ascii_a)),
           wired_span_of(dst_non_ascii_b, sizeof(dst_non_ascii_b))) == 1);
 }
@@ -62,12 +62,12 @@ static void test_dirstring_non_ascii_identical_matches(void) {
  * folding attempted). */
 static void test_dirstring_non_ascii_different_rejects(void) {
   CHECK(
-      quic_x509_dirstring_ci_equal(
+      x509_dirstring_ci_equal(
           wired_span_of(dst_non_ascii_a, sizeof(dst_non_ascii_a)),
           wired_span_of(dst_non_ascii_c, sizeof(dst_non_ascii_c))) == 0);
 }
 
-/* --- quic_x509_dn_equal_ci: full Name comparison --- */
+/* --- x509_dn_equal_ci: full Name comparison --- */
 
 /* Name { RDN { commonName = "Example CA" } }. */
 static const u8 dst_n1[] = {
@@ -129,7 +129,7 @@ static const u8 dst_n8[] = {
  * commonName value still matches. */
 static void test_dn_ci_case_insensitive(void) {
   CHECK(
-      quic_x509_dn_equal_ci(
+      x509_dn_equal_ci(
           wired_span_of(dst_n1, sizeof(dst_n1)),
           wired_span_of(dst_n2, sizeof(dst_n2))) == 1);
 }
@@ -137,7 +137,7 @@ static void test_dn_ci_case_insensitive(void) {
 /* Internal whitespace run collapses within a DN's attribute value too. */
 static void test_dn_ci_internal_space_collapses(void) {
   CHECK(
-      quic_x509_dn_equal_ci(
+      x509_dn_equal_ci(
           wired_span_of(dst_n1, sizeof(dst_n1)),
           wired_span_of(dst_n3, sizeof(dst_n3))) == 1);
 }
@@ -145,7 +145,7 @@ static void test_dn_ci_internal_space_collapses(void) {
 /* Leading/trailing whitespace trimmed within a DN's attribute value too. */
 static void test_dn_ci_leading_trailing_trimmed(void) {
   CHECK(
-      quic_x509_dn_equal_ci(
+      x509_dn_equal_ci(
           wired_span_of(dst_n1, sizeof(dst_n1)),
           wired_span_of(dst_n4, sizeof(dst_n4))) == 1);
 }
@@ -153,7 +153,7 @@ static void test_dn_ci_leading_trailing_trimmed(void) {
 /* A genuinely different commonName value does not match. */
 static void test_dn_ci_different_value_rejects(void) {
   CHECK(
-      quic_x509_dn_equal_ci(
+      x509_dn_equal_ci(
           wired_span_of(dst_n1, sizeof(dst_n1)),
           wired_span_of(dst_n5, sizeof(dst_n5))) == 0);
 }
@@ -161,7 +161,7 @@ static void test_dn_ci_different_value_rejects(void) {
 /* Same string value under a different attribute type OID does not match. */
 static void test_dn_ci_different_type_rejects(void) {
   CHECK(
-      quic_x509_dn_equal_ci(
+      x509_dn_equal_ci(
           wired_span_of(dst_n1, sizeof(dst_n1)),
           wired_span_of(dst_n6, sizeof(dst_n6))) == 0);
 }
@@ -170,7 +170,7 @@ static void test_dn_ci_different_type_rejects(void) {
  * DN missing that attribute. */
 static void test_dn_ci_extra_attribute_rejects(void) {
   CHECK(
-      quic_x509_dn_equal_ci(
+      x509_dn_equal_ci(
           wired_span_of(dst_n1, sizeof(dst_n1)),
           wired_span_of(dst_n7, sizeof(dst_n7))) == 0);
 }
@@ -179,7 +179,7 @@ static void test_dn_ci_extra_attribute_rejects(void) {
  * RDNs do not match (this SDK does not fold RDN grouping differences). */
 static void test_dn_ci_rdn_grouping_rejects(void) {
   CHECK(
-      quic_x509_dn_equal_ci(
+      x509_dn_equal_ci(
           wired_span_of(dst_n7, sizeof(dst_n7)),
           wired_span_of(dst_n8, sizeof(dst_n8))) == 0);
 }
@@ -187,7 +187,7 @@ static void test_dn_ci_rdn_grouping_rejects(void) {
 /* A DN compares equal to itself. */
 static void test_dn_ci_reflexive(void) {
   CHECK(
-      quic_x509_dn_equal_ci(
+      x509_dn_equal_ci(
           wired_span_of(dst_n1, sizeof(dst_n1)),
           wired_span_of(dst_n1, sizeof(dst_n1))) == 1);
 }

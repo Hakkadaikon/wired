@@ -5,55 +5,55 @@ static const p256_fe p256_b = {
     0x3bce3c3e27d2604bULL, 0x651d06b0cc53b0f6ULL, 0xb3ebbd55769886bcULL,
     0x5ac635d8aa3a93e7ULL};
 
-const ec_point quic_p256_g = {
+const ec_point p256_g = {
     {0xf4a13945d898c296ULL, 0x77037d812deb33a0ULL, 0xf8bce6e563a440f2ULL,
      0x6b17d1f2e12c4247ULL},
     {0xcbb6406837bf51f5ULL, 0x2bce33576b315eceULL, 0x8ee7eb4a7c0f9e16ULL,
      0x4fe342e2fe1a7f9bULL},
     0};
 
-void quic_ec_set(ec_point* r, const ec_point* p) {
-  quic_fp_set(r->x, p->x);
-  quic_fp_set(r->y, p->y);
+void ec_set(ec_point* r, const ec_point* p) {
+  p256_fp_set(r->x, p->x);
+  p256_fp_set(r->y, p->y);
   r->inf = p->inf;
 }
 
 /* y^2 mod p. */
 static void rhs_lhs(p256_fe lhs, p256_fe rhs, const ec_point* p) {
   p256_fe x2, three_x, three = {3, 0, 0, 0};
-  quic_fp_sqr(lhs, p->y, quic_p256_p);                         /* y^2 */
-  quic_fp_sqr(x2, p->x, quic_p256_p);                          /* x^2 */
-  quic_fp_mul(rhs, (quic_fpab){x2, p->x}, quic_p256_p);        /* x^3 */
-  quic_fp_mul(three_x, (quic_fpab){three, p->x}, quic_p256_p); /* 3x  */
-  quic_fp_sub(rhs, (quic_fpab){rhs, three_x}, quic_p256_p);    /* x^3 - 3x */
-  quic_fp_add(rhs, (quic_fpab){rhs, p256_b}, quic_p256_p);     /* + b */
+  p256_fp_sqr(lhs, p->y, p256_p);                    /* y^2 */
+  p256_fp_sqr(x2, p->x, p256_p);                     /* x^2 */
+  p256_fp_mul(rhs, (fpab){x2, p->x}, p256_p);        /* x^3 */
+  p256_fp_mul(three_x, (fpab){three, p->x}, p256_p); /* 3x  */
+  p256_fp_sub(rhs, (fpab){rhs, three_x}, p256_p);    /* x^3 - 3x */
+  p256_fp_add(rhs, (fpab){rhs, p256_b}, p256_p);     /* + b */
 }
 
-int quic_ec_on_curve(const ec_point* p) {
+int ec_on_curve(const ec_point* p) {
   p256_fe lhs, rhs;
   if (p->inf) return 1;
   rhs_lhs(lhs, rhs, p);
-  return quic_fp_eq(lhs, rhs);
+  return p256_fp_eq(lhs, rhs);
 }
 
 /* lambda = (y2 - y1) / (x2 - x1); caller guarantees x1 != x2. */
 static void slope_add(p256_fe lam, const ec_point* p, const ec_point* q) {
   p256_fe num, den, inv;
-  quic_fp_sub(num, (quic_fpab){q->y, p->y}, quic_p256_p);
-  quic_fp_sub(den, (quic_fpab){q->x, p->x}, quic_p256_p);
-  quic_fp_inv(inv, den, quic_p256_p);
-  quic_fp_mul(lam, (quic_fpab){num, inv}, quic_p256_p);
+  p256_fp_sub(num, (fpab){q->y, p->y}, p256_p);
+  p256_fp_sub(den, (fpab){q->x, p->x}, p256_p);
+  p256_fp_inv(inv, den, p256_p);
+  p256_fp_mul(lam, (fpab){num, inv}, p256_p);
 }
 
 /* lambda = (3x^2 - 3) / (2y). */
 static void slope_double(p256_fe lam, const ec_point* p) {
   p256_fe x2, num, den, inv, three = {3, 0, 0, 0};
-  quic_fp_sqr(x2, p->x, quic_p256_p);
-  quic_fp_mul(num, (quic_fpab){three, x2}, quic_p256_p);
-  quic_fp_sub(num, (quic_fpab){num, three}, quic_p256_p); /* 3x^2 - 3 (a=-3) */
-  quic_fp_add(den, (quic_fpab){p->y, p->y}, quic_p256_p);
-  quic_fp_inv(inv, den, quic_p256_p);
-  quic_fp_mul(lam, (quic_fpab){num, inv}, quic_p256_p);
+  p256_fp_sqr(x2, p->x, p256_p);
+  p256_fp_mul(num, (fpab){three, x2}, p256_p);
+  p256_fp_sub(num, (fpab){num, three}, p256_p); /* 3x^2 - 3 (a=-3) */
+  p256_fp_add(den, (fpab){p->y, p->y}, p256_p);
+  p256_fp_inv(inv, den, p256_p);
+  p256_fp_mul(lam, (fpab){num, inv}, p256_p);
 }
 
 /* Slope lambda and the source coordinates of an affine addition; copies so
@@ -65,25 +65,25 @@ typedef struct {
 /* From the slope and source x-coords, produce r = (x3,y3). */
 static void from_slope(ec_point* r, const p256_slope* sl) {
   p256_fe x3, t;
-  quic_fp_sqr(x3, sl->lam, quic_p256_p);
-  quic_fp_sub(x3, (quic_fpab){x3, sl->x1}, quic_p256_p);
-  quic_fp_sub(x3, (quic_fpab){x3, sl->x2}, quic_p256_p); /* lam^2 - x1 - x2 */
-  quic_fp_sub(t, (quic_fpab){sl->x1, x3}, quic_p256_p);
-  quic_fp_mul(t, (quic_fpab){sl->lam, t}, quic_p256_p);
-  quic_fp_sub(r->y, (quic_fpab){t, sl->y1}, quic_p256_p); /* lam(x1-x3) - y1 */
-  quic_fp_set(r->x, x3);
+  p256_fp_sqr(x3, sl->lam, p256_p);
+  p256_fp_sub(x3, (fpab){x3, sl->x1}, p256_p);
+  p256_fp_sub(x3, (fpab){x3, sl->x2}, p256_p); /* lam^2 - x1 - x2 */
+  p256_fp_sub(t, (fpab){sl->x1, x3}, p256_p);
+  p256_fp_mul(t, (fpab){sl->lam, t}, p256_p);
+  p256_fp_sub(r->y, (fpab){t, sl->y1}, p256_p); /* lam(x1-x3) - y1 */
+  p256_fp_set(r->x, x3);
   r->inf = 0;
 }
 
-void quic_ec_double(ec_point* r, const ec_point* p) {
+void ec_double(ec_point* r, const ec_point* p) {
   p256_slope sl;
-  if (p->inf || quic_fp_is_zero(p->y)) {
+  if (p->inf || p256_fp_is_zero(p->y)) {
     r->inf = 1;
     return;
   }
-  quic_fp_set(sl.x1, p->x);
-  quic_fp_set(sl.y1, p->y);
-  quic_fp_set(sl.x2, p->x);
+  p256_fp_set(sl.x1, p->x);
+  p256_fp_set(sl.y1, p->y);
+  p256_fp_set(sl.x2, p->x);
   slope_double(sl.lam, p);
   from_slope(r, &sl);
 }
@@ -91,16 +91,16 @@ void quic_ec_double(ec_point* r, const ec_point* p) {
 /* p and q are not infinity and not mutually inverse: distinct addition. */
 static void add_distinct(ec_point* r, const ec_point* p, const ec_point* q) {
   p256_slope sl;
-  quic_fp_set(sl.x1, p->x);
-  quic_fp_set(sl.y1, p->y);
-  quic_fp_set(sl.x2, q->x);
+  p256_fp_set(sl.x1, p->x);
+  p256_fp_set(sl.y1, p->y);
+  p256_fp_set(sl.x2, q->x);
   slope_add(sl.lam, p, q);
   from_slope(r, &sl);
 }
 
 /* 1 if p and q have equal x but are not equal points (sum is infinity). */
 static int is_inverse_pair(const ec_point* p, const ec_point* q) {
-  return quic_fp_eq(p->x, q->x) && !quic_fp_eq(p->y, q->y);
+  return p256_fp_eq(p->x, q->x) && !p256_fp_eq(p->y, q->y);
 }
 
 /* Same x: result is either infinity (inverse pair) or 2p (p == q). */
@@ -108,53 +108,53 @@ static void add_same_x(ec_point* r, const ec_point* p, const ec_point* q) {
   if (is_inverse_pair(p, q))
     r->inf = 1;
   else
-    quic_ec_double(r, p);
+    ec_double(r, p);
 }
 
 /* Handle an infinity operand. Returns 1 if r was set, 0 if both are finite. */
 static int add_infinity(ec_point* r, const ec_point* p, const ec_point* q) {
   if (p->inf)
-    quic_ec_set(r, q);
+    ec_set(r, q);
   else if (q->inf)
-    quic_ec_set(r, p);
+    ec_set(r, p);
   else
     return 0;
   return 1;
 }
 
-void quic_ec_add(ec_point* r, const ec_point* p, const ec_point* q) {
+void ec_add(ec_point* r, const ec_point* p, const ec_point* q) {
   if (add_infinity(r, p, q)) return;
-  if (quic_fp_eq(p->x, q->x))
+  if (p256_fp_eq(p->x, q->x))
     add_same_x(r, p, q);
   else
     add_distinct(r, p, q);
 }
 
 /* Jacobian coordinates (X, Y, Z): x = X/Z^2, y = Y/Z^3; Z == 0 is infinity.
- * Used only by quic_ec_mul so the scalar loop needs no per-step inversion. */
+ * Used only by ec_mul so the scalar loop needs no per-step inversion. */
 typedef struct {
   p256_fe X, Y, Z;
 } jac;
 
-#define FP_P quic_p256_p
+#define FP_P p256_p
 /* The scalar loop runs thousands of these, so use the fast P-256 Solinas
- * reduction (quic_fp_mul_p) rather than the generic long-division reducer —
+ * reduction (p256_fp_mul_p) rather than the generic long-division reducer —
  * the difference is ~885ms vs a few ms per scalar multiply. */
 static void fp_mul(p256_fe r, const p256_fe a, const p256_fe b) {
-  quic_fp_mul_p(r, a, b);
+  p256_fp_mul_p(r, a, b);
 }
-static void fp_sqr(p256_fe r, const p256_fe a) { quic_fp_sqr_p(r, a); }
+static void fp_sqr(p256_fe r, const p256_fe a) { p256_fp_sqr_p(r, a); }
 static void fp_sub(p256_fe r, const p256_fe a, const p256_fe b) {
-  quic_fp_sub(r, (quic_fpab){a, b}, FP_P);
+  p256_fp_sub(r, (fpab){a, b}, FP_P);
 }
 static void fp_add(p256_fe r, const p256_fe a, const p256_fe b) {
-  quic_fp_add(r, (quic_fpab){a, b}, FP_P);
+  p256_fp_add(r, (fpab){a, b}, FP_P);
 }
 static void fp_dbl(p256_fe r, const p256_fe a) { fp_add(r, a, a); }
 
 static void jac_from_affine(jac* j, const ec_point* p) {
-  quic_fp_set(j->X, p->x);
-  quic_fp_set(j->Y, p->y);
+  p256_fp_set(j->X, p->x);
+  p256_fp_set(j->Y, p->y);
   j->Z[0] = 1;
   j->Z[1] = j->Z[2] = j->Z[3] = 0;
   if (p->inf) {
@@ -162,7 +162,7 @@ static void jac_from_affine(jac* j, const ec_point* p) {
   }
 }
 
-static int jac_is_inf(const jac* j) { return quic_fp_is_zero(j->Z); }
+static int jac_is_inf(const jac* j) { return p256_fp_is_zero(j->Z); }
 
 /* X3 = alpha^2 - 8*beta; helper to keep doubling under CCN 3. */
 static void dbl_x(p256_fe x3, const p256_fe alpha, const p256_fe beta) {
@@ -264,7 +264,7 @@ static void jac_add(jac* r, p256_addt* t) {
 
 /* Same-x case: double if s1==s2 (acc==base), else result is infinity. */
 static void add_same_x_jac(jac* acc, const p256_fe s1, const p256_fe s2) {
-  if (quic_fp_eq(s1, s2))
+  if (p256_fp_eq(s1, s2))
     jac_double(acc, acc);
   else
     acc->Z[0] = acc->Z[1] = acc->Z[2] = acc->Z[3] = 0;
@@ -278,7 +278,7 @@ static void jac_add_step(jac* acc, const jac* base) {
     return;
   }
   add_uv(&t, acc, base);
-  if (quic_fp_eq(t.u1, t.u2))
+  if (p256_fp_eq(t.u1, t.u2))
     add_same_x_jac(acc, t.s1, t.s2);
   else
     jac_add(acc, &t);
@@ -291,7 +291,7 @@ static void jac_to_affine(ec_point* r, const jac* j) {
     r->inf = 1;
     return;
   }
-  quic_fp_inv_p(zi, j->Z);
+  p256_fp_inv_p(zi, j->Z);
   fp_sqr(zi2, zi);
   fp_mul(zi3, zi2, zi);
   fp_mul(r->x, j->X, zi2);
@@ -354,7 +354,7 @@ static void jac_add_full(jac* r, const jac* a, const jac* b) {
 /* One Montgomery-ladder step (RFC 6090-style two-accumulator ladder,
  * mirrors x25519.c's ladder_step/fe_cswap control pattern): unconditionally
  * computes r0+r1 and 2*r0, leaving the "doubled" half in r0 and the "added"
- * half in r1. The caller cswaps r0/r1 around this call (see quic_ec_mul
+ * half in r1. The caller cswaps r0/r1 around this call (see ec_mul
  * below) so which accumulator ends up representing 2*acc vs acc+base never
  * depends on an explicit `if (bit)`. The if-statements inside
  * jac_add_step/jac_double are not scalar-bit branches: they fire only on
@@ -370,7 +370,7 @@ static void p256_ladder_step(jac* r0, jac* r1) {
 
 /* r = k * p, constant-time: no branch keys off a scalar bit directly (see
  * p256_ladder_step). k big-endian 32 bytes. */
-void quic_ec_mul(ec_point* r, const u8 k[32], const ec_point* p) {
+void ec_mul(ec_point* r, const u8 k[32], const ec_point* p) {
   jac r0 = {{0}, {0}, {0}}; /* infinity */
   jac r1;
   u64 swap = 0;

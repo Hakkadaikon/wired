@@ -8,7 +8,7 @@
 
 /** Cumulative Transcript-Hash state. */
 typedef struct {
-  quic_sha256_ctx h; /**< running SHA-256 over the handshake messages */
+  sha256_ctx h; /**< running SHA-256 over the handshake messages */
 } quic_transcript;
 
 /** Start an empty transcript.

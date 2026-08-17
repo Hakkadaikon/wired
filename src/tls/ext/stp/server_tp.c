@@ -25,7 +25,7 @@ static const struct {
  * fit. */
 static int put_int(wired_obuf* out, u64 id, u64 val) {
   usz        before = out->len;
-  wired_obuf tail   = quic_obuf_of(out->p + before, out->cap - before);
+  wired_obuf tail   = obuf_of(out->p + before, out->cap - before);
   usz        w      = quic_tparam_put_int(&tail, id, val);
   out->len += w;
   return w != 0;
@@ -34,7 +34,7 @@ static int put_int(wired_obuf* out, u64 id, u64 val) {
 /* Append one opaque TP (the two connection ids) at out->len. */
 static int put_blob(wired_obuf* out, u64 id, wired_span val) {
   usz        before = out->len;
-  wired_obuf tail   = quic_obuf_of(out->p + before, out->cap - before);
+  wired_obuf tail   = obuf_of(out->p + before, out->cap - before);
   usz        w      = quic_tparam_put_blob(&tail, id, val);
   out->len += w;
   return w != 0;

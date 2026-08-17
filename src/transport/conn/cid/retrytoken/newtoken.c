@@ -18,10 +18,10 @@ static void newtoken_msg_body(
     u64         issued_at,
     const u8*   nonce) {
   u8 ts[8];
-  quic_put_be64(ts, issued_at);
-  quic_put_bytes(buf, off, addr);
-  quic_put_bytes(buf, off, wired_span_of(ts, 8));
-  quic_put_bytes(buf, off, wired_span_of(nonce, QUIC_NEWTOKEN_NONCE));
+  be_put_be64(ts, issued_at);
+  bytes_put(buf, off, addr);
+  bytes_put(buf, off, wired_span_of(ts, 8));
+  bytes_put(buf, off, wired_span_of(nonce, QUIC_NEWTOKEN_NONCE));
 }
 
 /* addr || issued_at(8, BE) || nonce into msg. Returns the combined length,
@@ -43,7 +43,7 @@ static void newtoken_mac(
     u8         mac[QUIC_NEWTOKEN_MAC]) {
   u8  msg[QUIC_NEWTOKEN_MSG];
   usz n = newtoken_build_msg(msg, addr, issued_at, nonce);
-  quic_hmac_sha256(
+  hmac_sha256(
       wired_span_of(key, QUIC_NEWTOKEN_KEY), wired_span_of(msg, n), mac);
 }
 
@@ -53,8 +53,8 @@ int quic_newtoken_wire_make(
     u64        now_secs,
     u8         token[QUIC_NEWTOKEN_WIRE_LEN]) {
   u8* nonce = token + 8;
-  if (!quic_rng_bytes(nonce, QUIC_NEWTOKEN_NONCE)) return 0;
-  quic_put_be64(token, now_secs);
+  if (!rng_bytes(nonce, QUIC_NEWTOKEN_NONCE)) return 0;
+  be_put_be64(token, now_secs);
   newtoken_mac(key, addr, now_secs, nonce, token + 8 + QUIC_NEWTOKEN_NONCE);
   return 1;
 }
@@ -74,7 +74,7 @@ static int mac_ok(
     wired_span token) {
   u8 want[QUIC_NEWTOKEN_MAC];
   newtoken_mac(key, addr, issued_at, token.p + 8, want);
-  return quic_ct_diff32(want, token.p + 8 + QUIC_NEWTOKEN_NONCE) == 0;
+  return ct_diff32(want, token.p + 8 + QUIC_NEWTOKEN_NONCE) == 0;
 }
 
 /* Framing + lifetime + MAC, all three guards a valid token must clear. */
@@ -85,7 +85,7 @@ static int newtoken_valid(
     u64        now_secs,
     u64*       issued_at) {
   if (token.n != QUIC_NEWTOKEN_WIRE_LEN) return 0;
-  *issued_at = quic_get_be64(token.p);
+  *issued_at = be_get_be64(token.p);
   return within_lifetime(*issued_at, now_secs) &&
          mac_ok(key, addr, *issued_at, token);
 }

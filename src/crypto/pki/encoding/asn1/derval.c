@@ -7,7 +7,7 @@ static int der_bytes_eq(const u8* a, const u8* b, usz n) {
   return 1;
 }
 
-int quic_der_oid_equal(wired_span oid, wired_span expected) {
+int der_oid_equal(wired_span oid, wired_span expected) {
   if (oid.n != expected.n) return 0;
   return der_bytes_eq(oid.p, expected.p, oid.n);
 }
@@ -36,7 +36,7 @@ static u64 der_be(const u8* p, usz nlen) {
   return v;
 }
 
-int quic_der_uint(const u8* val, usz val_len, u64* out) {
+int der_uint(const u8* val, usz val_len, u64* out) {
   wired_span m;
   if (!der_int_mag(wired_span_of(val, val_len), &m)) return 0;
   if (m.n > 8) return 0;

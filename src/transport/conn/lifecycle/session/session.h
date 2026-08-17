@@ -34,8 +34,8 @@ typedef struct {
   quic_endpoint     ep;    /* key material and ECDHE */
   quic_conn         conn;  /* phase + per-space packet numbers */
   quic_initial_keys ikeys; /* Initial-level protection (both sides share) */
-  quic_aes128       ihp;   /* Initial header-protection cipher */
-  quic_aes128       hshp;  /* handshake/1-RTT header-protection cipher */
+  aes128            ihp;   /* Initial header-protection cipher */
+  aes128            hshp;  /* handshake/1-RTT header-protection cipher */
   quic_memlink*     link;  /* the in-memory transport */
   u8                dcid[8];
   u8                peer_pub[32]; /* the peer's X25519 share, once seen */

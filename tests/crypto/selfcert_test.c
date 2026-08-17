@@ -11,13 +11,13 @@
 /* X.690 8.1. der_tlv emits a well-formed TLV that der_read parses back. */
 static void test_der_tlv_roundtrip(void) {
   u8         out[8];
-  wired_obuf o   = quic_obuf_of(out, sizeof(out));
+  wired_obuf o   = obuf_of(out, sizeof(out));
   const u8   v[] = {0xaa, 0xbb};
-  CHECK(quic_selfcert_der_tlv(QUIC_DER_INTEGER, wired_span_of(v, 2), &o) == 1);
+  CHECK(selfcert_der_tlv(QUIC_DER_INTEGER, wired_span_of(v, 2), &o) == 1);
   CHECK(o.len == 4 && out[0] == 0x02 && out[1] == 0x02);
 
-  quic_der_tlv t;
-  CHECK(quic_der_read(wired_span_of(out, o.len), &t) == 1);
+  der_tlv t;
+  CHECK(der_read(wired_span_of(out, o.len), &t) == 1);
   CHECK(
       t.tag == 0x02 && t.val.n == 2 && t.val.p[0] == 0xaa &&
       t.val.p[1] == 0xbb);
@@ -27,19 +27,19 @@ static void test_der_tlv_roundtrip(void) {
 static void test_der_tlv_longform(void) {
   u8         big[200] = {0};
   u8         out[210];
-  wired_obuf o = quic_obuf_of(out, sizeof(out));
+  wired_obuf o = obuf_of(out, sizeof(out));
   CHECK(
-      quic_selfcert_der_tlv(
-          QUIC_DER_OCTET_STRING, wired_span_of(big, 200), &o) == 1);
+      selfcert_der_tlv(QUIC_DER_OCTET_STRING, wired_span_of(big, 200), &o) ==
+      1);
   CHECK(out[1] == 0x81 && out[2] == 200 && o.len == 203);
 }
 
 /* der_tlv refuses to overflow the caller buffer. */
 static void test_der_tlv_overflow(void) {
   u8         out[3];
-  wired_obuf o   = quic_obuf_of(out, sizeof(out));
+  wired_obuf o   = obuf_of(out, sizeof(out));
   const u8   v[] = {1, 2, 3, 4};
-  CHECK(quic_selfcert_der_tlv(QUIC_DER_INTEGER, wired_span_of(v, 4), &o) == 0);
+  CHECK(selfcert_der_tlv(QUIC_DER_INTEGER, wired_span_of(v, 4), &o) == 0);
 }
 
 /* RFC 8410 4. The built SPKI exposes the same 32-byte Ed25519 key. */
@@ -47,14 +47,14 @@ static void test_tbs_spki_key(void) {
   u8 pub[32];
   u8 seed[32];
   for (usz i = 0; i < 32; i++) seed[i] = (u8)i;
-  CHECK(quic_ed25519_keypair(seed, pub) == 1);
+  CHECK(ed25519_keypair(seed, pub) == 1);
 
   u8         tbs[512];
-  wired_obuf to = quic_obuf_of(tbs, sizeof(tbs));
-  CHECK(quic_selfcert_tbs(pub, &to) == 1);
+  wired_obuf to = obuf_of(tbs, sizeof(tbs));
+  CHECK(selfcert_tbs(pub, &to) == 1);
 
   wired_span oid, key;
-  CHECK(quic_x509_public_key(wired_span_of(tbs, to.len), &oid, &key) == 1);
+  CHECK(x509_public_key(wired_span_of(tbs, to.len), &oid, &key) == 1);
   /* BIT STRING value: 0x00 unused-bits prefix then the 32-byte key. */
   CHECK(key.n == 33 && key.p[0] == 0x00);
   for (usz i = 0; i < 32; i++) CHECK(key.p[1 + i] == pub[i]);
@@ -65,28 +65,28 @@ static void test_build_selfsigned(void) {
   u8 seed[32];
   for (usz i = 0; i < 32; i++) seed[i] = (u8)(0x40 + i);
   u8 pub[32];
-  quic_ed25519_keypair(seed, pub);
+  ed25519_keypair(seed, pub);
 
   u8         cert[1024];
-  wired_obuf co = quic_obuf_of(cert, sizeof(cert));
-  CHECK(quic_selfcert_build(seed, &co) == 1);
+  wired_obuf co = obuf_of(cert, sizeof(cert));
+  CHECK(selfcert_build(seed, &co) == 1);
 
-  quic_x509 c;
-  CHECK(quic_x509_parse(wired_span_of(cert, co.len), &c) == 1);
+  x509 c;
+  CHECK(x509_parse(wired_span_of(cert, co.len), &c) == 1);
 
   wired_span oid, key;
-  CHECK(quic_x509_public_key(c.tbs, &oid, &key) == 1);
+  CHECK(x509_public_key(c.tbs, &oid, &key) == 1);
   CHECK(key.n == 33);
   for (usz i = 0; i < 32; i++) CHECK(key.p[1 + i] == pub[i]);
 
   /* signatureValue BIT STRING: 0x00 prefix then the 64-byte signature. */
   CHECK(c.sig.n == 65 && c.sig.p[0] == 0x00);
-  CHECK(quic_ed25519_verify(c.sig.p + 1, c.tbs.p, c.tbs.n, key.p + 1) == 1);
+  CHECK(ed25519_verify(c.sig.p + 1, c.tbs.p, c.tbs.n, key.p + 1) == 1);
 
   /* A flipped TBS byte must break verification. */
   u8 bad = c.tbs.p[0];
   ((u8*)c.tbs.p)[0] ^= 0xff;
-  CHECK(quic_ed25519_verify(c.sig.p + 1, c.tbs.p, c.tbs.n, key.p + 1) == 0);
+  CHECK(ed25519_verify(c.sig.p + 1, c.tbs.p, c.tbs.n, key.p + 1) == 0);
   ((u8*)c.tbs.p)[0] = bad;
 }
 

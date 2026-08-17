@@ -9,7 +9,7 @@
 #define QUIC_CONNLOOP_NO_LEVEL (-1)
 
 void quic_connloop_init(quic_connloop* c, int is_server) {
-  quic_keyset_init(&c->keys);
+  keyset_init(&c->keys);
   quic_sentpkt_init(&c->sent);
   c->send_level          = QUIC_CONNLOOP_NO_LEVEL;
   c->handshake_complete  = 0;
@@ -27,7 +27,7 @@ void quic_connloop_init(quic_connloop* c, int is_server) {
 /* RFC 9001 4: the level's key is installed (not discarded). */
 static int level_usable(const quic_connloop* c, int level) {
   const quic_initial_keys* out;
-  return quic_keyset_for_level(&c->keys, level, &out);
+  return keyset_for_level(&c->keys, level, &out);
 }
 
 /* RFC 9000 10.2: only an active connection processes incoming packets. */
@@ -45,9 +45,8 @@ int quic_connloop_on_recv(quic_connloop* c, int level, usz len) {
  * 1-RTT (rank 2) is barred until the handshake completes. */
 static int send_level_ok(const quic_connloop* c, int level) {
   if (level <= c->send_level) return level == c->send_level;
-  if (!quic_key_promote_ok(c->send_level, level)) return 0;
-  return level <=
-         quic_key_send_level(c->handshake_complete, c->handshake_confirmed);
+  if (!key_promote_ok(c->send_level, level)) return 0;
+  return level <= key_send_level(c->handshake_complete, c->handshake_confirmed);
 }
 
 /* RFC 9000 10.2 / 8.1: open phase, key present, and within the amp budget. */

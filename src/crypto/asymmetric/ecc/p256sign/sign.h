@@ -10,7 +10,6 @@
  * Per RFC 6979 Section 3.4 / FIPS 186-4 6.3, a candidate k that yields
  * r == 0 or s == 0 is unsuitable and the nonce generation loop draws a new
  * one, so this always succeeds; always returns 1. */
-int quic_p256sign_sign(
-    const u8 priv[32], const u8 hash[32], u8 r[32], u8 s[32]);
+int p256sign_sign(const u8 priv[32], const u8 hash[32], u8 r[32], u8 s[32]);
 
 #endif

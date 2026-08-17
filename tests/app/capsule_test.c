@@ -12,7 +12,7 @@
  * with a short value. */
 static void test_capsule_roundtrip_small_type(void) {
   u8         buf[32];
-  wired_obuf out      = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out      = obuf_of(buf, sizeof buf);
   u8         val[5]   = {1, 2, 3, 4, 5};
   wired_span value_in = wired_span_of(val, sizeof val);
   usz        at       = 0;
@@ -35,7 +35,7 @@ static void test_capsule_roundtrip_small_type(void) {
  * (0x2843 -> 2-byte varint, 0x190B4D3D -> 4-byte varint per RFC 9000 SS16). */
 static void test_capsule_roundtrip_large_types(void) {
   u8         buf[32];
-  wired_obuf out      = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out      = obuf_of(buf, sizeof buf);
   u8         val[3]   = {0xAA, 0xBB, 0xCC};
   wired_span value_in = wired_span_of(val, sizeof val);
   usz        at       = 0;
@@ -51,7 +51,7 @@ static void test_capsule_roundtrip_large_types(void) {
 
   {
     u8         buf2[32];
-    wired_obuf out2 = quic_obuf_of(buf2, sizeof buf2);
+    wired_obuf out2 = obuf_of(buf2, sizeof buf2);
     usz        at2  = 0;
     u64        type_out2;
     wired_span value_out2;
@@ -67,7 +67,7 @@ static void test_capsule_roundtrip_large_types(void) {
 /* TEST 3: empty value (Length=0) round-trips correctly. */
 static void test_capsule_roundtrip_empty_value(void) {
   u8         buf[16];
-  wired_obuf out      = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out      = obuf_of(buf, sizeof buf);
   wired_span value_in = wired_span_of(0, 0);
   usz        at       = 0;
   u64        type_out;
@@ -99,7 +99,7 @@ static void test_capsule_decode_truncated_type(void) {
 /* TEST 5: complete type+length header but insufficient value bytes. */
 static void test_capsule_decode_truncated_value(void) {
   u8         buf[16];
-  wired_obuf out    = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out    = obuf_of(buf, sizeof buf);
   u8         val[5] = {1, 2, 3, 4, 5};
   usz        at     = 0;
   u64        type_out;
@@ -116,7 +116,7 @@ static void test_capsule_decode_truncated_value(void) {
  * leaves out unmodified (contract: no partial write on failure). */
 static void test_capsule_encode_too_small_leaves_out_unmodified(void) {
   u8         buf[3] = {0xEE, 0xEE, 0xEE};
-  wired_obuf out    = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out    = obuf_of(buf, sizeof buf);
   u8         val[5] = {1, 2, 3, 4, 5};
 
   CHECK(!quic_capsule_encode(&out, 0x00, wired_span_of(val, sizeof val)));
@@ -129,7 +129,7 @@ static void test_capsule_encode_too_small_leaves_out_unmodified(void) {
 /* TEST 7: multiple capsules back-to-back in one buffer. */
 static void test_capsule_decode_multiple_back_to_back(void) {
   u8         buf[64];
-  wired_obuf out     = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out     = obuf_of(buf, sizeof buf);
   u8         val1[2] = {0x11, 0x22};
   u8         val2[3] = {0x33, 0x44, 0x55};
   usz        at      = 0;
@@ -157,7 +157,7 @@ static void test_capsule_decode_multiple_back_to_back(void) {
  * bytes decode to different types (guards a copy-paste type hardcode bug). */
 static void test_capsule_different_types_same_value_bytes(void) {
   u8         buf[64];
-  wired_obuf out    = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out    = obuf_of(buf, sizeof buf);
   u8         val[4] = {9, 9, 9, 9};
   usz        at1    = 0, at2;
   u64        type1, type2;
@@ -184,7 +184,7 @@ static void test_capsule_different_types_same_value_bytes(void) {
  * this case. */
 static void test_capsule_fin_truncated_reports_malformed(void) {
   u8         buf[16];
-  wired_obuf out    = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out    = obuf_of(buf, sizeof buf);
   u8         val[5] = {1, 2, 3, 4, 5};
   usz        at     = 0;
 
@@ -197,7 +197,7 @@ static void test_capsule_fin_truncated_reports_malformed(void) {
  * more data", per quic_capsule_decode's own doc. */
 static void test_capsule_no_fin_truncated_is_not_malformed(void) {
   u8         buf[16];
-  wired_obuf out    = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out    = obuf_of(buf, sizeof buf);
   u8         val[5] = {1, 2, 3, 4, 5};
   usz        at     = 0;
 
@@ -209,7 +209,7 @@ static void test_capsule_no_fin_truncated_is_not_malformed(void) {
  * NOT malformed -- the ordinary end-of-message case. */
 static void test_capsule_fin_at_boundary_is_not_malformed(void) {
   u8         buf[16];
-  wired_obuf out    = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out    = obuf_of(buf, sizeof buf);
   u8         val[5] = {1, 2, 3, 4, 5};
   usz        at     = 0;
   u64        type_out;

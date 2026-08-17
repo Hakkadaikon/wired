@@ -20,41 +20,40 @@ typedef struct {
   u8*        out;
 } aead_suite_io;
 
-static usz gcm_seal(const aead_suite_io* io) {
-  quic_aes128 a;
-  quic_aes128_init(&a, io->key);
-  quic_gcm_ctx g = {&a, io->nonce, io->aad};
-  return quic_gcm_seal(&g, io->in, io->out);
+static usz aead_gcm_seal(const aead_suite_io* io) {
+  aes128 a;
+  aes128_init(&a, io->key);
+  gcm_ctx g = {&a, io->nonce, io->aad};
+  return gcm_seal(&g, io->in, io->out);
 }
 
 static usz cha_seal(const aead_suite_io* io) {
-  quic_chapoly_ctx c = {io->key, io->nonce, io->aad};
-  return quic_chapoly_seal(&c, io->in, io->out);
+  chapoly_ctx c = {io->key, io->nonce, io->aad};
+  return chapoly_seal(&c, io->in, io->out);
 }
 
 usz quic_aead_suite_seal(const quic_aead_suite_op* op, wired_span pt, u8* out) {
   u8 nonce[12];
   suite_nonce(op->iv, op->pn, nonce);
   aead_suite_io io = {op->key, nonce, op->aad, pt, out};
-  if (op->suite == QUIC_TLS_AES_128_GCM_SHA256) return gcm_seal(&io);
+  if (op->suite == QUIC_TLS_AES_128_GCM_SHA256) return aead_gcm_seal(&io);
   if (op->suite == QUIC_TLS_CHACHA20_POLY1305_SHA256) return cha_seal(&io);
   return 0;
 }
 
 /* io->in spans the ciphertext only; the 16-byte tag follows it in memory. */
-static usz gcm_open(const aead_suite_io* io) {
-  quic_aes128 a;
-  quic_aes128_init(&a, io->key);
-  quic_gcm_ctx g = {&a, io->nonce, io->aad};
-  if (!quic_gcm_open(
-          &g, wired_span_of(io->in.p, io->in.n + QUIC_GCM_TAG), io->out))
+static usz aead_gcm_open(const aead_suite_io* io) {
+  aes128 a;
+  aes128_init(&a, io->key);
+  gcm_ctx g = {&a, io->nonce, io->aad};
+  if (!gcm_open(&g, wired_span_of(io->in.p, io->in.n + QUIC_GCM_TAG), io->out))
     return 0;
   return io->in.n;
 }
 
 static usz cha_open(const aead_suite_io* io) {
-  quic_chapoly_ctx c = {io->key, io->nonce, io->aad};
-  if (!quic_chapoly_open(
+  chapoly_ctx c = {io->key, io->nonce, io->aad};
+  if (!chapoly_open(
           &c, wired_span_of(io->in.p, io->in.n + QUIC_CHAPOLY_TAG), io->out))
     return 0;
   return io->in.n;
@@ -64,7 +63,7 @@ usz quic_aead_suite_open(const quic_aead_suite_op* op, wired_span ct, u8* pt) {
   u8 nonce[12];
   suite_nonce(op->iv, op->pn, nonce);
   aead_suite_io io = {op->key, nonce, op->aad, ct, pt};
-  if (op->suite == QUIC_TLS_AES_128_GCM_SHA256) return gcm_open(&io);
+  if (op->suite == QUIC_TLS_AES_128_GCM_SHA256) return aead_gcm_open(&io);
   if (op->suite == QUIC_TLS_CHACHA20_POLY1305_SHA256) return cha_open(&io);
   return 0;
 }

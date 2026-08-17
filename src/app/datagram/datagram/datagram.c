@@ -11,18 +11,18 @@ static u8 datagram_type(int with_len) {
 /* Write the type and, for 0x31, the length varint. Returns 1 ok, 0. */
 static int put_datagram_head(
     wired_obuf* o, const quic_datagram_frame* f, int with_len) {
-  if (!quic_varint_put(
+  if (!varint_put(
           wired_mspan_of(o->p, o->cap), &o->len, datagram_type(with_len)))
     return 0;
   if (!with_len) return 1;
-  return quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->length);
+  return varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->length);
 }
 
 usz quic_datagram_encode(
     wired_mspan buf, const quic_datagram_frame* f, int with_len) {
-  wired_obuf o = quic_obuf_of(buf.p, buf.n);
+  wired_obuf o = obuf_of(buf.p, buf.n);
   if (!put_datagram_head(&o, f, with_len)) return 0;
-  if (!quic_put_bytes(
+  if (!bytes_put(
           wired_mspan_of(o.p, o.cap), &o.len,
           wired_span_of(f->data, (usz)f->length)))
     return 0;
@@ -39,7 +39,7 @@ static usz decode_no_len(const u8* buf, usz n, quic_datagram_frame* f) {
 /* For 0x31 read the length varint then a view of that many bytes. */
 static usz decode_with_len(const u8* buf, usz n, quic_datagram_frame* f) {
   usz off = 1;
-  if (!quic_varint_take(wired_span_of(buf, n), &off, &f->length)) return 0;
+  if (!varint_take(wired_span_of(buf, n), &off, &f->length)) return 0;
   if (off + (usz)f->length > n) return 0;
   f->data = buf + off;
   return off + (usz)f->length;

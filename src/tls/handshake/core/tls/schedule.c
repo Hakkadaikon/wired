@@ -24,9 +24,9 @@ void quic_tls_derive_secret(
     const quic_derive_secret_in* in, u8 out[QUIC_HKDF_PRK]) {
   u8 thash[QUIC_SHA256_DIGEST];
   wired_sha256(in->messages.p, in->messages.n, thash);
-  quic_hkdf_label l = {
+  hkdf_label l = {
       (const char*)in->label.p, in->label.n, {thash, sizeof(thash)}};
-  quic_hkdf_expand_label(in->secret, &l, wired_mspan_of(out, QUIC_HKDF_PRK));
+  hkdf_expand_label(in->secret, &l, wired_mspan_of(out, QUIC_HKDF_PRK));
 }
 
 /* A literal ASCII label plus its length, before folding into a span. */
@@ -59,7 +59,7 @@ static void handshake_secret_from_early(
       derive_in(early, (ascii_label){"derived", 7}, wired_span_of(zero, 0));
   quic_tls_derive_secret(&in, derived);
   /* Handshake Secret = HKDF-Extract(derived, ECDHE). */
-  quic_hkdf_extract(
+  hkdf_extract(
       wired_span_of(derived, QUIC_HKDF_PRK), wired_span_of(ecdhe, 32), out);
 }
 
@@ -67,7 +67,7 @@ void quic_tls_handshake_secret(const u8 ecdhe[32], u8 out[QUIC_HKDF_PRK]) {
   u8 zero[QUIC_HKDF_PRK] = {0};
   u8 early[QUIC_HKDF_PRK];
   /* Early Secret = HKDF-Extract(0, 0). */
-  quic_hkdf_extract(
+  hkdf_extract(
       wired_span_of(zero, QUIC_HKDF_PRK), wired_span_of(zero, QUIC_HKDF_PRK),
       early);
   handshake_secret_from_early(early, ecdhe, out);
@@ -78,7 +78,7 @@ void quic_tls_handshake_secret_psk(
   u8 zero[QUIC_HKDF_PRK] = {0};
   u8 early[QUIC_HKDF_PRK];
   /* Early Secret = HKDF-Extract(0, PSK). */
-  quic_hkdf_extract(
+  hkdf_extract(
       wired_span_of(zero, QUIC_HKDF_PRK), wired_span_of(psk, QUIC_HKDF_PRK),
       early);
   handshake_secret_from_early(early, ecdhe, out);
@@ -87,8 +87,8 @@ void quic_tls_handshake_secret_psk(
 /* Expand one packet-protection field (RFC 9001 5.1 labels) from a secret. */
 static void hs_field(
     const u8 secret[QUIC_HKDF_PRK], wired_span label, wired_mspan out) {
-  quic_hkdf_label l = {(const char*)label.p, label.n, {0, 0}};
-  quic_hkdf_expand_label(secret, &l, out);
+  hkdf_label l = {(const char*)label.p, label.n, {0, 0}};
+  hkdf_expand_label(secret, &l, out);
 }
 
 /* out->key/out->hp are sized QUIC_AEAD_KEY_MAX to hold either suite (see
@@ -165,7 +165,7 @@ void quic_tls_early_keys(
   u8 early[QUIC_HKDF_PRK];
   u8 ts[QUIC_HKDF_PRK];
   /* Early Secret = HKDF-Extract(0, PSK). */
-  quic_hkdf_extract(
+  hkdf_extract(
       wired_span_of(zero, QUIC_HKDF_PRK), wired_span_of(psk, QUIC_HKDF_PRK),
       early);
   /* client_early_traffic_secret over the ClientHello. */

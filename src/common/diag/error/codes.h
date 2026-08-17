@@ -32,7 +32,7 @@
 
 /* RFC 6066 3 / RFC 8446 B.2. TLS alert sent (or that would be sent) when a
  * server does not recognize the server_name offered in the ClientHello's
- * server_name extension. Pass to quic_err_crypto() to build the matching
+ * server_name extension. Pass to err_crypto() to build the matching
  * CRYPTO_ERROR code. */
 #define QUIC_TLS_ALERT_UNRECOGNIZED_NAME 112
 
@@ -42,15 +42,15 @@
 
 /* True if code is a defined transport error code: the 0x00-0x11 enumerated
  * range or the CRYPTO_ERROR range. */
-int quic_error_is_standard(u64 code);
+int error_is_standard(u64 code);
 
 /* True if code is a GREASE reserved value (31*N+27). Such codes carry no
  * meaning and must be treated as a generic error if received. */
-int quic_error_is_grease(u64 code);
+int error_is_grease(u64 code);
 
 /* True if code is an application error code: any value not in the transport
  * (standard) space. Application codes are carried in CONNECTION_CLOSE type
  * 0x1d and are defined by the application protocol (RFC 9000 20.2). */
-int quic_error_is_app(u64 code);
+int error_is_app(u64 code);
 
 #endif

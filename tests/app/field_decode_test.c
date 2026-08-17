@@ -28,7 +28,7 @@ static quic_qpack_field fd_field(const char* name, const char* value) {
 static void qd_roundtrip(
     quic_qpack_dyn* t, const char* name, const char* value) {
   u8               fs[8];
-  wired_obuf       ob       = quic_obuf_of(fs, sizeof(fs));
+  wired_obuf       ob       = obuf_of(fs, sizeof(fs));
   usz              consumed = 0;
   u64              base, rel;
   quic_qpack_field f = fd_field(name, value);
@@ -55,7 +55,7 @@ static void test_dynamic_roundtrip(void) {
   /* The older entry still resolves after a second insert (base advanced). */
   {
     u8               fs[8];
-    wired_obuf       ob       = quic_obuf_of(fs, sizeof(fs));
+    wired_obuf       ob       = obuf_of(fs, sizeof(fs));
     usz              consumed = 0;
     u64              base     = t.dropped + t.count;
     quic_qpack_field d;
@@ -96,7 +96,7 @@ static void test_non_indexed_reject(void) {
 static void test_dynamic_miss(void) {
   quic_qpack_dyn   t;
   u8               fs[2];
-  wired_obuf       ob       = quic_obuf_of(fs, sizeof(fs));
+  wired_obuf       ob       = obuf_of(fs, sizeof(fs));
   usz              consumed = 0;
   quic_qpack_field f        = fd_field("a", "b");
   quic_qpack_field d;

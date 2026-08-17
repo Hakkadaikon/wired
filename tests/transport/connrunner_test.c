@@ -34,7 +34,7 @@ static void test_packet_level(void) {
 static void arm(quic_connio* io) {
   quic_initial_keys k = {0};
   io->loop.validated  = 1;
-  quic_keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
 }
 
 static const u8 g_dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
@@ -46,7 +46,7 @@ static void mk_runner(quic_connrunner* r, int is_server) {
   quic_connrunner_init(r, wired_span_of(g_dcid, 8), &in);
   arm(&r->io);
   r->loop.gate.validated = 1; /* lift anti-amp on the loop side */
-  quic_keyset_install(
+  keyset_install(
       &r->loop.gate.keys, QUIC_LEVEL_INITIAL, &(quic_initial_keys){0});
 }
 
@@ -73,7 +73,7 @@ static void test_process_datagram_owes_ack(void) {
   usz n;
   {
     quic_connio_send_in sin = {QUIC_LEVEL_INITIAL, wired_span_of(frames, fl)};
-    wired_obuf          ob  = quic_obuf_of(pkt, sizeof(pkt));
+    wired_obuf          ob  = obuf_of(pkt, sizeof(pkt));
     n                       = quic_connio_send(&cl, &sin, &ob);
   }
   CHECK(n != 0);
@@ -111,7 +111,7 @@ static void test_process_datagram_dcid_mismatch_ignored(void) {
   usz n;
   {
     quic_connio_send_in sin = {QUIC_LEVEL_INITIAL, wired_span_of(frames, fl)};
-    wired_obuf          ob  = quic_obuf_of(pkt, sizeof(pkt));
+    wired_obuf          ob  = obuf_of(pkt, sizeof(pkt));
     n                       = quic_connio_send(&cl, &sin, &ob);
   }
   CHECK(n != 0);
@@ -224,7 +224,7 @@ static void test_advance_roundtrip(void) {
   usz n;
   {
     quic_connio_send_in sin = {QUIC_LEVEL_INITIAL, wired_span_of(frames, fl)};
-    wired_obuf          ob  = quic_obuf_of(pkt, sizeof(pkt));
+    wired_obuf          ob  = obuf_of(pkt, sizeof(pkt));
     n                       = quic_connio_send(&cl, &sin, &ob);
   }
   CHECK(n != 0);
@@ -256,9 +256,9 @@ static void test_advance_closed_idle(void) {
 static void connrunner_arm_onertt(quic_connio* io) {
   quic_initial_keys k = {0};
   io->loop.validated  = 1;
-  quic_keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
-  quic_keyset_install(&io->loop.keys, QUIC_LEVEL_HANDSHAKE, &k);
-  quic_keyset_install(&io->loop.keys, QUIC_LEVEL_ONERTT, &k);
+  keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&io->loop.keys, QUIC_LEVEL_HANDSHAKE, &k);
+  keyset_install(&io->loop.keys, QUIC_LEVEL_ONERTT, &k);
   io->loop.send_level         = QUIC_LEVEL_HANDSHAKE;
   io->loop.handshake_complete = 1;
 }
@@ -286,7 +286,7 @@ static void test_advance_closes_on_violation(void) {
   usz n;
   {
     quic_connio_send_in sin = {QUIC_LEVEL_ONERTT, wired_span_of(frame, fl)};
-    wired_obuf          ob  = quic_obuf_of(pkt, sizeof pkt);
+    wired_obuf          ob  = obuf_of(pkt, sizeof pkt);
     n                       = quic_connio_send(&cl, &sin, &ob);
   }
   CHECK(n != 0);
@@ -325,7 +325,7 @@ static void test_advance_closes_on_aead_limit(void) {
   usz pn;
   {
     quic_connio_send_in sin = {QUIC_LEVEL_ONERTT, wired_span_of(frame, 1)};
-    wired_obuf          ob  = quic_obuf_of(pkt, sizeof pkt);
+    wired_obuf          ob  = obuf_of(pkt, sizeof pkt);
     pn                      = quic_connio_send(&cl, &sin, &ob);
   }
   CHECK(pn != 0);
@@ -365,7 +365,7 @@ static void test_advance_sends_stop_sending_reset(void) {
   usz pn;
   {
     quic_connio_send_in sin = {QUIC_LEVEL_ONERTT, wired_span_of(frame, fl)};
-    wired_obuf          ob  = quic_obuf_of(pkt, sizeof pkt);
+    wired_obuf          ob  = obuf_of(pkt, sizeof pkt);
     pn                      = quic_connio_send(&cl, &sin, &ob);
   }
   CHECK(pn != 0);
@@ -395,7 +395,7 @@ static usz seal_ack(quic_connio* peer, u64 largest, u8* out, usz cap) {
   CHECK(fl != 0 && frames[0] == 0x02); /* a real ACK frame was encoded */
   {
     quic_connio_send_in sin = {QUIC_LEVEL_INITIAL, wired_span_of(frames, fl)};
-    wired_obuf          ob  = quic_obuf_of(out, cap);
+    wired_obuf          ob  = obuf_of(out, cap);
     return quic_connio_send(peer, &sin, &ob);
   }
 }
@@ -453,8 +453,7 @@ static void test_sentmeta_loss_feeds_rtx(void) {
  * produce distinct next-generation keys. */
 static void mk_ku(quic_connrunner* r, int confirmed) {
   mk_runner(r, 0);
-  quic_keyset_install(
-      &r->io.loop.keys, QUIC_LEVEL_ONERTT, &(quic_initial_keys){0});
+  keyset_install(&r->io.loop.keys, QUIC_LEVEL_ONERTT, &(quic_initial_keys){0});
   r->io.loop.handshake_confirmed = confirmed;
   quic_connrunner_keyupdate_init(r);
   for (usz i = 0; i < QUIC_HKDF_PRK; i++) r->ku_secret[i] = (u8)(i + 1);

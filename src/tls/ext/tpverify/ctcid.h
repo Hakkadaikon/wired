@@ -6,7 +6,7 @@
 
 /* RFC 9000 7.3: connection-ID transport parameters are matched in constant
  * time so a mismatch reveals nothing through timing. Variable-length CIDs
- * (0..20 bytes), so quic_ct_diff16/32 do not apply. Length mismatch folds
+ * (0..20 bytes), so ct_diff16/32 do not apply. Length mismatch folds
  * into the accumulator without an early return. Returns 1 if equal. */
 static inline int quic_tpverify_cid_eq(wired_span a, wired_span b) {
   usz n = a.n < b.n ? a.n : b.n;

@@ -50,7 +50,7 @@ static void test_connect_encode_two_fields(void) {
 
   quic_qpack_nameref nr = {0, 0, 0};
   u8                 val[32];
-  wired_obuf         vb = quic_obuf_of(val, sizeof val);
+  wired_obuf         vb = obuf_of(val, sizeof val);
   c                     = quic_qpack_literal_namref_decode(
       wired_span_of(out + off, n - off), &nr, &vb);
   CHECK(c > 0 && nr.is_static == 1 && nr.index == 0); /* :authority name ref */
@@ -145,7 +145,7 @@ static void test_connect_state_forward(void) {
 static usz build_connect_stream(
     int want_protocol, wired_span protocol, u8* out, usz cap) {
   u8              fs[128];
-  wired_obuf      fsb         = quic_obuf_of(fs, sizeof fs);
+  wired_obuf      fsb         = obuf_of(fs, sizeof fs);
   static const u8 authority[] = {'h', 'o', 's', 't'};
   CHECK(
       quic_h3req_enc_connect(
@@ -159,7 +159,7 @@ static usz build_connect_stream(
   }
 
   u8         h3[160];
-  wired_obuf h3b = quic_obuf_of(h3, sizeof h3);
+  wired_obuf h3b = obuf_of(h3, sizeof h3);
   CHECK(
       quic_h3_frame_put(
           &h3b, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fsb.len)) > 0);

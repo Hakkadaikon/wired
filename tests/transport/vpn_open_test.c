@@ -10,9 +10,9 @@
 static void roundtrip(usz pn_len, u64 pn) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_keys keys;
-  quic_aes128       hp;
+  aes128            hp;
   quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
-  quic_aes128_init(&hp, keys.hp);
+  aes128_init(&hp, keys.hp);
 
   /* byte0 = 0xc0 | (pn_len-1); fixed-length prefix then the pn at pn_off. */
   u8 hdr[20] = {
@@ -68,9 +68,9 @@ static void test_vpn_roundtrip_lengths(void) {
 static void test_vpn_tamper(void) {
   const u8          dcid[8] = {1, 2, 3, 4, 5, 6, 7, 8};
   quic_initial_keys keys;
-  quic_aes128       hp;
+  aes128            hp;
   quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
-  quic_aes128_init(&hp, keys.hp);
+  aes128_init(&hp, keys.hp);
   u8 hdr[18] = {0xc1, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0x12, 0x34};
   const u8             payload[] = {1, 2, 3, 4};
   u8                   pkt[64];
@@ -101,9 +101,9 @@ static void test_vpn_tamper(void) {
 static void test_vpn_protect_compat(void) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_keys keys;
-  quic_aes128       hp;
+  aes128            hp;
   quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
-  quic_aes128_init(&hp, keys.hp);
+  aes128_init(&hp, keys.hp);
   u8       hdr[18]   = {0xc3, 0,    0,    0,    1,    8, 0x83, 0x94, 0xc8,
                         0xf0, 0x3e, 0x51, 0x57, 0x08, 0, 0,    0,    2};
   const u8 payload[] = {0x06, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o'};

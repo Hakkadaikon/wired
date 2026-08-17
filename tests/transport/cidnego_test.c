@@ -4,7 +4,7 @@
 static void test_cidnego_adopt(void) {
   u8         scid[5] = {1, 2, 3, 4, 5};
   u8         dcid[20];
-  wired_obuf ob = quic_obuf_of(dcid, sizeof(dcid));
+  wired_obuf ob = obuf_of(dcid, sizeof(dcid));
   CHECK(quic_cidnego_peer_dcid(wired_span_of(scid, 5), &ob) == 1);
   CHECK(ob.len == 5);
   CHECK(
@@ -15,7 +15,7 @@ static void test_cidnego_adopt(void) {
 /* A zero-length connection ID is valid and round-trips. */
 static void test_cidnego_zero_len(void) {
   u8         dcid[20];
-  wired_obuf ob = quic_obuf_of(dcid, sizeof(dcid));
+  wired_obuf ob = obuf_of(dcid, sizeof(dcid));
   CHECK(quic_cidnego_peer_dcid(wired_span_of((const u8*)0, 0), &ob) == 1);
   CHECK(ob.len == 0);
   CHECK(
@@ -26,7 +26,7 @@ static void test_cidnego_zero_len(void) {
 static void test_cidnego_len_bounds(void) {
   u8         scid[21] = {0};
   u8         dcid[20];
-  wired_obuf ob = quic_obuf_of(dcid, sizeof(dcid));
+  wired_obuf ob = obuf_of(dcid, sizeof(dcid));
   CHECK(
       quic_cidnego_peer_dcid(wired_span_of(scid, 20), &ob) == 1 &&
       ob.len == 20);

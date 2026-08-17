@@ -43,7 +43,7 @@ static int is_request_stream(u64 stream_id) { return (stream_id & 0x03) == 0; }
 static int is_wt_stream_signal(wired_span data) {
   u64 v;
   usz off = 0;
-  if (!quic_varint_take(data, &off, &v)) return 0;
+  if (!varint_take(data, &off, &v)) return 0;
   return v == QUIC_H3_STREAM_WEBTRANSPORT_BIDI;
 }
 
@@ -125,7 +125,7 @@ static void bump_len(wired_srvloop_reqacc* acc, usz end) {
 static void gather_one(const quic_stream_frame* sf, wired_srvloop_reqacc* acc) {
   usz off = (usz)sf->offset;
   if (off >= acc->cap) return;
-  quic_put_bytes(
+  bytes_put(
       wired_mspan_of(acc->buf, acc->cap), &off,
       wired_span_of(sf->data, (usz)sf->length));
   bump_len(acc, (usz)sf->offset + (usz)sf->length);
@@ -198,7 +198,7 @@ static int peek_decode_request(
     usz                              n,
     wired_h3reqdrive_req*            r) {
   quic_stream_frame f  = {0, 0, n, acc->buf, 0};
-  wired_obuf        ob = quic_obuf_of(in->wrap.p, in->wrap.n);
+  wired_obuf        ob = obuf_of(in->wrap.p, in->wrap.n);
   if (!quic_appdata_stream_frame(&f, &ob)) return 0;
   return wired_h3reqdrive_recv_get(
       wired_span_of(in->wrap.p, ob.len), in->scratch, r);
@@ -288,7 +288,7 @@ static void gather_wt_one(
   usz rel_off, accepted;
   wired_srvloop_wt_window_accept(&slot->win, abs_off, n, &rel_off, &accepted);
   if (accepted)
-    quic_put_bytes(
+    bytes_put(
         wired_mspan_of(slot->buf, sizeof slot->buf), &rel_off,
         wired_span_of(sf->data + skip + (n - accepted), accepted));
   if (sf->fin) {
@@ -306,8 +306,8 @@ static void gather_wt_one(
 static usz wt_signal_len(wired_span data) {
   u64 v;
   usz off = 0;
-  quic_varint_take(data, &off, &v);
-  quic_varint_take(data, &off, &v);
+  varint_take(data, &off, &v);
+  varint_take(data, &off, &v);
   return off;
 }
 
@@ -443,7 +443,7 @@ static int is_uni_stream(u64 stream_id) { return (stream_id & 0x03) == 2; }
 static int uni_stream_type_accepted(wired_span data) {
   u64 v;
   usz off = 0;
-  if (!quic_varint_take(data, &off, &v)) return 0;
+  if (!varint_take(data, &off, &v)) return 0;
   return wired_h3srv_accept_uni(v);
 }
 
@@ -457,7 +457,7 @@ static void uni_stream_type_note_qpack(wired_srvloop* l, wired_span data) {
   u64 v;
   usz off = 0;
   u16 err;
-  if (!quic_varint_take(data, &off, &v)) return;
+  if (!varint_take(data, &off, &v)) return;
   if (!wired_h3srv_on_peer_qpack(&l->h3, v, &err))
     l->qpack_stream_violation = err;
 }
@@ -483,7 +483,7 @@ static void uni_stream_type_apply_qpack_capacity(
     wired_srvloop* l, wired_span data) {
   u64 v;
   usz off = 0;
-  if (!quic_varint_take(data, &off, &v)) return;
+  if (!varint_take(data, &off, &v)) return;
   if (v != QUIC_H3_STREAM_QPACK_ENCODER) return;
   apply_qpack_capacity_rest(l, wired_span_of(data.p + off, data.n - off));
 }
@@ -497,7 +497,7 @@ static void uni_stream_type_apply_qpack_capacity(
 static int is_wt_uni_stream_type(wired_span data) {
   u64 v;
   usz off = 0;
-  if (!quic_varint_take(data, &off, &v)) return 0;
+  if (!varint_take(data, &off, &v)) return 0;
   return v == QUIC_H3_STREAM_WEBTRANSPORT;
 }
 
@@ -546,7 +546,7 @@ static void gather_wt_uni_one(
   usz rel_off, accepted;
   wired_srvloop_wt_window_accept(&slot->win, abs_off, n, &rel_off, &accepted);
   if (accepted)
-    quic_put_bytes(
+    bytes_put(
         wired_mspan_of(slot->buf, sizeof slot->buf), &rel_off,
         wired_span_of(sf->data + skip + (n - accepted), accepted));
   if (sf->fin) {
@@ -695,8 +695,7 @@ static void queue_rx_datagram(wired_srvloop* l, wired_span payload) {
   usz                        cap  = sizeof slot->buf;
   usz                        n    = payload.n < cap ? payload.n : cap;
   usz                        off  = 0;
-  quic_put_bytes(
-      wired_mspan_of(slot->buf, cap), &off, wired_span_of(payload.p, n));
+  bytes_put(wired_mspan_of(slot->buf, cap), &off, wired_span_of(payload.p, n));
   slot->len = n;
   l->rx_datagram_n++;
 }
@@ -1095,7 +1094,7 @@ static void drive_complete(
     wired_srvloop_reqacc*            acc,
     const wired_srvloop_dispatch_in* in) {
   quic_stream_frame f  = {0, 0, *acc->len, acc->buf, 1};
-  wired_obuf        ob = quic_obuf_of(in->wrap.p, in->wrap.n);
+  wired_obuf        ob = obuf_of(in->wrap.p, in->wrap.n);
   *acc->done           = 1;
   if (quic_appdata_stream_frame(&f, &ob))
     dispatch_stream(h3, wired_span_of(in->wrap.p, ob.len), in);

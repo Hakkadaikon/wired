@@ -52,7 +52,7 @@ usz quic_wt_exporter_ctx_encode(
  * exporter_master_secret (tls/keys/schedule_drive/keyschedule.h's
  * quic_keysched_exporter_secret).
  * @return 1 on success, 0 if label/app_context exceed 255 bytes or okm's
- *   length does not fit quic_hkdf_expand_label */
+ *   length does not fit hkdf_expand_label */
 int quic_wt_exporter(
     const u8    exporter_secret[QUIC_HKDF_PRK],
     u64         session_id,

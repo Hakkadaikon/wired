@@ -12,7 +12,7 @@ static void test_closeframe_wire(void) {
       QUIC_EC_FLOW_CONTROL_ERROR,
       QUIC_FRAME_CONN_CLOSE_TPT,
       {reason, sizeof reason}};
-  wired_obuf ob = quic_obuf_of(buf, sizeof buf);
+  wired_obuf ob = obuf_of(buf, sizeof buf);
 
   CHECK(quic_flowviol_close_frame(&e, &ob) == 1);
   usz len = ob.len;
@@ -31,7 +31,7 @@ static void test_closeframe_wire(void) {
 static void test_closeframe_overflow(void) {
   u8                buf[2];
   quic_flowviol_err e  = {QUIC_EC_STREAM_LIMIT_ERROR, 0x12, {0, 0}};
-  wired_obuf        ob = quic_obuf_of(buf, sizeof buf);
+  wired_obuf        ob = obuf_of(buf, sizeof buf);
   CHECK(quic_flowviol_close_frame(&e, &ob) == 0);
 }
 

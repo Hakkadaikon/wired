@@ -66,10 +66,10 @@ int wired_srvloop_send_handshake(
 static int send_onertt_keys(
     const wired_server*    s,
     wired_srvloop_dirkeys* dk,
-    quic_aes128*           hp,
+    aes128*                hp,
     quic_protect_keys*     out) {
   if (s->ku_seeded) {
-    quic_aes128_init(hp, s->ku_send.cur.hp);
+    aes128_init(hp, s->ku_send.cur.hp);
     *out = (quic_protect_keys){&s->ku_send.cur, hp};
     return 1;
   }
@@ -87,7 +87,7 @@ static int send_onertt_keys(
 int wired_srvloop_send_onertt(
     const wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out) {
   wired_srvloop_dirkeys dk;
-  quic_aes128           hp;
+  aes128                hp;
   quic_protect_keys     pk;
   int phase = s->ku_seeded ? quic_keyphase_bit(s->ku_send.generation) : 0;
   quic_hspkt_onertt_desc d = {in->cli_scid, in->pn, in->payload, phase};

@@ -13,7 +13,7 @@
 
 /* Compute the 5-byte header-protection mask from a 16-byte sample. */
 void quic_hp_mask(
-    const quic_aes128* hp, const u8 sample[QUIC_HP_SAMPLE], u8 mask[5]);
+    const aes128* hp, const u8 sample[QUIC_HP_SAMPLE], u8 mask[5]);
 
 /** Header fields covered by protection: byte0, the packet-number bytes, and
  * which low bits of byte0 are masked (long 0x0f / short 0x1f). */

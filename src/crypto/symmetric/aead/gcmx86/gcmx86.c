@@ -21,7 +21,7 @@ static int gcmx86_cpuid_ok(void) {
   return (int)((c >> 25) & (c >> 1) & 1u);
 }
 
-int quic_gcmx86_supported(void) {
+int gcmx86_supported(void) {
   static int cached; /* 0 unknown, 1 unsupported, 2 supported */
   if (cached == 0) cached = 1 + gcmx86_cpuid_ok();
   return cached - 1;
@@ -54,7 +54,7 @@ static gcmx86_v gcmx86_rev(gcmx86_v a) {
 
 /* AES-128 encrypt one block with AES-NI: rounds 1..9 aesenc, 10 aesenclast.
  */
-static gcmx86_v gcmx86_aes(const quic_gcmx86* x, gcmx86_v in) {
+static gcmx86_v gcmx86_aes(const gcmx86* x, gcmx86_v in) {
   gcmx86_v s = in ^ gcmx86_load(x->rk[0]);
   for (usz i = 1; i < 10; i++) s = wired_arch_aesenc(s, gcmx86_load(x->rk[i]));
   return wired_arch_aesenclast(s, gcmx86_load(x->rk[10]));
@@ -123,15 +123,13 @@ static void gcmx86_inc32(u8 j[16]) {
 }
 
 /* Advance the counter and XOR one full keystream block into out. */
-static void gcmx86_ctr_block(
-    const quic_gcmx86* x, u8 j[16], const u8* in, u8* out) {
+static void gcmx86_ctr_block(const gcmx86* x, u8 j[16], const u8* in, u8* out) {
   gcmx86_inc32(j);
   gcmx86_store(out, gcmx86_load(in) ^ gcmx86_aes(x, gcmx86_load(j)));
 }
 
 /* Advance the counter and XOR the final partial block (in.n < 16). */
-static void gcmx86_ctr_tail(
-    const quic_gcmx86* x, u8 j[16], wired_span in, u8* out) {
+static void gcmx86_ctr_tail(const gcmx86* x, u8 j[16], wired_span in, u8* out) {
   u8 ks[16];
   gcmx86_inc32(j);
   gcmx86_store(ks, gcmx86_aes(x, gcmx86_load(j)));
@@ -141,7 +139,7 @@ static void gcmx86_ctr_tail(
 /* CTR-encrypt in into out; j enters as J0 (data blocks use J0+1, J0+2, ...).
  * ponytail: one block per AES call; interleave 4-8 counter blocks if a
  * profiler ever shows the aesenc dependency chain dominating. */
-static void gcmx86_ctr(const quic_gcmx86* x, u8 j[16], wired_span in, u8* out) {
+static void gcmx86_ctr(const gcmx86* x, u8 j[16], wired_span in, u8* out) {
   usz off = 0;
   for (; off + 16 <= in.n; off += 16)
     gcmx86_ctr_block(x, j, in.p + off, out + off);
@@ -160,37 +158,37 @@ static void gcmx86_j0(u8 j[16], const u8 nonce[QUIC_GCMX86_NONCE]) {
 
 /* tag = GHASH(H; aad, ct, len block) ^ E(K, J0) (SP 800-38D 7.1). */
 static void gcmx86_tag(
-    const quic_gcmx86* x,
-    const u8           j0[16],
-    wired_span         aad,
-    wired_span         ct,
-    u8                 tag[16]) {
+    const gcmx86* x,
+    const u8      j0[16],
+    wired_span    aad,
+    wired_span    ct,
+    u8            tag[16]) {
   u8       lens[16];
   gcmx86_v h = gcmx86_load_rev(x->h, 16);
   gcmx86_v y = {0};
   y          = gcmx86_ghash(h, y, aad);
   y          = gcmx86_ghash(h, y, ct);
-  quic_put_be64(lens, (u64)aad.n * 8);
-  quic_put_be64(lens + 8, (u64)ct.n * 8);
+  be_put_be64(lens, (u64)aad.n * 8);
+  be_put_be64(lens + 8, (u64)ct.n * 8);
   y = gcmx86_gfmul(y ^ gcmx86_load_rev(lens, 16), h);
   gcmx86_store(tag, gcmx86_rev(y) ^ gcmx86_aes(x, gcmx86_load(j0)));
 }
 
-void quic_gcmx86_init(quic_gcmx86* x, const u8 key[16]) {
-  quic_aes128 a;
-  gcmx86_v    zero = {0};
-  quic_aes128_init(&a, key); /* cold path: reuse the scalar key schedule */
+void gcmx86_init(gcmx86* x, const u8 key[16]) {
+  aes128   a;
+  gcmx86_v zero = {0};
+  aes128_init(&a, key); /* cold path: reuse the scalar key schedule */
   for (usz i = 0; i < QUIC_AES_RK_WORDS; i++)
-    quic_put_be32((u8*)x->rk + 4 * i, a.rk[i]); /* be words = FIPS bytes */
-  gcmx86_store(x->h, gcmx86_aes(x, zero));      /* H = E(K, 0^128), 6.4 */
+    be_put_be32((u8*)x->rk + 4 * i, a.rk[i]); /* be words = FIPS bytes */
+  gcmx86_store(x->h, gcmx86_aes(x, zero));    /* H = E(K, 0^128), 6.4 */
 }
 
-usz quic_gcmx86_seal(
-    const quic_gcmx86* x,
-    const u8           nonce[QUIC_GCMX86_NONCE],
-    wired_span         aad,
-    wired_span         pt,
-    u8*                out) {
+usz gcmx86_seal(
+    const gcmx86* x,
+    const u8      nonce[QUIC_GCMX86_NONCE],
+    wired_span    aad,
+    wired_span    pt,
+    u8*           out) {
   u8 j0[16], j[16];
   gcmx86_j0(j0, nonce);
   for (usz i = 0; i < 16; i++) j[i] = j0[i];
@@ -199,18 +197,18 @@ usz quic_gcmx86_seal(
   return pt.n + QUIC_GCMX86_TAG;
 }
 
-usz quic_gcmx86_open(
-    const quic_gcmx86* x,
-    const u8           nonce[QUIC_GCMX86_NONCE],
-    wired_span         aad,
-    wired_span         ct,
-    u8*                out) {
+usz gcmx86_open(
+    const gcmx86* x,
+    const u8      nonce[QUIC_GCMX86_NONCE],
+    wired_span    aad,
+    wired_span    ct,
+    u8*           out) {
   u8 j[16], want[16];
   if (ct.n < QUIC_GCMX86_TAG) return 0;
   wired_span body = wired_span_of(ct.p, ct.n - QUIC_GCMX86_TAG);
   gcmx86_j0(j, nonce);
   gcmx86_tag(x, j, aad, body, want);
-  if (quic_ct_diff16(want, ct.p + body.n) != 0)
+  if (ct_diff16(want, ct.p + body.n) != 0)
     return 0; /* reject: leave out untouched */
   gcmx86_ctr(x, j, body, out);
   return body.n;

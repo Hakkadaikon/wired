@@ -78,13 +78,13 @@ static void test_srvwire_initial_wrong_key(void) {
 }
 
 /* Shared Handshake keys for the round-trip tests (RFC 9001 5). */
-static void hs_keys(quic_initial_keys* k, quic_aes128* hp) {
+static void hs_keys(quic_initial_keys* k, aes128* hp) {
   for (usz i = 0; i < 16; i++) {
     k->key[i] = (u8)(0x10 + i);
     k->hp[i]  = (u8)(0x90 + i);
   }
   for (usz i = 0; i < 12; i++) k->iv[i] = (u8)(0x30 + i);
-  quic_aes128_init(hp, k->hp);
+  aes128_init(hp, k->hp);
 }
 
 /* RFC 9001 5: Handshake flight. Sealed and opened under the same caller-
@@ -94,7 +94,7 @@ static void test_srvwire_handshake_roundtrip(void) {
   const u8 scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
   const u8 fl[]    = {'E', 'E', 'C', 'e', 'r', 't', 'C', 'V', 'F', 'i', 'n'};
   quic_initial_keys k;
-  quic_aes128       hp;
+  aes128            hp;
   hs_keys(&k, &hp);
   u8                   pkt[256];
   wired_obuf           ob = {pkt, sizeof pkt, 0};
@@ -120,7 +120,7 @@ static void test_srvwire_handshake_wrong_key(void) {
   const u8 scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
   const u8 fl[]    = {'E', 'E', 'C', 'e', 'r', 't', 'C', 'V', 'F', 'i', 'n'};
   quic_initial_keys k, bad;
-  quic_aes128       hp, badhp;
+  aes128            hp, badhp;
   hs_keys(&k, &hp);
   hs_keys(&bad, &badhp);
   bad.key[0] ^= 0xff;
@@ -164,7 +164,7 @@ static void test_srvwire_initial_acks_client(void) {
   const u8 scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
   const u8 sh[]    = {'S', 'e', 'r', 'v', 'e', 'r', 'H', 'e', 'l', 'l', 'o'};
   quic_initial_keys    ck, sk;
-  quic_aes128          hp;
+  aes128               hp;
   u8                   pkt[1300];
   wired_obuf           ob = {pkt, sizeof pkt, 0};
   const u8*            frames;
@@ -180,7 +180,7 @@ static void test_srvwire_initial_acks_client(void) {
       0};
   CHECK(quic_srvwire_seal_initial(&in, &ob));
   quic_initpkt_derive(wired_span_of(dcid, 8), &ck, &sk);
-  quic_aes128_init(&hp, sk.hp);
+  aes128_init(&hp, sk.hp);
   quic_protect_keys pk = {&sk, &hp};
   quic_rx_desc      rd = {wired_mspan_of(pkt, ob.len), 1};
   wired_span        fv;
@@ -200,7 +200,7 @@ static void test_srvwire_handshake_acks_client(void) {
   const u8          scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
   const u8          fl_in[] = {'E', 'E', 'F', 'i', 'n'};
   quic_initial_keys k;
-  quic_aes128       hp;
+  aes128            hp;
   u8                pkt[512];
   wired_obuf        ob = {pkt, sizeof pkt, 0};
   const u8*         frames;

@@ -32,17 +32,17 @@ usz quic_hs_parse(wired_span buf, u8* type, usz* body_len) {
  * entry. For simplicity both hello types use the same single-entry form,
  * which our own parser understands (interop with real TLS is out of scope). */
 static usz put_key_share(u8* out, usz off, const u8 pub[32]) {
-  quic_put_be16(out + off, QUIC_EXT_KEY_SHARE);
-  quic_put_be16(out + off + 2, 36); /* ext_data length */
-  quic_put_be16(out + off + 4, QUIC_GROUP_X25519);
-  quic_put_be16(out + off + 6, 32); /* key_exchange length */
+  be_put_be16(out + off, QUIC_EXT_KEY_SHARE);
+  be_put_be16(out + off + 2, 36); /* ext_data length */
+  be_put_be16(out + off + 4, QUIC_GROUP_X25519);
+  be_put_be16(out + off + 6, 32); /* key_exchange length */
   for (usz i = 0; i < 32; i++) out[off + 8 + i] = pub[i];
   return off + 40;
 }
 
 /* Write legacy_version, random, and an empty legacy_session_id. */
 static usz put_hello_prefix(u8* out, usz off, const u8 random[32]) {
-  quic_put_be16(out + off, 0x0303); /* legacy_version = TLS 1.2 */
+  be_put_be16(out + off, 0x0303); /* legacy_version = TLS 1.2 */
   for (usz i = 0; i < 32; i++) out[off + 2 + i] = random[i];
   out[off + 34] = 0; /* legacy_session_id length 0 */
   return off + 35;
@@ -53,9 +53,9 @@ usz quic_hs_build_hello(
   usz off = quic_hs_begin(out, cap, msg_type);
   if (off == 0 || cap < 4 + 35 + 4 + 40) return 0;
   off = put_hello_prefix(out, off, random);
-  quic_put_be16(out + off, QUIC_TLS_AES128_GCM_SHA256); /* one cipher suite */
-  out[off + 2] = 0;                 /* legacy_compression_methods length 0 */
-  quic_put_be16(out + off + 3, 40); /* extensions length */
+  be_put_be16(out + off, QUIC_TLS_AES128_GCM_SHA256); /* one cipher suite */
+  out[off + 2] = 0;               /* legacy_compression_methods length 0 */
+  be_put_be16(out + off + 3, 40); /* extensions length */
   off = put_key_share(out, off + 5, pub);
   quic_hs_finish(out, off);
   return off;

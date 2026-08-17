@@ -53,14 +53,14 @@ static int sdrv_has_san_ipv4(const quic_sdrv* s) {
 static void sdrv_build_cert(quic_sdrv* s, u64 now_secs) {
   ec_point q;
   u8       pub_x[32], pub_y[32];
-  quic_ec_mul(&q, s->p256_priv, &quic_p256_g);
-  quic_fp_to_be(pub_x, q.x);
-  quic_fp_to_be(pub_y, q.y);
+  ec_mul(&q, s->p256_priv, &p256_g);
+  p256_fp_to_be(pub_x, q.x);
+  p256_fp_to_be(pub_y, q.y);
   {
-    const u8*         ip = sdrv_has_san_ipv4(s) ? s->san_ipv4 : 0;
-    quic_p256cert_key k  = {s->p256_priv, pub_x, pub_y, ip, now_secs};
-    wired_obuf        o  = quic_obuf_of(s->cert_buf, sizeof(s->cert_buf));
-    quic_p256cert_build(&k, &o);
+    const u8*    ip = sdrv_has_san_ipv4(s) ? s->san_ipv4 : 0;
+    p256cert_key k  = {s->p256_priv, pub_x, pub_y, ip, now_secs};
+    wired_obuf   o  = obuf_of(s->cert_buf, sizeof(s->cert_buf));
+    p256cert_build(&k, &o);
     s->certs[0]   = wired_span_of(s->cert_buf, o.len);
     s->cert_count = 1;
   }
@@ -412,9 +412,9 @@ static void sdrv_negotiate_alpn(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
  * sending unrecognized_name and silently continuing valid server behavior
  * on a mismatch; the caller (server.c) decides using s->sni_outcome. */
 static void sdrv_check_sni(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
-  quic_x509 leaf;
+  x509 leaf;
   if (s->cert_count == 0) return;
-  if (!quic_x509_parse(s->certs[0], &leaf)) return;
+  if (!x509_parse(s->certs[0], &leaf)) return;
   s->sni_outcome = quic_salpn_sni_check(ch_msg, ch_len, leaf.tbs);
 }
 
@@ -525,8 +525,8 @@ static int sdrv_psk_open_ticket(
  * ticket_nonce (see newsessionticket.h), so Context is the empty span. */
 static void sdrv_psk_from_ticket_secret(
     const u8 res_master_secret[QUIC_TICKET_SECRET_LEN], u8 psk_out[32]) {
-  quic_hkdf_label l = {"resumption", 10, {0, 0}};
-  quic_hkdf_expand_label(res_master_secret, &l, wired_mspan_of(psk_out, 32));
+  hkdf_label l = {"resumption", 10, {0, 0}};
+  hkdf_expand_label(res_master_secret, &l, wired_mspan_of(psk_out, 32));
 }
 
 /* The opened ticket's binder verifies against the truncated ClientHello.
@@ -692,7 +692,7 @@ static void sdrv_ch_arm_hrr(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
  * s->hrr_sent; sets s->last_error and returns 0 on a mismatch. */
 static int sdrv_ch_retry_cipher_ok(quic_sdrv* s) {
   if (!s->hrr_sent || s->cipher_suite == s->hrr_cipher_suite) return 1;
-  s->last_error = quic_err_crypto(47); /* illegal_parameter */
+  s->last_error = err_crypto(47); /* illegal_parameter */
   return 0;
 }
 
@@ -739,7 +739,7 @@ static int sdrv_ch_require_tp_ext(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   wired_span ext;
   int        found = find_client_tp_ext(ch_msg, ch_len, &ext);
   if (quic_encext_required_ok(found)) return 1;
-  s->last_error = quic_err_crypto(109);
+  s->last_error = err_crypto(109);
   return 0;
 }
 
@@ -810,7 +810,7 @@ static wired_span sdrv_ch_exts(const u8* ch_msg, usz ch_len) {
 static int sdrv_ch_reject_dup_ext(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   wired_span exts = sdrv_ch_exts(ch_msg, ch_len);
   if (exts.n == 0 || quic_chguard_no_dup_ext(exts)) return 1;
-  s->last_error = quic_err_crypto(47);
+  s->last_error = err_crypto(47);
   return 0;
 }
 
@@ -824,7 +824,7 @@ static int sdrv_ch_reject_illegal_ext(
     quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   wired_span exts = sdrv_ch_exts(ch_msg, ch_len);
   if (exts.n == 0 || quic_chguard_ch_legal_exts(exts)) return 1;
-  s->last_error = quic_err_crypto(47);
+  s->last_error = err_crypto(47);
   return 0;
 }
 
@@ -838,7 +838,7 @@ static int sdrv_ch_require_version(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   int        found =
       find_client_ext(ch_msg, ch_len, QUIC_EXT_SUPPORTED_VERSIONS, &ext);
   if (found && quic_tls_ext_versions_has_tls13(ext.p, ext.n)) return 1;
-  s->last_error = quic_err_crypto(70);
+  s->last_error = err_crypto(70);
   return 0;
 }
 
@@ -853,7 +853,7 @@ static int sdrv_ch_require_algs(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   int has_grp =
       find_client_ext(ch_msg, ch_len, QUIC_EXT_SUPPORTED_GROUPS, &grp_ext);
   if (quic_chguard_require_algs(has_sig, has_grp)) return 1;
-  s->last_error = quic_err_crypto(109);
+  s->last_error = err_crypto(109);
   return 0;
 }
 
@@ -868,7 +868,7 @@ static int sdrv_ch_require_psk_modes(
       find_client_ext(ch_msg, ch_len, QUIC_TLSEXT_T_PSK_MODES, &modes_ext) &&
       quic_tlsext_psk_modes_parse(modes_ext.p, modes_ext.n);
   if (quic_chguard_psk_modes_ok(has_psk, modes_dhe_ke)) return 1;
-  s->last_error = quic_err_crypto(109);
+  s->last_error = err_crypto(109);
   return 0;
 }
 
@@ -889,7 +889,7 @@ static int sdrv_ch_require_psk_last(
   wired_span psk_ext = sdrv_ch_psk_ext_or_empty(ch_msg, ch_len);
   if (exts.n == 0) return 1;
   if (quic_chguard_psk_last(exts, psk_ext)) return 1;
-  s->last_error = quic_err_crypto(47);
+  s->last_error = err_crypto(47);
   return 0;
 }
 
@@ -915,7 +915,7 @@ static int sdrv_ch_offers_p256_scheme(const u8* ch_msg, usz ch_len) {
 static int sdrv_ch_require_scheme_offered(
     quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   if (s->psk_accepted || sdrv_ch_offers_p256_scheme(ch_msg, ch_len)) return 1;
-  s->last_error = quic_err_crypto(40);
+  s->last_error = err_crypto(40);
   return 0;
 }
 
@@ -971,7 +971,7 @@ quic_salpn_sni_outcome quic_sdrv_sni_outcome(const quic_sdrv* s) {
 
 int quic_sdrv_enforce_sni(quic_sdrv* s) {
   if (s->sni_outcome != QUIC_SALPN_SNI_MISMATCH) return 1;
-  s->last_error = quic_err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME);
+  s->last_error = err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME);
   return 0;
 }
 

@@ -61,11 +61,11 @@ static const u8 rsa_hash[32] = {
     0x35, 0x5e, 0x2a, 0xe6, 0x53, 0xe8, 0xf8, 0x96, 0x4d, 0xe3,
 };
 
-static const quic_rsa_pub rvt_pub = {{rsa_n, 256}, {rvt_e, 3}};
+static const rsa_pub rvt_pub = {{rsa_n, 256}, {rvt_e, 3}};
 
 static void test_rsa_pkcs1_valid(void) {
   CHECK(
-      quic_rsa_pkcs1_verify(
+      rsa_pkcs1_verify(
           &rvt_pub, (wired_span){rsa_sig, 256}, (wired_span){rsa_hash, 32}) ==
       1);
 }
@@ -76,7 +76,7 @@ static void test_rsa_pkcs1_tampered_sig(void) {
   for (usz i = 0; i < 256; i++) bad[i] = rsa_sig[i];
   bad[100] ^= 0x01;
   CHECK(
-      quic_rsa_pkcs1_verify(
+      rsa_pkcs1_verify(
           &rvt_pub, (wired_span){bad, 256}, (wired_span){rsa_hash, 32}) == 0);
 }
 
@@ -86,23 +86,23 @@ static void test_rsa_pkcs1_wrong_hash(void) {
   for (usz i = 0; i < 32; i++) h[i] = rsa_hash[i];
   h[0] ^= 0xff;
   CHECK(
-      quic_rsa_pkcs1_verify(
+      rsa_pkcs1_verify(
           &rvt_pub, (wired_span){rsa_sig, 256}, (wired_span){h, 32}) == 0);
 }
 
 /* Size guards: bad lengths and a too-small modulus are rejected. */
 static void test_rsa_pkcs1_sizes(void) {
-  static const quic_rsa_pub small = {{rsa_n, 40}, {rvt_e, 3}};
+  static const rsa_pub small = {{rsa_n, 40}, {rvt_e, 3}};
   CHECK(
-      quic_rsa_pkcs1_verify(
+      rsa_pkcs1_verify(
           &rvt_pub, (wired_span){rsa_sig, 255}, (wired_span){rsa_hash, 32}) ==
       0);
   CHECK(
-      quic_rsa_pkcs1_verify(
+      rsa_pkcs1_verify(
           &rvt_pub, (wired_span){rsa_sig, 256}, (wired_span){rsa_hash, 31}) ==
       0);
   CHECK(
-      quic_rsa_pkcs1_verify(
+      rsa_pkcs1_verify(
           &small, (wired_span){rsa_sig, 40}, (wired_span){rsa_hash, 32}) == 0);
 }
 
@@ -113,19 +113,19 @@ static void test_rsa_e_gate(void) {
   static const u8 e3[1]     = {0x03};
   static const u8 e17[1]    = {0x11};
   static const u8 padded[4] = {0x00, 0x01, 0x00, 0x01};
-  CHECK(quic_rsa_e_is_f4(f4, 3) == 1);
-  CHECK(quic_rsa_e_is_f4(e3, 1) == 0);
-  CHECK(quic_rsa_e_is_f4(e17, 1) == 0);
-  CHECK(quic_rsa_e_is_f4(padded, 4) == 0);
+  CHECK(rsa_e_is_f4(f4, 3) == 1);
+  CHECK(rsa_e_is_f4(e3, 1) == 0);
+  CHECK(rsa_e_is_f4(e17, 1) == 0);
+  CHECK(rsa_e_is_f4(padded, 4) == 0);
 }
 
 /* An exponent other than F4 is rejected end to end even with a valid F4
  * signature (the verify path consults the gate). */
 static void test_rsa_e3_rejected(void) {
-  static const u8           e3[1]  = {0x03};
-  static const quic_rsa_pub pub_e3 = {{rsa_n, 256}, {e3, 1}};
+  static const u8      e3[1]  = {0x03};
+  static const rsa_pub pub_e3 = {{rsa_n, 256}, {e3, 1}};
   CHECK(
-      quic_rsa_pkcs1_verify(
+      rsa_pkcs1_verify(
           &pub_e3, (wired_span){rsa_sig, 256}, (wired_span){rsa_hash, 32}) ==
       0);
 }

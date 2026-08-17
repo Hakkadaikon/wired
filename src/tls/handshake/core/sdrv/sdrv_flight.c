@@ -57,8 +57,8 @@ static int derive_secret(quic_sdrv* s) {
     s->ecdhe_secret[i] = ecdhe[i];
   sdrv_derive_handshake_secret(s, ecdhe);
   quic_transcript_hash(&s->tr, th);
-  quic_hkdf_label l = {"s hs traffic", 12, {th, QUIC_SHA256_DIGEST}};
-  quic_hkdf_expand_label(
+  hkdf_label l = {"s hs traffic", 12, {th, QUIC_SHA256_DIGEST}};
+  hkdf_expand_label(
       s->hs_secret, &l, wired_mspan_of(s->s_hs_traffic, QUIC_HKDF_PRK));
   s->hs_ready = 1;
   return 1;
@@ -78,8 +78,8 @@ static wired_span sdrv_sreset_token_span(const quic_sdrv* s) {
 
 static int emit_ee(quic_sdrv* s, wired_obuf* flight) {
   u8         tp[256], msg[1024];
-  wired_obuf tob = quic_obuf_of(tp, sizeof(tp));
-  wired_obuf mob = quic_obuf_of(msg, sizeof(msg));
+  wired_obuf tob = obuf_of(tp, sizeof(tp));
+  wired_obuf mob = obuf_of(msg, sizeof(msg));
   if (!quic_stp_build_server_ret(
           wired_span_of(s->tp_odcid, s->tp_odcid_len),
           wired_span_of(s->iscid, s->iscid_len),
@@ -99,7 +99,7 @@ static int emit_cert(quic_sdrv* s, wired_obuf* flight) {
    * deliberately inflated 9-cert amplificationlimit chain (~10KB of DER)
    * with headroom -- see QUIC_TLS_CERT_CHAIN_MAX. */
   u8                        msg[16384];
-  wired_obuf                mob = quic_obuf_of(msg, sizeof(msg));
+  wired_obuf                mob = obuf_of(msg, sizeof(msg));
   quic_sflight_certchain_in cin = {s->certs, s->cert_count};
   if (!quic_sflight_certificate_chain(&cin, &mob)) return 0;
   return emit_msg(s, wired_span_of(msg, mob.len), flight);
@@ -111,7 +111,7 @@ static int emit_certverify(quic_sdrv* s, wired_obuf* flight) {
   u8  msg[256], th[QUIC_SHA256_DIGEST];
   usz n;
   quic_transcript_hash(&s->tr, th);
-  if (!quic_cvecdsa_build(s->p256_priv, th, msg, sizeof(msg), &n)) return 0;
+  if (!cvecdsa_build(s->p256_priv, th, msg, sizeof(msg), &n)) return 0;
   return emit_msg(s, wired_span_of(msg, n), flight);
 }
 
@@ -119,7 +119,7 @@ static int emit_certverify(quic_sdrv* s, wired_obuf* flight) {
  * transcript hash through CertificateVerify. */
 static int emit_finished(quic_sdrv* s, wired_obuf* flight) {
   u8         msg[64], th[QUIC_SHA256_DIGEST];
-  wired_obuf mob = quic_obuf_of(msg, sizeof(msg));
+  wired_obuf mob = obuf_of(msg, sizeof(msg));
   quic_transcript_hash(&s->tr, th);
   if (!quic_sflight_finished(s->s_hs_traffic, th, &mob)) return 0;
   return emit_msg(s, wired_span_of(msg, mob.len), flight);

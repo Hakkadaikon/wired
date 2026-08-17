@@ -41,8 +41,8 @@ static void rederive_initial(quic_connrunner* r) {
   quic_initial_derive(
       wired_span_of(r->retry.dcid, r->retry.dcid_len), r->io.loop.is_server,
       QUIC_VERSION_1, &k);
-  quic_keyset_install(&r->io.loop.keys, QUIC_LEVEL_INITIAL, &k);
-  quic_put_bytes(
+  keyset_install(&r->io.loop.keys, QUIC_LEVEL_INITIAL, &k);
+  bytes_put(
       wired_mspan_of(r->io.dcid, sizeof r->io.dcid), &off,
       wired_span_of(r->retry.dcid, r->retry.dcid_len));
   r->io.dcid_len = r->retry.dcid_len;
@@ -121,7 +121,7 @@ static int drive_retry(quic_connrunner* r, const u8* pkt, usz len) {
   u8                     token[256], dcid[WIRED_MAX_CID_LEN];
   u8                     dlen;
   quic_retry_event       e;
-  wired_obuf             tok_ob = quic_obuf_of(token, sizeof(token));
+  wired_obuf             tok_ob = obuf_of(token, sizeof(token));
   quic_retry_process_out out    = {&tok_ob, dcid, &dlen};
   e.tag_valid                   = quic_retry_process(
       wired_span_of(pkt, len), wired_span_of(r->io.dcid, r->io.dcid_len), &out);

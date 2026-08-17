@@ -47,9 +47,9 @@ static int initpkt_seal(
     const quic_initial_keys* ck,
     wired_span               payload,
     wired_obuf*              out) {
-  quic_aes128 hp;
-  usz         total;
-  quic_aes128_init(&hp, ck->hp);
+  aes128 hp;
+  usz    total;
+  aes128_init(&hp, ck->hp);
   quic_protect_keys k = {ck, &hp};
   quic_tx_desc t = {byte0, d->dcid, d->scid, 1, wired_span_of((const u8*)0, 0),
                     d->pn, payload, version};
@@ -66,7 +66,7 @@ int quic_initpkt_build_ver(
     u32 version, const quic_initpkt_desc* d, wired_obuf* out) {
   quic_initial_keys ck, sk;
   u8                payload[1200];
-  wired_obuf        po    = quic_obuf_of(payload, sizeof(payload));
+  wired_obuf        po    = obuf_of(payload, sizeof(payload));
   u8                byte0 = initpkt_byte0(version);
   if (byte0 == 0) return 0;
   if (!build_payload(

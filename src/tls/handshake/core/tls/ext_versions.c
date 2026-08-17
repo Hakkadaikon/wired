@@ -5,10 +5,10 @@
 /* RFC 8446 4.2.1: type(2) + ext_data length(2) + list length(1) + versions. */
 usz quic_tls_ext_supported_versions(u8* buf, usz cap) {
   if (cap < 7) return 0;
-  quic_put_be16(buf, QUIC_EXT_SUPPORTED_VERSIONS);
-  quic_put_be16(buf + 2, 3);
+  be_put_be16(buf, QUIC_EXT_SUPPORTED_VERSIONS);
+  be_put_be16(buf + 2, 3);
   buf[4] = 2;
-  quic_put_be16(buf + 5, QUIC_TLS13_VERSION);
+  be_put_be16(buf + 5, QUIC_TLS13_VERSION);
   return 7;
 }
 

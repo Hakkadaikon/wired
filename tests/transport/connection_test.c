@@ -9,7 +9,7 @@
 static void install_1rtt(quic_connection* c, const u8 dcid[8]) {
   quic_initial_keys k;
   quic_initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, &k);
-  quic_keyset_install(&c->keys, QUIC_LEVEL_ONERTT, &k);
+  keyset_install(&c->keys, QUIC_LEVEL_ONERTT, &k);
 }
 
 /* client <-> server exchange a 1-RTT frame through the connection API. */

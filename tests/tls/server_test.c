@@ -69,8 +69,8 @@ static void drive_to_flight(struct srv_fix* f) {
   wired_x25519_base(srv_pub, srv_priv);
 
   wired_server_init_in sin   = {srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, 0};
-  wired_obuf           sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
-  wired_obuf           fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
+  wired_obuf           sh_ob = obuf_of(f->sh, sizeof(f->sh));
+  wired_obuf           fl_ob = obuf_of(f->flight, sizeof(f->flight));
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
   wired_server_init(&f->s, &sin);
   CHECK(wired_server_recv_initial(&f->s, f->ch, f->ch_len) == 1);
@@ -100,8 +100,8 @@ static void make_client_finished(struct srv_fix* f) {
   quic_transcript_add(&tr, f->ch, f->ch_len);
   quic_transcript_add(&tr, f->sh, f->sh_len);
   quic_transcript_hash(&tr, th); /* through ServerHello */
-  quic_hkdf_label chl = {"c hs traffic", 12, {th, 32}};
-  quic_hkdf_expand_label(hs, &chl, wired_mspan_of(c_traffic, 32));
+  hkdf_label chl = {"c hs traffic", 12, {th, 32}};
+  hkdf_expand_label(hs, &chl, wired_mspan_of(c_traffic, 32));
   quic_transcript_add(&tr, f->flight, f->flight_len);
   quic_transcript_hash(&tr, th); /* through server Finished */
 
@@ -114,7 +114,7 @@ static void make_client_finished(struct srv_fix* f) {
 /* Wrap a TLS message as a CRYPTO-frame payload for wired_server_feed. */
 static usz srv_wrap_crypto(const u8* msg, usz len, u8* out, usz cap) {
   usz                        n;
-  wired_obuf                 ob  = quic_obuf_of(out, cap);
+  wired_obuf                 ob  = obuf_of(out, cap);
   quic_crypto_stream_emit_in ein = {0, 256};
   if (!quic_crypto_stream_emit(wired_span_of(msg, len), &ein, &ob)) return 0;
   n = ob.len;
@@ -134,8 +134,8 @@ static void test_server_happy(void) {
   CHECK(wired_server_is_confirmed(&f.s) == 0);
   {
     const quic_initial_keys* k;
-    CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 0);
-    CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_HANDSHAKE, &k) == 1);
+    CHECK(keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 0);
+    CHECK(keyset_for_level(&f.s.keys, QUIC_LEVEL_HANDSHAKE, &k) == 1);
   }
 
   make_client_finished(&f);
@@ -146,11 +146,11 @@ static void test_server_happy(void) {
   CHECK(f.s.phase == WIRED_SERVER_HS_CONFIRMED);
   {
     const quic_initial_keys* k;
-    CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 1);
+    CHECK(keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 1);
   }
 
   /* HANDSHAKE_DONE exactly once. */
-  hd_ob = quic_obuf_of(hsdone, sizeof(hsdone));
+  hd_ob = obuf_of(hsdone, sizeof(hsdone));
   CHECK(wired_server_handshake_done(&f.s, &hd_ob) == 1);
   CHECK(hd_ob.len == 1 && hsdone[0] == 0x1e);
   CHECK(wired_server_handshake_done(&f.s, &hd_ob) == 0);
@@ -185,9 +185,9 @@ static void test_server_forged_finished(void) {
   CHECK(f.s.phase == WIRED_SERVER_HS_FLIGHT_SENT);
   {
     const quic_initial_keys* k;
-    CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 0);
+    CHECK(keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 0);
   }
-  hd_ob = quic_obuf_of(hsdone, sizeof(hsdone));
+  hd_ob = obuf_of(hsdone, sizeof(hsdone));
   CHECK(wired_server_handshake_done(&f.s, &hd_ob) == 0);
 }
 
@@ -197,8 +197,8 @@ static void test_server_flight_before_ch(void) {
   struct srv_fix       f;
   u8                   srv_priv[32], srv_pub[32], cert_seed[32];
   u8                   sh[256], flight[2048], rnd[32];
-  wired_obuf           sh_ob = quic_obuf_of(sh, sizeof(sh));
-  wired_obuf           fl_ob = quic_obuf_of(flight, sizeof(flight));
+  wired_obuf           sh_ob = obuf_of(sh, sizeof(sh));
+  wired_obuf           fl_ob = obuf_of(flight, sizeof(flight));
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
   wired_server_init_in sin;
   for (usz i = 0; i < 32; i++) {
@@ -212,7 +212,7 @@ static void test_server_flight_before_ch(void) {
   CHECK(wired_server_build_flight(&f.s, rnd, &fo) == 0);
   {
     const quic_initial_keys* k;
-    CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_HANDSHAKE, &k) == 0);
+    CHECK(keyset_for_level(&f.s.keys, QUIC_LEVEL_HANDSHAKE, &k) == 0);
   }
 }
 
@@ -332,7 +332,7 @@ static void test_server_sni_mismatch_rejected(void) {
   CHECK(f.s.phase == WIRED_SERVER_HS_INITIAL);
   CHECK(
       quic_sdrv_last_error(&f.s.sdrv) ==
-      quic_err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME));
+      err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME));
 }
 
 /* A server_name matching the self-signed cert's "localhost" SAN is accepted
@@ -428,8 +428,8 @@ static void test_server_keylog_path_writes_line(void) {
  * "resumption", ticket_nonce, 32), empty ticket_nonce. */
 static void srvt_psk_from_res_master(
     const u8 res_master_secret[QUIC_TICKET_SECRET_LEN], u8 psk_out[32]) {
-  quic_hkdf_label l = {"resumption", 10, {0, 0}};
-  quic_hkdf_expand_label(res_master_secret, &l, wired_mspan_of(psk_out, 32));
+  hkdf_label l = {"resumption", 10, {0, 0}};
+  hkdf_expand_label(res_master_secret, &l, wired_mspan_of(psk_out, 32));
 }
 
 typedef struct {
@@ -469,7 +469,7 @@ static usz srvt_psk_append(
   usz        old_exts_len;
   u8         modes[8], scratch[128];
   usz        modes_len;
-  wired_obuf eob = quic_obuf_of(scratch, sizeof(scratch));
+  wired_obuf eob = obuf_of(scratch, sizeof(scratch));
   if (!quic_tlsext_psk_modes(modes, sizeof(modes), &modes_len)) return 0;
   if (!quic_tlsext_pre_shared_key(psk, &eob)) return 0;
   if (ch_len + modes_len + eob.len > out_cap) return 0;
@@ -478,7 +478,7 @@ static usz srvt_psk_append(
   for (usz i = 0; i < modes_len; i++) out[ch_len + i] = modes[i];
   *psk_ext_off = ch_len + modes_len;
   for (usz i = 0; i < eob.len; i++) out[ch_len + modes_len + i] = scratch[i];
-  quic_put_be16(out + exts_len_off, (u16)(old_exts_len + modes_len + eob.len));
+  be_put_be16(out + exts_len_off, (u16)(old_exts_len + modes_len + eob.len));
   quic_hs_finish(out, ch_len + modes_len + eob.len);
   return ch_len + modes_len + eob.len;
 }
@@ -534,8 +534,8 @@ static void drive_psk_to_flight(
 
   wired_server_init_in sin   = {srv_priv, srv_pub, cert_seed, 0,
                                 0,        0,       0,         pf->ticket_key};
-  wired_obuf           sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
-  wired_obuf           fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
+  wired_obuf           sh_ob = obuf_of(f->sh, sizeof(f->sh));
+  wired_obuf           fl_ob = obuf_of(f->flight, sizeof(f->flight));
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
   wired_server_init(&f->s, &sin);
   CHECK(wired_server_recv_initial(&f->s, ch2, ch2_len) == 1);
@@ -579,8 +579,8 @@ static void make_client_finished_psk(
   quic_transcript_add(&tr, f->ch, f->ch_len);
   quic_transcript_add(&tr, f->sh, f->sh_len);
   quic_transcript_hash(&tr, th); /* through ServerHello */
-  quic_hkdf_label chl = {"c hs traffic", 12, {th, 32}};
-  quic_hkdf_expand_label(hs, &chl, wired_mspan_of(c_traffic, 32));
+  hkdf_label chl = {"c hs traffic", 12, {th, 32}};
+  hkdf_expand_label(hs, &chl, wired_mspan_of(c_traffic, 32));
   quic_transcript_add(&tr, f->flight, f->flight_len);
   quic_transcript_hash(&tr, th); /* through server Finished */
 

@@ -5,13 +5,13 @@
 
 /* id + len(=value's varint length) + value, all varints. */
 usz quic_tparam_put_int(wired_obuf* out, u64 id, u64 value) {
-  usz vlen = quic_varint_len(value);
-  usz need = quic_varint_len(id) + 1 + vlen;
+  usz vlen = varint_len(value);
+  usz need = varint_len(id) + 1 + vlen;
   usz off;
   if (vlen == 0 || need > out->cap) return 0;
-  off = quic_varint_encode(out->p, id);
-  off += quic_varint_encode(out->p + off, vlen);
-  off += quic_varint_encode(out->p + off, value);
+  off = varint_encode(out->p, id);
+  off += varint_encode(out->p + off, vlen);
+  off += varint_encode(out->p + off, value);
   return off;
 }
 
@@ -27,7 +27,7 @@ typedef struct {
 static int take_value(wired_span buf, usz* off, tparam_hdr* hdr) {
   usz before = *off;
   if (hdr->vlen > buf.n - *off) return 0;
-  if (!quic_varint_take(
+  if (!varint_take(
           wired_span_of(buf.p, before + (usz)hdr->vlen), off, &hdr->value))
     return 0;
   return *off - before == (usz)hdr->vlen;
@@ -35,8 +35,8 @@ static int take_value(wired_span buf, usz* off, tparam_hdr* hdr) {
 
 /* Read the id and length varints, advancing *off. Returns 1 ok, 0 bad. */
 static int take_id_len(wired_span buf, usz* off, tparam_hdr* hdr) {
-  if (!quic_varint_take(wired_span_of(buf.p, buf.n), off, &hdr->id)) return 0;
-  return quic_varint_take(wired_span_of(buf.p, buf.n), off, &hdr->vlen);
+  if (!varint_take(wired_span_of(buf.p, buf.n), off, &hdr->id)) return 0;
+  return varint_take(wired_span_of(buf.p, buf.n), off, &hdr->vlen);
 }
 
 usz quic_tparam_get_int(wired_span buf, u64* id, u64* value) {

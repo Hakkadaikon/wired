@@ -15,10 +15,10 @@ static void check_vector(
   hexbytes(pk, A, 32);
   hexbytes(sig, S, 64);
   if (msg_len) hexbytes(msg, M, msg_len);
-  CHECK(quic_ed25519_verify(S, M, msg_len, A) == 1);
+  CHECK(ed25519_verify(S, M, msg_len, A) == 1);
   for (usz i = 0; i < 64; i++) tampered[i] = S[i];
   tampered[0] ^= 0x01;
-  CHECK(quic_ed25519_verify(tampered, M, msg_len, A) == 0);
+  CHECK(ed25519_verify(tampered, M, msg_len, A) == 0);
 }
 
 /* RFC 8032 7.1 TEST 1: empty message. */
@@ -58,7 +58,7 @@ static void test_sha512_empty(void) {
       0x87, 0x7e, 0xec, 0x2f, 0x63, 0xb9, 0x31, 0xbd, 0x47, 0x41, 0x7a,
       0x81, 0xa5, 0x38, 0x32, 0x7a, 0xf9, 0x27, 0xda, 0x3e};
   u8 out[64];
-  quic_sha512((const u8*)"", 0, out);
+  sha512((const u8*)"", 0, out);
   for (usz i = 0; i < 64; i++) CHECK(out[i] == want[i]);
 }
 

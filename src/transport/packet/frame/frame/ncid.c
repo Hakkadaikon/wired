@@ -12,23 +12,21 @@ static int ncid_valid(const quic_ncid_frame* f) {
 
 /* Write type, seq, retire_prior_to varints. Returns 1 ok, 0 on overflow. */
 static int put_ncid_head(wired_obuf* o, const quic_ncid_frame* f) {
-  if (!quic_varint_put(
-          wired_mspan_of(o->p, o->cap), &o->len, QUIC_FRAME_NEW_CID))
+  if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, QUIC_FRAME_NEW_CID))
     return 0;
-  if (!quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->seq)) return 0;
-  return quic_varint_put(
-      wired_mspan_of(o->p, o->cap), &o->len, f->retire_prior_to);
+  if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->seq)) return 0;
+  return varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->retire_prior_to);
 }
 
 /* Write the length byte, the CID, and the reset token. */
 static int put_ncid_body(wired_obuf* o, const quic_ncid_frame* f) {
   if (o->len >= o->cap) return 0;
   o->p[o->len++] = f->cid_len;
-  if (!quic_put_bytes(
+  if (!bytes_put(
           wired_mspan_of(o->p, o->cap), &o->len,
           wired_span_of(f->cid, f->cid_len)))
     return 0;
-  return quic_put_bytes(
+  return bytes_put(
       wired_mspan_of(o->p, o->cap), &o->len,
       wired_span_of(f->token, QUIC_NCID_TOKEN));
 }
@@ -40,7 +38,7 @@ static int put_ncid(wired_obuf* o, const quic_ncid_frame* f) {
 }
 
 usz quic_ncid_encode(u8* buf, usz cap, const quic_ncid_frame* f) {
-  wired_obuf o = quic_obuf_of(buf, cap);
+  wired_obuf o = obuf_of(buf, cap);
   if (!ncid_valid(f)) return 0;
   if (!put_ncid(&o, f)) return 0;
   return o.len;
@@ -48,8 +46,8 @@ usz quic_ncid_encode(u8* buf, usz cap, const quic_ncid_frame* f) {
 
 /* Read seq and retire_prior_to varints. Returns 1 ok, 0 bad. */
 static int take_ncid_head(wired_span in, usz* off, quic_ncid_frame* f) {
-  if (!quic_varint_take(wired_span_of(in.p, in.n), off, &f->seq)) return 0;
-  return quic_varint_take(wired_span_of(in.p, in.n), off, &f->retire_prior_to);
+  if (!varint_take(wired_span_of(in.p, in.n), off, &f->seq)) return 0;
+  return varint_take(wired_span_of(in.p, in.n), off, &f->retire_prior_to);
 }
 
 /* The CID length byte at *off is present and within the QUIC maximum. */
@@ -61,10 +59,10 @@ static int cid_len_ok(const u8* buf, usz n, usz off) {
 static int take_ncid_body(wired_span in, usz* off, quic_ncid_frame* f) {
   if (!cid_len_ok(in.p, in.n, *off)) return 0;
   f->cid_len = in.p[(*off)++];
-  if (!quic_take_bytes(
+  if (!bytes_take(
           wired_span_of(in.p, in.n), off, wired_mspan_of(f->cid, f->cid_len)))
     return 0;
-  return quic_take_bytes(
+  return bytes_take(
       wired_span_of(in.p, in.n), off,
       wired_mspan_of(f->token, QUIC_NCID_TOKEN));
 }

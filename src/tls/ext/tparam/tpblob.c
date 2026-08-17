@@ -9,9 +9,9 @@
 usz quic_tparam_put_blob(wired_obuf* out, u64 id, wired_span val) {
   usz off = 0;
   int ok =
-      quic_varint_put(wired_mspan_of(out->p, out->cap), &off, id) &
-      quic_varint_put(wired_mspan_of(out->p, out->cap), &off, val.n) &
-      quic_put_bytes(
+      varint_put(wired_mspan_of(out->p, out->cap), &off, id) &
+      varint_put(wired_mspan_of(out->p, out->cap), &off, val.n) &
+      bytes_put(
           wired_mspan_of(out->p, out->cap), &off, wired_span_of(val.p, val.n));
   return ok ? off : 0;
 }
@@ -24,10 +24,10 @@ typedef struct {
 
 /* Read both header varints; on success hdr->len holds the value length.
  * Short-circuits (unlike a bitwise &) so a failed id read never lets the
- * second quic_varint_take run with hdr->len still uninitialized. */
+ * second varint_take run with hdr->len still uninitialized. */
 static int blob_take_hdr(wired_span buf, usz* off, tpblob_hdr* hdr) {
-  if (!quic_varint_take(wired_span_of(buf.p, buf.n), off, &hdr->id)) return 0;
-  if (!quic_varint_take(wired_span_of(buf.p, buf.n), off, &hdr->len)) return 0;
+  if (!varint_take(wired_span_of(buf.p, buf.n), off, &hdr->id)) return 0;
+  if (!varint_take(wired_span_of(buf.p, buf.n), off, &hdr->len)) return 0;
   return hdr->len <= buf.n - *off;
 }
 
@@ -47,7 +47,7 @@ static u16 take_be16(const u8* p) { return (u16)((u16)p[0] << 8 | p[1]); }
 /* Append a big-endian 16-bit port at *off. Returns 1 if it fit. */
 static int pa_put_port(wired_mspan v, usz* off, u16 port) {
   if (*off + 2 > v.n) return 0;
-  quic_put_be16(v.p + *off, port);
+  be_put_be16(v.p + *off, port);
   *off += 2;
   return 1;
 }
@@ -61,14 +61,13 @@ static usz pa_build_value(
   wired_mspan mv  = wired_mspan_of(v, cap);
   int         ok =
       (cl <= 20) &
-      quic_put_bytes(wired_mspan_of(v, cap), &off, wired_span_of(pa->ipv4, 4)) &
+      bytes_put(wired_mspan_of(v, cap), &off, wired_span_of(pa->ipv4, 4)) &
       pa_put_port(mv, &off, pa->ipv4_port) &
-      quic_put_bytes(
-          wired_mspan_of(v, cap), &off, wired_span_of(pa->ipv6, 16)) &
+      bytes_put(wired_mspan_of(v, cap), &off, wired_span_of(pa->ipv6, 16)) &
       pa_put_port(mv, &off, pa->ipv6_port) &
-      quic_put_bytes(wired_mspan_of(v, cap), &off, wired_span_of(&cl, 1)) &
-      quic_put_bytes(wired_mspan_of(v, cap), &off, wired_span_of(pa->cid, cl)) &
-      quic_put_bytes(
+      bytes_put(wired_mspan_of(v, cap), &off, wired_span_of(&cl, 1)) &
+      bytes_put(wired_mspan_of(v, cap), &off, wired_span_of(pa->cid, cl)) &
+      bytes_put(
           wired_mspan_of(v, cap), &off, wired_span_of(pa->reset_token, 16));
   return ok ? off : 0;
 }
@@ -77,7 +76,7 @@ usz quic_tparam_put_preferred_address(
     u8* buf, usz cap, const struct quic_preferred_address* pa) {
   u8         v[61]; /* 4+2+16+2+1 + 20 + 16 */
   usz        vlen = pa_build_value(v, sizeof(v), pa);
-  wired_obuf out  = quic_obuf_of(buf, cap);
+  wired_obuf out  = obuf_of(buf, cap);
   if (vlen == 0) return 0;
   return quic_tparam_put_blob(
       &out, QUIC_TP_PREFERRED_ADDRESS, wired_span_of(v, vlen));
@@ -94,24 +93,23 @@ static int pa_take_port(wired_span v, usz* off, u16* port) {
 /* Read fixed prefix from value view at *off. Returns 1 ok, 0 if truncated. */
 static int pa_take_addrs(
     wired_span v, usz* off, struct quic_preferred_address* pa) {
-  return quic_take_bytes(
-             wired_span_of(v.p, v.n), off, wired_mspan_of(pa->ipv4, 4)) &
+  return bytes_take(wired_span_of(v.p, v.n), off, wired_mspan_of(pa->ipv4, 4)) &
          pa_take_port(v, off, &pa->ipv4_port) &
-         quic_take_bytes(
+         bytes_take(
              wired_span_of(v.p, v.n), off, wired_mspan_of(pa->ipv6, 16)) &
          pa_take_port(v, off, &pa->ipv6_port);
 }
 
 /* Read cid_len (validating it fits pa->cid) then the cid bytes. Returns 1 ok,
  * 0 if bad; short-circuits so pa->cid_len is never range-checked before
- * quic_take_bytes has actually written it. */
+ * bytes_take has actually written it. */
 static int pa_take_cid(
     wired_span v, usz* off, struct quic_preferred_address* pa) {
-  if (!quic_take_bytes(
+  if (!bytes_take(
           wired_span_of(v.p, v.n), off, wired_mspan_of(&pa->cid_len, 1)))
     return 0;
   if (pa->cid_len > 20) return 0;
-  return quic_take_bytes(
+  return bytes_take(
       wired_span_of(v.p, v.n), off, wired_mspan_of(pa->cid, pa->cid_len));
 }
 
@@ -119,7 +117,7 @@ static int pa_take_cid(
 static int pa_take_cid_token(
     wired_span v, usz* off, struct quic_preferred_address* pa) {
   if (!pa_take_cid(v, off, pa)) return 0;
-  return quic_take_bytes(
+  return bytes_take(
       wired_span_of(v.p, v.n), off, wired_mspan_of(pa->reset_token, 16));
 }
 

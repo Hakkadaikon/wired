@@ -8,10 +8,10 @@
 
 /* Generate 8 bytes of PATH_CHALLENGE data. Returns 1 on success, 0 on RNG
  * failure. */
-int quic_challenge_generate(u8 token[8]);
+int challenge_generate(u8 token[8]);
 
 /* Generate a 16-byte stateless reset token. Returns 1 on success, 0 on RNG
  * failure. */
-int quic_reset_token_generate(u8 token[16]);
+int reset_token_generate(u8 token[16]);
 
 #endif

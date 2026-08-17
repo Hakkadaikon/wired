@@ -4,7 +4,7 @@ static void test_sni_roundtrip(void) {
   const u8   host[] = {'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm'};
   u8         buf[32];
   wired_span out;
-  wired_obuf ob = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf ob = obuf_of(buf, sizeof(buf));
   usz        w  = quic_tls_sni_encode(&ob, wired_span_of(host, sizeof(host)));
   usz        r  = quic_tls_sni_decode(wired_span_of(buf, w), &out);
   CHECK(w == 3 + sizeof(host) && r == w);
@@ -19,7 +19,7 @@ static void test_sni_truncated(void) {
   const u8   host[] = {'a', 'b', 'c'};
   u8         buf[16];
   wired_span out;
-  wired_obuf ob = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf ob = obuf_of(buf, sizeof(buf));
   usz        w  = quic_tls_sni_encode(&ob, wired_span_of(host, sizeof(host)));
   /* length claims 3 but only 2 data bytes readable */
   CHECK(quic_tls_sni_decode(wired_span_of(buf, w - 1), &out) == 0);
@@ -36,7 +36,7 @@ static void test_sni_wrong_type(void) {
 static void test_sni_no_room(void) {
   const u8   host[] = {'a', 'b', 'c'};
   u8         buf[4];
-  wired_obuf ob = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf ob = obuf_of(buf, sizeof(buf));
   CHECK(quic_tls_sni_encode(&ob, wired_span_of(host, sizeof(host))) == 0);
 }
 

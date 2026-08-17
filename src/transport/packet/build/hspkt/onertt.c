@@ -30,7 +30,7 @@ int quic_hspkt_onertt_build(
     const quic_hspkt_onertt_desc* d,
     wired_obuf*                   out) {
   u8             nonce[QUIC_INITIAL_IV], mask[5];
-  quic_aes128    aead;
+  aes128         aead;
   u8*            o       = out->p;
   usz            hdr_len = build_short_header(o, d->dcid, d->pn, d->phase_bit);
   usz            pn_off  = 1u + d->dcid.n;
@@ -38,9 +38,9 @@ int quic_hspkt_onertt_build(
   quic_hp_fields hf      = {o, o + pn_off, 4, QUIC_HP_SHORT_MASK};
   if (need > out->cap) return 0;
   quic_protect_nonce(k->keys->iv, d->pn, nonce);
-  quic_aes128_init(&aead, k->keys->key);
-  quic_gcm_ctx g = {&aead, nonce, {o, hdr_len}};
-  quic_gcm_seal(&g, d->payload, o + hdr_len);
+  aes128_init(&aead, k->keys->key);
+  gcm_ctx g = {&aead, nonce, {o, hdr_len}};
+  gcm_seal(&g, d->payload, o + hdr_len);
   quic_hp_mask(k->hp, o + pn_off + 4, mask);
   quic_hp_apply(mask, &hf);
   out->len = need;

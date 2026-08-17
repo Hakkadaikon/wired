@@ -28,7 +28,7 @@ static u64 wtcapsule_dir_type(int bidi, u64 bidi_type, u64 uni_type) {
 static int wtcapsule_encode_varint(wired_obuf* out, u64 type, u64 v) {
   u8  body[8];
   usz off = 0;
-  if (!quic_varint_put(wired_mspan_of(body, sizeof body), &off, v)) return 0;
+  if (!varint_put(wired_mspan_of(body, sizeof body), &off, v)) return 0;
   return quic_capsule_encode(out, type, wired_span_of(body, off));
 }
 
@@ -40,7 +40,7 @@ static int wtcapsule_is_sole_varint(
     u64 got_type, u64 type, wired_span value, u64* v) {
   usz voff = 0;
   if (got_type != type) return 0;
-  return quic_varint_take(value, &voff, v) && voff == value.n;
+  return varint_take(value, &voff, v) && voff == value.n;
 }
 
 /* Decode a capsule of exactly `type`, whose entire body is one varint.
@@ -61,7 +61,7 @@ int wired_wtcapsule_encode_close(
   u8  body[QUIC_WTCAPSULE_CLOSE_CODE_LEN + QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX];
   usz i;
   if (message.n > QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX) return 0;
-  quic_put_be32(body, app_error_code);
+  be_put_be32(body, app_error_code);
   for (i = 0; i < message.n; i++)
     body[QUIC_WTCAPSULE_CLOSE_CODE_LEN + i] = message.p[i];
   return quic_capsule_encode(
@@ -89,7 +89,7 @@ static int wtcapsule_is_close(u64 type, wired_span value) {
  * WT_CLOSE_SESSION value. */
 static void wtcapsule_take_close(
     wired_span value, u32* app_error_code, wired_span* message) {
-  *app_error_code = quic_get_be32(value.p);
+  *app_error_code = be_get_be32(value.p);
   *message        = wired_span_of(
       value.p + QUIC_WTCAPSULE_CLOSE_CODE_LEN,
       value.n - QUIC_WTCAPSULE_CLOSE_CODE_LEN);

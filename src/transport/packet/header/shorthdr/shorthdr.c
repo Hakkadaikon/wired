@@ -23,7 +23,7 @@ int quic_shorthdr_build(const quic_shorthdr_desc* d, wired_obuf* out) {
   usz off = 1;
   if (!shorthdr_ok(out->cap, d)) return 0;
   out->p[0] = quic_shorthdr_byte0(d->spin, d->key_phase, d->pn_len);
-  quic_put_bytes(
+  bytes_put(
       wired_mspan_of(out->p, out->cap), &off,
       wired_span_of(d->dcid.p, d->dcid.n)); /* room ok */
   shdr_put_pn(out->p + off, d->pn, d->pn_len);

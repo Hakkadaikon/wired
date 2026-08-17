@@ -13,9 +13,9 @@ static int alpn_fits(usz proto_len, usz cap) {
 usz quic_tls_alpn_encode(wired_obuf* out, wired_span proto) {
   usz off = 3;
   if (!alpn_fits(proto.n, out->cap)) return 0;
-  quic_put_be16(out->p, (u16)(1 + proto.n));
+  be_put_be16(out->p, (u16)(1 + proto.n));
   out->p[2] = (u8)proto.n;
-  quic_put_bytes(
+  bytes_put(
       wired_mspan_of(out->p, out->cap), &off,
       wired_span_of(proto.p, proto.n)); /* room checked above */
   out->len = off;

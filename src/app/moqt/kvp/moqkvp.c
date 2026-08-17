@@ -53,7 +53,7 @@ int quic_moqkvp_take(
 static int moqkvp_put_raw(wired_mspan buf, usz* at, wired_span raw) {
   if (raw.n > QUIC_MOQKVP_MAX_LEN) return 0;
   if (!quic_moqvi_put(buf, at, raw.n)) return 0;
-  return quic_put_bytes(buf, at, raw);
+  return bytes_put(buf, at, raw);
 }
 
 static int moqkvp_put_value(wired_mspan buf, usz* at, const quic_moqkvp* kv) {

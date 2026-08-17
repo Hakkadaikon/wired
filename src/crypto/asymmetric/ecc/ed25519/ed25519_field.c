@@ -4,8 +4,8 @@
  * five 51-bit limbs (radix-2^51, ref10 style; same representation as RFC 7748
  * X25519). Group points in extended homogeneous coordinates. */
 
-typedef quic_ed_fe fe;
-typedef quic_ed_ge ge;
+typedef ed_fe fe;
+typedef ed_ge ge;
 #define MASK51 0x7ffffffffffffULL
 
 static void fe_0(fe h) {
@@ -254,7 +254,7 @@ static void ge_zero(ge* p) {
   fe_0(p->T);
 }
 
-void quic_ed_ge_base(ge* p) {
+void ed_ge_base(ge* p) {
   static const u8 bx[32] = {0x1a, 0xd5, 0x25, 0x8f, 0x60, 0x2d, 0x56, 0xc9,
                             0xb2, 0xa7, 0x25, 0x95, 0x60, 0xc7, 0x2c, 0x69,
                             0x5c, 0xdc, 0xd6, 0xfd, 0x31, 0xe2, 0xa4, 0xc0,
@@ -269,7 +269,7 @@ void quic_ed_ge_base(ge* p) {
   fe_mul(p->T, p->X, p->Y);
 }
 
-void quic_ed_ge_add(ge* p3, const ge* p1, const ge* p2) {
+void ed_ge_add(ge* p3, const ge* p1, const ge* p2) {
   fe a, b, c, d, e, f, g, h, t, d2;
   fe_d(d2);
   fe_add(d2, d2, d2); /* 2*d */
@@ -293,13 +293,13 @@ void quic_ed_ge_add(ge* p3, const ge* p1, const ge* p2) {
   fe_mul(p3->Z, f, g);
 }
 
-void quic_ed_ge_scalarmult(ge* q, const u8 scalar[32], const ge* p) {
+void ed_ge_scalarmult(ge* q, const u8 scalar[32], const ge* p) {
   ge_zero(q);
   for (usz i = 256; i-- > 0;) {
     u8 bit = (scalar[i >> 3] >> (i & 7)) & 1;
-    quic_ed_ge_add(q, q, q);
+    ed_ge_add(q, q, q);
     ge t;
-    quic_ed_ge_add(&t, q, p);
+    ed_ge_add(&t, q, p);
     fe_cmov(q->X, t.X, bit);
     fe_cmov(q->Y, t.Y, bit);
     fe_cmov(q->Z, t.Z, bit);
@@ -307,7 +307,7 @@ void quic_ed_ge_scalarmult(ge* q, const u8 scalar[32], const ge* p) {
   }
 }
 
-void quic_ed_ge_encode(u8 out[32], const ge* p) {
+void ed_ge_encode(u8 out[32], const ge* p) {
   fe zi, x, y;
   fe_invert(zi, p->Z);
   fe_mul(x, p->X, zi);
@@ -385,7 +385,7 @@ static int decode_xy(ge* p, const u8 in[32], int* x_0_out) {
   return recover_x(p->X, u, v);
 }
 
-int quic_ed_ge_decode(ge* p, const u8 in[32]) {
+int ed_ge_decode(ge* p, const u8 in[32]) {
   int x_0;
   if (!decode_xy(p, in, &x_0)) return 0;
   if (decode_sign_fails(p->X, x_0)) return 0;

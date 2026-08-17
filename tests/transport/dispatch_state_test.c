@@ -39,7 +39,7 @@ static void test_dispatch_stream(void) {
   usz               n = quic_frame_put_stream(buf, sizeof buf, &f);
   CHECK(quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
   u8         out[8];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   quic_stream_read_pull(&s, &ob);
   CHECK(ob.len == 4);
   CHECK(st.ack_eliciting == 1);

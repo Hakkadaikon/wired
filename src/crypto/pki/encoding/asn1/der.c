@@ -48,7 +48,7 @@ static int der_header(wired_span buf, usz* len, usz* head) {
   return 1;
 }
 
-int quic_der_read(wired_span buf, quic_der_tlv* out) {
+int der_read(wired_span buf, der_tlv* out) {
   usz len, head;
   if (!der_header(buf, &len, &head)) return 0;
   if (len > buf.n - head) return 0;
@@ -58,9 +58,9 @@ int quic_der_read(wired_span buf, quic_der_tlv* out) {
   return 1;
 }
 
-int quic_der_seq(wired_span buf, wired_span* val) {
-  quic_der_tlv t;
-  if (!quic_der_read(buf, &t)) return 0;
+int der_seq(wired_span buf, wired_span* val) {
+  der_tlv t;
+  if (!der_read(buf, &t)) return 0;
   *val = t.val;
   return t.tag == QUIC_DER_SEQUENCE;
 }

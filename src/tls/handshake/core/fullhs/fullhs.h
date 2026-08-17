@@ -40,7 +40,7 @@ typedef struct {
   usz cert_off[QUIC_TLS_CERT_CHAIN_MAX]; /* each wire cert, offset into tr */
   usz cert_lens[QUIC_TLS_CERT_CHAIN_MAX];
   usz cert_count;
-  const quic_castore* castore; /* NULL (init default) skips chain checks */
+  const castore* castore; /* NULL (init default) skips chain checks */
 } quic_fullhs;
 
 /* Seed the full handshake driver from a tlsdriver that has reached the
@@ -62,7 +62,7 @@ void quic_fullhs_set_policy(quic_fullhs* h, u64 now, wired_span host);
  * when the Certificate message arrives (every link verified, tail anchored
  * to a store root). store is borrowed and must outlive the handshake. NULL
  * (the init default) skips chain validation. */
-void quic_fullhs_set_castore(quic_fullhs* h, const quic_castore* store);
+void quic_fullhs_set_castore(quic_fullhs* h, const castore* store);
 
 /* RFC 8446 4.4.2: fold the peer's Certificate message into the transcript and
  * record its end-entity certificate, checking flight order and the acceptance

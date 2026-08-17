@@ -11,7 +11,7 @@ static const u64 dg_varint_max[4] = {
 /* Largest payload that encodes in the varint width capping at cap, fitting
  * room = length-varint + payload. 0 if none fits. RFC 9221 5. */
 static u64 dg_payload_in_width(u64 room, u64 cap) {
-  u64 vlen = quic_varint_len(cap);
+  u64 vlen = varint_len(cap);
   if (room <= vlen) return 0;
   return (room - vlen < cap) ? room - vlen : cap;
 }

@@ -8,21 +8,21 @@
 /* id-ce-extKeyUsage = 2.5.29.37 */
 static const u8 oid_eku[] = {0x55, 0x1d, 0x25};
 
-const u8 quic_x509_oid_server_auth[8] = {0x2b, 0x06, 0x01, 0x05,
-                                         0x05, 0x07, 0x03, 0x01};
+const u8 x509_oid_server_auth[8] = {0x2b, 0x06, 0x01, 0x05,
+                                    0x05, 0x07, 0x03, 0x01};
 
 /* One KeyPurposeId element equals purpose_oid. */
 static int eku_id_matches(u8 tag, wired_span id, wired_span purpose_oid) {
-  return tag == QUIC_DER_OID && quic_der_oid_equal(id, purpose_oid);
+  return tag == QUIC_DER_OID && der_oid_equal(id, purpose_oid);
 }
 
 /* RFC 5280 4.2.1.12. Scan the SEQUENCE OF KeyPurposeId for purpose_oid. */
 static int eku_list_has(wired_span list, wired_span purpose_oid) {
-  quic_derseq c;
-  u8          tag;
-  wired_span  id;
-  quic_derseq_init(&c, list);
-  while (quic_derseq_next(&c, &tag, &id))
+  derseq     c;
+  u8         tag;
+  wired_span id;
+  derseq_init(&c, list);
+  while (derseq_next(&c, &tag, &id))
     if (eku_id_matches(tag, id, purpose_oid)) return 1;
   return 0;
 }
@@ -30,12 +30,12 @@ static int eku_list_has(wired_span list, wired_span purpose_oid) {
 /* The extKeyUsage extnValue: a SEQUENCE OF KeyPurposeId. */
 static int eku_locate(wired_span tbs, wired_span* list) {
   wired_span val;
-  if (!quic_x509_find_ext(tbs, wired_span_of(oid_eku, sizeof(oid_eku)), &val))
+  if (!x509_find_ext(tbs, wired_span_of(oid_eku, sizeof(oid_eku)), &val))
     return 0;
-  return quic_der_seq(val, list);
+  return der_seq(val, list);
 }
 
-int quic_x509_eku_allows(wired_span tbs, wired_span purpose_oid) {
+int x509_eku_allows(wired_span tbs, wired_span purpose_oid) {
   wired_span list;
   if (!eku_locate(tbs, &list)) return 1;
   return eku_list_has(list, purpose_oid);
