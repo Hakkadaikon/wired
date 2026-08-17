@@ -42,7 +42,7 @@ static void hs_traffic(
 /* Derive both directions' handshake traffic secrets over the transcript
  * through ServerHello and seed the cumulative transcript with it.
  * RFC 8446 4.4.1/7.1: that transcript is ClientHello||ServerHello, not
- * ServerHello alone -- h->tls->transcript_ch (saved by quic_tlsdriver_
+ * ServerHello alone -- h->tls->transcript_ch (saved by tlsdriver_
  * client_hello, empty on the server side, see tlsdriver.h's doc comment)
  * is prepended first, exactly like tlsdriver.c's own build_transcript does
  * for the handshake-secret derivation. */

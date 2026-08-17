@@ -317,7 +317,7 @@ int wired_main(int argc, char** argv) {
       wired_cliargs_str(argc, argv, "--qlog-file", 0),
       wired_cliargs_str(argc, argv, "--keylog-file", 0), cfg.cert_path,
       cfg.key_path,
-      /* QUIC_CC_ALGO_*: 0 NewReno (default), 1 Cubic, 2 BBR */
+      /* CC_ALGO_*: 0 NewReno (default), 1 Cubic, 2 BBR */
       (int)wired_cliargs_int(argc, argv, "--cc-algo", 0)};
   if (!wired_srvdriver_run(&id, h, obs, &cfg.driver))
     wired_die("listen failed\n");

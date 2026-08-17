@@ -144,7 +144,7 @@ typedef struct {
   const char* keylog_path; /**< NSS key log file path, or 0 to disable */
   const char* cert_path;   /**< cert.pem path, or 0 to disable SIGHUP reload */
   const char* key_path;    /**< key.pem path, or 0 to disable SIGHUP reload */
-  /** QUIC_CC_ALGO_* for fresh connections. 0 selects the build's default
+  /** CC_ALGO_* for fresh connections. 0 selects the build's default
    * (WIRED_CC_ALGO_DEFAULT in srvrun.c -- Cubic unless the build overrides
    * it); a build wanting NewReno overrides -DWIRED_CC_ALGO_DEFAULT=0, since
    * an explicit runtime NewReno request (CC_ALGO_NEWRENO == 0) is

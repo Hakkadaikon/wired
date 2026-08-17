@@ -238,7 +238,7 @@ updated in place; connections already past their handshake are undisturbed.
   (CUBIC unless the build overrides `-DWIRED_CC_ALGO_DEFAULT`), `1` = CUBIC,
   `2` = BBR. A build wanting NewReno as its default sets
   `-DWIRED_CC_ALGO_DEFAULT=0`. The advertised transport-parameter defaults
-  are build-time tunable the same way (`QUIC_STP_DEFAULT_*` in
+  are build-time tunable the same way (`STP_DEFAULT_*` in
   `src/tls/ext/stp/server_tp.h`).
 
 The examples map these to `--qlog-file`/`--keylog-file` flags.

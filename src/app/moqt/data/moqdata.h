@@ -28,7 +28,7 @@
 #define MOQDATA_TYPE_PADDING 0x132B3E28ULL
 
 /** Classify a unidirectional stream by its leading Stream Type varint
- * (3.4). Returns one of the QUIC_MOQDATA_STREAM_* values above; *off is
+ * (3.4). Returns one of the MOQDATA_STREAM_* values above; *off is
  * advanced past the Stream Type field on any outcome but INSUFFICIENT
  * (left at 0 there). SUBGROUP_HEADER's Type byte is left unconsumed so the
  * caller can pass it to moqdata_subhdr_take. */

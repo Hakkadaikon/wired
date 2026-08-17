@@ -2,7 +2,7 @@
 #define QPACK_ERROR_H
 
 /* RFC 9204 6, 8.3. QPACK connection error codes, registered in the HTTP/3
- * Error Codes registry alongside the QUIC_H3_* codes (frame.h). */
+ * Error Codes registry alongside the H3_* codes (frame.h). */
 
 /* The decoder failed to interpret an encoded field section and cannot
  * continue decoding that field section. */

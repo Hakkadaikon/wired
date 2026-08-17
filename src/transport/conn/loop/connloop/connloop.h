@@ -32,7 +32,7 @@ typedef struct {
   int     handshake_confirmed; /* RFC 9001 4.1.2: HANDSHAKE_DONE seen */
   int     validated;           /* RFC 9000 8.1: address validated */
   int     is_server;
-  int     phase;           /* QUIC_CONNLOOP_* */
+  int     phase;           /* CONNLOOP_* */
   int     pto_armed;       /* RFC 9002 6.2: PTO timer armed */
   u64     recv_bytes;      /* RFC 9000 8.1: bytes received on this path */
   u64     sent_bytes;      /* RFC 9000 8.1: bytes sent on this path */

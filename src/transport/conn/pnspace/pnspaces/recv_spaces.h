@@ -14,7 +14,7 @@
 #define PNSPACES_ACK_CAP (RECVPN_WINDOW + 1)
 
 /** Per-space received-packet-number tracking (recvpn), one per
- * QUIC_PNS_*. */
+ * PNS_*. */
 typedef struct {
   recvpn r[PNS_COUNT]; /**< indexed by PNS_INITIAL/HANDSHAKE/APP */
 } pnspaces_recv;

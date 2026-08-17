@@ -72,7 +72,7 @@ export function encodeVoiceObjectMessage(
 
 // Object ID accumulation state threaded across successive
 // tryDecodeOneVoiceObject calls on the same stream -- mirrors
-// quic_moqdata_objseq on the hub side (moqdata.h).
+// moqdata_objseq on the hub side (moqdata.h).
 export interface VoiceObjectSeq {
   prevObjectId: bigint;
   isFirst: boolean;

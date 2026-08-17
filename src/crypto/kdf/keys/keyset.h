@@ -36,7 +36,7 @@ void keyset_init(keyset* state);
  * Install keys at level (0/1/2).
  *
  * @param state key set to update
- * @param level protection level (QUIC_LEVEL_*)
+ * @param level protection level (LEVEL_*)
  * @param keys  key material copied into the set
  * @return 1 ok, 0 if level out of range.
  */
@@ -49,7 +49,7 @@ int keyset_install(keyset* state, int level, const initial_keys* keys);
  * not overwritten.
  *
  * @param state key set to query
- * @param level protection level (QUIC_LEVEL_*)
+ * @param level protection level (LEVEL_*)
  * @param out   receives a pointer to the installed keys
  * @return 1 if installed, 0 otherwise.
  */

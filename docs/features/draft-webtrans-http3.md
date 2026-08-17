@@ -366,7 +366,7 @@ Legend:
   requests for new WebTransport sessions on that connection.
   - test: `tests/app/goaway_check_test.c` — `test_goaway_check`
   - evidence: the generic GOAWAY-id monotonicity/rejection check
-    (`quic_h3_goaway_check` family) applies to all new client-initiated
+    (`goaway_check` family) applies to all new client-initiated
     request streams, including WebTransport CONNECT streams; no
     WT-specific test drives a CONNECT arriving after GOAWAY.
 - [x] WTH3-048 (§4.7) An HTTP/3 GOAWAY frame is also a signal to
@@ -477,7 +477,7 @@ Legend:
     `test_wtcapsule_max_streams_bidi_roundtrip`
   - test: `tests/app/wt_session_test.c` —
     `test_flow_control_max_streams_bidi_enforced`
-  - gap: `quic_wtcapsule_{encode,decode}_max_streams` and
+  - gap: `wtcapsule_{encode,decode}_max_streams` and
     `wired_wt_session_set_max_streams` exist and are tested, but no
     receive-capsule loop in `srvrun.c` calls them yet.
 - [~] WTH3-057 (§5.3) An endpoint shall not open more streams than

@@ -35,7 +35,7 @@ typedef struct {
   sockaddr  peer;
   tlsdriver tls;
   fullhs    hs;
-  int       phase;              /* QUIC_CLIENT_HS_* */
+  int       phase;              /* CLIENT_HS_* */
   u8        sh_transcript[512]; /* ClientHello..ServerHello bytes for fullhs */
   usz       sh_len;
   u8        my_priv[ECDHE_LEN];

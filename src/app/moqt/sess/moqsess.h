@@ -54,14 +54,14 @@ typedef struct {
   moqsess_state state;
   int           goaway_sent;
   int           goaway_recv;
-  int           close_reason; /* QUIC_MOQSESS_CLOSE_* once state==CLOSED */
+  int           close_reason; /* MOQSESS_CLOSE_* once state==CLOSED */
 } moqsess;
 
 /** Zero-initialize (equivalent to `= {0}`; provided for callers that build
  * the struct at runtime rather than with a static initializer). */
 void moqsess_init(moqsess* s);
 
-/** Apply one event. Returns the resulting close_reason (QUIC_MOQSESS_CLOSE_
+/** Apply one event. Returns the resulting close_reason (MOQSESS_CLOSE_
  * NONE if the session is still open). Once state == CLOSED, further events
  * are no-ops (idempotent close). */
 int moqsess_step(moqsess* s, moqsess_event ev);
@@ -126,7 +126,7 @@ typedef struct {
   int pending_ok;    /* publisher-initiated: OK deferred past PUBLISH_DONE */
   int fin_req;       /* requester's direction closed (FIN) */
   int fin_resp;      /* responder's direction closed (FIN) */
-  int term_reason;   /* QUIC_MOQSUB_TERM_* once state==TERMINATED */
+  int term_reason;   /* MOQSUB_TERM_* once state==TERMINATED */
   int session_fault; /* set on a duplicate-response violation */
 } moqsub;
 

@@ -241,7 +241,7 @@ static int sdt_retry_initial(
 }
 
 /* Seals cx->ch (already built by sdt_client_init, with the DATAGRAM transport
- * parameter) into a protected Initial packet -- quic_client_build_initial_
+ * parameter) into a protected Initial packet -- client_build_initial_
  * wire cannot be reused here since it always rebuilds the ClientHello itself
  * via tlsdriver_raw_client_hello's hardcoded empty transport parameters
  * (see sdt_build_ch_with_dg_tp's doc). */

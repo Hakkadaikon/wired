@@ -7,7 +7,7 @@
  * level it is processed at. Long-header Initial/Handshake map to the matching
  * keyset level; a short header is always 1-RTT. */
 
-/* Write the QUIC_LEVEL_* for byte0 into *level. Returns 1 on a level this loop
+/* Write the LEVEL_* for byte0 into *level. Returns 1 on a level this loop
  * handles (Initial, Handshake, 1-RTT), 0 for 0-RTT, Retry, or a non-packet. */
 int connrunner_packet_level(u8 byte0, int* level);
 

@@ -106,7 +106,7 @@ static void test_keyschedule_matches_oneshot(void) {
 
 /* RFC 8446 7.1 PSK branch: keysched_advance_handshake_psk installs
  * the same Handshake-level keys and Master Secret as an independent
- * tls_handshake_secret_psk + tls_handshake_keys/quic_tls_master_
+ * tls_handshake_secret_psk + tls_handshake_keys/tls_master_
  * secret computation over the same psk/ecdhe/transcript. */
 static void test_keyschedule_psk_matches_oneshot(void) {
   u8 psk[32], ecdhe[32], tr[] = "ClientHello(psk)||ServerHello";

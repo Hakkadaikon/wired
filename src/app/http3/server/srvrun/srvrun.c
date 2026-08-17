@@ -91,7 +91,7 @@ typedef struct {
   const char*           keylog_path; /**< NSS key log path, or 0 to disable */
   const char*           cert_path; /**< cert.pem path, or 0 to disable reload */
   const char*           key_path;  /**< key.pem path, or 0 to disable reload */
-  int                   cc_algo;   /**< QUIC_CC_ALGO_* for fresh connections */
+  int                   cc_algo;   /**< CC_ALGO_* for fresh connections */
   int                   busy_poll; /**< 1: nonblocking spin instead of poll */
   wired_wt_on_datagram  wt_on_datagram;    /**< app WT datagram callback, 0 to
                                             * disable */
