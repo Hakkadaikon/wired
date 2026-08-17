@@ -80,7 +80,7 @@ static void put_be64(u8* p, u64 v) {
 }
 
 /* Increment the low 32 bits of a counter block (GCM uses a 32-bit counter). */
-static void ctr_inc(u8 c[16]) {
+static void gcm_ctr_inc(u8 c[16]) {
   for (usz i = 16; i > 12; i--)
     if (++c[i - 1] != 0) return;
 }
@@ -97,7 +97,7 @@ static usz ctr_chunk(gcm_ctr* c, wired_span in, u8* out) {
   usz n = (in.n < 16) ? in.n : 16;
   aes128_encrypt(c->a, c->ctr, ks);
   for (usz i = 0; i < n; i++) out[i] = in.p[i] ^ ks[i];
-  ctr_inc(c->ctr);
+  gcm_ctr_inc(c->ctr);
   return n;
 }
 
@@ -132,7 +132,7 @@ static void gcm_setup(const gcm_ctx* g, gcm_st* st) {
 static void data_ctr(const gcm_st* st, gcm_ctr* c) {
   c->a = st->g->aes;
   for (usz i = 0; i < 16; i++) c->ctr[i] = st->j0[i];
-  ctr_inc(c->ctr);
+  gcm_ctr_inc(c->ctr);
 }
 
 /* Compute the authentication tag over the AAD and ct using H and J0. */
@@ -226,7 +226,7 @@ int gcm_open(const gcm_ctx* g, wired_span ct, u8* pt) {
 /* AES-256-GCM (RFC 8446 Appendix B.4, 0x1302). Same mode of operation as
  * AES-128-GCM above; only the block cipher call (aes256_encrypt) and
  * the types carrying it differ. GHASH/counter helpers (ghash_bytes,
- * ghash_block, ctr_inc, put_be64) are shared, not duplicated. */
+ * ghash_block, gcm_ctr_inc, put_be64) are shared, not duplicated. */
 
 /* AES-256-CTR keystream state: key schedule plus the running counter block. */
 typedef struct {
@@ -240,7 +240,7 @@ static usz ctr_chunk256(gcm256_ctr* c, wired_span in, u8* out) {
   usz n = (in.n < 16) ? in.n : 16;
   aes256_encrypt(c->a, c->ctr, ks);
   for (usz i = 0; i < n; i++) out[i] = in.p[i] ^ ks[i];
-  ctr_inc(c->ctr);
+  gcm_ctr_inc(c->ctr);
   return n;
 }
 
@@ -275,7 +275,7 @@ static void gcm_setup256(const gcm256_ctx* g, gcm256_st* st) {
 static void data_ctr256(const gcm256_st* st, gcm256_ctr* c) {
   c->a = st->g->aes;
   for (usz i = 0; i < 16; i++) c->ctr[i] = st->j0[i];
-  ctr_inc(c->ctr);
+  gcm_ctr_inc(c->ctr);
 }
 
 /* Compute the authentication tag over the AAD and ct using H and J0. */
