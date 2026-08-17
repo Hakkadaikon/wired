@@ -66,9 +66,7 @@ static void test_akid_absent(void) {
 static void test_golden_cert_has_both(void) {
   x509       c;
   wired_span val;
-  CHECK(
-      x509_parse(
-          wired_span_of(quic_x509_golden, sizeof(quic_x509_golden)), &c) == 1);
+  CHECK(x509_parse(wired_span_of(x509_golden, sizeof(x509_golden)), &c) == 1);
   CHECK(x509_subject_key_id(c.tbs, &val) == 1);
   CHECK(val.n == 22);
   CHECK(x509_authority_key_id(c.tbs, &val) == 1);

@@ -230,7 +230,7 @@ def main():
         lines += ['#include "%s"' % t for t in stests]
         lines.append("int wired_test_shard_%d(void) {" % n)
         lines += ["  %s();" % fn for fn in fns]
-        lines.append("  return quic_test_fails;")
+        lines.append("  return wired_test_fails;")
         lines.append("}")
         write_if_changed(os.path.join(OUT_DIR, "shard_%d.c" % n), "\n".join(lines) + "\n")
 

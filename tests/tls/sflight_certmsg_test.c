@@ -8,8 +8,8 @@
  * tls_cert_chain byte-for-byte against the golden DERs. */
 static void test_certchain_two_roundtrip(void) {
   const wired_span certs[2] = {
-      wired_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
-      wired_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der))};
+      wired_span_of(realchain_leaf_der, sizeof(realchain_leaf_der)),
+      wired_span_of(realchain_int_der, sizeof(realchain_int_der))};
   sflight_certchain_in in = {certs, 2};
   u8                   out[2048];
   wired_obuf           ob = obuf_of(out, sizeof(out));
@@ -24,12 +24,12 @@ static void test_certchain_two_roundtrip(void) {
   CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
   CHECK(tls_cert_chain(wired_span_of(out + 4, body_len), &ctx, &co));
   CHECK(count == 2);
-  CHECK(entries[0].cert_len == sizeof(quic_realchain_leaf_der));
-  CHECK(entries[1].cert_len == sizeof(quic_realchain_int_der));
+  CHECK(entries[0].cert_len == sizeof(realchain_leaf_der));
+  CHECK(entries[1].cert_len == sizeof(realchain_int_der));
   for (usz i = 0; i < entries[0].cert_len; i++)
-    CHECK(entries[0].cert_data[i] == quic_realchain_leaf_der[i]);
+    CHECK(entries[0].cert_data[i] == realchain_leaf_der[i]);
   for (usz i = 0; i < entries[1].cert_len; i++)
-    CHECK(entries[1].cert_data[i] == quic_realchain_int_der[i]);
+    CHECK(entries[1].cert_data[i] == realchain_int_der[i]);
 }
 
 /* A 1-entry chain output is byte-identical to the legacy single-cert path. */
@@ -50,11 +50,11 @@ static void test_certchain_single_equals_legacy(void) {
 /* count 0 and count > TLS_CERT_CHAIN_MAX are rejected; count 2 is fine. */
 static void test_certchain_bounds(void) {
   const wired_span certs[TLS_CERT_CHAIN_MAX + 1] = {
-      wired_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
-      wired_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der)),
-      wired_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
-      wired_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der)),
-      wired_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der))};
+      wired_span_of(realchain_leaf_der, sizeof(realchain_leaf_der)),
+      wired_span_of(realchain_int_der, sizeof(realchain_int_der)),
+      wired_span_of(realchain_leaf_der, sizeof(realchain_leaf_der)),
+      wired_span_of(realchain_int_der, sizeof(realchain_int_der)),
+      wired_span_of(realchain_leaf_der, sizeof(realchain_leaf_der))};
   u8                   out[4096];
   wired_obuf           ob0 = obuf_of(out, sizeof(out));
   wired_obuf           ob1 = obuf_of(out, sizeof(out));
@@ -71,8 +71,8 @@ static void test_certchain_bounds(void) {
 /* A cap too small for the chain is rejected (0), not truncated. */
 static void test_certchain_no_room(void) {
   const wired_span certs[2] = {
-      wired_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
-      wired_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der))};
+      wired_span_of(realchain_leaf_der, sizeof(realchain_leaf_der)),
+      wired_span_of(realchain_int_der, sizeof(realchain_int_der))};
   u8                   out[16];
   wired_obuf           ob = obuf_of(out, sizeof(out));
   sflight_certchain_in in = {certs, 2};

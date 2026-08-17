@@ -15,36 +15,32 @@ static int san_match(const u8* der, usz der_len, const u8* host, usz hlen) {
 static void test_exact_match(void) {
   const u8 host[] = "example.com";
   CHECK(
-      san_match(
-          quic_chain_golden1, sizeof(quic_chain_golden1), host,
-          sizeof(host) - 1) == 1);
+      san_match(chain_golden1, sizeof(chain_golden1), host, sizeof(host) - 1) ==
+      1);
 }
 
 /* *.example.com covers one label below example.com. */
 static void test_wildcard_match(void) {
   const u8 host[] = "www.example.com";
   CHECK(
-      san_match(
-          quic_chain_golden1, sizeof(quic_chain_golden1), host,
-          sizeof(host) - 1) == 1);
+      san_match(chain_golden1, sizeof(chain_golden1), host, sizeof(host) - 1) ==
+      1);
 }
 
 /* The wildcard matches a single label only, not nested subdomains. */
 static void test_wildcard_no_nested(void) {
   const u8 host[] = "a.b.example.com";
   CHECK(
-      san_match(
-          quic_chain_golden1, sizeof(quic_chain_golden1), host,
-          sizeof(host) - 1) == 0);
+      san_match(chain_golden1, sizeof(chain_golden1), host, sizeof(host) - 1) ==
+      0);
 }
 
 /* An unrelated hostname matches neither entry. */
 static void test_no_match(void) {
   const u8 host[] = "example.org";
   CHECK(
-      san_match(
-          quic_chain_golden1, sizeof(quic_chain_golden1), host,
-          sizeof(host) - 1) == 0);
+      san_match(chain_golden1, sizeof(chain_golden1), host, sizeof(host) - 1) ==
+      0);
 }
 
 /* RFC 6125 6.4.4: a cert without a SAN extension falls back to CN-ID, so a
@@ -52,9 +48,8 @@ static void test_no_match(void) {
 static void test_no_san(void) {
   const u8 host[] = "unrelated.example";
   CHECK(
-      san_match(
-          quic_chain_golden2, sizeof(quic_chain_golden2), host,
-          sizeof(host) - 1) == 0);
+      san_match(chain_golden2, sizeof(chain_golden2), host, sizeof(host) - 1) ==
+      0);
 }
 
 /* RFC 6125 6.4.1: comparison is ASCII case-insensitive — an upper/mixed-case
@@ -64,12 +59,10 @@ static void test_san_case_fold(void) {
   const u8 mixed[] = "WwW.Example.COM";
   CHECK(
       san_match(
-          quic_chain_golden1, sizeof(quic_chain_golden1), upper,
-          sizeof(upper) - 1) == 1);
+          chain_golden1, sizeof(chain_golden1), upper, sizeof(upper) - 1) == 1);
   CHECK(
       san_match(
-          quic_chain_golden1, sizeof(quic_chain_golden1), mixed,
-          sizeof(mixed) - 1) == 1);
+          chain_golden1, sizeof(chain_golden1), mixed, sizeof(mixed) - 1) == 1);
 }
 
 /* RFC 6125 6.4.4: cert2 has no SAN at all, so its CN (other.example) is the
@@ -77,9 +70,8 @@ static void test_san_case_fold(void) {
 static void test_san_cn_id_fallback(void) {
   const u8 host[] = "other.example";
   CHECK(
-      san_match(
-          quic_chain_golden2, sizeof(quic_chain_golden2), host,
-          sizeof(host) - 1) == 1);
+      san_match(chain_golden2, sizeof(chain_golden2), host, sizeof(host) - 1) ==
+      1);
 }
 
 /* RFC 6125 6.4.4: cert1 HAS a SAN (with dNSName entries), so its CN
@@ -91,9 +83,8 @@ static void test_san_cn_id_fallback(void) {
 static void test_san_present_suppresses_cn_fallback(void) {
   const u8 host[] = "other.example";
   CHECK(
-      san_match(
-          quic_chain_golden1, sizeof(quic_chain_golden1), host,
-          sizeof(host) - 1) == 0);
+      san_match(chain_golden1, sizeof(chain_golden1), host, sizeof(host) - 1) ==
+      0);
 }
 
 /* Minimal synthetic tbsCertificate: 6 filler NULL TLVs (serialNumber,

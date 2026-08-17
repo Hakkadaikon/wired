@@ -9,9 +9,7 @@
 static void test_ca_true(void) {
   x509 c;
   CHECK(
-      x509_parse(
-          wired_span_of(quic_chain_golden1, sizeof(quic_chain_golden1)), &c) ==
-      1);
+      x509_parse(wired_span_of(chain_golden1, sizeof(chain_golden1)), &c) == 1);
   CHECK(x509_is_ca(c.tbs) == 1);
 }
 
@@ -19,9 +17,7 @@ static void test_ca_true(void) {
 static void test_ca_false(void) {
   x509 c;
   CHECK(
-      x509_parse(
-          wired_span_of(quic_chain_golden2, sizeof(quic_chain_golden2)), &c) ==
-      1);
+      x509_parse(wired_span_of(chain_golden2, sizeof(chain_golden2)), &c) == 1);
   CHECK(x509_is_ca(c.tbs) == 0);
 }
 
@@ -47,12 +43,12 @@ static usz bc_pathlen_off(const u8* der, usz len) {
  * TLV, and parse the copy. The caller owns `der` so the views stay alive. */
 static void mid3_patched(usz rel, u8 v, u8* der, x509* c) {
   usz off;
-  for (usz i = 0; i < sizeof(quic_castore_mid3_der); i++)
-    der[i] = quic_castore_mid3_der[i];
-  off = bc_pathlen_off(der, sizeof(quic_castore_mid3_der));
+  for (usz i = 0; i < sizeof(castore_mid3_der); i++)
+    der[i] = castore_mid3_der[i];
+  off = bc_pathlen_off(der, sizeof(castore_mid3_der));
   CHECK(off != 0);
   der[off + rel] = v;
-  CHECK(x509_parse(wired_span_of(der, sizeof(quic_castore_mid3_der)), c) == 1);
+  CHECK(x509_parse(wired_span_of(der, sizeof(castore_mid3_der)), c) == 1);
 }
 
 /* RFC 5280 6.1.4 (m): mid3 asserts pathlen:0, so depth 0 is admitted and
@@ -61,15 +57,14 @@ static void test_pathlen_allows_boundary(void) {
   x509 c;
   CHECK(
       x509_parse(
-          wired_span_of(quic_castore_mid3_der, sizeof(quic_castore_mid3_der)),
-          &c) == 1);
+          wired_span_of(castore_mid3_der, sizeof(castore_mid3_der)), &c) == 1);
   CHECK(x509_pathlen_allows(c.tbs, 0) == 1);
   CHECK(x509_pathlen_allows(c.tbs, 1) == 0);
 }
 
 /* A pathLenConstraint of 1 admits depth 1 and rejects depth 2. */
 static void test_pathlen_allows_one(void) {
-  u8   der[sizeof(quic_castore_mid3_der)];
+  u8   der[sizeof(castore_mid3_der)];
   x509 c;
   mid3_patched(7, 0x01, der, &c);
   CHECK(x509_pathlen_allows(c.tbs, 1) == 1);
@@ -78,7 +73,7 @@ static void test_pathlen_allows_one(void) {
 
 /* X.690 8.3 / RFC 5280: INTEGER (0..MAX) — a negative value rejects. */
 static void test_pathlen_negative_rejected(void) {
-  u8   der[sizeof(quic_castore_mid3_der)];
+  u8   der[sizeof(castore_mid3_der)];
   x509 c;
   mid3_patched(7, 0x80, der, &c);
   CHECK(x509_pathlen_allows(c.tbs, 0) == 0);
@@ -86,7 +81,7 @@ static void test_pathlen_negative_rejected(void) {
 
 /* A trailing element that is not an INTEGER rejects (fail closed). */
 static void test_pathlen_not_integer_rejected(void) {
-  u8   der[sizeof(quic_castore_mid3_der)];
+  u8   der[sizeof(castore_mid3_der)];
   x509 c;
   mid3_patched(5, 0x04, der, &c);
   CHECK(x509_pathlen_allows(c.tbs, 0) == 0);

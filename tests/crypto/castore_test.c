@@ -6,7 +6,7 @@
 #include "test.h"
 
 static wired_span cst_root_span(void) {
-  return wired_span_of(quic_castore_root_der, sizeof(quic_castore_root_der));
+  return wired_span_of(castore_root_der, sizeof(castore_root_der));
 }
 
 /* Subject Name of the registered root (CN=Test Root CA). */
@@ -21,8 +21,7 @@ static void leaf_issuer(wired_span* dn) {
   x509 c;
   CHECK(
       x509_parse(
-          wired_span_of(quic_castore_leaf_der, sizeof(quic_castore_leaf_der)),
-          &c) == 1);
+          wired_span_of(castore_leaf_der, sizeof(castore_leaf_der)), &c) == 1);
   CHECK(x509_issuer(c.tbs, dn) == 1);
 }
 
@@ -43,8 +42,8 @@ static void test_add_then_find_by_leaf_issuer(void) {
   CHECK(castore_add(&s, cst_root_span()) == 1);
   leaf_issuer(&dn);
   CHECK(castore_find_by_subject(&s, dn, &root) == 1);
-  CHECK(root.p == quic_castore_root_der);
-  CHECK(root.n == sizeof(quic_castore_root_der));
+  CHECK(root.p == castore_root_der);
+  CHECK(root.n == sizeof(castore_root_der));
 }
 
 /* A DN with no matching subject in the store is not found. */
@@ -59,8 +58,8 @@ static void test_find_unknown_subject_fails(void) {
     x509 c;
     CHECK(
         x509_parse(
-            wired_span_of(quic_castore_leaf_der, sizeof(quic_castore_leaf_der)),
-            &c) == 1);
+            wired_span_of(castore_leaf_der, sizeof(castore_leaf_der)), &c) ==
+        1);
     CHECK(x509_subject(c.tbs, &dn) == 1);
   }
   CHECK(castore_find_by_subject(&s, dn, &root) == 0);

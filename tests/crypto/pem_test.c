@@ -70,8 +70,7 @@ static void test_pem_leaf_golden(void) {
   wired_span txt   = pem_text(pem_leaf, sizeof(pem_leaf) - 1);
   CHECK(wired_pem_next(txt, &at, &label, &der) == 1);
   CHECK(pem_label_is(label, "CERTIFICATE", 11));
-  CHECK(pem_bytes_eq(
-      &der, quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)));
+  CHECK(pem_bytes_eq(&der, realchain_leaf_der, sizeof(realchain_leaf_der)));
   CHECK(at == txt.n);
   /* no further block */
   der = obuf_of(buf, sizeof(buf));
@@ -85,12 +84,10 @@ static void test_pem_fullchain(void) {
   wired_span label = {0, 0};
   wired_span txt   = pem_text(pem_chain, sizeof(pem_chain) - 1);
   CHECK(wired_pem_next(txt, &at, &label, &der) == 1);
-  CHECK(pem_bytes_eq(
-      &der, quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)));
+  CHECK(pem_bytes_eq(&der, realchain_leaf_der, sizeof(realchain_leaf_der)));
   der = obuf_of(buf, sizeof(buf));
   CHECK(wired_pem_next(txt, &at, &label, &der) == 1);
-  CHECK(pem_bytes_eq(
-      &der, quic_realchain_int_der, sizeof(quic_realchain_int_der)));
+  CHECK(pem_bytes_eq(&der, realchain_int_der, sizeof(realchain_int_der)));
   der = obuf_of(buf, sizeof(buf));
   CHECK(wired_pem_next(txt, &at, &label, &der) == 0);
 }

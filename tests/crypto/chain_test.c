@@ -9,9 +9,7 @@ static void test_self_signed_issuer_equals_subject(void) {
   x509       c;
   wired_span iss, sub;
   CHECK(
-      x509_parse(
-          wired_span_of(quic_chain_golden1, sizeof(quic_chain_golden1)), &c) ==
-      1);
+      x509_parse(wired_span_of(chain_golden1, sizeof(chain_golden1)), &c) == 1);
   CHECK(x509_issuer(c.tbs, &iss) == 1);
   CHECK(x509_subject(c.tbs, &sub) == 1);
   CHECK(x509_dn_equal(iss, sub) == 1);
@@ -23,13 +21,9 @@ static void test_distinct_dn_not_equal(void) {
   x509       a, b;
   wired_span iss, sub;
   CHECK(
-      x509_parse(
-          wired_span_of(quic_chain_golden1, sizeof(quic_chain_golden1)), &a) ==
-      1);
+      x509_parse(wired_span_of(chain_golden1, sizeof(chain_golden1)), &a) == 1);
   CHECK(
-      x509_parse(
-          wired_span_of(quic_chain_golden2, sizeof(quic_chain_golden2)), &b) ==
-      1);
+      x509_parse(wired_span_of(chain_golden2, sizeof(chain_golden2)), &b) == 1);
   CHECK(x509_issuer(a.tbs, &iss) == 1);
   CHECK(x509_subject(b.tbs, &sub) == 1);
   CHECK(x509_dn_equal(iss, sub) == 0);
@@ -40,9 +34,7 @@ static void test_dn_is_sequence_tlv(void) {
   x509       c;
   wired_span iss;
   CHECK(
-      x509_parse(
-          wired_span_of(quic_chain_golden1, sizeof(quic_chain_golden1)), &c) ==
-      1);
+      x509_parse(wired_span_of(chain_golden1, sizeof(chain_golden1)), &c) == 1);
   CHECK(x509_issuer(c.tbs, &iss) == 1);
   CHECK(iss.p[0] == 0x30 && iss.p[1] + 2u == iss.n);
 }

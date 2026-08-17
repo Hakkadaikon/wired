@@ -455,7 +455,7 @@ static usz sdt_hs_msg_total(const u8* p, usz off, usz n) {
 }
 
 /* The first message in this SDK's Handshake flight is always
- * EncryptedExtensions (RFC 8446 4.4, quic_sdrv_flight.c's emit_ee_cert); it
+ * EncryptedExtensions (RFC 8446 4.4, sdrv_flight.c's emit_ee_cert); it
  * carries nothing fullhs needs to verify, but its bytes must reach the
  * transcript before fullhs_init runs (see sdt_finish_hs_secrets) -- so
  * it is consumed here, not dispatched through sdt_feed_one_hs_msg. Returns

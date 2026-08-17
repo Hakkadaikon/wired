@@ -9,9 +9,7 @@
 static wired_span golden1_tbs(void) {
   x509 c;
   CHECK(
-      x509_parse(
-          wired_span_of(quic_chain_golden1, sizeof(quic_chain_golden1)), &c) ==
-      1);
+      x509_parse(wired_span_of(chain_golden1, sizeof(chain_golden1)), &c) == 1);
   return c.tbs;
 }
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_TESTS_FULLHS_GOLDEN_H
-#define QUIC_TESTS_FULLHS_GOLDEN_H
+#ifndef TESTS_FULLHS_GOLDEN_H
+#define TESTS_FULLHS_GOLDEN_H
 
 /* Generated golden data for cert-policy tests that only exercise
  * fullhs_recv_cert's validity/SAN checks (not its signature): a real
