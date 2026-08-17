@@ -37,7 +37,7 @@ static int read_cids(wired_span buf, usz* off, wired_header* h) {
   return 1;
 }
 
-static usz parse_long(const u8* buf, usz n, wired_header* h) {
+static usz header_parse_long(const u8* buf, usz n, wired_header* h) {
   usz off = 5; /* byte0 + 4-byte version */
   if (n < off) return 0;
   h->form      = WIRED_FORM_LONG;
@@ -50,7 +50,7 @@ static usz parse_long(const u8* buf, usz n, wired_header* h) {
 
 /* Short header: byte0 then DCID of the connection's known local length
  * (the caller presets h->dcid_len). */
-static usz parse_short(const u8* buf, usz n, wired_header* h) {
+static usz header_parse_short(const u8* buf, usz n, wired_header* h) {
   u8 dcid_len = h->dcid_len;
   if (!cid_fits(dcid_len, 0, n)) return 0;
   h->form = WIRED_FORM_SHORT;
@@ -61,8 +61,8 @@ static usz parse_short(const u8* buf, usz n, wired_header* h) {
 
 usz wired_header_parse(const u8* buf, usz n, wired_header* h) {
   if (n == 0) return 0;
-  if (buf[0] & 0x80) return parse_long(buf, n, h);
-  return parse_short(buf, n, h);
+  if (buf[0] & 0x80) return header_parse_long(buf, n, h);
+  return header_parse_short(buf, n, h);
 }
 
 /* Append a length-prefixed CID; advance out->len. Returns 1 ok, 0 no room. */
