@@ -14,13 +14,13 @@ void stats_cc_get(const cc* c, stats_cc* out) {
 
 /* True if slot i is a tracked, currently-lost packet. */
 static int is_lost_slot(const sent* s, usz i) {
-  return s->pkts[i].used && s->pkts[i].state == QUIC_PKT_LOST;
+  return s->pkts[i].used && s->pkts[i].state == PKT_LOST;
 }
 
-/* Count tracked slots currently in QUIC_PKT_LOST state. */
+/* Count tracked slots currently in PKT_LOST state. */
 static usz count_lost(const sent* s) {
   usz lost = 0;
-  for (usz i = 0; i < QUIC_SENT_CAP; i++)
+  for (usz i = 0; i < SENT_CAP; i++)
     if (is_lost_slot(s, i)) lost++;
   return lost;
 }

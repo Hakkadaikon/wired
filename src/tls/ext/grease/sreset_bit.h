@@ -1,5 +1,5 @@
-#ifndef QUIC_GREASE_SRESET_BIT_H
-#define QUIC_GREASE_SRESET_BIT_H
+#ifndef GREASE_SRESET_BIT_H
+#define GREASE_SRESET_BIT_H
 
 #include "tls/ext/grease/grease.h" /* u8 */
 

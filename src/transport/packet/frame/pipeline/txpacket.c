@@ -7,13 +7,13 @@
 /* RFC 9000 17.2: assemble a complete long header (Initial 17.2.2 with Token, or
  * Handshake 17.2.4 without), then protect. pn_len is fixed at 4 (byte0's low
  * bits are forced to agree). */
-#define QUIC_TX_PN_LEN 4u
+#define TX_PN_LEN 4u
 
 /* d->version 0 is every pre-existing positional tx_desc initializer
  * (written before this field existed) -- treat it as the QUIC v1 they all
  * meant, never as the wire value 0 (RFC 8999 6.1 reserves that for Version
  * Negotiation, which this builder never emits). */
-static u32 tx_version_or_v1(u32 v) { return v ? v : QUIC_VERSION_1; }
+static u32 tx_version_or_v1(u32 v) { return v ? v : VERSION_1; }
 
 /* Assemble the long header into hdr/ho and fill io with the seal_io for the
  * result -- shared by tx_packet and tx_packet_suite. Returns 1 on
@@ -30,12 +30,12 @@ static int tx_build_hdr(
                         d->dcid,       d->scid,
                         d->is_initial, d->token,
                         d->frames.n,   d->pn,
-                        QUIC_TX_PN_LEN};
+                        TX_PN_LEN};
   if (lhdr_build(&h, &ho, &len_off) == 0) return 0;
   *io = (protect_seal_io){
       wired_span_of(hdr, ho.len),
-      ho.len - QUIC_TX_PN_LEN,
-      QUIC_TX_PN_LEN,
+      ho.len - TX_PN_LEN,
+      TX_PN_LEN,
       d->pn,
       d->frames,
       out};

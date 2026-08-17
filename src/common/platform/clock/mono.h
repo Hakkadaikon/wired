@@ -1,5 +1,5 @@
-#ifndef QUIC_CLOCK_MONO_H
-#define QUIC_CLOCK_MONO_H
+#ifndef CLOCK_MONO_H
+#define CLOCK_MONO_H
 
 #include "common/platform/sys/syscall.h"
 

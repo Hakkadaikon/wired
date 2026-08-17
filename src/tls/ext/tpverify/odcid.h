@@ -1,5 +1,5 @@
-#ifndef QUIC_TPVERIFY_ODCID_H
-#define QUIC_TPVERIFY_ODCID_H
+#ifndef TPVERIFY_ODCID_H
+#define TPVERIFY_ODCID_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

@@ -100,12 +100,12 @@ static usz retire_cid_len(const u8* buf, usz n) {
   return retire_cid_decode(buf, n, &seq);
 }
 static usz path_challenge_len(const u8* buf, usz n) {
-  u8 data[QUIC_PATH_DATA];
-  return path_decode(buf, n, QUIC_FRAME_PATH_CHALLENGE, data);
+  u8 data[PATH_DATA];
+  return path_decode(buf, n, FRAME_PATH_CHALLENGE, data);
 }
 static usz path_response_len(const u8* buf, usz n) {
-  u8 data[QUIC_PATH_DATA];
-  return path_decode(buf, n, QUIC_FRAME_PATH_RESPONSE, data);
+  u8 data[PATH_DATA];
+  return path_decode(buf, n, FRAME_PATH_RESPONSE, data);
 }
 
 /* Single-byte kinds (PADDING/PING/HANDSHAKE_DONE) have no table row; they are
@@ -116,25 +116,25 @@ typedef struct {
   len_fn fn;
 } len_row;
 static const len_row LEN_TABLE[] = {
-    {QUIC_FK_ACK, ack_len},
-    {QUIC_FK_CRYPTO, crypto_len},
-    {QUIC_FK_STREAM, stream_len},
-    {QUIC_FK_CONNECTION_CLOSE, conn_close_len},
-    {QUIC_FK_DATAGRAM, datagram_len},
-    {QUIC_FK_RESET_STREAM, reset_stream_len},
-    {QUIC_FK_STOP_SENDING, stop_sending_len},
-    {QUIC_FK_RESET_STREAM_AT, reset_stream_at_len},
-    {QUIC_FK_MAX_DATA, max_data_len},
-    {QUIC_FK_DATA_BLOCKED, data_blocked_len},
-    {QUIC_FK_MAX_STREAM_DATA, max_stream_data_len},
-    {QUIC_FK_STREAM_DATA_BLOCKED, stream_data_blocked_len},
-    {QUIC_FK_MAX_STREAMS, max_streams_len},
-    {QUIC_FK_STREAMS_BLOCKED, streams_blocked_len},
-    {QUIC_FK_NEW_TOKEN, new_token_len},
-    {QUIC_FK_NEW_CONNECTION_ID, ncid_len},
-    {QUIC_FK_RETIRE_CONNECTION_ID, retire_cid_len},
-    {QUIC_FK_PATH_CHALLENGE, path_challenge_len},
-    {QUIC_FK_PATH_RESPONSE, path_response_len},
+    {FK_ACK, ack_len},
+    {FK_CRYPTO, crypto_len},
+    {FK_STREAM, stream_len},
+    {FK_CONNECTION_CLOSE, conn_close_len},
+    {FK_DATAGRAM, datagram_len},
+    {FK_RESET_STREAM, reset_stream_len},
+    {FK_STOP_SENDING, stop_sending_len},
+    {FK_RESET_STREAM_AT, reset_stream_at_len},
+    {FK_MAX_DATA, max_data_len},
+    {FK_DATA_BLOCKED, data_blocked_len},
+    {FK_MAX_STREAM_DATA, max_stream_data_len},
+    {FK_STREAM_DATA_BLOCKED, stream_data_blocked_len},
+    {FK_MAX_STREAMS, max_streams_len},
+    {FK_STREAMS_BLOCKED, streams_blocked_len},
+    {FK_NEW_TOKEN, new_token_len},
+    {FK_NEW_CONNECTION_ID, ncid_len},
+    {FK_RETIRE_CONNECTION_ID, retire_cid_len},
+    {FK_PATH_CHALLENGE, path_challenge_len},
+    {FK_PATH_RESPONSE, path_response_len},
 };
 
 /* Length of a frame the walker measures via a decoder, or 0 if kind has no
@@ -148,8 +148,7 @@ static usz decoded_len(frame_kind kind, const u8* buf, usz n) {
 
 /* Single-byte frames carry no body (RFC 9000 19.1/19.2/19.20). */
 static int single_byte(frame_kind kind) {
-  return kind == QUIC_FK_PADDING || kind == QUIC_FK_PING ||
-         kind == QUIC_FK_HANDSHAKE_DONE;
+  return kind == FK_PADDING || kind == FK_PING || kind == FK_HANDSHAKE_DONE;
 }
 
 /* Bytes the frame at buf occupies, or 0 if the walker cannot measure it. */

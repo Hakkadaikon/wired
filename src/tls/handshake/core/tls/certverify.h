@@ -1,13 +1,13 @@
-#ifndef QUIC_TLS_CERTVERIFY_H
-#define QUIC_TLS_CERTVERIFY_H
+#ifndef TLS_CERTVERIFY_H
+#define TLS_CERTVERIFY_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
 /* RFC 8446 4.4.3. SignatureScheme codepoints handled here. */
-#define QUIC_TLS_SCHEME_RSA_PSS_SHA256 0x0804
-#define QUIC_TLS_SCHEME_ECDSA_P256 0x0403
-#define QUIC_TLS_SCHEME_ED25519 0x0807
+#define TLS_SCHEME_RSA_PSS_SHA256 0x0804
+#define TLS_SCHEME_ECDSA_P256 0x0403
+#define TLS_SCHEME_ED25519 0x0807
 
 /** RFC 8446 4.4.3: a CertificateVerify to authenticate. cert is the
  * end-entity certificate (DER), sig its signature, transcript_hash the

@@ -1,5 +1,5 @@
-#ifndef QUIC_X509_CHAIN_H
-#define QUIC_X509_CHAIN_H
+#ifndef X509_CHAIN_H
+#define X509_CHAIN_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

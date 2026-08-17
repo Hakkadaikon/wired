@@ -12,28 +12,28 @@
  * 0-RTT); CONNECTION_CLOSE(transport) is IH01; the rest are application
  * data, 0-RTT and 1-RTT only. */
 static const u8 allowed[] = {
-    [QUIC_FK_UNKNOWN]              = 0,
-    [QUIC_FK_PADDING]              = ALL,
-    [QUIC_FK_PING]                 = ALL,
-    [QUIC_FK_ACK]                  = I | H | O,
-    [QUIC_FK_RESET_STREAM]         = Z | O,
-    [QUIC_FK_STOP_SENDING]         = Z | O,
-    [QUIC_FK_CRYPTO]               = I | H | O,
-    [QUIC_FK_NEW_TOKEN]            = O,
-    [QUIC_FK_STREAM]               = Z | O,
-    [QUIC_FK_MAX_DATA]             = Z | O,
-    [QUIC_FK_MAX_STREAM_DATA]      = Z | O,
-    [QUIC_FK_MAX_STREAMS]          = Z | O,
-    [QUIC_FK_DATA_BLOCKED]         = Z | O,
-    [QUIC_FK_STREAM_DATA_BLOCKED]  = Z | O,
-    [QUIC_FK_STREAMS_BLOCKED]      = Z | O,
-    [QUIC_FK_NEW_CONNECTION_ID]    = Z | O,
-    [QUIC_FK_RETIRE_CONNECTION_ID] = Z | O,
-    [QUIC_FK_PATH_CHALLENGE]       = Z | O,
-    [QUIC_FK_PATH_RESPONSE]        = O,
-    [QUIC_FK_CONNECTION_CLOSE]     = I | H | Z | O,
-    [QUIC_FK_HANDSHAKE_DONE]       = O,
-    [QUIC_FK_DATAGRAM]             = Z | O,
+    [FK_UNKNOWN]              = 0,
+    [FK_PADDING]              = ALL,
+    [FK_PING]                 = ALL,
+    [FK_ACK]                  = I | H | O,
+    [FK_RESET_STREAM]         = Z | O,
+    [FK_STOP_SENDING]         = Z | O,
+    [FK_CRYPTO]               = I | H | O,
+    [FK_NEW_TOKEN]            = O,
+    [FK_STREAM]               = Z | O,
+    [FK_MAX_DATA]             = Z | O,
+    [FK_MAX_STREAM_DATA]      = Z | O,
+    [FK_MAX_STREAMS]          = Z | O,
+    [FK_DATA_BLOCKED]         = Z | O,
+    [FK_STREAM_DATA_BLOCKED]  = Z | O,
+    [FK_STREAMS_BLOCKED]      = Z | O,
+    [FK_NEW_CONNECTION_ID]    = Z | O,
+    [FK_RETIRE_CONNECTION_ID] = Z | O,
+    [FK_PATH_CHALLENGE]       = Z | O,
+    [FK_PATH_RESPONSE]        = O,
+    [FK_CONNECTION_CLOSE]     = I | H | Z | O,
+    [FK_HANDSHAKE_DONE]       = O,
+    [FK_DATAGRAM]             = Z | O,
 };
 
 int frame_permitted(frame_kind kind, packet_type pkt) {
@@ -42,7 +42,7 @@ int frame_permitted(frame_kind kind, packet_type pkt) {
 
 /* RFC 9000 19.7/19.20: these two kinds are defined as server-send-only. */
 int frame_server_recv_forbidden(frame_kind kind) {
-  return kind == QUIC_FK_NEW_TOKEN || kind == QUIC_FK_HANDSHAKE_DONE;
+  return kind == FK_NEW_TOKEN || kind == FK_HANDSHAKE_DONE;
 }
 
 int frame_is_grease(u64 type) {

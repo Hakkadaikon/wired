@@ -1,5 +1,5 @@
-#ifndef QUIC_FSM_FSM_H
-#define QUIC_FSM_FSM_H
+#ifndef FSM_FSM_H
+#define FSM_FSM_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -18,7 +18,7 @@ typedef struct {
   usz            count;
 } fsm_table;
 
-#define QUIC_FSM_NONE 0xFF /* sentinel: no such transition */
+#define FSM_NONE 0xFF /* sentinel: no such transition */
 
 /* Apply ev to *state using `table`. On a matching row, set *state to its `to`
  * and return 1. Otherwise leave *state unchanged and return 0. */

@@ -1,5 +1,5 @@
-#ifndef QUIC_PATH_ANTIAMP_H
-#define QUIC_PATH_ANTIAMP_H
+#ifndef PATH_ANTIAMP_H
+#define PATH_ANTIAMP_H
 
 #include "common/platform/sys/syscall.h"
 

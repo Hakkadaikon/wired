@@ -14,9 +14,9 @@ static void test_loss_packet_threshold(void) {
   /* now==sent, large loss_delay: time threshold inert, isolate packet */
   loss_detect(&t, &(loss_params){5, 1000, 5000}, (u64out){lost, &n});
   CHECK(n == 2);
-  CHECK(t.e[0].state == QUIC_SP_LOST);
-  CHECK(t.e[1].state == QUIC_SP_LOST);
-  CHECK(t.e[2].state == QUIC_SP_INFLIGHT);
+  CHECK(t.e[0].state == SP_LOST);
+  CHECK(t.e[1].state == SP_LOST);
+  CHECK(t.e[2].state == SP_INFLIGHT);
 }
 
 /* Time threshold: a packet older than now-loss_delay is lost even within
@@ -32,7 +32,7 @@ static void test_loss_time_threshold(void) {
       &t, &(loss_params){5, 1000, 500},
       (u64out){lost, &n}); /* now-delay=500 > 100 */
   CHECK(n == 1);
-  CHECK(t.e[0].state == QUIC_SP_LOST);
+  CHECK(t.e[0].state == SP_LOST);
 }
 
 /* Within both thresholds: not lost. */
@@ -44,7 +44,7 @@ static void test_loss_none(void) {
   usz n = 99;
   loss_detect(&t, &(loss_params){5, 1000, 500}, (u64out){lost, &n});
   CHECK(n == 0);
-  CHECK(t.e[0].state == QUIC_SP_INFLIGHT);
+  CHECK(t.e[0].state == SP_INFLIGHT);
 }
 
 /* RFC 9002 7.4: an endpoint MUST NOT ignore the loss of a packet sent after
@@ -65,7 +65,7 @@ static void test_loss_not_ignored_after_earliest_acked(void) {
   loss_detect(&t, &(loss_params){13, 100, 5000}, (u64out){lost, &n});
   CHECK(n == 1);
   CHECK(lost[0] == 10);
-  CHECK(t.e[0].state == QUIC_SP_LOST);
+  CHECK(t.e[0].state == SP_LOST);
 }
 
 void test_loss_detect(void) {

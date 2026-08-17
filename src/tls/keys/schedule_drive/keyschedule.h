@@ -1,5 +1,5 @@
-#ifndef QUIC_SCHEDULE_DRIVE_KEYSCHEDULE_H
-#define QUIC_SCHEDULE_DRIVE_KEYSCHEDULE_H
+#ifndef SCHEDULE_DRIVE_KEYSCHEDULE_H
+#define SCHEDULE_DRIVE_KEYSCHEDULE_H
 
 #include "common/bytes/span/span.h"
 #include "tls/handshake/core/tls/initial.h"
@@ -16,10 +16,10 @@
  * which: handshake/application packet-protection keys per direction.
  */
 enum {
-  QUIC_KS_CLIENT_HS = 0, /**< client handshake traffic keys */
-  QUIC_KS_SERVER_HS = 1, /**< server handshake traffic keys */
-  QUIC_KS_CLIENT_AP = 2, /**< client application (1-RTT) traffic keys */
-  QUIC_KS_SERVER_AP = 3, /**< server application (1-RTT) traffic keys */
+  KS_CLIENT_HS = 0, /**< client handshake traffic keys */
+  KS_SERVER_HS = 1, /**< server handshake traffic keys */
+  KS_CLIENT_AP = 2, /**< client application (1-RTT) traffic keys */
+  KS_SERVER_AP = 3, /**< server application (1-RTT) traffic keys */
 };
 
 /**
@@ -27,25 +27,25 @@ enum {
  * the four traffic key sets indexed by the QUIC_KS_* constants.
  */
 typedef struct {
-  int stage;                 /**< 0=init/early, 1=handshake, 2=master */
-  u8  master[QUIC_HKDF_PRK]; /**< Master Secret (derived on
-                                reaching stage 1) */
-  initial_keys keys[4];      /**< traffic keys indexed by QUIC_KS_* */
-  u8 client_ap_secret[QUIC_HKDF_PRK]; /**< client_application_traffic_secret_0
-                                       * (RFC 8446 7.1), retained past stage 2
-                                       * so RFC 9001 6 key updates can derive
-                                       * the next generation from it */
-  u8 server_ap_secret[QUIC_HKDF_PRK]; /**< server_application_traffic_secret_0,
-                                       * retained for the same reason on the
-                                       * send side (RFC 9001 6.2) */
-  u8 exporter_secret[QUIC_HKDF_PRK];  /**< exporter_master_secret (RFC 8446
-                                       * 7.1/7.5), derived alongside the
-                                       * application traffic secrets on
-                                       * reaching stage 2 so
-                                       * tls_exporter can compute
-                                       * TLS-Exporter values (e.g.
-                                       * EXPORTER-WebTransport) once the
-                                       * handshake completes */
+  int stage;                     /**< 0=init/early, 1=handshake, 2=master */
+  u8  master[HKDF_PRK];          /**< Master Secret (derived on
+                                         reaching stage 1) */
+  initial_keys keys[4];          /**< traffic keys indexed by QUIC_KS_* */
+  u8 client_ap_secret[HKDF_PRK]; /**< client_application_traffic_secret_0
+                                  * (RFC 8446 7.1), retained past stage 2
+                                  * so RFC 9001 6 key updates can derive
+                                  * the next generation from it */
+  u8 server_ap_secret[HKDF_PRK]; /**< server_application_traffic_secret_0,
+                                  * retained for the same reason on the
+                                  * send side (RFC 9001 6.2) */
+  u8 exporter_secret[HKDF_PRK];  /**< exporter_master_secret (RFC 8446
+                                  * 7.1/7.5), derived alongside the
+                                  * application traffic secrets on
+                                  * reaching stage 2 so
+                                  * tls_exporter can compute
+                                  * TLS-Exporter values (e.g.
+                                  * EXPORTER-WebTransport) once the
+                                  * handshake completes */
   u16 suite; /**< negotiated TLS 1.3 cipher suite (RFC 8446 B.4) for the
               * Handshake/1-RTT levels this schedule derives; set by
               * keysched_init to AES_128_GCM_SHA256 and overridable via
@@ -93,7 +93,7 @@ int keysched_advance_handshake(
  * mixed in either way -- this SDK never runs PSK-only (no (EC)DHE).
  *
  * @param st         schedule state (must be in the init stage)
- * @param psk        the accepted ticket's resumption secret (QUIC_HKDF_PRK
+ * @param psk        the accepted ticket's resumption secret (HKDF_PRK
  *                   bytes)
  * @param ecdhe      ECDHE shared secret
  * @param transcript raw transcript bytes (ClientHello..ServerHello), hashed
@@ -130,10 +130,10 @@ int keysched_get(const keysched* st, int which, const initial_keys** out);
 
 /**
  * The retained client_application_traffic_secret_0, valid once stage 2 is
- * reached (same guard as keysched_get with QUIC_KS_CLIENT_AP).
+ * reached (same guard as keysched_get with KS_CLIENT_AP).
  *
  * @param st  schedule state to query
- * @param out receives a pointer to the QUIC_HKDF_PRK-byte secret
+ * @param out receives a pointer to the HKDF_PRK-byte secret
  * @return 1 if derived, 0 otherwise.
  */
 int keysched_client_ap_secret(const keysched* st, const u8** out);
@@ -143,7 +143,7 @@ int keysched_client_ap_secret(const keysched* st, const u8** out);
  * reached. Same shape as keysched_client_ap_secret, for the send side.
  *
  * @param st  schedule state to query
- * @param out receives a pointer to the QUIC_HKDF_PRK-byte secret
+ * @param out receives a pointer to the HKDF_PRK-byte secret
  * @return 1 if derived, 0 otherwise.
  */
 int keysched_server_ap_secret(const keysched* st, const u8** out);
@@ -151,11 +151,11 @@ int keysched_server_ap_secret(const keysched* st, const u8** out);
 /**
  * The retained exporter_master_secret (RFC 8446 7.1/7.5), valid once
  * stage 2 is reached (same guard as keysched_get with
- * QUIC_KS_CLIENT_AP). Feed *out into tls_exporter (exporter.h) to
+ * KS_CLIENT_AP). Feed *out into tls_exporter (exporter.h) to
  * compute a TLS-Exporter value.
  *
  * @param st  schedule state to query
- * @param out receives a pointer to the QUIC_HKDF_PRK-byte secret
+ * @param out receives a pointer to the HKDF_PRK-byte secret
  * @return 1 if derived, 0 otherwise.
  */
 int keysched_exporter_secret(const keysched* st, const u8** out);

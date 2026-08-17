@@ -20,7 +20,7 @@ void test_srvfin_complete(void) {
     srvfin_state_init(&st, &sched, &keys);
     CHECK(srvfin_complete(&st, tr, sizeof tr) == 0);
     const initial_keys* k;
-    CHECK(keyset_for_level(&keys, QUIC_LEVEL_ONERTT, &k) == 0);
+    CHECK(keyset_for_level(&keys, LEVEL_ONERTT, &k) == 0);
     CHECK(st.confirmed == 0);
   }
 
@@ -39,12 +39,12 @@ void test_srvfin_complete(void) {
     CHECK(srvfin_complete(&st, tr, sizeof tr) == 1);
 
     const initial_keys* k;
-    CHECK(keyset_for_level(&keys, QUIC_LEVEL_ONERTT, &k) == 1);
+    CHECK(keyset_for_level(&keys, LEVEL_ONERTT, &k) == 1);
     CHECK(st.confirmed == 1);
 
     /* installed keys are the server application keys from the schedule */
     const initial_keys* sap;
-    CHECK(keysched_get(&sched, QUIC_KS_SERVER_AP, &sap) == 1);
-    for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(k->key[i] == sap->key[i]);
+    CHECK(keysched_get(&sched, KS_SERVER_AP, &sap) == 1);
+    for (usz i = 0; i < INITIAL_KEY; i++) CHECK(k->key[i] == sap->key[i]);
   }
 }

@@ -34,7 +34,7 @@ static void test_pending1rtt_store_and_peek_fifo(void) {
 
 static void test_pending1rtt_rejects_oversized(void) {
   pending1rtt q;
-  u8          big[QUIC_PENDING1RTT_MAX_LEN + 1] = {0};
+  u8          big[PENDING1RTT_MAX_LEN + 1] = {0};
   pending1rtt_init(&q);
   CHECK(!pending1rtt_store(&q, big, sizeof(big)));
   CHECK(pending1rtt_count(&q) == 0);
@@ -44,10 +44,10 @@ static void test_pending1rtt_rejects_when_full(void) {
   pending1rtt q;
   u8          one[1] = {0};
   pending1rtt_init(&q);
-  for (usz i = 0; i < QUIC_PENDING1RTT_CAP; i++)
+  for (usz i = 0; i < PENDING1RTT_CAP; i++)
     CHECK(pending1rtt_store(&q, one, 1));
   CHECK(!pending1rtt_store(&q, one, 1));
-  CHECK(pending1rtt_count(&q) == QUIC_PENDING1RTT_CAP);
+  CHECK(pending1rtt_count(&q) == PENDING1RTT_CAP);
 }
 
 static void test_pending1rtt_clear(void) {

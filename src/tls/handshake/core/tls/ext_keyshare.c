@@ -8,8 +8,8 @@
 /* group -> fixed key length table (RFC 7748 for x25519, SEC1 2.3.3
  * uncompressed point for secp256r1). 0 = unrecognised group. */
 static usz group_key_len(u16 group) {
-  if (group == QUIC_GROUP_X25519) return 32;
-  if (group == QUIC_GROUP_SECP256R1) return 65;
+  if (group == GROUP_X25519) return 32;
+  if (group == GROUP_SECP256R1) return 65;
   return 0;
 }
 
@@ -19,7 +19,7 @@ usz tls_ext_key_share(u8* buf, usz cap, u16 group, const u8* pub, usz pub_len) {
   usz entry = 4 + pub_len;   /* group(2) ke_len(2) key */
   usz total = 4 + 2 + entry; /* type(2) ext_len(2) shares_len(2) entry */
   if (cap < total) return 0;
-  be_put_be16(buf, QUIC_EXT_KEY_SHARE);
+  be_put_be16(buf, EXT_KEY_SHARE);
   be_put_be16(buf + 2, (u16)(2 + entry)); /* ext_data length */
   be_put_be16(buf + 4, (u16)entry);       /* client_shares length */
   be_put_be16(buf + 6, group);

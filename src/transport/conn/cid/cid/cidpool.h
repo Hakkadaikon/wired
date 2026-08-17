@@ -1,5 +1,5 @@
-#ifndef QUIC_CID_CIDPOOL_H
-#define QUIC_CID_CIDPOOL_H
+#ifndef CID_CIDPOOL_H
+#define CID_CIDPOOL_H
 
 #include "common/platform/sys/syscall.h"
 

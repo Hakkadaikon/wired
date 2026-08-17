@@ -1,5 +1,5 @@
-#ifndef QUIC_VNDRIVE_RECONNECT_H
-#define QUIC_VNDRIVE_RECONNECT_H
+#ifndef VNDRIVE_RECONNECT_H
+#define VNDRIVE_RECONNECT_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -7,7 +7,7 @@
  * that version. To avoid an infinite loop it responds to a Version
  * Negotiation packet at most once. */
 
-#define QUIC_VNDRIVE_MAX_RETRY 1
+#define VNDRIVE_MAX_RETRY 1
 
 /* 1 if the client should re-send an Initial: chosen_version is non-zero and it
  * has not already exhausted its single VN retry. 0 means give up. */

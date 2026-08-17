@@ -1,5 +1,5 @@
-#ifndef QUIC_VERSION_DOWNGRADE_H
-#define QUIC_VERSION_DOWNGRADE_H
+#ifndef VERSION_DOWNGRADE_H
+#define VERSION_DOWNGRADE_H
 
 #include "transport/version/version/version.h"
 

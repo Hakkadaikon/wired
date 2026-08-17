@@ -35,10 +35,10 @@ void test_ackrangeconv(void) {
     CHECK(ackrangeconv_to_frame(5, raw, 2, &f) == 0);
   }
 
-  /* too many ranges for ack_frame's fixed array (QUIC_ACK_MAX_RANGES)
+  /* too many ranges for ack_frame's fixed array (ACK_MAX_RANGES)
    * fails cleanly instead of overflowing. */
   {
-    u64       raw[2 * QUIC_ACK_MAX_RANGES + 1];
+    u64       raw[2 * ACK_MAX_RANGES + 1];
     ack_frame f = {0};
     usz       i;
     raw[0] = 0;

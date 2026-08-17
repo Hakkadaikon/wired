@@ -1,5 +1,5 @@
-#ifndef QUIC_H3PRIO_H3PRIO_H
-#define QUIC_H3PRIO_H3PRIO_H
+#ifndef H3PRIO_H3PRIO_H
+#define H3PRIO_H3PRIO_H
 
 #include "common/platform/sys/syscall.h"
 

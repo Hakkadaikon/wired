@@ -1,5 +1,5 @@
-#ifndef QUIC_HSPTO_ARM_H
-#define QUIC_HSPTO_ARM_H
+#ifndef HSPTO_ARM_H
+#define HSPTO_ARM_H
 
 /* RFC 9002 6.2.2.1: when to arm the PTO timer for Initial/Handshake spaces.
  * The timer is armed on in-flight ack-eliciting data even while the peer

@@ -11,7 +11,7 @@
 
 /* RFC 9000 17.2: the Initial level carries a Token (17.2.2); Handshake and the
  * long-header pipeline form used for 1-RTT here do not (17.2.4). */
-static int level_is_initial(int level) { return level == QUIC_LEVEL_INITIAL; }
+static int level_is_initial(int level) { return level == LEVEL_INITIAL; }
 
 /* RFC 9000 17.2: byte0 long-header form + Initial (0xc3) or Handshake (0xe3)
  * type bits, with a 4-byte packet number (low bits forced by the builder). */
@@ -37,7 +37,7 @@ void connio_init(connio* io, wired_span dcid, const connio_init_in* in) {
   io->byte0                  = in->byte0;
   io->dcid_len               = (u8)dcid.n;
   pnspaces_init(&io->tx);
-  for (i = 0; i < QUIC_PNS_COUNT; i++) io->rx_pn[i] = 0;
+  for (i = 0; i < PNS_COUNT; i++) io->rx_pn[i] = 0;
   for (i = 0; i < dcid.n; i++) io->dcid[i] = dcid.p[i];
 }
 
@@ -126,7 +126,7 @@ static int recv_ready(
 /* RFC 9000 8.1: a server validates the client's address upon successfully
  * receiving a Handshake packet, lifting the anti-amplification limit. */
 static int validates_address(const connio* io, int level) {
-  return io->loop.is_server && level == QUIC_LEVEL_HANDSHAKE;
+  return io->loop.is_server && level == LEVEL_HANDSHAKE;
 }
 
 /* Post-decrypt receive bookkeeping: advance the read PN, lift the amp limit on
@@ -157,7 +157,7 @@ int connio_recv(connio* io, int level, wired_mspan datagram) {
 /* RFC 9000 19.19: encode a transport CONNECTION_CLOSE(PROTOCOL_VIOLATION)
  * frame into buf. Returns bytes written, or 0 on overflow. */
 static usz violation_close_frame(u8* buf, usz cap) {
-  conn_close_frame cc = {0, QUIC_ERR_PROTOCOL_VIOLATION, 0, 0, (const u8*)0};
+  conn_close_frame cc = {0, ERR_PROTOCOL_VIOLATION, 0, 0, (const u8*)0};
   return frame_put_conn_close(buf, cap, &cc);
 }
 
@@ -169,14 +169,14 @@ usz connio_close_on_violation(connio* io, wired_obuf* out) {
   io->disp.violation = 0;
   fl                 = violation_close_frame(frame, sizeof frame);
   if (!fl) return 0;
-  sin = (connio_send_in){QUIC_LEVEL_ONERTT, wired_span_of(frame, fl)};
+  sin = (connio_send_in){LEVEL_ONERTT, wired_span_of(frame, fl)};
   return connio_send(io, &sin, out);
 }
 
 /* RFC 9000 19.19: encode a transport CONNECTION_CLOSE(AEAD_LIMIT_REACHED)
  * frame into buf. Returns bytes written, or 0 on overflow. */
 static usz aead_limit_close_frame(u8* buf, usz cap) {
-  conn_close_frame cc = {0, QUIC_ERR_AEAD_LIMIT_REACHED, 0, 0, (const u8*)0};
+  conn_close_frame cc = {0, ERR_AEAD_LIMIT_REACHED, 0, 0, (const u8*)0};
   return frame_put_conn_close(buf, cap, &cc);
 }
 
@@ -192,7 +192,7 @@ usz connio_close_on_aead_limit(connio* io, wired_obuf* out) {
   io->loop.aead_limit = 0;
   fl                  = aead_limit_close_frame(frame, sizeof frame);
   if (!fl) return 0;
-  sin = (connio_send_in){QUIC_LEVEL_ONERTT, wired_span_of(frame, fl)};
+  sin = (connio_send_in){LEVEL_ONERTT, wired_span_of(frame, fl)};
   return connio_send(io, &sin, out);
 }
 
@@ -213,6 +213,6 @@ usz connio_send_stop_sending_reset(connio* io, wired_obuf* out) {
   io->disp.stop_sending_owed = 0;
   fl = stop_sending_reset_frame(frame, sizeof frame, &io->disp);
   if (!fl) return 0;
-  sin = (connio_send_in){QUIC_LEVEL_ONERTT, wired_span_of(frame, fl)};
+  sin = (connio_send_in){LEVEL_ONERTT, wired_span_of(frame, fl)};
   return connio_send(io, &sin, out);
 }

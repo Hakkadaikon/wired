@@ -7,19 +7,18 @@
  * level regression, no key skipping. */
 #define HSD_STEPS 7
 static const u8 hsd_order[HSD_STEPS] = {
-    QUIC_HSD_CLIENT_HELLO,  QUIC_HSD_SERVER_HELLO, QUIC_HSD_ENCRYPTED_EXT,
-    QUIC_HSD_CERTIFICATE,   QUIC_HSD_CERT_VERIFY,  QUIC_HSD_FINISHED,
-    QUIC_HSD_HANDSHAKE_DONE};
-static const u8 hsd_level[HSD_STEPS] = {
-    QUIC_HSD_PROT_INITIAL,   QUIC_HSD_PROT_INITIAL,   QUIC_HSD_PROT_HANDSHAKE,
-    QUIC_HSD_PROT_HANDSHAKE, QUIC_HSD_PROT_HANDSHAKE, QUIC_HSD_PROT_HANDSHAKE,
-    QUIC_HSD_PROT_1RTT};
+    HSD_CLIENT_HELLO, HSD_SERVER_HELLO, HSD_ENCRYPTED_EXT, HSD_CERTIFICATE,
+    HSD_CERT_VERIFY,  HSD_FINISHED,     HSD_HANDSHAKE_DONE};
+static const u8 hsd_level[HSD_STEPS] = {HSD_PROT_INITIAL,   HSD_PROT_INITIAL,
+                                        HSD_PROT_HANDSHAKE, HSD_PROT_HANDSHAKE,
+                                        HSD_PROT_HANDSHAKE, HSD_PROT_HANDSHAKE,
+                                        HSD_PROT_1RTT};
 
 void hsdriver_init(hsdriver* s, int is_server) {
   s->is_server     = is_server;
   s->recv_count    = 0;
   s->cert_verified = 0;
-  s->level         = QUIC_HSD_PROT_INITIAL;
+  s->level         = HSD_PROT_INITIAL;
   s->complete      = 0;
   s->confirmed     = 0;
 }
@@ -28,7 +27,7 @@ void hsdriver_init(hsdriver* s, int is_server) {
  * message and may only be accepted once its Certificate+CertificateVerify
  * were verified. */
 static int hsd_auth_gate_ok(const hsdriver* s, u8 msg_type) {
-  return msg_type != QUIC_HSD_FINISHED || s->cert_verified;
+  return msg_type != HSD_FINISHED || s->cert_verified;
 }
 
 /* RFC 8446 2/4.4 + RFC 9001 4: the next expected message matches the flight
@@ -46,8 +45,8 @@ static int hsd_step_legal(const hsdriver* s, u8 msg_type, u8 level) {
 
 /* Record completion/confirmation reached by accepting `msg_type`. */
 static void hsd_mark(hsdriver* s, u8 msg_type) {
-  s->complete |= (msg_type == QUIC_HSD_FINISHED);
-  s->confirmed |= (msg_type == QUIC_HSD_HANDSHAKE_DONE);
+  s->complete |= (msg_type == HSD_FINISHED);
+  s->confirmed |= (msg_type == HSD_HANDSHAKE_DONE);
 }
 
 int hsdriver_recv(hsdriver* s, u8 msg_type, u8 protection_level) {

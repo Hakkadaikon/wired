@@ -1,5 +1,5 @@
-#ifndef QUIC_P384_POINT_H
-#define QUIC_P384_POINT_H
+#ifndef P384_POINT_H
+#define P384_POINT_H
 
 #include "crypto/asymmetric/ecc/p384/p384_field.h"
 

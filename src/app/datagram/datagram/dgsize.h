@@ -1,5 +1,5 @@
-#ifndef QUIC_DATAGRAM_DGSIZE_H
-#define QUIC_DATAGRAM_DGSIZE_H
+#ifndef DATAGRAM_DGSIZE_H
+#define DATAGRAM_DGSIZE_H
 
 #include "common/platform/sys/syscall.h"
 

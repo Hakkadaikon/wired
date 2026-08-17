@@ -21,7 +21,7 @@ void connection_init(connection* c, const connection_init_in* in) {
 int connection_send(connection* c, int level, wired_span frames) {
   const initial_keys* k;
   aes128              hp;
-  u8                  out[QUIC_MEMLINK_MTU];
+  u8                  out[MEMLINK_MTU];
   usz                 n;
   if (!keyset_for_level(&c->keys, level, &k)) return 0;
   aes128_init(&hp, k->hp);

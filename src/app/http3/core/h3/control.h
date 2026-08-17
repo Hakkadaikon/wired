@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_CONTROL_H
-#define QUIC_H3_CONTROL_H
+#ifndef H3_CONTROL_H
+#define H3_CONTROL_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -12,12 +12,12 @@
 /** RFC 9114 6.2.1/7.2.4/5.2: control-stream/SETTINGS/GOAWAY connection
  * error latched by this module (NONE means no violation yet). */
 typedef enum {
-  QUIC_H3_ERR_NONE = 0,
-  QUIC_H3_ERR_STREAM_CREATION,  /* 2nd control stream */
-  QUIC_H3_ERR_CLOSED_CRITICAL,  /* control stream closed */
-  QUIC_H3_ERR_MISSING_SETTINGS, /* first control frame not SETTINGS */
-  QUIC_H3_ERR_FRAME_UNEXPECTED, /* a second SETTINGS */
-  QUIC_H3_ERR_ID                /* GOAWAY id increased */
+  H3_ERR_NONE = 0,
+  H3_ERR_STREAM_CREATION,  /* 2nd control stream */
+  H3_ERR_CLOSED_CRITICAL,  /* control stream closed */
+  H3_ERR_MISSING_SETTINGS, /* first control frame not SETTINGS */
+  H3_ERR_FRAME_UNEXPECTED, /* a second SETTINGS */
+  H3_ERR_ID                /* GOAWAY id increased */
 } h3_error;
 
 /** RFC 9114 6.2.1/7.2.4/5.2: this connection's control-stream state —

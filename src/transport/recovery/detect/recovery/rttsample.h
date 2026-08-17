@@ -1,5 +1,5 @@
-#ifndef QUIC_RECOVERY_RTTSAMPLE_H
-#define QUIC_RECOVERY_RTTSAMPLE_H
+#ifndef RECOVERY_RTTSAMPLE_H
+#define RECOVERY_RTTSAMPLE_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -76,7 +76,7 @@ static int moqtrun_encode_setup(wired_mspan buf, usz* off, const void* m) {
 static u64 moqtrun_send_setup(wired_moqt_io* io, wired_wt_session* s, u8* buf) {
   moqctl_setup setup = {0};
   usz          n     = moqtrun_envelope_put(
-      wired_mspan_of(buf, WIRED_MOQTRUN_CTL_SEND_BUF), QUIC_MOQCTL_T_SETUP,
+      wired_mspan_of(buf, WIRED_MOQTRUN_CTL_SEND_BUF), MOQCTL_T_SETUP,
       moqtrun_encode_setup, &setup);
   i64 sid = io->open_bidi_stream(s, wired_span_of(buf, n));
   return sid < 0 ? 0 : (u64)sid;
@@ -102,7 +102,7 @@ static void moqtrun_init_peer(
     p->tracks[t].in_use = 0;
   moqsess_init(&p->sess);
   p->control_stream_id = moqtrun_send_setup(&hub->io, s, p->send_bufs[0]);
-  moqsess_step(&p->sess, QUIC_MOQSESS_EV_SENT_SETUP);
+  moqsess_step(&p->sess, MOQSESS_EV_SENT_SETUP);
 }
 
 void wired_moqt_on_session(
@@ -129,8 +129,8 @@ void wired_moqt_on_session(
 /* draft SS10.2 Message Parameter types this hub refuses to accept/send
  * (loss-free-hub timeout defense). */
 static int moqtrun_is_timeout_type(u64 t) {
-  return t == QUIC_MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT ||
-         t == QUIC_MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT;
+  return t == MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT ||
+         t == MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT;
 }
 
 static int moqtrun_param_is_nonzero_timeout(const moqctl_param* item) {
@@ -201,7 +201,7 @@ static void moqtrun_send_request_error(wired_moqtrun_peer* p, u64 code) {
   moqctl_request_error e = {0};
   e.error_code           = code;
   usz n                  = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), QUIC_MOQCTL_T_REQUEST_ERROR,
+      wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_ERROR,
       moqtrun_encode_request_error, &e);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
 }
@@ -327,10 +327,10 @@ static void moqtrun_handle_publish(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   usz            off = 0;
   moqctl_publish m;
-  if (moqctl_publish_take(body, &off, &m) != QUIC_MOQCTL_OK) return;
+  if (moqctl_publish_take(body, &off, &m) != MOQCTL_OK) return;
   wired_moqtrun_track* t = moqtrun_track_alloc_slot(p, m.name.name);
   if (!t) {
-    moqtrun_send_request_error(p, QUIC_MOQCTL_ERR_NOT_SUPPORTED);
+    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
     return;
   }
   moqtrun_track_claim(t, m.name.name, m.track_alias);
@@ -338,7 +338,7 @@ static void moqtrun_handle_publish(
   u8                msg[WIRED_MOQTRUN_CTL_MSG_MAX];
   moqctl_request_ok ok = {0};
   usz               n  = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), QUIC_MOQCTL_T_REQUEST_OK,
+      wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
       moqtrun_encode_request_ok, &ok);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
 }
@@ -458,7 +458,7 @@ static void moqtrun_accept_subscribe(
   moqctl_subscribe_ok ok = {0};
   ok.track_alias         = slot->track_alias;
   usz n                  = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), QUIC_MOQCTL_T_SUBSCRIBE_OK,
+      wired_mspan_of(msg, sizeof msg), MOQCTL_T_SUBSCRIBE_OK,
       moqtrun_encode_subscribe_ok, &ok);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
 }
@@ -474,7 +474,7 @@ static void moqtrun_route_subscribe(
   wired_moqtrun_track* track = moqtrun_find_published_track(hub, &m->name);
   wired_moqtrun_sub*   slot  = track ? moqtrun_sub_slot(track) : 0;
   if (!slot) {
-    moqtrun_send_request_error(p, QUIC_MOQCTL_ERR_DOES_NOT_EXIST);
+    moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
     return;
   }
   moqtrun_accept_subscribe(p, track, slot, peer_idx);
@@ -487,16 +487,16 @@ static void moqtrun_handle_subscribe(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   usz              off = 0;
   moqctl_subscribe m;
-  if (moqctl_subscribe_take(body, &off, &m) != QUIC_MOQCTL_OK) return;
+  if (moqctl_subscribe_take(body, &off, &m) != MOQCTL_OK) return;
   if (moqtrun_has_timeout_param(&m.params)) {
-    moqtrun_send_request_error(p, QUIC_MOQCTL_ERR_NOT_SUPPORTED);
+    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
     return;
   }
   moqtrun_route_subscribe(hub, p, peer_idx, &m);
 }
 
 static void moqtrun_handle_not_supported(wired_moqtrun_peer* p) {
-  moqtrun_send_request_error(p, QUIC_MOQCTL_ERR_NOT_SUPPORTED);
+  moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
 }
 
 /* draft 5.1: a GOAWAY arriving on a request stream (not the control
@@ -546,9 +546,9 @@ static const struct {
   u64            type;
   moqtrun_ctl_fn fn;
 } moqtrun_ctl_table[] = {
-    {QUIC_MOQCTL_T_PUBLISH, moqtrun_dispatch_publish},
-    {QUIC_MOQCTL_T_SUBSCRIBE, moqtrun_dispatch_subscribe},
-    {QUIC_MOQCTL_T_GOAWAY, moqtrun_dispatch_goaway},
+    {MOQCTL_T_PUBLISH, moqtrun_dispatch_publish},
+    {MOQCTL_T_SUBSCRIBE, moqtrun_dispatch_subscribe},
+    {MOQCTL_T_GOAWAY, moqtrun_dispatch_goaway},
 };
 #define MOQTRUN_CTL_TABLE_N \
   (sizeof(moqtrun_ctl_table) / sizeof(moqtrun_ctl_table[0]))
@@ -580,7 +580,7 @@ static void moqtrun_dispatch_ctl_stream(
     u64        type = 0;
     wired_span body = {0, 0};
     int        r    = moqctl_peek_type(data, &off, &type, &body);
-    if (r != QUIC_MOQCTL_OK) break;
+    if (r != MOQCTL_OK) break;
     moqtrun_ctl_lookup(type)(hub, p, peer_idx, body);
   }
   moqtrun_flush_replies(&hub->io, p);
@@ -894,7 +894,7 @@ static void moqtrun_relay_save_hdr(
   usz            off = 0;
   moqdata_subhdr hdr;
   relay->hdr_len = 0;
-  if (moqdata_subhdr_take(data, &off, &hdr) != QUIC_MOQDATA_OK) return;
+  if (moqdata_subhdr_take(data, &off, &hdr) != MOQDATA_OK) return;
   if (off > WIRED_MOQTRUN_RELAY_HDR_MAX) return;
   bytes_memcpy(relay->hdr, data.p, off);
   relay->hdr_len = off;
@@ -951,7 +951,7 @@ static usz moqtrun_decode_object_loop(
   usz            n   = 0;
   while (*off < data.n) {
     moqdata_obj obj;
-    if (moqdata_obj_take(data, off, &seq, &obj) != QUIC_MOQDATA_OK) break;
+    if (moqdata_obj_take(data, off, &seq, &obj) != MOQDATA_OK) break;
     n++;
   }
   return n;
@@ -983,7 +983,7 @@ static wired_moqtrun_track* moqtrun_decode_fresh_subgroup(
     wired_moqtrun_peer* p, wired_span data, usz* whole_end) {
   usz            off = 0;
   moqdata_subhdr hdr;
-  if (moqdata_subhdr_take(data, &off, &hdr) != QUIC_MOQDATA_OK) return 0;
+  if (moqdata_subhdr_take(data, &off, &hdr) != MOQDATA_OK) return 0;
   if (moqtrun_decode_object_loop(data, &off, &hdr) == 0) return 0;
   *whole_end = off;
   return moqtrun_track_by_alias(p, hdr.track_alias);
@@ -998,7 +998,7 @@ static wired_moqtrun_track* moqtrun_resolve_fresh_stream_track(
     wired_moqtrun_peer* p, wired_span data, usz* whole_end) {
   usz classify_off = 0;
   int kind         = moqdata_classify(data, &classify_off);
-  if (kind != QUIC_MOQDATA_STREAM_SUBGROUP) return 0;
+  if (kind != MOQDATA_STREAM_SUBGROUP) return 0;
   return moqtrun_decode_fresh_subgroup(p, data, whole_end);
 }
 

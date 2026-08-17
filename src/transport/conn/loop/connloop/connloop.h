@@ -1,5 +1,5 @@
-#ifndef QUIC_CONNLOOP_CONNLOOP_H
-#define QUIC_CONNLOOP_CONNLOOP_H
+#ifndef CONNLOOP_CONNLOOP_H
+#define CONNLOOP_CONNLOOP_H
 
 #include "crypto/kdf/keys/keyset.h"
 #include "transport/recovery/rtx/sentpkt/sentpkt.h"
@@ -15,10 +15,10 @@
 
 /* RFC 9000 10: connection lifecycle phases. */
 enum {
-  QUIC_CONNLOOP_ACTIVE = 0,
-  QUIC_CONNLOOP_CLOSING,
-  QUIC_CONNLOOP_DRAINING,
-  QUIC_CONNLOOP_CLOSED
+  CONNLOOP_ACTIVE = 0,
+  CONNLOOP_CLOSING,
+  CONNLOOP_DRAINING,
+  CONNLOOP_CLOSED
 };
 
 /** The send/receive loop's state: per-level keyset, sent-packet tracking,

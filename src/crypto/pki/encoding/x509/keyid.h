@@ -1,5 +1,5 @@
-#ifndef QUIC_X509_KEYID_H
-#define QUIC_X509_KEYID_H
+#ifndef X509_KEYID_H
+#define X509_KEYID_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

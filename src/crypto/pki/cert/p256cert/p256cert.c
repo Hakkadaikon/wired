@@ -19,7 +19,7 @@ static usz pc_build_sigval(wired_span sig, wired_obuf* out) {
           wired_span_of(sig.p, sig.n)))
     return 0;
   p256cert_enc e = p256cert_loaded(bits, off);
-  return p256cert_wrap(&e, QUIC_DER_BIT_STRING, out);
+  return p256cert_wrap(&e, DER_BIT_STRING, out);
 }
 
 /* SHA-256 the TBS, ECDSA-sign it, DER-encode (r, s) into sig. 0 on failure. */
@@ -44,6 +44,6 @@ int p256cert_build(const p256cert_key* k, wired_obuf* out) {
   p256cert_put_pre(&e, wired_span_of(tbs, to.len));
   p256cert_put_pre(&e, wired_span_of(alg, an));
   p256cert_put_pre(&e, wired_span_of(sv, svn));
-  out->len = p256cert_wrap(&e, QUIC_DER_SEQUENCE, out);
+  out->len = p256cert_wrap(&e, DER_SEQUENCE, out);
   return out->len != 0;
 }

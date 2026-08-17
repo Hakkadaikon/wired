@@ -1,5 +1,5 @@
-#ifndef QUIC_H3RUN_CONTROL_H
-#define QUIC_H3RUN_CONTROL_H
+#ifndef H3RUN_CONTROL_H
+#define H3RUN_CONTROL_H
 
 #include "common/platform/sys/syscall.h"
 

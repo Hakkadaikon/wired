@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_SETTINGS_DUP_H
-#define QUIC_H3_SETTINGS_DUP_H
+#ifndef H3_SETTINGS_DUP_H
+#define H3_SETTINGS_DUP_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -7,13 +7,13 @@
  * in a SETTINGS frame; a repeated identifier is treated as H3_SETTINGS_ERROR.
  */
 
-#define QUIC_H3_SETTINGS_SEEN_MAX 16
+#define H3_SETTINGS_SEEN_MAX 16
 
 /** RFC 9114 7.2.4: the set of SETTINGS identifiers already seen on this
  * frame, for duplicate detection. */
 typedef struct {
   usz n;
-  u64 ids[QUIC_H3_SETTINGS_SEEN_MAX];
+  u64 ids[H3_SETTINGS_SEEN_MAX];
 } h3_settings_seen;
 
 /* Reset the set of seen identifiers to empty. */

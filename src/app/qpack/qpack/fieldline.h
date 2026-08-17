@@ -1,5 +1,5 @@
-#ifndef QUIC_QPACK_FIELDLINE_H
-#define QUIC_QPACK_FIELDLINE_H
+#ifndef QPACK_FIELDLINE_H
+#define QPACK_FIELDLINE_H
 
 #include "common/bytes/span/span.h"
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_QPACK_BASE_H
-#define QUIC_QPACK_BASE_H
+#ifndef QPACK_BASE_H
+#define QPACK_BASE_H
 
 #include "common/platform/sys/syscall.h"
 

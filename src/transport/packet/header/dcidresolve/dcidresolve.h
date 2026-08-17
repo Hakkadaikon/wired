@@ -1,5 +1,5 @@
-#ifndef QUIC_PACKET_DCIDRESOLVE_H
-#define QUIC_PACKET_DCIDRESOLVE_H
+#ifndef PACKET_DCIDRESOLVE_H
+#define PACKET_DCIDRESOLVE_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

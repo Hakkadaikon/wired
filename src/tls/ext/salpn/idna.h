@@ -1,5 +1,5 @@
-#ifndef QUIC_SALPN_IDNA_H
-#define QUIC_SALPN_IDNA_H
+#ifndef SALPN_IDNA_H
+#define SALPN_IDNA_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

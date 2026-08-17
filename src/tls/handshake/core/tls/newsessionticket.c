@@ -8,16 +8,16 @@
 /* fixed prefix: ticket_lifetime(4) ticket_age_add(4) ticket_nonce_len(1)=0
  * ticket_len(2) ticket(sealed) -- extensions_len(2) plus any extensions
  * follow (put_nst_exts below). */
-#define QUIC_NST_PREFIX_LEN (4 + 4 + 1 + 2 + QUIC_TICKET_SEALED_LEN)
+#define NST_PREFIX_LEN (4 + 4 + 1 + 2 + TICKET_SEALED_LEN)
 
 /* RFC 8446 4.6.1: "Servers MUST NOT use any value greater than 604800
  * seconds (7 days)." Clamp rather than reject -- an over-long caller value
  * degrades to the RFC's own ceiling instead of failing the whole ticket. */
-#define QUIC_NST_MAX_LIFETIME_SECS 604800
+#define NST_MAX_LIFETIME_SECS 604800
 
 static u32 nst_clamp_lifetime(u32 lifetime_secs) {
-  return lifetime_secs > QUIC_NST_MAX_LIFETIME_SECS ? QUIC_NST_MAX_LIFETIME_SECS
-                                                    : lifetime_secs;
+  return lifetime_secs > NST_MAX_LIFETIME_SECS ? NST_MAX_LIFETIME_SECS
+                                               : lifetime_secs;
 }
 
 /* RFC 8446 4.6.1: ticket_age_add MUST be a fresh random value per ticket, so
@@ -34,8 +34,8 @@ static void put_nst_prefix(
   be_put_be32(body, t->lifetime_secs);
   be_put_be32(body + 4, age_add);
   body[8] = 0; /* ticket_nonce_len */
-  be_put_be16(body + 9, QUIC_TICKET_SEALED_LEN);
-  for (i = 0; i < QUIC_TICKET_SEALED_LEN; i++) body[11 + i] = sealed[i];
+  be_put_be16(body + 9, TICKET_SEALED_LEN);
+  for (i = 0; i < TICKET_SEALED_LEN; i++) body[11 + i] = sealed[i];
 }
 
 /* RFC 8446 4.2.10: extensions_len(2) followed by early_data(4+4) when
@@ -57,17 +57,17 @@ usz tls_new_session_ticket_encode(
     u8*           out,
     usz           cap,
     const ticket* t,
-    const u8      key[QUIC_TICKET_KEY_LEN],
+    const u8      key[TICKET_KEY_LEN],
     u32           max_early_data_size) {
-  u8     sealed[QUIC_TICKET_SEALED_LEN];
+  u8     sealed[TICKET_SEALED_LEN];
   ticket sealed_t = *t;
-  usz    off      = hs_begin(out, cap, QUIC_HS_NEW_SESSION_TICKET);
-  if (off == 0 || cap - off < QUIC_NST_PREFIX_LEN + 2) return 0;
+  usz    off      = hs_begin(out, cap, HS_NEW_SESSION_TICKET);
+  if (off == 0 || cap - off < NST_PREFIX_LEN + 2) return 0;
   sealed_t.lifetime_secs = nst_clamp_lifetime(t->lifetime_secs);
   sealed_t.age_add       = nst_random_age_add();
   ticket_seal(&sealed_t, key, sealed);
   put_nst_prefix(out + off, &sealed_t, sealed_t.age_add, sealed);
-  off += QUIC_NST_PREFIX_LEN;
+  off += NST_PREFIX_LEN;
   off += put_nst_exts(out + off, cap - off, max_early_data_size);
   hs_finish(out, off);
   return off;
@@ -79,13 +79,13 @@ static u16 get_be16(const u8* p) { return (u16)(((u16)p[0] << 8) | p[1]); }
 /* Whether type/body_len are a well-formed NewSessionTicket header carrying at
  * least the fixed 11-byte prefix before the ticket bytes. */
 static int nst_header_ok(u8 type, usz body_len) {
-  return type == QUIC_HS_NEW_SESSION_TICKET && body_len >= 11;
+  return type == HS_NEW_SESSION_TICKET && body_len >= 11;
 }
 
-/* Whether body_len legitimately carries a QUIC_TICKET_SEALED_LEN ticket
+/* Whether body_len legitimately carries a TICKET_SEALED_LEN ticket
  * starting right after the fixed 11-byte prefix. */
 static int nst_ticket_fits(usz body_len, usz ticket_len) {
-  return ticket_len == QUIC_TICKET_SEALED_LEN && body_len >= 11 + ticket_len;
+  return ticket_len == TICKET_SEALED_LEN && body_len >= 11 + ticket_len;
 }
 
 /* Body-level check + the sealed-ticket view, once the header parsed and

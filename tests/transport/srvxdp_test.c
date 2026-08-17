@@ -12,7 +12,7 @@
  * are sized to the pool (64), unlike rx/fill which stay at SXT_RING. */
 #define SXT_TXRING 64u
 #define SXT_UMEM_FRAMES 128u
-#define SXT_UMEM_LEN (SXT_UMEM_FRAMES * QUIC_XSKUMEM_FRAME_SIZE)
+#define SXT_UMEM_LEN (SXT_UMEM_FRAMES * XSKUMEM_FRAME_SIZE)
 
 typedef struct {
   u8       umem[SXT_UMEM_LEN];
@@ -56,7 +56,7 @@ static void sxt_init(sxt_world* w, wired_srvxdp* x) {
   bytes_memcpy((u8*)&x->ip_be, (const u8[]){10, 7, 0, 1}, 4);
   x->port = 4433;
   xdpmac_init(&x->macs);
-  xskumem_alloc_init(&x->txpool, 64u * QUIC_XSKUMEM_FRAME_SIZE, 64u);
+  xskumem_alloc_init(&x->txpool, 64u * XSKUMEM_FRAME_SIZE, 64u);
 }
 
 /* Build a golden eth+IPv4+UDP frame (10.7.0.2:5555 -> 10.7.0.1:4433,
@@ -115,7 +115,7 @@ static void test_srvxdp_rx_conservation(void) {
   bufs[0].buf = wired_mspan_of(payload_buf, sizeof payload_buf);
 
   for (int cycle = 0; cycle < 200; cycle++) {
-    u64 addr = (u64)(cycle % 8) * QUIC_XSKUMEM_FRAME_SIZE;
+    u64 addr = (u64)(cycle % 8) * XSKUMEM_FRAME_SIZE;
     i64 n;
     sxt_kernel_rx_push(&w, addr);
     n = wired_srvxdp_rx_burst(&x, bufs, 4);

@@ -7,7 +7,7 @@ void test_dg_send_with_length(void) {
   wired_obuf     ob = obuf_of(out, sizeof(out));
   dgdeliver_opts o  = {1, 64};
   int            ok = dgdeliver_frame(wired_span_of(data, 3), &o, &ob);
-  CHECK(ok == 1 && out[0] == QUIC_FRAME_DATAGRAM_LEN);
+  CHECK(ok == 1 && out[0] == FRAME_DATAGRAM_LEN);
   /* type + length varint(1) + 3 data = 5 */
   CHECK(ob.len == 5);
 }
@@ -19,7 +19,7 @@ void test_dg_send_no_length(void) {
   wired_obuf     ob = obuf_of(out, sizeof(out));
   dgdeliver_opts o  = {0, 64};
   int            ok = dgdeliver_frame(wired_span_of(data, 4), &o, &ob);
-  CHECK(ok == 1 && out[0] == QUIC_FRAME_DATAGRAM);
+  CHECK(ok == 1 && out[0] == FRAME_DATAGRAM);
   CHECK(ob.len == 5); /* type + 4 */
 }
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_RTXBYTES_COLLECT_H
-#define QUIC_RTXBYTES_COLLECT_H
+#ifndef RTXBYTES_COLLECT_H
+#define RTXBYTES_COLLECT_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

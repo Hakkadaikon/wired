@@ -1,5 +1,5 @@
-#ifndef QUIC_H3RESP_HELLO_H
-#define QUIC_H3RESP_HELLO_H
+#ifndef H3RESP_HELLO_H
+#define H3RESP_HELLO_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

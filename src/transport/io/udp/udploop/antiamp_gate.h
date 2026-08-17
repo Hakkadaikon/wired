@@ -1,5 +1,5 @@
-#ifndef QUIC_UDPLOOP_ANTIAMP_GATE_H
-#define QUIC_UDPLOOP_ANTIAMP_GATE_H
+#ifndef UDPLOOP_ANTIAMP_GATE_H
+#define UDPLOOP_ANTIAMP_GATE_H
 
 #include "common/platform/sys/syscall.h"
 

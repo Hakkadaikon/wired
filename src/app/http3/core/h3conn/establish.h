@@ -1,5 +1,5 @@
-#ifndef QUIC_H3CONN_ESTABLISH_H
-#define QUIC_H3CONN_ESTABLISH_H
+#ifndef H3CONN_ESTABLISH_H
+#define H3CONN_ESTABLISH_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_H3REQ_REQBUILD_H
-#define QUIC_H3REQ_REQBUILD_H
+#ifndef H3REQ_REQBUILD_H
+#define H3REQ_REQBUILD_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

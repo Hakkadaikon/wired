@@ -6,31 +6,31 @@
 
 /* DATA and HEADERS: request and push only, never control. */
 static void test_data_headers(void) {
-  ON(QUIC_H3_FRAME_DATA, QUIC_H3_STREAM_KIND_REQUEST);
-  ON(QUIC_H3_FRAME_DATA, QUIC_H3_STREAM_KIND_PUSH);
-  OFF(QUIC_H3_FRAME_DATA, QUIC_H3_STREAM_KIND_CONTROL);
-  ON(QUIC_H3_FRAME_HEADERS, QUIC_H3_STREAM_KIND_REQUEST);
-  ON(QUIC_H3_FRAME_HEADERS, QUIC_H3_STREAM_KIND_PUSH);
-  OFF(QUIC_H3_FRAME_HEADERS, QUIC_H3_STREAM_KIND_CONTROL);
+  ON(H3_FRAME_DATA, H3_STREAM_KIND_REQUEST);
+  ON(H3_FRAME_DATA, H3_STREAM_KIND_PUSH);
+  OFF(H3_FRAME_DATA, H3_STREAM_KIND_CONTROL);
+  ON(H3_FRAME_HEADERS, H3_STREAM_KIND_REQUEST);
+  ON(H3_FRAME_HEADERS, H3_STREAM_KIND_PUSH);
+  OFF(H3_FRAME_HEADERS, H3_STREAM_KIND_CONTROL);
 }
 
 /* CANCEL_PUSH / SETTINGS / GOAWAY / MAX_PUSH_ID: control only. */
 static void test_control_only(void) {
   u64 ctl[] = {
-      QUIC_H3_FRAME_CANCEL_PUSH, QUIC_H3_FRAME_SETTINGS, QUIC_H3_FRAME_GOAWAY,
-      QUIC_H3_FRAME_MAX_PUSH_ID};
+      H3_FRAME_CANCEL_PUSH, H3_FRAME_SETTINGS, H3_FRAME_GOAWAY,
+      H3_FRAME_MAX_PUSH_ID};
   for (usz i = 0; i < 4; i++) {
-    ON(ctl[i], QUIC_H3_STREAM_KIND_CONTROL);
-    OFF(ctl[i], QUIC_H3_STREAM_KIND_REQUEST);
-    OFF(ctl[i], QUIC_H3_STREAM_KIND_PUSH);
+    ON(ctl[i], H3_STREAM_KIND_CONTROL);
+    OFF(ctl[i], H3_STREAM_KIND_REQUEST);
+    OFF(ctl[i], H3_STREAM_KIND_PUSH);
   }
 }
 
 /* PUSH_PROMISE: request stream only (RFC 9114 7.2.5). */
 static void test_push_promise(void) {
-  ON(QUIC_H3_FRAME_PUSH_PROMISE, QUIC_H3_STREAM_KIND_REQUEST);
-  OFF(QUIC_H3_FRAME_PUSH_PROMISE, QUIC_H3_STREAM_KIND_CONTROL);
-  OFF(QUIC_H3_FRAME_PUSH_PROMISE, QUIC_H3_STREAM_KIND_PUSH);
+  ON(H3_FRAME_PUSH_PROMISE, H3_STREAM_KIND_REQUEST);
+  OFF(H3_FRAME_PUSH_PROMISE, H3_STREAM_KIND_CONTROL);
+  OFF(H3_FRAME_PUSH_PROMISE, H3_STREAM_KIND_PUSH);
 }
 
 /* RFC 9114 7.2.5 / 9114-067: this SDK is server-only and never sends
@@ -39,13 +39,13 @@ static void test_push_promise(void) {
  * (including CANCEL_PUSH/MAX_PUSH_ID, the OTHER push-related frames) is
  * unaffected. */
 static void test_recv_push_promise_always_rejected(void) {
-  CHECK(h3_frame_recv_ok(QUIC_H3_FRAME_PUSH_PROMISE) == 0);
-  CHECK(h3_frame_recv_ok(QUIC_H3_FRAME_DATA) == 1);
-  CHECK(h3_frame_recv_ok(QUIC_H3_FRAME_HEADERS) == 1);
-  CHECK(h3_frame_recv_ok(QUIC_H3_FRAME_SETTINGS) == 1);
-  CHECK(h3_frame_recv_ok(QUIC_H3_FRAME_CANCEL_PUSH) == 1);
-  CHECK(h3_frame_recv_ok(QUIC_H3_FRAME_GOAWAY) == 1);
-  CHECK(h3_frame_recv_ok(QUIC_H3_FRAME_MAX_PUSH_ID) == 1);
+  CHECK(h3_frame_recv_ok(H3_FRAME_PUSH_PROMISE) == 0);
+  CHECK(h3_frame_recv_ok(H3_FRAME_DATA) == 1);
+  CHECK(h3_frame_recv_ok(H3_FRAME_HEADERS) == 1);
+  CHECK(h3_frame_recv_ok(H3_FRAME_SETTINGS) == 1);
+  CHECK(h3_frame_recv_ok(H3_FRAME_CANCEL_PUSH) == 1);
+  CHECK(h3_frame_recv_ok(H3_FRAME_GOAWAY) == 1);
+  CHECK(h3_frame_recv_ok(H3_FRAME_MAX_PUSH_ID) == 1);
   CHECK(h3_frame_recv_ok(0x21) == 1); /* grease point, unaffected */
 }
 
@@ -65,11 +65,11 @@ static void test_recv_http2_only_reserved_rejected(void) {
 
 /* Unknown and reserved (grease) frame types are permitted on every stream. */
 static void test_unknown_permitted(void) {
-  ON(0x21, QUIC_H3_STREAM_KIND_CONTROL); /* a grease point */
-  ON(0x21, QUIC_H3_STREAM_KIND_REQUEST);
-  ON(0x21, QUIC_H3_STREAM_KIND_PUSH);
-  ON(0x1234, QUIC_H3_STREAM_KIND_CONTROL); /* unknown */
-  ON(0x1234, QUIC_H3_STREAM_KIND_REQUEST);
+  ON(0x21, H3_STREAM_KIND_CONTROL); /* a grease point */
+  ON(0x21, H3_STREAM_KIND_REQUEST);
+  ON(0x21, H3_STREAM_KIND_PUSH);
+  ON(0x1234, H3_STREAM_KIND_CONTROL); /* unknown */
+  ON(0x1234, H3_STREAM_KIND_REQUEST);
 }
 
 void test_frame_permit(void) {

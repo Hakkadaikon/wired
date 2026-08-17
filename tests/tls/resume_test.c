@@ -9,7 +9,7 @@ static void test_resume_session_roundtrip(void) {
   resume r = {0}, back = {0};
   u8     tk[4]   = {9, 8, 7, 6};
   u8     psk[32] = {0};
-  u8     blob[QUIC_RESUME_TICKET_MAX + 64];
+  u8     blob[RESUME_TICKET_MAX + 64];
   usz    n;
   for (usz i = 0; i < 32; i++) psk[i] = (u8)(0xA0 + i);
   CHECK(
@@ -143,8 +143,8 @@ void test_resume(void) {
   CHECK(resume_after_retry(&empty, 1) == 0);
 
   /* RFC 8446 4.6.1: oversized ticket is rejected */
-  u8     big[QUIC_RESUME_TICKET_MAX + 1] = {0};
-  resume r2                              = {0};
+  u8     big[RESUME_TICKET_MAX + 1] = {0};
+  resume r2                         = {0};
   CHECK(
       resume_store(
           &r2, wired_span_of(big, sizeof big),

@@ -248,9 +248,9 @@ static int x25519_nonzero(const u8 out[32]) {
 static usz x25519_mult_count;
 
 int wired_x25519(
-    u8       out[QUIC_X25519_LEN],
-    const u8 scalar[QUIC_X25519_LEN],
-    const u8 point[QUIC_X25519_LEN]) {
+    u8       out[X25519_LEN],
+    const u8 scalar[X25519_LEN],
+    const u8 point[X25519_LEN]) {
   fe x1, x2, z2, zinv;
   u8 e[32];
   x25519_mult_count++;
@@ -263,8 +263,7 @@ int wired_x25519(
   return x25519_nonzero(out);
 }
 
-int wired_x25519_base(
-    u8 out[QUIC_X25519_LEN], const u8 scalar[QUIC_X25519_LEN]) {
+int wired_x25519_base(u8 out[X25519_LEN], const u8 scalar[X25519_LEN]) {
   u8 base[32] = {9};
   return wired_x25519(out, scalar, base);
 }

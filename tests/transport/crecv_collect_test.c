@@ -84,7 +84,7 @@ static void test_crecv_overflow_rejected(void) {
   u8    f[8];
   usz   n = 0;
   /* offset 2047 as a 2-byte varint (0x4000 | value), length 2 ends at 2049,
-   * one past QUIC_CRECV_BUF=2048 -> rejected (RFC 9000 19.6). */
+   * one past CRECV_BUF=2048 -> rejected (RFC 9000 19.6). */
   f[n++] = 0x06;
   f[n++] = 0x47;
   f[n++] = 0xff; /* offset 0x07ff = 2047 */

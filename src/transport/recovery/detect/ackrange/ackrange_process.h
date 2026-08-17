@@ -1,5 +1,5 @@
-#ifndef QUIC_ACKRANGE_ACKRANGE_PROCESS_H
-#define QUIC_ACKRANGE_ACKRANGE_PROCESS_H
+#ifndef ACKRANGE_ACKRANGE_PROCESS_H
+#define ACKRANGE_ACKRANGE_PROCESS_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

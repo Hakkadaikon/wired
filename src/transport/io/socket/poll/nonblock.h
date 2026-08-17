@@ -1,10 +1,10 @@
-#ifndef QUIC_POLL_NONBLOCK_H
-#define QUIC_POLL_NONBLOCK_H
+#ifndef POLL_NONBLOCK_H
+#define POLL_NONBLOCK_H
 
 #include "common/platform/sys/syscall.h"
 
-#define QUIC_O_NONBLOCK 0x800 /* O_NONBLOCK */
-#define QUIC_F_SETFL 4        /* fcntl cmd F_SETFL */
+#define O_NONBLOCK 0x800 /* O_NONBLOCK */
+#define F_SETFL 4        /* fcntl cmd F_SETFL */
 
 /* Add O_NONBLOCK to flags (fd-independent, for testing). */
 u32 poll_nonblock_flags(u32 flags);

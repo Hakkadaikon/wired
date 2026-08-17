@@ -1,5 +1,5 @@
-#ifndef QUIC_X509_KEYUSAGE_H
-#define QUIC_X509_KEYUSAGE_H
+#ifndef X509_KEYUSAGE_H
+#define X509_KEYUSAGE_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

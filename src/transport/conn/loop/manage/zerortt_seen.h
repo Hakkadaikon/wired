@@ -1,5 +1,5 @@
-#ifndef QUIC_MANAGE_ZERORTT_SEEN_H
-#define QUIC_MANAGE_ZERORTT_SEEN_H
+#ifndef MANAGE_ZERORTT_SEEN_H
+#define MANAGE_ZERORTT_SEEN_H
 
 #include "common/bytes/span/span.h"
 
@@ -14,14 +14,14 @@
  * ticket also expires on its own lifetime so an evicted-then-replayed entry
  * is bounded by that, not unbounded. */
 
-#define QUIC_ZERORTT_SEEN_CAP 4096
+#define ZERORTT_SEEN_CAP 4096
 
 /** Fixed-capacity ring of seen 0-RTT ticket identity digests, for
  * single-use enforcement (RFC 8446 8.1 / RFC 9001 9.2). */
 typedef struct {
-  u8  digest[QUIC_ZERORTT_SEEN_CAP][32]; /* SHA-256 of each seen identity */
-  usz next;                              /* ring write cursor */
-  usz count;                             /* entries filled so far (<= CAP) */
+  u8  digest[ZERORTT_SEEN_CAP][32]; /* SHA-256 of each seen identity */
+  usz next;                         /* ring write cursor */
+  usz count;                        /* entries filled so far (<= CAP) */
 } zerortt_seen;
 
 /* Reset s to empty. */

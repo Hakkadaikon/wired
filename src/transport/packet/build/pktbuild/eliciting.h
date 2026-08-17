@@ -1,5 +1,5 @@
-#ifndef QUIC_PKTBUILD_ELICITING_H
-#define QUIC_PKTBUILD_ELICITING_H
+#ifndef PKTBUILD_ELICITING_H
+#define PKTBUILD_ELICITING_H
 
 #include "common/platform/sys/syscall.h"
 

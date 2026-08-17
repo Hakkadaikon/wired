@@ -1,5 +1,5 @@
-#ifndef QUIC_INITPKT_INITPKT_H
-#define QUIC_INITPKT_INITPKT_H
+#ifndef INITPKT_INITPKT_H
+#define INITPKT_INITPKT_H
 
 #include "common/bytes/span/span.h"
 
@@ -18,7 +18,7 @@ typedef struct {
 
 /* Writes the protected packet into out (length to out->len). Returns 1 on
  * success, 0 on overflow. Equivalent to initpkt_build_ver(d,
- * QUIC_VERSION_1, out). */
+ * VERSION_1, out). */
 int initpkt_build(const initpkt_desc* d, wired_obuf* out);
 
 /* Same as initpkt_build, but the Initial keys, the header's Version

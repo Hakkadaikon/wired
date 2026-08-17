@@ -1,5 +1,5 @@
-#ifndef QUIC_CLOSELIFE_CLOSELIFE_H
-#define QUIC_CLOSELIFE_CLOSELIFE_H
+#ifndef CLOSELIFE_CLOSELIFE_H
+#define CLOSELIFE_CLOSELIFE_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -11,10 +11,10 @@
 
 /** RFC 9000 10: the close-lifecycle phase (open phases collapsed to OPEN). */
 typedef enum {
-  QUIC_LIFE_OPEN = 0,
-  QUIC_LIFE_CLOSING,
-  QUIC_LIFE_DRAINING,
-  QUIC_LIFE_CLOSED
+  LIFE_OPEN = 0,
+  LIFE_CLOSING,
+  LIFE_DRAINING,
+  LIFE_CLOSED
 } life_phase;
 
 /** The close-lifecycle phase plus its idle and close timers. */

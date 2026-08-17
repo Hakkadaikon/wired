@@ -121,7 +121,7 @@ static int atv_parts(wired_span atv, wired_span* oid, wired_span* val) {
   derseq c;
   u8     tag;
   derseq_init(&c, atv);
-  if (!derseq_next_tagged(&c, QUIC_DER_OID, oid)) return 0;
+  if (!derseq_next_tagged(&c, DER_OID, oid)) return 0;
   return derseq_next(&c, &tag, val);
 }
 

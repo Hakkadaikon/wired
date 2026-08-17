@@ -4,7 +4,7 @@ void udpsess_init(udpsess* s, udp_transport* t, wired_span dcid) {
   usz i;
   s->t      = t;
   s->active = 0;
-  for (i = 0; i < QUIC_UDPSESS_PATHS; i++) {
+  for (i = 0; i < UDPSESS_PATHS; i++) {
     s->paths[i].peer_addr = 0;
     s->paths[i].peer_port = 0;
     s->paths[i].dcid      = 0;
@@ -17,13 +17,13 @@ void udpsess_init(udpsess* s, udp_transport* t, wired_span dcid) {
 }
 
 void udpsess_set_peer(udpsess* s, usz path, const udpsess_peer* peer) {
-  if (path >= QUIC_UDPSESS_PATHS) return;
+  if (path >= UDPSESS_PATHS) return;
   s->paths[path].peer_addr = peer->addr;
   s->paths[path].peer_port = peer->port;
 }
 
 void udpsess_set_dcid(udpsess* s, usz path, wired_span dcid) {
-  if (path >= QUIC_UDPSESS_PATHS) return;
+  if (path >= UDPSESS_PATHS) return;
   s->paths[path].dcid     = dcid.p;
   s->paths[path].dcid_len = (u8)dcid.n;
 }
@@ -37,7 +37,7 @@ int udpsess_can_migrate(const udpsess* s, int new_path_validated) {
 /* A path may become the active send target only once validated and addressed.
  */
 static int migrate_ok(const udpsess* s, usz path, int validated) {
-  return path < QUIC_UDPSESS_PATHS && validated && s->paths[path].peer_addr;
+  return path < UDPSESS_PATHS && validated && s->paths[path].peer_addr;
 }
 
 int udpsess_migrate(udpsess* s, usz path, int new_path_validated) {
@@ -49,7 +49,7 @@ int udpsess_migrate(udpsess* s, usz path, int new_path_validated) {
 }
 
 int udpsess_dcid_for_path(const udpsess* s, usz path, wired_span* dcid) {
-  if (path >= QUIC_UDPSESS_PATHS || !s->paths[path].dcid) return 0;
+  if (path >= UDPSESS_PATHS || !s->paths[path].dcid) return 0;
   *dcid = wired_span_of(s->paths[path].dcid, s->paths[path].dcid_len);
   return 1;
 }

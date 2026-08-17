@@ -1,5 +1,5 @@
-#ifndef QUIC_PKTBUILD_PADDINGELICIT_H
-#define QUIC_PKTBUILD_PADDINGELICIT_H
+#ifndef PKTBUILD_PADDINGELICIT_H
+#define PKTBUILD_PADDINGELICIT_H
 
 #include "common/platform/sys/syscall.h"
 

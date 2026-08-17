@@ -1,5 +1,5 @@
-#ifndef QUIC_TBSCERT_FIELDS_H
-#define QUIC_TBSCERT_FIELDS_H
+#ifndef TBSCERT_FIELDS_H
+#define TBSCERT_FIELDS_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

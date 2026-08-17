@@ -72,8 +72,7 @@ static void test_pseudo_overflow(void) {
 static usz wrap_stream(const u8* fs, usz fs_len, u8* out, usz cap) {
   u8         h3[192];
   wired_obuf h3b = obuf_of(h3, sizeof h3);
-  CHECK(
-      h3_frame_put(&h3b, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len)) > 0);
+  CHECK(h3_frame_put(&h3b, H3_FRAME_HEADERS, wired_span_of(fs, fs_len)) > 0);
   stream_frame sf = {0, 0, h3b.len, h3, 1};
   return frame_put_stream(out, cap, &sf);
 }

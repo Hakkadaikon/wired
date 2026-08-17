@@ -25,10 +25,10 @@ void test_ch_ext_finds_alpn_and_sni(void) {
   usz        w = build_ch(buf, sizeof(buf));
   CHECK(w > 0);
 
-  CHECK(salpn_find_extension(wired_span_of(buf, w), QUIC_SALPN_EXT_TYPE, &ext));
+  CHECK(salpn_find_extension(wired_span_of(buf, w), SALPN_EXT_TYPE, &ext));
   CHECK(ext.p >= buf && ext.p + ext.n <= buf + w); /* view inside message */
 
-  CHECK(salpn_find_extension(wired_span_of(buf, w), QUIC_SNI_TYPE, &ext));
+  CHECK(salpn_find_extension(wired_span_of(buf, w), SNI_TYPE, &ext));
   CHECK(ext.n > 0);
 }
 
@@ -43,10 +43,8 @@ void test_ch_ext_truncated_returns_zero(void) {
   u8         buf[512];
   wired_span ext;
   usz        w = build_ch(buf, sizeof(buf));
+  CHECK(salpn_find_extension(wired_span_of(buf, 3), SALPN_EXT_TYPE, &ext) == 0);
   CHECK(
-      salpn_find_extension(wired_span_of(buf, 3), QUIC_SALPN_EXT_TYPE, &ext) ==
+      salpn_find_extension(wired_span_of(buf, w - 1), SALPN_EXT_TYPE, &ext) ==
       0);
-  CHECK(
-      salpn_find_extension(
-          wired_span_of(buf, w - 1), QUIC_SALPN_EXT_TYPE, &ext) == 0);
 }

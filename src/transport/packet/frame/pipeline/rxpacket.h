@@ -1,5 +1,5 @@
-#ifndef QUIC_PIPELINE_RXPACKET_H
-#define QUIC_PIPELINE_RXPACKET_H
+#ifndef PIPELINE_RXPACKET_H
+#define PIPELINE_RXPACKET_H
 
 #include "transport/packet/protect/protect/protect.h"
 

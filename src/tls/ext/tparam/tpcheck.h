@@ -1,5 +1,5 @@
-#ifndef QUIC_TPARAM_TPCHECK_H
-#define QUIC_TPARAM_TPCHECK_H
+#ifndef TPARAM_TPCHECK_H
+#define TPARAM_TPCHECK_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

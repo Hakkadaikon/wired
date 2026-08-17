@@ -1,5 +1,5 @@
-#ifndef QUIC_H3CONN_REQUEST_H
-#define QUIC_H3CONN_REQUEST_H
+#ifndef H3CONN_REQUEST_H
+#define H3CONN_REQUEST_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

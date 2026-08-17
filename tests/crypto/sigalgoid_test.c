@@ -20,13 +20,13 @@ static void test_sigalgoid_listed(void) {
                              0x0d, 0x01, 0x01, 0x0c};
   static const u8 r512[]  = {0x2a, 0x86, 0x48, 0x86, 0xf7,
                              0x0d, 0x01, 0x01, 0x0d};
-  CHECK(sao_is(ec224, 8, QUIC_X509_SIG_ECDSA, QUIC_X509_HASH_SHA224));
-  CHECK(sao_is(ec256, 8, QUIC_X509_SIG_ECDSA, QUIC_X509_HASH_SHA256));
-  CHECK(sao_is(ec384, 8, QUIC_X509_SIG_ECDSA, QUIC_X509_HASH_SHA384));
-  CHECK(sao_is(ec512, 8, QUIC_X509_SIG_ECDSA, QUIC_X509_HASH_SHA512));
-  CHECK(sao_is(r256, 9, QUIC_X509_SIG_RSA_PKCS1, QUIC_X509_HASH_SHA256));
-  CHECK(sao_is(r384, 9, QUIC_X509_SIG_RSA_PKCS1, QUIC_X509_HASH_SHA384));
-  CHECK(sao_is(r512, 9, QUIC_X509_SIG_RSA_PKCS1, QUIC_X509_HASH_SHA512));
+  CHECK(sao_is(ec224, 8, X509_SIG_ECDSA, X509_HASH_SHA224));
+  CHECK(sao_is(ec256, 8, X509_SIG_ECDSA, X509_HASH_SHA256));
+  CHECK(sao_is(ec384, 8, X509_SIG_ECDSA, X509_HASH_SHA384));
+  CHECK(sao_is(ec512, 8, X509_SIG_ECDSA, X509_HASH_SHA512));
+  CHECK(sao_is(r256, 9, X509_SIG_RSA_PKCS1, X509_HASH_SHA256));
+  CHECK(sao_is(r384, 9, X509_SIG_RSA_PKCS1, X509_HASH_SHA384));
+  CHECK(sao_is(r512, 9, X509_SIG_RSA_PKCS1, X509_HASH_SHA512));
 }
 
 /* Anything else fails closed: sha224WithRSA, sha1WithRSA, md5WithRSA,

@@ -11,7 +11,7 @@ int key_should_discard_handshake(int handshake_confirmed) {
 }
 
 int keyset_discard(keyset* state, int level) {
-  if (level < 0 || level >= QUIC_KEYSET_LEVELS) return 0;
+  if (level < 0 || level >= KEYSET_LEVELS) return 0;
   state->installed[level] = 0;
   return 1;
 }

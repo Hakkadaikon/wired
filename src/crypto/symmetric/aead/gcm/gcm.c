@@ -8,8 +8,8 @@
 /* AES-NI/PCLMULQDQ dispatch for AES-128-GCM (RFC 9001 5.3 uses the same AEAD
  * regardless of which block-cipher backend computes it). Nonce/tag sizes
  * must agree between the two paths for the dispatch below to be transparent. */
-_Static_assert(QUIC_GCM_NONCE == QUIC_GCMX86_NONCE, "gcm/gcmx86 nonce size");
-_Static_assert(QUIC_GCM_TAG == QUIC_GCMX86_TAG, "gcm/gcmx86 tag size");
+_Static_assert(GCM_NONCE == GCMX86_NONCE, "gcm/gcmx86 nonce size");
+_Static_assert(GCM_TAG == GCMX86_TAG, "gcm/gcmx86 tag size");
 
 /* XOR 16 bytes of src into dst. */
 static void xor16(u8* dst, const u8* src) {
@@ -167,7 +167,7 @@ static void gcm_x86_from(const gcm_ctx* g, gcmx86* x) {
 }
 
 /* gcmx86_open returns the plaintext length, so it cannot distinguish an
- * authentic empty plaintext (ct.n == QUIC_GCM_TAG, returns 0) from AUTH_FAIL
+ * authentic empty plaintext (ct.n == GCM_TAG, returns 0) from AUTH_FAIL
  * (also returns 0). For that one boundary case, verify the tag directly with
  * the scalar GHASH tag computation (cheap: zero-length body) instead of
  * trusting the ambiguous return value. */
@@ -181,7 +181,7 @@ static int gcm_open_x86_empty(const gcm_ctx* g, wired_span ct) {
 
 static int gcm_open_x86(const gcm_ctx* g, wired_span ct, u8* pt) {
   gcmx86 x;
-  if (ct.n == QUIC_GCM_TAG) return gcm_open_x86_empty(g, ct);
+  if (ct.n == GCM_TAG) return gcm_open_x86_empty(g, ct);
   gcm_x86_from(g, &x);
   return gcmx86_open(&x, g->nonce, g->aad, ct, pt) != 0;
 }
@@ -198,7 +198,7 @@ usz gcm_seal(const gcm_ctx* g, wired_span pt, u8* out) {
   data_ctr(&st, &c);
   ctr_xor(&c, pt, out);
   gcm_tag(&st, wired_span_of(out, pt.n), out + pt.n);
-  return pt.n + QUIC_GCM_TAG;
+  return pt.n + GCM_TAG;
 }
 
 /* Scalar-path body: verify the tag, then decrypt on success. Split out of
@@ -207,7 +207,7 @@ static int gcm_open_scalar(const gcm_ctx* g, wired_span ct, u8* pt) {
   gcm_st     st;
   gcm_ctr    c;
   u8         want[16];
-  wired_span body = wired_span_of(ct.p, ct.n - QUIC_GCM_TAG);
+  wired_span body = wired_span_of(ct.p, ct.n - GCM_TAG);
   gcm_setup(g, &st);
   gcm_tag(&st, body, want);
   if (ct_diff16(want, ct.p + body.n) != 0)
@@ -218,7 +218,7 @@ static int gcm_open_scalar(const gcm_ctx* g, wired_span ct, u8* pt) {
 }
 
 int gcm_open(const gcm_ctx* g, wired_span ct, u8* pt) {
-  if (ct.n < QUIC_GCM_TAG) return 0;
+  if (ct.n < GCM_TAG) return 0;
   if (gcmx86_supported()) return gcm_open_x86(g, ct, pt);
   return gcm_open_scalar(g, ct, pt);
 }
@@ -298,15 +298,15 @@ usz gcm256_seal(const gcm256_ctx* g, wired_span pt, u8* out) {
   data_ctr256(&st, &c);
   ctr_xor256(&c, pt, out);
   gcm_tag256(&st, wired_span_of(out, pt.n), out + pt.n);
-  return pt.n + QUIC_GCM_TAG;
+  return pt.n + GCM_TAG;
 }
 
 int gcm256_open(const gcm256_ctx* g, wired_span ct, u8* pt) {
   gcm256_st  st;
   gcm256_ctr c;
   u8         want[16];
-  if (ct.n < QUIC_GCM_TAG) return 0;
-  wired_span body = wired_span_of(ct.p, ct.n - QUIC_GCM_TAG);
+  if (ct.n < GCM_TAG) return 0;
+  wired_span body = wired_span_of(ct.p, ct.n - GCM_TAG);
   gcm_setup256(g, &st);
   gcm_tag256(&st, body, want);
   if (ct_diff16(want, ct.p + body.n) != 0)

@@ -7,14 +7,14 @@
  * protected levels Handshake=1, 1-RTT=2 have a direction; Initial is shared).
  */
 static int seal_which(int level) {
-  static const int own[] = {QUIC_KS_SERVER_HS, QUIC_KS_SERVER_AP};
-  return own[level - QUIC_LEVEL_HANDSHAKE];
+  static const int own[] = {KS_SERVER_HS, KS_SERVER_AP};
+  return own[level - LEVEL_HANDSHAKE];
 }
 
 /* RFC 9001 5.1: peer-direction `which` for opening. */
 static int open_which(int level) {
-  static const int peer[] = {QUIC_KS_CLIENT_HS, QUIC_KS_CLIENT_AP};
-  return peer[level - QUIC_LEVEL_HANDSHAKE];
+  static const int peer[] = {KS_CLIENT_HS, KS_CLIENT_AP};
+  return peer[level - LEVEL_HANDSHAKE];
 }
 
 /* Fetch the directional keys for `which` and build their HP cipher. */

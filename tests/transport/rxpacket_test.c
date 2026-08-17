@@ -22,14 +22,14 @@ static void test_rxpacket_payload_view(void) {
   const u8     dcid[8] = {9, 8, 7, 6, 5, 4, 3, 2};
   initial_keys ik;
   aes128       hp;
-  initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, &ik);
+  initial_derive(wired_span_of(dcid, 8), 1, VERSION_1, &ik);
   aes128_init(&hp, ik.hp);
 
   u8  frames[8];
   usz fl = 0;
-  fl += frame_put_simple(frames + fl, sizeof(frames) - fl, QUIC_FRAME_PING);
-  fl += frame_put_simple(frames + fl, sizeof(frames) - fl, QUIC_FRAME_PADDING);
-  fl += frame_put_simple(frames + fl, sizeof(frames) - fl, QUIC_FRAME_PING);
+  fl += frame_put_simple(frames + fl, sizeof(frames) - fl, FRAME_PING);
+  fl += frame_put_simple(frames + fl, sizeof(frames) - fl, FRAME_PADDING);
+  fl += frame_put_simple(frames + fl, sizeof(frames) - fl, FRAME_PING);
   CHECK(fl == 3);
 
   u8           pkt[256];
@@ -43,8 +43,8 @@ static void test_rxpacket_payload_view(void) {
   wired_span got;
   CHECK(r_rx(&ik, &hp, pkt, n, &got) == 1);
   CHECK(got.n == 3);
-  CHECK(got.p[0] == QUIC_FRAME_PING && got.p[1] == QUIC_FRAME_PADDING);
-  CHECK(got.p[2] == QUIC_FRAME_PING);
+  CHECK(got.p[0] == FRAME_PING && got.p[1] == FRAME_PADDING);
+  CHECK(got.p[2] == FRAME_PING);
 }
 
 /* A packet shorter than its header is rejected. Keys are zeroed, not derived:
@@ -62,9 +62,9 @@ static usz build_pkt(initial_keys* ik, aes128* hp, u8* pkt, usz cap) {
   static const u8 dcid[8] = {9, 8, 7, 6, 5, 4, 3, 2};
   u8              frames[3];
   usz             fl = 0;
-  initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, ik);
+  initial_derive(wired_span_of(dcid, 8), 1, VERSION_1, ik);
   aes128_init(hp, ik->hp);
-  fl += frame_put_simple(frames + fl, sizeof(frames), QUIC_FRAME_PING);
+  fl += frame_put_simple(frames + fl, sizeof(frames), FRAME_PING);
   protect_keys k    = {ik, hp};
   wired_span   none = wired_span_of((const u8*)0, 0);
   tx_desc      td   = {0xc3, wired_span_of(dcid, 8),    none, 1, none,
@@ -122,7 +122,7 @@ static void test_rxpacket_wrong_key(void) {
   wired_span      got;
   usz             n = build_pkt(&ik, &hp, pkt, sizeof(pkt));
   CHECK(n != 0);
-  initial_derive(wired_span_of(other, 8), 1, QUIC_VERSION_1, &wrong);
+  initial_derive(wired_span_of(other, 8), 1, VERSION_1, &wrong);
   CHECK(r_rx(&wrong, &hp, pkt, n, &got) == 0);
 }
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_PNSPACES_RECV_SPACES_H
-#define QUIC_PNSPACES_RECV_SPACES_H
+#ifndef PNSPACES_RECV_SPACES_H
+#define PNSPACES_RECV_SPACES_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/conn/lifecycle/conn/pnspace.h"
@@ -11,12 +11,12 @@
 
 /* Holds largest + the window below it, so at most window+1 received PNs feed
  * the ACK-range builder. */
-#define QUIC_PNSPACES_ACK_CAP (QUIC_RECVPN_WINDOW + 1)
+#define PNSPACES_ACK_CAP (RECVPN_WINDOW + 1)
 
 /** Per-space received-packet-number tracking (recvpn), one per
  * QUIC_PNS_*. */
 typedef struct {
-  recvpn r[QUIC_PNS_COUNT]; /**< indexed by QUIC_PNS_INITIAL/HANDSHAKE/APP */
+  recvpn r[PNS_COUNT]; /**< indexed by PNS_INITIAL/HANDSHAKE/APP */
 } pnspaces_recv;
 
 void pnspaces_recv_init(pnspaces_recv* s);

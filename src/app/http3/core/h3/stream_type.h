@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_STREAM_TYPE_H
-#define QUIC_H3_STREAM_TYPE_H
+#ifndef H3_STREAM_TYPE_H
+#define H3_STREAM_TYPE_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

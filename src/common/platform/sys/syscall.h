@@ -1,5 +1,5 @@
-#ifndef QUIC_SYS_SYSCALL_H
-#define QUIC_SYS_SYSCALL_H
+#ifndef SYS_SYSCALL_H
+#define SYS_SYSCALL_H
 
 /**
  * @file

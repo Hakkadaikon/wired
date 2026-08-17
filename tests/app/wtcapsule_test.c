@@ -51,7 +51,7 @@ static void test_wtcapsule_close_roundtrip_empty_message(void) {
 static void test_wtcapsule_close_encode_rejects_long_message(void) {
   u8         buf[4096];
   wired_obuf out = obuf_of(buf, sizeof buf);
-  u8         msg[QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX + 1];
+  u8         msg[WTCAPSULE_CLOSE_MESSAGE_MAX + 1];
   for (usz i = 0; i < sizeof msg; i++) msg[i] = 'x';
 
   CHECK(!wired_wtcapsule_encode_close(&out, 0, wired_span_of(msg, sizeof msg)));

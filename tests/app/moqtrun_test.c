@@ -183,8 +183,8 @@ static void test_moqtrun_on_session_sends_setup(void) {
   CHECK(
       moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
-      QUIC_MOQCTL_OK);
-  CHECK(type == QUIC_MOQCTL_T_SETUP);
+      MOQCTL_OK);
+  CHECK(type == MOQCTL_T_SETUP);
 }
 
 /* A second control stream for an already-tracked WT session is a no-op
@@ -229,8 +229,8 @@ static void test_moqtrun_publish_replies_request_ok(void) {
   CHECK(
       moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
-      QUIC_MOQCTL_OK);
-  CHECK(type == QUIC_MOQCTL_T_REQUEST_OK);
+      MOQCTL_OK);
+  CHECK(type == MOQCTL_T_REQUEST_OK);
 }
 
 /* Drives session A through PUBLISH so its track ("chat"/"room1"/"alice",
@@ -318,11 +318,11 @@ static void test_moqtrun_subscribe_matching_publish_replies_ok(void) {
   CHECK(
       moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
-      QUIC_MOQCTL_OK);
-  CHECK(type == QUIC_MOQCTL_T_SUBSCRIBE_OK);
+      MOQCTL_OK);
+  CHECK(type == MOQCTL_T_SUBSCRIBE_OK);
   moqctl_subscribe_ok ok;
   usz                 body_off = 0;
-  CHECK(moqctl_subscribe_ok_take(body, &body_off, &ok) == QUIC_MOQCTL_OK);
+  CHECK(moqctl_subscribe_ok_take(body, &body_off, &ok) == MOQCTL_OK);
   (void)ok; /* alias value itself is hub-assigned, not pinned */
 }
 
@@ -347,12 +347,12 @@ static void test_moqtrun_subscribe_without_publish_replies_error(void) {
   CHECK(
       moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
-      QUIC_MOQCTL_OK);
-  CHECK(type == QUIC_MOQCTL_T_REQUEST_ERROR);
+      MOQCTL_OK);
+  CHECK(type == MOQCTL_T_REQUEST_ERROR);
   moqctl_request_error e;
   usz                  body_off = 0;
-  CHECK(moqctl_request_error_take(body, &body_off, &e) == QUIC_MOQCTL_OK);
-  CHECK(e.error_code == QUIC_MOQCTL_ERR_DOES_NOT_EXIST);
+  CHECK(moqctl_request_error_take(body, &body_off, &e) == MOQCTL_OK);
+  CHECK(e.error_code == MOQCTL_ERR_DOES_NOT_EXIST);
 }
 
 /* ===================== 3. Object relay ===================== */
@@ -512,12 +512,12 @@ static void test_moqtrun_subscribe_nonzero_timeout_rejected(void) {
   CHECK(
       moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
-      QUIC_MOQCTL_OK);
-  CHECK(type == QUIC_MOQCTL_T_REQUEST_ERROR);
+      MOQCTL_OK);
+  CHECK(type == MOQCTL_T_REQUEST_ERROR);
   moqctl_request_error e;
   usz                  body_off = 0;
-  CHECK(moqctl_request_error_take(body, &body_off, &e) == QUIC_MOQCTL_OK);
-  CHECK(e.error_code == QUIC_MOQCTL_ERR_NOT_SUPPORTED);
+  CHECK(moqctl_request_error_take(body, &body_off, &e) == MOQCTL_OK);
+  CHECK(e.error_code == MOQCTL_ERR_NOT_SUPPORTED);
 }
 
 /* The hub's own SUBSCRIBE_OK never carries a delivery-timeout
@@ -575,8 +575,8 @@ static void test_moqtrun_unknown_first_type_gets_not_supported(void) {
   CHECK(
       moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
-      QUIC_MOQCTL_OK);
-  CHECK(type == QUIC_MOQCTL_T_REQUEST_ERROR);
+      MOQCTL_OK);
+  CHECK(type == MOQCTL_T_REQUEST_ERROR);
 }
 
 /* A GOAWAY on a request stream (here: the shared control stream,
@@ -637,8 +637,8 @@ static void test_moqtrun_peer_publishes_two_tracks(void) {
   CHECK(
       moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
-      QUIC_MOQCTL_OK);
-  CHECK(type == QUIC_MOQCTL_T_REQUEST_OK);
+      MOQCTL_OK);
+  CHECK(type == MOQCTL_T_REQUEST_OK);
 }
 
 /* A third distinct track name (both of the peer's 2 slots already taken)
@@ -670,8 +670,8 @@ static void test_moqtrun_third_publish_gets_error(void) {
   CHECK(
       moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
-      QUIC_MOQCTL_OK);
-  CHECK(type == QUIC_MOQCTL_T_REQUEST_ERROR);
+      MOQCTL_OK);
+  CHECK(type == MOQCTL_T_REQUEST_ERROR);
 }
 
 /* Re-PUBLISHing the same track name ("alice") a second time still consumes
@@ -695,8 +695,8 @@ static void test_moqtrun_republish_same_name_reuses_slot(void) {
   CHECK(
       moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
-      QUIC_MOQCTL_OK);
-  CHECK(type == QUIC_MOQCTL_T_REQUEST_OK); /* not REQUEST_ERROR (slot free) */
+      MOQCTL_OK);
+  CHECK(type == MOQCTL_T_REQUEST_OK); /* not REQUEST_ERROR (slot free) */
 }
 
 /* SUBSCRIBEing the audio track gets SUBSCRIBE_OK. */
@@ -720,8 +720,8 @@ static void test_moqtrun_subscribe_audio_track_replies_ok(void) {
   CHECK(
       moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
-      QUIC_MOQCTL_OK);
-  CHECK(type == QUIC_MOQCTL_T_SUBSCRIBE_OK);
+      MOQCTL_OK);
+  CHECK(type == MOQCTL_T_SUBSCRIBE_OK);
 }
 
 /* The same subscriber SUBSCRIBEing chat then audio gets a valid
@@ -768,8 +768,8 @@ static void test_moqtrun_chat_and_audio_get_different_aliases(void) {
   usz                 audio_off = 0;
   moqctl_subscribe_ok_take(body2, &audio_off, &audio_ok);
 
-  CHECK(type1 == QUIC_MOQCTL_T_SUBSCRIBE_OK);
-  CHECK(type2 == QUIC_MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(type1 == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(type2 == MOQCTL_T_SUBSCRIBE_OK);
   /* Both tracks allocate aliases independently from 0, so this hub's
    * per-subscriber alias legitimately collides across tracks -- routing
    * still works because relay keys on the PUBLISHER's own Track Alias
@@ -989,15 +989,15 @@ static void test_moqtrun_two_subscribe_oks_one_dispatch_no_overflow(void) {
   CHECK(
       moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &check_off, &t1, &b1) ==
-      QUIC_MOQCTL_OK);
-  CHECK(t1 == QUIC_MOQCTL_T_SUBSCRIBE_OK);
+      MOQCTL_OK);
+  CHECK(t1 == MOQCTL_T_SUBSCRIBE_OK);
   u64        t2;
   wired_span b2;
   CHECK(
       moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &check_off, &t2, &b2) ==
-      QUIC_MOQCTL_OK);
-  CHECK(t2 == QUIC_MOQCTL_T_SUBSCRIBE_OK);
+      MOQCTL_OK);
+  CHECK(t2 == MOQCTL_T_SUBSCRIBE_OK);
 }
 
 /* ===================== 7. multi-Object data stream decode
@@ -1033,8 +1033,7 @@ static void test_moqtrun_decode_loop_single_object_matches_one_shot(void) {
   usz            off = 0;
   moqdata_subhdr hdr;
   CHECK(
-      moqdata_subhdr_take(wired_span_of(buf, total), &off, &hdr) ==
-      QUIC_MOQDATA_OK);
+      moqdata_subhdr_take(wired_span_of(buf, total), &off, &hdr) == MOQDATA_OK);
   usz n = moqtrun_decode_object_loop(wired_span_of(buf, total), &off, &hdr);
   CHECK(n == 1);
   CHECK(off == total);
@@ -1052,7 +1051,7 @@ static void test_moqtrun_decode_loop_multiple_objects(void) {
     moqdata_subhdr hdr;
     CHECK(
         moqdata_subhdr_take(wired_span_of(buf, total), &off, &hdr) ==
-        QUIC_MOQDATA_OK);
+        MOQDATA_OK);
     usz n = moqtrun_decode_object_loop(wired_span_of(buf, total), &off, &hdr);
     CHECK(n == counts[c]);
     CHECK(off == total);
@@ -1071,7 +1070,7 @@ static void test_moqtrun_decode_loop_stops_at_truncation(void) {
   moqdata_subhdr hdr;
   CHECK(
       moqdata_subhdr_take(wired_span_of(buf, truncated), &off, &hdr) ==
-      QUIC_MOQDATA_OK);
+      MOQDATA_OK);
   usz        header_end = off;
   wired_span data       = wired_span_of(buf, truncated);
   usz        n          = moqtrun_decode_object_loop(data, &off, &hdr);
@@ -1101,7 +1100,7 @@ static void test_moqtrun_decode_loop_stops_at_violation(void) {
   moqdata_subhdr hdr;
   CHECK(
       moqdata_subhdr_take(wired_span_of(buf, total), &decode_off, &hdr) ==
-      QUIC_MOQDATA_OK);
+      MOQDATA_OK);
   usz n =
       moqtrun_decode_object_loop(wired_span_of(buf, total), &decode_off, &hdr);
   CHECK(n == 1); /* the 2nd (VIOLATION) Object is not counted */

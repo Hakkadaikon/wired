@@ -1,5 +1,5 @@
-#ifndef QUIC_KUDRIVE_TRIGGER_H
-#define QUIC_KUDRIVE_TRIGGER_H
+#ifndef KUDRIVE_TRIGGER_H
+#define KUDRIVE_TRIGGER_H
 
 #include "common/platform/sys/syscall.h"
 

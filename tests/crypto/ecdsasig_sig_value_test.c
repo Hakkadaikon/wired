@@ -41,10 +41,8 @@ static void test_sig_reparse(void) {
   r[0]      = 0x80;
   s[0]      = 0x01;
   CHECK(ecdsasig_encode(r, s, out, sizeof(out), &n) == 1);
-  CHECK(
-      der_read(wired_span_of(out, n), &seq) == 1 &&
-      seq.tag == QUIC_DER_SEQUENCE);
-  CHECK(der_read(seq.val, &v) == 1 && v.tag == QUIC_DER_INTEGER);
+  CHECK(der_read(wired_span_of(out, n), &seq) == 1 && seq.tag == DER_SEQUENCE);
+  CHECK(der_read(seq.val, &v) == 1 && v.tag == DER_INTEGER);
   CHECK(v.val.n == 33 && v.val.p[0] == 0x00 && v.val.p[1] == 0x80);
 }
 

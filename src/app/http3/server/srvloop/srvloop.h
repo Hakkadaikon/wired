@@ -87,7 +87,7 @@ typedef int (*wired_srvloop_handler)(
  * carrying packet is still ACKed -- so the peer never retransmits and the
  * request is gone for good. The limit and the table must stay in lockstep. */
 static inline u64 wired_srvloop_stream_limit(u64 configured) {
-  u64 v = configured ? configured : QUIC_STP_DEFAULT_MAX_STREAMS_BIDI;
+  u64 v = configured ? configured : STP_DEFAULT_MAX_STREAMS_BIDI;
   return v > WIRED_SRVLOOP_MAX_STREAMS ? WIRED_SRVLOOP_MAX_STREAMS : v;
 }
 
@@ -184,12 +184,12 @@ typedef struct {
  * per-test timeout (verified against a real webtransport-go run). Used to be
  * kept at 4KB because wired_srvloop is embedded in srvrun_conn (6 bidi + 6
  * uni slots), and srvrun_test.c's test helpers used to stack-allocate a
- * whole QUIC_CONNTABLE_CAP-sized connection table each -- that allocation
+ * whole WIRED_CONNTABLE_CAP-sized connection table each -- that allocation
  * has since moved to static storage (matching production's own g_srvrun_env
  * singleton, which was never on the stack to begin with), so this can now
  * size for throughput instead of a stack budget it no longer shares.
  * Overridable per build (-D flag) -- but the advertised per-stream windows
- * (QUIC_STP_DEFAULT_STREAM_DATA_LOCAL, server_tp.h) are a promise backed by
+ * (STP_DEFAULT_STREAM_DATA_LOCAL, server_tp.h) are a promise backed by
  * exactly this capacity, so any override must change both together
  * (server_tp_test.c pins them equal). */
 #ifndef WIRED_SRVLOOP_WT_BUF_CAP
@@ -402,7 +402,7 @@ typedef struct {
    * window (pnspaces_recv, independent per space -- Initial is out of
    * this loop's scope, srvboot's own layer) plus whether/when each space
    * owes an ACK (ackpolicy, one instance per space since App and
-   * Handshake ack independently). Indexed by QUIC_PNS_APP/QUIC_PNS_HANDSHAKE
+   * Handshake ack independently). Indexed by PNS_APP/PNS_HANDSHAKE
    * (transport/conn/lifecycle/conn/pnspace.h). */
   pnspaces_recv ack_recv;
   ackpolicy     app_ack_policy; /**< App space's delayed-ACK timer */
@@ -627,7 +627,7 @@ typedef struct {
    * of path validation (that lives in srvrun_conn.migrate, srvrun.c) -- it
    * only latches the raw bytes, mirroring max_data_seen's split of
    * responsibility (gather here, interpret in the caller). */
-  u8  path_response_data[QUIC_PATH_DATA];
+  u8  path_response_data[PATH_DATA];
   int path_response_seen_flag; /**< 1 once path_response_data was set this
                                 * step; not reset across steps by this loop
                                 * itself, same convention as max_data_seen_

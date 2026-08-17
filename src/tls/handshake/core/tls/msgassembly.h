@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_MSGASSEMBLY_H
-#define QUIC_TLS_MSGASSEMBLY_H
+#ifndef TLS_MSGASSEMBLY_H
+#define TLS_MSGASSEMBLY_H
 
 #include "common/platform/sys/syscall.h"
 

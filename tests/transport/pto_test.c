@@ -5,8 +5,8 @@ static void test_pto_backoff(void) {
   CHECK(pto_backoff(0) == 1);
   CHECK(pto_backoff(1) == 2);
   CHECK(pto_backoff(4) == 16);
-  CHECK(pto_backoff(QUIC_PTO_BACKOFF_MAX) == ((u64)1 << QUIC_PTO_BACKOFF_MAX));
-  CHECK(pto_backoff(99) == ((u64)1 << QUIC_PTO_BACKOFF_MAX));
+  CHECK(pto_backoff(PTO_BACKOFF_MAX) == ((u64)1 << PTO_BACKOFF_MAX));
+  CHECK(pto_backoff(99) == ((u64)1 << PTO_BACKOFF_MAX));
 }
 
 /* 4*rttvar dominates the granularity floor. */
@@ -19,9 +19,7 @@ static void test_pto_var_dominates(void) {
 /* Granularity floor applies when 4*rttvar is tiny. */
 static void test_pto_granularity_floor(void) {
   /* 4*rttvar = 4 < 1000, so floor wins */
-  CHECK(
-      pto_duration((pto_rtt){100000, 1}, 0, 0) ==
-      100000 + QUIC_PTO_GRANULARITY);
+  CHECK(pto_duration((pto_rtt){100000, 1}, 0, 0) == 100000 + PTO_GRANULARITY);
 }
 
 /* Backoff multiplies the base PTO. */

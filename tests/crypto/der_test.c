@@ -8,27 +8,27 @@ static void test_der_short_form(void) {
   der_tlv  t;
   CHECK(der_read(wired_span_of(in, sizeof(in)), &t) == 1);
   CHECK(
-      t.tag == QUIC_DER_INTEGER && t.val.n == 1 && t.val.p[0] == 0x05 &&
+      t.tag == DER_INTEGER && t.val.n == 1 && t.val.p[0] == 0x05 &&
       t.used == 3);
 }
 
 /* X.690 8.1.3.5. Long form 0x81: a 200-octet OCTET STRING. */
 static void test_der_long_form_1(void) {
   u8 in[3 + 200];
-  in[0] = QUIC_DER_OCTET_STRING;
+  in[0] = DER_OCTET_STRING;
   in[1] = 0x81;
   in[2] = 200;
   for (usz i = 0; i < 200; i++) in[3 + i] = (u8)i;
   der_tlv t;
   CHECK(der_read(wired_span_of(in, sizeof(in)), &t) == 1);
-  CHECK(t.tag == QUIC_DER_OCTET_STRING && t.val.n == 200 && t.used == 203);
+  CHECK(t.tag == DER_OCTET_STRING && t.val.n == 200 && t.used == 203);
   CHECK(t.val.p[0] == 0 && t.val.p[199] == 199);
 }
 
 /* X.690 8.1.3.5. Long form 0x82: a 300-octet value. */
 static void test_der_long_form_2(void) {
   u8 in[4 + 300];
-  in[0] = QUIC_DER_OCTET_STRING;
+  in[0] = DER_OCTET_STRING;
   in[1] = 0x82;
   in[2] = 0x01; /* 0x012C = 300 */
   in[3] = 0x2C;

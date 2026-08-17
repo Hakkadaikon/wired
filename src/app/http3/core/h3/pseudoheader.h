@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_PSEUDOHEADER_H
-#define QUIC_H3_PSEUDOHEADER_H
+#ifndef H3_PSEUDOHEADER_H
+#define H3_PSEUDOHEADER_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -12,18 +12,18 @@
 
 /** RFC 9114 4.3.1: which pseudo-header (or none/unknown) a field name is. */
 typedef enum {
-  QUIC_H3_PH_NONE = 0, /* a regular (non-pseudo) field */
-  QUIC_H3_PH_METHOD,
-  QUIC_H3_PH_SCHEME,
-  QUIC_H3_PH_AUTHORITY,
-  QUIC_H3_PH_PATH,
-  QUIC_H3_PH_PROTOCOL, /* RFC 9220 3: Extended CONNECT's :protocol */
-  QUIC_H3_PH_STATUS,
-  QUIC_H3_PH_UNKNOWN /* a name beginning with ':' that is not known */
+  H3_PH_NONE = 0, /* a regular (non-pseudo) field */
+  H3_PH_METHOD,
+  H3_PH_SCHEME,
+  H3_PH_AUTHORITY,
+  H3_PH_PATH,
+  H3_PH_PROTOCOL, /* RFC 9220 3: Extended CONNECT's :protocol */
+  H3_PH_STATUS,
+  H3_PH_UNKNOWN /* a name beginning with ':' that is not known */
 } h3_ph_kind;
 
 /* Classify a field name of len bytes. Returns the pseudo-header kind, or
- * QUIC_H3_PH_NONE for a regular field, or QUIC_H3_PH_UNKNOWN for an
+ * H3_PH_NONE for a regular field, or H3_PH_UNKNOWN for an
  * unrecognised ':'-prefixed name. */
 h3_ph_kind h3_ph_classify(const u8* name, usz len);
 

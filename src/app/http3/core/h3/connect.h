@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_CONNECT_H
-#define QUIC_H3_CONNECT_H
+#ifndef H3_CONNECT_H
+#define H3_CONNECT_H
 
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "common/platform/sys/syscall.h"
@@ -40,12 +40,12 @@ int h3_connect_established(u16 status);
 /** RFC 9114 4.4 / RFC 9110 9.3.6: forward-only CONNECT tunnel lifecycle
  * state (REQ -> VALIDATED -> ESTABLISHED -> RELAY, or FAILED/CLOSED). */
 typedef enum {
-  QUIC_H3_TUNNEL_REQ = 0,
-  QUIC_H3_TUNNEL_VALIDATED,
-  QUIC_H3_TUNNEL_ESTABLISHED,
-  QUIC_H3_TUNNEL_FAILED,
-  QUIC_H3_TUNNEL_RELAY,
-  QUIC_H3_TUNNEL_CLOSED
+  H3_TUNNEL_REQ = 0,
+  H3_TUNNEL_VALIDATED,
+  H3_TUNNEL_ESTABLISHED,
+  H3_TUNNEL_FAILED,
+  H3_TUNNEL_RELAY,
+  H3_TUNNEL_CLOSED
 } h3_tunnel;
 
 void h3_tunnel_init(h3_tunnel* st);

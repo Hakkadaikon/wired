@@ -6,7 +6,7 @@ static void test_datagram_with_len(void) {
   datagram_frame in        = {.length = 4, .data = payload};
   u8             buf[16];
   usz            w = datagram_encode(wired_mspan_of(buf, sizeof(buf)), &in, 1);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_DATAGRAM_LEN);
+  CHECK(w != 0 && buf[0] == FRAME_DATAGRAM_LEN);
 
   datagram_frame out;
   usz            r = datagram_decode(buf, w, &out);
@@ -20,7 +20,7 @@ static void test_datagram_no_len(void) {
   datagram_frame in        = {.length = 3, .data = payload};
   u8             buf[16];
   usz            w = datagram_encode(wired_mspan_of(buf, sizeof(buf)), &in, 0);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_DATAGRAM && w == 4); /* type + 3 data */
+  CHECK(w != 0 && buf[0] == FRAME_DATAGRAM && w == 4); /* type + 3 data */
 
   datagram_frame out;
   usz            r = datagram_decode(buf, w, &out);

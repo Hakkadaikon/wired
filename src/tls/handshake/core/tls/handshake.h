@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_HANDSHAKE_H
-#define QUIC_TLS_HANDSHAKE_H
+#ifndef TLS_HANDSHAKE_H
+#define TLS_HANDSHAKE_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -9,16 +9,16 @@
  * minimal ClientHello/ServerHello needed to drive a QUIC handshake with an
  * X25519 key_share, plus EncryptedExtensions and Finished. */
 
-#define QUIC_HS_CLIENT_HELLO 1
-#define QUIC_HS_SERVER_HELLO 2
-#define QUIC_HS_ENCRYPTED_EXT 8
-#define QUIC_HS_FINISHED 20
+#define HS_CLIENT_HELLO 1
+#define HS_SERVER_HELLO 2
+#define HS_ENCRYPTED_EXT 8
+#define HS_FINISHED 20
 
-#define QUIC_TLS_AES128_GCM_SHA256 0x1301
-#define QUIC_EXT_SUPPORTED_VERSIONS 43
-#define QUIC_EXT_KEY_SHARE 51
-#define QUIC_GROUP_X25519 0x001d
-#define QUIC_GROUP_SECP256R1 0x0017
+#define TLS_AES128_GCM_SHA256 0x1301
+#define EXT_SUPPORTED_VERSIONS 43
+#define EXT_KEY_SHARE 51
+#define GROUP_X25519 0x001d
+#define GROUP_SECP256R1 0x0017
 
 /* Write a handshake message header (type + 24-bit length) at out; returns
  * the offset where the body should start (4). The caller fills the body then

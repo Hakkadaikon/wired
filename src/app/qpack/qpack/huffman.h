@@ -1,5 +1,5 @@
-#ifndef QUIC_QPACK_HUFFMAN_H
-#define QUIC_QPACK_HUFFMAN_H
+#ifndef QPACK_HUFFMAN_H
+#define QPACK_HUFFMAN_H
 
 #include "common/bytes/span/span.h"
 

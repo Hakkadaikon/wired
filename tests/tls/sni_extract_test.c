@@ -19,7 +19,7 @@ void test_sni_extract_from_clienthello(void) {
           random, pub, wired_span_of((const u8*)"example.com", 11),
           wired_span_of(tp, sizeof(tp))},
       &(wired_obuf){buf, sizeof(buf), 0});
-  CHECK(salpn_find_extension(wired_span_of(buf, w), QUIC_SNI_TYPE, &ext));
+  CHECK(salpn_find_extension(wired_span_of(buf, w), SNI_TYPE, &ext));
   CHECK(salpn_extract_sni(ext, &host) == 1);
   CHECK(host.n == 11);
   CHECK(host.p[0] == 'e' && host.p[10] == 'm');

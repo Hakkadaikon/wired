@@ -1,5 +1,5 @@
-#ifndef QUIC_FLOW_CREDIT_H
-#define QUIC_FLOW_CREDIT_H
+#ifndef FLOW_CREDIT_H
+#define FLOW_CREDIT_H
 
 #include "common/platform/sys/syscall.h"
 

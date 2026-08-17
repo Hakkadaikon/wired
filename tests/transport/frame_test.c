@@ -2,13 +2,10 @@
 
 static void test_frame_simple(void) {
   u8 buf[4];
+  CHECK(frame_put_simple(buf, sizeof(buf), FRAME_PING) == 1 && buf[0] == 0x01);
   CHECK(
-      frame_put_simple(buf, sizeof(buf), QUIC_FRAME_PING) == 1 &&
-      buf[0] == 0x01);
-  CHECK(
-      frame_put_simple(buf, sizeof(buf), QUIC_FRAME_PADDING) == 1 &&
-      buf[0] == 0x00);
-  CHECK(frame_put_simple(buf, 0, QUIC_FRAME_PING) == 0);
+      frame_put_simple(buf, sizeof(buf), FRAME_PADDING) == 1 && buf[0] == 0x00);
+  CHECK(frame_put_simple(buf, 0, FRAME_PING) == 0);
 }
 
 static void test_frame_crypto_roundtrip(void) {
@@ -17,7 +14,7 @@ static void test_frame_crypto_roundtrip(void) {
       .offset = 1000, .length = sizeof(payload), .data = payload};
   u8  buf[32];
   usz w = frame_put_crypto(buf, sizeof(buf), &in);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_CRYPTO);
+  CHECK(w != 0 && buf[0] == FRAME_CRYPTO);
 
   crypto_frame out;
   usz          r = frame_get_crypto(buf, w, &out);
@@ -45,7 +42,7 @@ static void check_stream_roundtrip(u64 sid, u64 off, u8 fin) {
       .fin       = fin};
   u8  buf[32];
   usz w = frame_put_stream(buf, sizeof(buf), &in);
-  CHECK(w != 0 && (buf[0] & 0xF8) == QUIC_FRAME_STREAM_BASE);
+  CHECK(w != 0 && (buf[0] & 0xF8) == FRAME_STREAM_BASE);
 
   stream_frame out;
   usz          r = frame_get_stream(buf, w, &out);
@@ -77,23 +74,23 @@ static void test_frame_conn_close(void) {
   conn_close_frame tpt = {
       .is_app     = 0,
       .error_code = 0x0a,
-      .frame_type = QUIC_FRAME_STREAM_BASE,
+      .frame_type = FRAME_STREAM_BASE,
       .reason_len = 3,
       .reason     = reason};
   u8  buf[32];
   usz w = frame_put_conn_close(buf, sizeof(buf), &tpt);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_CONN_CLOSE_TPT);
+  CHECK(w != 0 && buf[0] == FRAME_CONN_CLOSE_TPT);
   conn_close_frame out;
   usz              r = frame_get_conn_close(buf, w, &out);
   CHECK(r == w && out.is_app == 0 && out.error_code == 0x0a);
-  CHECK(out.frame_type == QUIC_FRAME_STREAM_BASE && out.reason_len == 3);
+  CHECK(out.frame_type == FRAME_STREAM_BASE && out.reason_len == 3);
   CHECK(out.reason[0] == 'b' && out.reason[2] == 'e');
 
   /* application variant: no frame_type field */
   conn_close_frame app = {
       .is_app = 1, .error_code = 0x100, .reason_len = 0, .reason = reason};
   usz wa = frame_put_conn_close(buf, sizeof(buf), &app);
-  CHECK(wa != 0 && buf[0] == QUIC_FRAME_CONN_CLOSE_APP);
+  CHECK(wa != 0 && buf[0] == FRAME_CONN_CLOSE_APP);
   conn_close_frame outa;
   CHECK(frame_get_conn_close(buf, wa, &outa) == wa);
   CHECK(outa.is_app == 1 && outa.error_code == 0x100 && outa.reason_len == 0);

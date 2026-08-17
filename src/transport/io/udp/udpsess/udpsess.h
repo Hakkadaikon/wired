@@ -1,5 +1,5 @@
-#ifndef QUIC_UDPSESS_UDPSESS_H
-#define QUIC_UDPSESS_UDPSESS_H
+#ifndef UDPSESS_UDPSESS_H
+#define UDPSESS_UDPSESS_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -13,7 +13,7 @@
  * paths (9.5). This drives an existing udp_transport; it opens no new
  * sockets and issues no sendto/recvfrom itself. */
 
-#define QUIC_UDPSESS_PATHS 2
+#define UDPSESS_PATHS 2
 
 /** One migration path: its peer address/port and the DCID used on it
  * (RFC 9000 9). */
@@ -28,7 +28,7 @@ typedef struct {
  * known path and which one is currently active. */
 typedef struct {
   udp_transport* t;
-  udpsess_path   paths[QUIC_UDPSESS_PATHS];
+  udpsess_path   paths[UDPSESS_PATHS];
   usz active; /* index of the path the transport currently sends to */
 } udpsess;
 

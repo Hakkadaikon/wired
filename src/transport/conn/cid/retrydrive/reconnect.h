@@ -1,5 +1,5 @@
-#ifndef QUIC_RETRYDRIVE_RECONNECT_H
-#define QUIC_RETRYDRIVE_RECONNECT_H
+#ifndef RETRYDRIVE_RECONNECT_H
+#define RETRYDRIVE_RECONNECT_H
 
 #include "common/bytes/span/span.h"
 #include "transport/packet/header/packet/header.h"

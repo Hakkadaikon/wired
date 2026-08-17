@@ -73,8 +73,8 @@ void wired_server_set_keylog_path(wired_server* s, const char* path) {
 }
 
 /* RFC 8446 4.1.2: legacy_version(2) precedes ClientHello.random, both after
- * the 4-byte handshake header (QUIC_HS_HEADER) put_prefix wrote them at. */
-#define SRV_CH_RANDOM_OFF (QUIC_HS_HEADER + 2)
+ * the 4-byte handshake header (HS_HEADER) put_prefix wrote them at. */
+#define SRV_CH_RANDOM_OFF (HS_HEADER + 2)
 
 /* Record ClientHello.random off ch_msg for later keylog lines; a no-op if
  * ch_msg is too short to carry it (already validated well-formed by
@@ -109,12 +109,12 @@ int wired_server_recv_initial(wired_server* s, const u8* ch_msg, usz ch_len) {
  * schedule, over the identical ecdhe (sdrv's own stored shared secret) and
  * the identical transcript-through-ServerHello, so both Handshake Secret
  * computations agree byte-for-byte whenever a PSK was accepted. */
-static int srv_advance_handshake(wired_server* s, u8 ecdhe[QUIC_X25519_LEN]) {
-  wired_span ecdhe_span = wired_span_of(ecdhe, QUIC_X25519_LEN);
+static int srv_advance_handshake(wired_server* s, u8 ecdhe[X25519_LEN]) {
+  wired_span ecdhe_span = wired_span_of(ecdhe, X25519_LEN);
   wired_span tr_span    = wired_span_of(s->tr, s->tr_through_sh);
   if (s->sdrv.psk_accepted)
     return keysched_advance_handshake_psk(
-        &s->sched, wired_span_of(s->sdrv.psk_secret, QUIC_HKDF_PRK), ecdhe_span,
+        &s->sched, wired_span_of(s->sdrv.psk_secret, HKDF_PRK), ecdhe_span,
         tr_span);
   return keysched_advance_handshake(&s->sched, ecdhe_span, tr_span);
 }
@@ -126,19 +126,19 @@ static int srv_advance_handshake(wired_server* s, u8 ecdhe[QUIC_X25519_LEN]) {
  * doubled the per-connection ECDHE cost. RFC 7748 6.1's all-zero (low-order
  * client key) rejection already ran there: hs_ready is only set after the
  * shared secret passed it. */
-static int srv_derive_hs(wired_server* s, u8 ecdhe[QUIC_X25519_LEN]) {
+static int srv_derive_hs(wired_server* s, u8 ecdhe[X25519_LEN]) {
   if (!s->sdrv.hs_ready) return 0;
-  for (usz i = 0; i < QUIC_X25519_LEN; i++) ecdhe[i] = s->sdrv.ecdhe_secret[i];
+  for (usz i = 0; i < X25519_LEN; i++) ecdhe[i] = s->sdrv.ecdhe_secret[i];
   keysched_set_suite(&s->sched, s->sdrv.cipher_suite);
   return srv_advance_handshake(s, ecdhe);
 }
 
 static int srv_install_hs_keys(wired_server* s) {
-  u8                  ecdhe[QUIC_X25519_LEN];
+  u8                  ecdhe[X25519_LEN];
   const initial_keys* shs;
   if (!srv_derive_hs(s, ecdhe)) return 0;
-  if (!keysched_get(&s->sched, QUIC_KS_SERVER_HS, &shs)) return 0;
-  return keyset_install(&s->keys, QUIC_LEVEL_HANDSHAKE, shs);
+  if (!keysched_get(&s->sched, KS_SERVER_HS, &shs)) return 0;
+  return keyset_install(&s->keys, LEVEL_HANDSHAKE, shs);
 }
 
 /* Record the flight in the transcript and install the Handshake key. */
@@ -171,14 +171,14 @@ static void srv_log_c_hs_traffic(const wired_server* s, const u8* c_traffic) {
   if (!s->keylog_path) return;
   wired_keylog_append(
       s->keylog_path, "CLIENT_HANDSHAKE_TRAFFIC_SECRET", s->client_random,
-      wired_span_of(c_traffic, QUIC_HKDF_PRK));
+      wired_span_of(c_traffic, HKDF_PRK));
 }
 
 /* RFC 8446 4.4.4: verify the client Finished against the client handshake
  * traffic secret and the transcript hash through the server Finished. */
 static int srv_verify_finished(wired_server* s, const u8* msg, usz len) {
   const u8*        hs;
-  u8               c_traffic[QUIC_HKDF_PRK], th[QUIC_SHA256_DIGEST];
+  u8               c_traffic[HKDF_PRK], th[SHA256_DIGEST];
   derive_secret_in dsi;
   int              ok;
   if (!sdrv_handshake_secret(&s->sdrv, &hs)) return 0;
@@ -203,7 +203,7 @@ static int srv_verify_finished(wired_server* s, const u8* msg, usz len) {
 static int srv_seed_kuswitch_recv(wired_server* s) {
   const initial_keys* client_ap;
   const u8*           secret;
-  if (!keysched_get(&s->sched, QUIC_KS_CLIENT_AP, &client_ap)) return 0;
+  if (!keysched_get(&s->sched, KS_CLIENT_AP, &client_ap)) return 0;
   if (!keysched_client_ap_secret(&s->sched, &secret)) return 0;
   kuswitch_init(&s->ku, client_ap);
   srv_copy32(s->ku_secret, secret);
@@ -216,7 +216,7 @@ static int srv_seed_kuswitch_recv(wired_server* s) {
 static int srv_seed_kuswitch_send(wired_server* s) {
   const initial_keys* server_ap;
   const u8*           secret;
-  if (!keysched_get(&s->sched, QUIC_KS_SERVER_AP, &server_ap)) return 0;
+  if (!keysched_get(&s->sched, KS_SERVER_AP, &server_ap)) return 0;
   if (!keysched_server_ap_secret(&s->sched, &secret)) return 0;
   kuswitch_init(&s->ku_send, server_ap);
   srv_copy32(s->ku_send_secret, secret);

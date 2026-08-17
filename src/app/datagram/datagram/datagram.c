@@ -5,7 +5,7 @@
 
 /* Type 0x31 carries an explicit length varint; 0x30 does not. */
 static u8 datagram_type(int with_len) {
-  return with_len ? QUIC_FRAME_DATAGRAM_LEN : QUIC_FRAME_DATAGRAM;
+  return with_len ? FRAME_DATAGRAM_LEN : FRAME_DATAGRAM;
 }
 
 /* Write the type and, for 0x31, the length varint. Returns 1 ok, 0. */
@@ -46,7 +46,7 @@ static usz decode_with_len(const u8* buf, usz n, datagram_frame* f) {
 
 usz datagram_decode(const u8* buf, usz n, datagram_frame* f) {
   if (n == 0) return 0;
-  if (buf[0] == QUIC_FRAME_DATAGRAM) return decode_no_len(buf, n, f);
+  if (buf[0] == FRAME_DATAGRAM) return decode_no_len(buf, n, f);
   return decode_with_len(buf, n, f);
 }
 

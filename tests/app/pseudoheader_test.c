@@ -4,13 +4,13 @@
 
 /* Classification of pseudo, regular, and unknown names. */
 static void test_ph_classify(void) {
-  CHECK(h3_ph_classify(NAME(":method")) == QUIC_H3_PH_METHOD);
-  CHECK(h3_ph_classify(NAME(":status")) == QUIC_H3_PH_STATUS);
-  CHECK(h3_ph_classify(NAME("content-type")) == QUIC_H3_PH_NONE);
-  CHECK(h3_ph_classify(NAME(":bogus")) == QUIC_H3_PH_UNKNOWN);
+  CHECK(h3_ph_classify(NAME(":method")) == H3_PH_METHOD);
+  CHECK(h3_ph_classify(NAME(":status")) == H3_PH_STATUS);
+  CHECK(h3_ph_classify(NAME("content-type")) == H3_PH_NONE);
+  CHECK(h3_ph_classify(NAME(":bogus")) == H3_PH_UNKNOWN);
   /* a prefix of a known name must not match */
-  CHECK(h3_ph_classify(NAME(":pat")) == QUIC_H3_PH_UNKNOWN);
-  CHECK(h3_ph_classify(NAME(":")) == QUIC_H3_PH_UNKNOWN);
+  CHECK(h3_ph_classify(NAME(":pat")) == H3_PH_UNKNOWN);
+  CHECK(h3_ph_classify(NAME(":")) == H3_PH_UNKNOWN);
 }
 
 /* A complete, well-ordered request is valid. */
@@ -66,7 +66,7 @@ static void test_ph_unknown(void) {
 
 /* RFC 9220 3: :protocol is a known pseudo-header (Extended CONNECT). */
 static void test_ph_classify_protocol(void) {
-  CHECK(h3_ph_classify(NAME(":protocol")) == QUIC_H3_PH_PROTOCOL);
+  CHECK(h3_ph_classify(NAME(":protocol")) == H3_PH_PROTOCOL);
 }
 
 /* A response needs only :status. */

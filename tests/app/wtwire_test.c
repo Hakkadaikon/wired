@@ -10,7 +10,7 @@
 
 /* TEST 1: uni signal prefix is varint(0x54) then varint(session_id).
  * 0x54 > 0x3F, so its varint form is the 2-byte {0x40, 0x54} (RFC 9000 16;
- * see also QUIC_H3_STREAM_WEBTRANSPORT in app/http3/core/h3/frame.h). */
+ * see also H3_STREAM_WEBTRANSPORT in app/http3/core/h3/frame.h). */
 static void test_wtwire_signal_put_uni(void) {
   u8 buf[16];
 

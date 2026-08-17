@@ -1,5 +1,5 @@
-#ifndef QUIC_CAPSULE_CAPSULE_H
-#define QUIC_CAPSULE_CAPSULE_H
+#ifndef CAPSULE_CAPSULE_H
+#define CAPSULE_CAPSULE_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

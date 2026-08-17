@@ -1,5 +1,5 @@
-#ifndef QUIC_TBSCERT_SIGALG_H
-#define QUIC_TBSCERT_SIGALG_H
+#ifndef TBSCERT_SIGALG_H
+#define TBSCERT_SIGALG_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

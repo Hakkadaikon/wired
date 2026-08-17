@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_REUSE_H
-#define QUIC_H3_REUSE_H
+#ifndef H3_REUSE_H
+#define H3_REUSE_H
 
 /* RFC 9114 3.3: a connection may be reused for a request whose origin (URI
  * scheme, host, port) matches, provided the connection is still usable and the

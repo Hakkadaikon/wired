@@ -20,8 +20,8 @@ static int zerortt_seen_find(const zerortt_seen* s, const u8 digest[32]) {
 static void zerortt_seen_record(zerortt_seen* s, const u8 digest[32]) {
   usz i;
   for (i = 0; i < 32; i++) s->digest[s->next][i] = digest[i];
-  s->next = (s->next + 1) % QUIC_ZERORTT_SEEN_CAP;
-  if (s->count < QUIC_ZERORTT_SEEN_CAP) s->count++;
+  s->next = (s->next + 1) % ZERORTT_SEEN_CAP;
+  if (s->count < ZERORTT_SEEN_CAP) s->count++;
 }
 
 int zerortt_seen_check(zerortt_seen* s, wired_span identity) {

@@ -78,8 +78,8 @@ static void pad_initial_frames(wired_obuf* frames, usz floor) {
  * RFC 9369 3.2 for v2 -- lhdr_byte0_pnlen overwrites the low pn_len
  * bits regardless). 0 for a version this SDK cannot encode type bits for. */
 static u8 srvwire_initial_byte0(u32 version) {
-  int wire = version == QUIC_VERSION_2 ? v2_packet_type(QUIC_LT_INITIAL)
-                                       : v1_packet_type(QUIC_LT_INITIAL);
+  int wire = version == VERSION_2 ? v2_packet_type(LT_INITIAL)
+                                  : v1_packet_type(LT_INITIAL);
   return wire < 0 ? 0 : (u8)(0xC0 | (wire << 4));
 }
 
@@ -116,7 +116,7 @@ static int srvwire_initial_tx_lean_ver(
 
 static int srvwire_initial_tx_lean(
     const srvwire_seal_in* in, wired_obuf* fb, wired_obuf* out) {
-  return srvwire_initial_tx_lean_ver(QUIC_VERSION_1, in, fb, out);
+  return srvwire_initial_tx_lean_ver(VERSION_1, in, fb, out);
 }
 
 /* Pad to the 1200-byte floor, then seal under `version` (the path every
@@ -139,7 +139,7 @@ int srvwire_seal_initial_ver(
 
 /* RFC 9001 5.2 */
 int srvwire_seal_initial(const srvwire_seal_in* in, wired_obuf* out) {
-  return srvwire_seal_initial_ver(QUIC_VERSION_1, in, out);
+  return srvwire_seal_initial_ver(VERSION_1, in, out);
 }
 
 /* RFC 9000 17.2.2: seal pre-built frames (in->tls holds raw frame bytes,
@@ -150,7 +150,7 @@ int srvwire_seal_initial_frames(const srvwire_seal_in* in, wired_obuf* out) {
   wired_obuf fb = obuf_of(frames, sizeof frames);
   if (!bytes_put(wired_mspan_of(fb.p, fb.cap), &fb.len, in->tls)) return 0;
   if (!append_ack(&fb, in->ack_pn)) return 0;
-  return srvwire_initial_tx_ver(QUIC_VERSION_1, in, &fb, out);
+  return srvwire_initial_tx_ver(VERSION_1, in, &fb, out);
 }
 
 int srvwire_seal_initial_frames_lean(

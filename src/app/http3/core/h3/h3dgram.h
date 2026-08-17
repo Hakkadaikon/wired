@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_DGRAM_H
-#define QUIC_H3_DGRAM_H
+#ifndef H3_DGRAM_H
+#define H3_DGRAM_H
 
 #include "common/platform/sys/syscall.h"
 

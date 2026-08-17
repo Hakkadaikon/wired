@@ -5,7 +5,7 @@
 /* Shuttle one datagram from `from`'s outbox to `to`'s inbox, if any was
  * produced. Returns 1 if a datagram moved. */
 static int pump(driver* from, driver* to) {
-  u8  dg[QUIC_DRIVER_DGRAM_CAP];
+  u8  dg[DRIVER_DGRAM_CAP];
   usz n = driver_take(from, dg, sizeof(dg));
   if (n == 0) return 0;
   driver_feed(to, dg, n);
@@ -33,8 +33,8 @@ static void test_driver_handshake_completes(void) {
   CHECK(driver_handshake_complete(&cl) == 1);
   CHECK(driver_handshake_complete(&sv) == 1);
   /* both promoted past Initial: 1-RTT keys were installed (RFC 9001 4) */
-  CHECK(cl.io.loop.keys.installed[QUIC_LEVEL_ONERTT] == 1);
-  CHECK(sv.io.loop.keys.installed[QUIC_LEVEL_ONERTT] == 1);
+  CHECK(cl.io.loop.keys.installed[LEVEL_ONERTT] == 1);
+  CHECK(sv.io.loop.keys.installed[LEVEL_ONERTT] == 1);
 }
 
 /* RFC 9001 4: a packet at a level whose key is not installed is dropped and
@@ -42,7 +42,7 @@ static void test_driver_handshake_completes(void) {
 static void test_driver_rejects_uninstalled_level(void) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   driver   cl, sv;
-  u8       dg[QUIC_DRIVER_DGRAM_CAP];
+  u8       dg[DRIVER_DGRAM_CAP];
   usz      n;
   driver_init(&cl, 0, wired_span_of(dcid, 8));
   driver_init(&sv, 1, wired_span_of(dcid, 8));
@@ -64,12 +64,12 @@ static void test_driver_rejects_uninstalled_level(void) {
   CHECK(n != 0);
   /* corrupt: feed at a position the client is not ready to open by clearing
    * its Handshake key explicitly, then attempt recv. */
-  cl.io.loop.keys.installed[QUIC_LEVEL_HANDSHAKE] = 0;
+  cl.io.loop.keys.installed[LEVEL_HANDSHAKE] = 0;
   driver_feed(&cl, dg, n);
   /* ServerHello is Initial-level so it still opens; instead verify the gate
    * directly: a recv at an uninstalled level returns 0 (no state change). */
-  CHECK(connio_recv(&cl.io, QUIC_LEVEL_HANDSHAKE, wired_mspan_of(dg, n)) == 0);
-  CHECK(cl.io.loop.keys.installed[QUIC_LEVEL_HANDSHAKE] == 0);
+  CHECK(connio_recv(&cl.io, LEVEL_HANDSHAKE, wired_mspan_of(dg, n)) == 0);
+  CHECK(cl.io.loop.keys.installed[LEVEL_HANDSHAKE] == 0);
 }
 
 /* ponytail: run's max_steps guard halts a driver that can never progress

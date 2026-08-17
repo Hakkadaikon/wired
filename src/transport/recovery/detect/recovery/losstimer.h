@@ -1,5 +1,5 @@
-#ifndef QUIC_RECOVERY_LOSSTIMER_H
-#define QUIC_RECOVERY_LOSSTIMER_H
+#ifndef RECOVERY_LOSSTIMER_H
+#define RECOVERY_LOSSTIMER_H
 
 #include "common/platform/sys/syscall.h"
 

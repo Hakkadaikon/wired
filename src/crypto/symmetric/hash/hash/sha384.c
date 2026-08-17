@@ -11,13 +11,13 @@ void sha384_init(sha512_ctx* s) {
   for (usz i = 0; i < 8; i++) s->h[i] = sha384_h0[i];
 }
 
-void sha384_final(sha512_ctx* s, u8 out[QUIC_SHA384_DIGEST]) {
-  u8 full[QUIC_SHA512_DIGEST];
+void sha384_final(sha512_ctx* s, u8 out[SHA384_DIGEST]) {
+  u8 full[SHA512_DIGEST];
   sha512_final(s, full);
-  for (usz i = 0; i < QUIC_SHA384_DIGEST; i++) out[i] = full[i];
+  for (usz i = 0; i < SHA384_DIGEST; i++) out[i] = full[i];
 }
 
-void sha384(const u8* data, usz len, u8 out[QUIC_SHA384_DIGEST]) {
+void sha384(const u8* data, usz len, u8 out[SHA384_DIGEST]) {
   sha512_ctx s;
   sha384_init(&s);
   sha512_update(&s, data, len);

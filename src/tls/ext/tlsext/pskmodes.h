@@ -1,5 +1,5 @@
-#ifndef QUIC_TLSEXT_PSKMODES_H
-#define QUIC_TLSEXT_PSKMODES_H
+#ifndef TLSEXT_PSKMODES_H
+#define TLSEXT_PSKMODES_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -7,8 +7,8 @@
  * 1-byte ke_modes list length followed by that many 1-byte modes. This codec
  * offers psk_dhe_ke(1) only, the mode QUIC requires. */
 
-#define QUIC_TLSEXT_PSK_DHE_KE 0x01
-#define QUIC_TLSEXT_T_PSK_MODES 0x002d
+#define TLSEXT_PSK_DHE_KE 0x01
+#define TLSEXT_T_PSK_MODES 0x002d
 
 /* Encode psk_key_exchange_modes offering psk_dhe_ke only into out (cap total).
  * Writes the byte count to *out_len. Returns 1, or 0 if it does not fit. */

@@ -1,5 +1,5 @@
-#ifndef QUIC_APPDATA_STREAM_SEND_H
-#define QUIC_APPDATA_STREAM_SEND_H
+#ifndef APPDATA_STREAM_SEND_H
+#define APPDATA_STREAM_SEND_H
 
 #include "common/bytes/span/span.h"
 #include "transport/packet/frame/frame/frame.h"

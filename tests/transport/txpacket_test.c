@@ -38,11 +38,11 @@ static void test_txpacket_roundtrip(void) {
   const u8     dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   initial_keys ik;
   aes128       hp;
-  initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &ik);
+  initial_derive(wired_span_of(dcid, 8), 0, VERSION_1, &ik);
   aes128_init(&hp, ik.hp);
 
   u8  ping[1];
-  usz fl = frame_put_simple(ping, sizeof(ping), QUIC_FRAME_PING);
+  usz fl = frame_put_simple(ping, sizeof(ping), FRAME_PING);
   CHECK(fl == 1);
 
   u8  pkt[256];
@@ -54,7 +54,7 @@ static void test_txpacket_roundtrip(void) {
   wired_span frames;
   CHECK(t_rx(&ik, &hp, pkt, n, &frames) == 1);
   CHECK(frames.n == fl);
-  CHECK(frames.p[0] == QUIC_FRAME_PING);
+  CHECK(frames.p[0] == FRAME_PING);
 }
 
 /* A tampered ciphertext fails authentication. */
@@ -62,10 +62,10 @@ static void test_txpacket_tamper(void) {
   const u8     dcid[4] = {1, 2, 3, 4};
   initial_keys ik;
   aes128       hp;
-  initial_derive(wired_span_of(dcid, 4), 0, QUIC_VERSION_1, &ik);
+  initial_derive(wired_span_of(dcid, 4), 0, VERSION_1, &ik);
   aes128_init(&hp, ik.hp);
 
-  u8  ping[1] = {QUIC_FRAME_PING};
+  u8  ping[1] = {FRAME_PING};
   u8  pkt[256];
   usz n = t_tx(
       &ik, &hp, wired_span_of(dcid, 4), 7, wired_span_of(ping, 1), pkt,

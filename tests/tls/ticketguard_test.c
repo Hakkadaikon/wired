@@ -25,7 +25,7 @@ static void test_ticketguard_ring_window(void) {
   ticketguard_init(&g);
   t[0] = 0xEE;
   CHECK(ticketguard_first_use(&g, wired_span_of(t, 32)) == 1);
-  for (int i = 0; i < QUIC_TICKETGUARD_CAP; i++) {
+  for (int i = 0; i < TICKETGUARD_CAP; i++) {
     u8 fresh[32] = {0};
     fresh[0]     = (u8)i;
     fresh[1]     = 0x77;

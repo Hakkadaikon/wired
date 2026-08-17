@@ -5,11 +5,11 @@ int spin_outgoing(int is_server, int peer_spin) {
   return is_server ? (peer_spin & 1) : ((peer_spin & 1) ^ 1);
 }
 
-int spin_get(u8 byte0) { return (byte0 & QUIC_SPIN_BIT) != 0; }
+int spin_get(u8 byte0) { return (byte0 & SPIN_BIT) != 0; }
 
 u8 spin_set(u8 byte0, int spin) {
-  u8 cleared = byte0 & (u8)~QUIC_SPIN_BIT;
-  return spin ? (cleared | QUIC_SPIN_BIT) : cleared;
+  u8 cleared = byte0 & (u8)~SPIN_BIT;
+  return spin ? (cleared | SPIN_BIT) : cleared;
 }
 
 int spin_disabled(u8 rand_byte) { return (rand_byte % 16) == 0; }

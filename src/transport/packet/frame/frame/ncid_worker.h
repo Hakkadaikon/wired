@@ -1,5 +1,5 @@
-#ifndef QUIC_FRAME_NCID_WORKER_H
-#define QUIC_FRAME_NCID_WORKER_H
+#ifndef FRAME_NCID_WORKER_H
+#define FRAME_NCID_WORKER_H
 
 #include "common/platform/sys/syscall.h"
 

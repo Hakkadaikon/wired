@@ -1,5 +1,5 @@
-#ifndef QUIC_VERSMGR_V2SWITCH_H
-#define QUIC_VERSMGR_V2SWITCH_H
+#ifndef VERSMGR_V2SWITCH_H
+#define VERSMGR_V2SWITCH_H
 
 #include "common/platform/sys/syscall.h"
 

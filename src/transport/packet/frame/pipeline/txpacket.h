@@ -1,5 +1,5 @@
-#ifndef QUIC_PIPELINE_TXPACKET_H
-#define QUIC_PIPELINE_TXPACKET_H
+#ifndef PIPELINE_TXPACKET_H
+#define PIPELINE_TXPACKET_H
 
 #include "transport/packet/protect/protect/protect.h"
 
@@ -26,7 +26,7 @@ typedef struct {
 
 /* Build header + protect_seal into out. Returns the protected length, or 0
  * on overflow (AES-128-GCM; equivalent to tx_packet_suite with suite =
- * QUIC_TLS_AES_128_GCM_SHA256). */
+ * TLS_AES_128_GCM_SHA256). */
 usz tx_packet(const protect_keys* k, const tx_desc* d, wired_mspan out);
 
 /* Same as tx_packet, but seals under the given negotiated TLS 1.3

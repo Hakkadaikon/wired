@@ -1,5 +1,5 @@
-#ifndef QUIC_X509_NAMECONSTRAINTS_H
-#define QUIC_X509_NAMECONSTRAINTS_H
+#ifndef X509_NAMECONSTRAINTS_H
+#define X509_NAMECONSTRAINTS_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

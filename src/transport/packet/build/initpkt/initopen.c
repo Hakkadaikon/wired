@@ -19,5 +19,5 @@ int initpkt_open_ver(
 
 /* RFC 9001 5.2 */
 int initpkt_open(wired_span dcid, wired_mspan pkt, wired_span* crypto) {
-  return initpkt_open_ver(dcid, QUIC_VERSION_1, pkt, crypto);
+  return initpkt_open_ver(dcid, VERSION_1, pkt, crypto);
 }

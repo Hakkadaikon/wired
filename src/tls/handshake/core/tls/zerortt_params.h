@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_ZERORTT_PARAMS_H
-#define QUIC_TLS_ZERORTT_PARAMS_H
+#ifndef TLS_ZERORTT_PARAMS_H
+#define TLS_ZERORTT_PARAMS_H
 
 #include "common/platform/sys/syscall.h"
 

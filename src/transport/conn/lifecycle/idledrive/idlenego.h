@@ -1,5 +1,5 @@
-#ifndef QUIC_IDLEDRIVE_IDLENEGO_H
-#define QUIC_IDLEDRIVE_IDLENEGO_H
+#ifndef IDLEDRIVE_IDLENEGO_H
+#define IDLEDRIVE_IDLENEGO_H
 
 #include "common/platform/sys/syscall.h"
 

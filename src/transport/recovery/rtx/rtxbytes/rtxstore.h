@@ -1,5 +1,5 @@
-#ifndef QUIC_RTXBYTES_RTXSTORE_H
-#define QUIC_RTXBYTES_RTXSTORE_H
+#ifndef RTXBYTES_RTXSTORE_H
+#define RTXBYTES_RTXSTORE_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -9,18 +9,18 @@
  * packet is acknowledged or the bytes are reclaimed. Fixed-capacity ring
  * buffer, no dynamic allocation. */
 
-#define QUIC_RTXBYTES_SLOTS 64
-#define QUIC_RTXBYTES_FRAME 1200
+#define RTXBYTES_SLOTS 64
+#define RTXBYTES_FRAME 1200
 
 typedef struct {
   u64 pn;
-  u8  data[QUIC_RTXBYTES_FRAME];
+  u8  data[RTXBYTES_FRAME];
   usz len;
   u8  used;
 } rtxbytes_slot;
 
 typedef struct {
-  rtxbytes_slot s[QUIC_RTXBYTES_SLOTS];
+  rtxbytes_slot s[RTXBYTES_SLOTS];
   usz           next;
 } rtxbytes;
 

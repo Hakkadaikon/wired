@@ -2,7 +2,7 @@
 
 /* RFC 9000 12.3 */
 void pnspace_init(pnspace* s) {
-  for (usz i = 0; i < QUIC_PNS_COUNT; i++) s->next[i] = 0;
+  for (usz i = 0; i < PNS_COUNT; i++) s->next[i] = 0;
 }
 
 u64 pnspace_next(pnspace* s, pns_space space) {
@@ -12,5 +12,5 @@ u64 pnspace_next(pnspace* s, pns_space space) {
 }
 
 int pnspace_exhausted(const pnspace* s, pns_space space) {
-  return s->next[space] > QUIC_PN_LIMIT;
+  return s->next[space] > PN_LIMIT;
 }

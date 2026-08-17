@@ -36,8 +36,8 @@ usz aead_suite_seal(const aead_suite_op* op, wired_span pt, u8* out) {
   u8 nonce[12];
   suite_nonce(op->iv, op->pn, nonce);
   aead_suite_io io = {op->key, nonce, op->aad, pt, out};
-  if (op->suite == QUIC_TLS_AES_128_GCM_SHA256) return aead_gcm_seal(&io);
-  if (op->suite == QUIC_TLS_CHACHA20_POLY1305_SHA256) return cha_seal(&io);
+  if (op->suite == TLS_AES_128_GCM_SHA256) return aead_gcm_seal(&io);
+  if (op->suite == TLS_CHACHA20_POLY1305_SHA256) return cha_seal(&io);
   return 0;
 }
 
@@ -46,7 +46,7 @@ static usz aead_gcm_open(const aead_suite_io* io) {
   aes128 a;
   aes128_init(&a, io->key);
   gcm_ctx g = {&a, io->nonce, io->aad};
-  if (!gcm_open(&g, wired_span_of(io->in.p, io->in.n + QUIC_GCM_TAG), io->out))
+  if (!gcm_open(&g, wired_span_of(io->in.p, io->in.n + GCM_TAG), io->out))
     return 0;
   return io->in.n;
 }
@@ -54,7 +54,7 @@ static usz aead_gcm_open(const aead_suite_io* io) {
 static usz cha_open(const aead_suite_io* io) {
   chapoly_ctx c = {io->key, io->nonce, io->aad};
   if (!chapoly_open(
-          &c, wired_span_of(io->in.p, io->in.n + QUIC_CHAPOLY_TAG), io->out))
+          &c, wired_span_of(io->in.p, io->in.n + CHAPOLY_TAG), io->out))
     return 0;
   return io->in.n;
 }
@@ -63,7 +63,7 @@ usz aead_suite_open(const aead_suite_op* op, wired_span ct, u8* pt) {
   u8 nonce[12];
   suite_nonce(op->iv, op->pn, nonce);
   aead_suite_io io = {op->key, nonce, op->aad, ct, pt};
-  if (op->suite == QUIC_TLS_AES_128_GCM_SHA256) return aead_gcm_open(&io);
-  if (op->suite == QUIC_TLS_CHACHA20_POLY1305_SHA256) return cha_open(&io);
+  if (op->suite == TLS_AES_128_GCM_SHA256) return aead_gcm_open(&io);
+  if (op->suite == TLS_CHACHA20_POLY1305_SHA256) return cha_open(&io);
   return 0;
 }

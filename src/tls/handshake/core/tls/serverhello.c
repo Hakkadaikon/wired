@@ -38,7 +38,7 @@ typedef struct {
 
 /* The frozen x25519-only contract: reject anything but x25519/32 bytes. */
 static int sh_is_x25519(u16 group, usz pub_len) {
-  return group == QUIC_GROUP_X25519 && pub_len == 32;
+  return group == GROUP_X25519 && pub_len == 32;
 }
 
 /* Dispatch one extension (type t, data d) into fields. */
@@ -52,9 +52,9 @@ static int sh_ext_keyshare_ok(wired_span d, sh_fields* f) {
 }
 
 static void sh_ext(unsigned t, wired_span d, sh_fields* f) {
-  if (t == QUIC_EXT_KEY_SHARE)
+  if (t == EXT_KEY_SHARE)
     f->have_ks = sh_ext_keyshare_ok(d, f);
-  else if (t == QUIC_EXT_SUPPORTED_VERSIONS)
+  else if (t == EXT_SUPPORTED_VERSIONS)
     take_version(d, f->version);
 }
 
@@ -89,7 +89,7 @@ static int sh_block(wired_span b, usz exts, wired_span* block) {
 static int is_server_hello(wired_span buf, usz* body_len) {
   u8 type;
   return hs_parse(wired_span_of(buf.p, buf.n), &type, body_len) == 4 &&
-         type == QUIC_HS_SERVER_HELLO;
+         type == HS_SERVER_HELLO;
 }
 
 /* Locate the extensions block of the ServerHello body b (body_len). */

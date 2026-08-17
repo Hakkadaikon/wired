@@ -10,19 +10,16 @@ int h3_stream_type_parse(wired_span buf, u64* type, usz* consumed) {
   return 1;
 }
 
-int h3_stream_type_is_control(u64 type) {
-  return type == QUIC_H3_STREAM_CONTROL;
-}
+int h3_stream_type_is_control(u64 type) { return type == H3_STREAM_CONTROL; }
 
-int h3_stream_type_is_push(u64 type) { return type == QUIC_H3_STREAM_PUSH; }
+int h3_stream_type_is_push(u64 type) { return type == H3_STREAM_PUSH; }
 
 /* RFC 9114 6.2: the two QPACK stream types (encoder 0x02, decoder 0x03). */
 int h3_stream_type_is_qpack(u64 type) {
-  return type == QUIC_H3_STREAM_QPACK_ENCODER ||
-         type == QUIC_H3_STREAM_QPACK_DECODER;
+  return type == H3_STREAM_QPACK_ENCODER || type == H3_STREAM_QPACK_DECODER;
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: WebTransport unidirectional stream. */
 int h3_stream_type_is_webtransport(u64 type) {
-  return type == QUIC_H3_STREAM_WEBTRANSPORT;
+  return type == H3_STREAM_WEBTRANSPORT;
 }

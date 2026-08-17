@@ -32,7 +32,7 @@ static void test_sni_check_absent(void) {
   u8  buf[512];
   usz w = sni_check_build_ch(wired_span_of(0, 0), buf, sizeof(buf));
   CHECK(w > 0);
-  CHECK(salpn_sni_check(buf, w, golden1_tbs()) == QUIC_SALPN_SNI_ABSENT);
+  CHECK(salpn_sni_check(buf, w, golden1_tbs()) == SALPN_SNI_ABSENT);
 }
 
 /* Offered name matches a SAN dNSName. */
@@ -42,7 +42,7 @@ static void test_sni_check_match(void) {
   usz      w      = sni_check_build_ch(
       wired_span_of(host, sizeof(host) - 1), buf, sizeof(buf));
   CHECK(w > 0);
-  CHECK(salpn_sni_check(buf, w, golden1_tbs()) == QUIC_SALPN_SNI_MATCH);
+  CHECK(salpn_sni_check(buf, w, golden1_tbs()) == SALPN_SNI_MATCH);
 }
 
 /* Offered name matches neither the SAN entries nor (since SAN is present,
@@ -53,7 +53,7 @@ static void test_sni_check_mismatch(void) {
   usz      w      = sni_check_build_ch(
       wired_span_of(host, sizeof(host) - 1), buf, sizeof(buf));
   CHECK(w > 0);
-  CHECK(salpn_sni_check(buf, w, golden1_tbs()) == QUIC_SALPN_SNI_MISMATCH);
+  CHECK(salpn_sni_check(buf, w, golden1_tbs()) == SALPN_SNI_MISMATCH);
 }
 
 void test_sni_check(void) {

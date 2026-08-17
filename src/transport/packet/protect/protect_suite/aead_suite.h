@@ -1,5 +1,5 @@
-#ifndef QUIC_PROTECT_SUITE_AEAD_SUITE_H
-#define QUIC_PROTECT_SUITE_AEAD_SUITE_H
+#ifndef PROTECT_SUITE_AEAD_SUITE_H
+#define PROTECT_SUITE_AEAD_SUITE_H
 
 #include "common/bytes/span/span.h"
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_GCMX86_GCMX86_H
-#define QUIC_GCMX86_GCMX86_H
+#ifndef GCMX86_GCMX86_H
+#define GCMX86_GCMX86_H
 
 #include "common/bytes/span/span.h"
 
@@ -10,8 +10,8 @@
  * magnitude faster per block. Callers must gate on gcmx86_supported()
  * and fall back to the scalar quic_gcm_* path when it returns 0. */
 
-#define QUIC_GCMX86_NONCE 12
-#define QUIC_GCMX86_TAG 16
+#define GCMX86_NONCE 12
+#define GCMX86_TAG 16
 
 /**
  * Expanded AES-128-GCM key: 11 round keys (FIPS 197 byte order, as AESENC
@@ -37,7 +37,7 @@ void gcmx86_init(gcmx86* x, const u8 key[16]);
 /* Seal: out receives ciphertext || 16-byte tag. Returns pt.n + 16. */
 usz gcmx86_seal(
     const gcmx86* x,
-    const u8      nonce[QUIC_GCMX86_NONCE],
+    const u8      nonce[GCMX86_NONCE],
     wired_span    aad,
     wired_span    pt,
     u8*           out);
@@ -47,7 +47,7 @@ usz gcmx86_seal(
  * returns that length (an authentic empty plaintext also returns 0). */
 usz gcmx86_open(
     const gcmx86* x,
-    const u8      nonce[QUIC_GCMX86_NONCE],
+    const u8      nonce[GCMX86_NONCE],
     wired_span    aad,
     wired_span    ct,
     u8*           out);

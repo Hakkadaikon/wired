@@ -13,8 +13,8 @@ int srvfin_complete(
   if (!keysched_advance_master(
           s->sched, final_transcript, final_transcript_len))
     return 0;
-  if (!keysched_get(s->sched, QUIC_KS_SERVER_AP, &ap)) return 0;
-  keyset_install(s->keys, QUIC_LEVEL_ONERTT, ap);
+  if (!keysched_get(s->sched, KS_SERVER_AP, &ap)) return 0;
+  keyset_install(s->keys, LEVEL_ONERTT, ap);
   s->confirmed = 1;
   return 1;
 }

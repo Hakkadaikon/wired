@@ -20,15 +20,15 @@ static usz put_le64(u8* buf, usz off, u64 v) {
 }
 
 /* Derive the one-time Poly1305 key: first 32 bytes of the counter-0 block. */
-static void poly_key(const chapoly_ctx* c, u8 pk[QUIC_POLY1305_KEY]) {
-  u8 block[QUIC_CHACHA_BLOCK];
+static void poly_key(const chapoly_ctx* c, u8 pk[POLY1305_KEY]) {
+  u8 block[CHACHA_BLOCK];
   chacha20_block(c->key, 0, c->nonce, block);
-  for (usz i = 0; i < QUIC_POLY1305_KEY; i++) pk[i] = block[i];
+  for (usz i = 0; i < POLY1305_KEY; i++) pk[i] = block[i];
 }
 
 /* Compute the tag over (aad, ct). mac_buf must hold the padded construction. */
 static void chapoly_tag(const chapoly_ctx* c, wired_span ct, u8 tag[16]) {
-  u8 pk[QUIC_POLY1305_KEY];
+  u8 pk[POLY1305_KEY];
   u8 mac[16 + 1500 + 1500 + 16]; /* MTU-bounded scratch (ponytail: fixed cap) */
   usz n = 0;
   poly_key(c, pk);
@@ -48,13 +48,13 @@ static void chapoly_stream(const chapoly_ctx* c, wired_span in, u8* out) {
 usz chapoly_seal(const chapoly_ctx* c, wired_span pt, u8* out) {
   chapoly_stream(c, pt, out);
   chapoly_tag(c, wired_span_of(out, pt.n), out + pt.n);
-  return pt.n + QUIC_CHAPOLY_TAG;
+  return pt.n + CHAPOLY_TAG;
 }
 
 int chapoly_open(const chapoly_ctx* c, wired_span ct, u8* pt) {
   u8 want[16];
-  if (ct.n < QUIC_CHAPOLY_TAG) return 0;
-  wired_span body = wired_span_of(ct.p, ct.n - QUIC_CHAPOLY_TAG);
+  if (ct.n < CHAPOLY_TAG) return 0;
+  wired_span body = wired_span_of(ct.p, ct.n - CHAPOLY_TAG);
   chapoly_tag(c, body, want);
   if (ct_diff16(want, ct.p + body.n) != 0)
     return 0; /* reject: leave pt untouched */

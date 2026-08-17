@@ -27,7 +27,7 @@ static int skip_cid(const u8* buf, usz n, usz* p) {
  * skip_long_prefix, before this is read). */
 static int has_token(const u8* buf) {
   u32 version = be_get_be32(buf + 1);
-  return packet_long_type(buf[0], version) == QUIC_PT_INITIAL;
+  return packet_long_type(buf[0], version) == PT_INITIAL;
 }
 
 /* Skip the Initial token (a varint length plus that many bytes). */

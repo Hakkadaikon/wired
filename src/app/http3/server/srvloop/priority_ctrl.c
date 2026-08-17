@@ -11,7 +11,7 @@
 
 /* RFC 9000 19.8: STREAM frame types occupy 0x08..0x0f. */
 static int ctrl_is_stream_type(u64 type) {
-  return type >= QUIC_FRAME_STREAM_BASE && type <= QUIC_FRAME_STREAM_BASE + 7;
+  return type >= FRAME_STREAM_BASE && type <= FRAME_STREAM_BASE + 7;
 }
 
 /* RFC 9000 2.1: a client-initiated unidirectional stream has low bits 10. */
@@ -119,7 +119,7 @@ static usz ctrl_walk_one(wired_srvloop* l, wired_span avail) {
     return n;
   }
   n = h3_frame_get(avail, &gf);
-  if (n) ctrl_note_frame(l, gf.type == QUIC_H3_FRAME_SETTINGS);
+  if (n) ctrl_note_frame(l, gf.type == H3_FRAME_SETTINGS);
   return n;
 }
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_GREASE_EARLY_H
-#define QUIC_GREASE_EARLY_H
+#ifndef GREASE_EARLY_H
+#define GREASE_EARLY_H
 
 /* RFC 9287 3.1: conditions for greasing the QUIC Bit before the handshake
  * completes. */

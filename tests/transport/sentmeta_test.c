@@ -46,7 +46,7 @@ static void test_sentmeta_on_ack_unknown_pn(void) {
 
 static void test_sentmeta_loss_packet_threshold_boundary(void) {
   sentmeta m;
-  u64      lost[QUIC_SENTMETA_CAP];
+  u64      lost[SENTMETA_CAP];
   usz      n = 0;
   sentmeta_init(&m);
 
@@ -65,7 +65,7 @@ static void test_sentmeta_loss_packet_threshold_boundary(void) {
 
 static void test_sentmeta_loss_time_threshold_boundary(void) {
   sentmeta m;
-  u64      lost[QUIC_SENTMETA_CAP];
+  u64      lost[SENTMETA_CAP];
   usz      n = 0;
   sentmeta_init(&m);
 
@@ -89,11 +89,11 @@ static void test_sentmeta_ring_full(void) {
   sentmeta m;
   sentmeta_init(&m);
 
-  for (usz i = 0; i < QUIC_SENTMETA_CAP; i++)
+  for (usz i = 0; i < SENTMETA_CAP; i++)
     CHECK(sentmeta_on_sent(&m, &(sentmeta_out){i, 0, 1, 1, 1}) == 1);
   CHECK(
       sentmeta_on_sent(&m, &(sentmeta_out){9999, 0, 1, 1, 1}) == 0); /* full */
-  CHECK(m.count == QUIC_SENTMETA_CAP);
+  CHECK(m.count == SENTMETA_CAP);
 }
 
 static void test_sentmeta_send_ack_roundtrip(void) {

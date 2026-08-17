@@ -53,9 +53,9 @@ int salpn_select_hq(const u8* alpn_ext_data, usz len) {
 }
 
 salpn_choice salpn_negotiate(const u8* alpn_ext_data, usz len) {
-  if (salpn_select_h3(alpn_ext_data, len)) return QUIC_SALPN_H3;
-  if (salpn_select_hq(alpn_ext_data, len)) return QUIC_SALPN_HQ;
-  return QUIC_SALPN_NONE;
+  if (salpn_select_h3(alpn_ext_data, len)) return SALPN_H3;
+  if (salpn_select_hq(alpn_ext_data, len)) return SALPN_HQ;
+  return SALPN_NONE;
 }
 
 /* Append name (nlen bytes) as a 1-byte-length-prefixed ProtocolNameList
@@ -82,7 +82,7 @@ int salpn_build_response(salpn_choice choice, u8* out, usz cap, usz* out_len) {
   static const u8 h3[2]  = {0x68, 0x33};
   static const u8 hq[10] = {0x68, 0x71, 0x2d, 0x69, 0x6e,
                             0x74, 0x65, 0x72, 0x6f, 0x70};
-  if (choice == QUIC_SALPN_H3) return build_alpn_ext(h3, 2, out, cap, out_len);
-  if (choice == QUIC_SALPN_HQ) return build_alpn_ext(hq, 10, out, cap, out_len);
+  if (choice == SALPN_H3) return build_alpn_ext(h3, 2, out, cap, out_len);
+  if (choice == SALPN_HQ) return build_alpn_ext(hq, 10, out, cap, out_len);
   return 0;
 }

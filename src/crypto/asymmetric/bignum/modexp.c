@@ -3,7 +3,7 @@
 /* a += b, returns the carry out of the top limb. */
 static u64 bn_add(bn* a, const bn* b) {
   u64 c = 0;
-  for (usz i = 0; i < QUIC_BN_LIMBS; i++) {
+  for (usz i = 0; i < BN_LIMBS; i++) {
     u64 s   = a->v[i] + b->v[i];
     u64 c1  = s < a->v[i];
     a->v[i] = s + c;
@@ -15,7 +15,7 @@ static u64 bn_add(bn* a, const bn* b) {
 /* a -= b, assumes a >= b. */
 static void bn_sub(bn* a, const bn* b) {
   u64 borrow = 0;
-  for (usz i = 0; i < QUIC_BN_LIMBS; i++) {
+  for (usz i = 0; i < BN_LIMBS; i++) {
     u64 d   = a->v[i] - b->v[i];
     u64 b1  = a->v[i] < b->v[i];
     a->v[i] = d - borrow;
@@ -26,7 +26,7 @@ static void bn_sub(bn* a, const bn* b) {
 /* a <<= 1, returns the bit shifted out of the top. */
 static u64 bn_shl1(bn* a) {
   u64 carry = 0;
-  for (usz i = 0; i < QUIC_BN_LIMBS; i++) {
+  for (usz i = 0; i < BN_LIMBS; i++) {
     u64 top = a->v[i] >> 63;
     a->v[i] = (a->v[i] << 1) | carry;
     carry   = top;
@@ -64,7 +64,7 @@ static int bn_bit(const bn* x, usz i) {
 
 /* Index of the top nonzero limb + 1, or 0 for zero. */
 static usz bn_top_limb(const bn* x) {
-  usz i = QUIC_BN_LIMBS;
+  usz i = BN_LIMBS;
   while (i > 0 && x->v[i - 1] == 0) i--;
   return i;
 }

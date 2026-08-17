@@ -4,7 +4,7 @@
 
 /* RFC 9368 3: value length is Chosen Version (4) + 4 per Available Version. */
 static int encode_room(usz cap, usz count, usz n) {
-  return count <= QUIC_VI_MAX_AVAILABLE && n <= cap;
+  return count <= VI_MAX_AVAILABLE && n <= cap;
 }
 
 usz verinfo_encode(u8* buf, usz cap, const version_information* vi) {
@@ -23,7 +23,7 @@ static u32 rd_be32(const u8* p) {
 /* Length must be a multiple of 4, at least 4 (the Chosen Version), and leave
  * no more Available Versions than the array holds. */
 static int decode_len_ok(usz n) {
-  return n >= 4 && n % 4 == 0 && (n / 4 - 1) <= QUIC_VI_MAX_AVAILABLE;
+  return n >= 4 && n % 4 == 0 && (n / 4 - 1) <= VI_MAX_AVAILABLE;
 }
 
 usz verinfo_decode(const u8* buf, usz n, version_information* vi) {

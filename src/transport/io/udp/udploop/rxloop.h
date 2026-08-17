@@ -1,5 +1,5 @@
-#ifndef QUIC_UDPLOOP_RXLOOP_H
-#define QUIC_UDPLOOP_RXLOOP_H
+#ifndef UDPLOOP_RXLOOP_H
+#define UDPLOOP_RXLOOP_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

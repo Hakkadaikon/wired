@@ -7,7 +7,7 @@
 int tbscert_sigalg_oid(const tbscert* t, wired_span* oid) {
   derseq c;
   derseq_init(&c, t->sig_alg);
-  return derseq_next_tagged(&c, QUIC_DER_OID, oid);
+  return derseq_next_tagged(&c, DER_OID, oid);
 }
 
 int tbscert_sigalg_matches(const tbscert* t, wired_span outer_oid) {

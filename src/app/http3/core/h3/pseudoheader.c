@@ -17,9 +17,9 @@ static const struct {
   const char* name;
   h3_ph_kind  kind;
 } known[] = {
-    {":method", QUIC_H3_PH_METHOD},       {":scheme", QUIC_H3_PH_SCHEME},
-    {":authority", QUIC_H3_PH_AUTHORITY}, {":path", QUIC_H3_PH_PATH},
-    {":protocol", QUIC_H3_PH_PROTOCOL},   {":status", QUIC_H3_PH_STATUS},
+    {":method", H3_PH_METHOD},       {":scheme", H3_PH_SCHEME},
+    {":authority", H3_PH_AUTHORITY}, {":path", H3_PH_PATH},
+    {":protocol", H3_PH_PROTOCOL},   {":status", H3_PH_STATUS},
 };
 
 /* A field name is a pseudo-header iff it is non-empty and starts with ':'. */
@@ -31,11 +31,11 @@ static int is_pseudo(const u8* name, usz len) {
 static h3_ph_kind pseudoheader_lookup(const u8* name, usz len) {
   for (usz i = 0; i < sizeof known / sizeof known[0]; i++)
     if (name_eq(name, len, known[i].name)) return known[i].kind;
-  return QUIC_H3_PH_UNKNOWN;
+  return H3_PH_UNKNOWN;
 }
 
 h3_ph_kind h3_ph_classify(const u8* name, usz len) {
-  if (!is_pseudo(name, len)) return QUIC_H3_PH_NONE;
+  if (!is_pseudo(name, len)) return H3_PH_NONE;
   return pseudoheader_lookup(name, len);
 }
 
@@ -54,11 +54,11 @@ static void on_pseudo(h3_ph_set* p, h3_ph_kind k) {
 
 void h3_ph_field(h3_ph_set* p, const u8* name, usz len) {
   h3_ph_kind k = h3_ph_classify(name, len);
-  if (k == QUIC_H3_PH_NONE) {
+  if (k == H3_PH_NONE) {
     p->saw_regular = 1;
     return;
   }
-  if (k == QUIC_H3_PH_UNKNOWN) {
+  if (k == H3_PH_UNKNOWN) {
     p->ok = 0;
     return;
   }
@@ -73,12 +73,11 @@ static int has_all(const h3_ph_set* p, u8 req) {
 #define BIT(k) ((u8)(1u << (k)))
 
 int h3_ph_request_ok(const h3_ph_set* p) {
-  u8 req =
-      BIT(QUIC_H3_PH_METHOD) | BIT(QUIC_H3_PH_SCHEME) | BIT(QUIC_H3_PH_PATH);
+  u8 req = BIT(H3_PH_METHOD) | BIT(H3_PH_SCHEME) | BIT(H3_PH_PATH);
   return p->ok &&
          has_all(p, req); /* :authority is conditional (RFC 9114 4.3.1) */
 }
 
 int h3_ph_response_ok(const h3_ph_set* p) {
-  return p->ok && has_all(p, BIT(QUIC_H3_PH_STATUS));
+  return p->ok && has_all(p, BIT(H3_PH_STATUS));
 }

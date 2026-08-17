@@ -98,7 +98,7 @@ static usz build_cert_msg(const u8 seed[32], u8* out, usz cap) {
  * even though both transcripts hold the identical bytes. */
 static void feed_auth(
     fullhs* h, const u8 seed[32], const u8* cert_msg, usz cert_msg_len) {
-  u8         th[QUIC_SHA256_DIGEST];
+  u8         th[SHA256_DIGEST];
   u8         cv[256];
   wired_obuf cvob = obuf_of(cv, sizeof(cv));
   CHECK(fullhs_recv_cert(h, cert_msg, cert_msg_len) == 1);
@@ -106,7 +106,7 @@ static void feed_auth(
   CHECK(sflight_certificate_verify(seed, th, &cvob) == 1);
   CHECK(
       fullhs_recv_certverify(
-          h, wired_span_of(cv, cvob.len), QUIC_TLS_SCHEME_ED25519) == 1);
+          h, wired_span_of(cv, cvob.len), TLS_SCHEME_ED25519) == 1);
 }
 
 /* Wrap fullhs_send_finished's obuf triple for CHECK-friendly call sites.
@@ -163,14 +163,14 @@ static void test_fullhs_e2e(void) {
   /* both derive the application secret and install 1-RTT keys */
   CHECK(fullhs_advance_application(&cl) == 1);
   CHECK(fullhs_advance_application(&sv) == 1);
-  CHECK(keyset_for_level(&cltls.keys, QUIC_LEVEL_ONERTT, &k) == 1);
-  CHECK(keyset_for_level(&svtls.keys, QUIC_LEVEL_ONERTT, &k) == 1);
+  CHECK(keyset_for_level(&cltls.keys, LEVEL_ONERTT, &k) == 1);
+  CHECK(keyset_for_level(&svtls.keys, LEVEL_ONERTT, &k) == 1);
 
   /* HANDSHAKE_DONE confirms and discards the Handshake keys */
-  CHECK(keyset_for_level(&cltls.keys, QUIC_LEVEL_HANDSHAKE, &k) == 1);
+  CHECK(keyset_for_level(&cltls.keys, LEVEL_HANDSHAKE, &k) == 1);
   CHECK(fullhs_confirmed(&cl) == 1);
   CHECK(fullhs_is_confirmed(&cl) == 1);
-  CHECK(keyset_for_level(&cltls.keys, QUIC_LEVEL_HANDSHAKE, &k) == 0);
+  CHECK(keyset_for_level(&cltls.keys, LEVEL_HANDSHAKE, &k) == 0);
 }
 
 /* RFC 8446 4.4.3: a bad CertificateVerify signature keeps the auth gate shut,
@@ -179,7 +179,7 @@ static void test_fullhs_e2e(void) {
 static void test_fullhs_bad_certverify(void) {
   u8         cl_priv[32], cl_pub[32], sv_priv[32], sv_pub[32];
   u8         cert_seed[32], sh[512], cert_msg[768];
-  u8         th[QUIC_SHA256_DIGEST], cv[256];
+  u8         th[SHA256_DIGEST], cv[256];
   wired_obuf cvob = obuf_of(cv, sizeof(cv));
   usz        shn, cert_msg_len;
   tlsdriver  cltls, svtls;
@@ -201,11 +201,11 @@ static void test_fullhs_bad_certverify(void) {
   CHECK(fullhs_recv_cert(&cl, cert_msg, cert_msg_len) == 1);
   wired_sha256(cl.tr, cl.tr_len, th);
   CHECK(sflight_certificate_verify(cert_seed, th, &cvob) == 1);
-  cv[QUIC_HS_HEADER + 4] ^= 0x01; /* corrupt the R||S signature bytes */
+  cv[HS_HEADER + 4] ^= 0x01; /* corrupt the R||S signature bytes */
 
   CHECK(
       fullhs_recv_certverify(
-          &cl, wired_span_of(cv, cvob.len), QUIC_TLS_SCHEME_ED25519) == 0);
+          &cl, wired_span_of(cv, cvob.len), TLS_SCHEME_ED25519) == 0);
   CHECK(fullhs_is_complete(&cl) == 0);
 }
 
@@ -236,7 +236,7 @@ static void test_fullhs_bad_finished(void) {
   CHECK(send_fin(&sv, svfin, sizeof(svfin), &n) == 1);
   feed_auth(&cl, cert_seed, cert_msg, cert_msg_len);
 
-  svfin[QUIC_HS_HEADER] ^= 0x01; /* corrupt verify_data */
+  svfin[HS_HEADER] ^= 0x01; /* corrupt verify_data */
   CHECK(fullhs_recv_finished(&cl, svfin, n) == 0);
   CHECK(fullhs_is_complete(&cl) == 0);
 }

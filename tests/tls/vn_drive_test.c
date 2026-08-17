@@ -15,18 +15,18 @@ static void enc(u8* buf, const u32* v, usz n) {
 
 /* Choose the highest-preference mutual version (our order wins). */
 static void test_vn_choose_pref(void) {
-  u32 offered[2] = {QUIC_VERSION_1, QUIC_VERSION_2};
+  u32 offered[2] = {VERSION_1, VERSION_2};
   u8  vn[8];
   enc(vn, offered, 2);
-  u32 mine[2] = {QUIC_VERSION_2, QUIC_VERSION_1}; /* prefer v2 */
+  u32 mine[2] = {VERSION_2, VERSION_1}; /* prefer v2 */
   u32 chosen  = 0;
   CHECK(vn_choose(wired_span_of(vn, 8), verlist_of(mine, 2), &chosen) == 1);
-  CHECK(chosen == QUIC_VERSION_2);
+  CHECK(chosen == VERSION_2);
 
-  u32 mine1[2] = {QUIC_VERSION_1, QUIC_VERSION_2}; /* prefer v1 */
+  u32 mine1[2] = {VERSION_1, VERSION_2}; /* prefer v1 */
   chosen       = 0;
   CHECK(vn_choose(wired_span_of(vn, 8), verlist_of(mine1, 2), &chosen) == 1);
-  CHECK(chosen == QUIC_VERSION_1);
+  CHECK(chosen == VERSION_1);
 }
 
 /* No mutual version: returns 0. */
@@ -34,7 +34,7 @@ static void test_vn_choose_none(void) {
   u32 offered[1] = {0x0a0a0a0a}; /* reserved/GREASE, not ours */
   u8  vn[4];
   enc(vn, offered, 1);
-  u32 mine[1] = {QUIC_VERSION_1};
+  u32 mine[1] = {VERSION_1};
   u32 chosen  = 0xdead;
   CHECK(vn_choose(wired_span_of(vn, 4), verlist_of(mine, 1), &chosen) == 0);
 }

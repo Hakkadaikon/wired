@@ -1,5 +1,5 @@
-#ifndef QUIC_CIDXCHG_CIDXCHG_H
-#define QUIC_CIDXCHG_CIDXCHG_H
+#ifndef CIDXCHG_CIDXCHG_H
+#define CIDXCHG_CIDXCHG_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

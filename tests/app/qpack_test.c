@@ -63,7 +63,7 @@ static void test_qpack_static_table(void) {
   const char *name, *value;
   CHECK(qpack_static_get(17, &name, &value) == 1);
   CHECK(str_eq(name, ":method") && str_eq(value, "GET"));
-  CHECK(qpack_static_get(QUIC_QPACK_STATIC_COUNT, &name, &value) == 0);
+  CHECK(qpack_static_get(QPACK_STATIC_COUNT, &name, &value) == 0);
 
   CHECK(qpack_static_find(":method", "GET") == 17);
   CHECK(qpack_static_find(":status", "200") == 25);

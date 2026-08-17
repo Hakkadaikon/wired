@@ -123,7 +123,7 @@ static int atv_cn_value(wired_span atv, wired_span* val) {
   u8         tag;
   wired_span id;
   derseq_init(&f, atv);
-  if (!derseq_next_tagged(&f, QUIC_DER_OID, &id)) return 0;
+  if (!derseq_next_tagged(&f, DER_OID, &id)) return 0;
   if (!der_oid_equal(id, wired_span_of(san_oid_cn, sizeof(san_oid_cn))))
     return 0;
   return derseq_next(&f, &tag, val);
@@ -167,7 +167,7 @@ static int subject_cn(wired_span tbs, wired_span* val) {
   derseq     c;
   wired_span subject;
   if (!subject_cursor(tbs, &c)) return 0;
-  if (!derseq_next_tagged(&c, QUIC_DER_SEQUENCE, &subject)) return 0;
+  if (!derseq_next_tagged(&c, DER_SEQUENCE, &subject)) return 0;
   return name_cn_value(subject, val);
 }
 

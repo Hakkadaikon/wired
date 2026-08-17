@@ -11,7 +11,7 @@ int pending1rtt_should_defer(int handshake_complete) {
 
 /* 1 if len and the current queue depth both leave room for one more entry. */
 static int pending1rtt_fits(const pending1rtt* q, usz len) {
-  return len <= QUIC_PENDING1RTT_MAX_LEN && q->count < QUIC_PENDING1RTT_CAP;
+  return len <= PENDING1RTT_MAX_LEN && q->count < PENDING1RTT_CAP;
 }
 
 int pending1rtt_store(pending1rtt* q, const u8* data, usz len) {

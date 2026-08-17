@@ -1,5 +1,5 @@
-#ifndef QUIC_ACKGEN_ACKRANGE_H
-#define QUIC_ACKGEN_ACKRANGE_H
+#ifndef ACKGEN_ACKRANGE_H
+#define ACKGEN_ACKRANGE_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_FLOW_STREAM_READ_H
-#define QUIC_FLOW_STREAM_READ_H
+#ifndef FLOW_STREAM_READ_H
+#define FLOW_STREAM_READ_H
 
 #include "transport/stream/flow/flow/reassemble.h"
 

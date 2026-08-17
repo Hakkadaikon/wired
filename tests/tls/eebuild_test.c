@@ -20,11 +20,11 @@ void test_eebuild(void) {
   wired_obuf ob = obuf_of(out, sizeof(out));
 
   CHECK(eebuild_encrypted_extensions(
-      QUIC_SALPN_H3, wired_span_of(tp, sizeof(tp)), 0, &ob));
+      SALPN_H3, wired_span_of(tp, sizeof(tp)), 0, &ob));
 
   /* handshake header: type 0x08, length consistent with ob.len. */
   CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
-  CHECK(type == QUIC_HS_ENCRYPTED_EXT);
+  CHECK(type == HS_ENCRYPTED_EXT);
   CHECK(4 + body_len == ob.len);
 
   /* body: 2-byte extensions length, then ALPN(9) then the 0x39 extension. */
@@ -32,7 +32,7 @@ void test_eebuild(void) {
   CHECK(((usz)body[0] << 8 | body[1]) == body_len - 2);
 
   /* ALPN extension first: type 0x0010 and the "h3" ProtocolNameList. */
-  CHECK(((usz)body[2] << 8 | body[3]) == QUIC_SALPN_EXT_TYPE);
+  CHECK(((usz)body[2] << 8 | body[3]) == SALPN_EXT_TYPE);
   CHECK(salpn_select_h3(body + 6, 5)); /* ext_data: list_len + "h3" */
 
   /* quic_transport_parameters follows the 9-byte ALPN extension. */
@@ -44,7 +44,7 @@ void test_eebuild(void) {
   /* a tight cap (one byte short) must be refused. */
   ob = obuf_of(out, ob.len - 1);
   CHECK(!eebuild_encrypted_extensions(
-      QUIC_SALPN_H3, wired_span_of(tp, sizeof(tp)), 0, &ob));
+      SALPN_H3, wired_span_of(tp, sizeof(tp)), 0, &ob));
 
   test_eebuild_early_data_accepted();
 }
@@ -62,9 +62,9 @@ static void test_eebuild_early_data_accepted(void) {
   wired_obuf ob_noed = obuf_of(out_no_ed, sizeof(out_no_ed));
 
   CHECK(eebuild_encrypted_extensions(
-      QUIC_SALPN_H3, wired_span_of(tp, sizeof(tp)), 1, &ob));
+      SALPN_H3, wired_span_of(tp, sizeof(tp)), 1, &ob));
   CHECK(eebuild_encrypted_extensions(
-      QUIC_SALPN_H3, wired_span_of(tp, sizeof(tp)), 0, &ob_noed));
+      SALPN_H3, wired_span_of(tp, sizeof(tp)), 0, &ob_noed));
   CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
   CHECK(
       hs_parse(wired_span_of(out_no_ed, ob_noed.len), &type, &body_len_no_ed) ==
@@ -88,20 +88,20 @@ void test_eebuild_selects_hq(void) {
   wired_obuf ob = obuf_of(out, sizeof(out));
 
   CHECK(eebuild_encrypted_extensions(
-      QUIC_SALPN_HQ, wired_span_of(tp, sizeof(tp)), 0, &ob));
+      SALPN_HQ, wired_span_of(tp, sizeof(tp)), 0, &ob));
   CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
   body = out + 4;
-  CHECK(((usz)body[2] << 8 | body[3]) == QUIC_SALPN_EXT_TYPE);
+  CHECK(((usz)body[2] << 8 | body[3]) == SALPN_EXT_TYPE);
   CHECK(salpn_select_hq(body + 6, 13)); /* ext_data: list_len + name */
   CHECK(!salpn_select_h3(body + 6, 13));
 }
 
-/* No protocol negotiated (QUIC_SALPN_NONE) must fail closed -- nothing is
+/* No protocol negotiated (SALPN_NONE) must fail closed -- nothing is
  * built, matching the safe-failure this task's ALPN negotiation relies on. */
 void test_eebuild_rejects_no_negotiation(void) {
   const u8   tp[5] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee};
   u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof(out));
   CHECK(!eebuild_encrypted_extensions(
-      QUIC_SALPN_NONE, wired_span_of(tp, sizeof(tp)), 0, &ob));
+      SALPN_NONE, wired_span_of(tp, sizeof(tp)), 0, &ob));
 }

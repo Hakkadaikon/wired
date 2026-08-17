@@ -1,5 +1,5 @@
-#ifndef QUIC_NET_CHECKSUM_H
-#define QUIC_NET_CHECKSUM_H
+#ifndef NET_CHECKSUM_H
+#define NET_CHECKSUM_H
 
 #include "common/platform/sys/syscall.h"
 

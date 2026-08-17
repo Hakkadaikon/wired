@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_NEWSESSIONTICKET_H
-#define QUIC_TLS_NEWSESSIONTICKET_H
+#ifndef TLS_NEWSESSIONTICKET_H
+#define TLS_NEWSESSIONTICKET_H
 
 #include "common/bytes/span/span.h"
 #include "tls/keys/ticket/ticket.h"
@@ -17,7 +17,7 @@
  * multi-ticket PSK selection; add it when client-side resumption is
  * implemented. */
 
-#define QUIC_HS_NEW_SESSION_TICKET 4
+#define HS_NEW_SESSION_TICKET 4
 
 /* Seal `t` under `key` and encode the NewSessionTicket message into out.
  * max_early_data_size 0 omits the early_data extension entirely (matching
@@ -29,7 +29,7 @@ usz tls_new_session_ticket_encode(
     u8*           out,
     usz           cap,
     const ticket* t,
-    const u8      key[QUIC_TICKET_KEY_LEN],
+    const u8      key[TICKET_KEY_LEN],
     u32           max_early_data_size);
 
 /* Parse a NewSessionTicket message (msg.p[0..msg.n)) and return the sealed

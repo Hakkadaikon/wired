@@ -26,7 +26,7 @@
 
 /* RFC 9000 19.8: STREAM frame types occupy 0x08..0x0f. */
 static int is_stream(u64 type) {
-  return type >= QUIC_FRAME_STREAM_BASE && type <= QUIC_FRAME_STREAM_BASE + 7;
+  return type >= FRAME_STREAM_BASE && type <= FRAME_STREAM_BASE + 7;
 }
 
 /* RFC 9000 2.1: a STREAM is a client-initiated bidirectional request stream
@@ -44,7 +44,7 @@ static int is_wt_stream_signal(wired_span data) {
   u64 v;
   usz off = 0;
   if (!varint_take(data, &off, &v)) return 0;
-  return v == QUIC_H3_STREAM_WEBTRANSPORT_BIDI;
+  return v == H3_STREAM_WEBTRANSPORT_BIDI;
 }
 
 /* 1 if sf is the stream's first-sighted (offset 0) frame and its leading bytes
@@ -172,7 +172,7 @@ static usz acc_headers_frame_len(const wired_srvloop_reqacc* acc) {
   h3_frame f;
   usz      n = h3_frame_get(wired_span_of(acc->buf, *acc->len), &f);
   if (n == 0) return 0;
-  return f.type == QUIC_H3_FRAME_HEADERS ? n : 0;
+  return f.type == H3_FRAME_HEADERS ? n : 0;
 }
 
 /* Constant-shape 7-octet compare (the CONNECT method token). */
@@ -481,7 +481,7 @@ static void uni_stream_type_apply_qpack_capacity(
   u64 v;
   usz off = 0;
   if (!varint_take(data, &off, &v)) return;
-  if (v != QUIC_H3_STREAM_QPACK_ENCODER) return;
+  if (v != H3_STREAM_QPACK_ENCODER) return;
   apply_qpack_capacity_rest(l, wired_span_of(data.p + off, data.n - off));
 }
 
@@ -495,7 +495,7 @@ static int is_wt_uni_stream_type(wired_span data) {
   u64 v;
   usz off = 0;
   if (!varint_take(data, &off, &v)) return 0;
-  return v == QUIC_H3_STREAM_WEBTRANSPORT;
+  return v == H3_STREAM_WEBTRANSPORT;
 }
 
 /* 1 if sf is the stream's first-sighted (offset 0) frame and its leading
@@ -729,7 +729,7 @@ static void queue_decoded_datagram(wired_srvloop* l, wired_span frame) {
  * dropping one under sustained load is within spec rather than a bug to fix.
  */
 static void gather_one_datagram(wired_srvloop* l, u64 type, wired_span frame) {
-  if (frame_classify(type) != QUIC_FK_DATAGRAM) return;
+  if (frame_classify(type) != FK_DATAGRAM) return;
   if (l->rx_datagram_n >= WIRED_SRVLOOP_MAX_RX_DATAGRAMS) return;
   queue_decoded_datagram(l, frame);
 }
@@ -746,7 +746,7 @@ static int gather_rx_datagrams(wired_srvloop* l, const u8* payload, usz len) {
   int            seen = 0;
   framewalk_init(&it, payload, len);
   while (framewalk_next(&it, &fr)) {
-    if (frame_classify(fr.type) == QUIC_FK_DATAGRAM) seen = 1;
+    if (frame_classify(fr.type) == FK_DATAGRAM) seen = 1;
     gather_one_datagram(l, fr.type, wired_span_of(fr.start, fr.remaining));
   }
   return seen;
@@ -760,7 +760,7 @@ static int gather_rx_datagrams(wired_srvloop* l, const u8* payload, usz len) {
  * against). */
 static int reset_stream_id(u64 type, wired_span frame, u64* stream_id_out) {
   reset_stream_frame f;
-  if (frame_classify(type) != QUIC_FK_RESET_STREAM) return 0;
+  if (frame_classify(type) != FK_RESET_STREAM) return 0;
   if (reset_stream_decode(frame.p, frame.n, &f) == 0) return 0;
   *stream_id_out = f.stream_id;
   return 1;
@@ -774,7 +774,7 @@ static int reset_stream_id(u64 type, wired_span frame, u64* stream_id_out) {
  * tracks. */
 static int stop_sending_id(u64 type, wired_span frame, u64* stream_id_out) {
   stop_sending_frame f;
-  if (frame_classify(type) != QUIC_FK_STOP_SENDING) return 0;
+  if (frame_classify(type) != FK_STOP_SENDING) return 0;
   if (stop_sending_decode(frame.p, frame.n, &f) == 0) return 0;
   *stream_id_out = f.stream_id;
   return 1;
@@ -784,7 +784,7 @@ static int stop_sending_id(u64 type, wired_span frame, u64* stream_id_out) {
  * decoded into *out. Split out of gather_one_wt_reset to keep its own branch
  * count at the CCN gate. */
 static int wt_reset_frame(u64 type, wired_span frame, reset_stream_frame* out) {
-  if (frame_classify(type) != QUIC_FK_RESET_STREAM) return 0;
+  if (frame_classify(type) != FK_RESET_STREAM) return 0;
   return reset_stream_decode(frame.p, frame.n, out) != 0;
 }
 
@@ -792,7 +792,7 @@ static int wt_reset_frame(u64 type, wired_span frame, reset_stream_frame* out) {
  * decoded into *out. Mirrors wt_reset_frame for the other close-shaped
  * frame kind. */
 static int wt_stop_frame(u64 type, wired_span frame, stop_sending_frame* out) {
-  if (frame_classify(type) != QUIC_FK_STOP_SENDING) return 0;
+  if (frame_classify(type) != FK_STOP_SENDING) return 0;
   return stop_sending_decode(frame.p, frame.n, out) != 0;
 }
 
@@ -869,8 +869,7 @@ static void gather_one_stream_close(
  * one is only distinguishable after decoding). Split out to keep
  * gather_stream_closes' own branch count at the CCN gate. */
 static int is_close_shaped(frame_kind kind, u64 type) {
-  return kind == QUIC_FK_RESET_STREAM || kind == QUIC_FK_STOP_SENDING ||
-         is_stream(type);
+  return kind == FK_RESET_STREAM || kind == FK_STOP_SENDING || is_stream(type);
 }
 
 /* 1 if candidate should replace l->max_data_seen: either nothing latched
@@ -923,7 +922,7 @@ static int gather_max_streams_uni(
   int            seen = 0;
   framewalk_init(&it, payload, len);
   while (framewalk_next(&it, &fr)) {
-    if (frame_classify(fr.type) != QUIC_FK_MAX_STREAMS) continue;
+    if (frame_classify(fr.type) != FK_MAX_STREAMS) continue;
     seen = 1;
     gather_one_max_streams_uni(l, wired_span_of(fr.start, fr.remaining));
   }
@@ -933,9 +932,8 @@ static int gather_max_streams_uni(
 /* RFC 9000 19.14: latch which STREAMS_BLOCKED direction was seen -- the two
  * directions carry independent limits, so each gets its own flag. */
 static void note_streams_blocked(wired_srvloop* l, u64 type) {
-  if (type == QUIC_FRAME_STREAMS_BLOCKED_BIDI) l->streams_blocked_seen_flag = 1;
-  if (type == QUIC_FRAME_STREAMS_BLOCKED_UNI)
-    l->streams_blocked_uni_seen_flag = 1;
+  if (type == FRAME_STREAMS_BLOCKED_BIDI) l->streams_blocked_seen_flag = 1;
+  if (type == FRAME_STREAMS_BLOCKED_UNI) l->streams_blocked_uni_seen_flag = 1;
 }
 
 /* RFC 9000 19.14: scan this payload for a STREAMS_BLOCKED frame (either
@@ -951,7 +949,7 @@ static int gather_streams_blocked(
   int            seen = 0;
   framewalk_init(&it, payload, len);
   while (framewalk_next(&it, &fr)) {
-    if (frame_classify(fr.type) != QUIC_FK_STREAMS_BLOCKED) continue;
+    if (frame_classify(fr.type) != FK_STREAMS_BLOCKED) continue;
     seen = 1;
     note_streams_blocked(l, fr.type);
   }
@@ -964,7 +962,7 @@ static int gather_streams_blocked(
  * skipped, same policy as gather_one_max_data's decode failure. */
 static void gather_one_path_response(wired_srvloop* l, wired_span frame) {
   if (!path_decode(
-          frame.p, frame.n, QUIC_FRAME_PATH_RESPONSE, l->path_response_data))
+          frame.p, frame.n, FRAME_PATH_RESPONSE, l->path_response_data))
     return;
   l->path_response_seen_flag = 1;
 }
@@ -982,7 +980,7 @@ static int gather_path_response(wired_srvloop* l, const u8* payload, usz len) {
   int            seen = 0;
   framewalk_init(&it, payload, len);
   while (framewalk_next(&it, &fr)) {
-    if (frame_classify(fr.type) != QUIC_FK_PATH_RESPONSE) continue;
+    if (frame_classify(fr.type) != FK_PATH_RESPONSE) continue;
     seen = 1;
     gather_one_path_response(l, wired_span_of(fr.start, fr.remaining));
   }
@@ -998,7 +996,7 @@ static int gather_max_data(wired_srvloop* l, const u8* payload, usz len) {
   int            seen = 0;
   framewalk_init(&it, payload, len);
   while (framewalk_next(&it, &fr)) {
-    if (frame_classify(fr.type) != QUIC_FK_MAX_DATA) continue;
+    if (frame_classify(fr.type) != FK_MAX_DATA) continue;
     seen = 1;
     gather_one_max_data(l, wired_span_of(fr.start, fr.remaining));
   }
@@ -1050,7 +1048,7 @@ static int gather_max_stream_data(
   int            seen = 0;
   framewalk_init(&it, payload, len);
   while (framewalk_next(&it, &fr)) {
-    if (frame_classify(fr.type) != QUIC_FK_MAX_STREAM_DATA) continue;
+    if (frame_classify(fr.type) != FK_MAX_STREAM_DATA) continue;
     seen = 1;
     gather_one_max_stream_data(l, wired_span_of(fr.start, fr.remaining));
   }
@@ -1217,7 +1215,7 @@ static void route_dispatch_complete(
     const wired_srvloop_dispatch_ctx* ctx,
     wired_srvloop_reqacc*             acc,
     const wired_srvloop_dispatch_in*  sin) {
-  if (ctx->s->sdrv.alpn == QUIC_SALPN_HQ)
+  if (ctx->s->sdrv.alpn == SALPN_HQ)
     drive_complete_hq09(acc, sin);
   else
     drive_complete(ctx->h3, acc, sin);

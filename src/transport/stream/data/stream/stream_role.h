@@ -1,5 +1,5 @@
-#ifndef QUIC_STREAM_STREAM_ROLE_H
-#define QUIC_STREAM_STREAM_ROLE_H
+#ifndef STREAM_STREAM_ROLE_H
+#define STREAM_STREAM_ROLE_H
 
 #include "common/platform/sys/syscall.h"
 

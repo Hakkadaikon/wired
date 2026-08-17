@@ -3,10 +3,10 @@
 static void test_ncid_roundtrip(void) {
   ncid_frame in = {.seq = 5, .retire_prior_to = 2, .cid_len = 4};
   for (usz i = 0; i < 4; i++) in.cid[i] = (u8)(0xA0 + i);
-  for (usz i = 0; i < QUIC_NCID_TOKEN; i++) in.token[i] = (u8)(i * 3);
+  for (usz i = 0; i < NCID_TOKEN; i++) in.token[i] = (u8)(i * 3);
   u8  buf[64];
   usz w = ncid_encode(buf, sizeof(buf), &in);
-  CHECK(w != 0 && buf[0] == QUIC_FRAME_NEW_CID);
+  CHECK(w != 0 && buf[0] == FRAME_NEW_CID);
 
   ncid_frame out;
   usz        r = ncid_decode(buf, w, &out);

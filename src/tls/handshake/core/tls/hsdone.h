@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_HSDONE_H
-#define QUIC_TLS_HSDONE_H
+#ifndef TLS_HSDONE_H
+#define TLS_HSDONE_H
 
 /* RFC 9001 4.1.1: handshake completion and confirmation. The TLS handshake
  * is complete when the peer's Finished is verified and the local Finished is

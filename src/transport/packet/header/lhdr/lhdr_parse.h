@@ -1,5 +1,5 @@
-#ifndef QUIC_LHDR_PARSE_H
-#define QUIC_LHDR_PARSE_H
+#ifndef LHDR_PARSE_H
+#define LHDR_PARSE_H
 
 #include "common/bytes/span/span.h"
 

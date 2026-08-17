@@ -517,8 +517,7 @@ static usz put_grease_frame(u8* buf, usz cap) {
 static usz put_push_promise_frame(u8* buf, usz cap) {
   const u8   pp[] = {0, 0, 0, 0}; /* push id + a placeholder field section */
   wired_obuf ob   = {buf, cap, 0};
-  return h3_frame_put(
-      &ob, QUIC_H3_FRAME_PUSH_PROMISE, wired_span_of(pp, sizeof pp));
+  return h3_frame_put(&ob, H3_FRAME_PUSH_PROMISE, wired_span_of(pp, sizeof pp));
 }
 
 /* RFC 9114 7.2.8 (9114-073): an HTTP/2-only reserved frame type (0x02, 0x06,
@@ -541,8 +540,7 @@ static void test_reqdrive_push_promise_rejected(void) {
 
   h3_len = put_push_promise_frame(h3, sizeof(h3));
   hob    = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-  h3_len +=
-      h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  h3_len += h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(
       wired_h3reqdrive_recv_get(
@@ -563,8 +561,7 @@ static void test_reqdrive_http2_reserved_rejected(void) {
 
     h3_len = put_http2_reserved_frame(h3, sizeof(h3), reserved[i]);
     hob    = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-    h3_len +=
-        h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+    h3_len += h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
     CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
     CHECK(
         wired_h3reqdrive_recv_get(
@@ -585,8 +582,7 @@ static void test_reqdrive_leading_grease(void) {
 
   h3_len = put_grease_frame(h3, sizeof(h3));
   hob    = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-  h3_len +=
-      h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  h3_len += h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
@@ -608,8 +604,7 @@ static void test_reqdrive_two_greases(void) {
   h3_len = put_grease_frame(h3, sizeof(h3));
   h3_len += put_grease_frame(h3 + h3_len, sizeof(h3) - h3_len);
   hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-  h3_len +=
-      h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  h3_len += h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
@@ -641,11 +636,9 @@ static void test_reqdrive_grease_then_body(void) {
 
   h3_len = put_grease_frame(h3, sizeof(h3));
   hob    = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-  h3_len +=
-      h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  h3_len += h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
   hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-  h3_len +=
-      h3_frame_put(&hob, QUIC_H3_FRAME_DATA, wired_span_of(body, sizeof body));
+  h3_len += h3_frame_put(&hob, H3_FRAME_DATA, wired_span_of(body, sizeof body));
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
@@ -664,11 +657,10 @@ static void test_reqdrive_data_after_grease(void) {
   wired_h3reqdrive_req r;
   wired_obuf           hob = {h3, sizeof h3, 0};
 
-  h3_len = h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  h3_len = h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
   h3_len += put_grease_frame(h3 + h3_len, sizeof(h3) - h3_len);
   hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-  h3_len +=
-      h3_frame_put(&hob, QUIC_H3_FRAME_DATA, wired_span_of(body, sizeof body));
+  h3_len += h3_frame_put(&hob, H3_FRAME_DATA, wired_span_of(body, sizeof body));
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
@@ -686,11 +678,11 @@ static void test_reqdrive_multi_data(void) {
   wired_h3reqdrive_req r;
   wired_obuf           hob = {h3, sizeof h3, 0};
 
-  h3_len = h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  h3_len = h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
   hob    = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-  h3_len += h3_frame_put(&hob, QUIC_H3_FRAME_DATA, wired_span_of(a, sizeof a));
+  h3_len += h3_frame_put(&hob, H3_FRAME_DATA, wired_span_of(a, sizeof a));
   hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-  h3_len += h3_frame_put(&hob, QUIC_H3_FRAME_DATA, wired_span_of(b, sizeof b));
+  h3_len += h3_frame_put(&hob, H3_FRAME_DATA, wired_span_of(b, sizeof b));
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
@@ -701,7 +693,7 @@ static void test_reqdrive_multi_data(void) {
 /* RFC 9001 5: derive a shared 1-RTT key pair for the end-to-end path. */
 static void rd_keys(initial_keys* k, aes128* hp) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, k);
+  initial_derive(wired_span_of(dcid, 8), 1, VERSION_1, k);
   aes128_init(hp, k->hp);
 }
 
@@ -786,13 +778,11 @@ static usz build_request_with_trailer(
   usz        h3_len = 0, req_len = 0;
   const u8   body[] = {'h', 'i'};
   wired_obuf hob    = {h3, sizeof h3, 0};
-  h3_len = h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  h3_len = h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
   hob    = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-  h3_len +=
-      h3_frame_put(&hob, QUIC_H3_FRAME_DATA, wired_span_of(body, sizeof body));
+  h3_len += h3_frame_put(&hob, H3_FRAME_DATA, wired_span_of(body, sizeof body));
   hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-  h3_len +=
-      h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(tfs, tfs_len));
+  h3_len += h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(tfs, tfs_len));
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, cap, &req_len));
   return req_len;
 }

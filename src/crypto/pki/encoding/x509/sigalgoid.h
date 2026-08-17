@@ -1,5 +1,5 @@
-#ifndef QUIC_X509_SIGALGOID_H
-#define QUIC_X509_SIGALGOID_H
+#ifndef X509_SIGALGOID_H
+#define X509_SIGALGOID_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -9,12 +9,12 @@
  * RSA-PSS cert signatures) fail the lookup, so they are rejected by
  * construction. */
 
-enum { QUIC_X509_SIG_ECDSA = 1, QUIC_X509_SIG_RSA_PKCS1 = 2 };
+enum { X509_SIG_ECDSA = 1, X509_SIG_RSA_PKCS1 = 2 };
 enum {
-  QUIC_X509_HASH_SHA256 = 1,
-  QUIC_X509_HASH_SHA384 = 2,
-  QUIC_X509_HASH_SHA512 = 3,
-  QUIC_X509_HASH_SHA224 = 4
+  X509_HASH_SHA256 = 1,
+  X509_HASH_SHA384 = 2,
+  X509_HASH_SHA512 = 3,
+  X509_HASH_SHA224 = 4
 };
 
 /** A resolved signatureAlgorithm: issuer key kind and digest kind. */

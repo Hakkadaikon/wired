@@ -1,5 +1,5 @@
-#ifndef QUIC_WTWIRE_WTWIRE_H
-#define QUIC_WTWIRE_WTWIRE_H
+#ifndef WTWIRE_WTWIRE_H
+#define WTWIRE_WTWIRE_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

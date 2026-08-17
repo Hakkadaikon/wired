@@ -32,9 +32,9 @@ usz hs_parse(wired_span buf, u8* type, usz* body_len) {
  * entry. For simplicity both hello types use the same single-entry form,
  * which our own parser understands (interop with real TLS is out of scope). */
 static usz put_key_share(u8* out, usz off, const u8 pub[32]) {
-  be_put_be16(out + off, QUIC_EXT_KEY_SHARE);
+  be_put_be16(out + off, EXT_KEY_SHARE);
   be_put_be16(out + off + 2, 36); /* ext_data length */
-  be_put_be16(out + off + 4, QUIC_GROUP_X25519);
+  be_put_be16(out + off + 4, GROUP_X25519);
   be_put_be16(out + off + 6, 32); /* key_exchange length */
   for (usz i = 0; i < 32; i++) out[off + 8 + i] = pub[i];
   return off + 40;
@@ -53,7 +53,7 @@ usz hs_build_hello(
   usz off = hs_begin(out, cap, msg_type);
   if (off == 0 || cap < 4 + 35 + 4 + 40) return 0;
   off = put_hello_prefix(out, off, random);
-  be_put_be16(out + off, QUIC_TLS_AES128_GCM_SHA256); /* one cipher suite */
+  be_put_be16(out + off, TLS_AES128_GCM_SHA256); /* one cipher suite */
   out[off + 2] = 0;               /* legacy_compression_methods length 0 */
   be_put_be16(out + off + 3, 40); /* extensions length */
   off = put_key_share(out, off + 5, pub);
@@ -67,7 +67,7 @@ usz hs_build_hello(
 /* The key_share extension is present and large enough at offset ks. */
 static int share_present(const u8* body, usz body_len, usz ks) {
   if (body_len < ks + 40) return 0;
-  return body[ks] == 0x00 && body[ks + 1] == QUIC_EXT_KEY_SHARE;
+  return body[ks] == 0x00 && body[ks + 1] == EXT_KEY_SHARE;
 }
 
 int hs_peer_share(const u8* body, usz body_len, u8 pub[32]) {

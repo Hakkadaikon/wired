@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_RETRY_TAG_V2_H
-#define QUIC_TLS_RETRY_TAG_V2_H
+#ifndef TLS_RETRY_TAG_V2_H
+#define TLS_RETRY_TAG_V2_H
 
 #include "common/platform/sys/syscall.h"
 

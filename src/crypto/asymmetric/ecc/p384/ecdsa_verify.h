@@ -1,5 +1,5 @@
-#ifndef QUIC_P384_ECDSA_VERIFY_H
-#define QUIC_P384_ECDSA_VERIFY_H
+#ifndef P384_ECDSA_VERIFY_H
+#define P384_ECDSA_VERIFY_H
 
 #include "common/platform/sys/syscall.h"
 

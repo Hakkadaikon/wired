@@ -89,9 +89,9 @@ static void sha512_compress(sha512_ctx* s, const u8* p) {
 /* Absorb whole 128-byte blocks straight from data; returns bytes consumed. */
 static usz sha512_absorb_blocks(sha512_ctx* s, const u8* data, usz len) {
   usz off = 0;
-  while (len - off >= QUIC_SHA512_BLOCK) {
+  while (len - off >= SHA512_BLOCK) {
     sha512_compress(s, data + off);
-    off += QUIC_SHA512_BLOCK;
+    off += SHA512_BLOCK;
   }
   return off;
 }
@@ -105,7 +105,7 @@ static void sha512_buffer(sha512_ctx* s, const u8* data, usz n) {
 /* Bytes to pull from data to complete a pending partial block, or 0 if
  * there is no partial block or not enough data to fill it. */
 static usz sha512_pending_take(const sha512_ctx* s, usz len) {
-  usz want = QUIC_SHA512_BLOCK - s->buf_len;
+  usz want = SHA512_BLOCK - s->buf_len;
   return (s->buf_len != 0 && len >= want) ? want : 0;
 }
 
@@ -148,7 +148,7 @@ static void sha512_put_be64(u8* out, u64 v) {
   for (usz j = 0; j < 8; j++) out[j] = (u8)(v >> (56 - j * 8));
 }
 
-void sha512_final(sha512_ctx* s, u8 out[QUIC_SHA512_DIGEST]) {
+void sha512_final(sha512_ctx* s, u8 out[SHA512_DIGEST]) {
   u8 lenbe[16];
   put_len(lenbe, s->total * 8);
   sha512_pad_message(s);
@@ -156,7 +156,7 @@ void sha512_final(sha512_ctx* s, u8 out[QUIC_SHA512_DIGEST]) {
   for (usz i = 0; i < 8; i++) sha512_put_be64(out + i * 8, s->h[i]);
 }
 
-void sha512(const u8* data, usz len, u8 out[QUIC_SHA512_DIGEST]) {
+void sha512(const u8* data, usz len, u8 out[SHA512_DIGEST]) {
   sha512_ctx s;
   sha512_init(&s);
   sha512_update(&s, data, len);

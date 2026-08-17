@@ -1,5 +1,5 @@
-#ifndef QUIC_HRR_DETECT_H
-#define QUIC_HRR_DETECT_H
+#ifndef HRR_DETECT_H
+#define HRR_DETECT_H
 
 #include "common/platform/sys/syscall.h"
 

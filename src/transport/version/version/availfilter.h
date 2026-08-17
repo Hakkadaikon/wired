@@ -1,5 +1,5 @@
-#ifndef QUIC_VERSION_AVAILFILTER_H
-#define QUIC_VERSION_AVAILFILTER_H
+#ifndef VERSION_AVAILFILTER_H
+#define VERSION_AVAILFILTER_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -9,10 +9,10 @@ void connrunner_pmtu_init(connrunner* r) {
   pmtu_init(&r->pmtu);
   r->pmtu_probe_pn   = 0;
   r->pmtu_probe_held = 0;
-  /* RFC 8899 3.7: pushed QUIC_RTT_INITIAL_US into the past (wrapping is fine
+  /* RFC 8899 3.7: pushed RTT_INITIAL_US into the past (wrapping is fine
    * -- u64 arithmetic) so the very first probe, whatever `now` is, is never
    * held back by the min-interval gate below. */
-  r->pmtu_last_probe_sent_at = (u64)0 - QUIC_RTT_INITIAL_US;
+  r->pmtu_last_probe_sent_at = (u64)0 - RTT_INITIAL_US;
 }
 
 /* RFC 8899 3.2/5: a PING frame (1 byte, ack-eliciting) followed by PADDING
@@ -21,20 +21,20 @@ void connrunner_pmtu_init(connrunner* r) {
  * 0 if size does not fit cap. */
 static usz build_ping_padding(u8* buf, usz cap, usz size) {
   if (size == 0 || size > cap) return 0;
-  buf[0] = QUIC_FRAME_PING;
-  bytes_memset(buf + 1, QUIC_FRAME_PADDING, size - 1);
+  buf[0] = FRAME_PING;
+  bytes_memset(buf + 1, FRAME_PADDING, size - 1);
   return size;
 }
 
 /* RFC 8899 3.7: probe transmission bypasses the congestion controller, so
  * this is the only pacing a probe gets -- at least one RTT must separate a
  * new probe send from the previous one. No live RTT sample is wired into
- * this loop yet (send.c: QUIC_CONNRUNNER_NO_RTT_DELAY), so
- * QUIC_RTT_INITIAL_US (RFC 9002's own kInitialRtt floor) stands in as the
+ * this loop yet (send.c: CONNRUNNER_NO_RTT_DELAY), so
+ * RTT_INITIAL_US (RFC 9002's own kInitialRtt floor) stands in as the
  * minimum interval. Only gates an actual send, not the search state machine
  * itself (pmtu_next_probe still runs to conclude a finished search). */
 static int within_min_probe_interval(const connrunner* r, u64 now) {
-  return now - r->pmtu_last_probe_sent_at < QUIC_RTT_INITIAL_US;
+  return now - r->pmtu_last_probe_sent_at < RTT_INITIAL_US;
 }
 
 /* A found candidate is held back if it would violate the min interval above;
@@ -74,7 +74,7 @@ static usz seal_probe(
 }
 
 usz connrunner_pmtu_build_probe(connrunner* r, wired_obuf* out, u64 now) {
-  u8  frame[QUIC_PMTU_MAX];
+  u8  frame[PMTU_MAX];
   usz size = next_probe_size(r, now);
   usz fl;
   if (!size) return 0;

@@ -1,7 +1,7 @@
 #include "test.h"
 
-#define WTERRMAP_FIRST 0x52e4a40fa8dbULL
-#define WTERRMAP_LAST 0x52e5ac983162ULL
+#define WTERRMAP_TEST_FIRST 0x52e4a40fa8dbULL
+#define WTERRMAP_TEST_LAST 0x52e5ac983162ULL
 
 /* Small deterministic LCG so the random sample is reproducible without any
  * libc random function. */
@@ -19,7 +19,7 @@ static const u32 wterrmap_boundary_vals[] = {
 
 static void wterrmap_check_roundtrip(u32 n) {
   u64 h = wired_wterrmap_to_http3(n);
-  CHECK(h >= WTERRMAP_FIRST && h <= WTERRMAP_LAST);
+  CHECK(h >= WTERRMAP_TEST_FIRST && h <= WTERRMAP_TEST_LAST);
   u32 back = 0;
   CHECK(wired_wterrmap_from_http3(h, &back) == 1);
   CHECK(back == n);
@@ -34,8 +34,8 @@ void test_wterrmap(void) {
   }
 
   /* Tight-bound equalities. */
-  CHECK(wired_wterrmap_to_http3(0) == WTERRMAP_FIRST);
-  CHECK(wired_wterrmap_to_http3(0xffffffff) == WTERRMAP_LAST);
+  CHECK(wired_wterrmap_to_http3(0) == WTERRMAP_TEST_FIRST);
+  CHECK(wired_wterrmap_to_http3(0xffffffff) == WTERRMAP_TEST_LAST);
 
   /* 1: modest random sample via a fixed-seed LCG (deterministic). */
   u32 seed = 0xC0FFEEu;
@@ -47,15 +47,15 @@ void test_wterrmap(void) {
   /* 3: reserved codepoint within [first, last] must be rejected. shifted=30
    * => h = first + 30 = 0x52e4a40fa8f9, which is of reserved form on h
    * itself: (h - 0x21) % 0x1f == 0. */
-  u64 reserved_h   = WTERRMAP_FIRST + 30;
+  u64 reserved_h   = WTERRMAP_TEST_FIRST + 30;
   u32 reserved_out = 0;
   CHECK((reserved_h - 0x21) % 0x1f == 0);
   CHECK(wired_wterrmap_from_http3(reserved_h, &reserved_out) == 0);
 
   /* 4: out-of-range rejection on both sides. */
   u32 oor_out = 0;
-  CHECK(wired_wterrmap_from_http3(WTERRMAP_FIRST - 1, &oor_out) == 0);
-  CHECK(wired_wterrmap_from_http3(WTERRMAP_LAST + 1, &oor_out) == 0);
+  CHECK(wired_wterrmap_from_http3(WTERRMAP_TEST_FIRST - 1, &oor_out) == 0);
+  CHECK(wired_wterrmap_from_http3(WTERRMAP_TEST_LAST + 1, &oor_out) == 0);
 
   /* 6: regression for the "checked on shifted instead of h" bug class.
    * At shifted=30, (h-0x21)%0x1f == 0 (reserved on h, must reject) but
@@ -69,14 +69,14 @@ void test_wterrmap(void) {
    * live trigger site yet (see errmap.h doc comment) but a wrong constant
    * is a real bug independent of that, and each round-trips through the
    * same mapping arithmetic checked above. */
-  CHECK(QUIC_WTERR_BUFFERED_STREAM_REJECTED == 0x3994bd84u);
-  CHECK(QUIC_WTERR_SESSION_GONE == 0x170d7b68u);
-  CHECK(QUIC_WTERR_FLOW_CONTROL_ERROR == 0x045d4487u);
-  CHECK(QUIC_WTERR_ALPN_ERROR == 0x0817b3ddu);
-  CHECK(QUIC_WTERR_REQUIREMENTS_NOT_MET == 0x212c0d48u);
-  wterrmap_check_roundtrip(QUIC_WTERR_BUFFERED_STREAM_REJECTED);
-  wterrmap_check_roundtrip(QUIC_WTERR_SESSION_GONE);
-  wterrmap_check_roundtrip(QUIC_WTERR_FLOW_CONTROL_ERROR);
-  wterrmap_check_roundtrip(QUIC_WTERR_ALPN_ERROR);
-  wterrmap_check_roundtrip(QUIC_WTERR_REQUIREMENTS_NOT_MET);
+  CHECK(WTERR_BUFFERED_STREAM_REJECTED == 0x3994bd84u);
+  CHECK(WTERR_SESSION_GONE == 0x170d7b68u);
+  CHECK(WTERR_FLOW_CONTROL_ERROR == 0x045d4487u);
+  CHECK(WTERR_ALPN_ERROR == 0x0817b3ddu);
+  CHECK(WTERR_REQUIREMENTS_NOT_MET == 0x212c0d48u);
+  wterrmap_check_roundtrip(WTERR_BUFFERED_STREAM_REJECTED);
+  wterrmap_check_roundtrip(WTERR_SESSION_GONE);
+  wterrmap_check_roundtrip(WTERR_FLOW_CONTROL_ERROR);
+  wterrmap_check_roundtrip(WTERR_ALPN_ERROR);
+  wterrmap_check_roundtrip(WTERR_REQUIREMENTS_NOT_MET);
 }

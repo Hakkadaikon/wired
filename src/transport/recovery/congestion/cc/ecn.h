@@ -1,5 +1,5 @@
-#ifndef QUIC_CC_ECN_H
-#define QUIC_CC_ECN_H
+#ifndef CC_ECN_H
+#define CC_ECN_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/recovery/congestion/cc/cc.h"

@@ -1,5 +1,5 @@
-#ifndef QUIC_PACKET_SHORT_H
-#define QUIC_PACKET_SHORT_H
+#ifndef PACKET_SHORT_H
+#define PACKET_SHORT_H
 
 #include "common/bytes/span/span.h"
 

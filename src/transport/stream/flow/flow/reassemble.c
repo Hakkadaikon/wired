@@ -1,7 +1,7 @@
 #include "transport/stream/flow/flow/reassemble.h"
 
 void reasm_init(reasm* r) {
-  for (usz i = 0; i < QUIC_REASM_CAP; i++) r->have[i] = 0;
+  for (usz i = 0; i < REASM_CAP; i++) r->have[i] = 0;
   r->delivered  = 0;
   r->final_size = 0;
   r->have_final = 0;
@@ -9,7 +9,7 @@ void reasm_init(reasm* r) {
 
 /* True if [offset, offset+len) fits the buffer and any known final size. */
 static int insert_fits(const reasm* r, u64 offset, usz len) {
-  if (offset + len > QUIC_REASM_CAP) return 0;
+  if (offset + len > REASM_CAP) return 0;
   return !r->have_final || offset + len <= r->final_size;
 }
 
@@ -23,13 +23,13 @@ int reasm_insert(reasm* r, u64 offset, wired_span data) {
 }
 
 int reasm_set_final(reasm* r, u64 final_size) {
-  if (final_size > QUIC_REASM_CAP) return 0;
+  if (final_size > REASM_CAP) return 0;
   r->final_size = final_size;
   r->have_final = 1;
   return 1;
 }
 
 u64 reasm_deliver(reasm* r) {
-  while (r->delivered < QUIC_REASM_CAP && r->have[r->delivered]) r->delivered++;
+  while (r->delivered < REASM_CAP && r->have[r->delivered]) r->delivered++;
   return r->delivered;
 }

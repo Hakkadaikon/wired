@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_HSDRIVER_H
-#define QUIC_TLS_HSDRIVER_H
+#ifndef TLS_HSDRIVER_H
+#define TLS_HSDRIVER_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -8,21 +8,21 @@
  * out-of-order, wrong-protection-level, or pre-authentication transition. */
 
 /* RFC 8446 4: handshake message types this driver tracks. */
-#define QUIC_HSD_CLIENT_HELLO 1
-#define QUIC_HSD_SERVER_HELLO 2
-#define QUIC_HSD_ENCRYPTED_EXT 8
-#define QUIC_HSD_CERTIFICATE 11
-#define QUIC_HSD_CERT_VERIFY 15
-#define QUIC_HSD_FINISHED 20
+#define HSD_CLIENT_HELLO 1
+#define HSD_SERVER_HELLO 2
+#define HSD_ENCRYPTED_EXT 8
+#define HSD_CERTIFICATE 11
+#define HSD_CERT_VERIFY 15
+#define HSD_FINISHED 20
 
 /* RFC 9000 19.20: carried as a 1-RTT frame, fed here to confirm the
  * handshake. Not a TLS handshake type; used as the driver's confirm trigger. */
-#define QUIC_HSD_HANDSHAKE_DONE 30
+#define HSD_HANDSHAKE_DONE 30
 
 /* RFC 9001 4: packet protection levels, promoted strictly in this order. */
-#define QUIC_HSD_PROT_INITIAL 0
-#define QUIC_HSD_PROT_HANDSHAKE 1
-#define QUIC_HSD_PROT_1RTT 2
+#define HSD_PROT_INITIAL 0
+#define HSD_PROT_HANDSHAKE 1
+#define HSD_PROT_1RTT 2
 
 /** TLS 1.3 handshake state machine: role, flight progress, protection level
  * reached, and completion/confirmation flags. */

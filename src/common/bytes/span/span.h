@@ -1,5 +1,5 @@
-#ifndef QUIC_SPAN_H
-#define QUIC_SPAN_H
+#ifndef SPAN_H
+#define SPAN_H
 
 #include "common/platform/sys/syscall.h"
 

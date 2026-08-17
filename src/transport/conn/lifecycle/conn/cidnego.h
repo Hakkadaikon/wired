@@ -1,5 +1,5 @@
-#ifndef QUIC_CONN_CIDNEGO_H
-#define QUIC_CONN_CIDNEGO_H
+#ifndef CONN_CIDNEGO_H
+#define CONN_CIDNEGO_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

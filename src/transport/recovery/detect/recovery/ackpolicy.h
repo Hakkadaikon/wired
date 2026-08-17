@@ -1,5 +1,5 @@
-#ifndef QUIC_RECOVERY_ACKPOLICY_H
-#define QUIC_RECOVERY_ACKPOLICY_H
+#ifndef RECOVERY_ACKPOLICY_H
+#define RECOVERY_ACKPOLICY_H
 
 #include "common/platform/sys/syscall.h"
 

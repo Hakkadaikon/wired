@@ -1,5 +1,5 @@
-#ifndef QUIC_LOSSDRIVE_PTOBACKOFF_H
-#define QUIC_LOSSDRIVE_PTOBACKOFF_H
+#ifndef LOSSDRIVE_PTOBACKOFF_H
+#define LOSSDRIVE_PTOBACKOFF_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/recovery/detect/recovery/pto.h"

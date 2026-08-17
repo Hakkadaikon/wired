@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_FINISHED_H
-#define QUIC_TLS_FINISHED_H
+#ifndef TLS_FINISHED_H
+#define TLS_FINISHED_H
 
 #include "crypto/kdf/hkdf/hkdf.h"
 
@@ -8,20 +8,20 @@
  * finished_key = HKDF-Expand-Label(base_key, "finished", "", Hash.length);
  * verify_data = HMAC(finished_key, Transcript-Hash). */
 
-#define QUIC_TLS_VERIFY_DATA QUIC_SHA256_DIGEST
+#define TLS_VERIFY_DATA SHA256_DIGEST
 
 /* Compute the Finished verify_data from a base traffic secret and the
  * transcript hash. */
 void tls_finished_verify_data(
-    const u8 base_key[QUIC_HKDF_PRK],
-    const u8 transcript_hash[QUIC_SHA256_DIGEST],
-    u8       out[QUIC_TLS_VERIFY_DATA]);
+    const u8 base_key[HKDF_PRK],
+    const u8 transcript_hash[SHA256_DIGEST],
+    u8       out[TLS_VERIFY_DATA]);
 
 /* Verify a received Finished against the recomputed verify_data in constant
  * time. Returns 1 on a match. */
 int tls_finished_check(
-    const u8 base_key[QUIC_HKDF_PRK],
-    const u8 transcript_hash[QUIC_SHA256_DIGEST],
-    const u8 received[QUIC_TLS_VERIFY_DATA]);
+    const u8 base_key[HKDF_PRK],
+    const u8 transcript_hash[SHA256_DIGEST],
+    const u8 received[TLS_VERIFY_DATA]);
 
 #endif

@@ -1,5 +1,5 @@
-#ifndef QUIC_SALPN_CH_EXT_H
-#define QUIC_SALPN_CH_EXT_H
+#ifndef SALPN_CH_EXT_H
+#define SALPN_CH_EXT_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

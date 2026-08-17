@@ -1,5 +1,5 @@
-#ifndef QUIC_H3RECV_REQ_FRAMES_H
-#define QUIC_H3RECV_REQ_FRAMES_H
+#ifndef H3RECV_REQ_FRAMES_H
+#define H3RECV_REQ_FRAMES_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

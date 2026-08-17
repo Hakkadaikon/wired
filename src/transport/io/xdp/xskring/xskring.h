@@ -1,5 +1,5 @@
-#ifndef QUIC_XSKRING_H
-#define QUIC_XSKRING_H
+#ifndef XSKRING_H
+#define XSKRING_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -57,8 +57,8 @@ static usz wrap(selfcert_enc* e, u8 tag, wired_obuf* out) {
 static usz build_alg(wired_obuf* out) {
   u8           oid[16];
   selfcert_enc e = {oid, sizeof(oid), 0, 1};
-  put(&e, QUIC_DER_OID, wired_span_of(oid_ed25519, sizeof(oid_ed25519)));
-  return wrap(&e, QUIC_DER_SEQUENCE, out);
+  put(&e, DER_OID, wired_span_of(oid_ed25519, sizeof(oid_ed25519)));
+  return wrap(&e, DER_SEQUENCE, out);
 }
 
 /* RFC 5280 4.1.2.4. AttributeTypeAndValue SEQUENCE{ id-at-commonName, value }.
@@ -66,9 +66,9 @@ static usz build_alg(wired_obuf* out) {
 static usz build_atv(wired_obuf* out) {
   u8           atv[64];
   selfcert_enc e = {atv, sizeof(atv), 0, 1};
-  put(&e, QUIC_DER_OID, wired_span_of(oid_cn, sizeof(oid_cn)));
+  put(&e, DER_OID, wired_span_of(oid_cn, sizeof(oid_cn)));
   put(&e, 0x0c, wired_span_of(cn_value, sizeof(cn_value) - 1)); /* UTF8String */
-  return wrap(&e, QUIC_DER_SEQUENCE, out);
+  return wrap(&e, DER_SEQUENCE, out);
 }
 
 /* RFC 5280 4.1.2.4. RelativeDistinguishedName SET{ AttributeTypeAndValue }. */
@@ -76,7 +76,7 @@ static usz build_rdn(wired_obuf* out) {
   u8           atv[64];
   wired_obuf   ao = obuf_of(atv, sizeof(atv));
   selfcert_enc e  = loaded(atv, build_atv(&ao));
-  return wrap(&e, QUIC_DER_SET, out);
+  return wrap(&e, DER_SET, out);
 }
 
 /* RFC 5280 4.1.2.4. Name SEQUENCE{ SET{ SEQUENCE{ id-at-commonName, value }}}.
@@ -85,7 +85,7 @@ static usz build_name(wired_obuf* out) {
   u8           rdn[80];
   wired_obuf   ro = obuf_of(rdn, sizeof(rdn));
   selfcert_enc e  = loaded(rdn, build_rdn(&ro));
-  return wrap(&e, QUIC_DER_SEQUENCE, out);
+  return wrap(&e, DER_SEQUENCE, out);
 }
 
 /* RFC 5280 4.1.2.5. Validity SEQUENCE { notBefore UTCTime, notAfter UTCTime }.
@@ -96,7 +96,7 @@ static usz build_validity(wired_obuf* out) {
   put(&e, 0x17,
       wired_span_of(not_before, sizeof(not_before) - 1)); /* UTCTime */
   put(&e, 0x17, wired_span_of(not_after, sizeof(not_after) - 1));
-  return wrap(&e, QUIC_DER_SEQUENCE, out);
+  return wrap(&e, DER_SEQUENCE, out);
 }
 
 /* RFC 8410 4 / RFC 5280 4.1.2.7. SPKI SEQUENCE{ alg, BIT STRING(0x00||pub) }.
@@ -109,8 +109,8 @@ static usz build_spki(const u8 pub[32], wired_obuf* out) {
   bits[0]         = 0x00; /* BIT STRING unused-bits */
   bytes_put(wired_mspan_of(bits, sizeof(bits)), &bo, wired_span_of(pub, 32));
   put_pre(&e, wired_span_of(alg, build_alg(&ao)));
-  put(&e, QUIC_DER_BIT_STRING, wired_span_of(bits, bo));
-  return wrap(&e, QUIC_DER_SEQUENCE, out);
+  put(&e, DER_BIT_STRING, wired_span_of(bits, bo));
+  return wrap(&e, DER_SEQUENCE, out);
 }
 
 /* Emit version, serial, signature AlgID and issuer onto e. */
@@ -136,6 +136,6 @@ int selfcert_tbs(const u8 pub[32], wired_obuf* out) {
   put_pre(&e, wired_span_of(val, build_validity(&vo)));
   put_pre(&e, wired_span_of(name, nn));
   put_pre(&e, wired_span_of(spki, build_spki(pub, &so)));
-  out->len = wrap(&e, QUIC_DER_SEQUENCE, out);
+  out->len = wrap(&e, DER_SEQUENCE, out);
   return out->len != 0;
 }

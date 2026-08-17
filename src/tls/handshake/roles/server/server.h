@@ -66,16 +66,16 @@ typedef struct {
   u8 client_random[32]; /**< ClientHello.random (RFC 8446 4.1.2), recorded by
                          * wired_server_recv_initial for keylog lines */
   const char*    keylog_path; /**< NSS key log file path, or 0 to disable */
-  kuswitch_state ku; /**< RFC 9001 6: CLIENT_AP (peer-driven, recv-side)
-                      * 1-RTT key generations */
-  u8 ku_secret[QUIC_HKDF_PRK];      /**< current generation's client_ap secret,
-                                     * needed to derive the next generation */
-  kuswitch_state ku_send;           /**< RFC 9001 6.2: SERVER_AP (send-side)
-                                     * generations, kept in lockstep with ku so a
-                                     * confirmed peer update also advances what
-                                     * this endpoint seals with */
-  u8 ku_send_secret[QUIC_HKDF_PRK]; /**< current generation's server_ap
-                                     * secret */
+  kuswitch_state ku;      /**< RFC 9001 6: CLIENT_AP (peer-driven, recv-side)
+                           * 1-RTT key generations */
+  u8 ku_secret[HKDF_PRK]; /**< current generation's client_ap secret,
+                           * needed to derive the next generation */
+  kuswitch_state ku_send; /**< RFC 9001 6.2: SERVER_AP (send-side)
+                           * generations, kept in lockstep with ku so a
+                           * confirmed peer update also advances what
+                           * this endpoint seals with */
+  u8 ku_send_secret[HKDF_PRK]; /**< current generation's server_ap
+                                * secret */
   int ku_seeded; /**< 1 once ku/ku_send hold real generation-0 keys */
 } wired_server;
 
@@ -100,7 +100,7 @@ typedef struct {
    * 2020-2030 window (tests only). */
   u64 now_secs;
   /** RFC 8446 4.6.1: this server's session-ticket encryption key
-   * (QUIC_TICKET_KEY_LEN bytes), or 0 to disable session resumption --
+   * (TICKET_KEY_LEN bytes), or 0 to disable session resumption --
    * threaded straight to sdrv_init_in.ticket_key, see its doc. */
   const u8* ticket_key;
 } wired_server_init_in;

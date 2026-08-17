@@ -1,5 +1,5 @@
-#ifndef QUIC_XDPFRAME_H
-#define QUIC_XDPFRAME_H
+#ifndef XDPFRAME_H
+#define XDPFRAME_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -14,7 +14,7 @@
  * frame around a QUIC payload (reusing the net/ IPv4 and UDP codecs). */
 
 /** Total byte length of the eth + IPv4 + UDP headers in one frame. */
-#define QUIC_XDPFRAME_HDRS (QUIC_ETH_HDR + QUIC_IPV4_HDR + QUIC_UDP_HDR)
+#define XDPFRAME_HDRS (ETH_HDR + IPV4_HDR + UDP_HDR)
 
 /** Everything extracted from one received frame: where the QUIC payload is,
  * who sent it, and the addressing needed to reflect a reply. */
@@ -62,7 +62,7 @@ typedef struct {
  * @param frame   destination frame buffer
  * @param m       addressing for the frame
  * @param payload the UDP payload (the QUIC datagram)
- * @return QUIC_XDPFRAME_HDRS + payload.n, or 0 if frame.n is too small. */
+ * @return XDPFRAME_HDRS + payload.n, or 0 if frame.n is too small. */
 usz xdpframe_build(wired_mspan frame, const xdpframe_tx* m, wired_span payload);
 
 #endif

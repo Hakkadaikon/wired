@@ -229,7 +229,7 @@ static int name_constraints_chain_ok(const wired_span* certs, usz n_certs) {
 
 /* Lower *counter to v if v is smaller (a SkipCerts constraint only ever
  * tightens, RFC 5280 6.1.4 (i)/(j)); no-op if v carries
- * QUIC_X509_SKIPCERTS_NONE (the "absent" sentinel, larger than any real
+ * X509_SKIPCERTS_NONE (the "absent" sentinel, larger than any real
  * path length). */
 static void skipcerts_lower(u64* counter, u64 v) {
   if (v < *counter) *counter = v;
@@ -240,7 +240,7 @@ static void skipcerts_lower(u64* counter, u64 v) {
  * policyConstraints extension. */
 static int apply_require_explicit(wired_span tbs, u64* explicit_policy) {
   u64 v = x509_require_explicit_policy(tbs);
-  if (v == QUIC_X509_SKIPCERTS_MALFORMED) return 0;
+  if (v == X509_SKIPCERTS_MALFORMED) return 0;
   skipcerts_lower(explicit_policy, v);
   return 1;
 }
@@ -249,7 +249,7 @@ static int apply_require_explicit(wired_span tbs, u64* explicit_policy) {
  * its value. Rejects (0) on a malformed extension. */
 static int apply_inhibit_any(wired_span tbs, u64* inhibit_any) {
   u64 v = x509_inhibit_any_policy(tbs);
-  if (v == QUIC_X509_SKIPCERTS_MALFORMED) return 0;
+  if (v == X509_SKIPCERTS_MALFORMED) return 0;
   skipcerts_lower(inhibit_any, v);
   return 1;
 }
@@ -317,8 +317,8 @@ static int policy_wrapup_ok(u64 explicit_policy, const x509_policy_tree* tree) {
  * (certs[0]), then check the wrap-up condition. */
 static int policy_processing_ok(const wired_span* certs, usz n_certs) {
   x509_policy_tree tree;
-  u64              explicit_policy = QUIC_X509_SKIPCERTS_NONE;
-  u64              inhibit_any     = QUIC_X509_SKIPCERTS_NONE;
+  u64              explicit_policy = X509_SKIPCERTS_NONE;
+  u64              inhibit_any     = X509_SKIPCERTS_NONE;
   x509_policy_tree_init(&tree);
   for (usz i = n_certs - 1; i-- > 0;)
     if (!policy_step(certs[i], &tree, &explicit_policy, &inhibit_any)) return 0;

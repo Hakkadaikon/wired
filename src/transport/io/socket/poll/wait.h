@@ -1,9 +1,9 @@
-#ifndef QUIC_POLL_WAIT_H
-#define QUIC_POLL_WAIT_H
+#ifndef POLL_WAIT_H
+#define POLL_WAIT_H
 
 #include "common/platform/sys/syscall.h"
 
-#define QUIC_POLLIN 0x001 /* POLLIN: data to read */
+#define POLLIN 0x001 /* POLLIN: data to read */
 
 /** struct pollfd as the kernel expects it (events/revents are short). */
 typedef struct {

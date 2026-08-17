@@ -34,7 +34,7 @@ static void test_cert_chain_two(void) {
   u8             body[64];
   const u8*      certs[2] = {cc_a, cc_b};
   usz            lens[2]  = {sizeof(cc_a), sizeof(cc_b)};
-  tls_cert_entry e[QUIC_TLS_CERT_CHAIN_MAX];
+  tls_cert_entry e[TLS_CERT_CHAIN_MAX];
   wired_span     ctx;
   usz            n = cc_body(body, certs, lens, 2), count;
   CHECK(
@@ -51,7 +51,7 @@ static void test_cert_chain_counts(void) {
   u8             body[64];
   const u8*      certs[3] = {cc_a, cc_b, cc_c};
   usz            lens[3]  = {sizeof(cc_a), sizeof(cc_b), sizeof(cc_c)};
-  tls_cert_entry e[QUIC_TLS_CERT_CHAIN_MAX];
+  tls_cert_entry e[TLS_CERT_CHAIN_MAX];
   wired_span     ctx;
   usz            n, count;
   n = cc_body(body, certs, lens, 1);
@@ -74,7 +74,7 @@ static void test_cert_chain_overflow(void) {
   const u8* certs[5] = {cc_a, cc_a, cc_a, cc_a, cc_a};
   usz       lens[5]  = {
       sizeof(cc_a), sizeof(cc_a), sizeof(cc_a), sizeof(cc_a), sizeof(cc_a)};
-  tls_cert_entry e[QUIC_TLS_CERT_CHAIN_MAX];
+  tls_cert_entry e[TLS_CERT_CHAIN_MAX];
   wired_span     ctx;
   usz            n = cc_body(body, certs, lens, 5), count;
   CHECK(
@@ -88,7 +88,7 @@ static void test_cert_chain_truncated(void) {
   u8             body[64];
   const u8*      certs[2] = {cc_a, cc_b};
   usz            lens[2]  = {sizeof(cc_a), sizeof(cc_b)};
-  tls_cert_entry e[QUIC_TLS_CERT_CHAIN_MAX];
+  tls_cert_entry e[TLS_CERT_CHAIN_MAX];
   wired_span     ctx;
   usz            n = cc_body(body, certs, lens, 2), count;
   /* entry 2's cert_len claims more bytes than the list holds

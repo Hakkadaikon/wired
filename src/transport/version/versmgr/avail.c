@@ -4,8 +4,8 @@
 
 void vers_init(vers_set* s) {
   s->n           = 2;
-  s->versions[0] = QUIC_VERSION_2; /* RFC 9368 5: preference order */
-  s->versions[1] = QUIC_VERSION_1;
+  s->versions[0] = VERSION_2; /* RFC 9368 5: preference order */
+  s->versions[1] = VERSION_1;
 }
 
 static int in_list(const u32* list, usz n, u32 v) {

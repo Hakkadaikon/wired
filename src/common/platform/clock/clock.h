@@ -1,10 +1,10 @@
-#ifndef QUIC_CLOCK_H
-#define QUIC_CLOCK_H
+#ifndef CLOCK_H
+#define CLOCK_H
 
 #include "common/platform/sys/syscall.h"
 
 /** CLOCK_REALTIME (linux clockid). */
-#define QUIC_CLOCK_REALTIME 0
+#define CLOCK_REALTIME 0
 
 /** A kernel timespec: seconds and nanoseconds since the UNIX epoch, the
  * struct clock_gettime(2) fills. */

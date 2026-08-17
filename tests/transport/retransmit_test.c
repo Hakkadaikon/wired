@@ -25,7 +25,7 @@ static void test_rtx_full_and_oversize(void) {
   rtx_queue q;
   rtx_init(&q);
   u8 byte = 0x42;
-  for (usz i = 0; i < QUIC_RTX_SLOTS; i++) CHECK(rtx_push(&q, &byte, 1) == 1);
+  for (usz i = 0; i < RTX_SLOTS; i++) CHECK(rtx_push(&q, &byte, 1) == 1);
   CHECK(rtx_push(&q, &byte, 1) == 0); /* full */
   /* pop into too-small buffer is refused without losing the frame */
   rtx_queue q2;

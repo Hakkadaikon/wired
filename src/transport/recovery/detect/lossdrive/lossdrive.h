@@ -1,5 +1,5 @@
-#ifndef QUIC_LOSSDRIVE_LOSSDRIVE_H
-#define QUIC_LOSSDRIVE_LOSSDRIVE_H
+#ifndef LOSSDRIVE_LOSSDRIVE_H
+#define LOSSDRIVE_LOSSDRIVE_H
 
 #include "transport/recovery/rtx/sentpkt/sentpkt.h"
 

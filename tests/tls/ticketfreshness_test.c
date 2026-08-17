@@ -2,7 +2,7 @@
 
 static ticket tf_sample_ticket(void) {
   ticket t;
-  for (usz i = 0; i < QUIC_TICKET_SECRET_LEN; i++) t.secret[i] = (u8)i;
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++) t.secret[i] = (u8)i;
   t.issued_at     = 1000000ULL;
   t.lifetime_secs = 7200;
   t.age_add       = 0xAAAAAAAAu;
@@ -52,7 +52,7 @@ static void test_tf_stale_age_rejected(void) {
 static void test_tf_window_boundary(void) {
   ticket t          = tf_sample_ticket();
   u32    obfuscated = 0 + t.age_add; /* claims 0s old */
-  u64    now_in     = t.issued_at + QUIC_TICKET_FRESHNESS_WINDOW_SECS;
+  u64    now_in     = t.issued_at + TICKET_FRESHNESS_WINDOW_SECS;
   u64    now_out    = now_in + 1;
   CHECK(ticket_freshness_ok(&t, obfuscated, now_in) == 1);
   CHECK(ticket_freshness_ok(&t, obfuscated, now_out) == 0);

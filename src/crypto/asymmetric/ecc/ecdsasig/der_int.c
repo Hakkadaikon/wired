@@ -34,7 +34,7 @@ int ecdsasig_encode_integer(const u8 val[32], u8* out, usz cap, usz* out_len) {
   usz        start = der_int_strip(val);
   usz        n     = der_int_content(val, start, buf);
   wired_obuf o     = obuf_of(out, cap);
-  if (!selfcert_der_tlv(QUIC_DER_INTEGER, wired_span_of(buf, n), &o)) return 0;
+  if (!selfcert_der_tlv(DER_INTEGER, wired_span_of(buf, n), &o)) return 0;
   *out_len = o.len;
   return 1;
 }

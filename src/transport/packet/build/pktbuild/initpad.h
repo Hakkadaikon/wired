@@ -1,5 +1,5 @@
-#ifndef QUIC_PKTBUILD_INITPAD_H
-#define QUIC_PKTBUILD_INITPAD_H
+#ifndef PKTBUILD_INITPAD_H
+#define PKTBUILD_INITPAD_H
 
 #include "common/platform/sys/syscall.h"
 

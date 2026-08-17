@@ -120,9 +120,9 @@ static void lb_make_client_finished(struct lb_fix* f) {
   hkdf_expand_label(hs, &chl, wired_mspan_of(c_traffic, 32));
   transcript_add(&tr, f->flight, f->flight_len);
   transcript_hash(&tr, th);
-  off = hs_begin(f->cli_fin, sizeof(f->cli_fin), QUIC_HS_FINISHED);
+  off = hs_begin(f->cli_fin, sizeof(f->cli_fin), HS_FINISHED);
   tls_finished_verify_data(c_traffic, th, f->cli_fin + off);
-  f->cli_fin_len = off + QUIC_TLS_VERIFY_DATA;
+  f->cli_fin_len = off + TLS_VERIFY_DATA;
   hs_finish(f->cli_fin, f->cli_fin_len);
 }
 
@@ -133,7 +133,7 @@ static usz lb_seal_handshake(
   const initial_keys* k;
   aes128              hp;
   wired_obuf          ob = {pkt, cap, 0};
-  CHECK(keysched_get(&f->s.sched, QUIC_KS_CLIENT_HS, &k) == 1);
+  CHECK(keysched_get(&f->s.sched, KS_CLIENT_HS, &k) == 1);
   aes128_init(&hp, k->hp);
   /* ack_pn 0: also acknowledge the server's Handshake PN 0, exercising the
    * server open path against a flight that carries a trailing ACK frame. */
@@ -156,7 +156,7 @@ static usz lb_seal_onertt(
   const initial_keys* k;
   aes128              hp;
   usz                 total = 0;
-  CHECK(keysched_get(&f->s.sched, QUIC_KS_CLIENT_AP, &k) == 1);
+  CHECK(keysched_get(&f->s.sched, KS_CLIENT_AP, &k) == 1);
   aes128_init(&hp, k->hp);
   protect_keys      pk = {k, &hp};
   hspkt_onertt_desc d  = {
@@ -173,7 +173,7 @@ static int lb_open_onertt(
     struct lb_fix* f, u8* pkt, usz len, const u8** pl, usz* pll) {
   const initial_keys* k;
   aes128              hp;
-  CHECK(keysched_get(&f->s.sched, QUIC_KS_SERVER_AP, &k) == 1);
+  CHECK(keysched_get(&f->s.sched, KS_SERVER_AP, &k) == 1);
   aes128_init(&hp, k->hp);
   protect_keys           pk = {k, &hp};
   hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
@@ -572,7 +572,7 @@ static void test_srvboot_vneg_responds_to_alien_version(void) {
   CHECK(p.scid[0] == 0x11 && p.scid[7] == 0x88);
   CHECK(p.count == 2);
   CHECK(vneg_lists(&p, 1));
-  CHECK(vneg_lists(&p, QUIC_VERSION_2));
+  CHECK(vneg_lists(&p, VERSION_2));
 }
 
 /* A QUIC v2 Initial (RFC 9369) is a version this server now speaks
@@ -1216,7 +1216,7 @@ static void sb_split_collect(struct sb_split_fix* f, int reverse, crecv* cr) {
   const initial_keys* shs;
   aes128              hp;
   usz                 offs[WIRED_SRVBOOT_FLIGHT_MAX], off = 0;
-  CHECK(keysched_get(&f->s.sched, QUIC_KS_SERVER_HS, &shs) == 1);
+  CHECK(keysched_get(&f->s.sched, KS_SERVER_HS, &shs) == 1);
   aes128_init(&hp, shs->hp);
   protect_keys pk = {shs, &hp};
   for (usz i = 0; i < f->out.dgram_count; i++) {
@@ -1245,7 +1245,7 @@ static void sb_split_check_finished(
   u8        th[32];
   crecv_message(cr, &fl, &fln);
   CHECK(fln > 0);
-  while (p + 4 <= fln && fl[p] != QUIC_HS_FINISHED) {
+  while (p + 4 <= fln && fl[p] != HS_FINISHED) {
     usz mlen = 4 + (((usz)fl[p + 1] << 16) | ((usz)fl[p + 2] << 8) | fl[p + 3]);
     CHECK(p + mlen <= fln);
     if (p + mlen > fln) return; /* garbled reassembly: already FAILed above */

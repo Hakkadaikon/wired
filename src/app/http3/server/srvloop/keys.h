@@ -11,8 +11,8 @@
  * key is derived, 0 otherwise (no key -> no seal/open).
  *
  *   level             seal (own)    open (peer)
- *   QUIC_LEVEL_HANDSHAKE  SERVER_HS     CLIENT_HS
- *   QUIC_LEVEL_ONERTT     SERVER_AP     CLIENT_AP
+ *   LEVEL_HANDSHAKE  SERVER_HS     CLIENT_HS
+ *   LEVEL_ONERTT     SERVER_AP     CLIENT_AP
  */
 
 /** The directional key material a seal/open needs: the AEAD keys and the

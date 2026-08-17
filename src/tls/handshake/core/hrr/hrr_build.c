@@ -12,7 +12,7 @@ const u8 hrr_random[32] = {0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11,
                            0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb, 0x8c, 0x5e,
                            0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c};
 
-#define QUIC_EXT_COOKIE 44
+#define EXT_COOKIE 44
 
 /* RFC 8446 4.1.3 prefix with empty session_id, suite AES_128_GCM_SHA256, and
  * the HRR random sentinel. Returns the offset past it. */
@@ -20,7 +20,7 @@ static usz hrr_prefix(u8* out, usz off) {
   be_put_be16(out + off, 0x0303);
   for (usz i = 0; i < 32; i++) out[off + 2 + i] = hrr_random[i];
   out[off + 34] = 0; /* empty session_id */
-  be_put_be16(out + off + 35, QUIC_TLS_AES128_GCM_SHA256);
+  be_put_be16(out + off + 35, TLS_AES128_GCM_SHA256);
   out[off + 37] = 0; /* compression */
   return off + 38;
 }
@@ -28,16 +28,16 @@ static usz hrr_prefix(u8* out, usz off) {
 /* RFC 8446 4.2.1 selected_version 0x0304. */
 static int hrr_versions(wired_obuf* out) {
   u8 ext[6];
-  be_put_be16(ext, QUIC_EXT_SUPPORTED_VERSIONS);
+  be_put_be16(ext, EXT_SUPPORTED_VERSIONS);
   be_put_be16(ext + 2, 2);
-  be_put_be16(ext + 4, QUIC_TLS13_VERSION);
+  be_put_be16(ext + 4, TLS13_VERSION);
   return tls_ext_append(out, wired_span_of(ext, 6));
 }
 
 /* RFC 8446 4.1.4 key_share carries the selected_group only (no key). */
 static int hrr_key_share(wired_obuf* out, u16 group) {
   u8 ext[6];
-  be_put_be16(ext, QUIC_EXT_KEY_SHARE);
+  be_put_be16(ext, EXT_KEY_SHARE);
   be_put_be16(ext + 2, 2);
   be_put_be16(ext + 4, group);
   return tls_ext_append(out, wired_span_of(ext, 6));
@@ -46,7 +46,7 @@ static int hrr_key_share(wired_obuf* out, u16 group) {
 /* RFC 8446 4.2.2 cookie header: type(2) ext_len(2) cookie_len(2). */
 static int hrr_cookie_hdr(wired_obuf* out, usz cl) {
   u8 hdr[6];
-  be_put_be16(hdr, QUIC_EXT_COOKIE);
+  be_put_be16(hdr, EXT_COOKIE);
   be_put_be16(hdr + 2, (u16)(cl + 2));
   be_put_be16(hdr + 4, (u16)cl);
   return bytes_put(
@@ -89,7 +89,7 @@ static int hrr_head_fits(usz off, usz cap) {
 }
 
 int hrr_build(u16 selected_group, wired_span cookie, wired_obuf* out) {
-  usz        off = hs_begin(out->p, out->cap, QUIC_HS_SERVER_HELLO);
+  usz        off = hs_begin(out->p, out->cap, HS_SERVER_HELLO);
   usz        block_start, end;
   wired_obuf w;
   if (!hrr_head_fits(off, out->cap)) return 0;
@@ -106,7 +106,7 @@ int hrr_build(u16 selected_group, wired_span cookie, wired_obuf* out) {
 /* RFC 8446 4.4.1: msg_type 254, same 4-byte handshake header framing
  * (hs_begin/hs_finish) as every other handshake message, body is
  * the raw hash bytes of ClientHello1. */
-#define QUIC_HS_MESSAGE_HASH 254
+#define HS_MESSAGE_HASH 254
 
 /* off (a hs_begin result) plus n more bytes still fits within cap. */
 static int hrr_mh_fits(usz off, usz n, usz cap) {
@@ -114,7 +114,7 @@ static int hrr_mh_fits(usz off, usz n, usz cap) {
 }
 
 usz hrr_message_hash(const u8* ch1_hash, usz ch1_hash_len, u8* out, usz cap) {
-  usz off = hs_begin(out, cap, QUIC_HS_MESSAGE_HASH);
+  usz off = hs_begin(out, cap, HS_MESSAGE_HASH);
   if (!hrr_mh_fits(off, ch1_hash_len, cap)) return 0;
   for (usz i = 0; i < ch1_hash_len; i++) out[off + i] = ch1_hash[i];
   hs_finish(out, off + ch1_hash_len);

@@ -107,7 +107,7 @@ below.
 - [~] F197-016 (§6.1) The implementation shall support at least one of the
   three key lengths (128, 192, or 256 bits).
   - evidence: 128-bit keys are supported
-    (`QUIC_AES_BLOCK`/`aes128_init` in
+    (`AES_BLOCK`/`aes128_init` in
     `src/crypto/symmetric/aead/aes/aes.c`); this satisfies the "at least
     one" requirement. 192- and 256-bit keys are not supported — see "Out of
     scope".
@@ -146,7 +146,7 @@ the coverage denominator:
 
 - (Abstract, §1, §5, Table 3, App. A.2, A.3) AES-192 and AES-256
   (Nk=6/Nk=8, Nr=12/14) — this SDK implements only AES-128
-  (`aes128`/`QUIC_AES_ROUNDS=10` in
+  (`aes128`/`AES_ROUNDS=10` in
   `src/crypto/symmetric/aead/aes/aes.h`). The TLS cipher-suite layer
   actively rejects `TLS_AES_256_GCM_SHA384`
   (`cipher_supported` in `src/tls/handshake/core/tls/cipher.c` returns

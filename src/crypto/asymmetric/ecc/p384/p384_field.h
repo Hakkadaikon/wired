@@ -1,5 +1,5 @@
-#ifndef QUIC_P384_FIELD_H
-#define QUIC_P384_FIELD_H
+#ifndef P384_FIELD_H
+#define P384_FIELD_H
 
 #include "common/platform/sys/syscall.h"
 

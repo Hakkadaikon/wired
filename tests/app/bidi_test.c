@@ -6,20 +6,20 @@ static void test_bidi_closed(void) {
   bidi_init(&b);
   CHECK(bidi_closed(&b) == 0); /* both fresh */
 
-  b.send = QUIC_SEND_DATA_RECVD; /* send terminal */
-  CHECK(bidi_closed(&b) == 0);   /* recv still open */
+  b.send = SEND_DATA_RECVD;    /* send terminal */
+  CHECK(bidi_closed(&b) == 0); /* recv still open */
 
-  b.recv = QUIC_RECV_DATA_READ; /* recv terminal too */
+  b.recv = RECV_DATA_READ; /* recv terminal too */
   CHECK(bidi_closed(&b) == 1);
 
   /* reset on either half is also terminal */
   bidi_init(&b);
-  b.send = QUIC_SEND_RESET_RECVD;
-  b.recv = QUIC_RECV_RESET_READ;
+  b.send = SEND_RESET_RECVD;
+  b.recv = RECV_RESET_READ;
   CHECK(bidi_closed(&b) == 1);
 
   /* a non-terminal send keeps it open */
-  b.send = QUIC_SEND_DATA_SENT;
+  b.send = SEND_DATA_SENT;
   CHECK(bidi_closed(&b) == 0);
 }
 

@@ -23,7 +23,7 @@ static usz hrr_ext_off(const u8* body, usz body_len) {
  * is a key_share carrying the selected_group, write the group to *group. */
 /* A key_share extension carrying at least the 2-byte selected_group. */
 static int hrr_is_key_share(const u8* e, usz el) {
-  return hrr_rd16(e) == QUIC_EXT_KEY_SHARE && el >= 2;
+  return hrr_rd16(e) == EXT_KEY_SHARE && el >= 2;
 }
 
 /* Scan progress: the selected_group once found, and whether it has been. */
@@ -66,7 +66,7 @@ static usz hrr_locate_exts(const u8* body, usz body_len, usz* total) {
 }
 
 static int hrr_is_server_hello(usz hdr, u8 type) {
-  return hdr != 0 && type == QUIC_HS_SERVER_HELLO;
+  return hdr != 0 && type == HS_SERVER_HELLO;
 }
 
 int hrr_selected_group(const u8* hrr_msg, usz len, u16* group) {

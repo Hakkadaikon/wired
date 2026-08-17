@@ -105,35 +105,35 @@ static void test_connect_established(void) {
 static void test_connect_state_forward(void) {
   h3_tunnel st;
   h3_tunnel_init(&st);
-  CHECK(st == QUIC_H3_TUNNEL_REQ);
+  CHECK(st == H3_TUNNEL_REQ);
 
   /* relay is refused before a 2xx response. */
   CHECK(h3_tunnel_relay(&st) == 0);
-  CHECK(st == QUIC_H3_TUNNEL_REQ);
+  CHECK(st == H3_TUNNEL_REQ);
 
   h3_tunnel_validated(&st);
-  CHECK(st == QUIC_H3_TUNNEL_VALIDATED);
+  CHECK(st == H3_TUNNEL_VALIDATED);
   CHECK(h3_tunnel_relay(&st) == 0); /* still no 2xx */
 
   /* >=3xx fails the tunnel; it never reaches established. */
   h3_tunnel st2 = st;
   CHECK(h3_tunnel_response(&st2, 502) == 0);
-  CHECK(st2 == QUIC_H3_TUNNEL_FAILED);
+  CHECK(st2 == H3_TUNNEL_FAILED);
   CHECK(h3_tunnel_relay(&st2) == 0);
 
   /* 2xx establishes the tunnel exactly once. */
   CHECK(h3_tunnel_response(&st, 200) == 1);
-  CHECK(st == QUIC_H3_TUNNEL_ESTABLISHED);
+  CHECK(st == H3_TUNNEL_ESTABLISHED);
   CHECK(h3_tunnel_response(&st, 200) == 0); /* not established twice */
-  CHECK(st == QUIC_H3_TUNNEL_ESTABLISHED);
+  CHECK(st == H3_TUNNEL_ESTABLISHED);
 
   CHECK(h3_tunnel_relay(&st) == 1); /* relay allowed now */
-  CHECK(st == QUIC_H3_TUNNEL_RELAY);
+  CHECK(st == H3_TUNNEL_RELAY);
 
   h3_tunnel_close(&st);
-  CHECK(st == QUIC_H3_TUNNEL_CLOSED);
-  CHECK(h3_tunnel_relay(&st) == 0);   /* no relay after close */
-  CHECK(st == QUIC_H3_TUNNEL_CLOSED); /* no return to RELAY */
+  CHECK(st == H3_TUNNEL_CLOSED);
+  CHECK(h3_tunnel_relay(&st) == 0); /* no relay after close */
+  CHECK(st == H3_TUNNEL_CLOSED);    /* no return to RELAY */
 }
 
 /* RFC 9220 3: build a request STREAM frame with a HEADERS field section
@@ -157,9 +157,7 @@ static usz build_connect_stream(
 
   u8         h3[160];
   wired_obuf h3b = obuf_of(h3, sizeof h3);
-  CHECK(
-      h3_frame_put(&h3b, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fsb.len)) >
-      0);
+  CHECK(h3_frame_put(&h3b, H3_FRAME_HEADERS, wired_span_of(fs, fsb.len)) > 0);
 
   stream_frame sf = {0, 0, h3b.len, h3, 1};
   usz          w  = frame_put_stream(out, cap, &sf);

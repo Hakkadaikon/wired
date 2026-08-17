@@ -1,5 +1,5 @@
-#ifndef QUIC_KUDRIVE_RECV_PHASE_H
-#define QUIC_KUDRIVE_RECV_PHASE_H
+#ifndef KUDRIVE_RECV_PHASE_H
+#define KUDRIVE_RECV_PHASE_H
 
 /* RFC 9001 6.2/6.3: when a received short-header packet's Key Phase bit differs
  * from the current generation's bit, the receiver tries the next generation's

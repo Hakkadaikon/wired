@@ -1,5 +1,5 @@
-#ifndef QUIC_X509_X509_H
-#define QUIC_X509_X509_H
+#ifndef X509_X509_H
+#define X509_X509_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

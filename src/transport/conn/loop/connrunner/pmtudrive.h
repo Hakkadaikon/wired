@@ -1,5 +1,5 @@
-#ifndef QUIC_CONNRUNNER_PMTUDRIVE_H
-#define QUIC_CONNRUNNER_PMTUDRIVE_H
+#ifndef CONNRUNNER_PMTUDRIVE_H
+#define CONNRUNNER_PMTUDRIVE_H
 
 #include "transport/conn/cid/pmtu/pmtu.h"
 #include "transport/conn/loop/connrunner/connrunner.h"

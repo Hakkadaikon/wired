@@ -1,5 +1,5 @@
-#ifndef QUIC_RSA_RSA_VERIFY_H
-#define QUIC_RSA_RSA_VERIFY_H
+#ifndef RSA_RSA_VERIFY_H
+#define RSA_RSA_VERIFY_H
 
 #include "common/bytes/span/span.h"
 

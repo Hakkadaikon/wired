@@ -1,5 +1,5 @@
-#ifndef QUIC_ACKGEN_ACKFREQ_H
-#define QUIC_ACKGEN_ACKFREQ_H
+#ifndef ACKGEN_ACKFREQ_H
+#define ACKGEN_ACKFREQ_H
 
 #include "common/platform/sys/syscall.h"
 

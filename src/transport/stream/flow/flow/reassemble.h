@@ -1,5 +1,5 @@
-#ifndef QUIC_FLOW_REASSEMBLE_H
-#define QUIC_FLOW_REASSEMBLE_H
+#ifndef FLOW_REASSEMBLE_H
+#define FLOW_REASSEMBLE_H
 
 #include "common/bytes/span/span.h"
 
@@ -7,13 +7,13 @@
  * The reassembler delivers only the contiguous prefix from offset 0;
  * data past a gap is buffered but not delivered until the gap fills. */
 
-#define QUIC_REASM_CAP 4096
+#define REASM_CAP 4096
 
 typedef struct {
-  u8  buf[QUIC_REASM_CAP];
-  u8  have[QUIC_REASM_CAP]; /* 1 if that byte offset has been received */
-  u64 delivered;            /* length of the contiguous prefix consumed */
-  u64 final_size;           /* set once FIN is known */
+  u8  buf[REASM_CAP];
+  u8  have[REASM_CAP]; /* 1 if that byte offset has been received */
+  u64 delivered;       /* length of the contiguous prefix consumed */
+  u64 final_size;      /* set once FIN is known */
   int have_final;
 } reasm;
 

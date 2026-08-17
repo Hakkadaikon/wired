@@ -36,8 +36,8 @@ static void test_connio_seal_open_roundtrip(void) {
   cl.loop.validated = 1;
   sv.loop.validated = 1;
   initial_keys k    = {0};
-  keyset_install(&cl.loop.keys, QUIC_LEVEL_INITIAL, &k);
-  keyset_install(&sv.loop.keys, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&cl.loop.keys, LEVEL_INITIAL, &k);
+  keyset_install(&sv.loop.keys, LEVEL_INITIAL, &k);
 
   u8           frames[64];
   stream_frame sf = {
@@ -50,10 +50,10 @@ static void test_connio_seal_open_roundtrip(void) {
   CHECK(fl != 0);
 
   u8  pkt[256];
-  usz pn = send_at(&cl, QUIC_LEVEL_INITIAL, frames, fl, pkt, sizeof(pkt));
+  usz pn = send_at(&cl, LEVEL_INITIAL, frames, fl, pkt, sizeof(pkt));
   CHECK(pn != 0);
 
-  CHECK(connio_recv(&sv, QUIC_LEVEL_INITIAL, wired_mspan_of(pkt, pn)) == 1);
+  CHECK(connio_recv(&sv, LEVEL_INITIAL, wired_mspan_of(pkt, pn)) == 1);
 
   /* the STREAM bytes reached the server's read buffer in order */
   u8         got[16];
@@ -74,8 +74,8 @@ static void test_connio_gated_without_key(void) {
   u8 frames[8] = {0x01}; /* a PING frame */
   u8 pkt[64];
   /* Handshake level has no key installed */
-  CHECK(send_at(&io, QUIC_LEVEL_HANDSHAKE, frames, 1, pkt, sizeof(pkt)) == 0);
-  CHECK(connio_recv(&io, QUIC_LEVEL_HANDSHAKE, wired_mspan_of(pkt, 32)) == 0);
+  CHECK(send_at(&io, LEVEL_HANDSHAKE, frames, 1, pkt, sizeof(pkt)) == 0);
+  CHECK(connio_recv(&io, LEVEL_HANDSHAKE, wired_mspan_of(pkt, 32)) == 0);
 }
 
 /* Install Initial + Handshake keys on io and lift its anti-amp gate so sends at
@@ -83,8 +83,8 @@ static void test_connio_gated_without_key(void) {
 static void arm_two_levels(connio* io) {
   initial_keys k     = {0};
   io->loop.validated = 1;
-  keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
-  keyset_install(&io->loop.keys, QUIC_LEVEL_HANDSHAKE, &k);
+  keyset_install(&io->loop.keys, LEVEL_INITIAL, &k);
+  keyset_install(&io->loop.keys, LEVEL_HANDSHAKE, &k);
 }
 
 /* RFC 9000 12.3: each packet number space numbers from 0 independently. A send
@@ -100,18 +100,18 @@ static void test_connio_per_space_pn(void) {
   u8 frames[8] = {0x01}; /* a PING frame */
   u8 pkt[256];
 
-  CHECK(connio_tx_next(&io, QUIC_LEVEL_INITIAL) == 0);
-  CHECK(connio_tx_next(&io, QUIC_LEVEL_HANDSHAKE) == 0);
+  CHECK(connio_tx_next(&io, LEVEL_INITIAL) == 0);
+  CHECK(connio_tx_next(&io, LEVEL_HANDSHAKE) == 0);
 
   /* first send in Initial: advances Initial only, Handshake untouched */
-  CHECK(send_at(&io, QUIC_LEVEL_INITIAL, frames, 1, pkt, sizeof(pkt)) != 0);
-  CHECK(connio_tx_next(&io, QUIC_LEVEL_INITIAL) == 1);
-  CHECK(connio_tx_next(&io, QUIC_LEVEL_HANDSHAKE) == 0);
+  CHECK(send_at(&io, LEVEL_INITIAL, frames, 1, pkt, sizeof(pkt)) != 0);
+  CHECK(connio_tx_next(&io, LEVEL_INITIAL) == 1);
+  CHECK(connio_tx_next(&io, LEVEL_HANDSHAKE) == 0);
 
   /* first send in Handshake: carries pn 0, advances Handshake only */
-  CHECK(send_at(&io, QUIC_LEVEL_HANDSHAKE, frames, 1, pkt, sizeof(pkt)) != 0);
-  CHECK(connio_tx_next(&io, QUIC_LEVEL_HANDSHAKE) == 1);
-  CHECK(connio_tx_next(&io, QUIC_LEVEL_INITIAL) == 1);
+  CHECK(send_at(&io, LEVEL_HANDSHAKE, frames, 1, pkt, sizeof(pkt)) != 0);
+  CHECK(connio_tx_next(&io, LEVEL_HANDSHAKE) == 1);
+  CHECK(connio_tx_next(&io, LEVEL_INITIAL) == 1);
 }
 
 /* RFC 9000 12.3: send packet numbers within a space increase strictly
@@ -124,10 +124,10 @@ static void test_connio_pn_monotone(void) {
 
   u8 frames[8] = {0x01};
   u8 pkt[256];
-  CHECK(send_at(&io, QUIC_LEVEL_INITIAL, frames, 1, pkt, 256) != 0);
-  CHECK(send_at(&io, QUIC_LEVEL_INITIAL, frames, 1, pkt, 256) != 0);
-  CHECK(send_at(&io, QUIC_LEVEL_INITIAL, frames, 1, pkt, 256) != 0);
-  CHECK(connio_tx_next(&io, QUIC_LEVEL_INITIAL) == 3);
+  CHECK(send_at(&io, LEVEL_INITIAL, frames, 1, pkt, 256) != 0);
+  CHECK(send_at(&io, LEVEL_INITIAL, frames, 1, pkt, 256) != 0);
+  CHECK(send_at(&io, LEVEL_INITIAL, frames, 1, pkt, 256) != 0);
+  CHECK(connio_tx_next(&io, LEVEL_INITIAL) == 3);
 }
 
 /* RFC 9000 13.2: a received packet number never lowers a space's largest, and
@@ -143,13 +143,13 @@ static void test_connio_recv_per_space(void) {
 
   u8  frames[8] = {0x01};
   u8  pkt[256];
-  usz n = send_at(&cl, QUIC_LEVEL_INITIAL, frames, 1, pkt, 256);
+  usz n = send_at(&cl, LEVEL_INITIAL, frames, 1, pkt, 256);
   CHECK(n != 0);
-  CHECK(connio_recv(&sv, QUIC_LEVEL_INITIAL, wired_mspan_of(pkt, n)) == 1);
+  CHECK(connio_recv(&sv, LEVEL_INITIAL, wired_mspan_of(pkt, n)) == 1);
 
   /* only the Initial space's expected number advanced */
-  CHECK(connio_rx_next(&sv, QUIC_LEVEL_INITIAL) == 1);
-  CHECK(connio_rx_next(&sv, QUIC_LEVEL_HANDSHAKE) == 0);
+  CHECK(connio_rx_next(&sv, LEVEL_INITIAL) == 1);
+  CHECK(connio_rx_next(&sv, LEVEL_HANDSHAKE) == 0);
 }
 
 /* Install a 1-RTT key and fast-forward the send-level gate to Handshake, so
@@ -157,10 +157,10 @@ static void test_connio_recv_per_space(void) {
 static void arm_onertt(connio* io) {
   initial_keys k     = {0};
   io->loop.validated = 1;
-  keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
-  keyset_install(&io->loop.keys, QUIC_LEVEL_HANDSHAKE, &k);
-  keyset_install(&io->loop.keys, QUIC_LEVEL_ONERTT, &k);
-  io->loop.send_level         = QUIC_LEVEL_HANDSHAKE;
+  keyset_install(&io->loop.keys, LEVEL_INITIAL, &k);
+  keyset_install(&io->loop.keys, LEVEL_HANDSHAKE, &k);
+  keyset_install(&io->loop.keys, LEVEL_ONERTT, &k);
+  io->loop.send_level         = LEVEL_HANDSHAKE;
   io->loop.handshake_complete = 1;
 }
 
@@ -181,12 +181,12 @@ static void test_connio_close_on_violation_handshake_done(void) {
   CHECK(fl != 0);
 
   u8  pkt[256];
-  usz pn = send_at(&cl, QUIC_LEVEL_ONERTT, frame, fl, pkt, sizeof(pkt));
+  usz pn = send_at(&cl, LEVEL_ONERTT, frame, fl, pkt, sizeof(pkt));
   CHECK(pn != 0);
 
   /* the server accepts the packet (frame is malformed-free) but the frame
    * itself is forbidden from a server's receive side */
-  CHECK(connio_recv(&sv, QUIC_LEVEL_ONERTT, wired_mspan_of(pkt, pn)) == 0);
+  CHECK(connio_recv(&sv, LEVEL_ONERTT, wired_mspan_of(pkt, pn)) == 0);
   CHECK(sv.disp.violation == 1);
 
   u8         close_pkt[256];
@@ -216,17 +216,15 @@ static void test_connio_close_on_violation_wire_content(void) {
   u8  frame[1] = {0};
   usz fl       = handshake_done_encode(frame, sizeof frame);
   u8  pkt[256];
-  usz pn = send_at(&cl, QUIC_LEVEL_ONERTT, frame, fl, pkt, sizeof(pkt));
-  CHECK(connio_recv(&sv, QUIC_LEVEL_ONERTT, wired_mspan_of(pkt, pn)) == 0);
+  usz pn = send_at(&cl, LEVEL_ONERTT, frame, fl, pkt, sizeof(pkt));
+  CHECK(connio_recv(&sv, LEVEL_ONERTT, wired_mspan_of(pkt, pn)) == 0);
 
   u8         close_pkt[256];
   wired_obuf ob = obuf_of(close_pkt, sizeof close_pkt);
   CHECK(connio_close_on_violation(&sv, &ob) != 0);
 
   /* server -> client direction now: client's connio opens the CLOSE packet */
-  CHECK(
-      connio_recv(&cl, QUIC_LEVEL_ONERTT, wired_mspan_of(close_pkt, ob.len)) ==
-      1);
+  CHECK(connio_recv(&cl, LEVEL_ONERTT, wired_mspan_of(close_pkt, ob.len)) == 1);
   CHECK(cl.disp.close == 1);
 }
 
@@ -244,12 +242,12 @@ static void test_connio_recv_failure_counts_auth_fail(void) {
 
   u8  frame[1] = {0x01}; /* PING */
   u8  pkt[256];
-  usz pn = send_at(&cl, QUIC_LEVEL_ONERTT, frame, 1, pkt, sizeof(pkt));
+  usz pn = send_at(&cl, LEVEL_ONERTT, frame, 1, pkt, sizeof(pkt));
   CHECK(pn != 0);
   pkt[pn - 1] ^= 0xff; /* tamper the AEAD tag's last byte */
 
   CHECK(sv.loop.auth_fail_count == 0);
-  CHECK(connio_recv(&sv, QUIC_LEVEL_ONERTT, wired_mspan_of(pkt, pn)) == 0);
+  CHECK(connio_recv(&sv, LEVEL_ONERTT, wired_mspan_of(pkt, pn)) == 0);
   CHECK(sv.loop.auth_fail_count == 1);
   CHECK(sv.loop.aead_limit == 0); /* nowhere near the 2^52 limit yet */
 }
@@ -267,12 +265,12 @@ static void test_connio_close_on_aead_limit_wire_content(void) {
   arm_onertt(&cl);
   arm_onertt(&sv);
 
-  sv.loop.auth_fail_count = QUIC_AEAD_INTEGRITY_LIMIT_AESGCM - 1;
+  sv.loop.auth_fail_count = AEAD_INTEGRITY_LIMIT_AESGCM - 1;
   u8  frame[1]            = {0x01};
   u8  pkt[256];
-  usz pn = send_at(&cl, QUIC_LEVEL_ONERTT, frame, 1, pkt, sizeof(pkt));
+  usz pn = send_at(&cl, LEVEL_ONERTT, frame, 1, pkt, sizeof(pkt));
   pkt[pn - 1] ^= 0xff;
-  CHECK(connio_recv(&sv, QUIC_LEVEL_ONERTT, wired_mspan_of(pkt, pn)) == 0);
+  CHECK(connio_recv(&sv, LEVEL_ONERTT, wired_mspan_of(pkt, pn)) == 0);
   CHECK(sv.loop.aead_limit == 1);
 
   u8         close_pkt[256];
@@ -281,9 +279,7 @@ static void test_connio_close_on_aead_limit_wire_content(void) {
   CHECK(sv.loop.aead_limit == 0); /* fires once */
 
   /* client opens the sealed CLOSE and decodes AEAD_LIMIT_REACHED */
-  CHECK(
-      connio_recv(&cl, QUIC_LEVEL_ONERTT, wired_mspan_of(close_pkt, ob.len)) ==
-      1);
+  CHECK(connio_recv(&cl, LEVEL_ONERTT, wired_mspan_of(close_pkt, ob.len)) == 1);
   CHECK(cl.disp.close == 1);
 
   /* nothing fires a second time */
@@ -299,11 +295,11 @@ static void test_connio_send_blocked_at_pn_exhaustion(void) {
   connio   io;
   mk_connio(&io, 0, 0xc3, dcid, 8, 1u << 20);
   arm_two_levels(&io);
-  io.tx.pn.next[QUIC_PNS_INITIAL] = QUIC_PN_LIMIT + 1; /* already exhausted */
+  io.tx.pn.next[PNS_INITIAL] = PN_LIMIT + 1; /* already exhausted */
 
   u8 frames[8] = {0x01}; /* a PING frame */
   u8 pkt[256];
-  CHECK(send_at(&io, QUIC_LEVEL_INITIAL, frames, 1, pkt, sizeof(pkt)) == 0);
+  CHECK(send_at(&io, LEVEL_INITIAL, frames, 1, pkt, sizeof(pkt)) == 0);
 }
 
 /* RFC 9000 3.5: a STOP_SENDING the server receives is answered with a
@@ -322,9 +318,9 @@ static void test_connio_stop_sending_auto_reset(void) {
   CHECK(fl != 0);
 
   u8  pkt[256];
-  usz pn = send_at(&cl, QUIC_LEVEL_ONERTT, frame, fl, pkt, sizeof(pkt));
+  usz pn = send_at(&cl, LEVEL_ONERTT, frame, fl, pkt, sizeof(pkt));
   CHECK(pn != 0);
-  CHECK(connio_recv(&sv, QUIC_LEVEL_ONERTT, wired_mspan_of(pkt, pn)) == 1);
+  CHECK(connio_recv(&sv, LEVEL_ONERTT, wired_mspan_of(pkt, pn)) == 1);
   CHECK(sv.disp.stop_sending_owed == 1);
 
   u8         reset_pkt[256];
@@ -339,7 +335,7 @@ static void test_connio_stop_sending_auto_reset(void) {
 
   /* decrypt on the client side and confirm the wire content: same stream ID
    * and error code as the STOP_SENDING that triggered it. */
-  CHECK(connio_recv(&cl, QUIC_LEVEL_ONERTT, wired_mspan_of(reset_pkt, n)) == 1);
+  CHECK(connio_recv(&cl, LEVEL_ONERTT, wired_mspan_of(reset_pkt, n)) == 1);
   CHECK(
       cl.disp.reset_stream_stream_id == 5 &&
       cl.disp.reset_stream_error_code == 0x77);

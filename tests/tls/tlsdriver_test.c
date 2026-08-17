@@ -116,15 +116,15 @@ static void test_tlsdriver_crypto_overflow_reports_error_code(void) {
   wired_x25519_base(pub, priv);
   tlsdriver_init(&d, priv, pub, 1);
 
-  u8 msg[QUIC_REASM_CAP + 8];
+  u8 msg[REASM_CAP + 8];
   for (usz i = 0; i < sizeof(msg); i++) msg[i] = 1;
-  u8                    frame[QUIC_REASM_CAP + 64];
+  u8                    frame[REASM_CAP + 64];
   wired_obuf            ob  = obuf_of(frame, sizeof(frame));
   crypto_stream_emit_in ein = {0, 512};
   CHECK(crypto_stream_emit(wired_span_of(msg, sizeof(msg)), &ein, &ob) == 1);
 
   CHECK(tlsdriver_recv_crypto(&d, frame, ob.len) == 0);
-  CHECK(tlsdriver_last_error(&d) == QUIC_EC_CRYPTO_BUFFER_EXCEEDED);
+  CHECK(tlsdriver_last_error(&d) == EC_CRYPTO_BUFFER_EXCEEDED);
 }
 
 void test_tlsdriver(void) {

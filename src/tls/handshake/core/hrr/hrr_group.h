@@ -1,5 +1,5 @@
-#ifndef QUIC_HRR_GROUP_H
-#define QUIC_HRR_GROUP_H
+#ifndef HRR_GROUP_H
+#define HRR_GROUP_H
 
 #include "common/platform/sys/syscall.h"
 

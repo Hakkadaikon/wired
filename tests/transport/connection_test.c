@@ -8,8 +8,8 @@
 /* Install the same 1-RTT keys on both ends so a sealed packet opens. */
 static void install_1rtt(connection* c, const u8 dcid[8]) {
   initial_keys k;
-  initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, &k);
-  keyset_install(&c->keys, QUIC_LEVEL_ONERTT, &k);
+  initial_derive(wired_span_of(dcid, 8), 1, VERSION_1, &k);
+  keyset_install(&c->keys, LEVEL_ONERTT, &k);
 }
 
 /* client <-> server exchange a 1-RTT frame through the connection API. */
@@ -35,11 +35,10 @@ static void test_connection_roundtrip(void) {
       .fin       = 1};
   usz fl = frame_put_stream(frames, sizeof(frames), &sf);
 
-  CHECK(
-      connection_send(&srv, QUIC_LEVEL_ONERTT, wired_span_of(frames, fl)) == 1);
+  CHECK(connection_send(&srv, LEVEL_ONERTT, wired_span_of(frames, fl)) == 1);
 
   framewalk it;
-  CHECK(connection_recv(&cli, QUIC_LEVEL_ONERTT, &it) == 1);
+  CHECK(connection_recv(&cli, LEVEL_ONERTT, &it) == 1);
 
   framewalk_item fr;
   CHECK(framewalk_next(&it, &fr) == 1);
@@ -60,10 +59,10 @@ static void test_connection_guards(void) {
   connection_init(&c, &in);
 
   u8 frames[1] = {0x01}; /* PING */
-  CHECK(connection_send(&c, QUIC_LEVEL_ONERTT, wired_span_of(frames, 1)) == 0);
+  CHECK(connection_send(&c, LEVEL_ONERTT, wired_span_of(frames, 1)) == 0);
 
   framewalk it;
-  CHECK(connection_recv(&c, QUIC_LEVEL_ONERTT, &it) == 0);
+  CHECK(connection_recv(&c, LEVEL_ONERTT, &it) == 0);
 }
 
 void test_connection(void) {

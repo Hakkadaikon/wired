@@ -127,13 +127,12 @@ static void test_recv_overflow_reports_error_code(void) {
   u64 ec   = 0;
   /* one byte at the last offset of the reassembly buffer: fits. */
   CHECK(
-      crypto_stream_recv_ec(
-          &rx, QUIC_REASM_CAP - 1, wired_span_of(&byte, 1), &ec) == 1);
+      crypto_stream_recv_ec(&rx, REASM_CAP - 1, wired_span_of(&byte, 1), &ec) ==
+      1);
   /* one byte past the buffer: overflow. */
   CHECK(
-      crypto_stream_recv_ec(
-          &rx, QUIC_REASM_CAP, wired_span_of(&byte, 1), &ec) == 0);
-  CHECK(ec == QUIC_EC_CRYPTO_BUFFER_EXCEEDED);
+      crypto_stream_recv_ec(&rx, REASM_CAP, wired_span_of(&byte, 1), &ec) == 0);
+  CHECK(ec == EC_CRYPTO_BUFFER_EXCEEDED);
 }
 
 void test_crypto_stream(void) {

@@ -1,5 +1,5 @@
-#ifndef QUIC_CC_PERSISTENT_H
-#define QUIC_CC_PERSISTENT_H
+#ifndef CC_PERSISTENT_H
+#define CC_PERSISTENT_H
 
 #include "common/platform/sys/syscall.h"
 

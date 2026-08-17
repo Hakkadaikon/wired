@@ -9,16 +9,16 @@ static int xdpmac_hit(const xdpmac* c, u32 i, u32 ip_be) {
 
 /* Index of the entry for ip_be, or -1. */
 static i32 xdpmac_find(const xdpmac* c, u32 ip_be) {
-  for (u32 i = 0; i < QUIC_XDPMAC_CAP; i++)
+  for (u32 i = 0; i < XDPMAC_CAP; i++)
     if (xdpmac_hit(c, i, ip_be)) return (i32)i;
   return -1;
 }
 
 /* First free slot; with none free, the next round-robin victim. */
 static u32 xdpmac_victim(xdpmac* c) {
-  for (u32 i = 0; i < QUIC_XDPMAC_CAP; i++)
+  for (u32 i = 0; i < XDPMAC_CAP; i++)
     if (!c->used[i]) return i;
-  return c->clock++ % QUIC_XDPMAC_CAP;
+  return c->clock++ % XDPMAC_CAP;
 }
 
 void xdpmac_init(xdpmac* c) { bytes_memset(c, 0, sizeof *c); }

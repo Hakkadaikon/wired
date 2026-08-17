@@ -69,13 +69,13 @@ static int ct_equal(const u8* a, const u8* b, usz len) {
 
 /* e = 65537 (RFC 8017 common public exponent). */
 static void rsa_e_f4(bn* e) {
-  for (usz i = 0; i < QUIC_BN_LIMBS; i++) e->v[i] = 0;
+  for (usz i = 0; i < BN_LIMBS; i++) e->v[i] = 0;
   e->v[0] = 65537;
 }
 
 /* Modulus length outside the supportable PKCS#1 v1.5 range for this hash. */
 static int n_len_bad(usz n_len, usz hash_len) {
-  if (n_len > (usz)QUIC_BN_LIMBS * 8) return 1;
+  if (n_len > (usz)BN_LIMBS * 8) return 1;
   return n_len < 11 + RSA_DI_LEN + hash_len;
 }
 
@@ -105,7 +105,7 @@ static int rsa_check(const rsav_sn* c, wired_span h) {
   bn bn_e, m;
   rsa_e_f4(&bn_e);
   bn_modexp(&m, &c->bn_s, (bn_expmod){&bn_e, &c->bn_n});
-  u8 got[QUIC_BN_LIMBS * 8], want[QUIC_BN_LIMBS * 8];
+  u8 got[BN_LIMBS * 8], want[BN_LIMBS * 8];
   bn_to_be(&m, got, c->n_len);
   if (!emsa_pkcs1(want, c->n_len, h)) return 0;
   return ct_equal(got, want, c->n_len);

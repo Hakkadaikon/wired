@@ -1,7 +1,7 @@
-#ifndef QUIC_GREASE_BITSET_H
-#define QUIC_GREASE_BITSET_H
+#ifndef GREASE_BITSET_H
+#define GREASE_BITSET_H
 
-#include "tls/ext/grease/grease.h" /* u8, QUIC_BIT_MASK */
+#include "tls/ext/grease/grease.h" /* u8, BIT_MASK */
 
 /* RFC 9287 3: when the peer advertised grease_quic_bit, an endpoint may set
  * the QUIC Bit (0x40) of sent packets to a random value. */

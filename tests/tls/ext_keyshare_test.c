@@ -5,7 +5,7 @@
 static void test_ext_key_share_wire_x25519(void) {
   u8 pub[32], buf[96];
   for (usz i = 0; i < 32; i++) pub[i] = (u8)(i + 1);
-  usz w = tls_ext_key_share(buf, sizeof(buf), QUIC_GROUP_X25519, pub, 32);
+  usz w = tls_ext_key_share(buf, sizeof(buf), GROUP_X25519, pub, 32);
   CHECK(w == 42);
   /* RFC 8446 4.2.8 header bytes */
   CHECK(buf[0] == 0x00 && buf[1] == 0x33); /* type */
@@ -21,7 +21,7 @@ static void test_ext_key_share_wire_x25519(void) {
 static void test_ext_key_share_wire_secp256r1(void) {
   u8 pub[65], buf[96];
   for (usz i = 0; i < 65; i++) pub[i] = (u8)(i + 1);
-  usz w = tls_ext_key_share(buf, sizeof(buf), QUIC_GROUP_SECP256R1, pub, 65);
+  usz w = tls_ext_key_share(buf, sizeof(buf), GROUP_SECP256R1, pub, 65);
   CHECK(w == 75); /* 4 (type+ext_len) + 2 (shares_len) + 4 (entry hdr) + 65 */
   CHECK(buf[0] == 0x00 && buf[1] == 0x33);
   CHECK(buf[2] == 0x00 && buf[3] == 71);   /* ext_len = 2 + 4 + 65 */
@@ -33,7 +33,7 @@ static void test_ext_key_share_wire_secp256r1(void) {
 
 static void test_ext_key_share_cap_guard(void) {
   u8 pub[32] = {0}, buf[41];
-  CHECK(tls_ext_key_share(buf, sizeof(buf), QUIC_GROUP_X25519, pub, 32) == 0);
+  CHECK(tls_ext_key_share(buf, sizeof(buf), GROUP_X25519, pub, 32) == 0);
 }
 
 /* --- parse: single KeyShareEntry (ServerHello) --------------------------- */
@@ -43,10 +43,10 @@ static void test_ext_key_share_parse_x25519(void) {
   u16 group = 0;
   usz got_len;
   for (usz i = 0; i < 32; i++) pub[i] = (u8)(0xA0 + i);
-  tls_ext_key_share(buf, sizeof(buf), QUIC_GROUP_X25519, pub, 32);
+  tls_ext_key_share(buf, sizeof(buf), GROUP_X25519, pub, 32);
   /* parse the KeyShareEntry that begins at buf+6 (group/ke_len/key) */
   CHECK(tls_ext_key_share_parse(buf + 6, 36, &group, got, &got_len, 32) == 1);
-  CHECK(group == QUIC_GROUP_X25519 && got_len == 32);
+  CHECK(group == GROUP_X25519 && got_len == 32);
   for (usz i = 0; i < 32; i++) CHECK(got[i] == pub[i]);
 }
 
@@ -55,9 +55,9 @@ static void test_ext_key_share_parse_secp256r1(void) {
   u16 group = 0;
   usz got_len;
   for (usz i = 0; i < 65; i++) pub[i] = (u8)(0x30 + i);
-  tls_ext_key_share(buf, sizeof(buf), QUIC_GROUP_SECP256R1, pub, 65);
+  tls_ext_key_share(buf, sizeof(buf), GROUP_SECP256R1, pub, 65);
   CHECK(tls_ext_key_share_parse(buf + 6, 69, &group, got, &got_len, 65) == 1);
-  CHECK(group == QUIC_GROUP_SECP256R1 && got_len == 65);
+  CHECK(group == GROUP_SECP256R1 && got_len == 65);
   for (usz i = 0; i < 65; i++) CHECK(got[i] == pub[i]);
 }
 
@@ -116,7 +116,7 @@ static void test_ext_key_share_scan_not_first(void) {
   for (usz i = 0; i < 32; i++) b[42 + i] = (u8)(0x50 + i);
   CHECK(
       tls_ext_key_share_scan(
-          b, sizeof(b), QUIC_GROUP_X25519, got, &got_len, sizeof(got)) == 1);
+          b, sizeof(b), GROUP_X25519, got, &got_len, sizeof(got)) == 1);
   CHECK(got_len == 32);
   for (usz i = 0; i < 32; i++) CHECK(got[i] == (u8)(0x50 + i));
 }
@@ -134,7 +134,7 @@ static void test_ext_key_share_scan_first(void) {
   for (usz i = 0; i < 32; i++) b[6 + i] = (u8)(0x70 + i);
   CHECK(
       tls_ext_key_share_scan(
-          b, sizeof(b), QUIC_GROUP_X25519, got, &got_len, sizeof(got)) == 1);
+          b, sizeof(b), GROUP_X25519, got, &got_len, sizeof(got)) == 1);
   CHECK(got_len == 32);
   for (usz i = 0; i < 32; i++) CHECK(got[i] == (u8)(0x70 + i));
 }
@@ -158,12 +158,12 @@ static void test_ext_key_share_scan_both_offered(void) {
   for (usz i = 0; i < 65; i++) b[42 + i] = (u8)(0x22 + i);
   CHECK(
       tls_ext_key_share_scan(
-          b, sizeof(b), QUIC_GROUP_SECP256R1, got, &got_len, sizeof(got)) == 1);
+          b, sizeof(b), GROUP_SECP256R1, got, &got_len, sizeof(got)) == 1);
   CHECK(got_len == 65);
   for (usz i = 0; i < 65; i++) CHECK(got[i] == (u8)(0x22 + i));
   CHECK(
       tls_ext_key_share_scan(
-          b, sizeof(b), QUIC_GROUP_X25519, got, &got_len, sizeof(got)) == 1);
+          b, sizeof(b), GROUP_X25519, got, &got_len, sizeof(got)) == 1);
   CHECK(got_len == 32);
   for (usz i = 0; i < 32; i++) CHECK(got[i] == (u8)(0x11 + i));
 }
@@ -181,7 +181,7 @@ static void test_ext_key_share_scan_absent(void) {
   for (usz i = 0; i < 32; i++) b[6 + i] = 0xEE;
   CHECK(
       tls_ext_key_share_scan(
-          b, sizeof(b), QUIC_GROUP_X25519, got, &got_len, sizeof(got)) == 0);
+          b, sizeof(b), GROUP_X25519, got, &got_len, sizeof(got)) == 0);
 }
 
 /* A truncated key_exchange length must fail, not read past n. */
@@ -197,7 +197,7 @@ static void test_ext_key_share_scan_oob(void) {
   b[5] = 32;
   CHECK(
       tls_ext_key_share_scan(
-          b, sizeof(b), QUIC_GROUP_X25519, got, &got_len, sizeof(got)) == 0);
+          b, sizeof(b), GROUP_X25519, got, &got_len, sizeof(got)) == 0);
 }
 
 void test_ext_keyshare(void) {

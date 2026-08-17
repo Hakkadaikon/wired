@@ -43,33 +43,33 @@ static void test_moqdata_classify_golden(void) {
   check_classify(
       wired_span_of(
           g_moqt_data_stream_type_control, G_MOQT_DATA_STREAM_TYPE_CONTROL_LEN),
-      QUIC_MOQDATA_STREAM_CONTROL, 2);
+      MOQDATA_STREAM_CONTROL, 2);
   check_classify(
       wired_span_of(
           g_moqt_data_stream_type_fetch, G_MOQT_DATA_STREAM_TYPE_FETCH_LEN),
-      QUIC_MOQDATA_STREAM_FETCH, 1);
+      MOQDATA_STREAM_FETCH, 1);
   check_classify(
       wired_span_of(
           g_moqt_data_stream_type_subgroup,
           G_MOQT_DATA_STREAM_TYPE_SUBGROUP_LEN),
-      QUIC_MOQDATA_STREAM_SUBGROUP, 1);
+      MOQDATA_STREAM_SUBGROUP, 1);
   check_classify(
       wired_span_of(
           g_moqt_data_stream_type_padding, G_MOQT_DATA_STREAM_TYPE_PADDING_LEN),
-      QUIC_MOQDATA_STREAM_PADDING, 5);
+      MOQDATA_STREAM_PADDING, 5);
   check_classify(
       wired_span_of(
           g_moqt_data_stream_type_unknown, G_MOQT_DATA_STREAM_TYPE_UNKNOWN_LEN),
-      QUIC_MOQDATA_STREAM_UNKNOWN, 1);
+      MOQDATA_STREAM_UNKNOWN, 1);
 }
 
 /* TEST: classification with a truncated type varint -> insufficient. */
 static void test_moqdata_classify_truncated(void) {
-  check_classify(wired_span_of(0, 0), QUIC_MOQDATA_STREAM_INSUFFICIENT, 0);
+  check_classify(wired_span_of(0, 0), MOQDATA_STREAM_INSUFFICIENT, 0);
   /* first 2 bytes of the 5-byte padding type varint */
   check_classify(
       wired_span_of(g_moqt_data_stream_type_padding, 2),
-      QUIC_MOQDATA_STREAM_INSUFFICIENT, 0);
+      MOQDATA_STREAM_INSUFFICIENT, 0);
 }
 
 /* TEST: Type accept/reject, the 8 golden values (11.4.2). */
@@ -121,7 +121,7 @@ static void test_moqdata_subhdr_take_basic(void) {
       g_moqt_data_subgroup_stream_basic, G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN);
   moqdata_subhdr h;
   usz            off = 0;
-  CHECK(moqdata_subhdr_take(in, &off, &h) == QUIC_MOQDATA_OK);
+  CHECK(moqdata_subhdr_take(in, &off, &h) == MOQDATA_OK);
   CHECK(off == 3);
   CHECK(h.type == 0x70);
   CHECK(h.track_alias == 1);
@@ -140,7 +140,7 @@ static void test_moqdata_subhdr_take_status_eog(void) {
       G_MOQT_DATA_SUBGROUP_STREAM_STATUS_EOG_LEN);
   moqdata_subhdr h;
   usz            off = 0;
-  CHECK(moqdata_subhdr_take(in, &off, &h) == QUIC_MOQDATA_OK);
+  CHECK(moqdata_subhdr_take(in, &off, &h) == MOQDATA_OK);
   CHECK(off == 4);
   CHECK(h.type == 0x18);
   CHECK(h.track_alias == 1);
@@ -157,7 +157,7 @@ static void test_moqdata_subhdr_take_mode2(void) {
   usz             off = 0;
   CHECK(
       moqdata_subhdr_take(wired_span_of(in, sizeof in), &off, &h) ==
-      QUIC_MOQDATA_OK);
+      MOQDATA_OK);
   CHECK(off == 5);
   CHECK(h.subgroup_id == 7);
   CHECK(!h.subgroup_id_pending);
@@ -171,7 +171,7 @@ static void test_moqdata_subhdr_take_mode1_resolve(void) {
   usz             off = 0;
   CHECK(
       moqdata_subhdr_take(wired_span_of(in, sizeof in), &off, &h) ==
-      QUIC_MOQDATA_OK);
+      MOQDATA_OK);
   CHECK(off == 4);
   CHECK(h.subgroup_id_pending);
   moqdata_subhdr_resolve(&h, 5);
@@ -190,10 +190,10 @@ static void test_moqdata_subhdr_take_bad_type(void) {
   usz             off = 0;
   CHECK(
       moqdata_subhdr_take(wired_span_of(mode3, sizeof mode3), &off, &h) ==
-      QUIC_MOQDATA_VIOLATION);
+      MOQDATA_VIOLATION);
   CHECK(
       moqdata_subhdr_take(wired_span_of(nobit4, sizeof nobit4), &off, &h) ==
-      QUIC_MOQDATA_VIOLATION);
+      MOQDATA_VIOLATION);
   CHECK(off == 0);
 }
 
@@ -205,7 +205,7 @@ static void test_moqdata_subhdr_take_truncated(void) {
     CHECK(
         moqdata_subhdr_take(
             wired_span_of(g_moqt_data_subgroup_stream_basic, n), &off, &h) ==
-        QUIC_MOQDATA_INSUFFICIENT);
+        MOQDATA_INSUFFICIENT);
     CHECK(off == 0);
   }
   for (usz n = 0; n < 4; n++) {
@@ -213,7 +213,7 @@ static void test_moqdata_subhdr_take_truncated(void) {
     CHECK(
         moqdata_subhdr_take(
             wired_span_of(g_moqt_data_subgroup_stream_status_eog, n), &off,
-            &h) == QUIC_MOQDATA_INSUFFICIENT);
+            &h) == MOQDATA_INSUFFICIENT);
     CHECK(off == 0);
   }
 }
@@ -231,12 +231,12 @@ static void test_moqdata_subhdr_put_golden(void) {
   eog.priority         = 128;
   CHECK(
       moqdata_subhdr_put(wired_mspan_of(out, sizeof out), &off, &basic) ==
-      QUIC_MOQDATA_OK);
+      MOQDATA_OK);
   CHECK(span_eq(wired_span_of(out, off), g_moqt_data_subgroup_stream_basic, 3));
   off = 0;
   CHECK(
       moqdata_subhdr_put(wired_mspan_of(out, sizeof out), &off, &eog) ==
-      QUIC_MOQDATA_OK);
+      MOQDATA_OK);
   CHECK(span_eq(
       wired_span_of(out, off), g_moqt_data_subgroup_stream_status_eog, 4));
 }
@@ -249,11 +249,11 @@ static void test_moqdata_subhdr_put_errors(void) {
   h.type             = 0x16; /* mode 0b11: reserved */
   CHECK(
       moqdata_subhdr_put(wired_mspan_of(out, sizeof out), &off, &h) ==
-      QUIC_MOQDATA_VIOLATION);
+      MOQDATA_VIOLATION);
   h.type = 0x18; /* needs 4 bytes, give 3 */
   CHECK(
       moqdata_subhdr_put(wired_mspan_of(out, 3), &off, &h) ==
-      QUIC_MOQDATA_INSUFFICIENT);
+      MOQDATA_INSUFFICIENT);
   CHECK(off == 0);
 }
 
@@ -265,9 +265,9 @@ static void test_moqdata_obj_take_basic_stream(void) {
   moqdata_subhdr h;
   moqdata_obj    o;
   usz            off = 0;
-  CHECK(moqdata_subhdr_take(in, &off, &h) == QUIC_MOQDATA_OK);
+  CHECK(moqdata_subhdr_take(in, &off, &h) == MOQDATA_OK);
   moqdata_objseq seq = moqdata_objseq_of(h.type);
-  CHECK(moqdata_obj_take(in, &off, &seq, &o) == QUIC_MOQDATA_OK);
+  CHECK(moqdata_obj_take(in, &off, &seq, &o) == MOQDATA_OK);
   CHECK(off == in.n);
   CHECK(o.object_id == 0);
   CHECK(o.status == 0);
@@ -283,12 +283,12 @@ static void test_moqdata_obj_take_status_eog_stream(void) {
   moqdata_subhdr h;
   moqdata_obj    o;
   usz            off = 0;
-  CHECK(moqdata_subhdr_take(in, &off, &h) == QUIC_MOQDATA_OK);
+  CHECK(moqdata_subhdr_take(in, &off, &h) == MOQDATA_OK);
   moqdata_objseq seq = moqdata_objseq_of(h.type);
-  CHECK(moqdata_obj_take(in, &off, &seq, &o) == QUIC_MOQDATA_OK);
+  CHECK(moqdata_obj_take(in, &off, &seq, &o) == MOQDATA_OK);
   CHECK(o.object_id == 0);
   CHECK(span_eq(o.payload, (const u8*)"hi", 2));
-  CHECK(moqdata_obj_take(in, &off, &seq, &o) == QUIC_MOQDATA_OK);
+  CHECK(moqdata_obj_take(in, &off, &seq, &o) == MOQDATA_OK);
   CHECK(off == in.n);
   CHECK(o.object_id == 1);
   CHECK(o.status == 0x3);
@@ -302,9 +302,9 @@ static void test_moqdata_obj_take_delta_chain(void) {
   moqdata_obj     o;
   usz             off = 0;
   wired_span      s   = wired_span_of(in, sizeof in);
-  CHECK(moqdata_obj_take(s, &off, &seq, &o) == QUIC_MOQDATA_OK);
+  CHECK(moqdata_obj_take(s, &off, &seq, &o) == MOQDATA_OK);
   CHECK(o.object_id == 5);
-  CHECK(moqdata_obj_take(s, &off, &seq, &o) == QUIC_MOQDATA_OK);
+  CHECK(moqdata_obj_take(s, &off, &seq, &o) == MOQDATA_OK);
   CHECK(o.object_id == 8);
   CHECK(off == sizeof in);
 }
@@ -320,10 +320,10 @@ static void test_moqdata_obj_take_id_overflow(void) {
   usz             off = 0;
   seq.have_prev       = 1;
   seq.prev_id         = (u64)-1 - 1; /* 2^64-2: +0+1 lands exactly on max */
-  CHECK(moqdata_obj_take(s, &off, &seq, &o) == QUIC_MOQDATA_OK);
+  CHECK(moqdata_obj_take(s, &off, &seq, &o) == MOQDATA_OK);
   CHECK(o.object_id == (u64)-1);
   off = 0;
-  CHECK(moqdata_obj_take(s, &off, &seq, &o) == QUIC_MOQDATA_VIOLATION);
+  CHECK(moqdata_obj_take(s, &off, &seq, &o) == MOQDATA_VIOLATION);
   CHECK(off == 0);
   /* first object: delta alone may be 2^64-1 (no +1 applied) */
   static const u8 max[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -332,7 +332,7 @@ static void test_moqdata_obj_take_id_overflow(void) {
   off                   = 0;
   CHECK(
       moqdata_obj_take(wired_span_of(max, sizeof max), &off, &fresh, &o) ==
-      QUIC_MOQDATA_OK);
+      MOQDATA_OK);
   CHECK(o.object_id == (u64)-1);
 }
 
@@ -348,26 +348,23 @@ static void test_moqdata_obj_take_status_values(void) {
   seq = moqdata_objseq_of(0x10);
   off = 0;
   CHECK(
-      moqdata_obj_take(wired_span_of(normal, 3), &off, &seq, &o) ==
-      QUIC_MOQDATA_OK);
+      moqdata_obj_take(wired_span_of(normal, 3), &off, &seq, &o) == MOQDATA_OK);
   CHECK(o.status == 0x0);
   seq = moqdata_objseq_of(0x10);
   off = 0;
-  CHECK(
-      moqdata_obj_take(wired_span_of(eot, 3), &off, &seq, &o) ==
-      QUIC_MOQDATA_OK);
+  CHECK(moqdata_obj_take(wired_span_of(eot, 3), &off, &seq, &o) == MOQDATA_OK);
   CHECK(o.status == 0x4);
   seq = moqdata_objseq_of(0x10);
   off = 0;
   CHECK(
       moqdata_obj_take(wired_span_of(bad1, 3), &off, &seq, &o) ==
-      QUIC_MOQDATA_VIOLATION);
+      MOQDATA_VIOLATION);
   CHECK(off == 0);
   seq = moqdata_objseq_of(0x10);
   off = 0;
   CHECK(
       moqdata_obj_take(wired_span_of(bad5, 3), &off, &seq, &o) ==
-      QUIC_MOQDATA_VIOLATION);
+      MOQDATA_VIOLATION);
 }
 
 /* TEST: PROPERTIES bit set: Properties Length is read and skipped; a
@@ -389,7 +386,7 @@ static void test_moqdata_obj_take_properties(void) {
   CHECK(
       moqdata_obj_take(
           wired_span_of(props_ok, sizeof props_ok), &off, &seq, &o) ==
-      QUIC_MOQDATA_OK);
+      MOQDATA_OK);
   CHECK(off == sizeof props_ok);
   CHECK(span_eq(o.payload, (const u8*)"X", 1));
   seq = moqdata_objseq_of(0x11);
@@ -397,13 +394,13 @@ static void test_moqdata_obj_take_properties(void) {
   CHECK(
       moqdata_obj_take(
           wired_span_of(props_eog, sizeof props_eog), &off, &seq, &o) ==
-      QUIC_MOQDATA_VIOLATION);
+      MOQDATA_VIOLATION);
   seq = moqdata_objseq_of(0x11);
   off = 0;
   CHECK(
       moqdata_obj_take(
           wired_span_of(empty_eog, sizeof empty_eog), &off, &seq, &o) ==
-      QUIC_MOQDATA_OK);
+      MOQDATA_OK);
   CHECK(o.status == 0x3);
 }
 
@@ -417,7 +414,7 @@ static void test_moqdata_obj_take_truncated(void) {
     CHECK(
         moqdata_obj_take(
             wired_span_of(g_moqt_data_subgroup_stream_basic, n), &off, &seq,
-            &o) == QUIC_MOQDATA_INSUFFICIENT);
+            &o) == MOQDATA_INSUFFICIENT);
     CHECK(off == 3);
     CHECK(!seq.have_prev);
   }
@@ -428,7 +425,7 @@ static void test_moqdata_obj_take_truncated(void) {
   CHECK(
       moqdata_obj_take(
           wired_span_of(nostatus, sizeof nostatus), &off, &seq, &o) ==
-      QUIC_MOQDATA_INSUFFICIENT);
+      MOQDATA_INSUFFICIENT);
   /* PROPERTIES bit set but the length varint is missing */
   static const u8 onlydelta[] = {0x00};
   moqdata_objseq  pseq        = moqdata_objseq_of(0x11);
@@ -436,7 +433,7 @@ static void test_moqdata_obj_take_truncated(void) {
   CHECK(
       moqdata_obj_take(
           wired_span_of(onlydelta, sizeof onlydelta), &off, &pseq, &o) ==
-      QUIC_MOQDATA_INSUFFICIENT);
+      MOQDATA_INSUFFICIENT);
 }
 
 /* TEST: Object put: payload form, explicit-Normal empty form, status
@@ -450,54 +447,54 @@ static void test_moqdata_obj_put(void) {
   CHECK(
       moqdata_obj_put(
           wired_mspan_of(out, sizeof out), &off, 0,
-          wired_span_of((const u8*)"hi", 2)) == QUIC_MOQDATA_OK);
+          wired_span_of((const u8*)"hi", 2)) == MOQDATA_OK);
   CHECK(span_eq(wired_span_of(out, off), want_pay, sizeof want_pay));
   off = 0;
   CHECK(
       moqdata_obj_put(
           wired_mspan_of(out, sizeof out), &off, 0, wired_span_of(0, 0)) ==
-      QUIC_MOQDATA_OK);
+      MOQDATA_OK);
   CHECK(span_eq(wired_span_of(out, off), want_empty, sizeof want_empty));
   off = 0;
   CHECK(
       moqdata_obj_put_status(wired_mspan_of(out, sizeof out), &off, 0, 0x3) ==
-      QUIC_MOQDATA_OK);
+      MOQDATA_OK);
   CHECK(span_eq(wired_span_of(out, off), want_status, sizeof want_status));
   off = 0;
   CHECK(
       moqdata_obj_put(
           wired_mspan_of(out, 3), &off, 0, wired_span_of((const u8*)"hi", 2)) ==
-      QUIC_MOQDATA_INSUFFICIENT);
+      MOQDATA_INSUFFICIENT);
   CHECK(off == 0);
 }
 
 /* TEST: the one-message builder reproduces the basic golden stream. */
 static void test_moqdata_msg_build_golden(void) {
-  u8          out[QUIC_MOQDATA_MSG_OVERHEAD + 2];
+  u8          out[MOQDATA_MSG_OVERHEAD + 2];
   usz         off = 0;
   moqdata_msg m   = {1, 0, {(const u8*)"hi", 2}};
   CHECK(
       moqdata_msg_build(wired_mspan_of(out, sizeof out), &off, &m) ==
-      QUIC_MOQDATA_OK);
+      MOQDATA_OK);
   CHECK(span_eq(
       wired_span_of(out, off), g_moqt_data_subgroup_stream_basic,
       G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN));
 }
 
-/* TEST: worst-case varints fit in QUIC_MOQDATA_MSG_OVERHEAD; a too-small
+/* TEST: worst-case varints fit in MOQDATA_MSG_OVERHEAD; a too-small
  * buffer -> insufficient without advancing. */
 static void test_moqdata_msg_build_bounds(void) {
-  u8          out[QUIC_MOQDATA_MSG_OVERHEAD];
+  u8          out[MOQDATA_MSG_OVERHEAD];
   usz         off = 0;
   moqdata_msg m   = {(u64)-1, (u64)-1, {0, 0}};
   CHECK(
       moqdata_msg_build(wired_mspan_of(out, sizeof out), &off, &m) ==
-      QUIC_MOQDATA_OK);
+      MOQDATA_OK);
   off            = 0;
   moqdata_msg hi = {1, 0, {(const u8*)"hi", 2}};
   CHECK(
       moqdata_msg_build(wired_mspan_of(out, 6), &off, &hi) ==
-      QUIC_MOQDATA_INSUFFICIENT);
+      MOQDATA_INSUFFICIENT);
   CHECK(off == 0);
 }
 
@@ -512,14 +509,14 @@ static void test_moqdata_put_path_status_eog_golden(void) {
   h.priority         = 128;
   CHECK(
       moqdata_subhdr_put(wired_mspan_of(out, sizeof out), &off, &h) ==
-      QUIC_MOQDATA_OK);
+      MOQDATA_OK);
   CHECK(
       moqdata_obj_put(
           wired_mspan_of(out, sizeof out), &off, 0,
-          wired_span_of((const u8*)"hi", 2)) == QUIC_MOQDATA_OK);
+          wired_span_of((const u8*)"hi", 2)) == MOQDATA_OK);
   CHECK(
       moqdata_obj_put_status(wired_mspan_of(out, sizeof out), &off, 0, 0x3) ==
-      QUIC_MOQDATA_OK);
+      MOQDATA_OK);
   CHECK(span_eq(
       wired_span_of(out, off), g_moqt_data_subgroup_stream_status_eog,
       G_MOQT_DATA_SUBGROUP_STREAM_STATUS_EOG_LEN));

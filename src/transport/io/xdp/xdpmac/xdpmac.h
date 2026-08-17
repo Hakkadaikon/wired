@@ -1,5 +1,5 @@
-#ifndef QUIC_XDPMAC_XDPMAC_H
-#define QUIC_XDPMAC_XDPMAC_H
+#ifndef XDPMAC_XDPMAC_H
+#define XDPMAC_XDPMAC_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -9,18 +9,18 @@
  * kept in network byte order so the send hot path never byte-swaps. */
 
 /** Number of cache slots. */
-#define QUIC_XDPMAC_CAP 64
+#define XDPMAC_CAP 64
 
 /** Fixed-capacity ip -> mac cache. Full and seeing a new ip, it evicts slots
  * round-robin (clock walks 0..CAP-1 and wraps), so the oldest entry goes
  * first. Zero-init via xdpmac_init(). */
 typedef struct {
   /** IPv4 key, network byte order; valid if used */
-  u32 ip[QUIC_XDPMAC_CAP];
+  u32 ip[XDPMAC_CAP];
   /** Ethernet MAC learned for ip */
-  u8 mac[QUIC_XDPMAC_CAP][6];
+  u8 mac[XDPMAC_CAP][6];
   /** 1 if the slot holds an entry */
-  u8 used[QUIC_XDPMAC_CAP];
+  u8 used[XDPMAC_CAP];
   /** next round-robin eviction victim */
   u32 clock;
 } xdpmac;

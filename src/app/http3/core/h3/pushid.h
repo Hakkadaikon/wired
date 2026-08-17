@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_PUSHID_H
-#define QUIC_H3_PUSHID_H
+#ifndef H3_PUSHID_H
+#define H3_PUSHID_H
 
 #include "common/platform/sys/syscall.h"
 

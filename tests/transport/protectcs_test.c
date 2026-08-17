@@ -55,8 +55,8 @@ static void cross_suite(void) {
   c[4] = 9; /* pn = 9 in the low pn byte */
 
   usz               la = 0, lc = 0;
-  protectcs_keys    ka = {QUIC_TLS_AES_128_GCM_SHA256, key, iv, hp};
-  protectcs_keys    kc = {QUIC_TLS_CHACHA20_POLY1305_SHA256, key, iv, hp};
+  protectcs_keys    ka = {TLS_AES_128_GCM_SHA256, key, iv, hp};
+  protectcs_keys    kc = {TLS_CHACHA20_POLY1305_SHA256, key, iv, hp};
   protectcs_seal_io sa = {a, 1, 4, 9, 20};
   protectcs_seal_io sc = {c, 1, 4, 9, 20};
   CHECK(protectcs_seal(&ka, &sa, &la) == 1);
@@ -80,10 +80,10 @@ void test_protectcs(void) {
 
   /* RFC 9001 5.3/5.4: full seal/open round-trip per suite. */
   /* byte0 low 2 bits encode pn_len-1, so 0x43 / 0xc3 mean pn_len = 4. */
-  pcs_roundtrip(QUIC_TLS_AES_128_GCM_SHA256, aes_key, 16, 0x43);
-  pcs_roundtrip(QUIC_TLS_CHACHA20_POLY1305_SHA256, cha_key, 32, 0x43);
+  pcs_roundtrip(TLS_AES_128_GCM_SHA256, aes_key, 16, 0x43);
+  pcs_roundtrip(TLS_CHACHA20_POLY1305_SHA256, cha_key, 32, 0x43);
   /* long-header form bit (0xc3) exercises the 4-low-bit mask path. */
-  pcs_roundtrip(QUIC_TLS_CHACHA20_POLY1305_SHA256, cha_key, 32, 0xc3);
+  pcs_roundtrip(TLS_CHACHA20_POLY1305_SHA256, cha_key, 32, 0xc3);
 
   cross_suite();
 

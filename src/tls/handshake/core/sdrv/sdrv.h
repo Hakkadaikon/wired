@@ -1,5 +1,5 @@
-#ifndef QUIC_SDRV_SDRV_H
-#define QUIC_SDRV_SDRV_H
+#ifndef SDRV_SDRV_H
+#define SDRV_SDRV_H
 
 #include "common/bytes/span/span.h"
 #include "crypto/kdf/hkdf/hkdf.h"
@@ -26,7 +26,7 @@ typedef struct {
                        * or 65-byte SEC1 uncompressed P-256 (RFC 8446
                        * 4.2.8.2), per group below. */
   /** RFC 8446 4.2.7 NamedGroup negotiated for the ECDHE key_share
-   * (QUIC_GROUP_X25519 or QUIC_GROUP_SECP256R1); QUIC_GROUP_X25519 unless
+   * (GROUP_X25519 or GROUP_SECP256R1); GROUP_X25519 unless
    * sdrv_set_group selects otherwise. Governs how server_priv/
    * server_pub/client_pub are interpreted. */
   u16 group;
@@ -37,10 +37,10 @@ typedef struct {
    * zero-initialized default) means omit -- 0.0.0.0 is never a real peer, so
    * this needs no separate "is it set" flag. */
   u8         san_ipv4[4];
-  wired_span certs[QUIC_TLS_CERT_CHAIN_MAX]; /**< RFC 8446 4.4.2
-                                              * certificate_list, leaf first
-                                              * (caller-owned views in
-                                              * external-chain mode) */
+  wired_span certs[TLS_CERT_CHAIN_MAX]; /**< RFC 8446 4.4.2
+                                         * certificate_list, leaf first
+                                         * (caller-owned views in
+                                         * external-chain mode) */
   usz cert_count;     /**< 0 = nothing to send (flight build fails) */
   u8  client_pub[65]; /**< RFC 8446 4.2.8 client key_share, group above */
   u8  client_sid[32]; /**< RFC 8446 4.1.2 legacy_session_id */
@@ -49,7 +49,7 @@ typedef struct {
    * has_ticket_key 0 to disable resumption entirely (pre_shared_key is then
    * never inspected). Set once at sdrv_init from
    * sdrv_init_in.ticket_key. */
-  u8 ticket_key[QUIC_TICKET_KEY_LEN];
+  u8 ticket_key[TICKET_KEY_LEN];
   /** 1 when ticket_key above is set; 0 disables resumption. */
   int has_ticket_key;
   /** RFC 8446 4.2.11/4.2.11.2: set by sdrv_recv_client_hello when the
@@ -58,7 +58,7 @@ typedef struct {
    * only meaningful when this is 1. */
   int psk_accepted;
   /** The opened ticket's resumption secret; meaningful when psk_accepted. */
-  u8 psk_secret[QUIC_TICKET_SECRET_LEN];
+  u8 psk_secret[TICKET_SECRET_LEN];
   /** RFC 8446 4.2.10 / RFC 9001 4.6.1/9.2: set by
    * sdrv_recv_client_hello when the ClientHello carries early_data
    * (0x002a) alongside an accepted pre_shared_key AND the presented ticket
@@ -70,8 +70,8 @@ typedef struct {
   /** RFC 8446 4.2.10 / RFC 9001 4.6.1: the 0-RTT packet-protection keys,
    * meaningful only when early_data_accepted is 1. */
   initial_keys early_keys;
-  u8           hs_secret[QUIC_HKDF_PRK]; /**< RFC 8446 7.1 Handshake Secret */
-  u8 s_hs_traffic[QUIC_HKDF_PRK]; /**< RFC 8446 7.1 server hs traffic secret */
+  u8           hs_secret[HKDF_PRK]; /**< RFC 8446 7.1 Handshake Secret */
+  u8 s_hs_traffic[HKDF_PRK]; /**< RFC 8446 7.1 server hs traffic secret */
   /** RFC 8446 7.1: the ECDHE shared secret the flight derivation computed
    * (x25519 output, or the P-256 x-coordinate -- 32 bytes either way), kept
    * so the connection's packet-protection key schedule reuses it instead of
@@ -142,7 +142,7 @@ typedef struct {
   salpn_choice alpn; /**< RFC 7301 3.1/3.2: this server's negotiated
                       * ALPN protocol (h3 preferred, hq-interop
                       * fallback), from the ClientHello's ALPN
-                      * extension. QUIC_SALPN_NONE if the client
+                      * extension. SALPN_NONE if the client
                       * offered neither -- the caller (server.c) must
                       * fail the handshake rather than proceed. */
   u16 cipher_suite;  /**< RFC 8446 B.4 / RFC 9001 9.3: this server's
@@ -178,12 +178,12 @@ typedef struct {
   u8 ch1_hash[32];
   /** RFC 6066 3: the ClientHello's server_name extension checked against
    * this driver's own certificate (salpn_sni_check), set by
-   * sdrv_recv_client_hello. QUIC_SALPN_SNI_ABSENT when the client sent
+   * sdrv_recv_client_hello. SALPN_SNI_ABSENT when the client sent
    * no server_name (or it was malformed); this SDK's policy is to continue
    * the handshake in every case (RFC 6066 3 leaves both a mismatch alert and
    * silently continuing as valid server behavior) -- the field is exposed so
    * a caller (server.c) MAY choose to send unrecognized_name
-   * (QUIC_TLS_ALERT_UNRECOGNIZED_NAME) on QUIC_SALPN_SNI_MISMATCH instead. */
+   * (TLS_ALERT_UNRECOGNIZED_NAME) on SALPN_SNI_MISMATCH instead. */
   salpn_sni_outcome sni_outcome;
 } sdrv;
 
@@ -195,7 +195,7 @@ typedef struct {
  * TBS. chain/chain_count, when non-empty, are an externally issued
  * certificate chain (leaf first, views the caller keeps alive through the
  * handshake) to send instead of a self-signed certificate; chain_count over
- * QUIC_TLS_CERT_CHAIN_MAX makes the flight unbuildable (cert_count stays 0),
+ * TLS_CERT_CHAIN_MAX makes the flight unbuildable (cert_count stays 0),
  * not a truncated/overflowing copy. */
 typedef struct {
   const u8*         server_priv_x25519; /**< ECDHE x25519 private (32 bytes) */
@@ -212,7 +212,7 @@ typedef struct {
    * the fixed 2020-2030 window (tests only). */
   u64 now_secs;
   /** RFC 8446 4.6.1: this server's session-ticket encryption key
-   * (QUIC_TICKET_KEY_LEN bytes), or 0 to disable session resumption --
+   * (TICKET_KEY_LEN bytes), or 0 to disable session resumption --
    * sdrv_recv_client_hello then never inspects pre_shared_key. */
   const u8* ticket_key;
 } sdrv_init_in;
@@ -236,8 +236,8 @@ void sdrv_init(sdrv* s, const sdrv_init_in* in);
 int sdrv_set_cids(sdrv* s, wired_span odcid, wired_span iscid);
 
 /** RFC 8446 4.2.7: select the NamedGroup for the ECDHE key_share
- * (QUIC_GROUP_X25519 or QUIC_GROUP_SECP256R1). sdrv_init defaults to
- * QUIC_GROUP_X25519; call this right after init, before receiving any
+ * (GROUP_X25519 or GROUP_SECP256R1). sdrv_init defaults to
+ * GROUP_X25519; call this right after init, before receiving any
  * ClientHello, to use secp256r1 instead. server_priv/server_pub must already
  * hold the matching key pair (32-byte P-256 scalar + 65-byte SEC1
  * uncompressed public, in place of the x25519 pair sdrv_init took).
@@ -293,19 +293,19 @@ int sdrv_recv_client_hello(sdrv* s, const u8* ch_msg, usz ch_len);
 
 /** RFC 6066 3: the outcome of checking the last ClientHello's server_name
  * against this driver's own certificate (set by sdrv_recv_client_hello
- * via salpn_sni_check). QUIC_SALPN_SNI_ABSENT if the client sent no
+ * via salpn_sni_check). SALPN_SNI_ABSENT if the client sent no
  * server_name (or it was malformed) or no certificate was available yet to
- * check against. A QUIC_SALPN_SNI_MISMATCH never fails the handshake on its
+ * check against. A SALPN_SNI_MISMATCH never fails the handshake on its
  * own (RFC 6066 3 permits continuing); a caller that wants to enforce
  * unrecognized_name checks this and closes with
- * err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME) itself.
+ * err_crypto(TLS_ALERT_UNRECOGNIZED_NAME) itself.
  * @param s driver state
  * @return the last checked SNI outcome. */
 salpn_sni_outcome sdrv_sni_outcome(const sdrv* s);
 
 /** RFC 6066 3: opt-in enforcement of the last checked SNI outcome. A
- * QUIC_SALPN_SNI_MISMATCH sets s->last_error to
- * err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME) and fails; MATCH and
+ * SALPN_SNI_MISMATCH sets s->last_error to
+ * err_crypto(TLS_ALERT_UNRECOGNIZED_NAME) and fails; MATCH and
  * ABSENT are no-ops. Call right after a successful
  * sdrv_recv_client_hello when the caller wants unrecognized_name
  * enforced instead of RFC 6066 3's silent-continue default.

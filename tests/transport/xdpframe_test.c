@@ -41,7 +41,7 @@ static void test_xdpframe_rx_golden(void) {
   CHECK(xdpft_mac_eq(rx.our_mac, xdpft_golden));
   CHECK(rx.our_ip == wired_udp_addr4_be(&want_dst));
   CHECK(rx.dport == 4433);
-  CHECK(rx.payload == xdpft_golden + QUIC_XDPFRAME_HDRS);
+  CHECK(rx.payload == xdpft_golden + XDPFRAME_HDRS);
   CHECK(rx.payload_len == 2 && rx.payload[0] == 'h' && rx.payload[1] == 'i');
 }
 
@@ -56,8 +56,8 @@ static int xdpft_rejects(usz n, usz off, u8 val) {
 }
 
 static void test_xdpframe_rx_rejects(void) {
-  CHECK(xdpft_rejects(QUIC_XDPFRAME_HDRS - 1, 0, 0x02)); /* short */
-  CHECK(xdpft_rejects(60, 13, 0x06));                    /* ethertype ARP */
+  CHECK(xdpft_rejects(XDPFRAME_HDRS - 1, 0, 0x02)); /* short */
+  CHECK(xdpft_rejects(60, 13, 0x06));               /* ethertype ARP */
   /* IHL=6 (options present) but total length (30) is unchanged, so it no
    * longer covers the now-24-byte IP header + 8-byte UDP header (32):
    * rejected for the length mismatch, not merely for IHL != 5 (RFC 791
@@ -110,22 +110,22 @@ static void test_xdpframe_tx_roundtrip(void) {
   xdpframe_rx rx;
   usz         n = xdpframe_build(
       wired_mspan_of(buf, sizeof(buf)), &m, wired_span_of(pl, 3));
-  CHECK(n == QUIC_XDPFRAME_HDRS + 3);
+  CHECK(n == XDPFRAME_HDRS + 3);
   CHECK(eth_parse(wired_span_of(buf, n), &eh) == 1);
-  CHECK(eh.ethertype == QUIC_ETH_TYPE_IPV4);
+  CHECK(eh.ethertype == ETH_TYPE_IPV4);
   CHECK(xdpft_mac_eq(eh.dst, m.dst_mac) && xdpft_mac_eq(eh.src, m.src_mac));
-  CHECK(ipv4_check(buf + QUIC_ETH_HDR) == 1);
+  CHECK(ipv4_check(buf + ETH_HDR) == 1);
   CHECK(
       udp4_check(
-          wired_span_of(buf + QUIC_ETH_HDR + QUIC_IPV4_HDR, QUIC_UDP_HDR + 3),
-          m.udp.addrs) == 1);
-  CHECK(buf[QUIC_XDPFRAME_HDRS] == 0xc0 && buf[QUIC_XDPFRAME_HDRS + 2] == 0xee);
+          wired_span_of(buf + ETH_HDR + IPV4_HDR, UDP_HDR + 3), m.udp.addrs) ==
+      1);
+  CHECK(buf[XDPFRAME_HDRS] == 0xc0 && buf[XDPFRAME_HDRS + 2] == 0xee);
   CHECK(xdpframe_parse(wired_span_of(buf, n), &rx) == 1);
   CHECK(rx.dport == 5555 && rx.payload_len == 3);
   CHECK(
       xdpframe_build(
-          wired_mspan_of(buf, QUIC_XDPFRAME_HDRS + 2), &m,
-          wired_span_of(pl, 3)) == 0);
+          wired_mspan_of(buf, XDPFRAME_HDRS + 2), &m, wired_span_of(pl, 3)) ==
+      0);
 }
 
 /* Parsing the golden frame and reflecting its fields into a reply swaps the
@@ -145,7 +145,7 @@ static void test_xdpframe_reflect(void) {
   m.udp.addrs.dst   = wired_udp_addr4_be(&rx.src);
   usz n             = xdpframe_build(
       wired_mspan_of(buf, sizeof(buf)), &m, wired_span_of(pl, 2));
-  CHECK(n == QUIC_XDPFRAME_HDRS + 2);
+  CHECK(n == XDPFRAME_HDRS + 2);
   CHECK(xdpframe_parse(wired_span_of(buf, n), &rr) == 1);
   wired_udp_addr(&want_src, 4433, (const u8[]){10, 7, 0, 1});
   wired_udp_addr(&want_peer, 5555, (const u8[]){10, 7, 0, 2});

@@ -166,7 +166,7 @@ static void sib_mark_wt_active(srvrun_conn* c) {
  * visible here too, same precedent as srvthreads_datagram_test.c. Static,
  * not stack: wired_srvrun_env now runs well past tens of MiB (every
  * connection's WT bidi+uni slots carry a real-throughput-sized receive
- * window -- WIRED_SRVLOOP_WT_BUF_CAP slots * QUIC_CONNTABLE_CAP conns). The
+ * window -- WIRED_SRVLOOP_WT_BUF_CAP slots * WIRED_CONNTABLE_CAP conns). The
  * CHECK below only records a failure, so each user also guards with an
  * early return: an undersized buffer must print a FAIL, not memset past
  * the array and SEGV with the output still buffered. Measured ~112 MiB

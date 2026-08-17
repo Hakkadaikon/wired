@@ -1,5 +1,5 @@
-#ifndef QUIC_BIGNUM_MODEXP_H
-#define QUIC_BIGNUM_MODEXP_H
+#ifndef BIGNUM_MODEXP_H
+#define BIGNUM_MODEXP_H
 
 #include "crypto/asymmetric/bignum/bignum.h"
 

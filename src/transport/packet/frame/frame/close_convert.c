@@ -5,4 +5,4 @@ int close_needs_convert(int is_app_close, int in_handshake) {
   return is_app_close && in_handshake;
 }
 
-int close_converted_type(void) { return QUIC_CLOSE_TRANSPORT; }
+int close_converted_type(void) { return CLOSE_TRANSPORT; }

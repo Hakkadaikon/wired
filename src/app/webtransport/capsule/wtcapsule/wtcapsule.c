@@ -4,18 +4,18 @@
 #include "common/bytes/util/be.h"
 #include "common/bytes/varint/varint.h"
 
-#define QUIC_WTCAPSULE_TYPE_CLOSE 0x2843ULL
-#define QUIC_WTCAPSULE_TYPE_DRAIN 0x78aeULL
-#define QUIC_WTCAPSULE_CLOSE_CODE_LEN 4
+#define WTCAPSULE_TYPE_CLOSE 0x2843ULL
+#define WTCAPSULE_TYPE_DRAIN 0x78aeULL
+#define WTCAPSULE_CLOSE_CODE_LEN 4
 
 /* draft-ietf-webtrans-http3-15 SS9.6: session-level flow-control capsule
  * types, each body a single varint. */
-#define QUIC_WTCAPSULE_TYPE_MAX_STREAMS_BIDI 0x190B4D3FULL
-#define QUIC_WTCAPSULE_TYPE_MAX_STREAMS_UNI 0x190B4D40ULL
-#define QUIC_WTCAPSULE_TYPE_STREAMS_BLOCKED_BIDI 0x190B4D43ULL
-#define QUIC_WTCAPSULE_TYPE_STREAMS_BLOCKED_UNI 0x190B4D44ULL
-#define QUIC_WTCAPSULE_TYPE_MAX_DATA 0x190B4D3DULL
-#define QUIC_WTCAPSULE_TYPE_DATA_BLOCKED 0x190B4D41ULL
+#define WTCAPSULE_TYPE_MAX_STREAMS_BIDI 0x190B4D3FULL
+#define WTCAPSULE_TYPE_MAX_STREAMS_UNI 0x190B4D40ULL
+#define WTCAPSULE_TYPE_STREAMS_BLOCKED_BIDI 0x190B4D43ULL
+#define WTCAPSULE_TYPE_STREAMS_BLOCKED_UNI 0x190B4D44ULL
+#define WTCAPSULE_TYPE_MAX_DATA 0x190B4D3DULL
+#define WTCAPSULE_TYPE_DATA_BLOCKED 0x190B4D41ULL
 
 /* type for the bidi/uni variant of a two-type capsule family (MAX_STREAMS,
  * STREAMS_BLOCKED). */
@@ -58,29 +58,27 @@ static int wtcapsule_decode_varint(wired_span data, usz* at, u64 type, u64* v) {
 
 int wired_wtcapsule_encode_close(
     wired_obuf* out, u32 app_error_code, wired_span message) {
-  u8  body[QUIC_WTCAPSULE_CLOSE_CODE_LEN + QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX];
+  u8  body[WTCAPSULE_CLOSE_CODE_LEN + WTCAPSULE_CLOSE_MESSAGE_MAX];
   usz i;
-  if (message.n > QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX) return 0;
+  if (message.n > WTCAPSULE_CLOSE_MESSAGE_MAX) return 0;
   be_put_be32(body, app_error_code);
   for (i = 0; i < message.n; i++)
-    body[QUIC_WTCAPSULE_CLOSE_CODE_LEN + i] = message.p[i];
+    body[WTCAPSULE_CLOSE_CODE_LEN + i] = message.p[i];
   return capsule_encode(
-      out, QUIC_WTCAPSULE_TYPE_CLOSE,
-      wired_span_of(body, QUIC_WTCAPSULE_CLOSE_CODE_LEN + message.n));
+      out, WTCAPSULE_TYPE_CLOSE,
+      wired_span_of(body, WTCAPSULE_CLOSE_CODE_LEN + message.n));
 }
 
 int wtcapsule_encode_drain(wired_obuf* out) {
-  return capsule_encode(out, QUIC_WTCAPSULE_TYPE_DRAIN, wired_span_of(0, 0));
+  return capsule_encode(out, WTCAPSULE_TYPE_DRAIN, wired_span_of(0, 0));
 }
 
 /* 1 iff type/value is a well-formed WT_CLOSE_SESSION capsule: the right
  * type, long enough for the 32-bit error code, and its message within the
  * WT-level cap. */
 static int wtcapsule_is_close(u64 type, wired_span value) {
-  return type == QUIC_WTCAPSULE_TYPE_CLOSE &&
-         value.n >= QUIC_WTCAPSULE_CLOSE_CODE_LEN &&
-         value.n - QUIC_WTCAPSULE_CLOSE_CODE_LEN <=
-             QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX;
+  return type == WTCAPSULE_TYPE_CLOSE && value.n >= WTCAPSULE_CLOSE_CODE_LEN &&
+         value.n - WTCAPSULE_CLOSE_CODE_LEN <= WTCAPSULE_CLOSE_MESSAGE_MAX;
 }
 
 /* Split out of wired_wtcapsule_decode_close to keep it at CCN<=3: this
@@ -90,8 +88,7 @@ static void wtcapsule_take_close(
     wired_span value, u32* app_error_code, wired_span* message) {
   *app_error_code = be_get_be32(value.p);
   *message        = wired_span_of(
-      value.p + QUIC_WTCAPSULE_CLOSE_CODE_LEN,
-      value.n - QUIC_WTCAPSULE_CLOSE_CODE_LEN);
+      value.p + WTCAPSULE_CLOSE_CODE_LEN, value.n - WTCAPSULE_CLOSE_CODE_LEN);
 }
 
 int wired_wtcapsule_decode_close(
@@ -111,57 +108,53 @@ int wtcapsule_decode_drain(wired_span data, usz* at) {
   u64        type;
   wired_span value;
   if (!capsule_decode(data, &local_at, &type, &value)) return 0;
-  if (type != QUIC_WTCAPSULE_TYPE_DRAIN) return 0;
+  if (type != WTCAPSULE_TYPE_DRAIN) return 0;
   *at = local_at;
   return 1;
 }
 
 int wtcapsule_encode_max_streams(wired_obuf* out, int bidi, u64 max_streams) {
   u64 type = wtcapsule_dir_type(
-      bidi, QUIC_WTCAPSULE_TYPE_MAX_STREAMS_BIDI,
-      QUIC_WTCAPSULE_TYPE_MAX_STREAMS_UNI);
+      bidi, WTCAPSULE_TYPE_MAX_STREAMS_BIDI, WTCAPSULE_TYPE_MAX_STREAMS_UNI);
   return wtcapsule_encode_varint(out, type, max_streams);
 }
 
 int wtcapsule_decode_max_streams(
     wired_span data, usz* at, int bidi, u64* max_streams) {
   u64 type = wtcapsule_dir_type(
-      bidi, QUIC_WTCAPSULE_TYPE_MAX_STREAMS_BIDI,
-      QUIC_WTCAPSULE_TYPE_MAX_STREAMS_UNI);
+      bidi, WTCAPSULE_TYPE_MAX_STREAMS_BIDI, WTCAPSULE_TYPE_MAX_STREAMS_UNI);
   return wtcapsule_decode_varint(data, at, type, max_streams);
 }
 
 int wtcapsule_encode_streams_blocked(
     wired_obuf* out, int bidi, u64 max_streams) {
   u64 type = wtcapsule_dir_type(
-      bidi, QUIC_WTCAPSULE_TYPE_STREAMS_BLOCKED_BIDI,
-      QUIC_WTCAPSULE_TYPE_STREAMS_BLOCKED_UNI);
+      bidi, WTCAPSULE_TYPE_STREAMS_BLOCKED_BIDI,
+      WTCAPSULE_TYPE_STREAMS_BLOCKED_UNI);
   return wtcapsule_encode_varint(out, type, max_streams);
 }
 
 int wtcapsule_decode_streams_blocked(
     wired_span data, usz* at, int bidi, u64* max_streams) {
   u64 type = wtcapsule_dir_type(
-      bidi, QUIC_WTCAPSULE_TYPE_STREAMS_BLOCKED_BIDI,
-      QUIC_WTCAPSULE_TYPE_STREAMS_BLOCKED_UNI);
+      bidi, WTCAPSULE_TYPE_STREAMS_BLOCKED_BIDI,
+      WTCAPSULE_TYPE_STREAMS_BLOCKED_UNI);
   return wtcapsule_decode_varint(data, at, type, max_streams);
 }
 
 int wtcapsule_encode_max_data(wired_obuf* out, u64 max_data) {
-  return wtcapsule_encode_varint(out, QUIC_WTCAPSULE_TYPE_MAX_DATA, max_data);
+  return wtcapsule_encode_varint(out, WTCAPSULE_TYPE_MAX_DATA, max_data);
 }
 
 int wtcapsule_decode_max_data(wired_span data, usz* at, u64* max_data) {
-  return wtcapsule_decode_varint(
-      data, at, QUIC_WTCAPSULE_TYPE_MAX_DATA, max_data);
+  return wtcapsule_decode_varint(data, at, WTCAPSULE_TYPE_MAX_DATA, max_data);
 }
 
 int wtcapsule_encode_data_blocked(wired_obuf* out, u64 max_data) {
-  return wtcapsule_encode_varint(
-      out, QUIC_WTCAPSULE_TYPE_DATA_BLOCKED, max_data);
+  return wtcapsule_encode_varint(out, WTCAPSULE_TYPE_DATA_BLOCKED, max_data);
 }
 
 int wtcapsule_decode_data_blocked(wired_span data, usz* at, u64* max_data) {
   return wtcapsule_decode_varint(
-      data, at, QUIC_WTCAPSULE_TYPE_DATA_BLOCKED, max_data);
+      data, at, WTCAPSULE_TYPE_DATA_BLOCKED, max_data);
 }

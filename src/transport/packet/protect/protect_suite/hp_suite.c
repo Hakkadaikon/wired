@@ -6,13 +6,13 @@
 
 int hp_suite_mask(
     u16 suite, const u8* hp_key, const u8 sample[16], u8 mask[5]) {
-  if (suite == QUIC_TLS_AES_128_GCM_SHA256) {
+  if (suite == TLS_AES_128_GCM_SHA256) {
     aes128 hp;
     aes128_init(&hp, hp_key);
     hp_mask(&hp, sample, mask);
     return 1;
   }
-  if (suite == QUIC_TLS_CHACHA20_POLY1305_SHA256) {
+  if (suite == TLS_CHACHA20_POLY1305_SHA256) {
     hp_chacha_mask(hp_key, sample, mask);
     return 1;
   }

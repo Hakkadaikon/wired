@@ -1,5 +1,5 @@
-#ifndef QUIC_MOQCTL_H
-#define QUIC_MOQCTL_H
+#ifndef MOQCTL_H
+#define MOQCTL_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -20,74 +20,74 @@
  * from "must reply NOT_SUPPORTED".
  */
 
-#define QUIC_MOQCTL_OK 1
-#define QUIC_MOQCTL_INSUFFICIENT 0
-#define QUIC_MOQCTL_VIOLATION (-1)
+#define MOQCTL_OK 1
+#define MOQCTL_INSUFFICIENT 0
+#define MOQCTL_VIOLATION (-1)
 
 /* Message Type IDs this codec knows how to decode/encode (SS10 table). */
-#define QUIC_MOQCTL_T_SETUP 0x2F00ULL
-#define QUIC_MOQCTL_T_GOAWAY 0x10ULL
-#define QUIC_MOQCTL_T_SUBSCRIBE 0x3ULL
-#define QUIC_MOQCTL_T_SUBSCRIBE_OK 0x4ULL
-#define QUIC_MOQCTL_T_REQUEST_ERROR 0x5ULL
-#define QUIC_MOQCTL_T_REQUEST_OK 0x7ULL
-#define QUIC_MOQCTL_T_PUBLISH_DONE 0xBULL
-#define QUIC_MOQCTL_T_PUBLISH 0x1DULL
+#define MOQCTL_T_SETUP 0x2F00ULL
+#define MOQCTL_T_GOAWAY 0x10ULL
+#define MOQCTL_T_SUBSCRIBE 0x3ULL
+#define MOQCTL_T_SUBSCRIBE_OK 0x4ULL
+#define MOQCTL_T_REQUEST_ERROR 0x5ULL
+#define MOQCTL_T_REQUEST_OK 0x7ULL
+#define MOQCTL_T_PUBLISH_DONE 0xBULL
+#define MOQCTL_T_PUBLISH 0x1DULL
 
-/** moqctl_peek_type results (in addition to QUIC_MOQCTL_OK). */
-#define QUIC_MOQCTL_UNKNOWN_TYPE (-2)
-#define QUIC_MOQCTL_KNOWN_UNIMPLEMENTED (-3)
+/** moqctl_peek_type results (in addition to MOQCTL_OK). */
+#define MOQCTL_UNKNOWN_TYPE (-2)
+#define MOQCTL_KNOWN_UNIMPLEMENTED (-3)
 
 /* Wire limits (draft-ietf-moq-transport-19). */
-#define QUIC_MOQCTL_MAX_MSG_LEN 0xFFFF  /* SS10: 2^16-1 */
-#define QUIC_MOQCTL_MAX_REASON_LEN 1024 /* SS1.4.4 */
-#define QUIC_MOQCTL_MAX_URI_LEN 8192    /* SS10.3 GOAWAY */
-#define QUIC_MOQCTL_MAX_NS_FIELDS 32    /* SS1.5 */
-#define QUIC_MOQCTL_MAX_FTN_LEN 4096    /* SS1.5 */
-#define QUIC_MOQCTL_MAX_PARAMS 64       /* implementation bound */
+#define MOQCTL_MAX_MSG_LEN 0xFFFF  /* SS10: 2^16-1 */
+#define MOQCTL_MAX_REASON_LEN 1024 /* SS1.4.4 */
+#define MOQCTL_MAX_URI_LEN 8192    /* SS10.3 GOAWAY */
+#define MOQCTL_MAX_NS_FIELDS 32    /* SS1.5 */
+#define MOQCTL_MAX_FTN_LEN 4096    /* SS1.5 */
+#define MOQCTL_MAX_PARAMS 64       /* implementation bound */
 
 /** REQUEST_ERROR error codes actually used by this subset (SS17.3). */
-#define QUIC_MOQCTL_ERR_INTERNAL_ERROR 0x0ULL
-#define QUIC_MOQCTL_ERR_NOT_SUPPORTED 0x3ULL
-#define QUIC_MOQCTL_ERR_GOING_AWAY 0x6ULL
-#define QUIC_MOQCTL_ERR_DOES_NOT_EXIST 0x10ULL
-#define QUIC_MOQCTL_ERR_INVALID_RANGE 0x11ULL
-#define QUIC_MOQCTL_ERR_UNINTERESTED 0x20ULL
-#define QUIC_MOQCTL_ERR_UNAUTHORIZED 0x1ULL
-#define QUIC_MOQCTL_ERR_INVALID_FILTER 0x36ULL
-#define QUIC_MOQCTL_ERR_REDIRECT 0x34ULL
+#define MOQCTL_ERR_INTERNAL_ERROR 0x0ULL
+#define MOQCTL_ERR_NOT_SUPPORTED 0x3ULL
+#define MOQCTL_ERR_GOING_AWAY 0x6ULL
+#define MOQCTL_ERR_DOES_NOT_EXIST 0x10ULL
+#define MOQCTL_ERR_INVALID_RANGE 0x11ULL
+#define MOQCTL_ERR_UNINTERESTED 0x20ULL
+#define MOQCTL_ERR_UNAUTHORIZED 0x1ULL
+#define MOQCTL_ERR_INVALID_FILTER 0x36ULL
+#define MOQCTL_ERR_REDIRECT 0x34ULL
 
 /** PUBLISH_DONE status codes actually used by this subset (SS17.4). */
-#define QUIC_MOQCTL_DONE_INTERNAL_ERROR 0x0ULL
-#define QUIC_MOQCTL_DONE_TRACK_ENDED 0x2ULL
-#define QUIC_MOQCTL_DONE_GOING_AWAY 0x4ULL
+#define MOQCTL_DONE_INTERNAL_ERROR 0x0ULL
+#define MOQCTL_DONE_TRACK_ENDED 0x2ULL
+#define MOQCTL_DONE_GOING_AWAY 0x4ULL
 
 /** Session-level termination codes referenced by this codec (SS17.1). */
-#define QUIC_MOQCTL_CLOSE_INVALID_AUTHORITY 0x19ULL
-#define QUIC_MOQCTL_CLOSE_INVALID_PATH 0x8ULL
-#define QUIC_MOQCTL_CLOSE_KVFMT_ERROR 0x6ULL
+#define MOQCTL_CLOSE_INVALID_AUTHORITY 0x19ULL
+#define MOQCTL_CLOSE_INVALID_PATH 0x8ULL
+#define MOQCTL_CLOSE_KVFMT_ERROR 0x6ULL
 
 /** Setup Option types (SS10.1.1). */
-#define QUIC_MOQCTL_OPT_PATH 0x1ULL
-#define QUIC_MOQCTL_OPT_AUTHORITY 0x5ULL
-#define QUIC_MOQCTL_OPT_MOQT_IMPLEMENTATION 0x7ULL
+#define MOQCTL_OPT_PATH 0x1ULL
+#define MOQCTL_OPT_AUTHORITY 0x5ULL
+#define MOQCTL_OPT_MOQT_IMPLEMENTATION 0x7ULL
 
 /** Message Parameter types this subset encodes/decodes. */
-#define QUIC_MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT 0x02ULL
-#define QUIC_MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT 0x06ULL
-#define QUIC_MOQCTL_PARAM_FORWARD 0x10ULL
+#define MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT 0x02ULL
+#define MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT 0x06ULL
+#define MOQCTL_PARAM_FORWARD 0x10ULL
 
 /** Message Parameter value encodings (SS10.2). */
-#define QUIC_MOQCTL_PENC_UINT8 0
-#define QUIC_MOQCTL_PENC_VARINT 1
-#define QUIC_MOQCTL_PENC_LOCATION 2
-#define QUIC_MOQCTL_PENC_BYTES 3
+#define MOQCTL_PENC_UINT8 0
+#define MOQCTL_PENC_VARINT 1
+#define MOQCTL_PENC_LOCATION 2
+#define MOQCTL_PENC_BYTES 3
 
 /** Location Filter types (SS9.3.1). */
-#define QUIC_MOQCTL_FILTER_NEXT_GROUP 0x1ULL
-#define QUIC_MOQCTL_FILTER_LARGEST 0x2ULL
-#define QUIC_MOQCTL_FILTER_ABS_START 0x3ULL
-#define QUIC_MOQCTL_FILTER_ABS_RANGE 0x4ULL
+#define MOQCTL_FILTER_NEXT_GROUP 0x1ULL
+#define MOQCTL_FILTER_LARGEST 0x2ULL
+#define MOQCTL_FILTER_ABS_START 0x3ULL
+#define MOQCTL_FILTER_ABS_RANGE 0x4ULL
 
 /** grease pattern (SS17.6): 0x7f*N + 0x9D. */
 int moqctl_is_grease(u64 v);
@@ -116,16 +116,16 @@ typedef struct {
   u64        end_group_delta; /* only when type == ABS_RANGE */
 } moqctl_locfilter;
 
-/** Returns QUIC_MOQCTL_OK / INSUFFICIENT / VIOLATION (unknown type, or
+/** Returns MOQCTL_OK / INSUFFICIENT / VIOLATION (unknown type, or
  * AbsoluteRange End Group overflowing 2^64-1). */
 int moqctl_locfilter_take(wired_span buf, usz* off, moqctl_locfilter* out);
 int moqctl_locfilter_put(wired_mspan buf, usz* off, const moqctl_locfilter* f);
 
 /** draft-ietf-moq-transport-19 SS1.5 Track Namespace: up to
- * QUIC_MOQCTL_MAX_NS_FIELDS fields, each a byte-string view into the
+ * MOQCTL_MAX_NS_FIELDS fields, each a byte-string view into the
  * decode input (or caller-owned storage on encode). */
 typedef struct {
-  wired_span fields[QUIC_MOQCTL_MAX_NS_FIELDS];
+  wired_span fields[MOQCTL_MAX_NS_FIELDS];
   usz        n;
 } moqctl_ns;
 
@@ -136,7 +136,7 @@ typedef struct {
 } moqctl_ftn;
 
 /** VIOLATION on: a field of length 0, >32 fields, or total (namespace +
- * name) bytes > QUIC_MOQCTL_MAX_FTN_LEN. */
+ * name) bytes > MOQCTL_MAX_FTN_LEN. */
 int moqctl_ftn_take(wired_span buf, usz* off, moqctl_ftn* out);
 int moqctl_ftn_put(wired_mspan buf, usz* off, const moqctl_ftn* f);
 
@@ -149,7 +149,7 @@ int moqctl_ns_take(wired_span buf, usz* off, moqctl_ns* out);
 int moqctl_ftn_eq(const moqctl_ftn* a, const moqctl_ftn* b);
 
 /** draft-ietf-moq-transport-19 SS1.4.4 Reason Phrase: Length + UTF-8 bytes,
- * length capped at QUIC_MOQCTL_MAX_REASON_LEN. */
+ * length capped at MOQCTL_MAX_REASON_LEN. */
 typedef wired_span moqctl_reason;
 
 int moqctl_reason_take(wired_span buf, usz* off, moqctl_reason* out);
@@ -170,7 +170,7 @@ typedef struct {
  * types are legal in this list (SS10.2 Parameter Scope) and which
  * encoding each known type uses. */
 typedef struct {
-  moqctl_param items[QUIC_MOQCTL_MAX_PARAMS];
+  moqctl_param items[MOQCTL_MAX_PARAMS];
   usz          n;
 } moqctl_params;
 
@@ -180,7 +180,7 @@ typedef struct {
  * matching its defined encoding (mapped by the caller to
  * KEY_VALUE_FORMATTING_ERROR rather than PROTOCOL_VIOLATION -- see
  * moqctl_params_take's return contract below). */
-#define QUIC_MOQCTL_PARAMS_KVFMT (-4)
+#define MOQCTL_PARAMS_KVFMT (-4)
 int moqctl_params_take(
     wired_span buf, usz* off, u64 msg_type, moqctl_params* out);
 int moqctl_params_put(wired_mspan buf, usz* off, const moqctl_params* params);
@@ -260,7 +260,7 @@ typedef struct {
 } moqctl_redirect;
 
 /** draft-ietf-moq-transport-19 SS10.8 REQUEST_ERROR. has_redirect is only
- * legal when error_code == QUIC_MOQCTL_ERR_REDIRECT (checked on
+ * legal when error_code == MOQCTL_ERR_REDIRECT (checked on
  * encode/decode: a Redirect present with any other code, or absent with
  * REDIRECT, is a VIOLATION since it desyncs Length from Body). */
 typedef struct {
@@ -298,13 +298,13 @@ int moqctl_goaway_take(wired_span buf, usz* off, moqctl_goaway* out);
 int moqctl_goaway_encode(wired_mspan buf, usz* off, const moqctl_goaway* m);
 
 /** Common envelope: reads Type (vi64) + Length (16-bit BE) at *off,
- * without consuming past QUIC_MOQCTL_OK's Type+Length header. On
- * QUIC_MOQCTL_OK, *type_out is the Message Type, *body is the Message
+ * without consuming past MOQCTL_OK's Type+Length header. On
+ * MOQCTL_OK, *type_out is the Message Type, *body is the Message
  * Body view (exactly Length bytes, already bounds-checked against buf),
  * and *off has advanced past Type+Length+Body (the whole message).
- * QUIC_MOQCTL_INSUFFICIENT: header or body not fully in buf yet.
- * QUIC_MOQCTL_UNKNOWN_TYPE: Type is not in the SS10 table (caller
- * closes). QUIC_MOQCTL_KNOWN_UNIMPLEMENTED: Type is a known-but-
+ * MOQCTL_INSUFFICIENT: header or body not fully in buf yet.
+ * MOQCTL_UNKNOWN_TYPE: Type is not in the SS10 table (caller
+ * closes). MOQCTL_KNOWN_UNIMPLEMENTED: Type is a known-but-
  * unimplemented ID (REQUEST_UPDATE/FETCH/TRACK_STATUS/PUBLISH_NAMESPACE/
  * SUBSCRIBE_NAMESPACE/SUBSCRIBE_TRACKS/NAMESPACE/NAMESPACE_DONE/
  * PUBLISH_SKIPPED); caller replies NOT_SUPPORTED rather than closing. */

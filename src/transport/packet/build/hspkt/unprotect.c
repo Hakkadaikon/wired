@@ -19,15 +19,15 @@ typedef struct {
 /* RFC 9001 5.3: AEAD-open ciphertext at pkt+hdr_len using header as AAD.
  * hdr_len is the true header length (pn_off + recovered pn_len). */
 static int aead_open(const hsunprot_ctx* c, usz hdr_len, u64 pn) {
-  u8     nonce[QUIC_INITIAL_IV];
+  u8     nonce[INITIAL_IV];
   aes128 aead;
   u8*    pkt    = c->d->pkt.p;
-  usz    ct_len = c->d->pkt.n - hdr_len - QUIC_GCM_TAG;
+  usz    ct_len = c->d->pkt.n - hdr_len - GCM_TAG;
   protect_nonce(c->keys->iv, pn, nonce);
   aes128_init(&aead, c->keys->key);
   gcm_ctx g = {&aead, nonce, {pkt, hdr_len}};
   return gcm_open(
-      &g, wired_span_of(pkt + hdr_len, ct_len + QUIC_GCM_TAG), pkt + hdr_len);
+      &g, wired_span_of(pkt + hdr_len, ct_len + GCM_TAG), pkt + hdr_len);
 }
 
 /* RFC 9001 5.4.1 / RFC 9000 17.3 / A.3: byte0 (already unmasked) carries the
@@ -41,11 +41,11 @@ static int open_pkt(const hsunprot_ctx* c, wired_span* payload) {
   usz pn_len  = (pkt[0] & 0x03u) + 1u;
   usz hdr_len = pn_off + pn_len;
   hp_protect_pn(pkt + pn_off, pn_len, c->mask);
-  if (c->d->pkt.n <= hdr_len + QUIC_GCM_TAG) return 0;
+  if (c->d->pkt.n <= hdr_len + GCM_TAG) return 0;
   if (!aead_open(
           c, hdr_len, pnum_decode(pkt + pn_off, pn_len, c->d->largest_pn)))
     return 0;
-  *payload = wired_span_of(pkt + hdr_len, c->d->pkt.n - hdr_len - QUIC_GCM_TAG);
+  *payload = wired_span_of(pkt + hdr_len, c->d->pkt.n - hdr_len - GCM_TAG);
   return 1;
 }
 

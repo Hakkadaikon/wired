@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_SERVERHELLO_H
-#define QUIC_TLS_SERVERHELLO_H
+#ifndef TLS_SERVERHELLO_H
+#define TLS_SERVERHELLO_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

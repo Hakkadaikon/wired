@@ -12,8 +12,7 @@
  * multiplication-result): SRVXDP_TXPOOL_BASE is a UMEM byte offset, so the
  * product must be computed at that width, not implicitly widened from a
  * u32*u32 result after the fact. */
-#define SRVXDP_TXPOOL_BASE \
-  ((u64)SRVXDP_TXPOOL_FRAMES * QUIC_XSKSETUP_FRAME_SIZE)
+#define SRVXDP_TXPOOL_BASE ((u64)SRVXDP_TXPOOL_FRAMES * XSKSETUP_FRAME_SIZE)
 
 /* Initialize x's non-BPF state (identity, MAC cache, TX pool) from cfg. */
 static void srvxdp_init_state(wired_srvxdp* x, const wired_srvxdp_cfg* cfg) {
@@ -191,7 +190,7 @@ i64 wired_srvxdp_send(wired_srvxdp* x, const sockaddr* dst, wired_span pkt) {
 
   srvxdp_tx_meta(x, dst, peer_mac, &m);
   n = xdpframe_build(
-      wired_mspan_of(x->xsk.umem + addr, QUIC_XSKSETUP_FRAME_SIZE), &m, pkt);
+      wired_mspan_of(x->xsk.umem + addr, XSKSETUP_FRAME_SIZE), &m, pkt);
   return srvxdp_tx_submit(x, addr, n);
 }
 

@@ -2,8 +2,8 @@
 
 /* The token is deterministic for a key+CID, and distinct CIDs differ. */
 static void test_sreset_token(void) {
-  u8 key[QUIC_SRESET_KEY];
-  for (usz i = 0; i < QUIC_SRESET_KEY; i++) key[i] = (u8)(i + 1);
+  u8 key[SRESET_KEY];
+  for (usz i = 0; i < SRESET_KEY; i++) key[i] = (u8)(i + 1);
   const u8 cid_a[4] = {1, 2, 3, 4};
   const u8 cid_b[4] = {1, 2, 3, 5};
   u8       ta[16], ta2[16], tb[16];
@@ -18,8 +18,8 @@ static void test_sreset_token(void) {
 
 /* A datagram ending in the token is detected; mismatches and short ones not. */
 static void test_sreset_detect(void) {
-  u8       key[QUIC_SRESET_KEY] = {0};
-  const u8 cid[8]               = {9, 8, 7, 6, 5, 4, 3, 2};
+  u8       key[SRESET_KEY] = {0};
+  const u8 cid[8]          = {9, 8, 7, 6, 5, 4, 3, 2};
   u8       token[16];
   sreset_token(key, cid, 8, token);
 
@@ -42,25 +42,25 @@ static int fill_pattern(u8* buf, usz len) {
 
 /* sreset_size: below 3x the trigger, never below the minimum. */
 static void test_sreset_size(void) {
-  CHECK(sreset_size(4) == QUIC_SRESET_MIN);    /* 3*4-1=11 < min: floor */
-  CHECK(sreset_size(10) == 3 * 10 - 1);        /* 29 >= min: as computed */
-  CHECK(sreset_size(1200) < 1200 * 3);         /* strictly under 3x */
-  CHECK(sreset_size(1200) >= QUIC_SRESET_MIN); /* still >= floor */
+  CHECK(sreset_size(4) == SRESET_MIN);    /* 3*4-1=11 < min: floor */
+  CHECK(sreset_size(10) == 3 * 10 - 1);   /* 29 >= min: as computed */
+  CHECK(sreset_size(1200) < 1200 * 3);    /* strictly under 3x */
+  CHECK(sreset_size(1200) >= SRESET_MIN); /* still >= floor */
 }
 
 /* Built packets stay under 3x the trigger and end in the correct token. */
 static void test_sreset_build(void) {
-  u8       key[QUIC_SRESET_KEY] = {0};
-  const u8 cid[8]               = {1, 2, 3, 4, 5, 6, 7, 8};
-  u8       want[QUIC_SRESET_TOKEN];
+  u8       key[SRESET_KEY] = {0};
+  const u8 cid[8]          = {1, 2, 3, 4, 5, 6, 7, 8};
+  u8       want[SRESET_TOKEN];
   sreset_token(key, cid, 8, want);
 
   u8  out[128];
   usz out_len = 0;
   CHECK(sreset_build(key, cid, 8, 40, fill_pattern, out, 128, &out_len) == 1);
   CHECK(out_len < 40 * 3);
-  CHECK(out_len >= QUIC_SRESET_MIN);
-  CHECK(ct_diff16(out + out_len - QUIC_SRESET_TOKEN, want) == 0);
+  CHECK(out_len >= SRESET_MIN);
+  CHECK(ct_diff16(out + out_len - SRESET_TOKEN, want) == 0);
 
   /* out_cap smaller than the natural size clamps the packet down. */
   usz small_len = 0;
@@ -72,8 +72,8 @@ static void test_sreset_build(void) {
   usz tiny_len = 0;
   CHECK(
       sreset_build(
-          key, cid, 8, 1200, fill_pattern, out, QUIC_SRESET_MIN - 1,
-          &tiny_len) == 0);
+          key, cid, 8, 1200, fill_pattern, out, SRESET_MIN - 1, &tiny_len) ==
+      0);
 }
 
 void test_sreset(void) {

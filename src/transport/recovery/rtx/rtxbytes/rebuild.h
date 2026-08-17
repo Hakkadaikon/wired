@@ -1,5 +1,5 @@
-#ifndef QUIC_RTXBYTES_REBUILD_H
-#define QUIC_RTXBYTES_REBUILD_H
+#ifndef RTXBYTES_REBUILD_H
+#define RTXBYTES_REBUILD_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

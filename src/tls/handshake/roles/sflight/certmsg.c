@@ -5,7 +5,7 @@
 #include "tls/handshake/core/tls/handshake.h"
 
 /* RFC 8446 4.4.2 CertificateEntry: cert_data<3> + extensions<2>=empty. */
-#define QUIC_HS_CERTIFICATE 11
+#define HS_CERTIFICATE 11
 
 /* Write a 24-bit big-endian length at p. */
 static void put_be24(u8* p, u32 v) {
@@ -33,9 +33,9 @@ static usz certchain_wire_len(const wired_span* certs, usz count) {
   return total;
 }
 
-/* count is in 1..QUIC_TLS_CERT_CHAIN_MAX. */
+/* count is in 1..TLS_CERT_CHAIN_MAX. */
 static int certchain_count_ok(usz count) {
-  return count >= 1 && count <= QUIC_TLS_CERT_CHAIN_MAX;
+  return count >= 1 && count <= TLS_CERT_CHAIN_MAX;
 }
 
 /* Header(4) + ctx_len(1) + list_len(3) + list_len bytes fit in cap. */
@@ -54,7 +54,7 @@ int sflight_certificate_chain(const sflight_certchain_in* in, wired_obuf* out) {
   usz off, list_len;
   if (!certchain_ok(in, out->cap)) return 0;
   list_len    = certchain_wire_len(in->certs, in->count);
-  off         = hs_begin(out->p, out->cap, QUIC_HS_CERTIFICATE);
+  off         = hs_begin(out->p, out->cap, HS_CERTIFICATE);
   out->p[off] = 0; /* request_context length 0 */
   put_be24(out->p + off + 1, (u32)list_len);
   out->len = off + 4;

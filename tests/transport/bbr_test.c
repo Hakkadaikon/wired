@@ -7,16 +7,16 @@
 static void test_bbr_startup_growth_and_fill(void) {
   bbr b;
   bbr_init(&b);
-  CHECK(b.phase == QUIC_BBR_STARTUP);
+  CHECK(b.phase == BBR_STARTUP);
   bbr_on_round(&b, 100); /* growth: baseline 100 */
   bbr_on_round(&b, 130); /* 130 >= 125: growth, count resets */
   CHECK(b.full_bw_cnt == 0);
   bbr_on_round(&b, 140); /* flat 1 (140 < 130*1.25) */
   bbr_on_round(&b, 141); /* flat 2 */
-  CHECK(b.phase == QUIC_BBR_STARTUP);
+  CHECK(b.phase == BBR_STARTUP);
   bbr_on_round(&b, 142); /* flat 3: pipe full -> DRAIN */
   CHECK(b.filled == 1);
-  CHECK(b.phase == QUIC_BBR_DRAIN);
+  CHECK(b.phase == BBR_DRAIN);
 }
 
 /* DRAIN leaves for PROBE_BW only once inflight has drained to the BDP; the
@@ -28,11 +28,11 @@ static void test_bbr_drain_exit_and_latch(void) {
   bbr_on_round(&b, 101);
   bbr_on_round(&b, 102);
   bbr_on_round(&b, 103); /* 3 flat rounds -> DRAIN */
-  CHECK(b.phase == QUIC_BBR_DRAIN);
+  CHECK(b.phase == BBR_DRAIN);
   bbr_drained(&b, 0); /* still above BDP: stays */
-  CHECK(b.phase == QUIC_BBR_DRAIN);
+  CHECK(b.phase == BBR_DRAIN);
   bbr_drained(&b, 1);
-  CHECK(b.phase == QUIC_BBR_PROBE_BW);
+  CHECK(b.phase == BBR_PROBE_BW);
   CHECK(b.filled == 1); /* latch holds through every later phase */
 }
 
@@ -64,15 +64,15 @@ static void test_bbr_probe_rtt_round_trip(void) {
   /* rtprop learned at t=0; nothing due within the 10s window */
   bbr_on_rtt(&b, 50, 0);
   CHECK(bbr_check_probe_rtt(&b, 5000) == 0);
-  CHECK(b.phase == QUIC_BBR_STARTUP);
+  CHECK(b.phase == BBR_STARTUP);
   /* expiry: due from STARTUP too */
   CHECK(bbr_check_probe_rtt(&b, 10001) == 1);
-  CHECK(b.phase == QUIC_BBR_PROBE_RTT);
+  CHECK(b.phase == BBR_PROBE_RTT);
   /* dwell 200ms: no exit before, exit after; unfilled -> STARTUP */
   bbr_probe_rtt_exit(&b, 10100);
-  CHECK(b.phase == QUIC_BBR_PROBE_RTT);
+  CHECK(b.phase == BBR_PROBE_RTT);
   bbr_probe_rtt_exit(&b, 10250);
-  CHECK(b.phase == QUIC_BBR_STARTUP);
+  CHECK(b.phase == BBR_STARTUP);
   /* refill the pipe, expire again: exit goes to PROBE_BW this time */
   bbr_on_rtt(&b, 50, 10300);
   bbr_on_round(&b, 100);
@@ -82,7 +82,7 @@ static void test_bbr_probe_rtt_round_trip(void) {
   bbr_drained(&b, 1);
   CHECK(bbr_check_probe_rtt(&b, 20400) == 1);
   bbr_probe_rtt_exit(&b, 20700);
-  CHECK(b.phase == QUIC_BBR_PROBE_BW);
+  CHECK(b.phase == BBR_PROBE_BW);
 }
 
 /* The pacing-gain schedule: startup 289%, drain 35%, probe_bw cycles

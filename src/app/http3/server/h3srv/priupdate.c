@@ -23,8 +23,8 @@ static const struct {
   int (*hit)(int, int, u64);
   u16 code;
 } priupdate_rules[] = {
-    {priupdate_wrong_stream, QUIC_H3_FRAME_UNEXPECTED},
-    {priupdate_bad_id, QUIC_H3_ID_ERROR},
+    {priupdate_wrong_stream, H3_FRAME_UNEXPECTED},
+    {priupdate_bad_id, H3_ID_ERROR},
 };
 
 int wired_h3srv_priupdate_check(

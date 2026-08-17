@@ -1,5 +1,5 @@
-#ifndef QUIC_FLOW_DUAL_FLOW_H
-#define QUIC_FLOW_DUAL_FLOW_H
+#ifndef FLOW_DUAL_FLOW_H
+#define FLOW_DUAL_FLOW_H
 
 #include "common/platform/sys/syscall.h"
 

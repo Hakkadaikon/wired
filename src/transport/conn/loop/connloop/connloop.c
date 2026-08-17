@@ -6,17 +6,17 @@
 #include "transport/recovery/rtx/sentpkt/ack_process.h"
 
 /* Send level starts one below Initial so the first send must promote in. */
-#define QUIC_CONNLOOP_NO_LEVEL (-1)
+#define CONNLOOP_NO_LEVEL (-1)
 
 void connloop_init(connloop* c, int is_server) {
   keyset_init(&c->keys);
   sentpkt_init(&c->sent);
-  c->send_level          = QUIC_CONNLOOP_NO_LEVEL;
+  c->send_level          = CONNLOOP_NO_LEVEL;
   c->handshake_complete  = 0;
   c->handshake_confirmed = 0;
   c->validated           = 0;
   c->is_server           = is_server;
-  c->phase               = QUIC_CONNLOOP_ACTIVE;
+  c->phase               = CONNLOOP_ACTIVE;
   c->pto_armed           = 0;
   c->recv_bytes          = 0;
   c->sent_bytes          = 0;
@@ -32,11 +32,11 @@ static int level_usable(const connloop* c, int level) {
 
 /* RFC 9000 10.2: only an active connection processes incoming packets. */
 static int recv_allowed(const connloop* c, int level) {
-  return c->phase != QUIC_CONNLOOP_CLOSED && level_usable(c, level);
+  return c->phase != CONNLOOP_CLOSED && level_usable(c, level);
 }
 
 int connloop_on_recv(connloop* c, int level, usz len) {
-  if (c->phase == QUIC_CONNLOOP_CLOSED) return 0;
+  if (c->phase == CONNLOOP_CLOSED) return 0;
   c->recv_bytes += len; /* RFC 9000 8.1: budget grows even when dropped */
   return recv_allowed(c, level) ? 1 : 0;
 }
@@ -51,7 +51,7 @@ static int send_level_ok(const connloop* c, int level) {
 
 /* RFC 9000 10.2 / 8.1: open phase, key present, and within the amp budget. */
 static int send_gated(const connloop* c, int level, usz len) {
-  if (c->phase != QUIC_CONNLOOP_ACTIVE) return 0;
+  if (c->phase != CONNLOOP_ACTIVE) return 0;
   if (!level_usable(c, level)) return 0;
   pathbudget b = {c->recv_bytes, c->sent_bytes, c->validated};
   return udploop_send_allowed(&b, len);
@@ -91,7 +91,7 @@ void connloop_on_auth_fail(connloop* c, int is_chacha) {
 }
 
 usz connloop_on_ack(connloop* c, const connloop_ack_in* in) {
-  u64    acked[QUIC_SENTPKT_CAP];
+  u64    acked[SENTPKT_CAP];
   usz    n      = 0;
   ackset ackset = {in->ack_largest, in->ack_ranges, in->n_ranges};
   ack_process(&c->sent, &ackset, (u64out){acked, &n});
@@ -116,15 +116,15 @@ int connloop_on_pto(connloop* c, const connloop_pto_in* in) {
  * local close (overridden below for a peer close); the rest march one step
  * toward closed and closed never reopens. Indexed by QUIC_CONNLOOP_*. */
 static const int connloop_next[] = {
-    [QUIC_CONNLOOP_ACTIVE]   = QUIC_CONNLOOP_CLOSING,
-    [QUIC_CONNLOOP_CLOSING]  = QUIC_CONNLOOP_DRAINING,
-    [QUIC_CONNLOOP_DRAINING] = QUIC_CONNLOOP_CLOSED,
-    [QUIC_CONNLOOP_CLOSED]   = QUIC_CONNLOOP_CLOSED,
+    [CONNLOOP_ACTIVE]   = CONNLOOP_CLOSING,
+    [CONNLOOP_CLOSING]  = CONNLOOP_DRAINING,
+    [CONNLOOP_DRAINING] = CONNLOOP_CLOSED,
+    [CONNLOOP_CLOSED]   = CONNLOOP_CLOSED,
 };
 
 void connloop_close(connloop* c, int peer_closed) {
-  if (c->phase == QUIC_CONNLOOP_ACTIVE && peer_closed)
-    c->phase = QUIC_CONNLOOP_DRAINING; /* peer close skips local closing */
+  if (c->phase == CONNLOOP_ACTIVE && peer_closed)
+    c->phase = CONNLOOP_DRAINING; /* peer close skips local closing */
   else
     c->phase = connloop_next[c->phase];
 }

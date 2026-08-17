@@ -1,10 +1,10 @@
-#ifndef QUIC_SENTPKT_LOSS_DETECT_H
-#define QUIC_SENTPKT_LOSS_DETECT_H
+#ifndef SENTPKT_LOSS_DETECT_H
+#define SENTPKT_LOSS_DETECT_H
 
 #include "transport/recovery/rtx/sentpkt/sentpkt.h"
 
 /* RFC 9002 6.1: packet- and time-threshold loss detection. */
-#define QUIC_SENTPKT_PACKET_THRESHOLD 3 /* kPacketThreshold */
+#define SENTPKT_PACKET_THRESHOLD 3 /* kPacketThreshold */
 
 /** Inputs to one loss-detection pass. */
 typedef struct {

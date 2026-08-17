@@ -1,5 +1,5 @@
-#ifndef QUIC_PNSPACES_SENT_SPACES_H
-#define QUIC_PNSPACES_SENT_SPACES_H
+#ifndef PNSPACES_SENT_SPACES_H
+#define PNSPACES_SENT_SPACES_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/conn/lifecycle/conn/pnspace.h"
@@ -12,7 +12,7 @@
 /** Per packet-number-space sent-packet tracking (RFC 9000 13): one
  * sentpkt table per space, acknowledged independently. */
 typedef struct {
-  sentpkt t[QUIC_PNS_COUNT];
+  sentpkt t[PNS_COUNT];
 } pnspaces_sent;
 
 void pnspaces_sent_init(pnspaces_sent* s);

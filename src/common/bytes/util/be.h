@@ -1,5 +1,5 @@
-#ifndef QUIC_UTIL_BE_H
-#define QUIC_UTIL_BE_H
+#ifndef UTIL_BE_H
+#define UTIL_BE_H
 
 #include "common/platform/sys/syscall.h"
 

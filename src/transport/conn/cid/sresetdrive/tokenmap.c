@@ -11,8 +11,8 @@ static int cid_eq(const sresetdrive_entry* e, const u8* cid, u8 cid_len) {
 }
 
 static int can_add(const sresetdrive_map* m, u8 cid_len) {
-  int has_room = m->count < QUIC_SRESETDRIVE_CAP;
-  int fits     = cid_len <= QUIC_SRESETDRIVE_MAX_CID;
+  int has_room = m->count < SRESETDRIVE_CAP;
+  int fits     = cid_len <= SRESETDRIVE_MAX_CID;
   return has_room & fits;
 }
 
@@ -20,17 +20,15 @@ static void entry_set(
     sresetdrive_entry* e,
     const u8*          cid,
     u8                 cid_len,
-    const u8           token[QUIC_SRESETDRIVE_TOKEN]) {
+    const u8           token[SRESETDRIVE_TOKEN]) {
   e->cid_len = cid_len;
   for (u8 i = 0; i < cid_len; i++) e->cid[i] = cid[i];
-  for (u8 i = 0; i < QUIC_SRESETDRIVE_TOKEN; i++) e->token[i] = token[i];
+  for (u8 i = 0; i < SRESETDRIVE_TOKEN; i++) e->token[i] = token[i];
 }
 
 /* RFC 9000 10.3 */
 int sresetdrive_map_add(
-    sresetdrive_map* m,
-    wired_span       cid,
-    const u8         token[QUIC_SRESETDRIVE_TOKEN]) {
+    sresetdrive_map* m, wired_span cid, const u8 token[SRESETDRIVE_TOKEN]) {
   if (!can_add(m, (u8)cid.n)) return 0;
   entry_set(&m->e[m->count++], cid.p, (u8)cid.n, token);
   return 1;

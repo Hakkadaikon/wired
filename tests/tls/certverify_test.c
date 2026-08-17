@@ -28,7 +28,7 @@ static void test_certverify_ecdsa_bogus(void) {
   const u8      sig[] = {0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01};
   certverify_in in;
   for (usz i = 0; i < 32; i++) th[i] = (u8)i;
-  in.scheme = QUIC_TLS_SCHEME_ECDSA_P256;
+  in.scheme = TLS_SCHEME_ECDSA_P256;
   in.cert   = wired_span_of(quic_x509_golden, sizeof(quic_x509_golden));
   in.sig    = wired_span_of(sig, sizeof(sig));
   in.transcript_hash = th;
@@ -41,7 +41,7 @@ static void test_certverify_ecdsa_malformed(void) {
   const u8      sig[] = {0x02, 0x01, 0x01}; /* a bare INTEGER, not SEQUENCE */
   certverify_in in;
   for (usz i = 0; i < 32; i++) th[i] = (u8)i;
-  in.scheme = QUIC_TLS_SCHEME_ECDSA_P256;
+  in.scheme = TLS_SCHEME_ECDSA_P256;
   in.cert   = wired_span_of(quic_x509_golden, sizeof(quic_x509_golden));
   in.sig    = wired_span_of(sig, sizeof(sig));
   in.transcript_hash = th;
@@ -52,7 +52,7 @@ static void test_certverify_ecdsa_malformed(void) {
  * content verifies under scheme rsa_pss_rsae_sha256. */
 static void test_certverify_pss_ok(void) {
   certverify_in in;
-  in.scheme = QUIC_TLS_SCHEME_RSA_PSS_SHA256;
+  in.scheme = TLS_SCHEME_RSA_PSS_SHA256;
   in.cert   = wired_span_of(quic_rsacv_cert_der, sizeof(quic_rsacv_cert_der));
   in.sig    = wired_span_of(quic_rsacv_pss_sig, sizeof(quic_rsacv_pss_sig));
   in.transcript_hash = quic_rsacv_th;
@@ -62,7 +62,7 @@ static void test_certverify_pss_ok(void) {
 /* A PKCS#1 v1.5 signature over the same content must NOT pass as PSS. */
 static void test_certverify_pss_rejects_pkcs1(void) {
   certverify_in in;
-  in.scheme = QUIC_TLS_SCHEME_RSA_PSS_SHA256;
+  in.scheme = TLS_SCHEME_RSA_PSS_SHA256;
   in.cert   = wired_span_of(quic_rsacv_cert_der, sizeof(quic_rsacv_cert_der));
   in.sig    = wired_span_of(quic_rsacv_pkcs1_sig, sizeof(quic_rsacv_pkcs1_sig));
   in.transcript_hash = quic_rsacv_th;

@@ -41,7 +41,7 @@ static usz get_two_varint_frame(const u8* buf, usz n, stream_data_frame* f) {
 
 usz max_data_encode(u8* buf, usz cap, const data_frame* f) {
   wired_obuf o = obuf_of(buf, cap);
-  return put_one_varint_frame(&o, QUIC_FRAME_MAX_DATA, f->value);
+  return put_one_varint_frame(&o, FRAME_MAX_DATA, f->value);
 }
 
 usz max_data_decode(const u8* buf, usz n, data_frame* f) {
@@ -50,7 +50,7 @@ usz max_data_decode(const u8* buf, usz n, data_frame* f) {
 
 usz data_blocked_encode(u8* buf, usz cap, const data_frame* f) {
   wired_obuf o = obuf_of(buf, cap);
-  return put_one_varint_frame(&o, QUIC_FRAME_DATA_BLOCKED, f->value);
+  return put_one_varint_frame(&o, FRAME_DATA_BLOCKED, f->value);
 }
 
 usz data_blocked_decode(const u8* buf, usz n, data_frame* f) {
@@ -59,7 +59,7 @@ usz data_blocked_decode(const u8* buf, usz n, data_frame* f) {
 
 usz max_stream_data_encode(u8* buf, usz cap, const stream_data_frame* f) {
   wired_obuf o = obuf_of(buf, cap);
-  return put_two_varint_frame(&o, QUIC_FRAME_MAX_STREAM_DATA, f);
+  return put_two_varint_frame(&o, FRAME_MAX_STREAM_DATA, f);
 }
 
 usz max_stream_data_decode(const u8* buf, usz n, stream_data_frame* f) {
@@ -68,7 +68,7 @@ usz max_stream_data_decode(const u8* buf, usz n, stream_data_frame* f) {
 
 usz stream_data_blocked_encode(u8* buf, usz cap, const stream_data_frame* f) {
   wired_obuf o = obuf_of(buf, cap);
-  return put_two_varint_frame(&o, QUIC_FRAME_STREAM_DATA_BLOCKED, f);
+  return put_two_varint_frame(&o, FRAME_STREAM_DATA_BLOCKED, f);
 }
 
 usz stream_data_blocked_decode(const u8* buf, usz n, stream_data_frame* f) {
@@ -82,7 +82,7 @@ static u64 streams_type(u64 bidi_type, int uni) {
 
 usz max_streams_encode(u8* buf, usz cap, const streams_frame* f) {
   wired_obuf o    = obuf_of(buf, cap);
-  u64        type = streams_type(QUIC_FRAME_MAX_STREAMS_BIDI, f->uni);
+  u64        type = streams_type(FRAME_MAX_STREAMS_BIDI, f->uni);
   return put_one_varint_frame(&o, type, f->max_streams);
 }
 
@@ -93,7 +93,7 @@ usz max_streams_decode(const u8* buf, usz n, streams_frame* f) {
 
 usz streams_blocked_encode(u8* buf, usz cap, const streams_frame* f) {
   wired_obuf o    = obuf_of(buf, cap);
-  u64        type = streams_type(QUIC_FRAME_STREAMS_BLOCKED_BIDI, f->uni);
+  u64        type = streams_type(FRAME_STREAMS_BLOCKED_BIDI, f->uni);
   return put_one_varint_frame(&o, type, f->max_streams);
 }
 

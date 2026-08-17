@@ -22,7 +22,7 @@ static void test_ackgen_generic(void) {
 /* RFC 9221 5.2: "Receivers SHOULD support delaying ACK frames (within the
  * limits specified by max_ack_delay) in response to receiving packets that
  * only contain DATAGRAM frames" -- fed through the real frame classifier
- * (frame_ack_eliciting(QUIC_FK_DATAGRAM), the same predicate
+ * (frame_ack_eliciting(FK_DATAGRAM), the same predicate
  * framedispatch_handle sets st->ack_eliciting from) rather than a
  * hand-picked 1/0, so this proves the actual DATAGRAM-only-packet path, not
  * just the generic ack_eliciting_received=1 case: a DATAGRAM-only receive
@@ -30,7 +30,7 @@ static void test_ackgen_generic(void) {
  * ack-eliciting packet -- not acked immediately, but ack-due once the delay
  * elapses. */
 static void test_ackgen_datagram_only_packet_delayed(void) {
-  int dgram_eliciting = frame_ack_eliciting(QUIC_FK_DATAGRAM);
+  int dgram_eliciting = frame_ack_eliciting(FK_DATAGRAM);
   CHECK(dgram_eliciting == 1);
 
   /* within max_ack_delay: not yet due */

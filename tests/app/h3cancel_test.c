@@ -14,18 +14,18 @@ static void test_h3cancel_request_builds_both_frames(void) {
   CHECK(len > 0);
 
   /* First frame: RESET_STREAM (type 0x04 at out[0]). */
-  CHECK(out[0] == QUIC_FRAME_RESET_STREAM);
+  CHECK(out[0] == FRAME_RESET_STREAM);
   rn = reset_stream_decode(out, len, &rs);
   CHECK(rn > 0);
   CHECK(rs.stream_id == 8);
-  CHECK(rs.error_code == QUIC_H3_REQUEST_CANCELLED);
+  CHECK(rs.error_code == H3_REQUEST_CANCELLED);
   CHECK(rs.final_size == 100);
 
   /* Second frame: STOP_SENDING follows immediately (type 0x05). */
-  CHECK(out[rn] == QUIC_FRAME_STOP_SENDING);
+  CHECK(out[rn] == FRAME_STOP_SENDING);
   CHECK(stop_sending_decode(out + rn, len - rn, &ss) == len - rn);
   CHECK(ss.stream_id == 8);
-  CHECK(ss.error_code == QUIC_H3_REQUEST_CANCELLED);
+  CHECK(ss.error_code == H3_REQUEST_CANCELLED);
 }
 
 /* Boundary: a varint-max stream id still round-trips through the pair. */
@@ -57,7 +57,7 @@ static void test_h3cancel_push_roundtrip(void) {
   usz n  = h3_cancel_push_put(out, sizeof out, 0x4142);
 
   CHECK(n > 0);
-  CHECK(out[0] == QUIC_H3_FRAME_CANCEL_PUSH);
+  CHECK(out[0] == H3_FRAME_CANCEL_PUSH);
   CHECK(h3_cancel_push_get(out, n, &id) == n);
   CHECK(id == 0x4142);
 }
@@ -70,7 +70,7 @@ static void test_h3cancel_push_truncated(void) {
 }
 
 static void test_h3cancel_error_code_value(void) {
-  CHECK(QUIC_H3_REQUEST_CANCELLED == 0x010c);
+  CHECK(H3_REQUEST_CANCELLED == 0x010c);
 }
 
 void test_h3cancel(void) {

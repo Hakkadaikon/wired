@@ -5,14 +5,14 @@
 #include "crypto/pki/encoding/x509/x509.h"
 
 /* X.690 8.2. BOOLEAN universal tag. */
-#define QUIC_DER_BOOLEAN 0x01
+#define DER_BOOLEAN 0x01
 
 /* id-ce-basicConstraints = 2.5.29.19 */
 static const u8 oid_bc[] = {0x55, 0x1d, 0x13};
 
 /* X.690 11.1. A DER BOOLEAN encoding TRUE (single non-zero octet). */
 static int bc_is_true_boolean(u8 tag, wired_span b) {
-  return tag == QUIC_DER_BOOLEAN && b.n == 1 && b.p[0] != 0x00;
+  return tag == DER_BOOLEAN && b.n == 1 && b.p[0] != 0x00;
 }
 
 /* RFC 5280 4.2.1.9. cA is the optional leading BOOLEAN of the SEQUENCE. */
@@ -65,7 +65,7 @@ static usz bc_uint(wired_span b) {
 /* pathLenConstraint INTEGER admits `depth`; a non-INTEGER trailing element or
  * a malformed/negative value rejects (fail closed). */
 static int bc_pathlen_ok(u8 tag, wired_span b, usz depth) {
-  if (tag != QUIC_DER_INTEGER || !bc_uint_wf(b)) return 0;
+  if (tag != DER_INTEGER || !bc_uint_wf(b)) return 0;
   return bc_uint(b) >= depth;
 }
 

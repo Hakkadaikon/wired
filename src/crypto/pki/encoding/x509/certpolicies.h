@@ -1,5 +1,5 @@
-#ifndef QUIC_X509_CERTPOLICIES_H
-#define QUIC_X509_CERTPOLICIES_H
+#ifndef X509_CERTPOLICIES_H
+#define X509_CERTPOLICIES_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -8,12 +8,12 @@
  * are read out of one certificate's certificatePolicies extension; a
  * certificate listing more is truncated to this cap (RFC 5280 does not bound
  * the count, but real-world certificates list at most a handful). */
-#define QUIC_X509_CERT_POLICY_MAX 8
+#define X509_CERT_POLICY_MAX 8
 
 /** A fixed-capacity set of policy OID views into a certificate's tbs buffer
  * (no copying, no allocation). */
 typedef struct {
-  wired_span oid[QUIC_X509_CERT_POLICY_MAX];
+  wired_span oid[X509_CERT_POLICY_MAX];
   usz        n;
 } x509_policy_set;
 
@@ -22,7 +22,7 @@ extern const u8 x509_oid_any_policy[4];
 
 /* RFC 5280 4.2.1.4. 1 if tbs carries a certificatePolicies extension, else 0.
  * On 1, *out lists its policyIdentifier OIDs (capped at
- * QUIC_X509_CERT_POLICY_MAX; malformed PolicyInformation entries are
+ * X509_CERT_POLICY_MAX; malformed PolicyInformation entries are
  * skipped rather than aborting the whole extension, matching the "SHOULD NOT
  * duplicate" tolerance of 4.2.1.4). *out is untouched on return 0. */
 int x509_cert_policies(wired_span tbs, x509_policy_set* out);

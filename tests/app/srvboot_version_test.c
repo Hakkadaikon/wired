@@ -21,7 +21,7 @@
 
 /* ---- initpkt_derive_ver / initpkt_open_ver ---- */
 
-/* BASELINE: initpkt_derive_ver(..., QUIC_VERSION_1, ...) must not
+/* BASELINE: initpkt_derive_ver(..., VERSION_1, ...) must not
  * diverge from the plain (implicitly v1) initpkt_derive -- the RFC
  * 9001 A.1 golden vector already pins initpkt_derive in
  * initpkt_test.c, so equality with it is the v1 regression guard for the
@@ -30,7 +30,7 @@ static void test_derive_ver_v1_matches_default(void) {
   const u8     dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   initial_keys ck1, sk1, ck2, sk2;
   initpkt_derive(wired_span_of(dcid, 8), &ck1, &sk1);
-  initpkt_derive_ver(wired_span_of(dcid, 8), QUIC_VERSION_1, &ck2, &sk2);
+  initpkt_derive_ver(wired_span_of(dcid, 8), VERSION_1, &ck2, &sk2);
   for (usz i = 0; i < 16; i++) CHECK(ck1.key[i] == ck2.key[i]);
   for (usz i = 0; i < 12; i++) CHECK(ck1.iv[i] == ck2.iv[i]);
   for (usz i = 0; i < 16; i++) CHECK(ck1.hp[i] == ck2.hp[i]);
@@ -43,8 +43,8 @@ static void test_derive_ver_v2_differs_from_v1(void) {
   const u8     dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   initial_keys ck1, sk1, ck2, sk2;
   int          same_key = 1;
-  initpkt_derive_ver(wired_span_of(dcid, 8), QUIC_VERSION_1, &ck1, &sk1);
-  initpkt_derive_ver(wired_span_of(dcid, 8), QUIC_VERSION_2, &ck2, &sk2);
+  initpkt_derive_ver(wired_span_of(dcid, 8), VERSION_1, &ck1, &sk1);
+  initpkt_derive_ver(wired_span_of(dcid, 8), VERSION_2, &ck2, &sk2);
   for (usz i = 0; i < 16; i++)
     if (ck1.key[i] != ck2.key[i]) same_key = 0;
   CHECK(!same_key);
@@ -63,13 +63,12 @@ static void test_initpkt_ver_v2_roundtrip(void) {
       wired_span_of(dcid, 8), wired_span_of(scid, 4), wired_span_of(ch, 4), 0,
       0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
-  CHECK(initpkt_build_ver(QUIC_VERSION_2, &d, &o));
+  CHECK(initpkt_build_ver(VERSION_2, &d, &o));
   CHECK(o.len >= 1200);
 
   wired_span crypto;
   CHECK(initpkt_open_ver(
-      wired_span_of(dcid, 8), QUIC_VERSION_2, wired_mspan_of(pkt, o.len),
-      &crypto));
+      wired_span_of(dcid, 8), VERSION_2, wired_mspan_of(pkt, o.len), &crypto));
   CHECK(crypto.p[0] == 0x06); /* CRYPTO frame type */
   for (usz i = 0; i < 4; i++) CHECK(crypto.p[3 + i] == ch[i]);
 }
@@ -86,10 +85,9 @@ static void test_initpkt_ver_wrong_version_fails(void) {
       wired_span_of(ch, 1), 0, 0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
   wired_span crypto;
-  CHECK(initpkt_build_ver(QUIC_VERSION_2, &d, &o));
+  CHECK(initpkt_build_ver(VERSION_2, &d, &o));
   CHECK(!initpkt_open_ver(
-      wired_span_of(dcid, 8), QUIC_VERSION_1, wired_mspan_of(pkt, o.len),
-      &crypto));
+      wired_span_of(dcid, 8), VERSION_1, wired_mspan_of(pkt, o.len), &crypto));
 }
 
 /* v2's Initial byte0 type bits differ from v1's (RFC 9369 3.2: wire value 1,
@@ -102,12 +100,12 @@ static void test_initpkt_ver_v2_byte0_type_bits(void) {
       wired_span_of(dcid, 8), wired_span_of((const u8*)0, 0),
       wired_span_of(ch, 1), 0, 0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
-  CHECK(initpkt_build_ver(QUIC_VERSION_2, &d, &o));
-  CHECK(packet_long_type(pkt[0], QUIC_VERSION_2) == QUIC_PT_INITIAL);
+  CHECK(initpkt_build_ver(VERSION_2, &d, &o));
+  CHECK(packet_long_type(pkt[0], VERSION_2) == PT_INITIAL);
   /* the same byte read under v1's table must NOT decode as Initial (it is
    * v1's 0-RTT wire bits, RFC 9369 3.2's rotation) -- catches accidentally
    * reusing v1's byte0 for a v2 packet. */
-  CHECK(packet_long_type(pkt[0], QUIC_VERSION_1) != QUIC_PT_INITIAL);
+  CHECK(packet_long_type(pkt[0], VERSION_1) != PT_INITIAL);
 }
 
 /* ---- wired_srvboot_is_initial ---- */
@@ -117,7 +115,7 @@ static void test_initpkt_ver_v2_byte0_type_bits(void) {
 static void test_is_initial_v1_still_recognized(void) {
   u8 dg[1200] = {0};
   dg[0]       = 0xc3; /* long + fixed + Initial(00) + pnlen 4-1 */
-  be_put_be32(dg + 1, QUIC_VERSION_1);
+  be_put_be32(dg + 1, VERSION_1);
   dg[5] = 0; /* zero-length DCID */
   CHECK(wired_srvboot_is_initial(dg, sizeof(dg)) == 1);
 }
@@ -128,7 +126,7 @@ static void test_is_initial_v1_still_recognized(void) {
 static void test_is_initial_v2_recognized(void) {
   u8 dg[1200] = {0};
   dg[0]       = 0xd3; /* long + fixed + v2 Initial(01) + pnlen 4-1 */
-  be_put_be32(dg + 1, QUIC_VERSION_2);
+  be_put_be32(dg + 1, VERSION_2);
   dg[5] = 0;
   CHECK(wired_srvboot_is_initial(dg, sizeof(dg)) == 1);
 }
@@ -138,7 +136,7 @@ static void test_is_initial_v2_recognized(void) {
 static void test_is_initial_v1_0rtt_bits_rejected(void) {
   u8 dg[1200] = {0};
   dg[0]       = 0xd3;
-  be_put_be32(dg + 1, QUIC_VERSION_1);
+  be_put_be32(dg + 1, VERSION_1);
   dg[5] = 0;
   CHECK(wired_srvboot_is_initial(dg, sizeof(dg)) == 0);
 }
@@ -168,8 +166,8 @@ static void test_vneg_lists_v1_and_v2(void) {
    * are both empty so the list starts at offset 7. */
   for (usz off = 7; off + 4 <= n; off += 4) {
     u32 v = be_get_be32(out + off);
-    if (v == QUIC_VERSION_1) saw_v1 = 1;
-    if (v == QUIC_VERSION_2) saw_v2 = 1;
+    if (v == VERSION_1) saw_v1 = 1;
+    if (v == VERSION_2) saw_v2 = 1;
   }
   CHECK(saw_v1 && saw_v2);
 }
@@ -177,7 +175,7 @@ static void test_vneg_lists_v1_and_v2(void) {
 /* A v2 Initial must NOT trigger Version Negotiation any more -- v2 is now a
  * version this server speaks directly. */
 static void test_vneg_not_owed_for_v2(void) {
-  vneg_dg_init(QUIC_VERSION_2);
+  vneg_dg_init(VERSION_2);
   u8  out[64];
   usz n = wired_srvboot_vneg(wired_span_of(vneg_dg, sizeof(vneg_dg)), out, 64);
   CHECK(n == 0);
@@ -239,7 +237,7 @@ static void test_srvboot_accept_v2_initial(void) {
       wired_span_of(dcid, 8), wired_span_of(cli_scid, 4),
       wired_span_of(ch, ch_len), 0, 0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
-  CHECK(initpkt_build_ver(QUIC_VERSION_2, &d, &o));
+  CHECK(initpkt_build_ver(VERSION_2, &d, &o));
 
   wired_srvboot_id id = {0};
   id.priv             = srv_priv;
@@ -259,8 +257,8 @@ static void test_srvboot_accept_v2_initial(void) {
   CHECK(wired_srvboot_accept(&conn, &in, &out) == 1);
   /* the sealed server Initial's own long-header Version field must be v2,
    * not the old hardcoded v1 (bytes 1..4 after byte0). */
-  CHECK(be_get_be32(init_buf + 1) == QUIC_VERSION_2);
-  CHECK(packet_long_type(init_buf[0], QUIC_VERSION_2) == QUIC_PT_INITIAL);
+  CHECK(be_get_be32(init_buf + 1) == VERSION_2);
+  CHECK(packet_long_type(init_buf[0], VERSION_2) == PT_INITIAL);
 }
 
 void test_srvboot_version(void) {

@@ -1,5 +1,5 @@
-#ifndef QUIC_TLSEXT_PRESHARED_H
-#define QUIC_TLSEXT_PRESHARED_H
+#ifndef TLSEXT_PRESHARED_H
+#define TLSEXT_PRESHARED_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

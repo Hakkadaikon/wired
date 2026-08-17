@@ -1,5 +1,5 @@
-#ifndef QUIC_CLOSELIFE_IDLETIMEOUT_H
-#define QUIC_CLOSELIFE_IDLETIMEOUT_H
+#ifndef CLOSELIFE_IDLETIMEOUT_H
+#define CLOSELIFE_IDLETIMEOUT_H
 
 #include "common/platform/sys/syscall.h"
 

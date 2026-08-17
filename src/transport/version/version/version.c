@@ -29,9 +29,9 @@ typedef struct {
 /* Write the id and length varints; return 1 ok with *w->off advanced, 0 if no
  * room or too many Available Versions. */
 static int put_vi_head(const version_wcursor* w, const version_info* vi) {
-  if (vi->n_available > QUIC_VI_MAX_AVAILABLE) return 0;
+  if (vi->n_available > VI_MAX_AVAILABLE) return 0;
   if (!varint_put(
-          wired_mspan_of(w->buf, w->cap), w->off, QUIC_TP_VERSION_INFORMATION))
+          wired_mspan_of(w->buf, w->cap), w->off, TP_VERSION_INFORMATION))
     return 0;
   return varint_put(wired_mspan_of(w->buf, w->cap), w->off, vi_value_len(vi));
 }
@@ -64,7 +64,7 @@ typedef struct {
 static int take_vi_id(const version_rcursor* r) {
   u64 id;
   if (!varint_take(wired_span_of(r->buf, r->n), r->off, &id)) return 0;
-  return id == QUIC_TP_VERSION_INFORMATION;
+  return id == TP_VERSION_INFORMATION;
 }
 
 /* Read id and length; require the id to match and the length to be valid. */
@@ -84,7 +84,7 @@ static void read_versions(const u8* value, version_info* vi, usz count) {
 
 /* The value fits in n bytes and its available count fits our array. */
 static int vi_fits(usz off, u64 vlen, usz n) {
-  return off + vlen <= n && (vlen / 4 - 1) <= QUIC_VI_MAX_AVAILABLE;
+  return off + vlen <= n && (vlen / 4 - 1) <= VI_MAX_AVAILABLE;
 }
 
 usz version_info_decode(const u8* buf, usz n, version_info* vi) {

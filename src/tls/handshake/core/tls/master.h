@@ -1,12 +1,11 @@
-#ifndef QUIC_TLS_MASTER_H
-#define QUIC_TLS_MASTER_H
+#ifndef TLS_MASTER_H
+#define TLS_MASTER_H
 
 #include "crypto/kdf/hkdf/hkdf.h"
 
 /* RFC 8446 7.1: Master Secret from the Handshake Secret.
  * derived = Derive-Secret(Handshake, "derived", ""); then
  * Master Secret = HKDF-Extract(derived, 0). Writes a 32-byte secret. */
-void tls_master_secret(
-    const u8 hs_secret[QUIC_HKDF_PRK], u8 out[QUIC_HKDF_PRK]);
+void tls_master_secret(const u8 hs_secret[HKDF_PRK], u8 out[HKDF_PRK]);
 
 #endif

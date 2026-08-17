@@ -24,7 +24,7 @@ static void test_moqctl_peek_type_setup(void) {
   CHECK(
       moqctl_peek_type(
           wired_span_of(g_moqt_ctl_setup_impl, G_MOQT_CTL_SETUP_IMPL_LEN), &off,
-          &type, &body) == QUIC_MOQCTL_OK);
+          &type, &body) == MOQCTL_OK);
   CHECK(type == G_MOQT_CTL_SETUP_IMPL_TYPE);
   CHECK(body.n == G_MOQT_CTL_SETUP_IMPL_MSG_LEN);
   CHECK(off == G_MOQT_CTL_SETUP_IMPL_LEN);
@@ -46,7 +46,7 @@ static void test_moqctl_peek_type_length_mismatch(void) {
   CHECK(
       moqctl_peek_type(
           wired_span_of(buf, G_MOQT_CTL_SUBSCRIBE_OK_BASIC_LEN), &off, &type,
-          &body) == QUIC_MOQCTL_INSUFFICIENT);
+          &body) == MOQCTL_INSUFFICIENT);
 }
 
 /* TEST 3: body cut short mid-message -> INSUFFICIENT. */
@@ -59,7 +59,7 @@ static void test_moqctl_peek_type_truncated(void) {
       moqctl_peek_type(
           wired_span_of(
               g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN - 3),
-          &off, &type, &body) == QUIC_MOQCTL_INSUFFICIENT);
+          &off, &type, &body) == MOQCTL_INSUFFICIENT);
 }
 
 /* TEST 4: unknown message type -> UNKNOWN_TYPE. Type 0x2 (REQUEST_
@@ -73,7 +73,7 @@ static void test_moqctl_peek_type_unknown(void) {
 
   CHECK(
       moqctl_peek_type(wired_span_of(in, sizeof in), &off, &type, &body) ==
-      QUIC_MOQCTL_UNKNOWN_TYPE);
+      MOQCTL_UNKNOWN_TYPE);
 }
 
 /* TEST 5: known-but-unimplemented message type is distinguished from an
@@ -86,7 +86,7 @@ static void test_moqctl_peek_type_known_unimplemented(void) {
 
   CHECK(
       moqctl_peek_type(wired_span_of(in, sizeof in), &off, &type, &body) ==
-      QUIC_MOQCTL_KNOWN_UNIMPLEMENTED);
+      MOQCTL_KNOWN_UNIMPLEMENTED);
 }
 
 /* TEST 6: message total length boundary at 2^16-1. A Length field
@@ -104,7 +104,7 @@ static void test_moqctl_peek_type_max_len_field(void) {
   buf[2] = 0xFF; /* Length = 65535, but only 2 bytes follow: insufficient */
   CHECK(
       moqctl_peek_type(wired_span_of(buf, 3), &off, &type, &body) ==
-      QUIC_MOQCTL_INSUFFICIENT);
+      MOQCTL_INSUFFICIENT);
 }
 
 /* ===== TEST 7-14: per-message round trip against golden ===== */
@@ -121,10 +121,10 @@ static void test_moqctl_setup_roundtrip(void) {
   CHECK(
       moqctl_peek_type(
           wired_span_of(g_moqt_ctl_setup_impl, G_MOQT_CTL_SETUP_IMPL_LEN), &off,
-          &type, &body) == QUIC_MOQCTL_OK);
+          &type, &body) == MOQCTL_OK);
   {
     usz boff = 0;
-    CHECK(moqctl_setup_take(body, &boff, &s) == QUIC_MOQCTL_OK);
+    CHECK(moqctl_setup_take(body, &boff, &s) == MOQCTL_OK);
     CHECK(boff == body.n);
   }
   CHECK(!s.has_path);
@@ -189,10 +189,10 @@ static void test_moqctl_subscribe_roundtrip(void) {
       moqctl_peek_type(
           wired_span_of(
               g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
-          &off, &type, &body) == QUIC_MOQCTL_OK);
+          &off, &type, &body) == MOQCTL_OK);
   {
     usz boff = 0;
-    CHECK(moqctl_subscribe_take(body, &boff, &m) == QUIC_MOQCTL_OK);
+    CHECK(moqctl_subscribe_take(body, &boff, &m) == MOQCTL_OK);
     CHECK(boff == body.n);
   }
   CHECK(m.request_id == 0);
@@ -227,10 +227,10 @@ static void test_moqctl_subscribe_ok_roundtrip(void) {
       moqctl_peek_type(
           wired_span_of(
               g_moqt_ctl_subscribe_ok_basic, G_MOQT_CTL_SUBSCRIBE_OK_BASIC_LEN),
-          &off, &type, &body) == QUIC_MOQCTL_OK);
+          &off, &type, &body) == MOQCTL_OK);
   {
     usz boff = 0;
-    CHECK(moqctl_subscribe_ok_take(body, &boff, &m) == QUIC_MOQCTL_OK);
+    CHECK(moqctl_subscribe_ok_take(body, &boff, &m) == MOQCTL_OK);
   }
   CHECK(m.track_alias == 1);
   CHECK(m.params.n == 0);
@@ -258,10 +258,10 @@ static void test_moqctl_publish_roundtrip(void) {
   CHECK(
       moqctl_peek_type(
           wired_span_of(g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN),
-          &off, &type, &body) == QUIC_MOQCTL_OK);
+          &off, &type, &body) == MOQCTL_OK);
   {
     usz boff = 0;
-    CHECK(moqctl_publish_take(body, &boff, &m) == QUIC_MOQCTL_OK);
+    CHECK(moqctl_publish_take(body, &boff, &m) == MOQCTL_OK);
   }
   CHECK(m.request_id == 0);
   CHECK(m.name.ns.n == 2);
@@ -291,10 +291,10 @@ static void test_moqctl_request_ok_roundtrip(void) {
       moqctl_peek_type(
           wired_span_of(
               g_moqt_ctl_request_ok_basic, G_MOQT_CTL_REQUEST_OK_BASIC_LEN),
-          &off, &type, &body) == QUIC_MOQCTL_OK);
+          &off, &type, &body) == MOQCTL_OK);
   {
     usz boff = 0;
-    CHECK(moqctl_request_ok_take(body, &boff, &m) == QUIC_MOQCTL_OK);
+    CHECK(moqctl_request_ok_take(body, &boff, &m) == MOQCTL_OK);
   }
   CHECK(m.params.n == 0);
   CHECK(m.track_properties.n == 0);
@@ -324,12 +324,12 @@ static void test_moqctl_request_error_roundtrip(void) {
           wired_span_of(
               g_moqt_ctl_request_error_not_supported,
               G_MOQT_CTL_REQUEST_ERROR_NOT_SUPPORTED_LEN),
-          &off, &type, &body) == QUIC_MOQCTL_OK);
+          &off, &type, &body) == MOQCTL_OK);
   {
     usz boff = 0;
-    CHECK(moqctl_request_error_take(body, &boff, &m) == QUIC_MOQCTL_OK);
+    CHECK(moqctl_request_error_take(body, &boff, &m) == MOQCTL_OK);
   }
-  CHECK(m.error_code == QUIC_MOQCTL_ERR_NOT_SUPPORTED);
+  CHECK(m.error_code == MOQCTL_ERR_NOT_SUPPORTED);
   CHECK(m.retry_interval == 0);
   CHECK(m.reason.n == 13);
   CHECK(!m.has_redirect);
@@ -359,12 +359,12 @@ static void test_moqctl_publish_done_roundtrip(void) {
           wired_span_of(
               g_moqt_ctl_publish_done_track_ended,
               G_MOQT_CTL_PUBLISH_DONE_TRACK_ENDED_LEN),
-          &off, &type, &body) == QUIC_MOQCTL_OK);
+          &off, &type, &body) == MOQCTL_OK);
   {
     usz boff = 0;
-    CHECK(moqctl_publish_done_take(body, &boff, &m) == QUIC_MOQCTL_OK);
+    CHECK(moqctl_publish_done_take(body, &boff, &m) == MOQCTL_OK);
   }
-  CHECK(m.status_code == QUIC_MOQCTL_DONE_TRACK_ENDED);
+  CHECK(m.status_code == MOQCTL_DONE_TRACK_ENDED);
   CHECK(m.stream_count == 2);
   CHECK(m.reason.n == 0);
 
@@ -390,10 +390,10 @@ static void test_moqctl_goaway_roundtrip(void) {
   CHECK(
       moqctl_peek_type(
           wired_span_of(g_moqt_ctl_goaway_empty, G_MOQT_CTL_GOAWAY_EMPTY_LEN),
-          &off, &type, &body) == QUIC_MOQCTL_OK);
+          &off, &type, &body) == MOQCTL_OK);
   {
     usz boff = 0;
-    CHECK(moqctl_goaway_take(body, &boff, &m) == QUIC_MOQCTL_OK);
+    CHECK(moqctl_goaway_take(body, &boff, &m) == MOQCTL_OK);
   }
   CHECK(m.new_session_uri.n == 0);
   CHECK(m.timeout == 0);
@@ -406,8 +406,8 @@ static void test_moqctl_goaway_roundtrip(void) {
 /* ===== TEST: GOAWAY New Session URI 8192 boundary ===== */
 
 static void test_moqctl_goaway_uri_boundary(void) {
-  u8            buf_ok[3 + QUIC_MOQCTL_MAX_URI_LEN + 4];
-  u8            buf_reject[3 + QUIC_MOQCTL_MAX_URI_LEN + 5];
+  u8            buf_ok[3 + MOQCTL_MAX_URI_LEN + 4];
+  u8            buf_reject[3 + MOQCTL_MAX_URI_LEN + 5];
   usz           at;
   moqctl_goaway m;
 
@@ -416,38 +416,35 @@ static void test_moqctl_goaway_uri_boundary(void) {
    * only need decode acceptance here. */
   at = 0;
   CHECK(moqvi_put(wired_mspan_of(buf_ok, sizeof buf_ok), &at, 8192));
-  for (usz i = 0; i < QUIC_MOQCTL_MAX_URI_LEN; i++) buf_ok[at + i] = 'a';
-  at += QUIC_MOQCTL_MAX_URI_LEN;
+  for (usz i = 0; i < MOQCTL_MAX_URI_LEN; i++) buf_ok[at + i] = 'a';
+  at += MOQCTL_MAX_URI_LEN;
   CHECK(moqvi_put(wired_mspan_of(buf_ok, sizeof buf_ok), &at, 0));
   {
     usz off = 0;
-    CHECK(
-        moqctl_goaway_take(wired_span_of(buf_ok, at), &off, &m) ==
-        QUIC_MOQCTL_OK);
-    CHECK(m.new_session_uri.n == QUIC_MOQCTL_MAX_URI_LEN);
+    CHECK(moqctl_goaway_take(wired_span_of(buf_ok, at), &off, &m) == MOQCTL_OK);
+    CHECK(m.new_session_uri.n == MOQCTL_MAX_URI_LEN);
   }
 
   /* 8193 rejected */
   at = 0;
   CHECK(moqvi_put(
       wired_mspan_of(buf_reject, sizeof buf_reject), &at,
-      QUIC_MOQCTL_MAX_URI_LEN + 1));
-  for (usz i = 0; i < QUIC_MOQCTL_MAX_URI_LEN + 1; i++)
-    buf_reject[at + i] = 'a';
-  at += QUIC_MOQCTL_MAX_URI_LEN + 1;
+      MOQCTL_MAX_URI_LEN + 1));
+  for (usz i = 0; i < MOQCTL_MAX_URI_LEN + 1; i++) buf_reject[at + i] = 'a';
+  at += MOQCTL_MAX_URI_LEN + 1;
   {
     usz off = 0;
     CHECK(
         moqctl_goaway_take(wired_span_of(buf_reject, at), &off, &m) ==
-        QUIC_MOQCTL_VIOLATION);
+        MOQCTL_VIOLATION);
   }
 }
 
 /* ===== TEST: Reason Phrase 1024 boundary ===== */
 
 static void test_moqctl_reason_boundary(void) {
-  u8            buf_ok[3 + QUIC_MOQCTL_MAX_REASON_LEN];
-  u8            buf_reject[3 + QUIC_MOQCTL_MAX_REASON_LEN + 1];
+  u8            buf_ok[3 + MOQCTL_MAX_REASON_LEN];
+  u8            buf_reject[3 + MOQCTL_MAX_REASON_LEN + 1];
   usz           at;
   moqctl_reason r;
 
@@ -457,9 +454,7 @@ static void test_moqctl_reason_boundary(void) {
   at += 1024;
   {
     usz off = 0;
-    CHECK(
-        moqctl_reason_take(wired_span_of(buf_ok, at), &off, &r) ==
-        QUIC_MOQCTL_OK);
+    CHECK(moqctl_reason_take(wired_span_of(buf_ok, at), &off, &r) == MOQCTL_OK);
     CHECK(r.n == 1024);
   }
 
@@ -471,7 +466,7 @@ static void test_moqctl_reason_boundary(void) {
     usz off = 0;
     CHECK(
         moqctl_reason_take(wired_span_of(buf_reject, at), &off, &r) ==
-        QUIC_MOQCTL_VIOLATION);
+        MOQCTL_VIOLATION);
   }
 }
 
@@ -488,9 +483,7 @@ static void test_moqctl_location_roundtrip_and_order(void) {
   CHECK(moqctl_loc_put(wired_mspan_of(buf, sizeof buf), &off, a));
   {
     usz roff = 0;
-    CHECK(
-        moqctl_loc_take(wired_span_of(buf, off), &roff, &out) ==
-        QUIC_MOQCTL_OK);
+    CHECK(moqctl_loc_take(wired_span_of(buf, off), &roff, &out) == MOQCTL_OK);
     CHECK(out.group == a.group);
     CHECK(out.object == a.object);
   }
@@ -510,7 +503,7 @@ static void test_moqctl_ftn_decode_basic(void) {
           wired_span_of(
               g_moqt_name_full_track_name_basic,
               G_MOQT_NAME_FULL_TRACK_NAME_BASIC_LEN),
-          &off, &f) == QUIC_MOQCTL_OK);
+          &off, &f) == MOQCTL_OK);
   CHECK(off == G_MOQT_NAME_FULL_TRACK_NAME_BASIC_LEN);
   CHECK(f.ns.n == 2);
   CHECK(f.ns.fields[0].n == 4);
@@ -528,7 +521,7 @@ static void test_moqctl_ns_field_len_zero_rejected(void) {
           wired_span_of(
               g_moqt_name_ns_field_len_zero_reject,
               G_MOQT_NAME_NS_FIELD_LEN_ZERO_REJECT_LEN),
-          &off, &ns) == QUIC_MOQCTL_VIOLATION);
+          &off, &ns) == MOQCTL_VIOLATION);
 }
 
 /* 32 fields accepted, 33 rejected. */
@@ -542,7 +535,7 @@ static void test_moqctl_ns_fields_32_accept_33_reject(void) {
           wired_span_of(
               g_moqt_name_ns_fields_32_accept,
               G_MOQT_NAME_NS_FIELDS_32_ACCEPT_LEN),
-          &off, &ns) == QUIC_MOQCTL_OK);
+          &off, &ns) == MOQCTL_OK);
   CHECK(ns.n == 32);
 
   off = 0;
@@ -551,7 +544,7 @@ static void test_moqctl_ns_fields_32_accept_33_reject(void) {
           wired_span_of(
               g_moqt_name_ns_fields_33_reject,
               G_MOQT_NAME_NS_FIELDS_33_REJECT_LEN),
-          &off, &ns) == QUIC_MOQCTL_VIOLATION);
+          &off, &ns) == MOQCTL_VIOLATION);
 }
 
 /* Full Track Name 4096 boundary. */
@@ -564,14 +557,14 @@ static void test_moqctl_ftn_4096_accept_4097_reject(void) {
       moqctl_ftn_take(
           wired_span_of(
               g_moqt_name_ftn_4096_accept, G_MOQT_NAME_FTN_4096_ACCEPT_LEN),
-          &off, &f) == QUIC_MOQCTL_OK);
+          &off, &f) == MOQCTL_OK);
 
   off = 0;
   CHECK(
       moqctl_ftn_take(
           wired_span_of(
               g_moqt_name_ftn_4097_reject, G_MOQT_NAME_FTN_4097_REJECT_LEN),
-          &off, &f) == QUIC_MOQCTL_VIOLATION);
+          &off, &f) == MOQCTL_VIOLATION);
 }
 
 /* Exact byte comparison, no encoding-dependent shortcuts. */
@@ -585,14 +578,14 @@ static void test_moqctl_ftn_eq_exact_bytes(void) {
           wired_span_of(
               g_moqt_name_full_track_name_basic,
               G_MOQT_NAME_FULL_TRACK_NAME_BASIC_LEN),
-          &off, &a) == QUIC_MOQCTL_OK);
+          &off, &a) == MOQCTL_OK);
   off = 0;
   CHECK(
       moqctl_ftn_take(
           wired_span_of(
               g_moqt_name_full_track_name_basic,
               G_MOQT_NAME_FULL_TRACK_NAME_BASIC_LEN),
-          &off, &b) == QUIC_MOQCTL_OK);
+          &off, &b) == MOQCTL_OK);
   CHECK(moqctl_ftn_eq(&a, &b));
   b.name.p = (const u8*)"zzzzz";
   CHECK(!moqctl_ftn_eq(&a, &b));
@@ -607,8 +600,8 @@ static void test_moqctl_params_forward_roundtrip(void) {
   moqctl_params p   = {0};
   moqctl_params out;
 
-  p.items[0].type = QUIC_MOQCTL_PARAM_FORWARD;
-  p.items[0].enc  = QUIC_MOQCTL_PENC_UINT8;
+  p.items[0].type = MOQCTL_PARAM_FORWARD;
+  p.items[0].enc  = MOQCTL_PENC_UINT8;
   p.items[0].u8v  = 0;
   p.n             = 1;
 
@@ -617,11 +610,11 @@ static void test_moqctl_params_forward_roundtrip(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, QUIC_MOQCTL_T_SUBSCRIBE, &out) ==
-        QUIC_MOQCTL_OK);
+            wired_span_of(buf, off), &roff, MOQCTL_T_SUBSCRIBE, &out) ==
+        MOQCTL_OK);
   }
   CHECK(out.n == 1);
-  CHECK(out.items[0].type == QUIC_MOQCTL_PARAM_FORWARD);
+  CHECK(out.items[0].type == MOQCTL_PARAM_FORWARD);
   CHECK(out.items[0].u8v == 0);
 }
 
@@ -633,8 +626,7 @@ static void test_moqctl_params_type_overflow_violation(void) {
   moqctl_params out;
 
   CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 2)); /* count */
-  CHECK(moqvi_put(
-      wired_mspan_of(buf, sizeof buf), &off, QUIC_MOQCTL_PARAM_FORWARD));
+  CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, MOQCTL_PARAM_FORWARD));
   CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 1)); /* value */
   CHECK(
       moqvi_put(wired_mspan_of(buf, sizeof buf), &off, (u64)-1)); /* delta
@@ -643,8 +635,8 @@ static void test_moqctl_params_type_overflow_violation(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, QUIC_MOQCTL_T_SUBSCRIBE, &out) ==
-        QUIC_MOQCTL_VIOLATION);
+            wired_span_of(buf, off), &roff, MOQCTL_T_SUBSCRIBE, &out) ==
+        MOQCTL_VIOLATION);
   }
 }
 
@@ -661,8 +653,8 @@ static void test_moqctl_params_unknown_type_violation(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, QUIC_MOQCTL_T_SUBSCRIBE, &out) ==
-        QUIC_MOQCTL_VIOLATION);
+            wired_span_of(buf, off), &roff, MOQCTL_T_SUBSCRIBE, &out) ==
+        MOQCTL_VIOLATION);
   }
 }
 
@@ -673,8 +665,7 @@ static void test_moqctl_params_duplicate_type_violation(void) {
   moqctl_params out;
 
   CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 2));
-  CHECK(moqvi_put(
-      wired_mspan_of(buf, sizeof buf), &off, QUIC_MOQCTL_PARAM_FORWARD));
+  CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, MOQCTL_PARAM_FORWARD));
   buf[off] = 1;
   off += 1;                                                   /* uint8 value */
   CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 0)); /* delta 0
@@ -686,8 +677,8 @@ static void test_moqctl_params_duplicate_type_violation(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, QUIC_MOQCTL_T_SUBSCRIBE, &out) ==
-        QUIC_MOQCTL_VIOLATION);
+            wired_span_of(buf, off), &roff, MOQCTL_T_SUBSCRIBE, &out) ==
+        MOQCTL_VIOLATION);
   }
 }
 
@@ -699,16 +690,15 @@ static void test_moqctl_params_scope_violation(void) {
   moqctl_params out;
 
   CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 1));
-  CHECK(moqvi_put(
-      wired_mspan_of(buf, sizeof buf), &off, QUIC_MOQCTL_PARAM_FORWARD));
+  CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, MOQCTL_PARAM_FORWARD));
   buf[off] = 1;
   off += 1;
   {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, QUIC_MOQCTL_T_SUBSCRIBE_OK, &out) ==
-        QUIC_MOQCTL_VIOLATION);
+            wired_span_of(buf, off), &roff, MOQCTL_T_SUBSCRIBE_OK, &out) ==
+        MOQCTL_VIOLATION);
   }
 }
 
@@ -721,14 +711,14 @@ static void test_moqctl_params_delivery_timeout_decode(void) {
   CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 1));
   CHECK(moqvi_put(
       wired_mspan_of(buf, sizeof buf), &off,
-      QUIC_MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT));
+      MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT));
   CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 0));
   {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, QUIC_MOQCTL_T_SUBSCRIBE, &out) ==
-        QUIC_MOQCTL_OK);
+            wired_span_of(buf, off), &roff, MOQCTL_T_SUBSCRIBE, &out) ==
+        MOQCTL_OK);
   }
   CHECK(out.n == 1);
   CHECK(out.items[0].vi == 0);
@@ -755,9 +745,7 @@ static void test_moqctl_setup_unknown_option_ignored(void) {
 
   {
     usz soff = 0;
-    CHECK(
-        moqctl_setup_take(wired_span_of(buf, off), &soff, &s) ==
-        QUIC_MOQCTL_OK);
+    CHECK(moqctl_setup_take(wired_span_of(buf, off), &soff, &s) == MOQCTL_OK);
   }
   CHECK(!s.has_path);
   CHECK(!s.has_authority);
@@ -781,9 +769,7 @@ static void test_moqctl_setup_path_option_decode(void) {
 
   {
     usz soff = 0;
-    CHECK(
-        moqctl_setup_take(wired_span_of(buf, off), &soff, &s) ==
-        QUIC_MOQCTL_OK);
+    CHECK(moqctl_setup_take(wired_span_of(buf, off), &soff, &s) == MOQCTL_OK);
   }
   CHECK(s.has_path);
   CHECK(s.path.n == 3);
@@ -801,15 +787,15 @@ static void test_moqctl_locfilter_next_group_and_largest(void) {
   off = 0;
   CHECK(
       moqctl_locfilter_take(wired_span_of(in_ng, sizeof in_ng), &off, &f) ==
-      QUIC_MOQCTL_OK);
-  CHECK(f.type == QUIC_MOQCTL_FILTER_NEXT_GROUP);
+      MOQCTL_OK);
+  CHECK(f.type == MOQCTL_FILTER_NEXT_GROUP);
   CHECK(off == 1);
 
   off = 0;
   CHECK(
       moqctl_locfilter_take(wired_span_of(in_lg, sizeof in_lg), &off, &f) ==
-      QUIC_MOQCTL_OK);
-  CHECK(f.type == QUIC_MOQCTL_FILTER_LARGEST);
+      MOQCTL_OK);
+  CHECK(f.type == MOQCTL_FILTER_LARGEST);
 }
 
 static void test_moqctl_locfilter_abs_start_and_range_roundtrip(void) {
@@ -818,7 +804,7 @@ static void test_moqctl_locfilter_abs_start_and_range_roundtrip(void) {
   moqctl_locfilter f_in = {0};
   moqctl_locfilter f_out;
 
-  f_in.type            = QUIC_MOQCTL_FILTER_ABS_RANGE;
+  f_in.type            = MOQCTL_FILTER_ABS_RANGE;
   f_in.start.group     = 3;
   f_in.start.object    = 0;
   f_in.end_group_delta = 5;
@@ -828,9 +814,9 @@ static void test_moqctl_locfilter_abs_start_and_range_roundtrip(void) {
     usz roff = 0;
     CHECK(
         moqctl_locfilter_take(wired_span_of(buf, off), &roff, &f_out) ==
-        QUIC_MOQCTL_OK);
+        MOQCTL_OK);
   }
-  CHECK(f_out.type == QUIC_MOQCTL_FILTER_ABS_RANGE);
+  CHECK(f_out.type == MOQCTL_FILTER_ABS_RANGE);
   CHECK(f_out.start.group == 3);
   CHECK(f_out.end_group_delta == 5);
 }
@@ -842,7 +828,7 @@ static void test_moqctl_locfilter_end_group_overflow_violation(void) {
   moqctl_locfilter f;
 
   CHECK(moqvi_put(
-      wired_mspan_of(buf, sizeof buf), &off, QUIC_MOQCTL_FILTER_ABS_RANGE));
+      wired_mspan_of(buf, sizeof buf), &off, MOQCTL_FILTER_ABS_RANGE));
   CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 5)); /* Group */
   CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 0)); /* Object */
   CHECK(
@@ -852,7 +838,7 @@ static void test_moqctl_locfilter_end_group_overflow_violation(void) {
     usz roff = 0;
     CHECK(
         moqctl_locfilter_take(wired_span_of(buf, off), &roff, &f) ==
-        QUIC_MOQCTL_VIOLATION);
+        MOQCTL_VIOLATION);
   }
 }
 
@@ -864,7 +850,7 @@ static void test_moqctl_locfilter_unknown_type_violation(void) {
 
   CHECK(
       moqctl_locfilter_take(wired_span_of(in, sizeof in), &off, &f) ==
-      QUIC_MOQCTL_VIOLATION);
+      MOQCTL_VIOLATION);
 }
 
 /* ===== TEST: grease / unknown error code normalization ===== */
@@ -880,13 +866,13 @@ static void test_moqctl_grease_pattern(void) {
 
 static void test_moqctl_unknown_error_normalizes_to_internal(void) {
   CHECK(
-      moqctl_known_request_error(QUIC_MOQCTL_ERR_NOT_SUPPORTED) ==
-      QUIC_MOQCTL_ERR_NOT_SUPPORTED);
-  CHECK(moqctl_known_request_error(0x7FFF) == QUIC_MOQCTL_ERR_INTERNAL_ERROR);
+      moqctl_known_request_error(MOQCTL_ERR_NOT_SUPPORTED) ==
+      MOQCTL_ERR_NOT_SUPPORTED);
+  CHECK(moqctl_known_request_error(0x7FFF) == MOQCTL_ERR_INTERNAL_ERROR);
   CHECK(
-      moqctl_known_publish_done(QUIC_MOQCTL_DONE_TRACK_ENDED) ==
-      QUIC_MOQCTL_DONE_TRACK_ENDED);
-  CHECK(moqctl_known_publish_done(0x7FFF) == QUIC_MOQCTL_DONE_INTERNAL_ERROR);
+      moqctl_known_publish_done(MOQCTL_DONE_TRACK_ENDED) ==
+      MOQCTL_DONE_TRACK_ENDED);
+  CHECK(moqctl_known_publish_done(0x7FFF) == MOQCTL_DONE_INTERNAL_ERROR);
 }
 
 /* ===== TEST: REQUEST_ERROR Redirect only with REDIRECT code ===== */
@@ -899,7 +885,7 @@ static void test_moqctl_request_error_redirect_roundtrip(void) {
   u8                   uri[3] = {'/', 'a', 'b'};
   wired_span           name   = wired_span_of((const u8*)"n", 1);
 
-  m.error_code                 = QUIC_MOQCTL_ERR_REDIRECT;
+  m.error_code                 = MOQCTL_ERR_REDIRECT;
   m.retry_interval             = 0;
   m.reason                     = wired_span_of(0, 0);
   m.has_redirect               = 1;
@@ -912,7 +898,7 @@ static void test_moqctl_request_error_redirect_roundtrip(void) {
     usz roff = 0;
     CHECK(
         moqctl_request_error_take(wired_span_of(buf, off), &roff, &out) ==
-        QUIC_MOQCTL_OK);
+        MOQCTL_OK);
     CHECK(roff == off);
   }
   CHECK(out.has_redirect);

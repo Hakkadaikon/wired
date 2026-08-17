@@ -1,5 +1,5 @@
-#ifndef QUIC_GCM_GCM256_H
-#define QUIC_GCM_GCM256_H
+#ifndef GCM_GCM256_H
+#define GCM_GCM256_H
 
 #include "common/bytes/span/span.h"
 #include "crypto/symmetric/aead/aes/aes.h"
@@ -13,12 +13,12 @@
 /** One AEAD invocation's fixed inputs: key schedule, nonce, and AAD. */
 typedef struct {
   const aes256* aes;
-  const u8*     nonce; /* QUIC_GCM_NONCE bytes */
+  const u8*     nonce; /* GCM_NONCE bytes */
   wired_span    aad;
 } gcm256_ctx;
 
 /* Seal: encrypt pt and append the 16-byte tag; out receives pt.n + 16 bytes
- * (ciphertext || tag). Returns the sealed length (pt.n + QUIC_GCM_TAG). */
+ * (ciphertext || tag). Returns the sealed length (pt.n + GCM_TAG). */
 usz gcm256_seal(const gcm256_ctx* g, wired_span pt, u8* out);
 
 /* Open: ct spans ciphertext || 16-byte tag. On tag mismatch, returns 0 and

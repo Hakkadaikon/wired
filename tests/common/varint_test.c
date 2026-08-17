@@ -17,8 +17,8 @@ static void test_varint_rfc_vectors(void) {
 }
 
 static void test_varint_roundtrip(void) {
-  u64 cases[] = {0,      1,          0x3F,       0x40,           0x3FFF,
-                 0x4000, 0x3FFFFFFF, 0x40000000, QUIC_VARINT_MAX};
+  u64 cases[] = {0,      1,          0x3F,       0x40,      0x3FFF,
+                 0x4000, 0x3FFFFFFF, 0x40000000, VARINT_MAX};
   for (usz i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
     u8  buf[8];
     u64 out;
@@ -28,7 +28,7 @@ static void test_varint_roundtrip(void) {
   }
   /* out of range */
   u8 buf[8];
-  CHECK(varint_encode(buf, QUIC_VARINT_MAX + 1) == 0);
+  CHECK(varint_encode(buf, VARINT_MAX + 1) == 0);
 }
 
 static void test_varint_truncated(void) {

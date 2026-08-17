@@ -1,5 +1,5 @@
-#ifndef QUIC_CONNRUNNER_CONNRUNNER_H
-#define QUIC_CONNRUNNER_CONNRUNNER_H
+#ifndef CONNRUNNER_CONNRUNNER_H
+#define CONNRUNNER_CONNRUNNER_H
 
 #include "common/bytes/span/span.h"
 #include "tls/keys/kuswitch/twogen.h"
@@ -17,8 +17,7 @@
  * Each iteration drains ready receives, runs the loop's timers and one send
  * decision, then turns that decision into sealed datagrams on the wire. */
 
-#define QUIC_CONNRUNNER_BUF \
-  1500 /* RFC 9000 14: a conservative datagram bound */
+#define CONNRUNNER_BUF 1500 /* RFC 9000 14: a conservative datagram bound */
 
 /** The top-level connection runner: binds the evloop state machine to a
  * real socket and real cryptography, and drives one send/receive iteration.
@@ -34,8 +33,8 @@ typedef struct {
   int      rtx_held; /* 1 if a lost pn is captured for this send */
   /* RFC 9001 6: 1-RTT key-update generation state and its driving inputs. */
   kuswitch_state ku;
-  u8  ku_secret[QUIC_HKDF_PRK]; /* current generation's app traffic secret */
-  u8  ku_phase;         /* RFC 9001 6.2: advertised 1-RTT Key Phase byte0 */
+  u8  ku_secret[HKDF_PRK]; /* current generation's app traffic secret */
+  u8  ku_phase;            /* RFC 9001 6.2: advertised 1-RTT Key Phase byte0 */
   u64 ku_completed_at;  /* RFC 9001 6.2: pins both 3*PTO clocks; -1 = unset */
   u64 ku_sent_in_phase; /* RFC 9001 6.6: packets sent under current keys */
   int ku_unacked;       /* RFC 9001 6.5: a self update is unacknowledged */
@@ -51,8 +50,8 @@ typedef struct {
    * ack/loss resolution (unlike pmtu's own probe_sent_at, which those
    * clear) so the next probe can be held back to at least one RTT later. */
   u64 pmtu_last_probe_sent_at;
-  u8  rxbuf[QUIC_CONNRUNNER_BUF];
-  u8  txbuf[QUIC_CONNRUNNER_BUF];
+  u8  rxbuf[CONNRUNNER_BUF];
+  u8  txbuf[CONNRUNNER_BUF];
 } connrunner;
 
 /** Everything connrunner_init needs besides the runner and the DCID. */

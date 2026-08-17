@@ -1,5 +1,5 @@
-#ifndef QUIC_CASTORE_CASTORE_H
-#define QUIC_CASTORE_CASTORE_H
+#ifndef CASTORE_CASTORE_H
+#define CASTORE_CASTORE_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

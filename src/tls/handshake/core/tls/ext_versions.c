@@ -5,18 +5,17 @@
 /* RFC 8446 4.2.1: type(2) + ext_data length(2) + list length(1) + versions. */
 usz tls_ext_supported_versions(u8* buf, usz cap) {
   if (cap < 7) return 0;
-  be_put_be16(buf, QUIC_EXT_SUPPORTED_VERSIONS);
+  be_put_be16(buf, EXT_SUPPORTED_VERSIONS);
   be_put_be16(buf + 2, 3);
   buf[4] = 2;
-  be_put_be16(buf + 5, QUIC_TLS13_VERSION);
+  be_put_be16(buf + 5, TLS13_VERSION);
   return 7;
 }
 
 /* The 4-byte header names supported_versions and its body fits in n. */
 static int versions_header_ok(const u8* buf, usz n) {
   usz dlen = (usz)buf[2] << 8 | buf[3];
-  return ((u16)buf[0] << 8 | buf[1]) == QUIC_EXT_SUPPORTED_VERSIONS &&
-         4 + dlen <= n;
+  return ((u16)buf[0] << 8 | buf[1]) == EXT_SUPPORTED_VERSIONS && 4 + dlen <= n;
 }
 
 /* extension_type matches and the body is fully readable. */
@@ -34,7 +33,7 @@ static usz versions_count(const u8* buf) {
 
 /* The 2-byte version at index i in the list equals TLS 1.3. */
 static int is_tls13_at(const u8* buf, usz i) {
-  return ((u16)buf[5 + 2 * i] << 8 | buf[6 + 2 * i]) == QUIC_TLS13_VERSION;
+  return ((u16)buf[5 + 2 * i] << 8 | buf[6 + 2 * i]) == TLS13_VERSION;
 }
 
 /* Scan cnt versions for TLS 1.3. */

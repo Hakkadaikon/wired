@@ -1,7 +1,7 @@
-#ifndef QUIC_H3RUN_SETTINGS_SEQ_H
-#define QUIC_H3RUN_SETTINGS_SEQ_H
+#ifndef H3RUN_SETTINGS_SEQ_H
+#define H3RUN_SETTINGS_SEQ_H
 
-#include "app/http3/core/h3/frame.h" /* QUIC_H3_FRAME_SETTINGS */
+#include "app/http3/core/h3/frame.h" /* H3_FRAME_SETTINGS */
 #include "common/platform/sys/syscall.h"
 
 /* RFC 9114 7.2.4: the first frame on a control stream MUST be SETTINGS (0x04),

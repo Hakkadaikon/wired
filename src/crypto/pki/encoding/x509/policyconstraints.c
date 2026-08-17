@@ -15,10 +15,10 @@ static const u8 oid_inhibit_any_policy[] = {0x55, 0x1d, 0x36};
 #define POLICYCONSTRAINTS_REQEXP_TAG 0x80
 
 /* A DER INTEGER's content octets, decoded via the shared unsigned-integer
- * reader. QUIC_X509_SKIPCERTS_MALFORMED on a negative/oversized encoding. */
+ * reader. X509_SKIPCERTS_MALFORMED on a negative/oversized encoding. */
 static u64 skipcerts_uint(wired_span v) {
   u64 out;
-  if (!der_uint(v.p, v.n, &out)) return QUIC_X509_SKIPCERTS_MALFORMED;
+  if (!der_uint(v.p, v.n, &out)) return X509_SKIPCERTS_MALFORMED;
   return out;
 }
 
@@ -41,14 +41,14 @@ static u64 policy_constraints_reqexp(wired_span seq) {
   u8         tag;
   wired_span v;
   derseq_init(&c, seq);
-  if (!derseq_next(&c, &tag, &v)) return QUIC_X509_SKIPCERTS_NONE;
-  if (tag != POLICYCONSTRAINTS_REQEXP_TAG) return QUIC_X509_SKIPCERTS_NONE;
+  if (!derseq_next(&c, &tag, &v)) return X509_SKIPCERTS_NONE;
+  if (tag != POLICYCONSTRAINTS_REQEXP_TAG) return X509_SKIPCERTS_NONE;
   return skipcerts_uint(v);
 }
 
 u64 x509_require_explicit_policy(wired_span tbs) {
   wired_span seq;
-  if (!policy_constraints_locate(tbs, &seq)) return QUIC_X509_SKIPCERTS_NONE;
+  if (!policy_constraints_locate(tbs, &seq)) return X509_SKIPCERTS_NONE;
   return policy_constraints_reqexp(seq);
 }
 
@@ -56,8 +56,8 @@ u64 x509_require_explicit_policy(wired_span tbs) {
  * INTEGER TLV (not a SEQUENCE). */
 static u64 inhibit_any_policy_val(wired_span raw) {
   der_tlv t;
-  if (!der_read(raw, &t)) return QUIC_X509_SKIPCERTS_MALFORMED;
-  if (t.tag != QUIC_DER_INTEGER) return QUIC_X509_SKIPCERTS_MALFORMED;
+  if (!der_read(raw, &t)) return X509_SKIPCERTS_MALFORMED;
+  if (t.tag != DER_INTEGER) return X509_SKIPCERTS_MALFORMED;
   return skipcerts_uint(t.val);
 }
 
@@ -67,6 +67,6 @@ u64 x509_inhibit_any_policy(wired_span tbs) {
           tbs,
           wired_span_of(oid_inhibit_any_policy, sizeof(oid_inhibit_any_policy)),
           &raw))
-    return QUIC_X509_SKIPCERTS_NONE;
+    return X509_SKIPCERTS_NONE;
   return inhibit_any_policy_val(raw);
 }

@@ -1,5 +1,5 @@
-#ifndef QUIC_UTIL_CT_H
-#define QUIC_UTIL_CT_H
+#ifndef UTIL_CT_H
+#define UTIL_CT_H
 
 #include "common/platform/sys/syscall.h"
 

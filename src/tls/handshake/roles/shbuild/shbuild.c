@@ -36,9 +36,9 @@ static usz shb_prefix(u8* out, usz off, const shb_in* in) {
 static int shb_versions(u8* buf, usz cap, usz* off) {
   u8         ext[6];
   wired_obuf out = {buf, cap, *off};
-  be_put_be16(ext, QUIC_EXT_SUPPORTED_VERSIONS);
+  be_put_be16(ext, EXT_SUPPORTED_VERSIONS);
   be_put_be16(ext + 2, 2);
-  be_put_be16(ext + 4, QUIC_TLS13_VERSION);
+  be_put_be16(ext + 4, TLS13_VERSION);
   if (!tls_ext_append(&out, wired_span_of(ext, 6))) return 0;
   *off = out.len;
   return 1;
@@ -51,7 +51,7 @@ static int shb_key_share(
     u8* buf, usz cap, usz* off, const u8* pub, u16 group, usz pub_len) {
   u8         ext[73];
   wired_obuf out = {buf, cap, *off};
-  be_put_be16(ext, QUIC_EXT_KEY_SHARE);
+  be_put_be16(ext, EXT_KEY_SHARE);
   be_put_be16(ext + 2, (u16)(4 + pub_len));
   be_put_be16(ext + 4, group);
   be_put_be16(ext + 6, (u16)pub_len);
@@ -65,11 +65,11 @@ static int shb_key_share(
  * selected_identity (2 bytes). This SDK only ever accepts a single offered
  * identity, so the index is always 0. type(2) ext_len(2)=2
  * selected_identity(2)=0. */
-#define QUIC_EXT_PRE_SHARED_KEY 0x0029
+#define EXT_PRE_SHARED_KEY 0x0029
 static int shb_psk(u8* buf, usz cap, usz* off) {
   u8         ext[6];
   wired_obuf out = {buf, cap, *off};
-  be_put_be16(ext, QUIC_EXT_PRE_SHARED_KEY);
+  be_put_be16(ext, EXT_PRE_SHARED_KEY);
   be_put_be16(ext + 2, 2);
   be_put_be16(ext + 4, 0);
   if (!tls_ext_append(&out, wired_span_of(ext, 6))) return 0;
@@ -102,7 +102,7 @@ static int shb_fits(usz off, usz sid_len, usz cap) {
 
 /* Shared body for both entry points. */
 static int build_server_hello(const shb_in* in, wired_obuf* out) {
-  usz off = hs_begin(out->p, out->cap, QUIC_HS_SERVER_HELLO);
+  usz off = hs_begin(out->p, out->cap, HS_SERVER_HELLO);
   usz block_start, end;
   if (!shb_fits(off, in->session_id.n, out->cap)) return 0;
   off         = shb_prefix(out->p, off, in);
@@ -121,7 +121,7 @@ int shbuild_server_hello(const shbuild_in* in, wired_obuf* out) {
       in->cipher_suite,
       in->server_pub,
       in->psk_accepted,
-      QUIC_GROUP_X25519,
+      GROUP_X25519,
       32};
   return build_server_hello(&si, out);
 }

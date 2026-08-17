@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_CRITICAL_H
-#define QUIC_H3_CRITICAL_H
+#ifndef H3_CRITICAL_H
+#define H3_CRITICAL_H
 
 #include "common/platform/sys/syscall.h"
 

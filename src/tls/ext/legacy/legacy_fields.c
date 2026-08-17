@@ -7,7 +7,7 @@
 static const u8* ch_body(const u8* msg, usz len, usz* body_len) {
   u8  type;
   usz off = hs_parse(wired_span_of(msg, len), &type, body_len);
-  if (off == 0 || type != QUIC_HS_CLIENT_HELLO) return 0;
+  if (off == 0 || type != HS_CLIENT_HELLO) return 0;
   return msg + off;
 }
 

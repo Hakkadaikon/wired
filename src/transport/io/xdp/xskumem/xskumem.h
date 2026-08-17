@@ -1,31 +1,31 @@
-#ifndef QUIC_XSKUMEM_XSKUMEM_H
-#define QUIC_XSKUMEM_XSKUMEM_H
+#ifndef XSKUMEM_XSKUMEM_H
+#define XSKUMEM_XSKUMEM_H
 
 #include "common/platform/sys/syscall.h"
 
 /* Fixed-capacity UMEM frame allocator. Frames are identified by their
- * UMEM-relative offset (base_addr + i*QUIC_XSKUMEM_FRAME_SIZE) rather than a
+ * UMEM-relative offset (base_addr + i*XSKUMEM_FRAME_SIZE) rather than a
  * pointer, since that offset is exactly what the kernel's fill/completion
  * rings carry. A LIFO free list is enough: ownership only ever moves between
  * "free" and "in flight", never needs ordering. */
 
 /** Byte size of one UMEM frame. */
-#define QUIC_XSKUMEM_FRAME_SIZE 2048u
+#define XSKUMEM_FRAME_SIZE 2048u
 
 /** Total number of frames this allocator manages. */
-#define QUIC_XSKUMEM_FRAMES 128u
+#define XSKUMEM_FRAMES 128u
 
 /** Fixed-capacity LIFO free list of UMEM frame addresses. */
 typedef struct {
-  u64 free[QUIC_XSKUMEM_FRAMES]; /**< free frame addresses (offsets into UMEM)
-                                  */
-  u32 nfree;                     /**< number of valid entries in free[] */
+  u64 free[XSKUMEM_FRAMES]; /**< free frame addresses (offsets into UMEM)
+                             */
+  u32 nfree;                /**< number of valid entries in free[] */
 } xskumem_alloc;
 
-/** Push nframes frame addresses (base_addr + i*QUIC_XSKUMEM_FRAME_SIZE, for
+/** Push nframes frame addresses (base_addr + i*XSKUMEM_FRAME_SIZE, for
  * i in [0, nframes)) onto the free list. nframes must be <=
- * QUIC_XSKUMEM_FRAMES; a caller-supplied excess is silently truncated to
- * QUIC_XSKUMEM_FRAMES.
+ * XSKUMEM_FRAMES; a caller-supplied excess is silently truncated to
+ * XSKUMEM_FRAMES.
  * @param a         allocator to initialize
  * @param base_addr UMEM base offset for frame 0
  * @param nframes   number of frames to seed the free list with */

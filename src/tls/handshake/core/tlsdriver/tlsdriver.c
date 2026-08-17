@@ -12,13 +12,13 @@
 
 void tlsdriver_init(
     tlsdriver* d,
-    const u8   my_priv[QUIC_ECDHE_LEN],
-    const u8   my_pub[QUIC_ECDHE_LEN],
+    const u8   my_priv[ECDHE_LEN],
+    const u8   my_pub[ECDHE_LEN],
     int        is_server) {
   usz i;
   /* RFC 7748 x25519's key pair is 32 bytes each way, and that is the
    * contract every existing caller passes -- only copy that much here.
-   * Copying QUIC_ECDHE_LEN (65, sized for P-256's wider public key) would
+   * Copying ECDHE_LEN (65, sized for P-256's wider public key) would
    * read past a caller's 32-byte array. A P-256 handshake sets group via
    * tlsdriver_set_group and writes its own (32-byte priv, 65-byte SEC1
    * pub) pair into d->my_priv/d->my_pub directly afterward. */
@@ -26,13 +26,13 @@ void tlsdriver_init(
     d->my_priv[i] = my_priv[i];
     d->my_pub[i]  = my_pub[i];
   }
-  for (i = 0; i < QUIC_ECDHE_LEN; i++) d->shared[i] = 0;
+  for (i = 0; i < ECDHE_LEN; i++) d->shared[i] = 0;
   crypto_stream_rx_init(&d->rx);
   hsdriver_init(&d->hs, is_server);
   keysched_init(&d->ks);
   keyset_init(&d->keys);
   d->is_server         = is_server;
-  d->group             = QUIC_GROUP_X25519;
+  d->group             = GROUP_X25519;
   d->hs_ready          = 0;
   d->sni               = 0;
   d->sni_len           = 0;
@@ -63,7 +63,7 @@ usz tlsdriver_raw_client_hello(tlsdriver* d, u8* out, usz cap) {
 int tlsdriver_client_hello(tlsdriver* d, wired_obuf* out) {
   u8                    ch[512];
   usz                   n  = tlsdriver_raw_client_hello(d, ch, sizeof(ch));
-  crypto_stream_emit_in in = {0, QUIC_TLSDRIVER_CRYPTO_MAX};
+  crypto_stream_emit_in in = {0, TLSDRIVER_CRYPTO_MAX};
   if (n == 0) return 0;
   /* RFC 8446 4.4.1: keep our own emitted ClientHello bytes so derive_
    * handshake can prepend them to the ServerHello transcript later -- see
@@ -116,7 +116,7 @@ static int ch_one(const ch_block* blk, usz* q, u16 want_group, u8 pub[65]) {
   usz      pub_len;
   if (*q + 4 + dlen > blk->end) return -1;
   *q += 4 + dlen;
-  if (t != QUIC_EXT_KEY_SHARE) return 0;
+  if (t != EXT_KEY_SHARE) return 0;
   return tls_ext_key_share_scan(
       blk->b + *q - dlen, dlen, want_group, pub, &pub_len, 65);
 }
@@ -134,7 +134,7 @@ static int ch_walk(const u8* b, usz q, usz end, u16 want_group, u8 pub[65]) {
 static int is_client_hello(const u8* buf, usz n, usz* body_len) {
   u8 type;
   return hs_parse(wired_span_of(buf, n), &type, body_len) == 4 &&
-         type == QUIC_HS_CLIENT_HELLO;
+         type == HS_CLIENT_HELLO;
 }
 
 /* Extract the client's want_group key_share from a ClientHello message (buf,
@@ -164,8 +164,8 @@ static int peer_keyshare(const tlsdriver* d, const u8* msg, usz n, u8 pub[65]) {
 /* Install the derived client-handshake keys at the Handshake level. */
 static void install_handshake_keys(tlsdriver* d) {
   const initial_keys* k;
-  if (keysched_get(&d->ks, QUIC_KS_CLIENT_HS, &k))
-    keyset_install(&d->keys, QUIC_LEVEL_HANDSHAKE, k);
+  if (keysched_get(&d->ks, KS_CLIENT_HS, &k))
+    keyset_install(&d->keys, LEVEL_HANDSHAKE, k);
   d->hs_ready = 1;
 }
 
@@ -188,7 +188,7 @@ static usz build_transcript(
 /* ECDHE shared secret, then advance the schedule to the handshake secret.
  * RFC 7748 6.1: a low-order peer key gives an all-zero secret; reject it. */
 static int derive_handshake_secret(
-    tlsdriver* d, const u8* msg, usz n, const u8 peer_pub[QUIC_ECDHE_LEN]) {
+    tlsdriver* d, const u8* msg, usz n, const u8 peer_pub[ECDHE_LEN]) {
   u8  transcript[1024];
   usz tn;
   if (!crypto_stream_ecdhe_group(d->group, d->my_priv, peer_pub, d->shared))
@@ -222,7 +222,7 @@ static void save_server_side_transcript_ch(tlsdriver* d, const u8* msg, usz n) {
 /* Derive the ECDHE shared secret and advance the key schedule to the
  * handshake secret, installing Handshake keys. Returns 1 on success. */
 static int derive_handshake(tlsdriver* d, const u8* msg, usz n) {
-  u8 peer_pub[QUIC_ECDHE_LEN];
+  u8 peer_pub[ECDHE_LEN];
   if (!peer_keyshare(d, msg, n, peer_pub)) return 0;
   if (!derive_handshake_secret(d, msg, n, peer_pub)) return 0;
   install_handshake_keys(d);

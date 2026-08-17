@@ -1,5 +1,5 @@
-#ifndef QUIC_MANAGE_ZERORTT_POLICY_H
-#define QUIC_MANAGE_ZERORTT_POLICY_H
+#ifndef MANAGE_ZERORTT_POLICY_H
+#define MANAGE_ZERORTT_POLICY_H
 
 /* RFC 9308 5.3: 0-RTT data can be replayed by an attacker, so only requests
  * that are idempotent or otherwise protected against replay may be sent in

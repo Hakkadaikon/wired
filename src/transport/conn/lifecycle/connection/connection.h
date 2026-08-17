@@ -1,5 +1,5 @@
-#ifndef QUIC_CONNECTION_CONNECTION_H
-#define QUIC_CONNECTION_CONNECTION_H
+#ifndef CONNECTION_CONNECTION_H
+#define CONNECTION_CONNECTION_H
 
 #include "common/bytes/span/span.h"
 #include "crypto/kdf/keys/keyset.h"
@@ -25,7 +25,7 @@ typedef struct {
    * share one buffer. The returned plaintext view stays valid until this
    * connection's next recv, same lifetime rule as before this became a
    * member. */
-  u8 rxbuf[QUIC_MEMLINK_MTU];
+  u8 rxbuf[MEMLINK_MTU];
 } connection;
 
 /** Everything connection_init needs besides the connection. */

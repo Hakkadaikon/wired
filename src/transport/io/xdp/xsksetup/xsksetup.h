@@ -1,5 +1,5 @@
-#ifndef QUIC_XSKSETUP_XSKSETUP_H
-#define QUIC_XSKSETUP_XSKSETUP_H
+#ifndef XSKSETUP_XSKSETUP_H
+#define XSKSETUP_XSKSETUP_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/io/xdp/xskring/xskring.h"
@@ -12,20 +12,19 @@
  * syscall plumbing that wires those parts to the kernel. */
 
 /** Fixed capacity: one UMEM frame per fill/comp/rx/tx ring entry slot count
- * below, matching xskumem's QUIC_XSKUMEM_FRAMES (128 frames of 2048B). */
-#define QUIC_XSKSETUP_UMEM_FRAMES 128u
-/** Byte size of one UMEM frame, matching xskumem's QUIC_XSKUMEM_FRAME_SIZE. */
-#define QUIC_XSKSETUP_FRAME_SIZE 2048u
+ * below, matching xskumem's XSKUMEM_FRAMES (128 frames of 2048B). */
+#define XSKSETUP_UMEM_FRAMES 128u
+/** Byte size of one UMEM frame, matching xskumem's XSKUMEM_FRAME_SIZE. */
+#define XSKSETUP_FRAME_SIZE 2048u
 /** Total UMEM byte length. Cast to u64 before multiplying: both operands are
  * u32, and a plain u32*u32 product then gets implicitly widened when used as
  * a u64 length/offset (bugprone-implicit-widening-of-multiplication-result).
  * The current constants fit in 32 bits either way, but computing the product
  * in the target width is what the mmap length/UMEM offset math needs. */
-#define QUIC_XSKSETUP_UMEM_LEN \
-  ((u64)QUIC_XSKSETUP_UMEM_FRAMES * QUIC_XSKSETUP_FRAME_SIZE)
+#define XSKSETUP_UMEM_LEN ((u64)XSKSETUP_UMEM_FRAMES * XSKSETUP_FRAME_SIZE)
 
 /** Entries per ring (fill/comp/rx/tx), must be a power of two. */
-#define QUIC_XSKSETUP_RING_ENTRIES 64u
+#define XSKSETUP_RING_ENTRIES 64u
 
 /** Caller-supplied configuration for one AF_XDP socket. */
 typedef struct {

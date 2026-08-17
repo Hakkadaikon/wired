@@ -4,12 +4,12 @@
 
 /* True when slot i holds a packet just marked lost. */
 static int slot_lost(const sentpkt* t, usz i) {
-  return t->e[i].used && t->e[i].state == QUIC_SP_LOST;
+  return t->e[i].used && t->e[i].state == SP_LOST;
 }
 
 /* RFC 9002 6: reclaim slots marked lost so the table no longer tracks them. */
 static void drop_lost(sentpkt* t) {
-  for (usz i = 0; i < QUIC_SENTPKT_CAP; i++) {
+  for (usz i = 0; i < SENTPKT_CAP; i++) {
     if (slot_lost(t, i)) t->e[i].used = 0;
   }
 }

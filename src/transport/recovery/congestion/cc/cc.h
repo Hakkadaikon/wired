@@ -1,19 +1,19 @@
-#ifndef QUIC_CC_CC_H
-#define QUIC_CC_CC_H
+#ifndef CC_CC_H
+#define CC_CC_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/recovery/congestion/cc/bbr.h"
 
 /* RFC 9002 7: NewReno-style congestion control. Sizes in bytes. */
 
-#define QUIC_MAX_DATAGRAM ((u64)1200)
-#define QUIC_CC_MIN_WINDOW (2 * QUIC_MAX_DATAGRAM)   /* kMinimumWindow */
-#define QUIC_CC_INIT_WINDOW (10 * QUIC_MAX_DATAGRAM) /* kInitialWindow */
+#define MAX_DATAGRAM ((u64)1200)
+#define CC_MIN_WINDOW (2 * MAX_DATAGRAM)   /* kMinimumWindow */
+#define CC_INIT_WINDOW (10 * MAX_DATAGRAM) /* kInitialWindow */
 
 /* Window-growth algorithm (RFC 9002 7 NewReno, RFC 9438 CUBIC). */
-#define QUIC_CC_ALGO_NEWRENO 0
-#define QUIC_CC_ALGO_CUBIC 1
-#define QUIC_CC_ALGO_BBR 2
+#define CC_ALGO_NEWRENO 0
+#define CC_ALGO_CUBIC 1
+#define CC_ALGO_BBR 2
 
 /** RFC 9002 7 congestion controller state: cwnd/ssthresh plus per-algorithm
  * fields for NewReno recovery tracking, CUBIC's epoch/window, and BBR's

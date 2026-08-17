@@ -1,5 +1,5 @@
-#ifndef QUIC_CC_CWNDCHECK_H
-#define QUIC_CC_CWNDCHECK_H
+#ifndef CC_CWNDCHECK_H
+#define CC_CWNDCHECK_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_STP_PARSE_TP_H
-#define QUIC_STP_PARSE_TP_H
+#ifndef STP_PARSE_TP_H
+#define STP_PARSE_TP_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

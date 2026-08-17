@@ -1,5 +1,5 @@
-#ifndef QUIC_APPDATA_APP_SEND_H
-#define QUIC_APPDATA_APP_SEND_H
+#ifndef APPDATA_APP_SEND_H
+#define APPDATA_APP_SEND_H
 
 #include "transport/packet/protect/protect/protect.h"
 

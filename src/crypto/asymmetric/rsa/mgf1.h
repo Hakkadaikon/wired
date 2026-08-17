@@ -1,5 +1,5 @@
-#ifndef QUIC_RSA_MGF1_H
-#define QUIC_RSA_MGF1_H
+#ifndef RSA_MGF1_H
+#define RSA_MGF1_H
 
 #include "common/bytes/span/span.h"
 

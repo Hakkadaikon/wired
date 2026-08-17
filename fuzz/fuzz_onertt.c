@@ -86,11 +86,11 @@ static void arm_onertt(connio *io, int is_server) {
   connio_init(io, wired_span_of((const u8 *)"\x01\x02\x03\x04", 4), &in);
 
   initial_keys k = {0};
-  keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
-  keyset_install(&io->loop.keys, QUIC_LEVEL_HANDSHAKE, &k);
-  keyset_install(&io->loop.keys, QUIC_LEVEL_ONERTT, &k);
+  keyset_install(&io->loop.keys, LEVEL_INITIAL, &k);
+  keyset_install(&io->loop.keys, LEVEL_HANDSHAKE, &k);
+  keyset_install(&io->loop.keys, LEVEL_ONERTT, &k);
   io->loop.validated          = 1;
-  io->loop.send_level         = QUIC_LEVEL_HANDSHAKE;
+  io->loop.send_level         = LEVEL_HANDSHAKE;
   io->loop.handshake_complete = 1;
 }
 

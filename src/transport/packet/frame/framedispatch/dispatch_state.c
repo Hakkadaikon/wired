@@ -25,14 +25,14 @@ static int on_ack(framedispatch_state* st, const u8* frame, usz len) {
   st->has_ack =
       1; /* RFC 9000 19.3: expose Largest Acknowledged to the runner */
   st->largest_acked = f.ranges[0].hi;
-  u64 wire[2 * QUIC_ACK_MAX_RANGES];
+  u64 wire[2 * ACK_MAX_RANGES];
   usz w     = 0;
   wire[w++] = f.ranges[0].hi - f.ranges[0].lo;
   for (usz i = 1; i < f.n_ranges; i++) {
     wire[w++] = f.ranges[i - 1].lo - f.ranges[i].hi - 2;
     wire[w++] = f.ranges[i].hi - f.ranges[i].lo;
   }
-  u64    acked[QUIC_SENTPKT_CAP];
+  u64    acked[SENTPKT_CAP];
   usz    n      = 0;
   ackset ackset = {f.ranges[0].hi, wire, w};
   ack_process(st->sent, &ackset, (u64out){acked, &n});
@@ -103,15 +103,15 @@ typedef int (*handler)(framedispatch_state*, const u8*, usz);
 
 /* RFC 9000 12.4: one handler per frame kind, indexed by frame_kind. */
 static const handler handlers[] = {
-    [QUIC_FK_PADDING]          = on_noop,
-    [QUIC_FK_PING]             = on_noop,
-    [QUIC_FK_ACK]              = on_ack,
-    [QUIC_FK_STREAM]           = on_stream,
-    [QUIC_FK_MAX_DATA]         = on_max_data,
-    [QUIC_FK_CONNECTION_CLOSE] = on_close,
-    [QUIC_FK_DATAGRAM]         = on_datagram,
-    [QUIC_FK_STOP_SENDING]     = on_stop_sending,
-    [QUIC_FK_RESET_STREAM]     = on_reset_stream,
+    [FK_PADDING]          = on_noop,
+    [FK_PING]             = on_noop,
+    [FK_ACK]              = on_ack,
+    [FK_STREAM]           = on_stream,
+    [FK_MAX_DATA]         = on_max_data,
+    [FK_CONNECTION_CLOSE] = on_close,
+    [FK_DATAGRAM]         = on_datagram,
+    [FK_STOP_SENDING]     = on_stop_sending,
+    [FK_RESET_STREAM]     = on_reset_stream,
 };
 
 int framedispatch_ack_eliciting(u64 frame_type) {

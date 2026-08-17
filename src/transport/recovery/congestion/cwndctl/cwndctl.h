@@ -1,5 +1,5 @@
-#ifndef QUIC_CWNDCTL_CWNDCTL_H
-#define QUIC_CWNDCTL_CWNDCTL_H
+#ifndef CWNDCTL_CWNDCTL_H
+#define CWNDCTL_CWNDCTL_H
 
 #include "common/platform/sys/syscall.h"
 

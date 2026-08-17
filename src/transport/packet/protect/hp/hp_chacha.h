@@ -1,5 +1,5 @@
-#ifndef QUIC_HP_HP_CHACHA_H
-#define QUIC_HP_HP_CHACHA_H
+#ifndef HP_HP_CHACHA_H
+#define HP_HP_CHACHA_H
 
 #include "common/platform/sys/syscall.h"
 

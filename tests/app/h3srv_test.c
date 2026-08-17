@@ -45,7 +45,7 @@ static void test_h3srv_peer_settings_first_ok(void) {
   wired_h3srv_state st  = {0};
   u16               err = 0xffff;
 
-  CHECK(wired_h3srv_on_peer_control(&st, QUIC_H3_FRAME_SETTINGS, &err));
+  CHECK(wired_h3srv_on_peer_control(&st, H3_FRAME_SETTINGS, &err));
   CHECK(err == 0);
   CHECK(st.peer_settings);
 }
@@ -56,9 +56,9 @@ static void test_h3srv_peer_non_settings_first_missing(void) {
   wired_h3srv_state st  = {0};
   u16               err = 0;
 
-  CHECK(!wired_h3srv_on_peer_control(&st, QUIC_H3_FRAME_HEADERS, &err));
-  CHECK(err == QUIC_H3_MISSING_SETTINGS);
-  CHECK(err != QUIC_H3_STREAM_CREATION_ERROR);
+  CHECK(!wired_h3srv_on_peer_control(&st, H3_FRAME_HEADERS, &err));
+  CHECK(err == H3_MISSING_SETTINGS);
+  CHECK(err != H3_STREAM_CREATION_ERROR);
 }
 
 /* RFC 9114 7.2.4: a second SETTINGS frame is H3_FRAME_UNEXPECTED. */
@@ -66,9 +66,9 @@ static void test_h3srv_peer_second_settings_unexpected(void) {
   wired_h3srv_state st  = {0};
   u16               err = 0;
 
-  CHECK(wired_h3srv_on_peer_control(&st, QUIC_H3_FRAME_SETTINGS, &err));
-  CHECK(!wired_h3srv_on_peer_control(&st, QUIC_H3_FRAME_SETTINGS, &err));
-  CHECK(err == QUIC_H3_FRAME_UNEXPECTED);
+  CHECK(wired_h3srv_on_peer_control(&st, H3_FRAME_SETTINGS, &err));
+  CHECK(!wired_h3srv_on_peer_control(&st, H3_FRAME_SETTINGS, &err));
+  CHECK(err == H3_FRAME_UNEXPECTED);
 }
 
 /* RFC 9114 6.2.1: a second control stream (non-SETTINGS re-open after one is
@@ -77,26 +77,26 @@ static void test_h3srv_peer_second_control_creation(void) {
   wired_h3srv_state st  = {0};
   u16               err = 0;
 
-  CHECK(wired_h3srv_on_peer_control(&st, QUIC_H3_FRAME_SETTINGS, &err));
+  CHECK(wired_h3srv_on_peer_control(&st, H3_FRAME_SETTINGS, &err));
   /* peer_settings is now set; a 2nd control opening with a non-SETTINGS first
    * frame is a stream-creation error, distinct from missing/unexpected. */
   st.peer_settings = 0; /* model: a brand-new control stream, no SETTINGS yet */
-  CHECK(!wired_h3srv_on_peer_control(&st, QUIC_H3_FRAME_HEADERS, &err));
-  CHECK(err == QUIC_H3_STREAM_CREATION_ERROR);
+  CHECK(!wired_h3srv_on_peer_control(&st, H3_FRAME_HEADERS, &err));
+  CHECK(err == H3_STREAM_CREATION_ERROR);
 }
 
 /* RFC 9114 6.2 / RFC 9204 4.2: peer control/encoder/decoder uni streams are
  * accepted (no connection error). */
 static void test_h3srv_accept_uni_streams(void) {
-  CHECK(wired_h3srv_accept_uni(QUIC_H3_STREAM_CONTROL));
-  CHECK(wired_h3srv_accept_uni(QUIC_H3_STREAM_QPACK_ENCODER));
-  CHECK(wired_h3srv_accept_uni(QUIC_H3_STREAM_QPACK_DECODER));
+  CHECK(wired_h3srv_accept_uni(H3_STREAM_CONTROL));
+  CHECK(wired_h3srv_accept_uni(H3_STREAM_QPACK_ENCODER));
+  CHECK(wired_h3srv_accept_uni(H3_STREAM_QPACK_DECODER));
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: the WebTransport uni stream type (0x54)
  * is accepted; an unknown/unassigned type is not. */
 static void test_h3srv_accept_uni_webtransport(void) {
-  CHECK(wired_h3srv_accept_uni(QUIC_H3_STREAM_WEBTRANSPORT));
+  CHECK(wired_h3srv_accept_uni(H3_STREAM_WEBTRANSPORT));
   CHECK(!wired_h3srv_accept_uni(0x99));
 }
 
@@ -106,11 +106,11 @@ static void test_h3srv_peer_qpack_first_ok(void) {
   wired_h3srv_state st  = {0};
   u16               err = 0xffff;
 
-  CHECK(wired_h3srv_on_peer_qpack(&st, QUIC_H3_STREAM_QPACK_ENCODER, &err));
+  CHECK(wired_h3srv_on_peer_qpack(&st, H3_STREAM_QPACK_ENCODER, &err));
   CHECK(err == 0);
   CHECK(st.peer_qpack_encoder);
 
-  CHECK(wired_h3srv_on_peer_qpack(&st, QUIC_H3_STREAM_QPACK_DECODER, &err));
+  CHECK(wired_h3srv_on_peer_qpack(&st, H3_STREAM_QPACK_DECODER, &err));
   CHECK(err == 0);
   CHECK(st.peer_qpack_decoder);
 }
@@ -120,9 +120,9 @@ static void test_h3srv_peer_second_qpack_encoder(void) {
   wired_h3srv_state st  = {0};
   u16               err = 0;
 
-  CHECK(wired_h3srv_on_peer_qpack(&st, QUIC_H3_STREAM_QPACK_ENCODER, &err));
-  CHECK(!wired_h3srv_on_peer_qpack(&st, QUIC_H3_STREAM_QPACK_ENCODER, &err));
-  CHECK(err == QUIC_H3_STREAM_CREATION_ERROR);
+  CHECK(wired_h3srv_on_peer_qpack(&st, H3_STREAM_QPACK_ENCODER, &err));
+  CHECK(!wired_h3srv_on_peer_qpack(&st, H3_STREAM_QPACK_ENCODER, &err));
+  CHECK(err == H3_STREAM_CREATION_ERROR);
 }
 
 /* RFC 9204 4.2: a second decoder stream is H3_STREAM_CREATION_ERROR,
@@ -131,9 +131,9 @@ static void test_h3srv_peer_second_qpack_decoder(void) {
   wired_h3srv_state st  = {0};
   u16               err = 0;
 
-  CHECK(wired_h3srv_on_peer_qpack(&st, QUIC_H3_STREAM_QPACK_DECODER, &err));
-  CHECK(!wired_h3srv_on_peer_qpack(&st, QUIC_H3_STREAM_QPACK_DECODER, &err));
-  CHECK(err == QUIC_H3_STREAM_CREATION_ERROR);
+  CHECK(wired_h3srv_on_peer_qpack(&st, H3_STREAM_QPACK_DECODER, &err));
+  CHECK(!wired_h3srv_on_peer_qpack(&st, H3_STREAM_QPACK_DECODER, &err));
+  CHECK(err == H3_STREAM_CREATION_ERROR);
 }
 
 /* Any non-QPACK stream type (e.g. control) is a no-op: accepted, no error,
@@ -142,7 +142,7 @@ static void test_h3srv_peer_qpack_ignores_other_types(void) {
   wired_h3srv_state st  = {0};
   u16               err = 0xffff;
 
-  CHECK(wired_h3srv_on_peer_qpack(&st, QUIC_H3_STREAM_CONTROL, &err));
+  CHECK(wired_h3srv_on_peer_qpack(&st, H3_STREAM_CONTROL, &err));
   CHECK(err == 0);
   CHECK(!st.peer_qpack_encoder);
   CHECK(!st.peer_qpack_decoder);

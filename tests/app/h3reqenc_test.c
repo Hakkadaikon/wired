@@ -121,7 +121,7 @@ static int scan_for_data(const u8* h3, usz n, const u8** b, usz* blen) {
     usz used = h3_frame_get(wired_span_of(h3 + off, n - off), &f);
     if (!used) return 0;
     off += used;
-    if (f.type == QUIC_H3_FRAME_DATA) {
+    if (f.type == H3_FRAME_DATA) {
       *b    = f.payload;
       *blen = (usz)f.payload_len;
       return 1;

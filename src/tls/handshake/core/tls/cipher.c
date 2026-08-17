@@ -1,8 +1,8 @@
 #include "tls/handshake/core/tls/cipher.h"
 
 int cipher_supported(u16 suite) {
-  return suite == QUIC_TLS_AES_128_GCM_SHA256 ||
-         suite == QUIC_TLS_CHACHA20_POLY1305_SHA256;
+  return suite == TLS_AES_128_GCM_SHA256 ||
+         suite == TLS_CHACHA20_POLY1305_SHA256;
 }
 
 /* Fold one offered suite into the running choice. Records the first supported
@@ -10,7 +10,7 @@ int cipher_supported(u16 suite) {
 /* Whether s should replace the current pick: the first supported one, or the
  * top-priority AES_128_GCM_SHA256 (RFC 8446 B.4). */
 static int prefer(u16 s, int found) {
-  return !found || s == QUIC_TLS_AES_128_GCM_SHA256;
+  return !found || s == TLS_AES_128_GCM_SHA256;
 }
 
 static void fold(u16 s, u16* chosen, int* found) {

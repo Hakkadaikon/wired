@@ -1,5 +1,5 @@
-#ifndef QUIC_HSPKT_UNPROTECT_H
-#define QUIC_HSPKT_UNPROTECT_H
+#ifndef HSPKT_UNPROTECT_H
+#define HSPKT_UNPROTECT_H
 
 #include "transport/packet/protect/protect/protect.h"
 
@@ -22,7 +22,7 @@ typedef struct {
 
 /* On success *payload views the plaintext within pkt. Returns 1 on success,
  * 0 on auth failure or short input (AES-128-GCM; equivalent to
- * hspkt_unprotect_suite with suite = QUIC_TLS_AES_128_GCM_SHA256). */
+ * hspkt_unprotect_suite with suite = TLS_AES_128_GCM_SHA256). */
 int hspkt_unprotect(
     const protect_keys* k, const hspkt_unprotect_desc* d, wired_span* payload);
 

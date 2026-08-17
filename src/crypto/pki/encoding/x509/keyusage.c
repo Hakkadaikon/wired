@@ -33,7 +33,7 @@ static int ku_bit_set(wired_span v, usz pos) {
 static int ku_read_bitstring(wired_span val, wired_span* bits) {
   der_tlv t;
   if (!der_read(val, &t)) return 0;
-  if (t.tag != QUIC_DER_BIT_STRING) return 0;
+  if (t.tag != DER_BIT_STRING) return 0;
   *bits = t.val;
   return ku_bitstring_wf(*bits);
 }

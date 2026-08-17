@@ -5,7 +5,7 @@ void test_h3settings_control_open(void) {
   u8  buf[4];
   usz n = 0;
   CHECK(h3settings_control_prefix(buf, sizeof(buf), &n) == 1);
-  CHECK(n == 1 && buf[0] == QUIC_H3_STREAM_CONTROL);
+  CHECK(n == 1 && buf[0] == H3_STREAM_CONTROL);
 
   /* parses back as a control stream type */
   u64 type;

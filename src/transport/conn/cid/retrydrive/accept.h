@@ -1,5 +1,5 @@
-#ifndef QUIC_RETRYDRIVE_ACCEPT_H
-#define QUIC_RETRYDRIVE_ACCEPT_H
+#ifndef RETRYDRIVE_ACCEPT_H
+#define RETRYDRIVE_ACCEPT_H
 
 #include "common/platform/sys/syscall.h"
 

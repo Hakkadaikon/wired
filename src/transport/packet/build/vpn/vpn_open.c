@@ -25,7 +25,7 @@ static int region_ok(const vpn_desc* d) {
   /* pn_off <= pkt.n (parse invariant), so pkt.n - pn_off cannot underflow;
    * this form rejects a huge attacker Length that would overflow
    * pn_off + length. */
-  return d->length >= 4 + QUIC_GCM_TAG && d->length <= d->pkt.n - d->pn_off;
+  return d->length >= 4 + GCM_TAG && d->length <= d->pkt.n - d->pn_off;
 }
 
 /* RFC 9001 5.4.1: unmask byte0, then the pn bytes; returns recovered pn. */
@@ -33,7 +33,7 @@ static u64 remove_hp(const aes128* hp, const vpn_desc* d, usz* pn_len) {
   u8  mask[5];
   u8* pkt = d->pkt.p;
   hp_mask(hp, pkt + hp_sample_offset(d->pn_off), mask);
-  pkt[0] ^= mask[0] & QUIC_HP_LONG_MASK;
+  pkt[0] ^= mask[0] & HP_LONG_MASK;
   *pn_len = pn_len_of(pkt[0]);
   hp_protect_pn(pkt + d->pn_off, *pn_len, mask);
   return read_pn(pkt + d->pn_off, *pn_len);
@@ -49,13 +49,13 @@ typedef struct {
 /* RFC 9001 5.3: nonce = iv XOR pn, then AEAD-open ct after the header. */
 static int vpn_aead_open(
     const initial_keys* keys, u8* pkt, const vpnopen_dims* v) {
-  u8     nonce[QUIC_INITIAL_IV];
+  u8     nonce[INITIAL_IV];
   aes128 aead;
   protect_nonce(keys->iv, v->pn, nonce);
   aes128_init(&aead, keys->key);
   gcm_ctx g = {&aead, nonce, {pkt, v->hdr_len}};
   return gcm_open(
-      &g, wired_span_of(pkt + v->hdr_len, v->ct_len + QUIC_GCM_TAG),
+      &g, wired_span_of(pkt + v->hdr_len, v->ct_len + GCM_TAG),
       pkt + v->hdr_len);
 }
 
@@ -66,7 +66,7 @@ int vpn_open(const protect_keys* k, const vpn_desc* d, wired_span* payload) {
   if (!region_ok(d)) return 0;
   v.pn      = remove_hp(k->hp, d, &pn_len);
   v.hdr_len = d->pn_off + pn_len;
-  v.ct_len  = (usz)d->length - pn_len - QUIC_GCM_TAG;
+  v.ct_len  = (usz)d->length - pn_len - GCM_TAG;
   if (!vpn_aead_open(k->keys, d->pkt.p, &v)) return 0;
   *payload = wired_span_of(d->pkt.p + v.hdr_len, v.ct_len);
   return 1;
@@ -81,7 +81,7 @@ static int remove_hp_suite(
   u8* pkt = d->pkt.p;
   if (!hp_suite_mask(suite, hp_key, pkt + hp_sample_offset(d->pn_off), mask))
     return 0;
-  pkt[0] ^= mask[0] & QUIC_HP_LONG_MASK;
+  pkt[0] ^= mask[0] & HP_LONG_MASK;
   *pn_len = pn_len_of(pkt[0]);
   hp_protect_pn(pkt + d->pn_off, *pn_len, mask);
   return 1;
@@ -105,7 +105,7 @@ static int vpn_length_ok(const vpn_desc* d, usz tag_len) {
 }
 
 /* The length bound region_ok checks (RFC 9001 5.3) with a tag length sized
- * for suite rather than QUIC_GCM_TAG's fixed AES value; both suites this SDK
+ * for suite rather than GCM_TAG's fixed AES value; both suites this SDK
  * implements use a 16-byte tag (RFC 8446 5.3), so this is currently
  * equivalent, but derives it from suite rather than assuming AES. tag_len 0
  * (an unrecognized suite) also fails here. */

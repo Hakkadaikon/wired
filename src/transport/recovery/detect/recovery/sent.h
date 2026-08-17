@@ -1,15 +1,15 @@
-#ifndef QUIC_RECOVERY_SENT_H
-#define QUIC_RECOVERY_SENT_H
+#ifndef RECOVERY_SENT_H
+#define RECOVERY_SENT_H
 
 #include "common/platform/sys/syscall.h"
 
 /* RFC 9002 A: sent-packet tracking, ACK handling, and packet-threshold
  * loss detection. Fixed-capacity, no dynamic allocation. */
 
-#define QUIC_SENT_CAP 256
-#define QUIC_PACKET_THRESHOLD 3 /* kPacketThreshold */
+#define SENT_CAP 256
+#define PACKET_THRESHOLD 3 /* kPacketThreshold */
 
-enum { QUIC_PKT_INFLIGHT = 0, QUIC_PKT_ACKED, QUIC_PKT_LOST };
+enum { PKT_INFLIGHT = 0, PKT_ACKED, PKT_LOST };
 
 typedef struct {
   u64 pn;
@@ -20,7 +20,7 @@ typedef struct {
 } sent_pkt;
 
 typedef struct {
-  sent_pkt pkts[QUIC_SENT_CAP];
+  sent_pkt pkts[SENT_CAP];
   u64      bytes_in_flight;
   u64      largest_acked;
   int      have_acked;

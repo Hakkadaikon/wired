@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_TICKETFRESHNESS_H
-#define QUIC_TLS_TICKETFRESHNESS_H
+#ifndef TLS_TICKETFRESHNESS_H
+#define TLS_TICKETFRESHNESS_H
 
 #include "tls/keys/ticket/ticket.h"
 
@@ -18,7 +18,7 @@
  * (wired_clock_epoch_secs, no per-ticket RTT sample) and uses a fixed 10s
  * window, generous enough to absorb ordinary network RTT and clock jitter
  * while still rejecting a materially stale or manipulated claim. */
-#define QUIC_TICKET_FRESHNESS_WINDOW_SECS 10
+#define TICKET_FRESHNESS_WINDOW_SECS 10
 
 /* Recover the real ticket age (milliseconds) the client claims, from the
  * obfuscated_ticket_age presented in pre_shared_key and the age_add sealed
@@ -29,7 +29,7 @@ u32 ticket_real_age_ms(u32 obfuscated_age, u32 age_add);
 /* Returns 1 when 0-RTT may be accepted for an opened ticket t: the ticket is
  * still within its lifetime at now_secs (RFC 8446 4.6.1), and the client's
  * claimed age (recovered from obfuscated_age via t->age_add) is within
- * QUIC_TICKET_FRESHNESS_WINDOW_SECS of the server's own measured age
+ * TICKET_FRESHNESS_WINDOW_SECS of the server's own measured age
  * (RFC 8446 4.2.11.1 / 8.3). Returns 0 otherwise -- the caller falls back to
  * a full 1-RTT handshake rather than failing the connection (RFC 8446
  * 4.2.10). now_secs and t->issued_at share the same clock

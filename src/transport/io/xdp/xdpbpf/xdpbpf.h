@@ -1,5 +1,5 @@
-#ifndef QUIC_XDPBPF_XDPBPF_H
-#define QUIC_XDPBPF_XDPBPF_H
+#ifndef XDPBPF_XDPBPF_H
+#define XDPBPF_XDPBPF_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -27,14 +27,14 @@
  * explicit length byte, straight off the wire. */
 
 /** Number of u64 instructions xdpbpf_prog_build() emits. */
-#define QUIC_XDPBPF_PROG_LEN 40
+#define XDPBPF_PROG_LEN 40
 
 /** Build the XDP filter into out: eth/IPv4 (IHL=5, non-fragment)/UDP with
  * dport == port is redirected to the XSKMAP map_fd, keyed by the QUIC core-
  * routing byte (falling back to rx_queue_index, see @file); anything else is
  * XDP_PASS. Pure function: a fixed template with the port and map fd patched
- * in. Returns QUIC_XDPBPF_PROG_LEN. */
-usz xdpbpf_prog_build(u64 out[QUIC_XDPBPF_PROG_LEN], i32 map_fd, u16 port);
+ * in. Returns XDPBPF_PROG_LEN. */
+usz xdpbpf_prog_build(u64 out[XDPBPF_PROG_LEN], i32 map_fd, u16 port);
 
 /** Create an XSKMAP (key u32 queue index -> value u32 XSK socket fd) with
  * max_entries slots. Returns the map fd, or a negative errno. */

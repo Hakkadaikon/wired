@@ -1,11 +1,11 @@
-#ifndef QUIC_TLS_HS_MESSAGE_H
-#define QUIC_TLS_HS_MESSAGE_H
+#ifndef TLS_HS_MESSAGE_H
+#define TLS_HS_MESSAGE_H
 
 #include "common/platform/sys/syscall.h"
 
 /* RFC 8446 4: handshake message framing (type:1 length:3 body). */
 
-#define QUIC_HS_HEADER 4
+#define HS_HEADER 4
 
 /* 1 if a complete message is present, writing its total size (4+body) to
  * *msg_len; 0 if more bytes are needed. */

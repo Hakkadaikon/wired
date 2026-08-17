@@ -1,5 +1,5 @@
-#ifndef QUIC_MOQDATA_H
-#define QUIC_MOQDATA_H
+#ifndef MOQDATA_H
+#define MOQDATA_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -11,21 +11,21 @@
  * here; their bodies are decoded by moqctl (control) and other modules.
  */
 
-#define QUIC_MOQDATA_OK 1
-#define QUIC_MOQDATA_INSUFFICIENT 0
-#define QUIC_MOQDATA_VIOLATION (-1)
+#define MOQDATA_OK 1
+#define MOQDATA_INSUFFICIENT 0
+#define MOQDATA_VIOLATION (-1)
 
 /* Unidirectional stream types (3.4). */
-#define QUIC_MOQDATA_STREAM_INSUFFICIENT 0
-#define QUIC_MOQDATA_STREAM_CONTROL 1
-#define QUIC_MOQDATA_STREAM_FETCH 2
-#define QUIC_MOQDATA_STREAM_SUBGROUP 3
-#define QUIC_MOQDATA_STREAM_PADDING 4
-#define QUIC_MOQDATA_STREAM_UNKNOWN 5
+#define MOQDATA_STREAM_INSUFFICIENT 0
+#define MOQDATA_STREAM_CONTROL 1
+#define MOQDATA_STREAM_FETCH 2
+#define MOQDATA_STREAM_SUBGROUP 3
+#define MOQDATA_STREAM_PADDING 4
+#define MOQDATA_STREAM_UNKNOWN 5
 
-#define QUIC_MOQDATA_TYPE_SETUP 0x2F00ULL
-#define QUIC_MOQDATA_TYPE_FETCH_HEADER 0x05ULL
-#define QUIC_MOQDATA_TYPE_PADDING 0x132B3E28ULL
+#define MOQDATA_TYPE_SETUP 0x2F00ULL
+#define MOQDATA_TYPE_FETCH_HEADER 0x05ULL
+#define MOQDATA_TYPE_PADDING 0x132B3E28ULL
 
 /** Classify a unidirectional stream by its leading Stream Type varint
  * (3.4). Returns one of the QUIC_MOQDATA_STREAM_* values above; *off is
@@ -57,7 +57,7 @@ typedef struct {
   u64 priority;
 } moqdata_subhdr;
 
-/** Returns QUIC_MOQDATA_OK/INSUFFICIENT/VIOLATION. On any outcome but OK,
+/** Returns MOQDATA_OK/INSUFFICIENT/VIOLATION. On any outcome but OK,
  * *off is left unchanged. */
 int moqdata_subhdr_take(wired_span buf, usz* off, moqdata_subhdr* h);
 int moqdata_subhdr_put(wired_mspan buf, usz* off, const moqdata_subhdr* h);
@@ -86,12 +86,12 @@ typedef struct {
   wired_span payload;
 } moqdata_obj;
 
-#define QUIC_MOQDATA_STATUS_NORMAL 0x0ULL
-#define QUIC_MOQDATA_STATUS_END_OF_GROUP 0x3ULL
-#define QUIC_MOQDATA_STATUS_END_OF_TRACK 0x4ULL
+#define MOQDATA_STATUS_NORMAL 0x0ULL
+#define MOQDATA_STATUS_END_OF_GROUP 0x3ULL
+#define MOQDATA_STATUS_END_OF_TRACK 0x4ULL
 
 /** Decodes one Object and advances *seq (Object ID chaining, 11.4.2).
- * Returns QUIC_MOQDATA_OK/INSUFFICIENT/VIOLATION; on anything but OK,
+ * Returns MOQDATA_OK/INSUFFICIENT/VIOLATION; on anything but OK,
  * *off and *seq are left unchanged. VIOLATION covers: cumulative Object
  * ID overflow, an unknown Status value, and a non-empty Properties field
  * on a non-Normal (Payload Length 0 + explicit Status) Object. */
@@ -121,7 +121,7 @@ typedef struct {
 /** Worst-case wire size of moqdata_msg_build's header + Object
  * framing (excludes payload bytes): Type(1) + Track Alias(9) +
  * Group ID(9) + Object ID Delta(9) + Payload Length(9) = 37. */
-#define QUIC_MOQDATA_MSG_OVERHEAD 37
+#define MOQDATA_MSG_OVERHEAD 37
 
 int moqdata_msg_build(wired_mspan buf, usz* off, const moqdata_msg* m);
 

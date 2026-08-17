@@ -149,10 +149,7 @@ static void poly_finish(poly* st, u8 tag[16]) {
 }
 
 void poly1305(
-    const u8  key[QUIC_POLY1305_KEY],
-    const u8* msg,
-    usz       len,
-    u8        tag[QUIC_POLY1305_TAG]) {
+    const u8 key[POLY1305_KEY], const u8* msg, usz len, u8 tag[POLY1305_TAG]) {
   poly st;
   poly_init(&st, key);
   poly_blocks(&st, msg, len);

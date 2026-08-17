@@ -422,7 +422,7 @@ typedef struct {
    * session. */
   int wt_close_pending[SRVRUN_MAX_WT_SESSIONS];
   u32 wt_close_code[SRVRUN_MAX_WT_SESSIONS];
-  u8  wt_close_msg[SRVRUN_MAX_WT_SESSIONS][QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX];
+  u8  wt_close_msg[SRVRUN_MAX_WT_SESSIONS][WTCAPSULE_CLOSE_MESSAGE_MAX];
   usz wt_close_msg_len[SRVRUN_MAX_WT_SESSIONS];
   /** draft-ietf-webtrans-http3-15 SS4.4/8.2: wired_server_wt_stream_reset
    * calls pending -- latched (not sent inline) for the same
@@ -468,7 +468,7 @@ typedef struct {
   usz boot_ini_len;
   /** Sized past a real 9-cert amplificationlimit chain's Handshake flight
    * (EncryptedExtensions + 9 CERTIFICATE entries + CertificateVerify +
-   * Finished) with headroom -- see QUIC_TLS_CERT_CHAIN_MAX/
+   * Finished) with headroom -- see TLS_CERT_CHAIN_MAX/
    * WIRED_CERTRELOAD_CHAIN_MAX. */
   u8  boot_hs[16384];
   usz boot_dgram_len[WIRED_SRVBOOT_FLIGHT_MAX];
@@ -615,13 +615,13 @@ typedef struct {
    * detected before the prior challenge validates -- srvrun_rebind_peer only
    * ever tracks the single latest path, so an in-flight PATH_RESPONSE for a
    * since-superseded challenge simply fails to compare equal. */
-  u8 path_challenge_data[QUIC_PATH_DATA];
+  u8 path_challenge_data[PATH_DATA];
   /** RFC 8899 DPLPMTUD: this connection's Packetization Layer PMTU
    * Discovery search state (pmtu), giving pmtu_mps the Maximum
    * Packet Size to fill instead of a fixed guess. Initialized alongside
    * every other slot-scoped state machine on slot claim (srvrun_open_slot);
    * probing/ACK-LOSS integration is a later step -- today only the search's
-   * static initial MPS (QUIC_PMTU_BASE-derived) feeds send sizing. */
+   * static initial MPS (PMTU_BASE-derived) feeds send sizing. */
   pmtu pmtu;
   /** RFC 8899 DPLPMTUD probe tracking: srvrun has no pn-scoped ACK/LOSS log
    * (resp[]/wtsend[] each track their own range-based log instead, see
@@ -677,7 +677,7 @@ typedef struct {
  * srvrun_conn that never routes through srvrun_open_slot). */
 #define SRVRUN_CHUNK 1100
 /* Plaintext capacity for one STREAM-frame slice: the largest slice
- * srvrun_mps can yield (QUIC_PMTU_MAX - QUIC_PMTU_OVERHEAD) plus the
+ * srvrun_mps can yield (PMTU_MAX - PMTU_OVERHEAD) plus the
  * worst-case RFC 9000 19.8 STREAM header (1 type byte + three 8-byte
  * varints = 25). Derived from the PMTU constants, not a bare number: a
  * fixed 1400 held every SRVRUN_CHUNK-sized slice but not a full
@@ -685,10 +685,10 @@ typedef struct {
  * failure struck AFTER wired_sendsess_take had consumed the slice's bytes
  * -- black-holing them (never logged in flight, so never loss-detected or
  * resent) and stalling every large transfer once the search completed. */
-#define SRVRUN_SLICE_PL (QUIC_PMTU_MAX - QUIC_PMTU_OVERHEAD + 25)
+#define SRVRUN_SLICE_PL (PMTU_MAX - PMTU_OVERHEAD + 25)
 /* Payload room reserved ahead of a slice for a piggybacked multi-range ACK
  * -- same sizing rationale as respond.c's emit_ack_only pl[288] (room for
- * QUIC_ACK_MAX_RANGES ranges, not just one pn). */
+ * ACK_MAX_RANGES ranges, not just one pn). */
 #define SRVRUN_ACK_ROOM 288
 /* Sealed datagrams one GSO staging batch can hold: 16 x 1500 = 24KB per env
  * lands in the 14-48 packets/syscall ballpark quiche/quic-go batch at;
@@ -700,7 +700,7 @@ typedef struct {
  * link's 25-packet bottleneck queue: bursting a whole cwnd used to
  * overflow that queue every time cwnd approached BDP, capping cwnd at
  * ~BDP (39.6kB observed) instead of BDP+queue and costing ~18% goodput. */
-#define SRVRUN_PACE_BURST (10 * QUIC_MAX_DATAGRAM)
+#define SRVRUN_PACE_BURST (10 * MAX_DATAGRAM)
 
 /* RFC 8899 4.4: the Maximum Packet Size c's DPLPMTUD search has validated so
  * far, in stream bytes per packet -- every send-sizing call site in this
@@ -780,11 +780,11 @@ typedef struct {
 struct wired_srvrun_env {
   /* RFC 9000 5.1: a fixed pool of connection slots keyed by DCID, so one
    * socket serves several clients at once. */
-  conntable   table[QUIC_CONNTABLE_CAP];
-  srvrun_conn conns[QUIC_CONNTABLE_CAP];
+  conntable   table[WIRED_CONNTABLE_CAP];
+  srvrun_conn conns[WIRED_CONNTABLE_CAP];
   /* Response storage, one row per (connection slot, response slot) (see
    * WIRED_SRVRUN_RESP_MAX above). */
-  u8 respstore[QUIC_CONNTABLE_CAP][SRVRUN_RESP_SLOTS][WIRED_SRVRUN_RESP_MAX];
+  u8 respstore[WIRED_CONNTABLE_CAP][SRVRUN_RESP_SLOTS][WIRED_SRVRUN_RESP_MAX];
   /* Receive batch storage (SRVRUN_RX_BATCH above). */
   u8 rxstorage[SRVRUN_RX_BATCH][2048];
   /* Backing storage for the large-body pool (srvbigbuf.h) plus the pool
@@ -1513,7 +1513,7 @@ static int srvrun_seal_transport_close(
 }
 
 /* Seal and send a transport-level CONNECTION_CLOSE as its own 1-RTT packet
- * (RFC 9000 20.1 error code, e.g. QUIC_ERR_PROTOCOL_VIOLATION). */
+ * (RFC 9000 20.1 error code, e.g. ERR_PROTOCOL_VIOLATION). */
 static void srvrun_send_transport_close(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, wired_span reason) {
   u8         out[128];
@@ -1602,7 +1602,7 @@ static void srvrun_reject_wt_slot(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id) {
   srvrun_send_wt_busy_reset(
       cfg, c, stream_id,
-      wired_wterrmap_to_http3(QUIC_WTERR_BUFFERED_STREAM_REJECTED));
+      wired_wterrmap_to_http3(WTERR_BUFFERED_STREAM_REJECTED));
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: associate one newly-reassembled WT bidi
@@ -1784,7 +1784,7 @@ static void srvrun_offer_wt_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
 static void srvrun_close_on_bad_qsid(const srvrun_cfg* cfg, srvrun_conn* c) {
   static const u8 reason[] = "bad HTTP Datagram Quarter Stream ID";
   srvrun_send_app_close(
-      cfg, c, QUIC_H3_DATAGRAM_ERROR, wired_span_of(reason, sizeof reason - 1));
+      cfg, c, H3_DATAGRAM_ERROR, wired_span_of(reason, sizeof reason - 1));
 }
 
 /* RFC 9297 2.1 (9297-009): a datagram naming a not-yet-established session is
@@ -1828,7 +1828,7 @@ static int srvrun_dg_should_deliver(
  * but from cfg alone (this call site has no srvrun_step_ctx). */
 static u64 srvrun_dg_stream_limit_base(const srvrun_cfg* cfg) {
   u64 configured = cfg->id ? cfg->id->max_streams_bidi : 0;
-  return configured ? configured : QUIC_STP_DEFAULT_MAX_STREAMS_BIDI;
+  return configured ? configured : STP_DEFAULT_MAX_STREAMS_BIDI;
 }
 
 /* RFC 9297 2.1 (9297-010): the client-initiated bidi stream limit last
@@ -1867,9 +1867,8 @@ static int srvrun_dg_id_exceeds_limit(
  * all. */
 static void srvrun_abort_unknown_dg_request(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 connect_id) {
-  u64 err = srvrun_dg_id_exceeds_limit(cfg, c, connect_id)
-                ? QUIC_H3_ID_ERROR
-                : QUIC_H3_DATAGRAM_ERROR;
+  u64 err = srvrun_dg_id_exceeds_limit(cfg, c, connect_id) ? H3_ID_ERROR
+                                                           : H3_DATAGRAM_ERROR;
   srvrun_send_wt_busy_reset(cfg, c, connect_id, err);
 }
 
@@ -2125,11 +2124,11 @@ static u64 srvrun_wt_rx_delivered_total(const srvrun_conn* c) {
  * payload. Sent to c->peer -- the caller (srvrun_rebind_peer) has already
  * updated c->peer to the new path this challenges, RFC 9000 8.2.1. */
 static int srvrun_seal_path_challenge(
-    srvrun_conn* c, const u8 data[QUIC_PATH_DATA], wired_obuf* out) {
+    srvrun_conn* c, const u8 data[PATH_DATA], wired_obuf* out) {
   u8                    pl[24];
   wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
-  usz pln = path_encode(plb.p, plb.cap, QUIC_FRAME_PATH_CHALLENGE, data);
+  usz pln = path_encode(plb.p, plb.cap, FRAME_PATH_CHALLENGE, data);
   if (!pln) return 0;
   plb.len = pln;
   sin     = (wired_srvloop_send_in){
@@ -2154,8 +2153,8 @@ static usz srvrun_pad_path_challenge(u8* out, usz len, usz cap) {
 }
 
 static void srvrun_send_path_challenge(
-    const srvrun_cfg* cfg, srvrun_conn* c, const u8 data[QUIC_PATH_DATA]) {
-  u8         out[QUIC_MIN_INITIAL_DATAGRAM];
+    const srvrun_cfg* cfg, srvrun_conn* c, const u8 data[PATH_DATA]) {
+  u8         out[MIN_INITIAL_DATAGRAM];
   wired_obuf ob = obuf_of(out, sizeof out);
   usz        n;
   if (!srvrun_seal_path_challenge(c, data, &ob)) return;
@@ -2440,7 +2439,7 @@ static int wt_connect_stream_slot(const srvrun_conn* c) {
  * HTTP/3-level error-code range (errmap.h), the application error code every
  * stream a closing session still owns is reset/stopped with below. */
 static u64 srvrun_wt_session_gone_code(void) {
-  return wired_wterrmap_to_http3(QUIC_WTERR_SESSION_GONE);
+  return wired_wterrmap_to_http3(WTERR_SESSION_GONE);
 }
 
 /* draft-ietf-webtrans-http3-15 SS5.3/5.4/8.2: WT_FLOW_CONTROL_ERROR, mapped
@@ -2448,7 +2447,7 @@ static u64 srvrun_wt_session_gone_code(void) {
  * session closing for exceeding its peer-advertised WT_MAX_STREAMS/WT_MAX_
  * DATA limit is reset/stopped with (srvrun_close_flow_violated_slot). */
 static u64 srvrun_wt_flow_control_code(void) {
-  return wired_wterrmap_to_http3(QUIC_WTERR_FLOW_CONTROL_ERROR);
+  return wired_wterrmap_to_http3(WTERR_FLOW_CONTROL_ERROR);
 }
 
 /* draft-ietf-webtrans-http3-15 SS4.4: abort one still-`in_use` WT bidi
@@ -2503,8 +2502,8 @@ static int srvrun_send_wt_capsule(
   /* +32: STREAM frame header room (type + stream id + offset + length
    * varints, RFC 9000 19.8) ahead of capsule_bytes -- sized to fit the
    * largest capsule this file sends, WT_CLOSE_SESSION's own worst case
-   * (QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX, srvrun_send_wt_close's own body[]). */
-  u8                    pl[32 + 16 + 4 + QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX];
+   * (WTCAPSULE_CLOSE_MESSAGE_MAX, srvrun_send_wt_close's own body[]). */
+  u8                    pl[32 + 16 + 4 + WTCAPSULE_CLOSE_MESSAGE_MAX];
   wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   stream_frame          f = {
@@ -2579,7 +2578,7 @@ static void srvrun_close_wt_on_stream_close(
  * GONE (srvrun_close_wt_session_slot, which never touches the CONNECT stream
  * itself) and close the session. A capsule-encode failure (message too long
  * -- cannot happen, wired_server_wt_close_session already truncated it to
- * QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX -- or out overflow) still closes the
+ * WTCAPSULE_CLOSE_MESSAGE_MAX -- or out overflow) still closes the
  * session: a peer that never received the capsule finds out via the CONNECT
  * stream's own FIN/reset either way, and leaving the session open forever on
  * a local encode failure would be worse. */
@@ -2590,7 +2589,7 @@ static void srvrun_send_wt_close(
    * overhead (RFC 9000 SS16: a varint is at most 8 bytes each,
    * capsule_encode's own envelope) ahead of the 4-byte code and message
    * wired_wtcapsule_encode_close writes into this same buffer. */
-  u8         body[16 + 4 + QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX];
+  u8         body[16 + 4 + WTCAPSULE_CLOSE_MESSAGE_MAX];
   wired_obuf bob = obuf_of(body, sizeof body);
   if (wired_wtcapsule_encode_close(
           &bob, c->wt_close_code[sidx],
@@ -2781,8 +2780,7 @@ static void srvrun_close_on_datagram_violation(
     const srvrun_cfg* cfg, srvrun_conn* c) {
   static const u8 reason[] = "DATAGRAM exceeds advertised limit";
   srvrun_send_transport_close(
-      cfg, c, QUIC_ERR_PROTOCOL_VIOLATION,
-      wired_span_of(reason, sizeof reason - 1));
+      cfg, c, ERR_PROTOCOL_VIOLATION, wired_span_of(reason, sizeof reason - 1));
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: this step's WT bidi gathering
@@ -2798,7 +2796,7 @@ static void srvrun_close_on_wt_signal_violation(
     const srvrun_cfg* cfg, srvrun_conn* c) {
   static const u8 reason[] = "WT_STREAM signal outside stream's leading bytes";
   srvrun_send_app_close(
-      cfg, c, QUIC_H3_FRAME_ERROR, wired_span_of(reason, sizeof reason - 1));
+      cfg, c, H3_FRAME_ERROR, wired_span_of(reason, sizeof reason - 1));
 }
 
 /* 1 if this step's own gathering (dispatch.c) latched a connection-ending
@@ -3104,7 +3102,7 @@ static int srvrun_is_broadcast_target(const srvrun_conn* c) {
  * its own next step, same as any other queued datagram; this only makes
  * every eligible connection's slot hold the same payload at once. */
 static void srvrun_broadcast_to_all(srvrun_state* st, wired_span data) {
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
     if (srvrun_is_broadcast_target(&st->conns[i]))
       srvrun_queue_datagram(&st->conns[i], data);
 }
@@ -3289,7 +3287,7 @@ static int conn_is_session_owner(srvrun_conn* c, wired_wt_session* s) {
  * when no live connection owns it (a stale or foreign session pointer). */
 static int srvrun_session_conn_slot(
     wired_srvrun_env* env, wired_wt_session* s) {
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
     if (conn_is_session_owner(&env->conns[i], s)) return (int)i;
   return -1;
 }
@@ -3861,19 +3859,19 @@ static int srvrun_bcast_ring_conn(
 int wired_server_broadcast_datagram_ring(wired_span data) {
   wired_srvrun_env* env = srvrun_caller_env();
   int               ok  = 1;
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
     ok &= srvrun_bcast_ring_conn(env, (int)i, data);
   return ok;
 }
 
 /* Copy message into c's own wt_close_msg[sidx] scratch, capped at
- * QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX (wired_wtcapsule_encode_close's own limit,
+ * WTCAPSULE_CLOSE_MESSAGE_MAX (wired_wtcapsule_encode_close's own limit,
  * wtcapsule.h) -- a longer message is truncated rather than rejected, same
  * ponytail policy as this file's other fixed-capacity copies (e.g. wt_path).
  */
 static void srvrun_wt_close_record_message(
     srvrun_conn* c, int sidx, wired_span message) {
-  usz n = u64_min(message.n, QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX);
+  usz n = u64_min(message.n, WTCAPSULE_CLOSE_MESSAGE_MAX);
   bytes_memcpy(c->wt_close_msg[sidx], message.p, n);
   c->wt_close_msg_len[sidx] = n;
 }
@@ -3929,7 +3927,7 @@ static void srvrun_goaway_one(
 static void srvrun_goaway_all(const srvrun_cfg* cfg, srvrun_state* st) {
   u8         out[256];
   wired_obuf ob = obuf_of(out, sizeof out);
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
     if (srvrun_owes_goaway(&st->conns[i]))
       srvrun_goaway_one(cfg, &st->conns[i], &ob);
 }
@@ -3938,7 +3936,7 @@ static void srvrun_goaway_all(const srvrun_cfg* cfg, srvrun_state* st) {
  * that lets the shutdown grace period end early instead of waiting out the
  * whole budget. */
 static int srvrun_all_drained(const srvrun_state* st) {
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
     if (st->conns[i].up) return 0;
   return 1;
 }
@@ -4078,8 +4076,7 @@ static int srvrun_awaiting_confirm(const srvrun_conn* c) {
  * than assuming v1's). */
 static int srvrun_pkt_is_initial(wired_mspan dg, usz off) {
   if (off + 5 > dg.n) return 0;
-  return packet_long_type(dg.p[off], be_get_be32(dg.p + off + 1)) ==
-         QUIC_PT_INITIAL;
+  return packet_long_type(dg.p[off], be_get_be32(dg.p + off + 1)) == PT_INITIAL;
 }
 
 /* 1 if every packet at offs[0..n) within dg is an Initial. */
@@ -4153,7 +4150,7 @@ static void srvrun_free_slot(const srvrun_cfg* cfg, srvrun_state* st, int i) {
   srvrun_conn* c = &st->conns[i];
   srvrun_close_all_wt(cfg, c);
   srvrun_free_bigbuf_rows(cfg->env, c);
-  conntable_remove(st->table, QUIC_CONNTABLE_CAP, i);
+  conntable_remove(st->table, WIRED_CONNTABLE_CAP, i);
   c->up = 0;
   wired_srvboot_acc_reset(&c->boot);
   /* RFC 9000 8.1 antiamp state is per-attempt -- a slot reused for a fresh
@@ -4166,7 +4163,7 @@ static void srvrun_free_slot(const srvrun_cfg* cfg, srvrun_state* st, int i) {
 }
 
 /* Advertised max_idle_timeout in ms — keep in sync with the value
- * QUIC_TP_MAX_IDLE_TIMEOUT carries in tls/ext/stp/server_tp.c. Evicting at
+ * TP_MAX_IDLE_TIMEOUT carries in tls/ext/stp/server_tp.c. Evicting at
  * (or after) the advertised value is always legitimate: the effective idle
  * timeout is the min of both endpoints' advertisements (RFC 9000 10.1). */
 #define WIRED_SRVRUN_IDLE_MS 30000
@@ -4187,7 +4184,7 @@ static int srvrun_idle_due(const srvrun_conn* c, u64 now_ms) {
  * max_idle_timeout, freeing its slot for a new client. */
 static void srvrun_sweep_idle(
     const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms) {
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
     if (srvrun_idle_due(&st->conns[i], now_ms))
       srvrun_free_slot(cfg, st, (int)i);
 }
@@ -4204,7 +4201,7 @@ static void srvrun_open_done(const srvrun_step_ctx* ctx, int slot, int ok) {
     return;
   }
   conntable_rekey(
-      ctx->st->table, QUIC_CONNTABLE_CAP, slot, c->scid,
+      ctx->st->table, WIRED_CONNTABLE_CAP, slot, c->scid,
       ctx->cfg->id->scid_len);
 }
 
@@ -4816,7 +4813,7 @@ static void srvrun_arm_round0(
     u64                    total_size,
     u64                    base_shift) {
   u64 total_len = srvrun_round0_total_len(more, total_size, body->len);
-  if (c->s.sdrv.alpn == QUIC_SALPN_HQ)
+  if (c->s.sdrv.alpn == SALPN_HQ)
     srvrun_arm_hq09_resp(c, r, st, body);
   else
     srvrun_arm_h3_resp(ctx, c, slot, r, st, body, ct, total_len);
@@ -4877,8 +4874,7 @@ static void srvrun_start_app_resp(
 static void srvrun_reject_wt_busy(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r) {
   srvrun_start_wt_status(cfg->env, slot, c, r, 429, 0);
-  srvrun_send_wt_busy_reset(
-      cfg, c, c->l.req_stream_id, QUIC_H3_REQUEST_REJECTED);
+  srvrun_send_wt_busy_reset(cfg, c, c->l.req_stream_id, H3_REQUEST_REJECTED);
 }
 
 /* RFC 9000 2.1: bit 0x01 of a stream id is the initiator role (0 = client),
@@ -4900,7 +4896,7 @@ static int srvrun_stream_id_is_client_bidi(u64 stream_id) {
 static void srvrun_reject_wt_bad_id(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r) {
   srvrun_start_wt_status(cfg->env, slot, c, r, 403, 0);
-  srvrun_send_wt_busy_reset(cfg, c, c->l.req_stream_id, QUIC_H3_ID_ERROR);
+  srvrun_send_wt_busy_reset(cfg, c, c->l.req_stream_id, H3_ID_ERROR);
 }
 
 /* Body of srvrun_dispatch_wt once Origin has passed and no session is
@@ -5589,7 +5585,7 @@ static int srvrun_pump_wt_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
  * signal, matching the pre-scheduling behavior for that edge case. */
 static h3prio_candidate srvrun_resp_candidate(const srvrun_conn* c, usz i) {
   h3prio_candidate cand = {
-      QUIC_H3_URGENCY_DEFAULT, 0, c->resp[i].stream_id, c->resp[i].in_use};
+      H3_URGENCY_DEFAULT, 0, c->resp[i].stream_id, c->resp[i].in_use};
   h3_priority p;
   if (c->resp[i].in_use &&
       wired_srvloop_priority_of(&c->l, c->resp[i].stream_id, &p)) {
@@ -5692,8 +5688,8 @@ static int srvrun_pmtu_probe_outstanding(const srvrun_conn* c) {
  * len, or 0 if it does not fit cap. */
 static usz srvrun_pmtu_probe_payload(u8* buf, usz cap, usz len) {
   if (len == 0 || len > cap) return 0;
-  buf[0] = QUIC_FRAME_PING;
-  bytes_memset(buf + 1, QUIC_FRAME_PADDING, len - 1);
+  buf[0] = FRAME_PING;
+  bytes_memset(buf + 1, FRAME_PADDING, len - 1);
   return len;
 }
 
@@ -5702,14 +5698,14 @@ static usz srvrun_pmtu_probe_payload(u8* buf, usz cap, usz len) {
  * length. Sealing adds the short header (1 flags + dcid + 4-byte pn) and the
  * AEAD tag on top of the payload, so the plaintext PING+PADDING built below
  * must be shorter than `size` by that overhead or the sealed packet would
- * overshoot the probe's own target. QUIC_PMTU_OVERHEAD already is this SDK's
+ * overshoot the probe's own target. PMTU_OVERHEAD already is this SDK's
  * one worst-case figure for that overhead (max 20-byte dcid + 16-byte tag,
  * see pmtu.h), the same constant pmtu_mps subtracts for the same
  * reason -- reused here instead of a second hand-derived margin. Returns 0
  * if size is at or below the overhead (no room for even a 1-byte PING). */
 static usz srvrun_pmtu_probe_len(usz size) {
-  if (size <= QUIC_PMTU_OVERHEAD) return 0;
-  return size - QUIC_PMTU_OVERHEAD;
+  if (size <= PMTU_OVERHEAD) return 0;
+  return size - PMTU_OVERHEAD;
 }
 
 /* Seal the PING+PADDING payload above into out as its own 1-RTT packet,
@@ -5719,7 +5715,7 @@ static usz srvrun_pmtu_probe_len(usz size) {
  * unassigned). */
 static int srvrun_seal_pmtu_probe(
     srvrun_conn* c, usz size, wired_obuf* out, u64* pn) {
-  u8                    pl[QUIC_PMTU_MAX];
+  u8                    pl[PMTU_MAX];
   wired_srvloop_send_in sin;
   usz                   len = srvrun_pmtu_probe_len(size);
   usz                   pln = srvrun_pmtu_probe_payload(pl, sizeof pl, len);
@@ -5743,7 +5739,7 @@ static void srvrun_pmtu_probe_clear(srvrun_conn* c) {
 }
 
 /* RFC 8899 5.1.1 PROBE_TIMER: an outstanding probe that has not been
- * acked/lost within QUIC_PMTU_PROBE_TIMER_US is itself treated as a loss --
+ * acked/lost within PMTU_PROBE_TIMER_US is itself treated as a loss --
  * without this, an unanswered probe leaves pmtu_probe_pn outstanding
  * forever and srvrun_pmtu_probe_candidate never starts another (found by
  * TLA+ model-checking: the ACK path alone has no fairness toward a probe
@@ -5760,7 +5756,7 @@ static void srvrun_pmtu_reap_timeout(srvrun_conn* c, u64 now_us) {
 /* The next candidate size to probe on c, or 0 if none: a probe already
  * outstanding or a concluded search (pmtu_next_probe's own gate) both
  * read as "nothing to do this opportunity". now_us converts srvrun's ms
- * clock into pmtu.c's us unit (matching QUIC_RTT_INITIAL_US and the other
+ * clock into pmtu.c's us unit (matching RTT_INITIAL_US and the other
  * RFC 9002 RTT state already on this us clock). */
 static usz srvrun_pmtu_probe_candidate(srvrun_conn* c, u64 now_us) {
   srvrun_pmtu_reap_timeout(c, now_us);
@@ -5779,12 +5775,12 @@ static usz srvrun_pmtu_probe_candidate(srvrun_conn* c, u64 now_us) {
  * without this 0, a seal failure at one size would starve every other send
  * on the connection in a tight retry loop, opportunity after opportunity,
  * for as long as that size keeps failing to seal (this is the defensive
- * half of the QUIC_PMTU_OVERHEAD fix above: with that fix in place this
+ * half of the PMTU_OVERHEAD fix above: with that fix in place this
  * path should not be reachable in practice, but srvrun_pmtu_send_probe must
  * not itself become a hang if it ever is). */
 static int srvrun_pmtu_send_probe(
     const srvrun_step_ctx* ctx, srvrun_conn* c, usz size) {
-  u8         buf[QUIC_PMTU_MAX];
+  u8         buf[PMTU_MAX];
   wired_obuf out = obuf_of(buf, sizeof buf);
   u64        pn;
   if (!srvrun_seal_pmtu_probe(c, size, &out, &pn)) return 0;
@@ -5962,7 +5958,7 @@ static int srvrun_pace_within_poll_tick(const srvrun_conn* c);
  * first bandwidth sample); Reno/Cubic at RFC 9002 7.7's 1.25 * cwnd /
  * srtt. Callers guarantee srtt_ms != 0. */
 static u64 srvrun_pace_rate_raw(const srvrun_conn* c) {
-  if (c->cc.algo == QUIC_CC_ALGO_BBR && c->cc.bbr.btl_bw)
+  if (c->cc.algo == CC_ALGO_BBR && c->cc.bbr.btl_bw)
     return bbr_pacing_gain_pct(&c->cc.bbr) * c->cc.bbr.btl_bw / 100;
   return 5 * c->cc.cwnd / (4 * c->srtt_ms);
 }
@@ -6030,9 +6026,8 @@ static int srvrun_pace_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
  * would pin it to the poll cadence exactly like the pre-token-bucket
  * regression this comment records. */
 static int srvrun_pace_within_poll_tick(const srvrun_conn* c) {
-  return c->cc.algo == QUIC_CC_ALGO_BBR ||
-         pacing_interval(c->srtt_ms, c->cc.cwnd, QUIC_MAX_DATAGRAM) <
-             SRVRUN_PTO_MS;
+  return c->cc.algo == CC_ALGO_BBR ||
+         pacing_interval(c->srtt_ms, c->cc.cwnd, MAX_DATAGRAM) < SRVRUN_PTO_MS;
 }
 
 /* Schedule the next paced send (RFC 9002 7.7: ~1.25x cwnd/srtt rate) --
@@ -6041,7 +6036,7 @@ static int srvrun_pace_within_poll_tick(const srvrun_conn* c) {
 static void srvrun_pace_next(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   if (srvrun_pace_within_poll_tick(c)) return;
   c->next_send_ms =
-      ctx->now_ms + cc_pacing_ms(&c->cc, c->srtt_ms, QUIC_MAX_DATAGRAM);
+      ctx->now_ms + cc_pacing_ms(&c->cc, c->srtt_ms, MAX_DATAGRAM);
 }
 
 /* 1 while the controller is still in slow start (no loss, no exit yet). */
@@ -6277,7 +6272,7 @@ static void srvrun_abort_incomplete_req(
     const srvrun_step_ctx* ctx, int slot, u8 incomplete_i) {
   srvrun_conn* c  = &ctx->st->conns[slot];
   u64          id = c->l.streams[incomplete_i].stream_id;
-  srvrun_send_wt_busy_reset(ctx->cfg, c, id, QUIC_H3_REQUEST_INCOMPLETE);
+  srvrun_send_wt_busy_reset(ctx->cfg, c, id, H3_REQUEST_INCOMPLETE);
 }
 
 /* Abort every request stream that ended incomplete this step (RFC 9000 2.2:
@@ -6298,7 +6293,7 @@ static void srvrun_abort_frame_unexpected_req(
     const srvrun_step_ctx* ctx, int slot, u8 unexpected_i) {
   srvrun_conn* c  = &ctx->st->conns[slot];
   u64          id = c->l.streams[unexpected_i].stream_id;
-  srvrun_send_wt_busy_reset(ctx->cfg, c, id, QUIC_H3_FRAME_UNEXPECTED);
+  srvrun_send_wt_busy_reset(ctx->cfg, c, id, H3_FRAME_UNEXPECTED);
 }
 
 /* Abort every request stream rejected outright this step, same fan-out as
@@ -6823,7 +6818,7 @@ static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot) {
  * probe/flush pass over every waiting slot. */
 static void srvrun_fire_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
   srvrun_step_ctx ctx = {cfg, 0, st, clock_mono_ms(), 0};
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) srvrun_tick_slot(&ctx, (int)i);
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) srvrun_tick_slot(&ctx, (int)i);
 }
 
 /* RFC 9001 4.6.1: dg is a 0-RTT datagram arriving on a slot still mid-boot
@@ -6902,7 +6897,7 @@ __attribute__((unused)) static void srvrun_test_force_challenge_rng_fail(
  * 0 (and writes nothing meaningful to data) on RNG failure, so the caller
  * never arms/sends an unpredictable-in-name-only (actually zero or stale)
  * challenge. */
-static int srvrun_gen_path_challenge(u8 data[QUIC_PATH_DATA]) {
+static int srvrun_gen_path_challenge(u8 data[PATH_DATA]) {
   if (g_srvrun_path_challenge_force_fail) return 0;
   return challenge_generate(data);
 }
@@ -6915,12 +6910,12 @@ static int srvrun_gen_path_challenge(u8 data[QUIC_PATH_DATA]) {
  * a later PATH_RESPONSE cannot spuriously validate (migrate_validate's
  * own precondition), matching "no challenge was ever actually issued". */
 static void srvrun_arm_path_challenge(const srvrun_cfg* cfg, srvrun_conn* c) {
-  u8 data[QUIC_PATH_DATA];
+  u8 data[PATH_DATA];
   if (!srvrun_gen_path_challenge(data)) return;
   c->migrate.handshake_confirmed = 1; /* only reachable post-confirm */
   migrate_detect(&c->migrate);
   migrate_challenge(&c->migrate);
-  bytes_memcpy(c->path_challenge_data, data, QUIC_PATH_DATA);
+  bytes_memcpy(c->path_challenge_data, data, PATH_DATA);
   srvrun_send_path_challenge(cfg, c, data);
 }
 
@@ -7033,7 +7028,8 @@ static wired_span srvrun_dcid(wired_mspan dg, u8 short_hdr_len) {
  * has open). */
 static int srvrun_find_slot(const srvrun_step_ctx* ctx, wired_span dcid) {
   if (dcid.p == 0) return -1;
-  return conntable_find(ctx->st->table, QUIC_CONNTABLE_CAP, dcid.p, (u8)dcid.n);
+  return conntable_find(
+      ctx->st->table, WIRED_CONNTABLE_CAP, dcid.p, (u8)dcid.n);
 }
 
 /* Claim a free slot for a DCID no live connection matches. Only a fresh
@@ -7052,7 +7048,7 @@ static int srvrun_claim_slot(
     const srvrun_step_ctx* ctx, wired_span dcid, int is_initial) {
   if (srvrun_claim_refused(dcid, is_initial)) return -1;
   return conntable_insert(
-      ctx->st->table, QUIC_CONNTABLE_CAP, dcid.p, (u8)dcid.n);
+      ctx->st->table, WIRED_CONNTABLE_CAP, dcid.p, (u8)dcid.n);
 }
 
 /* AF_XDP core-routing (see wired_srvrun_opt.core_id): only in XDP mode with a
@@ -7083,9 +7079,9 @@ static int srvrun_issue_cid(const srvrun_cfg* cfg, u8* cid, u8 cid_len) {
  * (quic-go, quiche) run out of the box, so untuned benchmark preconditions
  * are equal; a build wanting NewReno overrides -DWIRED_CC_ALGO_DEFAULT=0
  * (an explicit runtime NewReno request is indistinguishable from "unset"
- * because QUIC_CC_ALGO_NEWRENO is itself 0). */
+ * because CC_ALGO_NEWRENO is itself 0). */
 #ifndef WIRED_CC_ALGO_DEFAULT
-#define WIRED_CC_ALGO_DEFAULT QUIC_CC_ALGO_CUBIC
+#define WIRED_CC_ALGO_DEFAULT CC_ALGO_CUBIC
 #endif
 static int srvrun_cc_algo(const srvrun_cfg* cfg) {
   return cfg->cc_algo ? cfg->cc_algo : WIRED_CC_ALGO_DEFAULT;
@@ -7113,7 +7109,7 @@ static int srvrun_open_slot(
   if (srvrun_issue_cid(
           ctx->cfg, ctx->st->conns[slot].scid, ctx->cfg->id->scid_len))
     return slot;
-  conntable_remove(ctx->st->table, QUIC_CONNTABLE_CAP, slot);
+  conntable_remove(ctx->st->table, WIRED_CONNTABLE_CAP, slot);
   return -1;
 }
 
@@ -7125,7 +7121,7 @@ static int srvrun_open_slot(
  * a fixed process-lifetime HMAC key for Retry tokens.
  * ponytail: fixed key, no rotation -- same policy as the session-ticket key
  * (respond.c); a real deployment rotates both. */
-static const u8 g_srvrun_retry_key[QUIC_RETRYTOKEN_KEY] = {
+static const u8 g_srvrun_retry_key[RETRYTOKEN_KEY] = {
     0x77, 0x69, 0x72, 0x65, 0x64, 0x2d, 0x72, 0x74, 0x72, 0x79, 0x2d,
     0x6b, 0x65, 0x79, 0x2d, 0x30, 0x77, 0x69, 0x72, 0x65, 0x64, 0x2d,
     0x72, 0x74, 0x72, 0x79, 0x2d, 0x6b, 0x65, 0x79, 0x2d, 0x31};
@@ -7145,7 +7141,7 @@ static void srvrun_retry_prep(
     const srvrun_step_ctx* ctx,
     const lhdr*            h,
     u8                     scid[8],
-    u8                     token[QUIC_RETRYTOKEN_WIRE_MAX],
+    u8                     token[RETRYTOKEN_WIRE_MAX],
     usz*                   tn) {
   *tn = 0;
   if (!cid_generate(scid, 8)) return;
@@ -7160,8 +7156,7 @@ static void srvrun_retry_prep(
 static void srvrun_retry_finish(
     const srvrun_step_ctx* ctx, const lhdr* h, u8* pkt, usz n) {
   retry_tag(
-      h->dcid, wired_span_of(pkt, n - QUIC_RETRY_TAG_LEN),
-      pkt + n - QUIC_RETRY_TAG_LEN);
+      h->dcid, wired_span_of(pkt, n - RETRY_TAG_LEN), pkt + n - RETRY_TAG_LEN);
   srvrun_tx(ctx->cfg, ctx->peer, wired_span_of(pkt, n));
 }
 
@@ -7171,7 +7166,7 @@ static void srvrun_retry_finish(
  * token binding the peer address to h's DCID (the true ODCID), and the
  * RFC 9001 5.8 integrity tag patched over the assembled packet. */
 static void srvrun_send_retry(const srvrun_step_ctx* ctx, const lhdr* h) {
-  u8  scid[8], token[QUIC_RETRYTOKEN_WIRE_MAX], pkt[128];
+  u8  scid[8], token[RETRYTOKEN_WIRE_MAX], pkt[128];
   usz tn, n;
   srvrun_retry_prep(ctx, h, scid, token, &tn);
   if (tn == 0) return;
@@ -7250,7 +7245,7 @@ static int srvrun_boot_scid_match(
  * this, the switched retransmits claimed a competing slot with a
  * different initial_source_connection_id. */
 static int srvrun_find_boot_scid(const srvrun_step_ctx* ctx, wired_span dcid) {
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
     if (srvrun_boot_scid_match(ctx, i, dcid)) return (int)i;
   return -1;
 }
@@ -7279,7 +7274,7 @@ static int srvrun_route(
  * admits (a claim that failed for any other reason must not cost a live
  * connection its slot). */
 static int srvrun_table_full(const srvrun_state* st) {
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
     if (!st->table[i].live) return 0;
   return 1;
 }
@@ -7297,7 +7292,7 @@ static int srvrun_evict_prefer(const srvrun_state* st, usz i, int best) {
  * under the grace floor means no slot at all is over it. */
 static int srvrun_evict_candidate(const srvrun_state* st) {
   int best = -1;
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
     if (srvrun_evict_prefer(st, i, best)) best = (int)i;
   return best;
 }
@@ -7341,7 +7336,7 @@ static int srvrun_evict_for_initial(
  * than the packet that triggered it). */
 static int srvrun_sreset_applies(wired_span dcid, wired_mspan dg) {
   return dcid.p != 0 && !wired_srvboot_is_initial(dg.p, dg.n) &&
-         dg.n > QUIC_SRESET_MIN;
+         dg.n > SRESET_MIN;
 }
 
 /* Build the reset for dcid: random-looking bytes ending in the token the
@@ -7351,7 +7346,7 @@ static int srvrun_sreset_applies(wired_span dcid, wired_mspan dg) {
  * triggering datagram's size (10.3.3). */
 static int srvrun_seal_stateless_reset(
     const srvrun_cfg* cfg, wired_span dcid, usz trigger_len, wired_obuf* out) {
-  u8  key[QUIC_SRESET_KEY];
+  u8  key[SRESET_KEY];
   usz cap = u64_min(out->cap, trigger_len - 1);
   usz len;
   sreset_key_derive(cfg->id->cert_seed, key);
@@ -7401,7 +7396,7 @@ static int srvrun_seal_new_conn_refusal(
   lhdr             h;
   u8               fr[8];
   usz              fn;
-  conn_close_frame cc = {0, QUIC_ERR_CONNECTION_REFUSED, 0, 0, 0};
+  conn_close_frame cc = {0, ERR_CONNECTION_REFUSED, 0, 0, 0};
   srvwire_seal_in  wi;
   if (!lhdr_parse(dg, 1, &h)) return 0;
   fn = frame_put_conn_close(fr, sizeof fr, &cc);
@@ -7592,7 +7587,7 @@ static int srvrun_slot_waiting(const srvrun_conn* c) {
  * silence still makes progress.
  * @return 1 to receive, 0 when the tick expired instead. */
 static int srvrun_any_waiting(const srvrun_state* st) {
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
     if (srvrun_slot_waiting(&st->conns[i])) return 1;
   return 0;
 }
@@ -7723,11 +7718,11 @@ static u64 srvrun_close_grease_id(void) {
  * the intent to stop accepting new requests on it). h3_error_send_value
  * substitutes an occasional grease code per connection (9114-077, above). */
 static void srvrun_close_drained(const srvrun_cfg* cfg, srvrun_state* st) {
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
     if (st->conns[i].up)
       srvrun_send_app_close(
           cfg, &st->conns[i],
-          h3_error_send_value(QUIC_H3_NO_ERROR, srvrun_close_grease_id()),
+          h3_error_send_value(H3_NO_ERROR, srvrun_close_grease_id()),
           wired_span_of(0, 0));
 }
 
@@ -7738,7 +7733,7 @@ static void srvrun_loop(const srvrun_cfg* cfg) {
   srvrun_state st = {cfg->env->table, cfg->env->conns};
   mmsg_buf     bufs[SRVRUN_RX_BATCH];
   int          tick = 0;
-  conntable_init(st.table, QUIC_CONNTABLE_CAP);
+  conntable_init(st.table, WIRED_CONNTABLE_CAP);
   srvrun_rx_init(cfg->env, bufs);
   while (!srvrun_shutdown_requested())
     srvrun_step(cfg, &st, bufs, SRVRUN_RX_BATCH);
@@ -7814,7 +7809,7 @@ usz wired_srvrun_env_size(void) { return sizeof(wired_srvrun_env); }
 void wired_srvrun_env_init(wired_srvrun_env* env) {
   /* NOT `*env = (wired_srvrun_env){0}`: some compilers materialize that
    * compound literal as a stack temporary before copying it in, and this
-   * struct is now well past a normal 8MB stack limit (QUIC_CONNTABLE_CAP
+   * struct is now well past a normal 8MB stack limit (WIRED_CONNTABLE_CAP
    * srvrun_conn's worth of wired_server/sdrv each) -- that pattern
    * segfaulted on overflow the moment sdrv grew past the threshold. memset
    * writes directly into *env, no intermediate stack copy. */

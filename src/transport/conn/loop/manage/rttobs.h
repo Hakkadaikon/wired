@@ -1,5 +1,5 @@
-#ifndef QUIC_MANAGE_RTTOBS_H
-#define QUIC_MANAGE_RTTOBS_H
+#ifndef MANAGE_RTTOBS_H
+#define MANAGE_RTTOBS_H
 
 /* RFC 9312 3.5: an on-path observer can estimate RTT from the latency spin
  * bit by timing the edges where its value flips. A usable sample needs the

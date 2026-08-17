@@ -1,5 +1,5 @@
-#ifndef QUIC_QPACK_LITERAL_H
-#define QUIC_QPACK_LITERAL_H
+#ifndef QPACK_LITERAL_H
+#define QPACK_LITERAL_H
 
 #include "app/qpack/qpack/field.h"
 

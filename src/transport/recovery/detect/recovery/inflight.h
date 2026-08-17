@@ -1,5 +1,5 @@
-#ifndef QUIC_RECOVERY_INFLIGHT_H
-#define QUIC_RECOVERY_INFLIGHT_H
+#ifndef RECOVERY_INFLIGHT_H
+#define RECOVERY_INFLIGHT_H
 
 #include "common/platform/sys/syscall.h"
 

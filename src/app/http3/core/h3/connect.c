@@ -46,26 +46,26 @@ int h3_connect_protocol_ok(
 
 int h3_connect_established(u16 status) { return status >= 200 && status < 300; }
 
-void h3_tunnel_init(h3_tunnel* st) { *st = QUIC_H3_TUNNEL_REQ; }
+void h3_tunnel_init(h3_tunnel* st) { *st = H3_TUNNEL_REQ; }
 
 void h3_tunnel_validated(h3_tunnel* st) {
-  if (*st == QUIC_H3_TUNNEL_REQ) *st = QUIC_H3_TUNNEL_VALIDATED;
+  if (*st == H3_TUNNEL_REQ) *st = H3_TUNNEL_VALIDATED;
 }
 
 int h3_tunnel_response(h3_tunnel* st, u16 status) {
-  if (*st != QUIC_H3_TUNNEL_VALIDATED) return 0;
-  *st = h3_connect_established(status) ? QUIC_H3_TUNNEL_ESTABLISHED
-                                       : QUIC_H3_TUNNEL_FAILED;
-  return *st == QUIC_H3_TUNNEL_ESTABLISHED;
+  if (*st != H3_TUNNEL_VALIDATED) return 0;
+  *st =
+      h3_connect_established(status) ? H3_TUNNEL_ESTABLISHED : H3_TUNNEL_FAILED;
+  return *st == H3_TUNNEL_ESTABLISHED;
 }
 
 int h3_tunnel_relay(h3_tunnel* st) {
   /* ponytail: state advances to RELAY to assert the tunnel is live; the raw
    * byte relay itself is out of SDK scope — payload moves over the existing
    * h3 DATA-frame path (appdata), driven by the application. */
-  if (*st != QUIC_H3_TUNNEL_ESTABLISHED) return 0;
-  *st = QUIC_H3_TUNNEL_RELAY;
+  if (*st != H3_TUNNEL_ESTABLISHED) return 0;
+  *st = H3_TUNNEL_RELAY;
   return 1;
 }
 
-void h3_tunnel_close(h3_tunnel* st) { *st = QUIC_H3_TUNNEL_CLOSED; }
+void h3_tunnel_close(h3_tunnel* st) { *st = H3_TUNNEL_CLOSED; }

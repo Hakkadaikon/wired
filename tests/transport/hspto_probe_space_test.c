@@ -4,19 +4,19 @@
  * outranks Handshake before confirmation. */
 
 static void test_hspto_probe_initial_preferred(void) {
-  CHECK(hspto_probe_space(1, 1, 0) == QUIC_HSPTO_SPACE_INITIAL);
+  CHECK(hspto_probe_space(1, 1, 0) == HSPTO_SPACE_INITIAL);
 }
 
 static void test_hspto_probe_handshake_when_no_initial(void) {
-  CHECK(hspto_probe_space(0, 1, 0) == QUIC_HSPTO_SPACE_HANDSHAKE);
+  CHECK(hspto_probe_space(0, 1, 0) == HSPTO_SPACE_HANDSHAKE);
 }
 
 static void test_hspto_probe_application_when_confirmed(void) {
-  CHECK(hspto_probe_space(1, 1, 1) == QUIC_HSPTO_SPACE_APPLICATION);
+  CHECK(hspto_probe_space(1, 1, 1) == HSPTO_SPACE_APPLICATION);
 }
 
 static void test_hspto_probe_application_when_nothing_early(void) {
-  CHECK(hspto_probe_space(0, 0, 0) == QUIC_HSPTO_SPACE_APPLICATION);
+  CHECK(hspto_probe_space(0, 0, 0) == HSPTO_SPACE_APPLICATION);
 }
 
 void test_hspto_probe_space(void) {

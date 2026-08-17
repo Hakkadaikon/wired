@@ -22,7 +22,7 @@ static int classify(const qpack_dyn_entry* e, const qpack_field* f) {
 }
 
 static const qpack_dyn_entry* entry_at(const qpack_dyn* t, usz off) {
-  return &t->ring[(t->head + off) % QUIC_QPACK_DYN_MAX_ENTRIES];
+  return &t->ring[(t->head + off) % QPACK_DYN_MAX_ENTRIES];
 }
 
 static void record(u64 abs_index, int full, qpack_match* m) {

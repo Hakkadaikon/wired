@@ -45,9 +45,9 @@ static void test_seen_distinct_identities_independent(void) {
  * acceptable since a ticket also expires on its own lifetime). */
 static void test_seen_capacity_evicts_oldest(void) {
   zerortt_seen s;
-  u8           id[QUIC_ZERORTT_SEEN_CAP + 1][4];
+  u8           id[ZERORTT_SEEN_CAP + 1][4];
   zerortt_seen_init(&s);
-  for (usz i = 0; i < QUIC_ZERORTT_SEEN_CAP + 1; i++) {
+  for (usz i = 0; i < ZERORTT_SEEN_CAP + 1; i++) {
     id[i][0] = (u8)i;
     id[i][1] = (u8)(i >> 8);
     id[i][2] = 0xEE;

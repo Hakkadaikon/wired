@@ -1,5 +1,5 @@
-#ifndef QUIC_RETRYTOKEN_TOKENTYPE_H
-#define QUIC_RETRYTOKEN_TOKENTYPE_H
+#ifndef RETRYTOKEN_TOKENTYPE_H
+#define RETRYTOKEN_TOKENTYPE_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -9,8 +9,8 @@
  * future-use token). A server processes the two differently, so it must tell
  * them apart. We prefix the token body with one type-tag byte. */
 
-#define QUIC_TOKEN_TAG_RETRY 0x01
-#define QUIC_TOKEN_TAG_NEWTOKEN 0x02
+#define TOKEN_TAG_RETRY 0x01
+#define TOKEN_TAG_NEWTOKEN 0x02
 
 /* Write a tagged token: tag byte + body into out. Returns total bytes
  * written, or 0 if it does not fit. */

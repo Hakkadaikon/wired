@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_ERRCLASS_H
-#define QUIC_H3_ERRCLASS_H
+#ifndef H3_ERRCLASS_H
+#define H3_ERRCLASS_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -27,7 +27,7 @@ int h3_error_is_reserved(u64 code);
  * settings_build.h), keeping this function itself trivial to test.
  * @param code the error code the sender was about to use
  * @param grease_id 0 to send code as-is, or a reserved (0x1f*N + 0x21 form)
- *   identifier to substitute when code is QUIC_H3_NO_ERROR
+ *   identifier to substitute when code is H3_NO_ERROR
  * @return the error code to actually send */
 u64 h3_error_send_value(u64 code, u64 grease_id);
 

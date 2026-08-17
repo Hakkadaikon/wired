@@ -13,10 +13,10 @@ static const u8 oid_secp256r1[] = {0x2a, 0x86, 0x48, 0xce,
 static usz pc_build_alg(wired_obuf* out) {
   u8           inner[32];
   p256cert_enc e = {inner, sizeof(inner), 0, 1};
-  p256cert_put(&e, QUIC_DER_OID, wired_span_of(oid_ec_pub, sizeof(oid_ec_pub)));
+  p256cert_put(&e, DER_OID, wired_span_of(oid_ec_pub, sizeof(oid_ec_pub)));
   p256cert_put(
-      &e, QUIC_DER_OID, wired_span_of(oid_secp256r1, sizeof(oid_secp256r1)));
-  return p256cert_wrap(&e, QUIC_DER_SEQUENCE, out);
+      &e, DER_OID, wired_span_of(oid_secp256r1, sizeof(oid_secp256r1)));
+  return p256cert_wrap(&e, DER_SEQUENCE, out);
 }
 
 /* SEC1 2.3.3. Pack the uncompressed point 0x04 || X || Y after the BIT STRING
@@ -35,7 +35,7 @@ int p256cert_spki(const u8 x[32], const u8 y[32], wired_obuf* out) {
   p256cert_enc e  = {inner, sizeof(inner), 0, 1};
   pack_point(bits, x, y);
   p256cert_put_pre(&e, wired_span_of(alg, pc_build_alg(&ao)));
-  p256cert_put(&e, QUIC_DER_BIT_STRING, wired_span_of(bits, sizeof(bits)));
-  out->len = p256cert_wrap(&e, QUIC_DER_SEQUENCE, out);
+  p256cert_put(&e, DER_BIT_STRING, wired_span_of(bits, sizeof(bits)));
+  out->len = p256cert_wrap(&e, DER_SEQUENCE, out);
   return out->len != 0;
 }

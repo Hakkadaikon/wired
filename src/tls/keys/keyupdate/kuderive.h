@@ -1,5 +1,5 @@
-#ifndef QUIC_KEYUPDATE_KUDERIVE_H
-#define QUIC_KEYUPDATE_KUDERIVE_H
+#ifndef KEYUPDATE_KUDERIVE_H
+#define KEYUPDATE_KUDERIVE_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -11,7 +11,7 @@
 void ku_next_secret_v(u32 version, const u8 cur[32], u8 next[32]);
 
 /* RFC 9001 6.1 only (QUIC v1 "quic ku" label). Kept for existing v1-only
- * call sites; equivalent to ku_next_secret_v(QUIC_VERSION_1, ...). */
+ * call sites; equivalent to ku_next_secret_v(VERSION_1, ...). */
 void ku_next_secret(const u8 cur[32], u8 next[32]);
 
 #endif

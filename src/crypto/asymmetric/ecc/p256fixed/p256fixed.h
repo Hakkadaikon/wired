@@ -1,5 +1,5 @@
-#ifndef QUIC_P256FIXED_H
-#define QUIC_P256FIXED_H
+#ifndef P256FIXED_H
+#define P256FIXED_H
 
 #include "crypto/asymmetric/ecc/p256/p256_field.h"
 

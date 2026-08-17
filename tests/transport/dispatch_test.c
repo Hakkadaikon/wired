@@ -1,34 +1,34 @@
 #include "test.h"
 
 static void test_dispatch_classify(void) {
-  CHECK(frame_classify(0x00) == QUIC_FK_PADDING);
-  CHECK(frame_classify(0x01) == QUIC_FK_PING);
-  CHECK(frame_classify(0x02) == QUIC_FK_ACK);
-  CHECK(frame_classify(0x03) == QUIC_FK_ACK);
-  CHECK(frame_classify(0x06) == QUIC_FK_CRYPTO);
+  CHECK(frame_classify(0x00) == FK_PADDING);
+  CHECK(frame_classify(0x01) == FK_PING);
+  CHECK(frame_classify(0x02) == FK_ACK);
+  CHECK(frame_classify(0x03) == FK_ACK);
+  CHECK(frame_classify(0x06) == FK_CRYPTO);
   /* every STREAM type 0x08..0x0f maps to STREAM */
-  for (u64 t = 0x08; t <= 0x0f; t++) CHECK(frame_classify(t) == QUIC_FK_STREAM);
-  CHECK(frame_classify(0x12) == QUIC_FK_MAX_STREAMS);
-  CHECK(frame_classify(0x13) == QUIC_FK_MAX_STREAMS);
-  CHECK(frame_classify(0x1c) == QUIC_FK_CONNECTION_CLOSE);
-  CHECK(frame_classify(0x1d) == QUIC_FK_CONNECTION_CLOSE);
-  CHECK(frame_classify(0x1e) == QUIC_FK_HANDSHAKE_DONE);
-  CHECK(frame_classify(0x31) == QUIC_FK_DATAGRAM);
+  for (u64 t = 0x08; t <= 0x0f; t++) CHECK(frame_classify(t) == FK_STREAM);
+  CHECK(frame_classify(0x12) == FK_MAX_STREAMS);
+  CHECK(frame_classify(0x13) == FK_MAX_STREAMS);
+  CHECK(frame_classify(0x1c) == FK_CONNECTION_CLOSE);
+  CHECK(frame_classify(0x1d) == FK_CONNECTION_CLOSE);
+  CHECK(frame_classify(0x1e) == FK_HANDSHAKE_DONE);
+  CHECK(frame_classify(0x31) == FK_DATAGRAM);
   /* undefined type -> UNKNOWN */
-  CHECK(frame_classify(0x99) == QUIC_FK_UNKNOWN);
-  CHECK(frame_classify(0x20) == QUIC_FK_UNKNOWN);
+  CHECK(frame_classify(0x99) == FK_UNKNOWN);
+  CHECK(frame_classify(0x20) == FK_UNKNOWN);
 }
 
 /* ACK, PADDING, CONNECTION_CLOSE are not ack-eliciting; others are. */
 static void test_dispatch_ack_eliciting(void) {
-  CHECK(frame_ack_eliciting(QUIC_FK_PADDING) == 0);
-  CHECK(frame_ack_eliciting(QUIC_FK_ACK) == 0);
-  CHECK(frame_ack_eliciting(QUIC_FK_CONNECTION_CLOSE) == 0);
-  CHECK(frame_ack_eliciting(QUIC_FK_UNKNOWN) == 0);
-  CHECK(frame_ack_eliciting(QUIC_FK_PING) == 1);
-  CHECK(frame_ack_eliciting(QUIC_FK_STREAM) == 1);
-  CHECK(frame_ack_eliciting(QUIC_FK_CRYPTO) == 1);
-  CHECK(frame_ack_eliciting(QUIC_FK_HANDSHAKE_DONE) == 1);
+  CHECK(frame_ack_eliciting(FK_PADDING) == 0);
+  CHECK(frame_ack_eliciting(FK_ACK) == 0);
+  CHECK(frame_ack_eliciting(FK_CONNECTION_CLOSE) == 0);
+  CHECK(frame_ack_eliciting(FK_UNKNOWN) == 0);
+  CHECK(frame_ack_eliciting(FK_PING) == 1);
+  CHECK(frame_ack_eliciting(FK_STREAM) == 1);
+  CHECK(frame_ack_eliciting(FK_CRYPTO) == 1);
+  CHECK(frame_ack_eliciting(FK_HANDSHAKE_DONE) == 1);
 }
 
 /* RFC 9000 12.4: frame types are encoded on the shortest possible

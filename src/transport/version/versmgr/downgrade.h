@@ -1,5 +1,5 @@
-#ifndef QUIC_VERSMGR_DOWNGRADE_H
-#define QUIC_VERSMGR_DOWNGRADE_H
+#ifndef VERSMGR_DOWNGRADE_H
+#define VERSMGR_DOWNGRADE_H
 
 #include "common/platform/sys/syscall.h"
 

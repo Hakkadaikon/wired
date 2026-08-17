@@ -52,7 +52,7 @@ static const u8 pct_tbs_inhibit_any_malformed[] = {
 static void test_reqexp_absent_ext_is_none(void) {
   CHECK(
       x509_require_explicit_policy(wired_span_of(
-          pct_tbs_no_ext, sizeof(pct_tbs_no_ext))) == QUIC_X509_SKIPCERTS_NONE);
+          pct_tbs_no_ext, sizeof(pct_tbs_no_ext))) == X509_SKIPCERTS_NONE);
 }
 
 /* requireExplicitPolicy present and set to 3. */
@@ -68,7 +68,7 @@ static void test_reqexp_field_absent_is_none(void) {
   CHECK(
       x509_require_explicit_policy(wired_span_of(
           pct_tbs_reqexp_absent_field, sizeof(pct_tbs_reqexp_absent_field))) ==
-      QUIC_X509_SKIPCERTS_NONE);
+      X509_SKIPCERTS_NONE);
 }
 
 /* A malformed (negative) requireExplicitPolicy fails closed. */
@@ -76,14 +76,14 @@ static void test_reqexp_malformed_rejects(void) {
   CHECK(
       x509_require_explicit_policy(wired_span_of(
           pct_tbs_reqexp_malformed, sizeof(pct_tbs_reqexp_malformed))) ==
-      QUIC_X509_SKIPCERTS_MALFORMED);
+      X509_SKIPCERTS_MALFORMED);
 }
 
 /* RFC 5280 4.2.1.14: no inhibitAnyPolicy extension is unconstrained. */
 static void test_inhibit_any_absent_is_none(void) {
   CHECK(
       x509_inhibit_any_policy(wired_span_of(
-          pct_tbs_no_ext, sizeof(pct_tbs_no_ext))) == QUIC_X509_SKIPCERTS_NONE);
+          pct_tbs_no_ext, sizeof(pct_tbs_no_ext))) == X509_SKIPCERTS_NONE);
 }
 
 /* inhibitAnyPolicy present and set to 2. */
@@ -98,8 +98,7 @@ static void test_inhibit_any_malformed_rejects(void) {
   CHECK(
       x509_inhibit_any_policy(wired_span_of(
           pct_tbs_inhibit_any_malformed,
-          sizeof(pct_tbs_inhibit_any_malformed))) ==
-      QUIC_X509_SKIPCERTS_MALFORMED);
+          sizeof(pct_tbs_inhibit_any_malformed))) == X509_SKIPCERTS_MALFORMED);
 }
 
 void test_policyconstraints(void) {

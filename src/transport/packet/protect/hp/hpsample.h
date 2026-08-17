@@ -1,5 +1,5 @@
-#ifndef QUIC_HP_HPSAMPLE_H
-#define QUIC_HP_HPSAMPLE_H
+#ifndef HP_HPSAMPLE_H
+#define HP_HPSAMPLE_H
 
 #include "common/platform/sys/syscall.h"
 

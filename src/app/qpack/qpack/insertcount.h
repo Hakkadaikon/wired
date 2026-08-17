@@ -1,5 +1,5 @@
-#ifndef QUIC_QPACK_INSERTCOUNT_H
-#define QUIC_QPACK_INSERTCOUNT_H
+#ifndef QPACK_INSERTCOUNT_H
+#define QPACK_INSERTCOUNT_H
 
 #include "common/platform/sys/syscall.h"
 

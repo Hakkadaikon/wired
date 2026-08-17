@@ -1,5 +1,5 @@
-#ifndef QUIC_RTXDRIVE_SELECT_H
-#define QUIC_RTXDRIVE_SELECT_H
+#ifndef RTXDRIVE_SELECT_H
+#define RTXDRIVE_SELECT_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/recovery/rtx/rtxbytes/rtxstore.h"

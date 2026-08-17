@@ -1,27 +1,27 @@
-#ifndef QUIC_VERSION_VERSION_H
-#define QUIC_VERSION_VERSION_H
+#ifndef VERSION_VERSION_H
+#define VERSION_VERSION_H
 
 #include "common/platform/sys/syscall.h"
 
 /* QUIC version numbers and the version_information transport parameter
  * (RFC 9368) used for compatible version negotiation. */
 
-#define QUIC_VERSION_1 0x00000001u
-#define QUIC_VERSION_2 0x6b3343cfu /* RFC 9369 */
+#define VERSION_1 0x00000001u
+#define VERSION_2 0x6b3343cfu /* RFC 9369 */
 
 /* A reserved version matches the 0x?a?a?a?a GREASE pattern (RFC 8999 6) and
  * is never selected. */
 int version_is_reserved(u32 version);
 
 /* version_information transport parameter id (RFC 9368 3). */
-#define QUIC_TP_VERSION_INFORMATION 0x11
-#define QUIC_VI_MAX_AVAILABLE 16
+#define TP_VERSION_INFORMATION 0x11
+#define VI_MAX_AVAILABLE 16
 
 /** A decoded version_information transport parameter (RFC 9368 3). */
 typedef struct {
-  u32 chosen;                           /**< Chosen Version */
-  usz n_available;                      /**< entries used in available[] */
-  u32 available[QUIC_VI_MAX_AVAILABLE]; /**< in preference order (client) */
+  u32 chosen;                      /**< Chosen Version */
+  usz n_available;                 /**< entries used in available[] */
+  u32 available[VI_MAX_AVAILABLE]; /**< in preference order (client) */
 } version_info;
 
 /** A read-only view of a version-number list (offered, supported, etc). */

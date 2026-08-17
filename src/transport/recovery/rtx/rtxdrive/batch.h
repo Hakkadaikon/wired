@@ -1,5 +1,5 @@
-#ifndef QUIC_RTXDRIVE_BATCH_H
-#define QUIC_RTXDRIVE_BATCH_H
+#ifndef RTXDRIVE_BATCH_H
+#define RTXDRIVE_BATCH_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/recovery/rtx/rtxbytes/collect.h"

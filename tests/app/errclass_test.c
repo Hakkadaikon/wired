@@ -3,9 +3,9 @@
 
 /* The defined block 0x0100..0x0110 is known; just outside it is not. */
 static void test_known_block(void) {
-  CHECK(h3_error_is_known(QUIC_H3_NO_ERROR) == 1);         /* 0x0100 low */
-  CHECK(h3_error_is_known(QUIC_H3_VERSION_FALLBACK) == 1); /* 0x0110 high */
-  CHECK(h3_error_is_known(QUIC_H3_FRAME_UNEXPECTED) == 1);
+  CHECK(h3_error_is_known(H3_NO_ERROR) == 1);         /* 0x0100 low */
+  CHECK(h3_error_is_known(H3_VERSION_FALLBACK) == 1); /* 0x0110 high */
+  CHECK(h3_error_is_known(H3_FRAME_UNEXPECTED) == 1);
   CHECK(h3_error_is_known(0x00ff) == 0); /* just below */
   CHECK(h3_error_is_known(0x0111) == 0); /* just above */
   CHECK(h3_error_is_known(0) == 0);
@@ -25,19 +25,18 @@ static void test_reserved(void) {
  * probability itself lives in whoever picks grease_id, not here). */
 static void test_error_send_value(void) {
   /* grease_id == 0: H3_NO_ERROR passes through unchanged */
-  CHECK(h3_error_send_value(QUIC_H3_NO_ERROR, 0) == QUIC_H3_NO_ERROR);
+  CHECK(h3_error_send_value(H3_NO_ERROR, 0) == H3_NO_ERROR);
   /* non-zero grease_id substitutes for H3_NO_ERROR */
   {
     u64 gid = 0x21 + 0x1f * 5;
     CHECK(h3_error_is_reserved(gid) == 1);
-    CHECK(h3_error_send_value(QUIC_H3_NO_ERROR, gid) == gid);
+    CHECK(h3_error_send_value(H3_NO_ERROR, gid) == gid);
   }
   /* any other code is never substituted, grease_id or not */
   CHECK(
-      h3_error_send_value(QUIC_H3_REQUEST_CANCELLED, 0x21 + 0x1f) ==
-      QUIC_H3_REQUEST_CANCELLED);
-  CHECK(
-      h3_error_send_value(QUIC_H3_INTERNAL_ERROR, 0) == QUIC_H3_INTERNAL_ERROR);
+      h3_error_send_value(H3_REQUEST_CANCELLED, 0x21 + 0x1f) ==
+      H3_REQUEST_CANCELLED);
+  CHECK(h3_error_send_value(H3_INTERNAL_ERROR, 0) == H3_INTERNAL_ERROR);
 }
 
 void test_errclass(void) {

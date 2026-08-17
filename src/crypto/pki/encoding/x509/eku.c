@@ -13,7 +13,7 @@ const u8 x509_oid_server_auth[8] = {0x2b, 0x06, 0x01, 0x05,
 
 /* One KeyPurposeId element equals purpose_oid. */
 static int eku_id_matches(u8 tag, wired_span id, wired_span purpose_oid) {
-  return tag == QUIC_DER_OID && der_oid_equal(id, purpose_oid);
+  return tag == DER_OID && der_oid_equal(id, purpose_oid);
 }
 
 /* RFC 5280 4.2.1.12. Scan the SEQUENCE OF KeyPurposeId for purpose_oid. */

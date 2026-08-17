@@ -3,7 +3,7 @@
 #include "test.h"
 
 static int ts_digest_eq(const u8* got, const char* hex) {
-  for (usz i = 0; i < QUIC_SHA256_DIGEST; i++) {
+  for (usz i = 0; i < SHA256_DIGEST; i++) {
     u8 hi = hex[i * 2], lo = hex[i * 2 + 1];
     u8 b = (u8)(((hi <= '9' ? hi - '0' : hi - 'a' + 10) << 4) |
                 (lo <= '9' ? lo - '0' : lo - 'a' + 10));
@@ -15,7 +15,7 @@ static int ts_digest_eq(const u8* got, const char* hex) {
 /* Stage helpers snapshot the running hash at the caller's chosen point. */
 static void test_transcript_stage_ch_sh(void) {
   transcript t;
-  u8         d[QUIC_SHA256_DIGEST];
+  u8         d[SHA256_DIGEST];
   transcript_init(&t);
   transcript_add(&t, (const u8 *)"\x01\x00\x00\x03" "abc", 7);
   transcript_ch_sh(&t, d); /* ClientHello..ServerHello stage */
@@ -25,7 +25,7 @@ static void test_transcript_stage_ch_sh(void) {
 
 static void test_transcript_stage_ch_sfin(void) {
   transcript t;
-  u8         d[QUIC_SHA256_DIGEST];
+  u8         d[SHA256_DIGEST];
   transcript_init(&t);
   transcript_add(&t, (const u8 *)"\x01\x00\x00\x03" "abc", 7);
   transcript_add(&t, (const u8 *)"\x02\x00\x00\x03" "def", 7);

@@ -1,5 +1,5 @@
-#ifndef QUIC_QPACKDYN_FIELD_DECODE_H
-#define QUIC_QPACKDYN_FIELD_DECODE_H
+#ifndef QPACKDYN_FIELD_DECODE_H
+#define QPACKDYN_FIELD_DECODE_H
 
 #include "app/qpack/qpack/dyntable.h"
 

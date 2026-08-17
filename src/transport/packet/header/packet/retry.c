@@ -14,8 +14,7 @@ static int retry_put_cid(wired_obuf* out, wired_span cid) {
 
 /* True if the whole Retry packet fits in cap. */
 static int retry_fits(usz cap, const retry_desc* d) {
-  usz need =
-      5 + 1 + d->dcid.n + 1 + d->scid.n + d->token.n + QUIC_RETRY_TAG_LEN;
+  usz need = 5 + 1 + d->dcid.n + 1 + d->scid.n + d->token.n + RETRY_TAG_LEN;
   return need <= cap;
 }
 
@@ -32,7 +31,7 @@ usz retry_build(u8* buf, usz cap, const retry_desc* d) {
       wired_span_of(d->token.p, d->token.n));
   bytes_put(
       wired_mspan_of(out.p, out.cap), &out.len,
-      wired_span_of(d->tag, QUIC_RETRY_TAG_LEN));
+      wired_span_of(d->tag, RETRY_TAG_LEN));
   return out.len;
 }
 
@@ -50,7 +49,7 @@ static int retry_take_cid(wired_span buf, usz* off, wired_mspan* dst) {
 
 /* True if a long-form Retry byte0 with a token of >= 0 bytes can follow. */
 static int retry_head_ok(const u8* buf, usz n) {
-  if (n < 5 + 1 + 1 + QUIC_RETRY_TAG_LEN) return 0;
+  if (n < 5 + 1 + 1 + RETRY_TAG_LEN) return 0;
   return (buf[0] & 0xF0) == 0xF0;
 }
 
@@ -68,13 +67,13 @@ static int retry_take_cids(wired_span buf, usz* off, retry_packet* r) {
 /* With CIDs consumed up to off, split the remainder into token + tag.
  * Returns 1 ok, 0 if no room is left for the 16-byte tag. */
 static int take_token_tag(wired_span buf, usz off, retry_packet* r) {
-  usz tag_off = buf.n - QUIC_RETRY_TAG_LEN;
+  usz tag_off = buf.n - RETRY_TAG_LEN;
   if (off > tag_off) return 0;
   r->token     = buf.p + off;
   r->token_len = tag_off - off;
   return bytes_take(
       wired_span_of(buf.p, buf.n), &tag_off,
-      wired_mspan_of(r->tag, QUIC_RETRY_TAG_LEN));
+      wired_mspan_of(r->tag, RETRY_TAG_LEN));
 }
 
 /* Parse version, both CIDs and token+tag, the byte0/length gate already

@@ -10,7 +10,7 @@ static void test_enc_stream_set_capacity_applied(void) {
   qpack_dyn   t;
   u8          buf[4];
   wired_mspan mb  = wired_mspan_of(buf, sizeof buf);
-  usz         n   = qpack_enc_instr_encode(mb, QUIC_QPACK_ENC_SET_CAPACITY, 10);
+  usz         n   = qpack_enc_instr_encode(mb, QPACK_ENC_SET_CAPACITY, 10);
   u16         err = 0;
 
   qpack_dyn_init(&t, 0);
@@ -26,14 +26,14 @@ static void test_enc_stream_set_capacity_over_limit_rejected(void) {
   qpack_dyn   t;
   u8          buf[4];
   wired_mspan mb  = wired_mspan_of(buf, sizeof buf);
-  usz         n   = qpack_enc_instr_encode(mb, QUIC_QPACK_ENC_SET_CAPACITY, 50);
+  usz         n   = qpack_enc_instr_encode(mb, QPACK_ENC_SET_CAPACITY, 50);
   u16         err = 0;
 
   qpack_dyn_init(&t, 0);
   CHECK(n > 0);
   CHECK(qdyn_enc_apply_capacity(wired_span_of(buf, n), &t, 10, &err) == 0);
   CHECK(t.capacity == 0);
-  CHECK(err == QUIC_QPACK_ENCODER_STREAM_ERROR);
+  CHECK(err == QPACK_ENCODER_STREAM_ERROR);
 }
 
 /* RFC 9204 3.2.2: reducing capacity below the table's current size evicts
@@ -45,7 +45,7 @@ static void test_enc_stream_set_capacity_reduction_evicts(void) {
       wired_span_of((const u8*)"a", 1), wired_span_of((const u8*)"1", 1)};
   u8          buf[4];
   wired_mspan mb  = wired_mspan_of(buf, sizeof buf);
-  usz         n   = qpack_enc_instr_encode(mb, QUIC_QPACK_ENC_SET_CAPACITY, 0);
+  usz         n   = qpack_enc_instr_encode(mb, QPACK_ENC_SET_CAPACITY, 0);
   u16         err = 0;
 
   qpack_dyn_init(&t, 40);
@@ -65,8 +65,8 @@ static void test_enc_stream_set_capacity_reduction_evicts(void) {
 static void test_enc_stream_non_capacity_instruction_unconsumed(void) {
   qpack_dyn   t;
   u8          buf[4];
-  wired_mspan mb = wired_mspan_of(buf, sizeof buf);
-  usz         n = qpack_enc_instr_encode(mb, QUIC_QPACK_ENC_INSERT_NAME_REF, 5);
+  wired_mspan mb  = wired_mspan_of(buf, sizeof buf);
+  usz         n   = qpack_enc_instr_encode(mb, QPACK_ENC_INSERT_NAME_REF, 5);
   u16         err = 0;
 
   qpack_dyn_init(&t, 0);

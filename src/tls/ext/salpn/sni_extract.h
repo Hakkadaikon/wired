@@ -1,5 +1,5 @@
-#ifndef QUIC_SALPN_SNI_EXTRACT_H
-#define QUIC_SALPN_SNI_EXTRACT_H
+#ifndef SALPN_SNI_EXTRACT_H
+#define SALPN_SNI_EXTRACT_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

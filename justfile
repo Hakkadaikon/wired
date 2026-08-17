@@ -4,7 +4,7 @@ cc := "clang"
 # Shared warning/optimization base; the three flag sets below extend it.
 warnflags := "-Wall -Wextra -Werror -O2"
 # Max simultaneous connections one server process tracks (conntable.h's
-# QUIC_CONNTABLE_CAP, #ifndef-guarded there so this -D overrides it). Every
+# WIRED_CONNTABLE_CAP, #ifndef-guarded there so this -D overrides it). Every
 # per-connection slot -- wired_srvloop, respstore, etc -- is a fixed-size
 # array sized off this, so raising it grows the binary's BSS accordingly
 # (~1.9MiB/conn). Default 4 matches the moqt_chat/webtransport_chat samples'

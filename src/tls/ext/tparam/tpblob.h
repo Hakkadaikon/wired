@@ -1,5 +1,5 @@
-#ifndef QUIC_TPARAM_TPBLOB_H
-#define QUIC_TPARAM_TPBLOB_H
+#ifndef TPARAM_TPBLOB_H
+#define TPARAM_TPBLOB_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

@@ -1,7 +1,7 @@
 #include "transport/version/version/vneg.h"
 
 void vneg_init(vneg* v, const u32* supported, usz n) {
-  v->phase       = QUIC_VNEG_INITIAL;
+  v->phase       = VNEG_INITIAL;
   v->negotiated  = 0;
   v->reacted     = 0;
   v->n_supported = n;
@@ -28,7 +28,7 @@ static int downgrade_ok(const version_info* vi, u32 in_use) {
 
 int vneg_check_downgrade(vneg* v, const version_info* vi, u32 in_use) {
   if (downgrade_ok(vi, in_use)) return 1;
-  v->phase = QUIC_VNEG_ERROR;
+  v->phase = VNEG_ERROR;
   return 0;
 }
 
@@ -58,12 +58,12 @@ int vneg_react(vneg* v, const vn_packet* pkt, u32* chosen) {
   if (!may_react(v, pkt)) return 0;
   if (!pick_mutual(v, pkt, chosen)) return 0;
   v->reacted = 1;
-  v->phase   = QUIC_VNEG_REACTED;
+  v->phase   = VNEG_REACTED;
   return 1;
 }
 
 void vneg_confirm(vneg* v, u32 version) {
-  if (v->phase == QUIC_VNEG_ERROR) return; /* errors do not confirm */
-  v->phase      = QUIC_VNEG_CONFIRMED;
+  if (v->phase == VNEG_ERROR) return; /* errors do not confirm */
+  v->phase      = VNEG_CONFIRMED;
   v->negotiated = version;
 }

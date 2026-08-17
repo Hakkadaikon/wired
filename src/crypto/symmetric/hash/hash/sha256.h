@@ -1,5 +1,5 @@
-#ifndef QUIC_HASH_SHA256_H
-#define QUIC_HASH_SHA256_H
+#ifndef HASH_SHA256_H
+#define HASH_SHA256_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -8,18 +8,18 @@
  * FIPS 180-4 SHA-256. Produces a 32-byte digest.
  */
 
-#define QUIC_SHA256_DIGEST 32 /**< digest length in bytes */
-#define QUIC_SHA256_BLOCK 64  /**< internal block length in bytes */
+#define SHA256_DIGEST 32 /**< digest length in bytes */
+#define SHA256_BLOCK 64  /**< internal block length in bytes */
 
 /**
  * Streaming SHA-256 state. Initialize with sha256_init(), feed with
  * sha256_update(), finish with sha256_final().
  */
 typedef struct {
-  u32 h[8];                   /**< running hash state */
-  u64 total;                  /**< total bytes absorbed */
-  u8  buf[QUIC_SHA256_BLOCK]; /**< partial-block staging buffer */
-  usz buf_len;                /**< bytes pending in buf */
+  u32 h[8];              /**< running hash state */
+  u64 total;             /**< total bytes absorbed */
+  u8  buf[SHA256_BLOCK]; /**< partial-block staging buffer */
+  usz buf_len;           /**< bytes pending in buf */
 } sha256_ctx;
 
 /**
@@ -44,7 +44,7 @@ void sha256_update(sha256_ctx* s, const u8* data, usz len);
  * @param s   context to finalize (its state is consumed)
  * @param out receives the 32-byte digest
  */
-void sha256_final(sha256_ctx* s, u8 out[QUIC_SHA256_DIGEST]);
+void sha256_final(sha256_ctx* s, u8 out[SHA256_DIGEST]);
 
 /**
  * One-shot convenience: digest of data[0..len).
@@ -53,6 +53,6 @@ void sha256_final(sha256_ctx* s, u8 out[QUIC_SHA256_DIGEST]);
  * @param len  number of bytes at data
  * @param out  receives the 32-byte digest
  */
-void wired_sha256(const u8* data, usz len, u8 out[QUIC_SHA256_DIGEST]);
+void wired_sha256(const u8* data, usz len, u8 out[SHA256_DIGEST]);
 
 #endif

@@ -12,14 +12,14 @@ static int pn_within(u64 pn, ap_pnrange r) { return pn >= r.lo && pn <= r.hi; }
 /* True when slot i holds an in-flight packet whose pn is in r. */
 static int slot_in_range(const sentpkt* t, usz i, ap_pnrange r) {
   const sentpkt_entry* p = &t->e[i];
-  return p->used && p->state == QUIC_SP_INFLIGHT && pn_within(p->pn, r);
+  return p->used && p->state == SP_INFLIGHT && pn_within(p->pn, r);
 }
 
 /* Remove every in-flight packet in r, appending pns to out. */
 static void ap_ack_range(sentpkt* t, ap_pnrange r, u64out out) {
-  for (usz i = 0; i < QUIC_SENTPKT_CAP; i++) {
+  for (usz i = 0; i < SENTPKT_CAP; i++) {
     if (!slot_in_range(t, i, r)) continue;
-    t->e[i].state       = QUIC_SP_ACKED;
+    t->e[i].state       = SP_ACKED;
     t->e[i].used        = 0;
     out.out[(*out.n)++] = t->e[i].pn;
   }

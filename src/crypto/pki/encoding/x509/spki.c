@@ -79,7 +79,7 @@ int x509_is_ecmqv(wired_span alg_oid) {
 static int spki_alg_oid(wired_span alg, wired_span* oid) {
   derseq c;
   derseq_init(&c, alg);
-  return derseq_next_tagged(&c, QUIC_DER_OID, oid);
+  return derseq_next_tagged(&c, DER_OID, oid);
 }
 
 /* RFC 5280 4.1.2.7. Split a SPKI value into algorithm OID and key bits. */
@@ -87,16 +87,15 @@ static int split_spki(wired_span spki, wired_span* oid, wired_span* key) {
   derseq     c;
   wired_span alg;
   derseq_init(&c, spki);
-  return derseq_next_tagged(&c, QUIC_DER_SEQUENCE, &alg) &&
-         derseq_next_tagged(&c, QUIC_DER_BIT_STRING, key) &&
-         spki_alg_oid(alg, oid);
+  return derseq_next_tagged(&c, DER_SEQUENCE, &alg) &&
+         derseq_next_tagged(&c, DER_BIT_STRING, key) && spki_alg_oid(alg, oid);
 }
 
 /* Walk tbs to the subjectPublicKeyInfo element value. */
 static int reach_spki(wired_span tbs, wired_span* spki) {
   derseq c;
   return x509_tbs_cursor(tbs, &c) && derseq_skip(&c, SPKI_SKIP) &&
-         derseq_next_tagged(&c, QUIC_DER_SEQUENCE, spki);
+         derseq_next_tagged(&c, DER_SEQUENCE, spki);
 }
 
 int x509_public_key(wired_span tbs, wired_span* alg_oid, wired_span* key) {
@@ -110,8 +109,8 @@ static int alg_named_curve(wired_span alg, wired_span* oid) {
   derseq     c;
   wired_span first;
   derseq_init(&c, alg);
-  if (!derseq_next_tagged(&c, QUIC_DER_OID, &first)) return 0;
-  return derseq_next_tagged(&c, QUIC_DER_OID, oid);
+  if (!derseq_next_tagged(&c, DER_OID, &first)) return 0;
+  return derseq_next_tagged(&c, DER_OID, oid);
 }
 
 /* The SPKI's algorithm SEQUENCE value. */
@@ -120,7 +119,7 @@ static int reach_alg(wired_span tbs, wired_span* alg) {
   derseq     c;
   if (!reach_spki(tbs, &spki)) return 0;
   derseq_init(&c, spki);
-  return derseq_next_tagged(&c, QUIC_DER_SEQUENCE, alg);
+  return derseq_next_tagged(&c, DER_SEQUENCE, alg);
 }
 
 int x509_ec_curve(wired_span tbs, wired_span* curve_oid) {

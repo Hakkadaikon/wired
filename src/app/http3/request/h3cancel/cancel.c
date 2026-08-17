@@ -12,12 +12,12 @@ static usz put_reset(wired_obuf* out, const reset_stream_frame* rs) {
 static usz put_stop(wired_obuf* out, u64 stream_id) {
   stop_sending_frame ss;
   ss.stream_id  = stream_id;
-  ss.error_code = QUIC_H3_REQUEST_CANCELLED;
+  ss.error_code = H3_REQUEST_CANCELLED;
   return stop_sending_encode(out->p, out->cap, &ss);
 }
 
 int h3cancel_request(u64 stream_id, u64 final_size, wired_obuf* out) {
-  reset_stream_frame rs = {stream_id, QUIC_H3_REQUEST_CANCELLED, final_size};
+  reset_stream_frame rs = {stream_id, H3_REQUEST_CANCELLED, final_size};
   wired_obuf         ob = obuf_of(out->p, out->cap);
   usz                rn, sn;
   rn = put_reset(&ob, &rs);

@@ -13,14 +13,14 @@ static void test_cc_loss_halves_floor(void) {
   cc c;
   cc_init(&c);
   cc_on_loss(&c, 5, 100);
-  CHECK(c.cwnd == QUIC_CC_INIT_WINDOW / 2);
-  CHECK(c.cwnd >= QUIC_CC_MIN_WINDOW);
+  CHECK(c.cwnd == CC_INIT_WINDOW / 2);
+  CHECK(c.cwnd >= CC_MIN_WINDOW);
   /* drive it down repeatedly: must clamp at the floor */
   for (usz i = 0; i < 20; i++) {
     cc_on_ack(&c, 999999, 1000 + i, 1000 + i); /* exit recovery */
     cc_on_loss(&c, 2000 + i, 2000 + i);
   }
-  CHECK(c.cwnd >= QUIC_CC_MIN_WINDOW);
+  CHECK(c.cwnd >= CC_MIN_WINDOW);
 }
 
 /* No window growth while in recovery. */
@@ -46,7 +46,7 @@ static void test_cc_persistent_collapse(void) {
   cc c;
   cc_init(&c);
   cc_on_persistent(&c);
-  CHECK(c.cwnd == QUIC_CC_MIN_WINDOW);
+  CHECK(c.cwnd == CC_MIN_WINDOW);
 }
 
 /* CUBIC mode (RFC 9438): loss shrinks by beta_cubic 0.7 and re-anchors the
@@ -55,11 +55,11 @@ static void test_cc_persistent_collapse(void) {
  * start before the first loss grows as usual. */
 static void test_cc_cubic_mode(void) {
   cc c;
-  cc_init_algo(&c, QUIC_CC_ALGO_CUBIC);
-  CHECK(c.cwnd == QUIC_CC_INIT_WINDOW);
+  cc_init_algo(&c, CC_ALGO_CUBIC);
+  CHECK(c.cwnd == CC_INIT_WINDOW);
   cc_on_ack(&c, 1200, 10, 10); /* pre-loss slow start still grows */
-  CHECK(c.cwnd == QUIC_CC_INIT_WINDOW + 1200);
-  cc_init_algo(&c, QUIC_CC_ALGO_CUBIC);
+  CHECK(c.cwnd == CC_INIT_WINDOW + 1200);
+  cc_init_algo(&c, CC_ALGO_CUBIC);
   cc_on_loss(&c, 1000, 1000);
   CHECK(c.cwnd == 8400); /* 12000 * 0.7 */
   cc_on_ack(&c, 1200, 1500, 1000 + 1957);
@@ -73,8 +73,8 @@ static void test_cc_cubic_mode(void) {
  * pacing_gain x btl_bw. The drain handoff needs the caller's inflight. */
 static void test_cc_bbr_mode(void) {
   cc c;
-  cc_init_algo(&c, QUIC_CC_ALGO_BBR);
-  CHECK(c.cwnd == QUIC_CC_INIT_WINDOW);
+  cc_init_algo(&c, CC_ALGO_BBR);
+  CHECK(c.cwnd == CC_INIT_WINDOW);
   /* one round: 60000 bytes acked over 50ms -> bw 1200 B/ms, rtprop 50 */
   cc_on_ack(&c, 60000, 0, 50);
   cc_bbr_tick(&c, 0, 51);      /* round (>= rtprop) elapsed: sample taken */
@@ -122,17 +122,17 @@ static void test_cc_pacing_zero_srtt_stays_unfloored(void) {
 /* A starved round -- far fewer bytes delivered than the window would carry
  * (loss-stalled, idle, or app-limited) -- proves nothing about the
  * bottleneck: it may only RAISE the estimate, never enter the max filter
- * where it would age the real peak out within QUIC_BBR_BW_WIN rounds and
+ * where it would age the real peak out within BBR_BW_WIN rounds and
  * spiral cwnd to the floor (the observed BBR transfer death spiral). */
 static void test_cc_bbr_starved_round_cannot_lower_btl_bw(void) {
   cc  c;
   u64 t = 51;
-  cc_init_algo(&c, QUIC_CC_ALGO_BBR);
+  cc_init_algo(&c, CC_ALGO_BBR);
   cc_on_ack(&c, 60000, 0, 50); /* healthy round: 1176 B/ms */
   cc_bbr_tick(&c, 0, t);
   CHECK(c.bbr.btl_bw == 1176);
-  for (int i = 0; i < QUIC_BBR_BW_WIN + 1; i++) { /* enough to age it out */
-    cc_on_ack(&c, 1200, t, t + 51); /* one packet per round: starved */
+  for (int i = 0; i < BBR_BW_WIN + 1; i++) { /* enough to age it out */
+    cc_on_ack(&c, 1200, t, t + 51);          /* one packet per round: starved */
     t += 51;
     cc_bbr_tick(&c, 0, t);
   }
@@ -145,11 +145,11 @@ static void test_cc_bbr_starved_round_cannot_lower_btl_bw(void) {
  * fixed point that never recovered). */
 static void test_cc_bbr_cwnd_floor_four_packets(void) {
   cc c;
-  cc_init_algo(&c, QUIC_CC_ALGO_BBR);
+  cc_init_algo(&c, CC_ALGO_BBR);
   cc_on_ack(&c, 1200, 0, 50); /* tiny first sample: 23 B/ms */
   cc_bbr_tick(&c, 0, 51);
   /* BDP = 23 x 50 = 1150; 289% = 3323 -> floored at 4 packets */
-  CHECK(c.cwnd == 4 * QUIC_MAX_DATAGRAM);
+  CHECK(c.cwnd == 4 * MAX_DATAGRAM);
 }
 
 /* The PROBE_BW gain cycle advances once per CLOSED ROUND (~rtprop), never
@@ -157,8 +157,8 @@ static void test_cc_bbr_cwnd_floor_four_packets(void) {
  * 8-phase cycle in ~8ms and reduced the probe/drain pattern to noise. */
 static void test_cc_bbr_cycle_advances_per_round_not_per_tick(void) {
   cc c;
-  cc_init_algo(&c, QUIC_CC_ALGO_BBR);
-  c.bbr.phase       = QUIC_BBR_PROBE_BW;
+  cc_init_algo(&c, CC_ALGO_BBR);
+  c.bbr.phase       = BBR_PROBE_BW;
   c.bbr.have_rtprop = 1;
   c.bbr.rtprop_ms   = 50;
   c.bbr.btl_bw      = 1000;

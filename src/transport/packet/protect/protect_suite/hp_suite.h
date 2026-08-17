@@ -1,5 +1,5 @@
-#ifndef QUIC_PROTECT_SUITE_HP_SUITE_H
-#define QUIC_PROTECT_SUITE_HP_SUITE_H
+#ifndef PROTECT_SUITE_HP_SUITE_H
+#define PROTECT_SUITE_HP_SUITE_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -1,5 +1,5 @@
-#ifndef QUIC_SFIELD_SFIELD_H
-#define QUIC_SFIELD_SFIELD_H
+#ifndef SFIELD_SFIELD_H
+#define SFIELD_SFIELD_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

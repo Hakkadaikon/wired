@@ -9,7 +9,7 @@ void test_aead_suite(void) {
 
   /* RFC 9001 5.3 AES suite: matches the fixed GCM pipeline directly. */
   aead_suite_op aes = {
-      QUIC_TLS_AES_128_GCM_SHA256, key, iv, 2, wired_span_of(aad, 7)};
+      TLS_AES_128_GCM_SHA256, key, iv, 2, wired_span_of(aad, 7)};
   usz n = aead_suite_seal(&aes, wired_span_of(pt, 20), ct);
   CHECK(n == 20 + 16);
   aes128 a;
@@ -27,7 +27,7 @@ void test_aead_suite(void) {
 
   /* RFC 9001 5.3 ChaCha suite: seal -> open round-trips. */
   aead_suite_op cha = {
-      QUIC_TLS_CHACHA20_POLY1305_SHA256, key, iv, 5, wired_span_of(aad, 7)};
+      TLS_CHACHA20_POLY1305_SHA256, key, iv, 5, wired_span_of(aad, 7)};
   n = aead_suite_seal(&cha, wired_span_of(pt, 20), ct);
   CHECK(n == 20 + 16);
   CHECK(aead_suite_open(&cha, wired_span_of(ct, 20), out) == 20);

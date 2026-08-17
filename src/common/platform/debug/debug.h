@@ -48,7 +48,7 @@ void wired_log_ts(const char* s);
 /**
  * Trace macro: expands to a timestamped log under -DQUIC_DEBUG, nothing else.
  */
-#ifdef QUIC_DEBUG
+#ifdef WIRED_DEBUG
 #define WIRED_LOG(s) wired_log_ts(s)
 #else
 #define WIRED_LOG(s) ((void)0)

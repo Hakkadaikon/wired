@@ -1,5 +1,5 @@
-#ifndef QUIC_STP_SERVER_TP_H
-#define QUIC_STP_SERVER_TP_H
+#ifndef STP_SERVER_TP_H
+#define STP_SERVER_TP_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -14,20 +14,20 @@
  * across a connection's life (RFC 9000 4.6/19.11 MAX_STREAMS re-grants) know
  * the true starting value without duplicating the constant. Like every
  * QUIC_STP_DEFAULT_* below, overridable per build (-D flag). */
-#ifndef QUIC_STP_DEFAULT_MAX_STREAMS_BIDI
-#define QUIC_STP_DEFAULT_MAX_STREAMS_BIDI 100
+#ifndef STP_DEFAULT_MAX_STREAMS_BIDI
+#define STP_DEFAULT_MAX_STREAMS_BIDI 100
 #endif
 /** Built-in initial_max_data default (RFC 9000 18.2, 0x04) -- 10,000,000 to
  * match the connection-wide default the mainstream stacks ship (quiche's
  * CLI default), so untuned cross-implementation benchmarks start from equal
  * preconditions. Safe above the fixed receive buffers: the per-stream
  * windows below carry the actual buffering promise and bind first. */
-#ifndef QUIC_STP_DEFAULT_MAX_DATA
-#define QUIC_STP_DEFAULT_MAX_DATA 10000000
+#ifndef STP_DEFAULT_MAX_DATA
+#define STP_DEFAULT_MAX_DATA 10000000
 #endif
 /** Built-in max_idle_timeout default, milliseconds (RFC 9000 18.2, 0x01). */
-#ifndef QUIC_STP_DEFAULT_IDLE_TIMEOUT_MS
-#define QUIC_STP_DEFAULT_IDLE_TIMEOUT_MS 30000
+#ifndef STP_DEFAULT_IDLE_TIMEOUT_MS
+#define STP_DEFAULT_IDLE_TIMEOUT_MS 30000
 #endif
 /** Built-in initial_max_stream_data_bidi_local / _uni default (RFC 9000
  * 18.2, 0x05/0x07). This is a PROMISE to buffer that many bytes past
@@ -39,25 +39,25 @@
  * the clipped-yet-ACKed overflow becomes an unfillable stream gap that
  * freezes the stream for good (this exact bug killed moqt_chat's voice
  * track 10 s into every call). */
-#ifndef QUIC_STP_DEFAULT_STREAM_DATA_LOCAL
-#define QUIC_STP_DEFAULT_STREAM_DATA_LOCAL 49152
+#ifndef STP_DEFAULT_STREAM_DATA_LOCAL
+#define STP_DEFAULT_STREAM_DATA_LOCAL 49152
 #endif
 /** Built-in initial_max_stream_data_bidi_remote default (RFC 9000 18.2,
  * 0x06): client-initiated request streams. Kept at its historic value (the
  * request path's own buffers predate the local/uni fix above and interop
  * pins the old behavior). */
-#ifndef QUIC_STP_DEFAULT_STREAM_DATA_REMOTE
-#define QUIC_STP_DEFAULT_STREAM_DATA_REMOTE 262144
+#ifndef STP_DEFAULT_STREAM_DATA_REMOTE
+#define STP_DEFAULT_STREAM_DATA_REMOTE 262144
 #endif
 /** Built-in initial_max_streams_uni default (RFC 9000 18.2, 0x09). */
-#ifndef QUIC_STP_DEFAULT_MAX_STREAMS_UNI
-#define QUIC_STP_DEFAULT_MAX_STREAMS_UNI 100
+#ifndef STP_DEFAULT_MAX_STREAMS_UNI
+#define STP_DEFAULT_MAX_STREAMS_UNI 100
 #endif
 /** RFC 9000 18.2: the operator-tunable integer limits this server
  * advertises; a zero field falls back to the built-in default. */
 typedef struct {
   u64 max_data;         /**< initial_max_data (0x04), default
-                         * QUIC_STP_DEFAULT_MAX_DATA */
+                         * STP_DEFAULT_MAX_DATA */
   u64 max_streams_bidi; /**< initial_max_streams_bidi (0x08), default 100 */
   /** initial_max_streams_uni (0x09), default 100. A server whose uni-stream
    * reassembly capacity is a fixed slot table should advertise a limit that

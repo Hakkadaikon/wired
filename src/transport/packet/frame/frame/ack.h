@@ -1,5 +1,5 @@
-#ifndef QUIC_FRAME_ACK_H
-#define QUIC_FRAME_ACK_H
+#ifndef FRAME_ACK_H
+#define FRAME_ACK_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -8,9 +8,9 @@
  * Length) pairs. We represent the set as an explicit list of inclusive
  * ranges [hi, lo], sorted descending and non-overlapping. */
 
-#define QUIC_FRAME_ACK 0x02
-#define QUIC_FRAME_ACK_ECN 0x03
-#define QUIC_ACK_MAX_RANGES 32
+#define FRAME_ACK 0x02
+#define FRAME_ACK_ECN 0x03
+#define ACK_MAX_RANGES 32
 
 /** One inclusive acknowledged packet-number range [hi, lo]. */
 typedef struct {
@@ -21,10 +21,9 @@ typedef struct {
 /** A decoded/to-encode ACK frame: ack delay, its ranges, and the optional
  * ECN counts (RFC 9000 19.3). */
 typedef struct {
-  u64 ack_delay;
-  usz n_ranges;
-  ack_range
-      ranges[QUIC_ACK_MAX_RANGES]; /* descending, ranges[0].hi = largest */
+  u64       ack_delay;
+  usz       n_ranges;
+  ack_range ranges[ACK_MAX_RANGES]; /* descending, ranges[0].hi = largest */
   u8  has_ecn; /* 1 -> type 0x03 with the ECN counts below (RFC 9000 19.3.2) */
   u64 ect0;
   u64 ect1;

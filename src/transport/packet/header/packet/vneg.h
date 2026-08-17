@@ -1,5 +1,5 @@
-#ifndef QUIC_PACKET_VNEG_H
-#define QUIC_PACKET_VNEG_H
+#ifndef PACKET_VNEG_H
+#define PACKET_VNEG_H
 
 #include "common/bytes/span/span.h"
 #include "transport/packet/header/packet/header.h"

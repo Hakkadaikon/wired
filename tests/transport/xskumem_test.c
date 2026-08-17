@@ -3,13 +3,13 @@
 #include "test.h"
 
 static int xskumem_addr_valid(u64 addr, u32 nframes) {
-  return addr % QUIC_XSKUMEM_FRAME_SIZE == 0 &&
-         addr < (u64)nframes * QUIC_XSKUMEM_FRAME_SIZE;
+  return addr % XSKUMEM_FRAME_SIZE == 0 &&
+         addr < (u64)nframes * XSKUMEM_FRAME_SIZE;
 }
 
 static void test_xskumem_drain_all(void) {
   xskumem_alloc a;
-  u8            seen[QUIC_XSKUMEM_FRAMES];
+  u8            seen[XSKUMEM_FRAMES];
   xskumem_alloc_init(&a, 0, 64);
 
   for (u32 i = 0; i < 64; i++) {
@@ -20,7 +20,7 @@ static void test_xskumem_drain_all(void) {
     i64 v = xskumem_alloc_get(&a);
     CHECK(v >= 0);
     CHECK(xskumem_addr_valid((u64)v, 64));
-    u32 idx = (u32)((u64)v / QUIC_XSKUMEM_FRAME_SIZE);
+    u32 idx = (u32)((u64)v / XSKUMEM_FRAME_SIZE);
     CHECK(seen[idx] == 0);
     seen[idx] = 1;
   }
@@ -36,23 +36,23 @@ static u32 xskumem_lcg(u32* state) {
 
 static void test_xskumem_soak_conservation(void) {
   xskumem_alloc a;
-  u8            out[QUIC_XSKUMEM_FRAMES]; /* oracle: is frame i on loan? */
-  u64           loaned[QUIC_XSKUMEM_FRAMES];
+  u8            out[XSKUMEM_FRAMES]; /* oracle: is frame i on loan? */
+  u64           loaned[XSKUMEM_FRAMES];
   u32           nloaned = 0;
   u32           rng     = 12345;
-  xskumem_alloc_init(&a, 0, QUIC_XSKUMEM_FRAMES);
+  xskumem_alloc_init(&a, 0, XSKUMEM_FRAMES);
 
-  for (u32 i = 0; i < QUIC_XSKUMEM_FRAMES; i++) {
+  for (u32 i = 0; i < XSKUMEM_FRAMES; i++) {
     out[i] = 0;
   }
 
   for (u32 step = 0; step < 500; step++) {
     int do_get = (nloaned == 0) ||
-                 (xskumem_lcg(&rng) % 2 == 0 && nloaned < QUIC_XSKUMEM_FRAMES);
+                 (xskumem_lcg(&rng) % 2 == 0 && nloaned < XSKUMEM_FRAMES);
     if (do_get) {
       i64 v = xskumem_alloc_get(&a);
       if (v >= 0) {
-        u32 idx = (u32)((u64)v / QUIC_XSKUMEM_FRAME_SIZE);
+        u32 idx = (u32)((u64)v / XSKUMEM_FRAME_SIZE);
         CHECK(out[idx] == 0); /* no double-loan */
         out[idx]          = 1;
         loaned[nloaned++] = (u64)v;
@@ -61,11 +61,11 @@ static void test_xskumem_soak_conservation(void) {
       u32 pick     = xskumem_lcg(&rng) % nloaned;
       u64 addr     = loaned[pick];
       loaned[pick] = loaned[--nloaned];
-      u32 idx      = (u32)(addr / QUIC_XSKUMEM_FRAME_SIZE);
+      u32 idx      = (u32)(addr / XSKUMEM_FRAME_SIZE);
       out[idx]     = 0;
       xskumem_alloc_put(&a, addr);
     }
-    CHECK(nloaned <= QUIC_XSKUMEM_FRAMES);
+    CHECK(nloaned <= XSKUMEM_FRAMES);
   }
 }
 
@@ -78,7 +78,7 @@ static void test_xskumem_lifo_reuse(void) {
   }
   CHECK(xskumem_alloc_get(&a) == -1);
 
-  u64 freed = 5 * QUIC_XSKUMEM_FRAME_SIZE;
+  u64 freed = 5 * XSKUMEM_FRAME_SIZE;
   xskumem_alloc_put(&a, freed);
 
   i64 v = xskumem_alloc_get(&a);

@@ -71,7 +71,7 @@ static void test_stream_frame_basic(void) {
   usz      olen = 0;
   CHECK(
       appdata_frame_flat(4, 0, data, sizeof(data), 0, out, sizeof(out), &olen));
-  CHECK(out[0] == (QUIC_FRAME_STREAM_BASE | QUIC_STREAM_LEN));
+  CHECK(out[0] == (FRAME_STREAM_BASE | STREAM_LEN));
 
   stream_frame f;
   CHECK(frame_get_stream(out, olen, &f) == olen);
@@ -89,9 +89,7 @@ static void test_stream_frame_off_fin(void) {
   u8       out[32];
   usz      olen = 0;
   CHECK(appdata_frame_flat(7, 100, data, 1, 1, out, sizeof(out), &olen));
-  CHECK(
-      out[0] == (QUIC_FRAME_STREAM_BASE | QUIC_STREAM_OFF | QUIC_STREAM_LEN |
-                 QUIC_STREAM_FIN));
+  CHECK(out[0] == (FRAME_STREAM_BASE | STREAM_OFF | STREAM_LEN | STREAM_FIN));
 
   stream_frame f;
   CHECK(frame_get_stream(out, olen, &f) == olen);
@@ -107,8 +105,8 @@ static void test_stream_frame_off_nofin(void) {
   u8       out[32];
   usz      olen = 0;
   CHECK(appdata_frame_flat(3, 5, data, 1, 0, out, sizeof(out), &olen));
-  CHECK(out[0] == (QUIC_FRAME_STREAM_BASE | QUIC_STREAM_OFF | QUIC_STREAM_LEN));
-  CHECK((out[0] & QUIC_STREAM_FIN) == 0);
+  CHECK(out[0] == (FRAME_STREAM_BASE | STREAM_OFF | STREAM_LEN));
+  CHECK((out[0] & STREAM_FIN) == 0);
 
   stream_frame f;
   CHECK(frame_get_stream(out, olen, &f) == olen);
@@ -122,7 +120,7 @@ static void test_stream_frame_empty(void) {
   u8  out[32];
   usz olen = 0;
   CHECK(appdata_frame_flat(8, 0, (const u8*)"", 0, 1, out, sizeof(out), &olen));
-  CHECK(out[0] == (QUIC_FRAME_STREAM_BASE | QUIC_STREAM_LEN | QUIC_STREAM_FIN));
+  CHECK(out[0] == (FRAME_STREAM_BASE | STREAM_LEN | STREAM_FIN));
 
   stream_frame f;
   CHECK(frame_get_stream(out, olen, &f) == olen);

@@ -4,8 +4,8 @@
 #include "crypto/asymmetric/ecc/ed25519/ed25519.h"
 #include "tls/handshake/core/tls/handshake.h"
 
-#define QUIC_HS_CERTIFICATE_VERIFY 15
-#define QUIC_SFLIGHT_SCHEME_ED25519 0x0807
+#define HS_CERTIFICATE_VERIFY 15
+#define SFLIGHT_SCHEME_ED25519 0x0807
 
 /* RFC 8446 4.4.3 server context string, sans terminating NUL. */
 static const char cv_ctx[] = "TLS 1.3, server CertificateVerify";
@@ -34,13 +34,13 @@ int sflight_certificate_verify(
     const u8 seed[32], const u8* transcript_hash, wired_obuf* out) {
   u8  content[130];
   usz off;
-  if (out->cap < 4 + 2 + 2 + QUIC_ED25519_SIG) return 0;
-  off = hs_begin(out->p, out->cap, QUIC_HS_CERTIFICATE_VERIFY);
+  if (out->cap < 4 + 2 + 2 + ED25519_SIG) return 0;
+  off = hs_begin(out->p, out->cap, HS_CERTIFICATE_VERIFY);
   sflight_cv_signed(transcript_hash, content);
-  be_put_be16(out->p + off, QUIC_SFLIGHT_SCHEME_ED25519);
-  be_put_be16(out->p + off + 2, QUIC_ED25519_SIG);
+  be_put_be16(out->p + off, SFLIGHT_SCHEME_ED25519);
+  be_put_be16(out->p + off + 2, ED25519_SIG);
   ed25519_sign(seed, content, 130, out->p + off + 4);
-  out->len = off + 4 + QUIC_ED25519_SIG;
+  out->len = off + 4 + ED25519_SIG;
   hs_finish(out->p, out->len);
   return 1;
 }

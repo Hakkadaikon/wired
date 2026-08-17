@@ -1,5 +1,5 @@
-#ifndef QUIC_DATAGRAM_ZERORTT_DGRAM_H
-#define QUIC_DATAGRAM_ZERORTT_DGRAM_H
+#ifndef DATAGRAM_ZERORTT_DGRAM_H
+#define DATAGRAM_ZERORTT_DGRAM_H
 
 #include "common/platform/sys/syscall.h"
 

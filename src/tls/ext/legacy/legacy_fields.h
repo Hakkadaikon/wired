@@ -1,5 +1,5 @@
-#ifndef QUIC_LEGACY_FIELDS_H
-#define QUIC_LEGACY_FIELDS_H
+#ifndef LEGACY_FIELDS_H
+#define LEGACY_FIELDS_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

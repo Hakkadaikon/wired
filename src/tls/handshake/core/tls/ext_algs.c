@@ -5,22 +5,22 @@
 /* RFC 8446 4.2.7: type(2) + ext_data length(2) + list length(2) + groups. */
 usz tls_ext_supported_groups(u8* buf, usz cap) {
   if (cap < 8) return 0;
-  be_put_be16(buf, QUIC_EXT_SUPPORTED_GROUPS);
+  be_put_be16(buf, EXT_SUPPORTED_GROUPS);
   be_put_be16(buf + 2, 4);
   be_put_be16(buf + 4, 2);
-  be_put_be16(buf + 6, QUIC_GROUP_X25519);
+  be_put_be16(buf + 6, GROUP_X25519);
   return 8;
 }
 
 /* RFC 8446 4.2.3: type(2) + ext_data length(2) + list length(2) + schemes. */
 usz tls_ext_sig_algs(u8* buf, usz cap) {
   if (cap < 12) return 0;
-  be_put_be16(buf, QUIC_EXT_SIGNATURE_ALGORITHMS);
+  be_put_be16(buf, EXT_SIGNATURE_ALGORITHMS);
   be_put_be16(buf + 2, 8);
   be_put_be16(buf + 4, 6);
-  be_put_be16(buf + 6, QUIC_SIG_ECDSA_SECP256R1_SHA256);
-  be_put_be16(buf + 8, QUIC_SIG_RSA_PSS_RSAE_SHA256);
-  be_put_be16(buf + 10, QUIC_SIG_ED25519);
+  be_put_be16(buf + 6, SIG_ECDSA_SECP256R1_SHA256);
+  be_put_be16(buf + 8, SIG_RSA_PSS_RSAE_SHA256);
+  be_put_be16(buf + 10, SIG_ED25519);
   return 12;
 }
 
@@ -28,7 +28,7 @@ usz tls_ext_sig_algs(u8* buf, usz cap) {
  * length fits in n. */
 static int sig_algs_header_ok(const u8* buf, usz n) {
   usz dlen = (usz)buf[2] << 8 | buf[3];
-  return ((u16)buf[0] << 8 | buf[1]) == QUIC_EXT_SIGNATURE_ALGORITHMS &&
+  return ((u16)buf[0] << 8 | buf[1]) == EXT_SIGNATURE_ALGORITHMS &&
          4 + dlen <= n;
 }
 

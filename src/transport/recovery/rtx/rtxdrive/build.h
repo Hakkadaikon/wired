@@ -1,5 +1,5 @@
-#ifndef QUIC_RTXDRIVE_BUILD_H
-#define QUIC_RTXDRIVE_BUILD_H
+#ifndef RTXDRIVE_BUILD_H
+#define RTXDRIVE_BUILD_H
 
 #include "common/platform/sys/syscall.h"
 #include "transport/recovery/rtx/rtxbytes/rtxstore.h"

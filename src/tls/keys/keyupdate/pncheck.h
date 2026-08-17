@@ -1,5 +1,5 @@
-#ifndef QUIC_KEYUPDATE_PNCHECK_H
-#define QUIC_KEYUPDATE_PNCHECK_H
+#ifndef KEYUPDATE_PNCHECK_H
+#define KEYUPDATE_PNCHECK_H
 
 #include "common/platform/sys/syscall.h"
 

@@ -30,7 +30,7 @@ int wired_srvloop_send_initial_ver(
 
 int wired_srvloop_send_initial(
     const wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out) {
-  return wired_srvloop_send_initial_ver(QUIC_VERSION_1, s, in, out);
+  return wired_srvloop_send_initial_ver(VERSION_1, s, in, out);
 }
 
 /* RFC 9001 5 / 5.1: Handshake flight sealed with the own-direction SERVER_HS,
@@ -48,7 +48,7 @@ int wired_srvloop_send_handshake(
       in->payload,
       in->crypto_off};
   protect_keys k;
-  if (!wired_srvloop_seal_keys(s, QUIC_LEVEL_HANDSHAKE, &dk)) return 0;
+  if (!wired_srvloop_seal_keys(s, LEVEL_HANDSHAKE, &dk)) return 0;
   k = (protect_keys){dk.keys, &dk.hp};
   return srvwire_seal_handshake_suite(s->sdrv.cipher_suite, &k, &wi, out);
 }
@@ -73,7 +73,7 @@ static int send_onertt_keys(
     *out = (protect_keys){&s->ku_send.cur, hp};
     return 1;
   }
-  if (!wired_srvloop_seal_keys(s, QUIC_LEVEL_ONERTT, dk)) return 0;
+  if (!wired_srvloop_seal_keys(s, LEVEL_ONERTT, dk)) return 0;
   *out = (protect_keys){dk->keys, &dk->hp};
   return 1;
 }

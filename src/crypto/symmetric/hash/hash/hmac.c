@@ -3,16 +3,16 @@
 #include "common/bytes/util/bytes.h"
 
 /* Copy a short key (<= block) into the zero-filled block. */
-static void short_key(wired_span key, u8 kb[QUIC_SHA256_BLOCK]) {
-  for (usz i = 0; i < QUIC_SHA256_BLOCK; i++) kb[i] = 0;
+static void short_key(wired_span key, u8 kb[SHA256_BLOCK]) {
+  for (usz i = 0; i < SHA256_BLOCK; i++) kb[i] = 0;
   for (usz i = 0; i < key.n; i++) kb[i] = key.p[i];
 }
 
 /* Normalize the key into a 64-byte block: hash it if it is too long,
  * otherwise zero-pad. (FIPS 198-1 step 1-3.) */
-static void key_block(wired_span key, u8 kb[QUIC_SHA256_BLOCK]) {
-  if (key.n > QUIC_SHA256_BLOCK) {
-    for (usz i = 0; i < QUIC_SHA256_BLOCK; i++) kb[i] = 0;
+static void key_block(wired_span key, u8 kb[SHA256_BLOCK]) {
+  if (key.n > SHA256_BLOCK) {
+    for (usz i = 0; i < SHA256_BLOCK; i++) kb[i] = 0;
     wired_sha256(key.p, key.n, kb);
   } else {
     short_key(key, kb);
@@ -20,17 +20,15 @@ static void key_block(wired_span key, u8 kb[QUIC_SHA256_BLOCK]) {
 }
 
 /* XOR each block byte with pad and feed it into the hash. */
-static void feed_pad(sha256_ctx* s, const u8 kb[QUIC_SHA256_BLOCK], u8 pad) {
-  u8 b[QUIC_SHA256_BLOCK];
-  for (usz i = 0; i < QUIC_SHA256_BLOCK; i++) b[i] = kb[i] ^ pad;
-  sha256_update(s, b, QUIC_SHA256_BLOCK);
+static void feed_pad(sha256_ctx* s, const u8 kb[SHA256_BLOCK], u8 pad) {
+  u8 b[SHA256_BLOCK];
+  for (usz i = 0; i < SHA256_BLOCK; i++) b[i] = kb[i] ^ pad;
+  sha256_update(s, b, SHA256_BLOCK);
 }
 
 /* inner = H((K^ipad) || msg) */
 static void inner_hash(
-    const u8   kb[QUIC_SHA256_BLOCK],
-    wired_span msg,
-    u8         out[QUIC_SHA256_DIGEST]) {
+    const u8 kb[SHA256_BLOCK], wired_span msg, u8 out[SHA256_DIGEST]) {
   sha256_ctx s;
   sha256_init(&s);
   feed_pad(&s, kb, 0x36);
@@ -38,15 +36,15 @@ static void inner_hash(
   sha256_final(&s, out);
 }
 
-void hmac_sha256(wired_span key, wired_span msg, u8 out[QUIC_SHA256_DIGEST]) {
-  u8         kb[QUIC_SHA256_BLOCK];
-  u8         inner[QUIC_SHA256_DIGEST];
+void hmac_sha256(wired_span key, wired_span msg, u8 out[SHA256_DIGEST]) {
+  u8         kb[SHA256_BLOCK];
+  u8         inner[SHA256_DIGEST];
   sha256_ctx s;
   key_block(key, kb);
   inner_hash(kb, msg, inner);
   sha256_init(&s);
   feed_pad(&s, kb, 0x5c); /* outer: K^opad */
-  sha256_update(&s, inner, QUIC_SHA256_DIGEST);
+  sha256_update(&s, inner, SHA256_DIGEST);
   sha256_final(&s, out);
 }
 
@@ -55,23 +53,23 @@ void hmac_sha256(wired_span key, wired_span msg, u8 out[QUIC_SHA256_DIGEST]) {
  * 32-byte digest computed on the stack. */
 void hmac_sha256_truncated(
     wired_span key, wired_span msg, u8* out, usz out_len) {
-  u8  full[QUIC_SHA256_DIGEST];
-  usz n = out_len < QUIC_SHA256_DIGEST ? out_len : QUIC_SHA256_DIGEST;
+  u8  full[SHA256_DIGEST];
+  usz n = out_len < SHA256_DIGEST ? out_len : SHA256_DIGEST;
   hmac_sha256(key, msg, full);
   bytes_memcpy(out, full, n);
 }
 
 /* Copy a short key (<= block) into the zero-filled 128-byte block. */
-static void short_key384(wired_span key, u8 kb[QUIC_SHA512_BLOCK]) {
-  for (usz i = 0; i < QUIC_SHA512_BLOCK; i++) kb[i] = 0;
+static void short_key384(wired_span key, u8 kb[SHA512_BLOCK]) {
+  for (usz i = 0; i < SHA512_BLOCK; i++) kb[i] = 0;
   for (usz i = 0; i < key.n; i++) kb[i] = key.p[i];
 }
 
 /* Normalize the key into a 128-byte block: hash it if too long, else
  * zero-pad. (RFC 2104 step 1-3, block size per FIPS 180-4 5.3.4.) */
-static void key_block384(wired_span key, u8 kb[QUIC_SHA512_BLOCK]) {
-  if (key.n > QUIC_SHA512_BLOCK) {
-    for (usz i = 0; i < QUIC_SHA512_BLOCK; i++) kb[i] = 0;
+static void key_block384(wired_span key, u8 kb[SHA512_BLOCK]) {
+  if (key.n > SHA512_BLOCK) {
+    for (usz i = 0; i < SHA512_BLOCK; i++) kb[i] = 0;
     sha384(key.p, key.n, kb);
   } else {
     short_key384(key, kb);
@@ -79,17 +77,15 @@ static void key_block384(wired_span key, u8 kb[QUIC_SHA512_BLOCK]) {
 }
 
 /* XOR each block byte with pad and feed it into the hash. */
-static void feed_pad384(sha512_ctx* s, const u8 kb[QUIC_SHA512_BLOCK], u8 pad) {
-  u8 b[QUIC_SHA512_BLOCK];
-  for (usz i = 0; i < QUIC_SHA512_BLOCK; i++) b[i] = kb[i] ^ pad;
-  sha512_update(s, b, QUIC_SHA512_BLOCK);
+static void feed_pad384(sha512_ctx* s, const u8 kb[SHA512_BLOCK], u8 pad) {
+  u8 b[SHA512_BLOCK];
+  for (usz i = 0; i < SHA512_BLOCK; i++) b[i] = kb[i] ^ pad;
+  sha512_update(s, b, SHA512_BLOCK);
 }
 
 /* inner = H((K^ipad) || msg) */
 static void inner_hash384(
-    const u8   kb[QUIC_SHA512_BLOCK],
-    wired_span msg,
-    u8         out[QUIC_SHA384_DIGEST]) {
+    const u8 kb[SHA512_BLOCK], wired_span msg, u8 out[SHA384_DIGEST]) {
   sha512_ctx s;
   sha384_init(&s);
   feed_pad384(&s, kb, 0x36);
@@ -97,14 +93,14 @@ static void inner_hash384(
   sha384_final(&s, out);
 }
 
-void hmac_sha384(wired_span key, wired_span msg, u8 out[QUIC_SHA384_DIGEST]) {
-  u8         kb[QUIC_SHA512_BLOCK];
-  u8         inner[QUIC_SHA384_DIGEST];
+void hmac_sha384(wired_span key, wired_span msg, u8 out[SHA384_DIGEST]) {
+  u8         kb[SHA512_BLOCK];
+  u8         inner[SHA384_DIGEST];
   sha512_ctx s;
   key_block384(key, kb);
   inner_hash384(kb, msg, inner);
   sha384_init(&s);
   feed_pad384(&s, kb, 0x5c); /* outer: K^opad */
-  sha512_update(&s, inner, QUIC_SHA384_DIGEST);
+  sha512_update(&s, inner, SHA384_DIGEST);
   sha384_final(&s, out);
 }

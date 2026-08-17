@@ -14,11 +14,9 @@ static usz build_sigalg(wired_obuf* out) {
   u8         oid[16];
   wired_obuf o = obuf_of(oid, sizeof(oid));
   if (!selfcert_der_tlv(
-          QUIC_DER_OID, wired_span_of(oid_ed25519_sig, sizeof(oid_ed25519_sig)),
-          &o))
+          DER_OID, wired_span_of(oid_ed25519_sig, sizeof(oid_ed25519_sig)), &o))
     return 0;
-  if (!selfcert_der_tlv(QUIC_DER_SEQUENCE, wired_span_of(oid, o.len), out))
-    return 0;
+  if (!selfcert_der_tlv(DER_SEQUENCE, wired_span_of(oid, o.len), out)) return 0;
   return out->len;
 }
 
@@ -28,7 +26,7 @@ static usz build_sigval(const u8 sig[64], wired_obuf* out) {
   usz off = 1;
   bits[0] = 0x00;
   bytes_put(wired_mspan_of(bits, sizeof(bits)), &off, wired_span_of(sig, 64));
-  if (!selfcert_der_tlv(QUIC_DER_BIT_STRING, wired_span_of(bits, off), out))
+  if (!selfcert_der_tlv(DER_BIT_STRING, wired_span_of(bits, off), out))
     return 0;
   return out->len;
 }
@@ -42,8 +40,7 @@ static int assemble(const wired_span* parts, usz cnt, wired_obuf* out) {
     ok &= bytes_put(
         wired_mspan_of(body, sizeof(body)), &off,
         wired_span_of(parts[i].p, parts[i].n));
-  return ok &&
-         selfcert_der_tlv(QUIC_DER_SEQUENCE, wired_span_of(body, off), out);
+  return ok && selfcert_der_tlv(DER_SEQUENCE, wired_span_of(body, off), out);
 }
 
 /* Derive the public key and sign the freshly built TBS. 0 on any failure. */

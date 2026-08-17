@@ -1,5 +1,5 @@
-#ifndef QUIC_SRVWIRE_WIRE_H
-#define QUIC_SRVWIRE_WIRE_H
+#ifndef SRVWIRE_WIRE_H
+#define SRVWIRE_WIRE_H
 
 #include "common/bytes/span/span.h"
 #include "crypto/symmetric/aead/aes/aes.h"

@@ -1,5 +1,5 @@
-#ifndef QUIC_SRESETDRIVE_DETECT_H
-#define QUIC_SRESETDRIVE_DETECT_H
+#ifndef SRESETDRIVE_DETECT_H
+#define SRESETDRIVE_DETECT_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -8,8 +8,8 @@
  * 16 bytes are compared in constant time. The shortest packet that can carry
  * a reset is 21 bytes (5-byte minimum header room plus the 16-byte token). */
 
-#define QUIC_SRESETDRIVE_TOKEN 16
-#define QUIC_SRESETDRIVE_MIN 21
+#define SRESETDRIVE_TOKEN 16
+#define SRESETDRIVE_MIN 21
 
 /* 1 if the packet's trailing token matches `expected_token` in constant time
  * and the packet is at least the 21-byte minimum; 0 otherwise. */

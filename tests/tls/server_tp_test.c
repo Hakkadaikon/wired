@@ -39,24 +39,24 @@ static void test_server_tp_ids_and_values(void) {
 
   /* RFC 9000 7.3: original_destination_connection_id carries the client DCID.
    */
-  CHECK(stp_parse(tp, QUIC_TP_ORIGINAL_DESTINATION_CONNECTION_ID, &bo) == 1);
+  CHECK(stp_parse(tp, TP_ORIGINAL_DESTINATION_CONNECTION_ID, &bo) == 1);
   CHECK(
       b.n == sizeof(odcid) &&
       tparam_cid_match(b, wired_span_of(odcid, sizeof(odcid))));
 
   /* RFC 9000 7.3: initial_source_connection_id carries the server SCID. */
-  CHECK(stp_parse(tp, QUIC_TP_INITIAL_SOURCE_CONNECTION_ID, &bo) == 1);
+  CHECK(stp_parse(tp, TP_INITIAL_SOURCE_CONNECTION_ID, &bo) == 1);
   CHECK(
       b.n == sizeof(scid) &&
       tparam_cid_match(b, wired_span_of(scid, sizeof(scid))));
 
-  CHECK(parse_int(tp, QUIC_TP_MAX_IDLE_TIMEOUT, &v) && v == 30000);
+  CHECK(parse_int(tp, TP_MAX_IDLE_TIMEOUT, &v) && v == 30000);
   /* 10,000,000 matches the connection-wide default the mainstream stacks
    * benchmark with (quiche's CLI default), so untuned cross-implementation
    * runs start from equal preconditions. Safe above the fixed receive
    * buffers: the per-stream windows below carry the actual buffering
    * promise, and they bind before the connection-wide limit does. */
-  CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_DATA, &v) && v == 10000000);
+  CHECK(parse_int(tp, TP_INITIAL_MAX_DATA, &v) && v == 10000000);
   /* An advertised per-stream window is a promise to buffer that many bytes
    * past delivery. bidi_local and uni land in srvloop's fixed WT reassembly
    * windows, so they must never exceed WIRED_SRVLOOP_WT_BUF_CAP: a larger
@@ -67,16 +67,15 @@ static void test_server_tp_ids_and_values(void) {
    * sits below app), so this test is where the two constants are pinned
    * together. */
   CHECK(
-      parse_int(tp, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, &v) &&
+      parse_int(tp, TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, &v) &&
       v == WIRED_SRVLOOP_WT_BUF_CAP);
   CHECK(
-      parse_int(tp, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE, &v) &&
-      v == 262144);
+      parse_int(tp, TP_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE, &v) && v == 262144);
   CHECK(
-      parse_int(tp, QUIC_TP_INITIAL_MAX_STREAM_DATA_UNI, &v) &&
+      parse_int(tp, TP_INITIAL_MAX_STREAM_DATA_UNI, &v) &&
       v == WIRED_SRVLOOP_WT_BUF_CAP);
-  CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_STREAMS_BIDI, &v) && v == 100);
-  CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_STREAMS_UNI, &v) && v == 100);
+  CHECK(parse_int(tp, TP_INITIAL_MAX_STREAMS_BIDI, &v) && v == 100);
+  CHECK(parse_int(tp, TP_INITIAL_MAX_STREAMS_UNI, &v) && v == 100);
 }
 
 /* RFC 9000 7.3: after a Retry, retry_source_connection_id carries the
@@ -95,7 +94,7 @@ static void test_server_tp_retry_scid(void) {
           od, sc, wired_span_of(rsc, 6), wired_span_of(0, 0), 0, &ob) == 1);
   {
     wired_span tp = wired_span_of(buf, ob.len);
-    CHECK(stp_parse(tp, QUIC_TP_RETRY_SOURCE_CONNECTION_ID, &bo) == 1);
+    CHECK(stp_parse(tp, TP_RETRY_SOURCE_CONNECTION_ID, &bo) == 1);
     CHECK(b.n == 6 && tparam_cid_match(b, wired_span_of(rsc, 6)));
   }
   ob.len = 0;
@@ -104,8 +103,7 @@ static void test_server_tp_retry_scid(void) {
           od, sc, wired_span_of(0, 0), wired_span_of(0, 0), 0, &ob) == 1);
   CHECK(
       stp_parse(
-          wired_span_of(buf, ob.len), QUIC_TP_RETRY_SOURCE_CONNECTION_ID,
-          &bo) == 0);
+          wired_span_of(buf, ob.len), TP_RETRY_SOURCE_CONNECTION_ID, &bo) == 0);
 }
 
 /* RFC 9000 10.3.1/18.2: a 16-byte stateless_reset_token supplied to the
@@ -125,7 +123,7 @@ static void test_server_tp_stateless_reset_token(void) {
           od, sc, wired_span_of(0, 0), wired_span_of(tok, 16), 0, &ob) == 1);
   {
     wired_span tp = wired_span_of(buf, ob.len);
-    CHECK(stp_parse(tp, QUIC_TP_STATELESS_RESET_TOKEN, &bo) == 1);
+    CHECK(stp_parse(tp, TP_STATELESS_RESET_TOKEN, &bo) == 1);
     CHECK(b.n == 16 && tparam_cid_match(b, wired_span_of(tok, 16)));
   }
   ob.len = 0;
@@ -133,8 +131,8 @@ static void test_server_tp_stateless_reset_token(void) {
       stp_build_server_ret(
           od, sc, wired_span_of(0, 0), wired_span_of(0, 0), 0, &ob) == 1);
   CHECK(
-      stp_parse(
-          wired_span_of(buf, ob.len), QUIC_TP_STATELESS_RESET_TOKEN, &bo) == 0);
+      stp_parse(wired_span_of(buf, ob.len), TP_STATELESS_RESET_TOKEN, &bo) ==
+      0);
 }
 
 static void test_server_tp_no_room(void) {
@@ -148,8 +146,7 @@ static void test_server_tp_parse_absent(void) {
   usz n = stp_build(buf, sizeof(buf));
   CHECK(n != 0);
   /* stateless_reset_token (0x02) is never advertised here. */
-  CHECK(
-      parse_int(wired_span_of(buf, n), QUIC_TP_STATELESS_RESET_TOKEN, &v) == 0);
+  CHECK(parse_int(wired_span_of(buf, n), TP_STATELESS_RESET_TOKEN, &v) == 0);
   CHECK(v == 7);
 }
 
@@ -158,11 +155,11 @@ static void test_client_tp_extract(void) {
   u8         buf[64];
   u64        v;
   wired_obuf ob = obuf_of(buf, sizeof(buf));
-  CHECK(put_int_at(&ob, QUIC_TP_INITIAL_MAX_DATA, 49152));
-  CHECK(put_int_at(&ob, QUIC_TP_INITIAL_MAX_STREAMS_BIDI, 3));
+  CHECK(put_int_at(&ob, TP_INITIAL_MAX_DATA, 49152));
+  CHECK(put_int_at(&ob, TP_INITIAL_MAX_STREAMS_BIDI, 3));
   wired_span tp = wired_span_of(buf, ob.len);
-  CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_DATA, &v) && v == 49152);
-  CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_STREAMS_BIDI, &v) && v == 3);
+  CHECK(parse_int(tp, TP_INITIAL_MAX_DATA, &v) && v == 49152);
+  CHECK(parse_int(tp, TP_INITIAL_MAX_STREAMS_BIDI, &v) && v == 3);
 }
 
 /* Find integer TP `want` in a built blob and return its varint value. */
@@ -238,7 +235,7 @@ static void test_server_tp_reset_stream_at_empty(void) {
   while (off < n) {
     usz used = tparam_get_blob(wired_span_of(buf + off, n - off), &id, &found);
     if (!used) break;
-    if (id == QUIC_TP_RESET_STREAM_AT && found.n == 0) ok = 1;
+    if (id == TP_RESET_STREAM_AT && found.n == 0) ok = 1;
     off += used;
   }
   CHECK(ok);
@@ -257,8 +254,8 @@ static void test_server_tp_reset_stream_at_does_not_disturb_others(void) {
   usz n = stp_build(buf, sizeof(buf));
   CHECK(n != 0);
   wired_span tp = wired_span_of(buf, n);
-  CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_DATA, &v) && v == 10000000);
-  CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_STREAMS_BIDI, &v) && v == 100);
+  CHECK(parse_int(tp, TP_INITIAL_MAX_DATA, &v) && v == 10000000);
+  CHECK(parse_int(tp, TP_INITIAL_MAX_STREAMS_BIDI, &v) && v == 100);
   CHECK(tp_int_value(buf, n, 0x20, &v) == 0); /* max_datagram_frame_size */
 }
 

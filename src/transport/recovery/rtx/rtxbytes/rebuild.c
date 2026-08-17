@@ -6,7 +6,7 @@
 
 /* RFC 9000 19.3: ACK frame type is 0x02 or 0x03. */
 static int is_ack_or_padding(u64 type) {
-  return type == QUIC_FRAME_PADDING || type == 0x02 || type == 0x03;
+  return type == FRAME_PADDING || type == 0x02 || type == 0x03;
 }
 
 int rtxbytes_retransmittable(const u8* buf, usz len) {

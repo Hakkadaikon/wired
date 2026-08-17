@@ -26,13 +26,13 @@ static int cp_locate(wired_span tbs, wired_span* val) {
 static int policy_info_id(wired_span info, wired_span* oid) {
   derseq c;
   derseq_init(&c, info);
-  return derseq_next_tagged(&c, QUIC_DER_OID, oid);
+  return derseq_next_tagged(&c, DER_OID, oid);
 }
 
 /* Append oid to *out if there is room; entries past the cap are dropped
- * (QUIC_X509_CERT_POLICY_MAX's header comment). */
+ * (X509_CERT_POLICY_MAX's header comment). */
 static void policy_set_add(x509_policy_set* out, wired_span oid) {
-  if (out->n >= QUIC_X509_CERT_POLICY_MAX) return;
+  if (out->n >= X509_CERT_POLICY_MAX) return;
   out->oid[out->n] = oid;
   out->n++;
 }

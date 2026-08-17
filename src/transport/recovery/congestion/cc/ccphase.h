@@ -1,5 +1,5 @@
-#ifndef QUIC_CC_CCPHASE_H
-#define QUIC_CC_CCPHASE_H
+#ifndef CC_CCPHASE_H
+#define CC_CCPHASE_H
 
 #include "common/platform/sys/syscall.h"
 

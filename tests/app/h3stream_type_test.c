@@ -7,20 +7,20 @@ static void test_h3stream_type_parse(void) {
   u64 type;
   usz used;
 
-  buf[0] = QUIC_H3_STREAM_CONTROL;
+  buf[0] = H3_STREAM_CONTROL;
   CHECK(h3_stream_type_parse(wired_span_of(buf, 1), &type, &used) == 1);
-  CHECK(used == 1 && type == QUIC_H3_STREAM_CONTROL);
+  CHECK(used == 1 && type == H3_STREAM_CONTROL);
   CHECK(h3_stream_type_is_control(type) && !h3_stream_type_is_push(type));
 
-  buf[0] = QUIC_H3_STREAM_PUSH;
+  buf[0] = H3_STREAM_PUSH;
   h3_stream_type_parse(wired_span_of(buf, 1), &type, &used);
   CHECK(h3_stream_type_is_push(type) && !h3_stream_type_is_qpack(type));
 
-  buf[0] = QUIC_H3_STREAM_QPACK_ENCODER;
+  buf[0] = H3_STREAM_QPACK_ENCODER;
   h3_stream_type_parse(wired_span_of(buf, 1), &type, &used);
   CHECK(h3_stream_type_is_qpack(type) && !h3_stream_type_is_control(type));
 
-  buf[0] = QUIC_H3_STREAM_QPACK_DECODER;
+  buf[0] = H3_STREAM_QPACK_DECODER;
   h3_stream_type_parse(wired_span_of(buf, 1), &type, &used);
   CHECK(h3_stream_type_is_qpack(type));
 }

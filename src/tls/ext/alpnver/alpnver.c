@@ -10,13 +10,13 @@ int alpnver_require(const u8* selected_alpn, usz len) {
 
 /* RFC 7301 3.2 / RFC 9114: classify the selected name. */
 alpnver_proto alpnver_protocol(const u8* alpn, usz len) {
-  if (tls_alpn_is_h3(alpn, len)) return QUIC_ALPNVER_PROTO_H3;
-  return QUIC_ALPNVER_PROTO_NONE;
+  if (tls_alpn_is_h3(alpn, len)) return ALPNVER_PROTO_H3;
+  return ALPNVER_PROTO_NONE;
 }
 
 /* RFC 9368 / RFC 9000 7.4: known protocol stays valid across compatible
  * versions. version_compatible(v, v) is true only for known versions. */
 int alpnver_compatible(u32 version, const u8* alpn, usz len) {
-  if (alpnver_protocol(alpn, len) == QUIC_ALPNVER_PROTO_NONE) return 0;
+  if (alpnver_protocol(alpn, len) == ALPNVER_PROTO_NONE) return 0;
   return version_compatible(version, version);
 }

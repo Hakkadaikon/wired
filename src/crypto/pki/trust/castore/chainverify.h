@@ -1,5 +1,5 @@
-#ifndef QUIC_CASTORE_CHAINVERIFY_H
-#define QUIC_CASTORE_CHAINVERIFY_H
+#ifndef CASTORE_CHAINVERIFY_H
+#define CASTORE_CHAINVERIFY_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"

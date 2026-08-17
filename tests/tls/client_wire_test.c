@@ -93,7 +93,7 @@ static void test_cw_handshake_roundtrip(void) {
   /* client seals with CLIENT_HS; peer opens with the same client key. */
   CHECK(client_seal_handshake_wire(&c, &sin, &ob) == 1);
   total = ob.len;
-  CHECK(keysched_get(&c.tls.ks, QUIC_KS_CLIENT_HS, &chs) == 1);
+  CHECK(keysched_get(&c.tls.ks, KS_CLIENT_HS, &chs) == 1);
   aes128_init(&hp, chs->hp);
   {
     wired_span   sp;
@@ -103,7 +103,7 @@ static void test_cw_handshake_roundtrip(void) {
   }
 
   /* client opens a flight sealed with SERVER_HS (peer direction). */
-  CHECK(keysched_get(&c.tls.ks, QUIC_KS_SERVER_HS, &shs) == 1);
+  CHECK(keysched_get(&c.tls.ks, KS_SERVER_HS, &shs) == 1);
   aes128_init(&hp, shs->hp);
   {
     wired_obuf      ob2 = obuf_of(pkt, sizeof(pkt));
@@ -170,7 +170,7 @@ static void test_cw_onertt_roundtrip(void) {
       wired_span_of(cw_dcid, 8), 0, 4, wired_span_of(get, sizeof(get)), 0};
   CHECK(client_send_appdata_wire(&c, &tx, &ob) == 1);
   total = ob.len;
-  CHECK(keysched_get(&c.tls.ks, QUIC_KS_CLIENT_AP, &cap) == 1);
+  CHECK(keysched_get(&c.tls.ks, KS_CLIENT_AP, &cap) == 1);
   aes128_init(&hp, cap->hp);
   CHECK(
       appdata_recv_flat(
@@ -179,7 +179,7 @@ static void test_cw_onertt_roundtrip(void) {
 
   /* server 200 sealed with SERVER_AP; its DCID is the client's SCID (RFC 9000
    * 5.1), so the client opens it with SERVER_AP and accepts the DCID. */
-  CHECK(keysched_get(&c.tls.ks, QUIC_KS_SERVER_AP, &sap) == 1);
+  CHECK(keysched_get(&c.tls.ks, KS_SERVER_AP, &sap) == 1);
   aes128_init(&hp, sap->hp);
   CHECK(
       appdata_send_flat(
@@ -209,7 +209,7 @@ static void test_cw_onertt_wrong_dcid_dropped(void) {
   aes128              hp;
   stream_frame        sf;
   cw_derive_keys(&c);
-  CHECK(keysched_get(&c.tls.ks, QUIC_KS_SERVER_AP, &sap) == 1);
+  CHECK(keysched_get(&c.tls.ks, KS_SERVER_AP, &sap) == 1);
   aes128_init(&hp, sap->hp);
   /* a validly sealed 200, but addressed to a DCID that is not our SCID. */
   CHECK(

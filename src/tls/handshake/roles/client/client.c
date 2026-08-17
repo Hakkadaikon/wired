@@ -10,14 +10,14 @@
 #include "transport/io/socket/io/addr.h"
 #include "transport/packet/build/pktbuild/initpad.h"
 
-#define QUIC_CLIENT_CRYPTO_FRAME 256
+#define CLIENT_CRYPTO_FRAME 256
 
 /* Wall clock (fail-closed: a dead clock must not skip the validity check)
  * and the ECDHE private scalar. */
 static int client_setup(client* c) {
   c->now = clock_ymdhms();
   if (c->now == 0) return 0;
-  return rng_bytes(c->my_priv, QUIC_ECDHE_LEN);
+  return rng_bytes(c->my_priv, ECDHE_LEN);
 }
 
 /* RFC 9000 7: generate our X25519 key pair and seed the handshake drivers. */
@@ -32,7 +32,7 @@ int client_init(client* c, const client_init_in* in) {
   wired_udp_addr(&c->peer, in->port, in->server_ip);
   tlsdriver_init(&c->tls, c->my_priv, c->my_pub, 0);
   tlsdriver_set_sni(&c->tls, in->server_name.p, in->server_name.n);
-  c->phase  = QUIC_CLIENT_HS_INITIAL;
+  c->phase  = CLIENT_HS_INITIAL;
   c->sh_len = 0;
   return 1;
 }
@@ -47,11 +47,11 @@ void client_set_castore(client* c, const castore* store) { c->castore = store; }
  * when real on-wire protection is wired. The padded length is the on-wire one.
  */
 usz client_build_initial(client* c, u8* out, usz cap) {
-  u8         ch[QUIC_CLIENT_HELLO_MAX];
+  u8         ch[CLIENT_HELLO_MAX];
   wired_obuf ob = obuf_of(ch, sizeof(ch));
   if (!tlsdriver_client_hello(&c->tls, &ob)) return 0;
   {
-    crypto_stream_emit_in ein = {0, QUIC_CLIENT_CRYPTO_FRAME};
+    crypto_stream_emit_in ein = {0, CLIENT_CRYPTO_FRAME};
     wired_obuf            fb  = obuf_of(out, cap);
     if (!crypto_stream_emit(wired_span_of(ch, ob.len), &ein, &fb)) return 0;
     return pktbuild_init_pad(out, fb.len, cap);
@@ -59,7 +59,7 @@ usz client_build_initial(client* c, u8* out, usz cap) {
 }
 
 int client_start(client* c) {
-  u8  dg[QUIC_CLIENT_DATAGRAM_MAX];
+  u8  dg[CLIENT_DATAGRAM_MAX];
   usz len = client_build_initial(c, dg, sizeof(dg));
   if (len == 0) return 0;
   return wired_udp_send(c->fd, &c->peer, wired_span_of(dg, len)) == (i64)len;
@@ -67,7 +67,7 @@ int client_start(client* c) {
 
 /* RFC 8446 4.4.3: CertificateVerify body opens with the 2-byte scheme. */
 static u16 cv_scheme(const u8* msg) {
-  return (u16)((msg[QUIC_HS_HEADER] << 8) | msg[QUIC_HS_HEADER + 1]);
+  return (u16)((msg[HS_HEADER] << 8) | msg[HS_HEADER + 1]);
 }
 
 /* RFC 8446 4.4: hand one fullhs-phase message to its entry point by type. */
@@ -85,9 +85,9 @@ static const struct {
   u8 type;
   int (*fn)(client*, const u8*, usz);
 } feed_table[] = {
-    {QUIC_HSD_CERTIFICATE, dispatch_cert},
-    {QUIC_HSD_CERT_VERIFY, dispatch_cv},
-    {QUIC_HS_FINISHED, dispatch_fin},
+    {HSD_CERTIFICATE, dispatch_cert},
+    {HSD_CERT_VERIFY, dispatch_cv},
+    {HS_FINISHED, dispatch_fin},
 };
 
 static int feed_auth_msg(client* c, const u8* msg, usz len) {
@@ -106,7 +106,7 @@ static int do_confirm(client* c) {
 static int feed_confirm(client* c) {
   if (!fullhs_is_complete(&c->hs)) return 1; /* flight still in progress */
   if (!do_confirm(c)) return 0;
-  c->phase = QUIC_CLIENT_HS_CONFIRMED;
+  c->phase = CLIENT_HS_CONFIRMED;
   return 1;
 }
 
@@ -132,20 +132,20 @@ static int feed_initial(client* c, const u8* msg, usz len) {
     return 0;
   fullhs_set_policy(&c->hs, c->now, wired_span_of(c->host, c->host_len));
   fullhs_set_castore(&c->hs, c->castore);
-  c->phase = QUIC_CLIENT_HS_AUTH;
+  c->phase = CLIENT_HS_AUTH;
   return 1;
 }
 
 int client_feed(client* c, const u8* crypto_payload, usz len) {
-  if (c->phase == QUIC_CLIENT_HS_INITIAL)
+  if (c->phase == CLIENT_HS_INITIAL)
     return feed_initial(c, crypto_payload, len);
-  if (c->phase == QUIC_CLIENT_HS_AUTH)
+  if (c->phase == CLIENT_HS_AUTH)
     return client_feed_auth(c, crypto_payload, len);
   return 0;
 }
 
 int client_pump(client* c) {
-  u8  dg[QUIC_CLIENT_DATAGRAM_MAX];
+  u8  dg[CLIENT_DATAGRAM_MAX];
   i64 n = wired_udp_recv(c->fd, wired_mspan_of(dg, sizeof(dg)));
   if (n <= 0) return 0;
   return client_feed(c, dg, (usz)n);
@@ -158,7 +158,7 @@ int client_run_handshake(client* c, int max_iterations) {
 }
 
 int client_is_connected(const client* c) {
-  return c->phase == QUIC_CLIENT_HS_CONFIRMED;
+  return c->phase == CLIENT_HS_CONFIRMED;
 }
 
 void client_close(client* c) {

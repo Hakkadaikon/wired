@@ -19,7 +19,7 @@ void test_negotiate_selects_h3_from_clienthello(void) {
       &(clienthello_in){
           random, pub, wired_span_of(0, 0), wired_span_of(tp, sizeof(tp))},
       &(wired_obuf){buf, sizeof(buf), 0});
-  CHECK(salpn_find_extension(wired_span_of(buf, w), QUIC_SALPN_EXT_TYPE, &ext));
+  CHECK(salpn_find_extension(wired_span_of(buf, w), SALPN_EXT_TYPE, &ext));
   CHECK(salpn_select_h3(ext.p, ext.n) == 1);
 }
 
@@ -49,17 +49,17 @@ void test_negotiate_build_response(void) {
   static const u8 want_hq[17] = {0x00, 0x10, 0x00, 0x0d, 0x00, 0x0b,
                                  0x0a, 0x68, 0x71, 0x2d, 0x69, 0x6e,
                                  0x74, 0x65, 0x72, 0x6f, 0x70};
-  CHECK(salpn_build_response(QUIC_SALPN_H3, out, sizeof(out), &n) == 1);
+  CHECK(salpn_build_response(SALPN_H3, out, sizeof(out), &n) == 1);
   CHECK(n == 9);
   for (usz i = 0; i < 9; i++) CHECK(out[i] == want_h3[i]);
-  CHECK(salpn_build_response(QUIC_SALPN_H3, out, 8, &n) == 0); /* too small */
+  CHECK(salpn_build_response(SALPN_H3, out, 8, &n) == 0); /* too small */
 
-  CHECK(salpn_build_response(QUIC_SALPN_HQ, out, sizeof(out), &n) == 1);
+  CHECK(salpn_build_response(SALPN_HQ, out, sizeof(out), &n) == 1);
   CHECK(n == 17);
   for (usz i = 0; i < 17; i++) CHECK(out[i] == want_hq[i]);
-  CHECK(salpn_build_response(QUIC_SALPN_HQ, out, 16, &n) == 0); /* too small */
+  CHECK(salpn_build_response(SALPN_HQ, out, 16, &n) == 0); /* too small */
 
-  CHECK(salpn_build_response(QUIC_SALPN_NONE, out, sizeof(out), &n) == 0);
+  CHECK(salpn_build_response(SALPN_NONE, out, sizeof(out), &n) == 0);
 }
 
 void test_negotiate_selects_hq(void) {
@@ -74,17 +74,17 @@ void test_negotiate_prefers_h3_over_hq(void) {
   /* "hq-interop" then "h3" -- h3 wins regardless of offer order */
   u8 list[16] = {0x00, 0x0e, 0x0a, 0x68, 0x71, 0x2d, 0x69, 0x6e,
                  0x74, 0x65, 0x72, 0x6f, 0x70, 0x02, 0x68, 0x33};
-  CHECK(salpn_negotiate(list, sizeof(list)) == QUIC_SALPN_H3);
+  CHECK(salpn_negotiate(list, sizeof(list)) == SALPN_H3);
 }
 
 void test_negotiate_selects_hq_when_only_offered(void) {
   u8 list[13] = {0x00, 0x0b, 0x0a, 0x68, 0x71, 0x2d, 0x69,
                  0x6e, 0x74, 0x65, 0x72, 0x6f, 0x70};
-  CHECK(salpn_negotiate(list, sizeof(list)) == QUIC_SALPN_HQ);
+  CHECK(salpn_negotiate(list, sizeof(list)) == SALPN_HQ);
 }
 
 void test_negotiate_none_when_neither_offered(void) {
   /* "h2" only */
   u8 list[5] = {0x00, 0x03, 0x02, 0x68, 0x32};
-  CHECK(salpn_negotiate(list, sizeof(list)) == QUIC_SALPN_NONE);
+  CHECK(salpn_negotiate(list, sizeof(list)) == SALPN_NONE);
 }

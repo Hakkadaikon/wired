@@ -25,5 +25,5 @@ int ticket_freshness_ok(const ticket* t, u32 obfuscated_age, u64 now_secs) {
   claimed_secs  = ticket_real_age_ms(obfuscated_age, t->age_add) / 1000;
   measured_secs = freshness_server_age_secs(t, now_secs);
   skew          = freshness_skew_secs(claimed_secs, measured_secs);
-  return skew <= QUIC_TICKET_FRESHNESS_WINDOW_SECS;
+  return skew <= TICKET_FRESHNESS_WINDOW_SECS;
 }

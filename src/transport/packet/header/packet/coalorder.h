@@ -1,5 +1,5 @@
-#ifndef QUIC_PACKET_COALORDER_H
-#define QUIC_PACKET_COALORDER_H
+#ifndef PACKET_COALORDER_H
+#define PACKET_COALORDER_H
 
 #include "common/platform/sys/syscall.h"
 

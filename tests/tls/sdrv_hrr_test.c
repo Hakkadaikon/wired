@@ -36,8 +36,8 @@ static usz sdrv_hrr_build_ch(
  * x25519 -- the only group this driver supports, so this is exactly the
  * condition sdrv_recv_client_hello must recognise as "need an HRR". */
 static void sdrv_hrr_drop_x25519(u8* ch) {
-  ch[SDRV_HRR_KEYSHARE_GROUP_OFF]     = (u8)(QUIC_GROUP_SECP256R1 >> 8);
-  ch[SDRV_HRR_KEYSHARE_GROUP_OFF + 1] = (u8)QUIC_GROUP_SECP256R1;
+  ch[SDRV_HRR_KEYSHARE_GROUP_OFF]     = (u8)(GROUP_SECP256R1 >> 8);
+  ch[SDRV_HRR_KEYSHARE_GROUP_OFF + 1] = (u8)GROUP_SECP256R1;
 }
 
 static void sdrv_hrr_set_suite(u8* ch, u16 suite) {
@@ -150,7 +150,7 @@ static void test_sdrv_hrr_second_ch_diff_cipher_rejected(void) {
 
   ch2_len = sdrv_hrr_build_ch(ch2, sizeof(ch2), f.cli_pub, f.srv_random);
   CHECK(ch2_len != 0);
-  sdrv_hrr_set_suite(ch2, QUIC_TLS_CHACHA20_POLY1305_SHA256);
+  sdrv_hrr_set_suite(ch2, TLS_CHACHA20_POLY1305_SHA256);
   CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 0);
 }
 

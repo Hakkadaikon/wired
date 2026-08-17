@@ -1,5 +1,5 @@
-#ifndef QUIC_RSA_PSS_H
-#define QUIC_RSA_PSS_H
+#ifndef RSA_PSS_H
+#define RSA_PSS_H
 
 #include "common/bytes/span/span.h"
 

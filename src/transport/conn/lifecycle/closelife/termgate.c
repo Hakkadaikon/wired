@@ -4,10 +4,10 @@
  * open -> app data; closing -> CONNECTION_CLOSE only; draining/closed -> none.
  */
 static const send_kind send_by_phase[] = {
-    [QUIC_LIFE_OPEN]     = QUIC_SEND_APPDATA,
-    [QUIC_LIFE_CLOSING]  = QUIC_SEND_CC,
-    [QUIC_LIFE_DRAINING] = QUIC_SEND_NONE,
-    [QUIC_LIFE_CLOSED]   = QUIC_SEND_NONE,
+    [LIFE_OPEN]     = SEND_APPDATA,
+    [LIFE_CLOSING]  = SEND_CC,
+    [LIFE_DRAINING] = SEND_NONE,
+    [LIFE_CLOSED]   = SEND_NONE,
 };
 
 send_kind life_send_kind(const life* l) { return send_by_phase[l->phase]; }
@@ -21,5 +21,5 @@ int life_close_due(const life* l) {
 }
 
 int life_idle_due(const life* l) {
-  return l->phase == QUIC_LIFE_OPEN && l->idle_ticks >= l->idle_max;
+  return l->phase == LIFE_OPEN && l->idle_ticks >= l->idle_max;
 }

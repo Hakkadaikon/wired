@@ -1,5 +1,5 @@
-#ifndef QUIC_H3_METHOD_H
-#define QUIC_H3_METHOD_H
+#ifndef H3_METHOD_H
+#define H3_METHOD_H
 
 #include "common/bytes/span/span.h"
 

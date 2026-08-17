@@ -1,5 +1,5 @@
-#ifndef QUIC_MANAGE_DOSMITIGATE_H
-#define QUIC_MANAGE_DOSMITIGATE_H
+#ifndef MANAGE_DOSMITIGATE_H
+#define MANAGE_DOSMITIGATE_H
 
 #include "common/platform/sys/syscall.h"
 

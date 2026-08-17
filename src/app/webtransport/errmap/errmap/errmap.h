@@ -1,5 +1,5 @@
-#ifndef QUIC_WTERRMAP_H
-#define QUIC_WTERRMAP_H
+#ifndef WTERRMAP_H
+#define WTERRMAP_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -43,10 +43,10 @@ int wired_wterrmap_from_http3(u64 h, u32* n_out);
  *   not actually satisfy WebTransport's requirements. Dormant: SETTINGS/
  *   transport-parameter completeness checking is not implemented.
  */
-#define QUIC_WTERR_BUFFERED_STREAM_REJECTED 0x3994bd84u
-#define QUIC_WTERR_SESSION_GONE 0x170d7b68u
-#define QUIC_WTERR_FLOW_CONTROL_ERROR 0x045d4487u
-#define QUIC_WTERR_ALPN_ERROR 0x0817b3ddu
-#define QUIC_WTERR_REQUIREMENTS_NOT_MET 0x212c0d48u
+#define WTERR_BUFFERED_STREAM_REJECTED 0x3994bd84u
+#define WTERR_SESSION_GONE 0x170d7b68u
+#define WTERR_FLOW_CONTROL_ERROR 0x045d4487u
+#define WTERR_ALPN_ERROR 0x0817b3ddu
+#define WTERR_REQUIREMENTS_NOT_MET 0x212c0d48u
 
 #endif

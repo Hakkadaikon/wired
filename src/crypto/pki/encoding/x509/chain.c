@@ -17,7 +17,7 @@ static int ch_next_seq_tlv(derseq* c, wired_span* tlv) {
   wired_span val;
   usz        start = c->off;
   if (!derseq_next(c, &tag, &val)) return 0;
-  if (tag != QUIC_DER_SEQUENCE) return 0;
+  if (tag != DER_SEQUENCE) return 0;
   *tlv = wired_span_of(c->p + start, c->off - start);
   return 1;
 }

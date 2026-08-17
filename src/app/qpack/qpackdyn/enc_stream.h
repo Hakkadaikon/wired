@@ -1,5 +1,5 @@
-#ifndef QUIC_QPACKDYN_ENC_STREAM_H
-#define QUIC_QPACKDYN_ENC_STREAM_H
+#ifndef QPACKDYN_ENC_STREAM_H
+#define QPACKDYN_ENC_STREAM_H
 
 #include "app/qpack/qpack/dyntable.h"
 
@@ -16,7 +16,7 @@
  * consumed on success, 0 if buf's leading byte is not a Set Dynamic Table
  * Capacity instruction, is truncated, or names a capacity exceeding
  * max_table_capacity (in which case *err is set to
- * QUIC_QPACK_ENCODER_STREAM_ERROR; *err is left unchanged on any other
+ * QPACK_ENCODER_STREAM_ERROR; *err is left unchanged on any other
  * return value). */
 usz qdyn_enc_apply_capacity(
     wired_span buf, qpack_dyn* t, u64 max_table_capacity, u16* err);

@@ -8,17 +8,15 @@
  * value comes from a QUIC_STP_DEFAULT_* macro (server_tp.h), each
  * overridable per build with a -D flag; the buffer-backing invariant on the
  * two stream-data windows (they must equal WIRED_SRVLOOP_WT_BUF_CAP, and
- * why) is documented on QUIC_STP_DEFAULT_STREAM_DATA_LOCAL and pinned by
+ * why) is documented on STP_DEFAULT_STREAM_DATA_LOCAL and pinned by
  * server_tp_test.c. */
 static const struct {
   u64 id, val;
 } int_params[] = {
-    {QUIC_TP_MAX_IDLE_TIMEOUT, QUIC_STP_DEFAULT_IDLE_TIMEOUT_MS},
-    {QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL,
-     QUIC_STP_DEFAULT_STREAM_DATA_LOCAL},
-    {QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE,
-     QUIC_STP_DEFAULT_STREAM_DATA_REMOTE},
-    {QUIC_TP_INITIAL_MAX_STREAM_DATA_UNI, QUIC_STP_DEFAULT_STREAM_DATA_LOCAL},
+    {TP_MAX_IDLE_TIMEOUT, STP_DEFAULT_IDLE_TIMEOUT_MS},
+    {TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, STP_DEFAULT_STREAM_DATA_LOCAL},
+    {TP_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE, STP_DEFAULT_STREAM_DATA_REMOTE},
+    {TP_INITIAL_MAX_STREAM_DATA_UNI, STP_DEFAULT_STREAM_DATA_LOCAL},
 };
 
 /* Append one integer TP at out->len. Returns 1 on success, 0 if it did not
@@ -66,17 +64,16 @@ static int put_tunables(wired_obuf* out, const stp_limits* lim) {
   stp_limits d = {0};
   if (!lim) lim = &d;
   return put_int(
-             out, QUIC_TP_INITIAL_MAX_DATA,
-             lim_or(lim->max_data, QUIC_STP_DEFAULT_MAX_DATA)) &
+             out, TP_INITIAL_MAX_DATA,
+             lim_or(lim->max_data, STP_DEFAULT_MAX_DATA)) &
          put_int(
-             out, QUIC_TP_INITIAL_MAX_STREAMS_BIDI,
-             lim_or(lim->max_streams_bidi, QUIC_STP_DEFAULT_MAX_STREAMS_BIDI)) &
+             out, TP_INITIAL_MAX_STREAMS_BIDI,
+             lim_or(lim->max_streams_bidi, STP_DEFAULT_MAX_STREAMS_BIDI)) &
          put_int(
-             out, QUIC_TP_INITIAL_MAX_STREAMS_UNI,
-             lim_or(lim->max_streams_uni, QUIC_STP_DEFAULT_MAX_STREAMS_UNI)) &
+             out, TP_INITIAL_MAX_STREAMS_UNI,
+             lim_or(lim->max_streams_uni, STP_DEFAULT_MAX_STREAMS_UNI)) &
          put_int_opt(
-             out, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE,
-             lim->max_datagram_frame_size);
+             out, TP_MAX_DATAGRAM_FRAME_SIZE, lim->max_datagram_frame_size);
 }
 
 /* reset_stream_at (draft-ietf-quic-reliable-stream-reset 4): advertise
@@ -85,7 +82,7 @@ static int put_tunables(wired_obuf* out, const stp_limits* lim) {
  * nothing even though no live sender uses it yet (unlike
  * max_datagram_frame_size, whose receive side is not wired). */
 static int put_reset_stream_at(wired_obuf* out) {
-  return put_blob(out, QUIC_TP_RESET_STREAM_AT, wired_span_of(0, 0));
+  return put_blob(out, TP_RESET_STREAM_AT, wired_span_of(0, 0));
 }
 
 /* retry_source_connection_id only when a Retry actually happened -- an
@@ -93,7 +90,7 @@ static int put_reset_stream_at(wired_obuf* out) {
  */
 static int put_rscid(wired_obuf* out, wired_span rscid) {
   if (rscid.n == 0) return 1;
-  return put_blob(out, QUIC_TP_RETRY_SOURCE_CONNECTION_ID, rscid);
+  return put_blob(out, TP_RETRY_SOURCE_CONNECTION_ID, rscid);
 }
 
 /* stateless_reset_token (RFC 9000 10.3.1/18.2) only when the caller supplied
@@ -102,7 +99,7 @@ static int put_rscid(wired_obuf* out, wired_span rscid) {
  * peer must reject. */
 static int put_sreset_token(wired_obuf* out, wired_span token) {
   if (token.n == 0) return 1;
-  return token.n == 16 && put_blob(out, QUIC_TP_STATELESS_RESET_TOKEN, token);
+  return token.n == 16 && put_blob(out, TP_STATELESS_RESET_TOKEN, token);
 }
 
 int stp_build_server_ret(
@@ -114,11 +111,10 @@ int stp_build_server_ret(
     wired_obuf*       out) {
   int ok;
   out->len = 0;
-  ok =
-      put_blob(out, QUIC_TP_ORIGINAL_DESTINATION_CONNECTION_ID, original_dcid) &
-      put_int_params(out) & put_tunables(out, lim) & put_reset_stream_at(out) &
-      put_rscid(out, rscid) & put_sreset_token(out, sreset_token) &
-      put_blob(out, QUIC_TP_INITIAL_SOURCE_CONNECTION_ID, initial_scid);
+  ok = put_blob(out, TP_ORIGINAL_DESTINATION_CONNECTION_ID, original_dcid) &
+       put_int_params(out) & put_tunables(out, lim) & put_reset_stream_at(out) &
+       put_rscid(out, rscid) & put_sreset_token(out, sreset_token) &
+       put_blob(out, TP_INITIAL_SOURCE_CONNECTION_ID, initial_scid);
   return ok;
 }
 

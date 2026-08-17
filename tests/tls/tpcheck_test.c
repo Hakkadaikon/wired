@@ -52,26 +52,26 @@ void test_tpcheck(void) {
  * integer parameters. */
 void test_tparam_range_ok(void) {
   /* max_udp_payload_size: "Values below 1200 are invalid." */
-  CHECK(tparam_range_ok(QUIC_TP_MAX_UDP_PAYLOAD_SIZE, 1200) == 1);
-  CHECK(tparam_range_ok(QUIC_TP_MAX_UDP_PAYLOAD_SIZE, 1199) == 0);
-  CHECK(tparam_range_ok(QUIC_TP_MAX_UDP_PAYLOAD_SIZE, 65527) == 1);
+  CHECK(tparam_range_ok(TP_MAX_UDP_PAYLOAD_SIZE, 1200) == 1);
+  CHECK(tparam_range_ok(TP_MAX_UDP_PAYLOAD_SIZE, 1199) == 0);
+  CHECK(tparam_range_ok(TP_MAX_UDP_PAYLOAD_SIZE, 65527) == 1);
 
   /* ack_delay_exponent: "Values above 20 are invalid." */
-  CHECK(tparam_range_ok(QUIC_TP_ACK_DELAY_EXPONENT, 20) == 1);
-  CHECK(tparam_range_ok(QUIC_TP_ACK_DELAY_EXPONENT, 21) == 0);
-  CHECK(tparam_range_ok(QUIC_TP_ACK_DELAY_EXPONENT, 0) == 1);
+  CHECK(tparam_range_ok(TP_ACK_DELAY_EXPONENT, 20) == 1);
+  CHECK(tparam_range_ok(TP_ACK_DELAY_EXPONENT, 21) == 0);
+  CHECK(tparam_range_ok(TP_ACK_DELAY_EXPONENT, 0) == 1);
 
   /* max_ack_delay: "Values of 2^14 or greater are invalid." */
-  CHECK(tparam_range_ok(QUIC_TP_MAX_ACK_DELAY, 16383) == 1);
-  CHECK(tparam_range_ok(QUIC_TP_MAX_ACK_DELAY, 16384) == 0);
-  CHECK(tparam_range_ok(QUIC_TP_MAX_ACK_DELAY, 0) == 1);
+  CHECK(tparam_range_ok(TP_MAX_ACK_DELAY, 16383) == 1);
+  CHECK(tparam_range_ok(TP_MAX_ACK_DELAY, 16384) == 0);
+  CHECK(tparam_range_ok(TP_MAX_ACK_DELAY, 0) == 1);
 
   /* active_connection_id_limit: "MUST be at least 2." */
-  CHECK(tparam_range_ok(QUIC_TP_ACTIVE_CONNECTION_ID_LIMIT, 2) == 1);
-  CHECK(tparam_range_ok(QUIC_TP_ACTIVE_CONNECTION_ID_LIMIT, 1) == 0);
-  CHECK(tparam_range_ok(QUIC_TP_ACTIVE_CONNECTION_ID_LIMIT, 0) == 0);
+  CHECK(tparam_range_ok(TP_ACTIVE_CONNECTION_ID_LIMIT, 2) == 1);
+  CHECK(tparam_range_ok(TP_ACTIVE_CONNECTION_ID_LIMIT, 1) == 0);
+  CHECK(tparam_range_ok(TP_ACTIVE_CONNECTION_ID_LIMIT, 0) == 0);
 
   /* unconstrained parameter ids: always valid regardless of value */
-  CHECK(tparam_range_ok(QUIC_TP_INITIAL_MAX_DATA, 0) == 1);
-  CHECK(tparam_range_ok(QUIC_TP_INITIAL_MAX_STREAMS_BIDI, 0xffffffffull) == 1);
+  CHECK(tparam_range_ok(TP_INITIAL_MAX_DATA, 0) == 1);
+  CHECK(tparam_range_ok(TP_INITIAL_MAX_STREAMS_BIDI, 0xffffffffull) == 1);
 }

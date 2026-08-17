@@ -12,7 +12,7 @@ static void test_der_int_no_pad(void) {
   v[31] = 0x7e;
   CHECK(ecdsasig_encode_integer(v, out, sizeof(out), &n) == 1);
   CHECK(n == 34);
-  CHECK(out[0] == QUIC_DER_INTEGER && out[1] == 0x20);
+  CHECK(out[0] == DER_INTEGER && out[1] == 0x20);
   CHECK(out[2] == 0x1b && out[33] == 0x7e);
 }
 

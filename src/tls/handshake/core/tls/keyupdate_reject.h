@@ -1,5 +1,5 @@
-#ifndef QUIC_TLS_KEYUPDATE_REJECT_H
-#define QUIC_TLS_KEYUPDATE_REJECT_H
+#ifndef TLS_KEYUPDATE_REJECT_H
+#define TLS_KEYUPDATE_REJECT_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -10,7 +10,7 @@
  * (unexpected_message, RFC 8446 B.2 alert 10). */
 
 /* RFC 8446 B.3: the TLS handshake message type for KeyUpdate. */
-#define QUIC_HS_KEY_UPDATE 24
+#define HS_KEY_UPDATE 24
 
 /* 1 if msg_type is the TLS KeyUpdate message and must be rejected. */
 int tls_keyupdate_is_forbidden(u8 msg_type);

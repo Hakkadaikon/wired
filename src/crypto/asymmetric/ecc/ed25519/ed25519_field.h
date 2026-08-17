@@ -1,5 +1,5 @@
-#ifndef QUIC_ED25519_FIELD_H
-#define QUIC_ED25519_FIELD_H
+#ifndef ED25519_FIELD_H
+#define ED25519_FIELD_H
 
 #include "common/platform/sys/syscall.h"
 

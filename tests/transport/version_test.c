@@ -3,28 +3,27 @@
 static void test_version_reserved(void) {
   CHECK(version_is_reserved(0x0a0a0a0a) == 1);
   CHECK(version_is_reserved(0x1a2a3a4a) == 1);
-  CHECK(version_is_reserved(QUIC_VERSION_1) == 0);
-  CHECK(version_is_reserved(QUIC_VERSION_2) == 0);
+  CHECK(version_is_reserved(VERSION_1) == 0);
+  CHECK(version_is_reserved(VERSION_2) == 0);
 }
 
 static void test_version_info_roundtrip(void) {
-  version_info in = {.chosen = QUIC_VERSION_1, .n_available = 2};
-  in.available[0] = QUIC_VERSION_1;
-  in.available[1] = QUIC_VERSION_2;
+  version_info in = {.chosen = VERSION_1, .n_available = 2};
+  in.available[0] = VERSION_1;
+  in.available[1] = VERSION_2;
   u8  buf[64];
   usz w = version_info_encode(buf, sizeof(buf), &in);
-  CHECK(w != 0 && buf[0] == QUIC_TP_VERSION_INFORMATION);
+  CHECK(w != 0 && buf[0] == TP_VERSION_INFORMATION);
 
   version_info out;
   usz          r = version_info_decode(buf, w, &out);
-  CHECK(r == w && out.chosen == QUIC_VERSION_1 && out.n_available == 2);
-  CHECK(
-      out.available[0] == QUIC_VERSION_1 && out.available[1] == QUIC_VERSION_2);
+  CHECK(r == w && out.chosen == VERSION_1 && out.n_available == 2);
+  CHECK(out.available[0] == VERSION_1 && out.available[1] == VERSION_2);
 }
 
 static void test_version_info_truncated(void) {
-  version_info in = {.chosen = QUIC_VERSION_2, .n_available = 1};
-  in.available[0] = QUIC_VERSION_2;
+  version_info in = {.chosen = VERSION_2, .n_available = 1};
+  in.available[0] = VERSION_2;
   u8           buf[64];
   usz          w = version_info_encode(buf, sizeof(buf), &in);
   version_info out;

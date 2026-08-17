@@ -1,5 +1,5 @@
-#ifndef QUIC_CONNRUNNER_RECONNECT_H
-#define QUIC_CONNRUNNER_RECONNECT_H
+#ifndef CONNRUNNER_RECONNECT_H
+#define CONNRUNNER_RECONNECT_H
 
 #include "common/bytes/span/span.h"
 #include "transport/conn/loop/connrunner/connrunner.h"
@@ -11,8 +11,7 @@
  * Negotiation selects a mutually supported version and reconnects once. Both
  * are one-shot and ignored once the handshake has progressed. */
 
-#define QUIC_CONNRUNNER_VN_ABORT \
-  (-1) /* no common version: abandon the attempt */
+#define CONNRUNNER_VN_ABORT (-1) /* no common version: abandon the attempt */
 
 /* Reset the Retry and VN reconnect state for a fresh connection attempt. */
 void connrunner_reconnect_init(connrunner* r);
@@ -49,7 +48,7 @@ typedef struct {
 /* RFC 9000 6.2 receive path: process a Version Negotiation packet. Ignored
  * after progress; discarded as a downgrade when the sent version is offered;
  * otherwise selects the most preferred common version. Writes *chosen and
- * returns 1 to reconnect (increments the VN count), QUIC_CONNRUNNER_VN_ABORT
+ * returns 1 to reconnect (increments the VN count), CONNRUNNER_VN_ABORT
  * when no common version exists, 0 to discard/ignore (downgrade, after
  * progress, or budget exhausted). */
 int connrunner_recv_vn(connrunner* r, const vn_lists* l, u32* chosen);
