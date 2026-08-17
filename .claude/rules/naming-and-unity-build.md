@@ -1,5 +1,5 @@
 ---
-description: Every symbol is globally unique because the whole repo links as one unity TU; new public API gets a quic_<domain>_ prefix and is grep-checked before use.
+description: Every symbol is globally unique because the whole repo links as one unity TU; application-facing API gets the wired_ prefix, internal API its module token, and every new name is grep-checked before use.
 appliesTo: when naming any function/static/typedef/macro in src/, when adding a new src/<domain>/, when wiring a new file into tests/run.c
 alwaysApply: true
 ---
@@ -13,16 +13,20 @@ not surface until link/wiring time, never in a coder's isolated `$TMPDIR` build.
 
 ## Rules that prevent collisions
 
-- **Public API: prefix with `quic_<domain>_`.** MECE splits responsibility, not
-  namespace — both halves still link into one binary (#17). `quic_sent_init`
-  collided across `sentpkt` and `recovery`; `quic_h3_control_open` across `h3run`
-  and `h3`. Name them `quic_sentpkt_*`, `quic_h3run_*`.
-  Exception: the app-facing layers (server / srvloop / h3srv / h3reqdrive /
-  udp / header / srvboot / srvrun / pem / eckey / fio) carry the SDK brand
-  prefix `wired_<domain>_`.
-- **Before adding any public name, grep:**
+- **The prefix encodes the audience.** Application-facing API (anything the
+  examples call, or that `docs/api-stability.md`'s Stable table lists) is
+  `wired_<rest>` / `WIRED_<rest>`. Internal non-`static` API carries its
+  module token as the prefix (`sdrv_*`, `moqctl_*`, `bn_*`, macro
+  `LEVEL_*`) — no protocol-wide prefix. `docs/api-stability.md` is the
+  authority on which side a name falls.
+- **The module token must still be distinct.** MECE splits responsibility,
+  not namespace — both halves still link into one binary (#17). Historically
+  `quic_sent_init` collided across `sentpkt` and `recovery`, and
+  `quic_h3_control_open` across `h3run` and `h3`; the fix was
+  per-module tokens (`sentpkt_*`, `h3run_*`), which is now the rule itself.
+- **Before adding any non-`static` name, grep:**
   ```sh
-  grep -rn 'quic_<domain>_<name>' src/
+  grep -rn '<module>_<name>' src/
   ```
   Collisions are invisible until wiring (#3/#16/#17). Catch them at naming time.
 - **`static` helpers, `typedef`s, and macros collide too.** The unity TU

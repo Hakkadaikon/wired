@@ -50,7 +50,8 @@ parts you reread.
   `static int cond(...) { return a && b; }` predicate, and split three
   consecutive `if (!put(...)) return 0;` lines into head/body helpers.
 - **MECE: one domain, one directory.** `src/<domain>/` owns one
-  responsibility. Public API is prefixed `quic_<domain>_`.
+  responsibility. Application-facing API is prefixed `wired_`; internal
+  non-static API carries its module token (`sdrv_*`, `moqctl_*`).
 - **Unity build — the single biggest trap.** `tests/run.c` is one translation
   unit that `#include`s every production `.c` exactly once and every
   `*_test.c`. So *every symbol in the whole codebase shares one global
@@ -63,11 +64,12 @@ parts you reread.
 1. **Pick a name and check for collisions first** (pitfall #17 — collisions
    only surface at wire-up, so prevent them at naming time):
    ```sh
-   grep -rn 'quic_<domain>_' src/        # public API prefix free?
+   grep -rn '<domain>_' src/             # module token free?
    grep -rn '<helpername>' src/          # any static helper / macro clash?
    ```
-2. **Create `src/<domain>/<domain>.{h,c}`.** Public functions are
-   `quic_<domain>_...`. For shared byte/be/constant-time work, include the
+2. **Create `src/<domain>/<domain>.{h,c}`.** Internal functions are
+   `<domain>_...` (application-facing ones `wired_<domain>_...`). For
+   shared byte/be/constant-time work, include the
    `util/*.h` inline helpers instead of writing your own statics (#3).
 3. **Write `tests/<name>_test.c`** with `void test_<name>(void)` using the
    `CHECK(...)` macro from `tests/test.h` (see `tests/path_test.c` for the
@@ -141,7 +143,8 @@ fi
 - **Unity-build name collisions (#3, #15, #17).** Same-named `static` helper,
   function, `typedef`, or macro in two files collide in the one TU — even
   though the files are unrelated. *Avoid:* prefix domain symbols, route shared
-  helpers through `util/*.h` inline, give public API a `quic_<domain>_` prefix.
+  helpers through `util/*.h` inline, give every non-static name its module
+  token (`wired_` for the application-facing surface).
   *Detect:* `grep` before naming (section 2.1); the collision shows up as a
   redefinition error in `just test` / `just build` after wire-up — but NOT
   necessarily in `just test-fast`, whose shard TUs can keep the two files
