@@ -24,7 +24,7 @@
 #define BBR_PROBE_RTT_MS 200
 
 typedef struct {
-  int phase;              /**< QUIC_BBR_* */
+  int phase;              /**< BBR_* */
   u64 bw_win[BBR_BW_WIN]; /**< per-round delivery-rate samples */
   usz bw_idx;             /**< next slot in bw_win (ring) */
   u64 btl_bw;             /**< max of bw_win: bottleneck bandwidth estimate */

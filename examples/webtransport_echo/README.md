@@ -37,11 +37,11 @@ requests with a short text body. Stop it with Ctrl-C.
 - `wired_wt_session_*` (`src/app/webtransport/session/`) — the session
   lifecycle state machine (unestablished -> established -> closed),
   including pre-establishment stream/datagram buffering.
-- `quic_wtcapsule_encode_close` / `quic_wtcapsule_decode_close`
+- `wired_wtcapsule_encode_close` / `wired_wtcapsule_decode_close`
   (`src/app/webtransport/capsule/`) — the `WT_CLOSE_SESSION` capsule codec,
   round-tripped through the generic RFC 9297 Capsule Protocol codec
   (`src/app/http3/core/capsule/`).
-- `quic_wterrmap_to_http3` / `quic_wterrmap_from_http3`
+- `wired_wterrmap_to_http3` / `wired_wterrmap_from_http3`
   (`src/app/webtransport/errmap/`) — the WebTransport <-> HTTP/3 error-code
   mapping (draft-ietf-webtrans-http3-15 Section 8.2).
 

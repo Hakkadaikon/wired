@@ -5,7 +5,7 @@
 #include "tls/ext/tparam/tpblob.h"
 
 /* RFC 9000 18.2 integer-valued parameters the server advertises. Every
- * value comes from a QUIC_STP_DEFAULT_* macro (server_tp.h), each
+ * value comes from a STP_DEFAULT_* macro (server_tp.h), each
  * overridable per build with a -D flag; the buffer-backing invariant on the
  * two stream-data windows (they must equal WIRED_SRVLOOP_WT_BUF_CAP, and
  * why) is documented on STP_DEFAULT_STREAM_DATA_LOCAL and pinned by

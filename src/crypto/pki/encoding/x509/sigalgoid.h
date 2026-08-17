@@ -19,8 +19,8 @@ enum {
 
 /** A resolved signatureAlgorithm: issuer key kind and digest kind. */
 typedef struct {
-  u8 key_kind;  /* QUIC_X509_SIG_* */
-  u8 hash_kind; /* QUIC_X509_HASH_* */
+  u8 key_kind;  /* X509_SIG_* */
+  u8 hash_kind; /* X509_HASH_* */
 } x509_sigalg;
 
 /* Look up a signatureAlgorithm OID (DER value bytes). Returns 1 and fills

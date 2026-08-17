@@ -23,7 +23,7 @@ typedef struct {
   u64 ssthresh;
   int in_recovery;
   u64 recovery_start; /* time the current recovery period began */
-  int algo;           /* QUIC_CC_ALGO_* */
+  int algo;           /* CC_ALGO_* */
   u64 w_max_seg;      /* CUBIC: window at the last loss, in segments */
   u64 k_ms;           /* CUBIC: plateau offset for the current epoch */
   u64 epoch_ms;       /* CUBIC: when the current epoch (loss) began */
@@ -34,7 +34,7 @@ typedef struct {
 
 void cc_init(cc* c); /* NewReno */
 
-/* Init with an explicit algorithm (QUIC_CC_ALGO_*). */
+/* Init with an explicit algorithm (CC_ALGO_*). */
 void cc_init_algo(cc* c, int algo);
 
 /* On ACK of `acked` bytes for a packet sent at time `sent_time`, observed at

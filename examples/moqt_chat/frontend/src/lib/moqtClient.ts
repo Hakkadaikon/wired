@@ -18,7 +18,7 @@
 //    resulting SUBSCRIBE_OK's Track Alias (or drop it on REQUEST_ERROR).
 //  - Chat messages are sent as one uni stream each: SUBGROUP_HEADER + one
 //    Object (1 message = 1 Object = 1 Group = 1 Subgroup), matching
-//    moqdata.h's quic_moqdata_msg_build layout on the server side.
+//    moqdata.h's moqdata_msg_build layout on the server side.
 
 import {
   bytesToUtf8,
@@ -42,7 +42,7 @@ const MSG_TYPE_SUBSCRIBE = 0x3n;
 const MSG_TYPE_SUBSCRIBE_OK = 0x4n;
 const MSG_TYPE_REQUEST_ERROR = 0x5n;
 
-// SUBGROUP_HEADER Type (moqdata.h QUIC_MOQDATA_MSG builder): PROPERTIES off,
+// SUBGROUP_HEADER Type (moqdata.h MOQDATA_MSG builder): PROPERTIES off,
 // SUBGROUP_ID_MODE 0b00, no end-of-group, DEFAULT_PRIORITY on, FIRST_OBJECT
 // on: 0x10 (base) | 0x40 (FIRST_OBJECT) | 0x20 (DEFAULT_PRIORITY) = 0x70.
 // Exported for moqtVoiceWire.ts, which builds the same shape of header for

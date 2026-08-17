@@ -22,7 +22,7 @@ typedef struct {
 /* RFC 9001 4 / 5.1 / RFC 9000 17.2 / A.3: open one received server-side
  * datagram. The first byte selects the protection level (Initial / Handshake /
  * 1-RTT); the peer-direction key (CLIENT_HS / CLIENT_AP) is used to open, never
- * the server's own. On success out->level is the QUIC_LEVEL_* the packet was
+ * the server's own. On success out->level is the LEVEL_* the packet was
  * opened at, out->payload the recovered plaintext frames. Returns 1, or 0 on
  * an unhandled type, a missing peer key, or AEAD failure. */
 int wired_srvloop_recv(

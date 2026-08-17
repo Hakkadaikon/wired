@@ -13,7 +13,7 @@
  * falls back to this) -- exposed so callers that track the advertised limit
  * across a connection's life (RFC 9000 4.6/19.11 MAX_STREAMS re-grants) know
  * the true starting value without duplicating the constant. Like every
- * QUIC_STP_DEFAULT_* below, overridable per build (-D flag). */
+ * STP_DEFAULT_* below, overridable per build (-D flag). */
 #ifndef STP_DEFAULT_MAX_STREAMS_BIDI
 #define STP_DEFAULT_MAX_STREAMS_BIDI 100
 #endif

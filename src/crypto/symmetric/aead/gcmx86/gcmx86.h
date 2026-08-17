@@ -8,7 +8,7 @@
  * no intrinsics headers: this tree is libc-free). Same AEAD as
  * crypto/symmetric/aead/gcm (RFC 9001 5.3), roughly two orders of
  * magnitude faster per block. Callers must gate on gcmx86_supported()
- * and fall back to the scalar quic_gcm_* path when it returns 0. */
+ * and fall back to the scalar gcm_* path when it returns 0. */
 
 #define GCMX86_NONCE 12
 #define GCMX86_TAG 16

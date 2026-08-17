@@ -114,7 +114,7 @@ int connloop_on_pto(connloop* c, const connloop_pto_in* in) {
 
 /* RFC 9000 10.2: the next phase per current phase. active goes to closing on a
  * local close (overridden below for a peer close); the rest march one step
- * toward closed and closed never reopens. Indexed by QUIC_CONNLOOP_*. */
+ * toward closed and closed never reopens. Indexed by CONNLOOP_*. */
 static const int connloop_next[] = {
     [CONNLOOP_ACTIVE]   = CONNLOOP_CLOSING,
     [CONNLOOP_CLOSING]  = CONNLOOP_DRAINING,

@@ -71,7 +71,7 @@ int chguard_require_algs(int found_sig_algs, int found_groups) {
 }
 
 /* RFC 8446 4.2's registry, restricted to the extension_type code points this
- * SDK recognizes elsewhere (grep 'QUIC_EXT_\|QUIC_TLSEXT_T_\|SNI_TYPE\|
+ * SDK recognizes elsewhere (grep 'EXT_\|TLSEXT_T_\|SNI_TYPE\|
  * ALPN_TYPE' across src/tls): every one of these IS specified for
  * ClientHello, so none is CH-illegal. oid_filters (48) is the one RFC 8446
  * extension_type specified ONLY for CertificateRequest, never ClientHello --

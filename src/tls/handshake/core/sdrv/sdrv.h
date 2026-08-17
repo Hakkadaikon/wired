@@ -101,7 +101,7 @@ typedef struct {
   stp_limits limits;    /**< advertised tunable limits (0 = defaults) */
   /** stateless_reset_token (RFC 9000 10.3.1/18.2) for iscid, advertised in
    * the EncryptedExtensions transport parameters when sreset_token_set is 1.
-   * The caller derives it from a restart-stable secret (quic_sreset_key_
+   * The caller derives it from a restart-stable secret (sreset_key_
    * derive) -- a per-boot token would be useless, since the reset it
    * authorizes is exactly the "server lost its state" signal. */
   u8  sreset_token[16];

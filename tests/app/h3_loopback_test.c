@@ -1037,7 +1037,7 @@ static void test_srvboot_refusal_closes_unservable(void) {
 #define SDRV_H3_EXTS_LEN_OFF 45
 
 /* Strip the trailing quic_transport_parameters extension (RFC 9001 8.2, type
- * 0x0039) off a ClientHello built by sb_build_raw_ch: quic_tlsdriver_raw_
+ * 0x0039) off a ClientHello built by sb_build_raw_ch: tlsdriver_raw_
  * client_hello always offers an empty TP payload (tlsdriver.c), and
  * append_exts (clienthello.c) always appends it last, so its whole TLV
  * (header(4)+0 = 4 bytes) is always the final 4 bytes of ch -- same shape as

@@ -40,7 +40,7 @@ typedef struct {
 void connection_init(connection* c, const connection_init_in* in);
 
 /* Assemble and protect one packet of `frames` at protection `level`
- * (QUIC_LEVEL_*), pushing it onto the link. Returns 1 on success, 0 if the
+ * (LEVEL_*), pushing it onto the link. Returns 1 on success, 0 if the
  * level's keys are not installed or assembly fails. */
 int connection_send(connection* c, int level, wired_span frames);
 

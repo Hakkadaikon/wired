@@ -111,7 +111,7 @@ int moqctl_loc_put(wired_mspan buf, usz* off, moqctl_loc loc);
 
 /** draft-ietf-moq-transport-19 SS9.3.1 Location Filter. */
 typedef struct {
-  u64        type; /* QUIC_MOQCTL_FILTER_* */
+  u64        type; /* MOQCTL_FILTER_* */
   moqctl_loc start;
   u64        end_group_delta; /* only when type == ABS_RANGE */
 } moqctl_locfilter;
@@ -159,7 +159,7 @@ int moqctl_reason_put(wired_mspan buf, usz* off, moqctl_reason reason);
  * Value. Decoded absolute type + encoding-tagged value. */
 typedef struct {
   u64        type;
-  int        enc;   /* QUIC_MOQCTL_PENC_* */
+  int        enc;   /* MOQCTL_PENC_* */
   u64        u8v;   /* PENC_UINT8 */
   u64        vi;    /* PENC_VARINT */
   moqctl_loc loc;   /* PENC_LOCATION */

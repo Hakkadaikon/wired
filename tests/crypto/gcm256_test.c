@@ -81,7 +81,7 @@ static void test_gcm256_open(void) {
 }
 
 /* AES-128-GCM and AES-256-GCM keyed with the same 128-bit prefix bytes must
- * diverge: proves quic_gcm256_* is not silently falling back to the AES-128
+ * diverge: proves gcm256_* is not silently falling back to the AES-128
  * path (the two ctx/seal/open pairs are genuinely independent). */
 static void test_gcm256_differs_from_gcm128(void) {
   u8     key128[16] = {0}, key256[32] = {0}, iv[12] = {0};

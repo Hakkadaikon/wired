@@ -120,7 +120,7 @@ static void lp_make_client_hello(struct lp_fix* f) {
       &(wired_obuf){f->ch, sizeof(f->ch), 0});
 }
 
-/* Message-level offset of the single cipher_suites entry quic_tls_client_
+/* Message-level offset of the single cipher_suites entry tls_client_
  * hello builds (RFC 8446 4.1.2): identical layout to sdrv_test.c's ClientHello
  * (both go through the same put_prefix), so cipher_suite sits at
  * header(4) + version(2) + random(32) + session_id_len(1) + cipher_suites_
@@ -3731,7 +3731,7 @@ static void test_srvloop_send_keys_follow_peer_update_before_ack(void) {
       1);
   CHECK(f.s.ku.generation == 1); /* recv side confirmed the update */
   /* the reply (carrying this GET's ACK) must be sealed under generation 1
-   * too: the OLD fixed-generation-0 opener must fail... (quic_hspkt_onertt_
+   * too: the OLD fixed-generation-0 opener must fail... (hspkt_onertt_
    * open mutates its input in place even on failure, so probe a COPY -- the
    * real generation-1 attempt below needs the original bytes untouched). */
   {

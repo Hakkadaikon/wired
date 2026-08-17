@@ -24,13 +24,13 @@ enum {
 
 /**
  * Key schedule state: the current stage, the Master Secret once reached, and
- * the four traffic key sets indexed by the QUIC_KS_* constants.
+ * the four traffic key sets indexed by the KS_* constants.
  */
 typedef struct {
   int stage;                     /**< 0=init/early, 1=handshake, 2=master */
   u8  master[HKDF_PRK];          /**< Master Secret (derived on
                                          reaching stage 1) */
-  initial_keys keys[4];          /**< traffic keys indexed by QUIC_KS_* */
+  initial_keys keys[4];          /**< traffic keys indexed by KS_* */
   u8 client_ap_secret[HKDF_PRK]; /**< client_application_traffic_secret_0
                                   * (RFC 8446 7.1), retained past stage 2
                                   * so RFC 9001 6 key updates can derive
@@ -122,7 +122,7 @@ int keysched_advance_master(
  * *out points into st and stays valid while st lives.
  *
  * @param st    schedule state to query
- * @param which key selector (QUIC_KS_*)
+ * @param which key selector (KS_*)
  * @param out   receives a pointer to the derived keys
  * @return 1 if derived, 0 otherwise.
  */

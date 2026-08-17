@@ -256,7 +256,7 @@ directly shape these metrics:
 
 wired's congestion controller and every advertised transport-parameter
 default are build-time tunable (`#ifndef`-guarded macros, overridden with
-plain `-D` flags: `QUIC_STP_DEFAULT_*` in `server_tp.h`,
+plain `-D` flags: `STP_DEFAULT_*` in `server_tp.h`,
 `WIRED_CC_ALGO_DEFAULT` in `srvrun.c`, `WIRED_SRVLOOP_WT_BUF_CAP` in
 `srvloop.h`), and the out-of-the-box values for congestion control and the
 connection-wide window match quiche's defaults. The per-stream windows

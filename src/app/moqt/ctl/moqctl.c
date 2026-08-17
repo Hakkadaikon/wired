@@ -374,7 +374,7 @@ static int moqctl_param_take_varint(wired_span buf, usz* at, u64* out) {
 }
 
 /* Value dispatch table: one function per encoding, indexed by
- * QUIC_MOQCTL_PENC_*, so the caller never branches on enc itself. */
+ * MOQCTL_PENC_*, so the caller never branches on enc itself. */
 typedef int (*moqctl_param_value_fn)(wired_span, usz*, moqctl_param*);
 
 static int moqctl_pv_uint8(wired_span buf, usz* at, moqctl_param* p) {

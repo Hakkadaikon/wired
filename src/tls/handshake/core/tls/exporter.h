@@ -13,7 +13,7 @@
  */
 
 /* Derive-Secret(Master Secret, "exp master", transcript) -- the same
- * transcript span (ClientHello..server Finished) quic_keysched_advance_
+ * transcript span (ClientHello..server Finished) keysched_advance_
  * master already hashes for the application traffic secrets. Writes a
  * 32-byte secret. */
 void tls_exporter_master_secret(

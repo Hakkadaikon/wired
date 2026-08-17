@@ -8,8 +8,8 @@
  * yet route Extended CONNECT into a wired_wt_session or associate uni/bidi
  * streams or DATAGRAM frames with one (grep confirms zero call sites). What
  * IS real: the WebTransport session state machine (wired_wt_session_*), the
- * WT_CLOSE_SESSION/WT_DRAIN_SESSION capsule codec (quic_wtcapsule_*), and the
- * WT<->HTTP/3 error-code mapping (quic_wterrmap_*) are implemented and
+ * WT_CLOSE_SESSION/WT_DRAIN_SESSION capsule codec (wired_wtcapsule_*), and the
+ * WT<->HTTP/3 error-code mapping (wired_wterrmap_*) are implemented and
  * independently tested components. This example drives them directly, once,
  * at startup, and logs each step to stdout, so a reader can see the pieces
  * that exist and how they'd compose once the receive-side wiring lands. */

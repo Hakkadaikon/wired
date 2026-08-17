@@ -170,7 +170,7 @@ static void install_handshake_keys(tlsdriver* d) {
 }
 
 /* RFC 8446 4.4.1: the client-side transcript is ClientHello||ServerHello, not
- * ServerHello alone -- copy our saved ClientHello bytes (quic_tlsdriver_
+ * ServerHello alone -- copy our saved ClientHello bytes (tlsdriver_
  * client_hello) then msg (the just-received ServerHello) into one contiguous
  * buffer. The server side has no prior message of its own here (msg IS the
  * first message, the ClientHello), so transcript_ch_len is 0 and this is a

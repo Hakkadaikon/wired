@@ -64,7 +64,7 @@ To find code: one concern lives in exactly one `src/<dir>/` (MECE). The
 directory name is the domain; its public API is prefixed `quic_<domain>_`. The
 app-facing layers (server, srvloop, h3srv, udp, pem, fio, and friends) are the
 one exception: they carry the SDK brand prefix `wired_<domain>_` instead. So
-`grep -rn 'quic_stream_' src/transport/stream/` is the whole story for stream
+`grep -rn 'stream_' src/transport/stream/` is the whole story for stream
 framing, and a new behavior belongs in the layer whose responsibilities it
 matches.
 

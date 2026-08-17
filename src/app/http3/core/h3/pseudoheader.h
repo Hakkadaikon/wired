@@ -29,7 +29,7 @@ h3_ph_kind h3_ph_classify(const u8* name, usz len);
 
 /** Accumulates the pseudo-headers of one field section, in receipt order. */
 typedef struct {
-  u8 seen;        /* bitmask of QUIC_H3_PH_* kinds that appeared */
+  u8 seen;        /* bitmask of H3_PH_* kinds that appeared */
   u8 saw_regular; /* a regular field has been seen */
   u8 ok;          /* 0 once any ordering/duplicate/unknown rule is broken */
 } h3_ph_set;
