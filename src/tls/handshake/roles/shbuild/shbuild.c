@@ -21,12 +21,12 @@ typedef struct {
  * cipher_suite(2) legacy_compression_method(1). Returns the offset past it. */
 static usz shb_prefix(u8* out, usz off, const shb_in* in) {
   usz sid_len = in->session_id.n;
-  quic_put_be16(out + off, 0x0303);
+  be_put_be16(out + off, 0x0303);
   for (usz i = 0; i < 32; i++) out[off + 2 + i] = in->random[i];
   out[off + 34] = (u8)sid_len;
   for (usz i = 0; i < sid_len; i++) out[off + 35 + i] = in->session_id.p[i];
   off += 35 + sid_len;
-  quic_put_be16(out + off, in->cipher_suite);
+  be_put_be16(out + off, in->cipher_suite);
   out[off + 2] = 0; /* compression */
   return off + 3;
 }
@@ -36,9 +36,9 @@ static usz shb_prefix(u8* out, usz off, const shb_in* in) {
 static int shb_versions(u8* buf, usz cap, usz* off) {
   u8         ext[6];
   wired_obuf out = {buf, cap, *off};
-  quic_put_be16(ext, QUIC_EXT_SUPPORTED_VERSIONS);
-  quic_put_be16(ext + 2, 2);
-  quic_put_be16(ext + 4, QUIC_TLS13_VERSION);
+  be_put_be16(ext, QUIC_EXT_SUPPORTED_VERSIONS);
+  be_put_be16(ext + 2, 2);
+  be_put_be16(ext + 4, QUIC_TLS13_VERSION);
   if (!quic_tls_ext_append(&out, wired_span_of(ext, 6))) return 0;
   *off = out.len;
   return 1;
@@ -51,10 +51,10 @@ static int shb_key_share(
     u8* buf, usz cap, usz* off, const u8* pub, u16 group, usz pub_len) {
   u8         ext[73];
   wired_obuf out = {buf, cap, *off};
-  quic_put_be16(ext, QUIC_EXT_KEY_SHARE);
-  quic_put_be16(ext + 2, (u16)(4 + pub_len));
-  quic_put_be16(ext + 4, group);
-  quic_put_be16(ext + 6, (u16)pub_len);
+  be_put_be16(ext, QUIC_EXT_KEY_SHARE);
+  be_put_be16(ext + 2, (u16)(4 + pub_len));
+  be_put_be16(ext + 4, group);
+  be_put_be16(ext + 6, (u16)pub_len);
   for (usz i = 0; i < pub_len; i++) ext[8 + i] = pub[i];
   if (!quic_tls_ext_append(&out, wired_span_of(ext, 8 + pub_len))) return 0;
   *off = out.len;
@@ -69,9 +69,9 @@ static int shb_key_share(
 static int shb_psk(u8* buf, usz cap, usz* off) {
   u8         ext[6];
   wired_obuf out = {buf, cap, *off};
-  quic_put_be16(ext, QUIC_EXT_PRE_SHARED_KEY);
-  quic_put_be16(ext + 2, 2);
-  quic_put_be16(ext + 4, 0);
+  be_put_be16(ext, QUIC_EXT_PRE_SHARED_KEY);
+  be_put_be16(ext + 2, 2);
+  be_put_be16(ext + 4, 0);
   if (!quic_tls_ext_append(&out, wired_span_of(ext, 6))) return 0;
   *off = out.len;
   return 1;

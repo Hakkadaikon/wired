@@ -15,7 +15,7 @@
 /** RFC 9000 12 / RFC 9001 4: a connection's keyset, phase/packet-number-space
  * machine, link, connection ID and role, plus its receive scratch buffer. */
 typedef struct {
-  quic_keyset   keys;
+  keyset        keys;
   quic_conn     conn;
   quic_memlink* link;
   u8            dcid[8];

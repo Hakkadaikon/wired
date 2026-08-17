@@ -17,17 +17,17 @@ static wired_span ilabel_build(u8* buf, u32 version, const char* suffix) {
   if (!quic_version_label_prefix(version, &prefix, &prefix_len)) {
     quic_version_label_prefix(QUIC_VERSION_1, &prefix, &prefix_len);
   }
-  quic_memcpy(buf, prefix, prefix_len);
+  bytes_memcpy(buf, prefix, prefix_len);
   n += prefix_len;
-  quic_memcpy(buf + n, suffix, wired_cstr_len(suffix));
+  bytes_memcpy(buf + n, suffix, wired_cstr_len(suffix));
   n += wired_cstr_len(suffix);
   return wired_span_of(buf, n);
 }
 
 /* Expand-Label one field from the per-side secret into out. */
 static void derive_field(const u8* secret, wired_span label, wired_mspan out) {
-  quic_hkdf_label l = {(const char*)label.p, label.n, {0, 0}};
-  quic_hkdf_expand_label(secret, &l, out);
+  hkdf_label l = {(const char*)label.p, label.n, {0, 0}};
+  hkdf_expand_label(secret, &l, out);
 }
 
 /* From the per-side initial secret, fill key/iv/hp (RFC 9001 5.1 / RFC 9369
@@ -64,7 +64,7 @@ static wired_span initial_salt(u32 version) {
 static wired_span side_label(u8* buf, int is_server) {
   const char* suffix = is_server ? "server in" : "client in";
   usz         n      = wired_cstr_len(suffix);
-  quic_memcpy(buf, suffix, n);
+  bytes_memcpy(buf, suffix, n);
   return wired_span_of(buf, n);
 }
 
@@ -73,7 +73,7 @@ void quic_initial_derive(
   u8 initial_secret[QUIC_HKDF_PRK];
   u8 side_secret[QUIC_HKDF_PRK];
   u8 buf[SUFFIX_MAX];
-  quic_hkdf_extract(initial_salt(version), dcid, initial_secret);
+  hkdf_extract(initial_salt(version), dcid, initial_secret);
   derive_field(
       initial_secret, side_label(buf, is_server),
       wired_mspan_of(side_secret, QUIC_HKDF_PRK));

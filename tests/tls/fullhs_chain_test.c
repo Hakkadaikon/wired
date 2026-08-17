@@ -66,14 +66,14 @@ static void fc_new_client(
   quic_tlsdriver_init(cl, cl_priv, cl_pub, 0);
   quic_tlsdriver_init(sv, sv_priv, sv_pub, 1);
   {
-    wired_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    wired_obuf ob = obuf_of(frame, sizeof(frame));
     CHECK(quic_tlsdriver_client_hello(cl, &ob) == 1);
     fl = ob.len;
   }
   CHECK(quic_tlsdriver_recv_crypto(sv, frame, fl) == 1);
   *shn = fc_build_sh(sh, 512, sv_pub);
   {
-    wired_obuf                 ob  = quic_obuf_of(frame, sizeof(frame));
+    wired_obuf                 ob  = obuf_of(frame, sizeof(frame));
     quic_crypto_stream_emit_in ein = {0, 256};
     CHECK(quic_crypto_stream_emit(wired_span_of(sh, *shn), &ein, &ob) == 1);
     fl = ob.len;
@@ -88,9 +88,9 @@ static void fc_new_client(
  * real ClientHello/ServerHello exchange produced. */
 static usz fc_build_cert_msg(const u8 seed[32], u8* out, usz cap) {
   u8         der[512];
-  wired_obuf dob = quic_obuf_of(der, sizeof(der));
-  wired_obuf mob = quic_obuf_of(out, cap);
-  CHECK(quic_selfcert_build(seed, &dob) == 1);
+  wired_obuf dob = obuf_of(der, sizeof(der));
+  wired_obuf mob = obuf_of(out, cap);
+  CHECK(selfcert_build(seed, &dob) == 1);
   CHECK(quic_sflight_certificate(wired_span_of(der, dob.len), &mob) == 1);
   return mob.len;
 }
@@ -140,7 +140,7 @@ static void test_fullhs_chain_stale_buffer(void) {
   CHECK(quic_fullhs_recv_cert(&cl, buf, buf_len) == 1);
   for (usz i = 0; i < buf_len; i++) buf[i] = 0xaa; /* buffer dies */
   {
-    wired_obuf cvob = quic_obuf_of(cv, sizeof(cv));
+    wired_obuf cvob = obuf_of(cv, sizeof(cv));
     wired_sha256(cl.tr, cl.tr_len, th);
     CHECK(quic_sflight_certificate_verify(cert_seed, th, &cvob) == 1);
     cv_len = cvob.len;
@@ -173,16 +173,16 @@ static void test_fullhs_chain_retained(void) {
 /* With the right root in the store, [leaf, int] is accepted (the
  * public-web shape: the root itself is not on the wire). */
 static void test_fullhs_castore_ok(void) {
-  quic_tlsdriver     cltls, svtls;
-  quic_fullhs        cl;
-  quic_castore       store;
-  quic_castore_entry roots[2];
-  u8                 sh[512], msg[1024];
-  usz                shn, n;
+  quic_tlsdriver cltls, svtls;
+  quic_fullhs    cl;
+  castore        store;
+  castore_entry  roots[2];
+  u8             sh[512], msg[1024];
+  usz            shn, n;
   fc_new_client(&cltls, &svtls, &cl, sh, &shn);
-  quic_castore_init(&store, roots, 2);
+  castore_init(&store, roots, 2);
   CHECK(
-      quic_castore_add(
+      castore_add(
           &store,
           wired_span_of(
               quic_realchain_root_der, sizeof(quic_realchain_root_der))) == 1);
@@ -195,18 +195,18 @@ static void test_fullhs_castore_ok(void) {
  * auth gate stays shut for a validly signed CV and a correctly signed
  * Finished. */
 static void test_fullhs_castore_wrong_root(void) {
-  quic_tlsdriver     cltls, svtls;
-  quic_fullhs        cl, sv;
-  quic_castore       store;
-  quic_castore_entry roots[2];
-  u8                 sh[512], cert_seed[32], cert_msg[768];
-  u8                 th[QUIC_SHA256_DIGEST], cv[256], svfin[64];
-  usz                shn, cert_msg_len, cv_len, n;
+  quic_tlsdriver cltls, svtls;
+  quic_fullhs    cl, sv;
+  castore        store;
+  castore_entry  roots[2];
+  u8             sh[512], cert_seed[32], cert_msg[768];
+  u8             th[QUIC_SHA256_DIGEST], cv[256], svfin[64];
+  usz            shn, cert_msg_len, cv_len, n;
   fc_new_client(&cltls, &svtls, &cl, sh, &shn);
   CHECK(quic_fullhs_init(&sv, &svtls, wired_span_of(sh, shn)) == 1);
-  quic_castore_init(&store, roots, 2);
+  castore_init(&store, roots, 2);
   CHECK(
-      quic_castore_add(
+      castore_add(
           &store,
           wired_span_of(
               quic_realchain_root_der, sizeof(quic_realchain_root_der))) == 1);
@@ -217,7 +217,7 @@ static void test_fullhs_castore_wrong_root(void) {
 
   CHECK(quic_fullhs_recv_cert(&sv, cert_msg, cert_msg_len) == 1);
   {
-    wired_obuf cvob = quic_obuf_of(cv, sizeof(cv));
+    wired_obuf cvob = obuf_of(cv, sizeof(cv));
     wired_sha256(sv.tr, sv.tr_len, th);
     CHECK(quic_sflight_certificate_verify(cert_seed, th, &cvob) == 1);
     cv_len = cvob.len;
@@ -226,7 +226,7 @@ static void test_fullhs_castore_wrong_root(void) {
       quic_fullhs_recv_certverify(
           &sv, wired_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
   {
-    wired_obuf ob = quic_obuf_of(svfin, sizeof(svfin));
+    wired_obuf ob = obuf_of(svfin, sizeof(svfin));
     CHECK(quic_fullhs_send_finished(&sv, &ob) == 1);
     n = ob.len;
   }
@@ -241,19 +241,19 @@ static void test_fullhs_castore_wrong_root(void) {
 
 /* A wire chain in the wrong order ([int, leaf]) breaks the links. */
 static void test_fullhs_castore_swapped(void) {
-  quic_tlsdriver     cltls, svtls;
-  quic_fullhs        cl;
-  quic_castore       store;
-  quic_castore_entry roots[2];
-  const u8* certs[2] = {quic_realchain_int_der, quic_realchain_leaf_der};
-  usz       lens[2]  = {
+  quic_tlsdriver cltls, svtls;
+  quic_fullhs    cl;
+  castore        store;
+  castore_entry  roots[2];
+  const u8*      certs[2] = {quic_realchain_int_der, quic_realchain_leaf_der};
+  usz            lens[2]  = {
       sizeof(quic_realchain_int_der), sizeof(quic_realchain_leaf_der)};
   u8  sh[512], msg[1024];
   usz shn, n;
   fc_new_client(&cltls, &svtls, &cl, sh, &shn);
-  quic_castore_init(&store, roots, 2);
+  castore_init(&store, roots, 2);
   CHECK(
-      quic_castore_add(
+      castore_add(
           &store,
           wired_span_of(
               quic_realchain_root_der, sizeof(quic_realchain_root_der))) == 1);

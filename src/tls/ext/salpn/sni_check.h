@@ -19,7 +19,7 @@ typedef enum {
 
 /* Extract the server_name (RFC 6066 3) from ch_msg, if any, and check it
  * against tbs (the server's own certificate tbsCertificate, RFC 6125 6) via
- * quic_x509_san_matches. RFC 6066 3 leaves the ABSENT and MISMATCH outcomes
+ * x509_san_matches. RFC 6066 3 leaves the ABSENT and MISMATCH outcomes
  * to server policy (SHOULD NOT establish / MAY ignore): this function only
  * classifies, callers such as quic_sdrv_recv_client_hello decide whether a
  * MISMATCH degrades to unrecognized_name (QUIC_TLS_ALERT_UNRECOGNIZED_NAME)

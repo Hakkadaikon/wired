@@ -60,7 +60,7 @@ static u32 schedule_word256(u32 prev, usz i) {
   return prev;
 }
 
-void quic_aes128_init(quic_aes128* a, const u8 key[QUIC_AES_BLOCK]) {
+void aes128_init(aes128* a, const u8 key[QUIC_AES_BLOCK]) {
   for (usz i = 0; i < 4; i++)
     a->rk[i] = ((u32)key[4 * i] << 24) | ((u32)key[4 * i + 1] << 16) |
                ((u32)key[4 * i + 2] << 8) | key[4 * i + 3];
@@ -122,8 +122,8 @@ static void round_last(u8 s[16], const u32* rk) {
   add_round_key(s, rk);
 }
 
-void quic_aes128_encrypt(
-    const quic_aes128* a, const u8 in[QUIC_AES_BLOCK], u8 out[QUIC_AES_BLOCK]) {
+void aes128_encrypt(
+    const aes128* a, const u8 in[QUIC_AES_BLOCK], u8 out[QUIC_AES_BLOCK]) {
   u8 s[16];
   copy16(s, in);
   add_round_key(s, a->rk);
@@ -132,7 +132,7 @@ void quic_aes128_encrypt(
   copy16(out, s);
 }
 
-void quic_aes256_init(quic_aes256* a, const u8 key[QUIC_AES256_KEY]) {
+void aes256_init(aes256* a, const u8 key[QUIC_AES256_KEY]) {
   for (usz i = 0; i < 8; i++)
     a->rk[i] = ((u32)key[4 * i] << 24) | ((u32)key[4 * i + 1] << 16) |
                ((u32)key[4 * i + 2] << 8) | key[4 * i + 3];
@@ -140,8 +140,8 @@ void quic_aes256_init(quic_aes256* a, const u8 key[QUIC_AES256_KEY]) {
     a->rk[i] = a->rk[i - 8] ^ schedule_word256(a->rk[i - 1], i);
 }
 
-void quic_aes256_encrypt(
-    const quic_aes256* a, const u8 in[QUIC_AES_BLOCK], u8 out[QUIC_AES_BLOCK]) {
+void aes256_encrypt(
+    const aes256* a, const u8 in[QUIC_AES_BLOCK], u8 out[QUIC_AES_BLOCK]) {
   u8 s[16];
   copy16(s, in);
   add_round_key(s, a->rk);

@@ -8,9 +8,9 @@
 int quic_initpkt_open_ver(
     wired_span dcid, u32 version, wired_mspan pkt, wired_span* crypto) {
   quic_initial_keys ck, sk;
-  quic_aes128       hp;
+  aes128            hp;
   quic_initpkt_derive_ver(dcid, version, &ck, &sk);
-  quic_aes128_init(&hp, ck.hp);
+  aes128_init(&hp, ck.hp);
   (void)sk;
   quic_protect_keys k = {&ck, &hp};
   quic_rx_desc      d = {pkt, 1};

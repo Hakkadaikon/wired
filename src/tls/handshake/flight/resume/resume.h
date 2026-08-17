@@ -79,7 +79,7 @@ int quic_resume_tp_compatible(u64 remembered_max_data, u64 new_max_data);
  * with the one the session was established under -- an empty new_sni (the
  * extension omitted this time) is always compatible, otherwise it must equal
  * the remembered server_name exactly (RFC 6125 6.4.1 ASCII case-insensitive
- * comparison, matching quic_x509_san_matches's DNS-ID rule). A stored
+ * comparison, matching x509_san_matches's DNS-ID rule). A stored
  * session with no remembered server_name (r->sni_len 0) is compatible with
  * any new_sni. Returns 1 compatible, 0 otherwise. */
 int quic_resume_sni_compatible(const quic_resume* r, wired_span new_sni);

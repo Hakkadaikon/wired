@@ -17,14 +17,14 @@
 static void set_p256_identity(quic_tlsdriver* d, const u8 priv[32]) {
   quic_tlsdriver_set_group(d, QUIC_GROUP_SECP256R1);
   for (usz i = 0; i < 32; i++) d->my_priv[i] = priv[i];
-  CHECK(quic_p256_pubkey_encode(d->my_pub, priv) == 1);
+  CHECK(p256_pubkey_encode(d->my_pub, priv) == 1);
 }
 
 /* Build a minimal ServerHello (RFC 8446 4.1.3) carrying supported_versions
  * and a single secp256r1 key_share for pub (65-byte SEC1 uncompressed). */
 static usz build_sh_p256(u8* out, usz cap, const u8 pub[QUIC_P256_PUBKEY_LEN]) {
   u8                    random[32];
-  wired_obuf            ob = quic_obuf_of(out, cap);
+  wired_obuf            ob = obuf_of(out, cap);
   quic_shbuild_group_in in = {
       random,
       wired_span_of((const u8*)0, 0),
@@ -40,7 +40,7 @@ static usz build_sh_p256(u8* out, usz cap, const u8 pub[QUIC_P256_PUBKEY_LEN]) {
 
 /* Wrap a whole TLS message in one CRYPTO frame at offset 0. */
 static usz wrap_crypto_p256(u8* out, usz cap, const u8* msg, usz n) {
-  wired_obuf                 ob  = quic_obuf_of(out, cap);
+  wired_obuf                 ob  = obuf_of(out, cap);
   quic_crypto_stream_emit_in ein = {0, 256};
   CHECK(quic_crypto_stream_emit(wired_span_of(msg, n), &ein, &ob) == 1);
   return ob.len;
@@ -60,8 +60,8 @@ static void test_tlsdriver_p256_ecdhe_agree(void) {
   quic_tlsdriver cl, sv;
   const u8 *     cs, *ss;
 
-  CHECK(quic_p256_keygen(cl_priv) == 1);
-  CHECK(quic_p256_keygen(sv_priv) == 1);
+  CHECK(p256_keygen(cl_priv) == 1);
+  CHECK(p256_keygen(sv_priv) == 1);
 
   /* quic_tlsdriver_init's my_priv/my_pub arguments are a placeholder 32-byte
    * x25519-shaped pair here -- never used, since set_p256_identity below
@@ -78,7 +78,7 @@ static void test_tlsdriver_p256_ecdhe_agree(void) {
   /* client -> server: real ClientHello (secp256r1 key_share) in a CRYPTO
    * frame */
   {
-    wired_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    wired_obuf ob = obuf_of(frame, sizeof(frame));
     CHECK(quic_tlsdriver_client_hello(&cl, &ob) == 1);
     fl = ob.len;
   }

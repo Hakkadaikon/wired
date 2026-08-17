@@ -34,7 +34,7 @@ static int srvboot_is_initial_sized(const u8* dg, usz len) {
 
 int wired_srvboot_is_initial(const u8* dg, usz len) {
   if (!srvboot_is_initial_sized(dg, len)) return 0;
-  if (!srvboot_is_long_initial(dg[0], quic_get_be32(dg + 1))) return 0;
+  if (!srvboot_is_long_initial(dg[0], be_get_be32(dg + 1))) return 0;
   return len >= (usz)6 + dg[5];
 }
 
@@ -140,7 +140,7 @@ static int srvboot_seal_next(
     usz*                  off,
     wired_srvboot_out*    out) {
   usz        n    = srvboot_chunk_len(flight.n - *off);
-  wired_obuf tail = quic_obuf_of(
+  wired_obuf tail = obuf_of(
       out->flight->p + out->flight->len, out->flight->cap - out->flight->len);
   wired_srvloop_send_in in = {
       sv->cli_scid, out->dgram_count, -1, wired_span_of(flight.p + *off, n),
@@ -206,8 +206,8 @@ static int srvboot_build_flight_bytes(
     u8*                       sh,
     u8*                       flight,
     srvboot_flight_bytes*     fb) {
-  wired_obuf           sh_ob = quic_obuf_of(sh, SRVBOOT_SH_MAX);
-  wired_obuf           fl_ob = quic_obuf_of(flight, SRVBOOT_HS_FLIGHT_MAX);
+  wired_obuf           sh_ob = obuf_of(sh, SRVBOOT_SH_MAX);
+  wired_obuf           fl_ob = obuf_of(flight, SRVBOOT_HS_FLIGHT_MAX);
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
   if (!quic_version_compatible(version, version)) return 0;
   if (!wired_server_build_flight(conn->s, id->random, &fo)) return 0;
@@ -304,7 +304,7 @@ static int srvboot_acc_take(wired_srvboot_acc* a, wired_mspan pkt) {
   if (!srvboot_is_long_initial(pkt.p[0], a->hdr.version)) return 0;
   if (!quic_initpkt_open_ver(odcid, a->hdr.version, pkt, &payload)) return 0;
   quic_crecv_collect(&a->cr, payload.p, payload.n);
-  a->largest_pn = quic_u64_max(a->largest_pn, srvboot_initial_pn(pkt));
+  a->largest_pn = u64_max(a->largest_pn, srvboot_initial_pn(pkt));
   a->opened++;
   return 1;
 }
@@ -331,7 +331,7 @@ static int srvboot_acc_ackable(const wired_srvboot_acc* a) {
 
 usz wired_srvboot_partial_ack(
     wired_srvboot_acc* a, wired_span scid, u8* out, usz cap) {
-  wired_obuf           ob = quic_obuf_of(out, cap);
+  wired_obuf           ob = obuf_of(out, cap);
   quic_srvwire_seal_in wi = {
       wired_span_of(a->hdr.dcid, a->hdr.dcid_len),
       wired_span_of(a->hdr.scid, a->hdr.scid_len),
@@ -348,7 +348,7 @@ usz wired_srvboot_partial_ack(
 
 int wired_srvboot_is_zerortt(const u8* dg, usz len) {
   if (!srvboot_is_initial_sized(dg, len)) return 0;
-  return quic_packet_long_type(dg[0], quic_get_be32(dg + 1)) == QUIC_PT_0RTT;
+  return quic_packet_long_type(dg[0], be_get_be32(dg + 1)) == QUIC_PT_0RTT;
 }
 
 /* 1 if a has room for one more buffered 0-RTT datagram of dg's size --
@@ -446,7 +446,7 @@ usz wired_srvboot_refusal(
   u8                    fr[8];
   quic_conn_close_frame f  = {0, srvboot_refusal_error(error_code), 0, 0, 0};
   usz                   fn = quic_frame_put_conn_close(fr, sizeof fr, &f);
-  wired_obuf            ob = quic_obuf_of(out, cap);
+  wired_obuf            ob = obuf_of(out, cap);
   quic_srvwire_seal_in  wi = {
       wired_span_of(a->hdr.dcid, a->hdr.dcid_len),
       wired_span_of(a->hdr.scid, a->hdr.scid_len),
@@ -487,7 +487,7 @@ static int srvboot_vn_alien(u32 v) {
 
 /* 1 if dg is a long-header datagram of an unsupported version. */
 static int srvboot_vn_owed(wired_span dg) {
-  return srvboot_vn_sized(dg) && srvboot_vn_alien(quic_get_be32(dg.p + 1));
+  return srvboot_vn_sized(dg) && srvboot_vn_alien(be_get_be32(dg.p + 1));
 }
 
 usz wired_srvboot_vneg(wired_span dg, u8* out, usz cap) {

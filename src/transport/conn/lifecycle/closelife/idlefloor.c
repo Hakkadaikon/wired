@@ -4,7 +4,7 @@
 
 /* RFC 9000 10.1: effective idle timeout is at least 3*PTO. */
 u64 quic_idle_floor(u64 idle_timeout, u64 pto) {
-  return quic_u64_max(idle_timeout, 3 * pto);
+  return u64_max(idle_timeout, 3 * pto);
 }
 
 /* RFC 9000 10.1: close once the effective idle period has elapsed. */

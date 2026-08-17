@@ -5,19 +5,17 @@
 #include "test.h"
 
 /* G lies on the curve. */
-static void test_p256_g_on_curve(void) {
-  CHECK(quic_ec_on_curve(&quic_p256_g));
-}
+static void test_p256_g_on_curve(void) { CHECK(ec_on_curve(&p256_g)); }
 
 /* 2G via double equals G + G via add, and is on the curve. */
 static void test_p256_double_eq_add(void) {
   ec_point d, s;
-  quic_ec_double(&d, &quic_p256_g);
-  quic_ec_add(&s, &quic_p256_g, &quic_p256_g);
+  ec_double(&d, &p256_g);
+  ec_add(&s, &p256_g, &p256_g);
   CHECK(!d.inf && !s.inf);
-  CHECK(quic_fp_eq(d.x, s.x));
-  CHECK(quic_fp_eq(d.y, s.y));
-  CHECK(quic_ec_on_curve(&d));
+  CHECK(p256_fp_eq(d.x, s.x));
+  CHECK(p256_fp_eq(d.y, s.y));
+  CHECK(ec_on_curve(&d));
 }
 
 /* (n)*G is the point at infinity; also 1*G == G. */
@@ -26,21 +24,21 @@ static void test_p256_scalar(void) {
   u8       k1[32] = {0};
   k1[31]          = 1;
   u8 nbytes[32];
-  quic_fp_to_be(nbytes, quic_p256_n);
-  quic_ec_mul(&one_g, k1, &quic_p256_g);
-  CHECK(!one_g.inf && quic_fp_eq(one_g.x, quic_p256_g.x));
-  quic_ec_mul(&kg, nbytes, &quic_p256_g);
+  p256_fp_to_be(nbytes, p256_n);
+  ec_mul(&one_g, k1, &p256_g);
+  CHECK(!one_g.inf && p256_fp_eq(one_g.x, p256_g.x));
+  ec_mul(&kg, nbytes, &p256_g);
   CHECK(kg.inf);
 }
 
-/* quic_ec_mul is a point on the curve for boundary and random scalars: the
+/* ec_mul is a point on the curve for boundary and random scalars: the
  * Montgomery-ladder constant-time implementation (RFC 6090-style two-
  * accumulator ladder, see p256_point.c) must still produce a valid curve
  * point (or infinity, only for k==0). */
 static void mul_on_curve(const u8 k[32]) {
   ec_point p;
-  quic_ec_mul(&p, k, &quic_p256_g);
-  CHECK(p.inf || quic_ec_on_curve(&p));
+  ec_mul(&p, k, &p256_g);
+  CHECK(p.inf || ec_on_curve(&p));
 }
 
 static void test_p256_mul_ct_boundary(void) {
@@ -48,9 +46,9 @@ static void test_p256_mul_ct_boundary(void) {
   p256_fe  one = {1, 0, 0, 0}, nm1v;
   ec_point zero_g;
   k1[31] = 1;
-  quic_fp_sub(nm1v, (quic_fpab){quic_p256_n, one}, quic_p256_n);
-  quic_fp_to_be(nm1, nm1v);
-  quic_ec_mul(&zero_g, k0, &quic_p256_g);
+  p256_fp_sub(nm1v, (fpab){p256_n, one}, p256_n);
+  p256_fp_to_be(nm1, nm1v);
+  ec_mul(&zero_g, k0, &p256_g);
   CHECK(zero_g.inf); /* 0*G is the point at infinity */
   mul_on_curve(k1);
   mul_on_curve(nm1);
@@ -80,7 +78,7 @@ static void test_p256_mul_ct_random(void) {
 }
 
 /* RFC 6979 Appendix A.2.5 "sample": k*G .x mod n must equal the known r.
- * k itself is derived via the already-vector-checked quic_p256sign_k
+ * k itself is derived via the already-vector-checked p256sign_k
  * (see p256sign_test.c test_p256sign_known_vector) rather than pasting an
  * external k hex, so no unverified constant enters this test. */
 static void p256pt_hb32(const char* hex, u8 out[32]) {
@@ -102,33 +100,33 @@ static void test_p256_mul_ct_rfc6979_vector(void) {
   p256pt_hb32(priv_hex, priv);
   p256pt_hb32(wr_hex, wr);
   wired_sha256((const u8*)"sample", 6, hash);
-  quic_p256sign_k(priv, hash, kb);
-  quic_ec_mul(&rp, kb, &quic_p256_g);
-  quic_fp_reduce(r, rp.x, quic_p256_n);
-  quic_fp_to_be(rb, r);
+  p256sign_k(priv, hash, kb);
+  ec_mul(&rp, kb, &p256_g);
+  p256_fp_reduce(r, rp.x, p256_n);
+  p256_fp_to_be(rb, r);
   for (usz i = 0; i < 32; i++) CHECK(rb[i] == wr[i]);
 }
 
 /* RFC 6090 group law: O + P == P and P + O == P for the point at infinity O
- * (the group identity), on both operand sides of quic_ec_add. */
+ * (the group identity), on both operand sides of ec_add. */
 static void test_p256_add_infinity_identity(void) {
   ec_point o = {{0}, {0}, 1}; /* the point at infinity */
   ec_point r1, r2;
-  quic_ec_add(&r1, &o, &quic_p256_g); /* O + G */
+  ec_add(&r1, &o, &p256_g); /* O + G */
   CHECK(!r1.inf);
-  CHECK(quic_fp_eq(r1.x, quic_p256_g.x));
-  CHECK(quic_fp_eq(r1.y, quic_p256_g.y));
-  quic_ec_add(&r2, &quic_p256_g, &o); /* G + O */
+  CHECK(p256_fp_eq(r1.x, p256_g.x));
+  CHECK(p256_fp_eq(r1.y, p256_g.y));
+  ec_add(&r2, &p256_g, &o); /* G + O */
   CHECK(!r2.inf);
-  CHECK(quic_fp_eq(r2.x, quic_p256_g.x));
-  CHECK(quic_fp_eq(r2.y, quic_p256_g.y));
+  CHECK(p256_fp_eq(r2.x, p256_g.x));
+  CHECK(p256_fp_eq(r2.y, p256_g.y));
 }
 
 /* O + O == O: both operands infinity stays infinity. */
 static void test_p256_add_infinity_both(void) {
   ec_point o = {{0}, {0}, 1};
   ec_point r;
-  quic_ec_add(&r, &o, &o);
+  ec_add(&r, &o, &o);
   CHECK(r.inf);
 }
 

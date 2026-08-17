@@ -8,7 +8,7 @@ static int vneg_put_cid(wired_obuf* out, wired_span cid) {
   if (out->len + 1 + cid.n > out->cap) return 0;
   out->p[out->len] = (u8)cid.n;
   out->len += 1;
-  return quic_put_bytes(
+  return bytes_put(
       wired_mspan_of(out->p, out->cap), &out->len, wired_span_of(cid.p, cid.n));
 }
 
@@ -21,17 +21,17 @@ static int vneg_fits(usz cap, const quic_vneg_desc* d) {
 /* Append the supported versions as 4 big-endian bytes each (room checked). */
 static void put_versions(wired_obuf* out, const quic_vneg_desc* d) {
   for (usz i = 0; i < d->count; i++) {
-    quic_put_be32(out->p + out->len, d->versions[i]);
+    be_put_be32(out->p + out->len, d->versions[i]);
     out->len += 4;
   }
 }
 
 usz quic_vneg_build(u8* buf, usz cap, const quic_vneg_desc* d) {
-  wired_obuf out = quic_obuf_of(buf, cap);
+  wired_obuf out = obuf_of(buf, cap);
   out.len        = 5;
   if (!vneg_fits(cap, d)) return 0;
   buf[0] = 0x80; /* RFC 8999 6: high bit set; remaining bits unused here */
-  quic_put_be32(buf + 1, 0);   /* Version field 0 marks Version Negotiation */
+  be_put_be32(buf + 1, 0);     /* Version field 0 marks Version Negotiation */
   vneg_put_cid(&out, d->dcid); /* room checked above */
   vneg_put_cid(&out, d->scid);
   put_versions(&out, d);
@@ -46,7 +46,7 @@ static int vneg_take_cid(wired_span buf, usz* off, wired_mspan* dst) {
   if (len > WIRED_MAX_CID_LEN) return 0;
   *off += 1;
   dst->n = len;
-  return quic_take_bytes(
+  return bytes_take(
       wired_span_of(buf.p, buf.n), off, wired_mspan_of(dst->p, len));
 }
 

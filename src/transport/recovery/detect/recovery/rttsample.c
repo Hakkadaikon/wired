@@ -4,7 +4,7 @@
 
 /* RFC 9002 5.1: min_rtt is the minimum observed latest_rtt. */
 u64 quic_rtt_min_update(u64 min_rtt, u64 latest_rtt) {
-  return quic_u64_min(min_rtt, latest_rtt);
+  return u64_min(min_rtt, latest_rtt);
 }
 
 /* RFC 9002 5.3: subtract ack_delay only if it keeps latest_rtt >= min_rtt. */

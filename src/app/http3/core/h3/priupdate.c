@@ -14,13 +14,12 @@ usz quic_h3_priupdate_put(u8* buf, usz cap, const quic_h3_priupdate* f) {
   u8  body[16];
   usz blen = 0, off = 0;
   int ok;
-  if (!quic_varint_put(wired_mspan_of(body, sizeof body), &blen, f->element_id))
+  if (!varint_put(wired_mspan_of(body, sizeof body), &blen, f->element_id))
     return 0;
-  ok = quic_varint_put(wired_mspan_of(buf, cap), &off, type) &
-       quic_varint_put(wired_mspan_of(buf, cap), &off, blen + f->value.n) &
-       quic_put_bytes(
-           wired_mspan_of(buf, cap), &off, wired_span_of(body, blen)) &
-       quic_put_bytes(wired_mspan_of(buf, cap), &off, f->value);
+  ok = varint_put(wired_mspan_of(buf, cap), &off, type) &
+       varint_put(wired_mspan_of(buf, cap), &off, blen + f->value.n) &
+       bytes_put(wired_mspan_of(buf, cap), &off, wired_span_of(body, blen)) &
+       bytes_put(wired_mspan_of(buf, cap), &off, f->value);
   return ok ? off : 0;
 }
 
@@ -33,8 +32,8 @@ static int priupdate_type(u64 type, quic_h3_priupdate* f) {
 
 /* The two leading varints, in order. */
 static int priupdate_take_hdr(wired_span buf, usz* off, u64* type, u64* len) {
-  if (!quic_varint_take(buf, off, type)) return 0;
-  return quic_varint_take(buf, off, len);
+  if (!varint_take(buf, off, type)) return 0;
+  return varint_take(buf, off, len);
 }
 
 /* Read type (either variant) and a length that fits; 0 otherwise. */
@@ -51,8 +50,7 @@ usz quic_h3_priupdate_get(wired_span buf, quic_h3_priupdate* f) {
   usz off = 0, body;
   if (!priupdate_hdr(buf, &off, f, &len)) return 0;
   body = off;
-  if (!quic_varint_take(
-          wired_span_of(buf.p, off + (usz)len), &off, &f->element_id))
+  if (!varint_take(wired_span_of(buf.p, off + (usz)len), &off, &f->element_id))
     return 0;
   f->value = wired_span_of(buf.p + off, body + (usz)len - off);
   return body + (usz)len;

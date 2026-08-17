@@ -28,7 +28,7 @@ static int ctrl_is_uni_stream_id(u64 stream_id) {
 static int ctrl_leading_type_is_control(const quic_stream_frame* sf) {
   u64 v;
   usz off = 0;
-  if (!quic_varint_take(wired_span_of(sf->data, (usz)sf->length), &off, &v))
+  if (!varint_take(wired_span_of(sf->data, (usz)sf->length), &off, &v))
     return 0;
   return quic_h3_stream_type_is_control(v);
 }
@@ -70,7 +70,7 @@ static void ctrl_land(wired_srvloop* l, const quic_stream_frame* sf) {
   usz skip = ctrl_skip_len(sf);
   usz off  = (usz)ctrl_abs_off(sf);
   if (off >= sizeof l->ctrl.buf) return;
-  quic_put_bytes(
+  bytes_put(
       wired_mspan_of(l->ctrl.buf, sizeof l->ctrl.buf), &off,
       wired_span_of(sf->data + skip, (usz)sf->length - skip));
   if (off > l->ctrl.len) l->ctrl.len = off;

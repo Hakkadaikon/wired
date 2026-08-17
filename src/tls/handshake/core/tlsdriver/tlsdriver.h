@@ -32,7 +32,7 @@ typedef struct {
   quic_crypto_rx rx;   /* CRYPTO frame reassembly */
   quic_hsdriver  hs;   /* handshake message order machine */
   quic_keysched  ks;   /* order-driven key schedule */
-  quic_keyset    keys; /* installed per-level key sets */
+  keyset         keys; /* installed per-level key sets */
   int            is_server;
   u8             my_priv[QUIC_ECDHE_LEN];
   u8             my_pub[QUIC_ECDHE_LEN];

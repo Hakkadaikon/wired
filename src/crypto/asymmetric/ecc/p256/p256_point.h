@@ -12,19 +12,19 @@ typedef struct {
   int     inf; /* 1 = point at infinity (identity) */
 } ec_point;
 
-extern const ec_point quic_p256_g; /* base point G */
+extern const ec_point p256_g; /* base point G */
 
-void quic_ec_set(ec_point* r, const ec_point* p);
+void ec_set(ec_point* r, const ec_point* p);
 
 /* 1 if p satisfies the curve equation (or is infinity), else 0. */
-int quic_ec_on_curve(const ec_point* p);
+int ec_on_curve(const ec_point* p);
 
 /* r = p + q, r = 2p (affine, all mod p). r may alias p or q. */
-void quic_ec_add(ec_point* r, const ec_point* p, const ec_point* q);
-void quic_ec_double(ec_point* r, const ec_point* p);
+void ec_add(ec_point* r, const ec_point* p, const ec_point* q);
+void ec_double(ec_point* r, const ec_point* p);
 
 /* r = k * p, k big-endian 32 bytes. Constant-time Montgomery ladder (see
  * p256_point.c): no branch keys off a scalar bit directly. */
-void quic_ec_mul(ec_point* r, const u8 k[32], const ec_point* p);
+void ec_mul(ec_point* r, const u8 k[32], const ec_point* p);
 
 #endif

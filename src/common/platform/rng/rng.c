@@ -5,7 +5,7 @@
  */
 static int rng_no_progress(i64 ret) { return ret <= 0; }
 
-int quic_rng_bytes(u8* buf, usz len) {
+int rng_bytes(u8* buf, usz len) {
   usz done = 0;
   while (done < len) {
     i64 ret = wired_arch_getrandom(buf + done, len - done, 0);

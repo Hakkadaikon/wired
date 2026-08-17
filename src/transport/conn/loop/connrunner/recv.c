@@ -21,7 +21,7 @@ static int dcid_matches(const quic_connrunner* r, wired_mspan pkt) {
   wired_span dcid;
   if (dcid_len < 0 || (u8)dcid_len != r->io.dcid_len) return 0;
   dcid = quic_dcidresolve_dcid(pkt, dcid_len);
-  return quic_ct_diffn(dcid.p, r->io.dcid, r->io.dcid_len) == 0;
+  return ct_diffn(dcid.p, r->io.dcid, r->io.dcid_len) == 0;
 }
 
 /* RFC 9001 6.3: for a 1-RTT short-header packet, drive the read-key generation

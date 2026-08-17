@@ -6,11 +6,11 @@ void quic_tls_finished_verify_data(
     const u8 base_key[QUIC_HKDF_PRK],
     const u8 transcript_hash[QUIC_SHA256_DIGEST],
     u8       out[QUIC_TLS_VERIFY_DATA]) {
-  u8              finished_key[QUIC_SHA256_DIGEST];
-  quic_hkdf_label l = {"finished", 8, {0, 0}};
-  quic_hkdf_expand_label(
+  u8         finished_key[QUIC_SHA256_DIGEST];
+  hkdf_label l = {"finished", 8, {0, 0}};
+  hkdf_expand_label(
       base_key, &l, wired_mspan_of(finished_key, QUIC_SHA256_DIGEST));
-  quic_hmac_sha256(
+  hmac_sha256(
       wired_span_of(finished_key, QUIC_SHA256_DIGEST),
       wired_span_of(transcript_hash, QUIC_SHA256_DIGEST), out);
 }

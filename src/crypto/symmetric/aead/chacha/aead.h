@@ -14,14 +14,14 @@ typedef struct {
   const u8*  key;   /* QUIC_CHACHA_KEY bytes */
   const u8*  nonce; /* QUIC_CHACHA_NONCE bytes */
   wired_span aad;
-} quic_chapoly_ctx;
+} chapoly_ctx;
 
 /* Seal: encrypt pt and append the 16-byte tag; out receives pt.n + 16 bytes
  * (ciphertext || tag). Returns the sealed length (pt.n + QUIC_CHAPOLY_TAG). */
-usz quic_chapoly_seal(const quic_chapoly_ctx* c, wired_span pt, u8* out);
+usz chapoly_seal(const chapoly_ctx* c, wired_span pt, u8* out);
 
 /* Open: ct spans ciphertext || 16-byte tag. Returns 1 on success, 0 on tag
  * mismatch (leaving pt untouched). */
-int quic_chapoly_open(const quic_chapoly_ctx* c, wired_span ct, u8* pt);
+int chapoly_open(const chapoly_ctx* c, wired_span ct, u8* pt);
 
 #endif

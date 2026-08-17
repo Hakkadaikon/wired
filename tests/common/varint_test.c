@@ -4,17 +4,16 @@
 static void test_varint_rfc_vectors(void) {
   u8  buf[8];
   u64 v;
-  CHECK(quic_varint_encode(buf, 37) == 1 && buf[0] == 0x25);
+  CHECK(varint_encode(buf, 37) == 1 && buf[0] == 0x25);
+  CHECK(varint_encode(buf, 15293) == 2 && buf[0] == 0x7B && buf[1] == 0xBD);
   CHECK(
-      quic_varint_encode(buf, 15293) == 2 && buf[0] == 0x7B && buf[1] == 0xBD);
-  CHECK(
-      quic_varint_decode(
-          (const u8*)"\xc2\x19\x7c\x5e\xff\x14\xe8\x8c", 8, &v) == 8 &&
+      varint_decode((const u8*)"\xc2\x19\x7c\x5e\xff\x14\xe8\x8c", 8, &v) ==
+          8 &&
       v == 151288809941952652ULL);
   CHECK(
-      quic_varint_decode((const u8*)"\x9d\x7f\x3e\x7d", 4, &v) == 4 &&
+      varint_decode((const u8*)"\x9d\x7f\x3e\x7d", 4, &v) == 4 &&
       v == 494878333);
-  CHECK(quic_varint_decode((const u8*)"\x40\x25", 2, &v) == 2 && v == 37);
+  CHECK(varint_decode((const u8*)"\x40\x25", 2, &v) == 2 && v == 37);
 }
 
 static void test_varint_roundtrip(void) {
@@ -23,19 +22,19 @@ static void test_varint_roundtrip(void) {
   for (usz i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
     u8  buf[8];
     u64 out;
-    usz w = quic_varint_encode(buf, cases[i]);
-    usz r = quic_varint_decode(buf, w, &out);
+    usz w = varint_encode(buf, cases[i]);
+    usz r = varint_decode(buf, w, &out);
     CHECK(w != 0 && r == w && out == cases[i]);
   }
   /* out of range */
   u8 buf[8];
-  CHECK(quic_varint_encode(buf, QUIC_VARINT_MAX + 1) == 0);
+  CHECK(varint_encode(buf, QUIC_VARINT_MAX + 1) == 0);
 }
 
 static void test_varint_truncated(void) {
   u64 v;
-  CHECK(quic_varint_decode((const u8*)"", 0, &v) == 0);
-  CHECK(quic_varint_decode((const u8*)"\xc0", 1, &v) == 0); /* needs 8, has 1 */
+  CHECK(varint_decode((const u8*)"", 0, &v) == 0);
+  CHECK(varint_decode((const u8*)"\xc0", 1, &v) == 0); /* needs 8, has 1 */
 }
 
 void test_varint(void) {

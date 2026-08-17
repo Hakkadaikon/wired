@@ -11,8 +11,8 @@ static wired_mspan capsule_out_tail(wired_obuf* out) {
 /* Total encoded size (type varint + length varint + value bytes), or 0 if
  * type/length is out of varint range. */
 static usz capsule_wire_size(u64 type, wired_span value) {
-  usz type_len = quic_varint_len(type);
-  usz len_len  = quic_varint_len(value.n);
+  usz type_len = varint_len(type);
+  usz len_len  = varint_len(value.n);
   if (type_len == 0 || len_len == 0) return 0;
   return type_len + len_len + value.n;
 }
@@ -28,8 +28,8 @@ static void capsule_write(
     wired_obuf* out, u64 type, wired_span value, usz total) {
   usz         off  = 0;
   wired_mspan tail = capsule_out_tail(out);
-  quic_varint_put(tail, &off, type);
-  quic_varint_put(tail, &off, value.n);
+  varint_put(tail, &off, type);
+  varint_put(tail, &off, value.n);
   for (usz i = 0; i < value.n; i++) tail.p[off + i] = value.p[i];
   out->len += total;
 }
@@ -48,8 +48,8 @@ int quic_capsule_encode(wired_obuf* out, u64 type, wired_span value) {
 static int capsule_header_read(
     wired_span data, usz at, u64* type, u64* len, usz* consumed) {
   usz off = at;
-  if (!quic_varint_take(data, &off, type)) return 0;
-  if (!quic_varint_take(data, &off, len)) return 0;
+  if (!varint_take(data, &off, type)) return 0;
+  if (!varint_take(data, &off, len)) return 0;
   *consumed = off - at;
   return 1;
 }

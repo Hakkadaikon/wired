@@ -16,9 +16,9 @@ static void p256sign_set(u8* dst, u8 val, usz n) {
 /* bits2octets(hash): reduce the 256-bit hash mod n into 32 big-endian bytes. */
 static void ps_hash_mod_n(const u8 hash[32], u8 out[32]) {
   p256_fe h, e;
-  quic_fp_from_be(h, hash);
-  quic_fp_reduce_n(e, h);
-  quic_fp_to_be(out, e);
+  p256_fp_from_be(h, hash);
+  p256_fp_reduce_n(e, h);
+  p256_fp_to_be(out, e);
 }
 
 /* msg = V || sep || priv || hred ; returns its length. */
@@ -37,15 +37,15 @@ static void ps_mix(
     u8 k[32], u8 v[32], u8 sep, const u8 priv[32], const u8 hred[32]) {
   u8  msg[97];
   usz n = ps_build_seed(msg, v, sep, priv, hred);
-  quic_hmac_sha256(wired_span_of(k, 32), wired_span_of(msg, n), k);
-  quic_hmac_sha256(wired_span_of(k, 32), wired_span_of(v, 32), v);
+  hmac_sha256(wired_span_of(k, 32), wired_span_of(msg, n), k);
+  hmac_sha256(wired_span_of(k, 32), wired_span_of(v, 32), v);
 }
 
 /* 1 if 1 <= cand < n (in range as a nonce). */
 static int ps_k_in_range(const u8 cand[32]) {
   p256_fe c;
-  quic_fp_from_be(c, cand);
-  return !quic_fp_is_zero(c) && quic_fp_lt(c, quic_p256_n);
+  p256_fp_from_be(c, cand);
+  return !p256_fp_is_zero(c) && p256_fp_lt(c, p256_n);
 }
 
 /* RFC 6979 step h.3: on reject, K = HMAC_K(V||0x00); V = HMAC_K(V). */
@@ -53,22 +53,22 @@ static void ps_advance(u8 k[32], u8 v[32]) {
   u8 msg[33];
   p256sign_copy(msg, v, 32);
   msg[32] = 0x00;
-  quic_hmac_sha256(wired_span_of(k, 32), wired_span_of(msg, 33), k);
-  quic_hmac_sha256(wired_span_of(k, 32), wired_span_of(v, 32), v);
+  hmac_sha256(wired_span_of(k, 32), wired_span_of(msg, 33), k);
+  hmac_sha256(wired_span_of(k, 32), wired_span_of(v, 32), v);
 }
 
 /* 1 if v is both in [1,n-1] and accepted by the caller's suitability check
  * (RFC 6979 Section 3.2 step h.3 / Section 3.4). */
-static int ps_accept(const u8 v[32], quic_p256sign_k_ok ok, void* ctx) {
+static int ps_accept(const u8 v[32], p256sign_k_ok ok, void* ctx) {
   if (!ps_k_in_range(v)) return 0;
   return ok(v, ctx);
 }
 
 /* RFC 6979 step h: T = HMAC(K, V); loop via ps_advance until ps_accept. */
 static void ps_gen_candidate(
-    u8 k[32], u8 v[32], u8 out[32], quic_p256sign_k_ok ok, void* ctx) {
+    u8 k[32], u8 v[32], u8 out[32], p256sign_k_ok ok, void* ctx) {
   for (;;) {
-    quic_hmac_sha256(wired_span_of(k, 32), wired_span_of(v, 32), v);
+    hmac_sha256(wired_span_of(k, 32), wired_span_of(v, 32), v);
     if (ps_accept(v, ok, ctx)) break;
     ps_advance(k, v);
   }
@@ -81,12 +81,12 @@ static int ps_always_ok(const u8 cand[32], void* ctx) {
   return 1;
 }
 
-void quic_p256sign_k_retry(
-    const u8           priv[32],
-    const u8           hash[32],
-    u8                 out[32],
-    quic_p256sign_k_ok ok,
-    void*              ctx) {
+void p256sign_k_retry(
+    const u8      priv[32],
+    const u8      hash[32],
+    u8            out[32],
+    p256sign_k_ok ok,
+    void*         ctx) {
   u8 k[32], v[32], hred[32];
   p256sign_set(k, 0x00, 32);
   p256sign_set(v, 0x01, 32);
@@ -96,6 +96,6 @@ void quic_p256sign_k_retry(
   ps_gen_candidate(k, v, out, ok, ctx);
 }
 
-void quic_p256sign_k(const u8 priv[32], const u8 hash[32], u8 out[32]) {
-  quic_p256sign_k_retry(priv, hash, out, ps_always_ok, 0);
+void p256sign_k(const u8 priv[32], const u8 hash[32], u8 out[32]) {
+  p256sign_k_retry(priv, hash, out, ps_always_ok, 0);
 }

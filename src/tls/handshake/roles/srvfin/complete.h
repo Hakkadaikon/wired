@@ -13,7 +13,7 @@
 /** Server handshake-completion state. */
 typedef struct {
   quic_keysched* sched;     /**< the key schedule to advance to Master */
-  quic_keyset*   keys;      /**< receives the server 1-RTT keys */
+  keyset*        keys;      /**< receives the server 1-RTT keys */
   int            confirmed; /**< 1 once the handshake is confirmed */
 } quic_srvfin_state;
 
@@ -22,7 +22,7 @@ typedef struct {
  * @param sched the key schedule to advance
  * @param keys the key set to install the 1-RTT keys into */
 void quic_srvfin_state_init(
-    quic_srvfin_state* s, quic_keysched* sched, quic_keyset* keys);
+    quic_srvfin_state* s, quic_keysched* sched, keyset* keys);
 
 /** Advance the key schedule to Master over the final transcript (the
  * handshake messages through the client Finished), install the server 1-RTT

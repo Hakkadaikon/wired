@@ -21,10 +21,10 @@ enum {
 typedef struct {
   u8 key_kind;  /* QUIC_X509_SIG_* */
   u8 hash_kind; /* QUIC_X509_HASH_* */
-} quic_x509_sigalg;
+} x509_sigalg;
 
 /* Look up a signatureAlgorithm OID (DER value bytes). Returns 1 and fills
  * *out for a listed algorithm, 0 for anything else (fail closed). */
-int quic_x509_sigalg_lookup(wired_span oid, quic_x509_sigalg* out);
+int x509_sigalg_lookup(wired_span oid, x509_sigalg* out);
 
 #endif

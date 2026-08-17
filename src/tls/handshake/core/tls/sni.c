@@ -8,8 +8,8 @@ usz quic_tls_sni_encode(wired_obuf* out, wired_span host) {
   usz off = 3;
   if (host.n > 0xFFFF || off + host.n > out->cap) return 0;
   out->p[0] = QUIC_SNI_HOST_NAME;
-  quic_put_be16(out->p + 1, (u16)host.n);
-  quic_put_bytes(
+  be_put_be16(out->p + 1, (u16)host.n);
+  bytes_put(
       wired_mspan_of(out->p, out->cap), &off,
       wired_span_of(host.p, host.n)); /* room checked above */
   out->len = off;

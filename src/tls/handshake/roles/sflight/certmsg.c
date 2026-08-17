@@ -18,10 +18,10 @@ static void put_be24(u8* p, u32 v) {
 static void put_entry(wired_obuf* out, wired_span cert) {
   put_be24(out->p + out->len, (u32)cert.n);
   out->len += 3;
-  quic_put_bytes(
+  bytes_put(
       wired_mspan_of(out->p, out->cap), &out->len,
-      wired_span_of(cert.p, cert.n));  /* room checked */
-  quic_put_be16(out->p + out->len, 0); /* empty extensions */
+      wired_span_of(cert.p, cert.n)); /* room checked */
+  be_put_be16(out->p + out->len, 0);  /* empty extensions */
   out->len += 2;
 }
 

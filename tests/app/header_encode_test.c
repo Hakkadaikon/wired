@@ -10,8 +10,7 @@ static void test_header_roundtrip(void) {
   int                 never = 1;
   u8                  nm[32], val[32];
   usz                 used;
-  quic_qpack_fieldbuf fb = {
-      quic_obuf_of(nm, sizeof nm), quic_obuf_of(val, sizeof val)};
+  quic_qpack_fieldbuf fb = {obuf_of(nm, sizeof nm), obuf_of(val, sizeof val)};
   CHECK(
       quic_h3req_enc_header(
           wired_span_of(name, 10), wired_span_of(value, 6), &ob) == 1);

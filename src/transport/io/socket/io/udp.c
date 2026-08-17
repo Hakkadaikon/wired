@@ -103,7 +103,7 @@ typedef struct {
 } quic_msghdr;
 
 void wired_udp_gso_cmsg_build(u8 out[WIRED_GSO_CMSG_SPACE], u16 segsize) {
-  quic_memset(out, 0, WIRED_GSO_CMSG_SPACE);
+  bytes_memset(out, 0, WIRED_GSO_CMSG_SPACE);
   /* cmsg_len (u64, offset 0) = CMSG_LEN(sizeof(u16)) = 16 + 2 = 18 */
   *(u64*)(out + 0) = 18;
   /* cmsg_level (i32, offset 8), cmsg_type (i32, offset 12) */

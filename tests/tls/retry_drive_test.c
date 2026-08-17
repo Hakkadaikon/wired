@@ -37,7 +37,7 @@ static void test_retry_process_ok(void) {
   usz      n = make_retry(pkt, sizeof(pkt), odcid, 8, scid, 5, token, 6);
 
   u8         out_token[64], new_dcid[WIRED_MAX_CID_LEN], new_dcil = 0;
-  wired_obuf tok_ob = quic_obuf_of(out_token, sizeof(out_token));
+  wired_obuf tok_ob = obuf_of(out_token, sizeof(out_token));
   CHECK(
       quic_retry_process(
           wired_span_of(pkt, n), wired_span_of(odcid, 8),

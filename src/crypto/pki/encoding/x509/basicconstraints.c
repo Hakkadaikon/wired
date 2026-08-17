@@ -17,21 +17,21 @@ static int bc_is_true_boolean(u8 tag, wired_span b) {
 
 /* RFC 5280 4.2.1.9. cA is the optional leading BOOLEAN of the SEQUENCE. */
 static int bc_ca_true(wired_span val) {
-  quic_derseq c;
-  u8          tag;
-  wired_span  bc, b;
-  if (!quic_der_seq(val, &bc)) return 0;
-  quic_derseq_init(&c, bc);
-  if (!quic_derseq_next(&c, &tag, &b)) return 0;
+  derseq     c;
+  u8         tag;
+  wired_span bc, b;
+  if (!der_seq(val, &bc)) return 0;
+  derseq_init(&c, bc);
+  if (!derseq_next(&c, &tag, &b)) return 0;
   return bc_is_true_boolean(tag, b);
 }
 
 /* The basicConstraints extnValue, if the extension is present. */
 static int bc_locate(wired_span tbs, wired_span* val) {
-  return quic_x509_find_ext(tbs, wired_span_of(oid_bc, sizeof(oid_bc)), val);
+  return x509_find_ext(tbs, wired_span_of(oid_bc, sizeof(oid_bc)), val);
 }
 
-int quic_x509_is_ca(wired_span tbs) {
+int x509_is_ca(wired_span tbs) {
   wired_span val;
   if (!bc_locate(tbs, &val)) return 0;
   return bc_ca_true(val);
@@ -40,13 +40,13 @@ int quic_x509_is_ca(wired_span tbs) {
 /* RFC 5280 4.2.1.9. The element after cA inside BasicConstraints, i.e. the
  * pathLenConstraint if present. Assumes cA is encoded (a CA cert must). */
 static int bc_pathlen_elem(wired_span val, u8* tag, wired_span* b) {
-  quic_derseq c;
-  u8          t;
-  wired_span  bc, x;
-  if (!quic_der_seq(val, &bc)) return 0;
-  quic_derseq_init(&c, bc);
-  if (!quic_derseq_next(&c, &t, &x)) return 0;
-  return quic_derseq_next(&c, tag, b);
+  derseq     c;
+  u8         t;
+  wired_span bc, x;
+  if (!der_seq(val, &bc)) return 0;
+  derseq_init(&c, bc);
+  if (!derseq_next(&c, &t, &x)) return 0;
+  return derseq_next(&c, tag, b);
 }
 
 /* X.690 8.3. Content octets form a well-formed non-negative INTEGER that
@@ -69,7 +69,7 @@ static int bc_pathlen_ok(u8 tag, wired_span b, usz depth) {
   return bc_uint(b) >= depth;
 }
 
-int quic_x509_pathlen_allows(wired_span tbs, usz depth) {
+int x509_pathlen_allows(wired_span tbs, usz depth) {
   wired_span val, b;
   u8         tag;
   if (!bc_locate(tbs, &val)) return 1;

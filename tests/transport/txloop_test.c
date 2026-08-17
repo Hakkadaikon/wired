@@ -6,7 +6,7 @@ static void test_tx_pack_two(void) {
   usz         lens[2] = {3, 2};
   u8          scratch[8];
   quic_pktsrc src = {pkts, lens, 2};
-  wired_obuf  out = quic_obuf_of(scratch, sizeof scratch);
+  wired_obuf  out = obuf_of(scratch, sizeof scratch);
   usz         len = quic_udploop_pack(&src, &out);
 
   CHECK(len == 5);
@@ -20,7 +20,7 @@ static void test_tx_pack_overflow(void) {
   usz         lens[2] = {3, 2};
   u8          scratch[4];
   quic_pktsrc src = {pkts, lens, 2};
-  wired_obuf  out = quic_obuf_of(scratch, sizeof scratch);
+  wired_obuf  out = obuf_of(scratch, sizeof scratch);
   CHECK(quic_udploop_pack(&src, &out) == 0);
 }
 
@@ -28,7 +28,7 @@ static void test_tx_pack_overflow(void) {
 static void test_tx_pack_none(void) {
   u8          scratch[4];
   quic_pktsrc src = {(const u8*)0, (const usz*)0, 0};
-  wired_obuf  out = quic_obuf_of(scratch, 4);
+  wired_obuf  out = obuf_of(scratch, 4);
   CHECK(quic_udploop_pack(&src, &out) == 0);
 }
 

@@ -5,8 +5,8 @@
 /* RFC 8446 4.2.9: type(2) + ext_data len(2) + list len(1) + 1 mode = 6. */
 int quic_tlsext_psk_modes(u8* out, usz cap, usz* out_len) {
   if (cap < 6) return 0;
-  quic_put_be16(out, QUIC_TLSEXT_T_PSK_MODES);
-  quic_put_be16(out + 2, 2);
+  be_put_be16(out, QUIC_TLSEXT_T_PSK_MODES);
+  be_put_be16(out + 2, 2);
   out[4]   = 1;
   out[5]   = QUIC_TLSEXT_PSK_DHE_KE;
   *out_len = 6;

@@ -13,7 +13,7 @@ void test_sflight_encext(void) {
   u8         type;
   const u8*  body;
   wired_span tpd;
-  wired_obuf ob = quic_obuf_of(out, sizeof(out));
+  wired_obuf ob = obuf_of(out, sizeof(out));
 
   CHECK(quic_sflight_encrypted_extensions(wired_span_of(tp, sizeof(tp)), &ob));
   /* handshake header: type 0x08 and a length that matches ob.len. */
@@ -30,6 +30,6 @@ void test_sflight_encext(void) {
   CHECK(tpd.p[0] == 0xaa && tpd.p[4] == 0xee);
 
   /* a tight cap (one byte short) must be refused. */
-  ob = quic_obuf_of(out, ob.len - 1);
+  ob = obuf_of(out, ob.len - 1);
   CHECK(!quic_sflight_encrypted_extensions(wired_span_of(tp, sizeof(tp)), &ob));
 }

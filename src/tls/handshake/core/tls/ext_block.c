@@ -12,7 +12,7 @@ int quic_tls_ext_block_begin(const u8* buf, usz cap, usz* off) {
 }
 
 int quic_tls_ext_append(wired_obuf* out, wired_span ext) {
-  return quic_put_bytes(
+  return bytes_put(
       wired_mspan_of(out->p, out->cap), &out->len, wired_span_of(ext.p, ext.n));
 }
 
@@ -20,6 +20,6 @@ int quic_tls_ext_append(wired_obuf* out, wired_span ext) {
 usz quic_tls_ext_block_finish(u8* buf, usz off, usz block_start) {
   usz body = off - block_start - 2;
   if (body > 0xFFFF) return 0;
-  quic_put_be16(buf + block_start, (u16)body);
+  be_put_be16(buf + block_start, (u16)body);
   return off;
 }

@@ -78,15 +78,15 @@ model or an operator hardening guide.
 - Every issuer (each intermediate parent and the trust-anchor root) must assert
   `basicConstraints cA = TRUE` (RFC 5280 6.1.4); a non-CA certificate cannot be
   used as an issuer to forge downstream certificates — `pathvalidate.c` via
-  `quic_x509_is_ca`. The leaf is not required to be a CA.
+  `x509_is_ca`. The leaf is not required to be a CA.
 - A certificate's inner `tbsCertificate.signatureAlgorithm` must equal its outer
   `signatureAlgorithm` OID (RFC 5280 4.1.1.2); a mismatch is rejected as
   malformed — `chainverify.c`.
 - The DER parser bounds every length (only `0x81`/`0x82` long forms, nested
   lengths range-checked) so malformed encodings cannot over-read or exhaust the
   stack — `der.c`, `derseq.c`, `derval.c`.
-- **Caller responsibility:** certificate validity-time (`quic_x509_validity_ok`)
-  and hostname/SAN matching (`quic_x509_san_matches`) are implemented but require
+- **Caller responsibility:** certificate validity-time (`x509_validity_ok`)
+  and hostname/SAN matching (`x509_san_matches`) are implemented but require
   the current time and the expected hostname from the application; the SDK does
   not call them itself.
 

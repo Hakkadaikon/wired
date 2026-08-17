@@ -11,7 +11,7 @@ static void test_get_field_section(void) {
   int        is_static = 0;
   usz        used;
   u8         val[32];
-  wired_obuf vb             = quic_obuf_of(val, sizeof val);
+  wired_obuf vb             = obuf_of(val, sizeof val);
   quic_qpack_nameref    nr  = {0, 0, 0};
   quic_h3req_headers_in hin = {
       wired_span_of(path, 1), wired_span_of(authority, 11)};

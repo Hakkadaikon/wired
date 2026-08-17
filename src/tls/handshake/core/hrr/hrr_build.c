@@ -17,10 +17,10 @@ const u8 quic_hrr_random[32] = {0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11,
 /* RFC 8446 4.1.3 prefix with empty session_id, suite AES_128_GCM_SHA256, and
  * the HRR random sentinel. Returns the offset past it. */
 static usz hrr_prefix(u8* out, usz off) {
-  quic_put_be16(out + off, 0x0303);
+  be_put_be16(out + off, 0x0303);
   for (usz i = 0; i < 32; i++) out[off + 2 + i] = quic_hrr_random[i];
   out[off + 34] = 0; /* empty session_id */
-  quic_put_be16(out + off + 35, QUIC_TLS_AES128_GCM_SHA256);
+  be_put_be16(out + off + 35, QUIC_TLS_AES128_GCM_SHA256);
   out[off + 37] = 0; /* compression */
   return off + 38;
 }
@@ -28,33 +28,33 @@ static usz hrr_prefix(u8* out, usz off) {
 /* RFC 8446 4.2.1 selected_version 0x0304. */
 static int hrr_versions(wired_obuf* out) {
   u8 ext[6];
-  quic_put_be16(ext, QUIC_EXT_SUPPORTED_VERSIONS);
-  quic_put_be16(ext + 2, 2);
-  quic_put_be16(ext + 4, QUIC_TLS13_VERSION);
+  be_put_be16(ext, QUIC_EXT_SUPPORTED_VERSIONS);
+  be_put_be16(ext + 2, 2);
+  be_put_be16(ext + 4, QUIC_TLS13_VERSION);
   return quic_tls_ext_append(out, wired_span_of(ext, 6));
 }
 
 /* RFC 8446 4.1.4 key_share carries the selected_group only (no key). */
 static int hrr_key_share(wired_obuf* out, u16 group) {
   u8 ext[6];
-  quic_put_be16(ext, QUIC_EXT_KEY_SHARE);
-  quic_put_be16(ext + 2, 2);
-  quic_put_be16(ext + 4, group);
+  be_put_be16(ext, QUIC_EXT_KEY_SHARE);
+  be_put_be16(ext + 2, 2);
+  be_put_be16(ext + 4, group);
   return quic_tls_ext_append(out, wired_span_of(ext, 6));
 }
 
 /* RFC 8446 4.2.2 cookie header: type(2) ext_len(2) cookie_len(2). */
 static int hrr_cookie_hdr(wired_obuf* out, usz cl) {
   u8 hdr[6];
-  quic_put_be16(hdr, QUIC_EXT_COOKIE);
-  quic_put_be16(hdr + 2, (u16)(cl + 2));
-  quic_put_be16(hdr + 4, (u16)cl);
-  return quic_put_bytes(
+  be_put_be16(hdr, QUIC_EXT_COOKIE);
+  be_put_be16(hdr + 2, (u16)(cl + 2));
+  be_put_be16(hdr + 4, (u16)cl);
+  return bytes_put(
       wired_mspan_of(out->p, out->cap), &out->len, wired_span_of(hdr, 6));
 }
 
 static int hrr_cookie_body(wired_obuf* out, wired_span ck) {
-  return hrr_cookie_hdr(out, ck.n) && quic_put_bytes(
+  return hrr_cookie_hdr(out, ck.n) && bytes_put(
                                           wired_mspan_of(out->p, out->cap),
                                           &out->len, wired_span_of(ck.p, ck.n));
 }
@@ -95,7 +95,7 @@ int quic_hrr_build(u16 selected_group, wired_span cookie, wired_obuf* out) {
   if (!hrr_head_fits(off, out->cap)) return 0;
   off         = hrr_prefix(out->p, off);
   block_start = off;
-  w           = quic_obuf_of(out->p, out->cap);
+  w           = obuf_of(out->p, out->cap);
   w.len       = off + 2;
   end = hrr_finish(out->p, hrr_exts(&w, selected_group, cookie), block_start);
   if (end == 0) return 0;

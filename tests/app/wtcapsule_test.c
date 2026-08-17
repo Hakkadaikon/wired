@@ -14,7 +14,7 @@
  * message. */
 static void test_wtcapsule_close_roundtrip(void) {
   u8         buf[64];
-  wired_obuf out    = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out    = obuf_of(buf, sizeof buf);
   u8         msg[5] = {'h', 'e', 'l', 'l', 'o'};
   usz        at     = 0;
   u32        code_out;
@@ -33,7 +33,7 @@ static void test_wtcapsule_close_roundtrip(void) {
 /* TEST 2: WT_CLOSE_SESSION with an empty message round-trips correctly. */
 static void test_wtcapsule_close_roundtrip_empty_message(void) {
   u8         buf[32];
-  wired_obuf out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out = obuf_of(buf, sizeof buf);
   usz        at  = 0;
   u32        code_out;
   wired_span msg_out;
@@ -50,7 +50,7 @@ static void test_wtcapsule_close_roundtrip_empty_message(void) {
  * in out. */
 static void test_wtcapsule_close_encode_rejects_long_message(void) {
   u8         buf[4096];
-  wired_obuf out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out = obuf_of(buf, sizeof buf);
   u8         msg[QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX + 1];
   for (usz i = 0; i < sizeof msg; i++) msg[i] = 'x';
 
@@ -62,7 +62,7 @@ static void test_wtcapsule_close_encode_rejects_long_message(void) {
  * capsule size. */
 static void test_wtcapsule_drain_roundtrip(void) {
   u8         buf[16];
-  wired_obuf out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out = obuf_of(buf, sizeof buf);
   usz        at  = 0;
 
   CHECK(quic_wtcapsule_encode_drain(&out));
@@ -77,7 +77,7 @@ static void test_wtcapsule_drain_roundtrip(void) {
  * decode_drain from the same offset. */
 static void test_wtcapsule_wrong_type_does_not_advance(void) {
   u8         buf[16];
-  wired_obuf out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out = obuf_of(buf, sizeof buf);
   usz        at  = 0;
   u32        code_out;
   wired_span msg_out;
@@ -95,7 +95,7 @@ static void test_wtcapsule_wrong_type_does_not_advance(void) {
  * short to hold the 32-bit error code. */
 static void test_wtcapsule_close_decode_body_too_short(void) {
   u8         buf[16];
-  wired_obuf out           = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out           = obuf_of(buf, sizeof buf);
   u8         short_body[2] = {0, 0};
   usz        at            = 0;
   u32        code_out;
@@ -114,7 +114,7 @@ static void test_wtcapsule_close_decode_body_too_short(void) {
  * back-to-back in one buffer. */
 static void test_wtcapsule_sequential_drain_then_close(void) {
   u8         buf[64];
-  wired_obuf out    = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out    = obuf_of(buf, sizeof buf);
   u8         msg[3] = {'h', 'i', '!'};
   usz        at     = 0;
   u32        code_out;
@@ -145,7 +145,7 @@ static void test_wtcapsule_sequential_drain_then_close(void) {
  * capsule type" probe. */
 static void test_wtcapsule_no_per_stream_flow_control_capsule(void) {
   u8         buf[32];
-  wired_obuf out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out = obuf_of(buf, sizeof buf);
   usz        at  = 0;
   u32        code_out;
   wired_span msg_out;
@@ -167,7 +167,7 @@ static void test_wtcapsule_no_per_stream_flow_control_capsule(void) {
  * not decode as the uni variant. */
 static void test_wtcapsule_max_streams_bidi_roundtrip(void) {
   u8         buf[16];
-  wired_obuf out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out = obuf_of(buf, sizeof buf);
   usz        at  = 0;
   u64        n_out;
 
@@ -184,7 +184,7 @@ static void test_wtcapsule_max_streams_bidi_roundtrip(void) {
 /* TEST 10: WT_MAX_STREAMS uni round-trip (distinct type 0x190B4D40). */
 static void test_wtcapsule_max_streams_uni_roundtrip(void) {
   u8         buf[16];
-  wired_obuf out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out = obuf_of(buf, sizeof buf);
   usz        at  = 0;
   u64        n_out;
 
@@ -199,7 +199,7 @@ static void test_wtcapsule_max_streams_uni_roundtrip(void) {
  * shape as WT_MAX_STREAMS. */
 static void test_wtcapsule_streams_blocked_roundtrip(void) {
   u8         buf[16];
-  wired_obuf out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out = obuf_of(buf, sizeof buf);
   usz        at  = 0;
   u64        n_out;
 
@@ -221,7 +221,7 @@ static void test_wtcapsule_streams_blocked_roundtrip(void) {
 /* TEST 12: WT_MAX_DATA round-trip (single type, 0x190B4D3D). */
 static void test_wtcapsule_max_data_roundtrip(void) {
   u8         buf[16];
-  wired_obuf out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out = obuf_of(buf, sizeof buf);
   usz        at  = 0;
   u64        n_out;
 
@@ -236,7 +236,7 @@ static void test_wtcapsule_max_data_roundtrip(void) {
  * confirms it does not cross-decode as WT_MAX_DATA. */
 static void test_wtcapsule_data_blocked_roundtrip(void) {
   u8         buf[16];
-  wired_obuf out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out = obuf_of(buf, sizeof buf);
   usz        at  = 0;
   u64        n_out;
 
@@ -254,7 +254,7 @@ static void test_wtcapsule_data_blocked_roundtrip(void) {
  * but an empty body (no varint to read) is rejected without advancing. */
 static void test_wtcapsule_max_data_decode_empty_body_rejected(void) {
   u8         buf[16];
-  wired_obuf out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out = obuf_of(buf, sizeof buf);
   usz        at  = 0;
   u64        n_out;
 
@@ -269,7 +269,7 @@ static void test_wtcapsule_max_data_decode_empty_body_rejected(void) {
  * advancing. */
 static void test_wtcapsule_max_streams_decode_trailing_bytes_rejected(void) {
   u8         buf[16];
-  wired_obuf out     = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out     = obuf_of(buf, sizeof buf);
   u8         body[2] = {5, 0xAA};
   usz        at      = 0;
   u64        n_out;
@@ -300,7 +300,7 @@ static void test_wtcapsule_max_streams_decode_trailing_bytes_rejected(void) {
 static void test_wtcapsule_max_streams_decoded_value_ignored_until_applied(
     void) {
   u8               buf[16];
-  wired_obuf       out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf       out = obuf_of(buf, sizeof buf);
   usz              at  = 0;
   u64              n_out;
   wired_wt_session s;

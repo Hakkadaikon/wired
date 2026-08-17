@@ -12,19 +12,18 @@ typedef struct {
   int     inf; /* 1 = point at infinity (identity) */
 } ec_point384;
 
-extern const ec_point384 quic_p384_g; /* base point G */
+extern const ec_point384 p384_g; /* base point G */
 
-void quic_p384_point_set(ec_point384* r, const ec_point384* p);
+void p384_point_set(ec_point384* r, const ec_point384* p);
 
 /* 1 if p satisfies the curve equation (or is infinity), else 0. */
-int quic_p384_point_on_curve(const ec_point384* p);
+int p384_point_on_curve(const ec_point384* p);
 
 /* r = p + q, r = 2p (affine, all mod p). */
-void quic_p384_point_add(
-    ec_point384* r, const ec_point384* p, const ec_point384* q);
-void quic_p384_point_double(ec_point384* r, const ec_point384* p);
+void p384_point_add(ec_point384* r, const ec_point384* p, const ec_point384* q);
+void p384_point_double(ec_point384* r, const ec_point384* p);
 
 /* r = k * p, k big-endian 48 bytes, via Jacobian double-and-add. */
-void quic_p384_point_mul(ec_point384* r, const u8 k[48], const ec_point384* p);
+void p384_point_mul(ec_point384* r, const u8 k[48], const ec_point384* p);
 
 #endif

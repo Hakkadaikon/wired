@@ -4,9 +4,9 @@
 
 usz quic_grease_encode(u8* buf, usz cap) {
   usz off = 0;
-  if (!quic_varint_put(wired_mspan_of(buf, cap), &off, QUIC_TP_GREASE_QUIC_BIT))
+  if (!varint_put(wired_mspan_of(buf, cap), &off, QUIC_TP_GREASE_QUIC_BIT))
     return 0;
-  if (!quic_varint_put(wired_mspan_of(buf, cap), &off, 0))
+  if (!varint_put(wired_mspan_of(buf, cap), &off, 0))
     return 0; /* empty value */
   return off;
 }
@@ -14,7 +14,7 @@ usz quic_grease_encode(u8* buf, usz cap) {
 /* Read the id varint and require it to be the grease_quic_bit id. */
 static int take_grease_id(const u8* buf, usz n, usz* off) {
   u64 id;
-  if (!quic_varint_take(wired_span_of(buf, n), off, &id)) return 0;
+  if (!varint_take(wired_span_of(buf, n), off, &id)) return 0;
   return id == QUIC_TP_GREASE_QUIC_BIT;
 }
 
@@ -22,7 +22,7 @@ static int take_grease_id(const u8* buf, usz n, usz* off) {
 static int take_grease(const u8* buf, usz n, usz* off) {
   u64 len;
   if (!take_grease_id(buf, n, off)) return 0;
-  if (!quic_varint_take(wired_span_of(buf, n), off, &len)) return 0;
+  if (!varint_take(wired_span_of(buf, n), off, &len)) return 0;
   return len == 0; /* a non-empty value is a TRANSPORT_PARAMETER_ERROR */
 }
 

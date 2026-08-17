@@ -62,7 +62,7 @@ static void test_initpkt_ver_v2_roundtrip(void) {
   quic_initpkt_desc d = {
       wired_span_of(dcid, 8), wired_span_of(scid, 4), wired_span_of(ch, 4), 0,
       0};
-  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf o = obuf_of(pkt, sizeof(pkt));
   CHECK(quic_initpkt_build_ver(QUIC_VERSION_2, &d, &o));
   CHECK(o.len >= 1200);
 
@@ -84,7 +84,7 @@ static void test_initpkt_ver_wrong_version_fails(void) {
   quic_initpkt_desc d = {
       wired_span_of(dcid, 8), wired_span_of((const u8*)0, 0),
       wired_span_of(ch, 1), 0, 0};
-  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf o = obuf_of(pkt, sizeof(pkt));
   wired_span crypto;
   CHECK(quic_initpkt_build_ver(QUIC_VERSION_2, &d, &o));
   CHECK(!quic_initpkt_open_ver(
@@ -101,7 +101,7 @@ static void test_initpkt_ver_v2_byte0_type_bits(void) {
   quic_initpkt_desc d = {
       wired_span_of(dcid, 8), wired_span_of((const u8*)0, 0),
       wired_span_of(ch, 1), 0, 0};
-  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf o = obuf_of(pkt, sizeof(pkt));
   CHECK(quic_initpkt_build_ver(QUIC_VERSION_2, &d, &o));
   CHECK(quic_packet_long_type(pkt[0], QUIC_VERSION_2) == QUIC_PT_INITIAL);
   /* the same byte read under v1's table must NOT decode as Initial (it is
@@ -117,7 +117,7 @@ static void test_initpkt_ver_v2_byte0_type_bits(void) {
 static void test_is_initial_v1_still_recognized(void) {
   u8 dg[1200] = {0};
   dg[0]       = 0xc3; /* long + fixed + Initial(00) + pnlen 4-1 */
-  quic_put_be32(dg + 1, QUIC_VERSION_1);
+  be_put_be32(dg + 1, QUIC_VERSION_1);
   dg[5] = 0; /* zero-length DCID */
   CHECK(wired_srvboot_is_initial(dg, sizeof(dg)) == 1);
 }
@@ -128,7 +128,7 @@ static void test_is_initial_v1_still_recognized(void) {
 static void test_is_initial_v2_recognized(void) {
   u8 dg[1200] = {0};
   dg[0]       = 0xd3; /* long + fixed + v2 Initial(01) + pnlen 4-1 */
-  quic_put_be32(dg + 1, QUIC_VERSION_2);
+  be_put_be32(dg + 1, QUIC_VERSION_2);
   dg[5] = 0;
   CHECK(wired_srvboot_is_initial(dg, sizeof(dg)) == 1);
 }
@@ -138,7 +138,7 @@ static void test_is_initial_v2_recognized(void) {
 static void test_is_initial_v1_0rtt_bits_rejected(void) {
   u8 dg[1200] = {0};
   dg[0]       = 0xd3;
-  quic_put_be32(dg + 1, QUIC_VERSION_1);
+  be_put_be32(dg + 1, QUIC_VERSION_1);
   dg[5] = 0;
   CHECK(wired_srvboot_is_initial(dg, sizeof(dg)) == 0);
 }
@@ -150,7 +150,7 @@ static u8 vneg_dg[1200];
 static void vneg_dg_init(u32 unsupported_version) {
   for (usz i = 0; i < sizeof(vneg_dg); i++) vneg_dg[i] = 0;
   vneg_dg[0] = 0x80; /* long header, some unsupported version */
-  quic_put_be32(vneg_dg + 1, unsupported_version);
+  be_put_be32(vneg_dg + 1, unsupported_version);
   vneg_dg[5] = 0; /* DCID len 0 */
   vneg_dg[6] = 0; /* SCID len 0 */
 }
@@ -167,7 +167,7 @@ static void test_vneg_lists_v1_and_v2(void) {
    * (byte0, 4-byte version=0, DCIDlen+DCID, SCIDlen+SCID); DCID/SCID here
    * are both empty so the list starts at offset 7. */
   for (usz off = 7; off + 4 <= n; off += 4) {
-    u32 v = quic_get_be32(out + off);
+    u32 v = be_get_be32(out + off);
     if (v == QUIC_VERSION_1) saw_v1 = 1;
     if (v == QUIC_VERSION_2) saw_v2 = 1;
   }
@@ -210,7 +210,7 @@ static usz sbv_make_client_hello(u8* ch, usz cap) {
     srv_random[i] = (u8)(0xa0 + i);
   }
   wired_x25519_base(cli_pub, cli_priv);
-  wired_obuf ob = quic_obuf_of(ch, cap);
+  wired_obuf ob = obuf_of(ch, cap);
   return quic_tls_client_hello(
       &(quic_clienthello_in){
           srv_random, cli_pub, wired_span_of(0, 0), wired_span_of(0, 0)},
@@ -238,7 +238,7 @@ static void test_srvboot_accept_v2_initial(void) {
   quic_initpkt_desc d = {
       wired_span_of(dcid, 8), wired_span_of(cli_scid, 4),
       wired_span_of(ch, ch_len), 0, 0};
-  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf o = obuf_of(pkt, sizeof(pkt));
   CHECK(quic_initpkt_build_ver(QUIC_VERSION_2, &d, &o));
 
   wired_srvboot_id id = {0};
@@ -250,8 +250,8 @@ static void test_srvboot_accept_v2_initial(void) {
   id.random           = srv_priv; /* any 32 bytes; content unchecked here */
 
   u8                 init_buf[1500], flight_buf[4096];
-  wired_obuf         init_ob   = quic_obuf_of(init_buf, sizeof(init_buf));
-  wired_obuf         flight_ob = quic_obuf_of(flight_buf, sizeof(flight_buf));
+  wired_obuf         init_ob   = obuf_of(init_buf, sizeof(init_buf));
+  wired_obuf         flight_ob = obuf_of(flight_buf, sizeof(flight_buf));
   wired_srvboot_out  out       = {&init_ob, &flight_ob, {0}, 0, 0};
   wired_srvboot_conn conn      = {&f.s, &f.l};
   wired_srvboot_in   in        = {&id, wired_mspan_of(pkt, o.len)};
@@ -259,7 +259,7 @@ static void test_srvboot_accept_v2_initial(void) {
   CHECK(wired_srvboot_accept(&conn, &in, &out) == 1);
   /* the sealed server Initial's own long-header Version field must be v2,
    * not the old hardcoded v1 (bytes 1..4 after byte0). */
-  CHECK(quic_get_be32(init_buf + 1) == QUIC_VERSION_2);
+  CHECK(be_get_be32(init_buf + 1) == QUIC_VERSION_2);
   CHECK(quic_packet_long_type(init_buf[0], QUIC_VERSION_2) == QUIC_PT_INITIAL);
 }
 

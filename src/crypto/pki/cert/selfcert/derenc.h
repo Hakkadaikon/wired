@@ -8,6 +8,6 @@
  * Appends nothing on failure; on success sets out->len to the whole TLV
  * length. Returns 1 ok, 0 if it would not fit or len exceeds the long-form
  * ceiling. */
-int quic_selfcert_der_tlv(u8 tag, wired_span val, wired_obuf* out);
+int selfcert_der_tlv(u8 tag, wired_span val, wired_obuf* out);
 
 #endif

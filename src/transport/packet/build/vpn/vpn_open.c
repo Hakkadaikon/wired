@@ -29,8 +29,7 @@ static int region_ok(const quic_vpn_desc* d) {
 }
 
 /* RFC 9001 5.4.1: unmask byte0, then the pn bytes; returns recovered pn. */
-static u64 remove_hp(
-    const quic_aes128* hp, const quic_vpn_desc* d, usz* pn_len) {
+static u64 remove_hp(const aes128* hp, const quic_vpn_desc* d, usz* pn_len) {
   u8  mask[5];
   u8* pkt = d->pkt.p;
   quic_hp_mask(hp, pkt + quic_hp_sample_offset(d->pn_off), mask);
@@ -50,12 +49,12 @@ typedef struct {
 /* RFC 9001 5.3: nonce = iv XOR pn, then AEAD-open ct after the header. */
 static int vpn_aead_open(
     const quic_initial_keys* keys, u8* pkt, const vpnopen_dims* v) {
-  u8          nonce[QUIC_INITIAL_IV];
-  quic_aes128 aead;
+  u8     nonce[QUIC_INITIAL_IV];
+  aes128 aead;
   quic_protect_nonce(keys->iv, v->pn, nonce);
-  quic_aes128_init(&aead, keys->key);
-  quic_gcm_ctx g = {&aead, nonce, {pkt, v->hdr_len}};
-  return quic_gcm_open(
+  aes128_init(&aead, keys->key);
+  gcm_ctx g = {&aead, nonce, {pkt, v->hdr_len}};
+  return gcm_open(
       &g, wired_span_of(pkt + v->hdr_len, v->ct_len + QUIC_GCM_TAG),
       pkt + v->hdr_len);
 }

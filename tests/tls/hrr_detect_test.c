@@ -8,7 +8,7 @@
 /* RFC 8446 4.1.4: a built HRR is recognised by its random sentinel. */
 static void test_hrr_detect_true(void) {
   u8         out[256];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   CHECK(quic_hrr_build(QUIC_GROUP_X25519, wired_span_of(0, 0), &ob) == 1);
   CHECK(quic_hrr_is_hello_retry(out, ob.len) == 1);
 }
@@ -17,7 +17,7 @@ static void test_hrr_detect_true(void) {
 static void test_hrr_detect_false(void) {
   u8              random[32], pub[32], out[256];
   quic_shbuild_in in;
-  wired_obuf      ob = quic_obuf_of(out, sizeof out);
+  wired_obuf      ob = obuf_of(out, sizeof out);
   for (int i = 0; i < 32; i++) {
     random[i] = (u8)i;
     pub[i]    = (u8)(0x40 + i);

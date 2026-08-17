@@ -26,14 +26,14 @@ static int skip_cid(const u8* buf, usz n, usz* p) {
  * that follows. buf must hold at least 5 bytes (checked by the caller,
  * skip_long_prefix, before this is read). */
 static int has_token(const u8* buf) {
-  u32 version = quic_get_be32(buf + 1);
+  u32 version = be_get_be32(buf + 1);
   return quic_packet_long_type(buf[0], version) == QUIC_PT_INITIAL;
 }
 
 /* Skip the Initial token (a varint length plus that many bytes). */
 static int skip_token(const u8* buf, usz n, usz* p) {
   u64 tlen;
-  if (!quic_varint_take(wired_span_of(buf, n), p, &tlen)) return 0;
+  if (!varint_take(wired_span_of(buf, n), p, &tlen)) return 0;
   *p += (usz)tlen;
   return *p <= n;
 }
@@ -69,7 +69,7 @@ static int skip_to_length(wired_span buf, usz* p) {
  * returns its total length from off, or 0 if it runs past the datagram. */
 static usz take_length_bound(wired_span buf, usz off, usz* p) {
   u64 length;
-  if (!quic_varint_take(wired_span_of(buf.p, buf.n), p, &length)) return 0;
+  if (!varint_take(wired_span_of(buf.p, buf.n), p, &length)) return 0;
   if (*p + (usz)length > buf.n) return 0;
   return *p - off + (usz)length;
 }

@@ -7,7 +7,6 @@
  * length 32 (TLS rsa_pss_rsae_sha256). sig is big-endian; mhash is the
  * 32-byte SHA-256 message digest. pub->e must be F4 (65537); anything else is
  * rejected. Returns 1 if the signature is valid, else 0. */
-int quic_rsa_pss_verify(
-    const quic_rsa_pub* pub, wired_span sig, wired_span mhash);
+int rsa_pss_verify(const rsa_pub* pub, wired_span sig, wired_span mhash);
 
 #endif

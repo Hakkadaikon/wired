@@ -21,19 +21,19 @@ static u32 xdpmac_victim(quic_xdpmac* c) {
   return c->clock++ % QUIC_XDPMAC_CAP;
 }
 
-void quic_xdpmac_init(quic_xdpmac* c) { quic_memset(c, 0, sizeof *c); }
+void quic_xdpmac_init(quic_xdpmac* c) { bytes_memset(c, 0, sizeof *c); }
 
 void quic_xdpmac_learn(quic_xdpmac* c, u32 ip_be, const u8 mac[6]) {
   i32 i         = xdpmac_find(c, ip_be);
   u32 slot      = i >= 0 ? (u32)i : xdpmac_victim(c);
   c->ip[slot]   = ip_be;
   c->used[slot] = 1;
-  quic_memcpy(c->mac[slot], mac, 6);
+  bytes_memcpy(c->mac[slot], mac, 6);
 }
 
 int quic_xdpmac_lookup(const quic_xdpmac* c, u32 ip_be, u8 mac_out[6]) {
   i32 i = xdpmac_find(c, ip_be);
   if (i < 0) return 0;
-  quic_memcpy(mac_out, c->mac[i], 6);
+  bytes_memcpy(mac_out, c->mac[i], 6);
   return 1;
 }

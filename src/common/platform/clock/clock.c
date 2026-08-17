@@ -18,7 +18,7 @@ static void clock_civil(u64 days, clock_ymd* out) {
   out->y  = yoe + era * 400 + (mp >= 10);
 }
 
-u64 quic_clock_epoch_to_ymdhms(u64 secs) {
+u64 clock_epoch_to_ymdhms(u64 secs) {
   u64       days = secs / 86400, rem = secs % 86400;
   clock_ymd ymd;
   clock_civil(days, &ymd);
@@ -26,14 +26,14 @@ u64 quic_clock_epoch_to_ymdhms(u64 secs) {
          (rem / 3600) * 10000 + (rem / 60 % 60) * 100 + rem % 60;
 }
 
-u64 quic_clock_ymdhms(void) {
-  quic_timespec ts = {0};
+u64 clock_ymdhms(void) {
+  timespec ts = {0};
   if (wired_arch_clock_gettime(QUIC_CLOCK_REALTIME, &ts) != 0) return 0;
-  return quic_clock_epoch_to_ymdhms((u64)ts.sec);
+  return clock_epoch_to_ymdhms((u64)ts.sec);
 }
 
 u64 wired_clock_epoch_secs(void) {
-  quic_timespec ts = {0};
+  timespec ts = {0};
   if (wired_arch_clock_gettime(QUIC_CLOCK_REALTIME, &ts) != 0) return 0;
   return (u64)ts.sec;
 }

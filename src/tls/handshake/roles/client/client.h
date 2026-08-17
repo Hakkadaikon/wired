@@ -40,10 +40,10 @@ typedef struct {
   usz       sh_len;
   u8        my_priv[QUIC_ECDHE_LEN];
   u8        my_pub[QUIC_ECDHE_LEN];
-  const u8* host;              /* expected server name, view (caller-owned) */
-  usz       host_len;          /* 0 skips the SAN hostname check */
-  u64       now;               /* YYYYMMDDHHMMSS; 0 skips the validity check */
-  const quic_castore* castore; /* NULL skips chain validation */
+  const u8* host;         /* expected server name, view (caller-owned) */
+  usz       host_len;     /* 0 skips the SAN hostname check */
+  u64       now;          /* YYYYMMDDHHMMSS; 0 skips the validity check */
+  const castore* castore; /* NULL skips chain validation */
 } quic_client;
 
 /** Everything quic_client_init needs besides the client: the server address
@@ -73,7 +73,7 @@ void quic_client_set_now(quic_client* c, u64 now);
  * without a store (the default) the chain is NOT validated — only the
  * end-entity policy (validity/SAN) and the CertificateVerify signature are.
  * store is borrowed and must outlive the connection. */
-void quic_client_set_castore(quic_client* c, const quic_castore* store);
+void quic_client_set_castore(quic_client* c, const castore* store);
 
 /* RFC 9000 7: emit our real ClientHello, frame it, build the Initial datagram
  * (padded to 1200 per RFC 9000 14.1) and send it. Returns 1 on success. */

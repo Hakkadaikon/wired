@@ -1,9 +1,9 @@
 #include "crypto/asymmetric/ecc/p256fixed/p256fixed.h"
 
 /* T[i][d] = d * 16^i * G (FIPS 186-4 D.1.2.3 P-256 base point),
- * generated offline with this repo's quic_ec_mul. Layout: see
+ * generated offline with this repo's ec_mul. Layout: see
  * p256fixed.h. */
-const u64 quic_p256fixed_table[64][120] = {
+const u64 p256fixed_table[64][120] = {
     {0xf4a13945d898c296ULL, 0x77037d812deb33a0ULL, 0xf8bce6e563a440f2ULL,
      0x6b17d1f2e12c4247ULL, 0xcbb6406837bf51f5ULL, 0x2bce33576b315eceULL,
      0x8ee7eb4a7c0f9e16ULL, 0x4fe342e2fe1a7f9bULL, 0xa60b48fc47669978ULL,

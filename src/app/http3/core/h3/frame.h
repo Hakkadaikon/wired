@@ -30,7 +30,7 @@
  * stream (client- or server-initiated) MUST send as the varint-encoded value
  * of its very first bytes, before any application data. 65 exceeds the 1-byte
  * varint range (RFC 9000 16, max 0x3F), so on the wire it is the 2-byte
- * encoding {0x40, 0x41} — decode with quic_varint_take/quic_varint_decode,
+ * encoding {0x40, 0x41} — decode with varint_take/varint_decode,
  * never compare a raw leading byte to 0x41. */
 #define QUIC_H3_STREAM_WEBTRANSPORT_BIDI 0x41
 

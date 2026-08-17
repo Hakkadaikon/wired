@@ -1,7 +1,7 @@
 #include "test.h"
 
 /* Hardware AES-128-GCM (gcmx86) vs the scalar gcm path. Every sub-test is
- * gated on quic_gcmx86_supported(): on a CPU without AES-NI/PCLMULQDQ this
+ * gated on gcmx86_supported(): on a CPU without AES-NI/PCLMULQDQ this
  * whole file is a no-op pass. */
 
 /* Deterministic byte stream (LCG, no libc rand). */
@@ -29,16 +29,16 @@ static usz gcmx86_unhex(const char* hex, u8* out) {
 }
 
 static void test_gcmx86_align(void) {
-  static quic_gcmx86 x;
+  static gcmx86 x;
   CHECK((usz)&x % 16 == 0);
 }
 
 /* NIST SP 800-38D test case 4 (AES-128-GCM, 60-byte pt, 20-byte AAD) — the
  * same official vector the scalar gcm_test pins. */
 static void test_gcmx86_nist(void) {
-  u8          key[16], iv[16], pt[64], aad[32], want_ct[64], want_tag[16];
-  u8          out[64 + 16], dec[64];
-  quic_gcmx86 x;
+  u8     key[16], iv[16], pt[64], aad[32], want_ct[64], want_tag[16];
+  u8     out[64 + 16], dec[64];
+  gcmx86 x;
   gcmx86_unhex("feffe9928665731c6d6a8f9467308308", key);
   gcmx86_unhex("cafebabefacedbaddecaf888", iv);
   usz pl = gcmx86_unhex(
@@ -53,15 +53,14 @@ static void test_gcmx86_nist(void) {
       want_ct);
   gcmx86_unhex("5bc94fbc3221a5db94fae95ae7121a47", want_tag);
 
-  quic_gcmx86_init(&x, key);
+  gcmx86_init(&x, key);
   CHECK(
-      quic_gcmx86_seal(
-          &x, iv, wired_span_of(aad, al), wired_span_of(pt, pl), out) ==
+      gcmx86_seal(&x, iv, wired_span_of(aad, al), wired_span_of(pt, pl), out) ==
       pl + 16);
   for (usz i = 0; i < pl; i++) CHECK(out[i] == want_ct[i]);
   for (usz i = 0; i < 16; i++) CHECK(out[pl + i] == want_tag[i]);
   CHECK(
-      quic_gcmx86_open(
+      gcmx86_open(
           &x, iv, wired_span_of(aad, al), wired_span_of(out, pl + 16), dec) ==
       pl);
   for (usz i = 0; i < pl; i++) CHECK(dec[i] == pt[i]);
@@ -70,29 +69,29 @@ static void test_gcmx86_nist(void) {
 /* One differential case: scalar seal == x86 seal byte-for-byte,
  * open(seal(x)) == x, corrupted tag rejected without touching out. */
 static void gcmx86_diff_one(usz n, usz an) {
-  u8          key[16], nonce[12], aad[32];
-  u8          pt[2048], want[2048 + 16], got[2048 + 16], dec[2048];
-  quic_aes128 a;
-  quic_gcmx86 x;
+  u8     key[16], nonce[12], aad[32];
+  u8     pt[2048], want[2048 + 16], got[2048 + 16], dec[2048];
+  aes128 a;
+  gcmx86 x;
   gcmx86_fill(key, 16);
   gcmx86_fill(nonce, 12);
   gcmx86_fill(aad, an);
   gcmx86_fill(pt, n);
 
-  quic_aes128_init(&a, key);
-  quic_gcm_ctx g = {&a, nonce, {aad, an}};
-  quic_gcm_seal(&g, wired_span_of(pt, n), want);
+  aes128_init(&a, key);
+  gcm_ctx g = {&a, nonce, {aad, an}};
+  gcm_seal(&g, wired_span_of(pt, n), want);
 
-  quic_gcmx86_init(&x, key);
+  gcmx86_init(&x, key);
   CHECK(
-      quic_gcmx86_seal(
+      gcmx86_seal(
           &x, nonce, wired_span_of(aad, an), wired_span_of(pt, n), got) ==
       n + 16);
   for (usz i = 0; i < n + 16; i++) CHECK(got[i] == want[i]);
 
   for (usz i = 0; i < n; i++) dec[i] = 0xCC;
   CHECK(
-      quic_gcmx86_open(
+      gcmx86_open(
           &x, nonce, wired_span_of(aad, an), wired_span_of(got, n + 16), dec) ==
       n);
   for (usz i = 0; i < n; i++) CHECK(dec[i] == pt[i]);
@@ -101,7 +100,7 @@ static void gcmx86_diff_one(usz n, usz an) {
   for (usz i = 0; i < n; i++) dec[i] = 0xCC;
   got[n] ^= 1;
   CHECK(
-      quic_gcmx86_open(
+      gcmx86_open(
           &x, nonce, wired_span_of(aad, an), wired_span_of(got, n + 16), dec) ==
       0);
   for (usz i = 0; i < n; i++) CHECK(dec[i] == 0xCC);
@@ -119,7 +118,7 @@ static void test_gcmx86_diff(void) {
 }
 
 void test_gcmx86(void) {
-  if (!quic_gcmx86_supported()) return; /* no AES-NI: nothing to run */
+  if (!gcmx86_supported()) return; /* no AES-NI: nothing to run */
   test_gcmx86_align();
   test_gcmx86_nist();
   test_gcmx86_diff();

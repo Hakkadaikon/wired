@@ -28,9 +28,9 @@ int quic_tls_exporter(
   u8                    derived[QUIC_HKDF_PRK];
   u8                    ctx_hash[QUIC_SHA256_DIGEST];
   quic_derive_secret_in dsi = {secret, label, {0, 0}};
-  quic_hkdf_label       l   = {"exporter", 8, {0, 0}};
+  hkdf_label            l   = {"exporter", 8, {0, 0}};
   quic_tls_derive_secret(&dsi, derived);
   wired_sha256(context.p, context.n, ctx_hash);
   l.ctx = wired_span_of(ctx_hash, sizeof ctx_hash);
-  return quic_hkdf_expand_label(derived, &l, okm);
+  return hkdf_expand_label(derived, &l, okm);
 }

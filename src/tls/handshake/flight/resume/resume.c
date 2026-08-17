@@ -15,14 +15,14 @@ static void resume_take_psk(quic_resume* r, const u8* psk) {
 /* RFC 6066 3: remember the server_name this session was established under,
  * truncated to QUIC_RESUME_SNI_MAX (RFC 1035 3.1's 255-octet name bound). */
 static void resume_take_sni(quic_resume* r, wired_span sni) {
-  r->sni_len = quic_u64_min(sni.n, QUIC_RESUME_SNI_MAX);
+  r->sni_len = u64_min(sni.n, QUIC_RESUME_SNI_MAX);
   for (usz i = 0; i < r->sni_len; i++) r->sni[i] = sni.p[i];
 }
 
 int quic_resume_store(
     quic_resume* r, wired_span ticket, const quic_resume_store_in* in) {
   usz off = 0;
-  if (!quic_put_bytes(
+  if (!bytes_put(
           wired_mspan_of(r->ticket, QUIC_RESUME_TICKET_MAX), &off, ticket))
     return 0;
   r->ticket_len  = ticket.n;
@@ -49,7 +49,7 @@ int quic_resume_tp_compatible(u64 remembered_max_data, u64 new_max_data) {
  * always compatible; otherwise the two names must match exactly. */
 int quic_resume_sni_compatible(const quic_resume* r, wired_span new_sni) {
   if (new_sni.n == 0 || r->sni_len == 0) return 1;
-  return quic_ascii_dns_eq(wired_span_of(r->sni, r->sni_len), new_sni);
+  return ascii_dns_eq(wired_span_of(r->sni, r->sni_len), new_sni);
 }
 
 /* RFC 9001 4.6 */
@@ -71,14 +71,14 @@ int quic_resume_after_retry(const quic_resume* r, int retry_received) {
 usz quic_resume_session(const quic_resume* r, u8* out, usz cap) {
   usz off = 0;
   if (!r->have_ticket || RESUME_BLOB_HDR + r->ticket_len > cap) return 0;
-  quic_put_be64(out, r->issued_at);
-  quic_put_be32(out + 8, r->lifetime);
-  quic_put_be64(out + 12, r->max_data);
+  be_put_be64(out, r->issued_at);
+  be_put_be32(out + 8, r->lifetime);
+  be_put_be64(out + 12, r->max_data);
   off = 20;
-  quic_put_bytes(wired_mspan_of(out, cap), &off, wired_span_of(r->psk, 32));
-  quic_put_be16(out + 52, (u16)r->ticket_len);
+  bytes_put(wired_mspan_of(out, cap), &off, wired_span_of(r->psk, 32));
+  be_put_be16(out + 52, (u16)r->ticket_len);
   off = RESUME_BLOB_HDR;
-  quic_put_bytes(
+  bytes_put(
       wired_mspan_of(out, cap), &off, wired_span_of(r->ticket, r->ticket_len));
   return off;
 }
@@ -86,7 +86,7 @@ usz quic_resume_session(const quic_resume* r, u8* out, usz cap) {
 /* The declared ticket length, if the blob is big enough to hold it. */
 static int resume_blob_len_ok(wired_span blob, usz* tlen) {
   if (blob.n < RESUME_BLOB_HDR) return 0;
-  *tlen = quic_get_be16(blob.p + 52);
+  *tlen = be_get_be16(blob.p + 52);
   return *tlen <= QUIC_RESUME_TICKET_MAX && blob.n == RESUME_BLOB_HDR + *tlen;
 }
 
@@ -94,11 +94,10 @@ int quic_resume_set_session(quic_resume* r, wired_span blob) {
   usz tlen;
   usz off = 0;
   if (!resume_blob_len_ok(blob, &tlen)) return 0;
-  r->issued_at = quic_get_be64(blob.p);
-  r->lifetime  = quic_get_be32(blob.p + 8);
-  r->max_data  = quic_get_be64(blob.p + 12);
-  quic_take_bytes(
-      wired_span_of(blob.p + 20, 32), &off, wired_mspan_of(r->psk, 32));
+  r->issued_at = be_get_be64(blob.p);
+  r->lifetime  = be_get_be32(blob.p + 8);
+  r->max_data  = be_get_be64(blob.p + 12);
+  bytes_take(wired_span_of(blob.p + 20, 32), &off, wired_mspan_of(r->psk, 32));
   for (usz i = 0; i < tlen; i++) r->ticket[i] = blob.p[RESUME_BLOB_HDR + i];
   r->ticket_len  = tlen;
   r->have_ticket = 1;

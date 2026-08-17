@@ -11,14 +11,14 @@ static int is_ack_or_padding(u64 type) {
 
 int quic_rtxbytes_retransmittable(const u8* buf, usz len) {
   u64 type;
-  if (quic_varint_decode(buf, len, &type) == 0) return -1;
+  if (varint_decode(buf, len, &type) == 0) return -1;
   return is_ack_or_padding(type) ? 0 : 1;
 }
 
 /* Copy the retransmittable frame bytes out. Returns 1 on success. */
 static int rebuild_copy(wired_span lost_frame, wired_obuf* out) {
   usz off = 0;
-  if (!quic_put_bytes(
+  if (!bytes_put(
           wired_mspan_of(out->p, out->cap), &off,
           wired_span_of(lost_frame.p, lost_frame.n)))
     return 0;

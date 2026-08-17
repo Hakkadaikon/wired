@@ -31,12 +31,12 @@ static const u8 ev_h[48] = {
 
 /* The genuine signature verifies. */
 static void test_ecdsa_p384_valid(void) {
-  CHECK(quic_ecdsa_p384_verify(ev_x, ev_y, ev_r, ev_s, ev_h) == 1);
+  CHECK(ecdsa_p384_verify(ev_x, ev_y, ev_r, ev_s, ev_h) == 1);
 }
 
 /* r and s swapped must fail. */
 static void test_ecdsa_p384_swapped(void) {
-  CHECK(quic_ecdsa_p384_verify(ev_x, ev_y, ev_s, ev_r, ev_h) == 0);
+  CHECK(ecdsa_p384_verify(ev_x, ev_y, ev_s, ev_r, ev_h) == 0);
 }
 
 /* A flipped hash byte must fail. */
@@ -44,14 +44,14 @@ static void test_ecdsa_p384_bad_hash(void) {
   u8 h[48];
   for (usz i = 0; i < 48; i++) h[i] = ev_h[i];
   h[0] ^= 0x80;
-  CHECK(quic_ecdsa_p384_verify(ev_x, ev_y, ev_r, ev_s, h) == 0);
+  CHECK(ecdsa_p384_verify(ev_x, ev_y, ev_r, ev_s, h) == 0);
 }
 
 /* r = 0 is out of range and rejected before any curve work. */
 static void test_ecdsa_p384_zero_r(void) {
   u8 z[48];
   for (usz i = 0; i < 48; i++) z[i] = 0;
-  CHECK(quic_ecdsa_p384_verify(ev_x, ev_y, z, ev_s, ev_h) == 0);
+  CHECK(ecdsa_p384_verify(ev_x, ev_y, z, ev_s, ev_h) == 0);
 }
 
 /* An off-curve public key is rejected. */
@@ -59,11 +59,11 @@ static void test_ecdsa_p384_off_curve(void) {
   u8 x[48];
   for (usz i = 0; i < 48; i++) x[i] = ev_x[i];
   x[47] ^= 0x01;
-  CHECK(quic_ecdsa_p384_verify(x, ev_y, ev_r, ev_s, ev_h) == 0);
+  CHECK(ecdsa_p384_verify(x, ev_y, ev_r, ev_s, ev_h) == 0);
 }
 
 /* group order n and n+1, big-endian (NIST P-384). */
-static const u8 p384_n[48] = {
+static const u8 p384t_n[48] = {
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xc7, 0x63, 0x4d, 0x81, 0xf4, 0x37, 0x2d, 0xdf, 0x58, 0x1a, 0x0d, 0xb2,
@@ -77,8 +77,8 @@ static const u8 p384_n_plus_1[48] = {
 /* s == n and s > n-1 are out of range [1, n-1] and rejected (FIPS 186-4
  * 6.4.2 upper bound). */
 static void test_ecdsa_p384_s_out_of_range(void) {
-  CHECK(quic_ecdsa_p384_verify(ev_x, ev_y, ev_r, p384_n, ev_h) == 0);
-  CHECK(quic_ecdsa_p384_verify(ev_x, ev_y, ev_r, p384_n_plus_1, ev_h) == 0);
+  CHECK(ecdsa_p384_verify(ev_x, ev_y, ev_r, p384t_n, ev_h) == 0);
+  CHECK(ecdsa_p384_verify(ev_x, ev_y, ev_r, p384_n_plus_1, ev_h) == 0);
 }
 
 void test_ecdsa_p384_verify(void) {

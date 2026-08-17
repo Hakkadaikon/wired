@@ -4,7 +4,7 @@
 #include "x509_golden.h"
 
 /* Six NULL elements standing in for serialNumber..subjectPublicKeyInfo, so
- * quic_x509_tbs_cursor's skip(6) lands past them. */
+ * x509_tbs_cursor's skip(6) lands past them. */
 #define KEYIDT_DUMMY6 \
   0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00
 
@@ -32,7 +32,7 @@ static const u8 keyidt_tbs_akid[] = {
 static void test_skid_found(void) {
   wired_span val;
   CHECK(
-      quic_x509_subject_key_id(
+      x509_subject_key_id(
           wired_span_of(keyidt_tbs_skid, sizeof(keyidt_tbs_skid)), &val) == 1);
   CHECK(val.n == 6);
 }
@@ -40,7 +40,7 @@ static void test_skid_found(void) {
 static void test_akid_found(void) {
   wired_span val;
   CHECK(
-      quic_x509_authority_key_id(
+      x509_authority_key_id(
           wired_span_of(keyidt_tbs_akid, sizeof(keyidt_tbs_akid)), &val) == 1);
   CHECK(val.n == 8);
 }
@@ -48,7 +48,7 @@ static void test_akid_found(void) {
 static void test_skid_absent(void) {
   wired_span val;
   CHECK(
-      quic_x509_subject_key_id(
+      x509_subject_key_id(
           wired_span_of(keyidt_tbs_no_ext, sizeof(keyidt_tbs_no_ext)), &val) ==
       0);
 }
@@ -56,7 +56,7 @@ static void test_skid_absent(void) {
 static void test_akid_absent(void) {
   wired_span val;
   CHECK(
-      quic_x509_authority_key_id(
+      x509_authority_key_id(
           wired_span_of(keyidt_tbs_no_ext, sizeof(keyidt_tbs_no_ext)), &val) ==
       0);
 }
@@ -64,14 +64,14 @@ static void test_akid_absent(void) {
 /* A real certificate (the golden cert) carries both extensions; both must be
  * recognized from the same tbs. */
 static void test_golden_cert_has_both(void) {
-  quic_x509  c;
+  x509       c;
   wired_span val;
   CHECK(
-      quic_x509_parse(
+      x509_parse(
           wired_span_of(quic_x509_golden, sizeof(quic_x509_golden)), &c) == 1);
-  CHECK(quic_x509_subject_key_id(c.tbs, &val) == 1);
+  CHECK(x509_subject_key_id(c.tbs, &val) == 1);
   CHECK(val.n == 22);
-  CHECK(quic_x509_authority_key_id(c.tbs, &val) == 1);
+  CHECK(x509_authority_key_id(c.tbs, &val) == 1);
   CHECK(val.n == 24);
 }
 

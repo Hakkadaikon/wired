@@ -13,11 +13,11 @@
 /* legacy_version(2) random(32) session_id_len(1)=0 cipher_suites(2+2)
  * compression(1+1). RFC 8446 4.1.2. */
 static usz put_prefix(u8* out, usz off, const u8 random[32]) {
-  quic_put_be16(out + off, 0x0303);
+  be_put_be16(out + off, 0x0303);
   for (usz i = 0; i < 32; i++) out[off + 2 + i] = random[i];
   out[off + 34] = 0;
-  quic_put_be16(out + off + 35, 2);
-  quic_put_be16(out + off + 37, QUIC_TLS_AES128_GCM_SHA256);
+  be_put_be16(out + off + 35, 2);
+  be_put_be16(out + off + 37, QUIC_TLS_AES128_GCM_SHA256);
   out[off + 39] = 1;
   out[off + 40] = 0;
   return off + 41;
@@ -26,8 +26,8 @@ static usz put_prefix(u8* out, usz off, const u8 random[32]) {
 /* Wrap body in extension_type + extension_data length and append. */
 static int append_wrapped(wired_obuf* out, u16 type, wired_span body) {
   u8 hdr[4];
-  quic_put_be16(hdr, type);
-  quic_put_be16(hdr + 2, (u16)body.n);
+  be_put_be16(hdr, type);
+  be_put_be16(hdr + 2, (u16)body.n);
   if (!quic_tls_ext_append(out, wired_span_of(hdr, 4))) return 0;
   return quic_tls_ext_append(out, body);
 }
@@ -55,11 +55,11 @@ static int append_core(wired_obuf* out, const u8* pub, u16 group, usz pub_len) {
 /* server_name (RFC 6066) wrapped as ServerNameList length(2) + entry. */
 static int append_sni(wired_obuf* out, wired_span sni) {
   u8         body[260];
-  wired_obuf bob = quic_obuf_of(body + 2, sizeof(body) - 2);
+  wired_obuf bob = obuf_of(body + 2, sizeof(body) - 2);
   usz        e;
   if (sni.n == 0) return 1;
   e = quic_tls_sni_encode(&bob, sni);
-  quic_put_be16(body, (u16)e);
+  be_put_be16(body, (u16)e);
   return (e != 0) &
          append_wrapped(out, QUIC_SNI_TYPE, wired_span_of(body, e + 2));
 }
@@ -67,7 +67,7 @@ static int append_sni(wired_obuf* out, wired_span sni) {
 /* ALPN offering h3 (RFC 7301). */
 static int append_alpn(wired_obuf* out) {
   u8         body[16];
-  wired_obuf bob = quic_obuf_of(body, sizeof(body));
+  wired_obuf bob = obuf_of(body, sizeof(body));
   usz        a = quic_tls_alpn_encode(&bob, wired_span_of((const u8*)"h3", 2));
   return (a != 0) & append_wrapped(out, QUIC_ALPN_TYPE, wired_span_of(body, a));
 }
@@ -75,7 +75,7 @@ static int append_alpn(wired_obuf* out) {
 /* quic_transport_parameters (RFC 9001 8.2). */
 static int append_tp(wired_obuf* out, wired_span tp) {
   u8         ext[2048];
-  wired_obuf eob = quic_obuf_of(ext, sizeof(ext));
+  wired_obuf eob = obuf_of(ext, sizeof(ext));
   usz        w   = quic_tpext_encode(&eob, tp);
   return (w != 0) & quic_tls_ext_append(out, wired_span_of(ext, w));
 }

@@ -16,25 +16,24 @@
  * without serverAuth rejects. The only caller of validate_chain in this SDK
  * is server-certificate verification (see pathvalidate.h). */
 static int leaf_allows_server_auth(wired_span leaf) {
-  quic_x509 c;
-  if (!quic_x509_parse(leaf, &c)) return 0;
-  return quic_x509_eku_allows(
-      c.tbs, wired_span_of(
-                 quic_x509_oid_server_auth, sizeof(quic_x509_oid_server_auth)));
+  x509 c;
+  if (!x509_parse(leaf, &c)) return 0;
+  return x509_eku_allows(
+      c.tbs, wired_span_of(x509_oid_server_auth, sizeof(x509_oid_server_auth)));
 }
 
 /* RFC 5280 4.1.2.4. View cert's issuer Name (header included). */
 static int cert_issuer(wired_span cert, wired_span* dn) {
-  quic_x509 c;
-  if (!quic_x509_parse(cert, &c)) return 0;
-  return quic_x509_issuer(c.tbs, dn);
+  x509 c;
+  if (!x509_parse(cert, &c)) return 0;
+  return x509_issuer(c.tbs, dn);
 }
 
 /* RFC 5280 4.1.2.6. View cert's subject Name (header included). */
 static int cert_subject(wired_span cert, wired_span* dn) {
-  quic_x509 c;
-  if (!quic_x509_parse(cert, &c)) return 0;
-  return quic_x509_subject(c.tbs, dn);
+  x509 c;
+  if (!x509_parse(cert, &c)) return 0;
+  return x509_subject(c.tbs, dn);
 }
 
 /* RFC 5280 6.1.3. certs[i]'s issuer equals certs[i+1]'s subject. */
@@ -42,7 +41,7 @@ static int names_chain(wired_span child, wired_span parent) {
   wired_span iss, subj;
   if (!cert_issuer(child, &iss)) return 0;
   if (!cert_subject(parent, &subj)) return 0;
-  return quic_x509_dn_equal(iss, subj);
+  return x509_dn_equal(iss, subj);
 }
 
 /* RFC 5280 6.1: "a certificate is self-issued if the DNs that appear in the
@@ -52,14 +51,14 @@ static int cert_self_issued(wired_span cert) {
   wired_span iss, subj;
   if (!cert_issuer(cert, &iss)) return 0;
   if (!cert_subject(cert, &subj)) return 0;
-  return quic_x509_dn_equal(iss, subj);
+  return x509_dn_equal(iss, subj);
 }
 
 /* RFC 5280 4.2. cert carries no unrecognized critical extension. */
 static int cert_known_critical_ok(wired_span cert) {
-  quic_x509 c;
-  if (!quic_x509_parse(cert, &c)) return 0;
-  return !quic_x509_has_unknown_critical(c.tbs);
+  x509 c;
+  if (!x509_parse(cert, &c)) return 0;
+  return !x509_has_unknown_critical(c.tbs);
 }
 
 /* Every certificate in the path (leaf through tail) is free of unrecognized
@@ -73,37 +72,37 @@ static int no_unknown_critical(const wired_span* certs, usz n_certs) {
 /* RFC 5280 4.2.1.3/6.1.4. An issuer cert is a CA and, if keyUsage is
  * present, asserts keyCertSign (absent keyUsage is unconstrained). */
 static int cert_can_issue(wired_span cert) {
-  quic_x509 c;
-  if (!quic_x509_parse(cert, &c)) return 0;
-  if (!quic_x509_is_ca(c.tbs)) return 0;
-  return quic_x509_can_sign_certs(c.tbs);
+  x509 c;
+  if (!x509_parse(cert, &c)) return 0;
+  if (!x509_is_ca(c.tbs)) return 0;
+  return x509_can_sign_certs(c.tbs);
 }
 
 /* View cert's tbs and its SPKI algorithm OID. */
 static int cert_spki_oid(wired_span cert, wired_span* tbs, wired_span* oid) {
-  quic_x509  c;
+  x509       c;
   wired_span key;
-  if (!quic_x509_parse(cert, &c)) return 0;
-  if (!quic_x509_public_key(c.tbs, oid, &key)) return 0;
+  if (!x509_parse(cert, &c)) return 0;
+  if (!x509_public_key(c.tbs, oid, &key)) return 0;
   *tbs = c.tbs;
   return 1;
 }
 
 /* RFC 8410 3. oid is id-X25519 or id-X448. */
 static int is_x25519_family(wired_span oid) {
-  return quic_x509_is_x25519(oid) || quic_x509_is_x448(oid);
+  return x509_is_x25519(oid) || x509_is_x448(oid);
 }
 
 /* RFC 8410 3. oid is id-Ed25519 or id-Ed448. */
 static int is_ed_family(wired_span oid) {
-  return quic_x509_is_ed25519(oid) || quic_x509_is_ed448(oid);
+  return x509_is_ed25519(oid) || x509_is_ed448(oid);
 }
 
 /* RFC 8410 5. If tbs's SPKI is id-X25519/id-X448, keyUsage (if present) must
  * assert keyAgreement. Any other algorithm is unconstrained by this check. */
 static int x25519_family_ok(wired_span tbs, wired_span oid) {
   if (!is_x25519_family(oid)) return 1;
-  return quic_x509_keyagreement_ok(tbs);
+  return x509_keyagreement_ok(tbs);
 }
 
 /* RFC 8410 5. If tbs's SPKI is id-Ed25519/id-Ed448, keyUsage (if present)
@@ -112,8 +111,8 @@ static int x25519_family_ok(wired_span tbs, wired_span oid) {
  * unconstrained by this check. */
 static int ed_family_ok(wired_span tbs, wired_span oid, int is_ca) {
   if (!is_ed_family(oid)) return 1;
-  if (is_ca) return quic_x509_ed_ca_ok(tbs);
-  return quic_x509_ed_leaf_sig_ok(tbs);
+  if (is_ca) return x509_ed_ca_ok(tbs);
+  return x509_ed_leaf_sig_ok(tbs);
 }
 
 /* RFC 8410 5. cert's SPKI-specific keyUsage constraint, if its algorithm is
@@ -138,32 +137,31 @@ static int parent_may_issue(wired_span parent) {
 static int link_ok(wired_span child, wired_span parent) {
   if (!names_chain(child, parent)) return 0;
   if (!parent_may_issue(parent)) return 0;
-  return quic_castore_verify_signed_by(child, parent);
+  return castore_verify_signed_by(child, parent);
 }
 
 /* RFC 5280 6.1.4. Find the registered anchor for issuer name and require it
  * to be a CA permitted to issue certs. */
-static int find_ca_anchor(
-    const quic_castore* s, wired_span iss, wired_span* root) {
-  if (!quic_castore_find_by_subject(s, iss, root)) return 0;
+static int find_ca_anchor(const castore* s, wired_span iss, wired_span* root) {
+  if (!castore_find_by_subject(s, iss, root)) return 0;
   return cert_can_issue(*root);
 }
 
 /* RFC 5280 6.1. The tail must chain to a registered CA trust anchor: a root
  * whose subject equals the tail's issuer, and which signs the tail. */
-static int tail_anchored(const quic_castore* s, wired_span tail) {
+static int tail_anchored(const castore* s, wired_span tail) {
   wired_span iss, root;
   if (!cert_issuer(tail, &iss)) return 0;
   if (!find_ca_anchor(s, iss, &root)) return 0;
-  return quic_castore_verify_signed_by(tail, root);
+  return castore_verify_signed_by(tail, root);
 }
 
 /* RFC 5280 6.1.4 (m). The issuer's pathLenConstraint must admit the number of
  * intermediate certs below it (the leaf is not counted). */
 static int cert_pathlen_ok(wired_span cert, usz below) {
-  quic_x509 c;
-  if (!quic_x509_parse(cert, &c)) return 0;
-  return quic_x509_pathlen_allows(c.tbs, below);
+  x509 c;
+  if (!x509_parse(cert, &c)) return 0;
+  return x509_pathlen_allows(c.tbs, below);
 }
 
 /* RFC 5280 6.1.4 (h)/(l): "If the certificate was not self-issued, verify
@@ -198,10 +196,10 @@ static int links_ok(const wired_span* certs, usz n) {
  * matching rule and scope). */
 static int subject_admitted(wired_span issuer, wired_span child) {
   wired_span subj;
-  quic_x509  c;
+  x509       c;
   if (!cert_subject(child, &subj)) return 0;
-  if (!quic_x509_parse(issuer, &c)) return 0;
-  return quic_x509_name_constraints_permit(c.tbs, subj);
+  if (!x509_parse(issuer, &c)) return 0;
+  return x509_name_constraints_permit(c.tbs, subj);
 }
 
 /* RFC 5280 6.1.4 (g): issuer certs[j]'s nameConstraints applies to every
@@ -241,7 +239,7 @@ static void skipcerts_lower(u64* counter, u64 v) {
  * present, lowers *explicit_policy to its value. Rejects (0) on a malformed
  * policyConstraints extension. */
 static int apply_require_explicit(wired_span tbs, u64* explicit_policy) {
-  u64 v = quic_x509_require_explicit_policy(tbs);
+  u64 v = x509_require_explicit_policy(tbs);
   if (v == QUIC_X509_SKIPCERTS_MALFORMED) return 0;
   skipcerts_lower(explicit_policy, v);
   return 1;
@@ -250,7 +248,7 @@ static int apply_require_explicit(wired_span tbs, u64* explicit_policy) {
 /* RFC 5280 6.1.4 (j): InhibitAnyPolicy, if present, lowers *inhibit_any to
  * its value. Rejects (0) on a malformed extension. */
 static int apply_inhibit_any(wired_span tbs, u64* inhibit_any) {
-  u64 v = quic_x509_inhibit_any_policy(tbs);
+  u64 v = x509_inhibit_any_policy(tbs);
   if (v == QUIC_X509_SKIPCERTS_MALFORMED) return 0;
   skipcerts_lower(inhibit_any, v);
   return 1;
@@ -287,13 +285,13 @@ static int policy_step_constraints(
  * the RFC's per-certificate step order), then decrement for a
  * non-self-issued hop. */
 static int policy_step(
-    wired_span             cert,
-    quic_x509_policy_tree* tree,
-    u64*                   explicit_policy,
-    u64*                   inhibit_any) {
-  quic_x509 c;
-  if (!quic_x509_parse(cert, &c)) return 0;
-  quic_x509_policy_tree_fold(tree, c.tbs, *inhibit_any == 0);
+    wired_span        cert,
+    x509_policy_tree* tree,
+    u64*              explicit_policy,
+    u64*              inhibit_any) {
+  x509 c;
+  if (!x509_parse(cert, &c)) return 0;
+  x509_policy_tree_fold(tree, c.tbs, *inhibit_any == 0);
   if (!policy_step_constraints(c.tbs, explicit_policy, inhibit_any)) return 0;
   decrement_if_not_self_issued(cert, explicit_policy, inhibit_any);
   return 1;
@@ -307,10 +305,9 @@ static int policy_step(
  * counter here keeps its RFC-mandated bookkeeping visible even though this
  * SDK's caller (server-certificate verification with no explicit policy
  * request) never queries it beyond the tree-non-empty check. */
-static int policy_wrapup_ok(
-    u64 explicit_policy, const quic_x509_policy_tree* tree) {
+static int policy_wrapup_ok(u64 explicit_policy, const x509_policy_tree* tree) {
   if (explicit_policy != 0) return 1;
-  return quic_x509_policy_tree_nonempty(tree);
+  return x509_policy_tree_nonempty(tree);
 }
 
 /* RFC 5280 6.1.3(d)/6.1.4(h)-(j)/6.1.5(g): process every certificate in path
@@ -319,10 +316,10 @@ static int policy_wrapup_ok(
  * numbers the anchor's issued certificate as certificate 1) down to the leaf
  * (certs[0]), then check the wrap-up condition. */
 static int policy_processing_ok(const wired_span* certs, usz n_certs) {
-  quic_x509_policy_tree tree;
-  u64                   explicit_policy = QUIC_X509_SKIPCERTS_NONE;
-  u64                   inhibit_any     = QUIC_X509_SKIPCERTS_NONE;
-  quic_x509_policy_tree_init(&tree);
+  x509_policy_tree tree;
+  u64              explicit_policy = QUIC_X509_SKIPCERTS_NONE;
+  u64              inhibit_any     = QUIC_X509_SKIPCERTS_NONE;
+  x509_policy_tree_init(&tree);
   for (usz i = n_certs - 1; i-- > 0;)
     if (!policy_step(certs[i], &tree, &explicit_policy, &inhibit_any)) return 0;
   return policy_wrapup_ok(explicit_policy, &tree);
@@ -332,7 +329,7 @@ static int policy_processing_ok(const wired_span* certs, usz n_certs) {
  * path. */
 static int cert_seen_before(const wired_span* certs, usz i) {
   for (usz j = 0; j < i; j++)
-    if (quic_x509_dn_equal(certs[i], certs[j])) return 1;
+    if (x509_dn_equal(certs[i], certs[j])) return 1;
   return 0;
 }
 
@@ -382,8 +379,8 @@ static int path_ok(const wired_span* certs, usz n_certs) {
   return path_body_ok(certs, n_certs);
 }
 
-int quic_castore_validate_chain(
-    const quic_castore* s, const wired_span* certs, usz n_certs) {
+int castore_validate_chain(
+    const castore* s, const wired_span* certs, usz n_certs) {
   if (n_certs < 1) return 0;
   if (!path_ok(certs, n_certs)) return 0;
   return tail_anchored(s, certs[n_certs - 1]);

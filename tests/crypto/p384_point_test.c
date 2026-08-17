@@ -40,15 +40,15 @@ static void pp_scalar(u8 k[48], u8 v) {
 static void pp_expect(const ec_point384* r, const u8* x, const u8* y) {
   u8 gx[48], gy[48];
   CHECK(r->inf == 0);
-  quic_fp384_to_be(gx, r->x);
-  quic_fp384_to_be(gy, r->y);
+  fp384_to_be(gx, r->x);
+  fp384_to_be(gy, r->y);
   for (usz i = 0; i < 48; i++) CHECK(gx[i] == x[i]);
   for (usz i = 0; i < 48; i++) CHECK(gy[i] == y[i]);
 }
 
 /* G is on the curve. */
 static void test_p384_g_on_curve(void) {
-  CHECK(quic_p384_point_on_curve(&quic_p384_g) == 1);
+  CHECK(p384_point_on_curve(&p384_g) == 1);
 }
 
 /* 2G and 7G match the known multiples and stay on the curve. */
@@ -56,27 +56,27 @@ static void test_p384_scalar(void) {
   ec_point384 r;
   u8          k[48];
   pp_scalar(k, 2);
-  quic_p384_point_mul(&r, k, &quic_p384_g);
+  p384_point_mul(&r, k, &p384_g);
   pp_expect(&r, pp_k2_x, pp_k2_y);
-  CHECK(quic_p384_point_on_curve(&r) == 1);
+  CHECK(p384_point_on_curve(&r) == 1);
   pp_scalar(k, 7);
-  quic_p384_point_mul(&r, k, &quic_p384_g);
+  p384_point_mul(&r, k, &p384_g);
   pp_expect(&r, pp_k7_x, pp_k7_y);
 }
 
 /* nG is the point at infinity. */
 static void test_p384_order(void) {
   ec_point384 r;
-  quic_p384_point_mul(&r, pp_n, &quic_p384_g);
+  p384_point_mul(&r, pp_n, &p384_g);
   CHECK(r.inf == 1);
 }
 
 /* point_double(G) == point_mul(2, G), and point_add(G,G) agrees too. */
 static void test_p384_double_eq_add(void) {
   ec_point384 d, a;
-  quic_p384_point_double(&d, &quic_p384_g);
+  p384_point_double(&d, &p384_g);
   pp_expect(&d, pp_k2_x, pp_k2_y);
-  quic_p384_point_add(&a, &quic_p384_g, &quic_p384_g);
+  p384_point_add(&a, &p384_g, &p384_g);
   pp_expect(&a, pp_k2_x, pp_k2_y);
 }
 

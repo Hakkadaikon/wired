@@ -12,7 +12,7 @@ void quic_tls_master_secret(
       wired_span_of(zero, 0)};
   quic_tls_derive_secret(&in, derived);
   /* Master Secret = HKDF-Extract(derived, 0). */
-  quic_hkdf_extract(
+  hkdf_extract(
       wired_span_of(derived, QUIC_HKDF_PRK), wired_span_of(zero, QUIC_HKDF_PRK),
       out);
 }

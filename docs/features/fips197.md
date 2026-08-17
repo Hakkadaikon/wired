@@ -107,7 +107,7 @@ below.
 - [~] F197-016 (§6.1) The implementation shall support at least one of the
   three key lengths (128, 192, or 256 bits).
   - evidence: 128-bit keys are supported
-    (`QUIC_AES_BLOCK`/`quic_aes128_init` in
+    (`QUIC_AES_BLOCK`/`aes128_init` in
     `src/crypto/symmetric/aead/aes/aes.c`); this satisfies the "at least
     one" requirement. 192- and 256-bit keys are not supported — see "Out of
     scope".
@@ -115,18 +115,18 @@ below.
   appropriately generated cryptographic key beyond its length.
   - test: `tests/crypto/aes_test.c` —
     `test_aes_no_key_restriction_beyond_length`
-  - evidence: `quic_aes128_init` (`src/crypto/symmetric/aead/aes/aes.c`)
+  - evidence: `aes128_init` (`src/crypto/symmetric/aead/aes/aes.c`)
     schedules every key byte unconditionally with no validation branch;
     the test drives the all-zero and all-0xff 16-byte keys (the values a
     weak-key check would most plausibly reject) through init+encrypt and
     confirms both succeed and produce distinct ciphertext.
 - [~] F197-018 (§6.5) The implementation shall use AES only in conjunction
   with a FIPS-approved or NIST-recommended mode of operation.
-  - evidence: `quic_aes128_encrypt` (`src/crypto/symmetric/aead/aes/aes.h`)
+  - evidence: `aes128_encrypt` (`src/crypto/symmetric/aead/aes/aes.h`)
     is called from exactly two sites in `src/`: `gcm.c` (SP 800-38D GCM
     counter mode) and `hp.c` (RFC 9001 5.4.3 header-protection mask, an
     AES-ECB *encrypt* of a sample, the approved usage that RFC calls for).
-    No other call site of `quic_aes128_encrypt` exists in `src/` (confirmed
+    No other call site of `aes128_encrypt` exists in `src/` (confirmed
     by grep), and the header exposes no raw-block entry point beyond it;
     an exhaustive negative test would have to re-assert this same call-site
     enumeration rather than exercise a runtime rejection, so the grep-based
@@ -146,7 +146,7 @@ the coverage denominator:
 
 - (Abstract, §1, §5, Table 3, App. A.2, A.3) AES-192 and AES-256
   (Nk=6/Nk=8, Nr=12/14) — this SDK implements only AES-128
-  (`quic_aes128`/`QUIC_AES_ROUNDS=10` in
+  (`aes128`/`QUIC_AES_ROUNDS=10` in
   `src/crypto/symmetric/aead/aes/aes.h`). The TLS cipher-suite layer
   actively rejects `TLS_AES_256_GCM_SHA384`
   (`quic_cipher_supported` in `src/tls/handshake/core/tls/cipher.c` returns

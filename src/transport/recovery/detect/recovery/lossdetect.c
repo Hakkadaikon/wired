@@ -8,7 +8,7 @@ int quic_loss_by_packet(u64 largest_acked, u64 pn) {
 
 /* RFC 9002 6.1.2: 9/8 * max(srtt, latest_rtt). */
 static u64 time_threshold(u64 srtt, u64 latest_rtt) {
-  u64 rtt = quic_u64_max(srtt, latest_rtt);
+  u64 rtt = u64_max(srtt, latest_rtt);
   return rtt * QUIC_LOSS_TIME_NUM / QUIC_LOSS_TIME_DEN;
 }
 

@@ -4,7 +4,7 @@
 #include "transport/io/socket/net/checksum.h"
 #include "transport/io/socket/net/ipv4.h"
 
-#define put_be16 quic_put_be16
+#define put_be16 be_put_be16
 
 /* Sum the IPv4 pseudo-header (src, dst, zero, proto=17, udp_len) into sum. */
 static u32 pseudo_sum(u32 sum, quic_ipv4addrs addrs, u16 udp_len) {

@@ -78,14 +78,13 @@ static void test_initial_v2_uses_pinned_salt(void) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   u8                secret[QUIC_HKDF_PRK], side[QUIC_HKDF_PRK];
   u8                want_key[QUIC_INITIAL_KEY];
-  quic_hkdf_label   cl = {"client in", 9, {0, 0}};
-  quic_hkdf_label   kl = {"quicv2 key", 10, {0, 0}};
+  hkdf_label        cl = {"client in", 9, {0, 0}};
+  hkdf_label        kl = {"quicv2 key", 10, {0, 0}};
   quic_initial_keys got;
   CHECK(quic_version_initial_salt(QUIC_VERSION_2, &salt, &salt_len) == 1);
-  quic_hkdf_extract(
-      wired_span_of(salt, salt_len), wired_span_of(dcid, 8), secret);
-  quic_hkdf_expand_label(secret, &cl, wired_mspan_of(side, QUIC_HKDF_PRK));
-  quic_hkdf_expand_label(side, &kl, wired_mspan_of(want_key, QUIC_INITIAL_KEY));
+  hkdf_extract(wired_span_of(salt, salt_len), wired_span_of(dcid, 8), secret);
+  hkdf_expand_label(secret, &cl, wired_mspan_of(side, QUIC_HKDF_PRK));
+  hkdf_expand_label(side, &kl, wired_mspan_of(want_key, QUIC_INITIAL_KEY));
   quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_2, &got);
   CHECK(same_bytes(got.key, want_key, QUIC_INITIAL_KEY));
 }

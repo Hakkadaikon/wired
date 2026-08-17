@@ -220,7 +220,7 @@ static void srvthreads_join_all(wired_thread* threads, int n) {
  * or the timeout itself) all fall through to re-check the word -- the
  * timeout is the liveness floor, not the trigger. */
 static void srvthreads_wait_shutdown(int* word) {
-  quic_timespec ts = {
+  timespec ts = {
       SRVTHREADS_WAIT_MS / 1000, (i64)(SRVTHREADS_WAIT_MS % 1000) * 1000000};
   while (__atomic_load_n(word, __ATOMIC_ACQUIRE) == 0)
     wired_arch_futex(word, SRVTHREADS_FUTEX_WAIT, 0, &ts, 0, 0);

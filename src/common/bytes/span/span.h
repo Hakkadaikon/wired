@@ -17,7 +17,7 @@
  * These are views, not owners: a span never copies and never frees. The
  * caller's buffer must stay alive for as long as the span (or anything the
  * span was handed to) is in use. Build them with the wired_span_of /
- * wired_mspan_of / quic_obuf_of constructors below.
+ * wired_mspan_of / obuf_of constructors below.
  */
 
 /**
@@ -48,7 +48,7 @@ typedef struct {
  * Growing output buffer view for variable-length results.
  *
  * Wraps `(u8 *out, usz cap, usz *out_len)` in one parameter: the caller
- * provides storage and capacity via quic_obuf_of(), the callee appends and
+ * provides storage and capacity via obuf_of(), the callee appends and
  * advances `len`. After the call, `p[0..len)` holds the produced bytes.
  */
 typedef struct {
@@ -92,13 +92,13 @@ static inline wired_mspan wired_mspan_of(u8* p, usz n) {
  *
  * The buffer borrows p; the storage must outlive every use of the returned
  * value. Pass its address to the producing call and read `.len` afterwards:
- * `wired_obuf ob = quic_obuf_of(buf, sizeof buf);` ... use `ob.len`.
+ * `wired_obuf ob = obuf_of(buf, sizeof buf);` ... use `ob.len`.
  *
  * @param p   caller-provided storage
  * @param cap capacity of p in bytes
  * @return the buffer view with len = 0
  */
-static inline wired_obuf quic_obuf_of(u8* p, usz cap) {
+static inline wired_obuf obuf_of(u8* p, usz cap) {
   wired_obuf b = {p, cap, 0};
   return b;
 }

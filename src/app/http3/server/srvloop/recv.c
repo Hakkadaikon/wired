@@ -68,8 +68,8 @@ static int onertt_try(
     const quic_initial_keys*     keys,
     const u8                     save[RECV_ONERTT_HDR_MAX],
     wired_srvloop_recv_out*      out) {
-  quic_aes128 hp;
-  quic_aes128_init(&hp, keys->hp);
+  aes128 hp;
+  aes128_init(&hp, keys->hp);
   {
     quic_protect_keys           pk = {keys, &hp};
     quic_hspkt_onertt_open_desc d  = {
@@ -89,9 +89,9 @@ static void onertt_rotate_send(wired_server* s) {
   u8                send_next_secret[QUIC_HKDF_PRK];
   quic_kuswitch_next_keys_suite(
       s->sdrv.cipher_suite, s->ku_send_secret, &send_next, send_next_secret);
-  quic_memcpy(send_next.hp, s->ku_send.cur.hp, QUIC_AEAD_KEY_MAX);
+  bytes_memcpy(send_next.hp, s->ku_send.cur.hp, QUIC_AEAD_KEY_MAX);
   quic_kuswitch_rotate(&s->ku_send, &send_next);
-  quic_memcpy(s->ku_send_secret, send_next_secret, QUIC_HKDF_PRK);
+  bytes_memcpy(s->ku_send_secret, send_next_secret, QUIC_HKDF_PRK);
 }
 
 /* RFC 9001 6.3: a next-generation candidate that actually decrypts confirms
@@ -103,7 +103,7 @@ static void onertt_rotate_send(wired_server* s) {
 static void onertt_rotate_to(
     wired_server* s, const quic_initial_keys* next, const u8* next_secret) {
   quic_kuswitch_rotate(&s->ku, next);
-  quic_memcpy(s->ku_secret, next_secret, QUIC_HKDF_PRK);
+  bytes_memcpy(s->ku_secret, next_secret, QUIC_HKDF_PRK);
   onertt_rotate_send(s);
 }
 
@@ -133,7 +133,7 @@ static int onertt_try_next_gen(
   quic_kuswitch_next_keys_suite(
       s->sdrv.cipher_suite, s->ku_secret, &next, next_secret);
   /* RFC 9001 6.1: hp is unchanged across an update. */
-  quic_memcpy(next.hp, s->ku.cur.hp, QUIC_AEAD_KEY_MAX);
+  bytes_memcpy(next.hp, s->ku.cur.hp, QUIC_AEAD_KEY_MAX);
   if (!onertt_try(s, in, &next, save, out)) return 0;
   onertt_rotate_to(s, &next, next_secret);
   return 1;
@@ -178,9 +178,9 @@ static int recv_at_level(
 static int recv_zerortt(
     wired_server* s, const wired_srvloop_recv_in* in, wired_span* payload) {
   quic_initial_keys keys;
-  quic_aes128       hp;
+  aes128            hp;
   if (!quic_sdrv_early_keys(&s->sdrv, &keys)) return 0;
-  quic_aes128_init(&hp, keys.hp);
+  aes128_init(&hp, keys.hp);
   {
     quic_protect_keys pk = {&keys, &hp};
     return quic_hspkt_open_suite(s->sdrv.cipher_suite, &pk, in->dgram, payload);

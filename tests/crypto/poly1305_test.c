@@ -11,7 +11,7 @@ static void test_poly1305_rfc(void) {
                   (lo <= '9' ? lo - '0' : lo - 'a' + 10));
   }
   const char* msg = "Cryptographic Forum Research Group";
-  quic_poly1305(key, (const u8*)msg, 34, tag);
+  poly1305(key, (const u8*)msg, 34, tag);
   const char* tx = "a8061dc1305136c6c22b8baf0c0127a9";
   for (usz i = 0; i < 16; i++) {
     u8 hi = tx[i * 2], lo = tx[i * 2 + 1];

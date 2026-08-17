@@ -5,7 +5,7 @@
 
 /* Append a varint, returning 0 to halt a put chain on overflow. */
 static int put_at(wired_obuf* o, u64 v) {
-  return quic_varint_put(wired_mspan_of(o->p, o->cap), &o->len, v);
+  return varint_put(wired_mspan_of(o->p, o->cap), &o->len, v);
 }
 
 /* One-varint frame body (MAX_DATA, DATA_BLOCKED): type then value. */
@@ -18,7 +18,7 @@ static usz put_one_varint_frame(wired_obuf* o, u64 type, u64 value) {
 /* Decode a one-varint frame, skipping the type byte at buf[0]. */
 static usz get_one_varint_frame(const u8* buf, usz n, u64* value) {
   usz off = 1; /* type byte */
-  if (!quic_varint_take(wired_span_of(buf, n), &off, value)) return 0;
+  if (!varint_take(wired_span_of(buf, n), &off, value)) return 0;
   return off;
 }
 
@@ -36,12 +36,12 @@ static usz get_two_varint_frame(
     const u8* buf, usz n, quic_stream_data_frame* f) {
   usz off = get_one_varint_frame(buf, n, &f->stream_id);
   if (off == 0) return 0;
-  if (!quic_varint_take(wired_span_of(buf, n), &off, &f->value)) return 0;
+  if (!varint_take(wired_span_of(buf, n), &off, &f->value)) return 0;
   return off;
 }
 
 usz quic_max_data_encode(u8* buf, usz cap, const quic_data_frame* f) {
-  wired_obuf o = quic_obuf_of(buf, cap);
+  wired_obuf o = obuf_of(buf, cap);
   return put_one_varint_frame(&o, QUIC_FRAME_MAX_DATA, f->value);
 }
 
@@ -50,7 +50,7 @@ usz quic_max_data_decode(const u8* buf, usz n, quic_data_frame* f) {
 }
 
 usz quic_data_blocked_encode(u8* buf, usz cap, const quic_data_frame* f) {
-  wired_obuf o = quic_obuf_of(buf, cap);
+  wired_obuf o = obuf_of(buf, cap);
   return put_one_varint_frame(&o, QUIC_FRAME_DATA_BLOCKED, f->value);
 }
 
@@ -60,7 +60,7 @@ usz quic_data_blocked_decode(const u8* buf, usz n, quic_data_frame* f) {
 
 usz quic_max_stream_data_encode(
     u8* buf, usz cap, const quic_stream_data_frame* f) {
-  wired_obuf o = quic_obuf_of(buf, cap);
+  wired_obuf o = obuf_of(buf, cap);
   return put_two_varint_frame(&o, QUIC_FRAME_MAX_STREAM_DATA, f);
 }
 
@@ -71,7 +71,7 @@ usz quic_max_stream_data_decode(
 
 usz quic_stream_data_blocked_encode(
     u8* buf, usz cap, const quic_stream_data_frame* f) {
-  wired_obuf o = quic_obuf_of(buf, cap);
+  wired_obuf o = obuf_of(buf, cap);
   return put_two_varint_frame(&o, QUIC_FRAME_STREAM_DATA_BLOCKED, f);
 }
 
@@ -86,7 +86,7 @@ static u64 streams_type(u64 bidi_type, int uni) {
 }
 
 usz quic_max_streams_encode(u8* buf, usz cap, const quic_streams_frame* f) {
-  wired_obuf o    = quic_obuf_of(buf, cap);
+  wired_obuf o    = obuf_of(buf, cap);
   u64        type = streams_type(QUIC_FRAME_MAX_STREAMS_BIDI, f->uni);
   return put_one_varint_frame(&o, type, f->max_streams);
 }
@@ -97,7 +97,7 @@ usz quic_max_streams_decode(const u8* buf, usz n, quic_streams_frame* f) {
 }
 
 usz quic_streams_blocked_encode(u8* buf, usz cap, const quic_streams_frame* f) {
-  wired_obuf o    = quic_obuf_of(buf, cap);
+  wired_obuf o    = obuf_of(buf, cap);
   u64        type = streams_type(QUIC_FRAME_STREAMS_BLOCKED_BIDI, f->uni);
   return put_one_varint_frame(&o, type, f->max_streams);
 }

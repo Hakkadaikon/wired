@@ -9,7 +9,7 @@ void quic_tls_binder_key(const u8 psk[QUIC_HKDF_PRK], u8 out[QUIC_HKDF_PRK]) {
   u8 zero[QUIC_HKDF_PRK] = {0};
   u8 early[QUIC_HKDF_PRK];
   /* early_secret = HKDF-Extract(0, PSK). */
-  quic_hkdf_extract(
+  hkdf_extract(
       wired_span_of(zero, QUIC_HKDF_PRK), wired_span_of(psk, QUIC_HKDF_PRK),
       early);
   /* binder_key = Derive-Secret(early_secret, "res binder", ""). */
@@ -39,5 +39,5 @@ int quic_tls_binder_verify(
     const u8   received[QUIC_HKDF_PRK]) {
   u8 want[QUIC_HKDF_PRK];
   quic_tls_binder_compute(psk, truncated_ch, want);
-  return quic_ct_diff32(want, received) == 0;
+  return ct_diff32(want, received) == 0;
 }

@@ -24,17 +24,17 @@ static u32 nst_clamp_lifetime(u32 lifetime_secs) {
  * an observer cannot correlate ticket_age across issuances. */
 static u32 nst_random_age_add(void) {
   u8 b[4];
-  quic_rng_bytes(b, 4);
-  return quic_get_be32(b);
+  rng_bytes(b, 4);
+  return be_get_be32(b);
 }
 
 static void put_nst_prefix(
     u8* body, const quic_ticket* t, u32 age_add, const u8* sealed) {
   usz i;
-  quic_put_be32(body, t->lifetime_secs);
-  quic_put_be32(body + 4, age_add);
+  be_put_be32(body, t->lifetime_secs);
+  be_put_be32(body + 4, age_add);
   body[8] = 0; /* ticket_nonce_len */
-  quic_put_be16(body + 9, QUIC_TICKET_SEALED_LEN);
+  be_put_be16(body + 9, QUIC_TICKET_SEALED_LEN);
   for (i = 0; i < QUIC_TICKET_SEALED_LEN; i++) body[11 + i] = sealed[i];
 }
 
@@ -44,12 +44,12 @@ static void put_nst_prefix(
 static usz put_nst_exts(u8* p, usz cap, u32 max_early_data_size) {
   wired_obuf eob;
   if (max_early_data_size == 0 || cap < 10) {
-    quic_put_be16(p, 0);
+    be_put_be16(p, 0);
     return 2;
   }
-  eob = quic_obuf_of(p + 2, cap - 2);
+  eob = obuf_of(p + 2, cap - 2);
   quic_tlsext_early_data_nst(max_early_data_size, &eob);
-  quic_put_be16(p, (u16)eob.len);
+  be_put_be16(p, (u16)eob.len);
   return 2 + eob.len;
 }
 

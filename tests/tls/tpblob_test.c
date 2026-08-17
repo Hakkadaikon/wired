@@ -12,7 +12,7 @@ static void test_blob_token(void) {
   u8         buf[64];
   u64        id;
   wired_span v;
-  wired_obuf ob = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf ob = obuf_of(buf, sizeof(buf));
   usz        w  = quic_tparam_put_blob(
       &ob, QUIC_TP_STATELESS_RESET_TOKEN, wired_span_of(tok, 16));
   usz r = quic_tparam_get_blob(wired_span_of(buf, w), &id, &v);
@@ -25,7 +25,7 @@ static void test_blob_variable_cid(void) {
   u8         buf[64];
   u64        id;
   wired_span v;
-  wired_obuf ob = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf ob = obuf_of(buf, sizeof(buf));
   usz        w  = quic_tparam_put_blob(
       &ob, QUIC_TP_INITIAL_SOURCE_CONNECTION_ID, wired_span_of(cid, 8));
   usz r = quic_tparam_get_blob(wired_span_of(buf, w), &id, &v);
@@ -37,7 +37,7 @@ static void test_blob_empty(void) {
   u8         buf[8];
   u64        id;
   wired_span v;
-  wired_obuf ob = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf ob = obuf_of(buf, sizeof(buf));
   usz        w  = quic_tparam_put_blob(
       &ob, QUIC_TP_DISABLE_ACTIVE_MIGRATION, wired_span_of(buf, 0));
   usz r = quic_tparam_get_blob(wired_span_of(buf, w), &id, &v);
@@ -49,7 +49,7 @@ static void test_blob_truncated(void) {
   u8         buf[64];
   u64        id;
   wired_span v;
-  wired_obuf ob = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf ob = obuf_of(buf, sizeof(buf));
   usz        w  = quic_tparam_put_blob(
       &ob, QUIC_TP_STATELESS_RESET_TOKEN, wired_span_of(tok, 16));
   CHECK(quic_tparam_get_blob(wired_span_of(buf, w - 1), &id, &v) == 0);

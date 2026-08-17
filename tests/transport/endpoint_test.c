@@ -11,7 +11,7 @@
 static usz tx(quic_memlink* l, const u8* qpkt, usz qlen, u32 src, u32 dst) {
   u8            udp[1500], ip[20], frame[1520];
   quic_udp4meta meta = {{4433, 4433}, {src, dst}};
-  wired_obuf    ub   = quic_obuf_of(udp, sizeof(udp));
+  wired_obuf    ub   = obuf_of(udp, sizeof(udp));
   usz           un   = quic_udp4_build(&ub, &meta, wired_span_of(qpkt, qlen));
   quic_ipv4_build(
       ip, &(quic_ipv4_head){(u16)(20 + un), src, dst, QUIC_IP_PROTO_UDP});
@@ -41,7 +41,7 @@ static usz rx(quic_memlink* l, u8* qpkt, usz cap, u32 src, u32 dst) {
 static usz make_client_initial(
     quic_endpoint*           c,
     const quic_initial_keys* ik,
-    const quic_aes128*       hp,
+    const aes128*            hp,
     u8*                      out,
     usz                      cap) {
   u8  hello[256], crypto[300], hdr[18];
@@ -68,7 +68,7 @@ static int server_read_initial(
     u8*                      pkt,
     usz                      plen,
     const quic_initial_keys* ik,
-    const quic_aes128*       hp,
+    const aes128*            hp,
     u8                       peer_pub[32]) {
   quic_protect_keys    k  = {ik, hp};
   quic_protect_open_io io = {wired_mspan_of(pkt, plen), 18, 14, 4, 1};
@@ -97,9 +97,9 @@ static void test_endpoint_handshake(void) {
   quic_endpoint_init(&sv, spriv, dcid);
 
   quic_initial_keys cik; /* client Initial keys (both sides derive) */
-  quic_aes128       chp;
+  aes128            chp;
   quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &cik);
-  quic_aes128_init(&chp, cik.hp);
+  aes128_init(&chp, cik.hp);
 
   quic_memlink link;
   quic_memlink_init(&link);
@@ -138,8 +138,8 @@ static void test_endpoint_handshake(void) {
     CHECK(cl_sees_server.key[i] == sv.hs_keys.key[i]);
 
   /* 1-RTT STREAM data round-trips under the agreed (server) handshake keys */
-  quic_aes128 shp;
-  quic_aes128_init(&shp, sv.hs_keys.hp);
+  aes128 shp;
+  aes128_init(&shp, sv.hs_keys.hp);
   u8                sframe[32], spkt[128];
   quic_stream_frame sf = {
       .stream_id = 4,

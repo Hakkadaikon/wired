@@ -11,7 +11,7 @@ void test_sflight_finished_build(void) {
   u8         out[40];
   usz        body_len;
   u8         type;
-  wired_obuf ob = quic_obuf_of(out, sizeof(out));
+  wired_obuf ob = obuf_of(out, sizeof(out));
 
   for (usz i = 0; i < sizeof(key); i++) key[i] = (u8)(i + 1);
   for (usz i = 0; i < 32; i++) thash[i] = (u8)(0x80 + i);
@@ -24,6 +24,6 @@ void test_sflight_finished_build(void) {
   /* the body is verify_data the verifier accepts. */
   CHECK(quic_tls_finished_check(key, thash, out + 4));
 
-  ob = quic_obuf_of(out, 4);
+  ob = obuf_of(out, 4);
   CHECK(!quic_sflight_finished(key, thash, &ob));
 }

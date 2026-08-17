@@ -34,7 +34,7 @@ void wired_server_init(wired_server* s, const wired_server_init_in* in) {
   srv_copy32(s->server_priv, in->server_priv_x25519);
   quic_sdrv_init(&s->sdrv, &din);
   quic_keysched_init(&s->sched);
-  quic_keyset_init(&s->keys);
+  keyset_init(&s->keys);
   quic_srvfin_state_init(&s->fin, &s->sched, &s->keys);
   quic_crecv_init(&s->crecv);
   s->fd                = -1;
@@ -138,7 +138,7 @@ static int srv_install_hs_keys(wired_server* s) {
   const quic_initial_keys* shs;
   if (!srv_derive_hs(s, ecdhe)) return 0;
   if (!quic_keysched_get(&s->sched, QUIC_KS_SERVER_HS, &shs)) return 0;
-  return quic_keyset_install(&s->keys, QUIC_LEVEL_HANDSHAKE, shs);
+  return keyset_install(&s->keys, QUIC_LEVEL_HANDSHAKE, shs);
 }
 
 /* Record the flight in the transcript and install the Handshake key. */

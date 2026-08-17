@@ -18,8 +18,8 @@ void test_hp_suite(void) {
   CHECK(
       quic_hp_suite_mask(QUIC_TLS_AES_128_GCM_SHA256, aes_key, sample, mask) ==
       1);
-  quic_aes128 hp;
-  quic_aes128_init(&hp, aes_key);
+  aes128 hp;
+  aes128_init(&hp, aes_key);
   u8 want_aes[5];
   quic_hp_mask(&hp, sample, want_aes);
   for (usz i = 0; i < 5; i++) CHECK(mask[i] == want_aes[i]);

@@ -3,8 +3,8 @@
 #include "test.h"
 
 static int sao_is(const u8* oid, usz n, u8 key, u8 hash) {
-  quic_x509_sigalg a;
-  return quic_x509_sigalg_lookup(wired_span_of(oid, n), &a) == 1 &&
+  x509_sigalg a;
+  return x509_sigalg_lookup(wired_span_of(oid, n), &a) == 1 &&
          a.key_kind == key && a.hash_kind == hash;
 }
 
@@ -32,20 +32,20 @@ static void test_sigalgoid_listed(void) {
 /* Anything else fails closed: sha224WithRSA, sha1WithRSA, md5WithRSA,
  * RSASSA-PSS, and truncated OIDs. */
 static void test_sigalgoid_unknown(void) {
-  static const u8  r224[] = {0x2a, 0x86, 0x48, 0x86, 0xf7,
-                             0x0d, 0x01, 0x01, 0x0e};
-  static const u8  sha1[] = {0x2a, 0x86, 0x48, 0x86, 0xf7,
-                             0x0d, 0x01, 0x01, 0x05};
-  static const u8  md5[]  = {0x2a, 0x86, 0x48, 0x86, 0xf7,
-                             0x0d, 0x01, 0x01, 0x04};
-  static const u8  pss[]  = {0x2a, 0x86, 0x48, 0x86, 0xf7,
-                             0x0d, 0x01, 0x01, 0x0a};
-  quic_x509_sigalg a;
-  CHECK(quic_x509_sigalg_lookup(wired_span_of(r224, sizeof(r224)), &a) == 0);
-  CHECK(quic_x509_sigalg_lookup(wired_span_of(sha1, sizeof(sha1)), &a) == 0);
-  CHECK(quic_x509_sigalg_lookup(wired_span_of(md5, sizeof(md5)), &a) == 0);
-  CHECK(quic_x509_sigalg_lookup(wired_span_of(pss, sizeof(pss)), &a) == 0);
-  CHECK(quic_x509_sigalg_lookup(wired_span_of(r224, 8), &a) == 0); /* short */
+  static const u8 r224[] = {0x2a, 0x86, 0x48, 0x86, 0xf7,
+                            0x0d, 0x01, 0x01, 0x0e};
+  static const u8 sha1[] = {0x2a, 0x86, 0x48, 0x86, 0xf7,
+                            0x0d, 0x01, 0x01, 0x05};
+  static const u8 md5[]  = {0x2a, 0x86, 0x48, 0x86, 0xf7,
+                            0x0d, 0x01, 0x01, 0x04};
+  static const u8 pss[]  = {0x2a, 0x86, 0x48, 0x86, 0xf7,
+                            0x0d, 0x01, 0x01, 0x0a};
+  x509_sigalg     a;
+  CHECK(x509_sigalg_lookup(wired_span_of(r224, sizeof(r224)), &a) == 0);
+  CHECK(x509_sigalg_lookup(wired_span_of(sha1, sizeof(sha1)), &a) == 0);
+  CHECK(x509_sigalg_lookup(wired_span_of(md5, sizeof(md5)), &a) == 0);
+  CHECK(x509_sigalg_lookup(wired_span_of(pss, sizeof(pss)), &a) == 0);
+  CHECK(x509_sigalg_lookup(wired_span_of(r224, 8), &a) == 0); /* short */
 }
 
 void test_sigalgoid(void) {

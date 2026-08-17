@@ -10,9 +10,9 @@ static int encode_room(usz cap, usz count, usz n) {
 usz quic_verinfo_encode(u8* buf, usz cap, const quic_version_information* vi) {
   usz n = 4 + 4 * vi->count;
   if (!encode_room(cap, vi->count, n)) return 0;
-  quic_put_be32(buf, vi->chosen);
+  be_put_be32(buf, vi->chosen);
   for (usz i = 0; i < vi->count; i++)
-    quic_put_be32(buf + 4 + 4 * i, vi->available[i]);
+    be_put_be32(buf + 4 + 4 * i, vi->available[i]);
   return n;
 }
 

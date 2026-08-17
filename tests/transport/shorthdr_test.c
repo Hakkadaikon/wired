@@ -34,7 +34,7 @@ static void test_shorthdr_build_layout(void) {
   u8 out[16];
 
   quic_shorthdr_desc d = {1, 1, wired_span_of(dcid, 4), 0x010203, 4};
-  wired_obuf         o = quic_obuf_of(out, sizeof out);
+  wired_obuf         o = obuf_of(out, sizeof out);
   CHECK(quic_shorthdr_build(&d, &o));
   CHECK(o.len == 1 + 4 + 4);
   CHECK(out[0] == quic_shorthdr_byte0(1, 1, 4));
@@ -51,8 +51,8 @@ static void test_shorthdr_build_reject(void) {
   quic_shorthdr_desc d0 = {0, 0, wired_span_of(dcid, 2), 1, 0};
   quic_shorthdr_desc d5 = {0, 0, wired_span_of(dcid, 2), 1, 5};
   quic_shorthdr_desc d4 = {0, 0, wired_span_of(dcid, 2), 1, 4};
-  wired_obuf         o  = quic_obuf_of(out, sizeof out);
-  wired_obuf         o6 = quic_obuf_of(out, 6);
+  wired_obuf         o  = obuf_of(out, sizeof out);
+  wired_obuf         o6 = obuf_of(out, 6);
   CHECK(quic_shorthdr_build(&d0, &o) == 0);
   CHECK(quic_shorthdr_build(&d5, &o) == 0);
   /* needs 1 + 2 + 4 = 7 bytes; give 6 */
@@ -65,7 +65,7 @@ static void test_shorthdr_roundtrip(void) {
   u8 out[16];
 
   quic_shorthdr_desc da = {1, 1, wired_span_of(dcid, 3), 0xABCD, 2};
-  wired_obuf         o  = quic_obuf_of(out, sizeof out);
+  wired_obuf         o  = obuf_of(out, sizeof out);
   CHECK(quic_shorthdr_build(&da, &o));
   CHECK(quic_spin_get(out[0]) == 1);
   CHECK(((out[0] >> 2) & 1) == 1); /* key phase */

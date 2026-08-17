@@ -15,9 +15,9 @@
 /* Wall clock (fail-closed: a dead clock must not skip the validity check)
  * and the ECDHE private scalar. */
 static int client_setup(quic_client* c) {
-  c->now = quic_clock_ymdhms();
+  c->now = clock_ymdhms();
   if (c->now == 0) return 0;
-  return quic_rng_bytes(c->my_priv, QUIC_ECDHE_LEN);
+  return rng_bytes(c->my_priv, QUIC_ECDHE_LEN);
 }
 
 /* RFC 9000 7: generate our X25519 key pair and seed the handshake drivers. */
@@ -39,7 +39,7 @@ int quic_client_init(quic_client* c, const quic_client_init_in* in) {
 
 void quic_client_set_now(quic_client* c, u64 now) { c->now = now; }
 
-void quic_client_set_castore(quic_client* c, const quic_castore* store) {
+void quic_client_set_castore(quic_client* c, const castore* store) {
   c->castore = store;
 }
 
@@ -50,11 +50,11 @@ void quic_client_set_castore(quic_client* c, const quic_castore* store) {
  */
 usz quic_client_build_initial(quic_client* c, u8* out, usz cap) {
   u8         ch[QUIC_CLIENT_HELLO_MAX];
-  wired_obuf ob = quic_obuf_of(ch, sizeof(ch));
+  wired_obuf ob = obuf_of(ch, sizeof(ch));
   if (!quic_tlsdriver_client_hello(&c->tls, &ob)) return 0;
   {
     quic_crypto_stream_emit_in ein = {0, QUIC_CLIENT_CRYPTO_FRAME};
-    wired_obuf                 fb  = quic_obuf_of(out, cap);
+    wired_obuf                 fb  = obuf_of(out, cap);
     if (!quic_crypto_stream_emit(wired_span_of(ch, ob.len), &ein, &fb))
       return 0;
     return quic_pktbuild_init_pad(out, fb.len, cap);

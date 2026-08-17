@@ -11,7 +11,7 @@ void quic_zerortt_seen_init(quic_zerortt_seen* s) {
 /* The index of an existing entry matching digest, or -1. */
 static int zerortt_seen_find(const quic_zerortt_seen* s, const u8 digest[32]) {
   for (usz i = 0; i < s->count; i++)
-    if (quic_ct_diff32(s->digest[i], digest) == 0) return (int)i;
+    if (ct_diff32(s->digest[i], digest) == 0) return (int)i;
   return -1;
 }
 

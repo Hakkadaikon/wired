@@ -98,7 +98,7 @@ static void test_sdrv_hrr_no_x25519_triggers_hrr(void) {
   u8               ch[512], hrr[256];
   usz              ch_len;
   quic_sdrv        s;
-  wired_obuf       hob = quic_obuf_of(hrr, sizeof(hrr));
+  wired_obuf       hob = obuf_of(hrr, sizeof(hrr));
   sdrv_hrr_fixture_init(&f);
   ch_len = sdrv_hrr_build_ch(ch, sizeof(ch), f.cli_pub, f.srv_random);
   CHECK(ch_len != 0);
@@ -117,7 +117,7 @@ static void test_sdrv_hrr_second_ch_same_cipher_accepted(void) {
   u8               ch1[512], ch2[512], hrr[256];
   usz              ch1_len, ch2_len;
   quic_sdrv        s;
-  wired_obuf       hob = quic_obuf_of(hrr, sizeof(hrr));
+  wired_obuf       hob = obuf_of(hrr, sizeof(hrr));
   sdrv_hrr_fixture_init(&f);
   ch1_len = sdrv_hrr_build_ch(ch1, sizeof(ch1), f.cli_pub, f.srv_random);
   CHECK(ch1_len != 0);
@@ -139,7 +139,7 @@ static void test_sdrv_hrr_second_ch_diff_cipher_rejected(void) {
   u8               ch1[512], ch2[512], hrr[256];
   usz              ch1_len, ch2_len;
   quic_sdrv        s;
-  wired_obuf       hob = quic_obuf_of(hrr, sizeof(hrr));
+  wired_obuf       hob = obuf_of(hrr, sizeof(hrr));
   sdrv_hrr_fixture_init(&f);
   ch1_len = sdrv_hrr_build_ch(ch1, sizeof(ch1), f.cli_pub, f.srv_random);
   CHECK(ch1_len != 0);
@@ -163,7 +163,7 @@ static void test_sdrv_hrr_transcript_uses_message_hash(void) {
   u8               ch1[512], hrr[256];
   usz              ch1_len;
   quic_sdrv        s;
-  wired_obuf       hob = quic_obuf_of(hrr, sizeof(hrr));
+  wired_obuf       hob = obuf_of(hrr, sizeof(hrr));
   u8               ch1_hash[32], mh[36], expect[32], got[32];
   usz              mh_len;
   quic_transcript  expect_tr;

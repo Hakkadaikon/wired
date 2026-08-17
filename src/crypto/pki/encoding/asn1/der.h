@@ -22,14 +22,14 @@ typedef struct {
   u8         tag;
   wired_span val;
   usz        used;
-} quic_der_tlv;
+} der_tlv;
 
 /* Read one TLV from buf. The value views into buf; nothing is copied.
  * Returns 1 ok, 0 on error. */
-int quic_der_read(wired_span buf, quic_der_tlv* out);
+int der_read(wired_span buf, der_tlv* out);
 
 /* Read one TLV from buf, requiring a SEQUENCE tag; views its value.
  * Returns 1 ok, 0 on error or a different tag. */
-int quic_der_seq(wired_span buf, wired_span* val);
+int der_seq(wired_span buf, wired_span* val);
 
 #endif

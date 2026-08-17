@@ -5,16 +5,16 @@
 #include "rsachain_golden.h"
 #include "test.h"
 
-static quic_castore_entry rct_roots[2];
+static castore_entry rct_roots[2];
 
 /* Validate a one-cert wire chain [leaf] against a single-root store. */
 static int rct_validate(
     const u8* root, usz root_len, const u8* leaf, usz leaf_len) {
-  quic_castore s;
-  wired_span   certs[1] = {wired_span_of(leaf, leaf_len)};
-  quic_castore_init(&s, rct_roots, 2);
-  CHECK(quic_castore_add(&s, wired_span_of(root, root_len)) == 1);
-  return quic_castore_validate_chain(&s, certs, 1);
+  castore    s;
+  wired_span certs[1] = {wired_span_of(leaf, leaf_len)};
+  castore_init(&s, rct_roots, 2);
+  CHECK(castore_add(&s, wired_span_of(root, root_len)) == 1);
+  return castore_validate_chain(&s, certs, 1);
 }
 
 /* sha256WithRSAEncryption under an RSA-2048 root verifies; a tampered
@@ -70,14 +70,14 @@ static void test_rsachain_sha224_rejected(void) {
 
 /* GeneralizedTime bounds (notAfter 2060-09-21) admit 2055 and reject 2061. */
 static void test_gentime_validity(void) {
-  quic_x509 c;
+  x509 c;
   CHECK(
-      quic_x509_parse(
+      x509_parse(
           wired_span_of(
               quic_rsachain_gentime_der, sizeof(quic_rsachain_gentime_der)),
           &c) == 1);
-  CHECK(quic_x509_validity_ok(c.tbs, 20550101000000ULL) == 1);
-  CHECK(quic_x509_validity_ok(c.tbs, 20610101000000ULL) == 0);
+  CHECK(x509_validity_ok(c.tbs, 20550101000000ULL) == 1);
+  CHECK(x509_validity_ok(c.tbs, 20610101000000ULL) == 0);
 }
 
 void test_rsachain(void) {

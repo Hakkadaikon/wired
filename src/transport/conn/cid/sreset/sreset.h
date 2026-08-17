@@ -47,7 +47,7 @@ usz quic_sreset_size(usz trigger_len);
 
 /* Build a stateless reset packet for `cid` into `out` (capacity `out_cap`).
  * Size is quic_sreset_size(trigger_len), clamped to out_cap. The leading
- * bytes are random (via `rand_fill`, e.g. quic_rng_bytes) and the trailing
+ * bytes are random (via `rand_fill`, e.g. rng_bytes) and the trailing
  * 16 bytes are the token derived from `key`+`cid`. Writes the packet length
  * to *out_len. Returns 1 on success, 0 if out_cap is below the minimum. */
 int quic_sreset_build(

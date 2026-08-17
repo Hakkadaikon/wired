@@ -3,7 +3,7 @@
 #include "test.h"
 
 /* Six NULL elements standing in for serialNumber..subjectPublicKeyInfo, so
- * quic_x509_tbs_cursor's skip(6) lands past them. */
+ * x509_tbs_cursor's skip(6) lands past them. */
 #define KUT_DUMMY6 \
   0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00
 
@@ -38,21 +38,21 @@ static const u8 kut_tbs_ecdh_agree_certsign[] = {KUT_TBS(0x0c)};
  * permitted by default. */
 static void test_can_sign_no_extension(void) {
   CHECK(
-      quic_x509_can_sign_certs(
+      x509_can_sign_certs(
           wired_span_of(kut_tbs_no_ext, sizeof(kut_tbs_no_ext))) == 1);
 }
 
 /* keyCertSign (bit5) set: permitted. */
 static void test_can_sign_certsign_set(void) {
   CHECK(
-      quic_x509_can_sign_certs(
+      x509_can_sign_certs(
           wired_span_of(kut_tbs_certsign, sizeof(kut_tbs_certsign))) == 1);
 }
 
 /* Only digitalSignature (bit0) set, keyCertSign absent: rejected. */
 static void test_can_sign_certsign_unset(void) {
   CHECK(
-      quic_x509_can_sign_certs(
+      x509_can_sign_certs(
           wired_span_of(kut_tbs_digitalsig, sizeof(kut_tbs_digitalsig))) == 0);
 }
 
@@ -60,7 +60,7 @@ static void test_can_sign_certsign_unset(void) {
  * others: permitted. */
 static void test_can_sign_certsign_among_others(void) {
   CHECK(
-      quic_x509_can_sign_certs(
+      x509_can_sign_certs(
           wired_span_of(kut_tbs_all_low6, sizeof(kut_tbs_all_low6))) == 1);
 }
 
@@ -68,21 +68,21 @@ static void test_can_sign_certsign_among_others(void) {
  * permitted by default. */
 static void test_keyagreement_no_extension(void) {
   CHECK(
-      quic_x509_keyagreement_ok(
+      x509_keyagreement_ok(
           wired_span_of(kut_tbs_no_ext, sizeof(kut_tbs_no_ext))) == 1);
 }
 
 /* keyAgreement (bit4) set: permitted. */
 static void test_keyagreement_bit_set(void) {
   CHECK(
-      quic_x509_keyagreement_ok(wired_span_of(
+      x509_keyagreement_ok(wired_span_of(
           kut_tbs_keyagreement, sizeof(kut_tbs_keyagreement))) == 1);
 }
 
 /* keyCertSign set but not keyAgreement: rejected. */
 static void test_keyagreement_bit_unset(void) {
   CHECK(
-      quic_x509_keyagreement_ok(
+      x509_keyagreement_ok(
           wired_span_of(kut_tbs_certsign, sizeof(kut_tbs_certsign))) == 0);
 }
 
@@ -90,21 +90,21 @@ static void test_keyagreement_bit_unset(void) {
  * Ed448 cert may sign by default. */
 static void test_ed_leaf_sig_no_extension(void) {
   CHECK(
-      quic_x509_ed_leaf_sig_ok(
+      x509_ed_leaf_sig_ok(
           wired_span_of(kut_tbs_no_ext, sizeof(kut_tbs_no_ext))) == 1);
 }
 
 /* digitalSignature (bit0) alone: permitted. */
 static void test_ed_leaf_sig_digitalsignature(void) {
   CHECK(
-      quic_x509_ed_leaf_sig_ok(
+      x509_ed_leaf_sig_ok(
           wired_span_of(kut_tbs_digitalsig, sizeof(kut_tbs_digitalsig))) == 1);
 }
 
 /* nonRepudiation (bit1) alone: permitted. */
 static void test_ed_leaf_sig_nonrepudiation(void) {
   CHECK(
-      quic_x509_ed_leaf_sig_ok(
+      x509_ed_leaf_sig_ok(
           wired_span_of(kut_tbs_nonrepud, sizeof(kut_tbs_nonrepud))) == 1);
 }
 
@@ -112,7 +112,7 @@ static void test_ed_leaf_sig_nonrepudiation(void) {
  */
 static void test_ed_leaf_sig_neither(void) {
   CHECK(
-      quic_x509_ed_leaf_sig_ok(wired_span_of(
+      x509_ed_leaf_sig_ok(wired_span_of(
           kut_tbs_keyagreement, sizeof(kut_tbs_keyagreement))) == 0);
 }
 
@@ -120,28 +120,28 @@ static void test_ed_leaf_sig_neither(void) {
  * is admissible by default. */
 static void test_ed_ca_no_extension(void) {
   CHECK(
-      quic_x509_ed_ca_ok(
-          wired_span_of(kut_tbs_no_ext, sizeof(kut_tbs_no_ext))) == 1);
+      x509_ed_ca_ok(wired_span_of(kut_tbs_no_ext, sizeof(kut_tbs_no_ext))) ==
+      1);
 }
 
 /* keyCertSign (bit5) alone: permitted for a CA Ed25519/Ed448 cert. */
 static void test_ed_ca_keycertsign(void) {
   CHECK(
-      quic_x509_ed_ca_ok(
+      x509_ed_ca_ok(
           wired_span_of(kut_tbs_certsign, sizeof(kut_tbs_certsign))) == 1);
 }
 
 /* cRLSign (bit6) alone: permitted for a CA Ed25519/Ed448 cert. */
 static void test_ed_ca_crlsign(void) {
   CHECK(
-      quic_x509_ed_ca_ok(
-          wired_span_of(kut_tbs_crlsign, sizeof(kut_tbs_crlsign))) == 1);
+      x509_ed_ca_ok(wired_span_of(kut_tbs_crlsign, sizeof(kut_tbs_crlsign))) ==
+      1);
 }
 
 /* Only keyAgreement, none of the admissible CA bits: rejected. */
 static void test_ed_ca_none_admissible(void) {
   CHECK(
-      quic_x509_ed_ca_ok(wired_span_of(
+      x509_ed_ca_ok(wired_span_of(
           kut_tbs_keyagreement, sizeof(kut_tbs_keyagreement))) == 0);
 }
 
@@ -149,21 +149,21 @@ static void test_ed_ca_none_admissible(void) {
  * is admissible by default. */
 static void test_ecdh_keyusage_no_extension(void) {
   CHECK(
-      quic_x509_ecdh_keyusage_ok(
+      x509_ecdh_keyusage_ok(
           wired_span_of(kut_tbs_no_ext, sizeof(kut_tbs_no_ext))) == 1);
 }
 
 /* keyAgreement (bit4) alone: permitted. */
 static void test_ecdh_keyusage_agreement_alone(void) {
   CHECK(
-      quic_x509_ecdh_keyusage_ok(wired_span_of(
+      x509_ecdh_keyusage_ok(wired_span_of(
           kut_tbs_keyagreement, sizeof(kut_tbs_keyagreement))) == 1);
 }
 
 /* keyAgreement + encipherOnly: the RFC 5480 3 MAY combination, permitted. */
 static void test_ecdh_keyusage_agreement_encipheronly(void) {
   CHECK(
-      quic_x509_ecdh_keyusage_ok(wired_span_of(
+      x509_ecdh_keyusage_ok(wired_span_of(
           kut_tbs_ecdh_agree_encipher, sizeof(kut_tbs_ecdh_agree_encipher))) ==
       1);
 }
@@ -171,7 +171,7 @@ static void test_ecdh_keyusage_agreement_encipheronly(void) {
 /* keyAgreement absent (only digitalSignature set): rejected. */
 static void test_ecdh_keyusage_no_agreement(void) {
   CHECK(
-      quic_x509_ecdh_keyusage_ok(
+      x509_ecdh_keyusage_ok(
           wired_span_of(kut_tbs_digitalsig, sizeof(kut_tbs_digitalsig))) == 0);
 }
 
@@ -179,7 +179,7 @@ static void test_ecdh_keyusage_no_agreement(void) {
  * rejected even though keyAgreement itself is set. */
 static void test_ecdh_keyusage_forbidden_digitalsig(void) {
   CHECK(
-      quic_x509_ecdh_keyusage_ok(wired_span_of(
+      x509_ecdh_keyusage_ok(wired_span_of(
           kut_tbs_ecdh_agree_digitalsig,
           sizeof(kut_tbs_ecdh_agree_digitalsig))) == 0);
 }
@@ -187,7 +187,7 @@ static void test_ecdh_keyusage_forbidden_digitalsig(void) {
 /* keyAgreement + keyCertSign: RFC 5480 3 MUST NOT combination, rejected. */
 static void test_ecdh_keyusage_forbidden_certsign(void) {
   CHECK(
-      quic_x509_ecdh_keyusage_ok(wired_span_of(
+      x509_ecdh_keyusage_ok(wired_span_of(
           kut_tbs_ecdh_agree_certsign, sizeof(kut_tbs_ecdh_agree_certsign))) ==
       0);
 }

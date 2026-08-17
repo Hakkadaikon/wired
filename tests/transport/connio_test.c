@@ -27,7 +27,7 @@ static usz send_at(
     u8*          out,
     usz          cap) {
   quic_connio_send_in sin = {level, wired_span_of(frames, frames_len)};
-  wired_obuf          ob  = quic_obuf_of(out, cap);
+  wired_obuf          ob  = obuf_of(out, cap);
   return quic_connio_send(io, &sin, &ob);
 }
 
@@ -41,8 +41,8 @@ static void test_connio_seal_open_roundtrip(void) {
   cl.loop.validated   = 1;
   sv.loop.validated   = 1;
   quic_initial_keys k = {0};
-  quic_keyset_install(&cl.loop.keys, QUIC_LEVEL_INITIAL, &k);
-  quic_keyset_install(&sv.loop.keys, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&cl.loop.keys, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&sv.loop.keys, QUIC_LEVEL_INITIAL, &k);
 
   u8                frames[64];
   quic_stream_frame sf = {
@@ -63,7 +63,7 @@ static void test_connio_seal_open_roundtrip(void) {
 
   /* the STREAM bytes reached the server's read buffer in order */
   u8         got[16];
-  wired_obuf ob = quic_obuf_of(got, sizeof(got));
+  wired_obuf ob = obuf_of(got, sizeof(got));
   quic_stream_read_pull(&sv.stream, &ob);
   CHECK(ob.len == 5);
   CHECK(got[0] == 'h' && got[4] == 'o');
@@ -91,8 +91,8 @@ static void test_connio_gated_without_key(void) {
 static void arm_two_levels(quic_connio* io) {
   quic_initial_keys k = {0};
   io->loop.validated  = 1;
-  quic_keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
-  quic_keyset_install(&io->loop.keys, QUIC_LEVEL_HANDSHAKE, &k);
+  keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&io->loop.keys, QUIC_LEVEL_HANDSHAKE, &k);
 }
 
 /* RFC 9000 12.3: each packet number space numbers from 0 independently. A send
@@ -165,9 +165,9 @@ static void test_connio_recv_per_space(void) {
 static void arm_onertt(quic_connio* io) {
   quic_initial_keys k = {0};
   io->loop.validated  = 1;
-  quic_keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
-  quic_keyset_install(&io->loop.keys, QUIC_LEVEL_HANDSHAKE, &k);
-  quic_keyset_install(&io->loop.keys, QUIC_LEVEL_ONERTT, &k);
+  keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
+  keyset_install(&io->loop.keys, QUIC_LEVEL_HANDSHAKE, &k);
+  keyset_install(&io->loop.keys, QUIC_LEVEL_ONERTT, &k);
   io->loop.send_level         = QUIC_LEVEL_HANDSHAKE;
   io->loop.handshake_complete = 1;
 }
@@ -198,14 +198,14 @@ static void test_connio_close_on_violation_handshake_done(void) {
   CHECK(sv.disp.violation == 1);
 
   u8         close_pkt[256];
-  wired_obuf ob = quic_obuf_of(close_pkt, sizeof close_pkt);
+  wired_obuf ob = obuf_of(close_pkt, sizeof close_pkt);
   usz        n  = quic_connio_close_on_violation(&sv, &ob);
   CHECK(n != 0);
   CHECK(n == ob.len);
   CHECK(sv.disp.violation == 0); /* fires once */
 
   /* fires nothing the second time (already cleared) */
-  wired_obuf ob2 = quic_obuf_of(close_pkt, sizeof close_pkt);
+  wired_obuf ob2 = obuf_of(close_pkt, sizeof close_pkt);
   CHECK(quic_connio_close_on_violation(&sv, &ob2) == 0);
 }
 
@@ -228,7 +228,7 @@ static void test_connio_close_on_violation_wire_content(void) {
   CHECK(quic_connio_recv(&sv, QUIC_LEVEL_ONERTT, wired_mspan_of(pkt, pn)) == 0);
 
   u8         close_pkt[256];
-  wired_obuf ob = quic_obuf_of(close_pkt, sizeof close_pkt);
+  wired_obuf ob = obuf_of(close_pkt, sizeof close_pkt);
   CHECK(quic_connio_close_on_violation(&sv, &ob) != 0);
 
   /* server -> client direction now: client's connio opens the CLOSE packet */
@@ -284,7 +284,7 @@ static void test_connio_close_on_aead_limit_wire_content(void) {
   CHECK(sv.loop.aead_limit == 1);
 
   u8         close_pkt[256];
-  wired_obuf ob = quic_obuf_of(close_pkt, sizeof close_pkt);
+  wired_obuf ob = obuf_of(close_pkt, sizeof close_pkt);
   CHECK(quic_connio_close_on_aead_limit(&sv, &ob) != 0);
   CHECK(sv.loop.aead_limit == 0); /* fires once */
 
@@ -295,7 +295,7 @@ static void test_connio_close_on_aead_limit_wire_content(void) {
   CHECK(cl.disp.close == 1);
 
   /* nothing fires a second time */
-  wired_obuf ob2 = quic_obuf_of(close_pkt, sizeof close_pkt);
+  wired_obuf ob2 = obuf_of(close_pkt, sizeof close_pkt);
   CHECK(quic_connio_close_on_aead_limit(&sv, &ob2) == 0);
 }
 
@@ -336,13 +336,13 @@ static void test_connio_stop_sending_auto_reset(void) {
   CHECK(sv.disp.stop_sending_owed == 1);
 
   u8         reset_pkt[256];
-  wired_obuf ob = quic_obuf_of(reset_pkt, sizeof reset_pkt);
+  wired_obuf ob = obuf_of(reset_pkt, sizeof reset_pkt);
   usz        n  = quic_connio_send_stop_sending_reset(&sv, &ob);
   CHECK(n != 0);
   CHECK(sv.disp.stop_sending_owed == 0); /* fires once */
 
   /* nothing fires a second time */
-  wired_obuf ob2 = quic_obuf_of(reset_pkt, sizeof reset_pkt);
+  wired_obuf ob2 = obuf_of(reset_pkt, sizeof reset_pkt);
   CHECK(quic_connio_send_stop_sending_reset(&sv, &ob2) == 0);
 
   /* decrypt on the client side and confirm the wire content: same stream ID

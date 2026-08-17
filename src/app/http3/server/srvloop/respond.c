@@ -58,7 +58,7 @@ static int emit_handshake_ack(const wired_srvloop_conn* c, wired_obuf* out) {
  */
 static int build_settings_frame(wired_srvloop* l, wired_obuf* out) {
   u8                ctl[64];
-  wired_obuf        ctlb = quic_obuf_of(ctl, sizeof ctl);
+  wired_obuf        ctlb = obuf_of(ctl, sizeof ctl);
   quic_stream_frame f;
   /* advertise WebTransport + H3 datagrams only when the QUIC transport also
    * negotiated max_datagram_frame_size (RFC 9297 2.1.1 MUST) */
@@ -130,7 +130,7 @@ static int confirm_head(
  * empty (no replay available) rather than truncating. */
 static void confirm_cache_store(wired_srvloop* l, const u8* p, usz n) {
   if (n > sizeof l->confirm_frames) return;
-  quic_memcpy(l->confirm_frames, p, n);
+  bytes_memcpy(l->confirm_frames, p, n);
   l->confirm_frames_len = (u16)n;
 }
 
@@ -138,11 +138,11 @@ static void confirm_cache_store(wired_srvloop* l, const u8* p, usz n) {
  * (RFC 9000 19.20) last — callers rely on HANDSHAKE_DONE being the trailing
  * frame. */
 static int confirm_payload(const wired_srvloop_conn* c, wired_obuf* out) {
-  wired_obuf ob = quic_obuf_of(out->p, out->cap);
+  wired_obuf ob = obuf_of(out->p, out->cap);
   usz        a;
   if (!confirm_head(c->s, c->l, &ob)) return 0;
   a  = ob.len;
-  ob = quic_obuf_of(out->p + a, out->cap - a);
+  ob = obuf_of(out->p + a, out->cap - a);
   if (!wired_server_handshake_done(c->s, &ob)) return 0;
   out->len = a + ob.len;
   confirm_cache_store(c->l, out->p, out->len);
@@ -247,7 +247,7 @@ void wired_srvloop_ack_mark_sent(wired_srvloop* l) {
  * sets it. */
 static const u8* build_body(
     wired_srvloop* l, u8* body, usz* body_len, const char** content_type) {
-  wired_obuf ob         = quic_obuf_of(body, WIRED_SRVLOOP_BODY_MAX);
+  wired_obuf ob         = obuf_of(body, WIRED_SRVLOOP_BODY_MAX);
   int        more       = 0;
   u64        total_size = 0;
   *body_len             = 0;
@@ -290,11 +290,11 @@ static int response_frame(wired_srvloop* l, int got_request, wired_obuf* out) {
  * id. */
 static int confirm_then_maybe_200(
     const wired_srvloop_conn* c, int got_request, wired_obuf* out) {
-  wired_obuf ob = quic_obuf_of(out->p, out->cap);
+  wired_obuf ob = obuf_of(out->p, out->cap);
   usz        a;
   if (!confirm_payload(c, &ob)) return 0;
   a  = ob.len;
-  ob = quic_obuf_of(out->p + a, out->cap - a);
+  ob = obuf_of(out->p + a, out->cap - a);
   if (!response_frame(c->l, got_request, &ob)) return 0;
   out->len = a + ob.len;
   return 1;
@@ -305,7 +305,7 @@ static int confirm_then_maybe_200(
 static int seal_confirm_onertt(
     const wired_srvloop_conn* c, int got_request, wired_obuf* out) {
   u8         pl[WIRED_SRVLOOP_BODY_MAX + 288];
-  wired_obuf plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf plb = obuf_of(pl, sizeof pl);
   usz        pll;
   if (!confirm_then_maybe_200(c, got_request, &plb)) return 0;
   pll = plb.len;
@@ -321,11 +321,11 @@ static int seal_confirm_onertt(
  * in the same datagram) into one datagram. */
 static int emit_confirm(
     const wired_srvloop_conn* c, int got_request, wired_obuf* out) {
-  wired_obuf ob = quic_obuf_of(out->p, out->cap);
+  wired_obuf ob = obuf_of(out->p, out->cap);
   usz        hl;
   if (!emit_handshake_ack(c, &ob)) return 0;
   hl = ob.len;
-  ob = quic_obuf_of(out->p + hl, out->cap - hl);
+  ob = obuf_of(out->p + hl, out->cap - hl);
   if (!seal_confirm_onertt(c, got_request, &ob)) return 0;
   out->len = hl + ob.len;
   return 1;
@@ -338,7 +338,7 @@ static int emit_confirm(
  * already sent at confirmation (build_response needs settings_sent). */
 static int emit_response(const wired_srvloop_conn* c, wired_obuf* out) {
   u8         pl[WIRED_SRVLOOP_BODY_MAX + 288];
-  wired_obuf plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf plb = obuf_of(pl, sizeof pl);
   usz        rl;
   if (!response_frame(c->l, 1, &plb)) return 0;
   rl = plb.len;

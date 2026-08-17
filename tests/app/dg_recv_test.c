@@ -4,7 +4,7 @@
 void test_dg_recv_with_length(void) {
   const u8            data[] = {0xDE, 0xAD, 0xBE, 0xEF};
   u8                  frame[16];
-  wired_obuf          fb = quic_obuf_of(frame, sizeof(frame));
+  wired_obuf          fb = obuf_of(frame, sizeof(frame));
   quic_dgdeliver_opts o  = {1, 64};
   quic_dgdeliver_frame(wired_span_of(data, 4), &o, &fb);
 
@@ -18,7 +18,7 @@ void test_dg_recv_with_length(void) {
 void test_dg_recv_no_length(void) {
   const u8            data[] = {7, 8, 9};
   u8                  frame[16];
-  wired_obuf          fb = quic_obuf_of(frame, sizeof(frame));
+  wired_obuf          fb = obuf_of(frame, sizeof(frame));
   quic_dgdeliver_opts o  = {0, 64};
   quic_dgdeliver_frame(wired_span_of(data, 3), &o, &fb);
 
@@ -32,7 +32,7 @@ void test_dg_recv_no_length(void) {
 void test_dg_recv_truncated(void) {
   const u8            data[] = {1, 2, 3, 4, 5};
   u8                  frame[16];
-  wired_obuf          fb = quic_obuf_of(frame, sizeof(frame));
+  wired_obuf          fb = obuf_of(frame, sizeof(frame));
   quic_dgdeliver_opts o  = {1, 64};
   quic_dgdeliver_frame(wired_span_of(data, 5), &o, &fb);
 

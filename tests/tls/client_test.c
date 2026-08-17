@@ -65,14 +65,14 @@ static void client_reach_hs_secret(
   u8  frame[1024];
   usz fl;
   {
-    wired_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    wired_obuf ob = obuf_of(frame, sizeof(frame));
     CHECK(quic_tlsdriver_client_hello(cl, &ob) == 1);
     fl = ob.len;
   }
   CHECK(quic_tlsdriver_recv_crypto(sv, frame, fl) == 1);
   *shn = client_build_sh(sh, 256, sv_pub);
   {
-    wired_obuf                 ob  = quic_obuf_of(frame, sizeof(frame));
+    wired_obuf                 ob  = obuf_of(frame, sizeof(frame));
     quic_crypto_stream_emit_in ein = {0, 256};
     CHECK(quic_crypto_stream_emit(wired_span_of(sh, *shn), &ein, &ob) == 1);
     fl = ob.len;
@@ -87,9 +87,9 @@ static void client_reach_hs_secret(
  * real ClientHello/ServerHello exchange produced. */
 static usz client_build_cert_msg(const u8 seed[32], u8* out, usz cap) {
   u8         der[512];
-  wired_obuf dob = quic_obuf_of(der, sizeof(der));
-  wired_obuf mob = quic_obuf_of(out, cap);
-  CHECK(quic_selfcert_build(seed, &dob) == 1);
+  wired_obuf dob = obuf_of(der, sizeof(der));
+  wired_obuf mob = obuf_of(out, cap);
+  CHECK(selfcert_build(seed, &dob) == 1);
   CHECK(quic_sflight_certificate(wired_span_of(der, dob.len), &mob) == 1);
   return mob.len;
 }
@@ -128,7 +128,7 @@ static void test_client_feed_serverhello(void) {
   c.castore  = 0;
   quic_tlsdriver_init(&svtls, sv_priv, sv_pub, 1);
   {
-    wired_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    wired_obuf ob = obuf_of(frame, sizeof(frame));
     CHECK(quic_tlsdriver_client_hello(&c.tls, &ob) == 1);
     fl = ob.len;
   }
@@ -136,7 +136,7 @@ static void test_client_feed_serverhello(void) {
 
   shn = client_build_sh(sh, sizeof(sh), sv_pub);
   {
-    wired_obuf                 ob  = quic_obuf_of(frame, sizeof(frame));
+    wired_obuf                 ob  = obuf_of(frame, sizeof(frame));
     quic_crypto_stream_emit_in ein = {0, 256};
     CHECK(quic_crypto_stream_emit(wired_span_of(sh, shn), &ein, &ob) == 1);
     fl = ob.len;
@@ -182,7 +182,7 @@ static void test_client_e2e_confirmed(void) {
   /* server authenticates itself and signs its Finished. */
   CHECK(quic_fullhs_recv_cert(&sv, cert_msg, cert_msg_len) == 1);
   {
-    wired_obuf cvob = quic_obuf_of(cv, sizeof(cv));
+    wired_obuf cvob = obuf_of(cv, sizeof(cv));
     wired_sha256(sv.tr, sv.tr_len, th);
     CHECK(quic_sflight_certificate_verify(cert_seed, th, &cvob) == 1);
     cv_len = cvob.len;
@@ -191,7 +191,7 @@ static void test_client_e2e_confirmed(void) {
       quic_fullhs_recv_certverify(
           &sv, wired_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
   {
-    wired_obuf ob = quic_obuf_of(svfin, sizeof(svfin));
+    wired_obuf ob = obuf_of(svfin, sizeof(svfin));
     CHECK(quic_fullhs_send_finished(&sv, &ob) == 1);
     n = ob.len;
   }
@@ -230,14 +230,14 @@ static void policy_client(
   c->castore  = 0;
   quic_tlsdriver_init(svtls, sv_priv, sv_pub, 1);
   {
-    wired_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    wired_obuf ob = obuf_of(frame, sizeof(frame));
     CHECK(quic_tlsdriver_client_hello(&c->tls, &ob) == 1);
     fl = ob.len;
   }
   CHECK(quic_tlsdriver_recv_crypto(svtls, frame, fl) == 1);
   shn = client_build_sh(sh, sizeof(sh), sv_pub);
   {
-    wired_obuf                 ob  = quic_obuf_of(frame, sizeof(frame));
+    wired_obuf                 ob  = obuf_of(frame, sizeof(frame));
     quic_crypto_stream_emit_in ein = {0, 256};
     CHECK(quic_crypto_stream_emit(wired_span_of(sh, shn), &ein, &ob) == 1);
     fl = ob.len;
@@ -298,7 +298,7 @@ static void test_client_policy_valid(void) {
 
   CHECK(quic_fullhs_recv_cert(&sv, cert_msg, cert_msg_len) == 1);
   {
-    wired_obuf cvob = quic_obuf_of(cv, sizeof(cv));
+    wired_obuf cvob = obuf_of(cv, sizeof(cv));
     wired_sha256(sv.tr, sv.tr_len, th);
     CHECK(quic_sflight_certificate_verify(cert_seed, th, &cvob) == 1);
     cv_len = cvob.len;
@@ -307,7 +307,7 @@ static void test_client_policy_valid(void) {
       quic_fullhs_recv_certverify(
           &sv, wired_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
   {
-    wired_obuf ob = quic_obuf_of(svfin, sizeof(svfin));
+    wired_obuf ob = obuf_of(svfin, sizeof(svfin));
     CHECK(quic_fullhs_send_finished(&sv, &ob) == 1);
     n = ob.len;
   }
@@ -372,7 +372,7 @@ static usz rc_sign_cv(const quic_fullhs* h, u8* cv) {
   content[97] = 0x00;
   for (usz i = 0; i < 32; i++) content[98 + i] = th[i];
   wired_sha256(content, 130, chash);
-  CHECK(quic_p256sign_sign(quic_realchain_leaf_priv, chash, r, s) == 1);
+  CHECK(p256sign_sign(quic_realchain_leaf_priv, chash, r, s) == 1);
   rn     = rc_der_int(der + 2, r);
   sn     = rc_der_int(der + 2 + rn, s);
   der[0] = 0x30;
@@ -396,14 +396,14 @@ static usz rc_sign_cv(const quic_fullhs* h, u8* cv) {
  * clock is in the window; the CV is ECDSA-signed by the leaf key. The client
  * reaches connected with every check armed. */
 static void test_client_castore_confirmed(void) {
-  quic_client        c;
-  quic_fullhs        sv;
-  quic_tlsdriver     svtls;
-  quic_castore       store;
-  quic_castore_entry roots[2];
-  u8                 sh[256], certmsg[1024], cv[256], svfin[64];
-  u8                 cl_priv[32], cl_pub[32], sv_priv[32], sv_pub[32];
-  usz                shn, n, cv_len, fn;
+  quic_client    c;
+  quic_fullhs    sv;
+  quic_tlsdriver svtls;
+  castore        store;
+  castore_entry  roots[2];
+  u8             sh[256], certmsg[1024], cv[256], svfin[64];
+  u8             cl_priv[32], cl_pub[32], sv_priv[32], sv_pub[32];
+  usz            shn, n, cv_len, fn;
 
   for (usz i = 0; i < 32; i++) {
     cl_priv[i] = (u8)(1 + i);
@@ -421,9 +421,9 @@ static void test_client_castore_confirmed(void) {
   /* what feed_initial injects for a fully armed client */
   quic_fullhs_set_policy(
       &c.hs, 20270101000000ULL, wired_span_of((const u8*)"example.com", 11));
-  quic_castore_init(&store, roots, 2);
+  castore_init(&store, roots, 2);
   CHECK(
-      quic_castore_add(
+      castore_add(
           &store,
           wired_span_of(
               quic_realchain_root_der, sizeof(quic_realchain_root_der))) == 1);
@@ -439,7 +439,7 @@ static void test_client_castore_confirmed(void) {
       quic_fullhs_recv_certverify(
           &sv, wired_span_of(cv, cv_len), QUIC_TLS_SCHEME_ECDSA_P256) == 1);
   {
-    wired_obuf ob = quic_obuf_of(svfin, sizeof(svfin));
+    wired_obuf ob = obuf_of(svfin, sizeof(svfin));
     CHECK(quic_fullhs_send_finished(&sv, &ob) == 1);
     fn = ob.len;
   }
@@ -452,13 +452,13 @@ static void test_client_castore_confirmed(void) {
 /* A store that cannot anchor the presented chain keeps the client from ever
  * connecting (through the real feed path, set_castore plumbing included). */
 static void test_client_castore_wrong_root(void) {
-  quic_client        c;
-  quic_tlsdriver     svtls;
-  quic_castore       store;
-  quic_castore_entry roots[2];
-  quic_castore_init(&store, roots, 2);
+  quic_client    c;
+  quic_tlsdriver svtls;
+  castore        store;
+  castore_entry  roots[2];
+  castore_init(&store, roots, 2);
   CHECK(
-      quic_castore_add(
+      castore_add(
           &store,
           wired_span_of(
               quic_realchain_root_der, sizeof(quic_realchain_root_der))) == 1);

@@ -249,7 +249,7 @@ int quic_moqctl_ftn_take(wired_span buf, usz* off, quic_moqctl_ftn* out) {
 
 static int moqctl_ns_field_put(wired_mspan buf, usz* at, wired_span field) {
   if (!quic_moqvi_put(buf, at, field.n)) return 0;
-  return quic_put_bytes(buf, at, field);
+  return bytes_put(buf, at, field);
 }
 
 static int moqctl_ns_put_fields(
@@ -266,7 +266,7 @@ static int moqctl_ns_put(wired_mspan buf, usz* at, const quic_moqctl_ns* ns) {
 
 static int moqctl_name_put(wired_mspan buf, usz* at, wired_span name) {
   if (!quic_moqvi_put(buf, at, name.n)) return 0;
-  return quic_put_bytes(buf, at, name);
+  return bytes_put(buf, at, name);
 }
 
 int quic_moqctl_ftn_put(wired_mspan buf, usz* off, const quic_moqctl_ftn* f) {
@@ -328,7 +328,7 @@ int quic_moqctl_reason_put(
     wired_mspan buf, usz* off, quic_moqctl_reason reason) {
   usz at = *off;
   if (!quic_moqvi_put(buf, &at, reason.n)) return 0;
-  if (!quic_put_bytes(buf, &at, reason)) return 0;
+  if (!bytes_put(buf, &at, reason)) return 0;
   *off = at;
   return 1;
 }
@@ -512,7 +512,7 @@ static int moqctl_pp_location(
 static int moqctl_pp_bytes(
     wired_mspan buf, usz* at, const quic_moqctl_param* p) {
   if (!quic_moqvi_put(buf, at, p->bytes.n)) return 0;
-  return quic_put_bytes(buf, at, p->bytes);
+  return bytes_put(buf, at, p->bytes);
 }
 
 static const moqctl_param_put_fn MOQCTL_PARAM_PUT_FNS[4] = {
@@ -702,7 +702,7 @@ int quic_moqctl_subscribe_ok_encode(
     wired_mspan buf, usz* off, const quic_moqctl_subscribe_ok* m) {
   usz at = *off;
   if (!moqctl_subscribe_ok_encode_head(buf, &at, m)) return 0;
-  if (!quic_put_bytes(buf, &at, m->track_properties)) return 0;
+  if (!bytes_put(buf, &at, m->track_properties)) return 0;
   *off = at;
   return 1;
 }
@@ -748,7 +748,7 @@ static int moqctl_publish_encode_tail(
     wired_mspan buf, usz* at, const quic_moqctl_publish* m) {
   if (!quic_moqvi_put(buf, at, m->track_alias)) return 0;
   if (!quic_moqctl_params_put(buf, at, &m->params)) return 0;
-  return quic_put_bytes(buf, at, m->track_properties);
+  return bytes_put(buf, at, m->track_properties);
 }
 
 int quic_moqctl_publish_encode(
@@ -781,7 +781,7 @@ int quic_moqctl_request_ok_encode(
     wired_mspan buf, usz* off, const quic_moqctl_request_ok* m) {
   usz at = *off;
   if (!quic_moqctl_params_put(buf, &at, &m->params)) return 0;
-  if (!quic_put_bytes(buf, &at, m->track_properties)) return 0;
+  if (!bytes_put(buf, &at, m->track_properties)) return 0;
   *off = at;
   return 1;
 }
@@ -844,13 +844,13 @@ int quic_moqctl_request_error_take(
 static int moqctl_redirect_put_uri(
     wired_mspan buf, usz* at, const quic_moqctl_redirect* r) {
   if (!quic_moqvi_put(buf, at, r->connect_uri.n)) return 0;
-  return quic_put_bytes(buf, at, r->connect_uri);
+  return bytes_put(buf, at, r->connect_uri);
 }
 
 static int moqctl_redirect_put_name(
     wired_mspan buf, usz* at, const quic_moqctl_redirect* r) {
   if (!quic_moqvi_put(buf, at, r->track_name.n)) return 0;
-  return quic_put_bytes(buf, at, r->track_name);
+  return bytes_put(buf, at, r->track_name);
 }
 
 static int moqctl_redirect_put(
@@ -942,7 +942,7 @@ int quic_moqctl_goaway_take(wired_span buf, usz* off, quic_moqctl_goaway* out) {
 static int moqctl_goaway_encode_uri(
     wired_mspan buf, usz* at, const quic_moqctl_goaway* m) {
   if (!quic_moqvi_put(buf, at, m->new_session_uri.n)) return 0;
-  return quic_put_bytes(buf, at, m->new_session_uri);
+  return bytes_put(buf, at, m->new_session_uri);
 }
 
 int quic_moqctl_goaway_encode(
@@ -992,7 +992,7 @@ static int moqctl_classify_type(u64 type) {
 static int moqctl_peek_header(wired_span buf, usz* at, u64* type, u16* len) {
   if (!quic_moqvi_take(buf, at, type)) return QUIC_MOQCTL_INSUFFICIENT;
   if (buf.n - *at < 2) return QUIC_MOQCTL_INSUFFICIENT;
-  *len = quic_get_be16(buf.p + *at);
+  *len = be_get_be16(buf.p + *at);
   *at += 2;
   return QUIC_MOQCTL_OK;
 }

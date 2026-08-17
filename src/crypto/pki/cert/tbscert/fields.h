@@ -19,10 +19,10 @@ typedef struct {
   wired_span subject;    /* subject Name SEQUENCE value */
   wired_span spki;       /* subjectPublicKeyInfo SEQUENCE value */
   wired_span extensions; /* [3] EXPLICIT inner SEQUENCE value (may be absent) */
-} quic_tbscert;
+} tbscert;
 
 /* RFC 5280 4.1.2. Parse a tbsCertificate (header included) into out.
  * Returns 1 ok, 0 on malformed input. */
-int quic_tbscert_parse(wired_span tbs, quic_tbscert* out);
+int tbscert_parse(wired_span tbs, tbscert* out);
 
 #endif

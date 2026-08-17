@@ -54,7 +54,7 @@ static void sxt_init(sxt_world* w, wired_srvxdp* x) {
   x->bpf.map_fd = x->bpf.prog_fd = x->bpf.link_fd = -1;
   /* our identity, initialized the same way wired_srvxdp_open does it:
    * 10.7.0.1:4433, the golden RX vector's destination */
-  quic_memcpy((u8*)&x->ip_be, (const u8[]){10, 7, 0, 1}, 4);
+  bytes_memcpy((u8*)&x->ip_be, (const u8[]){10, 7, 0, 1}, 4);
   x->port = 4433;
   quic_xdpmac_init(&x->macs);
   quic_xskumem_alloc_init(&x->txpool, 64u * QUIC_XSKUMEM_FRAME_SIZE, 64u);
@@ -160,7 +160,7 @@ static void test_srvxdp_send_basic(void) {
   {
     const u8* sip = rx.src.addr + 12;
     CHECK(sip[0] == 10 && sip[1] == 7 && sip[2] == 0 && sip[3] == 1);
-    CHECK(quic_get_be16((const u8*)&rx.src.port_be) == 4433);
+    CHECK(be_get_be16((const u8*)&rx.src.port_be) == 4433);
   }
 }
 

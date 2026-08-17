@@ -17,7 +17,7 @@ int quic_h3conn_open_control(int advertise_wt, u8* out, usz cap, usz* out_len) {
  * first frame. Returns 1 if the type is 0x00, else 0. */
 static int skip_control_type(const u8* s, usz len, usz* off) {
   u64 type = 0;
-  usz n    = quic_varint_decode(s, len, &type);
+  usz n    = varint_decode(s, len, &type);
   if (!n || type != QUIC_H3_CONTROL_STREAM_TYPE) return 0;
   *off = n;
   return 1;

@@ -16,7 +16,7 @@
 static int link_tx(quic_memlink* l, wired_span qpkt, quic_ipv4addrs addrs) {
   u8            udp[1500], ip[20], frame[1520];
   quic_udp4meta meta = {{4433, 4433}, addrs};
-  wired_obuf    ub   = quic_obuf_of(udp, sizeof(udp));
+  wired_obuf    ub   = obuf_of(udp, sizeof(udp));
   usz           un   = quic_udp4_build(&ub, &meta, qpkt);
   quic_ipv4_build(
       ip, &(quic_ipv4_head){
@@ -63,7 +63,7 @@ void quic_session_init(quic_session* s, const quic_session_init_in* in) {
   quic_endpoint_init(&s->ep, in->priv, in->dcid);
   quic_conn_init(&s->conn);
   quic_initial_derive(wired_span_of(in->dcid, 8), 0, QUIC_VERSION_1, &s->ikeys);
-  quic_aes128_init(&s->ihp, s->ikeys.hp);
+  aes128_init(&s->ihp, s->ikeys.hp);
   s->link      = in->link;
   s->is_server = in->is_server;
   s->have_peer = 0;
@@ -110,7 +110,7 @@ static usz open_initial(quic_session* s, u8* pkt, usz rn) {
 
 int quic_session_accept(quic_session* s) {
   u8         pkt[1200];
-  wired_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf ob = obuf_of(pkt, sizeof(pkt));
   usz        rn =
       link_rx(s->link, &ob, (quic_ipv4addrs){QUIC_SESSION_CA, QUIC_SESSION_SA});
   usz pl = open_initial(s, pkt, rn);
@@ -127,7 +127,7 @@ int quic_session_accept(quic_session* s) {
 static int agree_dir(quic_session* s, const u8 peer_pub[32], wired_span tr) {
   quic_endpoint_peer p = {peer_pub, tr, 1};
   if (!quic_endpoint_agree(&s->ep, &p)) return 0;
-  quic_aes128_init(&s->hshp, s->ep.hs_keys.hp);
+  aes128_init(&s->hshp, s->ep.hs_keys.hp);
   return 1;
 }
 
@@ -187,7 +187,7 @@ static usz open_1rtt(quic_session* s, u8* pkt, usz rn) {
 }
 
 int quic_session_recv_stream(quic_session* s, quic_stream_frame* out) {
-  wired_obuf ob = quic_obuf_of(s->rxbuf, sizeof(s->rxbuf));
+  wired_obuf ob = obuf_of(s->rxbuf, sizeof(s->rxbuf));
   usz        rn = link_rx(
       s->link, &ob,
       (quic_ipv4addrs){peer_addr(s->is_server), my_addr(s->is_server)});

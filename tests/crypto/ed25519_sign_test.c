@@ -21,14 +21,14 @@ static void sign_vector(
   sgn_hexbytes(sig, want_sig, 64);
   if (msg_len) sgn_hexbytes(msg, M, msg_len);
 
-  quic_ed25519_keypair(sd, got_pk);
+  ed25519_keypair(sd, got_pk);
   for (usz i = 0; i < 32; i++) CHECK(got_pk[i] == want_pk[i]);
 
-  quic_ed25519_sign(sd, M, msg_len, got_sig);
+  ed25519_sign(sd, M, msg_len, got_sig);
   for (usz i = 0; i < 64; i++) CHECK(got_sig[i] == want_sig[i]);
 
   for (usz i = 0; i < 32; i++) pk[i] = want_pk[i];
-  CHECK(quic_ed25519_verify(got_sig, M, msg_len, pk) == 1);
+  CHECK(ed25519_verify(got_sig, M, msg_len, pk) == 1);
 }
 
 /* RFC 8032 7.1 TEST 1: empty message. */
@@ -93,10 +93,10 @@ static void test_ed25519_verify_s_eq_l_rejected(void) {
   sgn_hexbytes(
       "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60", sd,
       32);
-  quic_ed25519_keypair(sd, pk);
-  quic_ed25519_sign(sd, (const u8*)"", 0, sig);
+  ed25519_keypair(sd, pk);
+  ed25519_sign(sd, (const u8*)"", 0, sig);
   sgn_hexbytes(ORDER_L_HEX, sig + 32, 32); /* overwrite S with L itself */
-  CHECK(quic_ed25519_verify(sig, (const u8*)"", 0, pk) == 0);
+  CHECK(ed25519_verify(sig, (const u8*)"", 0, pk) == 0);
 }
 
 void test_ed25519_sign(void) {

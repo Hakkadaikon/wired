@@ -34,7 +34,7 @@ static void test_udp_checksum(void) {
   const u8       pl[]  = {0xde, 0xad, 0xbe, 0xef};
   quic_ipv4addrs addrs = {0x7f000001, 0x7f000002};
   quic_udp4meta  meta  = {{0x1234, 0x4321}, addrs};
-  wired_obuf     ob    = quic_obuf_of(dg, sizeof(dg));
+  wired_obuf     ob    = obuf_of(dg, sizeof(dg));
   usz            n     = quic_udp4_build(&ob, &meta, wired_span_of(pl, 4));
   CHECK(n == QUIC_UDP_HDR + 4);
   CHECK(quic_udp4_check(wired_span_of(dg, n), addrs) == 1);
@@ -50,7 +50,7 @@ static void test_udp_checksum_zero_result_becomes_all_ones(void) {
   /* sport=0, dport=0x01db, no payload: chosen so the pseudo-header + header
    * sum folds to 0xffff, i.e. the complement (checksum) would be 0x0000. */
   quic_udp4meta meta = {{0x0000, 0x01db}, addrs};
-  wired_obuf    ob   = quic_obuf_of(dg, sizeof(dg));
+  wired_obuf    ob   = obuf_of(dg, sizeof(dg));
   usz           n    = quic_udp4_build(&ob, &meta, wired_span_of(dg, 0));
   CHECK(n == QUIC_UDP_HDR);
   CHECK(dg[6] == 0xff && dg[7] == 0xff);
@@ -65,9 +65,9 @@ static void test_udp_checksum_zero_field_accepted_unchecked(void) {
   quic_ipv4addrs addrs   = {0x7f000001, 0x7f000002};
   quic_udpports  ports   = {0x1234, 0x4321};
   u16            udp_len = QUIC_UDP_HDR + 4;
-  quic_put_be16(dg, ports.sport);
-  quic_put_be16(dg + 2, ports.dport);
-  quic_put_be16(dg + 4, udp_len);
+  be_put_be16(dg, ports.sport);
+  be_put_be16(dg + 2, ports.dport);
+  be_put_be16(dg + 4, udp_len);
   dg[6] = 0;
   dg[7] = 0; /* sender opted out of the checksum */
   for (usz i = 0; i < 4; i++) dg[QUIC_UDP_HDR + i] = pl[i];
@@ -92,7 +92,7 @@ static void test_net_datagram_over_link(void) {
   const u8       pl[]  = {1, 2, 3, 4, 5};
   quic_ipv4addrs addrs = {0x0a000001, 0x0a000002};
   quic_udp4meta  meta  = {{9000, 443}, addrs};
-  wired_obuf     ub    = quic_obuf_of(udp, sizeof(udp));
+  wired_obuf     ub    = obuf_of(udp, sizeof(udp));
   usz            un    = quic_udp4_build(&ub, &meta, wired_span_of(pl, 5));
   quic_ipv4_build(
       ip, &(quic_ipv4_head){

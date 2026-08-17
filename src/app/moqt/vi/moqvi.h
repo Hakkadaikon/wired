@@ -22,7 +22,7 @@ usz quic_moqvi_encode(u8* buf, u64 v);
  * Returns bytes consumed, or 0 if n too small for the encoded length. */
 usz quic_moqvi_decode(const u8* buf, usz n, u64* out);
 
-/* Cursor helpers, same shape as quic_varint_take/put. Each decodes/encodes
+/* Cursor helpers, same shape as varint_take/put. Each decodes/encodes
  * one integer at buf+*off and advances *off on success. */
 
 /* Returns 1 ok, 0 if truncated (*off unchanged). */

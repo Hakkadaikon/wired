@@ -154,7 +154,7 @@ static int moqtrun_has_timeout_param(const quic_moqctl_params* params) {
 static void moqtrun_queue_reply(wired_moqtrun_peer* p, wired_span msg) {
   int pending_idx = p->armed_idx ^ 1;
   if (p->send_lens[pending_idx] + msg.n > WIRED_MOQTRUN_CTL_SEND_BUF) return;
-  quic_memcpy(
+  bytes_memcpy(
       p->send_bufs[pending_idx] + p->send_lens[pending_idx], msg.p, msg.n);
   p->send_lens[pending_idx] += msg.n;
 }
@@ -212,7 +212,7 @@ static void moqtrun_send_request_error(wired_moqtrun_peer* p, u64 code) {
  * ponytail: no such input in this subset's usage). */
 static void moqtrun_record_track_name(wired_moqtrun_track* t, wired_span name) {
   usz n = name.n < WIRED_MOQTRUN_MAX_NAME ? name.n : WIRED_MOQTRUN_MAX_NAME;
-  quic_memcpy(t->name, name.p, n);
+  bytes_memcpy(t->name, name.p, n);
   t->name_len = n;
 }
 
@@ -270,7 +270,7 @@ static int moqtrun_sub_name_known(
 }
 
 static void moqtrun_sub_name_store(wired_moqtrun_peer* p, wired_span name) {
-  quic_memcpy(p->sub_names[p->sub_names_at], name.p, name.n);
+  bytes_memcpy(p->sub_names[p->sub_names_at], name.p, name.n);
   p->sub_name_lens[p->sub_names_at] = name.n;
   p->sub_names_at                   = (u8)((p->sub_names_at + 1) % 8);
   if (p->sub_names_n < 8) p->sub_names_n++;
@@ -802,7 +802,7 @@ static void moqtrun_relay_save_frag(
     hub->stat_frag_drop++;
     return;
   }
-  quic_memcpy(relay->frag, p, n);
+  bytes_memcpy(relay->frag, p, n);
   relay->frag_len = n;
 }
 
@@ -819,8 +819,8 @@ static wired_span moqtrun_relay_normalize(
   usz                 total = relay->frag_len + data.n;
   quic_moqdata_subhdr hdr   = {0};
   usz                 off   = 0;
-  quic_memcpy(hub->relay_scratch, relay->frag, relay->frag_len);
-  quic_memcpy(hub->relay_scratch + relay->frag_len, data.p, data.n);
+  bytes_memcpy(hub->relay_scratch, relay->frag, relay->frag_len);
+  bytes_memcpy(hub->relay_scratch + relay->frag_len, data.p, data.n);
   moqtrun_decode_object_loop(
       wired_span_of(hub->relay_scratch, total), &off, &hdr);
   moqtrun_relay_save_frag(hub, relay, hub->relay_scratch + off, total - off);
@@ -896,7 +896,7 @@ static void moqtrun_relay_save_hdr(
   relay->hdr_len = 0;
   if (quic_moqdata_subhdr_take(data, &off, &hdr) != QUIC_MOQDATA_OK) return;
   if (off > WIRED_MOQTRUN_RELAY_HDR_MAX) return;
-  quic_memcpy(relay->hdr, data.p, off);
+  bytes_memcpy(relay->hdr, data.p, off);
   relay->hdr_len = off;
 }
 

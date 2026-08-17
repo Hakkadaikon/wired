@@ -23,14 +23,14 @@
 typedef struct {
   quic_initial_keys keys[QUIC_KEYSET_LEVELS]; /**< key/iv/hp per level */
   int installed[QUIC_KEYSET_LEVELS]; /**< 1 once keys[level] is valid */
-} quic_keyset;
+} keyset;
 
 /**
  * Clear all levels to not-installed.
  *
  * @param state key set to reset
  */
-void quic_keyset_init(quic_keyset* state);
+void keyset_init(keyset* state);
 
 /**
  * Install keys at level (0/1/2).
@@ -40,8 +40,7 @@ void quic_keyset_init(quic_keyset* state);
  * @param keys  key material copied into the set
  * @return 1 ok, 0 if level out of range.
  */
-int quic_keyset_install(
-    quic_keyset* state, int level, const quic_initial_keys* keys);
+int keyset_install(keyset* state, int level, const quic_initial_keys* keys);
 
 /**
  * Fetch keys for level into *out.
@@ -54,7 +53,7 @@ int quic_keyset_install(
  * @param out   receives a pointer to the installed keys
  * @return 1 if installed, 0 otherwise.
  */
-int quic_keyset_for_level(
-    const quic_keyset* state, int level, const quic_initial_keys** out);
+int keyset_for_level(
+    const keyset* state, int level, const quic_initial_keys** out);
 
 #endif

@@ -57,7 +57,7 @@ static const u8 nct_tbs_excluded_a[] = {
 /* RFC 5280 4.2.1.10: no nameConstraints extension imposes no restriction. */
 static void test_nc_absent_permits(void) {
   CHECK(
-      quic_x509_name_constraints_permit(
+      x509_name_constraints_permit(
           wired_span_of(nct_tbs_no_ext, sizeof(nct_tbs_no_ext)),
           wired_span_of(nct_name_a, sizeof(nct_name_a))) == 1);
 }
@@ -65,7 +65,7 @@ static void test_nc_absent_permits(void) {
 /* permittedSubtrees admits a subject Name equal to the subtree base. */
 static void test_nc_permitted_exact_match_ok(void) {
   CHECK(
-      quic_x509_name_constraints_permit(
+      x509_name_constraints_permit(
           wired_span_of(nct_tbs_permitted_a, sizeof(nct_tbs_permitted_a)),
           wired_span_of(nct_name_a, sizeof(nct_name_a))) == 1);
 }
@@ -74,7 +74,7 @@ static void test_nc_permitted_exact_match_ok(void) {
  * (a subtree member, not just the base itself). */
 static void test_nc_permitted_child_ok(void) {
   CHECK(
-      quic_x509_name_constraints_permit(
+      x509_name_constraints_permit(
           wired_span_of(nct_tbs_permitted_a, sizeof(nct_tbs_permitted_a)),
           wired_span_of(nct_name_a_child, sizeof(nct_name_a_child))) == 1);
 }
@@ -83,7 +83,7 @@ static void test_nc_permitted_child_ok(void) {
  */
 static void test_nc_permitted_unrelated_rejected(void) {
   CHECK(
-      quic_x509_name_constraints_permit(
+      x509_name_constraints_permit(
           wired_span_of(nct_tbs_permitted_a, sizeof(nct_tbs_permitted_a)),
           wired_span_of(nct_name_b, sizeof(nct_name_b))) == 0);
 }
@@ -91,7 +91,7 @@ static void test_nc_permitted_unrelated_rejected(void) {
 /* excludedSubtrees rejects a subject Name inside the excluded subtree. */
 static void test_nc_excluded_match_rejected(void) {
   CHECK(
-      quic_x509_name_constraints_permit(
+      x509_name_constraints_permit(
           wired_span_of(nct_tbs_excluded_a, sizeof(nct_tbs_excluded_a)),
           wired_span_of(nct_name_a, sizeof(nct_name_a))) == 0);
 }
@@ -99,7 +99,7 @@ static void test_nc_excluded_match_rejected(void) {
 /* excludedSubtrees does not restrict a subject Name outside it. */
 static void test_nc_excluded_unrelated_ok(void) {
   CHECK(
-      quic_x509_name_constraints_permit(
+      x509_name_constraints_permit(
           wired_span_of(nct_tbs_excluded_a, sizeof(nct_tbs_excluded_a)),
           wired_span_of(nct_name_b, sizeof(nct_name_b))) == 1);
 }

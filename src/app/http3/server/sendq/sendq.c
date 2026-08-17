@@ -21,8 +21,8 @@ const u8* wired_sendq_slice_data(
 /* Bytes remaining from the cursor, capped at one chunk -- and, on a ring,
  * at the wrap, so a slice's bytes are always contiguous in storage. */
 static usz sendq_take(const wired_sendq* q) {
-  usz n = quic_u64_min(q->len - q->cur, q->chunk);
-  if (q->cap) n = quic_u64_min(n, q->cap - q->cur % q->cap);
+  usz n = u64_min(q->len - q->cur, q->chunk);
+  if (q->cap) n = u64_min(n, q->cap - q->cur % q->cap);
   return n;
 }
 

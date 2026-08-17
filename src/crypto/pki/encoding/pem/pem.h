@@ -21,7 +21,7 @@
  * block. label receives a view of the bytes between "BEGIN " and the closing
  * dashes (e.g. "CERTIFICATE"), borrowed from text.
  *
- * der is a caller-owned output buffer (see quic_obuf_of): the caller retains
+ * der is a caller-owned output buffer (see obuf_of): the caller retains
  * ownership and der->p must have room for the decoded bytes, this call only
  * appends and advances der->len, it never allocates or frees.
  *

@@ -25,7 +25,7 @@ static int tx_build_hdr(
     wired_mspan           out,
     quic_protect_seal_io* io) {
   usz            len_off = 0;
-  wired_obuf     ho      = quic_obuf_of(hdr, hdr_cap);
+  wired_obuf     ho      = obuf_of(hdr, hdr_cap);
   quic_lhdr_desc h       = {d->byte0,      tx_version_or_v1(d->version),
                             d->dcid,       d->scid,
                             d->is_initial, d->token,

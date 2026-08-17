@@ -38,7 +38,7 @@ static int encode_body(wired_obuf* o, u64 value, u64 pmax) {
 }
 
 usz quic_qpack_int_encode(wired_mspan buf, quic_qpack_pfx pfx, u64 value) {
-  wired_obuf o    = quic_obuf_of(buf.p, buf.n);
+  wired_obuf o    = obuf_of(buf.p, buf.n);
   u64        pmax = prefix_max(pfx.bits);
   if (!put_byte(&o, pfx.pattern | prefix_byte(value, pmax))) return 0;
   if (!encode_body(&o, value, pmax)) return 0;

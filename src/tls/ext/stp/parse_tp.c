@@ -7,7 +7,7 @@
 static void emit_int(wired_span val, u64* value) {
   u64 v = 0;
   if (!value) return;
-  quic_varint_decode(val.p, val.n, &v);
+  varint_decode(val.p, val.n, &v);
   *value = v;
 }
 

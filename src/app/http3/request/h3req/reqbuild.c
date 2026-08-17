@@ -8,7 +8,7 @@ static int append_body(wired_span body, wired_obuf* out) {
   wired_obuf ob;
   usz        n;
   if (!body.n) return 1;
-  ob = quic_obuf_of(out->p + out->len, out->cap - out->len);
+  ob = obuf_of(out->p + out->len, out->cap - out->len);
   n  = quic_h3_frame_put(&ob, QUIC_H3_FRAME_DATA, body);
   if (!n) return 0;
   out->len += n;
@@ -18,7 +18,7 @@ static int append_body(wired_span body, wired_obuf* out) {
 /* RFC 9114 4.1 */
 int quic_h3req_build(
     wired_span qpack_headers, wired_span body, wired_obuf* out) {
-  wired_obuf head = quic_obuf_of(out->p, out->cap);
+  wired_obuf head = obuf_of(out->p, out->cap);
   usz off = quic_h3_frame_put(&head, QUIC_H3_FRAME_HEADERS, qpack_headers);
   if (!off) return 0;
   out->len = off;

@@ -3,7 +3,7 @@
 /* RFC 9000 19.11: MAX_STREAMS bidi=0x12, uni=0x13, then a varint count. */
 static void test_maxstreams_frame_bidi_wire(void) {
   u8         out[8];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   CHECK(quic_maxstreams_frame(0, 3, &ob) == 1);
   CHECK(ob.len == 2);
   CHECK(out[0] == 0x12);
@@ -12,7 +12,7 @@ static void test_maxstreams_frame_bidi_wire(void) {
 
 static void test_maxstreams_frame_uni_wire(void) {
   u8         out[8];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   CHECK(quic_maxstreams_frame(1, 5, &ob) == 1);
   CHECK(out[0] == 0x13);
   CHECK(out[1] == 0x05);
@@ -20,7 +20,7 @@ static void test_maxstreams_frame_uni_wire(void) {
 
 static void test_maxstreams_frame_overflow(void) {
   u8         out[1];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   ob.len        = 99;
   CHECK(quic_maxstreams_frame(0, 3, &ob) == 0);
   CHECK(ob.len == 99); /* untouched on failure */
@@ -28,7 +28,7 @@ static void test_maxstreams_frame_overflow(void) {
 
 static void test_maxstreams_roundtrip(void) {
   u8         out[8];
-  wired_obuf ob  = quic_obuf_of(out, sizeof out);
+  wired_obuf ob  = obuf_of(out, sizeof out);
   int        uni = -1;
   u64        max = 0;
   quic_maxstreams_frame(1, 100, &ob);
@@ -55,7 +55,7 @@ static void test_maxstreams_can_open_boundary(void) {
 /* RFC 9000 19.14: STREAMS_BLOCKED bidi=0x16, uni=0x17, then a varint limit. */
 static void test_maxstreams_blocked_frame_bidi_wire(void) {
   u8         out[8];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   CHECK(quic_maxstreams_blocked_frame(0, 3, &ob) == 1);
   CHECK(ob.len == 2);
   CHECK(out[0] == 0x16);
@@ -64,14 +64,14 @@ static void test_maxstreams_blocked_frame_bidi_wire(void) {
 
 static void test_maxstreams_blocked_frame_uni_wire(void) {
   u8         out[8];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   CHECK(quic_maxstreams_blocked_frame(1, 100, &ob) == 1);
   CHECK(out[0] == 0x17);
 }
 
 static void test_maxstreams_blocked_frame_overflow(void) {
   u8         out[1];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   ob.len        = 99;
   CHECK(quic_maxstreams_blocked_frame(1, 3, &ob) == 0);
   CHECK(ob.len == 99); /* untouched on failure */

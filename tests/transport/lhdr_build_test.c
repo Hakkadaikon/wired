@@ -14,7 +14,7 @@ static void test_lhdr_byte0_pnlen(void) {
 /* Build via the descriptor API; returns the header length, out->len mirror. */
 static usz lb(
     const quic_lhdr_desc* d, u8* out, usz cap, usz* hdr_len, usz* len_off) {
-  wired_obuf o = quic_obuf_of(out, cap);
+  wired_obuf o = obuf_of(out, cap);
   usz        w = quic_lhdr_build(d, &o, len_off);
   *hdr_len     = o.len;
   return w;

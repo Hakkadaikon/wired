@@ -9,7 +9,7 @@ static void test_batch_concat(void) {
   const u8      s2[]   = {0x08, 0x04, 0x03, 'b', 'y', 'e'};
   const u64     lost[] = {10, 11, 12, 99};
   u8            out[64];
-  wired_obuf    ob = quic_obuf_of(out, sizeof out);
+  wired_obuf    ob = obuf_of(out, sizeof out);
 
   quic_rtxbytes_init(&st);
   quic_rtxbytes_store(&st, 10, wired_span_of(s1, sizeof s1));
@@ -30,7 +30,7 @@ static void test_batch_truncates_on_cap(void) {
   const u8      s2[]   = {0x08, 0x04, 0x03, 'b', 'y', 'e'};
   const u64     lost[] = {10, 12};
   u8            out[6];
-  wired_obuf    ob = quic_obuf_of(out, sizeof out);
+  wired_obuf    ob = obuf_of(out, sizeof out);
 
   quic_rtxbytes_init(&st);
   quic_rtxbytes_store(&st, 10, wired_span_of(s1, sizeof s1));
@@ -45,7 +45,7 @@ static void test_batch_empty_store(void) {
   quic_rtxbytes st;
   const u64     lost[] = {1, 2, 3};
   u8            out[64];
-  wired_obuf    ob = quic_obuf_of(out, sizeof out);
+  wired_obuf    ob = obuf_of(out, sizeof out);
 
   quic_rtxbytes_init(&st);
   CHECK(quic_rtxdrive_batch(&st, (quic_lost_pns){lost, 3}, &ob) == 1);

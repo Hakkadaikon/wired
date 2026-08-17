@@ -24,8 +24,8 @@ typedef struct {
 
 /* Append one TLV at the cursor, advancing off. Latches ok=0 on overflow. */
 static void put(selfcert_enc* e, u8 tag, wired_span val) {
-  wired_obuf o = quic_obuf_of(e->buf + e->off, e->cap - e->off);
-  if (e->ok && quic_selfcert_der_tlv(tag, val, &o))
+  wired_obuf o = obuf_of(e->buf + e->off, e->cap - e->off);
+  if (e->ok && selfcert_der_tlv(tag, val, &o))
     e->off += o.len;
   else
     e->ok = 0;
@@ -34,7 +34,7 @@ static void put(selfcert_enc* e, u8 tag, wired_span val) {
 /* Append pre-encoded TLV bytes verbatim onto the cursor. */
 static void put_pre(selfcert_enc* e, wired_span tlv) {
   if (e->ok &&
-      quic_put_bytes(
+      bytes_put(
           wired_mspan_of(e->buf, e->cap), &e->off, wired_span_of(tlv.p, tlv.n)))
     return;
   e->ok = 0;
@@ -48,7 +48,7 @@ static selfcert_enc loaded(u8* buf, usz n) {
 
 /* Wrap the cursor's bytes in one TLV of tag into out. 0 length on failure. */
 static usz wrap(selfcert_enc* e, u8 tag, wired_obuf* out) {
-  if (e->ok && quic_selfcert_der_tlv(tag, wired_span_of(e->buf, e->off), out))
+  if (e->ok && selfcert_der_tlv(tag, wired_span_of(e->buf, e->off), out))
     return out->len;
   return 0;
 }
@@ -74,7 +74,7 @@ static usz build_atv(wired_obuf* out) {
 /* RFC 5280 4.1.2.4. RelativeDistinguishedName SET{ AttributeTypeAndValue }. */
 static usz build_rdn(wired_obuf* out) {
   u8           atv[64];
-  wired_obuf   ao = quic_obuf_of(atv, sizeof(atv));
+  wired_obuf   ao = obuf_of(atv, sizeof(atv));
   selfcert_enc e  = loaded(atv, build_atv(&ao));
   return wrap(&e, QUIC_DER_SET, out);
 }
@@ -83,7 +83,7 @@ static usz build_rdn(wired_obuf* out) {
  */
 static usz build_name(wired_obuf* out) {
   u8           rdn[80];
-  wired_obuf   ro = quic_obuf_of(rdn, sizeof(rdn));
+  wired_obuf   ro = obuf_of(rdn, sizeof(rdn));
   selfcert_enc e  = loaded(rdn, build_rdn(&ro));
   return wrap(&e, QUIC_DER_SEQUENCE, out);
 }
@@ -103,12 +103,11 @@ static usz build_validity(wired_obuf* out) {
  */
 static usz build_spki(const u8 pub[32], wired_obuf* out) {
   u8           bits[33], alg[16], inner[80];
-  wired_obuf   ao = quic_obuf_of(alg, sizeof(alg));
+  wired_obuf   ao = obuf_of(alg, sizeof(alg));
   selfcert_enc e  = {inner, sizeof(inner), 0, 1};
   usz          bo = 1;
   bits[0]         = 0x00; /* BIT STRING unused-bits */
-  quic_put_bytes(
-      wired_mspan_of(bits, sizeof(bits)), &bo, wired_span_of(pub, 32));
+  bytes_put(wired_mspan_of(bits, sizeof(bits)), &bo, wired_span_of(pub, 32));
   put_pre(&e, wired_span_of(alg, build_alg(&ao)));
   put(&e, QUIC_DER_BIT_STRING, wired_span_of(bits, bo));
   return wrap(&e, QUIC_DER_SEQUENCE, out);
@@ -119,18 +118,18 @@ static void selfcert_tbs_head(selfcert_enc* e, wired_span name) {
   static const u8 version[] = {0xa0, 0x03, 0x02, 0x01, 0x02}; /* [0] v3 */
   static const u8 serial[]  = {0x02, 0x01, 0x01};             /* INTEGER 1 */
   u8              alg[16];
-  wired_obuf      ao = quic_obuf_of(alg, sizeof(alg));
+  wired_obuf      ao = obuf_of(alg, sizeof(alg));
   put_pre(e, wired_span_of(version, sizeof(version)));
   put_pre(e, wired_span_of(serial, sizeof(serial)));
   put_pre(e, wired_span_of(alg, build_alg(&ao)));
   put_pre(e, name);
 }
 
-int quic_selfcert_tbs(const u8 pub[32], wired_obuf* out) {
+int selfcert_tbs(const u8 pub[32], wired_obuf* out) {
   u8           name[80], val[48], spki[96], body[512];
-  wired_obuf   no = quic_obuf_of(name, sizeof(name));
-  wired_obuf   vo = quic_obuf_of(val, sizeof(val));
-  wired_obuf   so = quic_obuf_of(spki, sizeof(spki));
+  wired_obuf   no = obuf_of(name, sizeof(name));
+  wired_obuf   vo = obuf_of(val, sizeof(val));
+  wired_obuf   so = obuf_of(spki, sizeof(spki));
   selfcert_enc e  = {body, sizeof(body), 0, 1};
   usz          nn = build_name(&no);
   selfcert_tbs_head(&e, wired_span_of(name, nn));

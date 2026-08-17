@@ -9,7 +9,7 @@
  * (the "xn--..." Punycode (RFC 3492) ACE encoding), not the raw U-label
  * Unicode text.
  *
- * This SDK's DNS-ID matching (quic_x509_san_matches, quic_resume_sni_
+ * This SDK's DNS-ID matching (x509_san_matches, quic_resume_sni_
  * compatible) already operates correctly on names that are already in
  * A-label / all-ASCII form: RFC 6125 6.4.1's ASCII case-insensitive byte
  * comparison needs no Unicode-aware step to compare two "xn--..." labels or

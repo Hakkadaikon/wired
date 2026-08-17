@@ -16,7 +16,7 @@ static int pending1rtt_fits(const quic_pending1rtt* q, usz len) {
 
 int quic_pending1rtt_store(quic_pending1rtt* q, const u8* data, usz len) {
   if (!pending1rtt_fits(q, len)) return 0;
-  quic_memcpy(q->buf[q->count], data, len);
+  bytes_memcpy(q->buf[q->count], data, len);
   q->len[q->count] = len;
   q->count++;
   return 1;

@@ -55,7 +55,7 @@ static void serialize(const u32 x[16], const u32 s[16], u8 out[64]) {
   }
 }
 
-void quic_chacha20_block(
+void chacha20_block(
     const u8 key[QUIC_CHACHA_KEY],
     u32      counter,
     const u8 nonce[QUIC_CHACHA_NONCE],
@@ -68,17 +68,17 @@ void quic_chacha20_block(
 }
 
 /* XOR up to one block of keystream into out; returns bytes done. */
-static usz xor_chunk(const quic_chacha_ctx* c, wired_span in, u8* out) {
+static usz xor_chunk(const chacha_ctx* c, wired_span in, u8* out) {
   u8  ks[QUIC_CHACHA_BLOCK];
   usz n = (in.n < QUIC_CHACHA_BLOCK) ? in.n : QUIC_CHACHA_BLOCK;
-  quic_chacha20_block(c->key, c->counter, c->nonce, ks);
+  chacha20_block(c->key, c->counter, c->nonce, ks);
   for (usz i = 0; i < n; i++) out[i] = in.p[i] ^ ks[i];
   return n;
 }
 
-void quic_chacha20_xor(const quic_chacha_ctx* c, wired_span in, u8* out) {
-  quic_chacha_ctx cc  = *c;
-  usz             off = 0;
+void chacha20_xor(const chacha_ctx* c, wired_span in, u8* out) {
+  chacha_ctx cc  = *c;
+  usz        off = 0;
   while (off < in.n) {
     off += xor_chunk(&cc, wired_span_of(in.p + off, in.n - off), out + off);
     cc.counter++;

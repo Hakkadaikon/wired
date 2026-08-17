@@ -34,7 +34,7 @@ static void test_hrr_build_no_cookie(void) {
   usz        len, body_len, ext_total, elen;
   u8         type;
   const u8 * body, *ext, *sv, *kse;
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
 
   CHECK(quic_hrr_build(QUIC_GROUP_X25519, wired_span_of(0, 0), &ob) == 1);
   len = ob.len;
@@ -63,7 +63,7 @@ static void test_hrr_build_cookie(void) {
   u8         out[256], ck[5] = {1, 2, 3, 4, 5};
   usz        ext_total, elen;
   const u8 * ext, *c;
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
 
   CHECK(quic_hrr_build(QUIC_GROUP_X25519, wired_span_of(ck, 5), &ob) == 1);
   ext       = out + 4 + 38;
@@ -76,7 +76,7 @@ static void test_hrr_build_cookie(void) {
 
 static void test_hrr_build_overflow(void) {
   u8         out[16];
-  wired_obuf ob = quic_obuf_of(out, 8);
+  wired_obuf ob = obuf_of(out, 8);
   CHECK(quic_hrr_build(QUIC_GROUP_X25519, wired_span_of(0, 0), &ob) == 0);
 }
 

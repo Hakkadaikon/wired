@@ -13,24 +13,24 @@ void test_srvfin_complete(void) {
   /* order violation: schedule still at init stage */
   {
     quic_keysched     sched;
-    quic_keyset       keys;
+    keyset            keys;
     quic_srvfin_state st;
     quic_keysched_init(&sched);
-    quic_keyset_init(&keys);
+    keyset_init(&keys);
     quic_srvfin_state_init(&st, &sched, &keys);
     CHECK(quic_srvfin_complete(&st, tr, sizeof tr) == 0);
     const quic_initial_keys* k;
-    CHECK(quic_keyset_for_level(&keys, QUIC_LEVEL_ONERTT, &k) == 0);
+    CHECK(keyset_for_level(&keys, QUIC_LEVEL_ONERTT, &k) == 0);
     CHECK(st.confirmed == 0);
   }
 
   /* happy path: advance to handshake, then complete installs 1-RTT */
   {
     quic_keysched     sched;
-    quic_keyset       keys;
+    keyset            keys;
     quic_srvfin_state st;
     quic_keysched_init(&sched);
-    quic_keyset_init(&keys);
+    keyset_init(&keys);
     quic_srvfin_state_init(&st, &sched, &keys);
     CHECK(
         quic_keysched_advance_handshake(
@@ -39,7 +39,7 @@ void test_srvfin_complete(void) {
     CHECK(quic_srvfin_complete(&st, tr, sizeof tr) == 1);
 
     const quic_initial_keys* k;
-    CHECK(quic_keyset_for_level(&keys, QUIC_LEVEL_ONERTT, &k) == 1);
+    CHECK(keyset_for_level(&keys, QUIC_LEVEL_ONERTT, &k) == 1);
     CHECK(st.confirmed == 1);
 
     /* installed keys are the server application keys from the schedule */

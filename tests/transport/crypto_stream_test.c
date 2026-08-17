@@ -6,7 +6,7 @@ static void test_emit_splits(void) {
   u8 src[20];
   for (usz i = 0; i < sizeof src; i++) src[i] = (u8)(i + 1);
   u8                         out[128];
-  wired_obuf                 ob  = quic_obuf_of(out, sizeof out);
+  wired_obuf                 ob  = obuf_of(out, sizeof out);
   quic_crypto_stream_emit_in ein = {100, 8};
   CHECK(
       quic_crypto_stream_emit(wired_span_of(src, sizeof src), &ein, &ob) == 1);
@@ -37,7 +37,7 @@ static void test_recv_reorder_dup(void) {
   quic_crypto_stream_rx_init(&rx);
   u8         a[] = {1, 2, 3}, b[] = {4, 5, 6};
   u8         out[16];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
 
   CHECK(quic_crypto_stream_recv(&rx, 3, wired_span_of(b, 3)) == 1);
   CHECK(quic_crypto_stream_read(&rx, &ob) == 1);
@@ -85,7 +85,7 @@ static void test_clienthello_roundtrip(void) {
   CHECK(ch_len != 0);
 
   u8                         frames[2048];
-  wired_obuf                 fb  = quic_obuf_of(frames, sizeof frames);
+  wired_obuf                 fb  = obuf_of(frames, sizeof frames);
   quic_crypto_stream_emit_in ein = {0, 40};
   CHECK(quic_crypto_stream_emit(wired_span_of(ch, ch_len), &ein, &fb) == 1);
   usz flen = fb.len;
@@ -113,7 +113,7 @@ static void test_clienthello_roundtrip(void) {
             &rx, offs[i], wired_span_of(datp[i], lens[i])) == 1);
 
   u8         got[1024];
-  wired_obuf gb = quic_obuf_of(got, sizeof got);
+  wired_obuf gb = obuf_of(got, sizeof got);
   CHECK(quic_crypto_stream_read(&rx, &gb) == 1);
   usz got_len = gb.len;
   CHECK(got_len == ch_len);

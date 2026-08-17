@@ -19,7 +19,7 @@
  * header-protection cipher derived from them. */
 typedef struct {
   const quic_initial_keys* keys;
-  quic_aes128              hp;
+  aes128                   hp;
 } wired_srvloop_dirkeys;
 
 int wired_srvloop_seal_keys(

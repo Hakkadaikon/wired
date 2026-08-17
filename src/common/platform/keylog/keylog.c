@@ -17,7 +17,7 @@ static const char keylog_hexdigit[] = "0123456789abcdef";
 /* Append the two lowercase hex digits of one byte into buf at *off. */
 static int keylog_put_hexbyte(wired_mspan buf, usz* off, u8 b) {
   u8 pair[2] = {keylog_hexdigit[b >> 4], keylog_hexdigit[b & 0xF]};
-  return quic_put_bytes(buf, off, wired_span_of(pair, 2));
+  return bytes_put(buf, off, wired_span_of(pair, 2));
 }
 
 /* Append the lowercase hex encoding of src into buf at *off. */
@@ -28,12 +28,11 @@ static int keylog_put_hex(wired_mspan buf, usz* off, wired_span src) {
 }
 
 static int keylog_put_str(wired_mspan buf, usz* off, const char* s) {
-  return quic_put_bytes(
-      buf, off, wired_span_of((const u8*)s, wired_cstr_len(s)));
+  return bytes_put(buf, off, wired_span_of((const u8*)s, wired_cstr_len(s)));
 }
 
 static int keylog_put_char(wired_mspan buf, usz* off, u8 c) {
-  return quic_put_bytes(buf, off, wired_span_of(&c, 1));
+  return bytes_put(buf, off, wired_span_of(&c, 1));
 }
 
 /* "label " */

@@ -3,7 +3,7 @@
 #include "test.h"
 
 /* Six NULL elements standing in for serialNumber..subjectPublicKeyInfo, so
- * quic_x509_tbs_cursor's skip(6) lands past them. */
+ * x509_tbs_cursor's skip(6) lands past them. */
 #define EKUT_DUMMY6 \
   0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00
 
@@ -40,15 +40,14 @@ static const u8 ekut_tbs_both[] = {
     0x2b, 0x06, 0x01,        0x05, 0x05, 0x07, 0x03, 0x01};
 
 static wired_span server_auth(void) {
-  return wired_span_of(
-      quic_x509_oid_server_auth, sizeof(quic_x509_oid_server_auth));
+  return wired_span_of(x509_oid_server_auth, sizeof(x509_oid_server_auth));
 }
 
 /* RFC 5280 4.2.1.12: extKeyUsage absent is unrestricted, so any purpose is
  * allowed. */
 static void test_eku_no_extension_allows(void) {
   CHECK(
-      quic_x509_eku_allows(
+      x509_eku_allows(
           wired_span_of(ekut_tbs_no_ext, sizeof(ekut_tbs_no_ext)),
           server_auth()) == 1);
 }
@@ -56,7 +55,7 @@ static void test_eku_no_extension_allows(void) {
 /* An empty KeyPurposeId list permits nothing. */
 static void test_eku_empty_rejects(void) {
   CHECK(
-      quic_x509_eku_allows(
+      x509_eku_allows(
           wired_span_of(ekut_tbs_empty, sizeof(ekut_tbs_empty)),
           server_auth()) == 0);
 }
@@ -64,7 +63,7 @@ static void test_eku_empty_rejects(void) {
 /* serverAuth listed: allowed. */
 static void test_eku_server_auth_present_allows(void) {
   CHECK(
-      quic_x509_eku_allows(
+      x509_eku_allows(
           wired_span_of(ekut_tbs_server_auth, sizeof(ekut_tbs_server_auth)),
           server_auth()) == 1);
 }
@@ -72,7 +71,7 @@ static void test_eku_server_auth_present_allows(void) {
 /* Only clientAuth listed: serverAuth is not allowed. */
 static void test_eku_server_auth_absent_rejects(void) {
   CHECK(
-      quic_x509_eku_allows(
+      x509_eku_allows(
           wired_span_of(ekut_tbs_client_auth, sizeof(ekut_tbs_client_auth)),
           server_auth()) == 0);
 }
@@ -80,7 +79,7 @@ static void test_eku_server_auth_absent_rejects(void) {
 /* serverAuth among multiple KeyPurposeIds: allowed. */
 static void test_eku_server_auth_among_others_allows(void) {
   CHECK(
-      quic_x509_eku_allows(
+      x509_eku_allows(
           wired_span_of(ekut_tbs_both, sizeof(ekut_tbs_both)), server_auth()) ==
       1);
 }
@@ -89,7 +88,7 @@ static void test_eku_server_auth_among_others_allows(void) {
  * contains a different purpose (clientAuth). */
 static void test_eku_client_auth_query_absent(void) {
   CHECK(
-      quic_x509_eku_allows(
+      x509_eku_allows(
           wired_span_of(ekut_tbs_server_auth, sizeof(ekut_tbs_server_auth)),
           wired_span_of(ekut_oid_client_auth, sizeof(ekut_oid_client_auth))) ==
       0);

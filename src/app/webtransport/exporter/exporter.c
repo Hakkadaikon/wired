@@ -17,7 +17,7 @@ static int put_len8_field(u8* out, usz cap, usz* off, wired_span field) {
   if (*off + 1 + field.n > cap) return 0;
   out[*off] = (u8)field.n;
   *off += 1;
-  quic_memcpy(out + *off, field.p, field.n);
+  bytes_memcpy(out + *off, field.p, field.n);
   *off += field.n;
   return 1;
 }
@@ -39,7 +39,7 @@ usz quic_wt_exporter_ctx_encode(
     u8*        out,
     usz        cap) {
   if (!ctx_fields_fit(label, app_context) || cap < 8) return 0;
-  quic_put_be64(out, session_id);
+  be_put_be64(out, session_id);
   return put_ctx_fields(out, cap, label, app_context);
 }
 

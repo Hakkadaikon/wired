@@ -41,14 +41,13 @@ int quic_eebuild_encrypted_extensions(
   if (!quic_salpn_build_response(
           alpn, out->p + off + 2, out->cap - off - 2, &alpn_len))
     return 0; /* QUIC_SALPN_NONE or too small -- either way, nothing built */
-  eob =
-      quic_obuf_of(out->p + off + 2 + alpn_len, out->cap - off - 2 - alpn_len);
+  eob = obuf_of(out->p + off + 2 + alpn_len, out->cap - off - 2 - alpn_len);
   ext = quic_tpext_encode(&eob, transport_params);
   ed  = eebuild_early_data(
       out->p + off + 2 + alpn_len + ext, out->cap - off - 2 - alpn_len - ext,
       early_data);
   /* extensions block length */
-  quic_put_be16(out->p + off, (u16)(alpn_len + ext + ed));
+  be_put_be16(out->p + off, (u16)(alpn_len + ext + ed));
   out->len = off + 2 + alpn_len + ext + ed;
   quic_hs_finish(out->p, out->len);
   return 1;

@@ -32,11 +32,11 @@ static void test_sha256_vectors(void) {
 static void test_sha256_streaming(void) {
   u8 a[QUIC_SHA256_DIGEST], b[QUIC_SHA256_DIGEST];
   wired_sha256((const u8*)"hello world", 11, a);
-  quic_sha256_ctx s;
-  quic_sha256_init(&s);
-  quic_sha256_update(&s, (const u8*)"hello ", 6);
-  quic_sha256_update(&s, (const u8*)"world", 5);
-  quic_sha256_final(&s, b);
+  sha256_ctx s;
+  sha256_init(&s);
+  sha256_update(&s, (const u8*)"hello ", 6);
+  sha256_update(&s, (const u8*)"world", 5);
+  sha256_final(&s, b);
   CHECK(digest_eq(
       a, "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"));
   for (usz i = 0; i < QUIC_SHA256_DIGEST; i++) CHECK(a[i] == b[i]);

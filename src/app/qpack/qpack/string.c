@@ -11,7 +11,7 @@ usz quic_qpack_string_encode(wired_mspan buf, wired_span src) {
   quic_qpack_pfx pfx = {7, 0};
   usz            off = quic_qpack_int_encode(buf, pfx, src.n);
   if (off == 0) return 0;
-  if (!quic_put_bytes(
+  if (!bytes_put(
           wired_mspan_of(buf.p, buf.n), &off, wired_span_of(src.p, src.n)))
     return 0;
   return off;
@@ -41,7 +41,7 @@ static int take_header(wired_span buf, qstr_head* h) {
 static int str_raw(wired_span oct, wired_obuf* dst) {
   usz off = 0;
   if (oct.n > dst->cap) return 0;
-  if (!quic_take_bytes(
+  if (!bytes_take(
           wired_span_of(oct.p, oct.n), &off, wired_mspan_of(dst->p, oct.n)))
     return 0;
   dst->len = oct.n;

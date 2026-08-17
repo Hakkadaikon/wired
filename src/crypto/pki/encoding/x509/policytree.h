@@ -21,13 +21,13 @@
  * explicit OID set (is_any=0), the set only ever shrinks via intersection,
  * matching the tree's monotonic pruning. */
 typedef struct {
-  quic_x509_policy_set set;
-  int                  is_any;
-} quic_x509_policy_tree;
+  x509_policy_set set;
+  int             is_any;
+} x509_policy_tree;
 
 /* RFC 5280 6.1.2. The initial state before certificate 1 is processed: the
  * tree is the single root node "anyPolicy". */
-void quic_x509_policy_tree_init(quic_x509_policy_tree* t);
+void x509_policy_tree_init(x509_policy_tree* t);
 
 /* RFC 5280 6.1.3 (d). Fold one certificate's tbs into the tree, in path
  * order from the trust anchor's issued certificate towards the leaf.
@@ -48,12 +48,12 @@ void quic_x509_policy_tree_init(quic_x509_policy_tree* t);
  *     policy OID set (or becomes exactly that set, the first time the
  *     root's anyPolicy narrows). An already-empty tree stays empty
  *     (monotonic). */
-void quic_x509_policy_tree_fold(
-    quic_x509_policy_tree* t, wired_span tbs, int any_inhibited);
+void x509_policy_tree_fold(
+    x509_policy_tree* t, wired_span tbs, int any_inhibited);
 
 /* 1 if the tree is non-empty (root anyPolicy, or a narrowed set with at
  * least one surviving OID); 0 if pruned to empty. RFC 5280 6.1.5 (g): a
  * requireExplicitPolicy in effect at wrap-up requires this to be 1. */
-int quic_x509_policy_tree_nonempty(const quic_x509_policy_tree* t);
+int x509_policy_tree_nonempty(const x509_policy_tree* t);
 
 #endif

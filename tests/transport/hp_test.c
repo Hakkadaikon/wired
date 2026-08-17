@@ -10,11 +10,11 @@ static void uhx(const char* hex, u8* out, usz n) {
 
 /* RFC 9001 5.4.2: client hp key, sample, and resulting mask. */
 static void test_hp_mask(void) {
-  u8          hpkey[16], sample[16], mask[5];
-  quic_aes128 a;
+  u8     hpkey[16], sample[16], mask[5];
+  aes128 a;
   uhx("9f50449e04a0e810283a1e9933adedd2", hpkey, 16);
   uhx("d1b1c98dd7689fb8ec11d242b123dc9b", sample, 16);
-  quic_aes128_init(&a, hpkey);
+  aes128_init(&a, hpkey);
   quic_hp_mask(&a, sample, mask);
   u8 want[5];
   uhx("437b9aec36", want, 5);

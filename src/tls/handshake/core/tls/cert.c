@@ -126,5 +126,5 @@ int quic_tls_certverify_ed25519(
   u8 content[130];
   if (sig.n != QUIC_ED25519_SIG) return 0;
   build_signed(transcript_hash, content);
-  return quic_ed25519_verify(sig.p, content, sizeof(content), pubkey);
+  return ed25519_verify(sig.p, content, sizeof(content), pubkey);
 }

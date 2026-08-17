@@ -8,7 +8,7 @@ static void test_shbuild_wire(void) {
   u8              random[32], pub[32], out[256];
   u8              sid[4] = {0xa1, 0xb2, 0xc3, 0xd4};
   quic_shbuild_in in;
-  wired_obuf      ob = quic_obuf_of(out, sizeof(out));
+  wired_obuf      ob = obuf_of(out, sizeof(out));
   for (usz i = 0; i < 32; i++) {
     random[i] = (u8)(0x20 + i);
     pub[i]    = (u8)(0x80 + i);
@@ -26,7 +26,7 @@ static void test_shbuild_roundtrip(void) {
   u8                   random[32], pub[32], got[32], out[256];
   quic_serverhello_out sh = {0, 0};
   quic_shbuild_in      in;
-  wired_obuf           ob = quic_obuf_of(out, sizeof(out));
+  wired_obuf           ob = obuf_of(out, sizeof(out));
   for (usz i = 0; i < 32; i++) {
     random[i] = (u8)i;
     pub[i]    = (u8)(0x40 + i);
@@ -43,7 +43,7 @@ static void test_shbuild_roundtrip(void) {
 static void test_shbuild_overflow(void) {
   u8              random[32] = {0}, pub[32] = {0}, out[16];
   quic_shbuild_in in = {random, wired_span_of((void*)0, 0), 0x1301, pub, 0};
-  wired_obuf      ob = quic_obuf_of(out, sizeof(out));
+  wired_obuf      ob = obuf_of(out, sizeof(out));
   CHECK(quic_shbuild_server_hello(&in, &ob) == 0);
 }
 

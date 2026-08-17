@@ -19,9 +19,9 @@ static const u8 sao_rsa_sha512[]   = {0x2a, 0x86, 0x48, 0x86, 0xf7,
                                       0x0d, 0x01, 0x01, 0x0d};
 
 static const struct {
-  const u8*        oid;
-  usz              oid_len;
-  quic_x509_sigalg alg;
+  const u8*   oid;
+  usz         oid_len;
+  x509_sigalg alg;
 } sao_table[] = {
     {sao_ecdsa_sha224,
      sizeof(sao_ecdsa_sha224),
@@ -46,10 +46,10 @@ static const struct {
      {QUIC_X509_SIG_RSA_PKCS1, QUIC_X509_HASH_SHA512}},
 };
 
-int quic_x509_sigalg_lookup(wired_span oid, quic_x509_sigalg* out) {
+int x509_sigalg_lookup(wired_span oid, x509_sigalg* out) {
   usz n = sizeof(sao_table) / sizeof(sao_table[0]);
   for (usz i = 0; i < n; i++)
-    if (quic_der_oid_equal(
+    if (der_oid_equal(
             oid, wired_span_of(sao_table[i].oid, sao_table[i].oid_len))) {
       *out = sao_table[i].alg;
       return 1;

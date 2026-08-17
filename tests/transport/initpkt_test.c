@@ -32,7 +32,7 @@ static void test_initpkt_roundtrip(void) {
   quic_initpkt_desc d = {
       wired_span_of(dcid, 8), wired_span_of(scid, 4),
       wired_span_of(ch, sizeof(ch)), 2, 0};
-  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf o = obuf_of(pkt, sizeof(pkt));
   CHECK(quic_initpkt_build(&d, &o));
   /* RFC 9000 14.1: the datagram reaches the 1200-byte minimum */
   CHECK(o.len >= 1200);
@@ -57,7 +57,7 @@ static void test_initpkt_crypto_offset(void) {
   quic_initpkt_desc d = {
       wired_span_of(dcid, 8), wired_span_of((const u8*)0, 0),
       wired_span_of(ch, sizeof(ch)), 1, 7};
-  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf o = obuf_of(pkt, sizeof(pkt));
   wired_span crypto;
   CHECK(quic_initpkt_build(&d, &o));
   CHECK(quic_initpkt_open(
@@ -76,7 +76,7 @@ static void test_initpkt_tamper(void) {
   quic_initpkt_desc d = {
       wired_span_of(dcid, 8), wired_span_of((const u8*)0, 0),
       wired_span_of(ch, sizeof(ch)), 7, 0};
-  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf o = obuf_of(pkt, sizeof(pkt));
   CHECK(quic_initpkt_build(&d, &o));
   pkt[o.len - 1] ^= 0x01;
   wired_span crypto;

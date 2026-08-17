@@ -23,7 +23,7 @@ static void p256fixed_cmov(p256_fe r, const u64* a, u64 mask) {
 
 /* r = (a - b) mod p. */
 static void p256fixed_sub(p256_fe r, const p256_fe a, const p256_fe b) {
-  quic_fp_sub(r, (quic_fpab){a, b}, quic_p256_p);
+  p256_fp_sub(r, (fpab){a, b}, p256_p);
 }
 
 typedef struct {
@@ -56,24 +56,24 @@ static void p256fixed_madd(
     const p256_fe       x2,
     const p256_fe       y2) {
   p256_fe z1z1, u2, s2, h, rr, hh, v, t;
-  quic_fp_sqr_p(z1z1, a->jz);
-  quic_fp_mul_p(u2, x2, z1z1);
-  quic_fp_mul_p(s2, y2, a->jz);
-  quic_fp_mul_p(s2, s2, z1z1);
+  p256_fp_sqr_p(z1z1, a->jz);
+  p256_fp_mul_p(u2, x2, z1z1);
+  p256_fp_mul_p(s2, y2, a->jz);
+  p256_fp_mul_p(s2, s2, z1z1);
   p256fixed_sub(h, u2, a->jx);  /* H = U2 - X1 */
   p256fixed_sub(rr, s2, a->jy); /* R = S2 - Y1 */
-  quic_fp_sqr_p(hh, h);
-  quic_fp_mul_p(v, a->jx, hh); /* V = X1 * H^2 */
-  quic_fp_mul_p(hh, hh, h);    /* now H^3 */
-  quic_fp_sqr_p(t, rr);
+  p256_fp_sqr_p(hh, h);
+  p256_fp_mul_p(v, a->jx, hh); /* V = X1 * H^2 */
+  p256_fp_mul_p(hh, hh, h);    /* now H^3 */
+  p256_fp_sqr_p(t, rr);
   p256fixed_sub(t, t, hh);
   p256fixed_sub(t, t, v);
   p256fixed_sub(out->jx, t, v); /* X3 = R^2 - H^3 - 2V */
   p256fixed_sub(t, v, out->jx);
-  quic_fp_mul_p(t, rr, t);
-  quic_fp_mul_p(v, a->jy, hh);
+  p256_fp_mul_p(t, rr, t);
+  p256_fp_mul_p(v, a->jy, hh);
   p256fixed_sub(out->jy, t, v); /* Y3 = R(V - X3) - Y1*H^3 */
-  quic_fp_mul_p(out->jz, a->jz, h);
+  p256_fp_mul_p(out->jz, a->jz, h);
 }
 
 /* Nibble i of the scalar (i == 0 is least significant). */
@@ -99,18 +99,18 @@ static void p256fixed_step(p256fixed_pt* acc, const u64* row, u64 d) {
 /* Jacobian -> affine; 0 if the point is infinity. */
 static int p256fixed_to_affine(p256_fe x, p256_fe y, const p256fixed_pt* j) {
   p256_fe zi, zi2;
-  if (quic_fp_is_zero(j->jz)) return 0;
-  quic_fp_inv_p(zi, j->jz);
-  quic_fp_sqr_p(zi2, zi);
-  quic_fp_mul_p(x, j->jx, zi2);
-  quic_fp_mul_p(zi2, zi2, zi);
-  quic_fp_mul_p(y, j->jy, zi2);
+  if (p256_fp_is_zero(j->jz)) return 0;
+  p256_fp_inv_p(zi, j->jz);
+  p256_fp_sqr_p(zi2, zi);
+  p256_fp_mul_p(x, j->jx, zi2);
+  p256_fp_mul_p(zi2, zi2, zi);
+  p256_fp_mul_p(y, j->jy, zi2);
   return 1;
 }
 
-int quic_p256fixed_mul_g(p256_fe out_x, p256_fe out_y, const u8 scalar[32]) {
+int p256fixed_mul_g(p256_fe out_x, p256_fe out_y, const u8 scalar[32]) {
   p256fixed_pt acc = {{0}, {0}, {0}}; /* infinity */
   for (usz i = 0; i < 64; i++)
-    p256fixed_step(&acc, quic_p256fixed_table[i], p256fixed_digit(scalar, i));
+    p256fixed_step(&acc, p256fixed_table[i], p256fixed_digit(scalar, i));
   return p256fixed_to_affine(out_x, out_y, &acc);
 }

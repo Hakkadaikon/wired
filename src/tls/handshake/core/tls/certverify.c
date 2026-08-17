@@ -37,10 +37,10 @@ static void cv_build_signed(const u8 transcript_hash[32], u8 out[130]) {
 
 /* View the end-entity certificate's subjectPublicKey BIT STRING value. */
 static int cert_spki_key(wired_span cert, wired_span* key) {
-  quic_x509  c;
+  x509       c;
   wired_span oid;
-  if (!quic_x509_parse(cert, &c)) return 0;
-  return quic_x509_public_key(c.tbs, &oid, key);
+  if (!x509_parse(cert, &c)) return 0;
+  return x509_public_key(c.tbs, &oid, key);
 }
 
 /* SEC1 C.5. Strip a single INTEGER sign pad. */
@@ -60,11 +60,11 @@ static void left_pad32(u8 out[32], const u8* v, usz len) {
 static int fits32(usz len) { return len >= 1 && len <= 32; }
 
 /* Copy one INTEGER into a 32-byte big-endian field (rejecting > 32 octets). */
-static int copy_int32(quic_derseq* c, u8 out[32]) {
+static int copy_int32(derseq* c, u8 out[32]) {
   wired_span s;
   const u8*  v;
   usz        len;
-  if (!quic_derseq_next_tagged(c, QUIC_DER_INTEGER, &s)) return 0;
+  if (!derseq_next_tagged(c, QUIC_DER_INTEGER, &s)) return 0;
   v   = s.p;
   len = s.n;
   cv_strip_pad(&v, &len);
@@ -75,10 +75,10 @@ static int copy_int32(quic_derseq* c, u8 out[32]) {
 
 /* SEC1 C.5. ECDSA-Sig-Value ::= SEQUENCE { r INTEGER, s INTEGER }. */
 static int ecdsa_split(wired_span sig, u8 r[32], u8 s[32]) {
-  quic_derseq c;
-  wired_span  seq;
-  if (!quic_der_seq(sig, &seq)) return 0;
-  quic_derseq_init(&c, seq);
+  derseq     c;
+  wired_span seq;
+  if (!der_seq(sig, &seq)) return 0;
+  derseq_init(&c, seq);
   if (!copy_int32(&c, r)) return 0;
   return copy_int32(&c, s);
 }
@@ -93,23 +93,23 @@ static int ecdsa_inputs(
     wired_span cert, wired_span sig, certverify_ecdsa_fields* f) {
   wired_span key;
   if (!cert_spki_key(cert, &key)) return 0;
-  if (!quic_x509_ec_pubkey(key, f->x, f->y)) return 0;
+  if (!x509_ec_pubkey(key, f->x, f->y)) return 0;
   return ecdsa_split(sig, f->r, f->s);
 }
 
 static int verify_ecdsa(wired_span cert, wired_span sig, const u8 hash[32]) {
   certverify_ecdsa_fields f;
   if (!ecdsa_inputs(cert, sig, &f)) return 0;
-  return quic_ecdsa_p256_verify(f.x, f.y, f.r, f.s, hash);
+  return ecdsa_p256_verify(f.x, f.y, f.r, f.s, hash);
 }
 
 static int verify_rsa(wired_span cert, wired_span sig, const u8 hash[32]) {
   wired_span key, n, e;
   if (!cert_spki_key(cert, &key)) return 0;
-  if (!quic_x509_rsa_pubkey(key, &n, &e)) return 0;
+  if (!x509_rsa_pubkey(key, &n, &e)) return 0;
   /* RFC 8446 9.1: rsa_pss_rsae_sha256 is RSASSA-PSS (never PKCS#1 v1.5). */
-  quic_rsa_pub pub = {n, e};
-  return quic_rsa_pss_verify(&pub, sig, wired_span_of(hash, 32));
+  rsa_pub pub = {n, e};
+  return rsa_pss_verify(&pub, sig, wired_span_of(hash, 32));
 }
 
 /* RFC 5280 4.1.2.7: a 32-byte raw key wrapped in the BIT STRING's leading
@@ -133,7 +133,7 @@ static int verify_ed25519(
   const u8* key;
   if (sig.n != QUIC_ED25519_SIG) return 0;
   if (!ed25519_key(cert, &key)) return 0;
-  return quic_ed25519_verify(sig.p, content, 130, key);
+  return ed25519_verify(sig.p, content, 130, key);
 }
 
 /* RFC 8446 4.4.3. Hash branches (ecdsa/rsa over SHA-256 of the content). */

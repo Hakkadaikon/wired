@@ -4,16 +4,16 @@
 #include "common/bytes/util/bytes.h"
 
 usz quic_eth_build(u8* out, const quic_eth_head* h) {
-  quic_memcpy(out, h->dst, 6);
-  quic_memcpy(out + 6, h->src, 6);
-  quic_put_be16(out + 12, h->ethertype);
+  bytes_memcpy(out, h->dst, 6);
+  bytes_memcpy(out + 6, h->src, 6);
+  be_put_be16(out + 12, h->ethertype);
   return QUIC_ETH_HDR;
 }
 
 int quic_eth_parse(wired_span frame, quic_eth_head* h) {
   if (frame.n < QUIC_ETH_HDR) return 0;
-  quic_memcpy(h->dst, frame.p, 6);
-  quic_memcpy(h->src, frame.p + 6, 6);
-  h->ethertype = quic_get_be16(frame.p + 12);
+  bytes_memcpy(h->dst, frame.p, 6);
+  bytes_memcpy(h->src, frame.p + 6, 6);
+  h->ethertype = be_get_be16(frame.p + 12);
   return 1;
 }

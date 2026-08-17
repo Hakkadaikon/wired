@@ -22,7 +22,7 @@ static void srvxdp_init_state(wired_srvxdp* x, const wired_srvxdp_cfg* cfg) {
   /* ip_be holds the address as network-order BYTES, so tx_meta's
    * get_be32 round-trips it; a host-order u32 here byte-reverses the
    * reply's source IP on the wire. */
-  quic_memcpy((u8*)&x->ip_be, cfg->ip, 4);
+  bytes_memcpy((u8*)&x->ip_be, cfg->ip, 4);
   x->port = cfg->port;
   quic_xdpmac_init(&x->macs);
   quic_xskumem_alloc_init(&x->txpool, SRVXDP_TXPOOL_BASE, SRVXDP_TXPOOL_FRAMES);
@@ -95,7 +95,7 @@ static int srvxdp_rx_one(
   if (!quic_xdpframe_parse(frame, &rx)) return 0;
   if (rx.payload_len > out->buf.n) return 0;
   srvxdp_learn(x, &rx);
-  quic_memcpy(out->buf.p, rx.payload, rx.payload_len);
+  bytes_memcpy(out->buf.p, rx.payload, rx.payload_len);
   out->len = (u32)rx.payload_len;
   out->src = rx.src;
   return 1;
@@ -158,8 +158,8 @@ static void srvxdp_tx_meta(
   for (usz i = 0; i < 6; i++) m->dst_mac[i] = peer_mac[i];
   for (usz i = 0; i < 6; i++) m->src_mac[i] = x->our_mac[i];
   m->udp.ports.sport = x->port;
-  m->udp.ports.dport = quic_get_be16((const u8*)&dst->port_be);
-  m->udp.addrs.src   = quic_get_be32((const u8*)&x->ip_be);
+  m->udp.ports.dport = be_get_be16((const u8*)&dst->port_be);
+  m->udp.addrs.src   = be_get_be32((const u8*)&x->ip_be);
   m->udp.addrs.dst   = wired_udp_addr4_be(dst);
 }
 

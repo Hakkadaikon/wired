@@ -39,12 +39,12 @@
 /* A binary that supplies its own _start (-nostdlib) must also define the
  * libc-named memcpy/memset the compiler emits for struct/array copies. Define
  * WIRED_MAIN in the single application translation unit to emit them here,
- * forwarding to the SDK's quic_memcpy/quic_memset. */
+ * forwarding to the SDK's bytes_memcpy/bytes_memset. */
 #ifdef WIRED_MAIN
 void* memcpy(void* dst, const void* src, usz n) {
-  return quic_memcpy(dst, src, n);
+  return bytes_memcpy(dst, src, n);
 }
-void* memset(void* dst, int c, usz n) { return quic_memset(dst, c, n); }
+void* memset(void* dst, int c, usz n) { return bytes_memset(dst, c, n); }
 
 /* Freestanding entry point (-nostdlib). Each application TU that defines
  * WIRED_MAIN must also define `int wired_main(int argc, char** argv)`

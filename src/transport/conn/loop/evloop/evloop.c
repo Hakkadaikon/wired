@@ -187,7 +187,7 @@ void quic_evloop_close(quic_evloop* c, int peer_closed) {
 }
 
 void quic_evloop_discard_keys(quic_evloop* c, int level) {
-  quic_keyset_discard(&c->gate.keys, level);
+  keyset_discard(&c->gate.keys, level);
   c->pto.armed       = 0;
   c->loss.armed      = 0;
   c->bytes_in_flight = 0;

@@ -25,7 +25,7 @@ enum {
  * monotonic send level, handshake/validation flags, lifecycle phase, PTO
  * arming, and byte/auth-failure accounting. */
 typedef struct {
-  quic_keyset  keys;
+  keyset       keys;
   quic_sentpkt sent;
   int          send_level; /* highest protection level used to send so far */
   int          handshake_complete;  /* RFC 9001 4.1.2: TLS handshake done */

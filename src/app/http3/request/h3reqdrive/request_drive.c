@@ -20,7 +20,7 @@
 int wired_h3reqdrive_send_method(
     u64 stream_id, const wired_h3reqdrive_send_in* in, wired_obuf* out) {
   u8                    fs[256];
-  wired_obuf            fsb = quic_obuf_of(fs, sizeof(fs));
+  wired_obuf            fsb = obuf_of(fs, sizeof(fs));
   quic_h3req_headers_in hin = {in->path, in->authority};
   quic_h3conn_req_in    rin;
   if (!quic_h3req_enc_method(in->method, &hin, &fsb)) return 0;
@@ -82,7 +82,7 @@ static usz line_indexed(wired_span fs, const quic_qdyn_src* dyn, rline* L) {
  */
 static usz line_namref(wired_span fs, wired_mspan scr, rline* L) {
   quic_qpack_nameref r    = {0, 0, 0};
-  wired_obuf         vb   = quic_obuf_of(scr.p, scr.n);
+  wired_obuf         vb   = obuf_of(scr.p, scr.n);
   const char *       name = 0, *value = 0;
   usz                c = quic_qpack_literal_namref_decode(fs, &r, &vb);
   if (!c || !quic_qpack_static_get((usz)r.index, &name, &value)) return 0;
@@ -110,7 +110,7 @@ static usz line_litname(wired_span fs, wired_mspan scr, rline* L) {
   int                 never = 0;
   usz                 half  = litname_split(scr.n);
   quic_qpack_fieldbuf fb    = {
-      quic_obuf_of(scr.p, half), quic_obuf_of(scr.p + half, scr.n - half)};
+      obuf_of(scr.p, half), obuf_of(scr.p + half, scr.n - half)};
   usz c = quic_qpack_literal_name_decode(fs, &never, &fb);
   if (!c) return 0;
   L->name         = scr.p;
@@ -173,7 +173,7 @@ static void take_origin(const rline* L, wired_h3reqdrive_req* r) {
 static void take_wt_avail(const rline* L, wired_h3reqdrive_req* r) {
   if (!line_name_is(L, "wt-available-protocols")) return;
   if (L->value_len > sizeof r->wt_avail) return;
-  quic_memcpy(r->wt_avail, L->value, L->value_len);
+  bytes_memcpy(r->wt_avail, L->value, L->value_len);
   r->wt_avail_len = L->value_len;
 }
 
@@ -190,8 +190,8 @@ static void cookie_join(wired_h3reqdrive_req* r, const u8* value, usz vlen) {
   usz sep = cookie_sep_len(r);
   usz cap = sizeof r->cookie - r->cookie_len;
   if (sep + vlen > cap) return;
-  quic_memcpy(r->cookie + r->cookie_len, "; ", sep);
-  quic_memcpy(r->cookie + r->cookie_len + sep, value, vlen);
+  bytes_memcpy(r->cookie + r->cookie_len, "; ", sep);
+  bytes_memcpy(r->cookie + r->cookie_len + sep, value, vlen);
   r->cookie_len += sep + vlen;
 }
 

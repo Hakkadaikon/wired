@@ -13,12 +13,12 @@ int quic_retrydrive_apply(
     wired_span retry_token, wired_span retry_scid, quic_retrydrive_state* out) {
   usz off = 0;
   if (!fits(retry_token.n, retry_scid.n)) return 0;
-  quic_put_bytes(
+  bytes_put(
       wired_mspan_of(out->token, sizeof out->token), &off,
       wired_span_of(retry_token.p, retry_token.n));
   out->token_len = retry_token.n;
   off            = 0;
-  quic_put_bytes(
+  bytes_put(
       wired_mspan_of(out->dcid, sizeof out->dcid), &off,
       wired_span_of(retry_scid.p, retry_scid.n));
   out->dcid_len     = (u8)retry_scid.n;

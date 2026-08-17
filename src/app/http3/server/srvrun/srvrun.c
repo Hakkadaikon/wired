@@ -143,7 +143,7 @@ typedef struct {
  * send replies to (recorded from the datagram that opened the slot, RFC 9000
  * 5.1 — every reply on this slot targets this address, not whichever peer's
  * datagram was received most recently), and this slot's own server source
- * connection id. scid is generated per slot (quic_cid_generate): every slot
+ * connection id. scid is generated per slot (cid_generate): every slot
  * sharing cfg->id's fixed scid would make every connection answer to the same
  * DCID, collapsing quic_conntable's routing to a single slot. Indexed in
  * parallel with the conntable slot of the same index. */
@@ -1062,7 +1062,7 @@ static int srvrun_stage_room(const wired_srvrun_env* e, usz n) {
 static int srvrun_stage_same_peer(
     const wired_srvrun_env* e, const quic_sockaddr* sa) {
   return sa->port_be == e->gso_peer.port_be &&
-         quic_ct_diffn(sa->addr, e->gso_peer.addr, 16) == 0;
+         ct_diffn(sa->addr, e->gso_peer.addr, 16) == 0;
 }
 
 static int srvrun_stage_extends(
@@ -1082,7 +1082,7 @@ static void srvrun_stage_put(
     e->gso_seg_size = pkt.n;
     e->gso_peer     = c->peer;
   }
-  quic_memcpy(e->gso_stage + e->gso_len, pkt.p, pkt.n);
+  bytes_memcpy(e->gso_stage + e->gso_len, pkt.p, pkt.n);
   e->gso_len += pkt.n;
   e->gso_count++;
   if (pkt.n < e->gso_seg_size) srvrun_stage_flush(cfg);
@@ -1239,8 +1239,8 @@ static void srvrun_boot_flush_zerortt(
 
 static int srvrun_boot_finish(
     const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, wired_mspan dg) {
-  wired_obuf         iob  = quic_obuf_of(c->boot_ini, sizeof c->boot_ini);
-  wired_obuf         hob  = quic_obuf_of(c->boot_hs, sizeof c->boot_hs);
+  wired_obuf         iob  = obuf_of(c->boot_ini, sizeof c->boot_ini);
+  wired_obuf         hob  = obuf_of(c->boot_hs, sizeof c->boot_hs);
   wired_srvboot_conn conn = {&c->s, &c->l};
   wired_srvboot_id   sid  = srvrun_slot_id(ctx->cfg->id, c);
   wired_srvboot_out  out  = {&iob, &hob, {0}, 0, 0};
@@ -1376,7 +1376,7 @@ static usz srvrun_wt_busy_reset_payload(
 static int srvrun_seal_wt_busy_reset(
     srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* out) {
   u8                    pl[64];
-  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   usz pln = srvrun_wt_busy_reset_payload(c, stream_id, err_code, &plb);
   if (!pln) return 0;
@@ -1391,7 +1391,7 @@ static int srvrun_seal_wt_busy_reset(
 static void srvrun_send_wt_busy_reset(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 err_code) {
   u8         out[128];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   if (!srvrun_seal_wt_busy_reset(c, stream_id, err_code, &ob)) return;
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "WT stream abort sent\n");
 }
@@ -1412,7 +1412,7 @@ static usz srvrun_app_close_payload(
 static int srvrun_seal_app_close(
     srvrun_conn* c, u64 error_code, wired_span reason, wired_obuf* out) {
   u8                    pl[64];
-  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   usz pln = srvrun_app_close_payload(error_code, reason, &plb);
   if (!pln) return 0;
@@ -1427,7 +1427,7 @@ static int srvrun_seal_app_close(
 static void srvrun_send_app_close(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, wired_span reason) {
   u8         out[128];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   if (!srvrun_seal_app_close(c, error_code, reason, &ob)) return;
   srvrun_send(
       cfg, c, wired_span_of(out, ob.len), "app CONNECTION_CLOSE sent\n");
@@ -1445,7 +1445,7 @@ static void srvrun_send_app_close(
 static int srvrun_continue_payload(
     u64 stream_id, wired_obuf* plb, usz* h3_len) {
   u8                h3[16];
-  wired_obuf        h3b = quic_obuf_of(h3, sizeof h3);
+  wired_obuf        h3b = obuf_of(h3, sizeof h3);
   quic_stream_frame f;
   if (!quic_h3resp_prefix(100, 0, 0, &h3b)) return 0;
   f       = (quic_stream_frame){stream_id, 0, h3b.len, h3, 0};
@@ -1460,7 +1460,7 @@ static int srvrun_continue_payload(
 static int srvrun_seal_continue(
     srvrun_conn* c, u64 stream_id, wired_obuf* out, usz* h3_len) {
   u8                    pl[64];
-  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   if (!srvrun_continue_payload(stream_id, &plb, h3_len)) return 0;
   sin = (wired_srvloop_send_in){
@@ -1478,7 +1478,7 @@ static int srvrun_seal_continue(
 static usz srvrun_send_continue(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id) {
   u8         out[128];
-  wired_obuf ob     = quic_obuf_of(out, sizeof out);
+  wired_obuf ob     = obuf_of(out, sizeof out);
   usz        h3_len = 0;
   if (!srvrun_seal_continue(c, stream_id, &ob, &h3_len)) return 0;
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "100 Continue sent\n");
@@ -1502,7 +1502,7 @@ static usz srvrun_transport_close_payload(
 static int srvrun_seal_transport_close(
     srvrun_conn* c, u64 error_code, wired_span reason, wired_obuf* out) {
   u8                    pl[64];
-  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   usz pln = srvrun_transport_close_payload(error_code, reason, &plb);
   if (!pln) return 0;
@@ -1517,7 +1517,7 @@ static int srvrun_seal_transport_close(
 static void srvrun_send_transport_close(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, wired_span reason) {
   u8         out[128];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   if (!srvrun_seal_transport_close(c, error_code, reason, &ob)) return;
   srvrun_send(
       cfg, c, wired_span_of(out, ob.len), "transport CONNECTION_CLOSE sent\n");
@@ -2035,7 +2035,7 @@ static int wt_credit_stream_due(u64 ceiling, u64 credit_advertised) {
 static int srvrun_seal_max_stream_data(
     srvrun_conn* c, u64 stream_id, u64 value, wired_obuf* out) {
   u8                     pl[32];
-  wired_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf             plb = obuf_of(pl, sizeof pl);
   quic_stream_data_frame f   = {stream_id, value};
   wired_srvloop_send_in  sin;
   usz                    pln = quic_max_stream_data_encode(plb.p, plb.cap, &f);
@@ -2050,7 +2050,7 @@ static int srvrun_seal_max_stream_data(
 static void srvrun_send_max_stream_data(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 value) {
   u8         out[128];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   if (!srvrun_seal_max_stream_data(c, stream_id, value, &ob)) return;
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "WT MAX_STREAM_DATA sent\n");
 }
@@ -2127,7 +2127,7 @@ static u64 srvrun_wt_rx_delivered_total(const srvrun_conn* c) {
 static int srvrun_seal_path_challenge(
     srvrun_conn* c, const u8 data[QUIC_PATH_DATA], wired_obuf* out) {
   u8                    pl[24];
-  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   usz pln = quic_path_encode(plb.p, plb.cap, QUIC_FRAME_PATH_CHALLENGE, data);
   if (!pln) return 0;
@@ -2156,7 +2156,7 @@ static usz srvrun_pad_path_challenge(u8* out, usz len, usz cap) {
 static void srvrun_send_path_challenge(
     const srvrun_cfg* cfg, srvrun_conn* c, const u8 data[QUIC_PATH_DATA]) {
   u8         out[QUIC_MIN_INITIAL_DATAGRAM];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   usz        n;
   if (!srvrun_seal_path_challenge(c, data, &ob)) return;
   n = srvrun_pad_path_challenge(out, ob.len, sizeof out);
@@ -2167,7 +2167,7 @@ static void srvrun_send_path_challenge(
  * it, mirroring srvrun_seal_max_stream_data for the connection-wide frame. */
 static int srvrun_seal_max_data(srvrun_conn* c, u64 value, wired_obuf* out) {
   u8                    pl[24];
-  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = obuf_of(pl, sizeof pl);
   quic_data_frame       f   = {value};
   wired_srvloop_send_in sin;
   usz                   pln = quic_max_data_encode(plb.p, plb.cap, &f);
@@ -2182,7 +2182,7 @@ static int srvrun_seal_max_data(srvrun_conn* c, u64 value, wired_obuf* out) {
 static void srvrun_send_max_data(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 value) {
   u8         out[128];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   if (!srvrun_seal_max_data(c, value, &ob)) return;
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "WT MAX_DATA sent\n");
 }
@@ -2192,7 +2192,7 @@ static void srvrun_send_max_data(
 static int srvrun_seal_data_blocked(
     srvrun_conn* c, u64 limit, wired_obuf* out) {
   u8                    pl[24];
-  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = obuf_of(pl, sizeof pl);
   quic_data_frame       f   = {limit};
   wired_srvloop_send_in sin;
   usz                   pln = quic_data_blocked_encode(plb.p, plb.cap, &f);
@@ -2212,7 +2212,7 @@ static int srvrun_seal_data_blocked(
 static void srvrun_send_data_blocked(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 limit) {
   u8         out[128];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   if (!srvrun_seal_data_blocked(c, limit, &ob)) return;
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "DATA_BLOCKED sent\n");
 }
@@ -2222,7 +2222,7 @@ static void srvrun_send_data_blocked(
 static int srvrun_seal_max_streams(
     srvrun_conn* c, int uni, u64 value, wired_obuf* out) {
   u8                    pl[24];
-  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   if (!quic_maxstreams_frame(uni, value, &plb)) return 0;
   sin = (wired_srvloop_send_in){
@@ -2237,7 +2237,7 @@ static int srvrun_seal_max_streams(
 static int srvrun_seal_streams_blocked(
     srvrun_conn* c, int uni, u64 limit, wired_obuf* out) {
   u8                    pl[24];
-  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   if (!quic_maxstreams_blocked_frame(uni, limit, &plb)) return 0;
   sin = (wired_srvloop_send_in){
@@ -2254,7 +2254,7 @@ static int srvrun_seal_streams_blocked(
 static void srvrun_send_streams_blocked(
     const srvrun_cfg* cfg, srvrun_conn* c, int uni, u64 limit) {
   u8         out[128];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   if (!srvrun_seal_streams_blocked(c, uni, limit, &ob)) return;
   c->stat_streams_blocked++;
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "UNI STREAMS_BLOCKED sent\n");
@@ -2263,7 +2263,7 @@ static void srvrun_send_streams_blocked(
 static void srvrun_send_max_streams(
     const srvrun_cfg* cfg, srvrun_conn* c, int uni, u64 value) {
   u8         out[128];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   if (!srvrun_seal_max_streams(c, uni, value, &ob)) return;
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "MAX_STREAMS sent\n");
   if (uni)
@@ -2505,7 +2505,7 @@ static int srvrun_send_wt_capsule(
    * largest capsule this file sends, WT_CLOSE_SESSION's own worst case
    * (QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX, srvrun_send_wt_close's own body[]). */
   u8                    pl[32 + 16 + 4 + QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX];
-  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   quic_stream_frame     f = {
       srvrun_wt_slot(c, sidx)->connect_stream_id, c->wt_connect_sent_len[sidx],
@@ -2591,7 +2591,7 @@ static void srvrun_send_wt_close(
    * quic_capsule_encode's own envelope) ahead of the 4-byte code and message
    * wired_wtcapsule_encode_close writes into this same buffer. */
   u8         body[16 + 4 + QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX];
-  wired_obuf bob = quic_obuf_of(body, sizeof body);
+  wired_obuf bob = obuf_of(body, sizeof body);
   if (wired_wtcapsule_encode_close(
           &bob, c->wt_close_code[sidx],
           wired_span_of(c->wt_close_msg[sidx], c->wt_close_msg_len[sidx])))
@@ -2613,7 +2613,7 @@ static void srvrun_drain_wt_close_pending(
     const srvrun_cfg* cfg, srvrun_conn* c) {
   u8 out[1500]; /* worst case: WT_CLOSE_SESSION's 1024-byte message
                  * cap (srvrun_send_wt_close's own body[] doc) */
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
     srvrun_drain_wt_close_one(cfg, c, i, &ob);
 }
@@ -2644,7 +2644,7 @@ static int srvrun_seal_wt_stream_reset(srvrun_conn* c, usz i, wired_obuf* out) {
 static void srvrun_send_wt_stream_reset(
     const srvrun_cfg* cfg, srvrun_conn* c, usz i) {
   u8         out[128];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   if (!srvrun_seal_wt_stream_reset(c, i, &ob)) return;
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "WT stream RESET sent\n");
 }
@@ -2849,7 +2849,7 @@ static void srvrun_ku_note_rotation(srvrun_conn* c, u64 now_ms) {
 static void srvrun_on_step(
     const srvrun_step_ctx* ctx, srvrun_conn* c, wired_mspan dg) {
   u8                 out[1500];
-  wired_obuf         ob   = quic_obuf_of(out, sizeof out);
+  wired_obuf         ob   = obuf_of(out, sizeof out);
   wired_srvloop_conn conn = {&c->l, &c->s};
   srvrun_rxmark      mark = srvrun_rx_mark(&c->l);
   int                produced;
@@ -2923,7 +2923,7 @@ static int srvrun_goaway_payload(int advertise_wt, wired_obuf* plb) {
 static int srvrun_send_goaway(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* out) {
   u8                    pl[64];
-  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   if (!srvrun_goaway_payload(c->l.we_advertised_max_datagram > 0, &plb))
     return 0;
@@ -2944,7 +2944,7 @@ static int srvrun_send_goaway(
 static void srvrun_send_wt_drain(
     const srvrun_cfg* cfg, srvrun_conn* c, int sidx, wired_obuf* out) {
   u8         body[8];
-  wired_obuf bob = quic_obuf_of(body, sizeof body);
+  wired_obuf bob = obuf_of(body, sizeof body);
   if (!wired_wt_session_drain(srvrun_wt_slot(c, sidx))) return;
   if (!quic_wtcapsule_encode_drain(&bob)) return;
   srvrun_send_wt_capsule(cfg, c, sidx, wired_span_of(body, bob.len), 0, out);
@@ -2999,7 +2999,7 @@ static int srvrun_owes_goaway(const srvrun_conn* c) {
 static int srvrun_queue_datagram(srvrun_conn* c, wired_span data) {
   if (!c->l.h3.settings_sent) return 0;
   if (data.n > sizeof c->dg_pending_buf) return 0;
-  quic_memcpy(c->dg_pending_buf, data.p, data.n);
+  bytes_memcpy(c->dg_pending_buf, data.p, data.n);
   c->dg_pending_len = data.n;
   c->dg_pending     = 1;
   return 1;
@@ -3020,7 +3020,7 @@ static int srvrun_queue_datagram(srvrun_conn* c, wired_span data) {
 static int srvrun_send_datagram_now(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_span data, wired_obuf* out) {
   u8                    pl[1400];
-  wired_obuf            plb        = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb        = obuf_of(pl, sizeof pl);
   u64                   peer_limit = c->s.sdrv.peer_max_datagram_frame_size;
   quic_dgdeliver_opts   o = {.with_length = 1, .max_frame_size = peer_limit};
   wired_srvloop_send_in sin;
@@ -3049,7 +3049,7 @@ static int srvrun_send_dg_prefixed(
   u8  buf[8 + sizeof c->dg_pending_buf];
   usz qn = quic_wtwire_qsid_put(buf, sizeof buf, s->connect_stream_id);
   if (!qn) return 0;
-  quic_memcpy(buf + qn, payload.p, payload.n);
+  bytes_memcpy(buf + qn, payload.p, payload.n);
   out->len = 0;
   return srvrun_send_datagram_now(
       cfg, c, wired_span_of(buf, qn + payload.n), out);
@@ -3375,7 +3375,7 @@ static i64 srvrun_wtsend_arm_id(
   const u8* src = payload.p;
   w->view_round = payload.n > SRVRUN_WTSEND_BUF;
   if (!w->view_round) {
-    quic_memcpy(w->roundbuf, payload.p, payload.n);
+    bytes_memcpy(w->roundbuf, payload.p, payload.n);
     src = w->roundbuf;
   }
   w->stream_id  = id;
@@ -3625,8 +3625,8 @@ static void srvrun_wtsend_ring_write(srvrun_wtsend* w, wired_span payload) {
   usz at    = w->sess.q.len % SRVRUN_WTSEND_BUF;
   usz tail  = SRVRUN_WTSEND_BUF - at;
   usz first = payload.n < tail ? payload.n : tail;
-  quic_memcpy(w->roundbuf + at, payload.p, first);
-  quic_memcpy(w->roundbuf, payload.p + first, payload.n - first);
+  bytes_memcpy(w->roundbuf + at, payload.p, first);
+  bytes_memcpy(w->roundbuf, payload.p + first, payload.n - first);
 }
 
 /* Stage one accepted round: copy payload into the ring behind the bytes
@@ -3802,7 +3802,7 @@ static int srvrun_dgring_fill(
     srvrun_dgring_entry* e, int conn_slot, u64 connect_id, wired_span payload) {
   usz qn = quic_wtwire_qsid_put(e->buf, sizeof e->buf, connect_id);
   if (!qn || payload.n > sizeof e->buf - qn) return 0;
-  quic_memcpy(e->buf + qn, payload.p, payload.n);
+  bytes_memcpy(e->buf + qn, payload.p, payload.n);
   e->len       = qn + payload.n;
   e->conn_slot = conn_slot;
   return 1;
@@ -3874,8 +3874,8 @@ int wired_server_broadcast_datagram_ring(wired_span data) {
  */
 static void srvrun_wt_close_record_message(
     srvrun_conn* c, int sidx, wired_span message) {
-  usz n = quic_u64_min(message.n, QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX);
-  quic_memcpy(c->wt_close_msg[sidx], message.p, n);
+  usz n = u64_min(message.n, QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX);
+  bytes_memcpy(c->wt_close_msg[sidx], message.p, n);
   c->wt_close_msg_len[sidx] = n;
 }
 
@@ -3897,7 +3897,7 @@ int wired_server_wt_close_session(
 static void srvrun_dgring_send_one(
     const srvrun_cfg* cfg, srvrun_state* st, const srvrun_dgring_entry* e) {
   u8           out[1500];
-  wired_obuf   ob = quic_obuf_of(out, sizeof out);
+  wired_obuf   ob = obuf_of(out, sizeof out);
   srvrun_conn* c  = &st->conns[e->conn_slot];
   if (c->up)
     srvrun_send_datagram_now(cfg, c, wired_span_of(e->buf, e->len), &ob);
@@ -3929,7 +3929,7 @@ static void srvrun_goaway_one(
 
 static void srvrun_goaway_all(const srvrun_cfg* cfg, srvrun_state* st) {
   u8         out[256];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
     if (srvrun_owes_goaway(&st->conns[i]))
       srvrun_goaway_one(cfg, &st->conns[i], &ob);
@@ -4079,7 +4079,7 @@ static int srvrun_awaiting_confirm(const srvrun_conn* c) {
  * than assuming v1's). */
 static int srvrun_pkt_is_initial(wired_mspan dg, usz off) {
   if (off + 5 > dg.n) return 0;
-  return quic_packet_long_type(dg.p[off], quic_get_be32(dg.p + off + 1)) ==
+  return quic_packet_long_type(dg.p[off], be_get_be32(dg.p + off + 1)) ==
          QUIC_PT_INITIAL;
 }
 
@@ -4386,7 +4386,7 @@ static void srvrun_start_wt_status(
     u16                     status,
     const quic_qpack_field* extra) {
   u8*        st  = env->respstore[slot][srvrun_resp_index(c, r)];
-  wired_obuf pob = quic_obuf_of(st, WIRED_SRVRUN_RESP_MAX);
+  wired_obuf pob = obuf_of(st, WIRED_SRVRUN_RESP_MAX);
   if (!quic_h3resp_prefix_field(status, 0, 0, extra, &pob)) return;
   wired_sendsess_arm(&r->sess, st, pob.len, srvrun_mps(c));
 }
@@ -4456,8 +4456,8 @@ static void srvrun_start_wt_resource_status(
  * copied, not viewed, since c->l.req's storage does not outlive this step.
  * Overflow past SRVRUN_WT_PATH_CAP is truncated (see its own doc). */
 static void srvrun_wt_record_path(srvrun_conn* c, int sidx) {
-  usz n = quic_u64_min(c->l.req.path_len, SRVRUN_WT_PATH_CAP);
-  quic_memcpy(c->wt_path[sidx], c->l.req.path, n);
+  usz n = u64_min(c->l.req.path_len, SRVRUN_WT_PATH_CAP);
+  bytes_memcpy(c->wt_path[sidx], c->l.req.path, n);
   c->wt_path_len[sidx] = n;
 }
 
@@ -4497,7 +4497,7 @@ static int srvrun_wt_server_has(const char* list, wired_span item) {
  * length (selected). */
 static int srvrun_wt_try_next(
     const char* list, quic_sfield_iter* it, u8* out, usz cap) {
-  wired_obuf ob = quic_obuf_of(out, cap);
+  wired_obuf ob = obuf_of(out, cap);
   int        rc = quic_sfield_next_string(it, &ob);
   if (rc <= 0) return -1;
   return srvrun_wt_server_has(list, wired_span_of(out, ob.len)) ? (int)ob.len
@@ -4670,7 +4670,7 @@ static u8* srvrun_resp_shrink_to_fixed(
   u8* fixed;
   if (r->bigbuf_row < 0 || total > WIRED_SRVRUN_RESP_MAX) return st;
   fixed = ctx->cfg->env->respstore[slot][srvrun_resp_index(c, r)];
-  quic_memcpy(fixed, st, total);
+  bytes_memcpy(fixed, st, total);
   wired_srvbigbuf_release(&ctx->cfg->env->bigbuf, r->bigbuf_row);
   r->bigbuf_row = -1;
   return fixed;
@@ -4707,11 +4707,11 @@ static void srvrun_arm_h3_resp_framed(
     const char*            ct,
     u64                    total_len) {
   u8         pre[SRVRUN_RESP_HDR_ROOM];
-  wired_obuf pob = quic_obuf_of(pre, sizeof pre);
+  wired_obuf pob = obuf_of(pre, sizeof pre);
   usz        off;
   if (!quic_h3resp_prefix(200, ct, total_len, &pob)) return;
   off = SRVRUN_RESP_HDR_ROOM - pob.len;
-  quic_put_bytes(
+  bytes_put(
       wired_mspan_of(st, SRVRUN_RESP_HDR_ROOM), &off,
       wired_span_of(pre, pob.len));
   st = srvrun_resp_shrink_to_fixed(
@@ -4857,7 +4857,7 @@ static void srvrun_start_app_resp(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
   u8*        st = srvrun_resp_storage(ctx, slot, c, r);
   wired_obuf body =
-      quic_obuf_of(st + SRVRUN_RESP_HDR_ROOM, srvrun_resp_storage_cap(r));
+      obuf_of(st + SRVRUN_RESP_HDR_ROOM, srvrun_resp_storage_cap(r));
   const char* ct         = 0;
   int         more       = 0;
   u64         total_size = 0;
@@ -5119,7 +5119,7 @@ static usz srvrun_slice_ack_peek(
 static int srvrun_seal_send_slice(
     const srvrun_step_ctx* ctx, srvrun_conn* c, wired_span pl, u64 pn, usz al) {
   u8                    out[1500];
-  wired_obuf            ob  = quic_obuf_of(out, sizeof out);
+  wired_obuf            ob  = obuf_of(out, sizeof out);
   wired_srvloop_send_in sin = {
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len), pn, -1, pl, 0};
   if (!wired_srvloop_send_onertt(&c->s, &sin, &ob)) return 0;
@@ -5138,7 +5138,7 @@ static int srvrun_send_stream_slice(
     u8                       fin) {
   u8                pl[SRVRUN_ACK_ROOM + SRVRUN_SLICE_PL];
   usz               al  = srvrun_slice_ack_peek(c, sl, pl);
-  wired_obuf        plb = quic_obuf_of(pl + al, sizeof pl - al);
+  wired_obuf        plb = obuf_of(pl + al, sizeof pl - al);
   quic_stream_frame f   = {
       stream_id, wired_sendsess_stream_offset(sess, sl), sl->len,
       wired_sendq_slice_data(&sess->q, sl), fin};
@@ -5324,13 +5324,13 @@ static int srvrun_path_response_pending(const srvrun_conn* c) {
   return c->l.path_response_seen_flag && c->migrate.challenged;
 }
 
-/* 1 if this step's gathered PATH_RESPONSE data (quic_ct_diff8
+/* 1 if this step's gathered PATH_RESPONSE data (ct_diff8
  * constant-time compare) matches the challenge c last sent -- split out so
  * srvrun_apply_path_response's own CCN stays at the gate (the compound
  * pending && diff==0 that would otherwise inline here each cost +1). */
 static int srvrun_path_response_matches(const srvrun_conn* c) {
   if (!srvrun_path_response_pending(c)) return 0;
-  return quic_ct_diff8(c->l.path_response_data, c->path_challenge_data) == 0;
+  return ct_diff8(c->l.path_response_data, c->path_challenge_data) == 0;
 }
 
 /* RFC 9000 8.2.2: apply this step's gathered PATH_RESPONSE (if any) against
@@ -5695,7 +5695,7 @@ static int srvrun_pmtu_probe_outstanding(const srvrun_conn* c) {
 static usz srvrun_pmtu_probe_payload(u8* buf, usz cap, usz len) {
   if (len == 0 || len > cap) return 0;
   buf[0] = QUIC_FRAME_PING;
-  quic_memset(buf + 1, QUIC_FRAME_PADDING, len - 1);
+  bytes_memset(buf + 1, QUIC_FRAME_PADDING, len - 1);
   return len;
 }
 
@@ -5787,7 +5787,7 @@ static usz srvrun_pmtu_probe_candidate(srvrun_conn* c, u64 now_us) {
 static int srvrun_pmtu_send_probe(
     const srvrun_step_ctx* ctx, srvrun_conn* c, usz size) {
   u8         buf[QUIC_PMTU_MAX];
-  wired_obuf out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf out = obuf_of(buf, sizeof buf);
   u64        pn;
   if (!srvrun_seal_pmtu_probe(c, size, &out, &pn)) return 0;
   c->pmtu_probe_pn      = pn;
@@ -5972,7 +5972,7 @@ static u64 srvrun_pace_rate_raw(const srvrun_conn* c) {
 /* Floored at 1 B/ms so a degenerate estimate can never stall the refill
  * entirely (the tokens would otherwise never accumulate again). */
 static u64 srvrun_pace_rate(const srvrun_conn* c) {
-  return quic_u64_max(srvrun_pace_rate_raw(c), 1);
+  return u64_max(srvrun_pace_rate_raw(c), 1);
 }
 
 /* The uncapped balance after refilling for the wall time since the last
@@ -6242,7 +6242,7 @@ static void srvrun_feed_acks(
  * the same shape srvrun_send_pending_datagram expects. */
 static void srvrun_pump_datagram(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   u8         out[1500];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   if (!c->dg_pending) return;
   srvrun_send_pending_datagram(ctx->cfg, c, &ob);
 }
@@ -6354,7 +6354,7 @@ static void srvrun_resp_refill(
   if (room < r->ring_cap / 4) return;
   take = srvrun_resp_refill_take(r, room);
   base = srvrun_resp_storage_ro(ctx, slot, c, r);
-  body = quic_obuf_of(
+  body = obuf_of(
       base + (usz)(r->sess.q.p - base) + r->sess.q.len % r->ring_cap, take);
   srvrun_call_handler(
       ctx, &r->stream_req, r->stream_off, &body, &ct, &more, &total_size);
@@ -6825,7 +6825,7 @@ static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot) {
 /* A poll timeout with responses or broadcast DATAGRAMs in flight: fire the
  * probe/flush pass over every waiting slot. */
 static void srvrun_fire_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
-  srvrun_step_ctx ctx = {cfg, 0, st, quic_clock_mono_ms(), 0};
+  srvrun_step_ctx ctx = {cfg, 0, st, clock_mono_ms(), 0};
   for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) srvrun_tick_slot(&ctx, (int)i);
 }
 
@@ -6887,10 +6887,10 @@ static void srvrun_boot_release_pending(
 static int srvrun_peer_changed(
     const srvrun_step_ctx* ctx, const srvrun_conn* c) {
   return ctx->peer->port_be != c->peer.port_be ||
-         quic_ct_diffn(ctx->peer->addr, c->peer.addr, 16) != 0;
+         ct_diffn(ctx->peer->addr, c->peer.addr, 16) != 0;
 }
 
-/* Test-only override forcing quic_challenge_generate to behave as if
+/* Test-only override forcing challenge_generate to behave as if
  * the RNG failed, the same override-flag shape as srvrun_test_set_shutdown
  * above -- getrandom(2) failing is not practically triggerable from a test,
  * so this is the seam. Always reset to 0 after the owning test (see
@@ -6907,7 +6907,7 @@ __attribute__((unused)) static void srvrun_test_force_challenge_rng_fail(
  * challenge. */
 static int srvrun_gen_path_challenge(u8 data[QUIC_PATH_DATA]) {
   if (g_srvrun_path_challenge_force_fail) return 0;
-  return quic_challenge_generate(data);
+  return challenge_generate(data);
 }
 
 /* RFC 9000 8.2/9.3: a rebind just detected by srvrun_rebind_peer arms this
@@ -6923,7 +6923,7 @@ static void srvrun_arm_path_challenge(const srvrun_cfg* cfg, srvrun_conn* c) {
   c->migrate.handshake_confirmed = 1; /* only reachable post-confirm */
   quic_migrate_detect(&c->migrate);
   quic_migrate_challenge(&c->migrate);
-  quic_memcpy(c->path_challenge_data, data, QUIC_PATH_DATA);
+  bytes_memcpy(c->path_challenge_data, data, QUIC_PATH_DATA);
   srvrun_send_path_challenge(cfg, c, data);
 }
 
@@ -6982,7 +6982,7 @@ static int srvrun_leads_handshake(wired_mspan dg) {
  * loss profile). */
 static void srvrun_reconfirm(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   u8                 out[512];
-  wired_obuf         ob   = quic_obuf_of(out, sizeof out);
+  wired_obuf         ob   = obuf_of(out, sizeof out);
   wired_srvloop_conn conn = {&c->l, &c->s};
   if (!wired_srvloop_reconfirm(&conn, &ob)) return;
   srvrun_send(
@@ -7073,9 +7073,9 @@ static int srvrun_xdp_core_routing(const srvrun_cfg* cfg) {
 /* One place both a fresh accept (srvrun_open_slot) and any future additional-
  * CID issuance route through, so both share the exact same core-id embedding
  * policy (see NEW_CONNECTION_ID note in srvrun.h's core_id doc). Returns 1 on
- * success matching quic_cid_generate's own contract. */
+ * success matching cid_generate's own contract. */
 static int srvrun_issue_cid(const srvrun_cfg* cfg, u8* cid, u8 cid_len) {
-  if (!quic_cid_generate(cid, cid_len)) return 0;
+  if (!cid_generate(cid, cid_len)) return 0;
   if (srvrun_xdp_core_routing(cfg))
     quic_ncid_worker_encode(cid, cid_len, 8, (u32)cfg->core_id);
   return 1;
@@ -7152,7 +7152,7 @@ static void srvrun_retry_prep(
     u8                     token[QUIC_RETRYTOKEN_WIRE_MAX],
     usz*                   tn) {
   *tn = 0;
-  if (!quic_cid_generate(scid, 8)) return;
+  if (!cid_generate(scid, 8)) return;
   *tn = quic_retrytoken_wire_make(
       g_srvrun_retry_key,
       wired_span_of((const u8*)ctx->peer, sizeof(*ctx->peer)), h->dcid, token);
@@ -7218,7 +7218,7 @@ static int srvrun_retry_gate(
  * path advertises it (srvrun_slot_id -> srvboot_tp_odcid). */
 static void srvrun_note_retry_odcid(srvrun_conn* c, wired_span odcid) {
   if (odcid.n == 0 || odcid.n > WIRED_MAX_CID_LEN) return;
-  quic_memcpy(c->retry_odcid, odcid.p, odcid.n);
+  bytes_memcpy(c->retry_odcid, odcid.p, odcid.n);
   c->retry_odcid_len = (u8)odcid.n;
 }
 
@@ -7245,7 +7245,7 @@ static int srvrun_boot_scid_match(
   const srvrun_conn* c = &ctx->st->conns[i];
   if (!srvrun_boot_pending(c)) return 0;
   if (dcid.n != ctx->cfg->id->scid_len) return 0;
-  return quic_ct_diffn(c->scid, dcid.p, dcid.n) == 0;
+  return ct_diffn(c->scid, dcid.p, dcid.n) == 0;
 }
 
 /* The pending boot slot whose own scid is dcid, or -1: after a
@@ -7356,11 +7356,11 @@ static int srvrun_sreset_applies(wired_span dcid, wired_mspan dg) {
 static int srvrun_seal_stateless_reset(
     const srvrun_cfg* cfg, wired_span dcid, usz trigger_len, wired_obuf* out) {
   u8  key[QUIC_SRESET_KEY];
-  usz cap = quic_u64_min(out->cap, trigger_len - 1);
+  usz cap = u64_min(out->cap, trigger_len - 1);
   usz len;
   quic_sreset_key_derive(cfg->id->cert_seed, key);
   if (!quic_sreset_build(
-          key, dcid.p, dcid.n, trigger_len, quic_rng_bytes, out->p, cap, &len))
+          key, dcid.p, dcid.n, trigger_len, rng_bytes, out->p, cap, &len))
     return 0;
   out->len = len;
   return 1;
@@ -7369,7 +7369,7 @@ static int srvrun_seal_stateless_reset(
 static void srvrun_send_stateless_reset(
     const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
   u8         out[128];
-  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = obuf_of(out, sizeof out);
   if (!srvrun_sreset_applies(dcid, dg)) return;
   if (!srvrun_seal_stateless_reset(ctx->cfg, dcid, dg.n, &ob)) return;
   srvrun_tx(ctx->cfg, ctx->peer, wired_span_of(out, ob.len));
@@ -7423,7 +7423,7 @@ static void srvrun_send_new_conn_refusal(
     const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
   u8         out[128];
   u8         scid[8] = {0};
-  wired_obuf ob      = quic_obuf_of(out, sizeof out);
+  wired_obuf ob      = obuf_of(out, sizeof out);
   if (!srvrun_is_refusable_new_conn(dcid, dg)) return;
   if (!srvrun_seal_new_conn_refusal(wired_span_of(dg.p, dg.n), scid, &ob))
     return;
@@ -7571,7 +7571,7 @@ static i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
  * address is the peer a fresh slot records (RFC 9000 5.1). */
 static void srvrun_serve_batch(
     const srvrun_cfg* cfg, srvrun_state* st, const quic_mmsg_buf* bufs, i64 n) {
-  u64 now = quic_clock_mono_ms();
+  u64 now = clock_mono_ms();
   srvrun_sweep_idle(cfg, st, now); /* lazy: swept on each arrival */
   for (i64 i = 0; i < n; i++) {
     srvrun_step_ctx ctx = {cfg, &bufs[i].src, st, now, bufs[i].ecn};
@@ -7628,7 +7628,7 @@ static int srvrun_pto_due(const srvrun_cfg* cfg, wired_srvrun_env* env) {
 static void srvrun_polling_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
   u64 now;
   if (!srvrun_pto_due(cfg, cfg->env)) return;
-  now = quic_clock_mono_ms();
+  now = clock_mono_ms();
   if (now < cfg->env->pto_next_ms) return;
   cfg->env->pto_next_ms = now + SRVRUN_PTO_MS;
   srvrun_fire_ptos(cfg, st);
@@ -7717,7 +7717,7 @@ static void srvrun_rx_init(wired_srvrun_env* env, quic_mmsg_buf* bufs) {
  * greasing, same fallback. */
 static u64 srvrun_close_grease_id(void) {
   u8 b;
-  if (!quic_rng_bytes(&b, 1)) return 0;
+  if (!rng_bytes(&b, 1)) return 0;
   if (b & 1) return 0;
   return quic_h3_grease_value(b);
 }
@@ -7824,7 +7824,7 @@ void wired_srvrun_env_init(wired_srvrun_env* env) {
    * srvrun_conn's worth of wired_server/quic_sdrv each) -- that pattern
    * segfaulted on overflow the moment sdrv grew past the threshold. memset
    * writes directly into *env, no intermediate stack copy. */
-  quic_memset(env, 0, sizeof(*env));
+  bytes_memset(env, 0, sizeof(*env));
   wired_srvbigbuf_init(
       &env->bigbuf, &env->bigbuf_rows[0][0], WIRED_SRVBIGBUF_ROW_CAP);
 }

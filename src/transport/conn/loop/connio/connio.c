@@ -73,16 +73,16 @@ static int send_ready(
       in->level, 1, quic_connio_tx_next(io, in->level), in->frames.n};
   if (!pn_space_ready(io, in->level)) return 0;
   return quic_connloop_on_send(&io->loop, &sin) &&
-         quic_keyset_for_level(&io->loop.keys, in->level, keys);
+         keyset_for_level(&io->loop.keys, in->level, keys);
 }
 
 usz quic_connio_send(
     quic_connio* io, const quic_connio_send_in* in, wired_obuf* out) {
   const quic_initial_keys* keys;
-  quic_aes128              hp;
+  aes128                   hp;
   usz                      n;
   if (!send_ready(io, in, &keys)) return 0;
-  quic_aes128_init(&hp, keys->hp);
+  aes128_init(&hp, keys->hp);
   quic_protect_keys k    = {keys, &hp};
   wired_span        none = wired_span_of((const u8*)0, 0);
   quic_tx_desc      t    = {
@@ -126,7 +126,7 @@ typedef struct {
 static int recv_ready(
     quic_connio* io, const connio_recv_in* in, const quic_initial_keys** keys) {
   return quic_connloop_on_recv(&io->loop, in->level, in->datagram.n) &&
-         quic_keyset_for_level(&io->loop.keys, in->level, keys);
+         keyset_for_level(&io->loop.keys, in->level, keys);
 }
 
 /* RFC 9000 8.1: a server validates the client's address upon successfully
@@ -145,11 +145,11 @@ static int recv_accept(quic_connio* io, int level, wired_span frames) {
 
 int quic_connio_recv(quic_connio* io, int level, wired_mspan datagram) {
   const quic_initial_keys* keys;
-  quic_aes128              hp;
+  aes128                   hp;
   wired_span               frames;
   connio_recv_in           in = {level, datagram};
   if (!recv_ready(io, &in, &keys)) return 0;
-  quic_aes128_init(&hp, keys->hp);
+  aes128_init(&hp, keys->hp);
   quic_protect_keys k = {keys, &hp};
   quic_rx_desc      d = {datagram, level_is_initial(level)};
   if (!quic_rx_packet(&k, &d, &frames)) {

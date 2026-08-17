@@ -40,7 +40,7 @@ int wired_srvinbox_push(wired_srvinbox_ring* r, const u8* data, usz len) {
   if (len > WIRED_SRVINBOX_SLOT_MAX) return 0;
   if (srvinbox_prod_full(prod, r)) return 0;
   slot = &r->slots[prod & (WIRED_SRVINBOX_DEPTH - 1)];
-  quic_memcpy(slot->buf, data, len);
+  bytes_memcpy(slot->buf, data, len);
   slot->len = len;
   __atomic_store_n(&r->prod, prod + 1, __ATOMIC_RELEASE);
   return 1;
@@ -64,7 +64,7 @@ usz wired_srvinbox_pop(wired_srvinbox_ring* r, u8* out_buf, usz out_cap) {
   if (srvinbox_cons_empty(cons, r)) return 0;
   slot = &r->slots[cons & (WIRED_SRVINBOX_DEPTH - 1)];
   if (slot->len > out_cap) return 0;
-  quic_memcpy(out_buf, slot->buf, slot->len);
+  bytes_memcpy(out_buf, slot->buf, slot->len);
   __atomic_store_n(&r->cons, cons + 1, __ATOMIC_RELEASE);
   return slot->len;
 }

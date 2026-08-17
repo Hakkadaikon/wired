@@ -11,25 +11,25 @@ static void hb(const char* hex, u8 out[16]) {
 
 /* FIPS 197 Appendix B / C.1 known-answer test. */
 static void test_aes_fips197(void) {
-  u8          key[16], in[16], out[16], want[16];
-  quic_aes128 a;
+  u8     key[16], in[16], out[16], want[16];
+  aes128 a;
   hb("2b7e151628aed2a6abf7158809cf4f3c", key);
   hb("3243f6a8885a308d313198a2e0370734", in);
   hb("3925841d02dc09fbdc118597196a0b32", want);
-  quic_aes128_init(&a, key);
-  quic_aes128_encrypt(&a, in, out);
+  aes128_init(&a, key);
+  aes128_encrypt(&a, in, out);
   for (usz i = 0; i < 16; i++) CHECK(out[i] == want[i]);
 }
 
 /* FIPS 197 Appendix C.1: all-from-the-spec vector. */
 static void test_aes_appendix_c(void) {
-  u8          key[16], in[16], out[16], want[16];
-  quic_aes128 a;
+  u8     key[16], in[16], out[16], want[16];
+  aes128 a;
   hb("000102030405060708090a0b0c0d0e0f", key);
   hb("00112233445566778899aabbccddeeff", in);
   hb("69c4e0d86a7b0430d8cdb78070b4c55a", want);
-  quic_aes128_init(&a, key);
-  quic_aes128_encrypt(&a, in, out);
+  aes128_init(&a, key);
+  aes128_encrypt(&a, in, out);
   for (usz i = 0; i < 16; i++) CHECK(out[i] == want[i]);
 }
 
@@ -71,19 +71,19 @@ static int bytes16_differ(const u8 a[16], const u8 b[16]) {
 }
 
 /* FIPS 197 6.2: the implementation shall impose no restriction on an
- * appropriately generated key beyond its length. quic_aes128_init has no
+ * appropriately generated key beyond its length. aes128_init has no
  * key-validation branch (aes.c schedules every byte unconditionally), so
  * degenerate 16-byte keys (all-zero, all-0xff) that a "weak key" check
  * might reject are accepted and encrypt without error. */
 static void test_aes_no_key_restriction_beyond_length(void) {
-  u8 zero_key[16] = {0}, ff_key[16], in[16] = {0}, out_zero[16], out_ff[16];
-  quic_aes128 a_zero, a_ff;
+  u8     zero_key[16] = {0}, ff_key[16], in[16] = {0}, out_zero[16], out_ff[16];
+  aes128 a_zero, a_ff;
   for (usz i = 0; i < 16; i++) ff_key[i] = 0xff;
 
-  quic_aes128_init(&a_zero, zero_key);
-  quic_aes128_encrypt(&a_zero, in, out_zero);
-  quic_aes128_init(&a_ff, ff_key);
-  quic_aes128_encrypt(&a_ff, in, out_ff);
+  aes128_init(&a_zero, zero_key);
+  aes128_encrypt(&a_zero, in, out_zero);
+  aes128_init(&a_ff, ff_key);
+  aes128_encrypt(&a_ff, in, out_ff);
 
   /* Both degenerate keys produced *some* ciphertext (no crash/rejection),
    * and distinct keys still yield distinct ciphertext for the same
@@ -105,28 +105,28 @@ static void aes256_hb32(const char* hex, u8 out[32]) {
  * independently with Python's cryptography library (AES256-ECB) before
  * being baked in here; it matches the value below. */
 static void test_aes256_appendix_c3(void) {
-  u8          key[32], in[16], out[16], want[16];
-  quic_aes256 a;
+  u8     key[32], in[16], out[16], want[16];
+  aes256 a;
   aes256_hb32(
       "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", key);
   hb("00112233445566778899aabbccddeeff", in);
   hb("8ea2b7ca516745bfeafc49904b496089", want);
-  quic_aes256_init(&a, key);
-  quic_aes256_encrypt(&a, in, out);
+  aes256_init(&a, key);
+  aes256_encrypt(&a, in, out);
   for (usz i = 0; i < 16; i++) CHECK(out[i] == want[i]);
 }
 
 /* FIPS 197 6.2: no restriction on an appropriately generated key beyond its
  * length; degenerate 256-bit keys still produce distinct ciphertext. */
 static void test_aes256_no_key_restriction_beyond_length(void) {
-  u8 zero_key[32] = {0}, ff_key[32], in[16] = {0}, out_zero[16], out_ff[16];
-  quic_aes256 a_zero, a_ff;
+  u8     zero_key[32] = {0}, ff_key[32], in[16] = {0}, out_zero[16], out_ff[16];
+  aes256 a_zero, a_ff;
   for (usz i = 0; i < 32; i++) ff_key[i] = 0xff;
 
-  quic_aes256_init(&a_zero, zero_key);
-  quic_aes256_encrypt(&a_zero, in, out_zero);
-  quic_aes256_init(&a_ff, ff_key);
-  quic_aes256_encrypt(&a_ff, in, out_ff);
+  aes256_init(&a_zero, zero_key);
+  aes256_encrypt(&a_zero, in, out_zero);
+  aes256_init(&a_ff, ff_key);
+  aes256_encrypt(&a_ff, in, out_ff);
 
   CHECK(bytes16_differ(out_zero, out_ff));
 }

@@ -9,28 +9,28 @@
 #define NA 20270628030430ULL
 
 static void test_validity_golden(void) {
-  quic_x509 c;
+  x509 c;
   CHECK(
-      quic_x509_parse(
+      x509_parse(
           wired_span_of(quic_x509_golden, sizeof(quic_x509_golden)), &c) == 1);
 
   /* exactly notBefore and notAfter are inclusive */
-  CHECK(quic_x509_validity_ok(c.tbs, NB) == 1);
-  CHECK(quic_x509_validity_ok(c.tbs, NA) == 1);
+  CHECK(x509_validity_ok(c.tbs, NB) == 1);
+  CHECK(x509_validity_ok(c.tbs, NA) == 1);
   /* a moment inside the window */
-  CHECK(quic_x509_validity_ok(c.tbs, 20261225000000ULL) == 1);
+  CHECK(x509_validity_ok(c.tbs, 20261225000000ULL) == 1);
   /* one second before notBefore: expired/not-yet-valid */
-  CHECK(quic_x509_validity_ok(c.tbs, NB - 1) == 0);
+  CHECK(x509_validity_ok(c.tbs, NB - 1) == 0);
   /* one second after notAfter: expired */
-  CHECK(quic_x509_validity_ok(c.tbs, NA + 1) == 0);
+  CHECK(x509_validity_ok(c.tbs, NA + 1) == 0);
 }
 
 static void test_validity_malformed(void) {
   /* tbs too short to read a SEQUENCE header */
-  CHECK(quic_x509_validity_ok(wired_span_of(quic_x509_golden + 4, 3), NB) == 0);
+  CHECK(x509_validity_ok(wired_span_of(quic_x509_golden + 4, 3), NB) == 0);
   /* tbs SEQUENCE without enough elements to reach validity */
   const u8 tbs[] = {0x30, 0x03, 0x02, 0x01, 0x02};
-  CHECK(quic_x509_validity_ok(wired_span_of(tbs, sizeof(tbs)), NB) == 0);
+  CHECK(x509_validity_ok(wired_span_of(tbs, sizeof(tbs)), NB) == 0);
 }
 
 /* 1 if a[0..13) equals the NUL-terminated ASCII literal want. */
@@ -43,7 +43,7 @@ static int utctime_eq(const u8 a[13], const char* want) {
 /* RFC 5280 4.1.2.5.1: known YYYYMMDDHHMMSS -> exact UTCTime bytes. */
 static void test_utctime_encode_known(void) {
   u8 out[13];
-  quic_x509_utctime_encode(NB, out);
+  x509_utctime_encode(NB, out);
   CHECK(utctime_eq(out, "260628030430Z"));
 }
 
@@ -52,9 +52,9 @@ static void test_utctime_encode_known(void) {
  * ambiguity is inherent to UTCTime, not this function's bug. */
 static void test_utctime_encode_year_boundary(void) {
   u8 out[13];
-  quic_x509_utctime_encode(20000101000000ULL, out);
+  x509_utctime_encode(20000101000000ULL, out);
   CHECK(utctime_eq(out, "000101000000Z"));
-  quic_x509_utctime_encode(20491231235959ULL, out);
+  x509_utctime_encode(20491231235959ULL, out);
   CHECK(utctime_eq(out, "491231235959Z"));
 }
 
@@ -86,13 +86,13 @@ static usz build_tbs_with_validity(
 
   usz m    = 0;
   tbs[m++] = 0x30;
-  tbs[m++] = (u8)n; /* outer SEQUENCE wrapping quic_der_seq expects */
+  tbs[m++] = (u8)n; /* outer SEQUENCE wrapping der_seq expects */
   vt_append(tbs, &m, body, n);
   return m;
 }
 
 /* Encoding a window [notBefore, notAfter) into a synthetic tbs and reading it
- * back through quic_x509_validity_ok proves the encoder and the existing
+ * back through x509_validity_ok proves the encoder and the existing
  * decoder agree on the same wire bytes for a spread of dates, not just the
  * one golden fixture above. */
 static void test_utctime_encode_roundtrip(void) {
@@ -101,13 +101,13 @@ static void test_utctime_encode_roundtrip(void) {
       20260101120000ULL};
   for (usz i = 0; i < sizeof(samples) / sizeof(samples[0]); i++) {
     u8 nb[13], na[13], tbs[70];
-    quic_x509_utctime_encode(samples[i], nb);
-    quic_x509_utctime_encode(samples[i] + 1, na);
+    x509_utctime_encode(samples[i], nb);
+    x509_utctime_encode(samples[i] + 1, na);
     usz m = build_tbs_with_validity(nb, na, tbs);
 
-    CHECK(quic_x509_validity_ok(wired_span_of(tbs, m), samples[i]) == 1);
-    CHECK(quic_x509_validity_ok(wired_span_of(tbs, m), samples[i] + 1) == 1);
-    CHECK(quic_x509_validity_ok(wired_span_of(tbs, m), samples[i] - 1) == 0);
+    CHECK(x509_validity_ok(wired_span_of(tbs, m), samples[i]) == 1);
+    CHECK(x509_validity_ok(wired_span_of(tbs, m), samples[i] + 1) == 1);
+    CHECK(x509_validity_ok(wired_span_of(tbs, m), samples[i] - 1) == 0);
   }
 }
 

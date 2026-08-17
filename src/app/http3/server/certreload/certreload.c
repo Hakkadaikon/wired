@@ -19,7 +19,7 @@ static int certreload_next_cert(
  * certificates decoded (0 if none). */
 static usz certreload_load_chain(
     wired_span text, wired_certreload_store* store) {
-  wired_obuf der = quic_obuf_of(store->chain_der, sizeof store->chain_der);
+  wired_obuf der = obuf_of(store->chain_der, sizeof store->chain_der);
   usz        at = 0, n = 0, start = 0;
   while (certreload_next_cert(text, &at, &der, n)) {
     store->chain[n++] =
@@ -64,7 +64,7 @@ static int certreload_next_key(wired_span text, usz* at, wired_obuf* der) {
  * block into store->priv. Returns 1 on success. */
 static int certreload_load_key(wired_span text, wired_certreload_store* store) {
   u8         der_buf[192];
-  wired_obuf der = quic_obuf_of(der_buf, sizeof der_buf);
+  wired_obuf der = obuf_of(der_buf, sizeof der_buf);
   usz        at  = 0;
   if (!certreload_next_key(text, &at, &der)) return 0;
   return wired_eckey_p256_priv(wired_span_of(der_buf, der.len), store->priv);

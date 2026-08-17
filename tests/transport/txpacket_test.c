@@ -8,7 +8,7 @@
 /* Seal one long-header packet (no SCID, no token). */
 static usz t_tx(
     const quic_initial_keys* ik,
-    const quic_aes128*       hp,
+    const aes128*            hp,
     wired_span               dcid,
     u64                      pn,
     wired_span               frames,
@@ -23,7 +23,7 @@ static usz t_tx(
 /* Open one Initial packet; returns 1 and the frames view on success. */
 static int t_rx(
     const quic_initial_keys* ik,
-    const quic_aes128*       hp,
+    const aes128*            hp,
     u8*                      pkt,
     usz                      n,
     wired_span*              frames) {
@@ -37,9 +37,9 @@ static int t_rx(
 static void test_txpacket_roundtrip(void) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_keys ik;
-  quic_aes128       hp;
+  aes128            hp;
   quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &ik);
-  quic_aes128_init(&hp, ik.hp);
+  aes128_init(&hp, ik.hp);
 
   u8  ping[1];
   usz fl = quic_frame_put_simple(ping, sizeof(ping), QUIC_FRAME_PING);
@@ -61,9 +61,9 @@ static void test_txpacket_roundtrip(void) {
 static void test_txpacket_tamper(void) {
   const u8          dcid[4] = {1, 2, 3, 4};
   quic_initial_keys ik;
-  quic_aes128       hp;
+  aes128            hp;
   quic_initial_derive(wired_span_of(dcid, 4), 0, QUIC_VERSION_1, &ik);
-  quic_aes128_init(&hp, ik.hp);
+  aes128_init(&hp, ik.hp);
 
   u8  ping[1] = {QUIC_FRAME_PING};
   u8  pkt[256];

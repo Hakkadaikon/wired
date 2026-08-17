@@ -51,14 +51,14 @@ static const u8 pct_tbs_inhibit_any_malformed[] = {
 /* RFC 5280 4.2.1.11: no policyConstraints extension is unconstrained. */
 static void test_reqexp_absent_ext_is_none(void) {
   CHECK(
-      quic_x509_require_explicit_policy(wired_span_of(
+      x509_require_explicit_policy(wired_span_of(
           pct_tbs_no_ext, sizeof(pct_tbs_no_ext))) == QUIC_X509_SKIPCERTS_NONE);
 }
 
 /* requireExplicitPolicy present and set to 3. */
 static void test_reqexp_value_read(void) {
   CHECK(
-      quic_x509_require_explicit_policy(
+      x509_require_explicit_policy(
           wired_span_of(pct_tbs_reqexp3, sizeof(pct_tbs_reqexp3))) == 3);
 }
 
@@ -66,7 +66,7 @@ static void test_reqexp_value_read(void) {
  * absent: unconstrained (RFC 5280 4.2.1.11, the field is OPTIONAL). */
 static void test_reqexp_field_absent_is_none(void) {
   CHECK(
-      quic_x509_require_explicit_policy(wired_span_of(
+      x509_require_explicit_policy(wired_span_of(
           pct_tbs_reqexp_absent_field, sizeof(pct_tbs_reqexp_absent_field))) ==
       QUIC_X509_SKIPCERTS_NONE);
 }
@@ -74,7 +74,7 @@ static void test_reqexp_field_absent_is_none(void) {
 /* A malformed (negative) requireExplicitPolicy fails closed. */
 static void test_reqexp_malformed_rejects(void) {
   CHECK(
-      quic_x509_require_explicit_policy(wired_span_of(
+      x509_require_explicit_policy(wired_span_of(
           pct_tbs_reqexp_malformed, sizeof(pct_tbs_reqexp_malformed))) ==
       QUIC_X509_SKIPCERTS_MALFORMED);
 }
@@ -82,21 +82,21 @@ static void test_reqexp_malformed_rejects(void) {
 /* RFC 5280 4.2.1.14: no inhibitAnyPolicy extension is unconstrained. */
 static void test_inhibit_any_absent_is_none(void) {
   CHECK(
-      quic_x509_inhibit_any_policy(wired_span_of(
+      x509_inhibit_any_policy(wired_span_of(
           pct_tbs_no_ext, sizeof(pct_tbs_no_ext))) == QUIC_X509_SKIPCERTS_NONE);
 }
 
 /* inhibitAnyPolicy present and set to 2. */
 static void test_inhibit_any_value_read(void) {
   CHECK(
-      quic_x509_inhibit_any_policy(wired_span_of(
+      x509_inhibit_any_policy(wired_span_of(
           pct_tbs_inhibit_any2, sizeof(pct_tbs_inhibit_any2))) == 2);
 }
 
 /* A malformed (non-INTEGER) inhibitAnyPolicy fails closed. */
 static void test_inhibit_any_malformed_rejects(void) {
   CHECK(
-      quic_x509_inhibit_any_policy(wired_span_of(
+      x509_inhibit_any_policy(wired_span_of(
           pct_tbs_inhibit_any_malformed,
           sizeof(pct_tbs_inhibit_any_malformed))) ==
       QUIC_X509_SKIPCERTS_MALFORMED);

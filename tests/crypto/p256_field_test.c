@@ -16,15 +16,15 @@ static void test_p256_field_inv(void) {
   u8 ab[32];
   p256_hb32(
       "00112233445566778899aabbccddeeff00112233445566778899aabbccddee01", ab);
-  quic_fp_from_be(a, ab);
+  p256_fp_from_be(a, ab);
 
-  quic_fp_inv(ai, a, quic_p256_p);
-  quic_fp_mul(prod, (quic_fpab){a, ai}, quic_p256_p);
-  CHECK(quic_fp_eq(prod, one));
+  p256_fp_inv(ai, a, p256_p);
+  p256_fp_mul(prod, (fpab){a, ai}, p256_p);
+  CHECK(p256_fp_eq(prod, one));
 
-  quic_fp_inv(ai, a, quic_p256_n);
-  quic_fp_mul(prod, (quic_fpab){a, ai}, quic_p256_n);
-  CHECK(quic_fp_eq(prod, one));
+  p256_fp_inv(ai, a, p256_n);
+  p256_fp_mul(prod, (fpab){a, ai}, p256_n);
+  CHECK(p256_fp_eq(prod, one));
 }
 
 /* add/sub round-trip: (a + b) - b == a (mod p). */
@@ -35,11 +35,11 @@ static void test_p256_field_addsub(void) {
       "0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff02", ab);
   p256_hb32(
       "00000000000000000000000000000000000000000000000000000000000000ff", bb);
-  quic_fp_from_be(a, ab);
-  quic_fp_from_be(b, bb);
-  quic_fp_add(s, (quic_fpab){a, b}, quic_p256_p);
-  quic_fp_sub(d, (quic_fpab){s, b}, quic_p256_p);
-  CHECK(quic_fp_eq(d, a));
+  p256_fp_from_be(a, ab);
+  p256_fp_from_be(b, bb);
+  p256_fp_add(s, (fpab){a, b}, p256_p);
+  p256_fp_sub(d, (fpab){s, b}, p256_p);
+  CHECK(p256_fp_eq(d, a));
 }
 
 /* be round-trip: bytes -> fe -> bytes is identity. */
@@ -48,8 +48,8 @@ static void test_p256_field_bytes(void) {
   u8 in[32], out[32];
   p256_hb32(
       "0123456789abcdeffedcba98765432100011223344556677889900aabbccddee", in);
-  quic_fp_from_be(a, in);
-  quic_fp_to_be(out, a);
+  p256_fp_from_be(a, in);
+  p256_fp_to_be(out, a);
   for (usz i = 0; i < 32; i++) CHECK(out[i] == in[i]);
 }
 
@@ -73,25 +73,25 @@ static void test_p256_field_fast_matches_generic(void) {
       a[i] = p256_rng(&s);
       b[i] = p256_rng(&s);
     }
-    quic_fp_mul(r1, (quic_fpab){a, b}, quic_p256_p); /* oracle */
-    quic_fp_mul_p(r2, a, b);                         /* fast */
-    CHECK(quic_fp_eq(r1, r2));
-    quic_fp_sqr(r1, a, quic_p256_p);
-    quic_fp_sqr_p(r2, a);
-    CHECK(quic_fp_eq(r1, r2));
+    p256_fp_mul(r1, (fpab){a, b}, p256_p); /* oracle */
+    p256_fp_mul_p(r2, a, b);               /* fast */
+    CHECK(p256_fp_eq(r1, r2));
+    p256_fp_sqr(r1, a, p256_p);
+    p256_fp_sqr_p(r2, a);
+    CHECK(p256_fp_eq(r1, r2));
   }
   /* boundary: a = p - 1. */
-  for (int i = 0; i < 4; i++) a[i] = quic_p256_p[i];
+  for (int i = 0; i < 4; i++) a[i] = p256_p[i];
   a[0] -= 1;
-  quic_fp_mul(r1, (quic_fpab){a, a}, quic_p256_p);
-  quic_fp_sqr_p(r2, a);
-  CHECK(quic_fp_eq(r1, r2));
+  p256_fp_mul(r1, (fpab){a, a}, p256_p);
+  p256_fp_sqr_p(r2, a);
+  CHECK(p256_fp_eq(r1, r2));
   /* fast inverse: a * a^-1 == 1 (mod p). */
   {
     fe ai, prod, one = {1, 0, 0, 0};
-    quic_fp_inv_p(ai, a);
-    quic_fp_mul_p(prod, a, ai);
-    CHECK(quic_fp_eq(prod, one));
+    p256_fp_inv_p(ai, a);
+    p256_fp_mul_p(prod, a, ai);
+    CHECK(p256_fp_eq(prod, one));
   }
 }
 
@@ -104,47 +104,47 @@ static void test_p256_field_mont_inv_n(void) {
   fe  a, ai, prod, ref, one = {1, 0, 0, 0};
   for (int it = 0; it < 64; it++) {
     for (int i = 0; i < 4; i++) a[i] = p256_rng(&s);
-    quic_fp_reduce(a, a, quic_p256_n);
-    if (quic_fp_is_zero(a)) continue;
-    quic_mont_inv(ai, a, &quic_p256_mont_n);
-    quic_fp_mul(prod, (quic_fpab){a, ai}, quic_p256_n);
-    CHECK(quic_fp_eq(prod, one));
+    p256_fp_reduce(a, a, p256_n);
+    if (p256_fp_is_zero(a)) continue;
+    mont_inv(ai, a, &p256_mont_n);
+    p256_fp_mul(prod, (fpab){a, ai}, p256_n);
+    CHECK(p256_fp_eq(prod, one));
     if (it < 4) { /* spot-check against the slow oracle */
-      quic_fp_inv(ref, a, quic_p256_n);
-      CHECK(quic_fp_eq(ai, ref));
+      p256_fp_inv(ref, a, p256_n);
+      CHECK(p256_fp_eq(ai, ref));
     }
   }
 }
 
 /* a * (a^-1) == 1 (mod p) via the fast Fermat inverse on random inputs, and
  * on the boundaries 1, p-1, and the reduced all-ones pattern, each boundary
- * also cross-checked against the generic slow oracle. Pins quic_fp_inv_p's
+ * also cross-checked against the generic slow oracle. Pins p256_fp_inv_p's
  * exponentiation so a reshaped power ladder cannot silently drift. */
 static void test_p256_field_inv_p_edges(void) {
   u64 s = 0xb7e151628aed2a6bULL;
   fe  a, ai, prod, ref, one = {1, 0, 0, 0};
   for (int it = 0; it < 64; it++) {
     for (int i = 0; i < 4; i++) a[i] = p256_rng(&s);
-    quic_fp_reduce(a, a, quic_p256_p);
-    if (quic_fp_is_zero(a)) continue;
-    quic_fp_inv_p(ai, a);
-    quic_fp_mul_p(prod, a, ai);
-    CHECK(quic_fp_eq(prod, one));
+    p256_fp_reduce(a, a, p256_p);
+    if (p256_fp_is_zero(a)) continue;
+    p256_fp_inv_p(ai, a);
+    p256_fp_mul_p(prod, a, ai);
+    CHECK(p256_fp_eq(prod, one));
   }
   {
     fe edges[3] = {{1, 0, 0, 0}};
     for (int i = 0; i < 4; i++) {
-      edges[1][i] = quic_p256_p[i];
+      edges[1][i] = p256_p[i];
       edges[2][i] = ~0ULL;
     }
     edges[1][0] -= 1; /* p - 1 */
-    quic_fp_reduce(edges[2], edges[2], quic_p256_p);
+    p256_fp_reduce(edges[2], edges[2], p256_p);
     for (int e = 0; e < 3; e++) {
-      quic_fp_inv_p(ai, edges[e]);
-      quic_fp_inv(ref, edges[e], quic_p256_p);
-      CHECK(quic_fp_eq(ai, ref));
-      quic_fp_mul_p(prod, edges[e], ai);
-      CHECK(quic_fp_eq(prod, one));
+      p256_fp_inv_p(ai, edges[e]);
+      p256_fp_inv(ref, edges[e], p256_p);
+      CHECK(p256_fp_eq(ai, ref));
+      p256_fp_mul_p(prod, edges[e], ai);
+      CHECK(p256_fp_eq(prod, one));
     }
   }
 }
@@ -155,17 +155,17 @@ static void test_p256_field_mont_inv_n_edges(void) {
   fe ai, prod, ref, one = {1, 0, 0, 0};
   fe edges[3] = {{1, 0, 0, 0}};
   for (int i = 0; i < 4; i++) {
-    edges[1][i] = quic_p256_n[i];
+    edges[1][i] = p256_n[i];
     edges[2][i] = ~0ULL;
   }
   edges[1][0] -= 1; /* n - 1 */
-  quic_fp_reduce(edges[2], edges[2], quic_p256_n);
+  p256_fp_reduce(edges[2], edges[2], p256_n);
   for (int e = 0; e < 3; e++) {
-    quic_mont_inv(ai, edges[e], &quic_p256_mont_n);
-    quic_fp_inv(ref, edges[e], quic_p256_n);
-    CHECK(quic_fp_eq(ai, ref));
-    quic_fp_mul(prod, (quic_fpab){edges[e], ai}, quic_p256_n);
-    CHECK(quic_fp_eq(prod, one));
+    mont_inv(ai, edges[e], &p256_mont_n);
+    p256_fp_inv(ref, edges[e], p256_n);
+    CHECK(p256_fp_eq(ai, ref));
+    p256_fp_mul(prod, (fpab){edges[e], ai}, p256_n);
+    CHECK(p256_fp_eq(prod, one));
   }
 }
 

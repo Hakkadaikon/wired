@@ -25,7 +25,7 @@ u8 quic_spin_set(u8 byte0, int spin);
  * bit for a random selection of about 1 in 16 connections, sending 0 on
  * every packet for those, so on-path observers cannot rely solely on the
  * spin bit for RTT measurement. `rand_byte` is one uniformly random byte
- * (e.g. from quic_rng_bytes); 1/16 of its values select disablement. */
+ * (e.g. from rng_bytes); 1/16 of its values select disablement. */
 int quic_spin_disabled(u8 rand_byte);
 
 /* Like quic_spin_outgoing, but sends 0 unconditionally when `disabled` (the

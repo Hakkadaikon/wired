@@ -255,10 +255,10 @@ static usz moqtrun_test_rename_track_to_audio(
     const u8* src, usz src_len, u8* dst) {
   static const u8 suffix[] = "alice/audio";
   usz             tail     = src_len - 22; /* bytes after "alice" (offset 22) */
-  quic_memcpy(dst, src, 16);
+  bytes_memcpy(dst, src, 16);
   dst[16] = (u8)(sizeof suffix - 1);
-  quic_memcpy(dst + 17, suffix, sizeof suffix - 1);
-  quic_memcpy(dst + 17 + sizeof suffix - 1, src + 22, tail);
+  bytes_memcpy(dst + 17, suffix, sizeof suffix - 1);
+  bytes_memcpy(dst + 17 + sizeof suffix - 1, src + 22, tail);
   u16 new_body_len = (u16)(src[1] << 8 | src[2]) + 6;
   dst[1]           = (u8)(new_body_len >> 8);
   dst[2]           = (u8)(new_body_len & 0xFF);
@@ -288,7 +288,7 @@ static usz moqtrun_test_subscribe_audio_msg(u8* buf) {
  * replaced -- lets a test address the audio track's Object stream
  * distinctly from chat's (whose golden Track Alias is 1). */
 static usz moqtrun_test_subgroup_with_alias(u8 alias, u8* buf) {
-  quic_memcpy(
+  bytes_memcpy(
       buf, g_moqt_data_subgroup_stream_basic,
       G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN);
   buf[1] = alias;
@@ -970,7 +970,7 @@ static void test_moqtrun_two_subscribe_oks_one_dispatch_no_overflow(void) {
 
   u8  two_subs[MOQTRUN_TEST_MAX_PAYLOAD];
   usz off = 0;
-  quic_memcpy(
+  bytes_memcpy(
       two_subs, g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN);
   off += G_MOQT_CTL_SUBSCRIBE_BASIC_LEN;
   off += moqtrun_test_rename_track_to_audio(

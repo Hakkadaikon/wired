@@ -13,7 +13,7 @@
 int quic_h3conn_send_response(
     u64 stream_id, const quic_h3conn_resp* resp, wired_obuf* out) {
   u8         h3[1500];
-  wired_obuf h3ob = quic_obuf_of(h3, sizeof(h3));
+  wired_obuf h3ob = obuf_of(h3, sizeof(h3));
   if (!quic_h3resp_build(resp->status, resp->content_type, resp->body, &h3ob))
     return 0;
   {
@@ -45,7 +45,7 @@ static int status_from_indexed(const u8* buf, usz n, u16* status) {
 static int status_from_literal(const u8* buf, usz n, u16* status) {
   quic_qpack_nameref r = {0, 0, 0};
   u8                 val[8];
-  wired_obuf         vb = quic_obuf_of(val, sizeof(val));
+  wired_obuf         vb = obuf_of(val, sizeof(val));
   if (!quic_qpack_literal_namref_decode(wired_span_of(buf, n), &r, &vb))
     return 0;
   if (vb.len != 3) return 0;

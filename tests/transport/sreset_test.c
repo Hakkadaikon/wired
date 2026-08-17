@@ -62,7 +62,7 @@ static void test_sreset_build(void) {
       1);
   CHECK(out_len < 40 * 3);
   CHECK(out_len >= QUIC_SRESET_MIN);
-  CHECK(quic_ct_diff16(out + out_len - QUIC_SRESET_TOKEN, want) == 0);
+  CHECK(ct_diff16(out + out_len - QUIC_SRESET_TOKEN, want) == 0);
 
   /* out_cap smaller than the natural size clamps the packet down. */
   usz small_len = 0;
