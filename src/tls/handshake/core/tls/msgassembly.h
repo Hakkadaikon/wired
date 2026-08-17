@@ -8,8 +8,8 @@
  * buffered bytes cover its 4-byte handshake header plus the declared length
  * taken from the header's 3-byte big-endian length field. */
 
-int quic_tls_message_complete(u64 buffered, u32 declared_len);
+int tls_message_complete(u64 buffered, u32 declared_len);
 
-u32 quic_tls_message_len(const u8* hs_header);
+u32 tls_message_len(const u8* hs_header);
 
 #endif

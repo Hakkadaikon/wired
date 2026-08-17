@@ -4,10 +4,10 @@ static void test_alpn_match_is_h3(void) {
   const u8 h3[]      = {0x68, 0x33};
   const u8 h2[]      = {0x68, 0x32};
   const u8 long_h3[] = {0x68, 0x33, 0x33};
-  CHECK(quic_tls_alpn_is_h3(h3, 2) == 1);
-  CHECK(quic_tls_alpn_is_h3(h2, 2) == 0);
-  CHECK(quic_tls_alpn_is_h3(long_h3, 3) == 0);
-  CHECK(quic_tls_alpn_is_h3(h3, 1) == 0);
+  CHECK(tls_alpn_is_h3(h3, 2) == 1);
+  CHECK(tls_alpn_is_h3(h2, 2) == 0);
+  CHECK(tls_alpn_is_h3(long_h3, 3) == 0);
+  CHECK(tls_alpn_is_h3(h3, 1) == 0);
 }
 
 static void test_alpn_match_equal(void) {
@@ -15,13 +15,13 @@ static void test_alpn_match_equal(void) {
   const u8 b[] = {'h', 't', 't', 'p', '/', '1', '.', '1'};
   const u8 c[] = {'h', '3'};
   CHECK(
-      quic_tls_alpn_equal(
+      tls_alpn_equal(
           wired_span_of(a, sizeof(a)), wired_span_of(b, sizeof(b))) == 1);
   CHECK(
-      quic_tls_alpn_equal(
+      tls_alpn_equal(
           wired_span_of(a, sizeof(a)), wired_span_of(c, sizeof(c))) == 0);
   CHECK(
-      quic_tls_alpn_equal(
+      tls_alpn_equal(
           wired_span_of(a, sizeof(a)), wired_span_of(a, sizeof(a) - 1)) == 0);
 }
 

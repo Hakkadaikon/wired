@@ -17,7 +17,7 @@ typedef struct {
   wired_span cert;
   wired_span sig;
   const u8*  transcript_hash; /* 32 bytes */
-} quic_certverify_in;
+} certverify_in;
 
 /* RFC 8446 4.4.3. Verify a server CertificateVerify signature against the
  * end-entity certificate and the handshake transcript hash. The signed
@@ -25,6 +25,6 @@ typedef struct {
  * CertificateVerify", a 0x00 separator, then the transcript hash. in->scheme
  * selects the algorithm and the certificate's public key type. Returns 1 if
  * the signature verifies, 0 otherwise. */
-int quic_tls_verify_cert_signature(const quic_certverify_in* in);
+int tls_verify_cert_signature(const certverify_in* in);
 
 #endif

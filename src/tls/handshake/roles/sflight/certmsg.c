@@ -43,28 +43,27 @@ static int certchain_fits(usz list_len, usz cap) {
   return list_len <= 0xFFFFFF && 4 + 1 + 3 + list_len <= cap;
 }
 
-static int certchain_ok(const quic_sflight_certchain_in* in, usz cap) {
+static int certchain_ok(const sflight_certchain_in* in, usz cap) {
   usz list_len;
   if (!certchain_count_ok(in->count)) return 0;
   list_len = certchain_wire_len(in->certs, in->count);
   return certchain_fits(list_len, cap);
 }
 
-int quic_sflight_certificate_chain(
-    const quic_sflight_certchain_in* in, wired_obuf* out) {
+int sflight_certificate_chain(const sflight_certchain_in* in, wired_obuf* out) {
   usz off, list_len;
   if (!certchain_ok(in, out->cap)) return 0;
   list_len    = certchain_wire_len(in->certs, in->count);
-  off         = quic_hs_begin(out->p, out->cap, QUIC_HS_CERTIFICATE);
+  off         = hs_begin(out->p, out->cap, QUIC_HS_CERTIFICATE);
   out->p[off] = 0; /* request_context length 0 */
   put_be24(out->p + off + 1, (u32)list_len);
   out->len = off + 4;
   for (usz i = 0; i < in->count; i++) put_entry(out, in->certs[i]);
-  quic_hs_finish(out->p, out->len);
+  hs_finish(out->p, out->len);
   return 1;
 }
 
-int quic_sflight_certificate(wired_span cert_der, wired_obuf* out) {
-  quic_sflight_certchain_in in = {&cert_der, 1};
-  return quic_sflight_certificate_chain(&in, out);
+int sflight_certificate(wired_span cert_der, wired_obuf* out) {
+  sflight_certchain_in in = {&cert_der, 1};
+  return sflight_certificate_chain(&in, out);
 }

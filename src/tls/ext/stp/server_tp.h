@@ -9,7 +9,7 @@
  * (RFC 9000 7.3); initial_scid is the server's source connection id. On
  * success writes the TLV sequence and sets out->len; returns 1. Returns 0 if
  * it does not fit. */
-/** Built-in initial_max_streams_bidi default (a zero quic_stp_limits field
+/** Built-in initial_max_streams_bidi default (a zero stp_limits field
  * falls back to this) -- exposed so callers that track the advertised limit
  * across a connection's life (RFC 9000 4.6/19.11 MAX_STREAMS re-grants) know
  * the true starting value without duplicating the constant. Like every
@@ -70,31 +70,31 @@ typedef struct {
                                 * 0 = not advertised (no built-in default: the
                                 * caller opts in once DATAGRAM delivery is
                                 * wired end-to-end) */
-} quic_stp_limits;
+} stp_limits;
 
-int quic_stp_build_server(
+int stp_build_server(
     wired_span original_dcid, wired_span initial_scid, wired_obuf* out);
 
-/* As quic_stp_build_server, with the tunable limits overriding defaults
+/* As stp_build_server, with the tunable limits overriding defaults
  * (lim = 0 keeps every default). */
-/* Same as quic_stp_build_server_lim plus retry_source_connection_id
+/* Same as stp_build_server_lim plus retry_source_connection_id
  * (RFC 9000 7.3): emitted only when rscid is non-empty (a Retry actually
  * preceded the handshake -- the peer treats an unexpected one as a
  * TRANSPORT_PARAMETER_ERROR). sreset_token is the 16-byte
  * stateless_reset_token (RFC 9000 10.3.1/18.2) for the handshake SCID;
  * empty omits the TP (a server that never sends resets advertises none). */
-int quic_stp_build_server_ret(
-    wired_span             original_dcid,
-    wired_span             initial_scid,
-    wired_span             rscid,
-    wired_span             sreset_token,
-    const quic_stp_limits* lim,
-    wired_obuf*            out);
+int stp_build_server_ret(
+    wired_span        original_dcid,
+    wired_span        initial_scid,
+    wired_span        rscid,
+    wired_span        sreset_token,
+    const stp_limits* lim,
+    wired_obuf*       out);
 
-int quic_stp_build_server_lim(
-    wired_span             original_dcid,
-    wired_span             initial_scid,
-    const quic_stp_limits* lim,
-    wired_obuf*            out);
+int stp_build_server_lim(
+    wired_span        original_dcid,
+    wired_span        initial_scid,
+    const stp_limits* lim,
+    wired_obuf*       out);
 
 #endif

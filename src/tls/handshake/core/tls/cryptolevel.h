@@ -14,13 +14,13 @@
  * offset+len already accepted at that level before it became superseded.
  * The caller must call this only for a level it has already superseded;
  * a true result is a connection error of type PROTOCOL_VIOLATION. */
-int quic_cryptolevel_stale_extends(u64 max_seen, u64 offset, u64 len);
+int cryptolevel_stale_extends(u64 max_seen, u64 offset, u64 len);
 
 /* 1 if a level being superseded still has buffered-but-undelivered data:
  * received_to (the contiguous prefix received) is past read_upto (the
  * prefix already handed to TLS). Call when keys for a higher level are
  * about to be installed; a true result is a connection error of type
  * PROTOCOL_VIOLATION. */
-int quic_cryptolevel_unconsumed_on_promote(u64 received_to, u64 read_upto);
+int cryptolevel_unconsumed_on_promote(u64 received_to, u64 read_upto);
 
 #endif

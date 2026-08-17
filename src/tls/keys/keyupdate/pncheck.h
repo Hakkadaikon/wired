@@ -15,6 +15,6 @@
  * packet number seen protected with the NEW key phase) -- a
  * KEY_UPDATE_ERROR. 0 if no new-phase packet has been seen yet
  * (new_phase_min_pn's caller-side sentinel) or old_key_pn precedes it. */
-int quic_keyupdate_pn_violates(u64 new_phase_min_pn, u64 old_key_pn);
+int keyupdate_pn_violates(u64 new_phase_min_pn, u64 old_key_pn);
 
 #endif

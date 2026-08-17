@@ -1196,7 +1196,7 @@ static wired_srvboot_id srvrun_slot_id(
  * its handshake timeout. Always reports the boot failed. */
 static int srvrun_refuse(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
   u8  pkt[1500];
-  u64 err = quic_sdrv_last_error(&c->s.sdrv);
+  u64 err = sdrv_last_error(&c->s.sdrv);
   usz n   = wired_srvboot_refusal(
       &c->boot, wired_span_of(c->scid, ctx->cfg->id->scid_len), err, pkt,
       sizeof pkt);
@@ -1217,7 +1217,7 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot);
 
 /* RFC 9001 4.6.1: dg's boot accumulator held every 0-RTT datagram that
  * arrived before this boot's early keys existed (wired_srvboot_acc_feed) --
- * now that quic_sdrv_early_keys is available (or the PSK/early data was
+ * now that sdrv_early_keys is available (or the PSK/early data was
  * rejected, in which case wired_srvloop_recv's recv_zerortt simply fails
  * open and each step is a no-op), replay them through the exact same
  * real-wire step pair a later live 0-RTT/1-RTT datagram takes (RFC 9000
@@ -1253,11 +1253,11 @@ static int srvrun_boot_finish(
   /* RFC 9221 3: this connection's own advertised max_datagram_frame_size,
    * threaded to dispatch.c's DATAGRAM-gathering size check (see
    * wired_srvloop.we_advertised_max_datagram's doc). Same sid/base value
-   * quic_stp_build_server_lim already sends in the transport parameters --
+   * stp_build_server_lim already sends in the transport parameters --
    * sid is this slot's own copy of cfg->id, built above. */
   c->l.we_advertised_max_datagram = sid.max_datagram_frame_size;
   /* RFC 9000 18.2/19.9: seed this connection's send credit from the peer's
-   * ClientHello TP now that quic_sdrv_recv_client_hello has run (inside
+   * ClientHello TP now that sdrv_recv_client_hello has run (inside
    * wired_srvboot_accept_acc above); MAX_DATA frames only ever raise it
    * from here (srvrun_ku_discard_stale's neighbors gather_max_data /
    * srvrun_sess_on_step apply those raises each step). */
@@ -3009,7 +3009,7 @@ static int srvrun_queue_datagram(srvrun_conn* c, wired_span data) {
  * send it. Unlike srvrun_send_slice/srvrun_send_goaway, there is no
  * wired_sendsess/ACK-loss bookkeeping: RFC 9221 1 DATAGRAM frames are never
  * retransmitted. max_frame_size is the peer's advertised
- * max_datagram_frame_size (quic_sdrv_recv_client_hello populated it from the
+ * max_datagram_frame_size (sdrv_recv_client_hello populated it from the
  * real ClientHello transport parameters): quic_dgdeliver_frame's internal
  * quic_datagram_allowed check rejects the send outright when the
  * peer never advertised support (value 0) or when the encoded frame would
@@ -5841,7 +5841,7 @@ static void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
   /* RFC 9001 4.1.2 / RFC 9000 12.3: 1-RTT packet-protection keys (the SDK's
    * own send_onertt_keys fallback, srvloop/send.c) do not exist until the
    * server's own Finished-inclusive transcript confirms
-   * (quic_keysched_advance_master, srvfin/complete.c) -- a response started
+   * (keysched_advance_master, srvfin/complete.c) -- a response started
    * from a 0-RTT-carried request (srvrun_boot_flush_zerortt, or the live
    * 0-RTT path before the client's Finished lands) can be CLAIMED and armed
    * before that point, but sending its slices this early always fails
@@ -6379,7 +6379,7 @@ static int srvrun_resp_not_yet_idle(srvrun_resp* r) {
  * srvrun_grant_streams raises from the first time it fires) -- 0
  * (unset), including when the test harness's own cfg carries no id at all,
  * falls back to the same built-in default the transport parameter itself
- * uses (quic_stp_build_server_lim, server_tp.c). */
+ * uses (stp_build_server_lim, server_tp.c). */
 static u64 srvrun_stream_limit_base(const srvrun_step_ctx* ctx) {
   u64 configured = ctx->cfg->id ? ctx->cfg->id->max_streams_bidi : 0;
   return wired_srvloop_stream_limit(configured);
@@ -6605,8 +6605,7 @@ static void srvrun_ku_discard_stale(srvrun_conn* c, u64 now_ms) {
   u64 floor_ms;
   if (!c->s.ku.have_old) return;
   floor_ms = 3u * srvrun_pto_deadline_ms(c, 0);
-  if (now_ms >= c->ku_rotated_at_ms + floor_ms)
-    quic_kuswitch_discard_old(&c->s.ku);
+  if (now_ms >= c->ku_rotated_at_ms + floor_ms) kuswitch_discard_old(&c->s.ku);
 }
 
 /* 1 if sess's oldest in-flight slice is still within its PTO window (RFC
@@ -7163,7 +7162,7 @@ static void srvrun_retry_prep(
  * tag computed over everything before it. */
 static void srvrun_retry_finish(
     const srvrun_step_ctx* ctx, const quic_lhdr* h, u8* pkt, usz n) {
-  quic_retry_tag(
+  retry_tag(
       h->dcid, wired_span_of(pkt, n - QUIC_RETRY_TAG_LEN),
       pkt + n - QUIC_RETRY_TAG_LEN);
   srvrun_tx(ctx->cfg, ctx->peer, wired_span_of(pkt, n));
@@ -7821,7 +7820,7 @@ void wired_srvrun_env_init(wired_srvrun_env* env) {
   /* NOT `*env = (wired_srvrun_env){0}`: some compilers materialize that
    * compound literal as a stack temporary before copying it in, and this
    * struct is now well past a normal 8MB stack limit (QUIC_CONNTABLE_CAP
-   * srvrun_conn's worth of wired_server/quic_sdrv each) -- that pattern
+   * srvrun_conn's worth of wired_server/sdrv each) -- that pattern
    * segfaulted on overflow the moment sdrv grew past the threshold. memset
    * writes directly into *env, no intermediate stack copy. */
   bytes_memset(env, 0, sizeof(*env));

@@ -19,11 +19,11 @@ void test_eebuild(void) {
   wired_span tpd;
   wired_obuf ob = obuf_of(out, sizeof(out));
 
-  CHECK(quic_eebuild_encrypted_extensions(
+  CHECK(eebuild_encrypted_extensions(
       QUIC_SALPN_H3, wired_span_of(tp, sizeof(tp)), 0, &ob));
 
   /* handshake header: type 0x08, length consistent with ob.len. */
-  CHECK(quic_hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
+  CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
   CHECK(type == QUIC_HS_ENCRYPTED_EXT);
   CHECK(4 + body_len == ob.len);
 
@@ -33,17 +33,17 @@ void test_eebuild(void) {
 
   /* ALPN extension first: type 0x0010 and the "h3" ProtocolNameList. */
   CHECK(((usz)body[2] << 8 | body[3]) == QUIC_SALPN_EXT_TYPE);
-  CHECK(quic_salpn_select_h3(body + 6, 5)); /* ext_data: list_len + "h3" */
+  CHECK(salpn_select_h3(body + 6, 5)); /* ext_data: list_len + "h3" */
 
   /* quic_transport_parameters follows the 9-byte ALPN extension. */
-  used = quic_tpext_decode(wired_span_of(body + 2 + 9, body_len - 2 - 9), &tpd);
+  used = tpext_decode(wired_span_of(body + 2 + 9, body_len - 2 - 9), &tpd);
   CHECK(used == body_len - 2 - 9);
   CHECK(tpd.n == sizeof(tp));
   CHECK(tpd.p[0] == 0xaa && tpd.p[4] == 0xee);
 
   /* a tight cap (one byte short) must be refused. */
   ob = obuf_of(out, ob.len - 1);
-  CHECK(!quic_eebuild_encrypted_extensions(
+  CHECK(!eebuild_encrypted_extensions(
       QUIC_SALPN_H3, wired_span_of(tp, sizeof(tp)), 0, &ob));
 
   test_eebuild_early_data_accepted();
@@ -61,14 +61,14 @@ static void test_eebuild_early_data_accepted(void) {
   wired_obuf ob      = obuf_of(out, sizeof(out));
   wired_obuf ob_noed = obuf_of(out_no_ed, sizeof(out_no_ed));
 
-  CHECK(quic_eebuild_encrypted_extensions(
+  CHECK(eebuild_encrypted_extensions(
       QUIC_SALPN_H3, wired_span_of(tp, sizeof(tp)), 1, &ob));
-  CHECK(quic_eebuild_encrypted_extensions(
+  CHECK(eebuild_encrypted_extensions(
       QUIC_SALPN_H3, wired_span_of(tp, sizeof(tp)), 0, &ob_noed));
-  CHECK(quic_hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
+  CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
   CHECK(
-      quic_hs_parse(
-          wired_span_of(out_no_ed, ob_noed.len), &type, &body_len_no_ed) == 4);
+      hs_parse(wired_span_of(out_no_ed, ob_noed.len), &type, &body_len_no_ed) ==
+      4);
   /* early_data's 4-byte TLV is the only difference in total length. */
   CHECK(body_len == body_len_no_ed + 4);
   /* the trailing 4 bytes are exactly the early_data extension header (type
@@ -87,13 +87,13 @@ void test_eebuild_selects_hq(void) {
   const u8*  body;
   wired_obuf ob = obuf_of(out, sizeof(out));
 
-  CHECK(quic_eebuild_encrypted_extensions(
+  CHECK(eebuild_encrypted_extensions(
       QUIC_SALPN_HQ, wired_span_of(tp, sizeof(tp)), 0, &ob));
-  CHECK(quic_hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
+  CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
   body = out + 4;
   CHECK(((usz)body[2] << 8 | body[3]) == QUIC_SALPN_EXT_TYPE);
-  CHECK(quic_salpn_select_hq(body + 6, 13)); /* ext_data: list_len + name */
-  CHECK(!quic_salpn_select_h3(body + 6, 13));
+  CHECK(salpn_select_hq(body + 6, 13)); /* ext_data: list_len + name */
+  CHECK(!salpn_select_h3(body + 6, 13));
 }
 
 /* No protocol negotiated (QUIC_SALPN_NONE) must fail closed -- nothing is
@@ -102,6 +102,6 @@ void test_eebuild_rejects_no_negotiation(void) {
   const u8   tp[5] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee};
   u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof(out));
-  CHECK(!quic_eebuild_encrypted_extensions(
+  CHECK(!eebuild_encrypted_extensions(
       QUIC_SALPN_NONE, wired_span_of(tp, sizeof(tp)), 0, &ob));
 }

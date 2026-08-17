@@ -2,9 +2,9 @@
 
 /* Derive a pair of Handshake-level keys (same type as Initial keys; the
  * derivation label differs in production but the codec is identical). */
-static void hspkt_keys(quic_initial_keys* k, aes128* hp) {
+static void hspkt_keys(initial_keys* k, aes128* hp) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  quic_initial_derive(
+  initial_derive(
       wired_span_of(dcid, 8), 1, QUIC_VERSION_1, k); /* server side */
   aes128_init(hp, k->hp);
 }
@@ -12,10 +12,10 @@ static void hspkt_keys(quic_initial_keys* k, aes128* hp) {
 /* RFC 9000 17.2.4 / RFC 9001 5: build a Handshake packet, then open it with
  * the same keys; the CRYPTO payload comes back byte-for-byte. */
 static void test_hspkt_build_roundtrip(void) {
-  quic_initial_keys k;
-  aes128            hp;
-  const u8          dcid[5] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee};
-  const u8          scid[3] = {0x01, 0x02, 0x03};
+  initial_keys k;
+  aes128       hp;
+  const u8     dcid[5] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee};
+  const u8     scid[3] = {0x01, 0x02, 0x03};
   /* CRYPTO frame (type 0x06) carrying "EE" (EncryptedExtensions stand-in) */
   const u8 frames[] = {0x06, 0x00, 0x02, 'E', 'E'};
   hspkt_keys(&k, &hp);
@@ -42,10 +42,10 @@ static void test_hspkt_build_roundtrip(void) {
  * (5-4 = 0b10). After header protection the low 4 bits are masked, but the
  * top nibble (0b1110) is in the clear. */
 static void test_hspkt_build_byte0(void) {
-  quic_initial_keys k;
-  aes128            hp;
-  const u8          dcid[4]  = {1, 2, 3, 4};
-  const u8          frames[] = {0x06, 0x00, 0x01, 'X'};
+  initial_keys k;
+  aes128       hp;
+  const u8     dcid[4]  = {1, 2, 3, 4};
+  const u8     frames[] = {0x06, 0x00, 0x01, 'X'};
   hspkt_keys(&k, &hp);
 
   u8                pkt[128];
@@ -61,10 +61,10 @@ static void test_hspkt_build_byte0(void) {
 
 /* A tampered ciphertext byte makes open fail (AEAD authentication). */
 static void test_hspkt_build_tamper(void) {
-  quic_initial_keys k;
-  aes128            hp;
-  const u8          dcid[4]  = {9, 8, 7, 6};
-  const u8          frames[] = {0x06, 0x00, 0x02, 'h', 'i'};
+  initial_keys k;
+  aes128       hp;
+  const u8     dcid[4]  = {9, 8, 7, 6};
+  const u8     frames[] = {0x06, 0x00, 0x02, 'h', 'i'};
   hspkt_keys(&k, &hp);
 
   u8                pkt[128];

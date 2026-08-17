@@ -4,9 +4,9 @@
 #include "common/platform/rng/rng.h"
 #include "crypto/symmetric/aead/chacha/aead.h"
 
-/* Serialize quic_ticket into the fixed plaintext layout: secret ||
+/* Serialize ticket into the fixed plaintext layout: secret ||
  * issued_at(be64) || lifetime_secs(be32) || age_add(be32). */
-static void ticket_encode(const quic_ticket* t, u8 out[QUIC_TICKET_PLAIN_LEN]) {
+static void ticket_encode(const ticket* t, u8 out[QUIC_TICKET_PLAIN_LEN]) {
   usz i;
   for (i = 0; i < QUIC_TICKET_SECRET_LEN; i++) out[i] = t->secret[i];
   u8* ts = out + QUIC_TICKET_SECRET_LEN;
@@ -15,7 +15,7 @@ static void ticket_encode(const quic_ticket* t, u8 out[QUIC_TICKET_PLAIN_LEN]) {
   be_put_be32(ts + 12, t->age_add);
 }
 
-static void ticket_decode(const u8 in[QUIC_TICKET_PLAIN_LEN], quic_ticket* t) {
+static void ticket_decode(const u8 in[QUIC_TICKET_PLAIN_LEN], ticket* t) {
   usz i;
   for (i = 0; i < QUIC_TICKET_SECRET_LEN; i++) t->secret[i] = in[i];
   const u8* ts     = in + QUIC_TICKET_SECRET_LEN;
@@ -24,8 +24,7 @@ static void ticket_decode(const u8 in[QUIC_TICKET_PLAIN_LEN], quic_ticket* t) {
   t->age_add       = be_get_be32(ts + 12);
 }
 
-void quic_ticket_seal(
-    const quic_ticket* t, const u8 key[QUIC_TICKET_KEY_LEN], u8* out) {
+void ticket_seal(const ticket* t, const u8 key[QUIC_TICKET_KEY_LEN], u8* out) {
   u8 plain[QUIC_TICKET_PLAIN_LEN];
   ticket_encode(t, plain);
 
@@ -38,8 +37,7 @@ void quic_ticket_seal(
       out + QUIC_TICKET_NONCE_LEN);
 }
 
-int quic_ticket_open(
-    wired_span in, const u8 key[QUIC_TICKET_KEY_LEN], quic_ticket* out) {
+int ticket_open(wired_span in, const u8 key[QUIC_TICKET_KEY_LEN], ticket* out) {
   if (in.n != QUIC_TICKET_SEALED_LEN) return 0;
 
   const u8*   nonce    = in.p;

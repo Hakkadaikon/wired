@@ -9,7 +9,7 @@
 /* Build a minimal ServerHello (RFC 8446 4.1.3) carrying supported_versions
  * and a single x25519 key_share for pub. Returns total message length. */
 static usz build_sh_td(u8* out, usz cap, const u8 pub[32]) {
-  usz off      = quic_hs_begin(out, cap, 2), block;
+  usz off      = hs_begin(out, cap, 2), block;
   out[off]     = 0x03;
   out[off + 1] = 0x03;
   for (usz i = 0; i < 32; i++) out[off + 2 + i] = (u8)(0x10 + i);
@@ -38,7 +38,7 @@ static usz build_sh_td(u8* out, usz cap, const u8 pub[32]) {
   off += 40;
   out[block]     = (u8)((off - block - 2) >> 8);
   out[block + 1] = (u8)(off - block - 2);
-  quic_hs_finish(out, off);
+  hs_finish(out, off);
   (void)cap;
   return off;
 }
@@ -59,11 +59,11 @@ static usz wrap_crypto(u8* out, usz cap, const u8* msg, usz n) {
  * key_share and runs X25519 (ecdhe.c); a ServerHello (serverhello.c) returns
  * to the client, who does the same. Both derive the handshake secret. */
 static void test_tlsdriver_real_ecdhe_agree(void) {
-  u8             cl_priv[32], cl_pub[32], sv_priv[32], sv_pub[32];
-  u8             frame[1024], sh[512];
-  usz            fl, shn;
-  quic_tlsdriver cl, sv;
-  const u8 *     cs, *ss;
+  u8        cl_priv[32], cl_pub[32], sv_priv[32], sv_pub[32];
+  u8        frame[1024], sh[512];
+  usz       fl, shn;
+  tlsdriver cl, sv;
+  const u8 *cs, *ss;
 
   for (usz i = 0; i < 32; i++) {
     cl_priv[i] = (u8)(1 + i);
@@ -72,49 +72,49 @@ static void test_tlsdriver_real_ecdhe_agree(void) {
   wired_x25519_base(cl_pub, cl_priv);
   wired_x25519_base(sv_pub, sv_priv);
 
-  quic_tlsdriver_init(&cl, cl_priv, cl_pub, 0);
-  quic_tlsdriver_init(&sv, sv_priv, sv_pub, 1);
+  tlsdriver_init(&cl, cl_priv, cl_pub, 0);
+  tlsdriver_init(&sv, sv_priv, sv_pub, 1);
 
   /* client -> server: real ClientHello in a CRYPTO frame */
   {
     wired_obuf ob = obuf_of(frame, sizeof(frame));
-    CHECK(quic_tlsdriver_client_hello(&cl, &ob) == 1);
+    CHECK(tlsdriver_client_hello(&cl, &ob) == 1);
     fl = ob.len;
   }
   CHECK(fl != 0);
-  CHECK(quic_tlsdriver_recv_crypto(&sv, frame, fl) == 1);
-  CHECK(quic_tlsdriver_handshake_secret_ready(&sv) == 1);
+  CHECK(tlsdriver_recv_crypto(&sv, frame, fl) == 1);
+  CHECK(tlsdriver_handshake_secret_ready(&sv) == 1);
 
   /* server -> client: ServerHello (server's key_share) in a CRYPTO frame */
   shn = build_sh_td(sh, sizeof(sh), sv_pub);
   fl  = wrap_crypto(frame, sizeof(frame), sh, shn);
-  CHECK(quic_tlsdriver_recv_crypto(&cl, frame, fl) == 1);
-  CHECK(quic_tlsdriver_handshake_secret_ready(&cl) == 1);
+  CHECK(tlsdriver_recv_crypto(&cl, frame, fl) == 1);
+  CHECK(tlsdriver_handshake_secret_ready(&cl) == 1);
 
   /* both reached the same shared secret over real wire bytes */
-  CHECK(quic_tlsdriver_shared_secret(&cl, &cs) == 1);
-  CHECK(quic_tlsdriver_shared_secret(&sv, &ss) == 1);
+  CHECK(tlsdriver_shared_secret(&cl, &cs) == 1);
+  CHECK(tlsdriver_shared_secret(&sv, &ss) == 1);
   for (usz i = 0; i < 32; i++) CHECK(cs[i] == ss[i]);
 }
 
 /* A garbled CRYPTO frame derives nothing. */
 static void test_tlsdriver_rejects_garbage(void) {
-  u8             priv[32] = {7}, pub[32], junk[8] = {0xff, 0, 0, 0, 0, 0, 0, 0};
-  quic_tlsdriver d;
+  u8        priv[32] = {7}, pub[32], junk[8] = {0xff, 0, 0, 0, 0, 0, 0, 0};
+  tlsdriver d;
   wired_x25519_base(pub, priv);
-  quic_tlsdriver_init(&d, priv, pub, 1);
-  CHECK(quic_tlsdriver_recv_crypto(&d, junk, sizeof(junk)) == 0);
-  CHECK(quic_tlsdriver_handshake_secret_ready(&d) == 0);
+  tlsdriver_init(&d, priv, pub, 1);
+  CHECK(tlsdriver_recv_crypto(&d, junk, sizeof(junk)) == 0);
+  CHECK(tlsdriver_handshake_secret_ready(&d) == 0);
 }
 
 /* RFC 9000 7.5: CRYPTO data that overflows the reassembly buffer fails
- * quic_tlsdriver_recv_crypto and records CRYPTO_BUFFER_EXCEEDED, so the
+ * tlsdriver_recv_crypto and records CRYPTO_BUFFER_EXCEEDED, so the
  * caller can close the connection with that error code. */
 static void test_tlsdriver_crypto_overflow_reports_error_code(void) {
-  u8             priv[32] = {7}, pub[32];
-  quic_tlsdriver d;
+  u8        priv[32] = {7}, pub[32];
+  tlsdriver d;
   wired_x25519_base(pub, priv);
-  quic_tlsdriver_init(&d, priv, pub, 1);
+  tlsdriver_init(&d, priv, pub, 1);
 
   u8 msg[QUIC_REASM_CAP + 8];
   for (usz i = 0; i < sizeof(msg); i++) msg[i] = 1;
@@ -124,8 +124,8 @@ static void test_tlsdriver_crypto_overflow_reports_error_code(void) {
   CHECK(
       quic_crypto_stream_emit(wired_span_of(msg, sizeof(msg)), &ein, &ob) == 1);
 
-  CHECK(quic_tlsdriver_recv_crypto(&d, frame, ob.len) == 0);
-  CHECK(quic_tlsdriver_last_error(&d) == QUIC_EC_CRYPTO_BUFFER_EXCEEDED);
+  CHECK(tlsdriver_recv_crypto(&d, frame, ob.len) == 0);
+  CHECK(tlsdriver_last_error(&d) == QUIC_EC_CRYPTO_BUFFER_EXCEEDED);
 }
 
 void test_tlsdriver(void) {

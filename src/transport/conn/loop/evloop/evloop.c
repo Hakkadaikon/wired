@@ -169,9 +169,9 @@ void quic_evloop_run(quic_evloop* c, u64 now, usz max_iterations) {
 }
 
 int quic_evloop_initiate_key_update(quic_evloop* c, u64 now) {
-  quic_keyupdate_in in = {
+  keyupdate_in in = {
       c->gate.handshake_confirmed, c->key_update_time, now, c->pto_period};
-  if (!quic_keyupdate_may_initiate(&in)) return 0;
+  if (!keyupdate_may_initiate(&in)) return 0;
   c->key_generation++;      /* RFC 9001 6: advance the send generation */
   c->key_update_time = now; /* retain the prior key for 3*PTO */
   return 1;
@@ -179,7 +179,7 @@ int quic_evloop_initiate_key_update(quic_evloop* c, u64 now) {
 
 int quic_evloop_old_key_retained(const quic_evloop* c, u64 now) {
   if (c->key_generation == 0) return 0; /* no prior generation exists yet */
-  return quic_oldkey_retain(c->key_update_time, now, c->pto_period);
+  return oldkey_retain(c->key_update_time, now, c->pto_period);
 }
 
 void quic_evloop_close(quic_evloop* c, int peer_closed) {

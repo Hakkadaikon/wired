@@ -38,9 +38,9 @@ static void test_connio_seal_open_roundtrip(void) {
   quic_connio cl, sv;
   mk_connio(&cl, 0, 0xc3, dcid, 8, 1u << 20);
   mk_connio(&sv, 1, 0xc3, dcid, 8, 1u << 20);
-  cl.loop.validated   = 1;
-  sv.loop.validated   = 1;
-  quic_initial_keys k = {0};
+  cl.loop.validated = 1;
+  sv.loop.validated = 1;
+  initial_keys k    = {0};
   keyset_install(&cl.loop.keys, QUIC_LEVEL_INITIAL, &k);
   keyset_install(&sv.loop.keys, QUIC_LEVEL_INITIAL, &k);
 
@@ -89,8 +89,8 @@ static void test_connio_gated_without_key(void) {
 /* Install Initial + Handshake keys on io and lift its anti-amp gate so sends at
  * both levels are admitted. */
 static void arm_two_levels(quic_connio* io) {
-  quic_initial_keys k = {0};
-  io->loop.validated  = 1;
+  initial_keys k     = {0};
+  io->loop.validated = 1;
   keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
   keyset_install(&io->loop.keys, QUIC_LEVEL_HANDSHAKE, &k);
 }
@@ -163,8 +163,8 @@ static void test_connio_recv_per_space(void) {
 /* Install a 1-RTT key and fast-forward the send-level gate to Handshake, so
  * the very next send may promote straight to 1-RTT (RFC 9001 4.1.4/4.9). */
 static void arm_onertt(quic_connio* io) {
-  quic_initial_keys k = {0};
-  io->loop.validated  = 1;
+  initial_keys k     = {0};
+  io->loop.validated = 1;
   keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
   keyset_install(&io->loop.keys, QUIC_LEVEL_HANDSHAKE, &k);
   keyset_install(&io->loop.keys, QUIC_LEVEL_ONERTT, &k);

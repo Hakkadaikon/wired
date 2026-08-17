@@ -31,16 +31,16 @@
 /** A usable QUIC session: endpoint key material, connection phase, Initial/
  * handshake protection state, and the in-memory link it drives over. */
 typedef struct {
-  quic_endpoint     ep;    /* key material and ECDHE */
-  quic_conn         conn;  /* phase + per-space packet numbers */
-  quic_initial_keys ikeys; /* Initial-level protection (both sides share) */
-  aes128            ihp;   /* Initial header-protection cipher */
-  aes128            hshp;  /* handshake/1-RTT header-protection cipher */
-  quic_memlink*     link;  /* the in-memory transport */
-  u8                dcid[8];
-  u8                peer_pub[32]; /* the peer's X25519 share, once seen */
-  int               is_server;
-  int               have_peer; /* peer share recovered */
+  quic_endpoint ep;    /* key material and ECDHE */
+  quic_conn     conn;  /* phase + per-space packet numbers */
+  initial_keys  ikeys; /* Initial-level protection (both sides share) */
+  aes128        ihp;   /* Initial header-protection cipher */
+  aes128        hshp;  /* handshake/1-RTT header-protection cipher */
+  quic_memlink* link;  /* the in-memory transport */
+  u8            dcid[8];
+  u8            peer_pub[32]; /* the peer's X25519 share, once seen */
+  int           is_server;
+  int           have_peer; /* peer share recovered */
   /** Scratch for quic_session_recv_stream's unprotect: per-instance so two
    * sessions stepping concurrently never share one buffer. Backs
    * quic_session_recv_stream's out->data view, valid until this session's

@@ -12,17 +12,16 @@
 
 /** Server handshake-completion state. */
 typedef struct {
-  quic_keysched* sched;     /**< the key schedule to advance to Master */
-  keyset*        keys;      /**< receives the server 1-RTT keys */
-  int            confirmed; /**< 1 once the handshake is confirmed */
-} quic_srvfin_state;
+  keysched* sched;     /**< the key schedule to advance to Master */
+  keyset*   keys;      /**< receives the server 1-RTT keys */
+  int       confirmed; /**< 1 once the handshake is confirmed */
+} srvfin_state;
 
 /** Bind the key schedule and key set the completion step operates on.
  * @param s completion state to initialize
  * @param sched the key schedule to advance
  * @param keys the key set to install the 1-RTT keys into */
-void quic_srvfin_state_init(
-    quic_srvfin_state* s, quic_keysched* sched, keyset* keys);
+void srvfin_state_init(srvfin_state* s, keysched* sched, keyset* keys);
 
 /** Advance the key schedule to Master over the final transcript (the
  * handshake messages through the client Finished), install the server 1-RTT
@@ -37,7 +36,7 @@ void quic_srvfin_state_init(
  * @param final_transcript_len length of final_transcript in bytes
  * @return 1 on success, 0 on a key schedule order violation (no keys
  * installed, not confirmed). */
-int quic_srvfin_complete(
-    quic_srvfin_state* s, const u8* final_transcript, usz final_transcript_len);
+int srvfin_complete(
+    srvfin_state* s, const u8* final_transcript, usz final_transcript_len);
 
 #endif

@@ -16,14 +16,14 @@
  * transcript span (ClientHello..server Finished) quic_keysched_advance_
  * master already hashes for the application traffic secrets. Writes a
  * 32-byte secret. */
-void quic_tls_exporter_master_secret(
+void tls_exporter_master_secret(
     const u8  master[QUIC_HKDF_PRK],
     const u8* transcript,
     usz       transcript_len,
     u8        out[QUIC_HKDF_PRK]);
 
 /* TLS-Exporter(label, context_value, key_length) (RFC 8446 7.5). Secret
- * must be the exporter_master_secret (quic_tls_exporter_master_secret's
+ * must be the exporter_master_secret (tls_exporter_master_secret's
  * output) -- "Implementations MUST use the exporter_master_secret unless
  * explicitly specified by the application." An absent context (context.n
  * == 0 and context.p == 0) and an empty context ({0, non-null}) both hash
@@ -37,7 +37,7 @@ void quic_tls_exporter_master_secret(
  *                   material
  * @return 1 on success, 0 if a length does not fit (see
  *   hkdf_expand_label) */
-int quic_tls_exporter(
+int tls_exporter(
     const u8    secret[QUIC_HKDF_PRK],
     wired_span  label,
     wired_span  context,

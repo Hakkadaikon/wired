@@ -63,9 +63,7 @@ static int pn_space_ready(const quic_connio* io, int level) {
 /* RFC 9001 4: a level may send only once its keys are installed and the
  * connloop gate (level monotonicity, anti-amp, phase) admits the packet. */
 static int send_ready(
-    quic_connio*               io,
-    const quic_connio_send_in* in,
-    const quic_initial_keys**  keys) {
+    quic_connio* io, const quic_connio_send_in* in, const initial_keys** keys) {
   /* ponytail: ack-eliciting hard-set to 1; frames here always elicit (STREAM/
    * PING). Classify frames[0] if a non-eliciting-only send is ever needed.
    * RFC 9000 12.3: gate with the SELECTED space's own next packet number. */
@@ -78,9 +76,9 @@ static int send_ready(
 
 usz quic_connio_send(
     quic_connio* io, const quic_connio_send_in* in, wired_obuf* out) {
-  const quic_initial_keys* keys;
-  aes128                   hp;
-  usz                      n;
+  const initial_keys* keys;
+  aes128              hp;
+  usz                 n;
   if (!send_ready(io, in, &keys)) return 0;
   aes128_init(&hp, keys->hp);
   quic_protect_keys k    = {keys, &hp};
@@ -124,7 +122,7 @@ typedef struct {
 /* RFC 9001 4: a level may process a datagram only once its keys are installed
  * and the connloop gate (phase, discarded level) admits it. */
 static int recv_ready(
-    quic_connio* io, const connio_recv_in* in, const quic_initial_keys** keys) {
+    quic_connio* io, const connio_recv_in* in, const initial_keys** keys) {
   return quic_connloop_on_recv(&io->loop, in->level, in->datagram.n) &&
          keyset_for_level(&io->loop.keys, in->level, keys);
 }
@@ -144,10 +142,10 @@ static int recv_accept(quic_connio* io, int level, wired_span frames) {
 }
 
 int quic_connio_recv(quic_connio* io, int level, wired_mspan datagram) {
-  const quic_initial_keys* keys;
-  aes128                   hp;
-  wired_span               frames;
-  connio_recv_in           in = {level, datagram};
+  const initial_keys* keys;
+  aes128              hp;
+  wired_span          frames;
+  connio_recv_in      in = {level, datagram};
   if (!recv_ready(io, &in, &keys)) return 0;
   aes128_init(&hp, keys->hp);
   quic_protect_keys k = {keys, &hp};

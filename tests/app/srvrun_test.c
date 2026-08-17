@@ -1041,16 +1041,16 @@ static void sr_make_id(
  * uses. */
 static usz sr_build_client_initial(
     u8* dg, usz cap, const u8* odcid, u8 odcid_len) {
-  quic_client c;
-  u8          cpriv[32], cpub[32];
-  wired_obuf  ob = obuf_of(dg, cap);
+  client     c;
+  u8         cpriv[32], cpub[32];
+  wired_obuf ob = obuf_of(dg, cap);
   for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(11 + i);
   wired_x25519_base(cpub, cpriv);
-  quic_tlsdriver_init(&c.tls, cpriv, cpub, 0);
+  tlsdriver_init(&c.tls, cpriv, cpub, 0);
   {
-    quic_clientwire_hdr_in hdr = {
+    clientwire_hdr_in hdr = {
         wired_span_of(odcid, odcid_len), wired_span_of(g_cli_scid, 6), 0};
-    CHECK(quic_client_build_initial_wire(&c, &hdr, &ob) == 1);
+    CHECK(client_build_initial_wire(&c, &hdr, &ob) == 1);
   }
   return ob.len;
 }
@@ -1126,7 +1126,7 @@ static void test_srvrun_new_conn_refusal_wire_content(void) {
   wired_obuf ob    = obuf_of(out, sizeof out);
   CHECK(srvrun_seal_new_conn_refusal(wired_span_of(dg, total), scid, &ob));
 
-  quic_initial_keys ck, sk;
+  initial_keys      ck, sk;
   aes128            hp;
   wired_span        frames;
   quic_protect_keys k;
@@ -2095,12 +2095,12 @@ static void test_srvrun_coalesced_handshake_not_boot_retransmit(void) {
 
 /* Raw ClientHello + one sealed chunk Initial, the srvrun-side split fixture
  * (mirrors the srvboot accumulator tests' construction). */
-static usz sr_raw_ch(quic_client* c, u8* ch, usz cap) {
+static usz sr_raw_ch(client* c, u8* ch, usz cap) {
   u8 cpriv[32], cpub[32];
   for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(11 + i);
   wired_x25519_base(cpub, cpriv);
-  quic_tlsdriver_init(&c->tls, cpriv, cpub, 0);
-  return quic_tlsdriver_raw_client_hello(&c->tls, ch, cap);
+  tlsdriver_init(&c->tls, cpriv, cpub, 0);
+  return tlsdriver_raw_client_hello(&c->tls, ch, cap);
 }
 
 static usz sr_seal_chunk(u8* dg, usz cap, wired_span chunk, u64 off, u64 pn) {
@@ -2117,7 +2117,7 @@ static usz sr_seal_chunk(u8* dg, usz cap, wired_span chunk, u64 off, u64 pn) {
  * reassembly and boots the connection (RFC 9000 19.6). */
 static void test_srvrun_split_ch_boots_across_datagrams(void) {
   wired_srvboot_id id;
-  quic_client      c;
+  client           c;
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               ch[512], dg1[1400], dg2[1400];
   quic_conntable   table[QUIC_CONNTABLE_CAP];
@@ -2151,7 +2151,7 @@ static void test_srvrun_split_ch_boots_across_datagrams(void) {
  * slot then boots a fresh attempt normally. */
 static void test_srvrun_stalled_boot_swept(void) {
   wired_srvboot_id id;
-  quic_client      c;
+  client           c;
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               ch[512], dg1[1400], dg2[1400], d1[1400], d2[1400];
   quic_conntable   table[QUIC_CONNTABLE_CAP];
@@ -11048,7 +11048,7 @@ static void test_srvrun_partial_ch_acked_and_rekeyed(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               ch[2048], dg[1400];
-  quic_client      c;
+  client           c;
   u8               cpriv[32], cpub[32];
   quic_conntable   table[QUIC_CONNTABLE_CAP];
   quic_sockaddr    peer = {0};
@@ -11056,8 +11056,8 @@ static void test_srvrun_partial_ch_acked_and_rekeyed(void) {
   usz              n, nd;
   for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(11 + i);
   wired_x25519_base(cpub, cpriv);
-  quic_tlsdriver_init(&c.tls, cpriv, cpub, 0);
-  n = quic_tlsdriver_raw_client_hello(&c.tls, ch, sizeof ch);
+  tlsdriver_init(&c.tls, cpriv, cpub, 0);
+  n = tlsdriver_raw_client_hello(&c.tls, ch, sizeof ch);
   CHECK(n > 100);
   nd = sr_seal_ch_half(dg, sizeof dg, g_sr_odcid, 8, wired_span_of(ch, 60), 0);
   sr_make_id(&id, priv, pub, seed, rnd);

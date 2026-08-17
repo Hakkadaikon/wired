@@ -65,7 +65,7 @@ static void onertt_restore(
 static int onertt_try(
     wired_server*                s,
     const wired_srvloop_recv_in* in,
-    const quic_initial_keys*     keys,
+    const initial_keys*          keys,
     const u8                     save[RECV_ONERTT_HDR_MAX],
     wired_srvloop_recv_out*      out) {
   aes128 hp;
@@ -85,12 +85,12 @@ static int onertt_try(
  * is a different HKDF chain than client_ap_secret) but advances in
  * lockstep with the recv side's rotate. */
 static void onertt_rotate_send(wired_server* s) {
-  quic_initial_keys send_next;
-  u8                send_next_secret[QUIC_HKDF_PRK];
-  quic_kuswitch_next_keys_suite(
+  initial_keys send_next;
+  u8           send_next_secret[QUIC_HKDF_PRK];
+  kuswitch_next_keys_suite(
       s->sdrv.cipher_suite, s->ku_send_secret, &send_next, send_next_secret);
   bytes_memcpy(send_next.hp, s->ku_send.cur.hp, QUIC_AEAD_KEY_MAX);
-  quic_kuswitch_rotate(&s->ku_send, &send_next);
+  kuswitch_rotate(&s->ku_send, &send_next);
   bytes_memcpy(s->ku_send_secret, send_next_secret, QUIC_HKDF_PRK);
 }
 
@@ -101,8 +101,8 @@ static void onertt_rotate_send(wired_server* s) {
  * 6.2 requires the send side to follow in the same step (before this
  * packet's ACK goes out, which srvloop's caller does right after opening). */
 static void onertt_rotate_to(
-    wired_server* s, const quic_initial_keys* next, const u8* next_secret) {
-  quic_kuswitch_rotate(&s->ku, next);
+    wired_server* s, const initial_keys* next, const u8* next_secret) {
+  kuswitch_rotate(&s->ku, next);
   bytes_memcpy(s->ku_secret, next_secret, QUIC_HKDF_PRK);
   onertt_rotate_send(s);
 }
@@ -128,9 +128,9 @@ static int onertt_try_next_gen(
     const wired_srvloop_recv_in* in,
     const u8                     save[RECV_ONERTT_HDR_MAX],
     wired_srvloop_recv_out*      out) {
-  quic_initial_keys next;
-  u8                next_secret[QUIC_HKDF_PRK];
-  quic_kuswitch_next_keys_suite(
+  initial_keys next;
+  u8           next_secret[QUIC_HKDF_PRK];
+  kuswitch_next_keys_suite(
       s->sdrv.cipher_suite, s->ku_secret, &next, next_secret);
   /* RFC 9001 6.1: hp is unchanged across an update. */
   bytes_memcpy(next.hp, s->ku.cur.hp, QUIC_AEAD_KEY_MAX);
@@ -171,15 +171,15 @@ static int recv_at_level(
 /* RFC 9000 17.2.3 / RFC 9001 4.6.1: a 0-RTT packet is a long header with no
  * Token field, exactly like Handshake -- quic_hspkt_open_suite already
  * handles that framing. Only tried when this connection actually accepted
- * 0-RTT (quic_sdrv_early_keys). RFC 9000 12.3: 0-RTT and 1-RTT share the App
+ * 0-RTT (sdrv_early_keys). RFC 9000 12.3: 0-RTT and 1-RTT share the App
  * packet number space, so a successfully opened 0-RTT packet is reported as
  * QUIC_LEVEL_ONERTT -- every downstream consumer (ACK bookkeeping, frame
  * dispatch) already handles that level unmodified. */
 static int recv_zerortt(
     wired_server* s, const wired_srvloop_recv_in* in, wired_span* payload) {
-  quic_initial_keys keys;
-  aes128            hp;
-  if (!quic_sdrv_early_keys(&s->sdrv, &keys)) return 0;
+  initial_keys keys;
+  aes128       hp;
+  if (!sdrv_early_keys(&s->sdrv, &keys)) return 0;
   aes128_init(&hp, keys.hp);
   {
     quic_protect_keys pk = {&keys, &hp};

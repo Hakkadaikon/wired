@@ -19,7 +19,7 @@ static int open_which(int level) {
 
 /* Fetch the directional keys for `which` and build their HP cipher. */
 static int fetch(const wired_server* s, int which, wired_srvloop_dirkeys* out) {
-  if (!quic_keysched_get(&s->sched, which, &out->keys)) return 0;
+  if (!keysched_get(&s->sched, which, &out->keys)) return 0;
   aes128_init(&out->hp, out->keys->hp);
   return 1;
 }

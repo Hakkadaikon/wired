@@ -55,7 +55,7 @@ int quic_wt_exporter(
       session_id, label, app_context, ctx, sizeof ctx);
   static const u8 exporter_label[] = "EXPORTER-WebTransport";
   if (!ctx_len) return 0;
-  return quic_tls_exporter(
+  return tls_exporter(
       exporter_secret, wired_span_of(exporter_label, sizeof exporter_label - 1),
       wired_span_of(ctx, ctx_len), okm);
 }

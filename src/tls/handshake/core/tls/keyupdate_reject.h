@@ -13,10 +13,10 @@
 #define QUIC_HS_KEY_UPDATE 24
 
 /* 1 if msg_type is the TLS KeyUpdate message and must be rejected. */
-int quic_tls_keyupdate_is_forbidden(u8 msg_type);
+int tls_keyupdate_is_forbidden(u8 msg_type);
 
 /* The CRYPTO_ERROR code (0x010a) to close the connection with when a TLS
  * KeyUpdate message is received. */
-u64 quic_tls_keyupdate_reject_code(void);
+u64 tls_keyupdate_reject_code(void);
 
 #endif

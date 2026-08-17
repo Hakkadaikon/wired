@@ -13,6 +13,6 @@
 
 /* Returns 1 if packets_encrypted has reached the AEAD's limit (forcing a
  * key update), 0 otherwise. is_chacha selects the ChaCha20 limit. */
-int quic_aead_needs_update(u64 packets_encrypted, int is_chacha);
+int aead_needs_update(u64 packets_encrypted, int is_chacha);
 
 #endif

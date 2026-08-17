@@ -15,7 +15,7 @@
 typedef struct {
   const u8* cert_data; /**< start of the entry's opaque cert_data (X.509) */
   u32       cert_len;  /**< length of cert_data in bytes */
-} quic_tls_cert_entry;
+} tls_cert_entry;
 
 /** Parse a Certificate message body (after the handshake header). Sets the
  * request context view and the first CertificateEntry's cert_data. Only the
@@ -25,8 +25,7 @@ typedef struct {
  * @param context receives the certificate_request_context view
  * @param first receives the first CertificateEntry's cert_data view
  * @return 1 on success, 0 on truncation. */
-int quic_tls_cert_parse(
-    wired_span buf, wired_span* context, quic_tls_cert_entry* first);
+int tls_cert_parse(wired_span buf, wired_span* context, tls_cert_entry* first);
 
 /** Longest certificate_list this SDK walks (leaf + up to 9 issuers — public
  * web chains are typically 2-3 entries, but quic-interop-runner's
@@ -35,13 +34,13 @@ int quic_tls_cert_parse(
  * anti-amplification check; matches WIRED_CERTRELOAD_CHAIN_MAX). */
 #define QUIC_TLS_CERT_CHAIN_MAX 10
 
-/** Destination for quic_tls_cert_chain: entries[0..cap-1] and the count
+/** Destination for tls_cert_chain: entries[0..cap-1] and the count
  * actually written. */
 typedef struct {
-  quic_tls_cert_entry* entries; /**< receives the entry views, leaf first */
-  usz                  cap;     /**< capacity of entries */
-  usz*                 count;   /**< receives the number of entries written */
-} quic_tls_cert_chain_out;
+  tls_cert_entry* entries; /**< receives the entry views, leaf first */
+  usz             cap;     /**< capacity of entries */
+  usz*            count;   /**< receives the number of entries written */
+} tls_cert_chain_out;
 
 /** Parse a Certificate message body (after the handshake header) and view
  * EVERY CertificateEntry's cert_data into out->entries[0..out->cap-1], leaf
@@ -51,8 +50,8 @@ typedef struct {
  * @param out destination entry views and count
  * @return 1 on success; 0 on truncation, trailing garbage, or more than cap
  * entries (fail closed). */
-int quic_tls_cert_chain(
-    wired_span buf, wired_span* context, const quic_tls_cert_chain_out* out);
+int tls_cert_chain(
+    wired_span buf, wired_span* context, const tls_cert_chain_out* out);
 
 /** Parse a CertificateVerify body: a 2-byte SignatureScheme then a
  * 2-byte-length-prefixed signature.
@@ -60,7 +59,7 @@ int quic_tls_cert_chain(
  * @param scheme receives the SignatureScheme code point
  * @param sig receives the signature view
  * @return 1 on success, 0 on truncation. */
-int quic_tls_certverify_parse(wired_span buf, u16* scheme, wired_span* sig);
+int tls_certverify_parse(wired_span buf, u16* scheme, wired_span* sig);
 
 /** RFC 8446 4.2.3: the ed25519 SignatureScheme code point. */
 #define QUIC_TLS_SCHEME_ED25519 0x0807
@@ -72,7 +71,7 @@ int quic_tls_certverify_parse(wired_span buf, u16* scheme, wired_span* sig);
  * @param transcript_hash the handshake transcript hash
  * @param pubkey the server's Ed25519 public key (from its certificate)
  * @return 1 if the signature verifies. */
-int quic_tls_certverify_ed25519(
+int tls_certverify_ed25519(
     wired_span sig, const u8 transcript_hash[32], const u8 pubkey[32]);
 
 #endif

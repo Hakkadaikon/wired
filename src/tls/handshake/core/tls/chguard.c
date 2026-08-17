@@ -46,7 +46,7 @@ static usz chguard_seen_step(chguard_seen* s, wired_span exts, usz off) {
   return tlv.total;
 }
 
-int quic_chguard_no_dup_ext(wired_span exts) {
+int chguard_no_dup_ext(wired_span exts) {
   chguard_seen s   = {.count = 0};
   usz          off = 0;
   while (off < exts.n) {
@@ -57,16 +57,16 @@ int quic_chguard_no_dup_ext(wired_span exts) {
   return 1;
 }
 
-int quic_chguard_psk_modes_ok(int has_psk, int modes_dhe_ke) {
+int chguard_psk_modes_ok(int has_psk, int modes_dhe_ke) {
   return !has_psk || modes_dhe_ke;
 }
 
-int quic_chguard_psk_last(wired_span exts, wired_span psk) {
+int chguard_psk_last(wired_span exts, wired_span psk) {
   if (psk.n == 0) return 1;
   return psk.p + psk.n == exts.p + exts.n;
 }
 
-int quic_chguard_require_algs(int found_sig_algs, int found_groups) {
+int chguard_require_algs(int found_sig_algs, int found_groups) {
   return found_sig_algs && found_groups;
 }
 
@@ -90,7 +90,7 @@ static int ch_legal_step(wired_span exts, usz off, usz* consumed) {
   return ch_legal_ext_type(tlv.type);
 }
 
-int quic_chguard_ch_legal_exts(wired_span exts) {
+int chguard_ch_legal_exts(wired_span exts) {
   usz off = 0;
   while (off < exts.n) {
     usz consumed = 0;

@@ -4,8 +4,8 @@ static void fill_key(u8 key[QUIC_TICKET_KEY_LEN], u8 v) {
   for (usz i = 0; i < QUIC_TICKET_KEY_LEN; i++) key[i] = v;
 }
 
-static quic_ticket sample_ticket(void) {
-  quic_ticket t;
+static ticket sample_ticket(void) {
+  ticket t;
   for (usz i = 0; i < QUIC_TICKET_SECRET_LEN; i++) t.secret[i] = (u8)i;
   t.issued_at     = 1700000000ULL;
   t.lifetime_secs = 86400;
@@ -17,13 +17,13 @@ static quic_ticket sample_ticket(void) {
 static void test_ticket_roundtrip(void) {
   u8 key[QUIC_TICKET_KEY_LEN];
   fill_key(key, 0x11);
-  quic_ticket in = sample_ticket();
-  u8          sealed[QUIC_TICKET_SEALED_LEN];
-  quic_ticket_seal(&in, key, sealed);
+  ticket in = sample_ticket();
+  u8     sealed[QUIC_TICKET_SEALED_LEN];
+  ticket_seal(&in, key, sealed);
 
-  quic_ticket out;
-  int         ok = quic_ticket_open(
-      wired_span_of(sealed, QUIC_TICKET_SEALED_LEN), key, &out);
+  ticket out;
+  int    ok =
+      ticket_open(wired_span_of(sealed, QUIC_TICKET_SEALED_LEN), key, &out);
   CHECK(ok == 1);
   CHECK(out.issued_at == in.issued_at);
   CHECK(out.lifetime_secs == in.lifetime_secs);
@@ -36,14 +36,14 @@ static void test_ticket_roundtrip(void) {
 static void test_ticket_tamper_detected(void) {
   u8 key[QUIC_TICKET_KEY_LEN];
   fill_key(key, 0x22);
-  quic_ticket in = sample_ticket();
-  u8          sealed[QUIC_TICKET_SEALED_LEN];
-  quic_ticket_seal(&in, key, sealed);
+  ticket in = sample_ticket();
+  u8     sealed[QUIC_TICKET_SEALED_LEN];
+  ticket_seal(&in, key, sealed);
   sealed[QUIC_TICKET_SEALED_LEN - 1] ^= 0x01;
 
-  quic_ticket out;
-  int         ok = quic_ticket_open(
-      wired_span_of(sealed, QUIC_TICKET_SEALED_LEN), key, &out);
+  ticket out;
+  int    ok =
+      ticket_open(wired_span_of(sealed, QUIC_TICKET_SEALED_LEN), key, &out);
   CHECK(ok == 0);
 }
 
@@ -51,14 +51,14 @@ static void test_ticket_tamper_detected(void) {
 static void test_ticket_wrong_key_rejected(void) {
   u8 key[QUIC_TICKET_KEY_LEN];
   fill_key(key, 0x33);
-  quic_ticket in = sample_ticket();
-  u8          sealed[QUIC_TICKET_SEALED_LEN];
-  quic_ticket_seal(&in, key, sealed);
+  ticket in = sample_ticket();
+  u8     sealed[QUIC_TICKET_SEALED_LEN];
+  ticket_seal(&in, key, sealed);
 
   u8 wrong_key[QUIC_TICKET_KEY_LEN];
   fill_key(wrong_key, 0x44);
-  quic_ticket out;
-  int         ok = quic_ticket_open(
+  ticket out;
+  int    ok = ticket_open(
       wired_span_of(sealed, QUIC_TICKET_SEALED_LEN), wrong_key, &out);
   CHECK(ok == 0);
 }
@@ -68,11 +68,11 @@ static void test_ticket_wrong_key_rejected(void) {
 static void test_ticket_nonce_varies(void) {
   u8 key[QUIC_TICKET_KEY_LEN];
   fill_key(key, 0x55);
-  quic_ticket in = sample_ticket();
-  u8          a[QUIC_TICKET_SEALED_LEN];
-  u8          b[QUIC_TICKET_SEALED_LEN];
-  quic_ticket_seal(&in, key, a);
-  quic_ticket_seal(&in, key, b);
+  ticket in = sample_ticket();
+  u8     a[QUIC_TICKET_SEALED_LEN];
+  u8     b[QUIC_TICKET_SEALED_LEN];
+  ticket_seal(&in, key, a);
+  ticket_seal(&in, key, b);
 
   int same = 1;
   for (usz i = 0; i < QUIC_TICKET_NONCE_LEN; i++)

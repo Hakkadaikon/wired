@@ -6,9 +6,9 @@
  * sent. It is confirmed on the server when HANDSHAKE_DONE is sent, on the
  * client when HANDSHAKE_DONE is received. */
 
-int quic_hs_complete(int finished_verified, int finished_sent);
+int hs_complete(int finished_verified, int finished_sent);
 
-int quic_hs_confirmed(
+int hs_confirmed(
     int is_server, int handshake_done_sent, int handshake_done_received);
 
 #endif

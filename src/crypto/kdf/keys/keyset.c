@@ -10,15 +10,14 @@ void keyset_init(keyset* state) {
   for (int i = 0; i < QUIC_KEYSET_LEVELS; i++) state->installed[i] = 0;
 }
 
-int keyset_install(keyset* state, int level, const quic_initial_keys* keys) {
+int keyset_install(keyset* state, int level, const initial_keys* keys) {
   if (!level_valid(level)) return 0;
   state->keys[level]      = *keys;
   state->installed[level] = 1;
   return 1;
 }
 
-int keyset_for_level(
-    const keyset* state, int level, const quic_initial_keys** out) {
+int keyset_for_level(const keyset* state, int level, const initial_keys** out) {
   if (!level_valid(level)) return 0;
   if (!state->installed[level]) return 0;
   *out = &state->keys[level];

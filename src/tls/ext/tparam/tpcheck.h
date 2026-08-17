@@ -18,13 +18,13 @@
  * Each check returns 1 on success, 0 on a TRANSPORT_PARAMETER_ERROR. */
 
 /* Whether two connection IDs are byte-for-byte equal. */
-int quic_tparam_cid_match(wired_span got, wired_span expected);
+int tparam_cid_match(wired_span got, wired_span expected);
 
 /* initial_source_connection_id must equal the peer's observed Source CID. */
-int quic_tparam_check_initial_scid(wired_span got, wired_span observed);
+int tparam_check_initial_scid(wired_span got, wired_span observed);
 
 /* original_destination_connection_id must equal the DCID the client sent. */
-int quic_tparam_check_original_dcid(wired_span got, wired_span sent_dcid);
+int tparam_check_original_dcid(wired_span got, wired_span sent_dcid);
 
 /** Inputs for the retry_source_connection_id presence/match check. */
 typedef struct {
@@ -32,12 +32,12 @@ typedef struct {
   int        has_param;
   wired_span got;
   wired_span retry_scid;
-} quic_tparam_retry_scid_in;
+} tparam_retry_scid_in;
 
 /* retry_source_connection_id must be present and match the Retry Source CID
  * exactly when a Retry was processed, and absent otherwise. did_retry and
  * has_param are 0/1 flags. */
-int quic_tparam_check_retry_scid(const quic_tparam_retry_scid_in* in);
+int tparam_check_retry_scid(const tparam_retry_scid_in* in);
 
 /* RFC 9000 18.2: validate the value of a received integer-valued transport
  * parameter against its per-parameter range. Returns 1 if value is within
@@ -47,6 +47,6 @@ int quic_tparam_check_retry_scid(const quic_tparam_retry_scid_in* in);
  *   - ack_delay_exponent (0x0a): values above 20 are invalid.
  *   - max_ack_delay (0x0b): values of 2^14 or greater are invalid.
  *   - active_connection_id_limit (0x0e): must be at least 2. */
-int quic_tparam_range_ok(u64 id, u64 value);
+int tparam_range_ok(u64 id, u64 value);
 
 #endif

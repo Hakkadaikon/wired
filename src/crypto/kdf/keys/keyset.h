@@ -7,7 +7,7 @@
 /**
  * @file
  * RFC 9001 4: per-protection-level key sets. Levels: 0=Initial, 1=Handshake,
- * 2=1-RTT. Each level holds one quic_initial_keys (AES-128-GCM material) plus
+ * 2=1-RTT. Each level holds one initial_keys (AES-128-GCM material) plus
  * an installed flag.
  */
 
@@ -21,8 +21,8 @@
  * installed flag.
  */
 typedef struct {
-  quic_initial_keys keys[QUIC_KEYSET_LEVELS]; /**< key/iv/hp per level */
-  int installed[QUIC_KEYSET_LEVELS]; /**< 1 once keys[level] is valid */
+  initial_keys keys[QUIC_KEYSET_LEVELS]; /**< key/iv/hp per level */
+  int installed[QUIC_KEYSET_LEVELS];     /**< 1 once keys[level] is valid */
 } keyset;
 
 /**
@@ -40,7 +40,7 @@ void keyset_init(keyset* state);
  * @param keys  key material copied into the set
  * @return 1 ok, 0 if level out of range.
  */
-int keyset_install(keyset* state, int level, const quic_initial_keys* keys);
+int keyset_install(keyset* state, int level, const initial_keys* keys);
 
 /**
  * Fetch keys for level into *out.
@@ -53,7 +53,6 @@ int keyset_install(keyset* state, int level, const quic_initial_keys* keys);
  * @param out   receives a pointer to the installed keys
  * @return 1 if installed, 0 otherwise.
  */
-int keyset_for_level(
-    const keyset* state, int level, const quic_initial_keys** out);
+int keyset_for_level(const keyset* state, int level, const initial_keys** out);
 
 #endif

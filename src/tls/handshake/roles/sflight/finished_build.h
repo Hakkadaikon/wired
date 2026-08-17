@@ -9,7 +9,7 @@
  * transcript_hash) and writes the 32-byte verify_data into the handshake
  * message at out, setting out->len. Returns 1, or 0 if it does not fit.
  * finished_key is the server handshake traffic secret. */
-int quic_sflight_finished(
+int sflight_finished(
     const u8* finished_key, const u8* transcript_hash, wired_obuf* out);
 
 #endif

@@ -13,7 +13,7 @@ static int idna_passthrough_ok(wired_span host, usz cap) {
   return idna_all_ascii(host) && host.n <= cap;
 }
 
-usz quic_salpn_idna_to_ascii(wired_span host, u8* out, usz cap) {
+usz salpn_idna_to_ascii(wired_span host, u8* out, usz cap) {
   if (!idna_passthrough_ok(host, cap)) return 0;
   for (usz i = 0; i < host.n; i++) out[i] = host.p[i];
   return host.n;

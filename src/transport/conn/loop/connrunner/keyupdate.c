@@ -9,17 +9,17 @@
 #include "tls/keys/kuswitch/phasebit.h"
 
 /* The current generation's installed 1-RTT keys, or a zeroed set if none. */
-static void cur_keys(const quic_connrunner* r, quic_initial_keys* out) {
-  const quic_initial_keys* k;
-  quic_initial_keys        z = {0};
+static void cur_keys(const quic_connrunner* r, initial_keys* out) {
+  const initial_keys* k;
+  initial_keys        z = {0};
   *out = keyset_for_level(&r->io.loop.keys, QUIC_LEVEL_ONERTT, &k) ? *k : z;
 }
 
 void quic_connrunner_keyupdate_init(quic_connrunner* r) {
-  quic_initial_keys gen0;
-  usz               i;
+  initial_keys gen0;
+  usz          i;
   cur_keys(r, &gen0);
-  quic_kuswitch_init(&r->ku, &gen0);
+  kuswitch_init(&r->ku, &gen0);
   for (i = 0; i < QUIC_HKDF_PRK; i++) r->ku_secret[i] = 0;
   r->ku_phase         = 0; /* RFC 9001 6.2: generation 0 => phase bit 0 */
   r->ku_completed_at  = (u64)-1;
@@ -33,7 +33,7 @@ void quic_connrunner_keyupdate_init(quic_connrunner* r) {
 static int recv_next_allowed(
     const quic_connrunner* r, int recv_bit, int cur_bit) {
   return r->io.loop.handshake_confirmed &&
-         quic_kudrive_key_generation(recv_bit, cur_bit, r->ku_unacked);
+         kudrive_key_generation(recv_bit, cur_bit, r->ku_unacked);
 }
 
 /* RFC 9001 6.2/6.3: a confirmed peer phase change selects the next generation's
@@ -45,14 +45,14 @@ static int select_next(const quic_connrunner* r, int recv_bit, int cur_bit) {
 }
 
 int quic_connrunner_recv_keygen(quic_connrunner* r, u8 byte0) {
-  int recv_bit = quic_keyphase_get(byte0);
-  int cur_bit  = (int)quic_kuswitch_phase_bit(r->ku.generation);
-  const quic_initial_keys* keys;
+  int                 recv_bit = keyphase_get(byte0);
+  int                 cur_bit  = (int)kuswitch_phase_bit(r->ku.generation);
+  const initial_keys* keys;
   /* A peer update to a brand-new generation (no old retained yet) is the only
    * case that derives a next read key; everything else must already hold a
    * key for the bit, or the packet is dropped (RFC 9001 6.5). */
   if (select_next(r, recv_bit, cur_bit)) return 1;
-  if (!quic_kuswitch_key_for_phase(&r->ku, recv_bit, &keys)) return -1;
+  if (!kuswitch_key_for_phase(&r->ku, recv_bit, &keys)) return -1;
   return 0; /* current or retained old generation */
 }
 
@@ -60,14 +60,14 @@ int quic_connrunner_recv_keygen(quic_connrunner* r, u8 byte0) {
  * apply; otherwise 3*PTO must have elapsed since the last completion. */
 static int reinit_floor_ok(const quic_connrunner* r, u64 now, u64 pto) {
   if (r->ku_completed_at == (u64)-1) return 1;
-  return quic_kudrive_can_initiate_again(now, r->ku_completed_at, pto);
+  return kudrive_can_initiate_again(now, r->ku_completed_at, pto);
 }
 
 /* RFC 9001 6.1/6.5: both initiate gates -- threshold reached, confirmed, no
  * unacked self update, and the 3*PTO re-initiation floor cleared. */
 static int may_initiate(
     const quic_connrunner* r, const quic_connrunner_ku_in* in) {
-  return quic_kudrive_should_initiate(
+  return kudrive_should_initiate(
              r->ku_sent_in_phase, in->threshold,
              r->io.loop.handshake_confirmed) &&
          !r->ku_unacked && reinit_floor_ok(r, in->now, in->pto);
@@ -77,17 +77,16 @@ static int may_initiate(
  * as the 1-RTT keyset, then toggle the advertised phase bit -- in that order.
  */
 static void do_initiate(quic_connrunner* r) {
-  quic_initial_keys next = {0};
-  u8                next_secret[QUIC_HKDF_PRK];
+  initial_keys next = {0};
+  u8           next_secret[QUIC_HKDF_PRK];
   /* RFC 9369 3.3.2: the negotiated version (client's sent_version, absent a
    * Version Negotiation reconnect) picks "quic ku" (v1) vs "quicv2 ku" (v2).
    */
-  quic_kuswitch_next_keys_v(r->sent_version, r->ku_secret, &next, next_secret);
-  quic_kuswitch_rotate(&r->ku, &next); /* derive/rotate ... */
+  kuswitch_next_keys_v(r->sent_version, r->ku_secret, &next, next_secret);
+  kuswitch_rotate(&r->ku, &next); /* derive/rotate ... */
   for (usz i = 0; i < QUIC_HKDF_PRK; i++) r->ku_secret[i] = next_secret[i];
   keyset_install(&r->io.loop.keys, QUIC_LEVEL_ONERTT, &next);
-  quic_kuswitch_apply_phase(
-      &r->ku_phase, r->ku.generation); /* ... before toggle */
+  kuswitch_apply_phase(&r->ku_phase, r->ku.generation); /* ... before toggle */
   r->ku_unacked       = 1;
   r->ku_completed_at  = (u64)-1; /* RFC 9001 6.2: reset clocks */
   r->ku_sent_in_phase = 0;
@@ -103,12 +102,12 @@ int quic_connrunner_maybe_initiate_ku(
 /* RFC 9001 6.5: only discard once an update has completed and 3*PTO elapsed. */
 static int may_discard(const quic_connrunner* r, u64 now, u64 pto) {
   return r->ku.have_old && r->ku_completed_at != (u64)-1 &&
-         quic_kudrive_can_discard_old(now, r->ku_completed_at, pto);
+         kudrive_can_discard_old(now, r->ku_completed_at, pto);
 }
 
 int quic_connrunner_maybe_discard_ku(quic_connrunner* r, u64 now, u64 pto) {
   if (!may_discard(r, now, pto)) return 0;
-  quic_kuswitch_discard_old(&r->ku);
+  kuswitch_discard_old(&r->ku);
   return 1;
 }
 

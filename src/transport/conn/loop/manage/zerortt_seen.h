@@ -7,7 +7,7 @@
  * has already accepted 0-RTT for once -- single-use enforcement. This is a
  * bounded, process-lifetime, single-process tracker of ticket identities
  * (the sealed pre_shared_key identity bytes, which are unique per issuance
- * since quic_ticket_seal draws a fresh random nonce every call); it feeds
+ * since ticket_seal draws a fresh random nonce every call); it feeds
  * quic_zerortt_replay_ok's ticket_first_use argument (zerortt_policy.h).
  * ponytail: fixed-size ring, oldest entry evicted on overflow -- no
  * persistence/cross-process sharing (this SDK is one process per server), a

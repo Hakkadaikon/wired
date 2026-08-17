@@ -149,7 +149,7 @@ the coverage denominator:
   (`aes128`/`QUIC_AES_ROUNDS=10` in
   `src/crypto/symmetric/aead/aes/aes.h`). The TLS cipher-suite layer
   actively rejects `TLS_AES_256_GCM_SHA384`
-  (`quic_cipher_supported` in `src/tls/handshake/core/tls/cipher.c` returns
+  (`cipher_supported` in `src/tls/handshake/core/tls/cipher.c` returns
   0 for it, confirmed by `tests/tls/cipher_test.c` —
   `test_cipher_supported`); no AES-192 cipher suite exists in TLS 1.3 at
   all. QUIC packet protection and header protection therefore only ever key

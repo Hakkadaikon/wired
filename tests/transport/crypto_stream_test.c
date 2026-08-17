@@ -77,8 +77,8 @@ static void test_clienthello_roundtrip(void) {
   wired_x25519_base(pub, priv);
 
   u8  ch[1024];
-  usz ch_len = quic_tls_client_hello(
-      &(quic_clienthello_in){
+  usz ch_len = tls_client_hello(
+      &(clienthello_in){
           random, pub, wired_span_of((const u8*)"example.com", 11),
           wired_span_of(tp, sizeof tp)},
       &(wired_obuf){ch, sizeof ch, 0});

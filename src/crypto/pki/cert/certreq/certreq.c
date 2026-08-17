@@ -17,14 +17,14 @@ static usz put_sig_algs(u8* out, wired_span sa) {
 }
 
 int certreq_build(wired_span sig_algs, wired_obuf* out) {
-  usz off = quic_hs_begin(out->p, out->cap, QUIC_HS_CERTIFICATE_REQUEST);
+  usz off = hs_begin(out->p, out->cap, QUIC_HS_CERTIFICATE_REQUEST);
   usz ext = sig_algs.n + 6;
   if (off == 0 || off + 3 + ext > out->cap) return 0;
   out->p[off] = 0;                         /* empty context */
   be_put_be16(out->p + off + 1, (u16)ext); /* extensions length */
   put_sig_algs(out->p + off + 3, sig_algs);
   out->len = off + 3 + ext;
-  quic_hs_finish(out->p, out->len);
+  hs_finish(out->p, out->len);
   return 1;
 }
 
@@ -77,7 +77,7 @@ static int certreq_parse_body(wired_span b, certreq* out) {
 int certreq_parse(wired_span msg, certreq* out) {
   u8  type;
   usz body_len;
-  usz off = quic_hs_parse(wired_span_of(msg.p, msg.n), &type, &body_len);
+  usz off = hs_parse(wired_span_of(msg.p, msg.n), &type, &body_len);
   if (off == 0 || type != QUIC_HS_CERTIFICATE_REQUEST) return 0;
   return certreq_parse_body(wired_span_of(msg.p + off, body_len), out);
 }

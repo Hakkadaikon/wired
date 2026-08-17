@@ -24,19 +24,17 @@ typedef struct {
   u64 issued_at;                      /**< server clock at issuance */
   u32 lifetime_secs;                  /**< ticket_lifetime (RFC 8446 4.6.1) */
   u32 age_add; /**< ticket_age_add (RFC 8446 4.6.1), random per ticket */
-} quic_ticket;
+} ticket;
 
 /* Seal a ticket under the server's fixed key: out receives
  * QUIC_TICKET_SEALED_LEN bytes (a fresh random nonce, then the encrypted
  * ticket, then the auth tag). The nonce is drawn fresh per call so the same
  * key never reuses a nonce. */
-void quic_ticket_seal(
-    const quic_ticket* t, const u8 key[QUIC_TICKET_KEY_LEN], u8* out);
+void ticket_seal(const ticket* t, const u8 key[QUIC_TICKET_KEY_LEN], u8* out);
 
-/* Open a sealed ticket produced by quic_ticket_seal. in must span exactly
+/* Open a sealed ticket produced by ticket_seal. in must span exactly
  * QUIC_TICKET_SEALED_LEN bytes. Returns 1 and fills *out on success; returns
  * 0 (leaving *out untouched) if the key is wrong or the bytes were altered. */
-int quic_ticket_open(
-    wired_span in, const u8 key[QUIC_TICKET_KEY_LEN], quic_ticket* out);
+int ticket_open(wired_span in, const u8 key[QUIC_TICKET_KEY_LEN], ticket* out);
 
 #endif

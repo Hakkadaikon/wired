@@ -6,10 +6,10 @@ void test_keyset(void) {
   keyset st;
   keyset_init(&st);
 
-  const quic_initial_keys* out = 0;
+  const initial_keys* out = 0;
   CHECK(keyset_for_level(&st, QUIC_LEVEL_INITIAL, &out) == 0);
 
-  quic_initial_keys k;
+  initial_keys k;
   for (int i = 0; i < QUIC_INITIAL_KEY; i++) k.key[i] = (u8)(i + 1);
 
   CHECK(keyset_install(&st, QUIC_LEVEL_HANDSHAKE, &k) == 1);

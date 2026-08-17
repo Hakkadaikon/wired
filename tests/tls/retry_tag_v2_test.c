@@ -17,8 +17,8 @@ static void test_retry_tag_v2_constants(void) {
   const u8 *key, *nonce;
   usz       klen, nlen;
 
-  quic_retry_tag_v2_key(&key, &klen);
-  quic_retry_tag_v2_nonce(&nonce, &nlen);
+  retry_tag_v2_key(&key, &klen);
+  retry_tag_v2_nonce(&nonce, &nlen);
 
   CHECK(klen == 16);
   CHECK(nlen == 12);
@@ -50,7 +50,7 @@ static void test_retry_tag_v2_constants(void) {
  * is AEAD_AES_128_GCM sealed (empty plaintext) over the Retry Pseudo-Packet
  * (RFC 9001 5.8: ODCID Len + ODCID + the Retry bytes above the tag) under
  * the RFC 9369 3.3.3 v2 key/nonce -- reproduced here via the same GCM
- * primitive quic_retry_tag.c uses for v1, since quic_retry_tag itself is
+ * primitive retry_tag.c uses for v1, since retry_tag itself is
  * hardwired to the v1 constants (see retry_tag.c). */
 static void test_retry_tag_v2_rfc9369_a4_vector(void) {
   const u8 odcid[8]       = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
@@ -63,8 +63,8 @@ static void test_retry_tag_v2_rfc9369_a4_vector(void) {
   const u8* key;
   const u8* nonce;
   usz       klen, nlen;
-  quic_retry_tag_v2_key(&key, &klen);
-  quic_retry_tag_v2_nonce(&nonce, &nlen);
+  retry_tag_v2_key(&key, &klen);
+  retry_tag_v2_nonce(&nonce, &nlen);
 
   u8  aad[1 + 8 + sizeof(retry_no_tag)];
   usz n    = 0;

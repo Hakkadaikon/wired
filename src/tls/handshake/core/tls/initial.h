@@ -29,7 +29,7 @@ typedef struct {
   u8 key[QUIC_AEAD_KEY_MAX]; /**< AEAD packet protection key */
   u8 iv[QUIC_INITIAL_IV];    /**< AEAD IV */
   u8 hp[QUIC_AEAD_KEY_MAX];  /**< header protection key */
-} quic_initial_keys;
+} initial_keys;
 
 /** Derive the client (is_server=0) or server (is_server=1) Initial keys from
  * the Destination Connection ID of the client's first Initial packet, using
@@ -41,7 +41,7 @@ typedef struct {
  * @param is_server 1 for the server keys, 0 for the client keys
  * @param version the QUIC version whose salt/label prefix to use
  * @param out receives the derived keys */
-void quic_initial_derive(
-    wired_span dcid, int is_server, u32 version, quic_initial_keys* out);
+void initial_derive(
+    wired_span dcid, int is_server, u32 version, initial_keys* out);
 
 #endif

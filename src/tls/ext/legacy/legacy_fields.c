@@ -6,7 +6,7 @@
  * cipher_suites(2+len) compression(1+len) extensions. Returns the body or 0. */
 static const u8* ch_body(const u8* msg, usz len, usz* body_len) {
   u8  type;
-  usz off = quic_hs_parse(wired_span_of(msg, len), &type, body_len);
+  usz off = hs_parse(wired_span_of(msg, len), &type, body_len);
   if (off == 0 || type != QUIC_HS_CLIENT_HELLO) return 0;
   return msg + off;
 }
@@ -49,13 +49,13 @@ static int legacy_body_ok(const u8* b, usz n) {
   return comp_is_null_only(b, n, p);
 }
 
-int quic_legacy_check_client_hello(const u8* ch_msg, usz len) {
+int legacy_check_client_hello(const u8* ch_msg, usz len) {
   usz       body_len;
   const u8* b = ch_body(ch_msg, len, &body_len);
   return b != 0 && legacy_body_ok(b, body_len);
 }
 
-int quic_legacy_session_id(wired_span ch_msg, const u8** sid, u8* sid_len) {
+int legacy_session_id(wired_span ch_msg, const u8** sid, u8* sid_len) {
   usz       body_len;
   const u8* b = ch_body(ch_msg.p, ch_msg.n, &body_len);
   if (b == 0 || !sid_fits(b, body_len)) return 0;

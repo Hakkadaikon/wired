@@ -10,7 +10,7 @@ static int alpn_fits(usz proto_len, usz cap) {
 }
 
 /* RFC 7301 3.1: list length(2) + name length(1) + proto. */
-usz quic_tls_alpn_encode(wired_obuf* out, wired_span proto) {
+usz tls_alpn_encode(wired_obuf* out, wired_span proto) {
   usz off = 3;
   if (!alpn_fits(proto.n, out->cap)) return 0;
   be_put_be16(out->p, (u16)(1 + proto.n));
@@ -29,7 +29,7 @@ static int alpn_head(wired_span buf, usz list_len, usz* name_len) {
   return 1 + *name_len <= list_len;
 }
 
-usz quic_tls_alpn_decode_first(wired_span buf, wired_span* proto) {
+usz tls_alpn_decode_first(wired_span buf, wired_span* proto) {
   usz list_len, name_len;
   if (buf.n < 3) return 0;
   list_len = (usz)buf.p[0] << 8 | buf.p[1];

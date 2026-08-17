@@ -14,7 +14,7 @@ static void certcache_test_keys(u8 srv_priv[32], u8 srv_pub[32], u8 seed[32]) {
 }
 
 /* 1 if the primed cache's DER equals the driver's own certificate bytes. */
-static int certcache_test_der_eq(const wired_certcache* c, const quic_sdrv* s) {
+static int certcache_test_der_eq(const wired_certcache* c, const sdrv* s) {
   if (c->chain[0].n != s->certs[0].n) return 0;
   for (usz i = 0; i < s->certs[0].n; i++)
     if (c->der[i] != s->certs[0].p[i]) return 0;
@@ -27,7 +27,7 @@ static int certcache_test_der_eq(const wired_certcache* c, const quic_sdrv* s) {
 static void test_certcache_prime_matches_sdrv(void) {
   u8                     srv_priv[32], srv_pub[32], seed[32];
   static wired_certcache cache;
-  static quic_sdrv       s;
+  static sdrv            s;
   wired_srvboot_id       id = {0};
   certcache_test_keys(srv_priv, srv_pub, seed);
   id.cert_seed = seed;
@@ -36,8 +36,8 @@ static void test_certcache_prime_matches_sdrv(void) {
   CHECK(id.chain_count == 1);
   CHECK(cache.chain[0].n != 0);
   {
-    quic_sdrv_init_in din = {srv_priv, srv_pub, seed, 0, 0, 0, 0, 0};
-    quic_sdrv_init(&s, &din);
+    sdrv_init_in din = {srv_priv, srv_pub, seed, 0, 0, 0, 0, 0};
+    sdrv_init(&s, &din);
   }
   CHECK(s.cert_count == 1);
   CHECK(certcache_test_der_eq(&cache, &s));
@@ -48,15 +48,15 @@ static void test_certcache_prime_matches_sdrv(void) {
 static void test_certcache_primed_init_reuses_der(void) {
   u8                     srv_priv[32], srv_pub[32], seed[32];
   static wired_certcache cache;
-  static quic_sdrv       s;
+  static sdrv            s;
   wired_srvboot_id       id = {0};
   certcache_test_keys(srv_priv, srv_pub, seed);
   id.cert_seed = seed;
   wired_certcache_prime(&cache, &id);
   for (int n = 0; n < 3; n++) {
-    quic_sdrv_init_in din = {srv_priv,       srv_pub, seed, id.chain,
-                             id.chain_count, 0,       0,    0};
-    quic_sdrv_init(&s, &din);
+    sdrv_init_in din = {srv_priv,       srv_pub, seed, id.chain,
+                        id.chain_count, 0,       0,    0};
+    sdrv_init(&s, &din);
     CHECK(s.cert_count == 1);
     CHECK(s.certs[0].p == cache.der);
   }
@@ -86,7 +86,7 @@ static void test_certcache_san_variant(void) {
   u8                     srv_priv[32], srv_pub[32], seed[32];
   u8                     san[4] = {127, 0, 0, 1};
   static wired_certcache plain, with_san;
-  static quic_sdrv       s;
+  static sdrv            s;
   wired_srvboot_id       id_a = {0}, id_b = {0};
   certcache_test_keys(srv_priv, srv_pub, seed);
   id_a.cert_seed = seed;
@@ -102,8 +102,8 @@ static void test_certcache_san_variant(void) {
     CHECK(differ);
   }
   {
-    quic_sdrv_init_in din = {srv_priv, srv_pub, seed, 0, 0, san, 0, 0};
-    quic_sdrv_init(&s, &din);
+    sdrv_init_in din = {srv_priv, srv_pub, seed, 0, 0, san, 0, 0};
+    sdrv_init(&s, &din);
   }
   CHECK(certcache_test_der_eq(&with_san, &s));
 }
@@ -136,7 +136,7 @@ static void test_certcache_sni_localhost_match(void) {
   const u8 host[] = "localhost";
   usz      ch_len;
   static wired_certcache cache;
-  static quic_sdrv       s;
+  static sdrv            s;
   wired_srvboot_id       id = {0};
   certcache_test_keys(srv_priv, srv_pub, seed);
   for (usz i = 0; i < 32; i++) {
@@ -146,19 +146,19 @@ static void test_certcache_sni_localhost_match(void) {
   wired_x25519_base(cli_pub, cli_priv);
   id.cert_seed = seed;
   wired_certcache_prime(&cache, &id);
-  ch_len = quic_tls_client_hello(
-      &(quic_clienthello_in){
+  ch_len = tls_client_hello(
+      &(clienthello_in){
           srv_random, cli_pub, wired_span_of(host, sizeof(host) - 1),
           wired_span_of(0, 0)},
       &(wired_obuf){ch, sizeof(ch), 0});
   CHECK(ch_len != 0);
   {
-    quic_sdrv_init_in din = {srv_priv,       srv_pub, seed, id.chain,
-                             id.chain_count, 0,       0,    0};
-    quic_sdrv_init(&s, &din);
+    sdrv_init_in din = {srv_priv,       srv_pub, seed, id.chain,
+                        id.chain_count, 0,       0,    0};
+    sdrv_init(&s, &din);
   }
-  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
-  CHECK(quic_sdrv_sni_outcome(&s) == QUIC_SALPN_SNI_MATCH);
+  CHECK(sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(sdrv_sni_outcome(&s) == QUIC_SALPN_SNI_MATCH);
 }
 
 void test_certcache(void) {

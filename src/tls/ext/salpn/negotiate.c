@@ -6,12 +6,12 @@
 
 /* One ProtocolNameList entry at m[*p]: advance *p past it (to end on
  * overrun, so the caller's loop stops) and report whether it matches via
- * is_match. Shared walk for quic_salpn_select_h3/_select_hq -- only the
+ * is_match. Shared walk for salpn_select_h3/_select_hq -- only the
  * match predicate differs. */
-typedef int (*quic_alpn_match_fn)(const u8*, usz);
+typedef int (*alpn_match_fn)(const u8*, usz);
 
 static int salpn_entry_matches(
-    const u8* m, usz end, usz* p, quic_alpn_match_fn is_match) {
+    const u8* m, usz end, usz* p, alpn_match_fn is_match) {
   usz       nlen = m[*p];
   const u8* name = m + *p + 1;
   if (*p + 1 + nlen > end) {
@@ -34,7 +34,7 @@ static usz list_end(const u8* m, usz len) {
 /* Shared select loop: 1 if any entry in alpn_ext_data's ProtocolNameList
  * matches is_match, else 0. */
 static int salpn_select(
-    const u8* alpn_ext_data, usz len, quic_alpn_match_fn is_match) {
+    const u8* alpn_ext_data, usz len, alpn_match_fn is_match) {
   usz p = 2, end = list_end(alpn_ext_data, len);
   int hit = 0;
   while (p < end) {
@@ -44,17 +44,17 @@ static int salpn_select(
   return hit;
 }
 
-int quic_salpn_select_h3(const u8* alpn_ext_data, usz len) {
-  return salpn_select(alpn_ext_data, len, quic_tls_alpn_is_h3);
+int salpn_select_h3(const u8* alpn_ext_data, usz len) {
+  return salpn_select(alpn_ext_data, len, tls_alpn_is_h3);
 }
 
-int quic_salpn_select_hq(const u8* alpn_ext_data, usz len) {
-  return salpn_select(alpn_ext_data, len, quic_tls_alpn_is_hq);
+int salpn_select_hq(const u8* alpn_ext_data, usz len) {
+  return salpn_select(alpn_ext_data, len, tls_alpn_is_hq);
 }
 
-quic_salpn_choice quic_salpn_negotiate(const u8* alpn_ext_data, usz len) {
-  if (quic_salpn_select_h3(alpn_ext_data, len)) return QUIC_SALPN_H3;
-  if (quic_salpn_select_hq(alpn_ext_data, len)) return QUIC_SALPN_HQ;
+salpn_choice salpn_negotiate(const u8* alpn_ext_data, usz len) {
+  if (salpn_select_h3(alpn_ext_data, len)) return QUIC_SALPN_H3;
+  if (salpn_select_hq(alpn_ext_data, len)) return QUIC_SALPN_HQ;
   return QUIC_SALPN_NONE;
 }
 
@@ -78,8 +78,7 @@ static int build_alpn_ext(
   return 1;
 }
 
-int quic_salpn_build_response(
-    quic_salpn_choice choice, u8* out, usz cap, usz* out_len) {
+int salpn_build_response(salpn_choice choice, u8* out, usz cap, usz* out_len) {
   static const u8 h3[2]  = {0x68, 0x33};
   static const u8 hq[10] = {0x68, 0x71, 0x2d, 0x69, 0x6e,
                             0x74, 0x65, 0x72, 0x6f, 0x70};

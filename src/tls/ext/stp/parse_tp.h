@@ -10,11 +10,11 @@
 typedef struct {
   u64*        value;
   wired_span* bytes;
-} quic_stp_out;
+} stp_out;
 
 /* RFC 9000 18. Scan the transport parameters tp for param_id, filling out
  * (any member of which may be NULL). Returns 1 if found, 0 otherwise or on
  * malformed input. */
-int quic_stp_parse(wired_span tp, u64 param_id, const quic_stp_out* out);
+int stp_parse(wired_span tp, u64 param_id, const stp_out* out);
 
 #endif

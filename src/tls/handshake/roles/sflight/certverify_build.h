@@ -9,7 +9,7 @@
  * CertificateVerify" + 0x00 + transcript_hash, using the 32-byte private key
  * seed. Writes scheme(2) + signature<2> into the handshake message at out and
  * sets out->len. Returns 1, or 0 if it does not fit. */
-int quic_sflight_certificate_verify(
+int sflight_certificate_verify(
     const u8 seed[32], const u8* transcript_hash, wired_obuf* out);
 
 #endif

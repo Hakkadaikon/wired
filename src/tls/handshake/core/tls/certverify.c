@@ -137,7 +137,7 @@ static int verify_ed25519(
 }
 
 /* RFC 8446 4.4.3. Hash branches (ecdsa/rsa over SHA-256 of the content). */
-static int verify_hashed(const quic_certverify_in* in, const u8 content[130]) {
+static int verify_hashed(const certverify_in* in, const u8 content[130]) {
   u8 hash[32];
   wired_sha256(content, 130, hash);
   if (in->scheme == QUIC_TLS_SCHEME_ECDSA_P256)
@@ -147,7 +147,7 @@ static int verify_hashed(const quic_certverify_in* in, const u8 content[130]) {
   return 0;
 }
 
-int quic_tls_verify_cert_signature(const quic_certverify_in* in) {
+int tls_verify_cert_signature(const certverify_in* in) {
   u8 content[130];
   cv_build_signed(in->transcript_hash, content);
   if (in->scheme == QUIC_TLS_SCHEME_ED25519)

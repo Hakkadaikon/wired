@@ -26,7 +26,7 @@ void quic_connloop_init(quic_connloop* c, int is_server) {
 
 /* RFC 9001 4: the level's key is installed (not discarded). */
 static int level_usable(const quic_connloop* c, int level) {
-  const quic_initial_keys* out;
+  const initial_keys* out;
   return keyset_for_level(&c->keys, level, &out);
 }
 
@@ -86,7 +86,7 @@ void quic_connloop_validate(quic_connloop* c) {
 
 void quic_connloop_on_auth_fail(quic_connloop* c, int is_chacha) {
   c->auth_fail_count++;
-  if (quic_aead_integrity_exceeded(c->auth_fail_count, is_chacha))
+  if (aead_integrity_exceeded(c->auth_fail_count, is_chacha))
     c->aead_limit = 1; /* RFC 9001 6.6: caller must close(AEAD_LIMIT_REACHED) */
 }
 

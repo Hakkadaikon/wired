@@ -12,15 +12,15 @@ static void emit_int(wired_span val, u64* value) {
 }
 
 /* Fill the caller's out params from a matched value view. */
-static void stp_emit(wired_span val, const quic_stp_out* out) {
+static void stp_emit(wired_span val, const stp_out* out) {
   emit_int(val, out->value);
   if (out->bytes) *out->bytes = val;
 }
 
-/* What quic_stp_parse is looking for, and where to put it. */
+/* What stp_parse is looking for, and where to put it. */
 typedef struct {
-  u64                 param_id;
-  const quic_stp_out* out;
+  u64            param_id;
+  const stp_out* out;
 } stp_want;
 
 /* Read the TLV at *off, advancing *off past it. Returns 1 if it matched
@@ -28,8 +28,7 @@ typedef struct {
 static int step_tlv(wired_span tp, usz* off, const stp_want* want) {
   u64        id;
   wired_span val;
-  usz        r =
-      quic_tparam_get_blob(wired_span_of(tp.p + *off, tp.n - *off), &id, &val);
+  usz r = tparam_get_blob(wired_span_of(tp.p + *off, tp.n - *off), &id, &val);
   if (r == 0) return -1;
   *off += r;
   if (id != want->param_id) return 0;
@@ -37,7 +36,7 @@ static int step_tlv(wired_span tp, usz* off, const stp_want* want) {
   return 1;
 }
 
-int quic_stp_parse(wired_span tp, u64 param_id, const quic_stp_out* out) {
+int stp_parse(wired_span tp, u64 param_id, const stp_out* out) {
   usz      off  = 0;
   stp_want want = {param_id, out};
   while (off < tp.n) {

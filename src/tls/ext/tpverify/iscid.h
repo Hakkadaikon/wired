@@ -8,6 +8,6 @@
  * peer's transport parameters equals the Source CID of the first packet it
  * received from that peer. Constant-time compare. 1 if matched, 0 on
  * TRANSPORT_PARAMETER_ERROR. */
-int quic_tpverify_iscid(wired_span first_scid, wired_span tp_iscid);
+int tpverify_iscid(wired_span first_scid, wired_span tp_iscid);
 
 #endif

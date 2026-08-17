@@ -8,10 +8,10 @@
  * pn_off, seal it, then re-open with quic_vpn_open. The full pn equals its
  * truncated wire bytes (small values), so a self-contained roundtrip holds. */
 static void roundtrip(usz pn_len, u64 pn) {
-  const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  quic_initial_keys keys;
-  aes128            hp;
-  quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
+  const u8     dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  initial_keys keys;
+  aes128       hp;
+  initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
   aes128_init(&hp, keys.hp);
 
   /* byte0 = 0xc0 | (pn_len-1); fixed-length prefix then the pn at pn_off. */
@@ -66,10 +66,10 @@ static void test_vpn_roundtrip_lengths(void) {
 
 /* Tag tamper makes open fail. */
 static void test_vpn_tamper(void) {
-  const u8          dcid[8] = {1, 2, 3, 4, 5, 6, 7, 8};
-  quic_initial_keys keys;
-  aes128            hp;
-  quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
+  const u8     dcid[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  initial_keys keys;
+  aes128       hp;
+  initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
   aes128_init(&hp, keys.hp);
   u8 hdr[18] = {0xc1, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0x12, 0x34};
   const u8             payload[] = {1, 2, 3, 4};
@@ -99,10 +99,10 @@ static void test_vpn_tamper(void) {
 
 /* A pn_len=4 packet sealed by the existing protect path opens via vpn_open. */
 static void test_vpn_protect_compat(void) {
-  const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  quic_initial_keys keys;
-  aes128            hp;
-  quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
+  const u8     dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  initial_keys keys;
+  aes128       hp;
+  initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
   aes128_init(&hp, keys.hp);
   u8       hdr[18]   = {0xc3, 0,    0,    0,    1,    8, 0x83, 0x94, 0xc8,
                         0xf0, 0x3e, 0x51, 0x57, 0x08, 0, 0,    0,    2};

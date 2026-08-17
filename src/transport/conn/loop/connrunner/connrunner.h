@@ -33,7 +33,7 @@ typedef struct {
   u64           rtx_pn; /* lost pn captured pre-step, for the resend's bytes */
   int           rtx_held; /* 1 if a lost pn is captured for this send */
   /* RFC 9001 6: 1-RTT key-update generation state and its driving inputs. */
-  quic_kuswitch_state ku;
+  kuswitch_state ku;
   u8  ku_secret[QUIC_HKDF_PRK]; /* current generation's app traffic secret */
   u8  ku_phase;         /* RFC 9001 6.2: advertised 1-RTT Key Phase byte0 */
   u64 ku_completed_at;  /* RFC 9001 6.2: pins both 3*PTO clocks; -1 = unset */

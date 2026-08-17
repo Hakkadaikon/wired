@@ -4,7 +4,7 @@
 #include "common/bytes/util/bytes.h"
 
 /* RFC 9001 8.2: extension_type(2) + extension_data length(2) + data. */
-usz quic_tpext_encode(wired_obuf* out, wired_span tp) {
+usz tpext_encode(wired_obuf* out, wired_span tp) {
   usz off = 4;
   if (tp.n > 0xFFFF || off + tp.n > out->cap) return 0;
   be_put_be16(out->p, QUIC_TPEXT_TYPE);
@@ -23,7 +23,7 @@ static int tpext_head(wired_span buf, usz* len) {
   return 4 + *len <= buf.n;
 }
 
-usz quic_tpext_decode(wired_span buf, wired_span* tp) {
+usz tpext_decode(wired_span buf, wired_span* tp) {
   usz len;
   if (!tpext_head(buf, &len)) return 0;
   *tp = wired_span_of(buf.p + 4, len);

@@ -9,29 +9,29 @@
 static void test_hrr_detect_true(void) {
   u8         out[256];
   wired_obuf ob = obuf_of(out, sizeof out);
-  CHECK(quic_hrr_build(QUIC_GROUP_X25519, wired_span_of(0, 0), &ob) == 1);
-  CHECK(quic_hrr_is_hello_retry(out, ob.len) == 1);
+  CHECK(hrr_build(QUIC_GROUP_X25519, wired_span_of(0, 0), &ob) == 1);
+  CHECK(hrr_is_hello_retry(out, ob.len) == 1);
 }
 
 /* An ordinary ServerHello (non-sentinel random) is not an HRR. */
 static void test_hrr_detect_false(void) {
-  u8              random[32], pub[32], out[256];
-  quic_shbuild_in in;
-  wired_obuf      ob = obuf_of(out, sizeof out);
+  u8         random[32], pub[32], out[256];
+  shbuild_in in;
+  wired_obuf ob = obuf_of(out, sizeof out);
   for (int i = 0; i < 32; i++) {
     random[i] = (u8)i;
     pub[i]    = (u8)(0x40 + i);
   }
-  in = (quic_shbuild_in){random, wired_span_of((void*)0, 0), 0x1301, pub, 0};
-  CHECK(quic_shbuild_server_hello(&in, &ob) == 1);
-  CHECK(quic_hrr_is_hello_retry(out, ob.len) == 0);
+  in = (shbuild_in){random, wired_span_of((void*)0, 0), 0x1301, pub, 0};
+  CHECK(shbuild_server_hello(&in, &ob) == 1);
+  CHECK(hrr_is_hello_retry(out, ob.len) == 0);
 }
 
 /* A message too short to hold the random returns 0, not a read overrun. */
 static void test_hrr_detect_truncated(void) {
   u8 buf[10] = {0x02};
-  CHECK(quic_hrr_is_hello_retry(buf, 10) == 0);
-  CHECK(quic_hrr_is_hello_retry(buf, 0) == 0);
+  CHECK(hrr_is_hello_retry(buf, 10) == 0);
+  CHECK(hrr_is_hello_retry(buf, 0) == 0);
 }
 
 void test_hrr_detect(void) {

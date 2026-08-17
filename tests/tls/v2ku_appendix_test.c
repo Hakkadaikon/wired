@@ -9,7 +9,7 @@
  * into key/iv/hp/ku, then those protect a minimal 1-byte-PING short-header
  * packet. This reproduces every value in the appendix, including the
  * "quicv2 ku" key-update secret (RFC 9369 3.3.2, closed by
- * quic_ku_next_secret_v -- see kuderive.c). */
+ * ku_next_secret_v -- see kuderive.c). */
 
 static const u8 A5_SECRET[32] = {
     0x9a, 0xc3, 0x12, 0xa7, 0xf8, 0x77, 0x46, 0x8e, 0xbe, 0x69, 0x42,
@@ -50,11 +50,11 @@ static void test_v2ku_appendix_key_iv_hp(void) {
 }
 
 /* RFC 9369 3.3.2 "quicv2 ku": the key-update secret the appendix derives
- * (unused further in its own example) matches quic_ku_next_secret_v under
+ * (unused further in its own example) matches ku_next_secret_v under
  * QUIC_VERSION_2 -- the E-13 fix this vector depends on. */
 static void test_v2ku_appendix_ku(void) {
   u8 ku[32];
-  quic_ku_next_secret_v(QUIC_VERSION_2, A5_SECRET, ku);
+  ku_next_secret_v(QUIC_VERSION_2, A5_SECRET, ku);
   for (usz i = 0; i < 32; i++) CHECK(ku[i] == A5_KU[i]);
 }
 

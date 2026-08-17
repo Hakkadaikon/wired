@@ -42,7 +42,7 @@ int quic_cidxchg_remember_odcid(
 /* RFC 9000 7.3: verify a received original_destination_connection_id transport
  * parameter equals the first DCID. Constant-time. 1 if matched, 0 otherwise.
  * ISCID/RSCID compare the peer's SCID (not held here) and use
- * quic_tpverify_iscid / quic_tpverify_rscid directly. */
+ * tpverify_iscid / tpverify_rscid directly. */
 int quic_cidxchg_verify_odcid(
     const quic_cidxchg* x, const u8* odcid_tp, u8 len);
 

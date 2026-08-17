@@ -84,7 +84,7 @@ const u8* wired_srvloop_ticket_key(void) { return g_ticket_key; }
 /* RFC 8446 4.6.1: encode a fresh NewSessionTicket message (fixed 2h
  * lifetime; issued_at is the server's wall clock at issuance, recorded so a
  * later 0-RTT attempt can be checked for freshness -- RFC 8446 4.2.11.1 /
- * 8.3, quic_ticket_freshness_ok) carrying s's real resumption_master_secret
+ * 8.3, ticket_freshness_ok) carrying s's real resumption_master_secret
  * (RFC 8446 7.1). wired_server_resumption_secret only succeeds once
  * confirmed, which every caller here always is. Returns the encoded
  * message length in msg, or 0 on failure. */
@@ -95,10 +95,10 @@ const u8* wired_srvloop_ticket_key(void) { return g_ticket_key; }
 #define WIRED_SRVLOOP_MAX_EARLY_DATA_SIZE 0xffffffff
 
 static usz build_ticket_message(const wired_server* s, u8* msg, usz msg_cap) {
-  quic_ticket t = {{0}, 0, 7200, 0};
-  t.issued_at   = wired_clock_epoch_secs();
+  ticket t    = {{0}, 0, 7200, 0};
+  t.issued_at = wired_clock_epoch_secs();
   if (!wired_server_resumption_secret(s, t.secret)) return 0;
-  return quic_tls_new_session_ticket_encode(
+  return tls_new_session_ticket_encode(
       msg, msg_cap, &t, g_ticket_key, WIRED_SRVLOOP_MAX_EARLY_DATA_SIZE);
 }
 

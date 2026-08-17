@@ -4,12 +4,12 @@
 
 /* RFC 6066 3. */
 
-int quic_salpn_extract_sni(wired_span sni_ext, wired_span* host) {
+int salpn_extract_sni(wired_span sni_ext, wired_span* host) {
   usz list_len;
   int ok;
   if (sni_ext.n < 2) return 0;
   list_len = (usz)sni_ext.p[0] << 8 | sni_ext.p[1];
   if (2 + list_len > sni_ext.n) return 0;
-  ok = quic_tls_sni_decode(wired_span_of(sni_ext.p + 2, list_len), host) != 0;
+  ok = tls_sni_decode(wired_span_of(sni_ext.p + 2, list_len), host) != 0;
   return ok;
 }

@@ -10,17 +10,17 @@
 
 /* RFC 9001 4 / RFC 8446 4: real-TLS handshake driver. Orchestration only. */
 
-void quic_tlsdriver_init(
-    quic_tlsdriver* d,
-    const u8        my_priv[QUIC_ECDHE_LEN],
-    const u8        my_pub[QUIC_ECDHE_LEN],
-    int             is_server) {
+void tlsdriver_init(
+    tlsdriver* d,
+    const u8   my_priv[QUIC_ECDHE_LEN],
+    const u8   my_pub[QUIC_ECDHE_LEN],
+    int        is_server) {
   usz i;
   /* RFC 7748 x25519's key pair is 32 bytes each way, and that is the
    * contract every existing caller passes -- only copy that much here.
    * Copying QUIC_ECDHE_LEN (65, sized for P-256's wider public key) would
    * read past a caller's 32-byte array. A P-256 handshake sets group via
-   * quic_tlsdriver_set_group and writes its own (32-byte priv, 65-byte SEC1
+   * tlsdriver_set_group and writes its own (32-byte priv, 65-byte SEC1
    * pub) pair into d->my_priv/d->my_pub directly afterward. */
   for (i = 0; i < 32; i++) {
     d->my_priv[i] = my_priv[i];
@@ -28,8 +28,8 @@ void quic_tlsdriver_init(
   }
   for (i = 0; i < QUIC_ECDHE_LEN; i++) d->shared[i] = 0;
   quic_crypto_stream_rx_init(&d->rx);
-  quic_hsdriver_init(&d->hs, is_server);
-  quic_keysched_init(&d->ks);
+  hsdriver_init(&d->hs, is_server);
+  keysched_init(&d->ks);
   keyset_init(&d->keys);
   d->is_server         = is_server;
   d->group             = QUIC_GROUP_X25519;
@@ -40,31 +40,29 @@ void quic_tlsdriver_init(
   d->last_error        = 0;
 }
 
-void quic_tlsdriver_set_sni(quic_tlsdriver* d, const u8* sni, usz sni_len) {
+void tlsdriver_set_sni(tlsdriver* d, const u8* sni, usz sni_len) {
   d->sni     = sni;
   d->sni_len = sni_len;
 }
 
-void quic_tlsdriver_set_group(quic_tlsdriver* d, u16 group) {
-  d->group = group;
-}
+void tlsdriver_set_group(tlsdriver* d, u16 group) { d->group = group; }
 
-usz quic_tlsdriver_raw_client_hello(quic_tlsdriver* d, u8* out, usz cap) {
+usz tlsdriver_raw_client_hello(tlsdriver* d, u8* out, usz cap) {
   static const u8 random[32] = {0};
   /* RFC 9000 18: an empty transport parameters TLV sequence (0 bytes) is a
    * well-formed "no parameters advertised" -- unlike a stray 1-byte payload,
    * which reads as a malformed single-byte id varint to any TLV-sequence
    * walk (e.g. the RFC 9000 7.4 duplicate-id scan a real server runs). */
-  return quic_tls_client_hello_group(
-      &(quic_clienthello_group_in){
+  return tls_client_hello_group(
+      &(clienthello_group_in){
           random, d->my_pub, wired_span_of(d->sni, d->sni_len),
-          wired_span_of(0, 0), d->group, quic_tls_ext_key_share_len(d->group)},
+          wired_span_of(0, 0), d->group, tls_ext_key_share_len(d->group)},
       &(wired_obuf){out, cap, 0});
 }
 
-int quic_tlsdriver_client_hello(quic_tlsdriver* d, wired_obuf* out) {
-  u8  ch[512];
-  usz n = quic_tlsdriver_raw_client_hello(d, ch, sizeof(ch));
+int tlsdriver_client_hello(tlsdriver* d, wired_obuf* out) {
+  u8                         ch[512];
+  usz                        n  = tlsdriver_raw_client_hello(d, ch, sizeof(ch));
   quic_crypto_stream_emit_in in = {0, QUIC_TLSDRIVER_CRYPTO_MAX};
   if (n == 0) return 0;
   /* RFC 8446 4.4.1: keep our own emitted ClientHello bytes so derive_
@@ -119,7 +117,7 @@ static int ch_one(const ch_block* blk, usz* q, u16 want_group, u8 pub[65]) {
   if (*q + 4 + dlen > blk->end) return -1;
   *q += 4 + dlen;
   if (t != QUIC_EXT_KEY_SHARE) return 0;
-  return quic_tls_ext_key_share_scan(
+  return tls_ext_key_share_scan(
       blk->b + *q - dlen, dlen, want_group, pub, &pub_len, 65);
 }
 
@@ -135,7 +133,7 @@ static int ch_walk(const u8* b, usz q, usz end, u16 want_group, u8 pub[65]) {
 /* The message is a well-framed ClientHello; sets *body_len. */
 static int is_client_hello(const u8* buf, usz n, usz* body_len) {
   u8 type;
-  return quic_hs_parse(wired_span_of(buf, n), &type, body_len) == 4 &&
+  return hs_parse(wired_span_of(buf, n), &type, body_len) == 4 &&
          type == QUIC_HS_CLIENT_HELLO;
 }
 
@@ -153,21 +151,20 @@ static int parse_client_hello_keyshare(
 
 /* Take the peer's key_share: ServerHello on the client, ClientHello on the
  * server. Returns 1 on success. */
-static int peer_keyshare(
-    const quic_tlsdriver* d, const u8* msg, usz n, u8 pub[65]) {
-  quic_serverhello_out sh;
-  u16                  got_group;
+static int peer_keyshare(const tlsdriver* d, const u8* msg, usz n, u8 pub[65]) {
+  serverhello_out sh;
+  u16             got_group;
   if (d->is_server) return parse_client_hello_keyshare(msg, n, d->group, pub);
-  if (!quic_tls_parse_server_hello_group(
+  if (!tls_parse_server_hello_group(
           wired_span_of(msg, n), pub, &got_group, &sh))
     return 0;
   return got_group == d->group;
 }
 
 /* Install the derived client-handshake keys at the Handshake level. */
-static void install_handshake_keys(quic_tlsdriver* d) {
-  const quic_initial_keys* k;
-  if (quic_keysched_get(&d->ks, QUIC_KS_CLIENT_HS, &k))
+static void install_handshake_keys(tlsdriver* d) {
+  const initial_keys* k;
+  if (keysched_get(&d->ks, QUIC_KS_CLIENT_HS, &k))
     keyset_install(&d->keys, QUIC_LEVEL_HANDSHAKE, k);
   d->hs_ready = 1;
 }
@@ -180,7 +177,7 @@ static void install_handshake_keys(quic_tlsdriver* d) {
  * plain copy of msg -- byte-identical to the pre-fix behavior for is_server.
  * Returns the combined length, or 0 if it would not fit buf. */
 static usz build_transcript(
-    const quic_tlsdriver* d, const u8* msg, usz n, u8* buf, usz cap) {
+    const tlsdriver* d, const u8* msg, usz n, u8* buf, usz cap) {
   usz total = d->transcript_ch_len + n;
   if (total > cap) return 0;
   bytes_memcpy(buf, d->transcript_ch, d->transcript_ch_len);
@@ -191,10 +188,7 @@ static usz build_transcript(
 /* ECDHE shared secret, then advance the schedule to the handshake secret.
  * RFC 7748 6.1: a low-order peer key gives an all-zero secret; reject it. */
 static int derive_handshake_secret(
-    quic_tlsdriver* d,
-    const u8*       msg,
-    usz             n,
-    const u8        peer_pub[QUIC_ECDHE_LEN]) {
+    tlsdriver* d, const u8* msg, usz n, const u8 peer_pub[QUIC_ECDHE_LEN]) {
   u8  transcript[1024];
   usz tn;
   if (!quic_crypto_stream_ecdhe_group(
@@ -205,23 +199,22 @@ static int derive_handshake_secret(
   /* RFC 8446 7.4.2: every supported group's ECDH output is a 32-byte shared
    * secret regardless of key_share width (P-256's is X(shared), not the
    * 65-byte SEC1 point) -- feed exactly that many bytes to the schedule. */
-  return quic_keysched_advance_handshake(
+  return keysched_advance_handshake(
       &d->ks, wired_span_of(d->shared, 32), wired_span_of(transcript, tn));
 }
 
 /* RFC 8446 4.4.1: the server side has no ClientHello of its own emission to
- * prepend (quic_tlsdriver_client_hello is a client-only call) -- msg here
+ * prepend (tlsdriver_client_hello is a client-only call) -- msg here
  * IS the peer's ClientHello, the first message of the transcript, so save
- * it the same way the client side's quic_tlsdriver_client_hello does for
+ * it the same way the client side's tlsdriver_client_hello does for
  * its own emitted bytes -- AFTER the handshake-secret transcript is built
  * (build_transcript's own transcript_ch||msg shape must not see msg twice,
  * once as transcript_ch and once as msg itself). This is for the layer
- * above (quic_fullhs's own transcript, seeded from this same ClientHello);
+ * above (fullhs's own transcript, seeded from this same ClientHello);
  * a no-op on the client side (msg there is the ServerHello, already the
  * second message; transcript_ch was set when this side's own ClientHello
  * was built). */
-static void save_server_side_transcript_ch(
-    quic_tlsdriver* d, const u8* msg, usz n) {
+static void save_server_side_transcript_ch(tlsdriver* d, const u8* msg, usz n) {
   if (!d->is_server) return;
   bytes_memcpy(d->transcript_ch, msg, n);
   d->transcript_ch_len = n;
@@ -229,7 +222,7 @@ static void save_server_side_transcript_ch(
 
 /* Derive the ECDHE shared secret and advance the key schedule to the
  * handshake secret, installing Handshake keys. Returns 1 on success. */
-static int derive_handshake(quic_tlsdriver* d, const u8* msg, usz n) {
+static int derive_handshake(tlsdriver* d, const u8* msg, usz n) {
   u8 peer_pub[QUIC_ECDHE_LEN];
   if (!peer_keyshare(d, msg, n, peer_pub)) return 0;
   if (!derive_handshake_secret(d, msg, n, peer_pub)) return 0;
@@ -242,7 +235,7 @@ static int derive_handshake(quic_tlsdriver* d, const u8* msg, usz n) {
  * advance *p past it. Returns 1 on success, 0 on a bad frame or buffer
  * overflow (RFC 9000 7.5: d->last_error is set to CRYPTO_BUFFER_EXCEEDED in
  * the latter case). */
-static int feed_one(quic_tlsdriver* d, wired_span frame, usz* p) {
+static int feed_one(tlsdriver* d, wired_span frame, usz* p) {
   quic_crypto_frame f;
   usz used = quic_frame_get_crypto(frame.p + *p, frame.n - *p, &f);
   if (used == 0) return 0;
@@ -252,7 +245,7 @@ static int feed_one(quic_tlsdriver* d, wired_span frame, usz* p) {
 }
 
 /* Feed every CRYPTO frame packed in frame. Returns 1 if all parsed. */
-static int feed_all(quic_tlsdriver* d, wired_span frame) {
+static int feed_all(tlsdriver* d, wired_span frame) {
   usz p  = 0;
   int ok = 1;
   while (ok && p < frame.n) ok = feed_one(d, frame, &p);
@@ -261,27 +254,24 @@ static int feed_all(quic_tlsdriver* d, wired_span frame) {
 
 /* Reassemble all CRYPTO frames and copy the contiguous TLS bytes into out,
  * writing the length to out->len. Returns 1 if any bytes are ready. */
-static int reassemble(quic_tlsdriver* d, wired_span frame, wired_obuf* out) {
+static int reassemble(tlsdriver* d, wired_span frame, wired_obuf* out) {
   if (!feed_all(d, frame)) return 0;
   return quic_crypto_stream_read(&d->rx, out) && out->len != 0;
 }
 
-int quic_tlsdriver_recv_crypto(
-    quic_tlsdriver* d, const u8* crypto_frame, usz len) {
+int tlsdriver_recv_crypto(tlsdriver* d, const u8* crypto_frame, usz len) {
   u8         msg[512];
   wired_obuf out = obuf_of(msg, sizeof(msg));
   if (!reassemble(d, wired_span_of(crypto_frame, len), &out)) return 0;
   return derive_handshake(d, msg, out.len);
 }
 
-int quic_tlsdriver_shared_secret(const quic_tlsdriver* d, const u8** shared) {
+int tlsdriver_shared_secret(const tlsdriver* d, const u8** shared) {
   if (!d->hs_ready) return 0;
   *shared = d->shared;
   return 1;
 }
 
-int quic_tlsdriver_handshake_secret_ready(const quic_tlsdriver* d) {
-  return d->hs_ready;
-}
+int tlsdriver_handshake_secret_ready(const tlsdriver* d) { return d->hs_ready; }
 
-u64 quic_tlsdriver_last_error(const quic_tlsdriver* d) { return d->last_error; }
+u64 tlsdriver_last_error(const tlsdriver* d) { return d->last_error; }

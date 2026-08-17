@@ -11,7 +11,7 @@
 
 /** @file
  * RFC 9001 4 / 4.1.2, RFC 8446 4 / 4.4.4, RFC 9000 7: server-side handshake
- * orchestrator, the symmetric peer of quic_client. Drives the verified parts
+ * orchestrator, the symmetric peer of client. Drives the verified parts
  * (sdrv folds the ClientHello and emits the server flight; srvfin verifies the
  * client Finished and, only on success, advances to Master, installs the 1-RTT
  * key set and confirms) to handshake confirmation and HANDSHAKE_DONE.
@@ -44,16 +44,16 @@ enum {
 /** Server-side handshake orchestrator state, initialized by
  * wired_server_init. */
 typedef struct {
-  i64               fd;    /**< UDP socket; <0 until a socket is opened */
-  quic_sockaddr     peer;  /**< the client's UDP address (set by pump) */
-  quic_sdrv         sdrv;  /**< server-side TLS handshake driver */
-  quic_keysched     sched; /**< RFC 8446 7.1 order-driven key schedule */
-  keyset            keys;  /**< per-protection-level QUIC key sets */
-  quic_srvfin_state fin;   /**< client-Finished verification state */
-  quic_crecv        crecv; /**< CRYPTO stream reassembly buffer */
-  int               phase; /**< WIRED_SERVER_HS_* */
-  int               hs_done_sent; /**< HANDSHAKE_DONE emitted (at most once) */
-  u8  server_priv[32]; /**< RFC 7748 x25519 private (owns the ECDHE) */
+  i64           fd;           /**< UDP socket; <0 until a socket is opened */
+  quic_sockaddr peer;         /**< the client's UDP address (set by pump) */
+  sdrv          sdrv;         /**< server-side TLS handshake driver */
+  keysched      sched;        /**< RFC 8446 7.1 order-driven key schedule */
+  keyset        keys;         /**< per-protection-level QUIC key sets */
+  srvfin_state  fin;          /**< client-Finished verification state */
+  quic_crecv    crecv;        /**< CRYPTO stream reassembly buffer */
+  int           phase;        /**< WIRED_SERVER_HS_* */
+  int           hs_done_sent; /**< HANDSHAKE_DONE emitted (at most once) */
+  u8  server_priv[32];        /**< RFC 7748 x25519 private (owns the ECDHE) */
   u8  tr[WIRED_SERVER_TRANSCRIPT_MAX]; /**< raw handshake transcript bytes */
   usz tr_len;                /**< bytes through the latest folded message */
   usz tr_through_sh;         /**< transcript length through ServerHello */
@@ -63,14 +63,14 @@ typedef struct {
                               * ClientHello..client Finished, exactly what
                               * resumption_master_secret is derived over.
                               * 0 until WIRED_SERVER_HS_CONFIRMED. */
-  u8 client_random[32];    /**< ClientHello.random (RFC 8446 4.1.2), recorded by
-                            * wired_server_recv_initial for keylog lines */
-  const char* keylog_path; /**< NSS key log file path, or 0 to disable */
-  quic_kuswitch_state ku;  /**< RFC 9001 6: CLIENT_AP (peer-driven, recv-side)
-                            * 1-RTT key generations */
+  u8 client_random[32]; /**< ClientHello.random (RFC 8446 4.1.2), recorded by
+                         * wired_server_recv_initial for keylog lines */
+  const char*    keylog_path; /**< NSS key log file path, or 0 to disable */
+  kuswitch_state ku; /**< RFC 9001 6: CLIENT_AP (peer-driven, recv-side)
+                      * 1-RTT key generations */
   u8 ku_secret[QUIC_HKDF_PRK];      /**< current generation's client_ap secret,
                                      * needed to derive the next generation */
-  quic_kuswitch_state ku_send;      /**< RFC 9001 6.2: SERVER_AP (send-side)
+  kuswitch_state ku_send;           /**< RFC 9001 6.2: SERVER_AP (send-side)
                                      * generations, kept in lockstep with ku so a
                                      * confirmed peer update also advances what
                                      * this endpoint seals with */
@@ -101,7 +101,7 @@ typedef struct {
   u64 now_secs;
   /** RFC 8446 4.6.1: this server's session-ticket encryption key
    * (QUIC_TICKET_KEY_LEN bytes), or 0 to disable session resumption --
-   * threaded straight to quic_sdrv_init_in.ticket_key, see its doc. */
+   * threaded straight to sdrv_init_in.ticket_key, see its doc. */
   const u8* ticket_key;
 } wired_server_init_in;
 
@@ -128,7 +128,7 @@ int wired_server_set_cids(wired_server* s, wired_span odcid, wired_span iscid);
  * @param max_streams_bidi initial_max_streams_bidi (0 = default)
  * @param max_streams_uni initial_max_streams_uni (0 = default); advertise
  *   only what the receive side's slot capacity actually backs (RFC 9000
- *   4.6 lockstep -- see quic_stp_limits.max_streams_uni)
+ *   4.6 lockstep -- see stp_limits.max_streams_uni)
  * @param max_datagram_frame_size max_datagram_frame_size (RFC 9221 3), 0 =
  *   not advertised (no default: opt in once DATAGRAM delivery is wired) */
 void wired_server_set_limits(
@@ -174,7 +174,7 @@ int wired_server_recv_initial(wired_server* s, const u8* ch_msg, usz ch_len);
  * @param out receives the ServerHello and the Handshake-level flight
  * @return 1 on success, 0 otherwise. */
 int wired_server_build_flight(
-    wired_server* s, const u8* server_random, const quic_sdrv_flight_out* out);
+    wired_server* s, const u8* server_random, const sdrv_flight_out* out);
 
 /** RFC 8446 4.4.4 / RFC 9001 4.1.2: drive the handshake with one received
  * Handshake-packet CRYPTO payload (socket-free injection). Reassembles the

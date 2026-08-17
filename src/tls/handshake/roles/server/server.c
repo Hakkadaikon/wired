@@ -27,15 +27,15 @@ static usz srv_tr_add(wired_server* s, const u8* msg, usz len) {
 }
 
 void wired_server_init(wired_server* s, const wired_server_init_in* in) {
-  quic_sdrv_init_in din = {in->server_priv_x25519, in->server_pub_x25519,
-                           in->cert_seed,          in->chain,
-                           in->chain_count,        in->san_ipv4,
-                           in->now_secs,           in->ticket_key};
+  sdrv_init_in din = {in->server_priv_x25519, in->server_pub_x25519,
+                      in->cert_seed,          in->chain,
+                      in->chain_count,        in->san_ipv4,
+                      in->now_secs,           in->ticket_key};
   srv_copy32(s->server_priv, in->server_priv_x25519);
-  quic_sdrv_init(&s->sdrv, &din);
-  quic_keysched_init(&s->sched);
+  sdrv_init(&s->sdrv, &din);
+  keysched_init(&s->sched);
   keyset_init(&s->keys);
-  quic_srvfin_state_init(&s->fin, &s->sched, &s->keys);
+  srvfin_state_init(&s->fin, &s->sched, &s->keys);
   quic_crecv_init(&s->crecv);
   s->fd                = -1;
   s->phase             = WIRED_SERVER_HS_INITIAL;
@@ -48,7 +48,7 @@ void wired_server_init(wired_server* s, const wired_server_init_in* in) {
 }
 
 int wired_server_set_cids(wired_server* s, wired_span odcid, wired_span iscid) {
-  return quic_sdrv_set_cids(&s->sdrv, odcid, iscid);
+  return sdrv_set_cids(&s->sdrv, odcid, iscid);
 }
 
 void wired_server_set_limits(
@@ -78,7 +78,7 @@ void wired_server_set_keylog_path(wired_server* s, const char* path) {
 
 /* Record ClientHello.random off ch_msg for later keylog lines; a no-op if
  * ch_msg is too short to carry it (already validated well-formed by
- * quic_sdrv_recv_client_hello, so this only guards the copy itself). */
+ * sdrv_recv_client_hello, so this only guards the copy itself). */
 static void srv_record_client_random(
     wired_server* s, const u8* ch_msg, usz ch_len) {
   if (ch_len < SRV_CH_RANDOM_OFF + 32u) return;
@@ -90,8 +90,8 @@ static void srv_record_client_random(
  * wired_server_recv_initial to keep its own CCN flat. */
 static int srv_accept_client_hello(
     wired_server* s, const u8* ch_msg, usz ch_len) {
-  if (!quic_sdrv_recv_client_hello(&s->sdrv, ch_msg, ch_len)) return 0;
-  return quic_sdrv_enforce_sni(&s->sdrv);
+  if (!sdrv_recv_client_hello(&s->sdrv, ch_msg, ch_len)) return 0;
+  return sdrv_enforce_sni(&s->sdrv);
 }
 
 int wired_server_recv_initial(wired_server* s, const u8* ch_msg, usz ch_len) {
@@ -113,10 +113,10 @@ static int srv_advance_handshake(wired_server* s, u8 ecdhe[QUIC_X25519_LEN]) {
   wired_span ecdhe_span = wired_span_of(ecdhe, QUIC_X25519_LEN);
   wired_span tr_span    = wired_span_of(s->tr, s->tr_through_sh);
   if (s->sdrv.psk_accepted)
-    return quic_keysched_advance_handshake_psk(
+    return keysched_advance_handshake_psk(
         &s->sched, wired_span_of(s->sdrv.psk_secret, QUIC_HKDF_PRK), ecdhe_span,
         tr_span);
-  return quic_keysched_advance_handshake(&s->sched, ecdhe_span, tr_span);
+  return keysched_advance_handshake(&s->sched, ecdhe_span, tr_span);
 }
 
 /* RFC 8446 7.1: derive the Handshake key set over the transcript through
@@ -129,20 +129,20 @@ static int srv_advance_handshake(wired_server* s, u8 ecdhe[QUIC_X25519_LEN]) {
 static int srv_derive_hs(wired_server* s, u8 ecdhe[QUIC_X25519_LEN]) {
   if (!s->sdrv.hs_ready) return 0;
   for (usz i = 0; i < QUIC_X25519_LEN; i++) ecdhe[i] = s->sdrv.ecdhe_secret[i];
-  quic_keysched_set_suite(&s->sched, s->sdrv.cipher_suite);
+  keysched_set_suite(&s->sched, s->sdrv.cipher_suite);
   return srv_advance_handshake(s, ecdhe);
 }
 
 static int srv_install_hs_keys(wired_server* s) {
-  u8                       ecdhe[QUIC_X25519_LEN];
-  const quic_initial_keys* shs;
+  u8                  ecdhe[QUIC_X25519_LEN];
+  const initial_keys* shs;
   if (!srv_derive_hs(s, ecdhe)) return 0;
-  if (!quic_keysched_get(&s->sched, QUIC_KS_SERVER_HS, &shs)) return 0;
+  if (!keysched_get(&s->sched, QUIC_KS_SERVER_HS, &shs)) return 0;
   return keyset_install(&s->keys, QUIC_LEVEL_HANDSHAKE, shs);
 }
 
 /* Record the flight in the transcript and install the Handshake key. */
-static int srv_after_flight(wired_server* s, const quic_sdrv_flight_out* out) {
+static int srv_after_flight(wired_server* s, const sdrv_flight_out* out) {
   s->tr_through_sh     = srv_tr_add(s, out->sh->p, out->sh->len);
   s->tr_through_flight = srv_tr_add(s, out->hs->p, out->hs->len);
   return srv_install_hs_keys(s);
@@ -150,13 +150,13 @@ static int srv_after_flight(wired_server* s, const quic_sdrv_flight_out* out) {
 
 /* Build the flight via sdrv and finish the transcript/key bookkeeping. */
 static int srv_emit_flight(
-    wired_server* s, const u8* server_random, const quic_sdrv_flight_out* out) {
-  if (!quic_sdrv_build_server_flight(&s->sdrv, server_random, out)) return 0;
+    wired_server* s, const u8* server_random, const sdrv_flight_out* out) {
+  if (!sdrv_build_server_flight(&s->sdrv, server_random, out)) return 0;
   return srv_after_flight(s, out);
 }
 
 int wired_server_build_flight(
-    wired_server* s, const u8* server_random, const quic_sdrv_flight_out* out) {
+    wired_server* s, const u8* server_random, const sdrv_flight_out* out) {
   if (s->phase != WIRED_SERVER_HS_CH_RECVD) return 0;
   if (!srv_emit_flight(s, server_random, out)) return 0;
   s->phase = WIRED_SERVER_HS_FLIGHT_SENT;
@@ -177,18 +177,17 @@ static void srv_log_c_hs_traffic(const wired_server* s, const u8* c_traffic) {
 /* RFC 8446 4.4.4: verify the client Finished against the client handshake
  * traffic secret and the transcript hash through the server Finished. */
 static int srv_verify_finished(wired_server* s, const u8* msg, usz len) {
-  const u8*             hs;
-  u8                    c_traffic[QUIC_HKDF_PRK], th[QUIC_SHA256_DIGEST];
-  quic_derive_secret_in dsi;
-  int                   ok;
-  if (!quic_sdrv_handshake_secret(&s->sdrv, &hs)) return 0;
+  const u8*        hs;
+  u8               c_traffic[QUIC_HKDF_PRK], th[QUIC_SHA256_DIGEST];
+  derive_secret_in dsi;
+  int              ok;
+  if (!sdrv_handshake_secret(&s->sdrv, &hs)) return 0;
   dsi.secret   = hs;
   dsi.label    = wired_span_of((const u8*)"c hs traffic", 12);
   dsi.messages = wired_span_of(s->tr, s->tr_through_sh);
-  quic_tls_derive_secret(&dsi, c_traffic);
+  tls_derive_secret(&dsi, c_traffic);
   wired_sha256(s->tr, s->tr_through_flight, th);
-  ok = quic_srvfin_verify_client_finished(
-      wired_span_of(msg, len), c_traffic, th);
+  ok = srvfin_verify_client_finished(wired_span_of(msg, len), c_traffic, th);
   if (ok) srv_log_c_hs_traffic(s, c_traffic);
   return ok;
 }
@@ -202,11 +201,11 @@ static int srv_verify_finished(wired_server* s, const u8* msg, usz len) {
  * derive generation 1 (kuswitch/derive.h needs the secret, not just
  * key/iv/hp). */
 static int srv_seed_kuswitch_recv(wired_server* s) {
-  const quic_initial_keys* client_ap;
-  const u8*                secret;
-  if (!quic_keysched_get(&s->sched, QUIC_KS_CLIENT_AP, &client_ap)) return 0;
-  if (!quic_keysched_client_ap_secret(&s->sched, &secret)) return 0;
-  quic_kuswitch_init(&s->ku, client_ap);
+  const initial_keys* client_ap;
+  const u8*           secret;
+  if (!keysched_get(&s->sched, QUIC_KS_CLIENT_AP, &client_ap)) return 0;
+  if (!keysched_client_ap_secret(&s->sched, &secret)) return 0;
+  kuswitch_init(&s->ku, client_ap);
   srv_copy32(s->ku_secret, secret);
   return 1;
 }
@@ -215,11 +214,11 @@ static int srv_seed_kuswitch_recv(wired_server* s) {
  * way, in lockstep with the recv side, so this endpoint's own send keys can
  * be advanced once a peer update is confirmed. */
 static int srv_seed_kuswitch_send(wired_server* s) {
-  const quic_initial_keys* server_ap;
-  const u8*                secret;
-  if (!quic_keysched_get(&s->sched, QUIC_KS_SERVER_AP, &server_ap)) return 0;
-  if (!quic_keysched_server_ap_secret(&s->sched, &secret)) return 0;
-  quic_kuswitch_init(&s->ku_send, server_ap);
+  const initial_keys* server_ap;
+  const u8*           secret;
+  if (!keysched_get(&s->sched, QUIC_KS_SERVER_AP, &server_ap)) return 0;
+  if (!keysched_server_ap_secret(&s->sched, &secret)) return 0;
+  kuswitch_init(&s->ku_send, server_ap);
   srv_copy32(s->ku_send_secret, secret);
   return 1;
 }
@@ -231,7 +230,7 @@ static void srv_seed_kuswitch(wired_server* s) {
 }
 
 static int srv_complete(wired_server* s, const u8* msg, usz len) {
-  if (!quic_srvfin_complete(&s->fin, s->tr, s->tr_through_flight)) return 0;
+  if (!srvfin_complete(&s->fin, s->tr, s->tr_through_flight)) return 0;
   /* RFC 8446 4.6.1/7.1: resumption_master_secret needs the transcript
    * through the verified client Finished, not just through the server's
    * own Finished -- fold it in now that it has actually verified. */
@@ -259,10 +258,9 @@ int wired_server_feed(wired_server* s, const u8* crypto_payload, usz len) {
 }
 
 int wired_server_handshake_done(wired_server* s, wired_obuf* out) {
-  if (!quic_srvfin_should_send_handshake_done(
-          s->fin.confirmed, s->hs_done_sent))
+  if (!srvfin_should_send_handshake_done(s->fin.confirmed, s->hs_done_sent))
     return 0;
-  if (!quic_srvfin_handshake_done_frame(out->p, out->cap, &out->len)) return 0;
+  if (!srvfin_handshake_done_frame(out->p, out->cap, &out->len)) return 0;
   s->hs_done_sent = 1;
   return 1;
 }
@@ -278,11 +276,11 @@ int wired_server_is_confirmed(const wired_server* s) {
  * (wired_server_is_confirmed), by which point tr_through_client_fin is
  * always set -- see wired_server_resumption_secret. */
 static void srv_resumption_master_secret(const wired_server* s, u8 out[32]) {
-  quic_derive_secret_in in;
+  derive_secret_in in;
   in.secret   = s->sched.master;
   in.label    = wired_span_of((const u8*)"res master", 10);
   in.messages = wired_span_of(s->tr, s->tr_through_client_fin);
-  quic_tls_derive_secret(&in, out);
+  tls_derive_secret(&in, out);
 }
 
 int wired_server_resumption_secret(const wired_server* s, u8 out[32]) {

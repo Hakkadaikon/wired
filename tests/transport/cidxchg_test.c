@@ -77,14 +77,12 @@ static void test_cidxchg_iscid_rscid(void) {
   u8         retry_scid[3] = {5, 6, 7};
   wired_span pscid         = wired_span_of(peer_scid, 4);
   wired_span rscid         = wired_span_of(retry_scid, 3);
-  CHECK(quic_tpverify_iscid(pscid, pscid) == 1);
-  CHECK(quic_tpverify_iscid(pscid, rscid) == 0);
+  CHECK(tpverify_iscid(pscid, pscid) == 1);
+  CHECK(tpverify_iscid(pscid, rscid) == 0);
   /* Retry occurred: RSCID present and equal -> consistent. */
-  CHECK(
-      quic_tpverify_rscid(&(quic_tpverify_rscid_in){1, rscid, rscid, 1}) == 1);
+  CHECK(tpverify_rscid(&(tpverify_rscid_in){1, rscid, rscid, 1}) == 1);
   /* No Retry but RSCID present -> violation. */
-  CHECK(
-      quic_tpverify_rscid(&(quic_tpverify_rscid_in){0, rscid, rscid, 1}) == 0);
+  CHECK(tpverify_rscid(&(tpverify_rscid_in){0, rscid, rscid, 1}) == 0);
 }
 
 void test_cidxchg(void) {

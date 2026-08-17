@@ -9,12 +9,12 @@
 #define QUIC_KEYPHASE_MASK 0x04
 
 /* The Key Phase bit value for a generation: its low bit. */
-u8 quic_keyphase_bit(u64 generation);
+u8 keyphase_bit(u64 generation);
 
 /* The Key Phase bit carried in a received short-header first byte. */
-int quic_keyphase_get(u8 byte0);
+int keyphase_get(u8 byte0);
 
 /* byte0 with its Key Phase bit set to phase (0 or 1). */
-u8 quic_keyphase_set(u8 byte0, int phase);
+u8 keyphase_set(u8 byte0, int phase);
 
 #endif

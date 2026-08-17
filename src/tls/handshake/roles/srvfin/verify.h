@@ -10,7 +10,7 @@
  * its verify_data against the value recomputed from the client handshake
  * traffic secret and the transcript hash up to (but not including) the client
  * Finished. Returns 1 on a match, 0 on any malformed message or mismatch. */
-int quic_srvfin_verify_client_finished(
+int srvfin_verify_client_finished(
     wired_span client_finished_msg,
     const u8   client_hs_traffic_secret[QUIC_HKDF_PRK],
     const u8   transcript_hash[QUIC_SHA256_DIGEST]);

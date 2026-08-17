@@ -25,30 +25,30 @@ static int eebuild_fits(usz tp_len, usz cap) {
 static usz eebuild_early_data(u8* out, usz cap, int early_data) {
   usz n;
   if (!early_data) return 0;
-  quic_tlsext_early_data_ch(out, cap, &n);
+  tlsext_early_data_ch(out, cap, &n);
   return n;
 }
 
-int quic_eebuild_encrypted_extensions(
-    quic_salpn_choice alpn,
-    wired_span        transport_params,
-    int               early_data,
-    wired_obuf*       out) {
+int eebuild_encrypted_extensions(
+    salpn_choice alpn,
+    wired_span   transport_params,
+    int          early_data,
+    wired_obuf*  out) {
   usz        off, alpn_len, ext, ed;
   wired_obuf eob;
   if (!eebuild_fits(transport_params.n, out->cap)) return 0;
-  off = quic_hs_begin(out->p, out->cap, QUIC_HS_ENCRYPTED_EXT);
-  if (!quic_salpn_build_response(
+  off = hs_begin(out->p, out->cap, QUIC_HS_ENCRYPTED_EXT);
+  if (!salpn_build_response(
           alpn, out->p + off + 2, out->cap - off - 2, &alpn_len))
     return 0; /* QUIC_SALPN_NONE or too small -- either way, nothing built */
   eob = obuf_of(out->p + off + 2 + alpn_len, out->cap - off - 2 - alpn_len);
-  ext = quic_tpext_encode(&eob, transport_params);
+  ext = tpext_encode(&eob, transport_params);
   ed  = eebuild_early_data(
       out->p + off + 2 + alpn_len + ext, out->cap - off - 2 - alpn_len - ext,
       early_data);
   /* extensions block length */
   be_put_be16(out->p + off, (u16)(alpn_len + ext + ed));
   out->len = off + 2 + alpn_len + ext + ed;
-  quic_hs_finish(out->p, out->len);
+  hs_finish(out->p, out->len);
   return 1;
 }

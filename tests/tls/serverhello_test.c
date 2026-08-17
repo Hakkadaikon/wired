@@ -3,7 +3,7 @@
 /* Build a minimal ServerHello (RFC 8446 4.1.3) carrying supported_versions and
  * a single x25519 key_share entry. Returns total message length. */
 static usz build_sh(u8* out, usz cap, const u8 pub[32]) {
-  usz off = quic_hs_begin(out, cap, 2);
+  usz off = hs_begin(out, cap, 2);
   usz block, end;
   out[off]     = 0x03;
   out[off + 1] = 0x03; /* legacy_version */
@@ -35,36 +35,36 @@ static usz build_sh(u8* out, usz cap, const u8 pub[32]) {
   off += 40;
   out[block]     = (u8)((off - block - 2) >> 8);
   out[block + 1] = (u8)(off - block - 2);
-  quic_hs_finish(out, off);
+  hs_finish(out, off);
   (void)cap;
   (void)end;
   return off;
 }
 
 static void test_server_hello_roundtrip(void) {
-  u8                   pub[32], got[32], buf[256];
-  quic_serverhello_out sh = {0, 0};
+  u8              pub[32], got[32], buf[256];
+  serverhello_out sh = {0, 0};
   for (usz i = 0; i < 32; i++) pub[i] = (u8)(0x80 + i);
   usz w = build_sh(buf, sizeof(buf), pub);
-  CHECK(quic_tls_parse_server_hello(wired_span_of(buf, w), got, &sh) == 1);
+  CHECK(tls_parse_server_hello(wired_span_of(buf, w), got, &sh) == 1);
   CHECK(sh.cipher == 0x1301);
   CHECK(sh.version == 0x0304);
   for (usz i = 0; i < 32; i++) CHECK(got[i] == pub[i]);
 }
 
 static void test_server_hello_wrong_type(void) {
-  u8                   pub[32] = {0}, got[32], buf[256];
-  quic_serverhello_out sh;
-  usz                  w = build_sh(buf, sizeof(buf), pub);
-  buf[0]                 = 1; /* claim ClientHello */
-  CHECK(quic_tls_parse_server_hello(wired_span_of(buf, w), got, &sh) == 0);
+  u8              pub[32] = {0}, got[32], buf[256];
+  serverhello_out sh;
+  usz             w = build_sh(buf, sizeof(buf), pub);
+  buf[0]            = 1; /* claim ClientHello */
+  CHECK(tls_parse_server_hello(wired_span_of(buf, w), got, &sh) == 0);
 }
 
 static void test_server_hello_truncated(void) {
-  u8                   pub[32] = {0}, got[32], buf[256];
-  quic_serverhello_out sh;
-  usz                  w = build_sh(buf, sizeof(buf), pub);
-  CHECK(quic_tls_parse_server_hello(wired_span_of(buf, w - 10), got, &sh) == 0);
+  u8              pub[32] = {0}, got[32], buf[256];
+  serverhello_out sh;
+  usz             w = build_sh(buf, sizeof(buf), pub);
+  CHECK(tls_parse_server_hello(wired_span_of(buf, w - 10), got, &sh) == 0);
 }
 
 void test_serverhello(void) {

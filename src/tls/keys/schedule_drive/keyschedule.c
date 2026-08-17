@@ -10,31 +10,29 @@
  * expanded key/iv/hp) so RFC 9001 6 key updates can later derive the next
  * generation via HKDF-Expand-Label("quic ku", ...) on this secret. */
 static void save_client_ap_secret(
-    quic_keysched* st, const u8* transcript, usz transcript_len) {
-  quic_derive_secret_in dsi = {
+    keysched* st, const u8* transcript, usz transcript_len) {
+  derive_secret_in dsi = {
       st->master, wired_span_of((const u8*)"c ap traffic", 12),
       wired_span_of(transcript, transcript_len)};
-  quic_tls_derive_secret(&dsi, st->client_ap_secret);
+  tls_derive_secret(&dsi, st->client_ap_secret);
 }
 
 /* Same as save_client_ap_secret, for the send-side (RFC 9001 6.2: this
  * endpoint's own key update must follow the peer's). */
 static void save_server_ap_secret(
-    quic_keysched* st, const u8* transcript, usz transcript_len) {
-  quic_derive_secret_in dsi = {
+    keysched* st, const u8* transcript, usz transcript_len) {
+  derive_secret_in dsi = {
       st->master, wired_span_of((const u8*)"s ap traffic", 12),
       wired_span_of(transcript, transcript_len)};
-  quic_tls_derive_secret(&dsi, st->server_ap_secret);
+  tls_derive_secret(&dsi, st->server_ap_secret);
 }
 
-void quic_keysched_init(quic_keysched* st) {
+void keysched_init(keysched* st) {
   st->stage = 0;
   st->suite = QUIC_TLS_AES_128_GCM_SHA256;
 }
 
-void quic_keysched_set_suite(quic_keysched* st, u16 suite) {
-  st->suite = suite;
-}
+void keysched_set_suite(keysched* st, u16 suite) { st->suite = suite; }
 
 /* RFC 8446 7.1: ECDHE shared secret is exactly 32 bytes (X25519 / P-256). */
 static int ecdhe_ok(int stage, usz ecdhe_len) {
@@ -46,52 +44,49 @@ static int ecdhe_ok(int stage, usz ecdhe_len) {
  * derive from -- shared by the plain and PSK-resumption entry points below,
  * which differ only in how hs itself was computed. */
 static void install_handshake_secret(
-    quic_keysched* st, const u8 hs[QUIC_HKDF_PRK], wired_span transcript) {
-  quic_handshake_keys_in in;
+    keysched* st, const u8 hs[QUIC_HKDF_PRK], wired_span transcript) {
+  handshake_keys_in in;
   in.hs_secret  = hs;
   in.transcript = transcript;
   in.is_server  = 0;
-  quic_tls_handshake_keys_suite(&in, st->suite, &st->keys[QUIC_KS_CLIENT_HS]);
+  tls_handshake_keys_suite(&in, st->suite, &st->keys[QUIC_KS_CLIENT_HS]);
   in.is_server = 1;
-  quic_tls_handshake_keys_suite(&in, st->suite, &st->keys[QUIC_KS_SERVER_HS]);
-  quic_tls_master_secret(hs, st->master);
+  tls_handshake_keys_suite(&in, st->suite, &st->keys[QUIC_KS_SERVER_HS]);
+  tls_master_secret(hs, st->master);
   st->stage = 1;
 }
 
-int quic_keysched_advance_handshake(
-    quic_keysched* st, wired_span ecdhe, wired_span transcript) {
+int keysched_advance_handshake(
+    keysched* st, wired_span ecdhe, wired_span transcript) {
   u8 hs[QUIC_HKDF_PRK];
   if (!ecdhe_ok(st->stage, ecdhe.n)) return 0;
-  quic_tls_handshake_secret(ecdhe.p, hs);
+  tls_handshake_secret(ecdhe.p, hs);
   install_handshake_secret(st, hs, transcript);
   return 1;
 }
 
-int quic_keysched_advance_handshake_psk(
-    quic_keysched* st,
-    wired_span     psk,
-    wired_span     ecdhe,
-    wired_span     transcript) {
+int keysched_advance_handshake_psk(
+    keysched* st, wired_span psk, wired_span ecdhe, wired_span transcript) {
   u8 hs[QUIC_HKDF_PRK];
   if (!ecdhe_ok(st->stage, ecdhe.n)) return 0;
-  quic_tls_handshake_secret_psk(psk.p, ecdhe.p, hs);
+  tls_handshake_secret_psk(psk.p, ecdhe.p, hs);
   install_handshake_secret(st, hs, transcript);
   return 1;
 }
 
-int quic_keysched_advance_master(
-    quic_keysched* st, const u8* transcript, usz transcript_len) {
-  quic_app_keys_in in;
+int keysched_advance_master(
+    keysched* st, const u8* transcript, usz transcript_len) {
+  app_keys_in in;
   if (st->stage != 1) return 0;
   in.master     = st->master;
   in.transcript = wired_span_of(transcript, transcript_len);
   in.is_server  = 0;
-  quic_tls_app_keys_suite(&in, st->suite, &st->keys[QUIC_KS_CLIENT_AP]);
+  tls_app_keys_suite(&in, st->suite, &st->keys[QUIC_KS_CLIENT_AP]);
   save_client_ap_secret(st, transcript, transcript_len);
   in.is_server = 1;
-  quic_tls_app_keys_suite(&in, st->suite, &st->keys[QUIC_KS_SERVER_AP]);
+  tls_app_keys_suite(&in, st->suite, &st->keys[QUIC_KS_SERVER_AP]);
   save_server_ap_secret(st, transcript, transcript_len);
-  quic_tls_exporter_master_secret(
+  tls_exporter_master_secret(
       st->master, transcript, transcript_len, st->exporter_secret);
   st->stage = 2;
   return 1;
@@ -102,26 +97,25 @@ static int have(int stage, int which) {
   return which <= QUIC_KS_SERVER_HS ? stage >= 1 : stage >= 2;
 }
 
-int quic_keysched_get(
-    const quic_keysched* st, int which, const quic_initial_keys** out) {
+int keysched_get(const keysched* st, int which, const initial_keys** out) {
   if (!have(st->stage, which)) return 0;
   *out = &st->keys[which];
   return 1;
 }
 
-int quic_keysched_client_ap_secret(const quic_keysched* st, const u8** out) {
+int keysched_client_ap_secret(const keysched* st, const u8** out) {
   if (st->stage < 2) return 0;
   *out = st->client_ap_secret;
   return 1;
 }
 
-int quic_keysched_server_ap_secret(const quic_keysched* st, const u8** out) {
+int keysched_server_ap_secret(const keysched* st, const u8** out) {
   if (st->stage < 2) return 0;
   *out = st->server_ap_secret;
   return 1;
 }
 
-int quic_keysched_exporter_secret(const quic_keysched* st, const u8** out) {
+int keysched_exporter_secret(const keysched* st, const u8** out) {
   if (st->stage < 2) return 0;
   *out = st->exporter_secret;
   return 1;

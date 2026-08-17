@@ -81,8 +81,7 @@ static int exts_bounds(wired_span m, salpn_bounds* b) {
   return block_end(m, p, b);
 }
 
-int quic_salpn_find_extension(
-    wired_span ch_msg, u16 ext_type, wired_span* ext) {
+int salpn_find_extension(wired_span ch_msg, u16 ext_type, wired_span* ext) {
   salpn_bounds  b;
   salpn_scan_in in;
   if (!exts_bounds(ch_msg, &b)) return 0;

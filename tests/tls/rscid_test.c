@@ -10,13 +10,13 @@ void test_rscid(void) {
   wired_span none     = wired_span_of(0, 0);
 
   /* Retry occurred, parameter present and matching -> ok */
-  CHECK(quic_tpverify_rscid(&(quic_tpverify_rscid_in){1, r, s, 1}) == 1);
+  CHECK(tpverify_rscid(&(tpverify_rscid_in){1, r, s, 1}) == 1);
   /* Retry occurred, parameter present but mismatching -> violation */
-  CHECK(quic_tpverify_rscid(&(quic_tpverify_rscid_in){1, r, d, 1}) == 0);
+  CHECK(tpverify_rscid(&(tpverify_rscid_in){1, r, d, 1}) == 0);
   /* Retry occurred but parameter absent -> violation */
-  CHECK(quic_tpverify_rscid(&(quic_tpverify_rscid_in){1, r, none, 0}) == 0);
+  CHECK(tpverify_rscid(&(tpverify_rscid_in){1, r, none, 0}) == 0);
   /* No Retry and parameter present -> violation */
-  CHECK(quic_tpverify_rscid(&(quic_tpverify_rscid_in){0, none, s, 1}) == 0);
+  CHECK(tpverify_rscid(&(tpverify_rscid_in){0, none, s, 1}) == 0);
   /* No Retry and parameter absent -> ok */
-  CHECK(quic_tpverify_rscid(&(quic_tpverify_rscid_in){0, none, none, 0}) == 1);
+  CHECK(tpverify_rscid(&(tpverify_rscid_in){0, none, none, 0}) == 1);
 }

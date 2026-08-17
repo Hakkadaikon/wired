@@ -2,21 +2,21 @@
 
 #include "common/bytes/util/be.h"
 
-usz quic_hs_begin(u8* out, usz cap, u8 msg_type) {
+usz hs_begin(u8* out, usz cap, u8 msg_type) {
   if (cap < 4) return 0;
   out[0] = msg_type;
   out[1] = out[2] = out[3] = 0; /* length patched later */
   return 4;
 }
 
-void quic_hs_finish(u8* out, usz total) {
+void hs_finish(u8* out, usz total) {
   usz body = total - 4;
   out[1]   = (u8)(body >> 16);
   out[2]   = (u8)(body >> 8);
   out[3]   = (u8)body;
 }
 
-usz quic_hs_parse(wired_span buf, u8* type, usz* body_len) {
+usz hs_parse(wired_span buf, u8* type, usz* body_len) {
   usz len;
   if (buf.n < 4) return 0;
   len = ((usz)buf.p[1] << 16) | ((usz)buf.p[2] << 8) | buf.p[3];
@@ -48,16 +48,16 @@ static usz put_hello_prefix(u8* out, usz off, const u8 random[32]) {
   return off + 35;
 }
 
-usz quic_hs_build_hello(
+usz hs_build_hello(
     u8* out, usz cap, u8 msg_type, const u8 random[32], const u8 pub[32]) {
-  usz off = quic_hs_begin(out, cap, msg_type);
+  usz off = hs_begin(out, cap, msg_type);
   if (off == 0 || cap < 4 + 35 + 4 + 40) return 0;
   off = put_hello_prefix(out, off, random);
   be_put_be16(out + off, QUIC_TLS_AES128_GCM_SHA256); /* one cipher suite */
   out[off + 2] = 0;               /* legacy_compression_methods length 0 */
   be_put_be16(out + off + 3, 40); /* extensions length */
   off = put_key_share(out, off + 5, pub);
-  quic_hs_finish(out, off);
+  hs_finish(out, off);
   return off;
 }
 
@@ -70,7 +70,7 @@ static int share_present(const u8* body, usz body_len, usz ks) {
   return body[ks] == 0x00 && body[ks + 1] == QUIC_EXT_KEY_SHARE;
 }
 
-int quic_hs_peer_share(const u8* body, usz body_len, u8 pub[32]) {
+int hs_peer_share(const u8* body, usz body_len, u8 pub[32]) {
   usz ks = 35 + 2 + 1 + 2; /* prefix + cipher + compression + ext_len */
   if (!share_present(body, body_len, ks)) return 0;
   for (usz i = 0; i < 32; i++) pub[i] = body[ks + 8 + i];

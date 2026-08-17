@@ -15,15 +15,14 @@
  * for this table -- callers that need a group's key length (e.g. building a
  * key_share before an encode/decode call) use this instead of duplicating
  * it. */
-usz quic_tls_ext_key_share_len(u16 group);
+usz tls_ext_key_share_len(u16 group);
 
 /* Encode the full ClientHello/ServerHello key_share extension for a single
  * KeyShareEntry: ext_type(2) ext_len(2) shares_len(2) group(2) ke_len(2)
  * pub[pub_len]. pub_len must match group (32 for x25519, 65 for
  * secp256r1). Returns bytes written into buf (cap total), or 0 if it does
  * not fit. */
-usz quic_tls_ext_key_share(
-    u8* buf, usz cap, u16 group, const u8* pub, usz pub_len);
+usz tls_ext_key_share(u8* buf, usz cap, u16 group, const u8* pub, usz pub_len);
 
 /* Read a single KeyShareEntry (group(2) + key length(2) + key) from a
  * ServerHello key_share extension_data at buf (n readable). On success sets
@@ -31,7 +30,7 @@ usz quic_tls_ext_key_share(
  * the key length, then returns 1. Returns 0 if truncated, the group is not
  * recognised (x25519 or secp256r1), its key length does not match the
  * group's fixed length, or the key does not fit in pub_cap. */
-int quic_tls_ext_key_share_parse(
+int tls_ext_key_share_parse(
     const u8* buf, usz n, u16* group, u8* pub, usz* pub_len, usz pub_cap);
 
 /* Read the client key for `want_group` from a ClientHello key_share
@@ -42,7 +41,7 @@ int quic_tls_ext_key_share_parse(
  * that group's fixed length, copy the key into pub (up to pub_cap bytes),
  * set *pub_len, and return 1. Returns 0 if no matching entry is present or
  * any length field overruns n (untrusted input). */
-int quic_tls_ext_key_share_scan(
+int tls_ext_key_share_scan(
     const u8* buf, usz n, u16 want_group, u8* pub, usz* pub_len, usz pub_cap);
 
 #endif

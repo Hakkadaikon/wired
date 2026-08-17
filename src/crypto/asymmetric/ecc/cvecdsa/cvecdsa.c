@@ -23,12 +23,12 @@ static int cvec_sign(
 
 /* Emit header(4) + scheme(2) + sig_len(2) + DER signature. */
 static void cvec_emit(u8* out, wired_span der, usz* out_len) {
-  usz off = quic_hs_begin(out, der.n + 8, QUIC_HS_CERTIFICATE_VERIFY);
+  usz off = hs_begin(out, der.n + 8, QUIC_HS_CERTIFICATE_VERIFY);
   be_put_be16(out + off, QUIC_SIG_ECDSA_SECP256R1_SHA256);
   be_put_be16(out + off + 2, (u16)der.n);
   for (usz i = 0; i < der.n; i++) out[off + 4 + i] = der.p[i];
   *out_len = off + 4 + der.n;
-  quic_hs_finish(out, *out_len);
+  hs_finish(out, *out_len);
 }
 
 int cvecdsa_build(

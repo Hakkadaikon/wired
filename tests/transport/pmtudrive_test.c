@@ -15,9 +15,8 @@ static void pd_mk_runner(quic_connrunner* r) {
   quic_connrunner_init(r, wired_span_of(g_pd_dcid, 8), &in);
   r->io.loop.validated   = 1;
   r->loop.gate.validated = 1;
-  keyset_install(&r->io.loop.keys, QUIC_LEVEL_INITIAL, &(quic_initial_keys){0});
-  keyset_install(
-      &r->loop.gate.keys, QUIC_LEVEL_INITIAL, &(quic_initial_keys){0});
+  keyset_install(&r->io.loop.keys, QUIC_LEVEL_INITIAL, &(initial_keys){0});
+  keyset_install(&r->loop.gate.keys, QUIC_LEVEL_INITIAL, &(initial_keys){0});
 }
 
 /* RFC 8899 3.2/5: the first probe is PING + PADDING sized to the first

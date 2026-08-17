@@ -30,17 +30,17 @@ static void sflight_cv_signed(const u8* transcript_hash, u8 out[130]) {
   cvb_put_hash(out + 98, transcript_hash);
 }
 
-int quic_sflight_certificate_verify(
+int sflight_certificate_verify(
     const u8 seed[32], const u8* transcript_hash, wired_obuf* out) {
   u8  content[130];
   usz off;
   if (out->cap < 4 + 2 + 2 + QUIC_ED25519_SIG) return 0;
-  off = quic_hs_begin(out->p, out->cap, QUIC_HS_CERTIFICATE_VERIFY);
+  off = hs_begin(out->p, out->cap, QUIC_HS_CERTIFICATE_VERIFY);
   sflight_cv_signed(transcript_hash, content);
   be_put_be16(out->p + off, QUIC_SFLIGHT_SCHEME_ED25519);
   be_put_be16(out->p + off + 2, QUIC_ED25519_SIG);
   ed25519_sign(seed, content, 130, out->p + off + 4);
   out->len = off + 4 + QUIC_ED25519_SIG;
-  quic_hs_finish(out->p, out->len);
+  hs_finish(out->p, out->len);
   return 1;
 }

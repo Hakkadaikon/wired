@@ -27,8 +27,8 @@
  * initpkt_test.c, so equality with it is the v1 regression guard for the
  * new _ver entry point. */
 static void test_derive_ver_v1_matches_default(void) {
-  const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  quic_initial_keys ck1, sk1, ck2, sk2;
+  const u8     dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  initial_keys ck1, sk1, ck2, sk2;
   quic_initpkt_derive(wired_span_of(dcid, 8), &ck1, &sk1);
   quic_initpkt_derive_ver(wired_span_of(dcid, 8), QUIC_VERSION_1, &ck2, &sk2);
   for (usz i = 0; i < 16; i++) CHECK(ck1.key[i] == ck2.key[i]);
@@ -40,9 +40,9 @@ static void test_derive_ver_v1_matches_default(void) {
  * golden-vector-pinned in v2keys_test.c) -- catches a copy-paste that wired
  * the v1 salt into the v2 path. */
 static void test_derive_ver_v2_differs_from_v1(void) {
-  const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  quic_initial_keys ck1, sk1, ck2, sk2;
-  int               same_key = 1;
+  const u8     dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  initial_keys ck1, sk1, ck2, sk2;
+  int          same_key = 1;
   quic_initpkt_derive_ver(wired_span_of(dcid, 8), QUIC_VERSION_1, &ck1, &sk1);
   quic_initpkt_derive_ver(wired_span_of(dcid, 8), QUIC_VERSION_2, &ck2, &sk2);
   for (usz i = 0; i < 16; i++)
@@ -211,8 +211,8 @@ static usz sbv_make_client_hello(u8* ch, usz cap) {
   }
   wired_x25519_base(cli_pub, cli_priv);
   wired_obuf ob = obuf_of(ch, cap);
-  return quic_tls_client_hello(
-      &(quic_clienthello_in){
+  return tls_client_hello(
+      &(clienthello_in){
           srv_random, cli_pub, wired_span_of(0, 0), wired_span_of(0, 0)},
       &ob);
 }

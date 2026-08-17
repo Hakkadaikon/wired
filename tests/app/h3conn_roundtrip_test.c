@@ -4,9 +4,9 @@
 #include "test.h"
 
 /* RFC 9001 5: derive a shared 1-RTT key pair for the end-to-end path. */
-static void rt_keys(quic_initial_keys* k, aes128* hp) {
+static void rt_keys(initial_keys* k, aes128* hp) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  quic_initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, k);
+  initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, k);
   aes128_init(hp, k->hp);
 }
 
@@ -48,13 +48,13 @@ static void test_roundtrip_stream(void) {
 /* RFC 9001 5 / RFC 9114 4.1: same response, but sealed and opened through a
  * real 1-RTT packet (appdata) before recv_response decodes it. */
 static void test_roundtrip_onertt(void) {
-  quic_initial_keys k;
-  aes128            hp;
-  const u8          dcid[4] = {9, 9, 9, 9};
-  const u8          body[]  = {'o', 'k'};
-  u8                h3[256], pkt[256];
-  wired_obuf        h3_ob = {h3, sizeof h3, 0};
-  usz               total = 0;
+  initial_keys k;
+  aes128       hp;
+  const u8     dcid[4] = {9, 9, 9, 9};
+  const u8     body[]  = {'o', 'k'};
+  u8           h3[256], pkt[256];
+  wired_obuf   h3_ob = {h3, sizeof h3, 0};
+  usz          total = 0;
   rt_keys(&k, &hp);
 
   /* response STREAM frame */

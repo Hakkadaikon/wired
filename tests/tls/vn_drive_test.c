@@ -21,15 +21,13 @@ static void test_vn_choose_pref(void) {
   u32 mine[2] = {QUIC_VERSION_2, QUIC_VERSION_1}; /* prefer v2 */
   u32 chosen  = 0;
   CHECK(
-      quic_vn_choose(wired_span_of(vn, 8), quic_verlist_of(mine, 2), &chosen) ==
-      1);
+      vn_choose(wired_span_of(vn, 8), quic_verlist_of(mine, 2), &chosen) == 1);
   CHECK(chosen == QUIC_VERSION_2);
 
   u32 mine1[2] = {QUIC_VERSION_1, QUIC_VERSION_2}; /* prefer v1 */
   chosen       = 0;
   CHECK(
-      quic_vn_choose(
-          wired_span_of(vn, 8), quic_verlist_of(mine1, 2), &chosen) == 1);
+      vn_choose(wired_span_of(vn, 8), quic_verlist_of(mine1, 2), &chosen) == 1);
   CHECK(chosen == QUIC_VERSION_1);
 }
 
@@ -41,14 +39,13 @@ static void test_vn_choose_none(void) {
   u32 mine[1] = {QUIC_VERSION_1};
   u32 chosen  = 0xdead;
   CHECK(
-      quic_vn_choose(wired_span_of(vn, 4), quic_verlist_of(mine, 1), &chosen) ==
-      0);
+      vn_choose(wired_span_of(vn, 4), quic_verlist_of(mine, 1), &chosen) == 0);
 }
 
 /* VN is ignored once the handshake has started (downgrade protection). */
 static void test_vn_acceptable(void) {
-  CHECK(quic_vn_acceptable(0) == 1);
-  CHECK(quic_vn_acceptable(1) == 0);
+  CHECK(vn_acceptable(0) == 1);
+  CHECK(vn_acceptable(1) == 0);
 }
 
 void test_vn_drive(void) {

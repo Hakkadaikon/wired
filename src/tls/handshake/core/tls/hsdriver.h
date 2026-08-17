@@ -33,24 +33,24 @@ typedef struct {
   u8  level; /* highest protection level promoted to */
   int complete;
   int confirmed;
-} quic_hsdriver;
+} hsdriver;
 
 /* Initialize the driver as client (is_server 0) or server (is_server 1). */
-void quic_hsdriver_init(quic_hsdriver* s, int is_server);
+void hsdriver_init(hsdriver* s, int is_server);
 
 /* Accept one received handshake message at the given protection level.
  * Returns 1 if the transition is legal, 0 if it violates flight order,
  * the protection level, the authentication gate, or key promotion order. */
-int quic_hsdriver_recv(quic_hsdriver* s, u8 msg_type, u8 protection_level);
+int hsdriver_recv(hsdriver* s, u8 msg_type, u8 protection_level);
 
 /* Mark the peer's Certificate+CertificateVerify as cryptographically
  * verified. Required before the peer's Finished is accepted. */
-void quic_hsdriver_cert_verified(quic_hsdriver* s);
+void hsdriver_cert_verified(hsdriver* s);
 
 /* 1 once both Finished are exchanged and the peer was authenticated. */
-int quic_hsdriver_complete(const quic_hsdriver* s);
+int hsdriver_complete(const hsdriver* s);
 
 /* 1 once the handshake is complete and confirmed (HANDSHAKE_DONE). */
-int quic_hsdriver_confirmed(const quic_hsdriver* s);
+int hsdriver_confirmed(const hsdriver* s);
 
 #endif

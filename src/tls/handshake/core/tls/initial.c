@@ -33,7 +33,7 @@ static void derive_field(const u8* secret, wired_span label, wired_mspan out) {
 /* From the per-side initial secret, fill key/iv/hp (RFC 9001 5.1 / RFC 9369
  * 3.3.1 labels). */
 static void derive_keys(
-    const u8 secret[QUIC_HKDF_PRK], u32 version, quic_initial_keys* out) {
+    const u8 secret[QUIC_HKDF_PRK], u32 version, initial_keys* out) {
   u8 buf[7 + SUFFIX_MAX];
   derive_field(
       secret, ilabel_build(buf, version, "key"),
@@ -68,8 +68,8 @@ static wired_span side_label(u8* buf, int is_server) {
   return wired_span_of(buf, n);
 }
 
-void quic_initial_derive(
-    wired_span dcid, int is_server, u32 version, quic_initial_keys* out) {
+void initial_derive(
+    wired_span dcid, int is_server, u32 version, initial_keys* out) {
   u8 initial_secret[QUIC_HKDF_PRK];
   u8 side_secret[QUIC_HKDF_PRK];
   u8 buf[SUFFIX_MAX];
