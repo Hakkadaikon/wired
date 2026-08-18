@@ -51,12 +51,3 @@ jobs:
       # anonymous `docker pull` from quic-interop-runner's CI. Only the first
       # push needs this; ghcr.io/hakkadaikon/wired-interop{,-wt} -> Package
       # settings -> Change visibility -> Public.
-
-      - name: notify quic-interop-runner
-        if: ${{ secrets.QUIC_INTEROP_RUNNER_DISPATCH_TOKEN != '' }}
-        run: |
-          curl -fsSL -X POST \
-            -H "Authorization: Bearer ${{ secrets.QUIC_INTEROP_RUNNER_DISPATCH_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/Hakkadaikon/quic-interop-runner/dispatches \
-            -d '{"event_type":"wired-updated"}'
