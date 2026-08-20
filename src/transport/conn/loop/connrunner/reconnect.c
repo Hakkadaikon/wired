@@ -18,7 +18,10 @@ void connrunner_reconnect_init(connrunner* r) {
   r->retry.key_rederive = 0;
   r->retry.token_len    = 0;
   r->retry.dcid_len     = 0;
-  r->vn_retry_count     = 0;
+  /* RFC 9000 6.2 / RFC 9369 3.3.2: until a VN reconnect overrides it, the
+   * client's Initial is sent under v1 -- key updates derive with v1 labels. */
+  r->sent_version   = VERSION_1;
+  r->vn_retry_count = 0;
 }
 
 /* RFC 9000 17.2.5.2: the handshake must not have progressed and the Retry
