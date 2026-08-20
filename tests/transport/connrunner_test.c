@@ -3,6 +3,7 @@
 #include "test.h"
 #include "tls/keys/keyupdate/aeadintegrity.h"
 #include "tls/keys/keyupdate/keyphase.h"
+#include "tls/keys/kuswitch/derive.h"
 #include "transport/conn/loop/connrunner/keyupdate.h"
 #include "transport/conn/loop/connrunner/level.h"
 #include "transport/conn/loop/connrunner/reconnect.h"
@@ -12,6 +13,7 @@
 #include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
+#include "transport/version/version/version.h"
 
 /* RFC 9000 17.2 / 17.3: byte0 -> protection level. Long-header Initial and
  * Handshake map to their keyset levels; a short header is 1-RTT; 0-RTT and
@@ -515,6 +517,27 @@ static void test_ku_initiate_blocked_within_3pto(void) {
       1); /* 16 >= 16 */
 }
 
+/* 1 if two derived traffic secrets are byte-identical. */
+static int ku_secret_match(const u8* a, const u8* b) {
+  usz i;
+  for (i = 0; i < HKDF_PRK; i++)
+    if (a[i] != b[i]) return 0;
+  return 1;
+}
+
+/* RFC 9369 3.3.2: absent a Version Negotiation reconnect, an initiated update
+ * derives with the v1 "quic ku" label -- init alone must pin the version. */
+static void test_ku_initiate_v1_label_after_init(void) {
+  connrunner   r;
+  initial_keys expect = {0};
+  u8           want[HKDF_PRK];
+  mk_ku(&r, 1);
+  kuswitch_next_keys_v(VERSION_1, r.ku_secret, &expect, want);
+  r.ku_sent_in_phase = 100;
+  CHECK(connrunner_maybe_initiate_ku(&r, &(connrunner_ku_in){100, 10, 1}) == 1);
+  CHECK(ku_secret_match(r.ku_secret, want));
+}
+
 /* RFC 9001 6.5: the old read key is retained for the full 3*PTO window after
  * completion and discarded once it elapses. */
 static void test_ku_discard_after_3pto(void) {
@@ -560,6 +583,7 @@ static void test_connrunner_keyupdate(void) {
   test_ku_initiate_blocked_before_confirm();
   test_ku_initiate_blocked_until_acked();
   test_ku_initiate_blocked_within_3pto();
+  test_ku_initiate_v1_label_after_init();
   test_ku_discard_after_3pto();
   test_ku_drop_discarded_gen();
   test_ku_completion_records_time();
