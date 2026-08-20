@@ -6,6 +6,10 @@ on:
 jobs:
   quic-interop-runner:
     runs-on: ubuntu-latest
+    # 17 test cases; the loss/corruption cases retry under a 300s per-case
+    # budget, so a full run is wall-clock heavy. 120min bounds a wedged
+    # simulator without cutting a slow-but-healthy run short.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -64,13 +68,31 @@ jobs:
               json.dump(data, f, indent=2)
           PY
 
-      - name: run handshake / transfer / http3 test cases
+      - name: run the quic-go-green test cases
         working-directory: runner
         # --log-dir pins the output path: without it run.py timestamps its
         # own logs_<ISO8601>/ directory (confirmed via a real run: "Saving
         # logs to logs_2026-07-25T09:39:08."), which the fixed path below
         # would never match -- the artifact upload silently found nothing.
-        run: ./.venv/bin/python run.py -s wired -c quic-go -t handshake,transfer,http3 --log-dir logs
+        #
+        # run.py exits with the number of FAILED tests (UNSUPPORTED does not
+        # count), so this list is every case that passes against the quic-go
+        # client (tasks/quic-interop-matrix.md). Deliberately excluded:
+        #   rebind-port / rebind-addr  -- the runner's tshark cannot decode
+        #     short-header packets on the rebound path (toolchain constraint,
+        #     not a server bug); permanently FAILED
+        #   connectionmigration -- the quic-go client never migrates, the
+        #     runner then fails the run ("saw only a single path")
+        #   ecn / v2 -- the quic-go client exits 127 on them (UNSUPPORTED);
+        #     harmless but wasted minutes until an ngtcp2/picoquic client job
+        #   versionnegotiation -- not implemented server-side (run_endpoint.sh
+        #     declares it unsupported)
+        #   goodput / crosstraffic -- throughput measurements, not pass/fail;
+        #     shared-runner perf variance would make CI flaky
+        run: >
+          ./.venv/bin/python run.py -s wired -c quic-go
+          -t handshake,transfer,http3,longrtt,multiplexing,chacha20,keyupdate,blackhole,handshakeloss,transferloss,handshakecorruption,transfercorruption,amplificationlimit,retry,resumption,zerortt,ipv6
+          --log-dir logs --json logs/result.json
 
       - name: upload runner logs
         if: always()
