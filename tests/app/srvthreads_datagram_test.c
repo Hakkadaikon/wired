@@ -5,6 +5,7 @@
 #include "app/http3/server/srvthreads/srvthreads.h"
 #include "app/webtransport/session/session/session.h"
 #include "common/bytes/util/bytes.h"
+#include "common/platform/clock/mono.h"
 #include "common/platform/debug/debug.h"
 #include "common/platform/thread/thread.h"
 #include "crypto/kdf/hkdf/hkdf.h"
@@ -24,7 +25,9 @@
 #include "transport/io/udp/udploop/rxloop.h"
 #include "transport/packet/build/hspkt/onertt.h"
 #include "transport/packet/frame/pipeline/framewalk.h"
+#include "transport/packet/header/packet/ptype.h"
 #include "transport/stream/data/appdata/app_send.h"
+#include "transport/version/version/version.h"
 
 /* @file
  * Reproduces (or disproves) the reported bug: with `wired_srvthreads_run`
@@ -187,14 +190,15 @@ static void sdt_client_init(struct sdt_client* cx) {
   wired_udp_addr(&cx->srv, SDT_PORT, (const u8[4]){127, 0, 0, 1});
 }
 
-/* Send our real protected Initial (ClientHello) and return 1 once something
- * came back within a bounded number of retries (UDP is unreliable and the
- * worker thread's bind may not have completed the instant the thread
- * starts). ilen/hlen receive the two accept-flight datagram lengths
- * (Initial reply, then Handshake reply) once both arrive. */
-/* One send-then-wait attempt: ship dg, and if an Initial reply comes back in
- * time, also wait for the Handshake reply that should immediately follow it
- * (the server's whole accept flight). Returns 1 only once both arrived. */
+/* Send our real protected Initial (ClientHello) and return 1 once the
+ * server's whole accept flight (an Initial reply and a Handshake reply, RFC
+ * 9000 17.2.2/17.2.3's long-header type bits) both arrived, however they were
+ * interleaved on the wire -- a loaded server may deliver them out of order,
+ * duplicated, or mixed with a prior attempt's late flight, so classify each
+ * datagram by its own type rather than assuming positional order. Retries
+ * across a wall-clock deadline, not a fixed attempt count, since a slow
+ * worker's PTO retransmits consume the same recv budget as fresh replies. */
+
 /* Wait for one reply datagram into buf; on arrival, records its length via
  * *out_len and returns 1. */
 static int sdt_recv_one(i64 fd, u8* buf, usz cap, usz* out_len) {
@@ -205,26 +209,74 @@ static int sdt_recv_one(i64 fd, u8* buf, usz cap, usz* out_len) {
   return 1;
 }
 
-static int sdt_initial_attempt(
-    struct sdt_client* cx,
-    wired_span         dg,
-    u8*                ini_reply,
-    usz                cap,
-    usz*               ilen,
-    u8*                hs_reply,
-    usz                hcap,
-    usz*               hlen) {
+/* Accept-flight datagram slots, filled by type as they arrive in any order;
+ * a slot already filled (len != 0) is left alone so a duplicate/late
+ * retransmit cannot clobber the first genuine reply. */
+typedef struct {
+  u8*  ini_reply;
+  usz  icap;
+  usz* ilen;
+  u8*  hs_reply;
+  usz  hcap;
+  usz* hlen;
+} sdt_flight_slots;
+
+/* Fill one flight slot from buf, unless it is already filled (a
+ * duplicate/late retransmit must not clobber the first genuine reply). */
+static void sdt_fill_slot(
+    u8* dst, usz cap, usz* out_len, const u8* buf, usz len) {
+  if (*out_len != 0) return;
+  bytes_memcpy(dst, buf, len < cap ? len : cap);
+  *out_len = len;
+}
+
+/* Classify one received datagram into its accept-flight slot by long-header
+ * type (RFC 9000 17.2.2 Initial / 17.2.3 Handshake); anything else (0-RTT,
+ * short header, a malformed byte0) is silently dropped -- an interleaved
+ * stray, not this flight's own bytes. */
+static void sdt_classify_flight_dgram(
+    const sdt_flight_slots* s, const u8* buf, usz len) {
+  int pt = packet_long_type(buf[0], VERSION_1);
+  if (pt == PT_INITIAL) sdt_fill_slot(s->ini_reply, s->icap, s->ilen, buf, len);
+  if (pt == PT_HANDSHAKE)
+    sdt_fill_slot(s->hs_reply, s->hcap, s->hlen, buf, len);
+}
+
+/* One receive-and-classify step; scratch is sized for the larger of the two
+ * reply caps so any datagram fits regardless of which slot it targets. */
+static void sdt_flight_recv_step(i64 fd, const sdt_flight_slots* s) {
+  u8  scratch[1500];
+  usz n;
+  if (!sdt_recv_one(fd, scratch, sizeof scratch, &n)) return;
+  sdt_classify_flight_dgram(s, scratch, n);
+}
+
+static int sdt_flight_done(const sdt_flight_slots* s) {
+  return *s->ilen != 0 && *s->hlen != 0;
+}
+
+/* Still within budget and not yet done -- the loop-continuation predicate
+ * lives here, not inline in the while, to keep the caller's CCN low. */
+static int sdt_flight_pending(const sdt_flight_slots* s, u64 dl) {
+  return !sdt_flight_done(s) && clock_mono_ms() < dl;
+}
+
+/* One poll round: re-send the Initial (the worker thread's bind may not
+ * have completed yet, so any earlier copy may have been dropped; the server
+ * treats a duplicate as a retransmit of the same ClientHello) and wait one
+ * SO_RCVTIMEO slice for a reply. Returns 0 only when the send itself fails.
+ */
+static int sdt_initial_round(
+    struct sdt_client* cx, wired_span dg, const sdt_flight_slots* s) {
   if (wired_udp_send(cx->fd, &cx->srv, dg) < 0) return 0;
-  if (!sdt_recv_one(cx->fd, ini_reply, cap, ilen)) return 0;
-  return sdt_recv_one(cx->fd, hs_reply, hcap, hlen);
+  sdt_flight_recv_step(cx->fd, s);
+  return 1;
 }
 
 /* Send our real protected Initial (ClientHello) and return 1 once the
  * server's whole accept flight (Initial reply, then Handshake reply) came
- * back within a bounded number of retries (UDP is unreliable and the worker
+ * back before the wall-clock deadline (UDP is unreliable and the worker
  * thread's bind may not have completed the instant the thread starts). */
-/* Retry sdt_initial_attempt up to 30 times over the already-built Initial
- * datagram dg. */
 static int sdt_retry_initial(
     struct sdt_client* cx,
     wired_span         dg,
@@ -234,10 +286,13 @@ static int sdt_retry_initial(
     u8*                hs_reply,
     usz                hcap,
     usz*               hlen) {
-  for (int attempt = 0; attempt < 30; attempt++)
-    if (sdt_initial_attempt(cx, dg, ini_reply, cap, ilen, hs_reply, hcap, hlen))
-      return 1;
-  return 0;
+  sdt_flight_slots s  = {ini_reply, cap, ilen, hs_reply, hcap, hlen};
+  u64              dl = clock_mono_ms() + 5000;
+  *ilen               = 0;
+  *hlen               = 0;
+  while (sdt_flight_pending(&s, dl))
+    if (!sdt_initial_round(cx, dg, &s)) return 0;
+  return sdt_flight_done(&s);
 }
 
 /* Seals cx->ch (already built by sdt_client_init, with the DATAGRAM transport
@@ -598,9 +653,12 @@ static int sdt_try_recv_hs_done(struct sdt_client* cx) {
 /* The server's reply to our Finished coalesces a Handshake ACK (long header)
  * with a 1-RTT packet carrying SETTINGS + HANDSHAKE_DONE (same shape as
  * h3_loopback_test's test_loopback_wire_confirm_and_get). Poll until
- * HANDSHAKE_DONE is observed or the attempt budget runs out. */
+ * HANDSHAKE_DONE is observed or the wall-clock deadline elapses -- a fixed
+ * attempt count instead double-counts a loaded server's PTO retransmits and
+ * duplicate flights against the same budget meant for genuine replies. */
 static int sdt_wait_hs_done(struct sdt_client* cx) {
-  for (int i = 0; i < 20; i++)
+  u64 dl = clock_mono_ms() + 5000;
+  while (clock_mono_ms() < dl)
     if (sdt_try_recv_hs_done(cx)) return 1;
   return 0;
 }
@@ -809,10 +867,12 @@ static int sdt_try_recv_2xx(struct sdt_client* cx) {
   return sdt_stream0_has_2xx(pl, pll);
 }
 
-/* Poll for a 1-RTT reply carrying the CONNECT's 2xx response, up to
- * max_tries * 1-recv-per-try (UDP recv is our only wait primitive here). */
-static int sdt_wait_connect_2xx(struct sdt_client* cx, int max_tries) {
-  for (int i = 0; i < max_tries; i++)
+/* Poll for a 1-RTT reply carrying the CONNECT's 2xx response, until the
+ * wall-clock deadline elapses (a fixed attempt count instead spends the same
+ * budget on a loaded server's retransmits as on genuine replies). */
+static int sdt_wait_connect_2xx(struct sdt_client* cx) {
+  u64 dl = clock_mono_ms() + 5000;
+  while (clock_mono_ms() < dl)
     if (sdt_try_recv_2xx(cx)) return 1;
   return 0;
 }
@@ -837,6 +897,7 @@ static int sdt_client_ap_key(struct sdt_client* cx, protect_keys* pk) {
  * payload into out, under CLIENT_AP. flen/frame are caller-owned scratch. */
 static int sdt_build_datagram_pkt(
     struct sdt_client* cx,
+    u64                pn,
     const u8*          payload,
     usz                n,
     u8*                frame,
@@ -847,7 +908,7 @@ static int sdt_build_datagram_pkt(
   usz               flen = datagram_encode(fb, &df, 0);
   protect_keys      pk;
   hspkt_onertt_desc d = {
-      wired_span_of(g_sdt_cli_scid, 6), 1, wired_span_of(frame, flen), 0};
+      wired_span_of(g_sdt_cli_scid, 6), pn, wired_span_of(frame, flen), 0};
   if (flen == 0) return 0;
   if (!sdt_client_ap_key(cx, &pk)) return 0;
   return hspkt_onertt_build(&pk, &d, out);
@@ -860,13 +921,14 @@ static int sdt_build_datagram_pkt(
  * (srvrun_send_pending_datagram) re-applies the target session's own prefix
  * on the wire -- so the echoed-back bytes carry qsid 0x00 again, which
  * sdt_payload_has_our_datagram below accounts for. */
-static int sdt_send_datagram(struct sdt_client* cx, const u8* payload, usz n) {
+static int sdt_send_datagram(
+    struct sdt_client* cx, u64 pn, const u8* payload, usz n) {
   u8         frame[300], pkt[512], wire[300];
   wired_obuf ob = obuf_of(pkt, sizeof pkt);
   if (n + 1 > sizeof wire) return 0;
   wire[0] = 0x00;
   for (usz i = 0; i < n; i++) wire[1 + i] = payload[i];
-  if (!sdt_build_datagram_pkt(cx, wire, n + 1, frame, sizeof frame, &ob))
+  if (!sdt_build_datagram_pkt(cx, pn, wire, n + 1, frame, sizeof frame, &ob))
     return 0;
   return wired_udp_send(cx->fd, &cx->srv, wired_span_of(pkt, ob.len)) ==
          (i64)ob.len;
@@ -951,19 +1013,29 @@ static int sdt_drain_for_echo(
   return 0;
 }
 
-/* One send-then-drain round. Returns 1 (echo seen), 0 (not this round), or
- * -1 (send itself failed -- fatal, the caller stops retrying). */
-static int sdt_echo_round(struct sdt_client* cx, const u8* payload, usz plen) {
-  if (!sdt_send_datagram(cx, payload, plen)) return -1;
+/* One send-then-drain round at packet number pn (RFC 9000 12.3: each retry
+ * needs its own pn -- a repeated pn is indistinguishable from a duplicate
+ * and may be deduped before it reaches the broadcast callback). Returns 1
+ * (echo seen), 0 (not this round), or -1 (send itself failed -- fatal, the
+ * caller stops retrying). */
+static int sdt_echo_round(
+    struct sdt_client* cx, u64 pn, const u8* payload, usz plen) {
+  if (!sdt_send_datagram(cx, pn, payload, plen)) return -1;
   return sdt_drain_for_echo(cx, payload, plen);
 }
 
-/* Poll for our own DATAGRAM to be echoed back, retrying send+recv since RFC
- * 9221 datagrams are unreliable and the broadcast is best-effort. */
+/* Poll for our own DATAGRAM to be echoed back until the wall-clock deadline
+ * elapses, retrying send+recv since RFC 9221 datagrams are unreliable and
+ * the broadcast is best-effort. pn starts at 1: pn 0 is the SETTINGS packet
+ * and pn 2 the CONNECT (sdt_send_connect), both already sent on this same
+ * 1-RTT packet number space -- pn 1 was reserved for this stage from the
+ * start (see sdt_send_connect's own comment). */
 static int sdt_wait_datagram_echo(
-    struct sdt_client* cx, const u8* payload, usz plen, int tries) {
-  for (int i = 0; i < tries; i++) {
-    int r = sdt_echo_round(cx, payload, plen);
+    struct sdt_client* cx, const u8* payload, usz plen) {
+  u64 dl = clock_mono_ms() + 5000;
+  u64 pn = 1;
+  while (clock_mono_ms() < dl) {
+    int r = sdt_echo_round(cx, pn++, payload, plen);
     if (r != 0) return r;
   }
   return 0;
@@ -979,14 +1051,14 @@ static int sdt_wait_datagram_echo(
  * precedent, e.g. srvrun_test's sr_open_sockets). */
 /* STAGE 2: WebTransport session establishment (Extended CONNECT -> 2xx). */
 static int sdt_stage_wt_connect(struct sdt_client* cx) {
-  return sdt_send_connect(cx) && sdt_wait_connect_2xx(cx, 40);
+  return sdt_send_connect(cx) && sdt_wait_connect_2xx(cx);
 }
 
 /* STAGE 3: the bug under test -- does our own DATAGRAM come back to us via
  * wired_server_broadcast_datagram under --cores (srvthreads)? */
 static int sdt_stage_datagram_echo(struct sdt_client* cx) {
   const u8 msg[] = "hello-self";
-  return sdt_wait_datagram_echo(cx, msg, sizeof msg - 1, 10) == 1;
+  return sdt_wait_datagram_echo(cx, msg, sizeof msg - 1) == 1;
 }
 
 /* Drive stages 2+3, CHECKing each independently so a failure pinpoints which
