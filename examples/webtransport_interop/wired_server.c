@@ -479,9 +479,49 @@ static void send_gets_bidi(wired_wt_session* s) {
   }
 }
 
+/* Datagram GETs go out as a reply-clocked window, not one burst: datagrams
+ * are never retransmitted (RFC 9221 5), and every GET triggers a ~1KB reply,
+ * so the request rate IS the reply rate -- 200 requests at once made the
+ * client's replies overflow the 10Mbps path's 25-packet queue and the
+ * dropped files were gone for good. With at most DG_WINDOW requests in
+ * flight, each saved reply releases the next request, so neither direction
+ * ever queues more than DG_WINDOW packets. */
+#define DG_WINDOW 8
+
+static wired_wt_session* g_dg_sess; /* the one DG_SEND session per run */
+static usz               g_dg_req_next; /* next file index not yet requested */
+static u8                g_dg_done[FILES_MAX];
+
+static void dg_request_one(usz i) {
+  wired_server_wt_send_datagram_to(
+      g_dg_sess, wired_span_of(g_get[i], g_get_len[i]));
+}
+
 static void send_gets_dg(wired_wt_session* s) {
+  usz w     = g_nfiles < DG_WINDOW ? g_nfiles : DG_WINDOW;
+  g_dg_sess = s;
+  for (g_dg_req_next = 0; g_dg_req_next < w; g_dg_req_next++)
+    dg_request_one(g_dg_req_next);
+}
+
+static ssz dg_file_index(wired_span name) {
   for (usz i = 0; i < g_nfiles; i++)
-    wired_server_wt_send_datagram_to(s, wired_span_of(g_get[i], g_get_len[i]));
+    if (span_eq(g_files[i], name)) return (ssz)i;
+  return -1;
+}
+
+static void dg_request_next(void) {
+  if (g_dg_req_next < g_nfiles) dg_request_one(g_dg_req_next++);
+}
+
+/* One reply saved: mark its file done and release the next request; a
+ * duplicate or unknown name releases nothing (the window stays honest). */
+static void dg_mark_done(wired_span name) {
+  ssz i = dg_file_index(name);
+  if (i < 0) return;
+  if (g_dg_done[i]) return;
+  g_dg_done[i] = 1;
+  dg_request_next();
 }
 
 typedef void (*send_fn)(wired_wt_session*);
@@ -522,6 +562,7 @@ static void dg_save(wired_span msg) {
   if (!wired_wtwire_push_parse(msg, &name, &content)) return;
   dest_build(dest, wired_wtwire_basename(name));
   wired_fio_write_new(dest, content);
+  dg_mark_done(wired_wtwire_basename(name)); /* release the next request */
 }
 
 static void dg_handle(wired_wt_session* s, wired_span msg) {
