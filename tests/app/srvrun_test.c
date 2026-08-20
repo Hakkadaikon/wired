@@ -13648,8 +13648,11 @@ static void test_srvrun_wt_send_datagram_to_requires_send_side_open(void) {
 }
 
 /* BURST: 200 datagrams queued back-to-back inside one step all fit the ring
- * and every one of them goes out on the drain -- none dropped, none
- * overwritten (the ring exists exactly so a burst is not last-writer-wins). */
+ * and ALL of them eventually go out -- none dropped, none overwritten (the
+ * ring exists exactly so a burst is not last-writer-wins). One drain sends
+ * at most SRVRUN_DGRING_DRAIN_MAX (a line-rate 200-datagram burst overflows
+ * any bottleneck queue, and datagrams are never retransmitted); the rest
+ * persist in the ring for the following steps. */
 static void test_srvrun_wt_datagram_ring_drains_200_queued(void) {
   struct lp_fix f;
   wired_obuf    ob = {0};
@@ -13672,6 +13675,10 @@ static void test_srvrun_wt_datagram_ring_drains_200_queued(void) {
     srvrun_state st = {g_srvrun_table, g_srvrun_state.conns};
     srvrun_test_reset_send_count();
     srvrun_dgring_drain(&cfg, &st);
+    CHECK(srvrun_test_send_count() == SRVRUN_DGRING_DRAIN_MAX);
+    CHECK(g_srvrun_env.dgring_n == 200 - SRVRUN_DGRING_DRAIN_MAX);
+    for (int i = 0; i < 32 && g_srvrun_env.dgring_n; i++)
+      srvrun_dgring_drain(&cfg, &st);
     CHECK(srvrun_test_send_count() == 200);
   }
   CHECK(g_srvrun_env.dgring_n == 0);
@@ -13700,7 +13707,8 @@ static void test_srvrun_wt_datagram_ring_full_rejects_then_recovers(void) {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_state st = {g_srvrun_table, g_srvrun_state.conns};
-    srvrun_dgring_drain(&cfg, &st);
+    for (int i = 0; i < 32 && g_srvrun_env.dgring_n; i++)
+      srvrun_dgring_drain(&cfg, &st);
   }
   CHECK(g_srvrun_env.dgring_n == 0);
   CHECK(
