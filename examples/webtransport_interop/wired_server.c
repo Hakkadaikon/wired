@@ -104,9 +104,9 @@ static wired_span strip_slash(wired_span p) {
 
 static wired_span g_endpoint; /* one endpoint (the reference peer's model) */
 static wired_span g_files[FILES_MAX];
-static usz       g_nfiles;
-static u8        g_get[FILES_MAX][GETLINE_CAP]; /* "GET <file>" lines, kept
-                                                 * alive for the whole run */
+static usz        g_nfiles;
+static u8         g_get[FILES_MAX][GETLINE_CAP]; /* "GET <file>" lines, kept
+                                                  * alive for the whole run */
 static usz g_get_len[FILES_MAX];
 /* Signal-prefixed copies for stream opens, built once the session (and so
  * its id) is known; kept alive until the transfer completes. */
@@ -116,9 +116,9 @@ static usz g_get_sig_len[FILES_MAX];
 static void requests_add(wired_span tok) {
   ssz slash = span_find(tok, '/');
   if (slash < 0 || g_nfiles >= FILES_MAX) return;
-  g_endpoint          = wired_span_of(tok.p, (usz)slash);
-  g_files[g_nfiles++] = wired_span_of(
-      tok.p + (usz)slash + 1, tok.n - (usz)slash - 1);
+  g_endpoint = wired_span_of(tok.p, (usz)slash);
+  g_files[g_nfiles++] =
+      wired_span_of(tok.p + (usz)slash + 1, tok.n - (usz)slash - 1);
 }
 
 /* End of the space-separated token starting at i. */
@@ -173,7 +173,7 @@ static session_slot* session_alloc(void) {
 
 static void session_note(const wired_wt_session* s, wired_span path) {
   session_slot* e  = session_find(s->connect_stream_id);
-  wired_span     ep = strip_slash(path);
+  wired_span    ep = strip_slash(path);
   if (!e) e = session_alloc();
   e->used = 1;
   e->sid  = s->connect_stream_id;
@@ -358,8 +358,10 @@ static void finish_get(wired_wt_session* s, stream_slot* e) {
   wired_span ep = session_endpoint(s);
   if (!wired_wtwire_get_parse(wired_span_of(e->head, e->head_len), &file))
     return;
-  if ((e->stream_id & 3) == 2) serve_uni_get(s, ep, file);
-  else serve_bidi_get(s, e->stream_id, ep, file);
+  if ((e->stream_id & 3) == 2)
+    serve_uni_get(s, ep, file);
+  else
+    serve_bidi_get(s, e->stream_id, ep, file);
 }
 
 static void feed_none(
@@ -370,7 +372,8 @@ static void feed_none(
   (void)fin;
 }
 
-static void feed_get(wired_wt_session* s, stream_slot* e, wired_span d, int fin) {
+static void feed_get(
+    wired_wt_session* s, stream_slot* e, wired_span d, int fin) {
   head_append(e, d);
   if (fin) {
     finish_get(s, e);
@@ -478,8 +481,7 @@ static void send_gets_bidi(wired_wt_session* s) {
 
 static void send_gets_dg(wired_wt_session* s) {
   for (usz i = 0; i < g_nfiles; i++)
-    wired_server_wt_send_datagram_to(
-        s, wired_span_of(g_get[i], g_get_len[i]));
+    wired_server_wt_send_datagram_to(s, wired_span_of(g_get[i], g_get_len[i]));
 }
 
 typedef void (*send_fn)(wired_wt_session*);
@@ -493,8 +495,7 @@ static const send_fn SENDS[MODE_COUNT] = {
 };
 
 static void session_send_gets(wired_wt_session* s, wired_span path) {
-  if (SENDS[g_mode] && span_eq(strip_slash(path), g_endpoint))
-    SENDS[g_mode](s);
+  if (SENDS[g_mode] && span_eq(strip_slash(path), g_endpoint)) SENDS[g_mode](s);
 }
 
 static void on_session(
@@ -517,7 +518,7 @@ static void dg_serve(wired_wt_session* s, wired_span msg) {
 /* One PUSH datagram carries a whole (sub-MTU) file. */
 static void dg_save(wired_span msg) {
   wired_span name, content;
-  char      dest[PATH_CAP];
+  char       dest[PATH_CAP];
   if (!wired_wtwire_push_parse(msg, &name, &content)) return;
   dest_build(dest, wired_wtwire_basename(name));
   wired_fio_write_new(dest, content);
@@ -528,12 +529,13 @@ static void dg_handle(wired_wt_session* s, wired_span msg) {
   if (g_mode == MODE_DG_SEND) dg_save(msg);
 }
 
+/* The SDK strips the RFC 9297 2.1 quarter-stream-id prefix and resolves the
+ * session before this fires (that is how `s` is known), so dg already starts
+ * at the application bytes -- taking another varint here would eat the first
+ * payload byte ('G' of GET / 'P' of PUSH) and fail every parse. */
 static void on_datagram(void* ctx, wired_wt_session* s, wired_span dg) {
-  u64 sid;
-  usz used = wired_wtwire_qsid_take(dg, &sid);
   (void)ctx;
-  if (!used) return;
-  dg_handle(s, wired_span_of(dg.p + used, dg.n - used));
+  dg_handle(s, dg);
 }
 
 /* --- plain HTTP/3 app (the runner only health-checks it) ----------------- */
@@ -542,7 +544,7 @@ static int app_on_request(
     void*                       ctx,
     const wired_h3reqdrive_req* req,
     u64                         offset,
-    wired_obuf*                  body_out,
+    wired_obuf*                 body_out,
     const char**                content_type,
     int*                        more,
     u64*                        total_size) {
@@ -610,11 +612,11 @@ static int mode_lookup(const char* tc) {
 static int mode_of(const char* tc) { return tc ? mode_lookup(tc) : -1; }
 
 __attribute__((force_align_arg_pointer)) int wired_main(int argc, char** argv) {
-  wired_srvboot_id     id;
-  server_keys          keys;
-  u16                  port = (u16)wired_cliargs_int(argc, argv, "--port", 443);
-  const char* cert_path     = wired_cliargs_str(argc, argv, "--cert", 0);
-  const char* key_path      = wired_cliargs_str(argc, argv, "--key", "key.pem");
+  wired_srvboot_id id;
+  server_keys      keys;
+  u16              port = (u16)wired_cliargs_int(argc, argv, "--port", 443);
+  const char*      cert_path = wired_cliargs_str(argc, argv, "--cert", 0);
+  const char*      key_path = wired_cliargs_str(argc, argv, "--key", "key.pem");
   wired_srvrun_handler h    = {app_on_request, 0};
   wired_srvrun_opt     opt  = {0};
   wired_srvrun_obs     obs  = {
