@@ -3900,12 +3900,26 @@ static void srvrun_dgring_send_one(
     srvrun_send_datagram_now(cfg, c, wired_span_of(e->buf, e->len), &ob);
 }
 
-/* Drain the whole session-addressed datagram ring, oldest first -- run once
- * per loop step (srvrun_step), so a burst queued inside one step's callbacks
- * goes out before the loop waits for input again. */
+/* RFC 9221 5: DATAGRAM frames are congestion-controlled and never
+ * retransmitted, so a whole ring drained back-to-back is a line-rate burst a
+ * bottleneck queue simply discards -- the interop simulator's 25-packet
+ * queue dropped ~2/3 of a 200-datagram burst queued in one step, and every
+ * dropped file was gone for good. Bound one step's drain instead: the rest
+ * stay in the ring and the following steps (clocked by arriving ACKs and
+ * replies, or the bounded PTO wait srvrun_may_block_unbounded guarantees
+ * while the ring is non-empty) let the burst out a queue-sized slice at a
+ * time. ponytail: fixed per-step cap, not real cc pacing -- wire the drain
+ * into the connection's cc budget if a lossy path still overruns this. */
+#define SRVRUN_DGRING_DRAIN_MAX 16
+
+/* Drain up to SRVRUN_DGRING_DRAIN_MAX ring entries, oldest first -- run once
+ * per loop step (srvrun_step); what one step cannot send stays queued for
+ * the next, never dropped. */
 static void srvrun_dgring_drain(const srvrun_cfg* cfg, srvrun_state* st) {
   wired_srvrun_env* env = cfg->env;
-  while (env->dgring_n) {
+  usz               n   = env->dgring_n;
+  if (n > SRVRUN_DGRING_DRAIN_MAX) n = SRVRUN_DGRING_DRAIN_MAX;
+  while (n--) {
     srvrun_dgring_send_one(cfg, st, &env->dgring[env->dgring_head]);
     env->dgring_head = (env->dgring_head + 1) % SRVRUN_DGRING_CAP;
     env->dgring_n--;
@@ -7636,6 +7650,9 @@ static void srvrun_polling_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
  * bounded path below even with nothing in flight. */
 static int srvrun_may_block_unbounded(const srvrun_cfg* cfg, srvrun_state* st) {
   if (cfg->no_signal_handlers) return 0;
+  /* Undrained ring entries need further steps to go out (the per-step drain
+   * cap holds the rest back); an unbounded block here would strand them. */
+  if (cfg->env->dgring_n) return 0;
   return !srvrun_any_waiting(st);
 }
 
