@@ -12,6 +12,7 @@
 #include "app/http3/server/srvwire/wire.h"
 #include "app/qpack/qpack/error.h"
 #include "app/qpack/qpack/instruction.h"
+#include "common/bytes/util/bytes.h"
 #include "crypto/kdf/keys/keyset.h"
 #include "test.h"
 #include "tls/ext/tparam/tparam.h"
@@ -708,10 +709,17 @@ static int find_ack_frame(const u8* pl, usz pll, ack_frame* out) {
   return 0;
 }
 
-/* Drive the loop to confirmed with a genuine client Finished. */
+/* Drive the loop to confirmed with a genuine client Finished. The embedded
+ * server/loop state is zeroed first: production storage for these structs is
+ * always zeroed before use (srvrun_open_slot / srvthreads' fresh mmap), so a
+ * fixture on a raw stack frame must match that contract or fields no test
+ * flow writes (ack_defer, qlog_path, ...) carry stack garbage into the very
+ * branches under test. */
 static void lp_confirm(struct lp_fix* f, wired_obuf* ob) {
   u8  cpkt[1024];
   usz clen;
+  bytes_memset(&f->s, 0, sizeof f->s);
+  bytes_memset(&f->l, 0, sizeof f->l);
   lp_make_client_hello(f);
   lp_drive_to_flight(f);
   lp_make_client_finished(f);
