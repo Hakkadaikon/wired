@@ -12364,10 +12364,12 @@ static void test_srvrun_wt_open_bidi_allocates_ids_and_holds_view(void) {
  * - a full reset latch refuses the call and keeps the send slot */
 
 /* Pump slot 0 once and decode the single STREAM frame of the one packet it
- * seals onto the wire. Returns 1 with *sf filled. */
+ * seals onto the wire. Returns 1 with *sf filled. pkt is static, not a
+ * local: *sf carries views into it (stream_frame.data), which callers read
+ * after this returns -- a stack buffer would leave those views dangling. */
 static int sr_wtsend_pump_recv_stream(
     struct lp_fix* f, i64 cfd, i64 sfd, const sockaddr* srv, stream_frame* sf) {
-  u8           pkt[1500];
+  static u8    pkt[1500];
   const u8*    pl;
   usz          pll;
   sockaddr     from;
