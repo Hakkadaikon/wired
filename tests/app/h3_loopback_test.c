@@ -3,6 +3,7 @@
 #include "app/http3/server/srvboot/srvboot.h"
 #include "app/http3/server/srvloop/srvloop.h"
 #include "app/http3/server/srvwire/wire.h"
+#include "common/bytes/util/bytes.h"
 #include "realchain_golden.h"
 #include "test.h"
 #include "tls/handshake/core/tls/clienthello.h"
@@ -641,13 +642,18 @@ static usz sb_seal_ch_chunk(
   return o.len;
 }
 
-/* Accept from the accumulator with the fixed identity; returns the result. */
+/* Accept from the accumulator with the fixed identity; returns the result.
+ * s/l are zeroed to match production's contract (srvrun_open_slot memsets a
+ * slot before boot) -- a refused/unservable ClientHello still builds a
+ * closing flight, which reads server state no accept flow wrote. */
 static int sb_accept_acc(wired_srvboot_acc* a, wired_srvboot_out* out) {
   wired_server       s;
   wired_srvloop      l;
   wired_srvboot_id   id;
   u8                 priv[32], pub[32], seed[32], rnd[32];
   wired_srvboot_conn conn = {&s, &l};
+  bytes_memset(&s, 0, sizeof s);
+  bytes_memset(&l, 0, sizeof l);
   sb_make_id(&id, priv, pub, seed, rnd);
   return wired_srvboot_accept_acc(&conn, &id, a, out);
 }
