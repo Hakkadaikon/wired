@@ -829,6 +829,10 @@ struct wired_srvrun_env {
   srvrun_dgring_entry dgring[SRVRUN_DGRING_CAP];
   usz                 dgring_head;
   usz                 dgring_n;
+  /* Earliest monotonic time the next drain slice may go out (0 = at once);
+   * paces the ring so ack-clocked steps cannot amplify into a line-rate
+   * burst (srvrun_dgring_drain). */
+  u64 dgring_next_drain_ms;
 };
 
 /* The one process-wide instance wired_server_run/wired_server_run_opt drive
@@ -3901,24 +3905,37 @@ static void srvrun_dgring_send_one(
 }
 
 /* RFC 9221 5: DATAGRAM frames are congestion-controlled and never
- * retransmitted, so a whole ring drained back-to-back is a line-rate burst a
- * bottleneck queue simply discards -- the interop simulator's 25-packet
- * queue dropped ~2/3 of a 200-datagram burst queued in one step, and every
- * dropped file was gone for good. Bound one step's drain instead: the rest
- * stay in the ring and the following steps (clocked by arriving ACKs and
- * replies, or the bounded PTO wait srvrun_may_block_unbounded guarantees
- * while the ring is non-empty) let the burst out a queue-sized slice at a
- * time. ponytail: fixed per-step cap, not real cc pacing -- wire the drain
- * into the connection's cc budget if a lossy path still overruns this. */
+ * retransmitted, so a ring drained at line rate is a burst a bottleneck
+ * queue simply discards, and every dropped datagram is gone for good. A
+ * per-step cap alone is not enough: every arriving ACK triggers a step, so
+ * ack-clocking amplifies "16 per step" back into a line-rate burst (the
+ * interop simulator's 25-packet queue saw 160 packets in 10ms and dropped
+ * ~90 of a 200-datagram transfer). Pace by TIME: at most one
+ * SRVRUN_DGRING_DRAIN_MAX slice per SRVRUN_DGRING_DRAIN_MS, sized so a
+ * slice never overruns a small bottleneck queue (16 < 25) and the rate
+ * (16/5ms = 3200 pkt/s) stays far under a 10Mbps path's small-packet
+ * capacity. ponytail: fixed slice/interval, not real cc pacing -- wire the
+ * drain into the connection's cc budget if a lossy path still overruns
+ * this. */
 #define SRVRUN_DGRING_DRAIN_MAX 16
+#define SRVRUN_DGRING_DRAIN_MS 5
 
-/* Drain up to SRVRUN_DGRING_DRAIN_MAX ring entries, oldest first -- run once
- * per loop step (srvrun_step); what one step cannot send stays queued for
- * the next, never dropped. */
-static void srvrun_dgring_drain(const srvrun_cfg* cfg, srvrun_state* st) {
+/* Entries this drain may send now: 0 while the pacing interval since the
+ * last slice has not yet elapsed. */
+static usz srvrun_dgring_slice(const wired_srvrun_env* env, u64 now_ms) {
+  usz n = env->dgring_n;
+  if (now_ms < env->dgring_next_drain_ms) return 0;
+  return n > SRVRUN_DGRING_DRAIN_MAX ? SRVRUN_DGRING_DRAIN_MAX : n;
+}
+
+/* Drain up to one paced slice of ring entries, oldest first -- run once per
+ * loop step (srvrun_step); what this slice cannot send stays queued for a
+ * later step, never dropped. */
+static void srvrun_dgring_drain(
+    const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms) {
   wired_srvrun_env* env = cfg->env;
-  usz               n   = env->dgring_n;
-  if (n > SRVRUN_DGRING_DRAIN_MAX) n = SRVRUN_DGRING_DRAIN_MAX;
+  usz               n   = srvrun_dgring_slice(env, now_ms);
+  if (n) env->dgring_next_drain_ms = now_ms + SRVRUN_DGRING_DRAIN_MS;
   while (n--) {
     srvrun_dgring_send_one(cfg, st, &env->dgring[env->dgring_head]);
     env->dgring_head = (env->dgring_head + 1) % SRVRUN_DGRING_CAP;
@@ -7693,7 +7710,7 @@ static void srvrun_step(
   }
   /* Session-addressed datagrams queued by this step's callbacks (or left
    * from an interrupted prior step) go out before the loop waits again. */
-  srvrun_dgring_drain(cfg, st);
+  srvrun_dgring_drain(cfg, st, clock_mono_ms());
 }
 
 /* Drain phase (RFC 9114 5.2): GOAWAY already sent to every live connection:

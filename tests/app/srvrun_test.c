@@ -12134,8 +12134,9 @@ static void test_srvrun_wt_avail_captured_from_wire(void) {
 static srvrun_conn* sr_wtsend_fixture(struct lp_fix* f, wired_obuf* ob) {
   srvrun_conn* c = &g_srvrun_state.conns[0];
   sr_reset_global_table();
-  g_srvrun_env.dgring_head = 0;
-  g_srvrun_env.dgring_n    = 0;
+  g_srvrun_env.dgring_head          = 0;
+  g_srvrun_env.dgring_n             = 0;
+  g_srvrun_env.dgring_next_drain_ms = 0;
   sr_make_confirmed_conn(c, f, ob);
   wired_wt_session_init(&c->wt, 4);
   wired_wt_session_establish(&c->wt);
@@ -13674,11 +13675,14 @@ static void test_srvrun_wt_datagram_ring_drains_200_queued(void) {
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_state st = {g_srvrun_table, g_srvrun_state.conns};
     srvrun_test_reset_send_count();
-    srvrun_dgring_drain(&cfg, &st);
+    srvrun_dgring_drain(&cfg, &st, 0);
     CHECK(srvrun_test_send_count() == SRVRUN_DGRING_DRAIN_MAX);
     CHECK(g_srvrun_env.dgring_n == 200 - SRVRUN_DGRING_DRAIN_MAX);
+    /* inside the pacing interval nothing more goes out */
+    srvrun_dgring_drain(&cfg, &st, SRVRUN_DGRING_DRAIN_MS - 1);
+    CHECK(srvrun_test_send_count() == SRVRUN_DGRING_DRAIN_MAX);
     for (int i = 0; i < 32 && g_srvrun_env.dgring_n; i++)
-      srvrun_dgring_drain(&cfg, &st);
+      srvrun_dgring_drain(&cfg, &st, (u64)(i + 1) * SRVRUN_DGRING_DRAIN_MS);
     CHECK(srvrun_test_send_count() == 200);
   }
   CHECK(g_srvrun_env.dgring_n == 0);
@@ -13708,7 +13712,7 @@ static void test_srvrun_wt_datagram_ring_full_rejects_then_recovers(void) {
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_state st = {g_srvrun_table, g_srvrun_state.conns};
     for (int i = 0; i < 32 && g_srvrun_env.dgring_n; i++)
-      srvrun_dgring_drain(&cfg, &st);
+      srvrun_dgring_drain(&cfg, &st, (u64)(i + 1) * SRVRUN_DGRING_DRAIN_MS);
   }
   CHECK(g_srvrun_env.dgring_n == 0);
   CHECK(
@@ -13789,7 +13793,7 @@ static void test_srvrun_broadcast_datagram_ring_drains_both_next_step(void) {
     srvrun_cfg   cfg = sr_wt_send_cfg();
     srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
     srvrun_test_reset_send_count();
-    srvrun_dgring_drain(&cfg, &st);
+    srvrun_dgring_drain(&cfg, &st, 0);
     CHECK(srvrun_test_send_count() == 2);
   }
   CHECK(g_srvrun_env.dgring_n == 0);
@@ -13884,7 +13888,7 @@ test_srvrun_broadcast_ring_delivers_concurrent_chat_from_three_conns(void) {
     srvrun_cfg   cfg = sr_wt_send_cfg();
     srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
     srvrun_test_reset_send_count();
-    srvrun_dgring_drain(&cfg, &st);
+    srvrun_dgring_drain(&cfg, &st, 0);
     CHECK(srvrun_test_send_count() == 6); /* none silently lost */
   }
   CHECK(g_srvrun_env.dgring_n == 0);
@@ -13980,7 +13984,7 @@ test_srvrun_broadcast_ring_drops_disconnected_conn_without_blocking_others(
     srvrun_cfg   cfg = sr_wt_send_cfg();
     srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
     srvrun_test_reset_send_count();
-    srvrun_dgring_drain(&cfg, &st);
+    srvrun_dgring_drain(&cfg, &st, 0);
     CHECK(srvrun_test_send_count() == 2); /* conns 0 and 2 only */
   }
   CHECK(g_srvrun_env.dgring_n == 0);
