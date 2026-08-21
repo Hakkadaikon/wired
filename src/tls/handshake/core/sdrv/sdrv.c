@@ -1003,7 +1003,7 @@ static void sdrv_hrr_reset_transcript(sdrv* s, const u8* hrr, usz hrr_len) {
 }
 
 int sdrv_build_hrr(sdrv* s, wired_obuf* out) {
-  if (!hrr_build(s->group, wired_span_of(0, 0), out)) return 0;
+  if (!hrr_build(s->cipher_suite, s->group, wired_span_of(0, 0), out)) return 0;
   sdrv_hrr_reset_transcript(s, out->p, out->len);
   s->hrr_sent   = 1;
   s->hrr_needed = 0;

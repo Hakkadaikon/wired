@@ -12,11 +12,14 @@
 /* The 32-byte HelloRetryRequest random sentinel (RFC 8446 4.1.3). */
 extern const u8 hrr_random[32];
 
-/* Build a HelloRetryRequest into out: selected_group is the group the client
- * must retry with; cookie (may be empty) is echoed in a cookie extension.
- * On success writes the total message length to out->len and returns 1;
- * returns 0 if it does not fit. */
-int hrr_build(u16 selected_group, wired_span cookie, wired_obuf* out);
+/* Build a HelloRetryRequest into out: cipher_suite is the one negotiated
+ * from ClientHello1 (RFC 8446 4.1.4: the HRR carries the suite the
+ * connection will use, and the client checks it against its own offer);
+ * selected_group is the group the client must retry with; cookie (may be
+ * empty) is echoed in a cookie extension. On success writes the total
+ * message length to out->len and returns 1; returns 0 if it does not fit. */
+int hrr_build(
+    u16 cipher_suite, u16 selected_group, wired_span cookie, wired_obuf* out);
 
 /* RFC 8446 4.4.1: after a HelloRetryRequest, ClientHello1 is replaced in the
  * transcript by a synthetic "message_hash" message: msg_type 254, a 3-byte

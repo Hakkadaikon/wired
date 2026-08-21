@@ -14,13 +14,15 @@ const u8 hrr_random[32] = {0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11,
 
 #define EXT_COOKIE 44
 
-/* RFC 8446 4.1.3 prefix with empty session_id, suite AES_128_GCM_SHA256, and
- * the HRR random sentinel. Returns the offset past it. */
-static usz hrr_prefix(u8* out, usz off) {
+/* RFC 8446 4.1.3 prefix with empty session_id, the negotiated cipher_suite
+ * (4.1.4: the one the connection will use -- a fixed suite here made a
+ * ChaCha20-only client reject the HRR with illegal_parameter), and the HRR
+ * random sentinel. Returns the offset past it. */
+static usz hrr_prefix(u8* out, usz off, u16 cipher_suite) {
   be_put_be16(out + off, 0x0303);
   for (usz i = 0; i < 32; i++) out[off + 2 + i] = hrr_random[i];
   out[off + 34] = 0; /* empty session_id */
-  be_put_be16(out + off + 35, TLS_AES128_GCM_SHA256);
+  be_put_be16(out + off + 35, cipher_suite);
   out[off + 37] = 0; /* compression */
   return off + 38;
 }
@@ -88,12 +90,13 @@ static int hrr_head_fits(usz off, usz cap) {
   return off != 0 && off + 40 <= cap;
 }
 
-int hrr_build(u16 selected_group, wired_span cookie, wired_obuf* out) {
+int hrr_build(
+    u16 cipher_suite, u16 selected_group, wired_span cookie, wired_obuf* out) {
   usz        off = hs_begin(out->p, out->cap, HS_SERVER_HELLO);
   usz        block_start, end;
   wired_obuf w;
   if (!hrr_head_fits(off, out->cap)) return 0;
-  off         = hrr_prefix(out->p, off);
+  off         = hrr_prefix(out->p, off, cipher_suite);
   block_start = off;
   w           = obuf_of(out->p, out->cap);
   w.len       = off + 2;
