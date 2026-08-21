@@ -30,7 +30,9 @@
 #include "transport/conn/loop/manage/zerortt_policy.h"
 #include "transport/conn/loop/manage/zerortt_seen.h"
 #include "transport/version/version/verinfo.h"
+#include "transport/version/version/verselect.h"
 #include "transport/version/version/version.h"
+#include "transport/version/versmgr/avail.h"
 
 /* RFC 8446 4 / RFC 9001 4: drive the server handshake flight. */
 
@@ -126,8 +128,19 @@ void sdrv_init(sdrv* s, const sdrv_init_in* in) {
   s->hrr_sent            = 0;
   s->hrr_cipher_suite    = 0;
   s->sni_outcome         = SALPN_SNI_ABSENT;
+  s->client_version      = 0;
+  s->negotiated_version  = 0;
   for (usz i = 0; i < 32; i++) s->ch1_hash[i] = 0;
   transcript_init(&s->tr);
+}
+
+void sdrv_set_client_version(sdrv* s, u32 version) {
+  s->client_version = version;
+}
+
+u32 sdrv_wire_version(const sdrv* s) {
+  if (s->negotiated_version) return s->negotiated_version;
+  return s->client_version ? s->client_version : VERSION_1;
 }
 
 /* Copy a connection id (<=20 bytes) into dst, recording its length. Returns 1
@@ -797,6 +810,26 @@ static int find_version_information(
   return stp_parse(tp, TP_VERSION_INFORMATION, &out_v);
 }
 
+/* RFC 9368 2.2/4: a well-formed version_information arrived -- its Chosen
+ * Version must equal the version the carrying packet actually used
+ * (VERSION_NEGOTIATION_ERROR otherwise), and the most preferred version
+ * this server shares with the client's Available Versions becomes the
+ * version the whole server flight replies in (nothing shared keeps the
+ * flight in the client's own version -- negotiated_version stays 0). */
+static int sdrv_ch_take_version_information(
+    sdrv* s, const version_information* vi) {
+  vers_set us;
+  u32      pick;
+  if (!verinfo_chosen_ok(vi->chosen, sdrv_wire_version(s))) {
+    s->last_error = EC_VERSION_NEGOTIATION_ERROR;
+    return 0;
+  }
+  vers_init(&us);
+  if (verinfo_pick_compatible(vi, verlist_of(us.versions, us.n), &pick))
+    s->negotiated_version = pick;
+  return 1;
+}
+
 /* RFC 9368 4: an endpoint that receives a version_information transport
  * parameter it cannot parse MUST close the connection with a
  * TRANSPORT_PARAMETER_ERROR. Absent is fine (compatible version negotiation
@@ -806,9 +839,11 @@ static int sdrv_ch_check_version_information(
   wired_span          bytes;
   version_information vi;
   if (!find_version_information(ch_msg, ch_len, &bytes)) return 1;
-  if (verinfo_decode(bytes.p, bytes.n, &vi) == bytes.n) return 1;
-  s->last_error = ERR_TRANSPORT_PARAMETER_ERROR;
-  return 0;
+  if (verinfo_decode(bytes.p, bytes.n, &vi) != bytes.n) {
+    s->last_error = ERR_TRANSPORT_PARAMETER_ERROR;
+    return 0;
+  }
+  return sdrv_ch_take_version_information(s, &vi);
 }
 
 /* The ClientHello's extensions block as a wired_span (TLV bytes only, no
