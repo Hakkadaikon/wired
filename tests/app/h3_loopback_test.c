@@ -1161,6 +1161,11 @@ static void test_srvrun_hrr_lost_ch1_retransmit_resends_hrr(void) {
     CHECK(srvrun_test_send_count() == 2); /* the HRR Initial + partial ack */
     CHECK(st.conns[0].up == 0);
     CHECK(st.conns[0].boot_ini_len != 0);
+    /* the partial ack's side effect must have run: the client's post-HRR
+     * DCID (this slot's own scid) is admitted into the accumulator, or the
+     * ClientHello2 that continues this handshake is rejected on arrival
+     * and the server loops HRR resends forever (observed live). */
+    CHECK(st.conns[0].boot.alt_dcid_len != 0);
     /* the client retransmits the exact same ClientHello1 datagram */
     srvrun_test_reset_send_count();
     srvrun_serve(&ctx, wired_mspan_of(dup, nd));
