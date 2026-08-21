@@ -11024,6 +11024,37 @@ static void test_srvrun_spare_cid_routes_after_confirm(void) {
   CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, prim, 6) == 0);
 }
 
+/* RFC 9000 9.6.2: a datagram arriving on the preferred-address socket (a
+ * different local fd, same client address) is a path change -- the
+ * PATH_CHALLENGE fires and the connection's replies follow the new
+ * socket from then on. */
+static void test_srvrun_rebind_on_arrival_fd_change(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  wired_obuf    ob = {0};
+  u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      peer = {0};
+  srvrun_state  st   = {table, &c};
+  ob                 = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  wired_udp_addr(&peer, 4433, (const u8[4]){127, 0, 0, 1});
+  c.peer  = peer;
+  c.tx_fd = 7; /* the primary socket this connection lived on */
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    g_srvrun_env.rx_fd  = 9; /* arrival on the preferred-address socket */
+    srvrun_serve_slot(&ctx, 0, wired_mspan_of(sh, sizeof sh));
+    g_srvrun_env.rx_fd = 0;
+  }
+  CHECK(c.tx_fd == 9); /* replies follow the arrival socket */
+  CHECK(c.migrate.challenged == 1);
+}
+
 /* A raise arms the retry timer; the frame itself still goes out once. */
 static void test_srvrun_grant_arms_retry(void) {
   struct lp_fix f;
@@ -14520,6 +14551,7 @@ void test_srvrun(void) {
   test_srvrun_grant_retry_exhausts();
   test_srvrun_grant_arms_retry();
   test_srvrun_spare_cid_routes_after_confirm();
+  test_srvrun_rebind_on_arrival_fd_change();
   test_srvrun_boot_pto_no_resend_before_deadline();
   test_srvrun_boot_pto_stops_after_confirm();
   test_srvrun_boot_pto_confirm_race_stops_immediately();

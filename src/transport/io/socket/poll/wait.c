@@ -18,3 +18,11 @@ i64 poll_wait_readable(i64 fd, u64 timeout_ms) {
   i64 r = wired_arch_poll(&p, 1, (i32)timeout_ms);
   return poll_result(r, p.revents);
 }
+
+i64 poll_wait_readable2(i64 fd, i64 fd2, u64 timeout_ms) {
+  pollfd p[2];
+  poll_fill_readable(&p[0], fd);
+  poll_fill_readable(&p[1], fd2);
+  i64 r = wired_arch_poll(p, 2, (i32)timeout_ms);
+  return poll_result(r, p[0].revents | p[1].revents);
+}
