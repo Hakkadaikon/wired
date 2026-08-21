@@ -40,7 +40,15 @@ RETRY=""
 # RFC 9000 9.6: advertise the sim's fixed server addresses as the
 # preferred_address, so the client performs an active migration.
 MIGRATE=""
-[ "$TESTCASE" = "connectionmigration" ] && MIGRATE="--migrate-addr"
+if [ "$TESTCASE" = "connectionmigration" ]; then
+  MIGRATE="--migrate-addr"
+  # The advertised preferred address is this server at udp/4433; the single
+  # 443 socket serves it via REDIRECT, and conntrack rewrites the replies'
+  # source back to 4433 (RFC 9000 9.6.2: the server must answer from the
+  # preferred address).
+  iptables -t nat -A PREROUTING -p udp --dport 4433 -j REDIRECT --to-ports 443
+  ip6tables -t nat -A PREROUTING -p udp --dport 4433 -j REDIRECT --to-ports 443
+fi
 
 case "$TESTCASE" in
   http3 | handshake | transfer | retry) ;;
