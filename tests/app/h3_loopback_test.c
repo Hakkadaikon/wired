@@ -1130,6 +1130,48 @@ static void test_srvboot_hrr_then_ch2_accepts(void) {
   CHECK(out.dgram_count > 0); /* and its Handshake flight */
 }
 
+/* RFC 8446 4.1.4 x RFC 9000 13.3: a retransmitted ClientHello1 arriving on
+ * a slot whose HelloRetryRequest already went out means the HRR was lost --
+ * the server resends that same HRR from the same slot. Without this, the
+ * live picoquic handshakeloss run showed the server answering every
+ * ClientHello1 retransmit with an ACK-only Initial while the client sat on
+ * its handshake timer for minutes. */
+static void test_srvrun_hrr_lost_ch1_retransmit_resends_hrr(void) {
+  client           c;
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               ch1[512], dg[1400], dup[1400];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, sr_test_conns()};
+  usz              n1, nd;
+  sb_make_id(&id, priv, pub, seed, rnd);
+  n1 = sb_build_raw_ch(&c, ch1, sizeof ch1);
+  CHECK(sb_break_keyshare_group(ch1, n1) == 1);
+  nd = sb_seal_ch_chunk(dg, sizeof dg, wired_span_of(ch1, n1), 0, 3);
+  bytes_memcpy(
+      dup, dg, nd); /* rx unprotects in place -- replay a pristine copy */
+  {
+    srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    conntable_init(table, WIRED_CONNTABLE_CAP);
+    srvrun_test_reset_send_count();
+    srvrun_serve(&ctx, wired_mspan_of(dg, nd));
+    CHECK(srvrun_test_send_count() == 2); /* the HRR Initial + partial ack */
+    CHECK(st.conns[0].up == 0);
+    CHECK(st.conns[0].boot_ini_len != 0);
+    /* the client retransmits the exact same ClientHello1 datagram */
+    srvrun_test_reset_send_count();
+    srvrun_serve(&ctx, wired_mspan_of(dup, nd));
+    CHECK(srvrun_test_send_count() == 1); /* the HRR again, verbatim */
+    /* ...from the SAME slot: the ODCID still routes to slot 0 and no
+     * second connection was opened for the duplicate */
+    CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_scid, 6) == 0);
+    CHECK(st.conns[1].boot.any == 0);
+  }
+}
+
 /* RFC 9000 13.4.1: ECN codepoints counted into the boot accumulator surface
  * on the accept flight's Initial ACK as a type-0x03 ACK with the cumulative
  * counts -- the peer (ngtcp2) validates ECN against the FIRST
@@ -1483,6 +1525,7 @@ void test_h3_loopback(void) {
   test_srvboot_acc_allows_switched_dcid();
   test_srvboot_refusal_closes_unservable();
   test_srvboot_hrr_then_ch2_accepts();
+  test_srvrun_hrr_lost_ch1_retransmit_resends_hrr();
   test_srvboot_initial_ack_carries_ecn_counts();
   test_srvboot_refusal_reports_missing_tp_ext();
   test_srvboot_split_flight_datagrams();
