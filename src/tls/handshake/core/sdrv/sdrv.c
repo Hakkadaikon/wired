@@ -810,8 +810,17 @@ static int find_version_information(
   return stp_parse(tp, TP_VERSION_INFORMATION, &out_v);
 }
 
+/* RFC 9368 4 x RFC 8446 4.1.2: Chosen is validated against the version the
+ * client's FIRST flight used, not the current wire version -- a post-HRR
+ * ClientHello2 arrives in the negotiated version but must repeat
+ * ClientHello1's version_information verbatim, so its Chosen still names
+ * the original version. */
+static u32 sdrv_first_flight_version(const sdrv* s) {
+  return s->client_version ? s->client_version : VERSION_1;
+}
+
 /* RFC 9368 2.2/4: a well-formed version_information arrived -- its Chosen
- * Version must equal the version the carrying packet actually used
+ * Version must equal the version the client's first flight used
  * (VERSION_NEGOTIATION_ERROR otherwise), and the most preferred version
  * this server shares with the client's Available Versions becomes the
  * version the whole server flight replies in (nothing shared keeps the
@@ -820,7 +829,7 @@ static int sdrv_ch_take_version_information(
     sdrv* s, const version_information* vi) {
   vers_set us;
   u32      pick;
-  if (!verinfo_chosen_ok(vi->chosen, sdrv_wire_version(s))) {
+  if (!verinfo_chosen_ok(vi->chosen, sdrv_first_flight_version(s))) {
     s->last_error = EC_VERSION_NEGOTIATION_ERROR;
     return 0;
   }

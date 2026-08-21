@@ -1131,6 +1131,83 @@ static void test_srvboot_hrr_then_ch2_accepts(void) {
   CHECK(out.dgram_count > 0); /* and its Handshake flight */
 }
 
+/* RFC 9368 2.3 x RFC 8446 4.1.2: after the server switches its flight to
+ * the negotiated compatible version, the client's ClientHello2 arrives in
+ * the NEW version but repeats ClientHello1's version_information verbatim
+ * (TLS forbids changing extensions on retry beyond what the HRR directed)
+ * -- its Chosen Version still names the version the FIRST flight used.
+ * Validating Chosen against the current wire version rejected every such
+ * ClientHello2 with VERSION_NEGOTIATION_ERROR (observed live: picoquic
+ * -U 6b3343cf hit 'boot refused' right after the HRR and idled out). */
+static void test_srvboot_hrr_v2_switch_accepts_ch2_with_v1_chosen(void) {
+  wired_server       s;
+  wired_srvloop      l;
+  wired_srvboot_id   id;
+  u8                 priv[32], pub[32], seed[32], rnd[32];
+  wired_srvboot_conn conn = {&s, &l};
+  u8                 tp[64], cli_priv[32], cli_pub[32], cli_rnd[32];
+  u8                 ch1[512], ch2[512], dg[1400];
+  u8                 ini[1500], hs[16384];
+  wired_obuf         iob = {ini, sizeof ini, 0};
+  wired_obuf         hob = {hs, sizeof hs, 0};
+  wired_srvboot_out  out = {&iob, &hob, {0}, 0, 0};
+  wired_srvboot_acc  a;
+  version_info       vi = {VERSION_1, 2, {VERSION_2, VERSION_1}};
+  usz                tp_len, n1, n2, nd;
+  bytes_memset(&s, 0, sizeof s);
+  bytes_memset(&l, 0, sizeof l);
+  sb_make_id(&id, priv, pub, seed, rnd);
+  tp_len = version_info_encode(tp, sizeof tp, &vi);
+  CHECK(tp_len != 0);
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i] = (u8)(i + 1);
+    cli_rnd[i]  = (u8)(0xa0 + i);
+  }
+  wired_x25519_base(cli_pub, cli_priv);
+  {
+    wired_obuf ob = obuf_of(ch1, sizeof ch1);
+    n1            = tls_client_hello(
+        &(clienthello_in){
+            cli_rnd, cli_pub, wired_span_of(0, 0), wired_span_of(tp, tp_len)},
+        &ob);
+  }
+  CHECK(n1 != 0);
+  CHECK(sb_break_keyshare_group(ch1, n1) == 1);
+  nd = sb_seal_ch_chunk(dg, sizeof dg, wired_span_of(ch1, n1), 0, 3);
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg, nd)) == 1);
+  CHECK(wired_srvboot_accept_acc(&conn, &id, &a, &out) == WIRED_SRVBOOT_HRR);
+  /* the HRR already goes out in the negotiated version (RFC 9368 2.3) */
+  CHECK(be_get_be32(ini + 1) == VERSION_2);
+
+  /* ClientHello2: x25519 key_share restored, the SAME version_information
+   * (Chosen still v1), arriving as a v2-sealed Initial at the continued
+   * crypto offset. */
+  {
+    wired_obuf ob = obuf_of(ch2, sizeof ch2);
+    n2            = tls_client_hello(
+        &(clienthello_in){
+            cli_rnd, cli_pub, wired_span_of(0, 0), wired_span_of(tp, tp_len)},
+        &ob);
+  }
+  CHECK(n2 != 0);
+  {
+    initpkt_desc d = {
+        wired_span_of(g_scid, 6), wired_span_of(g_scid, 6),
+        wired_span_of(ch2, n2), 4, n1};
+    wired_obuf o = obuf_of(dg, sizeof dg);
+    CHECK(initpkt_build_ver(VERSION_2, &d, &o) == 1);
+    nd = o.len;
+  }
+  iob.len = 0;
+  hob.len = 0;
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg, nd)) == 1);
+  CHECK(wired_srvboot_acc_complete(&a) == 1);
+  CHECK(wired_srvboot_accept_acc(&conn, &id, &a, &out) == 1);
+  CHECK(be_get_be32(ini + 1) == VERSION_2); /* accept flight stays v2 */
+  CHECK(out.dgram_count > 0);
+}
+
 /* RFC 8446 4.1.4 x RFC 9000 13.3: a retransmitted ClientHello1 arriving on
  * a slot whose HelloRetryRequest already went out means the HRR was lost --
  * the server resends that same HRR from the same slot. Without this, the
@@ -1531,6 +1608,7 @@ void test_h3_loopback(void) {
   test_srvboot_acc_allows_switched_dcid();
   test_srvboot_refusal_closes_unservable();
   test_srvboot_hrr_then_ch2_accepts();
+  test_srvboot_hrr_v2_switch_accepts_ch2_with_v1_chosen();
   test_srvrun_hrr_lost_ch1_retransmit_resends_hrr();
   test_srvboot_initial_ack_carries_ecn_counts();
   test_srvboot_refusal_reports_missing_tp_ext();
