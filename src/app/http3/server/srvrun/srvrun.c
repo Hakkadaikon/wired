@@ -1133,10 +1133,21 @@ static void srvrun_boot_send(
   c->boot_tx_bytes += pkt.n;
 }
 
+/* RFC 9001 8.1: the client's address counts as validated once ANY Handshake
+ * packet from it was successfully processed (hs_rx_seen -- decrypting one
+ * proves it holds the Handshake keys, which only the real peer can derive),
+ * not just once the whole handshake confirms. Without the early half, a
+ * flight big enough to exhaust the 3x budget deadlocked against a client
+ * whose own PTO probes (small Handshake PINGs) could never raise the budget
+ * back above one full datagram -- the interop amplificationlimit case. */
+static int srvrun_path_validated(const srvrun_conn* c, int confirmed) {
+  return confirmed || c->l.hs_rx_seen;
+}
+
 /* The antiamp gate applies only until the path is validated. */
 static int srvrun_boot_gate_blocks(
     const srvrun_conn* c, int confirmed, usz want) {
-  return !confirmed && want > srvrun_boot_budget(c);
+  return !srvrun_path_validated(c, confirmed) && want > srvrun_boot_budget(c);
 }
 
 /* Send/resend the boot Initial through the same antiamp gate as the
@@ -7840,12 +7851,20 @@ static void srvrun_step(
   srvrun_reload_if_requested(cfg, cfg->env);
   srvrun_bcast_drain_self(st); /* other workers' broadcasts */
   srvrun_polling_ptos(cfg, st);
-  if (!srvrun_wait_input(cfg, st)) {
-    srvrun_fire_ptos(cfg, st);
-  } else {
+  if (srvrun_wait_input(cfg, st)) {
     r = srvrun_recv(cfg, bufs, nbufs);
     if (r > 0) srvrun_serve_batch(cfg, st, bufs, r);
   }
+  /* RFC 9002 6.2: evaluate every slot's PTO deadlines on EVERY iteration,
+   * not only on a poll timeout -- a steady inbound stream (e.g. the peer's
+   * own Handshake PTO probes under the interop amplificationlimit case)
+   * kept wait_input returning 1 forever, so the timeout-only fire path
+   * never ran: the boot flight's withheld tail was never resent even as
+   * the arriving probes kept raising the anti-amplification budget, and
+   * the client idled out after 30s. The due checks are cheap integer
+   * compares per slot; deadlines re-arm on any real send, so firing here
+   * cannot double-probe a round. */
+  srvrun_fire_ptos(cfg, st);
   /* Session-addressed datagrams queued by this step's callbacks (or left
    * from an interrupted prior step) go out before the loop waits again. */
   srvrun_dgring_drain(cfg, st, clock_mono_ms());
