@@ -4244,6 +4244,21 @@ static int srvrun_awaiting_confirm(const srvrun_conn* c) {
   return c->up && !wired_server_is_confirmed(&c->s);
 }
 
+/* RFC 8446 4.1.4: a HelloRetryRequest went out (its Initial is cached in
+ * boot_ini) while the connection is not up yet. The flight-retransmission
+ * machinery must treat this exactly like an unconfirmed accept flight, or
+ * a lost HRR is never resent and the client just retransmits its
+ * ClientHello1 against a server that only ever ACKs. */
+static int srvrun_hrr_pending(const srvrun_conn* c) {
+  return !c->up && c->boot_ini_len != 0;
+}
+
+/* Either boot-phase state with a resendable flight cached: accept flight
+ * out but unconfirmed, or HRR out but not up. */
+static int srvrun_boot_probe_armed(const srvrun_conn* c) {
+  return srvrun_awaiting_confirm(c) || srvrun_hrr_pending(c);
+}
+
 /* 1 if the packet at dg.p[off] wears a long header of the Initial type
  * (RFC 9000 17.2.2 for v1, RFC 9369 3.2 for v2 -- the type-bit layout is
  * version-dependent, so this reads the packet's own Version field rather
@@ -4334,6 +4349,9 @@ static void srvrun_free_slot(const srvrun_cfg* cfg, srvrun_state* st, int i) {
   c->boot_rx_bytes   = 0;
   c->boot_tx_bytes   = 0;
   c->boot_dgram_sent = 0;
+  /* srvrun_hrr_pending reads boot_ini_len on !up slots -- a stale length
+   * here would keep the boot PTO probing a dead slot. */
+  c->boot_ini_len = 0;
 }
 
 /* Advertised max_idle_timeout in ms — keep in sync with the value
@@ -6755,7 +6773,7 @@ static int srvrun_has_outbound(const srvrun_conn* c) {
  * timer never gets a chance to fire (RFC 9002 6.2, handshakeloss/
  * handshakecorruption interop). */
 static int srvrun_has_boot_outbound(const srvrun_conn* c) {
-  return srvrun_awaiting_confirm(c) && c->boot_ini_len != 0;
+  return srvrun_boot_probe_armed(c) && c->boot_ini_len != 0;
 }
 
 /* RFC 9002 6.2: this connection's current PTO duration in ms, scaled by
@@ -6897,11 +6915,21 @@ static void srvrun_boot_partial_ack(const srvrun_step_ctx* ctx, int slot) {
       ctx->cfg, c, wired_span_of(out, n), "partial ClientHello acked\n");
 }
 
+static int srvrun_resend_boot_flight(
+    const srvrun_step_ctx* ctx, srvrun_conn* c);
+
 static void srvrun_cold_start(
     const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
   int r = srvrun_on_initial(ctx, slot, &ctx->st->conns[slot], dg);
   if (r != SRVRUN_BOOT_PENDING) {
     srvrun_open_done(ctx, slot, r);
+    return;
+  }
+  /* RFC 8446 4.1.4: still pending with an HRR already cached means this
+   * datagram was a retransmitted ClientHello1 -- the HRR was lost, so
+   * resend it (an ACK alone gives the client nothing to progress on). */
+  if (srvrun_hrr_pending(&ctx->st->conns[slot])) {
+    srvrun_resend_boot_flight(ctx, &ctx->st->conns[slot]);
     return;
   }
   srvrun_boot_partial_ack(ctx, slot);
@@ -6949,7 +6977,7 @@ static int srvrun_resend_boot_flight(
  * probe (boot_ini_len == 0 means nothing was ever cached, e.g. a slot still
  * mid-ClientHello-reassembly or a slot that failed to boot). */
 static int srvrun_boot_pto_waiting(const srvrun_conn* c) {
-  return srvrun_awaiting_confirm(c) && c->boot_ini_len != 0;
+  return srvrun_boot_probe_armed(c) && c->boot_ini_len != 0;
 }
 
 /* RFC 9002 6.2: 1 once c is in the boot PTO's window AND now_ms has crossed

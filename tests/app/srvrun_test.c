@@ -10920,6 +10920,37 @@ static void test_srvrun_boot_pto_stops_after_confirm(void) {
   CHECK(st.conns[0].boot_pto_count == 0);
 }
 
+/* RFC 8446 4.1.4 x RFC 9002 6.2: an HRR-pending slot (flight cached while
+ * the connection is not up yet) sits in the boot PTO window too -- a lost
+ * HelloRetryRequest must be probed by the timer, not only by a client
+ * retransmit (picoquic's handshakeloss run stalled 3 minutes on this). */
+static void test_srvrun_boot_pto_fires_while_hrr_pending(void) {
+  conntable       table[WIRED_CONNTABLE_CAP];
+  srvrun_state    st  = {table, sr_test_conns()};
+  srvrun_cfg      cfg = sr_boot_pto_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1025, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_boot_conn(&st.conns[0], 0);
+  st.conns[0].up = 0; /* HRR sent: Initial cached, connection not up */
+  srvrun_test_reset_send_count();
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() > 0);
+  CHECK(st.conns[0].boot_pto_count == 1);
+}
+
+/* A freed slot leaves no cached boot flight behind: the HRR-pending window
+ * above reads boot_ini_len on !up slots, so a stale length would keep the
+ * timer probing a dead slot. */
+static void test_srvrun_free_slot_clears_boot_flight(void) {
+  conntable    table[WIRED_CONNTABLE_CAP];
+  srvrun_state st  = {table, sr_test_conns()};
+  srvrun_cfg   cfg = sr_boot_pto_cfg();
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_boot_conn(&st.conns[0], 0);
+  srvrun_free_slot(&cfg, &st, 0);
+  CHECK(st.conns[0].boot_ini_len == 0);
+}
+
 /* Confirm landing in the same instant a boot PTO tick would otherwise
  * have fired -- the confirm check runs first (srvrun_boot_pto_waiting), so
  * the race resolves to "stopped", never a stray extra resend. */
@@ -11004,16 +11035,18 @@ static void test_srvrun_boot_pto_noop_without_sent_flight(void) {
   CHECK(st.conns[0].boot_pto_count == 0);
 }
 
-/* A slot that is not up at all (never accepted, or already freed) is
- * a no-op -- srvrun_awaiting_confirm requires c->up. */
-static void test_srvrun_boot_pto_noop_when_not_up(void) {
+/* A slot already freed is a no-op: srvrun_free_slot clears the cached
+ * flight, so neither PTO window (accept-flight or HRR-pending) matches.
+ * (A !up slot WITH a cached flight is the HRR-pending case and does fire
+ * -- test_srvrun_boot_pto_fires_while_hrr_pending above.) */
+static void test_srvrun_boot_pto_noop_when_freed(void) {
   conntable       table[WIRED_CONNTABLE_CAP];
   srvrun_state    st  = {table, sr_test_conns()};
   srvrun_cfg      cfg = sr_boot_pto_cfg();
   srvrun_step_ctx ctx = {&cfg, 0, &st, 1000000, 0};
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
-  st.conns[0].up = 0;
+  srvrun_free_slot(&cfg, &st, 0);
   srvrun_test_reset_send_count();
   srvrun_boot_pto_slot(&ctx, 0);
   CHECK(srvrun_test_send_count() == 0);
@@ -14383,13 +14416,15 @@ void test_srvrun(void) {
   test_srvrun_pto_noop_when_nothing_inflight();
   test_srvrun_boot_pto_resends_after_deadline();
   test_srvrun_boot_pto_blocked_probe_keeps_budget();
+  test_srvrun_boot_pto_fires_while_hrr_pending();
+  test_srvrun_free_slot_clears_boot_flight();
   test_srvrun_boot_pto_no_resend_before_deadline();
   test_srvrun_boot_pto_stops_after_confirm();
   test_srvrun_boot_pto_confirm_race_stops_immediately();
   test_srvrun_boot_pto_budget_exhausted_frees_slot();
   test_srvrun_boot_pto_budget_not_yet_exhausted_keeps_slot();
   test_srvrun_boot_pto_noop_without_sent_flight();
-  test_srvrun_boot_pto_noop_when_not_up();
+  test_srvrun_boot_pto_noop_when_freed();
   test_srvrun_boot_pto_no_double_send_after_client_retransmit();
   test_srvrun_partial_ch_acked_and_rekeyed();
   test_srvrun_boot_resend_replays_lost_hs_flight();
