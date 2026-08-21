@@ -81,9 +81,52 @@ static void test_crecv_message_header_only(void) {
   CHECK(crecv_complete_message(&s) == 0);
 }
 
+/* RFC 8446 4.1.4: after a HelloRetryRequest the retried ClientHello arrives
+ * at the crypto-stream offset right past ClientHello1 -- the second message
+ * at a caller-supplied offset must be addressable and completeness-checked
+ * on its own. */
+static void test_crecv_message_at_offset(void) {
+  crecv     s;
+  u8        m1[12], m2[20];
+  u8        f[64];
+  usz       fn;
+  const u8* msg;
+  usz       len;
+  m1[0] = 0x01; /* ClientHello1: type 1, body 8 */
+  m1[1] = 0;
+  m1[2] = 0;
+  m1[3] = 8;
+  for (usz i = 0; i < 8; i++) m1[4 + i] = 0x11;
+  m2[0] = 0x01; /* ClientHello2: type 1, body 16 */
+  m2[1] = 0;
+  m2[2] = 0;
+  m2[3] = 16;
+  for (usz i = 0; i < 16; i++) m2[4 + i] = 0x22;
+
+  crecv_init(&s);
+  fn = mk_crypto_msg(f, 0, m1, sizeof m1);
+  CHECK(crecv_collect(&s, f, fn) == 1);
+  CHECK(crecv_complete_message_at(&s, sizeof m1) == 0); /* CH2 not yet */
+  /* CH2 split across two frames at the continued offset. */
+  fn = mk_crypto_msg(f, (u8)sizeof m1, m2, 10);
+  CHECK(crecv_collect(&s, f, fn) == 1);
+  CHECK(crecv_complete_message_at(&s, sizeof m1) == 0); /* body short */
+  fn = mk_crypto_msg(f, (u8)(sizeof m1 + 10), m2 + 10, 10);
+  CHECK(crecv_collect(&s, f, fn) == 1);
+  CHECK(crecv_complete_message_at(&s, sizeof m1) == 1);
+  crecv_message_at(&s, sizeof m1, &msg, &len);
+  CHECK(len == sizeof m2);
+  CHECK(msg[0] == 0x01 && msg[4] == 0x22);
+  /* offset 0 still names ClientHello1 (unchanged semantics). */
+  CHECK(crecv_complete_message_at(&s, 0) == 1);
+  /* an offset past everything buffered is simply incomplete. */
+  CHECK(crecv_complete_message_at(&s, 100) == 0);
+}
+
 void test_crecv_message(void) {
   test_crecv_message_finished();
   test_crecv_message_split();
   test_crecv_message_gap_empty();
   test_crecv_message_header_only();
+  test_crecv_message_at_offset();
 }

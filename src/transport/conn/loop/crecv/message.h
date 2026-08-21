@@ -13,8 +13,18 @@
  * Always succeeds (length may be 0). */
 void crecv_message(const crecv* s, const u8** msg, usz* len);
 
+/* Same, but from `off`: the contiguous bytes available at and past off
+ * (0-length when off is at or past the contiguous prefix). RFC 8446 4.1.4:
+ * a post-HelloRetryRequest ClientHello2 continues the crypto stream at the
+ * offset right past ClientHello1, so the second message must be addressable
+ * on its own. */
+void crecv_message_at(const crecv* s, usz off, const u8** msg, usz* len);
+
 /* Returns 1 if the leading TLS handshake message is completely buffered in the
  * contiguous prefix (4-byte header + declared body), else 0. */
 int crecv_complete_message(const crecv* s);
+
+/* Same, but for the message starting at `off` (see crecv_message_at). */
+int crecv_complete_message_at(const crecv* s, usz off);
 
 #endif
