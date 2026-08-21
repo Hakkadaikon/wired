@@ -5,6 +5,7 @@
 #include "tls/handshake/core/tls/exporter.h"
 #include "tls/handshake/core/tls/master.h"
 #include "tls/handshake/core/tls/schedule.h"
+#include "transport/version/version/version.h"
 
 /* RFC 8446 7.1: client_application_traffic_secret_0, retained (not just its
  * expanded key/iv/hp) so RFC 9001 6 key updates can later derive the next
@@ -28,11 +29,14 @@ static void save_server_ap_secret(
 }
 
 void keysched_init(keysched* st) {
-  st->stage = 0;
-  st->suite = TLS_AES_128_GCM_SHA256;
+  st->stage   = 0;
+  st->suite   = TLS_AES_128_GCM_SHA256;
+  st->version = VERSION_1;
 }
 
 void keysched_set_suite(keysched* st, u16 suite) { st->suite = suite; }
+
+void keysched_set_version(keysched* st, u32 version) { st->version = version; }
 
 /* RFC 8446 7.1: ECDHE shared secret is exactly 32 bytes (X25519 / P-256). */
 static int ecdhe_ok(int stage, usz ecdhe_len) {
@@ -48,6 +52,7 @@ static void install_handshake_secret(
   handshake_keys_in in;
   in.hs_secret  = hs;
   in.transcript = transcript;
+  in.version    = st->version;
   in.is_server  = 0;
   tls_handshake_keys_suite(&in, st->suite, &st->keys[KS_CLIENT_HS]);
   in.is_server = 1;
@@ -80,6 +85,7 @@ int keysched_advance_master(
   if (st->stage != 1) return 0;
   in.master     = st->master;
   in.transcript = wired_span_of(transcript, transcript_len);
+  in.version    = st->version;
   in.is_server  = 0;
   tls_app_keys_suite(&in, st->suite, &st->keys[KS_CLIENT_AP]);
   save_client_ap_secret(st, transcript, transcript_len);

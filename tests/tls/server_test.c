@@ -299,7 +299,8 @@ static void client_ap_keys(
   tls_handshake_secret(shared, hs);
   tls_master_secret(hs, master);
   tlen = client_transcript(f, tr);
-  tls_app_keys(&(app_keys_in){master, wired_span_of(tr, tlen), is_server}, out);
+  tls_app_keys(
+      &(app_keys_in){master, wired_span_of(tr, tlen), is_server, 0}, out);
 }
 
 /* Whole key material (key+iv+hp) is identical. */
@@ -634,7 +635,8 @@ static void client_ap_keys_psk(
   tls_handshake_secret_psk(pf->psk, shared, hs);
   tls_master_secret(hs, master);
   tlen = client_transcript(f, tr);
-  tls_app_keys(&(app_keys_in){master, wired_span_of(tr, tlen), is_server}, out);
+  tls_app_keys(
+      &(app_keys_in){master, wired_span_of(tr, tlen), is_server, 0}, out);
 }
 
 /* A PSK-accepted connection's Handshake Secret (recomputed the RFC
@@ -679,7 +681,7 @@ static void test_server_psk_accepted_keys_match_client(void) {
     for (usz i = 0; i < f.sh_len; i++) tr_sh[tr_sh_len++] = f.sh[i];
     CHECK(keysched_get(&f.s.sched, KS_SERVER_HS, &got) == 1);
     tls_handshake_keys(
-        &(handshake_keys_in){want_hs, wired_span_of(tr_sh, tr_sh_len), 1},
+        &(handshake_keys_in){want_hs, wired_span_of(tr_sh, tr_sh_len), 1, 0},
         &want);
     CHECK(ap_keys_eq(got, &want));
   }

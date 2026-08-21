@@ -3,6 +3,7 @@
 #include "tls/handshake/core/tls/aead_params.h"
 #include "tls/handshake/core/tls/cipher.h"
 #include "tls/handshake/core/tls/hp_select.h"
+#include "transport/version/version/v2keys.h"
 
 /* RFC 9001 5.1: AEAD key length for `suite` (aead_key_len), falling back
  * to the AES-128 length on an unrecognized suite so this never expands 0
@@ -99,16 +100,26 @@ static void protection_keys_zero_tail(
   for (usz i = hp_len; i < AEAD_KEY_MAX; i++) out->hp[i] = 0;
 }
 
-/* Expand the QUIC key/iv/hp triple from a traffic secret. */
-static void protection_keys(const u8 ts[HKDF_PRK], initial_keys* out) {
+/* The "<quic |quicv2 ><suffix>" packet-protection label for `version`
+ * (RFC 9001 5.1 / RFC 9369 3.3.1; 0/unknown falls back to v1's prefix). */
+static wired_span sched_quic_label(
+    u8 buf[VERSION_LABEL_MAX], u32 version, const char* sfx, usz sfx_len) {
+  return wired_span_of(buf, version_quic_label(buf, version, sfx, sfx_len));
+}
+
+/* Expand the QUIC key/iv/hp triple from a traffic secret, with `version`'s
+ * label prefix (RFC 9369 3.3.1; 0 = v1). */
+static void protection_keys(
+    const u8 ts[HKDF_PRK], u32 version, initial_keys* out) {
+  u8 lb[VERSION_LABEL_MAX];
   hs_field(
-      ts, wired_span_of((const u8*)"quic key", 8),
+      ts, sched_quic_label(lb, version, "key", 3),
       wired_mspan_of(out->key, INITIAL_KEY));
   hs_field(
-      ts, wired_span_of((const u8*)"quic iv", 7),
+      ts, sched_quic_label(lb, version, "iv", 2),
       wired_mspan_of(out->iv, INITIAL_IV));
   hs_field(
-      ts, wired_span_of((const u8*)"quic hp", 7),
+      ts, sched_quic_label(lb, version, "hp", 2),
       wired_mspan_of(out->hp, INITIAL_HP));
   protection_keys_zero_tail(out, INITIAL_KEY, INITIAL_HP);
 }
@@ -119,23 +130,25 @@ void tls_handshake_keys(const handshake_keys_in* in, initial_keys* out) {
   derive_secret_in dsi =
       derive_in(in->hs_secret, (ascii_label){label, 12}, in->transcript);
   tls_derive_secret(&dsi, ts);
-  protection_keys(ts, out);
+  protection_keys(ts, in->version, out);
 }
 
 /* Expand the QUIC key/iv/hp triple from a traffic secret, sized for suite
  * (RFC 8446 B.4; AES_128_GCM_SHA256 key=16/hp=16, CHACHA20_POLY1305_SHA256
- * key=32/hp=32 -- RFC 9001 5.1/5.4.3). */
+ * key=32/hp=32 -- RFC 9001 5.1/5.4.3), with `version`'s label prefix
+ * (RFC 9369 3.3.1; 0 = v1). */
 static void protection_keys_suite(
-    const u8 ts[HKDF_PRK], u16 suite, initial_keys* out) {
+    const u8 ts[HKDF_PRK], u16 suite, u32 version, initial_keys* out) {
   usz key_len = resolved_key_len(suite), hp_len = resolved_hp_len(suite);
+  u8  lb[VERSION_LABEL_MAX];
   hs_field(
-      ts, wired_span_of((const u8*)"quic key", 8),
+      ts, sched_quic_label(lb, version, "key", 3),
       wired_mspan_of(out->key, key_len));
   hs_field(
-      ts, wired_span_of((const u8*)"quic iv", 7),
+      ts, sched_quic_label(lb, version, "iv", 2),
       wired_mspan_of(out->iv, INITIAL_IV));
   hs_field(
-      ts, wired_span_of((const u8*)"quic hp", 7),
+      ts, sched_quic_label(lb, version, "hp", 2),
       wired_mspan_of(out->hp, hp_len));
   protection_keys_zero_tail(out, key_len, hp_len);
 }
@@ -147,7 +160,7 @@ void tls_handshake_keys_suite(
   derive_secret_in dsi =
       derive_in(in->hs_secret, (ascii_label){label, 12}, in->transcript);
   tls_derive_secret(&dsi, ts);
-  protection_keys_suite(ts, suite, out);
+  protection_keys_suite(ts, suite, in->version, out);
 }
 
 void tls_early_keys(
@@ -168,5 +181,7 @@ void tls_early_keys(
         wired_span_of(client_hello, client_hello_len));
     tls_derive_secret(&in, ts);
   }
-  protection_keys(ts, out);
+  /* RFC 9368 2.3: 0-RTT is only ever sent under the client's original
+   * version, before any compatible switch -- always the v1 labels here. */
+  protection_keys(ts, VERSION_1, out);
 }

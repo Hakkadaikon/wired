@@ -15,6 +15,7 @@ int endpoint_agree(endpoint* e, const endpoint_peer* p) {
   in.hs_secret  = hs_secret;
   in.transcript = p->transcript;
   in.is_server  = p->is_server;
+  in.version    = 0; /* v1 labels (see handshake_keys_in) */
   tls_handshake_keys(&in, &e->hs_keys);
   e->have_hs_keys = 1;
   return 1;

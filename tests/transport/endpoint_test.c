@@ -123,7 +123,7 @@ static void test_endpoint_handshake(void) {
     wired_x25519(shared, cl.priv, sv.pub);
     tls_handshake_secret(shared, hs);
     tls_handshake_keys(
-        &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 1},
+        &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 1, 0},
         &cl_sees_server);
   }
   for (usz i = 0; i < INITIAL_KEY; i++)
