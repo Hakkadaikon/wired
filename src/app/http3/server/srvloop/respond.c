@@ -122,10 +122,16 @@ static int append_ticket_frame(const wired_server* s, wired_obuf* out) {
  * confirmation -- a client holding no unused CID must not initiate
  * migration (RFC 9000 9), which left the interop connectionmigration case
  * stuck on its original path. No spare issued (len 0) appends nothing. */
+/* The frame is owed only when a spare exists AND the preferred_address
+ * parameter did not already deliver it (same CID, sequence 1). */
+static int ncid_frame_owed(const wired_srvloop* l) {
+  return l->spare_cid_len && !l->spare_cid_in_tp;
+}
+
 static int append_ncid_frame(const wired_srvloop* l, wired_obuf* out) {
   ncid_frame f;
   usz        written;
-  if (!l->spare_cid_len) return 1;
+  if (!ncid_frame_owed(l)) return 1;
   f.seq             = 1;
   f.retire_prior_to = 0;
   f.cid_len         = l->spare_cid_len;

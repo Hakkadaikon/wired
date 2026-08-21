@@ -480,6 +480,27 @@ int wired_srvboot_acc_complete(const wired_srvboot_acc* a) {
   return a->any && crecv_complete_message_at(&a->cr, a->hrr_off);
 }
 
+/* RFC 9000 9.6: arm the preferred_address transport parameter when the
+ * operator configured one AND this connection drew a spare CID to migrate
+ * with -- the parameter's CID slot carries the spare (sequence 1), so the
+ * confirmation flight's NEW_CONNECTION_ID frame stands down for it
+ * (spare_cid_in_tp; see respond.c's append_ncid_frame). */
+static void srvboot_arm_pref_addr(
+    const wired_srvboot_conn* conn, const wired_srvboot_id* id) {
+  sdrv_pref_addr p;
+  if (!id->pref_v4 || !conn->l->spare_cid_len) return;
+  p = (sdrv_pref_addr){
+      id->pref_v4,
+      id->pref_v4_port,
+      id->pref_v6,
+      id->pref_v6_port,
+      conn->l->spare_cid,
+      conn->l->spare_cid_len,
+      conn->l->spare_cid_token};
+  sdrv_set_preferred_address(&conn->s->sdrv, &p);
+  conn->l->spare_cid_in_tp = 1;
+}
+
 /* Init the server/loop from the bound header and fold the reassembled
  * ClientHello. After a HelloRetryRequest the server/loop are already
  * initialized (re-running wired_server_init would erase the driver's
@@ -495,6 +516,7 @@ static int srvboot_acc_start(
    * the baseline sdrv validates its version_information's Chosen against
    * and replies in when nothing better is negotiated. */
   sdrv_set_client_version(&conn->s->sdrv, a->hdr.version);
+  srvboot_arm_pref_addr(conn, id);
   return wired_server_recv_initial(conn->s, ch.p, ch.n);
 }
 

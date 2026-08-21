@@ -653,7 +653,7 @@ static int mode_lookup(const char* tc) {
 static int mode_of(const char* tc) { return tc ? mode_lookup(tc) : -1; }
 
 __attribute__((force_align_arg_pointer)) int wired_main(int argc, char** argv) {
-  wired_srvboot_id id;
+  wired_srvboot_id id = {0};
   server_keys      keys;
   u16              port = (u16)wired_cliargs_int(argc, argv, "--port", 443);
   const char*      cert_path = wired_cliargs_str(argc, argv, "--cert", 0);

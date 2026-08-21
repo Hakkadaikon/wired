@@ -297,10 +297,29 @@ static void load_config(app_config* cfg, int argc, char** argv) {
   cfg->driver.run.incoming_cpu = -1;
 }
 
+/* RFC 9000 9.6 (quic-interop-runner connectionmigration): the sim
+ * network's fixed server addresses, advertised as the preferred_address so
+ * a client can perform an active migration onto its spare CID.
+ * ponytail: fixed interop-sim literals behind one flag, no address parser
+ * -- a deployment wanting real values sets wired_srvboot_id's pref_*
+ * fields from its own configuration. */
+static const u8 g_migrate_v4[4]  = {193, 167, 100, 100};
+static const u8 g_migrate_v6[16] = {0xfd, 0x00, 0xca, 0xfe, 0xca, 0xfe,
+                                    0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                    0x00, 0x00, 0x01, 0x00};
+
+static void app_pref_addr(wired_srvboot_id* id, int argc, char** argv) {
+  if (!wired_cliargs_flag(argc, argv, "--migrate-addr")) return;
+  id->pref_v4      = g_migrate_v4;
+  id->pref_v6      = g_migrate_v6;
+  id->pref_v4_port = 443;
+  id->pref_v6_port = 443;
+}
+
 /* The real entry point, called from _start (see wired.h's WIRED_MAIN block)
  * with argc/argv recovered from the kernel stack. */
 int wired_main(int argc, char** argv) {
-  wired_srvboot_id     id;
+  wired_srvboot_id     id = {0};
   server_keys          keys;
   app_config           cfg = {0};
   wired_srvrun_handler h   = {app_on_request, &cfg};
@@ -311,6 +330,7 @@ int wired_main(int argc, char** argv) {
   /* Optional transport tuning; 0 keeps the built-in defaults (server_tp.c). */
   id.max_data         = (u64)wired_cliargs_int(argc, argv, "--max-data", 0);
   id.max_streams_bidi = (u64)wired_cliargs_int(argc, argv, "--max-streams", 0);
+  app_pref_addr(&id, argc, argv);
   wired_certreload_load_or_selfsigned(
       cfg.cert_path, cfg.key_path, &cert_store, &id);
   obs = (wired_srvrun_obs){

@@ -1,5 +1,8 @@
+#include "common/bytes/util/bytes.h"
 #include "crypto/asymmetric/ecc/cvecdsa/cvecdsa.h"
 #include "tls/ext/stp/server_tp.h"
+#include "tls/ext/tparam/tparam.h"
+#include "tls/ext/tparam/tpblob.h"
 #include "tls/handshake/core/sdrv/sdrv.h"
 #include "tls/handshake/core/tls/ext_keyshare.h"
 #include "tls/handshake/core/tls/handshake.h"
@@ -97,15 +100,57 @@ static int emit_ee_version_info(const sdrv* s, wired_obuf* tob) {
   return 1;
 }
 
+/* RFC 9000 9.6/18.2: the preferred_address value -- v4 addr+port, v6
+ * addr+port, the migration CID (sequence 1, RFC 9000 5.1.1) and its
+ * stateless reset token, in that fixed order. Returns bytes written. */
+static usz emit_pref_addr_value(const sdrv* s, u8* buf) {
+  usz n = 0;
+  bytes_memcpy(buf, s->pref_v4, 4);
+  n      = 4;
+  buf[n] = (u8)(s->pref_v4_port >> 8);
+  n++;
+  buf[n] = (u8)s->pref_v4_port;
+  n++;
+  bytes_memcpy(buf + n, s->pref_v6, 16);
+  n += 16;
+  buf[n] = (u8)(s->pref_v6_port >> 8);
+  n++;
+  buf[n] = (u8)s->pref_v6_port;
+  n++;
+  buf[n] = s->pref_cid_len;
+  n++;
+  bytes_memcpy(buf + n, s->pref_cid, s->pref_cid_len);
+  n += s->pref_cid_len;
+  bytes_memcpy(buf + n, s->pref_token, 16);
+  return n + 16;
+}
+
+/* Append the preferred_address transport parameter when one was armed
+ * (sdrv_set_preferred_address); absent is the default. Returns 1, 0 on
+ * overflow. */
+static int emit_ee_pref_addr(const sdrv* s, wired_obuf* tob) {
+  u8         value[4 + 2 + 16 + 2 + 1 + 20 + 16];
+  usz        vn, before, w;
+  wired_obuf tail;
+  if (!s->pref_cid_len) return 1;
+  vn     = emit_pref_addr_value(s, value);
+  before = tob->len;
+  tail   = obuf_of(tob->p + before, tob->cap - before);
+  w = tparam_put_blob(&tail, TP_PREFERRED_ADDRESS, wired_span_of(value, vn));
+  tob->len += w;
+  return w != 0;
+}
+
 /* The EncryptedExtensions' transport parameter TLV sequence: the RFC 9000
- * 18.2 set, then the RFC 9368 version_information. */
+ * 18.2 set, the RFC 9368 version_information, then the RFC 9000 9.6
+ * preferred_address when armed. */
 static int emit_ee_tp(sdrv* s, wired_obuf* tob) {
   return stp_build_server_ret(
              wired_span_of(s->tp_odcid, s->tp_odcid_len),
              wired_span_of(s->iscid, s->iscid_len),
              wired_span_of(s->rscid, s->rscid_len), sdrv_sreset_token_span(s),
              &s->limits, tob) &&
-         emit_ee_version_info(s, tob);
+         emit_ee_version_info(s, tob) && emit_ee_pref_addr(s, tob);
 }
 
 static int emit_ee(sdrv* s, wired_obuf* flight) {
