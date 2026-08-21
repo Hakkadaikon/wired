@@ -707,14 +707,18 @@ static void test_bootacc_split_two_datagrams(void) {
  * fingerprint the test checks comes back unchanged. */
 static usz sb_build_zerortt_dg(u8* dg, usz cap, u8 fingerprint) {
   usz n = 0;
-  CHECK(cap >= 8);
+  CHECK(cap >= 10);
   dg[n++] = 0xd1; /* long | fixed | type 0-RTT (01) | pn_len-1 = 0 */
   dg[n++] = 0;
   dg[n++] = 0;
   dg[n++] = 0;
-  dg[n++] = 1; /* version 1 */
-  dg[n++] = 0; /* DCID len 0 */
-  dg[n++] = 0; /* SCID len 0 */
+  dg[n++] = 1;    /* version 1 */
+  dg[n++] = 0;    /* DCID len 0 */
+  dg[n++] = 0;    /* SCID len 0 */
+  dg[n++] = 0x02; /* Length varint: pn(1) + 1 payload byte -- well-formed
+                   * so coalesce_next can bound it when this packet rides
+                   * behind an Initial in one datagram (RFC 9000 12.2) */
+  dg[n++] = 0;    /* packet number */
   dg[n++] = fingerprint;
   return n;
 }
@@ -723,7 +727,7 @@ static usz sb_build_zerortt_dg(u8* dg, usz cap, u8 fingerprint) {
  * keys/ClientHello even exist is buffered rather than refused, and comes
  * back out verbatim once the boot needs to replay it. */
 static void test_bootacc_zerortt_buffered_verbatim(void) {
-  u8                dg0[8], dg1[8];
+  u8                dg0[12], dg1[12];
   usz               n0, n1;
   wired_srvboot_acc a;
   n0 = sb_build_zerortt_dg(dg0, sizeof dg0, 0xaa);
@@ -736,8 +740,8 @@ static void test_bootacc_zerortt_buffered_verbatim(void) {
   {
     wired_span t0 = wired_srvboot_acc_zerortt_take(&a, 0);
     wired_span t1 = wired_srvboot_acc_zerortt_take(&a, 1);
-    CHECK(t0.n == n0 && t0.p[7] == 0xaa);
-    CHECK(t1.n == n1 && t1.p[7] == 0xbb);
+    CHECK(t0.n == n0 && t0.p[9] == 0xaa);
+    CHECK(t1.n == n1 && t1.p[9] == 0xbb);
   }
   /* An unreassembled 0-RTT-only accumulator never reports a complete
    * ClientHello -- 0-RTT datagrams do not feed the CRYPTO reassembly. */
@@ -746,11 +750,33 @@ static void test_bootacc_zerortt_buffered_verbatim(void) {
   CHECK(wired_srvboot_acc_zerortt_take(&a, 2).n == 0);
 }
 
+/* RFC 9000 12.2 / RFC 9001 4.6.1: picoquic coalesces its first 0-RTT packet
+ * behind the ClientHello Initial in ONE datagram; the 0-RTT part must be
+ * buffered for replay alongside the Initial's own open, not silently
+ * dropped -- the peer counts it sent-but-never-acked and its early data
+ * stalls to the idle timeout (the interop zerortt case's missing file). */
+static void test_bootacc_zerortt_coalesced_with_initial_buffered(void) {
+  client            c;
+  u8                ch[512], dg[1400], z[12];
+  usz               n, nd, nz;
+  wired_srvboot_acc a;
+  n  = sb_build_raw_ch(&c, ch, sizeof ch);
+  nd = sb_seal_ch_chunk(dg, sizeof dg, wired_span_of(ch, n), 0, 3);
+  nz = sb_build_zerortt_dg(z, sizeof z, 0xcc);
+  CHECK(nd + nz <= sizeof dg);
+  for (usz i = 0; i < nz; i++) dg[nd + i] = z[i];
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg, nd + nz)) == 1);
+  CHECK(wired_srvboot_acc_complete(&a) == 1);      /* the CH still lands */
+  CHECK(wired_srvboot_acc_zerortt_count(&a) == 1); /* and the 0-RTT rides */
+  CHECK(wired_srvboot_acc_zerortt_take(&a, 0).p[9] == 0xcc);
+}
+
 /* RFC 9000 5.2.2: a 0-RTT datagram that cannot be buffered (accumulator
  * already holding WIRED_SRVBOOT_ZERORTT_MAX datagrams) is silently dropped
  * rather than evicting an older one or growing past the fixed capacity. */
 static void test_bootacc_zerortt_overflow_dropped(void) {
-  u8                dg[8];
+  u8                dg[12];
   usz               n;
   wired_srvboot_acc a;
   wired_srvboot_acc_reset(&a);
@@ -766,7 +792,7 @@ static void test_bootacc_zerortt_overflow_dropped(void) {
   /* the stored set is unchanged -- the last accepted one is still index
    * MAX-1's original fingerprint, not the overflowing 0xff */
   CHECK(
-      wired_srvboot_acc_zerortt_take(&a, WIRED_SRVBOOT_ZERORTT_MAX - 1).p[7] ==
+      wired_srvboot_acc_zerortt_take(&a, WIRED_SRVBOOT_ZERORTT_MAX - 1).p[9] ==
       (u8)(WIRED_SRVBOOT_ZERORTT_MAX - 1));
 }
 
@@ -775,7 +801,7 @@ static void test_bootacc_zerortt_overflow_dropped(void) {
  * otherwise a stale datagram from a prior attempt on this slot would be
  * replayed into the new connection. */
 static void test_bootacc_zerortt_cleared_on_reset(void) {
-  u8                dg0[8];
+  u8                dg0[12];
   usz               n0 = sb_build_zerortt_dg(dg0, sizeof dg0, 0xcc);
   wired_srvboot_acc a;
   wired_srvboot_acc_reset(&a);
@@ -791,7 +817,7 @@ static void test_bootacc_zerortt_cleared_on_reset(void) {
  * legitimately arrive ahead of, behind, or between Initial pieces). */
 static void test_bootacc_zerortt_interleaved_with_initial(void) {
   client            c;
-  u8                ch[2048], dg1[1400], dg2[1400], dgz[8];
+  u8                ch[2048], dg1[1400], dg2[1400], dgz[12];
   usz               nz;
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
@@ -806,7 +832,7 @@ static void test_bootacc_zerortt_interleaved_with_initial(void) {
   CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg2, n2)) == 1);
   CHECK(wired_srvboot_acc_complete(&a) == 1);
   CHECK(wired_srvboot_acc_zerortt_count(&a) == 1);
-  CHECK(wired_srvboot_acc_zerortt_take(&a, 0).p[7] == 0xee);
+  CHECK(wired_srvboot_acc_zerortt_take(&a, 0).p[9] == 0xee);
 }
 
 /* Chunks arriving in reverse order still complete the ClientHello: each is
@@ -1442,6 +1468,7 @@ void test_h3_loopback(void) {
   test_srvboot_vneg_guards();
   test_bootacc_split_two_datagrams();
   test_bootacc_zerortt_buffered_verbatim();
+  test_bootacc_zerortt_coalesced_with_initial_buffered();
   test_bootacc_zerortt_overflow_dropped();
   test_bootacc_zerortt_cleared_on_reset();
   test_bootacc_zerortt_interleaved_with_initial();

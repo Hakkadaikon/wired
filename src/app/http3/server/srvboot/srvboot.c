@@ -414,7 +414,22 @@ static void srvboot_zerortt_buffer(wired_srvboot_acc* a, wired_mspan dg) {
   a->zerortt_n++;
 }
 
-/* Absorb every coalesced Initial packet in dg into a. Split out of
+/* One coalesced packet out of an Initial datagram: an Initial is opened
+ * into the accumulator; a 0-RTT packet riding behind it in the same
+ * datagram (RFC 9000 12.2 -- picoquic coalesces its first 0-RTT packet
+ * with the ClientHello) is held for replay exactly like a standalone
+ * 0-RTT datagram (RFC 9001 4.6.1: its keys do not exist yet), instead of
+ * being silently dropped -- the peer counts it as sent-but-never-acked
+ * and its early data stalls. Anything else is ignored. */
+static usz srvboot_acc_absorb_one(wired_srvboot_acc* a, wired_mspan pkt) {
+  if (wired_srvboot_is_zerortt(pkt.p, pkt.n)) {
+    srvboot_zerortt_buffer(a, pkt);
+    return 0; /* buffered, but not an authenticated Initial */
+  }
+  return (usz)srvboot_acc_take(a, pkt);
+}
+
+/* Absorb every coalesced packet in dg into a. Split out of
  * wired_srvboot_acc_feed so its own 0-RTT/Initial dispatch stays <=3. */
 static int srvboot_acc_feed_initial(wired_srvboot_acc* a, wired_mspan dg) {
   const u8* pkts[SRVBOOT_ACC_PKTS];
@@ -423,7 +438,7 @@ static int srvboot_acc_feed_initial(wired_srvboot_acc* a, wired_mspan dg) {
   if (!srvboot_acc_admit(a, dg)) return 0;
   n = udploop_split(wired_span_of(dg.p, dg.n), &pl);
   for (usz i = 0; i < n; i++)
-    got += (usz)srvboot_acc_take(a, wired_mspan_of(dg.p + offs[i], lens[i]));
+    got += srvboot_acc_absorb_one(a, wired_mspan_of(dg.p + offs[i], lens[i]));
   return got != 0;
 }
 
