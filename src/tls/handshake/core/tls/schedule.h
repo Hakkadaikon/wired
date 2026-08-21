@@ -35,11 +35,15 @@ void tls_handshake_secret_psk(
 
 /** tls_handshake_keys inputs: hs_secret is the Handshake Secret,
  * transcript the handshake bytes hashed for the traffic secret, is_server
- * selects the "s hs traffic"/"c hs traffic" label. */
+ * selects the "s hs traffic"/"c hs traffic" label. version picks the QUIC
+ * label prefix for the packet-protection expand ("quic " for v1,
+ * "quicv2 " for v2, RFC 9369 3.3.1); 0 (every pre-existing initializer)
+ * means v1. */
 typedef struct {
   const u8*  hs_secret; /* HKDF_PRK bytes */
   wired_span transcript;
   int        is_server;
+  u32        version;
 } handshake_keys_in;
 
 /* From the handshake secret and the handshake transcript, derive one side's

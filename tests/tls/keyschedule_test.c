@@ -92,10 +92,11 @@ static void test_keyschedule_matches_oneshot(void) {
   initial_keys ref;
   tls_handshake_secret(ecdhe, hs);
   tls_handshake_keys(
-      &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 0}, &ref);
+      &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 0, 0}, &ref);
   for (usz i = 0; i < INITIAL_KEY; i++) CHECK(c_hs->key[i] == ref.key[i]);
   tls_master_secret(hs, master);
-  tls_app_keys(&(app_keys_in){master, wired_span_of(tr, sizeof(tr)), 1}, &ref);
+  tls_app_keys(
+      &(app_keys_in){master, wired_span_of(tr, sizeof(tr)), 1, 0}, &ref);
   for (usz i = 0; i < INITIAL_KEY; i++) CHECK(s_ap->key[i] == ref.key[i]);
 
   /* directions and stages produce distinct keys */
@@ -126,10 +127,10 @@ static void test_keyschedule_psk_matches_oneshot(void) {
   initial_keys ref;
   tls_handshake_secret_psk(psk, ecdhe, hs);
   tls_handshake_keys(
-      &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 0}, &ref);
+      &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 0, 0}, &ref);
   for (usz i = 0; i < INITIAL_KEY; i++) CHECK(c_hs->key[i] == ref.key[i]);
   tls_handshake_keys(
-      &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 1}, &ref);
+      &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 1, 0}, &ref);
   for (usz i = 0; i < INITIAL_KEY; i++) CHECK(s_hs->key[i] == ref.key[i]);
   tls_master_secret(hs, master);
   for (usz i = 0; i < 32; i++) CHECK(st.master[i] == master[i]);

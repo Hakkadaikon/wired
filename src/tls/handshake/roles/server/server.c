@@ -163,6 +163,9 @@ static int srv_derive_hs(wired_server* s, u8 ecdhe[X25519_LEN]) {
   if (!s->sdrv.hs_ready) return 0;
   for (usz i = 0; i < X25519_LEN; i++) ecdhe[i] = s->sdrv.ecdhe_secret[i];
   keysched_set_suite(&s->sched, s->sdrv.cipher_suite);
+  /* RFC 9369 3.3.1: Handshake/1-RTT packet-protection labels follow the
+   * connection's negotiated version ("quicv2 " prefix under v2). */
+  keysched_set_version(&s->sched, sdrv_wire_version(&s->sdrv));
   return srv_advance_handshake(s, ecdhe);
 }
 

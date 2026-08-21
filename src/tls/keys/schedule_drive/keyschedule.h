@@ -46,12 +46,17 @@ typedef struct {
                                   * TLS-Exporter values (e.g.
                                   * EXPORTER-WebTransport) once the
                                   * handshake completes */
-  u16 suite; /**< negotiated TLS 1.3 cipher suite (RFC 8446 B.4) for the
-              * Handshake/1-RTT levels this schedule derives; set by
-              * keysched_init to AES_128_GCM_SHA256 and overridable via
-              * keysched_set_suite before advance_handshake. Initial
-              * packet protection (RFC 9001 5.2) is unaffected -- it derives
-              * separately and is always AES-128-GCM. */
+  u16 suite;   /**< negotiated TLS 1.3 cipher suite (RFC 8446 B.4) for the
+                * Handshake/1-RTT levels this schedule derives; set by
+                * keysched_init to AES_128_GCM_SHA256 and overridable via
+                * keysched_set_suite before advance_handshake. Initial
+                * packet protection (RFC 9001 5.2) is unaffected -- it derives
+                * separately and is always AES-128-GCM. */
+  u32 version; /**< QUIC version whose label prefix the Handshake/1-RTT
+                * packet-protection expands use ("quic " for v1,
+                * "quicv2 " for v2 -- RFC 9369 3.3.1); set by
+                * keysched_init to VERSION_1 and overridable via
+                * keysched_set_version before advance_handshake. */
 } keysched;
 
 /**
@@ -71,6 +76,18 @@ void keysched_init(keysched* st);
  * @param suite negotiated TLS 1.3 cipher suite code point
  */
 void keysched_set_suite(keysched* st, u16 suite);
+
+/**
+ * Override the QUIC version whose label prefix advance_handshake/
+ * advance_master derive Handshake/1-RTT packet-protection keys with
+ * (RFC 9369 3.3.1). Call before advance_handshake; keysched_init
+ * already set the VERSION_1 default, so v1-only callers need not call
+ * this at all.
+ *
+ * @param st      schedule state to configure
+ * @param version negotiated QUIC version (VERSION_1 or VERSION_2)
+ */
+void keysched_set_version(keysched* st, u32 version);
 
 /**
  * ServerHello received: derive Handshake Secret from the ECDHE shared secret
