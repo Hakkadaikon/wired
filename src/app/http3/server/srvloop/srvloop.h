@@ -398,7 +398,12 @@ typedef struct {
   u8 spare_cid[20];
   u8 spare_cid_len;
   /** RFC 9000 10.3: the stateless reset token advertised for spare_cid. */
-  u8  spare_cid_token[16];
+  u8 spare_cid_token[16];
+  /** RFC 9000 9.6/5.1.1: 1 once the spare CID was delivered inside the
+   * preferred_address transport parameter (sequence 1) -- the confirmation
+   * flight then stands down its NEW_CONNECTION_ID frame (the parameter
+   * already delivered the CID; a frame would re-issue the same sequence). */
+  u8  spare_cid_in_tp;
   u64 tx_pn;     /**< monotone packet number for sealed 1-RTT output */
   u64 hs_tx_pn;  /**< monotone packet number for sealed Handshake output */
   u64 app_rx_pn; /**< last received 1-RTT (application) packet number to ACK */

@@ -230,7 +230,7 @@ static void load_san_ipv4(int argc, char** argv, u8 san_ipv4[4], int* have_it) {
 
 __attribute__((force_align_arg_pointer, used)) int wired_main(
     int argc, char** argv) {
-  wired_srvboot_id     id;
+  wired_srvboot_id     id = {0};
   server_keys          keys;
   wired_srvdriver_opt  opt;
   int                  have_san_ipv4;

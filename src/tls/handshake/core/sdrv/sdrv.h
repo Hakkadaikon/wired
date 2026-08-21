@@ -196,7 +196,39 @@ typedef struct {
    * version_information arrived or nothing better was offered -- the
    * flight then stays in client_version (see sdrv_wire_version). */
   u32 negotiated_version;
+  /** RFC 9000 9.6/18.2: the preferred_address transport parameter this
+   * flight advertises, set via sdrv_set_preferred_address before the
+   * flight is built. pref_cid_len 0 (never set) omits the parameter. The
+   * embedded CID carries sequence number 1 (RFC 9000 5.1.1), so whoever
+   * routes it must register it, and no NEW_CONNECTION_ID frame may reuse
+   * that sequence for a different CID. */
+  u8  pref_v4[4];
+  u16 pref_v4_port;
+  u8  pref_v6[16];
+  u16 pref_v6_port;
+  u8  pref_cid[20];
+  u8  pref_cid_len;
+  u8  pref_token[16];
 } sdrv;
+
+/** Inputs to sdrv_set_preferred_address: both addresses in network byte
+ * order, the CID the migrating client will use (sequence 1), and its
+ * stateless reset token (RFC 9000 9.6/18.2). */
+typedef struct {
+  const u8* v4;      /**< 4 bytes */
+  u16       v4_port; /**< host byte order; encoded big-endian */
+  const u8* v6;      /**< 16 bytes */
+  u16       v6_port;
+  const u8* cid;
+  u8        cid_len; /**< 1..20 */
+  const u8* token;   /**< 16 bytes */
+} sdrv_pref_addr;
+
+/** RFC 9000 9.6: arm the preferred_address transport parameter for this
+ * connection's flight. Call after sdrv_init, before the flight is built.
+ * @param s driver state
+ * @param p the addresses, CID and token to advertise. */
+void sdrv_set_preferred_address(sdrv* s, const sdrv_pref_addr* p);
 
 /** Inputs to sdrv_init.
  *

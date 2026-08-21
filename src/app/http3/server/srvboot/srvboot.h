@@ -65,6 +65,15 @@ typedef struct {
    * session resumption -- threaded straight to
    * wired_server_init_in.ticket_key, see its doc. */
   const u8* ticket_key;
+  /** RFC 9000 9.6: the preferred_address this server advertises -- both
+   * addresses in network byte order, ports in host byte order. pref_v4 == 0
+   * disables the parameter (the default). The migration CID and its token
+   * come from the connection's own spare CID (issued by the runner), not
+   * from here. */
+  const u8* pref_v4; /**< 4 bytes, or 0 for no preferred_address */
+  const u8* pref_v6; /**< 16 bytes; required when pref_v4 is set */
+  u16       pref_v4_port;
+  u16       pref_v6_port;
 } wired_srvboot_id;
 
 /** RFC 9000 17.2: 1 if dg is a long-header Initial datagram (a Handshake or

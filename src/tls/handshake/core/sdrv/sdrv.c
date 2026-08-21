@@ -1,6 +1,7 @@
 #include "tls/handshake/core/sdrv/sdrv.h"
 
 #include "app/datagram/datagram/datagram.h"
+#include "common/bytes/util/bytes.h"
 #include "common/diag/error/codes.h"
 #include "common/diag/error/error.h"
 #include "common/platform/clock/clock.h"
@@ -130,12 +131,23 @@ void sdrv_init(sdrv* s, const sdrv_init_in* in) {
   s->sni_outcome         = SALPN_SNI_ABSENT;
   s->client_version      = 0;
   s->negotiated_version  = 0;
+  s->pref_cid_len        = 0;
   for (usz i = 0; i < 32; i++) s->ch1_hash[i] = 0;
   transcript_init(&s->tr);
 }
 
 void sdrv_set_client_version(sdrv* s, u32 version) {
   s->client_version = version;
+}
+
+void sdrv_set_preferred_address(sdrv* s, const sdrv_pref_addr* p) {
+  bytes_memcpy(s->pref_v4, p->v4, 4);
+  bytes_memcpy(s->pref_v6, p->v6, 16);
+  bytes_memcpy(s->pref_cid, p->cid, p->cid_len);
+  bytes_memcpy(s->pref_token, p->token, 16);
+  s->pref_v4_port = p->v4_port;
+  s->pref_v6_port = p->v6_port;
+  s->pref_cid_len = p->cid_len;
 }
 
 u32 sdrv_wire_version(const sdrv* s) {

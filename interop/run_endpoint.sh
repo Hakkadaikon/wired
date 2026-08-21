@@ -37,6 +37,10 @@ fi
 # two throughput measurements.
 RETRY=""
 [ "$TESTCASE" = "retry" ] && RETRY="--force-retry"
+# RFC 9000 9.6: advertise the sim's fixed server addresses as the
+# preferred_address, so the client performs an active migration.
+MIGRATE=""
+[ "$TESTCASE" = "connectionmigration" ] && MIGRATE="--migrate-addr"
 
 case "$TESTCASE" in
   http3 | handshake | transfer | retry) ;;
@@ -69,4 +73,4 @@ exec /wired/wired_server \
   --root /www \
   --cert /certs/cert.pem \
   --key /certs/priv.key \
-  $QLOG $KEYLOG $RETRY
+  $QLOG $KEYLOG $RETRY $MIGRATE

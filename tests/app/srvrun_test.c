@@ -1031,6 +1031,8 @@ static void sr_make_id(
   id->retry_odcid             = 0;
   id->retry_odcid_len         = 0;
   id->ticket_key              = 0;
+  id->pref_v4                 = 0;
+  id->pref_v6                 = 0;
 }
 
 /* A real protected client Initial datagram addressed to odcid (RFC 9001 5.2:

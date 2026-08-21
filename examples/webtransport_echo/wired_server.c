@@ -184,7 +184,7 @@ static u16 load_config(int argc, char** argv) {
 }
 
 __attribute__((force_align_arg_pointer)) int wired_main(int argc, char** argv) {
-  wired_srvboot_id     id;
+  wired_srvboot_id     id = {0};
   server_keys          keys;
   u16                  port = load_config(argc, argv);
   wired_srvrun_handler h    = {app_on_request, 0};

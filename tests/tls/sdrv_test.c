@@ -2101,6 +2101,39 @@ static void test_sdrv_enforce_sni_absent_ok(void) {
   sdrv_test_enforce_sni(wired_span_of(0, 0), SALPN_SNI_ABSENT, 1);
 }
 
+/* RFC 9000 9.6/18.2: an armed preferred_address lands in the flight's
+ * transport parameters with the fixed wire layout -- v4 addr+port, v6
+ * addr+port, CID length+CID (the migration CID, sequence 1), then the
+ * 16-byte stateless reset token; unarmed appends nothing. */
+static void test_sdrv_pref_addr_tp(void) {
+  static sdrv s;      /* BSS-zeroed; only the pref fields matter */
+  s.pref_cid_len = 0; /* re-entrant: the arm below persists across calls */
+  u8             v4[4] = {193, 167, 100, 100};
+  u8             v6[16], cid[6], tok[16], tpbuf[128];
+  wired_obuf     tob = obuf_of(tpbuf, sizeof tpbuf);
+  wired_span     val = {0, 0};
+  stp_out        out = {0, &val};
+  sdrv_pref_addr p;
+  for (usz i = 0; i < 16; i++) v6[i] = (u8)(0x60 + i);
+  for (usz i = 0; i < 6; i++) cid[i] = (u8)(0xc0 + i);
+  for (usz i = 0; i < 16; i++) tok[i] = (u8)(0x30 + i);
+  /* unarmed: nothing appended */
+  CHECK(emit_ee_pref_addr(&s, &tob) == 1);
+  CHECK(tob.len == 0);
+  p = (sdrv_pref_addr){v4, 443, v6, 443, cid, 6, tok};
+  sdrv_set_preferred_address(&s, &p);
+  CHECK(emit_ee_pref_addr(&s, &tob) == 1);
+  CHECK(stp_parse(wired_span_of(tpbuf, tob.len), TP_PREFERRED_ADDRESS, &out));
+  CHECK(val.n == 4 + 2 + 16 + 2 + 1 + 6 + 16);
+  for (usz i = 0; i < 4; i++) CHECK(val.p[i] == v4[i]);
+  CHECK(val.p[4] == 0x01 && val.p[5] == 0xbb); /* port 443 big-endian */
+  for (usz i = 0; i < 16; i++) CHECK(val.p[6 + i] == v6[i]);
+  CHECK(val.p[22] == 0x01 && val.p[23] == 0xbb);
+  CHECK(val.p[24] == 6);
+  for (usz i = 0; i < 6; i++) CHECK(val.p[25 + i] == cid[i]);
+  for (usz i = 0; i < 16; i++) CHECK(val.p[31 + i] == tok[i]);
+}
+
 void test_sdrv(void) {
   test_sdrv_keyshare_walk_rejects_overclaimed_exts_len();
   test_sdrv_tp_walk_rejects_overclaimed_exts_len();
@@ -2338,4 +2371,5 @@ void test_sdrv(void) {
     transcript_hash(&tr, fin_th); /* through CertificateVerify */
     CHECK(tls_finished_check(s_traffic, fin_th, fin + 4));
   }
+  test_sdrv_pref_addr_tp();
 }
