@@ -185,6 +185,17 @@ typedef struct {
    * a caller (server.c) MAY choose to send unrecognized_name
    * (TLS_ALERT_UNRECOGNIZED_NAME) on SALPN_SNI_MISMATCH instead. */
   salpn_sni_outcome sni_outcome;
+  /** RFC 9368 2.2: the QUIC version the client's Initial actually arrived
+   * in, recorded via sdrv_set_client_version before
+   * sdrv_recv_client_hello. 0 (never set) is treated as VERSION_1
+   * everywhere it is read. */
+  u32 client_version;
+  /** RFC 9368 2.3: the compatible version this server selected from the
+   * ClientHello's version_information transport parameter (most preferred
+   * mutually supported entry), set by sdrv_recv_client_hello. 0 while no
+   * version_information arrived or nothing better was offered -- the
+   * flight then stays in client_version (see sdrv_wire_version). */
+  u32 negotiated_version;
 } sdrv;
 
 /** Inputs to sdrv_init.
@@ -312,6 +323,24 @@ salpn_sni_outcome sdrv_sni_outcome(const sdrv* s);
  * @param s driver state
  * @return 1 to continue, 0 if the caller must reject the handshake. */
 int sdrv_enforce_sni(sdrv* s);
+
+/** RFC 9368 2.2: record the QUIC version the client's Initial arrived in,
+ * so sdrv_recv_client_hello can validate the version_information
+ * parameter's Chosen Version against it (RFC 9368 4) and
+ * sdrv_wire_version can fall back to it while nothing better was
+ * negotiated. Call after sdrv_init, before sdrv_recv_client_hello.
+ * @param s driver state
+ * @param version the client Initial's long-header Version field. */
+void sdrv_set_client_version(sdrv* s, u32 version);
+
+/** RFC 9368 2.3: the QUIC version every packet of this server's flight (and
+ * everything after it) must be sent and read in -- the negotiated
+ * compatible version once sdrv_recv_client_hello selected one from the
+ * client's version_information, else the client's own Initial version
+ * (VERSION_1 when that was never recorded either).
+ * @param s driver state
+ * @return the connection's wire version (never 0). */
+u32 sdrv_wire_version(const sdrv* s);
 
 /** RFC 8446 4.1.4: 1 when the last sdrv_recv_client_hello call found no
  * x25519 key_share and a HelloRetryRequest must be sent before anything

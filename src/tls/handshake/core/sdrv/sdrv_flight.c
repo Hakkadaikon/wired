@@ -10,6 +10,8 @@
 #include "tls/handshake/roles/sflight/finished_build.h"
 #include "tls/handshake/roles/shbuild/shbuild.h"
 #include "transport/conn/pnspace/crypto_stream/ecdhe.h"
+#include "transport/version/version/version.h"
+#include "transport/version/versmgr/avail.h"
 
 /* RFC 8446 4 / RFC 9001 4: build the server handshake flight after ClientHello.
  */
@@ -76,16 +78,41 @@ static wired_span sdrv_sreset_token_span(const sdrv* s) {
   return wired_span_of(s->sreset_token, s->sreset_token_set ? 16 : 0);
 }
 
+/* RFC 9368 3/4: append this server's version_information transport
+ * parameter -- Chosen = the version the flight replies in, Available = the
+ * supported set in preference order (v2 then v1). Sent unconditionally
+ * (legal whether or not the client offered one). Returns 1, 0 on
+ * overflow. */
+static int emit_ee_version_info(const sdrv* s, wired_obuf* tob) {
+  vers_set     us;
+  version_info vi;
+  usz          n;
+  vers_init(&us);
+  vi.chosen      = sdrv_wire_version(s);
+  vi.n_available = us.n;
+  for (usz i = 0; i < us.n; i++) vi.available[i] = us.versions[i];
+  n = version_info_encode(tob->p + tob->len, tob->cap - tob->len, &vi);
+  if (n == 0) return 0;
+  tob->len += n;
+  return 1;
+}
+
+/* The EncryptedExtensions' transport parameter TLV sequence: the RFC 9000
+ * 18.2 set, then the RFC 9368 version_information. */
+static int emit_ee_tp(sdrv* s, wired_obuf* tob) {
+  return stp_build_server_ret(
+             wired_span_of(s->tp_odcid, s->tp_odcid_len),
+             wired_span_of(s->iscid, s->iscid_len),
+             wired_span_of(s->rscid, s->rscid_len), sdrv_sreset_token_span(s),
+             &s->limits, tob) &&
+         emit_ee_version_info(s, tob);
+}
+
 static int emit_ee(sdrv* s, wired_obuf* flight) {
   u8         tp[256], msg[1024];
   wired_obuf tob = obuf_of(tp, sizeof(tp));
   wired_obuf mob = obuf_of(msg, sizeof(msg));
-  if (!stp_build_server_ret(
-          wired_span_of(s->tp_odcid, s->tp_odcid_len),
-          wired_span_of(s->iscid, s->iscid_len),
-          wired_span_of(s->rscid, s->rscid_len), sdrv_sreset_token_span(s),
-          &s->limits, &tob))
-    return 0;
+  if (!emit_ee_tp(s, &tob)) return 0;
   if (!eebuild_encrypted_extensions(
           s->alpn, wired_span_of(tp, tob.len), s->early_data_accepted, &mob))
     return 0;
