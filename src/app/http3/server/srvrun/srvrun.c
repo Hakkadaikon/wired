@@ -54,6 +54,7 @@
 #include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/frame/ncid.h"
 #include "transport/packet/frame/frame/ncid_worker.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
 #include "transport/packet/header/dcidresolve/dcidresolve.h"
@@ -7234,6 +7235,28 @@ static void srvrun_reconfirm_on_hs_probe(
   srvrun_reconfirm(ctx, c);
 }
 
+/* Confirm just landed on this datagram (was booting, now confirmed) and a
+ * spare CID was issued at slot open -- split out so the register call's
+ * caller carries one guard (ccn-and-complexity.md). */
+static int srvrun_spare_cid_due(const srvrun_conn* c, int booting) {
+  return booting && wired_server_is_confirmed(&c->s) && c->l.spare_cid_len;
+}
+
+/* RFC 9000 5.1.1: the spare CID the confirmation flight advertises
+ * (respond.c's append_ncid_frame) must route here from its first use --
+ * the client may migrate onto it any time after. Registered at the confirm
+ * edge via conntable_rekey, which keeps the current primary (this slot's
+ * scid, the DCID in use) live as the alt and drops the now-obsolete ODCID
+ * (no Initial is retransmitted past confirmation). */
+static void srvrun_register_spare_cid(
+    const srvrun_step_ctx* ctx, int slot, int booting) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  if (!srvrun_spare_cid_due(c, booting)) return;
+  conntable_rekey(
+      ctx->st->table, WIRED_CONNTABLE_CAP, slot, c->l.spare_cid,
+      c->l.spare_cid_len);
+}
+
 static void srvrun_serve_slot(
     const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
   srvrun_conn* c       = &ctx->st->conns[slot];
@@ -7260,6 +7283,7 @@ static void srvrun_serve_slot(
     srvrun_step_and_reap(ctx, slot, dg);
   }
   srvrun_boot_release_pending(ctx, c);
+  srvrun_register_spare_cid(ctx, slot, booting);
 }
 
 /* dg's DCID as a span into dg, or a 0-length span if dg is too short to carry
@@ -7335,6 +7359,17 @@ static int srvrun_cc_algo(const srvrun_cfg* cfg) {
   return cfg->cc_algo ? cfg->cc_algo : WIRED_CC_ALGO_DEFAULT;
 }
 
+/* RFC 9000 5.1.1: the one spare CID this slot's NEW_CONNECTION_ID frame
+ * advertises at confirmation (respond.c's append_ncid_frame), with its
+ * stateless reset token. Best-effort: an RNG failure just leaves
+ * spare_cid_len 0 and no frame is ever sent -- the connection works, the
+ * client simply cannot migrate. */
+static void srvrun_issue_spare_cid(const srvrun_cfg* cfg, srvrun_conn* c) {
+  if (!srvrun_issue_cid(cfg, c->l.spare_cid, cfg->id->scid_len)) return;
+  if (!cid_generate(c->l.spare_cid_token, NCID_TOKEN)) return;
+  c->l.spare_cid_len = cfg->id->scid_len;
+}
+
 /* Claim and initialize a fresh slot for dcid: record the peer, and generate
  * this slot's own scid (never cfg->id's fixed one — every slot sharing it
  * would collapse conntable's routing back to a single slot). Returns the slot
@@ -7355,8 +7390,10 @@ static int srvrun_open_slot(
   pmtu_init(&ctx->st->conns[slot].pmtu);
   ctx->st->conns[slot].pmtu_probe_pn = SRVRUN_PMTU_NO_PROBE;
   if (srvrun_issue_cid(
-          ctx->cfg, ctx->st->conns[slot].scid, ctx->cfg->id->scid_len))
+          ctx->cfg, ctx->st->conns[slot].scid, ctx->cfg->id->scid_len)) {
+    srvrun_issue_spare_cid(ctx->cfg, &ctx->st->conns[slot]);
     return slot;
+  }
   conntable_remove(ctx->st->table, WIRED_CONNTABLE_CAP, slot);
   return -1;
 }

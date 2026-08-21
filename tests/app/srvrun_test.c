@@ -10992,6 +10992,36 @@ static void test_srvrun_grant_retry_exhausts(void) {
   }
 }
 
+/* RFC 9000 5.1.1: the spare CID advertised at confirmation routes to the
+ * same slot from the confirm edge on -- a client migrating onto its fresh
+ * CID must reach its own connection; the old primary stays live as the
+ * alt so the pre-migration DCID keeps routing too. */
+static void test_srvrun_spare_cid_routes_after_confirm(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_state  st       = {table, &c};
+  const u8      prim[6]  = {'P', 'R', 'I', 'M', 'A', 'A'};
+  const u8      spare[6] = {'S', 'P', 'A', 'R', 'E', '!'};
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, prim, 6) == 0);
+  c.l.spare_cid_len = 6;
+  for (usz i = 0; i < 6; i++) c.l.spare_cid[i] = spare[i];
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
+    srvrun_register_spare_cid(&ctx, 0, 1);
+  }
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, spare, 6) == 0);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, prim, 6) == 0);
+}
+
 /* A raise arms the retry timer; the frame itself still goes out once. */
 static void test_srvrun_grant_arms_retry(void) {
   struct lp_fix f;
@@ -14487,6 +14517,7 @@ void test_srvrun(void) {
   test_srvrun_grant_retry_resends_at_deadline();
   test_srvrun_grant_retry_exhausts();
   test_srvrun_grant_arms_retry();
+  test_srvrun_spare_cid_routes_after_confirm();
   test_srvrun_boot_pto_no_resend_before_deadline();
   test_srvrun_boot_pto_stops_after_confirm();
   test_srvrun_boot_pto_confirm_race_stops_immediately();

@@ -656,6 +656,55 @@ static void test_srvloop_full_roundtrip(void) {
   }
 }
 
+/* RFC 9000 5.1.1/19.15: when the owning runner issued a spare connection
+ * ID (spare_cid_len != 0), the confirmation payload carries it in a
+ * NEW_CONNECTION_ID frame -- without an unused CID the client must not
+ * initiate migration (RFC 9000 9), which left the interop
+ * connectionmigration case stuck on its original path. */
+static void test_srvloop_confirm_carries_spare_cid(void) {
+  struct lp_fix f;
+  u8            cpkt[1024], out[1024];
+  usz           clen;
+  wired_obuf    ob = {out, sizeof out, 0};
+  const u8*     pkts[4];
+  usz           offs[4], lens[4], np;
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  lp_make_client_finished(&f);
+  f.l.spare_cid_len = 6;
+  for (usz i = 0; i < 6; i++) f.l.spare_cid[i] = (u8)(0xc0 + i);
+  for (usz i = 0; i < 16; i++) f.l.spare_cid_token[i] = (u8)(0x50 + i);
+  clen = client_seal_handshake(&f, f.cli_fin, f.cli_fin_len, cpkt, sizeof cpkt);
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen), &ob) ==
+      1);
+  CHECK(wired_server_is_confirmed(&f.s) == 1);
+  {
+    pktlist        plist = {pkts, offs, lens, 4};
+    const u8*      pl;
+    usz            pll;
+    int            found = 0;
+    framewalk      it;
+    framewalk_item fr;
+    np = udploop_split(wired_span_of(out, ob.len), &plist);
+    CHECK(np == 2);
+    CHECK(client_open_onertt(&f, out + offs[1], lens[1], &pl, &pll) == 1);
+    framewalk_init(&it, pl, pll);
+    while (framewalk_next(&it, &fr))
+      if (fr.type == FRAME_NEW_CID) {
+        ncid_frame nf;
+        CHECK(ncid_decode(fr.start, fr.remaining, &nf) != 0);
+        CHECK(nf.seq == 1);
+        CHECK(nf.cid_len == 6);
+        CHECK(nf.cid[0] == 0xc0 && nf.cid[5] == 0xc5);
+        found = 1;
+      }
+    CHECK(found == 1);
+    CHECK(pl[pll - 1] == 0x1e); /* HANDSHAKE_DONE still trails */
+  }
+}
+
 /* RFC 9000 17.3: the DCID of a short-header packet is out[1 .. 1+len], in the
  * clear (header protection masks only byte0 and the packet number). */
 static int onertt_dcid_is(const u8* pkt, const u8* cid, u8 len) {
@@ -4242,6 +4291,7 @@ void test_srvloop(void) {
   test_srvloop_no_onertt_seal_before_confirm();
   test_srvloop_forged_finished_no_promote();
   test_srvloop_full_roundtrip();
+  test_srvloop_confirm_carries_spare_cid();
   test_srvloop_response_dcid_is_client_scid();
   test_srvloop_dispatch_padding_before_crypto();
   test_srvloop_padding_before_stream();
