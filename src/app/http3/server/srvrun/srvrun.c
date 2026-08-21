@@ -4461,6 +4461,15 @@ static void srvrun_open_done(const srvrun_step_ctx* ctx, int slot, int ok) {
   conntable_rekey(
       ctx->st->table, WIRED_CONNTABLE_CAP, slot, c->scid,
       ctx->cfg->id->scid_len);
+  /* RFC 9000 5.1.1: the spare CID this accept advertises (the
+   * preferred_address parameter or the NEW_CONNECTION_ID frame) is usable
+   * by the peer from the moment it learns it -- quic-go switches its DCID
+   * to it right after the handshake flight, long before any migration --
+   * so it must route here from the same moment. */
+  if (c->l.spare_cid_len)
+    conntable_set_alt2(
+        ctx->st->table, WIRED_CONNTABLE_CAP, slot, c->l.spare_cid,
+        c->l.spare_cid_len);
 }
 
 /* Fill one round of the response body from the app handler (empty without
@@ -7330,28 +7339,6 @@ static void srvrun_reconfirm_on_hs_probe(
   srvrun_reconfirm(ctx, c);
 }
 
-/* Confirm just landed on this datagram (was booting, now confirmed) and a
- * spare CID was issued at slot open -- split out so the register call's
- * caller carries one guard (ccn-and-complexity.md). */
-static int srvrun_spare_cid_due(const srvrun_conn* c, int booting) {
-  return booting && wired_server_is_confirmed(&c->s) && c->l.spare_cid_len;
-}
-
-/* RFC 9000 5.1.1: the spare CID the confirmation flight advertises
- * (respond.c's append_ncid_frame) must route here from its first use --
- * the client may migrate onto it any time after. Registered at the confirm
- * edge via conntable_rekey, which keeps the current primary (this slot's
- * scid, the DCID in use) live as the alt and drops the now-obsolete ODCID
- * (no Initial is retransmitted past confirmation). */
-static void srvrun_register_spare_cid(
-    const srvrun_step_ctx* ctx, int slot, int booting) {
-  srvrun_conn* c = &ctx->st->conns[slot];
-  if (!srvrun_spare_cid_due(c, booting)) return;
-  conntable_rekey(
-      ctx->st->table, WIRED_CONNTABLE_CAP, slot, c->l.spare_cid,
-      c->l.spare_cid_len);
-}
-
 static void srvrun_serve_slot(
     const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
   srvrun_conn* c       = &ctx->st->conns[slot];
@@ -7379,7 +7366,6 @@ static void srvrun_serve_slot(
     srvrun_answer_path_challenge(ctx, c);
   }
   srvrun_boot_release_pending(ctx, c);
-  srvrun_register_spare_cid(ctx, slot, booting);
 }
 
 /* dg's DCID as a span into dg, or a 0-length span if dg is too short to carry
