@@ -1156,11 +1156,12 @@ static int srvrun_boot_gate_blocks(
  * first-Initial-derived budget, RFC 9000 14.1's 1200-byte floor); this stays
  * gated anyway so srvrun_boot_send has exactly one caller-side check to
  * reason about, not a special case for whoever calls it first. */
-static void srvrun_boot_send_initial(
+static int srvrun_boot_send_initial(
     const srvrun_cfg* cfg, srvrun_conn* c, const char* what) {
   int confirmed = wired_server_is_confirmed(&c->s);
-  if (!srvrun_boot_gate_blocks(c, confirmed, c->boot_ini_len))
-    srvrun_boot_send(cfg, c, wired_span_of(c->boot_ini, c->boot_ini_len), what);
+  if (srvrun_boot_gate_blocks(c, confirmed, c->boot_ini_len)) return 0;
+  srvrun_boot_send(cfg, c, wired_span_of(c->boot_ini, c->boot_ini_len), what);
+  return 1;
 }
 
 /* Offset into boot_hs where the first not-yet-sent datagram starts. */
@@ -1175,17 +1176,20 @@ static usz srvrun_boot_sent_off(const srvrun_conn* c) {
  * rest stays held for a later round once more client bytes arrive.
  * Once the path is validated (confirmed) the limit is lifted and everything
  * remaining goes out in one pass. */
-static void srvrun_boot_send_hs_gated(
+static usz srvrun_boot_send_hs_gated(
     const srvrun_cfg* cfg, srvrun_conn* c, int confirmed) {
-  usz off = srvrun_boot_sent_off(c);
+  usz off  = srvrun_boot_sent_off(c);
+  usz sent = 0;
   while (c->boot_dgram_sent < c->boot_dgram_count) {
     wired_span pkt =
         wired_span_of(c->boot_hs + off, c->boot_dgram_len[c->boot_dgram_sent]);
-    if (srvrun_boot_gate_blocks(c, confirmed, pkt.n)) return;
+    if (srvrun_boot_gate_blocks(c, confirmed, pkt.n)) return sent;
     srvrun_boot_send(cfg, c, pkt, "server Handshake flight sent\n");
     off += pkt.n;
     c->boot_dgram_sent++;
+    sent++;
   }
+  return sent;
 }
 
 /* Build this slot's own wired_srvboot_id: every field from cfg->id except
@@ -6907,9 +6911,9 @@ static void srvrun_cold_start(
  * same Handshake datagrams -- instead of stepping dg through the confirmed-
  * connection path, where an Initial-keyed retransmit would just fail to
  * decrypt and get silently dropped. */
-static void srvrun_resend_boot_flight(
+static int srvrun_resend_boot_flight(
     const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  srvrun_boot_send_initial(ctx->cfg, c, "server Initial resent\n");
+  int sent = srvrun_boot_send_initial(ctx->cfg, c, "server Initial resent\n");
   /* RFC 9002 6.2: a resend means the client is still waiting. Once the
    * WHOLE flight has gone out, any of its datagrams may be sitting in a
    * dropped packet, so rewind and replay from the start (without this a
@@ -6922,12 +6926,22 @@ static void srvrun_resend_boot_flight(
    * never went out at all (observed live: the client dropped the same
    * Handshake datagram 0 as a duplicate until its idle timeout). */
   if (c->boot_dgram_sent == c->boot_dgram_count) c->boot_dgram_sent = 0;
-  srvrun_boot_send_hs_gated(ctx->cfg, c, wired_server_is_confirmed(&c->s));
-  /* boot PTO: the client itself just proved it's reachable (this is
-   * its own retransmit reaching us) -- push the boot PTO deadline out so the
-   * timer-driven probe below does not also fire for the same round. */
+  sent += (int)srvrun_boot_send_hs_gated(
+      ctx->cfg, c, wired_server_is_confirmed(&c->s));
+  /* RFC 9000 8.1: nothing went out at all -- the whole flight is withheld
+   * by the antiamp budget. Leave the PTO exactly as it was: a fully
+   * blocked probe spent no budget and proved nothing, and re-arming (or
+   * counting) it here burned the probe budget on silent no-ops until the
+   * slot was torn down while the peer was still retrying (the interop
+   * handshakecorruption stall). The deadline stays due, so the moment more
+   * client bytes raise the budget (or a Handshake packet validates the
+   * path) the very next tick resends for real. */
+  if (!sent) return 0;
+  /* boot PTO: something real went out -- push the boot PTO deadline so the
+   * timer-driven probe does not also fire for the same round. */
   c->boot_pto_sent_ms = ctx->now_ms;
   c->boot_pto_count   = 0;
+  return 1;
 }
 
 /* c is in the boot PTO's window at all -- up (accepted) but not
@@ -6955,7 +6969,7 @@ static int srvrun_boot_pto_due(const srvrun_conn* c, u64 now_ms) {
  * probes keep climbing instead of resetting every single one. */
 static void srvrun_boot_pto_resend(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int fired) {
-  srvrun_resend_boot_flight(ctx, c);
+  if (!srvrun_resend_boot_flight(ctx, c)) return;
   c->boot_pto_count = fired;
 }
 

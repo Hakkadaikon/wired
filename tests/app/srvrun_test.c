@@ -10861,6 +10861,33 @@ static void test_srvrun_boot_pto_resends_after_deadline(void) {
   CHECK(st.conns[0].boot_pto_count == 1);
 }
 
+/* RFC 9000 8.1 x RFC 9002 6.2: a boot PTO tick whose whole flight is
+ * withheld by the antiamp budget must not consume the probe budget or
+ * re-arm the deadline -- counting silent no-ops tore the slot down while
+ * the peer was still retrying (the interop handshakecorruption stall:
+ * probes "fired" into a spent budget until SRVRUN_PTO_MAX freed the slot,
+ * and the peer's later Handshake probes hit a dead connection). Once more
+ * client bytes raise the budget, the still-due deadline resends at once. */
+static void test_srvrun_boot_pto_blocked_probe_keeps_budget(void) {
+  conntable       table[WIRED_CONNTABLE_CAP];
+  srvrun_state    st  = {table, sr_test_conns()};
+  srvrun_cfg      cfg = sr_boot_pto_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1025, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_boot_conn(&st.conns[0], 0);
+  st.conns[0].boot_rx_bytes = 10; /* budget 30 < the 100-byte flight */
+  srvrun_test_reset_send_count();
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() == 0);   /* fully blocked */
+  CHECK(st.conns[0].boot_pto_count == 0); /* budget NOT spent */
+  CHECK(st.conns[0].up == 1);             /* slot NOT torn down */
+  /* more client bytes arrive: the still-due deadline resends at once. */
+  st.conns[0].boot_rx_bytes = 1280;
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() > 0);
+  CHECK(st.conns[0].boot_pto_count == 1);
+}
+
 /* Well before the deadline, no resend happens and the probe count
  * stays untouched -- the boundary complement to the test above. */
 static void test_srvrun_boot_pto_no_resend_before_deadline(void) {
@@ -14355,6 +14382,7 @@ void test_srvrun(void) {
   test_srvrun_pto_requeue_frees_inflight_bytes_before_resend();
   test_srvrun_pto_noop_when_nothing_inflight();
   test_srvrun_boot_pto_resends_after_deadline();
+  test_srvrun_boot_pto_blocked_probe_keeps_budget();
   test_srvrun_boot_pto_no_resend_before_deadline();
   test_srvrun_boot_pto_stops_after_confirm();
   test_srvrun_boot_pto_confirm_race_stops_immediately();
