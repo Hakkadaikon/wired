@@ -48,7 +48,7 @@ static int emit_handshake_ack(const wired_srvloop_conn* c, wired_obuf* out) {
   hspkt_desc   d  = {
       wired_span_of(c->l->cli_scid, c->l->cli_scid_len),
       wired_span_of(c->s->sdrv.iscid, c->s->sdrv.iscid_len), c->l->hs_tx_pn++,
-      wired_span_of(frames, fl)};
+      wired_span_of(frames, fl), sdrv_wire_version(&c->s->sdrv)};
   /* out->len 0 unless built */
   return hspkt_build_suite(c->s->sdrv.cipher_suite, &pk, &d, out);
 }

@@ -32,10 +32,11 @@ static int phase_admits(connrunner* r, u8 byte0, int level) {
   return connrunner_recv_keygen(r, byte0) != -1;
 }
 
-/* Classify pkt at *level and confirm a key-phase-admitted 1-RTT packet (RFC
+/* Classify pkt at *level under the version this runner's own Initial was
+ * sent in (0 means v1) and confirm a key-phase-admitted 1-RTT packet (RFC
  * 9001 6.3); the compound lives here so recv_one carries one guard. */
 static int recv_level(connrunner* r, u8 byte0, int* level) {
-  return connrunner_packet_level(byte0, level) &&
+  return connrunner_packet_level(byte0, r->sent_version, level) &&
          phase_admits(r, byte0, *level);
 }
 

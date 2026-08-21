@@ -116,9 +116,10 @@ typedef struct {
   const wired_srvboot_id* id;
   u64                     ack_pn;   /**< client Initial pn the flight ACKs */
   wired_span              cli_scid; /**< reply DCID (RFC 9000 7.2) */
-  u32 version; /**< the accepted Initial's own version (RFC 9368 2: the
-                * server replies in the version the client used, no VN
-                * round trip) */
+  u32 version; /**< the version the whole flight is sealed in: the
+                * compatible version negotiated from the ClientHello's
+                * version_information, else the accepted Initial's own
+                * version (RFC 9368 2.2/2.3, no VN round trip) */
   u64 ini_pn;  /**< the flight's server Initial pn (srvboot_flight_pn: 1,
                 * or the next unused one after a HelloRetryRequest) */
   usz ini_off; /**< the ServerHello's crypto-stream offset (past the HRR
@@ -194,11 +195,6 @@ static int srvboot_seal_flight(
   return srvboot_seal_hs_flight(sv, fb->flight, out);
 }
 
-/* Build the server flight from the folded ClientHello and seal it, replying
- * in `version` -- the accepted Initial's own version (RFC 9368 2 / property
- * 2: this server never switches away from the version the client's first
- * flight used, so the reply is trivially compatible with it, verified
- * defensively via version_compatible rather than assumed). */
 /* flight sized past a real 9-cert amplificationlimit chain's Handshake
  * flight (EncryptedExtensions + 9 CERTIFICATE entries + CertificateVerify +
  * Finished) with headroom -- matches srvrun_conn.boot_hs, the buffer this
@@ -208,23 +204,23 @@ static int srvboot_seal_flight(
 #define SRVBOOT_HS_FLIGHT_MAX 16384
 
 /* Build the TLS server flight (ServerHello + Handshake messages) into fb's
- * backing buffers, replying in `version` -- gated on version's RFC 9368 2 /
- * property 2 self-compatibility (this server only ever replies in the
- * version the client's own Initial used, never a different "switched-to"
- * one, so the check is defensive rather than a real branch point). Returns
- * 1, or 0 if version is unknown, the driver fails, or a buffer is too
- * small. */
+ * backing buffers, to be sealed in reply_version -- gated on RFC 9368 2.3
+ * compatibility with client_version, the version the client's own Initial
+ * used (the driver only ever selects a compatible version, so the check is
+ * defensive rather than a real branch point). Returns 1, or 0 if the
+ * versions are incompatible, the driver fails, or a buffer is too small. */
 static int srvboot_build_flight_bytes(
     const wired_srvboot_conn* conn,
     const wired_srvboot_id*   id,
-    u32                       version,
+    u32                       client_version,
+    u32                       reply_version,
     u8*                       sh,
     u8*                       flight,
     srvboot_flight_bytes*     fb) {
   wired_obuf      sh_ob = obuf_of(sh, SRVBOOT_SH_MAX);
   wired_obuf      fl_ob = obuf_of(flight, SRVBOOT_HS_FLIGHT_MAX);
   sdrv_flight_out fo    = {&sh_ob, &fl_ob};
-  if (!version_compatible(version, version)) return 0;
+  if (!version_compatible(client_version, reply_version)) return 0;
   if (!wired_server_build_flight(conn->s, id->random, &fo)) return 0;
   *fb = (srvboot_flight_bytes){
       wired_span_of(sh, sh_ob.len), wired_span_of(flight, fl_ob.len)};
@@ -240,10 +236,12 @@ static u64 srvboot_flight_pn(wired_srvboot_acc* a) {
 }
 
 /* Build the server flight from the folded ClientHello and seal it, replying
- * in the accepted Initial's own version (RFC 9368 2: no VN round trip, so
- * the server just answers in the version that arrived). Everything
- * connection-specific -- ack target, Initial pn, crypto-stream offset, ECN
- * counts -- comes from the accumulator. */
+ * in the connection's wire version -- the compatible version the driver
+ * selected from the ClientHello's version_information, else the accepted
+ * Initial's own version (RFC 9368 2.3: the switch happens in the server's
+ * first flight, no VN round trip). Everything connection-specific -- ack
+ * target, Initial pn, crypto-stream offset, ECN counts -- comes from the
+ * accumulator. */
 static int srvboot_flight(
     const wired_srvboot_conn* conn,
     const wired_srvboot_id*   id,
@@ -251,13 +249,15 @@ static int srvboot_flight(
     wired_srvboot_out*        out) {
   u8                   sh[SRVBOOT_SH_MAX], flight[SRVBOOT_HS_FLIGHT_MAX];
   srvboot_flight_bytes fb;
-  srvboot_server       sv = {
-      conn->s,        id,
-      a->largest_pn,  wired_span_of(conn->l->cli_scid, conn->l->cli_scid_len),
-      a->hdr.version, srvboot_flight_pn(a),
-      a->ini_tx_off,  a->ecn_ect0,
-      a->ecn_ect1,    a->ecn_ce};
-  if (!srvboot_build_flight_bytes(conn, id, a->hdr.version, sh, flight, &fb))
+  u32                  reply_version = sdrv_wire_version(&conn->s->sdrv);
+  srvboot_server       sv            = {
+      conn->s,       id,
+      a->largest_pn, wired_span_of(conn->l->cli_scid, conn->l->cli_scid_len),
+      reply_version, srvboot_flight_pn(a),
+      a->ini_tx_off, a->ecn_ect0,
+      a->ecn_ect1,   a->ecn_ce};
+  if (!srvboot_build_flight_bytes(
+          conn, id, a->hdr.version, reply_version, sh, flight, &fb))
     return 0;
   if (!srvboot_seal_flight(&sv, &fb, out)) return 0;
   /* RFC 9000 12.3: later Handshake sends continue after the flight's packet
@@ -337,14 +337,27 @@ static int srvboot_acc_admit(wired_srvboot_acc* a, wired_mspan dg) {
   return srvboot_acc_bind(a, dg);
 }
 
+/* The packet's own long-header Version field, if it admits pkt as an
+ * Initial under that version's type bits. Reading it per packet (not from
+ * the accumulator's first-datagram header) keeps a client that switched to
+ * the negotiated compatible version mid-boot (RFC 9368 2.3 -- e.g. its
+ * post-HelloRetryRequest second Initial) openable with the keys its own
+ * Version field names. */
+static int srvboot_pkt_initial_version(wired_mspan pkt, u32* v) {
+  if (pkt.n < 6) return 0;
+  *v = be_get_be32(pkt.p + 1);
+  return srvboot_is_long_initial(pkt.p[0], *v);
+}
+
 /* Open one coalesced packet slice if it is an Initial and absorb its CRYPTO
  * chunks and packet number; other packet types and chunks falling outside
  * the buffer are skipped (RFC 9000 12.2 / 19.6). */
 static int srvboot_acc_take(wired_srvboot_acc* a, wired_mspan pkt) {
   wired_span payload;
   wired_span odcid = wired_span_of(a->hdr.dcid, a->hdr.dcid_len);
-  if (!srvboot_is_long_initial(pkt.p[0], a->hdr.version)) return 0;
-  if (!initpkt_open_ver(odcid, a->hdr.version, pkt, &payload)) return 0;
+  u32        v;
+  if (!srvboot_pkt_initial_version(pkt, &v)) return 0;
+  if (!initpkt_open_ver(odcid, v, pkt, &payload)) return 0;
   crecv_collect(&a->cr, payload.p, payload.n);
   a->largest_pn = u64_max(a->largest_pn, srvboot_initial_pn(pkt));
   a->opened++;
@@ -384,7 +397,8 @@ usz wired_srvboot_partial_ack(
       0,
       a->ecn_ect0,
       a->ecn_ect1,
-      a->ecn_ce};
+      a->ecn_ce,
+      a->hdr.version};
   if (!srvboot_acc_ackable(a)) return 0;
   if (!srvwire_seal_initial_frames_lean(&wi, &ob)) return 0;
   a->ack_pn++;
@@ -477,6 +491,10 @@ static int srvboot_acc_start(
   wired_span ch;
   crecv_message_at(&a->cr, a->hrr_off, &ch.p, &ch.n);
   if (a->hrr_off == 0 && !srvboot_init(conn, id, &a->hdr)) return 0;
+  /* RFC 9368 2.2: the version the client's first Initial arrived in --
+   * the baseline sdrv validates its version_information's Chosen against
+   * and replies in when nothing better is negotiated. */
+  sdrv_set_client_version(&conn->s->sdrv, a->hdr.version);
   return wired_server_recv_initial(conn->s, ch.p, ch.n);
 }
 
@@ -511,8 +529,10 @@ static int srvboot_hrr(
       a->ecn_ect0,
       a->ecn_ect1,
       a->ecn_ce};
+  /* RFC 9368 2.3: the HelloRetryRequest is part of the server's first
+   * flight, so it already goes out in the negotiated compatible version. */
   if (!wired_srvloop_send_initial_ver(
-          a->hdr.version, conn->s, &in0, out->initial))
+          sdrv_wire_version(&conn->s->sdrv), conn->s, &in0, out->initial))
     return 0;
   a->hrr_off       = srvboot_ch1_total(a);
   a->ini_tx_off    = hob.len; /* the ServerHello continues past the HRR */
@@ -573,7 +593,8 @@ usz wired_srvboot_refusal(
       0,
       0,
       0,
-      0};
+      0,
+      a->hdr.version};
   if (fn == 0) return 0;
   if (!srvwire_seal_initial_frames(&wi, &ob)) return 0;
   return ob.len;

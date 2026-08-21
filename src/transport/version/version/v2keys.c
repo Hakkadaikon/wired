@@ -1,5 +1,7 @@
 #include "transport/version/version/v2keys.h"
 
+#include "common/bytes/util/bytes.h"
+
 /* RFC 9001 5.2 v1 Initial salt. */
 static const u8 V1_SALT[INITIAL_SALT_LEN] = {
     0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17,
@@ -22,6 +24,16 @@ int version_initial_salt(u32 version, const u8** salt, usz* len) {
   *salt = s;
   *len  = INITIAL_SALT_LEN;
   return 1;
+}
+
+usz version_quic_label(u8* buf, u32 version, const char* suffix, usz sfx_len) {
+  const char* prefix;
+  usz         prefix_len;
+  if (!version_label_prefix(version, &prefix, &prefix_len))
+    version_label_prefix(VERSION_1, &prefix, &prefix_len);
+  bytes_memcpy(buf, prefix, prefix_len);
+  bytes_memcpy(buf + prefix_len, suffix, sfx_len);
+  return prefix_len + sfx_len;
 }
 
 int version_label_prefix(u32 version, const char** prefix, usz* len) {

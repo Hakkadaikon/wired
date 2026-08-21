@@ -45,6 +45,11 @@ typedef struct {
   u64 ect0;
   u64 ect1;
   u64 ce;
+  /** QUIC version the packet is framed and keyed in (Version field, type
+   * bits, and -- on the key-deriving Initial paths -- the RFC 9369 3.3.1
+   * salt). 0 (every pre-existing positional initializer) means v1. The
+   * explicit-version entry points (srvwire_seal_initial_ver) ignore it. */
+  u32 version;
 } srvwire_seal_in;
 
 /* RFC 9001 5.2: seal a TLS flight (e.g. ServerHello) into a server Initial

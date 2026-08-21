@@ -27,7 +27,8 @@ int wired_srvloop_send_initial_ver(
       in->crypto_off,
       in->ect0,
       in->ect1,
-      in->ce};
+      in->ce,
+      version};
   return srvwire_seal_initial_ver(version, &wi, out);
 }
 
@@ -52,7 +53,8 @@ int wired_srvloop_send_handshake(
       in->crypto_off,
       in->ect0,
       in->ect1,
-      in->ce};
+      in->ce,
+      sdrv_wire_version(&s->sdrv)};
   protect_keys k;
   if (!wired_srvloop_seal_keys(s, LEVEL_HANDSHAKE, &dk)) return 0;
   k = (protect_keys){dk.keys, &dk.hp};

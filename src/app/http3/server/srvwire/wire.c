@@ -126,9 +126,14 @@ static int srvwire_initial_tx_lean_ver(
   return 1;
 }
 
+/* in->version, with 0 (every pre-existing positional initializer) read as
+ * the QUIC v1 those callers always meant. */
+static u32 srvwire_ver_or_v1(u32 v) { return v ? v : VERSION_1; }
+
 static int srvwire_initial_tx_lean(
     const srvwire_seal_in* in, wired_obuf* fb, wired_obuf* out) {
-  return srvwire_initial_tx_lean_ver(VERSION_1, in, fb, out);
+  return srvwire_initial_tx_lean_ver(
+      srvwire_ver_or_v1(in->version), in, fb, out);
 }
 
 /* Pad to the 1200-byte floor, then seal under `version` (the path every
@@ -151,7 +156,7 @@ int srvwire_seal_initial_ver(
 
 /* RFC 9001 5.2 */
 int srvwire_seal_initial(const srvwire_seal_in* in, wired_obuf* out) {
-  return srvwire_seal_initial_ver(VERSION_1, in, out);
+  return srvwire_seal_initial_ver(srvwire_ver_or_v1(in->version), in, out);
 }
 
 /* RFC 9000 17.2.2: seal pre-built frames (in->tls holds raw frame bytes,
@@ -162,7 +167,7 @@ int srvwire_seal_initial_frames(const srvwire_seal_in* in, wired_obuf* out) {
   wired_obuf fb = obuf_of(frames, sizeof frames);
   if (!bytes_put(wired_mspan_of(fb.p, fb.cap), &fb.len, in->tls)) return 0;
   if (!append_ack(&fb, in)) return 0;
-  return srvwire_initial_tx_ver(VERSION_1, in, &fb, out);
+  return srvwire_initial_tx_ver(srvwire_ver_or_v1(in->version), in, &fb, out);
 }
 
 int srvwire_seal_initial_frames_lean(
@@ -197,7 +202,8 @@ int srvwire_seal_handshake(
   wired_obuf fb = obuf_of(frames, sizeof frames);
   if (!srvwire_emit_frames(in, &fb)) return 0;
   hspkt_desc d = {
-      in->hdr_dcid, in->scid, in->pn, wired_span_of(frames, fb.len)};
+      in->hdr_dcid, in->scid, in->pn, wired_span_of(frames, fb.len),
+      in->version};
   if (!hspkt_build(k, &d, out)) return 0;
   return 1;
 }
@@ -221,7 +227,8 @@ int srvwire_seal_handshake_suite(
   wired_obuf fb = obuf_of(frames, sizeof frames);
   if (!srvwire_emit_frames(in, &fb)) return 0;
   hspkt_desc d = {
-      in->hdr_dcid, in->scid, in->pn, wired_span_of(frames, fb.len)};
+      in->hdr_dcid, in->scid, in->pn, wired_span_of(frames, fb.len),
+      in->version};
   return hspkt_build_suite(suite, k, &d, out);
 }
 

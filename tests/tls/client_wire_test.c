@@ -65,6 +65,7 @@ static void test_cw_open_server_initial(void) {
       0,
       0,
       0,
+      0,
       0};
   CHECK(srvwire_seal_initial(&in, &ob) == 1);
   {
@@ -117,6 +118,7 @@ static void test_cw_handshake_roundtrip(void) {
         0,
         -1,
         wired_span_of(fin, sizeof(fin)),
+        0,
         0,
         0,
         0,

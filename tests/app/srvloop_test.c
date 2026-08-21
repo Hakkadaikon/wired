@@ -212,6 +212,7 @@ static usz client_seal_handshake(
       0,
       0,
       0,
+      0,
       0};
   protect_keys pk = {k, &hp};
   CHECK(srvwire_seal_handshake(&pk, &in, &ob));
@@ -235,6 +236,7 @@ static usz client_seal_handshake_pn(
       pn,
       -1,
       wired_span_of(msg, mlen),
+      0,
       0,
       0,
       0,
@@ -364,6 +366,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
           0,
           0,
           0,
+          0,
           0};
       wired_obuf cob = {cpkt, sizeof cpkt, 0};
       CHECK(
@@ -430,6 +433,7 @@ static void test_srvloop_open_chacha(void) {
           0,
           -1,
           wired_span_of(f.cli_fin, f.cli_fin_len),
+          0,
           0,
           0,
           0,

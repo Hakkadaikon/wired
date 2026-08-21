@@ -20,11 +20,11 @@
  * Retry are not driven by this loop. */
 static void test_packet_level(void) {
   int lv;
-  CHECK(connrunner_packet_level(0xc3, &lv) == 1 && lv == LEVEL_INITIAL);
-  CHECK(connrunner_packet_level(0xe3, &lv) == 1 && lv == LEVEL_HANDSHAKE);
-  CHECK(connrunner_packet_level(0x43, &lv) == 1 && lv == LEVEL_ONERTT);
-  CHECK(connrunner_packet_level(0xd3, &lv) == 0); /* 0-RTT */
-  CHECK(connrunner_packet_level(0xf3, &lv) == 0); /* Retry */
+  CHECK(connrunner_packet_level(0xc3, 0, &lv) == 1 && lv == LEVEL_INITIAL);
+  CHECK(connrunner_packet_level(0xe3, 0, &lv) == 1 && lv == LEVEL_HANDSHAKE);
+  CHECK(connrunner_packet_level(0x43, 0, &lv) == 1 && lv == LEVEL_ONERTT);
+  CHECK(connrunner_packet_level(0xd3, 0, &lv) == 0); /* 0-RTT */
+  CHECK(connrunner_packet_level(0xf3, 0, &lv) == 0); /* Retry */
 }
 
 /* Install the same Initial keys on a connio pair and lift their gates so a

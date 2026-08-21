@@ -19,4 +19,14 @@ int version_initial_salt(u32 version, const u8** salt, usz* len);
  * outputs untouched) for an unknown version. */
 int version_label_prefix(u32 version, const char** prefix, usz* len);
 
+/* Longest "<prefix><suffix>" label version_quic_label can build:
+ * "quicv2 " (7) plus the longest suffix in use ("client in", 9). */
+#define VERSION_LABEL_MAX 16
+
+/* Build the full HKDF-Expand-Label label "<prefix><suffix>" for `version`
+ * into buf (at least VERSION_LABEL_MAX bytes) and return its length. An
+ * unknown version (including 0) falls back to the v1 "quic " prefix --
+ * label building never fails, it degrades to the invariant construction. */
+usz version_quic_label(u8* buf, u32 version, const char* suffix, usz sfx_len);
+
 #endif
