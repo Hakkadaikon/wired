@@ -23,25 +23,37 @@ static int srvwire_take_crypto(wired_span frames, wired_span* tls) {
   return 1;
 }
 
+/* RFC 9000 19.3.2: attach in's cumulative ECN counts, turning the ACK into
+ * type 0x03 -- skipped (plain 0x02) while all three are still zero. */
+static void srvwire_ack_set_ecn(const srvwire_seal_in* in, ack_frame* f) {
+  if ((in->ect0 | in->ect1 | in->ce) == 0) return;
+  f->has_ecn = 1;
+  f->ect0    = in->ect0;
+  f->ect1    = in->ect1;
+  f->ce      = in->ce;
+}
+
 /* RFC 9000 13.2.1 / 19.3: encode an ACK frame acknowledging the single client
- * packet number ack_pn. Returns bytes written, or 0 on overflow. */
-static usz put_ack_one(wired_obuf* out, u64 ack_pn) {
+ * packet number in->ack_pn, with in's ECN counts when any are non-zero.
+ * Returns bytes written, or 0 on overflow. */
+static usz put_ack_one(wired_obuf* out, const srvwire_seal_in* in) {
   ack_frame f    = {0};
   f.n_ranges     = 1;
-  f.ranges[0].hi = ack_pn;
-  f.ranges[0].lo = ack_pn;
+  f.ranges[0].hi = (u64)in->ack_pn;
+  f.ranges[0].lo = (u64)in->ack_pn;
+  srvwire_ack_set_ecn(in, &f);
   return ack_encode(out->p, out->cap, &f);
 }
 
-/* Append an ACK frame for ack_pn after out->len (none when ack_pn < 0). The
- * CRYPTO frame stays at offset 0 so the open path finds it there. Returns 1,
- * or 0 on overflow. */
-static int append_ack(wired_obuf* frames, i64 ack_pn) {
+/* Append an ACK frame for in->ack_pn after out->len (none when ack_pn < 0).
+ * The CRYPTO frame stays at offset 0 so the open path finds it there.
+ * Returns 1, or 0 on overflow. */
+static int append_ack(wired_obuf* frames, const srvwire_seal_in* in) {
   wired_obuf tail;
   usz        a;
-  if (ack_pn < 0) return 1;
+  if (in->ack_pn < 0) return 1;
   tail = obuf_of(frames->p + frames->len, frames->cap - frames->len);
-  a    = put_ack_one(&tail, (u64)ack_pn);
+  a    = put_ack_one(&tail, in);
   if (a == 0) return 0;
   frames->len += a;
   return 1;
@@ -53,7 +65,7 @@ static int append_ack(wired_obuf* frames, i64 ack_pn) {
 static int srvwire_emit_frames(const srvwire_seal_in* in, wired_obuf* out) {
   crypto_stream_emit_in ein = {in->crypto_off, in->tls.n};
   if (!crypto_stream_emit(in->tls, &ein, out)) return 0;
-  return append_ack(out, in->ack_pn);
+  return append_ack(out, in);
 }
 
 /* RFC 9000 14.1: the server's Initial-carrying datagram must also reach 1200
@@ -149,7 +161,7 @@ int srvwire_seal_initial_frames(const srvwire_seal_in* in, wired_obuf* out) {
   u8         frames[1200];
   wired_obuf fb = obuf_of(frames, sizeof frames);
   if (!bytes_put(wired_mspan_of(fb.p, fb.cap), &fb.len, in->tls)) return 0;
-  if (!append_ack(&fb, in->ack_pn)) return 0;
+  if (!append_ack(&fb, in)) return 0;
   return srvwire_initial_tx_ver(VERSION_1, in, &fb, out);
 }
 
@@ -158,7 +170,7 @@ int srvwire_seal_initial_frames_lean(
   u8         frames[64];
   wired_obuf fb = obuf_of(frames, sizeof frames);
   if (!bytes_put(wired_mspan_of(fb.p, fb.cap), &fb.len, in->tls)) return 0;
-  if (!append_ack(&fb, in->ack_pn)) return 0;
+  if (!append_ack(&fb, in)) return 0;
   return srvwire_initial_tx_lean(in, &fb, out);
 }
 

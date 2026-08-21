@@ -37,6 +37,14 @@ typedef struct {
   i64        ack_pn;
   wired_span tls;
   u64        crypto_off;
+  /** RFC 9000 13.4.1/19.3.2: cumulative ECN counts to carry on the ACK
+   * (type 0x03) -- all three zero sends a plain type-0x02 ACK. The peer
+   * validates ECN capability against the FIRST acknowledgment of a packet
+   * it sent ECT-marked, so the Initial-space ACK must already carry these
+   * or the peer declares the path not ECN capable and stops marking. */
+  u64 ect0;
+  u64 ect1;
+  u64 ce;
 } srvwire_seal_in;
 
 /* RFC 9001 5.2: seal a TLS flight (e.g. ServerHello) into a server Initial

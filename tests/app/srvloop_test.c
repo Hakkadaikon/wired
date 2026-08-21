@@ -209,6 +209,9 @@ static usz client_seal_handshake(
       0,
       -1,
       wired_span_of(msg, mlen),
+      0,
+      0,
+      0,
       0};
   protect_keys pk = {k, &hp};
   CHECK(srvwire_seal_handshake(&pk, &in, &ob));
@@ -232,6 +235,9 @@ static usz client_seal_handshake_pn(
       pn,
       -1,
       wired_span_of(msg, mlen),
+      0,
+      0,
+      0,
       0};
   protect_keys pk = {k, &hp};
   CHECK(srvwire_seal_handshake(&pk, &in, &ob));
@@ -265,8 +271,14 @@ static void test_srvloop_send_initial_roundtrip(void) {
   wired_span    tls = {0, 0};
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
-  wired_srvloop_send_in in = {
-      wired_span_of(g_cli_scid, 6), 1, -1, wired_span_of(f.sh, f.sh_len), 0};
+  wired_srvloop_send_in in = {wired_span_of(g_cli_scid, 6),
+                              1,
+                              -1,
+                              wired_span_of(f.sh, f.sh_len),
+                              0,
+                              0,
+                              0,
+                              0};
   CHECK(wired_srvloop_send_initial(&f.s, &in, &ob));
   /* RFC 9000 14.1: the Initial datagram is padded to >= 1200, else curl drops
    * it and PTO-retransmits its own Initial for ~4s (the appconnect stall). */
@@ -305,8 +317,14 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
     aes128                hp;
     wired_span            tls = {0, 0};
     wired_srvloop_send_in in  = {
-        wired_span_of(g_cli_scid, 6), 0, -1,
-        wired_span_of(f.flight, f.flight_len), 0};
+        wired_span_of(g_cli_scid, 6),
+        0,
+        -1,
+        wired_span_of(f.flight, f.flight_len),
+        0,
+        0,
+        0,
+        0};
     CHECK(wired_srvloop_send_handshake(&f.s, &in, &hob));
     CHECK(keysched_get(&f.s.sched, KS_SERVER_HS, &shs) == 1);
     aes128_init(&hp, shs->hp);
@@ -343,6 +361,9 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
           0,
           -1,
           wired_span_of(f.cli_fin, f.cli_fin_len),
+          0,
+          0,
+          0,
           0};
       wired_obuf cob = {cpkt, sizeof cpkt, 0};
       CHECK(
@@ -409,6 +430,9 @@ static void test_srvloop_open_chacha(void) {
           0,
           -1,
           wired_span_of(f.cli_fin, f.cli_fin_len),
+          0,
+          0,
+          0,
           0};
       wired_obuf cob = {cpkt, sizeof cpkt, 0};
       CHECK(
@@ -469,8 +493,14 @@ static void test_srvloop_wrong_direction_open_fails(void) {
   aes128_init(&ownhp, own->hp);
   {
     wired_srvloop_send_in sin = {
-        wired_span_of(g_cli_scid, 6), 0, -1,
-        wired_span_of(f.flight, f.flight_len), 0};
+        wired_span_of(g_cli_scid, 6),
+        0,
+        -1,
+        wired_span_of(f.flight, f.flight_len),
+        0,
+        0,
+        0,
+        0};
     CHECK(wired_srvloop_send_handshake(&f.s, &sin, &ob));
   }
   /* SERVER_HS (own / client-peer) opens it; CLIENT_HS (server-open) must NOT.
@@ -499,8 +529,14 @@ static void test_srvloop_no_onertt_seal_before_confirm(void) {
   lp_drive_to_flight(&f);
   CHECK(wired_server_is_confirmed(&f.s) == 0);
   {
-    wired_srvloop_send_in in = {
-        wired_span_of(g_cli_scid, 6), 0, -1, wired_span_of(frame, 1), 0};
+    wired_srvloop_send_in in = {wired_span_of(g_cli_scid, 6),
+                                0,
+                                -1,
+                                wired_span_of(frame, 1),
+                                0,
+                                0,
+                                0,
+                                0};
     CHECK(wired_srvloop_send_onertt(&f.s, &in, &ob) == 0);
   }
 }

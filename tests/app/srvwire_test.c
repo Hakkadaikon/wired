@@ -22,6 +22,9 @@ static void test_srvwire_initial_roundtrip(void) {
       1,
       -1,
       wired_span_of(sh, sizeof sh),
+      0,
+      0,
+      0,
       0};
   CHECK(srvwire_seal_initial(&in, &ob));
   CHECK(ob.len > sizeof(sh)); /* header + AEAD tag overhead present */
@@ -47,6 +50,9 @@ static void test_srvwire_initial_tamper(void) {
       1,
       -1,
       wired_span_of(sh, sizeof sh),
+      0,
+      0,
+      0,
       0};
   CHECK(srvwire_seal_initial(&in, &ob));
   pkt[ob.len - 1] ^= 0x01;
@@ -70,6 +76,9 @@ static void test_srvwire_initial_wrong_key(void) {
       1,
       -1,
       wired_span_of(sh, sizeof sh),
+      0,
+      0,
+      0,
       0};
   CHECK(srvwire_seal_initial(&in, &ob));
   wired_span              tls = {0, 0};
@@ -105,6 +114,9 @@ static void test_srvwire_handshake_roundtrip(void) {
       0,
       -1,
       wired_span_of(fl, sizeof fl),
+      0,
+      0,
+      0,
       0};
   protect_keys pk = {&k, &hp};
   CHECK(srvwire_seal_handshake(&pk, &in, &ob));
@@ -133,6 +145,9 @@ static void test_srvwire_handshake_wrong_key(void) {
       0,
       -1,
       wired_span_of(fl, sizeof fl),
+      0,
+      0,
+      0,
       0};
   protect_keys pk = {&k, &hp};
   CHECK(srvwire_seal_handshake(&pk, &in, &ob));
@@ -176,6 +191,9 @@ static void test_srvwire_initial_acks_client(void) {
       1,
       0,
       wired_span_of(sh, sizeof sh),
+      0,
+      0,
+      0,
       0};
   CHECK(srvwire_seal_initial(&in, &ob));
   initpkt_derive(wired_span_of(dcid, 8), &ck, &sk);
@@ -213,6 +231,9 @@ static void test_srvwire_handshake_acks_client(void) {
       0,
       3,
       wired_span_of(fl_in, sizeof fl_in),
+      0,
+      0,
+      0,
       0};
   protect_keys pk = {&k, &hp};
   CHECK(srvwire_seal_handshake(&pk, &in, &ob));

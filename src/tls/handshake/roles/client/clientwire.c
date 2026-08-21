@@ -65,6 +65,9 @@ int client_seal_handshake_wire(
       in->hdr.pn,
       -1,
       in->tls,
+      0,
+      0,
+      0,
       0};
   protect_keys pk;
   if (!cw_dir_key(c, KS_CLIENT_HS, &dk)) return 0;
