@@ -303,21 +303,26 @@ static void load_config(app_config* cfg, int argc, char** argv) {
  * ponytail: fixed interop-sim literals behind one flag, no address parser
  * -- a deployment wanting real values sets wired_srvboot_id's pref_*
  * fields from its own configuration. */
-static const u8 g_migrate_v4[4] = {193, 167, 100, 100};
-/* RFC 9000 18.2: an all-zero address means "not offered". The v6 half is
- * deliberately withheld: the runner's client dials the dual-stack name and
- * lands on v6, so a v6 preferred_address names the address already in use
- * and no path ever changes (observed live: ngtcp2 "selected server
- * preferred_address" equal to its current path and stayed put). Offering
- * only v4 forces a real cross-family migration. */
-static const u8 g_migrate_v6_none[16] = {0};
+static const u8 g_migrate_v4[4]  = {193, 167, 100, 100};
+static const u8 g_migrate_v6[16] = {0xfd, 0x00, 0xca, 0xfe, 0xca, 0xfe,
+                                    0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                    0x00, 0x00, 0x01, 0x00};
 
+/* Port 4433, not 443: the preferred address must name a path DIFFERENT
+ * from the one in use, or no client ever migrates -- the runner's client
+ * dials the dual-stack name, so whichever family it lands on, the same
+ * address at 443 would be its current path (observed live: ngtcp2 either
+ * selected its current address and stayed put, or declined the
+ * cross-family alternative). The interop image REDIRECTs udp/4433 to this
+ * server's single 443 socket (run_endpoint.sh); conntrack rewrites the
+ * replies' source back to 4433, so the client sees the server answering
+ * from the preferred address as RFC 9000 9.6.2 requires. */
 static void app_pref_addr(wired_srvboot_id* id, int argc, char** argv) {
   if (!wired_cliargs_flag(argc, argv, "--migrate-addr")) return;
   id->pref_v4      = g_migrate_v4;
-  id->pref_v6      = g_migrate_v6_none;
-  id->pref_v4_port = 443;
-  id->pref_v6_port = 0;
+  id->pref_v6      = g_migrate_v6;
+  id->pref_v4_port = 4433;
+  id->pref_v6_port = 4433;
 }
 
 /* The real entry point, called from _start (see wired.h's WIRED_MAIN block)
