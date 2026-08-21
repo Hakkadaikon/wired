@@ -156,6 +156,38 @@ static void test_server_happy(void) {
   CHECK(wired_server_handshake_done(&f.s, &hd_ob) == 0);
 }
 
+/* RFC 8446 7.1: the resumption_master_secret folds the transcript through
+ * the verified client Finished ONLY. Bytes smeared into the crypto stream
+ * behind the Finished (a coalesced-datagram ClientHello retransmit landing
+ * in the same reassembly, observed live in picoquic's handshakeloss run)
+ * must not leak into that transcript: a connection that folded them issued
+ * session tickets whose secret no client could ever match, and every later
+ * resumption died on a binder mismatch (alert 40). */
+static void test_server_finished_trailing_bytes_not_in_transcript(void) {
+  struct srv_fix f;
+  u8             junk[24], jpay[64], payload[256];
+  usz            jlen, plen;
+  make_client_hello(&f);
+  drive_to_flight(&f);
+  make_client_finished(&f);
+  /* junk CRYPTO arrives FIRST, at the offset right behind the Finished */
+  for (usz i = 0; i < sizeof junk; i++) junk[i] = (u8)(0xa0 + i);
+  {
+    crypto_stream_emit_in ein = {0, 256};
+    wired_obuf            ob  = obuf_of(jpay, sizeof jpay);
+    ein.base_offset           = f.cli_fin_len;
+    CHECK(crypto_stream_emit(wired_span_of(junk, sizeof junk), &ein, &ob));
+    jlen = ob.len;
+  }
+  CHECK(wired_server_feed(&f.s, jpay, jlen) == 0); /* prefix incomplete */
+  plen = srv_wrap_crypto(f.cli_fin, f.cli_fin_len, payload, sizeof payload);
+  CHECK(plen != 0);
+  CHECK(wired_server_feed(&f.s, payload, plen) == 1);
+  CHECK(wired_server_is_confirmed(&f.s) == 1);
+  /* exactly the 4+32-byte Finished went into the transcript */
+  CHECK(f.s.tr_through_client_fin - f.s.tr_through_flight == f.cli_fin_len);
+}
+
 /* One server flight computes the x25519 shared secret exactly once: the
  * connection's packet-protection key schedule reuses the secret sdrv already
  * derived for its flight. The expected 2 = drive_to_flight's own fixture
@@ -716,6 +748,7 @@ static void test_server_no_psk_regression_unchanged(void) {
 
 void test_server(void) {
   test_server_happy();
+  test_server_finished_trailing_bytes_not_in_transcript();
   test_server_single_ecdhe();
   test_server_forged_finished();
   test_server_flight_before_ch();
