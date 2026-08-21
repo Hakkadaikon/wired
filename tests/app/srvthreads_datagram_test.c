@@ -138,7 +138,20 @@ struct sdt_client {
   usz      ch_len;
   u8       chsh[900]; /* CH||SH, growing to CH||SH||EE below */
   usz      chsh_len;
+  /** RFC 9000 7.2: the server's chosen SCID, captured from its first
+   * Initial -- every 1-RTT packet this client sends addresses it (the
+   * server drops the Initial's original DCID from its routing table once
+   * the handshake confirms). */
+  u8 srv_scid[20];
+  u8 srv_scid_len;
 };
+
+/* The DCID this client writes on 1-RTT packets: the server's own SCID once
+ * captured, the pre-handshake CID before that (RFC 9000 7.2). */
+static wired_span sdt_dcid(const struct sdt_client* cx) {
+  if (cx->srv_scid_len) return wired_span_of(cx->srv_scid, cx->srv_scid_len);
+  return wired_span_of(g_sdt_cli_scid, 6);
+}
 
 /* RFC 9221 3: advertise max_datagram_frame_size in our own ClientHello's
  * transport parameters so the server's DATAGRAM sender (srvrun_send_pending_
@@ -380,10 +393,22 @@ static int sdt_rederive_hs_keys(struct sdt_client* cx) {
       wired_span_of(cx->chsh, cx->chsh_len));
 }
 
+/* RFC 9000 7.2/17.2: capture the server's chosen SCID off its Initial's
+ * long header, for sdt_dcid above. Best-effort: a parse failure leaves the
+ * pre-handshake CID in use. */
+static void sdt_capture_srv_scid(struct sdt_client* cx, u8* pkt, usz len) {
+  lhdr h;
+  if (!lhdr_parse(wired_span_of(pkt, len), 1, &h)) return;
+  if (h.scid.n > sizeof cx->srv_scid) return;
+  bytes_memcpy(cx->srv_scid, h.scid.p, h.scid.n);
+  cx->srv_scid_len = (u8)h.scid.n;
+}
+
 static int sdt_open_initial(struct sdt_client* cx, u8* pkt, usz len) {
   wired_span         tls;
   clientwire_open_in oin = {
       wired_span_of(g_sdt_cli_scid, 6), wired_mspan_of(pkt, len), 0};
+  sdt_capture_srv_scid(cx, pkt, len);
   if (!client_open_initial_wire(&oin, &tls)) return 0;
   if (!sdt_feed_serverhello(cx, tls)) return 0;
   return sdt_rederive_hs_keys(cx);
@@ -760,8 +785,7 @@ static usz sdt_seal_stream(
   const initial_keys* k;
   aes128              hp;
   appdata_tx          tx = {
-      wired_span_of(g_sdt_cli_scid, 6), pn, stream_id,
-      wired_span_of(payload, plen), 0};
+      sdt_dcid(cx), pn, stream_id, wired_span_of(payload, plen), 0};
   wired_obuf ob = obuf_of(out, cap);
   if (!keysched_get(&cx->c.tls.ks, KS_CLIENT_AP, &k)) return 0;
   aes128_init(&hp, k->hp);
@@ -907,8 +931,7 @@ static int sdt_build_datagram_pkt(
   datagram_frame    df   = {n, payload};
   usz               flen = datagram_encode(fb, &df, 0);
   protect_keys      pk;
-  hspkt_onertt_desc d = {
-      wired_span_of(g_sdt_cli_scid, 6), pn, wired_span_of(frame, flen), 0};
+  hspkt_onertt_desc d = {sdt_dcid(cx), pn, wired_span_of(frame, flen), 0};
   if (flen == 0) return 0;
   if (!sdt_client_ap_key(cx, &pk)) return 0;
   return hspkt_onertt_build(&pk, &d, out);
