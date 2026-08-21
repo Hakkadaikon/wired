@@ -27,8 +27,16 @@ typedef struct {
    * (a fresh slot, or one never rekeyed). Kept live so a client Initial
    * retransmitted before it has seen the new SCID still routes here instead
    * of spawning a duplicate connection (RFC 9000 7.2/17.2.2). */
-  u8  alt_cid[WIRED_MAX_CID_LEN];
-  u8  alt_cid_len;
+  u8 alt_cid[WIRED_MAX_CID_LEN];
+  u8 alt_cid_len;
+  /** A third CID routing here: the spare advertised at accept (the
+   * preferred_address parameter / NEW_CONNECTION_ID frame, sequence 1) --
+   * RFC 9000 5.1.1 lets the peer switch to any issued CID at ANY moment
+   * (quic-go does so right after the handshake flight), so it must route
+   * from the moment it is advertised, not from first use. 0-length when
+   * none was issued. */
+  u8  alt2_cid[WIRED_MAX_CID_LEN];
+  u8  alt2_cid_len;
   int live; /**< 1 if this slot holds a connection, 0 if free */
 } conntable;
 
@@ -54,5 +62,10 @@ void conntable_remove(conntable* t, usz cap, int i);
  * @return 1 on success, 0 if i is out of range or cid_len exceeds
  *   WIRED_MAX_CID_LEN (the slot is left untouched). */
 int conntable_rekey(conntable* t, usz cap, int i, const u8* cid, u8 cid_len);
+
+/** Register a second alternate CID for slot i (see conntable.alt2_cid).
+ * @return 1 on success, 0 if i is out of range or cid_len exceeds
+ *   WIRED_MAX_CID_LEN (the slot is left untouched). */
+int conntable_set_alt2(conntable* t, usz cap, int i, const u8* cid, u8 cid_len);
 
 #endif
