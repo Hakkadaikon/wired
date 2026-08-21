@@ -11024,6 +11024,32 @@ static void test_srvrun_spare_cid_routes_after_confirm(void) {
   CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, prim, 6) == 0);
 }
 
+/* RFC 9000 8.2.2: the peer's own PATH_CHALLENGE draws a PATH_RESPONSE
+ * carrying the same 8 bytes, expanded to the full 1200-byte datagram like
+ * a challenge (8.2.1) -- without it a client validating its migration
+ * probe gives up the new path and falls back (observed live: ngtcp2
+ * ignored the abandoned path while the response tail PTO-looped there). */
+static void test_srvrun_answers_peer_path_challenge(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  wired_obuf    ob = {0};
+  u8            obuf[1024], out[1400];
+  u8            data[PATH_DATA] = {9, 8, 7, 6, 5, 4, 3, 2};
+  const u8*     pl;
+  usz           pll;
+  u8            got[PATH_DATA];
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  {
+    wired_obuf gob = {out, sizeof out, 0};
+    CHECK(srvrun_seal_path_frame(&c, FRAME_PATH_RESPONSE, data, &gob) == 1);
+    CHECK(gob.len == 1200); /* expanded, inside the AEAD */
+    CHECK(client_open_onertt(&f, out, gob.len, &pl, &pll) == 1);
+  }
+  CHECK(path_decode(pl, pll, FRAME_PATH_RESPONSE, got) != 0);
+  CHECK(ct_diff8(got, data) == 0);
+}
+
 /* RFC 9000 9.6.2: a datagram arriving on the preferred-address socket (a
  * different local fd, same client address) is a path change -- the
  * PATH_CHALLENGE fires and the connection's replies follow the new
@@ -14552,6 +14578,7 @@ void test_srvrun(void) {
   test_srvrun_grant_arms_retry();
   test_srvrun_spare_cid_routes_after_confirm();
   test_srvrun_rebind_on_arrival_fd_change();
+  test_srvrun_answers_peer_path_challenge();
   test_srvrun_boot_pto_no_resend_before_deadline();
   test_srvrun_boot_pto_stops_after_confirm();
   test_srvrun_boot_pto_confirm_race_stops_immediately();

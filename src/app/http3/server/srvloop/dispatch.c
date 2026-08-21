@@ -960,6 +960,29 @@ static int gather_streams_blocked(
  * gather_one_max_data's split (loop body pulled out to keep the scanning
  * loop's own CCN at the gate). A malformed/truncated frame is silently
  * skipped, same policy as gather_one_max_data's decode failure. */
+/* RFC 9000 8.2.2/19.17: latch the peer's PATH_CHALLENGE data so the owning
+ * runner can answer it -- last-in-step wins, same single-slot convention
+ * as gather_one_path_response below. */
+static void gather_one_path_challenge(wired_srvloop* l, wired_span frame) {
+  if (!path_decode(
+          frame.p, frame.n, FRAME_PATH_CHALLENGE, l->path_challenge_rx_data))
+    return;
+  l->path_challenge_rx_seen = 1;
+}
+
+static int gather_path_challenge(wired_srvloop* l, const u8* payload, usz len) {
+  framewalk      it;
+  framewalk_item fr;
+  int            seen = 0;
+  framewalk_init(&it, payload, len);
+  while (framewalk_next(&it, &fr)) {
+    if (frame_classify(fr.type) != FK_PATH_CHALLENGE) continue;
+    seen = 1;
+    gather_one_path_challenge(l, wired_span_of(fr.start, fr.remaining));
+  }
+  return seen;
+}
+
 static void gather_one_path_response(wired_srvloop* l, wired_span frame) {
   if (!path_decode(
           frame.p, frame.n, FRAME_PATH_RESPONSE, l->path_response_data))
@@ -1363,15 +1386,16 @@ static int dispatch_gather_closes(
 static int dispatch_gather_flowctl(
     const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
   int got_max_data, got_max_stream_data, got_max_streams, got_streams_blocked,
-      got_path_resp;
+      got_path_resp, got_path_chal;
   if (!ctx->l) return 0;
   got_max_data        = gather_max_data(ctx->l, payload.p, payload.n);
   got_max_stream_data = gather_max_stream_data(ctx->l, payload.p, payload.n);
   got_max_streams     = gather_max_streams_uni(ctx->l, payload.p, payload.n);
   got_streams_blocked = gather_streams_blocked(ctx->l, payload.p, payload.n);
   got_path_resp       = gather_path_response(ctx->l, payload.p, payload.n);
+  got_path_chal       = gather_path_challenge(ctx->l, payload.p, payload.n);
   return got_max_data | got_max_stream_data | got_max_streams |
-         got_streams_blocked | got_path_resp;
+         got_streams_blocked | got_path_resp | got_path_chal;
 }
 
 /* RFC 9218 7.1 / 10: 1 if ctx has a loop to reassemble the peer's control
