@@ -40,6 +40,13 @@ jobs:
 
       - name: build server binary
         run: nix develop -c sh -c 'just gen-ninja && ninja examples/word_list/wired_server'
+        env:
+          # The interop runner's multiconnect cases open 50 sequential
+          # connections; under handshakeloss/-corruption a lost peer
+          # CONNECTION_CLOSE leaves its slot busy until the 30s idle sweep,
+          # and the sample-sized default (4) fills up and refuses new
+          # connections mid-test.
+          CONNTABLE_CAP: "16"
 
       - name: build docker image
         run: docker build -t wired-interop -f interop/Dockerfile .
