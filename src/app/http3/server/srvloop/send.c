@@ -24,7 +24,7 @@ int wired_srvloop_send_initial_ver(
       in->pn,
       in->ack_pn,
       in->payload,
-      0};
+      in->crypto_off};
   return srvwire_seal_initial_ver(version, &wi, out);
 }
 

@@ -119,6 +119,10 @@ typedef struct {
   u32 version; /**< the accepted Initial's own version (RFC 9368 2: the
                 * server replies in the version the client used, no VN
                 * round trip) */
+  u64 ini_pn;  /**< the flight's server Initial pn (srvboot_flight_pn: 1,
+                * or the next unused one after a HelloRetryRequest) */
+  usz ini_off; /**< the ServerHello's crypto-stream offset (past the HRR
+                * when one was sent, else 0 -- RFC 9000 19.6) */
 } srvboot_server;
 
 /* RFC 9000 19.6 / 14.1: TLS bytes per Handshake flight datagram. 1100 keeps
@@ -173,7 +177,8 @@ static int srvboot_seal_flight(
     const srvboot_server*       sv,
     const srvboot_flight_bytes* fb,
     wired_srvboot_out*          out) {
-  wired_srvloop_send_in in0 = {sv->cli_scid, 1, (i64)sv->ack_pn, fb->sh, 0};
+  wired_srvloop_send_in in0 = {
+      sv->cli_scid, sv->ini_pn, (i64)sv->ack_pn, fb->sh, sv->ini_off};
   if (!wired_srvloop_send_initial_ver(sv->version, sv->s, &in0, out->initial))
     return 0;
   return srvboot_seal_hs_flight(sv, fb->flight, out);
@@ -224,12 +229,16 @@ static int srvboot_flight(
     const wired_srvboot_id*   id,
     u32                       version,
     u64                       ack_pn,
+    u64                       ini_pn,
+    usz                       ini_off,
     wired_srvboot_out*        out) {
   u8                   sh[SRVBOOT_SH_MAX], flight[SRVBOOT_HS_FLIGHT_MAX];
   srvboot_flight_bytes fb;
   srvboot_server       sv = {
-      conn->s, id, ack_pn,
-      wired_span_of(conn->l->cli_scid, conn->l->cli_scid_len), version};
+      conn->s, id,
+      ack_pn,  wired_span_of(conn->l->cli_scid, conn->l->cli_scid_len),
+      version, ini_pn,
+      ini_off};
   if (!srvboot_build_flight_bytes(conn, id, version, sh, flight, &fb)) return 0;
   if (!srvboot_seal_flight(&sv, &fb, out)) return 0;
   /* RFC 9000 12.3: later Handshake sends continue after the flight's packet
@@ -246,6 +255,8 @@ void wired_srvboot_acc_reset(wired_srvboot_acc* a) {
   /* the accept flight's server Initial is pn 1 (srvboot_flight); partial
    * acks climb from 2 so the peer never mistakes the flight for a dup */
   a->ack_pn       = 2;
+  a->hrr_off      = 0;
+  a->ini_tx_off   = 0;
   a->alt_dcid_len = 0;
   a->zerortt_n    = 0;
 }
@@ -400,19 +411,80 @@ wired_span wired_srvboot_acc_zerortt_take(const wired_srvboot_acc* a, usz i) {
 }
 
 int wired_srvboot_acc_complete(const wired_srvboot_acc* a) {
-  return a->any && crecv_complete_message(&a->cr);
+  /* RFC 8446 4.1.4: after a HelloRetryRequest the message that must be
+   * whole is ClientHello2, at the crypto-stream offset right past
+   * ClientHello1 (hrr_off; 0 -- the leading message -- before any HRR). */
+  return a->any && crecv_complete_message_at(&a->cr, a->hrr_off);
 }
 
 /* Init the server/loop from the bound header and fold the reassembled
- * ClientHello. */
+ * ClientHello. After a HelloRetryRequest the server/loop are already
+ * initialized (re-running wired_server_init would erase the driver's
+ * hrr_sent state) and the message to fold is ClientHello2 at hrr_off. */
 static int srvboot_acc_start(
     const wired_srvboot_conn* conn,
     const wired_srvboot_id*   id,
     wired_srvboot_acc*        a) {
   wired_span ch;
-  crecv_message(&a->cr, &ch.p, &ch.n);
-  if (!srvboot_init(conn, id, &a->hdr)) return 0;
+  crecv_message_at(&a->cr, a->hrr_off, &ch.p, &ch.n);
+  if (a->hrr_off == 0 && !srvboot_init(conn, id, &a->hdr)) return 0;
   return wired_server_recv_initial(conn->s, ch.p, ch.n);
+}
+
+/* RFC 8446 4: the full length (header included) of the leading handshake
+ * message in the accumulator -- ClientHello1's size, which is where the
+ * retried ClientHello2 starts on the crypto stream. */
+static usz srvboot_ch1_total(const wired_srvboot_acc* a) {
+  const u8* ch;
+  usz       n;
+  crecv_message(&a->cr, &ch, &n);
+  return 4 + ((usz)ch[1] << 16 | (usz)ch[2] << 8 | ch[3]);
+}
+
+/* RFC 8446 4.1.4: seal the HelloRetryRequest the just-folded ClientHello1
+ * owes as one server Initial (pn 1 -- the slot the accept flight would have
+ * used; the eventual post-retry flight takes a fresh pn instead), acking
+ * ClientHello1's packet number, and arm the accumulator for ClientHello2. */
+static int srvboot_hrr(
+    const wired_srvboot_conn* conn,
+    wired_srvboot_acc*        a,
+    wired_srvboot_out*        out) {
+  u8                    hrr[SRVBOOT_SH_MAX];
+  wired_obuf            hob = obuf_of(hrr, sizeof hrr);
+  wired_srvloop_send_in in0;
+  if (!wired_server_build_hrr(conn->s, &hob)) return 0;
+  in0 = (wired_srvloop_send_in){
+      wired_span_of(conn->l->cli_scid, conn->l->cli_scid_len), 1,
+      (i64)a->largest_pn, wired_span_of(hrr, hob.len), 0};
+  if (!wired_srvloop_send_initial_ver(
+          a->hdr.version, conn->s, &in0, out->initial))
+    return 0;
+  a->hrr_off       = srvboot_ch1_total(a);
+  a->ini_tx_off    = hob.len; /* the ServerHello continues past the HRR */
+  out->dgram_count = 0;       /* no Handshake flight yet -- Initial only */
+  return WIRED_SRVBOOT_HRR;
+}
+
+/* RFC 9000 12.3: the accept flight's server Initial is pn 1, except after a
+ * HelloRetryRequest, which already spent pn 1 -- then it takes the next
+ * unused Initial pn (shared with the partial-ack counter, so the two can
+ * never collide). */
+static u64 srvboot_flight_pn(wired_srvboot_acc* a) {
+  return a->hrr_off ? a->ack_pn++ : 1;
+}
+
+/* The accumulator is complete and folded -- seal what the driver decided:
+ * a HelloRetryRequest (no usable key_share offered) or the accept flight. */
+static int srvboot_accept_reply(
+    const wired_srvboot_conn* conn,
+    const wired_srvboot_id*   id,
+    wired_srvboot_acc*        a,
+    wired_srvboot_out*        out) {
+  out->client_pn = a->largest_pn;
+  if (sdrv_hrr_pending(&conn->s->sdrv)) return srvboot_hrr(conn, a, out);
+  return srvboot_flight(
+      conn, id, a->hdr.version, a->largest_pn, srvboot_flight_pn(a),
+      a->ini_tx_off, out);
 }
 
 int wired_srvboot_accept_acc(
@@ -422,8 +494,7 @@ int wired_srvboot_accept_acc(
     wired_srvboot_out*        out) {
   if (!wired_srvboot_acc_complete(a)) return 0;
   if (!srvboot_acc_start(conn, id, a)) return 0;
-  out->client_pn = a->largest_pn;
-  return srvboot_flight(conn, id, a->hdr.version, a->largest_pn, out);
+  return srvboot_accept_reply(conn, id, a, out);
 }
 
 /* RFC 9001 4.8: 0x128 (TLS handshake_failure) when the caller has no more
