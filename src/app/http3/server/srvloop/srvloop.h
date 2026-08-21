@@ -388,9 +388,18 @@ typedef struct {
 // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding)
 typedef struct {
   wired_h3srv_state h3; /**< HTTP/3 server response-layer state */
-  u8  cli_scid[20];     /**< the client's source id; DCID the server writes */
-  u8  cli_scid_len;     /**< cli_scid length in octets */
-  u64 tx_pn;            /**< monotone packet number for sealed 1-RTT output */
+  u8 cli_scid[20];      /**< the client's source id; DCID the server writes */
+  u8 cli_scid_len;      /**< cli_scid length in octets */
+  /** RFC 9000 5.1.1/19.15: one spare connection ID handed to the client in
+   * a NEW_CONNECTION_ID frame at confirmation, so it CAN migrate -- a
+   * client holding no unused CID must not initiate migration (RFC 9000 9).
+   * Issued by the owning runner at slot open (which also routes it);
+   * spare_cid_len 0 means none was issued and no frame is sent. */
+  u8 spare_cid[20];
+  u8 spare_cid_len;
+  /** RFC 9000 10.3: the stateless reset token advertised for spare_cid. */
+  u8  spare_cid_token[16];
+  u64 tx_pn;     /**< monotone packet number for sealed 1-RTT output */
   u64 hs_tx_pn;  /**< monotone packet number for sealed Handshake output */
   u64 app_rx_pn; /**< last received 1-RTT (application) packet number to ACK */
   int app_rx_seen; /**< 1 once a 1-RTT packet has been received (app_rx_pn

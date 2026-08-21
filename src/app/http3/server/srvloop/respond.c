@@ -11,6 +11,7 @@
 #include "transport/packet/build/hspkt/hspkt_build.h"
 #include "transport/packet/frame/frame/ack.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/frame/ncid.h"
 #include "transport/recovery/detect/ackgen/ackrange.h"
 #include "transport/recovery/detect/ackgen/ackrangeconv.h"
 #include "transport/recovery/detect/recovery/ackdelay.h"
@@ -117,12 +118,33 @@ static int append_ticket_frame(const wired_server* s, wired_obuf* out) {
   return 1;
 }
 
-/* SETTINGS (RFC 9114 6.2.1) followed by a session ticket (RFC 8446 4.6.1),
- * the head of the confirmation payload. */
+/* RFC 9000 5.1.1/19.15: hand the client its one spare connection ID at
+ * confirmation -- a client holding no unused CID must not initiate
+ * migration (RFC 9000 9), which left the interop connectionmigration case
+ * stuck on its original path. No spare issued (len 0) appends nothing. */
+static int append_ncid_frame(const wired_srvloop* l, wired_obuf* out) {
+  ncid_frame f;
+  usz        written;
+  if (!l->spare_cid_len) return 1;
+  f.seq             = 1;
+  f.retire_prior_to = 0;
+  f.cid_len         = l->spare_cid_len;
+  bytes_memcpy(f.cid, l->spare_cid, l->spare_cid_len);
+  bytes_memcpy(f.token, l->spare_cid_token, NCID_TOKEN);
+  written = ncid_encode(out->p + out->len, out->cap - out->len, &f);
+  if (written == 0) return 0;
+  out->len += written;
+  return 1;
+}
+
+/* SETTINGS (RFC 9114 6.2.1), a session ticket (RFC 8446 4.6.1), then the
+ * spare connection ID (RFC 9000 19.15) -- the head of the confirmation
+ * payload. */
 static int confirm_head(
     const wired_server* s, wired_srvloop* l, wired_obuf* out) {
   if (!build_settings_frame(l, out)) return 0;
-  return append_ticket_frame(s, out);
+  if (!append_ticket_frame(s, out)) return 0;
+  return append_ncid_frame(l, out);
 }
 
 /* Capture the confirmation frames for a later replay
