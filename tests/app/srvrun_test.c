@@ -10932,6 +10932,91 @@ static void test_srvrun_free_slot_clears_boot_flight(void) {
   CHECK(st.conns[0].boot_ini_len == 0);
 }
 
+/* RFC 9000 4.6: a MAX_STREAMS raise is not loss-tracked on the wire, so
+ * after each grant the limit in force is re-announced a bounded number of
+ * times at PTO spacing -- a grant datagram tail-dropped in a full queue
+ * must not leave the client polling with STREAMS_BLOCKED on its own PTO
+ * backoff (mvfst's multiplexing run stalled ~600ms per request on exactly
+ * that). Cumulative frames make the re-announce idempotent. */
+static void test_srvrun_grant_retry_resends_at_deadline(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_state  st = {table, &c};
+  ob               = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.stream_limit_advertised = 42;
+  c.grant_retries           = 2;
+  c.grant_retry_ms          = 500;
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1025, 0};
+    srvrun_test_reset_send_count();
+    srvrun_grant_retry_slot(&ctx, 0);
+    CHECK(srvrun_test_send_count() == 1); /* the limit re-announced */
+    CHECK(c.grant_retries == 1);
+    CHECK(c.grant_retry_ms > 1025); /* next deadline re-armed */
+    /* before the new deadline: nothing more goes out */
+    srvrun_grant_retry_slot(&ctx, 0);
+    CHECK(srvrun_test_send_count() == 1);
+  }
+}
+
+/* Retries exhausted: the tick never sends again (bounded noise). */
+static void test_srvrun_grant_retry_exhausts(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_state  st = {table, &c};
+  ob               = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.stream_limit_advertised = 42;
+  c.grant_retries           = 0;
+  c.grant_retry_ms          = 500;
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000000, 0};
+    srvrun_test_reset_send_count();
+    srvrun_grant_retry_slot(&ctx, 0);
+    CHECK(srvrun_test_send_count() == 0);
+  }
+}
+
+/* A raise arms the retry timer; the frame itself still goes out once. */
+static void test_srvrun_grant_arms_retry(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_state  st = {table, &c};
+  ob               = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 2000, 0};
+    srvrun_test_reset_send_count();
+    srvrun_grant_streams(&ctx, &c, 4, 2);
+    CHECK(srvrun_test_send_count() == 1);
+    CHECK(c.stream_limit_advertised == 6);
+    CHECK(c.grant_retries > 0);
+    CHECK(c.grant_retry_ms > 2000);
+  }
+}
+
 /* Confirm landing in the same instant a boot PTO tick would otherwise
  * have fired -- the confirm check runs first (srvrun_boot_pto_waiting), so
  * the race resolves to "stopped", never a stray extra resend. */
@@ -14399,6 +14484,9 @@ void test_srvrun(void) {
   test_srvrun_boot_pto_blocked_probe_keeps_budget();
   test_srvrun_boot_pto_fires_while_hrr_pending();
   test_srvrun_free_slot_clears_boot_flight();
+  test_srvrun_grant_retry_resends_at_deadline();
+  test_srvrun_grant_retry_exhausts();
+  test_srvrun_grant_arms_retry();
   test_srvrun_boot_pto_no_resend_before_deadline();
   test_srvrun_boot_pto_stops_after_confirm();
   test_srvrun_boot_pto_confirm_race_stops_immediately();
