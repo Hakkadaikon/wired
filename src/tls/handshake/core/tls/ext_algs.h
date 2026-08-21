@@ -31,4 +31,11 @@ usz tls_ext_sig_algs(u8* buf, usz cap);
  * list. */
 int tls_ext_sig_algs_has(const u8* buf, usz n, u16 scheme);
 
+/* RFC 8446 4.2.7: `group` appears in the supported_groups extension at buf
+ * (header included). What decides whether a share-less ClientHello can be
+ * steered to x25519 with a HelloRetryRequest (4.1.4: an HRR may only name a
+ * group the client itself offered) or must be rejected outright. Returns 1
+ * if present, 0 if absent, malformed, or group is not in the list. */
+int tls_ext_groups_has(const u8* buf, usz n, u16 group);
+
 #endif

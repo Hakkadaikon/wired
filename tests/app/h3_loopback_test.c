@@ -642,6 +642,21 @@ static usz sb_seal_ch_chunk(
   return o.len;
 }
 
+/* Rewrite the ClientHello's x25519 key_share entry header (001d 0020) to an
+ * unimplemented hybrid id (11ec 0020), leaving supported_groups' own x25519
+ * offer intact -- exactly the shape RFC 8446 4.1.4 answers with a
+ * HelloRetryRequest. Returns 1 on a rewrite, 0 if no entry matched. */
+static usz sb_break_keyshare_group(u8* ch, usz n) {
+  for (usz i = 0; i + 4 <= n; i++)
+    if (ch[i] == 0 && ch[i + 1] == 0x1d && ch[i + 2] == 0 &&
+        ch[i + 3] == 0x20) {
+      ch[i]     = 0x11;
+      ch[i + 1] = 0xec;
+      return 1;
+    }
+  return 0;
+}
+
 /* Accept from the accumulator with the fixed identity; returns the result.
  * s/l are zeroed to match production's contract (srvrun_open_slot memsets a
  * slot before boot) -- a refused/unservable ClientHello still builds a
@@ -1001,11 +1016,18 @@ static void test_srvboot_refusal_closes_unservable(void) {
   usz               nd, nr, hit = 0;
   /* rewrite the x25519 key_share entry's group to a hybrid id the server
    * does not implement (entry header 001d 0020 -> 11ec 0020) */
+  hit = sb_break_keyshare_group(ch, n);
+  CHECK(hit == 1);
+  /* ... and the supported_groups list's x25519 too (list "0002 001d" ->
+   * "0002 11ec"): with x25519 still offered there, the correct answer is a
+   * HelloRetryRequest (RFC 8446 4.1.4), not a refusal -- unservable means
+   * the client never offered any group this server implements. */
+  hit = 0;
   for (usz i = 0; i + 4 <= n; i++)
-    if (ch[i] == 0 && ch[i + 1] == 0x1d && ch[i + 2] == 0 &&
-        ch[i + 3] == 0x20) {
-      ch[i]     = 0x11;
-      ch[i + 1] = 0xec;
+    if (ch[i] == 0 && ch[i + 1] == 0x02 && ch[i + 2] == 0 &&
+        ch[i + 3] == 0x1d) {
+      ch[i + 2] = 0x11;
+      ch[i + 3] = 0xec;
       hit       = 1;
       break;
     }
@@ -1033,6 +1055,50 @@ static void test_srvboot_refusal_closes_unservable(void) {
     CHECK(frames.p[1] == 0x41 && frames.p[2] == 0x28);
     CHECK(frames.p[3] == 0x00 && frames.p[4] == 0x00);
   }
+}
+
+/* RFC 8446 4.1.4: a ClientHello whose key_share names an unimplemented
+ * group while supported_groups still offers x25519 gets a HelloRetryRequest
+ * sealed as one server Initial (WIRED_SRVBOOT_HRR, no Handshake flight),
+ * and the retried ClientHello2 -- continuing the crypto stream right past
+ * ClientHello1 -- completes the boot with a normal accept flight. */
+static void test_srvboot_hrr_then_ch2_accepts(void) {
+  client             c;
+  wired_server       s;
+  wired_srvloop      l;
+  wired_srvboot_id   id;
+  u8                 priv[32], pub[32], seed[32], rnd[32];
+  wired_srvboot_conn conn = {&s, &l};
+  u8                 ch1[512], ch2[512], dg[1400];
+  u8                 ini[1500], hs[16384];
+  wired_obuf         iob = {ini, sizeof ini, 0};
+  wired_obuf         hob = {hs, sizeof hs, 0};
+  wired_srvboot_out  out = {&iob, &hob, {0}, 0, 0};
+  wired_srvboot_acc  a;
+  usz                n1, n2, nd;
+  bytes_memset(&s, 0, sizeof s);
+  bytes_memset(&l, 0, sizeof l);
+  sb_make_id(&id, priv, pub, seed, rnd);
+  n1 = sb_build_raw_ch(&c, ch1, sizeof ch1);
+  CHECK(sb_break_keyshare_group(ch1, n1) == 1);
+  nd = sb_seal_ch_chunk(dg, sizeof dg, wired_span_of(ch1, n1), 0, 3);
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg, nd)) == 1);
+  CHECK(wired_srvboot_accept_acc(&conn, &id, &a, &out) == WIRED_SRVBOOT_HRR);
+  CHECK(iob.len > 0);                         /* the sealed HRR Initial */
+  CHECK(out.dgram_count == 0);                /* no Handshake flight yet */
+  CHECK(wired_srvboot_acc_complete(&a) == 0); /* now waiting for CH2 */
+
+  /* ClientHello2: a normal x25519 ClientHello at the continued offset. */
+  n2      = sb_build_raw_ch(&c, ch2, sizeof ch2);
+  nd      = sb_seal_ch_chunk(dg, sizeof dg, wired_span_of(ch2, n2), n1, 4);
+  iob.len = 0;
+  hob.len = 0;
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg, nd)) == 1);
+  CHECK(wired_srvboot_acc_complete(&a) == 1);
+  CHECK(wired_srvboot_accept_acc(&conn, &id, &a, &out) == 1);
+  CHECK(iob.len > 0);         /* the accept flight's server Initial */
+  CHECK(out.dgram_count > 0); /* and its Handshake flight */
 }
 
 /* Offset of the ClientHello's 2-byte extensions-block length field: 4-byte
@@ -1331,6 +1397,7 @@ void test_h3_loopback(void) {
   test_srvboot_partial_ack_needs_opened_packet();
   test_srvboot_acc_allows_switched_dcid();
   test_srvboot_refusal_closes_unservable();
+  test_srvboot_hrr_then_ch2_accepts();
   test_srvboot_refusal_reports_missing_tp_ext();
   test_srvboot_split_flight_datagrams();
   test_srvboot_split_flight_reassembled();

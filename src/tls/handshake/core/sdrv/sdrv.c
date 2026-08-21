@@ -703,12 +703,35 @@ static int sdrv_ch_negotiate_cipher_gate(
   return sdrv_ch_retry_cipher_ok(s);
 }
 
+/* RFC 8446 4.1.4: an HRR may only steer the client to a group it itself
+ * offered -- a retry is possible when no HRR was sent yet AND the client's
+ * supported_groups names x25519 (the only group this driver implements). */
+static int sdrv_ch_may_retry(const sdrv* s, const u8* ch_msg, usz ch_len) {
+  wired_span ext;
+  if (s->hrr_sent) return 0;
+  if (!find_client_ext(ch_msg, ch_len, EXT_SUPPORTED_GROUPS, &ext)) return 0;
+  return tls_ext_groups_has(ext.p, ext.n, GROUP_X25519);
+}
+
+/* No usable key_share and no retry possible: illegal_parameter (alert 47)
+ * when the client ignored the HRR it was already sent (RFC 8446 4.1.4
+ * forbids a second one), handshake_failure (alert 40) when it never offered
+ * x25519 at all. */
+static void sdrv_ch_keyshare_reject(sdrv* s) {
+  s->last_error = err_crypto(s->hrr_sent ? 47 : 40);
+}
+
 /* The client's x25519 key_share taken directly, or (its absence) recorded
  * as "HRR needed" instead of an outright rejection. Returns 1 if the caller
  * should keep processing this ClientHello as a normal (non-HRR) one, 0 if
- * HRR was armed instead (sdrv_hrr_pending is now 1, not an error). */
+ * HRR was armed instead (sdrv_hrr_pending is now 1, not an error) or the
+ * ClientHello was rejected (last_error set, sdrv_hrr_pending stays 0). */
 static int sdrv_ch_keyshare_or_arm_hrr(sdrv* s, const u8* ch_msg, usz ch_len) {
   if (take_client_keyshare(ch_msg, ch_len, s->group, s->client_pub)) return 1;
+  if (!sdrv_ch_may_retry(s, ch_msg, ch_len)) {
+    sdrv_ch_keyshare_reject(s);
+    return 0;
+  }
   sdrv_ch_arm_hrr(s, ch_msg, ch_len);
   return 0;
 }
