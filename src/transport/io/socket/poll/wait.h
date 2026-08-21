@@ -19,4 +19,9 @@ void poll_fill_readable(pollfd* p, i64 fd);
  * Returns 1 if readable, 0 on timeout, negative errno on error. */
 i64 poll_wait_readable(i64 fd, u64 timeout_ms);
 
+/* Wait until either fd is readable or timeout_ms elapses (one poll syscall
+ * over both). Returns 1 if at least one is readable, 0 on timeout,
+ * negative errno on error. */
+i64 poll_wait_readable2(i64 fd, i64 fd2, u64 timeout_ms);
+
 #endif

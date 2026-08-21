@@ -619,6 +619,11 @@ typedef struct {
    * are out of scope (see srvrun_rebind_peer's own doc for the full
    * list of what this slice deliberately does not implement). */
   migrate migrate;
+  /** RFC 9000 9.6.2: the local socket this connection's replies leave
+   * through -- the primary listen fd normally, the preferred-address fd
+   * once the client migrates onto it (srvrun_rebind_peer follows the
+   * arrival fd). 0 only on test-fabricated slots, read as "primary". */
+  i64 tx_fd;
   /** RFC 9000 8.2.2: the 8-byte PATH_CHALLENGE data last sent for the path
    * currently being validated, valid only while migrate.challenged and not
    * yet migrate.validated. Re-armed (overwritten) on every new rebind
@@ -843,6 +848,19 @@ struct wired_srvrun_env {
    * paces the ring so ack-clocked steps cannot amplify into a line-rate
    * burst (srvrun_dgring_drain). */
   u64 dgring_next_drain_ms;
+  /* RFC 9000 9.6.2: the second UDP socket bound on the preferred address's
+   * port, so replies on a migrated path leave FROM that port (a
+   * single-socket NAT redirect left the reply source flapping between
+   * ports and the client discarded the challenges). 0 = none configured. */
+  i64 pref_fd;
+  /* The fd the batch currently being served arrived on (0 = the primary
+   * cfg->fd). Set around srvrun_serve_batch by the two-socket receive
+   * path; single-threaded, so a plain field, not a parameter, keeps every
+   * positional srvrun_step_ctx initializer in the tests compiling. */
+  i64 rx_fd;
+  /* The fd the staged GSO batch must flush through (srvrun_stage_put
+   * records the owning connection's path fd; 0 = primary). */
+  i64 gso_fd;
 };
 
 /* The one process-wide instance wired_server_run/wired_server_run_opt drive
@@ -1007,13 +1025,29 @@ __attribute__((unused)) static usz srvrun_test_flush_count(
 /* The one TX seam: AF_XDP when cfg->xdp is set, the UDP socket otherwise.
  * Both srvrun_send and the direct Version Negotiation send route through
  * this. */
+/* The arrival fd of the datagram being served, for stateless replies that
+ * must return the way they came (0 while not inside a batch = primary). */
+static i64 srvrun_rx_fd(const srvrun_cfg* cfg) {
+  return cfg->env->rx_fd ? cfg->env->rx_fd : cfg->fd;
+}
+
+/* The socket c's replies leave through (see srvrun_conn.tx_fd). */
+static i64 srvrun_conn_fd(const srvrun_cfg* cfg, const srvrun_conn* c) {
+  return c->tx_fd ? c->tx_fd : cfg->fd;
+}
+
+/* The fd a staged GSO batch flushes through (see wired_srvrun_env.gso_fd). */
+static i64 srvrun_stage_fd(const srvrun_cfg* cfg, const wired_srvrun_env* e) {
+  return e->gso_fd ? e->gso_fd : cfg->fd;
+}
+
 static void srvrun_tx(
-    const srvrun_cfg* cfg, const sockaddr* sa, wired_span pkt) {
+    const srvrun_cfg* cfg, i64 fd, const sockaddr* sa, wired_span pkt) {
   cfg->env->tx_flush_count++;
   if (cfg->xdp)
     wired_srvxdp_send(cfg->xdp, sa, pkt);
   else
-    wired_udp_send(cfg->fd, sa, pkt);
+    wired_udp_send(fd, sa, pkt);
 }
 
 static void srvrun_send(
@@ -1023,7 +1057,7 @@ static void srvrun_send(
     const char*        what) {
   (void)what; /* WIRED_LOG compiles out without -DWIRED_DEBUG */
   if (pkt.n) {
-    srvrun_tx(cfg, &c->peer, pkt);
+    srvrun_tx(cfg, srvrun_conn_fd(cfg, c), &c->peer, pkt);
     srvrun_qlog_sent(cfg, c, pkt.n);
     WIRED_LOG(what);
     g_srvrun_send_count++;
@@ -1058,7 +1092,9 @@ static void srvrun_stage_flush(const srvrun_cfg* cfg) {
   wired_srvrun_env* e = cfg->env;
   if (e->gso_count == 0) return;
   if (e->gso_count == 1)
-    srvrun_tx(cfg, &e->gso_peer, wired_span_of(e->gso_stage, e->gso_len));
+    srvrun_tx(
+        cfg, srvrun_stage_fd(cfg, e), &e->gso_peer,
+        wired_span_of(e->gso_stage, e->gso_len));
   else
     srvrun_stage_tx_multi(cfg);
   srvrun_stage_reset(e);
@@ -1095,6 +1131,7 @@ static void srvrun_stage_put(
     srvrun_stage_flush(cfg);
     e->gso_seg_size = pkt.n;
     e->gso_peer     = c->peer;
+    e->gso_fd       = c->tx_fd;
   }
   bytes_memcpy(e->gso_stage + e->gso_len, pkt.p, pkt.n);
   e->gso_len += pkt.n;
@@ -7199,10 +7236,23 @@ static void srvrun_arm_path_challenge(const srvrun_cfg* cfg, srvrun_conn* c) {
  * spoofed address. The real fix is RFC 9000 9.5-style per-path validation
  * gating c->peer's update on success, not a response-side address check;
  * that is a separate task from this one (naive-rebind-plus-challenge). */
+/* RFC 9000 9.6: the arrival socket changed -- the client moved to the
+ * preferred address's port. Test-fabricated slots (tx_fd 0) never match. */
+static int srvrun_rx_fd_changed(
+    const srvrun_step_ctx* ctx, const srvrun_conn* c) {
+  return c->tx_fd && srvrun_rx_fd(ctx->cfg) != c->tx_fd;
+}
+
+static int srvrun_path_changed(
+    const srvrun_step_ctx* ctx, const srvrun_conn* c) {
+  return srvrun_peer_changed(ctx, c) || srvrun_rx_fd_changed(ctx, c);
+}
+
 static void srvrun_rebind_peer(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   if (srvrun_awaiting_confirm(c)) return;
-  if (!srvrun_peer_changed(ctx, c)) return;
-  c->peer = *ctx->peer;
+  if (!srvrun_path_changed(ctx, c)) return;
+  c->peer  = *ctx->peer;
+  c->tx_fd = srvrun_rx_fd(ctx->cfg);
   srvrun_arm_path_challenge(ctx->cfg, c);
 }
 
@@ -7389,6 +7439,7 @@ static int srvrun_open_slot(
   rtt_init(&ctx->st->conns[slot].rtt);
   pmtu_init(&ctx->st->conns[slot].pmtu);
   ctx->st->conns[slot].pmtu_probe_pn = SRVRUN_PMTU_NO_PROBE;
+  ctx->st->conns[slot].tx_fd         = srvrun_rx_fd(ctx->cfg);
   if (srvrun_issue_cid(
           ctx->cfg, ctx->st->conns[slot].scid, ctx->cfg->id->scid_len)) {
     srvrun_issue_spare_cid(ctx->cfg, &ctx->st->conns[slot]);
@@ -7442,7 +7493,7 @@ static void srvrun_retry_finish(
     const srvrun_step_ctx* ctx, const lhdr* h, u8* pkt, usz n) {
   retry_tag(
       h->dcid, wired_span_of(pkt, n - RETRY_TAG_LEN), pkt + n - RETRY_TAG_LEN);
-  srvrun_tx(ctx->cfg, ctx->peer, wired_span_of(pkt, n));
+  srvrun_tx(ctx->cfg, srvrun_rx_fd(ctx->cfg), ctx->peer, wired_span_of(pkt, n));
 }
 
 /* Build and send the stateless Retry answering h (an Initial without a
@@ -7505,7 +7556,7 @@ static int srvrun_vneg(const srvrun_step_ctx* ctx, wired_mspan dg) {
   u8  vn[64];
   usz n = wired_srvboot_vneg(wired_span_of(dg.p, dg.n), vn, sizeof vn);
   if (!n) return 0;
-  srvrun_tx(ctx->cfg, ctx->peer, wired_span_of(vn, n));
+  srvrun_tx(ctx->cfg, srvrun_rx_fd(ctx->cfg), ctx->peer, wired_span_of(vn, n));
   return 1;
 }
 
@@ -7648,7 +7699,8 @@ static void srvrun_send_stateless_reset(
   wired_obuf ob = obuf_of(out, sizeof out);
   if (!srvrun_sreset_applies(dcid, dg)) return;
   if (!srvrun_seal_stateless_reset(ctx->cfg, dcid, dg.n, &ob)) return;
-  srvrun_tx(ctx->cfg, ctx->peer, wired_span_of(out, ob.len));
+  srvrun_tx(
+      ctx->cfg, srvrun_rx_fd(ctx->cfg), ctx->peer, wired_span_of(out, ob.len));
 }
 
 /* srvrun_route plus the full-table eviction fallback (srvrun_evict_for_
@@ -7714,7 +7766,8 @@ static void srvrun_send_new_conn_refusal(
   if (!srvrun_is_refusable_new_conn(dcid, dg)) return;
   if (!srvrun_seal_new_conn_refusal(wired_span_of(dg.p, dg.n), scid, &ob))
     return;
-  srvrun_tx(ctx->cfg, ctx->peer, wired_span_of(out, ob.len));
+  srvrun_tx(
+      ctx->cfg, srvrun_rx_fd(ctx->cfg), ctx->peer, wired_span_of(out, ob.len));
 }
 
 /* 1 if force_retry is on and dg is a fresh Initial (the gate's precondition
@@ -7938,10 +7991,18 @@ static int srvrun_may_block_unbounded(const srvrun_cfg* cfg, srvrun_state* st) {
   return !srvrun_any_waiting(st);
 }
 
+/* The bounded readable-wait over the primary socket, or over both when the
+ * preferred-address socket exists (one poll syscall either way). */
+static int srvrun_poll_sockets(const srvrun_cfg* cfg) {
+  if (cfg->env->pref_fd)
+    return poll_wait_readable2(cfg->fd, cfg->env->pref_fd, SRVRUN_PTO_MS) > 0;
+  return poll_wait_readable(cfg->fd, SRVRUN_PTO_MS) > 0;
+}
+
 static int srvrun_wait_input(const srvrun_cfg* cfg, srvrun_state* st) {
   if (srvrun_polling(cfg)) return 1;
   if (srvrun_may_block_unbounded(cfg, st)) return 1;
-  return poll_wait_readable(cfg->fd, SRVRUN_PTO_MS) > 0;
+  return srvrun_poll_sockets(cfg);
 }
 
 /* AF_XDP rx_burst step: pause once on an empty burst, same spin-step shape
@@ -7961,16 +8022,40 @@ static i64 srvrun_recv(const srvrun_cfg* cfg, mmsg_buf* bufs, usz nbufs) {
   return wired_udp_recvmmsg(cfg->fd, bufs, nbufs);
 }
 
-static void srvrun_step(
+/* RFC 9000 9.6.2 two-socket receive: with a preferred-address socket bound,
+ * the wait covers both fds, so neither may block the other -- drain each
+ * with a non-blocking batch, marking env->rx_fd so slot claims, stateless
+ * replies and rebind detection know which path a datagram arrived on. */
+static void srvrun_recv_serve_one(
+    const srvrun_cfg* cfg,
+    srvrun_state*     st,
+    mmsg_buf*         bufs,
+    usz               nbufs,
+    i64               fd) {
+  i64 r           = wired_udp_recvmmsg_nowait(fd, bufs, nbufs);
+  cfg->env->rx_fd = fd;
+  if (r > 0) srvrun_serve_batch(cfg, st, bufs, r);
+  cfg->env->rx_fd = 0;
+}
+
+static void srvrun_recv_serve(
     const srvrun_cfg* cfg, srvrun_state* st, mmsg_buf* bufs, usz nbufs) {
   i64 r;
+  if (cfg->env->pref_fd) {
+    srvrun_recv_serve_one(cfg, st, bufs, nbufs, cfg->fd);
+    srvrun_recv_serve_one(cfg, st, bufs, nbufs, cfg->env->pref_fd);
+    return;
+  }
+  r = srvrun_recv(cfg, bufs, nbufs);
+  if (r > 0) srvrun_serve_batch(cfg, st, bufs, r);
+}
+
+static void srvrun_step(
+    const srvrun_cfg* cfg, srvrun_state* st, mmsg_buf* bufs, usz nbufs) {
   srvrun_reload_if_requested(cfg, cfg->env);
   srvrun_bcast_drain_self(st); /* other workers' broadcasts */
   srvrun_polling_ptos(cfg, st);
-  if (srvrun_wait_input(cfg, st)) {
-    r = srvrun_recv(cfg, bufs, nbufs);
-    if (r > 0) srvrun_serve_batch(cfg, st, bufs, r);
-  }
+  if (srvrun_wait_input(cfg, st)) srvrun_recv_serve(cfg, st, bufs, nbufs);
   /* RFC 9002 6.2: evaluate every slot's PTO deadlines on EVERY iteration,
    * not only on a poll timeout -- a steady inbound stream (e.g. the peer's
    * own Handshake PTO probes under the interop amplificationlimit case)
@@ -8125,6 +8210,28 @@ void wired_srvrun_env_init(wired_srvrun_env* env) {
       &env->bigbuf, &env->bigbuf_rows[0][0], WIRED_SRVBIGBUF_ROW_CAP);
 }
 
+/* RFC 9000 9.6.2: bind the second socket on the preferred address's port,
+ * so replies on a migrated path leave FROM that port. A failed bind (or
+ * XDP mode, whose rx path has no second socket) un-advertises the
+ * parameter instead of promising an address that cannot answer. */
+/* A preferred_address is only serviceable outside XDP mode (its rx path
+ * has no second socket). */
+static int srvrun_pref_wanted(
+    const srvrun_cfg* cfg, const wired_srvboot_id* id) {
+  return id->pref_v4 != 0 && !cfg->xdp;
+}
+
+static void srvrun_pref_listen(
+    srvrun_cfg* cfg, wired_srvboot_id* id, const wired_srvrun_opt* opt) {
+  i64 fd = -1;
+  if (srvrun_pref_wanted(cfg, id)) fd = srvrun_listen(id->pref_v4_port, opt);
+  if (fd < 0) {
+    id->pref_v4 = 0;
+    return;
+  }
+  cfg->env->pref_fd = fd;
+}
+
 int wired_srvrun_serve_env(
     wired_srvrun_env*       env,
     u16                     port,
@@ -8134,6 +8241,7 @@ int wired_srvrun_serve_env(
     const wired_srvrun_opt* opt) {
   srvrun_cfg cfg = srvrun_build_cfg(env, port, id, h, obs, opt);
   if (cfg.fd < 0) return 0;
+  srvrun_pref_listen(&cfg, id, opt);
   wired_certcache_prime(&env->certcache, id);
   srvrun_install_signals(&cfg, opt);
   WIRED_LOG("listening\n");
