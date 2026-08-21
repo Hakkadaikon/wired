@@ -180,6 +180,17 @@ typedef struct {
    * server Initial is pn 1, and reusing it would make the peer drop the
    * flight as a duplicate. */
   u64 ack_pn;
+  /** RFC 8446 4.1.4: crypto-stream offset the retried ClientHello2 starts
+   * at (= ClientHello1's full length), recorded when the HelloRetryRequest
+   * went out; 0 while no HRR was sent. Doubles as the "HRR sent" flag: the
+   * accumulator keeps ClientHello1's bytes (the crypto stream continues)
+   * and completeness/extraction switch to the message at this offset. */
+  usz hrr_off;
+  /** RFC 9000 19.6: the server->client Initial crypto stream's next send
+   * offset -- the HelloRetryRequest's own length once one went out (the
+   * post-retry ServerHello continues the same stream, it must not restart
+   * at offset 0), 0 otherwise. */
+  usz ini_tx_off;
   /** An additional DCID admitted alongside the bound one
    * (wired_srvboot_acc_allow): the server's own scid, which the client
    * switches to after the first server packet (RFC 9000 7.2). The Initial
@@ -263,6 +274,13 @@ usz wired_srvboot_partial_ack(
  * @return 1 once the buffered CRYPTO prefix folds a complete ClientHello. */
 int wired_srvboot_acc_complete(const wired_srvboot_acc* a);
 
+/** wired_srvboot_accept_acc return: a HelloRetryRequest went out instead of
+ * the accept flight (RFC 8446 4.1.4 -- the ClientHello offered no x25519
+ * key_share). out->initial holds the sealed HRR Initial; the accumulator
+ * must be kept intact (the retried ClientHello2 continues the same crypto
+ * stream) and wired_srvboot_accept_acc called again once it is complete. */
+#define WIRED_SRVBOOT_HRR 2
+
 /** Cold-start the connection from a completed accumulator: initialize the
  * server and loop from the bound header, fold the reassembled ClientHello,
  * and seal the flight, acknowledging the highest Initial packet number
@@ -271,7 +289,9 @@ int wired_srvboot_acc_complete(const wired_srvboot_acc* a);
  * @param id the fixed server identity
  * @param a a complete accumulator (wired_srvboot_acc_complete)
  * @param out receives the sealed flight and the acknowledged packet number
- * @return 1, or 0 when the accumulator is incomplete or the boot fails. */
+ * @return 1, WIRED_SRVBOOT_HRR when a HelloRetryRequest was sealed instead
+ *   (see its doc), or 0 when the accumulator is incomplete or the boot
+ *   fails. */
 int wired_srvboot_accept_acc(
     const wired_srvboot_conn* conn,
     const wired_srvboot_id*   id,

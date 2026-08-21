@@ -24,9 +24,11 @@ typedef struct {
   i64        ack_pn;   /**< client packet to acknowledge, < 0 for none */
   wired_span payload;  /**< TLS flight (Initial/Handshake) or raw 1-RTT bytes */
   u64        crypto_off; /**< CRYPTO stream offset of payload's first byte
-                            (send_handshake only, RFC 9000 19.6): 0 for an
-                            unsplit flight, the chunk's start offset when a
-                            flight is split across packets */
+                            (RFC 9000 19.6): 0 for an unsplit flight, the
+                            chunk's start offset when a Handshake flight is
+                            split across packets, or the ServerHello's
+                            continuation offset past a HelloRetryRequest on
+                            the Initial stream (RFC 8446 4.1.4) */
 } wired_srvloop_send_in;
 
 /** Seal a ServerHello TLS flight into a server Initial packet, addressed to
