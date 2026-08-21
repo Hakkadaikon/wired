@@ -6920,15 +6920,20 @@ static int srvrun_resend_boot_flight(
 
 static void srvrun_cold_start(
     const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
-  int r = srvrun_on_initial(ctx, slot, &ctx->st->conns[slot], dg);
+  /* Read BEFORE feeding: "was an HRR already out when this datagram
+   * arrived" -- a fresh ClientHello1 that arms the HRR inside the feed
+   * below must still take the partial-ack path, whose acc_allow side
+   * effect admits the client's post-HRR DCID into the accumulator. */
+  int had_hrr = srvrun_hrr_pending(&ctx->st->conns[slot]);
+  int r       = srvrun_on_initial(ctx, slot, &ctx->st->conns[slot], dg);
   if (r != SRVRUN_BOOT_PENDING) {
     srvrun_open_done(ctx, slot, r);
     return;
   }
-  /* RFC 8446 4.1.4: still pending with an HRR already cached means this
-   * datagram was a retransmitted ClientHello1 -- the HRR was lost, so
-   * resend it (an ACK alone gives the client nothing to progress on). */
-  if (srvrun_hrr_pending(&ctx->st->conns[slot])) {
+  /* RFC 8446 4.1.4: still pending with an HRR already out before this
+   * datagram means it was a retransmitted ClientHello1 -- the HRR was
+   * lost, so resend it (an ACK alone gives the client nothing). */
+  if (had_hrr) {
     srvrun_resend_boot_flight(ctx, &ctx->st->conns[slot]);
     return;
   }
