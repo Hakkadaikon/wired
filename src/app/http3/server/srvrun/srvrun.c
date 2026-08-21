@@ -2275,12 +2275,12 @@ static usz srvrun_challenge_plaintext_len(const srvrun_conn* c) {
  * -- bytes appended after the seal join the ciphertext and the peer's tag
  * check fails (observed live: ngtcp2 discarded every challenge with a
  * checktag error, so no PATH_RESPONSE ever came back). */
-static int srvrun_seal_path_challenge(
-    srvrun_conn* c, const u8 data[PATH_DATA], wired_obuf* out) {
+static int srvrun_seal_path_frame(
+    srvrun_conn* c, u8 type, const u8 data[PATH_DATA], wired_obuf* out) {
   u8                    pl[MIN_INITIAL_DATAGRAM];
   wired_srvloop_send_in sin;
   usz                   want = srvrun_challenge_plaintext_len(c);
-  usz pln = path_encode(pl, sizeof pl, FRAME_PATH_CHALLENGE, data);
+  usz                   pln  = path_encode(pl, sizeof pl, type, data);
   if (!pln) return 0;
   for (; pln < want; pln++) pl[pln] = 0; /* PADDING frames (0x00) */
   sin = (wired_srvloop_send_in){
@@ -2293,6 +2293,11 @@ static int srvrun_seal_path_challenge(
       0,
       0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
+}
+
+static int srvrun_seal_path_challenge(
+    srvrun_conn* c, const u8 data[PATH_DATA], wired_obuf* out) {
+  return srvrun_seal_path_frame(c, FRAME_PATH_CHALLENGE, data, out);
 }
 
 static void srvrun_send_path_challenge(
@@ -7248,9 +7253,48 @@ static int srvrun_path_changed(
   return srvrun_peer_changed(ctx, c) || srvrun_rx_fd_changed(ctx, c);
 }
 
+/* ponytail: once this connection moved to the preferred-address socket,
+ * old-path stragglers (reordered or retransmitted datagrams still arriving
+ * on the primary socket while the client probes both paths) must not flip
+ * it back -- the client migrated deliberately and the checker (and RFC
+ * 9000 9.3's highest-numbered-packet rule) expect the server to stay.
+ * Full per-path highest-pn tracking would generalize this; one-way
+ * stickiness suffices for the single preferred path this server offers. */
+static int srvrun_path_reverts(
+    const srvrun_step_ctx* ctx, const srvrun_conn* c) {
+  i64 pref = ctx->cfg->env->pref_fd;
+  return pref && c->tx_fd == pref && srvrun_rx_fd(ctx->cfg) != pref;
+}
+
+/* Rebind is due: confirmed, not a suppressed old-path straggler, and the
+ * path actually changed -- split out so the caller keeps one guard. */
+static int srvrun_rebind_due(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
+  if (srvrun_awaiting_confirm(c) || srvrun_path_reverts(ctx, c)) return 0;
+  return srvrun_path_changed(ctx, c);
+}
+
+/* RFC 9000 8.2.2: a peer PATH_CHALLENGE latched by dispatch this step MUST
+ * be answered with a PATH_RESPONSE sent on the path it arrived on, expanded
+ * to 1200 bytes exactly like a challenge (8.2.1) -- a client validating its
+ * migration probe (e.g. onto the preferred address) gives up the new path
+ * without this and falls back, stranding whatever the server keeps sending
+ * there (observed live: ngtcp2 'ignore packet from unknown path' while the
+ * missing response tail PTO-looped into the abandoned path). */
+static void srvrun_answer_path_challenge(
+    const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  u8         out[MIN_INITIAL_DATAGRAM];
+  wired_obuf ob = obuf_of(out, sizeof out);
+  if (!c->l.path_challenge_rx_seen) return;
+  c->l.path_challenge_rx_seen = 0;
+  if (!srvrun_seal_path_frame(
+          c, FRAME_PATH_RESPONSE, c->l.path_challenge_rx_data, &ob))
+    return;
+  srvrun_tx(
+      ctx->cfg, srvrun_rx_fd(ctx->cfg), ctx->peer, wired_span_of(out, ob.len));
+}
+
 static void srvrun_rebind_peer(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  if (srvrun_awaiting_confirm(c)) return;
-  if (!srvrun_path_changed(ctx, c)) return;
+  if (!srvrun_rebind_due(ctx, c)) return;
   c->peer  = *ctx->peer;
   c->tx_fd = srvrun_rx_fd(ctx->cfg);
   srvrun_arm_path_challenge(ctx->cfg, c);
@@ -7331,6 +7375,7 @@ static void srvrun_serve_slot(
     srvrun_rebind_peer(ctx, c);
     srvrun_reconfirm_on_hs_probe(ctx, c, dg);
     srvrun_step_and_reap(ctx, slot, dg);
+    srvrun_answer_path_challenge(ctx, c);
   }
   srvrun_boot_release_pending(ctx, c);
   srvrun_register_spare_cid(ctx, slot, booting);

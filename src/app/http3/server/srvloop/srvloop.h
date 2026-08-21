@@ -641,6 +641,12 @@ typedef struct {
    * of path validation (that lives in srvrun_conn.migrate, srvrun.c) -- it
    * only latches the raw bytes, mirroring max_data_seen's split of
    * responsibility (gather here, interpret in the caller). */
+  /** RFC 9000 8.2.2: the peer's own PATH_CHALLENGE data latched by
+   * dispatch this step -- the owning runner MUST answer it with a
+   * PATH_RESPONSE on the arrival path (srvrun_answer_path_challenge);
+   * valid only while path_challenge_rx_seen is set. */
+  u8  path_challenge_rx_data[PATH_DATA];
+  int path_challenge_rx_seen;
   u8  path_response_data[PATH_DATA];
   int path_response_seen_flag; /**< 1 once path_response_data was set this
                                 * step; not reset across steps by this loop
