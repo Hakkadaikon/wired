@@ -165,6 +165,17 @@ void wired_server_set_keylog_path(wired_server* s, const char* path);
  *   of phase. */
 int wired_server_recv_initial(wired_server* s, const u8* ch_msg, usz ch_len);
 
+/** RFC 8446 4.1.4: emit the HelloRetryRequest a just-received ClientHello1
+ * without a usable (x25519) key_share owes, and restart the raw transcript
+ * as message_hash(ClientHello1) || HRR (RFC 8446 4.4.1). The phase stays
+ * HS_INITIAL: the retried ClientHello2 re-enters wired_server_recv_initial.
+ * Only valid while sdrv_hrr_pending; a second HRR is never produced
+ * (ClientHello2 still without a share is rejected instead).
+ * @param s the orchestrator holding the HRR-bound ClientHello1
+ * @param out receives the HelloRetryRequest handshake message bytes
+ * @return 1 on success, 0 when no HRR is pending or building failed. */
+int wired_server_build_hrr(wired_server* s, wired_obuf* out);
+
 /** RFC 8446 4.4 / RFC 9001 4: build the server flight (ServerHello into
  * out->sh, EncryptedExtensions||Certificate||CertificateVerify||Finished into
  * out->hs) and derive the Handshake key. Only valid after the ClientHello was
