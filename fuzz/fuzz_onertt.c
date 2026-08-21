@@ -110,7 +110,7 @@ static void feed_one(connio *io, const u8 *data, usz len) {
   static u8 scratch[SCRATCH_CAP];
   int       level;
   if (len == 0 || len > SCRATCH_CAP) return;
-  if (!connrunner_packet_level(data[0], &level)) return;
+  if (!connrunner_packet_level(data[0], 0, &level)) return;
   for (usz i = 0; i < len; i++) scratch[i] = data[i];
   connio_recv(io, level, wired_mspan_of(scratch, len));
 }
