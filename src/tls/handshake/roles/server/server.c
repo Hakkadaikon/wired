@@ -1,6 +1,7 @@
 #include "tls/handshake/roles/server/server.h"
 
 #include "common/platform/keylog/keylog.h"
+#include "tls/handshake/core/hrr/hrr_build.h"
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/hs_message.h"
 #include "tls/handshake/core/tls/schedule.h"
@@ -94,12 +95,43 @@ static int srv_accept_client_hello(
   return sdrv_enforce_sni(&s->sdrv);
 }
 
+/* Fold the accepted ClientHello into the raw transcript and advance the
+ * phase -- skipped for an HRR-bound ClientHello1 (RFC 8446 4.4.1: it is
+ * replaced by the message_hash synthetic message in wired_server_build_hrr,
+ * and the phase stays HS_INITIAL so the retried ClientHello2 re-enters
+ * wired_server_recv_initial). */
+static int srv_fold_ch(wired_server* s, const u8* ch_msg, usz ch_len) {
+  if (sdrv_hrr_pending(&s->sdrv)) return 1;
+  srv_tr_add(s, ch_msg, ch_len);
+  s->phase = WIRED_SERVER_HS_CH_RECVD;
+  return 1;
+}
+
 int wired_server_recv_initial(wired_server* s, const u8* ch_msg, usz ch_len) {
   if (s->phase != WIRED_SERVER_HS_INITIAL) return 0;
   if (!srv_accept_client_hello(s, ch_msg, ch_len)) return 0;
   srv_record_client_random(s, ch_msg, ch_len);
-  srv_tr_add(s, ch_msg, ch_len);
-  s->phase = WIRED_SERVER_HS_CH_RECVD;
+  return srv_fold_ch(s, ch_msg, ch_len);
+}
+
+/* Phase and driver agree an HRR is what this connection owes next. */
+static int srv_hrr_ready(const wired_server* s) {
+  return s->phase == WIRED_SERVER_HS_INITIAL && sdrv_hrr_pending(&s->sdrv);
+}
+
+int wired_server_build_hrr(wired_server* s, wired_obuf* out) {
+  u8  mh[4 + 32];
+  usz mh_len;
+  if (!srv_hrr_ready(s)) return 0;
+  if (!sdrv_build_hrr(&s->sdrv, out)) return 0;
+  /* RFC 8446 4.4.1: the raw transcript restarts as
+   * message_hash(Hash(ClientHello1)) || HRR, mirroring the hashed
+   * transcript sdrv_build_hrr just reset -- ClientHello1 itself was never
+   * folded in (srv_fold_ch skipped it). */
+  mh_len    = hrr_message_hash(s->sdrv.ch1_hash, 32, mh, sizeof mh);
+  s->tr_len = 0;
+  srv_tr_add(s, mh, mh_len);
+  srv_tr_add(s, out->p, out->len);
   return 1;
 }
 
