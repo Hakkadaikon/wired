@@ -1329,9 +1329,13 @@ static int srvrun_boot_up(
 }
 
 /* Feed dg into c's boot accumulator, restarting it for a fresh attempt (a
- * just-claimed slot, or a confirmed connection re-cold-starting). */
-static int srvrun_boot_feed(srvrun_conn* c, wired_mspan dg) {
+ * just-claimed slot, or a confirmed connection re-cold-starting). The
+ * datagram's ECN codepoint is counted after any reset -- the accept
+ * flight's Initial ACK must carry the ClientHello datagram's own mark
+ * (RFC 9000 13.4.1: the peer validates against its FIRST acknowledgment). */
+static int srvrun_boot_feed(srvrun_conn* c, wired_mspan dg, u8 ecn) {
   if (c->up || !c->boot.any) wired_srvboot_acc_reset(&c->boot);
+  wired_srvboot_acc_ecn_note(&c->boot, ecn);
   return wired_srvboot_acc_feed(&c->boot, dg);
 }
 
@@ -1349,7 +1353,7 @@ static int srvrun_boot_salvage(const srvrun_conn* c) {
 
 static int srvrun_on_initial(
     const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, wired_mspan dg) {
-  if (!srvrun_boot_feed(c, dg)) return srvrun_boot_salvage(c);
+  if (!srvrun_boot_feed(c, dg, ctx->ecn)) return srvrun_boot_salvage(c);
   if (!wired_srvboot_acc_complete(&c->boot)) return SRVRUN_BOOT_PENDING;
   return srvrun_boot_finish(ctx, slot, c, dg);
 }
@@ -1425,8 +1429,14 @@ static int srvrun_seal_wt_busy_reset(
   usz pln = srvrun_wt_busy_reset_payload(c, stream_id, err_code, &plb);
   if (!pln) return 0;
   sin = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      wired_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(pl, pln),
+      0,
+      0,
+      0,
+      0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -1461,8 +1471,14 @@ static int srvrun_seal_app_close(
   usz pln = srvrun_app_close_payload(error_code, reason, &plb);
   if (!pln) return 0;
   sin = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      wired_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(pl, pln),
+      0,
+      0,
+      0,
+      0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -1508,8 +1524,14 @@ static int srvrun_seal_continue(
   wired_srvloop_send_in sin;
   if (!srvrun_continue_payload(stream_id, &plb, h3_len)) return 0;
   sin = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      wired_span_of(pl, plb.len), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(pl, plb.len),
+      0,
+      0,
+      0,
+      0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -1551,8 +1573,14 @@ static int srvrun_seal_transport_close(
   usz pln = srvrun_transport_close_payload(error_code, reason, &plb);
   if (!pln) return 0;
   sin = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      wired_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(pl, pln),
+      0,
+      0,
+      0,
+      0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -2085,8 +2113,14 @@ static int srvrun_seal_max_stream_data(
   if (!pln) return 0;
   plb.len = pln;
   sin     = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      wired_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(pl, pln),
+      0,
+      0,
+      0,
+      0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -2176,8 +2210,14 @@ static int srvrun_seal_path_challenge(
   if (!pln) return 0;
   plb.len = pln;
   sin     = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      wired_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(pl, pln),
+      0,
+      0,
+      0,
+      0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -2217,8 +2257,14 @@ static int srvrun_seal_max_data(srvrun_conn* c, u64 value, wired_obuf* out) {
   if (!pln) return 0;
   plb.len = pln;
   sin     = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      wired_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(pl, pln),
+      0,
+      0,
+      0,
+      0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -2242,8 +2288,14 @@ static int srvrun_seal_data_blocked(
   if (!pln) return 0;
   plb.len = pln;
   sin     = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      wired_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(pl, pln),
+      0,
+      0,
+      0,
+      0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -2269,8 +2321,14 @@ static int srvrun_seal_max_streams(
   wired_srvloop_send_in sin;
   if (!maxstreams_frame(uni, value, &plb)) return 0;
   sin = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      wired_span_of(pl, plb.len), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(pl, plb.len),
+      0,
+      0,
+      0,
+      0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -2284,8 +2342,14 @@ static int srvrun_seal_streams_blocked(
   wired_srvloop_send_in sin;
   if (!maxstreams_blocked_frame(uni, limit, &plb)) return 0;
   sin = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      wired_span_of(pl, plb.len), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(pl, plb.len),
+      0,
+      0,
+      0,
+      0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -2555,8 +2619,14 @@ static int srvrun_send_wt_capsule(
       capsule_bytes.n, capsule_bytes.p, fin};
   if (!appdata_stream_frame(&f, &plb)) return 0;
   sin = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      wired_span_of(pl, plb.len), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(pl, plb.len),
+      0,
+      0,
+      0,
+      0};
   if (!wired_srvloop_send_onertt(&c->s, &sin, out)) return 0;
   srvrun_send(cfg, c, wired_span_of(out->p, out->len), "WT capsule sent\n");
   c->wt_connect_sent_len[sidx] += capsule_bytes.n;
@@ -2678,8 +2748,14 @@ static int srvrun_seal_wt_stream_reset(srvrun_conn* c, usz i, wired_obuf* out) {
   wired_srvloop_send_in sin;
   if (!pln) return 0;
   sin = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      wired_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(pl, pln),
+      0,
+      0,
+      0,
+      0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -2970,8 +3046,14 @@ static int srvrun_send_goaway(
   if (!srvrun_goaway_payload(c->l.we_advertised_max_datagram > 0, &plb))
     return 0;
   sin = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      wired_span_of(pl, plb.len), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(pl, plb.len),
+      0,
+      0,
+      0,
+      0};
   if (!wired_srvloop_send_onertt(&c->s, &sin, out)) return 0;
   srvrun_send(cfg, c, wired_span_of(out->p, out->len), "GOAWAY sent\n");
   c->goaway_sent = 1;
@@ -3068,8 +3150,14 @@ static int srvrun_send_datagram_now(
   wired_srvloop_send_in sin;
   if (!dgdeliver_frame(data, &o, &plb)) return 0;
   sin = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      wired_span_of(pl, plb.len), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(pl, plb.len),
+      0,
+      0,
+      0,
+      0};
   if (!wired_srvloop_send_onertt(&c->s, &sin, out)) return 0;
   srvrun_send(cfg, c, wired_span_of(out->p, out->len), "DATAGRAM sent\n");
   return 1;
@@ -5187,7 +5275,7 @@ static int srvrun_seal_send_slice(
   u8                    out[1500];
   wired_obuf            ob  = obuf_of(out, sizeof out);
   wired_srvloop_send_in sin = {
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), pn, -1, pl, 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), pn, -1, pl, 0, 0, 0, 0};
   if (!wired_srvloop_send_onertt(&c->s, &sin, &ob)) return 0;
   srvrun_send_staged(
       ctx->cfg, c, wired_span_of(out, ob.len), "1-RTT payload sent\n");
@@ -5793,8 +5881,14 @@ static int srvrun_seal_pmtu_probe(
   if (!pln) return 0;
   *pn = c->l.tx_pn++;
   sin = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), *pn, -1,
-      wired_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      *pn,
+      -1,
+      wired_span_of(pl, pln),
+      0,
+      0,
+      0,
+      0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -7067,10 +7161,12 @@ static void srvrun_serve_slot(
   /* RFC 9000 8.1: every physically received byte counts toward this path's
    * antiamp budget, whether or not dg turns out to parse. */
   c->boot_rx_bytes += dg.n;
-  /* RFC 9000 13.4 / RFC 9002 19.3.2: every datagram's ECN codepoint counts
-   * toward this connection's cumulative total, whether or not it parses --
-   * same "every physically received byte/datagram counts" rule as
-   * boot_rx_bytes above. */
+  /* RFC 9000 13.4 / 19.3.2: every datagram's ECN codepoint counts toward
+   * this connection's cumulative total, whether or not it parses -- same
+   * "every physically received byte counts" rule as boot_rx_bytes above.
+   * (Initial datagrams also feed the boot accumulator's own counts, inside
+   * srvrun_boot_feed -- after its reset, or the first datagram's count is
+   * erased with the stale accumulator.) */
   wired_srvloop_ecn_note(&c->l, ctx->ecn);
   int consumed = srvrun_serve_boot(ctx, slot, dg);
   /* confirm may have landed inside serve_boot: seed the RTT estimators
@@ -7472,8 +7568,10 @@ static int srvrun_seal_new_conn_refusal(
   if (!lhdr_parse(dg, 1, &h)) return 0;
   fn = frame_put_conn_close(fr, sizeof fr, &cc);
   if (!fn) return 0;
-  wi = (srvwire_seal_in){
-      h.dcid, h.scid, wired_span_of(scid, 8), 0, -1, wired_span_of(fr, fn), 0};
+  wi = (srvwire_seal_in){h.dcid, h.scid, wired_span_of(scid, 8),
+                         0,      -1,     wired_span_of(fr, fn),
+                         0,      0,      0,
+                         0};
   return srvwire_seal_initial_frames_lean(&wi, out);
 }
 

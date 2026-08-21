@@ -123,6 +123,9 @@ typedef struct {
                 * or the next unused one after a HelloRetryRequest) */
   usz ini_off; /**< the ServerHello's crypto-stream offset (past the HRR
                 * when one was sent, else 0 -- RFC 9000 19.6) */
+  u64 ect0;    /**< RFC 9000 13.4.1: Initial ACK's cumulative ECN counts */
+  u64 ect1;
+  u64 ce;
 } srvboot_server;
 
 /* RFC 9000 19.6 / 14.1: TLS bytes per Handshake flight datagram. 1100 keeps
@@ -147,8 +150,14 @@ static int srvboot_seal_next(
   wired_obuf tail = obuf_of(
       out->flight->p + out->flight->len, out->flight->cap - out->flight->len);
   wired_srvloop_send_in in = {
-      sv->cli_scid, out->dgram_count, -1, wired_span_of(flight.p + *off, n),
-      *off};
+      sv->cli_scid,
+      out->dgram_count,
+      -1,
+      wired_span_of(flight.p + *off, n),
+      *off,
+      0,
+      0,
+      0};
   if (out->dgram_count >= WIRED_SRVBOOT_FLIGHT_MAX) return 0;
   if (!wired_srvloop_send_handshake(sv->s, &in, &tail)) return 0;
   out->dgram_len[out->dgram_count++] = tail.len;
@@ -177,8 +186,9 @@ static int srvboot_seal_flight(
     const srvboot_server*       sv,
     const srvboot_flight_bytes* fb,
     wired_srvboot_out*          out) {
-  wired_srvloop_send_in in0 = {
-      sv->cli_scid, sv->ini_pn, (i64)sv->ack_pn, fb->sh, sv->ini_off};
+  wired_srvloop_send_in in0 = {sv->cli_scid, sv->ini_pn,  (i64)sv->ack_pn,
+                               fb->sh,       sv->ini_off, sv->ect0,
+                               sv->ect1,     sv->ce};
   if (!wired_srvloop_send_initial_ver(sv->version, sv->s, &in0, out->initial))
     return 0;
   return srvboot_seal_hs_flight(sv, fb->flight, out);
@@ -221,25 +231,34 @@ static int srvboot_build_flight_bytes(
   return 1;
 }
 
+/* RFC 9000 12.3: the accept flight's server Initial is pn 1, except after a
+ * HelloRetryRequest, which already spent pn 1 -- then it takes the next
+ * unused Initial pn (shared with the partial-ack counter, so the two can
+ * never collide). */
+static u64 srvboot_flight_pn(wired_srvboot_acc* a) {
+  return a->hrr_off ? a->ack_pn++ : 1;
+}
+
 /* Build the server flight from the folded ClientHello and seal it, replying
- * in `version` -- the accepted Initial's own version (RFC 9368 2: no VN
- * round trip, so the server just answers in the version that arrived). */
+ * in the accepted Initial's own version (RFC 9368 2: no VN round trip, so
+ * the server just answers in the version that arrived). Everything
+ * connection-specific -- ack target, Initial pn, crypto-stream offset, ECN
+ * counts -- comes from the accumulator. */
 static int srvboot_flight(
     const wired_srvboot_conn* conn,
     const wired_srvboot_id*   id,
-    u32                       version,
-    u64                       ack_pn,
-    u64                       ini_pn,
-    usz                       ini_off,
+    wired_srvboot_acc*        a,
     wired_srvboot_out*        out) {
   u8                   sh[SRVBOOT_SH_MAX], flight[SRVBOOT_HS_FLIGHT_MAX];
   srvboot_flight_bytes fb;
   srvboot_server       sv = {
-      conn->s, id,
-      ack_pn,  wired_span_of(conn->l->cli_scid, conn->l->cli_scid_len),
-      version, ini_pn,
-      ini_off};
-  if (!srvboot_build_flight_bytes(conn, id, version, sh, flight, &fb)) return 0;
+      conn->s,        id,
+      a->largest_pn,  wired_span_of(conn->l->cli_scid, conn->l->cli_scid_len),
+      a->hdr.version, srvboot_flight_pn(a),
+      a->ini_tx_off,  a->ecn_ect0,
+      a->ecn_ect1,    a->ecn_ce};
+  if (!srvboot_build_flight_bytes(conn, id, a->hdr.version, sh, flight, &fb))
+    return 0;
   if (!srvboot_seal_flight(&sv, &fb, out)) return 0;
   /* RFC 9000 12.3: later Handshake sends continue after the flight's packet
    * numbers 0..dgram_count-1. */
@@ -257,8 +276,20 @@ void wired_srvboot_acc_reset(wired_srvboot_acc* a) {
   a->ack_pn       = 2;
   a->hrr_off      = 0;
   a->ini_tx_off   = 0;
+  a->ecn_ect0     = 0;
+  a->ecn_ect1     = 0;
+  a->ecn_ce       = 0;
   a->alt_dcid_len = 0;
   a->zerortt_n    = 0;
+}
+
+/* RFC 9000 13.4.1: one received datagram's ECN codepoint advances the
+ * matching cumulative counter (same table dispatch as srvloop's own
+ * wired_srvloop_ecn_note; 0 = Not-ECT counts nothing). */
+void wired_srvboot_acc_ecn_note(wired_srvboot_acc* a, u8 ecn) {
+  u64* table[4] = {0, &a->ecn_ect1, &a->ecn_ect0, &a->ecn_ce};
+  u64* counter  = ecn < 4 ? table[ecn] : (u64*)0;
+  if (counter) (*counter)++;
 }
 
 /* Accumulated byte difference between two ids of the same length. */
@@ -350,7 +381,10 @@ usz wired_srvboot_partial_ack(
       a->ack_pn,
       (i64)a->largest_pn,
       wired_span_of(0, 0),
-      0};
+      0,
+      a->ecn_ect0,
+      a->ecn_ect1,
+      a->ecn_ce};
   if (!srvboot_acc_ackable(a)) return 0;
   if (!srvwire_seal_initial_frames_lean(&wi, &ob)) return 0;
   a->ack_pn++;
@@ -454,8 +488,14 @@ static int srvboot_hrr(
   wired_srvloop_send_in in0;
   if (!wired_server_build_hrr(conn->s, &hob)) return 0;
   in0 = (wired_srvloop_send_in){
-      wired_span_of(conn->l->cli_scid, conn->l->cli_scid_len), 1,
-      (i64)a->largest_pn, wired_span_of(hrr, hob.len), 0};
+      wired_span_of(conn->l->cli_scid, conn->l->cli_scid_len),
+      1,
+      (i64)a->largest_pn,
+      wired_span_of(hrr, hob.len),
+      0,
+      a->ecn_ect0,
+      a->ecn_ect1,
+      a->ecn_ce};
   if (!wired_srvloop_send_initial_ver(
           a->hdr.version, conn->s, &in0, out->initial))
     return 0;
@@ -463,14 +503,6 @@ static int srvboot_hrr(
   a->ini_tx_off    = hob.len; /* the ServerHello continues past the HRR */
   out->dgram_count = 0;       /* no Handshake flight yet -- Initial only */
   return WIRED_SRVBOOT_HRR;
-}
-
-/* RFC 9000 12.3: the accept flight's server Initial is pn 1, except after a
- * HelloRetryRequest, which already spent pn 1 -- then it takes the next
- * unused Initial pn (shared with the partial-ack counter, so the two can
- * never collide). */
-static u64 srvboot_flight_pn(wired_srvboot_acc* a) {
-  return a->hrr_off ? a->ack_pn++ : 1;
 }
 
 /* The accumulator is complete and folded -- seal what the driver decided:
@@ -482,9 +514,7 @@ static int srvboot_accept_reply(
     wired_srvboot_out*        out) {
   out->client_pn = a->largest_pn;
   if (sdrv_hrr_pending(&conn->s->sdrv)) return srvboot_hrr(conn, a, out);
-  return srvboot_flight(
-      conn, id, a->hdr.version, a->largest_pn, srvboot_flight_pn(a),
-      a->ini_tx_off, out);
+  return srvboot_flight(conn, id, a, out);
 }
 
 int wired_srvboot_accept_acc(
@@ -525,6 +555,9 @@ usz wired_srvboot_refusal(
       1,
       (i64)a->largest_pn,
       wired_span_of(fr, fn),
+      0,
+      0,
+      0,
       0};
   if (fn == 0) return 0;
   if (!srvwire_seal_initial_frames(&wi, &ob)) return 0;

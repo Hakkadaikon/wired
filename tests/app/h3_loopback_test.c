@@ -145,6 +145,9 @@ static usz lb_seal_handshake(
       0,
       0,
       wired_span_of(msg, mlen),
+      0,
+      0,
+      0,
       0};
   protect_keys pk = {k, &hp};
   CHECK(srvwire_seal_handshake(&pk, &in, &ob));
@@ -1101,6 +1104,61 @@ static void test_srvboot_hrr_then_ch2_accepts(void) {
   CHECK(out.dgram_count > 0); /* and its Handshake flight */
 }
 
+/* RFC 9000 13.4.1: ECN codepoints counted into the boot accumulator surface
+ * on the accept flight's Initial ACK as a type-0x03 ACK with the cumulative
+ * counts -- the peer (ngtcp2) validates ECN against the FIRST
+ * acknowledgment of a packet it ECT-marked, so a plain ACK here makes it
+ * declare the path not capable and stop marking for good. */
+static void test_srvboot_initial_ack_carries_ecn_counts(void) {
+  client             c;
+  wired_server       s;
+  wired_srvloop      l;
+  wired_srvboot_id   id;
+  u8                 priv[32], pub[32], seed[32], rnd[32];
+  wired_srvboot_conn conn = {&s, &l};
+  u8                 ch[512], dg[1400];
+  u8                 ini[1500], hs[16384];
+  wired_obuf         iob = {ini, sizeof ini, 0};
+  wired_obuf         hob = {hs, sizeof hs, 0};
+  wired_srvboot_out  out = {&iob, &hob, {0}, 0, 0};
+  wired_srvboot_acc  a;
+  usz                n;
+  bytes_memset(&s, 0, sizeof s);
+  bytes_memset(&l, 0, sizeof l);
+  sb_make_id(&id, priv, pub, seed, rnd);
+  n = sb_build_raw_ch(&c, ch, sizeof ch);
+  wired_srvboot_acc_reset(&a);
+  wired_srvboot_acc_ecn_note(&a, 2); /* ECT(0), the ClientHello datagram */
+  wired_srvboot_acc_ecn_note(&a, 2); /* ECT(0), a coalesced/second one */
+  wired_srvboot_acc_ecn_note(&a, 3); /* CE */
+  n = sb_seal_ch_chunk(dg, sizeof dg, wired_span_of(ch, n), 0, 3);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg, n)) == 1);
+  CHECK(wired_srvboot_accept_acc(&conn, &id, &a, &out) == 1);
+  {
+    initial_keys ck, sk;
+    aes128       hp;
+    wired_span   frames;
+    protect_keys k;
+    rx_desc      d    = {wired_mspan_of(ini, iob.len), 1};
+    usz          off  = 0;
+    int          seen = 0;
+    initpkt_derive(wired_span_of(g_scid, 6), &ck, &sk);
+    aes128_init(&hp, sk.hp);
+    k = (protect_keys){&sk, &hp};
+    CHECK(rx_packet(&k, &d, &frames) == 1);
+    /* find and decode the type-0x03 (ECN) ACK among the frames. */
+    for (off = 0; off + 8 < frames.n && !seen; off++)
+      if (frames.p[off] == 0x03 && frames.p[off + 1] == 0x03) {
+        ack_frame f;
+        if (ack_decode(frames.p + off, frames.n - off, &f) == 0) continue;
+        CHECK(f.has_ecn == 1);
+        CHECK(f.ect0 == 2 && f.ect1 == 0 && f.ce == 1);
+        seen = 1;
+      }
+    CHECK(seen == 1);
+  }
+}
+
 /* Offset of the ClientHello's 2-byte extensions-block length field: 4-byte
  * handshake header + 41-byte legacy_version/random/session_id/cipher_suites/
  * compression prefix (put_prefix in clienthello.c), matching sdrv_test.c's
@@ -1398,6 +1456,7 @@ void test_h3_loopback(void) {
   test_srvboot_acc_allows_switched_dcid();
   test_srvboot_refusal_closes_unservable();
   test_srvboot_hrr_then_ch2_accepts();
+  test_srvboot_initial_ack_carries_ecn_counts();
   test_srvboot_refusal_reports_missing_tp_ext();
   test_srvboot_split_flight_datagrams();
   test_srvboot_split_flight_reassembled();

@@ -191,6 +191,15 @@ typedef struct {
    * post-retry ServerHello continues the same stream, it must not restart
    * at offset 0), 0 otherwise. */
   usz ini_tx_off;
+  /** RFC 9000 13.4.1: cumulative ECN counts of the datagrams this boot has
+   * physically received (wired_srvboot_acc_ecn_note), carried on the accept
+   * flight's / HRR's / partial acks' Initial ACK -- the peer validates ECN
+   * against the FIRST acknowledgment of a packet it ECT-marked, so waiting
+   * for the 1-RTT ACK is already too late (ngtcp2 declares the path not
+   * capable and stops marking). */
+  u64 ecn_ect0;
+  u64 ecn_ect1;
+  u64 ecn_ce;
   /** An additional DCID admitted alongside the bound one
    * (wired_srvboot_acc_allow): the server's own scid, which the client
    * switches to after the first server packet (RFC 9000 7.2). The Initial
@@ -235,6 +244,14 @@ void wired_srvboot_acc_reset(wired_srvboot_acc* a);
  *   refused outright (unparseable, a foreign DCID, or nothing in it opened
  *   under the bound keys). */
 int wired_srvboot_acc_feed(wired_srvboot_acc* a, wired_mspan dg);
+
+/** RFC 9000 13.4.1: count one received datagram's ECN codepoint (RFC 3168:
+ * 0 Not-ECT, 1 ECT(1), 2 ECT(0), 3 CE) toward the Initial ACK's cumulative
+ * totals. Call once per physically received datagram while the boot is in
+ * progress, alongside the loop-level wired_srvloop_ecn_note.
+ * @param a the accumulator
+ * @param ecn the datagram's ECN codepoint */
+void wired_srvboot_acc_ecn_note(wired_srvboot_acc* a, u8 ecn);
 
 /** @param a the accumulator
  * @return the number of whole 0-RTT datagrams buffered in a
