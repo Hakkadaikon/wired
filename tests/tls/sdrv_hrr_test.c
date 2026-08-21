@@ -258,6 +258,28 @@ static void test_sdrv_hrr_picoquic_client_hello_arms_hrr(void) {
   CHECK(hrr_is_hello_retry(hrr, hob.len) == 1);
 }
 
+/* (g) RFC 8446 4.1.4: the HRR carries the cipher_suite negotiated from
+ * ClientHello1 -- a ChaCha20-only client must see ChaCha20 echoed, not a
+ * fixed AES suite (picoquic's chacha20 case closed with illegal_parameter
+ * on exactly that mismatch). The suite sits at msg offset 39: header(4) +
+ * legacy_version(2) + random(32) + empty session_id(1). */
+static void test_sdrv_hrr_echoes_negotiated_cipher(void) {
+  sdrv_hrr_fixture f;
+  u8               ch[512], hrr[256];
+  usz              ch_len;
+  sdrv             s;
+  wired_obuf       hob = obuf_of(hrr, sizeof(hrr));
+  sdrv_hrr_fixture_init(&f);
+  ch_len = sdrv_hrr_build_ch(ch, sizeof(ch), f.cli_pub, f.srv_random);
+  CHECK(ch_len != 0);
+  sdrv_hrr_set_suite(ch, TLS_CHACHA20_POLY1305_SHA256);
+  sdrv_hrr_drop_x25519(ch);
+  sdrv_hrr_init_any(&s);
+  CHECK(sdrv_recv_client_hello(&s, ch, ch_len) == 1);
+  CHECK(sdrv_build_hrr(&s, &hob) == 1);
+  CHECK(((u16)hrr[39] << 8 | hrr[40]) == (u16)TLS_CHACHA20_POLY1305_SHA256);
+}
+
 void test_sdrv_hrr(void) {
   test_sdrv_hrr_normal_ch_no_hrr_pending();
   test_sdrv_hrr_no_x25519_triggers_hrr();
@@ -266,4 +288,5 @@ void test_sdrv_hrr(void) {
   test_sdrv_hrr_transcript_uses_message_hash();
   test_sdrv_hrr_second_ch_still_no_share_rejected();
   test_sdrv_hrr_picoquic_client_hello_arms_hrr();
+  test_sdrv_hrr_echoes_negotiated_cipher();
 }

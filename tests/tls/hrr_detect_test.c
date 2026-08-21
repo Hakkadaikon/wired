@@ -9,7 +9,9 @@
 static void test_hrr_detect_true(void) {
   u8         out[256];
   wired_obuf ob = obuf_of(out, sizeof out);
-  CHECK(hrr_build(GROUP_X25519, wired_span_of(0, 0), &ob) == 1);
+  CHECK(
+      hrr_build(
+          TLS_AES128_GCM_SHA256, GROUP_X25519, wired_span_of(0, 0), &ob) == 1);
   CHECK(hrr_is_hello_retry(out, ob.len) == 1);
 }
 
