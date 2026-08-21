@@ -29,6 +29,13 @@ typedef struct {
                             split across packets, or the ServerHello's
                             continuation offset past a HelloRetryRequest on
                             the Initial stream (RFC 8446 4.1.4) */
+  /** RFC 9000 13.4.1: cumulative ECN counts for the trailing ACK (all zero
+   * = plain ACK). The Initial-space ACK must carry them or an ECN-marking
+   * peer (ngtcp2) declares the path not capable on its FIRST acknowledgment
+   * and stops marking for good. */
+  u64 ect0;
+  u64 ect1;
+  u64 ce;
 } wired_srvloop_send_in;
 
 /** Seal a ServerHello TLS flight into a server Initial packet, addressed to

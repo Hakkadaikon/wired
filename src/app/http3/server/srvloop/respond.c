@@ -310,8 +310,14 @@ static int seal_confirm_onertt(
   pll = plb.len;
   pll += app_ack_append(c->l, pl + pll, sizeof pl - pll);
   wired_srvloop_send_in sin = {
-      wired_span_of(c->l->cli_scid, c->l->cli_scid_len), c->l->tx_pn++, -1,
-      wired_span_of(pl, pll), 0};
+      wired_span_of(c->l->cli_scid, c->l->cli_scid_len),
+      c->l->tx_pn++,
+      -1,
+      wired_span_of(pl, pll),
+      0,
+      0,
+      0,
+      0};
   return wired_srvloop_send_onertt(c->s, &sin, out);
 }
 
@@ -343,8 +349,14 @@ static int emit_response(const wired_srvloop_conn* c, wired_obuf* out) {
   rl = plb.len;
   rl += app_ack_append(c->l, pl + rl, sizeof pl - rl);
   wired_srvloop_send_in sin = {
-      wired_span_of(c->l->cli_scid, c->l->cli_scid_len), c->l->tx_pn++, -1,
-      wired_span_of(pl, rl), 0};
+      wired_span_of(c->l->cli_scid, c->l->cli_scid_len),
+      c->l->tx_pn++,
+      -1,
+      wired_span_of(pl, rl),
+      0,
+      0,
+      0,
+      0};
   return wired_srvloop_send_onertt(c->s, &sin, out);
 }
 
@@ -359,8 +371,14 @@ static int emit_ack_only(const wired_srvloop_conn* c, wired_obuf* out) {
   usz a = app_ack_append_if_due(c->l, pl, sizeof pl);
   if (a == 0) return 0;
   wired_srvloop_send_in sin = {
-      wired_span_of(c->l->cli_scid, c->l->cli_scid_len), c->l->tx_pn++, -1,
-      wired_span_of(pl, a), 0};
+      wired_span_of(c->l->cli_scid, c->l->cli_scid_len),
+      c->l->tx_pn++,
+      -1,
+      wired_span_of(pl, a),
+      0,
+      0,
+      0,
+      0};
   return wired_srvloop_send_onertt(c->s, &sin, out);
 }
 
@@ -403,7 +421,13 @@ int wired_srvloop_reconfirm(const wired_srvloop_conn* conn, wired_obuf* out) {
   wired_srvloop* l = conn->l;
   if (!l->hs_done_sent || l->confirm_frames_len == 0) return 0;
   wired_srvloop_send_in sin = {
-      wired_span_of(l->cli_scid, l->cli_scid_len), l->tx_pn++, -1,
-      wired_span_of(l->confirm_frames, l->confirm_frames_len), 0};
+      wired_span_of(l->cli_scid, l->cli_scid_len),
+      l->tx_pn++,
+      -1,
+      wired_span_of(l->confirm_frames, l->confirm_frames_len),
+      0,
+      0,
+      0,
+      0};
   return wired_srvloop_send_onertt(conn->s, &sin, out);
 }
