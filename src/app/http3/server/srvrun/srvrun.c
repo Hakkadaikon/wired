@@ -37,6 +37,7 @@
 #include "common/platform/rng/cidgen.h"
 #include "common/platform/rng/rng.h"
 #include "common/platform/thread/thread.h"
+#include "crypto/symmetric/aead/gcm/gcm.h"
 #include "tls/ext/stp/server_tp.h"
 #include "tls/handshake/core/tls/retry_tag.h"
 #include "tls/keys/kuswitch/twogen.h"
@@ -2212,19 +2213,31 @@ static u64 srvrun_wt_rx_delivered_total(const srvrun_conn* c) {
   return srvrun_wt_bidi_delivered_total(c) + srvrun_wt_uni_delivered_total(c);
 }
 
+/* RFC 9000 8.2.1: the plaintext length that seals to exactly the 1200-byte
+ * minimum datagram -- the short header costs byte0 + DCID + a 4-byte packet
+ * number, and the AEAD tag 16 bytes (GCM and Poly1305 alike). */
+static usz srvrun_challenge_plaintext_len(const srvrun_conn* c) {
+  return MIN_INITIAL_DATAGRAM - (5 + (usz)c->l.cli_scid_len) - GCM_TAG;
+}
+
 /* Seal one PATH_CHALLENGE frame (RFC 9000 8.2.2/19.17) as its own 1-RTT
  * packet, mirroring srvrun_seal_max_data for a different single-frame
  * payload. Sent to c->peer -- the caller (srvrun_rebind_peer) has already
- * updated c->peer to the new path this challenges, RFC 9000 8.2.1. */
+ * updated c->peer to the new path this challenges, RFC 9000 8.2.1.
+ * RFC 9000 8.2.1 also demands the datagram be expanded to 1200 bytes: the
+ * PADDING goes INSIDE the AEAD, because a short header has no Length field
+ * -- bytes appended after the seal join the ciphertext and the peer's tag
+ * check fails (observed live: ngtcp2 discarded every challenge with a
+ * checktag error, so no PATH_RESPONSE ever came back). */
 static int srvrun_seal_path_challenge(
     srvrun_conn* c, const u8 data[PATH_DATA], wired_obuf* out) {
-  u8                    pl[24];
-  wired_obuf            plb = obuf_of(pl, sizeof pl);
+  u8                    pl[MIN_INITIAL_DATAGRAM];
   wired_srvloop_send_in sin;
-  usz pln = path_encode(plb.p, plb.cap, FRAME_PATH_CHALLENGE, data);
+  usz                   want = srvrun_challenge_plaintext_len(c);
+  usz pln = path_encode(pl, sizeof pl, FRAME_PATH_CHALLENGE, data);
   if (!pln) return 0;
-  plb.len = pln;
-  sin     = (wired_srvloop_send_in){
+  for (; pln < want; pln++) pl[pln] = 0; /* PADDING frames (0x00) */
+  sin = (wired_srvloop_send_in){
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
       c->l.tx_pn++,
       -1,
@@ -2236,29 +2249,12 @@ static int srvrun_seal_path_challenge(
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
-/* RFC 9000 8.2.1: an endpoint MUST expand datagrams that contain a
- * PATH_CHALLENGE frame to at least the smallest allowed maximum datagram
- * size (1200 bytes), so a path that only tolerates smaller datagrams cannot
- * be used before the amplification limit is even relevant. */
-static int pad_challenge_fits(usz len, usz need, usz cap) {
-  return need != 0 && len + need <= cap;
-}
-
-static usz srvrun_pad_path_challenge(u8* out, usz len, usz cap) {
-  usz need = pad_needed(len);
-  if (!pad_challenge_fits(len, need, cap)) return len;
-  for (usz i = 0; i < need; i++) out[len + i] = 0; /* PADDING frame (0x00) */
-  return len + need;
-}
-
 static void srvrun_send_path_challenge(
     const srvrun_cfg* cfg, srvrun_conn* c, const u8 data[PATH_DATA]) {
   u8         out[MIN_INITIAL_DATAGRAM];
   wired_obuf ob = obuf_of(out, sizeof out);
-  usz        n;
   if (!srvrun_seal_path_challenge(c, data, &ob)) return;
-  n = srvrun_pad_path_challenge(out, ob.len, sizeof out);
-  srvrun_send(cfg, c, wired_span_of(out, n), "PATH_CHALLENGE sent\n");
+  srvrun_send(cfg, c, wired_span_of(out, ob.len), "PATH_CHALLENGE sent\n");
 }
 
 /* Seal one MAX_DATA frame (RFC 9000 19.9) as its own 1-RTT packet and send

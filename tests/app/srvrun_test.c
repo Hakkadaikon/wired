@@ -2653,7 +2653,7 @@ static void test_srvrun_path_challenge_sent_to_new_peer(void) {
   srvrun_conn   c;
   wired_obuf    ob = {0};
   u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
-  u8            out[256];
+  u8            out[1400];
   conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      old_peer = {0}, new_peer = {0};
   srvrun_state  st = {table, &c};
@@ -2679,9 +2679,15 @@ static void test_srvrun_path_challenge_sent_to_new_peer(void) {
      * data (a distinct 1-RTT packet, since c.l.tx_pn already advanced past
      * the one srvrun_rebind_peer itself sent) and confirm it opens under the
      * client's key with the SAME 8 bytes stored in c.path_challenge_data --
-     * this is what a real client would receive as the challenge to answer. */
+     * this is what a real client would receive as the challenge to answer.
+     * RFC 9000 8.2.1: the seal itself must produce the full 1200-byte
+     * datagram, padding INSIDE the AEAD -- a short header has no Length
+     * field, so bytes appended after the seal join the ciphertext and the
+     * client's tag check fails (observed live: ngtcp2 discarded every
+     * challenge with a checktag error and never sent PATH_RESPONSE). */
     wired_obuf gob = {out, sizeof out, 0};
     CHECK(srvrun_seal_path_challenge(&c, c.path_challenge_data, &gob) == 1);
+    CHECK(gob.len == 1200);
     CHECK(client_open_onertt(&f, out, gob.len, &pl, &pll) == 1);
   }
   CHECK(sr_find_path_challenge(pl, pll, wire_data) == 1);
@@ -2893,31 +2899,6 @@ static void test_srvrun_path_challenge_rng_failure_sends_nothing(void) {
   CHECK(srvrun_test_send_count() == send_before); /* c->peer still rebinds --
     only the challenge send itself is skipped */
   CHECK(c.peer.port_be == new_peer.port_be);
-}
-
-/* RFC 9000 8.2.1: a datagram carrying a PATH_CHALLENGE must be expanded to
- * at least 1200 bytes, so a path that drops larger datagrams cannot be used
- * to validate at a smaller effective MTU. */
-static void test_srvrun_pad_path_challenge_expands_to_1200(void) {
-  u8 out[MIN_INITIAL_DATAGRAM];
-  for (usz i = 0; i < sizeof out; i++) out[i] = 0xaa;
-  CHECK(srvrun_pad_path_challenge(out, 40, sizeof out) == 1200);
-  CHECK(out[39] == 0xaa); /* sealed packet bytes untouched */
-  CHECK(out[40] == 0);    /* padding starts right after */
-  CHECK(out[1199] == 0);  /* padding fills to the cap */
-}
-
-/* Already >= 1200: left unchanged (no padding needed). */
-static void test_srvrun_pad_path_challenge_noop_when_already_big(void) {
-  u8 out[1300];
-  CHECK(srvrun_pad_path_challenge(out, 1200, sizeof out) == 1200);
-  CHECK(srvrun_pad_path_challenge(out, 1250, sizeof out) == 1250);
-}
-
-/* cap too small to reach 1200: left unchanged rather than overflowing. */
-static void test_srvrun_pad_path_challenge_noop_when_cap_too_small(void) {
-  u8 out[100];
-  CHECK(srvrun_pad_path_challenge(out, 40, sizeof out) == 40);
 }
 
 /* Serve one sealed 1-RTT datagram carrying `pl` to a fresh confirmed slot 0,
@@ -14518,9 +14499,6 @@ void test_srvrun(void) {
   test_srvrun_rebind_subsequent_send_targets_new_peer();
   test_srvrun_path_challenge_generated_on_rebind();
   test_srvrun_path_challenge_sent_to_new_peer();
-  test_srvrun_pad_path_challenge_expands_to_1200();
-  test_srvrun_pad_path_challenge_noop_when_already_big();
-  test_srvrun_pad_path_challenge_noop_when_cap_too_small();
   test_srvrun_path_response_matching_validates();
   test_srvrun_path_response_mismatch_does_not_validate();
   test_srvrun_path_response_without_challenge_is_noop();
