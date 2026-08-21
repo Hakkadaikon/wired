@@ -70,10 +70,10 @@ typedef struct {
    * disables the parameter (the default). The migration CID and its token
    * come from the connection's own spare CID (issued by the runner), not
    * from here. */
-  const u8* pref_v4; /**< 4 bytes, or 0 for no preferred_address */
-  const u8* pref_v6; /**< 16 bytes; required when pref_v4 is set */
-  u16       pref_v4_port;
-  u16       pref_v6_port;
+  const u8* pref_v4;      /**< 4 bytes, or 0 for no preferred_address */
+  const u8* pref_v6;      /**< 16 bytes; required when pref_v4 is set */
+  u16       pref_v4_port; /**< port of pref_v4 */
+  u16       pref_v6_port; /**< port of pref_v6 */
 } wired_srvboot_id;
 
 /** RFC 9000 17.2: 1 if dg is a long-header Initial datagram (a Handshake or
@@ -207,7 +207,9 @@ typedef struct {
    * for the 1-RTT ACK is already too late (ngtcp2 declares the path not
    * capable and stops marking). */
   u64 ecn_ect0;
+  /** Cumulative count of ECT(1)-marked datagrams (see ecn_ect0). */
   u64 ecn_ect1;
+  /** Cumulative count of CE-marked datagrams (see ecn_ect0). */
   u64 ecn_ce;
   /** An additional DCID admitted alongside the bound one
    * (wired_srvboot_acc_allow): the server's own scid, which the client

@@ -34,7 +34,9 @@ typedef struct {
    * peer (ngtcp2) declares the path not capable on its FIRST acknowledgment
    * and stops marking for good. */
   u64 ect0;
+  /** Cumulative count of ECT(1)-marked datagrams (see ect0). */
   u64 ect1;
+  /** Cumulative count of CE-marked datagrams (see ect0). */
   u64 ce;
 } wired_srvloop_send_in;
 

@@ -202,13 +202,22 @@ typedef struct {
    * embedded CID carries sequence number 1 (RFC 9000 5.1.1), so whoever
    * routes it must register it, and no NEW_CONNECTION_ID frame may reuse
    * that sequence for a different CID. */
-  u8  pref_v4[4];
+  u8 pref_v4[4];
+  /** Port of the advertised IPv4 address, host byte order (encoded
+   * big-endian on the wire). */
   u16 pref_v4_port;
-  u8  pref_v6[16];
+  /** IPv6 address of the preferred_address parameter, network byte
+   * order. All-zero when only IPv4 is advertised. */
+  u8 pref_v6[16];
+  /** Port of the advertised IPv6 address, host byte order (encoded
+   * big-endian on the wire). */
   u16 pref_v6_port;
-  u8  pref_cid[20];
-  u8  pref_cid_len;
-  u8  pref_token[16];
+  /** The connection ID embedded in the parameter (sequence number 1). */
+  u8 pref_cid[20];
+  /** Length of pref_cid in bytes; 0 omits the whole parameter. */
+  u8 pref_cid_len;
+  /** Stateless reset token paired with the embedded CID. */
+  u8 pref_token[16];
 } sdrv;
 
 /** Inputs to sdrv_set_preferred_address: both addresses in network byte
@@ -218,8 +227,8 @@ typedef struct {
   const u8* v4;      /**< 4 bytes */
   u16       v4_port; /**< host byte order; encoded big-endian */
   const u8* v6;      /**< 16 bytes */
-  u16       v6_port;
-  const u8* cid;
+  u16       v6_port; /**< host byte order; encoded big-endian */
+  const u8* cid;     /**< cid_len bytes */
   u8        cid_len; /**< 1..20 */
   const u8* token;   /**< 16 bytes */
 } sdrv_pref_addr;
