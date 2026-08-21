@@ -2,6 +2,7 @@
 
 #include "common/platform/keylog/keylog.h"
 #include "tls/handshake/core/hrr/hrr_build.h"
+#include "tls/handshake/core/tls/finished.h"
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/hs_message.h"
 #include "tls/handshake/core/tls/schedule.h"
@@ -277,7 +278,12 @@ static int srv_complete(wired_server* s, const u8* msg, usz len) {
 static int srv_on_finished(wired_server* s, const u8* msg, usz len) {
   if (s->phase != WIRED_SERVER_HS_FLIGHT_SENT) return 0;
   if (!srv_verify_finished(s, msg, len)) return 0;
-  return srv_complete(s, msg, len);
+  /* RFC 8446 7.1: fold exactly the verified Finished, whose body the
+   * verify above pinned to TLS_VERIFY_DATA bytes -- the reassembled prefix
+   * may run past it (bytes another packet smeared into the stream), and
+   * folding the excess mints a resumption_master_secret no client can
+   * match: every ticket from such a connection then fails its binder. */
+  return srv_complete(s, msg, HS_HEADER + TLS_VERIFY_DATA);
 }
 
 int wired_server_feed(wired_server* s, const u8* crypto_payload, usz len) {
