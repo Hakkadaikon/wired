@@ -563,6 +563,14 @@ typedef struct {
    * fixed-size slot table cannot back -- an advertisement MUST NOT decrease
    * (RFC 9000 4.6), so this only ever grows. */
   u64 stream_limit_advertised;
+  /** RFC 9000 4.6: a MAX_STREAMS frame is not loss-tracked, so each bidi
+   * raise arms a bounded PTO-spaced re-announce of the limit in force
+   * (srvrun_grant_retry_slot) -- a grant tail-dropped in a full queue must
+   * not leave the client polling with STREAMS_BLOCKED on its own PTO
+   * backoff. grant_retry_ms is the next re-announce deadline; meaningful
+   * only while grant_retries > 0. */
+  u64 grant_retry_ms;
+  u8  grant_retries;
   /** Same as stream_limit_advertised, for the client-initiated UNI limit
    * (RFC 9000 4.6: independent limits per direction). Raised by one every
    * time a WT uni stream's reassembly slot is released (srvrun_reap_wt_uni_
@@ -2403,10 +2411,28 @@ static void srvrun_send_max_streams(
  * currently-advertised limit is always derivable, so a later
  * STREAMS_BLOCKED (srvrun_reannounce_stream_limit) never needs to compute
  * anything new -- it just repeats this same value. */
+static u64 srvrun_pto_deadline_ms(const srvrun_conn* c, int pto_count);
+
 static void srvrun_grant_streams(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 base, usz n) {
+    const srvrun_step_ctx* ctx, srvrun_conn* c, u64 base, usz n) {
   u64 current = c->stream_limit_advertised ? c->stream_limit_advertised : base;
-  if (n) srvrun_send_max_streams(cfg, c, 0, current + n);
+  if (!n) return;
+  srvrun_send_max_streams(ctx->cfg, c, 0, current + n);
+  /* RFC 9000 4.6: the frame is fire-and-forget -- arm the bounded
+   * re-announce (see srvrun_conn.grant_retry_ms's doc). */
+  c->grant_retries  = 2;
+  c->grant_retry_ms = ctx->now_ms + srvrun_pto_deadline_ms(c, 0);
+}
+
+/* Re-announce the bidi limit in force at each armed deadline until the
+ * bounded retry budget is spent -- cumulative MAX_STREAMS makes the repeat
+ * idempotent at the client. */
+static void srvrun_grant_retry_slot(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  if (!c->grant_retries || ctx->now_ms < c->grant_retry_ms) return;
+  c->grant_retries--;
+  c->grant_retry_ms = ctx->now_ms + srvrun_pto_deadline_ms(c, 0);
+  srvrun_send_max_streams(ctx->cfg, c, 0, c->stream_limit_advertised);
 }
 
 /* srvrun_grant_streams' uni mirror: raise the advertised UNI stream limit by
@@ -6592,7 +6618,7 @@ static void srvrun_reap_resps(
   usz freed = 0;
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
     freed += srvrun_resp_reap(ctx, c, slot, &c->resp[i]);
-  srvrun_grant_streams(ctx->cfg, c, srvrun_stream_limit_base(ctx), freed);
+  srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
 }
 
 /* w has delivered every byte (sent and acknowledged) AND the app has
@@ -7030,6 +7056,7 @@ static void srvrun_boot_pto_slot(const srvrun_step_ctx* ctx, int slot) {
 static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_pto_slot(ctx, slot);
   srvrun_boot_pto_slot(ctx, slot);
+  srvrun_grant_retry_slot(ctx, slot);
   srvrun_dg_slot(ctx, slot);
 }
 
