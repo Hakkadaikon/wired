@@ -1078,10 +1078,11 @@ static void srvrun_stage_reset(wired_srvrun_env* e) {
 static void srvrun_stage_tx_multi(const srvrun_cfg* cfg) {
   wired_srvrun_env* e   = cfg->env;
   wired_span        all = wired_span_of(e->gso_stage, e->gso_len);
+  i64               fd  = srvrun_stage_fd(cfg, e);
   e->tx_flush_count++;
-  if (wired_udp_send_gso(cfg->fd, &e->gso_peer, all, (u16)e->gso_seg_size) >= 0)
+  if (wired_udp_send_gso(fd, &e->gso_peer, all, (u16)e->gso_seg_size) >= 0)
     return;
-  wired_udp_send_batch(cfg->fd, &e->gso_peer, all, (u16)e->gso_seg_size);
+  wired_udp_send_batch(fd, &e->gso_peer, all, (u16)e->gso_seg_size);
 }
 
 /* Flush the staged batch to the wire: a single staged datagram goes out the
