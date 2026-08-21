@@ -38,7 +38,12 @@ As of writing, the jobs are:
 | `ci.yml`  | test (`just test`)               | any `src/**/*.c`, `tests/**/*.c`   | part of the three-point gate |
 | `ci.yml`  | ccn (`just ccn`)                 | any `src/**/*.c`                   | part of the three-point gate |
 | `ci.yml`  | lint (`just lint`, clang-tidy)   | any `src/**/*.c`                   | `just lint` (needs the pinned clang-tidy — same caveat) |
+| `ci.yml`  | fuzz smoke (`just fuzz-smoke`)   | any `src/**/*.c`, `fuzz/**`        | `just fuzz-smoke` (clang + libFuzzer/ASan; a `src/` API signature change can break a `fuzz/*.c` harness the three-point gate never compiles — this shipped red to `main` on 2026-08-21) |
 | `docs.yml`| build+deploy (`just docs`)       | any push to `main` (struct/enum/fn doc comments in `src/**/*.h`) | `just docs` (doxygen; pure-hosted, usually runnable without nix — see below) |
+
+(`examples.yml`, `interop-image.yml`, `fuzz.yml`, `coverage.yml`, and
+`comparison.yml` also exist — run `find .github/workflows -type f` and match
+your diff rather than trusting this table to stay complete.)
 
 If your diff touches `src/**/*.h` (adding/renaming a struct or union member,
 a public function, an enum) or any `.c`/`.h` formatting, do not stop at the
