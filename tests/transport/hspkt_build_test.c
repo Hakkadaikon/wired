@@ -23,7 +23,7 @@ static void test_hspkt_build_roundtrip(void) {
   protect_keys pk = {&k, &hp};
   hspkt_desc   d  = {
       wired_span_of(dcid, 5), wired_span_of(scid, 3), 9,
-      wired_span_of(frames, sizeof(frames))};
+      wired_span_of(frames, sizeof(frames)), 0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
   CHECK(hspkt_build(&pk, &d, &o));
   /* RFC 9000 17.2.4 complete header: byte0(1)+version(4)+dcid_len(1)+dcid(5)
@@ -51,7 +51,7 @@ static void test_hspkt_build_byte0(void) {
   protect_keys pk = {&k, &hp};
   hspkt_desc   d  = {
       wired_span_of(dcid, 4), wired_span_of((const u8*)0, 0), 1,
-      wired_span_of(frames, sizeof(frames))};
+      wired_span_of(frames, sizeof(frames)), 0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
   CHECK(hspkt_build(&pk, &d, &o));
   CHECK((pkt[0] & 0x80) == 0x80); /* long header form */
@@ -70,7 +70,7 @@ static void test_hspkt_build_tamper(void) {
   protect_keys pk = {&k, &hp};
   hspkt_desc   d  = {
       wired_span_of(dcid, 4), wired_span_of((const u8*)0, 0), 3,
-      wired_span_of(frames, sizeof(frames))};
+      wired_span_of(frames, sizeof(frames)), 0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
   CHECK(hspkt_build(&pk, &d, &o));
   pkt[o.len - 1] ^= 0x01;

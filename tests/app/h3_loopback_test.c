@@ -148,6 +148,7 @@ static usz lb_seal_handshake(
       0,
       0,
       0,
+      0,
       0};
   protect_keys pk = {k, &hp};
   CHECK(srvwire_seal_handshake(&pk, &in, &ob));

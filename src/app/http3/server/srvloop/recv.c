@@ -12,16 +12,18 @@
 #include "transport/version/version/version.h"
 
 /* RFC 9001 5.1: open a received Initial under the keys derived from the
- * client's original DCID; the raw frame payload is returned (the dispatcher
- * walks it). in->largest_pn is unused outside the 1-RTT space (the Initial
- * uses a 4-byte PN). */
+ * client's original DCID and the connection's negotiated version (RFC 9369
+ * 3.3.1: after a compatible switch to v2 the client's later Initials --
+ * e.g. its ACK of the server Initial -- arrive v2-keyed); the raw frame
+ * payload is returned (the dispatcher walks it). in->largest_pn is unused
+ * outside the 1-RTT space (the Initial uses a 4-byte PN). */
 static int recv_initial(
     wired_server*                s,
     const wired_srvloop_recv_in* in,
     wired_srvloop_recv_out*      out) {
-  return initpkt_open(
-      wired_span_of(s->sdrv.odcid, s->sdrv.odcid_len), in->dgram,
-      &out->payload);
+  return initpkt_open_ver(
+      wired_span_of(s->sdrv.odcid, s->sdrv.odcid_len),
+      sdrv_wire_version(&s->sdrv), in->dgram, &out->payload);
 }
 
 /* RFC 9001 5.1: open a Handshake packet with the peer-direction CLIENT_HS key.
@@ -185,28 +187,27 @@ static int recv_zerortt(
   }
 }
 
-/* 1 if byte0 wears a v1 0-RTT long header (RFC 9000 17.2.3) -- read before
- * header protection removal, so only the form/type bits are trustworthy
- * yet. v1-only, matching connrunner_packet_level's own scope (this
- * loop runs before a connection's negotiated version is otherwise known
- * here); v2 0-RTT is out of scope until v2 connections are accepted at this
- * layer. */
-static int recv_is_zerortt(u8 byte0) {
-  return packet_long_type(byte0, VERSION_1) == PT_0RTT;
+/* 1 if byte0 wears a 0-RTT long header under the connection's negotiated
+ * version (RFC 9000 17.2.3 / RFC 9369 3.2) -- read before header
+ * protection removal, so only the form/type bits are trustworthy yet. */
+static int recv_is_zerortt(u8 byte0, u32 version) {
+  return packet_long_type(byte0, version) == PT_0RTT;
 }
 
 /* byte0 already known non-empty; picks the 0-RTT path or the normal
- * Initial/Handshake/1-RTT level dispatch. Split out of wired_srvloop_recv to
- * keep its own branch count at the gate. */
+ * Initial/Handshake/1-RTT level dispatch, reading type bits under the
+ * connection's negotiated version (RFC 9369 3.2). Split out of
+ * wired_srvloop_recv to keep its own branch count at the gate. */
 static int recv_dispatch(
     wired_server*                s,
     const wired_srvloop_recv_in* in,
     wired_srvloop_recv_out*      out) {
-  if (recv_is_zerortt(in->dgram.p[0])) {
+  u32 version = sdrv_wire_version(&s->sdrv);
+  if (recv_is_zerortt(in->dgram.p[0], version)) {
     out->level = LEVEL_ONERTT;
     return recv_zerortt(s, in, &out->payload);
   }
-  if (!connrunner_packet_level(in->dgram.p[0], &out->level)) return 0;
+  if (!connrunner_packet_level(in->dgram.p[0], version, &out->level)) return 0;
   return recv_at_level(s, in, out);
 }
 

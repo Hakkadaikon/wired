@@ -7,12 +7,15 @@
  * The Handshake long header carries no token (unlike Initial). */
 
 /** One Handshake packet to build: CIDs, packet number, and the payload
- * (typically a CRYPTO frame). */
+ * (typically a CRYPTO frame). version selects the long header's Version
+ * field and its Handshake type bits (RFC 9369 3.2 for v2); 0 (every
+ * pre-existing positional initializer) means QUIC v1. */
 typedef struct {
   wired_span dcid;
   wired_span scid;
   u64        pn;
   wired_span payload;
+  u32        version;
 } hspkt_desc;
 
 /* Seal with the Handshake keys k and write the protected packet into out;

@@ -11,13 +11,14 @@
 #include "transport/version/version/version.h"
 
 /* @file
- * RFC 9368 Compatible Version Negotiation, server side: this SDK's
- * server never actively switches a connection's version -- it only ever
- * replies in whichever version the client's own Initial arrived in (RFC
- * 9368 2: no separate VN round trip when the arriving version is already
- * supported). These tests cover the receive-side and reply-side version
- * awareness that makes that true for QUIC v2 (RFC 9369) without changing
- * any v1 behavior. */
+ * RFC 9368 Compatible Version Negotiation, server side: the server
+ * replies in the client Initial's own version by default, and switches
+ * its whole first flight to the most preferred mutually supported
+ * version when the ClientHello's version_information transport
+ * parameter offers one (RFC 9368 2.3: the switch happens inside the
+ * server's first flight, no separate VN round trip). These tests cover
+ * the receive-side and reply-side version awareness for QUIC v2 (RFC
+ * 9369) without changing any v1 behavior. */
 
 /* ---- initpkt_derive_ver / initpkt_open_ver ---- */
 
@@ -197,11 +198,11 @@ struct sbv_fix {
   wired_srvloop l;
 };
 
-/* A minimal but real ClientHello (x25519 key_share only, no transport
- * parameters payload beyond an empty TP list) -- enough for
- * wired_server_recv_initial to accept it and build a flight, mirroring
- * h3_loopback_test.c's lb_make_client_hello. */
-static usz sbv_make_client_hello(u8* ch, usz cap) {
+/* A minimal but real ClientHello (x25519 key_share only) whose transport
+ * parameter list is exactly `tp` -- enough for wired_server_recv_initial
+ * to accept it and build a flight, mirroring h3_loopback_test.c's
+ * lb_make_client_hello. */
+static usz sbv_make_client_hello_tp(u8* ch, usz cap, wired_span tp) {
   u8 cli_priv[32], cli_pub[32], srv_random[32];
   for (usz i = 0; i < 32; i++) {
     cli_priv[i]   = (u8)(i + 1);
@@ -210,9 +211,11 @@ static usz sbv_make_client_hello(u8* ch, usz cap) {
   wired_x25519_base(cli_pub, cli_priv);
   wired_obuf ob = obuf_of(ch, cap);
   return tls_client_hello(
-      &(clienthello_in){
-          srv_random, cli_pub, wired_span_of(0, 0), wired_span_of(0, 0)},
-      &ob);
+      &(clienthello_in){srv_random, cli_pub, wired_span_of(0, 0), tp}, &ob);
+}
+
+static usz sbv_make_client_hello(u8* ch, usz cap) {
+  return sbv_make_client_hello_tp(ch, cap, wired_span_of(0, 0));
 }
 
 /* A v2-framed Initial carrying a real ClientHello is accepted by
@@ -261,6 +264,56 @@ static void test_srvboot_accept_v2_initial(void) {
   CHECK(packet_long_type(init_buf[0], VERSION_2) == PT_INITIAL);
 }
 
+/* RFC 9368 2.3: a v1 Initial whose ClientHello carries a
+ * version_information transport parameter offering v2 makes the server
+ * switch its whole first flight to v2 -- the sealed server Initial's own
+ * Version field reads v2 (the interop "v2" testcase's exact check:
+ * "Wrong version in server Initial. Expected 0x6b3343cf"). */
+static void test_srvboot_v1_initial_with_vi_switches_to_v2(void) {
+  struct sbv_fix f = {0};
+  u8             ch[512], tp[64];
+  version_info   vi          = {VERSION_1, 2, {VERSION_2, VERSION_1}};
+  usz            tp_len      = version_info_encode(tp, sizeof(tp), &vi);
+  const u8       dcid[8]     = {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28};
+  const u8       cli_scid[4] = {0xaa, 0xbb, 0xcc, 0xdd};
+  u8             srv_priv[32], srv_pub[32], cert_seed[32];
+  usz            ch_len;
+  CHECK(tp_len != 0);
+  ch_len = sbv_make_client_hello_tp(ch, sizeof(ch), wired_span_of(tp, tp_len));
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_seed[i] = (u8)(0x80 + i);
+  }
+  wired_x25519_base(srv_pub, srv_priv);
+
+  u8           pkt[1300];
+  initpkt_desc d = {
+      wired_span_of(dcid, 8), wired_span_of(cli_scid, 4),
+      wired_span_of(ch, ch_len), 0, 0};
+  wired_obuf o = obuf_of(pkt, sizeof(pkt));
+  CHECK(initpkt_build(&d, &o)); /* the client's Initial itself stays v1 */
+
+  wired_srvboot_id id = {0};
+  id.priv             = srv_priv;
+  id.pub              = srv_pub;
+  id.cert_seed        = cert_seed;
+  id.scid             = (const u8*)"SRVI";
+  id.scid_len         = 4;
+  id.random           = srv_priv; /* any 32 bytes; content unchecked here */
+
+  u8                 init_buf[1500], flight_buf[4096];
+  wired_obuf         init_ob   = obuf_of(init_buf, sizeof(init_buf));
+  wired_obuf         flight_ob = obuf_of(flight_buf, sizeof(flight_buf));
+  wired_srvboot_out  out       = {&init_ob, &flight_ob, {0}, 0, 0};
+  wired_srvboot_conn conn      = {&f.s, &f.l};
+  wired_srvboot_in   in        = {&id, wired_mspan_of(pkt, o.len)};
+
+  CHECK(wired_srvboot_accept(&conn, &in, &out) == 1);
+  /* the whole flight switched: the server Initial's Version field is v2 */
+  CHECK(be_get_be32(init_buf + 1) == VERSION_2);
+  CHECK(packet_long_type(init_buf[0], VERSION_2) == PT_INITIAL);
+}
+
 void test_srvboot_version(void) {
   test_derive_ver_v1_matches_default();
   test_derive_ver_v2_differs_from_v1();
@@ -274,4 +327,5 @@ void test_srvboot_version(void) {
   test_vneg_not_owed_for_v2();
   test_vneg_owed_for_alien_version();
   test_srvboot_accept_v2_initial();
+  test_srvboot_v1_initial_with_vi_switches_to_v2();
 }

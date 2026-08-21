@@ -7626,10 +7626,19 @@ static int srvrun_seal_new_conn_refusal(
   if (!lhdr_parse(dg, 1, &h)) return 0;
   fn = frame_put_conn_close(fr, sizeof fr, &cc);
   if (!fn) return 0;
-  wi = (srvwire_seal_in){h.dcid, h.scid, wired_span_of(scid, 8),
-                         0,      -1,     wired_span_of(fr, fn),
-                         0,      0,      0,
-                         0};
+  /* refused in the version the client's own Initial used (its header's
+   * Version field -- lhdr_parse already proved dg holds one) */
+  wi = (srvwire_seal_in){h.dcid,
+                         h.scid,
+                         wired_span_of(scid, 8),
+                         0,
+                         -1,
+                         wired_span_of(fr, fn),
+                         0,
+                         0,
+                         0,
+                         0,
+                         be_get_be32(dg.p + 1)};
   return srvwire_seal_initial_frames_lean(&wi, out);
 }
 

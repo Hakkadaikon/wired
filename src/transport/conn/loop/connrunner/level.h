@@ -7,8 +7,10 @@
  * level it is processed at. Long-header Initial/Handshake map to the matching
  * keyset level; a short header is always 1-RTT. */
 
-/* Write the LEVEL_* for byte0 into *level. Returns 1 on a level this loop
- * handles (Initial, Handshake, 1-RTT), 0 for 0-RTT, Retry, or a non-packet. */
-int connrunner_packet_level(u8 byte0, int* level);
+/* Write the LEVEL_* for byte0, whose long-header type bits are read under
+ * the connection's `version` (RFC 9369 3.2; 0 means v1), into *level.
+ * Returns 1 on a level this loop handles (Initial, Handshake, 1-RTT), 0 for
+ * 0-RTT, Retry, or a non-packet. */
+int connrunner_packet_level(u8 byte0, u32 version, int* level);
 
 #endif
