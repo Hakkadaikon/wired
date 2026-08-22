@@ -2249,7 +2249,9 @@ static void test_srvrun_boot_give_up_closes_finished_peer(void) {
     }
     CHECK(st.conns[0].up == 1);
     st.conns[0].peer_at_onertt = 1;
-    st.conns[0].boot_pto_count = SRVRUN_BOOT_PTO_MAX - 1;
+    /* a finished peer runs on the SHORT keepalive budget: past it the
+     * close-and-reclaim fires long before the full replay budget */
+    st.conns[0].boot_pto_count = SRVRUN_BOOT_KEEPALIVE_MAX - 1;
     sends_after_boot           = srvrun_test_send_count();
     srvrun_boot_pto_slot(&ctx, 0); /* budget spent: close, then reclaim */
     CHECK(st.conns[0].up == 0);
