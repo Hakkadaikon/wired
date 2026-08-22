@@ -6,8 +6,11 @@
 #include "common/platform/rng/rng.h" /* rng_bytes */
 
 /* RFC 9114 7.2.4.1 default: unlimited field section size is the absence of the
- * setting; we advertise concrete defaults so the peer (e.g. curl) sees them. */
-#define DEFAULT_MAX_FIELD_SECTION_SIZE 0x4000 /* 16 KiB */
+ * setting; we advertise concrete defaults so the peer (e.g. curl) sees them.
+ * The field-section limit is the shared WIRED_H3_MAX_FIELD_SECTION -- the
+ * same constant sizes the per-stream decode scratch (srvloop.h), so what we
+ * promise on the wire is exactly what the decoder can hold. */
+#define DEFAULT_MAX_FIELD_SECTION_SIZE WIRED_H3_MAX_FIELD_SECTION
 #define DEFAULT_QPACK_MAX_TABLE_CAP 0
 #define DEFAULT_QPACK_BLOCKED_STREAMS 0
 /* RFC 9220 3: srvrun's request path validates :protocol

@@ -4,6 +4,17 @@
 #include "app/http3/core/h3settings/settings_build.h"
 #include "common/platform/sys/syscall.h"
 
+/** RFC 9114 4.2.2 / 7.2.4.1: the field-section limit this server advertises
+ * (SETTINGS_MAX_FIELD_SECTION_SIZE) and, equally, the capacity of the
+ * per-stream decode scratch that must hold a compliant section -- the
+ * accounted section size adds 32 per field on top of the name+value bytes,
+ * so a buffer of exactly this many bytes always fits a section the peer
+ * kept within the limit. One constant so the wire promise and the buffer
+ * can never diverge: Chrome's ~0.9 KiB of decoded request headers
+ * overflowed the old separate 512-byte scratch while the SETTINGS
+ * advertised 16 KiB, and every request was aborted as incomplete. */
+#define WIRED_H3_MAX_FIELD_SECTION 2048
+
 /* RFC 9114 6.2.1 / 7.2.4: the opening bytes of an HTTP/3 control stream:
  * stream type 0x00 followed by a SETTINGS frame with default values. When
  * advertise_wt is non-zero the SETTINGS additionally carry SETTINGS_H3_
