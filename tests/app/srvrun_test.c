@@ -2259,6 +2259,39 @@ static void test_srvrun_boot_give_up_closes_finished_peer(void) {
   }
 }
 
+/* WALL-CLOCK BOUND ON THE FINISHED-PEER WAIT: an actively probing peer
+ * resets the fire budget on every arrival, so only elapsed time can bound
+ * the wait -- and a peer kept alive past its own application request
+ * timeout (~42s observed) loses its whole run, where a server close costs
+ * it one request. Past SRVRUN_BOOT_FINWAIT_MAX_MS the slot closes and
+ * frees regardless of the fire count. */
+static void test_srvrun_finished_peer_wait_bounded_by_wall_clock(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {
+        &cfg, &peer, &st, SRVRUN_BOOT_FINWAIT_MAX_MS + 1000, 0};
+    conntable_init(table, WIRED_CONNTABLE_CAP);
+    {
+      srvrun_step_ctx boot = {&cfg, &peer, &st, 0, 0};
+      srvrun_serve(&boot, wired_mspan_of(dg, total));
+    }
+    CHECK(st.conns[0].up == 1);
+    st.conns[0].peer_at_onertt    = 1;
+    st.conns[0].peer_at_onertt_ms = 0;
+    st.conns[0].boot_pto_count    = 0; /* fire budget nowhere near spent */
+    srvrun_boot_pto_slot(&ctx, 0);
+    CHECK(st.conns[0].up == 0); /* the wall clock, not the count, ended it */
+  }
+}
+
 /* Raw ClientHello + one sealed chunk Initial, the srvrun-side split fixture
  * (mirrors the srvboot accumulator tests' construction). */
 static usz sr_raw_ch(client* c, u8* ch, usz cap) {
@@ -14912,6 +14945,7 @@ void test_srvrun(void) {
   test_srvrun_finished_wait_probes_small();
   test_srvrun_odcid_retransmit_resends_serverhello_first();
   test_srvrun_boot_give_up_closes_finished_peer();
+  test_srvrun_finished_peer_wait_bounded_by_wall_clock();
   test_srvrun_split_ch_boots_across_datagrams();
   test_srvrun_stalled_boot_swept();
   test_srvrun_alien_version_claims_no_slot();
