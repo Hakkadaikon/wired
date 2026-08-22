@@ -518,6 +518,12 @@ typedef struct {
    * switches to a minimal fresh keepalive instead
    * (srvrun_send_boot_probe). */
   u8 peer_at_onertt;
+  /** Monotonic ms the first early 1-RTT datagram was held (the moment
+   * peer_at_onertt was set): the wall-clock baseline for abandoning the
+   * wait for the peer's Finished (srvrun_boot_give_up_due) -- the probe
+   * fire budget alone cannot bound the wait, because an actively probing
+   * peer resets it on every arrival. */
+  u64 peer_at_onertt_ms;
   /** RFC 9002 6.2: consecutive boot-stage probe count, the boot-flight
    * counterpart to wired_sendsess.pto_count -- scales srvrun_pto_deadline_ms'
    * backoff and, at SRVRUN_PTO_MAX, tears the slot down the same way
@@ -820,6 +826,16 @@ static usz srvrun_mps(const srvrun_conn* c) {
  * <=300ms = ~12s covers the realistic retries, then the close goes out
  * while the peer's timers are still short. */
 #define SRVRUN_BOOT_KEEPALIVE_MAX 40
+
+/* Hard wall-clock bound on waiting for a finished peer's Finished, from
+ * the moment its first early 1-RTT datagram was held. The fire budget
+ * alone cannot bound this wait -- an actively probing peer resets it on
+ * every arrival -- and a peer kept alive indefinitely eventually hits its
+ * own application-level request timeout (observed ~42s in quiche's interop
+ * client), which kills its WHOLE run; a server-initiated close before
+ * that costs one request and the peer moves on. 15s covers the realistic
+ * Finished retries (~1/2/4/8s backoff) with margin. */
+#define SRVRUN_BOOT_FINWAIT_MAX_MS 15000
 
 /* Receive batch: srvrun drains up to this many datagrams per recvmmsg call.
  * ponytail: 16 x 2048B storage (32KB) per env; raise if a profile ever shows
@@ -7217,11 +7233,21 @@ static int srvrun_boot_probe_budget(const srvrun_conn* c) {
   return c->peer_at_onertt ? SRVRUN_BOOT_KEEPALIVE_MAX : SRVRUN_BOOT_PTO_MAX;
 }
 
+/* 1 once this boot must be abandoned: the probe fire budget is spent, or a
+ * finished peer has been waited on past SRVRUN_BOOT_FINWAIT_MAX_MS (its
+ * doc: arrivals reset the fire budget, so only wall clock bounds it). */
+static int srvrun_boot_give_up_due(
+    const srvrun_conn* c, int fired, u64 now_ms) {
+  if (fired >= srvrun_boot_probe_budget(c)) return 1;
+  return c->peer_at_onertt &&
+         now_ms - c->peer_at_onertt_ms >= SRVRUN_BOOT_FINWAIT_MAX_MS;
+}
+
 static void srvrun_boot_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c     = &ctx->st->conns[slot];
   int          fired = c->boot_pto_count + 1;
   if (!srvrun_boot_pto_due(c, ctx->now_ms)) return;
-  if (fired >= srvrun_boot_probe_budget(c)) {
+  if (srvrun_boot_give_up_due(c, fired, ctx->now_ms)) {
     srvrun_boot_give_up_close(ctx, c);
     srvrun_free_slot(ctx->cfg, ctx->st, slot);
     return;
@@ -7278,10 +7304,17 @@ static int srvrun_unconfirmed_up(const srvrun_conn* c) {
   return c->up && !wired_server_is_confirmed(&c->s);
 }
 
+/* Record that the peer provably finished (it sent 1-RTT), stamping the
+ * first sighting as the wall-clock baseline for the Finished wait. */
+static void srvrun_note_peer_at_onertt(srvrun_conn* c) {
+  if (!c->peer_at_onertt) c->peer_at_onertt_ms = c->last_ms;
+  c->peer_at_onertt = 1;
+}
+
 static int srvrun_boot_early_onertt(srvrun_conn* c, wired_mspan dg) {
   if (!srvrun_unconfirmed_up(c) || !srvrun_short_header(dg)) return 0;
   wired_srvboot_acc_hold(&c->boot, dg);
-  c->peer_at_onertt = 1; /* the client finished: 1-RTT proves it */
+  srvrun_note_peer_at_onertt(c); /* the client finished: 1-RTT proves it */
   return 1;
 }
 
