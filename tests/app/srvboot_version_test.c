@@ -314,6 +314,30 @@ static void test_srvboot_v1_initial_with_vi_switches_to_v2(void) {
   CHECK(packet_long_type(init_buf[0], VERSION_2) == PT_INITIAL);
 }
 
+/* Pinned to a captured neqo v2 interop run (compatible upgrade, split
+ * ClientHello): the server ACKed the partial ClientHello at Initial pn 2
+ * in v1, then sent the accept flight's Initial at pn 1 -- neqo, treating
+ * the Initial pn space as continuous across the switch (RFC 9368 2.3
+ * keeps the connection), dropped every flight retransmission with "too
+ * old packet number: 1 < 3" and idled out. Once a partial ack spent pn 2,
+ * the flight must take the next unused pn, not fall back to 1. */
+static void test_srvboot_flight_pn_continues_past_partial_ack(void) {
+  wired_srvboot_acc a       = {0};
+  u8                scid[6] = {0x06, 0xed, 0x67, 0xd0, 0x9b, 0x22};
+  u8                out[288];
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_flight_pn(&a) == 1); /* nothing sent yet: pn 1 */
+  wired_srvboot_acc_reset(&a);
+  a.any          = 1;
+  a.opened       = 1;
+  a.largest_pn   = 20;
+  a.hdr.version  = VERSION_1;
+  a.hdr.dcid_len = 8;
+  a.hdr.scid_len = 0;
+  CHECK(wired_srvboot_partial_ack(&a, wired_span_of(scid, 6), out, 288) > 0);
+  CHECK(wired_srvboot_flight_pn(&a) == 3); /* the ack spent pn 2 */
+}
+
 void test_srvboot_version(void) {
   test_derive_ver_v1_matches_default();
   test_derive_ver_v2_differs_from_v1();
@@ -328,4 +352,5 @@ void test_srvboot_version(void) {
   test_vneg_owed_for_alien_version();
   test_srvboot_accept_v2_initial();
   test_srvboot_v1_initial_with_vi_switches_to_v2();
+  test_srvboot_flight_pn_continues_past_partial_ack();
 }
