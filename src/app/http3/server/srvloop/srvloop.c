@@ -924,7 +924,7 @@ static void step_one(const wired_srvloop_conn* conn, wired_mspan pkt) {
   wired_srvloop*         l = conn->l;
   wired_server*          s = conn->s;
   wired_srvloop_recv_out ro;
-  wired_srvloop_recv_in  ri     = {pkt, app_largest_pn(l)};
+  wired_srvloop_recv_in  ri     = {pkt, app_largest_pn(l), hs_largest_pn(l)};
   int                    opened = wired_srvloop_recv(s, &ri, &ro);
   srvloop_opened         o;
   if (!opened) return;

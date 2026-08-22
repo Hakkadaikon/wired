@@ -205,7 +205,7 @@ static void test_srvwire_initial_acks_client(void) {
   initpkt_derive(wired_span_of(dcid, 8), &ck, &sk);
   aes128_init(&hp, sk.hp);
   protect_keys pk = {&sk, &hp};
-  rx_desc      rd = {wired_mspan_of(pkt, ob.len), 1};
+  rx_desc      rd = {wired_mspan_of(pkt, ob.len), 1, 0};
   wired_span   fv;
   CHECK(rx_packet(&pk, &rd, &fv));
   frames = fv.p;
@@ -245,7 +245,7 @@ static void test_srvwire_handshake_acks_client(void) {
   protect_keys pk = {&k, &hp};
   CHECK(srvwire_seal_handshake(&pk, &in, &ob));
   protect_keys pk2 = {&k, &hp};
-  rx_desc      rd2 = {wired_mspan_of(pkt, ob.len), 0};
+  rx_desc      rd2 = {wired_mspan_of(pkt, ob.len), 0, 0};
   wired_span   fv2;
   CHECK(rx_packet(&pk2, &rd2, &fv2));
   frames = fv2.p;

@@ -2,6 +2,7 @@
 
 #include "crypto/symmetric/aead/gcm/gcm.h"
 #include "tls/handshake/core/tls/aead_params.h"
+#include "transport/packet/header/packet/pnum.h"
 #include "transport/packet/protect/hp/hp.h"
 #include "transport/packet/protect/hp/hpapply.h"
 #include "transport/packet/protect/hp/hpsample.h"
@@ -10,13 +11,6 @@
 
 /* RFC 9001 5.4.1: pn_len lives in byte0's low two bits once unmasked. */
 static usz pn_len_of(u8 byte0) { return (usz)(byte0 & 0x03) + 1; }
-
-/* RFC 9000 17.1: read the recovered pn_len-byte packet number big-endian. */
-static u64 read_pn(const u8* pn, usz pn_len) {
-  u64 v = 0;
-  for (usz i = 0; i < pn_len; i++) v = (v << 8) | pn[i];
-  return v;
-}
 
 /* True if the sample and the [pn_off, pn_off+length) region fit in pkt. */
 static int region_ok(const vpn_desc* d) {
@@ -28,7 +22,10 @@ static int region_ok(const vpn_desc* d) {
   return d->length >= 4 + GCM_TAG && d->length <= d->pkt.n - d->pn_off;
 }
 
-/* RFC 9001 5.4.1: unmask byte0, then the pn bytes; returns recovered pn. */
+/* RFC 9001 5.4.1: unmask byte0, then the pn bytes; returns the full packet
+ * number recovered from its truncated wire form (RFC 9000 A.3 -- the nonce
+ * needs the full value, and a peer whose packets have been acked truncates
+ * below what the raw wire bytes can express). */
 static u64 remove_hp(const aes128* hp, const vpn_desc* d, usz* pn_len) {
   u8  mask[5];
   u8* pkt = d->pkt.p;
@@ -36,7 +33,7 @@ static u64 remove_hp(const aes128* hp, const vpn_desc* d, usz* pn_len) {
   pkt[0] ^= mask[0] & HP_LONG_MASK;
   *pn_len = pn_len_of(pkt[0]);
   hp_protect_pn(pkt + d->pn_off, *pn_len, mask);
-  return read_pn(pkt + d->pn_off, *pn_len);
+  return pnum_decode(pkt + d->pn_off, *pn_len, d->largest_pn);
 }
 
 /* Header length, ciphertext length, and recovered full packet number. */
@@ -126,7 +123,7 @@ static int vpn_open_dims_suite(
     vpnopen_dims*   v) {
   usz pn_len;
   if (!remove_hp_suite(suite, hp_key, d, &pn_len)) return 0;
-  v->pn      = read_pn(d->pkt.p + d->pn_off, pn_len);
+  v->pn      = pnum_decode(d->pkt.p + d->pn_off, pn_len, d->largest_pn);
   v->hdr_len = d->pn_off + pn_len;
   v->ct_len  = (usz)d->length - pn_len - tag_len;
   return 1;

@@ -145,7 +145,7 @@ int connio_recv(connio* io, int level, wired_mspan datagram) {
   if (!recv_ready(io, &in, &keys)) return 0;
   aes128_init(&hp, keys->hp);
   protect_keys k = {keys, &hp};
-  rx_desc      d = {datagram, level_is_initial(level)};
+  rx_desc      d = {datagram, level_is_initial(level), io->rx_pn[level]};
   if (!rx_packet(&k, &d, &frames)) {
     /* RFC 9001 6.6: this layer only ever runs AES-128-GCM (is_chacha=0). */
     connloop_on_auth_fail(&io->loop, 0);

@@ -6,19 +6,27 @@
 /* RFC 9000 17.2.4 / RFC 9001 5.4: parse the complete Handshake long header
  * (no Token) for the packet-number offset and Length, then remove header
  * protection and AEAD-open the payload in place. */
-int hspkt_open(const protect_keys* k, wired_mspan pkt, wired_span* payload) {
+int hspkt_open(
+    const protect_keys* k,
+    wired_mspan         pkt,
+    u64                 largest_pn,
+    wired_span*         payload) {
   lhdr h;
   if (!lhdr_parse(wired_span_of(pkt.p, pkt.n), 0, &h)) return 0;
-  vpn_desc d = {pkt, h.pn_off, h.length};
+  vpn_desc d = {pkt, h.pn_off, h.length, largest_pn};
   return vpn_open(k, &d, payload);
 }
 
 /* Same as hspkt_open, but opens under the given negotiated TLS 1.3
  * cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
 int hspkt_open_suite(
-    u16 suite, const protect_keys* k, wired_mspan pkt, wired_span* payload) {
+    u16                 suite,
+    const protect_keys* k,
+    wired_mspan         pkt,
+    u64                 largest_pn,
+    wired_span*         payload) {
   lhdr h;
   if (!lhdr_parse(wired_span_of(pkt.p, pkt.n), 0, &h)) return 0;
-  vpn_desc d = {pkt, h.pn_off, h.length};
+  vpn_desc d = {pkt, h.pn_off, h.length, largest_pn};
   return vpn_open_suite(suite, k, &d, payload);
 }

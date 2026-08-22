@@ -45,7 +45,7 @@ static int recv_open(connection* c, const initial_keys* k, wired_span* frames) {
   if (rn == 0) return 0;
   aes128_init(&hp, k->hp);
   protect_keys pk = {k, &hp};
-  rx_desc      d  = {wired_mspan_of(c->rxbuf, rn), 1};
+  rx_desc      d  = {wired_mspan_of(c->rxbuf, rn), 1, 0};
   return rx_packet(&pk, &d, frames);
 }
 

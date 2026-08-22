@@ -1076,7 +1076,7 @@ static void test_srvboot_refusal_closes_unservable(void) {
     aes128       hp;
     wired_span   frames;
     protect_keys k;
-    rx_desc      d = {wired_mspan_of(ref, nr), 1};
+    rx_desc      d = {wired_mspan_of(ref, nr), 1, 0};
     initpkt_derive(wired_span_of(g_scid, 6), &ck, &sk);
     aes128_init(&hp, sk.hp);
     k = (protect_keys){&sk, &hp};
@@ -1292,7 +1292,7 @@ static void test_srvboot_initial_ack_carries_ecn_counts(void) {
     aes128       hp;
     wired_span   frames;
     protect_keys k;
-    rx_desc      d    = {wired_mspan_of(ini, iob.len), 1};
+    rx_desc      d    = {wired_mspan_of(ini, iob.len), 1, 0};
     usz          off  = 0;
     int          seen = 0;
     initpkt_derive(wired_span_of(g_scid, 6), &ck, &sk);
@@ -1378,7 +1378,7 @@ static void test_srvboot_refusal_reports_missing_tp_ext(void) {
     aes128       hp;
     wired_span   frames;
     protect_keys k;
-    rx_desc      d = {wired_mspan_of(ref, nr), 1};
+    rx_desc      d = {wired_mspan_of(ref, nr), 1, 0};
     initpkt_derive(wired_span_of(g_scid, 6), &ck, &sk);
     aes128_init(&hp, sk.hp);
     k = (protect_keys){&sk, &hp};
@@ -1511,7 +1511,7 @@ static void sb_split_collect(struct sb_split_fix* f, int reverse, crecv* cr) {
     wired_span frames;
     CHECK(
         hspkt_open(
-            &pk, wired_mspan_of(f->hs + offs[i], f->out.dgram_len[i]),
+            &pk, wired_mspan_of(f->hs + offs[i], f->out.dgram_len[i]), 0,
             &frames) == 1);
     CHECK(crecv_collect(cr, frames.p, frames.n) == 1);
   }

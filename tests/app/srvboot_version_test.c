@@ -69,7 +69,8 @@ static void test_initpkt_ver_v2_roundtrip(void) {
 
   wired_span crypto;
   CHECK(initpkt_open_ver(
-      wired_span_of(dcid, 8), VERSION_2, wired_mspan_of(pkt, o.len), &crypto));
+      wired_span_of(dcid, 8), VERSION_2, wired_mspan_of(pkt, o.len), 0,
+      &crypto));
   CHECK(crypto.p[0] == 0x06); /* CRYPTO frame type */
   for (usz i = 0; i < 4; i++) CHECK(crypto.p[3 + i] == ch[i]);
 }
@@ -88,7 +89,8 @@ static void test_initpkt_ver_wrong_version_fails(void) {
   wired_span crypto;
   CHECK(initpkt_build_ver(VERSION_2, &d, &o));
   CHECK(!initpkt_open_ver(
-      wired_span_of(dcid, 8), VERSION_1, wired_mspan_of(pkt, o.len), &crypto));
+      wired_span_of(dcid, 8), VERSION_1, wired_mspan_of(pkt, o.len), 0,
+      &crypto));
 }
 
 /* v2's Initial byte0 type bits differ from v1's (RFC 9369 3.2: wire value 1,

@@ -11,12 +11,15 @@ typedef struct {
   wired_span payload;
 } wired_srvloop_recv_out;
 
-/** The received datagram and the largest 1-RTT packet number seen so far
- * (0 before any), used to recover the full packet number from its truncated
- * form for the 1-RTT space. */
+/** The received datagram and the largest packet number seen so far in the
+ * spaces this open may touch (0 before any), used to recover the full
+ * packet number from its truncated wire form (RFC 9000 A.3): largest_pn
+ * for the App space (1-RTT and 0-RTT share it, RFC 9000 12.3),
+ * hs_largest_pn for the Handshake space. */
 typedef struct {
   wired_mspan dgram;
   u64         largest_pn;
+  u64         hs_largest_pn;
 } wired_srvloop_recv_in;
 
 /* RFC 9001 4 / 5.1 / RFC 9000 17.2 / A.3: open one received server-side

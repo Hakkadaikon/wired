@@ -32,7 +32,7 @@ static void test_hspkt_build_roundtrip(void) {
   CHECK(o.len == 20u + sizeof(frames) + 16u);
 
   wired_span out;
-  CHECK(hspkt_open(&pk, wired_mspan_of(pkt, o.len), &out));
+  CHECK(hspkt_open(&pk, wired_mspan_of(pkt, o.len), 0, &out));
   CHECK(out.n == sizeof(frames));
   for (usz i = 0; i < sizeof(frames); i++) CHECK(out.p[i] == frames[i]);
 }
@@ -75,7 +75,7 @@ static void test_hspkt_build_tamper(void) {
   CHECK(hspkt_build(&pk, &d, &o));
   pkt[o.len - 1] ^= 0x01;
   wired_span out;
-  CHECK(!hspkt_open(&pk, wired_mspan_of(pkt, o.len), &out));
+  CHECK(!hspkt_open(&pk, wired_mspan_of(pkt, o.len), 0, &out));
 }
 
 void test_hspkt_build(void) {
