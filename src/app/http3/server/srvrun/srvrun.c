@@ -497,6 +497,12 @@ typedef struct {
    * slice log) so this one timestamp stands in for it. Meaningless before
    * boot_ini_len is first set. */
   u64 boot_pto_sent_ms;
+  /** Alternates which half of the cached flight a resend offers the antiamp
+   * budget first (Initial, or the Handshake datagrams). While the budget
+   * fits only part of the flight, a fixed Initial-first order starved the
+   * Handshake half on every probe -- under bursty loss the client ended up
+   * holding the ServerHello but never the flight behind it, and timed out. */
+  u8 boot_resend_flip;
   /** RFC 9002 6.2: consecutive boot-stage probe count, the boot-flight
    * counterpart to wired_sendsess.pto_count -- scales srvrun_pto_deadline_ms'
    * backoff and, at SRVRUN_PTO_MAX, tears the slot down the same way
@@ -1302,6 +1308,9 @@ static void srvrun_boot_flush_zerortt(
     srvrun_on_step(ctx, c, wired_mspan_of((u8*)dg.p, dg.n));
     srvrun_sess_on_step(ctx, slot);
   }
+  /* spent: the confirmation-time flush (srvrun_flush_held_on_confirm) must
+   * not replay what this call already stepped. */
+  c->boot.zerortt_n = 0;
 }
 
 /* srvrun_on_initial: the datagram was absorbed but the ClientHello is not
@@ -6579,9 +6588,16 @@ static void srvrun_abort_frame_unexpected_reqs(
         ctx, slot, c->l.frame_unexpected_slots[i]);
 }
 
-/* Return r's borrowed wired_srvbigbuf row to the pool, if it holds one. */
+/* Return r's borrowed wired_srvbigbuf row to the pool, if it holds one.
+ * Clears the index: a released slot that kept its row number would hand it
+ * back AGAIN on the next release sweep (srvrun_free_bigbuf_rows runs over
+ * every resp[] at teardown), yanking the row out from under whichever
+ * connection had legitimately re-claimed it -- two live responses then
+ * share one row and both transmit whatever was written last. */
 static void srvrun_resp_release_bigbuf(wired_srvrun_env* env, srvrun_resp* r) {
-  if (r->bigbuf_row >= 0) wired_srvbigbuf_release(&env->bigbuf, r->bigbuf_row);
+  if (r->bigbuf_row < 0) return;
+  wired_srvbigbuf_release(&env->bigbuf, r->bigbuf_row);
+  r->bigbuf_row = -1;
 }
 
 /* 1 while r is a live streaming response the refill loop must keep fed. */
@@ -7019,23 +7035,39 @@ static void srvrun_cold_start(
  * same Handshake datagrams -- instead of stepping dg through the confirmed-
  * connection path, where an Initial-keyed retransmit would just fail to
  * decrypt and get silently dropped. */
+/* RFC 9002 6.2: a resend means the client is still waiting. Once the
+ * WHOLE flight has gone out, any of its datagrams may be sitting in a
+ * dropped packet, so rewind and replay from the start (without this a
+ * single lost Handshake datagram deadlocked the handshake: the client
+ * held the ServerHello and retransmitted its Initial forever, answered
+ * only by verbatim Initial replays). While a tail is still withheld by
+ * the antiamp budget, though, keep continuing FROM the tail -- an
+ * unconditional rewind burned each budget grant re-sending datagrams
+ * the client already had, and the amplificationlimit flight's tail
+ * never went out at all (observed live: the client dropped the same
+ * Handshake datagram 0 as a duplicate until its idle timeout). */
+static int srvrun_resend_hs(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  if (c->boot_dgram_sent == c->boot_dgram_count) c->boot_dgram_sent = 0;
+  return (int)srvrun_boot_send_hs_gated(
+      ctx->cfg, c, wired_server_is_confirmed(&c->s));
+}
+
+/* Both halves of the cached flight, in this resend's budget-priority order
+ * (boot_resend_flip: see its member doc). */
+static int srvrun_resend_flight_parts(
+    const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  if (c->boot_resend_flip)
+    return srvrun_resend_hs(ctx, c) +
+           srvrun_boot_send_initial(ctx->cfg, c, "server Initial resent\n");
+  return srvrun_boot_send_initial(ctx->cfg, c, "server Initial resent\n") +
+         srvrun_resend_hs(ctx, c);
+}
+
 static int srvrun_resend_boot_flight(
     const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  int sent = srvrun_boot_send_initial(ctx->cfg, c, "server Initial resent\n");
-  /* RFC 9002 6.2: a resend means the client is still waiting. Once the
-   * WHOLE flight has gone out, any of its datagrams may be sitting in a
-   * dropped packet, so rewind and replay from the start (without this a
-   * single lost Handshake datagram deadlocked the handshake: the client
-   * held the ServerHello and retransmitted its Initial forever, answered
-   * only by verbatim Initial replays). While a tail is still withheld by
-   * the antiamp budget, though, keep continuing FROM the tail -- an
-   * unconditional rewind burned each budget grant re-sending datagrams
-   * the client already had, and the amplificationlimit flight's tail
-   * never went out at all (observed live: the client dropped the same
-   * Handshake datagram 0 as a duplicate until its idle timeout). */
-  if (c->boot_dgram_sent == c->boot_dgram_count) c->boot_dgram_sent = 0;
-  sent += (int)srvrun_boot_send_hs_gated(
-      ctx->cfg, c, wired_server_is_confirmed(&c->s));
+  int sent;
+  c->boot_resend_flip ^= 1;
+  sent = srvrun_resend_flight_parts(ctx, c);
   /* RFC 9000 8.1: nothing went out at all -- the whole flight is withheld
    * by the antiamp budget. Leave the PTO exactly as it was: a fully
    * blocked probe spent no budget and proved nothing, and re-arming (or
@@ -7134,9 +7166,37 @@ static int srvrun_boot_zerortt(srvrun_conn* c, wired_mspan dg) {
   return 1;
 }
 
+/* 1 if dg wears a short (1-RTT) header. */
+static int srvrun_short_header(wired_mspan dg) {
+  return dg.n != 0 && (dg.p[0] & 0x80) == 0;
+}
+
+/* RFC 9001 5.7: a 1-RTT datagram arriving after the flight went out but
+ * before the client Finished is verified MUST NOT be processed yet -- hold
+ * it for the confirmation-time replay (srvrun_flush_held_on_confirm)
+ * instead of dropping it un-ACKed: quinn sends its request the moment its
+ * own handshake completes and never retransmits the STREAM bytes when no
+ * ACK arrives, so a dropped early request was lost for good. */
+/* 1 while c has sent its flight but the client Finished is unverified. */
+static int srvrun_unconfirmed_up(const srvrun_conn* c) {
+  return c->up && !wired_server_is_confirmed(&c->s);
+}
+
+static int srvrun_boot_early_onertt(srvrun_conn* c, wired_mspan dg) {
+  if (!srvrun_unconfirmed_up(c) || !srvrun_short_header(dg)) return 0;
+  wired_srvboot_acc_hold(&c->boot, dg);
+  return 1;
+}
+
+/* Early app data this boot cannot process yet, held for replay: 0-RTT
+ * before keys exist, or 1-RTT before the client Finished verified. */
+static int srvrun_boot_hold_early(srvrun_conn* c, wired_mspan dg) {
+  return srvrun_boot_zerortt(c, dg) || srvrun_boot_early_onertt(c, dg);
+}
+
 /* dg is a fresh cold-start Initial (srvrun_cold_start), a retransmit of one
- * already accepted but not yet confirmed (srvrun_resend_boot_flight), or a
- * 0-RTT datagram arriving ahead of this boot's keys (srvrun_boot_zerortt) --
+ * already accepted but not yet confirmed (srvrun_resend_boot_flight), or
+ * early app data held for later replay (srvrun_boot_hold_early) --
  * dispatched to whichever applies. Returns 1 if any handled dg. */
 static int srvrun_serve_boot(
     const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
@@ -7149,7 +7209,7 @@ static int srvrun_serve_boot(
     srvrun_resend_boot_flight(ctx, c);
     return 1;
   }
-  return srvrun_boot_zerortt(c, dg);
+  return srvrun_boot_hold_early(c, dg);
 }
 
 /* c is up, unconfirmed, and still has boot datagrams the antiamp gate held
@@ -7339,6 +7399,17 @@ static void srvrun_reconfirm_on_hs_probe(
   srvrun_reconfirm(ctx, c);
 }
 
+/* Confirmation landed this very step (booting = the pre-step state):
+ * replay the datagrams held while processing them was forbidden
+ * (srvrun_boot_early_onertt / RFC 9001 5.7). No-op when nothing is held
+ * or the slot was torn down inside the step. */
+static void srvrun_flush_held_on_confirm(
+    const srvrun_step_ctx* ctx, int slot, int booting) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  if (booting && !srvrun_awaiting_confirm(c))
+    srvrun_boot_flush_zerortt(ctx, c, slot);
+}
+
 static void srvrun_serve_slot(
     const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
   srvrun_conn* c       = &ctx->st->conns[slot];
@@ -7365,6 +7436,7 @@ static void srvrun_serve_slot(
     srvrun_step_and_reap(ctx, slot, dg);
     srvrun_answer_path_challenge(ctx, c);
   }
+  srvrun_flush_held_on_confirm(ctx, slot, booting);
   srvrun_boot_release_pending(ctx, c);
 }
 
@@ -7452,6 +7524,12 @@ static void srvrun_issue_spare_cid(const srvrun_cfg* cfg, srvrun_conn* c) {
   c->l.spare_cid_len = cfg->id->scid_len;
 }
 
+/* Mark every resp[] slot as holding no wired_srvbigbuf row (-1; 0 is a real
+ * row index -- see the caller's note). */
+static void srvrun_resp_rows_clear(srvrun_conn* c) {
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) c->resp[i].bigbuf_row = -1;
+}
+
 /* Claim and initialize a fresh slot for dcid: record the peer, and generate
  * this slot's own scid (never cfg->id's fixed one — every slot sharing it
  * would collapse conntable's routing back to a single slot). Returns the slot
@@ -7470,6 +7548,12 @@ static int srvrun_open_slot(
   hystart_init(&ctx->st->conns[slot].hs);
   rtt_init(&ctx->st->conns[slot].rtt);
   pmtu_init(&ctx->st->conns[slot].pmtu);
+  /* the {0} slot wipe above left every resp[].bigbuf_row at 0 -- a VALID
+   * pool row index. The teardown sweep (srvrun_free_bigbuf_rows) would then
+   * release row 0 on behalf of responses that never claimed anything,
+   * freeing it out from under another connection mid-delivery. -1 = "holds
+   * no row", matching srvrun_resp_claim's own reset. */
+  srvrun_resp_rows_clear(&ctx->st->conns[slot]);
   ctx->st->conns[slot].pmtu_probe_pn = SRVRUN_PMTU_NO_PROBE;
   ctx->st->conns[slot].tx_fd         = srvrun_rx_fd(ctx->cfg);
   if (srvrun_issue_cid(

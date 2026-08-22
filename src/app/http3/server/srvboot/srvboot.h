@@ -271,8 +271,17 @@ int wired_srvboot_acc_feed(wired_srvboot_acc* a, wired_mspan dg);
  * @param ecn the datagram's ECN codepoint */
 void wired_srvboot_acc_ecn_note(wired_srvboot_acc* a, u8 ecn);
 
+/** RFC 9001 4.6.1 / 5.7: buffer dg verbatim for later replay -- a 0-RTT
+ * datagram arriving before this boot's keys exist, or a 1-RTT datagram
+ * arriving before the client Finished is verified (processing it early is
+ * forbidden; dropping it un-ACKed loses the request when the client never
+ * retransmits the stream). Silently dropped when the buffer is full.
+ * @param a the accumulator
+ * @param dg the datagram, copied into a's own storage */
+void wired_srvboot_acc_hold(wired_srvboot_acc* a, wired_mspan dg);
+
 /** @param a the accumulator
- * @return the number of whole 0-RTT datagrams buffered in a
+ * @return the number of whole datagrams held in a
  *   (wired_srvboot_acc_zerortt_take indexes 0..this). */
 usz wired_srvboot_acc_zerortt_count(const wired_srvboot_acc* a);
 

@@ -467,6 +467,14 @@ int wired_srvboot_acc_feed(wired_srvboot_acc* a, wired_mspan dg) {
   return srvboot_acc_feed_initial(a, dg);
 }
 
+/* RFC 9001 4.6.1 / 5.7: hold dg verbatim -- a 0-RTT datagram before its
+ * keys exist, or a 1-RTT datagram before the client Finished is verified
+ * (the server MUST NOT process it yet) -- for
+ * wired_srvboot_acc_zerortt_take to replay once processable. */
+void wired_srvboot_acc_hold(wired_srvboot_acc* a, wired_mspan dg) {
+  srvboot_zerortt_buffer(a, dg);
+}
+
 usz wired_srvboot_acc_zerortt_count(const wired_srvboot_acc* a) {
   return a->zerortt_n;
 }
