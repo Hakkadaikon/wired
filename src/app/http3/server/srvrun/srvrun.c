@@ -7185,11 +7185,26 @@ static void srvrun_boot_pto_resend(
  * (SRVRUN_BOOT_PTO_MAX -- sized for the capped cadence; srvrun_pto_slot
  * keeps its own SRVRUN_PTO_MAX for in-flight responses, and the two are
  * never both active for the same slot). */
+/* RFC 9000 10.2: tell a still-listening peer this handshake is abandoned
+ * before reclaiming its slot. Only a peer that provably finished
+ * (peer_at_onertt) can read the 1-RTT close -- and that peer is exactly
+ * the one otherwise left pinging a dead slot through its own idle timeout
+ * and a multi-second draining period (observed live: one such zombie
+ * connection burned two minutes of a 300s multiconnect budget). A keyless
+ * peer cannot be told anything it can decrypt, so nothing is sent. */
+static void srvrun_boot_give_up_close(
+    const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  if (!c->peer_at_onertt) return;
+  (void)wired_server_early_send_keys(&c->s); /* 0.5-RTT seal, RFC 9001 4.9 */
+  srvrun_send_app_close(ctx->cfg, c, 0, wired_span_of((const u8*)0, 0));
+}
+
 static void srvrun_boot_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c     = &ctx->st->conns[slot];
   int          fired = c->boot_pto_count + 1;
   if (!srvrun_boot_pto_due(c, ctx->now_ms)) return;
   if (fired >= SRVRUN_BOOT_PTO_MAX) {
+    srvrun_boot_give_up_close(ctx, c);
     srvrun_free_slot(ctx->cfg, ctx->st, slot);
     return;
   }

@@ -2223,6 +2223,40 @@ static void test_srvrun_odcid_retransmit_resends_serverhello_first(void) {
   CHECK(delta == st.conns[0].boot_ini_len); /* the ServerHello, nothing else */
 }
 
+/* CLOSE ON GIVE-UP FOR A FINISHED PEER: when the boot probe budget runs
+ * out on a peer that provably completed the handshake, the reclaim must
+ * first send a CONNECTION_CLOSE it can read (1-RTT) -- silently freeing
+ * the slot left such a peer pinging a dead connection through its own
+ * idle timeout plus a multi-second draining period. */
+static void test_srvrun_boot_give_up_closes_finished_peer(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  usz sends_after_boot;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 100000, 0};
+    conntable_init(table, WIRED_CONNTABLE_CAP);
+    srvrun_test_reset_send_count();
+    {
+      srvrun_step_ctx boot = {&cfg, &peer, &st, 0, 0};
+      srvrun_serve(&boot, wired_mspan_of(dg, total));
+    }
+    CHECK(st.conns[0].up == 1);
+    st.conns[0].peer_at_onertt = 1;
+    st.conns[0].boot_pto_count = SRVRUN_BOOT_PTO_MAX - 1;
+    sends_after_boot           = srvrun_test_send_count();
+    srvrun_boot_pto_slot(&ctx, 0); /* budget spent: close, then reclaim */
+    CHECK(st.conns[0].up == 0);
+    CHECK(srvrun_test_send_count() > sends_after_boot);
+  }
+}
+
 /* Raw ClientHello + one sealed chunk Initial, the srvrun-side split fixture
  * (mirrors the srvboot accumulator tests' construction). */
 static usz sr_raw_ch(client* c, u8* ch, usz cap) {
@@ -14875,6 +14909,7 @@ void test_srvrun(void) {
   test_srvrun_hs_probe_replays_boot_flight();
   test_srvrun_finished_wait_probes_small();
   test_srvrun_odcid_retransmit_resends_serverhello_first();
+  test_srvrun_boot_give_up_closes_finished_peer();
   test_srvrun_split_ch_boots_across_datagrams();
   test_srvrun_stalled_boot_swept();
   test_srvrun_alien_version_claims_no_slot();
