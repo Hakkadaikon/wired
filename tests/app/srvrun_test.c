@@ -11054,7 +11054,8 @@ static void test_srvrun_boot_pto_no_resend_before_deadline(void) {
   srvrun_state    st  = {table, sr_test_conns()};
   srvrun_cfg      cfg = sr_boot_pto_cfg();
   srvrun_step_ctx ctx = {
-      &cfg, 0, &st, 500, 0}; /* well under the 1024ms floor */
+      &cfg, 0, &st, SRVRUN_BOOT_RESEND_CAP_MS / 2,
+      0}; /* well under the capped deadline */
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   srvrun_test_reset_send_count();
