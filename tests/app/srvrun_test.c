@@ -190,6 +190,20 @@ check the return value */
   CHECK(srvrun_owes_goaway(&c) == 0);
 }
 
+/* GOAWAY NOT OWED ON HQ: RFC 9114 5.2's GOAWAY rides the control stream,
+ * which an hq-interop connection does not have -- a stray stream-3 write
+ * would corrupt what an hq client saves, so the connection never owes one. */
+static void test_srvrun_no_goaway_on_hq(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.alpn = SALPN_HQ;
+  CHECK(srvrun_owes_goaway(&c) == 0);
+}
+
 /* GOAWAY WIRE CONTENT: the sealed packet opens under the client's 1-RTT peer
  * key and carries a GOAWAY frame on the control stream. */
 static void test_srvrun_goaway_wire_content(void) {
@@ -14732,6 +14746,7 @@ void test_srvrun(void) {
   test_srvrun_shutdown_rejects_new_initial();
   test_srvrun_shutdown_refuses_slot_claim();
   test_srvrun_owes_goaway_once();
+  test_srvrun_no_goaway_on_hq();
   test_srvrun_goaway_wire_content();
   test_srvrun_not_up_owes_nothing();
   test_srvrun_unconfirmed_owes_nothing();

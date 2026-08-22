@@ -3174,10 +3174,18 @@ static void srvrun_send_wt_drain_all(
     if (srvrun_wt_is_active(c, i)) srvrun_send_wt_drain(cfg, c, i, out);
 }
 
+/* GOAWAY is HTTP/3-only (RFC 9114 5.2, a control-stream frame): an
+ * hq-interop connection has no control stream to carry it, and a stray
+ * stream-3 write would corrupt what an hq client saves (the same shape as
+ * the SETTINGS gate in build_settings_frame). */
+static int srvrun_goaway_applies(const srvrun_conn* c) {
+  return c->s.sdrv.alpn == SALPN_H3 && !c->goaway_sent;
+}
+
 /* GOAWAY is owed to c once: the connection is up, confirmed (a 1-RTT key
- * exists to seal with), and no GOAWAY has gone out yet. */
+ * exists to seal with), it negotiated h3, and no GOAWAY has gone out yet. */
 static int srvrun_owes_goaway(const srvrun_conn* c) {
-  return c->up && c->l.hs_done_sent && !c->goaway_sent;
+  return c->up && c->l.hs_done_sent && srvrun_goaway_applies(c);
 }
 
 /* Queue data as c's one pending outbound QUIC DATAGRAM (RFC 9221), to be sent
