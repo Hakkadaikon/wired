@@ -2185,6 +2185,44 @@ static void test_srvrun_finished_wait_probes_small(void) {
   CHECK(st.conns[0].up == 1);
 }
 
+/* SERVERHELLO FIRST FOR A KEYLESS PEER: a client still retransmitting its
+ * Initial under the ORIGINAL DCID has never processed any server packet
+ * (RFC 9000 7.2: it switches to our SCID the moment it does) -- without
+ * the ServerHello every other flight byte is undecryptable to it. Under a
+ * tight antiamp budget the replay must spend on the Initial half first;
+ * a blind alternation once burned the whole budget on Handshake datagrams
+ * a keyless client could not read, and it died without keys. */
+static void test_srvrun_odcid_retransmit_resends_serverhello_first(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  u64 tx_before, delta;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    conntable_init(table, WIRED_CONNTABLE_CAP);
+    srvrun_serve(&ctx, wired_mspan_of(dg, total));
+    CHECK(st.conns[0].up == 1);
+    /* force the alternation to the Handshake half, then constrain the
+     * budget so only ONE half fits -- the DCID classification must win */
+    st.conns[0].boot_resend_flip = 1;
+    /* serving the retransmit below credits its own dg.n (total) first --
+     * subtract it so the budget at replay time fits exactly one half */
+    st.conns[0].boot_rx_bytes =
+        (st.conns[0].boot_tx_bytes + st.conns[0].boot_ini_len + 10) / 3 + 1 -
+        total;
+    tx_before = st.conns[0].boot_tx_bytes;
+    srvrun_serve(&ctx, wired_mspan_of(dg, total)); /* same ODCID retransmit */
+  }
+  delta = st.conns[0].boot_tx_bytes - tx_before;
+  CHECK(delta == st.conns[0].boot_ini_len); /* the ServerHello, nothing else */
+}
+
 /* Raw ClientHello + one sealed chunk Initial, the srvrun-side split fixture
  * (mirrors the srvboot accumulator tests' construction). */
 static usz sr_raw_ch(client* c, u8* ch, usz cap) {
@@ -14835,6 +14873,7 @@ void test_srvrun(void) {
   test_srvrun_coalesced_handshake_not_boot_retransmit();
   test_srvrun_hs_probe_replays_boot_flight();
   test_srvrun_finished_wait_probes_small();
+  test_srvrun_odcid_retransmit_resends_serverhello_first();
   test_srvrun_split_ch_boots_across_datagrams();
   test_srvrun_stalled_boot_swept();
   test_srvrun_alien_version_claims_no_slot();
