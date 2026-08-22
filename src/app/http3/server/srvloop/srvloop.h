@@ -3,6 +3,7 @@
 
 #include "app/http3/core/h3/control.h"
 #include "app/http3/core/h3/priority.h"
+#include "app/http3/core/h3settings/control_settings.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/server/h3srv/state.h"
 #include "common/bytes/span/span.h"
@@ -101,7 +102,10 @@ typedef struct {
   u64 stream_id;            /**< the client bidi stream id this slot
                                reassembles */
   wired_h3reqdrive_req req; /**< the decoded request, valid once req_done */
-  u8 req_scratch[512];      /**< backing store for req's path/body views */
+  /** backing store for req's path/body views; sized to the advertised
+   * SETTINGS_MAX_FIELD_SECTION_SIZE (one shared constant) so any field
+   * section the peer kept within our limit decodes without truncation */
+  u8 req_scratch[WIRED_H3_MAX_FIELD_SECTION];
   /* RFC 9000 2.2: this stream reassembled across datagrams. curl splits one
    * request's HEADERS and DATA into separate STREAM frames in separate 1-RTT
    * packets; each frame's data is written at its offset here and the request
