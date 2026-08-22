@@ -1005,6 +1005,7 @@
 #include "app/srvloop_test.c"
 #include "app/srvloop_priupdate_test.c"
 #include "app/srvboot_version_test.c"
+#include "app/srvboot_pnshort_test.c"
 #include "app/certcache_test.c"
 #include "app/priupdate_test.c"
 #include "app/sendq_test.c"
@@ -1544,6 +1545,7 @@ int main(void) {
   test_srvloop();
   test_srvloop_priupdate();
   test_srvboot_version();
+  test_srvboot_pnshort();
   test_certcache();
   test_priupdate();
   test_sendq();
