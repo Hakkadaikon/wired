@@ -310,6 +310,12 @@ int wired_server_is_confirmed(const wired_server* s) {
   return s->phase == WIRED_SERVER_HS_CONFIRMED;
 }
 
+/* RFC 9001 4.9 / RFC 8446 7.1 (0.5-RTT) */
+int wired_server_early_send_keys(wired_server* s) {
+  if (s->phase != WIRED_SERVER_HS_FLIGHT_SENT) return 0;
+  return srvfin_early_send_keys(&s->fin, s->tr, s->tr_through_flight);
+}
+
 /* RFC 8446 7.1: resumption_master_secret = Derive-Secret(Master Secret,
  * "res master", ClientHello...client Finished) -- the transcript spans all
  * handshake messages through the CLIENT's Finished, not the server's. This

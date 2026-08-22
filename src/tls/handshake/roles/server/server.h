@@ -212,6 +212,17 @@ int wired_server_handshake_done(wired_server* s, wired_obuf* out);
  *   confirmed. */
 int wired_server_is_confirmed(const wired_server* s);
 
+/** Derive and install the server's 1-RTT send keys before the client
+ * Finished arrives (0.5-RTT, RFC 9001 4.9 / RFC 8446 7.1): the application
+ * traffic secrets depend only on the transcript through the server
+ * Finished, so they are available the moment the flight is built. Does not
+ * confirm the handshake; the confirm-time derivation over the same
+ * transcript is unaffected. Idempotent.
+ * @param s the orchestrator whose flight has been built
+ * @return 1 with the 1-RTT send keys available, 0 before the flight (no
+ *   transcript to derive from). */
+int wired_server_early_send_keys(wired_server* s);
+
 /** RFC 8446 4.6.1/7.1: resumption_master_secret = Derive-Secret(Master
  * Secret, "res master", ClientHello..client Finished) -- the secret a
  * NewSessionTicket must actually carry (RFC 8446 4.6.1: "The ticket itself

@@ -39,4 +39,18 @@ void srvfin_state_init(srvfin_state* s, keysched* sched, keyset* keys);
 int srvfin_complete(
     srvfin_state* s, const u8* final_transcript, usz final_transcript_len);
 
+/** Derive and install the server's 1-RTT send keys early, before the client
+ * Finished arrives (0.5-RTT, RFC 9001 4.9 / RFC 8446 7.1): the application
+ * traffic secrets depend only on the transcript through the SERVER
+ * Finished, which is complete the moment the flight is built. Does NOT
+ * confirm the handshake; a later srvfin_complete over the same transcript
+ * derives identical secrets, so calling both is safe in either order.
+ * @param s completion state
+ * @param transcript the raw handshake messages through the server Finished
+ * @param transcript_len length of transcript in bytes
+ * @return 1 with the 1-RTT keys installed, 0 on a key schedule order
+ * violation (nothing installed). */
+int srvfin_early_send_keys(
+    srvfin_state* s, const u8* transcript, usz transcript_len);
+
 #endif
