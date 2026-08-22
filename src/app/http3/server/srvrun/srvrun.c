@@ -497,11 +497,17 @@ typedef struct {
    * slice log) so this one timestamp stands in for it. Meaningless before
    * boot_ini_len is first set. */
   u64 boot_pto_sent_ms;
-  /** Alternates which half of the cached flight a resend offers the antiamp
-   * budget first (Initial, or the Handshake datagrams). While the budget
-   * fits only part of the flight, a fixed Initial-first order starved the
-   * Handshake half on every probe -- under bursty loss the client ended up
-   * holding the ServerHello but never the flight behind it, and timed out. */
+  /** Which half of the cached flight a resend offers the antiamp budget
+   * first: 1 = the Handshake datagrams, 0 = the Initial. While the budget
+   * fits only part of the flight, a fixed order starves the other half --
+   * under bursty loss a client holding the ServerHello but not the flight
+   * behind it timed out (Handshake starved), and a client that lost every
+   * ServerHello while the budget burned on the Handshake half died keyless
+   * (Initial starved). A client Initial retransmit sets this from its own
+   * DCID (srvrun_boot_flip_from_dcid: still addressing the ODCID = it has
+   * never processed any server packet, so the ServerHello must go first;
+   * addressing our SCID = it has the ServerHello, RFC 9000 7.2); each
+   * timer-driven replay then alternates from there. */
   u8 boot_resend_flip;
   /** 1 once an early 1-RTT datagram was held for this still-unconfirmed
    * connection (srvrun_boot_early_onertt, RFC 9001 5.7): the client sends
@@ -7049,6 +7055,19 @@ static int srvrun_resend_boot_flight(
     const srvrun_step_ctx* ctx, srvrun_conn* c);
 static int srvrun_boot_probe_or_replay(
     const srvrun_step_ctx* ctx, srvrun_conn* c);
+static wired_span srvrun_dcid(wired_mspan dg, u8 short_hdr_len);
+
+/* RFC 9000 7.2: a retransmitting client's own DCID tells which flight half
+ * it is missing, no decryption needed -- still addressing the ODCID means
+ * it has never processed ANY server packet (the ServerHello must go out
+ * first, or every other byte is undecryptable to it); addressing our SCID
+ * means it has the ServerHello and is missing the Handshake half. */
+static void srvrun_boot_flip_from_dcid(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, wired_mspan dg) {
+  wired_span dcid     = srvrun_dcid(dg, ctx->cfg->id->scid_len);
+  c->boot_resend_flip = dcid.n == ctx->cfg->id->scid_len &&
+                        ct_diffn(c->scid, dcid.p, dcid.n) == 0;
+}
 
 static void srvrun_cold_start(
     const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
@@ -7107,8 +7126,8 @@ static int srvrun_resend_flight_parts(
 static int srvrun_resend_boot_flight(
     const srvrun_step_ctx* ctx, srvrun_conn* c) {
   int sent;
-  c->boot_resend_flip ^= 1;
   sent = srvrun_resend_flight_parts(ctx, c);
+  c->boot_resend_flip ^= 1; /* alternate the priority for the NEXT replay */
   /* RFC 9000 8.1: nothing went out at all -- the whole flight is withheld
    * by the antiamp budget. Leave the PTO exactly as it was: a fully
    * blocked probe spent no budget and proved nothing, and re-arming (or
@@ -7249,6 +7268,7 @@ static int srvrun_serve_boot(
     return 1;
   }
   if (srvrun_is_boot_retransmit(c, dg)) {
+    srvrun_boot_flip_from_dcid(ctx, c, dg);
     srvrun_resend_boot_flight(ctx, c);
     return 1;
   }
