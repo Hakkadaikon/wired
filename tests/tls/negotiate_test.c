@@ -70,11 +70,21 @@ void test_negotiate_selects_hq(void) {
   CHECK(salpn_select_h3(list, sizeof(list)) == 0);
 }
 
-void test_negotiate_prefers_h3_over_hq(void) {
-  /* "hq-interop" then "h3" -- h3 wins regardless of offer order */
-  u8 list[16] = {0x00, 0x0e, 0x0a, 0x68, 0x71, 0x2d, 0x69, 0x6e,
-                 0x74, 0x65, 0x72, 0x6f, 0x70, 0x02, 0x68, 0x33};
-  CHECK(salpn_negotiate(list, sizeof(list)) == SALPN_H3);
+void test_negotiate_follows_client_order(void) {
+  /* RFC 7301 3.1: the list is in the client's preference order. Pinned to
+   * msquic's captured offer [hq-interop, h3, hq-29, h3-29]: it then talks
+   * hq-interop, so the answer must be hq-interop, not h3. */
+  u8 msquic[28] = {0x00, 0x1a, 0x0a, 0x68, 0x71, 0x2d, 0x69, 0x6e, 0x74, 0x65,
+                   0x72, 0x6f, 0x70, 0x02, 0x68, 0x33, 0x05, 0x68, 0x71, 0x2d,
+                   0x32, 0x39, 0x05, 0x68, 0x33, 0x2d, 0x32, 0x39};
+  /* "h3" first stays h3 */
+  u8 h3first[16] = {0x00, 0x0e, 0x02, 0x68, 0x33, 0x0a, 0x68, 0x71,
+                    0x2d, 0x69, 0x6e, 0x74, 0x65, 0x72, 0x6f, 0x70};
+  /* an unknown name first is skipped, the next known one wins */
+  u8 unknown1st[8] = {0x00, 0x06, 0x02, 0x68, 0x32, 0x02, 0x68, 0x33};
+  CHECK(salpn_negotiate(msquic, 28) == SALPN_HQ);
+  CHECK(salpn_negotiate(h3first, sizeof(h3first)) == SALPN_H3);
+  CHECK(salpn_negotiate(unknown1st, sizeof(unknown1st)) == SALPN_H3);
 }
 
 void test_negotiate_selects_hq_when_only_offered(void) {

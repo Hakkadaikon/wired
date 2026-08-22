@@ -1424,7 +1424,7 @@ int main(void) {
   test_negotiate_truncated();
   test_negotiate_build_response();
   test_negotiate_selects_hq();
-  test_negotiate_prefers_h3_over_hq();
+  test_negotiate_follows_client_order();
   test_negotiate_selects_hq_when_only_offered();
   test_negotiate_none_when_neither_offered();
   test_sni_extract_from_clienthello();
