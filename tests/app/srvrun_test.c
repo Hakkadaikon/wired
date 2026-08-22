@@ -2256,6 +2256,19 @@ static void test_srvrun_boot_give_up_closes_finished_peer(void) {
     srvrun_boot_pto_slot(&ctx, 0); /* budget spent: close, then reclaim */
     CHECK(st.conns[0].up == 0);
     CHECK(srvrun_test_send_count() > sends_after_boot);
+    /* the freed connection's stragglers are swallowed, not stateless-reset
+     * (RFC 9000 10.2.2: closing-period traffic is expected; a reset here
+     * once aborted a peer's whole multiconnect run) */
+    {
+      u8  straggler[64] = {0x40, 0};
+      usz base;
+      for (usz i = 0; i < (usz)id.scid_len; i++)
+        straggler[1 + i] = st.conns[0].scid[i];
+      base = srvrun_test_send_count();
+      srvrun_serve(&ctx, wired_mspan_of(straggler, 50));
+      CHECK(srvrun_test_send_count() == base); /* ghost: total silence */
+      CHECK(srvrun_ghost_match(&ctx, wired_span_of(straggler + 1, 6)) == 1);
+    }
   }
 }
 

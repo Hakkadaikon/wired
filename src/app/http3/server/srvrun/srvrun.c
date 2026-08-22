@@ -866,11 +866,32 @@ typedef struct {
  * server loop (wired_srvrun_env_size/init + wired_srvrun_serve_env).
  * shutdown/reload live outside this struct (srvrun.h's doc): they are
  * process-wide signal-driven flags, not per-instance state. */
+/* RFC 9000 10.2.2: a just-closed connection's scid, remembered briefly so
+ * its stragglers (the peer's CONNECTION_CLOSE retransmit, a final ack) are
+ * swallowed instead of answered with a stateless reset -- freeing the slot
+ * instantly made them unroutable, and the reset (RFC 9000 10.3) read to
+ * one peer as a transport error on a cleanly closed connection (neqo
+ * aborted its whole multiconnect run over it). */
+typedef struct {
+  u8  scid[WIRED_MAX_CID_LEN];
+  u8  len;
+  u64 until_ms;
+} srvrun_ghost;
+
+/* How many freshly closed connections to remember, and for how long --
+ * covers the peer's own closing period (a few RTTs to a few seconds)
+ * without holding real slots. */
+#define SRVRUN_GHOST_SLOTS 8
+#define SRVRUN_GHOST_MS 2000
+
 struct wired_srvrun_env {
   /* RFC 9000 5.1: a fixed pool of connection slots keyed by DCID, so one
    * socket serves several clients at once. */
   conntable   table[WIRED_CONNTABLE_CAP];
   srvrun_conn conns[WIRED_CONNTABLE_CAP];
+  /* Ring of freshly closed connections (srvrun_ghost above). */
+  srvrun_ghost ghosts[SRVRUN_GHOST_SLOTS];
+  usz          ghost_at;
   /* Response storage, one row per (connection slot, response slot) (see
    * WIRED_SRVRUN_RESP_MAX above). */
   u8 respstore[WIRED_CONNTABLE_CAP][SRVRUN_RESP_SLOTS][WIRED_SRVRUN_RESP_MAX];
@@ -7039,6 +7060,8 @@ static void srvrun_dg_slot(const srvrun_step_ctx* ctx, int slot) {
   if (c->up) srvrun_pump_datagram(ctx, c);
 }
 
+static void srvrun_note_ghost(const srvrun_step_ctx* ctx, srvrun_conn* c);
+
 /* One live step; a peer CONNECTION_CLOSE observed by the loop frees the slot
  * afterward (RFC 9000 10.2.2: the connection is done, its state discarded). */
 static void srvrun_step_and_reap(
@@ -7046,6 +7069,7 @@ static void srvrun_step_and_reap(
   srvrun_conn* c = &ctx->st->conns[slot];
   srvrun_on_step(ctx, c, dg);
   if (c->l.peer_closed) {
+    srvrun_note_ghost(ctx, c); /* swallow its closing-period stragglers */
     srvrun_free_slot(ctx->cfg, ctx->st, slot);
     return;
   }
@@ -7249,6 +7273,7 @@ static void srvrun_boot_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   if (!srvrun_boot_pto_due(c, ctx->now_ms)) return;
   if (srvrun_boot_give_up_due(c, fired, ctx->now_ms)) {
     srvrun_boot_give_up_close(ctx, c);
+    srvrun_note_ghost(ctx, c); /* swallow its closing-period stragglers */
     srvrun_free_slot(ctx->cfg, ctx->st, slot);
     return;
   }
@@ -8120,6 +8145,45 @@ static int srvrun_retry_consumed(
   return srvrun_retry_gate(ctx, dg, odcid);
 }
 
+/* 1 if dcid names a freshly closed connection still inside its remembered
+ * window (srvrun_ghost) -- its stragglers are swallowed, not reset. */
+static int srvrun_ghost_hit(
+    const srvrun_ghost* g, wired_span dcid, u64 now_ms) {
+  return now_ms < g->until_ms && g->len == dcid.n &&
+         ct_diffn(g->scid, dcid.p, dcid.n) == 0;
+}
+
+static int srvrun_ghost_match(const srvrun_step_ctx* ctx, wired_span dcid) {
+  const wired_srvrun_env* env = ctx->cfg->env;
+  for (usz i = 0; i < SRVRUN_GHOST_SLOTS; i++)
+    if (srvrun_ghost_hit(&env->ghosts[i], dcid, ctx->now_ms)) return 1;
+  return 0;
+}
+
+/* Remember c's scid as freshly closed (srvrun_ghost) before its slot is
+ * reclaimed, so the peer's closing-period stragglers go unanswered
+ * instead of drawing a stateless reset. */
+static void srvrun_note_ghost(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  wired_srvrun_env* env = ctx->cfg->env;
+  srvrun_ghost*     g   = &env->ghosts[env->ghost_at++ % SRVRUN_GHOST_SLOTS];
+  if (!ctx->cfg->id) return; /* no identity, no scid to remember */
+  for (usz i = 0; i < ctx->cfg->id->scid_len; i++) g->scid[i] = c->scid[i];
+  g->len      = ctx->cfg->id->scid_len;
+  g->until_ms = ctx->now_ms + SRVRUN_GHOST_MS;
+}
+
+/* RFC 9000 10.3 for a datagram no slot claims: refuse and reset -- unless
+ * it names a freshly closed connection (RFC 9000 10.2.2: its peer's own
+ * CONNECTION_CLOSE retransmit or final ack is expected traffic during the
+ * closing period, and a reset here read to the peer as a transport error
+ * on a cleanly closed connection). */
+static void srvrun_refuse_unroutable(
+    const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
+  if (srvrun_ghost_match(ctx, dcid)) return;
+  srvrun_send_new_conn_refusal(ctx, dcid, dg);
+  srvrun_send_stateless_reset(ctx, dcid, dg);
+}
+
 /* Route dg to its slot and serve it there, threading a retry-recovered
  * ODCID (if any) onto the freshly claimed slot before the accept path
  * reads it (srvrun_slot_id -> srvboot_tp_odcid). */
@@ -8130,8 +8194,7 @@ static void srvrun_route_and_serve(
     wired_span             odcid) {
   int slot = srvrun_route_or_evict(ctx, dcid, dg);
   if (slot < 0) {
-    srvrun_send_new_conn_refusal(ctx, dcid, dg);
-    srvrun_send_stateless_reset(ctx, dcid, dg);
+    srvrun_refuse_unroutable(ctx, dcid, dg);
     return;
   }
   if (odcid.n) srvrun_note_retry_odcid(&ctx->st->conns[slot], odcid);
