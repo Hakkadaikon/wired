@@ -81,9 +81,38 @@ static void test_ack_ecn(void) {
   CHECK(ack_decode(buf, pw, &pout) == pw && pout.has_ecn == 0);
 }
 
+/* Pinned to a captured quinn transferloss run: under 30% loss the client
+ * sent an ACK with 34 ranges. Rejecting the whole frame at ACK_MAX_RANGES
+ * threw away every later ACK, so the same packets retransmitted at PTO
+ * backoff until the 60s test limit. A frame with more ranges than the
+ * array must decode: the first ACK_MAX_RANGES ranges (nearest Largest
+ * Acknowledged) kept, the rest consumed and dropped, the returned length
+ * covering the whole frame so the frame walk continues past it. */
+static void test_ack_overlong_range_count_truncates(void) {
+  u8  buf[80];
+  usz w    = 0;
+  buf[w++] = FRAME_ACK;
+  buf[w++] = 0x40; /* largest = 200 (2-byte varint) */
+  buf[w++] = 200;
+  buf[w++] = 0;  /* ack delay */
+  buf[w++] = 33; /* range count: 34 ranges total */
+  buf[w++] = 0;  /* first range: 200..200 */
+  for (int i = 0; i < 33; i++) {
+    buf[w++] = 0; /* gap 0 */
+    buf[w++] = 0; /* len 0: single-pn ranges 198, 196, ... */
+  }
+  ack_frame out;
+  usz       r = ack_decode(buf, w, &out);
+  CHECK(r == w);
+  CHECK(out.n_ranges == ACK_MAX_RANGES);
+  CHECK(out.ranges[0].hi == 200 && out.ranges[0].lo == 200);
+  CHECK(out.ranges[ACK_MAX_RANGES - 1].hi == 200 - 2 * (ACK_MAX_RANGES - 1));
+}
+
 void test_ack(void) {
   test_ack_single_range();
   test_ack_multi_range();
   test_ack_truncated();
   test_ack_ecn();
+  test_ack_overlong_range_count_truncates();
 }
