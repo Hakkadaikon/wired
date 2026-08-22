@@ -6139,13 +6139,13 @@ static int srvrun_pmtu_try_probe(const srvrun_step_ctx* ctx, srvrun_conn* c) {
  * iteration -- not only once normal sends run dry. An "only after the loop"
  * placement lets a connection with a steady stream of normal sends starve
  * the probe forever: a continuously busy normal-send path never leaves a
- * window where the probe is the only thing with something to send. Trying the probe first, every iteration, gives it the standing
- * to always take its turn the moment it has one (srvrun_pmtu_try_probe
- * itself is a no-op whenever a probe is already outstanding or the search
- * has nothing left to try, so this costs nothing on the common case), while
- * still keeping one send opportunity exclusive to either a probe or a
- * normal pass -- never both (the short-circuit below skips the normal pass
- * on the same opportunity a probe went out). */
+ * window where the probe is the only thing with something to send. Trying the
+ * probe first, every iteration, gives it the standing to always take its turn
+ * the moment it has one (srvrun_pmtu_try_probe itself is a no-op whenever a
+ * probe is already outstanding or the search has nothing left to try, so this
+ * costs nothing on the common case), while still keeping one send opportunity
+ * exclusive to either a probe or a normal pass -- never both (the short-circuit
+ * below skips the normal pass on the same opportunity a probe went out). */
 static int srvrun_pump_opportunity(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   if (srvrun_pmtu_try_probe(ctx, c)) return 1;
   return srvrun_pump_round_gated(ctx, c);
