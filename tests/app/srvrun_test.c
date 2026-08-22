@@ -10939,14 +10939,16 @@ static void test_srvrun_boot_pto_no_resend_before_deadline(void) {
 
 /* The boot replay spacing is capped at SRVRUN_BOOT_RESEND_CAP_MS: with the
  * probe count already at 4 the uncapped RFC 9002 doubling would wait
- * ~16s (1024ms x 2^4), and both sides backing off multi-second timers is
- * what stretched single 30%-loss handshakes past 15s (quiche L1 fit 26 of
- * 50 in its 300s budget). At the cap the flight replays regardless. */
+ * ~16s (1024ms x 2^4), and every replay landing behind the peer's own ~1s
+ * handshake timer is what inflated its timers and stretched single
+ * 30%-loss handshakes past 15s (quiche L1 fit 23 of 50 in its 300s budget
+ * where ngtcp2 fit all 50). At the cap the flight replays regardless. */
 static void test_srvrun_boot_pto_backoff_capped(void) {
   conntable       table[WIRED_CONNTABLE_CAP];
   srvrun_state    st  = {table, sr_test_conns()};
   srvrun_cfg      cfg = sr_boot_pto_cfg();
-  srvrun_step_ctx ctx = {&cfg, 0, &st, 2000, 0}; /* the cap, not 16.4s */
+  srvrun_step_ctx ctx = {
+      &cfg, 0, &st, SRVRUN_BOOT_RESEND_CAP_MS, 0}; /* the cap, not 16.4s */
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   st.conns[0].boot_pto_count = 4;
@@ -11216,6 +11218,8 @@ static void test_srvrun_boot_pto_budget_exhausted_frees_slot(void) {
   u64          now = 2048;
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
+  /* every fire replays the 100-byte dummy flight: budget the whole run */
+  st.conns[0].boot_rx_bytes = 100u * SRVRUN_BOOT_PTO_MAX;
   for (int i = 0; i < SRVRUN_BOOT_PTO_MAX - 1; i++) {
     srvrun_step_ctx tick = {&cfg, 0, &st, now, 0};
     srvrun_boot_pto_slot(&tick, 0);
@@ -11238,6 +11242,8 @@ static void test_srvrun_boot_pto_budget_not_yet_exhausted_keeps_slot(void) {
   u64          now = 1025;
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
+  /* every fire replays the 100-byte dummy flight: budget the whole run */
+  st.conns[0].boot_rx_bytes = 100u * SRVRUN_BOOT_PTO_MAX;
   for (int i = 0; i < SRVRUN_BOOT_PTO_MAX - 1; i++) {
     srvrun_step_ctx tick = {&cfg, 0, &st, now, 0};
     srvrun_test_reset_send_count();
