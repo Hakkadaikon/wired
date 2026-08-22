@@ -240,6 +240,13 @@ typedef struct {
  * @param a the accumulator to reset */
 void wired_srvboot_acc_reset(wired_srvboot_acc* a);
 
+/** The accept flight's server Initial packet number: 1, or the next unused
+ * pn from the partial-ack counter once a HelloRetryRequest or a
+ * partial-ClientHello ACK already advanced the Initial pn space past 1
+ * (sending pn 1 after them would move the space backwards and the peer
+ * would discard the flight as too old). Consumes the counter. */
+u64 wired_srvboot_flight_pn(wired_srvboot_acc* a);
+
 /** Absorb one Initial datagram: every coalesced Initial packet in it is
  * opened with the bound ODCID's keys and its CRYPTO chunks land at their
  * stream offsets (duplicates and any arrival order are fine). The first

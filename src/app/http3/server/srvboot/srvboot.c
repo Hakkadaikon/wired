@@ -120,8 +120,8 @@ typedef struct {
                 * compatible version negotiated from the ClientHello's
                 * version_information, else the accepted Initial's own
                 * version (RFC 9368 2.2/2.3, no VN round trip) */
-  u64 ini_pn;  /**< the flight's server Initial pn (srvboot_flight_pn: 1,
-                * or the next unused one after a HelloRetryRequest) */
+  u64 ini_pn;  /**< the flight's server Initial pn (wired_srvboot_flight_pn:
+                * 1, or the next unused one once the space moved past it) */
   usz ini_off; /**< the ServerHello's crypto-stream offset (past the HRR
                 * when one was sent, else 0 -- RFC 9000 19.6) */
   u64 ect0;    /**< RFC 9000 13.4.1: Initial ACK's cumulative ECN counts */
@@ -227,12 +227,15 @@ static int srvboot_build_flight_bytes(
   return 1;
 }
 
-/* RFC 9000 12.3: the accept flight's server Initial is pn 1, except after a
- * HelloRetryRequest, which already spent pn 1 -- then it takes the next
- * unused Initial pn (shared with the partial-ack counter, so the two can
- * never collide). */
-static u64 srvboot_flight_pn(wired_srvboot_acc* a) {
-  return a->hrr_off ? a->ack_pn++ : 1;
+/* RFC 9000 12.3: the accept flight's server Initial is pn 1 -- unless the
+ * Initial pn space has already moved past it (a HelloRetryRequest or a
+ * partial-ClientHello ACK went out first); then the flight takes the next
+ * unused pn from the shared counter. Falling back to pn 1 AFTER an ACK at
+ * pn 2 would send the space backwards, and a peer that treats the space as
+ * continuous (it is -- RFC 9368 2.3 keeps the connection, and neqo enforces
+ * it across a compatible version switch) discards the flight as too old. */
+u64 wired_srvboot_flight_pn(wired_srvboot_acc* a) {
+  return (a->hrr_off || a->ack_pn > 2) ? a->ack_pn++ : 1;
 }
 
 /* Build the server flight from the folded ClientHello and seal it, replying
@@ -253,7 +256,7 @@ static int srvboot_flight(
   srvboot_server       sv            = {
       conn->s,       id,
       a->largest_pn, wired_span_of(conn->l->cli_scid, conn->l->cli_scid_len),
-      reply_version, srvboot_flight_pn(a),
+      reply_version, wired_srvboot_flight_pn(a),
       a->ini_tx_off, a->ecn_ect0,
       a->ecn_ect1,   a->ecn_ce};
   if (!srvboot_build_flight_bytes(
