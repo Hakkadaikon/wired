@@ -6064,9 +6064,9 @@ static void srvrun_pmtu_probe_clear(srvrun_conn* c) {
 /* RFC 8899 5.1.1 PROBE_TIMER: an outstanding probe that has not been
  * acked/lost within PMTU_PROBE_TIMER_US is itself treated as a loss --
  * without this, an unanswered probe leaves pmtu_probe_pn outstanding
- * forever and srvrun_pmtu_probe_candidate never starts another (found by
- * TLA+ model-checking: the ACK path alone has no fairness toward a probe
- * the peer never acknowledges at all). Polled once per send opportunity
+ * forever and srvrun_pmtu_probe_candidate never starts another -- the ACK
+ * path alone never resolves a probe the peer never acknowledges at all.
+ * Polled once per send opportunity
  * (srvrun_pmtu_try_probe), matching how this connection has no dedicated
  * timer thread -- only per-step polling (see srvrun_pto_deadline_ms's own
  * doc on the same style of poll-driven deadline). */
@@ -6138,10 +6138,8 @@ static int srvrun_pmtu_try_probe(const srvrun_step_ctx* ctx, srvrun_conn* c) {
  * send opportunity, and a probe attempt is given first refusal on EVERY
  * iteration -- not only once normal sends run dry. An "only after the loop"
  * placement lets a connection with a steady stream of normal sends starve
- * the probe forever -- a design mistake TLA+ model-checking caught: weak
- * fairness on the merge point was not enough, since a continuously busy
- * normal-send path never leaves a window where the probe is the only thing
- * enabled. Trying the probe first, every iteration, gives it the standing
+ * the probe forever: a continuously busy normal-send path never leaves a
+ * window where the probe is the only thing with something to send. Trying the probe first, every iteration, gives it the standing
  * to always take its turn the moment it has one (srvrun_pmtu_try_probe
  * itself is a no-op whenever a probe is already outstanding or the search
  * has nothing left to try, so this costs nothing on the common case), while
