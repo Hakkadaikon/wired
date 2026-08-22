@@ -788,25 +788,27 @@ static usz srvrun_mps(const srvrun_conn* c) {
  * RFC 9002 6.2 doubling run free: an unconfirmed handshake is a mutual-
  * backoff trap -- the client's own loss timers inflate under the same
  * losses, and once both sides wait out multi-second timers a 30%-loss
- * handshake takes tens of seconds. 600ms, not a softer 2s: the boot RTT
- * seed is one arrival sample, and a loss-delayed sample (~1-2s) pushed
- * every replay behind the peer's own ~1s handshake timer, so the peer's
- * probe always fired first and its timers kept inflating (observed live:
+ * handshake takes tens of seconds. The boot RTT seed is one arrival
+ * sample and can only overestimate (a loss-delayed sample reads ~1-2s on
+ * a 30ms path), so an uncapped or softly-capped deadline lands every
+ * replay behind the peer's own ~1s handshake timer -- the peer's probe
+ * always fires first and its timers keep inflating (observed live:
  * quiche's post-download close then waits 3xPTO, and with an inflated PTO
- * single connections idled 30-50s; its handshakeloss run fit 23 of 50
- * handshakes into the testcase's 300s budget where ngtcp2 -- probing at
- * its measured-RTT cadence -- fit all 50 in under 2 minutes). The replay
- * is antiamp-bounded (<= 3x client bytes) and boot-only, so the capped
- * cadence cannot amplify; congestion backoff for real data still applies
- * post-confirm via srvrun_pto_slot's uncapped deadline. */
-#define SRVRUN_BOOT_RESEND_CAP_MS 600
+ * single connections idled 30-50s). 300ms tracks what a correctly
+ * measured ~30-60ms RTT PTO would probe at; a fully blocked replay
+ * consumes no probe budget, so on slow or quiet paths the antiamp gate --
+ * not this cap -- sets the real pace. The replay is antiamp-bounded
+ * (<= 3x client bytes) and boot-only, so the capped cadence cannot
+ * amplify; congestion backoff for real data still applies post-confirm
+ * via srvrun_pto_slot's uncapped deadline. */
+#define SRVRUN_BOOT_RESEND_CAP_MS 300
 
 /* Boot-stage probe budget: sized so the capped cadence still outlives a
  * peer's default 30s idle window (RFC 9000 10.1) before the slot is
- * reclaimed -- 60 fires x <=600ms spans ~36s. Fully antiamp-blocked fires
+ * reclaimed -- 120 fires x <=300ms spans ~36s. Fully antiamp-blocked fires
  * do not consume this budget (srvrun_resend_boot_flight's 0 return), so a
  * silent unbudgeted peer is bounded by the idle sweep, not this count. */
-#define SRVRUN_BOOT_PTO_MAX 60
+#define SRVRUN_BOOT_PTO_MAX 120
 
 /* Receive batch: srvrun drains up to this many datagrams per recvmmsg call.
  * ponytail: 16 x 2048B storage (32KB) per env; raise if a profile ever shows
