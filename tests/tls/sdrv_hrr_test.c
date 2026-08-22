@@ -1,4 +1,5 @@
 #include "common/diag/error/error.h"
+#include "crypto/asymmetric/ecc/p256/p256_ecdhe.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
 #include "test.h"
 #include "tls/handshake/core/hrr/hrr_build.h"
@@ -218,8 +219,9 @@ static void test_sdrv_hrr_second_ch_still_no_share_rejected(void) {
  * interop runner's handshake case): key_share carries only secp256r1 while
  * supported_groups offers [secp256r1, x25519] -- the exact shape that took
  * every picoquic testcase down with a 0x128 close before the HRR path was
- * wired. It must be accepted with an HRR armed, and the built HRR must be a
- * well-formed HelloRetryRequest. */
+ * wired. Now that this driver speaks P-256 ECDHE directly (RFC 8446 4.2.8,
+ * kwik offers nothing else), the valid secp256r1 share is accepted in one
+ * round trip: no HRR, the connection's group switched to secp256r1. */
 static void test_sdrv_hrr_picoquic_client_hello_arms_hrr(void) {
   static const u8 ch[] = {
       0x01, 0x00, 0x01, 0x23, 0x03, 0x03, 0x49, 0x19, 0x15, 0x4d, 0xeb, 0xf9,
@@ -247,15 +249,12 @@ static void test_sdrv_hrr_picoquic_client_hello_arms_hrr(void) {
       0x00, 0x00, 0x00, 0xff, 0x04, 0xde, 0x1b, 0x02, 0x43, 0xe8, 0x80, 0x00,
       0x71, 0x58, 0x01, 0x03, 0xc0, 0x17, 0xf7, 0x58, 0x6d, 0x2c, 0xb5, 0x71,
       0x00, 0x00, 0x2d, 0x00, 0x02, 0x01, 0x01};
-  u8         hrr[256];
-  sdrv       s;
-  wired_obuf hob = obuf_of(hrr, sizeof(hrr));
+  sdrv s;
   sdrv_hrr_init_any(&s);
   CHECK(sdrv_recv_client_hello(&s, ch, sizeof ch) == 1);
-  CHECK(sdrv_hrr_pending(&s) == 1);
+  CHECK(sdrv_hrr_pending(&s) == 0);
   CHECK(sdrv_last_error(&s) == 0);
-  CHECK(sdrv_build_hrr(&s, &hob) == 1);
-  CHECK(hrr_is_hello_retry(hrr, hob.len) == 1);
+  CHECK(s.group == GROUP_SECP256R1);
 }
 
 /* (g) RFC 8446 4.1.4: the HRR carries the cipher_suite negotiated from
@@ -280,6 +279,33 @@ static void test_sdrv_hrr_echoes_negotiated_cipher(void) {
   CHECK(((u16)hrr[39] << 8 | hrr[40]) == (u16)TLS_CHACHA20_POLY1305_SHA256);
 }
 
+/* RFC 8446 4.2.8: a ClientHello whose ONLY key_share is a real secp256r1
+ * point (kwik's shape: supported_groups = {secp256r1}, no x25519 anywhere)
+ * is accepted directly -- no HRR (there is no x25519 to steer to), the
+ * connection's ECDHE group switched to secp256r1. The fake-share tests
+ * above still arm HRR because their "secp256r1" share is 32 x25519 bytes,
+ * which fails SEC1 decoding. */
+static void test_sdrv_hrr_p256_only_ch_accepted(void) {
+  u8         cli_priv[32], cli_pub[65], srv_random[32];
+  u8         ch[512];
+  usz        ch_len;
+  sdrv       s;
+  wired_obuf ob = obuf_of(ch, sizeof(ch));
+  CHECK(p256_keygen(cli_priv));
+  CHECK(p256_pubkey_encode(cli_pub, cli_priv));
+  for (usz i = 0; i < 32; i++) srv_random[i] = (u8)(0xa0 + i);
+  CHECK(tls_client_hello_group(
+      &(clienthello_group_in){
+          srv_random, cli_pub, wired_span_of(0, 0), wired_span_of(0, 0),
+          GROUP_SECP256R1, 65},
+      &ob));
+  ch_len = ob.len;
+  sdrv_hrr_init_any(&s);
+  CHECK(sdrv_recv_client_hello(&s, ch, ch_len) == 1);
+  CHECK(sdrv_hrr_pending(&s) == 0);
+  CHECK(s.group == GROUP_SECP256R1);
+}
+
 void test_sdrv_hrr(void) {
   test_sdrv_hrr_normal_ch_no_hrr_pending();
   test_sdrv_hrr_no_x25519_triggers_hrr();
@@ -289,4 +315,5 @@ void test_sdrv_hrr(void) {
   test_sdrv_hrr_second_ch_still_no_share_rejected();
   test_sdrv_hrr_picoquic_client_hello_arms_hrr();
   test_sdrv_hrr_echoes_negotiated_cipher();
+  test_sdrv_hrr_p256_only_ch_accepted();
 }

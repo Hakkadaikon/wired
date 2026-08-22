@@ -5,6 +5,7 @@
 #include "common/diag/error/codes.h"
 #include "common/diag/error/error.h"
 #include "common/platform/clock/clock.h"
+#include "crypto/asymmetric/ecc/p256/p256_ecdhe.h"
 #include "crypto/asymmetric/ecc/p256/p256_point.h"
 #include "crypto/pki/cert/p256cert/p256cert.h"
 #include "crypto/pki/encoding/x509/x509.h"
@@ -698,11 +699,11 @@ static int sdrv_ch_take_psk(sdrv* s, const u8* ch_msg, usz ch_len) {
   return sdrv_psk_try_offer(s, ch_msg, ch_len, psk_ext, &off);
 }
 
-/* RFC 8446 4.1.4: this driver supports only x25519 (see take_client_keyshare),
- * so "no x25519 key_share offered" is exactly the "need a HelloRetryRequest"
- * condition. Records the negotiated cipher_suite and Hash(ClientHello1) for
- * sdrv_build_hrr/the post-HRR ClientHello2 check, and marks hrr_needed.
- */
+/* RFC 8446 4.1.4: no share for a group this driver speaks (x25519 directly,
+ * secp256r1 via sdrv_ch_take_p256) means the client held its share back --
+ * the "need a HelloRetryRequest" condition. Records the negotiated
+ * cipher_suite and Hash(ClientHello1) for sdrv_build_hrr/the post-HRR
+ * ClientHello2 check, and marks hrr_needed. */
 static void sdrv_ch_arm_hrr(sdrv* s, const u8* ch_msg, usz ch_len) {
   s->hrr_needed       = 1;
   s->hrr_cipher_suite = s->cipher_suite;
@@ -746,13 +747,49 @@ static void sdrv_ch_keyshare_reject(sdrv* s) {
   s->last_error = err_crypto(s->hrr_sent ? 47 : 40);
 }
 
-/* The client's x25519 key_share taken directly, or (its absence) recorded
+/* Fresh P-256 ephemeral pair into server_priv/server_pub; switches the
+ * connection's ECDHE group on success (RFC 8446 4.2.8). */
+static int sdrv_p256_ephemeral(sdrv* s) {
+  if (!p256_keygen(s->server_priv)) return 0;
+  if (!p256_pubkey_encode(s->server_pub, s->server_priv)) return 0;
+  s->group = GROUP_SECP256R1;
+  return 1;
+}
+
+/* The taken share must be a real SEC1 uncompressed on-curve point -- a
+ * wrong-length or off-curve "secp256r1" share is not a usable offer (the
+ * HRR/reject path handles it instead). */
+static int sdrv_p256_share_ok(const u8* pub) {
+  ec_point p;
+  return p256_pubkey_decode(pub, &p);
+}
+
+/* RFC 8446 4.2.8: a client that offered no x25519 key_share may still have
+ * offered secp256r1 (kwik offers ONLY P-256) -- take that share and switch
+ * this connection's ECDHE to P-256 with a fresh ephemeral pair, instead of
+ * steering to x25519 via HRR (impossible when the client does not list it)
+ * and failing the handshake outright. */
+static int sdrv_ch_take_p256(sdrv* s, const u8* ch_msg, usz ch_len) {
+  if (!take_client_keyshare(ch_msg, ch_len, GROUP_SECP256R1, s->client_pub))
+    return 0;
+  return sdrv_p256_share_ok(s->client_pub) && sdrv_p256_ephemeral(s);
+}
+
+/* A usable key_share from the ClientHello: the configured group's directly,
+ * else (from the x25519 default only) a valid secp256r1 one, switching the
+ * group to match. */
+static int sdrv_ch_any_keyshare(sdrv* s, const u8* ch_msg, usz ch_len) {
+  if (take_client_keyshare(ch_msg, ch_len, s->group, s->client_pub)) return 1;
+  return s->group == GROUP_X25519 && sdrv_ch_take_p256(s, ch_msg, ch_len);
+}
+
+/* The client's key_share taken directly, or (its absence) recorded
  * as "HRR needed" instead of an outright rejection. Returns 1 if the caller
  * should keep processing this ClientHello as a normal (non-HRR) one, 0 if
  * HRR was armed instead (sdrv_hrr_pending is now 1, not an error) or the
  * ClientHello was rejected (last_error set, sdrv_hrr_pending stays 0). */
 static int sdrv_ch_keyshare_or_arm_hrr(sdrv* s, const u8* ch_msg, usz ch_len) {
-  if (take_client_keyshare(ch_msg, ch_len, s->group, s->client_pub)) return 1;
+  if (sdrv_ch_any_keyshare(s, ch_msg, ch_len)) return 1;
   if (!sdrv_ch_may_retry(s, ch_msg, ch_len)) {
     sdrv_ch_keyshare_reject(s);
     return 0;
