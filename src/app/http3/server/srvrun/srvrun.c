@@ -503,6 +503,15 @@ typedef struct {
    * Handshake half on every probe -- under bursty loss the client ended up
    * holding the ServerHello but never the flight behind it, and timed out. */
   u8 boot_resend_flip;
+  /** 1 once an early 1-RTT datagram was held for this still-unconfirmed
+   * connection (srvrun_boot_early_onertt, RFC 9001 5.7): the client sends
+   * 1-RTT only after finishing its handshake, so a held 1-RTT datagram
+   * proves the client already has the whole flight and only the server's
+   * receipt of its Finished is missing -- flight replays are pure waste
+   * from here (duplicate pns the client discards) and the boot probe
+   * switches to a minimal fresh keepalive instead
+   * (srvrun_send_boot_probe). */
+  u8 peer_at_onertt;
   /** RFC 9002 6.2: consecutive boot-stage probe count, the boot-flight
    * counterpart to wired_sendsess.pto_count -- scales srvrun_pto_deadline_ms'
    * backoff and, at SRVRUN_PTO_MAX, tears the slot down the same way
@@ -7040,6 +7049,8 @@ static void srvrun_boot_partial_ack(const srvrun_step_ctx* ctx, int slot) {
 
 static int srvrun_resend_boot_flight(
     const srvrun_step_ctx* ctx, srvrun_conn* c);
+static int srvrun_boot_probe_or_replay(
+    const srvrun_step_ctx* ctx, srvrun_conn* c);
 
 static void srvrun_cold_start(
     const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
@@ -7142,7 +7153,7 @@ static int srvrun_boot_pto_due(const srvrun_conn* c, u64 now_ms) {
  * probes keep climbing instead of resetting every single one. */
 static void srvrun_boot_pto_resend(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int fired) {
-  if (!srvrun_resend_boot_flight(ctx, c)) return;
+  if (!srvrun_boot_probe_or_replay(ctx, c)) return;
   c->boot_pto_count = fired;
 }
 
@@ -7218,6 +7229,7 @@ static int srvrun_unconfirmed_up(const srvrun_conn* c) {
 static int srvrun_boot_early_onertt(srvrun_conn* c, wired_mspan dg) {
   if (!srvrun_unconfirmed_up(c) || !srvrun_short_header(dg)) return 0;
   wired_srvboot_acc_hold(&c->boot, dg);
+  c->peer_at_onertt = 1; /* the client finished: 1-RTT proves it */
   return 1;
 }
 
@@ -7448,10 +7460,63 @@ static int srvrun_hs_probe_pending(
   return booting && srvrun_awaiting_confirm(c) && srvrun_leads_handshake(dg);
 }
 
+/* RFC 9002 6.2.4 while c awaits its peer's Finished with proof the peer
+ * already finished (peer_at_onertt): replaying the cached flight is pure
+ * waste -- every replay reuses its packet numbers, so a peer that has the
+ * flight discards them all as duplicates and hears NOTHING (its idle timer
+ * keeps running down), while each ~2KB replay burns the antiamp budget.
+ * Both starved a live quiche connection to death: four replays exhausted
+ * the 3x budget in under two seconds, the server then sat silent, and the
+ * client idled out before its own (loss-inflated) Finished retransmission
+ * timer fired. Send a minimal fresh 1-RTT PING instead: a NEW packet
+ * number the peer actually processes -- resetting its idle timer and
+ * eliciting an ack -- at a fraction of the budget, until the peer's own
+ * timer redelivers the lost Finished. */
+/* Seal one fresh 1-RTT PING for a peer that provably finished. The server
+ * 1-RTT send keys are a 0.5-RTT derivation away (available since the
+ * flight went out, wired_server_early_send_keys); the peer holds its 1-RTT
+ * keys already, so this is the one packet it is guaranteed to process. */
+static usz srvrun_seal_boot_probe(srvrun_conn* c, u8* out, usz cap) {
+  static const u8       ping = 0x01; /* RFC 9000 19.2 */
+  wired_obuf            ob   = obuf_of(out, cap);
+  wired_srvloop_send_in sin  = {
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(&ping, 1),
+      0,
+      0,
+      0,
+      0};
+  if (!wired_server_early_send_keys(&c->s)) return 0;
+  if (!wired_srvloop_send_onertt(&c->s, &sin, &ob)) return 0;
+  return ob.len;
+}
+
+static int srvrun_send_boot_probe(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  u8  out[128];
+  usz n = srvrun_seal_boot_probe(c, out, sizeof out);
+  if (n == 0 || srvrun_boot_gate_blocks(c, 0, n)) return 0;
+  srvrun_boot_send(ctx->cfg, c, wired_span_of(out, n), "boot keepalive sent\n");
+  c->boot_pto_sent_ms = ctx->now_ms;
+  c->boot_pto_count   = 0;
+  return 1;
+}
+
+/* One due boot retransmission round: the fresh keepalive once the peer
+ * provably finished, the cached flight otherwise -- and if the keepalive
+ * could not go out (no 1-RTT key yet, budget), the plain replay, so this
+ * path is never worse than the replay alone. */
+static int srvrun_boot_probe_or_replay(
+    const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  if (c->peer_at_onertt && srvrun_send_boot_probe(ctx, c)) return 1;
+  return srvrun_resend_boot_flight(ctx, c);
+}
+
 static void srvrun_resend_flight_on_hs_probe(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int booting, wired_mspan dg) {
   if (srvrun_hs_probe_pending(c, booting, dg))
-    srvrun_resend_boot_flight(ctx, c);
+    srvrun_boot_probe_or_replay(ctx, c);
 }
 
 /* Confirmation landed this very step (booting = the pre-step state):
