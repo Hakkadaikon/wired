@@ -833,10 +833,11 @@ static u32 sdrv_first_flight_version(const sdrv* s) {
 
 /* RFC 9368 2.2/4: a well-formed version_information arrived -- its Chosen
  * Version must equal the version the client's first flight used
- * (VERSION_NEGOTIATION_ERROR otherwise), and the most preferred version
- * this server shares with the client's Available Versions becomes the
- * version the whole server flight replies in (nothing shared keeps the
- * flight in the client's own version -- negotiated_version stays 0). */
+ * (VERSION_NEGOTIATION_ERROR otherwise), and the first version of the
+ * client's Available Versions (client preference order, RFC 9368 3) that
+ * this server supports becomes the version the whole server flight replies
+ * in (nothing shared keeps the flight in the client's own version --
+ * negotiated_version stays 0). */
 static int sdrv_ch_take_version_information(
     sdrv* s, const version_information* vi) {
   vers_set us;
