@@ -7407,6 +7407,28 @@ static void srvrun_reconfirm_on_hs_probe(
   srvrun_reconfirm(ctx, c);
 }
 
+/* RFC 9002 6.2.1: a datagram LEADING with a Handshake packet while c still
+ * awaits confirmation is the client probing at the Handshake level -- it
+ * demonstrably holds Handshake keys yet its handshake has not advanced, so
+ * part of the cached flight is missing on its side. Replay the flight now
+ * (antiamp-gated) instead of waiting out the boot PTO's exponential
+ * backoff: five straight losses of a resumption flight's EE+Finished
+ * datagram once pushed the next backoff replay past a neqo client's idle
+ * timeout while its once-per-second probes went unanswered. booting is the
+ * PRE-step state: a probe whose own processing just confirmed the
+ * handshake (or tore the slot down) needs no replay -- awaiting_confirm
+ * re-checks the POST-step state. */
+static int srvrun_hs_probe_pending(
+    const srvrun_conn* c, int booting, wired_mspan dg) {
+  return booting && srvrun_awaiting_confirm(c) && srvrun_leads_handshake(dg);
+}
+
+static void srvrun_resend_flight_on_hs_probe(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int booting, wired_mspan dg) {
+  if (srvrun_hs_probe_pending(c, booting, dg))
+    srvrun_resend_boot_flight(ctx, c);
+}
+
 /* Confirmation landed this very step (booting = the pre-step state):
  * replay the datagrams held while processing them was forbidden
  * (srvrun_boot_early_onertt / RFC 9001 5.7). No-op when nothing is held
@@ -7444,6 +7466,7 @@ static void srvrun_serve_slot(
     srvrun_step_and_reap(ctx, slot, dg);
     srvrun_answer_path_challenge(ctx, c);
   }
+  srvrun_resend_flight_on_hs_probe(ctx, c, booting, dg);
   srvrun_flush_held_on_confirm(ctx, slot, booting);
   srvrun_boot_release_pending(ctx, c);
 }
