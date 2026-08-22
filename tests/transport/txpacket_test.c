@@ -28,7 +28,7 @@ static int t_rx(
     usz                 n,
     wired_span*         frames) {
   protect_keys k = {ik, hp};
-  rx_desc      d = {wired_mspan_of(pkt, n), 1};
+  rx_desc      d = {wired_mspan_of(pkt, n), 1, 0};
   return rx_packet(&k, &d, frames);
 }
 

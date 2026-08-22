@@ -90,14 +90,16 @@ static int srvboot_init(
 }
 
 /* RFC 9000 13.2.1 / A.3: the opened Initial's packet number is cleartext once
- * header protection is off; recover it against a baseline of 0 (nothing seen
- * yet in this space). A retransmitted Initial arrives with pn > 0, and the
+ * header protection is off; recover it against the largest received so far
+ * in this space. A retransmitted Initial arrives with pn > 0, and the
  * ServerHello Initial must acknowledge the number actually received or the
- * peer keeps retransmitting. */
-static u64 srvboot_initial_pn(wired_mspan dg) {
+ * peer keeps retransmitting -- and once the partial-ClientHello ack raised
+ * the peer's largest-acked, its retransmits truncate the wire pn below what
+ * the raw value expresses (neqo: pn 731 in one byte after an ack of 729). */
+static u64 srvboot_initial_pn(wired_mspan dg, u64 largest_pn) {
   lhdr h;
   if (!lhdr_parse(wired_span_of(dg.p, dg.n), 1, &h)) return 0;
-  return pnum_decode(dg.p + h.pn_off, lhdr_pn_len(dg.p[0]), 0);
+  return pnum_decode(dg.p + h.pn_off, lhdr_pn_len(dg.p[0]), largest_pn);
 }
 
 /* The two pieces of a server flight: the ServerHello (Initial space) and the
@@ -360,9 +362,10 @@ static int srvboot_acc_take(wired_srvboot_acc* a, wired_mspan pkt) {
   wired_span odcid = wired_span_of(a->hdr.dcid, a->hdr.dcid_len);
   u32        v;
   if (!srvboot_pkt_initial_version(pkt, &v)) return 0;
-  if (!initpkt_open_ver(odcid, v, pkt, &payload)) return 0;
+  if (!initpkt_open_ver(odcid, v, pkt, a->largest_pn, &payload)) return 0;
   crecv_collect(&a->cr, payload.p, payload.n);
-  a->largest_pn = u64_max(a->largest_pn, srvboot_initial_pn(pkt));
+  a->largest_pn =
+      u64_max(a->largest_pn, srvboot_initial_pn(pkt, a->largest_pn));
   a->opened++;
   return 1;
 }

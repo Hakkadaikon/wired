@@ -15,15 +15,16 @@
  * client's original DCID and the connection's negotiated version (RFC 9369
  * 3.3.1: after a compatible switch to v2 the client's later Initials --
  * e.g. its ACK of the server Initial -- arrive v2-keyed); the raw frame
- * payload is returned (the dispatcher walks it). in->largest_pn is unused
- * outside the 1-RTT space (the Initial uses a 4-byte PN). */
+ * payload is returned (the dispatcher walks it). The established loop does
+ * not track an Initial-space largest (the space is done after the client's
+ * ack of the server flight), so 0 stands in as the recovery baseline. */
 static int recv_initial(
     wired_server*                s,
     const wired_srvloop_recv_in* in,
     wired_srvloop_recv_out*      out) {
   return initpkt_open_ver(
       wired_span_of(s->sdrv.odcid, s->sdrv.odcid_len),
-      sdrv_wire_version(&s->sdrv), in->dgram, &out->payload);
+      sdrv_wire_version(&s->sdrv), in->dgram, 0, &out->payload);
 }
 
 /* RFC 9001 5.1: open a Handshake packet with the peer-direction CLIENT_HS key.
@@ -35,7 +36,8 @@ static int recv_handshake(
   wired_srvloop_dirkeys dk;
   if (!wired_srvloop_open_keys(s, LEVEL_HANDSHAKE, &dk)) return 0;
   protect_keys pk = {dk.keys, &dk.hp};
-  return hspkt_open_suite(s->sdrv.cipher_suite, &pk, in->dgram, &out->payload);
+  return hspkt_open_suite(
+      s->sdrv.cipher_suite, &pk, in->dgram, in->hs_largest_pn, &out->payload);
 }
 
 /* hspkt_onertt_open mutates byte0 and the pn bytes in place (header
@@ -183,7 +185,8 @@ static int recv_zerortt(
   aes128_init(&hp, keys.hp);
   {
     protect_keys pk = {&keys, &hp};
-    return hspkt_open_suite(s->sdrv.cipher_suite, &pk, in->dgram, payload);
+    return hspkt_open_suite(
+        s->sdrv.cipher_suite, &pk, in->dgram, in->largest_pn, payload);
   }
 }
 

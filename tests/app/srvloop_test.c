@@ -863,7 +863,7 @@ static int client_open_handshake(
   aes128_init(&hp, k->hp);
   protect_keys pk = {k, &hp};
   wired_span   v;
-  if (!hspkt_open(&pk, wired_mspan_of((u8*)pkt, len), &v)) return 0;
+  if (!hspkt_open(&pk, wired_mspan_of((u8*)pkt, len), 0, &v)) return 0;
   *pl  = v.p;
   *pll = v.n;
   return 1;
@@ -3932,7 +3932,7 @@ test_srvloop_recv_onertt_before_keys_ready_short_circuits_before_ku_logic(
   CHECK(f.s.ku_seeded == 0);
   CHECK(
       wired_srvloop_recv(
-          &f.s, &(wired_srvloop_recv_in){wired_mspan_of(pkt, sizeof pkt), 0},
+          &f.s, &(wired_srvloop_recv_in){wired_mspan_of(pkt, sizeof pkt), 0, 0},
           &out) == 0);
 }
 
@@ -4047,7 +4047,7 @@ static void test_srvloop_recv_zerortt_opens_with_early_keys(void) {
     CHECK(ob.len != 0);
   }
 
-  ri = (wired_srvloop_recv_in){wired_mspan_of(pkt, ob.len), 0};
+  ri = (wired_srvloop_recv_in){wired_mspan_of(pkt, ob.len), 0, 0};
   CHECK(wired_srvloop_recv(&s, &ri, &ro) == 1);
   CHECK(ro.level == LEVEL_ONERTT);
   CHECK(ro.payload.n == sizeof(payload));
@@ -4074,7 +4074,7 @@ static void test_srvloop_recv_zerortt_refused_without_early_keys(void) {
     wired_server_init(&s, &sin);
   }
   CHECK(s.sdrv.early_data_accepted == 0);
-  ri = (wired_srvloop_recv_in){wired_mspan_of(pkt, sizeof(pkt)), 0};
+  ri = (wired_srvloop_recv_in){wired_mspan_of(pkt, sizeof(pkt)), 0, 0};
   CHECK(wired_srvloop_recv(&s, &ri, &ro) == 0);
 }
 

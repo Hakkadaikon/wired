@@ -189,7 +189,7 @@ int srvwire_open_initial(
   initpkt_derive(in->dcid, &ck, &sk);
   aes128_init(&hp, sk.hp);
   protect_keys k = {&sk, &hp};
-  rx_desc      d = {pkt, 1};
+  rx_desc      d = {pkt, 1, 0};
   if (!rx_packet(&k, &d, &frames)) return 0;
   return srvwire_take_crypto(frames, tls);
 }
@@ -212,7 +212,7 @@ int srvwire_seal_handshake(
 int srvwire_open_handshake(
     const protect_keys* k, wired_mspan pkt, wired_span* tls) {
   wired_span frames;
-  if (!hspkt_open(k, pkt, &frames)) return 0;
+  if (!hspkt_open(k, pkt, 0, &frames)) return 0;
   return srvwire_take_crypto(frames, tls);
 }
 
@@ -237,6 +237,6 @@ int srvwire_seal_handshake_suite(
 int srvwire_open_handshake_suite(
     u16 suite, const protect_keys* k, wired_mspan pkt, wired_span* tls) {
   wired_span frames;
-  if (!hspkt_open_suite(suite, k, pkt, &frames)) return 0;
+  if (!hspkt_open_suite(suite, k, pkt, 0, &frames)) return 0;
   return srvwire_take_crypto(frames, tls);
 }

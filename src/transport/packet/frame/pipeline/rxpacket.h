@@ -11,6 +11,10 @@
 typedef struct {
   wired_mspan pkt;
   int         is_initial;
+  u64         largest_pn; /**< largest packet number received so far in this
+                           * packet's number space (0 before any) -- the RFC
+                           * 9000 A.3 baseline recovering the truncated wire
+                           * packet number for the AEAD nonce */
 } rx_desc;
 
 /* On success *frames views the plaintext frame bytes within pkt. Returns 1 on

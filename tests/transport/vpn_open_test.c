@@ -50,7 +50,7 @@ static void roundtrip(usz pn_len, u64 pn) {
 
   u64        length = pn_len + sizeof(payload) + 16;
   wired_span out;
-  vpn_desc   vd = {wired_mspan_of(pkt, total), pn_off, length};
+  vpn_desc   vd = {wired_mspan_of(pkt, total), pn_off, length, 0};
   CHECK(vpn_open(&k, &vd, &out));
   CHECK(pkt[0] == (u8)(0xc0 | (pn_len - 1))); /* byte0 unmasked -> pn_len */
   CHECK((pkt[0] & 0x03) + 1 == pn_len);
@@ -86,7 +86,7 @@ static void test_vpn_tamper(void) {
   pkt[total - 1] ^= 0x80; /* flip a tag bit */
   wired_span out;
   u64        length = 2 + sizeof(payload) + 16;
-  vpn_desc   vd     = {wired_mspan_of(pkt, total), 16, length};
+  vpn_desc   vd     = {wired_mspan_of(pkt, total), 16, length, 0};
   CHECK(vpn_open(&k, &vd, &out) == 0);
   /* RFC 9001 9.5: header protection removal, packet number recovery, and
    * packet protection removal are applied together -- an AEAD tag failure
@@ -119,7 +119,41 @@ static void test_vpn_protect_compat(void) {
   usz        total = protect_seal(&k, &sio);
   wired_span out;
   u64        length = 4 + sizeof(payload) + 16;
-  vpn_desc   vd     = {wired_mspan_of(pkt, total), 14, length};
+  vpn_desc   vd     = {wired_mspan_of(pkt, total), 14, length, 0};
+  CHECK(vpn_open(&k, &vd, &out));
+  CHECK(out.n == sizeof(payload));
+  for (usz i = 0; i < sizeof(payload); i++) CHECK(out.p[i] == payload[i]);
+}
+
+/* RFC 9000 17.1 / A.3: a peer whose packets have been acked truncates the
+ * wire packet number below what the raw value expresses (neqo: pn 731 in
+ * one byte, 0xdb, after an ack of 729). The opener must recover the full
+ * number against the largest received before forming the nonce; the raw
+ * truncated value fails authentication. */
+static void test_vpn_truncated_pn_recovered(void) {
+  const u8     dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  initial_keys keys;
+  aes128       hp;
+  initial_derive(wired_span_of(dcid, 8), 0, VERSION_1, &keys);
+  aes128_init(&hp, keys.hp);
+  u8  hdr[16] = {0xc0, 0,    0,    0,    1,    8,    0x83, 0x94,
+                 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08, 0,    0};
+  usz pn_off  = 15;
+  pnum_encode(hdr + pn_off, 731, 1); /* one wire byte, full pn 731 */
+  const u8        payload[] = {0x06, 0x00, 0x03, 'e', 'n', 'd'};
+  u8              pkt[64];
+  protect_keys    k   = {&keys, &hp};
+  protect_seal_io sio = {
+      wired_span_of(hdr, pn_off + 1),
+      pn_off,
+      1,
+      731,
+      wired_span_of(payload, sizeof(payload)),
+      wired_mspan_of(pkt, sizeof(pkt))};
+  usz        total  = protect_seal(&k, &sio);
+  u64        length = 1 + sizeof(payload) + 16;
+  wired_span out;
+  vpn_desc   vd = {wired_mspan_of(pkt, total), pn_off, length, 729};
   CHECK(vpn_open(&k, &vd, &out));
   CHECK(out.n == sizeof(payload));
   for (usz i = 0; i < sizeof(payload); i++) CHECK(out.p[i] == payload[i]);
@@ -129,4 +163,5 @@ void test_vpn_open(void) {
   test_vpn_roundtrip_lengths();
   test_vpn_tamper();
   test_vpn_protect_compat();
+  test_vpn_truncated_pn_recovered();
 }

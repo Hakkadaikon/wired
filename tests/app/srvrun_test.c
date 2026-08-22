@@ -1129,7 +1129,7 @@ static void test_srvrun_new_conn_refusal_wire_content(void) {
   aes128       hp;
   wired_span   frames;
   protect_keys k;
-  rx_desc      d = {wired_mspan_of(out, ob.len), 1};
+  rx_desc      d = {wired_mspan_of(out, ob.len), 1, 0};
   initpkt_derive(wired_span_of(g_sr_odcid, 8), &ck, &sk);
   aes128_init(&hp, sk.hp);
   k = (protect_keys){&sk, &hp};

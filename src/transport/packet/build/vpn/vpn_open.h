@@ -7,14 +7,22 @@
  * packet-number length is unknown until byte0 is unmasked, then AEAD-open. */
 
 /** One received packet to open in place.
- *   pkt    : the received packet buffer (modified in place).
- *   pn_off : offset of the (still protected) packet number field.
- *   length : the Length field value = packet number + payload + tag bytes,
- *            so the protected region runs [pn_off, pn_off+length). */
+ *   pkt        : the received packet buffer (modified in place).
+ *   pn_off     : offset of the (still protected) packet number field.
+ *   length     : the Length field value = packet number + payload + tag
+ *                bytes, so the protected region runs [pn_off,
+ *                pn_off+length).
+ *   largest_pn : the largest packet number received so far in this packet's
+ *                number space (0 before any). The wire packet number is
+ *                truncated (RFC 9000 17.1) and the AEAD nonce needs the
+ *                full value, so it is recovered against this baseline
+ *                (RFC 9000 A.3) -- a peer whose packets have been acked
+ *                truncates harder than the raw wire value can express. */
 typedef struct {
   wired_mspan pkt;
   usz         pn_off;
   u64         length;
+  u64         largest_pn;
 } vpn_desc;
 
 /* On success returns 1 with *payload viewing the decrypted frames inside
