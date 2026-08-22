@@ -810,6 +810,17 @@ static usz srvrun_mps(const srvrun_conn* c) {
  * silent unbudgeted peer is bounded by the idle sweep, not this count. */
 #define SRVRUN_BOOT_PTO_MAX 120
 
+/* Probe budget once the peer provably finished (peer_at_onertt): its lost
+ * Finished retries on an exponential backoff whose first 3-4 fires land
+ * within ~12s of completion; past that the next retry is tens of seconds
+ * out, and every extra second of keepalive lengthens the peer's own PTO
+ * (nothing it sends pre-confirm can be acknowledged, RFC 9001 5.7) and so
+ * the draining period it must sit through after the close -- a 36s
+ * keepalive phase left one peer draining for 93 more seconds. 40 fires x
+ * <=300ms = ~12s covers the realistic retries, then the close goes out
+ * while the peer's timers are still short. */
+#define SRVRUN_BOOT_KEEPALIVE_MAX 40
+
 /* Receive batch: srvrun drains up to this many datagrams per recvmmsg call.
  * ponytail: 16 x 2048B storage (32KB) per env; raise if a profile ever shows
  * the loop syscall-bound at higher fan-in. Hoisted here (from its former
@@ -7199,11 +7210,18 @@ static void srvrun_boot_give_up_close(
   srvrun_send_app_close(ctx->cfg, c, 0, wired_span_of((const u8*)0, 0));
 }
 
+/* This boot's probe budget: the short keepalive budget for a finished
+ * peer, the full replay budget otherwise (SRVRUN_BOOT_KEEPALIVE_MAX's
+ * doc). */
+static int srvrun_boot_probe_budget(const srvrun_conn* c) {
+  return c->peer_at_onertt ? SRVRUN_BOOT_KEEPALIVE_MAX : SRVRUN_BOOT_PTO_MAX;
+}
+
 static void srvrun_boot_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c     = &ctx->st->conns[slot];
   int          fired = c->boot_pto_count + 1;
   if (!srvrun_boot_pto_due(c, ctx->now_ms)) return;
-  if (fired >= SRVRUN_BOOT_PTO_MAX) {
+  if (fired >= srvrun_boot_probe_budget(c)) {
     srvrun_boot_give_up_close(ctx, c);
     srvrun_free_slot(ctx->cfg, ctx->st, slot);
     return;
