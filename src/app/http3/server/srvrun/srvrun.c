@@ -773,20 +773,25 @@ static usz srvrun_mps(const srvrun_conn* c) {
  * RFC 9002 6.2 doubling run free: an unconfirmed handshake is a mutual-
  * backoff trap -- the client's own loss timers inflate under the same
  * losses, and once both sides wait out multi-second timers a 30%-loss
- * handshake takes tens of seconds (observed live: quiche L1's 300s budget
- * fit only 26 of 50 handshakes, with single handshakes stretching past
- * 15s). The replay is antiamp-bounded (<= 3x client bytes), so the capped
+ * handshake takes tens of seconds. 600ms, not a softer 2s: the boot RTT
+ * seed is one arrival sample, and a loss-delayed sample (~1-2s) pushed
+ * every replay behind the peer's own ~1s handshake timer, so the peer's
+ * probe always fired first and its timers kept inflating (observed live:
+ * quiche's post-download close then waits 3xPTO, and with an inflated PTO
+ * single connections idled 30-50s; its handshakeloss run fit 23 of 50
+ * handshakes into the testcase's 300s budget where ngtcp2 -- probing at
+ * its measured-RTT cadence -- fit all 50 in under 2 minutes). The replay
+ * is antiamp-bounded (<= 3x client bytes) and boot-only, so the capped
  * cadence cannot amplify; congestion backoff for real data still applies
  * post-confirm via srvrun_pto_slot's uncapped deadline. */
-#define SRVRUN_BOOT_RESEND_CAP_MS 2000
+#define SRVRUN_BOOT_RESEND_CAP_MS 600
 
-/* Boot-stage probe budget: with the spacing capped at 2s the shared
- * SRVRUN_PTO_MAX (10 fires) would give up after ~19 quiet seconds --
- * INSIDE a peer's default 30s idle window (RFC 9000 10.1), tearing slots
- * down under clients still retrying. 20 capped fires span ~39s, past that
- * window, matching the pre-cap policy's intent (outlive the peer's own
- * patience) at the denser cadence. */
-#define SRVRUN_BOOT_PTO_MAX 20
+/* Boot-stage probe budget: sized so the capped cadence still outlives a
+ * peer's default 30s idle window (RFC 9000 10.1) before the slot is
+ * reclaimed -- 60 fires x <=600ms spans ~36s. Fully antiamp-blocked fires
+ * do not consume this budget (srvrun_resend_boot_flight's 0 return), so a
+ * silent unbudgeted peer is bounded by the idle sweep, not this count. */
+#define SRVRUN_BOOT_PTO_MAX 60
 
 /* Receive batch: srvrun drains up to this many datagrams per recvmmsg call.
  * ponytail: 16 x 2048B storage (32KB) per env; raise if a profile ever shows
