@@ -52,9 +52,35 @@ int salpn_select_hq(const u8* alpn_ext_data, usz len) {
   return salpn_select(alpn_ext_data, len, tls_alpn_is_hq);
 }
 
+/* The protocol this server speaks under `name`, or SALPN_NONE. */
+static salpn_choice salpn_name_choice(const u8* name, usz nlen) {
+  if (tls_alpn_is_h3(name, nlen)) return SALPN_H3;
+  return tls_alpn_is_hq(name, nlen) ? SALPN_HQ : SALPN_NONE;
+}
+
+/* The choice for the ProtocolNameList entry at m[*p], advancing *p past it
+ * (to end on overrun, stopping the caller's loop). */
+static salpn_choice salpn_entry_choice(const u8* m, usz end, usz* p) {
+  usz       nlen = m[*p];
+  const u8* name = m + *p + 1;
+  if (*p + 1 + nlen > end) {
+    *p = end;
+    return SALPN_NONE;
+  }
+  *p += 1 + nlen;
+  return salpn_name_choice(name, nlen);
+}
+
+/* RFC 7301 3.1: ProtocolNameList is in the client's preference order --
+ * select the FIRST entry this server speaks, not a server-side favorite.
+ * (msquic offers [hq-interop, h3, ...] and then talks hq-interop; answering
+ * h3 made it send a bare GET line into an h3 connection.) */
 salpn_choice salpn_negotiate(const u8* alpn_ext_data, usz len) {
-  if (salpn_select_h3(alpn_ext_data, len)) return SALPN_H3;
-  if (salpn_select_hq(alpn_ext_data, len)) return SALPN_HQ;
+  usz p = 2, end = list_end(alpn_ext_data, len);
+  while (p < end) {
+    salpn_choice c = salpn_entry_choice(alpn_ext_data, end, &p);
+    if (c != SALPN_NONE) return c;
+  }
   return SALPN_NONE;
 }
 
