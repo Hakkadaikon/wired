@@ -769,6 +769,25 @@ static usz srvrun_mps(const srvrun_conn* c) {
  * accounted (RFC 9002 doesn't mandate a specific budget). */
 #define SRVRUN_PTO_MAX 10
 
+/* Boot flight replays cap their probe spacing here instead of letting the
+ * RFC 9002 6.2 doubling run free: an unconfirmed handshake is a mutual-
+ * backoff trap -- the client's own loss timers inflate under the same
+ * losses, and once both sides wait out multi-second timers a 30%-loss
+ * handshake takes tens of seconds (observed live: quiche L1's 300s budget
+ * fit only 26 of 50 handshakes, with single handshakes stretching past
+ * 15s). The replay is antiamp-bounded (<= 3x client bytes), so the capped
+ * cadence cannot amplify; congestion backoff for real data still applies
+ * post-confirm via srvrun_pto_slot's uncapped deadline. */
+#define SRVRUN_BOOT_RESEND_CAP_MS 2000
+
+/* Boot-stage probe budget: with the spacing capped at 2s the shared
+ * SRVRUN_PTO_MAX (10 fires) would give up after ~19 quiet seconds --
+ * INSIDE a peer's default 30s idle window (RFC 9000 10.1), tearing slots
+ * down under clients still retrying. 20 capped fires span ~39s, past that
+ * window, matching the pre-cap policy's intent (outlive the peer's own
+ * patience) at the denser cadence. */
+#define SRVRUN_BOOT_PTO_MAX 20
+
 /* Receive batch: srvrun drains up to this many datagrams per recvmmsg call.
  * ponytail: 16 x 2048B storage (32KB) per env; raise if a profile ever shows
  * the loop syscall-bound at higher fan-in. Hoisted here (from its former
@@ -7105,9 +7124,10 @@ static int srvrun_boot_pto_waiting(const srvrun_conn* c) {
  * srvrun_sess_pto_due uses for an in-flight response, applied to the boot
  * flight's own single sent timestamp instead of a wired_sendsess log). */
 static int srvrun_boot_pto_due(const srvrun_conn* c, u64 now_ms) {
+  u64 wait = u64_min(
+      srvrun_pto_deadline_ms(c, c->boot_pto_count), SRVRUN_BOOT_RESEND_CAP_MS);
   if (!srvrun_boot_pto_waiting(c)) return 0;
-  return now_ms >=
-         c->boot_pto_sent_ms + srvrun_pto_deadline_ms(c, c->boot_pto_count);
+  return now_ms >= c->boot_pto_sent_ms + wait;
 }
 
 /* Resend the boot flight for a fired probe and restore its post-resend probe
@@ -7126,15 +7146,15 @@ static void srvrun_boot_pto_resend(
  * elapses -- quic-interop-runner's handshakeloss/handshakecorruption drop the
  * server's first flight often enough that waiting on a client-triggered
  * retransmit alone (srvrun_resend_boot_flight) leaves the handshake to time
- * out. Tears the slot down once the probe budget is spent, the same policy
- * srvrun_pto_slot applies to an in-flight response (SRVRUN_PTO_MAX shared:
- * boot and post-confirm PTO are never both active for the same slot, RFC
- * 9002 6.2's budget is a per-connection policy either way). */
+ * out. Tears the slot down once the boot probe budget is spent
+ * (SRVRUN_BOOT_PTO_MAX -- sized for the capped cadence; srvrun_pto_slot
+ * keeps its own SRVRUN_PTO_MAX for in-flight responses, and the two are
+ * never both active for the same slot). */
 static void srvrun_boot_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c     = &ctx->st->conns[slot];
   int          fired = c->boot_pto_count + 1;
   if (!srvrun_boot_pto_due(c, ctx->now_ms)) return;
-  if (fired >= SRVRUN_PTO_MAX) {
+  if (fired >= SRVRUN_BOOT_PTO_MAX) {
     srvrun_free_slot(ctx->cfg, ctx->st, slot);
     return;
   }

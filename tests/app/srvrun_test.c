@@ -10937,6 +10937,26 @@ static void test_srvrun_boot_pto_no_resend_before_deadline(void) {
   CHECK(st.conns[0].boot_pto_count == 0);
 }
 
+/* The boot replay spacing is capped at SRVRUN_BOOT_RESEND_CAP_MS: with the
+ * probe count already at 4 the uncapped RFC 9002 doubling would wait
+ * ~16s (1024ms x 2^4), and both sides backing off multi-second timers is
+ * what stretched single 30%-loss handshakes past 15s (quiche L1 fit 26 of
+ * 50 in its 300s budget). At the cap the flight replays regardless. */
+static void test_srvrun_boot_pto_backoff_capped(void) {
+  conntable       table[WIRED_CONNTABLE_CAP];
+  srvrun_state    st  = {table, sr_test_conns()};
+  srvrun_cfg      cfg = sr_boot_pto_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 2000, 0}; /* the cap, not 16.4s */
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_boot_conn(&st.conns[0], 0);
+  st.conns[0].boot_pto_count = 4;
+  srvrun_test_reset_send_count();
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() > 0);
+  CHECK(st.conns[0].boot_pto_count == 5);
+  CHECK(st.conns[0].up == 1);
+}
+
 /* Once confirmed, the boot PTO timer never fires again, regardless of
  * how far past the old boot deadline now_ms sits. */
 static void test_srvrun_boot_pto_stops_after_confirm(void) {
@@ -11182,23 +11202,25 @@ static void test_srvrun_boot_pto_confirm_race_stops_immediately(void) {
   CHECK(srvrun_test_send_count() == 0);
 }
 
-/* SRVRUN_PTO_MAX consecutive boot PTO fires with no confirm ever
+/* SRVRUN_BOOT_PTO_MAX consecutive boot PTO fires with no confirm ever
  * landing tears the connection slot down, mirroring test_srvrun_pto_budget_
  * exhausted_tears_down_connection's policy for the post-confirm path. Each
  * successive deadline doubles (RFC 9002 6.2 exponential backoff, the same
- * kInitialRtt-derived 1024ms base). */
+ * kInitialRtt-derived 1024ms base) until SRVRUN_BOOT_RESEND_CAP_MS caps
+ * the spacing, so advancing past the cap each round crosses every
+ * deadline. */
 static void test_srvrun_boot_pto_budget_exhausted_frees_slot(void) {
   conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_state st  = {table, sr_test_conns()};
   srvrun_cfg   cfg = sr_boot_pto_cfg();
-  u64          now = 1025;
+  u64          now = 2048;
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
-  for (int i = 0; i < SRVRUN_PTO_MAX - 1; i++) {
+  for (int i = 0; i < SRVRUN_BOOT_PTO_MAX - 1; i++) {
     srvrun_step_ctx tick = {&cfg, 0, &st, now, 0};
     srvrun_boot_pto_slot(&tick, 0);
     CHECK(st.conns[0].up == 1);
-    now += 1024u << (i + 1);
+    now += 2048;
   }
   {
     srvrun_step_ctx tick = {&cfg, 0, &st, now, 0};
@@ -11216,15 +11238,15 @@ static void test_srvrun_boot_pto_budget_not_yet_exhausted_keeps_slot(void) {
   u64          now = 1025;
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
-  for (int i = 0; i < SRVRUN_PTO_MAX - 1; i++) {
+  for (int i = 0; i < SRVRUN_BOOT_PTO_MAX - 1; i++) {
     srvrun_step_ctx tick = {&cfg, 0, &st, now, 0};
     srvrun_test_reset_send_count();
     srvrun_boot_pto_slot(&tick, 0);
     CHECK(srvrun_test_send_count() > 0);
     CHECK(st.conns[0].up == 1);
-    now += 1024u << (i + 1);
+    now += 2048;
   }
-  CHECK(st.conns[0].boot_pto_count == SRVRUN_PTO_MAX - 1);
+  CHECK(st.conns[0].boot_pto_count == SRVRUN_BOOT_PTO_MAX - 1);
 }
 
 /* A slot with no boot flight ever cached (boot_ini_len == 0 -- still
@@ -14635,6 +14657,7 @@ void test_srvrun(void) {
   test_srvrun_rebind_on_arrival_fd_change();
   test_srvrun_answers_peer_path_challenge();
   test_srvrun_boot_pto_no_resend_before_deadline();
+  test_srvrun_boot_pto_backoff_capped();
   test_srvrun_boot_pto_stops_after_confirm();
   test_srvrun_boot_pto_confirm_race_stops_immediately();
   test_srvrun_boot_pto_budget_exhausted_frees_slot();
