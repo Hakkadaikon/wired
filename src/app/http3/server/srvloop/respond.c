@@ -56,11 +56,15 @@ static int emit_handshake_ack(const wired_srvloop_conn* c, wired_obuf* out) {
 
 /* RFC 9114 6.2.1: wrap the control-stream type + SETTINGS in a STREAM frame on
  * the first server unidirectional stream (id 3, no FIN: the stream stays open).
- */
-static int build_settings_frame(wired_srvloop* l, wired_obuf* out) {
+ * The control stream is HTTP/3-only: on an hq-interop connection there is
+ * nothing to open (lsquic's hq client mixed a stray SETTINGS stream's bytes
+ * into the response body it saved). */
+static int build_settings_frame(
+    const wired_server* s, wired_srvloop* l, wired_obuf* out) {
   u8           ctl[64];
   wired_obuf   ctlb = obuf_of(ctl, sizeof ctl);
   stream_frame f;
+  if (s->sdrv.alpn != SALPN_H3) return 1;
   /* advertise WebTransport + H3 datagrams only when the QUIC transport also
    * negotiated max_datagram_frame_size (RFC 9297 2.1.1 MUST) */
   if (!wired_h3srv_open_control(
@@ -148,7 +152,7 @@ static int append_ncid_frame(const wired_srvloop* l, wired_obuf* out) {
  * payload. */
 static int confirm_head(
     const wired_server* s, wired_srvloop* l, wired_obuf* out) {
-  if (!build_settings_frame(l, out)) return 0;
+  if (!build_settings_frame(s, l, out)) return 0;
   if (!append_ticket_frame(s, out)) return 0;
   return append_ncid_frame(l, out);
 }
