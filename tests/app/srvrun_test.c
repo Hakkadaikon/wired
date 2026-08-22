@@ -10420,8 +10420,8 @@ static void test_srvrun_pmtu_ack_outside_range_no_effect(void) {
  * opportunity's poll -- srvrun_pmtu_try_probe calls pmtu_next_probe by
  * way of srvrun_pmtu_probe_candidate, which must first resolve the stale
  * probe as a loss (bumping probe_count and freeing pmtu_probe_pn) before it
- * can offer a new candidate. Without this, TLA+ model-checking found the
- * probe stays outstanding forever (no fairness from the ACK path alone). */
+ * can offer a new candidate. Without this the probe stays outstanding
+ * forever -- the ACK path alone never resolves an unanswered probe. */
 static void test_srvrun_pmtu_timeout_reaped_as_loss(void) {
   srvrun_conn c  = {0};
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
