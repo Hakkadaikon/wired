@@ -26,7 +26,7 @@ jobs:
       - name: build server binaries
         run: |
           nix develop -c sh -c '
-            CONNTABLE_CAP=16 just gen-ninja
+            CONNTABLE_CAP=64 just gen-ninja
             ninja examples/word_list/wired_server
             ninja examples/webtransport_interop/wired_server
           '

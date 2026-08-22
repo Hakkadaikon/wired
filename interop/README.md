@@ -6,7 +6,7 @@ Minimal scaffolding to run `wired` as a server endpoint under the
 ## Usage (on the runner host)
 
 ```sh
-CONNTABLE_CAP=16 just gen-ninja && ninja examples/word_list/wired_server
+CONNTABLE_CAP=64 just gen-ninja && ninja examples/word_list/wired_server
 docker build -t wired-interop -f interop/Dockerfile .
 # add to the runner's implementations_quic.json:
 #   "wired": { "image": "wired-interop", "url": "...", "role": "server" }
@@ -33,7 +33,7 @@ A second image runs the WebTransport test suite
 against `examples/webtransport_interop/wired_server`:
 
 ```sh
-CONNTABLE_CAP=16 just gen-ninja && ninja examples/webtransport_interop/wired_server
+CONNTABLE_CAP=64 just gen-ninja && ninja examples/webtransport_interop/wired_server
 docker build -t wired-interop-wt -f interop/Dockerfile.webtransport .
 # add to the runner's implementations_webtransport.json:
 #   "wired": { "image": "wired-interop-wt", "url": "...", "role": "server" }
