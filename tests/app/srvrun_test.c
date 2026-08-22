@@ -2105,6 +2105,42 @@ static void test_srvrun_coalesced_handshake_not_boot_retransmit(void) {
   CHECK(st.conns[0].up == 1);
 }
 
+/* HS PROBE REPLAYS THE FLIGHT: a datagram LEADING with a Handshake packet
+ * on an up-but-unconfirmed connection is the client probing for a lost
+ * piece of the server flight -- the cached flight replays at once instead
+ * of waiting out the boot PTO backoff (five straight EE+Finished losses
+ * once pushed the next backoff replay past a neqo client's idle timeout
+ * while its once-per-second probes went unanswered). */
+static void test_srvrun_hs_probe_replays_boot_flight(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500], hs[64];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  usz n, send_count_after_boot;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    conntable_init(table, WIRED_CONNTABLE_CAP);
+    srvrun_test_reset_send_count();
+    srvrun_serve(&ctx, wired_mspan_of(dg, total));
+    CHECK(st.conns[0].up == 1);
+    CHECK(wired_server_is_confirmed(&st.conns[0].s) == 0);
+    send_count_after_boot = srvrun_test_send_count();
+    CHECK(send_count_after_boot > 0);
+    /* ample antiamp budget: the probe must be what gates the replay */
+    st.conns[0].boot_rx_bytes += 4000;
+    n = sr_append_handshake_pkt(hs, 0, st.conns[0].scid, id.scid_len);
+    srvrun_serve(&ctx, wired_mspan_of(hs, n));
+  }
+  /* the cached flight replayed for the Handshake-leading probe */
+  CHECK(srvrun_test_send_count() > send_count_after_boot);
+  CHECK(st.conns[0].up == 1);
+}
+
 /* Raw ClientHello + one sealed chunk Initial, the srvrun-side split fixture
  * (mirrors the srvboot accumulator tests' construction). */
 static usz sr_raw_ch(client* c, u8* ch, usz cap) {
@@ -14679,6 +14715,7 @@ void test_srvrun(void) {
   test_srvrun_resend_boot_flight_respects_antiamp_budget();
   test_srvrun_free_slot_resets_antiamp_state();
   test_srvrun_coalesced_handshake_not_boot_retransmit();
+  test_srvrun_hs_probe_replays_boot_flight();
   test_srvrun_split_ch_boots_across_datagrams();
   test_srvrun_stalled_boot_swept();
   test_srvrun_alien_version_claims_no_slot();
