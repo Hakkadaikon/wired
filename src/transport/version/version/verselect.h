@@ -12,9 +12,10 @@
  * the packet carrying it; otherwise VERSION_NEGOTIATION_ERROR. Returns 1/0. */
 int verinfo_chosen_ok(u32 chosen, u32 actual_packet_version);
 
-/* Pick the most-preferred version both sides support and that is compatible
- * with the peer's Chosen Version, ignoring reserved (GREASE) entries. Returns
- * 1 with *out set, or 0 if none. we_support is in our preference order. */
+/* RFC 9368 3: the peer's Available Versions list is in the peer's descending
+ * preference order. Pick the first entry of that list we support that is
+ * compatible with the peer's Chosen Version, ignoring reserved (GREASE)
+ * entries. Returns 1 with *out set, or 0 if none. */
 int verinfo_pick_compatible(
     const version_information* vi, verlist we_support, u32* out);
 
