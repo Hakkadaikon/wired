@@ -118,32 +118,47 @@ static int take_two(wired_span in, usz* off, u64 v[2]) {
   return varint_take(wired_span_of(in.p, in.n), off, &v[1]);
 }
 
-/* Read one (Gap, Range Length) pair into ranges[i] from ranges[i-1]. cur
- * points at ranges[i]; the previous range is cur[-1]. */
-static int take_pair(wired_span in, usz* off, ack_range* cur) {
-  u64 gl[2], prev_lo = cur[-1].lo;
+/* Store one decoded range when a slot exists (cur may be null: ranges past
+ * ACK_MAX_RANGES are parsed to consume their bytes, then dropped). */
+static void pair_store(ack_range* cur, u64 hi, u64 lo) {
+  if (!cur) return;
+  cur->hi = hi;
+  cur->lo = lo;
+}
+
+/* Read one (Gap, Range Length) pair, chaining down from *prev_lo. */
+static int take_pair(wired_span in, usz* off, u64* prev_lo, ack_range* cur) {
+  u64 gl[2], hi;
   if (!take_two(in, off, gl)) return 0;
-  if (!pair_fits(prev_lo, gl[0], gl[1])) return 0;
-  cur->hi = prev_lo - gl[0] - 2;
-  cur->lo = cur->hi - gl[1];
+  if (!pair_fits(*prev_lo, gl[0], gl[1])) return 0;
+  hi = *prev_lo - gl[0] - 2;
+  pair_store(cur, hi, hi - gl[1]);
+  *prev_lo = hi - gl[1];
   return 1;
 }
 
-/* Read d->count additional pairs (ranges 1..count). Returns 1 ok, 0 bad. */
-static int take_ack_pairs(wired_span in, usz* off, ackdec* d) {
-  int ok = 1;
-  for (u64 i = 1; i <= d->count; i++)
-    if (!take_pair(in, off, &d->f->ranges[(usz)i])) ok = 0;
-  return ok;
+/* ranges[i]'s slot, or null once i is past our fixed array. */
+static ack_range* pair_slot(ackdec* d, u64 i) {
+  return i < ACK_MAX_RANGES ? &d->f->ranges[(usz)i] : 0;
 }
 
-/* The decoded range count plus the first range must fit our fixed array. */
-static int count_fits(u64 count) { return count + 1 <= ACK_MAX_RANGES; }
+/* Read d->count additional pairs (ranges 1..count). Every pair is parsed
+ * (the frame's bytes must be consumed for the walk to continue past it),
+ * but only the first ACK_MAX_RANGES ranges -- the ones nearest Largest
+ * Acknowledged, exactly the pns still in flight -- are kept. RFC 9000 does
+ * not bound the range count, and a real peer (quinn, under 30% loss) sent
+ * 34 ranges; rejecting the whole frame at our array bound threw away every
+ * later ACK and the connection retransmitted the same packets to death. */
+static int take_ack_pairs(wired_span in, usz* off, ackdec* d) {
+  u64 prev_lo = d->f->ranges[0].lo;
+  for (u64 i = 1; i <= d->count; i++)
+    if (!take_pair(in, off, &prev_lo, pair_slot(d, i))) return 0;
+  return 1;
+}
 
-/* Read the prologue and bound-check the range count together. */
-static int take_ack_prologue(wired_span in, usz* off, ackdec* d) {
-  if (!take_ack_head(in, off, d)) return 0;
-  return count_fits(d->count);
+/* The ranges actually kept in f->ranges (see take_ack_pairs). */
+static usz ranges_kept(u64 count) {
+  return count + 1 <= ACK_MAX_RANGES ? (usz)count + 1 : ACK_MAX_RANGES;
 }
 
 /* Read the ECN counts when the type byte was 0x03. Returns 1 ok, 0 bad. */
@@ -168,8 +183,8 @@ usz ack_decode(const u8* buf, usz n, ack_frame* f) {
   usz        off = 1; /* type byte */
   ackdec     d   = {f, 0, 0, 0};
   f->has_ecn     = (buf[0] == FRAME_ACK_ECN);
-  if (!take_ack_prologue(in, &off, &d)) return 0;
+  if (!take_ack_head(in, &off, &d)) return 0;
   if (!take_ack_rest(in, &off, &d)) return 0;
-  f->n_ranges = (usz)d.count + 1;
+  f->n_ranges = ranges_kept(d.count);
   return off;
 }
