@@ -2141,6 +2141,50 @@ static void test_srvrun_hs_probe_replays_boot_flight(void) {
   CHECK(st.conns[0].up == 1);
 }
 
+/* PROBE, NOT REPLAY, ONCE THE PEER FINISHED: a held early 1-RTT datagram
+ * (RFC 9001 5.7) proves the client completed the handshake -- only its
+ * Finished is missing here. A flight replay is then all duplicate packet
+ * numbers (the client hears nothing, its idle timer keeps running down)
+ * and burns ~2KB of antiamp budget per round; four such replays starved a
+ * live quiche connection into silence. The Handshake-leading probe must
+ * elicit a minimal fresh 1-RTT keepalive instead of the flight. */
+static void test_srvrun_finished_wait_probes_small(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500], hs[64];
+  u8               sh[64] = {0x40, 0};
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  usz n, send_count_after_boot;
+  u64 tx_before;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    conntable_init(table, WIRED_CONNTABLE_CAP);
+    srvrun_test_reset_send_count();
+    srvrun_serve(&ctx, wired_mspan_of(dg, total));
+    CHECK(st.conns[0].up == 1);
+    CHECK(wired_server_is_confirmed(&st.conns[0].s) == 0);
+    send_count_after_boot = srvrun_test_send_count();
+    /* an early 1-RTT (short-header) datagram is held and recorded as
+     * proof the peer reached 1-RTT */
+    CHECK(srvrun_boot_hold_early(&st.conns[0], wired_mspan_of(sh, 40)) == 1);
+    CHECK(st.conns[0].peer_at_onertt == 1);
+    st.conns[0].boot_rx_bytes += 4000;
+    tx_before = st.conns[0].boot_tx_bytes;
+    n         = sr_append_handshake_pkt(hs, 0, st.conns[0].scid, id.scid_len);
+    srvrun_serve(&ctx, wired_mspan_of(hs, n));
+  }
+  /* something fresh went out for the probe... */
+  CHECK(srvrun_test_send_count() > send_count_after_boot);
+  /* ...and it was the small keepalive, not the multi-KB flight replay */
+  CHECK(st.conns[0].boot_tx_bytes - tx_before < 200);
+  CHECK(st.conns[0].up == 1);
+}
+
 /* Raw ClientHello + one sealed chunk Initial, the srvrun-side split fixture
  * (mirrors the srvboot accumulator tests' construction). */
 static usz sr_raw_ch(client* c, u8* ch, usz cap) {
@@ -9553,6 +9597,50 @@ static void test_srvrun_pto_not_due_within_rtt_window(void) {
   }
 }
 
+/* An hq-interop (HTTP/0.9) response is armed through srvrun_arm_hq09_resp
+ * instead of the H3 framing path -- it must land in the same
+ * wired_sendsess tracking, or a lost response is never probed and the
+ * connection goes silent until both sides idle out (multiconnect under
+ * loss: the response is a single packet, so losing it once kills the
+ * whole connection). Same shape as
+ * test_srvrun_pto_not_due_within_rtt_window, on the hq path. */
+static void test_srvrun_pto_probes_lost_hq09_response(void) {
+  struct lp_fix f;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_state  st = {table, g_srvrun_state.conns};
+  wired_obuf    ob;
+  u8            obuf[1024];
+  u64           deadline_ms;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&st.conns[0], &f, &ob);
+  st.conns[0].cc.cwnd = 1u << 20;
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  {
+    srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, &g_srvrun_env,        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0};
+    srvrun_step_ctx ctx     = {&cfg, 0, &st, 0, 0};
+    st.conns[0].s.sdrv.alpn = SALPN_HQ;
+    srvrun_rtt_note(&st.conns[0], 15);
+    sr_set_req(&st.conns[0], 0, 0, 0);
+    srvrun_start_resp(&ctx, 0);
+    srvrun_pump_sess(&ctx, 0); /* the whole response sent at now_ms == 0 */
+    CHECK(st.conns[0].resp[0].in_use == 1);
+    deadline_ms = srvrun_pto_deadline_ms(&st.conns[0], 0);
+    /* the response is in flight and unacked: past the deadline the probe
+     * fires and the slice is resent */
+    {
+      srvrun_step_ctx tick = {&cfg, 0, &st, deadline_ms + 1, 0};
+      srvrun_test_reset_send_count();
+      srvrun_pto_slot(&tick, 0);
+      CHECK(st.conns[0].resp[0].sess.pto_count == 1);
+      CHECK(srvrun_test_send_count() > 0);
+      CHECK(st.conns[0].up == 1);
+    }
+  }
+}
+
 /* Drive a real peer-initiated Key Update through srvrun_on_step (the real
  * wire path, not direct field injection) so c->s.ku actually rotates:
  * generation 0 -> 1, have_old set. Returns the ms the rotation lands at,
@@ -14632,6 +14720,7 @@ void test_srvrun(void) {
   test_srvrun_fifth_sequential_get_reuses_freed_slot();
   test_srvrun_pto_budget_exhausted_tears_down_connection();
   test_srvrun_pto_not_due_within_rtt_window();
+  test_srvrun_pto_probes_lost_hq09_response();
   test_srvrun_ku_old_keys_retained_within_3pto_window();
   test_srvrun_ku_old_keys_discarded_after_3pto_window();
   test_srvrun_sibling_ack_does_not_lose_other_slot();
@@ -14745,6 +14834,7 @@ void test_srvrun(void) {
   test_srvrun_free_slot_resets_antiamp_state();
   test_srvrun_coalesced_handshake_not_boot_retransmit();
   test_srvrun_hs_probe_replays_boot_flight();
+  test_srvrun_finished_wait_probes_small();
   test_srvrun_split_ch_boots_across_datagrams();
   test_srvrun_stalled_boot_swept();
   test_srvrun_alien_version_claims_no_slot();
