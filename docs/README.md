@@ -6,7 +6,7 @@
 ## Learn it
 
 - [Getting Started](getting-started.md) — build, run, write your first server.
-- [examples/](../examples/) — four runnable servers, smallest first.
+- [examples/](../examples/) — five runnable servers, smallest first.
 
 ## Understand it
 
@@ -22,8 +22,8 @@
 - [Security](security.md) — what the SDK guarantees, what it leaves to you.
 - [Test Coverage](test-coverage.md) — how far each spec is tested, from
   unit vectors to real-client interop, checkbox by checkbox.
-- [Features](features/README.md) — per-spec EARS requirement ledgers (42
-  RFCs/FIPS/SPs), each requirement mapped to its test or its gap.
+- [Features](features/README.md) — per-spec EARS requirement ledgers (43
+  RFCs/FIPS/SPs/drafts), each requirement mapped to its test or its gap.
 - [Interop Results](interop.md) — cross-implementation runs against
   quic-go and webtransport-go.
 - [Comparison](comparison.md) — features and measured speed versus other
