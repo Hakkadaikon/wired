@@ -2,15 +2,15 @@
 
 # Implemented Specifications and Why They Matter
 
-> **At a glance** — seven groups: the QUIC core (4 RFCs), QUIC extensions
-> (7), TLS and PKI (9), cryptographic primitives (11), HTTP/3 and QPACK (5),
-> WebTransport (3), and the IP/UDP foundations (3). Each group's intro says
-> why the group exists; each table row says why that one spec is needed.
-> Use it as a lookup, not a reading list.
+> **At a glance** — eight groups: the QUIC core (4 RFCs), QUIC extensions
+> (9), TLS and PKI (9), cryptographic primitives (11), HTTP/3 and QPACK (5),
+> WebTransport (3), MoQT (1), and the IP/UDP foundations (3). Each group's
+> intro says why the group exists; each table row says why that one spec is
+> needed. Use it as a lookup, not a reading list.
 
 QUIC is not complete in a single RFC.
-Only when several standards are stacked together — the transport core itself, TLS 1.3 for encryption, the cryptographic primitives beneath it, HTTP/3 spoken above it, and even the IP and UDP that form the foundation — does one connection come together.
-Here the implemented specifications are divided into seven groups, showing why each group is needed and what each specification is for.
+Only when several standards are stacked together — the transport core itself, TLS 1.3 for encryption, the cryptographic primitives beneath it, HTTP/3 and MoQT spoken above it, and even the IP and UDP that form the foundation — does one connection come together.
+Here the implemented specifications are divided into eight groups, showing why each group is needed and what each specification is for.
 
 ## QUIC core
 
@@ -40,6 +40,8 @@ To produce behavior close to real operation, these need to be taken in.
 | RFC 9308 | Applicability of the QUIC Transport Protocol | https://www.rfc-editor.org/rfc/rfc9308 | Shows how QUIC should be used, with operational assumptions and cautions. |
 | RFC 9312 | Manageability of the QUIC Transport Protocol | https://www.rfc-editor.org/rfc/rfc9312 | Defines the boundary between what can and cannot be observed from the path. |
 | RFC 8899 | Packetization Layer Path MTU Discovery for Datagram Transport Protocols | https://www.rfc-editor.org/rfc/rfc8899 | Discovers the MTU of a datagram path without relying on ICMP. |
+| RFC 9438 | CUBIC for Fast and Long-Distance Networks | https://www.rfc-editor.org/rfc/rfc9438 | The default congestion-control algorithm, growing the window as a cubic function of time since the last loss. |
+| RFC 9406 | HyStart++: Modified Slow Start for TCP | https://www.rfc-editor.org/rfc/rfc9406 | Exits slow start on a round-trip-time signal instead of only on loss, avoiding a large overshoot. |
 
 ## TLS and PKI
 
@@ -105,6 +107,22 @@ This SDK implements the server side — the session state machine, the WebTransp
 | draft-ietf-webtrans-http3 | WebTransport over HTTP/3 | https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3 | The body of the protocol: the session state machine, the WebTransport stream signals, the session-close capsules, and the application error-code mapping; implemented against draft-15. |
 | RFC 9220 | Bootstrapping WebSockets with HTTP/3 | https://www.rfc-editor.org/rfc/rfc9220 | Brings Extended CONNECT into HTTP/3; the `:protocol` pseudo-header and SETTINGS_ENABLE_CONNECT_PROTOCOL that session establishment rides on. |
 | RFC 9297 | HTTP Datagrams and the Capsule Protocol | https://www.rfc-editor.org/rfc/rfc9297 | Binds DATAGRAMs to a request stream via SETTINGS_H3_DATAGRAM and defines the generic capsule envelope the WebTransport capsules are layered on. |
+
+## Media over QUIC Transport (MoQT)
+
+WebTransport gives an application raw streams and datagrams, but a
+publish/subscribe media protocol still needs its own session setup and
+object model on top of that session. MoQT defines the control messages that
+negotiate a session and a subscription, and the object model that a
+publisher pushes track data with. This SDK implements a subset — SETUP,
+SUBSCRIBE, and PUBLISH, with the SUBGROUP_HEADER data-plane shape — under
+`src/app/moqt/` (six modules: `ctl`, `run`, `sess`, `data`, `kvp`, `vi`), and
+`examples/moqt_chat` drives it as a live audio/video/chat hub over
+WebTransport.
+
+| Spec | Title | Link | Why |
+|------|------------|--------|-----------|
+| draft-ietf-moq-transport-19 | Media over QUIC Transport | https://datatracker.ietf.org/doc/draft-ietf-moq-transport/19/ | The control-message and object-delivery body for publish/subscribe media over a WebTransport (or raw QUIC) session; implemented as a SETUP/SUBSCRIBE/PUBLISH subset with the SUBGROUP_HEADER data plane. |
 
 ## Lower-layer protocols
 

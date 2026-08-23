@@ -115,6 +115,16 @@ For uses that do not wait on retransmission, arriving quickly is worth more than
 
 Representative domains are HTTP/3 frames and the control stream, request and response assembly, QPACK encoding and decoding, and DATAGRAM.
 
+Two further domains sit on top of HTTP/3 rather than beside it. WebTransport
+(`src/app/webtransport/`) turns an HTTP/3 Extended CONNECT request into a
+session that carries its own bidirectional streams and datagrams, giving a
+browser something closer to a raw QUIC connection without leaving HTTP/3's
+negotiation and multiplexing behind. MoQT (`src/app/moqt/`) is a publish/
+subscribe media protocol layered on top of that WebTransport session: a
+SETUP/SUBSCRIBE/PUBLISH subset lets one endpoint push track objects to
+another over the session's streams, which is what live audio/video and chat
+payloads need instead of HTTP/3's request/response shape.
+
 ---
 
 **Next:** [Implemented Specifications](rfcs.md) — every spec these layers
