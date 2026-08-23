@@ -7,7 +7,9 @@ Interoperability runs against independent client implementations via the
 This is the only evidence tier that proves wire compatibility: a
 self-loopback test cannot catch a spec misreading shared by both ends.
 Per-requirement unit/vector coverage lives in [Features](features/README.md).
-Results as of 2026-07.
+Results as of 2026-07 for the QUIC table below; the WebTransport table
+below that reflects the `transfer-unidirectional-send` fix landed
+2026-08-23 (commit `ee13cc7`), re-verified against the ngtcp2 client only.
 
 Legend: `✅` passed · `🟡` implemented but no verdict possible (peer/tooling
 limitation, or a non-protocol gap) · `—` not demonstrated yet.
@@ -48,13 +50,15 @@ limitation, or a non-protocol gap) · `—` not demonstrated yet.
 | `transfer-unidirectional-receive` | ✅ | server pushes files on uni streams |
 | `transfer-bidirectional-receive` | ✅ | server replies on bidi streams |
 | `transfer-datagram-receive` | ✅ | server pushes over DATAGRAMs |
-| `transfer-unidirectional-send` | — | client upload stalls partway (QUIC-level flow control and ACKs verified correct on both sides via qlog; the client stops writing mid-transfer — under investigation) |
-| `transfer-bidirectional-send` | — | same stall |
-| `transfer-datagram-send` | — | same stall |
+| `transfer-unidirectional-send` | — | against webtransport-go, still stalls partway (QUIC-level flow control and ACKs verified correct on both sides via qlog; the client stops writing mid-transfer — under investigation). Root cause found and fixed against a different peer: the server's round-robin pump sent a WT-signalled stream before the session's own 2xx reached the wire, which draft-ietf-webtrans-http3-15 §3.2 requires first; a real ngtcp2-webtransport client silently discarded the misordered stream. Fixed 2026-08-23 (`ee13cc7`) and re-verified passing against the ngtcp2 client. Not yet re-run against webtransport-go |
+| `transfer-bidirectional-send` | — | same stall against webtransport-go; not yet re-run since the `ee13cc7` fix |
+| `transfer-datagram-send` | — | same stall against webtransport-go; not yet re-run since the `ee13cc7` fix |
 
 Two real interop bugs were found and fixed by these runs (a QPACK literal
 field-line buffer split and a WebTransport stream-signal length bug), which
-is exactly what this tier exists for.
+is exactly what this tier exists for. A third (the 2xx/stream ordering
+above) was found via a same-implementation ngtcp2-server comparison run
+rather than this table's webtransport-go peer.
 
 ## Honest summary of the gaps
 
@@ -74,9 +78,12 @@ is exactly what this tier exists for.
   client never actually triggers a path change for this testcase either
   (runner log: "Server saw only a single path in use") -- unverdictable
   for an unrelated reason (a client limitation).
-- The three WebTransport `*-send` interop cases have never passed; the
-  QUIC layer has been verified blameless via qlog, and the investigation
-  is parked at the client's send scheduling.
+- The three WebTransport `*-send` interop cases have never passed against
+  webtransport-go, the peer this table tracks. `transfer-unidirectional-send`
+  had a real root cause (2xx/stream ordering, `ee13cc7`), found and fixed
+  via a comparison run against ngtcp2 rather than this table's peer; it is
+  unverified whether webtransport-go's own stall shares that cause or is a
+  distinct client-side gap, since it has not been re-run since the fix.
 - Ed25519 and RSA certificate paths, priorities (RFC 9218), version 2
   (RFC 9369), and QUIC-bit greasing (RFC 9287) are fully unit-tested but
   have never been exercised against a real peer.
