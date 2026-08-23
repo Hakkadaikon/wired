@@ -2,6 +2,8 @@
 #define H3RESP_RESP_BUILD_H
 
 #include "app/qpack/qpack/field.h"
+#include "app/qpack/qpackenc/qpackenc.h"
+#include "app/qpack/qpackenc/status_line.h"
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
@@ -32,5 +34,23 @@ int h3resp_prefix_field(
     u64                body_len,
     const qpack_field* extra,
     wired_obuf*        out);
+
+/* Same as h3resp_prefix_field, but :status is encoded through qenc's
+ * dynamic table (RFC 9204 4.5.1's Required Insert Count reflects the
+ * outcome) instead of the static-or-literal-only path. qenc == 0 behaves
+ * identically to h3resp_prefix_field. *insert_out (caller-owned scratch,
+ * never null) receives any pending encoder-stream instruction the :status
+ * line generated -- insert_out->insert_len > 0 means a fresh Insert
+ * instruction must be sent on the QPACK encoder stream (RFC 9204 4.3.3) and
+ * qpackenc_note_sent called once it is; always 0 when qenc == 0. Returns 1
+ * with out->len set, 0 if out lacks capacity. */
+int h3resp_prefix_field_qenc(
+    u16                     status,
+    const char*             content_type,
+    u64                     body_len,
+    const qpack_field*      extra,
+    qpackenc_state*         qenc,
+    qpackenc_status_result* insert_out,
+    wired_obuf*             out);
 
 #endif

@@ -5076,6 +5076,14 @@ static void srvrun_arm_h3_resp_framed(
   u8         pre[SRVRUN_RESP_HDR_ROOM];
   wired_obuf pob = obuf_of(pre, sizeof pre);
   usz        off;
+  /* h3resp_prefix (not the qenc-aware h3resp_prefix_field_qenc): this
+   * server does not yet open a QPACK encoder stream (H3_STREAM_QPACK_
+   * ENCODER), so driving :status through c->l.h3.qenc's dynamic table here
+   * would name table state the peer's decoder was never told about (RFC
+   * 9204 2.1.4/4.3.3) -- a protocol violation. qenc's own capacity
+   * (DEFAULT_QPACK_MAX_TABLE_CAP) is still advertised in SETTINGS and
+   * initialized on wired_h3srv_state, ready for the encoder-stream-open
+   * follow-up to switch this call site over. */
   if (!h3resp_prefix(200, ct, total_len, &pob)) return;
   off = SRVRUN_RESP_HDR_ROOM - pob.len;
   bytes_put(
