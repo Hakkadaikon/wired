@@ -64,14 +64,16 @@ docker run --rm ymuski/curl-http3 \
 ```
 
 **Checkpoint** — you have a working HTTP/3 server. The other samples run the
-same way; see [examples/](../examples/) for all four: an HTTP/3 message-log /
+same way; see [examples/](../examples/) for all five: an HTTP/3 message-log /
 static-file server ([word_list](../examples/word_list/)), a WebTransport
 building-blocks demo ([webtransport_echo](../examples/webtransport_echo/)),
 a browser chat over WebTransport DATAGRAMs
-([webtransport_chat](../examples/webtransport_chat/)), and a
+([webtransport_chat](../examples/webtransport_chat/)), a
 [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)
 WebTransport server endpoint
-([webtransport_interop](../examples/webtransport_interop/)).
+([webtransport_interop](../examples/webtransport_interop/)), and a MOQT
+(draft-ietf-moq-transport-19) chat-plus-voice-call room over WebTransport
+([moqt_chat](../examples/moqt_chat/)).
 
 These four recipes (`setup`, `build`, `test`, `run`) are all this page
 needs; the full recipe list lives in

@@ -130,6 +130,18 @@ are reachable from `wired.h` because the app-facing layer is built out of
 them; the Low-level table above is the authoritative list of what needs
 care.
 
+## MOQT is not on this map
+
+`src/app/moqt/` (six modules: `ctl`, `data`, `kvp`, `run`, `sess`, `vi`)
+implements MOQT (draft-ietf-moq-transport-19) but its headers are not
+included by `src/wired.h`, so none of it appears in either table above —
+`wired_moqt_init` and friends (`run/moqtrun.h`) are deliberately outside the
+one-include surface this document maps. This is a design choice, not an
+oversight: `examples/moqt_chat` includes `app/moqt/run/moqtrun.h` directly
+alongside `wired.h`, the same way any other MOQT application would. Treat
+`src/app/moqt/` headers with the same care as the Low-level table — read the
+header before calling.
+
 ---
 
 **Next:** [API reference](https://hakkadaikon.github.io/wired/) — full

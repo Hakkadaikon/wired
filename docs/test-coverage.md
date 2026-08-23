@@ -10,7 +10,9 @@ list of what still needs testing:
   draft), each broken into checkbox requirements with a grep-verified test
   reference (file + function) or an honest gap. **854/1246 requirements
   tested (69%), 155 indirect, 237 untested** — see the per-category tables
-  there.
+  there. MOQT (`src/app/moqt/`, draft-ietf-moq-transport-19) has 169 test
+  functions across its six modules (`tests/app/moq{ctl,data,kvp,sess,vi}_test.c`,
+  `moqtrun_test.c`), plus golden vectors in `tests/app/moqt_golden.h`.
 - **[Interop Results](interop.md)** — cross-implementation runs against
   quic-go and webtransport-go via
   [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner).

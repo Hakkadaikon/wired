@@ -109,6 +109,24 @@ model or an operator hardening guide.
   the SDK provides the mechanism (RST handling, HMAC integrity) but not the
   policy.
 
+## MOQT
+
+- `src/app/moqt/` (`ctl`/`data`/`kvp`/`run`/`sess`/`vi`) implements MOQT
+  (draft-ietf-moq-transport-19) over the WebTransport session and inherits
+  its transport security (TLS 1.3 confidentiality/integrity, endpoint
+  authentication) — no separate MOQT-layer crypto exists.
+  `moqctl_ftn_take`/`_put` decode and encode the AUTHORITY message option and
+  the `UNAUTHORIZED` (`MOQCTL_ERR_UNAUTHORIZED`) / `INVALID_AUTHORITY`
+  control-plane codes, but the SDK does not itself evaluate any token or
+  authority string — draft-19 13.3 leaves authorization (mutual-TLS identity,
+  Privacy Pass / CAT tokens) to the application, and this codebase follows
+  that split.
+- **Caller responsibility:** deciding whether a SUBSCRIBE/PUBLISH is
+  authorized, verifying any authorization token, and rate-limiting
+  subscription requests (draft-19 13.1, Subscription Amplification) are all
+  application-layer concerns; the SDK provides the wire format for carrying
+  and rejecting them, not the policy.
+
 ## Freestanding attack surface
 
 - `src/` links no libc: the freestanding `-ffreestanding -nostdlib` build is the

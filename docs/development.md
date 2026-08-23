@@ -44,7 +44,8 @@ tooling kept out of the shipped binary.
 
 - **app** — HTTP/3 & application: http3 (core · request · server), qpack
   (qpack · qpackdyn), datagram (datagram · dgdeliver), webtransport
-  (capsule · errmap · session · wtwire)
+  (capsule · errmap · session · wtwire), moqt (ctl · data · kvp · run ·
+  sess · vi)
 - **transport** — QUIC transport: conn (cid · lifecycle · loop · pnspace),
   packet (build · frame · header · protect), stream (data · flow), recovery
   (congestion · detect · rtx · stats), version (version · versmgr ·
@@ -120,12 +121,16 @@ commit.
 | `lib` | Archive the SDK objects into `build/libwired.a` (excludes the SDK's own `_start` stub so your app supplies the entry point). |
 | `test` | Format, then build and run `build/quic_test`: `tests/run.c` is a single unity translation unit including every production `.c` and every `*_test.c`, assertions on. |
 | `test-fast` | Same tests as `test`, but the include list of `tests/run.c` is split into shard translation units (`scripts/gen_shards.py`) compiled in parallel — ~4x faster. Cannot see `static`/`typedef`/macro collisions *between* shards; `test` (the single TU, run by CI) remains the authority on those. |
+| `cov` | Line coverage of the hosted unity test via LLVM source-based coverage, built as its own instrumented binary so instrumentation never leaks into the gate build. |
 | `ccn` | `lizard src --CCN 3 -w` — every function must hold cyclomatic complexity ≤ 3. |
 | `check` | `ccn` + `test`. |
 | `fmt` / `fmt-check` | clang-format in place / verify without writing. |
 | `lint` / `cert` | clang-tidy static analysis (CERT C secure-coding rules + bug finders / CERT C only). |
-| `fuzz-header` / `fuzz-qpack` / `fuzz-x509` | Build one libFuzzer+ASan harness (packet header, QPACK, X.509). |
-| `fuzz-ci [secs]` | Run all three harnesses for `secs` seconds each (default 120). |
+| `wire-check` | Verify every `src/**/*.c` is `#include`'d exactly once in `tests/run.c` and compiles to exactly one `build/<path>.o` — catches sources committed but never wired into the build. |
+| `valgrind` | Run the unity test binary under `valgrind --track-origins=yes` to name the culprit of any nondeterministic hang (freestanding code has no implicit zeroing). |
+| `fuzz-header` / `fuzz-qpack` / `fuzz-x509` / `fuzz-onertt` | Build one libFuzzer+ASan harness (packet header, QPACK, X.509, post-handshake connection I/O). |
+| `fuzz-ci [secs]` | Run all four harnesses for `secs` seconds each (default 120). |
+| `fuzz-smoke` | Per-PR gate: build and run each harness for exactly 1 run, catching a broken harness or an instant crash on every push. |
 | `docs` | Regenerate the doxygen API reference into `docs/sdk/` from `wired.h`'s transitive includes. |
 | `gen-ninja` / `compdb` | Regenerate `build.ninja` / emit `compile_commands.json` for clangd. |
 

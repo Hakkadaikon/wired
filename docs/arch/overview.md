@@ -42,7 +42,7 @@ This is what makes the libc-free design verifiable: compiling under `-ffreestand
 
 | Layer | Directory | Responsibility |
 |----|------------|------|
-| app | `src/app/` | HTTP/3 frames and state machine, header compression with QPACK. |
+| app | `src/app/` | HTTP/3 frames and state machine, header compression with QPACK, WebTransport sessions, Media over QUIC Transport (MoQT). |
 | tls | `src/tls/` | TLS 1.3 handshake, key schedule, transport parameters. |
 | transport | `src/transport/` | Packet framing and protection, loss recovery, congestion control, streams, UDP I/O. |
 | crypto | `src/crypto/` | AEAD, hashing, signatures, key derivation, X.509 parsing and verification. |
