@@ -85,10 +85,15 @@ model or an operator hardening guide.
 - The DER parser bounds every length (only `0x81`/`0x82` long forms, nested
   lengths range-checked) so malformed encodings cannot over-read or exhaust the
   stack — `der.c`, `derseq.c`, `derval.c`.
-- **Caller responsibility:** certificate validity-time (`x509_validity_ok`)
-  and hostname/SAN matching (`x509_san_matches`) are implemented but require
-  the current time and the expected hostname from the application; the SDK does
-  not call them itself.
+- **Caller responsibility, by role:** certificate validity-time
+  (`x509_validity_ok`) and hostname/SAN matching (`x509_san_matches`) both
+  require the current time and the expected hostname, which the libc-free core
+  cannot obtain on its own. The `fullhs` core and the server role never call
+  `fullhs_set_policy`, so used standalone they skip both checks. The **client
+  role enforces this by default**: `client.c`'s `feed_initial()` always calls
+  `fullhs_set_policy()` with the application-supplied clock and hostname
+  before authenticating the peer, so a client built on this role cannot forget
+  to validate — there is no opt-out.
 
 ## QUIC / HTTP3 / QPACK
 
