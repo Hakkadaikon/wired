@@ -375,6 +375,8 @@
 #include "app/qpack/qpack/dyntable.c"
 #include "app/qpack/qpack/dynget.c"
 #include "app/qpack/qpack/dynfind.c"
+#include "app/qpack/qpackenc/qpackenc.c"
+#include "app/qpack/qpackenc/status_line.c"
 #include "transport/stream/flow/flow/stream_read.c"
 #include "transport/stream/flow/flow/credit.c"
 #include "transport/stream/flow/flow/stream_credit.c"
@@ -936,6 +938,7 @@
 #include "app/qpackdyn_field_encode_test.c"
 #include "app/field_decode_test.c"
 #include "app/qpackdyn_enc_stream_test.c"
+#include "app/qpackenc_test.c"
 #include "tls/pskmodes_test.c"
 #include "tls/preshared_test.c"
 #include "tls/earlydata_test.c"
@@ -1464,6 +1467,7 @@ int main(void) {
   test_qpackdyn_field_encode();
   test_qpackdyn_field_decode();
   test_qpackdyn_enc_stream();
+  test_qpackenc();
   test_pskmodes();
   test_preshared();
   test_earlydata();
