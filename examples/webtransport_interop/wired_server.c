@@ -299,6 +299,25 @@ static void serve_dg_get(wired_wt_session* s, wired_span ep, wired_span file) {
   wired_server_wt_send_datagram_to(s, wired_span_of(slot, head + (usz)got));
 }
 
+/* --- send-mode completion: close the session once every file is saved ----- */
+
+static usz g_saved; /* files fully saved under /downloads in a send mode */
+
+/* webtransport.md leaves run termination to the endpoints: without an
+ * explicit close the client idles until the runner's 60s cutoff (firefox
+ * never exits; webtransport-go exits only on a much later timeout). Closing
+ * the session the moment the last file landed ends the run deterministically
+ * on every client. */
+static void note_saved(wired_wt_session* s) {
+  g_saved++;
+  if (g_saved != g_nfiles) return;
+  wired_server_wt_close_session(s, 0, wired_span_of(0, 0));
+  /* Reference-server behavior: the run ends by the server going away once
+   * everything is saved. The graceful drain flushes the close capsule,
+   * GOAWAYs, waits for the peer (bounded), and exits the process. */
+  *wired_srvrun_shutdown_word() = 1;
+}
+
 /* --- per-stream receive state -------------------------------------------- */
 
 enum {
@@ -394,7 +413,8 @@ static void feed_get(
 
 /* Header complete: parse the name from head[0..head_n), create the download
  * file with this chunk's content bytes past the newline, keep appending. */
-static void push_start(stream_slot* e, usz head_n, wired_span rest, int fin) {
+static void push_start(
+    wired_wt_session* s, stream_slot* e, usz head_n, wired_span rest, int fin) {
   wired_span name, content;
   if (!wired_wtwire_push_parse(
           wired_span_of(e->head, head_n), &name, &content)) {
@@ -404,6 +424,7 @@ static void push_start(stream_slot* e, usz head_n, wired_span rest, int fin) {
   dest_build(e->dest, wired_wtwire_basename(name));
   wired_fio_write_new(e->dest, rest);
   e->state = fin ? ST_FREE : ST_PUSH_BODY;
+  if (fin) note_saved(s);
 }
 
 static void feed_push_head(
@@ -411,7 +432,6 @@ static void feed_push_head(
   usz prev = e->head_len;
   ssz nl;
   usz skip;
-  (void)s;
   head_append(e, d);
   nl = span_find(wired_span_of(e->head, e->head_len), '\n');
   if (nl < 0) {
@@ -419,16 +439,18 @@ static void feed_push_head(
     return;
   }
   skip = (usz)nl + 1 - prev; /* header bytes consumed from THIS chunk */
-  push_start(e, (usz)nl + 1, wired_span_of(d.p + skip, d.n - skip), fin);
+  push_start(s, e, (usz)nl + 1, wired_span_of(d.p + skip, d.n - skip), fin);
 }
 
 /* ST_PUSH_BODY and ST_BODY: stream the chunk straight to the download file
  * (never buffering the whole body in RAM). */
 static void feed_save(
     wired_wt_session* s, stream_slot* e, wired_span d, int fin) {
-  (void)s;
   wired_fio_append(e->dest, d);
-  if (fin) e->state = ST_FREE;
+  if (fin) {
+    e->state = ST_FREE;
+    note_saved(s);
+  }
 }
 
 typedef void (*feed_fn)(wired_wt_session*, stream_slot*, wired_span, int);
@@ -526,13 +548,15 @@ static void dg_request_next(void) {
 }
 
 /* One reply saved: mark its file done and release the next request; a
- * duplicate or unknown name releases nothing (the window stays honest). */
-static void dg_mark_done(wired_span name) {
+ * duplicate or unknown name releases nothing (the window stays honest).
+ * Returns 1 when the name was newly marked done. */
+static int dg_mark_done(wired_span name) {
   ssz i = dg_file_index(name);
-  if (i < 0) return;
-  if (g_dg_done[i]) return;
+  if (i < 0) return 0;
+  if (g_dg_done[i]) return 0;
   g_dg_done[i] = 1;
   dg_request_next();
+  return 1;
 }
 
 typedef void (*send_fn)(wired_wt_session*);
@@ -567,18 +591,19 @@ static void dg_serve(wired_wt_session* s, wired_span msg) {
 }
 
 /* One PUSH datagram carries a whole (sub-MTU) file. */
-static void dg_save(wired_span msg) {
+static void dg_save(wired_wt_session* s, wired_span msg) {
   wired_span name, content;
   char       dest[PATH_CAP];
   if (!wired_wtwire_push_parse(msg, &name, &content)) return;
   dest_build(dest, wired_wtwire_basename(name));
   wired_fio_write_new(dest, content);
-  dg_mark_done(wired_wtwire_basename(name)); /* release the next request */
+  /* release the next request; a fresh save also counts toward the close */
+  if (dg_mark_done(wired_wtwire_basename(name))) note_saved(s);
 }
 
 static void dg_handle(wired_wt_session* s, wired_span msg) {
   if (g_mode == MODE_TRANSFER) dg_serve(s, msg);
-  if (g_mode == MODE_DG_SEND) dg_save(msg);
+  if (g_mode == MODE_DG_SEND) dg_save(s, msg);
 }
 
 /* The SDK strips the RFC 9297 2.1 quarter-stream-id prefix and resolves the
