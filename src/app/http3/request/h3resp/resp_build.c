@@ -18,17 +18,33 @@ static int resp_append_body(wired_span body, wired_obuf* out) {
 }
 
 /* Emit the HEADERS frame carrying the :status (plus content-type and extra,
- * when given) field section into out. Returns its byte length, or 0 if
- * encoding or framing lacks capacity. */
+ * when given) field section into out. qenc non-null encodes :status through
+ * its dynamic table (h3resp_encode_headers_field_qenc); qenc == 0 keeps the
+ * static-or-literal-only behavior. *insert_out receives any pending
+ * encoder-stream instruction the :status line generated. Returns its byte
+ * length, or 0 if encoding or framing lacks capacity. */
+static usz put_headers_qenc(
+    u16                     status,
+    const char*             content_type,
+    const qpack_field*      extra,
+    qpackenc_state*         qenc,
+    qpackenc_status_result* insert_out,
+    wired_obuf*             out) {
+  u8         field[192];
+  wired_obuf fob = obuf_of(field, sizeof field);
+  if (!h3resp_encode_headers_field_qenc(
+          status, content_type, extra, qenc, insert_out, &fob))
+    return 0;
+  return h3_frame_put(out, H3_FRAME_HEADERS, wired_span_of(field, fob.len));
+}
+
 static usz put_headers(
     u16                status,
     const char*        content_type,
     const qpack_field* extra,
     wired_obuf*        out) {
-  u8         field[192];
-  wired_obuf fob = obuf_of(field, sizeof field);
-  if (!h3resp_encode_headers_field(status, content_type, extra, &fob)) return 0;
-  return h3_frame_put(out, H3_FRAME_HEADERS, wired_span_of(field, fob.len));
+  qpackenc_status_result unused;
+  return put_headers_qenc(status, content_type, extra, 0, &unused, out);
 }
 
 /* RFC 9114 4.1 */
@@ -54,17 +70,38 @@ static int prefix_data_hdr(u64 body_len, wired_obuf* out) {
   return 1;
 }
 
+/* Same as h3resp_prefix_field, but :status is encoded through qenc's
+ * dynamic table when non-null (put_headers_qenc). qenc == 0 behaves
+ * identically to h3resp_prefix_field. *insert_out receives any pending
+ * encoder-stream instruction the :status line generated (insert_len == 0 if
+ * none, always the case when qenc == 0) -- the caller sends it on the QPACK
+ * encoder stream and calls qpackenc_note_sent once it does (RFC 9204 4.3.3
+ * / 4.4.1). */
+int h3resp_prefix_field_qenc(
+    u16                     status,
+    const char*             content_type,
+    u64                     body_len,
+    const qpack_field*      extra,
+    qpackenc_state*         qenc,
+    qpackenc_status_result* insert_out,
+    wired_obuf*             out) {
+  wired_obuf head = obuf_of(out->p, out->cap);
+  usz        off =
+      put_headers_qenc(status, content_type, extra, qenc, insert_out, &head);
+  if (!off) return 0;
+  out->len = off;
+  return prefix_data_hdr(body_len, out);
+}
+
 int h3resp_prefix_field(
     u16                status,
     const char*        content_type,
     u64                body_len,
     const qpack_field* extra,
     wired_obuf*        out) {
-  wired_obuf head = obuf_of(out->p, out->cap);
-  usz        off  = put_headers(status, content_type, extra, &head);
-  if (!off) return 0;
-  out->len = off;
-  return prefix_data_hdr(body_len, out);
+  qpackenc_status_result unused;
+  return h3resp_prefix_field_qenc(
+      status, content_type, body_len, extra, 0, &unused, out);
 }
 
 int h3resp_prefix(
