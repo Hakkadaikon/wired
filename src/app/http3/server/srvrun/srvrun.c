@@ -28,6 +28,7 @@
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/util/ct.h"
 #include "common/bytes/util/num.h"
+#include "common/bytes/varint/varint.h"
 #include "common/diag/error/error.h"
 #include "common/platform/clock/mono.h"
 #include "common/platform/debug/debug.h"
@@ -560,10 +561,19 @@ typedef struct {
    * within one connection's lifetime, not across the whole file. */
   u64 qlog_slot;
   /** RFC 9000 2.1: how many server-initiated uni streams this connection
-   * has opened past the H3 control stream (id 3), so the next uni id is
-   * 7 + 4 * wt_uni_opened -- ids only ever climb, a freed send slot never
-   * reuses one. */
+   * has opened past the two fixed plumbing streams (H3 control id 3, QPACK
+   * encoder id 7), so the next uni id is 11 + 4 * wt_uni_opened -- ids only
+   * ever climb, a freed send slot never reuses one. */
   u64 wt_uni_opened;
+  /** RFC 9204 4.2: 1 once this connection's own QPACK encoder stream (id 7)
+   * has been opened (srvrun_open_qenc_stream) -- opened exactly once, right
+   * after SETTINGS is confirmed sent (c->l.h3.settings_sent), never reaped
+   * for the life of the connection (its wtsend[] slot's append_open stays
+   * set). Guards against re-claiming a second slot on a later step. */
+  int qenc_stream_opened;
+  /** wtsend[] slot index (see srvrun_wtsend_claim) the QPACK encoder stream
+   * lives on once qenc_stream_opened is set; meaningless before then. */
+  int qenc_wtsend_slot;
   /** RFC 9000 2.1: server-initiated bidi streams opened; the next bidi id
    * is 1 + 4 * wt_bidi_opened (nothing else opens server bidi streams). */
   u64 wt_bidi_opened;
@@ -1349,6 +1359,9 @@ static int srvrun_refuse(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
 static void srvrun_on_step(
     const srvrun_step_ctx* ctx, srvrun_conn* c, wired_mspan dg);
 static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot);
+/* Forward-declared for the same reason: srvrun_on_step (above) calls it, but
+ * it is defined alongside its own wtsend[] helpers further down. */
+static void srvrun_open_qenc_stream(srvrun_conn* c);
 
 /* RFC 9001 4.6.1: dg's boot accumulator held every 0-RTT datagram that
  * arrived before this boot's early keys existed (wired_srvboot_acc_feed) --
@@ -3131,6 +3144,7 @@ static void srvrun_on_step(
                               * onto a slice, or srvrun_flush_deferred_ack
                               * sends it at step end. */
   produced = wired_srvloop_step(&conn, dg, &ob);
+  if (c->l.h3.settings_sent) srvrun_open_qenc_stream(c);
   srvrun_ku_note_rotation(c, ctx->now_ms);
   srvrun_note_recv(ctx, &mark, c, dg.n);
   srvrun_offer_wt_streams(ctx->cfg, c);
@@ -3619,14 +3633,21 @@ static srvrun_wtsend* srvrun_wtsend_claim(srvrun_conn* c, u64 credit) {
 /* RFC 9000 2.1: allocate the next server-initiated stream id. Called only
  * after a send slot has been claimed, so a failed open never burns an id. */
 static u64 srvrun_next_uni_id(srvrun_conn* c) {
-  return 7 + 4 * c->wt_uni_opened++; /* the H3 control stream took id 3 */
+  /* id 3 = H3 control stream, id 7 = QPACK encoder stream (srvrun_open_qenc_
+   * stream, opened once outside this counter) -- WT uni streams start at 11. */
+  return 11 + 4 * c->wt_uni_opened++;
 }
+
+/* RFC 9204 4.2: this connection's fixed QPACK encoder stream id -- the
+ * second server-initiated uni stream, right after the H3 control stream. */
+#define SRVRUN_QENC_STREAM 7
 
 /* RFC 9000 4.6: the peer's current uni-stream grant for server-initiated
  * streams -- the highest runtime MAX_STREAMS(uni) raise, or the
  * ClientHello's initial_max_streams_uni before any raise. Counts every uni
  * stream this server opened, H3 plumbing included (wt_uni_opened's id
- * arithmetic starts past control/QPACK: those three always count). */
+ * arithmetic starts past the control + QPACK encoder streams: those two
+ * always count, srvrun_uni_open_allowed's own +2). */
 static u64 srvrun_peer_uni_limit(const srvrun_conn* c) {
   return c->peer_uni_stream_limit ? c->peer_uni_stream_limit
                                   : c->s.sdrv.peer_initial_max_streams_uni;
@@ -3643,11 +3664,12 @@ static void srvrun_apply_uni_limit_update(srvrun_conn* c) {
 }
 
 /* 1 iff the peer's uni-stream limit admits one more server-initiated open:
- * wt_uni_opened counts opens past the H3 control stream (id 3, the one
- * fixed plumbing stream this server opens), which consumed the first
- * grant. */
+ * wt_uni_opened counts opens past the two fixed plumbing streams this server
+ * always opens -- the H3 control stream (id 3) and the QPACK encoder stream
+ * (id 7, srvrun_open_qenc_stream) -- which together consumed the first two
+ * grants. */
 static int srvrun_uni_open_allowed(const srvrun_conn* c) {
-  return maxstreams_can_open(c->wt_uni_opened + 1, srvrun_peer_uni_limit(c));
+  return maxstreams_can_open(c->wt_uni_opened + 2, srvrun_peer_uni_limit(c));
 }
 
 static u64 srvrun_next_bidi_id(srvrun_conn* c) {
@@ -3674,6 +3696,50 @@ static i64 srvrun_wtsend_arm_id(
    * stays linear -- its bytes live in the app's storage, not roundbuf. */
   if (!w->view_round) wired_sendq_set_ring(&w->sess.q, SRVRUN_WTSEND_BUF);
   return (i64)id;
+}
+
+/* RFC 9204 4.2: the encoder stream's one-byte leading stream type -- no
+ * SETTINGS-equivalent header follows (unlike the H3 control stream), the
+ * type byte alone marks the stream and every subsequent byte is QPACK
+ * encoder-stream instructions (Insert/Duplicate/Set Capacity). */
+static usz srvrun_qenc_prefix(u8* out, usz cap) {
+  usz off = 0;
+  if (!varint_put(wired_mspan_of(out, cap), &off, H3_STREAM_QPACK_ENCODER))
+    return 0;
+  return off;
+}
+
+/* RFC 9204 4.2: open this connection's ONE QPACK encoder stream (id
+ * SRVRUN_QENC_STREAM) once, right after SETTINGS is confirmed sent --
+ * claims a wtsend slot exactly like a WT uni open (srvrun_wt_open_uni_
+ * common), but outside wt_uni_opened's id counter and its WT-session flow
+ * gates: this is server plumbing, not an app-driven WebTransport stream, and
+ * it never closes (append_open stays 1 for the connection's whole life). A
+ * claim failure (every wtsend slot busy) leaves qenc_stream_opened 0, so a
+ * later step retries rather than silently going without an encoder stream
+ * forever. */
+/* Claim a wtsend slot and arm it over the encoder stream's n-byte prefix,
+ * recording c's own opened state. Returns 1 on success, 0 if every wtsend
+ * slot is busy (c is left unchanged, a later step retries). Split from
+ * srvrun_open_qenc_stream so its own branch count stays inside the CCN
+ * gate. */
+static int srvrun_qenc_claim_and_arm(srvrun_conn* c, const u8* prefix, usz n) {
+  srvrun_wtsend* w =
+      srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_uni);
+  if (!w) return 0;
+  w->append_open = 1;
+  srvrun_wtsend_arm_id(c, w, SRVRUN_QENC_STREAM, wired_span_of(prefix, n));
+  c->qenc_wtsend_slot   = (int)(w - c->wtsend);
+  c->qenc_stream_opened = 1;
+  return 1;
+}
+
+static void srvrun_open_qenc_stream(srvrun_conn* c) {
+  u8  prefix[1];
+  usz n = srvrun_qenc_prefix(prefix, sizeof prefix);
+  if (c->qenc_stream_opened) return;
+  if (n == 0) return;
+  srvrun_qenc_claim_and_arm(c, prefix, n);
 }
 
 static srvrun_wtsend* srvrun_wtsend_find(srvrun_conn* c, u64 stream_id);
@@ -5064,6 +5130,32 @@ static void srvrun_arm_hq09_resp(
  * every later round's bytes are additional payload of that same frame, so
  * only round 0 ever calls this). Split out of srvrun_start_app_resp so
  * hq-interop's un-framed sibling can skip this whole shape (CCN). */
+/* c's own qpackenc_state, or 0 while the QPACK encoder stream (RFC 9204 4.2)
+ * has not been opened yet -- h3resp_prefix_field_qenc/h3resp_encode_headers_
+ * field_qenc both treat a null qenc as "no dynamic table", the pre-existing
+ * static-or-literal-only behavior, so a response built before the encoder
+ * stream opens never references table state the peer's decoder was never
+ * told about (RFC 9204 2.1.4/4.3.3). */
+static qpackenc_state* srvrun_qenc_active(srvrun_conn* c) {
+  return c->qenc_stream_opened ? &c->l.h3.qenc : 0;
+}
+
+/* RFC 9204 4.3.3/4.4.1: forward a fresh Insert instruction (ins->insert_len
+ * bytes) to the QPACK encoder stream's wtsend slot, then record that the
+ * field section it was generated for was sent (qpackenc_note_sent) so
+ * pending_acks tracks it. A no-op when there is nothing to send (insert_len
+ * == 0, the common case: an entry already lived in the dynamic table or
+ * capacity fell back to literal) or the encoder stream is not open. */
+static void srvrun_qenc_send_insert(
+    srvrun_conn* c, const qpackenc_status_result* ins) {
+  if (!c->qenc_stream_opened) return;
+  if (ins->insert_len)
+    srvrun_wtsend_stage_round(
+        c, &c->wtsend[c->qenc_wtsend_slot],
+        wired_span_of(ins->insert_instr, ins->insert_len), 0);
+  qpackenc_note_sent(&c->l.h3.qenc, ins->required_insert_count);
+}
+
 static void srvrun_arm_h3_resp_framed(
     const srvrun_step_ctx* ctx,
     srvrun_conn*           c,
@@ -5073,18 +5165,14 @@ static void srvrun_arm_h3_resp_framed(
     const wired_obuf*      body,
     const char*            ct,
     u64                    total_len) {
-  u8         pre[SRVRUN_RESP_HDR_ROOM];
-  wired_obuf pob = obuf_of(pre, sizeof pre);
-  usz        off;
-  /* h3resp_prefix (not the qenc-aware h3resp_prefix_field_qenc): this
-   * server does not yet open a QPACK encoder stream (H3_STREAM_QPACK_
-   * ENCODER), so driving :status through c->l.h3.qenc's dynamic table here
-   * would name table state the peer's decoder was never told about (RFC
-   * 9204 2.1.4/4.3.3) -- a protocol violation. qenc's own capacity
-   * (DEFAULT_QPACK_MAX_TABLE_CAP) is still advertised in SETTINGS and
-   * initialized on wired_h3srv_state, ready for the encoder-stream-open
-   * follow-up to switch this call site over. */
-  if (!h3resp_prefix(200, ct, total_len, &pob)) return;
+  u8                     pre[SRVRUN_RESP_HDR_ROOM];
+  wired_obuf             pob = obuf_of(pre, sizeof pre);
+  qpackenc_status_result ins;
+  usz                    off;
+  if (!h3resp_prefix_field_qenc(
+          200, ct, total_len, 0, srvrun_qenc_active(c), &ins, &pob))
+    return;
+  srvrun_qenc_send_insert(c, &ins);
   off = SRVRUN_RESP_HDR_ROOM - pob.len;
   bytes_put(
       wired_mspan_of(st, SRVRUN_RESP_HDR_ROOM), &off,
