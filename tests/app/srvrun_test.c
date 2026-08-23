@@ -12473,6 +12473,95 @@ static void test_srvrun_wt_on_session_notified_once(void) {
   CHECK(wt_bytes_eq(g_srn_wt_sess_proto, (const u8*)"chat", 4));
 }
 
+/* wt_on_session callback that immediately opens a uni GET stream, mirroring
+ * the interop example server's session_send_gets (wired_server.c) -- the
+ * exact shape draft-ietf-webtrans-http3-15 3.2's "a session is established
+ * once [the server] sends a 2xx response" requires the CONNECT's own 2xx to
+ * precede on the wire. */
+static const u8 sr_wt_ordering_get[] = {'G', 'E', 'T', ' ', 'x'};
+static void     srn_wt_open_uni_on_session(
+    void* ctx, wired_wt_session* s, wired_span path, wired_span protocol) {
+  (void)ctx;
+  (void)path;
+  (void)protocol;
+  /* The interop example opens every REQUESTS-listed file's GET at once
+   * (session_send_gets -> send_gets_uni, wired_server.c) -- 5 here, matching
+   * a real run's file count, not 1. */
+  for (int i = 0; i < 5; i++)
+    wired_server_wt_open_uni(s, wired_span_of(sr_wt_ordering_get, 5));
+}
+
+/* WIRE ORDERING (draft-ietf-webtrans-http3-15 3.2): "From the client's
+ * perspective, a WebTransport session is established when the client
+ * receives a 2xx response" -- a peer that receives a WT-signalled stream
+ * before it has seen the CONNECT's own 2xx cannot yet associate that stream
+ * with any session (a real ngtcp2-webtransport client does exactly this: it
+ * silently discards a uni stream it cannot attribute, confirmed by both a
+ * live capture and a same-implementation ngtcp2-server comparison run,
+ * where the 2xx arrives in the SAME packet as the session's own SETTINGS
+ * and strictly before any WT stream). The CONNECT's 2xx (armed by
+ * srvrun_start_wt before the app callback fires) must therefore reach the
+ * wire in the very first pump pass that has anything to send, ahead of a
+ * uni stream the app opens from within that same on_session callback. */
+static void test_srvrun_wt_connect_200_precedes_uni_stream_on_wire(void) {
+  struct lp_fix f;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_conn*  conns = sr_test_conns();
+  wired_obuf    ob;
+  u8            obuf[1024];
+  sockaddr      srv, from;
+  i64           sfd, cfd;
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  conns[0].peer                                    = srv;
+  conns[0].s.sdrv.peer_initial_max_stream_data_uni = 1u << 20;
+  conns[0].s.sdrv.peer_initial_max_streams_uni     = 16;
+  conns[0].cc.cwnd                                 = 1u << 20;
+  srn_wt_start(table, conns, 0, srn_wt_open_uni_on_session);
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].resp[0].sess.active == 1);
+  {
+    srvrun_cfg   cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0, 0};
+    srvrun_pump_sess(&ctx, 0);
+  }
+  {
+    u8             pkt[1500];
+    const u8*      pl;
+    usz            pll;
+    framewalk      it;
+    framewalk_item item;
+    int            nframes         = 0;
+    u64            first_stream_id = (u64)-1;
+    i64 r = wired_udp_recvfrom(sfd, wired_mspan_of(pkt, sizeof pkt), &from);
+    CHECK(r > 0);
+    CHECK(r < 200); /* pins that this is one small QUIC packet, not several
+                     * frames coalesced into a jumbo one -- if this ever
+                     * fails, the test's own send budget grew large enough
+                     * to change what it's testing. */
+    CHECK(client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1);
+    framewalk_init(&it, pl, pll);
+    while (framewalk_next(&it, &item)) {
+      stream_frame sf;
+      if (frame_get_stream(item.start, item.remaining, &sf) == 0) continue;
+      if (first_stream_id == (u64)-1) first_stream_id = sf.stream_id;
+      nframes++;
+    }
+    CHECK(nframes >= 1);
+    /* stream 4 (the CONNECT's own bidi stream, carrying the 2xx) must be
+     * the first STREAM frame on the wire -- not stream 7 (the first uni
+     * GET the on_session callback opened). */
+    CHECK(first_stream_id == 4);
+  }
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
 /* No negotiation result -> the callback still fires, with an empty protocol
  * span. */
 static void test_srvrun_wt_on_session_empty_protocol(void) {
@@ -13770,9 +13859,13 @@ static void test_srvrun_wt_open_uni_respects_stream_credit(void) {
 }
 
 /* RFC 9000 4.1: WT sends draw from the SAME connection-level credit as
- * resp[] responses -- with room for exactly one chunk total, the WT slot
- * (pumped first in the round) takes it and the resp slot finds the ceiling
- * spent, never each consuming the full credit independently. */
+ * resp[] responses -- with room for exactly one chunk total, the resp slot
+ * (pumped first in the round, draft-ietf-webtrans-http3-15 3.2: a session is
+ * established only once its 2xx reaches the peer, so resp[] -- which is
+ * where that 2xx lives -- must never be starved by the WT streams the
+ * session's own on_session callback opens in the very same pass) takes it
+ * and the WT slot finds the ceiling spent, never each consuming the full
+ * credit independently. */
 static void test_srvrun_wt_send_conn_credit_shared_with_resp(void) {
   static u8     wbody[4 * SRVRUN_CHUNK];
   static u8     rbody[4 * SRVRUN_CHUNK];
@@ -13798,8 +13891,8 @@ static void test_srvrun_wt_send_conn_credit_shared_with_resp(void) {
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
     srvrun_pump_sess(&ctx, 0);
   }
-  CHECK(c->wtsend[0].sess.q.cur == SRVRUN_CHUNK);
-  CHECK(c->resp[0].sess.q.cur == 0);
+  CHECK(c->resp[0].sess.q.cur == SRVRUN_CHUNK);
+  CHECK(c->wtsend[0].sess.q.cur == 0);
 }
 
 /* C2 (S3 chat-loss investigation, tasks/moqt-voice-stability-plan.md):
@@ -15131,6 +15224,7 @@ void test_srvrun(void) {
   test_srvrun_wt_negotiate_bad_syntax_no_header();
   test_srvrun_wt_negotiate_disabled_unchanged();
   test_srvrun_wt_on_session_notified_once();
+  test_srvrun_wt_connect_200_precedes_uni_stream_on_wire();
   test_srvrun_wt_on_session_empty_protocol();
   test_srvrun_wt_on_session_two_sessions_each_path();
   test_srvrun_wt_avail_captured_from_wire();
