@@ -6,6 +6,7 @@
 #include "app/http3/core/h3conn/request.h"
 #include "app/http3/core/h3conn/response.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
+#include "app/http3/request/h3resp/field_encode.h"
 #include "app/qpack/qpack/fieldline.h"
 #include "app/qpack/qpack/literal.h"
 #include "app/qpack/qpack/prefix.h"
@@ -12077,11 +12078,12 @@ static void test_srvrun_uni_open_respects_peer_limit(void) {
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.s.sdrv.peer_initial_max_streams_uni = 2;
+  c.s.sdrv.peer_initial_max_streams_uni = 3;
   c.wt_uni_opened                       = 0;
-  CHECK(srvrun_uni_open_allowed(&c) == 1); /* control(1) + this = 2 <= 2 */
+  /* control(1) + qenc(1) + this = 3 <= 3 */
+  CHECK(srvrun_uni_open_allowed(&c) == 1);
   c.wt_uni_opened = 1;
-  CHECK(srvrun_uni_open_allowed(&c) == 0); /* would be the 3rd of 2 */
+  CHECK(srvrun_uni_open_allowed(&c) == 0); /* would be the 4th of 3 */
 }
 
 /* RFC 9000 19.11: a gathered MAX_STREAMS(uni) raise folds into the
@@ -12103,10 +12105,10 @@ static void test_srvrun_uni_peer_limit_update_monotone(void) {
   c.l.max_streams_uni_seen_flag = 1;
   srvrun_apply_uni_limit_update(&c);
   CHECK(c.peer_uni_stream_limit == 50); /* never lowered */
+  c.wt_uni_opened = 47;
+  CHECK(srvrun_uni_open_allowed(&c) == 1); /* 47+2 < 50 */
   c.wt_uni_opened = 48;
-  CHECK(srvrun_uni_open_allowed(&c) == 1); /* 48+1 < 50 */
-  c.wt_uni_opened = 49;
-  CHECK(srvrun_uni_open_allowed(&c) == 0); /* 49+1 == 50: full */
+  CHECK(srvrun_uni_open_allowed(&c) == 0); /* 48+2 == 50: full */
 }
 
 /* Uni STREAMS_BLOCKED before any uni slot release falls back to the
@@ -12554,7 +12556,7 @@ static void test_srvrun_wt_connect_200_precedes_uni_stream_on_wire(void) {
     }
     CHECK(nframes >= 1);
     /* stream 4 (the CONNECT's own bidi stream, carrying the 2xx) must be
-     * the first STREAM frame on the wire -- not stream 7 (the first uni
+     * the first STREAM frame on the wire -- not stream 11 (the first uni
      * GET the on_session callback opened). */
     CHECK(first_stream_id == 4);
   }
@@ -12741,9 +12743,10 @@ static void sr_wtsend_ack_all_inflight(
 }
 
 /* WIRE: wired_server_wt_open_uni allocates the first free server uni id
- * (RFC 9000 2.1: 3 mod 4; the H3 control stream already took 3, so 7) and
- * the pump sends the payload verbatim as a STREAM frame on that id from
- * offset 0, FIN on the final slice. A second open is 4 apart. */
+ * (RFC 9000 2.1: 3 mod 4; the H3 control stream took 3 and the QPACK
+ * encoder stream took 7, so 11) and the pump sends the payload verbatim as
+ * a STREAM frame on that id from offset 0, FIN on the final slice. A second
+ * open is 4 apart. */
 static const u8 sr_wtsend_hello[] = {0x54, 0x04, 'h', 'i'};
 
 static void test_srvrun_wt_open_uni_streams_payload_on_wire(void) {
@@ -12762,7 +12765,7 @@ static void test_srvrun_wt_open_uni_streams_payload_on_wire(void) {
   c->peer = srv;
   id      = wired_server_wt_open_uni(
       &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello));
-  CHECK(id == 7);
+  CHECK(id == 11);
   {
     srvrun_cfg   cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -12779,7 +12782,7 @@ static void test_srvrun_wt_open_uni_streams_payload_on_wire(void) {
     CHECK(r > 0);
     CHECK(client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1);
     CHECK(frame_get_stream(pl, pll, &sf) > 0);
-    CHECK(sf.stream_id == 7);
+    CHECK(sf.stream_id == 11);
     CHECK(sf.offset == 0);
     high = sr_collect_stream(pl, pll, asm_buf, sizeof asm_buf, high, &fin);
   }
@@ -12792,7 +12795,7 @@ static void test_srvrun_wt_open_uni_streams_payload_on_wire(void) {
   CHECK(
       wired_server_wt_open_uni(
           &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
-      11);
+      15);
 }
 
 /* RFC 9000 4.6/19.14: a server-initiated uni open refused by the peer's own
@@ -12812,10 +12815,13 @@ static void test_srvrun_uni_open_refused_sends_streams_blocked(void) {
   ob                                     = (wired_obuf){obuf, sizeof obuf, 0};
   c                                      = sr_wtsend_fixture(&f, &ob);
   c->peer                                = srv;
-  c->s.sdrv.peer_initial_max_streams_uni = 1; /* control(1) already spent */
-  id                                     = wired_server_wt_open_uni_stream(
+  c->s.sdrv.peer_initial_max_streams_uni = 1; /* control+qenc(2) already
+                                                  spent, so this is refused
+                                                  even before either counts
+                                                  a real WT uni open */
+  id = wired_server_wt_open_uni_stream(
       &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello));
-  CHECK(id == -1); /* refused: no grant left past the control stream */
+  CHECK(id == -1); /* refused: no grant left past control+qenc */
   CHECK(c->uni_blocked_seen == 1);
   {
     srvrun_cfg   cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -12970,10 +12976,11 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
   c->peer = srv;
   CHECK(
       wired_server_wt_open_uni_stream(
-          &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 7);
+          &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
+      11);
   CHECK(c->wtsend[0].append_open == 1);
   CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
-  CHECK(sf.stream_id == 7);
+  CHECK(sf.stream_id == 11);
   CHECK(sf.offset == 0);
   CHECK(sf.fin == 0); /* round end, but the stream stays open */
   /* round 1 is NOT yet acknowledged: the next round is still accepted --
@@ -12981,7 +12988,7 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
    * -- and reaches the wire at its own offset with no ACK in between. */
   for (usz i = 0; i < sizeof scratch; i++) scratch[i] = sr_wtsend_more[i];
   CHECK(
-      wired_server_wt_stream_send(&c->wt, 7, wired_span_of(scratch, 3), 0) ==
+      wired_server_wt_stream_send(&c->wt, 11, wired_span_of(scratch, 3), 0) ==
       1);
   for (usz i = 0; i < sizeof scratch; i++) scratch[i] = 0xee;
   CHECK(c->stat_wtsend_busy == 0);
@@ -12993,12 +13000,12 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
   sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 0);
   /* an empty round has no slice for a FIN to ride on -- a misuse
    * rejection, NOT a busy drop, so the busy counter stays put */
-  CHECK(wired_server_wt_stream_send(&c->wt, 7, wired_span_of(0, 0), 1) == -1);
+  CHECK(wired_server_wt_stream_send(&c->wt, 11, wired_span_of(0, 0), 1) == -1);
   CHECK(c->stat_wtsend_busy == 0);
   CHECK(
       wired_server_wt_stream_send(
-          &c->wt, 7, wired_span_of(sr_wtsend_tail, sizeof sr_wtsend_tail), 1) ==
-      1);
+          &c->wt, 11, wired_span_of(sr_wtsend_tail, sizeof sr_wtsend_tail),
+          1) == 1);
   CHECK(c->wtsend[0].append_open == 0);
   CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
   CHECK(sf.offset == sizeof sr_wtsend_hello + sizeof sr_wtsend_more);
@@ -13028,15 +13035,17 @@ static void test_srvrun_wt_stream_send_queue_bound(void) {
   c->peer = srv;
   CHECK(
       wired_server_wt_open_uni_stream(
-          &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 7);
+          &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
+      11);
   /* fill the epoch buffer to the brim behind the unacked opening round */
   CHECK(
       wired_server_wt_stream_send(
-          &c->wt, 7,
+          &c->wt, 11,
           wired_span_of(big, SRVRUN_WTSEND_BUF - sizeof sr_wtsend_hello),
           0) == 1);
   /* no room left: one more byte is refused and counted */
-  CHECK(wired_server_wt_stream_send(&c->wt, 7, wired_span_of(big, 1), 0) == -1);
+  CHECK(
+      wired_server_wt_stream_send(&c->wt, 11, wired_span_of(big, 1), 0) == -1);
   CHECK(c->stat_wtsend_busy == 1);
   /* drain + ack the backlog: the buffer recycles and accepts again. The
    * staged total is exactly SRVRUN_WTSEND_BUF bytes = a KNOWN slice count;
@@ -13049,7 +13058,7 @@ static void test_srvrun_wt_stream_send_queue_bound(void) {
       CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
   }
   sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 0);
-  CHECK(wired_server_wt_stream_send(&c->wt, 7, wired_span_of(big, 1), 0) == 1);
+  CHECK(wired_server_wt_stream_send(&c->wt, 11, wired_span_of(big, 1), 0) == 1);
   wired_udp_close(cfd);
   wired_udp_close(sfd);
 }
@@ -13085,11 +13094,12 @@ static void test_srvrun_wt_stream_fin_deferred_until_round_acked(void) {
   c->peer = srv;
   CHECK(
       wired_server_wt_open_uni_stream(
-          &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 7);
+          &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
+      11);
   /* the open round is still unacknowledged -- stream_fin is accepted
    * (unlike stream_send, which is refused outright in this state) but
    * cannot go out yet. */
-  CHECK(wired_server_wt_stream_fin(&c->wt, 7) == 1);
+  CHECK(wired_server_wt_stream_fin(&c->wt, 11) == 1);
   CHECK(c->wtsend[0].fin_requested == 1);
   CHECK(c->wtsend[0].fin_only_pending == 0);
   /* nothing new on the wire until the open round's own ACK: draining it
@@ -13100,7 +13110,7 @@ static void test_srvrun_wt_stream_fin_deferred_until_round_acked(void) {
   sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 0);
   /* the deferred FIN promotes itself and goes out on the very next pump. */
   CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
-  CHECK(sf.stream_id == 7);
+  CHECK(sf.stream_id == 11);
   CHECK(sf.offset == sizeof sr_wtsend_hello);
   CHECK(sf.length == 0);
   CHECK(sf.fin == 1);
@@ -13130,10 +13140,11 @@ static void test_srvrun_wt_stream_fin_immediate_when_round_already_done(void) {
   c->peer = srv;
   CHECK(
       wired_server_wt_open_uni_stream(
-          &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 7);
+          &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
+      11);
   CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
   sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 0);
-  CHECK(wired_server_wt_stream_fin(&c->wt, 7) == 1);
+  CHECK(wired_server_wt_stream_fin(&c->wt, 11) == 1);
   CHECK(c->wtsend[0].fin_only_pending == 1);
   CHECK(c->wtsend[0].fin_requested == 0);
   CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
@@ -13169,7 +13180,7 @@ static void test_srvrun_wt_stream_open_variants_mark_append(void) {
   CHECK(
       wired_server_wt_stream_send(
           &c->wt, 99, wired_span_of(pay, sizeof pay), 0) == -1);
-  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 7);
+  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
   CHECK(c->wtsend[2].append_open == 0);
 }
 
@@ -13214,14 +13225,15 @@ static void test_srvrun_wt_stream_reset_sends_reset_and_frees_slot(void) {
   c->peer = srv;
   CHECK(
       wired_server_wt_open_uni_stream(
-          &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 7);
-  CHECK(wired_server_wt_stream_reset(&c->wt, 7, 0x42) == 1);
+          &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
+      11);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 11, 0x42) == 1);
   CHECK(c->wtsend[0].in_use == 0);
   CHECK(c->wt_stream_reset_n == 1);
   CHECK(
       wired_server_wt_stream_send(
-          &c->wt, 7, wired_span_of(sr_wtsend_hello, 1), 0) == -1);
-  CHECK(wired_server_wt_stream_fin(&c->wt, 7) == -1);
+          &c->wt, 11, wired_span_of(sr_wtsend_hello, 1), 0) == -1);
+  CHECK(wired_server_wt_stream_fin(&c->wt, 11) == -1);
   {
     srvrun_cfg cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -13232,7 +13244,7 @@ static void test_srvrun_wt_stream_reset_sends_reset_and_frees_slot(void) {
     reset_stream_frame rs;
     int                alone = 0;
     CHECK(sr_recv_reset_stream(&f, sfd, &rs, &alone));
-    CHECK(rs.stream_id == 7);
+    CHECK(rs.stream_id == 11);
     CHECK(rs.error_code == wired_wterrmap_to_http3(0x42));
     CHECK(rs.final_size == sizeof sr_wtsend_hello);
     CHECK(alone == 1); /* no STOP_SENDING follows */
@@ -13258,11 +13270,12 @@ static void test_srvrun_wt_stream_reset_two_latched_both_drain(void) {
   c->peer = srv;
   CHECK(
       wired_server_wt_open_uni_stream(
-          &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 7);
+          &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
+      11);
   id2 = wired_server_wt_open_uni_stream(
       &c->wt, wired_span_of(sr_wtsend_hello, 2));
-  CHECK(id2 > 7);
-  CHECK(wired_server_wt_stream_reset(&c->wt, 7, 0x42) == 1);
+  CHECK(id2 > 11);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 11, 0x42) == 1);
   CHECK(wired_server_wt_stream_reset(&c->wt, (u64)id2, 0x43) == 1);
   CHECK(c->wt_stream_reset_n == 2);
   {
@@ -13275,7 +13288,7 @@ static void test_srvrun_wt_stream_reset_two_latched_both_drain(void) {
     reset_stream_frame rs;
     int                alone = 0;
     CHECK(sr_recv_reset_stream(&f, sfd, &rs, &alone));
-    CHECK(rs.stream_id == 7);
+    CHECK(rs.stream_id == 11);
     CHECK(rs.final_size == sizeof sr_wtsend_hello);
     CHECK(sr_recv_reset_stream(&f, sfd, &rs, &alone));
     CHECK(rs.stream_id == (u64)id2);
@@ -13303,10 +13316,11 @@ static void test_srvrun_wt_stream_reset_latch_full_keeps_slot(void) {
   c->peer = srv;
   CHECK(
       wired_server_wt_open_uni_stream(
-          &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 7);
+          &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
+      11);
   for (usz i = 0; i < SRVRUN_WT_RESET_LATCH; i++)
     CHECK(wired_server_wt_stream_reset(&c->wt, 1000 + i, 0x42) == 1);
-  CHECK(wired_server_wt_stream_reset(&c->wt, 7, 0x42) == 0);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 11, 0x42) == 0);
   CHECK(c->wtsend[0].in_use == 1); /* slot NOT released on refusal */
   CHECK(c->wt_stream_reset_n == SRVRUN_WT_RESET_LATCH);
   wired_udp_close(cfd);
@@ -13332,7 +13346,7 @@ static void test_srvrun_wt_open_uni_within_max_streams_succeeds(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_wtsend_fixture(&f, &ob);
   wired_wt_session_set_max_streams(&c->wt, 0, 1); /* uni limit = 1 */
-  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 7);
+  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
   CHECK(c->wt.opened_streams_uni == 1);
   CHECK(c->wt_flow_violation[0] == 0);
 }
@@ -13350,7 +13364,7 @@ static void test_srvrun_wt_open_uni_exceeding_max_streams_refused(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_wtsend_fixture(&f, &ob);
   wired_wt_session_set_max_streams(&c->wt, 0, 1);
-  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 7);
+  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == -1);
   CHECK(c->wtsend[1].in_use == 0); /* second slot never claimed */
   CHECK(c->wt_flow_violation[0] == 1);
@@ -13803,7 +13817,7 @@ static void test_srvrun_wt_open_slot_exhaustion_and_reuse(void) {
   for (int i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
     CHECK(
         wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) ==
-        7 + 4 * (i64)i);
+        11 + 4 * (i64)i);
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) < 0);
   {
     srvrun_cfg cfg = {
@@ -13819,7 +13833,7 @@ static void test_srvrun_wt_open_slot_exhaustion_and_reuse(void) {
     CHECK(c->wtsend[i].in_use == 0);
   CHECK(
       wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) ==
-      7 + 4 * (i64)SRVRUN_WT_SEND_SLOTS);
+      11 + 4 * (i64)SRVRUN_WT_SEND_SLOTS);
 }
 
 /* RFC 9000 4.1/19.10: a peer uni-stream credit below one chunk blocks the
@@ -13835,7 +13849,7 @@ static void test_srvrun_wt_open_uni_respects_stream_credit(void) {
   c  = sr_wtsend_fixture(&f, &ob);
   c->s.sdrv.peer_initial_max_stream_data_uni = SRVRUN_CHUNK / 2;
   CHECK(
-      wired_server_wt_open_uni(&c->wt, wired_span_of(body, sizeof body)) == 7);
+      wired_server_wt_open_uni(&c->wt, wired_span_of(body, sizeof body)) == 11);
   CHECK(c->wtsend[0].stream_credit == SRVRUN_CHUNK / 2);
   {
     srvrun_cfg cfg = {
@@ -13845,7 +13859,7 @@ static void test_srvrun_wt_open_uni_respects_stream_credit(void) {
     srvrun_step_ctx   ctx = {&cfg, 0, &st, 1, 0};
     u8                fr[32], spkt[1024];
     usz               fl, slen;
-    stream_data_frame msd = {7, SRVRUN_CHUNK * 10};
+    stream_data_frame msd = {11, SRVRUN_CHUNK * 10};
     srvrun_pump_sess(&ctx, 0);
     CHECK(c->wtsend[0].sess.q.cur == 0); /* blocked below one chunk */
     fl = max_stream_data_encode(fr, sizeof fr, &msd);
@@ -13882,7 +13896,7 @@ static void test_srvrun_wt_send_conn_credit_shared_with_resp(void) {
   wired_sendsess_arm(&c->resp[0].sess, rbody, sizeof rbody, SRVRUN_CHUNK);
   CHECK(
       wired_server_wt_open_uni(&c->wt, wired_span_of(wbody, sizeof wbody)) ==
-      7);
+      11);
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
@@ -13926,7 +13940,7 @@ static void test_srvrun_wt_open_uni_pto_retransmit_keeps_single_fin_slice(
   CHECK(
       wired_server_wt_open_uni(
           &c->wt, wired_span_of(sr_wtsend_chat19, sizeof sr_wtsend_chat19)) ==
-      7);
+      11);
   cfg = (srvrun_cfg){cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                      &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   st  = (srvrun_state){g_srvrun_table, g_srvrun_state.conns};
@@ -13996,7 +14010,7 @@ static void test_srvrun_wt_send_pto_requeues_unacked_slice(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_wtsend_fixture(&f, &ob);
   CHECK(
-      wired_server_wt_open_uni(&c->wt, wired_span_of(body, sizeof body)) == 7);
+      wired_server_wt_open_uni(&c->wt, wired_span_of(body, sizeof body)) == 11);
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
@@ -14024,7 +14038,7 @@ static void test_srvrun_wt_open_two_megabyte_payload_fully_acked(void) {
   c  = sr_wtsend_fixture(&f, &ob);
   CHECK(
       wired_server_wt_open_uni(
-          &c->wt, wired_span_of(sr_wtsend_big, sizeof sr_wtsend_big)) == 7);
+          &c->wt, wired_span_of(sr_wtsend_big, sizeof sr_wtsend_big)) == 11);
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
@@ -14071,7 +14085,7 @@ static void test_srvrun_wt_open_five_parallel_streams_unmixed(void) {
         wired_server_wt_open_uni(
             &c->wt,
             wired_span_of(sr_wtsend_bodies[i], sizeof sr_wtsend_bodies[i])) ==
-        7 + 4 * (i64)i);
+        11 + 4 * (i64)i);
   }
   {
     srvrun_cfg   cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -14094,7 +14108,7 @@ static void test_srvrun_wt_open_five_parallel_streams_unmixed(void) {
   wired_udp_close(sfd);
   for (usz i = 0; i < 5; i++) {
     usz b = 0;
-    while (b < 5 && buckets[b].stream_id != 7 + 4 * i) b++;
+    while (b < 5 && buckets[b].stream_id != 11 + 4 * i) b++;
     CHECK(b < 5);
     CHECK(buckets[b].used == 1);
     CHECK(buckets[b].fin == 1);
@@ -14883,6 +14897,171 @@ static void test_srvrun_session_slot_close_fires_wt_close(void) {
   CHECK(conn.wt_active == 0);
 }
 
+/* ===== RFC 9204 4.2/4.3.3: the server's own QPACK encoder stream (id 7,
+ * srvrun_open_qenc_stream) and the Insert-instruction wiring it unlocks
+ * (srvrun_qenc_send_insert / srvrun_arm_h3_resp_framed). */
+
+/* WIRE: right after SETTINGS is confirmed sent, srvrun_on_step opens the
+ * QPACK encoder stream at its fixed id (7, between the H3 control stream at
+ * 3 and the first WT uni stream at 11) and sends ONLY the one-byte stream
+ * type -- no SETTINGS-equivalent header follows it (RFC 9204 4.2). */
+static void test_srvrun_qenc_stream_opens_with_type_prefix_only(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  sockaddr      srv, from;
+  i64           sfd, cfd;
+  srvrun_conn*  c;
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  ob      = (wired_obuf){obuf, sizeof obuf, 0};
+  c       = sr_wtsend_fixture(&f, &ob);
+  c->peer = srv;
+  CHECK(c->qenc_stream_opened == 0); /* fixture predates the real step */
+  srvrun_open_qenc_stream(c);
+  CHECK(c->qenc_stream_opened == 1);
+  CHECK(c->wtsend[c->qenc_wtsend_slot].stream_id == SRVRUN_QENC_STREAM);
+  CHECK(c->wtsend[c->qenc_wtsend_slot].append_open == 1); /* never closes */
+  {
+    srvrun_cfg   cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0, 0};
+    srvrun_pump_sess(&ctx, 0);
+  }
+  {
+    u8           pkt[1500];
+    const u8*    pl;
+    usz          pll;
+    stream_frame sf;
+    i64 r = wired_udp_recvfrom(sfd, wired_mspan_of(pkt, sizeof pkt), &from);
+    CHECK(r > 0);
+    CHECK(client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1);
+    CHECK(frame_get_stream(pl, pll, &sf) > 0);
+    CHECK(sf.stream_id == SRVRUN_QENC_STREAM);
+    CHECK(sf.offset == 0);
+    CHECK(sf.length == 1); /* the type byte alone */
+    CHECK(sf.data[0] == H3_STREAM_QPACK_ENCODER);
+    CHECK(sf.fin == 0); /* stays open for the connection's whole life */
+  }
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
+/* A second call once already open is a no-op: no second slot claimed, no
+ * second stream id burned. */
+static void test_srvrun_qenc_stream_open_is_idempotent(void) {
+  srvrun_conn c = {0};
+  srvrun_open_qenc_stream(&c);
+  CHECK(c.qenc_stream_opened == 1);
+  {
+    int first_slot = c.qenc_wtsend_slot;
+    srvrun_open_qenc_stream(&c);
+    CHECK(c.qenc_wtsend_slot == first_slot);
+  }
+  CHECK(c.wt_uni_opened == 0); /* the qenc open never touches this counter */
+}
+
+/* Decode a QPACK field line (RFC 9204 4.5) right after its section's 2-byte
+ * Prefix (Required Insert Count 0, Base 0 -- every field section this SDK
+ * builds keeps sign/delta-base 0, matching h3resp_prefix_field_qenc's own
+ * encoding). Returns -1 when it is not an Indexed Field Line at all (the
+ * Literal Field Line With Name Reference fallback), 0 for an Indexed Field
+ * Line referencing the STATIC table (T=1), 1 for the DYNAMIC table (T=0).
+ * Mirrors h3conn_recv_response's own decode_status shape, but exposes
+ * is_static/index instead of collapsing straight to a status value --
+ * h3conn_recv_response cannot tell a dynamic reference from a static one (it
+ * always resolves through qpack_static_get), so it is unusable for this
+ * assertion. */
+static int sr_qenc_field_is_dynamic_indexed(const u8* fs, usz n) {
+  u64 index;
+  int is_static;
+  usz off = qpack_prefix_decode(fs, n, &(qpack_prefix){0});
+  if (!off) return -1;
+  if (!qpack_indexed_decode(
+          wired_span_of(fs + off, n - off), &index, &is_static))
+    return -1;
+  return !is_static;
+}
+
+/* WIRE: a :status value with no static-table match (201 is not one of RFC
+ * 9204 Appendix A's five :status entries), built once the encoder stream is
+ * open, both (a) generates an Insert instruction that actually reaches the
+ * QPACK encoder stream's own wtsend slot, and (b) references it from the
+ * response's field section as an Indexed Field Line with T=0 (dynamic) --
+ * not the literal fallback the capacity==0 default used before this stream
+ * existed. */
+static void test_srvrun_qenc_first_use_inserts_and_references_dynamic(void) {
+  srvrun_conn            c = {0};
+  qpackenc_status_result ins;
+  u8                     field[64];
+  wired_obuf             fob = obuf_of(field, sizeof field);
+  qpackenc_init(&c.l.h3.qenc, 4096); /* the real DEFAULT_QPACK_MAX_TABLE_CAP,
+                                         wired_h3srv_state_init's own value */
+  srvrun_open_qenc_stream(&c);
+  CHECK(h3resp_encode_headers_field_qenc(
+      201, 0, 0, srvrun_qenc_active(&c), &ins, &fob));
+  CHECK(ins.insert_len > 0);            /* a fresh Insert was generated */
+  CHECK(c.l.h3.qenc.pending_acks == 0); /* not yet recorded */
+  srvrun_qenc_send_insert(&c, &ins);
+  CHECK(c.l.h3.qenc.pending_acks == 1); /* qpackenc_note_sent ran */
+  {
+    srvrun_wtsend* w = &c.wtsend[c.qenc_wtsend_slot];
+    /* byte 0 is the stream's one-time type prefix; the Insert instruction
+     * follows it. */
+    CHECK(w->sess.q.len == 1 + ins.insert_len);
+    for (usz i = 0; i < ins.insert_len; i++)
+      CHECK(w->roundbuf[1 + i] == ins.insert_instr[i]);
+  }
+  CHECK(sr_qenc_field_is_dynamic_indexed(field, fob.len) == 1);
+}
+
+/* REGRESSION: the SAME :status value encoded again finds the entry already
+ * live in the dynamic table -- no second Insert instruction, no growth of
+ * the encoder stream's staged bytes, only a fresh Indexed reference (still
+ * T=0). Matches qpackenc_plan_field's own existing-entry contract
+ * (qpackenc_test.c); this pins that srvrun's wiring passes the SAME
+ * qpackenc_state through on every call rather than re-initialising it. */
+static void test_srvrun_qenc_repeat_status_references_without_reinsert(void) {
+  srvrun_conn            c = {0};
+  qpackenc_status_result first, second;
+  u8                     f1[64], f2[64];
+  wired_obuf             fob1 = obuf_of(f1, sizeof f1);
+  wired_obuf             fob2 = obuf_of(f2, sizeof f2);
+  usz                    staged_after_first;
+  qpackenc_init(&c.l.h3.qenc, 4096);
+  srvrun_open_qenc_stream(&c);
+  CHECK(h3resp_encode_headers_field_qenc(
+      201, 0, 0, srvrun_qenc_active(&c), &first, &fob1));
+  srvrun_qenc_send_insert(&c, &first);
+  staged_after_first = c.wtsend[c.qenc_wtsend_slot].sess.q.len;
+  CHECK(h3resp_encode_headers_field_qenc(
+      201, 0, 0, srvrun_qenc_active(&c), &second, &fob2));
+  CHECK(second.insert_len == 0); /* already live: no new Insert */
+  srvrun_qenc_send_insert(&c, &second);
+  CHECK(c.wtsend[c.qenc_wtsend_slot].sess.q.len == staged_after_first);
+  CHECK(sr_qenc_field_is_dynamic_indexed(f2, fob2.len) == 1);
+}
+
+/* BOUNDARY: before the encoder stream opens (qenc_stream_opened == 0,
+ * srvrun_qenc_active returns 0 -- the same state a connection sits in for
+ * its very first step, and permanently if every wtsend slot ever stays
+ * busy), a :status with no static match falls back to the literal-only
+ * behavior srvrun_arm_h3_resp_framed used before this stream existed: no
+ * Insert instruction, no dynamic reference. */
+static void test_srvrun_qenc_inactive_falls_back_to_literal(void) {
+  srvrun_conn            c = {0};
+  qpackenc_status_result ins;
+  u8                     field[64];
+  wired_obuf             fob = obuf_of(field, sizeof field);
+  CHECK(srvrun_qenc_active(&c) == 0);
+  CHECK(h3resp_encode_headers_field_qenc(201, 0, 0, 0, &ins, &fob));
+  CHECK(ins.insert_len == 0);
+  /* -1: not an Indexed Field Line at all -- the Literal Field Line With
+   * Name Reference fallback (RFC 9204 4.5.4), not a static OR dynamic
+   * index. */
+  CHECK(sr_qenc_field_is_dynamic_indexed(field, fob.len) == -1);
+}
+
 void test_srvrun(void) {
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
@@ -15286,4 +15465,9 @@ void test_srvrun(void) {
   test_srvrun_wt_slot_released_after_fin_and_reclaimed();
   test_srvrun_wt_released_id_not_reclaimed();
   test_srvrun_incomplete_request_stream_sends_reset();
+  test_srvrun_qenc_stream_opens_with_type_prefix_only();
+  test_srvrun_qenc_stream_open_is_idempotent();
+  test_srvrun_qenc_first_use_inserts_and_references_dynamic();
+  test_srvrun_qenc_repeat_status_references_without_reinsert();
+  test_srvrun_qenc_inactive_falls_back_to_literal();
 }
