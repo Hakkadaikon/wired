@@ -343,10 +343,13 @@ typedef struct {
    * 0x54's own encoding, but recorded rather than assumed), same role as
    * wired_srvloop_wt_stream_slot's sig_len. */
   usz type_len;
-  /** leading-signal reassembly, same shape and role as
+  /** leading-signal reassembly buffer, same shape and role as
    * wired_srvloop_wt_stream_slot's sig/sig_have/sig_pending. */
-  u8                      sig[16];
-  u8                      sig_have;
+  u8 sig[16];
+  /** bytes of sig[] filled so far, from offset 0 upward. */
+  u8 sig_have;
+  /** 1 from the type-varint claim until type_len resolves; 0 once the
+   * signal is fully parsed. */
   u8                      sig_pending;
   wired_srvloop_wt_window win; /**< receive-window bookkeeping, see its doc */
   /** offset-indexed bytes past the type varint, relative to win.base.
