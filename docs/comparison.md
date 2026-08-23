@@ -12,7 +12,12 @@ features (documented against each project's own sources) and in speed
 > [environment appendix](#environment)), against pinned versions. wired is
 > pinned at one commit (`9d21db9`) for every lane. It is not a claim of
 > general superiority or inferiority of any implementation. Bad numbers are
-> published along with good ones.
+> published along with good ones. wired's own `9d21db9` pin is now 89
+> commits behind `HEAD` (62 of them touching `src/app/webtransport/`,
+> `src/app/http3/`, or `examples/webtransport_interop/`); the feature-matrix
+> prose below has been updated for the webtransport/http3 path where it
+> was stale, but the benchmark numbers have not been re-measured at a
+> newer commit.
 
 Legend: `✅` supported · `Partial` supported with a stated limitation ·
 `—` not supported / not measured, with the reason in the cell or footnote.
@@ -414,8 +419,12 @@ quiche r5 usage kind=load reqs=10000 dticks=33 wall_ms=447 hz=100 vmhwm_kb=8484 
 [^w-wt]: [Features › RFC 9220](features/rfc9220.md),
     [draft-webtrans-http3](features/draft-webtrans-http3.md);
     WebTransport interop table in [Interop Results](interop.md) (receive
-    directions PASS; `*-send` cases under investigation). Implementation
-    under `src/app/webtransport/` (`session/session/session.c`,
+    directions PASS; `*-send` cases against webtransport-go still stall.
+    `transfer-unidirectional-send`'s root cause -- a WT-signalled stream
+    reaching the wire before its session's own 2xx -- was found and fixed
+    2026-08-23 (`ee13cc7`) via a comparison run against ngtcp2, not
+    webtransport-go; not yet re-verified against this table's peer).
+    Implementation under `src/app/webtransport/` (`session/session/session.c`,
     `capsule/wtcapsule/wtcapsule.c`, Extended CONNECT in
     `src/app/http3/core/h3/connect.c`).
 [^w-dgram]: [Features › RFC 9221](features/rfc9221.md),
@@ -426,7 +435,8 @@ quiche r5 usage kind=load reqs=10000 dticks=33 wall_ms=447 hz=100 vmhwm_kb=8484 
     implemented but carry no third-party verdict (peer/tooling limitations,
     detailed there).
 [^w-moqt]: `src/app/moqt/` (`ctl/moqctl.h`, `run/moqtrun.c`,
-    `sess/moqsess.c`, `data/moqdata.c`) + `examples/moqt_chat`
+    `sess/moqsess.c`, `data/moqdata.c`, `kvp/moqkvp.c`, `vi/moqvi.c`;
+    six modules total) + `examples/moqt_chat`
     (draft-ietf-moq-transport-19, hub/relay role; SETUP/SUBSCRIBE/PUBLISH
     subset, SUBGROUP_HEADER data plane). The literal string `moqt-19` as a
     WT subprotocol name appears only in the example
