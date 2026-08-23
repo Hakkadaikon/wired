@@ -5990,11 +5990,24 @@ static int srvrun_pump_resp_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   return sent;
 }
 
-/* One round-robin pass: try exactly one slice from every in-use wtsend and
- * resp[] slot. @return 1 if any slot actually sent one. */
+/* One round-robin pass: try exactly one slice from every in-use resp[] and
+ * wtsend slot. resp[] goes FIRST (draft-ietf-webtrans-http3-15 3.2: "From
+ * the client's perspective, a WebTransport session is established when the
+ * client receives a 2xx response") -- a WT-signalled stream that reaches a
+ * peer before that 2xx cannot yet be attributed to any session. A real
+ * ngtcp2-webtransport client does exactly this: it silently drops a
+ * WT-typed uni stream it cannot associate, confirmed by both a live capture
+ * (the server's own qlog showed 5 uni GETs sent at pn 2-6, the session's
+ * 2xx only at pn 7) and a same-implementation ngtcp2-server comparison run
+ * (2xx and its uni streams land in the SAME packet, 2xx first). The
+ * opposite order let a session established and its first WT streams opened
+ * in the same pump pass -- e.g. an on_session callback that opens streams
+ * immediately, this SDK's own interop example among them -- race the 2xx
+ * out AFTER them, which peers may not tolerate.
+ * @return 1 if any slot actually sent one. */
 static int srvrun_pump_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  int sent = srvrun_pump_wt_round(ctx, c);
-  return sent | srvrun_pump_resp_round(ctx, c);
+  int sent = srvrun_pump_resp_round(ctx, c);
+  return sent | srvrun_pump_wt_round(ctx, c);
 }
 
 /* 1 if any resp[] slot has a PTO probe queued. */
