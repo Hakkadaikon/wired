@@ -94,6 +94,17 @@ static wired_span strip_slash(wired_span p) {
   return p;
 }
 
+/* webtransport.md: "The first component of the path identifies the
+ * WebTransport endpoint" -- firefox establishes its session on the full
+ * /<endpoint>/<file> URL, so everything past the first segment must be
+ * dropped or file lookups build /www/<endpoint>/<file>/<file>. */
+static wired_span endpoint_of(wired_span path) {
+  wired_span p     = strip_slash(path);
+  ssz        slash = span_find(p, '/');
+  if (slash < 0) return p;
+  return wired_span_of(p.p, (usz)slash);
+}
+
 /* --- REQUESTS ("endpoint/file ..." list, views into the env string) ------ */
 
 #define FILES_MAX 200
@@ -173,7 +184,7 @@ static session_slot* session_alloc(void) {
 
 static void session_note(const wired_wt_session* s, wired_span path) {
   session_slot* e  = session_find(s->connect_stream_id);
-  wired_span    ep = strip_slash(path);
+  wired_span    ep = endpoint_of(path);
   if (!e) e = session_alloc();
   e->used = 1;
   e->sid  = s->connect_stream_id;
@@ -535,7 +546,7 @@ static const send_fn SENDS[MODE_COUNT] = {
 };
 
 static void session_send_gets(wired_wt_session* s, wired_span path) {
-  if (SENDS[g_mode] && span_eq(strip_slash(path), g_endpoint)) SENDS[g_mode](s);
+  if (SENDS[g_mode] && span_eq(endpoint_of(path), g_endpoint)) SENDS[g_mode](s);
 }
 
 static void on_session(
