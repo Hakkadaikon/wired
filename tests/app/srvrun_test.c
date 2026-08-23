@@ -14120,6 +14120,43 @@ static void test_srvrun_wt_send_datagram_to_requires_send_side_open(void) {
   CHECK(g_srvrun_env.dgring_n == 0);
 }
 
+/* BYTE PACING: near-MTU datagrams must drain SLOWER (per slice) than tiny
+ * ones -- a count-only slice of 16 x ~900B per 5ms is ~23Mbps, which a
+ * 10Mbps bottleneck queue steadily discards (flupke's 200-file datagram
+ * transfer lost 45 replies to exactly this; datagrams are never
+ * retransmitted). A slice stops once its byte budget is spent. */
+static void test_srvrun_wt_datagram_ring_paces_by_bytes(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  u8            pay[900];
+  srvrun_conn*  c;
+  ob                                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                                      = sr_wtsend_fixture(&f, &ob);
+  c->s.sdrv.peer_max_datagram_frame_size = 65535;
+  for (usz i = 0; i < sizeof pay; i++) pay[i] = (u8)i;
+  for (int i = 0; i < 20; i++)
+    CHECK(
+        wired_server_wt_send_datagram_to(
+            &c->wt, wired_span_of(pay, sizeof pay)) == 1);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state st = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_test_reset_send_count();
+    srvrun_dgring_drain(&cfg, &st, 0);
+    /* ~901B per entry against the slice byte budget: a handful per slice,
+     * far under the tiny-datagram slice cap. */
+    CHECK(srvrun_test_send_count() >= 1);
+    CHECK(srvrun_test_send_count() <= 4);
+    for (int i = 0; i < 64 && g_srvrun_env.dgring_n; i++)
+      srvrun_dgring_drain(&cfg, &st, (u64)(i + 1) * SRVRUN_DGRING_DRAIN_MS);
+    CHECK(srvrun_test_send_count() == 20); /* nothing lost, only paced */
+  }
+  CHECK(g_srvrun_env.dgring_n == 0);
+}
+
 /* BURST: 200 datagrams queued back-to-back inside one step all fit the ring
  * and ALL of them eventually go out -- none dropped, none overwritten (the
  * ring exists exactly so a burst is not last-writer-wins). One drain sends
@@ -15136,6 +15173,7 @@ void test_srvrun(void) {
   test_srvrun_wt_send_datagram_to_requires_settings_sent();
   test_srvrun_wt_send_datagram_to_requires_established();
   test_srvrun_wt_send_datagram_to_requires_send_side_open();
+  test_srvrun_wt_datagram_ring_paces_by_bytes();
   test_srvrun_wt_datagram_ring_drains_200_queued();
   test_srvrun_wt_datagram_ring_full_rejects_then_recovers();
   test_srvrun_broadcast_datagram_ring_queues_burst_per_session();

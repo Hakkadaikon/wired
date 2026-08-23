@@ -4202,18 +4202,43 @@ static void srvrun_dgring_send_one(
  * SRVRUN_DGRING_DRAIN_MAX slice per SRVRUN_DGRING_DRAIN_MS, sized so a
  * slice never overruns a small bottleneck queue (16 < 25) and the rate
  * (16/5ms = 3200 pkt/s) stays far under a 10Mbps path's small-packet
- * capacity. ponytail: fixed slice/interval, not real cc pacing -- wire the
- * drain into the connection's cc budget if a lossy path still overruns
- * this. */
+ * capacity. The count cap alone is calibrated for SMALL datagrams: 16
+ * near-MTU entries per 5ms is ~23Mbps, which the same 10Mbps queue steadily
+ * discarded (45 of 200 ~900B transfer replies lost) -- so a slice is ALSO
+ * bounded by bytes (3000B/5ms = 4.8Mbps sustained, leaving stream-traffic
+ * headroom under 10Mbps). ponytail: fixed slice/interval, not real cc
+ * pacing -- wire the drain into the connection's cc budget if a lossy path
+ * still overruns this. */
 #define SRVRUN_DGRING_DRAIN_MAX 16
 #define SRVRUN_DGRING_DRAIN_MS 5
+#define SRVRUN_DGRING_DRAIN_BYTES 3000
+
+/* Queued entry i's (0 = the ring head) payload length. */
+static usz dgring_len_at(const wired_srvrun_env* env, usz i) {
+  return env->dgring[(env->dgring_head + i) % SRVRUN_DGRING_CAP].len;
+}
+
+/* Entries from the ring head that fit this slice's byte budget -- the first
+ * entry always counts, so a datagram larger than the whole budget still
+ * drains instead of wedging the ring. */
+static usz dgring_budget_count(const wired_srvrun_env* env, usz max) {
+  usz n     = max != 0;
+  usz bytes = dgring_len_at(env, 0);
+  while (n < max &&
+         bytes + dgring_len_at(env, n) <= SRVRUN_DGRING_DRAIN_BYTES) {
+    bytes += dgring_len_at(env, n);
+    n++;
+  }
+  return n;
+}
 
 /* Entries this drain may send now: 0 while the pacing interval since the
- * last slice has not yet elapsed. */
+ * last slice has not yet elapsed; otherwise capped by both the per-slice
+ * entry count and byte budget above. */
 static usz srvrun_dgring_slice(const wired_srvrun_env* env, u64 now_ms) {
-  usz n = env->dgring_n;
+  usz max = (usz)u64_min(env->dgring_n, SRVRUN_DGRING_DRAIN_MAX);
   if (now_ms < env->dgring_next_drain_ms) return 0;
-  return n > SRVRUN_DGRING_DRAIN_MAX ? SRVRUN_DGRING_DRAIN_MAX : n;
+  return dgring_budget_count(env, max);
 }
 
 /* Drain up to one paced slice of ring entries, oldest first -- run once per
