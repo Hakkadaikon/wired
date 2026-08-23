@@ -2374,6 +2374,36 @@ static void test_srvloop_datagram_queued_on_step(void) {
       f.l.rx_datagrams[0].buf[3] == 'l' && f.l.rx_datagrams[0].buf[4] == 'o');
 }
 
+/* RFC 9221 5: MANY small DATAGRAM frames coalesced into ONE packet all queue
+ * -- flupke's transfer-datagram-receive coalesces ~9 "GET <file>" datagrams
+ * per packet and fires 200 total, and a 4-deep queue silently dropped every
+ * frame past the 4th of each packet (129 of 200 requests vanished server-side
+ * with zero network loss). */
+static void test_srvloop_datagram_many_coalesced_in_one_packet(void) {
+  struct lp_fix f;
+  u8            payload[256], out[1024], spkt[1024];
+  usz           plen = 0, slen;
+  wired_obuf    ob   = {out, sizeof out, 0};
+  usz           i;
+  lp_confirm(&f, &ob);
+  f.l.we_advertised_max_datagram = 100;
+  for (i = 0; i < 9; i++) {
+    u8             b  = (u8)('A' + i);
+    datagram_frame df = {.length = 1, .data = &b};
+    plen += datagram_encode(
+        wired_mspan_of(payload + plen, sizeof payload - plen), &df, 1);
+  }
+  slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
+  ob   = (wired_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.rx_datagram_n == 9);
+  for (i = 0; i < 9; i++)
+    CHECK(
+        f.l.rx_datagrams[i].len == 1 &&
+        f.l.rx_datagrams[i].buf[0] == (u8)('A' + i));
+}
+
 /* RFC 9221 5: several DATAGRAM frames arriving across separate steps (separate
  * incoming packets) fill the queue in order up to
  * WIRED_SRVLOOP_MAX_RX_DATAGRAMS, and one more beyond capacity is dropped
@@ -4359,6 +4389,7 @@ void test_srvloop(void) {
   test_srvloop_uni_reset_before_type_no_crash();
   test_srvloop_wt_uni_stream_without_session_no_crash();
   test_srvloop_datagram_queued_on_step();
+  test_srvloop_datagram_many_coalesced_in_one_packet();
   test_srvloop_datagram_queue_overflow_drops_newest();
   test_srvloop_datagram_within_advertised_limit_accepted();
   test_srvloop_datagram_998_bytes_not_truncated();
