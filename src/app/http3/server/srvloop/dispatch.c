@@ -12,6 +12,7 @@
 #include "app/http3/server/srvloop/srvloop.h"
 #include "app/qpack/qpackdyn/enc_stream.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/util/num.h"
 #include "common/bytes/varint/varint.h"
 #include "common/platform/qlog/qlog.h"
 #include "common/platform/qlog/qlogevent.h"
@@ -253,15 +254,69 @@ static int server_bidi_stream_of(u64 type, wired_span frame, stream_frame* sf) {
          is_server_bidi_stream(sf->stream_id);
 }
 
+/* draft-ietf-webtrans-http3-15 4.3: capacity for a stream's leading signal
+ * (two varints, each at most 8 bytes -- RFC 9000 16). */
+#define WT_SIG_CAP 16
+
+/* Copy sf's bytes overlapping [0, WT_SIG_CAP) into sig[] by absolute stream
+ * offset, raising *have to the highest byte filled. The signal is a strict
+ * prefix of the stream, so frames past it never overlap this range. */
+static void wt_sig_absorb(u8* sig, u8* have, const stream_frame* sf) {
+  usz off = (usz)sf->offset;
+  usz n;
+  if (off >= WT_SIG_CAP) return;
+  n = (usz)u64_min((u64)sf->length, (u64)(WT_SIG_CAP - off));
+  bytes_put(wired_mspan_of(sig, WT_SIG_CAP), &off, wired_span_of(sf->data, n));
+  if (off > *have) *have = (u8)off;
+}
+
+/* The two leading varints' (type/signal + session id) combined encoded
+ * length, 0 while they have not both fully arrived in sig[0..have). The
+ * session id's own length must come from a parse, never be assumed: skipping
+ * only the type varint once left the session id as a leading garbage byte on
+ * every request line (a real webtransport-go interop run found it), and
+ * freezing the length from a first frame carrying the type varint alone
+ * leaked the id the same way (a real flupke interop run found that). */
+static usz wt_sig_parse(const u8* sig, u8 have) {
+  u64        v;
+  usz        off = 0;
+  wired_span s   = wired_span_of(sig, have);
+  if (!varint_take(s, &off, &v)) return 0;
+  if (!varint_take(s, &off, &v)) return 0;
+  return off;
+}
+
+/* Absorb sf into a slot's pending-signal buffer and resolve *len once both
+ * varints parse. Returns 1 when the signal is resolved (landing may
+ * proceed -- immediately so for a pre-claimed reply stream, whose *pending
+ * is never set), 0 while it is still incomplete (sf ended inside the
+ * signal; nothing of it is application data). */
+static int wt_sig_resolve(
+    u8* sig, u8* have, u8* pending, usz* len, const stream_frame* sf) {
+  if (!*pending) return 1;
+  wt_sig_absorb(sig, have, sf);
+  *len = wt_sig_parse(sig, *have);
+  if (!*len) return 0;
+  *pending = 0;
+  return 1;
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: bytes of THIS frame's own data that are
- * the leading signal, not application data — slot->sig_len for the offset-0
- * signal frame itself (whose data begins with the signal varint, possibly
- * followed by application bytes that landed in the same frame), 0 for any
- * later frame (pure application data, the signal never reappears past
- * offset 0). */
-static usz wt_frame_skip(
-    const stream_frame* sf, const wired_srvloop_wt_stream_slot* slot) {
-  return sf->offset == 0 ? slot->sig_len : 0;
+ * the leading signal, not application data — the part of [offset,
+ * offset+length) that overlaps [0, sig_len). Nonzero for any frame starting
+ * inside the signal (usually the offset-0 frame, but a split signal's
+ * session id can arrive in a later frame). */
+static usz wt_frame_skip(const stream_frame* sf, usz sig_len) {
+  if (sf->offset >= sig_len) return 0;
+  return (usz)u64_min(sig_len - sf->offset, sf->length);
+}
+
+/* sf's absolute post-signal stream offset -- its first application byte's
+ * position with the signal's bytes excised. Saturates to 0 for a frame that
+ * ends inside the signal (n is then 0, nothing lands). */
+static u64 wt_frame_abs(const stream_frame* sf, usz sig_len, usz skip) {
+  u64 end = sf->offset + skip;
+  return end > sig_len ? end - sig_len : 0;
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: land one WT bidi STREAM frame's
@@ -279,8 +334,8 @@ static usz wt_frame_skip(
  * own doc). */
 static void gather_wt_one(
     const stream_frame* sf, wired_srvloop_wt_stream_slot* slot) {
-  usz skip    = wt_frame_skip(sf, slot);
-  u64 abs_off = sf->offset - slot->sig_len + skip;
+  usz skip    = wt_frame_skip(sf, slot->sig_len);
+  u64 abs_off = wt_frame_abs(sf, slot->sig_len, skip);
   usz n       = (usz)sf->length - skip;
   usz rel_off, accepted;
   wired_srvloop_wt_window_accept(&slot->win, abs_off, n, &rel_off, &accepted);
@@ -294,29 +349,15 @@ static void gather_wt_one(
   }
 }
 
-/* draft-ietf-webtrans-http3-15 4.3: the leading signal on a WT bidi stream is
- * TWO varints -- the WT_STREAM type (0x41) and the session id (the CONNECT
- * stream's own id) -- so skipping only the type varint's length left the
- * session id's own bytes as a leading garbage byte on every request line
- * (found via a real webtransport-go interop run: the app's GET parser saw an
- * extra byte before "GET "). Consume both and sum their lengths. */
-static usz wt_signal_len(wired_span data) {
-  u64 v;
-  usz off = 0;
-  varint_take(data, &off, &v);
-  varint_take(data, &off, &v);
-  return off;
-}
-
 /* draft-ietf-webtrans-http3-15 4.3: find-or-claim the wt_streams slot for a
- * newly-signalled stream, recording the signal's own encoded length so
- * gather_wt_one can skip exactly that many bytes. Returns -1 (dropped, table
- * full) exactly like stream_slot_claim's fixed-capacity fallback. */
+ * newly-signalled stream, marking its leading signal pending so
+ * wt_sig_resolve settles sig_len from the accumulated leading bytes (which
+ * may span several frames). Returns -1 (dropped, table full) exactly like
+ * stream_slot_claim's fixed-capacity fallback. */
 static int wt_slot_for_signal(wired_srvloop* l, const stream_frame* sf) {
   int i = wired_srvloop_wt_slot_claim(l, sf->stream_id);
   if (i < 0) return -1;
-  l->wt_streams[i].sig_len =
-      wt_signal_len(wired_span_of(sf->data, (usz)sf->length));
+  l->wt_streams[i].sig_pending = 1;
   return i;
 }
 
@@ -332,9 +373,16 @@ static int wt_slot_for(wired_srvloop* l, const stream_frame* sf) {
  * traffic) into its slot, claiming one on the leading signal frame. A full
  * table (i<0) still counts the frame as seen, matching stream_slot_claim's
  * fixed-capacity fallback of dropping the data but not the classification. */
+/* wt_sig_resolve over a bidi slot's own signal fields. */
+static int wt_sig_ready(
+    wired_srvloop_wt_stream_slot* s, const stream_frame* sf) {
+  return wt_sig_resolve(s->sig, &s->sig_have, &s->sig_pending, &s->sig_len, sf);
+}
+
 static void gather_wt_land(wired_srvloop* l, const stream_frame* sf) {
   int i = wt_slot_for(l, sf);
-  if (i >= 0) gather_wt_one(sf, &l->wt_streams[i]);
+  if (i >= 0 && wt_sig_ready(&l->wt_streams[i], sf))
+    gather_wt_one(sf, &l->wt_streams[i]);
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: if the walked frame at `frame` is WT bidi
@@ -522,22 +570,15 @@ static int wt_uni_frame_relevant(
          wired_srvloop_wt_uni_slot_find(l, sf->stream_id) >= 0;
 }
 
-/* Bytes of THIS uni frame's own data that are the leading type varint, not
- * application data — mirrors wt_frame_skip's bidi counterpart. */
-static usz wt_uni_frame_skip(
-    const stream_frame* sf, const wired_srvloop_wt_uni_stream_slot* slot) {
-  return sf->offset == 0 ? slot->type_len : 0;
-}
-
 /* draft-ietf-webtrans-http3-15 4.3: land one WT uni STREAM frame's application
  * bytes into slot->buf, mirroring gather_wt_one's bidi counterpart exactly
- * (skip the type varint's own bytes on the offset-0 frame, shift every
- * frame's offset back by the type varint's full encoded length, honor the
+ * (skip whatever part of this frame is still the leading signal, shift every
+ * frame's offset back by the signal's full encoded length, honor the
  * slot's receive window). */
 static void gather_wt_uni_one(
     const stream_frame* sf, wired_srvloop_wt_uni_stream_slot* slot) {
-  usz skip    = wt_uni_frame_skip(sf, slot);
-  u64 abs_off = sf->offset - slot->type_len + skip;
+  usz skip    = wt_frame_skip(sf, slot->type_len);
+  u64 abs_off = wt_frame_abs(sf, slot->type_len, skip);
   usz n       = (usz)sf->length - skip;
   usz rel_off, accepted;
   wired_srvloop_wt_window_accept(&slot->win, abs_off, n, &rel_off, &accepted);
@@ -552,14 +593,13 @@ static void gather_wt_uni_one(
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: find-or-claim the wt_uni_streams slot for
- * a newly-typed stream, recording the leading signal's full encoded length
- * (type varint + session id varint, see wt_signal_len) so gather_wt_uni_one
- * can skip exactly that many bytes. */
+ * a newly-typed stream, marking its leading signal (type varint + session id
+ * varint) pending so wt_sig_resolve settles type_len from the accumulated
+ * leading bytes (which may span several frames). */
 static int wt_uni_slot_for_type(wired_srvloop* l, const stream_frame* sf) {
   int i = wired_srvloop_wt_uni_slot_claim(l, sf->stream_id);
   if (i < 0) return -1;
-  l->wt_uni_streams[i].type_len =
-      wt_signal_len(wired_span_of(sf->data, (usz)sf->length));
+  l->wt_uni_streams[i].sig_pending = 1;
   return i;
 }
 
@@ -587,11 +627,19 @@ static void dispatch_qlog_stream_received(
   if (n) wired_qlog_append(l->qlog_path, wired_span_of((const u8*)rec, n));
 }
 
+/* wt_sig_resolve over a uni slot's own signal fields. */
+static int wt_uni_sig_ready(
+    wired_srvloop_wt_uni_stream_slot* s, const stream_frame* sf) {
+  return wt_sig_resolve(
+      s->sig, &s->sig_have, &s->sig_pending, &s->type_len, sf);
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: land sf (already confirmed WT uni
  * traffic) into its slot, claiming one on the leading type frame. */
 static void gather_wt_uni_land(wired_srvloop* l, const stream_frame* sf) {
   int i = wt_uni_slot_for(l, sf);
-  if (i >= 0) gather_wt_uni_one(sf, &l->wt_uni_streams[i]);
+  if (i >= 0 && wt_uni_sig_ready(&l->wt_uni_streams[i], sf))
+    gather_wt_uni_one(sf, &l->wt_uni_streams[i]);
   dispatch_qlog_stream_received(l, sf);
 }
 

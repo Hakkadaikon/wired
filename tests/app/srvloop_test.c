@@ -1530,11 +1530,12 @@ static void test_srvloop_two_streams_reassemble_independently(void) {
 /* draft-ietf-webtrans-http3-15 4.3: a WT bidi stream's stream_id has the same
  * low bits (00) as a normal client-initiated request stream, so it can only be
  * told apart by its leading bytes: the varint-encoded value 0x41 (2-byte wire
- * form {0x40, 0x41}, RFC 9000 16 — 65 exceeds the 1-byte range). Build stream
- * id's offset-0 STREAM frame with that leading varint plus one application
+ * form {0x40, 0x41}, RFC 9000 16 — 65 exceeds the 1-byte range) followed by
+ * the session id varint (the signal is TWO varints). Build stream id's
+ * offset-0 STREAM frame with that leading 3-byte signal plus one application
  * byte behind it. */
 static usz lp_wt_bidi_stream(u8* out, usz cap, u64 stream_id) {
-  u8           sig[3] = {0x40, 0x41, 'X'};
+  u8           sig[4] = {0x40, 0x41, 0x00, 'X'};
   stream_frame sf     = {stream_id, 0, sizeof sig, sig, 0};
   return frame_put_stream(out, cap, &sf);
 }
@@ -2105,6 +2106,83 @@ static void test_srvloop_wt_uni_stream_split_data_then_bare_fin(void) {
   }
 }
 
+/* draft-ietf-webtrans-http3-15 4.3: the leading signal (type varint +
+ * session id varint) can itself arrive SPLIT across STREAM frames -- flupke
+ * sends the 2-byte type varint alone, then the session id with the first
+ * application bytes in a later frame. The signal's length must be resolved
+ * from the accumulated leading bytes, not frozen from the first frame alone:
+ * freezing it at 2 made the session id byte leak into the application
+ * stream as a leading 0x02 and every "GET ..." parse fail. */
+static void test_srvloop_wt_uni_stream_signal_split(void) {
+  struct lp_fix f;
+  u8            f0[64], f1[64], f2[64], out[1024], spkt[1024];
+  usz           f0l, f1l, f2l, slen;
+  wired_obuf    ob = {out, sizeof out, 0};
+  /* offset 0: ONLY the 2-byte 0x54 type varint ({0x40,0x54}). */
+  const u8* type_only = (const u8*)"\x40\x54";
+  /* offset 2: the 1-byte session id varint plus "AB" application bytes. */
+  const u8* sid_plus_ab = (const u8*)"\x02" "AB";
+  const u8* cd = (const u8*)"CD";
+  f0l          = lp_stream_frame_at(f0, sizeof f0, 2, 0, type_only, 2, 0);
+  f1l          = lp_stream_frame_at(f1, sizeof f1, 2, 2, sid_plus_ab, 3, 0);
+  /* wire offset 5 == post-signal offset 2 (3-byte signal + "AB"). */
+  f2l = lp_stream_frame_at(f2, sizeof f2, 2, 5, cd, 2, 1);
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
+  ob   = (wired_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
+  slen = client_seal_onertt_pn(&f, 4, f1, f1l, spkt, sizeof spkt);
+  ob   = (wired_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
+  slen = client_seal_onertt_pn(&f, 5, f2, f2l, spkt, sizeof spkt);
+  ob   = (wired_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
+  {
+    int i = wired_srvloop_wt_uni_slot_find(&f.l, 2);
+    CHECK(i >= 0);
+    CHECK(f.l.wt_uni_streams[i].win.frontier == 4);
+    CHECK(
+        f.l.wt_uni_streams[i].buf[0] == 'A' &&
+        f.l.wt_uni_streams[i].buf[1] == 'B' &&
+        f.l.wt_uni_streams[i].buf[2] == 'C' &&
+        f.l.wt_uni_streams[i].buf[3] == 'D');
+    CHECK(f.l.wt_uni_streams[i].fin == 1);
+  }
+}
+
+/* Same split-signal shape on a WT BIDI stream (signal 0x41 + session id):
+ * the type varint alone at offset 0, session id + first application bytes
+ * later. */
+static void test_srvloop_wt_bidi_stream_signal_split(void) {
+  struct lp_fix f;
+  u8            f0[64], f1[64], out[1024], spkt[1024];
+  usz           f0l, f1l, slen;
+  wired_obuf    ob       = {out, sizeof out, 0};
+  const u8*     sig_only = (const u8*)"\x40\x41";
+  const u8*     sid_plus_ab = (const u8*)"\x04" "AB";
+  f0l = lp_stream_frame_at(f0, sizeof f0, 4, 0, sig_only, 2, 0);
+  f1l = lp_stream_frame_at(f1, sizeof f1, 4, 2, sid_plus_ab, 3, 1);
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
+  ob   = (wired_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
+  slen = client_seal_onertt_pn(&f, 4, f1, f1l, spkt, sizeof spkt);
+  ob   = (wired_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
+  {
+    int i = wired_srvloop_wt_slot_find(&f.l, 4);
+    CHECK(i >= 0);
+    CHECK(f.l.wt_streams[i].win.frontier == 2);
+    CHECK(f.l.wt_streams[i].buf[0] == 'A' && f.l.wt_streams[i].buf[1] == 'B');
+    CHECK(f.l.wt_streams[i].fin == 1);
+  }
+}
+
 /* Control (0x00)/QPACK (0x02/0x03) uni streams, classified (offset-0 type
  * peeked) by gather_uni_stream, are accepted (no crash, no got_request), and
  * critically no wt_uni_streams[] slot is claimed for any of them (only a
@@ -2322,7 +2400,8 @@ static void test_srvloop_datagram_queue_overflow_drops_newest(void) {
   CHECK(f.l.rx_datagram_n == WIRED_SRVLOOP_MAX_RX_DATAGRAMS);
   for (i = 0; i < WIRED_SRVLOOP_MAX_RX_DATAGRAMS; i++)
     CHECK(
-        f.l.rx_datagrams[i].len == 1 && f.l.rx_datagrams[i].buf[0] == 'A' + i);
+        f.l.rx_datagrams[i].len == 1 &&
+        f.l.rx_datagrams[i].buf[0] == (u8)('A' + i));
   /* one more beyond capacity: dropped, queue stays at max, existing entries
    * untouched. */
   {
@@ -2339,7 +2418,8 @@ static void test_srvloop_datagram_queue_overflow_drops_newest(void) {
   CHECK(f.l.rx_datagram_n == WIRED_SRVLOOP_MAX_RX_DATAGRAMS);
   for (i = 0; i < WIRED_SRVLOOP_MAX_RX_DATAGRAMS; i++)
     CHECK(
-        f.l.rx_datagrams[i].len == 1 && f.l.rx_datagrams[i].buf[0] == 'A' + i);
+        f.l.rx_datagrams[i].len == 1 &&
+        f.l.rx_datagrams[i].buf[0] == (u8)('A' + i));
 }
 
 /* RFC 9221 3: a DATAGRAM frame whose payload fits within the connection's own
@@ -4268,6 +4348,8 @@ void test_srvloop(void) {
   test_srvloop_wt_signal_only_frame_then_data();
   test_srvloop_wt_stream_without_session_no_crash();
   test_srvloop_wt_uni_stream_reassembled();
+  test_srvloop_wt_uni_stream_signal_split();
+  test_srvloop_wt_bidi_stream_signal_split();
   test_srvloop_wt_uni_stream_split_data_then_bare_fin();
   test_srvloop_uni_control_qpack_still_ignored();
   test_srvloop_second_qpack_encoder_stream_violation();
