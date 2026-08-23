@@ -147,8 +147,10 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   wt_streams_reset(l);
   wt_uni_streams_reset(l);
   pending_priority_reset(l);
-  l->ctrl.len    = 0;
-  l->ctrl.parsed = 0;
+  l->ctrl.len       = 0;
+  l->ctrl.parsed    = 0;
+  l->ctrl.open      = 0;
+  l->ctrl.stream_id = 0;
   h3_control_init(&l->peer_ctrl);
   return 1;
 }
@@ -452,6 +454,8 @@ static int wt_slot_claim_at(wired_srvloop* l, usz i, u64 stream_id) {
   l->wt_streams[i].in_use            = 1;
   l->wt_streams[i].stream_id         = stream_id;
   l->wt_streams[i].sig_len           = 0;
+  l->wt_streams[i].sig_have          = 0;
+  l->wt_streams[i].sig_pending       = 0;
   l->wt_streams[i].fin               = 0;
   l->wt_streams[i].fin_off           = 0;
   l->wt_streams[i].offered           = 0;
@@ -543,6 +547,8 @@ static int wt_uni_slot_claim_at(wired_srvloop* l, usz i, u64 stream_id) {
   l->wt_uni_streams[i].in_use            = 1;
   l->wt_uni_streams[i].stream_id         = stream_id;
   l->wt_uni_streams[i].type_len          = 0;
+  l->wt_uni_streams[i].sig_have          = 0;
+  l->wt_uni_streams[i].sig_pending       = 0;
   l->wt_uni_streams[i].fin               = 0;
   l->wt_uni_streams[i].fin_off           = 0;
   l->wt_uni_streams[i].offered           = 0;

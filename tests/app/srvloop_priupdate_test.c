@@ -192,6 +192,65 @@ static void test_srvloop_ctrl_settings_latches_peer_ctrl(void) {
   CHECK(l.peer_ctrl.error == H3_ERR_NONE);
 }
 
+/* RFC 9114 6.2.1: a client that opens its control stream with the leading
+ * 0x00 type varint ALONE (a 1-byte STREAM frame) and sends SETTINGS in a
+ * second frame at offset 1 still latches settings_seen -- recognition must
+ * survive a first chunk carrying no payload bytes past the type varint
+ * (flupke opens its control stream exactly this way). */
+static void test_srvloop_ctrl_settings_split_after_type_byte(void) {
+  static const u8 type_byte[1] = {0x00};
+  wired_srvloop   l;
+  u8              payload[16], frame[32];
+  usz             plen, flen;
+
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+
+  flen = priupdate_stream_frame(
+      frame, sizeof frame, CTRL_STREAM_ID, 0, type_byte, 1, 0);
+  CHECK(flen > 0);
+  priupdate_dispatch(&l, frame, flen);
+  CHECK(l.peer_ctrl.settings_seen == 0);
+
+  plen = settings_ctrl_payload(payload, sizeof payload);
+  CHECK(plen > 1);
+  flen = priupdate_stream_frame(
+      frame, sizeof frame, CTRL_STREAM_ID, 1, payload + 1, plen - 1, 0);
+  CHECK(flen > 0);
+  priupdate_dispatch(&l, frame, flen);
+
+  CHECK(l.peer_ctrl.settings_seen == 1);
+  CHECK(l.peer_ctrl.error == H3_ERR_NONE);
+}
+
+/* RFC 9114 6.2.1: once the control stream is recognized, a later-offset
+ * chunk on a DIFFERENT client uni stream (a QPACK stream's bytes, say) must
+ * not be mixed into the control buffer -- here a second SETTINGS-shaped
+ * chunk on stream 6 would latch FRAME_UNEXPECTED if it landed. */
+static void test_srvloop_ctrl_ignores_other_uni_stream_chunks(void) {
+  wired_srvloop l;
+  u8            payload[16], frame[32];
+  usz           plen, flen;
+
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+
+  plen = settings_ctrl_payload(payload, sizeof payload);
+  CHECK(plen > 1);
+  flen = priupdate_stream_frame(
+      frame, sizeof frame, CTRL_STREAM_ID, 0, payload, plen, 0);
+  CHECK(flen > 0);
+  priupdate_dispatch(&l, frame, flen);
+  CHECK(l.peer_ctrl.settings_seen == 1);
+
+  flen = priupdate_stream_frame(
+      frame, sizeof frame, 6, plen, payload + 1, plen - 1, 0);
+  CHECK(flen > 0);
+  priupdate_dispatch(&l, frame, flen);
+
+  CHECK(l.peer_ctrl.error == H3_ERR_NONE);
+}
+
 /* RFC 9114 7.2.4: a control stream whose first frame is something other than
  * SETTINGS (here, a PRIORITY_UPDATE) latches MISSING_SETTINGS and never sets
  * settings_seen -- the ordering violation is distinguishable from "SETTINGS
@@ -249,6 +308,8 @@ void test_srvloop_priupdate(void) {
   test_srvloop_priupdate_on_request_stream_unexpected();
   test_srvloop_priupdate_bad_id_error();
   test_srvloop_ctrl_settings_latches_peer_ctrl();
+  test_srvloop_ctrl_settings_split_after_type_byte();
+  test_srvloop_ctrl_ignores_other_uni_stream_chunks();
   test_srvloop_ctrl_first_frame_not_settings_missing();
   test_srvloop_priority_of_open_stream();
   test_srvloop_priority_of_unopened_stream();

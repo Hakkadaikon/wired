@@ -165,8 +165,10 @@ typedef struct {
  * ponytail: overflow past buf is truncated, same policy as req_buf. */
 typedef struct {
   u8  buf[WIRED_SRVLOOP_CTRL_BUF_CAP]; /**< offset-indexed control bytes */
-  usz len;    /**< highest offset+len written into buf */
-  usz parsed; /**< bytes already walked as complete HTTP/3 frames */
+  usz len;       /**< highest offset+len written into buf */
+  usz parsed;    /**< bytes already walked as complete HTTP/3 frames */
+  u8  open;      /**< a 0x00-typed offset-0 uni frame claimed the stream */
+  u64 stream_id; /**< the claimed stream's id; later chunks must match */
 } wired_srvloop_ctrl_stream;
 
 /** RFC 9000 2.2: how many concurrent WebTransport bidi streams (draft-ietf-
@@ -252,7 +254,15 @@ typedef struct {
    * this much to land in the same post-signal coordinate space buf uses. 0
    * for a server-initiated bidi stream (srvrun.c's pre-claim), which has no
    * signal at all. */
-  usz                     sig_len;
+  usz sig_len;
+  /** leading-signal reassembly for a signal split across STREAM frames
+   * (flupke sends the type varint alone, the session id later): the
+   * stream's first bytes by absolute offset, kept until both leading
+   * varints parse and sig_len is resolved (dispatch.c's wt_sig_resolve). */
+  u8 sig[16];
+  u8 sig_have;    /**< bytes of sig[] filled, from offset 0 upward */
+  u8 sig_pending; /**< 1 from the signal claim until sig_len resolves; 0 for
+                   * a pre-claimed reply stream (no signal at all) */
   wired_srvloop_wt_window win; /**< receive-window bookkeeping, see its doc */
   /** offset-indexed bytes past the signal varint, relative to win.base
    * (offset 0 of this buffer is win.base's own first application byte).
@@ -332,7 +342,12 @@ typedef struct {
   /** bytes the leading type varint occupied on the wire (RFC 9000 16: 2 for
    * 0x54's own encoding, but recorded rather than assumed), same role as
    * wired_srvloop_wt_stream_slot's sig_len. */
-  usz                     type_len;
+  usz type_len;
+  /** leading-signal reassembly, same shape and role as
+   * wired_srvloop_wt_stream_slot's sig/sig_have/sig_pending. */
+  u8                      sig[16];
+  u8                      sig_have;
+  u8                      sig_pending;
   wired_srvloop_wt_window win; /**< receive-window bookkeeping, see its doc */
   /** offset-indexed bytes past the type varint, relative to win.base.
    * ponytail: a write outside the granted window is dropped, same policy as
@@ -364,9 +379,13 @@ typedef struct {
  * single-slot send side — the receive side uses a small fixed queue rather
  * than one overwritable slot: losing an already-arrived datagram to a same-step
  * overwrite is a worse user-visible bug than the send side's "last write wins"
- * (see rx_datagram_n's overflow policy below). 4 is an arbitrary small size,
- * not a protocol limit; raise it if a real workload needs deeper queuing. */
-#define WIRED_SRVLOOP_MAX_RX_DATAGRAMS 4
+ * (see rx_datagram_n's overflow policy below). Sized to a full receive
+ * batch of coalesced tiny datagrams: 16 packets per step (srvrun's receive
+ * batch) x ~16 sub-80-byte frames per 1252-byte packet. A real client
+ * (flupke's transfer-datagram-receive) coalesces ~9 "GET <file>" datagrams
+ * per packet and fires 200 in one burst; the old depth of 4 dropped 129 of
+ * them with zero network loss. */
+#define WIRED_SRVLOOP_MAX_RX_DATAGRAMS 256
 
 /** Byte capacity of one queued received QUIC DATAGRAM's payload (RFC 9221
  * 5/3). 1200 comfortably covers a max_datagram_frame_size-bounded HTTP

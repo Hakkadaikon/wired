@@ -21,10 +21,8 @@ static int ctrl_is_uni_stream_id(u64 stream_id) {
 
 /* RFC 9114 6.2.1: sf's very first bytes (offset 0) decode as the control
  * stream type (0x00); a mid-stream frame (offset>0) is control traffic iff
- * it belongs to a stream whose offset-0 frame already was (the caller tracks
- * that by having reassembled anything into l->ctrl at all -- see
- * wired_srvloop_ctrl_gather's own doc for why offset>0 is accepted
- * unconditionally once id-matched). */
+ * its stream id matches the one an offset-0 frame already claimed
+ * (l->ctrl.open/stream_id, see ctrl_claim). */
 static int ctrl_leading_type_is_control(const stream_frame* sf) {
   u64 v;
   usz off = 0;
@@ -137,15 +135,34 @@ static void ctrl_walk(wired_srvloop* l) {
   } while (n);
 }
 
-/* 1 if sf is control-stream traffic this loop has already recognized (or is
- * newly recognizing right now): its leading (offset 0) bytes decode as the
- * control type, or an established control stream (l->ctrl already holds
- * bytes) has a later frame arriving. A later frame before ANY offset-0 frame
- * was seen (l->ctrl.len == 0) belongs to a stream not yet confirmed control
- * and is not control traffic. */
-static int ctrl_frame_relevant(const wired_srvloop* l, const stream_frame* sf) {
-  if (sf->offset == 0) return ctrl_leading_type_is_control(sf);
-  return l->ctrl.len != 0;
+/* Record sf's stream as THE control stream (first claimant wins -- a later
+ * 0x00-typed uni stream is never remixed into the same buffer). Returns 1
+ * iff sf's stream is the claimed one. Claiming keys off the offset-0 frame
+ * itself, NOT off bytes having landed in l->ctrl: the offset-0 frame may
+ * carry the type varint alone (flupke does), leaving ctrl.len at 0 while
+ * the stream is nonetheless recognized. */
+static int ctrl_claim(wired_srvloop* l, const stream_frame* sf) {
+  if (!l->ctrl.open) {
+    l->ctrl.open      = 1;
+    l->ctrl.stream_id = sf->stream_id;
+  }
+  return sf->stream_id == l->ctrl.stream_id;
+}
+
+/* A mid-stream (offset>0) frame is control traffic iff it belongs to the
+ * claimed control stream -- any other client uni stream's later chunks (a
+ * QPACK stream's, say) must not land in the control buffer. */
+static int ctrl_is_claimed(const wired_srvloop* l, const stream_frame* sf) {
+  return l->ctrl.open && sf->stream_id == l->ctrl.stream_id;
+}
+
+/* 1 if sf is control-stream traffic: its leading (offset 0) bytes decode as
+ * the control type (claiming the stream), or a later frame arrives on the
+ * already-claimed stream. */
+static int ctrl_frame_relevant(wired_srvloop* l, const stream_frame* sf) {
+  if (sf->offset == 0)
+    return ctrl_leading_type_is_control(sf) && ctrl_claim(l, sf);
+  return ctrl_is_claimed(l, sf);
 }
 
 int wired_srvloop_ctrl_gather(wired_srvloop* l, u64 type, wired_span frame) {
