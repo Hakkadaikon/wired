@@ -15,6 +15,13 @@
  * advertised 16 KiB, and every request was aborted as incomplete. */
 #define WIRED_H3_MAX_FIELD_SECTION 2048
 
+/** RFC 9204 5 (SETTINGS_QPACK_MAX_TABLE_CAPACITY): the dynamic table
+ * capacity this server advertises to peers AND initializes its own
+ * encoder-side dynamic table (qpackenc_init) with -- the two must match, or
+ * the encoder could generate inserts the peer's decoder was never told it
+ * may hold. */
+#define DEFAULT_QPACK_MAX_TABLE_CAP 4096
+
 /* RFC 9114 6.2.1 / 7.2.4: the opening bytes of an HTTP/3 control stream:
  * stream type 0x00 followed by a SETTINGS frame with default values. When
  * advertise_wt is non-zero the SETTINGS additionally carry SETTINGS_H3_

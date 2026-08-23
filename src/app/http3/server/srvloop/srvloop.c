@@ -1,5 +1,6 @@
 #include "app/http3/server/srvloop/srvloop.h"
 
+#include "app/http3/core/h3settings/control_settings.h"
 #include "app/http3/server/srvloop/dispatch.h"
 #include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvloop/respond.h"
@@ -89,7 +90,7 @@ static void pending_priority_reset(wired_srvloop* l) {
 
 int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   if (cli_scid_len > 20) return 0;
-  wired_h3srv_state_init(&l->h3, 0);
+  wired_h3srv_state_init(&l->h3, DEFAULT_QPACK_MAX_TABLE_CAP);
   l->cli_scid_len = cli_scid_len;
   for (usz i = 0; i < cli_scid_len; i++) l->cli_scid[i] = cli_scid[i];
   l->tx_pn                      = 0;
