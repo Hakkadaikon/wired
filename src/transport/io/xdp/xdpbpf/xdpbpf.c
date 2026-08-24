@@ -63,10 +63,11 @@ static u16 bpf_htons(u16 port) {
 #define BPF_IDX_CHECK_LONG 21 /* top-bit set: decide short vs long */
 #define BPF_IDX_LONG 24       /* long-header path begins */
 #define BPF_IDX_HAS_DCID 30   /* long header, DCID len != 0 */
-#define BPF_IDX_FALLBACK 32   /* rx_queue_index fallback key load */
-#define BPF_IDX_KEY_CHECK 33  /* DCID-byte key range check (< map size) */
-#define BPF_IDX_REDIRECT 34   /* map fd load + bpf_redirect_map() call */
-#define BPF_IDX_PASS 39       /* dport/boundary miss -> XDP_PASS */
+#define BPF_IDX_KEY_CHECK 32  /* DCID-byte key range check (< map size) */
+#define BPF_IDX_KEY_SKIP 33   /* key in range: skip the fallback load */
+#define BPF_IDX_FALLBACK 34   /* rx_queue_index fallback key load */
+#define BPF_IDX_REDIRECT 35   /* map fd load + bpf_redirect_map() call */
+#define BPF_IDX_PASS 40       /* dport/boundary miss -> XDP_PASS */
 
 /* Number of XSKMAP slots the DCID-byte routing key must stay under. The
  * server-side XSKMAP is always sized WIRED_SRVXDPBPF_MAP_ENTRIES
@@ -159,23 +160,37 @@ static void bpf_prog_long_path(u64 out[XDPBPF_PROG_LEN]) {
       BPF_INSN_JA, 0, 0, bpf_off(BPF_IDX_HAS_DCID + 1, BPF_IDX_KEY_CHECK), 0);
 }
 
-/* idx 33 (BPF_IDX_KEY_CHECK): the short/long paths both land here with the
- * DCID's first byte in r2 -- a client's self-chosen initial DCID (RFC 9000
- * 7.2) is an unconstrained random byte, so unlike the fallback key (rx_
- * queue_index, always < the RX queue count) this key is NOT guaranteed to
- * be a valid XSKMAP index. Values >= BPF_XSKMAP_ENTRIES fall back to
- * rx_queue_index instead of being handed to bpf_redirect_map(), which
- * would otherwise XDP_PASS the packet on every map-lookup miss (kernel's
- * documented fallback-to-flags behavior) and never reach the AF_XDP
- * socket -- exactly the handshake-drop bug this check closes. The
- * fallback path itself does not need this same check: see its comment. */
+/* idx 32-33 (BPF_IDX_KEY_CHECK, BPF_IDX_KEY_SKIP): the short/long paths both
+ * land at KEY_CHECK with the DCID's first byte in r2 -- a client's self-
+ * chosen initial DCID (RFC 9000 7.2) is an unconstrained random byte, so
+ * unlike the fallback key (rx_queue_index, always < the RX queue count)
+ * this key is NOT guaranteed to be a valid XSKMAP index. Values >=
+ * BPF_XSKMAP_ENTRIES fall through to KEY_SKIP's target, BPF_IDX_FALLBACK,
+ * instead of being handed to bpf_redirect_map(), which would otherwise
+ * XDP_PASS the packet on every map-lookup miss (kernel's documented
+ * fallback-to-flags behavior) and never reach the AF_XDP socket -- exactly
+ * the handshake-drop bug this check closes. The fallback path itself does
+ * not need this same check: see its comment.
+ *
+ * Both jumps here are FORWARD (KEY_CHECK=32 -> FALLBACK=34, KEY_SKIP=33 ->
+ * REDIRECT=35): this block sits *before* BPF_IDX_FALLBACK in program order
+ * specifically so neither edge is a backward branch. An earlier revision
+ * placed the range check right after the fallback's key load, so the
+ * fallback instruction fell through into the check and the check's reject
+ * edge jumped back to the fallback -- two edges the verifier's CFG walk
+ * read as a cycle, and BPF_PROG_LOAD failed with "infinite loop detected"
+ * even though runtime execution never loops (the reject edge is taken at
+ * most once per packet). Keeping every edge in this filter forward-only
+ * avoids relying on the verifier's bounded-loop analysis at all. */
 static void bpf_prog_key_check(u64 out[XDPBPF_PROG_LEN]) {
   out[BPF_IDX_KEY_CHECK] = bpf_insn(
       BPF_INSN_JGE_IMM, 2, 0, bpf_off(BPF_IDX_KEY_CHECK, BPF_IDX_FALLBACK),
       BPF_XSKMAP_ENTRIES);
+  out[BPF_IDX_KEY_SKIP] = bpf_insn(
+      BPF_INSN_JA, 0, 0, bpf_off(BPF_IDX_KEY_SKIP, BPF_IDX_REDIRECT), 0);
 }
 
-/* idx 32,34-40: the rx_queue_index fallback key load (BPF_IDX_FALLBACK, the
+/* idx 34,35-41: the rx_queue_index fallback key load (BPF_IDX_FALLBACK, the
  * original template's only routing key before this task -- already bounded
  * by the NIC's actual RX queue count, so it needs no range check of its
  * own), then the shared redirect-map epilogue every path above converges
