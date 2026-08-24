@@ -30,7 +30,7 @@
  * explicit length byte, straight off the wire. */
 
 /** Number of u64 instructions xdpbpf_prog_build() emits. */
-#define XDPBPF_PROG_LEN 41
+#define XDPBPF_PROG_LEN 42
 
 /** Build the XDP filter into out: eth/IPv4 (IHL=5, non-fragment)/UDP with
  * dport == port is redirected to the XSKMAP map_fd, keyed by the QUIC core-
