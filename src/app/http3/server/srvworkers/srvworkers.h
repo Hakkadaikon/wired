@@ -16,7 +16,25 @@
  * implemented in transport/io/socket/io/udp.h), not here. srvworkers only
  * forks/pins/supervises; verify separately that srvrun.c's bind path calls
  * wired_udp_reuseport_enable before relying on multiple workers sharing a
- * port. */
+ * port.
+ *
+ * KNOWN LIMITATION (workers > 1): SO_REUSEPORT's kernel-side 4-tuple hash is
+ * the ONLY thing routing a client's packets to one of the N listening
+ * sockets; unlike the AF_XDP driver (srvdriver.c WIRED_SRVDRIVER_XDP), no
+ * CID is used to steer a flow to a specific worker here. A new connection's
+ * Initial/Handshake datagrams are not guaranteed to keep landing on the
+ * worker that answered the first one -- observed in practice as intermittent
+ * handshake failures / stateless resets that get MORE frequent as workers
+ * grows (measured locally: workers=1 always succeeds, workers=4 fails on
+ * roughly half of single-request attempts). This is the same class of
+ * problem as the connection-migration gap (see tasks/core-pinning-plan.md
+ * PIN-005): steering packets to the right process needs either eBPF
+ * (PIN-006, out of scope -- see AF_XDP's xdpbpf.c for what that requires) or
+ * an inter-worker forwarding channel, neither of which this shared-nothing
+ * fork model has. Prefer workers=1 (or the AF_XDP driver) for anything that
+ * must reliably complete a handshake; workers>1 here is only safe for
+ * already-established, sticky-by-4-tuple traffic on a kernel/NIC combo
+ * whose reuseport hash never rebalances mid-connection. */
 
 /** Worker fan-out policy. */
 typedef struct {
