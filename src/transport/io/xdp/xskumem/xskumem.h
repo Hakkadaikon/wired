@@ -12,8 +12,10 @@
 /** Byte size of one UMEM frame. */
 #define XSKUMEM_FRAME_SIZE 2048u
 
-/** Total number of frames this allocator manages. */
-#define XSKUMEM_FRAMES 128u
+/** Total number of frames this allocator manages. Matches
+ * xsksetup's XSKSETUP_UMEM_FRAMES: this allocator backs srvxdp's TX pool,
+ * which is carved out of the same UMEM. */
+#define XSKUMEM_FRAMES 1024u
 
 /** Fixed-capacity LIFO free list of UMEM frame addresses. */
 typedef struct {

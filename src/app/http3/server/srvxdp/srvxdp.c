@@ -5,14 +5,19 @@
 #include "common/platform/debug/debug.h"
 #include "transport/io/xdp/xdpframe/xdpframe.h"
 
-/** Number of frames in the TX pool (UMEM frames 64..127; the RX pool,
- * frames 0..63, belongs to the kernel's fill/rx rings). */
-#define SRVXDP_TXPOOL_FRAMES 64u
-/* Cast to u64 before multiplying (bugprone-implicit-widening-of-
+/** Number of frames in the TX pool: every UMEM frame not reserved for RX
+ * (frames XSKSETUP_RX_POOL_FRAMES..XSKSETUP_UMEM_FRAMES-1). The RX pool
+ * (frames 0..XSKSETUP_RX_POOL_FRAMES-1) belongs to the kernel's fill/rx
+ * rings. A 1MB HTTP/3 response body needs ~750 in-flight TX frames at the
+ * ~1400B QUIC packet size; a too-small pool here is what made large
+ * transfers hang (see xsksetup.h's XSKSETUP_UMEM_FRAMES comment). */
+#define SRVXDP_TXPOOL_FRAMES (XSKSETUP_UMEM_FRAMES - XSKSETUP_RX_POOL_FRAMES)
+/* TX pool starts right after the RX pool's frames (0..RX_POOL_FRAMES-1).
+ * Cast to u64 before multiplying (bugprone-implicit-widening-of-
  * multiplication-result): SRVXDP_TXPOOL_BASE is a UMEM byte offset, so the
  * product must be computed at that width, not implicitly widened from a
  * u32*u32 result after the fact. */
-#define SRVXDP_TXPOOL_BASE ((u64)SRVXDP_TXPOOL_FRAMES * XSKSETUP_FRAME_SIZE)
+#define SRVXDP_TXPOOL_BASE ((u64)XSKSETUP_RX_POOL_FRAMES * XSKSETUP_FRAME_SIZE)
 
 /* Initialize x's non-BPF state (identity, MAC cache, TX pool) from cfg. */
 static void srvxdp_init_state(wired_srvxdp* x, const wired_srvxdp_cfg* cfg) {
