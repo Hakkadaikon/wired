@@ -3,6 +3,10 @@
 //   - ttfb: n sequential fresh-connection requests (dial start -> body fully
 //     read, QUIC+TLS handshake included).
 //   - load: n requests over c concurrent streams on a warmed connection.
+//     -conns >1 splits the c streams across that many separate QUIC
+//     connections (distinct 4-tuples), the only way to exercise a
+//     SO_REUSEPORT multi-worker server's fan-out -- a single connection
+//     always lands on one worker regardless of stream count.
 //
 // Per-request timeout 10s (a timeout counts as a failure and the worker
 // moves on); a run aborts after 500 failures. Reports its own CPU time so
@@ -99,12 +103,18 @@ func runTTFB(url string, n int) {
 	report("ttfb", n, fails, lat, time.Since(start))
 }
 
-func runLoad(url string, n, conc int) {
-	client := newClient()
-	defer client.Transport.(*http3.Transport).Close()
-	if _, err := oneRequest(client, url); err != nil { // warm the connection
-		fmt.Fprintf(os.Stderr, "warmup failed: %v\n", err)
-		os.Exit(1)
+func runLoad(url string, n, conc, conns int) {
+	if conns < 1 {
+		conns = 1
+	}
+	clients := make([]*http.Client, conns)
+	for i := range clients {
+		clients[i] = newClient()
+		if _, err := oneRequest(clients[i], url); err != nil { // warm each connection
+			fmt.Fprintf(os.Stderr, "warmup failed: %v\n", err)
+			os.Exit(1)
+		}
+		defer clients[i].Transport.(*http3.Transport).Close()
 	}
 	var fails, issued int64
 	latCh := make(chan time.Duration, n)
@@ -112,7 +122,7 @@ func runLoad(url string, n, conc int) {
 	var wg sync.WaitGroup
 	for w := 0; w < conc; w++ {
 		wg.Add(1)
-		go func() {
+		go func(client *http.Client) {
 			defer wg.Done()
 			for {
 				if atomic.AddInt64(&issued, 1) > int64(n) {
@@ -128,7 +138,7 @@ func runLoad(url string, n, conc int) {
 				}
 				latCh <- d
 			}
-		}()
+		}(clients[w%conns])
 	}
 	wg.Wait()
 	close(latCh)
@@ -143,13 +153,14 @@ func main() {
 	mode := flag.String("mode", "ttfb", "ttfb | load")
 	n := flag.Int("n", 100, "request count")
 	conc := flag.Int("c", 20, "concurrent streams (load mode)")
+	conns := flag.Int("conns", 1, "separate QUIC connections to spread the c streams across (load mode)")
 	url := flag.String("url", "https://127.0.0.1:14433/1k.bin", "target URL")
 	flag.Parse()
 	switch *mode {
 	case "ttfb":
 		runTTFB(*url, *n)
 	case "load":
-		runLoad(*url, *n, *conc)
+		runLoad(*url, *n, *conc, *conns)
 	default:
 		fmt.Fprintln(os.Stderr, "unknown mode")
 		os.Exit(2)
