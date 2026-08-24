@@ -30,6 +30,7 @@
 #define BPF_INSN_MOV64_IMM 0xb7 /* BPF_ALU64|BPF_MOV|BPF_K: r_dst = imm */
 #define BPF_INSN_ADD64_IMM 0x07 /* BPF_ALU64|BPF_ADD|BPF_K: r_dst += imm */
 #define BPF_INSN_JGT_REG 0x2d   /* BPF_JMP|BPF_JGT|BPF_X: if r_dst>r_src goto */
+#define BPF_INSN_JGE_IMM 0x35   /* BPF_JMP|BPF_JGE|BPF_K: if r_dst>=imm goto */
 #define BPF_INSN_JNE_IMM 0x55   /* BPF_JMP|BPF_JNE|BPF_K: if r_dst!=imm goto */
 #define BPF_INSN_JSET_IMM 0x45  /* BPF_JMP|BPF_JSET|BPF_K: if r_dst&imm goto */
 #define BPF_INSN_JA 0x05        /* BPF_JMP|BPF_JA: unconditional goto */
@@ -63,8 +64,21 @@ static u16 bpf_htons(u16 port) {
 #define BPF_IDX_LONG 24       /* long-header path begins */
 #define BPF_IDX_HAS_DCID 30   /* long header, DCID len != 0 */
 #define BPF_IDX_FALLBACK 32   /* rx_queue_index fallback key load */
-#define BPF_IDX_REDIRECT 33   /* map fd load + bpf_redirect_map() call */
-#define BPF_IDX_PASS 38       /* dport/boundary miss -> XDP_PASS */
+#define BPF_IDX_KEY_CHECK 33  /* DCID-byte key range check (< map size) */
+#define BPF_IDX_REDIRECT 34   /* map fd load + bpf_redirect_map() call */
+#define BPF_IDX_PASS 39       /* dport/boundary miss -> XDP_PASS */
+
+/* Number of XSKMAP slots the DCID-byte routing key must stay under. The
+ * server-side XSKMAP is always sized WIRED_SRVXDPBPF_MAP_ENTRIES
+ * (app/http3/server/srvxdpbpf/srvxdpbpf.h), currently 64; a client's
+ * self-chosen initial DCID (RFC 9000 7.2) is an unconstrained random byte,
+ * so the key this filter reads is NOT guaranteed to fall inside the map --
+ * unlike the fallback key (rx_queue_index), which stays under the RX queue
+ * count and is assumed in-range (see BPF_IDX_KEY_CHECK's comment). Kept as
+ * a fixed constant here rather than a xdpbpf_prog_build() parameter: this
+ * transport-layer file has exactly one caller and must not depend on the
+ * app-layer header that owns WIRED_SRVXDPBPF_MAP_ENTRIES. */
+#define BPF_XSKMAP_ENTRIES 64
 
 /* off for a forward jump from instruction `from` to instruction `to` (BPF's
  * off field is relative to the instruction AFTER the jump itself). */
@@ -122,7 +136,7 @@ static void bpf_prog_short_path(u64 out[XDPBPF_PROG_LEN]) {
       BPF_INSN_JSET_IMM, 4, 0, bpf_off(BPF_IDX_CHECK_LONG, BPF_IDX_LONG), 0x40);
   out[BPF_IDX_CHECK_LONG + 1] = bpf_insn(BPF_INSN_LDXB, 2, 2, 43, 0);
   out[BPF_IDX_CHECK_LONG + 2] = bpf_insn(
-      BPF_INSN_JA, 0, 0, bpf_off(BPF_IDX_CHECK_LONG + 2, BPF_IDX_REDIRECT), 0);
+      BPF_INSN_JA, 0, 0, bpf_off(BPF_IDX_CHECK_LONG + 2, BPF_IDX_KEY_CHECK), 0);
 }
 
 /* idx 24-31: long-header path (RFC 9000 17.2) -- boundary-check up to
@@ -142,15 +156,33 @@ static void bpf_prog_long_path(u64 out[XDPBPF_PROG_LEN]) {
   out[i + 5] = bpf_insn(BPF_INSN_JA, 0, 0, bpf_off(i + 5, BPF_IDX_FALLBACK), 0);
   out[BPF_IDX_HAS_DCID]     = bpf_insn(BPF_INSN_LDXB, 2, 2, 48, 0);
   out[BPF_IDX_HAS_DCID + 1] = bpf_insn(
-      BPF_INSN_JA, 0, 0, bpf_off(BPF_IDX_HAS_DCID + 1, BPF_IDX_REDIRECT), 0);
+      BPF_INSN_JA, 0, 0, bpf_off(BPF_IDX_HAS_DCID + 1, BPF_IDX_KEY_CHECK), 0);
 }
 
-/* idx 32-39: the rx_queue_index fallback key load (BPF_IDX_FALLBACK, the
- * original template's only routing key before this task), then the shared
- * redirect-map epilogue every path above converges on (BPF_IDX_REDIRECT),
- * and finally the XDP_PASS trap every dport/boundary miss above jumps to
- * (BPF_IDX_PASS). map_fd (idx REDIRECT+0/+1, the LDDW) is patched by the
- * caller after this runs, same as the original template's idx16. */
+/* idx 33 (BPF_IDX_KEY_CHECK): the short/long paths both land here with the
+ * DCID's first byte in r2 -- a client's self-chosen initial DCID (RFC 9000
+ * 7.2) is an unconstrained random byte, so unlike the fallback key (rx_
+ * queue_index, always < the RX queue count) this key is NOT guaranteed to
+ * be a valid XSKMAP index. Values >= BPF_XSKMAP_ENTRIES fall back to
+ * rx_queue_index instead of being handed to bpf_redirect_map(), which
+ * would otherwise XDP_PASS the packet on every map-lookup miss (kernel's
+ * documented fallback-to-flags behavior) and never reach the AF_XDP
+ * socket -- exactly the handshake-drop bug this check closes. The
+ * fallback path itself does not need this same check: see its comment. */
+static void bpf_prog_key_check(u64 out[XDPBPF_PROG_LEN]) {
+  out[BPF_IDX_KEY_CHECK] = bpf_insn(
+      BPF_INSN_JGE_IMM, 2, 0, bpf_off(BPF_IDX_KEY_CHECK, BPF_IDX_FALLBACK),
+      BPF_XSKMAP_ENTRIES);
+}
+
+/* idx 32,34-40: the rx_queue_index fallback key load (BPF_IDX_FALLBACK, the
+ * original template's only routing key before this task -- already bounded
+ * by the NIC's actual RX queue count, so it needs no range check of its
+ * own), then the shared redirect-map epilogue every path above converges
+ * on (BPF_IDX_REDIRECT), and finally the XDP_PASS trap every dport/
+ * boundary miss above jumps to (BPF_IDX_PASS). map_fd (idx REDIRECT+0/+1,
+ * the LDDW) is patched by the caller after this runs, same as the original
+ * template's idx16. */
 static void bpf_prog_epilogue(u64 out[XDPBPF_PROG_LEN]) {
   out[BPF_IDX_FALLBACK] = bpf_insn(BPF_INSN_LDXW, 2, 1, 16, 0);
   out[BPF_IDX_REDIRECT] =
@@ -172,6 +204,7 @@ static void bpf_prog_template(u64 out[XDPBPF_PROG_LEN]) {
   bpf_prog_header_split(out);
   bpf_prog_short_path(out);
   bpf_prog_long_path(out);
+  bpf_prog_key_check(out);
   bpf_prog_epilogue(out);
 }
 

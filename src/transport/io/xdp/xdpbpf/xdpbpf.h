@@ -11,9 +11,12 @@
  * XSKMAP, keyed by the QUIC destination CID's leading byte (packed with a
  * worker/core index by ncid_worker_encode, bits=8) when the packet's
  * QUIC header is readable; it falls back to the NIC rx_queue_index when the
- * core-id byte cannot be located (too-short packet, or a zero-length DCID on
- * a long header). Anything that is not IPv4/UDP/dport-match is XDP_PASS, so
- * the kernel keeps handling ARP/ICMP/other traffic.
+ * core-id byte cannot be located (too-short packet, a zero-length DCID on a
+ * long header, or a DCID byte value that is out of range for the XSKMAP --
+ * a client's self-chosen initial DCID, RFC 9000 7.2, is an unconstrained
+ * random byte, unlike a server-issued CID's core-routing byte). Anything
+ * that is not IPv4/UDP/dport-match is XDP_PASS, so the kernel keeps
+ * handling ARP/ICMP/other traffic.
  *
  * Header-format offsets (RFC 9000 17.2/17.3), all relative to the fixed
  * UDP-payload start at byte 42 (Ethernet 14 + IPv4 IHL=5 20 + UDP 8): a short
@@ -27,7 +30,7 @@
  * explicit length byte, straight off the wire. */
 
 /** Number of u64 instructions xdpbpf_prog_build() emits. */
-#define XDPBPF_PROG_LEN 40
+#define XDPBPF_PROG_LEN 41
 
 /** Build the XDP filter into out: eth/IPv4 (IHL=5, non-fragment)/UDP with
  * dport == port is redirected to the XSKMAP map_fd, keyed by the QUIC core-
