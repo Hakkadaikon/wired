@@ -12,8 +12,13 @@
  * syscall plumbing that wires those parts to the kernel. */
 
 /** Fixed capacity: one UMEM frame per fill/comp/rx/tx ring entry slot count
- * below, matching xskumem's XSKUMEM_FRAMES (128 frames of 2048B). */
-#define XSKSETUP_UMEM_FRAMES 128u
+ * below, matching xskumem's XSKUMEM_FRAMES (1024 frames of 2048B = 2MiB).
+ * A 1MB file at a ~1400B QUIC packet size needs ~750 in-flight TX frames;
+ * the prior 128-frame UMEM (64 TX) stalled on txpool exhaustion well before
+ * that (observed as xdp_statistics.tx_ring_empty_descs = 14352 on a real
+ * VPS run). 1024 gives headroom above that without growing the mmap past a
+ * few MiB. */
+#define XSKSETUP_UMEM_FRAMES 1024u
 /** Byte size of one UMEM frame, matching xskumem's XSKUMEM_FRAME_SIZE. */
 #define XSKSETUP_FRAME_SIZE 2048u
 /** Total UMEM byte length. Cast to u64 before multiplying: both operands are
@@ -22,6 +27,14 @@
  * The current constants fit in 32 bits either way, but computing the product
  * in the target width is what the mmap length/UMEM offset math needs. */
 #define XSKSETUP_UMEM_LEN ((u64)XSKSETUP_UMEM_FRAMES * XSKSETUP_FRAME_SIZE)
+
+/** Number of UMEM frames (0..XSKSETUP_RX_POOL_FRAMES) reserved for the
+ * kernel's fill/RX side (xsksetup_prime_fill). The remainder
+ * (XSKSETUP_UMEM_FRAMES - XSKSETUP_RX_POOL_FRAMES) is the server's TX pool
+ * (srvxdp's SRVXDP_TXPOOL_FRAMES). Skewed toward TX: an HTTP/3 server
+ * mostly transmits (response bodies) and rarely needs many RX frames in
+ * flight at once. */
+#define XSKSETUP_RX_POOL_FRAMES 256u
 
 /** Entries per ring (fill/comp/rx/tx), must be a power of two. */
 #define XSKSETUP_RING_ENTRIES 64u

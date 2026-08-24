@@ -8,12 +8,20 @@
 
 #define SXT_RING 8u
 /* tx/comp need to hold every in-flight TX-pool frame at once for the
- * txpool-exhaustion test (64 sends with no completion in between), so they
- * are sized to the pool (64), unlike rx/fill which stay at SXT_RING. */
-#define SXT_TXRING 64u
-#define SXT_UMEM_FRAMES 128u
-#define SXT_UMEM_LEN (SXT_UMEM_FRAMES * XSKUMEM_FRAME_SIZE)
+ * txpool-exhaustion test (SRVXDP_TXPOOL_FRAMES sends with no completion in
+ * between), so they are sized to the pool, unlike rx/fill which stay at
+ * SXT_RING. xskring_init requires a power-of-two size (its mask = size-1),
+ * so round SRVXDP_TXPOOL_FRAMES up to the next one; the real kernel-side
+ * TX/comp rings are always a fixed power of two (XSKSETUP_RING_ENTRIES)
+ * regardless of the pool's frame count, so this fake harness ring is
+ * already bigger than any real one and never limits the test. */
+#define SXT_TXRING 1024u
+#define SXT_UMEM_FRAMES XSKSETUP_UMEM_FRAMES
+#define SXT_UMEM_LEN ((usz)SXT_UMEM_FRAMES * XSKUMEM_FRAME_SIZE)
 
+/* umem is the one multi-megabyte member (SXT_UMEM_LEN bytes): each test
+ * function keeps its sxt_world as a `static` local so this lives in BSS,
+ * not on the stack. */
 typedef struct {
   u8       umem[SXT_UMEM_LEN];
   u32      rx_prod, rx_cons;
@@ -56,7 +64,7 @@ static void sxt_init(sxt_world* w, wired_srvxdp* x) {
   bytes_memcpy((u8*)&x->ip_be, (const u8[]){10, 7, 0, 1}, 4);
   x->port = 4433;
   xdpmac_init(&x->macs);
-  xskumem_alloc_init(&x->txpool, 64u * XSKUMEM_FRAME_SIZE, 64u);
+  xskumem_alloc_init(&x->txpool, SRVXDP_TXPOOL_BASE, SRVXDP_TXPOOL_FRAMES);
 }
 
 /* Build a golden eth+IPv4+UDP frame (10.7.0.2:5555 -> 10.7.0.1:4433,
@@ -83,12 +91,12 @@ static void sxt_kernel_rx_push(sxt_world* w, u64 addr) {
 /* 1: rx_burst parses one pushed frame into bufs[0] and returns its RX
  * frame to the fill ring. */
 static void test_srvxdp_rx_basic(void) {
-  sxt_world    w;
-  wired_srvxdp x;
-  u8           payload_buf[64];
-  mmsg_buf     bufs[4];
-  i64          n;
-  u32          idx;
+  static sxt_world w;
+  wired_srvxdp     x;
+  u8               payload_buf[64];
+  mmsg_buf         bufs[4];
+  i64              n;
+  u32              idx;
   sxt_init(&w, &x);
   bufs[0].buf = wired_mspan_of(payload_buf, sizeof payload_buf);
 
@@ -107,10 +115,10 @@ static void test_srvxdp_rx_basic(void) {
  * exceeds the ring capacity, and every cycle's frame is fully accounted
  * for (either still in rx, or returned to fill). */
 static void test_srvxdp_rx_conservation(void) {
-  sxt_world    w;
-  wired_srvxdp x;
-  u8           payload_buf[64];
-  mmsg_buf     bufs[4];
+  static sxt_world w;
+  wired_srvxdp     x;
+  u8               payload_buf[64];
+  mmsg_buf         bufs[4];
   sxt_init(&w, &x);
   bufs[0].buf = wired_mspan_of(payload_buf, sizeof payload_buf);
 
@@ -139,13 +147,13 @@ static void sxt_learn_peer(sxt_world* w, wired_srvxdp* x, sockaddr* dst) {
 /* 3: send() with a learned MAC appends one tx descriptor whose frame
  * parses back to the same payload. */
 static void test_srvxdp_send_basic(void) {
-  sxt_world    w;
-  wired_srvxdp x;
-  sockaddr     dst;
-  const u8     pl[3] = {0xc0, 0xff, 0xee};
-  u32          idx;
-  xdp_desc*    d;
-  xdpframe_rx  rx;
+  static sxt_world w;
+  wired_srvxdp     x;
+  sockaddr         dst;
+  const u8         pl[3] = {0xc0, 0xff, 0xee};
+  u32              idx;
+  xdp_desc*        d;
+  xdpframe_rx      rx;
   sxt_init(&w, &x);
   sxt_learn_peer(&w, &x, &dst);
 
@@ -167,18 +175,19 @@ static void test_srvxdp_send_basic(void) {
  * txpool, observable as a successful send after the pool would otherwise
  * be one short. */
 static void test_srvxdp_completion_reap(void) {
-  sxt_world    w;
-  wired_srvxdp x;
-  sockaddr     dst;
-  const u8     pl[1] = {1};
-  u32          tx_idx, comp_idx;
-  xdp_desc*    txd;
-  i64          got;
+  static sxt_world w;
+  wired_srvxdp     x;
+  sockaddr         dst;
+  const u8         pl[1] = {1};
+  u32              tx_idx, comp_idx;
+  xdp_desc*        txd;
+  i64              got;
   sxt_init(&w, &x);
   sxt_learn_peer(&w, &x, &dst);
 
   /* drain txpool to exactly one frame left, then send it */
-  for (int i = 0; i < 63; i++) CHECK(xskumem_alloc_get(&x.txpool) >= 0);
+  for (u32 i = 0; i < SRVXDP_TXPOOL_FRAMES - 1; i++)
+    CHECK(xskumem_alloc_get(&x.txpool) >= 0);
   CHECK(wired_srvxdp_send(&x, &dst, wired_span_of(pl, 1)) == 1);
   /* pool now empty: kernel "completes" the frame it just took off tx */
   CHECK(xskring_cons_peek(&w.ktx, 1, &tx_idx) == 1);
@@ -192,27 +201,28 @@ static void test_srvxdp_completion_reap(void) {
   CHECK(got == 1);
 }
 
-/* 5: txpool exhaustion without any completion: the 65th send drops. */
+/* 5: txpool exhaustion without any completion: the (N+1)th send drops,
+ * where N = SRVXDP_TXPOOL_FRAMES. */
 static void test_srvxdp_txpool_exhaustion(void) {
-  sxt_world    w;
-  wired_srvxdp x;
-  sockaddr     dst;
-  const u8     pl[1] = {7};
+  static sxt_world w;
+  wired_srvxdp     x;
+  sockaddr         dst;
+  const u8         pl[1] = {7};
   sxt_init(&w, &x);
   sxt_learn_peer(&w, &x, &dst);
 
-  for (int i = 0; i < 64; i++)
+  for (u32 i = 0; i < SRVXDP_TXPOOL_FRAMES; i++)
     CHECK(wired_srvxdp_send(&x, &dst, wired_span_of(pl, 1)) == 1);
   CHECK(wired_srvxdp_send(&x, &dst, wired_span_of(pl, 1)) == 0);
 }
 
 /* 6: send() to an unlearned destination drops without touching tx. */
 static void test_srvxdp_mac_miss(void) {
-  sxt_world    w;
-  wired_srvxdp x;
-  sockaddr     dst;
-  const u8     pl[1] = {9};
-  u32          idx;
+  static sxt_world w;
+  wired_srvxdp     x;
+  sockaddr         dst;
+  const u8         pl[1] = {9};
+  u32              idx;
   sxt_init(&w, &x);
   wired_udp_addr(&dst, 4433, (const u8[]){10, 9, 9, 9});
 

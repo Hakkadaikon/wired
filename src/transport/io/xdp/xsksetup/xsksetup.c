@@ -206,11 +206,11 @@ static i64 xsksetup_bind(xsk* x, const xsk_cfg* cfg) {
   return wired_arch_bind(x->fd, &sa, sizeof sa);
 }
 
-/* Push every RX-pool frame address (0..XSKSETUP_UMEM_FRAMES/2, matching
- * xskumem's RX/TX pool split) onto the fill ring so the kernel has frames to
+/* Push every RX-pool frame address (0..XSKSETUP_RX_POOL_FRAMES, matching
+ * srvxdp's RX/TX pool split) onto the fill ring so the kernel has frames to
  * receive into as soon as bind completes. */
 static void xsksetup_prime_fill(xsk* x) {
-  u32 n   = XSKSETUP_UMEM_FRAMES / 2;
+  u32 n   = XSKSETUP_RX_POOL_FRAMES;
   u32 idx = 0;
   u32 got = xskring_prod_reserve(&x->fill, n, &idx);
   for (u32 i = 0; i < got; i++)

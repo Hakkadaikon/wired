@@ -1119,6 +1119,13 @@ static i64 srvrun_stage_fd(const srvrun_cfg* cfg, const wired_srvrun_env* e) {
   return e->gso_fd ? e->gso_fd : cfg->fd;
 }
 
+/* Both wired_srvxdp_send and wired_udp_send's return value are ignored on
+ * purpose: a dropped/short send here (e.g. AF_XDP's TX pool momentarily
+ * exhausted) is not retried at this layer. It does not need to be --
+ * srvrun_step calls srvrun_fire_ptos every iteration (RFC 9002 6.2 PTO),
+ * which re-sends any unacked bytes once its deadline fires, so a locally
+ * dropped packet is recovered by the existing QUIC loss-detection timer
+ * rather than by an app-level retry loop here. */
 static void srvrun_tx(
     const srvrun_cfg* cfg, i64 fd, const sockaddr* sa, wired_span pkt) {
   cfg->env->tx_flush_count++;
