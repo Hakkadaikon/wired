@@ -26,8 +26,8 @@ graph TB
     kernel["kernel<br/>socket · bind · sendto ·<br/>recvfrom · poll · getrandom"]
     us -- "raw encrypted UDP bytes" --> kernel
 
-    style us fill:#eef,stroke:#66a,stroke-width:1px
-    style kernel fill:#fee,stroke:#a66,stroke-width:1px
+    style us fill:#1e3a5f,stroke:#5b9bd5,color:#e8f0fe,stroke-width:1px
+    style kernel fill:#5c1e1e,stroke:#d57a7a,color:#fde8e8,stroke-width:1px
 ```
 
 The place that actually issues a syscall is concentrated in a single inline-assembly function called `syscall6`; every other piece of C code reaches the kernel only through that function, the sole exceptions being three unavoidable asm trampolines (thread exit, signal return, and the `_start` entry stub).
@@ -57,11 +57,11 @@ graph LR
     app --> transport --> crypto --> common
     transport -. "exception:<br/>drives the TLS handshake" .-> tls --> crypto
 
-    style app fill:#eef,stroke:#66a
-    style transport fill:#eef,stroke:#66a
-    style tls fill:#efe,stroke:#6a6
-    style crypto fill:#fee,stroke:#a66
-    style common fill:#ffe,stroke:#aa6
+    style app fill:#1e3a5f,stroke:#5b9bd5,color:#e8f0fe
+    style transport fill:#1e3a5f,stroke:#5b9bd5,color:#e8f0fe
+    style tls fill:#1e4620,stroke:#7ac97a,color:#e8fde8
+    style crypto fill:#5c1e1e,stroke:#d57a7a,color:#fde8e8
+    style common fill:#4a3c0a,stroke:#c9a94a,color:#fdf5e0
 ```
 
 The exception exists because the QUIC handshake carries TLS messages inside CRYPTO frames, transported in QUIC packets: transport must drive the TLS handshake, and crypto's key derivation shares the Initial-key type with tls.
@@ -83,9 +83,9 @@ flowchart LR
     a3 --> a4["4. transport: mask from\nciphertext sample,\nprotect the header"]
     a4 --> a5["5. coalesce packets\ninto one datagram,\nsendto"]
 
-    style a2 fill:#eef,stroke:#66a
-    style a4 fill:#eef,stroke:#66a
-    style a3 fill:#fee,stroke:#a66
+    style a2 fill:#1e3a5f,stroke:#5b9bd5,color:#e8f0fe
+    style a4 fill:#1e3a5f,stroke:#5b9bd5,color:#e8f0fe
+    style a3 fill:#5c1e1e,stroke:#d57a7a,color:#fde8e8
 ```
 
 The order cannot be rearranged: AEAD needs the finalized header (step 2
@@ -100,9 +100,9 @@ flowchart LR
     b3 --> b4["4. transport: parse\nframes, reassemble\nSTREAM data"]
     b4 --> b5["5. reassembled bytes\nflow up to HTTP/3 / QPACK"]
 
-    style b2 fill:#eef,stroke:#66a
-    style b4 fill:#eef,stroke:#66a
-    style b3 fill:#fee,stroke:#a66
+    style b2 fill:#1e3a5f,stroke:#5b9bd5,color:#e8f0fe
+    style b4 fill:#1e3a5f,stroke:#5b9bd5,color:#e8f0fe
+    style b3 fill:#5c1e1e,stroke:#d57a7a,color:#fde8e8
 ```
 
 Again the order is forced: the packet number is under header protection
@@ -153,8 +153,8 @@ graph TB
         xsk -- "packet already in<br/>this process's memory" --> app2["wired process"]
     end
 
-    style defaultdrv fill:#eef,stroke:#66a
-    style xdp fill:#efe,stroke:#6a6
+    style defaultdrv fill:#1e3a5f,stroke:#5b9bd5,color:#e8f0fe
+    style xdp fill:#1e4620,stroke:#7ac97a,color:#e8fde8
 ```
 
 **Default driver** (no extra flags): a plain `socket()` + `bind()` UDP
@@ -198,8 +198,8 @@ graph TB
     recv1 --> serve
     serve --> start
 
-    style block fill:#eef,stroke:#66a
-    style pauseinsn fill:#efe,stroke:#6a6
+    style block fill:#1e3a5f,stroke:#5b9bd5,color:#e8f0fe
+    style pauseinsn fill:#1e4620,stroke:#7ac97a,color:#e8fde8
 ```
 
 The **default driver blocks**: `poll()` puts the process to sleep and the
