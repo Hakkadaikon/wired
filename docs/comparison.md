@@ -136,6 +136,46 @@ the ratios between the fastest servers as indicative, not exact (those rows
 are at least partly client-bound). The lane showed no stalls or failures
 across 50,500 requests on any server.
 
+## Speed: AF_XDP driver over a real NIC (informational)
+
+**Not part of the pinned-conditions comparison above** — this is a
+same-day, exploratory measurement of wired's own AF_XDP driver
+(`src/transport/io/xdp/`) against wired's own default single-process UDP
+path, both served from one VM over its real (virtual) NIC to a client on a
+separate machine across the public internet. No other implementation in
+this document has an AF_XDP driver, so there is nothing to compare against
+except wired's two own driver modes. The absolute numbers are not
+reproducible (they depend on the internet path between two specific
+machines on the day of the run) — only the relative gap between the two
+rows, measured back-to-back on the same path, is informative.
+
+Method: `bench/client/benchclient -mode load -n 50 -c 4` against a 1 MiB
+file, client on a separate machine reached over the public internet, server
+on a KVM VM (`virtio_net`, single queue, generic/SKB-mode XDP — no native
+driver support, no zero-copy). Three back-to-back runs per driver mode.
+
+| Driver | reqps (run 1 / 2 / 3) | p50 ms (run 1 / 2 / 3) | fails |
+|---|---|---|---|
+| Single-process UDP (default) | 4.3 / 4.0 | 787 / 827 | 0 / 100 |
+| AF_XDP (generic mode) | 6.6 / 6.9 | 359 / 332 | 0 / 100 (one separate `warmup failed` retry not counted) |
+
+AF_XDP's kernel-bypass receive path (`wired_srvxdp_rx_burst`,
+`wired_srvxdp_send`) outperformed the default single-process UDP path by
+roughly +60% reqps / -55% p50 even in generic mode, which does not get the
+zero-copy benefit native-driver AF_XDP would. The AF_XDP driver is newer
+and less exercised than the default path: three implementation bugs were
+found and fixed while producing this measurement — a DCID byte read
+straight from the wire could exceed the XSKMAP's key range and fall back
+to `XDP_PASS` (dropping the packet out of the AF_XDP path entirely), the
+fix for that bug initially introduced a backward BPF branch the kernel
+verifier rejected as an unbounded loop, and the TX frame pool (sized for
+small responses) exhausted under a 1 MiB transfer and silently dropped
+packets with no retry. One intermittent failure (a single `warmup failed`
+timeout, not reflected in the table) surfaced during measurement and did
+not reproduce on retry — the driver is not yet proven stable enough for a
+production recommendation. See the AF_XDP source (`src/transport/io/xdp/`,
+`src/app/http3/server/srvxdp/`) and its git history for the fixes.
+
 ## Footprint: binary sections, memory, CPU (loopback lane)
 
 Measured 2026-08-16 on the same machine as the speed lanes, one day after
@@ -244,6 +284,13 @@ is published for MOQT. This section is carried forward unchanged from the
   the [run manifest](#run-manifest)); the loopback lane uses native builds
   at the commits in its table (wired `9d21db9`, quic-go client library
   `v0.61.0`, quiche `55886df` / crate version `0.29.3`).
+
+**AF_XDP lane environment** (different machine and day from the two lanes
+above; see [Speed: AF_XDP driver over a real NIC](#speed-af_xdp-driver-over-a-real-nic-informational)):
+KVM full-virtualization VM, `virtio_net` NIC (single queue, no native XDP
+driver support — generic/SKB-mode XDP only, no zero-copy), Ubuntu, kernel
+6.8. Client on a separate machine over the public internet; no shared
+hardware or link shaping. Exact host identity intentionally omitted.
 
 ### Server defaults (loopback lane)
 
@@ -380,6 +427,36 @@ quiche r3 usage kind=load reqs=10000 dticks=34 wall_ms=448 hz=100 vmhwm_kb=8468 
 quiche r4 usage kind=load reqs=10000 dticks=35 wall_ms=462 hz=100 vmhwm_kb=8484 vmrss_kb=8484
 quiche r5 usage kind=load reqs=10000 dticks=33 wall_ms=447 hz=100 vmhwm_kb=8484 vmrss_kb=8484
 ```
+
+AF_XDP lane: no log files were captured — this was a manual, interactive
+measurement (`benchclient` run by hand against a manually started server on
+a remote VM), unlike the other two lanes' scripted `bench/` drivers. The raw
+`benchclient` output lines, in run order:
+
+```
+# single-process UDP (default driver)
+mode=load n=50 fails=0 reqps=4.8 p50=673.32 p99=1125.54 cpu%=64
+mode=load n=50 fails=0 reqps=4.3 p50=786.94 p99=1404.71 cpu%=37
+mode=load n=50 fails=0 reqps=4.0 p50=827.48 p99=1492.71 cpu%=34
+
+# AF_XDP driver (--ifindex, --skb-mode i.e. generic/SKB mode)
+warmup failed: Get "https://<host>:4433/1m.bin": timeout: no recent network activity
+mode=load n=50 fails=0 reqps=6.6 p50=358.66 p99=1941.58 cpu%=47
+mode=load n=50 fails=0 reqps=6.9 p50=331.88 p99=1654.54 cpu%=60
+```
+
+The first single-process run (reqps 4.8) predates the fix commits below and
+is reported for completeness but excluded from the summary table's
+two-value range, since it ran against different server code. The single
+`warmup failed` line is the intermittent failure noted in the AF_XDP speed
+section; it did not reproduce on immediate retry.
+
+Reproduction: `bench/client/benchclient -mode load -n 50 -c 4 -url
+"https://<server-host>:4433/1m.bin"` from a separate machine, against
+`examples/word_list/wired_server --port 4433 --root <docroot> --cert
+cert.pem --key key.pem` (single-process) or `--ifindex <n> --ip <server-ip>
+--port 4433 --skb-mode --root <docroot> --cert cert.pem --key key.pem`
+(AF_XDP) on the server.
 
 ## Footnotes
 
