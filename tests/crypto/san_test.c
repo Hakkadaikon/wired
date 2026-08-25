@@ -122,6 +122,126 @@ static void test_san_fragment_wildcard_no_match(void) {
           wired_span_of(host, sizeof(host) - 1)) == 0);
 }
 
+/* Minimal synthetic tbsCertificate: 6 filler NULL TLVs followed by a [3]
+ * extensions block holding one subjectAltName iPAddress 127.0.0.1 (RFC 5280
+ * 4.2.1.6: GeneralName iPAddress is [7] IMPLICIT OCTET STRING). */
+static const u8 san_ipv4_single_tbs[] = {
+    0x30, 0x21, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00,
+    0x05, 0x00, 0xa3, 0x13, 0x30, 0x11, 0x30, 0x0f, 0x06, 0x03, 0x55, 0x1d,
+    0x11, 0x04, 0x08, 0x30, 0x06, 0x87, 0x04, 0x7f, 0x00, 0x00, 0x01,
+};
+
+/* Same shape, two iPAddress SAN entries: 192.168.1.1 and 10.0.0.1. */
+static const u8 san_ipv4_multi_tbs[] = {
+    0x30, 0x27, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05,
+    0x00, 0x05, 0x00, 0xa3, 0x19, 0x30, 0x17, 0x30, 0x15, 0x06, 0x03,
+    0x55, 0x1d, 0x11, 0x04, 0x0e, 0x30, 0x0c, 0x87, 0x04, 0xc0, 0xa8,
+    0x01, 0x01, 0x87, 0x04, 0x0a, 0x00, 0x00, 0x01,
+};
+
+/* Same shape, one dNSName SAN "example.com" and no iPAddress entry at all. */
+static const u8 san_dnsname_only_tbs[] = {
+    0x30, 0x28, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05,
+    0x00, 0x05, 0x00, 0xa3, 0x1a, 0x30, 0x18, 0x30, 0x16, 0x06, 0x03,
+    0x55, 0x1d, 0x11, 0x04, 0x0f, 0x30, 0x0d, 0x82, 0x0b, 0x65, 0x78,
+    0x61, 0x6d, 0x70, 0x6c, 0x65, 0x2e, 0x63, 0x6f, 0x6d,
+};
+
+/* Minimal synthetic tbsCertificate carrying NO extensions block at all: 4
+ * filler NULL TLVs (serialNumber, signature, issuer, validity) followed by
+ * a subject Name with a single commonName RDN "127.0.0.1". */
+static const u8 san_cn_only_ipv4_tbs[] = {
+    0x30, 0x1e, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x30,
+    0x14, 0x31, 0x12, 0x30, 0x10, 0x06, 0x03, 0x55, 0x04, 0x03, 0x0c,
+    0x09, 0x31, 0x32, 0x37, 0x2e, 0x30, 0x2e, 0x30, 0x2e, 0x31,
+};
+
+static int san_match_tbs(const u8* tbs, usz tbs_len, const u8* host, usz hlen) {
+  return x509_san_matches(
+      wired_span_of(tbs, tbs_len), wired_span_of(host, hlen));
+}
+
+/* An IPv4-literal hostname matches a certificate's matching iPAddress SAN. */
+static void test_san_ipv4_match(void) {
+  const u8 host[] = "127.0.0.1";
+  CHECK(
+      san_match_tbs(
+          san_ipv4_single_tbs, sizeof(san_ipv4_single_tbs), host,
+          sizeof(host) - 1) == 1);
+}
+
+/* An IPv4-literal hostname that differs from the cert's iPAddress SAN. */
+static void test_san_ipv4_mismatch(void) {
+  const u8 host[] = "127.0.0.2";
+  CHECK(
+      san_match_tbs(
+          san_ipv4_single_tbs, sizeof(san_ipv4_single_tbs), host,
+          sizeof(host) - 1) == 0);
+}
+
+/* An IPv4-literal hostname must not fall back to a dNSName SAN entry: no
+ * iPAddress entry at all is a mismatch even though a dNSName is present. */
+static void test_san_ipv4_no_dnsname_fallback(void) {
+  const u8 host[] = "127.0.0.1";
+  CHECK(
+      san_match_tbs(
+          san_dnsname_only_tbs, sizeof(san_dnsname_only_tbs), host,
+          sizeof(host) - 1) == 0);
+}
+
+/* Multiple iPAddress SAN entries: a match on any one of them is enough. */
+static void test_san_ipv4_multi_match(void) {
+  const u8 host[] = "10.0.0.1";
+  CHECK(
+      san_match_tbs(
+          san_ipv4_multi_tbs, sizeof(san_ipv4_multi_tbs), host,
+          sizeof(host) - 1) == 1);
+}
+
+/* An unrelated IPv4 literal against multiple iPAddress SAN entries. */
+static void test_san_ipv4_multi_no_match(void) {
+  const u8 host[] = "10.0.0.2";
+  CHECK(
+      san_match_tbs(
+          san_ipv4_multi_tbs, sizeof(san_ipv4_multi_tbs), host,
+          sizeof(host) - 1) == 0);
+}
+
+/* An IPv6-literal hostname is not parsed as IPv4 and falls through to a
+ * mismatch, never reaching the dNSName logic. */
+static void test_san_ipv6_hostname_mismatch(void) {
+  const u8 host[] = "::1";
+  CHECK(
+      san_match_tbs(
+          san_ipv4_single_tbs, sizeof(san_ipv4_single_tbs), host,
+          sizeof(host) - 1) == 0);
+  CHECK(
+      san_match_tbs(
+          san_dnsname_only_tbs, sizeof(san_dnsname_only_tbs), host,
+          sizeof(host) - 1) == 0);
+}
+
+/* RFC 6125 6.4.4: a cert without any SAN extension falls back to the CN-ID,
+ * and that fallback also applies when the hostname is an IPv4 literal and
+ * the CN's value is the same literal string. */
+static void test_san_ipv4_cn_id_fallback(void) {
+  const u8 host[] = "127.0.0.1";
+  CHECK(
+      san_match_tbs(
+          san_cn_only_ipv4_tbs, sizeof(san_cn_only_ipv4_tbs), host,
+          sizeof(host) - 1) == 1);
+}
+
+/* The CN-ID fallback for an IPv4-literal hostname still requires an exact
+ * string match against the CN value. */
+static void test_san_ipv4_cn_id_fallback_no_match(void) {
+  const u8 host[] = "127.0.0.2";
+  CHECK(
+      san_match_tbs(
+          san_cn_only_ipv4_tbs, sizeof(san_cn_only_ipv4_tbs), host,
+          sizeof(host) - 1) == 0);
+}
+
 void test_san(void) {
   test_exact_match();
   test_wildcard_match();
@@ -133,4 +253,12 @@ void test_san(void) {
   test_san_present_suppresses_cn_fallback();
   test_san_fragment_wildcard_match();
   test_san_fragment_wildcard_no_match();
+  test_san_ipv4_match();
+  test_san_ipv4_mismatch();
+  test_san_ipv4_no_dnsname_fallback();
+  test_san_ipv4_multi_match();
+  test_san_ipv4_multi_no_match();
+  test_san_ipv6_hostname_mismatch();
+  test_san_ipv4_cn_id_fallback();
+  test_san_ipv4_cn_id_fallback_no_match();
 }
