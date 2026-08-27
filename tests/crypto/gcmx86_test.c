@@ -107,9 +107,12 @@ static void gcmx86_diff_one(usz n, usz an) {
 }
 
 /* Lengths cover empty, sub-block, exact block, block+1, multi-block, the
- * 1129-byte QUIC packet hot case, and the largest test buffer. */
+ * 4-block (64-byte) interleave boundary (63/64/65) and the boundary one
+ * 4-block group past it (129 = 2*64+1), the 1129-byte QUIC packet hot case,
+ * and the largest test buffer. */
 static void test_gcmx86_diff(void) {
-  static const usz lens[] = {0, 1, 15, 16, 17, 64, 255, 1129, 2048};
+  static const usz lens[] = {0,  1,  15,  16,  17,   63,
+                             64, 65, 129, 255, 1129, 2048};
   static const usz aads[] = {0, 13, 20};
   gcmx86_rng              = 0x77697265; /* deterministic across runs */
   for (usz i = 0; i < sizeof(lens) / sizeof(lens[0]); i++)
