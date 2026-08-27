@@ -87,13 +87,6 @@ i64 wired_udp_close(i64 fd);
 /** Byte length of a UDP_SEGMENT cmsg (header + u16 payload, 8-byte aligned). */
 #define WIRED_GSO_CMSG_SPACE 24
 
-/** Enable UDP GSO on fd: kernel will split a large sendmsg() payload into
- * segsize-byte datagrams (Linux UDP_SEGMENT, kernel >= 4.18).
- * @param fd the socket fd
- * @param segsize per-segment byte size
- * @return 0 on success, or a negative errno (e.g. unsupported kernel). */
-i64 wired_udp_gso_enable(i64 fd, u16 segsize);
-
 /** Build a UDP_SEGMENT cmsg buffer for sendmsg() into
  * out[0..WIRED_GSO_CMSG_SPACE). Pure byte-layout builder, no syscall:
  * cmsg_len=18, cmsg_level=SOL_UDP, cmsg_type=UDP_SEGMENT, followed by segsize
@@ -105,7 +98,7 @@ void wired_udp_gso_cmsg_build(u8 out[WIRED_GSO_CMSG_SPACE], u16 segsize);
 
 /** Send count back-to-back segsize-byte segments (the last may be shorter,
  * total = buf.n) to sa in one sendmsg() syscall using UDP GSO.
- * @param fd the socket fd (GSO already enabled via wired_udp_gso_enable)
+ * @param fd the socket fd
  * @param sa the destination address
  * @param buf the concatenated segments to send
  * @param segsize per-segment byte size (last segment may be shorter)

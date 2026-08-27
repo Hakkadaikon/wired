@@ -113,12 +113,6 @@ void wired_udp_gso_cmsg_build(u8 out[WIRED_GSO_CMSG_SPACE], u16 segsize) {
   *(u16*)(out + 16) = segsize;
 }
 
-i64 wired_udp_gso_enable(i64 fd, u16 segsize) {
-  u16 val = segsize;
-  return wired_arch_setsockopt(
-      fd, WIRED_SOL_UDP, WIRED_UDP_SEGMENT, &val, sizeof(val));
-}
-
 /* RFC 3168 / RFC 9000 13.4.1: ECT(0) codepoint (0b10) as the IPv4 TOS byte's
  * low 2 bits (the upper 6 bits, DSCP, are left 0). */
 #define WIRED_ECT0_TOS 2
@@ -397,7 +391,7 @@ i64 wired_udp_recvmmsg_nowait(i64 fd, mmsg_buf* bufs, usz count) {
 
 /* SO_BUSY_POLL setsockopt name (Linux, needs CONFIG_NET_RX_BUSY_POLL). Level
  * is SOL_SOCKET (reused from wired_udp_reuseport_enable above) with an int
- * microsecond value — unlike WIRED_SOL_UDP/u16 used by the GSO setsockopt. */
+ * microsecond value — unlike WIRED_SOL_UDP/u16 used by the GSO cmsg. */
 #define WIRED_SO_BUSY_POLL 46
 
 i64 wired_udp_busy_poll_enable(i64 fd, int microseconds) {
