@@ -75,7 +75,6 @@ static void test_send_gso_delivers_total_bytes(void) {
   u8       payload[30];
   for (usz i = 0; i < sizeof payload; i++) payload[i] = (u8)i;
   if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
-  wired_udp_gso_enable(cfd, 10);
   CHECK(
       wired_udp_send_gso(
           cfd, &srv, wired_span_of(payload, sizeof payload), 10) ==
