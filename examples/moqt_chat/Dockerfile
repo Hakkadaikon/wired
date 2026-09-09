@@ -1,8 +1,9 @@
 # moqt_chat's wired_server as a scratch image: the binary is fully static
 # (-ffreestanding -nostdlib -static, see justfile's cflags) and touches no
-# filesystem at runtime (its self-signed cert is generated in memory each
-# boot, not read from disk -- see selfcert.c), so it needs nothing besides
-# itself. Built OUTSIDE this Dockerfile (the repo's pinned clang/ninja
+# filesystem at runtime except the one movie file it reads once at boot
+# (its self-signed cert is generated in memory each boot, not read from
+# disk -- see selfcert.c), so it needs nothing besides itself and that
+# file. Built OUTSIDE this Dockerfile (the repo's pinned clang/ninja
 # toolchain lives in flake.nix, not in any public base image):
 #
 #   just ninja examples/moqt_chat/wired_server
@@ -12,7 +13,9 @@
 FROM scratch
 
 COPY examples/moqt_chat/wired_server /wired_server
+# Published as the hub-owned "movie" track (--movie, see wired_server.c).
+COPY assets/movie.mp4 /movie.mp4
 
 EXPOSE 4433/udp
 
-ENTRYPOINT ["/wired_server"]
+ENTRYPOINT ["/wired_server", "--movie", "/movie.mp4"]
