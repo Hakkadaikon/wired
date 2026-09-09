@@ -13,6 +13,7 @@ describe("moqtChatStore", () => {
     expect(s.messages).toEqual([]);
     expect(s.peers).toEqual([]);
     expect(s.displayName).toBe("");
+    expect(s.movieUrl).toBeNull();
   });
 
   it("assigns monotonically increasing message ids and returns them", () => {
