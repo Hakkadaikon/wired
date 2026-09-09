@@ -308,11 +308,11 @@ int moqdata_obj_put_status(
   return MOQDATA_OK;
 }
 
-/* ===== one-message builder ===== */
-
 #define MOQDATA_MSG_TYPE                        \
   0x70ULL /* PROPERTIES off, mode 0b00, no eog, \
               default priority, FIRST_OBJECT set */
+
+/* ===== one-message builder ===== */
 
 int moqdata_msg_build(wired_mspan buf, usz* off, const moqdata_msg* m) {
   usz            at = *off;
@@ -326,4 +326,43 @@ int moqdata_msg_build(wired_mspan buf, usz* off, const moqdata_msg* m) {
     return MOQDATA_INSUFFICIENT;
   *off = at;
   return MOQDATA_OK;
+}
+
+/* ===== multi-Object blob builder ===== */
+
+static usz moqdata_blob_chunk_len(usz remaining) {
+  return remaining < MOQDATA_BLOB_CHUNK ? remaining : MOQDATA_BLOB_CHUNK;
+}
+
+/* ceil(n / CHUNK) Objects, Object ID Delta 0 each (moqdata_blob_build's
+ * doc). 0 when buf runs out. */
+static int moqdata_blob_put_objects(wired_mspan buf, usz* at, wired_span blob) {
+  for (usz pos = 0; pos < blob.n;) {
+    usz len = moqdata_blob_chunk_len(blob.n - pos);
+    if (moqdata_obj_put(buf, at, 0, wired_span_of(blob.p + pos, len)) !=
+        MOQDATA_OK)
+      return 0;
+    pos += len;
+  }
+  return 1;
+}
+
+static int moqdata_blob_put_header(wired_mspan buf, usz* at, u64 track_alias) {
+  moqdata_subhdr h = {0};
+  h.type           = MOQDATA_MSG_TYPE;
+  h.track_alias    = track_alias;
+  return moqdata_subhdr_put(buf, at, &h) == MOQDATA_OK;
+}
+
+static int moqdata_blob_put_all(
+    wired_mspan buf, usz* at, u64 track_alias, wired_span blob) {
+  return moqdata_blob_put_header(buf, at, track_alias) &&
+         moqdata_blob_put_objects(buf, at, blob);
+}
+
+usz moqdata_blob_build(wired_mspan buf, u64 track_alias, wired_span blob) {
+  usz at = 0;
+  if (blob.n == 0) return 0;
+  if (!moqdata_blob_put_all(buf, &at, track_alias, blob)) return 0;
+  return at;
 }

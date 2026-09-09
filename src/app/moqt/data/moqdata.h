@@ -125,4 +125,30 @@ typedef struct {
 
 int moqdata_msg_build(wired_mspan buf, usz* off, const moqdata_msg* m);
 
+/** Bytes per Object when moqdata_blob_build frames a blob: 16 KiB keeps
+ * each Object a read()-sized unit for a browser subscriber while holding
+ * the per-Object framing overhead under 0.1% of a multi-MB file. */
+#define MOQDATA_BLOB_CHUNK 16384
+
+/** Worst-case framed size of an n-byte blob, to size a moqdata_blob_build
+ * buffer: the header + first-Object framing bound (MOQDATA_MSG_OVERHEAD)
+ * plus, per further Object, a 1-byte Object ID Delta and a Payload Length
+ * varint (<= 4 bytes for MOQDATA_BLOB_CHUNK) -- 8 per Object leaves
+ * margin. */
+#define MOQDATA_BLOB_WIRE_CAP(n) \
+  ((n) + MOQDATA_MSG_OVERHEAD + 8 * ((n) / MOQDATA_BLOB_CHUNK + 1))
+
+/** Multi-Object builder: moqdata_msg_build's SUBGROUP_HEADER (Type 0x70,
+ * track_alias, Group 0) followed by ceil(blob.n / MOQDATA_BLOB_CHUNK)
+ * Objects, each with Object ID Delta 0 -- FIRST_OBJECT makes the first
+ * one's delta its absolute id 0 and the chaining rule (prev + delta + 1,
+ * moqdata_obj_take) turns every later 0 into a plain increment, so ids run
+ * 0,1,2,... The Object payloads concatenate back to blob.
+ * @param buf destination, sized with MOQDATA_BLOB_WIRE_CAP(blob.n)
+ * @param track_alias Track Alias carried by the header
+ * @param blob the bytes to frame (non-empty)
+ * @return framed length, or 0 when blob is empty or buf is too small (buf
+ *   may then hold a partial write) */
+usz moqdata_blob_build(wired_mspan buf, u64 track_alias, wired_span blob);
+
 #endif
