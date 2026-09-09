@@ -2,6 +2,7 @@
 #define WIRED_MOQTRUN_H
 
 #include "app/http3/server/srvrun/srvrun.h"
+#include "app/moqt/data/moqdata.h"
 #include "app/moqt/sess/moqsess.h"
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -256,6 +257,13 @@ typedef struct {
 typedef struct {
   wired_moqtrun_peer peers[WIRED_MOQTRUN_MAX_SESSIONS];
   wired_moqt_io      io;
+  /** The hub's own static track (wired_moqt_publish_blob): in_use once a
+   * blob is published, name/own_alias as given there, subs[] recording
+   * which peers have already been sent it (relays[] unused). */
+  wired_moqtrun_track blob_track;
+  /** The published blob's framed bytes -- a view into the caller's wire
+   * buffer, handed verbatim to io.send_uni for each new subscriber. */
+  wired_span blob_wire;
   /** Scratch for moqtrun_relay_normalize: one relay's held fragment
    * prepended to one delivery (a delivery is at most srvloop's whole WT
    * receive window). Only ever used within a single
@@ -323,5 +331,36 @@ void wired_moqt_on_stream_data(
  * dead peer -- it never receives SETUP and stays mute until the process
  * restarts. A session the hub never registered is a no-op. */
 void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s);
+
+/** Publish a hub-owned static track: frames blob into wire
+ * (moqdata_blob_build: one SUBGROUP_HEADER carrying track_alias, then
+ * 16 KiB Objects) and records name. A later SUBSCRIBE naming name from any
+ * peer is answered SUBSCRIBE_OK -- carrying track_alias, the alias the
+ * framed header itself has, so the subscriber can bind the stream to its
+ * subscription -- and the framed bytes go to that peer once, on one uni
+ * stream (a single io.send_uni call: the SDK paces an oversized payload
+ * itself, holding it as a view). A repeat SUBSCRIBE from the same peer gets
+ * SUBSCRIBE_OK again but no second copy; a session close forgets the peer,
+ * so a reconnect receives it afresh. A refused send_uni answers
+ * REQUEST_ERROR (counted on stat_open_drop) and records nothing, so the
+ * peer's next SUBSCRIBE tries again. The hub-owned name wins over a peer
+ * track of the same name. Call once at boot, before any session; wire must
+ * outlive the hub (the framed bytes are held as a view).
+ * @param hub the hub
+ * @param name Track Name subscribers ask for (copied, truncated to
+ *   WIRED_MOQTRUN_MAX_NAME)
+ * @param track_alias Track Alias carried by the framed header and by every
+ *   SUBSCRIBE_OK for this track
+ * @param blob the bytes to publish (copied into wire's framing)
+ * @param wire destination for the framed bytes; size it with
+ *   MOQDATA_BLOB_WIRE_CAP(blob.n)
+ * @return framed byte count, or 0 when blob is empty or wire is too small
+ *   (hub state unchanged) */
+usz wired_moqt_publish_blob(
+    wired_moqt_hub* hub,
+    wired_span      name,
+    u64             track_alias,
+    wired_span      blob,
+    wired_mspan     wire);
 
 #endif

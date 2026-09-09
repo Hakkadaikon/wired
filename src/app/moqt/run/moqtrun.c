@@ -31,13 +31,14 @@ static wired_moqtrun_peer* moqtrun_alloc(wired_moqt_hub* hub) {
 
 void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) hub->peers[i].in_use = 0;
-  hub->io               = io;
-  hub->stat_frag_drop   = 0;
-  hub->stat_relay_sent  = 0;
-  hub->stat_relay_drop  = 0;
-  hub->stat_open_drop   = 0;
-  hub->stat_relay_reset = 0;
-  hub->stat_relay_full  = 0;
+  hub->io                = io;
+  hub->stat_frag_drop    = 0;
+  hub->stat_relay_sent   = 0;
+  hub->stat_relay_drop   = 0;
+  hub->stat_open_drop    = 0;
+  hub->stat_relay_reset  = 0;
+  hub->stat_relay_full   = 0;
+  hub->blob_track.in_use = 0;
 }
 
 /* SS10 common envelope (Type vi64 + 16-bit Length + Body): every control
@@ -388,9 +389,11 @@ static int moqtrun_sub_is_peer(const wired_moqtrun_sub* sub, usz idx) {
   return sub->active && sub->session_idx == idx;
 }
 
-static int moqtrun_track_has_sub(const wired_moqtrun_track* t, usz idx) {
+/* The Established sub slot peer index idx holds on t, else 0. */
+static wired_moqtrun_sub* moqtrun_track_sub_of_peer(
+    wired_moqtrun_track* t, usz idx) {
   for (usz s = 0; s < WIRED_MOQTRUN_MAX_SUBS; s++)
-    if (moqtrun_sub_is_peer(&t->subs[s], idx)) return 1;
+    if (moqtrun_sub_is_peer(&t->subs[s], idx)) return &t->subs[s];
   return 0;
 }
 
@@ -403,13 +406,13 @@ static int moqtrun_reattach_peer_live(
 /* Re-attach eligibility: a live, different peer, not already subscribed on
  * this track, that recorded a SUBSCRIBE for this name. */
 static int moqtrun_reattach_wanted(
-    const wired_moqt_hub*      hub,
-    const wired_moqtrun_track* t,
-    usz                        i,
-    usz                        pub_idx,
-    wired_span                 name) {
+    const wired_moqt_hub* hub,
+    wired_moqtrun_track*  t,
+    usz                   i,
+    usz                   pub_idx,
+    wired_span            name) {
   if (!moqtrun_reattach_peer_live(hub, i, pub_idx)) return 0;
-  if (moqtrun_track_has_sub(t, i)) return 0;
+  if (moqtrun_track_sub_of_peer(t, i)) return 0;
   return moqtrun_sub_name_known(&hub->peers[i], name);
 }
 
@@ -444,6 +447,16 @@ static int moqtrun_encode_subscribe_ok(
   return moqctl_subscribe_ok_encode(buf, off, m);
 }
 
+static void moqtrun_queue_subscribe_ok(wired_moqtrun_peer* p, u64 alias) {
+  u8                  msg[WIRED_MOQTRUN_CTL_MSG_MAX];
+  moqctl_subscribe_ok ok = {0};
+  ok.track_alias         = alias;
+  usz n                  = moqtrun_envelope_put(
+      wired_mspan_of(msg, sizeof msg), MOQCTL_T_SUBSCRIBE_OK,
+      moqtrun_encode_subscribe_ok, &ok);
+  moqtrun_queue_reply(p, wired_span_of(msg, n));
+}
+
 /* Records slot (peer_idx, a fresh alias) against track and replies
  * SUBSCRIBE_OK with that alias. */
 static void moqtrun_accept_subscribe(
@@ -454,19 +467,50 @@ static void moqtrun_accept_subscribe(
   slot->session_idx = peer_idx;
   slot->track_alias = moqtrun_next_alias(track);
   slot->active      = 1;
-  u8                  msg[WIRED_MOQTRUN_CTL_MSG_MAX];
-  moqctl_subscribe_ok ok = {0};
-  ok.track_alias         = slot->track_alias;
-  usz n                  = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQCTL_T_SUBSCRIBE_OK,
-      moqtrun_encode_subscribe_ok, &ok);
-  moqtrun_queue_reply(p, wired_span_of(msg, n));
+  moqtrun_queue_subscribe_ok(p, slot->track_alias);
 }
 
-/* draft SS10.6 SUBSCRIBE: find the matching published track and reply
- * SUBSCRIBE_OK with a freshly assigned Track Alias, else DOES_NOT_EXIST.
- * Caller has already rejected timeout parameters. */
-static void moqtrun_route_subscribe(
+/* A peer's first SUBSCRIBE for the hub's blob: one io.send_uni with the
+ * whole framed bytes, and only an accepted send records the subscription
+ * (a refused one answers REQUEST_ERROR, so the peer's next SUBSCRIBE tries
+ * again). Unlike a peer track's per-subscriber alias, SUBSCRIBE_OK carries
+ * the blob's own alias -- the one its framed header has -- so the
+ * subscriber can bind the stream to this subscription. */
+static void moqtrun_blob_send_first(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx) {
+  wired_moqtrun_sub* slot = moqtrun_sub_slot(&hub->blob_track);
+  if (!slot) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_INTERNAL_ERROR);
+    return;
+  }
+  if (hub->io.send_uni(p->wt, hub->blob_wire) < 0) {
+    hub->stat_open_drop++;
+    moqtrun_send_request_error(p, MOQCTL_ERR_INTERNAL_ERROR);
+    return;
+  }
+  slot->session_idx = peer_idx;
+  slot->track_alias = hub->blob_track.own_alias;
+  slot->active      = 1;
+  moqtrun_queue_subscribe_ok(p, slot->track_alias);
+}
+
+/* SUBSCRIBE for the hub's own blob track: a peer already holding a
+ * subscription is answered SUBSCRIBE_OK again (its copy is on the way or
+ * delivered -- never sent twice), anyone else gets the blob now. */
+static void moqtrun_subscribe_blob(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx) {
+  wired_moqtrun_sub* held =
+      moqtrun_track_sub_of_peer(&hub->blob_track, peer_idx);
+  if (held) {
+    moqtrun_queue_subscribe_ok(p, held->track_alias);
+    return;
+  }
+  moqtrun_blob_send_first(hub, p, peer_idx);
+}
+
+/* draft SS10.6 SUBSCRIBE for a peer-published track: find it and reply
+ * SUBSCRIBE_OK with a freshly assigned Track Alias, else DOES_NOT_EXIST. */
+static void moqtrun_route_peer_subscribe(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
     usz                     peer_idx,
@@ -479,6 +523,22 @@ static void moqtrun_route_subscribe(
   }
   moqtrun_accept_subscribe(p, track, slot, peer_idx);
   moqtrun_note_sub_name(p, m->name.name);
+}
+
+/* draft SS10.6 SUBSCRIBE: the hub's own blob track answers first (it wins
+ * over a peer track of the same name), everything else is matched against
+ * the peers' PUBLISHed tracks. Caller has already rejected timeout
+ * parameters. */
+static void moqtrun_route_subscribe(
+    wired_moqt_hub*         hub,
+    wired_moqtrun_peer*     p,
+    usz                     peer_idx,
+    const moqctl_subscribe* m) {
+  if (moqtrun_track_name_matches(&hub->blob_track, m->name.name)) {
+    moqtrun_subscribe_blob(hub, p, peer_idx);
+    return;
+  }
+  moqtrun_route_peer_subscribe(hub, p, peer_idx, m);
 }
 
 /* draft SS10.6 SUBSCRIBE: reject non-zero delivery-timeout parameters,
@@ -584,6 +644,21 @@ static void moqtrun_dispatch_ctl_stream(
     moqtrun_ctl_lookup(type)(hub, p, peer_idx, body);
   }
   moqtrun_flush_replies(&hub->io, p);
+}
+
+/* ===================== hub-owned blob track ===================== */
+
+usz wired_moqt_publish_blob(
+    wired_moqt_hub* hub,
+    wired_span      name,
+    u64             track_alias,
+    wired_span      blob,
+    wired_mspan     wire) {
+  usz n = moqdata_blob_build(wire, track_alias, blob);
+  if (n == 0) return 0;
+  moqtrun_track_claim(&hub->blob_track, name, track_alias);
+  hub->blob_wire = wired_span_of(wire.p, n);
+  return n;
 }
 
 /* ===================== data-stream (Object) relay ===================== */
@@ -1090,10 +1165,19 @@ static void moqtrun_peer_drop_subs(wired_moqtrun_peer* q, usz idx) {
     if (q->tracks[t].in_use) moqtrun_track_drop_sub(&q->tracks[t], idx);
 }
 
-/* Deactivate every subscription any peer's tracks hold for peer index idx. */
+/* The hub's own blob track forgets peer index idx too: a reconnect landing
+ * in the same slot must be sent the blob again, not mistaken for the dead
+ * peer that already had it. */
+static void moqtrun_blob_drop_sub(wired_moqt_hub* hub, usz idx) {
+  if (hub->blob_track.in_use) moqtrun_track_drop_sub(&hub->blob_track, idx);
+}
+
+/* Deactivate every subscription any peer's tracks (and the hub's blob
+ * track) hold for peer index idx. */
 static void moqtrun_drop_peer_subs(wired_moqt_hub* hub, usz idx) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
     if (hub->peers[i].in_use) moqtrun_peer_drop_subs(&hub->peers[i], idx);
+  moqtrun_blob_drop_sub(hub, idx);
 }
 
 void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s) {
