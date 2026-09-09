@@ -41,6 +41,16 @@ stream (the SDK paces the multi-MB payload itself), reassembles it
 element. This is a static, whole-file track -- one Group, sent once per
 session, not a live/segmented stream.
 
+`assets/movie-live.mp4` is generated from `assets/movie.mp4` once with:
+
+```sh
+nix shell nixpkgs#ffmpeg-headless -c ffmpeg -i assets/movie.mp4 \
+  -c:v libx264 -preset medium -profile:v high -g 48 -keyint_min 48 \
+  -sc_threshold 0 -b:v 1200k -c:a aac -b:a 128k \
+  -movflags +frag_keyframe+empty_moov+default_base_moof \
+  -f mp4 assets/movie-live.mp4
+```
+
 The wire codecs (varint/KVP/control messages/data messages) are implemented
 independently in C (`src/app/moqt/vi`/`kvp`/`ctl`/`data`) and TypeScript
 (`frontend/src/lib/moqtWire.ts`), both pinned against the same golden vectors
