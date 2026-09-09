@@ -103,6 +103,15 @@ e2e-stability-nightly: e2e-stability-ci
     ./e2e/run-stability.sh s6-voice-soak --talk-ms=1500000
     ./e2e/run-stability.sh s10-voice-chat-longevity
 
+# Movie-track check: starts wired_server --movie with assets/movie.mp4 and
+# a static frontend, joins headless-Chrome participants (two at once, a
+# leave, a rejoin) and verifies each one's received <video> blob has the
+# file's SHA-256 -- the independent-peer check for the hub's blob track
+# (frontend/src/lib/moqtMovieClient.ts decodes what wired_moqt_publish_blob
+# framed). Run e2e-setup once first.
+e2e-movie *ARGS: build build-frontend
+    node e2e/run-movie-check.mjs {{ARGS}}
+
 # Multi-client chat load test: N headless-Chrome clients (each its own
 # BrowserContext), joining the hub's single fixed room, exchanging chat
 # messages, graded for message loss and latency. N is capped at 4 (the
