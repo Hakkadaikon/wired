@@ -93,3 +93,4 @@ describe("connectChatThenVoice", () => {
     expect(onVoiceFailed).not.toHaveBeenCalled();
   });
 });
+

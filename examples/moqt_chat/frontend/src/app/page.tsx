@@ -160,6 +160,22 @@ function MessageBubble({ m }: { m: ChatMessage }) {
   );
 }
 
+function MoviePlayer() {
+  const movieUrl = useMoqtChatStore((s) => s.movieUrl);
+  if (!movieUrl) return null;
+  return (
+    <div style={{ padding: "var(--lk-size-xs) 0 0" }}>
+      <video
+        data-testid="movie"
+        controls
+        playsInline
+        src={movieUrl}
+        style={{ width: "100%", maxHeight: "40vh", borderRadius: "0.75em" }}
+      />
+    </div>
+  );
+}
+
 function MessageList() {
   const messages = useMoqtChatStore((s) => s.messages);
   const listRef = useRef<HTMLDivElement>(null);
@@ -428,6 +444,7 @@ export default function Home() {
 
       {joined ? (
         <>
+          <MoviePlayer />
           <MessageList />
           <ChatInputRow onSend={sendChat} disabled={connectionState !== "connected"} />
         </>

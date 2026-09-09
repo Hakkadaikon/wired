@@ -18,6 +18,7 @@ import {
   type MoqtChatCallbacks,
 } from "@/lib/moqtClient";
 import { MoqtVoiceClient } from "@/lib/moqtVoiceClient";
+import { MOVIE_TRACK_ALIAS, readMovie, subscribeMovie } from "@/lib/moqtMovieClient";
 import { startMicPipeline, type MicPipeline } from "@/lib/micPipeline";
 import {
   createVoiceReceivePipeline,
@@ -142,6 +143,12 @@ export function useMoqtChat() {
   const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceRetryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const clearMovie = useCallback(() => {
+    const url = useMoqtChatStore.getState().movieUrl;
+    if (url) URL.revokeObjectURL(url);
+    store.setMovieUrl(null);
+  }, [store]);
+
   const startDrainLoop = useCallback(() => {
     const tick = () => {
       const pipeline = receivePipelineRef.current;
@@ -218,11 +225,23 @@ export function useMoqtChat() {
       store.clearPeers();
       store.clearMessages();
       store.setDisplayName(localId);
+      clearMovie();
 
+      const showMovie = (bytes: Uint8Array | undefined) => {
+        if (!bytes) return;
+        clearMovie();
+        store.setMovieUrl(
+          URL.createObjectURL(new Blob([bytes as BlobPart], { type: "video/mp4" })),
+        );
+      };
+      // The movie alias must be checked BEFORE voice: MoqtVoiceClient
+      // cancels any stream whose alias it doesn't own.
       const client = new MoqtChatClient(localId, {
         ...moqtChatCallbacks(store),
         onUnknownUniStream: (header, firstChunkTail, reader) =>
-          voiceRef.current?.handleIncomingStream(header, firstChunkTail, reader),
+          header.trackAlias === MOVIE_TRACK_ALIAS
+            ? void readMovie(firstChunkTail, reader, header.flags.properties).then(showMovie)
+            : voiceRef.current?.handleIncomingStream(header, firstChunkTail, reader),
       });
       clientRef.current = client;
 
@@ -231,8 +250,14 @@ export function useMoqtChat() {
         getMicTracks: () => [],
       });
 
+      // The movie SUBSCRIBE rides on chat's success only: it is fire-and-
+      // forget and never affects chat/voice failure handling
+      // (connectChatThenVoice's own doc).
       await connectChatThenVoice(
-        () => client.connect(url, certHashesHex),
+        async () => {
+          await client.connect(url, certHashesHex);
+          subscribeMovie(client).catch(() => {});
+        },
         () => startVoice(localId, client),
         // Connection failed (e.g. cert hash mismatch): fall back to
         // disconnected instead of leaving the join screen stuck on
@@ -241,7 +266,7 @@ export function useMoqtChat() {
         (err) => setMicError(err instanceof Error ? err.message : "voice setup failed"),
       );
     },
-    [store, startVoice],
+    [store, startVoice, clearMovie],
   );
 
   const sendChat = useCallback(
@@ -285,7 +310,8 @@ export function useMoqtChat() {
     store.setConnectionState("disconnected");
     store.clearPeers();
     store.clearMessages();
-  }, [store]);
+    clearMovie();
+  }, [store, clearMovie]);
 
   return { connect, sendChat, toggleMute, leave, micError };
 }
