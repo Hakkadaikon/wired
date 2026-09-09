@@ -2,6 +2,7 @@
 
 #include "app/moqt/ctl/moqctl.h"
 #include "app/moqt/data/moqdata.h"
+#include "common/bytes/util/ct.h"
 #include "moqt_golden.h"
 #include "test.h"
 
@@ -2144,6 +2145,207 @@ static void test_moqtrun_close_reregister_churn(void) {
   }
 }
 
+/* ===================== 12. hub-owned blob track ===================== */
+
+static const u8 MOVIE_NAME[5] = {'m', 'o', 'v', 'i', 'e'};
+
+/* SUBSCRIBE golden vector with its 5-byte Track Name ("alice", offset 17)
+ * replaced by "movie" -- same length, so no Length backpatch. */
+static usz moqtrun_test_subscribe_movie_msg(u8* buf) {
+  bytes_memcpy(buf, g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN);
+  bytes_memcpy(buf + 17, MOVIE_NAME, 5);
+  return G_MOQT_CTL_SUBSCRIBE_BASIC_LEN;
+}
+
+static u8 g_test_blob[256];
+static u8 g_test_wire[MOQDATA_BLOB_WIRE_CAP(sizeof g_test_blob)];
+
+/* Publishes a small (recorder-sized) blob and returns its framed length
+ * (the framing itself is moqdata_blob_build's, pinned in moqdata_test). */
+static usz moqtrun_test_publish_small_blob(wired_moqt_hub* hub, usz n) {
+  for (usz i = 0; i < n; i++) g_test_blob[i] = (u8)(i * 7 + 3);
+  return wired_moqt_publish_blob(
+      hub, wired_span_of(MOVIE_NAME, 5), 8, wired_span_of(g_test_blob, n),
+      wired_mspan_of(g_test_wire, sizeof g_test_wire));
+}
+
+/* Drives peer s through a SUBSCRIBE for "movie" on its control stream
+ * (wired_moqt_on_session is idempotent, so calling this twice for one
+ * session is a re-SUBSCRIBE). */
+static void moqtrun_test_subscribe_movie(
+    wired_moqt_hub* hub, wired_wt_session* s) {
+  wired_moqt_on_session(hub, s, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl = moqtrun_test_last_kind(1)->stream_id;
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n = moqtrun_test_subscribe_movie_msg(buf);
+  wired_moqt_on_stream_data(hub, s, ctrl, wired_span_of(buf, n), 0);
+}
+
+/* Type of the last control reply (0 when none); *body receives its body. */
+static u64 moqtrun_test_last_reply(wired_span* body) {
+  const moqtrun_test_call* c = moqtrun_test_last_kind(3);
+  if (!c) return 0;
+  usz off  = 0;
+  u64 type = 0;
+  if (moqctl_peek_type(
+          wired_span_of(c->payload, c->payload_len), &off, &type, body) !=
+      MOQCTL_OK)
+    return 0;
+  return type;
+}
+
+static u64 moqtrun_test_last_reply_type(void) {
+  wired_span body;
+  return moqtrun_test_last_reply(&body);
+}
+
+/* An empty blob publishes nothing -- SUBSCRIBE "movie" stays
+ * DOES_NOT_EXIST, no stream opened. */
+static void test_moqtrun_blob_empty_not_published(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  CHECK(moqtrun_test_publish_small_blob(&hub, 0) == 0);
+
+  moqtrun_test_subscribe_movie(&hub, SESS_A);
+  CHECK(moqtrun_test_last_reply_type() == MOQCTL_T_REQUEST_ERROR);
+  CHECK(moqtrun_test_count_kind(4) == 0);
+}
+
+/* A wire buffer too small for the framing returns 0 and leaves the hub
+ * without a blob track. */
+static void test_moqtrun_blob_wire_too_small(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  CHECK(
+      wired_moqt_publish_blob(
+          &hub, wired_span_of(MOVIE_NAME, 5), 8,
+          wired_span_of(g_test_blob, 100),
+          wired_mspan_of(g_test_wire, 100)) == 0);
+
+  moqtrun_test_subscribe_movie(&hub, SESS_A);
+  CHECK(moqtrun_test_last_reply_type() == MOQCTL_T_REQUEST_ERROR);
+  CHECK(moqtrun_test_count_kind(4) == 0);
+}
+
+/* SUBSCRIBE "movie" gets SUBSCRIBE_OK carrying the blob's own alias (the
+ * one its framed header has) and exactly one send_uni to that session
+ * carrying the framed bytes verbatim. */
+static void test_moqtrun_blob_subscribe_sends_once(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  usz wl = moqtrun_test_publish_small_blob(&hub, 100);
+  CHECK(wl > 100 && wl < MOQTRUN_TEST_MAX_PAYLOAD);
+
+  moqtrun_test_subscribe_movie(&hub, SESS_A);
+
+  wired_span body;
+  CHECK(moqtrun_test_last_reply(&body) == MOQCTL_T_SUBSCRIBE_OK);
+  moqctl_subscribe_ok ok;
+  usz                 body_off = 0;
+  CHECK(moqctl_subscribe_ok_take(body, &body_off, &ok) == MOQCTL_OK);
+  CHECK(ok.track_alias == 8);
+  CHECK(moqtrun_test_count_kind(4) == 1);
+  const moqtrun_test_call* sent = moqtrun_test_last_kind(4);
+  CHECK(sent->s == SESS_A);
+  CHECK(sent->payload_len == wl);
+  CHECK(ct_diffn(sent->payload, g_test_wire, wl) == 0);
+}
+
+/* A repeat SUBSCRIBE from the same peer is answered SUBSCRIBE_OK again but
+ * does not send a second copy. */
+static void test_moqtrun_blob_resubscribe_no_resend(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_small_blob(&hub, 100);
+
+  moqtrun_test_subscribe_movie(&hub, SESS_A);
+  moqtrun_test_subscribe_movie(&hub, SESS_A);
+
+  CHECK(moqtrun_test_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(moqtrun_test_count_kind(4) == 1);
+}
+
+/* Two peers each get their own copy on their own session. */
+static void test_moqtrun_blob_two_peers_each_get_copy(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_small_blob(&hub, 100);
+
+  moqtrun_test_subscribe_movie(&hub, SESS_A);
+  moqtrun_test_subscribe_movie(&hub, SESS_B);
+
+  CHECK(moqtrun_test_count_kind(4) == 2);
+  CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
+  usz to_a = 0;
+  for (usz i = 0; i < g_n_calls; i++)
+    if (g_calls[i].kind == 4 && g_calls[i].s == SESS_A) to_a++;
+  CHECK(to_a == 1);
+}
+
+/* A refused send_uni is reported as REQUEST_ERROR (no subscription
+ * recorded, open drop counted) so a later re-SUBSCRIBE sends afresh. */
+static void test_moqtrun_blob_send_refused_then_retry(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_small_blob(&hub, 100);
+
+  g_send_uni_fail_n = 1;
+  moqtrun_test_subscribe_movie(&hub, SESS_A);
+  CHECK(moqtrun_test_last_reply_type() == MOQCTL_T_REQUEST_ERROR);
+  CHECK(hub.stat_open_drop == 1);
+
+  moqtrun_test_subscribe_movie(&hub, SESS_A);
+  CHECK(moqtrun_test_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(moqtrun_test_count_kind(4) == 2); /* the refused try + the good one */
+  CHECK(moqtrun_test_last_kind(4)->payload_len > 100);
+}
+
+/* Closing a session forgets its blob subscription, so a reconnect landing
+ * in the same peer slot receives the blob again. */
+static void test_moqtrun_blob_close_then_reconnect_resends(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_small_blob(&hub, 100);
+
+  moqtrun_test_subscribe_movie(&hub, SESS_A);
+  wired_moqt_on_session_close(&hub, SESS_A);
+  moqtrun_test_subscribe_movie(&hub, SESS_B); /* reuses A's freed slot */
+
+  CHECK(moqtrun_test_count_kind(4) == 2);
+  CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
+}
+
+/* The hub's blob answers a SUBSCRIBE for its name even when a peer has
+ * PUBLISHed a track under the same name (hub-owned wins). */
+static void test_moqtrun_blob_shadows_peer_track_of_same_name(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_small_blob(&hub, 100);
+  /* Peer A PUBLISHes "movie": the golden PUBLISH's 5-byte name is also at
+   * offset 17 (moqtrun_test_rename_track_to_audio's layout note). */
+  wired_moqt_on_session(&hub, SESS_A, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl_a = moqtrun_test_last_kind(1)->stream_id;
+  u8  pub[MOQTRUN_TEST_MAX_PAYLOAD];
+  bytes_memcpy(pub, g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN);
+  bytes_memcpy(pub + 17, MOVIE_NAME, 5);
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, ctrl_a, wired_span_of(pub, G_MOQT_CTL_PUBLISH_BASIC_LEN),
+      0);
+
+  moqtrun_test_subscribe_movie(&hub, SESS_B);
+  CHECK(moqtrun_test_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(moqtrun_test_count_kind(4) == 1);
+  CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -2201,4 +2403,12 @@ void test_moqtrun(void) {
   test_moqtrun_close_drops_subscriptions();
   test_moqtrun_close_unknown_session_noop();
   test_moqtrun_close_reregister_churn();
+  test_moqtrun_blob_empty_not_published();
+  test_moqtrun_blob_wire_too_small();
+  test_moqtrun_blob_subscribe_sends_once();
+  test_moqtrun_blob_resubscribe_no_resend();
+  test_moqtrun_blob_two_peers_each_get_copy();
+  test_moqtrun_blob_send_refused_then_retry();
+  test_moqtrun_blob_close_then_reconnect_resends();
+  test_moqtrun_blob_shadows_peer_track_of_same_name();
 }
