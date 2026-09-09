@@ -1,5 +1,6 @@
 #include "app/moqt/data/moqdata.h"
 
+#include "common/bytes/util/ct.h"
 #include "moqt_golden.h"
 #include "test.h"
 
@@ -522,7 +523,82 @@ static void test_moqdata_put_path_status_eog_golden(void) {
       G_MOQT_DATA_SUBGROUP_STREAM_STATUS_EOG_LEN));
 }
 
+/* ===== multi-Object blob builder ===== */
+
+#define MOQDATA_TEST_BLOB_MAX (2 * MOQDATA_BLOB_CHUNK + 1)
+static u8 g_moqdata_blob[MOQDATA_TEST_BLOB_MAX];
+static u8 g_moqdata_blob_wire[MOQDATA_BLOB_WIRE_CAP(MOQDATA_TEST_BLOB_MAX)];
+static u8 g_moqdata_blob_back[MOQDATA_TEST_BLOB_MAX];
+
+/* Decodes one framed blob (SUBGROUP_HEADER + Objects) back into out,
+ * checking the header's fixed shape, Object IDs 0,1,2,... and every payload
+ * within (0, CHUNK]. Returns the byte count recovered, (usz)-1 on any
+ * decode failure. */
+static usz moqdata_test_unframe_blob(
+    wired_span wire, u64 alias, u8* out, usz* n_objects) {
+  usz            off = 0;
+  moqdata_subhdr hdr;
+  if (moqdata_subhdr_take(wire, &off, &hdr) != MOQDATA_OK) return (usz)-1;
+  if (hdr.type != 0x70 || hdr.track_alias != alias || hdr.group_id != 0)
+    return (usz)-1;
+  moqdata_objseq seq = moqdata_objseq_of(hdr.type);
+  usz            n   = 0;
+  *n_objects         = 0;
+  while (off < wire.n) {
+    moqdata_obj obj;
+    if (moqdata_obj_take(wire, &off, &seq, &obj) != MOQDATA_OK) return (usz)-1;
+    if (obj.object_id != *n_objects) return (usz)-1;
+    if (obj.payload.n == 0 || obj.payload.n > MOQDATA_BLOB_CHUNK)
+      return (usz)-1;
+    for (usz i = 0; i < obj.payload.n; i++) out[n + i] = obj.payload.p[i];
+    n += obj.payload.n;
+    (*n_objects)++;
+  }
+  return n;
+}
+
+/* One blob_build round-trip at size n: framed length within the cap
+ * macro's bound, ceil(n / CHUNK) Objects, bytes recovered verbatim. */
+static void moqdata_test_blob_roundtrip_n(usz n) {
+  for (usz i = 0; i < n; i++) g_moqdata_blob[i] = (u8)(i * 7 + 3);
+  usz wl = moqdata_blob_build(
+      wired_mspan_of(g_moqdata_blob_wire, sizeof g_moqdata_blob_wire), 8,
+      wired_span_of(g_moqdata_blob, n));
+  CHECK(wl > n);
+  CHECK(wl <= MOQDATA_BLOB_WIRE_CAP(n));
+  usz n_obj = 0;
+  usz back  = moqdata_test_unframe_blob(
+      wired_span_of(g_moqdata_blob_wire, wl), 8, g_moqdata_blob_back, &n_obj);
+  CHECK(back == n);
+  CHECK(n_obj == (n + MOQDATA_BLOB_CHUNK - 1) / MOQDATA_BLOB_CHUNK);
+  CHECK(ct_diffn(g_moqdata_blob, g_moqdata_blob_back, n) == 0);
+}
+
+static void test_moqdata_blob_build_roundtrip_at_boundaries(void) {
+  moqdata_test_blob_roundtrip_n(1);
+  moqdata_test_blob_roundtrip_n(MOQDATA_BLOB_CHUNK - 1);
+  moqdata_test_blob_roundtrip_n(MOQDATA_BLOB_CHUNK);
+  moqdata_test_blob_roundtrip_n(MOQDATA_BLOB_CHUNK + 1);
+  moqdata_test_blob_roundtrip_n(2 * MOQDATA_BLOB_CHUNK);
+  moqdata_test_blob_roundtrip_n(2 * MOQDATA_BLOB_CHUNK + 1);
+}
+
+/* An empty blob and a buffer too small for the framing both yield 0. */
+static void test_moqdata_blob_build_rejects_empty_and_short_buf(void) {
+  u8 small[100];
+  CHECK(
+      moqdata_blob_build(
+          wired_mspan_of(small, sizeof small), 8, wired_span_of(0, 0)) == 0);
+  for (usz i = 0; i < 100; i++) g_moqdata_blob[i] = (u8)i;
+  CHECK(
+      moqdata_blob_build(
+          wired_mspan_of(small, sizeof small), 8,
+          wired_span_of(g_moqdata_blob, 100)) == 0);
+}
+
 void test_moqdata(void) {
+  test_moqdata_blob_build_roundtrip_at_boundaries();
+  test_moqdata_blob_build_rejects_empty_and_short_buf();
   test_moqdata_classify_golden();
   test_moqdata_classify_truncated();
   test_moqdata_type_valid_golden();
