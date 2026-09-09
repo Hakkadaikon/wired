@@ -32,6 +32,7 @@ import {
   encodeSubscribe,
   encodeVarint,
   hexToBytes,
+  readToEof,
   utf8ToBytes,
   type SubgroupHeader,
 } from "./moqtWire";
@@ -161,8 +162,9 @@ export interface MoqtChatCallbacks {
   onMessage(participantId: string, text: string): void;
   // Fires for an incoming uni stream whose SUBGROUP_HEADER's Track Alias is
   // not this client's chat candidate-list mapping -- the audio track uses a
-  // separate alias range (moqtVoiceClient.ts's ownAudioTrackAlias) and,
-  // unlike a chat message, is not read to completion here (it is a
+  // separate alias range (moqtVoiceClient.ts's ownAudioTrackAlias), the
+  // hub's movie track sits above it (moqtMovieClient.ts's
+  // MOVIE_TRACK_ALIAS), and neither is read to completion here (audio is a
   // long-lived stream the publisher keeps appending Objects to). The
   // header is already decoded (avoids re-parsing it); firstChunkTail is
   // whatever bytes followed the header in the SAME first chunk (often the
@@ -464,8 +466,9 @@ export class MoqtChatClient {
   // buildVoiceSubgroupHeader), then routes by Track Alias: a chat alias
   // (0..N-1, this room's candidate-list range) is read to completion and
   // parsed as one chat Object; anything else (the audio track's separate
-  // alias range, moqtVoiceClient.ts's ownAudioTrackAlias) is handed to
-  // onUnknownUniStream as a long-lived stream instead of read to EOF here.
+  // alias range, moqtVoiceClient.ts's ownAudioTrackAlias, or the hub's
+  // movie alias, moqtMovieClient.ts) is handed to onUnknownUniStream
+  // instead of read to EOF here.
   async #readOneUniStream(stream: ReadableStream<Uint8Array>): Promise<void> {
     const reader = stream.getReader();
     const { value: first, done } = await reader.read();
@@ -494,13 +497,7 @@ export class MoqtChatClient {
     firstChunk: Uint8Array,
     reader: ReadableStreamDefaultReader<Uint8Array>,
   ): Promise<void> {
-    const chunks: Uint8Array[] = [firstChunk];
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      if (value) chunks.push(value);
-    }
-    const wire = concatBytes(chunks);
+    const wire = await readToEof(firstChunk, reader);
 
     let parsed;
     try {

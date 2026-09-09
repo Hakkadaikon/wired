@@ -164,6 +164,21 @@ export function concatBytes(chunks: Uint8Array[]): Uint8Array {
   return out;
 }
 
+/** Reads `reader` to EOF and returns everything, with `firstChunk` (bytes
+ * a caller already pulled off the same stream) in front. */
+export async function readToEof(
+  firstChunk: Uint8Array,
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [firstChunk];
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    if (value) chunks.push(value);
+  }
+  return concatBytes(chunks);
+}
+
 export function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i++) {
