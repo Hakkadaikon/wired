@@ -11,15 +11,10 @@ import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import puppeteer from "puppeteer-core";
 import { resolveChromeLaunch } from "./lib/chromeLaunch.mjs";
 import { startServer } from "./lib/serverControl.mjs";
+import { arg } from "./lib/args.mjs";
 
 const e2eDir = path.dirname(new URL(import.meta.url).pathname);
 const scenariosDir = path.join(e2eDir, "scenarios");
-
-function arg(name, fallback) {
-  const flag = `--${name}=`;
-  const found = process.argv.find((a) => a.startsWith(flag));
-  return found ? found.slice(flag.length) : fallback;
-}
 
 const scenarioId = arg("scenario", "");
 if (!scenarioId) {

@@ -6,12 +6,7 @@
 import puppeteer from "puppeteer-core";
 import { resolveChromeLaunch } from "./lib/chromeLaunch.mjs";
 import { runChatLoadTest, MAX_CLIENTS } from "./lib/loadTest.mjs";
-
-function arg(name, fallback) {
-  const flag = `--${name}=`;
-  const found = process.argv.find((a) => a.startsWith(flag));
-  return found ? found.slice(flag.length) : fallback;
-}
+import { arg } from "./lib/args.mjs";
 
 const certHash = arg("cert-hash", process.env.CERT_HASH ?? "");
 const pageUrl = arg("url", "http://localhost:8091/");
