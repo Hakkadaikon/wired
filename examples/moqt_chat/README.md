@@ -4,7 +4,9 @@ A chat + voice call room over Media over QUIC Transport
 (draft-ietf-moq-transport-19): a libc-free WebTransport server
 (`wired_server.c`) relays each participant's chat messages and Opus voice
 frames to every other connected participant, using the `app/moqt/run` hub
-(`src/app/moqt/run/moqtrun.h`) wired onto real UDP.
+(`src/app/moqt/run/moqtrun.h`) wired onto real UDP. The server also
+publishes one track of its own: the sample movie `assets/movie.mp4`,
+which every participant receives and plays on joining.
 
 ## What this demonstrates
 
@@ -28,6 +30,17 @@ stream. The hub relays the SUBGROUP bytes verbatim to every Established
 subscriber of that track (`moqtrun.c`'s `moqtrun_relay_object`); a single
 peer can PUBLISH both tracks at once (`moqtrun.h`'s per-peer track array).
 
+The server is a publisher too: started with `--movie PATH`, it reads the
+file once at boot and publishes it as the hub-owned track `movie` (Track
+Alias 8, after the chat and audio alias ranges) via
+`wired_moqt_publish_blob` (`src/app/moqt/run/moqtrun.h`). The file is framed
+once as one SUBGROUP_HEADER followed by 16 KiB Objects; each participant
+that SUBSCRIBEs to `movie` gets that framed stream on one unidirectional
+stream (the SDK paces the multi-MB payload itself), reassembles it
+(`frontend/src/lib/moqtMovieClient.ts`) and plays it in a `<video>`
+element. This is a static, whole-file track -- one Group, sent once per
+session, not a live/segmented stream.
+
 The wire codecs (varint/KVP/control messages/data messages) are implemented
 independently in C (`src/app/moqt/vi`/`kvp`/`ctl`/`data`) and TypeScript
 (`frontend/src/lib/moqtWire.ts`), both pinned against the same golden vectors
@@ -38,8 +51,13 @@ against a shared, audited reference rather than only against each other.
 
 The server runs in a `scratch` container: the binary is fully static
 (`-ffreestanding -nostdlib -static`) and touches no filesystem at runtime
-(its self-signed cert is generated in memory each boot, not read from disk),
-so the image has nothing in it besides `wired_server` itself.
+except the movie file it reads once at boot (its self-signed cert is
+generated in memory each boot, not read from disk), so the image holds
+nothing besides `wired_server` and `movie.mp4`. The image's entrypoint
+passes `--movie /movie.mp4`; running the binary by hand, pass
+`--movie ../../assets/movie.mp4` (or omit the flag for a server without a
+movie track -- clients then get `REQUEST_ERROR` for it and simply show no
+video).
 
 ```sh
 cd examples/moqt_chat
@@ -115,6 +133,15 @@ chat only — sample-accurate audio content isn't checked here; voice call
 verification is manual (see above). See `e2e/run.sh` and
 `e2e/lib/loadTest.mjs` for the harness.
 
+```sh
+just e2e-movie
+```
+
+Checks the movie track end to end against a real browser: two participants
+join at once, one leaves and a third joins, then the first rejoins, and each
+one's received `<video>` blob must have the SHA-256 of `assets/movie.mp4`
+(`e2e/run-movie-check.mjs`).
+
 ## Layout
 
 - `wired_server.c` — the MOQT hub server: wires WebTransport session/stream
@@ -126,11 +153,13 @@ verification is manual (see above). See `e2e/run.sh` and
 - `frontend/` — the Next.js + LiftKit browser client:
   `src/lib/moqtWire.ts`/`moqtClient.ts` (chat wire codec, session/PUBLISH/
   SUBSCRIBE/relay), `moqtVoiceWire.ts`/`moqtVoiceClient.ts` (voice Object
-  framing and the audio track's publish/subscribe), `src/lib/*Pipeline.ts` +
+  framing and the audio track's publish/subscribe), `moqtMovieClient.ts`
+  (the movie track's subscribe + Object reassembly), `src/lib/*Pipeline.ts` +
   `jitterBuffer.ts`/`playbackSink.ts`/`audioContextGate.ts` (mic capture ->
   Opus encode -> MOQT Object, and the receive-side jitter/decode/playback
   path, ported from `examples/webtransport_chat`), `src/app/page.tsx` +
   `src/stores/moqtChatStore.ts` + `src/hooks/useMoqtChat.ts` (UI).
 - `e2e/` — the multi-client load-test harness (ported from
-  `examples/webtransport_chat/e2e`).
+  `examples/webtransport_chat/e2e`) and the movie-track check
+  (`run-movie-check.mjs`).
 - `testvectors/moqt_golden.json` — the shared C/TypeScript golden vectors.
