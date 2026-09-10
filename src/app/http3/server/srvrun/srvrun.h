@@ -286,10 +286,11 @@ typedef struct {
   /** Per-step application hook, 0 to disable (the default): called once
    * per event-loop step after that step's receive/serve work, with the
    * loop's own monotonic clock (ms). Runs inside the loop, so every
-   * wired_server_wt_* send API may be called from it. The loop polls with
-   * a bounded timeout whenever a connection is live, so the hook fires at
-   * least every SRVRUN_PTO_MS (25 ms) while anyone is connected; with no
-   * connection it may not fire at all. */
+   * wired_server_wt_* send API may be called from it. While a hook is
+   * registered the loop never blocks without a timeout: it keeps the
+   * bounded SRVRUN_PTO_MS poll cadence, so the hook fires at least every
+   * SRVRUN_PTO_MS (25 ms) whether or not any connection is live or any
+   * traffic flows. */
   wired_srvrun_on_step on_step;
   void*                on_step_ctx; /**< opaque ctx passed to on_step */
 } wired_srvrun_opt;

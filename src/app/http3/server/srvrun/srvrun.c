@@ -8468,8 +8468,17 @@ static void srvrun_polling_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
  * whole lifetime (no_signal_handlers), so only a timeout -- never a signal
  * -- can break it out of the loop to observe shutdown; it always takes the
  * bounded path below even with nothing in flight. */
+/* A srvthreads worker cannot be signal-interrupted (no_signal_handlers's
+ * doc), and a registered per-step hook (on_step) is time-driven: either way
+ * the loop must keep its bounded SRVRUN_PTO_MS poll cadence instead of
+ * blocking on input, or an idle socket would stall the hook until the next
+ * inbound packet. */
+static int srvrun_bounded_wait_forced(const srvrun_cfg* cfg) {
+  return cfg->no_signal_handlers || cfg->on_step != 0;
+}
+
 static int srvrun_may_block_unbounded(const srvrun_cfg* cfg, srvrun_state* st) {
-  if (cfg->no_signal_handlers) return 0;
+  if (srvrun_bounded_wait_forced(cfg)) return 0;
   /* Undrained ring entries need further steps to go out (the per-step drain
    * cap holds the rest back); an unbounded block here would strand them. */
   if (cfg->env->dgring_n) return 0;

@@ -16490,6 +16490,24 @@ static void test_srvrun_on_step_fires_per_step(void) {
   wired_udp_close(fd);
 }
 
+/* A registered on_step hook is time-driven: with nothing waiting the loop
+ * may block unbounded in recvmmsg only while no hook is set; once one is
+ * registered the loop must keep its bounded SRVRUN_PTO_MS poll cadence. */
+static void test_srvrun_on_step_disables_unbounded_block(void) {
+  conntable    table[WIRED_CONNTABLE_CAP];
+  srvrun_state st;
+  srvrun_cfg   cfg      = (srvrun_cfg){0};
+  usz          saved    = g_srvrun_env.dgring_n;
+  cfg.env               = &g_srvrun_env;
+  g_srvrun_env.dgring_n = 0;
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  st = (srvrun_state){table, sr_test_conns()};
+  CHECK(srvrun_may_block_unbounded(&cfg, &st) == 1);
+  cfg.on_step = sr_test_on_step;
+  CHECK(srvrun_may_block_unbounded(&cfg, &st) == 0);
+  g_srvrun_env.dgring_n = saved;
+}
+
 /* A session that resolves to no live connection is never in flight, and
  * a stream id no send slot holds is not in flight. */
 static void test_srvrun_wt_stream_inflight_unknown_is_zero(void) {
@@ -16974,6 +16992,7 @@ void test_srvrun(void) {
   test_srvrun_qenc_repeat_status_references_without_reinsert();
   test_srvrun_qenc_inactive_falls_back_to_literal();
   test_srvrun_on_step_fires_per_step();
+  test_srvrun_on_step_disables_unbounded_block();
   test_srvrun_wt_stream_inflight_unknown_is_zero();
   test_srvrun_wt_stream_inflight_open_stream_is_one();
   test_srvrun_wt_stream_inflight_zero_after_reap();
