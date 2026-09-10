@@ -39,6 +39,9 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   hub->stat_relay_reset  = 0;
   hub->stat_relay_full   = 0;
   hub->blob_track.in_use = 0;
+  hub->live.track.in_use = 0;
+  hub->stat_live_sent    = 0;
+  hub->stat_live_drop    = 0;
 }
 
 /* SS10 common envelope (Type vi64 + 16-bit Length + Body): every control
@@ -525,7 +528,10 @@ static void moqtrun_route_peer_subscribe(
   moqtrun_note_sub_name(p, m->name.name);
 }
 
-/* draft SS10.6 SUBSCRIBE: the hub's own blob track answers first (it wins
+static void moqtrun_subscribe_live(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx);
+
+/* draft SS10.6 SUBSCRIBE: the hub's own tracks answer first (they win
  * over a peer track of the same name), everything else is matched against
  * the peers' PUBLISHed tracks. Caller has already rejected timeout
  * parameters. */
@@ -536,6 +542,10 @@ static void moqtrun_route_subscribe(
     const moqctl_subscribe* m) {
   if (moqtrun_track_name_matches(&hub->blob_track, m->name.name)) {
     moqtrun_subscribe_blob(hub, p, peer_idx);
+    return;
+  }
+  if (moqtrun_track_name_matches(&hub->live.track, m->name.name)) {
+    moqtrun_subscribe_live(hub, p, peer_idx);
     return;
   }
   moqtrun_route_peer_subscribe(hub, p, peer_idx, m);
@@ -659,6 +669,154 @@ usz wired_moqt_publish_blob(
   moqtrun_track_claim(&hub->blob_track, name, track_alias);
   hub->blob_wire = wired_span_of(wire.p, n);
   return n;
+}
+
+/* ===================== hub-owned live track ===================== */
+
+/* 1 iff any fragment is empty: an empty Object payload requires an
+ * explicit Status varint after Payload Length 0 (moqdata_obj_put's doc),
+ * which the live head (Delta + Length only) never carries -- such a
+ * fragment could not frame as a valid Object, so the publish is refused
+ * whole. */
+static int moqtrun_live_has_empty_frag(const wired_span* frags, usz n_frags) {
+  for (usz f = 0; f < n_frags; f++)
+    if (frags[f].n == 0) return 1;
+  return 0;
+}
+
+static int moqtrun_live_args_bad(
+    const wired_span* frags, usz n_frags, u64 group_ms) {
+  if (n_frags == 0 || group_ms == 0) return 1;
+  return moqtrun_live_has_empty_frag(frags, n_frags);
+}
+
+int wired_moqt_publish_live(
+    wired_moqt_hub*   hub,
+    wired_span        name,
+    u64               track_alias,
+    const wired_span* frags,
+    usz               n_frags,
+    u64               group_ms,
+    u64               now_ms) {
+  if (moqtrun_live_args_bad(frags, n_frags, group_ms)) return 0;
+  hub->live.track.in_use = 0; /* a re-publish forgets old subscribers */
+  moqtrun_track_claim(&hub->live.track, name, track_alias);
+  hub->live.frags       = frags;
+  hub->live.n_frags     = n_frags;
+  hub->live.t0_ms       = now_ms;
+  hub->live.group_ms    = group_ms;
+  hub->live.last_now_ms = now_ms;
+  return 1;
+}
+
+static u64 moqtrun_live_group_at(const wired_moqtrun_live* live, u64 now_ms) {
+  return now_ms < live->t0_ms ? 0 : (now_ms - live->t0_ms) / live->group_ms;
+}
+
+/* The Object's ID Delta 0 and Payload Length -- exactly the varints
+ * moqdata_obj_put emits ahead of a non-empty payload, so head||fragment
+ * is byte-identical to what moqdata_obj_put would have written. */
+static int moqtrun_live_head_obj(wired_mspan buf, usz* off, usz frag_len) {
+  if (!moqvi_put(buf, off, 0)) return 0;
+  return moqvi_put(buf, off, frag_len);
+}
+
+/* SUBGROUP_HEADER (Type 0x70 shape, live alias, Group g) + the Object's
+ * ID Delta 0 and Payload Length -- the framing that precedes the fragment
+ * bytes on the wire. Returns the head length (<= MOQDATA_MSG_OVERHEAD). */
+static usz moqtrun_live_head(
+    const wired_moqtrun_live* live, u64 group, usz frag_len, u8* head) {
+  usz            off = 0;
+  moqdata_subhdr h   = {0};
+  h.type             = 0x70;
+  h.track_alias      = live->track.own_alias;
+  h.group_id         = group;
+  wired_mspan buf    = wired_mspan_of(head, MOQDATA_MSG_OVERHEAD);
+  if (moqdata_subhdr_put(buf, &off, &h) != MOQDATA_OK) return 0;
+  if (!moqtrun_live_head_obj(buf, &off, frag_len)) return 0;
+  return off;
+}
+
+/* 1 iff sub slot i still owes Group g (never sent, or last sent older). */
+static int moqtrun_live_owes(const wired_moqtrun_live* live, usz i, u64 g) {
+  return !live->sent_any[i] || live->sent_group[i] < g;
+}
+
+/* Groups the clock skipped past sub slot i's last accepted send (0 when
+ * none): each is a fragment this subscriber was never sent -- never sent
+ * late once its Group has passed, only counted. */
+static u64 moqtrun_live_gap(const wired_moqtrun_live* live, usz i, u64 g) {
+  return live->sent_any[i] && live->sent_group[i] + 1 < g
+             ? g - live->sent_group[i] - 1
+             : 0;
+}
+
+/* Sends Group g to sub slot i; on acceptance counts any skipped Groups
+ * and records g. A refused send records nothing (retried next tick while
+ * the clock is still in g). */
+static void moqtrun_live_send_one(wired_moqt_hub* hub, usz i, u64 g) {
+  wired_moqtrun_live* live = &hub->live;
+  wired_moqtrun_peer* dst  = &hub->peers[live->track.subs[i].session_idx];
+  wired_span          frag = live->frags[g % live->n_frags];
+  u8                  head[MOQDATA_MSG_OVERHEAD];
+  usz                 hn = moqtrun_live_head(live, g, frag.n, head);
+  if (!dst->in_use) return;
+  if (hub->io.send_uni2(dst->wt, wired_span_of(head, hn), frag) < 0) return;
+  hub->stat_live_drop += moqtrun_live_gap(live, i, g);
+  live->sent_group[i] = g;
+  live->sent_any[i]   = 1;
+  hub->stat_live_sent++;
+}
+
+static void moqtrun_live_serve_sub(wired_moqt_hub* hub, usz i, u64 g) {
+  if (!hub->live.track.subs[i].active) return;
+  if (!moqtrun_live_owes(&hub->live, i, g)) return;
+  moqtrun_live_send_one(hub, i, g);
+}
+
+void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
+  hub->live.last_now_ms = now_ms;
+  if (!hub->live.track.in_use) return;
+  u64 g = moqtrun_live_group_at(&hub->live, now_ms);
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
+    moqtrun_live_serve_sub(hub, i, g);
+}
+
+/* Records slot for peer_idx, replies SUBSCRIBE_OK with the live track's
+ * own alias, and sends the Group current at the last tick at once (its
+ * fragment starts with a keyframe). */
+static void moqtrun_live_attach(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_moqtrun_sub*  slot,
+    usz                 peer_idx) {
+  usz i                 = (usz)(slot - hub->live.track.subs);
+  slot->session_idx     = peer_idx;
+  slot->track_alias     = hub->live.track.own_alias;
+  slot->active          = 1;
+  hub->live.sent_any[i] = 0;
+  moqtrun_queue_subscribe_ok(p, slot->track_alias);
+  moqtrun_live_send_one(
+      hub, i, moqtrun_live_group_at(&hub->live, hub->live.last_now_ms));
+}
+
+/* SUBSCRIBE for the live track: a peer already holding a subscription is
+ * answered SUBSCRIBE_OK again (nothing re-sent), anyone else is attached
+ * and served the current Group. */
+static void moqtrun_subscribe_live(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx) {
+  wired_moqtrun_track* t    = &hub->live.track;
+  wired_moqtrun_sub*   held = moqtrun_track_sub_of_peer(t, peer_idx);
+  if (held) {
+    moqtrun_queue_subscribe_ok(p, held->track_alias);
+    return;
+  }
+  wired_moqtrun_sub* slot = moqtrun_sub_slot(t);
+  if (!slot) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_INTERNAL_ERROR);
+    return;
+  }
+  moqtrun_live_attach(hub, p, slot, peer_idx);
 }
 
 /* ===================== data-stream (Object) relay ===================== */
@@ -1165,19 +1323,20 @@ static void moqtrun_peer_drop_subs(wired_moqtrun_peer* q, usz idx) {
     if (q->tracks[t].in_use) moqtrun_track_drop_sub(&q->tracks[t], idx);
 }
 
-/* The hub's own blob track forgets peer index idx too: a reconnect landing
- * in the same slot must be sent the blob again, not mistaken for the dead
- * peer that already had it. */
-static void moqtrun_blob_drop_sub(wired_moqt_hub* hub, usz idx) {
+/* The hub's own tracks (blob and live) forget peer index idx too: a
+ * reconnect landing in the same slot must be served afresh, not mistaken
+ * for the dead peer. */
+static void moqtrun_hub_tracks_drop_sub(wired_moqt_hub* hub, usz idx) {
   if (hub->blob_track.in_use) moqtrun_track_drop_sub(&hub->blob_track, idx);
+  if (hub->live.track.in_use) moqtrun_track_drop_sub(&hub->live.track, idx);
 }
 
-/* Deactivate every subscription any peer's tracks (and the hub's blob
- * track) hold for peer index idx. */
+/* Deactivate every subscription any peer's tracks (and the hub's own
+ * tracks) hold for peer index idx. */
 static void moqtrun_drop_peer_subs(wired_moqt_hub* hub, usz idx) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
     if (hub->peers[i].in_use) moqtrun_peer_drop_subs(&hub->peers[i], idx);
-  moqtrun_blob_drop_sub(hub, idx);
+  moqtrun_hub_tracks_drop_sub(hub, idx);
 }
 
 void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s) {

@@ -13,8 +13,10 @@
  * non-communicating hub instance. */
 
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim */
+#include "app/media/mp4frag/mp4frag.h"
 #include "app/moqt/run/moqtrun.h"
 #include "app/webtransport/wtwire/wtwire.h"
+#include "common/platform/clock/mono.h"
 #include "wired.h"
 
 /* --- wired_moqt_io: thin wrappers around wired_server_wt_* --------------
@@ -32,44 +34,57 @@
  * own per-slot staging (srvrun.h), so nothing here must outlive its call. */
 #define MOQT_SIG_BUF 2048
 
-/* --- Movie track (--movie PATH) ----------------------------------------
+/* --- Movie track (--movie PATH, a fragmented MP4) ----------------------
  *
- * The file is read once at boot into g_movie, framed once into g_movie_wire
- * (SUBGROUP_HEADER + 16 KiB Objects, wired_moqt_publish_blob) and published
- * as the hub-owned "movie" track: every participant that SUBSCRIBEs to it
- * receives the framed bytes on one uni stream. 8 MiB: assets/movie.mp4 is
- * 5,065,711 bytes; a bigger file must raise this (wired_fio_read fails
- * loudly with WIRED_FIO_ETOOBIG rather than truncating). */
+ * Read once at boot into g_movie; mp4frag_scan splits it into the init
+ * segment (published as the "movie/init" blob track, alias 9) and its
+ * moof+mdat fragments (published as the clock-paced "movie" live track,
+ * alias 8, one fragment per 2-second Group -- the encode's GOP, see the
+ * README's ffmpeg command). Aliases must match the frontend's
+ * moqtMovieClient.ts/moqtLiveClient.ts: chat 0..3, audio 4..7, movie 8,
+ * movie/init 9. 8 MiB: assets/movie-live.mp4 is 5.1 MB; a bigger file must
+ * raise this (wired_fio_read fails loudly with WIRED_FIO_ETOOBIG rather
+ * than truncating). */
 #define MOVIE_MAX (8u << 20)
-/* Track Alias the framed bytes carry -- must match the frontend's
- * MOVIE_TRACK_ALIAS (moqtMovieClient.ts): chat aliases 0..3, audio 4..7,
- * movie 8. */
+#define MOVIE_GROUP_MS 2000
 #define MOVIE_TRACK_ALIAS 8
+#define MOVIE_INIT_TRACK_ALIAS 9
 #define MOVIE_TRACK_NAME "movie"
-static u8 g_movie[MOVIE_MAX];
-static u8 g_movie_wire[MOQDATA_BLOB_WIRE_CAP(MOVIE_MAX)];
+#define MOVIE_INIT_TRACK_NAME "movie/init"
+static u8             g_movie[MOVIE_MAX];
+static mp4frag_layout g_movie_layout;
+static u8             g_movie_init_wire[MOQDATA_BLOB_WIRE_CAP(4096)];
 
-/* Per-session staging for an oversized one-shot send (the movie's whole
- * framed blob, ~5 MB): wired_server_wt_open_uni holds a payload above its
- * 4096-byte staging as a VIEW until every byte is ACKed (srvrun.h), and the
- * WebTransport signal prefix -- different per session, it carries the
- * CONNECT stream id -- must sit contiguously in front of it. So each
- * session gets its own buffer here, claimed on its first oversized send and
- * released when the session closes (wt_on_session_close, the one point this
- * file learns the view is dead). Live sessions are bounded by both the
- * connection table and the hub's peer table, so the smaller of the two is
- * enough slots. A second oversized send on a session whose buffer is still
- * armed is refused: overwriting a live view would corrupt the bytes still
- * in flight. */
+/* Per-session staging ring for live fragments: wired_server_wt_open_uni
+ * holds a payload above its 4096-byte staging as a VIEW until every byte
+ * is ACKed (srvrun.h), and the WebTransport signal prefix -- different
+ * per session, it carries the CONNECT stream id -- must sit contiguously
+ * in front of it. So each session gets LIVE_RING slots of LIVE_FRAG_MAX
+ * here; a slot is reusable only once wired_server_wt_stream_inflight
+ * reports its recorded stream done (the view is free then), and a session
+ * close frees all of its slots at once (on_session_close, the one point
+ * this file learns every view is dead). Three slots: with 2-second Groups
+ * a fragment is normally ACKed long before two successors have been
+ * paced out, so a full ring means a genuinely stalled subscriber -- the
+ * hub counts the refused send on stat_live_drop and moves on. Live
+ * sessions are bounded by both the connection table and the hub's peer
+ * table, so the smaller of the two is enough sessions. */
+#define LIVE_RING 3
+#define LIVE_FRAG_MAX (1u << 20)
 #define BIG_SIG_MAX 9
 #define BIG_SLOTS                                                          \
   (WIRED_CONNTABLE_CAP < WIRED_MOQTRUN_MAX_SESSIONS ? WIRED_CONNTABLE_CAP \
                                                     : WIRED_MOQTRUN_MAX_SESSIONS)
 typedef struct {
+  u64 stream_id;
+  int used;
+  u8  buf[BIG_SIG_MAX + MOQDATA_MSG_OVERHEAD + LIVE_FRAG_MAX];
+} live_slot;
+typedef struct {
   wired_wt_session* s; /* owning session, 0 = free */
-  u8                buf[BIG_SIG_MAX + sizeof g_movie_wire];
-} big_slot;
-static big_slot g_big[BIG_SLOTS];
+  live_slot         ring[LIVE_RING];
+} live_session;
+static live_session g_live[BIG_SLOTS];
 
 /* Decimal/string/hex line-building helpers (also used by the shutdown
  * relay-stats log below). */
@@ -100,54 +115,77 @@ static i64 moqt_io_open_bidi_stream(wired_wt_session* s, wired_span payload) {
   return wired_server_wt_open_bidi_stream(s, wired_span_of(buf, sig + payload.n));
 }
 
-/* A free big_slot (s == 0), or 0 when every one is taken -- a session that
- * already holds one is refused too (its view is still armed). */
-static big_slot* big_slot_claim(wired_wt_session* s) {
+/* The live_session owned by s, claimed on its first live send; 0 when
+ * every one is taken. */
+static live_session* live_session_for(wired_wt_session* s) {
   for (usz i = 0; i < BIG_SLOTS; i++)
-    if (g_big[i].s == s) return 0;
+    if (g_live[i].s == s) return &g_live[i];
   for (usz i = 0; i < BIG_SLOTS; i++)
-    if (g_big[i].s == 0) return &g_big[i];
+    if (g_live[i].s == 0) return &g_live[i];
   return 0;
 }
 
-static void big_slot_release(wired_wt_session* s) {
-  for (usz i = 0; i < BIG_SLOTS; i++)
-    if (g_big[i].s == s) g_big[i].s = 0;
+/* A slot is reusable when it was never armed, or when its recorded stream
+ * is no longer in flight (its view was released -- live_session's doc). */
+static int live_slot_free(const live_session* ls, const live_slot* slot) {
+  return !slot->used || !wired_server_wt_stream_inflight(ls->s, slot->stream_id);
 }
 
-/* Oversized one-shot send: prefix + payload copied into the session's own
- * big_slot, handed to wired_server_wt_open_uni as a view (big_slot's doc). */
-static i64 send_uni_big(wired_wt_session* s, wired_span payload) {
-  big_slot* slot = big_slot_claim(s);
-  if (!slot || payload.n > sizeof slot->buf - BIG_SIG_MAX) return -1;
+static live_slot* live_slot_claim(live_session* ls) {
+  for (usz i = 0; i < LIVE_RING; i++)
+    if (live_slot_free(ls, &ls->ring[i])) return &ls->ring[i];
+  return 0;
+}
+
+/* wired_moqt_io.send_uni2-shaped: signal prefix + head + body staged into
+ * one of the session's ring slots, handed to wired_server_wt_open_uni as
+ * a view (live_session's doc). */
+static i64 moqt_io_send_uni2(
+    wired_wt_session* s, wired_span head, wired_span body) {
+  live_session* ls   = live_session_for(s);
+  live_slot*    slot = ls ? live_slot_claim(ls) : 0;
+  if (!slot || head.n + body.n > sizeof slot->buf - BIG_SIG_MAX) return -1;
   usz sig = wired_wtwire_signal_put(
       slot->buf, BIG_SIG_MAX, 0, s->connect_stream_id);
   if (sig == 0) return -1;
-  bytes_memcpy(slot->buf + sig, payload.p, payload.n);
-  i64 sid = wired_server_wt_open_uni(s, wired_span_of(slot->buf, sig + payload.n));
-  if (sid >= 0) slot->s = s;
+  bytes_memcpy(slot->buf + sig, head.p, head.n);
+  bytes_memcpy(slot->buf + sig + head.n, body.p, body.n);
+  i64 sid = wired_server_wt_open_uni(
+      s, wired_span_of(slot->buf, sig + head.n + body.n));
+  if (sid >= 0) {
+    ls->s           = s;
+    slot->stream_id = (u64)sid;
+    slot->used      = 1;
+  }
   return sid;
+}
+
+static void live_session_release(wired_wt_session* s) {
+  for (usz i = 0; i < BIG_SLOTS; i++)
+    if (g_live[i].s == s) {
+      g_live[i].s = 0;
+      for (usz j = 0; j < LIVE_RING; j++) g_live[i].ring[j].used = 0;
+    }
 }
 
 /* One-shot open+send+FIN (wired_server_wt_open_uni-shaped): used for a
  * relayed Object, which always completes in its stream's only round -- see
  * moqtrun.h's send_uni doc for why this must not go through
  * open_uni_stream + a bare stream_send(fin=1) instead. A payload past the
- * stack staging (only the movie track's framed blob) takes the big_slot
- * path. */
+ * stack staging is refused (the movie's init blob is ~1.2 KB and fits;
+ * live fragments go through send_uni2's staging ring instead). */
 static i64 moqt_io_send_uni(wired_wt_session* s, wired_span payload) {
   u8  buf[MOQT_SIG_BUF];
   usz sig = wired_wtwire_signal_put(buf, sizeof buf, 0, s->connect_stream_id);
-  if (sig == 0) return -1;
-  if (payload.n > sizeof buf - sig) return send_uni_big(s, payload);
+  if (sig == 0 || payload.n > sizeof buf - sig) return -1;
   for (usz i = 0; i < payload.n; i++) buf[sig + i] = payload.p[i];
   return wired_server_wt_open_uni(s, wired_span_of(buf, sig + payload.n));
 }
 
-/* wired_wt_on_session_close-shaped: frees the session's big_slot (its
- * view is dead with the connection) before the hub forgets the peer. */
+/* wired_wt_on_session_close-shaped: frees the session's staging ring (its
+ * views are dead with the connection) before the hub forgets the peer. */
 static void on_session_close(void* ctx, wired_wt_session* s) {
-  big_slot_release(s);
+  live_session_release(s);
   wired_moqt_on_session_close(ctx, s);
 }
 
@@ -173,6 +211,7 @@ static const wired_moqt_io g_moqt_io = {
     moqt_io_open_uni_stream,
     wired_server_wt_stream_fin,
     wired_server_wt_stream_reset,
+    moqt_io_send_uni2,
 };
 
 static wired_moqt_hub g_hub;
@@ -280,7 +319,7 @@ static void log_cert_fingerprint(const wired_srvboot_id* id) {
  * measurement run can compare server-side drops against the receivers' own
  * sequence gaps. */
 static void log_relay_stats(const wired_moqt_hub* hub) {
-  char line[192];
+  char line[320]; /* 8 labels + 8 u64s at 20 digits each, with room over */
   usz  n = 0;
   append_cstr(line, &n, "moqt relay: sent=");
   n += dec_u64(line + n, hub->stat_relay_sent);
@@ -294,31 +333,55 @@ static void log_relay_stats(const wired_moqt_hub* hub) {
   n += dec_u64(line + n, hub->stat_relay_reset);
   append_cstr(line, &n, " relay_full=");
   n += dec_u64(line + n, hub->stat_relay_full);
+  append_cstr(line, &n, " live_sent=");
+  n += dec_u64(line + n, hub->stat_live_sent);
+  append_cstr(line, &n, " live_dropped=");
+  n += dec_u64(line + n, hub->stat_live_drop);
   line[n++] = '\n';
   line[n]   = 0;
   wired_log_str(line);
 }
 
-/* --movie PATH: read the file and publish it as the hub's "movie" track
- * (the movie-track block near the top of this file). No flag, no track. */
+/* --movie PATH: read the fMP4, publish its init segment as the
+ * "movie/init" blob track and its fragments as the clock-paced "movie"
+ * live track (the movie-track block near the top of this file). No flag,
+ * no tracks. */
 static void publish_movie(const char* path) {
   if (!path) return;
   ssz n = wired_fio_read(path, wired_mspan_of(g_movie, sizeof g_movie));
   if (n <= 0) wired_die("--movie: cannot read the file (or > MOVIE_MAX)\n");
+  if (!mp4frag_scan(wired_span_of(g_movie, (usz)n), &g_movie_layout))
+    wired_die("--movie: not a fragmented MP4 (see the README's ffmpeg cmd)\n");
   usz wl = wired_moqt_publish_blob(
-      &g_hub, wired_span_of((const u8*)MOVIE_TRACK_NAME, sizeof MOVIE_TRACK_NAME - 1),
-      MOVIE_TRACK_ALIAS, wired_span_of(g_movie, (usz)n),
-      wired_mspan_of(g_movie_wire, sizeof g_movie_wire));
-  if (wl == 0) wired_die("--movie: framing failed\n");
+      &g_hub,
+      wired_span_of(
+          (const u8*)MOVIE_INIT_TRACK_NAME, sizeof MOVIE_INIT_TRACK_NAME - 1),
+      MOVIE_INIT_TRACK_ALIAS, g_movie_layout.init,
+      wired_mspan_of(g_movie_init_wire, sizeof g_movie_init_wire));
+  if (wl == 0) wired_die("--movie: init segment framing failed (> 4 KiB?)\n");
+  if (!wired_moqt_publish_live(
+          &g_hub,
+          wired_span_of((const u8*)MOVIE_TRACK_NAME, sizeof MOVIE_TRACK_NAME - 1),
+          MOVIE_TRACK_ALIAS, g_movie_layout.frags, g_movie_layout.n_frags,
+          MOVIE_GROUP_MS, clock_mono_ms()))
+    wired_die("--movie: live publish failed\n");
   char line[96];
   usz  ln = 0;
-  append_cstr(line, &ln, "movie track: ");
-  ln += dec_u64(line + ln, (u64)n);
-  append_cstr(line, &ln, " bytes, framed ");
-  ln += dec_u64(line + ln, (u64)wl);
-  append_cstr(line, &ln, " bytes\n");
+  append_cstr(line, &ln, "movie: ");
+  ln += dec_u64(line + ln, (u64)g_movie_layout.n_frags);
+  append_cstr(line, &ln, " fragments, init ");
+  ln += dec_u64(line + ln, (u64)g_movie_layout.init.n);
+  append_cstr(line, &ln, " bytes, group ");
+  ln += dec_u64(line + ln, (u64)MOVIE_GROUP_MS);
+  append_cstr(line, &ln, " ms\n");
   line[ln] = 0;
   wired_log_str(line);
+}
+
+/* wired_srvrun_on_step-shaped: paces the hub's live track (moqtrun.h's
+ * wired_moqt_tick doc). ctx is the hub. */
+static void on_step(void* ctx, u64 now_ms) {
+  wired_moqt_tick((wired_moqt_hub*)ctx, now_ms);
 }
 
 static void load_san_ipv4(int argc, char** argv, u8 san_ipv4[4], int* have_it) {
@@ -362,6 +425,8 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
    * mistaken for the dead peer -- it never receives SETUP again. */
   opt.run.wt_on_session_close  = on_session_close;
   opt.run.wt_session_close_ctx = &g_hub;
+  opt.run.on_step              = on_step;
+  opt.run.on_step_ctx          = &g_hub;
 
   if (!wired_srvdriver_run(&id, h, obs, &opt)) wired_die("listen failed\n");
   log_relay_stats(&g_hub);
