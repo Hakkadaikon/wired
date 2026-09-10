@@ -13,8 +13,9 @@
 FROM scratch
 
 COPY examples/moqt_chat/wired_server /wired_server
-# Published as the hub-owned "movie" track (--movie, see wired_server.c).
-COPY assets/movie.mp4 /movie.mp4
+# Published as the hub-owned "movie/init" + clock-paced "movie" live
+# tracks (--movie takes a fragmented MP4, see wired_server.c).
+COPY assets/movie-live.mp4 /movie.mp4
 
 EXPOSE 4433/udp
 
