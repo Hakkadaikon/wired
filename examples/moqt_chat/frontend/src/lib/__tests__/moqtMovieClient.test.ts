@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   decodeBlobObjects,
+  MOVIE_INIT_TRACK_ALIAS,
+  MOVIE_INIT_TRACK_NAME,
   MOVIE_TRACK_ALIAS,
-  MOVIE_TRACK_NAME,
   readMovie,
-  subscribeMovie,
+  subscribeMovieInit,
 } from "../moqtMovieClient";
 import { CANDIDATE_PARTICIPANT_IDS, type MoqtChatClient } from "../moqtClient";
 import { ownAudioTrackAlias } from "../moqtVoiceClient";
@@ -39,7 +40,9 @@ describe("MOVIE_TRACK_ALIAS", () => {
     }
     for (const id of CANDIDATE_PARTICIPANT_IDS) {
       expect(MOVIE_TRACK_ALIAS).not.toBe(ownAudioTrackAlias(id));
+      expect(MOVIE_INIT_TRACK_ALIAS).not.toBe(ownAudioTrackAlias(id));
     }
+    expect(MOVIE_INIT_TRACK_ALIAS).toBe(MOVIE_TRACK_ALIAS + 1n);
   });
 });
 
@@ -103,13 +106,13 @@ describe("readMovie", () => {
   });
 });
 
-describe("subscribeMovie", () => {
-  it("SUBSCRIBEs the hub's \"movie\" track", async () => {
+describe("subscribeMovieInit", () => {
+  it("SUBSCRIBEs the hub's \"movie/init\" track", async () => {
     const subscribeTrack = vi.fn(async () => {});
-    await subscribeMovie({ subscribeTrack } as unknown as MoqtChatClient);
+    await subscribeMovieInit({ subscribeTrack } as unknown as MoqtChatClient);
     expect(subscribeTrack).toHaveBeenCalledExactlyOnceWith(
-      utf8ToBytes(MOVIE_TRACK_NAME),
-      "movie",
+      utf8ToBytes(MOVIE_INIT_TRACK_NAME),
+      "movie/init",
     );
   });
 });

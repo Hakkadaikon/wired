@@ -11,14 +11,15 @@
 // handleIncomingStream replace sendDatagram/handleDatagram, and the
 // participant id itself is the sender key (no senderId bytes to hex-encode).
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   candidateParticipantIds,
   MoqtChatClient,
   type MoqtChatCallbacks,
 } from "@/lib/moqtClient";
 import { MoqtVoiceClient } from "@/lib/moqtVoiceClient";
-import { MOVIE_TRACK_ALIAS, readMovie, subscribeMovie } from "@/lib/moqtMovieClient";
+import { MOVIE_INIT_TRACK_ALIAS, MOVIE_TRACK_ALIAS, readMovie } from "@/lib/moqtMovieClient";
+import { LiveMovie } from "@/lib/moqtLiveClient";
 import { startMicPipeline, type MicPipeline } from "@/lib/micPipeline";
 import {
   createVoiceReceivePipeline,
@@ -28,7 +29,11 @@ import { createAudioContextGate, type AudioContextGate } from "@/lib/audioContex
 import { createPlaybackSink } from "@/lib/playbackSink";
 import { JitterBufferManager } from "@/lib/jitterBuffer";
 import { registerPageLifecycleCleanup } from "@/lib/pageLifecycle";
-import { useMoqtChatStore, type MoqtChatState } from "@/stores/moqtChatStore";
+import {
+  useMoqtChatStore,
+  type ConnectionState,
+  type MoqtChatState,
+} from "@/stores/moqtChatStore";
 
 const JITTER_BUFFER_CAPACITY = 8;
 const DRAIN_INTERVAL_MS = 20;
@@ -128,6 +133,17 @@ export async function connectChatThenVoice(
   }
 }
 
+// When to open the live movie's MediaSource: only in the connected room
+// view (the <video> ref is mounted there), and never a second time while
+// one is already live. Pure so it's testable without rendering the hook.
+export function shouldStartLive(
+  connectionState: ConnectionState,
+  hasVideo: boolean,
+  alreadyStarted: boolean,
+): boolean {
+  return connectionState === "connected" && hasVideo && !alreadyStarted;
+}
+
 export function useMoqtChat() {
   const store = useMoqtChatStore();
   const [micError, setMicError] = useState<string | null>(null);
@@ -142,12 +158,37 @@ export function useMoqtChat() {
   const localIdRef = useRef<string>("");
   const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceRetryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // The live <video> element page.tsx renders; LiveMovie drives it directly.
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const liveRef = useRef<LiveMovie | null>(null);
 
-  const clearMovie = useCallback(() => {
-    const url = useMoqtChatStore.getState().movieUrl;
-    if (url) URL.revokeObjectURL(url);
-    store.setMovieUrl(null);
+  const clearLive = useCallback(() => {
+    store.setLiveError(null);
+    store.setLiveFirstGroup(null);
   }, [store]);
+
+  // Start the live movie only once the room view is on screen: the <video>
+  // mounts in the same render that flips connectionState to "connected", so
+  // this effect (which runs after the DOM commit) is the first moment
+  // videoRef.current is reliably non-null. The cleanup stops playback
+  // whenever connectionState leaves "connected" (leave() or a drop).
+  const connectionState = store.connectionState;
+  useEffect(() => {
+    const client = clientRef.current;
+    const video = videoRef.current;
+    if (!shouldStartLive(connectionState, video !== null, liveRef.current !== null)) return;
+    if (!client || !video) return;
+    const live = new LiveMovie(client, video, {
+      onError: (m) => useMoqtChatStore.getState().setLiveError(m),
+      onFirstGroup: (g) => useMoqtChatStore.getState().setLiveFirstGroup(g.toString()),
+    });
+    liveRef.current = live;
+    live.start().catch(() => {});
+    return () => {
+      liveRef.current?.stop();
+      liveRef.current = null;
+    };
+  }, [connectionState]);
 
   const startDrainLoop = useCallback(() => {
     const tick = () => {
@@ -225,23 +266,34 @@ export function useMoqtChat() {
       store.clearPeers();
       store.clearMessages();
       store.setDisplayName(localId);
-      clearMovie();
+      clearLive();
 
-      const showMovie = (bytes: Uint8Array | undefined) => {
-        if (!bytes) return;
-        clearMovie();
-        store.setMovieUrl(
-          URL.createObjectURL(new Blob([bytes as BlobPart], { type: "video/mp4" })),
-        );
-      };
-      // The movie alias must be checked BEFORE voice: MoqtVoiceClient
-      // cancels any stream whose alias it doesn't own.
+      // The movie aliases must be checked BEFORE voice: MoqtVoiceClient
+      // cancels any stream whose alias it doesn't own. Both movie branches
+      // no-op while liveRef is still null (the effect above hasn't started
+      // playback yet -- defensive, since LiveMovie itself issues the movie
+      // SUBSCRIBEs after liveRef is set): a stray init/fragment is simply
+      // dropped, and the hub paces the next Group within ~2 s.
       const client = new MoqtChatClient(localId, {
         ...moqtChatCallbacks(store),
-        onUnknownUniStream: (header, firstChunkTail, reader) =>
-          header.trackAlias === MOVIE_TRACK_ALIAS
-            ? void readMovie(firstChunkTail, reader, header.flags.properties).then(showMovie)
-            : voiceRef.current?.handleIncomingStream(header, firstChunkTail, reader),
+        onUnknownUniStream: (header, firstChunkTail, reader) => {
+          if (header.trackAlias === MOVIE_INIT_TRACK_ALIAS) {
+            void readMovie(firstChunkTail, reader, header.flags.properties).then(
+              (bytes) => bytes && liveRef.current?.handleInit(bytes),
+            );
+            return;
+          }
+          if (header.trackAlias === MOVIE_TRACK_ALIAS) {
+            void liveRef.current?.handleFragment(
+              firstChunkTail,
+              reader,
+              header.flags.properties,
+              header.groupId,
+            );
+            return;
+          }
+          voiceRef.current?.handleIncomingStream(header, firstChunkTail, reader);
+        },
       });
       clientRef.current = client;
 
@@ -250,14 +302,12 @@ export function useMoqtChat() {
         getMicTracks: () => [],
       });
 
-      // The movie SUBSCRIBE rides on chat's success only: it is fire-and-
-      // forget and never affects chat/voice failure handling
+      // The live movie is NOT started here: the effect above starts it once
+      // the connected room view (and its <video>) has actually mounted, so
+      // it is fire-and-forget and never affects chat/voice failure handling
       // (connectChatThenVoice's own doc).
       await connectChatThenVoice(
-        async () => {
-          await client.connect(url, certHashesHex);
-          subscribeMovie(client).catch(() => {});
-        },
+        () => client.connect(url, certHashesHex),
         () => startVoice(localId, client),
         // Connection failed (e.g. cert hash mismatch): fall back to
         // disconnected instead of leaving the join screen stuck on
@@ -266,7 +316,7 @@ export function useMoqtChat() {
         (err) => setMicError(err instanceof Error ? err.message : "voice setup failed"),
       );
     },
-    [store, startVoice, clearMovie],
+    [store, startVoice, clearLive],
   );
 
   const sendChat = useCallback(
@@ -306,12 +356,14 @@ export function useMoqtChat() {
     knownSendersRef.current.clear();
     clientRef.current?.close();
     clientRef.current = null;
+    liveRef.current?.stop();
+    liveRef.current = null;
     setMicError(null);
     store.setConnectionState("disconnected");
     store.clearPeers();
     store.clearMessages();
-    clearMovie();
-  }, [store, clearMovie]);
+    clearLive();
+  }, [store, clearLive]);
 
-  return { connect, sendChat, toggleMute, leave, micError };
+  return { connect, sendChat, toggleMute, leave, micError, videoRef };
 }

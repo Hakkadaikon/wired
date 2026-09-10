@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { connectChatThenVoice, moqtChatCallbacks } from "../useMoqtChat";
+import { connectChatThenVoice, moqtChatCallbacks, shouldStartLive } from "../useMoqtChat";
 
 // Exercises the pure callback -> store-action translation without
 // WebTransport: a MoqtChatClient-shaped fake calls onStatusChange/onMessage
@@ -91,6 +91,19 @@ describe("connectChatThenVoice", () => {
 
     expect(onChatFailed).not.toHaveBeenCalled();
     expect(onVoiceFailed).not.toHaveBeenCalled();
+  });
+});
+
+describe("shouldStartLive", () => {
+  it("starts only when connected with a mounted <video> and no live movie yet", () => {
+    expect(shouldStartLive("connected", true, false)).toBe(true);
+  });
+
+  it("never starts while disconnected/connecting, without a video, or twice", () => {
+    expect(shouldStartLive("disconnected", true, false)).toBe(false);
+    expect(shouldStartLive("connecting", true, false)).toBe(false);
+    expect(shouldStartLive("connected", false, false)).toBe(false);
+    expect(shouldStartLive("connected", true, true)).toBe(false);
   });
 });
 
