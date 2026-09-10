@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { AppendQueue, LiveMovie, MOVIE_MIME } from "../moqtLiveClient";
+import {
+  AppendQueue,
+  catchUpTarget,
+  LIVE_TARGET_AHEAD_S,
+  LiveMovie,
+  MOVIE_MIME,
+  shouldPlay,
+} from "../moqtLiveClient";
 import { MOVIE_INIT_TRACK_NAME, MOVIE_TRACK_NAME } from "../moqtMovieClient";
 import type { MoqtChatClient } from "../moqtClient";
 import { concatBytes, encodeVarint, utf8ToBytes } from "../moqtWire";
@@ -37,6 +44,45 @@ function fakeSourceBuffer() {
   };
   return { sb, appended, removed };
 }
+
+function range(pairs: [number, number][]) {
+  return {
+    length: pairs.length,
+    start: (i: number) => pairs[i][0],
+    end: (i: number) => pairs[i][1],
+  };
+}
+
+describe("shouldPlay", () => {
+  it("is false with nothing buffered", () => {
+    expect(shouldPlay(range([]), 0, LIVE_TARGET_AHEAD_S)).toBe(false);
+  });
+
+  it("is false just under and true at the target ahead", () => {
+    expect(shouldPlay(range([[0, 2.9]]), 0, LIVE_TARGET_AHEAD_S)).toBe(false);
+    expect(shouldPlay(range([[0, 3.0]]), 0, LIVE_TARGET_AHEAD_S)).toBe(true);
+  });
+
+  it("measures ahead from currentTime, not from the range start", () => {
+    expect(shouldPlay(range([[0, 6]]), 3.5, LIVE_TARGET_AHEAD_S)).toBe(false);
+    expect(shouldPlay(range([[0, 6]]), 2.9, LIVE_TARGET_AHEAD_S)).toBe(true);
+  });
+
+  it("uses the range containing currentTime when several exist", () => {
+    expect(shouldPlay(range([[0, 1], [5, 10]]), 6, LIVE_TARGET_AHEAD_S)).toBe(true);
+    expect(shouldPlay(range([[0, 1], [5, 7]]), 6, LIVE_TARGET_AHEAD_S)).toBe(false);
+  });
+});
+
+describe("catchUpTarget", () => {
+  it("aims LIVE_TARGET_AHEAD_S short of the end when more than 8 s behind", () => {
+    expect(catchUpTarget(range([[0, 20]]), 5)).toBe(17);
+  });
+
+  it("is undefined when within 8 s of the buffered end", () => {
+    expect(catchUpTarget(range([[0, 10]]), 5)).toBeUndefined();
+  });
+});
 
 describe("AppendQueue", () => {
   it("appends one buffer at a time, in order, waiting for updateend", () => {
@@ -111,9 +157,34 @@ function fakeVideo() {
   } as unknown as HTMLVideoElement;
 }
 
+function gateVideo() {
+  const listeners: Record<string, (() => void)[]> = {};
+  const v = {
+    src: "",
+    currentTime: 0,
+    paused: true,
+    buffered: range([]),
+    play: vi.fn(async () => {
+      v.paused = false;
+    }),
+    addEventListener(t: string, h: () => void) {
+      (listeners[t] ??= []).push(h);
+    },
+    removeAttribute: vi.fn(),
+    load: vi.fn(),
+    fire(t: string) {
+      for (const h of listeners[t] ?? []) h();
+    },
+  };
+  return v;
+}
+
 // A LiveMovie already start()ed against a fake MediaSource whose sourceopen
 // fires synchronously, so tests drive handleInit/handleFragment directly.
-async function startedLiveMovie(opts?: { onFirstGroup?: (g: bigint) => void }) {
+async function startedLiveMovie(
+  opts?: { onFirstGroup?: (g: bigint) => void },
+  video: HTMLVideoElement = fakeVideo(),
+) {
   const { sb, appended } = fakeSourceBuffer();
   vi.stubGlobal(
     "MediaSource",
@@ -132,7 +203,7 @@ async function startedLiveMovie(opts?: { onFirstGroup?: (g: bigint) => void }) {
   const subscribeTrack = vi.fn(async () => {});
   const live = new LiveMovie(
     { subscribeTrack } as unknown as MoqtChatClient,
-    fakeVideo(),
+    video,
     { onError: vi.fn(), ...opts },
   );
   await live.start();
@@ -222,6 +293,33 @@ describe("LiveMovie", () => {
     await live.handleFragment(wire.slice(0, wire.length - 1), fakeReader([]), false, 0n);
     expect(appended.length).toBe(1);
     expect(live.firstGroup).toBeUndefined();
+  });
+
+it("holds playback until LIVE_TARGET_AHEAD_S sits ahead, then plays once", async () => {
+    const video = gateVideo();
+    const { live, sb } = await startedLiveMovie(undefined, video as unknown as HTMLVideoElement);
+    live.handleInit(new Uint8Array([1]));
+    sb.finish();
+    video.buffered = range([[0, 2]]);
+    await live.handleFragment(fragmentWire(new Uint8Array([2])), fakeReader([]), false, 0n);
+    sb.finish();
+    expect(video.play).not.toHaveBeenCalled();
+    video.buffered = range([[0, 4]]);
+    await live.handleFragment(fragmentWire(new Uint8Array([3])), fakeReader([]), false, 1n);
+    sb.finish();
+    expect(video.play).toHaveBeenCalledTimes(1);
+  });
+
+  it("restarts on waiting only once enough media is buffered ahead", async () => {
+    const video = gateVideo();
+    await startedLiveMovie(undefined, video as unknown as HTMLVideoElement);
+    video.currentTime = 5;
+    video.buffered = range([[0, 7]]);
+    video.fire("waiting");
+    expect(video.play).not.toHaveBeenCalled();
+    video.buffered = range([[0, 8]]);
+    video.fire("waiting");
+    expect(video.play).toHaveBeenCalledTimes(1);
   });
 
   it("stop() revokes the object URL start() created", async () => {

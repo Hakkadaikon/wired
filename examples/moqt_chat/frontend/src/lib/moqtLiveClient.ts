@@ -22,6 +22,40 @@ const TRIM_WHEN_BEHIND_S = 60;
 // the hub paces ~1 Group/s, so 8 covers any realistic init delay.
 const PENDING_CAP = 8;
 
+// 1.5 Groups of margin before (re)starting playback: one whole 2-second
+// Group absorbs the next Group's arrival jitter, plus half a Group of
+// slack so a slightly late Group still lands before the margin runs out.
+export const LIVE_TARGET_AHEAD_S = 3;
+// A receiver that fell behind (tab throttled, slow link) and then caught
+// up in a burst can sit far behind the live edge; beyond 4 Groups (8 s)
+// jump forward instead of playing stale media.
+const MAX_BEHIND_S = 8;
+
+/** True when the buffered range containing (or starting at/after)
+ * currentTime extends at least targetAheadS beyond currentTime. */
+export function shouldPlay(
+  buffered: { length: number; start(i: number): number; end(i: number): number },
+  currentTime: number,
+  targetAheadS: number,
+): boolean {
+  for (let i = 0; i < buffered.length; i++) {
+    if (buffered.end(i) < currentTime) continue;
+    return buffered.end(i) - currentTime >= targetAheadS;
+  }
+  return false;
+}
+
+/** Where to seek before playing when currentTime is more than MAX_BEHIND_S
+ * behind the buffered end; undefined when no jump is needed. */
+export function catchUpTarget(
+  buffered: { length: number; start(i: number): number; end(i: number): number },
+  currentTime: number,
+): number | undefined {
+  if (buffered.length === 0) return undefined;
+  const end = buffered.end(buffered.length - 1);
+  return end - currentTime > MAX_BEHIND_S ? end - LIVE_TARGET_AHEAD_S : undefined;
+}
+
 /** The subset of SourceBuffer the queue drives -- narrow so tests can hand
  * in a plain fake instead of a real MediaSource. */
 export interface SourceBufferLike {
@@ -99,6 +133,7 @@ export class LiveMovie {
   #url: string | undefined;
   #init: Uint8Array | undefined;
   #pending: Uint8Array[] = [];
+  #playFailed = false;
   firstGroup: bigint | undefined;
 
   constructor(chat: MoqtChatClient, video: HTMLVideoElement, opts: LiveMovieOptions) {
@@ -136,6 +171,11 @@ export class LiveMovie {
     const sb = ms.addSourceBuffer(MOVIE_MIME) as unknown as SourceBufferLike;
     sb.mode = "sequence";
     this.#q = new AppendQueue(sb, this.#opts.onError);
+    // Every completed append (and a stall) re-evaluates the playback gate:
+    // this class owns play(), the <video> has no autoplay.
+    sb.addEventListener("updateend", () => this.#maybePlay());
+    this.#video.addEventListener("waiting", () => this.#maybePlay());
+    this.#video.addEventListener("stalled", () => this.#maybePlay());
     this.#video.addEventListener("timeupdate", () => this.#q?.trim(this.#video.currentTime));
     await subscribeMovieInit(this.#chat);
   }
@@ -170,6 +210,28 @@ export class LiveMovie {
       return;
     }
     this.#q?.push(bytes);
+  }
+
+  // Only ever (re)starts playback -- a stall is the browser's own
+  // "waiting"; pausing is left entirely to it.
+  #maybePlay(): void {
+    const v = this.#video;
+    if (!v.paused || !this.#gate(v)) return;
+    void v.play().catch((err) => this.#reportPlayFailure(err as Error));
+  }
+
+  #gate(v: HTMLVideoElement): boolean {
+    const jump = catchUpTarget(v.buffered, v.currentTime);
+    if (jump !== undefined) v.currentTime = jump;
+    return shouldPlay(v.buffered, v.currentTime, LIVE_TARGET_AHEAD_S);
+  }
+
+  // Muted autoplay is normally allowed, so a rejection is unexpected;
+  // report it once instead of once per append.
+  #reportPlayFailure(e: Error): void {
+    if (this.#playFailed) return;
+    this.#playFailed = true;
+    this.#opts.onError(`video play failed: ${e.name}: ${e.message}`);
   }
 
   stop(): void {
