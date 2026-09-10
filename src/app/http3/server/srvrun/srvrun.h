@@ -126,6 +126,11 @@ typedef void (*wired_wt_resource_check)(
     wired_span                  path,
     wired_wt_resource_decision* out);
 
+/** Per-step application hook (wired_srvrun_opt.on_step).
+ * @param ctx opaque context registered alongside this callback
+ * @param now_ms the loop's monotonic clock at this step */
+typedef void (*wired_srvrun_on_step)(void* ctx, u64 now_ms);
+
 /** The application's request responder: the callback and its opaque context,
  * registered on the loop as a pair (wired_srvloop_set_handler takes the same
  * pair). */
@@ -278,6 +283,15 @@ typedef struct {
    * exists to close. */
   wired_wt_on_session_close wt_on_session_close;
   void* wt_session_close_ctx; /**< opaque ctx passed to wt_on_session_close */
+  /** Per-step application hook, 0 to disable (the default): called once
+   * per event-loop step after that step's receive/serve work, with the
+   * loop's own monotonic clock (ms). Runs inside the loop, so every
+   * wired_server_wt_* send API may be called from it. The loop polls with
+   * a bounded timeout whenever a connection is live, so the hook fires at
+   * least every SRVRUN_PTO_MS (25 ms) while anyone is connected; with no
+   * connection it may not fire at all. */
+  wired_srvrun_on_step on_step;
+  void*                on_step_ctx; /**< opaque ctx passed to on_step */
 } wired_srvrun_opt;
 
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must
@@ -531,6 +545,17 @@ int wired_server_wt_stream_fin(wired_wt_session* s, u64 stream_id);
  *   latch is full (nothing changed; retry on a later step) */
 int wired_server_wt_stream_reset(
     wired_wt_session* s, u64 stream_id, u32 error_code);
+
+/** 1 while a send slot on s's connection still holds stream_id -- its
+ * bytes not yet fully acknowledged, or the stream still open for
+ * appends -- and 0 once the slot was reaped or stream_id never named a
+ * server-sent stream on this session. A payload handed to
+ * wired_server_wt_open_uni above the slot's staging capacity is held as a
+ * VIEW (see its doc); this is the signal that the view may be reused.
+ * @param s the session whose connection carries the stream
+ * @param stream_id a stream id returned by one of the open_* calls
+ * @return 1 in flight, 0 otherwise */
+int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id);
 
 /** Queue one HTTP Datagram (RFC 9297) to this session's peer: the SDK
  * prefixes the quarter-stream-id varint (the session's CONNECT stream id /
