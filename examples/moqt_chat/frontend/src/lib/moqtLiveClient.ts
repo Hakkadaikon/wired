@@ -108,9 +108,30 @@ export class LiveMovie {
   }
 
   async start(): Promise<void> {
+    // A silent spinner is worse than an error: a Chromium build without
+    // H.264/AAC (or Safari's MSE quirks) rejects this MIME, and without the
+    // check the <video> just never leaves readyState 0.
+    if (typeof MediaSource === "undefined" || !MediaSource.isTypeSupported(MOVIE_MIME)) {
+      this.#opts.onError(
+        `this browser cannot play ${MOVIE_MIME} through Media Source Extensions (H.264/AAC support missing?)`,
+      );
+      return;
+    }
+    try {
+      await this.#open();
+    } catch (err) {
+      const e = err as Error;
+      this.#opts.onError(`live start failed: ${e.name}: ${e.message}`);
+    }
+  }
+
+  async #open(): Promise<void> {
     const ms = new MediaSource();
     this.#url = URL.createObjectURL(ms);
     this.#video.src = this.#url;
+    this.#video.addEventListener("error", () =>
+      this.#opts.onError(`video error: ${this.#video.error?.message ?? "unknown"}`),
+    );
     await new Promise<void>((r) => ms.addEventListener("sourceopen", () => r(), { once: true }));
     const sb = ms.addSourceBuffer(MOVIE_MIME) as unknown as SourceBufferLike;
     sb.mode = "sequence";
