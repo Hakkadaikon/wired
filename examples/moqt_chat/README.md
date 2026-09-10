@@ -42,7 +42,7 @@ the chat aliases 0..3 and audio aliases 4..7):
   SUBSCRIBE.
 - `movie` (Track Alias 8): the live track. The hub derives the current
   Group from the wall clock (one Group per 2 seconds, counted from
-  publish time); Group g carries fragment `g mod 16` as the Group's only
+  publish time); Group g carries fragment `g mod 15` as the Group's only
   Object, on its own unidirectional stream, sent when the clock enters
   the Group. The asset loops, but the Group IDs keep increasing.
 
@@ -60,6 +60,7 @@ the looping asset's restarting timestamps don't matter), then SUBSCRIBEs
 
 ```sh
 nix shell nixpkgs#ffmpeg-headless -c ffmpeg -i assets/movie.mp4 \
+  -t 30 -af apad=whole_dur=30 \
   -c:v libx264 -preset medium -profile:v high -g 48 -keyint_min 48 \
   -sc_threshold 0 -b:v 1200k -c:a aac -b:a 128k \
   -movflags +frag_keyframe+empty_moov+default_base_moof \
