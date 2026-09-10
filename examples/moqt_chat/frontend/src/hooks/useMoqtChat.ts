@@ -183,7 +183,10 @@ export function useMoqtChat() {
       onFirstGroup: (g) => useMoqtChatStore.getState().setLiveFirstGroup(g.toString()),
     });
     liveRef.current = live;
-    live.start().catch(() => {});
+    // start() reports its own failures through onError, but if anything
+    // still escapes, surface it -- a swallowed rejection here is exactly
+    // the silent forever-spinner this pipeline must never show.
+    live.start().catch((err) => useMoqtChatStore.getState().setLiveError(String(err)));
     return () => {
       liveRef.current?.stop();
       liveRef.current = null;

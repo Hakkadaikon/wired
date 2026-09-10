@@ -118,6 +118,7 @@ async function startedLiveMovie(opts?: { onFirstGroup?: (g: bigint) => void }) {
   vi.stubGlobal(
     "MediaSource",
     class {
+      static isTypeSupported = () => true;
       addEventListener(_t: string, h: () => void) {
         h();
       }
@@ -137,6 +138,51 @@ async function startedLiveMovie(opts?: { onFirstGroup?: (g: bigint) => void }) {
   await live.start();
   return { live, sb, appended, subscribeTrack, revokeObjectURL };
 }
+
+describe("LiveMovie start() failure reporting", () => {
+  it("reports an unsupported MSE codec without creating a MediaSource", async () => {
+    const constructed = vi.fn();
+    vi.stubGlobal(
+      "MediaSource",
+      class {
+        static isTypeSupported = () => false;
+        constructor() {
+          constructed();
+        }
+      },
+    );
+    const onError = vi.fn();
+    const video = fakeVideo();
+    const live = new LiveMovie({} as unknown as MoqtChatClient, video, { onError });
+    await live.start();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][0]).toContain(MOVIE_MIME);
+    expect(constructed).not.toHaveBeenCalled();
+    expect(video.src).toBe("");
+  });
+
+  it("routes an addSourceBuffer failure to onError as 'live start failed'", async () => {
+    vi.stubGlobal(
+      "MediaSource",
+      class {
+        static isTypeSupported = () => true;
+        addEventListener(_t: string, h: () => void) {
+          h();
+        }
+        addSourceBuffer(): never {
+          throw new DOMException("bad codec", "NotSupportedError");
+        }
+      },
+    );
+    vi.stubGlobal("URL", { createObjectURL: () => "blob:fake", revokeObjectURL: vi.fn() });
+    const onError = vi.fn();
+    const live = new LiveMovie({} as unknown as MoqtChatClient, fakeVideo(), { onError });
+    await live.start();
+    expect(onError).toHaveBeenCalledExactlyOnceWith(
+      "live start failed: NotSupportedError: bad codec",
+    );
+  });
+});
 
 describe("LiveMovie", () => {
   it("appends init before any fragment and buffers fragments that arrive first", async () => {
