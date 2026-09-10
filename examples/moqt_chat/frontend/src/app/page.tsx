@@ -163,19 +163,16 @@ function MessageBubble({ m }: { m: ChatMessage }) {
 function LivePlayer({ videoRef }: { videoRef: React.RefObject<HTMLVideoElement | null> }) {
   const liveError = useMoqtChatStore((s) => s.liveError);
   const liveFirstGroup = useMoqtChatStore((s) => s.liveFirstGroup);
-  // Distinguishes "no stream data yet" (caption) from "playing" (no caption)
-  // and from a real failure (liveError banner).
+  // Distinguishes "not playing yet" (caption) from "playing" (no caption)
+  // and from a real failure (liveError banner). LiveMovie holds play() back
+  // until enough is buffered, so wait for actual playback, not readiness.
   const [waiting, setWaiting] = useState(true);
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     const ready = () => setWaiting(false);
-    video.addEventListener("loadeddata", ready);
-    video.addEventListener("canplay", ready);
-    return () => {
-      video.removeEventListener("loadeddata", ready);
-      video.removeEventListener("canplay", ready);
-    };
+    video.addEventListener("playing", ready);
+    return () => video.removeEventListener("playing", ready);
   }, [videoRef]);
   return (
     <div style={{ padding: "var(--lk-size-xs) 0 0" }}>
@@ -183,7 +180,6 @@ function LivePlayer({ videoRef }: { videoRef: React.RefObject<HTMLVideoElement |
         ref={videoRef}
         data-testid="live"
         data-first-group={liveFirstGroup ?? undefined}
-        autoPlay
         muted
         playsInline
         controls
