@@ -16496,6 +16496,75 @@ static void test_srvrun_wt_stream_inflight_unknown_is_zero(void) {
   CHECK(wired_server_wt_stream_inflight(0, 3) == 0);
 }
 
+/* Hand-drive slot 0's armed round to fully acknowledged: take every staged
+ * slice, mark it sent under a fresh pn, then feed the covering ACK range --
+ * the same take/sent/ack cycle test_srvrun_feed_ack_range_writes_stream_
+ * frame_lost hand-runs, minus the loss pass. */
+static void sr_wtsend_drive_all_acked(srvrun_conn* c) {
+  wired_sendq_slice sl;
+  u64               lo = c->l.tx_pn, pn = lo;
+  while (wired_sendsess_take(&c->wtsend[0].sess, &sl) == 1) {
+    CHECK(wired_sendsess_sent(&c->wtsend[0].sess, &sl, pn, 0));
+    pn++;
+  }
+  CHECK(pn > lo);
+  srvrun_feed_ack_range(c, lo, pn - 1, 0);
+}
+
+/* A stream just opened on a live session's connection is in flight: the
+ * send slot wired_server_wt_open_uni claimed still holds its id. */
+static void test_srvrun_wt_stream_inflight_open_stream_is_one(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  i64           id;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  id = wired_server_wt_open_uni(
+      &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello));
+  CHECK(id == 11);
+  CHECK(wired_server_wt_stream_inflight(&c->wt, (u64)id) == 1);
+}
+
+/* Once the one-shot stream's round is fully acknowledged and the reap
+ * frees its send slot, the stream is no longer in flight. */
+static void test_srvrun_wt_stream_inflight_zero_after_reap(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  i64           id;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  id = wired_server_wt_open_uni(
+      &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello));
+  sr_wtsend_drive_all_acked(c);
+  srvrun_reap_wtsends(c);
+  CHECK(c->wtsend[0].in_use == 0);
+  CHECK(wired_server_wt_stream_inflight(&c->wt, (u64)id) == 0);
+}
+
+/* An append-open stream stays in flight through the reap even once every
+ * round is acknowledged: the slot is paused for the app's next send, not
+ * finished -- the rule examples/moqt_chat's staging ring relies on. */
+static void test_srvrun_wt_stream_inflight_append_open_survives_reap(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  i64           id;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  id = wired_server_wt_open_uni_stream(
+      &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello));
+  CHECK(c->wtsend[0].append_open == 1);
+  sr_wtsend_drive_all_acked(c);
+  srvrun_reap_wtsends(c);
+  CHECK(c->wtsend[0].in_use == 1);
+  CHECK(wired_server_wt_stream_inflight(&c->wt, (u64)id) == 1);
+}
+
 void test_srvrun(void) {
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
@@ -16906,4 +16975,7 @@ void test_srvrun(void) {
   test_srvrun_qenc_inactive_falls_back_to_literal();
   test_srvrun_on_step_fires_per_step();
   test_srvrun_wt_stream_inflight_unknown_is_zero();
+  test_srvrun_wt_stream_inflight_open_stream_is_one();
+  test_srvrun_wt_stream_inflight_zero_after_reap();
+  test_srvrun_wt_stream_inflight_append_open_survives_reap();
 }
