@@ -5,8 +5,10 @@ A chat + voice call room over Media over QUIC Transport
 (`wired_server.c`) relays each participant's chat messages and Opus voice
 frames to every other connected participant, using the `app/moqt/run` hub
 (`src/app/moqt/run/moqtrun.h`) wired onto real UDP. The server also
-publishes one track of its own: the sample movie `assets/movie.mp4`,
-which every participant receives and plays on joining.
+publishes a live movie stream of its own: the fragmented MP4
+`assets/movie-live.mp4`, paced by the wall clock, which every participant
+receives and plays on joining — a late joiner picks the stream up at its
+current live position, not the file's start.
 
 ## What this demonstrates
 
@@ -31,15 +33,28 @@ subscriber of that track (`moqtrun.c`'s `moqtrun_relay_object`); a single
 peer can PUBLISH both tracks at once (`moqtrun.h`'s per-peer track array).
 
 The server is a publisher too: started with `--movie PATH`, it reads the
-file once at boot and publishes it as the hub-owned track `movie` (Track
-Alias 8, after the chat and audio alias ranges) via
-`wired_moqt_publish_blob` (`src/app/moqt/run/moqtrun.h`). The file is framed
-once as one SUBGROUP_HEADER followed by 16 KiB Objects; each participant
-that SUBSCRIBEs to `movie` gets that framed stream on one unidirectional
-stream (the SDK paces the multi-MB payload itself), reassembles it
-(`frontend/src/lib/moqtMovieClient.ts`) and plays it in a `<video>`
-element. This is a static, whole-file track -- one Group, sent once per
-session, not a live/segmented stream.
+fragmented MP4 once at boot, splits it into the init segment (`ftyp`+`moov`)
+and its `moof`+`mdat` fragments, and publishes two hub-owned tracks (after
+the chat aliases 0..3 and audio aliases 4..7):
+
+- `movie/init` (Track Alias 9): the init segment, as a static blob track
+  (`wired_moqt_publish_blob`) — one stream, sent once per subscriber on
+  SUBSCRIBE.
+- `movie` (Track Alias 8): the live track. The hub derives the current
+  Group from the wall clock (one Group per 2 seconds, counted from
+  publish time); Group g carries fragment `g mod 16` as the Group's only
+  Object, on its own unidirectional stream, sent when the clock enters
+  the Group. The asset loops, but the Group IDs keep increasing.
+
+A subscriber immediately receives the current Group (each fragment starts
+with a keyframe, so playback begins at once) and then every later Group as
+the clock enters it — which is why a late joiner starts at the live
+position instead of the file's beginning. The frontend
+(`frontend/src/lib/moqtLiveClient.ts`) SUBSCRIBEs `movie/init` first,
+appends it to a `MediaSource` `SourceBuffer` (MSE, `mode = "sequence"` so
+the looping asset's restarting timestamps don't matter), then SUBSCRIBEs
+`movie` and appends each Group's fragment in arrival order into the
+`<video>` element.
 
 `assets/movie-live.mp4` is generated from `assets/movie.mp4` once with:
 
@@ -61,13 +76,13 @@ against a shared, audited reference rather than only against each other.
 
 The server runs in a `scratch` container: the binary is fully static
 (`-ffreestanding -nostdlib -static`) and touches no filesystem at runtime
-except the movie file it reads once at boot (its self-signed cert is
-generated in memory each boot, not read from disk), so the image holds
-nothing besides `wired_server` and `movie.mp4`. The image's entrypoint
+except `movie-live.mp4`, which it reads once at boot (its self-signed cert
+is generated in memory each boot, not read from disk), so the image holds
+nothing besides `wired_server` and that file. The image's entrypoint
 passes `--movie /movie.mp4`; running the binary by hand, pass
-`--movie ../../assets/movie.mp4` (or omit the flag for a server without a
-movie track -- clients then get `REQUEST_ERROR` for it and simply show no
-video).
+`--movie ../../assets/movie-live.mp4` (or omit the flag for a server
+without the movie tracks -- clients then get `REQUEST_ERROR` for them and
+simply show no video).
 
 ```sh
 cd examples/moqt_chat
@@ -144,13 +159,15 @@ verification is manual (see above). See `e2e/run.sh` and
 `e2e/lib/loadTest.mjs` for the harness.
 
 ```sh
-just e2e-movie
+just e2e-live
 ```
 
-Checks the movie track end to end against a real browser: two participants
-join at once, one leaves and a third joins, then the first rejoins, and each
-one's received `<video>` blob must have the SHA-256 of `assets/movie.mp4`
-(`e2e/run-movie-check.mjs`).
+Checks the live movie track end to end against a real browser: two
+participants join 5 seconds apart, each one's `<video>` must reach playable
+state and keep advancing, the late joiner's first Group must be later than
+the first participant's (live position, not the file's start), and the
+server's shutdown stats must count live Group sends
+(`e2e/run-live-check.mjs`).
 
 ## Layout
 
@@ -164,12 +181,14 @@ one's received `<video>` blob must have the SHA-256 of `assets/movie.mp4`
   `src/lib/moqtWire.ts`/`moqtClient.ts` (chat wire codec, session/PUBLISH/
   SUBSCRIBE/relay), `moqtVoiceWire.ts`/`moqtVoiceClient.ts` (voice Object
   framing and the audio track's publish/subscribe), `moqtMovieClient.ts`
-  (the movie track's subscribe + Object reassembly), `src/lib/*Pipeline.ts` +
+  (blob-track subscribe + Object reassembly, used for `movie/init`),
+  `moqtLiveClient.ts` (the live `movie` track's subscribe + MSE append
+  queue), `src/lib/*Pipeline.ts` +
   `jitterBuffer.ts`/`playbackSink.ts`/`audioContextGate.ts` (mic capture ->
   Opus encode -> MOQT Object, and the receive-side jitter/decode/playback
   path, ported from `examples/webtransport_chat`), `src/app/page.tsx` +
   `src/stores/moqtChatStore.ts` + `src/hooks/useMoqtChat.ts` (UI).
 - `e2e/` — the multi-client load-test harness (ported from
-  `examples/webtransport_chat/e2e`) and the movie-track check
-  (`run-movie-check.mjs`).
+  `examples/webtransport_chat/e2e`) and the live-movie check
+  (`run-live-check.mjs`).
 - `testvectors/moqt_golden.json` — the shared C/TypeScript golden vectors.
