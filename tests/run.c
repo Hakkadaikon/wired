@@ -526,6 +526,7 @@
 #include "app/http3/core/h3prio/h3prio.c"
 #include "app/http3/server/srvrun/srvrun.c"
 #include "app/http3/server/staticfile/staticfile.c"
+#include "app/media/mp4frag/mp4frag.c"
 #include "app/http3/server/mimetype/mimetype.c"
 #include "app/http3/server/srvpin/srvpin.c"
 #include "app/http3/server/srvworkers/srvworkers.c"
@@ -1020,6 +1021,7 @@
 #include "app/h3_loopback_test.c"
 #include "app/hq09_test.c"
 #include "app/staticfile_test.c"
+#include "app/mp4frag_test.c"
 #include "app/mimetype_test.c"
 #include "app/h3reqenc_test.c"
 #include "app/srvpin_test.c"
@@ -1561,6 +1563,7 @@ int main(void) {
   test_h3_loopback();
   test_hq09();
   test_staticfile();
+  test_mp4frag();
   test_mimetype();
   test_h3reqenc();
   test_stats();
