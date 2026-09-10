@@ -18,7 +18,8 @@
 
 typedef struct {
   int kind; /* 1=open_bidi_stream 3=stream_send 4=send_uni
-             * 5=open_uni_stream 6=stream_fin 7=stream_reset */
+             * 5=open_uni_stream 6=stream_fin 7=stream_reset
+             * 8=send_uni2 */
   wired_wt_session* s;
   u64               stream_id; /* stream_send/stream_fin/stream_reset only */
   int               fin;       /* stream_send only */
@@ -51,6 +52,10 @@ static int g_send_uni_fail_n;
  * chat's fan-out scale (test_moqtrun_chat_one_of_three_subscribers_
  * refused). */
 static wired_wt_session* g_send_uni_reject_sess;
+/* send_uni2's twins of the two send_uni knobs above: fail the next N calls
+ * outright, or refuse every call addressed to one session. */
+static int               g_send_uni2_fail_n;
+static wired_wt_session* g_send_uni2_reject_sess;
 
 static void moqtrun_test_reset(void) {
   g_n_calls                 = 0;
@@ -60,6 +65,8 @@ static void moqtrun_test_reset(void) {
   g_stream_reset_ret        = 1;
   g_send_uni_fail_n         = 0;
   g_send_uni_reject_sess    = 0;
+  g_send_uni2_fail_n        = 0;
+  g_send_uni2_reject_sess   = 0;
 }
 
 static void moqtrun_test_record(
@@ -105,6 +112,28 @@ static i64 moqtrun_test_send_uni(wired_wt_session* s, wired_span payload) {
   return sid;
 }
 
+/* io.send_uni2-shaped: one-shot open+send+FIN of head||body, the primitive
+ * the hub's live track uses. Records head||body as one call (truncated to
+ * the recorder's buffer; payload_len keeps the TRUE total so a test can
+ * still check the real length -- never read payload past
+ * MOQTRUN_TEST_MAX_PAYLOAD). */
+static i64 moqtrun_test_send_uni2(
+    wired_wt_session* s, wired_span head, wired_span body) {
+  i64 sid = g_next_stream_id++;
+  moqtrun_test_record(8, s, (u64)sid, 1, head);
+  moqtrun_test_call* c    = &g_calls[g_n_calls - 1];
+  usz                room = MOQTRUN_TEST_MAX_PAYLOAD - c->payload_len;
+  usz                take = body.n < room ? body.n : room;
+  for (usz i = 0; i < take; i++) c->payload[c->payload_len + i] = body.p[i];
+  c->payload_len = head.n + body.n; /* true length, buffer may be shorter */
+  if (g_send_uni2_fail_n > 0) {
+    g_send_uni2_fail_n--;
+    return -1;
+  }
+  if (g_send_uni2_reject_sess && s == g_send_uni2_reject_sess) return -1;
+  return sid;
+}
+
 /* wired_server_wt_open_uni_stream-shaped: opens without FIN, the primitive
  * audio's relay uses to start a subscriber's long-lived stream
  * (moqtrun_relay_open_new's fin=0 branch). */
@@ -141,6 +170,7 @@ static wired_moqt_io moqtrun_test_io(void) {
   io.open_uni_stream  = moqtrun_test_open_uni_stream;
   io.stream_fin       = moqtrun_test_stream_fin;
   io.stream_reset     = moqtrun_test_stream_reset;
+  io.send_uni2        = moqtrun_test_send_uni2;
   return io;
 }
 
@@ -249,21 +279,27 @@ static u64 moqtrun_test_publish_alice(wired_moqt_hub* hub) {
 /* Both g_moqt_ctl_publish_basic and g_moqt_ctl_subscribe_basic share the
  * same layout up to the Track Name (Type+Len, Request ID, 2 Namespace
  * fields "chat"/"room1"), so one rewrite covers both: replaces the 5-byte
- * "alice" Track Name (offset 16) with "alice/audio" (11 bytes) and
- * backpatches the 16-bit Message Length (offset 1-2) for the 6 extra
- * bytes. Returns the new total length. */
-static usz moqtrun_test_rename_track_to_audio(
-    const u8* src, usz src_len, u8* dst) {
-  static const u8 suffix[] = "alice/audio";
-  usz             tail     = src_len - 22; /* bytes after "alice" (offset 22) */
+ * "alice" Track Name (length byte at offset 16, bytes at 17) with the
+ * given name and backpatches the 16-bit Message Length (offset 1-2) by
+ * name_len - 5. Returns the new total length. */
+static usz moqtrun_test_rename_track(
+    const u8* src, usz src_len, const u8* name, usz name_len, u8* dst) {
+  usz tail = src_len - 22; /* bytes after "alice" (offset 22) */
   bytes_memcpy(dst, src, 16);
-  dst[16] = (u8)(sizeof suffix - 1);
-  bytes_memcpy(dst + 17, suffix, sizeof suffix - 1);
-  bytes_memcpy(dst + 17 + sizeof suffix - 1, src + 22, tail);
-  u16 new_body_len = (u16)(src[1] << 8 | src[2]) + 6;
+  dst[16] = (u8)name_len;
+  bytes_memcpy(dst + 17, name, name_len);
+  bytes_memcpy(dst + 17 + name_len, src + 22, tail);
+  u16 new_body_len = (u16)((u16)(src[1] << 8 | src[2]) + name_len - 5);
   dst[1]           = (u8)(new_body_len >> 8);
   dst[2]           = (u8)(new_body_len & 0xFF);
-  return 17 + (sizeof suffix - 1) + tail;
+  return 17 + name_len + tail;
+}
+
+static usz moqtrun_test_rename_track_to_audio(
+    const u8* src, usz src_len, u8* dst) {
+  static const u8 suffix[11] = {'a', 'l', 'i', 'c', 'e', '/',
+                                'a', 'u', 'd', 'i', 'o'};
+  return moqtrun_test_rename_track(src, src_len, suffix, 11, dst);
 }
 
 /* Drives session A through a second PUBLISH, of the "alice/audio" track
@@ -2346,6 +2382,249 @@ static void test_moqtrun_blob_shadows_peer_track_of_same_name(void) {
   CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
 }
 
+/* ===================== 13. hub-owned live track ===================== */
+
+static const u8   LIVE_NAME[5] = {'m', 'o', 'v', 'i', 'e'};
+static u8         g_live_frag[3][64];
+static wired_span g_live_frags[3];
+
+/* Three distinct 40/50/60-byte fragments, cadence 2000 ms from t0=1000. */
+static void moqtrun_test_publish_live(wired_moqt_hub* hub) {
+  for (usz f = 0; f < 3; f++) {
+    for (usz i = 0; i < 40 + 10 * f; i++) g_live_frag[f][i] = (u8)(f * 50 + i);
+    g_live_frags[f] = wired_span_of(g_live_frag[f], 40 + 10 * f);
+  }
+  CHECK(
+      wired_moqt_publish_live(
+          hub, wired_span_of(LIVE_NAME, 5), 8, g_live_frags, 3, 2000, 1000) ==
+      1);
+}
+
+/* Same shape as moqtrun_test_subscribe_movie (name "movie"). */
+static void moqtrun_test_subscribe_live(
+    wired_moqt_hub* hub, wired_wt_session* s) {
+  moqtrun_test_subscribe_movie(hub, s);
+}
+
+/* Decodes a recorded send_uni2 call as SUBGROUP_HEADER + one Object;
+ * returns the Group ID and copies the payload to out (n bytes). */
+static u64 moqtrun_test_live_group(
+    const moqtrun_test_call* c, u8* out, usz* n) {
+  usz            off = 0;
+  moqdata_subhdr hdr;
+  CHECK(
+      moqdata_subhdr_take(
+          wired_span_of(c->payload, c->payload_len), &off, &hdr) == MOQDATA_OK);
+  CHECK(hdr.track_alias == 8);
+  moqdata_objseq seq = moqdata_objseq_of(hdr.type);
+  moqdata_obj    obj;
+  CHECK(
+      moqdata_obj_take(
+          wired_span_of(c->payload, c->payload_len), &off, &seq, &obj) ==
+      MOQDATA_OK);
+  CHECK(obj.object_id == 0);
+  CHECK(off == c->payload_len);
+  bytes_memcpy(out, obj.payload.p, obj.payload.n);
+  *n = obj.payload.n;
+  return hdr.group_id;
+}
+
+static void test_moqtrun_live_publish_rejects_bad_args(void) {
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  g_live_frags[0] = wired_span_of(g_live_frag[0], 4);
+  CHECK(
+      wired_moqt_publish_live(
+          &hub, wired_span_of(LIVE_NAME, 5), 8, g_live_frags, 0, 2000, 0) == 0);
+  CHECK(
+      wired_moqt_publish_live(
+          &hub, wired_span_of(LIVE_NAME, 5), 8, g_live_frags, 1, 0, 0) == 0);
+}
+
+/* A zero-length fragment cannot frame as a valid Object (an empty payload
+ * needs the explicit Status varint the live head never carries), so the
+ * whole publish is refused and the track never exists. */
+static void test_moqtrun_live_empty_fragment_rejected(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  g_live_frags[0] = wired_span_of(g_live_frag[0], 4);
+  g_live_frags[1] = wired_span_of(g_live_frag[1], 0); /* empty middle */
+  g_live_frags[2] = wired_span_of(g_live_frag[2], 4);
+  CHECK(
+      wired_moqt_publish_live(
+          &hub, wired_span_of(LIVE_NAME, 5), 8, g_live_frags, 3, 2000, 0) == 0);
+  wired_moqt_tick(&hub, 1000);
+  moqtrun_test_subscribe_live(&hub, SESS_A);
+  CHECK(moqtrun_test_last_reply_type() == MOQCTL_T_REQUEST_ERROR);
+  CHECK(moqtrun_test_count_kind(8) == 0);
+}
+
+/* SUBSCRIBE at t=1000+2500 (Group 1): SUBSCRIBE_OK alias 8 and one
+ * immediate send of Group 1 = fragment 1. */
+static void test_moqtrun_live_subscribe_sends_current_group(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_live(&hub);
+  wired_moqt_tick(&hub, 3500);
+  moqtrun_test_subscribe_live(&hub, SESS_A);
+
+  wired_span body;
+  CHECK(moqtrun_test_last_reply(&body) == MOQCTL_T_SUBSCRIBE_OK);
+  moqctl_subscribe_ok ok;
+  usz                 boff = 0;
+  CHECK(moqctl_subscribe_ok_take(body, &boff, &ok) == MOQCTL_OK);
+  CHECK(ok.track_alias == 8);
+  CHECK(moqtrun_test_count_kind(8) == 1);
+  u8  got[64];
+  usz n;
+  CHECK(moqtrun_test_live_group(moqtrun_test_last_kind(8), got, &n) == 1);
+  CHECK(n == 50 && ct_diffn(got, g_live_frag[1], 50) == 0);
+  CHECK(hub.stat_live_sent == 1);
+}
+
+/* Ticks inside the same Group send nothing; the tick that enters the
+ * next Group sends the next fragment; fragments wrap at n_frags. */
+static void test_moqtrun_live_tick_advances_groups(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_live(&hub);
+  wired_moqt_tick(&hub, 1000);
+  moqtrun_test_subscribe_live(&hub, SESS_A); /* Group 0 */
+  wired_moqt_tick(&hub, 1500);
+  wired_moqt_tick(&hub, 2999);
+  CHECK(moqtrun_test_count_kind(8) == 1);
+  wired_moqt_tick(&hub, 3000); /* Group 1 */
+  wired_moqt_tick(&hub, 5000); /* Group 2 */
+  wired_moqt_tick(&hub, 7000); /* Group 3 -> fragment 0 again */
+  CHECK(moqtrun_test_count_kind(8) == 4);
+  u8  got[64];
+  usz n;
+  CHECK(moqtrun_test_live_group(moqtrun_test_last_kind(8), got, &n) == 3);
+  CHECK(n == 40 && ct_diffn(got, g_live_frag[0], 40) == 0);
+}
+
+/* A refused send is retried on the next tick of the SAME Group and
+ * abandoned (counted) once the Group advances -- never sent late. */
+static void test_moqtrun_live_refused_send_retries_then_drops(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_live(&hub);
+  wired_moqt_tick(&hub, 1000);
+  moqtrun_test_subscribe_live(&hub, SESS_A);
+  CHECK(moqtrun_test_count_kind(8) == 1);
+
+  g_send_uni2_fail_n = 1;
+  wired_moqt_tick(&hub, 3000); /* Group 1: refused */
+  CHECK(hub.stat_live_sent == 1);
+  wired_moqt_tick(&hub, 3100); /* still Group 1: retried, accepted */
+  CHECK(hub.stat_live_sent == 2);
+  u8  got[64];
+  usz n;
+  CHECK(moqtrun_test_live_group(moqtrun_test_last_kind(8), got, &n) == 1);
+
+  g_send_uni2_fail_n = 1;
+  wired_moqt_tick(&hub, 5000); /* Group 2: refused (attempt recorded) */
+  usz after_refusal = g_n_calls;
+  wired_moqt_tick(&hub, 7000); /* Group 3: Group 2 abandoned, 3 sent */
+  CHECK(hub.stat_live_drop == 1);
+  CHECK(moqtrun_test_live_group(moqtrun_test_last_kind(8), got, &n) == 3);
+  /* Once the clock left Group 2, its fragment is never attempted again --
+   * the scan starts after the (timely, refused) Group-2 attempt above. */
+  for (usz i = after_refusal; i < g_n_calls; i++) {
+    if (g_calls[i].kind != 8) continue;
+    u8  p[64];
+    usz pn;
+    CHECK(moqtrun_test_live_group(&g_calls[i], p, &pn) != 2); /* never late */
+  }
+}
+
+/* Two subscribers are independent: one refused, the other still served. */
+static void test_moqtrun_live_two_subscribers_independent(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_live(&hub);
+  wired_moqt_tick(&hub, 1000);
+  moqtrun_test_subscribe_live(&hub, SESS_A);
+  moqtrun_test_subscribe_live(&hub, SESS_B);
+  CHECK(moqtrun_test_count_kind(8) == 2);
+  g_send_uni2_reject_sess = SESS_A;
+  wired_moqt_tick(&hub, 3000);
+  CHECK(moqtrun_test_last_kind(8)->s == SESS_B);
+  usz to_b = 0;
+  for (usz i = 0; i < g_n_calls; i++)
+    if (g_calls[i].kind == 8 && g_calls[i].s == SESS_B) to_b++;
+  CHECK(to_b == 2);
+  CHECK(hub.stat_live_sent == 3);
+}
+
+/* Repeat SUBSCRIBE: SUBSCRIBE_OK again, nothing sent. */
+static void test_moqtrun_live_resubscribe_no_resend(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_live(&hub);
+  wired_moqt_tick(&hub, 1000);
+  moqtrun_test_subscribe_live(&hub, SESS_A);
+  moqtrun_test_subscribe_live(&hub, SESS_A);
+  CHECK(moqtrun_test_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(moqtrun_test_count_kind(8) == 1);
+}
+
+/* Close stops sends; a reconnect in the same slot starts at the current
+ * Group. */
+static void test_moqtrun_live_close_then_reconnect(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_live(&hub);
+  wired_moqt_tick(&hub, 1000);
+  moqtrun_test_subscribe_live(&hub, SESS_A);
+  wired_moqt_on_session_close(&hub, SESS_A);
+  wired_moqt_tick(&hub, 3000);
+  CHECK(moqtrun_test_count_kind(8) == 1);
+  wired_moqt_tick(&hub, 5000);
+  moqtrun_test_subscribe_live(&hub, SESS_B);
+  u8  got[64];
+  usz n;
+  CHECK(moqtrun_test_live_group(moqtrun_test_last_kind(8), got, &n) == 2);
+}
+
+/* Blob and live tracks coexist and route by name. */
+static void test_moqtrun_live_and_blob_coexist(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_live(&hub);
+  static const u8 INIT_NAME[10] = {'m', 'o', 'v', 'i', 'e',
+                                   '/', 'i', 'n', 'i', 't'};
+  for (usz i = 0; i < 100; i++) g_test_blob[i] = (u8)i;
+  CHECK(
+      wired_moqt_publish_blob(
+          &hub, wired_span_of(INIT_NAME, 10), 9,
+          wired_span_of(g_test_blob, 100),
+          wired_mspan_of(g_test_wire, sizeof g_test_wire)) > 0);
+  wired_moqt_tick(&hub, 1000);
+  /* SUBSCRIBE "movie/init": golden SUBSCRIBE with its Track Name renamed
+   * (moqtrun_test_rename_track backpatches the Length for the longer
+   * name). */
+  wired_moqt_on_session(&hub, SESS_A, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl = moqtrun_test_last_kind(1)->stream_id;
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz sn = moqtrun_test_rename_track(
+      g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN, INIT_NAME, 10,
+      buf);
+  wired_moqt_on_stream_data(&hub, SESS_A, ctrl, wired_span_of(buf, sn), 0);
+  CHECK(moqtrun_test_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(moqtrun_test_count_kind(4) == 1); /* blob: send_uni */
+  moqtrun_test_subscribe_live(&hub, SESS_A);
+  CHECK(moqtrun_test_count_kind(8) == 1); /* live: send_uni2 */
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -2411,4 +2690,13 @@ void test_moqtrun(void) {
   test_moqtrun_blob_send_refused_then_retry();
   test_moqtrun_blob_close_then_reconnect_resends();
   test_moqtrun_blob_shadows_peer_track_of_same_name();
+  test_moqtrun_live_publish_rejects_bad_args();
+  test_moqtrun_live_empty_fragment_rejected();
+  test_moqtrun_live_subscribe_sends_current_group();
+  test_moqtrun_live_tick_advances_groups();
+  test_moqtrun_live_refused_send_retries_then_drops();
+  test_moqtrun_live_two_subscribers_independent();
+  test_moqtrun_live_resubscribe_no_resend();
+  test_moqtrun_live_close_then_reconnect();
+  test_moqtrun_live_and_blob_coexist();
 }

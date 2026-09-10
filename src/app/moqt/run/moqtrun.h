@@ -76,6 +76,13 @@ typedef struct {
    * refusals (WIRED_MOQTRUN_RESET_AFTER_BUSY). Returns 1 when the reset is
    * queued, 0 when it could not be (the caller retries next round). */
   int (*stream_reset)(wired_wt_session* s, u64 stream_id, u32 error_code);
+  /** wired_server_wt_open_uni-shaped for a two-part payload: head (a
+   * short framing prefix) immediately followed by body (a large media
+   * fragment the hub holds only as a view into caller storage). The
+   * adapter concatenates them (with its own signal prefix) into
+   * session-owned staging; -1 when it has none free. Returns the stream
+   * id or negative. */
+  i64 (*send_uni2)(wired_wt_session* s, wired_span head, wired_span body);
 } wired_moqt_io;
 
 /** One subscriber recorded against the hub's track: which session, and the
@@ -252,6 +259,25 @@ typedef struct {
   int armed_idx;
 } wired_moqtrun_peer;
 
+/** The hub's own clock-paced live track (wired_moqt_publish_live): Group
+ * g carries fragment g mod n_frags as its only Object, Groups advancing
+ * every group_ms from t0_ms. sent_group[i]/sent_any[i] record, per sub
+ * slot of track.subs[], the last Group actually accepted for that
+ * subscriber -- a refused send leaves them untouched so the next tick
+ * retries while the clock is still in that Group. */
+typedef struct {
+  wired_moqtrun_track track;    /**< name, own_alias, subs[] */
+  const wired_span*   frags;    /**< caller-owned fragment views */
+  usz                 n_frags;  /**< entries at frags */
+  u64                 t0_ms;    /**< clock at publish: Group 0's start */
+  u64                 group_ms; /**< Group duration */
+  /** Clock of the most recent wired_moqt_tick; a SUBSCRIBE between ticks
+   * is served the Group current at that tick. */
+  u64 last_now_ms;
+  u64 sent_group[WIRED_MOQTRUN_MAX_SUBS]; /**< last Group sent per sub */
+  int sent_any[WIRED_MOQTRUN_MAX_SUBS];   /**< 0 until the first send */
+} wired_moqtrun_live;
+
 /** The hub's whole state: fixed peer table plus the io table it sends
  * through. Zero-initialize with wired_moqt_init before first use. */
 typedef struct {
@@ -264,6 +290,17 @@ typedef struct {
   /** The published blob's framed bytes -- a view into the caller's wire
    * buffer, handed verbatim to io.send_uni for each new subscriber. */
   wired_span blob_wire;
+  /** The hub's live track (wired_moqt_publish_live); track.in_use once
+   * published. */
+  wired_moqtrun_live live;
+  /** Live Groups accepted by io.send_uni2. */
+  u64 stat_live_sent;
+  /** Live Groups abandoned because the clock left the Group before a
+   * refused send could be retried (never sent late). Counted only on the
+   * subscriber's NEXT accepted send: a refused Group never followed by
+   * another accepted send for that subscriber (it closes, or every retry
+   * stays refused) is not counted. */
+  u64 stat_live_drop;
   /** Scratch for moqtrun_relay_normalize: one relay's held fragment
    * prepended to one delivery (a delivery is at most srvloop's whole WT
    * receive window). Only ever used within a single
@@ -362,5 +399,45 @@ usz wired_moqt_publish_blob(
     u64             track_alias,
     wired_span      blob,
     wired_mspan     wire);
+
+/** Publish the hub's own clock-paced live track: Group g carries fragment
+ * g mod n_frags as its only Object (framed byte-identically to
+ * moqdata_msg_build: one Type-0x70 SUBGROUP_HEADER + one Object), Groups
+ * advancing every group_ms from now_ms. A later SUBSCRIBE naming name is
+ * answered SUBSCRIBE_OK carrying track_alias and immediately sent the
+ * Group current at the most recent wired_moqt_tick; each Group boundary a
+ * later tick crosses sends every subscriber the new Group's fragment on
+ * its own uni stream via io.send_uni2 (head = framing, body = the
+ * fragment, held as a view -- frags and their bytes must outlive the
+ * hub). A refused send is retried while the clock is still in that Group
+ * and abandoned once it passes (counted on stat_live_drop) -- a
+ * subscriber is never sent a stale Group. Call once at boot; a re-publish
+ * resets the track and forgets its subscribers.
+ * @param hub the hub
+ * @param name Track Name subscribers ask for (copied, truncated to
+ *   WIRED_MOQTRUN_MAX_NAME)
+ * @param track_alias Track Alias carried by every framed header and every
+ *   SUBSCRIBE_OK for this track
+ * @param frags per-Group fragment views (caller-owned, must outlive hub;
+ *   every fragment must be non-empty -- an empty Object payload would
+ *   need the explicit Status varint this framing never carries)
+ * @param n_frags entries at frags
+ * @param group_ms Group duration in milliseconds
+ * @param now_ms current clock: Group 0 starts here
+ * @return 1, or 0 when n_frags or group_ms is 0 or any fragment is empty
+ *   (hub state unchanged) */
+int wired_moqt_publish_live(
+    wired_moqt_hub*   hub,
+    wired_span        name,
+    u64               track_alias,
+    const wired_span* frags,
+    usz               n_frags,
+    u64               group_ms,
+    u64               now_ms);
+
+/** Clock tick (wire to wired_srvrun_opt.on_step): the current Group is
+ * (now_ms - t0_ms) / group_ms; every live subscriber whose last accepted
+ * Group is older is sent it via io.send_uni2. No live track: no-op. */
+void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms);
 
 #endif
