@@ -139,6 +139,9 @@ typedef struct {
   /** WT session-ended delivery, 0 to disable, see wired_srvrun_opt. */
   wired_wt_on_session_close wt_on_session_close;
   void* wt_session_close_ctx; /**< opaque ctx for wt_on_session_close */
+  /** Per-step app hook, 0 to disable, see wired_srvrun_opt. */
+  wired_srvrun_on_step on_step;
+  void*                on_step_ctx; /**< opaque ctx for on_step */
 } srvrun_cfg;
 
 /* One live connection's mutable state: the orchestrator, the HTTP/3 loop,
@@ -4105,6 +4108,12 @@ static void srvrun_wtsend_release(srvrun_conn* c, u64 stream_id) {
 static u64 srvrun_wtsend_final_size(srvrun_conn* c, u64 stream_id) {
   const srvrun_wtsend* w = srvrun_wtsend_find(c, stream_id);
   return w ? w->stream_off : 0;
+}
+
+int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id) {
+  srvrun_conn* c = srvrun_session_conn(s);
+  if (!c) return 0;
+  return srvrun_wtsend_find(c, stream_id) != 0;
 }
 
 int wired_server_wt_stream_reset(
@@ -8526,12 +8535,19 @@ static void srvrun_recv_serve(
   if (r > 0) srvrun_serve_batch(cfg, st, bufs, r);
 }
 
+/* wired_srvrun_opt.on_step: the app's own per-step work (e.g. a clock-
+ * paced publisher), given the same monotonic clock the loop's timers use. */
+static void srvrun_app_step(const srvrun_cfg* cfg) {
+  if (cfg->on_step) cfg->on_step(cfg->on_step_ctx, clock_mono_ms());
+}
+
 static void srvrun_step(
     const srvrun_cfg* cfg, srvrun_state* st, mmsg_buf* bufs, usz nbufs) {
   srvrun_reload_if_requested(cfg, cfg->env);
   srvrun_bcast_drain_self(st); /* other workers' broadcasts */
   srvrun_polling_ptos(cfg, st);
   if (srvrun_wait_input(cfg, st)) srvrun_recv_serve(cfg, st, bufs, nbufs);
+  srvrun_app_step(cfg);
   /* RFC 9002 6.2: evaluate every slot's PTO deadlines on EVERY iteration,
    * not only on a poll timeout -- a steady inbound stream (e.g. the peer's
    * own Handshake PTO probes under the interop amplificationlimit case)
@@ -8669,7 +8685,9 @@ static srvrun_cfg srvrun_build_cfg(
       opt->wt_on_stream_reset,
       opt->wt_stream_reset_ctx,
       opt->wt_on_session_close,
-      opt->wt_session_close_ctx};
+      opt->wt_session_close_ctx,
+      opt->on_step,
+      opt->on_step_ctx};
 }
 
 usz wired_srvrun_env_size(void) { return sizeof(wired_srvrun_env); }
@@ -8746,6 +8764,6 @@ int wired_server_run(
     wired_srvrun_handler h,
     wired_srvrun_obs     obs) {
   static const wired_srvrun_opt default_opt = {
-      0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+      0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   return wired_server_run_opt(port, id, h, obs, &default_opt);
 }
