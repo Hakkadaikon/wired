@@ -13,7 +13,19 @@ describe("moqtChatStore", () => {
     expect(s.messages).toEqual([]);
     expect(s.peers).toEqual([]);
     expect(s.displayName).toBe("");
-    expect(s.movieUrl).toBeNull();
+    expect(s.liveError).toBeNull();
+    expect(s.liveFirstGroup).toBeNull();
+  });
+
+  it("sets and clears the live movie error and first group", () => {
+    useMoqtChatStore.getState().setLiveError("video buffer error");
+    useMoqtChatStore.getState().setLiveFirstGroup("7");
+    expect(useMoqtChatStore.getState().liveError).toBe("video buffer error");
+    expect(useMoqtChatStore.getState().liveFirstGroup).toBe("7");
+    useMoqtChatStore.getState().setLiveError(null);
+    useMoqtChatStore.getState().setLiveFirstGroup(null);
+    expect(useMoqtChatStore.getState().liveError).toBeNull();
+    expect(useMoqtChatStore.getState().liveFirstGroup).toBeNull();
   });
 
   it("assigns monotonically increasing message ids and returns them", () => {

@@ -160,18 +160,22 @@ function MessageBubble({ m }: { m: ChatMessage }) {
   );
 }
 
-function MoviePlayer() {
-  const movieUrl = useMoqtChatStore((s) => s.movieUrl);
-  if (!movieUrl) return null;
+function LivePlayer({ videoRef }: { videoRef: React.RefObject<HTMLVideoElement | null> }) {
+  const liveError = useMoqtChatStore((s) => s.liveError);
+  const liveFirstGroup = useMoqtChatStore((s) => s.liveFirstGroup);
   return (
     <div style={{ padding: "var(--lk-size-xs) 0 0" }}>
       <video
-        data-testid="movie"
-        controls
+        ref={videoRef}
+        data-testid="live"
+        data-first-group={liveFirstGroup ?? undefined}
+        autoPlay
+        muted
         playsInline
-        src={movieUrl}
+        controls
         style={{ width: "100%", maxHeight: "40vh", borderRadius: "0.75em" }}
       />
+      <ErrorBanner message={liveError} />
     </div>
   );
 }
@@ -343,7 +347,7 @@ export default function Home() {
   const [certHash, setCertHash] = useState("");
   const [participantId, setParticipantId] = useState(DEFAULT_PARTICIPANT_ID);
   const [joined, setJoined] = useState(false);
-  const { connect, sendChat, toggleMute, leave, micError } = useMoqtChat();
+  const { connect, sendChat, toggleMute, leave, micError, videoRef } = useMoqtChat();
   const connectionState = useMoqtChatStore((s) => s.connectionState);
 
   // Switch to the chat screen once the connection is established.
@@ -444,7 +448,7 @@ export default function Home() {
 
       {joined ? (
         <>
-          <MoviePlayer />
+          <LivePlayer videoRef={videoRef} />
           <MessageList />
           <ChatInputRow onSend={sendChat} disabled={connectionState !== "connected"} />
         </>

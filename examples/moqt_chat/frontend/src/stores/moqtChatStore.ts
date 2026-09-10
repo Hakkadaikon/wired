@@ -26,13 +26,15 @@ export type MoqtChatState = {
   messages: ChatMessage[];
   peers: string[]; // found participant ids, in observation order
   displayName: string;
-  movieUrl: string | null; // object URL of the hub's movie track, once received
+  liveError: string | null; // fatal live-movie playback error, if any
+  liveFirstGroup: string | null; // first live Group id received (decimal string)
   setConnectionState: (state: ConnectionState) => void;
   setMuted: (muted: boolean) => void;
   addMessage: (message: Omit<ChatMessage, "id">) => number;
   removeMessage: (id: number) => void;
   setDisplayName: (name: string) => void;
-  setMovieUrl: (url: string | null) => void;
+  setLiveError: (msg: string | null) => void;
+  setLiveFirstGroup: (groupId: string | null) => void;
   addPeer: (id: string) => void;
   removePeer: (id: string) => void;
   clearPeers: () => void;
@@ -49,7 +51,8 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   messages: [],
   peers: [],
   displayName: "",
-  movieUrl: null,
+  liveError: null,
+  liveFirstGroup: null,
   setConnectionState: (connectionState) => set({ connectionState }),
   setMuted: (muted) => set({ muted }),
   addMessage: (message) => {
@@ -60,7 +63,8 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   removeMessage: (id) =>
     set((s) => ({ messages: s.messages.filter((m) => m.id !== id) })),
   setDisplayName: (displayName) => set({ displayName }),
-  setMovieUrl: (movieUrl) => set({ movieUrl }),
+  setLiveError: (liveError) => set({ liveError }),
+  setLiveFirstGroup: (liveFirstGroup) => set({ liveFirstGroup }),
   addPeer: (id) =>
     set((s) => (s.peers.includes(id) ? s : { peers: [...s.peers, id] })),
   removePeer: (id) => set((s) => ({ peers: s.peers.filter((p) => p !== id) })),
