@@ -3,6 +3,8 @@
 #include "castore_golden.h"
 #include "castore_ku_golden.h"
 #include "castore_nc_golden.h"
+#include "castore_ncsan_golden.h"
+#include "castore_ncx_golden.h"
 #include "castore_pc_golden.h"
 #include "castore_selfissued_golden.h"
 #include "crypto/pki/trust/castore/castore.h"
@@ -235,6 +237,90 @@ static void test_name_constraints_excluded_subject_rejects(void) {
   CHECK(castore_validate_chain(&s, certs, 2) == 0);
 }
 
+static void store_with_ncsan_root(castore* s) {
+  castore_init(s, pv_roots, 4);
+  CHECK(castore_add(s, PV_SPAN(castore_ncsan_root_der)) == 1);
+}
+
+/* RFC 5280 6.1.4 (g): intermediate A's dNSName nameConstraints binds every
+ * certificate further down the path, across intermediate B which carries no
+ * nameConstraints of its own. A leaf SAN outside A's permitted subtree
+ * (evil.test vs example.com) must be rejected -- OpenSSL verify rejects this
+ * exact chain with "permitted subtree violation". */
+static void test_nc_dns_inherited_across_intermediate_rejects(void) {
+  castore    s;
+  wired_span certs[4] = {
+      PV_SPAN(castore_ncsan_leaf_evil_der), PV_SPAN(castore_ncsan_b_der),
+      PV_SPAN(castore_ncsan_a_der), PV_SPAN(castore_ncsan_root_der)};
+  store_with_ncsan_root(&s);
+  CHECK(castore_validate_chain(&s, certs, 4) == 0);
+}
+
+/* The same chain with a leaf SAN inside A's permitted subtree validates
+ * (OpenSSL verify: OK). */
+static void test_nc_dns_inherited_across_intermediate_ok(void) {
+  castore    s;
+  wired_span certs[4] = {
+      PV_SPAN(castore_ncsan_leaf_ok_der), PV_SPAN(castore_ncsan_b_der),
+      PV_SPAN(castore_ncsan_a_der), PV_SPAN(castore_ncsan_root_der)};
+  store_with_ncsan_root(&s);
+  CHECK(castore_validate_chain(&s, certs, 4) == 1);
+}
+
+/* RFC 5280 6.1.4 (g)(2): a leaf inside A's permitted subtree but inside its
+ * excluded one (x.bad.example.com) is rejected across B as well -- the
+ * excluded union and permitted intersection both accumulate down the chain
+ * (OpenSSL verify: "excluded subtree violation"). */
+static void test_nc_dns_excluded_inherited_rejects(void) {
+  castore    s;
+  wired_span certs[4] = {
+      PV_SPAN(castore_ncsan_leaf_excl_der), PV_SPAN(castore_ncsan_b_der),
+      PV_SPAN(castore_ncsan_a_der), PV_SPAN(castore_ncsan_root_der)};
+  store_with_ncsan_root(&s);
+  CHECK(castore_validate_chain(&s, certs, 4) == 0);
+}
+
+static void store_with_ncx_root(castore* s) {
+  castore_init(s, pv_roots, 4);
+  CHECK(castore_add(s, PV_SPAN(castore_ncx_root_der)) == 1);
+}
+
+/* RFC 5280 6.1.4 (g): intermediate a carries only an excludedSubtrees
+ * (bad.example.com), intermediate b only a permittedSubtrees
+ * (example.com). The running excluded union still binds a leaf inside b's
+ * permitted subtree (OpenSSL verify: "excluded subtree violation"). */
+static void test_ncx_excluded_in_a_survives_permitted_in_b(void) {
+  castore    s;
+  wired_span certs[4] = {
+      PV_SPAN(castore_ncx_leaf_excl_der), PV_SPAN(castore_ncx_b_der),
+      PV_SPAN(castore_ncx_a_der), PV_SPAN(castore_ncx_root_der)};
+  store_with_ncx_root(&s);
+  CHECK(castore_validate_chain(&s, certs, 4) == 0);
+}
+
+/* b's permittedSubtrees is not lost because a (above it) had only an
+ * excludedSubtrees: a leaf outside example.com is rejected (OpenSSL
+ * verify: "permitted subtree violation"). */
+static void test_ncx_permitted_in_b_after_excluded_only_a_rejects(void) {
+  castore    s;
+  wired_span certs[4] = {
+      PV_SPAN(castore_ncx_leaf_evil_der), PV_SPAN(castore_ncx_b_der),
+      PV_SPAN(castore_ncx_a_der), PV_SPAN(castore_ncx_root_der)};
+  store_with_ncx_root(&s);
+  CHECK(castore_validate_chain(&s, certs, 4) == 0);
+}
+
+/* A leaf inside b's permitted subtree and outside a's excluded one
+ * validates (OpenSSL verify: OK). */
+static void test_ncx_intersection_ok(void) {
+  castore    s;
+  wired_span certs[4] = {
+      PV_SPAN(castore_ncx_leaf_ok_der), PV_SPAN(castore_ncx_b_der),
+      PV_SPAN(castore_ncx_a_der), PV_SPAN(castore_ncx_root_der)};
+  store_with_ncx_root(&s);
+  CHECK(castore_validate_chain(&s, certs, 4) == 1);
+}
+
 static void store_with_pc_root(castore* s) {
   castore_init(s, pv_roots, 4);
   CHECK(castore_add(s, PV_SPAN(castore_pc_root_der)) == 1);
@@ -285,6 +371,12 @@ void test_pathvalidate(void) {
   test_self_issued_excluded_from_pathlen();
   test_name_constraints_permitted_subject_ok();
   test_name_constraints_excluded_subject_rejects();
+  test_nc_dns_inherited_across_intermediate_rejects();
+  test_nc_dns_inherited_across_intermediate_ok();
+  test_nc_dns_excluded_inherited_rejects();
+  test_ncx_excluded_in_a_survives_permitted_in_b();
+  test_ncx_permitted_in_b_after_excluded_only_a_rejects();
+  test_ncx_intersection_ok();
   test_require_explicit_policy_matching_policy_ok();
   test_require_explicit_policy_disjoint_policy_rejects();
 }
