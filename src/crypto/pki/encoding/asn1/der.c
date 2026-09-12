@@ -18,11 +18,19 @@ static usz der_long_val(const u8* p, usz nbytes) {
 /* True if a long-form length of nb octets is unusable here. */
 static int der_long_bad(usz nb, usz lp) { return nb == 0 || lp < 1 + nb; }
 
+/* X.690 10.1 (DER): the length must use the fewest octets, so a long form
+ * encoding a value the next-shorter form could hold is not DER. */
+static int der_long_nonminimal(usz nb, usz len) {
+  if (nb == 1) return len < 0x80;
+  return len < 0x100;
+}
+
 /* X.690 8.1.3.5. Long-form length field lf. */
 static int der_len_long(wired_span lf, usz* len, usz* hdr) {
   usz nb = der_long_n(lf.p[0]);
   if (der_long_bad(nb, lf.n)) return 0;
   *len = der_long_val(lf.p, nb);
+  if (der_long_nonminimal(nb, *len)) return 0;
   *hdr = 1 + nb;
   return 1;
 }
