@@ -92,10 +92,44 @@ static void test_p384_field_bytes(void) {
   for (usz i = 0; i < 48; i++) CHECK(out[i] == be[i]);
 }
 
+/* Carry propagation at every limb boundary (CVE-2021-4160 class): all-ones
+ * limbs through the schoolbook rows and the Montgomery CIOS rows, pinned to
+ * values computed with arbitrary-precision arithmetic.
+ *   (2^384-1)^2 mod p, and mont384_mul(m-1, m-1) = 2^-384 mod m for both
+ * the prime p and the order n. */
+static void test_p384_field_mul_all_ones_limbs(void) {
+  static const p384_fe ones   = {0xffffffffffffffffULL, 0xffffffffffffffffULL,
+                                 0xffffffffffffffffULL, 0xffffffffffffffffULL,
+                                 0xffffffffffffffffULL, 0xffffffffffffffffULL};
+  static const p384_fe want   = {0x0000000000000000ULL, 0x0000000000000001ULL,
+                                 0xfffffffdfffffffeULL, 0x0000000200000000ULL,
+                                 0x0000000000000001ULL, 0x0000000000000000ULL};
+  static const p384_fe rinv_p = {0xffffffe100000006ULL, 0xffffffebffffffd8ULL,
+                                 0xfffffffbfffffffdULL, 0xfffffffcfffffffaULL,
+                                 0x0000000c00000002ULL, 0x0000001400000014ULL};
+  static const p384_fe rinv_n = {0x610ae855f2c0d911ULL, 0xd26d4aeba664edb0ULL,
+                                 0xe29f9fb70a9da219ULL, 0x78d4ba5866d61787ULL,
+                                 0xa150206ce4f194acULL, 0x355ca87de39dbb1fULL};
+  p384_fe              r, pm1, nm1;
+  fp384_mul(r, (fp384ab){ones, ones}, p384_p);
+  CHECK(fp384_eq(r, want) == 1);
+  for (usz i = 0; i < 6; i++) {
+    pm1[i] = p384_p[i];
+    nm1[i] = p384_n[i];
+  }
+  pm1[0] -= 1;
+  nm1[0] -= 1;
+  mont384_mul(r, (fp384ab){pm1, pm1}, &p384_mont_p);
+  CHECK(fp384_eq(r, rinv_p) == 1);
+  mont384_mul(r, (fp384ab){nm1, nm1}, &p384_mont_n);
+  CHECK(fp384_eq(r, rinv_n) == 1);
+}
+
 void test_p384_field(void) {
   test_p384_field_fast_matches_generic();
   test_p384_field_addsub();
   test_p384_field_inv();
   test_p384_field_mont_inv_n();
   test_p384_field_bytes();
+  test_p384_field_mul_all_ones_limbs();
 }

@@ -121,9 +121,11 @@ static void fe_reduce_step(u64 w[8], const p256_fe m, usz sh) {
   if (wide_ge_shifted(w, m, sh)) wide_sub_shifted(w, m, sh);
 }
 
-/* r = w mod m via binary long division from the top bit down. */
+/* r = w mod m via binary long division from the top bit down. Starts at
+ * shift 256: with a,b < 2^256 (not necessarily < m) the product can reach
+ * m<<256, and m > 2^255 keeps that quotient digit at most 1. */
 static void fe_reduce_wide(p256_fe r, u64 w[8], const p256_fe m) {
-  for (usz sh = 256; sh-- > 0;) fe_reduce_step(w, m, sh);
+  for (usz sh = 257; sh-- > 0;) fe_reduce_step(w, m, sh);
   for (usz i = 0; i < 4; i++) r[i] = w[i];
 }
 
