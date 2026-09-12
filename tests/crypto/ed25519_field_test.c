@@ -92,6 +92,45 @@ static void test_ed25519_field_decode_encode_roundtrip(void) {
   for (usz i = 0; i < 32; i++) CHECK(out[i] == in[i]);
 }
 
+/* The 8 canonical encodings of the small-order (torsion) points, re-derived
+ * from the curve equation: order 1 (0,1), order 2 (0,-1), order 4 (+-i,0),
+ * and the four order-8 points with y^2 = (-1 +- sqrt(1+d))/d. A cofactorless
+ * verifier must reject these for both A and R ("Taming the many EdDSAs"). */
+static const char* const edf_small_order[8] = {
+    "0100000000000000000000000000000000000000000000000000000000000000",
+    "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "0000000000000000000000000000000000000000000000000000000000000000",
+    "0000000000000000000000000000000000000000000000000000000000000080",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+};
+
+/* Every small-order point decodes on-curve but is flagged small-order. */
+static void test_ed25519_field_small_order_flagged(void) {
+  for (usz i = 0; i < 8; i++) {
+    ed_ge p;
+    u8    in[32];
+    edf_hexbytes(edf_small_order[i], in, 32);
+    CHECK(ed_ge_decode(&p, in) == 1);
+    CHECK(ed_ge_is_small_order(&p) == 1);
+  }
+}
+
+/* A prime-order point (RFC 8032 7.1 TEST 1 public key) is not small-order. */
+static void test_ed25519_field_small_order_clears_valid_key(void) {
+  ed_ge p;
+  u8    in[32];
+  edf_hexbytes(
+      "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", in,
+      32);
+  CHECK(ed_ge_decode(&p, in) == 1);
+  CHECK(ed_ge_is_small_order(&p) == 0);
+  ed_ge_base(&p);
+  CHECK(ed_ge_is_small_order(&p) == 0);
+}
+
 void test_ed25519_field(void) {
   test_ed25519_field_decode_rejects_y_ge_p();
   test_ed25519_field_decode_accepts_y_eq_pm1();
@@ -99,4 +138,6 @@ void test_ed25519_field(void) {
   test_ed25519_field_decode_accepts_x_zero_x0_zero();
   test_ed25519_field_decode_rejects_no_sqrt();
   test_ed25519_field_decode_encode_roundtrip();
+  test_ed25519_field_small_order_flagged();
+  test_ed25519_field_small_order_clears_valid_key();
 }

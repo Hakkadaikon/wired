@@ -76,12 +76,19 @@ static int bytes_equal(const u8 a[32], const u8 b[32]) {
   return diff == 0;
 }
 
+/* Decode a verification input point, rejecting small-order A or R: the
+ * non-cofactored check below would otherwise accept signatures built from
+ * torsion components ("Taming the many EdDSAs"). */
+static int decode_checked(ge* p, const u8 in[32]) {
+  return ed_ge_decode(p, in) && !ed_ge_is_small_order(p);
+}
+
 /* rhs = R + [k]A' as 32-byte encoding; returns 1 on success (R decodes). */
 static int compute_rhs(
     u8 out[32], const u8 k[32], const ge* A, const u8 R[32]) {
   ge kA, rhs;
   ed_ge_scalarmult(&kA, k, A);
-  if (!ed_ge_decode(&rhs, R)) return 0;
+  if (!decode_checked(&rhs, R)) return 0;
   ed_ge_add(&rhs, &rhs, &kA);
   ed_ge_encode(out, &rhs);
   return 1;
@@ -200,7 +207,7 @@ int ed25519_verify(
   const u8* R = sig;
   const u8* S = sig + 32;
   if (sc_ge(S, ORDER_L)) return 0; /* S must be < L */
-  if (!ed_ge_decode(&A, pubkey)) return 0;
+  if (!decode_checked(&A, pubkey)) return 0;
   hash_k(k, R, pubkey, (wired_span){msg, msg_len});
   return check_equation(S, k, &A, R);
 }

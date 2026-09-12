@@ -385,6 +385,23 @@ static int decode_xy(ge* p, const u8 in[32], int* x_0_out) {
   return recover_x(p->X, u, v);
 }
 
+/* The identity encodes as y = 1 with sign bit 0: 0x01 then 31 zero bytes. */
+static int ed_enc_is_identity(const u8 e[32]) {
+  u8 diff = (u8)(e[0] ^ 0x01);
+  for (usz i = 1; i < 32; i++) diff |= e[i];
+  return diff == 0;
+}
+
+int ed_ge_is_small_order(const ge* p) {
+  ge q;
+  u8 e[32];
+  ed_ge_add(&q, p, p);
+  ed_ge_add(&q, &q, &q);
+  ed_ge_add(&q, &q, &q); /* q = [8]p */
+  ed_ge_encode(e, &q);
+  return ed_enc_is_identity(e);
+}
+
 int ed_ge_decode(ge* p, const u8 in[32]) {
   int x_0;
   if (!decode_xy(p, in, &x_0)) return 0;

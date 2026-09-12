@@ -33,4 +33,9 @@ void ed_ge_encode(u8 out[32], const ed_ge* p);
  * Returns 1 on success, 0 if the point is not on the curve. */
 int ed_ge_decode(ed_ge* p, const u8 in[32]);
 
+/* 1 if p lies in the small-order (torsion) subgroup, i.e. [8]p is the
+ * identity. A cofactorless verifier must reject such A and R ("Taming the
+ * many EdDSAs"; RFC 8032 5.1.7 uses the non-cofactored equation here). */
+int ed_ge_is_small_order(const ed_ge* p);
+
 #endif
