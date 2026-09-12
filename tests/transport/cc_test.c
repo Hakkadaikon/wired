@@ -170,6 +170,23 @@ static void test_cc_bbr_cycle_advances_per_round_not_per_tick(void) {
   CHECK(c.bbr.cycle_idx == 1); /* exactly one advance per closed round */
 }
 
+/* CVE-2025-4821 class: an acked-bytes value at the maximum a peer's ACK
+ * range can encode (a QUIC varint, <= 2^62-1) must grow cwnd by exactly that
+ * amount in slow start, never wrapping u64 downward. Manipulated ACK ranges
+ * cannot exceed the varint domain (see srvrun_cc_range/wired_sendsess_peek_ack
+ * gating the acked-bytes argument to genuinely-sent bytes), so this is the
+ * true worst case grow() ever sees. */
+static void test_cc_on_ack_grow_bounded_no_overflow(void) {
+  cc  c;
+  u64 huge = ((u64)1 << 62) - 1; /* VARINT_MAX */
+  cc_init(&c);
+  u64 before = c.cwnd;
+  CHECK(before < c.ssthresh); /* slow start: grow() adds acked directly */
+  cc_on_ack(&c, huge, 10, 10);
+  CHECK(c.cwnd == before + huge); /* exact sum, no wraparound */
+  CHECK(c.cwnd > before);         /* strictly grew, did not wrap small */
+}
+
 void test_cc(void) {
   test_cc_bbr_mode();
   test_cc_bbr_starved_round_cannot_lower_btl_bw();
@@ -183,4 +200,5 @@ void test_cc(void) {
   test_cc_persistent_collapse();
   test_cc_pacing_floors_at_1ms_once_rtt_known();
   test_cc_pacing_zero_srtt_stays_unfloored();
+  test_cc_on_ack_grow_bounded_no_overflow();
 }
