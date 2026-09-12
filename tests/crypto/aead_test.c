@@ -57,7 +57,24 @@ static void test_chapoly_open(void) {
   for (usz i = 0; i < 20; i++) CHECK(dec[i] == 0xCC);
 }
 
+/* Pinning: chapoly_open must reject a tampered tag and never write plaintext
+ * on rejection (V-0420/V-0769). */
+static void test_aead_tamper_rejects(void) {
+  u8 key[32] = {0}, nonce[12] = {0};
+  u8 pt[16], ct[32], dec[16];
+  for (usz i = 0; i < 16; i++) {
+    pt[i]  = (u8)(i * 5);
+    dec[i] = 0xBB;
+  }
+  chapoly_ctx c = {key, nonce, {(const u8*)"a", 1}};
+  chapoly_seal(&c, wired_span_of(pt, 16), ct);
+  ct[31] ^= 0x01;
+  CHECK(chapoly_open(&c, wired_span_of(ct, 32), dec) == 0);
+  for (usz i = 0; i < 16; i++) CHECK(dec[i] == 0xBB);
+}
+
 void test_aead(void) {
   test_chapoly_rfc();
   test_chapoly_open();
+  test_aead_tamper_rejects();
 }
