@@ -67,7 +67,7 @@ int moqvi_take(wired_span buf, usz* off, u64* out) {
 
 int moqvi_put(wired_mspan buf, usz* off, u64 v) {
   usz need = moqvi_len(v);
-  if (*off + need > buf.n) return 0;
+  if (need > buf.n - *off) return 0;
   *off += moqvi_encode(buf.p + *off, v);
   return 1;
 }

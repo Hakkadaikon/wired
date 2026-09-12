@@ -189,6 +189,21 @@ static void test_moqvi_put_too_small(void) {
   CHECK(!moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 0));
 }
 
+/* TEST 10: the 9-byte maximum fits exactly at the remaining capacity and
+ * fails one byte short of it, cursor untouched (the put-side bound must
+ * not be computed by adding to the cursor; V-0838). */
+static void test_moqvi_put_at_capacity_edge(void) {
+  u8  buf[16];
+  usz off = sizeof buf - 9;
+  CHECK(
+      moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 0xFFFFFFFFFFFFFFFFULL));
+  CHECK(off == sizeof buf);
+  off = sizeof buf - 8;
+  CHECK(
+      !moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 0xFFFFFFFFFFFFFFFFULL));
+  CHECK(off == sizeof buf - 8);
+}
+
 void test_moqvi(void) {
   test_moqvi_decode_official_examples();
   test_moqvi_decode_zero_all_lengths();
@@ -199,4 +214,5 @@ void test_moqvi(void) {
   test_moqvi_roundtrip();
   test_moqvi_decode_ignores_trailing();
   test_moqvi_put_too_small();
+  test_moqvi_put_at_capacity_edge();
 }

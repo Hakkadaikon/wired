@@ -185,8 +185,11 @@ static int moqdata_obj_take_id(
   return MOQDATA_OK;
 }
 
+/* Bounds are checked by subtraction (never *at + n, which wraps for a
+ * 64-bit wire length and rewinds the cursor); *at <= buf.n holds because
+ * every cursor here was advanced only by successful takes. */
 static int moqdata_obj_skip(wired_span buf, usz* at, u64 n) {
-  if (*at + n > buf.n) return 0;
+  if (n > buf.n - *at) return 0;
   *at += n;
   return 1;
 }
@@ -230,7 +233,7 @@ static int moqdata_obj_take_empty(
 
 static int moqdata_obj_take_payload(
     wired_span buf, usz* at, u64 len, moqdata_obj* o) {
-  if (*at + len > buf.n) return MOQDATA_INSUFFICIENT;
+  if (len > buf.n - *at) return MOQDATA_INSUFFICIENT;
   o->payload = wired_span_of(buf.p + *at, (usz)len);
   *at += (usz)len;
   o->status = MOQDATA_STATUS_NORMAL;
@@ -272,7 +275,7 @@ int moqdata_obj_take(
 }
 
 static int moqdata_span_copy(wired_mspan buf, usz* at, wired_span payload) {
-  if (*at + payload.n > buf.n) return 0;
+  if (payload.n > buf.n - *at) return 0;
   for (usz i = 0; i < payload.n; i++) buf.p[*at + i] = payload.p[i];
   *at += payload.n;
   return 1;
