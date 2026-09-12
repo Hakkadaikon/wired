@@ -15,6 +15,10 @@ import sys
 
 AREA_TO_SECTION = {
     "quic-transport": "QUIC transport",
+    "migration": "QUIC transport",
+    "connection-id": "QUIC transport",
+    "flow-control": "QUIC transport",
+    "retry-token": "QUIC transport",
     "tls": "TLS 1.3",
     "crypto-symmetric": "Symmetric crypto and hashing",
     "crypto-asymmetric": "Public-key signatures and key agreement",
