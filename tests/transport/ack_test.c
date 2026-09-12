@@ -109,10 +109,31 @@ static void test_ack_overlong_range_count_truncates(void) {
   CHECK(out.ranges[ACK_MAX_RANGES - 1].hi == 200 - 2 * (ACK_MAX_RANGES - 1));
 }
 
+/* CVE-2026-32179 class (msquic integer-underflow on ACK range parsing): a
+ * (Gap, ACK Range Length) pair whose gap is large enough to underflow
+ * prev_lo - gap - 2 below zero must be rejected outright, not accepted with
+ * a wrapped u64 range. largest=0/first=0 puts prev_lo at 0; any nonzero gap
+ * then fails pair_fits's prev_lo >= gap+2 check before any subtraction. */
+static void test_ack_decode_rejects_underflowing_range(void) {
+  u8  buf[16];
+  usz w    = 0;
+  buf[w++] = FRAME_ACK;
+  buf[w++] = 0; /* largest = 0 */
+  buf[w++] = 0; /* ack delay = 0 */
+  buf[w++] = 1; /* range count = 1 additional pair */
+  buf[w++] = 0; /* first ack range = 0 -> ranges[0] = [0,0], prev_lo = 0 */
+  buf[w++] = 5; /* gap = 5: prev_lo(0) < gap+2(7), would underflow */
+  buf[w++] = 0; /* range length = 0 */
+
+  ack_frame out;
+  CHECK(ack_decode(buf, w, &out) == 0); /* rejected, not a wrapped range */
+}
+
 void test_ack(void) {
   test_ack_single_range();
   test_ack_multi_range();
   test_ack_truncated();
   test_ack_ecn();
   test_ack_overlong_range_count_truncates();
+  test_ack_decode_rejects_underflowing_range();
 }
