@@ -1,3 +1,4 @@
+#include "crypto/asymmetric/ecc/ed25519/ed25519_field.h"
 #include "test.h"
 
 static u8 sgn_hexnib(char c) { return (u8)(c <= '9' ? c - '0' : c - 'a' + 10); }
@@ -99,10 +100,73 @@ static void test_ed25519_verify_s_eq_l_rejected(void) {
   CHECK(ed25519_verify(sig, (const u8*)"", 0, pk) == 0);
 }
 
+/* Cofactorless-equation forgery (RFC 8032 5.1.7 + "Taming the many EdDSAs"):
+ * with A = R = the identity encoding and S = 0, [S]B == R + [k]A holds for
+ * ANY message, so a verifier that skips the small-order check accepts a
+ * universal signature under the order-1 "public key". Must be rejected. */
+static void test_ed25519_verify_rejects_small_order_key(void) {
+  u8 pk[32] = {0}, sig[64] = {0}, msg[1] = {0x72};
+  pk[0]  = 0x01; /* identity: y = 1, sign 0 */
+  sig[0] = 0x01; /* R = identity, S = 0 */
+  CHECK(ed25519_verify(sig, msg, 1, pk) == 0);
+}
+
+/* Small-order R under a mixed-order key ("Taming the many EdDSAs" case 2):
+ * A = [a]B + T8 (T8 of order 8, so A itself is not small-order), R = [7]T8,
+ * S = k*a mod L, with the message ground so that k = 7 (mod 8). Then
+ * [S]B = [k]A' and R + [k]A = [k]A' + [7 + k]T8 = [k]A', so the cofactorless
+ * equation holds: without the small-order-R check this forgery verifies.
+ * Vector derived with an independent Python reference (RFC 8032 section 6). */
+static void test_ed25519_verify_rejects_small_order_r(void) {
+  ed_ge Ap;
+  u8    pk[32], sig[64];
+  u8    msg[21] = "wired-small-order-R-2";
+  sgn_hexbytes(
+      "afe985e432d16abaeed0fbd848db44520ef193bdde65d944b6a942a8f97ab11c", pk,
+      32);
+  sgn_hexbytes(
+      "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa"
+      "769c1fd97d9b1173fd72d9a64e94997e7ae5e95339c3e613b93179b82cc9d701",
+      sig, 64);
+  CHECK(ed_ge_decode(&Ap, pk) == 1);     /* A is on-curve ... */
+  CHECK(ed_ge_is_small_order(&Ap) == 0); /* ... and not itself torsion */
+  CHECK(ed25519_verify(sig, msg, 21, pk) == 0);
+}
+
+/* Non-canonical R (y = p: RFC 8032 5.1.3 step 1) never verifies, even under
+ * the RFC 8032 7.1 TEST 2 key. */
+static void test_ed25519_verify_rejects_noncanonical_r(void) {
+  u8 pk[32], sig[64] = {0}, msg[1] = {0x72};
+  sgn_hexbytes(
+      "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c", pk,
+      32);
+  sgn_hexbytes(
+      "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", sig,
+      32);
+  CHECK(ed25519_verify(sig, msg, 1, pk) == 0);
+}
+
+/* Non-canonical A (y = p, y = p+1: RFC 8032 5.1.3 step 1) never verifies. */
+static void test_ed25519_verify_rejects_noncanonical_key(void) {
+  u8 pk[32], sig[64] = {0}, msg[1] = {0x72};
+  sgn_hexbytes(
+      "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", pk,
+      32);
+  CHECK(ed25519_verify(sig, msg, 1, pk) == 0);
+  sgn_hexbytes(
+      "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", pk,
+      32);
+  CHECK(ed25519_verify(sig, msg, 1, pk) == 0);
+}
+
 void test_ed25519_sign(void) {
   test_ed25519_sign_test1();
   test_ed25519_sign_test2();
   test_ed25519_sign_test3();
   test_ed25519_sign_test_sha_abc();
   test_ed25519_verify_s_eq_l_rejected();
+  test_ed25519_verify_rejects_small_order_key();
+  test_ed25519_verify_rejects_small_order_r();
+  test_ed25519_verify_rejects_noncanonical_r();
+  test_ed25519_verify_rejects_noncanonical_key();
 }
