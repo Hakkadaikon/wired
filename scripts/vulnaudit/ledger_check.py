@@ -14,8 +14,13 @@ FIELD = re.compile(r"(ours|verdict|test|commit|perf): ([^—]*)")
 
 
 def parse(lines):
-    rows, cur, section = [], None, "(none)"
+    rows, cur, section, fenced = [], None, "(none)", False
     for ln in lines:
+        if ln.startswith("```"):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
         if ln.startswith("## "):
             section = ln[3:].strip()
             continue
