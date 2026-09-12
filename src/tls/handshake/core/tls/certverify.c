@@ -1,11 +1,10 @@
 #include "tls/handshake/core/tls/certverify.h"
 
+#include "crypto/asymmetric/ecc/ecdsasig/sig_value.h"
 #include "crypto/asymmetric/ecc/ed25519/ed25519.h"
 #include "crypto/asymmetric/ecc/p256/ecdsa_verify.h"
 #include "crypto/asymmetric/rsa/rsa_pss_verify.h"
 #include "crypto/asymmetric/rsa/rsa_verify.h"
-#include "crypto/pki/encoding/asn1/der.h"
-#include "crypto/pki/encoding/asn1/derseq.h"
 #include "crypto/pki/encoding/x509/ec_pubkey.h"
 #include "crypto/pki/encoding/x509/rsa_pubkey.h"
 #include "crypto/pki/encoding/x509/spki.h"
@@ -43,46 +42,6 @@ static int cert_spki_key(wired_span cert, wired_span* key) {
   return x509_public_key(c.tbs, &oid, key);
 }
 
-/* SEC1 C.5. Strip a single INTEGER sign pad. */
-static void cv_strip_pad(const u8** v, usz* len) {
-  if (*len > 1 && (*v)[0] == 0x00) {
-    (*v)++;
-    (*len)--;
-  }
-}
-
-static void left_pad32(u8 out[32], const u8* v, usz len) {
-  for (usz i = 0; i < 32; i++) out[i] = 0;
-  for (usz i = 0; i < len; i++) out[32 - len + i] = v[i];
-}
-
-/* A field of 1..32 octets fits a P-256 scalar. */
-static int fits32(usz len) { return len >= 1 && len <= 32; }
-
-/* Copy one INTEGER into a 32-byte big-endian field (rejecting > 32 octets). */
-static int copy_int32(derseq* c, u8 out[32]) {
-  wired_span s;
-  const u8*  v;
-  usz        len;
-  if (!derseq_next_tagged(c, DER_INTEGER, &s)) return 0;
-  v   = s.p;
-  len = s.n;
-  cv_strip_pad(&v, &len);
-  if (!fits32(len)) return 0;
-  left_pad32(out, v, len);
-  return 1;
-}
-
-/* SEC1 C.5. ECDSA-Sig-Value ::= SEQUENCE { r INTEGER, s INTEGER }. */
-static int ecdsa_split(wired_span sig, u8 r[32], u8 s[32]) {
-  derseq     c;
-  wired_span seq;
-  if (!der_seq(sig, &seq)) return 0;
-  derseq_init(&c, seq);
-  if (!copy_int32(&c, r)) return 0;
-  return copy_int32(&c, s);
-}
-
 /* An ECDSA public key + (r, s) signature, all fixed 32-byte fields. */
 typedef struct {
   u8 x[32], y[32], r[32], s[32];
@@ -94,7 +53,7 @@ static int ecdsa_inputs(
   wired_span key;
   if (!cert_spki_key(cert, &key)) return 0;
   if (!x509_ec_pubkey(key, f->x, f->y)) return 0;
-  return ecdsa_split(sig, f->r, f->s);
+  return ecdsasig_decode(sig, f->r, f->s, 32);
 }
 
 static int verify_ecdsa(wired_span cert, wired_span sig, const u8 hash[32]) {

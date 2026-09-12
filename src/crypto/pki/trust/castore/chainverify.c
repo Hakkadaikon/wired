@@ -1,12 +1,11 @@
 #include "crypto/pki/trust/castore/chainverify.h"
 
+#include "crypto/asymmetric/ecc/ecdsasig/sig_value.h"
 #include "crypto/asymmetric/ecc/p256/ecdsa_verify.h"
 #include "crypto/asymmetric/ecc/p384/ecdsa_verify.h"
 #include "crypto/asymmetric/rsa/rsa_verify.h"
 #include "crypto/pki/cert/tbscert/fields.h"
 #include "crypto/pki/cert/tbscert/sigalg.h"
-#include "crypto/pki/encoding/asn1/der.h"
-#include "crypto/pki/encoding/asn1/derseq.h"
 #include "crypto/pki/encoding/x509/ec_pubkey.h"
 #include "crypto/pki/encoding/x509/rsa_pubkey.h"
 #include "crypto/pki/encoding/x509/sigalgoid.h"
@@ -83,42 +82,6 @@ static int cert_sig(wired_span cert, wired_span* sig) {
   return 1;
 }
 
-/* SEC1 C.5. Strip one INTEGER sign pad. */
-static void chv_strip_pad(wired_span* v) {
-  if (v->n > 1 && v->p[0] == 0x00) {
-    v->p++;
-    v->n--;
-  }
-}
-
-static void chv_left_pad32(u8 out[32], wired_span v) {
-  for (usz i = 0; i < 32; i++) out[i] = 0;
-  for (usz i = 0; i < v.n; i++) out[32 - v.n + i] = v.p[i];
-}
-
-/* A stripped INTEGER value that fits a P-256 scalar. */
-static int fits_scalar(usz len) { return len >= 1 && len <= 32; }
-
-/* Copy one INTEGER element of c into a 32-byte big-endian field. */
-static int chv_copy_int32(derseq* c, u8 out[32]) {
-  wired_span v;
-  if (!derseq_next_tagged(c, DER_INTEGER, &v)) return 0;
-  chv_strip_pad(&v);
-  if (!fits_scalar(v.n)) return 0;
-  chv_left_pad32(out, v);
-  return 1;
-}
-
-/* SEC1 C.5. ECDSA-Sig-Value ::= SEQUENCE { r INTEGER, s INTEGER }. */
-static int chv_ecdsa_split(wired_span sig, u8 r[32], u8 s[32]) {
-  wired_span seq;
-  derseq     c;
-  if (!der_seq(sig, &seq)) return 0;
-  derseq_init(&c, seq);
-  if (!chv_copy_int32(&c, r)) return 0;
-  return chv_copy_int32(&c, s);
-}
-
 /* FIPS 186-4 6.4: a digest wider than the P-256 order uses its leftmost 32
  * bytes (a 32-byte digest is copied whole). */
 static void chv_hash_to_scalar32(const u8* hash, u8 h32[32]) {
@@ -128,37 +91,9 @@ static void chv_hash_to_scalar32(const u8* hash, u8 h32[32]) {
 static int chv_verify_p256(wired_span key, wired_span sig, const u8* hash) {
   u8 x[32], y[32], r[32], s[32], h32[32];
   if (!x509_ec_pubkey(key, x, y)) return 0;
-  if (!chv_ecdsa_split(sig, r, s)) return 0;
+  if (!ecdsasig_decode(sig, r, s, 32)) return 0;
   chv_hash_to_scalar32(hash, h32);
   return ecdsa_p256_verify(x, y, r, s, h32);
-}
-
-/* A stripped INTEGER value that fits a P-384 scalar. */
-static int fits_scalar48(usz len) { return len >= 1 && len <= 48; }
-
-static void chv_left_pad48(u8 out[48], wired_span v) {
-  for (usz i = 0; i < 48; i++) out[i] = 0;
-  for (usz i = 0; i < v.n; i++) out[48 - v.n + i] = v.p[i];
-}
-
-/* Copy one INTEGER element of c into a 48-byte big-endian field. */
-static int chv_copy_int48(derseq* c, u8 out[48]) {
-  wired_span v;
-  if (!derseq_next_tagged(c, DER_INTEGER, &v)) return 0;
-  chv_strip_pad(&v);
-  if (!fits_scalar48(v.n)) return 0;
-  chv_left_pad48(out, v);
-  return 1;
-}
-
-/* SEC1 C.5. ECDSA-Sig-Value with 48-byte scalars (P-384). */
-static int chv_ecdsa_split48(wired_span sig, u8 r[48], u8 s[48]) {
-  wired_span seq;
-  derseq     c;
-  if (!der_seq(sig, &seq)) return 0;
-  derseq_init(&c, seq);
-  if (!chv_copy_int48(&c, r)) return 0;
-  return chv_copy_int48(&c, s);
 }
 
 /* FIPS 186-4 6.4: left-zero-extend the digest into 48 bytes (a 48-byte digest
@@ -172,7 +107,7 @@ static void chv_hash_to_scalar48(wired_span hash, u8 h48[48]) {
 static int chv_verify_p384(wired_span key, wired_span sig, wired_span hash) {
   u8 x[48], y[48], r[48], s[48], h48[48];
   if (!x509_ec_pubkey384(key, x, y)) return 0;
-  if (!chv_ecdsa_split48(sig, r, s)) return 0;
+  if (!ecdsasig_decode(sig, r, s, 48)) return 0;
   chv_hash_to_scalar48(hash, h48);
   return ecdsa_p384_verify(x, y, r, s, h48);
 }
