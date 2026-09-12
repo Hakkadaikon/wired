@@ -38,7 +38,10 @@ def load_raw(raw_dir):
         except (json.JSONDecodeError, OSError) as e:
             print(f"skip {path}: {e}", file=sys.stderr)
             continue
-        for r in doc.get("records", []):
+        recs_in = doc.get("records", [])
+        if isinstance(recs_in, dict):  # a collector grouped records by part
+            recs_in = [r for part in recs_in.values() for r in (part or [])]
+        for r in recs_in:
             r = dict(r)
             r["_source_file"] = os.path.basename(path)
             recs.append(r)
