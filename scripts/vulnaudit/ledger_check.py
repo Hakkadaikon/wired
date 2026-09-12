@@ -49,14 +49,37 @@ def violations(row):
     return [f"{row['id']}: [x] without a complete verdict/test/commit ({v!r}, {test!r}, {commit!r})"]
 
 
+def known_tests(root="tests"):
+    """Every test_* identifier defined in tests/**/*.c (a closed row may only
+    cite one of these)."""
+    import glob
+    names = set()
+    for f in glob.glob(f"{root}/**/*.c", recursive=True):
+        names |= set(re.findall(r"\b(test_[A-Za-z0-9_]+)\s*\(", open(f, encoding="utf-8", errors="replace").read()))
+    return names
+
+
+def test_missing(row, names):
+    f = fields(row)
+    if row["state"] != "x" or f.get("verdict") not in ("fixed", "already-safe"):
+        return []
+    cited = re.findall(r"\btest_[A-Za-z0-9_]+", f.get("test", ""))
+    if not cited:
+        return []  # a non-C evidence (e.g. an audit output) is allowed for deps rows
+    missing = [t for t in cited if t not in names]
+    return [f"{row['id']}: cited test not found in tests/: {', '.join(missing)}"] if missing else []
+
+
 def main(path):
     rows = parse(open(path, encoding="utf-8").read().splitlines())
     bad, seen, counts = [], set(), defaultdict(lambda: [0, 0, 0])
+    names = known_tests()
     for r in rows:
         if r["id"] in seen:
             bad.append(f"duplicate id {r['id']}")
         seen.add(r["id"])
         bad += violations(r)
+        bad += test_missing(r, names)
         counts[r["section"]][" ~x".index(r["state"])] += 1
     for sec, (o, t, d) in counts.items():
         print(f"{sec}: open={o} triaged={t} done={d}")
