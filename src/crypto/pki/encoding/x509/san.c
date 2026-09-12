@@ -264,10 +264,7 @@ static int subject_cursor(wired_span tbs, derseq* c) {
   return derseq_skip(c, SAN_SUBJECT_SKIP);
 }
 
-/* RFC 5280 4.1: locate and read the subject Name's commonName value out of
- * tbs. Returns 1 and sets *val on success, 0 if the certificate carries no
- * commonName. */
-static int subject_cn(wired_span tbs, wired_span* val) {
+int x509_subject_cn(wired_span tbs, wired_span* val) {
   derseq     c;
   wired_span subject;
   if (!subject_cursor(tbs, &c)) return 0;
@@ -279,7 +276,7 @@ static int subject_cn(wired_span tbs, wired_span* val) {
  * no dNSName SAN entry at all. */
 static int cn_id_matches(wired_span tbs, wired_span host) {
   wired_span cn;
-  if (!subject_cn(tbs, &cn)) return 0;
+  if (!x509_subject_cn(tbs, &cn)) return 0;
   return entry_matches(cn, host);
 }
 
