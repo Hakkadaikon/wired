@@ -191,19 +191,24 @@ static int links_ok(const wired_span* certs, usz n) {
   return 1;
 }
 
-/* RFC 5280 6.1.4 (g): child's subject Name must fall within issuer's
- * nameConstraints (directoryName form; see nameconstraints.h for the exact
- * matching rule and scope). */
+/* RFC 5280 6.1.4 (g): the whole child certificate -- subject Name, SAN
+ * dNSName/iPAddress/URI entries, and the CN fallback -- must fall within
+ * issuer's nameConstraints (see nameconstraints.h for the matching rules
+ * and scope). */
 static int subject_admitted(wired_span issuer, wired_span child) {
-  wired_span subj;
-  x509       c;
-  if (!cert_subject(child, &subj)) return 0;
-  if (!x509_parse(issuer, &c)) return 0;
-  return x509_name_constraints_permit(c.tbs, subj);
+  x509 ci, cc;
+  if (!x509_parse(issuer, &ci)) return 0;
+  if (!x509_parse(child, &cc)) return 0;
+  return x509_name_constraints_admit(ci.tbs, cc.tbs);
 }
 
 /* RFC 5280 6.1.4 (g): issuer certs[j]'s nameConstraints applies to every
- * certificate below it in the path (nearer the leaf): certs[0..j). */
+ * certificate below it in the path (nearer the leaf): certs[0..j). Checking
+ * each issuer independently against every certificate below it realizes
+ * 6.1.4 (g)'s accumulated state exactly: a name lies within the running
+ * intersection of permitted subtrees iff it lies within every issuer's own
+ * permitted set, and within the union of excluded subtrees iff some
+ * issuer's own excluded set covers it. */
 static int issuer_constrains_below(const wired_span* certs, usz j) {
   for (usz k = 0; k < j; k++)
     if (!subject_admitted(certs[j], certs[k])) return 0;
