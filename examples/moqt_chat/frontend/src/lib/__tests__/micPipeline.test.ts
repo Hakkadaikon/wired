@@ -15,7 +15,7 @@ function fakeProcessor() {
   let waiting: ((chunk: unknown) => void) | null = null;
   const readable = {
     getReader: () => ({
-      read: async () => {
+      read: async (): Promise<{ value: unknown; done: boolean }> => {
         if (queue.length > 0) {
           return { value: queue.shift(), done: false };
         }
@@ -339,7 +339,7 @@ describe("micPipeline", () => {
     processor.emit({ id: 2 });
     processor.emit({ id: 3 });
     await new Promise((r) => setTimeout(r, 0));
-    resolveFirstSend?.();
+    (resolveFirstSend as (() => void) | null)?.();
     await new Promise((r) => setTimeout(r, 0));
 
     // frame 1 (in flight) + only the latest queued frame (3), never frame 2
