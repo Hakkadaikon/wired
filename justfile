@@ -177,6 +177,35 @@ fuzz-x509: gen-ninja
 fuzz-onertt: gen-ninja
     ninja fuzz/fuzz_onertt
 
+# build the libFuzzer harness for TLS 1.3 handshake-message parsing
+# (ServerHello/Certificate/CertificateVerify/NewSessionTicket) and the
+# ClientHello extension scanners (hosted, ASan+libFuzzer; src/ untouched).
+fuzz-tlsmsg: gen-ninja
+    ninja fuzz/fuzz_tlsmsg
+
+# build the libFuzzer harness for the QUIC frame decoders (RFC 9000 19)
+# and the transport-parameter parsers (hosted, ASan+libFuzzer; src/
+# untouched).
+fuzz-frames: gen-ninja
+    ninja fuzz/fuzz_frames
+
+# build the libFuzzer harness for the HTTP/WebTransport capsule codecs,
+# HTTP/3 frame + SETTINGS parsing, and the QPACK stream-instruction
+# decoders (hosted, ASan+libFuzzer; src/ untouched).
+fuzz-capsule: gen-ninja
+    ninja fuzz/fuzz_capsule
+
+# build the libFuzzer harness for the MoQT varint/KVP/control/data
+# codecs and the session state machine (hosted, ASan+libFuzzer; src/
+# untouched).
+fuzz-moqt: gen-ninja
+    ninja fuzz/fuzz_moqt
+
+# build the libFuzzer harness for the fragmented-MP4 top-level box
+# scanner (hosted, ASan+libFuzzer; src/ untouched).
+fuzz-mp4frag: gen-ninja
+    ninja fuzz/fuzz_mp4frag
+
 # run every fuzz harness for secs wall-clock seconds each (default 120), for
 # CI: a bounded regression sweep, not an open-ended fuzzing campaign. Exits
 # non-zero on any crash/leak (libFuzzer's own exit code). Each run reads
@@ -189,6 +218,10 @@ fuzz-ci secs="120":
     just fuzz-qpack && ./fuzz/fuzz_qpack -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_qpack
     just fuzz-x509 && ./fuzz/fuzz_x509 -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_x509
     just fuzz-onertt && ./fuzz/fuzz_onertt -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_onertt
+    just fuzz-tlsmsg && ./fuzz/fuzz_tlsmsg -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_tlsmsg
+    just fuzz-frames && ./fuzz/fuzz_frames -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_frames
+    just fuzz-capsule && ./fuzz/fuzz_capsule -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_capsule
+    just fuzz-mp4frag && ./fuzz/fuzz_mp4frag -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_mp4frag
 
 # per-PR gate: each harness builds and survives exactly 1 run (libFuzzer
 # -runs=1, no time budget) -- catches a broken/uncompilable harness or an
@@ -199,6 +232,11 @@ fuzz-smoke:
     just fuzz-qpack && ./fuzz/fuzz_qpack -runs=1 -artifact_prefix=fuzz/
     just fuzz-x509 && ./fuzz/fuzz_x509 -runs=1 -artifact_prefix=fuzz/
     just fuzz-onertt && ./fuzz/fuzz_onertt -runs=1 -artifact_prefix=fuzz/
+    just fuzz-tlsmsg && ./fuzz/fuzz_tlsmsg -runs=1 -artifact_prefix=fuzz/
+    just fuzz-frames && ./fuzz/fuzz_frames -runs=1 -artifact_prefix=fuzz/
+    just fuzz-capsule && ./fuzz/fuzz_capsule -runs=1 -artifact_prefix=fuzz/
+    just fuzz-moqt && ./fuzz/fuzz_moqt -runs=1 -artifact_prefix=fuzz/
+    just fuzz-mp4frag && ./fuzz/fuzz_mp4frag -runs=1 -artifact_prefix=fuzz/
 
 # format all sources in place (clang-format, .clang-format config).
 # Reroutes itself through the flake devShell when run outside one: a host

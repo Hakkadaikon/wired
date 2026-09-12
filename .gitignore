@@ -10,9 +10,15 @@
 /fuzz/fuzz_qpack
 /fuzz/fuzz_x509
 /fuzz/fuzz_onertt
+/fuzz/fuzz_tlsmsg
+/fuzz/fuzz_frames
+/fuzz/fuzz_capsule
+/fuzz/fuzz_moqt
+/fuzz/fuzz_mp4frag
 /fuzz/crash-*
 /fuzz/leak-*
 /fuzz/oom-*
+/fuzz/timeout-*
 tasks/
 /docs/sdk/
 
