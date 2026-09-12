@@ -1,5 +1,7 @@
 #include "app/moqt/data/moqdata.h"
 
+#include "app/http3/server/srvloop/srvloop.h"
+#include "app/moqt/vi/moqvi.h"
 #include "common/bytes/util/ct.h"
 #include "moqt_golden.h"
 #include "test.h"
@@ -22,7 +24,10 @@
  * - Object take: both golden streams end-to-end; Object ID delta chain;
  *   overflow boundary (wrap-free); Status 0x0/0x3/0x4 accepted, unknown ->
  *   violation; properties on non-Normal -> violation; properties skipped;
- *   truncation -> insufficient
+ *   truncation -> insufficient; a length field that would wrap the cursor
+ *   (2^64-9, 2^64-1) or exceed it (2^62-1) -> insufficient, cursor
+ *   untouched; exact-fit / one-past-the-end boundaries at the WT receive
+ *   buffer size
  * - Object put + one-message builder: golden byte match; no room
  */
 
@@ -596,6 +601,87 @@ static void test_moqdata_blob_build_rejects_empty_and_short_buf(void) {
           wired_span_of(g_moqdata_blob, 100)) == 0);
 }
 
+static void check_obj_take_rejects(const u8* in, usz n, u64 type) {
+  moqdata_objseq seq = moqdata_objseq_of(type);
+  moqdata_obj    o;
+  usz            off = 0;
+  CHECK(
+      moqdata_obj_take(wired_span_of(in, n), &off, &seq, &o) ==
+      MOQDATA_INSUFFICIENT);
+  CHECK(off == 0);
+  CHECK(!seq.have_prev);
+}
+
+/* TEST: a Payload Length / Properties length whose addition to the cursor
+ * wraps mod 2^64 (2^64-9 lands the cursor back on itself, 2^64-1 one byte
+ * before) or that merely exceeds the buffer (2^62-1) is insufficient and
+ * never moves the cursor (V-0838: the fuzz_moqt hang). */
+static void test_moqdata_obj_take_len_wrap(void) {
+  static const u8 wrap9[] = {0x00, 0xff, 0xff, 0xff, 0xff, 0xff,
+                             0xff, 0xff, 0xff, 0xf7, 0x00, 0x00};
+  static const u8 max64[] = {0x00, 0xff, 0xff, 0xff, 0xff, 0xff,
+                             0xff, 0xff, 0xff, 0xff, 0x00, 0x00};
+  static const u8 max62[] = {0x00, 0xff, 0x3f, 0xff, 0xff, 0xff,
+                             0xff, 0xff, 0xff, 0xff, 0x00, 0x00};
+  /* type 0x10: the length is Payload Length; 0x11: Properties length */
+  check_obj_take_rejects(wrap9, sizeof wrap9, 0x10);
+  check_obj_take_rejects(wrap9, sizeof wrap9, 0x11);
+  check_obj_take_rejects(max64, sizeof max64, 0x10);
+  check_obj_take_rejects(max64, sizeof max64, 0x11);
+  check_obj_take_rejects(max62, sizeof max62, 0x10);
+  check_obj_take_rejects(max62, sizeof max62, 0x11);
+}
+
+/* Delta 0 then a length varint sized so the fields end at byte 4 of a
+ * WIRED_SRVLOOP_WT_BUF_CAP buffer; the length claims the rest. */
+static usz moqdata_test_put_len_head(u8* buf, usz n, u64 len) {
+  usz at = 0;
+  buf[0] = 0x00;
+  at     = 1;
+  CHECK(moqvi_put(wired_mspan_of(buf, n), &at, len));
+  CHECK(at == 4);
+  return at;
+}
+
+/* TEST: Payload Length exactly the remaining bytes decodes to the end;
+ * one byte short of it is insufficient with the cursor untouched -- at the
+ * production WT receive buffer size. */
+static void test_moqdata_obj_take_payload_len_boundary(void) {
+  static u8 buf[WIRED_SRVLOOP_WT_BUF_CAP];
+  usz       hdr = moqdata_test_put_len_head(buf, sizeof buf, sizeof buf - 4);
+  moqdata_objseq seq = moqdata_objseq_of(0x10);
+  moqdata_obj    o;
+  usz            off = 0;
+  CHECK(
+      moqdata_obj_take(wired_span_of(buf, sizeof buf), &off, &seq, &o) ==
+      MOQDATA_OK);
+  CHECK(off == sizeof buf);
+  CHECK(o.payload.n == sizeof buf - hdr);
+  check_obj_take_rejects(buf, sizeof buf - 1, 0x10);
+}
+
+/* TEST: Properties length exactly the remaining bytes is skipped to the
+ * end (then the Payload Length is missing -> insufficient); one byte more
+ * than the buffer is insufficient; two bytes less leaves room for the
+ * empty-payload Object that follows -> OK. */
+static void test_moqdata_obj_take_props_len_boundary(void) {
+  static u8      buf[WIRED_SRVLOOP_WT_BUF_CAP];
+  moqdata_objseq seq = moqdata_objseq_of(0x11);
+  moqdata_obj    o;
+  usz            off = 0;
+  moqdata_test_put_len_head(buf, sizeof buf, sizeof buf - 4);
+  check_obj_take_rejects(buf, sizeof buf, 0x11);
+  check_obj_take_rejects(buf, sizeof buf - 1, 0x11);
+  moqdata_test_put_len_head(buf, sizeof buf, sizeof buf - 6);
+  buf[sizeof buf - 2] = 0x00; /* Payload Length 0 */
+  buf[sizeof buf - 1] = 0x00; /* Status Normal */
+  CHECK(
+      moqdata_obj_take(wired_span_of(buf, sizeof buf), &off, &seq, &o) ==
+      MOQDATA_OK);
+  CHECK(off == sizeof buf);
+  CHECK(o.payload.n == 0);
+}
+
 void test_moqdata(void) {
   test_moqdata_blob_build_roundtrip_at_boundaries();
   test_moqdata_blob_build_rejects_empty_and_short_buf();
@@ -618,6 +704,9 @@ void test_moqdata(void) {
   test_moqdata_obj_take_status_values();
   test_moqdata_obj_take_properties();
   test_moqdata_obj_take_truncated();
+  test_moqdata_obj_take_len_wrap();
+  test_moqdata_obj_take_payload_len_boundary();
+  test_moqdata_obj_take_props_len_boundary();
   test_moqdata_obj_put();
   test_moqdata_msg_build_golden();
   test_moqdata_msg_build_bounds();
