@@ -23,4 +23,36 @@
  * closed). */
 int x509_name_constraints_permit(wired_span cert_tbs, wired_span subject);
 
+/* RFC 5280 4.2.1.10 / 6.1.4 (g). cert's nameConstraints extension, applied
+ * to the whole child certificate: the child's subject Name against
+ * directoryName subtrees (the x509_name_constraints_permit rule above), and
+ * every child subjectAltName entry against the subtrees of its own
+ * GeneralName form:
+ *   - dNSName [2]: a base without a leading '.' covers the host equal to it
+ *     and any subdomain (RFC 5280 4.2.1.10's "adding zero or more labels to
+ *     the left"); a base with a leading '.' covers subdomains only; an empty
+ *     base covers every DNS name. Comparison is ASCII case-insensitive; a
+ *     '*' in a SAN entry is treated as a literal byte, so a wildcard entry
+ *     is classified by its literal suffix. When the child carries no SAN
+ *     dNSName entry at all, the dNSName subtrees are applied to its subject
+ *     commonName if that CN is DNS-shaped (RFC 6125 6.4.4 / RFC 9525 CN-ID
+ *     fallback practice, mirroring x509_san_matches' fallback so any name
+ *     that function could accept is constrained here).
+ *   - iPAddress [7]: base is address||mask, exactly twice the SAN address
+ *     length (8 octets against an IPv4 SAN, 32 against an IPv6 SAN); it
+ *     covers the SAN address iff (addr ^ san) & mask == 0. A base of the
+ *     other family covers nothing (a permitted subtree then fails closed);
+ *     a base of any length other than 8 or 32, in either half, is
+ *     malformed and rejects the child outright (fail closed).
+ *   - uniformResourceIdentifier [6]: URI matching is not implemented; a
+ *     child presenting a URI SAN under an issuer whose nameConstraints
+ *     carries any URI subtree (permitted or excluded) is rejected outright
+ *     (fail closed).
+ * Other GeneralName forms ([0]-[1], [3], [5], [8]) are not consumed by this
+ * SDK and their subtrees are not evaluated. Returns 1 if the child is
+ * admitted, 0 if any name is excluded, uncovered while a permitted subtree
+ * of its form is present, or the child's subject/SAN is malformed (fail
+ * closed). */
+int x509_name_constraints_admit(wired_span issuer_tbs, wired_span child_tbs);
+
 #endif
