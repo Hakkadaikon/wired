@@ -120,8 +120,45 @@ static void test_gcm_dispatch(void) {
       gcm_dispatch_one(lens[i], aads[j]);
 }
 
+/* Pinning: gcm_open (scalar and, when available, gcmx86_open) must reject a
+ * tampered tag via the constant-time ct_diff16 compare and never write
+ * plaintext on rejection (V-0420/V-0769). */
+static void test_gcm_tamper_rejects(void) {
+  u8     key[16] = {0}, iv[12] = {0};
+  u8     pt[20], ct[36], dec[20];
+  aes128 a;
+  for (usz i = 0; i < 20; i++) {
+    pt[i]  = (u8)(i * 3);
+    dec[i] = 0xAA;
+  }
+  aes128_init(&a, key);
+  gcm_ctx g = {&a, iv, {(const u8*)"aad", 3}};
+  gcm_seal(&g, wired_span_of(pt, 20), ct);
+
+  ct[35] ^= 0x01; /* flip last tag byte */
+  CHECK(gcm_open(&g, wired_span_of(ct, 36), dec) == 0);
+  for (usz i = 0; i < 20; i++) CHECK(dec[i] == 0xAA);
+
+  if (!gcmx86_supported()) return;
+  gcmx86 x;
+  u8     xct[36], xdec[20];
+  gcmx86_init(&x, key);
+  CHECK(
+      gcmx86_seal(
+          &x, iv, wired_span_of((const u8*)"aad", 3), wired_span_of(pt, 20),
+          xct) == 36);
+  for (usz i = 0; i < 20; i++) xdec[i] = 0xAA;
+  xct[35] ^= 0x01;
+  CHECK(
+      gcmx86_open(
+          &x, iv, wired_span_of((const u8*)"aad", 3), wired_span_of(xct, 36),
+          xdec) == 0);
+  for (usz i = 0; i < 20; i++) CHECK(xdec[i] == 0xAA);
+}
+
 void test_gcm(void) {
   test_gcm_nist();
   test_gcm_open();
   test_gcm_dispatch();
+  test_gcm_tamper_rejects();
 }
