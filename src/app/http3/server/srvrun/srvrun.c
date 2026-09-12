@@ -65,6 +65,7 @@
 #include "transport/packet/header/packet/ptype.h"
 #include "transport/packet/header/packet/retry.h"
 #include "transport/recovery/congestion/cc/cc.h"
+#include "transport/recovery/congestion/cc/ecn.h"
 #include "transport/recovery/congestion/cc/hystart.h"
 #include "transport/recovery/congestion/cc/pacing.h"
 #include "transport/recovery/detect/recovery/pto.h"
@@ -322,7 +323,22 @@ typedef struct {
   u64           last_ms;     /**< monotonic ms of the last routed datagram */
   srvrun_resp   resp[SRVRUN_RESP_SLOTS]; /**< in-flight responses, one per
                                              answered request stream */
-  cc      cc;           /**< congestion window gating every resp[]'s pump */
+  cc cc; /**< congestion window gating every resp[]'s pump */
+  /** RFC 9000 13.4.2 ECN validation for this connection's ACK feedback:
+   * every packet leaves ECT(0)-marked (wired_udp_ect0_enable on the listen
+   * socket), so a valid ACK-ECN report's CE increase feeds the congestion
+   * controller (RFC 9002 8.1) and an inconsistent or absent report
+   * disables ECN consumption (srvrun_feed_ecn). {0} fixtures leave it
+   * disabled; srvrun_open_slot enables it. */
+  ecn_track ecn;
+  /** Per-step scratch for srvrun_feed_ecn, reset by srvrun_feed_acks: how
+   * many logged packets this step's ACK ranges newly acknowledged (RFC 9000
+   * 13.4.2.1's lower bound on the ECN count increase) and the newest send
+   * time among them (RFC 9002 7.1.2's sent_time for the CE congestion
+   * event). Both only count resp[]/wtsend[] log entries, so the bound is
+   * lenient, never a false failure. */
+  u64     ecn_newly;
+  u64     ecn_sent_ms;
   hystart hs;           /**< slow-start exit detector (RFC 9406) */
   u64     srtt_ms;      /**< smoothed RTT of this connection's acks (pacing) */
   u64     next_send_ms; /**< pacing: earliest time to send again */
@@ -6587,29 +6603,40 @@ static void srvrun_hystart_range(
  * slot's packet-loss threshold (RFC 9002 6.1.1) and requeues in-flight
  * slices that were never actually lost. Only forward the range when it
  * actually hits something in r's own log. */
-/* 1 if [lo, hi] covers at least one of sess's own in-flight log entries,
- * regardless of byte length -- wired_sendsess_peek_ack's own bytes==0
- * return (a bare-FIN round's synthetic 0-byte slice, srvrun_pump_wt_fin_
- * only) must not be mistaken for "nothing of ours was hit" the way it
- * legitimately is for a resp[]/wtsend slot with no in-flight data at all:
- * a 0-byte slice still needs its own wired_sendsess_ack, or its log entry
- * never clears and the slot never reaps (wired_sendsess_done keeps seeing
- * it as pending forever). */
-static int srvrun_cc_range_has_hit(const wired_sendsess* sess, u64 lo, u64 hi) {
+/* How many of sess's own in-flight log entries [lo, hi] covers, regardless
+ * of byte length -- wired_sendsess_peek_ack's own bytes==0 return (a
+ * bare-FIN round's synthetic 0-byte slice, srvrun_pump_wt_fin_ only) must
+ * not be mistaken for "nothing of ours was hit" the way it legitimately is
+ * for a resp[]/wtsend slot with no in-flight data at all: a 0-byte slice
+ * still needs its own wired_sendsess_ack, or its log entry never clears
+ * and the slot never reaps (wired_sendsess_done keeps seeing it as pending
+ * forever). The count also feeds RFC 9000 13.4.2.1's ECN bound. */
+static u64 srvrun_range_hits(const wired_sendsess* sess, u64 lo, u64 hi) {
+  u64 n = 0;
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
-    if (wired_sendsess_covered(&sess->log[i], lo, hi)) return 1;
-  return 0;
+    n += (u64)wired_sendsess_covered(&sess->log[i], lo, hi);
+  return n;
+}
+
+/* Accumulate one range's newly-acked packets into the step's ECN scratch
+ * (srvrun_conn.ecn_newly/ecn_sent_ms), before wired_sendsess_ack clears
+ * the entries it would count. */
+static void srvrun_ecn_note_acked(srvrun_conn* c, u64 hits, u64 newest_ms) {
+  c->ecn_newly += hits;
+  if (newest_ms > c->ecn_sent_ms) c->ecn_sent_ms = newest_ms;
 }
 
 static void srvrun_cc_range(
     srvrun_conn* c, wired_sendsess* sess, u64 lo, u64 hi, u64 now_ms) {
   u64 newest = 0;
   usz bytes  = wired_sendsess_peek_ack(sess, lo, hi, &newest);
+  u64 hits   = srvrun_range_hits(sess, lo, hi);
+  srvrun_ecn_note_acked(c, hits, newest);
   if (bytes) {
     srvrun_rtt_note(c, now_ms - newest);
     srvrun_hystart_range(c, sess, lo, hi, now_ms);
     cc_on_ack(&c->cc, bytes, newest, now_ms);
-  } else if (!srvrun_cc_range_has_hit(sess, lo, hi)) {
+  } else if (!hits) {
     return;
   }
   wired_sendsess_ack(sess, lo, hi);
@@ -6722,11 +6749,38 @@ static void srvrun_feed_ack_range(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
  * (RFC 9002 6.1's "sent prior to an acknowledged packet" is about the
  * connection's packet number space, not one session's own ACK history;
  * the s3-voice-loss qlog caught exactly this on chat relay streams). */
+/* RFC 9000 13.4.2: validate and consume this step's ECN feedback, only
+ * when the step raised largest_acked (13.4.2.1: an endpoint MUST NOT fail
+ * validation on a reordered ACK that does not). Every packet this server
+ * sends is ECT(0)-marked (wired_udp_ect0_enable on the listen socket), so
+ * l.tx_pn -- 1-RTT packets sealed so far -- bounds the ECT(0) counts the
+ * peer can truthfully report, and the packets the step newly acked
+ * (ecn_newly) bound the increase from below. A step whose ACKs carried no
+ * ECN counts while marked packets are out fails validation instead
+ * (13.4.2.1: the path or peer dropped the marks).
+ * ponytail: ECT marking is a socket-wide IP_TOS, so a failed validation
+ * only stops consuming reports; per-connection unmarking would need a
+ * per-send TOS cmsg if ever required. */
+static void srvrun_feed_ecn(srvrun_conn* c, u64 largest_before, u64 now_ms) {
+  if (c->largest_acked <= largest_before) return;
+  if (!c->l.ecn_ack_seen) {
+    ecn_track_on_missing(&c->ecn, c->l.tx_pn);
+    return;
+  }
+  ecn_track_on_counts(
+      &c->ecn, &c->cc, (ecn_counts){c->l.ecn_ack_ce, c->l.ecn_ack_ect0},
+      c->l.ecn_ack_ect1, c->l.tx_pn, c->ecn_newly, c->ecn_sent_ms, now_ms);
+}
+
 static void srvrun_feed_acks(
     const srvrun_step_ctx* ctx, const srvrun_cfg* cfg, srvrun_conn* c) {
   usz lost;
+  u64 largest_before = c->largest_acked;
+  c->ecn_newly       = 0;
+  c->ecn_sent_ms     = 0;
   for (usz i = 0; i < c->l.ack_n; i++)
     srvrun_feed_ack_range(c, c->l.ack_lo[i], c->l.ack_hi[i], ctx->now_ms);
+  srvrun_feed_ecn(c, largest_before, ctx->now_ms);
   lost = srvrun_reap_losses_all(cfg, c, ctx->now_ms);
   if (lost) cc_on_loss(&c->cc, ctx->now_ms, ctx->now_ms);
 }
@@ -7876,6 +7930,7 @@ static int srvrun_open_slot(
   ctx->st->conns[slot].l.qlog_path  = ctx->cfg->qlog_path;
   ctx->st->conns[slot].l.qlog_group = (u64)slot;
   cc_init_algo(&ctx->st->conns[slot].cc, srvrun_cc_algo(ctx->cfg));
+  ecn_track_init(&ctx->st->conns[slot].ecn);
   hystart_init(&ctx->st->conns[slot].hs);
   rtt_init(&ctx->st->conns[slot].rtt);
   pmtu_init(&ctx->st->conns[slot].pmtu);

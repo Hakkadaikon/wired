@@ -11712,6 +11712,146 @@ static void test_srvrun_ack_ranges_batched_before_loss_pass(void) {
   }
 }
 
+/* --- RFC 9000 13.4.2 ECN validation on the ACK-processing path ---------- */
+
+/* Arm resp[0] with 8 chunks on c, pump them all out (8 ECT(0)-marked 1-RTT
+ * packets in flight) with ECN validation enabled, and return the first pn. */
+static u64 sr_ecn_pump8(srvrun_step_ctx* ctx, srvrun_conn* c, u8* body) {
+  u64 pn0              = c->l.tx_pn;
+  c->cc.cwnd           = 1u << 20;
+  c->resp[0].in_use    = 1;
+  c->resp[0].stream_id = 0;
+  ecn_track_init(&c->ecn);
+  wired_sendsess_arm(&c->resp[0].sess, body, 8 * SRVRUN_CHUNK, SRVRUN_CHUNK);
+  srvrun_pump_sess(ctx, 0);
+  CHECK(wired_sendsess_inflight(&c->resp[0].sess) == 8);
+  return pn0;
+}
+
+/* Stage one step's ACK of [pn0, pn0+7] on c->l with (or without) the ECN
+ * counts a type-0x03 ACK would carry, the way srvloop's collect pass does. */
+static void sr_ecn_ack8(srvrun_conn* c, u64 pn0, u8 seen, u64 ect0, u64 ce) {
+  c->l.ack_lo[0]    = pn0;
+  c->l.ack_hi[0]    = pn0 + 7;
+  c->l.ack_n        = 1;
+  c->l.ecn_ack_seen = seen;
+  c->l.ecn_ack_ect0 = ect0;
+  c->l.ecn_ack_ect1 = 0;
+  c->l.ecn_ack_ce   = ce;
+}
+
+/* RFC 9002 7.1.2 / 8.1: a valid ACK-ECN report whose CE count rose reaches
+ * this connection's congestion controller as one congestion event through
+ * srvrun_feed_acks -- the wire is real (the counts srvloop latched from the
+ * peer's ACK frame), not a unit call on ecn.c. ECN stays enabled. */
+static void test_srvrun_feed_acks_ecn_ce_shrinks_cwnd(void) {
+  static u8     body[8 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
+    u64             pn0 = sr_ecn_pump8(&ctx, &c, body);
+    sr_ecn_ack8(&c, pn0, 1, 7, 1);
+    srvrun_feed_acks(&ctx, &cfg, &c);
+    CHECK(c.cc.in_recovery == 1);
+    CHECK(c.cc.cwnd < (1u << 20));
+    CHECK(c.ecn.enabled == 1);
+    CHECK(c.ecn.prev.ce == 1 && c.ecn.prev.ect0 == 7);
+  }
+}
+
+/* RFC 9000 13.4.2.1: "An endpoint MUST NOT fail ECN validation as a result
+ * of processing an ACK frame that does not increase the largest
+ * acknowledged packet number." A later step re-acking the same range with
+ * regressed counts (a reordered, older ACK) leaves validation enabled and
+ * the accepted counts untouched. */
+static void test_srvrun_feed_acks_stale_ack_never_fails_ecn(void) {
+  static u8     body[8 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
+    u64             pn0 = sr_ecn_pump8(&ctx, &c, body);
+    sr_ecn_ack8(&c, pn0, 1, 7, 1);
+    srvrun_feed_acks(&ctx, &cfg, &c);
+    CHECK(c.ecn.enabled == 1);
+    sr_ecn_ack8(&c, pn0, 1, 3, 0); /* stale: regressed, nothing new acked */
+    srvrun_feed_acks(&ctx, &cfg, &c);
+    CHECK(c.ecn.enabled == 1);
+    CHECK(c.ecn.fail_count == 0);
+    CHECK(c.ecn.prev.ce == 1 && c.ecn.prev.ect0 == 7);
+  }
+}
+
+/* RFC 9000 13.4.2.1 (V-0222/V-0223): 8 ECT(0) packets newly acked but the
+ * peer's counts rose by only 3 -- a suppressed report. Validation fails,
+ * ECN is disabled for the connection and the window is left to loss-based
+ * detection alone (no CE reduction, no ECN growth either way). */
+static void test_srvrun_feed_acks_suppressed_ecn_disables(void) {
+  static u8     body[8 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
+    u64             pn0 = sr_ecn_pump8(&ctx, &c, body);
+    sr_ecn_ack8(&c, pn0, 1, 3, 0);
+    srvrun_feed_acks(&ctx, &cfg, &c);
+    CHECK(c.ecn.enabled == 0);
+    CHECK(c.ecn.fail_count == 1);
+    CHECK(c.cc.in_recovery == 0);
+  }
+}
+
+/* RFC 9000 13.4.2.1: an ACK that newly acknowledges ECT(0) packets but
+ * carries no ECN counts at all (type 0x02) fails validation -- the peer or
+ * the path dropped the marks. */
+static void test_srvrun_feed_acks_missing_ecn_disables(void) {
+  static u8     body[8 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
+    u64             pn0 = sr_ecn_pump8(&ctx, &c, body);
+    sr_ecn_ack8(&c, pn0, 0, 0, 0);
+    srvrun_feed_acks(&ctx, &cfg, &c);
+    CHECK(c.ecn.enabled == 0);
+    CHECK(c.ecn.fail_count == 1);
+    CHECK(c.cc.in_recovery == 0);
+  }
+}
+
 static void test_srvrun_loss_and_retransmit_across_two_responses(void) {
   static u8     body0[(WIRED_SENDSESS_LOG + 4) * SRVRUN_CHUNK];
   static u8     body1[(WIRED_SENDSESS_LOG + 4) * SRVRUN_CHUNK];
@@ -16641,6 +16781,10 @@ void test_srvrun(void) {
   test_srvrun_ku_old_keys_discarded_after_3pto_window();
   test_srvrun_sibling_ack_does_not_lose_other_slot();
   test_srvrun_ack_ranges_batched_before_loss_pass();
+  test_srvrun_feed_acks_ecn_ce_shrinks_cwnd();
+  test_srvrun_feed_acks_stale_ack_never_fails_ecn();
+  test_srvrun_feed_acks_suppressed_ecn_disables();
+  test_srvrun_feed_acks_missing_ecn_disables();
   test_srvrun_loss_and_retransmit_across_two_responses();
   test_srvrun_pmtu_ack_raises_validated();
   test_srvrun_pmtu_ack_outside_range_no_effect();

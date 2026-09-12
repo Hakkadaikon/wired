@@ -4310,7 +4310,39 @@ static void test_srvloop_stream_limit_clamps_to_table(void) {
       WIRED_SRVLOOP_MAX_STREAMS);
 }
 
+/* RFC 9000 13.4.2.1: within one step the latched ACK-ECN counts are those
+ * of the ACK frame with the LARGEST acknowledged packet number, not the
+ * last one opened -- a reordered older ACK (smaller largest, smaller
+ * cumulative counts) opened afterwards must not overwrite them, or the
+ * caller's validation would see a regression that never happened. */
+static void test_srvloop_note_ecn_keeps_largest_ack(void) {
+  static wired_srvloop l;
+  ack_frame            newer = {0}, older = {0}, newest = {0};
+  l.ecn_ack_seen   = 0;
+  newer.n_ranges   = 1;
+  newer.ranges[0]  = (ack_range){10, 0};
+  newer.has_ecn    = 1;
+  newer.ect0       = 10;
+  newer.ce         = 1;
+  older.n_ranges   = 1;
+  older.ranges[0]  = (ack_range){5, 0};
+  older.has_ecn    = 1;
+  older.ect0       = 5;
+  newest.n_ranges  = 1;
+  newest.ranges[0] = (ack_range){12, 0};
+  newest.has_ecn   = 1;
+  newest.ect0      = 11;
+  newest.ce        = 2;
+  srvloop_note_ecn(&l, &newer);
+  srvloop_note_ecn(&l, &older);
+  CHECK(l.ecn_ack_seen == 1);
+  CHECK(l.ecn_ack_ect0 == 10 && l.ecn_ack_ce == 1);
+  srvloop_note_ecn(&l, &newest);
+  CHECK(l.ecn_ack_ect0 == 11 && l.ecn_ack_ce == 2);
+}
+
 void test_srvloop(void) {
+  test_srvloop_note_ecn_keeps_largest_ack();
   test_srvloop_recv_zerortt_opens_with_early_keys();
   test_srvloop_recv_zerortt_refused_without_early_keys();
   test_srvloop_step_zerortt_records_real_pn();
