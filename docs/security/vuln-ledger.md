@@ -1649,8 +1649,8 @@ Counts: `python3 scripts/vulnaudit/ledger_check.py docs/security/vuln-ledger.md`
 - [x] V-0802 S-moqt-parse-4 (draft-ietf-moq-transport-19) AbsoluteRange Group ID arithmetic overflow bounded: if the resulting Group ID would be greater than 2^64 - 1, the endpoint MUST close the sess
       ours: src/app/moqt/ctl/moqctl.c:moqctl_locfilter_take_end_value — verdict: already-safe — test: test_moqctl_locfilter_end_group_overflow_violation — commit: existing — perf: — layer: unit P2 — why: moqctl_locfilter_take_end_value checks end_group_delta > (u64)-1 - start.group and returns MOQCTL_VIOLATION before the arithmetic can wrap, exactly bounding the AbsoluteRange Group ID sum below 2^64.
 
-- [~] V-0838 FUZZ-moqt-2026-09-12 (wired fuzz_moqt) integer-overflow: Object length bounds check `*at + len > buf.n` wraps for a 62-bit varint length, so the cursor rewinds (infinite loop) and the payload span points outside the buffer
-      ours: src/app/moqt/data/moqdata.c:moqdata_obj_skip, moqdata_obj_take_payload — verdict: needs-fix — test: test_moqdata_obj_len_overflow_rejected — commit: — perf: — layer: fuzz+unit P1 — why: reproducer fuzz/timeout-7c687195ccece95c9f76fc7b37502a25929bdce3 hangs the harness; remote DoS / OOB read on any MoQT peer
+- [x] V-0838 FUZZ-moqt-2026-09-12 (wired fuzz_moqt) integer-overflow: Object length bounds check `*at + len > buf.n` wraps for a 62-bit varint length, so the cursor rewinds (infinite loop) and the payload span points outside the buffer
+      ours: src/app/moqt/data/moqdata.c:moqdata_obj_skip, moqdata_obj_take_payload, moqdata_span_copy; src/app/moqt/vi/moqvi.c:moqvi_put — verdict: fixed — test: test_moqdata_obj_take_len_wrap, test_moqdata_obj_take_payload_len_boundary, test_moqdata_obj_take_props_len_boundary, test_moqvi_put_at_capacity_edge; fuzz_moqt 60 s clean with the timeout input as corpus seed — commit: b54af3da — perf: n/a (comparison form only) — layer: fuzz+unit P1 — why: reproducer fuzz/timeout-7c687195ccece95c9f76fc7b37502a25929bdce3 hangs the harness; remote DoS / OOB read on any MoQT peer
 
 ## IP / UDP / AF_XDP I/O
 
