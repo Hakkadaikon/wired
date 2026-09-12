@@ -555,6 +555,19 @@ typedef struct {
   u64 ack_lo[32]; /**< range lows, parallel with ack_hi */
   u64 ack_hi[32]; /**< range highs, ack_hi[0] from the frame's largest */
   usz ack_n;      /**< ranges recorded this step */
+  /** RFC 9000 19.3.2: the ECN counts of the type-0x03 ACK with the largest
+   * acknowledged packet number opened this step (13.4.2.1: a reordered
+   * older ACK must not overwrite them), reset with ack_n. ecn_ack_seen == 0
+   * with ack_n > 0 means this step's ACKs carried no ECN feedback -- the
+   * caller's ECN validation (RFC 9000 13.4.2) consumes both cases. These
+   * are the PEER's counts about packets WE sent; the ecn_ect0/ect1/ce
+   * members further down are the opposite direction (our own receive-side
+   * running totals reported back in our ACKs). */
+  u8  ecn_ack_seen;    /**< 1 once a type-0x03 ACK was opened this step */
+  u64 ecn_ack_largest; /**< largest acknowledged pn of the ACK latched */
+  u64 ecn_ack_ect0;    /**< its cumulative ECT(0) count */
+  u64 ecn_ack_ect1;    /**< its cumulative ECT(1) count */
+  u64 ecn_ack_ce;      /**< its cumulative ECN-CE count */
   /** RFC 9221 5: received QUIC DATAGRAM frame payloads queued for a future
    * consumer to drain (Phase 7b Slice 2), oldest first. Filled by
    * gather_rx_datagrams in dispatch.c alongside the request/WT-stream

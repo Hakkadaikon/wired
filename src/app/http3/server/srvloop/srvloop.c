@@ -107,6 +107,11 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->peer_closed                = 0;
   l->resp_external              = 0;
   l->ack_n                      = 0;
+  l->ecn_ack_seen               = 0;
+  l->ecn_ack_largest            = 0;
+  l->ecn_ack_ect0               = 0;
+  l->ecn_ack_ect1               = 0;
+  l->ecn_ack_ce                 = 0;
   l->rx_datagram_n              = 0;
   l->we_advertised_max_datagram = 0;
   l->datagram_violation         = 0;
@@ -843,12 +848,33 @@ static void srvloop_push_ack(wired_srvloop* l, u64 lo, u64 hi) {
   l->ack_n++;
 }
 
+/* 1 if f's ECN counts should replace the step's latched ones: a type-0x03
+ * ACK, and none latched yet or f acknowledges at least as large a packet
+ * number (RFC 9000 13.4.2.1 -- a reordered older ACK carries smaller
+ * cumulative counts and must not be mistaken for a regression). */
+static int srvloop_ecn_newer(const wired_srvloop* l, const ack_frame* f) {
+  return f->has_ecn &&
+         (!l->ecn_ack_seen || f->ranges[0].hi >= l->ecn_ack_largest);
+}
+
+/* Latch a type-0x03 ACK's ECN counts for the caller's per-step ECN
+ * validation (RFC 9000 13.4.2) -- counts are cumulative, largest wins. */
+static void srvloop_note_ecn(wired_srvloop* l, const ack_frame* f) {
+  if (!srvloop_ecn_newer(l, f)) return;
+  l->ecn_ack_seen    = 1;
+  l->ecn_ack_largest = f->ranges[0].hi;
+  l->ecn_ack_ect0    = f->ect0;
+  l->ecn_ack_ect1    = f->ect1;
+  l->ecn_ack_ce      = f->ce;
+}
+
 /* Decode one ACK frame and record its ranges (RFC 9000 19.3). */
 static void srvloop_take_ack(wired_srvloop* l, const u8* buf, usz n) {
   ack_frame f;
   if (ack_decode(buf, n, &f) == 0) return;
   for (usz i = 0; i < f.n_ranges; i++)
     srvloop_push_ack(l, f.ranges[i].lo, f.ranges[i].hi);
+  srvloop_note_ecn(l, &f);
 }
 
 /* Surface every ACK frame in the opened payload to the caller's per-step
@@ -1002,6 +1028,7 @@ int wired_srvloop_step(
   int       r;
   pktlist   plist             = {pkts, offs, lens, WIRED_SRVLOOP_MAXPKTS};
   conn->l->ack_n              = 0;
+  conn->l->ecn_ack_seen       = 0;
   conn->l->done_n             = 0;
   conn->l->incomplete_n       = 0;
   conn->l->frame_unexpected_n = 0;
