@@ -147,8 +147,10 @@ static void fe6_reduce_step(u64 w[12], const p384_fe m, usz sh) {
   if (wide6_ge_shifted(w, m, sh)) wide6_sub_shifted(w, m, sh);
 }
 
+/* Starts at shift 384: with a,b < 2^384 (not necessarily < m) the product
+ * can reach m<<384, and m > 2^383 keeps that quotient digit at most 1. */
 static void fe6_reduce_wide(p384_fe r, u64 w[12], const p384_fe m) {
-  for (usz sh = 384; sh-- > 0;) fe6_reduce_step(w, m, sh);
+  for (usz sh = 385; sh-- > 0;) fe6_reduce_step(w, m, sh);
   for (usz i = 0; i < 6; i++) r[i] = w[i];
 }
 

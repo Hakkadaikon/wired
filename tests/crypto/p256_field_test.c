@@ -169,6 +169,39 @@ static void test_p256_field_mont_inv_n_edges(void) {
   }
 }
 
+/* Carry propagation at every limb boundary (CVE-2021-4160 class): all-ones
+ * limbs through the schoolbook rows and the Montgomery CIOS rows, pinned to
+ * values computed with arbitrary-precision arithmetic.
+ *   (2^256-1)^2 mod p, and mont_mul(m-1, m-1) = (m-1)^2 * 2^-256 = 2^-256
+ * mod m for both the prime p and the order n. */
+static void test_p256_field_mul_all_ones_limbs(void) {
+  static const fe ones = {
+      0xffffffffffffffffULL, 0xffffffffffffffffULL, 0xffffffffffffffffULL,
+      0xffffffffffffffffULL};
+  static const fe want = {
+      0x0000000000000002ULL, 0xfffffffdffffffffULL, 0xfffffffffffffffeULL,
+      0x00000002ffffffffULL};
+  static const fe rinv_p = {
+      0x0000000300000000ULL, 0x00000001fffffffeULL, 0xfffffffd00000002ULL,
+      0xfffffffe00000003ULL};
+  static const fe rinv_n = {
+      0xce1bc8f79c197c79ULL, 0xbadef3e243566fafULL, 0x07f8b6041e607725ULL,
+      0x60d066334905c1e9ULL};
+  fe r, pm1, nm1;
+  p256_fp_mul(r, (fpab){ones, ones}, p256_p);
+  CHECK(p256_fp_eq(r, want));
+  for (usz i = 0; i < 4; i++) {
+    pm1[i] = p256_p[i];
+    nm1[i] = p256_n[i];
+  }
+  pm1[0] -= 1;
+  nm1[0] -= 1;
+  mont_mul(r, (fpab){pm1, pm1}, &p256_mont_p);
+  CHECK(p256_fp_eq(r, rinv_p));
+  mont_mul(r, (fpab){nm1, nm1}, &p256_mont_n);
+  CHECK(p256_fp_eq(r, rinv_n));
+}
+
 void test_p256_field(void) {
   test_p256_field_inv();
   test_p256_field_addsub();
@@ -177,4 +210,5 @@ void test_p256_field(void) {
   test_p256_field_mont_inv_n();
   test_p256_field_inv_p_edges();
   test_p256_field_mont_inv_n_edges();
+  test_p256_field_mul_all_ones_limbs();
 }
