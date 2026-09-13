@@ -2,6 +2,7 @@
 
 #include "common/bytes/span/span.h"
 #include "common/bytes/varint/varint.h"
+#include "transport/packet/frame/frame/stream_bounds.h"
 
 /* Append len bytes at out->len. Returns the new total or 0 if no room. */
 static usz write_bytes(wired_obuf* out, const u8* src, u64 len) {
@@ -111,11 +112,17 @@ static int take_stream_hdr(wired_span in, usz* off, stream_frame* f) {
   return take_opt_length(in, off, &f->length);
 }
 
+/* RFC 9000 19.8 / 4.5: the header parsed and its final size (offset +
+ * length) within 2^62-1; a larger sum is a FRAME_ENCODING_ERROR. */
+static int take_stream_hdr_bounded(wired_span in, usz* off, stream_frame* f) {
+  return take_stream_hdr(in, off, f) && stream_bounds_ok(f->offset, f->length);
+}
+
 usz frame_get_stream(const u8* buf, usz n, stream_frame* f) {
   wired_span in  = wired_span_of(buf, n);
   usz        off = 1; /* type byte */
   f->fin         = (buf[0] & STREAM_FIN) ? 1 : 0;
-  if (!take_stream_hdr(in, &off, f)) return 0;
+  if (!take_stream_hdr_bounded(in, &off, f)) return 0;
   f->data = buf + off;
   return view_end(in, off, f->length);
 }

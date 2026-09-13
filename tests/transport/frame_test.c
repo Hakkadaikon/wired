@@ -1,4 +1,5 @@
 #include "test.h"
+#include "transport/packet/frame/frame/stream_bounds.h"
 
 static void test_frame_simple(void) {
   u8 buf[4];
@@ -119,6 +120,27 @@ static void test_frame_stream_implicit_length(void) {
   CHECK(f.data[0] == 0xaa && f.data[1] == 0xbb);
 }
 
+/* RFC 9000 19.8 / 4.5: a STREAM frame whose offset + length exceeds 2^62-1
+ * is a FRAME_ENCODING_ERROR, so the decoder rejects it; a sum landing exactly
+ * on 2^62-1 is still legal. */
+static void test_frame_stream_final_size_overflow_rejected(void) {
+  const u8     payload[1] = {0x5a};
+  u8           buf[32];
+  stream_frame out;
+  stream_frame in = {
+      .stream_id = 4,
+      .offset    = MAX_OFFSET - 1,
+      .length    = 1,
+      .data      = payload,
+      .fin       = 0};
+  usz w = frame_put_stream(buf, sizeof buf, &in);
+  CHECK(w != 0);
+  CHECK(frame_get_stream(buf, w, &out) == 0);
+  in.offset = MAX_OFFSET - 2; /* boundary: final size == 2^62-1 */
+  w         = frame_put_stream(buf, sizeof buf, &in);
+  CHECK(frame_get_stream(buf, w, &out) == w);
+}
+
 void test_frame(void) {
   test_frame_simple();
   test_frame_crypto_roundtrip();
@@ -126,5 +148,6 @@ void test_frame(void) {
   test_frame_stream();
   test_frame_stream_truncated();
   test_frame_stream_implicit_length();
+  test_frame_stream_final_size_overflow_rejected();
   test_frame_conn_close();
 }
