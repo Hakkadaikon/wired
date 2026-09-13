@@ -21,12 +21,12 @@ void ec_set(ec_point* r, const ec_point* p) {
 /* y^2 mod p. */
 static void rhs_lhs(p256_fe lhs, p256_fe rhs, const ec_point* p) {
   p256_fe x2, three_x, three = {3, 0, 0, 0};
-  p256_fp_sqr(lhs, p->y, p256_p);                    /* y^2 */
-  p256_fp_sqr(x2, p->x, p256_p);                     /* x^2 */
-  p256_fp_mul(rhs, (fpab){x2, p->x}, p256_p);        /* x^3 */
-  p256_fp_mul(three_x, (fpab){three, p->x}, p256_p); /* 3x  */
-  p256_fp_sub(rhs, (fpab){rhs, three_x}, p256_p);    /* x^3 - 3x */
-  p256_fp_add(rhs, (fpab){rhs, p256_b}, p256_p);     /* + b */
+  p256_fp_sqr_p(lhs, p->y);                       /* y^2 */
+  p256_fp_sqr_p(x2, p->x);                        /* x^2 */
+  p256_fp_mul_p(rhs, x2, p->x);                   /* x^3 */
+  p256_fp_mul_p(three_x, three, p->x);            /* 3x  */
+  p256_fp_sub(rhs, (fpab){rhs, three_x}, p256_p); /* x^3 - 3x */
+  p256_fp_add(rhs, (fpab){rhs, p256_b}, p256_p);  /* + b */
 }
 
 int ec_on_curve(const ec_point* p) {
@@ -41,19 +41,19 @@ static void slope_add(p256_fe lam, const ec_point* p, const ec_point* q) {
   p256_fe num, den, inv;
   p256_fp_sub(num, (fpab){q->y, p->y}, p256_p);
   p256_fp_sub(den, (fpab){q->x, p->x}, p256_p);
-  p256_fp_inv(inv, den, p256_p);
-  p256_fp_mul(lam, (fpab){num, inv}, p256_p);
+  p256_fp_inv_p(inv, den);
+  p256_fp_mul_p(lam, num, inv);
 }
 
 /* lambda = (3x^2 - 3) / (2y). */
 static void slope_double(p256_fe lam, const ec_point* p) {
   p256_fe x2, num, den, inv, three = {3, 0, 0, 0};
-  p256_fp_sqr(x2, p->x, p256_p);
-  p256_fp_mul(num, (fpab){three, x2}, p256_p);
+  p256_fp_sqr_p(x2, p->x);
+  p256_fp_mul_p(num, three, x2);
   p256_fp_sub(num, (fpab){num, three}, p256_p); /* 3x^2 - 3 (a=-3) */
   p256_fp_add(den, (fpab){p->y, p->y}, p256_p);
-  p256_fp_inv(inv, den, p256_p);
-  p256_fp_mul(lam, (fpab){num, inv}, p256_p);
+  p256_fp_inv_p(inv, den);
+  p256_fp_mul_p(lam, num, inv);
 }
 
 /* Slope lambda and the source coordinates of an affine addition; copies so
@@ -65,11 +65,11 @@ typedef struct {
 /* From the slope and source x-coords, produce r = (x3,y3). */
 static void from_slope(ec_point* r, const p256_slope* sl) {
   p256_fe x3, t;
-  p256_fp_sqr(x3, sl->lam, p256_p);
+  p256_fp_sqr_p(x3, sl->lam);
   p256_fp_sub(x3, (fpab){x3, sl->x1}, p256_p);
   p256_fp_sub(x3, (fpab){x3, sl->x2}, p256_p); /* lam^2 - x1 - x2 */
   p256_fp_sub(t, (fpab){sl->x1, x3}, p256_p);
-  p256_fp_mul(t, (fpab){sl->lam, t}, p256_p);
+  p256_fp_mul_p(t, sl->lam, t);
   p256_fp_sub(r->y, (fpab){t, sl->y1}, p256_p); /* lam(x1-x3) - y1 */
   p256_fp_set(r->x, x3);
   r->inf = 0;
