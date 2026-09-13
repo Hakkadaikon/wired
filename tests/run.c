@@ -1427,6 +1427,7 @@ int main(void) {
   test_ch_ext_finds_alpn_and_sni();
   test_ch_ext_absent_returns_zero();
   test_ch_ext_truncated_returns_zero();
+  test_chguard();
   test_negotiate_selects_h3_from_clienthello();
   test_negotiate_rejects_non_h3();
   test_negotiate_h3_among_others();
