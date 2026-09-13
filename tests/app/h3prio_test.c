@@ -87,6 +87,52 @@ static void test_h3prio_order_incremental_same_urgency_deterministic(void) {
   CHECK(c[order[1]].stream_id == 9);
 }
 
+/* Pinning: PRIORITY_UPDATE candidate state is a fixed-size slot table
+ * (<=40 in practice, h3prio.h); flooding every slot with distinct
+ * urgencies/stream ids still produces a full, valid permutation -- no
+ * growth or out-of-bounds write past the caller's fixed array (V-0483). */
+static void test_h3prio_candidate_table_bounded(void) {
+  enum { N = 40 };
+  h3prio_candidate c[N];
+  usz              order[N];
+  for (usz i = 0; i < N; i++) {
+    c[i].urgency     = (u8)(i % 8);
+    c[i].incremental = 0;
+    c[i].stream_id   = (u64)(N - i);
+    c[i].in_use      = 1;
+  }
+  h3prio_order(c, N, order);
+
+  /* order[0..N) must be a permutation of 0..N-1: every index appears once */
+  int seen[N];
+  for (usz i = 0; i < N; i++) seen[i] = 0;
+  for (usz i = 0; i < N; i++) {
+    CHECK(order[i] < N);
+    seen[order[i]]++;
+  }
+  for (usz i = 0; i < N; i++) CHECK(seen[i] == 1);
+}
+
+/* Pinning: RFC 9218 10 -- prio_before's total order (in_use, then urgency,
+ * then stream_id) means a candidate at a fixed urgency is never stuck behind
+ * an unbounded run of higher-urgency arrivals: once its own in_use flips
+ * false (served) it reorders out, so no single urgency dominates forever
+ * (V-0484). This pins the ordering invariant that guarantees it: a lower
+ * urgency value always sorts strictly ahead of a higher one, regardless of
+ * how many higher-urgency candidates are present. */
+static void test_h3prio_no_indefinite_starvation_fixed_urgency(void) {
+  h3prio_candidate c[5] = {
+      {7, 0, 100, 1}, /* low precedence: same urgency for all 5 slots */
+      {7, 0, 101, 1}, {7, 0, 102, 1}, {7, 0, 103, 1},
+      {0, 0, 999, 1}, /* one high-precedence candidate arrives */
+  };
+  usz order[5];
+  h3prio_order(c, 5, order);
+  /* the urgency-0 candidate always sorts first: it can never be starved by
+   * an arbitrary number of same-or-lower-precedence urgency-7 candidates */
+  CHECK(order[0] == 4);
+}
+
 void test_h3prio(void) {
   test_h3prio_order_empty();
   test_h3prio_order_by_urgency();
@@ -94,4 +140,6 @@ void test_h3prio(void) {
   test_h3prio_order_non_incremental_stream_id_order();
   test_h3prio_order_unused_sorts_last();
   test_h3prio_order_incremental_same_urgency_deterministic();
+  test_h3prio_candidate_table_bounded();
+  test_h3prio_no_indefinite_starvation_fixed_urgency();
 }

@@ -936,6 +936,150 @@ static void test_reqdrive_recv_get_dyn_null_table_matches_static_only(void) {
   CHECK(rd_eq(r.authority, r.authority_len, "curl.test", 9));
 }
 
+/* Pinning: GHSA-g754-hx8w-x2g6-class resource-exhaustion -- a HEADERS field
+ * section whose literal value exceeds the production scratch cap
+ * (WIRED_H3_MAX_FIELD_SECTION, the same size srvloop's req_scratch uses)
+ * must fail decode rather than truncate/over-allocate (V-0422). */
+static void test_h3reqdrive_recv_get_oversized_headers_rejected(void) {
+  static u8 big_value[WIRED_H3_MAX_FIELD_SECTION + 64];
+  for (usz i = 0; i < sizeof big_value; i++) big_value[i] = (u8)('a' + i % 26);
+
+  static u8            fs[WIRED_H3_MAX_FIELD_SECTION + 256];
+  static u8            req[WIRED_H3_MAX_FIELD_SECTION + 512];
+  static u8            scratch[WIRED_H3_MAX_FIELD_SECTION];
+  usz                  off;
+  usz                  req_len = 0;
+  wired_h3reqdrive_req r;
+  qpack_prefix         pfx = {0, 0, 0};
+  qpack_field          f   = {
+      wired_span_of((const u8*)"x-oversized", 11),
+      wired_span_of(big_value, sizeof big_value)};
+
+  off = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += qpack_indexed_encode(
+      wired_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
+  off += qpack_literal_name_encode(
+      wired_mspan_of(fs + off, sizeof fs - off), 0, &f);
+  {
+    /* h3conn_send_request's own 1500-byte frame buffer cannot carry a
+     * section this large, so frame it by hand. */
+    static u8  h3[WIRED_H3_MAX_FIELD_SECTION + 320];
+    wired_obuf hob = {h3, sizeof h3, 0};
+    usz h3_len = h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, off));
+    CHECK(h3_len != 0);
+    CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof req, &req_len));
+  }
+  CHECK(!wired_h3reqdrive_recv_get(
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
+      &r));
+}
+
+/* Pinning: GHSA-vvgj-x9jq-8cj9-class resource-exhaustion -- a TRAILER field
+ * section decoding into an oversized value must also fail decode against
+ * the same fixed-cap scratch, not just the leading HEADERS section
+ * (V-0421). */
+static void test_h3reqdrive_trailer_oversized_rejected(void) {
+  static u8 big_value[WIRED_H3_MAX_FIELD_SECTION + 64];
+  for (usz i = 0; i < sizeof big_value; i++) big_value[i] = (u8)('b' + i % 26);
+
+  static u8   fs[64], tfs[WIRED_H3_MAX_FIELD_SECTION + 256];
+  static u8   h3[WIRED_H3_MAX_FIELD_SECTION + 512];
+  static u8   req[WIRED_H3_MAX_FIELD_SECTION + 1024];
+  static u8   scratch[WIRED_H3_MAX_FIELD_SECTION];
+  usz         fs_len  = curl_field_section(fs);
+  usz         tfs_len = 0;
+  usz         h3_len = 0, req_len = 0;
+  const u8    body[] = {'h', 'i'};
+  wired_obuf  hob;
+  qpack_field f = {
+      wired_span_of((const u8*)"x-oversized-trailer", 19),
+      wired_span_of(big_value, sizeof big_value)};
+  {
+    qpack_prefix tpfx = {0, 0, 0};
+    tfs_len           = qpack_prefix_encode(tfs, sizeof tfs, &tpfx);
+    tfs_len += qpack_literal_name_encode(
+        wired_mspan_of(tfs + tfs_len, sizeof(tfs) - tfs_len), 0, &f);
+  }
+  hob    = (wired_obuf){h3, sizeof h3, 0};
+  h3_len = h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  hob    = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
+  h3_len += h3_frame_put(&hob, H3_FRAME_DATA, wired_span_of(body, sizeof body));
+  hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
+  h3_len += h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(tfs, tfs_len));
+  CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof req, &req_len));
+
+  CHECK(!wired_h3reqdrive_trailer_ok(
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch)));
+}
+
+/* Pinning: RFC 9114 10.5.1 -- regardless of what a peer advertises, this
+ * server's own field-section decode buffer is a hard fixed 2048-byte
+ * scratch; a section requiring more than WIRED_H3_MAX_FIELD_SECTION is
+ * structurally rejected (V-0450). */
+static void test_h3_field_section_over_2048_rejected(void) {
+  static u8 big_value[WIRED_H3_MAX_FIELD_SECTION + 1];
+  for (usz i = 0; i < sizeof big_value; i++) big_value[i] = (u8)'x';
+
+  static u8            fs[WIRED_H3_MAX_FIELD_SECTION + 256];
+  static u8            req[WIRED_H3_MAX_FIELD_SECTION + 512];
+  static u8            scratch[WIRED_H3_MAX_FIELD_SECTION];
+  usz                  off;
+  usz                  req_len = 0;
+  wired_h3reqdrive_req r;
+  qpack_prefix         pfx = {0, 0, 0};
+  qpack_field          f   = {
+      wired_span_of((const u8*)"x-limit", 7),
+      wired_span_of(big_value, sizeof big_value)};
+
+  off = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += qpack_indexed_encode(wired_mspan_of(fs + off, sizeof fs - off), 17, 1);
+  off += qpack_literal_name_encode(
+      wired_mspan_of(fs + off, sizeof fs - off), 0, &f);
+  {
+    /* h3conn_send_request's own 1500-byte frame buffer cannot carry a
+     * section this large, so frame it by hand. */
+    static u8  h3[WIRED_H3_MAX_FIELD_SECTION + 320];
+    wired_obuf hob = {h3, sizeof h3, 0};
+    usz h3_len = h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, off));
+    CHECK(h3_len != 0);
+    CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof req, &req_len));
+  }
+  CHECK(!wired_h3reqdrive_recv_get(
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
+      &r));
+}
+
+/* Pinning: CVE-2024-31079-class stack-overflow -- find_headers walks the
+ * request stream's frames in a flat while-loop (request_parse.c), not
+ * recursively, so a flood of skipped (GREASE) frames ahead of HEADERS costs
+ * only linear stack-free iteration, never unbounded call depth (V-0431). */
+static void test_h3reqdrive_deeply_nested_frames_no_stack_overflow(void) {
+  enum { N = 2000 };
+  static u8            fs[64];
+  static u8            h3[N * 24 + 256];
+  static u8            req[N * 24 + 512];
+  static u8            scratch[128];
+  usz                  fs_len = curl_field_section(fs);
+  usz                  h3_len = 0, req_len = 0;
+  const u8             body[] = {'b', 'o', 'd', 'y'};
+  wired_h3reqdrive_req r;
+  wired_obuf           hob;
+
+  for (usz i = 0; i < N; i++) h3_len += put_grease_frame(h3 + h3_len, 24);
+
+  hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
+  h3_len += h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
+  h3_len += h3_frame_put(&hob, H3_FRAME_DATA, wired_span_of(body, sizeof body));
+  CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof req, &req_len));
+
+  CHECK(wired_h3reqdrive_recv_get(
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
+      &r));
+  CHECK(rd_eq(r.path, r.path_len, "/get", 4));
+  CHECK(rd_eq(r.body, r.body_len, "body", 4));
+}
+
 void test_h3reqdrive(void) {
   test_reqdrive_priority_header();
   test_reqdrive_origin_header();
@@ -971,4 +1115,8 @@ void test_h3reqdrive(void) {
   test_reqdrive_no_cookie();
   test_reqdrive_push_promise_rejected();
   test_reqdrive_http2_reserved_rejected();
+  test_h3reqdrive_recv_get_oversized_headers_rejected();
+  test_h3reqdrive_trailer_oversized_rejected();
+  test_h3_field_section_over_2048_rejected();
+  test_h3reqdrive_deeply_nested_frames_no_stack_overflow();
 }

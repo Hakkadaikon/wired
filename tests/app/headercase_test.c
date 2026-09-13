@@ -79,6 +79,33 @@ static void test_header_te_ok(void) {
   CHECK(h3_header_te_ok((const u8*)"", 0) == 0);
 }
 
+/* Pinning: RFC 9114 4.3 -- any uppercase ASCII letter in a field name makes
+ * it invalid for downgrade and must be rejected (V-0442). */
+static void test_h3_header_name_uppercase_rejected(void) {
+  CHECK(h3_header_name_ok((const u8*)"Content-Type", 12) == 0);
+  CHECK(h3_header_name_ok((const u8*)":Path", 5) == 0);
+  CHECK(h3_header_name_ok((const u8*)"content-type", 12) == 1);
+}
+
+/* Pinning: RFC 9114 10.3 -- CR/LF/NUL anywhere in a decoded field name or
+ * value must be rejected (V-0442). */
+static void test_h3_header_bytes_crlf_nul_rejected(void) {
+  CHECK(h3_header_bytes_ok((const u8*)"foo\rbar", 7) == 0);
+  CHECK(h3_header_bytes_ok((const u8*)"foo\nbar", 7) == 0);
+  u8 buf[] = {'f', 'o', 'o', 0x00, 'b', 'a', 'r'};
+  CHECK(h3_header_bytes_ok(buf, sizeof buf) == 0);
+  CHECK(h3_header_bytes_ok((const u8*)"content-type", 12) == 1);
+}
+
+/* Pinning: CVE-2022-4925-class header injection -- CR/LF/NUL bytes and the
+ * HTTP/1.1 connection-specific/Transfer-Encoding field names must all be
+ * rejected before a decoded field line is trusted (V-0427). */
+static void test_h3reqdrive_forbidden_header_bytes_rejected(void) {
+  CHECK(h3_header_bytes_ok((const u8*)"evil\r\nSet-Cookie: x", 20) == 0);
+  CHECK(h3_header_name_forbidden((const u8*)"transfer-encoding", 17) == 1);
+  CHECK(h3_header_name_forbidden((const u8*)"connection", 10) == 1);
+}
+
 void test_headercase(void) {
   test_headercase_lower();
   test_headercase_upper();
@@ -91,4 +118,7 @@ void test_headercase(void) {
   test_headername_connection_specific();
   test_headername_forbidden_ok();
   test_header_te_ok();
+  test_h3_header_name_uppercase_rejected();
+  test_h3_header_bytes_crlf_nul_rejected();
+  test_h3reqdrive_forbidden_header_bytes_rejected();
 }
