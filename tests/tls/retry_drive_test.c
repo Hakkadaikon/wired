@@ -87,9 +87,38 @@ static void test_retry_already(void) {
   CHECK(retry_already(1) == 1);
 }
 
+/* GHSA-hvhj-4r52-8568-class (neqo-transport) integer underflow: retry_parse's
+ * token/tag split computes tag_off = buf.n - RETRY_TAG_LEN, then rejects if
+ * the CIDs already consumed past that point (off > tag_off) rather than
+ * underflowing into a huge token_len. At the exact zero-length-CID boundary
+ * (23 bytes: 5 + 1 + 1 + RETRY_TAG_LEN) it parses cleanly with token_len==0;
+ * with non-empty CIDs that leave no room for the 16-byte tag, it is rejected
+ * instead of wrapping/accepting a bogus split. */
+static void test_retry_parse_length_underflow(void) {
+  u8 pkt[23] = {0xF0, 0, 0, 0, 1, /* version */
+                0,                /* dcid_len = 0 */
+                0};               /* scid_len = 0 */
+  /* remaining 16 bytes are the tag; token_len works out to 0. */
+  retry_packet r;
+  CHECK(retry_parse(pkt, sizeof(pkt), &r) == sizeof(pkt));
+  CHECK(r.token_len == 0);
+
+  /* one byte short of the head gate's minimum: rejected outright. */
+  CHECK(retry_parse(pkt, sizeof(pkt) - 1, &r) == 0);
+
+  /* 1-byte CIDs at n=24: off (9) lands past tag_off (8), no room left for
+   * the tag -- must be rejected, not accepted with a wrapped/huge
+   * token_len. */
+  u8 pkt2[24] = {0xF0, 0,    0, 0, 1, /* version */
+                 1,    0xAA,          /* dcid_len=1, dcid byte */
+                 1,    0xBB};         /* scid_len=1, scid byte */
+  CHECK(retry_parse(pkt2, sizeof(pkt2), &r) == 0);
+}
+
 void test_retry_drive(void) {
   test_retry_process_ok();
   test_retry_process_bad_tag();
   test_retry_process_short();
   test_retry_already();
+  test_retry_parse_length_underflow();
 }

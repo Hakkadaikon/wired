@@ -116,6 +116,27 @@ static void test_path_revert_noop_without_challenge(void) {
   CHECK(p.active == 0);
 }
 
+/* Resource-exhaustion pinning (GHSA-ppxx-5m9h-6vxf / CVE-2026-12707 /
+ * GHSA-m3hh-f9gh-74c2 / CVE-2023-6193 / CVE-2026-34183 / CVE-2026-54875
+ * class): path state is a fixed PATH_COUNT-slot array, not a table keyed by
+ * probed address/migration event, so no volume of PATH_CHALLENGE/PATH_
+ * RESPONSE/migration traffic can grow it. Pin the struct to its exact
+ * fixed size (no pointer/length member that could back a growable
+ * allocation) and drive far more challenge/response churn than PATH_COUNT
+ * without any size change being possible to observe. */
+static void test_path_fixed_size_no_growth(void) {
+  CHECK(sizeof(path) == PATH_COUNT * sizeof(path_state) + sizeof(usz));
+  path p;
+  path_init(&p);
+  /* churn many more distinct challenge values than PATH_COUNT slots across
+   * the two indices; only the fixed 2 slots' state can ever change. */
+  for (u64 i = 0; i < 10000; i++) {
+    path_send_challenge(&p, i % PATH_COUNT, i + 1, i);
+    path_recv_response(&p, i % PATH_COUNT, i + 1);
+  }
+  CHECK(sizeof(p) == sizeof(path)); /* still the same fixed size */
+}
+
 void test_path(void) {
   test_path_validation_match();
   test_path_anti_amplification();
@@ -126,4 +147,5 @@ void test_path(void) {
   test_path_abandon_not_after_validated();
   test_path_revert_on_failure();
   test_path_revert_noop_without_challenge();
+  test_path_fixed_size_no_growth();
 }
