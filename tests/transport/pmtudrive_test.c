@@ -284,6 +284,34 @@ static void test_pmtudrive_next_probe_allowed_after_min_interval(void) {
   CHECK(r.pmtu_probe_held == 1);
 }
 
+/* Pinning: GHSA-px8v-pp82-rcvr-class off-path ICMP PMTU spoofing -- this SDK
+ * never reads ICMP at all; the only input connrunner_pmtu_reconcile trusts
+ * is its OWN outstanding probe's pn matched against this round's QUIC-level
+ * ack/loss data. An ack for a largest_acked that does not cover the
+ * outstanding probe's pn, and a lost-set that does not name it either, must
+ * leave the probe unresolved -- there is no path for a mismatched/forged pn
+ * to influence pmtu state (V-0489). */
+static void test_pmtu_reconcile_ignores_unmatched_probe(void) {
+  connrunner r;
+  pd_mk_runner(&r);
+  u8         pkt[PMTU_MAX + 64];
+  wired_obuf ob = obuf_of(pkt, sizeof(pkt));
+  CHECK(connrunner_pmtu_build_probe(&r, &ob, 0) != 0);
+  u64 outstanding_pn = r.pmtu_probe_pn;
+
+  /* no ack this round covers the outstanding probe's pn (a fresh pn space
+   * starts at 0, so "below the probe's pn" cannot be expressed without
+   * underflow -- has_ack=0 is the same "not acked" input either way). */
+  r.io.disp.has_ack = 0;
+  /* a lost-set naming an unrelated pn, never the outstanding one. */
+  u64 unrelated_lost[1] = {outstanding_pn + 1000};
+
+  connrunner_pmtu_reconcile(&r, unrelated_lost, 1, 0);
+  CHECK(r.pmtu_probe_held == 1); /* still outstanding, untouched */
+  CHECK(r.pmtu.validated == PMTU_BASE);
+  CHECK(r.pmtu_probe_pn == outstanding_pn);
+}
+
 void test_pmtudrive(void) {
   test_pmtudrive_build_probe_ping_plus_padding();
   test_pmtudrive_probe_frame_is_ping_plus_padding_only();
@@ -303,4 +331,5 @@ void test_pmtudrive(void) {
   test_pmtudrive_build_probe_resumes_after_raise_timer();
   test_pmtudrive_next_probe_blocked_within_min_interval();
   test_pmtudrive_next_probe_allowed_after_min_interval();
+  test_pmtu_reconcile_ignores_unmatched_probe();
 }

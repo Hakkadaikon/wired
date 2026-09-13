@@ -56,10 +56,29 @@ static void test_flow_blocked(void) {
   CHECK(flow_send_blocked(&f, 50) == 0); /* room again */
 }
 
+/* Resource-exhaustion pinning (quiche/quinn-proto/s2n-quic/quicly CVE class):
+ * reasm is a fixed REASM_CAP=4096 byte/have array, not a growable per-range
+ * allocation; an insert whose [offset, offset+len) spills past the fixed
+ * buffer must be rejected outright, regardless of how large offset/len (an
+ * attacker-controlled STREAM/CRYPTO frame field) are. */
+static void test_reasm_insert_rejects_over_cap(void) {
+  reasm r;
+  reasm_init(&r);
+  u8 byte = 1;
+  /* one byte at the last in-bounds offset: fits. */
+  CHECK(reasm_insert(&r, REASM_CAP - 1, wired_span_of(&byte, 1)) == 1);
+  /* one byte at the first out-of-bounds offset: rejected. */
+  CHECK(reasm_insert(&r, REASM_CAP, wired_span_of(&byte, 1)) == 0);
+  /* a huge attacker-controlled offset (well within the 62-bit varint range)
+   * is rejected the same way, not wrapped/truncated into bounds. */
+  CHECK(reasm_insert(&r, (u64)1 << 40, wired_span_of(&byte, 1)) == 0);
+}
+
 void test_flow(void) {
   test_flow_send();
   test_flow_recv();
   test_flow_blocked();
   test_reasm_contiguous_only();
   test_reasm_idempotent();
+  test_reasm_insert_rejects_over_cap();
 }

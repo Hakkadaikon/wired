@@ -81,8 +81,28 @@ static void test_reset_stream_at(void) {
   CHECK(reset_stream_at_decode(buf, w, &out) == 0);
 }
 
+/* Pinning: CVE-2024-34362-class (Envoy EnvoyQuicServerStream) use-after-free
+ * -- a RESET_STREAM arriving with no preceding STOP_SENDING on that stream
+ * must decode cleanly on its own; reset_stream_decode has no dependency on
+ * stop_sending state at all (independent decoders, independent frames), so
+ * there is no ordering requirement to violate (V-0436). */
+static void test_srvloop_reset_stream_without_stop_sending_no_crash(void) {
+  reset_stream_frame in = {
+      .stream_id = 12, .error_code = 0x77, .final_size = 512};
+  u8  buf[32];
+  usz w = reset_stream_encode(buf, sizeof(buf), &in);
+  CHECK(w != 0);
+
+  /* decode this RESET_STREAM with no STOP_SENDING ever having been seen --
+   * there is no shared/prior state this decode reads. */
+  reset_stream_frame out;
+  CHECK(reset_stream_decode(buf, w, &out) == w);
+  CHECK(out.stream_id == 12 && out.error_code == 0x77 && out.final_size == 512);
+}
+
 void test_stream_ctl(void) {
   test_reset_stream();
   test_stop_sending();
   test_reset_stream_at();
+  test_srvloop_reset_stream_without_stop_sending_no_crash();
 }

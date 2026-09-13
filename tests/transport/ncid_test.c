@@ -89,6 +89,25 @@ static void test_ncid_worker_encode_decode_roundtrip_bits8_boundary(void) {
   CHECK(cid_max[1] == 0x11 && cid_max[3] == 0x33);
 }
 
+/* CVE-2026-44436 class (quicly oob-write via NEW_CONNECTION_ID with an
+ * over-max CID length): a raw wire buffer whose length byte exceeds
+ * NCID_MAX_LEN (20, RFC 9000 19.15) must be rejected by ncid_decode before
+ * any copy into the fixed 20-byte cid buffer, even though seq/retire_prior_to
+ * are otherwise well-formed. */
+static void test_ncid_decode_rejects_over_max_len(void) {
+  u8  buf[64];
+  usz w    = 0;
+  buf[w++] = FRAME_NEW_CID;
+  buf[w++] = 0;  /* seq = 0 */
+  buf[w++] = 0;  /* retire_prior_to = 0 */
+  buf[w++] = 21; /* cid length byte: NCID_MAX_LEN + 1 */
+  for (int i = 0; i < 21; i++) buf[w++] = 0xAA;
+  for (int i = 0; i < NCID_TOKEN; i++) buf[w++] = 0;
+
+  ncid_frame out;
+  CHECK(ncid_decode(buf, w, &out) == 0);
+}
+
 void test_ncid(void) {
   test_ncid_roundtrip();
   test_ncid_invalid_and_truncated();
@@ -98,4 +117,5 @@ void test_ncid(void) {
   test_ncid_worker_zero_len();
   test_ncid_worker_masks_oversize_index();
   test_ncid_worker_encode_decode_roundtrip_bits8_boundary();
+  test_ncid_decode_rejects_over_max_len();
 }

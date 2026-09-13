@@ -1,5 +1,7 @@
 #include "test.h"
 
+static void test_aead_suite_nonce(void);
+
 void test_aead_suite(void) {
   u8 key[32], iv[12], aad[7], pt[20], ct[40], out[20];
   for (usz i = 0; i < 32; i++) key[i] = (u8)(0x40 + i);
@@ -41,4 +43,32 @@ void test_aead_suite(void) {
   aead_suite_op bad = {0x0000, key, iv, 2, wired_span_of(aad, 7)};
   CHECK(aead_suite_seal(&bad, wired_span_of(pt, 20), ct) == 0);
   CHECK(aead_suite_open(&bad, wired_span_of(ct, 20), out) == 0);
+
+  test_aead_suite_nonce();
+}
+
+/* Pinning: RFC 9001 5.3 nonce = iv XOR pn. Two different packet numbers
+ * under the same key/iv must derive two different nonces, so ciphertext for
+ * the same plaintext differs and a ciphertext sealed under one pn does not
+ * open under another (V-0764). */
+static void test_aead_suite_nonce(void) {
+  u8 key[32], iv[12], pt[16], ct1[32], ct2[32], out[16];
+  for (usz i = 0; i < 32; i++) key[i] = (u8)(0x20 + i);
+  for (usz i = 0; i < 12; i++) iv[i] = (u8)(0x03 + i);
+  for (usz i = 0; i < 16; i++) pt[i] = (u8)(0x55 + i);
+
+  aead_suite_op op1 = {
+      TLS_AES_128_GCM_SHA256, key, iv, 1, wired_span_of((const u8*)"h", 1)};
+  aead_suite_op op2 = {
+      TLS_AES_128_GCM_SHA256, key, iv, 2, wired_span_of((const u8*)"h", 1)};
+
+  CHECK(aead_suite_seal(&op1, wired_span_of(pt, 16), ct1) == 32);
+  CHECK(aead_suite_seal(&op2, wired_span_of(pt, 16), ct2) == 32);
+
+  int differ = 0;
+  for (usz i = 0; i < 32; i++) differ |= (ct1[i] != ct2[i]);
+  CHECK(differ);
+
+  /* ciphertext sealed under pn=1 must not open under pn=2's nonce. */
+  CHECK(aead_suite_open(&op2, wired_span_of(ct1, 16), out) == 0);
 }

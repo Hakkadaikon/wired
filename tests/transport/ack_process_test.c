@@ -44,8 +44,27 @@ static void test_ack_process_idempotent(void) {
   CHECK(n == 0);
 }
 
+/* Optimistic-ACK pinning (CVE-2025-4820/4821 class): acking a packet number
+ * range that was never sent must credit nothing -- ack_process only reports
+ * pns matching a real used&&SP_INFLIGHT slot, so a forged/optimistic ACK
+ * naming pns this endpoint never sent cannot inflate a caller's congestion
+ * window via this path. */
+static void test_ack_process_rejects_unsent_pn_credit(void) {
+  sentpkt t;
+  sentpkt_init(&t);
+  sentpkt_on_send(&t, &(sentpkt_out){1, 0, 1, 1}); /* only pn 1 was sent */
+
+  u64 acked[8];
+  usz n         = 99;
+  u64 ranges[1] = {0}; /* first ack range: just pn 50, never sent */
+  ack_process(&t, &(ackset){50, ranges, 1}, (u64out){acked, &n});
+  CHECK(n == 0);                 /* nothing credited for the unsent pn */
+  CHECK(sentpkt_count(&t) == 1); /* pn 1 remains untouched */
+}
+
 void test_ack_process(void) {
   test_ack_process_first_range();
   test_ack_process_gap();
   test_ack_process_idempotent();
+  test_ack_process_rejects_unsent_pn_credit();
 }

@@ -37,8 +37,27 @@ static void test_varint_truncated(void) {
   CHECK(varint_decode((const u8*)"\xc0", 1, &v) == 0); /* needs 8, has 1 */
 }
 
+/* CVE-2020-24944-class loop-DoS: varint_take must either advance the cursor
+ * on success or fail cleanly on a truncated/malformed varint -- never leave
+ * *off unmoved while reporting success, which is what would let a frame-
+ * parse loop spin forever re-reading the same bytes. */
+static void test_varint_take_advances_or_fails(void) {
+  wired_span buf = wired_span_of((const u8*)"\x40\x25", 2);
+  usz        off = 0;
+  u64        v   = 0;
+  CHECK(varint_take(buf, &off, &v) == 1);
+  CHECK(off == 2 && v == 37); /* advanced by the full encoded width */
+
+  /* truncated: a 2-byte-form prefix with no second byte. */
+  wired_span trunc = wired_span_of((const u8*)"\x40", 1);
+  usz        off2  = 0;
+  CHECK(varint_take(trunc, &off2, &v) == 0);
+  CHECK(off2 == 0); /* failure leaves the cursor exactly where it was */
+}
+
 void test_varint(void) {
   test_varint_rfc_vectors();
   test_varint_roundtrip();
   test_varint_truncated();
+  test_varint_take_advances_or_fails();
 }
