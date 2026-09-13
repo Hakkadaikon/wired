@@ -98,16 +98,47 @@ static int sh_locate(wired_span b, u16* cipher, wired_span* block) {
   return sh_prefix(b, cipher, &exts) && sh_block(b, exts, block);
 }
 
+/* RFC 8446 4.1.3: ServerHello.legacy_version MUST be 0x0303. */
+static int sh_legacy_version_ok(wired_span b) {
+  return b.p[0] == 0x03 && b.p[1] == 0x03;
+}
+
+/* RFC 8446 4.1.3: the last 8 bytes of random equal "DOWNGRD" || 0x01 (a
+ * TLS 1.2 server's downgrade sentinel) or "DOWNGRD" || 0x00 (TLS 1.1 and
+ * below). b is the body: random spans [2, 34), its tail starts at 26. */
+static int sh_downgrade_sentinel(wired_span b) {
+  static const u8 downgrd[7] = {0x44, 0x4f, 0x57, 0x4e, 0x47, 0x52, 0x44};
+  const u8*       r          = b.p + 26;
+  for (usz i = 0; i < 7; i++)
+    if (r[i] != downgrd[i]) return 0;
+  return r[7] <= 1;
+}
+
+/* RFC 8446 4.2.1 / Appendix D.1: the server's selected version MUST be
+ * TLS 1.3 (supported_versions present and 0x0304), legacy_version MUST be
+ * 0x0303, and the random MUST NOT carry a downgrade sentinel -- anything
+ * else is a downgrade a TLS-1.3-only client aborts (protocol_version). */
+static int sh_version_ok(wired_span body, u16 version) {
+  return version == 0x0304 && sh_legacy_version_ok(body) &&
+         !sh_downgrade_sentinel(body);
+}
+
+/* Locate the extensions block of body, walk it into *f, then enforce the
+ * version/downgrade checks over what was taken. */
+static int sh_take(wired_span body, serverhello_out* out, sh_fields* f) {
+  wired_span block;
+  if (!sh_locate(body, &out->cipher, &block)) return 0;
+  return sh_walk(block, f) && sh_version_ok(body, out->version);
+}
+
 /* Shared body for both entry points: locate the extensions block and walk
  * it into *f (pub/version/pub_cap/x25519_only already set by the caller). */
 static int sh_parse(wired_span buf, serverhello_out* out, sh_fields* f) {
-  usz        body_len;
-  wired_span block;
-  f->version = &out->version;
+  usz body_len;
+  f->version   = &out->version;
+  out->version = 0; /* absent supported_versions must not read as 1.3 */
   if (!is_server_hello(buf, &body_len)) return 0;
-  if (!sh_locate(wired_span_of(buf.p + 4, body_len), &out->cipher, &block))
-    return 0;
-  return sh_walk(block, f);
+  return sh_take(wired_span_of(buf.p + 4, body_len), out, f);
 }
 
 int tls_parse_server_hello(

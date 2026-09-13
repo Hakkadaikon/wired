@@ -161,7 +161,10 @@ int client_is_connected(const client* c) {
   return c->phase == CLIENT_HS_CONFIRMED;
 }
 
+/* RFC 8446 E.1.4: tearing the connection down erases the retained secrets
+ * (exporter_master_secret among them) along with the socket. */
 void client_close(client* c) {
   if (c->fd >= 0) wired_arch_close(c->fd);
   c->fd = -1;
+  keysched_wipe(&c->tls.ks);
 }

@@ -1,6 +1,8 @@
 #include "tls/handshake/core/tlsdriver/tlsdriver.h"
 
 #include "common/bytes/util/bytes.h"
+#include "common/diag/error/error.h"
+#include "tls/handshake/core/hrr/hrr_detect.h"
 #include "tls/handshake/core/tls/clienthello.h"
 #include "tls/handshake/core/tls/ext_keyshare.h"
 #include "tls/handshake/core/tls/handshake.h"
@@ -149,16 +151,31 @@ static int parse_client_hello_keyshare(
   return ch_walk(buf + 4, exts + 2, exts + 2 + blen, want_group, pub);
 }
 
-/* Take the peer's key_share: ServerHello on the client, ClientHello on the
- * server. Returns 1 on success. */
-static int peer_keyshare(const tlsdriver* d, const u8* msg, usz n, u8 pub[65]) {
+/* RFC 8446 4.1.3/4.1.4/4.2.1: the ServerHello carries our group's key_share,
+ * selects TLS 1.3 and bears no downgrade sentinel (tls_parse_server_hello_
+ * group enforces the latter two). A HelloRetryRequest (told apart by its
+ * random sentinel, 4.1.3) is refused outright: this client offers exactly
+ * one group and always sends its share, so any HRR steers it to a group it
+ * never advertised or already shared -- both illegal_parameter (4.1.4) --
+ * and there is no second-ClientHello path (see client.h). */
+static int server_hello_ok(const tlsdriver* d, const u8* msg, usz n, u8* pub) {
   serverhello_out sh;
   u16             got_group;
-  if (d->is_server) return parse_client_hello_keyshare(msg, n, d->group, pub);
+  if (hrr_is_hello_retry(msg, n)) return 0;
   if (!tls_parse_server_hello_group(
           wired_span_of(msg, n), pub, &got_group, &sh))
     return 0;
   return got_group == d->group;
+}
+
+/* Take the peer's key_share: ServerHello on the client, ClientHello on the
+ * server. Returns 1 on success; a rejected ServerHello records the
+ * illegal_parameter (47) abort in d->last_error (RFC 8446 4.1.3/4.2.1). */
+static int peer_keyshare(tlsdriver* d, const u8* msg, usz n, u8 pub[65]) {
+  if (d->is_server) return parse_client_hello_keyshare(msg, n, d->group, pub);
+  if (server_hello_ok(d, msg, n, pub)) return 1;
+  d->last_error = err_crypto(47);
+  return 0;
 }
 
 /* Install the derived client-handshake keys at the Handshake level. */

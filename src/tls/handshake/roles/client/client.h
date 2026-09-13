@@ -86,7 +86,17 @@ usz client_build_initial(client* c, u8* out, usz cap);
 /* Drive the handshake with one already-received TLS-message-bearing CRYPTO
  * frame payload (socket-free injection). Dispatches by phase: a ServerHello to
  * the tlsdriver, then Certificate/CertificateVerify/Finished/HANDSHAKE_DONE to
- * fullhs. Returns 1 if it advanced the handshake, 0 otherwise. */
+ * fullhs. Returns 1 if it advanced the handshake, 0 otherwise.
+ *
+ * HelloRetryRequest (RFC 8446 4.1.4) is NOT negotiated: this client offers
+ * one group (x25519) and always sends its key_share, so any HRR selects a
+ * group it never advertised or already shared, and both are illegal_parameter
+ * by 4.1.4. There is deliberately no second-ClientHello path (no cookie echo,
+ * no PSK re-offer/omission): an HRR -- recognised by its random sentinel, so a
+ * cookie-only one included -- is a clean abort, tlsdriver_last_error reports
+ * err_crypto(47), the phase stays CLIENT_HS_INITIAL and the connection is
+ * dead. A server that needs a cookie round-trip cannot be reached until an
+ * HRR retry path is added alongside a second offered group. */
 int client_feed(client* c, const u8* crypto_payload, usz len);
 
 /* One receive iteration: pull a datagram off the socket and feed it. Returns 1
@@ -101,7 +111,8 @@ int client_run_handshake(client* c, int max_iterations);
 /* 1 once the handshake is complete and confirmed. */
 int client_is_connected(const client* c);
 
-/* Close the UDP socket. */
+/* Close the UDP socket and wipe the key schedule's retained secrets
+ * (RFC 8446 E.1.4: the exporter_master_secret is erased at teardown). */
 void client_close(client* c);
 
 #endif
