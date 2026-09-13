@@ -302,6 +302,38 @@ static void test_srvloop_priority_of_unopened_stream(void) {
   CHECK(wired_srvloop_priority_of(&l, 4, &p) == 0);
 }
 
+/* Pinning: CVE-2024-24990-class use-after-free -- a request stream's slot
+ * is a value embedded in the connection's fixed slot table (never
+ * independently heap-allocated), so a RESET_STREAM closing it and
+ * releasing the slot, followed immediately by a NEW stream claiming the
+ * very same slot index, must see clean zeroed state, never a dangling
+ * reference to the previous request (V-0429). */
+static void test_srvloop_request_complete_after_reset_no_crash(void) {
+  wired_srvloop l;
+  int           slot_a, slot_b;
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+
+  /* stream 4 opens, gets a slot, then closes via RESET_STREAM (dispatch
+   * gathers the close and the caller releases the slot -- mirrored here
+   * directly through the public release call the row's defense relies
+   * on). */
+  slot_a = wired_srvloop_slot_for(&l, 4);
+  CHECK(slot_a >= 0);
+  l.streams[slot_a].req_done = 1; /* simulate an answered/completed request */
+  wired_srvloop_slot_release(&l, 4);
+  CHECK(l.streams[slot_a].in_use == 0);
+  CHECK(l.streams[slot_a].req_done == 0); /* zeroed, not left dangling */
+
+  /* a new stream id reuses the same physical slot: no leftover state from
+   * stream 4 is observable. */
+  slot_b = wired_srvloop_slot_for(&l, 100);
+  CHECK(slot_b == slot_a);
+  CHECK(l.streams[slot_b].stream_id == 100);
+  CHECK(l.streams[slot_b].req_done == 0);
+  CHECK(l.streams[slot_b].req_len == 0);
+}
+
 void test_srvloop_priupdate(void) {
   test_srvloop_priupdate_applies_to_open_stream();
   test_srvloop_priupdate_buffers_for_unopened_stream();
@@ -313,4 +345,5 @@ void test_srvloop_priupdate(void) {
   test_srvloop_ctrl_first_frame_not_settings_missing();
   test_srvloop_priority_of_open_stream();
   test_srvloop_priority_of_unopened_stream();
+  test_srvloop_request_complete_after_reset_no_crash();
 }
