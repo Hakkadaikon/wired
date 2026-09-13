@@ -1012,6 +1012,92 @@ static void test_h3reqdrive_trailer_oversized_rejected(void) {
       wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch)));
 }
 
+/* Boundary companions to the two oversized pinning tests above (V-0421/
+ * V-0422 re-triage): one decoded value that fills the production scratch
+ * EXACTLY (WIRED_H3_MAX_FIELD_SECTION bytes -- a static name reference,
+ * line_namref, hands the whole scratch to the value) decodes, and one byte
+ * more is rejected. Both edges share the one #define so a cap change moves
+ * the tests with it. rd_ua_value is the shared 'u'-filled value source. */
+static const u8* rd_ua_value(void) {
+  static u8 v[WIRED_H3_MAX_FIELD_SECTION + 1];
+  for (usz i = 0; i < sizeof v; i++) v[i] = 'u';
+  return v;
+}
+
+/* Append one `user-agent` (static index 95, RFC 9204 Appendix A) literal-
+ * with-name-reference line whose value is value_len bytes at fs+off;
+ * returns the new offset. */
+static usz rd_ua_line(u8* fs, usz off, usz cap, usz value_len) {
+  qpack_nameref ua = {95, 1, 0};
+  return off + qpack_literal_namref_encode(
+                   wired_mspan_of(fs + off, cap - off), &ua,
+                   wired_span_of(rd_ua_value(), value_len));
+}
+
+/* HEADERS(`:method GET` + rd_ua_line(value_len)) framed by hand on stream 0
+ * into req; returns recv_get's verdict against a production-sized scratch. */
+static int rd_headers_value_len_accepted(usz value_len) {
+  static u8            fs[WIRED_H3_MAX_FIELD_SECTION + 64];
+  static u8            h3[WIRED_H3_MAX_FIELD_SECTION + 128];
+  static u8            req[WIRED_H3_MAX_FIELD_SECTION + 256];
+  static u8            scratch[WIRED_H3_MAX_FIELD_SECTION];
+  wired_obuf           hob     = {h3, sizeof h3, 0};
+  qpack_prefix         pfx     = {0, 0, 0};
+  usz                  fs_len  = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  usz                  h3_len  = 0;
+  usz                  req_len = 0;
+  wired_h3reqdrive_req r;
+  fs_len += qpack_indexed_encode(
+      wired_mspan_of(fs + fs_len, sizeof fs - fs_len), 17, 1); /* GET */
+  fs_len = rd_ua_line(fs, fs_len, sizeof fs, value_len);
+  h3_len = h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  CHECK(h3_len != 0);
+  CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof req, &req_len));
+  return wired_h3reqdrive_recv_get(
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch), &r);
+}
+
+static void test_h3reqdrive_headers_field_section_at_cap_accepted(void) {
+  CHECK(rd_headers_value_len_accepted(WIRED_H3_MAX_FIELD_SECTION));
+}
+
+static void test_h3reqdrive_headers_field_section_one_over_cap_rejected(void) {
+  CHECK(!rd_headers_value_len_accepted(WIRED_H3_MAX_FIELD_SECTION + 1));
+}
+
+/* curl GET HEADERS + DATA + trailer HEADERS(rd_ua_line(value_len)); returns
+ * trailer_ok's verdict against a production-sized scratch (the trailer walk
+ * starts from a fresh scratch, request_drive.c). */
+static int rd_trailer_value_len_accepted(usz value_len) {
+  static u8    fs[64], tfs[WIRED_H3_MAX_FIELD_SECTION + 64];
+  static u8    h3[WIRED_H3_MAX_FIELD_SECTION + 256];
+  static u8    req[WIRED_H3_MAX_FIELD_SECTION + 512];
+  static u8    scratch[WIRED_H3_MAX_FIELD_SECTION];
+  usz          fs_len  = curl_field_section(fs);
+  qpack_prefix tpfx    = {0, 0, 0};
+  usz          tfs_len = qpack_prefix_encode(tfs, sizeof tfs, &tpfx);
+  usz          h3_len = 0, req_len = 0;
+  const u8     body[] = {'h', 'i'};
+  wired_obuf   hob    = {h3, sizeof h3, 0};
+  tfs_len             = rd_ua_line(tfs, tfs_len, sizeof tfs, value_len);
+  h3_len = h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  hob    = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
+  h3_len += h3_frame_put(&hob, H3_FRAME_DATA, wired_span_of(body, sizeof body));
+  hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
+  h3_len += h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(tfs, tfs_len));
+  CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof req, &req_len));
+  return wired_h3reqdrive_trailer_ok(
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch));
+}
+
+static void test_h3reqdrive_trailer_field_section_at_cap_accepted(void) {
+  CHECK(rd_trailer_value_len_accepted(WIRED_H3_MAX_FIELD_SECTION));
+}
+
+static void test_h3reqdrive_trailer_field_section_one_over_cap_rejected(void) {
+  CHECK(!rd_trailer_value_len_accepted(WIRED_H3_MAX_FIELD_SECTION + 1));
+}
+
 /* Pinning: RFC 9114 10.5.1 -- regardless of what a peer advertises, this
  * server's own field-section decode buffer is a hard fixed 2048-byte
  * scratch; a section requiring more than WIRED_H3_MAX_FIELD_SECTION is
@@ -1118,5 +1204,9 @@ void test_h3reqdrive(void) {
   test_h3reqdrive_recv_get_oversized_headers_rejected();
   test_h3reqdrive_trailer_oversized_rejected();
   test_h3_field_section_over_2048_rejected();
+  test_h3reqdrive_headers_field_section_at_cap_accepted();
+  test_h3reqdrive_headers_field_section_one_over_cap_rejected();
+  test_h3reqdrive_trailer_field_section_at_cap_accepted();
+  test_h3reqdrive_trailer_field_section_one_over_cap_rejected();
   test_h3reqdrive_deeply_nested_frames_no_stack_overflow();
 }
