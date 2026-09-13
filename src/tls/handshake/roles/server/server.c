@@ -274,6 +274,9 @@ static int srv_complete(wired_server* s, const u8* msg, usz len) {
    * own Finished -- fold it in now that it has actually verified. */
   s->tr_through_client_fin = srv_tr_add(s, msg, len);
   srv_seed_kuswitch(s);
+  /* RFC 9001 4.9.3: 1-RTT keys are installed now; the 0-RTT keys are no
+   * longer needed and must not outlive the switch. */
+  sdrv_discard_early_keys(&s->sdrv);
   s->phase = WIRED_SERVER_HS_CONFIRMED;
   return 1;
 }
@@ -306,6 +309,10 @@ int wired_server_handshake_done(wired_server* s, wired_obuf* out) {
   if (!srvfin_handshake_done_frame(out->p, out->cap, &out->len)) return 0;
   s->hs_done_sent = 1;
   return 1;
+}
+
+int wired_server_early_data_used(const wired_server* s) {
+  return s->sdrv.early_data_accepted;
 }
 
 int wired_server_is_confirmed(const wired_server* s) {

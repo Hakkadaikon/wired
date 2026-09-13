@@ -125,6 +125,7 @@ void sdrv_init(sdrv* s, const sdrv_init_in* in) {
   s->rscid_len           = 0;
   s->psk_accepted        = 0;
   s->early_data_accepted = 0;
+  s->early_keys_dropped  = 0;
   s->last_error          = 0;
   s->hrr_needed          = 0;
   s->hrr_sent            = 0;
@@ -534,8 +535,7 @@ static wired_span sdrv_psk_truncate(
 
 /* Open the presented ticket (off->identity, the sealed ticket bytes)
  * under s->ticket_key. Returns 1 and fills *t on success, 0 on any failure
- * (wrong key, malformed, tampered) -- the caller degrades to a full
- * handshake rather than treating this as an error (RFC 8446 4.2.11 MAY). */
+ * (wrong key, malformed, tampered) -- *t is left as the caller set it. */
 static int sdrv_psk_open_ticket(
     const sdrv* s, const tlsext_psk_offer* off, ticket* t) {
   wired_span sealed = wired_span_of(off->identity, off->id_len);
@@ -634,19 +634,15 @@ static void sdrv_take_early_keys(sdrv* s, const u8* ch_msg, usz ch_len) {
   s->early_data_accepted = 1;
 }
 
-/* A ticket opened under s->ticket_key: try the binder next. On a verified
- * binder, records psk_accepted/psk_secret, derives 0-RTT keys when the
- * ClientHello asked for them and the ticket is not a replay, and returns 1;
- * on a binder mismatch returns 0 (hard abort, see sdrv_psk_binder_ok's doc).
- */
-static int sdrv_psk_accept_opened(
+/* A ticket that opened AND whose binder verified: record psk_accepted/
+ * psk_secret and derive 0-RTT keys when the ClientHello asked for them and
+ * the ticket is not a replay. */
+static void sdrv_psk_accept_opened(
     sdrv*                   s,
     const ticket*           t,
     const u8*               ch_msg,
     usz                     ch_len,
-    wired_span              psk_ext,
     const tlsext_psk_offer* off) {
-  if (!sdrv_psk_binder_ok(t, ch_msg, psk_ext, off)) return 0;
   s->psk_accepted = 1;
   /* s->psk_secret feeds RFC 8446 7.1's Early Secret = HKDF-Extract(0, PSK)
    * -- the actual PSK (see sdrv_psk_from_ticket_secret's doc), not the raw
@@ -654,22 +650,33 @@ static int sdrv_psk_accept_opened(
   sdrv_psk_from_ticket_secret(t->secret, s->psk_secret);
   if (sdrv_early_data_wanted(ch_msg, ch_len, t, off))
     sdrv_take_early_keys(s, ch_msg, ch_len);
-  return 1;
 }
 
-/* A parsed pre_shared_key offer: open its ticket and, only if it opened, run
- * the binder check. A ticket that fails to open is the graceful-degrade
- * case (returns 1, psk_accepted left 0); a ticket that opens but whose
- * binder fails to verify is the hard-abort case (returns 0). */
+/* A parsed pre_shared_key offer: open its ticket and verify the binder.
+ * RFC 8446 E.6: an identity that does not open is treated exactly like
+ * "valid identity, wrong binder" -- the binder check still runs (over a
+ * zero ticket) and both failures abort with the same decrypt_error (51),
+ * so handshake outcome and timing shape do not reveal whether the
+ * identity was one this server issued. A verified binder over an opened
+ * ticket is the only accept path.
+ * ponytail: this also aborts a stale ticket (rotated ticket_key) instead of
+ * degrading to a full handshake; a client is expected to retry without its
+ * ticket. Add a keyed dummy-open + fallback if that trade-off bites. */
 static int sdrv_psk_try_offer(
     sdrv*                   s,
     const u8*               ch_msg,
     usz                     ch_len,
     wired_span              psk_ext,
     const tlsext_psk_offer* off) {
-  ticket t;
-  if (!sdrv_psk_open_ticket(s, off, &t)) return 1;
-  return sdrv_psk_accept_opened(s, &t, ch_msg, ch_len, psk_ext, off);
+  ticket t  = {{0}, 0, 0, 0};
+  int    ok = sdrv_psk_open_ticket(s, off, &t);
+  ok &= sdrv_psk_binder_ok(&t, ch_msg, psk_ext, off); /* always evaluated */
+  if (!ok) {
+    s->last_error = err_crypto(51); /* decrypt_error, RFC 8446 4.2.11.2 */
+    return 0;
+  }
+  sdrv_psk_accept_opened(s, &t, ch_msg, ch_len, off);
+  return 1;
 }
 
 /* Locate and parse a pre_shared_key offer in the ClientHello, if resumption
@@ -1113,7 +1120,12 @@ int sdrv_handshake_secret(const sdrv* s, const u8** secret) {
 }
 
 int sdrv_early_keys(const sdrv* s, initial_keys* out) {
-  if (!s->early_data_accepted) return 0;
+  if (!s->early_data_accepted || s->early_keys_dropped) return 0;
   *out = s->early_keys;
   return 1;
+}
+
+void sdrv_discard_early_keys(sdrv* s) {
+  bytes_memset(&s->early_keys, 0, sizeof s->early_keys);
+  s->early_keys_dropped = 1;
 }

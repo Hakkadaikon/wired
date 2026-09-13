@@ -156,6 +156,47 @@ static void test_server_happy(void) {
   CHECK(wired_server_handshake_done(&f.s, &hd_ob) == 0);
 }
 
+/* RFC 9001 4.6.1/9.2 + 4.9.3: the orchestrator exposes whether 0-RTT was
+ * accepted (wired_server_early_data_used) and, the moment the client
+ * Finished verifies and 1-RTT keys are installed, discards the cached 0-RTT
+ * keys (zeroed, sdrv_early_keys refuses them) while the "used" answer
+ * survives. Tearing the connection down then wipes the schedule's retained
+ * exporter_master_secret (RFC 8446 E.1.4). The 0-RTT accept itself is
+ * sdrv's (sdrv_test); here it is staged directly on the driver state. */
+static void test_wired_server_exposes_early_data_used(void) {
+  struct srv_fix f;
+  u8             payload[256];
+  usz            plen;
+  initial_keys   ek;
+  int            nonzero = 0;
+  make_client_hello(&f);
+  drive_to_flight(&f);
+  CHECK(wired_server_early_data_used(&f.s) == 0);
+  f.s.sdrv.early_data_accepted = 1;
+  for (usz i = 0; i < sizeof(f.s.sdrv.early_keys.key); i++)
+    f.s.sdrv.early_keys.key[i] = (u8)(0x5a + i);
+  CHECK(wired_server_early_data_used(&f.s) == 1);
+  CHECK(sdrv_early_keys(&f.s.sdrv, &ek) == 1);
+
+  make_client_finished(&f);
+  plen = srv_wrap_crypto(f.cli_fin, f.cli_fin_len, payload, sizeof(payload));
+  CHECK(wired_server_feed(&f.s, payload, plen) == 1);
+  CHECK(wired_server_is_confirmed(&f.s) == 1);
+  CHECK(wired_server_early_data_used(&f.s) == 1);
+  CHECK(sdrv_early_keys(&f.s.sdrv, &ek) == 0);
+  for (usz i = 0; i < sizeof(f.s.sdrv.early_keys.key); i++)
+    CHECK(f.s.sdrv.early_keys.key[i] == 0);
+
+  for (usz i = 0; i < 32; i++) nonzero |= f.s.sched.exporter_secret[i];
+  CHECK(nonzero != 0);
+  wired_server_close(&f.s); /* fd is -1: only the wipe runs */
+  for (usz i = 0; i < 32; i++) CHECK(f.s.sched.exporter_secret[i] == 0);
+  {
+    const u8* exp;
+    CHECK(keysched_exporter_secret(&f.s.sched, &exp) == 0);
+  }
+}
+
 /* RFC 8446 7.1: the resumption_master_secret folds the transcript through
  * the verified client Finished ONLY. Bytes smeared into the crypto stream
  * behind the Finished (a coalesced-datagram ClientHello retransmit landing
@@ -750,6 +791,7 @@ static void test_server_no_psk_regression_unchanged(void) {
 
 void test_server(void) {
   test_server_happy();
+  test_wired_server_exposes_early_data_used();
   test_server_finished_trailing_bytes_not_in_transcript();
   test_server_single_ecdhe();
   test_server_forged_finished();
