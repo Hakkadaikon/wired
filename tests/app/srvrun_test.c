@@ -15267,6 +15267,43 @@ static void test_srvrun_wt_rx_truncated_capsule_via_dispatch_closes_session(
   CHECK(c->wt_active == 0);
 }
 
+/* V-0503/V-0509, through the REAL production step entry point
+ * (srvrun_on_step, srvrun.c's own live-datagram caller -- not
+ * srvrun_wt_rx_capsules called directly by the test, unlike every capsule
+ * test above): a real client-sealed 1-RTT packet carrying a STREAM frame
+ * (RFC 9000 19.8) with WT_MAX_DATA capsule bytes on the CONNECT stream is
+ * decrypted and routed by wired_srvloop_step, then srvrun_on_step's own
+ * unconditional srvrun_wt_rx_capsules(ctx->cfg, c) call -- the one
+ * production call site -- decodes and applies it, raising the session's
+ * max_data. Pins that exact call site: deleting/stubbing it leaves max_data
+ * at its pre-capsule value and this test goes red, whereas every other WT
+ * capsule test in this file would stay green (they call
+ * srvrun_wt_rx_capsules themselves). */
+static void test_srvrun_wt_rx_max_data_capsule_via_on_step_raises_max_data(
+    void) {
+  struct lp_fix   f;
+  wired_obuf      ob  = {0};
+  srvrun_cfg      cfg = sr_wt_send_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, 0, 0, 0};
+  u8              obuf[1024], capbuf[64], frame[256], spkt[1024];
+  wired_obuf      capb = obuf_of(capbuf, sizeof capbuf);
+  srvrun_conn*    c;
+  stream_frame    sf;
+  usz             flen, slen;
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt_capsule_rx_at[0] = 0; /* nothing landed yet on stream 4 */
+  CHECK(c->wt.max_data == 0);
+  CHECK(wtcapsule_encode_max_data(&capb, 9) == 1);
+  sf   = (stream_frame){4, 0, capb.len, capbuf, 0};
+  flen = frame_put_stream(frame, sizeof frame, &sf);
+  CHECK(flen != 0);
+  slen = client_seal_onertt_pn(&f, 3, frame, flen, spkt, sizeof spkt);
+  CHECK(slen != 0);
+  srvrun_on_step(&ctx, c, wired_mspan_of(spkt, slen));
+  CHECK(c->wt.max_data == 9);
+}
+
 /* V-0503/V-0509 (SS5.1/SS8): a received WT_MAX_DATA capsule enables session
  * flow control (a low limit blocks a would-be over-send), and a later,
  * higher WT_MAX_DATA raises the limit so the previously blocked send
@@ -17558,6 +17595,7 @@ void test_srvrun(void) {
   test_srvrun_wt_rx_max_streams_capsule_via_dispatch_raises_limit();
   test_srvrun_wt_rx_unknown_capsule_via_dispatch_skipped();
   test_srvrun_wt_rx_truncated_capsule_via_dispatch_closes_session();
+  test_srvrun_wt_rx_max_data_capsule_via_on_step_raises_max_data();
   test_srvrun_wt_session_sharing_enables_flow_control();
   test_srvrun_wt_rx_max_streams_capsules_raise_limits();
   test_srvrun_wt_ignores_stale_flow_control_capsules();
