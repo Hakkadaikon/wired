@@ -39,6 +39,29 @@
  * (draft-ietf-webtrans-http3-15 SS4.2). */
 #define WTCAPSULE_CLOSE_MESSAGE_MAX 1024
 
+/** WT_MAX_STREAMS capsule type, bidirectional variant
+ * (draft-ietf-webtrans-http3-15 SS5.6.2). */
+#define WTCAPSULE_TYPE_MAX_STREAMS_BIDI 0x190B4D3FULL
+
+/** WT_MAX_STREAMS capsule type, unidirectional variant
+ * (draft-ietf-webtrans-http3-15 SS5.6.2). */
+#define WTCAPSULE_TYPE_MAX_STREAMS_UNI 0x190B4D40ULL
+
+/** WT_MAX_DATA capsule type (draft-ietf-webtrans-http3-15 SS5.6.4). */
+#define WTCAPSULE_TYPE_MAX_DATA 0x190B4D3DULL
+
+/** 1 iff value is exactly one well-formed varint (fully consumed, no
+ * trailing bytes) -- the body shape every session flow-control capsule
+ * (SS5.6) requires. A receiver that already generically decoded a capsule
+ * (capsule_decode) uses this to validate a known flow-control type's body;
+ * failure means the capsule is malformed (RFC 9297 SS3.3), not merely
+ * incomplete.
+ * @param value the capsule's decoded value bytes
+ * @param v     set to the varint's value on success
+ * @return 1 on success, 0 if value is not exactly one varint
+ */
+int wtcapsule_value_varint(wired_span value, u64* v);
+
 /** Encode a WT_CLOSE_SESSION capsule (type 0x2843) into out.
  *
  * Rejects (returns 0, leaves out unmodified) if message.n exceeds

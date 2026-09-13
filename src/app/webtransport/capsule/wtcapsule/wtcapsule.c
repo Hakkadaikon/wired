@@ -8,13 +8,11 @@
 #define WTCAPSULE_TYPE_DRAIN 0x78aeULL
 #define WTCAPSULE_CLOSE_CODE_LEN 4
 
-/* draft-ietf-webtrans-http3-15 SS9.6: session-level flow-control capsule
- * types, each body a single varint. */
-#define WTCAPSULE_TYPE_MAX_STREAMS_BIDI 0x190B4D3FULL
-#define WTCAPSULE_TYPE_MAX_STREAMS_UNI 0x190B4D40ULL
+/* draft-ietf-webtrans-http3-15 SS9.6: the remaining session-level
+ * flow-control capsule types, each body a single varint (the MAX_STREAMS/
+ * MAX_DATA types receivers dispatch on live in wtcapsule.h). */
 #define WTCAPSULE_TYPE_STREAMS_BLOCKED_BIDI 0x190B4D43ULL
 #define WTCAPSULE_TYPE_STREAMS_BLOCKED_UNI 0x190B4D44ULL
-#define WTCAPSULE_TYPE_MAX_DATA 0x190B4D3DULL
 #define WTCAPSULE_TYPE_DATA_BLOCKED 0x190B4D41ULL
 
 /* type for the bidi/uni variant of a two-type capsule family (MAX_STREAMS,
@@ -32,15 +30,20 @@ static int wtcapsule_encode_varint(wired_obuf* out, u64 type, u64 v) {
   return capsule_encode(out, type, wired_span_of(body, off));
 }
 
+int wtcapsule_value_varint(wired_span value, u64* v) {
+  usz voff = 0;
+  return varint_take(value, &voff, v) && voff == value.n;
+}
+
 /* 1 iff got_type/value is a well-formed single-varint capsule of exactly
  * `type`: the right type, and a body that is exactly one varint (fully
- * consumed, no trailing bytes). The well-formedness check shared by every
- * capsule in this file whose body is a single varint. */
+ * consumed, no trailing bytes) -- wtcapsule_value_varint, the
+ * well-formedness check shared by every capsule whose body is a single
+ * varint. */
 static int wtcapsule_is_sole_varint(
     u64 got_type, u64 type, wired_span value, u64* v) {
-  usz voff = 0;
   if (got_type != type) return 0;
-  return varint_take(value, &voff, v) && voff == value.n;
+  return wtcapsule_value_varint(value, v);
 }
 
 /* Decode a capsule of exactly `type`, whose entire body is one varint.
