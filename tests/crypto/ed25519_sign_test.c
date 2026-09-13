@@ -120,7 +120,7 @@ static void test_ed25519_verify_rejects_small_order_key(void) {
 static void test_ed25519_verify_rejects_small_order_r(void) {
   ed_ge Ap;
   u8    pk[32], sig[64];
-  u8    msg[21] = "wired-small-order-R-2";
+  u8    msg[22] = "wired-small-order-R-2"; /* 21 bytes signed, NUL unused */
   sgn_hexbytes(
       "afe985e432d16abaeed0fbd848db44520ef193bdde65d944b6a942a8f97ab11c", pk,
       32);
