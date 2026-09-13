@@ -76,9 +76,27 @@ static void test_get_enc_rel_evicted(void) {
   CHECK(qpack_dyn_get_enc_rel(&t, 99, &e) == 0);
 }
 
+/* Pinning: RFC 9204/GHSA-6w86-wgwq-rgq8 -- an out-of-range absolute index
+ * (never inserted, or an attacker-chosen huge value) must be bounds-checked
+ * against dropped/count, never used to index the ring out of bounds
+ * (V-0425). */
+static void test_qpack_dynget_out_of_range_index_rejected(void) {
+  qpack_dyn   t;
+  qpack_field a = dg_field("a", 1, "1", 1);
+  qpack_field e;
+  qpack_dyn_init(&t, 4096);
+  qpack_dyn_insert(&t, &a);
+
+  CHECK(qpack_dyn_get(&t, 1, &e) == 0);       /* never inserted */
+  CHECK(qpack_dyn_get(&t, 1000000, &e) == 0); /* wildly out of range */
+  CHECK(qpack_dyn_get(&t, (u64)-1, &e) == 0); /* max u64, no overflow */
+  CHECK(qpack_dyn_get_enc_rel(&t, (u64)-1, &e) == 0);
+}
+
 void test_dynget(void) {
   test_get_live();
   test_get_evicted();
   test_get_enc_rel_most_recent();
   test_get_enc_rel_evicted();
+  test_qpack_dynget_out_of_range_index_rejected();
 }

@@ -142,6 +142,90 @@ static void test_literal_postbase_reject(void) {
   CHECK(qpack_literal_postbase_decode(wired_span_of(&bad, 1), &dr, &ob) == 0);
 }
 
+/* Pinning: CVE-2024-34161-class oob-read -- litname_bounds and str_value must
+ * reject a name/value length that would read past the input span, never
+ * disclosing adjacent memory (V-0433). */
+static void test_qpack_literal_name_decode_truncated_rejected(void) {
+  int            nv;
+  u8             outn[8], outv[8];
+  qpack_fieldbuf fb = {
+      obuf_of(outn, sizeof(outn)), obuf_of(outv, sizeof(outv))};
+
+  /* header claims a 7-byte name but only 2 bytes follow the first byte. */
+  u8 buf[3] = {0x27, 'a', 'b'};
+  CHECK(
+      qpack_literal_name_decode(wired_span_of(buf, sizeof buf), &nv, &fb) == 0);
+
+  /* header claims a huge (multi-byte continuation) name length that can
+   * never fit any realistic buffer. */
+  u8 buf2[4] = {0x27, 0xff, 0xff, 0x7f};
+  CHECK(
+      qpack_literal_name_decode(wired_span_of(buf2, sizeof buf2), &nv, &fb) ==
+      0);
+}
+
+/* Pinning: RFC 9204 7.1.3 -- the never-indexed (N) bit must be preserved
+ * exactly as decoded across all three literal forms, so a caller can honor
+ * "MUST NOT re-encode ... without the flag" (V-0472). */
+static void test_qpack_literal_never_bit_preserved(void) {
+  const u8      v[] = {'z'};
+  u8            buf[8];
+  qpack_nameref er = {5, 0, 1}; /* never=1 */
+  usz           w  = qpack_literal_namref_encode(
+      wired_mspan_of(buf, sizeof(buf)), &er, wired_span_of(v, 1));
+  qpack_nameref dr;
+  u8            out[8];
+  wired_obuf    ob = obuf_of(out, sizeof(out));
+  CHECK(qpack_literal_namref_decode(wired_span_of(buf, w), &dr, &ob) == w);
+  CHECK(dr.never == 1);
+
+  qpack_field nf = {wired_span_of((const u8*)"n", 1), wired_span_of(v, 1)};
+  u8          nbuf[8];
+  usz         nw =
+      qpack_literal_name_encode(wired_mspan_of(nbuf, sizeof(nbuf)), 1, &nf);
+  int            nv;
+  u8             outn[8], outv[8];
+  qpack_fieldbuf fb = {
+      obuf_of(outn, sizeof(outn)), obuf_of(outv, sizeof(outv))};
+  CHECK(qpack_literal_name_decode(wired_span_of(nbuf, nw), &nv, &fb) == nw);
+  CHECK(nv == 1);
+
+  qpack_postbaseref pr = {2, 1};
+  u8                pbuf[8];
+  usz               pw = qpack_literal_postbase_encode(
+      wired_mspan_of(pbuf, sizeof(pbuf)), &pr, wired_span_of(v, 1));
+  qpack_postbaseref pdr;
+  u8                pout[8];
+  wired_obuf        pob = obuf_of(pout, sizeof(pout));
+  CHECK(
+      qpack_literal_postbase_decode(wired_span_of(pbuf, pw), &pdr, &pob) == pw);
+  CHECK(pdr.never == 1);
+}
+
+/* Pinning: RFC 9204 7.4/4.5 -- a value larger than the caller's scratch can
+ * decode MUST be a hard decode failure for the whole field line, never a
+ * truncated partial value (V-0478). qpack_literal_name_decode's value half
+ * goes through qpack_string_decode, which fails closed once dst->cap is
+ * exceeded; that failure propagates to the whole line, not just the value
+ * half. */
+static void test_qpack_oversized_value_rejects_whole_line(void) {
+  const u8 nm[] = {'n'};
+  u8       big_value[64];
+  for (usz i = 0; i < sizeof big_value; i++) big_value[i] = (u8)('a' + i % 26);
+  u8          buf[128];
+  qpack_field ef = {
+      wired_span_of(nm, 1), wired_span_of(big_value, sizeof big_value)};
+  usz w = qpack_literal_name_encode(wired_mspan_of(buf, sizeof(buf)), 0, &ef);
+  CHECK(w != 0);
+
+  int            nv;
+  u8             outn[8], outv[64]; /* value cap (8) far smaller than 64 */
+  qpack_fieldbuf fb = {obuf_of(outn, sizeof(outn)), obuf_of(outv, 8)};
+  CHECK(qpack_literal_name_decode(wired_span_of(buf, w), &nv, &fb) == 0);
+  /* the whole line is rejected: no truncated partial value was left set. */
+  CHECK(fb.value.len == 0);
+}
+
 void test_literal(void) {
   test_literal_namref_golden();
   test_literal_namref_flags();
@@ -152,4 +236,7 @@ void test_literal(void) {
   test_literal_postbase_golden();
   test_literal_postbase_flags();
   test_literal_postbase_reject();
+  test_qpack_literal_name_decode_truncated_rejected();
+  test_qpack_literal_never_bit_preserved();
+  test_qpack_oversized_value_rejects_whole_line();
 }

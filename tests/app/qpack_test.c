@@ -70,10 +70,70 @@ static void test_qpack_static_table(void) {
   CHECK(qpack_static_find("nonexistent-header", "x") == -1);
 }
 
+/* Pinning: GHSA-mj42-367w-cf98 -- a raw string literal whose declared length
+ * exceeds the caller's fixed destination capacity must be rejected before
+ * any copy, never resized to fit (V-0426). The source really carries the
+ * 200 bytes, so only the capacity check stands between them and dst. */
+static void test_qpack_string_decode_oversized_length_rejected(void) {
+  u8        buf[256];
+  u8        payload[200];
+  qpack_pfx pfx = {7, 0};
+  usz       w   = qpack_int_encode(wired_mspan_of(buf, sizeof buf), pfx, 200);
+  CHECK(w != 0);
+  for (usz i = 0; i < sizeof payload; i++) payload[i] = (u8)i;
+  CHECK(bytes_put(
+      wired_mspan_of(buf, sizeof buf), &w,
+      wired_span_of(payload, sizeof payload)));
+
+  u8         out[256]; /* backing is wide; the advertised cap is 16 */
+  wired_obuf ob = obuf_of(out, 16);
+  CHECK(qpack_string_decode(wired_span_of(buf, w), &ob) == 0);
+  CHECK(ob.len == 0);
+}
+
+/* Pinning: RFC 9204 4.1.1 -- the continuation encoding must not accept a
+ * value beyond the 64-bit ceiling; take_group's `m > 56` guard rejects a
+ * tenth continuation group (shift 63) even when a terminating byte follows
+ * (V-0477). */
+static void test_qpack_integer_decode_64bit_overflow_rejected(void) {
+  /* prefix, nine continuation groups (shifts 0..56), then a terminator at
+   * shift 63 -- without the guard this would decode "successfully". */
+  u8  buf[11] = {0x7f, 0xff, 0xff, 0xff, 0xff, 0xff,
+                 0xff, 0xff, 0xff, 0xff, 0x01};
+  u64 v;
+  CHECK(qpack_int_decode(wired_span_of(buf, sizeof buf), 7, &v) == 0);
+}
+
+/* Pinning: CVE-2024-32760-class -- every string-decode write goes through a
+ * capacity-checked path: for a spread of declared lengths (bytes really
+ * present) against a small fixed destination, decode either fails closed or
+ * never writes past dst's cap; a length claiming more bytes than the source
+ * holds fails closed too (V-0430). */
+static void test_qpack_string_decode_fuzz_no_overflow(void) {
+  static const usz lens[] = {0, 1, 4, 5, 15, 16, 17, 200, 1000};
+  static u8        src[1024], dst[1024]; /* wide backings: cap is 16 */
+  for (usz i = 0; i < sizeof(lens) / sizeof(lens[0]); i++) {
+    qpack_pfx pfx = {7, 0};
+    usz w = qpack_int_encode(wired_mspan_of(src, sizeof src), pfx, lens[i]);
+    wired_obuf ob = obuf_of(dst, 16);
+    usz        r;
+    w += lens[i]; /* the declared bytes are present (src is zeroed) */
+    r = qpack_string_decode(wired_span_of(src, w), &ob);
+    CHECK(r == 0 || ob.len <= 16);
+    CHECK((r != 0) == (lens[i] <= 16));
+    /* same header, one source byte short: truncated, must fail closed. */
+    ob = obuf_of(dst, 16);
+    CHECK(qpack_string_decode(wired_span_of(src, w - 1), &ob) == 0);
+  }
+}
+
 void test_qpack(void) {
   test_qpack_integer_vector();
   test_qpack_integer_roundtrip();
   test_qpack_integer_62bit_boundary();
   test_qpack_string();
   test_qpack_static_table();
+  test_qpack_string_decode_oversized_length_rejected();
+  test_qpack_integer_decode_64bit_overflow_rejected();
+  test_qpack_string_decode_fuzz_no_overflow();
 }

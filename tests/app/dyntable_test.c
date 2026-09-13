@@ -120,6 +120,46 @@ static void test_set_capacity_raise_does_not_evict(void) {
   CHECK(qpack_dyn_size(&t) == 68);
 }
 
+/* Pinning: RFC 9204 7.3 -- QPACK memory is bounded twice over: the
+ * compile-time ring size (QPACK_DYN_MAX_ENTRIES) and the peer-controlled
+ * capacity value. Filling the ring past its slot count must never grow it
+ * or corrupt older entries (V-0475). */
+static void test_qpack_dyntable_bounded_by_max_entries(void) {
+  qpack_dyn t;
+  /* one-byte name/value entries cost 1+1+32=34 bytes each; a capacity of
+   * QPACK_DYN_MAX_ENTRIES*34 lets every ring slot hold one live entry. */
+  qpack_dyn_init(&t, QPACK_DYN_MAX_ENTRIES * 34);
+  for (usz i = 0; i < QPACK_DYN_MAX_ENTRIES + 8; i++) {
+    u8          nb = (u8)('a' + (i % 26));
+    qpack_field f  = dt_field((const char*)&nb, 1, "1", 1);
+    /* the ring's slot count is the hard ceiling: once every slot is live
+     * an insert is refused (0), never wrapped over an older live entry. */
+    CHECK(qpack_dyn_insert(&t, &f) == (i < QPACK_DYN_MAX_ENTRIES));
+    CHECK(t.count <= QPACK_DYN_MAX_ENTRIES);
+  }
+  CHECK(t.count == QPACK_DYN_MAX_ENTRIES);
+}
+
+/* Pinning: CVE-2026-42530-class UAF -- the dynamic table is a fixed-size
+ * struct embedded in the connection slot, never independently freed; a
+ * table that has evicted entries down to empty (simulating stream/request
+ * teardown churn) must remain safely insertable afterward, never dangling
+ * (V-0434). */
+static void test_qpack_dyntable_survives_stream_teardown(void) {
+  qpack_dyn   t;
+  qpack_field a = dt_field("a", 1, "1", 1);
+  qpack_dyn_init(&t, 4096);
+  CHECK(qpack_dyn_insert(&t, &a) == 1);
+  /* simulate teardown: capacity dropped to 0 clears every entry. */
+  qpack_dyn_set_capacity(&t, 0);
+  CHECK(t.count == 0);
+  /* the table is still a valid, live struct -- a new stream/request can
+   * insert into it immediately without any re-initialization. */
+  qpack_dyn_set_capacity(&t, 4096);
+  CHECK(qpack_dyn_insert(&t, &a) == 1);
+  CHECK(t.count == 1);
+}
+
 void test_dyntable(void) {
   test_insert_size();
   test_evict_on_overflow();
@@ -129,4 +169,6 @@ void test_dyntable(void) {
   test_set_capacity_reduction_evicts();
   test_set_capacity_zero_clears_table();
   test_set_capacity_raise_does_not_evict();
+  test_qpack_dyntable_bounded_by_max_entries();
+  test_qpack_dyntable_survives_stream_teardown();
 }
