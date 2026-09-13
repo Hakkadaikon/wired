@@ -18,3 +18,7 @@ void pnspaces_on_ack(
 usz pnspaces_sent_count(const pnspaces_sent* s, int space) {
   return sentpkt_count(&s->t[space]);
 }
+
+void pnspaces_sent_discard(pnspaces_sent* s, int space) {
+  sentpkt_init(&s->t[space]); /* RFC 9002 6.4: drop that space's state */
+}
