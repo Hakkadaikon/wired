@@ -35,4 +35,10 @@ void pnspaces_on_ack(pnspaces_sent* s, const pnspaces_ack_in* in, u64out acked);
 /* In-flight count recorded in `space`. */
 usz pnspaces_sent_count(const pnspaces_sent* s, int space);
 
+/* RFC 9001 4.9 / RFC 9002 6.4: discarding a space's keys discards every
+ * packet tracked in that space -- none can be acknowledged any more -- so a
+ * later ACK naming that space acknowledges nothing. Other spaces are
+ * untouched. */
+void pnspaces_sent_discard(pnspaces_sent* s, int space);
+
 #endif
