@@ -8,11 +8,15 @@
 #include "transport/packet/frame/frame/permit.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
 #include "transport/recovery/rtx/sentpkt/ack_process.h"
+#include "transport/stream/data/stream/stream_role.h"
 
-/* RFC 9000 19.8: feed a STREAM frame's bytes into the read buffer. */
+/* RFC 9000 19.8: feed a STREAM frame's bytes into the read buffer. STREAM
+ * data on a stream this (server) endpoint cannot receive on -- its own
+ * unidirectional stream -- is a STREAM_STATE_ERROR and is rejected. */
 static int on_stream(framedispatch_state* st, const u8* frame, usz len) {
   stream_frame f;
   if (frame_get_stream(frame, len, &f) == 0) return 0;
+  if (!stream_can_receive(0, f.stream_id)) return 0;
   return stream_read_push(
       st->stream, f.offset, wired_span_of(f.data, f.length));
 }
@@ -77,10 +81,14 @@ static int on_noop(framedispatch_state* st, const u8* frame, usz len) {
 
 /* RFC 9000 3.5: record that an automatic RESET_STREAM is owed, copying the
  * stream ID and error code verbatim from the STOP_SENDING frame. The actual
- * send is the caller's job (same shape as on_datagram above). */
+ * send is the caller's job (same shape as on_datagram above). RFC 9000 19.5:
+ * STOP_SENDING for a stream this (server) endpoint cannot send on -- the
+ * peer's own unidirectional stream -- is a STREAM_STATE_ERROR: rejected, no
+ * RESET_STREAM owed. */
 static int on_stop_sending(framedispatch_state* st, const u8* frame, usz len) {
   stop_sending_frame f;
   if (stop_sending_decode(frame, len, &f) == 0) return 0;
+  if (!stream_can_send(0, f.stream_id)) return 0;
   st->stop_sending_owed       = 1;
   st->stop_sending_stream_id  = f.stream_id;
   st->stop_sending_error_code = f.error_code;

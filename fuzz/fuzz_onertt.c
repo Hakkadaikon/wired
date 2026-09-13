@@ -69,6 +69,8 @@
 #include "transport/packet/protect/protect_suite/hp_suite.c"
 #include "transport/recovery/rtx/sentpkt/ack_process.c"
 #include "transport/recovery/rtx/sentpkt/sentpkt.c"
+#include "transport/stream/data/stream/stream_id.c"
+#include "transport/stream/data/stream/stream_role.c"
 #include "transport/stream/flow/flow/credit.c"
 #include "transport/stream/flow/flow/reassemble.c"
 #include "transport/stream/flow/flow/stream_read.c"
