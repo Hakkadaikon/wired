@@ -181,6 +181,31 @@ static void test_keyschedule_exporter_secret_matches_oneshot(void) {
   for (usz i = 0; i < 32; i++) CHECK(exp[i] == ref[i]);
 }
 
+/* RFC 8446 E.1.4: once the connection is torn down the retained
+ * exporter_master_secret (and the other secrets) are erased -- the bytes
+ * are zero, the accessor reports nothing, and the schedule is back at
+ * stage 0. */
+static void test_exporter_master_secret_zeroized_after_use(void) {
+  u8 ecdhe[32], tr[] = "ClientHello||ServerHello||Finished";
+  fill(ecdhe, 32, 4);
+  keysched  st;
+  const u8* exp;
+  int       nonzero = 0;
+  keysched_init(&st);
+  keysched_advance_handshake(
+      &st, wired_span_of(ecdhe, 32), wired_span_of(tr, sizeof(tr)));
+  keysched_advance_master(&st, tr, sizeof(tr));
+  CHECK(keysched_exporter_secret(&st, &exp) == 1);
+  for (usz i = 0; i < 32; i++) nonzero |= exp[i];
+  CHECK(nonzero != 0);
+  keysched_wipe(&st);
+  CHECK(keysched_exporter_secret(&st, &exp) == 0);
+  CHECK(keysched_client_ap_secret(&st, &exp) == 0);
+  for (usz i = 0; i < 32; i++) CHECK(st.exporter_secret[i] == 0);
+  for (usz i = 0; i < 32; i++) CHECK(st.master[i] == 0);
+  CHECK(st.stage == 0);
+}
+
 /* A wrong-length ECDHE secret is rejected on the PSK branch too. */
 static void test_keyschedule_psk_bad_ecdhe(void) {
   u8 psk[32], ecdhe[32], tr[] = "tr";
@@ -202,6 +227,7 @@ void test_keyschedule(void) {
   test_keyschedule_bad_ecdhe();
   test_keyschedule_matches_oneshot();
   test_keyschedule_exporter_secret_matches_oneshot();
+  test_exporter_master_secret_zeroized_after_use();
   test_keyschedule_psk_matches_oneshot();
   test_keyschedule_psk_differs_from_plain();
   test_keyschedule_psk_bad_ecdhe();

@@ -177,4 +177,15 @@ int keysched_server_ap_secret(const keysched* st, const u8** out);
  */
 int keysched_exporter_secret(const keysched* st, const u8** out);
 
+/**
+ * RFC 8446 E.1.4 / 7.5: erase every retained secret (Master Secret, the
+ * traffic secrets and keys, exporter_master_secret) and return the
+ * schedule to stage 0, so a torn-down connection leaves no exporter or
+ * traffic material behind. The accessors report nothing available
+ * afterwards.
+ *
+ * @param st the schedule to wipe
+ */
+void keysched_wipe(keysched* st);
+
 #endif

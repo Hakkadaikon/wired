@@ -18,8 +18,11 @@ typedef struct {
 } derive_secret_in;
 
 /* Derive-Secret(secret, label, messages) = HKDF-Expand-Label(secret, label,
- * Hash(messages), Hash.length). Writes a 32-byte secret. */
-void tls_derive_secret(const derive_secret_in* in, u8 out[HKDF_PRK]);
+ * Hash(messages), Hash.length). Writes a 32-byte secret and returns 1; on
+ * an expand failure (label too long, see hkdf_expand_label) returns 0 with
+ * out zeroed, so a caller that ignores the result never continues on an
+ * uninitialized secret. */
+int tls_derive_secret(const derive_secret_in* in, u8 out[HKDF_PRK]);
 
 /* Handshake Secret = HKDF-Extract(derived-from-early, ECDHE shared secret). */
 void tls_handshake_secret(const u8 ecdhe[32], u8 out[HKDF_PRK]);

@@ -1,5 +1,6 @@
 #include "tls/keys/schedule_drive/keyschedule.h"
 
+#include "common/bytes/util/bytes.h"
 #include "tls/handshake/core/tls/appkeys.h"
 #include "tls/handshake/core/tls/cipher.h"
 #include "tls/handshake/core/tls/exporter.h"
@@ -125,4 +126,12 @@ int keysched_exporter_secret(const keysched* st, const u8** out) {
   if (st->stage < 2) return 0;
   *out = st->exporter_secret;
   return 1;
+}
+
+void keysched_wipe(keysched* st) {
+  u16 suite   = st->suite;
+  u32 version = st->version;
+  bytes_memset(st, 0, sizeof *st);
+  st->suite   = suite;
+  st->version = version;
 }

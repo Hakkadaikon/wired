@@ -1,5 +1,6 @@
 #include "tls/handshake/core/tls/schedule.h"
 
+#include "common/bytes/util/bytes.h"
 #include "tls/handshake/core/tls/aead_params.h"
 #include "tls/handshake/core/tls/cipher.h"
 #include "tls/handshake/core/tls/hp_select.h"
@@ -21,12 +22,15 @@ static usz resolved_hp_len(u16 suite) {
   return n ? n : INITIAL_HP;
 }
 
-void tls_derive_secret(const derive_secret_in* in, u8 out[HKDF_PRK]) {
+int tls_derive_secret(const derive_secret_in* in, u8 out[HKDF_PRK]) {
   u8 thash[SHA256_DIGEST];
   wired_sha256(in->messages.p, in->messages.n, thash);
   hkdf_label l = {
       (const char*)in->label.p, in->label.n, {thash, sizeof(thash)}};
-  hkdf_expand_label(in->secret, &l, wired_mspan_of(out, HKDF_PRK));
+  if (hkdf_expand_label(in->secret, &l, wired_mspan_of(out, HKDF_PRK)))
+    return 1;
+  bytes_memset(out, 0, HKDF_PRK); /* fail closed: never an uninitialized key */
+  return 0;
 }
 
 /* A literal ASCII label plus its length, before folding into a span. */
