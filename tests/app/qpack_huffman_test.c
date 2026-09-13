@@ -104,6 +104,22 @@ static void test_huffman_litname_hname(void) {
   CHECK(hf_eq(val, fb.value.len, "/p", 2));
 }
 
+/* Pinning: RFC 9204 7 (see [QPACK] SS7 field-compression abuse) -- Huffman
+ * decode cost must stay linear in the bounded input length, never blow up
+ * on a maximal-length code path (each byte costs at most HUFF_MAXLEN=30
+ * bit-steps before failing closed) (V-0448). This pins that a large input
+ * of the worst-case (all-0xFF, longest code prefix) bytes fails closed
+ * rather than looping or growing unbounded. */
+static void test_qpack_huffman_decode_cost_bounded(void) {
+  u8 src[256];
+  for (usz i = 0; i < sizeof src; i++) src[i] = 0xff;
+  u8         out[256];
+  wired_obuf ob = obuf_of(out, sizeof out);
+  /* 0xff repeated is not a valid Huffman stream (EOS prefix) -- decode must
+   * terminate (fail closed) rather than spin, within this one call. */
+  CHECK(qpack_huffman_decode(wired_span_of(src, sizeof src), &ob) == 0);
+}
+
 void test_qpack_huffman(void) {
   test_huffman_rfc_vector();
   test_huffman_curl_headers();
@@ -113,4 +129,5 @@ void test_qpack_huffman(void) {
   test_huffman_overflow();
   test_huffman_string_h1();
   test_huffman_litname_hname();
+  test_qpack_huffman_decode_cost_bounded();
 }

@@ -84,10 +84,29 @@ static void test_enc_stream_truncated_unconsumed(void) {
   CHECK(err == 0);
 }
 
+/* Pinning: CVE-2022-30592/GHSA-hxq4 (lsquic)-class -- a Set Dynamic Table
+ * Capacity that exceeds the server's own advertised max_table_capacity must
+ * be rejected (QPACK_ENCODER_STREAM_ERROR) before touching table state
+ * (V-0424). */
+static void test_qpackdyn_enc_stream_capacity_over_limit_rejected(void) {
+  qpack_dyn   t;
+  u8          buf[4];
+  wired_mspan mb  = wired_mspan_of(buf, sizeof buf);
+  usz         n   = qpack_enc_instr_encode(mb, QPACK_ENC_SET_CAPACITY, 4096);
+  u16         err = 0;
+
+  qpack_dyn_init(&t, 0);
+  CHECK(n > 0);
+  CHECK(qdyn_enc_apply_capacity(wired_span_of(buf, n), &t, 100, &err) == 0);
+  CHECK(t.capacity == 0);
+  CHECK(err == QPACK_ENCODER_STREAM_ERROR);
+}
+
 void test_qpackdyn_enc_stream(void) {
   test_enc_stream_set_capacity_applied();
   test_enc_stream_set_capacity_over_limit_rejected();
   test_enc_stream_set_capacity_reduction_evicts();
   test_enc_stream_non_capacity_instruction_unconsumed();
   test_enc_stream_truncated_unconsumed();
+  test_qpackdyn_enc_stream_capacity_over_limit_rejected();
 }

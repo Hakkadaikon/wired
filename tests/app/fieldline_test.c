@@ -93,6 +93,31 @@ static void test_fieldline_postbase_reject(void) {
   CHECK(qpack_indexed_postbase_decode(wired_span_of(&indexed, 0), &pb) == 0);
 }
 
+/* Pinning: RFC 9204 7.1.1 -- QPACK's field-line-granularity mitigation
+ * against CRIME-class attacks holds only if the wire format never exposes a
+ * sub-line unit: an indexed field line decode is all-or-nothing, either
+ * consuming the whole encoded line or rejecting it (0), never resolving to
+ * a partial index that would let an attacker probe single bytes of a field
+ * value's compression (V-0465). */
+static void test_qpack_fieldline_whole_line_granularity(void) {
+  u8  buf[8];
+  usz w = qpack_indexed_encode(wired_mspan_of(buf, sizeof buf), 42, 1);
+  CHECK(w != 0);
+
+  u64 index;
+  int is_static;
+  /* full line: decodes atomically to exactly the encoded index. */
+  CHECK(qpack_indexed_decode(wired_span_of(buf, w), &index, &is_static) == w);
+  CHECK(index == 42 && is_static == 1);
+
+  /* any truncation of the line fails the whole decode -- there is no
+   * partial/byte-at-a-time decode API to fall back to. */
+  for (usz cut = 1; cut < w; cut++)
+    CHECK(
+        qpack_indexed_decode(wired_span_of(buf, w - cut), &index, &is_static) ==
+        0);
+}
+
 void test_fieldline(void) {
   test_fieldline_indexed_golden();
   test_fieldline_indexed_prefix_boundary();
@@ -102,4 +127,5 @@ void test_fieldline(void) {
   test_fieldline_postbase_index_one();
   test_fieldline_postbase_prefix_boundary();
   test_fieldline_postbase_reject();
+  test_qpack_fieldline_whole_line_granularity();
 }
