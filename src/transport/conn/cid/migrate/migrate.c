@@ -11,8 +11,15 @@ void migrate_init(migrate* m, u64 cid) {
   m->port_only           = 0;
 }
 
+/* RFC 9000 9.3 / 8.2.1: validating one path never validates another, so a
+ * newly detected path drops the previous path's challenge/validation state.
+ */
 void migrate_detect(migrate* m) {
-  if (m->handshake_confirmed) m->detected = 1; /* ignored before handshake */
+  if (!m->handshake_confirmed) return; /* ignored before handshake */
+  m->detected   = 1;
+  m->challenged = 0;
+  m->validated  = 0;
+  m->confirmed  = 0;
 }
 
 void migrate_challenge(migrate* m) {
