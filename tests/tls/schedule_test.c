@@ -127,10 +127,64 @@ static void test_tls_derive_secret_propagates_expand_failure(void) {
           wired_mspan_of(okm, sizeof(okm))) == 0);
 }
 
+/* RFC 8446 E.1.15 / 7.5: TLS-Exporter output is computationally
+ * independent across distinct labels/contexts (each re-derives its own
+ * Derive-Secret(...,label,"") before HKDF-Expand-Label), and matches the
+ * full HKDF_PRK width. */
+static void test_exporter_distinct_labels_independent_output(void) {
+  u8         secret[HKDF_PRK];
+  u8         okm_a[HKDF_PRK], okm_b[HKDF_PRK], okm_c[HKDF_PRK];
+  const char label_a[] = "label a", label_b[] = "label b";
+  const u8   ctx1[] = "context-1", ctx2[] = "context-2";
+  for (usz i = 0; i < sizeof(secret); i++) secret[i] = (u8)(0x50 + i);
+
+  CHECK(
+      tls_exporter(
+          secret, wired_span_of((const u8*)label_a, 7),
+          wired_span_of(ctx1, sizeof(ctx1)),
+          wired_mspan_of(okm_a, sizeof(okm_a))) == 1);
+  CHECK(
+      tls_exporter(
+          secret, wired_span_of((const u8*)label_b, 7),
+          wired_span_of(ctx1, sizeof(ctx1)),
+          wired_mspan_of(okm_b, sizeof(okm_b))) == 1);
+  CHECK(
+      tls_exporter(
+          secret, wired_span_of((const u8*)label_a, 7),
+          wired_span_of(ctx2, sizeof(ctx2)),
+          wired_mspan_of(okm_c, sizeof(okm_c))) == 1);
+
+  int differ_label = 0, differ_ctx = 0;
+  for (usz i = 0; i < HKDF_PRK; i++) {
+    differ_label |= (okm_a[i] != okm_b[i]);
+    differ_ctx |= (okm_a[i] != okm_c[i]);
+  }
+  CHECK(differ_label); /* distinct label -> independent output */
+  CHECK(differ_ctx);   /* distinct context -> independent output */
+}
+
+/* RFC 9001 9.4: hp is derived under a distinct label ("hp") from the AEAD
+ * packet-protection key ("key"), so the two must never coincide. */
+static void test_schedule_hp_key_distinct_from_packet_key(void) {
+  u8 ecdhe[32], hs[32];
+  for (usz i = 0; i < 32; i++) ecdhe[i] = (u8)(0x60 + i);
+  tls_handshake_secret(ecdhe, hs);
+  const u8 tr[] = "ClientHello||ServerHello";
+
+  initial_keys k;
+  tls_handshake_keys(
+      &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 0, 0}, &k);
+  int differ = 0;
+  for (usz i = 0; i < INITIAL_KEY; i++) differ |= (k.key[i] != k.hp[i]);
+  CHECK(differ);
+}
+
 void test_schedule(void) {
   test_tls_derive_secret_propagates_expand_failure();
   test_schedule_agreement();
   test_schedule_directions();
   test_schedule_early();
   test_schedule_v2_labels();
+  test_exporter_distinct_labels_independent_output();
+  test_schedule_hp_key_distinct_from_packet_key();
 }

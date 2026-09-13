@@ -909,6 +909,7 @@
 #include "tls/srvfin_complete_test.c"
 #include "tls/srvfin_hsdone_test.c"
 #include "tls/ch_ext_test.c"
+#include "tls/chguard_test.c"
 #include "tls/negotiate_test.c"
 #include "tls/sni_extract_test.c"
 #include "tls/server_tp_test.c"
