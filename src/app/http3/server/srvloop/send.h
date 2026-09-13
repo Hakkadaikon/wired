@@ -75,13 +75,17 @@ int wired_srvloop_send_handshake(
     const wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out);
 
 /** Seal a raw 1-RTT payload (for example HANDSHAKE_DONE) under SERVER_AP.
- * in->ack_pn is unused (1-RTT sealing never ACKs).
+ * in->ack_pn is unused (1-RTT sealing never ACKs). Counts the packet
+ * toward the AEAD confidentiality limit (RFC 9001 6.6) and, once the limit
+ * is reached, initiates a Key Update (6.1) before sealing -- refusing
+ * instead while a previous self-initiated update is still unconfirmed
+ * (6.2).
  * @param s the server orchestrator holding the sealing keys
  * @param in the reply DCID, packet number, and raw 1-RTT payload
  * @param out receives the sealed packet
- * @return 1 with out->len set, or 0 if the key is not derived or on
- *   overflow. */
+ * @return 1 with out->len set, or 0 if the key is not derived, the AEAD
+ *   limit forbids sealing, or on overflow. */
 int wired_srvloop_send_onertt(
-    const wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out);
+    wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out);
 
 #endif

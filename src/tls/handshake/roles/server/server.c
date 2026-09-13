@@ -47,6 +47,8 @@ void wired_server_init(wired_server* s, const wired_server_init_in* in) {
   s->tr_through_flight = 0;
   s->keylog_path       = 0;
   s->ku_seeded         = 0;
+  s->ku_send_count     = 0;
+  s->ku_auth_fail      = 0;
 }
 
 int wired_server_set_cids(wired_server* s, wired_span odcid, wired_span iscid) {

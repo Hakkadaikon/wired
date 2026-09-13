@@ -1,8 +1,11 @@
 #include "app/http3/server/srvloop/send.h"
 
 #include "app/http3/server/srvloop/keys.h"
+#include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvwire/wire.h"
 #include "crypto/kdf/keys/keyset.h"
+#include "tls/handshake/core/tls/aead_params.h"
+#include "tls/keys/keyupdate/aeadlimit.h"
 #include "tls/keys/keyupdate/keyphase.h"
 #include "transport/packet/build/hspkt/onertt.h"
 
@@ -86,19 +89,54 @@ static int send_onertt_keys(
   return 1;
 }
 
+/* RFC 9001 6.3: the Key Phase bit the wire carries is this endpoint's
+ * current send-side generation; 0 (generation 0's phase) before kuswitch is
+ * seeded, matching send_onertt_keys's own fallback. */
+static int send_onertt_phase(const wired_server* s) {
+  return s->ku_seeded ? keyphase_bit(s->ku_send.generation) : 0;
+}
+
+/* RFC 9001 6.1/6.2: a self-initiated update needs real generation-0 keys
+ * seeded (the handshake confirmed) and the peer caught up to the previous
+ * one (its recv generation equal to the send generation). */
+static int ku_can_initiate(const wired_server* s) {
+  return s->ku_seeded && s->ku_send.generation == s->ku.generation;
+}
+
+/* RFC 9001 6.6: once the confidentiality limit for the negotiated AEAD is
+ * reached, the current keys MUST NOT seal another packet -- initiate a Key
+ * Update (6.1) if allowed, else refuse. Returns 1 if sealing may proceed.
+ * ponytail: a limit hit while the previous update is still unconfirmed
+ * stalls sends rather than closing the connection; 2^23 packets without one
+ * peer packet in the new phase dies of idle timeout first. */
+static int ku_limit_gate(wired_server* s) {
+  int chacha = aead_is_chacha(s->sdrv.cipher_suite);
+  if (!aead_needs_update(s->ku_send_count, chacha)) return 1;
+  if (!ku_can_initiate(s)) return 0;
+  srvloop_ku_rotate_send(s);
+  return 1;
+}
+
 /* RFC 9001 5 / 5.1 / 6: 1-RTT payload sealed with the own-direction
  * SERVER_AP, its Key Phase bit set to this endpoint's current send-side
  * generation (hspkt_onertt_build's byte0 has no way to infer the
  * phase from the keys alone -- the wire bit is the only signal a peer
- * uses to detect an update, RFC 9001 6.3). 0 (generation 0's phase) before
- * kuswitch is seeded, matching send_onertt_keys's own fallback. */
-int wired_srvloop_send_onertt(
+ * uses to detect an update, RFC 9001 6.3). */
+static int send_onertt_seal(
     const wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out) {
   wired_srvloop_dirkeys dk;
   aes128                hp;
   protect_keys          pk;
-  int phase           = s->ku_seeded ? keyphase_bit(s->ku_send.generation) : 0;
-  hspkt_onertt_desc d = {in->cli_scid, in->pn, in->payload, phase};
+  hspkt_onertt_desc     d = {
+      in->cli_scid, in->pn, in->payload, send_onertt_phase(s)};
   if (!send_onertt_keys(s, &dk, &hp, &pk)) return 0;
   return hspkt_onertt_build_suite(s->sdrv.cipher_suite, &pk, &d, out);
+}
+
+int wired_srvloop_send_onertt(
+    wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out) {
+  if (!ku_limit_gate(s)) return 0;
+  if (!send_onertt_seal(s, in, out)) return 0;
+  s->ku_send_count++; /* RFC 9001 6.6: one more packet under these keys */
+  return 1;
 }
