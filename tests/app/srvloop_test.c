@@ -4481,6 +4481,38 @@ static void test_srvloop_note_ecn_keeps_largest_ack(void) {
   CHECK(l.ecn_ack_ect0 == 11 && l.ecn_ack_ce == 2);
 }
 
+/* RFC 9000 19.4/19.5 (V-0438, CVE-2023-44487-class rapid reset): every
+ * RESET_STREAM/STOP_SENDING the peer sends is COUNTED in l.peer_reset_count
+ * -- three in one step give 3, not the 1 that closed_stream_id's last-one-
+ * wins latch collapses them to -- and the count accumulates across steps
+ * (only the caller, srvrun.c, clears it at its window edge). */
+static void test_srvloop_reset_stream_count_exposed_per_window(void) {
+  struct lp_fix      f;
+  u8                 payload[64], out[1024], spkt[1024];
+  usz                off = 0, slen;
+  wired_obuf         ob  = {out, sizeof out, 0};
+  reset_stream_frame rs  = {4, 0x10c, 0};
+  stop_sending_frame ss  = {8, 0x10c};
+  off += reset_stream_encode(payload + off, sizeof payload - off, &rs);
+  rs.stream_id = 12;
+  off += reset_stream_encode(payload + off, sizeof payload - off, &rs);
+  off += stop_sending_encode(payload + off, sizeof payload - off, &ss);
+  lp_confirm(&f, &ob);
+  CHECK(f.l.peer_reset_count == 0);
+  slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
+  ob   = (wired_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.peer_reset_count == 3);
+  CHECK(f.l.closed_stream_seen == 1); /* the old latch still works... */
+  CHECK(f.l.closed_stream_id == 8);   /* ...and still keeps only the last */
+  slen = client_seal_onertt_pn(&f, 4, payload, off, spkt, sizeof spkt);
+  ob   = (wired_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.peer_reset_count == 6); /* accumulates; srvrun owns the window */
+}
+
 void test_srvloop(void) {
   test_srvloop_note_ecn_keeps_largest_ack();
   test_srvloop_recv_zerortt_opens_with_early_keys();
@@ -4606,4 +4638,5 @@ void test_srvloop(void) {
   test_srvloop_stream_limit_clamps_to_table();
   test_srvloop_released_stream_duplicate_is_ignored();
   test_srvloop_closed_set_tracks_out_of_order_releases();
+  test_srvloop_reset_stream_count_exposed_per_window();
 }

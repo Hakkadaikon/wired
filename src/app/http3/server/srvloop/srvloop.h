@@ -764,6 +764,13 @@ typedef struct {
   u64 wt_reset_error_code; /**< its wire error code */
   int wt_reset_is_stop;    /**< 1 for STOP_SENDING, 0 for RESET_STREAM */
   int wt_reset_seen; /**< 1 once the three fields above were set this step */
+  /** RFC 9000 19.4/19.5, RFC 9114 10.5 (CVE-2023-44487-class rapid reset):
+   * how many RESET_STREAM/STOP_SENDING frames the peer has sent since the
+   * caller last cleared this -- every one counts, unlike closed_stream_id's
+   * last-one-wins latch, so the caller (srvrun.c) can rate-limit resets per
+   * time window and close with H3_EXCESSIVE_LOAD. Never reset by this loop
+   * itself; srvrun.c clears it at its own window edge. */
+  u32 peer_reset_count;
   /** qlog attribution for received-side stream frame events (mirrors
    * srvrun_conn.qlog_slot/srvrun_cfg.qlog_path, set once at connection setup
    * -- srvloop itself never opens or writes the file, dispatch.c only reads
