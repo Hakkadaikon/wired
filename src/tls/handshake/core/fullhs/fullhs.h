@@ -57,6 +57,12 @@ int fullhs_init(fullhs* h, tlsdriver* tls, wired_span sh);
  * alive for the whole handshake. Zero policy (the init default) keeps the
  * legacy signature-only behavior. */
 void fullhs_set_policy(fullhs* h, u64 now, wired_span host);
+/* Hostname verification is OFF by default for a standalone fullhs (init
+ * leaves the policy zero, matching the pinned signature-only test vectors);
+ * the client role always sets it from its SNI. A standalone caller that
+ * talks to a real peer MUST call fullhs_set_policy with the expected host
+ * -- with policy_host_len > 0 no Certificate is accepted (and cert_verified
+ * never set) unless a SAN dNSName matches (RFC 6125 6.4). */
 
 /* RFC 5280 6.1: set the trust store the peer's wire chain must validate to
  * when the Certificate message arrives (every link verified, tail anchored

@@ -16,6 +16,9 @@
 /* RFC 1035 3.1: a full domain name is at most 255 octets. */
 #define RESUME_SNI_MAX 255
 
+/* RFC 7301 3.1: one ProtocolName is at most 255 octets. */
+#define RESUME_ALPN_MAX 255
+
 /** RFC 8446 4.6.1: a stored session ticket plus the resumption PSK and
  * transport-parameter/SNI metadata needed to attempt 0-RTT on it later. */
 typedef struct {
@@ -31,6 +34,10 @@ typedef struct {
    * under, or sni_len 0 when none was offered. */
   u8  sni[RESUME_SNI_MAX];
   usz sni_len;
+  /** RFC 7301 3.1 / RFC 8446 4.2.11: the ALPN protocol the original session
+   * negotiated, or alpn_len 0 when none was. */
+  u8  alpn[RESUME_ALPN_MAX];
+  usz alpn_len;
 } resume;
 
 /** The transport parameters and ticket metadata to remember alongside a
@@ -44,6 +51,10 @@ typedef struct {
    * kept alive only for the call), or n 0 when none was offered. Longer than
    * RESUME_SNI_MAX is truncated to it. */
   wired_span sni;
+  /** RFC 7301 3.1: the ALPN protocol this session negotiated (a view kept
+   * alive only for the call), or n 0 when none was. Longer than
+   * RESUME_ALPN_MAX is truncated to it. */
+  wired_span alpn;
 } resume_store_in;
 
 /* Store a ticket and the transport parameters to remember for 0-RTT.
@@ -82,6 +93,13 @@ int resume_tp_compatible(u64 remembered_max_data, u64 new_max_data);
  * session with no remembered server_name (r->sni_len 0) is compatible with
  * any new_sni. Returns 1 compatible, 0 otherwise. */
 int resume_sni_compatible(const resume* r, wired_span new_sni);
+
+/* RFC 8446 4.2.11 / 4.6.1: a ticket may only be resumed under the ALPN
+ * protocol the original session negotiated -- new_alpn must equal the
+ * remembered one byte for byte (ALPN names are case-sensitive, RFC 7301
+ * 3.1). A stored session with no remembered protocol (r->alpn_len 0) is
+ * compatible with any new_alpn. Returns 1 compatible, 0 otherwise. */
+int resume_alpn_compatible(const resume* r, wired_span new_alpn);
 
 /* Returns 1 when 0-RTT may be attempted: ticket valid and transport
  * parameters compatible. RFC 9001 4.6. */

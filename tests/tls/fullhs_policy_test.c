@@ -170,6 +170,24 @@ static void test_fullhs_policy_no_san(void) {
           sizeof(fullhs_cert_msg)) == 0);
 }
 
+/* A standalone fullhs (no client role wiring it) with a host policy set
+ * refuses a Certificate that carries no matching SAN dNSName, and the auth
+ * gate (hsdriver cert_verified) stays shut -- the OpenSSL-callback-bypass
+ * class cannot recur by driving fullhs directly. */
+static void test_fullhs_rejects_missing_san_when_policy_set(void) {
+  tlsdriver cl, sv;
+  fullhs    h;
+  u8        sh[512];
+  usz       shn;
+  fp_new_client(&cl, &sv, &h, sh, &shn);
+  fullhs_set_policy(&h, 0, wired_span_of((const u8*)"other.example", 13));
+  {
+    const u8* m = fullhs_cert_msg;
+    CHECK(fullhs_recv_cert(&h, m, sizeof(fullhs_cert_msg)) == 0);
+  }
+  CHECK(cl.hs.cert_verified == 0);
+}
+
 /* RFC 6125: SAN dNSName match accepts, mismatch rejects, and a combined
  * policy needs both the name and the window to hold. */
 static void test_fullhs_policy_san(void) {
@@ -232,6 +250,7 @@ static void test_fullhs_policy_gate(void) {
 void test_fullhs_policy(void) {
   test_fullhs_policy_validity();
   test_fullhs_policy_no_san();
+  test_fullhs_rejects_missing_san_when_policy_set();
   test_fullhs_policy_san();
   test_fullhs_policy_gate();
 }
