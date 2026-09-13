@@ -34,6 +34,7 @@ OVERRIDES = {
     "h3method": "app/http3/core/h3",
     "rsachain": "crypto/pki/trust/castore",
     "p256field_n": "crypto/asymmetric/ecc/p256",
+    "ecdsa_diff": "crypto/asymmetric/ecc/p256",
     "ecdsa_p384_verify": "crypto/asymmetric/ecc/p384",
     "p384chain": "crypto/pki/trust/castore",
     "versdowngrade": "transport/version/versmgr",
