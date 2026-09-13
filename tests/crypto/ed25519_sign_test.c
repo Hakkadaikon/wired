@@ -159,6 +159,43 @@ static void test_ed25519_verify_rejects_noncanonical_key(void) {
   CHECK(ed25519_verify(sig, msg, 1, pk) == 0);
 }
 
+/* Double Public Key Signing Function Oracle Attack (ed25519-dalek < 2.0,
+ * V-0699/V-0715): the attack needs an API that accepts a 64-byte
+ * (scalar || pubkey) keypair, so a caller can pair one seed-derived scalar
+ * with an unrelated attacker-chosen public key and get back a signature
+ * that verifies under that foreign key. ed25519_sign here takes only
+ * (seed, msg): two independently constructed seeds that happen to produce
+ * the same clamped scalar bytes would be needed to smuggle a foreign A, but
+ * there is no parameter through which a caller could supply A at all -- A
+ * is always ed_ge_scalarmult(a, B) recomputed from the seed inside
+ * ed25519_sign/ed25519_keypair. Pin the observable half of that: the same
+ * seed always reproduces the same public key and the same message always
+ * reproduces the same signature (Ed25519 is deterministic), i.e. the
+ * signature is a pure function of (seed, msg) with no side channel for an
+ * independent public key to enter. */
+static void sgn_fill_seed(u8 seed[32]) {
+  for (usz i = 0; i < 32; i++) seed[i] = (u8)(i * 7 + 1);
+}
+
+static void sgn_check_eq(const u8* a, const u8* b, usz n) {
+  for (usz i = 0; i < n; i++) CHECK(a[i] == b[i]);
+}
+
+static void test_ed25519_sign_derives_pubkey_from_seed_only(void) {
+  u8 seed[32], pk1[32], pk2[32], sig1[64], sig2[64], msg[3] = {1, 2, 3};
+  sgn_fill_seed(seed);
+
+  CHECK(ed25519_keypair(seed, pk1) == 1);
+  CHECK(ed25519_keypair(seed, pk2) == 1);
+  sgn_check_eq(pk1, pk2, 32);
+
+  CHECK(ed25519_sign(seed, msg, 3, sig1) == 1);
+  CHECK(ed25519_sign(seed, msg, 3, sig2) == 1);
+  sgn_check_eq(sig1, sig2, 64);
+
+  CHECK(ed25519_verify(sig1, msg, 3, pk1) == 1);
+}
+
 void test_ed25519_sign(void) {
   test_ed25519_sign_test1();
   test_ed25519_sign_test2();
@@ -169,4 +206,5 @@ void test_ed25519_sign(void) {
   test_ed25519_verify_rejects_small_order_r();
   test_ed25519_verify_rejects_noncanonical_r();
   test_ed25519_verify_rejects_noncanonical_key();
+  test_ed25519_sign_derives_pubkey_from_seed_only();
 }
