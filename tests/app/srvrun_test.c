@@ -14,6 +14,7 @@
 #include "app/webtransport/wtwire/wtwire.h"
 #include "common/bytes/util/bytes.h"
 #include "test.h"
+#include "tls/keys/keyupdate/aeadintegrity.h"
 #include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/dispatch.h"
 #include "transport/packet/frame/frame/frame.h"
@@ -10642,6 +10643,75 @@ static void test_srvrun_onertt_get_is_acked_via_srvrun_on_step(void) {
   wired_udp_close(sfd);
 }
 
+/* RFC 9001 6.6: the 1-RTT packet that takes the auth-failure count to the
+ * AES-GCM integrity limit (2^52) closes the connection with a transport
+ * CONNECTION_CLOSE(AEAD_LIMIT_REACHED, 0x0f), read back over a real
+ * loopback socket; one failure below the limit sends nothing. The counter
+ * is set just below the limit the way the datagram/PTO tests set state --
+ * 2^52 real packets are not looped. Benign skip when the sandbox forbids
+ * sockets. */
+static void test_srvrun_closes_with_aead_limit_reached_on_step(void) {
+  struct lp_fix    f;
+  srvrun_conn      c  = {0};
+  wired_obuf       ob = {0};
+  u8               obuf[1024], get[512], spkt[1024], pkt[1500];
+  sockaddr         srv, from;
+  i64              sfd, cfd;
+  usz              glen, slen;
+  const u8*        pl;
+  usz              pll, rn;
+  conn_close_frame ccf;
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.peer = srv;
+  {
+    wired_obuf gob = {get, sizeof get, 0};
+    CHECK(wired_h3reqdrive_send_get(
+        0,
+        &(wired_h3reqdrive_get_in){
+            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
+        &gob));
+    glen = gob.len;
+  }
+  {
+    srvrun_cfg cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0, 0};
+    u64             tx  = g_srvrun_env.tx_flush_count;
+    /* one below: the corrupt packet is counted, nothing is sent */
+    c.s.ku_auth_fail = AEAD_INTEGRITY_LIMIT_AESGCM - 2;
+    slen = client_seal_onertt_pn(&f, 9, get, glen, spkt, sizeof spkt);
+    spkt[slen - 1] ^= 0xff;
+    srvrun_on_step(&ctx, &c, wired_mspan_of(spkt, slen));
+    CHECK(c.s.ku_auth_fail == AEAD_INTEGRITY_LIMIT_AESGCM - 1);
+    CHECK(g_srvrun_env.tx_flush_count == tx);
+    /* at the limit: CONNECTION_CLOSE(AEAD_LIMIT_REACHED) goes on the wire */
+    slen = client_seal_onertt_pn(&f, 10, get, glen, spkt, sizeof spkt);
+    spkt[slen - 1] ^= 0xff;
+    srvrun_on_step(&ctx, &c, wired_mspan_of(spkt, slen));
+    CHECK(c.s.ku_auth_fail == AEAD_INTEGRITY_LIMIT_AESGCM);
+    CHECK(g_srvrun_env.tx_flush_count == tx + 1);
+    if (g_srvrun_env.tx_flush_count != tx + 1) { /* never block on recv */
+      wired_udp_close(cfd);
+      wired_udp_close(sfd);
+      return;
+    }
+  }
+  {
+    i64 r = wired_udp_recvfrom(sfd, wired_mspan_of(pkt, sizeof pkt), &from);
+    CHECK(r > 0);
+    CHECK(client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1);
+    rn = frame_get_conn_close(pl, pll, &ccf);
+    CHECK(rn != 0 && rn == pll);
+    CHECK(ccf.is_app == 0);
+    CHECK(ccf.error_code == ERR_AEAD_LIMIT_REACHED);
+  }
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
 /* Multi-range: srvrun_on_step's shared ACK state is not merely a
  * single-pn passthrough -- two datagrams with a gap between their pns (7,
  * then 9, skipping 8) drive the exact same two-range gap-encoding through
@@ -17141,4 +17211,5 @@ void test_srvrun(void) {
   test_srvrun_wt_stream_inflight_open_stream_is_one();
   test_srvrun_wt_stream_inflight_zero_after_reap();
   test_srvrun_wt_stream_inflight_append_open_survives_reap();
+  test_srvrun_closes_with_aead_limit_reached_on_step();
 }
