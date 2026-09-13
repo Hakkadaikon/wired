@@ -40,7 +40,9 @@
 #include "common/platform/thread/thread.h"
 #include "crypto/symmetric/aead/gcm/gcm.h"
 #include "tls/ext/stp/server_tp.h"
+#include "tls/handshake/core/tls/aead_params.h"
 #include "tls/handshake/core/tls/retry_tag.h"
+#include "tls/keys/keyupdate/aeadintegrity.h"
 #include "tls/keys/kuswitch/twogen.h"
 #include "transport/conn/cid/migrate/migrate.h"
 #include "transport/conn/cid/path/antiamp.h"
@@ -3118,18 +3120,43 @@ static void srvrun_close_on_wt_signal_violation(
  * single violation; a step latching both simply chooses the datagram close
  * (RFC 9000 10.2: any CONNECTION_CLOSE ends the connection, so it does not
  * matter which of two same-step violations sends it). */
+/* RFC 9001 6.6: the 1-RTT auth-failure count (srvloop's recv path) reached
+ * the negotiated AEAD's integrity limit -- the connection MUST close with
+ * AEAD_LIMIT_REACHED. */
+static int srvrun_aead_limit_reached(const srvrun_conn* c) {
+  return aead_integrity_exceeded(
+      c->s.ku_auth_fail, aead_is_chacha(c->s.sdrv.cipher_suite));
+}
+
+static void srvrun_close_on_aead_limit(const srvrun_cfg* cfg, srvrun_conn* c) {
+  static const u8 reason[] = "AEAD integrity limit reached";
+  srvrun_send_transport_close(
+      cfg, c, ERR_AEAD_LIMIT_REACHED, wired_span_of(reason, sizeof reason - 1));
+}
+
+/* The second half of srvrun_close_on_step_violation: the WT signal
+ * violation, then the AEAD integrity limit (RFC 9001 6.6). */
+static int srvrun_close_on_step_violation_rest(
+    const srvrun_cfg* cfg, srvrun_conn* c) {
+  if (c->l.wt_signal_mid_stream_violation) {
+    c->l.wt_signal_mid_stream_violation = 0;
+    srvrun_close_on_wt_signal_violation(cfg, c);
+    return 1;
+  }
+  if (srvrun_aead_limit_reached(c)) {
+    srvrun_close_on_aead_limit(cfg, c);
+    return 1;
+  }
+  return 0;
+}
+
 static int srvrun_close_on_step_violation(
     const srvrun_cfg* cfg, srvrun_conn* c) {
   if (c->l.datagram_violation) {
     srvrun_close_on_datagram_violation(cfg, c);
     return 1;
   }
-  if (c->l.wt_signal_mid_stream_violation) {
-    c->l.wt_signal_mid_stream_violation = 0;
-    srvrun_close_on_wt_signal_violation(cfg, c);
-    return 1;
-  }
-  return 0;
+  return srvrun_close_on_step_violation_rest(cfg, c);
 }
 
 /* Send this step's sealed reply, if any and if the connection is not
