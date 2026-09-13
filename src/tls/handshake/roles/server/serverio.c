@@ -26,7 +26,10 @@ int wired_server_run_handshake(wired_server* s, int max_iterations) {
   return wired_server_is_confirmed(s);
 }
 
+/* RFC 8446 E.1.4: tearing the connection down erases the retained secrets
+ * (exporter_master_secret among them) along with the socket. */
 void wired_server_close(wired_server* s) {
   if (s->fd >= 0) wired_arch_close(s->fd);
   s->fd = -1;
+  keysched_wipe(&s->sched);
 }

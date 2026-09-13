@@ -68,10 +68,16 @@ typedef struct {
    * rejected, ordinary PSK/1-RTT resumption still proceeds. */
   int early_data_accepted;
   /** RFC 8446 4.2.10 / RFC 9001 4.6.1: the 0-RTT packet-protection keys,
-   * meaningful only when early_data_accepted is 1. */
+   * meaningful only when early_data_accepted is 1 and early_keys_dropped
+   * is 0. */
   initial_keys early_keys;
-  u8           hs_secret[HKDF_PRK]; /**< RFC 8446 7.1 Handshake Secret */
-  u8 s_hs_traffic[HKDF_PRK]; /**< RFC 8446 7.1 server hs traffic secret */
+  /** RFC 9001 4.9.3: set (with early_keys zeroed) by
+   * sdrv_discard_early_keys once 1-RTT keys are installed; sdrv_early_keys
+   * refuses from then on while early_data_accepted keeps recording that
+   * early data was used. */
+  int early_keys_dropped;
+  u8  hs_secret[HKDF_PRK];    /**< RFC 8446 7.1 Handshake Secret */
+  u8  s_hs_traffic[HKDF_PRK]; /**< RFC 8446 7.1 server hs traffic secret */
   /** RFC 8446 7.1: the ECDHE shared secret the flight derivation computed
    * (x25519 output, or the P-256 x-coordinate -- 32 bytes either way), kept
    * so the connection's packet-protection key schedule reuses it instead of
@@ -440,5 +446,12 @@ int sdrv_handshake_secret(const sdrv* s, const u8** secret);
  * @param out receives the 0-RTT key/iv/hp
  * @return 1 if early_data_accepted, 0 otherwise (out untouched). */
 int sdrv_early_keys(const sdrv* s, initial_keys* out);
+
+/** RFC 9001 4.9.3: zero the cached 0-RTT keys and mark them unusable once
+ * the connection has switched to 1-RTT keys; sdrv_early_keys returns 0
+ * afterwards while early_data_accepted keeps recording that 0-RTT was
+ * used. Idempotent.
+ * @param s driver state */
+void sdrv_discard_early_keys(sdrv* s);
 
 #endif

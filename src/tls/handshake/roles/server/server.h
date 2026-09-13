@@ -218,6 +218,14 @@ int wired_server_handshake_done(wired_server* s, wired_obuf* out);
  *   confirmed. */
 int wired_server_is_confirmed(const wired_server* s);
 
+/** RFC 9001 4.6.1 / 9.2: whether the client's 0-RTT early data was accepted
+ * on this connection (the ticket was on its first use and its binder
+ * verified). Stays 1 after the 0-RTT keys are discarded at confirmation,
+ * so the application can apply its replay policy to what arrived early.
+ * @param s the orchestrator to inspect
+ * @return 1 if early data was accepted, 0 otherwise. */
+int wired_server_early_data_used(const wired_server* s);
+
 /** Derive and install the server's 1-RTT send keys before the client
  * Finished arrives (0.5-RTT, RFC 9001 4.9 / RFC 8446 7.1): the application
  * traffic secrets depend only on the transcript through the server
@@ -259,7 +267,8 @@ int wired_server_pump(wired_server* s);
  * @return 1 if confirmed. */
 int wired_server_run_handshake(wired_server* s, int max_iterations);
 
-/** Close the UDP socket.
+/** Close the UDP socket and wipe the key schedule's retained secrets
+ * (RFC 8446 E.1.4: the exporter_master_secret is erased at teardown).
  * @param s the orchestrator whose socket to close */
 void wired_server_close(wired_server* s);
 

@@ -1882,10 +1882,13 @@ static void test_sdrv_early_data_replay_rejected(void) {
   CHECK(s2.early_data_accepted == 0); /* 0-RTT itself is refused */
 }
 
-/* A garbage/wrong-key identity fails to open as a ticket -- graceful
- * fallback to a full handshake (RFC 8446 4.2.11 MAY), never a hard failure.
- * The binder bytes are irrelevant here since the ticket never opens. */
-static void test_sdrv_psk_ticket_open_fails_falls_back(void) {
+/* RFC 8446 E.6: a garbage/wrong-key identity that fails to open as a ticket
+ * is indistinguishable from a valid identity with a wrong binder -- the
+ * same hard abort with the same alert (decrypt_error, 51), never a graceful
+ * fallback that would tell an attacker which identities this server issued
+ * (test_sdrv_psk_binder_mismatch_aborts pins the other half of the pair). */
+static void test_sdrv_psk_invalid_identity_and_bad_binder_indistinguishable(
+    void) {
   sdrv_psk_fixture f;
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
@@ -1913,8 +1916,9 @@ static void test_sdrv_psk_ticket_open_fails_falls_back(void) {
     sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f.ticket_key};
     sdrv_init(&s, &in);
   }
-  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
+  CHECK(!sdrv_recv_client_hello(&s, ch2, ch2_len));
   CHECK(s.psk_accepted == 0);
+  CHECK(sdrv_last_error(&s) == err_crypto(51));
 }
 
 /* RFC 8446 4.2.11.2: a ticket that opens but whose binder does not match MUST
@@ -1949,6 +1953,8 @@ static void test_sdrv_psk_binder_mismatch_aborts(void) {
     sdrv_init(&s, &in);
   }
   CHECK(!sdrv_recv_client_hello(&s, ch2, ch2_len));
+  CHECK(s.psk_accepted == 0);
+  CHECK(sdrv_last_error(&s) == err_crypto(51)); /* same as unknown identity */
 }
 
 /* RFC 8446 4.2.11.2: a correctly computed binder, but the transcript is
@@ -2178,7 +2184,7 @@ void test_sdrv(void) {
   test_sdrv_psk_valid_ticket_and_binder_accepted();
   test_sdrv_psk_without_modes_rejected();
   test_sdrv_psk_not_last_rejected();
-  test_sdrv_psk_ticket_open_fails_falls_back();
+  test_sdrv_psk_invalid_identity_and_bad_binder_indistinguishable();
   test_sdrv_psk_binder_mismatch_aborts();
   test_sdrv_psk_tampered_transcript_aborts();
   test_sdrv_early_data_accepted_derives_keys();
