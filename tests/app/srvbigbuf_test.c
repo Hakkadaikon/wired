@@ -118,6 +118,24 @@ static void test_srvbigbuf_row_lookup(void) {
   CHECK(wired_srvbigbuf_row(&p, WIRED_SRVBIGBUF_ROWS) == 0);
 }
 
+/* Pinning: RFC 9204 7.3 -- unsent response data (including any encoder-
+ * stream bytes ahead of it) is bounded by this fixed-capacity pool, never
+ * grown to absorb an unbounded amount; once every row is claimed, further
+ * claims fail closed (0) rather than allocating a new row, which is exactly
+ * the signal a caller uses to fall back to its smaller fixed slot (V-0476).
+ */
+static void test_srvbigbuf_pool_exhaustion_falls_back(void) {
+  wired_srvbigbuf p;
+  int             idx = -1;
+  wired_srvbigbuf_init(&p, sbb_rows, WIRED_SRVBIGBUF_ROW_CAP);
+  for (int i = 0; i < WIRED_SRVBIGBUF_ROWS; i++)
+    CHECK(wired_srvbigbuf_claim(&p, &idx) != 0);
+
+  /* pool exhausted: every further claim fails closed, never allocating a
+   * new row or growing the pool past WIRED_SRVBIGBUF_ROWS. */
+  for (int i = 0; i < 5; i++) CHECK(wired_srvbigbuf_claim(&p, &idx) == 0);
+}
+
 void test_srvbigbuf(void) {
   test_srvbigbuf_first_claim_is_row0();
   test_srvbigbuf_two_claims_distinct_rows();
@@ -126,4 +144,5 @@ void test_srvbigbuf(void) {
   test_srvbigbuf_release_idempotent_and_range_checked();
   test_srvbigbuf_row_span_writable();
   test_srvbigbuf_row_lookup();
+  test_srvbigbuf_pool_exhaustion_falls_back();
 }

@@ -78,10 +78,32 @@ static void test_sendq_ring_wrap(void) {
   CHECK(wired_sendq_slice_data(&q, &sl) == buf); /* wrapped to the front */
 }
 
+/* Pinning: GHSA-p7c7-7c47-pwch-class QPACK-dyntable-exhaustion DoS --
+ * unsent response bytes are only ever sliced out of the caller's ALREADY
+ * fixed-capacity backing storage (the srvbigbuf/srvloop pools); no matter
+ * how large a chunk size is requested, wired_sendq never produces a slice
+ * whose offset+len exceeds the buffer len it was initialized with, so this
+ * queue cannot itself grow past the fixed pool behind it (V-0437). */
+static void test_sendq_bounded_by_fixed_pool(void) {
+  u8                bytes[100];
+  wired_sendq       q;
+  wired_sendq_slice s;
+  usz               total = 0;
+  /* a chunk size far larger than the backing buffer: still bounded to it. */
+  wired_sendq_init(&q, bytes, sizeof bytes, 10000);
+  CHECK(wired_sendq_next(&q, &s) == 1);
+  CHECK(s.offset + s.len <= sizeof bytes);
+  CHECK(s.fin == 1);
+  total += s.len;
+  CHECK(wired_sendq_next(&q, &s) == 0); /* fully drained, no further slice */
+  CHECK(total == sizeof bytes);
+}
+
 void test_sendq(void) {
   test_sendq_slices_partial_tail();
   test_sendq_exact_multiple();
   test_sendq_single_slice();
   test_sendq_empty();
   test_sendq_ring_wrap();
+  test_sendq_bounded_by_fixed_pool();
 }
