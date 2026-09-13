@@ -312,6 +312,19 @@ static void test_wtcapsule_max_streams_decoded_value_ignored_until_applied(
   CHECK(wired_wt_session_stream_open_allowed(&s, 0) == 1);
 }
 
+/* TEST 17: wtcapsule_value_varint is the shared "body is exactly one varint"
+ * well-formedness check (SS5.6: every session flow-control capsule's body):
+ * accepts a sole varint, rejects trailing bytes and an empty body. */
+static void test_wtcapsule_value_varint_sole_only(void) {
+  u8  one[]   = {0x07};
+  u8  trail[] = {0x07, 0x01};
+  u64 v       = 0;
+  CHECK(wtcapsule_value_varint(wired_span_of(one, sizeof one), &v) == 1);
+  CHECK(v == 7);
+  CHECK(wtcapsule_value_varint(wired_span_of(trail, sizeof trail), &v) == 0);
+  CHECK(wtcapsule_value_varint(wired_span_of(one, 0), &v) == 0);
+}
+
 void test_wtcapsule(void) {
   test_wtcapsule_close_roundtrip();
   test_wtcapsule_close_roundtrip_empty_message();
@@ -329,4 +342,5 @@ void test_wtcapsule(void) {
   test_wtcapsule_max_data_decode_empty_body_rejected();
   test_wtcapsule_max_streams_decode_trailing_bytes_rejected();
   test_wtcapsule_max_streams_decoded_value_ignored_until_applied();
+  test_wtcapsule_value_varint_sole_only();
 }
