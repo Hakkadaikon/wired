@@ -227,6 +227,30 @@ static void test_capsule_fin_empty_stream_is_not_malformed(void) {
   CHECK(!capsule_fin_truncated(wired_span_of(0, 0), 0, 1));
 }
 
+/* Pinning: RFC 9297 3.2/3.3 -- a truncated capsule (type varint, header, or
+ * value bytes cut short) must be rejected by capsule_decode rather than
+ * read past the input span (V-0481). */
+static void test_capsule_decode_truncated_rejected(void) {
+  usz        at = 0;
+  u64        type_out;
+  wired_span value_out;
+
+  /* truncated type varint */
+  u8 tbuf[1] = {0xC0};
+  CHECK(!capsule_decode(wired_span_of(tbuf, 1), &at, &type_out, &value_out));
+  CHECK(at == 0);
+
+  /* header ok, value bytes short */
+  u8         vbuf[16];
+  wired_obuf out    = obuf_of(vbuf, sizeof vbuf);
+  u8         val[5] = {1, 2, 3, 4, 5};
+  CHECK(capsule_encode(&out, 0x01, wired_span_of(val, sizeof val)));
+  at = 0;
+  CHECK(!capsule_decode(
+      wired_span_of(vbuf, out.len - 3), &at, &type_out, &value_out));
+  CHECK(at == 0);
+}
+
 void test_capsule(void) {
   test_capsule_roundtrip_small_type();
   test_capsule_roundtrip_large_types();
@@ -240,4 +264,5 @@ void test_capsule(void) {
   test_capsule_no_fin_truncated_is_not_malformed();
   test_capsule_fin_at_boundary_is_not_malformed();
   test_capsule_fin_empty_stream_is_not_malformed();
+  test_capsule_decode_truncated_rejected();
 }

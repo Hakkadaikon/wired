@@ -173,6 +173,35 @@ static void test_sfield_encode_too_small_or_control_returns_zero(void) {
   CHECK(sfield_string_encode(enc, sizeof enc, sfield_span("a\x7f", 2)) == 0);
 }
 
+/* Pinning: [STRUCTURED-FIELDS] parsing-safety considerations (RFC 8941)
+ * applied to sf-list parsing of priority parameters -- an unescaped control
+ * byte, a bad escape sequence, or a missing closing DQUOTE inside an
+ * sf-string must all be rejected rather than silently truncated or accepted
+ * (V-0485). */
+static void test_sfield_next_string_malformed_rejected(void) {
+  sfield_iter it;
+  u8          buf[16];
+
+  /* 0x01 is outside the printable %x20-7E range. */
+  sfield_iter_init(
+      &it, sfield_span(
+               "\"a\x01"
+               "b\"",
+               4));
+  wired_obuf out1 = obuf_of(buf, sizeof buf);
+  CHECK(sfield_next_string(&it, &out1) == -1);
+
+  /* backslash followed by neither DQUOTE nor backslash is a bad escape. */
+  sfield_iter_init(&it, sfield_span("\"a\\nb\"", 6));
+  wired_obuf out2 = obuf_of(buf, sizeof buf);
+  CHECK(sfield_next_string(&it, &out2) == -1);
+
+  /* missing closing DQUOTE. */
+  sfield_iter_init(&it, sfield_span("\"abc", 4));
+  wired_obuf out3 = obuf_of(buf, sizeof buf);
+  CHECK(sfield_next_string(&it, &out3) == -1);
+}
+
 void test_sfield(void) {
   test_sfield_single_item();
   test_sfield_multiple_items_in_order();
@@ -187,4 +216,5 @@ void test_sfield(void) {
   test_sfield_encode_parse_roundtrip();
   test_sfield_encode_escapes_quote_and_backslash();
   test_sfield_encode_too_small_or_control_returns_zero();
+  test_sfield_next_string_malformed_rejected();
 }

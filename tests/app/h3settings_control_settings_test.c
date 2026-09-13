@@ -1,8 +1,29 @@
 #include "test.h"
 
+/* Pinning: RFC 9114 10.5 -- memory commitments for field compression are
+ * fixed at compile time, not scaled by peer-controlled connection/stream
+ * counts (V-0445). WIRED_H3_MAX_FIELD_SECTION bounds the advertised
+ * SETTINGS value and QPACK_DYN_MAX_ENTRIES bounds the dynamic table, both
+ * independent of how many streams/connections a peer opens. */
+static void test_h3_settings_defaults_bounded(void) {
+  u8  buf[64];
+  usz n = 0;
+  CHECK(h3settings_control_stream(0, buf, sizeof(buf), &n) == 1);
+  h3_settings out;
+  u64         stype;
+  usz         consumed = 0;
+  CHECK(h3_stream_type_parse(wired_span_of(buf, n), &stype, &consumed) == 1);
+  CHECK(h3_settings_get(buf + consumed, n - consumed, &out) != 0);
+  for (usz i = 0; i < out.n; i++)
+    if (out.pairs[i].id == H3_SETTINGS_MAX_FIELD_SECTION_SIZE)
+      CHECK(out.pairs[i].value == WIRED_H3_MAX_FIELD_SECTION);
+  CHECK(QPACK_DYN_MAX_ENTRIES == 64);
+}
+
 /* RFC 9114 6.2.1: control stream opens with type 0x00 then a SETTINGS frame
  * that satisfies the "first frame MUST be SETTINGS" rule. */
 void test_h3settings_control_settings(void) {
+  test_h3_settings_defaults_bounded();
   u8  buf[64];
   usz n = 0;
   CHECK(h3settings_control_stream(0, buf, sizeof(buf), &n) == 1);

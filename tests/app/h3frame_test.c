@@ -81,8 +81,38 @@ static void test_h3frame_settings(void) {
   CHECK(h3_settings_get(buf, ew, &out) == ew && out.n == 0);
 }
 
+/* Pinning: a frame claiming a Length that runs past the actual input span
+ * must be rejected, never sized into an out-of-bounds payload view
+ * (V-0422/GHSA-g754-hx8w-x2g6). */
+static void test_h3frame_get_length_exceeds_buffer_rejected(void) {
+  u8         buf[16];
+  wired_obuf ob      = {buf, sizeof buf, 0};
+  u8         body[4] = {1, 2, 3, 4};
+  usz w = h3_frame_put(&ob, H3_FRAME_DATA, wired_span_of(body, sizeof body));
+
+  h3_frame f;
+  /* Truncate the buffer we hand to h3_frame_get so the frame's declared
+   * Length (4) claims more than remains after the head. */
+  CHECK(h3_frame_get(wired_span_of(buf, w - 2), &f) == 0);
+}
+
+/* Pinning: same bounds check under a different framing (mismatch between
+ * declared Length and remaining buffer at any offset). */
+static void test_h3_frame_length_mismatch_rejected(void) {
+  u8         buf[16];
+  wired_obuf ob      = {buf, sizeof buf, 0};
+  u8         body[8] = {0};
+  usz w = h3_frame_put(&ob, H3_FRAME_DATA, wired_span_of(body, sizeof body));
+
+  h3_frame f;
+  for (usz short_by = 1; short_by <= sizeof(body); short_by++)
+    CHECK(h3_frame_get(wired_span_of(buf, w - short_by), &f) == 0);
+}
+
 void test_h3frame(void) {
   test_h3frame_generic();
   test_h3frame_push_ids();
   test_h3frame_settings();
+  test_h3frame_get_length_exceeds_buffer_rejected();
+  test_h3_frame_length_mismatch_rejected();
 }
