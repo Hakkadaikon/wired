@@ -15,7 +15,9 @@ static void test_resume_session_roundtrip(void) {
   CHECK(
       resume_store(
           &r, wired_span_of(tk, 4),
-          &(resume_store_in){100, 50, 1000, psk, wired_span_of(0, 0)}) == 1);
+          &(resume_store_in){
+              100, 50, 1000, psk, wired_span_of(0, 0), wired_span_of(0, 0)}) ==
+      1);
   n = resume_session(&r, blob, sizeof blob);
   CHECK(n > 0);
   CHECK(resume_set_session(&back, wired_span_of(blob, n)) == 1);
@@ -45,7 +47,8 @@ static void test_resume_early_keys_from_session(void) {
   CHECK(
       resume_store(
           &r, wired_span_of(tk, 4),
-          &(resume_store_in){1, 2, 3, psk, wired_span_of(0, 0)}) == 1);
+          &(resume_store_in){
+              1, 2, 3, psk, wired_span_of(0, 0), wired_span_of(0, 0)}) == 1);
   tls_early_keys(psk, ch, sizeof ch, &want);
   CHECK(resume_early_keys(&r, ch, sizeof ch, &got) == 1);
   for (usz i = 0; i < sizeof want.key; i++) CHECK(got.key[i] == want.key[i]);
@@ -67,7 +70,8 @@ static void test_resume_sni_compatible(void) {
       resume_store(
           &r, wired_span_of(tk, 2),
           &(resume_store_in){
-              1, 2, 3, 0, wired_span_of(host, sizeof(host) - 1)}) == 1);
+              1, 2, 3, 0, wired_span_of(host, sizeof(host) - 1),
+              wired_span_of(0, 0)}) == 1);
   CHECK(r.sni_len == sizeof(host) - 1);
   /* omitted this time -> compatible regardless */
   CHECK(resume_sni_compatible(&r, wired_span_of(0, 0)) == 1);
@@ -92,7 +96,8 @@ static void test_resume_sni_compatible(void) {
     CHECK(
         resume_store(
             &nosni, wired_span_of(tk2, 2),
-            &(resume_store_in){1, 2, 3, 0, wired_span_of(0, 0)}) == 1);
+            &(resume_store_in){
+                1, 2, 3, 0, wired_span_of(0, 0), wired_span_of(0, 0)}) == 1);
     CHECK(nosni.sni_len == 0);
     CHECK(
         resume_sni_compatible(&nosni, wired_span_of(any, sizeof(any) - 1)) ==
@@ -100,7 +105,41 @@ static void test_resume_sni_compatible(void) {
   }
 }
 
+/* RFC 8446 4.2.11 / 4.6.1: a ticket is bound to the SNI and ALPN of the
+ * session that issued it -- resuming under a different server_name or a
+ * different ALPN protocol is refused; the same pair (SNI case-folded, ALPN
+ * byte-exact) and a session that remembered neither remain compatible. */
+static void test_resume_rejects_alpn_sni_mismatch(void) {
+  resume   r = {0}, bare = {0};
+  u8       tk[2]  = {1, 2};
+  const u8 host[] = "example.com", h3[] = "h3", h3x[] = "H3", moq[] = "moq-00";
+  CHECK(
+      resume_store(
+          &r, wired_span_of(tk, 2),
+          &(resume_store_in){
+              1, 2, 3, 0, wired_span_of(host, sizeof(host) - 1),
+              wired_span_of(h3, 2)}) == 1);
+  CHECK(r.alpn_len == 2);
+  CHECK(resume_alpn_compatible(&r, wired_span_of(h3, 2)) == 1);
+  CHECK(resume_alpn_compatible(&r, wired_span_of(h3x, 2)) == 0); /* case */
+  CHECK(resume_alpn_compatible(&r, wired_span_of(moq, 6)) == 0);
+  CHECK(resume_alpn_compatible(&r, wired_span_of(0, 0)) == 0);
+  {
+    const u8 other[] = "other.example";
+    CHECK(
+        resume_sni_compatible(&r, wired_span_of(other, sizeof(other) - 1)) ==
+        0);
+  }
+  CHECK(
+      resume_store(
+          &bare, wired_span_of(tk, 2),
+          &(resume_store_in){
+              1, 2, 3, 0, wired_span_of(0, 0), wired_span_of(0, 0)}) == 1);
+  CHECK(resume_alpn_compatible(&bare, wired_span_of(moq, 6)) == 1);
+}
+
 void test_resume(void) {
+  test_resume_rejects_alpn_sni_mismatch();
   test_resume_session_roundtrip();
   test_resume_early_keys_from_session();
   test_resume_sni_compatible();
@@ -111,7 +150,9 @@ void test_resume(void) {
   CHECK(
       resume_store(
           &r, wired_span_of(tk, sizeof tk),
-          &(resume_store_in){100, 50, 1000, 0, wired_span_of(0, 0)}) == 1);
+          &(resume_store_in){
+              100, 50, 1000, 0, wired_span_of(0, 0), wired_span_of(0, 0)}) ==
+      1);
   CHECK(r.have_ticket == 1);
   CHECK(r.ticket_len == 4);
   CHECK(r.ticket[0] == 1 && r.ticket[3] == 4);
@@ -148,6 +189,7 @@ void test_resume(void) {
   CHECK(
       resume_store(
           &r2, wired_span_of(big, sizeof big),
-          &(resume_store_in){0, 10, 0, 0, wired_span_of(0, 0)}) == 0);
+          &(resume_store_in){
+              0, 10, 0, 0, wired_span_of(0, 0), wired_span_of(0, 0)}) == 0);
   CHECK(r2.have_ticket == 0);
 }

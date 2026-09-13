@@ -2,6 +2,7 @@
 
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/util/ct.h"
 #include "common/bytes/util/num.h"
 
 /* RFC 8446 4.6.1 */
@@ -19,6 +20,13 @@ static void resume_take_sni(resume* r, wired_span sni) {
   for (usz i = 0; i < r->sni_len; i++) r->sni[i] = sni.p[i];
 }
 
+/* RFC 7301 3.1: remember the negotiated ALPN protocol, truncated to
+ * RESUME_ALPN_MAX. */
+static void resume_take_alpn(resume* r, wired_span alpn) {
+  r->alpn_len = u64_min(alpn.n, RESUME_ALPN_MAX);
+  for (usz i = 0; i < r->alpn_len; i++) r->alpn[i] = alpn.p[i];
+}
+
 int resume_store(resume* r, wired_span ticket, const resume_store_in* in) {
   usz off = 0;
   if (!bytes_put(wired_mspan_of(r->ticket, RESUME_TICKET_MAX), &off, ticket))
@@ -30,6 +38,7 @@ int resume_store(resume* r, wired_span ticket, const resume_store_in* in) {
   r->have_ticket = 1;
   resume_take_psk(r, in->psk);
   resume_take_sni(r, in->sni);
+  resume_take_alpn(r, in->alpn);
   return 1;
 }
 
@@ -48,6 +57,14 @@ int resume_tp_compatible(u64 remembered_max_data, u64 new_max_data) {
 int resume_sni_compatible(const resume* r, wired_span new_sni) {
   if (new_sni.n == 0 || r->sni_len == 0) return 1;
   return ascii_dns_eq(wired_span_of(r->sni, r->sni_len), new_sni);
+}
+
+/* RFC 8446 4.2.11 / 4.6.1: no remembered protocol is compatible with any;
+ * otherwise the two must match exactly (case-sensitive). */
+int resume_alpn_compatible(const resume* r, wired_span new_alpn) {
+  if (r->alpn_len == 0) return 1;
+  if (r->alpn_len != new_alpn.n) return 0;
+  return ct_diffn(r->alpn, new_alpn.p, new_alpn.n) == 0;
 }
 
 /* RFC 9001 4.6 */
