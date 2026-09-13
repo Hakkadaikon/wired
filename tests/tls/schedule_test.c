@@ -103,7 +103,32 @@ static void test_schedule_v2_labels(void) {
   CHECK(differ); /* "quicv2 hp" != "quic hp" expansion */
 }
 
+/* RFC 8446 7.1: Derive-Secret reports an HKDF-Expand-Label failure (a
+ * label past the 64-byte wire limit) instead of leaving out uninitialized
+ * -- the result is 0 and out is all zero, and tls_exporter carries that 0
+ * through rather than exporting from garbage. */
+static void test_tls_derive_secret_propagates_expand_failure(void) {
+  u8               secret[HKDF_PRK], out[HKDF_PRK], okm[8];
+  u8               label[65];
+  derive_secret_in in;
+  for (usz i = 0; i < sizeof(secret); i++) secret[i] = (u8)(0x30 + i);
+  for (usz i = 0; i < sizeof(out); i++) out[i] = 0xaa;
+  for (usz i = 0; i < sizeof(label); i++) label[i] = 'x';
+  in.secret   = secret;
+  in.label    = wired_span_of(label, 12);
+  in.messages = wired_span_of(label, 0);
+  CHECK(tls_derive_secret(&in, out) == 1);
+  in.label = wired_span_of(label, sizeof(label));
+  CHECK(tls_derive_secret(&in, out) == 0);
+  for (usz i = 0; i < sizeof(out); i++) CHECK(out[i] == 0);
+  CHECK(
+      tls_exporter(
+          secret, wired_span_of(label, sizeof(label)), wired_span_of(0, 0),
+          wired_mspan_of(okm, sizeof(okm))) == 0);
+}
+
 void test_schedule(void) {
+  test_tls_derive_secret_propagates_expand_failure();
   test_schedule_agreement();
   test_schedule_directions();
   test_schedule_early();
