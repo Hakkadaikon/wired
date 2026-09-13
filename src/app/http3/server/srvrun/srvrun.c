@@ -1,6 +1,7 @@
 #include "app/http3/server/srvrun/srvrun.h"
 
 #include "app/datagram/dgdeliver/dg_send.h"
+#include "app/http3/core/capsule/capsule.h"
 #include "app/http3/core/h3/connect.h"
 #include "app/http3/core/h3/errclass.h"
 #include "app/http3/core/h3/frame.h"
@@ -435,6 +436,18 @@ typedef struct {
    * concatenate correctly on the wire without either overlapping or leaving a
    * gap. */
   u64 wt_connect_sent_len[SRVRUN_MAX_WT_SESSIONS];
+  /** draft-ietf-webtrans-http3-15 SS5.6 / RFC 9297 SS3.2: receive-side
+   * cursor into this slot's CONNECT stream reassembly buffer (the
+   * l.streams[] slot's req_buf, offset-indexed from stream offset 0) just
+   * past the last capsule srvrun_wt_rx_capsules consumed. Set at
+   * establishment (srvrun_start_wt) to the end of the request's own HEADERS
+   * frame -- everything after that on the CONNECT stream is capsule bytes.
+   * ponytail: capsule bytes past req_buf's fixed capacity are truncated by
+   * the reassembly slot itself (dispatch.c's gather_one policy), so a
+   * session whose lifetime capsule traffic exceeds that capacity stops
+   * seeing limit raises; widen req_buf or give the CONNECT stream a sliding
+   * window if real peers ever send that much. */
+  usz wt_capsule_rx_at[SRVRUN_MAX_WT_SESSIONS];
   /** draft-ietf-webtrans-http3-15 SS4.2/SS4.4/8.2 (WTH3-067): a
    * wired_server_wt_close_session call for this slot is pending -- latched
    * (not sent inline) for the same no-srvrun_cfg-in-a-callback reason as
@@ -2863,11 +2876,141 @@ static void srvrun_close_wt_session_slot(
   srvrun_notify_wt_close(cfg, srvrun_wt_slot(c, sidx));
   wired_wt_session_close(srvrun_wt_slot(c, sidx));
   srvrun_reset_wt_streams_for_session(cfg, c, sidx, err_code);
+  /* The CONNECT stream's reassembly slot was kept past its 2xx's resp reap
+   * (srvrun_resp_release_stream) so the peer's session flow-control
+   * capsules kept landing there (srvrun_wt_rx_capsules) -- with the session
+   * gone, nothing reads it anymore; release it (idempotent when the reap
+   * already did). */
+  wired_srvloop_slot_release(&c->l, srvrun_wt_slot(c, sidx)->connect_stream_id);
   /* Closing frees the slot -- a later Extended CONNECT may reuse it
    * (srvrun_wt_free_slot's own check is the active flag, not session state,
    * since WIRED_WT_UNESTABLISHED's enum value 0 is indistinguishable from
    * "never initialized" by state alone). */
   *srvrun_wt_active_slot(c, sidx) = 0;
+}
+
+/* draft-ietf-webtrans-http3-15 SS5.6 / RFC 9297 SS3.2: the CONNECT stream's
+ * reassembly slot (l.streams[], claimed for the Extended CONNECT request and
+ * kept alive for the session's lifetime), or 0 when session slot sidx is
+ * inactive or its stream has no reassembly slot -- the receive-side source
+ * srvrun_wt_rx_capsules decodes the peer's session flow-control capsules
+ * from. */
+/* 1 iff this request reassembly slot is claimed for stream id -- the same
+ * check srvloop.c's own (file-static) slot_matches makes, re-stated here
+ * because that one is not visible across the module boundary. */
+static int srvrun_req_slot_matches(const wired_srvloop_stream_slot* s, u64 id) {
+  return s->in_use && s->stream_id == id;
+}
+
+/* The request reassembly slot claimed for stream id, or 0 if none. */
+static const wired_srvloop_stream_slot* srvrun_req_slot_of(
+    const srvrun_conn* c, u64 id) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    if (srvrun_req_slot_matches(&c->l.streams[i], id)) return &c->l.streams[i];
+  return 0;
+}
+
+static const wired_srvloop_stream_slot* srvrun_wt_rx_slot(
+    const srvrun_conn* c, int sidx) {
+  if (!srvrun_wt_is_active(c, sidx)) return 0;
+  return srvrun_req_slot_of(c, srvrun_wt_slot_c(c, sidx)->connect_stream_id);
+}
+
+/* RFC 9297 SS3.2 / RFC 9220 3: on the CONNECT stream, everything after the
+ * request's own single HEADERS frame is capsule bytes -- the byte length of
+ * that frame (type + length varints + payload, h3_frame_get) within the
+ * just-established request's reassembly slot is where the capsule cursor
+ * starts. 0 when the slot is gone or the frame does not parse (nothing is
+ * consumed until real capsule bytes decode there anyway). */
+static usz srvrun_wt_capsule_start(const srvrun_conn* c) {
+  const wired_srvloop_stream_slot* slot =
+      srvrun_req_slot_of(c, c->l.req_stream_id);
+  h3_frame f;
+  if (!slot) return 0;
+  return h3_frame_get(wired_span_of(slot->req_buf, slot->req_len), &f);
+}
+
+/* 1 iff type is a session flow-control capsule this server applies on
+ * receive (SS5.6.2/SS5.6.4): WT_MAX_DATA and the two WT_MAX_STREAMS
+ * directions. The blocked-hint capsules (WT_STREAMS_BLOCKED/WT_DATA_BLOCKED)
+ * and every unknown type are skipped by the caller instead (RFC 9297 SS3.2:
+ * "receivers MUST skip over an unknown capsule"). */
+static int srvrun_wt_capsule_flow_type(u64 type) {
+  return type == WTCAPSULE_TYPE_MAX_DATA ||
+         type == WTCAPSULE_TYPE_MAX_STREAMS_BIDI ||
+         type == WTCAPSULE_TYPE_MAX_STREAMS_UNI;
+}
+
+/* Apply one decoded flow-control value to the session. The setters
+ * themselves refuse a value below the current limit (session.c), which IS
+ * the required behavior for a stale/lower capsule -- limits only ever
+ * increase, so a lowering capsule is ignored, not an error. */
+static void srvrun_wt_capsule_raise(wired_wt_session* s, u64 type, u64 v) {
+  if (type == WTCAPSULE_TYPE_MAX_DATA) {
+    wired_wt_session_set_max_data(s, v);
+    return;
+  }
+  wired_wt_session_set_max_streams(
+      s, type == WTCAPSULE_TYPE_MAX_STREAMS_BIDI, v);
+}
+
+/* One received capsule: apply a known flow-control type, skip anything else
+ * (RFC 9297 SS3.2). Returns 0 only for a MALFORMED known type -- a body that
+ * is not exactly one varint (RFC 9297 SS3.3) -- which the caller turns into
+ * a session close. */
+static int srvrun_wt_capsule_apply(
+    wired_wt_session* s, u64 type, wired_span value) {
+  u64 v;
+  if (!srvrun_wt_capsule_flow_type(type)) return 1;
+  if (!wtcapsule_value_varint(value, &v)) return 0;
+  srvrun_wt_capsule_raise(s, type, v);
+  return 1;
+}
+
+/* Decode every complete capsule at *at and apply it; stops at the first
+ * incomplete one (benign: wait for more bytes, RFC 9297 SS3.2). Returns 0 on
+ * the first malformed capsule (srvrun_wt_capsule_apply). */
+static int srvrun_wt_rx_capsule_loop(
+    wired_wt_session* s, wired_span data, usz* at) {
+  u64        type;
+  wired_span value;
+  while (capsule_decode(data, at, &type, &value))
+    if (!srvrun_wt_capsule_apply(s, type, value)) return 0;
+  return 1;
+}
+
+/* One session slot's receive pass over its CONNECT stream bytes past the
+ * request HEADERS (cursor wt_capsule_rx_at, srvrun_conn). Returns 1 when the
+ * session stays healthy, 0 when a capsule was malformed -- either outright
+ * (bad body) or by the stream FINing mid-capsule (capsule_fin_truncated,
+ * RFC 9297 SS3.3). NOTE: req_buf reassembly is a high-water mark, not a
+ * contiguity frontier (dispatch.c) -- same tolerance the request decode
+ * path itself already accepts. */
+static int srvrun_wt_rx_walk(
+    srvrun_conn* c, int sidx, const wired_srvloop_stream_slot* slot) {
+  wired_span data = wired_span_of(slot->req_buf, slot->req_len);
+  usz        at   = c->wt_capsule_rx_at[sidx];
+  if (!srvrun_wt_rx_capsule_loop(srvrun_wt_slot(c, sidx), data, &at)) return 0;
+  c->wt_capsule_rx_at[sidx] = at;
+  return !capsule_fin_truncated(data, at, slot->req_fin);
+}
+
+/* draft-ietf-webtrans-http3-15 SS5.1/SS5.6/SS8: apply the peer's session
+ * flow-control capsules (WT_MAX_DATA / WT_MAX_STREAMS) arriving on session
+ * slot sidx's CONNECT stream; a malformed capsule closes the session. */
+static void srvrun_wt_rx_capsules_one(
+    const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
+  const wired_srvloop_stream_slot* slot = srvrun_wt_rx_slot(c, sidx);
+  if (!slot) return;
+  if (!srvrun_wt_rx_walk(c, sidx, slot))
+    srvrun_close_wt_session_slot(cfg, c, sidx, srvrun_wt_session_gone_code());
+}
+
+/* Per-step receive pass over every session slot, same fan-out shape as
+ * srvrun_close_wt_flow_violations. */
+static void srvrun_wt_rx_capsules(const srvrun_cfg* cfg, srvrun_conn* c) {
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+    srvrun_wt_rx_capsules_one(cfg, c, i);
 }
 
 static void srvrun_close_wt_on_stream_close(
@@ -3204,6 +3347,7 @@ static void srvrun_on_step(
   srvrun_offer_wt_uni_streams(ctx->cfg, c);
   srvrun_grant_wt_credit(ctx->cfg, c);
   srvrun_drain_rx_datagrams(ctx->cfg, c);
+  srvrun_wt_rx_capsules(ctx->cfg, c);
   srvrun_close_wt_on_stream_close(ctx->cfg, c);
   srvrun_deliver_wt_reset_if_owned(ctx->cfg, c);
   srvrun_close_wt_flow_violations(ctx->cfg, c);
@@ -5088,6 +5232,9 @@ static void srvrun_start_wt(
   /* wt_connect_sent_len's own doc: the 2xx HEADERS frame's byte length is
    * where a later capsule append (srvrun_send_wt_capsule) must continue. */
   c->wt_connect_sent_len[sidx] = r->sess.q.len;
+  /* wt_capsule_rx_at's own doc: the peer's capsule bytes start right after
+   * its request HEADERS frame on this same stream (RFC 9297 SS3.2). */
+  c->wt_capsule_rx_at[sidx] = srvrun_wt_capsule_start(c);
   srvrun_wt_notify(cfg, c, sidx, wired_span_of(p.tok, p.tok_len));
 }
 
@@ -6970,12 +7117,21 @@ static u64 srvrun_stream_limit_base(const srvrun_step_ctx* ctx) {
  * 0 otherwise. A streaming slot is refilled (never released) until the
  * handler's last bytes are queued AND fully acknowledged; a momentarily
  * drained streaming sess just re-activates on the next refill's extend. */
+/* Release a fully-answered request stream's reassembly slot -- UNLESS it is
+ * an active WT session's CONNECT stream, which must stay claimed for the
+ * session's lifetime so the peer's flow-control capsules keep landing in it
+ * (srvrun_wt_rx_capsules); srvrun_close_wt_session_slot releases it then. */
+static void srvrun_resp_release_stream(srvrun_conn* c, u64 stream_id) {
+  if (srvrun_wt_slot_by_connect_id(c, stream_id) < 0)
+    wired_srvloop_slot_release(&c->l, stream_id);
+}
+
 static usz srvrun_resp_reap(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
   srvrun_resp_refill(ctx, c, slot, r);
   if (srvrun_resp_not_yet_idle(r)) return 0;
   if (r->streaming) return 0;
-  wired_srvloop_slot_release(&c->l, r->stream_id);
+  srvrun_resp_release_stream(c, r->stream_id);
   srvrun_resp_release_bigbuf(ctx->cfg->env, r);
   r->in_use = 0;
   return 1;

@@ -7,6 +7,7 @@
 #include "app/http3/core/h3conn/response.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/request/h3resp/field_encode.h"
+#include "app/http3/server/srvloop/dispatch.h"
 #include "app/qpack/qpack/fieldline.h"
 #include "app/qpack/qpack/literal.h"
 #include "app/qpack/qpack/prefix.h"
@@ -15086,6 +15087,399 @@ static void test_srvrun_close_wt_flow_violations_noop_without_latch(void) {
   CHECK(conns[0].wt_active == 1);
 }
 
+/* ===== draft-ietf-webtrans-http3-15 SS5.1/SS5.6/SS8 (WTH3-053/058/060/062):
+ * WT_MAX_DATA/WT_MAX_STREAMS capsules received on the CONNECT stream are
+ * decoded (srvrun_wt_rx_capsules) and applied to the session via
+ * wired_wt_session_set_max_data/set_max_streams -- previously those setters
+ * had no production caller, so a peer's advertised session limits were
+ * silently ignored and this server could over-send. */
+
+/* Land `bytes` in the CONNECT stream's (id 4, sr_wtsend_fixture's session
+ * identity) own request reassembly slot at offset `from` -- the hand-driven
+ * equivalent of dispatch.c's gather_one landing capsule bytes after the
+ * request HEADERS frame. Returns the slot, or 0 if no slot could be claimed. */
+static wired_srvloop_stream_slot* sr_wtcap_feed(
+    srvrun_conn* c, usz from, wired_span bytes) {
+  int                        i = wired_srvloop_slot_for(&c->l, 4);
+  wired_srvloop_stream_slot* slot;
+  if (i < 0) return 0;
+  slot = &c->l.streams[i];
+  for (usz k = 0; k < bytes.n; k++) slot->req_buf[from + k] = bytes.p[k];
+  if (from + bytes.n > slot->req_len) slot->req_len = from + bytes.n;
+  slot->req_done = 1;
+  return slot;
+}
+
+/* Drive `bytes` into the CONNECT stream's (id 4) reassembly slot through the
+ * REAL production ingestion path: encode a STREAM frame (RFC 9000 19.8) at
+ * offset `from` and call wired_srvloop_dispatch (ctx->l = &c->l) exactly the
+ * way srvloop.c's step_dispatch does for an inbound datagram -- so this
+ * proves the wire-bytes -> route_land -> gather_one -> req_buf plumbing
+ * itself, not just srvrun_wt_rx_capsules acting on a hand-poked buffer.
+ * Unlike sr_wtcap_feed, req_done/req_fin are whatever dispatch's own
+ * request_complete decided (never true here: no FIN, and the slot's HEADERS
+ * frame -- landed by an earlier call -- already made *acc->done true, so
+ * request_complete's first check short-circuits before ctx->s/h3 would ever
+ * be dereferenced). */
+static void sr_wtcap_dispatch(srvrun_conn* c, u64 from, wired_span bytes) {
+  u8                        frame[256];
+  stream_frame              sf  = {4, from, bytes.n, bytes.p, 0};
+  usz                       n   = frame_put_stream(frame, sizeof frame, &sf);
+  int                       got = 0;
+  wired_h3reqdrive_req      req = {0};
+  wired_srvloop_dispatch_in in  = {
+      wired_span_of(frame, n), wired_mspan_of(0, 0), wired_mspan_of(0, 0), &got,
+      &req};
+  wired_srvloop_dispatch_ctx ctx = {0, 0, 0, &c->l};
+  CHECK(n != 0);
+  wired_srvloop_dispatch(&ctx, &in);
+}
+
+/* Land a stub CONNECT HEADERS frame (H3_FRAME_HEADERS=0x01, 2-byte garbage
+ * body that fails QPACK/method decode) at offset 0 of stream 4 through
+ * dispatch, exactly as sr_wtcap_dispatch's own doc requires: this makes
+ * acc_headers_frame_len see a complete HEADERS frame, connect_headers_
+ * complete attempt (and fail) the peek-decode, and request_complete return 0
+ * -- so *acc->done stays 0 here, and req_len ends at sizeof hdrs, matching
+ * srvrun_wt_capsule_start's real boundary. Returns that boundary (4). */
+static usz sr_wtcap_dispatch_headers_stub(srvrun_conn* c) {
+  static const u8 hdrs[] = {0x01, 0x02, 0xaa, 0xbb};
+  sr_wtcap_dispatch(c, 0, wired_span_of(hdrs, sizeof hdrs));
+  return sizeof hdrs;
+}
+
+/* V-0503/V-0509, through the production STREAM-frame ingestion path
+ * (sr_wtcap_dispatch): a WT_MAX_DATA capsule delivered as real STREAM frame
+ * bytes on the CONNECT stream reaches srvrun_wt_rx_capsules via
+ * wired_srvloop_dispatch's own route_land/gather_one, not a hand-poked
+ * buffer -- a low limit blocks a send, and a later, higher capsule raises it
+ * so the same send proceeds. */
+static void test_srvrun_wt_rx_max_data_capsule_via_dispatch_unblocks_send(
+    void) {
+  struct lp_fix   f;
+  wired_obuf      ob  = {0};
+  srvrun_cfg      cfg = sr_wt_send_cfg();
+  u8              obuf[1024], capbuf[64];
+  wired_obuf      capb  = obuf_of(capbuf, sizeof capbuf);
+  static const u8 pay[] = {0x54, 0x04, 'h', 'i'};
+  srvrun_conn*    c;
+  usz             hdr_end, first;
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  hdr_end                = sr_wtcap_dispatch_headers_stub(c);
+  c->wt_capsule_rx_at[0] = hdr_end;
+  CHECK(wtcapsule_encode_max_data(&capb, 2) == 1);
+  sr_wtcap_dispatch(c, hdr_end, wired_span_of(capbuf, capb.len));
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.max_data == 2);
+  CHECK(wired_wt_session_data_send_allowed(&c->wt, sizeof pay) == 0);
+  first = capb.len;
+  CHECK(wtcapsule_encode_max_data(&capb, 1000) == 1);
+  sr_wtcap_dispatch(
+      c, hdr_end + first, wired_span_of(capbuf + first, capb.len - first));
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.max_data == 1000);
+  CHECK(wired_wt_session_data_send_allowed(&c->wt, sizeof pay) == 1);
+  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
+  CHECK(c->wt_flow_violation[0] == 0);
+}
+
+/* SS5.6.2, through dispatch: a WT_MAX_STREAMS(bidi) capsule delivered as a
+ * real STREAM frame flips wired_wt_session_stream_open_allowed from refused
+ * to allowed. */
+static void test_srvrun_wt_rx_max_streams_capsule_via_dispatch_raises_limit(
+    void) {
+  struct lp_fix f;
+  wired_obuf    ob  = {0};
+  srvrun_cfg    cfg = sr_wt_send_cfg();
+  u8            obuf[1024], capbuf[64];
+  wired_obuf    capb = obuf_of(capbuf, sizeof capbuf);
+  srvrun_conn*  c;
+  usz           hdr_end;
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  hdr_end                = sr_wtcap_dispatch_headers_stub(c);
+  c->wt_capsule_rx_at[0] = hdr_end;
+  /* Give the session a real (non-"unlimited") bidi ceiling of 1, already hit
+   * by one opened stream, so the capsule's raise to 5 is an observable
+   * blocked->allowed transition rather than an already-0-means-unlimited
+   * no-op. */
+  CHECK(wired_wt_session_set_max_streams(&c->wt, 1, 1) == 1);
+  wired_wt_session_note_stream_opened(&c->wt, 1);
+  CHECK(wired_wt_session_stream_open_allowed(&c->wt, 1) == 0);
+  CHECK(wtcapsule_encode_max_streams(&capb, 1, 5) == 1);
+  sr_wtcap_dispatch(c, hdr_end, wired_span_of(capbuf, capb.len));
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.max_streams_bidi == 5);
+  CHECK(wired_wt_session_stream_open_allowed(&c->wt, 1) == 1);
+}
+
+/* RFC 9297 SS3.2, through dispatch: an unknown capsule type delivered as real
+ * STREAM frame bytes is skipped, and the known flow-control capsule after it
+ * still applies. */
+static void test_srvrun_wt_rx_unknown_capsule_via_dispatch_skipped(void) {
+  struct lp_fix   f;
+  wired_obuf      ob  = {0};
+  srvrun_cfg      cfg = sr_wt_send_cfg();
+  u8              obuf[1024], capbuf[64];
+  wired_obuf      capb    = obuf_of(capbuf, sizeof capbuf);
+  static const u8 stuff[] = {'a', 'b', 'c'};
+  srvrun_conn*    c;
+  usz             hdr_end;
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  hdr_end                = sr_wtcap_dispatch_headers_stub(c);
+  c->wt_capsule_rx_at[0] = hdr_end;
+  CHECK(capsule_encode(&capb, 0x5c, wired_span_of(stuff, sizeof stuff)) == 1);
+  CHECK(wtcapsule_encode_max_data(&capb, 7) == 1);
+  sr_wtcap_dispatch(c, hdr_end, wired_span_of(capbuf, capb.len));
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.max_data == 7);
+  CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
+}
+
+/* RFC 9297 SS3.3, through dispatch: a truncated capsule (real STREAM frame,
+ * FIN set on the slot the way a real closed receive side would) ends the
+ * session cleanly instead of being silently ignored or crashing. */
+static void test_srvrun_wt_rx_truncated_capsule_via_dispatch_closes_session(
+    void) {
+  struct lp_fix              f;
+  wired_obuf                 ob  = {0};
+  srvrun_cfg                 cfg = sr_wt_send_cfg();
+  u8                         obuf[1024], capbuf[64];
+  wired_obuf                 capb = obuf_of(capbuf, sizeof capbuf);
+  srvrun_conn*               c;
+  wired_srvloop_stream_slot* slot;
+  usz                        hdr_end;
+  int                        i;
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  hdr_end                = sr_wtcap_dispatch_headers_stub(c);
+  c->wt_capsule_rx_at[0] = hdr_end;
+  CHECK(wtcapsule_encode_max_data(&capb, 1000) == 1);
+  sr_wtcap_dispatch(c, hdr_end, wired_span_of(capbuf, capb.len - 1));
+  i = wired_srvloop_slot_for(&c->l, 4);
+  CHECK(i >= 0);
+  slot          = &c->l.streams[i];
+  slot->req_fin = 1;
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.state == WIRED_WT_CLOSED);
+  CHECK(c->wt_active == 0);
+}
+
+/* V-0503/V-0509 (SS5.1/SS8): a received WT_MAX_DATA capsule enables session
+ * flow control (a low limit blocks a would-be over-send), and a later,
+ * higher WT_MAX_DATA raises the limit so the previously blocked send
+ * proceeds -- without ever latching a flow violation. */
+static void test_srvrun_wt_session_sharing_enables_flow_control(void) {
+  struct lp_fix   f;
+  wired_obuf      ob  = {0};
+  srvrun_cfg      cfg = sr_wt_send_cfg();
+  u8              obuf[1024], capbuf[64];
+  wired_obuf      capb  = obuf_of(capbuf, sizeof capbuf);
+  static const u8 pay[] = {0x54, 0x04, 'h', 'i'};
+  srvrun_conn*    c;
+  usz             first;
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt_capsule_rx_at[0] = 0;
+  CHECK(wtcapsule_encode_max_data(&capb, 2) == 1);
+  CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.max_data == 2);
+  CHECK(wired_wt_session_data_send_allowed(&c->wt, sizeof pay) == 0);
+  first = capb.len;
+  CHECK(wtcapsule_encode_max_data(&capb, 1000) == 1);
+  CHECK(
+      sr_wtcap_feed(
+          c, first, wired_span_of(capbuf + first, capb.len - first)) != 0);
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.max_data == 1000);
+  CHECK(wired_wt_session_data_send_allowed(&c->wt, sizeof pay) == 1);
+  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
+  CHECK(c->wt_flow_violation[0] == 0);
+}
+
+/* SS5.6.2 (WTH3-058/060): WT_MAX_STREAMS capsules of both directions apply
+ * to the session's own per-direction limits. */
+static void test_srvrun_wt_rx_max_streams_capsules_raise_limits(void) {
+  struct lp_fix f;
+  wired_obuf    ob  = {0};
+  srvrun_cfg    cfg = sr_wt_send_cfg();
+  u8            obuf[1024], capbuf[64];
+  wired_obuf    capb = obuf_of(capbuf, sizeof capbuf);
+  srvrun_conn*  c;
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt_capsule_rx_at[0] = 0;
+  CHECK(wtcapsule_encode_max_streams(&capb, 1, 5) == 1);
+  CHECK(wtcapsule_encode_max_streams(&capb, 0, 3) == 1);
+  CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.max_streams_bidi == 5);
+  CHECK(c->wt.max_streams_uni == 3);
+  CHECK(wired_wt_session_stream_open_allowed(&c->wt, 1) == 1);
+  CHECK(wired_wt_session_stream_open_allowed(&c->wt, 0) == 1);
+}
+
+/* V-0505 (SS5.1, WTH3-053): a flow-control capsule carrying a LOWER value
+ * than the current limit is ignored (limits only ever increase, mirroring
+ * RFC 9000 4.1) -- the session keeps the higher limit and stays open. */
+static void test_srvrun_wt_ignores_stale_flow_control_capsules(void) {
+  struct lp_fix f;
+  wired_obuf    ob  = {0};
+  srvrun_cfg    cfg = sr_wt_send_cfg();
+  u8            obuf[1024], capbuf[64];
+  wired_obuf    capb = obuf_of(capbuf, sizeof capbuf);
+  srvrun_conn*  c;
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt_capsule_rx_at[0] = 0;
+  CHECK(wtcapsule_encode_max_data(&capb, 100) == 1);
+  CHECK(wtcapsule_encode_max_data(&capb, 2) == 1); /* stale: lower */
+  CHECK(wtcapsule_encode_max_streams(&capb, 0, 4) == 1);
+  CHECK(wtcapsule_encode_max_streams(&capb, 0, 1) == 1); /* stale: lower */
+  CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.max_data == 100);
+  CHECK(c->wt.max_streams_uni == 4);
+  CHECK(c->wt.state == WIRED_WT_ESTABLISHED); /* stale is NOT an error */
+}
+
+/* RFC 9297 SS3.2: an unknown capsule type is skipped, and a known
+ * flow-control capsule after it is still applied. */
+static void test_srvrun_wt_rx_unknown_capsule_skipped(void) {
+  struct lp_fix   f;
+  wired_obuf      ob  = {0};
+  srvrun_cfg      cfg = sr_wt_send_cfg();
+  u8              obuf[1024], capbuf[64];
+  wired_obuf      capb    = obuf_of(capbuf, sizeof capbuf);
+  static const u8 stuff[] = {'a', 'b', 'c'};
+  srvrun_conn*    c;
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt_capsule_rx_at[0] = 0;
+  CHECK(capsule_encode(&capb, 0x5c, wired_span_of(stuff, sizeof stuff)) == 1);
+  CHECK(wtcapsule_encode_max_data(&capb, 7) == 1);
+  CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.max_data == 7);
+  CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
+}
+
+/* RFC 9297 SS3.3: a known flow-control capsule whose body is NOT exactly one
+ * varint is malformed -- the session is closed cleanly. */
+static void test_srvrun_wt_rx_malformed_flow_capsule_closes_session(void) {
+  struct lp_fix   f;
+  wired_obuf      ob  = {0};
+  srvrun_cfg      cfg = sr_wt_send_cfg();
+  u8              obuf[1024], capbuf[64];
+  wired_obuf      capb  = obuf_of(capbuf, sizeof capbuf);
+  static const u8 bad[] = {0x01, 0x01}; /* varint + trailing junk byte */
+  srvrun_conn*    c;
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt_capsule_rx_at[0] = 0;
+  CHECK(
+      capsule_encode(
+          &capb, WTCAPSULE_TYPE_MAX_DATA, wired_span_of(bad, sizeof bad)) == 1);
+  CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.state == WIRED_WT_CLOSED);
+  CHECK(c->wt_active == 0);
+  CHECK(c->wt.max_data == 0); /* the malformed value was never applied */
+}
+
+/* RFC 9297 SS3.3 (9297-021): the CONNECT stream's receive side closed (FIN)
+ * with a truncated capsule left over -- malformed, session closed. */
+static void test_srvrun_wt_rx_truncated_capsule_at_fin_closes_session(void) {
+  struct lp_fix              f;
+  wired_obuf                 ob  = {0};
+  srvrun_cfg                 cfg = sr_wt_send_cfg();
+  u8                         obuf[1024], capbuf[64];
+  wired_obuf                 capb = obuf_of(capbuf, sizeof capbuf);
+  srvrun_conn*               c;
+  wired_srvloop_stream_slot* slot;
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt_capsule_rx_at[0] = 0;
+  CHECK(wtcapsule_encode_max_data(&capb, 1000) == 1);
+  slot = sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len - 1));
+  CHECK(slot != 0);
+  slot->req_fin = 1;
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.state == WIRED_WT_CLOSED);
+  CHECK(c->wt_active == 0);
+}
+
+/* RFC 9297 SS3.2: a partial capsule with the stream still open is benign --
+ * wait for more bytes, apply once the tail arrives. */
+static void test_srvrun_wt_rx_partial_capsule_waits_for_more(void) {
+  struct lp_fix f;
+  wired_obuf    ob  = {0};
+  srvrun_cfg    cfg = sr_wt_send_cfg();
+  u8            obuf[1024], capbuf[64];
+  wired_obuf    capb = obuf_of(capbuf, sizeof capbuf);
+  srvrun_conn*  c;
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt_capsule_rx_at[0] = 0;
+  CHECK(wtcapsule_encode_max_data(&capb, 1000) == 1);
+  CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len - 1)) != 0);
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(c->wt.max_data == 0);
+  CHECK(c->wt_capsule_rx_at[0] == 0); /* nothing consumed yet */
+  CHECK(
+      sr_wtcap_feed(c, capb.len - 1, wired_span_of(capbuf + capb.len - 1, 1)) !=
+      0);
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.max_data == 1000);
+  CHECK(c->wt_capsule_rx_at[0] == capb.len);
+}
+
+/* RFC 9297 SS3.2 / RFC 9220 3: capsule bytes start right after the request's
+ * own HEADERS frame on the CONNECT stream -- srvrun_wt_capsule_start (the
+ * cursor srvrun_start_wt records at establishment) computes that boundary. */
+static void test_srvrun_wt_capsule_start_skips_connect_headers(void) {
+  struct lp_fix   f;
+  wired_obuf      ob = {0};
+  u8              obuf[1024];
+  static const u8 hdrs[] = {0x01, 0x02, 0xaa, 0xbb}; /* HEADERS, 2-byte body */
+  srvrun_conn*    c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  CHECK(sr_wtcap_feed(c, 0, wired_span_of(hdrs, sizeof hdrs)) != 0);
+  c->l.req_stream_id = 4;
+  CHECK(srvrun_wt_capsule_start(c) == sizeof hdrs);
+}
+
+/* The CONNECT stream's reassembly slot must survive the 2xx's own resp reap
+ * while its WT session is active (later capsules land there), and is
+ * released once the session closes; a non-session stream is released by the
+ * reap path as before. */
+static void test_srvrun_connect_stream_slot_kept_until_session_close(void) {
+  struct lp_fix              f;
+  wired_obuf                 ob  = {0};
+  srvrun_cfg                 cfg = sr_wt_send_cfg();
+  u8                         obuf[1024];
+  srvrun_conn*               c;
+  wired_srvloop_stream_slot* slot;
+  int                        i8;
+  ob   = (wired_obuf){obuf, sizeof obuf, 0};
+  c    = sr_wtsend_fixture(&f, &ob);
+  slot = sr_wtcap_feed(c, 0, wired_span_of(obuf, 0));
+  CHECK(slot != 0);
+  srvrun_resp_release_stream(c, 4);
+  CHECK(slot->in_use == 1); /* kept: session 0 owns CONNECT stream 4 */
+  i8 = wired_srvloop_slot_for(&c->l, 8);
+  CHECK(i8 >= 0);
+  srvrun_resp_release_stream(c, 8);
+  CHECK(c->l.streams[i8].in_use == 0); /* non-session stream: released */
+  srvrun_close_wt_session_slot(&cfg, c, 0, srvrun_wt_session_gone_code());
+  CHECK(slot->in_use == 0); /* released with the session */
+}
+
 /* ===== W-13/WTH3-048: GOAWAY drives a WT_DRAIN_SESSION capsule per active
  * session (draft-ietf-webtrans-http3-15 SS4.2/4.7). srvrun_send_wt_drain
  * seals the empty-body capsule (wtcapsule_encode_drain, wtcapsule.h) as
@@ -17160,6 +17554,19 @@ void test_srvrun(void) {
   test_srvrun_wt_stream_reply_exceeding_max_data_refused();
   test_srvrun_close_wt_flow_violations_resets_session();
   test_srvrun_close_wt_flow_violations_noop_without_latch();
+  test_srvrun_wt_rx_max_data_capsule_via_dispatch_unblocks_send();
+  test_srvrun_wt_rx_max_streams_capsule_via_dispatch_raises_limit();
+  test_srvrun_wt_rx_unknown_capsule_via_dispatch_skipped();
+  test_srvrun_wt_rx_truncated_capsule_via_dispatch_closes_session();
+  test_srvrun_wt_session_sharing_enables_flow_control();
+  test_srvrun_wt_rx_max_streams_capsules_raise_limits();
+  test_srvrun_wt_ignores_stale_flow_control_capsules();
+  test_srvrun_wt_rx_unknown_capsule_skipped();
+  test_srvrun_wt_rx_malformed_flow_capsule_closes_session();
+  test_srvrun_wt_rx_truncated_capsule_at_fin_closes_session();
+  test_srvrun_wt_rx_partial_capsule_waits_for_more();
+  test_srvrun_wt_capsule_start_skips_connect_headers();
+  test_srvrun_connect_stream_slot_kept_until_session_close();
   test_srvrun_send_wt_drain_seals_capsule_on_connect_stream();
   test_srvrun_send_wt_drain_all_skips_inactive_slot();
   test_srvrun_wt_close_session_latches_pending();
