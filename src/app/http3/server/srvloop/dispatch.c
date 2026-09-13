@@ -862,6 +862,7 @@ static void gather_one_wt_reset(wired_srvloop* l, u64 type, wired_span frame) {
     l->wt_reset_error_code = rs.error_code;
     l->wt_reset_is_stop    = 0;
     l->wt_reset_seen       = 1;
+    l->peer_reset_count++;
     return;
   }
   if (!wt_stop_frame(type, frame, &ss)) return;
@@ -869,6 +870,7 @@ static void gather_one_wt_reset(wired_srvloop* l, u64 type, wired_span frame) {
   l->wt_reset_error_code = ss.error_code;
   l->wt_reset_is_stop    = 1;
   l->wt_reset_seen       = 1;
+  l->peer_reset_count++;
 }
 
 /* RFC 9000 19.8: 1 if frame is a client bidi STREAM frame with FIN set,
