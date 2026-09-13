@@ -7,6 +7,7 @@
 #include "fullhs_golden.h"
 #include "realchain_golden.h"
 #include "test.h"
+#include "tls/handshake/core/hrr/hrr_build.h"
 #include "tls/handshake/core/tls/certverify.h"
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/hsdriver.h"
@@ -459,9 +460,106 @@ static void test_client_castore_wrong_root(void) {
   CHECK(client_is_connected(&c) == 0);
 }
 
+/* A socket-free client at CLIENT_HS_INITIAL over a fixed x25519 scalar
+ * (cl_priv is the caller's: tlsdriver copies it) whose Initial has been
+ * built, so its ClientHello is on record. */
+static void client_bare(client* c, u8 cl_priv[32]) {
+  u8 cl_pub[32], dg[1500];
+  for (usz i = 0; i < 32; i++) cl_priv[i] = (u8)(1 + i);
+  wired_x25519_base(cl_pub, cl_priv);
+  tlsdriver_init(&c->tls, cl_priv, cl_pub, 0);
+  c->phase    = CLIENT_HS_INITIAL;
+  c->sh_len   = 0;
+  c->now      = 0;
+  c->host     = 0;
+  c->host_len = 0;
+  c->castore  = 0;
+  CHECK(client_build_initial(c, dg, sizeof(dg)) == 1200);
+}
+
+/* Frame one handshake message as a CRYPTO frame at offset 0 and feed it. */
+static int client_feed_msg(client* c, const u8* msg, usz n) {
+  u8                    frame[1024];
+  wired_obuf            ob  = obuf_of(frame, sizeof(frame));
+  crypto_stream_emit_in ein = {0, 256};
+  CHECK(crypto_stream_emit(wired_span_of(msg, n), &ein, &ob) == 1);
+  return client_feed(c, frame, ob.len);
+}
+
+/* The client refused msg as illegal_parameter (47) and is still waiting for
+ * a ServerHello -- no half-advanced state. */
+static void check_client_aborted_47(client* c, const u8* msg, usz n) {
+  CHECK(client_feed_msg(c, msg, n) == 0);
+  CHECK(tlsdriver_last_error(&c->tls) == err_crypto(47));
+  CHECK(c->phase == CLIENT_HS_INITIAL);
+}
+
+/* RFC 8446 4.1.4: this client offers exactly one group and always sends its
+ * key_share, so ANY HelloRetryRequest steers it to a group it either already
+ * sent a share for or never advertised -- both are illegal_parameter aborts.
+ * The reject must be explicit (the right alert recorded), not a silent parse
+ * failure. */
+static void test_client_rejects_hrr_group_client_did_not_advertise(void) {
+  u8         cl_priv[32], hrr[256];
+  client     c;
+  wired_obuf hob = obuf_of(hrr, sizeof(hrr));
+  client_bare(&c, cl_priv);
+  /* steer to secp256r1, which this x25519 ClientHello never offered */
+  CHECK(hrr_build(0x1301, GROUP_SECP256R1, wired_span_of(0, 0), &hob) == 1);
+  check_client_aborted_47(&c, hrr, hob.len);
+}
+
+/* RFC 8446 4.1.4 / 4.2.2: there is no second-ClientHello path (client.h), so
+ * an HRR is always an abort, decided by the HRR random sentinel: one that
+ * re-selects the group already shared (x25519) and carries a cookie to echo
+ * is refused, and so is a ServerHello-shaped message that smuggles a full
+ * key_share under the sentinel random. Both leave the client at
+ * CLIENT_HS_INITIAL with nothing half-built for a PSK-less retry to trip on
+ * (the CVE-2025-6395 class). */
+static void test_client_hrr_aborts_no_second_clienthello(void) {
+  u8         cl_priv[32], hrr[256], sh[256], sv_pub[32];
+  const u8   cookie[] = {0xc0, 0x0c, 0x1e};
+  client     c;
+  wired_obuf hob = obuf_of(hrr, sizeof(hrr));
+  usz        shn;
+  client_bare(&c, cl_priv);
+  CHECK(
+      hrr_build(
+          0x1301, GROUP_X25519, wired_span_of(cookie, sizeof(cookie)), &hob) ==
+      1);
+  check_client_aborted_47(&c, hrr, hob.len);
+
+  client_bare(&c, cl_priv);
+  for (usz i = 0; i < 32; i++) sv_pub[i] = (u8)(9 + i);
+  shn = client_build_sh(sh, sizeof(sh), sv_pub);
+  for (usz i = 0; i < 32; i++) sh[6 + i] = hrr_random[i]; /* random @ 4+2 */
+  check_client_aborted_47(&c, sh, shn);
+}
+
+/* RFC 8446 4.2.1 / D.1: a ServerHello whose supported_versions selects
+ * anything but 0x0304 is a downgrade this TLS-1.3-only client aborts with
+ * illegal_parameter (47) -- recorded, not a silent parse failure. */
+static void test_client_rejects_downgraded_serverhello(void) {
+  u8     cl_priv[32], sv_pub[32], sh[256];
+  client c;
+  usz    shn;
+  client_bare(&c, cl_priv);
+  for (usz i = 0; i < 32; i++) sv_pub[i] = (u8)(9 + i);
+  shn = client_build_sh(sh, sizeof(sh), sv_pub);
+  /* supported_versions ext_data: header(4) + legacy_version(2) + random(32)
+   * + session_id(1) + cipher(2) + compression(1) + exts_len(2) + type/len(4)
+   * = offset 48; 0x0304 -> 0x0303 */
+  CHECK(sh[48] == 0x03 && sh[49] == 0x04);
+  sh[49] = 0x03;
+  check_client_aborted_47(&c, sh, shn);
+}
+
 void test_client(void) {
   test_client_initial_padded();
+  test_client_rejects_downgraded_serverhello();
   test_client_feed_serverhello();
+  test_client_rejects_hrr_group_client_did_not_advertise();
+  test_client_hrr_aborts_no_second_clienthello();
   test_client_e2e_confirmed();
   test_client_expired_now();
   test_client_wrong_host();
