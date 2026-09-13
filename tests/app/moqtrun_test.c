@@ -392,6 +392,69 @@ static void test_moqtrun_subscribe_without_publish_replies_error(void) {
   CHECK(e.error_code == MOQCTL_ERR_DOES_NOT_EXIST);
 }
 
+/* Local twin of moqtrun_test_last_reply_type (defined later in this file,
+ * after the blob-track tests) so this earlier test does not forward-
+ * reference it in the same translation unit. */
+static u64 mtsub_last_reply_type(void) {
+  const moqtrun_test_call* c = moqtrun_test_last_kind(3);
+  if (!c) return 0;
+  usz        off = 0;
+  u64        type;
+  wired_span body;
+  if (moqctl_peek_type(
+          wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
+      MOQCTL_OK)
+    return 0;
+  return type;
+}
+
+/* draft-ietf-moq-transport-19 13.1 relays SHOULD bound subscription state:
+ * a track's subs[] slot table is fixed at WIRED_MOQTRUN_MAX_SUBS, so once
+ * it is full a further SUBSCRIBE for the same track gets DOES_NOT_EXIST
+ * instead of growing state (moqtrun_sub_slot returns 0). One subscribing
+ * peer repeating SUBSCRIBE is enough to drive the table to capacity: the
+ * hub has no per-peer "already holds a sub on this track" guard on the
+ * peer-track path (unlike the blob/live tracks), so each call consumes a
+ * fresh slot. */
+static void test_moqtrun_subscribe_track_full_returns_error(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+
+  wired_moqt_on_session(&hub, SESS_B, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
+    moqtrun_test_reset();
+    wired_moqt_on_stream_data(
+        &hub, SESS_B, ctrl_b,
+        wired_span_of(
+            g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+        0);
+    CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  }
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_REQUEST_ERROR);
+  const moqtrun_test_call* c   = moqtrun_test_last_kind(3);
+  usz                      off = 0;
+  u64                      type;
+  wired_span               body;
+  CHECK(
+      moqctl_peek_type(
+          wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
+      MOQCTL_OK);
+  moqctl_request_error e;
+  usz                  body_off = 0;
+  CHECK(moqctl_request_error_take(body, &body_off, &e) == MOQCTL_OK);
+  CHECK(e.error_code == MOQCTL_ERR_DOES_NOT_EXIST);
+}
+
 /* ===================== 3. Object relay ===================== */
 
 /* An Object arriving on a publisher's data stream
@@ -2631,6 +2694,7 @@ void test_moqtrun(void) {
   test_moqtrun_publish_replies_request_ok();
   test_moqtrun_subscribe_matching_publish_replies_ok();
   test_moqtrun_subscribe_without_publish_replies_error();
+  test_moqtrun_subscribe_track_full_returns_error();
   test_moqtrun_object_relay_to_subscriber();
   test_moqtrun_object_relay_preserves_bytes();
   test_moqtrun_object_relay_two_subscribers_two_objects();

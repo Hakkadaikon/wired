@@ -251,10 +251,33 @@ static void test_capsule_decode_truncated_rejected(void) {
   CHECK(at == 0);
 }
 
+/* Pinning: RFC 9297 3.2 -- capsule_decode returns a VIEW into the caller's
+ * own buffer (value.p aliases data.p at the exact value offset), never an
+ * allocated/copied buffer, so an unrecognized/large declared Length cannot
+ * cause memory exhaustion by buffering (V-0495/V-0498, webtransport-go
+ * CVE-2026-57497 / L-0040). */
+static void test_capsule_decode_view_no_alloc(void) {
+  u8         buf[32];
+  wired_obuf out    = obuf_of(buf, sizeof buf);
+  u8         val[5] = {9, 8, 7, 6, 5};
+  usz        at     = 0;
+  u64        type_out;
+  wired_span value_out;
+
+  CHECK(capsule_encode(&out, 0x1F, wired_span_of(val, sizeof val)));
+  CHECK(
+      capsule_decode(wired_span_of(buf, out.len), &at, &type_out, &value_out));
+  /* the returned span's data pointer IS a pointer into buf, not a fresh
+   * allocation -- exactly at.n bytes before the end, i.e. buf + (at - 5). */
+  CHECK(value_out.p == buf + (at - value_out.n));
+  CHECK(value_out.n == 5);
+}
+
 void test_capsule(void) {
   test_capsule_roundtrip_small_type();
   test_capsule_roundtrip_large_types();
   test_capsule_roundtrip_empty_value();
+  test_capsule_decode_view_no_alloc();
   test_capsule_decode_truncated_type();
   test_capsule_decode_truncated_value();
   test_capsule_encode_too_small_leaves_out_unmodified();

@@ -110,6 +110,51 @@ static void test_wtcapsule_close_decode_body_too_short(void) {
   CHECK(at == 0);
 }
 
+/* TEST 6b: encode accepts a message of exactly WTCAPSULE_CLOSE_MESSAGE_MAX
+ * bytes (the boundary -- one below TEST 3's rejected MAX+1) and it
+ * round-trips through decode unchanged. Draft-mandated 1024-byte cap
+ * (V-0492/CVE-2026-21434, V-0497/L-0039). */
+static void test_wtcapsule_close_message_max_len(void) {
+  u8         buf[WTCAPSULE_CLOSE_MESSAGE_MAX + 64];
+  wired_obuf out = obuf_of(buf, sizeof buf);
+  u8         msg[WTCAPSULE_CLOSE_MESSAGE_MAX];
+  for (usz i = 0; i < sizeof msg; i++) msg[i] = (u8)i;
+  usz        at = 0;
+  u32        code_out;
+  wired_span msg_out;
+
+  CHECK(wired_wtcapsule_encode_close(&out, 7, wired_span_of(msg, sizeof msg)));
+  CHECK(wired_wtcapsule_decode_close(
+      wired_span_of(buf, out.len), &at, &code_out, &msg_out));
+  CHECK(code_out == 7);
+  CHECK(msg_out.n == WTCAPSULE_CLOSE_MESSAGE_MAX);
+  CHECK(at == out.len);
+}
+
+/* TEST 6c: decode rejects a WT_CLOSE_SESSION whose message portion exceeds
+ * WTCAPSULE_CLOSE_MESSAGE_MAX, even though wired_wtcapsule_encode_close
+ * itself can never produce one -- hand-build the oversized capsule via the
+ * generic capsule_encode (as an on-wire attacker could) to prove the
+ * decode-side check (wtcapsule_is_close) is independent of the encoder's
+ * own guard. */
+static void test_wtcapsule_decode_close_rejects_oversized(void) {
+  u8         buf[WTCAPSULE_CLOSE_MESSAGE_MAX + 64];
+  wired_obuf out = obuf_of(buf, sizeof buf);
+  /* 4 = the mandatory 32-bit Application Error Code prefix, not visible
+   * to this test as a macro (WTCAPSULE_CLOSE_CODE_LEN is file-local to
+   * wtcapsule.c). */
+  u8 body[4 + WTCAPSULE_CLOSE_MESSAGE_MAX + 1];
+  for (usz i = 0; i < sizeof body; i++) body[i] = 0;
+  usz        at = 0;
+  u32        code_out;
+  wired_span msg_out;
+
+  CHECK(capsule_encode(&out, 0x2843, wired_span_of(body, sizeof body)));
+  CHECK(!wired_wtcapsule_decode_close(
+      wired_span_of(buf, out.len), &at, &code_out, &msg_out));
+  CHECK(at == 0);
+}
+
 /* TEST 7: sequential decode -- WT_DRAIN_SESSION then WT_CLOSE_SESSION
  * back-to-back in one buffer. */
 static void test_wtcapsule_sequential_drain_then_close(void) {
@@ -329,6 +374,8 @@ void test_wtcapsule(void) {
   test_wtcapsule_close_roundtrip();
   test_wtcapsule_close_roundtrip_empty_message();
   test_wtcapsule_close_encode_rejects_long_message();
+  test_wtcapsule_close_message_max_len();
+  test_wtcapsule_decode_close_rejects_oversized();
   test_wtcapsule_drain_roundtrip();
   test_wtcapsule_wrong_type_does_not_advance();
   test_wtcapsule_close_decode_body_too_short();
