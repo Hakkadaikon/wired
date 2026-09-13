@@ -179,6 +179,27 @@ typedef struct {
  * value is descriptive bookkeeping, not itself validated. */
 #define SRVRUN_WT_PATH_CAP 128
 
+/* RFC 9114 10.5.2: WebTransport (Extended CONNECT) sessions open across ALL
+ * connections at once, on top of the per-connection SRVRUN_MAX_WT_SESSIONS.
+ * One per connection slot on average -- half the structural ceiling of
+ * WIRED_CONNTABLE_CAP * SRVRUN_MAX_WT_SESSIONS. Every open session costs
+ * per-step CPU (srvrun_on_step walks each active slot's stream offers,
+ * datagram queue and capsule scratch every step), so the aggregate stays
+ * bounded no matter how many peers each open two; a CONNECT past this cap
+ * gets the same 429 + H3_REQUEST_REJECTED as a per-connection-full one. */
+#define SRVRUN_MAX_WT_SESSIONS_GLOBAL WIRED_CONNTABLE_CAP
+
+/* RFC 9114 8.1/10.5 (CVE-2023-44487-class rapid reset): a connection that
+ * sends more than this many RESET_STREAM/STOP_SENDING frames inside one
+ * SRVRUN_RESET_WINDOW_MS fixed window is closed with H3_EXCESSIVE_LOAD.
+ * Generous on purpose: a legitimate client cancels at most a handful of
+ * requests per second (a page navigation abandons its in-flight fetches;
+ * SRVRUN_RESP_SLOTS bounds what it can even have in flight), while an
+ * attacker's value is in thousands per second, so 100/s separates the two
+ * with a wide margin and never trips on a burst of browser tab closes. */
+#define SRVRUN_MAX_RESETS_PER_WINDOW 100
+#define SRVRUN_RESET_WINDOW_MS 1000
+
 /* Pending wired_server_wt_stream_reset entries one connection holds between
  * steps (the wt_stream_reset_* latch below). A full latch refuses further
  * resets (nothing is overwritten or half-applied), and the caller retries
@@ -738,6 +759,10 @@ typedef struct {
    */
   u64 pace_tokens;
   u64 pace_refill_ms; /**< monotonic ms of the last token refill */
+  /** RFC 9114 10.5 rapid-reset window: monotonic ms the current
+   * SRVRUN_RESET_WINDOW_MS window began; l.peer_reset_count is cleared when
+   * a step starts a new one (srvrun_roll_reset_window). */
+  u64 reset_window_start_ms;
 } srvrun_conn;
 
 /* Response storage, one row per (connection slot, response slot): 64-byte
@@ -973,6 +998,12 @@ struct wired_srvrun_env {
   /* The fd the staged GSO batch must flush through (srvrun_stage_put
    * records the owning connection's path fd; 0 = primary). */
   i64 gso_fd;
+  /* RFC 9114 10.5 rapid-reset limit: RESET_STREAM/STOP_SENDING frames one
+   * connection may send per SRVRUN_RESET_WINDOW_MS before it is closed with
+   * H3_EXCESSIVE_LOAD; 0 = SRVRUN_MAX_RESETS_PER_WINDOW. A plain env field
+   * rather than a srvrun_cfg member for the same reason as rx_fd above:
+   * every positional srvrun_cfg initializer in the tests keeps compiling. */
+  u32 max_resets_per_window;
 };
 
 /* The one process-wide instance wired_server_run/wired_server_run_opt drive
@@ -1831,6 +1862,21 @@ static int srvrun_wt_free_slot(const srvrun_conn* c) {
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
     if (!srvrun_wt_is_active(c, i)) return i;
   return -1;
+}
+
+/* Active WT sessions (both slots) across every connection of env. */
+static usz srvrun_wt_active_total(const wired_srvrun_env* env) {
+  usz n = 0;
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
+    n += (usz)env->conns[i].wt_active + (usz)env->conns[i].wt1_active;
+  return n;
+}
+
+/* RFC 9114 10.5.2: 1 if a new session cannot open -- c's own slots are all
+ * taken, or SRVRUN_MAX_WT_SESSIONS_GLOBAL is reached server-wide. */
+static int srvrun_wt_no_room(const srvrun_cfg* cfg, const srvrun_conn* c) {
+  return srvrun_wt_free_slot(c) < 0 ||
+         srvrun_wt_active_total(cfg->env) >= SRVRUN_MAX_WT_SESSIONS_GLOBAL;
 }
 
 /* The first active session slot willing to accept stream_id: one it already
@@ -3293,12 +3339,48 @@ static int srvrun_close_on_step_violation_rest(
   return 0;
 }
 
+/* RFC 9114 10.5 rapid reset: start a new fixed window (clearing the
+ * srvloop reset counter) once SRVRUN_RESET_WINDOW_MS has elapsed since the
+ * current one began. Runs before the step's gathering so this step's own
+ * resets land in the window they belong to. */
+static void srvrun_roll_reset_window(srvrun_conn* c, u64 now_ms) {
+  if (now_ms - c->reset_window_start_ms < SRVRUN_RESET_WINDOW_MS) return;
+  c->reset_window_start_ms = now_ms;
+  c->l.peer_reset_count    = 0;
+}
+
+static u32 srvrun_reset_limit(const srvrun_cfg* cfg) {
+  u32 v = cfg->env->max_resets_per_window;
+  return v ? v : SRVRUN_MAX_RESETS_PER_WINDOW;
+}
+
+/* Seal the RFC 9114 8.1 H3_EXCESSIVE_LOAD application CONNECTION_CLOSE the
+ * rapid-reset limit sends; split from the send so a test can decode the
+ * exact packet production sends. */
+static int srvrun_seal_reset_flood_close(srvrun_conn* c, wired_obuf* out) {
+  static const u8 reason[] = "stream reset rate exceeded";
+  return srvrun_seal_app_close(
+      c, H3_EXCESSIVE_LOAD, wired_span_of(reason, sizeof reason - 1), out);
+}
+
+/* RFC 9114 10.5 (V-0438): 1 if this window's RESET_STREAM/STOP_SENDING
+ * count passed the limit and the connection was closed over it. */
+static int srvrun_close_on_reset_flood(const srvrun_cfg* cfg, srvrun_conn* c) {
+  u8         out[128];
+  wired_obuf ob = obuf_of(out, sizeof out);
+  if (c->l.peer_reset_count <= srvrun_reset_limit(cfg)) return 0;
+  if (srvrun_seal_reset_flood_close(c, &ob))
+    srvrun_send(cfg, c, wired_span_of(out, ob.len), "reset flood close sent\n");
+  return 1;
+}
+
 static int srvrun_close_on_step_violation(
     const srvrun_cfg* cfg, srvrun_conn* c) {
   if (c->l.datagram_violation) {
     srvrun_close_on_datagram_violation(cfg, c);
     return 1;
   }
+  if (srvrun_close_on_reset_flood(cfg, c)) return 1;
   return srvrun_close_on_step_violation_rest(cfg, c);
 }
 
@@ -3335,10 +3417,11 @@ static void srvrun_on_step(
   c->l.now_ms = ctx->now_ms; /* share srvrun's own PTO/RTT clock with
                               * ackpolicy's delayed-ACK timer, not a
                               * second one. */
-  c->l.ack_defer = 1;        /* RFC 9000 13.2.1: suppress the bare-ACK packet
-                              * this step; the pump piggybacks the pending ACK
-                              * onto a slice, or srvrun_flush_deferred_ack
-                              * sends it at step end. */
+  srvrun_roll_reset_window(c, ctx->now_ms);
+  c->l.ack_defer = 1; /* RFC 9000 13.2.1: suppress the bare-ACK packet
+                       * this step; the pump piggybacks the pending ACK
+                       * onto a slice, or srvrun_flush_deferred_ack
+                       * sends it at step end. */
   produced = wired_srvloop_step(&conn, dg, &ob);
   if (c->l.h3.settings_sent) srvrun_open_qenc_stream(c);
   srvrun_ku_note_rotation(c, ctx->now_ms);
@@ -5588,15 +5671,16 @@ static void srvrun_dispatch_wt_free_slot(
 /* A well-formed Extended CONNECT for WebTransport either establishes a
  * session (Origin absent, or present and well-formed, and no session
  * already active on this connection), or is rejected: 403 for a malformed
- * Origin, 429 if a session is already active, or H3_ID_ERROR if the
- * CONNECT stream's own id is not a client-initiated bidi stream id. */
+ * Origin, 429 if no session slot is free (per connection or server-wide,
+ * srvrun_wt_no_room), or H3_ID_ERROR if the CONNECT stream's own id is not
+ * a client-initiated bidi stream id. */
 static void srvrun_dispatch_wt(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r) {
   if (!wt_origin_ok(&c->l.req)) {
     srvrun_reject_wt(cfg->env, slot, c, r);
     return;
   }
-  if (srvrun_wt_free_slot(c) < 0) {
+  if (srvrun_wt_no_room(cfg, c)) {
     srvrun_reject_wt_busy(cfg, c, slot, r);
     return;
   }
