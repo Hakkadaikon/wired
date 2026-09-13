@@ -77,6 +77,12 @@ typedef struct {
   u8 ku_send_secret[HKDF_PRK]; /**< current generation's server_ap
                                 * secret */
   int ku_seeded; /**< 1 once ku/ku_send hold real generation-0 keys */
+  /** RFC 9001 6.6: 1-RTT packets sealed under ku_send's current generation;
+   * reset on every rotation, drives the confidentiality-limit Key Update. */
+  u64 ku_send_count;
+  /** RFC 9001 6.6: received 1-RTT packets that failed to open under any
+   * retained generation, toward the AEAD integrity limit. */
+  u64 ku_auth_fail;
 } wired_server;
 
 /** server_priv_x25519/server_pub_x25519 are the static ECDHE pair; cert_seed

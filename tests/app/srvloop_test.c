@@ -25,6 +25,8 @@
 #include "tls/handshake/core/tls/serverhello.h"
 #include "tls/handshake/core/tls/transcript.h"
 #include "tls/handshake/core/tls/x25519.h"
+#include "tls/keys/keyupdate/aeadlimit.h"
+#include "tls/keys/keyupdate/keyphase.h"
 #include "tls/keys/schedule_drive/keyschedule.h"
 #include "tls/keys/ticket/ticket.h"
 #include "transport/io/udp/udploop/rxloop.h"
@@ -3986,6 +3988,144 @@ static void test_srvloop_recv_failed_decrypt_does_not_advance_generation(void) {
   CHECK(f.s.ku.have_old == 0);
 }
 
+/* RFC 9001 6.6: seal one 1-RTT PING under the server's own send keys, the
+ * same path every srvrun reply takes (wired_srvloop_send_onertt). Returns
+ * the sealed length, 0 if the send path refused. */
+static usz lp_seal_ping(struct lp_fix* f, u64 pn, u8* pkt, usz cap) {
+  static const u8       ping[1] = {0x01};
+  wired_obuf            ob      = obuf_of(pkt, cap);
+  wired_srvloop_send_in sin     = {
+      wired_span_of(f->l.cli_scid, f->l.cli_scid_len),
+      pn,
+      -1,
+      wired_span_of(ping, 1),
+      0,
+      0,
+      0,
+      0};
+  if (!wired_srvloop_send_onertt(&f->s, &sin, &ob)) return 0;
+  return ob.len;
+}
+
+/* RFC 9001 6.6: one packet BELOW the AES-GCM confidentiality limit is still
+ * sealed under the current generation -- no update, the counter just
+ * reaches the limit. */
+static void test_srvloop_send_below_aead_limit_keeps_generation(void) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  const u8*     pl;
+  usz           pll, n;
+  lp_confirm(&f, &ob);
+  CHECK(f.s.ku_send.generation == 0);
+  f.s.ku_send_count = AEAD_LIMIT_AESGCM - 1;
+  n                 = lp_seal_ping(&f, 20, pkt, sizeof pkt);
+  CHECK(n > 0);
+  CHECK(f.s.ku_send.generation == 0);
+  CHECK(f.s.ku_send_count == AEAD_LIMIT_AESGCM);
+  CHECK(client_open_onertt(&f, pkt, n, &pl, &pll) == 1); /* still gen 0 */
+  CHECK(keyphase_get(pkt[0]) == 0);
+}
+
+/* RFC 9001 6.6 / 6.1: reaching the confidentiality limit initiates a Key
+ * Update on the send path -- the next packet is sealed under generation 1
+ * (new keys derived, phase bit flipped) and the per-key counter restarts. */
+static void test_srvloop_send_at_aead_limit_initiates_key_update(void) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256], copy[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  const u8*     pl;
+  usz           pll, n;
+  lp_confirm(&f, &ob);
+  f.s.ku_send_count = AEAD_LIMIT_AESGCM;
+  n                 = lp_seal_ping(&f, 20, pkt, sizeof pkt);
+  CHECK(n > 0);
+  CHECK(f.s.ku_send.generation == 1);
+  CHECK(f.s.ku_send_count == 1); /* one packet under the new keys */
+  for (usz i = 0; i < n; i++) copy[i] = pkt[i];
+  CHECK(client_open_onertt(&f, copy, n, &pl, &pll) == 0); /* not gen 0 */
+  CHECK(client_open_onertt_gen1(&f, pkt, n, &pl, &pll) == 1);
+  CHECK(keyphase_get(pkt[0]) == 1); /* RFC 9001 6.2: phase follows gen */
+}
+
+/* RFC 9001 6.2: no second self-initiated update until the peer has adopted
+ * the previous one -- at the limit again with the peer still on generation
+ * 0, the keys MUST NOT be used (6.6), so the seal is refused. Once a peer
+ * packet arrives under generation 1, the send side does not rotate a second
+ * time on the follow, and the next limit hit may advance to generation 2. */
+static void test_srvloop_no_second_update_before_peer_follows(void) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256], get[512], spkt[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  usz           glen, slen;
+  lp_confirm(&f, &ob);
+  f.s.ku_send_count = AEAD_LIMIT_AESGCM;
+  CHECK(lp_seal_ping(&f, 20, pkt, sizeof pkt) > 0);
+  CHECK(f.s.ku_send.generation == 1);
+  f.s.ku_send_count = AEAD_LIMIT_AESGCM;
+  CHECK(lp_seal_ping(&f, 21, pkt, sizeof pkt) == 0); /* refused */
+  CHECK(f.s.ku_send.generation == 1);
+  f.s.ku_send_count = 5; /* back to ordinary traffic under generation 1 */
+  /* the peer follows: a GET sealed under generation 1 */
+  {
+    wired_obuf gob = {get, sizeof get, 0};
+    CHECK(wired_h3reqdrive_send_get(
+        0,
+        &(wired_h3reqdrive_get_in){
+            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
+        &gob));
+    glen = gob.len;
+  }
+  slen = client_seal_onertt_pn_gen(&f.s, 7, 1, get, glen, spkt, sizeof spkt);
+  ob   = (wired_obuf){out, sizeof out, 0};
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob) ==
+      1);
+  CHECK(f.s.ku.generation == 1);
+  CHECK(f.s.ku_send.generation == 1); /* follow did not rotate send twice */
+  f.s.ku_send_count = AEAD_LIMIT_AESGCM;
+  CHECK(lp_seal_ping(&f, 22, pkt, sizeof pkt) > 0);
+  CHECK(f.s.ku_send.generation == 2);
+}
+
+/* RFC 9001 6.6: every 1-RTT packet that fails authentication under the
+ * current keys counts toward the integrity limit; a packet that opens does
+ * not. The close itself is srvrun's (test_srvrun_closes_with_aead_limit_
+ * reached_on_step). */
+static void test_srvloop_recv_auth_failure_counts_toward_integrity_limit(void) {
+  struct lp_fix f;
+  u8            out[1024], get[512], spkt[1024];
+  usz           glen, slen;
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  CHECK(f.s.ku_auth_fail == 0);
+  {
+    wired_obuf gob = {get, sizeof get, 0};
+    CHECK(wired_h3reqdrive_send_get(
+        0,
+        &(wired_h3reqdrive_get_in){
+            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
+        &gob));
+    glen = gob.len;
+  }
+  slen = client_seal_onertt_pn_gen(&f.s, 7, 0, get, glen, spkt, sizeof spkt);
+  spkt[slen - 1] ^= 0xff; /* corrupt the tag */
+  ob = (wired_obuf){out, sizeof out, 0};
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob) ==
+      0);
+  CHECK(f.s.ku_auth_fail == 1);
+  slen = client_seal_onertt_pn_gen(&f.s, 8, 0, get, glen, spkt, sizeof spkt);
+  ob   = (wired_obuf){out, sizeof out, 0};
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob) ==
+      1);
+  CHECK(f.s.ku_auth_fail == 1); /* a good packet does not count */
+}
+
 /* After a confirmed update (generation 1), a reordered packet still
  * sealed under generation 0 (the retained old keys) must still decrypt --
  * RFC 9001 6's retention window exists exactly for this reordering case. */
@@ -4454,6 +4594,10 @@ void test_srvloop(void) {
   test_srvloop_recv_new_phase_derives_next_keys();
   test_srvloop_send_keys_follow_peer_update_before_ack();
   test_srvloop_recv_failed_decrypt_does_not_advance_generation();
+  test_srvloop_send_below_aead_limit_keeps_generation();
+  test_srvloop_send_at_aead_limit_initiates_key_update();
+  test_srvloop_no_second_update_before_peer_follows();
+  test_srvloop_recv_auth_failure_counts_toward_integrity_limit();
   test_srvloop_recv_reordered_packet_uses_old_keys();
   test_srvloop_recv_onertt_before_keys_ready_short_circuits_before_ku_logic();
   test_srvloop_recv_no_old_keys_before_first_update_rejects_stale_phase();

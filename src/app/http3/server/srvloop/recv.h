@@ -33,4 +33,11 @@ int wired_srvloop_recv(
     const wired_srvloop_recv_in* in,
     wired_srvloop_recv_out*      out);
 
+/* RFC 9001 6.1/6.2: advance this endpoint's own send keys (SERVER_AP) one
+ * generation -- on a confirmed peer update (follow, in lockstep with ku) or
+ * a self-initiated one (send.c, at the 6.6 confidentiality limit). Derives
+ * from the retained server_ap secret, keeps hp (unchanged across an
+ * update), and restarts the per-key sealed-packet count. */
+void srvloop_ku_rotate_send(wired_server* s);
+
 #endif

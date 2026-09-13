@@ -82,11 +82,7 @@ static int onertt_try(
   }
 }
 
-/* RFC 9001 6.2: this endpoint's own send keys MUST follow a confirmed peer
- * update, in the same generation. Derives independently (server_ap_secret
- * is a different HKDF chain than client_ap_secret) but advances in
- * lockstep with the recv side's rotate. */
-static void onertt_rotate_send(wired_server* s) {
+void srvloop_ku_rotate_send(wired_server* s) {
   initial_keys send_next;
   u8           send_next_secret[HKDF_PRK];
   kuswitch_next_keys_suite(
@@ -94,6 +90,7 @@ static void onertt_rotate_send(wired_server* s) {
   bytes_memcpy(send_next.hp, s->ku_send.cur.hp, AEAD_KEY_MAX);
   kuswitch_rotate(&s->ku_send, &send_next);
   bytes_memcpy(s->ku_send_secret, send_next_secret, HKDF_PRK);
+  s->ku_send_count = 0; /* RFC 9001 6.6: the limit is per key */
 }
 
 /* RFC 9001 6.3: a next-generation candidate that actually decrypts confirms
@@ -101,12 +98,14 @@ static void onertt_rotate_send(wired_server* s) {
  * derived generation becomes current, and adopt its secret for the update
  * after this one. Only called once a probe has already succeeded. RFC 9001
  * 6.2 requires the send side to follow in the same step (before this
- * packet's ACK goes out, which srvloop's caller does right after opening). */
+ * packet's ACK goes out, which srvloop's caller does right after opening)
+ * -- unless the send side already went ahead (a self-initiated update the
+ * peer is now following, RFC 9001 6.1), in which case it stays put. */
 static void onertt_rotate_to(
     wired_server* s, const initial_keys* next, const u8* next_secret) {
   kuswitch_rotate(&s->ku, next);
   bytes_memcpy(s->ku_secret, next_secret, HKDF_PRK);
-  onertt_rotate_send(s);
+  if (s->ku_send.generation < s->ku.generation) srvloop_ku_rotate_send(s);
 }
 
 /* RFC 9001 6.3: current generation first (the common case, every packet
@@ -141,10 +140,22 @@ static int onertt_try_next_gen(
   return 1;
 }
 
+/* RFC 9001 6.3: every generation this endpoint holds or can derive one step
+ * ahead -- current, retained old, then the next-generation probe. */
+static int onertt_try_any(
+    wired_server*                s,
+    const wired_srvloop_recv_in* in,
+    const u8                     save[RECV_ONERTT_HDR_MAX],
+    wired_srvloop_recv_out*      out) {
+  return onertt_try_known(s, in, save, out) ||
+         onertt_try_next_gen(s, in, save, out);
+}
+
 /* RFC 9001 6 depends on generation-0 keys already being seeded (srvfin's
  * confirm, server.c srv_seed_kuswitch) -- before that, s->ku.cur is not real
  * key material, so failing closed here is a structural guarantee, not an
- * incidental AEAD-failure side effect. */
+ * incidental AEAD-failure side effect. A seeded packet that opens under no
+ * generation counts toward the AEAD integrity limit (RFC 9001 6.6). */
 static int recv_onertt(
     wired_server*                s,
     const wired_srvloop_recv_in* in,
@@ -152,8 +163,9 @@ static int recv_onertt(
   u8 save[RECV_ONERTT_HDR_MAX];
   if (!s->ku_seeded) return 0;
   onertt_backup(in->dgram, s->sdrv.iscid_len, save);
-  if (onertt_try_known(s, in, save, out)) return 1;
-  return onertt_try_next_gen(s, in, save, out);
+  if (onertt_try_any(s, in, save, out)) return 1;
+  s->ku_auth_fail++;
+  return 0;
 }
 
 /* RFC 9000 17.2: dispatch the open by level (table keeps CCN low). */
