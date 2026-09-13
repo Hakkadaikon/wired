@@ -65,10 +65,23 @@ static void test_streamstate_bidi_no_direction_restriction(void) {
   CHECK(streamstate_ok(1, bidi, 0, &s) == 1);
 }
 
+/* RFC 9000 19.5 / 19.8: on one client-initiated uni stream a STREAM frame
+ * (the client must be able to send) is legal while STOP_SENDING (the client
+ * must be able to receive) is STREAM_STATE_ERROR -- same id, opposite
+ * verdicts, decided by direction alone. */
+static void test_streamstate_stop_sending_on_client_uni_rejected(void) {
+  streams s;
+  streams_init(&s, 10);
+  u64 cuni = stream_id(0, 1, 0); /* client-initiated uni, index 0 */
+  CHECK(streamstate_ok(1, cuni, 1, &s) == 1);
+  CHECK(streamstate_ok(1, cuni, 0, &s) == 0);
+}
+
 void test_streamstate(void) {
   test_streamstate_peer_initiated_needs_no_creation_check();
   test_streamstate_uncreated_local_stream_rejected();
   test_streamstate_created_local_stream_ok();
   test_streamstate_wrong_direction_rejected();
   test_streamstate_bidi_no_direction_restriction();
+  test_streamstate_stop_sending_on_client_uni_rejected();
 }

@@ -32,7 +32,7 @@ static void test_dispatch_stream(void) {
   flow_credit         c;
   ds_init(&st, &s, &t, &c);
   u8           buf[32];
-  stream_frame f = {3, 0, 4, (const u8*)"data", 0};
+  stream_frame f = {2, 0, 4, (const u8*)"data", 0}; /* client uni */
   usz          n = frame_put_stream(buf, sizeof buf, &f);
   CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
   u8         out[8];
@@ -254,6 +254,67 @@ static void test_dispatch_reset_stream(void) {
   CHECK(st.reset_stream_error_code == 0x9);
 }
 
+/* RFC 9000 19.5: STOP_SENDING naming a receive-only stream (a client-
+ * initiated uni stream, from this server's side) is STREAM_STATE_ERROR:
+ * rejected, and no automatic RESET_STREAM is owed for it. */
+static void test_dispatch_stop_sending_receive_only_rejected(void) {
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
+  ds_init(&st, &s, &t, &c);
+  stop_sending_frame f = {.stream_id = 2, .error_code = 1}; /* client uni */
+  u8                 buf[16];
+  usz                n = stop_sending_encode(buf, sizeof buf, &f);
+  CHECK(
+      framedispatch_handle(&st, FRAME_STOP_SENDING, wired_span_of(buf, n)) ==
+      0);
+  CHECK(st.stop_sending_owed == 0);
+}
+
+/* RFC 9000 19.8: STREAM data on a send-only stream (a server-initiated uni
+ * stream) is STREAM_STATE_ERROR: rejected, nothing buffered. */
+static void test_dispatch_stream_send_only_rejected(void) {
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
+  ds_init(&st, &s, &t, &c);
+  u8           buf[32];
+  stream_frame f = {3, 0, 4, (const u8*)"data", 0}; /* server uni */
+  usz          n = frame_put_stream(buf, sizeof buf, &f);
+  CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 0);
+  u8         out[8];
+  wired_obuf ob = obuf_of(out, sizeof out);
+  stream_read_pull(&s, &ob);
+  CHECK(ob.len == 0);
+}
+
+/* STREAM then STOP_SENDING on the same client-initiated uni stream: the data
+ * is accepted, the STOP_SENDING is rejected, and no RESET_STREAM is owed --
+ * the interleaving never leaves the state inconsistent. */
+static void test_dispatch_stream_then_stop_sending_same_uni_stream(void) {
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
+  ds_init(&st, &s, &t, &c);
+  u8                 buf[32];
+  stream_frame       sf = {2, 0, 4, (const u8*)"data", 0};
+  stop_sending_frame ss = {.stream_id = 2, .error_code = 1};
+  usz                n  = frame_put_stream(buf, sizeof buf, &sf);
+  CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
+  n = stop_sending_encode(buf, sizeof buf, &ss);
+  CHECK(
+      framedispatch_handle(&st, FRAME_STOP_SENDING, wired_span_of(buf, n)) ==
+      0);
+  CHECK(st.stop_sending_owed == 0);
+  u8         out[8];
+  wired_obuf ob = obuf_of(out, sizeof out);
+  stream_read_pull(&s, &ob);
+  CHECK(ob.len == 4);
+}
+
 void test_dispatch_state(void) {
   test_dispatch_stream();
   test_dispatch_ack();
@@ -270,4 +331,7 @@ void test_dispatch_state(void) {
   test_dispatch_ack_eliciting_predicate();
   test_dispatch_stop_sending_owes_reset();
   test_dispatch_reset_stream();
+  test_dispatch_stop_sending_receive_only_rejected();
+  test_dispatch_stream_send_only_rejected();
+  test_dispatch_stream_then_stop_sending_same_uni_stream();
 }
