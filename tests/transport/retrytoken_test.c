@@ -70,12 +70,30 @@ static void test_retrytoken_wire_malformed_rejected(void) {
       0);
 }
 
+/* Length-framing boundary: an empty token and one exactly RETRYTOKEN_LEN
+ * bytes long (one short of odcid_len(1) + HMAC) are rejected before any
+ * token byte is read or compared. */
+static void test_retrytoken_wire_verify_rejects_short_token(void) {
+  u8         key[RETRYTOKEN_KEY] = {0};
+  u8         bad[RETRYTOKEN_LEN] = {0};
+  const u8   addr[4]             = {192, 0, 2, 1};
+  wired_span got;
+  CHECK(
+      retrytoken_wire_verify(
+          key, wired_span_of(addr, 4), wired_span_of(bad, 0), &got) == 0);
+  CHECK(
+      retrytoken_wire_verify(
+          key, wired_span_of(addr, 4), wired_span_of(bad, RETRYTOKEN_LEN),
+          &got) == 0);
+}
+
 /* A token verifies for the address and original DCID it was made for, and
  * not for a different address. */
 void test_retrytoken(void) {
   test_retrytoken_wire_roundtrip();
   test_retrytoken_wire_tamper_rejected();
   test_retrytoken_wire_malformed_rejected();
+  test_retrytoken_wire_verify_rejects_short_token();
   u8 key[RETRYTOKEN_KEY];
   for (usz i = 0; i < RETRYTOKEN_KEY; i++) key[i] = (u8)(i + 1);
   const u8 addr[4]  = {192, 0, 2, 1};

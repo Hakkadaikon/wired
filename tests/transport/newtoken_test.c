@@ -156,6 +156,24 @@ static void test_newtoken_replay_rejected_via_seen_nonce(void) {
   CHECK(zerortt_seen_check(&seen, nonce) == 0); /* replay */
 }
 
+/* Length framing is exact: an empty token and one byte over
+ * NEWTOKEN_WIRE_LEN are rejected before the timestamp or MAC is read. */
+static void test_newtoken_wire_verify_rejects_long_token(void) {
+  u8         key[NEWTOKEN_KEY]          = {0};
+  const u8   addr[4]                    = {192, 0, 2, 1};
+  u8         bad[NEWTOKEN_WIRE_LEN + 1] = {0};
+  u64        issued_at;
+  wired_span nonce;
+  CHECK(
+      newtoken_wire_verify(
+          key, wired_span_of(addr, 4), wired_span_of(bad, sizeof bad), 1000,
+          &issued_at, &nonce) == 0);
+  CHECK(
+      newtoken_wire_verify(
+          key, wired_span_of(addr, 4), wired_span_of(bad, 0), 1000, &issued_at,
+          &nonce) == 0);
+}
+
 void test_newtoken(void) {
   test_newtoken_wire_roundtrip();
   test_newtoken_distinct_per_call();
@@ -163,5 +181,6 @@ void test_newtoken(void) {
   test_newtoken_future_issued_at_rejected();
   test_newtoken_tamper_rejected();
   test_newtoken_malformed_rejected();
+  test_newtoken_wire_verify_rejects_long_token();
   test_newtoken_replay_rejected_via_seen_nonce();
 }

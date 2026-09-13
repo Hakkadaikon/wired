@@ -291,6 +291,28 @@ static void test_auth_fail_reaches_limit_chacha(void) {
   CHECK(c.aead_limit == 1);
 }
 
+/* RFC 9002 2 / A.1: a packet carrying only ACK frames is not ack-eliciting
+ * and never enters the sent-packet table, so a peer that elicits ACK-only
+ * replies forever cannot fill it: after more ACK-only sends than the table
+ * holds, a real ack-eliciting packet still records. */
+static void test_connloop_ack_only_never_tracked(void) {
+  connloop c;
+  connloop_init(&c, 1);
+  c.validated    = 1;
+  initial_keys k = {0};
+  keyset_install(&c.keys, LEVEL_INITIAL, &k);
+  for (u64 pn = 0; pn <= SENTPKT_CAP; pn++)
+    CHECK(
+        connloop_on_send(&c, &(connloop_send_in){LEVEL_INITIAL, 0, pn, 40}) ==
+        1);
+  CHECK(sentpkt_count(&c.sent) == 0);
+  CHECK(c.pto_armed == 0);
+  CHECK(
+      connloop_on_send(
+          &c, &(connloop_send_in){LEVEL_INITIAL, 1, SENTPKT_CAP + 1, 40}) == 1);
+  CHECK(sentpkt_count(&c.sent) == 1);
+}
+
 void test_connloop(void) {
   test_send_level_never_regresses();
   test_no_app_data_before_handshake_complete();
@@ -308,4 +330,5 @@ void test_connloop(void) {
   test_auth_fail_below_limit_no_flag();
   test_auth_fail_reaches_limit_aesgcm();
   test_auth_fail_reaches_limit_chacha();
+  test_connloop_ack_only_never_tracked();
 }
