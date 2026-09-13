@@ -997,6 +997,7 @@
 #include "crypto/p256sign_test.c"
 #include "crypto/ecdsasig_der_int_test.c"
 #include "crypto/ecdsasig_sig_value_test.c"
+#include "crypto/ecdsa_diff_test.c"
 #include "crypto/p256cert_test.c"
 #include "crypto/cvecdsa_test.c"
 #include "tls/eebuild_test.c"
@@ -1537,6 +1538,7 @@ int main(void) {
   test_p256sign();
   test_ecdsasig_der_int();
   test_ecdsasig_sig_value();
+  test_ecdsa_diff();
   test_p256cert();
   test_cvecdsa();
   test_eebuild();
