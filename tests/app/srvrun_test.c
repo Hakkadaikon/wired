@@ -17224,6 +17224,156 @@ static void test_srvrun_wt_stream_inflight_append_open_survives_reap(void) {
   CHECK(wired_server_wt_stream_inflight(&c->wt, (u64)id) == 1);
 }
 
+/* RFC 9114 8.1 / 10.5 (V-0438, CVE-2023-44487-class rapid reset): one
+ * 1-RTT packet carrying n RESET_STREAM frames on a request stream, driven
+ * through the real srvrun_on_step at ctx->now_ms. fd=-1 makes every send a
+ * no-op counted by srvrun_test_send_count (same convention as the other
+ * on_step tests here). */
+static void sr_reset_burst_step(
+    struct lp_fix* f, srvrun_conn* c, srvrun_step_ctx* ctx, u64 pn, usz n) {
+  u8                 payload[1024], spkt[1400];
+  usz                off = 0, slen;
+  reset_stream_frame rs  = {4, 0x10c, 0};
+  for (usz i = 0; i < n; i++)
+    off += reset_stream_encode(payload + off, sizeof payload - off, &rs);
+  slen = client_seal_onertt_pn(f, pn, payload, off, spkt, sizeof spkt);
+  srvrun_on_step(ctx, c, wired_mspan_of(spkt, slen));
+}
+
+/* SRVRUN_MAX_RESETS_PER_WINDOW resets inside one window keep the connection
+ * (no CONNECTION_CLOSE sent); the count is visible to the caller. */
+static void test_srvrun_reset_flood_under_threshold_keeps_connection(void) {
+  struct lp_fix   f;
+  wired_obuf      ob;
+  u8              obuf[1024];
+  srvrun_conn     c   = {0};
+  srvrun_cfg      cfg = {.fd = -1, .env = &g_srvrun_env};
+  srvrun_step_ctx ctx = {&cfg, 0, 0, 0, 0};
+  ob                  = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  srvrun_test_reset_send_count();
+  sr_reset_burst_step(&f, &c, &ctx, 3, SRVRUN_MAX_RESETS_PER_WINDOW);
+  CHECK(c.l.peer_reset_count == SRVRUN_MAX_RESETS_PER_WINDOW);
+  CHECK(srvrun_test_send_count() == 0);
+}
+
+/* One reset past the threshold inside the window closes the connection
+ * with H3_EXCESSIVE_LOAD (0x0107): the on_step path sends exactly one
+ * packet, and the packet it seals for this case decodes as an application-
+ * level CONNECTION_CLOSE carrying that code. */
+static void test_srvrun_reset_flood_over_threshold_closes_excessive_load(void) {
+  struct lp_fix    f;
+  wired_obuf       ob;
+  u8               obuf[1024], pkt[256];
+  wired_obuf       pktb = obuf_of(pkt, sizeof pkt);
+  const u8*        pl;
+  usz              pll, rn;
+  conn_close_frame ccf;
+  srvrun_conn      c   = {0};
+  srvrun_cfg       cfg = {.fd = -1, .env = &g_srvrun_env};
+  srvrun_step_ctx  ctx = {&cfg, 0, 0, 0, 0};
+  ob                   = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  srvrun_test_reset_send_count();
+  sr_reset_burst_step(&f, &c, &ctx, 3, SRVRUN_MAX_RESETS_PER_WINDOW);
+  sr_reset_burst_step(&f, &c, &ctx, 4, 1);
+  CHECK(c.l.peer_reset_count == SRVRUN_MAX_RESETS_PER_WINDOW + 1);
+  CHECK(srvrun_test_send_count() == 1);
+  CHECK(srvrun_seal_reset_flood_close(&c, &pktb));
+  CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
+  rn = frame_get_conn_close(pl, pll, &ccf);
+  CHECK(rn != 0 && rn == pll);
+  CHECK(ccf.is_app == 1);
+  CHECK(ccf.error_code == H3_EXCESSIVE_LOAD);
+  CHECK(H3_EXCESSIVE_LOAD == 0x0107);
+}
+
+/* env->max_resets_per_window overrides the default threshold (here 2: the
+ * third reset closes). */
+static void test_srvrun_reset_flood_threshold_configurable(void) {
+  struct lp_fix   f;
+  wired_obuf      ob;
+  u8              obuf[1024];
+  srvrun_conn     c                  = {0};
+  srvrun_cfg      cfg                = {.fd = -1, .env = &g_srvrun_env};
+  srvrun_step_ctx ctx                = {&cfg, 0, 0, 0, 0};
+  g_srvrun_env.max_resets_per_window = 2;
+  ob                                 = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  srvrun_test_reset_send_count();
+  sr_reset_burst_step(&f, &c, &ctx, 3, 2);
+  CHECK(srvrun_test_send_count() == 0);
+  sr_reset_burst_step(&f, &c, &ctx, 4, 1);
+  CHECK(srvrun_test_send_count() == 1);
+  g_srvrun_env.max_resets_per_window = 0;
+}
+
+/* The window is a fixed SRVRUN_RESET_WINDOW_MS: a step starting a new
+ * window clears the count first, so threshold resets in one window plus
+ * one in the next stay under the limit. */
+static void test_srvrun_reset_flood_window_resets_count(void) {
+  struct lp_fix   f;
+  wired_obuf      ob;
+  u8              obuf[1024];
+  srvrun_conn     c   = {0};
+  srvrun_cfg      cfg = {.fd = -1, .env = &g_srvrun_env};
+  srvrun_step_ctx ctx = {&cfg, 0, 0, 0, 0};
+  ob                  = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  srvrun_test_reset_send_count();
+  sr_reset_burst_step(&f, &c, &ctx, 3, SRVRUN_MAX_RESETS_PER_WINDOW);
+  ctx.now_ms = SRVRUN_RESET_WINDOW_MS;
+  sr_reset_burst_step(&f, &c, &ctx, 4, 1);
+  CHECK(c.l.peer_reset_count == 1);
+  CHECK(c.reset_window_start_ms == SRVRUN_RESET_WINDOW_MS);
+  CHECK(srvrun_test_send_count() == 0);
+}
+
+/* RFC 9114 10.5.2 (V-0451): SRVRUN_MAX_WT_SESSIONS_GLOBAL bounds the
+ * Extended CONNECT sessions open across ALL connections, on top of the
+ * per-connection SRVRUN_MAX_WT_SESSIONS. With cap-1 sessions open
+ * elsewhere the next CONNECT is accepted (reaching the cap); the one after
+ * that -- on a connection that still has a free per-connection slot -- is
+ * refused with 429 (the same srvrun_reject_wt_busy path that also aborts
+ * the stream with H3_REQUEST_REJECTED) and disturbs no existing session. */
+static void test_srvrun_connect_concurrency_limit_enforced(void) {
+  struct lp_fix f;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_conn*  conns = g_srvrun_env.conns;
+  wired_obuf    ob;
+  u8            obuf[1024];
+  srvrun_cfg   cfg = {.fd = -1, .handler = sr_wt_handler, .env = &g_srvrun_env};
+  srvrun_state st  = {table, conns};
+  srvrun_step_ctx ctx   = {&cfg, 0, &st, 0, 0};
+  int             other = 0;
+  bytes_memset(conns, 0, sizeof g_srvrun_env.conns);
+  ob                    = (wired_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  /* cap-1 sessions already open on the other connections */
+  for (int i = 1; other < SRVRUN_MAX_WT_SESSIONS_GLOBAL - 1; i++) {
+    conns[i].wt_active = 1;
+    other++;
+    if (other < SRVRUN_MAX_WT_SESSIONS_GLOBAL - 1) {
+      conns[i].wt1_active = 1;
+      other++;
+    }
+  }
+  sr_set_req(&conns[0], 1, 1, 4);
+  srvrun_start_resp(&ctx, 0); /* the cap-th session: accepted */
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
+  conns[0].resp[0].in_use = 0;
+  sr_set_req(&conns[0], 1, 1, 8); /* cap+1-th: per-conn slot 1 is free */
+  srvrun_start_resp(&ctx, 0);
+  CHECK(conns[0].wt1_active == 0);
+  CHECK(conns[0].resp[0].sess.active == 1); /* the 429 was armed */
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(conns[0].wt.connect_stream_id == 4);
+  CHECK(conns[1].wt_active == 1); /* the other sessions are untouched */
+}
+
 void test_srvrun(void) {
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
@@ -17657,4 +17807,9 @@ void test_srvrun(void) {
   test_srvrun_wt_stream_inflight_zero_after_reap();
   test_srvrun_wt_stream_inflight_append_open_survives_reap();
   test_srvrun_closes_with_aead_limit_reached_on_step();
+  test_srvrun_reset_flood_under_threshold_keeps_connection();
+  test_srvrun_reset_flood_over_threshold_closes_excessive_load();
+  test_srvrun_reset_flood_threshold_configurable();
+  test_srvrun_reset_flood_window_resets_count();
+  test_srvrun_connect_concurrency_limit_enforced();
 }
