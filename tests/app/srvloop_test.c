@@ -4513,6 +4513,32 @@ static void test_srvloop_reset_stream_count_exposed_per_window(void) {
   CHECK(f.l.peer_reset_count == 6); /* accumulates; srvrun owns the window */
 }
 
+/* CVE-2024-34362 class (V-0436, the srvloop half): a RESET_STREAM on a
+ * client bidi stream with a live request reassembly slot, and no
+ * STOP_SENDING before it, is absorbed by the per-step close gather alone --
+ * the id is latched (closed_stream_seen/closed_stream_id) for srvrun to act
+ * on, the connection stays open, and the fixed-slot request table is
+ * neither freed nor dereferenced here (no object lifetime to get wrong). */
+static void test_srvloop_reset_stream_without_stop_sending_latches_close(void) {
+  struct lp_fix      f;
+  u8                 payload[64], out[1024], spkt[1024];
+  usz                off = 0, slen;
+  wired_obuf         ob  = {out, sizeof out, 0};
+  reset_stream_frame rs  = {4, 0x100, 0};
+  off                    = reset_stream_encode(payload, sizeof payload, &rs);
+  lp_confirm(&f, &ob);
+  CHECK(wired_srvloop_slot_for(&f.l, 4) >= 0); /* a request in flight */
+  slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
+  ob   = (wired_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.peer_closed == 0);
+  CHECK(f.l.got_request == 0);
+  CHECK(f.l.closed_stream_seen == 1);
+  CHECK(f.l.closed_stream_id == 4);
+  CHECK(f.l.peer_reset_count == 1);
+}
+
 void test_srvloop(void) {
   test_srvloop_note_ecn_keeps_largest_ack();
   test_srvloop_recv_zerortt_opens_with_early_keys();
@@ -4639,4 +4665,5 @@ void test_srvloop(void) {
   test_srvloop_released_stream_duplicate_is_ignored();
   test_srvloop_closed_set_tracks_out_of_order_releases();
   test_srvloop_reset_stream_count_exposed_per_window();
+  test_srvloop_reset_stream_without_stop_sending_latches_close();
 }
