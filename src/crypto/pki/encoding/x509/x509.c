@@ -232,3 +232,41 @@ int x509_has_unknown_critical(wired_span tbs) {
   if (!reach_extensions(tbs, &ext)) return 0;
   return scan_unknown_critical(ext);
 }
+
+/* Number of Extensions in ext whose extnID equals oid. */
+static usz count_ext_id(wired_span ext, wired_span oid) {
+  derseq     exts;
+  u8         tag;
+  wired_span e;
+  usz        n = 0;
+  derseq_init(&exts, ext);
+  while (derseq_next(&exts, &tag, &e))
+    if (ext_id_is(e, oid)) n++;
+  return n;
+}
+
+/* RFC 5280 4.2. e's extnID occurs more than once in ext (an unreadable
+ * extnID is left to ext_is_unknown_critical, which already rejects it). */
+static int ext_repeated(wired_span ext, wired_span e) {
+  wired_span id;
+  if (!ext_id(e, &id)) return 0;
+  return count_ext_id(ext, id) > 1;
+}
+
+/* Scan the extensions SEQUENCE for any repeated extnID. Quadratic in the
+ * extension count, which the certificate's own byte length bounds. */
+static int scan_duplicates(wired_span ext) {
+  derseq     exts;
+  u8         tag;
+  wired_span e;
+  derseq_init(&exts, ext);
+  while (derseq_next(&exts, &tag, &e))
+    if (ext_repeated(ext, e)) return 1;
+  return 0;
+}
+
+int x509_has_duplicate_ext(wired_span tbs) {
+  wired_span ext;
+  if (!reach_extensions(tbs, &ext)) return 0;
+  return scan_duplicates(ext);
+}
