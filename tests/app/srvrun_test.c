@@ -14508,6 +14508,32 @@ static void test_srvrun_wt_open_bidi_allocates_ids_and_holds_view(void) {
   CHECK(c->wtsend[0].stream_credit == (1u << 24));
 }
 
+/* A payload larger than the receive window (WIRED_SRVLOOP_WT_BUF_CAP,
+ * 49152) plus the held relay fragment (WIRED_MOQTRUN_RELAY_FRAG_MAX, 512) --
+ * e.g. one screen-share frame delivered in a single window -- must still be
+ * COPIED into the slot's own roundbuf rather than falling back to a
+ * caller-owned view_round: a view_round requires the app to keep the
+ * buffer alive until fully ACKed (srvrun.h's keep-alive contract), which a
+ * short-lived per-frame capture buffer cannot promise. SRVRUN_WTSEND_BUF
+ * must therefore exceed 49152 + 512 = 49664. */
+static void test_srvrun_wtsend_large_payload_still_copies(void) {
+  struct lp_fix  f;
+  wired_obuf     ob = {0};
+  u8             obuf[1024];
+  static u8      pay[49664 + 336]; /* ~50000B, just past the 49664B floor */
+  srvrun_conn*   c;
+  srvrun_wtsend* w;
+  for (usz i = 0; i < sizeof pay; i++) pay[i] = (u8)i;
+  ob        = (wired_obuf){obuf, sizeof obuf, 0};
+  c         = sr_wtsend_fixture(&f, &ob);
+  w         = &c->wtsend[0];
+  w->in_use = 1;
+  srvrun_wtsend_arm_id(c, w, 7, wired_span_of(pay, sizeof pay));
+  CHECK(w->view_round == 0);
+  CHECK(w->sess.q.p == w->roundbuf);
+  CHECK(w->sess.q.len == sizeof pay);
+}
+
 /* ===== FIN-less WT stream open + append + explicit finish =====
  * Test list:
  * - open_uni_stream sends the payload without FIN and marks the slot
@@ -18130,6 +18156,7 @@ void test_srvrun(void) {
   test_srvrun_wt_stream_reply_arms_given_stream_verbatim();
   test_srvrun_wt_open_unknown_session_rejected();
   test_srvrun_wt_open_slot_exhaustion_and_reuse();
+  test_srvrun_wtsend_large_payload_still_copies();
   test_srvrun_wt_open_uni_respects_stream_credit();
   test_srvrun_wt_send_conn_credit_shared_with_resp();
   test_srvrun_wt_open_uni_pto_retransmit_keeps_single_fin_slice();
