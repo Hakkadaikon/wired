@@ -554,6 +554,39 @@ static void test_client_rejects_downgraded_serverhello(void) {
   check_client_aborted_47(&c, sh, shn);
 }
 
+/* client_init reads the wall clock unconditionally (client_setup fails init
+ * if clock_ymdhms()==0) before generating the ECDHE keypair and opening the
+ * socket -- on a live machine the clock is always available, so init
+ * succeeds and leaves a usable client (nonzero fd, CLIENT_HS_INITIAL
+ * phase), matching the "always enforced by default" claim. */
+static void test_client_init_succeeds(void) {
+  client         c;
+  client_init_in in = {
+      (const u8[4]){127, 0, 0, 1}, 4433, wired_span_of((const u8*)"h", 1)};
+  CHECK(client_init(&c, &in) == 1);
+  CHECK(c.fd >= 0);
+  CHECK(c.phase == CLIENT_HS_INITIAL);
+  client_close(&c);
+}
+
+/* RFC 8446 E.1.5/9.7: client_init draws my_priv via rng_bytes for every
+ * call, so two independent connections never derive the same ECDHE
+ * keypair -- distinct handshakes get unrelated shared secrets and hence
+ * unrelated session keys. */
+static void test_client_init_fresh_keypair_per_connection(void) {
+  client         a, b;
+  client_init_in in = {
+      (const u8[4]){127, 0, 0, 1}, 4433, wired_span_of((const u8*)"h", 1)};
+  CHECK(client_init(&a, &in) == 1);
+  CHECK(client_init(&b, &in) == 1);
+  int same = 1;
+  for (usz i = 0; i < ECDHE_LEN; i++)
+    if (a.my_priv[i] != b.my_priv[i]) same = 0;
+  CHECK(!same);
+  client_close(&a);
+  client_close(&b);
+}
+
 void test_client(void) {
   test_client_initial_padded();
   test_client_rejects_downgraded_serverhello();
@@ -566,4 +599,6 @@ void test_client(void) {
   test_client_policy_valid();
   test_client_castore_confirmed();
   test_client_castore_wrong_root();
+  test_client_init_succeeds();
+  test_client_init_fresh_keypair_per_connection();
 }

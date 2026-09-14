@@ -241,8 +241,29 @@ static void test_fullhs_bad_finished(void) {
   CHECK(fullhs_is_complete(&cl) == 0);
 }
 
+/* tr_add (fullhs.c) rejects an append that would overrun
+ * FULLHS_TRANSCRIPT_MAX rather than overflow h->tr: with tr_len parked one
+ * byte short of the room a Finished message needs, fullhs_send_finished
+ * (which folds its own output into the transcript via tr_add) must fail
+ * and leave tr_len untouched -- no out-of-bounds write into h->tr. */
+static void test_fullhs_send_finished_rejects_over_cap(void) {
+  fullhs     h = {0};
+  u8         out[HS_HEADER + TLS_VERIFY_DATA];
+  wired_obuf ob = obuf_of(out, sizeof(out));
+
+  h.tr_len = FULLHS_TRANSCRIPT_MAX - (HS_HEADER + TLS_VERIFY_DATA) + 1;
+  CHECK(fullhs_send_finished(&h, &ob) == 0);
+  CHECK(h.tr_len == FULLHS_TRANSCRIPT_MAX - (HS_HEADER + TLS_VERIFY_DATA) + 1);
+
+  /* Exactly enough room: the same call now succeeds and fills the cap. */
+  h.tr_len = FULLHS_TRANSCRIPT_MAX - (HS_HEADER + TLS_VERIFY_DATA);
+  CHECK(fullhs_send_finished(&h, &ob) == 1);
+  CHECK(h.tr_len == FULLHS_TRANSCRIPT_MAX);
+}
+
 void test_fullhs(void) {
   test_fullhs_e2e();
   test_fullhs_bad_certverify();
   test_fullhs_bad_finished();
+  test_fullhs_send_finished_rejects_over_cap();
 }

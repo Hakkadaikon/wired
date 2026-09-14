@@ -179,6 +179,30 @@ static void test_schedule_hp_key_distinct_from_packet_key(void) {
   CHECK(differ);
 }
 
+/* initial_keys.key/hp are sized AEAD_KEY_MAX (32) to hold either suite, but
+ * the AES_128_GCM_SHA256 tls_handshake_keys path only writes INITIAL_KEY/
+ * INITIAL_HP (16) bytes via HKDF-Expand. protection_keys_zero_tail must
+ * zero the untouched tail so two independent derivations of the same
+ * secret/transcript compare equal over the FULL 32-byte buffer, not just
+ * the 16 bytes AES-128 actually uses -- a stale/uninitialized tail would
+ * make this byte-for-byte comparison fail nondeterministically. */
+static void test_schedule_key_tail_zeroed_and_deterministic(void) {
+  u8 ecdhe[32], hs[32];
+  for (usz i = 0; i < 32; i++) ecdhe[i] = (u8)(0x90 + i);
+  tls_handshake_secret(ecdhe, hs);
+  const u8 tr[] = "ClientHello||ServerHello";
+
+  initial_keys a, b;
+  tls_handshake_keys(
+      &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 0, 0}, &a);
+  tls_handshake_keys(
+      &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 0, 0}, &b);
+  for (usz i = 0; i < AEAD_KEY_MAX; i++) CHECK(a.key[i] == b.key[i]);
+  for (usz i = 0; i < AEAD_KEY_MAX; i++) CHECK(a.hp[i] == b.hp[i]);
+  for (usz i = INITIAL_KEY; i < AEAD_KEY_MAX; i++) CHECK(a.key[i] == 0);
+  for (usz i = INITIAL_HP; i < AEAD_KEY_MAX; i++) CHECK(a.hp[i] == 0);
+}
+
 void test_schedule(void) {
   test_tls_derive_secret_propagates_expand_failure();
   test_schedule_agreement();
@@ -187,4 +211,5 @@ void test_schedule(void) {
   test_schedule_v2_labels();
   test_exporter_distinct_labels_independent_output();
   test_schedule_hp_key_distinct_from_packet_key();
+  test_schedule_key_tail_zeroed_and_deterministic();
 }

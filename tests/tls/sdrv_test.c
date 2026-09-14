@@ -1841,6 +1841,39 @@ static void test_sdrv_psk_without_early_data_no_0rtt(void) {
   CHECK(sdrv_early_keys(&s, &got) == 0);
 }
 
+/* RFC 8446 (0-RTT recommended mitigation) / RFC 9001 9.2: an operator who
+ * never configures a ticket_key has 0-RTT structurally disabled -- offering
+ * pre_shared_key+early_data against a server with no ticket_key at all
+ * cannot derive 0-RTT keys, because sdrv_find_psk_offer's !has_ticket_key
+ * gate closes the PSK path before the early_data extension is even looked
+ * at. */
+static void test_sdrv_no_ticket_key_disables_0rtt(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32];
+  u8               ch2[700];
+  usz              ch2_len, psk_ext_off;
+  initial_keys     got;
+  sdrv_psk_fixture_init(&f);
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_priv[i] = (u8)(0x80 + i);
+  }
+  wired_x25519_base(srv_pub, srv_priv);
+  ch2_len = sdrv_test_0rtt_ch(&f, ch2, sizeof(ch2), &psk_ext_off);
+  CHECK(ch2_len != 0);
+
+  {
+    /* ticket_key (last field) is 0: no resumption key configured at all. */
+    sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
+    sdrv_init(&s, &in);
+  }
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
+  CHECK(s.psk_accepted == 0);
+  CHECK(s.early_data_accepted == 0);
+  CHECK(sdrv_early_keys(&s, &got) == 0);
+}
+
 /* Presenting the SAME ticket's pre_shared_key+early_data a second time
  * (a replayed 0-RTT ClientHello, e.g. a retransmission-turned-duplicate
  * attempt) is refused for 0-RTT on its second use even though the PSK/binder
@@ -2189,6 +2222,7 @@ void test_sdrv(void) {
   test_sdrv_psk_tampered_transcript_aborts();
   test_sdrv_early_data_accepted_derives_keys();
   test_sdrv_psk_without_early_data_no_0rtt();
+  test_sdrv_no_ticket_key_disables_0rtt();
   test_sdrv_early_data_replay_rejected();
   test_sdrv_sni_absent();
   test_sdrv_sni_match();
