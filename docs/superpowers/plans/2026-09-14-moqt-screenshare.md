@@ -97,8 +97,8 @@ Wave 5(直列、integrator): Task 8(ビルドゲート)、Task 9(e2e)。
 ### Task 4: `moqtScreenWire.ts`(純粋なチャンク符号化、pure TS)
 
 **Files:**
-- Create: `frontend/src/lib/moqtScreenWire.ts`
-- Create: `frontend/src/lib/__tests__/moqtScreenWire.test.ts`
+- Create: `examples/moqt_chat/frontend/src/lib/moqtScreenWire.ts`
+- Create: `examples/moqt_chat/frontend/src/lib/__tests__/moqtScreenWire.test.ts`
 
 **Interfaces:**
 - `buildScreenSubgroupHeader()`: `buildVoiceSubgroupHeader`(既存)を模倣し SUBGROUP_HEADER 0x70 を組み立てる。
@@ -121,8 +121,8 @@ Wave 5(直列、integrator): Task 8(ビルドゲート)、Task 9(e2e)。
 ### Task 5: `moqtScreenClient.ts`(ネットワーク結線)
 
 **Files:**
-- Create: `frontend/src/lib/moqtScreenClient.ts`
-- Modify: `frontend/src/lib/useMoqtChat.ts`(`onUnknownUniStream` に screen alias 範囲チェックを追加)
+- Create: `examples/moqt_chat/frontend/src/lib/moqtScreenClient.ts`
+- Modify: `examples/moqt_chat/frontend/src/hooks/useMoqtChat.ts`(`onUnknownUniStream` に screen alias 範囲チェックを追加)
 
 **Interfaces:**
 - `publishScreenTrack()`: alias `<id>/screen`(index+10)を PUBLISH。
@@ -146,8 +146,8 @@ Wave 5(直列、integrator): Task 8(ビルドゲート)、Task 9(e2e)。
 ### Task 6: `screenSharePipeline.ts`(WebCodecs キャプチャ)
 
 **Files:**
-- Create: `frontend/src/lib/screenSharePipeline.ts`
-- Create: `frontend/src/lib/__tests__/screenSharePipeline.test.ts`
+- Create: `examples/moqt_chat/frontend/src/lib/screenSharePipeline.ts`
+- Create: `examples/moqt_chat/frontend/src/lib/__tests__/screenSharePipeline.test.ts`
 
 **Interfaces:**
 - `micPipeline.ts` と同じ DI 形: `getDisplayMedia`, `VideoEncoderCtor` を注入可能にする。
@@ -168,10 +168,10 @@ Wave 5(直列、integrator): Task 8(ビルドゲート)、Task 9(e2e)。
 ### Task 7: 受信側再構成 + canvas タイル描画 + UI 結線
 
 **Files:**
-- Create: `frontend/src/lib/screenReceivePipeline.ts`(`voiceReceivePipeline.ts` の形、送信者ごと `VideoDecoder` → `drawImage` → `frame.close()`)
-- Modify: `frontend/src/lib/useMoqtChat.ts`(`MoqtScreenClient` を chat/voice と独立に結線。画面共有の失敗が chat/voice を巻き込まないこと)
-- Modify: `frontend/src/lib/moqtChatStore.ts`(`screenSharing: boolean`, `screenTiles: string[]` を既存の `peers`/`muted` と同じフラットな action パターンで追加)
-- Modify: `frontend/src/app/page.tsx`(`ScreenShareToggle` を `MicToggle` と同形で追加、タイル描画を `LivePlayer` の `<video>` ref パターンに倣い `<canvas data-testid="screen-tile-<id>">` で追加)
+- Create: `examples/moqt_chat/frontend/src/lib/screenReceivePipeline.ts`(`voiceReceivePipeline.ts` の形、送信者ごと `VideoDecoder` → `drawImage` → `frame.close()`)
+- Modify: `examples/moqt_chat/frontend/src/hooks/useMoqtChat.ts`(`MoqtScreenClient` を chat/voice と独立に結線。画面共有の失敗が chat/voice を巻き込まないこと)
+- Modify: `examples/moqt_chat/frontend/src/stores/moqtChatStore.ts`(`screenSharing: boolean`, `screenTiles: string[]` を既存の `peers`/`muted` と同じフラットな action パターンで追加)
+- Modify: `examples/moqt_chat/frontend/src/app/page.tsx`(`ScreenShareToggle` を `MicToggle` と同形で追加、タイル描画を `LivePlayer` の `<video>` ref パターンに倣い `<canvas data-testid="screen-tile-<id>">` で追加)
 
 **Interfaces:**
 - `ScreenShareToggle`: `data-testid="screen-toggle"`、Mic と同列にヘッダへ配置。
