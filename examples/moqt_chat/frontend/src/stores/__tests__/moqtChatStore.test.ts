@@ -15,6 +15,9 @@ describe("moqtChatStore", () => {
     expect(s.displayName).toBe("");
     expect(s.liveError).toBeNull();
     expect(s.liveFirstGroup).toBeNull();
+    expect(s.screenSharing).toBe(false);
+    expect(s.screenTiles).toEqual([]);
+    expect(s.screenShareError).toBeNull();
   });
 
   it("sets and clears the live movie error and first group", () => {
@@ -115,5 +118,34 @@ describe("moqtChatStore", () => {
   it("updates connection state", () => {
     useMoqtChatStore.getState().setConnectionState("connected");
     expect(useMoqtChatStore.getState().connectionState).toBe("connected");
+  });
+
+  it("toggles screen sharing state", () => {
+    useMoqtChatStore.getState().setScreenSharing(true);
+    expect(useMoqtChatStore.getState().screenSharing).toBe(true);
+  });
+
+  it("adds screen tiles uniquely (dedupes) in observation order", () => {
+    useMoqtChatStore.getState().addScreenTile("user2");
+    useMoqtChatStore.getState().addScreenTile("user3");
+    useMoqtChatStore.getState().addScreenTile("user2");
+    expect(useMoqtChatStore.getState().screenTiles).toEqual(["user2", "user3"]);
+  });
+
+  it("removes a screen tile", () => {
+    useMoqtChatStore.getState().addScreenTile("user2");
+    useMoqtChatStore.getState().addScreenTile("user3");
+    useMoqtChatStore.getState().removeScreenTile("user2");
+    expect(useMoqtChatStore.getState().screenTiles).toEqual(["user3"]);
+    useMoqtChatStore.getState().removeScreenTile("unknown"); // no-op
+    expect(useMoqtChatStore.getState().screenTiles).toEqual(["user3"]);
+  });
+
+  it("sets and clears the screen-share error independently of other error state", () => {
+    useMoqtChatStore.getState().setScreenShareError("getDisplayMedia was denied");
+    expect(useMoqtChatStore.getState().screenShareError).toBe("getDisplayMedia was denied");
+    expect(useMoqtChatStore.getState().liveError).toBeNull();
+    useMoqtChatStore.getState().setScreenShareError(null);
+    expect(useMoqtChatStore.getState().screenShareError).toBeNull();
   });
 });

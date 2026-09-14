@@ -28,6 +28,9 @@ export type MoqtChatState = {
   displayName: string;
   liveError: string | null; // fatal live-movie playback error, if any
   liveFirstGroup: string | null; // first live Group id received (decimal string)
+  screenSharing: boolean; // am I currently sharing my screen
+  screenTiles: string[]; // participant ids currently sharing, for rendering tiles
+  screenShareError: string | null; // screen-share-only error; never surfaces in chat/voice errors
   setConnectionState: (state: ConnectionState) => void;
   setMuted: (muted: boolean) => void;
   addMessage: (message: Omit<ChatMessage, "id">) => number;
@@ -39,6 +42,10 @@ export type MoqtChatState = {
   removePeer: (id: string) => void;
   clearPeers: () => void;
   clearMessages: () => void;
+  setScreenSharing: (sharing: boolean) => void;
+  addScreenTile: (id: string) => void;
+  removeScreenTile: (id: string) => void;
+  setScreenShareError: (msg: string | null) => void;
 };
 
 let nextMessageId = 1;
@@ -53,6 +60,9 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   displayName: "",
   liveError: null,
   liveFirstGroup: null,
+  screenSharing: false,
+  screenTiles: [],
+  screenShareError: null,
   setConnectionState: (connectionState) => set({ connectionState }),
   setMuted: (muted) => set({ muted }),
   addMessage: (message) => {
@@ -70,4 +80,10 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   removePeer: (id) => set((s) => ({ peers: s.peers.filter((p) => p !== id) })),
   clearPeers: () => set({ peers: [] }),
   clearMessages: () => set({ messages: [] }),
+  setScreenSharing: (screenSharing) => set({ screenSharing }),
+  addScreenTile: (id) =>
+    set((s) => (s.screenTiles.includes(id) ? s : { screenTiles: [...s.screenTiles, id] })),
+  removeScreenTile: (id) =>
+    set((s) => ({ screenTiles: s.screenTiles.filter((t) => t !== id) })),
+  setScreenShareError: (screenShareError) => set({ screenShareError }),
 }));
