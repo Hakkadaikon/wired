@@ -18,6 +18,7 @@ import {
   type MoqtChatCallbacks,
 } from "@/lib/moqtClient";
 import { MoqtVoiceClient } from "@/lib/moqtVoiceClient";
+import { isScreenTrackAlias, MoqtScreenClient } from "@/lib/moqtScreenClient";
 import { MOVIE_INIT_TRACK_ALIAS, MOVIE_TRACK_ALIAS, readMovie } from "@/lib/moqtMovieClient";
 import { LiveMovie } from "@/lib/moqtLiveClient";
 import { startMicPipeline, type MicPipeline } from "@/lib/micPipeline";
@@ -150,6 +151,10 @@ export function useMoqtChat() {
 
   const clientRef = useRef<MoqtChatClient | null>(null);
   const voiceRef = useRef<MoqtVoiceClient | null>(null);
+  // Task 5 stub: routing only. publishScreenTrack/subscribeToScreenTrack and
+  // store/UI integration are Task 7's job -- this ref exists so
+  // onUnknownUniStream below has something to route screen streams into.
+  const screenRef = useRef<MoqtScreenClient | null>(null);
   const micRef = useRef<MicPipeline | null>(null);
   const receivePipelineRef = useRef<VoiceReceivePipeline | null>(null);
   const jitterBufferRef = useRef<JitterBufferManager | null>(null);
@@ -295,10 +300,21 @@ export function useMoqtChat() {
             );
             return;
           }
+          // Screen alias range must be checked before the voice fallback
+          // below: MoqtVoiceClient cancels any stream whose alias it
+          // doesn't own, so a screen stream routed there first is eaten.
+          if (isScreenTrackAlias(header.trackAlias)) {
+            screenRef.current?.handleIncomingStream(header, firstChunkTail, reader);
+            return;
+          }
           voiceRef.current?.handleIncomingStream(header, firstChunkTail, reader);
         },
       });
       clientRef.current = client;
+      // Task 5 stub: no onScreenChunk consumer yet (Task 7 wires the
+      // store/decoder). This only prevents handleIncomingStream from being
+      // a no-op so routing itself is exercised end to end.
+      screenRef.current = new MoqtScreenClient(client, { onScreenChunk: () => {} });
 
       registerPageLifecycleCleanup({
         closeTransport: () => client.close(),
