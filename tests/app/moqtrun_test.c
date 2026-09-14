@@ -857,6 +857,57 @@ static void test_moqtrun_peer_publishes_two_tracks(void) {
   CHECK(type == MOQCTL_T_REQUEST_OK);
 }
 
+/* Renames the golden PUBLISH/SUBSCRIBE template to "alice/screen" --
+ * screen-sharing's own track name, distinct from "alice/audio". */
+static usz moqtrun_test_rename_track_to_screen(
+    const u8* src, usz src_len, u8* dst) {
+  static const u8 suffix[12] = {'a', 'l', 'i', 'c', 'e', '/',
+                                's', 'c', 'r', 'e', 'e', 'n'};
+  return moqtrun_test_rename_track(src, src_len, suffix, 12, dst);
+}
+
+/* Drives session A through a third PUBLISH, of the "alice/screen" track
+ * (a distinct Track Alias, mirroring moqtrun_test_publish_alice_audio). */
+static void moqtrun_test_publish_alice_screen(wired_moqt_hub* hub, u64 ctrl_a) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n = moqtrun_test_rename_track_to_screen(
+      g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN, buf);
+  buf[n - 2] = 0x03; /* Track Alias: 3 (distinct from chat's 1, audio's 2) */
+  wired_moqt_on_stream_data(hub, SESS_A, ctrl_a, wired_span_of(buf, n), 0);
+}
+
+/* Builds a SUBSCRIBE naming "alice/screen" instead of "alice"/"alice/audio". */
+static usz moqtrun_test_subscribe_screen_msg(u8* buf) {
+  return moqtrun_test_rename_track_to_screen(
+      g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN, buf);
+}
+
+/* One peer PUBLISHes all 3 tracks the chat app now uses in one session --
+ * chat, audio, and screen -- and every one of the three gets its own
+ * REQUEST_OK, proving the per-peer limit (raised to 3) actually fits a
+ * screen-share alongside chat+audio with no production-code change. */
+static void test_moqtrun_peer_publishes_three_tracks(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+
+  moqtrun_test_reset();
+  moqtrun_test_publish_alice_screen(&hub, ctrl_a);
+
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  const moqtrun_test_call* c   = moqtrun_test_last_kind(3);
+  usz                      off = 0;
+  u64                      type;
+  wired_span               body;
+  CHECK(
+      moqctl_peek_type(
+          wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
+      MOQCTL_OK);
+  CHECK(type == MOQCTL_T_REQUEST_OK);
+}
+
 /* A fourth distinct track name (all 3 of the peer's slots already taken:
  * chat, audio, video/screen) gets REQUEST_ERROR instead of silently
  * overwriting an existing track. The third PUBLISH ("alice/video") must
@@ -1499,6 +1550,66 @@ static void test_moqtrun_audio_first_object_opens_then_appends(void) {
   moqtrun_test_reset();
   u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
   usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, wired_span_of(first, first_n), 0 /* fin */);
+
+  CHECK(moqtrun_test_count_kind(5) == 1); /* opened, not send_uni */
+  CHECK(moqtrun_test_count_kind(4) == 0);
+  const moqtrun_test_call* opened = moqtrun_test_last_kind(5);
+  CHECK(opened->fin == 0);
+  u64 relay_stream_id = opened->stream_id;
+
+  u8         payload1 = 9;
+  wired_span p1       = wired_span_of(&payload1, 1);
+  u8         second[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz        second_off = 0;
+  moqdata_obj_put(wired_mspan_of(second, sizeof second), &second_off, 1, p1);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, wired_span_of(second, second_off), 0 /* fin */);
+
+  CHECK(moqtrun_test_count_kind(5) == 0); /* no second stream opened */
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  const moqtrun_test_call* appended = moqtrun_test_last_kind(3);
+  CHECK(appended->stream_id == relay_stream_id);
+  CHECK(appended->fin == 0);
+}
+
+/* Establishes SESS_A publishing chat+audio+screen and SESS_B subscribed to
+ * screen, returning ctrl_a -- the screen twin of
+ * moqtrun_test_setup_audio_relay, proving relays[] is set up identically
+ * for a third, differently-named track. */
+static u64 moqtrun_test_setup_screen_relay(wired_moqt_hub* hub) {
+  u64 ctrl_a = moqtrun_test_publish_alice(hub);
+  moqtrun_test_publish_alice_audio(hub, ctrl_a);
+  moqtrun_test_publish_alice_screen(hub, ctrl_a);
+  wired_moqt_on_session(hub, SESS_B, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  u8  sub_screen[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz sub_screen_n = moqtrun_test_subscribe_screen_msg(sub_screen);
+  wired_moqt_on_stream_data(
+      hub, SESS_B, ctrl_b, wired_span_of(sub_screen, sub_screen_n), 0);
+  return ctrl_a;
+}
+
+/* Screen's own twin of test_moqtrun_audio_first_object_opens_then_appends:
+ * the first Object relayed on the SCREEN track opens the subscriber's
+ * relay stream (open_uni_stream, no FIN) and a second Object on the same
+ * publisher stream_id appends to that same stream_id (stream_send, still
+ * no FIN) -- proving a screen-share relay behaves exactly like the
+ * long-lived audio relay, and that its relays[] slot (tracks[2], distinct
+ * from audio's tracks[1]) is genuinely independent: this track was never
+ * touched by the audio setup/append calls above. */
+static void test_moqtrun_screen_first_object_opens_then_appends(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_screen_relay(&hub);
+
+  moqtrun_test_reset();
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x03, first);
   wired_moqt_on_stream_data(
       &hub, SESS_A, 999, wired_span_of(first, first_n), 0 /* fin */);
 
@@ -2847,6 +2958,7 @@ void test_moqtrun(void) {
   test_moqtrun_goaway_on_request_stream_produces_no_reply();
   test_moqtrun_padding_stream_discarded();
   test_moqtrun_peer_publishes_two_tracks();
+  test_moqtrun_peer_publishes_three_tracks();
   test_moqtrun_fourth_publish_gets_error();
   test_moqtrun_republish_same_name_reuses_slot();
   test_moqtrun_subscribe_audio_track_replies_ok();
@@ -2865,6 +2977,7 @@ void test_moqtrun(void) {
   test_moqtrun_data_stream_continues_across_calls_without_header();
   test_moqtrun_unbound_stream_id_relays_nowhere();
   test_moqtrun_audio_first_object_opens_then_appends();
+  test_moqtrun_screen_first_object_opens_then_appends();
   test_moqtrun_audio_publisher_fin_closes_and_reopens();
   test_moqtrun_chat_still_uses_send_uni_every_object();
   test_moqtrun_stream_send_rejection_drops_frame_not_fatal();
