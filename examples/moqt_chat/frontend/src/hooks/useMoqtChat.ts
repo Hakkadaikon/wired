@@ -207,6 +207,17 @@ export function useMoqtChat() {
     else screenCanvasRefs.current.delete(id);
   }, []);
 
+  // Draws one decoded/captured frame into whichever tile canvas is
+  // currently registered for `key` ("own" for the local outgoing preview,
+  // a participant id for a remote sender) -- shared by the receive-side
+  // onFrame callback below and startScreenShare's own-preview draw, so both
+  // tiles use the identical draw-then-close contract.
+  const drawScreenFrame = useCallback((key: string, frame: CanvasImageSource & { close?: () => void }) => {
+    const canvas = screenCanvasRefs.current.get(key);
+    const ctx = canvas?.getContext("2d");
+    if (ctx && canvas) ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+  }, []);
+
   const clearLive = useCallback(() => {
     store.setLiveError(null);
     store.setLiveFirstGroup(null);
@@ -385,11 +396,13 @@ export function useMoqtChat() {
         VideoDecoderCtor: VideoDecoder as never,
         EncodedVideoChunkCtor: EncodedVideoChunk,
         onFrame: (senderKey, frame) => {
-          const vf = frame as { close?: () => void; codedWidth?: number; codedHeight?: number };
-          const canvas = screenCanvasRefs.current.get(senderKey);
-          const ctx = canvas?.getContext("2d");
+          const vf = frame as CanvasImageSource & {
+            close?: () => void;
+            codedWidth?: number;
+            codedHeight?: number;
+          };
           try {
-            if (ctx) ctx.drawImage(frame as CanvasImageSource, 0, 0, canvas!.width, canvas!.height);
+            drawScreenFrame(senderKey, vf);
             screenTap({
               senderId: senderKey,
               width: vf.codedWidth ?? 0,
@@ -459,7 +472,7 @@ export function useMoqtChat() {
         (err) => setMicError(err instanceof Error ? err.message : "voice setup failed"),
       );
     },
-    [store, startVoice, clearLive],
+    [store, startVoice, clearLive, drawScreenFrame],
   );
 
   const sendChat = useCallback(
@@ -496,7 +509,13 @@ export function useMoqtChat() {
     const screen = screenRef.current;
     if (!client || !screen) return;
     try {
-      await screen.publishScreenTrack();
+      // getDisplayMedia FIRST, before any await (publishScreenTrack writes
+      // to the network): Chrome requires transient user activation for the
+      // picker, and an await ahead of it can let that activation expire
+      // before the picker ever opens -- the call would then silently
+      // reject with no picker shown. publishScreenTrack only needs to
+      // happen before the first sendVideoChunk, so it moves after the
+      // picker resolves.
       let capturedTrack: MediaStreamTrack | undefined;
       const pipeline = await startScreenSharePipeline({
         getDisplayMedia: async (c) => {
@@ -509,6 +528,7 @@ export function useMoqtChat() {
         onError: () => store.setScreenShareError("screen share permission was denied"),
         onEncodeError: () => store.setScreenShareError("screen share could not be encoded"),
       });
+      await screen.publishScreenTrack();
       screenShareRef.current = pipeline;
       store.setScreenSharing(true);
       store.setScreenShareError(null);
@@ -524,14 +544,20 @@ export function useMoqtChat() {
           for (;;) {
             const { value, done } = await reader.read();
             if (done || pipeline.stopped) return;
-            if (value) pipeline.pushFrame(value as { close?: () => void });
+            if (value) {
+              // Draw the local preview BEFORE handing the frame to
+              // pushFrame, which closes it once encode() has copied what it
+              // needs -- drawing after would read a closed VideoFrame.
+              drawScreenFrame("own", value as CanvasImageSource & { close?: () => void });
+              pipeline.pushFrame(value as { close?: () => void });
+            }
           }
         })().catch((err) => store.setScreenShareError(err instanceof Error ? err.message : "screen share capture failed"));
       }
     } catch (err) {
       store.setScreenShareError(err instanceof Error ? err.message : "screen share failed to start");
     }
-  }, [store]);
+  }, [store, drawScreenFrame]);
 
   const stopScreenShare = useCallback(() => {
     try {
