@@ -7,7 +7,16 @@
 #include "castore_ncx_golden.h"
 #include "castore_pc_golden.h"
 #include "castore_selfissued_golden.h"
+#include "crypto/asymmetric/ecc/ecdsasig/sig_value.h"
+#include "crypto/asymmetric/ecc/p256/p256_field.h"
+#include "crypto/asymmetric/ecc/p256/p256_point.h"
+#include "crypto/asymmetric/ecc/p256sign/sign.h"
+#include "crypto/pki/cert/p256cert/enc.h"
+#include "crypto/pki/cert/p256cert/spki.h"
+#include "crypto/pki/cert/p256cert/tbs.h"
+#include "crypto/pki/encoding/asn1/der.h"
 #include "crypto/pki/trust/castore/castore.h"
+#include "crypto/symmetric/hash/hash/sha256.h"
 #include "test.h"
 
 #define PV_SPAN(der) wired_span_of(der, sizeof(der))
@@ -352,6 +361,135 @@ static void test_require_explicit_policy_disjoint_policy_rejects(void) {
   CHECK(castore_validate_chain(&s, certs, 3) == 0);
 }
 
+/* ---- Runtime P-256 self-issued CA builder. Every certificate it emits has
+ * subject == issuer == "CN=cap", basicConstraints CA:TRUE, and is signed by
+ * the one pvc_priv key, so any sequence of them chains (RFC 5280 6.1.3 name
+ * binding + 6.1.4 self-issued hops) and only the serial tells them apart --
+ * the cheapest way to make an arbitrarily long path that is otherwise
+ * valid. n_ext copies of the basicConstraints Extension are emitted (2 =
+ * the RFC 5280 4.2 duplicate-extension violation). ---- */
+
+static const u8 pvc_priv[32] = {0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11,
+                                0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19,
+                                0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21,
+                                0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29};
+/* Name { RDN { commonName = PrintableString "cap" } }. */
+static const u8 pvc_name[] = {0x30, 0x0e, 0x31, 0x0c, 0x30, 0x0a, 0x06, 0x03,
+                              0x55, 0x04, 0x03, 0x13, 0x03, 'c',  'a',  'p'};
+/* Validity { UTCTime 200101000000Z, UTCTime 300101000000Z }. */
+static const u8 pvc_validity[] = {0x30, 0x1e, 0x17, 0x0d, '2', '0', '0', '1',
+                                  '0',  '1',  '0',  '0',  '0', '0', '0', '0',
+                                  'Z',  0x17, 0x0d, '3',  '0', '0', '1', '0',
+                                  '1',  '0',  '0',  '0',  '0', '0', '0', 'Z'};
+/* Extension { basicConstraints, critical TRUE, OCTET { SEQ { cA TRUE } } }. */
+static const u8 pvc_ext_ca[]  = {0x30, 0x0f, 0x06, 0x03, 0x55, 0x1d,
+                                 0x13, 0x01, 0x01, 0xff, 0x04, 0x05,
+                                 0x30, 0x03, 0x01, 0x01, 0xff};
+static const u8 pvc_version[] = {0xa0, 0x03, 0x02, 0x01, 0x02};
+
+/* [3] EXPLICIT { SEQUENCE OF n_ext copies of pvc_ext_ca }. */
+static usz pvc_extensions(usz n_ext, wired_obuf* out) {
+  u8           list[64], seq[80];
+  wired_obuf   so = obuf_of(seq, sizeof(seq));
+  p256cert_enc e  = {list, sizeof(list), 0, 1};
+  for (usz i = 0; i < n_ext; i++)
+    p256cert_put_pre(&e, wired_span_of(pvc_ext_ca, sizeof(pvc_ext_ca)));
+  p256cert_enc w = p256cert_loaded(seq, p256cert_wrap(&e, DER_SEQUENCE, &so));
+  return p256cert_wrap(&w, 0xa3, out);
+}
+
+/* RFC 5280 4.1. tbsCertificate for one self-issued CA cert. */
+static usz pvc_tbs(u8 serial, usz n_ext, wired_obuf* out) {
+  u8           x[32], y[32], alg[16], spki[128], exts[96], body[512];
+  ec_point     q;
+  wired_obuf   ao = obuf_of(alg, sizeof(alg));
+  wired_obuf   so = obuf_of(spki, sizeof(spki));
+  wired_obuf   xo = obuf_of(exts, sizeof(exts));
+  p256cert_enc e  = {body, sizeof(body), 0, 1};
+  ec_mul(&q, pvc_priv, &p256_g);
+  p256_fp_to_be(x, q.x);
+  p256_fp_to_be(y, q.y);
+  CHECK(p256cert_spki(x, y, &so) == 1);
+  p256cert_put_pre(&e, wired_span_of(pvc_version, sizeof(pvc_version)));
+  p256cert_put(&e, DER_INTEGER, wired_span_of(&serial, 1));
+  p256cert_put_pre(&e, wired_span_of(alg, p256cert_sigalg(&ao)));
+  p256cert_put_pre(&e, wired_span_of(pvc_name, sizeof(pvc_name)));
+  p256cert_put_pre(&e, wired_span_of(pvc_validity, sizeof(pvc_validity)));
+  p256cert_put_pre(&e, wired_span_of(pvc_name, sizeof(pvc_name)));
+  p256cert_put_pre(&e, wired_span_of(spki, so.len));
+  p256cert_put_pre(&e, wired_span_of(exts, pvc_extensions(n_ext, &xo)));
+  return p256cert_wrap(&e, DER_SEQUENCE, out);
+}
+
+/* Certificate { tbs, ecdsa-with-SHA256, BIT STRING sig } into out. */
+static wired_span pvc_cert(u8 serial, usz n_ext, u8* out, usz cap) {
+  u8           tbs[512], alg[16], sig[80], bits[81], sv[96], body[768];
+  u8           hash[32], r[32], s[32];
+  wired_obuf   to = obuf_of(tbs, sizeof(tbs));
+  wired_obuf   ao = obuf_of(alg, sizeof(alg));
+  wired_obuf   vo = obuf_of(sv, sizeof(sv));
+  wired_obuf   oo = obuf_of(out, cap);
+  usz          sn = 0;
+  p256cert_enc e  = {body, sizeof(body), 0, 1};
+  CHECK(pvc_tbs(serial, n_ext, &to) != 0);
+  wired_sha256(tbs, to.len, hash);
+  CHECK(p256sign_sign(pvc_priv, hash, r, s) == 1);
+  CHECK(ecdsasig_encode(r, s, sig, sizeof(sig), &sn) == 1);
+  bits[0] = 0x00;
+  for (usz i = 0; i < sn; i++) bits[1 + i] = sig[i];
+  p256cert_enc b = p256cert_loaded(bits, 1 + sn);
+  p256cert_put_pre(&e, wired_span_of(tbs, to.len));
+  p256cert_put_pre(&e, wired_span_of(alg, p256cert_sigalg(&ao)));
+  p256cert_put_pre(
+      &e, wired_span_of(sv, p256cert_wrap(&b, DER_BIT_STRING, &vo)));
+  CHECK(p256cert_wrap(&e, DER_SEQUENCE, &oo) != 0);
+  return wired_span_of(out, oo.len);
+}
+
+#define PVC_CERT_CAP 640
+static u8 pvc_der[CASTORE_PATH_MAX_CERTS + 2][PVC_CERT_CAP];
+
+/* Store anchored on the serial-0 CA; certs[i] = serial i+1, i < n. */
+static void pvc_chain(castore* s, wired_span* certs, usz n) {
+  castore_init(s, pv_roots, 4);
+  CHECK(castore_add(s, pvc_cert(0, 1, pvc_der[0], PVC_CERT_CAP)) == 1);
+  for (usz i = 0; i < n; i++)
+    certs[i] = pvc_cert((u8)(i + 1), 1, pvc_der[i + 1], PVC_CERT_CAP);
+}
+
+/* A path of exactly CASTORE_PATH_MAX_CERTS self-issued CA certs is within
+ * the bound and validates (boundary: the longest admitted path). */
+static void test_chain_at_cap_ok(void) {
+  castore    s;
+  wired_span certs[CASTORE_PATH_MAX_CERTS + 1];
+  pvc_chain(&s, certs, CASTORE_PATH_MAX_CERTS + 1);
+  CHECK(castore_validate_chain(&s, certs, CASTORE_PATH_MAX_CERTS) == 1);
+}
+
+/* One certificate more than CASTORE_PATH_MAX_CERTS -- every link valid,
+ * every cert a CA, the tail anchored -- must be rejected outright: the path
+ * length is the multiplier of name-constraint/policy work
+ * (CVE-2018-16875 / CVE-2024-34702 class), so it fails closed. */
+static void test_chain_over_cap_rejects(void) {
+  castore    s;
+  wired_span certs[CASTORE_PATH_MAX_CERTS + 1];
+  pvc_chain(&s, certs, CASTORE_PATH_MAX_CERTS + 1);
+  CHECK(castore_validate_chain(&s, certs, CASTORE_PATH_MAX_CERTS + 1) == 0);
+}
+
+/* RFC 5280 4.2: "A certificate MUST NOT include more than one instance of a
+ * particular extension." A cert carrying basicConstraints twice is rejected
+ * even though each instance is individually valid (CVE-2024-12243 class). */
+static void test_duplicate_extension_rejects(void) {
+  castore    s;
+  wired_span certs[1];
+  pvc_chain(&s, certs, 0);
+  certs[0] = pvc_cert(1, 2, pvc_der[1], PVC_CERT_CAP);
+  CHECK(castore_validate_chain(&s, certs, 1) == 0);
+  certs[0] = pvc_cert(1, 1, pvc_der[1], PVC_CERT_CAP);
+  CHECK(castore_validate_chain(&s, certs, 1) == 1);
+}
+
 void test_pathvalidate(void) {
   test_valid_chain();
   test_lone_root_chain();
@@ -379,4 +517,7 @@ void test_pathvalidate(void) {
   test_ncx_intersection_ok();
   test_require_explicit_policy_matching_policy_ok();
   test_require_explicit_policy_disjoint_policy_rejects();
+  test_chain_at_cap_ok();
+  test_chain_over_cap_rejects();
+  test_duplicate_extension_rejects();
 }
