@@ -22,6 +22,12 @@ import { isScreenTrackAlias, MoqtScreenClient } from "@/lib/moqtScreenClient";
 import { MOVIE_INIT_TRACK_ALIAS, MOVIE_TRACK_ALIAS, readMovie } from "@/lib/moqtMovieClient";
 import { LiveMovie } from "@/lib/moqtLiveClient";
 import { startMicPipeline, type MicPipeline } from "@/lib/micPipeline";
+import { startScreenSharePipeline, type ScreenSharePipeline } from "@/lib/screenSharePipeline";
+import {
+  createScreenReceivePipeline,
+  type ScreenReceivePipeline,
+} from "@/lib/screenReceivePipeline";
+import { screenFrameReassemblerInit, screenFrameReassemblerPush } from "@/lib/moqtScreenWire";
 import {
   createVoiceReceivePipeline,
   type VoiceReceivePipeline,
@@ -45,6 +51,11 @@ const DRAIN_INTERVAL_MS = 20;
 // subscribeToAudioTrack() sent before the peer's own PUBLISH gets
 // DOES_NOT_EXIST and is never retried unless something resends it.
 const VOICE_SUBSCRIBE_RETRY_MS = 1000;
+// Same gap, same fix, for screen tracks: publishScreenTrack() only ever
+// fires when a peer manually calls startScreenShare(), typically long
+// after everyone has joined, so a one-shot SUBSCRIBE sweep at connect time
+// would miss almost every peer's share for the rest of the session.
+const SCREEN_SUBSCRIBE_RETRY_MS = 1000;
 
 // voiceReceivePipeline hands the decoder raw Opus payloads; the real
 // AudioDecoder wants EncodedAudioChunk, so wrap each payload here with a
@@ -151,21 +162,42 @@ export function useMoqtChat() {
 
   const clientRef = useRef<MoqtChatClient | null>(null);
   const voiceRef = useRef<MoqtVoiceClient | null>(null);
-  // Task 5 stub: routing only. publishScreenTrack/subscribeToScreenTrack and
-  // store/UI integration are Task 7's job -- this ref exists so
-  // onUnknownUniStream below has something to route screen streams into.
   const screenRef = useRef<MoqtScreenClient | null>(null);
+  // One frame reassembler per remote sender: moqtScreenWire.ts's
+  // reassembler is single-stream state (a `pending` frame keyed by seq), so
+  // sharing one across senders would corrupt whichever sender's frame
+  // wasn't currently being assembled the moment two people share at once.
+  const screenReassemblersRef = useRef<Map<string, ReturnType<typeof screenFrameReassemblerInit>>>(
+    new Map(),
+  );
+  const screenReceiveRef = useRef<ScreenReceivePipeline | null>(null);
+  const screenShareRef = useRef<ScreenSharePipeline | null>(null);
   const micRef = useRef<MicPipeline | null>(null);
   const receivePipelineRef = useRef<VoiceReceivePipeline | null>(null);
   const jitterBufferRef = useRef<JitterBufferManager | null>(null);
   const audioGateRef = useRef<AudioContextGate | null>(null);
   const knownSendersRef = useRef<Set<string>>(new Set());
+  // Screen-share counterpart to knownSendersRef: a candidate is added once
+  // its first screen chunk arrives (onScreenChunk below), so the retry
+  // loop stops resending SUBSCRIBE for peers who are already streaming.
+  const screenKnownSendersRef = useRef<Set<string>>(new Set());
   const localIdRef = useRef<string>("");
   const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceRetryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const screenRetryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // The live <video> element page.tsx renders; LiveMovie drives it directly.
   const videoRef = useRef<HTMLVideoElement>(null);
   const liveRef = useRef<LiveMovie | null>(null);
+  // One <canvas> per screen-share tile (remote senders keyed by participant
+  // id, own outgoing preview keyed by "own"). page.tsx registers/unregisters
+  // as tiles mount/unmount; the decode pipeline's onFrame draws into
+  // whichever canvas is currently registered for that sender, or drops the
+  // frame if the tile isn't mounted (e.g. between store update and render).
+  const screenCanvasRefs = useRef<Map<string, HTMLCanvasElement>>(new Map());
+  const registerScreenCanvas = useCallback((id: string, el: HTMLCanvasElement | null) => {
+    if (el) screenCanvasRefs.current.set(id, el);
+    else screenCanvasRefs.current.delete(id);
+  }, []);
 
   const clearLive = useCallback(() => {
     store.setLiveError(null);
@@ -248,6 +280,31 @@ export function useMoqtChat() {
         }
       }, VOICE_SUBSCRIBE_RETRY_MS);
 
+      // SUBSCRIBE to every candidate's screen track too, same shape as the
+      // voice loop above -- a subscribe sent before that peer ever
+      // PUBLISHes just gets DOES_NOT_EXIST and is harmless
+      // (moqtScreenClient.ts's own doc); once they call startScreenShare,
+      // handleIncomingStream routes their Objects to onScreenChunk above.
+      // Screen sharing is opt-in and typically starts well after everyone
+      // has joined, so this ALSO needs the retry timer, same mechanism as
+      // voice: without it, a peer who starts sharing after this one-shot
+      // sweep would never get subscribed to. Wrapped so a screen SUBSCRIBE
+      // failure can never fail startVoice itself (which would surface as a
+      // voice error for an unrelated feature).
+      try {
+        for (const candidate of candidateParticipantIds(localId)) {
+          await screenRef.current?.subscribeToScreenTrack(candidate);
+        }
+      } catch {
+        // isolation: a screen SUBSCRIBE failure must not block/fail voice
+      }
+      screenRetryTimerRef.current = setInterval(() => {
+        for (const candidate of candidateParticipantIds(localId)) {
+          if (screenKnownSendersRef.current.has(candidate)) continue;
+          void screenRef.current?.subscribeToScreenTrack(candidate);
+        }
+      }, SCREEN_SUBSCRIBE_RETRY_MS);
+
       startMicPipeline({
         getUserMedia: (c) => navigator.mediaDevices.getUserMedia(c),
         makeProcessor,
@@ -311,10 +368,54 @@ export function useMoqtChat() {
         },
       });
       clientRef.current = client;
-      // Task 5 stub: no onScreenChunk consumer yet (Task 7 wires the
-      // store/decoder). This only prevents handleIncomingStream from being
-      // a no-op so routing itself is exercised end to end.
-      screenRef.current = new MoqtScreenClient(client, { onScreenChunk: () => {} });
+
+      // Screen-share receive side. Wrapped so a decode-pipeline throw can
+      // never propagate into onUnknownUniStream's routing (which chat/voice
+      // streams also flow through) -- see startScreenShare's own doc for
+      // the send-side half of this isolation guarantee.
+      screenReceiveRef.current = createScreenReceivePipeline({
+        VideoDecoderCtor: VideoDecoder as never,
+        onFrame: (senderKey, frame) => {
+          const vf = frame as { close?: () => void };
+          const canvas = screenCanvasRefs.current.get(senderKey);
+          const ctx = canvas?.getContext("2d");
+          try {
+            if (ctx) ctx.drawImage(frame as CanvasImageSource, 0, 0, canvas!.width, canvas!.height);
+          } finally {
+            vf.close?.();
+          }
+        },
+        onDecodeError: () =>
+          useMoqtChatStore.getState().setScreenShareError("a peer's screen share could not be decoded"),
+      });
+      screenRef.current = new MoqtScreenClient(client, {
+        onScreenChunk: (participantId, chunk) => {
+          screenKnownSendersRef.current.add(participantId);
+          try {
+            let reassembler = screenReassemblersRef.current.get(participantId);
+            if (!reassembler) {
+              reassembler = screenFrameReassemblerInit();
+              screenReassemblersRef.current.set(participantId, reassembler);
+            }
+            const frameBytes = screenFrameReassemblerPush(reassembler, chunk);
+            if (!frameBytes) return;
+            useMoqtChatStore.getState().addScreenTile(participantId);
+            screenReceiveRef.current?.handleFrame(participantId, {
+              data: frameBytes,
+              keyframe: chunk.keyframe,
+              width: chunk.width,
+              height: chunk.height,
+              codec: chunk.codec,
+            });
+          } catch (err) {
+            // A malformed/incoming screen stream must never break chat or
+            // voice, which share this same onUnknownUniStream callback.
+            useMoqtChatStore
+              .getState()
+              .setScreenShareError(err instanceof Error ? err.message : "screen share receive failed");
+          }
+        },
+      });
 
       registerPageLifecycleCleanup({
         closeTransport: () => client.close(),
@@ -358,6 +459,69 @@ export function useMoqtChat() {
     store.setMuted(!store.muted);
   }, [store]);
 
+  // Screen-share start/stop, modeled on startVoice/mic's shape but kept
+  // fully independent: any failure here (getDisplayMedia rejection,
+  // encoder error, decode error, publish/send failure) is caught and
+  // surfaced ONLY through screenShareError, never through micError or the
+  // chat connection state -- a screen-share failure must never break or
+  // block chat/voice (task brief's isolation requirement). Verified by
+  // reading every await/callback below: each is inside its own try/catch
+  // or an error-only callback (onError/onEncodeError), and none of those
+  // paths touch clientRef, voiceRef, or store.setConnectionState.
+  const startScreenShare = useCallback(async () => {
+    const client = clientRef.current;
+    const screen = screenRef.current;
+    if (!client || !screen) return;
+    try {
+      await screen.publishScreenTrack();
+      let capturedTrack: MediaStreamTrack | undefined;
+      const pipeline = await startScreenSharePipeline({
+        getDisplayMedia: async (c) => {
+          const stream = await navigator.mediaDevices.getDisplayMedia(c);
+          capturedTrack = stream.getVideoTracks()[0];
+          return stream;
+        },
+        VideoEncoderCtor: VideoEncoder as never,
+        sendVideoChunk: (chunk) => screen.sendVideoChunk(chunk),
+        onError: () => store.setScreenShareError("screen share permission was denied"),
+        onEncodeError: () => store.setScreenShareError("screen share could not be encoded"),
+      });
+      screenShareRef.current = pipeline;
+      store.setScreenSharing(true);
+      store.setScreenShareError(null);
+      store.addScreenTile("own");
+
+      // Pump captured frames into the pipeline the same way micPipeline's
+      // caller pumps audio frames -- read off a MediaStreamTrackProcessor
+      // until the pipeline is stopped or the track ends.
+      if (capturedTrack) {
+        const processor = makeProcessor(capturedTrack);
+        const reader = processor.readable.getReader();
+        void (async () => {
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done || pipeline.stopped) return;
+            if (value) pipeline.pushFrame(value as { close?: () => void });
+          }
+        })().catch((err) => store.setScreenShareError(err instanceof Error ? err.message : "screen share capture failed"));
+      }
+    } catch (err) {
+      store.setScreenShareError(err instanceof Error ? err.message : "screen share failed to start");
+    }
+  }, [store]);
+
+  const stopScreenShare = useCallback(() => {
+    try {
+      screenShareRef.current?.stop();
+    } catch {
+      // stop() failing is not actionable -- the pipeline is being torn down
+      // regardless, so surfacing an error here would only be noise.
+    }
+    screenShareRef.current = null;
+    store.setScreenSharing(false);
+    store.removeScreenTile("own");
+  }, [store]);
+
   const leave = useCallback(() => {
     if (drainTimerRef.current !== null) {
       clearTimeout(drainTimerRef.current);
@@ -367,12 +531,29 @@ export function useMoqtChat() {
       clearInterval(voiceRetryTimerRef.current);
       voiceRetryTimerRef.current = null;
     }
+    if (screenRetryTimerRef.current !== null) {
+      clearInterval(screenRetryTimerRef.current);
+      screenRetryTimerRef.current = null;
+    }
     micRef.current?.stop();
     micRef.current = null;
     voiceRef.current?.close();
     voiceRef.current = null;
     receivePipelineRef.current = null;
     knownSendersRef.current.clear();
+    screenKnownSendersRef.current.clear();
+    try {
+      screenShareRef.current?.stop();
+    } catch {
+      // torn down regardless; see stopScreenShare's own doc
+    }
+    screenShareRef.current = null;
+    screenRef.current?.close();
+    screenRef.current = null;
+    screenReceiveRef.current = null;
+    screenReassemblersRef.current.clear();
+    store.setScreenSharing(false);
+    store.setScreenShareError(null);
     clientRef.current?.close();
     clientRef.current = null;
     liveRef.current?.stop();
@@ -384,5 +565,15 @@ export function useMoqtChat() {
     clearLive();
   }, [store, clearLive]);
 
-  return { connect, sendChat, toggleMute, leave, micError, videoRef };
+  return {
+    connect,
+    sendChat,
+    toggleMute,
+    leave,
+    micError,
+    videoRef,
+    startScreenShare,
+    stopScreenShare,
+    registerScreenCanvas,
+  };
 }

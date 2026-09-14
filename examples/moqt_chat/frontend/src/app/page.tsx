@@ -66,6 +66,65 @@ function MicToggle({ onToggleMute }: { onToggleMute: () => void }) {
   );
 }
 
+function ScreenShareToggle({
+  sharing,
+  onStart,
+  onStop,
+}: {
+  sharing: boolean;
+  onStart: () => void;
+  onStop: () => void;
+}) {
+  return (
+    <Button
+      label={sharing ? "Stop sharing" : "Share screen"}
+      startIcon={sharing ? "monitor-off" : "monitor"}
+      color={sharing ? "surface" : "primary"}
+      variant={sharing ? "outline" : "fill"}
+      size="sm"
+      data-testid="screen-toggle"
+      onClick={sharing ? onStop : onStart}
+    />
+  );
+}
+
+function ScreenTiles({
+  registerScreenCanvas,
+}: {
+  registerScreenCanvas: (id: string, el: HTMLCanvasElement | null) => void;
+}) {
+  const screenTiles = useMoqtChatStore((s) => s.screenTiles);
+  const screenSharing = useMoqtChatStore((s) => s.screenSharing);
+  const screenShareError = useMoqtChatStore((s) => s.screenShareError);
+  if (screenTiles.length === 0 && !screenSharing) return null;
+  return (
+    <Row alignItems="center" gap="2xs" wrapChildren style={{ padding: "var(--lk-size-2xs) 0" }}>
+      {screenSharing && (
+        <canvas
+          ref={(el) => registerScreenCanvas("own", el)}
+          data-testid="screen-tile-own"
+          width={160}
+          height={90}
+          style={{ borderRadius: "0.5em", background: "#000" }}
+        />
+      )}
+      {screenTiles
+        .filter((id) => id !== "own")
+        .map((id) => (
+          <canvas
+            key={id}
+            ref={(el) => registerScreenCanvas(id, el)}
+            data-testid={`screen-tile-${id}`}
+            width={320}
+            height={180}
+            style={{ borderRadius: "0.5em", background: "#000" }}
+          />
+        ))}
+      <ErrorBanner message={screenShareError} />
+    </Row>
+  );
+}
+
 function ErrorBanner({ message }: { message: string | null }) {
   if (!message) return null;
   return (
@@ -362,8 +421,19 @@ export default function Home() {
   const [certHash, setCertHash] = useState("");
   const [participantId, setParticipantId] = useState(DEFAULT_PARTICIPANT_ID);
   const [joined, setJoined] = useState(false);
-  const { connect, sendChat, toggleMute, leave, micError, videoRef } = useMoqtChat();
+  const {
+    connect,
+    sendChat,
+    toggleMute,
+    leave,
+    micError,
+    videoRef,
+    startScreenShare,
+    stopScreenShare,
+    registerScreenCanvas,
+  } = useMoqtChat();
   const connectionState = useMoqtChatStore((s) => s.connectionState);
+  const screenSharing = useMoqtChatStore((s) => s.screenSharing);
 
   // Switch to the chat screen once the connection is established.
   useEffect(
@@ -427,6 +497,13 @@ export default function Home() {
           {joined && <StatusBadge />}
           {joined && <MicToggle onToggleMute={toggleMute} />}
           {joined && (
+            <ScreenShareToggle
+              sharing={screenSharing}
+              onStart={() => void startScreenShare()}
+              onStop={stopScreenShare}
+            />
+          )}
+          {joined && (
             <Button
               label="Leave"
               startIcon="log-out"
@@ -464,6 +541,7 @@ export default function Home() {
       {joined ? (
         <>
           <LivePlayer videoRef={videoRef} />
+          <ScreenTiles registerScreenCanvas={registerScreenCanvas} />
           <MessageList />
           <ChatInputRow onSend={sendChat} disabled={connectionState !== "connected"} />
         </>
