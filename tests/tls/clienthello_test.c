@@ -42,6 +42,10 @@ static void test_client_hello_has_all_exts(void) {
   CHECK(buf[0] == 1); /* ClientHello */
   CHECK(hs_parse(wired_span_of(buf, w), &type, &body_len) == 4);
   CHECK(type == 1);
+  /* RFC 8446 4.1.2: legacy_version is fixed at 0x0303; the real version
+   * rides in supported_versions (D.1). */
+  CHECK(buf[4] == 0x03);
+  CHECK(buf[5] == 0x03);
   CHECK(ch_has_ext(buf + 4, body_len, 0x002b)); /* supported_versions */
   CHECK(ch_has_ext(buf + 4, body_len, 0x000a)); /* supported_groups */
   CHECK(ch_has_ext(buf + 4, body_len, 0x000d)); /* signature_algorithms */
