@@ -176,8 +176,9 @@ typedef struct {
  * not compared (room membership is a hub-side fixed namespace). */
 #define WIRED_MOQTRUN_MAX_NAME 64
 
-/** Fixed capacity: tracks one peer can PUBLISH at once (chat + audio). */
-#define WIRED_MOQTRUN_MAX_TRACKS_PER_PEER 2
+/** Fixed capacity: tracks one peer can PUBLISH at once (chat + audio +
+ * screen). */
+#define WIRED_MOQTRUN_MAX_TRACKS_PER_PEER 3
 
 /** Largest single control-message envelope this hub ever sends (SS10
  * Type+Length+Body). */

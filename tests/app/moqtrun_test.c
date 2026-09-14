@@ -857,9 +857,11 @@ static void test_moqtrun_peer_publishes_two_tracks(void) {
   CHECK(type == MOQCTL_T_REQUEST_OK);
 }
 
-/* A third distinct track name (both of the peer's 2 slots already taken)
- * gets REQUEST_ERROR instead of silently overwriting an existing track. */
-static void test_moqtrun_third_publish_gets_error(void) {
+/* A fourth distinct track name (all 3 of the peer's slots already taken:
+ * chat, audio, video/screen) gets REQUEST_ERROR instead of silently
+ * overwriting an existing track. The third PUBLISH ("alice/video") must
+ * succeed first -- this is what proves the per-peer limit is 3, not 2. */
+static void test_moqtrun_fourth_publish_gets_error(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
   wired_moqt_init(&hub, moqtrun_test_io());
@@ -867,27 +869,50 @@ static void test_moqtrun_third_publish_gets_error(void) {
   moqtrun_test_publish_alice_audio(&hub, ctrl_a);
 
   moqtrun_test_reset();
-  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
-  usz n = moqtrun_test_rename_track_to_audio(
-      g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN, buf);
+  u8  buf3[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n3 = moqtrun_test_rename_track_to_audio(
+      g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN, buf3);
   /* rewrite "alice/audio" (11) to "alice/video" (11) for a third name. */
-  buf[16 + 6]  = 'v';
-  buf[16 + 7]  = 'i';
-  buf[16 + 8]  = 'd';
-  buf[16 + 9]  = 'e';
-  buf[16 + 10] = 'o';
-  wired_moqt_on_stream_data(&hub, SESS_A, ctrl_a, wired_span_of(buf, n), 0);
+  buf3[16 + 6]  = 'v';
+  buf3[16 + 7]  = 'i';
+  buf3[16 + 8]  = 'd';
+  buf3[16 + 9]  = 'e';
+  buf3[16 + 10] = 'o';
+  wired_moqt_on_stream_data(&hub, SESS_A, ctrl_a, wired_span_of(buf3, n3), 0);
 
   CHECK(moqtrun_test_count_kind(3) == 1);
-  const moqtrun_test_call* c   = moqtrun_test_last_kind(3);
-  usz                      off = 0;
-  u64                      type;
-  wired_span               body;
+  const moqtrun_test_call* c3   = moqtrun_test_last_kind(3);
+  usz                      off3 = 0;
+  u64                      type3;
+  wired_span               body3;
   CHECK(
       moqctl_peek_type(
-          wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
+          wired_span_of(c3->payload, c3->payload_len), &off3, &type3, &body3) ==
       MOQCTL_OK);
-  CHECK(type == MOQCTL_T_REQUEST_ERROR);
+  CHECK(type3 == MOQCTL_T_REQUEST_OK);
+
+  moqtrun_test_reset();
+  u8  buf4[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n4 = moqtrun_test_rename_track_to_audio(
+      g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN, buf4);
+  /* rewrite "alice/audio" (11) to "alice/scren" (11) for a fourth name. */
+  buf4[16 + 6]  = 's';
+  buf4[16 + 7]  = 'c';
+  buf4[16 + 8]  = 'r';
+  buf4[16 + 9]  = 'e';
+  buf4[16 + 10] = 'n';
+  wired_moqt_on_stream_data(&hub, SESS_A, ctrl_a, wired_span_of(buf4, n4), 0);
+
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  const moqtrun_test_call* c4   = moqtrun_test_last_kind(3);
+  usz                      off4 = 0;
+  u64                      type4;
+  wired_span               body4;
+  CHECK(
+      moqctl_peek_type(
+          wired_span_of(c4->payload, c4->payload_len), &off4, &type4, &body4) ==
+      MOQCTL_OK);
+  CHECK(type4 == MOQCTL_T_REQUEST_ERROR);
 }
 
 /* Re-PUBLISHing the same track name ("alice") a second time still consumes
@@ -2822,7 +2847,7 @@ void test_moqtrun(void) {
   test_moqtrun_goaway_on_request_stream_produces_no_reply();
   test_moqtrun_padding_stream_discarded();
   test_moqtrun_peer_publishes_two_tracks();
-  test_moqtrun_third_publish_gets_error();
+  test_moqtrun_fourth_publish_gets_error();
   test_moqtrun_republish_same_name_reuses_slot();
   test_moqtrun_subscribe_audio_track_replies_ok();
   test_moqtrun_chat_and_audio_get_different_aliases();
