@@ -55,7 +55,12 @@ const FAKE_DISPLAY_MEDIA_SCRIPT = `
     canvas.height = 720;
     const ctx = canvas.getContext("2d");
     setInterval(() => {
-      ctx.fillStyle = "#" + (Math.floor(Date.now() / 500) % 16).toString(16).repeat(6);
+      // 1..15 (never 0) so the fill is never near-black -- a near-black
+      // frame occasionally landing in a canvas pixel-content check is a
+      // flake, not a signal, and this loop's period (500ms * 15 = 7.5s)
+      // still cycles through visibly different shades for the moving-
+      // pattern purpose this fake stream exists for.
+      ctx.fillStyle = "#" + (1 + (Math.floor(Date.now() / 500) % 15)).toString(16).repeat(6);
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = "#fff";
       ctx.font = "48px sans-serif";
@@ -93,6 +98,25 @@ const startSharing = (c) => c.page.click('[data-testid="screen-toggle"]');
 
 const tapEntries = (c) => c.page.evaluate(() => window.__wiredScreenTap ?? []);
 
+// Fraction of non-near-black pixels in a tile canvas. A tap count alone
+// proves decode succeeded but not that anything actually got DRAWN -- a
+// real regression shipped where the sharer's own preview canvas stayed
+// fully black because nothing ever called drawImage into it, while every
+// other signal (build, unit tests, this file's tap-based checks) stayed
+// green. This is the check that would have caught it.
+const nonBlackFraction = (c, testid) =>
+  c.page.evaluate((tid) => {
+    const canvas = document.querySelector(`[data-testid="${tid}"]`);
+    if (!canvas) return null;
+    const ctx = canvas.getContext("2d");
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let nonBlack = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] > 8 || data[i + 1] > 8 || data[i + 2] > 8) nonBlack++;
+    }
+    return nonBlack / (data.length / 4);
+  }, testid);
+
 const summary = { ok: false, mode: loadMode ? "load-4way" : "2-participant", clients: [], errors: [] };
 try {
   server = await startServer({ binPath: "./wired_server", logPath, args: [] });
@@ -117,6 +141,15 @@ try {
   for (const c of participants) await startSharing(c);
   await sleep(500);
 
+  // Every sharer's own outgoing-preview tile must actually have pixels
+  // drawn into it, not just exist in the DOM as a black rectangle.
+  for (const c of participants) {
+    const frac = await nonBlackFraction(c, "screen-tile-own");
+    if (frac === null) summary.errors.push(`${c.id}: screen-tile-own canvas not found`);
+    else if (frac < 0.5)
+      summary.errors.push(`${c.id}: screen-tile-own canvas is ${(frac * 100).toFixed(0)}% non-black (want >=50%, own preview looks blank)`);
+  }
+
   if (loadMode) {
     await participants[0].page.type('input[data-testid="text"]', "hello from load scenario");
     await participants[0].page.keyboard.press("Enter");
@@ -139,6 +172,18 @@ try {
       summary.errors.push(`${viewer.id}: ${bad.length} tap entries with implausible dimensions`);
     viewer.tapCount = entries.length;
     viewer.senders = [...new Set(entries.map((e) => e.senderId))];
+  }
+
+  // 2-participant mode only: also confirm the viewer's remote tile canvas
+  // has real pixel content, not just a nonzero tap count (same rationale as
+  // the own-preview check above -- draw and decode are separate failure
+  // points).
+  if (!loadMode) {
+    const [sharer, viewer] = participants;
+    const frac = await nonBlackFraction(viewer, `screen-tile-${sharer.id}`);
+    if (frac === null) summary.errors.push(`${viewer.id}: screen-tile-${sharer.id} canvas not found`);
+    else if (frac < 0.5)
+      summary.errors.push(`${viewer.id}: screen-tile-${sharer.id} canvas is ${(frac * 100).toFixed(0)}% non-black (want >=50%, remote tile looks blank)`);
   }
 
   for (const c of participants) await c.ctx.close();
