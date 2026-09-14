@@ -724,6 +724,100 @@ static void test_moqctl_params_delivery_timeout_decode(void) {
   CHECK(out.items[0].vi == 0);
 }
 
+/* Builds one Message Parameter list: count 1, Type 0x03 (AUTHORIZATION
+ * TOKEN, draft SS10.2.2), Length-prefixed Token bytes `tok`. */
+static usz moqctl_test_auth_param(u8* buf, usz cap, const u8* tok, usz n) {
+  usz off = 0;
+  CHECK(moqvi_put(wired_mspan_of(buf, cap), &off, 1));
+  CHECK(moqvi_put(
+      wired_mspan_of(buf, cap), &off, MOQCTL_PARAM_AUTHORIZATION_TOKEN));
+  CHECK(moqvi_put(wired_mspan_of(buf, cap), &off, n));
+  for (usz i = 0; i < n; i++) buf[off + i] = tok[i];
+  return off + n;
+}
+
+/* draft SS10.2.2 AUTHORIZATION TOKEN (Type 0x03) with Alias Type USE_VALUE
+ * decodes inside SUBSCRIBE: Token Type 0x01, Token Value "ab". Pinned wire
+ * bytes: [03 (USE_VALUE), 01 (Token Type), 61 62]. */
+static void test_moqctl_params_auth_token_use_value_decode(void) {
+  static const u8 tok[] = {0x03, 0x01, 0x61, 0x62};
+  u8              buf[16];
+  usz             n = moqctl_test_auth_param(buf, sizeof buf, tok, sizeof tok);
+  moqctl_params   out;
+  usz             roff = 0;
+  CHECK(
+      moqctl_params_take(
+          wired_span_of(buf, n), &roff, MOQCTL_T_SUBSCRIBE, &out) == MOQCTL_OK);
+  CHECK(out.n == 1);
+  CHECK(out.items[0].type == MOQCTL_PARAM_AUTHORIZATION_TOKEN);
+  CHECK(out.items[0].enc == MOQCTL_PENC_TOKEN);
+  CHECK(out.items[0].token.alias_type == MOQCTL_TOKEN_USE_VALUE);
+  CHECK(out.items[0].token.token_type == 1);
+  wired_span v = out.items[0].token.value;
+  CHECK(v.n == 2 && v.p[0] == 0x61 && v.p[1] == 0x62);
+  CHECK(roff == n);
+}
+
+/* REGISTER carries Alias + Type + Value; DELETE/USE_ALIAS carry only the
+ * Alias (SS10.2.2 Figure 5). Both PUBLISH and SUBSCRIBE may carry it. */
+static void test_moqctl_params_auth_token_alias_shapes_decode(void) {
+  static const u8 reg[] = {0x01, 0x07, 0x01, 0x78};
+  static const u8 use[] = {0x02, 0x07};
+  u8              buf[16];
+  moqctl_params   out;
+  usz             n = moqctl_test_auth_param(buf, sizeof buf, reg, sizeof reg);
+  usz             roff = 0;
+  CHECK(
+      moqctl_params_take(
+          wired_span_of(buf, n), &roff, MOQCTL_T_PUBLISH, &out) == MOQCTL_OK);
+  CHECK(out.items[0].token.alias_type == MOQCTL_TOKEN_REGISTER);
+  CHECK(out.items[0].token.alias == 7);
+  CHECK(out.items[0].token.token_type == 1);
+  CHECK(out.items[0].token.value.n == 1);
+  n    = moqctl_test_auth_param(buf, sizeof buf, use, sizeof use);
+  roff = 0;
+  CHECK(
+      moqctl_params_take(
+          wired_span_of(buf, n), &roff, MOQCTL_T_SUBSCRIBE, &out) == MOQCTL_OK);
+  CHECK(out.items[0].token.alias_type == MOQCTL_TOKEN_USE_ALIAS);
+  CHECK(out.items[0].token.alias == 7);
+}
+
+/* An undecodable Token structure is KEY_VALUE_FORMATTING_ERROR
+ * (SS10.2.2): unknown Alias Type, USE_VALUE truncated before Token Type,
+ * and DELETE with bytes trailing the Alias. */
+static void test_moqctl_params_auth_token_malformed_kvfmt(void) {
+  static const u8 bad_alias_type[] = {0x04, 0x01};
+  static const u8 truncated[]      = {0x03};
+  static const u8 trailing[]       = {0x00, 0x07, 0xFF};
+  const u8*       cases[3]         = {bad_alias_type, truncated, trailing};
+  const usz       lens[3]          = {2, 1, 3};
+  for (usz i = 0; i < 3; i++) {
+    u8            buf[16];
+    moqctl_params out;
+    usz n    = moqctl_test_auth_param(buf, sizeof buf, cases[i], lens[i]);
+    usz roff = 0;
+    CHECK(
+        moqctl_params_take(
+            wired_span_of(buf, n), &roff, MOQCTL_T_SUBSCRIBE, &out) ==
+        MOQCTL_PARAMS_KVFMT);
+  }
+}
+
+/* AUTHORIZATION TOKEN outside its scope (SUBSCRIBE_OK) -> VIOLATION
+ * (SS10.2.1). */
+static void test_moqctl_params_auth_token_scope_violation(void) {
+  static const u8 tok[] = {0x03, 0x01, 0x61};
+  u8              buf[16];
+  usz             n = moqctl_test_auth_param(buf, sizeof buf, tok, sizeof tok);
+  moqctl_params   out;
+  usz             roff = 0;
+  CHECK(
+      moqctl_params_take(
+          wired_span_of(buf, n), &roff, MOQCTL_T_SUBSCRIBE_OK, &out) ==
+      MOQCTL_VIOLATION);
+}
+
 /* ===== TEST: SETUP Setup Options behaviors ===== */
 
 /* Unknown Setup Option (including a duplicate of it) is ignored. */
@@ -941,6 +1035,10 @@ void test_moqctl(void) {
   test_moqctl_params_duplicate_type_violation();
   test_moqctl_params_scope_violation();
   test_moqctl_params_delivery_timeout_decode();
+  test_moqctl_params_auth_token_use_value_decode();
+  test_moqctl_params_auth_token_alias_shapes_decode();
+  test_moqctl_params_auth_token_malformed_kvfmt();
+  test_moqctl_params_auth_token_scope_violation();
 
   test_moqctl_setup_unknown_option_ignored();
   test_moqctl_setup_path_option_decode();

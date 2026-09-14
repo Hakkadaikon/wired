@@ -29,7 +29,7 @@ static const u64 MOQCTL_KNOWN_ERRS[] = {
     MOQCTL_ERR_NOT_SUPPORTED,  MOQCTL_ERR_GOING_AWAY,
     MOQCTL_ERR_DOES_NOT_EXIST, MOQCTL_ERR_INVALID_RANGE,
     MOQCTL_ERR_UNINTERESTED,   MOQCTL_ERR_INVALID_FILTER,
-    MOQCTL_ERR_REDIRECT};
+    MOQCTL_ERR_REDIRECT,       MOQCTL_ERR_MALFORMED_AUTH_TOKEN};
 #define MOQCTL_KNOWN_ERRS_N (sizeof MOQCTL_KNOWN_ERRS / sizeof(u64))
 
 u64 moqctl_known_request_error(u64 code) {
@@ -339,6 +339,9 @@ typedef struct {
 } moqctl_param_rule;
 
 static const moqctl_param_rule MOQCTL_PARAM_RULES[] = {
+    {MOQCTL_PARAM_AUTHORIZATION_TOKEN,
+     MOQCTL_PENC_TOKEN,
+     {MOQCTL_T_SUBSCRIBE, MOQCTL_T_PUBLISH, 0, 0}},
     {MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT,
      MOQCTL_PENC_VARINT,
      {MOQCTL_T_SUBSCRIBE, 0, 0, 0}},
@@ -392,8 +395,58 @@ static int moqctl_pv_bytes(wired_span buf, usz* at, moqctl_param* p) {
   return moqctl_bytes_take(buf, at, len, &p->bytes);
 }
 
-static const moqctl_param_value_fn MOQCTL_PARAM_VALUE_FNS[4] = {
-    moqctl_pv_uint8, moqctl_pv_varint, moqctl_pv_location, moqctl_pv_bytes};
+/* ===== AUTHORIZATION TOKEN (SS10.2.2 Figure 5) ===== */
+
+/* Per Alias Type (index = MOQCTL_TOKEN_*): does the Token carry an Alias
+ * field, and does it carry Token Type + Token Value. */
+static const int MOQCTL_TOKEN_HAS_ALIAS[4] = {1, 1, 1, 0};
+static const int MOQCTL_TOKEN_HAS_VALUE[4] = {0, 1, 0, 1};
+
+static int moqctl_token_take_alias(wired_span v, usz* at, moqctl_token* t) {
+  if (!MOQCTL_TOKEN_HAS_ALIAS[t->alias_type]) return MOQCTL_OK;
+  if (!moqvi_take(v, at, &t->alias)) return MOQCTL_PARAMS_KVFMT;
+  return MOQCTL_OK;
+}
+
+/* Token Value is the remainder of the Length-prefixed value; an Alias-only
+ * shape must end exactly at the Alias. */
+static int moqctl_token_at_end(wired_span v, usz at) {
+  return at == v.n ? MOQCTL_OK : MOQCTL_PARAMS_KVFMT;
+}
+
+static int moqctl_token_take_value(wired_span v, usz* at, moqctl_token* t) {
+  if (!MOQCTL_TOKEN_HAS_VALUE[t->alias_type])
+    return moqctl_token_at_end(v, *at);
+  if (!moqvi_take(v, at, &t->token_type)) return MOQCTL_PARAMS_KVFMT;
+  t->value = wired_span_of(v.p + *at, v.n - *at);
+  return MOQCTL_OK;
+}
+
+static int moqctl_token_take_head(wired_span v, usz* at, moqctl_token* t) {
+  if (!moqvi_take(v, at, &t->alias_type)) return MOQCTL_PARAMS_KVFMT;
+  if (t->alias_type > MOQCTL_TOKEN_USE_VALUE) return MOQCTL_PARAMS_KVFMT;
+  return moqctl_token_take_alias(v, at, t);
+}
+
+/* v is exactly the parameter's Length bytes. "If the Token structure
+ * cannot be decoded, the receiver MUST close the Session with
+ * KEY_VALUE_FORMATTING_ERROR" -- surfaced as MOQCTL_PARAMS_KVFMT. */
+static int moqctl_token_take(wired_span v, moqctl_token* t) {
+  usz at = 0;
+  int r  = moqctl_token_take_head(v, &at, t);
+  if (r != MOQCTL_OK) return r;
+  return moqctl_token_take_value(v, &at, t);
+}
+
+static int moqctl_pv_token(wired_span buf, usz* at, moqctl_param* p) {
+  int r = moqctl_pv_bytes(buf, at, p);
+  if (r != MOQCTL_OK) return r;
+  return moqctl_token_take(p->bytes, &p->token);
+}
+
+static const moqctl_param_value_fn MOQCTL_PARAM_VALUE_FNS[5] = {
+    moqctl_pv_uint8, moqctl_pv_varint, moqctl_pv_location, moqctl_pv_bytes,
+    moqctl_pv_token};
 
 static int moqctl_param_take_value(
     wired_span buf, usz* at, int enc, moqctl_param* p) {
@@ -504,8 +557,11 @@ static int moqctl_pp_bytes(wired_mspan buf, usz* at, const moqctl_param* p) {
   return bytes_put(buf, at, p->bytes);
 }
 
-static const moqctl_param_put_fn MOQCTL_PARAM_PUT_FNS[4] = {
-    moqctl_pp_uint8, moqctl_pp_varint, moqctl_pp_location, moqctl_pp_bytes};
+/* PENC_TOKEN re-emits the raw Token bytes the sender placed in p->bytes
+ * (this subset only receives tokens; no Token-structure encoder). */
+static const moqctl_param_put_fn MOQCTL_PARAM_PUT_FNS[5] = {
+    moqctl_pp_uint8, moqctl_pp_varint, moqctl_pp_location, moqctl_pp_bytes,
+    moqctl_pp_bytes};
 
 static int moqctl_param_put_value(
     wired_mspan buf, usz* at, const moqctl_param* p) {
