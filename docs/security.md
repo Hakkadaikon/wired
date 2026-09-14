@@ -27,6 +27,10 @@ it. This is a description of what the code checks — not a threat model.
 
 ### Audit ledger
 
+`docs/security/feature-gaps.md` lists the rows closed only because the
+feature does not exist here (revocation checking, client certificates,
+ECH, DSA, ...): adding such a feature re-opens its rows.
+
 `docs/security/vuln-ledger.md` is an 837-row ledger built from CVE
 databases, peer-implementation security advisories, and RFC "Security
 Considerations" sections, each row mapped to the `wired` code path it does
