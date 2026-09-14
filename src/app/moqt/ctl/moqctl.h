@@ -54,6 +54,7 @@
 #define MOQCTL_ERR_INVALID_RANGE 0x11ULL
 #define MOQCTL_ERR_UNINTERESTED 0x20ULL
 #define MOQCTL_ERR_UNAUTHORIZED 0x1ULL
+#define MOQCTL_ERR_MALFORMED_AUTH_TOKEN 0x4ULL
 #define MOQCTL_ERR_INVALID_FILTER 0x36ULL
 #define MOQCTL_ERR_REDIRECT 0x34ULL
 
@@ -73,6 +74,7 @@
 #define MOQCTL_OPT_MOQT_IMPLEMENTATION 0x7ULL
 
 /** Message Parameter types this subset encodes/decodes. */
+#define MOQCTL_PARAM_AUTHORIZATION_TOKEN 0x03ULL
 #define MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT 0x02ULL
 #define MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT 0x06ULL
 #define MOQCTL_PARAM_FORWARD 0x10ULL
@@ -82,6 +84,17 @@
 #define MOQCTL_PENC_VARINT 1
 #define MOQCTL_PENC_LOCATION 2
 #define MOQCTL_PENC_BYTES 3
+/** Length-prefixed Token structure (SS10.2.2 Figure 5), decoded into
+ * moqctl_param.token; an undecodable Token is MOQCTL_PARAMS_KVFMT. */
+#define MOQCTL_PENC_TOKEN 4
+
+/** AUTHORIZATION TOKEN Alias Types (SS10.2.2). Which fields follow the
+ * Alias Type is fixed per code point: DELETE/USE_ALIAS carry only the
+ * Alias, USE_VALUE only Type+Value, REGISTER all three. */
+#define MOQCTL_TOKEN_DELETE 0x0ULL
+#define MOQCTL_TOKEN_REGISTER 0x1ULL
+#define MOQCTL_TOKEN_USE_ALIAS 0x2ULL
+#define MOQCTL_TOKEN_USE_VALUE 0x3ULL
 
 /** Location Filter types (SS9.3.1). */
 #define MOQCTL_FILTER_NEXT_GROUP 0x1ULL
@@ -155,15 +168,27 @@ typedef wired_span moqctl_reason;
 int moqctl_reason_take(wired_span buf, usz* off, moqctl_reason* out);
 int moqctl_reason_put(wired_mspan buf, usz* off, moqctl_reason reason);
 
+/** draft-ietf-moq-transport-19 SS10.2.2 Token structure: Alias Type
+ * selects which of the optional fields are present (MOQCTL_TOKEN_*);
+ * absent fields are left zero / empty. value is a view into the decoded
+ * message, valid only as long as that buffer is. */
+typedef struct {
+  u64        alias_type;
+  u64        alias;      /* DELETE / REGISTER / USE_ALIAS */
+  u64        token_type; /* REGISTER / USE_VALUE */
+  wired_span value;      /* REGISTER / USE_VALUE */
+} moqctl_token;
+
 /** draft-ietf-moq-transport-19 SS10.2 Message Parameter: Type Delta +
  * Value. Decoded absolute type + encoding-tagged value. */
 typedef struct {
-  u64        type;
-  int        enc;   /* MOQCTL_PENC_* */
-  u64        u8v;   /* PENC_UINT8 */
-  u64        vi;    /* PENC_VARINT */
-  moqctl_loc loc;   /* PENC_LOCATION */
-  wired_span bytes; /* PENC_BYTES */
+  u64          type;
+  int          enc;   /* MOQCTL_PENC_* */
+  u64          u8v;   /* PENC_UINT8 */
+  u64          vi;    /* PENC_VARINT */
+  moqctl_loc   loc;   /* PENC_LOCATION */
+  wired_span   bytes; /* PENC_BYTES, and PENC_TOKEN's raw Token bytes */
+  moqctl_token token; /* PENC_TOKEN */
 } moqctl_param;
 
 /** A decoded/to-encode Message Parameter list. msg_type selects which
