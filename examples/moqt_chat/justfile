@@ -114,6 +114,15 @@ e2e-stability-nightly: e2e-stability-ci
 e2e-live *ARGS: build build-frontend
     node e2e/run-live-check.mjs {{ARGS}}
 
+# Screen-share check: 2 headless-Chrome participants, one shares a fake
+# getDisplayMedia canvas, the other's window.__wiredScreenTap (screenTap.ts)
+# is polled until decoded frames arrive with plausible dimensions -- the
+# independent-peer check for encode -> MOQT Objects -> reassemble -> decode.
+# Pass --load for the 4-participant simultaneous-share scenario that
+# exercises WIRED_SRVLOOP_MAX_WT_UNI_STREAMS. Run e2e-setup once first.
+e2e-screen *ARGS: build build-frontend
+    node e2e/run-screenshare-check.mjs {{ARGS}}
+
 # Multi-client chat load test: N headless-Chrome clients (each its own
 # BrowserContext), joining the hub's single fixed room, exchanging chat
 # messages, graded for message loss and latency. N is capped at 4 (the
