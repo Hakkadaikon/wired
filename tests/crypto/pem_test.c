@@ -171,6 +171,50 @@ static void test_pem_capacity(void) {
   CHECK(pem_one(txt, sizeof(txt) - 1, &der) == 0);
 }
 
+/* RFC 4648 4 alphabet, index == sextet value. */
+static const char pem_alphabet[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/* Index of c in the alphabet, or -1. */
+static int pem_alphabet_index(u8 c) {
+  for (int i = 0; i < 64; i++)
+    if ((u8)pem_alphabet[i] == c) return i;
+  return -1;
+}
+
+/* Decode a body whose single quad is "AAA" followed by c. */
+static int pem_quad_last(u8 c, wired_obuf* der) {
+  u8         txt[] = "-----BEGIN X-----\nAAA?\n-----END X-----\n";
+  usz        at    = 0;
+  wired_span label;
+  txt[21] = c;
+  return wired_pem_next(wired_span_of(txt, sizeof(txt) - 1), &at, &label, der);
+}
+
+/* One byte's expected outcome in the last quad position. */
+static void pem_check_byte(u8 c) {
+  u8         buf[4];
+  wired_obuf der = obuf_of(buf, sizeof(buf));
+  int        ok  = pem_quad_last(c, &der);
+  int        idx = pem_alphabet_index(c);
+  if (idx >= 0) {
+    CHECK(ok == 1 && der.len == 3 && buf[2] == (u8)idx);
+  } else if (c == '=') {
+    CHECK(ok == 1 && der.len == 2);
+  } else {
+    CHECK(ok == 0);
+  }
+}
+
+/* RFC 4648 4: every one of the 256 input bytes is classified exactly --
+ * each alphabet byte decodes to its own sextet value, pad ends the quad,
+ * everything else (CR/LF included, since they leave the quad incomplete)
+ * rejects. Pins the arithmetic, table-free classifier (CVE-2021-24116
+ * class: a secret-indexed lookup table leaks key bytes through the cache). */
+static void test_pem_every_byte_classified(void) {
+  for (int c = 0; c < 256; c++) pem_check_byte((u8)c);
+}
+
 void test_pem(void) {
   test_pem_leaf_golden();
   test_pem_fullchain();
@@ -179,4 +223,5 @@ void test_pem(void) {
   test_pem_surrounding_text();
   test_pem_reject();
   test_pem_capacity();
+  test_pem_every_byte_classified();
 }

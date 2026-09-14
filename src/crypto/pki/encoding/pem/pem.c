@@ -5,24 +5,44 @@ static const u8 pem_begin_tag[] = "-----BEGIN ";
 static const u8 pem_end_tag[]   = "-----END ";
 static const u8 pem_dashes[]    = "-----";
 
-/* RFC 4648 4 reverse alphabet: 0-63 = sextet value, 64 = pad '=',
- * 65 = skip (CR/LF), 66 = invalid. */
-static const u8 pem_b64[256] = {
-    66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 65, 66, 66, 65, 66, 66, 66, 66, 66,
-    66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66,
-    66, 66, 66, 66, 66, 62, 66, 66, 66, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60,
-    61, 66, 66, 66, 64, 66, 66, 66, 0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10,
-    11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 66, 66, 66, 66,
-    66, 66, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42,
-    43, 44, 45, 46, 47, 48, 49, 50, 51, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66,
-    66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66,
-    66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66,
-    66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66,
-    66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66,
-    66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66,
-    66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66,
-    66, 66, 66, 66, 66, 66, 66, 66, 66,
+/* RFC 4648 4 reverse alphabet, evaluated arithmetically: 0-63 = sextet
+ * value, 64 = pad '=', 65 = skip (CR/LF), 66 = invalid. A 256-entry lookup
+ * table indexed by the input byte would make the cache line touched depend
+ * on the decoded sextet, which for a PRIVATE KEY block (certreload decodes
+ * the server's key through this path) leaks key bits to a co-resident
+ * observer (CVE-2021-24116 class). Each input byte is instead run through
+ * every range below, in a fixed order, with a branch-free in-range mask. */
+typedef struct {
+  u8 lo, hi, base;
+} pem_b64_range;
+
+static const pem_b64_range pem_b64_ranges[] = {
+    {'A', 'Z', 0},  {'a', 'z', 26}, {'0', '9', 52},   {'+', '+', 62},
+    {'/', '/', 63}, {'=', '=', 64}, {'\r', '\r', 65}, {'\n', '\n', 65},
 };
+#define PEM_B64_RANGE_COUNT (sizeof(pem_b64_ranges) / sizeof(pem_b64_ranges[0]))
+#define PEM_B64_INVALID 66
+
+/* 0xff if lo <= c <= hi, else 0x00, with no data-dependent branch: both
+ * differences are non-negative exactly when c is inside the range, so the
+ * sign bit of their OR is clear iff in range. */
+static u8 pem_ct_range_mask(u8 c, u8 lo, u8 hi) {
+  u32 neg = ((u32)((int)c - (int)lo) | (u32)((int)hi - (int)c)) >> 31;
+  return (u8)(neg - 1);
+}
+
+/* Classify one input byte (see pem_b64_ranges); every range is always
+ * evaluated so the work does not depend on which one matches. */
+static u8 pem_b64_code(u8 c) {
+  u8 hit = 0, code = 0;
+  for (usz i = 0; i < PEM_B64_RANGE_COUNT; i++) {
+    const pem_b64_range* r = &pem_b64_ranges[i];
+    u8                   m = pem_ct_range_mask(c, r->lo, r->hi);
+    hit |= m;
+    code |= (u8)(m & (u8)(c - r->lo + r->base));
+  }
+  return (u8)((hit & code) | ((u8)~hit & PEM_B64_INVALID));
+}
 
 /* Output byte count of a final quad by pad shape:
  * index = (q[2] is pad)*2 + (q[3] is pad); a pad in q[2] alone is invalid. */
@@ -96,10 +116,13 @@ static int pem_take(u8 code, u8* q, usz* qn, wired_obuf* der) {
   return pem_flush(q, der);
 }
 
+/* The two branches here key on line structure (CR/LF) and on malformed
+ * input, never on a decoded sextet value: a 0-63 code flows into pem_take's
+ * arithmetic only. */
 static int pem_step(u8 c, u8* q, usz* qn, wired_obuf* der) {
-  u8 code = pem_b64[c];
+  u8 code = pem_b64_code(c);
   if (code == 65) return 1; /* CR/LF between the wrapped lines */
-  if (code == 66) return 0;
+  if (code == PEM_B64_INVALID) return 0;
   return pem_take(code, q, qn, der);
 }
 
