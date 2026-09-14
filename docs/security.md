@@ -79,7 +79,8 @@ linear scan, not a hash table, so no hash-DoS class). Three are explicit
   nightly).
 
 **Known limits:** the limit is enforced on the production send path
-(`wired_srvloop_send_onertt`, `test_srvloop_send_at_aead_limit_initiates_key_update`);
+(`wired_srvloop_send_onertt`,
+`test_srvloop_send_at_aead_limit_initiates_key_update`);
 the older `connrunner_maybe_initiate_ku` helper is not used by the server
 loop. An unacknowledged update stops sealing (RFC 9001 6.2 / 6.6) and the
 idle timeout, not a dedicated close, ends the connection.
