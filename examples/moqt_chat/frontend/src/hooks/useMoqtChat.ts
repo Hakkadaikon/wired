@@ -28,6 +28,7 @@ import {
   type ScreenReceivePipeline,
 } from "@/lib/screenReceivePipeline";
 import { screenFrameReassemblerInit, screenFrameReassemblerPush } from "@/lib/moqtScreenWire";
+import { screenTap } from "@/lib/screenTap";
 import {
   createVoiceReceivePipeline,
   type VoiceReceivePipeline,
@@ -168,6 +169,13 @@ export function useMoqtChat() {
   // sharing one across senders would corrupt whichever sender's frame
   // wasn't currently being assembled the moment two people share at once.
   const screenReassemblersRef = useRef<Map<string, ReturnType<typeof screenFrameReassemblerInit>>>(
+    new Map(),
+  );
+  // width/height/codec ride only on a keyframe's idx===0 chunk (wire
+  // format, moqtScreenWire.ts), but a frame reassembles on its LAST
+  // arriving chunk, whose own fields are undefined -- so the keyframe's
+  // metadata has to be remembered per-sender and reapplied at reassembly.
+  const screenKeyframeMetaRef = useRef<Map<string, { width?: number; height?: number; codec?: string }>>(
     new Map(),
   );
   const screenReceiveRef = useRef<ScreenReceivePipeline | null>(null);
@@ -375,12 +383,19 @@ export function useMoqtChat() {
       // the send-side half of this isolation guarantee.
       screenReceiveRef.current = createScreenReceivePipeline({
         VideoDecoderCtor: VideoDecoder as never,
+        EncodedVideoChunkCtor: EncodedVideoChunk,
         onFrame: (senderKey, frame) => {
-          const vf = frame as { close?: () => void };
+          const vf = frame as { close?: () => void; codedWidth?: number; codedHeight?: number };
           const canvas = screenCanvasRefs.current.get(senderKey);
           const ctx = canvas?.getContext("2d");
           try {
             if (ctx) ctx.drawImage(frame as CanvasImageSource, 0, 0, canvas!.width, canvas!.height);
+            screenTap({
+              senderId: senderKey,
+              width: vf.codedWidth ?? 0,
+              height: vf.codedHeight ?? 0,
+              t: performance.now(),
+            });
           } finally {
             vf.close?.();
           }
@@ -397,15 +412,23 @@ export function useMoqtChat() {
               reassembler = screenFrameReassemblerInit();
               screenReassemblersRef.current.set(participantId, reassembler);
             }
+            if (chunk.keyframe && chunk.idx === 0) {
+              screenKeyframeMetaRef.current.set(participantId, {
+                width: chunk.width,
+                height: chunk.height,
+                codec: chunk.codec,
+              });
+            }
             const frameBytes = screenFrameReassemblerPush(reassembler, chunk);
             if (!frameBytes) return;
             useMoqtChatStore.getState().addScreenTile(participantId);
+            const meta = screenKeyframeMetaRef.current.get(participantId);
             screenReceiveRef.current?.handleFrame(participantId, {
               data: frameBytes,
               keyframe: chunk.keyframe,
-              width: chunk.width,
-              height: chunk.height,
-              codec: chunk.codec,
+              width: meta?.width,
+              height: meta?.height,
+              codec: meta?.codec,
             });
           } catch (err) {
             // A malformed/incoming screen stream must never break chat or
@@ -552,6 +575,7 @@ export function useMoqtChat() {
     screenRef.current = null;
     screenReceiveRef.current = null;
     screenReassemblersRef.current.clear();
+    screenKeyframeMetaRef.current.clear();
     store.setScreenSharing(false);
     store.setScreenShareError(null);
     clientRef.current?.close();

@@ -3,6 +3,14 @@ import { createScreenReceivePipeline } from "../screenReceivePipeline";
 
 const PEER = "user2";
 const PEER2 = "user3";
+// jsdom has no WebCodecs; a fake stand-in for the injected
+// EncodedVideoChunkCtor keeps this file's own no-DOM-required guarantee.
+const FakeEncodedVideoChunk = vi.fn(function (
+  this: unknown,
+  init: { type: string; timestamp: number; data: Uint8Array },
+) {
+  return init;
+}) as unknown as new (init: { type: "key" | "delta"; timestamp: number; data: Uint8Array }) => unknown;
 
 function frame(keyframe: boolean, extra: Partial<{ width: number; height: number; codec: string }> = {}) {
   return {
@@ -44,6 +52,7 @@ describe("screenReceivePipeline", () => {
     const onFrame = vi.fn();
     const pipeline = createScreenReceivePipeline({
       VideoDecoderCtor: decoder.ctor as never,
+      EncodedVideoChunkCtor: FakeEncodedVideoChunk,
       onFrame,
     });
 
@@ -59,6 +68,7 @@ describe("screenReceivePipeline", () => {
     const onFrame = vi.fn();
     const pipeline = createScreenReceivePipeline({
       VideoDecoderCtor: decoder.ctor as never,
+      EncodedVideoChunkCtor: FakeEncodedVideoChunk,
       onFrame,
     });
 
@@ -73,6 +83,7 @@ describe("screenReceivePipeline", () => {
     const decoder = fakeDecoder();
     const pipeline = createScreenReceivePipeline({
       VideoDecoderCtor: decoder.ctor as never,
+      EncodedVideoChunkCtor: FakeEncodedVideoChunk,
       onFrame: vi.fn(),
     });
 
@@ -89,6 +100,7 @@ describe("screenReceivePipeline", () => {
     const onFrame = vi.fn();
     const pipeline = createScreenReceivePipeline({
       VideoDecoderCtor: decoder.ctor as never,
+      EncodedVideoChunkCtor: FakeEncodedVideoChunk,
       onFrame,
     });
 
@@ -104,6 +116,7 @@ describe("screenReceivePipeline", () => {
     const onDecodeError = vi.fn();
     const pipeline = createScreenReceivePipeline({
       VideoDecoderCtor: decoder.ctor as never,
+      EncodedVideoChunkCtor: FakeEncodedVideoChunk,
       onFrame: vi.fn(),
       onDecodeError,
     });
@@ -117,6 +130,7 @@ describe("screenReceivePipeline", () => {
     const decoder = fakeDecoder("throw");
     const pipeline = createScreenReceivePipeline({
       VideoDecoderCtor: decoder.ctor as never,
+      EncodedVideoChunkCtor: FakeEncodedVideoChunk,
       onFrame: vi.fn(),
     });
 
@@ -140,6 +154,7 @@ describe("screenReceivePipeline", () => {
     const decoder = fakeDecoder();
     const pipeline = createScreenReceivePipeline({
       VideoDecoderCtor: decoder.ctor as never,
+      EncodedVideoChunkCtor: FakeEncodedVideoChunk,
       onFrame: vi.fn(),
     });
 
@@ -155,6 +170,7 @@ describe("screenReceivePipeline", () => {
     const decoder = fakeDecoder();
     const pipeline = createScreenReceivePipeline({
       VideoDecoderCtor: decoder.ctor as never,
+      EncodedVideoChunkCtor: FakeEncodedVideoChunk,
       onFrame: vi.fn(),
     });
 
@@ -177,6 +193,7 @@ describe("screenReceivePipeline", () => {
     });
     const pipeline = createScreenReceivePipeline({
       VideoDecoderCtor: decoder.ctor as never,
+      EncodedVideoChunkCtor: FakeEncodedVideoChunk,
       onFrame: vi.fn(),
     });
 

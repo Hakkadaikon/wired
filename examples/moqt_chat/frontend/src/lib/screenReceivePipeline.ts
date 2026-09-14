@@ -32,6 +32,14 @@ export type ScreenReceivePipelineDeps = {
     output: (frame: unknown) => void;
     error: (err: unknown) => void;
   }) => Decoder;
+  // Real VideoDecoder.decode() requires an EncodedVideoChunk, not raw
+  // bytes -- injected (like VideoDecoderCtor) so this file stays DOM-free
+  // and testable with a fake in place of the browser global.
+  EncodedVideoChunkCtor: new (init: {
+    type: "key" | "delta";
+    timestamp: number;
+    data: Uint8Array;
+  }) => unknown;
   onFrame: (senderKey: string, frame: unknown) => void;
   onDecodeError?: (err: unknown) => void;
 };
@@ -88,7 +96,13 @@ export function createScreenReceivePipeline(
       if (!decoder) return; // defensive: WaitKey + non-keyframe already returned above
 
       try {
-        decoder.decode(frame.data);
+        decoder.decode(
+          new deps.EncodedVideoChunkCtor({
+            type: frame.keyframe ? "key" : "delta",
+            timestamp: 0,
+            data: frame.data,
+          }),
+        );
       } catch (err) {
         dropDecoder(senderKey);
         deps.onDecodeError?.(err);
