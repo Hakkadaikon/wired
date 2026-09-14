@@ -78,9 +78,59 @@ static void test_ticket_nonce_varies(void) {
   CHECK(!same);
 }
 
+/* ticket_open requires in.n == TICKET_SEALED_LEN exactly: neither a
+ * truncated nor an over-length blob is accepted, before any AEAD open is
+ * attempted (RFC 8446 4.6.1 -- no attacker-controlled length ever drives
+ * the memory-copy path). */
+static void test_ticket_open_wrong_length_rejected(void) {
+  u8 key[TICKET_KEY_LEN];
+  fill_key(key, 0x66);
+  ticket in = sample_ticket();
+  u8     sealed[TICKET_SEALED_LEN];
+  ticket_seal(&in, key, sealed);
+
+  ticket out;
+  CHECK(
+      ticket_open(wired_span_of(sealed, TICKET_SEALED_LEN - 1), key, &out) ==
+      0);
+  CHECK(
+      ticket_open(wired_span_of(sealed, TICKET_SEALED_LEN + 1), key, &out) ==
+      0);
+  CHECK(ticket_open(wired_span_of(sealed, 0), key, &out) == 0);
+}
+
+/* Each ticket seals its own independently-random secret: two tickets built
+ * from the same key never share their sealed secret bytes, so compromising
+ * one ticket's opened secret does not expose another's. */
+static void test_ticket_seal_distinct_secret_per_ticket(void) {
+  u8 key[TICKET_KEY_LEN];
+  fill_key(key, 0x77);
+  ticket a = sample_ticket();
+  ticket b = sample_ticket();
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++) b.secret[i] = (u8)(0xF0 + i);
+  u8 sealed_a[TICKET_SEALED_LEN];
+  u8 sealed_b[TICKET_SEALED_LEN];
+  ticket_seal(&a, key, sealed_a);
+  ticket_seal(&b, key, sealed_b);
+
+  ticket out_a, out_b;
+  CHECK(
+      ticket_open(wired_span_of(sealed_a, TICKET_SEALED_LEN), key, &out_a) ==
+      1);
+  CHECK(
+      ticket_open(wired_span_of(sealed_b, TICKET_SEALED_LEN), key, &out_b) ==
+      1);
+  int same = 1;
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++)
+    if (out_a.secret[i] != out_b.secret[i]) same = 0;
+  CHECK(!same);
+}
+
 static void test_ticket(void) {
   test_ticket_roundtrip();
   test_ticket_tamper_detected();
   test_ticket_wrong_key_rejected();
   test_ticket_nonce_varies();
+  test_ticket_open_wrong_length_rejected();
+  test_ticket_seal_distinct_secret_per_ticket();
 }
