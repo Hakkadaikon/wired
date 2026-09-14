@@ -83,6 +83,15 @@ function toScreenChunks(seq: number, isKeyframe: boolean, buffer: Uint8Array): S
   }));
 }
 
+async function sendPieces(
+  pieces: ScreenChunk[],
+  gatedSend: (chunk: ScreenChunk) => Promise<void>,
+): Promise<void> {
+  for (const screenChunk of pieces) {
+    await gatedSend(screenChunk);
+  }
+}
+
 export async function startScreenSharePipeline(
   deps: ScreenSharePipelineDeps,
 ): Promise<ScreenSharePipeline> {
@@ -104,6 +113,13 @@ export async function startScreenSharePipeline(
 
   let seq = 0;
   let lastKeyframeAt = -Infinity;
+  // Chains each output() call's send-loop off the previous one's, so frame
+  // N's pieces fully drain through gatedSend before frame N+1's pieces
+  // start -- output() itself can fire again before a prior frame's loop
+  // has finished (real encode() is async), which a per-frame detached
+  // async IIFE does not serialize against. .catch keeps one frame's
+  // rejection from wedging the chain for later frames.
+  let sendChain: Promise<void> = Promise.resolve();
 
   const pipeline: ScreenSharePipeline = {
     stopped: false,
@@ -128,18 +144,16 @@ export async function startScreenSharePipeline(
       const buffer = new Uint8Array(chunk.byteLength);
       chunk.copyTo(buffer);
       const pieces = toScreenChunks(seq++, chunk.type === "key", buffer);
-      // Sequential, awaited sends -- NOT fire-and-forget. sendGate's
-      // latest-wins coalescing (right for standalone voice frames) would
-      // drop pieces of the SAME frame if fired concurrently, and
-      // moqtScreenWire.ts's reassembler discards a frame missing any one
-      // chunk. Awaiting each call keeps the gate never "inFlight" when the
-      // next piece of this frame arrives, so none of them get coalesced
-      // away.
-      void (async () => {
-        for (const screenChunk of pieces) {
-          await gatedSend(screenChunk);
-        }
-      })();
+      // Sequential, awaited sends within a frame -- NOT fire-and-forget.
+      // sendGate's latest-wins coalescing (right for standalone voice
+      // frames) would drop pieces of the SAME frame if fired concurrently,
+      // and moqtScreenWire.ts's reassembler discards a frame missing any
+      // one chunk. Awaiting each call keeps the gate never "inFlight" when
+      // the next piece of this frame arrives, so none of them get
+      // coalesced away. Chained onto sendChain (not a detached IIFE) so
+      // this guarantee also holds ACROSS frames -- see sendChain's
+      // declaration above.
+      sendChain = sendChain.then(() => sendPieces(pieces, gatedSend)).catch(() => {});
     },
     error: (err) => {
       deps.onEncodeError?.(err);
