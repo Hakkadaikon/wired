@@ -31,17 +31,19 @@ static wired_moqtrun_peer* moqtrun_alloc(wired_moqt_hub* hub) {
 
 void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) hub->peers[i].in_use = 0;
-  hub->io                = io;
-  hub->stat_frag_drop    = 0;
-  hub->stat_relay_sent   = 0;
-  hub->stat_relay_drop   = 0;
-  hub->stat_open_drop    = 0;
-  hub->stat_relay_reset  = 0;
-  hub->stat_relay_full   = 0;
-  hub->blob_track.in_use = 0;
-  hub->live.track.in_use = 0;
-  hub->stat_live_sent    = 0;
-  hub->stat_live_drop    = 0;
+  hub->io                  = io;
+  hub->authorize_subscribe = 0;
+  hub->authorize_ctx       = 0;
+  hub->stat_frag_drop      = 0;
+  hub->stat_relay_sent     = 0;
+  hub->stat_relay_drop     = 0;
+  hub->stat_open_drop      = 0;
+  hub->stat_relay_reset    = 0;
+  hub->stat_relay_full     = 0;
+  hub->blob_track.in_use   = 0;
+  hub->live.track.in_use   = 0;
+  hub->stat_live_sent      = 0;
+  hub->stat_live_drop      = 0;
 }
 
 /* SS10 common envelope (Type vi64 + 16-bit Length + Body): every control
@@ -551,18 +553,63 @@ static void moqtrun_route_subscribe(
   moqtrun_route_peer_subscribe(hub, p, peer_idx, m);
 }
 
-/* draft SS10.6 SUBSCRIBE: reject non-zero delivery-timeout parameters,
- * else delegate matching + response to moqtrun_route_subscribe. */
+/* First AUTHORIZATION TOKEN parameter (draft SS10.2.2) of a message, or
+ * 0 when it carries none. */
+static const moqctl_token* moqtrun_auth_token_of(const moqctl_params* params) {
+  for (usz i = 0; i < params->n; i++)
+    if (params->items[i].type == MOQCTL_PARAM_AUTHORIZATION_TOKEN)
+      return &params->items[i].token;
+  return 0;
+}
+
+/* This hub never advertises MAX_AUTH_TOKEN_CACHE_SIZE (SS10.3.1.3), so its
+ * token cache is 0 bytes and Token Aliases are prohibited: only USE_VALUE
+ * can be honoured. ponytail: a REGISTER should terminate the session with
+ * AUTH_TOKEN_CACHE_OVERFLOW (SS10.2.2) -- the hub has no session-close io,
+ * so it refuses the request instead; add an io.close when one exists. */
+static int moqtrun_token_uses_alias(const moqctl_token* t) {
+  return t && t->alias_type != MOQCTL_TOKEN_USE_VALUE;
+}
+
+/* draft SS13.3: "Relays will verify the token to ensure that the request
+ * is authorized." Every SUBSCRIBE passes here before any track matching
+ * (own blob/live tracks and peer tracks alike). 1 + *code when refused. */
+static int moqtrun_subscribe_refused(
+    const wired_moqt_hub* hub, const moqctl_subscribe* m, u64* code) {
+  const moqctl_token* t = moqtrun_auth_token_of(&m->params);
+  *code                 = MOQCTL_ERR_MALFORMED_AUTH_TOKEN;
+  if (moqtrun_token_uses_alias(t)) return 1;
+  *code = MOQCTL_ERR_UNAUTHORIZED;
+  if (!hub->authorize_subscribe) return 0;
+  return !hub->authorize_subscribe(hub->authorize_ctx, &m->name, t);
+}
+
+/* draft SS10.6 SUBSCRIBE: reject non-zero delivery-timeout parameters and
+ * unauthorized subscribers, else delegate matching + response to
+ * moqtrun_route_subscribe. */
+static void moqtrun_subscribe_checked(
+    wired_moqt_hub*         hub,
+    wired_moqtrun_peer*     p,
+    usz                     peer_idx,
+    const moqctl_subscribe* m) {
+  u64 code;
+  if (moqtrun_has_timeout_param(&m->params)) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
+    return;
+  }
+  if (moqtrun_subscribe_refused(hub, m, &code)) {
+    moqtrun_send_request_error(p, code);
+    return;
+  }
+  moqtrun_route_subscribe(hub, p, peer_idx, m);
+}
+
 static void moqtrun_handle_subscribe(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   usz              off = 0;
   moqctl_subscribe m;
   if (moqctl_subscribe_take(body, &off, &m) != MOQCTL_OK) return;
-  if (moqtrun_has_timeout_param(&m.params)) {
-    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
-    return;
-  }
-  moqtrun_route_subscribe(hub, p, peer_idx, &m);
+  moqtrun_subscribe_checked(hub, p, peer_idx, &m);
 }
 
 static void moqtrun_handle_not_supported(wired_moqtrun_peer* p) {
