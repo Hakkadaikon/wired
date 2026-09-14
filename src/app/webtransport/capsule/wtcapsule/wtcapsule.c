@@ -4,8 +4,6 @@
 #include "common/bytes/util/be.h"
 #include "common/bytes/varint/varint.h"
 
-#define WTCAPSULE_TYPE_CLOSE 0x2843ULL
-#define WTCAPSULE_TYPE_DRAIN 0x78aeULL
 #define WTCAPSULE_CLOSE_CODE_LEN 4
 
 /* draft-ietf-webtrans-http3-15 SS9.6: the remaining session-level
