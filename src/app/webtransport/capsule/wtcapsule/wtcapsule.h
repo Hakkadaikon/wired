@@ -50,6 +50,12 @@
 /** WT_MAX_DATA capsule type (draft-ietf-webtrans-http3-15 SS5.6.4). */
 #define WTCAPSULE_TYPE_MAX_DATA 0x190B4D3DULL
 
+/** WT_CLOSE_SESSION capsule type (draft-ietf-webtrans-http3-15 SS6). */
+#define WTCAPSULE_TYPE_CLOSE 0x2843ULL
+
+/** WT_DRAIN_SESSION capsule type (draft-ietf-webtrans-http3-15 SS4.6). */
+#define WTCAPSULE_TYPE_DRAIN 0x78aeULL
+
 /** 1 iff value is exactly one well-formed varint (fully consumed, no
  * trailing bytes) -- the body shape every session flow-control capsule
  * (SS5.6) requires. A receiver that already generically decoded a capsule

@@ -2540,6 +2540,9 @@ static void test_srvrun_idle_sweep_evicts_expired(void) {
   st.conns[0].last_ms = 1000;
   st.conns[1].up      = 1;
   st.conns[1].last_ms = 20000;
+  /* an active connection is a confirmed one -- an unconfirmed slot this
+   * old is a stalled boot the RFC 9000 21.6 deadline reaps instead */
+  st.conns[1].s.phase = WIRED_SERVER_HS_CONFIRMED;
   CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, k1, 4) == 0);
   CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, k2, 4) == 1);
   srvrun_sweep_idle(srvrun_test_envcfg(), &st, 1000 + WIRED_SRVRUN_IDLE_MS);
@@ -17374,6 +17377,367 @@ static void test_srvrun_connect_concurrency_limit_enforced(void) {
   CHECK(conns[1].wt_active == 1); /* the other sessions are untouched */
 }
 
+/* ===================== F14: server-side hardening pins =====================
+ */
+
+/* RFC 9000 8.1 (V-0063): no 1-RTT response byte leaves before the
+ * client's Finished verifies -- srvrun_pump_sess defers the whole pump
+ * until wired_server_is_confirmed, and that Finished (a Handshake packet
+ * decrypted) is what validates the client's address (RFC 9000 8.1). So a
+ * request served on a spoofed source address, 0-RTT-carried or not, can
+ * never turn this server into an amplifier: with budget to spare and an
+ * armed response, an unconfirmed connection sends nothing; the same pump
+ * drains everything once confirmed. */
+static void test_srvrun_default_config_gates_response_volume_pre_validation(
+    void) {
+  static u8     body[8 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn*  c  = sr_test_conns();
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(c, &f, &ob);
+  c->s.phase               = WIRED_SERVER_HS_FLIGHT_SENT; /* unconfirmed */
+  c->l.hs_rx_seen          = 0;                           /* unvalidated */
+  c->boot_rx_bytes         = 1200;
+  c->boot_tx_bytes         = 1200; /* 2400 B of antiamp budget to spare */
+  c->cc.cwnd               = 5000000;
+  c->srtt_ms               = 30;
+  c->resp[0].in_use        = 1;
+  c->resp[0].stream_id     = 0;
+  c->resp[0].stream_credit = sizeof body;
+  wired_sendsess_arm(&c->resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  srvrun_test_reset_send_count();
+  {
+    srvrun_cfg      cfg = {.fd = -1, .env = &g_srvrun_env};
+    srvrun_state    st  = {0, c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(srvrun_test_send_count() == 0);
+    CHECK(c->resp[0].sess.q.cur == 0);
+    c->s.phase = WIRED_SERVER_HS_CONFIRMED; /* client Finished verified */
+    srvrun_pump_sess(&ctx, 0);
+  }
+  CHECK(srvrun_test_send_count() == 8);
+  CHECK(c->resp[0].sess.q.cur == sizeof body);
+}
+
+/* RFC 9001 4.6.1 / RFC 9000 8.1 (V-0066): the exact per-step entry a
+ * 0-RTT-carried request is answered through (srvrun_sess_on_step, what
+ * srvrun_boot_flush_zerortt and the live 0-RTT step pair call) sends
+ * nothing for an armed response while the connection is unconfirmed --
+ * even with a Handshake packet already seen, the gate is confirmation --
+ * and drains it on the first step after confirmation. force_retry stays
+ * off by default (RFC 9000 8.1.2) because this already binds 0-RTT service
+ * to the address validation the client's own Finished provides. */
+static void test_srvrun_0rtt_accept_requires_or_limits_unvalidated_address(
+    void) {
+  static u8     body[8 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn*  c  = sr_test_conns();
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(c, &f, &ob);
+  c->s.phase               = WIRED_SERVER_HS_FLIGHT_SENT;
+  c->l.hs_rx_seen          = 1;
+  c->boot_rx_bytes         = 1200;
+  c->boot_tx_bytes         = 1200;
+  c->cc.cwnd               = 5000000;
+  c->srtt_ms               = 30;
+  c->resp[0].in_use        = 1;
+  c->resp[0].stream_id     = 0;
+  c->resp[0].stream_credit = sizeof body;
+  wired_sendsess_arm(&c->resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  srvrun_test_reset_send_count();
+  {
+    srvrun_cfg      cfg = {.fd = -1, .env = &g_srvrun_env};
+    srvrun_state    st  = {0, c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
+    srvrun_sess_on_step(&ctx, 0);
+    CHECK(srvrun_test_send_count() == 0);
+    CHECK(c->resp[0].sess.q.cur == 0);
+    c->s.phase = WIRED_SERVER_HS_CONFIRMED;
+    srvrun_sess_on_step(&ctx, 0);
+  }
+  CHECK(srvrun_test_send_count() >= 8);
+  CHECK(c->resp[0].sess.q.cur == sizeof body);
+}
+
+/* RFC 9000 21.6 (V-0010, Slowloris): a peer that keeps a pre-handshake
+ * slot alive by trickling an Initial fragment just inside the idle timeout
+ * forever is reclaimed anyway -- a boot that has not confirmed within
+ * SRVRUN_BOOT_DEADLINE_MS of claiming its slot is swept regardless of how
+ * recently its last fragment arrived. */
+static void test_srvrun_slow_trickle_preauth_evicted(void) {
+  wired_srvboot_id id;
+  client           c;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               ch[512], dg1[1400], again[1400];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz              n    = sr_raw_ch(&c, ch, sizeof ch);
+  usz n1 = sr_seal_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 0);
+  for (usz i = 0; i < n1; i++) again[i] = dg1[i];
+  sr_make_id(&id, priv, pub, seed, rnd);
+  CHECK(n > 100);
+  {
+    srvrun_cfg      cfg = {.fd = -1, .id = &id, .env = &g_srvrun_env};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 1000, 0};
+    conntable_init(table, WIRED_CONNTABLE_CAP);
+    st.conns[0].up       = 0;
+    st.conns[0].boot.any = 0;
+    srvrun_serve(&ctx, wired_mspan_of(dg1, n1));
+    CHECK(st.conns[0].boot.any == 1);
+    /* the trickle: the same fragment again, just before the deadline --
+     * fresh activity, so the idle sweep alone would keep the slot */
+    ctx.now_ms = 1000 + SRVRUN_BOOT_DEADLINE_MS - 1;
+    srvrun_serve(&ctx, wired_mspan_of(again, n1));
+    srvrun_sweep_idle(&cfg, &st, ctx.now_ms);
+    CHECK(st.conns[0].boot.any == 1);
+    CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == 0);
+    /* the per-arrival sweep (srvrun_serve_batch) at the deadline reclaims
+     * the boot, one ms after its freshest fragment */
+    srvrun_sweep_idle(&cfg, &st, 1000 + SRVRUN_BOOT_DEADLINE_MS);
+  }
+  CHECK(st.conns[0].boot.any == 0);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
+}
+
+/* V-0061: a slot reassigned to a new client starts from an all-zero
+ * srvrun_conn (srvrun_open_slot's wipe) -- nothing a prior connection left
+ * in its request reassembly buffers, response slots, or WT session state
+ * survives into the new connection. */
+static void test_srvrun_slot_reuse_clears_prior_connection_buffer(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  srvrun_conn*     c    = &st.conns[0];
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  /* leftovers of a prior connection in the physical slot */
+  c->up                      = 0;
+  c->boot.any                = 0;
+  c->wt_active               = 1;
+  c->resp[0].in_use          = 1;
+  c->l.streams[0].in_use     = 1;
+  c->l.streams[0].req_len    = 7;
+  c->l.streams[0].req_buf[0] = 0xAA;
+  c->wt_close_msg[0][0]      = 0xAA;
+  c->l.peer_reset_count      = 5;
+  {
+    srvrun_cfg      cfg = {.fd = -1, .id = &id, .env = &g_srvrun_env};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    conntable_init(table, WIRED_CONNTABLE_CAP);
+    srvrun_serve(&ctx, wired_mspan_of(dg, total));
+  }
+  CHECK(c->up == 1);
+  CHECK(c->wt_active == 0);
+  CHECK(c->resp[0].in_use == 0);
+  CHECK(c->l.streams[0].in_use == 0);
+  CHECK(c->l.streams[0].req_len == 0);
+  CHECK(c->l.streams[0].req_buf[0] == 0);
+  CHECK(c->wt_close_msg[0][0] == 0);
+  CHECK(c->l.peer_reset_count == 0);
+}
+
+/* RFC 9000 17.2.3: a minimal 0-RTT long-header datagram addressed to dcid
+ * (srvrun routes it by that DCID; the boot accumulator only inspects
+ * byte0+version to hold it, so the tail is an arbitrary fingerprint). */
+static usz sr_zerortt_dg(u8* dg, const u8* dcid, u8 dcid_len, u8 fp) {
+  usz n   = 0;
+  dg[n++] = 0xd1; /* long | fixed | type 0-RTT (01) | pn_len-1 = 0 */
+  dg[n++] = 0;
+  dg[n++] = 0;
+  dg[n++] = 0;
+  dg[n++] = 1; /* version 1 */
+  dg[n++] = dcid_len;
+  for (u8 i = 0; i < dcid_len; i++) dg[n++] = dcid[i];
+  dg[n++] = 0;    /* SCID len 0 */
+  dg[n++] = 0x02; /* Length: pn(1) + 1 payload byte */
+  dg[n++] = 0;    /* packet number */
+  dg[n++] = fp;
+  return n;
+}
+
+/* V-0052: every per-connection structure is a fixed inline array inside
+ * srvrun_conn / wired_srvrun_env (no allocator exists), so a peer driving
+ * each sub-limit to its cap at once changes nothing about the footprint --
+ * the caps refuse, they never grow: the pre-boot 0-RTT hold saturates at
+ * WIRED_SRVBOOT_ZERORTT_MAX datagrams, the WT stream slot table at
+ * WIRED_SRVLOOP_MAX_WT_STREAMS, a session's pre-establishment stream buffer
+ * at WIRED_WT_MAX_BUFFERED_STREAMS. */
+static void test_srvrun_conn_state_growth_bounded_under_worst_case_peer(void) {
+  wired_srvboot_id id;
+  client           c;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               ch[512], dg1[1400], z[64];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  wired_wt_session s;
+  usz              n = sr_raw_ch(&c, ch, sizeof ch);
+  usz n1 = sr_seal_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 0);
+  CHECK(n > 100);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = {.fd = -1, .id = &id, .env = &g_srvrun_env};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 1000, 0};
+    conntable_init(table, WIRED_CONNTABLE_CAP);
+    st.conns[0].up       = 0;
+    st.conns[0].boot.any = 0;
+    srvrun_serve(&ctx, wired_mspan_of(dg1, n1)); /* half a ClientHello */
+    for (usz i = 0; i < WIRED_SRVBOOT_ZERORTT_MAX + 2; i++) {
+      usz zn = sr_zerortt_dg(z, g_sr_odcid, 8, (u8)i);
+      srvrun_serve(&ctx, wired_mspan_of(z, zn));
+    }
+  }
+  CHECK(st.conns[0].up == 0);
+  CHECK(
+      wired_srvboot_acc_zerortt_count(&st.conns[0].boot) ==
+      WIRED_SRVBOOT_ZERORTT_MAX);
+  /* the WT stream slot table refuses past its last slot */
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+    CHECK(wired_srvloop_wt_slot_claim(&st.conns[0].l, 4 + 4 * i) >= 0);
+  CHECK(
+      wired_srvloop_wt_slot_claim(
+          &st.conns[0].l, 4 + 4 * WIRED_SRVLOOP_MAX_WT_STREAMS) < 0);
+  /* a session's pre-establishment stream buffer refuses past its last slot */
+  wired_wt_session_init(&s, 4);
+  for (u64 i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++)
+    CHECK(wired_wt_session_offer_stream(&s, 8 + 4 * i) == 1);
+  CHECK(
+      wired_wt_session_offer_stream(
+          &s, 8 + 4 * WIRED_WT_MAX_BUFFERED_STREAMS) == 0);
+  CHECK(sizeof g_srvrun_env.conns == WIRED_CONNTABLE_CAP * sizeof(srvrun_conn));
+}
+
+/* CVE-2026-21438 class (V-0494): incoming WT stream churn -- open, close,
+ * reopen without end -- cannot grow memory: an established session's
+ * incoming streams live in the connection's fixed wt_streams[] slot table
+ * (claim refused once full, a released slot reclaimable by a new id only),
+ * and an unestablished session buffers at most WIRED_WT_MAX_BUFFERED_STREAMS
+ * offers. */
+static void test_srvrun_wt_stream_churn_bounded_by_slot_table(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  for (u64 round = 0; round < 3; round++) {
+    u64 base = 100 + round * 100;
+    for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+      CHECK(wired_srvloop_wt_slot_claim(&c->l, base + 4 * i) >= 0);
+    CHECK(
+        wired_srvloop_wt_slot_claim(
+            &c->l, base + 4 * WIRED_SRVLOOP_MAX_WT_STREAMS) < 0);
+    for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+      wired_srvloop_wt_slot_release(&c->l, base + 4 * i);
+  }
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+    CHECK(c->l.wt_streams[i].in_use == 0);
+}
+
+/* draft-ietf-webtrans-http3-15 SS6 (V-0496): a WT_CLOSE_SESSION capsule
+ * arriving on the CONNECT stream terminates the session on receipt -- it
+ * is not skipped as an unknown capsule -- so a peer that sends the close
+ * but withholds the FIN cannot keep the session (and its slot) open. */
+static void test_srvrun_wt_close_session_capsule_received(void) {
+  struct lp_fix f;
+  wired_obuf    ob  = {0};
+  srvrun_cfg    cfg = sr_wt_send_cfg();
+  u8            obuf[1024], capbuf[64];
+  wired_obuf    capb = obuf_of(capbuf, sizeof capbuf);
+  srvrun_conn*  c;
+  usz           hdr_end;
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  hdr_end                = sr_wtcap_dispatch_headers_stub(c);
+  c->wt_capsule_rx_at[0] = hdr_end;
+  CHECK(
+      wired_wtcapsule_encode_close(
+          &capb, 7, wired_span_of((const u8*)"bye", 3)) == 1);
+  sr_wtcap_dispatch(c, hdr_end, wired_span_of(capbuf, capb.len));
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.state == WIRED_WT_CLOSED);
+  CHECK(c->wt_active == 0);
+}
+
+/* draft-ietf-webtrans-http3-15 SS5.2 (V-0506): a connection cycling
+ * Extended CONNECT sessions open/close/reopen is capped at
+ * SRVRUN_MAX_WT_SESSIONS_PER_WINDOW establishments per window; the next one
+ * takes the 429 path (no session), and a new window admits again. */
+static void test_srvrun_wt_session_creation_rate_limited(void) {
+  struct lp_fix f;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_conn*  conns = g_srvrun_env.conns;
+  wired_obuf    ob;
+  u8            obuf[1024];
+  srvrun_cfg   cfg = {.fd = -1, .handler = sr_wt_handler, .env = &g_srvrun_env};
+  srvrun_state st  = {table, conns};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  u64             sid = 4;
+  bytes_memset(conns, 0, sizeof g_srvrun_env.conns);
+  ob                    = (wired_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  for (u32 i = 0; i < SRVRUN_MAX_WT_SESSIONS_PER_WINDOW; i++, sid += 4) {
+    sr_set_req(&conns[0], 1, 1, sid);
+    srvrun_start_resp(&ctx, 0);
+    CHECK(conns[0].wt_active == 1);
+    srvrun_close_wt_session_slot(
+        &cfg, &conns[0], 0, srvrun_wt_session_gone_code());
+    conns[0].resp[0].in_use = 0;
+  }
+  sr_set_req(&conns[0], 1, 1, sid);
+  srvrun_start_resp(&ctx, 0);
+  CHECK(conns[0].wt_active == 0); /* refused: 429 */
+  conns[0].resp[0].in_use = 0;
+  sid += 4;
+  ctx.now_ms = SRVRUN_RESET_WINDOW_MS;
+  srvrun_roll_reset_window(&conns[0], ctx.now_ms);
+  sr_set_req(&conns[0], 1, 1, sid);
+  srvrun_start_resp(&ctx, 0);
+  CHECK(conns[0].wt_active == 1); /* a fresh window admits again */
+}
+
+/* draft-ietf-webtrans-http3-15 SS8 (V-0512): WebTransport feature usage is
+ * counted -- sessions established, incoming streams offered, datagrams
+ * received -- and readable through wired_srvrun_env_wt_usage. */
+static void test_srvrun_wt_usage_counters_exposed(void) {
+  struct lp_fix f;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_conn*  conns = g_srvrun_env.conns;
+  wired_obuf    ob;
+  u8            obuf[1024];
+  srvrun_cfg   cfg = {.fd = -1, .handler = sr_wt_handler, .env = &g_srvrun_env};
+  srvrun_state st  = {table, conns};
+  srvrun_step_ctx       ctx = {&cfg, 0, &st, 0, 0};
+  wired_srvrun_wt_usage before, after;
+  static const u8       dg[] = {0xaa, 0xbb};
+  bytes_memset(conns, 0, sizeof g_srvrun_env.conns);
+  ob                    = (wired_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  wired_srvrun_env_wt_usage(&g_srvrun_env, &before);
+  sr_set_req(&conns[0], 1, 1, 4);
+  srvrun_start_resp(&ctx, 0);
+  CHECK(conns[0].wt_active == 1);
+  CHECK(wired_srvloop_wt_slot_claim(&conns[0].l, 8) >= 0);
+  srvrun_offer_wt_streams(&cfg, &conns[0]);
+  srvrun_deliver_to_known_session(&cfg, &conns[0].wt, wired_span_of(dg, 2));
+  wired_srvrun_env_wt_usage(&g_srvrun_env, &after);
+  CHECK(after.sessions == before.sessions + 1);
+  CHECK(after.streams == before.streams + 1);
+  CHECK(after.datagrams == before.datagrams + 1);
+}
+
 void test_srvrun(void) {
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
@@ -17812,4 +18176,13 @@ void test_srvrun(void) {
   test_srvrun_reset_flood_threshold_configurable();
   test_srvrun_reset_flood_window_resets_count();
   test_srvrun_connect_concurrency_limit_enforced();
+  test_srvrun_default_config_gates_response_volume_pre_validation();
+  test_srvrun_0rtt_accept_requires_or_limits_unvalidated_address();
+  test_srvrun_slow_trickle_preauth_evicted();
+  test_srvrun_slot_reuse_clears_prior_connection_buffer();
+  test_srvrun_conn_state_growth_bounded_under_worst_case_peer();
+  test_srvrun_wt_stream_churn_bounded_by_slot_table();
+  test_srvrun_wt_close_session_capsule_received();
+  test_srvrun_wt_session_creation_rate_limited();
+  test_srvrun_wt_usage_counters_exposed();
 }

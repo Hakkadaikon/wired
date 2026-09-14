@@ -198,6 +198,25 @@ typedef struct {
  * attacker's value is in thousands per second, so 100/s separates the two
  * with a wide margin and never trips on a burst of browser tab closes. */
 #define SRVRUN_MAX_RESETS_PER_WINDOW 100
+
+/* draft-ietf-webtrans-http3-15 SS5.2: Extended CONNECT sessions one
+ * connection may establish inside one SRVRUN_RESET_WINDOW_MS window (the
+ * same fixed window as the reset limit, srvrun_roll_reset_window); the next
+ * takes the 429 + H3_REQUEST_REJECTED path a full slot table takes. With
+ * SRVRUN_MAX_WT_SESSIONS (2) concurrent, 10/s means a client opening and
+ * closing a session five times a second -- no real app does, a churn
+ * attacker (each accept costs a 2xx, a callback and slot bookkeeping) wants
+ * thousands. */
+#define SRVRUN_MAX_WT_SESSIONS_PER_WINDOW 10
+
+/* RFC 9000 21.6 (Slowloris): a boot must confirm within this many ms of
+ * claiming its slot, whatever its last fragment's age -- the idle sweep
+ * alone lets a peer hold a pre-handshake slot forever by trickling one
+ * Initial fragment (or Initial retransmit) just inside WIRED_SRVRUN_IDLE_MS
+ * (30 s). 10 s clears even a 2 s-RTT path through a HelloRetryRequest round
+ * trip plus a two-round antiamp-gated flight, and stays under the idle
+ * timeout so the sweep's existing cadence reaps it. */
+#define SRVRUN_BOOT_DEADLINE_MS 10000
 #define SRVRUN_RESET_WINDOW_MS 1000
 
 /* Pending wired_server_wt_stream_reset entries one connection holds between
@@ -589,6 +608,10 @@ typedef struct {
   u8 retry_odcid[WIRED_MAX_CID_LEN];
   /** Bytes used in retry_odcid; 0 = no Retry happened on this slot. */
   u8 retry_odcid_len;
+  /** RFC 9000 21.6: monotonic ms this slot was claimed (srvrun_open_slot);
+   * a boot still unconfirmed SRVRUN_BOOT_DEADLINE_MS later is reaped by the
+   * idle sweep regardless of last_ms (srvrun_boot_overdue). */
+  u64 boot_claim_ms;
   /** Server-initiated WebTransport stream sends in flight on this
    * connection (wired_server_wt_open_uni/open_bidi/stream_reply), pumped/
    * ACKed/probed alongside resp[] under the same connection-wide gates. */
@@ -763,6 +786,10 @@ typedef struct {
    * SRVRUN_RESET_WINDOW_MS window began; l.peer_reset_count is cleared when
    * a step starts a new one (srvrun_roll_reset_window). */
   u64 reset_window_start_ms;
+  /** draft-ietf-webtrans-http3-15 SS5.2: Extended CONNECT sessions
+   * established in the current window (srvrun_start_wt), cleared with it
+   * (srvrun_roll_reset_window); SRVRUN_MAX_WT_SESSIONS_PER_WINDOW refuses. */
+  u32 wt_sess_window_count;
 } srvrun_conn;
 
 /* Response storage, one row per (connection slot, response slot): 64-byte
@@ -1004,12 +1031,22 @@ struct wired_srvrun_env {
    * rather than a srvrun_cfg member for the same reason as rx_fd above:
    * every positional srvrun_cfg initializer in the tests keeps compiling. */
   u32 max_resets_per_window;
+  /* draft-ietf-webtrans-http3-15 SS8: WebTransport feature-usage totals
+   * (wired_srvrun_env_wt_usage) -- sessions established (srvrun_start_wt),
+   * incoming streams offered to a session (srvrun_offer_wt_slot/_uni_slot),
+   * datagrams received for a session (srvrun_deliver_to_known_session). */
+  wired_srvrun_wt_usage wt_usage;
 };
 
 /* The one process-wide instance wired_server_run/wired_server_run_opt drive
  * -- a single-threaded server needs exactly one. wired_srvrun_serve_env lets
  * a caller supply its own instead, for more than one independent loop. */
 static wired_srvrun_env g_srvrun_env;
+
+void wired_srvrun_env_wt_usage(
+    const wired_srvrun_env* env, wired_srvrun_wt_usage* out) {
+  *out = env->wt_usage;
+}
 
 /* Aliases so every existing reference below (and in tests/app/srvrun_test.c,
  * which reaches into these by name) keeps compiling unchanged against the one
@@ -1876,7 +1913,8 @@ static usz srvrun_wt_active_total(const wired_srvrun_env* env) {
  * taken, or SRVRUN_MAX_WT_SESSIONS_GLOBAL is reached server-wide. */
 static int srvrun_wt_no_room(const srvrun_cfg* cfg, const srvrun_conn* c) {
   return srvrun_wt_free_slot(c) < 0 ||
-         srvrun_wt_active_total(cfg->env) >= SRVRUN_MAX_WT_SESSIONS_GLOBAL;
+         srvrun_wt_active_total(cfg->env) >= SRVRUN_MAX_WT_SESSIONS_GLOBAL ||
+         c->wt_sess_window_count >= SRVRUN_MAX_WT_SESSIONS_PER_WINDOW;
 }
 
 /* The first active session slot willing to accept stream_id: one it already
@@ -1927,6 +1965,7 @@ static void srvrun_offer_wt_slot(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
   int sidx = srvrun_wt_slot_for_new_stream(c);
   if (sidx < 0) return;
+  cfg->env->wt_usage.streams++;
   if (!wired_wt_session_offer_stream(
           srvrun_wt_slot(c, sidx), slot->stream_id)) {
     srvrun_reject_wt_slot(cfg, c, slot->stream_id);
@@ -2194,6 +2233,7 @@ static int wt_session_receive_side_closed(const wired_wt_session* s) {
 static void srvrun_deliver_to_known_session(
     const srvrun_cfg* cfg, wired_wt_session* s, wired_span data) {
   int deliver = srvrun_dg_should_deliver(cfg, s);
+  cfg->env->wt_usage.datagrams++;
   wired_wt_session_offer_datagram(s, data);
   if (deliver) cfg->wt_on_datagram(cfg->wt_datagram_ctx, s, data);
 }
@@ -2254,6 +2294,7 @@ static void srvrun_offer_wt_uni_slot(
     wired_srvloop_wt_uni_stream_slot* slot) {
   int sidx = srvrun_wt_slot_for_new_stream(c);
   if (sidx < 0) return;
+  cfg->env->wt_usage.streams++;
   if (!wired_wt_session_offer_stream(
           srvrun_wt_slot(c, sidx), slot->stream_id)) {
     srvrun_reject_wt_slot(cfg, c, slot->stream_id);
@@ -3004,10 +3045,15 @@ static void srvrun_wt_capsule_raise(wired_wt_session* s, u64 type, u64 v) {
  * (RFC 9297 SS3.2). Returns 0 only for a MALFORMED known type -- a body that
  * is not exactly one varint (RFC 9297 SS3.3) -- which the caller turns into
  * a session close. */
+/* draft-ietf-webtrans-http3-15 SS6: a received WT_CLOSE_SESSION terminates
+ * the session on the spot (not skipped as unknown) -- the caller's close
+ * resets the session's streams with WT_SESSION_GONE and frees the slot, so
+ * a peer that sends the close but withholds the CONNECT stream's FIN
+ * cannot keep the session alive. */
 static int srvrun_wt_capsule_apply(
     wired_wt_session* s, u64 type, wired_span value) {
   u64 v;
-  if (!srvrun_wt_capsule_flow_type(type)) return 1;
+  if (!srvrun_wt_capsule_flow_type(type)) return type != WTCAPSULE_TYPE_CLOSE;
   if (!wtcapsule_value_varint(value, &v)) return 0;
   srvrun_wt_capsule_raise(s, type, v);
   return 1;
@@ -3015,7 +3061,8 @@ static int srvrun_wt_capsule_apply(
 
 /* Decode every complete capsule at *at and apply it; stops at the first
  * incomplete one (benign: wait for more bytes, RFC 9297 SS3.2). Returns 0 on
- * the first malformed capsule (srvrun_wt_capsule_apply). */
+ * the first malformed capsule, or a WT_CLOSE_SESSION (srvrun_wt_capsule_
+ * apply) -- the session ends either way. */
 static int srvrun_wt_rx_capsule_loop(
     wired_wt_session* s, wired_span data, usz* at) {
   u64        type;
@@ -3347,6 +3394,7 @@ static void srvrun_roll_reset_window(srvrun_conn* c, u64 now_ms) {
   if (now_ms - c->reset_window_start_ms < SRVRUN_RESET_WINDOW_MS) return;
   c->reset_window_start_ms = now_ms;
   c->l.peer_reset_count    = 0;
+  c->wt_sess_window_count  = 0; /* same window, SS5.2 session churn */
 }
 
 static u32 srvrun_reset_limit(const srvrun_cfg* cfg) {
@@ -4894,12 +4942,24 @@ static int srvrun_idle_due(const srvrun_conn* c, u64 now_ms) {
   return srvrun_slot_busy(c) && now_ms - c->last_ms >= WIRED_SRVRUN_IDLE_MS;
 }
 
-/* RFC 9000 10.1: silently discard every connection idle past the advertised
- * max_idle_timeout, freeing its slot for a new client. */
+/* RFC 9000 21.6: 1 if c is a boot (claimed, not yet confirmed) older than
+ * SRVRUN_BOOT_DEADLINE_MS -- reaped however fresh its last fragment is. */
+static int srvrun_boot_overdue(const srvrun_conn* c, u64 now_ms) {
+  if (!srvrun_slot_busy(c) || wired_server_is_confirmed(&c->s)) return 0;
+  return now_ms - c->boot_claim_ms >= SRVRUN_BOOT_DEADLINE_MS;
+}
+
+static int srvrun_reap_due(const srvrun_conn* c, u64 now_ms) {
+  return srvrun_idle_due(c, now_ms) || srvrun_boot_overdue(c, now_ms);
+}
+
+/* RFC 9000 10.1 / 21.6: silently discard every connection idle past the
+ * advertised max_idle_timeout, and every boot past its deadline, freeing
+ * the slot for a new client. */
 static void srvrun_sweep_idle(
     const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms) {
   for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
-    if (srvrun_idle_due(&st->conns[i], now_ms))
+    if (srvrun_reap_due(&st->conns[i], now_ms))
       srvrun_free_slot(cfg, st, (int)i);
 }
 
@@ -5310,6 +5370,8 @@ static void srvrun_start_wt(
   wired_wt_session_init(srvrun_wt_slot(c, sidx), c->l.req_stream_id);
   wired_wt_session_establish(srvrun_wt_slot(c, sidx));
   (*srvrun_wt_active_slot(c, sidx)) = 1;
+  c->wt_sess_window_count++;
+  cfg->env->wt_usage.sessions++;
   srvrun_wt_record_path(c, sidx);
   srvrun_start_wt_status(cfg->env, slot, c, r, 200, p.sfv_len ? &f : 0);
   /* wt_connect_sent_len's own doc: the 2xx HEADERS frame's byte length is
@@ -8191,11 +8253,12 @@ static int srvrun_open_slot(
     const srvrun_step_ctx* ctx, wired_span dcid, int is_initial) {
   int slot = srvrun_claim_slot(ctx, dcid, is_initial);
   if (slot < 0) return -1;
-  ctx->st->conns[slot]              = (srvrun_conn){0};
-  ctx->st->conns[slot].peer         = *ctx->peer;
-  ctx->st->conns[slot].qlog_slot    = (u64)slot;
-  ctx->st->conns[slot].l.qlog_path  = ctx->cfg->qlog_path;
-  ctx->st->conns[slot].l.qlog_group = (u64)slot;
+  ctx->st->conns[slot]               = (srvrun_conn){0};
+  ctx->st->conns[slot].peer          = *ctx->peer;
+  ctx->st->conns[slot].boot_claim_ms = ctx->now_ms;
+  ctx->st->conns[slot].qlog_slot     = (u64)slot;
+  ctx->st->conns[slot].l.qlog_path   = ctx->cfg->qlog_path;
+  ctx->st->conns[slot].l.qlog_group  = (u64)slot;
   cc_init_algo(&ctx->st->conns[slot].cc, srvrun_cc_algo(ctx->cfg));
   ecn_track_init(&ctx->st->conns[slot].ecn);
   hystart_init(&ctx->st->conns[slot].hs);

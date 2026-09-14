@@ -261,7 +261,13 @@ typedef struct {
   /** RFC 9000 8.1.2: 1 = answer every tokenless Initial with a stateless
    * Retry and only accept Initials presenting a valid Retry token (the
    * quic-interop-runner retry testcase's server mode). 0 (the default) =
-   * accept directly, never send Retry. */
+   * accept directly, never send Retry -- the RFC's own recommendation
+   * (Retry costs every client a round trip; use it under load). The
+   * default is safe against a spoofed source address even with 0-RTT
+   * (RFC 9001 4.6.1): no 1-RTT response byte leaves before the client's
+   * Finished verifies, which per RFC 9000 8.1 validates the address, and
+   * everything sent before that (the boot flight) is bound by the 3x
+   * anti-amplification budget. */
   int force_retry;
   /** draft-ietf-webtrans-http3-15 SS3.2: app-facing :authority/:path
    * resource lookup, 0 to disable (the default) -- with 0, every recognized
@@ -322,6 +328,22 @@ usz wired_srvrun_env_size(void);
 /** Zero-initialize env (its connection table, response/rx storage, and
  * pacing scratch) before its first use with wired_srvrun_serve_env. */
 void wired_srvrun_env_init(wired_srvrun_env* env);
+
+/** draft-ietf-webtrans-http3-15 SS8: WebTransport feature-usage totals for
+ * one env, monotonic since wired_srvrun_env_init -- the operational
+ * visibility the draft asks servers to keep for anomaly detection. */
+typedef struct {
+  u64 sessions;  /**< Extended CONNECT sessions established */
+  u64 streams;   /**< incoming WT bidi/uni streams offered to a session */
+  u64 datagrams; /**< HTTP Datagrams received for a session */
+} wired_srvrun_wt_usage;
+
+/** Snapshot env's WebTransport usage counters into *out.
+ * @param env the loop instance (the process-wide one for wired_server_run
+ *   callers is not addressable; use wired_srvrun_serve_env's)
+ * @param out receives the totals */
+void wired_srvrun_env_wt_usage(
+    const wired_srvrun_env* env, wired_srvrun_wt_usage* out);
 
 /** Same as wired_server_run_opt, but driven off caller-owned `env` instead
  * of the SDK's single process-wide instance -- lets a caller run more than
