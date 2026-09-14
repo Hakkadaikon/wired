@@ -2,6 +2,7 @@
 #define WIRED_MOQTRUN_H
 
 #include "app/http3/server/srvrun/srvrun.h"
+#include "app/moqt/ctl/moqctl.h"
 #include "app/moqt/data/moqdata.h"
 #include "app/moqt/sess/moqsess.h"
 #include "common/bytes/span/span.h"
@@ -278,11 +279,26 @@ typedef struct {
   int sent_any[WIRED_MOQTRUN_MAX_SUBS];   /**< 0 until the first send */
 } wired_moqtrun_live;
 
+/** draft-ietf-moq-transport-19 SS13.3 subscriber authorization hook: the
+ * hub calls it once per SUBSCRIBE with the requested Full Track Name and
+ * the presented AUTHORIZATION TOKEN (Alias Type USE_VALUE; 0 when the
+ * message carried none). Return non-zero to grant, 0 to answer
+ * REQUEST_ERROR UNAUTHORIZED. The token scheme (CAT / Privacy Pass) is the
+ * deployment's to verify -- this SDK carries the bytes, not the policy. */
+typedef int (*wired_moqt_authorize_fn)(
+    void* ctx, const moqctl_ftn* name, const moqctl_token* token);
+
 /** The hub's whole state: fixed peer table plus the io table it sends
  * through. Zero-initialize with wired_moqt_init before first use. */
 typedef struct {
   wired_moqtrun_peer peers[WIRED_MOQTRUN_MAX_SESSIONS];
   wired_moqt_io      io;
+  /** Subscriber authorizer (SS13.3); 0 (the wired_moqt_init default)
+   * means an open hub that grants every SUBSCRIBE -- the sample-room
+   * policy, not one for a public relay, which sets this. */
+  wired_moqt_authorize_fn authorize_subscribe;
+  /** Opaque first argument handed to authorize_subscribe. */
+  void* authorize_ctx;
   /** The hub's own static track (wired_moqt_publish_blob): in_use once a
    * blob is published, name/own_alias as given there, subs[] recording
    * which peers have already been sent it (relays[] unused). */

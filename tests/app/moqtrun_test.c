@@ -647,6 +647,122 @@ static void test_moqtrun_subscribe_ok_carries_no_timeout_param(void) {
   CHECK(ok.params.n == 0);
 }
 
+/* ===================== 4b. subscriber authorization (draft SS13.3)
+ * ===================== */
+
+/* Golden SUBSCRIBE with one AUTHORIZATION TOKEN parameter (draft SS10.2.2:
+ * Type 0x03, Length-prefixed Token bytes) appended: Num Params (offset 22)
+ * becomes 1 and the 16-bit Message Length is backpatched. */
+static usz mtauth_subscribe_with_token(u8* dst, const u8* tok, usz n) {
+  bytes_memcpy(dst, g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN);
+  dst[22] = 0x01;
+  dst[23] = 0x03; /* Type Delta from 0 = AUTHORIZATION TOKEN */
+  dst[24] = (u8)n;
+  bytes_memcpy(dst + 25, tok, n);
+  u16 len = (u16)(G_MOQT_CTL_SUBSCRIBE_BASIC_MSG_LEN + 2 + n);
+  dst[1]  = (u8)(len >> 8);
+  dst[2]  = (u8)(len & 0xFF);
+  return G_MOQT_CTL_SUBSCRIBE_BASIC_LEN + 2 + n;
+}
+
+/* Recording authorizer: counts calls, remembers what it was shown, answers
+ * mtauth_allow. token==0 is remembered as type (u64)-1. */
+static int mtauth_allow;
+static u64 mtauth_seen_type;
+static usz mtauth_seen_value_len;
+static usz mtauth_seen_name_len;
+static int mtauth_authorize(
+    void* ctx, const moqctl_ftn* name, const moqctl_token* token) {
+  *(int*)ctx += 1;
+  mtauth_seen_name_len  = name->name.n;
+  mtauth_seen_type      = token ? token->token_type : (u64)-1;
+  mtauth_seen_value_len = token ? token->value.n : 0;
+  return mtauth_allow;
+}
+
+static u64 mtauth_last_error_code(void) {
+  const moqtrun_test_call* c   = moqtrun_test_last_kind(3);
+  usz                      off = 0;
+  u64                      type;
+  wired_span               body;
+  moqctl_request_error     e;
+  usz                      body_off = 0;
+  if (moqctl_peek_type(
+          wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
+      MOQCTL_OK)
+    return (u64)-1;
+  if (type != MOQCTL_T_REQUEST_ERROR) return (u64)-1;
+  if (moqctl_request_error_take(body, &body_off, &e) != MOQCTL_OK)
+    return (u64)-1;
+  return e.error_code;
+}
+
+static usz mtauth_active_subs(const wired_moqtrun_track* t) {
+  usz n = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) n += t->subs[i].active != 0;
+  return n;
+}
+
+/* draft SS13.3: a relay verifies the presented token before granting a
+ * subscription. With an authorizer installed, every SUBSCRIBE is shown to
+ * it (Full Track Name + the USE_VALUE token, or no token): a refusal is
+ * REQUEST_ERROR UNAUTHORIZED with no sub slot consumed; an acceptance is
+ * SUBSCRIBE_OK as before. */
+static void test_moqtrun_subscribe_requires_authorization(void) {
+  static const u8 tok[] = {0x03, 0x01, 'o', 'k'};
+  u8              msg[MOQTRUN_TEST_MAX_PAYLOAD];
+  int             calls = 0;
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  hub.authorize_subscribe = mtauth_authorize;
+  hub.authorize_ctx       = &calls;
+  moqtrun_test_publish_alice(&hub);
+  wired_moqt_on_session(&hub, SESS_B, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+
+  mtauth_allow = 0;
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+  CHECK(calls == 1);
+  CHECK(mtauth_seen_name_len == 5); /* "alice" */
+  CHECK(mtauth_seen_type == (u64)-1);
+  CHECK(mtauth_last_error_code() == MOQCTL_ERR_UNAUTHORIZED);
+  CHECK(mtauth_active_subs(&hub.peers[0].tracks[0]) == 0);
+
+  mtauth_allow = 1;
+  moqtrun_test_reset();
+  usz n = mtauth_subscribe_with_token(msg, tok, sizeof tok);
+  wired_moqt_on_stream_data(&hub, SESS_B, ctrl_b, wired_span_of(msg, n), 0);
+  CHECK(calls == 2);
+  CHECK(mtauth_seen_type == 1);
+  CHECK(mtauth_seen_value_len == 2);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(mtauth_active_subs(&hub.peers[0].tracks[0]) == 1);
+}
+
+/* draft SS10.2.2 / SS10.3.1.3: this hub never advertises
+ * MAX_AUTH_TOKEN_CACHE_SIZE, so its token cache is 0 bytes and Alias-based
+ * Tokens (REGISTER here) cannot be honoured: the request is refused with
+ * MALFORMED_AUTH_TOKEN even on an open hub, and no sub slot is consumed. */
+static void test_moqtrun_subscribe_alias_token_rejected(void) {
+  static const u8 reg[] = {0x01, 0x07, 0x01, 'x'};
+  u8              msg[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  wired_moqt_on_session(&hub, SESS_B, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+
+  usz n = mtauth_subscribe_with_token(msg, reg, sizeof reg);
+  wired_moqt_on_stream_data(&hub, SESS_B, ctrl_b, wired_span_of(msg, n), 0);
+  CHECK(mtauth_last_error_code() == MOQCTL_ERR_MALFORMED_AUTH_TOKEN);
+  CHECK(mtauth_active_subs(&hub.peers[0].tracks[0]) == 0);
+}
+
 /* ===================== 5. unsupported / non-relay traffic
  * ===================== */
 
@@ -2700,6 +2816,8 @@ void test_moqtrun(void) {
   test_moqtrun_object_relay_two_subscribers_two_objects();
   test_moqtrun_subscribe_nonzero_timeout_rejected();
   test_moqtrun_subscribe_ok_carries_no_timeout_param();
+  test_moqtrun_subscribe_requires_authorization();
+  test_moqtrun_subscribe_alias_token_rejected();
   test_moqtrun_unknown_first_type_gets_not_supported();
   test_moqtrun_goaway_on_request_stream_produces_no_reply();
   test_moqtrun_padding_stream_discarded();
