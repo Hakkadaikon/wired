@@ -221,6 +221,7 @@ fuzz-ci secs="120":
     just fuzz-tlsmsg && ./fuzz/fuzz_tlsmsg -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_tlsmsg
     just fuzz-frames && ./fuzz/fuzz_frames -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_frames
     just fuzz-capsule && ./fuzz/fuzz_capsule -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_capsule
+    just fuzz-moqt && ./fuzz/fuzz_moqt -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_moqt
     just fuzz-mp4frag && ./fuzz/fuzz_mp4frag -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_mp4frag
 
 # per-PR gate: each harness builds and survives exactly 1 run (libFuzzer
