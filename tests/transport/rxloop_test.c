@@ -60,9 +60,40 @@ static void test_rx_split_cap(void) {
   CHECK(udploop_split(wired_span_of(dg, 4), &out) == 0);
 }
 
+/* GHSA-hxq4-mx37-fqvg class (s2n-quic, V-0490): a legitimate zero-length
+ * UDP datagram must not crash or be mistaken for coalesced packet data.
+ * Real loopback send/recv (socket() may be sandbox-denied -- benign skip,
+ * same convention as udp_test.c's test_udp_socket_dualstack). */
+static void test_udploop_rx_zero_length_datagram_no_crash(void) {
+  i64 fd = wired_udp_socket();
+  if (fd < 0) return;
+  sockaddr loop;
+  wired_udp_addr(&loop, 0, (const u8[4]){127, 0, 0, 1});
+  if (wired_udp_bind(fd, &loop) < 0) {
+    wired_udp_close(fd);
+    return;
+  }
+  sockaddr bound;
+  u64      addrlen = sizeof(bound);
+  if (syscall3(51 /* getsockname */, fd, (i64)&bound, (i64)&addrlen) < 0) {
+    wired_udp_close(fd);
+    return;
+  }
+  CHECK(wired_udp_send(fd, &bound, wired_span_of((const u8*)"", 0)) == 0);
+
+  u8        buf[64];
+  const u8* pkts[4];
+  usz       offs[4], lens[4];
+  pktlist   out = {pkts, offs, lens, 4};
+  usz       got = udploop_rx(fd, wired_mspan_of(buf, sizeof buf), &out);
+  CHECK(got == 0); /* no packet handed to frame/coalesce parsing */
+  wired_udp_close(fd);
+}
+
 void test_rxloop(void) {
   test_rx_split_two();
   test_rx_split_one();
   test_rx_split_empty();
   test_rx_split_cap();
+  test_udploop_rx_zero_length_datagram_no_crash();
 }

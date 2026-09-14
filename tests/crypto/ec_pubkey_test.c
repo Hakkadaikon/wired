@@ -123,12 +123,28 @@ static void test_ec_pubkey384_bad_tag(void) {
   CHECK(x509_ec_pubkey384(wired_span_of(key, sizeof(key)), x, y) == 0);
 }
 
+/* CVE-2024-34703 / CVE-2019-1547 class (botan/openssl: unbounded or
+ * cofactor-less generic EC-parameter decoding): this SDK has no generic
+ * curve decoder, only x509_ec_pubkey (P-256) and x509_ec_pubkey384 (P-384),
+ * each keyed on a fixed SPKI BIT STRING length. A key of any other length
+ * (i.e. any curve other than the two named ones) is rejected by both, so
+ * there is no code path that could ever decode an oversized/unknown-curve
+ * parameter set. */
+static void test_ec_pubkey_rejects_unknown_curve_length(void) {
+  u8 key[82] = {0}, x32[32], y32[32], x48[48], y48[48];
+  key[0]     = 0x00;
+  key[1]     = 0x04; /* uncompressed tag, but 82 bytes matches neither curve */
+  CHECK(x509_ec_pubkey(wired_span_of(key, sizeof(key)), x32, y32) == 0);
+  CHECK(x509_ec_pubkey384(wired_span_of(key, sizeof(key)), x48, y48) == 0);
+}
+
 void test_ec_pubkey(void) {
   test_ec_pubkey_extract();
   test_ec_pubkey_bad();
   test_ec_pubkey_compressed_odd();
   test_ec_pubkey_compressed_even_selects_other_root();
   test_ec_pubkey_bad_tag();
+  test_ec_pubkey_rejects_unknown_curve_length();
   test_ec_pubkey384_compressed_odd();
   test_ec_pubkey384_compressed_even_selects_other_root();
   test_ec_pubkey384_bad_tag();

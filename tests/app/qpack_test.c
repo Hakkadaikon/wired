@@ -91,6 +91,28 @@ static void test_qpack_string_decode_oversized_length_rejected(void) {
   CHECK(ob.len == 0);
 }
 
+/* CVE-2024-34161 class (V-0433): a length header that claims more octets
+ * than actually follow in the input span must be rejected by str_value's
+ * own `h->off + h->len > buf.n` check, not merely by the destination
+ * capacity. The declared length (50) is well within the 64-byte cap, but
+ * only 3 bytes actually follow the header in buf -- isolating the
+ * input-span bounds check from the separate output-capacity check that
+ * test_qpack_string_decode_oversized_length_rejected already covers. */
+static void test_qpack_string_decode_truncated_input_rejected(void) {
+  u8        buf[8];
+  qpack_pfx pfx = {7, 0};
+  usz       w   = qpack_int_encode(wired_mspan_of(buf, sizeof buf), pfx, 50);
+  CHECK(w != 0);
+  buf[w]     = 'a';
+  buf[w + 1] = 'b';
+  buf[w + 2] = 'c'; /* only 3 payload bytes follow, not the claimed 50 */
+
+  u8         out[64];
+  wired_obuf ob = obuf_of(out, sizeof out);
+  CHECK(qpack_string_decode(wired_span_of(buf, w + 3), &ob) == 0);
+  CHECK(ob.len == 0);
+}
+
 /* Pinning: RFC 9204 4.1.1 -- the continuation encoding must not accept a
  * value beyond the 64-bit ceiling; take_group's `m > 56` guard rejects a
  * tenth continuation group (shift 63) even when a terminating byte follows
@@ -134,6 +156,7 @@ void test_qpack(void) {
   test_qpack_string();
   test_qpack_static_table();
   test_qpack_string_decode_oversized_length_rejected();
+  test_qpack_string_decode_truncated_input_rejected();
   test_qpack_integer_decode_64bit_overflow_rejected();
   test_qpack_string_decode_fuzz_no_overflow();
 }
