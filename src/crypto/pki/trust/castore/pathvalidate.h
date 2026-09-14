@@ -5,6 +5,16 @@
 #include "common/platform/sys/syscall.h"
 #include "crypto/pki/trust/castore/castore.h"
 
+/** Longest path castore_validate_chain examines, in certificates (leaf and
+ * trust-anchor-issued tail included). Name-constraint checking costs
+ * O(n_certs^2 x subtree entries) and policy folding O(n_certs), so without
+ * a bound the peer that sent the chain chooses the verifier's work
+ * (CVE-2018-16875 / CVE-2024-34702 class). 10 equals TLS_CERT_CHAIN_MAX
+ * (tls/handshake/core/tls/cert.h), the only producer of a path in this
+ * SDK, so no chain the handshake can deliver is cut off; a longer path
+ * fails closed (rejected before any per-certificate work). */
+#define CASTORE_PATH_MAX_CERTS 10
+
 /* RFC 5280 6.1. Validate a certificate path certs[0..n_certs) ordered leaf
  * first. certs[0] (the leaf, a server certificate) must permit
  * id-kp-serverAuth per its extKeyUsage (RFC 5280 4.2.1.12; absent extension

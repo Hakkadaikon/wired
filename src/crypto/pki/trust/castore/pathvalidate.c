@@ -54,18 +54,22 @@ static int cert_self_issued(wired_span cert) {
   return x509_dn_equal(iss, subj);
 }
 
-/* RFC 5280 4.2. cert carries no unrecognized critical extension. */
-static int cert_known_critical_ok(wired_span cert) {
+/* RFC 5280 4.2. cert carries no unrecognized critical extension and no
+ * extnID more than once ("MUST NOT include more than one instance of a
+ * particular extension" -- a second nameConstraints/basicConstraints/...
+ * instance would otherwise be silently ignored by x509_find_ext). */
+static int cert_extensions_ok(wired_span cert) {
   x509 c;
   if (!x509_parse(cert, &c)) return 0;
-  return !x509_has_unknown_critical(c.tbs);
+  if (x509_has_unknown_critical(c.tbs)) return 0;
+  return !x509_has_duplicate_ext(c.tbs);
 }
 
-/* Every certificate in the path (leaf through tail) is free of unrecognized
- * critical extensions (RFC 5280 4.2 MUST reject). */
-static int no_unknown_critical(const wired_span* certs, usz n_certs) {
+/* Every certificate in the path (leaf through tail) passes the RFC 5280 4.2
+ * extension checks (unknown-critical and duplicate both MUST reject). */
+static int all_extensions_ok(const wired_span* certs, usz n_certs) {
   for (usz i = 0; i < n_certs; i++)
-    if (!cert_known_critical_ok(certs[i])) return 0;
+    if (!cert_extensions_ok(certs[i])) return 0;
   return 1;
 }
 
@@ -345,10 +349,10 @@ static int no_duplicate_certs(const wired_span* certs, usz n_certs) {
   return 1;
 }
 
-/* Every certificate is hygienic: no unknown-critical extension, and it does
- * not repeat an earlier certificate in the path. */
+/* Every certificate is hygienic: its extensions pass RFC 5280 4.2, and it
+ * does not repeat an earlier certificate in the path. */
 static int certs_hygienic(const wired_span* certs, usz n_certs) {
-  if (!no_unknown_critical(certs, n_certs)) return 0;
+  if (!all_extensions_ok(certs, n_certs)) return 0;
   return no_duplicate_certs(certs, n_certs);
 }
 
@@ -384,9 +388,17 @@ static int path_ok(const wired_span* certs, usz n_certs) {
   return path_body_ok(certs, n_certs);
 }
 
+/* n_certs is at least the leaf and at most CASTORE_PATH_MAX_CERTS (see the
+ * header: the bound is what keeps the quadratic name-constraint walk and
+ * the policy fold peer-independent). Checked before any per-certificate
+ * work so an over-long path costs nothing. */
+static int path_len_ok(usz n_certs) {
+  return n_certs >= 1 && n_certs <= CASTORE_PATH_MAX_CERTS;
+}
+
 int castore_validate_chain(
     const castore* s, const wired_span* certs, usz n_certs) {
-  if (n_certs < 1) return 0;
+  if (!path_len_ok(n_certs)) return 0;
   if (!path_ok(certs, n_certs)) return 0;
   return tail_anchored(s, certs[n_certs - 1]);
 }
