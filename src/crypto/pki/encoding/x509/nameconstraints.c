@@ -4,6 +4,7 @@
 #include "crypto/pki/encoding/asn1/der.h"
 #include "crypto/pki/encoding/asn1/derseq.h"
 #include "crypto/pki/encoding/x509/chain.h"
+#include "crypto/pki/encoding/x509/dirstring.h"
 #include "crypto/pki/encoding/x509/san.h"
 #include "crypto/pki/encoding/x509/x509.h"
 
@@ -64,35 +65,15 @@ static int subtree_base(wired_span subtree, u8* tag, wired_span* base) {
   return derseq_next(&c, tag, base);
 }
 
-/* 1 if the two byte spans of equal length differ nowhere. */
-static int nc_bytes_eq(const u8* a, const u8* b, usz n) {
-  usz diff = 0;
-  for (usz i = 0; i < n; i++) diff |= (usz)(a[i] ^ b[i]);
-  return diff == 0;
-}
-
 /* RFC 5280 4.2.1.10 / 7.1: name is within base's directoryName subtree iff
- * base's RDN sequence is a prefix, RDN-for-RDN, of name's RDN sequence. Name
- * is itself a SEQUENCE OF RelativeDistinguishedName, so comparing the
- * SEQUENCE *contents* (their tag+length header stripped) as a byte prefix
- * cannot straddle into the middle of an RDN's own tag+length: each RDN is a
- * self-delimiting TLV, so a byte-exact prefix of whole RDNs is necessarily a
- * boundary-aligned prefix (RFC 5280 does not require DN-component
- * normalization for this SDK's no-mapping subtree check). Comparing base's
- * own outer SEQUENCE TLV (header included) against name's would instead
- * compare unrelated length octets when the two Names have a different total
- * encoded length, which is the common case for a base that is a strict
- * ancestor. */
-static int rdns_prefix_ok(wired_span base_rdns, wired_span name_rdns) {
-  if (base_rdns.n > name_rdns.n) return 0;
-  return nc_bytes_eq(base_rdns.p, name_rdns.p, base_rdns.n);
-}
-
+ * base's RDN sequence is a prefix, RDN for RDN, of name's. Each RDN pair is
+ * compared with the same RFC 4518 caseIgnoreMatch rules as x509_dn_equal_ci
+ * (dirstring.h): RFC 5280 4.2.1.10 wants the base "stated identically to
+ * the encoding used in the subject", but a subject spelled with different
+ * DirectoryString case than an excludedSubtrees base must not escape it,
+ * and a permittedSubtrees base must admit the subject it names. */
 static int dn_within_base(wired_span base, wired_span name) {
-  wired_span base_rdns, name_rdns;
-  if (!der_seq(base, &base_rdns)) return 0;
-  if (!der_seq(name, &name_rdns)) return 0;
-  return rdns_prefix_ok(base_rdns, name_rdns);
+  return x509_dn_prefix_ci(base, name);
 }
 
 /* RFC 5280 4.2.1.10: base's octets equal name's trailing octets,
@@ -221,9 +202,29 @@ static int typed_name_ok(
   return typed_excluded_ok(seq, want, name, m);
 }
 
+/* Number of GeneralSubtree elements in one half (0 if the half is absent). */
+static usz half_count(wired_span seq, u8 half) {
+  derseq     c;
+  u8         tag;
+  wired_span subtrees, e;
+  usz        n = 0;
+  if (!nc_half(seq, half, &subtrees)) return 0;
+  derseq_init(&c, subtrees);
+  while (derseq_next(&c, &tag, &e)) n++;
+  return n;
+}
+
+/* The extension carries more GeneralSubtree entries than
+ * X509_NC_SUBTREES_MAX (see the header): unusable, fail closed. */
+static int nc_too_many(wired_span seq) {
+  return half_count(seq, NC_PERMITTED_TAG) + half_count(seq, NC_EXCLUDED_TAG) >
+         X509_NC_SUBTREES_MAX;
+}
+
 int x509_name_constraints_permit(wired_span cert_tbs, wired_span subject) {
   wired_span seq;
   if (!nc_locate(cert_tbs, &seq)) return 1;
+  if (nc_too_many(seq)) return 0;
   return typed_name_ok(seq, NC_DIRECTORYNAME_TAG, subject, dn_within_base);
 }
 
@@ -359,9 +360,15 @@ static int child_subject_ok(wired_span seq, wired_span child_tbs) {
   return typed_name_ok(seq, NC_DIRECTORYNAME_TAG, subj, dn_within_base);
 }
 
+/* The extension is one this SDK will evaluate at all: no malformed
+ * iPAddress base, and within the GeneralSubtree count bound. */
+static int nc_usable(wired_span seq) {
+  return !ip_bases_malformed(seq) && !nc_too_many(seq);
+}
+
 /* A usable extension admits the child's subject and its names. */
 static int nc_admit(wired_span seq, wired_span child_tbs) {
-  if (ip_bases_malformed(seq)) return 0;
+  if (!nc_usable(seq)) return 0;
   if (!child_subject_ok(seq, child_tbs)) return 0;
   return child_names_ok(seq, child_tbs);
 }

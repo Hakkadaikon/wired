@@ -4,6 +4,18 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
+/** Most GeneralSubtree entries (permittedSubtrees and excludedSubtrees
+ * together) one nameConstraints extension may carry; an extension over the
+ * bound rejects the child outright (fail closed). Every child name is
+ * matched against every entry of its form, for every certificate below the
+ * issuer, so the entry count multiplies verification work
+ * (CVE-2024-34702 / CVE-2025-14831 class); with CASTORE_PATH_MAX_CERTS this
+ * caps a path's name-constraint work at
+ * CASTORE_PATH_MAX_CERTS^2 x names x this. 256 sits well above deployed
+ * constrained intermediates (public CA program members carry at most a few
+ * dozen entries). */
+#define X509_NC_SUBTREES_MAX 256
+
 /* RFC 5280 4.2.1.10 / 6.1.4 (g). cert's nameConstraints extension, applied to
  * subject: subject (a directoryName-form Name, header included, as returned
  * by x509_subject/x509_issuer) must fall within every permitted
@@ -12,11 +24,11 @@
  * [5]-[8]) are not produced by this SDK's subject/SAN readers, so subtree
  * entries in those forms are ignored (RFC 5280 4.2.1.10 constrains only
  * names of the same type actually present in the certificate being
- * validated). A directoryName subtree matches by DER-prefix: base's encoded
- * Name must be a byte-for-byte prefix of subject's encoded Name (RFC 5280
- * 7.1's DN encoding is name-unique and this SDK re-encodes nothing, so a
- * literal DER Name is a stable byte string to prefix-match against, unlike
- * label-based domain constraints). Returns 1 if subject is admitted by
+ * validated). A directoryName subtree matches by RDN prefix: base's RDN
+ * sequence must equal, RDN for RDN under x509_dn_equal_ci's RFC 4518
+ * caseIgnoreMatch rules (dirstring.h), the leading RDNs of subject's
+ * (x509_dn_prefix_ci), so a subject differing from an excluded base only by
+ * DirectoryString case cannot escape it. Returns 1 if subject is admitted by
  * cert's nameConstraints (or the extension is absent, or the extension does
  * not constrain directoryName), 0 if excluded, not covered by any permitted
  * subtree when at least one is present, or the extension is malformed (fail

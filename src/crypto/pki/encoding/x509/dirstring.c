@@ -176,6 +176,40 @@ static int parallel_seq_equal(
   return 1;
 }
 
+/* One pair of a prefix walk: both cursors must yield an element and the pair
+ * must satisfy elem_eq; a short b (or a malformed element) rejects. */
+static int prefix_pair(derseq* ca, derseq* cb, dirstring_elem_eq elem_eq) {
+  u8         ta, tb;
+  wired_span va, vb;
+  if (!derseq_next(ca, &ta, &va)) return 0;
+  if (!derseq_next(cb, &tb, &vb)) return 0;
+  return elem_eq(va, vb);
+}
+
+/* One step of a prefix walk: a exhausted means the prefix is satisfied
+ * (*done); otherwise compare the next pair. */
+static int prefix_step(
+    derseq* ca, derseq* cb, dirstring_elem_eq elem_eq, int* done) {
+  if (ca->off >= ca->len) {
+    *done = 1;
+    return 1;
+  }
+  return prefix_pair(ca, cb, elem_eq);
+}
+
+/* Walk two SEQUENCE-OF-shaped content spans in lockstep until a runs out,
+ * requiring elem_eq on every pair up to there (b may be longer). */
+static int prefix_seq_equal(
+    wired_span a, wired_span b, dirstring_elem_eq elem_eq) {
+  derseq ca, cb;
+  int    done = 0;
+  derseq_init(&ca, a);
+  derseq_init(&cb, b);
+  while (!done)
+    if (!prefix_step(&ca, &cb, elem_eq, &done)) return 0;
+  return 1;
+}
+
 /* Two RDNs (SET OF AttributeTypeAndValue): same element count, each pair
  * (in encoded order) atv-ci-equal. See dirstring.h on why encoded order is
  * required rather than unordered SET matching. */
@@ -195,4 +229,10 @@ int x509_dn_equal_ci(wired_span a, wired_span b) {
   wired_span seq_a, seq_b;
   if (!name_pair_content(a, b, &seq_a, &seq_b)) return 0;
   return parallel_seq_equal(seq_a, seq_b, rdn_ci_equal);
+}
+
+int x509_dn_prefix_ci(wired_span base, wired_span name) {
+  wired_span seq_b, seq_n;
+  if (!name_pair_content(base, name, &seq_b, &seq_n)) return 0;
+  return prefix_seq_equal(seq_b, seq_n, rdn_ci_equal);
 }

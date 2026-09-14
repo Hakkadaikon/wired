@@ -36,4 +36,16 @@ int x509_dirstring_ci_equal(wired_span a, wired_span b);
  * unordered-SET matching). Returns 0 if either Name is malformed. */
 int x509_dn_equal_ci(wired_span a, wired_span b);
 
+/* RFC 5280 4.2.1.10 / 7.1. 1 if base's RDN sequence is a prefix, RDN for
+ * RDN under the x509_dn_equal_ci rules above, of name's RDN sequence (both
+ * Names header-included): base with k RDNs matches name's first k RDNs
+ * ci-equal, name having k or more. This is directoryName subtree
+ * membership: a nameConstraints base "stated identically to the encoding
+ * used in the subject" (RFC 5280 4.2.1.10) still has to match a subject
+ * whose DirectoryString values differ only by case/insignificant space, so
+ * a byte-prefix compare would let such a subject escape an excludedSubtrees
+ * entry. Returns 0 if either Name is malformed or base has more RDNs than
+ * name. */
+int x509_dn_prefix_ci(wired_span base, wired_span name);
+
 #endif
