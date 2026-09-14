@@ -34,4 +34,12 @@ int x509_find_ext(wired_span tbs, wired_span oid, wired_span* val);
  * certificate carrying an unrecognized critical extension. */
 int x509_has_unknown_critical(wired_span tbs);
 
+/* RFC 5280 4.2: "A certificate MUST NOT include more than one instance of a
+ * particular extension." 1 if some extnID appears in tbs's extensions more
+ * than once (x509_find_ext consults only the first instance, so a repeated
+ * extension would otherwise be silently ignored -- a certificate with a
+ * duplicate must be rejected instead); 0 if every extnID is unique or there
+ * are no extensions at all. */
+int x509_has_duplicate_ext(wired_span tbs);
+
 #endif

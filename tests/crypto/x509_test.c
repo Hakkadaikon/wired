@@ -103,6 +103,39 @@ static const u8 x509t_tbs_mixed[] = {
     X509T_EXT_BC_CRIT,
     X509T_EXT_UNKNOWN_CRIT};
 
+/* tbs = dummy6 ++ [3] { SEQUENCE { basicConstraints, basicConstraints } }:
+ * the same extnID twice (RFC 5280 4.2 "MUST NOT include more than one
+ * instance of a particular extension"). */
+static const u8 x509t_tbs_dup_bc[] = {
+    0x30,
+    0x28,
+    X509T_DUMMY6,
+    0xa3,
+    0x1a,
+    0x30,
+    0x18,
+    X509T_EXT_BC_CRIT,
+    X509T_EXT_BC_CRIT};
+
+/* RFC 5280 4.2: a repeated extnID is a duplicate extension (CVE-2024-12243
+ * class: a second nameConstraints/any instance must not be silently
+ * ignored). */
+static void test_x509_duplicate_extension_rejected(void) {
+  CHECK(
+      x509_has_duplicate_ext(
+          wired_span_of(x509t_tbs_dup_bc, sizeof(x509t_tbs_dup_bc))) == 1);
+}
+
+/* Two different extnIDs, or no extensions at all, are not duplicates. */
+static void test_x509_distinct_extensions_not_duplicate(void) {
+  CHECK(
+      x509_has_duplicate_ext(
+          wired_span_of(x509t_tbs_mixed, sizeof(x509t_tbs_mixed))) == 0);
+  CHECK(
+      x509_has_duplicate_ext(
+          wired_span_of(x509t_tbs_no_ext, sizeof(x509t_tbs_no_ext))) == 0);
+}
+
 /* RFC 5280 4.2: no extensions at all is not a rejection. */
 static void test_unknown_critical_no_extensions(void) {
   CHECK(
@@ -221,4 +254,6 @@ void test_x509(void) {
   test_unique_id_issuer_only_reaches_extensions();
   test_unique_id_both_reaches_extensions();
   test_unique_id_subject_only_reaches_extensions();
+  test_x509_duplicate_extension_rejected();
+  test_x509_distinct_extensions_not_duplicate();
 }
