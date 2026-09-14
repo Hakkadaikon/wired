@@ -1,5 +1,6 @@
 #include "crypto/pki/encoding/x509/nameconstraints.h"
 
+#include "crypto/pki/cert/selfcert/derenc.h"
 #include "test.h"
 
 /* All fixtures below were generated and byte-verified with a small Python
@@ -24,6 +25,14 @@ static const u8 nct_name_a_child[] = {
     0x30, 0x18, 0x31, 0x0a, 0x30, 0x08, 0x06, 0x03, 0x55,
     0x04, 0x03, 0x13, 0x01, 0x41, 0x31, 0x0a, 0x30, 0x08,
     0x06, 0x03, 0x55, 0x04, 0x0b, 0x13, 0x01, 0x78,
+};
+
+/* nct_name_a with its CN value in lower case ("a"): RFC 5280 7.1 / RFC 4518
+ * caseIgnoreMatch treats it as the same name, so a base spelled "A" must
+ * still cover it. */
+static const u8 nct_name_a_lower[] = {
+    0x30, 0x0c, 0x31, 0x0a, 0x30, 0x08, 0x06,
+    0x03, 0x55, 0x04, 0x03, 0x13, 0x01, 0x61,
 };
 
 static const u8 nct_name_b[] = {
@@ -104,6 +113,25 @@ static void test_nc_excluded_unrelated_ok(void) {
       x509_name_constraints_permit(
           wired_span_of(nct_tbs_excluded_a, sizeof(nct_tbs_excluded_a)),
           wired_span_of(nct_name_b, sizeof(nct_name_b))) == 1);
+}
+
+/* RFC 5280 7.1 / 4.2.1.10: an excludedSubtrees directoryName base must
+ * match a subject that differs only by DirectoryString case; a byte-exact
+ * prefix compare would let "CN=a" slip past an excluded "CN=A". */
+static void test_nc_excluded_dn_case_mismatch_rejects(void) {
+  CHECK(
+      x509_name_constraints_permit(
+          wired_span_of(nct_tbs_excluded_a, sizeof(nct_tbs_excluded_a)),
+          wired_span_of(nct_name_a_lower, sizeof(nct_name_a_lower))) == 0);
+}
+
+/* The same equivalence on the permitted side: "CN=a" is inside the
+ * permitted subtree "CN=A". */
+static void test_nc_permitted_dn_case_mismatch_ok(void) {
+  CHECK(
+      x509_name_constraints_permit(
+          wired_span_of(nct_tbs_permitted_a, sizeof(nct_tbs_permitted_a)),
+          wired_span_of(nct_name_a_lower, sizeof(nct_name_a_lower))) == 1);
 }
 
 static const u8 nct_tbs_perm_dns[] = {
@@ -483,6 +511,70 @@ static void test_ncsan_ip_malformed_excluded_base_rejects(void) {
           NCT(nct_tbs_excl_ip_nomask), NCT(nct_child_san_sub)) == 0);
 }
 
+/* ---- GeneralSubtree count bound (CVE-2024-34702 class). The tbs is built
+ * at runtime: dummy6 ++ [3] { SEQ { Extension { nameConstraints, OCTET {
+ * SEQ { [0] permittedSubtrees { n x GeneralSubtree dNSName "example.com" }
+ * } } } } }. ---- */
+
+/* GeneralSubtree { base dNSName "example.com" }. */
+static const u8 nct_sub_example[] = {0x30, 0x0d, 0x82, 0x0b, 'e', 'x', 'a', 'm',
+                                     'p',  'l',  'e',  '.',  'c', 'o', 'm'};
+static const u8 nct_oid_nc_tlv[]  = {0x06, 0x03, 0x55, 0x1d, 0x1e};
+static const u8 nct_dummy6[]      = {0x05, 0x00, 0x05, 0x00, 0x05, 0x00,
+                                     0x05, 0x00, 0x05, 0x00, 0x05, 0x00};
+
+/* Wrap in[0..n) in one TLV of tag into out; its total length. */
+static usz nct_wrap(u8 tag, const u8* in, usz n, u8* out, usz cap) {
+  wired_obuf o = obuf_of(out, cap);
+  CHECK(selfcert_der_tlv(tag, wired_span_of(in, n), &o) == 1);
+  return o.len;
+}
+
+#define NCT_BIG (X509_NC_SUBTREES_MAX * 16 + 64)
+static u8 nct_big_a[NCT_BIG], nct_big_b[NCT_BIG];
+
+/* Build the tbs with n permitted dNSName subtrees into nct_big_b. */
+static wired_span nct_tbs_many(usz n) {
+  usz k = 0;
+  for (usz i = 0; i < n; i++)
+    for (usz j = 0; j < sizeof(nct_sub_example); j++)
+      nct_big_a[k++] = nct_sub_example[j];
+  k = nct_wrap(0xa0, nct_big_a, k, nct_big_b, NCT_BIG);         /* [0] */
+  k = nct_wrap(0x30, nct_big_b, k, nct_big_a, NCT_BIG);         /* NameConstr */
+  k = nct_wrap(0x04, nct_big_a, k, nct_big_b + 5, NCT_BIG - 5); /* extnValue */
+  for (usz j = 0; j < 5; j++) nct_big_b[j] = nct_oid_nc_tlv[j];
+  k = nct_wrap(0x30, nct_big_b, k + 5, nct_big_a, NCT_BIG); /* Extension */
+  k = nct_wrap(0x30, nct_big_a, k, nct_big_b, NCT_BIG);     /* SEQ OF Ext */
+  k = nct_wrap(0xa3, nct_big_b, k, nct_big_a + 12, NCT_BIG - 12); /* [3] */
+  for (usz j = 0; j < 12; j++) nct_big_a[j] = nct_dummy6[j];
+  k = nct_wrap(0x30, nct_big_a, k + 12, nct_big_b, NCT_BIG); /* tbs */
+  return wired_span_of(nct_big_b, k);
+}
+
+/* Exactly X509_NC_SUBTREES_MAX entries is within the bound: the child's
+ * sub.example.com SAN is admitted by (every one of) them. */
+static void test_ncsan_subtree_count_at_cap_ok(void) {
+  wired_span tbs = nct_tbs_many(X509_NC_SUBTREES_MAX);
+  CHECK(
+      x509_name_constraints_admit(
+          tbs, wired_span_of(nct_child_san_sub, sizeof(nct_child_san_sub))) ==
+      1);
+}
+
+/* One entry over the bound rejects the child outright even though every
+ * entry would admit it: the entry count multiplies per-name matching work
+ * for every certificate below the issuer, so it fails closed. */
+static void test_ncsan_subtree_count_over_cap_rejects(void) {
+  wired_span tbs = nct_tbs_many(X509_NC_SUBTREES_MAX + 1);
+  CHECK(
+      x509_name_constraints_admit(
+          tbs, wired_span_of(nct_child_san_sub, sizeof(nct_child_san_sub))) ==
+      0);
+  CHECK(
+      x509_name_constraints_permit(
+          tbs, wired_span_of(nct_name_a, sizeof(nct_name_a))) == 0);
+}
+
 void test_nameconstraints(void) {
   test_nc_absent_permits();
   test_nc_permitted_exact_match_ok();
@@ -490,6 +582,8 @@ void test_nameconstraints(void) {
   test_nc_permitted_unrelated_rejected();
   test_nc_excluded_match_rejected();
   test_nc_excluded_unrelated_ok();
+  test_nc_excluded_dn_case_mismatch_rejects();
+  test_nc_permitted_dn_case_mismatch_ok();
   test_ncsan_permitted_dns_outside_rejects();
   test_ncsan_permitted_dns_subdomain_ok();
   test_ncsan_permitted_dns_apex_ok();
@@ -514,4 +608,6 @@ void test_nameconstraints(void) {
   test_ncsan_dns_label_boundary_rejects();
   test_ncsan_ip_malformed_permitted_base_rejects();
   test_ncsan_ip_malformed_excluded_base_rejects();
+  test_ncsan_subtree_count_at_cap_ok();
+  test_ncsan_subtree_count_over_cap_rejects();
 }
