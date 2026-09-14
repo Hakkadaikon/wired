@@ -79,7 +79,14 @@ ninja: gen-ninja
 # run all tests (hosted, with assertions). fmt first so the unity build is
 # always compiled from formatted sources — run inside `nix develop` so the
 # pinned clang-format (the one CI checks against) is the one that formats.
+# ulimit -s raised: the unity TU inlines every test_* function into one
+# frame per top-level test_<domain>() (e.g. test_srvrun, ~190 siblings);
+# that frame has grown past the 8MB default ulimit (see valgrind recipe's
+# --max-stackframe comment below for the history).
 test: fmt gen-ninja
+    #!/usr/bin/env sh
+    set -eu
+    ulimit -s unlimited 2>/dev/null || ulimit -s 65536
     ninja build/quic_test && build/quic_test
 
 # fast dev-loop tests: run.c split into shard TUs compiled in parallel
@@ -91,6 +98,9 @@ test: fmt gen-ninja
 # authoritative gate (CI runs it on every push; run it locally when in
 # doubt about a name collision).
 test-fast: fmt gen-ninja
+    #!/usr/bin/env sh
+    set -eu
+    ulimit -s unlimited 2>/dev/null || ulimit -s 65536
     python3 scripts/gen_shards.py
     ninja build/quic_test_fast && build/quic_test_fast
 
