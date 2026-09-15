@@ -146,6 +146,24 @@ export async function connectChatThenVoice(
   }
 }
 
+// The capture-before-publish ordering pulled out of startScreenShare's own
+// closure so the contract is directly testable: getDisplayMedia() requires
+// transient user activation (a real-browser constraint the e2e harness's
+// faked getDisplayMedia cannot exercise, per its own doc comment), so
+// startCapture must be the first thing awaited after a click -- publish
+// only needs to complete before the first sendVideoChunk, which happens
+// later once frames start flowing. If startCapture rejects (permission
+// denied, user cancelled the picker), publish is never called -- no track
+// gets PUBLISHed for a share that never started.
+export async function captureThenPublishScreen<T>(
+  startCapture: () => Promise<T>,
+  publish: () => Promise<void>,
+): Promise<T> {
+  const pipeline = await startCapture();
+  await publish();
+  return pipeline;
+}
+
 // When to open the live movie's MediaSource: only in the connected room
 // view (the <video> ref is mounted there), and never a second time while
 // one is already live. Pure so it's testable without rendering the hook.
@@ -509,26 +527,22 @@ export function useMoqtChat() {
     const screen = screenRef.current;
     if (!client || !screen) return;
     try {
-      // getDisplayMedia FIRST, before any await (publishScreenTrack writes
-      // to the network): Chrome requires transient user activation for the
-      // picker, and an await ahead of it can let that activation expire
-      // before the picker ever opens -- the call would then silently
-      // reject with no picker shown. publishScreenTrack only needs to
-      // happen before the first sendVideoChunk, so it moves after the
-      // picker resolves.
       let capturedTrack: MediaStreamTrack | undefined;
-      const pipeline = await startScreenSharePipeline({
-        getDisplayMedia: async (c) => {
-          const stream = await navigator.mediaDevices.getDisplayMedia(c);
-          capturedTrack = stream.getVideoTracks()[0];
-          return stream;
-        },
-        VideoEncoderCtor: VideoEncoder as never,
-        sendVideoChunk: (chunk) => screen.sendVideoChunk(chunk),
-        onError: () => store.setScreenShareError("screen share permission was denied"),
-        onEncodeError: () => store.setScreenShareError("screen share could not be encoded"),
-      });
-      await screen.publishScreenTrack();
+      const pipeline = await captureThenPublishScreen(
+        () =>
+          startScreenSharePipeline({
+            getDisplayMedia: async (c) => {
+              const stream = await navigator.mediaDevices.getDisplayMedia(c);
+              capturedTrack = stream.getVideoTracks()[0];
+              return stream;
+            },
+            VideoEncoderCtor: VideoEncoder as never,
+            sendVideoChunk: (chunk) => screen.sendVideoChunk(chunk),
+            onError: () => store.setScreenShareError("screen share permission was denied"),
+            onEncodeError: () => store.setScreenShareError("screen share could not be encoded"),
+          }),
+        () => screen.publishScreenTrack(),
+      );
       screenShareRef.current = pipeline;
       store.setScreenSharing(true);
       store.setScreenShareError(null);
@@ -547,8 +561,15 @@ export function useMoqtChat() {
             if (value) {
               // Draw the local preview BEFORE handing the frame to
               // pushFrame, which closes it once encode() has copied what it
-              // needs -- drawing after would read a closed VideoFrame.
-              drawScreenFrame("own", value as CanvasImageSource & { close?: () => void });
+              // needs -- drawing after would read a closed VideoFrame. A
+              // draw failure (e.g. a transient canvas error) must not kill
+              // the encode/send path -- the preview is cosmetic, the share
+              // itself is not.
+              try {
+                drawScreenFrame("own", value as CanvasImageSource & { close?: () => void });
+              } catch {
+                // preview draw is best-effort; the network path continues below
+              }
               pipeline.pushFrame(value as { close?: () => void });
             }
           }
