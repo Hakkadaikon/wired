@@ -614,6 +614,12 @@ export function useMoqtChat() {
           }
           voiceRef.current?.handleIncomingStream(header, firstChunkTail, reader);
         },
+        // Only voice sends OBJECT_DATAGRAMs (moqtVoiceClient.ts's
+        // sendOpusFrame); movie/screen are stream-borne, so no alias
+        // dispatch is needed here yet.
+        onUnknownDatagram: (datagram) => {
+          voiceRef.current?.handleIncomingDatagram(datagram);
+        },
       });
       clientRef.current = client;
 
