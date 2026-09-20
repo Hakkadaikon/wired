@@ -319,6 +319,37 @@ input {
   background: var(--gray);
 }
 
+.volume {
+  display: block;
+  margin-top: 0.5em;
+}
+
+.volume--peer {
+  margin-top: 0.35em;
+}
+
+.volume__label {
+  display: block;
+  margin-bottom: 0.15em;
+  font-size: 0.8em;
+  color: var(--gray);
+}
+
+.volume input[type="range"] {
+  width: 100%;
+  accent-color: var(--ink);
+}
+
+.rail select {
+  width: 100%;
+  margin-top: 0.35em;
+  padding: 0.3em 0;
+  border: 0;
+  border-bottom: 1px solid var(--gray);
+  background: transparent;
+  color: inherit;
+}
+
 .body {
   display: flex;
   flex-direction: column;

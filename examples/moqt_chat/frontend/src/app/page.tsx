@@ -5,6 +5,7 @@ import { useMoqtChat } from "@/hooks/useMoqtChat";
 import { clearJoinPrefs, loadJoinPrefs, saveJoinPrefs } from "@/lib/joinPrefs";
 import { CANDIDATE_PARTICIPANT_IDS } from "@/lib/moqtClient";
 import { useMoqtChatStore, type ChatMessage } from "@/stores/moqtChatStore";
+import { canPickOutput } from "@/lib/outputMixer";
 import { Wordmark } from "./wordmark";
 
 const DEFAULT_URL = "https://localhost:4433/";
@@ -131,6 +132,79 @@ function Peers() {
         ))}
       </ul>
       {peers.length === 0 && <p className="caption">Waiting for others…</p>}
+    </section>
+  );
+}
+
+function Volume() {
+  const peers = useMoqtChatStore((s) => s.peers);
+  const masterVolume = useMoqtChatStore((s) => s.masterVolume);
+  const peerVolumes = useMoqtChatStore((s) => s.peerVolumes);
+  const setMasterVolume = useMoqtChatStore((s) => s.setMasterVolume);
+  const setPeerVolume = useMoqtChatStore((s) => s.setPeerVolume);
+  return (
+    <section>
+      <h2>Volume</h2>
+      <label className="volume">
+        <span className="volume__label">Master</span>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={masterVolume}
+          data-testid="master-volume"
+          onChange={(e) => setMasterVolume(Number(e.target.value))}
+        />
+      </label>
+      {peers.map((p) => (
+        <label key={p} className="volume volume--peer">
+          <span className="volume__label">{p}</span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={peerVolumes[p] ?? 1}
+            data-testid={`peer-volume-${p}`}
+            onChange={(e) => setPeerVolume(p, Number(e.target.value))}
+          />
+        </label>
+      ))}
+    </section>
+  );
+}
+
+function OutputDevice({ onSelect }: { onSelect: (deviceId: string) => void }) {
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  useEffect(() => {
+    const AudioContextCtor = window.AudioContext as unknown as {
+      prototype: { setSinkId?: unknown };
+    };
+    if (!canPickOutput(AudioContextCtor.prototype)) return;
+    navigator.mediaDevices
+      .enumerateDevices()
+      .then((all) => setDevices(all.filter((d) => d.kind === "audiooutput")))
+      .catch(() => {});
+  }, []);
+  if (devices.length === 0) return null;
+  return (
+    <section>
+      <h2>Output</h2>
+      <select
+        data-testid="output-device"
+        onChange={(e) => onSelect(e.target.value)}
+        defaultValue=""
+      >
+        <option value="" disabled>
+          Default
+        </option>
+        {devices.map((d) => (
+          <option key={d.deviceId} value={d.deviceId}>
+            {d.label || d.deviceId}
+          </option>
+        ))}
+      </select>
     </section>
   );
 }
@@ -336,6 +410,7 @@ export default function Home() {
     startScreenShare,
     stopScreenShare,
     registerScreenCanvas,
+    setOutputDevice,
   } = useMoqtChat();
   const connectionState = useMoqtChatStore((s) => s.connectionState);
   const screenSharing = useMoqtChatStore((s) => s.screenSharing);
@@ -425,6 +500,8 @@ export default function Home() {
         <div className="room">
           <aside className="rail">
             <Peers />
+            <Volume />
+            <OutputDevice onSelect={setOutputDevice} />
             <section>
               <h2>Status</h2>
               <Status />
