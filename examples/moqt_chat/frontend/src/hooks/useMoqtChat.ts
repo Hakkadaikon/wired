@@ -260,6 +260,19 @@ export function teardownSession(
 // disconnect: 1 s, 2 s, 4 s, 8 s, then capped at 10 s. null after five
 // failed attempts means "give up until the user acts" (the Rejoin button
 // keeps working either way).
+// AudioEncoder.isConfigSupported, when the global exists -- pickEncoderConfig
+// (micPipeline.ts) uses it to probe VOIP_CONFIG before falling back to
+// BASE_CONFIG. Environments without AudioEncoder (older browsers, tests)
+// omit the dep entirely rather than reference the missing global.
+export function micPipelineIsConfigSupported():
+  | ((config: unknown) => Promise<{ supported: boolean }>)
+  | undefined {
+  if (typeof AudioEncoder === "undefined") return undefined;
+  return async (config) => ({
+    supported: (await AudioEncoder.isConfigSupported(config as AudioEncoderConfig)).supported ?? false,
+  });
+}
+
 export function reconnectDelayMs(attempt: number): number | null {
   return attempt >= 5 ? null : Math.min(10000, 1000 * 2 ** attempt);
 }
@@ -534,6 +547,7 @@ export function useMoqtChat() {
         AudioEncoderCtor: AudioEncoder as never,
         sendVoiceFrame: (bytes) => voice.sendOpusFrame(bytes),
         isMuted: () => useMoqtChatStore.getState().muted,
+        isConfigSupported: micPipelineIsConfigSupported(),
         onError: () => setMicError("microphone permission was denied"),
         onEncodeError: () => setMicError("microphone audio could not be encoded"),
         onSendFailing: () =>

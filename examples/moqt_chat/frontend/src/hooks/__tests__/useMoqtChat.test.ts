@@ -4,6 +4,7 @@ import {
   captureThenPublishScreen,
   connectChatThenVoice,
   handleSessionStatus,
+  micPipelineIsConfigSupported,
   micTracksFrom,
   moqtChatCallbacks,
   reconnectDelayMs,
@@ -484,6 +485,30 @@ describe("micTracksFrom", () => {
   it("returns the started mic pipeline's tracks", () => {
     const track = { stop: vi.fn() };
     expect(micTracksFrom({ tracks: [track] })).toEqual([track]);
+  });
+});
+
+describe("micPipelineIsConfigSupported", () => {
+  const original = (globalThis as { AudioEncoder?: unknown }).AudioEncoder;
+
+  afterEach(() => {
+    (globalThis as { AudioEncoder?: unknown }).AudioEncoder = original;
+  });
+
+  it("is absent when the AudioEncoder global does not exist", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (globalThis as any).AudioEncoder;
+    expect(micPipelineIsConfigSupported()).toBeUndefined();
+  });
+
+  it("delegates to AudioEncoder.isConfigSupported when the global exists", async () => {
+    const isConfigSupported = vi.fn().mockResolvedValue({ supported: true });
+    (globalThis as { AudioEncoder?: unknown }).AudioEncoder = { isConfigSupported };
+
+    const dep = micPipelineIsConfigSupported();
+    expect(dep).toBeTypeOf("function");
+    await expect(dep?.({ codec: "opus" })).resolves.toEqual({ supported: true });
+    expect(isConfigSupported).toHaveBeenCalledWith({ codec: "opus" });
   });
 });
 
