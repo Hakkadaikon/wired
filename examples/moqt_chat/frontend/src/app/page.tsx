@@ -137,13 +137,16 @@ function Peers() {
 
 function Message({ m }: { m: ChatMessage }) {
   const time = new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  // DOM order is sender, time, text (the grid puts the time last): the e2e
+  // load harness matches "msg:<tag>:<seq>" in textContent, and a time
+  // directly after the text would extend the digits.
   return (
     <div className="message" data-testid="message" data-sender={m.senderId}>
       <span className={m.own ? "message__sender you" : "message__sender"}>
         {m.own ? "You" : m.senderId}
       </span>
+      <span className="message__time caption">{time}</span>
       <span className="message__text">{m.text}</span>
-      <span className="caption">{time}</span>
       {m.failed && <span className="message__failed caption">Not sent</span>}
     </div>
   );

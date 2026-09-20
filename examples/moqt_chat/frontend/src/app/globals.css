@@ -364,16 +364,22 @@ input {
 }
 
 .message__sender {
+  grid-area: 1 / 1;
   font-weight: 700;
   overflow-wrap: anywhere;
 }
 
+.message__time {
+  grid-area: 1 / 3;
+}
+
 .message__text {
+  grid-area: 1 / 2;
   overflow-wrap: anywhere;
 }
 
 .message__failed {
-  grid-column: 2;
+  grid-area: 2 / 2;
   color: var(--mark);
 }
 
