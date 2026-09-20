@@ -121,6 +121,7 @@ function Notice({
 
 function Peers() {
   const peers = useMoqtChatStore((s) => s.peers);
+  const voiceQuality = useMoqtChatStore((s) => s.voiceQuality);
   return (
     <section>
       <h2>Room</h2>
@@ -128,7 +129,14 @@ function Peers() {
       <ul className="peers">
         <li className="you">You</li>
         {peers.map((p) => (
-          <li key={p}>{p}</li>
+          <li key={p}>
+            {p}
+            <span
+              className="status__block"
+              data-testid={`quality-${p}`}
+              data-quality={voiceQuality[p]}
+            />
+          </li>
         ))}
       </ul>
       {peers.length === 0 && <p className="caption">Waiting for others…</p>}

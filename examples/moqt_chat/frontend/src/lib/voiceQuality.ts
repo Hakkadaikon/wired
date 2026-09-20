@@ -60,7 +60,7 @@ export function createQualityWindow(): QualityWindow {
     // depth alone isn't a quality signal in itself (yet) -- kept as its own
     // hook so the shape matches the brief's four voiceTap event kinds; the
     // classifier only reads received/lost/lagMs today.
-    onDepth: (_senderKey, _depth) => {},
+    onDepth: () => {},
     snapshot: (senderKey) => {
       const w = windows.get(senderKey) ?? emptyWindow();
       windows.set(senderKey, emptyWindow());

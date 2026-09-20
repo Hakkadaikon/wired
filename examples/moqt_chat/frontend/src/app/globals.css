@@ -319,6 +319,16 @@ input {
   background: var(--gray);
 }
 
+.status__block[data-quality="good"] {
+  border-color: var(--red);
+  background: var(--red);
+}
+
+.status__block[data-quality="degraded"] {
+  border-color: var(--gray);
+  background: var(--gray);
+}
+
 .volume {
   display: block;
   margin-top: 0.5em;
