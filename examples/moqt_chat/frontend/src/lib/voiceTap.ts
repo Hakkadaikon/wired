@@ -11,6 +11,9 @@ export type VoiceTapEvent = {
   src?: string;
   lag?: number;
   bytes?: number; // send only: encoded Opus payload size
+  depth?: number; // drain only: jitter buffer depth remaining after the pull
+  plc?: boolean; // drain only: this tick's pull() reported the seq lost
+  skipped?: boolean; // play only: frame dropped for exceeding MAX_LAG_S
 };
 
 export function voiceTap(e: VoiceTapEvent): void {

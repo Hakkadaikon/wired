@@ -45,7 +45,10 @@ describe("voiceReceivePipeline", () => {
       AudioDecoderCtor: decoder.ctor as never,
       enqueuePlayback: vi.fn(),
     });
+    // Push 2 frames before the first tick: prebuffer target depth 2 is
+    // already met, so the tick primes and emits frame 1 in the same call.
     pipeline.handleObjectPayload(payload(1, [1]), PEER);
+    pipeline.handleObjectPayload(payload(2, [2]), PEER);
     pipeline.drainAndDecode(PEER);
     expect(decoder.configureCalls[0]).toEqual({
       codec: "opus",
@@ -65,7 +68,8 @@ describe("voiceReceivePipeline", () => {
     });
 
     pipeline.handleObjectPayload(payload(1, [1, 2, 3]), PEER);
-    pipeline.drainAndDecode(PEER);
+    pipeline.handleObjectPayload(payload(2, [4, 5, 6]), PEER);
+    pipeline.drainAndDecode(PEER); // target depth 2 already met: primes + frame 1
 
     expect(enqueue).toHaveBeenCalledTimes(1);
     expect(enqueue).toHaveBeenCalledWith(PEER, { decoded: true });
@@ -84,7 +88,8 @@ describe("voiceReceivePipeline", () => {
     });
 
     pipeline.handleObjectPayload(payload(1, [1, 2, 3]), PEER);
-    expect(() => pipeline.drainAndDecode(PEER)).not.toThrow();
+    pipeline.handleObjectPayload(payload(2, [4, 5, 6]), PEER);
+    expect(() => pipeline.drainAndDecode(PEER)).not.toThrow(); // frame 1 -> decode error
 
     expect(enqueue).not.toHaveBeenCalled();
     expect(onDecodeError).toHaveBeenCalledTimes(1);
@@ -100,7 +105,11 @@ describe("voiceReceivePipeline", () => {
     });
 
     pipeline.handleObjectPayload(payload(1, [1]), PEER);
+    pipeline.handleObjectPayload(payload(2, [1]), PEER);
     pipeline.handleObjectPayload(payload(1, [2]), PEER2);
+    pipeline.handleObjectPayload(payload(2, [2]), PEER2);
+    pipeline.drainAndDecode(PEER);
+    pipeline.drainAndDecode(PEER2);
     pipeline.drainAndDecode(PEER);
     pipeline.drainAndDecode(PEER2);
 
@@ -142,9 +151,9 @@ describe("voiceReceivePipeline", () => {
     });
 
     pipeline.handleObjectPayload(payload(1, [1]), PEER);
-    pipeline.drainAndDecode(PEER); // error callback fires -> decoder dropped
     pipeline.handleObjectPayload(payload(2, [2]), PEER);
-    pipeline.drainAndDecode(PEER);
+    pipeline.drainAndDecode(PEER); // frame 1 -> error callback fires -> decoder dropped
+    pipeline.drainAndDecode(PEER); // frame 2, fresh decoder
 
     expect(decoder.ctor).toHaveBeenCalledTimes(2); // rebuilt, not reused
   });
@@ -174,13 +183,41 @@ describe("voiceReceivePipeline", () => {
     });
 
     pipeline.handleObjectPayload(payload(1, [1]), PEER);
-    expect(() => pipeline.drainAndDecode(PEER)).not.toThrow();
+    pipeline.handleObjectPayload(payload(2, [2]), PEER);
+    expect(() => pipeline.drainAndDecode(PEER)).not.toThrow(); // frame 1 -> throws
     expect(onDecodeError).toHaveBeenCalledTimes(1);
 
-    pipeline.handleObjectPayload(payload(2, [2]), PEER);
-    pipeline.drainAndDecode(PEER);
+    pipeline.drainAndDecode(PEER); // frame 2, fresh decoder
 
     expect(ctor).toHaveBeenCalledTimes(2); // fresh decoder after the throw
     expect(enqueue).toHaveBeenCalledWith(PEER, { decoded: true });
+  });
+
+  it("taps a lost pull as plc-only, without decoding or enqueueing anything", () => {
+    const jb = new JitterBufferManager(OWN, 8);
+    const decoder = fakeDecoder();
+    const enqueue = vi.fn();
+    const pipeline = createVoiceReceivePipeline({
+      jitterBuffer: jb,
+      AudioDecoderCtor: decoder.ctor as never,
+      enqueuePlayback: enqueue,
+    });
+
+    // Prime with 10, 11 (target depth 2 already met on the first tick) then
+    // create a gap at 12 that exhausts the GAP_WAIT_TICKS budget (3 ticks)
+    // so pull() reports it lost.
+    pipeline.handleObjectPayload(payload(10, [1]), PEER);
+    pipeline.handleObjectPayload(payload(11, [2]), PEER);
+    pipeline.drainAndDecode(PEER); // primes + frame 10
+    pipeline.drainAndDecode(PEER); // frame 11
+    pipeline.handleObjectPayload(payload(13, [3]), PEER);
+    pipeline.drainAndDecode(PEER); // wait
+    pipeline.drainAndDecode(PEER); // wait
+    pipeline.drainAndDecode(PEER); // wait
+    enqueue.mockClear();
+    pipeline.drainAndDecode(PEER); // lost 12
+
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(decoder.decodeCalls.length).toBeLessThanOrEqual(2); // no decode for the lost seq
   });
 });
