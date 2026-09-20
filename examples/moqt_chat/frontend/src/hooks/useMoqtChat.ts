@@ -255,6 +255,51 @@ export function teardownSession(
   refs.unregisterLifecycle.current = null;
 }
 
+// Back-off schedule for the automatic rejoin after a transport-level
+// disconnect: 1 s, 2 s, 4 s, 8 s, then capped at 10 s. null after five
+// failed attempts means "give up until the user acts" (the Rejoin button
+// keeps working either way).
+export function reconnectDelayMs(attempt: number): number | null {
+  return attempt >= 5 ? null : Math.min(10000, 1000 * 2 ** attempt);
+}
+
+export type ReconnectRefs = {
+  timer: { current: ReturnType<typeof setTimeout> | null };
+  attempt: { current: number };
+};
+
+// Drives the auto-rejoin back-off from session status changes: reaching
+// "connected" resets the counter; a "disconnected" while the user still
+// wants the session schedules the next attempt (or gives up once the
+// schedule is exhausted). Plain ref-shaped params, same testability pattern
+// as teardownSession above.
+export function handleSessionStatus(
+  refs: ReconnectRefs,
+  status: ConnectionState,
+  wantsSession: boolean,
+  reconnect: () => void,
+): void {
+  if (status === "connected") {
+    refs.attempt.current = 0;
+    return;
+  }
+  if (status !== "disconnected" || !wantsSession) return;
+  const delay = reconnectDelayMs(refs.attempt.current);
+  if (delay === null) return;
+  refs.attempt.current += 1;
+  refs.timer.current = setTimeout(() => {
+    refs.timer.current = null;
+    reconnect();
+  }, delay);
+}
+
+export function cancelReconnect(refs: ReconnectRefs): void {
+  if (refs.timer.current !== null) {
+    clearTimeout(refs.timer.current);
+    refs.timer.current = null;
+  }
+}
+
 export function useMoqtChat() {
   const store = useMoqtChatStore();
   const [micError, setMicError] = useState<string | null>(null);
@@ -296,6 +341,19 @@ export function useMoqtChat() {
   // every connect() (a manual Rejoin would otherwise leave the previous
   // session's handler still attached).
   const unregisterLifecycleRef = useRef<(() => void) | null>(null);
+  // Auto-rejoin state: the back-off timer/attempt pair handleSessionStatus
+  // drives, the last connect()'s arguments (non-null while the user wants
+  // the session, i.e. between connect() and leave()), and the latest
+  // connect() itself -- the timer outlives the render that scheduled it,
+  // and connect's identity changes with the store.
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const sessionArgsRef = useRef<{ url: string; localId: string; certHashesHex: string[] } | null>(
+    null,
+  );
+  const connectRef = useRef<((url: string, localId: string, certHashesHex: string[]) => Promise<void>) | null>(
+    null,
+  );
   // The live <video> element page.tsx renders; LiveMovie drives it directly.
   const videoRef = useRef<HTMLVideoElement>(null);
   const liveRef = useRef<LiveMovie | null>(null);
@@ -472,12 +530,18 @@ export function useMoqtChat() {
 
   const connect = useCallback(
     async (url: string, localId: string, certHashesHex: string[]) => {
+      const reconnectRefs = { timer: reconnectTimerRef, attempt: reconnectAttemptRef };
       // A manual Rejoin (connect() called while a previous session is
       // still up) must not stack a second drain loop / retry timer / mic /
       // lifecycle handler on top of the first -- tear the old session down
       // before starting the new one. leave() itself calls the same
-      // teardown for the "give up on the room" path.
+      // teardown for the "give up on the room" path. It also cancels any
+      // pending automatic rejoin, and drops the session args across the
+      // teardown so the old session's own close cannot schedule one.
+      cancelReconnect(reconnectRefs);
+      sessionArgsRef.current = null;
       teardownCurrentSession();
+      sessionArgsRef.current = { url, localId, certHashesHex };
       localIdRef.current = localId;
       setMicError(null);
       store.clearPeers();
@@ -491,8 +555,21 @@ export function useMoqtChat() {
       // playback yet -- defensive, since LiveMovie itself issues the movie
       // SUBSCRIBEs after liveRef is set): a stray init/fragment is simply
       // dropped, and the hub paces the next Group within ~2 s.
-      const client = new MoqtChatClient(localId, {
+      // Every status report for this session -- the client's own
+      // onStatusChange and a failed connect()'s rejection below -- funnels
+      // through here, so the store and the auto-rejoin back-off see one
+      // consistent stream. A torn-down session's late report is dropped.
+      const reportStatus = (status: ConnectionState) => {
+        if (clientRef.current !== client) return;
+        store.setConnectionState(status);
+        handleSessionStatus(reconnectRefs, status, sessionArgsRef.current !== null, () => {
+          const args = sessionArgsRef.current;
+          if (args) void connectRef.current?.(args.url, args.localId, args.certHashesHex);
+        });
+      };
+      const client: MoqtChatClient = new MoqtChatClient(localId, {
         ...moqtChatCallbacks(store),
+        onStatusChange: reportStatus,
         onUnknownUniStream: (header, firstChunkTail, reader) => {
           if (header.trackAlias === MOVIE_INIT_TRACK_ALIAS) {
             void readMovie(firstChunkTail, reader, header.flags.properties).then(
@@ -600,8 +677,10 @@ export function useMoqtChat() {
         () => startVoice(localId, client),
         // Connection failed (e.g. cert hash mismatch): fall back to
         // disconnected instead of leaving the join screen stuck on
-        // "Connecting..." forever.
-        () => store.setConnectionState("disconnected"),
+        // "Connecting..." forever. The client itself stays silent on this
+        // path, so this is the session's one "disconnected" -- and it
+        // schedules the automatic rejoin.
+        () => reportStatus("disconnected"),
         (err) => setMicError(err instanceof Error ? err.message : "voice setup failed"),
       );
     },
@@ -707,7 +786,19 @@ export function useMoqtChat() {
     store.removeScreenTile("own");
   }, [store]);
 
+  // Keep the auto-rejoin timer retrying through the CURRENT connect() --
+  // connect's identity changes with the store, and a timer scheduled by an
+  // older render must not resurrect a stale closure's session.
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
+
   const leave = useCallback(() => {
+    // The user no longer wants the session: cancel any pending automatic
+    // rejoin, and drop the args first so the teardown below cannot
+    // schedule a new one.
+    cancelReconnect({ timer: reconnectTimerRef, attempt: reconnectAttemptRef });
+    sessionArgsRef.current = null;
     teardownCurrentSession();
     setMicError(null);
     store.setConnectionState("disconnected");
