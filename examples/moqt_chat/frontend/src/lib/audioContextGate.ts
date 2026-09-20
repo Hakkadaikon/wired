@@ -25,6 +25,8 @@ export type AudioContextGate = {
 };
 
 const RESUME_TIMEOUT_MS = 3000;
+// 1 s of 20 ms frames.
+const MAX_PENDING = 50;
 
 function timeout(ms: number): Promise<"timeout"> {
   return new Promise((resolve) => setTimeout(() => resolve("timeout"), ms));
@@ -51,6 +53,10 @@ export function createAudioContextGate(
     },
     enqueue: (senderKey, frame) => {
       pending.push({ senderKey, frame });
+      if (pending.length > MAX_PENDING) {
+        const dropped = pending.shift()!;
+        (dropped.frame as { close?: () => void } | undefined)?.close?.();
+      }
       if (ctx.state === "running") flush();
     },
     pendingCount: () => pending.length,
