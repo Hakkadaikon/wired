@@ -175,6 +175,77 @@ export function shouldStartLive(
   return connectionState === "connected" && hasVideo && !alreadyStarted;
 }
 
+// The current session's live resources -- everything a manual Rejoin
+// (connect() called while a previous session is still up) would otherwise
+// duplicate: the drain loop, both SUBSCRIBE retry timers, the mic, and the
+// page-unload handler. Pulled out of leave()'s own teardown so connect() can
+// call the identical logic before starting a new session, instead of only
+// leave() ever stopping the previous one. Plain ref-shaped params (not React
+// refs) so it's testable without rendering the hook -- same pattern as
+// registerPageLifecycleCleanup's own deps/target split.
+export type SessionRefs = {
+  drainTimer: { current: ReturnType<typeof setTimeout> | null };
+  voiceRetryTimer: { current: ReturnType<typeof setInterval> | null };
+  screenRetryTimer: { current: ReturnType<typeof setInterval> | null };
+  mic: { current: { stop: () => void } | null };
+  voice: { current: { close: () => void } | null };
+  receivePipeline: { current: unknown };
+  knownSenders: { current: Set<string> };
+  screenKnownSenders: { current: Set<string> };
+  screenShare: { current: { stop: () => void } | null };
+  screen: { current: { close: () => void } | null };
+  screenReceive: { current: unknown };
+  screenReassemblers: { current: Map<string, unknown> };
+  screenKeyframeMeta: { current: Map<string, unknown> };
+  client: { current: { close: () => void } | null };
+  live: { current: { stop: () => void } | null };
+  unregisterLifecycle: { current: (() => void) | null };
+};
+
+export function teardownSession(
+  refs: SessionRefs,
+  store: Pick<MoqtChatState, "setScreenSharing" | "setScreenShareError">,
+): void {
+  if (refs.drainTimer.current !== null) {
+    clearTimeout(refs.drainTimer.current);
+    refs.drainTimer.current = null;
+  }
+  if (refs.voiceRetryTimer.current !== null) {
+    clearInterval(refs.voiceRetryTimer.current);
+    refs.voiceRetryTimer.current = null;
+  }
+  if (refs.screenRetryTimer.current !== null) {
+    clearInterval(refs.screenRetryTimer.current);
+    refs.screenRetryTimer.current = null;
+  }
+  refs.mic.current?.stop();
+  refs.mic.current = null;
+  refs.voice.current?.close();
+  refs.voice.current = null;
+  refs.receivePipeline.current = null;
+  refs.knownSenders.current.clear();
+  refs.screenKnownSenders.current.clear();
+  try {
+    refs.screenShare.current?.stop();
+  } catch {
+    // torn down regardless; see stopScreenShare's own doc
+  }
+  refs.screenShare.current = null;
+  refs.screen.current?.close();
+  refs.screen.current = null;
+  refs.screenReceive.current = null;
+  refs.screenReassemblers.current.clear();
+  refs.screenKeyframeMeta.current.clear();
+  store.setScreenSharing(false);
+  store.setScreenShareError(null);
+  refs.client.current?.close();
+  refs.client.current = null;
+  refs.live.current?.stop();
+  refs.live.current = null;
+  refs.unregisterLifecycle.current?.();
+  refs.unregisterLifecycle.current = null;
+}
+
 export function useMoqtChat() {
   const store = useMoqtChatStore();
   const [micError, setMicError] = useState<string | null>(null);
