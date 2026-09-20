@@ -11,6 +11,8 @@ export const DEFAULT_VOICE_GATES = {
   maxMeanSendBytes: 90, // mean encoded Opus frame size (VOIP config, 20ms/24kbps)
   maxPlayheadLagP95Ms: 220, // absolute p95 scheduling lag (Q-A jitter buffer)
   maxSkippedRate: 0.01, // fraction of play() calls dropped by the lag cap
+  maxPlcCount: 0, // Q-B concealed losses per pub->sub pair (0 = clean network)
+  minPlcCount: 0, // report-only unless a scenario overrides it (e.g. loss profile)
 };
 
 /**
@@ -42,6 +44,13 @@ export function evaluateVoiceGates(voiceTrace, overrides = {}) {
         failures.push(
           `${src}->${page}: mean send bytes ${meanBytes.toFixed(1)} > ${g.maxMeanSendBytes}`,
         );
+      }
+      const plcCount = s.plcCount ?? 0;
+      if (plcCount > g.maxPlcCount) {
+        failures.push(`${src}->${page}: plc count ${plcCount} > ${g.maxPlcCount}`);
+      }
+      if (plcCount < g.minPlcCount) {
+        failures.push(`${src}->${page}: plc count ${plcCount} < ${g.minPlcCount}`);
       }
     }
     const lag = data.playheadLag;
