@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { startMicPipeline } from "../micPipeline";
+import { pickEncoderConfig, startMicPipeline } from "../micPipeline";
 
 type Track = { stop: () => void };
 
@@ -69,6 +69,26 @@ function fakeEncoder(behavior: "ok" | "error" = "ok") {
   });
   return { ctor, encodeCalls, configureCalls };
 }
+
+const BASE_CONFIG = { codec: "opus", sampleRate: 48000, numberOfChannels: 1 };
+const VOIP_CONFIG = {
+  codec: "opus",
+  sampleRate: 48000,
+  numberOfChannels: 1,
+  bitrate: 24000,
+  opus: { application: "voip", frameDuration: 20000 },
+};
+
+describe("pickEncoderConfig", () => {
+  it.each([
+    ["resolves supported -> VOIP", () => Promise.resolve({ supported: true }), VOIP_CONFIG],
+    ["resolves unsupported -> BASE", () => Promise.resolve({ supported: false }), BASE_CONFIG],
+    ["rejects -> BASE", () => Promise.reject(new Error("nope")), BASE_CONFIG],
+    ["dep absent -> BASE", undefined, BASE_CONFIG],
+  ])("%s", async (_label, isConfigSupported, expected) => {
+    await expect(pickEncoderConfig(isConfigSupported)).resolves.toEqual(expected);
+  });
+});
 
 describe("micPipeline", () => {
   it("configures the encoder with the Opus parameters the browser requires", async () => {

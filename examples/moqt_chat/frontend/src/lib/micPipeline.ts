@@ -27,6 +27,9 @@ export type MicPipelineDeps = {
   }) => { configure: (config: unknown) => void; encode: (frame: unknown) => void };
   sendVoiceFrame: (opusPayload: Uint8Array) => void | Promise<void>;
   isMuted: () => boolean;
+  // AudioEncoder.isConfigSupported. Optional: absent, a rejection, or a
+  // false verdict all fall back to BASE_CONFIG.
+  isConfigSupported?: (config: unknown) => Promise<{ supported: boolean }>;
   onError?: (err: unknown) => void;
   onEncodeError?: (err: unknown) => void;
   // Fires once sendVoiceFrame has failed CONSECUTIVE_SEND_FAILURE_LIMIT
@@ -47,6 +50,29 @@ export type MicPipeline = {
   stop: () => void;
   stopped: boolean;
 };
+
+// sampleRate/numberOfChannels are required AudioEncoderConfig members; Opus
+// is defined at 48 kHz, mono keeps the frames small.
+const BASE_CONFIG = { codec: "opus", sampleRate: 48000, numberOfChannels: 1 };
+// application: "voip" tunes Opus for speech (vs. music/audio) and 20ms
+// frames are the VoIP-standard packetization interval.
+const VOIP_CONFIG = {
+  ...BASE_CONFIG,
+  bitrate: 24000,
+  opus: { application: "voip", frameDuration: 20000 },
+};
+
+export async function pickEncoderConfig(
+  isConfigSupported?: (config: unknown) => Promise<{ supported: boolean }>,
+): Promise<typeof BASE_CONFIG | typeof VOIP_CONFIG> {
+  if (!isConfigSupported) return BASE_CONFIG;
+  try {
+    const { supported } = await isConfigSupported(VOIP_CONFIG);
+    return supported ? VOIP_CONFIG : BASE_CONFIG;
+  } catch {
+    return BASE_CONFIG;
+  }
+}
 
 async function readLoop(
   reader: { read: () => Promise<{ value: unknown; done: boolean }> },
@@ -75,6 +101,7 @@ export async function startMicPipeline(
   }
   const track = media.getAudioTracks()[0];
   const processor = deps.makeProcessor(track);
+  const config = await pickEncoderConfig(deps.isConfigSupported);
   // This gate serializes voice frames among themselves (latest-wins under
   // backpressure, see createSendGate). deps.sendVoiceFrame is expected to
   // additionally be gated by the caller against the shared MOQT stream
@@ -105,9 +132,7 @@ export async function startMicPipeline(
       deps.onEncodeError?.(err);
     },
   });
-  // sampleRate/numberOfChannels are required members of AudioEncoderConfig;
-  // Opus is defined at 48 kHz, mono keeps the frames small.
-  encoder.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 1 });
+  encoder.configure(config);
 
   const pipeline: MicPipeline = {
     stopped: false,
