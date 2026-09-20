@@ -22,6 +22,7 @@ import { isScreenTrackAlias, MoqtScreenClient } from "@/lib/moqtScreenClient";
 import { MOVIE_INIT_TRACK_ALIAS, MOVIE_TRACK_ALIAS, readMovie } from "@/lib/moqtMovieClient";
 import { LiveMovie } from "@/lib/moqtLiveClient";
 import { startMicPipeline, type MicPipeline } from "@/lib/micPipeline";
+import { startNoiseSuppressor, type NoiseSuppressorHandle } from "@/lib/noiseSuppressor";
 import { startScreenSharePipeline, type ScreenSharePipeline } from "@/lib/screenSharePipeline";
 import {
   createScreenReceivePipeline,
@@ -387,6 +388,11 @@ export function useMoqtChat() {
   const screenReceiveRef = useRef<ScreenReceivePipeline | null>(null);
   const screenShareRef = useRef<ScreenSharePipeline | null>(null);
   const micRef = useRef<MicPipeline | null>(null);
+  // The RNNoise AudioWorklet graph, when the noiseSuppressor dep above
+  // actually ran (rnnoiseOn was true and it didn't throw) -- stopped
+  // alongside the mic in teardownCurrentSession so its AudioContext doesn't
+  // leak across a manual Rejoin.
+  const noiseSuppressorRef = useRef<NoiseSuppressorHandle | null>(null);
   const receivePipelineRef = useRef<VoiceReceivePipeline | null>(null);
   const jitterBufferRef = useRef<JitterBufferManager | null>(null);
   // Per-peer voice quality: fed by chainVoiceTap (installed in startVoice)
@@ -521,6 +527,8 @@ export function useMoqtChat() {
     );
     sinkRef.current = null;
     audioCtxRef.current = null;
+    noiseSuppressorRef.current?.stop();
+    noiseSuppressorRef.current = null;
   }, [store]);
 
   const startVoice = useCallback(
@@ -622,6 +630,17 @@ export function useMoqtChat() {
         sendVoiceFrame: (bytes) => voice.sendOpusFrame(bytes),
         isMuted: () => useMoqtChatStore.getState().muted,
         isConfigSupported: micPipelineIsConfigSupported(),
+        rnnoiseOn: useMoqtChatStore.getState().noiseSuppressionEnabled,
+        noiseSuppressor: async (track) => {
+          // VAD consumption is a later task's job (brief); onVad is wired
+          // here only so the worklet has somewhere to post to.
+          const handle = await startNoiseSuppressor(
+            track as unknown as MediaStreamTrack,
+            () => {},
+          );
+          noiseSuppressorRef.current = handle;
+          return handle.outputTrack as unknown as { stop: () => void };
+        },
         onError: () => setMicError("microphone permission was denied"),
         onEncodeError: () => setMicError("microphone audio could not be encoded"),
         onSendFailing: () =>

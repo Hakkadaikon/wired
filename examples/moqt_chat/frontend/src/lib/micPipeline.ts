@@ -9,11 +9,22 @@
 // MoqtVoiceClient's job, not this pipeline's.
 
 import { createSendGate } from "./sendGate";
+import { pickAudioConstraints } from "./noiseSuppressor";
 
 export type MicPipelineDeps = {
   getUserMedia: (constraints: {
     audio: boolean | { echoCancellation: boolean; noiseSuppression: boolean; autoGainControl: boolean };
   }) => Promise<{ getAudioTracks: () => { stop: () => void }[] }>;
+  // When true, gUM asks for noiseSuppression:false (avoids double NS) and the
+  // captured track is run through `noiseSuppressor`. Absent/false keeps the
+  // browser's own built-in noiseSuppression, unchanged from before this dep
+  // existed.
+  rnnoiseOn?: boolean;
+  // Replaces the raw mic track with a denoised one (e.g.
+  // noiseSuppressor.ts's startNoiseSuppressor, wrapped to return just the
+  // track). A throw here falls back to the raw track AND re-requests the
+  // built-in noiseSuppression, so the call keeps working either way.
+  noiseSuppressor?: (track: CapturedTrack) => Promise<CapturedTrack>;
   makeProcessor: (track: unknown) => {
     readable: {
       getReader: () => {
@@ -77,9 +88,6 @@ export async function pickEncoderConfig(
   }
 }
 
-const ORIGINAL_CONSTRAINTS = {
-  audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-};
 // Bare constraints: a peer/OS that rejected the detailed constraints (or
 // handed back a dead/muted track for them) still usually grants plain audio.
 const BARE_CONSTRAINTS = { audio: true };
@@ -96,9 +104,10 @@ function isOverconstrained(err: unknown): boolean {
 
 async function captureTrack(
   getUserMedia: MicPipelineDeps["getUserMedia"],
+  rnnoiseOn: boolean,
 ): Promise<{ getAudioTracks: () => { stop: () => void }[] }> {
   try {
-    const media = await getUserMedia(ORIGINAL_CONSTRAINTS);
+    const media = await getUserMedia({ audio: pickAudioConstraints(rnnoiseOn) });
     if (!isBadTrack(media.getAudioTracks()[0] as CapturedTrack)) {
       return media;
     }
@@ -120,6 +129,25 @@ async function readLoop(
   }
 }
 
+// Tries the suppressor on the captured track; on failure, stops that track
+// and re-captures with the built-in noiseSuppression restored, so the call
+// keeps working either way. Not folded into startMicPipeline's own try/catch
+// below: a suppressor failure is NOT a mic failure (deps.onError must not
+// fire for it, per the brief).
+async function applyNoiseSuppressor(
+  deps: MicPipelineDeps,
+  track: CapturedTrack,
+): Promise<CapturedTrack> {
+  if (!deps.rnnoiseOn || !deps.noiseSuppressor) return track;
+  try {
+    return await deps.noiseSuppressor(track);
+  } catch {
+    track.stop();
+    const media = await deps.getUserMedia({ audio: pickAudioConstraints(false) });
+    return media.getAudioTracks()[0] as CapturedTrack;
+  }
+}
+
 export async function startMicPipeline(
   deps: MicPipelineDeps,
 ): Promise<MicPipeline> {
@@ -130,7 +158,7 @@ export async function startMicPipeline(
     // If the browser hands back a dead/muted track for these, or rejects
     // them as OverconstrainedError, captureTrack retries once with bare
     // { audio: true } before giving up.
-    media = await captureTrack(deps.getUserMedia);
+    media = await captureTrack(deps.getUserMedia, deps.rnnoiseOn ?? false);
     const badTrack = media.getAudioTracks()[0] as CapturedTrack | undefined;
     if (isBadTrack(badTrack)) {
       badTrack?.stop();
@@ -140,7 +168,7 @@ export async function startMicPipeline(
     deps.onError?.(err);
     throw err;
   }
-  const track = media.getAudioTracks()[0];
+  const track = await applyNoiseSuppressor(deps, media.getAudioTracks()[0] as CapturedTrack);
   const processor = deps.makeProcessor(track);
   const config = await pickEncoderConfig(deps.isConfigSupported);
   // This gate serializes voice frames among themselves (latest-wins under
