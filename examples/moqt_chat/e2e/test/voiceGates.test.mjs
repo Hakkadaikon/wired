@@ -2,12 +2,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { evaluateVoiceGates } from "../lib/voiceGates.mjs";
 
-const trace = ({ lossRate = 0, lost = 0, received = 100, p99 = 20, firstQ = 10, lastQ = 20 }) => ({
+const trace = ({
+  lossRate = 0,
+  lost = 0,
+  received = 100,
+  p99 = 20,
+  firstQ = 10,
+  lastQ = 20,
+  sendBytesMean = 80,
+}) => ({
   user1: {
     perSender: {
       user2: {
         loss: { lossRate, lost, received },
         interArrivalMs: { p50: 20, p95: 25, p99 },
+        sendBytesMean,
       },
     },
     playheadLag: {
@@ -40,6 +49,13 @@ test("playhead lag growth above threshold fails", () => {
   const fails = evaluateVoiceGates(trace({ firstQ: 10, lastQ: 120 }));
   assert.equal(fails.length, 1);
   assert.match(fails[0], /playhead/);
+});
+
+test("mean send bytes above threshold fails, at threshold passes", () => {
+  const fails = evaluateVoiceGates(trace({ sendBytesMean: 91 }));
+  assert.equal(fails.length, 1);
+  assert.match(fails[0], /send bytes/);
+  assert.deepEqual(evaluateVoiceGates(trace({ sendBytesMean: 90 })), []);
 });
 
 test("overrides loosen a knob per profile", () => {
