@@ -37,6 +37,8 @@ import { createAudioContextGate, type AudioContextGate } from "@/lib/audioContex
 import { createPlaybackSink, type PlaybackSink } from "@/lib/playbackSink";
 import { effectiveGain } from "@/lib/outputMixer";
 import { JitterBufferManager } from "@/lib/jitterBuffer";
+import { createQualityWindow, qualityLevel, type QualityWindow } from "@/lib/voiceQuality";
+import type { VoiceTapEvent } from "@/lib/voiceTap";
 import { registerPageLifecycleCleanup } from "@/lib/pageLifecycle";
 import {
   useMoqtChatStore,
@@ -58,6 +60,10 @@ const VOICE_SUBSCRIBE_RETRY_MS = 1000;
 // after everyone has joined, so a one-shot SUBSCRIBE sweep at connect time
 // would miss almost every peer's share for the rest of the session.
 const SCREEN_SUBSCRIBE_RETRY_MS = 1000;
+// How often the quality window is snapshotted into the store (task brief:
+// "every 1s"); independent of DRAIN_INTERVAL_MS, which paces jitter-buffer
+// pulls, not quality reporting.
+const QUALITY_SNAPSHOT_INTERVAL_MS = 1000;
 
 // voiceReceivePipeline hands the decoder raw Opus payloads; the real
 // AudioDecoder wants EncodedAudioChunk, so wrap each payload here with a
@@ -177,6 +183,33 @@ export function micTracksFrom(mic: { tracks: { stop: () => void }[] } | null): {
 // When to open the live movie's MediaSource: only in the connected room
 // view (the <video> ref is mounted there), and never a second time while
 // one is already live. Pure so it's testable without rendering the hook.
+// Routes one voiceTap event (moqtVoiceClient/voiceReceivePipeline/
+// playbackSink's shared trace point, voiceTap.ts) into the quality window.
+// "send" carries no sender key from the receiver's own perspective and is
+// ignored, same as any event missing src. Pure so it's testable without
+// installing globalThis.__wiredVoiceTap.
+export function applyVoiceTapEvent(window: QualityWindow, e: VoiceTapEvent): void {
+  if (!e.src) return;
+  if (e.dir === "recv") window.onFrame(e.src);
+  else if (e.dir === "drain") {
+    if (e.plc) window.onLost(e.src);
+    else if (e.depth !== undefined) window.onDepth(e.src, e.depth);
+  } else if (e.dir === "play" && e.lag !== undefined) window.onPlay(e.src, e.lag);
+}
+
+// Wraps a possibly-preexisting globalThis.__wiredVoiceTap (the e2e load
+// harness installs its own before navigation, voiceTap.ts's own doc) so
+// installing the quality feed never drops the harness's trace collection.
+export function chainVoiceTap(
+  window: QualityWindow,
+  previous: ((e: VoiceTapEvent) => void) | undefined,
+): (e: VoiceTapEvent) => void {
+  return (e) => {
+    applyVoiceTapEvent(window, e);
+    previous?.(e);
+  };
+}
+
 export function shouldStartLive(
   connectionState: ConnectionState,
   hasVideo: boolean,
@@ -197,6 +230,7 @@ export type SessionRefs = {
   drainTimer: { current: ReturnType<typeof setTimeout> | null };
   voiceRetryTimer: { current: ReturnType<typeof setInterval> | null };
   screenRetryTimer: { current: ReturnType<typeof setInterval> | null };
+  qualityTimer: { current: ReturnType<typeof setInterval> | null };
   mic: { current: { stop: () => void } | null };
   voice: { current: { close: () => void } | null };
   receivePipeline: { current: unknown };
@@ -227,6 +261,10 @@ export function teardownSession(
   if (refs.screenRetryTimer.current !== null) {
     clearInterval(refs.screenRetryTimer.current);
     refs.screenRetryTimer.current = null;
+  }
+  if (refs.qualityTimer.current !== null) {
+    clearInterval(refs.qualityTimer.current);
+    refs.qualityTimer.current = null;
   }
   refs.mic.current?.stop();
   refs.mic.current = null;
