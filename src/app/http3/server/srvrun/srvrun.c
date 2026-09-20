@@ -6970,18 +6970,23 @@ static void srvrun_cc_range(
  * congestion-window shrink (cc_on_loss) is applied once per step by
  * the caller (srvrun_feed_acks), not here, so a loss on several concurrent
  * responses in the same step still only shrinks the connection's one
- * window once. */
+ * window once. newest_lost_ms accumulates the newest SEND time among the
+ * declared losses -- the sent_time cc_on_loss's once-per-recovery-period
+ * gate keys on (RFC 9002 7.3.1). */
 static usz srvrun_reap_losses(
     const srvrun_cfg*  cfg,
     const srvrun_conn* c,
     wired_sendsess*    sess,
     u64                stream_id,
-    u64                now_ms) {
+    u64                now_ms,
+    u64*               newest_lost_ms) {
   wired_sendsess_lost_slice lost[WIRED_SENDSESS_LOG];
   usz                       n = wired_sendsess_detect_lost(
       sess, c->largest_acked, now_ms, c->rtt.smoothed_rtt, lost,
       WIRED_SENDSESS_LOG);
   srvrun_qlog_lost(cfg, c, now_ms, stream_id, lost, n);
+  for (usz i = 0; i < n; i++)
+    *newest_lost_ms = u64_max(*newest_lost_ms, lost[i].sent_ms);
   return n;
 }
 
@@ -7003,32 +7008,34 @@ static void srvrun_ack_range_resps(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
  * ONE largest_acked (RFC 9002 6.1.1); the slot's stream_id is only for the
  * loss records' qlog attribution (RFC 9000 19.8). */
 static usz srvrun_reap_losses_wt(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms) {
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms, u64* newest_lost_ms) {
   usz lost = 0;
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
     if (c->wtsend[i].in_use)
       lost += srvrun_reap_losses(
-          cfg, c, &c->wtsend[i].sess, c->wtsend[i].stream_id, now_ms);
+          cfg, c, &c->wtsend[i].sess, c->wtsend[i].stream_id, now_ms,
+          newest_lost_ms);
   return lost;
 }
 
 /* The resp[] half of the loss pass. */
 static usz srvrun_reap_losses_resps(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms) {
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms, u64* newest_lost_ms) {
   usz lost = 0;
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
     if (c->resp[i].in_use)
       lost += srvrun_reap_losses(
-          cfg, c, &c->resp[i].sess, c->resp[i].stream_id, now_ms);
+          cfg, c, &c->resp[i].sess, c->resp[i].stream_id, now_ms,
+          newest_lost_ms);
   return lost;
 }
 
 /* The whole-connection loss pass: every in-use send session, wtsend and
  * resp[] alike. Runs once per srvrun_feed_acks batch, never per range. */
 static usz srvrun_reap_losses_all(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms) {
-  return srvrun_reap_losses_wt(cfg, c, now_ms) +
-         srvrun_reap_losses_resps(cfg, c, now_ms);
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms, u64* newest_lost_ms) {
+  return srvrun_reap_losses_wt(cfg, c, now_ms, newest_lost_ms) +
+         srvrun_reap_losses_resps(cfg, c, now_ms, newest_lost_ms);
 }
 
 /* 1 if [lo,hi] covers c's one outstanding DPLPMTUD probe pn -- the probe
@@ -7099,14 +7106,19 @@ static void srvrun_feed_ecn(srvrun_conn* c, u64 largest_before, u64 now_ms) {
 static void srvrun_feed_acks(
     const srvrun_step_ctx* ctx, const srvrun_cfg* cfg, srvrun_conn* c) {
   usz lost;
+  u64 newest_lost_ms = 0;
   u64 largest_before = c->largest_acked;
   c->ecn_newly       = 0;
   c->ecn_sent_ms     = 0;
   for (usz i = 0; i < c->l.ack_n; i++)
     srvrun_feed_ack_range(c, c->l.ack_lo[i], c->l.ack_hi[i], ctx->now_ms);
   srvrun_feed_ecn(c, largest_before, ctx->now_ms);
-  lost = srvrun_reap_losses_all(cfg, c, ctx->now_ms);
-  if (lost) cc_on_loss(&c->cc, ctx->now_ms, ctx->now_ms);
+  lost = srvrun_reap_losses_all(cfg, c, ctx->now_ms, &newest_lost_ms);
+  /* RFC 9002 7.3.1/7.3.2: cwnd shrinks once per recovery period, gated on
+   * the lost packet's SEND time -- passing now here instead re-shrank the
+   * window on every loss of a packet sent before the current period began,
+   * pinning cwnd at CC_MIN_WINDOW under sustained light loss. */
+  if (lost) cc_on_loss(&c->cc, newest_lost_ms, ctx->now_ms);
 }
 
 /* Send c's pending DATAGRAM (if any) using a scratch wired_obuf on the stack,
