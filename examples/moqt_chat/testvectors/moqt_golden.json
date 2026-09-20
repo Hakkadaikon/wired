@@ -791,6 +791,81 @@
    "value": "33",
    "classify": "unknown",
    "note": "unknown stream type: close the session"
+  },
+  {
+   "kind": "object_datagram",
+   "name": "dgram_basic",
+   "hex": "080200056869",
+   "op": "accept",
+   "fields": {"type": "0x08", "track_alias": "2", "group_id": "0", "object_id": "5", "default_priority": true, "payload_utf8": "hi"}
+  },
+  {
+   "kind": "object_datagram",
+   "name": "dgram_explicit_priority",
+   "hex": "000200057f6869",
+   "op": "accept",
+   "fields": {"type": "0x00", "track_alias": "2", "group_id": "0", "object_id": "5", "publisher_priority": "127", "payload_utf8": "hi"}
+  },
+  {
+   "kind": "object_datagram",
+   "name": "dgram_zero_oid_eog",
+   "hex": "0e02006869",
+   "op": "accept",
+   "fields": {"type": "0x0e", "track_alias": "2", "group_id": "0", "object_id": "0", "end_of_group": true, "zero_object_id": true, "default_priority": true, "payload_utf8": "hi"}
+  },
+  {
+   "kind": "object_datagram",
+   "name": "dgram_status_eot",
+   "hex": "2802000504",
+   "op": "accept",
+   "fields": {"type": "0x28", "track_alias": "2", "group_id": "0", "object_id": "5", "default_priority": true, "object_status": "4", "object_status_name": "EndOfTrack"}
+  },
+  {
+   "kind": "object_datagram",
+   "name": "dgram_props",
+   "hex": "090200050200256869",
+   "op": "accept",
+   "fields": {"type": "0x09", "track_alias": "2", "group_id": "0", "object_id": "5", "default_priority": true, "properties_hex": "0025", "payload_utf8": "hi"},
+   "note": "Properties Length 2, one KVP: Type 0 (even) + varint value 0x25 = 37"
+  },
+  {
+   "kind": "object_datagram",
+   "name": "dgram_reject_status_eog",
+   "hex": "2202000504",
+   "op": "reject",
+   "error": "PROTOCOL_VIOLATION",
+   "note": "Type 0x22: STATUS (0x20) + END_OF_GROUP (0x02), explicitly invalid (11.3.1)"
+  },
+  {
+   "kind": "object_datagram",
+   "name": "dgram_reject_bit4",
+   "hex": "180200056869",
+   "op": "reject",
+   "error": "PROTOCOL_VIOLATION",
+   "note": "Type 0x18 has bit 4 set: outside 0b00X0XXXX (11.3.1)"
+  },
+  {
+   "kind": "object_datagram",
+   "name": "dgram_reject_props_len0",
+   "hex": "09020005006869",
+   "op": "reject",
+   "error": "PROTOCOL_VIOLATION",
+   "note": "PROPERTIES bit set with Properties Length 0 (11.3.1)"
+  },
+  {
+   "kind": "object_datagram",
+   "name": "dgram_reject_status_props_not_normal",
+   "hex": "2902000502002504",
+   "op": "reject",
+   "error": "PROTOCOL_VIOLATION",
+   "note": "STATUS + PROPERTIES with Status 0x4 != Normal (11.3.1)"
+  },
+  {
+   "kind": "object_datagram",
+   "name": "dgram_insufficient_ids",
+   "hex": "080200",
+   "op": "insufficient",
+   "note": "Object ID varint missing (ZERO_OBJECT_ID clear)"
   }
  ],
  "name": [
