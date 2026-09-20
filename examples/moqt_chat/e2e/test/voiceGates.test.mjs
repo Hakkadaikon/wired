@@ -9,7 +9,10 @@ const trace = ({
   p99 = 20,
   firstQ = 10,
   lastQ = 20,
+  lagP95 = 20,
   sendBytesMean = 80,
+  skippedCount = 0,
+  playCount = 100,
 }) => ({
   user1: {
     perSender: {
@@ -25,8 +28,10 @@ const trace = ({
       min: 0,
       max: lastQ,
       p50: firstQ,
-      p95: lastQ,
+      p95: lagP95,
     },
+    skippedCount,
+    playCount,
   },
 });
 
@@ -68,4 +73,22 @@ test("overrides loosen a knob per profile", () => {
 test("missing sections do not crash", () => {
   assert.deepEqual(evaluateVoiceGates({ user1: { perSender: {}, playheadLag: null } }), []);
   assert.deepEqual(evaluateVoiceGates(undefined), []);
+});
+
+test("playhead lag p95 above threshold fails, at threshold passes", () => {
+  const fails = evaluateVoiceGates(trace({ lagP95: 221 }));
+  assert.equal(fails.length, 1);
+  assert.match(fails[0], /lag p95/);
+  assert.deepEqual(evaluateVoiceGates(trace({ lagP95: 220 })), []);
+});
+
+test("skipped rate above threshold fails, at threshold passes", () => {
+  const fails = evaluateVoiceGates(trace({ skippedCount: 2, playCount: 100 })); // 2%
+  assert.equal(fails.length, 1);
+  assert.match(fails[0], /skip/);
+  assert.deepEqual(evaluateVoiceGates(trace({ skippedCount: 1, playCount: 100 })), []); // 1%
+});
+
+test("skipped rate is report-only when there were no play attempts", () => {
+  assert.deepEqual(evaluateVoiceGates(trace({ skippedCount: 0, playCount: 0 })), []);
 });

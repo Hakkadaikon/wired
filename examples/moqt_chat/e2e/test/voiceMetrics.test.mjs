@@ -126,3 +126,49 @@ test("summarizeVoiceTrace: a null page (evaluate failed) is skipped, not a crash
   const out = summarizeVoiceTrace({ A: null });
   assert.deepEqual(out.A.perSender, {});
 });
+
+test("summarizeVoiceTrace: per-sender jitter buffer depth p50/p95 from drain events", () => {
+  const pages = {
+    B: [
+      { dir: "recv", seq: 0, src: "A", t: 0 },
+      { dir: "drain", seq: 0, src: "A", t: 0, depth: 1 },
+      { dir: "drain", seq: 1, src: "A", t: 20, depth: 2 },
+      { dir: "drain", seq: 2, src: "A", t: 40, depth: 3 },
+      { dir: "drain", seq: 3, src: "A", t: 60, depth: 4 },
+    ],
+  };
+  const out = summarizeVoiceTrace(pages);
+  assert.deepEqual(out.B.perSender.A.depth, { p50: 2, p95: 4, p99: 4 });
+});
+
+test("summarizeVoiceTrace: per-sender plcCount counts drain events with plc:true, not frames", () => {
+  const pages = {
+    B: [
+      { dir: "recv", seq: 0, src: "A", t: 0 },
+      { dir: "drain", seq: 0, src: "A", t: 0, depth: 1 },
+      { dir: "drain", seq: 1, src: "A", t: 20, plc: true },
+      { dir: "drain", seq: 2, src: "A", t: 40, plc: true },
+    ],
+  };
+  const out = summarizeVoiceTrace(pages);
+  assert.equal(out.B.perSender.A.plcCount, 2);
+});
+
+test("summarizeVoiceTrace: skippedCount counts page-level play events with skipped:true", () => {
+  const pages = {
+    B: [
+      { dir: "play", seq: -1, t: 0, lag: 5 },
+      { dir: "play", seq: -1, t: 20, skipped: true },
+      { dir: "play", seq: -1, t: 40, skipped: true },
+    ],
+  };
+  const out = summarizeVoiceTrace(pages);
+  assert.equal(out.B.skippedCount, 2);
+});
+
+test("summarizeVoiceTrace: depth/plcCount/skippedCount default to sane empties", () => {
+  const out = summarizeVoiceTrace({ B: [] });
+  assert.deepEqual(out.B.perSender, {});
+  assert.equal(out.B.skippedCount, 0);
+  assert.equal(out.B.playCount, 0);
+});
