@@ -661,7 +661,7 @@ static void test_srvrun_feed_ack_range_writes_stream_frame_lost(void) {
   }
   /* ack only pn0+4: pns pn0,pn0+1 are 3+ behind, past the packet threshold */
   srvrun_feed_ack_range(&c, pn0 + 4, pn0 + 4, ctx.now_ms);
-  srvrun_reap_losses_all(&cfg, &c, ctx.now_ms);
+  srvrun_reap_losses_all(&cfg, &c, ctx.now_ms, &(u64){0});
   CHECK(
       sr_qlog_count(
           "\"name\":\"stream_frame_lost\",\"stream_id\":15,\"offset\":0,"
@@ -731,7 +731,7 @@ static void test_srvrun_wt_unacked_round_loss_detected(void) {
    * packet threshold, pn0 must be declared lost despite this session never
    * having been acked itself */
   srvrun_feed_ack_range(&c, pn0 + 4, pn0 + 4, ctx.now_ms);
-  srvrun_reap_losses_all(&cfg, &c, ctx.now_ms);
+  srvrun_reap_losses_all(&cfg, &c, ctx.now_ms, &(u64){0});
   CHECK(sr_qlog_count("\"name\":\"stream_frame_lost\",\"stream_id\":19,") == 1);
   srvrunt_qlog_unlink();
 }
@@ -805,7 +805,7 @@ static void test_srvrun_wt_lost_bare_fin_redetected_and_resent(void) {
           "\"length\":0,\"fin\":1,") == 1);
   /* later connection ACKs (voice traffic) must declare the FIN lost... */
   srvrun_feed_ack_range(&c, pn_fin + 4, pn_fin + 4, ctx.now_ms);
-  srvrun_reap_losses_all(&cfg, &c, ctx.now_ms);
+  srvrun_reap_losses_all(&cfg, &c, ctx.now_ms, &(u64){0});
   CHECK(
       sr_qlog_count(
           "\"name\":\"stream_frame_lost\",\"stream_id\":23,\"offset\":19,"
@@ -11786,6 +11786,86 @@ static void test_srvrun_ack_ranges_batched_before_loss_pass(void) {
   }
 }
 
+/* RFC 9002 7.3.1/7.3.2: a loss event starts a new recovery period ONLY when
+ * the lost packet was sent after the previous period began -- cwnd is
+ * reduced once per period, keyed on the lost packet's own SEND time, not on
+ * when the loss was detected. Timeline: packets sent at t=1000; a loss pass
+ * at t1=2000 halves cwnd and starts recovery (recovery_start=t1); an ACK of
+ * a packet sent at 3000 (> t1) exits recovery; a loss of packets sent at
+ * 1000 (BEFORE t1) detected at t=4000 must NOT shrink cwnd again -- under
+ * 5% loss at ~150pps, re-shrinking on every such stale loss pinned cwnd at
+ * CC_MIN_WINDOW. A loss of a packet sent at 5000 (after t1) is a genuine
+ * new congestion signal and halves cwnd again (positive control). */
+static void test_srvrun_pre_recovery_loss_keeps_cwnd(void) {
+  static u8     body[16 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd           = 1u << 20;
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state      st  = {0, &c};
+    srvrun_step_ctx   ctx = {&cfg, 0, &st, 2000, 0};
+    wired_sendq_slice sl;
+    u64               w1, w2;
+    /* pns 0..7 all sent at t=1000, before any recovery period */
+    for (u64 pn = 0; pn < 8; pn++) {
+      CHECK(wired_sendsess_take(&c.resp[0].sess, &sl) == 1);
+      CHECK(wired_sendsess_sent(&c.resp[0].sess, &sl, pn, 1000) == 1);
+    }
+    /* t1=2000: ACK pn 7 only -- pns 0..4 trip the packet threshold in one
+     * batch; the (equal) send times all read 1000, so the one cc_on_loss
+     * this batch feeds sees sent_time=1000. cwnd halves once; recovery
+     * starts at t1. pns 5,6 (sent at 1000) stay in flight. */
+    c.l.ack_lo[0] = 7;
+    c.l.ack_hi[0] = 7;
+    c.l.ack_n     = 1;
+    srvrun_feed_acks(&ctx, &cfg, &c);
+    CHECK(c.cc.in_recovery == 1);
+    CHECK(c.cc.recovery_start == 2000);
+    w1 = c.cc.cwnd;
+    CHECK(w1 < (1u << 20));
+    /* pn 20 sent at t=3000 (after t1); its ACK at t=4000 exits recovery.
+     * The SAME step's loss pass then declares pns 5,6 lost -- but they were
+     * sent at 1000, BEFORE this recovery period, so cwnd must not shrink
+     * again and the connection must stay out of recovery. */
+    CHECK(wired_sendsess_take(&c.resp[0].sess, &sl) == 1);
+    CHECK(wired_sendsess_sent(&c.resp[0].sess, &sl, 20, 3000) == 1);
+    ctx.now_ms    = 4000;
+    c.l.ack_lo[0] = 20;
+    c.l.ack_hi[0] = 20;
+    c.l.ack_n     = 1;
+    srvrun_feed_acks(&ctx, &cfg, &c);
+    CHECK(c.cc.in_recovery == 0);
+    CHECK(c.cc.recovery_start == 2000); /* no new period was started */
+    CHECK(c.cc.cwnd >= w1);             /* ack growth only, no re-shrink */
+    w2 = c.cc.cwnd;
+    /* positive control: pns 30..33 sent at t=5000 (after t1); losing pn 30
+     * at t=6000 is a fresh congestion signal -- cwnd halves again and a new
+     * recovery period starts at t=6000. */
+    for (u64 pn = 30; pn < 34; pn++) {
+      CHECK(wired_sendsess_take(&c.resp[0].sess, &sl) == 1);
+      CHECK(wired_sendsess_sent(&c.resp[0].sess, &sl, pn, 5000) == 1);
+    }
+    ctx.now_ms    = 6000;
+    c.l.ack_lo[0] = 33;
+    c.l.ack_hi[0] = 33;
+    c.l.ack_n     = 1;
+    srvrun_feed_acks(&ctx, &cfg, &c);
+    CHECK(c.cc.in_recovery == 1);
+    CHECK(c.cc.recovery_start == 6000);
+    CHECK(c.cc.cwnd < w2);
+  }
+}
+
 /* --- RFC 9000 13.4.2 ECN validation on the ACK-processing path ---------- */
 
 /* Arm resp[0] with 8 chunks on c, pump them all out (8 ECT(0)-marked 1-RTT
@@ -11980,7 +12060,7 @@ static void test_srvrun_loss_and_retransmit_across_two_responses(void) {
     srvrun_feed_ack_range(
         &c, pn0_b + WIRED_SENDSESS_LOG - 1, pn0_b + WIRED_SENDSESS_LOG - 1,
         ctx.now_ms);
-    srvrun_reap_losses_all(&cfg, &c, ctx.now_ms);
+    srvrun_reap_losses_all(&cfg, &c, ctx.now_ms, &(u64){0});
     CHECK(c.resp[1].sess.requeue_n > 0);
     c.srtt_ms      = 0;
     c.next_send_ms = 0;
@@ -17822,6 +17902,7 @@ void test_srvrun(void) {
   test_srvrun_ku_old_keys_discarded_after_3pto_window();
   test_srvrun_sibling_ack_does_not_lose_other_slot();
   test_srvrun_ack_ranges_batched_before_loss_pass();
+  test_srvrun_pre_recovery_loss_keeps_cwnd();
   test_srvrun_feed_acks_ecn_ce_shrinks_cwnd();
   test_srvrun_feed_acks_stale_ack_never_fails_ecn();
   test_srvrun_feed_acks_suppressed_ecn_disables();
