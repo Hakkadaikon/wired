@@ -5,6 +5,8 @@
   "packageManager": "pnpm@10.24.0",
   "scripts": {
     "dev": "next dev",
+    "predev": "mkdir -p public/worklets && cp node_modules/@jitsi/rnnoise-wasm/dist/rnnoise-sync.js public/worklets/",
+    "prebuild": "mkdir -p public/worklets && cp node_modules/@jitsi/rnnoise-wasm/dist/rnnoise-sync.js public/worklets/",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

@@ -11,3 +11,7 @@
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# vendored @jitsi/rnnoise-wasm glue -- copied from node_modules by
+# predev/prebuild (package.json), not committed (1.9MB generated file)
+/public/worklets/rnnoise-sync.js
