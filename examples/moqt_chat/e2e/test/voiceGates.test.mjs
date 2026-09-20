@@ -13,6 +13,7 @@ const trace = ({
   sendBytesMean = 80,
   skippedCount = 0,
   playCount = 100,
+  plcCount = 0,
 }) => ({
   user1: {
     perSender: {
@@ -20,6 +21,7 @@ const trace = ({
         loss: { lossRate, lost, received },
         interArrivalMs: { p50: 20, p95: 25, p99 },
         sendBytesMean,
+        plcCount,
       },
     },
     playheadLag: {
@@ -91,4 +93,26 @@ test("skipped rate above threshold fails, at threshold passes", () => {
 
 test("skipped rate is report-only when there were no play attempts", () => {
   assert.deepEqual(evaluateVoiceGates(trace({ skippedCount: 0, playCount: 0 })), []);
+});
+
+test("plcCount above maxPlcCount fails, at the default (0) passes", () => {
+  const fails = evaluateVoiceGates(trace({ plcCount: 1 }));
+  assert.equal(fails.length, 1);
+  assert.match(fails[0], /plc/i);
+  assert.deepEqual(evaluateVoiceGates(trace({ plcCount: 0 })), []);
+});
+
+test("plcCount below minPlcCount fails when overridden; default minPlcCount (0) never fails", () => {
+  assert.deepEqual(evaluateVoiceGates(trace({ plcCount: 0 })), []); // default: no minimum
+  const fails = evaluateVoiceGates(trace({ plcCount: 0 }), { maxPlcCount: 5, minPlcCount: 1 });
+  assert.equal(fails.length, 1);
+  assert.match(fails[0], /plc/i);
+  assert.deepEqual(
+    evaluateVoiceGates(trace({ plcCount: 1 }), { maxPlcCount: 5, minPlcCount: 1 }),
+    [],
+  );
+});
+
+test("missing plcCount does not crash and is treated as zero", () => {
+  assert.deepEqual(evaluateVoiceGates({ user1: { perSender: { user2: {} }, playheadLag: null } }), []);
 });
