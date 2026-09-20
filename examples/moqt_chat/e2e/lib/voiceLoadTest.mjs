@@ -63,7 +63,13 @@ async function joinVoiceClient(browser, pageUrl, certHash, participantId) {
   page.on("pageerror", (e) => errors.push(e.message));
   await page.evaluateOnNewDocument(DECODE_COUNTER_INIT_SCRIPT);
 
-  await page.goto(pageUrl);
+  // The e2e harness always runs with RNNoise off: N worklets (one per
+  // headless Chrome) on a shared box is a test-environment CPU artifact,
+  // and the transport gates (loss/jitter/plc) must measure the network
+  // path, not worklet CPU (see noiseSuppressionDefault in joinPrefs.ts).
+  const nsOffUrl = new URL(pageUrl);
+  nsOffUrl.searchParams.set("ns", "0");
+  await page.goto(nsOffUrl.href);
   await page.type('input[data-testid="certHash"]', certHash);
   await page.click(`[data-testid="participant-${participantId}"]`);
   await page.click('[data-testid="connect"]');

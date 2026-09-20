@@ -26,7 +26,16 @@ async function joinClient(browser, pageUrl, certHash, participantId) {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
 
-  await page.goto(pageUrl);
+  // connect() also starts the voice pipeline (useMoqtChat.ts's
+  // connectChatThenVoice), so even this chat-only load test spins up an
+  // RNNoise worklet per client unless told not to -- the e2e harness always
+  // runs with RNNoise off (see noiseSuppressionDefault in joinPrefs.ts): N
+  // worklets on a shared box is a test-environment CPU artifact, and this
+  // test's own delivery/latency numbers must measure the transport, not
+  // worklet CPU.
+  const nsOffUrl = new URL(pageUrl);
+  nsOffUrl.searchParams.set("ns", "0");
+  await page.goto(nsOffUrl.href);
   await page.type('input[data-testid="certHash"]', certHash);
   await page.click(`[data-testid="participant-${participantId}"]`);
   await page.click('[data-testid="connect"]');
