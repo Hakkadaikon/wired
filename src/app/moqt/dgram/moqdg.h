@@ -12,9 +12,11 @@
  * MOQDATA_OK / MOQDATA_INSUFFICIENT / MOQDATA_VIOLATION.
  */
 
-/** OBJECT_DATAGRAM Type byte (11.3.1): 0b00X0XXXX, i.e. 0x00..0x0F and
+/** OBJECT_DATAGRAM Type (11.3.1): 0b00X0XXXX, i.e. 0x00..0x0F and
  * 0x20..0x2F, minus the values with both STATUS (0x20) and END_OF_GROUP
- * (0x02) set (0x22/0x23/0x26/0x27/0x2A/0x2B/0x2E/0x2F). */
+ * (0x02) set (0x22/0x23/0x26/0x27/0x2A/0x2B/0x2E/0x2F). Type is a vi64:
+ * any value outside those ranges -- including >= 0x100, whatever its low
+ * byte -- is invalid. */
 int moqdg_type_valid(u64 type);
 
 /** Decoded OBJECT_DATAGRAM (11.3.1). The Type bits select which fields
