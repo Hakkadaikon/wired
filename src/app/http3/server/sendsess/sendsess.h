@@ -145,6 +145,10 @@ typedef struct {
   u64 offset; /**< absolute stream offset (wired_sendsess_stream_offset) */
   u64 length; /**< slice length in bytes */
   u64 fin;    /**< 0 or 1 */
+  /** Monotonic send time -- RFC 9002 7.3.1: cwnd is reduced once per
+   * recovery period, gated on the lost packet's SEND time, so the caller's
+   * cc_on_loss needs this, not the detection time. */
+  u64 sent_ms;
 } wired_sendsess_lost_slice;
 
 /** Declare every in-flight packet lost by RFC 9002 6.1's two independent

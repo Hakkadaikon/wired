@@ -194,7 +194,8 @@ static void sendsess_report_lost(
     usz                        i) {
   if (!lost || i >= cap) return;
   lost[i] = (wired_sendsess_lost_slice){
-      e->pn, wired_sendsess_stream_offset(s, &e->sl), e->sl.len, e->sl.fin};
+      e->pn, wired_sendsess_stream_offset(s, &e->sl), e->sl.len, e->sl.fin,
+      e->sent_ms};
 }
 
 usz wired_sendsess_detect_lost(

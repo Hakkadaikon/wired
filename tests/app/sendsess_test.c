@@ -148,6 +148,33 @@ static void test_sendsess_threshold_declares_lost(void) {
   CHECK(s.has_acked == 0);
 }
 
+/* RFC 9002 7.3.1: a loss only starts a new recovery period when the lost
+ * packet was sent after the previous one began, so the caller needs each
+ * lost slice's own SEND time (not the detection time) to gate cc_on_loss.
+ * Every reported slice carries it; a detect pass declaring nothing leaves
+ * the caller's array untouched; equal send times all read that one value
+ * (their max is the value itself). */
+static void test_sendsess_lost_slice_carries_sent_ms(void) {
+  u8                bytes[50];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  wired_sendsess_arm(&s, bytes, 50, 10);
+  for (u64 pn = 0; pn < 5; pn++) { /* pns 0..4, all sent at t=300 */
+    CHECK(wired_sendsess_take(&s, &sl) == 1);
+    CHECK(wired_sendsess_sent(&s, &sl, pn, 300) == 1);
+  }
+  wired_sendsess_ack(&s, 4, 4); /* pns 0,1 trip the packet threshold */
+  {
+    wired_sendsess_lost_slice lost[4] = {0};
+    CHECK(wired_sendsess_detect_lost(&s, 4, 0, 0, lost, 4) == 2);
+    CHECK(lost[0].sent_ms == 300 && lost[1].sent_ms == 300);
+    /* nothing further lost: the array is left untouched */
+    lost[0].sent_ms = 777;
+    CHECK(wired_sendsess_detect_lost(&s, 4, 0, 0, lost, 4) == 0);
+    CHECK(lost[0].sent_ms == 777);
+  }
+}
+
 /* RFC 9002 6.1.2: the time threshold alone (independent of the packet
  * threshold) can also declare a slice lost -- the two criteria are an OR,
  * not a sequence. pn 4 is only 1 below largest_acked (well under
@@ -543,6 +570,7 @@ void test_sendsess(void) {
   test_sendsess_extend_after_drained_reactivates();
   test_sendsess_requeue_first();
   test_sendsess_threshold_declares_lost();
+  test_sendsess_lost_slice_carries_sent_ms();
   test_sendsess_time_threshold_declares_lost_alone();
   test_sendsess_time_threshold_requires_later_ack();
   test_sendsess_packet_threshold_requires_later_ack();
