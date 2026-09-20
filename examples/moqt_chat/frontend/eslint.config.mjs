@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendor copy of @jitsi/rnnoise-wasm's dist/rnnoise-sync.js (worklets
+    // cannot `import`, so this is fetched as text at runtime) -- not our
+    // code to lint.
+    "public/worklets/rnnoise-sync.js",
   ]),
 ]);
 
