@@ -432,6 +432,13 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   wired_srvdriver_opt  opt;
   int                  have_san_ipv4;
   u64                  now_secs = wired_clock_epoch_secs();
+  /* Round down to the start of the UTC day: the cert (and thus the SHA-256
+   * fingerprint the frontend's auto-rejoin pins via serverCertificateHashes)
+   * is the only thing that changes across a same-day restart otherwise.
+   * p256cert's 1h backdate + 14-day cap (tbs.c) still holds since this only
+   * ever moves now_secs earlier within the same day; a restart after UTC
+   * midnight still needs a manual rejoin with the new hash. */
+  now_secs -= now_secs % 86400;
   wired_srvrun_handler h        = {app_on_request, 0};
   wired_srvrun_obs     obs      = {
       wired_cliargs_str(argc, argv, "--qlog", 0),

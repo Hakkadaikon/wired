@@ -110,8 +110,11 @@ On startup it logs the self-signed certificate's SHA-256 fingerprint:
 cert sha-256 fingerprint: b4:6d:57:7b:de:f6:70:d6:f1:f9:e9:91:c3:a3:6a:db:15:e8:7d:39:34:24:a4:54:89:ed:de:43:22:39:70:88
 ```
 
-This value changes on every restart (the certificate's validity window is
-anchored to the startup time), so always copy it from the **current** run.
+This value stays the same across restarts on the same UTC day (the
+certificate's validity window is anchored to the start of the day, not the
+exact startup time, so the frontend's auto-rejoin can keep using a pinned
+hash) but changes after UTC midnight, so copy it from the **current** run if
+it has crossed a day boundary.
 
 ## Run the frontend
 
