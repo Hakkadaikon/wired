@@ -137,12 +137,21 @@ function Notice({
 function Peers() {
   const peers = useMoqtChatStore((s) => s.peers);
   const voiceQuality = useMoqtChatStore((s) => s.voiceQuality);
+  const speaking = useMoqtChatStore((s) => s.speaking);
+  const localSpeaking = useMoqtChatStore((s) => s.localSpeaking);
   return (
     <section>
       <h2>Room</h2>
       <p className="caption">{peers.length + 1} in room</p>
       <ul className="peers">
-        <li className="you">You</li>
+        <li className="you">
+          You
+          <span
+            className="status__block"
+            data-testid="speaking-you"
+            data-speaking={localSpeaking || undefined}
+          />
+        </li>
         {peers.map((p) => (
           <li key={p}>
             {p}
@@ -150,6 +159,7 @@ function Peers() {
               className="status__block"
               data-testid={`quality-${p}`}
               data-quality={voiceQuality[p] === "none" ? undefined : voiceQuality[p]}
+              data-speaking={speaking[p] || undefined}
             />
           </li>
         ))}

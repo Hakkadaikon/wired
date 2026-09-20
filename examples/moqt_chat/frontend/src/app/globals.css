@@ -329,6 +329,11 @@ input {
   background: var(--gray);
 }
 
+.status__block[data-speaking="true"] {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
 .volume {
   display: block;
   margin-top: 0.5em;
