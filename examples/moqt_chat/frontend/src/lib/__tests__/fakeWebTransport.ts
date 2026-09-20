@@ -44,10 +44,10 @@ export class FakeWebTransport {
       this.resolveClosed = res;
       this.rejectClosed = rej;
     });
-    // A test that rejects these before/without a listener must not trip
-    // vitest's unhandled-rejection reporting.
-    this.ready.catch(() => {});
-    this.closed.catch(() => {});
+    // No self-attached rejection handlers here, deliberately: a real
+    // browser's WebTransport does not swallow its own closed rejection
+    // either, so an attempt the production code leaves unhandled must
+    // surface through vitest's unhandled-rejection reporting.
   }
 
   close(): void {

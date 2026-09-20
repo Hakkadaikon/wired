@@ -220,6 +220,11 @@ export class MoqtChatClient {
     const opts = certHashesToWebTransportOptions(certHashesHex);
     const wt = new WebTransport(url, opts);
     this.#wt = wt;
+    // On a failed attempt `closed` rejects alongside `ready`, and nothing
+    // below ever subscribes to it (#onClosed is attached only once the
+    // session is up) -- without this no-op handler every failed attempt
+    // logs an uncaught WebTransportError in the browser.
+    wt.closed.catch(() => {});
     try {
       await wt.ready;
 

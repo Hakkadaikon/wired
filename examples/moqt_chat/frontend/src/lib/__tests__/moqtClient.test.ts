@@ -146,6 +146,30 @@ describe("MoqtChatClient transport close detection", () => {
     expect(disconnects()).toBe(1);
   });
 
+  it("a failed connect leaves no unhandled rejection from the closed promise", async () => {
+    vi.useFakeTimers();
+    const fake = new FakeWebTransport();
+    vi.stubGlobal("WebTransport", function () {
+      return fake;
+    });
+    const statuses: string[] = [];
+    const client = new MoqtChatClient("user1", {
+      onStatusChange: (s) => statuses.push(s),
+      onMessage: () => {},
+    });
+
+    const attempt = client.connect("https://hub.example/", []);
+    fake.rejectReady(new Error("hub down"));
+    fake.rejectClosed(new Error("hub down"));
+
+    await expect(attempt).rejects.toThrow("hub down");
+    await flushAsync();
+    // The client stays silent on this path (the caller's rejection handling
+    // reports the one "disconnected") -- and the closed rejection must not
+    // escape as an unhandled rejection, which would fail this run.
+    expect(statuses.filter((s) => s === "disconnected")).toHaveLength(0);
+  });
+
   it("close() reports disconnected once and its closed settling adds none", async () => {
     const { client, fake, disconnects } = await connectedClient();
 
