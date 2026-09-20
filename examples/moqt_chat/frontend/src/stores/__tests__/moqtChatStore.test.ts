@@ -186,4 +186,28 @@ describe("moqtChatStore", () => {
     useMoqtChatStore.getState().clearPeers();
     expect(useMoqtChatStore.getState().voiceQuality).toEqual({});
   });
+
+  it("starts with no one speaking, local or remote", () => {
+    expect(useMoqtChatStore.getState().speaking).toEqual({});
+    expect(useMoqtChatStore.getState().localSpeaking).toBe(false);
+  });
+
+  it("sets a peer's speaking state without affecting other peers", () => {
+    useMoqtChatStore.getState().setSpeaking("user2", true);
+    useMoqtChatStore.getState().setSpeaking("user3", false);
+    expect(useMoqtChatStore.getState().speaking).toEqual({ user2: true, user3: false });
+  });
+
+  it("clears speaking when peers are cleared", () => {
+    useMoqtChatStore.getState().setSpeaking("user2", true);
+    useMoqtChatStore.getState().clearPeers();
+    expect(useMoqtChatStore.getState().speaking).toEqual({});
+  });
+
+  it("sets local speaking state", () => {
+    useMoqtChatStore.getState().setLocalSpeaking(true);
+    expect(useMoqtChatStore.getState().localSpeaking).toBe(true);
+    useMoqtChatStore.getState().setLocalSpeaking(false);
+    expect(useMoqtChatStore.getState().localSpeaking).toBe(false);
+  });
 });
