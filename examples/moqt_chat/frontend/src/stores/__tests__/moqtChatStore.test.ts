@@ -20,6 +20,7 @@ describe("moqtChatStore", () => {
     expect(s.screenShareError).toBeNull();
     expect(s.masterVolume).toBe(1);
     expect(s.peerVolumes).toEqual({});
+    expect(s.voiceQuality).toEqual({});
   });
 
   it("sets and clears the live movie error and first group", () => {
@@ -165,5 +166,18 @@ describe("moqtChatStore", () => {
     useMoqtChatStore.getState().setPeerVolume("user2", 0.3);
     useMoqtChatStore.getState().setPeerVolume("user3", 0.7);
     expect(useMoqtChatStore.getState().peerVolumes).toEqual({ user2: 0.3, user3: 0.7 });
+  });
+
+  it("starts with no voice quality recorded", () => {
+    expect(useMoqtChatStore.getState().voiceQuality).toEqual({});
+  });
+
+  it("sets a peer's voice quality without affecting other peers", () => {
+    useMoqtChatStore.getState().setVoiceQuality("user2", "degraded");
+    useMoqtChatStore.getState().setVoiceQuality("user3", "good");
+    expect(useMoqtChatStore.getState().voiceQuality).toEqual({
+      user2: "degraded",
+      user3: "good",
+    });
   });
 });
