@@ -5,6 +5,7 @@ import {
   seqGapStats,
   interArrivalStats,
   playheadLagStats,
+  sendBytesMean,
   summarizeVoiceTrace,
 } from "../lib/voiceMetrics.mjs";
 
@@ -74,11 +75,21 @@ test("playheadLagStats: min/max/p50/p95 and quarter means expose monotonic growt
   assert.equal(playheadLagStats([]), null);
 });
 
+test("sendBytesMean: mean of send events' bytes, null when none carry it", () => {
+  const sends = [
+    { dir: "send", seq: 0, t: 0, bytes: 80 },
+    { dir: "send", seq: 1, t: 20, bytes: 100 },
+  ];
+  assert.equal(sendBytesMean(sends), 90);
+  assert.equal(sendBytesMean([{ dir: "send", seq: 0, t: 0 }]), null);
+  assert.equal(sendBytesMean([]), null);
+});
+
 test("summarizeVoiceTrace: cross-page send->recv/drain latency and dwell per sender", () => {
   const pages = {
     A: [
-      { dir: "send", seq: 0, t: 1000 },
-      { dir: "send", seq: 1, t: 1020 },
+      { dir: "send", seq: 0, t: 1000, bytes: 80 },
+      { dir: "send", seq: 1, t: 1020, bytes: 100 },
     ],
     B: [
       { dir: "recv", seq: 0, src: "A", t: 1050 },
@@ -94,6 +105,7 @@ test("summarizeVoiceTrace: cross-page send->recv/drain latency and dwell per sen
   assert.deepEqual(forA.drainLatencyMs, { p50: 60, p95: 65, p99: 65 });
   assert.deepEqual(forA.dwellMs, { p50: 10, p95: 10, p99: 10 });
   assert.equal(forA.loss.lost, 0);
+  assert.equal(forA.sendBytesMean, 90);
   assert.equal(out.B.playheadLag.max, 5);
   assert.deepEqual(out.A.perSender, {}); // sender page received nothing
 });

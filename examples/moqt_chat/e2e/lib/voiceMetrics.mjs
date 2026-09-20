@@ -86,6 +86,12 @@ export function playheadLagStats(playEvents) {
   };
 }
 
+export function sendBytesMean(sendEvents) {
+  const sizes = sendEvents.map((e) => e.bytes).filter((v) => typeof v === "number");
+  if (sizes.length === 0) return null;
+  return sizes.reduce((a, b) => a + b, 0) / sizes.length;
+}
+
 function groupBySrc(events) {
   const groups = new Map();
   for (const e of events) {
@@ -144,12 +150,14 @@ export function summarizeVoiceTrace(pagesEvents) {
     for (const [src, recvs] of recvGroups) {
       const drains = drainGroups.get(src) ?? [];
       const senderSends = sendTimes.get(src) ?? new Map();
+      const senderEvents = pagesEvents[src] ?? [];
       perSender[src] = {
         recvLatencyMs: percentileStats(latenciesAgainst(senderSends, recvs)),
         drainLatencyMs: percentileStats(latenciesAgainst(senderSends, drains)),
         dwellMs: percentileStats(dwellTimes(recvs, drains)),
         loss: seqGapStats(recvs),
         interArrivalMs: interArrivalStats(recvs),
+        sendBytesMean: sendBytesMean(senderEvents.filter((e) => e.dir === "send")),
       };
     }
     out[tag] = {
