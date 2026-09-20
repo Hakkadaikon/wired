@@ -4,6 +4,7 @@ import {
   createVadThrottle,
   pcmToWasm,
   pickAudioConstraints,
+  stripEsmExport,
 } from "../noiseSuppressor";
 
 describe("createFrameAccumulator(480)", () => {
@@ -109,5 +110,15 @@ describe("pickAudioConstraints", () => {
       noiseSuppression: true,
       autoGainControl: true,
     });
+  });
+});
+
+describe("stripEsmExport", () => {
+  it("removes a trailing `export default <name>;` statement", () => {
+    expect(stripEsmExport("var x = 1;\nexport default x;")).toBe("var x = 1;\n");
+  });
+
+  it("leaves source with no export statement unchanged", () => {
+    expect(stripEsmExport("var x = 1;")).toBe("var x = 1;");
   });
 });

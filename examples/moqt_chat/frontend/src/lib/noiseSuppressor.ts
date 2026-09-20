@@ -73,3 +73,63 @@ export function pickAudioConstraints(rnnoiseOn: boolean): AudioConstraints {
     autoGainControl: true,
   };
 }
+
+// -- worklet graph setup ------------------------------------------------
+// Not unit-tested (thin glue over live browser APIs -- MediaStream,
+// AudioWorkletNode -- that jsdom does not implement); covered by the
+// e2e-voice clean-audio gate instead, per the brief.
+
+export type NoiseSuppressorHandle = {
+  // The processed track to hand to micPipeline.ts in place of the raw mic
+  // track.
+  outputTrack: MediaStreamTrack;
+  stop: () => void;
+};
+
+const WORKLET_URL = "/worklets/rnnoise-processor.js";
+// Served alongside the worklet; the worklet cannot `import`, so the module
+// source is fetched here and handed to it as text via processorOptions.
+const RNNOISE_SYNC_URL = "/worklets/rnnoise-sync.js";
+
+// Copied verbatim from node_modules/@jitsi/rnnoise-wasm/dist/rnnoise-sync.js
+// at build time (see brief: "Copy that JS file into public/worklets/").
+// That file ends in `export default createRNNWasmModuleSync;`, which is
+// invalid inside `new Function` (worklets cannot use ES module syntax) --
+// this strips just that trailing statement.
+export function stripEsmExport(source: string): string {
+  return source.replace(/export\s+default\s+[^;]+;?\s*$/, "");
+}
+
+// Sets up mic -> AudioWorkletNode("rnnoise-processor") -> destination and
+// returns the denoised track. Throws if the worklet/wasm fails to load;
+// callers fall back to the browser's built-in noiseSuppression
+// (pickAudioConstraints(false)) and keep the call working, per the brief.
+export async function startNoiseSuppressor(
+  micTrack: MediaStreamTrack,
+  onVad: (isSpeaking: boolean) => void,
+  basePath = "",
+): Promise<NoiseSuppressorHandle> {
+  const ctx = new AudioContext({ sampleRate: 48000 });
+  const wasmModuleSource = await fetch(`${basePath}${RNNOISE_SYNC_URL}`).then((r) => r.text());
+  await ctx.audioWorklet.addModule(`${basePath}${WORKLET_URL}`);
+
+  const source = ctx.createMediaStreamSource(new MediaStream([micTrack]));
+  const node = new AudioWorkletNode(ctx, "rnnoise-processor", {
+    processorOptions: { wasmModuleSource: stripEsmExport(wasmModuleSource) },
+  });
+  node.port.onmessage = (ev: MessageEvent<{ type: string; isSpeaking: boolean }>) => {
+    if (ev.data?.type === "vad") onVad(ev.data.isSpeaking);
+  };
+  const destination = ctx.createMediaStreamDestination();
+  source.connect(node).connect(destination);
+
+  return {
+    outputTrack: destination.stream.getAudioTracks()[0],
+    stop: () => {
+      node.port.onmessage = null;
+      node.disconnect();
+      source.disconnect();
+      void ctx.close();
+    },
+  };
+}
