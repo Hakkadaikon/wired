@@ -16,8 +16,47 @@ function fakeControlStream() {
   };
 }
 
+/** Fake wt.datagrams: the writable records what was written, the readable
+ * serves whatever a test push()es (parking between pushes). */
+export class FakeDatagrams {
+  maxDatagramSize = 1200;
+  written: Uint8Array[] = [];
+  #queue: Uint8Array[] = [];
+  #wake: (() => void) | undefined;
+
+  writable = {
+    getWriter: () => ({
+      write: async (chunk: Uint8Array) => {
+        this.written.push(chunk);
+      },
+      releaseLock: () => {},
+    }),
+  };
+
+  readable = {
+    getReader: () => ({
+      read: async (): Promise<{ value?: Uint8Array; done: boolean }> => {
+        for (;;) {
+          const value = this.#queue.shift();
+          if (value) return { value, done: false };
+          await new Promise<void>((resolve) => {
+            this.#wake = resolve;
+          });
+        }
+      },
+    }),
+  };
+
+  push(datagram: Uint8Array): void {
+    this.#queue.push(datagram);
+    this.#wake?.();
+    this.#wake = undefined;
+  }
+}
+
 export class FakeWebTransport {
   readonly ready: Promise<void>;
+  readonly datagrams = new FakeDatagrams();
   readonly closed: Promise<unknown>;
   closeCalls = 0;
   resolveReady!: () => void;

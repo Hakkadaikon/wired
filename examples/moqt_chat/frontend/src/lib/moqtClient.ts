@@ -32,8 +32,10 @@ import {
   encodeSubscribe,
   encodeVarint,
   hexToBytes,
+  decodeObjectDatagram,
   readToEof,
   utf8ToBytes,
+  type ObjectDatagram,
   type SubgroupHeader,
 } from "./moqtWire";
 
@@ -179,6 +181,12 @@ export interface MoqtChatCallbacks {
     firstChunkTail: Uint8Array,
     reader: ReadableStreamDefaultReader<Uint8Array>,
   ): void;
+  // The datagram counterpart to onUnknownUniStream: fires for an incoming
+  // OBJECT_DATAGRAM whose Track Alias is outside the chat range (only the
+  // audio track sends datagrams -- moqtVoiceClient.ts's sendOpusFrame). A
+  // datagram is one whole Object, already decoded here; a malformed one is
+  // dropped before this fires.
+  onUnknownDatagram?(datagram: ObjectDatagram): void;
 }
 
 /** Drives one chat participant's MOQT session: connects, PUBLISHes its own
@@ -240,6 +248,7 @@ export class MoqtChatClient {
       );
 
       this.#readIncomingUniStreams();
+      this.#readIncomingDatagrams();
       await this.#openControlStream();
       await this.#publishOwnTrack();
       await this.#subscribeToCandidates();
@@ -497,6 +506,34 @@ export class MoqtChatClient {
       this.#readOneUniStream(stream).catch(() => {
         /* a malformed/aborted stream is dropped, not fatal to the session */
       });
+    }
+  }
+
+  // Same alias routing as #readOneUniStream, over the session's datagram
+  // path: only the audio track sends OBJECT_DATAGRAMs (chat and every other
+  // track are stream-borne), so a chat-range alias here has no consumer and
+  // is dropped, and anything else goes to onUnknownDatagram. A datagram
+  // that does not decode is dropped, not fatal to the session.
+  async #readIncomingDatagrams(): Promise<void> {
+    const datagrams = this.#wt?.datagrams;
+    if (!datagrams) return;
+    const reader = datagrams.readable.getReader();
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done || !value) break;
+      this.#routeDatagram(value);
+    }
+  }
+
+  #routeDatagram(bytes: Uint8Array): void {
+    let datagram;
+    try {
+      datagram = decodeObjectDatagram(bytes);
+    } catch {
+      return;
+    }
+    if (datagram.trackAlias >= BigInt(CANDIDATE_PARTICIPANT_IDS.length)) {
+      this.#callbacks.onUnknownDatagram?.(datagram);
     }
   }
 

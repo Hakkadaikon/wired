@@ -11,6 +11,7 @@ import {
   decodeSubgroupHeader,
   decodeSubgroupObject,
   bytesToUtf8,
+  encodeObjectDatagram,
 } from "../moqtWire";
 
 describe("buildChatObjectMessage", () => {
@@ -178,6 +179,55 @@ describe("MoqtChatClient transport close detection", () => {
     await flushAsync();
 
     expect(disconnects()).toBe(1);
+  });
+});
+
+describe("MoqtChatClient incoming datagrams", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  async function connectedWithDatagrams() {
+    vi.useFakeTimers();
+    const fake = new FakeWebTransport();
+    vi.stubGlobal("WebTransport", function () {
+      return fake;
+    });
+    const aliases: bigint[] = [];
+    const client = new MoqtChatClient("user1", {
+      onStatusChange: () => {},
+      onMessage: () => {},
+      onUnknownDatagram: (datagram) => aliases.push(datagram.trackAlias),
+    });
+    const connected = client.connect("https://hub.example/", []);
+    fake.resolveReady();
+    await connected;
+    return { fake, aliases };
+  }
+
+  const dgram = (trackAlias: bigint) =>
+    encodeObjectDatagram({ type: 0x08n, trackAlias, groupId: 0n, objectId: 0n });
+
+  it("routes a non-chat alias to onUnknownDatagram, decoded", async () => {
+    const { fake, aliases } = await connectedWithDatagrams();
+
+    fake.datagrams.push(dgram(4n));
+    fake.datagrams.push(dgram(5n));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(aliases).toEqual([4n, 5n]);
+  });
+
+  it("drops a malformed datagram and keeps reading, and ignores a chat alias", async () => {
+    const { fake, aliases } = await connectedWithDatagrams();
+
+    fake.datagrams.push(new Uint8Array([0x22, 0x02, 0x00, 0x05, 0x04])); // invalid Type
+    fake.datagrams.push(dgram(0n)); // chat-range alias: not for this callback
+    fake.datagrams.push(dgram(7n));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(aliases).toEqual([7n]);
   });
 });
 
