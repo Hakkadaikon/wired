@@ -8,6 +8,7 @@
 // and each sender's own playhead still keeps their own frames back-to-back
 // and gapless.
 import { voiceTap } from "./voiceTap";
+import { rmsLevel } from "./voiceQuality";
 
 // A scheduled-but-unplayed backlog beyond this many seconds means playback
 // has fallen behind real time badly enough that catching up audibly (by
@@ -28,7 +29,14 @@ export type PlaybackSink = {
   setMasterGain: (value: number) => void;
 };
 
-export function createPlaybackSink(ctx: AudioContext): PlaybackSink {
+export type PlaybackSinkDeps = {
+  // Fed the per-channel-averaged RMS level (rmsLevel.ts) of each played
+  // frame's PCM, so a caller can drive the Q-E remote speaking indicator
+  // (voiceQuality.ts's onLevel) without this sink knowing about it.
+  onLevel?: (senderKey: string, level: number) => void;
+};
+
+export function createPlaybackSink(ctx: AudioContext, deps: PlaybackSinkDeps = {}): PlaybackSink {
   const playheads = new Map<string, number>();
   const peerGains = new Map<string, GainNode>();
   let masterGain: GainNode | null = null;
@@ -76,6 +84,8 @@ export function createPlaybackSink(ctx: AudioContext): PlaybackSink {
         const data = new Float32Array(audio.numberOfFrames);
         audio.copyTo(data, { planeIndex: ch, format: "f32-planar" });
         buf.copyToChannel(data, ch);
+        // channel 0 alone is representative enough for a speaking indicator
+        if (ch === 0) deps.onLevel?.(senderKey, rmsLevel(data));
       }
       audio.close();
       const src = ctx.createBufferSource();

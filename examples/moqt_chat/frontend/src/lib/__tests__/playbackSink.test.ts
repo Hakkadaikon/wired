@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { createPlaybackSink } from "../playbackSink";
 
-function fakeAudioData(duration: number) {
+function fakeAudioData(duration: number, sample = 0) {
   return {
     numberOfChannels: 1,
     numberOfFrames: 960,
     sampleRate: 48000,
-    copyTo: vi.fn(),
+    copyTo: vi.fn((dst: Float32Array) => dst.fill(sample)),
     close: vi.fn(),
     duration, // seconds, fake-only convenience so the buffer stub can report it
   };
@@ -142,6 +142,29 @@ describe("createPlaybackSink", () => {
     sink.setMasterGain(0.5);
     const masterGain = gains[gains.length - 1];
     expect(masterGain.gain.value).toBe(0.5);
+  });
+
+  it("calls onLevel with the sender key and the rms level of the copied PCM", () => {
+    const { ctx } = fakeCtx();
+    const onLevel = vi.fn();
+    const sink = createPlaybackSink(ctx as never, { onLevel });
+    sink.play("peerA", fakeAudioData(0.02, 1) as never); // full-scale samples -> level 100
+    expect(onLevel).toHaveBeenCalledWith("peerA", 100);
+  });
+
+  it("does not call onLevel for a frame dropped by the lag cap", () => {
+    const { ctx } = fakeCtx();
+    const onLevel = vi.fn();
+    const sink = createPlaybackSink(ctx as never, { onLevel });
+    for (let i = 0; i < 11; i++) sink.play("peerA", fakeAudioData(0.02, 1) as never);
+    expect(onLevel).toHaveBeenCalledTimes(10);
+  });
+
+  it("works with no onLevel dep (optional, no behavior change)", () => {
+    const { ctx, sources } = fakeCtx();
+    const sink = createPlaybackSink(ctx as never);
+    expect(() => sink.play("peerA", fakeAudioData(0.02) as never)).not.toThrow();
+    expect(sources).toHaveLength(1);
   });
 });
 
