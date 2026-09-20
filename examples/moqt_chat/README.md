@@ -165,7 +165,9 @@ participants (the frontend's fixed candidate id list), has each send several
 chat messages, and grades the run for message loss and latency. This grades
 chat only — sample-accurate audio content isn't checked here; voice call
 verification is manual (see above). See `e2e/run.sh` and
-`e2e/lib/loadTest.mjs` for the harness.
+`e2e/lib/loadTest.mjs` for the harness. `?ns=0` on the page URL starts with
+RNNoise off; the e2e harness uses it so its transport gates measure the
+network path, not the noise-suppression worklet's own CPU cost.
 
 ```sh
 just e2e-live
