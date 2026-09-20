@@ -1,12 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Card from "@/components/card";
-import Text from "@/components/text";
-import Button from "@/components/button";
-import Badge from "@/components/badge";
-import Row from "@/components/row";
-import TextInput from "@/components/text-input";
 import { useMoqtChat } from "@/hooks/useMoqtChat";
 import { clearJoinPrefs, loadJoinPrefs, saveJoinPrefs } from "@/lib/joinPrefs";
 import { CANDIDATE_PARTICIPANT_IDS } from "@/lib/moqtClient";
@@ -22,48 +16,27 @@ const STATUS_LABEL: Record<string, string> = {
   disconnected: "Disconnected",
 };
 
-/** Stable per-sender hue so the same participant always gets the same label color. */
-function senderHue(senderId: string): number {
-  let h = 0;
-  for (let i = 0; i < senderId.length; i++) h = (h * 31 + senderId.charCodeAt(i)) >>> 0;
-  return h % 360;
-}
-
-/** Readable in both schemes: dark tone on light surfaces, light tone on dark. */
-function senderColor(senderId: string): string {
-  const hue = senderHue(senderId);
-  return `light-dark(hsl(${hue}, 70%, 32%), hsl(${hue}, 70%, 72%))`;
-}
-
-function StatusBadge() {
+function Status() {
   const connectionState = useMoqtChatStore((s) => s.connectionState);
-  const label = STATUS_LABEL[connectionState];
-  const color =
-    connectionState === "connected"
-      ? "success"
-      : connectionState === "disconnected"
-        ? "error"
-        : "warning";
   return (
-    <Row alignItems="center" gap="2xs">
-      <Badge icon="wifi" color={color} scale="md" data-testid="status" data-status={connectionState} />
-      <Text fontClass="label">{label}</Text>
-    </Row>
+    <div className="status">
+      <span className="status__block" data-testid="status" data-status={connectionState} />
+      <span>{STATUS_LABEL[connectionState]}</span>
+    </div>
   );
 }
 
 function MicToggle({ onToggleMute }: { onToggleMute: () => void }) {
   const muted = useMoqtChatStore((s) => s.muted);
   return (
-    <Button
-      label={muted ? "Mic off" : "Mic on"}
-      startIcon={muted ? "mic-off" : "mic"}
-      color={muted ? "surface" : "primary"}
-      variant={muted ? "outline" : "fill"}
-      size="sm"
+    <button
+      type="button"
+      className={muted ? "sign sign--outline" : "sign"}
       data-testid="mic-toggle"
       onClick={onToggleMute}
-    />
+    >
+      {muted ? "Mic off" : "Mic on"}
+    </button>
   );
 }
 
@@ -77,15 +50,14 @@ function ScreenShareToggle({
   onStop: () => void;
 }) {
   return (
-    <Button
-      label={sharing ? "Stop sharing" : "Share screen"}
-      startIcon={sharing ? "monitor-off" : "monitor"}
-      color={sharing ? "surface" : "primary"}
-      variant={sharing ? "outline" : "fill"}
-      size="sm"
+    <button
+      type="button"
+      className={sharing ? "sign sign--outline" : "sign"}
       data-testid="screen-toggle"
       onClick={sharing ? onStop : onStart}
-    />
+    >
+      {sharing ? "Stop sharing" : "Share screen"}
+    </button>
   );
 }
 
@@ -99,14 +71,13 @@ function ScreenTiles({
   const screenShareError = useMoqtChatStore((s) => s.screenShareError);
   if (screenTiles.length === 0 && !screenSharing) return null;
   return (
-    <Row alignItems="center" gap="2xs" wrapChildren style={{ padding: "var(--lk-size-2xs) 0" }}>
+    <div className="screens">
       {screenSharing && (
         <canvas
           ref={(el) => registerScreenCanvas("own", el)}
           data-testid="screen-tile-own"
           width={160}
           height={90}
-          style={{ borderRadius: "0.5em", background: "#000" }}
         />
       )}
       {screenTiles
@@ -118,104 +89,62 @@ function ScreenTiles({
             data-testid={`screen-tile-${id}`}
             width={320}
             height={180}
-            style={{ borderRadius: "0.5em", background: "#000" }}
           />
         ))}
-      <ErrorBanner message={screenShareError} />
-    </Row>
+      <Notice message={screenShareError} />
+    </div>
   );
 }
 
-function ErrorBanner({ message }: { message: string | null }) {
+/** Warning-sign panel: black panel, optional bold heading, light body. */
+function Notice({
+  title,
+  message,
+  children,
+}: {
+  title?: string;
+  message: string | null;
+  children?: React.ReactNode;
+}) {
   if (!message) return null;
   return (
-    <Card variant="fill" bgColor="errorcontainer" scaleFactor="body">
-      <Text color="onerrorcontainer" fontClass="body">
+    <div className="notice" role="alert">
+      <p>
+        {title && <strong>{title}</strong>}
         {message}
-      </Text>
-    </Card>
+      </p>
+      {children}
+    </div>
   );
 }
 
-function Chip({ label, color }: { label: string; color?: string }) {
-  return (
-    <span
-      className="caption"
-      style={{
-        padding: "0.15em 0.7em",
-        borderRadius: "1em",
-        border: "1px solid var(--lk-outlinevariant)",
-        background: "var(--lk-surfacecontainer)",
-        color: color ?? "var(--lk-onsurface)",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {label}
-    </span>
-  );
-}
-
-function PeerChips() {
+function Peers() {
   const peers = useMoqtChatStore((s) => s.peers);
   return (
-    <Row alignItems="center" gap="2xs" wrapChildren style={{ padding: "var(--lk-size-2xs) 0" }}>
-      <Text fontClass="caption" color="onsurfacevariant">
-        {peers.length + 1} in room
-      </Text>
-      <Chip label="You" />
-      {peers.map((p) => (
-        <Chip key={p} label={p} color={senderColor(p)} />
-      ))}
-      {peers.length === 0 && (
-        <Text fontClass="caption" color="outline">
-          Waiting for others…
-        </Text>
-      )}
-    </Row>
+    <section>
+      <h2>Room</h2>
+      <p className="caption">{peers.length + 1} in room</p>
+      <ul className="peers">
+        <li className="you">You</li>
+        {peers.map((p) => (
+          <li key={p}>{p}</li>
+        ))}
+      </ul>
+      {peers.length === 0 && <p className="caption">Waiting for others…</p>}
+    </section>
   );
 }
 
-function MessageBubble({ m }: { m: ChatMessage }) {
+function Message({ m }: { m: ChatMessage }) {
   const time = new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const label = m.own ? "You" : m.senderId;
   return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: m.own ? "flex-end" : "flex-start",
-        marginBottom: "var(--lk-size-2xs)",
-      }}
-    >
-      <div
-        style={{
-          maxWidth: "75%",
-          padding: "var(--lk-size-2xs) var(--lk-size-xs)",
-          borderRadius: "0.75em",
-          background: m.own ? "var(--lk-primarycontainer)" : "var(--lk-surfacecontainerhigh)",
-          color: m.own ? "var(--lk-onprimarycontainer)" : "var(--lk-onsurface)",
-        }}
-      >
-        <div style={{ display: "flex", gap: "0.6em", alignItems: "baseline" }}>
-          <span
-            className="caption"
-            style={{
-              fontWeight: 600,
-              color: m.own ? "var(--lk-onprimarycontainer)" : senderColor(m.senderId),
-            }}
-          >
-            {label}
-          </span>
-          <span className="capline" style={{ opacity: 0.7 }}>
-            {time}
-          </span>
-        </div>
-        <Text fontClass="body">{m.text}</Text>
-        {m.failed && (
-          <span className="caption" style={{ color: "var(--lk-error)" }}>
-            Not sent
-          </span>
-        )}
-      </div>
+    <div className="message" data-testid="message" data-sender={m.senderId}>
+      <span className={m.own ? "message__sender you" : "message__sender"}>
+        {m.own ? "You" : m.senderId}
+      </span>
+      <span className="message__text">{m.text}</span>
+      <span className="caption">{time}</span>
+      {m.failed && <span className="message__failed caption">Not sent</span>}
     </div>
   );
 }
@@ -235,23 +164,19 @@ function LivePlayer({ videoRef }: { videoRef: React.RefObject<HTMLVideoElement |
     return () => video.removeEventListener("playing", ready);
   }, [videoRef]);
   return (
-    <div style={{ padding: "var(--lk-size-xs) 0 0" }}>
+    <>
       <video
         ref={videoRef}
+        className="live"
         data-testid="live"
         data-first-group={liveFirstGroup ?? undefined}
         muted
         playsInline
         controls
-        style={{ width: "100%", maxHeight: "40vh", borderRadius: "0.75em" }}
       />
-      <ErrorBanner message={liveError} />
-      {!liveError && waiting && (
-        <Text fontClass="caption" color="onsurfacevariant">
-          waiting for the movie stream…
-        </Text>
-      )}
-    </div>
+      <Notice message={liveError} />
+      {!liveError && waiting && <p className="caption">Waiting for the movie stream…</p>}
+    </>
   );
 }
 
@@ -265,59 +190,42 @@ function MessageList() {
   }, [messages.length]);
 
   return (
-    <div
-      ref={listRef}
-      data-testid="messages"
-      style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "var(--lk-size-xs) 0" }}
-    >
-      {messages.length === 0 && (
-        <Text fontClass="caption" color="outline">
-          No messages yet
-        </Text>
-      )}
+    <div ref={listRef} className="messages" data-testid="messages">
+      {messages.length === 0 && <span className="caption">No messages yet</span>}
       {messages.map((m) => (
-        <div key={m.id} data-testid="message" data-sender={m.senderId}>
-          <MessageBubble m={m} />
-        </div>
+        <Message key={m.id} m={m} />
       ))}
     </div>
   );
 }
 
-function ChatInputRow({ onSend, disabled }: { onSend: (text: string) => void; disabled: boolean }) {
+function Compose({ onSend, disabled }: { onSend: (text: string) => void; disabled: boolean }) {
   const [draft, setDraft] = useState("");
-
   const submit = () => {
     const text = draft.trim();
     if (!text) return;
     onSend(text);
     setDraft("");
   };
-
+  // Enter is handled on keydown rather than via a <form>: the e2e load
+  // harness dispatches a synthetic keydown, which never submits a form.
   return (
-    <Row
-      alignItems="center"
-      gap="2xs"
-      data-testid="chat-form"
-      style={{ padding: "var(--lk-size-2xs) 0 var(--lk-size-xs)" }}
-    >
-      <div style={{ flex: 1 }}>
-        <TextInput
-          name="chat-message"
-          labelPosition="on-input"
-          placeholder="Type a message"
-          endIcon="message-square"
-          value={draft}
-          disabled={disabled}
-          data-testid="text"
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") submit();
-          }}
-        />
-      </div>
-      <Button label="Send" onClick={submit} size="md" disabled={disabled} />
-    </Row>
+    <div className="compose" data-testid="chat-form">
+      <input
+        name="chat-message"
+        placeholder="Type a message"
+        value={draft}
+        disabled={disabled}
+        data-testid="text"
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") submit();
+        }}
+      />
+      <button type="button" className="sign" disabled={disabled} onClick={submit}>
+        Send →
+      </button>
+    </div>
   );
 }
 
@@ -472,24 +380,22 @@ export default function Home() {
         </div>
         {joined ? (
           <div className="masthead__tools">
-            <StatusBadge />
             <MicToggle onToggleMute={toggleMute} />
             <ScreenShareToggle
               sharing={screenSharing}
               onStart={() => void startScreenShare()}
               onStop={stopScreenShare}
             />
-            <Button
-              label="Leave"
-              startIcon="log-out"
-              color="error"
-              variant="fill"
-              size="sm"
+            <button
+              type="button"
+              className="sign sign--outline"
               onClick={() => {
                 leave();
                 setJoined(false);
               }}
-            />
+            >
+              ← Leave
+            </button>
           </div>
         ) : (
           <p className="masthead__id">
@@ -501,32 +407,33 @@ export default function Home() {
       </header>
       <hr className="rule" />
 
-      {joined && <PeerChips />}
-
-      {lost && (
-        <Card variant="fill" bgColor="errorcontainer" scaleFactor="body">
-          <Row alignItems="center" justifyContent="space-between" gap="xs">
-            <Text color="onerrorcontainer" fontClass="body">
-              Connection lost
-            </Text>
-            <Button
-              label="Rejoin"
-              color="error"
-              size="sm"
-              onClick={() => void connect(url, participantId, certHash ? [certHash] : [])}
-            />
-          </Row>
-        </Card>
-      )}
-      <ErrorBanner message={micError} />
+      <Notice title="Connection lost" message={lost ? "The session to the hub was closed." : null}>
+        <button
+          type="button"
+          className="sign sign--outline"
+          onClick={() => void connect(url, participantId, certHash ? [certHash] : [])}
+        >
+          → Rejoin
+        </button>
+      </Notice>
+      <Notice message={micError} />
 
       {joined ? (
-        <>
-          <LivePlayer videoRef={videoRef} />
-          <ScreenTiles registerScreenCanvas={registerScreenCanvas} />
-          <MessageList />
-          <ChatInputRow onSend={sendChat} disabled={connectionState !== "connected"} />
-        </>
+        <div className="room">
+          <aside className="rail">
+            <Peers />
+            <section>
+              <h2>Status</h2>
+              <Status />
+            </section>
+          </aside>
+          <section className="body">
+            <LivePlayer videoRef={videoRef} />
+            <ScreenTiles registerScreenCanvas={registerScreenCanvas} />
+            <MessageList />
+            <Compose onSend={sendChat} disabled={connectionState !== "connected"} />
+          </section>
+        </div>
       ) : (
         <JoinScreen
           url={url}
