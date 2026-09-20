@@ -4,7 +4,37 @@ import {
   connectChatThenVoice,
   moqtChatCallbacks,
   shouldStartLive,
+  teardownSession,
+  type SessionRefs,
 } from "../useMoqtChat";
+
+// Builds a SessionRefs where every ref/resource starts populated with a
+// spy-able fake, so a single teardownSession() call can assert every
+// resource it is responsible for releasing.
+function fakeSessionRefs(): SessionRefs {
+  return {
+    drainTimer: { current: setTimeout(() => {}, 1000) },
+    voiceRetryTimer: { current: setInterval(() => {}, 1000) },
+    screenRetryTimer: { current: setInterval(() => {}, 1000) },
+    mic: { current: { stop: vi.fn() } },
+    voice: { current: { close: vi.fn() } },
+    receivePipeline: { current: {} },
+    knownSenders: { current: new Set(["peerA"]) },
+    screenKnownSenders: { current: new Set(["peerA"]) },
+    screenShare: { current: { stop: vi.fn() } },
+    screen: { current: { close: vi.fn() } },
+    screenReceive: { current: {} },
+    screenReassemblers: { current: new Map([["peerA", {}]]) },
+    screenKeyframeMeta: { current: new Map([["peerA", {}]]) },
+    client: { current: { close: vi.fn() } },
+    live: { current: { stop: vi.fn() } },
+    unregisterLifecycle: { current: vi.fn() },
+  };
+}
+
+function fakeScreenStore() {
+  return { setScreenSharing: vi.fn(), setScreenShareError: vi.fn() };
+}
 
 // Exercises the pure callback -> store-action translation without
 // WebTransport: a MoqtChatClient-shaped fake calls onStatusChange/onMessage
@@ -141,6 +171,70 @@ describe("captureThenPublishScreen", () => {
       "PUBLISH write failed",
     );
     expect(startCapture).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("teardownSession", () => {
+  it("stops the drain loop, both retry timers, the mic, and unregisters the lifecycle handler", () => {
+    const refs = fakeSessionRefs();
+    const mic = refs.mic.current as { stop: ReturnType<typeof vi.fn> };
+    const unregister = refs.unregisterLifecycle.current as ReturnType<typeof vi.fn>;
+
+    teardownSession(refs, fakeScreenStore());
+
+    expect(refs.drainTimer.current).toBeNull();
+    expect(refs.voiceRetryTimer.current).toBeNull();
+    expect(refs.screenRetryTimer.current).toBeNull();
+    expect(mic.stop).toHaveBeenCalledTimes(1);
+    expect(refs.mic.current).toBeNull();
+    expect(unregister).toHaveBeenCalledTimes(1);
+    expect(refs.unregisterLifecycle.current).toBeNull();
+  });
+
+  it("closes voice/screen/client, clears sender sets and reassembler maps, and resets screen-share store state", () => {
+    const refs = fakeSessionRefs();
+    const voice = refs.voice.current as { close: ReturnType<typeof vi.fn> };
+    const screen = refs.screen.current as { close: ReturnType<typeof vi.fn> };
+    const client = refs.client.current as { close: ReturnType<typeof vi.fn> };
+    const live = refs.live.current as { stop: ReturnType<typeof vi.fn> };
+    const store = fakeScreenStore();
+
+    teardownSession(refs, store);
+
+    expect(voice.close).toHaveBeenCalledTimes(1);
+    expect(screen.close).toHaveBeenCalledTimes(1);
+    expect(client.close).toHaveBeenCalledTimes(1);
+    expect(live.stop).toHaveBeenCalledTimes(1);
+    expect(refs.knownSenders.current.size).toBe(0);
+    expect(refs.screenKnownSenders.current.size).toBe(0);
+    expect(refs.screenReassemblers.current.size).toBe(0);
+    expect(refs.screenKeyframeMeta.current.size).toBe(0);
+    expect(store.setScreenSharing).toHaveBeenCalledWith(false);
+    expect(store.setScreenShareError).toHaveBeenCalledWith(null);
+  });
+
+  it("is idempotent -- a second call touches nothing already torn down", () => {
+    const refs = fakeSessionRefs();
+    const mic = refs.mic.current as { stop: ReturnType<typeof vi.fn> };
+    const store = fakeScreenStore();
+
+    teardownSession(refs, store);
+    teardownSession(refs, store);
+
+    expect(mic.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("survives a screenShare.stop() throw without skipping the rest of teardown", () => {
+    const refs = fakeSessionRefs();
+    refs.screenShare.current = {
+      stop: () => {
+        throw new Error("already stopped");
+      },
+    };
+    const client = refs.client.current as { close: ReturnType<typeof vi.fn> };
+
+    expect(() => teardownSession(refs, fakeScreenStore())).not.toThrow();
+    expect(client.close).toHaveBeenCalledTimes(1);
   });
 });
 
