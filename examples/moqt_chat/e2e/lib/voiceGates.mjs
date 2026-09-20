@@ -8,6 +8,7 @@ export const DEFAULT_VOICE_GATES = {
   maxFrameLossRate: 0.005, // seq-gap loss per pub->sub pair
   maxInterArrivalP99Ms: 100, // received-frame spacing p99
   maxPlayheadLagGrowthMs: 100, // last-quarter mean - first-quarter mean
+  maxMeanSendBytes: 90, // mean encoded Opus frame size (VOIP config, 20ms/24kbps)
 };
 
 /**
@@ -32,6 +33,12 @@ export function evaluateVoiceGates(voiceTrace, overrides = {}) {
       if (p99 != null && p99 > g.maxInterArrivalP99Ms) {
         failures.push(
           `${src}->${page}: inter-arrival p99 ${p99.toFixed(1)}ms > ${g.maxInterArrivalP99Ms}ms`,
+        );
+      }
+      const meanBytes = s.sendBytesMean;
+      if (meanBytes != null && meanBytes > g.maxMeanSendBytes) {
+        failures.push(
+          `${src}->${page}: mean send bytes ${meanBytes.toFixed(1)} > ${g.maxMeanSendBytes}`,
         );
       }
     }
