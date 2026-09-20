@@ -1,64 +1,415 @@
 @import url("@/lib/css/index.css");
 
+/* Palette and typography after the 1976 NASA Graphics Standards Manual:
+   white paper, black ink, NASA Red and NASA Warm Gray, Helvetica set
+   flush-left / ragged-right, hairline rules instead of boxes. Red goes only
+   on white; on a dark ground the mark is white and red survives only as a
+   red panel carrying white text. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --red: #fc3d21;
+  --gray: #a19d94;
+  --gray-light: #e8e6e1;
+  --ink: #000;
+  --paper: #fff;
+  --mark: var(--red);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-html {
-  height: 100%;
-}
-
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
-
-body {
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
-}
-
-a {
-  color: inherit;
-  text-decoration: none;
-}
-
-/* Keyboard focus visibility: a clear ring, without affecting mouse focus. */
-:focus-visible {
-  outline: 2px solid var(--lk-primary);
-  outline-offset: 2px;
-}
-
-@media (prefers-color-scheme: dark) {
-  html {
+    --gray-light: #3f3c38;
+    --ink: #fff;
+    --paper: #000;
+    --mark: #fff;
     color-scheme: dark;
   }
 }
 
-/* LiftKit's button is inline-flex with no justify-content, so a button
-   stretched to full width leaves its label at the left edge; center the
-   content in every button regardless of width. */
-[data-lk-component="button"] {
-  justify-content: center;
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif;
+  font-weight: 300;
+  line-height: 1.3;
+  letter-spacing: normal;
+  text-align: left;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+  border-radius: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Page frame: masthead, hairline, body, folio. */
+.page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 64em;
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 0 1.5em;
+}
+
+.page--room {
+  height: 100dvh;
+}
+
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1em 2em;
+  padding: 1.5em 0 0.75em;
+}
+
+.masthead__brand {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5em;
+  color: var(--mark);
+}
+
+.masthead__stem {
+  font-size: 1.6em;
+  font-weight: 300;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.masthead__id {
+  font-size: 0.8em;
+}
+
+.masthead__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+}
+
+.rule {
+  border: 0;
+  border-top: 1px solid var(--ink);
+}
+
+.folio {
+  margin-top: auto;
+  padding: 1em 0;
+  font-size: 0.75em;
+  color: var(--gray);
+  text-align: right;
+}
+
+/* Signs: black panel with white text; red panel with white text; or a
+   white panel with a black outline. Arrows are text, not icons. */
+.sign {
+  padding: 0.6em 1em;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sign:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.sign--red {
+  border-color: var(--red);
+  background: var(--red);
+  color: #fff;
+}
+
+.sign--outline {
+  background: transparent;
+  color: var(--ink);
+}
+
+.link {
+  align-self: flex-start;
+  margin-top: 1em;
+  border: 0;
+  background: none;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.caption {
+  font-size: 0.8em;
+  color: var(--gray);
+}
+
+/* Warning panel: bold heading, light body, outlined sign on the right. */
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em 1em;
+  margin-top: 0.75em;
+  padding: 0.75em 1em;
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.notice strong {
+  display: block;
+}
+
+.notice .sign--outline {
+  border-color: var(--paper);
+  color: var(--paper);
+}
+
+/* Cover: heading column, form column, the mark in the space below. */
+.cover {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 2em;
+  flex: 1;
+  padding: 2em 0;
+}
+
+.cover h1 {
+  margin-bottom: 0.5em;
+  font-size: 1.5em;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.cover__lede {
+  max-width: 22em;
+}
+
+.cover__mark {
+  grid-column: 1 / -1;
+  align-self: end;
+  color: var(--mark);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+}
+
+.field {
+  display: block;
+  padding: 0.75em 0;
+  border-bottom: 1px solid var(--gray-light);
+}
+
+.field__label {
+  display: block;
+  margin-bottom: 0.35em;
+  font-size: 0.8em;
+  font-weight: 700;
+}
+
+.field input {
+  width: 100%;
+  padding: 0.25em 0;
+  border: 0;
+  background: transparent;
+}
+
+.field__hint {
+  margin-top: 0.35em;
+}
+
+.tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  margin-top: 0.35em;
+}
+
+.tile {
+  padding: 0.5em 0.9em;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tile[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.form .sign--red {
+  align-self: flex-start;
+  margin-top: 1.5em;
+}
+
+/* Room: identification rail on the left, body on the right. */
+.room {
+  display: grid;
+  grid-template-columns: 14em 1fr;
+  gap: 2em;
+  flex: 1;
+  min-height: 0;
+  padding: 1em 0;
+}
+
+.rail h2,
+.body h2 {
+  margin-bottom: 0.25em;
+  font-size: 1em;
+  font-weight: 700;
+}
+
+.rail section + section {
+  margin-top: 1.5em;
+}
+
+.peers {
+  list-style: none;
+}
+
+.peers li::before {
+  content: "\2192  ";
+}
+
+.you {
+  color: var(--mark);
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin-top: 0.25em;
+}
+
+.status__block {
+  width: 1.2em;
+  height: 1.2em;
+  border: 1px solid var(--ink);
+}
+
+.status__block[data-status="connected"] {
+  border-color: var(--red);
+  background: var(--red);
+}
+
+.status__block[data-status="connecting"] {
+  border-color: var(--gray);
+  background: var(--gray);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.live {
+  display: block;
+  width: 100%;
+  max-height: 40vh;
+  border-top: 1px solid var(--ink);
+  background: #000;
+}
+
+.screens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  padding: 0.5em 0;
+}
+
+.screens canvas {
+  display: block;
+  max-width: 100%;
+  background: #000;
+}
+
+.messages {
+  flex: 1;
+  min-height: 0;
+  margin-top: 0.5em;
+  overflow-y: auto;
+  border-top: 1px solid var(--ink);
+}
+
+.message {
+  display: grid;
+  grid-template-columns: 7em 1fr auto;
+  gap: 0.75em;
+  align-items: baseline;
+  padding: 0.5em 0;
+  border-bottom: 1px solid var(--gray-light);
+}
+
+.message__sender {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.message__text {
+  overflow-wrap: anywhere;
+}
+
+.message__failed {
+  grid-column: 2;
+  color: var(--mark);
+}
+
+.messages > .caption {
+  display: block;
+  padding: 0.5em 0;
+}
+
+.compose {
+  display: flex;
+  gap: 0.5em;
+  padding: 0.75em 0;
+  border-top: 1px solid var(--ink);
+}
+
+.compose input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4em 0;
+  border: 0;
+  border-bottom: 1px solid var(--gray);
+  background: transparent;
+}
+
+@media (max-width: 40em) {
+  .cover,
+  .room {
+    grid-template-columns: 1fr;
+  }
+
+  .cover__mark {
+    display: none;
+  }
+
+  .message {
+    grid-template-columns: 5em 1fr auto;
+  }
 }
