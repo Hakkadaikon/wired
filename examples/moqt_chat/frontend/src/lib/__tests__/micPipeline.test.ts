@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { pickEncoderConfig, startMicPipeline } from "../micPipeline";
 
-type Track = { stop: () => void };
+type Track = { stop: () => void; readyState?: string; muted?: boolean };
 
 function fakeGetUserMedia(track: Track | Error) {
   return vi.fn(async () => {
@@ -377,5 +377,141 @@ describe("micPipeline", () => {
 
     // frame 1 (in flight) + only the latest queued frame (3), never frame 2
     expect(sendVoiceFrame).toHaveBeenCalledTimes(2);
+  });
+
+  describe("bad-track retry", () => {
+    const ORIGINAL_CONSTRAINTS = {
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    };
+    const BARE_CONSTRAINTS = { audio: true };
+
+    it("calls getUserMedia once with the original constraints for a healthy track", async () => {
+      const track: Track = { stop: vi.fn(), readyState: "live", muted: false };
+      const getUserMedia = fakeGetUserMedia(track);
+
+      await startMicPipeline({
+        getUserMedia,
+        makeProcessor: () => fakeProcessor(),
+        AudioEncoderCtor: fakeEncoder().ctor as never,
+        sendVoiceFrame: vi.fn(),
+        isMuted: () => false,
+      });
+
+      expect(getUserMedia).toHaveBeenCalledTimes(1);
+      expect(getUserMedia).toHaveBeenCalledWith(ORIGINAL_CONSTRAINTS);
+    });
+
+    it("stops an ended track and retries once with bare audio:true constraints", async () => {
+      const stop = vi.fn();
+      const endedTrack: Track = { stop, readyState: "ended" };
+      const healthyTrack: Track = { stop: vi.fn(), readyState: "live", muted: false };
+      const getUserMedia = vi
+        .fn()
+        .mockResolvedValueOnce({ getAudioTracks: () => [endedTrack] })
+        .mockResolvedValueOnce({ getAudioTracks: () => [healthyTrack] });
+
+      const pipeline = await startMicPipeline({
+        getUserMedia,
+        makeProcessor: () => fakeProcessor(),
+        AudioEncoderCtor: fakeEncoder().ctor as never,
+        sendVoiceFrame: vi.fn(),
+        isMuted: () => false,
+      });
+
+      expect(getUserMedia).toHaveBeenCalledTimes(2);
+      expect(getUserMedia).toHaveBeenNthCalledWith(2, BARE_CONSTRAINTS);
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(pipeline.tracks).toEqual([healthyTrack]);
+    });
+
+    it("stops a muted track and retries once with bare audio:true constraints", async () => {
+      const stop = vi.fn();
+      const mutedTrack: Track = { stop, readyState: "live", muted: true };
+      const healthyTrack: Track = { stop: vi.fn(), readyState: "live", muted: false };
+      const getUserMedia = vi
+        .fn()
+        .mockResolvedValueOnce({ getAudioTracks: () => [mutedTrack] })
+        .mockResolvedValueOnce({ getAudioTracks: () => [healthyTrack] });
+
+      await startMicPipeline({
+        getUserMedia,
+        makeProcessor: () => fakeProcessor(),
+        AudioEncoderCtor: fakeEncoder().ctor as never,
+        sendVoiceFrame: vi.fn(),
+        isMuted: () => false,
+      });
+
+      expect(getUserMedia).toHaveBeenCalledTimes(2);
+      expect(getUserMedia).toHaveBeenNthCalledWith(2, BARE_CONSTRAINTS);
+      expect(stop).toHaveBeenCalledTimes(1);
+    });
+
+    it("calls onError once and rejects when the retry also yields a bad track", async () => {
+      const endedTrack1: Track = { stop: vi.fn(), readyState: "ended" };
+      const endedTrack2: Track = { stop: vi.fn(), readyState: "ended" };
+      const getUserMedia = vi
+        .fn()
+        .mockResolvedValueOnce({ getAudioTracks: () => [endedTrack1] })
+        .mockResolvedValueOnce({ getAudioTracks: () => [endedTrack2] });
+      const onError = vi.fn();
+
+      await expect(
+        startMicPipeline({
+          getUserMedia,
+          makeProcessor: () => fakeProcessor(),
+          AudioEncoderCtor: fakeEncoder().ctor as never,
+          sendVoiceFrame: vi.fn(),
+          isMuted: () => false,
+          onError,
+        }),
+      ).rejects.toThrow();
+
+      expect(getUserMedia).toHaveBeenCalledTimes(2);
+      expect(onError).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries once with bare constraints on OverconstrainedError", async () => {
+      const overconstrained = Object.assign(new Error("overconstrained"), {
+        name: "OverconstrainedError",
+      });
+      const healthyTrack: Track = { stop: vi.fn(), readyState: "live", muted: false };
+      const getUserMedia = vi
+        .fn()
+        .mockRejectedValueOnce(overconstrained)
+        .mockResolvedValueOnce({ getAudioTracks: () => [healthyTrack] });
+
+      await startMicPipeline({
+        getUserMedia,
+        makeProcessor: () => fakeProcessor(),
+        AudioEncoderCtor: fakeEncoder().ctor as never,
+        sendVoiceFrame: vi.fn(),
+        isMuted: () => false,
+      });
+
+      expect(getUserMedia).toHaveBeenCalledTimes(2);
+      expect(getUserMedia).toHaveBeenNthCalledWith(2, BARE_CONSTRAINTS);
+    });
+
+    it("does not retry a rejection with a different error name", async () => {
+      const permissionError = Object.assign(new Error("denied"), {
+        name: "NotAllowedError",
+      });
+      const getUserMedia = vi.fn().mockRejectedValueOnce(permissionError);
+      const onError = vi.fn();
+
+      await expect(
+        startMicPipeline({
+          getUserMedia,
+          makeProcessor: () => fakeProcessor(),
+          AudioEncoderCtor: fakeEncoder().ctor as never,
+          sendVoiceFrame: vi.fn(),
+          isMuted: () => false,
+          onError,
+        }),
+      ).rejects.toThrow();
+
+      expect(getUserMedia).toHaveBeenCalledTimes(1);
+      expect(onError).toHaveBeenCalledTimes(1);
+    });
   });
 });
