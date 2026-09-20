@@ -514,4 +514,82 @@ describe("micPipeline", () => {
       expect(onError).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("noise suppressor (RNNoise)", () => {
+    it("requests noiseSuppression:false and uses the suppressor's output track when on", async () => {
+      const rawTrack: Track = { stop: vi.fn(), readyState: "live", muted: false };
+      const suppressedTrack: Track = { stop: vi.fn(), readyState: "live", muted: false };
+      const getUserMedia = fakeGetUserMedia(rawTrack);
+      const noiseSuppressor = vi.fn(async () => suppressedTrack);
+
+      const pipeline = await startMicPipeline({
+        getUserMedia,
+        makeProcessor: () => fakeProcessor(),
+        AudioEncoderCtor: fakeEncoder().ctor as never,
+        sendVoiceFrame: vi.fn(),
+        isMuted: () => false,
+        rnnoiseOn: true,
+        noiseSuppressor,
+      });
+
+      expect(getUserMedia).toHaveBeenCalledWith({
+        audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true },
+      });
+      expect(noiseSuppressor).toHaveBeenCalledWith(rawTrack);
+      expect(pipeline.tracks).toEqual([suppressedTrack]);
+    });
+
+    it("falls back to the raw track and built-in NS when the suppressor throws, without onError", async () => {
+      const rawTrack: Track = { stop: vi.fn(), readyState: "live", muted: false };
+      const fallbackTrack: Track = { stop: vi.fn(), readyState: "live", muted: false };
+      const getUserMedia = vi
+        .fn()
+        .mockResolvedValueOnce({ getAudioTracks: () => [rawTrack] })
+        .mockResolvedValueOnce({ getAudioTracks: () => [fallbackTrack] });
+      const noiseSuppressor = vi.fn(async () => {
+        throw new Error("worklet failed to load");
+      });
+      const onError = vi.fn();
+
+      const pipeline = await startMicPipeline({
+        getUserMedia,
+        makeProcessor: () => fakeProcessor(),
+        AudioEncoderCtor: fakeEncoder().ctor as never,
+        sendVoiceFrame: vi.fn(),
+        isMuted: () => false,
+        rnnoiseOn: true,
+        noiseSuppressor,
+        onError,
+      });
+
+      expect(getUserMedia).toHaveBeenNthCalledWith(1, {
+        audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true },
+      });
+      expect(getUserMedia).toHaveBeenNthCalledWith(2, {
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      expect(pipeline.tracks).toEqual([fallbackTrack]);
+      expect(onError).not.toHaveBeenCalled();
+    });
+
+    it("keeps the built-in NS constraints unchanged when RNNoise is off", async () => {
+      const track: Track = { stop: vi.fn(), readyState: "live", muted: false };
+      const getUserMedia = fakeGetUserMedia(track);
+      const noiseSuppressor = vi.fn();
+
+      await startMicPipeline({
+        getUserMedia,
+        makeProcessor: () => fakeProcessor(),
+        AudioEncoderCtor: fakeEncoder().ctor as never,
+        sendVoiceFrame: vi.fn(),
+        isMuted: () => false,
+        noiseSuppressor,
+      });
+
+      expect(getUserMedia).toHaveBeenCalledWith({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      expect(noiseSuppressor).not.toHaveBeenCalled();
+    });
+  });
 });
