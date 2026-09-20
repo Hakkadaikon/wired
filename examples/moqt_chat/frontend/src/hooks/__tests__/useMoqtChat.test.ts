@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   captureThenPublishScreen,
   connectChatThenVoice,
+  micTracksFrom,
   moqtChatCallbacks,
   shouldStartLive,
   teardownSession,
@@ -235,6 +236,17 @@ describe("teardownSession", () => {
 
     expect(() => teardownSession(refs, fakeScreenStore())).not.toThrow();
     expect(client.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("micTracksFrom", () => {
+  it("returns [] when no mic pipeline has been started (before connect, or after leave)", () => {
+    expect(micTracksFrom(null)).toEqual([]);
+  });
+
+  it("returns the started mic pipeline's tracks", () => {
+    const track = { stop: vi.fn() };
+    expect(micTracksFrom({ tracks: [track] })).toEqual([track]);
   });
 });
 

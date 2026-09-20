@@ -164,6 +164,15 @@ export async function captureThenPublishScreen<T>(
   return pipeline;
 }
 
+// getMicTracks for registerPageLifecycleCleanup: [] when no mic pipeline is
+// running (before connect, or after it has been torn down), otherwise the
+// started pipeline's own tracks -- so beforeunload can actually stop the
+// device instead of a hardcoded empty list. Pure so it's testable without
+// rendering the hook.
+export function micTracksFrom(mic: { tracks: { stop: () => void }[] } | null): { stop: () => void }[] {
+  return mic?.tracks ?? [];
+}
+
 // When to open the live movie's MediaSource: only in the connected room
 // view (the <video> ref is mounted there), and never a second time while
 // one is already live. Pure so it's testable without rendering the hook.
@@ -282,6 +291,11 @@ export function useMoqtChat() {
   const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceRetryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const screenRetryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // registerPageLifecycleCleanup's own unregister, so teardownSession can
+  // remove the beforeunload handler instead of piling up a new one on
+  // every connect() (a manual Rejoin would otherwise leave the previous
+  // session's handler still attached).
+  const unregisterLifecycleRef = useRef<(() => void) | null>(null);
   // The live <video> element page.tsx renders; LiveMovie drives it directly.
   const videoRef = useRef<HTMLVideoElement>(null);
   const liveRef = useRef<LiveMovie | null>(null);
@@ -348,6 +362,30 @@ export function useMoqtChat() {
     };
     tick();
   }, []);
+
+  const teardownCurrentSession = useCallback(() => {
+    teardownSession(
+      {
+        drainTimer: drainTimerRef,
+        voiceRetryTimer: voiceRetryTimerRef,
+        screenRetryTimer: screenRetryTimerRef,
+        mic: micRef,
+        voice: voiceRef,
+        receivePipeline: receivePipelineRef,
+        knownSenders: knownSendersRef,
+        screenKnownSenders: screenKnownSendersRef,
+        screenShare: screenShareRef,
+        screen: screenRef,
+        screenReceive: screenReceiveRef,
+        screenReassemblers: screenReassemblersRef,
+        screenKeyframeMeta: screenKeyframeMetaRef,
+        client: clientRef,
+        live: liveRef,
+        unregisterLifecycle: unregisterLifecycleRef,
+      },
+      store,
+    );
+  }, [store]);
 
   const startVoice = useCallback(
     async (localId: string, chat: MoqtChatClient) => {
@@ -434,6 +472,12 @@ export function useMoqtChat() {
 
   const connect = useCallback(
     async (url: string, localId: string, certHashesHex: string[]) => {
+      // A manual Rejoin (connect() called while a previous session is
+      // still up) must not stack a second drain loop / retry timer / mic /
+      // lifecycle handler on top of the first -- tear the old session down
+      // before starting the new one. leave() itself calls the same
+      // teardown for the "give up on the room" path.
+      teardownCurrentSession();
       localIdRef.current = localId;
       setMicError(null);
       store.clearPeers();
@@ -542,9 +586,9 @@ export function useMoqtChat() {
         },
       });
 
-      registerPageLifecycleCleanup({
+      unregisterLifecycleRef.current = registerPageLifecycleCleanup({
         closeTransport: () => client.close(),
-        getMicTracks: () => [],
+        getMicTracks: () => micTracksFrom(micRef.current),
       });
 
       // The live movie is NOT started here: the effect above starts it once
@@ -561,7 +605,7 @@ export function useMoqtChat() {
         (err) => setMicError(err instanceof Error ? err.message : "voice setup failed"),
       );
     },
-    [store, startVoice, clearLive, drawScreenFrame],
+    [store, startVoice, clearLive, drawScreenFrame, teardownCurrentSession],
   );
 
   const sendChat = useCallback(
@@ -664,48 +708,13 @@ export function useMoqtChat() {
   }, [store]);
 
   const leave = useCallback(() => {
-    if (drainTimerRef.current !== null) {
-      clearTimeout(drainTimerRef.current);
-      drainTimerRef.current = null;
-    }
-    if (voiceRetryTimerRef.current !== null) {
-      clearInterval(voiceRetryTimerRef.current);
-      voiceRetryTimerRef.current = null;
-    }
-    if (screenRetryTimerRef.current !== null) {
-      clearInterval(screenRetryTimerRef.current);
-      screenRetryTimerRef.current = null;
-    }
-    micRef.current?.stop();
-    micRef.current = null;
-    voiceRef.current?.close();
-    voiceRef.current = null;
-    receivePipelineRef.current = null;
-    knownSendersRef.current.clear();
-    screenKnownSendersRef.current.clear();
-    try {
-      screenShareRef.current?.stop();
-    } catch {
-      // torn down regardless; see stopScreenShare's own doc
-    }
-    screenShareRef.current = null;
-    screenRef.current?.close();
-    screenRef.current = null;
-    screenReceiveRef.current = null;
-    screenReassemblersRef.current.clear();
-    screenKeyframeMetaRef.current.clear();
-    store.setScreenSharing(false);
-    store.setScreenShareError(null);
-    clientRef.current?.close();
-    clientRef.current = null;
-    liveRef.current?.stop();
-    liveRef.current = null;
+    teardownCurrentSession();
     setMicError(null);
     store.setConnectionState("disconnected");
     store.clearPeers();
     store.clearMessages();
     clearLive();
-  }, [store, clearLive]);
+  }, [teardownCurrentSession, store, clearLive]);
 
   return {
     connect,
