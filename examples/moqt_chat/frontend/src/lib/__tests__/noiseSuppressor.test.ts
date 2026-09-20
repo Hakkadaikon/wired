@@ -1,10 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createFrameAccumulator,
   createVadThrottle,
   pcmToWasm,
   pickAudioConstraints,
+  startNoiseSuppressor,
   stripEsmExport,
+  type AudioContextLike,
+  type AudioWorkletNodeLike,
 } from "../noiseSuppressor";
 
 describe("createFrameAccumulator(480)", () => {
@@ -120,5 +123,108 @@ describe("stripEsmExport", () => {
 
   it("leaves source with no export statement unchanged", () => {
     expect(stripEsmExport("var x = 1;")).toBe("var x = 1;");
+  });
+});
+
+describe("startNoiseSuppressor", () => {
+  function fakeContext(): AudioContextLike {
+    return {
+      audioWorklet: { addModule: vi.fn(async () => {}) },
+      createMediaStreamSource: vi.fn(() => ({
+        connect: vi.fn((node) => node),
+        disconnect: vi.fn(),
+      })),
+      createMediaStreamDestination: vi.fn(() => ({
+        stream: { getAudioTracks: () => [{ id: "denoised-track" } as unknown as MediaStreamTrack] },
+      })),
+      close: vi.fn(async () => {}),
+    };
+  }
+
+  function fakeNode(): AudioWorkletNodeLike {
+    return {
+      port: { onmessage: null },
+      onprocessorerror: null,
+      connect: vi.fn((dest) => dest),
+      disconnect: vi.fn(),
+    };
+  }
+
+  function baseDeps(ctx: AudioContextLike, node: AudioWorkletNodeLike) {
+    return {
+      makeContext: () => ctx,
+      makeNode: () => node,
+      fetchText: vi.fn(async () => "var x = 1;\nexport default x;"),
+      makeMediaStream: vi.fn(() => ({}) as MediaStream),
+    };
+  }
+
+  const micTrack = {} as MediaStreamTrack;
+
+  // startNoiseSuppressor awaits fetchText then addModule before wiring
+  // node.port.onmessage/onprocessorerror -- flush those microtasks first so
+  // the handlers are actually attached before a test fires them.
+  async function flushSetup() {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  it("resolves with the denoised track once the processor posts {type:\"ready\"}", async () => {
+    const ctx = fakeContext();
+    const node = fakeNode();
+    const deps = baseDeps(ctx, node);
+
+    const pending = startNoiseSuppressor(micTrack, () => {}, "", deps);
+    await flushSetup();
+    node.port.onmessage?.({ data: { type: "ready" } } as MessageEvent);
+    const handle = await pending;
+
+    expect(handle.outputTrack).toEqual({ id: "denoised-track" });
+  });
+
+  it("rejects when the processor fires processorerror instead of posting ready", async () => {
+    const ctx = fakeContext();
+    const node = fakeNode();
+    const deps = baseDeps(ctx, node);
+
+    const pending = startNoiseSuppressor(micTrack, () => {}, "", deps);
+    await flushSetup();
+    node.onprocessorerror?.(new Event("error"));
+
+    await expect(pending).rejects.toThrow();
+    expect(ctx.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects on timeout when neither ready nor processorerror ever fires", async () => {
+    vi.useFakeTimers();
+    try {
+      const ctx = fakeContext();
+      const node = fakeNode();
+      const deps = baseDeps(ctx, node);
+
+      const pending = startNoiseSuppressor(micTrack, () => {}, "", deps);
+      const assertion = expect(pending).rejects.toThrow();
+      await vi.runAllTimersAsync();
+      await assertion;
+      expect(ctx.close).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("routes {type:\"vad\"} messages to onVad after becoming ready", async () => {
+    const ctx = fakeContext();
+    const node = fakeNode();
+    const deps = baseDeps(ctx, node);
+    const onVad = vi.fn();
+
+    const pending = startNoiseSuppressor(micTrack, onVad, "", deps);
+    await flushSetup();
+    node.port.onmessage?.({ data: { type: "ready" } } as MessageEvent);
+    await pending;
+    node.port.onmessage?.({ data: { type: "vad", isSpeaking: true } } as MessageEvent);
+
+    expect(onVad).toHaveBeenCalledWith(true);
   });
 });

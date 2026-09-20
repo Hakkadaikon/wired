@@ -75,9 +75,6 @@ export function pickAudioConstraints(rnnoiseOn: boolean): AudioConstraints {
 }
 
 // -- worklet graph setup ------------------------------------------------
-// Not unit-tested (thin glue over live browser APIs -- MediaStream,
-// AudioWorkletNode -- that jsdom does not implement); covered by the
-// e2e-voice clean-audio gate instead, per the brief.
 
 export type NoiseSuppressorHandle = {
   // The processed track to hand to micPipeline.ts in place of the raw mic
@@ -100,26 +97,100 @@ export function stripEsmExport(source: string): string {
   return source.replace(/export\s+default\s+[^;]+;?\s*$/, "");
 }
 
+// A processor constructor throw (bad wasm eval, _rnnoise_create/_malloc
+// failure) does NOT reject `new AudioWorkletNode(...)` -- the spec only
+// surfaces it asynchronously via the node's processorerror event. Without
+// waiting for either that or the processor's own one-time {type:"ready"}
+// message (posted from its constructor after wasm init succeeds, see
+// public/worklets/rnnoise-processor.js), this promise would resolve with a
+// dead output track and micPipeline.ts's fallback would never run.
+const READY_TIMEOUT_MS = 2000;
+
+function timeout(ms: number): Promise<"timeout"> {
+  return new Promise((resolve) => setTimeout(() => resolve("timeout"), ms));
+}
+
+// Minimal surface this module needs from AudioContext/AudioWorkletNode, so
+// tests can supply fakes (jsdom implements neither).
+export type MediaStreamSourceLike = {
+  connect: (node: AudioWorkletNodeLike) => AudioWorkletNodeLike;
+  disconnect: () => void;
+};
+export type AudioContextLike = {
+  audioWorklet: { addModule: (url: string) => Promise<void> };
+  createMediaStreamSource: (stream: MediaStream) => MediaStreamSourceLike;
+  createMediaStreamDestination: () => { stream: { getAudioTracks: () => MediaStreamTrack[] } };
+  close: () => Promise<void>;
+};
+export type AudioWorkletNodeLike = {
+  port: { onmessage: ((ev: MessageEvent) => void) | null };
+  onprocessorerror: ((ev: unknown) => void) | null;
+  connect: (dest: unknown) => unknown;
+  disconnect: () => void;
+};
+
+export type NoiseSuppressorDeps = {
+  makeContext?: () => AudioContextLike;
+  makeNode?: (
+    ctx: AudioContextLike,
+    name: string,
+    options: { processorOptions: { wasmModuleSource: string } },
+  ) => AudioWorkletNodeLike;
+  fetchText?: (url: string) => Promise<string>;
+  makeMediaStream?: (track: MediaStreamTrack) => MediaStream;
+};
+
+function defaultDeps(): Required<NoiseSuppressorDeps> {
+  return {
+    makeContext: () => new AudioContext({ sampleRate: 48000 }) as unknown as AudioContextLike,
+    makeNode: (ctx, name, options) =>
+      new AudioWorkletNode(ctx as unknown as AudioContext, name, options) as unknown as AudioWorkletNodeLike,
+    fetchText: (url) => fetch(url).then((r) => r.text()),
+    makeMediaStream: (track) => new MediaStream([track]),
+  };
+}
+
 // Sets up mic -> AudioWorkletNode("rnnoise-processor") -> destination and
-// returns the denoised track. Throws if the worklet/wasm fails to load;
-// callers fall back to the browser's built-in noiseSuppression
-// (pickAudioConstraints(false)) and keep the call working, per the brief.
+// returns the denoised track. Rejects if the worklet/wasm fails to load OR
+// the processor never confirms readiness within READY_TIMEOUT_MS (closing
+// the context first); callers fall back to the browser's built-in
+// noiseSuppression (pickAudioConstraints(false)) and keep the call working,
+// per the brief.
 export async function startNoiseSuppressor(
   micTrack: MediaStreamTrack,
   onVad: (isSpeaking: boolean) => void,
   basePath = "",
+  deps: NoiseSuppressorDeps = {},
 ): Promise<NoiseSuppressorHandle> {
-  const ctx = new AudioContext({ sampleRate: 48000 });
-  const wasmModuleSource = await fetch(`${basePath}${RNNOISE_SYNC_URL}`).then((r) => r.text());
+  const { makeContext, makeNode, fetchText, makeMediaStream } = { ...defaultDeps(), ...deps };
+  const ctx = makeContext();
+  const wasmModuleSource = await fetchText(`${basePath}${RNNOISE_SYNC_URL}`);
   await ctx.audioWorklet.addModule(`${basePath}${WORKLET_URL}`);
 
-  const source = ctx.createMediaStreamSource(new MediaStream([micTrack]));
-  const node = new AudioWorkletNode(ctx, "rnnoise-processor", {
+  const source = ctx.createMediaStreamSource(makeMediaStream(micTrack));
+  const node = makeNode(ctx, "rnnoise-processor", {
     processorOptions: { wasmModuleSource: stripEsmExport(wasmModuleSource) },
   });
-  node.port.onmessage = (ev: MessageEvent<{ type: string; isSpeaking: boolean }>) => {
-    if (ev.data?.type === "vad") onVad(ev.data.isSpeaking);
-  };
+
+  const ready = new Promise<"ready" | "error">((resolve) => {
+    node.port.onmessage = (ev: MessageEvent<{ type: string; isSpeaking: boolean }>) => {
+      if (ev.data?.type === "ready") resolve("ready");
+      else if (ev.data?.type === "vad") onVad(ev.data.isSpeaking);
+    };
+    node.onprocessorerror = () => resolve("error");
+  });
+  const outcome = await Promise.race([ready, timeout(READY_TIMEOUT_MS)]);
+  if (outcome !== "ready") {
+    node.disconnect();
+    source.disconnect();
+    await ctx.close();
+    throw new Error(
+      outcome === "error"
+        ? "rnnoise-processor failed to initialize"
+        : "rnnoise-processor did not become ready in time",
+    );
+  }
+
   const destination = ctx.createMediaStreamDestination();
   source.connect(node).connect(destination);
 
