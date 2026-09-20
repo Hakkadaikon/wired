@@ -84,6 +84,14 @@ typedef struct {
    * session-owned staging; -1 when it has none free. Returns the stream
    * id or negative. */
   i64 (*send_uni2)(wired_wt_session* s, wired_span head, wired_span body);
+  /** wired_server_wt_send_datagram_to-shaped: queues one QUIC DATAGRAM to
+   * s's peer (the adapter owns any session prefixing, RFC 9297 2.1; the
+   * payload is copied at queue time). Returns 1 queued, 0 refused (no live
+   * connection, ring full, or oversized). Kept LAST so older positional
+   * initializers of this table stay valid; a table built without it (0)
+   * simply has no datagram plane -- wired_moqt_on_datagram then relays
+   * nothing (and never dereferences the null pointer). */
+  int (*send_datagram)(wired_wt_session* s, wired_span payload);
 } wired_moqt_io;
 
 /** One subscriber recorded against the hub's track: which session, and the
@@ -350,6 +358,17 @@ typedef struct {
    * one-subscriber copy loss, each of these loses the stream's whole
    * payload for EVERY subscriber. Diagnostic only. */
   u64 stat_relay_full;
+  /** OBJECT_DATAGRAM copies accepted by io.send_datagram (one count per
+   * subscriber, wired_moqt_on_datagram). Diagnostic only. */
+  u64 stat_dg_sent;
+  /** OBJECT_DATAGRAM copies refused by io.send_datagram -- that one
+   * subscriber's copy is lost for good (a datagram is never
+   * retransmitted; live audio wants the next frame, not this one). */
+  u64 stat_dg_drop;
+  /** Received datagrams dropped whole: moqdg_take refused them
+   * (VIOLATION/INSUFFICIENT) or their Track Alias matched none of the
+   * sending peer's tracks. Diagnostic only. */
+  u64 stat_dg_bad;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
@@ -376,6 +395,22 @@ void wired_moqt_on_stream_data(
     u64               stream_id,
     wired_span        data,
     int               fin);
+
+/** wired_wt_on_datagram-shaped: relays one received OBJECT_DATAGRAM
+ * (draft-ietf-moq-transport-19 11.3.1) verbatim to every active subscriber
+ * of the track its Track Alias names on the sending peer -- the datagram
+ * twin of the SUBGROUP stream relay, but stateless: no relay entry, no
+ * held fragment, and no delivery to late subscribers (a datagram missed is
+ * gone; live audio wants the next frame, not a replay). app_ctx must be
+ * the wired_moqt_hub*. Each subscriber copy goes through io.send_datagram
+ * (accepted -> stat_dg_sent, refused -> stat_dg_drop); a datagram
+ * moqdg_take refuses or whose alias matches no track is dropped whole on
+ * stat_dg_bad -- draft 11.3.1 says an invalid Type MUST close the session
+ * with PROTOCOL_VIOLATION, but this hub's io table has no close operation,
+ * so counting-and-dropping is the closest it can do. A session never
+ * registered, or an io table whose send_datagram is 0, is a no-op. */
+void wired_moqt_on_datagram(
+    void* app_ctx, wired_wt_session* s, wired_span data);
 
 /** wired_wt_on_session_close-shaped: frees the peer slot registered for s
  * and deactivates every subscription other peers' tracks held for it (their
