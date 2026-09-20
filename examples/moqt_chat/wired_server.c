@@ -213,6 +213,10 @@ static const wired_moqt_io g_moqt_io = {
     wired_server_wt_stream_fin,
     wired_server_wt_stream_reset,
     moqt_io_send_uni2,
+    /* send_datagram needs no wrapper: unlike the stream entries there is
+     * no WebTransport signal prefix to add (the SDK applies the RFC 9297
+     * quarter-stream-id itself), so the io shape matches exactly. */
+    wired_server_wt_send_datagram_to,
 };
 
 static wired_moqt_hub g_hub;
@@ -320,7 +324,7 @@ static void log_cert_fingerprint(const wired_srvboot_id* id) {
  * measurement run can compare server-side drops against the receivers' own
  * sequence gaps. */
 static void log_relay_stats(const wired_moqt_hub* hub) {
-  char line[320]; /* 8 labels + 8 u64s at 20 digits each, with room over */
+  char line[400]; /* 11 labels + 11 u64s at 20 digits each, with room over */
   usz  n = 0;
   append_cstr(line, &n, "moqt relay: sent=");
   n += dec_u64(line + n, hub->stat_relay_sent);
@@ -338,6 +342,12 @@ static void log_relay_stats(const wired_moqt_hub* hub) {
   n += dec_u64(line + n, hub->stat_live_sent);
   append_cstr(line, &n, " live_dropped=");
   n += dec_u64(line + n, hub->stat_live_drop);
+  append_cstr(line, &n, " dg_sent=");
+  n += dec_u64(line + n, hub->stat_dg_sent);
+  append_cstr(line, &n, " dg_dropped=");
+  n += dec_u64(line + n, hub->stat_dg_drop);
+  append_cstr(line, &n, " dg_bad=");
+  n += dec_u64(line + n, hub->stat_dg_bad);
   line[n++] = '\n';
   line[n]   = 0;
   wired_log_str(line);
@@ -444,6 +454,8 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   opt.run.wt_session_ctx    = &g_hub;
   opt.run.wt_on_stream_data = wired_moqt_on_stream_data;
   opt.run.wt_stream_data_ctx = &g_hub;
+  opt.run.wt_on_datagram    = wired_moqt_on_datagram;
+  opt.run.wt_datagram_ctx   = &g_hub;
   /* Without this, a session ended server-side (idle timeout after a network
    * drop, CONNECT stream close, ...) leaks its hub peer slot forever, and a
    * reconnecting client whose new session reuses the same slot memory is
