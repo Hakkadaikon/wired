@@ -271,6 +271,34 @@ static const u8 g_moqt_data_stream_type_padding[] = {
 #define G_MOQT_DATA_STREAM_TYPE_PADDING_LEN 5
 static const u8 g_moqt_data_stream_type_unknown[] = {0x21};
 #define G_MOQT_DATA_STREAM_TYPE_UNKNOWN_LEN 1
+static const u8 g_moqt_data_dgram_basic[] = {0x08, 0x02, 0x00,
+                                             0x05, 0x68, 0x69};
+#define G_MOQT_DATA_DGRAM_BASIC_LEN 6
+static const u8 g_moqt_data_dgram_explicit_priority[] = {0x00, 0x02, 0x00, 0x05,
+                                                         0x7f, 0x68, 0x69};
+#define G_MOQT_DATA_DGRAM_EXPLICIT_PRIORITY_LEN 7
+static const u8 g_moqt_data_dgram_zero_oid_eog[] = {
+    0x0e, 0x02, 0x00, 0x68, 0x69};
+#define G_MOQT_DATA_DGRAM_ZERO_OID_EOG_LEN 5
+static const u8 g_moqt_data_dgram_status_eot[] = {0x28, 0x02, 0x00, 0x05, 0x04};
+#define G_MOQT_DATA_DGRAM_STATUS_EOT_LEN 5
+static const u8 g_moqt_data_dgram_props[] = {0x09, 0x02, 0x00, 0x05, 0x02,
+                                             0x00, 0x25, 0x68, 0x69};
+#define G_MOQT_DATA_DGRAM_PROPS_LEN 9
+static const u8 g_moqt_data_dgram_reject_status_eog[] = {
+    0x22, 0x02, 0x00, 0x05, 0x04};
+#define G_MOQT_DATA_DGRAM_REJECT_STATUS_EOG_LEN 5
+static const u8 g_moqt_data_dgram_reject_bit4[] = {0x18, 0x02, 0x00,
+                                                   0x05, 0x68, 0x69};
+#define G_MOQT_DATA_DGRAM_REJECT_BIT4_LEN 6
+static const u8 g_moqt_data_dgram_reject_props_len0[] = {0x09, 0x02, 0x00, 0x05,
+                                                         0x00, 0x68, 0x69};
+#define G_MOQT_DATA_DGRAM_REJECT_PROPS_LEN0_LEN 7
+static const u8 g_moqt_data_dgram_reject_status_props_not_normal[] = {
+    0x29, 0x02, 0x00, 0x05, 0x02, 0x00, 0x25, 0x04};
+#define G_MOQT_DATA_DGRAM_REJECT_STATUS_PROPS_NOT_NORMAL_LEN 8
+static const u8 g_moqt_data_dgram_insufficient_ids[] = {0x08, 0x02, 0x00};
+#define G_MOQT_DATA_DGRAM_INSUFFICIENT_IDS_LEN 3
 
 /* === name === */
 static const u8 g_moqt_name_full_track_name_basic[] = {
