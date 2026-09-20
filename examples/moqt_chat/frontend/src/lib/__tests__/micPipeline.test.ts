@@ -515,6 +515,43 @@ describe("micPipeline", () => {
     });
   });
 
+  describe("onStream", () => {
+    it("calls onStream with the raw track when NS is off", async () => {
+      const track: Track = { stop: vi.fn(), readyState: "live", muted: false };
+      const onStream = vi.fn();
+
+      await startMicPipeline({
+        getUserMedia: fakeGetUserMedia(track),
+        makeProcessor: () => fakeProcessor(),
+        AudioEncoderCtor: fakeEncoder().ctor as never,
+        sendVoiceFrame: vi.fn(),
+        isMuted: () => false,
+        onStream,
+      });
+
+      expect(onStream).toHaveBeenCalledWith(track);
+    });
+
+    it("calls onStream with the suppressor's output track when NS is on", async () => {
+      const rawTrack: Track = { stop: vi.fn(), readyState: "live", muted: false };
+      const suppressedTrack: Track = { stop: vi.fn(), readyState: "live", muted: false };
+      const onStream = vi.fn();
+
+      await startMicPipeline({
+        getUserMedia: fakeGetUserMedia(rawTrack),
+        makeProcessor: () => fakeProcessor(),
+        AudioEncoderCtor: fakeEncoder().ctor as never,
+        sendVoiceFrame: vi.fn(),
+        isMuted: () => false,
+        rnnoiseOn: true,
+        noiseSuppressor: vi.fn(async () => suppressedTrack),
+        onStream,
+      });
+
+      expect(onStream).toHaveBeenCalledWith(suppressedTrack);
+    });
+  });
+
   describe("noise suppressor (RNNoise)", () => {
     it("requests noiseSuppression:false and uses the suppressor's output track when on", async () => {
       const rawTrack: Track = { stop: vi.fn(), readyState: "live", muted: false };
