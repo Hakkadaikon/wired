@@ -704,6 +704,142 @@ export function decodeSubgroupHeader(
   };
 }
 
+// ---------------------------------------------------------------------
+// draft-ietf-moq-transport-19 11.3.1: OBJECT_DATAGRAM
+// ---------------------------------------------------------------------
+
+const DGRAM_PROPERTIES = 0x01n;
+const DGRAM_END_OF_GROUP = 0x02n;
+const DGRAM_ZERO_OBJECT_ID = 0x04n;
+const DGRAM_DEFAULT_PRIORITY = 0x08n;
+const DGRAM_STATUS = 0x20n;
+
+/** OBJECT_DATAGRAM Type form 0b00X0XXXX (11.3.1): only the low nibble and
+ * the STATUS bit may be set -- Type is a varint, so a value >= 0x100 is
+ * invalid whatever its low byte -- and STATUS + END_OF_GROUP together are
+ * explicitly invalid. Mirrors moqdg_type_valid on the hub side. */
+function objectDatagramTypeValid(type: bigint): boolean {
+  if ((type & ~0x2fn) !== 0n) return false;
+  const statusEog = DGRAM_STATUS | DGRAM_END_OF_GROUP;
+  return (type & statusEog) !== statusEog;
+}
+
+/** Decoded OBJECT_DATAGRAM. The Type bits say which fields were on the
+ * wire; absent fields read as their defaults here (same shape as the hub's
+ * moqdg_obj, src/app/moqt/dgram/moqdg.h). */
+export interface ObjectDatagram {
+  type: bigint;
+  trackAlias: bigint;
+  groupId: bigint;
+  /** 0n when the ZERO_OBJECT_ID bit (0x04) omits the field. */
+  objectId: bigint;
+  /** 0 when the DEFAULT_PRIORITY bit (0x08) omits the field. */
+  priority: number;
+  /** 0n (Normal) unless the STATUS bit (0x20) is set. */
+  status: bigint;
+  /** Properties bytes; empty when the PROPERTIES bit (0x01) is clear. */
+  properties: Uint8Array;
+  /** The rest of the datagram; empty when the STATUS bit is set. */
+  payload: Uint8Array;
+}
+
+/** encodeObjectDatagram's input: fields whose Type bit omits them from the
+ * wire may be left out. */
+export type ObjectDatagramInit = Pick<
+  ObjectDatagram,
+  "type" | "trackAlias" | "groupId"
+> &
+  Partial<ObjectDatagram>;
+
+/** Decodes one whole datagram as an OBJECT_DATAGRAM. Throws
+ * MoqtDecodeError on a truncated datagram or a PROTOCOL_VIOLATION (invalid
+ * Type, PROPERTIES bit with a Properties Length of 0, STATUS + PROPERTIES
+ * with a non-Normal Status) -- the same rules as the hub's moqdg_take. */
+export function decodeObjectDatagram(bytes: Uint8Array): ObjectDatagram {
+  const type = decodeVarint(bytes, 0);
+  const t = type.value;
+  if (!objectDatagramTypeValid(t)) {
+    fail(`PROTOCOL_VIOLATION: invalid OBJECT_DATAGRAM type 0x${t.toString(16)}`);
+  }
+  let pos = type.len;
+  const trackAlias = decodeVarint(bytes, pos);
+  pos += trackAlias.len;
+  const groupId = decodeVarint(bytes, pos);
+  pos += groupId.len;
+
+  let objectId = 0n;
+  if ((t & DGRAM_ZERO_OBJECT_ID) === 0n) {
+    const oid = decodeVarint(bytes, pos);
+    objectId = oid.value;
+    pos += oid.len;
+  }
+  let priority = 0;
+  if ((t & DGRAM_DEFAULT_PRIORITY) === 0n) {
+    if (pos >= bytes.length) fail("truncated OBJECT_DATAGRAM: missing Publisher Priority");
+    priority = bytes[pos];
+    pos += 1;
+  }
+  let properties = new Uint8Array(0);
+  if ((t & DGRAM_PROPERTIES) !== 0n) {
+    const len = decodeVarint(bytes, pos);
+    if (len.value === 0n) {
+      fail("PROTOCOL_VIOLATION: OBJECT_DATAGRAM PROPERTIES bit with Properties Length 0");
+    }
+    pos += len.len;
+    const end = pos + Number(len.value);
+    if (end > bytes.length) fail("truncated OBJECT_DATAGRAM: properties");
+    properties = bytes.slice(pos, end);
+    pos = end;
+  }
+  let status = 0n;
+  let payload = new Uint8Array(0);
+  if ((t & DGRAM_STATUS) !== 0n) {
+    status = decodeVarint(bytes, pos).value;
+    if (properties.length > 0 && status !== 0n) {
+      fail("PROTOCOL_VIOLATION: OBJECT_DATAGRAM properties with a non-Normal status");
+    }
+  } else {
+    payload = bytes.slice(pos);
+  }
+  return {
+    type: t,
+    trackAlias: trackAlias.value,
+    groupId: groupId.value,
+    objectId,
+    priority,
+    status,
+    properties,
+    payload,
+  };
+}
+
+/** Inverse of decodeObjectDatagram: one datagram's bytes, minimal varints.
+ * Throws MoqtDecodeError on the same violations decodeObjectDatagram
+ * rejects. */
+export function encodeObjectDatagram(o: ObjectDatagramInit): Uint8Array {
+  const t = o.type;
+  const properties = o.properties ?? new Uint8Array(0);
+  const status = o.status ?? 0n;
+  if (!objectDatagramTypeValid(t)) {
+    fail(`PROTOCOL_VIOLATION: invalid OBJECT_DATAGRAM type 0x${t.toString(16)}`);
+  }
+  if ((t & DGRAM_PROPERTIES) !== 0n && properties.length === 0) {
+    fail("PROTOCOL_VIOLATION: OBJECT_DATAGRAM PROPERTIES bit with no properties");
+  }
+  if (properties.length > 0 && status !== 0n) {
+    fail("PROTOCOL_VIOLATION: OBJECT_DATAGRAM properties with a non-Normal status");
+  }
+  const parts = [encodeVarint(t), encodeVarint(o.trackAlias), encodeVarint(o.groupId)];
+  if ((t & DGRAM_ZERO_OBJECT_ID) === 0n) parts.push(encodeVarint(o.objectId ?? 0n));
+  if ((t & DGRAM_DEFAULT_PRIORITY) === 0n) parts.push(Uint8Array.of(o.priority ?? 0));
+  if ((t & DGRAM_PROPERTIES) !== 0n) {
+    parts.push(encodeVarint(BigInt(properties.length)), properties);
+  }
+  if ((t & DGRAM_STATUS) !== 0n) parts.push(encodeVarint(status));
+  else parts.push(o.payload ?? new Uint8Array(0));
+  return concatBytes(parts);
+}
+
 export interface SubgroupObject {
   objectId: bigint;
   properties?: KeyValuePair[];
