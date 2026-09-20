@@ -149,7 +149,7 @@ function Peers() {
             <span
               className="status__block"
               data-testid={`quality-${p}`}
-              data-quality={voiceQuality[p]}
+              data-quality={voiceQuality[p] === "none" ? undefined : voiceQuality[p]}
             />
           </li>
         ))}

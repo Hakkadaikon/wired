@@ -180,4 +180,10 @@ describe("moqtChatStore", () => {
       user3: "good",
     });
   });
+
+  it("clears voice quality when peers are cleared", () => {
+    useMoqtChatStore.getState().setVoiceQuality("user2", "degraded");
+    useMoqtChatStore.getState().clearPeers();
+    expect(useMoqtChatStore.getState().voiceQuality).toEqual({});
+  });
 });
