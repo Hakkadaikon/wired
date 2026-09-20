@@ -552,6 +552,7 @@
 #include "app/moqt/kvp/moqkvp.c"
 #include "app/moqt/ctl/moqctl.c"
 #include "app/moqt/data/moqdata.c"
+#include "app/moqt/dgram/moqdg.c"
 #include "app/moqt/sess/moqsess.c"
 #include "app/moqt/run/moqtrun.c"
 #include "common/varint_test.c"
@@ -1065,6 +1066,7 @@
 #include "app/moqkvp_test.c"
 #include "app/moqctl_test.c"
 #include "app/moqdata_test.c"
+#include "app/moqdg_test.c"
 #include "app/moqsess_test.c"
 #include "app/moqtrun_test.c"
 // clang-format on
@@ -1608,6 +1610,7 @@ int main(void) {
   test_moqkvp();
   test_moqctl();
   test_moqdata();
+  test_moqdg();
   test_moqsess();
   test_moqtrun();
   test_ed25519_field();
