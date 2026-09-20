@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createQualityWindow, qualityLevel } from "../voiceQuality";
+import { createQualityWindow, qualityLevel, rmsLevel, isSpeaking } from "../voiceQuality";
 
 describe("qualityLevel", () => {
   it("is none for an empty sample (nothing received)", () => {
@@ -24,6 +24,39 @@ describe("qualityLevel", () => {
 
   it("is good with frames received, no loss, and no lag reported", () => {
     expect(qualityLevel({ received: 10, lost: 0, lagMs: undefined })).toBe("good");
+  });
+});
+
+describe("rmsLevel", () => {
+  it("is 0 for an empty sample", () => {
+    expect(rmsLevel(new Float32Array(0))).toBe(0);
+  });
+
+  it("is 0 for all-zero samples", () => {
+    expect(rmsLevel(new Float32Array(16))).toBe(0);
+  });
+
+  it("is 100 (clamped) for a full-scale +-1 square wave", () => {
+    const samples = new Float32Array([1, -1, 1, -1]);
+    expect(rmsLevel(samples)).toBe(100);
+  });
+
+  it("is approximately 7 for a 0.1-amplitude sine", () => {
+    const n = 480;
+    const samples = new Float32Array(n);
+    for (let i = 0; i < n; i++) samples[i] = 0.1 * Math.sin((2 * Math.PI * i) / n);
+    // RMS of a sine of amplitude A is A/sqrt(2) ~= 0.0707 -> *100 ~= 7.07
+    expect(rmsLevel(samples)).toBeCloseTo(7.07, 1);
+  });
+});
+
+describe("isSpeaking", () => {
+  it("is false just under the threshold", () => {
+    expect(isSpeaking(9.99)).toBe(false);
+  });
+
+  it("is true at the threshold", () => {
+    expect(isSpeaking(10)).toBe(true);
   });
 });
 
@@ -78,5 +111,48 @@ describe("createQualityWindow", () => {
     for (let i = 0; i < 201; i++) w.onLost("user2");
     expect(qualityLevel(w.snapshot("user1"))).toBe("good");
     expect(qualityLevel(w.snapshot("user2"))).toBe("degraded");
+  });
+
+  it("snapshot of an untouched sender reports not speaking", () => {
+    const w = createQualityWindow();
+    expect(w.snapshot("user1").speaking).toBe(false);
+  });
+
+  it("reports speaking when any onLevel in the window is >= 10", () => {
+    const w = createQualityWindow();
+    w.onLevel("user1", 3);
+    w.onLevel("user1", 42);
+    expect(w.snapshot("user1").speaking).toBe(true);
+  });
+
+  it("reports not speaking when every onLevel in the window is < 10", () => {
+    const w = createQualityWindow();
+    w.onLevel("user1", 3);
+    w.onLevel("user1", 9.99);
+    expect(w.snapshot("user1").speaking).toBe(false);
+  });
+
+  it("snapshot resets speaking for that sender", () => {
+    const w = createQualityWindow();
+    w.onLevel("user1", 50);
+    expect(w.snapshot("user1").speaking).toBe(true);
+    expect(w.snapshot("user1").speaking).toBe(false);
+  });
+
+  it("isolates senders' speaking independently", () => {
+    const w = createQualityWindow();
+    w.onLevel("user1", 50);
+    w.onLevel("user2", 1);
+    expect(w.snapshot("user1").speaking).toBe(true);
+    expect(w.snapshot("user2").speaking).toBe(false);
+  });
+
+  it("snapshotSpeaking reads and resets only the speaking flag, leaving received/lost/lagMs alone", () => {
+    const w = createQualityWindow();
+    w.onFrame("user1");
+    w.onLevel("user1", 50);
+    expect(w.snapshotSpeaking("user1")).toBe(true);
+    expect(w.snapshotSpeaking("user1")).toBe(false);
+    expect(qualityLevel(w.snapshot("user1"))).toBe("good"); // received:1 survived
   });
 });

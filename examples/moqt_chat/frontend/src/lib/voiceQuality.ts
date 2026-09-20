@@ -7,30 +7,64 @@ export type QualitySample = {
   received: number;
   lost: number;
   lagMs: number | undefined;
+  speaking: boolean;
 };
 
 export type QualityLevel = "none" | "degraded" | "good";
 
 const LOSS_RATIO_MAX = 0.02;
 const LAG_MS_MAX = 150;
+const SPEAKING_LEVEL_MIN = 10;
 
-export function qualityLevel(sample: QualitySample): QualityLevel {
+export function qualityLevel(sample: Omit<QualitySample, "speaking">): QualityLevel {
   if (sample.received === 0) return "none";
   const lossRatio = sample.lost / (sample.received + sample.lost);
   const degraded = lossRatio > LOSS_RATIO_MAX || (sample.lagMs ?? 0) > LAG_MS_MAX;
   return degraded ? "degraded" : "good";
 }
 
-type SenderWindow = { received: number; lost: number; lagMs: number | undefined };
+// rmsLevel: RMS of the samples scaled to 0..100 (a full-scale +-1 signal
+// tops out at 100), clamped for any signal hotter than that.
+export function rmsLevel(samples: Float32Array): number {
+  if (samples.length === 0) return 0;
+  let sumSq = 0;
+  for (let i = 0; i < samples.length; i++) sumSq += samples[i] * samples[i];
+  const rms = Math.sqrt(sumSq / samples.length);
+  return Math.min(100, rms * 100);
+}
 
-const emptyWindow = (): SenderWindow => ({ received: 0, lost: 0, lagMs: undefined });
+export function isSpeaking(level: number): boolean {
+  return level >= SPEAKING_LEVEL_MIN;
+}
+
+type SenderWindow = {
+  received: number;
+  lost: number;
+  lagMs: number | undefined;
+  speaking: boolean;
+};
+
+const emptyWindow = (): SenderWindow => ({
+  received: 0,
+  lost: 0,
+  lagMs: undefined,
+  speaking: false,
+});
 
 export type QualityWindow = {
   onFrame: (senderKey: string) => void;
   onLost: (senderKey: string) => void;
   onPlay: (senderKey: string, lagMs: number) => void;
   onDepth: (senderKey: string, depth: number) => void;
+  // A level sample (0..100, e.g. rmsLevel's own output) observed in this
+  // window; snapshot().speaking is true if ANY call this window met
+  // isSpeaking's threshold.
+  onLevel: (senderKey: string, level: number) => void;
   snapshot: (senderKey: string) => QualitySample;
+  // Reads and resets ONLY the speaking flag, independent of snapshot()'s
+  // received/lost/lagMs reset -- so a faster speaking-poll cadence (Q-E's
+  // 100ms timer) doesn't zero out the slower quality snapshot's counters.
+  snapshotSpeaking: (senderKey: string) => boolean;
 };
 
 // createQualityWindow: one rolling window per sender, drained (and reset)
@@ -61,10 +95,19 @@ export function createQualityWindow(): QualityWindow {
     // hook so the shape matches the brief's four voiceTap event kinds; the
     // classifier only reads received/lost/lagMs today.
     onDepth: () => {},
+    onLevel: (senderKey, level) => {
+      if (isSpeaking(level)) windowFor(senderKey).speaking = true;
+    },
     snapshot: (senderKey) => {
       const w = windows.get(senderKey) ?? emptyWindow();
       windows.set(senderKey, emptyWindow());
-      return { received: w.received, lost: w.lost, lagMs: w.lagMs };
+      return { received: w.received, lost: w.lost, lagMs: w.lagMs, speaking: w.speaking };
+    },
+    snapshotSpeaking: (senderKey) => {
+      const w = windowFor(senderKey);
+      const speaking = w.speaking;
+      w.speaking = false;
+      return speaking;
     },
   };
 }
