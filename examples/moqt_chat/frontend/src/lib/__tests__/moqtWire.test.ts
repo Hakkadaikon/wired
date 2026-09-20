@@ -17,6 +17,8 @@ import {
   decodeSubgroupTypeFlags,
   decodeFullTrackName,
   decodeGoaway,
+  decodeObjectDatagram,
+  encodeObjectDatagram,
   decodeNamespace,
   decodePublish,
   decodePublishDone,
@@ -417,6 +419,102 @@ describe("data", () => {
       });
     }
   }
+});
+
+interface DatagramVector {
+  kind: string;
+  name: string;
+  hex: string;
+  op: "accept" | "reject" | "insufficient";
+  fields?: {
+    type: string;
+    track_alias: string;
+    group_id: string;
+    object_id: string;
+    publisher_priority?: string;
+    object_status?: string;
+    properties_hex?: string;
+    payload_utf8?: string;
+  };
+}
+
+describe("object_datagram", () => {
+  const vectors = (golden.data as DatagramVector[]).filter(
+    (v) => v.kind === "object_datagram",
+  );
+  // Vector count is pinned so a regenerated JSON that drops entries cannot
+  // silently shrink this suite.
+  it("covers every golden vector", () => {
+    expect(vectors.length).toBe(10);
+  });
+
+  function fromFields(f: NonNullable<DatagramVector["fields"]>) {
+    return {
+      type: BigInt(f.type),
+      trackAlias: BigInt(f.track_alias),
+      groupId: BigInt(f.group_id),
+      objectId: BigInt(f.object_id),
+      priority: f.publisher_priority !== undefined ? Number(f.publisher_priority) : 0,
+      status: f.object_status !== undefined ? BigInt(f.object_status) : 0n,
+      properties: f.properties_hex !== undefined ? hexToBytes(f.properties_hex) : undefined,
+      payload: f.payload_utf8 !== undefined ? utf8ToBytes(f.payload_utf8) : undefined,
+    };
+  }
+
+  for (const v of vectors) {
+    if (v.op === "accept") {
+      const f = v.fields!;
+      it(`decode ${v.name}`, () => {
+        const d = decodeObjectDatagram(hexToBytes(v.hex));
+        expect(d.type).toBe(BigInt(f.type));
+        expect(d.trackAlias).toBe(BigInt(f.track_alias));
+        expect(d.groupId).toBe(BigInt(f.group_id));
+        expect(d.objectId).toBe(BigInt(f.object_id));
+        expect(d.priority).toBe(
+          f.publisher_priority !== undefined ? Number(f.publisher_priority) : 0,
+        );
+        expect(d.status).toBe(
+          f.object_status !== undefined ? BigInt(f.object_status) : 0n,
+        );
+        expect(bytesToHex(d.properties)).toBe(f.properties_hex ?? "");
+        expect(bytesToUtf8(d.payload)).toBe(f.payload_utf8 ?? "");
+      });
+      it(`encode ${v.name}`, () => {
+        expect(bytesToHex(encodeObjectDatagram(fromFields(f)))).toBe(v.hex);
+      });
+      it(`round-trip ${v.name}`, () => {
+        const bytes = hexToBytes(v.hex);
+        expect(bytesToHex(encodeObjectDatagram(decodeObjectDatagram(bytes)))).toBe(v.hex);
+      });
+    } else {
+      it(`${v.op} ${v.name}`, () => {
+        expect(() => decodeObjectDatagram(hexToBytes(v.hex))).toThrow(MoqtDecodeError);
+      });
+    }
+  }
+
+  it("encode rejects the same violations decode does", () => {
+    const base = { trackAlias: 2n, groupId: 0n, objectId: 5n };
+    // STATUS + END_OF_GROUP type
+    expect(() => encodeObjectDatagram({ ...base, type: 0x22n, status: 4n })).toThrow(
+      MoqtDecodeError,
+    );
+    // bit 4 set: outside 0b00X0XXXX
+    expect(() => encodeObjectDatagram({ ...base, type: 0x18n })).toThrow(MoqtDecodeError);
+    // a vi64 Type >= 0x100 whose low byte looks valid
+    expect(() => encodeObjectDatagram({ ...base, type: 0x108n })).toThrow(MoqtDecodeError);
+    // PROPERTIES bit with no properties bytes
+    expect(() => encodeObjectDatagram({ ...base, type: 0x09n })).toThrow(MoqtDecodeError);
+    // STATUS + PROPERTIES with a non-Normal status
+    expect(() =>
+      encodeObjectDatagram({
+        ...base,
+        type: 0x29n,
+        properties: hexToBytes("0025"),
+        status: 4n,
+      }),
+    ).toThrow(MoqtDecodeError);
+  });
 });
 
 interface NameVector {
