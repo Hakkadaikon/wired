@@ -378,6 +378,11 @@ export function useMoqtChat() {
   const micRef = useRef<MicPipeline | null>(null);
   const receivePipelineRef = useRef<VoiceReceivePipeline | null>(null);
   const jitterBufferRef = useRef<JitterBufferManager | null>(null);
+  // Per-peer voice quality: fed by chainVoiceTap (installed in startVoice)
+  // and snapshotted into the store every QUALITY_SNAPSHOT_INTERVAL_MS by
+  // qualityTimerRef, same shape as the drain loop's own timer ref.
+  const qualityWindowRef = useRef<QualityWindow>(createQualityWindow());
+  const qualityTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioGateRef = useRef<AudioContextGate | null>(null);
   // The playback sink and the AudioContext it owns: page.tsx's volume
   // sliders apply through sinkRef (see the store-subscription effect
@@ -484,6 +489,7 @@ export function useMoqtChat() {
         drainTimer: drainTimerRef,
         voiceRetryTimer: voiceRetryTimerRef,
         screenRetryTimer: screenRetryTimerRef,
+        qualityTimer: qualityTimerRef,
         mic: micRef,
         voice: voiceRef,
         receivePipeline: receivePipelineRef,
@@ -535,6 +541,19 @@ export function useMoqtChat() {
         enqueuePlayback: (senderKey, frame) => audioGate.enqueue(senderKey, frame),
       });
       startDrainLoop();
+
+      // Feed the quality window from the same tap point the load harness
+      // uses, chained so an already-installed harness tap keeps working
+      // (chainVoiceTap's own doc), then snapshot it into the store once a
+      // second per the task brief.
+      const globalTap = globalThis as { __wiredVoiceTap?: (e: VoiceTapEvent) => void };
+      globalTap.__wiredVoiceTap = chainVoiceTap(qualityWindowRef.current, globalTap.__wiredVoiceTap);
+      qualityTimerRef.current = setInterval(() => {
+        for (const key of knownSendersRef.current) {
+          const level = qualityLevel(qualityWindowRef.current.snapshot(key));
+          useMoqtChatStore.getState().setVoiceQuality(key, level);
+        }
+      }, QUALITY_SNAPSHOT_INTERVAL_MS);
 
       const voice = new MoqtVoiceClient(chat, {
         onOpusFrame: (participantId, payload) => {
