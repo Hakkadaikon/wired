@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  applyVoiceTapEvent,
   cancelReconnect,
+  chainVoiceTap,
   captureThenPublishScreen,
   connectChatThenVoice,
   handleSessionStatus,
@@ -13,6 +15,7 @@ import {
   type ReconnectRefs,
   type SessionRefs,
 } from "../useMoqtChat";
+import { createQualityWindow, qualityLevel } from "@/lib/voiceQuality";
 import { MoqtChatClient } from "@/lib/moqtClient";
 import { FakeWebTransport } from "@/lib/__tests__/fakeWebTransport";
 
@@ -24,6 +27,7 @@ function fakeSessionRefs(): SessionRefs {
     drainTimer: { current: setTimeout(() => {}, 1000) },
     voiceRetryTimer: { current: setInterval(() => {}, 1000) },
     screenRetryTimer: { current: setInterval(() => {}, 1000) },
+    qualityTimer: { current: setInterval(() => {}, 1000) },
     mic: { current: { stop: vi.fn() } },
     voice: { current: { close: vi.fn() } },
     receivePipeline: { current: {} },
@@ -193,6 +197,7 @@ describe("teardownSession", () => {
     expect(refs.drainTimer.current).toBeNull();
     expect(refs.voiceRetryTimer.current).toBeNull();
     expect(refs.screenRetryTimer.current).toBeNull();
+    expect(refs.qualityTimer.current).toBeNull();
     expect(mic.stop).toHaveBeenCalledTimes(1);
     expect(refs.mic.current).toBeNull();
     expect(unregister).toHaveBeenCalledTimes(1);
@@ -509,6 +514,58 @@ describe("micPipelineIsConfigSupported", () => {
     expect(dep).toBeTypeOf("function");
     await expect(dep?.({ codec: "opus" })).resolves.toEqual({ supported: true });
     expect(isConfigSupported).toHaveBeenCalledWith({ codec: "opus" });
+  });
+});
+
+describe("applyVoiceTapEvent", () => {
+  it("routes a recv event to onFrame", () => {
+    const w = createQualityWindow();
+    applyVoiceTapEvent(w, { dir: "recv", seq: 1, src: "user1", t: 0 });
+    expect(qualityLevel(w.snapshot("user1"))).toBe("good");
+  });
+
+  it("routes a drain event with plc to onLost, and with depth to onDepth", () => {
+    const w = createQualityWindow();
+    for (let i = 0; i < 98; i++) applyVoiceTapEvent(w, { dir: "recv", seq: i, src: "user1", t: 0 });
+    applyVoiceTapEvent(w, { dir: "drain", seq: 0, src: "user1", t: 0, depth: 3 });
+    for (let i = 0; i < 2; i++)
+      applyVoiceTapEvent(w, { dir: "drain", seq: 100 + i, src: "user1", t: 0, plc: true });
+    // 98 received, 2 lost == exactly 2% (good boundary); the depth-only
+    // drain event above must not itself count as a lost or received frame.
+    expect(qualityLevel(w.snapshot("user1"))).toBe("good");
+  });
+
+  it("routes a play event's lag to onPlay", () => {
+    const w = createQualityWindow();
+    applyVoiceTapEvent(w, { dir: "recv", seq: 1, src: "user1", t: 0 });
+    applyVoiceTapEvent(w, { dir: "play", seq: -1, src: "user1", t: 0, lag: 200 });
+    expect(qualityLevel(w.snapshot("user1"))).toBe("degraded");
+  });
+
+  it("ignores send events and events with no sender key", () => {
+    const w = createQualityWindow();
+    applyVoiceTapEvent(w, { dir: "send", seq: 1, t: 0 });
+    applyVoiceTapEvent(w, { dir: "drain", seq: 1, t: 0, plc: true });
+    expect(qualityLevel(w.snapshot("user1"))).toBe("none");
+  });
+});
+
+describe("chainVoiceTap", () => {
+  it("feeds the quality window without dropping a pre-existing tap (e2e harness)", () => {
+    const w = createQualityWindow();
+    const priorCalls: unknown[] = [];
+    const prior = (e: unknown) => priorCalls.push(e);
+    const combined = chainVoiceTap(w, prior);
+    combined({ dir: "recv", seq: 1, src: "user1", t: 0 });
+    expect(qualityLevel(w.snapshot("user1"))).toBe("good");
+    expect(priorCalls).toEqual([{ dir: "recv", seq: 1, src: "user1", t: 0 }]);
+  });
+
+  it("works with no pre-existing tap", () => {
+    const w = createQualityWindow();
+    const combined = chainVoiceTap(w, undefined);
+    expect(() => combined({ dir: "recv", seq: 1, src: "user1", t: 0 })).not.toThrow();
+    expect(qualityLevel(w.snapshot("user1"))).toBe("good");
   });
 });
 
