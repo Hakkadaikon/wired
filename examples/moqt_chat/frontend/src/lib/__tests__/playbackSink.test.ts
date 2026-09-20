@@ -144,3 +144,62 @@ describe("createPlaybackSink", () => {
     expect(masterGain.gain.value).toBe(0.5);
   });
 });
+
+describe("createPlaybackSink lag cap", () => {
+  // Each frame is 0.02s; MAX_LAG_S is 0.2s, so the playhead sits exactly at
+  // the cap after 10 back-to-back frames (10 * 0.02 = 0.20, not > 0.20) and
+  // crosses it on the 11th (0.22 > 0.20).
+  it("does not skip the 10th back-to-back frame (playhead exactly at the cap)", () => {
+    const { ctx, sources } = fakeCtx();
+    const sink = createPlaybackSink(ctx as never);
+    for (let i = 0; i < 10; i++) sink.play("peerA", fakeAudioData(0.02) as never);
+    expect(sources).toHaveLength(10);
+  });
+
+  it("skips the 11th back-to-back frame (playhead lag exceeds the cap)", () => {
+    const { ctx, sources } = fakeCtx();
+    const sink = createPlaybackSink(ctx as never);
+    let skippedFrame: ReturnType<typeof fakeAudioData> | undefined;
+    for (let i = 0; i < 11; i++) {
+      const frame = fakeAudioData(0.02);
+      if (i === 10) skippedFrame = frame;
+      sink.play("peerA", frame as never);
+    }
+    expect(sources).toHaveLength(10); // the 11th never scheduled a source
+    expect(skippedFrame?.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("taps {skipped:true} for a frame dropped by the lag cap", () => {
+    const { ctx } = fakeCtx();
+    const tapped: unknown[] = [];
+    (globalThis as { __wiredVoiceTap?: (e: unknown) => void }).__wiredVoiceTap = (e) =>
+      tapped.push(e);
+    try {
+      const sink = createPlaybackSink(ctx as never);
+      for (let i = 0; i < 11; i++) sink.play("peerA", fakeAudioData(0.02) as never);
+      expect(tapped.some((e) => (e as { skipped?: boolean }).skipped === true)).toBe(true);
+    } finally {
+      delete (globalThis as { __wiredVoiceTap?: unknown }).__wiredVoiceTap;
+    }
+  });
+
+  it("resumes scheduling once currentTime advances the lag back under the cap", () => {
+    const { ctx, sources } = fakeCtx();
+    const sink = createPlaybackSink(ctx as never);
+    for (let i = 0; i < 11; i++) sink.play("peerA", fakeAudioData(0.02) as never); // 11th skipped
+    ctx.setCurrentTime(0.1); // lag now 0.10s, back under the 0.2s cap
+    sink.play("peerA", fakeAudioData(0.02) as never);
+    expect(sources).toHaveLength(11); // the resumed frame scheduled a source
+  });
+
+  it("does not reset the playhead when a frame is skipped", () => {
+    const { ctx, sources } = fakeCtx();
+    const sink = createPlaybackSink(ctx as never);
+    for (let i = 0; i < 10; i++) sink.play("peerA", fakeAudioData(0.02) as never);
+    const playheadBeforeSkip = sources[9].startedAt[0] + 0.02;
+    sink.play("peerA", fakeAudioData(0.02) as never); // 11th: skipped
+    ctx.setCurrentTime(playheadBeforeSkip); // catch currentTime up to the unmoved playhead
+    sink.play("peerA", fakeAudioData(0.02) as never);
+    expect(sources[10].startedAt[0]).toBeCloseTo(playheadBeforeSkip, 5);
+  });
+});
