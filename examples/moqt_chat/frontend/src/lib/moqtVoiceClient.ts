@@ -22,11 +22,18 @@ import {
   participantForTrackAlias,
   type MoqtChatClient,
 } from "./moqtClient";
-import { concatBytes, type SubgroupHeader } from "./moqtWire";
+import {
+  concatBytes,
+  encodeObjectDatagram,
+  type ObjectDatagram,
+  type SubgroupHeader,
+} from "./moqtWire";
 import {
   buildVoiceSubgroupHeader,
+  decodeVoiceObjectPayload,
   drainVoiceObjectStream,
   encodeVoiceObjectMessage,
+  encodeVoiceObjectPayload,
   voiceObjectSeqInit,
   type VoiceObjectPayload,
 } from "./moqtVoiceWire";
@@ -62,6 +69,7 @@ export class MoqtVoiceClient {
   // exactly ONE frame per call and silently discard every later one.
   #seq = 0;
   #writer: WritableStreamDefaultWriter<Uint8Array> | undefined;
+  #datagramWriter: WritableStreamDefaultWriter<Uint8Array> | undefined;
 
   constructor(chat: MoqtChatClient, callbacks: MoqtVoiceCallbacks) {
     this.#chat = chat;
@@ -87,27 +95,52 @@ export class MoqtVoiceClient {
     );
   }
 
-  /** Sends one Opus frame as an Object on the one long-lived uni stream
-   * this client keeps open for the whole call: the SUBGROUP_HEADER (fixed
-   * Group ID) goes out once, on the first call that opens the stream;
-   * every call after that appends a bare Object (moqtrun.c's own hub-side
-   * doc: a header-less call on an already-bound stream is exactly this
-   * shape). Object ID Delta 0 on every call is correct either way --
-   * FIRST_OBJECT mode makes the first one's delta the absolute id (0), and
-   * decodeSubgroupObject's own chaining rule (prevId + delta + 1) turns a
-   * delta of 0 into a plain increment for every Object after that. No-op
-   * before publishAudioTrack() completes or if the WebTransport session is
+  /** Sends one Opus frame, preferring one OBJECT_DATAGRAM per frame (Type
+   * 0x08, DEFAULT_PRIORITY: no priority byte on the wire) when the session
+   * has a datagram path and the encoded frame fits maxDatagramSize -- a
+   * lost 20ms frame is better skipped than delivered late, which is what a
+   * datagram's fire-and-forget gives over the stream's retransmits. A frame
+   * that does not fit (or a transport without a usable datagram path) falls
+   * back to the long-lived uni stream (#sendOnStream). Both paths carry the
+   * same Object payload shape, seq u16 BE + opus, so the receive side's
+   * jitter buffer and taps cannot tell them apart. No-op before
+   * publishAudioTrack() completes or if the WebTransport session is
    * unavailable. Callers must serialize calls (micPipeline.ts's sendGate)
-   * -- this method does not lock the writer itself. */
+   * -- this method does not lock the writers itself. */
   async sendOpusFrame(payload: Uint8Array): Promise<void> {
     const seq = this.#seq++;
-    const object = encodeVoiceObjectMessage(0n, { seq, opus: payload });
     // & 0xffff matches the wire's own u16 wrap (encodeVoiceObjectPayload),
     // so the receive side's tap sees the same seq value.
     voiceTap({ dir: "send", seq: seq & 0xffff, t: performance.now(), bytes: payload.byteLength });
+    const wt = this.#chat.webTransport;
+    if (!wt) return;
+    const datagram = encodeObjectDatagram({
+      type: 0x08n,
+      trackAlias: this.#trackAlias,
+      groupId: 0n,
+      objectId: BigInt(seq),
+      payload: encodeVoiceObjectPayload({ seq, opus: payload }),
+    });
+    const max = wt.datagrams?.maxDatagramSize;
+    if (max !== undefined && datagram.length <= max) {
+      this.#datagramWriter ??= wt.datagrams.writable.getWriter();
+      await this.#datagramWriter.write(datagram);
+      return;
+    }
+    await this.#sendOnStream(wt, encodeVoiceObjectMessage(0n, { seq, opus: payload }));
+  }
+
+  /** The stream fallback: one long-lived uni stream kept open for the whole
+   * call. The SUBGROUP_HEADER (fixed Group ID) goes out once, on the first
+   * call that opens the stream; every call after that appends a bare Object
+   * (moqtrun.c's own hub-side doc: a header-less call on an already-bound
+   * stream is exactly this shape). Object ID Delta 0 on every call is
+   * correct either way -- FIRST_OBJECT mode makes the first one's delta the
+   * absolute id (0), and decodeSubgroupObject's own chaining rule
+   * (prevId + delta + 1) turns a delta of 0 into a plain increment for
+   * every Object after that. */
+  async #sendOnStream(wt: WebTransport, object: Uint8Array): Promise<void> {
     if (!this.#writer) {
-      const wt = this.#chat.webTransport;
-      if (!wt) return;
       const stream = await wt.createUnidirectionalStream();
       this.#writer = stream.getWriter();
       await this.#writer.write(
@@ -116,6 +149,24 @@ export class MoqtVoiceClient {
     } else {
       await this.#writer.write(object);
     }
+  }
+
+  /** Routes one incoming OBJECT_DATAGRAM (already decoded by
+   * moqtClient.ts's datagram read loop) to onOpusFrame if its Track Alias
+   * resolves to a known participant's audio track; anything else -- an
+   * alias outside the audio range, or a payload too short to carry the seq
+   * header -- is dropped without throwing, mirroring handleIncomingStream's
+   * own tolerance. */
+  handleIncomingDatagram(datagram: ObjectDatagram): void {
+    const participant = participantForAudioTrackAlias(datagram.trackAlias);
+    if (!participant) return;
+    let payload: VoiceObjectPayload;
+    try {
+      payload = decodeVoiceObjectPayload(datagram.payload);
+    } catch {
+      return;
+    }
+    this.#callbacks.onOpusFrame(participant, payload);
   }
 
   /** Routes one incoming uni stream (the publisher's long-lived audio relay
@@ -165,9 +216,13 @@ export class MoqtVoiceClient {
     }
   }
 
-  /** FINs the long-lived send stream, if one was ever opened. */
+  /** FINs the long-lived send stream, if one was ever opened, and drops the
+   * datagram writer (datagrams have no FIN; the session teardown ends
+   * them). */
   close(): void {
     this.#writer?.close().catch(() => {});
     this.#writer = undefined;
+    this.#datagramWriter?.releaseLock();
+    this.#datagramWriter = undefined;
   }
 }

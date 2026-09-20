@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { MoqtVoiceClient, ownAudioTrackAlias } from "../moqtVoiceClient";
 import { CANDIDATE_PARTICIPANT_IDS, ownTrackAlias, type MoqtChatClient } from "../moqtClient";
-import { concatBytes, decodeSubgroupHeader } from "../moqtWire";
+import {
+  concatBytes,
+  decodeObjectDatagram,
+  decodeSubgroupHeader,
+  encodeObjectDatagram,
+} from "../moqtWire";
 import { decodeVoiceObjectStream } from "../moqtVoiceWire";
 
 describe("ownAudioTrackAlias", () => {
@@ -27,12 +32,14 @@ describe("ownAudioTrackAlias", () => {
   });
 });
 
-// Minimal fake: only createUnidirectionalStream is exercised by
-// MoqtVoiceClient.sendOpusFrame, so the fake stream's writer just records
-// what it was written and whether it was closed -- no fake reader side is
-// needed since these tests only cover the send path.
-function fakeWebTransport() {
+// Minimal fake: createUnidirectionalStream and (when maxDatagramSize is
+// given) wt.datagrams are what MoqtVoiceClient.sendOpusFrame exercises; the
+// fake writers just record what they were written. No maxDatagramSize
+// models a transport without a usable datagram path, so the pre-datagram
+// stream-path tests below double as the fallback-path coverage.
+function fakeWebTransport(opts: { maxDatagramSize?: number } = {}) {
   const writes: Uint8Array[] = [];
+  const datagramWrites: Uint8Array[] = [];
   let closed = false;
   const writer = {
     write: vi.fn(async (chunk: Uint8Array) => {
@@ -44,11 +51,25 @@ function fakeWebTransport() {
   };
   const stream = { getWriter: () => writer };
   const createUnidirectionalStream = vi.fn(async () => stream);
+  const datagrams =
+    opts.maxDatagramSize === undefined
+      ? undefined
+      : {
+          maxDatagramSize: opts.maxDatagramSize,
+          writable: {
+            getWriter: () => ({
+              write: async (chunk: Uint8Array) => {
+                datagramWrites.push(chunk);
+              },
+            }),
+          },
+        };
   return {
-    webTransport: { createUnidirectionalStream } as unknown as WebTransport,
+    webTransport: { createUnidirectionalStream, datagrams } as unknown as WebTransport,
     createUnidirectionalStream,
     writer,
     writes,
+    datagramWrites,
     get closed() {
       return closed;
     },
@@ -113,5 +134,94 @@ describe("MoqtVoiceClient.sendOpusFrame", () => {
     const { len: headerLen } = decodeSubgroupHeader(wire);
     const payloads = decodeVoiceObjectStream(wire, headerLen, false);
     expect(payloads.map((p) => p.seq)).toEqual([0, 1, 2]);
+  });
+
+  it("sends each frame as one OBJECT_DATAGRAM when it fits maxDatagramSize", async () => {
+    const wt = fakeWebTransport({ maxDatagramSize: 1200 });
+    const client = new MoqtVoiceClient(fakeChatClient(wt), { onOpusFrame: vi.fn() });
+    await client.publishAudioTrack();
+
+    await client.sendOpusFrame(new Uint8Array([1, 2, 3]));
+    await client.sendOpusFrame(new Uint8Array([4, 5]));
+
+    expect(wt.createUnidirectionalStream).not.toHaveBeenCalled();
+    expect(wt.datagramWrites.length).toBe(2);
+    const d = decodeObjectDatagram(wt.datagramWrites[1]);
+    expect(d.type).toBe(0x08n);
+    expect(d.trackAlias).toBe(ownAudioTrackAlias("user1"));
+    expect(d.groupId).toBe(0n);
+    expect(d.objectId).toBe(1n);
+    // payload keeps the stream path's exact shape: seq u16 BE + opus
+    expect(Array.from(d.payload)).toEqual([0, 1, 4, 5]);
+  });
+
+  it("falls back to the uni-stream path when the frame exceeds maxDatagramSize", async () => {
+    const wt = fakeWebTransport({ maxDatagramSize: 8 });
+    const client = new MoqtVoiceClient(fakeChatClient(wt), { onOpusFrame: vi.fn() });
+    await client.publishAudioTrack();
+
+    await client.sendOpusFrame(new Uint8Array(100));
+
+    expect(wt.datagramWrites.length).toBe(0);
+    expect(wt.createUnidirectionalStream).toHaveBeenCalledTimes(1);
+    expect(wt.writer.write).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("MoqtVoiceClient.handleIncomingDatagram", () => {
+  const datagramFrom = (participant: string, seq: number, opus: number[]) =>
+    decodeObjectDatagram(
+      encodeObjectDatagram({
+        type: 0x08n,
+        trackAlias: ownAudioTrackAlias(participant),
+        groupId: 0n,
+        objectId: BigInt(seq),
+        payload: new Uint8Array([(seq >> 8) & 0xff, seq & 0xff, ...opus]),
+      }),
+    );
+
+  it("routes a known audio alias to onOpusFrame with the decoded payload", () => {
+    const onOpusFrame = vi.fn();
+    const client = new MoqtVoiceClient(fakeChatClient(fakeWebTransport()), { onOpusFrame });
+
+    client.handleIncomingDatagram(datagramFrom("user2", 7, [9, 8]));
+
+    expect(onOpusFrame).toHaveBeenCalledTimes(1);
+    const [participant, payload] = onOpusFrame.mock.calls[0];
+    expect(participant).toBe("user2");
+    expect(payload.seq).toBe(7);
+    expect(Array.from(payload.opus)).toEqual([9, 8]);
+  });
+
+  it("ignores a datagram whose alias is not a known audio track", () => {
+    const onOpusFrame = vi.fn();
+    const client = new MoqtVoiceClient(fakeChatClient(fakeWebTransport()), { onOpusFrame });
+
+    const chatAlias = decodeObjectDatagram(
+      encodeObjectDatagram({ type: 0x08n, trackAlias: 0n, groupId: 0n, objectId: 0n }),
+    );
+    const beyondPool = decodeObjectDatagram(
+      encodeObjectDatagram({ type: 0x08n, trackAlias: 99n, groupId: 0n, objectId: 0n }),
+    );
+    expect(() => client.handleIncomingDatagram(chatAlias)).not.toThrow();
+    expect(() => client.handleIncomingDatagram(beyondPool)).not.toThrow();
+    expect(onOpusFrame).not.toHaveBeenCalled();
+  });
+
+  it("ignores a datagram whose payload is too short to carry the seq header", () => {
+    const onOpusFrame = vi.fn();
+    const client = new MoqtVoiceClient(fakeChatClient(fakeWebTransport()), { onOpusFrame });
+
+    const short = decodeObjectDatagram(
+      encodeObjectDatagram({
+        type: 0x08n,
+        trackAlias: ownAudioTrackAlias("user2"),
+        groupId: 0n,
+        objectId: 0n,
+        payload: new Uint8Array([1]),
+      }),
+    );
+    expect(() => client.handleIncomingDatagram(short)).not.toThrow();
+    expect(onOpusFrame).not.toHaveBeenCalled();
   });
 });
