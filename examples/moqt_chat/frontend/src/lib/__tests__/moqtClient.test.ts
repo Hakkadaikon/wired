@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildChatObjectMessage,
+  MoqtChatClient,
   parseChatObjectMessage,
   candidateParticipantIds,
   certHashesToWebTransportOptions,
 } from "../moqtClient";
+import { FakeWebTransport } from "./fakeWebTransport";
 import {
   decodeSubgroupHeader,
   decodeSubgroupObject,
@@ -64,6 +66,94 @@ describe("candidateParticipantIds", () => {
   it("is stable regardless of local id casing/whitespace", () => {
     const ids = candidateParticipantIds("user1");
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+// Drives MoqtChatClient's transport-close detection with a fake WebTransport
+// whose deferred closed promise the test settles by hand.
+describe("MoqtChatClient transport close detection", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  // Runs microtasks and 0ms timers so a just-settled closed promise's
+  // handlers fire before the assertions.
+  const flushAsync = () => vi.advanceTimersByTimeAsync(0);
+
+  async function connectedClient() {
+    vi.useFakeTimers();
+    const fake = new FakeWebTransport();
+    vi.stubGlobal("WebTransport", function () {
+      return fake;
+    });
+    const statuses: string[] = [];
+    const client = new MoqtChatClient("user1", {
+      onStatusChange: (s) => statuses.push(s),
+      onMessage: () => {},
+    });
+    const connected = client.connect("https://hub.example/", []);
+    fake.resolveReady();
+    await connected;
+    const disconnects = () => statuses.filter((s) => s === "disconnected").length;
+    return { client, fake, statuses, disconnects };
+  }
+
+  it("a closed promise that rejects reports one disconnected", async () => {
+    const { fake, disconnects } = await connectedClient();
+
+    fake.rejectClosed(new Error("hub died"));
+    await flushAsync();
+
+    expect(disconnects()).toBe(1);
+  });
+
+  it("a closed promise that resolves reports one disconnected", async () => {
+    const { fake, disconnects } = await connectedClient();
+
+    fake.resolveClosed({ closeCode: 0 });
+    await flushAsync();
+
+    expect(disconnects()).toBe(1);
+  });
+
+  it("the previous transport's late closed settling is ignored", async () => {
+    const { client, fake, disconnects } = await connectedClient();
+    const next = new FakeWebTransport();
+    vi.stubGlobal("WebTransport", function () {
+      return next;
+    });
+    const reconnected = client.connect("https://hub.example/", []);
+    next.resolveReady();
+    await reconnected;
+
+    fake.resolveClosed({ closeCode: 0 });
+    await flushAsync();
+
+    expect(disconnects()).toBe(0);
+  });
+
+  it("tearing down an already-dead session reports no second disconnected", async () => {
+    const { client, fake, disconnects } = await connectedClient();
+
+    fake.rejectClosed(new Error("hub died"));
+    await flushAsync();
+    expect(disconnects()).toBe(1);
+
+    client.close();
+    await flushAsync();
+
+    expect(disconnects()).toBe(1);
+  });
+
+  it("close() reports disconnected once and its closed settling adds none", async () => {
+    const { client, fake, disconnects } = await connectedClient();
+
+    client.close();
+    fake.resolveClosed({ closeCode: 0 });
+    await flushAsync();
+
+    expect(disconnects()).toBe(1);
   });
 });
 
