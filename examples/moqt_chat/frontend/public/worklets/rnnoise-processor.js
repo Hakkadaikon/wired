@@ -40,6 +40,11 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
     this._inPtr = this._module._malloc(FRAME_SIZE * 4);
     this._outPtr = this._module._malloc(FRAME_SIZE * 4);
     this._ready = true;
+    // Signals noiseSuppressor.ts's startNoiseSuppressor that wasm init
+    // succeeded -- a constructor throw above never reaches this line, and
+    // is instead reported via the node's processorerror event, which is
+    // the other half of that ready/error race.
+    this.port.postMessage({ type: "ready" });
   }
 
   // Mirrors createFrameAccumulator(480) in noiseSuppressor.ts.
