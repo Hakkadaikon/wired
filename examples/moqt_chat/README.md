@@ -111,7 +111,8 @@ anchored to the startup time), so always copy it from the **current** run.
 
 ## Run the frontend
 
-The frontend is a Next.js + React app using the LiftKit design system
+The frontend is a Next.js + React app with its own stylesheet, modelled on
+the 1976 NASA Graphics Standards Manual
 (`output: "export"`, so it ships as static files — no Node server needed to
 serve it).
 
@@ -178,7 +179,7 @@ server's shutdown stats must count live Group sends
   draft-ietf-webtrans-http3-15 SS4.2).
 - `Dockerfile` / `docker-compose.yml` — the `scratch` image `just up`/
   `up-bg` build and run (see "Build and run (server)" above).
-- `frontend/` — the Next.js + LiftKit browser client:
+- `frontend/` — the Next.js + React browser client:
   `src/lib/moqtWire.ts`/`moqtClient.ts` (chat wire codec, session/PUBLISH/
   SUBSCRIBE/relay), `moqtVoiceWire.ts`/`moqtVoiceClient.ts` (voice Object
   framing and the audio track's publish/subscribe), `moqtMovieClient.ts`
