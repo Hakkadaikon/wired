@@ -169,6 +169,19 @@ describe("micPipeline", () => {
     pipeline.stop();
   });
 
+  it("exposes the captured mic track so a caller can stop it independently of pipeline.stop()", async () => {
+    const track: Track = { stop: vi.fn() };
+    const pipeline = await startMicPipeline({
+      getUserMedia: fakeGetUserMedia(track),
+      makeProcessor: () => fakeProcessor(),
+      AudioEncoderCtor: fakeEncoder().ctor as never,
+      sendVoiceFrame: vi.fn(),
+      isMuted: () => false,
+    });
+
+    expect(pipeline.tracks).toEqual([track]);
+  });
+
   it("stays mic-off and shows an error when getUserMedia rejects", async () => {
     const getUserMedia = fakeGetUserMedia(new Error("permission denied"));
     const onError = vi.fn();

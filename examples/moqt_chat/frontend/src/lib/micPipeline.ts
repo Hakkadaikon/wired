@@ -49,6 +49,9 @@ const CONSECUTIVE_SEND_FAILURE_LIMIT = 100;
 export type MicPipeline = {
   stop: () => void;
   stopped: boolean;
+  // The captured mic track(s), so a caller (page-unload cleanup) can stop
+  // the device independently of the full pipeline teardown.
+  tracks: { stop: () => void }[];
 };
 
 // sampleRate/numberOfChannels are required AudioEncoderConfig members; Opus
@@ -136,6 +139,7 @@ export async function startMicPipeline(
 
   const pipeline: MicPipeline = {
     stopped: false,
+    tracks: track ? [track] : [],
     stop: () => {
       pipeline.stopped = true;
       track?.stop();
