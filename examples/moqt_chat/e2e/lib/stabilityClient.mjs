@@ -120,6 +120,15 @@ const INIT_SCRIPT = `
       return stream;
     };
   };
+  // Total createUnidirectionalStream calls across ALL transports on this
+  // page (same tap name as voiceLoadTest.mjs's): an auto-rejoin proves its
+  // new session actually sends again by bumping this count.
+  window.__uniStreamOpenCount = 0;
+  const realCreateUni = window.WebTransport.prototype.createUnidirectionalStream;
+  window.WebTransport.prototype.createUnidirectionalStream = function (...args) {
+    window.__uniStreamOpenCount++;
+    return realCreateUni.apply(this, args);
+  };
   const RealWT = window.WebTransport;
   window.WebTransport = class extends RealWT {
     constructor(...args) {
