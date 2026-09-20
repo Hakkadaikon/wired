@@ -207,7 +207,13 @@ export async function connectClient(client, { pageUrl, serverUrl, certHash, part
       name: participantId,
     },
   );
-  await page.goto(pageUrl);
+  // The e2e harness always runs with RNNoise off: 4 worklets (one per
+  // headless Chrome) on a shared box is a test-environment CPU artifact,
+  // and the transport gates (loss/jitter/plc) must measure the network
+  // path, not worklet CPU (see noiseSuppressionDefault in joinPrefs.ts).
+  const nsOffUrl = new URL(pageUrl);
+  nsOffUrl.searchParams.set("ns", "0");
+  await page.goto(nsOffUrl.href);
   await page.waitForFunction(
     (h) => document.querySelector('input[data-testid="certHash"]')?.value === h,
     { timeout: JOIN_TIMEOUT_MS },
