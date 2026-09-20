@@ -35,6 +35,8 @@ export type MoqtChatState = {
   masterVolume: number; // 0..1, applied on top of every peer's own volume
   peerVolumes: Record<string, number>; // per-sender volume, 0..1; absent key means 1 (unity)
   voiceQuality: Record<string, QualityLevel>; // per-sender quality; absent key renders as "none"
+  speaking: Record<string, boolean>; // per-sender Q-E speaking indicator; absent key renders as false
+  localSpeaking: boolean; // this client's own Q-E speaking indicator
   noiseSuppressionEnabled: boolean; // RNNoise on/off (masthead "NS" toggle)
   setConnectionState: (state: ConnectionState) => void;
   setMuted: (muted: boolean) => void;
@@ -54,6 +56,8 @@ export type MoqtChatState = {
   setMasterVolume: (v: number) => void;
   setPeerVolume: (id: string, v: number) => void;
   setVoiceQuality: (id: string, level: QualityLevel) => void;
+  setSpeaking: (id: string, speaking: boolean) => void;
+  setLocalSpeaking: (speaking: boolean) => void;
   setNoiseSuppressionEnabled: (enabled: boolean) => void;
 };
 
@@ -75,6 +79,8 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   masterVolume: 1,
   peerVolumes: {},
   voiceQuality: {},
+  speaking: {},
+  localSpeaking: false,
   noiseSuppressionEnabled: true,
   setConnectionState: (connectionState) => set({ connectionState }),
   setMuted: (muted) => set({ muted }),
@@ -91,7 +97,7 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   addPeer: (id) =>
     set((s) => (s.peers.includes(id) ? s : { peers: [...s.peers, id] })),
   removePeer: (id) => set((s) => ({ peers: s.peers.filter((p) => p !== id) })),
-  clearPeers: () => set({ peers: [], voiceQuality: {} }),
+  clearPeers: () => set({ peers: [], voiceQuality: {}, speaking: {} }),
   clearMessages: () => set({ messages: [] }),
   setScreenSharing: (screenSharing) => set({ screenSharing }),
   addScreenTile: (id) =>
@@ -104,5 +110,8 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
     set((s) => ({ peerVolumes: { ...s.peerVolumes, [id]: v } })),
   setVoiceQuality: (id, level) =>
     set((s) => ({ voiceQuality: { ...s.voiceQuality, [id]: level } })),
+  setSpeaking: (id, speaking) =>
+    set((s) => ({ speaking: { ...s.speaking, [id]: speaking } })),
+  setLocalSpeaking: (localSpeaking) => set({ localSpeaking }),
   setNoiseSuppressionEnabled: (noiseSuppressionEnabled) => set({ noiseSuppressionEnabled }),
 }));
