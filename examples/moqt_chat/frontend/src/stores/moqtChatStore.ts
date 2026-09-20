@@ -31,6 +31,8 @@ export type MoqtChatState = {
   screenSharing: boolean; // am I currently sharing my screen
   screenTiles: string[]; // participant ids currently sharing, for rendering tiles
   screenShareError: string | null; // screen-share-only error; never surfaces in chat/voice errors
+  masterVolume: number; // 0..1, applied on top of every peer's own volume
+  peerVolumes: Record<string, number>; // per-sender volume, 0..1; absent key means 1 (unity)
   setConnectionState: (state: ConnectionState) => void;
   setMuted: (muted: boolean) => void;
   addMessage: (message: Omit<ChatMessage, "id">) => number;
@@ -46,6 +48,8 @@ export type MoqtChatState = {
   addScreenTile: (id: string) => void;
   removeScreenTile: (id: string) => void;
   setScreenShareError: (msg: string | null) => void;
+  setMasterVolume: (v: number) => void;
+  setPeerVolume: (id: string, v: number) => void;
 };
 
 let nextMessageId = 1;
@@ -63,6 +67,8 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   screenSharing: false,
   screenTiles: [],
   screenShareError: null,
+  masterVolume: 1,
+  peerVolumes: {},
   setConnectionState: (connectionState) => set({ connectionState }),
   setMuted: (muted) => set({ muted }),
   addMessage: (message) => {
@@ -86,4 +92,7 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   removeScreenTile: (id) =>
     set((s) => ({ screenTiles: s.screenTiles.filter((t) => t !== id) })),
   setScreenShareError: (screenShareError) => set({ screenShareError }),
+  setMasterVolume: (masterVolume) => set({ masterVolume }),
+  setPeerVolume: (id, v) =>
+    set((s) => ({ peerVolumes: { ...s.peerVolumes, [id]: v } })),
 }));

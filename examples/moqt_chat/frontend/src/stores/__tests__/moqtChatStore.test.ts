@@ -18,6 +18,8 @@ describe("moqtChatStore", () => {
     expect(s.screenSharing).toBe(false);
     expect(s.screenTiles).toEqual([]);
     expect(s.screenShareError).toBeNull();
+    expect(s.masterVolume).toBe(1);
+    expect(s.peerVolumes).toEqual({});
   });
 
   it("sets and clears the live movie error and first group", () => {
@@ -147,5 +149,21 @@ describe("moqtChatStore", () => {
     expect(useMoqtChatStore.getState().liveError).toBeNull();
     useMoqtChatStore.getState().setScreenShareError(null);
     expect(useMoqtChatStore.getState().screenShareError).toBeNull();
+  });
+
+  it("starts at full master volume with no per-peer overrides", () => {
+    expect(useMoqtChatStore.getState().masterVolume).toBe(1);
+    expect(useMoqtChatStore.getState().peerVolumes).toEqual({});
+  });
+
+  it("sets the master volume", () => {
+    useMoqtChatStore.getState().setMasterVolume(0.4);
+    expect(useMoqtChatStore.getState().masterVolume).toBe(0.4);
+  });
+
+  it("sets a peer's volume without affecting other peers", () => {
+    useMoqtChatStore.getState().setPeerVolume("user2", 0.3);
+    useMoqtChatStore.getState().setPeerVolume("user3", 0.7);
+    expect(useMoqtChatStore.getState().peerVolumes).toEqual({ user2: 0.3, user3: 0.7 });
   });
 });
