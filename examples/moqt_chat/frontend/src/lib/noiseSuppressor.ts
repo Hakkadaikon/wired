@@ -90,11 +90,20 @@ const RNNOISE_SYNC_URL = "/worklets/rnnoise-sync.js";
 
 // Copied verbatim from node_modules/@jitsi/rnnoise-wasm/dist/rnnoise-sync.js
 // at build time (see brief: "Copy that JS file into public/worklets/").
-// That file ends in `export default createRNNWasmModuleSync;`, which is
-// invalid inside `new Function` (worklets cannot use ES module syntax) --
-// this strips just that trailing statement.
+// `new Function` (the worklet's only way to evaluate this, since it cannot
+// `import` an ES module) runs the source as a plain script, not a module, so
+// two ESM-only constructs must go: the trailing
+// `export default createRNNWasmModuleSync;` statement, and the
+// `import.meta.url` reference near the top (used only to resolve the wasm
+// binary's own file location for locateFile() -- moot here, since the wasm
+// is embedded as a base64 data: URL in this build, confirmed by grepping
+// the vendored file for `wasmBinaryFile = "data:`). Replaced with `""`,
+// matching what `import.meta.url` would be in a same-origin, non-blob
+// context after scriptDirectory's own trailing-slash trim.
 export function stripEsmExport(source: string): string {
-  return source.replace(/export\s+default\s+[^;]+;?\s*$/, "");
+  return source
+    .replace(/export\s+default\s+[^;]+;?\s*$/, "")
+    .replace(/import\.meta\.url/g, '""');
 }
 
 // A processor constructor throw (bad wasm eval, _rnnoise_create/_malloc
@@ -116,10 +125,14 @@ export type MediaStreamSourceLike = {
   connect: (node: AudioWorkletNodeLike) => AudioWorkletNodeLike;
   disconnect: () => void;
 };
+export type MediaStreamDestinationLike = {
+  channelCount: number;
+  stream: { getAudioTracks: () => MediaStreamTrack[] };
+};
 export type AudioContextLike = {
   audioWorklet: { addModule: (url: string) => Promise<void> };
   createMediaStreamSource: (stream: MediaStream) => MediaStreamSourceLike;
-  createMediaStreamDestination: () => { stream: { getAudioTracks: () => MediaStreamTrack[] } };
+  createMediaStreamDestination: () => MediaStreamDestinationLike;
   close: () => Promise<void>;
 };
 export type AudioWorkletNodeLike = {
@@ -192,6 +205,13 @@ export async function startNoiseSuppressor(
   }
 
   const destination = ctx.createMediaStreamDestination();
+  // createMediaStreamDestination() defaults to 2 channels (stereo); the mic
+  // source and the encoder downstream (micPipeline.ts's BASE_CONFIG /
+  // VOIP_CONFIG, both numberOfChannels: 1) are mono, and AudioEncoder
+  // rejects a channel-count mismatch with "Input audio buffer is
+  // incompatible with codec parameters" (closing the encoder on the first
+  // frame). Force mono to match.
+  destination.channelCount = 1;
   source.connect(node).connect(destination);
 
   return {

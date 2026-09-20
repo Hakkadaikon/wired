@@ -124,6 +124,14 @@ describe("stripEsmExport", () => {
   it("leaves source with no export statement unchanged", () => {
     expect(stripEsmExport("var x = 1;")).toBe("var x = 1;");
   });
+
+  it("replaces import.meta.url with an empty string literal (new Function cannot use import.meta)", () => {
+    expect(stripEsmExport("var _scriptDir = import.meta.url;")).toBe('var _scriptDir = "";');
+  });
+
+  it("replaces every import.meta.url occurrence, not just the first", () => {
+    expect(stripEsmExport("a(import.meta.url); b(import.meta.url);")).toBe('a(""); b("");');
+  });
 });
 
 describe("startNoiseSuppressor", () => {
@@ -135,6 +143,7 @@ describe("startNoiseSuppressor", () => {
         disconnect: vi.fn(),
       })),
       createMediaStreamDestination: vi.fn(() => ({
+        channelCount: 2,
         stream: { getAudioTracks: () => [{ id: "denoised-track" } as unknown as MediaStreamTrack] },
       })),
       close: vi.fn(async () => {}),
@@ -169,6 +178,20 @@ describe("startNoiseSuppressor", () => {
     await Promise.resolve();
     await Promise.resolve();
   }
+
+  it("forces the destination to mono (encoder downstream is numberOfChannels:1)", async () => {
+    const ctx = fakeContext();
+    const node = fakeNode();
+    const deps = baseDeps(ctx, node);
+
+    const pending = startNoiseSuppressor(micTrack, () => {}, "", deps);
+    await flushSetup();
+    node.port.onmessage?.({ data: { type: "ready" } } as MessageEvent);
+    await pending;
+
+    const destination = (ctx.createMediaStreamDestination as ReturnType<typeof vi.fn>).mock.results[0].value;
+    expect(destination.channelCount).toBe(1);
+  });
 
   it("resolves with the denoised track once the processor posts {type:\"ready\"}", async () => {
     const ctx = fakeContext();
