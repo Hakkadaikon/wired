@@ -34,7 +34,8 @@ import {
   type VoiceReceivePipeline,
 } from "@/lib/voiceReceivePipeline";
 import { createAudioContextGate, type AudioContextGate } from "@/lib/audioContextGate";
-import { createPlaybackSink } from "@/lib/playbackSink";
+import { createPlaybackSink, type PlaybackSink } from "@/lib/playbackSink";
+import { effectiveGain } from "@/lib/outputMixer";
 import { JitterBufferManager } from "@/lib/jitterBuffer";
 import { registerPageLifecycleCleanup } from "@/lib/pageLifecycle";
 import {
@@ -327,6 +328,11 @@ export function useMoqtChat() {
   const receivePipelineRef = useRef<VoiceReceivePipeline | null>(null);
   const jitterBufferRef = useRef<JitterBufferManager | null>(null);
   const audioGateRef = useRef<AudioContextGate | null>(null);
+  // The playback sink and the AudioContext it owns: page.tsx's volume
+  // sliders apply through sinkRef (see the store-subscription effect
+  // below), and its output-device select calls audioCtxRef's setSinkId.
+  const sinkRef = useRef<PlaybackSink | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const knownSendersRef = useRef<Set<string>>(new Set());
   // Screen-share counterpart to knownSendersRef: a candidate is added once
   // its first screen chunk arrives (onScreenChunk below), so the retry
@@ -443,16 +449,29 @@ export function useMoqtChat() {
       },
       store,
     );
+    sinkRef.current = null;
+    audioCtxRef.current = null;
   }, [store]);
 
   const startVoice = useCallback(
     async (localId: string, chat: MoqtChatClient) => {
       const audioCtx = new AudioContext();
+      audioCtxRef.current = audioCtx;
+      const sink = createPlaybackSink(audioCtx);
+      sinkRef.current = sink;
+      // Pick up whatever the rail's sliders were already set to (e.g. a
+      // manual Rejoin after tuning volumes) -- the effect below only fires
+      // on a later slider change, not on sink creation itself.
+      const state = useMoqtChatStore.getState();
+      sink.setMasterGain(effectiveGain(state.masterVolume, 1));
+      for (const [id, v] of Object.entries(state.peerVolumes)) {
+        sink.setPeerGain(id, effectiveGain(v, 1));
+      }
       const audioGate = createAudioContextGate(
         () => audioCtx as unknown as { state: "suspended" | "running" | "closed"; resume: () => Promise<void> },
         {
           onResumeFailed: () => setMicError("audio playback permission was blocked by the browser"),
-          play: createPlaybackSink(audioCtx),
+          play: sink.play,
         },
       );
       audioGateRef.current = audioGate;
@@ -793,6 +812,23 @@ export function useMoqtChat() {
     connectRef.current = connect;
   }, [connect]);
 
+  // Apply the rail's master/per-peer volume controls to the live gain
+  // nodes: the peer GainNode carries that peer's own slider (clamped by
+  // outputMixer.ts's effectiveGain against unity), the master GainNode
+  // carries the master slider -- the two multiply acoustically once
+  // connected in series (playbackSink.ts), so neither setter folds the
+  // other's value in.
+  const masterVolume = store.masterVolume;
+  const peerVolumes = store.peerVolumes;
+  useEffect(() => {
+    const sink = sinkRef.current;
+    if (!sink) return;
+    sink.setMasterGain(effectiveGain(masterVolume, 1));
+    for (const [id, v] of Object.entries(peerVolumes)) {
+      sink.setPeerGain(id, effectiveGain(v, 1));
+    }
+  }, [masterVolume, peerVolumes]);
+
   const leave = useCallback(() => {
     // The user no longer wants the session: cancel any pending automatic
     // rejoin, and drop the args first so the teardown below cannot
@@ -807,6 +843,16 @@ export function useMoqtChat() {
     clearLive();
   }, [teardownCurrentSession, store, clearLive]);
 
+  // Routes voice output to a chosen audiooutput device (AudioContext.setSinkId,
+  // not yet in TS's DOM lib -- same as makeProcessor's MediaStreamTrackProcessor
+  // cast above). No-ops before startVoice has created a context, or in a
+  // browser without setSinkId (page.tsx's select isn't rendered there anyway,
+  // via outputMixer.ts's canPickOutput).
+  const setOutputDevice = useCallback((deviceId: string) => {
+    const ctx = audioCtxRef.current as unknown as { setSinkId?: (id: string) => Promise<void> } | null;
+    void ctx?.setSinkId?.(deviceId);
+  }, []);
+
   return {
     connect,
     sendChat,
@@ -817,5 +863,6 @@ export function useMoqtChat() {
     startScreenShare,
     stopScreenShare,
     registerScreenCanvas,
+    setOutputDevice,
   };
 }
