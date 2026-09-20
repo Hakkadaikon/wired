@@ -35,6 +35,7 @@ export type MoqtChatState = {
   masterVolume: number; // 0..1, applied on top of every peer's own volume
   peerVolumes: Record<string, number>; // per-sender volume, 0..1; absent key means 1 (unity)
   voiceQuality: Record<string, QualityLevel>; // per-sender quality; absent key renders as "none"
+  noiseSuppressionEnabled: boolean; // RNNoise on/off (masthead "NS" toggle)
   setConnectionState: (state: ConnectionState) => void;
   setMuted: (muted: boolean) => void;
   addMessage: (message: Omit<ChatMessage, "id">) => number;
@@ -53,6 +54,7 @@ export type MoqtChatState = {
   setMasterVolume: (v: number) => void;
   setPeerVolume: (id: string, v: number) => void;
   setVoiceQuality: (id: string, level: QualityLevel) => void;
+  setNoiseSuppressionEnabled: (enabled: boolean) => void;
 };
 
 let nextMessageId = 1;
@@ -73,6 +75,7 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   masterVolume: 1,
   peerVolumes: {},
   voiceQuality: {},
+  noiseSuppressionEnabled: true,
   setConnectionState: (connectionState) => set({ connectionState }),
   setMuted: (muted) => set({ muted }),
   addMessage: (message) => {
@@ -101,4 +104,5 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
     set((s) => ({ peerVolumes: { ...s.peerVolumes, [id]: v } })),
   setVoiceQuality: (id, level) =>
     set((s) => ({ voiceQuality: { ...s.voiceQuality, [id]: level } })),
+  setNoiseSuppressionEnabled: (noiseSuppressionEnabled) => set({ noiseSuppressionEnabled }),
 }));
