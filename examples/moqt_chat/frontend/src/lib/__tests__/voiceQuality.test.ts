@@ -132,10 +132,11 @@ describe("createQualityWindow", () => {
     expect(w.snapshot("user1").speaking).toBe(false);
   });
 
-  it("snapshot resets speaking for that sender", () => {
+  it("snapshotSpeaking (not snapshot) resets speaking for that sender", () => {
     const w = createQualityWindow();
     w.onLevel("user1", 50);
     expect(w.snapshot("user1").speaking).toBe(true);
+    expect(w.snapshotSpeaking("user1")).toBe(true);
     expect(w.snapshot("user1").speaking).toBe(false);
   });
 
@@ -154,5 +155,12 @@ describe("createQualityWindow", () => {
     expect(w.snapshotSpeaking("user1")).toBe(true);
     expect(w.snapshotSpeaking("user1")).toBe(false);
     expect(qualityLevel(w.snapshot("user1"))).toBe("good"); // received:1 survived
+  });
+
+  it("snapshot() (the 1s quality poll) does not discard speaking evidence the 100ms speaking poll hasn't consumed yet", () => {
+    const w = createQualityWindow();
+    w.onLevel("user1", 50);
+    w.snapshot("user1"); // a 1s quality tick lands before the next speaking poll
+    expect(w.snapshotSpeaking("user1")).toBe(true);
   });
 });

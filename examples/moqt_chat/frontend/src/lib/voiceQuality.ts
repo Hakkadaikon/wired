@@ -57,9 +57,14 @@ export type QualityWindow = {
   onPlay: (senderKey: string, lagMs: number) => void;
   onDepth: (senderKey: string, depth: number) => void;
   // A level sample (0..100, e.g. rmsLevel's own output) observed in this
-  // window; snapshot().speaking is true if ANY call this window met
-  // isSpeaking's threshold.
+  // window; speaking (read via snapshotSpeaking, or carried through by
+  // snapshot -- see both below) is true if ANY call since the last
+  // snapshotSpeaking() met isSpeaking's threshold.
   onLevel: (senderKey: string, level: number) => void;
+  // received/lost/lagMs are reset here; speaking is carried through
+  // UNCHANGED (snapshotSpeaking owns its reset -- see below) so the 1s
+  // quality poll never discards evidence the 100ms speaking poll hasn't
+  // consumed yet.
   snapshot: (senderKey: string) => QualitySample;
   // Reads and resets ONLY the speaking flag, independent of snapshot()'s
   // received/lost/lagMs reset -- so a faster speaking-poll cadence (Q-E's
@@ -100,7 +105,11 @@ export function createQualityWindow(): QualityWindow {
     },
     snapshot: (senderKey) => {
       const w = windows.get(senderKey) ?? emptyWindow();
-      windows.set(senderKey, emptyWindow());
+      // received/lost/lagMs reset here (this is the 1s quality poll's own
+      // window); speaking is owned by snapshotSpeaking's independent
+      // 100ms cadence and must survive this reset untouched, or evidence
+      // accumulated between speaking polls gets discarded here instead.
+      windows.set(senderKey, { ...emptyWindow(), speaking: w.speaking });
       return { received: w.received, lost: w.lost, lagMs: w.lagMs, speaking: w.speaking };
     },
     snapshotSpeaking: (senderKey) => {
