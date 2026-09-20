@@ -37,10 +37,15 @@ mkdirSync(evidenceDir, { recursive: true });
 // send-path stall counters -- srvrun_qlog_metrics), landing next to the
 // other evidence. Off by default: the extra write per packet costs a
 // little and most scenarios only need the shutdown stats line.
-const serverArgs =
-  arg("server-qlog", "") !== ""
+const serverCc = arg("server-cc", "");
+const serverArgs = [
+  ...(arg("server-qlog", "") !== ""
     ? ["--qlog", path.join(evidenceDir, "server.qlog")]
-    : [];
+    : []),
+  // --server-cc=cubic|bbr forwards to the server's own --cc (cc_algo_of in
+  // wired_server.c); absent leaves the server on its default (cubic).
+  ...(serverCc !== "" ? ["--cc", serverCc] : []),
+];
 // --server-cpu-quota=N starves the SERVER alone to N% of one core (systemd
 // user scope) -- the resource-exhaustion reproduction knob: the relay's
 // drop counters (stat_relay_drop / stat_open_drop) never fire on an
