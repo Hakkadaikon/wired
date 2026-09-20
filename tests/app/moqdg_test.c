@@ -43,6 +43,8 @@ static void test_moqdg_type_valid_rejects(void) {
   static const u8 form[] = {0x10, 0x18, 0x1f, 0x30, 0x40, 0x80, 0xd0};
   for (usz i = 0; i < sizeof seog; i++) CHECK(!moqdg_type_valid(seog[i]));
   for (usz i = 0; i < sizeof form; i++) CHECK(!moqdg_type_valid(form[i]));
+  CHECK(!moqdg_type_valid(0x100));
+  CHECK(!moqdg_type_valid(0x108)); /* 0x08 + bit 8: low byte alone lies */
   CHECK(!moqdg_type_valid((u64)-1));
 }
 
@@ -193,6 +195,14 @@ static void test_moqdg_take_reject_golden(void) {
       G_MOQT_DATA_DGRAM_REJECT_STATUS_PROPS_NOT_NORMAL_LEN, MOQDATA_VIOLATION);
 }
 
+/* TEST: a Type varint encoding a value >= 0x100 (here 0x108 as the
+ * 2-byte `81 08`) is outside 0x00..0x2F -> violation (11.3.1), even
+ * though its low byte matches the valid 0x08. */
+static void test_moqdg_take_multibyte_type(void) {
+  static const u8 in[] = {0x81, 0x08, 0x02, 0x00, 0x05, 0x68, 0x69};
+  moqdg_test_take_rejects(in, sizeof in, MOQDATA_VIOLATION);
+}
+
 /* TEST: the insufficient golden and the basic golden cut at every
  * pre-payload length -> insufficient, cursor untouched. */
 static void test_moqdg_take_insufficient(void) {
@@ -276,6 +286,7 @@ void test_moqdg(void) {
   test_moqdg_put_golden();
   test_moqdg_roundtrip_golden();
   test_moqdg_take_reject_golden();
+  test_moqdg_take_multibyte_type();
   test_moqdg_take_insufficient();
   test_moqdg_take_varint_alias_9byte();
   test_moqdg_take_empty_payload();

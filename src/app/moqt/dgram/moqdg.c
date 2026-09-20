@@ -12,8 +12,10 @@ static int moqdg_type_zero_oid(u64 t) { return (t & 0x04) != 0; }
 static int moqdg_type_default_prio(u64 t) { return (t & 0x08) != 0; }
 static int moqdg_type_status(u64 t) { return (t & 0x20) != 0; }
 
-/* 0b00X0XXXX: bits 7, 6 and 4 clear (0x00..0x0F, 0x20..0x2F). */
-static int moqdg_type_form_ok(u64 t) { return (t & 0xD0) == 0; }
+/* 0b00X0XXXX: every bit above 5 and bit 4 clear (0x00..0x0F,
+ * 0x20..0x2F). Type is a vi64, so values >= 0x100 whose low byte looks
+ * valid must be rejected too. */
+static int moqdg_type_form_ok(u64 t) { return (t & ~(u64)0x2F) == 0; }
 
 /* STATUS + END_OF_GROUP is explicitly invalid (11.3.1). */
 static int moqdg_type_status_eog(u64 t) { return (t & 0x22) == 0x22; }
