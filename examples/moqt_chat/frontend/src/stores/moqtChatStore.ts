@@ -8,6 +8,7 @@
 // (moqtClient.ts's candidate ids are already human-readable, e.g. "user1").
 
 import { create } from "zustand";
+import { noiseSuppressionDefault } from "@/lib/joinPrefs";
 import type { QualityLevel } from "@/lib/voiceQuality";
 
 export type ConnectionState = "connecting" | "connected" | "disconnected";
@@ -81,7 +82,8 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   voiceQuality: {},
   speaking: {},
   localSpeaking: false,
-  noiseSuppressionEnabled: true,
+  noiseSuppressionEnabled:
+    typeof window === "undefined" ? true : noiseSuppressionDefault(window.location.search),
   setConnectionState: (connectionState) => set({ connectionState }),
   setMuted: (muted) => set({ muted }),
   addMessage: (message) => {
