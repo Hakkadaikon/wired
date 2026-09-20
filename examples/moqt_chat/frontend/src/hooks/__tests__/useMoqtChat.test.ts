@@ -1,13 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  cancelReconnect,
   captureThenPublishScreen,
   connectChatThenVoice,
+  handleSessionStatus,
   micTracksFrom,
   moqtChatCallbacks,
+  reconnectDelayMs,
   shouldStartLive,
   teardownSession,
+  type ReconnectRefs,
   type SessionRefs,
 } from "../useMoqtChat";
+import { MoqtChatClient } from "@/lib/moqtClient";
+import { FakeWebTransport } from "@/lib/__tests__/fakeWebTransport";
 
 // Builds a SessionRefs where every ref/resource starts populated with a
 // spy-able fake, so a single teardownSession() call can assert every
@@ -236,6 +242,237 @@ describe("teardownSession", () => {
 
     expect(() => teardownSession(refs, fakeScreenStore())).not.toThrow();
     expect(client.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("reconnectDelayMs", () => {
+  it("reconnect delay grows exponentially, capped, then null", () => {
+    expect(reconnectDelayMs(0)).toBe(1000);
+    expect(reconnectDelayMs(1)).toBe(2000);
+    expect(reconnectDelayMs(2)).toBe(4000);
+    expect(reconnectDelayMs(3)).toBe(8000);
+    expect(reconnectDelayMs(4)).toBe(10000);
+    expect(reconnectDelayMs(5)).toBeNull();
+  });
+});
+
+describe("auto-rejoin back-off", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  const freshRefs = (): ReconnectRefs => ({
+    timer: { current: null },
+    attempt: { current: 0 },
+  });
+
+  it("consecutive failures schedule 1000 then 2000 ms delays", () => {
+    vi.useFakeTimers();
+    const refs = freshRefs();
+    const reconnect = vi.fn();
+
+    handleSessionStatus(refs, "disconnected", true, reconnect);
+    vi.advanceTimersByTime(999);
+    expect(reconnect).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(reconnect).toHaveBeenCalledTimes(1);
+
+    handleSessionStatus(refs, "disconnected", true, reconnect);
+    vi.advanceTimersByTime(1999);
+    expect(reconnect).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1);
+    expect(reconnect).toHaveBeenCalledTimes(2);
+  });
+
+  it("reaching connected resets the back-off to 1000 ms", () => {
+    vi.useFakeTimers();
+    const refs = freshRefs();
+    refs.attempt.current = 2; // dropped twice already
+    const reconnect = vi.fn();
+
+    handleSessionStatus(refs, "connected", true, reconnect);
+    handleSessionStatus(refs, "disconnected", true, reconnect);
+
+    vi.advanceTimersByTime(1000);
+    expect(reconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("after five failed reconnects no further timer is scheduled", () => {
+    vi.useFakeTimers();
+    const refs = freshRefs();
+    refs.attempt.current = 5;
+    const reconnect = vi.fn();
+
+    handleSessionStatus(refs, "disconnected", true, reconnect);
+
+    expect(refs.timer.current).toBeNull();
+    vi.advanceTimersByTime(60000);
+    expect(reconnect).not.toHaveBeenCalled(); // stays down until the user acts
+  });
+
+  it("manual rejoin still works after giving up", () => {
+    vi.useFakeTimers();
+    const refs = freshRefs();
+    refs.attempt.current = 5;
+    const connectAttempt = vi.fn();
+    handleSessionStatus(refs, "disconnected", true, connectAttempt); // gave up
+
+    // The Rejoin click's path: cancel any pending timer, connect once.
+    cancelReconnect(refs);
+    connectAttempt();
+
+    vi.advanceTimersByTime(60000);
+    expect(connectAttempt).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaving during back-off cancels the reconnect timer", () => {
+    vi.useFakeTimers();
+    const refs = freshRefs();
+    const reconnect = vi.fn();
+    handleSessionStatus(refs, "disconnected", true, reconnect);
+    expect(refs.timer.current).not.toBeNull();
+
+    cancelReconnect(refs);
+
+    expect(refs.timer.current).toBeNull();
+    vi.advanceTimersByTime(60000);
+    expect(reconnect).not.toHaveBeenCalled();
+  });
+
+  it("manual rejoin during back-off cancels the timer and connects once", () => {
+    vi.useFakeTimers();
+    const refs = freshRefs();
+    const connectAttempt = vi.fn();
+    handleSessionStatus(refs, "disconnected", true, connectAttempt);
+
+    cancelReconnect(refs);
+    connectAttempt(); // the Rejoin click's own connect
+
+    vi.advanceTimersByTime(1000); // the original timer's deadline passes
+    expect(connectAttempt).toHaveBeenCalledTimes(1);
+  });
+
+  it("never schedules once the user no longer wants the session", () => {
+    vi.useFakeTimers();
+    const refs = freshRefs();
+    const reconnect = vi.fn();
+
+    handleSessionStatus(refs, "disconnected", false, reconnect);
+
+    expect(refs.timer.current).toBeNull();
+    vi.advanceTimersByTime(60000);
+    expect(reconnect).not.toHaveBeenCalled();
+  });
+});
+
+// End-to-end over the real MoqtChatClient with fake transports: the failed
+// session's single "disconnected" and the timer chain that recovers once the
+// hub is back.
+describe("session drop and automatic rejoin", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  const flushAsync = () => vi.advanceTimersByTimeAsync(0);
+
+  // The hook's own glue in miniature: one client, statuses recorded, every
+  // "disconnected" (transport-level or a failed connect()) drives the
+  // back-off scheduler.
+  function makeSession(nextTransport: () => FakeWebTransport) {
+    vi.useFakeTimers();
+    vi.stubGlobal("WebTransport", function () {
+      return nextTransport();
+    });
+    const refs: ReconnectRefs = { timer: { current: null }, attempt: { current: 0 } };
+    const statuses: string[] = [];
+    const attemptSession = () =>
+      connectChatThenVoice(
+        () => client.connect("https://hub.example/", []),
+        async () => {},
+        () => report("disconnected"),
+        () => {},
+      );
+    const report = (status: "connecting" | "connected" | "disconnected") => {
+      statuses.push(status);
+      handleSessionStatus(refs, status, true, () => void attemptSession());
+    };
+    const client = new MoqtChatClient("user1", {
+      onStatusChange: report,
+      onMessage: () => {},
+    });
+    const disconnects = () => statuses.filter((s) => s === "disconnected").length;
+    return { refs, statuses, attemptSession, disconnects, client };
+  }
+
+  it("a failed connect attempt reports exactly one disconnected", async () => {
+    const fake = new FakeWebTransport();
+    const { attemptSession, disconnects, refs, client } = makeSession(() => fake);
+
+    const attempt = attemptSession();
+    fake.rejectReady(new Error("transport failed"));
+    fake.rejectClosed(new Error("transport failed"));
+    await attempt;
+    await flushAsync();
+
+    expect(disconnects()).toBe(1);
+    expect(refs.attempt.current).toBe(1); // exactly one reconnect scheduled
+    expect(refs.timer.current).not.toBeNull();
+    cancelReconnect(refs);
+    client.close();
+  });
+
+  it("a failed connect attempt reports exactly one disconnected even when closed settles before ready", async () => {
+    const fake = new FakeWebTransport();
+    const { attemptSession, disconnects, refs, client } = makeSession(() => fake);
+
+    const attempt = attemptSession();
+    // The browser does not promise an order between the two rejections.
+    fake.rejectClosed(new Error("transport failed"));
+    fake.rejectReady(new Error("transport failed"));
+    await attempt;
+    await flushAsync();
+
+    expect(disconnects()).toBe(1);
+    expect(refs.attempt.current).toBe(1); // exactly one reconnect scheduled
+    cancelReconnect(refs);
+    client.close();
+  });
+
+  it("the session reconnects on its own once the hub returns", async () => {
+    const first = new FakeWebTransport();
+    const whileDown = new FakeWebTransport();
+    const hubBack = new FakeWebTransport();
+    const fakes = [first, whileDown, hubBack];
+    const { attemptSession, statuses, refs, disconnects, client } = makeSession(
+      () => fakes.shift() ?? new FakeWebTransport(),
+    );
+
+    const joined = attemptSession();
+    first.resolveReady();
+    await joined;
+    expect(statuses.at(-1)).toBe("connected");
+
+    first.rejectClosed(new Error("hub went down"));
+    await flushAsync();
+    expect(disconnects()).toBe(1);
+
+    // First back-off attempt (1000 ms) still finds the hub down.
+    await vi.advanceTimersByTimeAsync(1000);
+    whileDown.rejectReady(new Error("still down"));
+    whileDown.rejectClosed(new Error("still down"));
+    await flushAsync();
+    expect(disconnects()).toBe(2);
+
+    // Second back-off attempt (2000 ms) finds the hub back.
+    await vi.advanceTimersByTimeAsync(2000);
+    hubBack.resolveReady();
+    await flushAsync();
+
+    expect(statuses.at(-1)).toBe("connected"); // without any user action
+    expect(refs.attempt.current).toBe(0);
+    client.close();
   });
 });
 
