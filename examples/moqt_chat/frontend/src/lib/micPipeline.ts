@@ -77,6 +77,38 @@ export async function pickEncoderConfig(
   }
 }
 
+const ORIGINAL_CONSTRAINTS = {
+  audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+};
+// Bare constraints: a peer/OS that rejected the detailed constraints (or
+// handed back a dead/muted track for them) still usually grants plain audio.
+const BARE_CONSTRAINTS = { audio: true };
+
+type CapturedTrack = { stop: () => void; readyState?: string; muted?: boolean };
+
+function isBadTrack(track?: CapturedTrack): boolean {
+  return track?.readyState === "ended" || track?.muted === true;
+}
+
+function isOverconstrained(err: unknown): boolean {
+  return (err as { name?: string } | undefined)?.name === "OverconstrainedError";
+}
+
+async function captureTrack(
+  getUserMedia: MicPipelineDeps["getUserMedia"],
+): Promise<{ getAudioTracks: () => { stop: () => void }[] }> {
+  try {
+    const media = await getUserMedia(ORIGINAL_CONSTRAINTS);
+    if (!isBadTrack(media.getAudioTracks()[0] as CapturedTrack)) {
+      return media;
+    }
+    media.getAudioTracks()[0]?.stop();
+  } catch (err) {
+    if (!isOverconstrained(err)) throw err;
+  }
+  return getUserMedia(BARE_CONSTRAINTS);
+}
+
 async function readLoop(
   reader: { read: () => Promise<{ value: unknown; done: boolean }> },
   onFrame: (frame: unknown) => void,
@@ -95,9 +127,15 @@ export async function startMicPipeline(
   try {
     // Explicit processing constraints: acoustic feedback (speaker -> mic)
     // is the default failure mode when two participants share one room.
-    media = await deps.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    });
+    // If the browser hands back a dead/muted track for these, or rejects
+    // them as OverconstrainedError, captureTrack retries once with bare
+    // { audio: true } before giving up.
+    media = await captureTrack(deps.getUserMedia);
+    const badTrack = media.getAudioTracks()[0] as CapturedTrack | undefined;
+    if (isBadTrack(badTrack)) {
+      badTrack?.stop();
+      throw new Error("mic track unavailable after retry");
+    }
   } catch (err) {
     deps.onError?.(err);
     throw err;
