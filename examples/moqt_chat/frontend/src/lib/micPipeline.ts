@@ -141,7 +141,8 @@ async function applyNoiseSuppressor(
   if (!deps.rnnoiseOn || !deps.noiseSuppressor) return track;
   try {
     return await deps.noiseSuppressor(track);
-  } catch {
+  } catch (err) {
+    console.warn("noise suppressor unavailable, using built-in NS", err);
     track.stop();
     const media = await deps.getUserMedia({ audio: pickAudioConstraints(false) });
     return media.getAudioTracks()[0] as CapturedTrack;
