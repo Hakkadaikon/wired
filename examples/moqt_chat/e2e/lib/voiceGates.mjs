@@ -9,6 +9,8 @@ export const DEFAULT_VOICE_GATES = {
   maxInterArrivalP99Ms: 100, // received-frame spacing p99
   maxPlayheadLagGrowthMs: 100, // last-quarter mean - first-quarter mean
   maxMeanSendBytes: 90, // mean encoded Opus frame size (VOIP config, 20ms/24kbps)
+  maxPlayheadLagP95Ms: 220, // absolute p95 scheduling lag (Q-A jitter buffer)
+  maxSkippedRate: 0.01, // fraction of play() calls dropped by the lag cap
 };
 
 /**
@@ -49,6 +51,19 @@ export function evaluateVoiceGates(voiceTrace, overrides = {}) {
         failures.push(
           `${page}: playhead lag grew ${growth.toFixed(1)}ms > ${g.maxPlayheadLagGrowthMs}ms ` +
             `(first-quarter ${lag.firstQuarterMeanMs.toFixed(1)} -> last-quarter ${lag.lastQuarterMeanMs.toFixed(1)})`,
+        );
+      }
+      if (lag.p95 != null && lag.p95 > g.maxPlayheadLagP95Ms) {
+        failures.push(`${page}: playhead lag p95 ${lag.p95.toFixed(1)}ms > ${g.maxPlayheadLagP95Ms}ms`);
+      }
+    }
+    const playCount = data.playCount ?? 0;
+    if (playCount > 0) {
+      const skippedRate = (data.skippedCount ?? 0) / playCount;
+      if (skippedRate > g.maxSkippedRate) {
+        failures.push(
+          `${page}: skipped rate ${(skippedRate * 100).toFixed(2)}% > ` +
+            `${(g.maxSkippedRate * 100).toFixed(2)}% (${data.skippedCount}/${playCount})`,
         );
       }
     }

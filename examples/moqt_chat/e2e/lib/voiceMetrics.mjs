@@ -139,6 +139,12 @@ function dwellTimes(recvEvents, drainEvents) {
   return out;
 }
 
+export function depthStats(drainEvents) {
+  return percentileStats(
+    drainEvents.map((e) => e.depth).filter((v) => typeof v === "number"),
+  );
+}
+
 export function summarizeVoiceTrace(pagesEvents) {
   const sendTimes = sendTimesByPage(pagesEvents);
   const out = {};
@@ -158,11 +164,16 @@ export function summarizeVoiceTrace(pagesEvents) {
         loss: seqGapStats(recvs),
         interArrivalMs: interArrivalStats(recvs),
         sendBytesMean: sendBytesMean(senderEvents.filter((e) => e.dir === "send")),
+        depth: depthStats(drains),
+        plcCount: drains.filter((e) => e.plc === true).length,
       };
     }
+    const plays = evs.filter((e) => e.dir === "play");
     out[tag] = {
       perSender,
-      playheadLag: playheadLagStats(evs.filter((e) => e.dir === "play")),
+      playheadLag: playheadLagStats(plays),
+      playCount: plays.length,
+      skippedCount: plays.filter((e) => e.skipped === true).length,
     };
   }
   return out;
