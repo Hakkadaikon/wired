@@ -91,7 +91,7 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   addPeer: (id) =>
     set((s) => (s.peers.includes(id) ? s : { peers: [...s.peers, id] })),
   removePeer: (id) => set((s) => ({ peers: s.peers.filter((p) => p !== id) })),
-  clearPeers: () => set({ peers: [] }),
+  clearPeers: () => set({ peers: [], voiceQuality: {} }),
   clearMessages: () => set({ messages: [] }),
   setScreenSharing: (screenSharing) => set({ screenSharing }),
   addScreenTile: (id) =>

@@ -28,6 +28,7 @@ function fakeSessionRefs(): SessionRefs {
     voiceRetryTimer: { current: setInterval(() => {}, 1000) },
     screenRetryTimer: { current: setInterval(() => {}, 1000) },
     qualityTimer: { current: setInterval(() => {}, 1000) },
+    previousVoiceTap: { current: undefined },
     mic: { current: { stop: vi.fn() } },
     voice: { current: { close: vi.fn() } },
     receivePipeline: { current: {} },
@@ -202,6 +203,39 @@ describe("teardownSession", () => {
     expect(refs.mic.current).toBeNull();
     expect(unregister).toHaveBeenCalledTimes(1);
     expect(refs.unregisterLifecycle.current).toBeNull();
+  });
+
+  it("restores whatever __wiredVoiceTap was before this session installed its own", () => {
+    const priorTap = vi.fn();
+    const g = globalThis as { __wiredVoiceTap?: unknown };
+    g.__wiredVoiceTap = "installed-by-this-session";
+    try {
+      const refs = fakeSessionRefs();
+      refs.previousVoiceTap.current = priorTap;
+
+      teardownSession(refs, fakeScreenStore());
+
+      expect(g.__wiredVoiceTap).toBe(priorTap);
+      expect(refs.previousVoiceTap.current).toBeUndefined();
+    } finally {
+      delete g.__wiredVoiceTap;
+    }
+  });
+
+  it("does not touch __wiredVoiceTap when this session never reached startVoice (qualityTimer never set)", () => {
+    const harnessTap = vi.fn();
+    const g = globalThis as { __wiredVoiceTap?: unknown };
+    g.__wiredVoiceTap = harnessTap;
+    try {
+      const refs = fakeSessionRefs();
+      refs.qualityTimer.current = null; // chat-only failure: startVoice never ran
+
+      teardownSession(refs, fakeScreenStore());
+
+      expect(g.__wiredVoiceTap).toBe(harnessTap);
+    } finally {
+      delete g.__wiredVoiceTap;
+    }
   });
 
   it("closes voice/screen/client, clears sender sets and reassembler maps, and resets screen-share store state", () => {

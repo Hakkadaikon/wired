@@ -231,6 +231,11 @@ export type SessionRefs = {
   voiceRetryTimer: { current: ReturnType<typeof setInterval> | null };
   screenRetryTimer: { current: ReturnType<typeof setInterval> | null };
   qualityTimer: { current: ReturnType<typeof setInterval> | null };
+  // Whatever globalThis.__wiredVoiceTap held immediately before this session
+  // chained its own quality tap onto it (chainVoiceTap's own doc) -- restored
+  // verbatim on teardown so repeated connect/leave/rejoin cycles don't nest
+  // one more closure onto the global every time.
+  previousVoiceTap: { current: ((e: VoiceTapEvent) => void) | undefined };
   mic: { current: { stop: () => void } | null };
   voice: { current: { close: () => void } | null };
   receivePipeline: { current: unknown };
@@ -265,6 +270,12 @@ export function teardownSession(
   if (refs.qualityTimer.current !== null) {
     clearInterval(refs.qualityTimer.current);
     refs.qualityTimer.current = null;
+    // Only restore if THIS session actually chained a tap on (guarded by
+    // the same startVoice step that starts qualityTimer) -- an unconditional
+    // overwrite here would stomp an e2e harness tap installed before a
+    // chat-only connect failure that never reached startVoice at all.
+    (globalThis as { __wiredVoiceTap?: unknown }).__wiredVoiceTap = refs.previousVoiceTap.current;
+    refs.previousVoiceTap.current = undefined;
   }
   refs.mic.current?.stop();
   refs.mic.current = null;
@@ -383,6 +394,7 @@ export function useMoqtChat() {
   // qualityTimerRef, same shape as the drain loop's own timer ref.
   const qualityWindowRef = useRef<QualityWindow>(createQualityWindow());
   const qualityTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const previousVoiceTapRef = useRef<((e: VoiceTapEvent) => void) | undefined>(undefined);
   const audioGateRef = useRef<AudioContextGate | null>(null);
   // The playback sink and the AudioContext it owns: page.tsx's volume
   // sliders apply through sinkRef (see the store-subscription effect
@@ -490,6 +502,7 @@ export function useMoqtChat() {
         voiceRetryTimer: voiceRetryTimerRef,
         screenRetryTimer: screenRetryTimerRef,
         qualityTimer: qualityTimerRef,
+        previousVoiceTap: previousVoiceTapRef,
         mic: micRef,
         voice: voiceRef,
         receivePipeline: receivePipelineRef,
@@ -545,9 +558,13 @@ export function useMoqtChat() {
       // Feed the quality window from the same tap point the load harness
       // uses, chained so an already-installed harness tap keeps working
       // (chainVoiceTap's own doc), then snapshot it into the store once a
-      // second per the task brief.
+      // second per the task brief. previousVoiceTapRef remembers exactly
+      // what was installed before THIS session's own chain, so teardown can
+      // restore it verbatim instead of nesting one more closure per
+      // connect/rejoin cycle.
       const globalTap = globalThis as { __wiredVoiceTap?: (e: VoiceTapEvent) => void };
-      globalTap.__wiredVoiceTap = chainVoiceTap(qualityWindowRef.current, globalTap.__wiredVoiceTap);
+      previousVoiceTapRef.current = globalTap.__wiredVoiceTap;
+      globalTap.__wiredVoiceTap = chainVoiceTap(qualityWindowRef.current, previousVoiceTapRef.current);
       qualityTimerRef.current = setInterval(() => {
         for (const key of knownSendersRef.current) {
           const level = qualityLevel(qualityWindowRef.current.snapshot(key));
