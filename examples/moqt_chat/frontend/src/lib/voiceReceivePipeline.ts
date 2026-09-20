@@ -79,24 +79,34 @@ export function createVoiceReceivePipeline(
       bySeq.set(payload.seq, payload.opus);
     },
     drainAndDecode: (senderKey) => {
-      const seqs = deps.jitterBuffer.drain(senderKey);
-      if (seqs.length === 0) return;
-      const decoder = decoderFor(senderKey);
+      // One 20ms tick == one pull() call (useMoqtChat.ts's drain loop).
+      // frame -> decode + tap depth; lost -> tap plc only, no concealment
+      // here (that is the next task's job); wait -> nothing this tick.
       const bySeq = payloadBySeq.get(senderKey);
-      for (const seq of seqs) {
-        const payload = bySeq?.get(seq);
-        bySeq?.delete(seq);
+      for (const item of deps.jitterBuffer.pull(senderKey)) {
+        if (item.type === "wait") continue;
+        if (item.type === "lost") {
+          voiceTap({ dir: "drain", seq: item.seq, src: senderKey, t: performance.now(), plc: true });
+          continue;
+        }
+        const payload = bySeq?.get(item.seq);
+        bySeq?.delete(item.seq);
         if (!payload) continue;
-        // The 20ms drain (useMoqtChat.ts) calls this; the seq is only in
-        // scope here, so the drain-side tap lives here rather than the hook.
-        voiceTap({ dir: "drain", seq, src: senderKey, t: performance.now() });
+        const decoder = decoderFor(senderKey);
+        voiceTap({
+          dir: "drain",
+          seq: item.seq,
+          src: senderKey,
+          t: performance.now(),
+          depth: deps.jitterBuffer.bufferedSeqs(senderKey).length,
+        });
         try {
           decoder.decode(payload);
         } catch (err) {
           // decode() on an already-closed codec throws synchronously (the
           // error callback races this batch); drop the decoder so the next
-          // drain recreates it, and abandon the rest of the batch -- every
-          // remaining frame would throw the same way.
+          // tick recreates it, and abandon the rest of this tick's items --
+          // every remaining frame would throw the same way.
           dropDecoder(senderKey);
           deps.onDecodeError?.(err);
           return;
