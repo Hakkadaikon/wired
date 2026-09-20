@@ -41,6 +41,21 @@ function MicToggle({ onToggleMute }: { onToggleMute: () => void }) {
   );
 }
 
+function NoiseSuppressionToggle() {
+  const enabled = useMoqtChatStore((s) => s.noiseSuppressionEnabled);
+  const setNoiseSuppressionEnabled = useMoqtChatStore((s) => s.setNoiseSuppressionEnabled);
+  return (
+    <button
+      type="button"
+      className={enabled ? "sign" : "sign sign--outline"}
+      data-testid="ns-toggle"
+      onClick={() => setNoiseSuppressionEnabled(!enabled)}
+    >
+      {enabled ? "NS on" : "NS off"}
+    </button>
+  );
+}
+
 function ScreenShareToggle({
   sharing,
   onStart,
@@ -467,6 +482,7 @@ export default function Home() {
         {joined ? (
           <div className="masthead__tools">
             <MicToggle onToggleMute={toggleMute} />
+            <NoiseSuppressionToggle />
             <ScreenShareToggle
               sharing={screenSharing}
               onStart={() => void startScreenShare()}
