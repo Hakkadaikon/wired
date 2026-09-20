@@ -19,7 +19,7 @@
 typedef struct {
   int kind; /* 1=open_bidi_stream 3=stream_send 4=send_uni
              * 5=open_uni_stream 6=stream_fin 7=stream_reset
-             * 8=send_uni2 */
+             * 8=send_uni2 9=send_datagram */
   wired_wt_session* s;
   u64               stream_id; /* stream_send/stream_fin/stream_reset only */
   int               fin;       /* stream_send only */
@@ -56,6 +56,10 @@ static wired_wt_session* g_send_uni_reject_sess;
  * outright, or refuse every call addressed to one session. */
 static int               g_send_uni2_fail_n;
 static wired_wt_session* g_send_uni2_reject_sess;
+/* When set, every send_datagram addressed to THIS session returns 0
+ * (refused) while other sessions' sends succeed -- the datagram twin of
+ * g_send_uni_reject_sess. */
+static wired_wt_session* g_send_dg_reject_sess;
 
 static void moqtrun_test_reset(void) {
   g_n_calls                 = 0;
@@ -67,6 +71,7 @@ static void moqtrun_test_reset(void) {
   g_send_uni_reject_sess    = 0;
   g_send_uni2_fail_n        = 0;
   g_send_uni2_reject_sess   = 0;
+  g_send_dg_reject_sess     = 0;
 }
 
 static void moqtrun_test_record(
@@ -162,6 +167,15 @@ static int moqtrun_test_stream_reset(
   return g_stream_reset_ret;
 }
 
+/* wired_server_wt_send_datagram_to-shaped: queues one datagram (the
+ * primitive wired_moqt_on_datagram's fan-out uses). Returns 0 (refused)
+ * for the session named by g_send_dg_reject_sess, 1 otherwise. */
+static int moqtrun_test_send_datagram(wired_wt_session* s, wired_span payload) {
+  moqtrun_test_record(9, s, 0, 0, payload);
+  if (g_send_dg_reject_sess && s == g_send_dg_reject_sess) return 0;
+  return 1;
+}
+
 static wired_moqt_io moqtrun_test_io(void) {
   wired_moqt_io io;
   io.open_bidi_stream = moqtrun_test_open_bidi_stream;
@@ -171,6 +185,7 @@ static wired_moqt_io moqtrun_test_io(void) {
   io.stream_fin       = moqtrun_test_stream_fin;
   io.stream_reset     = moqtrun_test_stream_reset;
   io.send_uni2        = moqtrun_test_send_uni2;
+  io.send_datagram    = moqtrun_test_send_datagram;
   return io;
 }
 
@@ -2940,6 +2955,232 @@ static void test_moqtrun_live_and_blob_coexist(void) {
   CHECK(moqtrun_test_count_kind(8) == 1); /* live: send_uni2 */
 }
 
+/* ===================== 9. OBJECT_DATAGRAM relay ===================== */
+
+/* Registers s, opens its control stream, and SUBSCRIBEs it to the chat
+ * track ("alice") -- shared setup for the datagram-relay tests below. */
+static void moqtrun_test_subscribe_chat(
+    wired_moqt_hub* hub, wired_wt_session* s) {
+  wired_moqt_on_session(hub, s, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl = moqtrun_test_last_kind(1)->stream_id;
+  wired_moqt_on_stream_data(
+      hub, s, ctrl,
+      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+}
+
+/* OBJECT_DATAGRAM (draft-ietf-moq-transport-19 11.3.1) on the chat track:
+ * Type 0x08 (DEFAULT_PRIORITY -- no Priority field), Track Alias 1 (the
+ * golden PUBLISH's declared alias), Group 0, Object 5, payload "hi". */
+static const u8 MOQTRUN_TEST_DG_CHAT[] = {0x08, 0x01, 0x00, 0x05, 'h', 'i'};
+
+/* One chat subscriber receives the publisher's datagram byte-identical
+ * (verbatim relay, no re-encode), counted on stat_dg_sent. */
+static void test_moqtrun_dg_relays_identical_bytes_to_subscriber(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  moqtrun_test_subscribe_chat(&hub, SESS_B);
+
+  moqtrun_test_reset(); /* only observe the relay's own calls */
+  wired_moqt_on_datagram(
+      &hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+
+  CHECK(moqtrun_test_count_kind(9) == 1);
+  const moqtrun_test_call* sent = moqtrun_test_last_kind(9);
+  CHECK(sent != 0);
+  if (!sent) return;
+  CHECK(sent->s == SESS_B);
+  CHECK(sent->payload_len == sizeof MOQTRUN_TEST_DG_CHAT);
+  for (usz i = 0; i < sizeof MOQTRUN_TEST_DG_CHAT; i++)
+    CHECK(sent->payload[i] == MOQTRUN_TEST_DG_CHAT[i]);
+  CHECK(hub.stat_dg_sent == 1);
+  CHECK(hub.stat_dg_drop == 0 && hub.stat_dg_bad == 0);
+}
+
+/* Three subscribers each receive their own identical copy -- the datagram
+ * fan-out reaches every active subscriber, like the stream relay's. */
+static void test_moqtrun_dg_relays_to_all_three_subscribers(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  moqtrun_test_subscribe_chat(&hub, SESS_B);
+  moqtrun_test_subscribe_chat(&hub, SESS_C);
+  moqtrun_test_subscribe_chat(&hub, SESS_D);
+
+  moqtrun_test_reset();
+  wired_moqt_on_datagram(
+      &hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+
+  CHECK(moqtrun_test_count_kind(9) == 3);
+  int seen_b = 0, seen_c = 0, seen_d = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].kind != 9) continue;
+    CHECK(g_calls[i].payload_len == sizeof MOQTRUN_TEST_DG_CHAT);
+    for (usz j = 0; j < sizeof MOQTRUN_TEST_DG_CHAT; j++)
+      CHECK(g_calls[i].payload[j] == MOQTRUN_TEST_DG_CHAT[j]);
+    if (g_calls[i].s == SESS_B) seen_b = 1;
+    if (g_calls[i].s == SESS_C) seen_c = 1;
+    if (g_calls[i].s == SESS_D) seen_d = 1;
+  }
+  CHECK(seen_b && seen_c && seen_d);
+  CHECK(hub.stat_dg_sent == 3);
+}
+
+/* A datagram on the chat track's alias goes only to the chat subscriber,
+ * never to the audio track's subscriber (alias selects the track). */
+static void test_moqtrun_dg_chat_alias_only_to_chat_subscriber(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+
+  moqtrun_test_subscribe_chat(&hub, SESS_B);
+  wired_moqt_on_session(&hub, SESS_C, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl_c = moqtrun_test_last_kind(1)->stream_id;
+  u8  sub_audio[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz sub_audio_n = moqtrun_test_subscribe_audio_msg(sub_audio);
+  wired_moqt_on_stream_data(
+      &hub, SESS_C, ctrl_c, wired_span_of(sub_audio, sub_audio_n), 0);
+
+  moqtrun_test_reset();
+  wired_moqt_on_datagram(
+      &hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+
+  CHECK(moqtrun_test_count_kind(9) == 1);
+  CHECK(moqtrun_test_last_kind(9) && moqtrun_test_last_kind(9)->s == SESS_B);
+}
+
+/* A datagram whose Track Alias matches none of the sending peer's tracks
+ * is dropped whole on stat_dg_bad, sent nowhere. */
+static void test_moqtrun_dg_unknown_alias_counts_bad(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  moqtrun_test_subscribe_chat(&hub, SESS_B);
+
+  moqtrun_test_reset();
+  static const u8 dg[] = {0x08, 0x09 /* alias 9: nobody's */, 0x00, 0x05, 'h'};
+  wired_moqt_on_datagram(&hub, SESS_A, wired_span_of(dg, sizeof dg));
+
+  CHECK(g_n_calls == 0);
+  CHECK(hub.stat_dg_bad == 1);
+  CHECK(hub.stat_dg_sent == 0 && hub.stat_dg_drop == 0);
+}
+
+/* A datagram moqdg_take refuses (Type 0x18: reserved bit 4 set, a
+ * VIOLATION per 11.3.1) is dropped whole on stat_dg_bad -- the draft says
+ * MUST close the session, but this hub's io table has no close operation
+ * (see wired_moqt_on_datagram's doc). */
+static void test_moqtrun_dg_malformed_counts_bad(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  moqtrun_test_subscribe_chat(&hub, SESS_B);
+
+  moqtrun_test_reset();
+  static const u8 dg[] = {0x18, 0x01, 0x00, 0x05, 'h', 'i'};
+  wired_moqt_on_datagram(&hub, SESS_A, wired_span_of(dg, sizeof dg));
+
+  CHECK(g_n_calls == 0);
+  CHECK(hub.stat_dg_bad == 1);
+  CHECK(hub.stat_dg_sent == 0 && hub.stat_dg_drop == 0);
+}
+
+/* The MIDDLE subscriber's send_datagram is refused: the other two still
+ * get their copy (per-subscriber independence), and the one loss is
+ * counted on stat_dg_drop, never silent. */
+static void test_moqtrun_dg_one_of_three_refused(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  moqtrun_test_subscribe_chat(&hub, SESS_B);
+  moqtrun_test_subscribe_chat(&hub, SESS_C);
+  moqtrun_test_subscribe_chat(&hub, SESS_D);
+
+  moqtrun_test_reset();
+  g_send_dg_reject_sess = SESS_C; /* only C's send_datagram is refused */
+  wired_moqt_on_datagram(
+      &hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+
+  CHECK(moqtrun_test_count_kind(9) == 3); /* all three attempted */
+  CHECK(hub.stat_dg_sent == 2);
+  CHECK(hub.stat_dg_drop == 1);
+}
+
+/* A subscriber whose session closed is skipped: no late delivery, no
+ * dangling send to a dead session. */
+static void test_moqtrun_dg_closed_subscription_skipped(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  moqtrun_test_subscribe_chat(&hub, SESS_B);
+  moqtrun_test_subscribe_chat(&hub, SESS_C);
+  wired_moqt_on_session_close(&hub, SESS_C);
+
+  moqtrun_test_reset();
+  wired_moqt_on_datagram(
+      &hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+
+  CHECK(moqtrun_test_count_kind(9) == 1);
+  CHECK(moqtrun_test_last_kind(9) && moqtrun_test_last_kind(9)->s == SESS_B);
+  CHECK(hub.stat_dg_sent == 1);
+}
+
+/* A datagram from a session the hub never registered is a no-op: nothing
+ * sent, no counter moves (not even stat_dg_bad -- there is no peer whose
+ * tracks could judge the alias). */
+static void test_moqtrun_dg_unregistered_session_noop(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  moqtrun_test_subscribe_chat(&hub, SESS_B);
+
+  moqtrun_test_reset();
+  wired_moqt_on_datagram(
+      &hub, SESS_D /* never registered */,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+
+  CHECK(g_n_calls == 0);
+  CHECK(hub.stat_dg_sent == 0 && hub.stat_dg_drop == 0);
+  CHECK(hub.stat_dg_bad == 0);
+}
+
+/* An io table built without the send_datagram entry (0 -- an older
+ * positional initializer): the datagram path must not dereference it.
+ * Reaching this far without a crash IS the check; nothing is counted. */
+static void test_moqtrun_dg_null_send_datagram_is_noop(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_io  io = moqtrun_test_io();
+  io.send_datagram  = 0;
+  wired_moqt_init(&hub, io);
+  moqtrun_test_publish_alice(&hub);
+  moqtrun_test_subscribe_chat(&hub, SESS_B);
+
+  moqtrun_test_reset();
+  wired_moqt_on_datagram(
+      &hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+
+  CHECK(g_n_calls == 0);
+  CHECK(hub.stat_dg_sent == 0 && hub.stat_dg_drop == 0);
+  CHECK(hub.stat_dg_bad == 0);
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -3019,4 +3260,13 @@ void test_moqtrun(void) {
   test_moqtrun_live_resubscribe_no_resend();
   test_moqtrun_live_close_then_reconnect();
   test_moqtrun_live_and_blob_coexist();
+  test_moqtrun_dg_relays_identical_bytes_to_subscriber();
+  test_moqtrun_dg_relays_to_all_three_subscribers();
+  test_moqtrun_dg_chat_alias_only_to_chat_subscriber();
+  test_moqtrun_dg_unknown_alias_counts_bad();
+  test_moqtrun_dg_malformed_counts_bad();
+  test_moqtrun_dg_one_of_three_refused();
+  test_moqtrun_dg_closed_subscription_skipped();
+  test_moqtrun_dg_unregistered_session_noop();
+  test_moqtrun_dg_null_send_datagram_is_noop();
 }

@@ -2,6 +2,7 @@
 
 #include "app/moqt/ctl/moqctl.h"
 #include "app/moqt/data/moqdata.h"
+#include "app/moqt/dgram/moqdg.h"
 #include "app/moqt/vi/moqvi.h"
 #include "common/bytes/util/bytes.h"
 
@@ -40,6 +41,9 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   hub->stat_open_drop      = 0;
   hub->stat_relay_reset    = 0;
   hub->stat_relay_full     = 0;
+  hub->stat_dg_sent        = 0;
+  hub->stat_dg_drop        = 0;
+  hub->stat_dg_bad         = 0;
   hub->blob_track.in_use   = 0;
   hub->live.track.in_use   = 0;
   hub->stat_live_sent      = 0;
@@ -1346,6 +1350,66 @@ void wired_moqt_on_stream_data(
     return;
   }
   moqtrun_dispatch_data_stream(hub, p, stream_id, data, fin);
+}
+
+/* ===================== OBJECT_DATAGRAM relay (draft 11.3) ============= */
+
+/* The datagram plane is usable for this delivery: the sending session is
+ * registered AND the io table actually has a send_datagram entry (0 in an
+ * older positional initializer -- must never be dereferenced). */
+static int moqtrun_dg_ready(const wired_moqt_hub* hub, const void* p) {
+  return p != 0 && hub->io.send_datagram != 0;
+}
+
+/* Resolves one received OBJECT_DATAGRAM to the sending peer's track:
+ * decode via moqdg_take (11.3.1), then the header's Track Alias via
+ * moqtrun_track_by_alias. 0 when the datagram is malformed or the alias
+ * matches none of p's tracks -- the caller drops it whole. */
+static wired_moqtrun_track* moqtrun_dg_track(
+    wired_moqtrun_peer* p, wired_span data) {
+  usz       off = 0;
+  moqdg_obj obj;
+  if (moqdg_take(data, &off, &obj) != MOQDATA_OK) return 0;
+  return moqtrun_track_by_alias(p, obj.track_alias);
+}
+
+/* One subscriber's copy: the SAME bytes, unmodified (the relay never
+ * re-encodes). An accepted queue counts on stat_dg_sent, a refusal on
+ * stat_dg_drop -- and that copy is simply gone (no retransmission, no
+ * busy streak: the next audio frame arrives in ~20ms anyway). */
+static void moqtrun_dg_to_one(
+    wired_moqt_hub* hub, const wired_moqtrun_sub* sub, wired_span data) {
+  wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
+  if (!dst->in_use) return;
+  if (hub->io.send_datagram(dst->wt, data) == 1)
+    hub->stat_dg_sent++;
+  else
+    hub->stat_dg_drop++;
+}
+
+/* Stateless fan-out to every active subscriber of the track -- the
+ * datagram twin of moqtrun_relay_object. A deactivated (closed)
+ * subscription is skipped; late subscribers get nothing retroactively. */
+static void moqtrun_dg_fanout(
+    wired_moqt_hub* hub, const wired_moqtrun_track* track, wired_span data) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
+    if (track->subs[i].active) moqtrun_dg_to_one(hub, &track->subs[i], data);
+}
+
+void wired_moqt_on_datagram(
+    void* app_ctx, wired_wt_session* s, wired_span data) {
+  wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
+  wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
+  if (!moqtrun_dg_ready(hub, p)) return;
+  wired_moqtrun_track* track = moqtrun_dg_track(p, data);
+  /* Malformed or unknown-alias: dropped whole. Draft 11.3.1 says an
+   * invalid Type MUST close the session (PROTOCOL_VIOLATION), but this
+   * hub's io table has no close operation -- counting is the closest. */
+  if (!track) {
+    hub->stat_dg_bad++;
+    return;
+  }
+  moqtrun_dg_fanout(hub, track, data);
 }
 
 /* Clear every relay's record of subscriber slot si's stream, so a later
