@@ -32,4 +32,5 @@ sleep 1
 node e2e/run-voice-load-test.mjs \
   --url="http://localhost:$FRONTEND_PORT/" \
   --cert-hash="$CERT_HASH" \
+  --server-log="$SERVER_LOG" \
   "$@"
