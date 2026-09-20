@@ -46,9 +46,12 @@ export async function run({ pageUrl, server, arg, log }) {
   const seed = Number(arg("impair-seed", "1"));
   const messagesPerClient = Number(arg("messages", "15"));
   const gateOverrides = {
-    // Voice frames ride unreliable-ish delivery; a random-loss network is
-    // allowed to show it, scaled with the injected rate.
-    maxFrameLossRate: Math.max(0.005, lossRate * 2),
+    // Voice rides datagrams over two lossy hops (publisher->hub,
+    // hub->subscriber), so end-to-end loss compounds: 1-(1-p)^2 (5% -> 9.75%).
+    // The 1.3x factor is sampling headroom above that expectation; PLC
+    // (packet loss concealment) is a separate, not-yet-implemented task that
+    // would otherwise mask these drops.
+    maxFrameLossRate: Math.max(0.005, (1 - (1 - lossRate) ** 2) * 1.3),
     maxInterArrivalP99Ms: Number(arg("max-inter-arrival-p99", "150")),
   };
   const proxy = await startUdpProxy({
