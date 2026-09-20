@@ -50,3 +50,10 @@ export function clearJoinPrefs(): void {
     /* nothing to clear if storage is unavailable */
   }
 }
+
+// RNNoise defaults on in production; the e2e harness appends `?ns=0` to
+// isolate transport gates (loss/jitter/plc) from the worklet's own CPU cost
+// (see noiseSuppressor.ts) rather than measuring the network path.
+export function noiseSuppressionDefault(search: string): boolean {
+  return new URLSearchParams(search).get("ns") !== "0";
+}

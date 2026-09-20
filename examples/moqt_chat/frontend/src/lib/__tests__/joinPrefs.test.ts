@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { clearJoinPrefs, loadJoinPrefs, saveJoinPrefs } from "../joinPrefs";
+import { clearJoinPrefs, loadJoinPrefs, noiseSuppressionDefault, saveJoinPrefs } from "../joinPrefs";
 
 // The vitest jsdom global does not provide a full Storage; stub a minimal
 // in-memory one so these tests exercise our logic deterministically.
@@ -39,5 +39,19 @@ describe("joinPrefs", () => {
     saveJoinPrefs({ url: "u", certHash: "c", name: "user2" });
     clearJoinPrefs();
     expect(loadJoinPrefs()).toBeNull();
+  });
+});
+
+describe("noiseSuppressionDefault", () => {
+  it("is false when the page URL has ns=0", () => {
+    expect(noiseSuppressionDefault("?ns=0")).toBe(false);
+  });
+
+  it("is true when ns is absent", () => {
+    expect(noiseSuppressionDefault("")).toBe(true);
+  });
+
+  it("is false when ns=0 is mixed with other query params", () => {
+    expect(noiseSuppressionDefault("?foo=bar&ns=0")).toBe(false);
   });
 });
