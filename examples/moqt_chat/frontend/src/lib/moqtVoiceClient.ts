@@ -104,7 +104,7 @@ export class MoqtVoiceClient {
     const object = encodeVoiceObjectMessage(0n, { seq, opus: payload });
     // & 0xffff matches the wire's own u16 wrap (encodeVoiceObjectPayload),
     // so the receive side's tap sees the same seq value.
-    voiceTap({ dir: "send", seq: seq & 0xffff, t: performance.now() });
+    voiceTap({ dir: "send", seq: seq & 0xffff, t: performance.now(), bytes: payload.byteLength });
     if (!this.#writer) {
       const wt = this.#chat.webTransport;
       if (!wt) return;

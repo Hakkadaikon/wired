@@ -10,6 +10,7 @@ export type VoiceTapEvent = {
   t: number;
   src?: string;
   lag?: number;
+  bytes?: number; // send only: encoded Opus payload size
 };
 
 export function voiceTap(e: VoiceTapEvent): void {
