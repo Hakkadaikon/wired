@@ -13,6 +13,11 @@ import { voiceTap } from "./voiceTap";
 
 type Decoder = { configure: (config: unknown) => void; decode: (chunk: unknown) => void };
 
+// ponytail: WebCodecs has no PLC/FEC API, so concealment is "replay the last
+// Opus payload verbatim" -- cheap and good enough for short gaps. Upgrade to
+// a PCM cross-fade or true in-band Opus PLC once WebCodecs exposes one.
+const PLC_MAX_REPEATS = 2;
+
 export type VoiceReceivePipelineDeps = {
   jitterBuffer: JitterBufferManager;
   AudioDecoderCtor: new (init: {
@@ -34,6 +39,10 @@ export function createVoiceReceivePipeline(
   deps: VoiceReceivePipelineDeps,
 ): VoiceReceivePipeline {
   const payloadBySeq = new Map<string, Map<number, Uint8Array>>();
+  // Last successfully decoded Opus payload per sender, for PLC repeats, plus
+  // how many consecutive lost pulls have already been concealed from it.
+  const lastPayload = new Map<string, Uint8Array>();
+  const plcRepeats = new Map<string, number>();
   // One AudioDecoder per sender, not one shared across the room: a decoder
   // owns a single running timestamp used to schedule playback, so feeding
   // frames from several concurrent speakers through it interleaves their
@@ -67,6 +76,32 @@ export function createVoiceReceivePipeline(
     return decoder;
   };
 
+  // Shared by a real decode and a PLC repeat: decode() on an already-closed
+  // codec throws synchronously (the error callback races this batch); drop
+  // the decoder so the next tick recreates it. Returns false to tell the
+  // caller to abandon the rest of this tick's items -- every remaining
+  // frame would throw the same way.
+  const decodeOrDrop = (senderKey: string, decoder: Decoder, opus: Uint8Array): boolean => {
+    try {
+      decoder.decode(opus);
+      return true;
+    } catch (err) {
+      dropDecoder(senderKey);
+      deps.onDecodeError?.(err);
+      return false;
+    }
+  };
+
+  const concealLost = (senderKey: string, seq: number): boolean => {
+    voiceTap({ dir: "drain", seq, src: senderKey, t: performance.now(), plc: true });
+    const opus = lastPayload.get(senderKey);
+    if (!opus) return true; // no frame ever decoded yet: nothing to repeat
+    const repeats = plcRepeats.get(senderKey) ?? 0;
+    if (repeats >= PLC_MAX_REPEATS) return true; // budget spent: silence
+    plcRepeats.set(senderKey, repeats + 1);
+    return decodeOrDrop(senderKey, decoderFor(senderKey), opus);
+  };
+
   return {
     handleObjectPayload: (payload, senderKey) => {
       voiceTap({ dir: "recv", seq: payload.seq, src: senderKey, t: performance.now() });
@@ -80,19 +115,19 @@ export function createVoiceReceivePipeline(
     },
     drainAndDecode: (senderKey) => {
       // One 20ms tick == one pull() call (useMoqtChat.ts's drain loop).
-      // frame -> decode + tap depth; lost -> tap plc only, no concealment
-      // here (that is the next task's job); wait -> nothing this tick.
+      // frame -> decode + tap depth, remember it for PLC, reset the repeat
+      // counter; lost -> tap plc + conceal (see concealLost); wait ->
+      // nothing this tick.
       const bySeq = payloadBySeq.get(senderKey);
       for (const item of deps.jitterBuffer.pull(senderKey)) {
         if (item.type === "wait") continue;
         if (item.type === "lost") {
-          voiceTap({ dir: "drain", seq: item.seq, src: senderKey, t: performance.now(), plc: true });
+          if (!concealLost(senderKey, item.seq)) return;
           continue;
         }
         const payload = bySeq?.get(item.seq);
         bySeq?.delete(item.seq);
         if (!payload) continue;
-        const decoder = decoderFor(senderKey);
         voiceTap({
           dir: "drain",
           seq: item.seq,
@@ -100,17 +135,9 @@ export function createVoiceReceivePipeline(
           t: performance.now(),
           depth: deps.jitterBuffer.bufferedSeqs(senderKey).length,
         });
-        try {
-          decoder.decode(payload);
-        } catch (err) {
-          // decode() on an already-closed codec throws synchronously (the
-          // error callback races this batch); drop the decoder so the next
-          // tick recreates it, and abandon the rest of this tick's items --
-          // every remaining frame would throw the same way.
-          dropDecoder(senderKey);
-          deps.onDecodeError?.(err);
-          return;
-        }
+        if (!decodeOrDrop(senderKey, decoderFor(senderKey), payload)) return;
+        lastPayload.set(senderKey, payload);
+        plcRepeats.set(senderKey, 0);
       }
     },
   };
