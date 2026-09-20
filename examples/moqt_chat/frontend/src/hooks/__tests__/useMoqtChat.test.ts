@@ -10,6 +10,7 @@ import {
   micTracksFrom,
   moqtChatCallbacks,
   reconnectDelayMs,
+  sampleLocalLevel,
   shouldStartLive,
   teardownSession,
   type ReconnectRefs,
@@ -28,6 +29,7 @@ function fakeSessionRefs(): SessionRefs {
     voiceRetryTimer: { current: setInterval(() => {}, 1000) },
     screenRetryTimer: { current: setInterval(() => {}, 1000) },
     qualityTimer: { current: setInterval(() => {}, 1000) },
+    speakingTimer: { current: setInterval(() => {}, 1000) },
     previousVoiceTap: { current: undefined },
     mic: { current: { stop: vi.fn() } },
     voice: { current: { close: vi.fn() } },
@@ -600,6 +602,22 @@ describe("chainVoiceTap", () => {
     const combined = chainVoiceTap(w, undefined);
     expect(() => combined({ dir: "recv", seq: 1, src: "user1", t: 0 })).not.toThrow();
     expect(qualityLevel(w.snapshot("user1"))).toBe("good");
+  });
+});
+
+describe("sampleLocalLevel", () => {
+  it("reads the analyser's buffer into scratch and returns its rms level", () => {
+    const scratch = new Float32Array(4);
+    const analyser = {
+      getFloatTimeDomainData: (buf: Float32Array) => buf.fill(1),
+    };
+    expect(sampleLocalLevel(analyser, scratch)).toBe(100);
+  });
+
+  it("returns 0 for silence", () => {
+    const scratch = new Float32Array(4);
+    const analyser = { getFloatTimeDomainData: (buf: Float32Array) => buf.fill(0) };
+    expect(sampleLocalLevel(analyser, scratch)).toBe(0);
   });
 });
 
