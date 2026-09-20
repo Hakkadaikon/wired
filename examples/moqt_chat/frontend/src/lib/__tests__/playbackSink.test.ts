@@ -183,6 +183,20 @@ describe("createPlaybackSink lag cap", () => {
     }
   });
 
+  it("tags both the skipped and the lag tap with the sender key", () => {
+    const { ctx } = fakeCtx();
+    const tapped: { src?: string }[] = [];
+    (globalThis as { __wiredVoiceTap?: (e: unknown) => void }).__wiredVoiceTap = (e) =>
+      tapped.push(e as { src?: string });
+    try {
+      const sink = createPlaybackSink(ctx as never);
+      for (let i = 0; i < 11; i++) sink.play("peerA", fakeAudioData(0.02) as never);
+      expect(tapped.every((e) => e.src === "peerA")).toBe(true);
+    } finally {
+      delete (globalThis as { __wiredVoiceTap?: unknown }).__wiredVoiceTap;
+    }
+  });
+
   it("resumes scheduling once currentTime advances the lag back under the cap", () => {
     const { ctx, sources } = fakeCtx();
     const sink = createPlaybackSink(ctx as never);

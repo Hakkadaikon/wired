@@ -68,7 +68,7 @@ export function createPlaybackSink(ctx: AudioContext): PlaybackSink {
         // without moving the playhead, so the next arrival re-checks the
         // same (unmoved) backlog against currentTime instead of compounding it.
         audio.close();
-        voiceTap({ dir: "play", seq: -1, t: performance.now(), skipped: true });
+        voiceTap({ dir: "play", seq: -1, src: senderKey, t: performance.now(), skipped: true });
         return;
       }
       const buf = ctx.createBuffer(audio.numberOfChannels, audio.numberOfFrames, audio.sampleRate);
@@ -83,7 +83,7 @@ export function createPlaybackSink(ctx: AudioContext): PlaybackSink {
       src.connect(getPeerGain(senderKey));
       // seq doesn't survive decoding (AudioDecoder emits bare AudioData), so
       // this reports only the scheduling lag time series; lag is milliseconds.
-      voiceTap({ dir: "play", seq: -1, t: performance.now(), lag: lagS * 1000 });
+      voiceTap({ dir: "play", seq: -1, src: senderKey, t: performance.now(), lag: lagS * 1000 });
       src.start(playhead);
       playheads.set(senderKey, playhead + buf.duration);
     },
