@@ -100,6 +100,10 @@ confirmed by hand to never complete the QUIC handshake (the client sits at
 This hub keeps its peer table in one process's memory, so it is
 single-process only: do not pass `--workers`/`--cores`/`--ifindex`.
 
+`--cc cubic` (default) or `--cc bbr` selects the congestion controller for
+new connections; NewReno is not selectable through this flag (any other
+value exits with a usage error).
+
 On startup it logs the self-signed certificate's SHA-256 fingerprint:
 
 ```

@@ -17,6 +17,7 @@
 #include "app/moqt/run/moqtrun.h"
 #include "app/webtransport/wtwire/wtwire.h"
 #include "common/platform/clock/mono.h"
+#include "transport/recovery/congestion/cc/cc.h"
 #include "wired.h"
 
 /* --- wired_moqt_io: thin wrappers around wired_server_wt_* --------------
@@ -391,6 +392,29 @@ static void load_san_ipv4(int argc, char** argv, u8 san_ipv4[4], int* have_it) {
     wired_die("--san-ipv4: expected dotted-quad a.b.c.d\n");
 }
 
+/* --cc cubic|bbr: parsed into CC_ALGO_* (cc.h) for wired_srvrun_obs.cc_algo.
+ * NewReno is not selectable here -- CC_ALGO_NEWRENO == 0 is also "unset" in
+ * that field (srvrun.h), so a runtime "--cc newreno" would be silently
+ * indistinguishable from the default and is refused instead. */
+static int cliarg_streq(const char* a, const char* b) {
+  usz i = 0;
+  for (; a[i] == b[i]; i++)
+    if (a[i] == 0) return 1;
+  return 0;
+}
+
+static int cc_algo_of(const char* name) {
+  static const struct {
+    const char* name;
+    int         algo;
+  } table[] = {{"cubic", CC_ALGO_CUBIC}, {"bbr", CC_ALGO_BBR}};
+  for (usz i = 0; i < sizeof table / sizeof table[0]; i++)
+    if (cliarg_streq(name, table[i].name)) return table[i].algo;
+  wired_die(
+      "--cc: expected cubic or bbr (NewReno is not selectable via --cc)\n");
+  return 0;
+}
+
 __attribute__((force_align_arg_pointer, used)) int wired_main(
     int argc, char** argv) {
   wired_srvboot_id     id = {0};
@@ -401,7 +425,8 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   wired_srvrun_handler h        = {app_on_request, 0};
   wired_srvrun_obs     obs      = {
       wired_cliargs_str(argc, argv, "--qlog", 0),
-      wired_cliargs_str(argc, argv, "--keylog", 0), 0, 0, 0};
+      wired_cliargs_str(argc, argv, "--keylog", 0), 0, 0,
+      cc_algo_of(wired_cliargs_str(argc, argv, "--cc", "cubic"))};
 
   load_san_ipv4(argc, argv, keys.san_ipv4, &have_san_ipv4);
   server_identity(&id, &keys, have_san_ipv4, now_secs);
