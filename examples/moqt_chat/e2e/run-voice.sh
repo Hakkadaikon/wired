@@ -42,8 +42,8 @@ node e2e/run-voice-load-test.mjs \
 kill -TERM "$SERVER_PID" 2>/dev/null || true
 wait "$SERVER_PID" 2>/dev/null || true
 
-DG_SENT="$(grep -oE 'dg_sent=[0-9]+' "$SERVER_LOG" | tail -1 | cut -d= -f2)"
-DG_BAD="$(grep -oE 'dg_bad=[0-9]+' "$SERVER_LOG" | tail -1 | cut -d= -f2)"
+DG_SENT="$(grep -oE 'dg_sent=[0-9]+' "$SERVER_LOG" | tail -1 | cut -d= -f2 || true)"
+DG_BAD="$(grep -oE 'dg_bad=[0-9]+' "$SERVER_LOG" | tail -1 | cut -d= -f2 || true)"
 if [ "${DG_SENT:-0}" -le 0 ]; then
   echo "FAIL: server log has dg_sent=${DG_SENT:-<missing>} (want > 0); log: $SERVER_LOG" >&2
   exit 1
