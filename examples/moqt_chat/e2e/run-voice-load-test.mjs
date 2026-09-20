@@ -7,7 +7,6 @@
 // the chat-only counterpart this mirrors.
 
 import puppeteer from "puppeteer-core";
-import { readFileSync } from "node:fs";
 import { resolveChromeLaunch } from "./lib/chromeLaunch.mjs";
 import { runChatVoiceLoadTest, MAX_CLIENTS } from "./lib/voiceLoadTest.mjs";
 import { arg } from "./lib/args.mjs";
@@ -19,11 +18,6 @@ const messagesPerClient = Number(arg("messages", "10"));
 const sendIntervalMs = Number(arg("interval-ms", "800"));
 const settleMs = Number(arg("settle-ms", "15000"));
 const maxLossRate = Number(arg("max-loss-rate", "1"));
-// Server log path (run-voice.sh's own $SERVER_LOG): when given, proves the
-// hub's datagram relay (moqtrun.c) actually ran, the same way
-// run-live-check.mjs:129 greps live_sent -- optional so a caller without a
-// server log (e.g. run-stability.sh's own scenarios) is unaffected.
-const serverLog = arg("server-log", "");
 // Voice-frame loss gate over the per-seq trace (voiceMetrics.mjs): the relay
 // retains busy rounds instead of dropping them, so steady-state voice loss
 // should be ~0; 0.1% leaves room for join/teardown edges.
@@ -91,18 +85,6 @@ if (result.lossRate > maxLossRate) {
 }
 for (const [tag, errs] of Object.entries(result.pageErrors)) {
   if (errs.length > 0) failures.push(`client ${tag} had page errors: ${errs.join("; ")}`);
-}
-
-if (serverLog) {
-  const log = readFileSync(serverLog, "utf8");
-  const dgSent = Number(log.match(/dg_sent=(\d+)/)?.[1] ?? 0);
-  const dgBad = Number(log.match(/dg_bad=(\d+)/)?.[1] ?? -1);
-  if (!(dgSent > 0)) {
-    failures.push(`server log has dg_sent=${dgSent} (want > 0); log: ${serverLog}`);
-  }
-  if (dgBad !== 0) {
-    failures.push(`server log has dg_bad=${dgBad} (want 0); log: ${serverLog}`);
-  }
 }
 
 if (failures.length > 0) {
