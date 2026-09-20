@@ -8,20 +8,15 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run",
-    "add": "liftkit add"
+    "test": "vitest run"
   },
   "dependencies": {
-    "@csstools/normalize.css": "^12.1.1",
-    "@material/material-color-utilities": "^0.4.0",
-    "lucide-react": "^1.26.0",
     "next": "16.3.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
-    "@chainlift/liftkit": "^0.2.0",
     "@types/node": "^26.1.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
