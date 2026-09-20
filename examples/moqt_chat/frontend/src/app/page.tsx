@@ -11,6 +11,7 @@ import { useMoqtChat } from "@/hooks/useMoqtChat";
 import { clearJoinPrefs, loadJoinPrefs, saveJoinPrefs } from "@/lib/joinPrefs";
 import { CANDIDATE_PARTICIPANT_IDS } from "@/lib/moqtClient";
 import { useMoqtChatStore, type ChatMessage } from "@/stores/moqtChatStore";
+import { Wordmark } from "./wordmark";
 
 const DEFAULT_URL = "https://localhost:4433/";
 const DEFAULT_PARTICIPANT_ID = CANDIDATE_PARTICIPANT_IDS[0];
@@ -342,75 +343,68 @@ function JoinScreen({
   onClearSaved: () => void;
 }) {
   return (
-    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ width: "100%", maxWidth: "28em" }}>
-        <Card scaleFactor="body">
-          <Row alignItems="stretch" gap="sm" style={{ flexDirection: "column" }}>
-            <Text fontClass="title3">Join the room</Text>
-            <TextInput
-              name="Server URL"
-              endIcon="globe"
-              placeholder={DEFAULT_URL}
-              value={url}
-              data-testid="url"
-              onChange={(e) => setUrl(e.target.value)}
-            />
-            <div>
-              <TextInput
-                name="Certificate hash (SHA-256)"
-                endIcon="shield-check"
-                placeholder="hex fingerprint"
-                value={certHash}
-                data-testid="certHash"
-                onChange={(e) => setCertHash(e.target.value)}
-              />
-              <Text fontClass="caption" color="onsurfacevariant" style={{ marginTop: "var(--lk-size-3xs)" }}>
-                Copy it from the server&apos;s startup log. Leave empty for a CA-signed certificate.
-              </Text>
-            </div>
-            <div>
-              <Text fontClass="caption" color="onsurfacevariant">
-                Participant ID
-              </Text>
-              <Row alignItems="center" gap="2xs" style={{ marginTop: "var(--lk-size-3xs)" }} data-testid="author">
-                {CANDIDATE_PARTICIPANT_IDS.map((id) => (
-                  <Button
-                    key={id}
-                    label={id}
-                    size="sm"
-                    color={id === participantId ? "primary" : "surface"}
-                    variant={id === participantId ? "fill" : "outline"}
-                    style={
-                      id === participantId
-                        ? undefined
-                        : { color: "var(--lk-onsurface)", borderColor: "var(--lk-onsurface)" }
-                    }
-                    data-testid={`participant-${id}`}
-                    onClick={() => setParticipantId(id)}
-                  />
-                ))}
-              </Row>
-            </div>
-            <Button
-              label={connecting ? "Connecting…" : "Join"}
-              color="primary"
-              disabled={connecting}
-              data-testid="connect"
-              onClick={onJoin}
-            />
-            <Row alignItems="center" justifyContent="center">
-              <Button
-                label="Clear saved info"
-                color="surface"
-                variant="text"
-                size="sm"
-                startIcon="eraser"
-                style={{ color: "var(--lk-onsurface)" }}
-                onClick={onClearSaved}
-              />
-            </Row>
-          </Row>
-        </Card>
+    <div className="cover">
+      <div>
+        <h1>Join the room</h1>
+        <p className="cover__lede">
+          Voice, a live movie track, screen sharing and text over one MOQT session. Pick a participant
+          id and connect to the hub.
+        </p>
+      </div>
+      <form
+        className="form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!connecting) onJoin();
+        }}
+      >
+        <label className="field">
+          <span className="field__label">Server URL</span>
+          <input
+            placeholder={DEFAULT_URL}
+            value={url}
+            data-testid="url"
+            onChange={(e) => setUrl(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          <span className="field__label">Certificate hash (SHA-256)</span>
+          <input
+            placeholder="hex fingerprint"
+            value={certHash}
+            data-testid="certHash"
+            onChange={(e) => setCertHash(e.target.value)}
+          />
+          <span className="field__hint caption">
+            Copy it from the server&apos;s startup log. Leave empty for a CA-signed certificate.
+          </span>
+        </label>
+        <div className="field">
+          <span className="field__label">Participant ID</span>
+          <div className="tiles" data-testid="author">
+            {CANDIDATE_PARTICIPANT_IDS.map((id) => (
+              <button
+                key={id}
+                type="button"
+                className="tile"
+                aria-pressed={id === participantId}
+                data-testid={`participant-${id}`}
+                onClick={() => setParticipantId(id)}
+              >
+                {id}
+              </button>
+            ))}
+          </div>
+        </div>
+        <button type="submit" className="sign sign--red" disabled={connecting} data-testid="connect">
+          {connecting ? "Connecting…" : "→ Join"}
+        </button>
+        <button type="button" className="link" onClick={onClearSaved}>
+          Clear saved info
+        </button>
+      </form>
+      <div className="cover__mark">
+        <Wordmark height="6em" />
       </div>
     </div>
   );
@@ -470,40 +464,21 @@ export default function Home() {
   const lost = joined && connectionState === "disconnected";
 
   return (
-    <main
-      style={{
-        height: "100dvh",
-        display: "flex",
-        flexDirection: "column",
-        width: "100%",
-        maxWidth: "48em",
-        margin: "0 auto",
-        padding: "0 var(--lk-size-sm)",
-        boxSizing: "border-box",
-      }}
-    >
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "var(--lk-size-xs)",
-          padding: "var(--lk-size-2xs) 0",
-          borderBottom: "1px solid var(--lk-outlinevariant)",
-        }}
-      >
-        <Text fontClass="title3">{joined ? `🐾 ${participantId}` : "MOQT Chat"}</Text>
-        <Row alignItems="center" gap="xs">
-          {joined && <StatusBadge />}
-          {joined && <MicToggle onToggleMute={toggleMute} />}
-          {joined && (
+    <main className={joined ? "page page--room" : "page"}>
+      <header className="masthead">
+        <div className="masthead__brand">
+          <Wordmark height="1.6em" />
+          <span className="masthead__stem">Chat</span>
+        </div>
+        {joined ? (
+          <div className="masthead__tools">
+            <StatusBadge />
+            <MicToggle onToggleMute={toggleMute} />
             <ScreenShareToggle
               sharing={screenSharing}
               onStart={() => void startScreenShare()}
               onStop={stopScreenShare}
             />
-          )}
-          {joined && (
             <Button
               label="Leave"
               startIcon="log-out"
@@ -515,9 +490,16 @@ export default function Home() {
                 setJoined(false);
               }}
             />
-          )}
-        </Row>
+          </div>
+        ) : (
+          <p className="masthead__id">
+            Media over QUIC Transport
+            <br />
+            draft-ietf-moq-transport-19
+          </p>
+        )}
       </header>
+      <hr className="rule" />
 
       {joined && <PeerChips />}
 
@@ -561,6 +543,7 @@ export default function Home() {
           onClearSaved={clearSaved}
         />
       )}
+      <footer className="folio">MOQT Chat · wired</footer>
     </main>
   );
 }

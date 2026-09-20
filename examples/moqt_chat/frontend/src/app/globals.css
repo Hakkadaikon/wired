@@ -187,6 +187,7 @@ input {
 .cover {
   display: grid;
   grid-template-columns: 1fr 2fr;
+  grid-template-rows: auto 1fr;
   gap: 2em;
   flex: 1;
   padding: 2em 0;
