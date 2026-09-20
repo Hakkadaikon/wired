@@ -72,6 +72,49 @@ describe("audioContextGate", () => {
     expect(onResumeFailed).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps all 50 pending frames queued while suspended", () => {
+    const ctx = fakeAudioContext();
+    const gate = createAudioContextGate(() => ctx as never);
+    for (let i = 1; i <= 50; i++) {
+      gate.enqueue("peerA", { frame: i, close: vi.fn() });
+    }
+    expect(gate.pendingCount()).toBe(50);
+  });
+
+  it("closes the oldest pending frame when the 51st arrives while suspended", () => {
+    const ctx = fakeAudioContext();
+    const gate = createAudioContextGate(() => ctx as never);
+    const frames = Array.from({ length: 51 }, (_, i) => ({
+      frame: i + 1,
+      close: vi.fn(),
+    }));
+    for (const frame of frames) {
+      gate.enqueue("peerA", frame);
+    }
+    expect(gate.pendingCount()).toBe(50);
+    expect(frames[0].close).toHaveBeenCalledTimes(1);
+    for (let i = 1; i < 51; i++) {
+      expect(frames[i].close).not.toHaveBeenCalled();
+    }
+  });
+
+  it("plays frames 2..51 in order after the 51st evicted frame 1", async () => {
+    const ctx = fakeAudioContext();
+    const play = vi.fn();
+    const gate = createAudioContextGate(() => ctx as never, { play });
+    const frames = Array.from({ length: 51 }, (_, i) => ({
+      frame: i + 1,
+      close: vi.fn(),
+    }));
+    for (const frame of frames) {
+      gate.enqueue("peerA", frame);
+    }
+    await gate.resumeFromUserGesture();
+    expect(play.mock.calls.map(([, f]) => (f as { frame: number }).frame)).toEqual(
+      frames.slice(1).map((f) => f.frame),
+    );
+  });
+
   it("shows a not-playing indicator when resume() stays pending instead of waiting forever", async () => {
     vi.useFakeTimers();
     try {
