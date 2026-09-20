@@ -87,7 +87,7 @@ function steadyStep(state: SenderState): Pull {
   return { type: "wait" };
 }
 
-// One prebuffer emission attempt (not yet primed): D-3 -- the wait shares
+// One prebuffer emission attempt (not yet primed): the wait shares
 // waitTicks/GAP_WAIT_TICKS with the steady-state gap wait, so a lone
 // trailing frame below target still plays after at most 3 wait ticks
 // instead of stalling until the target decays down to it.
@@ -95,7 +95,7 @@ function primeStep(state: SenderState): Pull {
   if (state.buf.length >= state.target || state.waitTicks >= GAP_WAIT_TICKS) {
     state.primed = true;
     state.waitTicks = 0;
-    // N-7: reaching target primes AND emits in the same tick.
+    // Reaching target primes AND emits in the same tick.
     return state.buf.length === 0 ? { type: "wait" } : steadyStep(state);
   }
   state.waitTicks++;
@@ -106,7 +106,7 @@ function emitOne(state: SenderState): Pull {
   return state.primed ? steadyStep(state) : primeStep(state);
 }
 
-// N-3: an isOld push sets `late`; each pull() tick consumes it at most once
+// An isOld push sets `late`; each pull() tick consumes it at most once
 // (raising target by 1, capped at bufCap) and otherwise counts the tick
 // toward DECAY_TICKS, lowering target by 1 (floor 1) once reached.
 function adapt(state: SenderState, bufCap: number): void {
@@ -164,10 +164,10 @@ export class JitterBufferManager {
     if (this.isSelf(senderId)) return;
     const state = this.stateFor(senderId);
     if (this.isOld(state, seq)) {
-      // N-3: a stale push is always counted late, whether it is a genuine
-      // late arrival or a network duplicate of an already-played sequence --
-      // the two are indistinguishable here and the cost of conflating them
-      // is bounded by bufCap/DECAY_TICKS, so no extra bookkeeping is worth it.
+      // A stale push is always counted late, whether it is a genuine late
+      // arrival or a network duplicate of an already-played sequence -- the
+      // two are indistinguishable here and the cost of conflating them is
+      // bounded by bufCap/DECAY_TICKS, so no extra bookkeeping is worth it.
       state.late = true;
       return;
     }
@@ -202,8 +202,8 @@ export class JitterBufferManager {
 
   // One 20 ms tick: adapt the target from any late push seen since the
   // last tick, track REPRIME_TICKS of silence, then emit up to
-  // MAX_PER_TICK items (N-6: the burst check re-reads depth after the
-  // first emission).
+  // MAX_PER_TICK items (the burst check re-reads depth after the first
+  // emission, so it reacts to the buffer as it stands after that frame).
   pull(senderId: string): Pull[] {
     const state = this.stateFor(senderId);
     adapt(state, this.bufCap);
