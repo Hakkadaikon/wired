@@ -220,15 +220,37 @@ export class MoqtChatClient {
     const opts = certHashesToWebTransportOptions(certHashesHex);
     const wt = new WebTransport(url, opts);
     this.#wt = wt;
-    await wt.ready;
+    try {
+      await wt.ready;
 
-    this.#readIncomingUniStreams();
-    await this.#openControlStream();
-    await this.#publishOwnTrack();
-    await this.#subscribeToCandidates();
-    this.#retryTimer = setInterval(() => this.#retrySubscribes(), SUBSCRIBE_RETRY_MS);
+      // Transport-level death detection (hub crash/restart, network loss):
+      // both settle paths of `closed` funnel into #onClosed, which reports
+      // "disconnected" exactly once per session (stale epochs are ignored).
+      // Subscribed only once ready succeeded: a failed attempt's one
+      // "disconnected" is the rejection below, and the browser promises no
+      // order between the ready and closed rejections.
+      wt.closed.then(
+        () => this.#onClosed(wt),
+        () => this.#onClosed(wt),
+      );
 
-    this.#callbacks.onStatusChange("connected");
+      this.#readIncomingUniStreams();
+      await this.#openControlStream();
+      await this.#publishOwnTrack();
+      await this.#subscribeToCandidates();
+      this.#retryTimer = setInterval(() => this.#retrySubscribes(), SUBSCRIBE_RETRY_MS);
+
+      this.#callbacks.onStatusChange("connected");
+    } catch (err) {
+      // A failed attempt reports "disconnected" through this rejection
+      // (the caller's own failure handling); stale the transport first so
+      // its closed settling does not report a second one for the session.
+      if (this.#wt === wt) {
+        this.#wt = undefined;
+        wt.close();
+      }
+      throw err;
+    }
   }
 
   /** The underlying WebTransport session, once connected -- exported so
@@ -261,7 +283,20 @@ export class MoqtChatClient {
 
   close(): void {
     clearInterval(this.#retryTimer);
-    this.#wt?.close();
+    const wt = this.#wt;
+    if (!wt) return; // already down -- its "disconnected" was reported once
+    this.#wt = undefined; // stale first: our own closed settling reports nothing
+    wt.close();
+    this.#callbacks.onStatusChange("disconnected");
+  }
+
+  // The transport died out from under us. A settling for anything but the
+  // CURRENT transport is stale -- a close()d session's own wind-down or a
+  // replaced epoch after a reconnect -- and reports nothing.
+  #onClosed(wt: WebTransport): void {
+    if (this.#wt !== wt) return;
+    this.#wt = undefined;
+    clearInterval(this.#retryTimer);
     this.#callbacks.onStatusChange("disconnected");
   }
 
