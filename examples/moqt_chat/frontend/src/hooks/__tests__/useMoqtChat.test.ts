@@ -201,6 +201,7 @@ describe("teardownSession", () => {
     expect(refs.voiceRetryTimer.current).toBeNull();
     expect(refs.screenRetryTimer.current).toBeNull();
     expect(refs.qualityTimer.current).toBeNull();
+    expect(refs.speakingTimer.current).toBeNull();
     expect(mic.stop).toHaveBeenCalledTimes(1);
     expect(refs.mic.current).toBeNull();
     expect(unregister).toHaveBeenCalledTimes(1);

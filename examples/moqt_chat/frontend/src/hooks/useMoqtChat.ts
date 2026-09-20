@@ -434,6 +434,10 @@ export function useMoqtChat() {
   // mic pipeline's encoder actually consumes (micPipeline.ts's onStream
   // dep), sampled every SPEAKING_SNAPSHOT_INTERVAL_MS.
   const localAnalyserRef = useRef<AnalyserNode | null>(null);
+  // The source node feeding localAnalyserRef, held only so teardown can
+  // disconnect it (it has no other use) -- otherwise the mic track's audio
+  // graph node outlives the AudioContext.close() a manual Rejoin implies.
+  const localSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const localScratchRef = useRef<Float32Array<ArrayBuffer>>(new Float32Array(ANALYSER_FFT_SIZE));
   const speakingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const previousVoiceTapRef = useRef<((e: VoiceTapEvent) => void) | undefined>(undefined);
@@ -564,6 +568,9 @@ export function useMoqtChat() {
     );
     sinkRef.current = null;
     audioCtxRef.current = null;
+    localSourceRef.current?.disconnect();
+    localSourceRef.current = null;
+    localAnalyserRef.current?.disconnect();
     localAnalyserRef.current = null;
     store.setLocalSpeaking(false);
     noiseSuppressorRef.current?.stop();
@@ -713,6 +720,7 @@ export function useMoqtChat() {
             new MediaStream([track as unknown as MediaStreamTrack]),
           );
           source.connect(analyser);
+          localSourceRef.current = source;
           localAnalyserRef.current = analyser;
         },
       })
