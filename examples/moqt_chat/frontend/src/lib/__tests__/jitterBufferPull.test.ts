@@ -111,23 +111,17 @@ describe("jitterBuffer/pull steady state", () => {
 describe("jitterBuffer/pull reprime", () => {
   it("ten consecutive empty ticks unprime the playback", () => {
     const jb = manager();
+    jb.push(SPEAKER_B, 19);
     jb.push(SPEAKER_B, 20);
-    jb.pull(SPEAKER_B); // wait (prebuffer, len1<2)
-    jb.push(SPEAKER_B, 21);
-    jb.pull(SPEAKER_B); // primes + emits frame 20 (buf now has 21 left... )
-    // Re-derive a clean primed-at-20 state instead of reusing the above.
-    const jb2 = manager();
-    jb2.push(SPEAKER_B, 19);
-    jb2.push(SPEAKER_B, 20);
-    jb2.pull(SPEAKER_B); // frame 19
-    jb2.pull(SPEAKER_B); // frame 20, primed, lastSeq=20
+    jb.pull(SPEAKER_B); // frame 19
+    jb.pull(SPEAKER_B); // frame 20, primed, lastSeq=20
     for (let i = 0; i < 10; i++) {
-      expect(jb2.pull(SPEAKER_B)).toEqual([{ type: "wait" }]);
+      expect(jb.pull(SPEAKER_B)).toEqual([{ type: "wait" }]);
     }
-    jb2.push(SPEAKER_B, 21);
-    expect(jb2.pull(SPEAKER_B)).toEqual([{ type: "wait" }]);
-    jb2.push(SPEAKER_B, 22);
-    expect(jb2.pull(SPEAKER_B)).toEqual([{ type: "frame", seq: 21 }]);
+    jb.push(SPEAKER_B, 21);
+    expect(jb.pull(SPEAKER_B)).toEqual([{ type: "wait" }]);
+    jb.push(SPEAKER_B, 22);
+    expect(jb.pull(SPEAKER_B)).toEqual([{ type: "frame", seq: 21 }]);
   });
 
   it("a sequence reported lost before a silence is still rejected after reprime", () => {
