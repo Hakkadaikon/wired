@@ -29,8 +29,28 @@ python3 -m http.server "$FRONTEND_PORT" --directory frontend/out >/dev/null 2>&1
 FRONTEND_PID=$!
 sleep 1
 
+rc=0
 node e2e/run-voice-load-test.mjs \
   --url="http://localhost:$FRONTEND_PORT/" \
   --cert-hash="$CERT_HASH" \
-  --server-log="$SERVER_LOG" \
-  "$@"
+  "$@" || rc=$?
+
+# The hub prints its relay-stats line (dg_sent=/dg_dropped=/dg_bad=,
+# wired_server.c log_relay_stats) only at shutdown, so the gate must read
+# the log AFTER a clean stop -- same ordering as run-live-check.mjs's
+# server.stop()-then-grep for live_sent.
+kill -TERM "$SERVER_PID" 2>/dev/null || true
+wait "$SERVER_PID" 2>/dev/null || true
+
+DG_SENT="$(grep -oE 'dg_sent=[0-9]+' "$SERVER_LOG" | tail -1 | cut -d= -f2)"
+DG_BAD="$(grep -oE 'dg_bad=[0-9]+' "$SERVER_LOG" | tail -1 | cut -d= -f2)"
+if [ "${DG_SENT:-0}" -le 0 ]; then
+  echo "FAIL: server log has dg_sent=${DG_SENT:-<missing>} (want > 0); log: $SERVER_LOG" >&2
+  exit 1
+fi
+if [ "${DG_BAD:-<missing>}" != "0" ]; then
+  echo "FAIL: server log has dg_bad=${DG_BAD:-<missing>} (want 0); log: $SERVER_LOG" >&2
+  exit 1
+fi
+
+exit "$rc"
