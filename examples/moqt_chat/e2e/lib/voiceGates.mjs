@@ -9,9 +9,9 @@ export const DEFAULT_VOICE_GATES = {
   maxInterArrivalP99Ms: 100, // received-frame spacing p99
   maxPlayheadLagGrowthMs: 100, // last-quarter mean - first-quarter mean
   maxMeanSendBytes: 90, // mean encoded Opus frame size (VOIP config, 20ms/24kbps)
-  maxPlayheadLagP95Ms: 220, // absolute p95 scheduling lag (Q-A jitter buffer)
+  maxPlayheadLagP95Ms: 220, // absolute p95 scheduling lag (jitter buffer)
   maxSkippedRate: 0.01, // fraction of play() calls dropped by the lag cap
-  maxPlcCount: 0, // Q-B concealed losses per pub->sub pair (0 = clean network)
+  maxPlcCount: 0, // concealed losses per pub->sub pair (0 = clean network)
   minPlcCount: 0, // report-only unless a scenario overrides it (e.g. loss profile)
 };
 

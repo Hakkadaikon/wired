@@ -31,7 +31,7 @@ export type PlaybackSink = {
 
 export type PlaybackSinkDeps = {
   // Fed the per-channel-averaged RMS level (rmsLevel.ts) of each played
-  // frame's PCM, so a caller can drive the Q-E remote speaking indicator
+  // frame's PCM, so a caller can drive the remote speaking indicator
   // (voiceQuality.ts's onLevel) without this sink knowing about it.
   onLevel?: (senderKey: string, level: number) => void;
 };

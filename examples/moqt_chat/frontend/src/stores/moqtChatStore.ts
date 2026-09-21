@@ -36,8 +36,8 @@ export type MoqtChatState = {
   masterVolume: number; // 0..1, applied on top of every peer's own volume
   peerVolumes: Record<string, number>; // per-sender volume, 0..1; absent key means 1 (unity)
   voiceQuality: Record<string, QualityLevel>; // per-sender quality; absent key renders as "none"
-  speaking: Record<string, boolean>; // per-sender Q-E speaking indicator; absent key renders as false
-  localSpeaking: boolean; // this client's own Q-E speaking indicator
+  speaking: Record<string, boolean>; // per-sender speaking indicator; absent key renders as false
+  localSpeaking: boolean; // this client's own speaking indicator
   noiseSuppressionEnabled: boolean; // RNNoise on/off (masthead "NS" toggle)
   setConnectionState: (state: ConnectionState) => void;
   setMuted: (muted: boolean) => void;
