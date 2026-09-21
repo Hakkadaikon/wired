@@ -1,9 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
-import { MoqtScreenClient, ownScreenTrackAlias } from "../moqtScreenClient";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { MoqtScreenClient, ownScreenTrackAlias, SCREEN_WRITE_TIMEOUT_MS } from "../moqtScreenClient";
 import { CANDIDATE_PARTICIPANT_IDS, type MoqtChatClient } from "../moqtClient";
 import { MOVIE_INIT_TRACK_ALIAS } from "../moqtMovieClient";
-import { concatBytes, decodeSubgroupHeader, decodeSubgroupObject } from "../moqtWire";
-import { decodeScreenObjectMessage } from "../moqtScreenWire";
+import { concatBytes, decodeSubgroupHeader, decodeSubgroupObject, encodeVarint } from "../moqtWire";
+import { decodeScreenObjectMessage, encodeScreenObjectMessage } from "../moqtScreenWire";
 
 describe("ownScreenTrackAlias", () => {
   it("sits immediately after the movie init alias (SCREEN_ALIAS_OFFSET), not a bare 10", () => {
@@ -32,25 +32,30 @@ describe("ownScreenTrackAlias", () => {
 function fakeWebTransport() {
   const writes: Uint8Array[] = [];
   let closed = false;
-  const writer = {
-    write: vi.fn(async (chunk: Uint8Array) => {
-      writes.push(chunk);
-    }),
-    close: vi.fn(async () => {
-      closed = true;
-    }),
-  };
-  const stream = { getWriter: () => writer };
-  const createUnidirectionalStream = vi.fn(async () => stream);
-  return {
-    webTransport: { createUnidirectionalStream } as unknown as WebTransport,
-    createUnidirectionalStream,
-    writer,
+  const wt = {
+    // While set, write() never settles -- a flow-control window that
+    // never opens, from the writer's point of view.
+    hang: false,
+    writer: {
+      write: vi.fn((chunk: Uint8Array) => {
+        if (wt.hang) return new Promise<void>(() => {});
+        writes.push(chunk);
+        return Promise.resolve();
+      }),
+      close: vi.fn(async () => {
+        closed = true;
+      }),
+      abort: vi.fn(async () => {}),
+    },
+    createUnidirectionalStream: vi.fn(async () => ({ getWriter: () => wt.writer })),
+    webTransport: undefined as unknown as WebTransport,
     writes,
     get closed() {
       return closed;
     },
   };
+  wt.webTransport = { createUnidirectionalStream: wt.createUnidirectionalStream } as unknown as WebTransport;
+  return wt;
 }
 
 function fakeChatClient(wt: ReturnType<typeof fakeWebTransport>): MoqtChatClient {
@@ -140,7 +145,76 @@ describe("MoqtScreenClient.sendVideoChunk", () => {
   });
 });
 
+const chunkAt = (seq: number) => ({
+  seq,
+  idx: 0,
+  count: 1,
+  keyframe: false,
+  timestampUs: 0,
+  data: new Uint8Array([seq]),
+});
+
+describe("MoqtScreenClient.sendVideoChunk write timeout", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("aborts a write that hangs past the timeout, resets, and reopens on the next chunk", async () => {
+    vi.useFakeTimers();
+    const wt = fakeWebTransport();
+    const onStreamReset = vi.fn();
+    const client = new MoqtScreenClient(fakeChatClient(wt), { onScreenChunk: vi.fn(), onStreamReset });
+    await client.publishScreenTrack();
+    await client.sendVideoChunk(chunkAt(0));
+
+    wt.hang = true;
+    // Handler attached up front: the rejection lands mid-advance, before
+    // an `await expect(...).rejects` could observe it.
+    const rejected = client.sendVideoChunk(chunkAt(1)).then(() => false, () => true);
+    await vi.advanceTimersByTimeAsync(SCREEN_WRITE_TIMEOUT_MS - 1);
+    expect(wt.writer.abort).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await rejected).toBe(true);
+    expect(wt.writer.abort).toHaveBeenCalledTimes(1);
+    expect(onStreamReset).toHaveBeenCalledTimes(1);
+
+    wt.hang = false;
+    await client.sendVideoChunk(chunkAt(2));
+    expect(wt.createUnidirectionalStream).toHaveBeenCalledTimes(2);
+    // The reopened stream starts over with a SUBGROUP_HEADER, not a bare Object.
+    const last = wt.writes[wt.writes.length - 1];
+    expect(decodeSubgroupHeader(last).header.trackAlias).toBe(ownScreenTrackAlias("user1"));
+  });
+
+  it("times out a createUnidirectionalStream that never resolves, without a writer to abort", async () => {
+    vi.useFakeTimers();
+    const wt = fakeWebTransport();
+    wt.createUnidirectionalStream.mockImplementation(() => new Promise(() => {}));
+    const onStreamReset = vi.fn();
+    const client = new MoqtScreenClient(fakeChatClient(wt), { onScreenChunk: vi.fn(), onStreamReset });
+    await client.publishScreenTrack();
+    const rejected = client.sendVideoChunk(chunkAt(0)).then(() => false, () => true);
+    await vi.advanceTimersByTimeAsync(SCREEN_WRITE_TIMEOUT_MS);
+    expect(await rejected).toBe(true);
+    expect(wt.writer.abort).not.toHaveBeenCalled();
+    expect(onStreamReset).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("MoqtScreenClient.handleIncomingStream", () => {
+  it("routes a second stream from the same sender to the same onScreenChunk", () => {
+    const wt = fakeWebTransport();
+    const onScreenChunk = vi.fn();
+    const client = new MoqtScreenClient(fakeChatClient(wt), { onScreenChunk });
+    const header = { trackAlias: ownScreenTrackAlias("user2"), groupId: 0n, flags: { properties: false } };
+    const object = (seq: number) => {
+      const body = encodeScreenObjectMessage(chunkAt(seq));
+      return concatBytes([encodeVarint(0n), encodeVarint(BigInt(body.length)), body]);
+    };
+    const doneReader = { read: vi.fn(async () => ({ value: undefined, done: true })), cancel: vi.fn() };
+    client.handleIncomingStream(header as never, object(0), doneReader as never);
+    client.handleIncomingStream(header as never, object(1), doneReader as never);
+    expect(onScreenChunk.mock.calls.map((c) => [c[0], c[1].seq])).toEqual([["user2", 0], ["user2", 1]]);
+  });
+
   it("cancels the reader for a track alias outside the screen range", () => {
     const wt = fakeWebTransport();
     const client = new MoqtScreenClient(fakeChatClient(wt), { onScreenChunk: vi.fn() });
