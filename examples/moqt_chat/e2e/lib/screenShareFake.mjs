@@ -15,12 +15,14 @@ export function fakeDisplayMediaScript({ width = 1280, height = 720 } = {}) {
     canvas.height = ${height};
     const ctx = canvas.getContext("2d");
     setInterval(() => {
-      // 1..15 (never 0) so the fill is never near-black -- a near-black
-      // frame occasionally landing in a canvas pixel-content check is a
-      // flake, not a signal, and this loop's period (500ms * 15 = 7.5s)
-      // still cycles through visibly different shades for the moving-
-      // pattern purpose this fake stream exists for.
-      ctx.fillStyle = "#" + (1 + (Math.floor(Date.now() / 500) % 15)).toString(16).repeat(6);
+      // 4..15 (never below 0x44) so VP8's lossy quantization on a keyframe
+      // cannot push a channel value at or below the pixel-content check's
+      // >8 threshold -- 0x11 was once observed decoding to <=8 on a fresh
+      // keyframe right after a resize/reconfigure, reading as "blank" in
+      // the check though the share itself was fine. This loop's period
+      // (500ms * 12 = 6s) still cycles through visibly different shades
+      // for the moving-pattern purpose this fake stream exists for.
+      ctx.fillStyle = "#" + (4 + (Math.floor(Date.now() / 500) % 12)).toString(16).repeat(6);
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = "#fff";
       ctx.font = "48px sans-serif";
