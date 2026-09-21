@@ -102,6 +102,14 @@ try {
         `${c.id}: playback advanced ${c.advancedSec}s over 3s (want >= 2s)`,
       );
   });
+  // A user pause (the <video controls> button) must stick: the player's
+  // own play() gate re-fires on every appended Group, and once restarted
+  // playback the moment the next Group landed.
+  await user1.page.$eval('[data-testid="live"]', (v) => v.pause());
+  await sleep(3000);
+  user1.stayedPaused = await user1.page.$eval('[data-testid="live"]', (v) => v.paused);
+  if (!user1.stayedPaused)
+    summary.errors.push(`${user1.id}: video resumed by itself after a user pause`);
   await user1.ctx.close();
   await user2.ctx.close();
 } catch (e) {
