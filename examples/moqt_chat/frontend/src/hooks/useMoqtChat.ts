@@ -697,9 +697,15 @@ export function useMoqtChat() {
       for (const candidate of candidateParticipantIds(localId)) {
         await voice.subscribeToAudioTrack(candidate);
       }
+      // Both retry loops stop at SUBSCRIBE_OK (chat.isSubscribed), not only
+      // at the first received chunk: a muted peer's audio track and a
+      // stopped-but-still-PUBLISHed screen track are idle for as long as
+      // the peer likes, and a SUBSCRIBE resent every second against them
+      // used to exhaust the hub's per-track subscriber slots.
       voiceRetryTimerRef.current = setInterval(() => {
         for (const candidate of candidateParticipantIds(localId)) {
           if (knownSendersRef.current.has(candidate)) continue;
+          if (chat.isSubscribed(`${candidate}/audio`)) continue;
           void voiceRef.current?.subscribeToAudioTrack(candidate);
         }
       }, VOICE_SUBSCRIBE_RETRY_MS);
@@ -725,6 +731,7 @@ export function useMoqtChat() {
       screenRetryTimerRef.current = setInterval(() => {
         for (const candidate of candidateParticipantIds(localId)) {
           if (screenKnownSendersRef.current.has(candidate)) continue;
+          if (chat.isSubscribed(`${candidate}/screen`)) continue;
           void screenRef.current?.subscribeToScreenTrack(candidate);
         }
       }, SCREEN_SUBSCRIBE_RETRY_MS);

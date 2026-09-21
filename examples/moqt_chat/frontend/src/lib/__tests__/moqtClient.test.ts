@@ -11,7 +11,11 @@ import {
   decodeSubgroupHeader,
   decodeSubgroupObject,
   bytesToUtf8,
+  encodeControlFrame,
   encodeObjectDatagram,
+  encodeRequestError,
+  encodeSubscribeOk,
+  utf8ToBytes,
 } from "../moqtWire";
 
 describe("buildChatObjectMessage", () => {
@@ -179,6 +183,60 @@ describe("MoqtChatClient transport close detection", () => {
     await flushAsync();
 
     expect(disconnects()).toBe(1);
+  });
+});
+
+describe("MoqtChatClient subscribeTrack replies", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  async function connected() {
+    vi.useFakeTimers();
+    const fake = new FakeWebTransport();
+    vi.stubGlobal("WebTransport", function () {
+      return fake;
+    });
+    const client = new MoqtChatClient("user1", { onStatusChange: () => {}, onMessage: () => {} });
+    const ready = client.connect("https://hub.example/", []);
+    fake.resolveReady();
+    await ready;
+    // connect() itself SUBSCRIBEs to every chat candidate; answer those
+    // first so the FIFO reply pairing lines up with the track below.
+    for (let i = 0; i < candidateParticipantIds("user1").length; i++) {
+      fake.controlReplies.push(doesNotExist());
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    return { fake, client };
+  }
+
+  const subscribeOk = () =>
+    encodeControlFrame(0x4n, encodeSubscribeOk({ trackAlias: 9n, parameters: [], trackProperties: [] }));
+  const doesNotExist = () =>
+    encodeControlFrame(0x5n, encodeRequestError({ errorCode: 0x4n, retryInterval: 0n, errorReason: new Uint8Array(0) }));
+
+  it("isSubscribed turns true once the hub answers SUBSCRIBE_OK", async () => {
+    const { fake, client } = await connected();
+    expect(client.isSubscribed("user2/screen")).toBe(false);
+
+    await client.subscribeTrack(utf8ToBytes("user2/screen"), "user2/screen");
+    fake.controlReplies.push(subscribeOk());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(client.isSubscribed("user2/screen")).toBe(true);
+    client.close();
+  });
+
+  it("isSubscribed stays false after DOES_NOT_EXIST, so the caller keeps retrying", async () => {
+    const { fake, client } = await connected();
+
+    await client.subscribeTrack(utf8ToBytes("user3/screen"), "user3/screen");
+    fake.controlReplies.push(doesNotExist());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(client.isSubscribed("user3/screen")).toBe(false);
+    client.close();
   });
 });
 
