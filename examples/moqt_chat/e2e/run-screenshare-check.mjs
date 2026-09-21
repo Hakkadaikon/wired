@@ -35,6 +35,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { resolveChromeLaunch } from "./lib/chromeLaunch.mjs";
 import { startServer } from "./lib/serverControl.mjs";
 import { arg } from "./lib/args.mjs";
+import { FAKE_DISPLAY_MEDIA_SCRIPT } from "./lib/screenShareFake.mjs";
+import { screenGapStats } from "./lib/screenMetrics.mjs";
 
 const frontendPort = arg("frontend-port", "8092");
 const logPath = arg("log", "/tmp/moqt-screenshare-check.log");
@@ -42,34 +44,6 @@ const timeoutMs = Number(arg("timeout-ms", "30000"));
 const minFrames = Number(arg("min-frames", "3"));
 const loadMode = process.argv.includes("--load");
 const participantIds = loadMode ? ["user1", "user2", "user3", "user4"] : ["user1", "user2"];
-
-// Injected before the page's own scripts run: draws a moving clock onto an
-// offscreen canvas at roughly the app's requested resolution/frame rate
-// (1280x720 -- screenSharePipeline.ts's WIDTH/HEIGHT -- the app's own
-// encoder scales to whatever it actually gets) and returns its
-// captureStream() from getDisplayMedia.
-const FAKE_DISPLAY_MEDIA_SCRIPT = `
-  (() => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 1280;
-    canvas.height = 720;
-    const ctx = canvas.getContext("2d");
-    setInterval(() => {
-      // 1..15 (never 0) so the fill is never near-black -- a near-black
-      // frame occasionally landing in a canvas pixel-content check is a
-      // flake, not a signal, and this loop's period (500ms * 15 = 7.5s)
-      // still cycles through visibly different shades for the moving-
-      // pattern purpose this fake stream exists for.
-      ctx.fillStyle = "#" + (1 + (Math.floor(Date.now() / 500) % 15)).toString(16).repeat(6);
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#fff";
-      ctx.font = "48px sans-serif";
-      ctx.fillText(new Date().toISOString(), 40, 100);
-    }, 100);
-    navigator.mediaDevices.getDisplayMedia = () => Promise.resolve(canvas.captureStream(10));
-    window.__wiredScreenTap = [];
-  })();
-`;
 
 let server, frontend, browser;
 const clients = [];
@@ -172,6 +146,10 @@ try {
       summary.errors.push(`${viewer.id}: ${bad.length} tap entries with implausible dimensions`);
     viewer.tapCount = entries.length;
     viewer.senders = [...new Set(entries.map((e) => e.senderId))];
+    // Report-only here (a 30 s run is too short to gate on): the gap
+    // between consecutive decoded frames per sender, and how many gaps
+    // reached the tile's 3 s "Stalled" threshold (stallDetector.ts).
+    viewer.gaps = screenGapStats(entries, 3000);
   }
 
   // 2-participant mode only: also confirm the viewer's remote tile canvas
