@@ -30,8 +30,28 @@ static wired_moqtrun_peer* moqtrun_alloc(wired_moqt_hub* hub) {
   return 0;
 }
 
+/* Forward-declared: defined below (moqtrun_track_claim's own doc), reused
+ * here so a never-yet-claimed track's relays[] is meaningful (0, not
+ * garbage) the first time anything reads it -- including this hub's own
+ * stale-relay walk on that track's first-ever claim. Production relies on
+ * this hub living in BSS (wired_server.c's g_hub), zeroed by the OS
+ * loader; this makes that assumption explicit and correct for ANY
+ * allocation (BSS, heap, or a test's stack local) instead of leaving it
+ * implicit. */
+static void moqtrun_track_clear_relays(wired_moqtrun_track* t);
+
+static void moqtrun_peer_clear_relays(wired_moqtrun_peer* p) {
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    moqtrun_track_clear_relays(&p->tracks[t]);
+}
+
 void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) hub->peers[i].in_use = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    hub->peers[i].in_use = 0;
+    moqtrun_peer_clear_relays(&hub->peers[i]);
+  }
+  moqtrun_track_clear_relays(&hub->blob_track);
+  moqtrun_track_clear_relays(&hub->live.track);
   hub->io                  = io;
   hub->authorize_subscribe = 0;
   hub->authorize_ctx       = 0;
@@ -309,14 +329,78 @@ static void moqtrun_track_clear_relays(wired_moqtrun_track* t) {
   for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) t->relays[r].in_use = 0;
 }
 
+/* 1 iff relay r's subscriber slot si names a stream AND that slot's
+ * subscription is still Established -- the two preconditions
+ * moqtrun_relay_reset_one_sub needs before it may touch hub->peers[] (an
+ * inactive slot's session_idx is garbage, not a safe index: freestanding
+ * memory starts unzeroed, the same reason every other sub->session_idx use
+ * in this file is guarded on ->active first, e.g. moqtrun_relay_object). */
+static int moqtrun_relay_orphan_ok(
+    const wired_moqtrun_track* t, const wired_moqtrun_relay* r, usz si) {
+  return r->sub_stream_set[si] && t->subs[si].active;
+}
+
+/* Resets subscriber slot si's still-open relay stream on relay r, if it has
+ * one: the WT layer, not just this hub's own bookkeeping, must be told the
+ * stream is dead, or the subscriber's peer-granted uni-stream credit for it
+ * is never released (moqtrun_track_reset_stale_relays' own doc). */
+static void moqtrun_relay_reset_one_sub(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* t,
+    wired_moqtrun_relay* r,
+    usz                  si) {
+  if (!moqtrun_relay_orphan_ok(t, r, si)) return;
+  wired_moqtrun_peer* dst = &hub->peers[t->subs[si].session_idx];
+  if (dst->in_use) hub->io.stream_reset(dst->wt, r->sub_stream_id[si], 0);
+  r->sub_stream_set[si] = 0;
+}
+
+static void moqtrun_relay_reset_stale(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, wired_moqtrun_relay* r) {
+  if (!r->in_use) return;
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
+    moqtrun_relay_reset_one_sub(hub, t, r, si);
+}
+
+/* A publisher that drops mid-share (crash, network loss -- no clean FIN)
+ * leaves every subscriber's relay stream open on the transport even though
+ * this hub's own bookkeeping forgot it on session_close
+ * (moqtrun_relays_clear_sub only clears sub_stream_set, never the
+ * underlying stream). Left alone, every drop+reshare cycle permanently
+ * burns one uni-stream credit slot on every subscriber (RFC 9000 4.6):
+ * stream ids never get reused, and nothing else ever resets one of these
+ * orphans, until the subscriber's whole connection eventually has no
+ * credit left for ANY new stream, chat included -- observed live as
+ * screen shares and chat both going silent for someone who never touched
+ * their own browser. Called BEFORE moqtrun_track_clear_relays wipes the
+ * bookkeeping this walk needs. */
+static void moqtrun_track_reset_stale_relays(
+    wired_moqt_hub* hub, wired_moqtrun_track* t) {
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
+    moqtrun_relay_reset_stale(hub, t, &t->relays[r]);
+}
+
 /* Claims slot t for a PUBLISH naming name/track_alias: clears subs only on
  * a fresh (not-yet-in_use) slot, so a re-PUBLISH under the same name keeps
  * its existing subscribers (matching the prior single-track hub's
  * overwrite behavior). Relays always clear: a (re-)PUBLISH means the
  * publisher's old streams are gone (and freestanding memory starts
- * unzeroed, so a fresh slot's relays hold garbage until this). */
+ * unzeroed, so a fresh slot's relays hold garbage until this) -- but any
+ * of those old streams still open on a subscriber's transport are reset
+ * first, not just forgotten (moqtrun_track_reset_stale_relays' own doc). */
 static void moqtrun_track_claim(
-    wired_moqtrun_track* t, wired_span name, u64 track_alias) {
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* t,
+    wired_span           name,
+    u64                  track_alias) {
+  /* Reset every orphaned relay stream BEFORE clear_subs deactivates the
+   * very subs[] entries this walk reads (moqtrun_track_reset_stale_relays'
+   * own doc) -- a fresh claim (in_use was 0, e.g. after a reconnect that
+   * re-initialized this peer's whole tracks[]) always clears subs, whether
+   * or not the publisher rejoining is who they used to be; the reattach
+   * that follows in moqtrun_handle_publish re-derives who to reattach from
+   * each SUBSCRIBER's own surviving sub_names ring instead. */
+  moqtrun_track_reset_stale_relays(hub, t);
   if (!t->in_use) moqtrun_track_clear_subs(t);
   t->in_use    = 1;
   t->own_alias = track_alias;
@@ -343,7 +427,7 @@ static void moqtrun_handle_publish(
     moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
     return;
   }
-  moqtrun_track_claim(t, m.name.name, m.track_alias);
+  moqtrun_track_claim(hub, t, m.name.name, m.track_alias);
   moqtrun_reattach_subs(hub, t, peer_idx, m.name.name);
   u8                msg[WIRED_MOQTRUN_CTL_MSG_MAX];
   moqctl_request_ok ok = {0};
@@ -739,7 +823,7 @@ usz wired_moqt_publish_blob(
     wired_mspan     wire) {
   usz n = moqdata_blob_build(wire, track_alias, blob);
   if (n == 0) return 0;
-  moqtrun_track_claim(&hub->blob_track, name, track_alias);
+  moqtrun_track_claim(hub, &hub->blob_track, name, track_alias);
   hub->blob_wire = wired_span_of(wire.p, n);
   return n;
 }
@@ -773,7 +857,7 @@ int wired_moqt_publish_live(
     u64               now_ms) {
   if (moqtrun_live_args_bad(frags, n_frags, group_ms)) return 0;
   hub->live.track.in_use = 0; /* a re-publish forgets old subscribers */
-  moqtrun_track_claim(&hub->live.track, name, track_alias);
+  moqtrun_track_claim(hub, &hub->live.track, name, track_alias);
   hub->live.frags       = frags;
   hub->live.n_frags     = n_frags;
   hub->live.t0_ms       = now_ms;
