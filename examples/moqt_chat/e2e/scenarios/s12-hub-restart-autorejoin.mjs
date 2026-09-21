@@ -4,8 +4,11 @@
 // badge flips to data-status="disconnected" within 3 s of the kill
 // (transport-close detection); (2) after the restart, both pages return to
 // data-status="connected" within 15 s with no manual rejoin (back-off
-// auto-rejoin), audio decode resumes, and each client opened at least one
-// more outgoing uni stream (the rejoined session's audio stream).
+// auto-rejoin), audio decode resumes, and each client's voice send tap
+// records more "send" events than it had before the kill (proof the
+// rejoined session is actually sending voice datagrams again -- voice rides
+// OBJECT_DATAGRAMs, not a uni stream, so a uni-stream-open count would stay
+// 0 -> 0 even on a successful rejoin).
 //
 // Caveat this scenario checks explicitly: the hub's cert fingerprint is
 // anchored to its boot time, so a restart can change it -- and a page that
@@ -32,12 +35,17 @@ export async function run({ pageUrl, server, arg, log }) {
     );
   }
   for (const c of clients) await waitFirstDecode(c);
+  const sendCount = (c) =>
+    c.page.evaluate(
+      () => (window.__wiredVoiceTapBuf ?? []).filter((e) => e.dir === "send").length,
+    );
+
   const before = {};
   for (const c of clients) {
     before[c.tag] = await c.page.evaluate(() => ({
       decoded: window.__decodedFrameCount ?? 0,
-      uniOpens: window.__uniStreamOpenCount ?? 0,
     }));
+    before[c.tag].sends = await sendCount(c);
   }
   const hashBeforeKill = server.certHash;
 
@@ -100,12 +108,12 @@ export async function run({ pageUrl, server, arg, log }) {
     }
     after[c.tag] = await c.page.evaluate(() => ({
       decoded: window.__decodedFrameCount ?? 0,
-      uniOpens: window.__uniStreamOpenCount ?? 0,
     }));
-    if (after[c.tag].uniOpens < before[c.tag].uniOpens + 1) {
+    after[c.tag].sends = await sendCount(c);
+    if (after[c.tag].sends <= before[c.tag].sends) {
       failures.push(
-        `${c.tag}: no new outgoing uni stream after the rejoin ` +
-          `(${before[c.tag].uniOpens} -> ${after[c.tag].uniOpens})`,
+        `${c.tag}: no new voice send after the rejoin ` +
+          `(${before[c.tag].sends} -> ${after[c.tag].sends})`,
       );
     }
   }
