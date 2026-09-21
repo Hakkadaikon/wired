@@ -77,7 +77,18 @@ export async function joinProd(browser, { pageUrl, serverUrl, certHash, particip
     setter.call(input, url);
     input.dispatchEvent(new Event("input", { bubbles: true }));
   }, serverUrl);
-  await page.type('input[data-testid="certHash"]', certHash);
+  // Set via the React value setter (like the url input above), not
+  // page.type(): Chrome's form autofill can inject a remembered value from
+  // an earlier tab mid-keystroke, silently doubling this field's content
+  // and making certHashesToWebTransportOptions's 32-byte check throw before
+  // `new WebTransport` is ever called -- a same-process, prior-tab-visited
+  // false "connection failure" this cost real debugging time to isolate.
+  await page.evaluate((hash) => {
+    const input = document.querySelector('input[data-testid="certHash"]');
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+    setter.call(input, hash);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }, certHash);
   await page.click(`[data-testid="participant-${participantId}"]`);
   await page.click('[data-testid="connect"]');
   try {
