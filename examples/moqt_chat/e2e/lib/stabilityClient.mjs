@@ -168,8 +168,9 @@ const INIT_SCRIPT = `
  * @param {string} opts.serverUrl     WebTransport URL (proxy or direct); "" keeps the page default
  * @param {string} opts.certHash      server cert fingerprint
  * @param {string} opts.participantId user1..user4
+ * @param {string[]} [opts.initScripts] extra scripts injected before navigation (after INIT_SCRIPT)
  */
-export async function joinStabilityClient({ pageUrl, serverUrl, certHash, participantId }) {
+export async function joinStabilityClient({ pageUrl, serverUrl, certHash, participantId, initScripts }) {
   const { executablePath, env } = resolveChromeLaunch();
   const browser = await puppeteer.launch({
     executablePath,
@@ -188,17 +189,21 @@ export async function joinStabilityClient({ pageUrl, serverUrl, certHash, partic
     errors: [],
     joinedAt: null,
   };
-  await connectClient(client, { pageUrl, serverUrl, certHash, participantId });
+  await connectClient(client, { pageUrl, serverUrl, certHash, participantId, initScripts });
   return client;
 }
 
 /** (Re)connect an existing client object's browser to the room. Usable both
  * for the initial join and for a rejoin after the server came back. */
-export async function connectClient(client, { pageUrl, serverUrl, certHash, participantId }) {
+export async function connectClient(
+  client,
+  { pageUrl, serverUrl, certHash, participantId, initScripts = [] },
+) {
   const page = await client.browser.newPage();
   client.page = page;
   page.on("pageerror", (e) => client.errors.push(e.message));
   await page.evaluateOnNewDocument(INIT_SCRIPT);
+  for (const script of initScripts) await page.evaluateOnNewDocument(script);
   await page.evaluateOnNewDocument(
     (prefs) => localStorage.setItem("moqt-chat.join", JSON.stringify(prefs)),
     {
