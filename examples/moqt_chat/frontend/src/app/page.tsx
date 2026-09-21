@@ -6,6 +6,7 @@ import { clearJoinPrefs, loadJoinPrefs, saveJoinPrefs } from "@/lib/joinPrefs";
 import { CANDIDATE_PARTICIPANT_IDS } from "@/lib/moqtClient";
 import { useMoqtChatStore, type ChatMessage } from "@/stores/moqtChatStore";
 import { canPickOutput } from "@/lib/outputMixer";
+import { SCREEN_TILE_MAX_PX, SCREEN_TILE_MIN_PX, SCREEN_TILE_STEP_PX } from "@/lib/screenTileSize";
 import { Wordmark } from "./wordmark";
 
 const DEFAULT_URL = "https://localhost:4433/";
@@ -86,9 +87,32 @@ function ScreenTiles({
   const screenSharing = useMoqtChatStore((s) => s.screenSharing);
   const screenShareError = useMoqtChatStore((s) => s.screenShareError);
   const stalledScreenTiles = useMoqtChatStore((s) => s.stalledScreenTiles);
+  const screenTileWidth = useMoqtChatStore((s) => s.screenTileWidth);
+  const maximized = useMoqtChatStore((s) => s.maximizedScreenTile);
+  const setMaximized = useMoqtChatStore((s) => s.setMaximizedScreenTile);
+  // Esc (or the browser's own exit) leaves fullscreen without going
+  // through the button, so follow the document's state, not the click.
+  useEffect(() => {
+    const onChange = () => {
+      if (!document.fullscreenElement) setMaximized(null);
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, [setMaximized]);
+  const toggleMaximize = (id: string, canvas: HTMLCanvasElement | null) => {
+    if (maximized === id) {
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+      setMaximized(null);
+      return;
+    }
+    setMaximized(id);
+    // Without the Fullscreen API the .screen-tile--max class (full width)
+    // stands in.
+    if (canvas?.requestFullscreen) void canvas.requestFullscreen().catch(() => {});
+  };
   if (screenTiles.length === 0 && !screenSharing) return null;
   return (
-    <div className="screens">
+    <div className="screens" style={{ "--tile-w": `${screenTileWidth}px` } as React.CSSProperties}>
       {screenSharing && (
         <canvas
           ref={(el) => registerScreenCanvas("own", el)}
@@ -100,18 +124,31 @@ function ScreenTiles({
       {screenTiles
         .filter((id) => id !== "own")
         .map((id) => (
-          <div key={id} className="screen-tile">
+          <div key={id} className={maximized === id ? "screen-tile screen-tile--max" : "screen-tile"}>
             <canvas
               ref={(el) => registerScreenCanvas(id, el)}
               data-testid={`screen-tile-${id}`}
               width={320}
               height={180}
             />
-            {stalledScreenTiles[id] && (
-              <span className="caption" data-testid={`screen-stalled-${id}`}>
-                Stalled
-              </span>
-            )}
+            <div className="screen-tile__bar">
+              <span className="caption">{id}</span>
+              {stalledScreenTiles[id] && (
+                <span className="caption" data-testid={`screen-stalled-${id}`}>
+                  Stalled
+                </span>
+              )}
+              <button
+                type="button"
+                className="sign sign--outline sign--small"
+                data-testid={`screen-maximize-${id}`}
+                onClick={(e) =>
+                  toggleMaximize(id, e.currentTarget.parentElement?.parentElement?.querySelector("canvas") ?? null)
+                }
+              >
+                {maximized === id ? "Restore ↙" : "Maximize ↗"}
+              </button>
+            </div>
           </div>
         ))}
       <Notice message={screenShareError} />
@@ -211,6 +248,28 @@ function Volume() {
           />
         </label>
       ))}
+    </section>
+  );
+}
+
+function ScreenTileWidth() {
+  const width = useMoqtChatStore((s) => s.screenTileWidth);
+  const setWidth = useMoqtChatStore((s) => s.setScreenTileWidth);
+  return (
+    <section>
+      <h2>Screens</h2>
+      <label className="volume">
+        <span className="volume__label">Tile width</span>
+        <input
+          type="range"
+          min={SCREEN_TILE_MIN_PX}
+          max={SCREEN_TILE_MAX_PX}
+          step={SCREEN_TILE_STEP_PX}
+          value={width}
+          data-testid="screen-tile-width"
+          onChange={(e) => setWidth(Number(e.target.value))}
+        />
+      </label>
     </section>
   );
 }
@@ -542,6 +601,7 @@ export default function Home() {
           <aside className="rail">
             <Peers />
             <Volume />
+            <ScreenTileWidth />
             <OutputDevice onSelect={setOutputDevice} />
             <section>
               <h2>Status</h2>
