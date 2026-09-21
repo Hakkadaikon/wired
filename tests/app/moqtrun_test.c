@@ -2595,6 +2595,76 @@ static void test_moqtrun_reattach_survives_nine_subscribed_names(void) {
   CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
 }
 
+/* A subscriber that drops and re-registers (the SDK often hands the same
+ * session pointer back) starts with no remembered names: the publisher's
+ * later re-PUBLISH must not re-attach it to a track it never re-SUBSCRIBEd
+ * to on its new session. */
+static void test_moqtrun_reconnected_subscriber_is_not_reattached(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  u64 ctrl_b = moqtrun_test_join(&hub, SESS_B);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+
+  wired_moqt_on_session_close(&hub, SESS_B);
+  moqtrun_test_join(&hub, SESS_B); /* same pointer, fresh session */
+  wired_moqt_on_session_close(&hub, SESS_A);
+  moqtrun_test_publish_alice(&hub);
+
+  CHECK(moqtrun_test_relay_alice_chat(&hub) == 0);
+}
+
+/* A peer that had subscribed to a name and then PUBLISHes that name itself
+ * (the original publisher gone) is not attached as its own subscriber. */
+static void test_moqtrun_publisher_is_not_reattached_to_own_track(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  u64 ctrl_b = moqtrun_test_join(&hub, SESS_B);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+
+  wired_moqt_on_session_close(&hub, SESS_A);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      wired_span_of(g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN), 0);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, 999,
+      wired_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      1);
+  CHECK(moqtrun_test_count_kind(4) == 0);
+}
+
+/* A SUBSCRIBE refused with DOES_NOT_EXIST (nothing PUBLISHed yet) is not
+ * remembered: when the name is PUBLISHed later, the peer -- which never
+ * received SUBSCRIBE_OK -- is not silently attached. */
+static void test_moqtrun_refused_subscribe_is_not_remembered(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_b = moqtrun_test_join(&hub, SESS_B);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_REQUEST_ERROR);
+
+  moqtrun_test_publish_alice(&hub);
+
+  CHECK(moqtrun_test_relay_alice_chat(&hub) == 0);
+}
+
 /* Closing a session the hub never registered (or one already closed) is a
  * no-op that leaves live peers untouched. */
 static void test_moqtrun_close_unknown_session_noop(void) {
@@ -3360,6 +3430,9 @@ void test_moqtrun(void) {
   test_moqtrun_duplicate_subscribe_reuses_slot();
   test_moqtrun_republish_reattaches_subscriber();
   test_moqtrun_reattach_survives_nine_subscribed_names();
+  test_moqtrun_reconnected_subscriber_is_not_reattached();
+  test_moqtrun_publisher_is_not_reattached_to_own_track();
+  test_moqtrun_refused_subscribe_is_not_remembered();
   test_moqtrun_close_unknown_session_noop();
   test_moqtrun_close_reregister_churn();
   test_moqtrun_blob_empty_not_published();
