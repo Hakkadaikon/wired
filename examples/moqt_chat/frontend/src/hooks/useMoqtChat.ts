@@ -71,8 +71,8 @@ const SCREEN_SUBSCRIBE_RETRY_MS = 1000;
 // "every 1s"); independent of DRAIN_INTERVAL_MS, which paces jitter-buffer
 // pulls, not quality reporting.
 const QUALITY_SNAPSHOT_INTERVAL_MS = 1000;
-// Task brief: "sampled every 100ms" for the Q-E speaking indicator, both
-// local (AnalyserNode poll) and remote (quality window snapshot).
+// Speaking indicator sample rate: 100ms, for both local (AnalyserNode poll)
+// and remote (quality window snapshot).
 const SPEAKING_SNAPSHOT_INTERVAL_MS = 100;
 // AnalyserNode.fftSize per the task brief; getFloatTimeDomainData's buffer
 // is exactly this many samples.
@@ -193,7 +193,7 @@ export function micTracksFrom(mic: { tracks: { stop: () => void }[] } | null): {
   return mic?.tracks ?? [];
 }
 
-// Q-E local speaking sample: reads the AnalyserNode's current time-domain
+// Local speaking sample: reads the AnalyserNode's current time-domain
 // buffer into `scratch` (a caller-owned Float32Array, so the 100ms poll
 // below doesn't allocate) and reduces it with the same rmsLevel used for
 // remote levels (playbackSink.ts). Pure aside from the injected read, so
@@ -276,6 +276,7 @@ export type SessionRefs = {
   client: { current: { close: () => void } | null };
   live: { current: { stop: () => void } | null };
   unregisterLifecycle: { current: (() => void) | null };
+  audioCtx: { current: { close: () => Promise<void> } | null };
 };
 
 export function teardownSession(
@@ -334,6 +335,10 @@ export function teardownSession(
   refs.live.current = null;
   refs.unregisterLifecycle.current?.();
   refs.unregisterLifecycle.current = null;
+  // close() rejects on an already-closed context; swallow it since teardown
+  // is idempotent and there is nothing left to release either way.
+  refs.audioCtx.current?.close().catch(() => {});
+  refs.audioCtx.current = null;
 }
 
 // Back-off schedule for the automatic rejoin after a transport-level
@@ -430,7 +435,7 @@ export function useMoqtChat() {
   // qualityTimerRef, same shape as the drain loop's own timer ref.
   const qualityWindowRef = useRef<QualityWindow>(createQualityWindow());
   const qualityTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Q-E local speaking indicator: an AnalyserNode on whichever stream the
+  // Local speaking indicator: an AnalyserNode on whichever stream the
   // mic pipeline's encoder actually consumes (micPipeline.ts's onStream
   // dep), sampled every SPEAKING_SNAPSHOT_INTERVAL_MS.
   const localAnalyserRef = useRef<AnalyserNode | null>(null);
@@ -563,11 +568,11 @@ export function useMoqtChat() {
         client: clientRef,
         live: liveRef,
         unregisterLifecycle: unregisterLifecycleRef,
+        audioCtx: audioCtxRef,
       },
       store,
     );
     sinkRef.current = null;
-    audioCtxRef.current = null;
     localSourceRef.current?.disconnect();
     localSourceRef.current = null;
     localAnalyserRef.current?.disconnect();
@@ -582,7 +587,7 @@ export function useMoqtChat() {
       const audioCtx = new AudioContext();
       audioCtxRef.current = audioCtx;
       const sink = createPlaybackSink(audioCtx, {
-        // Remote half of Q-E: same window/threshold as the local side
+        // Remote speaking indicator: same window/threshold as the local side
         // (voiceQuality.ts's onLevel), snapshotted by the same timer below.
         onLevel: (senderKey, level) => qualityWindowRef.current.onLevel(senderKey, level),
       });
@@ -630,10 +635,10 @@ export function useMoqtChat() {
         }
       }, QUALITY_SNAPSHOT_INTERVAL_MS);
 
-      // Q-E speaking indicator, both directions, on one 100ms timer per the
-      // task brief: local reads the AnalyserNode micPipeline's onStream dep
-      // attaches below; remote reads the quality window's speaking flag
-      // (fed by the sink's onLevel above).
+      // Speaking indicator, both directions, on one 100ms timer: local reads
+      // the AnalyserNode micPipeline's onStream dep attaches below; remote
+      // reads the quality window's speaking flag (fed by the sink's onLevel
+      // above).
       speakingTimerRef.current = setInterval(() => {
         const analyser = localAnalyserRef.current;
         if (analyser) {
@@ -710,9 +715,10 @@ export function useMoqtChat() {
         onEncodeError: () => setMicError("microphone audio could not be encoded"),
         onSendFailing: () =>
           setMicError("voice isn't reaching other participants (connection trouble)"),
-        // Q-E local half: attach an analyser to whichever track the encoder
-        // ends up consuming (the RNNoise output track when NS succeeded,
-        // the raw mic track otherwise -- micPipeline.ts's own doc).
+        // Local half of the speaking indicator: attach an analyser to
+        // whichever track the encoder ends up consuming (the RNNoise output
+        // track when NS succeeded, the raw mic track otherwise --
+        // micPipeline.ts's own doc).
         onStream: (track) => {
           const analyser = audioCtx.createAnalyser();
           analyser.fftSize = ANALYSER_FFT_SIZE;
