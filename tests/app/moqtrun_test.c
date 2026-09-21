@@ -2459,6 +2459,142 @@ static void test_moqtrun_close_drops_subscriptions(void) {
   CHECK(hub.stat_relay_sent == 0);
 }
 
+/* Registers session s and returns its control stream id. */
+static u64 moqtrun_test_join(wired_moqt_hub* hub, wired_wt_session* s) {
+  wired_moqt_on_session(hub, s, wired_span_of(0, 0), wired_span_of(0, 0));
+  return moqtrun_test_last_kind(1)->stream_id;
+}
+
+/* Publisher s PUBLISHes a track named name (Track Alias alias) on ctrl. */
+static void moqtrun_test_publish_named(
+    wired_moqt_hub*   hub,
+    wired_wt_session* s,
+    u64               ctrl,
+    const u8*         name,
+    usz               name_len,
+    u8                alias) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n = moqtrun_test_rename_track(
+      g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN, name, name_len,
+      buf);
+  buf[n - 2] = alias;
+  wired_moqt_on_stream_data(hub, s, ctrl, wired_span_of(buf, n), 0);
+}
+
+/* Subscriber s SUBSCRIBEs to the track named name on ctrl. */
+static void moqtrun_test_subscribe_named(
+    wired_moqt_hub*   hub,
+    wired_wt_session* s,
+    u64               ctrl,
+    const u8*         name,
+    usz               name_len) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n = moqtrun_test_rename_track(
+      g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN, name,
+      name_len, buf);
+  wired_moqt_on_stream_data(hub, s, ctrl, wired_span_of(buf, n), 0);
+}
+
+/* Publisher A's chat Object (the golden SUBGROUP stream, alias 1) arrives
+ * on a fresh data stream; returns how many subscriber streams it opened. */
+static usz moqtrun_test_relay_alice_chat(wired_moqt_hub* hub) {
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      hub, SESS_A, 999,
+      wired_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      1);
+  return moqtrun_test_count_kind(4);
+}
+
+/* A subscriber re-sending SUBSCRIBE for a track it already holds (the
+ * client resends every second until a chunk arrives, and an idle track
+ * never sends one) is answered SUBSCRIBE_OK with its existing slot, not a
+ * fresh one: past the table's capacity the resends would otherwise turn
+ * into DOES_NOT_EXIST for everyone, and a later Object would be relayed to
+ * the same peer once per slot it had piled up. */
+static void test_moqtrun_duplicate_subscribe_reuses_slot(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  u64 ctrl_b = moqtrun_test_join(&hub, SESS_B);
+
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS + 1; i++) {
+    moqtrun_test_reset();
+    wired_moqt_on_stream_data(
+        &hub, SESS_B, ctrl_b,
+        wired_span_of(
+            g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+        0);
+    CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  }
+
+  CHECK(moqtrun_test_relay_alice_chat(&hub) == 1);
+  CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
+}
+
+/* The publisher drops and rejoins, re-PUBLISHing the same name: its
+ * subscriber, whose client still believes the subscription stands, is
+ * re-attached and receives the rejoined publisher's next Object. */
+static void test_moqtrun_republish_reattaches_subscriber(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  u64 ctrl_b = moqtrun_test_join(&hub, SESS_B);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+
+  wired_moqt_on_session_close(&hub, SESS_A);
+  moqtrun_test_publish_alice(&hub); /* rejoin + re-PUBLISH "alice" */
+
+  CHECK(moqtrun_test_relay_alice_chat(&hub) == 1);
+  CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
+}
+
+/* Each of three other participants publishes chat+audio+screen (nine
+ * names); B subscribes to all nine, oldest first. The first publisher then
+ * drops and rejoins: its chat Object must still reach B -- the name B
+ * subscribed to first has to survive eight newer ones. */
+static void test_moqtrun_reattach_survives_nine_subscribed_names(void) {
+  static const u8 names[9][12] = {
+      {'a', 'l', 'i', 'c', 'e'},
+      {'a', 'l', 'i', 'c', 'e', '/', 'a', 'u', 'd', 'i', 'o'},
+      {'a', 'l', 'i', 'c', 'e', '/', 's', 'c', 'r', 'e', 'e', 'n'},
+      {'c', 'a', 'r', 'o', 'l'},
+      {'c', 'a', 'r', 'o', 'l', '/', 'a', 'u', 'd', 'i', 'o'},
+      {'c', 'a', 'r', 'o', 'l', '/', 's', 'c', 'r', 'e', 'e', 'n'},
+      {'d', 'a', 'v', 'e'},
+      {'d', 'a', 'v', 'e', '/', 'a', 'u', 'd', 'i', 'o'},
+      {'d', 'a', 'v', 'e', '/', 's', 'c', 'r', 'e', 'e', 'n'},
+  };
+  static const usz lens[9] = {5, 11, 12, 5, 11, 12, 4, 10, 11};
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_wt_session* const pubs[3] = {SESS_A, SESS_C, SESS_D};
+  for (usz p = 0; p < 3; p++) {
+    u64 ctrl = moqtrun_test_join(&hub, pubs[p]);
+    for (usz t = 0; t < 3; t++)
+      moqtrun_test_publish_named(
+          &hub, pubs[p], ctrl, names[p * 3 + t], lens[p * 3 + t], (u8)(t + 1));
+  }
+  u64 ctrl_b = moqtrun_test_join(&hub, SESS_B);
+  for (usz i = 0; i < 9; i++)
+    moqtrun_test_subscribe_named(&hub, SESS_B, ctrl_b, names[i], lens[i]);
+
+  wired_moqt_on_session_close(&hub, SESS_A);
+  moqtrun_test_reset();
+  moqtrun_test_publish_alice(&hub); /* rejoin + re-PUBLISH "alice" */
+
+  CHECK(moqtrun_test_relay_alice_chat(&hub) == 1);
+  CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
+}
+
 /* Closing a session the hub never registered (or one already closed) is a
  * no-op that leaves live peers untouched. */
 static void test_moqtrun_close_unknown_session_noop(void) {
@@ -3221,6 +3357,9 @@ void test_moqtrun(void) {
   test_moqtrun_frag_overflow_counted();
   test_moqtrun_close_frees_peer_for_reregistration();
   test_moqtrun_close_drops_subscriptions();
+  test_moqtrun_duplicate_subscribe_reuses_slot();
+  test_moqtrun_republish_reattaches_subscriber();
+  test_moqtrun_reattach_survives_nine_subscribed_names();
   test_moqtrun_close_unknown_session_noop();
   test_moqtrun_close_reregister_churn();
   test_moqtrun_blob_empty_not_published();
