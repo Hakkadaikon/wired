@@ -23,6 +23,10 @@
 //     each, 12 total across 4 participants) holds up. This does not fix
 //     the constant if insufficient -- see task-9-brief.md's 対象外 section
 //     -- only reports what happens.
+//   --portrait (2 participants): the fake screen is 720x1280 (9:16), and
+//     the viewer's decoded frames must keep that aspect -- getDisplayMedia's
+//     size is only an ideal, so an app that encodes at a fixed 16:9 shows
+//     up here as frames of the wrong shape.
 //
 // Before running, kill any stale server (`pgrep -a wired_server`): the
 // listener binds 4433 with SO_REUSEPORT, so a leftover wired_server from an
@@ -35,7 +39,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { resolveChromeLaunch } from "./lib/chromeLaunch.mjs";
 import { startServer } from "./lib/serverControl.mjs";
 import { arg } from "./lib/args.mjs";
-import { FAKE_DISPLAY_MEDIA_SCRIPT } from "./lib/screenShareFake.mjs";
+import { fakeDisplayMediaScript } from "./lib/screenShareFake.mjs";
 import { screenGapStats } from "./lib/screenMetrics.mjs";
 
 const frontendPort = arg("frontend-port", "8092");
@@ -43,7 +47,10 @@ const logPath = arg("log", "/tmp/moqt-screenshare-check.log");
 const timeoutMs = Number(arg("timeout-ms", "30000"));
 const minFrames = Number(arg("min-frames", "3"));
 const loadMode = process.argv.includes("--load");
+const portraitMode = process.argv.includes("--portrait");
 const participantIds = loadMode ? ["user1", "user2", "user3", "user4"] : ["user1", "user2"];
+const fakeScreen = portraitMode ? { width: 720, height: 1280 } : { width: 1280, height: 720 };
+const fakeScript = fakeDisplayMediaScript(fakeScreen);
 
 let server, frontend, browser;
 const clients = [];
@@ -56,7 +63,7 @@ async function join(id) {
     if (m.type() === "error") c.consoleErrors.push(m.text());
   });
   page.on("pageerror", (e) => c.consoleErrors.push(String(e)));
-  await page.evaluateOnNewDocument(FAKE_DISPLAY_MEDIA_SCRIPT);
+  await page.evaluateOnNewDocument(fakeScript);
   await page.goto(`http://localhost:${frontendPort}/`);
   await page.type('input[data-testid="certHash"]', server.certHash);
   await page.click(`[data-testid="participant-${id}"]`);
@@ -91,7 +98,13 @@ const nonBlackFraction = (c, testid) =>
     return nonBlack / (data.length / 4);
   }, testid);
 
-const summary = { ok: false, mode: loadMode ? "load-4way" : "2-participant", clients: [], errors: [] };
+const summary = {
+  ok: false,
+  mode: loadMode ? "load-4way" : portraitMode ? "2-participant-portrait" : "2-participant",
+  fakeScreen,
+  clients: [],
+  errors: [],
+};
 try {
   server = await startServer({ binPath: "./wired_server", logPath, args: [] });
   frontend = spawn(
@@ -144,6 +157,14 @@ try {
     const bad = entries.filter((e) => e.width < 100 || e.height < 100);
     if (bad.length > 0)
       summary.errors.push(`${viewer.id}: ${bad.length} tap entries with implausible dimensions`);
+    // The decoded frames' aspect must be the shared screen's own, within
+    // the rounding a codec's macroblock alignment can add.
+    const wantAspect = fakeScreen.width / fakeScreen.height;
+    const skewed = entries.filter((e) => Math.abs(e.width / e.height - wantAspect) > 0.02);
+    if (skewed.length > 0)
+      summary.errors.push(
+        `${viewer.id}: ${skewed.length}/${entries.length} tap entries with aspect != ${wantAspect.toFixed(4)} (first: ${skewed[0].width}x${skewed[0].height})`,
+      );
     viewer.tapCount = entries.length;
     viewer.senders = [...new Set(entries.map((e) => e.senderId))];
     // Report-only here (a 30 s run is too short to gate on): the gap

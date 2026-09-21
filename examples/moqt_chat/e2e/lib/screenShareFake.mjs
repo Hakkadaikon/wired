@@ -1,15 +1,18 @@
 // Injected before a page's own scripts run (page.evaluateOnNewDocument):
 // headless Chrome has no screen to share, so navigator.mediaDevices.
 // getDisplayMedia is replaced with a fake returning an offscreen
-// <canvas>.captureStream() drawing a moving clock at the app's requested
-// 1280x720 (screenSharePipeline.ts's WIDTH/HEIGHT -- the encoder scales to
-// whatever it actually gets). Also installs window.__wiredScreenTap so
-// screenTap.ts records every decoded frame.
-export const FAKE_DISPLAY_MEDIA_SCRIPT = `
+// <canvas>.captureStream() drawing a moving clock. The canvas size is the
+// "screen" being shared: getDisplayMedia's constraints are only ideals in
+// a real browser too, so the app must follow the frames' actual size
+// (screenSharePipeline.ts) -- a portrait canvas here is how the check
+// pins that. Also installs window.__wiredScreenTap so screenTap.ts
+// records every decoded frame.
+export function fakeDisplayMediaScript({ width = 1280, height = 720 } = {}) {
+  return `
   (() => {
     const canvas = document.createElement("canvas");
-    canvas.width = 1280;
-    canvas.height = 720;
+    canvas.width = ${width};
+    canvas.height = ${height};
     const ctx = canvas.getContext("2d");
     setInterval(() => {
       // 1..15 (never 0) so the fill is never near-black -- a near-black
@@ -27,3 +30,6 @@ export const FAKE_DISPLAY_MEDIA_SCRIPT = `
     window.__wiredScreenTap = [];
   })();
 `;
+}
+
+export const FAKE_DISPLAY_MEDIA_SCRIPT = fakeDisplayMediaScript();
