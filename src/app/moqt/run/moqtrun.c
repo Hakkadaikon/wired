@@ -517,21 +517,43 @@ static void moqtrun_subscribe_blob(
   moqtrun_blob_send_first(hub, p, peer_idx);
 }
 
+/* SUBSCRIBE on a found peer track: a peer already holding a subscription
+ * is answered SUBSCRIBE_OK again with the alias it holds (the client
+ * resends SUBSCRIBE until a chunk arrives, and an idle track never sends
+ * one -- each resend must not consume another slot), anyone else gets a
+ * fresh slot, or DOES_NOT_EXIST once the table is full. */
+static void moqtrun_subscribe_peer_track(
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_track* track,
+    usz                  peer_idx,
+    wired_span           name) {
+  wired_moqtrun_sub* held = moqtrun_track_sub_of_peer(track, peer_idx);
+  if (held) {
+    moqtrun_queue_subscribe_ok(p, held->track_alias);
+    return;
+  }
+  wired_moqtrun_sub* slot = moqtrun_sub_slot(track);
+  if (!slot) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
+    return;
+  }
+  moqtrun_accept_subscribe(p, track, slot, peer_idx);
+  moqtrun_note_sub_name(p, name);
+}
+
 /* draft SS10.6 SUBSCRIBE for a peer-published track: find it and reply
- * SUBSCRIBE_OK with a freshly assigned Track Alias, else DOES_NOT_EXIST. */
+ * SUBSCRIBE_OK with an assigned Track Alias, else DOES_NOT_EXIST. */
 static void moqtrun_route_peer_subscribe(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
     usz                     peer_idx,
     const moqctl_subscribe* m) {
   wired_moqtrun_track* track = moqtrun_find_published_track(hub, &m->name);
-  wired_moqtrun_sub*   slot  = track ? moqtrun_sub_slot(track) : 0;
-  if (!slot) {
+  if (!track) {
     moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
     return;
   }
-  moqtrun_accept_subscribe(p, track, slot, peer_idx);
-  moqtrun_note_sub_name(p, m->name.name);
+  moqtrun_subscribe_peer_track(p, track, peer_idx, m->name.name);
 }
 
 static void moqtrun_subscribe_live(
