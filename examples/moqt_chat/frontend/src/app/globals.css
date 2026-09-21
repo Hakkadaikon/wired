@@ -392,6 +392,12 @@ input {
   background: #000;
 }
 
+.screen-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+}
+
 .messages {
   flex: 1;
   min-height: 0;

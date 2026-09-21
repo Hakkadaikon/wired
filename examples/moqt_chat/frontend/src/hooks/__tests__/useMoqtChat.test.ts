@@ -41,6 +41,7 @@ function fakeSessionRefs(): SessionRefs {
     screenReceive: { current: {} },
     screenReassemblers: { current: new Map([["peerA", {}]]) },
     screenKeyframeMeta: { current: new Map([["peerA", {}]]) },
+    screenStall: { current: new Map([["peerA", {}]]) },
     client: { current: { close: vi.fn() } },
     live: { current: { stop: vi.fn() } },
     unregisterLifecycle: { current: vi.fn() },
@@ -49,7 +50,7 @@ function fakeSessionRefs(): SessionRefs {
 }
 
 function fakeScreenStore() {
-  return { setScreenSharing: vi.fn(), setScreenShareError: vi.fn() };
+  return { setScreenSharing: vi.fn(), setScreenShareError: vi.fn(), setScreenTileStalled: vi.fn() };
 }
 
 // Exercises the pure callback -> store-action translation without
@@ -207,6 +208,14 @@ describe("teardownSession", () => {
     expect(refs.mic.current).toBeNull();
     expect(unregister).toHaveBeenCalledTimes(1);
     expect(refs.unregisterLifecycle.current).toBeNull();
+  });
+
+  it("drops every sender's stall detector and clears its stalled flag", () => {
+    const refs = fakeSessionRefs();
+    const store = fakeScreenStore();
+    teardownSession(refs, store);
+    expect(refs.screenStall.current.size).toBe(0);
+    expect(store.setScreenTileStalled).toHaveBeenCalledExactlyOnceWith("peerA", false);
   });
 
   it("restores whatever __wiredVoiceTap was before this session installed its own", () => {
