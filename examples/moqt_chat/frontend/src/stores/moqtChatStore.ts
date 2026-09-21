@@ -9,6 +9,7 @@
 
 import { create } from "zustand";
 import { noiseSuppressionDefault } from "@/lib/joinPrefs";
+import { SCREEN_TILE_DEFAULT_PX } from "@/lib/screenTileSize";
 import type { QualityLevel } from "@/lib/voiceQuality";
 
 export type ConnectionState = "connecting" | "connected" | "disconnected";
@@ -34,6 +35,8 @@ export type MoqtChatState = {
   screenTiles: string[]; // participant ids currently sharing, for rendering tiles
   screenShareError: string | null; // screen-share-only error; never surfaces in chat/voice errors
   stalledScreenTiles: Record<string, boolean>; // per-sender "no frame for a while"; absent key renders as false
+  screenTileWidth: number; // displayed width of every remote screen tile, px
+  maximizedScreenTile: string | null; // remote tile shown fullscreen (or full-width without the API)
   masterVolume: number; // 0..1, applied on top of every peer's own volume
   peerVolumes: Record<string, number>; // per-sender volume, 0..1; absent key means 1 (unity)
   voiceQuality: Record<string, QualityLevel>; // per-sender quality; absent key renders as "none"
@@ -56,6 +59,8 @@ export type MoqtChatState = {
   removeScreenTile: (id: string) => void;
   setScreenShareError: (msg: string | null) => void;
   setScreenTileStalled: (id: string, stalled: boolean) => void;
+  setScreenTileWidth: (px: number) => void;
+  setMaximizedScreenTile: (id: string | null) => void;
   setMasterVolume: (v: number) => void;
   setPeerVolume: (id: string, v: number) => void;
   setVoiceQuality: (id: string, level: QualityLevel) => void;
@@ -80,6 +85,8 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   screenTiles: [],
   screenShareError: null,
   stalledScreenTiles: {},
+  screenTileWidth: SCREEN_TILE_DEFAULT_PX,
+  maximizedScreenTile: null,
   masterVolume: 1,
   peerVolumes: {},
   voiceQuality: {},
@@ -108,10 +115,15 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   addScreenTile: (id) =>
     set((s) => (s.screenTiles.includes(id) ? s : { screenTiles: [...s.screenTiles, id] })),
   removeScreenTile: (id) =>
-    set((s) => ({ screenTiles: s.screenTiles.filter((t) => t !== id) })),
+    set((s) => ({
+      screenTiles: s.screenTiles.filter((t) => t !== id),
+      maximizedScreenTile: s.maximizedScreenTile === id ? null : s.maximizedScreenTile,
+    })),
   setScreenShareError: (screenShareError) => set({ screenShareError }),
   // Polled every drain tick, so an unchanged flag must not produce a new
   // object (and a re-render) each time.
+  setScreenTileWidth: (screenTileWidth) => set({ screenTileWidth }),
+  setMaximizedScreenTile: (maximizedScreenTile) => set({ maximizedScreenTile }),
   setScreenTileStalled: (id, stalled) =>
     set((s) =>
       s.stalledScreenTiles[id] === stalled

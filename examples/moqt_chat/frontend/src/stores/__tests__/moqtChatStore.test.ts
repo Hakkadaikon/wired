@@ -23,6 +23,26 @@ describe("moqtChatStore", () => {
     expect(s.voiceQuality).toEqual({});
   });
 
+  it("holds the remote screen tile width (320 px by default) and which tile is maximized", () => {
+    const s = useMoqtChatStore.getState();
+    expect(s.screenTileWidth).toBe(320);
+    expect(s.maximizedScreenTile).toBeNull();
+    s.setScreenTileWidth(640);
+    s.setMaximizedScreenTile("user2");
+    expect(useMoqtChatStore.getState().screenTileWidth).toBe(640);
+    expect(useMoqtChatStore.getState().maximizedScreenTile).toBe("user2");
+  });
+
+  it("un-maximizes a tile when it is removed", () => {
+    const s = useMoqtChatStore.getState();
+    s.addScreenTile("user2");
+    s.setMaximizedScreenTile("user2");
+    s.removeScreenTile("user3");
+    expect(useMoqtChatStore.getState().maximizedScreenTile).toBe("user2");
+    s.removeScreenTile("user2");
+    expect(useMoqtChatStore.getState().maximizedScreenTile).toBeNull();
+  });
+
   it("flags a screen tile as stalled and clears it again", () => {
     const s = useMoqtChatStore.getState();
     expect(s.stalledScreenTiles).toEqual({});
