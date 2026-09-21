@@ -127,7 +127,7 @@ export class MoqtScreenClient {
     // (mirrors encodeVoiceObjectMessage's own doc).
     const object = concatBytes([encodeVarint(0n), encodeVarint(BigInt(body.length)), body]);
     try {
-      await this.#write(object);
+      await withTimeout(this.#write(object), SCREEN_WRITE_TIMEOUT_MS);
     } catch (err) {
       // A hung or failed write means this stream is dead for good; drop it
       // so the next chunk starts over, rather than queueing behind it.
@@ -140,18 +140,15 @@ export class MoqtScreenClient {
 
   async #write(object: Uint8Array): Promise<void> {
     if (this.#writer) {
-      await withTimeout(this.#writer.write(object), SCREEN_WRITE_TIMEOUT_MS);
+      await this.#writer.write(object);
       return;
     }
     const wt = this.#chat.webTransport;
     if (!wt) return;
-    const stream = await withTimeout(wt.createUnidirectionalStream(), SCREEN_WRITE_TIMEOUT_MS);
+    const stream = await wt.createUnidirectionalStream();
     this.#writer = stream.getWriter();
-    await withTimeout(
-      this.#writer.write(
-        concatBytes([buildScreenSubgroupHeader(this.#trackAlias, this.#groupId), object]),
-      ),
-      SCREEN_WRITE_TIMEOUT_MS,
+    await this.#writer.write(
+      concatBytes([buildScreenSubgroupHeader(this.#trackAlias, this.#groupId), object]),
     );
   }
 
