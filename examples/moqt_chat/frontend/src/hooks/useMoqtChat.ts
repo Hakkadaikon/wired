@@ -796,7 +796,12 @@ export function useMoqtChat() {
       localIdRef.current = localId;
       setMicError(null);
       store.clearPeers();
-      store.clearMessages();
+      // Messages are kept: an automatic rejoin after a drop must not wipe
+      // the history the user was reading. leave() clears them (it is the
+      // "done with this room" path). Remote screen tiles are dropped --
+      // they belong to the previous session's senders, and a sender who is
+      // still sharing re-appears on its first decoded frame.
+      store.clearScreenTiles();
       store.setDisplayName(localId);
       clearLive();
 
