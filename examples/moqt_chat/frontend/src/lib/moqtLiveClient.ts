@@ -92,9 +92,19 @@ export class AppendQueue {
   }
 
   trim(currentTime: number) {
+    if (this.#dead) return;
     const b = this.#sb.buffered;
     if (b.length === 0 || currentTime - b.start(0) <= TRIM_WHEN_BEHIND_S) return;
     this.#enqueue(() => this.#sb.remove(0, currentTime - KEEP_BEHIND_S));
+  }
+
+  /** Stops this queue from ever touching the SourceBuffer again -- call
+   * before the SourceBuffer is detached from its MediaSource (e.g. on
+   * video.load()), since a detached SourceBuffer throws even just reading
+   * .buffered and the updateend/timeupdate listeners stay alive. */
+  dispose() {
+    this.#dead = true;
+    this.#queue = [];
   }
 
   #enqueue(op: () => void) {
@@ -235,6 +245,11 @@ export class LiveMovie {
   }
 
   stop(): void {
+    // Dispose the queue first: video.load() below detaches the
+    // SourceBuffer from its MediaSource, and the updateend/timeupdate
+    // listeners stay registered -- without this, a late event reads
+    // .buffered on a removed SourceBuffer and throws InvalidStateError.
+    this.#q?.dispose();
     // Revoke first: the object URL pins the MediaSource until the tab
     // closes, so every connect->leave cycle would leak one otherwise.
     if (this.#url) URL.revokeObjectURL(this.#url);
