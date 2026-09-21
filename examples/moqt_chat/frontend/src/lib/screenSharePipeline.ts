@@ -22,6 +22,10 @@ const MAX_CHUNK_BYTES = 480;
 // A keyframe lets a late-joining/reassembling receiver resync; 2s is the
 // brief's cadence, not derived from anything finer-grained.
 const KEYFRAME_INTERVAL_MS = 2000;
+// Latest wins: once this many frames sit unencoded (encoder or send path
+// not keeping up), a new frame is dropped instead of queued -- a queued
+// backlog only adds delay the viewer can never get back.
+const MAX_ENCODE_QUEUE = 2;
 
 type EncodedChunk = {
   byteLength: number;
@@ -46,6 +50,7 @@ export type ScreenSharePipelineDeps = {
     configure: (config: unknown) => void;
     encode: (frame: unknown, opts?: { keyFrame: boolean }) => void;
     close: () => void;
+    encodeQueueSize?: number;
   };
   sendVideoChunk: (chunk: ScreenChunk) => void | Promise<void>;
   onError?: (err: unknown) => void;
@@ -60,6 +65,10 @@ export type ScreenSharePipeline = {
    * wiring (Task 7) reads frames off the track the same way micPipeline.ts
    * reads audio frames off its processor. */
   pushFrame: (frame: { close?: () => void }) => void;
+  /** Makes the next pushed frame a keyframe regardless of the cadence --
+   * for when the send stream was reopened and the receiver needs to
+   * resync (moqtScreenClient.ts's onStreamReset). */
+  requestKeyframe: () => void;
 };
 
 function splitIntoChunks(bytes: Uint8Array): Uint8Array[] {
@@ -128,8 +137,15 @@ export async function startScreenSharePipeline(
       track?.stop();
       encoder.close();
     },
+    requestKeyframe: () => {
+      lastKeyframeAt = -Infinity;
+    },
     pushFrame: (frame) => {
       if (pipeline.stopped) return;
+      if ((encoder.encodeQueueSize ?? 0) > MAX_ENCODE_QUEUE) {
+        frame.close?.();
+        return;
+      }
       const now = Date.now();
       const forceKeyframe = now - lastKeyframeAt >= KEYFRAME_INTERVAL_MS;
       if (forceKeyframe) lastKeyframeAt = now;
