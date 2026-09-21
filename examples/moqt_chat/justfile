@@ -123,6 +123,21 @@ e2e-live *ARGS: build build-frontend
 e2e-screen *ARGS: build build-frontend
     node e2e/run-screenshare-check.mjs {{ARGS}}
 
+# Screen-share check against a REAL running deployment: the production
+# frontend at https://hakkadaikon.github.io/wired/moqt_chat/ (a public
+# origin) talking to a REAL wired_server the operator already started
+# (its address/cert fingerprint are required args, not started/stopped by
+# this recipe). Unlike every other e2e-* recipe here, this one builds
+# NOTHING and needs no server-control -- it measures the actual thing
+# users hit. Get the two required values with:
+#   docker logs <container-name> | grep fingerprint
+# then:
+#   just e2e-prod-screen --server-url=https://<host>:4433/ --cert-hash=<sha-256>
+# See e2e/run-prod-screenshare-check.mjs's own doc for --extra-cycles /
+# --idle-ms / --real-screen and what each gate checks.
+e2e-prod-screen *ARGS:
+    node e2e/run-prod-screenshare-check.mjs {{ARGS}}
+
 # Multi-client chat load test: N headless-Chrome clients (each its own
 # BrowserContext), joining the hub's single fixed room, exchanging chat
 # messages, graded for message loss and latency. N is capped at 4 (the
