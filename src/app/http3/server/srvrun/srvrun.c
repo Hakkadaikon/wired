@@ -8616,6 +8616,7 @@ static void srvrun_send_new_conn_refusal(
     return;
   srvrun_tx(
       ctx->cfg, srvrun_rx_fd(ctx->cfg), ctx->peer, wired_span_of(out, ob.len));
+  wired_log_str("conn refused: table full\n");
 }
 
 /* 1 if force_retry is on and dg is a fresh Initial (the gate's precondition
