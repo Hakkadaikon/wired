@@ -359,6 +359,15 @@ export class MoqtChatClient {
    * CANDIDATE_PARTICIPANT_IDS, so it is inert there), and keeps this
    * shared control stream's FIFO request/reply pairing intact -- every
    * SUBSCRIBE sent here gets exactly one reply back, in order. */
+  /** Whether a SUBSCRIBE sent under this label (a chat candidate id, or a
+   * subscribeTrack label such as "<id>/screen") has been answered
+   * SUBSCRIBE_OK on this session. A caller that resends SUBSCRIBE until
+   * bytes arrive must stop at this point: the hub keeps the subscription
+   * across the publisher's own rejoins, and an idle track sends nothing. */
+  isSubscribed(label: string): boolean {
+    return this.#foundParticipants.has(label);
+  }
+
   async subscribeTrack(trackName: Uint8Array, trackNameUtf8: string): Promise<void> {
     if (!this.#controlWriter) return;
     const rid = this.#nextRequestId++;

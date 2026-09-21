@@ -6,13 +6,37 @@
 
 type WriterLike = { write: () => Promise<void>; close: () => Promise<void> };
 
-function fakeControlStream() {
+/** The control stream's hub-to-client half: yields whatever a test
+ * push()es (the hub's replies), parking between pushes. */
+class FakeControlReplies {
+  #queue: Uint8Array[] = [];
+  #wake: (() => void) | undefined;
+
+  [Symbol.asyncIterator]() {
+    return {
+      next: async (): Promise<{ value: Uint8Array; done: false }> => {
+        for (;;) {
+          const value = this.#queue.shift();
+          if (value) return { value, done: false };
+          await new Promise<void>((resolve) => {
+            this.#wake = resolve;
+          });
+        }
+      },
+    };
+  }
+
+  push(frame: Uint8Array): void {
+    this.#queue.push(frame);
+    this.#wake?.();
+    this.#wake = undefined;
+  }
+}
+
+function fakeControlStream(readable: FakeControlReplies) {
   return {
     writable: { getWriter: (): WriterLike => ({ write: async () => {}, close: async () => {} }) },
-    readable: {
-      // #readControlReplies iterates this; never yielding parks it forever.
-      [Symbol.asyncIterator]: () => ({ next: () => new Promise<never>(() => {}) }),
-    },
+    readable,
   };
 }
 
@@ -57,6 +81,8 @@ export class FakeDatagrams {
 export class FakeWebTransport {
   readonly ready: Promise<void>;
   readonly datagrams = new FakeDatagrams();
+  /** Hub replies on the control stream: push() an encoded control frame. */
+  readonly controlReplies = new FakeControlReplies();
   readonly closed: Promise<unknown>;
   closeCalls = 0;
   resolveReady!: () => void;
@@ -66,7 +92,7 @@ export class FakeWebTransport {
 
   incomingBidirectionalStreams = {
     getReader: () => ({
-      read: async () => ({ value: fakeControlStream(), done: false }),
+      read: async () => ({ value: fakeControlStream(this.controlReplies), done: false }),
       releaseLock: () => {},
     }),
   };
