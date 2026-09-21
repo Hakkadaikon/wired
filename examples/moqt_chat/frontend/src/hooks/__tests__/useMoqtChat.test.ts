@@ -44,6 +44,7 @@ function fakeSessionRefs(): SessionRefs {
     client: { current: { close: vi.fn() } },
     live: { current: { stop: vi.fn() } },
     unregisterLifecycle: { current: vi.fn() },
+    audioCtx: { current: { close: vi.fn().mockResolvedValue(undefined) } },
   };
 }
 
@@ -272,6 +273,18 @@ describe("teardownSession", () => {
     teardownSession(refs, store);
 
     expect(mic.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the AudioContext exactly once, and a second teardown does not close it again", () => {
+    const refs = fakeSessionRefs();
+    const audioCtx = refs.audioCtx.current as { close: ReturnType<typeof vi.fn> };
+    const store = fakeScreenStore();
+
+    teardownSession(refs, store);
+    teardownSession(refs, store);
+
+    expect(audioCtx.close).toHaveBeenCalledTimes(1);
+    expect(refs.audioCtx.current).toBeNull();
   });
 
   it("survives a screenShare.stop() throw without skipping the rest of teardown", () => {
