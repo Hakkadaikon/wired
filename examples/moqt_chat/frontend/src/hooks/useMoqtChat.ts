@@ -1053,6 +1053,16 @@ export function useMoqtChat() {
       // regardless, so surfacing an error here would only be noise.
     }
     screenShareRef.current = null;
+    // Also FIN the long-lived send stream (MoqtScreenClient.close(), same
+    // shape as teardownSession's voice.close()): without this, a later
+    // startScreenShare() reuses the OLD stream's writer (sendVideoChunk's
+    // #write only opens a new one when #writer is unset) and never sends a
+    // fresh SUBGROUP_HEADER. The hub clears its relay entry on every
+    // re-PUBLISH, so those un-headered bytes classify as neither a
+    // continuation nor a fresh stream and are silently dropped forever --
+    // every viewer, rejoined or not, stops receiving frames from the very
+    // moment sharing restarts.
+    screenRef.current?.close();
     store.setScreenSharing(false);
     store.removeScreenTile("own");
   }, [store]);
