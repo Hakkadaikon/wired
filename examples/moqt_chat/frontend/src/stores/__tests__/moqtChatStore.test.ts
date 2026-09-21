@@ -23,6 +23,23 @@ describe("moqtChatStore", () => {
     expect(s.voiceQuality).toEqual({});
   });
 
+  it("flags a screen tile as stalled and clears it again", () => {
+    const s = useMoqtChatStore.getState();
+    expect(s.stalledScreenTiles).toEqual({});
+    s.setScreenTileStalled("user2", true);
+    expect(useMoqtChatStore.getState().stalledScreenTiles).toEqual({ user2: true });
+    s.setScreenTileStalled("user2", false);
+    expect(useMoqtChatStore.getState().stalledScreenTiles).toEqual({ user2: false });
+  });
+
+  it("setScreenTileStalled leaves state untouched when the flag is unchanged", () => {
+    const s = useMoqtChatStore.getState();
+    s.setScreenTileStalled("user2", true);
+    const before = useMoqtChatStore.getState().stalledScreenTiles;
+    s.setScreenTileStalled("user2", true);
+    expect(useMoqtChatStore.getState().stalledScreenTiles).toBe(before);
+  });
+
   it("sets and clears the live movie error and first group", () => {
     useMoqtChatStore.getState().setLiveError("video buffer error");
     useMoqtChatStore.getState().setLiveFirstGroup("7");

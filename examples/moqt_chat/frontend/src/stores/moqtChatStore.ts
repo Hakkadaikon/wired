@@ -33,6 +33,7 @@ export type MoqtChatState = {
   screenSharing: boolean; // am I currently sharing my screen
   screenTiles: string[]; // participant ids currently sharing, for rendering tiles
   screenShareError: string | null; // screen-share-only error; never surfaces in chat/voice errors
+  stalledScreenTiles: Record<string, boolean>; // per-sender "no frame for a while"; absent key renders as false
   masterVolume: number; // 0..1, applied on top of every peer's own volume
   peerVolumes: Record<string, number>; // per-sender volume, 0..1; absent key means 1 (unity)
   voiceQuality: Record<string, QualityLevel>; // per-sender quality; absent key renders as "none"
@@ -54,6 +55,7 @@ export type MoqtChatState = {
   addScreenTile: (id: string) => void;
   removeScreenTile: (id: string) => void;
   setScreenShareError: (msg: string | null) => void;
+  setScreenTileStalled: (id: string, stalled: boolean) => void;
   setMasterVolume: (v: number) => void;
   setPeerVolume: (id: string, v: number) => void;
   setVoiceQuality: (id: string, level: QualityLevel) => void;
@@ -77,6 +79,7 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   screenSharing: false,
   screenTiles: [],
   screenShareError: null,
+  stalledScreenTiles: {},
   masterVolume: 1,
   peerVolumes: {},
   voiceQuality: {},
@@ -107,6 +110,14 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   removeScreenTile: (id) =>
     set((s) => ({ screenTiles: s.screenTiles.filter((t) => t !== id) })),
   setScreenShareError: (screenShareError) => set({ screenShareError }),
+  // Polled every drain tick, so an unchanged flag must not produce a new
+  // object (and a re-render) each time.
+  setScreenTileStalled: (id, stalled) =>
+    set((s) =>
+      s.stalledScreenTiles[id] === stalled
+        ? s
+        : { stalledScreenTiles: { ...s.stalledScreenTiles, [id]: stalled } },
+    ),
   setMasterVolume: (masterVolume) => set({ masterVolume }),
   setPeerVolume: (id, v) =>
     set((s) => ({ peerVolumes: { ...s.peerVolumes, [id]: v } })),
