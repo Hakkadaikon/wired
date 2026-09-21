@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { startScreenSharePipeline } from "../screenSharePipeline";
+import { screenBitrate, startScreenSharePipeline } from "../screenSharePipeline";
 import { decodeScreenObjectMessage, encodeScreenObjectMessage, type ScreenChunk } from "../moqtScreenWire";
 
 type Track = {
@@ -7,9 +7,11 @@ type Track = {
   listeners: Record<string, (() => void)[]>;
   addEventListener: (type: string, cb: () => void) => void;
   fireEnded: () => void;
+  contentHint?: string;
+  getSettings?: () => { width?: number; height?: number };
 };
 
-function fakeTrack(): Track {
+function fakeTrack(settings?: { width: number; height: number }): Track {
   const listeners: Record<string, (() => void)[]> = {};
   return {
     stop: vi.fn(),
@@ -18,6 +20,7 @@ function fakeTrack(): Track {
       (listeners[type] ??= []).push(cb);
     },
     fireEnded: () => listeners["ended"]?.forEach((cb) => cb()),
+    ...(settings ? { getSettings: () => settings } : {}),
   };
 }
 
@@ -60,8 +63,8 @@ function fakeEncoder(chunkByteLength: number) {
   return { ctor, configureCalls, encodeCalls, isClosed: () => closed };
 }
 
-function fakeFrame() {
-  return { close: vi.fn(), timestamp: 0 };
+function fakeFrame(size?: { codedWidth: number; codedHeight: number }) {
+  return { close: vi.fn(), timestamp: 0, ...size };
 }
 
 describe("screenSharePipeline", () => {
@@ -75,12 +78,22 @@ describe("screenSharePipeline", () => {
       sendVideoChunk: vi.fn(),
     });
     expect(getDisplayMedia).toHaveBeenCalledWith({
-      video: { width: 1280, height: 720, frameRate: 10 },
+      video: { width: 1920, height: 1080, frameRate: 10 },
       audio: false,
     });
   });
 
-  it("configures the encoder for vp8 realtime at ~1Mbps", async () => {
+  it("marks the captured track as detail (text/UI) content", async () => {
+    const track = fakeTrack();
+    await startScreenSharePipeline({
+      getDisplayMedia: fakeGetDisplayMedia(track),
+      VideoEncoderCtor: fakeEncoder(10).ctor as never,
+      sendVideoChunk: vi.fn(),
+    });
+    expect(track.contentHint).toBe("detail");
+  });
+
+  it("configures the encoder for vp8 realtime at 720p's bitrate until a frame reports its size", async () => {
     const track = fakeTrack();
     const encoder = fakeEncoder(10);
     await startScreenSharePipeline({
@@ -90,9 +103,56 @@ describe("screenSharePipeline", () => {
     });
     expect(encoder.configureCalls[0]).toMatchObject({
       codec: "vp8",
-      bitrate: 1_000_000,
+      width: 1280,
+      height: 720,
+      bitrate: 1_105_920,
       latencyMode: "realtime",
     });
+  });
+
+  it("configures the encoder to the track's own size and stamps it on the keyframe", async () => {
+    const track = fakeTrack({ width: 405, height: 720 });
+    const encoder = fakeEncoder(10);
+    const sent: ScreenChunk[] = [];
+    const pipeline = await startScreenSharePipeline({
+      getDisplayMedia: fakeGetDisplayMedia(track),
+      VideoEncoderCtor: encoder.ctor as never,
+      sendVideoChunk: async (chunk) => {
+        sent.push(chunk);
+      },
+    });
+    expect(encoder.configureCalls[0]).toMatchObject({ width: 405, height: 720 });
+    pipeline.pushFrame(fakeFrame());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent[0]).toMatchObject({ width: 405, height: 720 });
+  });
+
+  it("reconfigures and forces a keyframe when a frame arrives at a new size", async () => {
+    const track = fakeTrack();
+    const encoder = fakeEncoder(10);
+    const sent: ScreenChunk[] = [];
+    const pipeline = await startScreenSharePipeline({
+      getDisplayMedia: fakeGetDisplayMedia(track),
+      VideoEncoderCtor: encoder.ctor as never,
+      sendVideoChunk: async (chunk) => {
+        sent.push(chunk);
+      },
+    });
+    pipeline.pushFrame(fakeFrame({ codedWidth: 1280, codedHeight: 720 }));
+    pipeline.pushFrame(fakeFrame({ codedWidth: 1280, codedHeight: 720 }));
+    expect(encoder.configureCalls.length).toBe(1);
+    expect(encoder.encodeCalls[1].opts).toEqual({ keyFrame: false });
+
+    pipeline.pushFrame(fakeFrame({ codedWidth: 720, codedHeight: 1280 }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(encoder.configureCalls.length).toBe(2);
+    expect(encoder.configureCalls[1]).toMatchObject({
+      width: 720,
+      height: 1280,
+      bitrate: screenBitrate(720, 1280),
+    });
+    expect(encoder.encodeCalls[2].opts).toEqual({ keyFrame: true });
+    expect(sent.at(-1)).toMatchObject({ keyframe: true, width: 720, height: 1280 });
   });
 
   it("splits an encoded chunk into <=480-byte wire chunks and sends each through sendVideoChunk", async () => {
@@ -302,5 +362,17 @@ describe("screenSharePipeline", () => {
     pipeline.pushFrame(fakeFrame());
     await new Promise((r) => setTimeout(r, 0));
     expect(sendVideoChunk).not.toHaveBeenCalled();
+  });
+
+  describe("screenBitrate", () => {
+    it("scales with the pixel rate: 720p10 is ~1.1 Mbps, 1080p10 is ~2.5 Mbps", () => {
+      expect(screenBitrate(1280, 720)).toBe(1_105_920);
+      expect(screenBitrate(1920, 1080)).toBe(2_488_320);
+    });
+
+    it("clamps to 1 Mbps below and 4 Mbps above", () => {
+      expect(screenBitrate(640, 360)).toBe(1_000_000);
+      expect(screenBitrate(3840, 2160)).toBe(4_000_000);
+    });
   });
 });

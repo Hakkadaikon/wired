@@ -14,8 +14,18 @@
 import { createSendGate } from "./sendGate";
 import type { ScreenChunk } from "./moqtScreenWire";
 
-const WIDTH = 1280;
-const HEIGHT = 720;
+// getDisplayMedia's width/height are IDEAL constraints, not a promise: a
+// portrait window or a non-16:9 monitor is captured at its own size (a 4K
+// screen is scaled down to fit 1080p, a 1080p one comes through as is).
+// The encoder is configured to whatever size the frames actually have --
+// configuring it to a fixed size would make VideoEncoder scale the frames
+// into that shape without keeping their aspect, and the bitstream itself
+// would then be the distorted one.
+const CAPTURE_WIDTH = 1920;
+const CAPTURE_HEIGHT = 1080;
+// Encoder size until the first frame reports its own.
+const DEFAULT_WIDTH = 1280;
+const DEFAULT_HEIGHT = 720;
 const FRAME_RATE = 10;
 const CODEC = "vp8";
 const MAX_CHUNK_BYTES = 480;
@@ -26,6 +36,17 @@ const KEYFRAME_INTERVAL_MS = 2000;
 // not keeping up), a new frame is dropped instead of queued -- a queued
 // backlog only adds delay the viewer can never get back.
 const MAX_ENCODE_QUEUE = 2;
+// Bitrate scales with the pixel rate so 1080p text stays legible instead of
+// being squeezed into 720p's budget: 0.12 bit per pixel per frame is
+// 1.1 Mbps at 720p10 and 2.5 Mbps at 1080p10, clamped to [1, 4] Mbps.
+const BITS_PER_PIXEL_FRAME = 0.12;
+const MIN_BITRATE = 1_000_000;
+const MAX_BITRATE = 4_000_000;
+
+export function screenBitrate(width: number, height: number, fps = FRAME_RATE): number {
+  const wanted = Math.round(width * height * fps * BITS_PER_PIXEL_FRAME);
+  return Math.min(MAX_BITRATE, Math.max(MIN_BITRATE, wanted));
+}
 
 type EncodedChunk = {
   byteLength: number;
@@ -36,6 +57,10 @@ type EncodedChunk = {
 type MediaStreamTrackLike = {
   stop: () => void;
   addEventListener: (type: "ended", cb: () => void) => void;
+  // "detail" tells the browser's encoder this is text/UI, not motion video
+  // (MediaStreamTrack.contentHint).
+  contentHint?: string;
+  getSettings?: () => { width?: number; height?: number };
 };
 
 export type ScreenSharePipelineDeps = {
@@ -57,6 +82,8 @@ export type ScreenSharePipelineDeps = {
   onEncodeError?: (err: unknown) => void;
 };
 
+export type ScreenFrameLike = { close?: () => void; codedWidth?: number; codedHeight?: number };
+
 export type ScreenSharePipeline = {
   stop: () => void;
   stopped: boolean;
@@ -64,7 +91,7 @@ export type ScreenSharePipeline = {
    * drive frames without a real MediaStreamTrackProcessor; production
    * wiring (Task 7) reads frames off the track the same way micPipeline.ts
    * reads audio frames off its processor. */
-  pushFrame: (frame: { close?: () => void }) => void;
+  pushFrame: (frame: ScreenFrameLike) => void;
   /** Makes the next pushed frame a keyframe regardless of the cadence --
    * for when the send stream was reopened and the receiver needs to
    * resync (moqtScreenClient.ts's onStreamReset). */
@@ -79,7 +106,13 @@ function splitIntoChunks(bytes: Uint8Array): Uint8Array[] {
   return pieces.length > 0 ? pieces : [bytes];
 }
 
-function toScreenChunks(seq: number, isKeyframe: boolean, buffer: Uint8Array): ScreenChunk[] {
+function toScreenChunks(
+  seq: number,
+  isKeyframe: boolean,
+  buffer: Uint8Array,
+  width: number,
+  height: number,
+): ScreenChunk[] {
   const pieces = splitIntoChunks(buffer);
   return pieces.map((data, idx) => ({
     seq,
@@ -88,7 +121,7 @@ function toScreenChunks(seq: number, isKeyframe: boolean, buffer: Uint8Array): S
     keyframe: isKeyframe,
     timestampUs: 0,
     data,
-    ...(isKeyframe && idx === 0 ? { width: WIDTH, height: HEIGHT, codec: CODEC } : {}),
+    ...(isKeyframe && idx === 0 ? { width, height, codec: CODEC } : {}),
   }));
 }
 
@@ -107,7 +140,7 @@ export async function startScreenSharePipeline(
   let media: { getVideoTracks: () => MediaStreamTrackLike[] };
   try {
     media = await deps.getDisplayMedia({
-      video: { width: WIDTH, height: HEIGHT, frameRate: FRAME_RATE },
+      video: { width: CAPTURE_WIDTH, height: CAPTURE_HEIGHT, frameRate: FRAME_RATE },
       audio: false,
     });
   } catch (err) {
@@ -115,6 +148,10 @@ export async function startScreenSharePipeline(
     throw err;
   }
   const track = media.getVideoTracks()[0];
+  if (track) track.contentHint = "detail";
+  const settings = track?.getSettings?.() ?? {};
+  let width = settings.width ?? DEFAULT_WIDTH;
+  let height = settings.height ?? DEFAULT_HEIGHT;
 
   const gatedSend = createSendGate(deps.sendVideoChunk as unknown as (
     bytes: Uint8Array,
@@ -129,6 +166,30 @@ export async function startScreenSharePipeline(
   // async IIFE does not serialize against. .catch keeps one frame's
   // rejection from wedging the chain for later frames.
   let sendChain: Promise<void> = Promise.resolve();
+
+  const configure = () => {
+    encoder.configure({
+      codec: CODEC,
+      width,
+      height,
+      bitrate: screenBitrate(width, height),
+      latencyMode: "realtime",
+    });
+  };
+
+  // A frame of a new size (the shared window was resized, or the first
+  // frame differs from the track's advertised settings) re-configures the
+  // encoder and forces a keyframe, since only a keyframe carries the size
+  // the receiver decodes against.
+  const followFrameSize = (frame: ScreenFrameLike) => {
+    const fw = frame.codedWidth;
+    const fh = frame.codedHeight;
+    if (!fw || !fh || (fw === width && fh === height)) return;
+    width = fw;
+    height = fh;
+    configure();
+    lastKeyframeAt = -Infinity;
+  };
 
   const pipeline: ScreenSharePipeline = {
     stopped: false,
@@ -146,6 +207,7 @@ export async function startScreenSharePipeline(
         frame.close?.();
         return;
       }
+      followFrameSize(frame);
       const now = Date.now();
       const forceKeyframe = now - lastKeyframeAt >= KEYFRAME_INTERVAL_MS;
       if (forceKeyframe) lastKeyframeAt = now;
@@ -159,7 +221,11 @@ export async function startScreenSharePipeline(
       if (pipeline.stopped) return;
       const buffer = new Uint8Array(chunk.byteLength);
       chunk.copyTo(buffer);
-      const pieces = toScreenChunks(seq++, chunk.type === "key", buffer);
+      // ponytail: the size stamped here is the CURRENT encoder size; a
+      // resize between encode() and this output() would stamp the new size
+      // on the old frame. The keyframe forced by the resize follows right
+      // behind, so the receiver resyncs within one frame either way.
+      const pieces = toScreenChunks(seq++, chunk.type === "key", buffer, width, height);
       // Sequential, awaited sends within a frame -- NOT fire-and-forget.
       // sendGate's latest-wins coalescing (right for standalone voice
       // frames) would drop pieces of the SAME frame if fired concurrently,
@@ -175,13 +241,7 @@ export async function startScreenSharePipeline(
       deps.onEncodeError?.(err);
     },
   });
-  encoder.configure({
-    codec: CODEC,
-    width: WIDTH,
-    height: HEIGHT,
-    bitrate: 1_000_000,
-    latencyMode: "realtime",
-  });
+  configure();
 
   track?.addEventListener("ended", () => {
     pipeline.stop();
