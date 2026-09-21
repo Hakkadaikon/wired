@@ -143,7 +143,7 @@ function ScreenTiles({
                 className="sign sign--outline sign--small"
                 data-testid={`screen-maximize-${id}`}
                 onClick={(e) =>
-                  toggleMaximize(id, e.currentTarget.parentElement?.parentElement?.querySelector("canvas") ?? null)
+                  toggleMaximize(id, e.currentTarget.closest(".screen-tile")?.querySelector("canvas") ?? null)
                 }
               >
                 {maximized === id ? "Restore ↙" : "Maximize ↗"}
