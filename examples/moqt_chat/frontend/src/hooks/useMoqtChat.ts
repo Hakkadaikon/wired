@@ -505,10 +505,10 @@ export function useMoqtChat() {
   // currently registered for `key` ("own" for the local outgoing preview,
   // a participant id for a remote sender) -- shared by the receive-side
   // onFrame callback below and startScreenShare's own-preview draw, so both
-  // tiles use the identical draw-then-close contract. A remote tile's
-  // backing store follows the frame's own size (screenTileSize.ts) so CSS
-  // can scale it without changing its aspect; the own preview stays at
-  // its small fixed size.
+  // tiles use the identical draw-then-close contract. Every tile's backing
+  // store follows the frame's own size (screenTileSize.ts) so CSS can
+  // scale it without changing its aspect -- the own preview included, so
+  // a portrait share previews as portrait.
   const drawScreenFrame = useCallback(
     (
       key: string,
@@ -523,13 +523,11 @@ export function useMoqtChat() {
       const canvas = screenCanvasRefs.current.get(key);
       const ctx = canvas?.getContext("2d");
       if (!ctx || !canvas) return;
-      if (key !== "own") {
-        fitCanvasToFrame(
-          canvas,
-          frame.displayWidth ?? frame.codedWidth,
-          frame.displayHeight ?? frame.codedHeight,
-        );
-      }
+      fitCanvasToFrame(
+        canvas,
+        frame.displayWidth ?? frame.codedWidth,
+        frame.displayHeight ?? frame.codedHeight,
+      );
       ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
     },
     [],
