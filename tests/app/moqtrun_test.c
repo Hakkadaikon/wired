@@ -1631,6 +1631,42 @@ static void test_moqtrun_screen_first_object_opens_then_appends(void) {
   CHECK(appended->fin == 0);
 }
 
+/* A publisher that drops WITHOUT FINing its relay stream (a crash, or any
+ * disconnect mid-share) leaves each subscriber's relay stream open on the
+ * transport: the hub's own bookkeeping forgets it (moqtrun_drop_peer_subs),
+ * but nothing tells the SUBSCRIBER's session that stream is dead, so their
+ * WebTransport stack keeps counting it against their own peer-granted
+ * uni-stream limit forever. When the publisher reconnects and re-shares,
+ * the re-PUBLISH must reset every such orphaned stream (io.stream_reset)
+ * before opening a fresh one -- otherwise every drop+reshare cycle burns
+ * one uni-stream slot on every subscriber permanently, until their whole
+ * connection eventually runs out and nothing (chat included) can open a
+ * new stream to them at all. */
+static void test_moqtrun_republish_resets_orphaned_relay_stream(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_screen_relay(&hub);
+
+  moqtrun_test_reset();
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x03, first);
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, wired_span_of(first, first_n), 0 /* fin */);
+  u64 orphan_stream_id = moqtrun_test_last_kind(5)->stream_id;
+
+  wired_moqt_on_session_close(&hub, SESS_A); /* sharer drops mid-share */
+
+  moqtrun_test_reset();
+  u64 ctrl_a2 = moqtrun_test_publish_alice(&hub); /* rejoin + re-PUBLISH chat */
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a2);
+  moqtrun_test_publish_alice_screen(&hub, ctrl_a2);
+
+  CHECK(moqtrun_test_count_kind(7) == 1); /* the orphan is reset exactly once */
+  CHECK(moqtrun_test_last_kind(7)->s == SESS_B);
+  CHECK(moqtrun_test_last_kind(7)->stream_id == orphan_stream_id);
+}
+
 /* When the publisher's own stream FINs, the subscriber's relay stream is
  * closed (stream_send fin=1) in the same call -- and the NEXT Object (on a
  * fresh publisher stream_id) opens a brand new relay stream rather than
@@ -3405,6 +3441,7 @@ void test_moqtrun(void) {
   test_moqtrun_unbound_stream_id_relays_nowhere();
   test_moqtrun_audio_first_object_opens_then_appends();
   test_moqtrun_screen_first_object_opens_then_appends();
+  test_moqtrun_republish_resets_orphaned_relay_stream();
   test_moqtrun_audio_publisher_fin_closes_and_reopens();
   test_moqtrun_chat_still_uses_send_uni_every_object();
   test_moqtrun_stream_send_rejection_drops_frame_not_fatal();
