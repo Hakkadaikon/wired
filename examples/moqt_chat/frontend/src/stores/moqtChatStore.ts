@@ -57,6 +57,7 @@ export type MoqtChatState = {
   setScreenSharing: (sharing: boolean) => void;
   addScreenTile: (id: string) => void;
   removeScreenTile: (id: string) => void;
+  clearScreenTiles: () => void;
   setScreenShareError: (msg: string | null) => void;
   setScreenTileStalled: (id: string, stalled: boolean) => void;
   setScreenTileWidth: (px: number) => void;
@@ -119,6 +120,8 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
       screenTiles: s.screenTiles.filter((t) => t !== id),
       maximizedScreenTile: s.maximizedScreenTile === id ? null : s.maximizedScreenTile,
     })),
+  clearScreenTiles: () =>
+    set({ screenTiles: [], stalledScreenTiles: {}, maximizedScreenTile: null }),
   setScreenShareError: (screenShareError) => set({ screenShareError }),
   // Polled every drain tick, so an unchanged flag must not produce a new
   // object (and a re-render) each time.

@@ -43,6 +43,19 @@ describe("moqtChatStore", () => {
     expect(useMoqtChatStore.getState().maximizedScreenTile).toBeNull();
   });
 
+  it("clearScreenTiles drops every tile, its stalled flag and the maximized one", () => {
+    const s = useMoqtChatStore.getState();
+    s.addScreenTile("user2");
+    s.addScreenTile("user3");
+    s.setScreenTileStalled("user2", true);
+    s.setMaximizedScreenTile("user3");
+    s.clearScreenTiles();
+    const after = useMoqtChatStore.getState();
+    expect(after.screenTiles).toEqual([]);
+    expect(after.stalledScreenTiles).toEqual({});
+    expect(after.maximizedScreenTile).toBeNull();
+  });
+
   it("flags a screen tile as stalled and clears it again", () => {
     const s = useMoqtChatStore.getState();
     expect(s.stalledScreenTiles).toEqual({});
