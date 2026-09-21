@@ -60,6 +60,25 @@ function screenTrackName(participantId: string): Uint8Array {
 
 export interface MoqtScreenCallbacks {
   onScreenChunk(participantId: string, chunk: ScreenChunk): void;
+  /** The send stream was dropped (a write or open that hung past
+   * SCREEN_WRITE_TIMEOUT_MS, or a write that failed); the next chunk opens
+   * a fresh stream, so the caller should make its next frame a keyframe. */
+  onStreamReset?(): void;
+}
+
+// A write() that has not returned in this long is a stream the hub is not
+// draining (flow-control window shut, or the stream never got credit):
+// every later frame would queue behind it forever. 1 s is ten frames at
+// the pipeline's 10 fps -- long past any healthy round trip, short enough
+// that the viewer sees a hiccup, not a freeze.
+export const SCREEN_WRITE_TIMEOUT_MS = 1000;
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`screen send timed out after ${ms} ms`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }
 
 export class MoqtScreenClient {
@@ -107,17 +126,33 @@ export class MoqtScreenClient {
     // delta of 0 into a plain increment for every Object after that
     // (mirrors encodeVoiceObjectMessage's own doc).
     const object = concatBytes([encodeVarint(0n), encodeVarint(BigInt(body.length)), body]);
-    if (!this.#writer) {
-      const wt = this.#chat.webTransport;
-      if (!wt) return;
-      const stream = await wt.createUnidirectionalStream();
-      this.#writer = stream.getWriter();
-      await this.#writer.write(
-        concatBytes([buildScreenSubgroupHeader(this.#trackAlias, this.#groupId), object]),
-      );
-    } else {
-      await this.#writer.write(object);
+    try {
+      await this.#write(object);
+    } catch (err) {
+      // A hung or failed write means this stream is dead for good; drop it
+      // so the next chunk starts over, rather than queueing behind it.
+      this.#writer?.abort().catch(() => {});
+      this.#writer = undefined;
+      this.#callbacks.onStreamReset?.();
+      throw err;
     }
+  }
+
+  async #write(object: Uint8Array): Promise<void> {
+    if (this.#writer) {
+      await withTimeout(this.#writer.write(object), SCREEN_WRITE_TIMEOUT_MS);
+      return;
+    }
+    const wt = this.#chat.webTransport;
+    if (!wt) return;
+    const stream = await withTimeout(wt.createUnidirectionalStream(), SCREEN_WRITE_TIMEOUT_MS);
+    this.#writer = stream.getWriter();
+    await withTimeout(
+      this.#writer.write(
+        concatBytes([buildScreenSubgroupHeader(this.#trackAlias, this.#groupId), object]),
+      ),
+      SCREEN_WRITE_TIMEOUT_MS,
+    );
   }
 
   /** Routes one incoming uni stream to onScreenChunk if its Track Alias
