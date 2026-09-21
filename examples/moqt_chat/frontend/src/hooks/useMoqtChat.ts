@@ -748,6 +748,15 @@ export function useMoqtChat() {
           const handle = await startNoiseSuppressor(
             track as unknown as MediaStreamTrack,
             () => {},
+            // Deployed under a subpath (GitHub Pages' /wired/moqt_chat/),
+            // and startNoiseSuppressor's own worklet/wasm fetches are the
+            // one place in this app that build a URL by hand instead of
+            // going through Next's own basePath-aware asset helpers --
+            // without this, both fetches 404 against the site root and
+            // noise suppression silently falls back to the browser's
+            // built-in NS on every real deployment (never caught by e2e,
+            // which always runs with NS off, see joinPrefs.ts).
+            process.env.NEXT_PUBLIC_BASE_PATH ?? "",
           );
           noiseSuppressorRef.current = handle;
           return handle.outputTrack as unknown as { stop: () => void };
