@@ -392,6 +392,13 @@ input {
   background: #000;
 }
 
+/* Own preview: the backing store follows the captured frame's size (like
+   a remote tile), the displayed width stays small. */
+.screen-own {
+  width: 160px;
+  height: auto;
+}
+
 /* Remote tiles: the canvas backing store is the sender's own frame size
    (useMoqtChat.ts's drawScreenFrame), so a CSS width alone keeps the
    aspect. --tile-w comes from the rail's "Tile width" slider. */

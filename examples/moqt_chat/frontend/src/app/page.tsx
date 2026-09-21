@@ -116,6 +116,7 @@ function ScreenTiles({
       {screenSharing && (
         <canvas
           ref={(el) => registerScreenCanvas("own", el)}
+          className="screen-own"
           data-testid="screen-tile-own"
           width={160}
           height={90}
