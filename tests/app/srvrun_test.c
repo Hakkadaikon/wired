@@ -1,5 +1,7 @@
 #include "app/http3/server/srvrun/srvrun.h"
 
+#include <unistd.h>
+
 #include "app/http3/core/h3/errclass.h"
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3/grease.h"
@@ -1206,6 +1208,9 @@ static void test_srvrun_full_conntable_sends_refusal(void) {
   conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
+  int              fd2_saved, pipefd[2];
+  char             logbuf[64] = {0};
+  ssize_t          n;
   conntable_init(table, WIRED_CONNTABLE_CAP);
   /* fill every slot with an unrelated live connection */
   for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
@@ -1213,6 +1218,12 @@ static void test_srvrun_full_conntable_sends_refusal(void) {
     CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, cid, 8) >= 0);
   }
   sr_make_id(&id, priv, pub, seed, rnd);
+  /* capture fd 2 so the refusal's log line (previously silent -- the
+   * production bug this test guards against) is observable here. */
+  fd2_saved = dup(2);
+  CHECK(pipe(pipefd) == 0);
+  dup2(pipefd[1], 2);
+  close(pipefd[1]);
   {
     usz        total = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
     srvrun_cfg cfg   = {
@@ -1224,6 +1235,11 @@ static void test_srvrun_full_conntable_sends_refusal(void) {
      * refusal path is REACHED, wire content is proven directly above. */
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
   }
+  dup2(fd2_saved, 2);
+  close(fd2_saved);
+  n = read(pipefd[0], logbuf, sizeof logbuf - 1);
+  close(pipefd[0]);
+  CHECK(n > 0);
   /* no slot was claimed for the refused client */
   CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
 }
