@@ -327,4 +327,24 @@ it("holds playback until LIVE_TARGET_AHEAD_S sits ahead, then plays once", async
     live.stop();
     expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:fake");
   });
+
+  it("stop() detaches the queue so a late timeupdate/updateend never reads a removed SourceBuffer's buffered", async () => {
+    const video = gateVideo();
+    const { live, sb } = await startedLiveMovie(undefined, video as unknown as HTMLVideoElement);
+    live.stop();
+    // Simulate the browser having removed the SourceBuffer from its parent
+    // MediaSource (what video.load() triggers): buffered now throws, like a
+    // real detached SourceBuffer does.
+    Object.defineProperty(sb, "buffered", {
+      get() {
+        throw new DOMException(
+          "Failed to read the 'buffered' property from 'SourceBuffer': " +
+            "This SourceBuffer has been removed from the parent media source.",
+          "InvalidStateError",
+        );
+      },
+    });
+    expect(() => video.fire("timeupdate")).not.toThrow();
+    expect(() => sb.finish()).not.toThrow();
+  });
 });
