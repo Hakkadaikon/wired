@@ -131,6 +131,13 @@ export interface LiveMovieOptions {
   onFirstGroup?(g: bigint): void;
 }
 
+/** A play() rejection that is not a failure: Chrome pauses muted video in
+ * a background tab and rejects the pending play() with AbortError. Only
+ * that name -- NotAllowedError and the rest are real. */
+export function isBenignPlayAbort(err: unknown): boolean {
+  return (err as { name?: unknown } | undefined)?.name === "AbortError";
+}
+
 /** Plays the hub's live movie: start() opens a MediaSource on the <video>
  * and SUBSCRIBEs "movie/init"; once handleInit gets the init segment it is
  * appended, buffered fragments flush, and the live "movie" track is
@@ -144,6 +151,14 @@ export class LiveMovie {
   #init: Uint8Array | undefined;
   #pending: Uint8Array[] = [];
   #playFailed = false;
+  // Set by a pause the user asked for (the <video controls> button):
+  // #maybePlay leaves the video alone until the next play event. A pause
+  // while the tab is hidden is the browser's own background throttling,
+  // not the user's, so it does not count.
+  #userPaused = false;
+  #onVisible = () => {
+    if (!document.hidden) this.#maybePlay();
+  };
   firstGroup: bigint | undefined;
 
   constructor(chat: MoqtChatClient, video: HTMLVideoElement, opts: LiveMovieOptions) {
@@ -187,6 +202,15 @@ export class LiveMovie {
     this.#video.addEventListener("waiting", () => this.#maybePlay());
     this.#video.addEventListener("stalled", () => this.#maybePlay());
     this.#video.addEventListener("timeupdate", () => this.#q?.trim(this.#video.currentTime));
+    this.#video.addEventListener("pause", () => {
+      if (!document.hidden && !this.#video.ended) this.#userPaused = true;
+    });
+    this.#video.addEventListener("play", () => {
+      this.#userPaused = false;
+    });
+    // The background pause above is only ever undone here: no updateend
+    // may arrive while hidden, and the browser does not resume by itself.
+    document.addEventListener("visibilitychange", this.#onVisible);
     await subscribeMovieInit(this.#chat);
   }
 
@@ -223,10 +247,10 @@ export class LiveMovie {
   }
 
   // Only ever (re)starts playback -- a stall is the browser's own
-  // "waiting"; pausing is left entirely to it.
+  // "waiting"; pausing is left to it and to the user (#userPaused).
   #maybePlay(): void {
     const v = this.#video;
-    if (!v.paused || !this.#gate(v)) return;
+    if (this.#userPaused || !v.paused || !this.#gate(v)) return;
     void v.play().catch((err) => this.#reportPlayFailure(err as Error));
   }
 
@@ -237,14 +261,18 @@ export class LiveMovie {
   }
 
   // Muted autoplay is normally allowed, so a rejection is unexpected;
-  // report it once instead of once per append.
+  // report it once instead of once per append. A benign abort neither
+  // reports nor latches, so a real failure after it still surfaces.
   #reportPlayFailure(e: Error): void {
-    if (this.#playFailed) return;
+    if (isBenignPlayAbort(e) || this.#playFailed) return;
     this.#playFailed = true;
     this.#opts.onError(`video play failed: ${e.name}: ${e.message}`);
   }
 
   stop(): void {
+    // Registered on document, not the <video>, so it would outlive this
+    // session (and keep calling play() on a detached video) if left.
+    document.removeEventListener("visibilitychange", this.#onVisible);
     // Dispose the queue first: video.load() below detaches the
     // SourceBuffer from its MediaSource, and the updateend/timeupdate
     // listeners stay registered -- without this, a late event reads
