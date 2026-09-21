@@ -392,10 +392,38 @@ input {
   background: #000;
 }
 
+/* Remote tiles: the canvas backing store is the sender's own frame size
+   (useMoqtChat.ts's drawScreenFrame), so a CSS width alone keeps the
+   aspect. --tile-w comes from the rail's "Tile width" slider. */
 .screen-tile {
   display: flex;
   flex-direction: column;
   gap: 0.25em;
+}
+
+.screen-tile canvas {
+  width: var(--tile-w, 320px);
+  height: auto;
+}
+
+.screen-tile--max {
+  width: 100%;
+}
+
+.screen-tile--max canvas {
+  width: 100%;
+}
+
+.screen-tile__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+}
+
+.screen-tile__bar .sign--small {
+  margin-left: auto;
+  padding: 0.2em 0.6em;
+  font-size: 0.75em;
 }
 
 .messages {
