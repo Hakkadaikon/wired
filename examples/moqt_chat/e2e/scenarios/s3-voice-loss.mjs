@@ -55,6 +55,7 @@ export async function run({ pageUrl, server, arg, log }) {
     maxFrameLossRate: Math.max(0.005, (1 - (1 - lossRate) ** 2) * 1.3),
     maxInterArrivalP99Ms: Number(arg("max-inter-arrival-p99", "150")),
     minPlcCount: 1, // a lossy profile must actually exercise PLC
+    maxPlcCount: Infinity, // concealment count is reported, not capped, under injected loss
   };
   const proxy = await startUdpProxy({
     listenBase: PROXY_BASE,

@@ -113,6 +113,10 @@ test("plcCount below minPlcCount fails when overridden; default minPlcCount (0) 
   );
 });
 
+test("maxPlcCount Infinity never fails", () => {
+  assert.deepEqual(evaluateVoiceGates(trace({ plcCount: 192 }), { maxPlcCount: Infinity }), []);
+});
+
 test("missing plcCount does not crash and is treated as zero", () => {
   assert.deepEqual(evaluateVoiceGates({ user1: { perSender: { user2: {} }, playheadLag: null } }), []);
 });
