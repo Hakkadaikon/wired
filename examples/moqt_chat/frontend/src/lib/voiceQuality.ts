@@ -67,8 +67,9 @@ export type QualityWindow = {
   // consumed yet.
   snapshot: (senderKey: string) => QualitySample;
   // Reads and resets ONLY the speaking flag, independent of snapshot()'s
-  // received/lost/lagMs reset -- so a faster speaking-poll cadence (Q-E's
-  // 100ms timer) doesn't zero out the slower quality snapshot's counters.
+  // received/lost/lagMs reset -- so a faster speaking-poll cadence (the
+  // 100ms speaking-indicator timer) doesn't zero out the slower quality
+  // snapshot's counters.
   snapshotSpeaking: (senderKey: string) => boolean;
 };
 

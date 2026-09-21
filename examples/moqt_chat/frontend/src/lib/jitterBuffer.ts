@@ -8,7 +8,7 @@
 const SEQ_SPACE = 0x10000;
 const HALF = SEQ_SPACE / 2;
 
-// Q-A adaptive pull() constants (one call == one 20 ms tick).
+// Adaptive pull() constants (one call == one 20 ms tick).
 const TARGET_START = 2;
 const GAP_WAIT_TICKS = 3;
 const REPRIME_TICKS = 10;
@@ -28,7 +28,7 @@ type SenderState = {
   buf: number[]; // buffered seqs, unsorted arrival order
   hasPlayed: boolean;
   lastSeq: number;
-  // Q-A pull() state: not modeled by push()/drain() above.
+  // pull() state: not modeled by push()/drain() above.
   primed: boolean;
   waitTicks: number; // shared by prebuffer wait and steady-state gap wait
   emptyTicks: number; // consecutive ticks seen with an empty buffer

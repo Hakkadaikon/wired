@@ -5,7 +5,7 @@ import { JitterBufferManager } from "../jitterBuffer";
 const OWN = "AAAAAAAA";
 const SPEAKER_B = "BBBBBBBB";
 
-// Q-A adaptive pull() tests use the full bufCap (8) per the design.
+// Adaptive pull() tests use the full bufCap (8) per the design.
 function manager(bufCap = 8) {
   return new JitterBufferManager(OWN, bufCap);
 }

@@ -53,7 +53,7 @@ export type MicPipelineDeps = {
   onSendFailing?: (err: unknown) => void;
   // Fires once with whichever track the encoder ends up consuming (the
   // suppressor's output track when rnnoiseOn succeeded, the raw captured
-  // track otherwise) -- so a caller (Q-E's speaking indicator) can attach
+  // track otherwise) -- so a caller (the speaking indicator) can attach
   // an AnalyserNode to the same audio the peer actually hears.
   onStream?: (track: CapturedTrack) => void;
 };
