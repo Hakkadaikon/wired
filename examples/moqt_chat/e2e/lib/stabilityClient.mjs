@@ -15,7 +15,7 @@ import { resolveChromeLaunch } from "./chromeLaunch.mjs";
 
 const JOIN_TIMEOUT_MS = 20000;
 
-const INIT_SCRIPT = `
+export const WT_INSTRUMENTATION_SCRIPT = `
   window.__decodedFrameCount = 0;
   const RealAudioDecoder = window.AudioDecoder;
   if (RealAudioDecoder) {
@@ -168,7 +168,7 @@ const INIT_SCRIPT = `
  * @param {string} opts.serverUrl     WebTransport URL (proxy or direct); "" keeps the page default
  * @param {string} opts.certHash      server cert fingerprint
  * @param {string} opts.participantId user1..user4
- * @param {string[]} [opts.initScripts] extra scripts injected before navigation (after INIT_SCRIPT)
+ * @param {string[]} [opts.initScripts] extra scripts injected before navigation (after WT_INSTRUMENTATION_SCRIPT)
  */
 export async function joinStabilityClient({ pageUrl, serverUrl, certHash, participantId, initScripts }) {
   const { executablePath, env } = resolveChromeLaunch();
@@ -202,7 +202,7 @@ export async function connectClient(
   const page = await client.browser.newPage();
   client.page = page;
   page.on("pageerror", (e) => client.errors.push(e.message));
-  await page.evaluateOnNewDocument(INIT_SCRIPT);
+  await page.evaluateOnNewDocument(WT_INSTRUMENTATION_SCRIPT);
   for (const script of initScripts) await page.evaluateOnNewDocument(script);
   await page.evaluateOnNewDocument(
     (prefs) => localStorage.setItem("moqt-chat.join", JSON.stringify(prefs)),
