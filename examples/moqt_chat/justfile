@@ -4,6 +4,10 @@
 
 # Build the server against the SDK static library, after the SDK's own
 # fmt+ninja+lint gate. The static, freestanding binary needs no libc.
+# Concurrent-connection cap (default 4, one per CANDIDATE_PARTICIPANT_IDS
+# slot) is the root justfile's conntable_cap -- override per invocation with
+# `CONNTABLE_CAP=<n> just build` (or `just --set conntable_cap <n> build`
+# from the repo root) when deploying for more than 4 simultaneous users.
 build:
     cd ../.. && just build && ninja examples/moqt_chat/wired_server
 
