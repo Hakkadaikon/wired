@@ -193,6 +193,27 @@ describe("startNoiseSuppressor", () => {
     expect(destination.channelCount).toBe(1);
   });
 
+  // Regression coverage: a deployment served under a subpath (GitHub
+  // Pages' /wired/moqt_chat/, next.config.ts's basePath) needs both worklet
+  // fetches prefixed, or they 404 against the site root instead -- a real
+  // bug shipped where the caller (useMoqtChat.ts) never passed this
+  // parameter through at all, defaulting it to "" in production.
+  it("prefixes both worklet URLs with a non-empty basePath", async () => {
+    const ctx = fakeContext();
+    const node = fakeNode();
+    const deps = baseDeps(ctx, node);
+
+    const pending = startNoiseSuppressor(micTrack, () => {}, "/wired/moqt_chat", deps);
+    await flushSetup();
+    node.port.onmessage?.({ data: { type: "ready" } } as MessageEvent);
+    await pending;
+
+    expect(deps.fetchText).toHaveBeenCalledWith("/wired/moqt_chat/worklets/rnnoise-sync.js");
+    expect(ctx.audioWorklet.addModule).toHaveBeenCalledWith(
+      "/wired/moqt_chat/worklets/rnnoise-processor.js",
+    );
+  });
+
   it("resolves with the denoised track once the processor posts {type:\"ready\"}", async () => {
     const ctx = fakeContext();
     const node = fakeNode();
