@@ -30,6 +30,7 @@ import {
 } from "@/lib/screenReceivePipeline";
 import { screenFrameReassemblerInit, screenFrameReassemblerPush } from "@/lib/moqtScreenWire";
 import { screenTap } from "@/lib/screenTap";
+import { createStallDetector, SCREEN_STALL_MS, type StallDetector } from "@/lib/stallDetector";
 import {
   createVoiceReceivePipeline,
   type VoiceReceivePipeline,
@@ -273,6 +274,7 @@ export type SessionRefs = {
   screenReceive: { current: unknown };
   screenReassemblers: { current: Map<string, unknown> };
   screenKeyframeMeta: { current: Map<string, unknown> };
+  screenStall: { current: Map<string, unknown> };
   client: { current: { close: () => void } | null };
   live: { current: { stop: () => void } | null };
   unregisterLifecycle: { current: (() => void) | null };
@@ -281,7 +283,7 @@ export type SessionRefs = {
 
 export function teardownSession(
   refs: SessionRefs,
-  store: Pick<MoqtChatState, "setScreenSharing" | "setScreenShareError">,
+  store: Pick<MoqtChatState, "setScreenSharing" | "setScreenShareError" | "setScreenTileStalled">,
 ): void {
   if (refs.drainTimer.current !== null) {
     clearTimeout(refs.drainTimer.current);
@@ -327,6 +329,8 @@ export function teardownSession(
   refs.screenReceive.current = null;
   refs.screenReassemblers.current.clear();
   refs.screenKeyframeMeta.current.clear();
+  for (const id of refs.screenStall.current.keys()) store.setScreenTileStalled(id, false);
+  refs.screenStall.current.clear();
   store.setScreenSharing(false);
   store.setScreenShareError(null);
   refs.client.current?.close();
@@ -420,6 +424,9 @@ export function useMoqtChat() {
   const screenKeyframeMetaRef = useRef<Map<string, { width?: number; height?: number; codec?: string }>>(
     new Map(),
   );
+  // One stall detector per remote sender, fed by onFrame below and polled
+  // from the drain loop's tick into the store's stalledScreenTiles.
+  const screenStallRef = useRef<Map<string, StallDetector>>(new Map());
   const screenReceiveRef = useRef<ScreenReceivePipeline | null>(null);
   const screenShareRef = useRef<ScreenSharePipeline | null>(null);
   const micRef = useRef<MicPipeline | null>(null);
@@ -541,6 +548,10 @@ export function useMoqtChat() {
       if (pipeline) {
         for (const key of knownSendersRef.current) pipeline.drainAndDecode(key);
       }
+      const now = performance.now();
+      for (const [key, d] of screenStallRef.current) {
+        useMoqtChatStore.getState().setScreenTileStalled(key, d.isStalled(now));
+      }
       drainTimerRef.current = setTimeout(tick, DRAIN_INTERVAL_MS);
     };
     tick();
@@ -565,6 +576,7 @@ export function useMoqtChat() {
         screenReceive: screenReceiveRef,
         screenReassemblers: screenReassemblersRef,
         screenKeyframeMeta: screenKeyframeMetaRef,
+        screenStall: screenStallRef,
         client: clientRef,
         live: liveRef,
         unregisterLifecycle: unregisterLifecycleRef,
@@ -829,6 +841,12 @@ export function useMoqtChat() {
           };
           try {
             drawScreenFrame(senderKey, vf);
+            let stall = screenStallRef.current.get(senderKey);
+            if (!stall) {
+              stall = createStallDetector(SCREEN_STALL_MS);
+              screenStallRef.current.set(senderKey, stall);
+            }
+            stall.frame(performance.now());
             screenTap({
               senderId: senderKey,
               width: vf.codedWidth ?? 0,
@@ -843,6 +861,9 @@ export function useMoqtChat() {
           useMoqtChatStore.getState().setScreenShareError("a peer's screen share could not be decoded"),
       });
       screenRef.current = new MoqtScreenClient(client, {
+        // The send stream was reopened: the receiver's reassembler and
+        // decoder can only resync on a keyframe.
+        onStreamReset: () => screenShareRef.current?.requestKeyframe(),
         onScreenChunk: (participantId, chunk) => {
           screenKnownSendersRef.current.add(participantId);
           try {

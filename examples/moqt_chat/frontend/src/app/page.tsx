@@ -85,6 +85,7 @@ function ScreenTiles({
   const screenTiles = useMoqtChatStore((s) => s.screenTiles);
   const screenSharing = useMoqtChatStore((s) => s.screenSharing);
   const screenShareError = useMoqtChatStore((s) => s.screenShareError);
+  const stalledScreenTiles = useMoqtChatStore((s) => s.stalledScreenTiles);
   if (screenTiles.length === 0 && !screenSharing) return null;
   return (
     <div className="screens">
@@ -99,13 +100,19 @@ function ScreenTiles({
       {screenTiles
         .filter((id) => id !== "own")
         .map((id) => (
-          <canvas
-            key={id}
-            ref={(el) => registerScreenCanvas(id, el)}
-            data-testid={`screen-tile-${id}`}
-            width={320}
-            height={180}
-          />
+          <div key={id} className="screen-tile">
+            <canvas
+              ref={(el) => registerScreenCanvas(id, el)}
+              data-testid={`screen-tile-${id}`}
+              width={320}
+              height={180}
+            />
+            {stalledScreenTiles[id] && (
+              <span className="caption" data-testid={`screen-stalled-${id}`}>
+                Stalled
+              </span>
+            )}
+          </div>
         ))}
       <Notice message={screenShareError} />
     </div>
