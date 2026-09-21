@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AppendQueue,
   catchUpTarget,
+  isBenignPlayAbort,
   LIVE_TARGET_AHEAD_S,
   LiveMovie,
   MOVIE_MIME,
@@ -163,6 +164,7 @@ function gateVideo() {
     src: "",
     currentTime: 0,
     paused: true,
+    ended: false,
     buffered: range([]),
     play: vi.fn(async () => {
       v.paused = false;
@@ -346,5 +348,124 @@ it("holds playback until LIVE_TARGET_AHEAD_S sits ahead, then plays once", async
     });
     expect(() => video.fire("timeupdate")).not.toThrow();
     expect(() => sb.finish()).not.toThrow();
+  });
+});
+
+function setHidden(hidden: boolean) {
+  Object.defineProperty(document, "hidden", { value: hidden, configurable: true });
+}
+
+// A video whose play() rejects the way a real one does, plus a "ready to
+// play" buffer so #maybePlay's gate is open on every trigger.
+function rejectingVideo(err: Error) {
+  const video = gateVideo();
+  video.buffered = range([[0, 8]]);
+  video.play = vi.fn(async () => {
+    throw err;
+  });
+  return video;
+}
+
+describe("isBenignPlayAbort", () => {
+  it("is true only for AbortError (the background-tab play() interruption)", () => {
+    expect(isBenignPlayAbort(new DOMException("interrupted", "AbortError"))).toBe(true);
+    expect(isBenignPlayAbort(new DOMException("blocked", "NotAllowedError"))).toBe(false);
+    expect(isBenignPlayAbort(undefined)).toBe(false);
+  });
+});
+
+describe("LiveMovie play() rejection handling", () => {
+  afterEach(() => setHidden(false));
+
+  it("does not report an AbortError, and still reports a real failure after it", async () => {
+    const onError = vi.fn();
+    const video = rejectingVideo(new DOMException("interrupted", "AbortError"));
+    const live = new LiveMovie({ subscribeTrack: vi.fn(async () => {}) } as never, video as never, { onError });
+    await live.start();
+    video.fire("waiting");
+    await Promise.resolve();
+    expect(onError).not.toHaveBeenCalled();
+
+    video.play = vi.fn(async () => {
+      throw new DOMException("blocked", "NotAllowedError");
+    });
+    video.fire("waiting");
+    await Promise.resolve();
+    expect(onError).toHaveBeenCalledExactlyOnceWith("video play failed: NotAllowedError: blocked");
+  });
+
+  it("reports a non-benign failure once, not once per trigger", async () => {
+    const onError = vi.fn();
+    const video = rejectingVideo(new DOMException("blocked", "NotAllowedError"));
+    const live = new LiveMovie({ subscribeTrack: vi.fn(async () => {}) } as never, video as never, { onError });
+    await live.start();
+    video.fire("waiting");
+    video.fire("waiting");
+    await Promise.resolve();
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries play() when the tab becomes visible again, but not after stop()", async () => {
+    const video = gateVideo();
+    video.buffered = range([[0, 8]]);
+    const { live } = await startedLiveMovie(undefined, video as unknown as HTMLVideoElement);
+    setHidden(true);
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(video.play).not.toHaveBeenCalled();
+    setHidden(false);
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(video.play).toHaveBeenCalledTimes(1);
+
+    live.stop();
+    video.paused = true;
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(video.play).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("LiveMovie user pause", () => {
+  afterEach(() => setHidden(false));
+
+  async function playingVideo() {
+    const video = gateVideo();
+    video.buffered = range([[0, 8]]);
+    const { sb } = await startedLiveMovie(undefined, video as unknown as HTMLVideoElement);
+    return { video, sb };
+  }
+
+  it("does not restart after the user paused while the tab was visible", async () => {
+    const { video, sb } = await playingVideo();
+    video.paused = true;
+    video.fire("pause");
+    sb.finish();
+    video.fire("waiting");
+    expect(video.play).not.toHaveBeenCalled();
+  });
+
+  it("resumes the gate once the user presses play again", async () => {
+    const { video, sb } = await playingVideo();
+    video.fire("pause");
+    video.fire("play");
+    sb.finish();
+    expect(video.play).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats a pause while hidden as the browser's, and resumes on visible", async () => {
+    const { video } = await playingVideo();
+    setHidden(true);
+    video.fire("pause");
+    setHidden(false);
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(video.play).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a visible-tab pause across a hide/show cycle", async () => {
+    const { video } = await playingVideo();
+    video.fire("pause");
+    setHidden(true);
+    document.dispatchEvent(new Event("visibilitychange"));
+    setHidden(false);
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(video.play).not.toHaveBeenCalled();
   });
 });
