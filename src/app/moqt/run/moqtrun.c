@@ -282,8 +282,8 @@ static int moqtrun_sub_name_known(
 static void moqtrun_sub_name_store(wired_moqtrun_peer* p, wired_span name) {
   bytes_memcpy(p->sub_names[p->sub_names_at], name.p, name.n);
   p->sub_name_lens[p->sub_names_at] = name.n;
-  p->sub_names_at                   = (u8)((p->sub_names_at + 1) % 8);
-  if (p->sub_names_n < 8) p->sub_names_n++;
+  p->sub_names_at = (u8)((p->sub_names_at + 1) % WIRED_MOQTRUN_SUB_NAMES);
+  if (p->sub_names_n < WIRED_MOQTRUN_SUB_NAMES) p->sub_names_n++;
 }
 
 /* Remember a name p subscribed to, so a later REPUBLISH of it can

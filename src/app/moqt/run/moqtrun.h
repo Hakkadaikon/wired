@@ -188,6 +188,13 @@ typedef struct {
  * screen). */
 #define WIRED_MOQTRUN_MAX_TRACKS_PER_PEER 3
 
+/** Fixed capacity: Track Names one peer remembers having SUBSCRIBEd to
+ * (wired_moqtrun_peer.sub_names). The chat app subscribes to every track
+ * of every other candidate participant, and the sample room has four
+ * candidate ids, so a peer can hold 3 others * 3 tracks = 9 names; 12
+ * leaves room without a rejoined publisher's oldest name being evicted. */
+#define WIRED_MOQTRUN_SUB_NAMES (WIRED_MOQTRUN_MAX_TRACKS_PER_PEER * 4)
+
 /** Largest single control-message envelope this hub ever sends (SS10
  * Type+Length+Body). */
 #define WIRED_MOQTRUN_CTL_MSG_MAX 64
@@ -233,18 +240,17 @@ typedef struct {
   u64                 request_id_next; /* next Request ID this hub sends */
   wired_moqtrun_track tracks[WIRED_MOQTRUN_MAX_TRACKS_PER_PEER];
   /** Track Names this peer has successfully SUBSCRIBEd to (ring, newest
-   * overwrites oldest past 8) -- kept on the SUBSCRIBER so the intent
-   * outlives the publisher. When a publisher drops and REPUBLISHes the
-   * same name (a rejoin), its old track died together with every
-   * subscription recorded against it, while the still-connected
-   * subscribers' clients believe their subscription stands and never
-   * re-SUBSCRIBE: the rejoined publisher played into silence until the
-   * listener reloaded the page. PUBLISH re-attaches every live holder of
-   * the name (moqtrun_reattach_subs). 8 covers a room-scale peer set
-   * (each other participant publishes two tracks). */
-  u8  sub_names[8][WIRED_MOQTRUN_MAX_NAME];
-  usz sub_name_lens[8];
-  u8  sub_names_n;  /**< entries recorded (<= 8) */
+   * overwrites oldest past WIRED_MOQTRUN_SUB_NAMES) -- kept on the
+   * SUBSCRIBER so the intent outlives the publisher. When a publisher
+   * drops and REPUBLISHes the same name (a rejoin), its old track died
+   * together with every subscription recorded against it, while the
+   * still-connected subscribers' clients believe their subscription
+   * stands and never re-SUBSCRIBE: the rejoined publisher played into
+   * silence until the listener reloaded the page. PUBLISH re-attaches
+   * every live holder of the name (moqtrun_reattach_subs). */
+  u8  sub_names[WIRED_MOQTRUN_SUB_NAMES][WIRED_MOQTRUN_MAX_NAME];
+  usz sub_name_lens[WIRED_MOQTRUN_SUB_NAMES];
+  u8  sub_names_n;  /**< entries recorded (<= WIRED_MOQTRUN_SUB_NAMES) */
   u8  sub_names_at; /**< ring write index */
   /** Two send_buf slots, used as an ARMED/PENDING pair rather than a single
    * shared buffer: wired_server_wt_stream_send's payload is a VIEW
