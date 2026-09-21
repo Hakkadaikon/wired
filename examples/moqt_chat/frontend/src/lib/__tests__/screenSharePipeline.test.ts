@@ -247,6 +247,43 @@ describe("screenSharePipeline", () => {
     expect(sendOrder).toEqual(["0:0", "0:1", "1:0"]);
   });
 
+  it("requestKeyframe() makes the next frame a keyframe even inside the 2 s cadence", async () => {
+    const track = fakeTrack();
+    const encoder = fakeEncoder(10);
+    const pipeline = await startScreenSharePipeline({
+      getDisplayMedia: fakeGetDisplayMedia(track),
+      VideoEncoderCtor: encoder.ctor as never,
+      sendVideoChunk: vi.fn(),
+    });
+    pipeline.pushFrame(fakeFrame());
+    pipeline.pushFrame(fakeFrame());
+    expect(encoder.encodeCalls[1].opts).toEqual({ keyFrame: false });
+    pipeline.requestKeyframe();
+    pipeline.pushFrame(fakeFrame());
+    expect(encoder.encodeCalls[2].opts).toEqual({ keyFrame: true });
+    pipeline.pushFrame(fakeFrame());
+    expect(encoder.encodeCalls[3].opts).toEqual({ keyFrame: false });
+  });
+
+  it("drops (and closes) a frame while more than 2 are queued in the encoder", async () => {
+    const track = fakeTrack();
+    const encoder = fakeEncoder(10);
+    const pipeline = await startScreenSharePipeline({
+      getDisplayMedia: fakeGetDisplayMedia(track),
+      VideoEncoderCtor: encoder.ctor as never,
+      sendVideoChunk: vi.fn(),
+    });
+    const instance = encoder.ctor.mock.results[0].value as { encodeQueueSize?: number };
+    instance.encodeQueueSize = 3;
+    const frame = fakeFrame();
+    pipeline.pushFrame(frame);
+    expect(encoder.encodeCalls.length).toBe(0);
+    expect(frame.close).toHaveBeenCalledTimes(1);
+    instance.encodeQueueSize = 2;
+    pipeline.pushFrame(fakeFrame());
+    expect(encoder.encodeCalls.length).toBe(1);
+  });
+
   it("stops the encoder and sending when the captured track fires 'ended'", async () => {
     const track = fakeTrack();
     const encoder = fakeEncoder(10);
