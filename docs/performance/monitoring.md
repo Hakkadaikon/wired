@@ -49,72 +49,23 @@ not a throughput benchmark (see [Comparison](comparison.md) for that).
 
 ## Test machine
 
-`lscpu` on the host running this container (ConoHa VPS, KVM guest):
+The host running this container (ConoHa VPS, KVM guest), from `lscpu`:
 
-```
-$ lscpu
-Architecture:                x86_64
-  CPU op-mode(s):            32-bit, 64-bit
-  Address sizes:             46 bits physical, 48 bits virtual
-  Byte Order:                Little Endian
-CPU(s):                      4
-  On-line CPU(s) list:       0-3
-Vendor ID:                   GenuineIntel
-  Model name:                Intel(R) Xeon(R) Gold 6230 CPU @ 2.10GHz
-    CPU family:              6
-    Model:                   85
-    Thread(s) per core:      1
-    Core(s) per socket:      1
-    Socket(s):               4
-    Stepping:                7
-    BogoMIPS:                4190.15
-    Flags:                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca
-                             cmov pat pse36 clflush mmx fxsr sse sse2 ss syscall nx
-                             pdpe1gb rdtscp lm constant_tsc arch_perfmon rep_good nopl
-                             xtopology cpuid tsc_known_freq pni pclmulqdq ssse3 fma
-                             cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer
-                             aes xsave avx f16c rdrand hypervisor lahf_lm abm
-                             3dnowprefetch cpuid_fault pti ssbd ibrs ibpb stibp
-                             fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid
-                             rtm mpx avx512f avx512dq rdseed adx smap clflushopt clwb
-                             avx512cd avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves
-                             arat umip pku ospke avx512_vnni
-Virtualization features:
-  Hypervisor vendor:         KVM
-  Virtualization type:       full
-Caches (sum of all):
-  L1d:                       128 KiB (4 instances)
-  L1i:                       128 KiB (4 instances)
-  L2:                        16 MiB (4 instances)
-  L3:                        64 MiB (4 instances)
-NUMA:
-  NUMA node(s):              1
-  NUMA node0 CPU(s):         0-3
-Vulnerabilities:
-  Gather data sampling:      Unknown: Dependent on hypervisor status
-  Indirect target selection: Mitigation; Aligned branch/return thunks
-  Itlb multihit:             KVM: Mitigation: VMX unsupported
-  L1tf:                      Mitigation; PTE Inversion
-  Mds:                       Vulnerable: Clear CPU buffers attempted, no microcode; SMT Host state unknown
-  Meltdown:                  Mitigation; PTI
-  Mmio stale data:           Vulnerable: Clear CPU buffers attempted, no microcode; SMT Host state unknown
-  Reg file data sampling:    Not affected
-  Retbleed:                  Mitigation; IBRS
-  Spec rstack overflow:      Not affected
-  Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl
-  Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization
-  Spectre v2:                Mitigation; IBRS; IBPB conditional; STIBP disabled; RSB filling; PBRSB-eIBRS Not affected; BHI SW loop, KVM SW loop
-  Srbds:                     Not affected
-  Tsa:                       Not affected
-  Tsx async abort:           Vulnerable: Clear CPU buffers attempted, no microcode; SMT Host state unknown
-  Vmscape:                   Not affected
-```
+| | |
+|---|---|
+| CPU model | Intel(R) Xeon(R) Gold 6230 @ 2.10GHz |
+| vCPUs | 4 (presented as 4×1-core sockets, not one 4-core socket — typical cloud vCPU shape, not a physical 4-socket server) |
+| Architecture | x86_64, 46-bit physical / 48-bit virtual addressing |
+| Hypervisor | KVM (full virtualization) |
+| L1d / L1i cache | 128 KiB each (4 instances) |
+| L2 cache | 16 MiB (4 instances) |
+| L3 cache | 64 MiB (4 instances) |
+| NUMA nodes | 1 |
+| Notable ISA extensions | AVX-512 (F/DQ/CD/BW/VL/VNNI), AES-NI, RDRAND/RDSEED |
 
-Notable: this is a KVM guest with 4 vCPUs presented as 4 separate sockets
-(1 core/thread each) rather than a single 4-core socket — a common shape
-for cloud VM vCPU allocation, not a 4-socket physical server. Several
-mitigations report degraded/unknown status "dependent on hypervisor" or
-"no microcode" (MDS, MMIO stale data, TSX async abort) — typical for a VM
-where the host's microcode/hypervisor mitigations aren't fully visible to
-the guest; this reflects the hosting environment, not anything `wired`
-controls.
+CPU vulnerability mitigations are the standard set for a 2026-patched Xeon
+KVM guest (Meltdown/L1TF/Spectre v1&2/Retbleed mitigated; MDS/MMIO-stale-
+data/TSX-async-abort report degraded "no microcode visible to guest"
+status, which reflects the hypervisor host, not `wired`) — full
+`lscpu` output on request, omitted here as not relevant to the numbers
+above.
