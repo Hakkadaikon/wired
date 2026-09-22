@@ -1049,15 +1049,26 @@ export function useMoqtChat() {
     [store],
   );
 
-  // Unlike sendChat, the sender's own history does NOT get an optimistic
-  // local entry: only the remote receiver's onImage callback above adds a
-  // message. Intentional (task brief's documented tradeoff).
+  // Same optimistic-local-entry shape as sendChat: on success, the sender
+  // sees their own image in their own timeline too (own: true), built from
+  // the same bytes/mimeType they sent rather than round-tripping through
+  // the wire -- no need to wait for anything back from the hub.
   const sendImage = useCallback(
     async (bytes: Uint8Array, mimeType: string) => {
       const client = clientRef.current;
+      const senderId = localIdRef.current;
       if (!client) return;
       try {
         await client.sendImage(bytes, mimeType);
+        const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mimeType }));
+        store.addMessage({
+          senderId,
+          text: "",
+          at: Date.now(),
+          own: true,
+          imageDataUrl: url,
+          imageMimeType: mimeType,
+        });
       } catch {
         store.setImageSendError("image send failed");
       }

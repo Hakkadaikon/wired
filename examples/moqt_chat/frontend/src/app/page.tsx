@@ -322,9 +322,10 @@ function OutputDevice({ onSelect }: { onSelect: (deviceId: string) => void }) {
 function Message({ m }: { m: ChatMessage }) {
   const nicknames = useMoqtChatStore((s) => s.nicknames);
   const time = new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  // The Blob URL is created once in onImage (useMoqtChat.ts) and belongs to
-  // this message instance for its whole lifetime, so revoke it on unmount
-  // only -- capture the value the effect closed over, not a fresh read of m.
+  // The Blob URL is created once (onImage for a received image, sendImage
+  // for the sender's own) and belongs to this message instance for its
+  // whole lifetime, so revoke it on unmount only -- capture the value the
+  // effect closed over, not a fresh read of m.
   useEffect(() => {
     const url = m.imageDataUrl;
     if (!url) return;
