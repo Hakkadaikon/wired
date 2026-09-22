@@ -39,15 +39,18 @@ import {
   type SubgroupHeader,
 } from "./moqtWire";
 import {
-  buildImageSubgroupHeader,
-  decodeImageChunkMessage,
-  encodeImageChunkMessage,
-  imageFrameReassemblerInit,
-  imageFrameReassemblerPush,
-  isImageChunkPayload,
-  splitImageIntoChunks,
-  type ImageFrameReassembler,
-} from "./moqtImageWire";
+  attachmentReassemblerInit,
+  attachmentReassemblerPush,
+  buildAttachmentSubgroupHeader,
+  decodeAttachmentChunkMessage,
+  decodeTextPartMessage,
+  encodeAttachmentChunkMessage,
+  encodeTextPartMessage,
+  isAttachmentChunkPayload,
+  isTextPartPayload,
+  splitAttachmentIntoChunks,
+  type AttachmentReassembler,
+} from "./moqtAttachmentWire";
 
 // draft-ietf-moq-transport-19 SS10 message type IDs used on the wire here.
 const MSG_TYPE_PUBLISH = 0x1dn;
@@ -198,14 +201,17 @@ export function parseNicknameFromChatText(text: string): string | undefined {
 }
 
 /** Classifies a raw chat-track Object payload before it is decoded any
- * further: an image chunk carries a binary marker byte (0xFF) that is not a
- * valid UTF-8 lead byte (RFC 3629 caps lead bytes at 0xF4), so it can never
- * collide with real chat text; the nickname marker (NUL, 0x00) is likewise
- * not producible by hand in the chat input. #readChatObjectStream uses this
- * to pick a decode path without running image bytes through the UTF-8
- * decoder. */
-export function classifyChatPayload(payload: Uint8Array): "text" | "nickname" | "image" {
-  if (isImageChunkPayload(payload)) return "image";
+ * further: an attachment chunk/text-part carries a binary marker byte
+ * (0xFD/0xFE) that is not a valid UTF-8 lead byte (RFC 3629 caps lead bytes
+ * at 0xF4), so neither can ever collide with real chat text; the nickname
+ * marker (NUL, 0x00) is likewise not producible by hand in the chat input.
+ * #readChatObjectStream uses this to pick a decode path without running
+ * binary attachment bytes through the UTF-8 decoder. */
+export function classifyChatPayload(
+  payload: Uint8Array,
+): "text" | "nickname" | "attachment-text" | "attachment-chunk" {
+  if (isAttachmentChunkPayload(payload)) return "attachment-chunk";
+  if (isTextPartPayload(payload)) return "attachment-text";
   if (bytesToUtf8(payload).startsWith(NICKNAME_MARKER)) return "nickname";
   return "text";
 }
@@ -214,15 +220,21 @@ export function classifyChatPayload(payload: Uint8Array): "text" | "nickname" | 
 
 const ROOM_NAMESPACE = [utf8ToBytes("wired"), utf8ToBytes("moqt_chat")];
 
+export interface ChatAttachment {
+  bytes: Uint8Array;
+  mimeType: string;
+}
+
 export interface MoqtChatCallbacks {
   onStatusChange(status: "connecting" | "connected" | "disconnected"): void;
-  onMessage(participantId: string, text: string): void;
+  // Fires once per message, whether it carries attachments or not (a
+  // plain-text message fires with attachments: []) -- the text-part and
+  // attachment-chunk streams are reassembled into one call by
+  // #pendingMessages before this ever runs (see the class doc below).
+  onMessage(participantId: string, text: string, attachments: ChatAttachment[]): void;
   // A nickname self-announce (buildNicknameObjectMessage) from participantId
   // -- never forwarded to onMessage, so it never appears in the chat log.
   onNickname?(participantId: string, nickname: string): void;
-  // A fully reassembled image attachment from participantId (see
-  // #readChatObjectStream's image-chunk branch and moqtImageWire.ts).
-  onImage?(participantId: string, bytes: Uint8Array, mimeType: string): void;
   // Fires for an incoming uni stream whose SUBGROUP_HEADER's Track Alias is
   // not this client's chat candidate-list mapping -- the audio track uses a
   // separate alias range (moqtVoiceClient.ts's ownAudioTrackAlias), the
@@ -268,14 +280,32 @@ const SUBSCRIBE_RETRY_MS = 1000;
 // tick or two late is not resent needlessly.
 const SUBSCRIBE_PENDING_TIMEOUT_MS = 3000;
 
+// A message's text-part and attachment-chunk streams can arrive in either
+// order (or interleaved with other messages), so one message's delivery is
+// buffered here, keyed by `${participantId}:${messageId}`, until both the
+// text and every attachment have arrived -- then onMessage fires once and
+// the entry is removed. A PendingMessage stale for more than this long is
+// dropped the next time any text-part/attachment-chunk is handled (no
+// separate sweep timer -- see moqtAttachmentWire.ts's own per-chunk
+// ATTACHMENT_TIMEOUT_MS, which this mirrors for the whole-message case).
+const PENDING_MESSAGE_TIMEOUT_MS = 30_000;
+
+interface PendingMessage {
+  text?: string;
+  attachmentCount: number;
+  attachments: Map<number, ChatAttachment>;
+  receivedAt: number;
+}
+
 export class MoqtChatClient {
   #wt?: WebTransport;
   #controlWriter?: WritableStreamDefaultWriter<Uint8Array>;
   #localId: string;
   #localTrackAlias: bigint;
   #groupId = 0n;
-  #imageSeq = 0;
-  #imageReassemblers = new Map<string, ImageFrameReassembler>();
+  #nextMessageId = 1;
+  #attachmentReassemblers = new Map<string, AttachmentReassembler>();
+  #pendingMessages = new Map<string, PendingMessage>();
   #foundParticipants = new Set<string>();
   #retryTimer?: ReturnType<typeof setInterval>;
   #callbacks: MoqtChatCallbacks;
@@ -342,16 +372,6 @@ export class MoqtChatClient {
     return this.#localId;
   }
 
-  async send(text: string): Promise<void> {
-    if (!this.#wt) return;
-    const wire = buildChatObjectMessage({
-      trackAlias: this.#localTrackAlias,
-      groupId: this.#groupId++,
-      text,
-    });
-    await this.#sendUniStream(wire);
-  }
-
   /** Sends this client's nickname self-announce once, over the same Object
    * channel as chat -- see moqtClient.ts's own doc on why no hub change is
    * needed. No-op for an empty nickname (the "don't use the feature" case). */
@@ -365,22 +385,51 @@ export class MoqtChatClient {
     await this.#sendUniStream(wire);
   }
 
-  /** Sends an image attachment as one uni stream per chunk (splitImageIntoChunks,
-   * moqtImageWire.ts), each stream carrying its own SUBGROUP_HEADER + one
-   * Object. Chunks are awaited one at a time, never fired concurrently: the
-   * reassembler on the receiving end depends on chunks landing in order. */
-  async sendImage(bytes: Uint8Array, mimeType: string): Promise<void> {
+  /** Sends one chat message: one text-part uni stream, then each attachment
+   * as its own run of chunk uni streams (splitAttachmentIntoChunks,
+   * moqtAttachmentWire.ts). All streams share one messageId so the
+   * receiving end's #pendingMessages can regroup them regardless of
+   * arrival order. Every stream is awaited one at a time, never fired
+   * concurrently: the reassembler on the receiving end depends on a given
+   * attachment's chunks landing in order. */
+  async sendMessage(text: string, attachments: ChatAttachment[]): Promise<void> {
     if (!this.#wt) return;
-    const chunks = splitImageIntoChunks(this.#imageSeq++, bytes, mimeType);
+    const messageId = this.#nextMessageId++;
+    await this.#sendTextPart(messageId, attachments.length, text);
+    for (let i = 0; i < attachments.length; i++) {
+      await this.#sendAttachment(messageId, i, attachments[i]);
+    }
+  }
+
+  async #sendTextPart(messageId: number, attachmentCount: number, text: string): Promise<void> {
+    const body = encodeTextPartMessage(messageId, attachmentCount, text);
+    const wire = concatBytes([
+      buildAttachmentSubgroupHeader(this.#localTrackAlias, this.#groupId++),
+      concatBytes([encodeVarint(0n), encodeVarint(BigInt(body.length)), body]),
+    ]);
+    await this.#sendUniStream(wire);
+  }
+
+  async #sendAttachment(
+    messageId: number,
+    attachmentIdx: number,
+    attachment: ChatAttachment,
+  ): Promise<void> {
+    const chunks = splitAttachmentIntoChunks(
+      messageId,
+      attachmentIdx,
+      attachment.mimeType,
+      attachment.bytes,
+    );
     for (const chunk of chunks) {
-      const body = encodeImageChunkMessage(chunk);
+      const body = encodeAttachmentChunkMessage(chunk);
       // Object ID Delta (0 -> FIRST_OBJECT makes it the absolute id) +
-      // Length, same framing #sendVideoChunk/buildChatObjectMessage wrap
-      // every Object body in -- encodeImageChunkMessage only encodes the
-      // Object's payload bytes, not the Object envelope around it.
+      // Length, same framing buildChatObjectMessage wraps every Object
+      // body in -- encodeAttachmentChunkMessage only encodes the Object's
+      // payload bytes, not the Object envelope around it.
       const object = concatBytes([encodeVarint(0n), encodeVarint(BigInt(body.length)), body]);
       const wire = concatBytes([
-        buildImageSubgroupHeader(this.#localTrackAlias, this.#groupId++),
+        buildAttachmentSubgroupHeader(this.#localTrackAlias, this.#groupId++),
         object,
       ]);
       await this.#sendUniStream(wire);
@@ -709,8 +758,12 @@ export class MoqtChatClient {
     if (!participant) return;
 
     const kind = classifyChatPayload(payload);
-    if (kind === "image") {
-      this.#handleImageChunkPayload(participant, payload);
+    if (kind === "attachment-chunk") {
+      this.#handleAttachmentChunkPayload(participant, payload);
+      return;
+    }
+    if (kind === "attachment-text") {
+      this.#handleTextPartPayload(participant, payload);
       return;
     }
     const text = bytesToUtf8(payload);
@@ -718,22 +771,114 @@ export class MoqtChatClient {
       this.#callbacks.onNickname?.(participant, parseNicknameFromChatText(text) ?? "");
       return;
     }
-    this.#callbacks.onMessage(participant, text);
+    this.#callbacks.onMessage(participant, text, []);
   }
 
-  #handleImageChunkPayload(participant: string, payload: Uint8Array): void {
-    let chunk;
+  // Key for both #pendingMessages and #attachmentMimeTypes: one message's
+  // reassembly state must never be confused with another participant's or
+  // another messageId's, and a delivered/timed-out messageId's key simply
+  // stops being looked up -- Map holds no memory of it (brief's own
+  // "messageId re-use needs no explicit cleanup" note).
+  #pendingKey(participant: string, messageId: number): string {
+    return `${participant}:${messageId}`;
+  }
+
+  #pendingFor(participant: string, messageId: number): PendingMessage {
+    const key = this.#pendingKey(participant, messageId);
+    let pending = this.#pendingMessages.get(key);
+    if (!pending) {
+      // attachmentCount stays 0 until the text part sets the real count;
+      // an attachment-chunk-only arrival never completes on its own (the
+      // completion check there also requires pending.text !== undefined).
+      pending = { attachmentCount: 0, attachments: new Map(), receivedAt: Date.now() };
+      this.#pendingMessages.set(key, pending);
+    }
+    return pending;
+  }
+
+  // Attachments can complete reassembly in any order; onMessage always
+  // sees them in attachmentIdx order (the order sendMessage sent them in).
+  #orderedAttachments(pending: PendingMessage): ChatAttachment[] {
+    return [...pending.attachments.entries()].sort(([a], [b]) => a - b).map(([, v]) => v);
+  }
+
+  // A PendingMessage sits waiting for its sibling streams indefinitely
+  // otherwise (e.g. the text part never arrives). Swept lazily on every
+  // text-part/attachment-chunk delivery, mirroring moqtAttachmentWire.ts's
+  // own per-chunk pruning -- no dedicated timer (YAGNI).
+  #pruneExpiredMessages(now: number): void {
+    for (const [key, pending] of this.#pendingMessages) {
+      if (now - pending.receivedAt >= PENDING_MESSAGE_TIMEOUT_MS) {
+        this.#pendingMessages.delete(key);
+      }
+    }
+  }
+
+  #handleTextPartPayload(participant: string, payload: Uint8Array): void {
+    let parsed;
     try {
-      ({ chunk } = decodeImageChunkMessage(payload));
+      parsed = decodeTextPartMessage(payload);
     } catch {
       return;
     }
-    let reassembler = this.#imageReassemblers.get(participant);
-    if (!reassembler) {
-      reassembler = imageFrameReassemblerInit();
-      this.#imageReassemblers.set(participant, reassembler);
+    const now = Date.now();
+    this.#pruneExpiredMessages(now);
+
+    const key = this.#pendingKey(participant, parsed.messageId);
+    const pending = this.#pendingFor(participant, parsed.messageId);
+    pending.text = parsed.text;
+    pending.attachmentCount = parsed.attachmentCount;
+    pending.receivedAt = now;
+
+    if (pending.attachments.size >= pending.attachmentCount) {
+      this.#pendingMessages.delete(key);
+      this.#callbacks.onMessage(participant, pending.text, this.#orderedAttachments(pending));
     }
-    const result = imageFrameReassemblerPush(reassembler, chunk);
-    if (result) this.#callbacks.onImage?.(participant, result.bytes, result.mimeType);
+  }
+
+  // messageId:attachmentIdx -> mimeType, held only between an attachment's
+  // idx===0 chunk (the only one carrying mimeType) and that attachment's
+  // reassembly completing -- attachmentReassemblerPush itself returns just
+  // the concatenated bytes (moqtAttachmentWire.ts), not the mimeType.
+  #attachmentMimeTypes = new Map<string, string>();
+
+  #handleAttachmentChunkPayload(participant: string, payload: Uint8Array): void {
+    let chunk;
+    try {
+      chunk = decodeAttachmentChunkMessage(payload);
+    } catch {
+      return;
+    }
+    if (chunk.idx === 0 && chunk.mimeType !== undefined) {
+      this.#attachmentMimeTypes.set(
+        `${participant}:${chunk.messageId}:${chunk.attachmentIdx}`,
+        chunk.mimeType,
+      );
+    }
+
+    let reassembler = this.#attachmentReassemblers.get(participant);
+    if (!reassembler) {
+      reassembler = attachmentReassemblerInit();
+      this.#attachmentReassemblers.set(participant, reassembler);
+    }
+    const bytes = attachmentReassemblerPush(reassembler, chunk);
+    if (!bytes) return;
+
+    const mimeKey = `${participant}:${chunk.messageId}:${chunk.attachmentIdx}`;
+    const mimeType = this.#attachmentMimeTypes.get(mimeKey) ?? "";
+    this.#attachmentMimeTypes.delete(mimeKey);
+
+    const now = Date.now();
+    this.#pruneExpiredMessages(now);
+
+    const key = this.#pendingKey(participant, chunk.messageId);
+    const pending = this.#pendingFor(participant, chunk.messageId);
+    pending.attachments.set(chunk.attachmentIdx, { bytes, mimeType });
+    pending.receivedAt = now;
+
+    if (pending.text !== undefined && pending.attachments.size >= pending.attachmentCount) {
+      this.#pendingMessages.delete(key);
+      this.#callbacks.onMessage(participant, pending.text, this.#orderedAttachments(pending));
+    }
   }
 }
