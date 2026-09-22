@@ -51,6 +51,7 @@ import {
   splitAttachmentIntoChunks,
   type AttachmentReassembler,
 } from "./moqtAttachmentWire";
+import { ATTACHMENT_MAX_COUNT } from "./attachmentValidation";
 
 // draft-ietf-moq-transport-19 SS10 message type IDs used on the wire here.
 const MSG_TYPE_PUBLISH = 0x1dn;
@@ -833,6 +834,10 @@ export class MoqtChatClient {
     } catch {
       return;
     }
+    // I1(a): a text-part claiming more attachments than this app ever sends
+    // is untrusted input -- dropped whole, same silent-drop pattern as a
+    // decode failure above.
+    if (parsed.attachmentCount > ATTACHMENT_MAX_COUNT) return;
     const now = Date.now();
     this.#pruneExpiredMessages(now);
 
@@ -859,6 +864,15 @@ export class MoqtChatClient {
     try {
       chunk = decodeAttachmentChunkMessage(payload);
     } catch {
+      return;
+    }
+    // I1(b2): once the text part has confirmed this message's real
+    // attachmentCount, a chunk claiming an attachmentIdx outside that
+    // confirmed range is untrusted (attachmentReassemblerPush's own
+    // isTrustedChunk already rejects attachmentIdx >= ATTACHMENT_MAX_COUNT
+    // unconditionally -- this is the tighter, message-specific bound).
+    const knownPending = this.#pendingMessages.get(this.#pendingKey(participant, chunk.messageId));
+    if (knownPending?.text !== undefined && chunk.attachmentIdx >= knownPending.attachmentCount) {
       return;
     }
     if (chunk.idx === 0 && chunk.mimeType !== undefined) {

@@ -624,6 +624,57 @@ describe("MoqtChatClient message aggregation", () => {
     expect(messages[0].attachments).toEqual([]);
   });
 
+  // I1(a): a text-part claiming more than ATTACHMENT_MAX_COUNT (4)
+  // attachments is untrusted input from the wire and is dropped whole,
+  // never partially trusted.
+  // I1(a): a text-part claiming more than ATTACHMENT_MAX_COUNT (4)
+  // attachments is untrusted input and is dropped whole -- observable here
+  // as "never delivered", since ATTACHMENT_MAX_COUNT attachments (the most
+  // any sender can legitimately send) can never satisfy a bogus count of 5.
+  // I1(b2)'s test below closes the harder case (a legitimate attachmentCount
+  // being exceeded by chunk idx), which is what actually distinguishes "the
+  // guard rejected it" from "it's merely incomplete".
+  it("I1(a): a text-part with attachmentCount > 4 never delivers, even with 4 real attachments sent", async () => {
+    const { fake, messages } = await connectedListening();
+
+    pushTextPart(fake, 40, 5, "too many attachments", 0n);
+    pushAttachment(fake, 40, 0, "image/png", new Uint8Array([1]), 1n);
+    pushAttachment(fake, 40, 1, "image/png", new Uint8Array([2]), 2n);
+    pushAttachment(fake, 40, 2, "image/png", new Uint8Array([3]), 3n);
+    pushAttachment(fake, 40, 3, "image/png", new Uint8Array([4]), 4n);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(messages).toHaveLength(0);
+  });
+
+  it("I1(a): a text-part with attachmentCount === 4 (the boundary) is accepted", async () => {
+    const { fake, messages } = await connectedListening();
+
+    pushTextPart(fake, 41, 4, "exactly four", 0n);
+    pushAttachment(fake, 41, 0, "image/png", new Uint8Array([1]), 1n);
+    pushAttachment(fake, 41, 1, "image/png", new Uint8Array([2]), 2n);
+    pushAttachment(fake, 41, 2, "image/png", new Uint8Array([3]), 3n);
+    pushAttachment(fake, 41, 3, "image/png", new Uint8Array([4]), 4n);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].attachments).toHaveLength(4);
+  });
+
+  // I1(b2): once the text part has fixed attachmentCount for a message, a
+  // later chunk claiming an attachmentIdx outside that count is untrusted
+  // (the sender's own text part says otherwise) and is dropped rather than
+  // silently growing the delivered attachment set past what was announced.
+  it("I1(b2): a chunk whose attachmentIdx >= the text part's own attachmentCount is dropped", async () => {
+    const { fake, messages } = await connectedListening();
+
+    pushTextPart(fake, 42, 1, "one attachment announced", 0n);
+    pushAttachment(fake, 42, 1, "image/png", new Uint8Array([9]), 1n); // idx 1, but count says 1 (valid indices: 0)
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(messages).toHaveLength(0); // never completes: the only chunk sent was dropped
+  });
+
   it("scenario 6: an attachment chunk delayed past a timed-out message's discard starts fresh, no misdelivery", async () => {
     const { fake, client, messages } = await connectedListening();
 
