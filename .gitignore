@@ -29,3 +29,6 @@ examples/*/public/key.pem
 # pip-downloaded interop test deps, editor tooling cache
 /*.whl
 /.cache/
+
+# agent worktrees
+/.worktrees/
