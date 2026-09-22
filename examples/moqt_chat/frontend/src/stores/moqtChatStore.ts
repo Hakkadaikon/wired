@@ -24,6 +24,8 @@ export type ChatMessage = {
   at: number; // epoch ms
   own: boolean; // true = sent by this client
   failed?: boolean; // own message whose send failed
+  imageDataUrl?: string; // data: URL of image, if this message has an image
+  imageMimeType?: string; // MIME type of image
 };
 
 export type MoqtChatState = {
@@ -46,6 +48,7 @@ export type MoqtChatState = {
   speaking: Record<string, boolean>; // per-sender speaking indicator; absent key renders as false
   localSpeaking: boolean; // this client's own speaking indicator
   noiseSuppressionEnabled: boolean; // RNNoise on/off (masthead "NS" toggle)
+  imageSendError: string | null; // image send error, independent of other error state
   setConnectionState: (state: ConnectionState) => void;
   setMuted: (muted: boolean) => void;
   addMessage: (message: Omit<ChatMessage, "id">) => number;
@@ -71,6 +74,7 @@ export type MoqtChatState = {
   setSpeaking: (id: string, speaking: boolean) => void;
   setLocalSpeaking: (speaking: boolean) => void;
   setNoiseSuppressionEnabled: (enabled: boolean) => void;
+  setImageSendError: (msg: string | null) => void;
 };
 
 let nextMessageId = 1;
@@ -98,6 +102,7 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   localSpeaking: false,
   noiseSuppressionEnabled:
     typeof window === "undefined" ? true : noiseSuppressionDefault(window.location.search),
+  imageSendError: null,
   setConnectionState: (connectionState) => set({ connectionState }),
   setMuted: (muted) => set({ muted }),
   addMessage: (message) => {
@@ -146,6 +151,7 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
     set((s) => ({ speaking: { ...s.speaking, [id]: speaking } })),
   setLocalSpeaking: (localSpeaking) => set({ localSpeaking }),
   setNoiseSuppressionEnabled: (noiseSuppressionEnabled) => set({ noiseSuppressionEnabled }),
+  setImageSendError: (imageSendError) => set({ imageSendError }),
 }));
 
 /** id -> nickname if one is known, else the id itself -- used everywhere a
