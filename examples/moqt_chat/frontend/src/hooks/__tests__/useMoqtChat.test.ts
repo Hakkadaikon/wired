@@ -4,13 +4,16 @@ import {
   cancelReconnect,
   chainVoiceTap,
   captureThenPublishScreen,
+  clearOwnScreenStall,
   connectChatThenVoice,
   handleSessionStatus,
   micPipelineIsConfigSupported,
   micTracksFrom,
   moqtChatCallbacks,
+  OWN_SCREEN_KEY,
   reconnectDelayMs,
   sampleLocalLevel,
+  shouldAutoStopOwnScreen,
   shouldStartLive,
   teardownSession,
   type ReconnectRefs,
@@ -307,6 +310,49 @@ describe("teardownSession", () => {
 
     expect(() => teardownSession(refs, fakeScreenStore())).not.toThrow();
     expect(client.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("clearOwnScreenStall", () => {
+  it("drops only the own-tile detector, leaving remote senders' alone", () => {
+    const screenStall = new Map<string, unknown>([
+      [OWN_SCREEN_KEY, {}],
+      ["peerA", {}],
+    ]);
+    const store = { setScreenTileStalled: vi.fn() };
+
+    clearOwnScreenStall(screenStall, store);
+
+    expect(screenStall.has(OWN_SCREEN_KEY)).toBe(false);
+    expect(screenStall.has("peerA")).toBe(true);
+    expect(store.setScreenTileStalled).toHaveBeenCalledExactlyOnceWith(OWN_SCREEN_KEY, false);
+  });
+
+  it("is a no-op when there was no own-tile detector (never shared, or already stopped)", () => {
+    const screenStall = new Map<string, unknown>([["peerA", {}]]);
+    const store = { setScreenTileStalled: vi.fn() };
+
+    clearOwnScreenStall(screenStall, store);
+
+    expect(store.setScreenTileStalled).not.toHaveBeenCalled();
+  });
+});
+
+describe("shouldAutoStopOwnScreen", () => {
+  it("fires on the rising edge: own just became stalled while armed", () => {
+    expect(shouldAutoStopOwnScreen(OWN_SCREEN_KEY, true, true)).toBe(true);
+  });
+
+  it("does not fire once disarmed, even while still stalled (edge-triggered, once)", () => {
+    expect(shouldAutoStopOwnScreen(OWN_SCREEN_KEY, true, false)).toBe(false);
+  });
+
+  it("does not fire when own is not stalled", () => {
+    expect(shouldAutoStopOwnScreen(OWN_SCREEN_KEY, false, true)).toBe(false);
+  });
+
+  it("never fires for a remote sender's key, armed or not", () => {
+    expect(shouldAutoStopOwnScreen("peerA", true, true)).toBe(false);
   });
 });
 

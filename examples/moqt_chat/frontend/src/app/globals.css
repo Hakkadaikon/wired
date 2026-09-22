@@ -399,6 +399,12 @@ input {
   height: auto;
 }
 
+.screen-own-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+}
+
 /* Remote tiles: the canvas backing store is the sender's own frame size
    (useMoqtChat.ts's drawScreenFrame), so a CSS width alone keeps the
    aspect. --tile-w comes from the rail's "Tile width" slider. */

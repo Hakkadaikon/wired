@@ -57,6 +57,9 @@ import {
 
 const JITTER_BUFFER_CAPACITY = 8;
 const DRAIN_INTERVAL_MS = 20;
+// screenStallRef/stalledScreenTiles key for this client's own preview tile,
+// alongside remote senders' participant ids.
+export const OWN_SCREEN_KEY = "own";
 // How often to retry SUBSCRIBE for a candidate's audio track that hasn't
 // PUBLISHed yet -- mirrors moqtClient.ts's own #retrySubscribes (SS10.7:
 // no namespace discovery in this subset, so a SUBSCRIBE for a peer who
@@ -346,6 +349,27 @@ export function teardownSession(
   refs.audioCtx.current = null;
 }
 
+// Edge-triggered gate for the own-tile auto-stop below: fires only the
+// instant "own" transitions into stalled while still armed. `armed` is
+// disarmed by the caller the moment this returns true, and re-armed by the
+// next successful startScreenShare -- so a capture stuck stalled for
+// minutes triggers stopScreenShare's cleanup exactly once, not on every
+// DRAIN_INTERVAL_MS tick.
+export function shouldAutoStopOwnScreen(key: string, isStalled: boolean, armed: boolean): boolean {
+  return key === OWN_SCREEN_KEY && isStalled && armed;
+}
+
+// Drops only the own-tile stall detector (stopScreenShare's own doc) --
+// unlike teardownSession, a plain "Stop sharing" click must leave every
+// REMOTE sender's detector/flag alone.
+export function clearOwnScreenStall(
+  screenStall: Map<string, unknown>,
+  store: Pick<MoqtChatState, "setScreenTileStalled">,
+): void {
+  if (!screenStall.delete(OWN_SCREEN_KEY)) return;
+  store.setScreenTileStalled(OWN_SCREEN_KEY, false);
+}
+
 // Back-off schedule for the automatic rejoin after a transport-level
 // disconnect: 1 s, 2 s, 4 s, 8 s, then capped at 10 s. null after five
 // failed attempts means "give up until the user acts" (the Rejoin button
@@ -428,6 +452,15 @@ export function useMoqtChat() {
   // One stall detector per remote sender, fed by onFrame below and polled
   // from the drain loop's tick into the store's stalledScreenTiles.
   const screenStallRef = useRef<Map<string, StallDetector>>(new Map());
+  // Arms the drain tick's own-stall auto-stop (shouldAutoStopOwnScreen):
+  // true while a fresh share is running, flipped false the instant the
+  // auto-stop fires so a capture stuck stalled for minutes only triggers
+  // stopScreenShare's cleanup once. Re-armed by the next startScreenShare.
+  const ownStallArmedRef = useRef(true);
+  // stopScreenShare's identity is created below (after this ref), so the
+  // drain tick calls through this indirection -- same shape as connectRef's
+  // own doc for why a ref, not a direct closure, is needed here.
+  const stopScreenShareRef = useRef<() => void>(() => {});
   const screenReceiveRef = useRef<ScreenReceivePipeline | null>(null);
   const screenShareRef = useRef<ScreenSharePipeline | null>(null);
   const micRef = useRef<MicPipeline | null>(null);
@@ -572,7 +605,15 @@ export function useMoqtChat() {
       }
       const now = performance.now();
       for (const [key, d] of screenStallRef.current) {
-        useMoqtChatStore.getState().setScreenTileStalled(key, d.isStalled(now));
+        const stalled = d.isStalled(now);
+        useMoqtChatStore.getState().setScreenTileStalled(key, stalled);
+        if (shouldAutoStopOwnScreen(key, stalled, ownStallArmedRef.current)) {
+          ownStallArmedRef.current = false;
+          useMoqtChatStore
+            .getState()
+            .setScreenShareError("画面共有が停止しました。もう一度共有ボタンを押してください");
+          stopScreenShareRef.current();
+        }
       }
       drainTimerRef.current = setTimeout(tick, DRAIN_INTERVAL_MS);
     };
@@ -1020,6 +1061,10 @@ export function useMoqtChat() {
       screenShareRef.current = pipeline;
       store.setScreenSharing(true);
       store.setScreenShareError(null);
+      // Re-arm the own-stall auto-stop for this fresh share (see
+      // ownStallArmedRef's own doc) -- a previous share's stall must not
+      // suppress detection of a NEW stall in this one.
+      ownStallArmedRef.current = true;
       store.addScreenTile("own");
 
       // Pump captured frames into the pipeline the same way micPipeline's
@@ -1044,6 +1089,18 @@ export function useMoqtChat() {
               } catch {
                 // preview draw is best-effort; the network path continues below
               }
+              // Same stall tracking as the receive side (onFrame's own doc):
+              // getDisplayMedia's captured track can stop delivering frames
+              // without ever firing "ended" (Chromium's known screen-capture
+              // wedge). "own" shares screenStallRef/stalledScreenTiles with
+              // the remote senders -- the drain tick below already polls
+              // every key in the map generically.
+              let ownStall = screenStallRef.current.get(OWN_SCREEN_KEY);
+              if (!ownStall) {
+                ownStall = createStallDetector(SCREEN_STALL_MS);
+                screenStallRef.current.set(OWN_SCREEN_KEY, ownStall);
+              }
+              ownStall.frame(performance.now());
               pipeline.pushFrame(value as { close?: () => void });
             }
           }
@@ -1062,6 +1119,13 @@ export function useMoqtChat() {
       // regardless, so surfacing an error here would only be noise.
     }
     screenShareRef.current = null;
+    // Drop the own-tile stall detector and clear its flag -- without this a
+    // stall raised right before "Stop sharing" would linger stale (and a
+    // fresh createStallDetector on the next startScreenShare would otherwise
+    // inherit nothing wrong, but the OLD flag would still read true until
+    // the next drain tick recomputes it from a detector that no longer
+    // exists here).
+    clearOwnScreenStall(screenStallRef.current, store);
     // Also FIN the long-lived send stream (MoqtScreenClient.close(), same
     // shape as teardownSession's voice.close()): without this, a later
     // startScreenShare() reuses the OLD stream's writer (sendVideoChunk's
@@ -1075,6 +1139,13 @@ export function useMoqtChat() {
     store.setScreenSharing(false);
     store.removeScreenTile("own");
   }, [store]);
+
+  // The drain tick's auto-stop (above) calls through this ref rather than
+  // stopScreenShare directly, since the tick is defined before
+  // stopScreenShare exists (same indirection as connectRef's own doc).
+  useEffect(() => {
+    stopScreenShareRef.current = stopScreenShare;
+  }, [stopScreenShare]);
 
   // Keep the auto-rejoin timer retrying through the CURRENT connect() --
   // connect's identity changes with the store, and a timer scheduled by an
