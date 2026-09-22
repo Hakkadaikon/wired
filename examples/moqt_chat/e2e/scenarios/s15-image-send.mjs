@@ -50,6 +50,12 @@ function toBase64(bytes) {
 }
 
 async function sendImageFromPage(page, base64, mimeType) {
+  // The room view (and its Compose/file-input) mounts asynchronously after
+  // joinClient's "connected" status check resolves -- back-to-back cases on
+  // the same page (this scenario's second case reuses a client that was
+  // only a receiver until now) can hit this evaluate before that mount
+  // commits, so wait for the element rather than assuming it's already there.
+  await page.waitForSelector('input[data-testid="image-file"]', { timeout: JOIN_TIMEOUT_MS });
   await page.evaluate(
     async (b64, mime) => {
       const binary = atob(b64);
@@ -67,12 +73,21 @@ async function sendImageFromPage(page, base64, mimeType) {
   );
 }
 
-async function waitForReceivedImage(page) {
-  await page.waitForFunction(() => document.querySelector('[data-testid="message-image"]') !== null, {
-    timeout: IMAGE_TIMEOUT_MS,
-  });
+// Waits for a NEW `message-image` to appear rather than any match: the
+// sender now also gets an optimistic local image message in their own
+// timeline (useMoqtChat.ts's sendImage), so a receiver who previously sent
+// their own image already has one or more `message-image` elements in their
+// DOM before this call -- matching "any" would pick up that stale element
+// and never actually wait for the new one to arrive.
+async function waitForReceivedImage(page, previousCount) {
+  await page.waitForFunction(
+    (count) => document.querySelectorAll('[data-testid="message-image"]').length > count,
+    { timeout: IMAGE_TIMEOUT_MS },
+    previousCount,
+  );
   const receivedBase64 = await page.evaluate(async () => {
-    const img = document.querySelector('[data-testid="message-image"]');
+    const imgs = document.querySelectorAll('[data-testid="message-image"]');
+    const img = imgs[imgs.length - 1];
     const buf = await fetch(img.src).then((r) => r.arrayBuffer());
     const bytes = new Uint8Array(buf);
     let binary = "";
@@ -92,10 +107,13 @@ function firstDiffOffset(a, b) {
 
 async function runCase(sender, receiver, name, byteLength, failures, report) {
   const sent = makePattern(byteLength);
+  const previousCount = await receiver.page.evaluate(
+    () => document.querySelectorAll('[data-testid="message-image"]').length,
+  );
   await sendImageFromPage(sender.page, toBase64(sent), "application/octet-stream");
   let received;
   try {
-    received = await waitForReceivedImage(receiver.page);
+    received = await waitForReceivedImage(receiver.page, previousCount);
   } catch (err) {
     failures.push(`${name}: receiver never showed message-image: ${err}`);
     report.cases[name] = { sentBytes: sent.length, received: false };
