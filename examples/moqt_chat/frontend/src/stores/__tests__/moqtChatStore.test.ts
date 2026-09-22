@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { useMoqtChatStore } from "../moqtChatStore";
+import { resolveDisplayName, useMoqtChatStore } from "../moqtChatStore";
 
 describe("moqtChatStore", () => {
   beforeEach(() => {
@@ -12,7 +12,7 @@ describe("moqtChatStore", () => {
     expect(s.muted).toBe(false);
     expect(s.messages).toEqual([]);
     expect(s.peers).toEqual([]);
-    expect(s.displayName).toBe("");
+    expect(s.nicknames).toEqual({});
     expect(s.liveError).toBeNull();
     expect(s.liveFirstGroup).toBeNull();
     expect(s.screenSharing).toBe(false);
@@ -128,9 +128,24 @@ describe("moqtChatStore", () => {
     expect(useMoqtChatStore.getState().messages).toHaveLength(1);
   });
 
-  it("sets the display name", () => {
-    useMoqtChatStore.getState().setDisplayName("user1");
-    expect(useMoqtChatStore.getState().displayName).toBe("user1");
+  it("sets a participant's nickname without affecting others", () => {
+    useMoqtChatStore.getState().setNickname("user1", "Alice");
+    useMoqtChatStore.getState().setNickname("user2", "Bob");
+    expect(useMoqtChatStore.getState().nicknames).toEqual({ user1: "Alice", user2: "Bob" });
+  });
+});
+
+describe("resolveDisplayName", () => {
+  it("returns the nickname when one is known", () => {
+    expect(resolveDisplayName("user1", { user1: "Alice" })).toBe("Alice");
+  });
+
+  it("falls back to the id when no nickname is known", () => {
+    expect(resolveDisplayName("user1", {})).toBe("user1");
+  });
+
+  it("falls back to the id when the nickname is an empty string", () => {
+    expect(resolveDisplayName("user1", { user1: "" })).toBe("user1");
   });
 
   it("adds peers uniquely (dedupes) in observation order", () => {

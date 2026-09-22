@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMoqtChat } from "@/hooks/useMoqtChat";
 import { clearJoinPrefs, loadJoinPrefs, saveJoinPrefs } from "@/lib/joinPrefs";
 import { CANDIDATE_PARTICIPANT_IDS } from "@/lib/moqtClient";
-import { useMoqtChatStore, type ChatMessage } from "@/stores/moqtChatStore";
+import { resolveDisplayName, useMoqtChatStore, type ChatMessage } from "@/stores/moqtChatStore";
 import { canPickOutput } from "@/lib/outputMixer";
 import { SCREEN_TILE_MAX_PX, SCREEN_TILE_MIN_PX, SCREEN_TILE_STEP_PX } from "@/lib/screenTileSize";
 import { Wordmark } from "./wordmark";
@@ -88,6 +88,7 @@ function ScreenTiles({
   const screenShareError = useMoqtChatStore((s) => s.screenShareError);
   const stalledScreenTiles = useMoqtChatStore((s) => s.stalledScreenTiles);
   const screenTileWidth = useMoqtChatStore((s) => s.screenTileWidth);
+  const nicknames = useMoqtChatStore((s) => s.nicknames);
   const maximized = useMoqtChatStore((s) => s.maximizedScreenTile);
   const setMaximized = useMoqtChatStore((s) => s.setMaximizedScreenTile);
   // Esc (or the browser's own exit) leaves fullscreen without going
@@ -140,7 +141,7 @@ function ScreenTiles({
               height={180}
             />
             <div className="screen-tile__bar">
-              <span className="caption">{id}</span>
+              <span className="caption">{resolveDisplayName(id, nicknames)}</span>
               {stalledScreenTiles[id] && (
                 <span className="caption" data-testid={`screen-stalled-${id}`}>
                   Stalled
@@ -191,6 +192,7 @@ function Peers() {
   const voiceQuality = useMoqtChatStore((s) => s.voiceQuality);
   const speaking = useMoqtChatStore((s) => s.speaking);
   const localSpeaking = useMoqtChatStore((s) => s.localSpeaking);
+  const nicknames = useMoqtChatStore((s) => s.nicknames);
   return (
     <section>
       <h2>Room</h2>
@@ -206,7 +208,7 @@ function Peers() {
         </li>
         {peers.map((p) => (
           <li key={p}>
-            {p}
+            {resolveDisplayName(p, nicknames)}
             <span
               className="status__block"
               data-testid={`quality-${p}`}
@@ -227,6 +229,7 @@ function Volume() {
   const peerVolumes = useMoqtChatStore((s) => s.peerVolumes);
   const setMasterVolume = useMoqtChatStore((s) => s.setMasterVolume);
   const setPeerVolume = useMoqtChatStore((s) => s.setPeerVolume);
+  const nicknames = useMoqtChatStore((s) => s.nicknames);
   return (
     <section>
       <h2>Volume</h2>
@@ -244,7 +247,7 @@ function Volume() {
       </label>
       {peers.map((p) => (
         <label key={p} className="volume volume--peer">
-          <span className="volume__label">{p}</span>
+          <span className="volume__label">{resolveDisplayName(p, nicknames)}</span>
           <input
             type="range"
             min={0}
@@ -317,6 +320,7 @@ function OutputDevice({ onSelect }: { onSelect: (deviceId: string) => void }) {
 }
 
 function Message({ m }: { m: ChatMessage }) {
+  const nicknames = useMoqtChatStore((s) => s.nicknames);
   const time = new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   // DOM order is sender, time, text (the grid puts the time last): the e2e
   // load harness matches "msg:<tag>:<seq>" in textContent, and a time
@@ -324,7 +328,7 @@ function Message({ m }: { m: ChatMessage }) {
   return (
     <div className="message" data-testid="message" data-sender={m.senderId}>
       <span className={m.own ? "message__sender you" : "message__sender"}>
-        {m.own ? "You" : m.senderId}
+        {m.own ? "You" : resolveDisplayName(m.senderId, nicknames)}
       </span>
       <span className="message__time caption">{time}</span>
       <span className="message__text">{m.text}</span>
@@ -418,6 +422,8 @@ function JoinScreen({
   setUrl,
   certHash,
   setCertHash,
+  nickname,
+  setNickname,
   participantId,
   setParticipantId,
   connecting,
@@ -428,6 +434,8 @@ function JoinScreen({
   setUrl: (v: string) => void;
   certHash: string;
   setCertHash: (v: string) => void;
+  nickname: string;
+  setNickname: (v: string) => void;
   participantId: string;
   setParticipantId: (v: string) => void;
   connecting: boolean;
@@ -471,6 +479,15 @@ function JoinScreen({
             Copy it from the server&apos;s startup log. Leave empty for a CA-signed certificate.
           </span>
         </label>
+        <label className="field">
+          <span className="field__label">Nickname (optional)</span>
+          <input
+            placeholder="Shown instead of your participant id"
+            value={nickname}
+            data-testid="nickname"
+            onChange={(e) => setNickname(e.target.value)}
+          />
+        </label>
         <div className="field">
           <span className="field__label">Participant ID</span>
           <div className="tiles" data-testid="author">
@@ -505,6 +522,7 @@ function JoinScreen({
 export default function Home() {
   const [url, setUrl] = useState(DEFAULT_URL);
   const [certHash, setCertHash] = useState("");
+  const [nickname, setNickname] = useState("");
   const [participantId, setParticipantId] = useState(DEFAULT_PARTICIPANT_ID);
   const [joined, setJoined] = useState(false);
   const {
@@ -543,6 +561,7 @@ export default function Home() {
       setUrl(saved.url);
       setCertHash(saved.certHash);
       if (saved.name) setParticipantId(saved.name);
+      if (saved.nickname) setNickname(saved.nickname);
     }, 0);
     return () => window.clearTimeout(t);
   }, []);
@@ -551,6 +570,7 @@ export default function Home() {
     clearJoinPrefs();
     setUrl(DEFAULT_URL);
     setCertHash("");
+    setNickname("");
     setParticipantId(DEFAULT_PARTICIPANT_ID);
   };
 
@@ -598,7 +618,7 @@ export default function Home() {
         <button
           type="button"
           className="sign sign--outline"
-          onClick={() => void connect(url, participantId, certHash ? [certHash] : [])}
+          onClick={() => void connect(url, participantId, certHash ? [certHash] : [], nickname)}
         >
           → Rejoin
         </button>
@@ -635,12 +655,14 @@ export default function Home() {
           setUrl={setUrl}
           certHash={certHash}
           setCertHash={setCertHash}
+          nickname={nickname}
+          setNickname={setNickname}
           participantId={participantId}
           setParticipantId={setParticipantId}
           connecting={connecting}
           onJoin={() => {
-            saveJoinPrefs({ url, certHash, name: participantId });
-            void connect(url, participantId, certHash ? [certHash] : []);
+            saveJoinPrefs({ url, certHash, name: participantId, nickname });
+            void connect(url, participantId, certHash ? [certHash] : [], nickname);
           }}
           onClearSaved={clearSaved}
         />

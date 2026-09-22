@@ -126,8 +126,8 @@ function makeProcessor(track: unknown): ProcessorLike {
 // exported so a test can exercise it against a store instance and a fake
 // client shaped like MoqtChatClient, without touching WebTransport.
 export function moqtChatCallbacks(
-  store: Pick<MoqtChatState, "setConnectionState" | "addPeer" | "addMessage">,
-): Pick<MoqtChatCallbacks, "onStatusChange" | "onMessage"> {
+  store: Pick<MoqtChatState, "setConnectionState" | "addPeer" | "addMessage" | "setNickname">,
+): Pick<MoqtChatCallbacks, "onStatusChange" | "onMessage" | "onNickname"> {
   return {
     onStatusChange: (status) => store.setConnectionState(status),
     onMessage: (participantId, text) => {
@@ -138,6 +138,10 @@ export function moqtChatCallbacks(
         at: Date.now(),
         own: false,
       });
+    },
+    onNickname: (participantId, nickname) => {
+      store.addPeer(participantId);
+      store.setNickname(participantId, nickname);
     },
   };
 }
@@ -514,12 +518,12 @@ export function useMoqtChat() {
   // and connect's identity changes with the store.
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptRef = useRef(0);
-  const sessionArgsRef = useRef<{ url: string; localId: string; certHashesHex: string[] } | null>(
-    null,
-  );
-  const connectRef = useRef<((url: string, localId: string, certHashesHex: string[]) => Promise<void>) | null>(
-    null,
-  );
+  const sessionArgsRef = useRef<
+    { url: string; localId: string; certHashesHex: string[]; nickname: string } | null
+  >(null);
+  const connectRef = useRef<
+    ((url: string, localId: string, certHashesHex: string[], nickname?: string) => Promise<void>) | null
+  >(null);
   // The live <video> element page.tsx renders; LiveMovie drives it directly.
   const videoRef = useRef<HTMLVideoElement>(null);
   const liveRef = useRef<LiveMovie | null>(null);
@@ -830,7 +834,7 @@ export function useMoqtChat() {
   );
 
   const connect = useCallback(
-    async (url: string, localId: string, certHashesHex: string[]) => {
+    async (url: string, localId: string, certHashesHex: string[], nickname = "") => {
       const reconnectRefs = { timer: reconnectTimerRef, attempt: reconnectAttemptRef };
       // A manual Rejoin (connect() called while a previous session is
       // still up) must not stack a second drain loop / retry timer / mic /
@@ -842,7 +846,7 @@ export function useMoqtChat() {
       cancelReconnect(reconnectRefs);
       sessionArgsRef.current = null;
       teardownCurrentSession();
-      sessionArgsRef.current = { url, localId, certHashesHex };
+      sessionArgsRef.current = { url, localId, certHashesHex, nickname };
       localIdRef.current = localId;
       setMicError(null);
       store.clearPeers();
@@ -852,7 +856,10 @@ export function useMoqtChat() {
       // they belong to the previous session's senders, and a sender who is
       // still sharing re-appears on its first decoded frame.
       store.clearScreenTiles();
-      store.setDisplayName(localId);
+      // Own nickname resolves locally right away rather than waiting on the
+      // self-announce round trip below (it never needs to travel the wire
+      // back to its own sender).
+      if (nickname) store.setNickname(localId, nickname);
       clearLive();
 
       // The movie aliases must be checked BEFORE voice: MoqtVoiceClient
@@ -870,7 +877,7 @@ export function useMoqtChat() {
         store.setConnectionState(status);
         handleSessionStatus(reconnectRefs, status, sessionArgsRef.current !== null, () => {
           const args = sessionArgsRef.current;
-          if (args) void connectRef.current?.(args.url, args.localId, args.certHashesHex);
+          if (args) void connectRef.current?.(args.url, args.localId, args.certHashesHex, args.nickname);
         });
       };
       const client: MoqtChatClient = new MoqtChatClient(localId, {
@@ -994,7 +1001,13 @@ export function useMoqtChat() {
       // it is fire-and-forget and never affects chat/voice failure handling
       // (connectChatThenVoice's own doc).
       await connectChatThenVoice(
-        () => client.connect(url, certHashesHex),
+        async () => {
+          await client.connect(url, certHashesHex);
+          // Best-effort, once per session: a failed send here must not
+          // fail the connection itself (chat/voice already work without a
+          // nickname -- see joinPrefs.ts's own doc on this being opt-in).
+          if (nickname) void client.sendNickname(nickname).catch(() => {});
+        },
         () => startVoice(localId, client),
         // Connection failed (e.g. cert hash mismatch): fall back to
         // disconnected instead of leaving the join screen stuck on

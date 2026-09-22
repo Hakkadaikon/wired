@@ -2,10 +2,13 @@
 // found peers. Deliberately holds only what a UI needs to render; the MOQT
 // session itself lives in useMoqtChat/moqtClient, not here.
 //
-// Unlike webtransport_chat's voiceChatStore, there is no presence
-// message/peerNames map: this hub has no presence Object (moqt-plan.md
-// decision 2), so a peer's display name is just its participant id
-// (moqtClient.ts's candidate ids are already human-readable, e.g. "user1").
+// This hub has no presence Object (moqt-plan.md decision 2) and the
+// participant id (moqtClient.ts's CANDIDATE_PARTICIPANT_IDS) never changes --
+// it decides track alias, so it can't double as a free-text display name.
+// `nicknames` is a purely client-side id -> nickname map, populated by a
+// self-announce message riding the chat Object channel (moqtClient.ts's
+// buildNicknameObjectMessage); resolveDisplayName falls back to the id
+// itself for anyone who hasn't announced one (or didn't set one at all).
 
 import { create } from "zustand";
 import { noiseSuppressionDefault } from "@/lib/joinPrefs";
@@ -28,7 +31,7 @@ export type MoqtChatState = {
   muted: boolean;
   messages: ChatMessage[];
   peers: string[]; // found participant ids, in observation order
-  displayName: string;
+  nicknames: Record<string, string>; // per-participant self-announced nickname; absent key means none set
   liveError: string | null; // fatal live-movie playback error, if any
   liveFirstGroup: string | null; // first live Group id received (decimal string)
   screenSharing: boolean; // am I currently sharing my screen
@@ -47,7 +50,7 @@ export type MoqtChatState = {
   setMuted: (muted: boolean) => void;
   addMessage: (message: Omit<ChatMessage, "id">) => number;
   removeMessage: (id: number) => void;
-  setDisplayName: (name: string) => void;
+  setNickname: (id: string, nickname: string) => void;
   setLiveError: (msg: string | null) => void;
   setLiveFirstGroup: (groupId: string | null) => void;
   addPeer: (id: string) => void;
@@ -79,7 +82,7 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   muted: false,
   messages: [],
   peers: [],
-  displayName: "",
+  nicknames: {},
   liveError: null,
   liveFirstGroup: null,
   screenSharing: false,
@@ -104,7 +107,8 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   },
   removeMessage: (id) =>
     set((s) => ({ messages: s.messages.filter((m) => m.id !== id) })),
-  setDisplayName: (displayName) => set({ displayName }),
+  setNickname: (id, nickname) =>
+    set((s) => ({ nicknames: { ...s.nicknames, [id]: nickname } })),
   setLiveError: (liveError) => set({ liveError }),
   setLiveFirstGroup: (liveFirstGroup) => set({ liveFirstGroup }),
   addPeer: (id) =>
@@ -143,3 +147,11 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   setLocalSpeaking: (localSpeaking) => set({ localSpeaking }),
   setNoiseSuppressionEnabled: (noiseSuppressionEnabled) => set({ noiseSuppressionEnabled }),
 }));
+
+/** id -> nickname if one is known, else the id itself -- used everywhere a
+ * participant id is rendered (Peers, Volume, screen tile captions, chat
+ * sender name), so a peer who never announced a nickname just shows their
+ * participant id, unchanged from today's behavior. */
+export function resolveDisplayName(id: string, nicknames: Record<string, string>): string {
+  return nicknames[id] || id;
+}

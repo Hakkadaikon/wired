@@ -12,6 +12,11 @@ export type JoinPrefs = {
   url: string;
   certHash: string;
   name: string;
+  // Free-text display name (moqt-plan.md's participant id stays the wire
+  // identity/track-alias key; this is presentation-only, see moqtClient.ts's
+  // nickname self-announce). Older saved prefs lack it -- isJoinPrefs below
+  // accepts a missing field and loadJoinPrefs backfills "".
+  nickname?: string;
 };
 
 function isJoinPrefs(v: unknown): v is JoinPrefs {
@@ -20,7 +25,8 @@ function isJoinPrefs(v: unknown): v is JoinPrefs {
   return (
     typeof p.url === "string" &&
     typeof p.certHash === "string" &&
-    typeof p.name === "string"
+    typeof p.name === "string" &&
+    (p.nickname === undefined || typeof p.nickname === "string")
   );
 }
 

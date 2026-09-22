@@ -66,6 +66,7 @@ describe("moqtChatCallbacks", () => {
       setConnectionState,
       addPeer: vi.fn(),
       addMessage: vi.fn(),
+      setNickname: vi.fn(),
     });
     callbacks.onStatusChange("connecting");
     callbacks.onStatusChange("connected");
@@ -80,6 +81,7 @@ describe("moqtChatCallbacks", () => {
       setConnectionState: vi.fn(),
       addPeer,
       addMessage,
+      setNickname: vi.fn(),
     });
     callbacks.onMessage("user2", "hello");
     expect(addPeer).toHaveBeenCalledWith("user2");
@@ -98,6 +100,7 @@ describe("moqtChatCallbacks", () => {
       setConnectionState: vi.fn(),
       addPeer,
       addMessage,
+      setNickname: vi.fn(),
     });
     callbacks.onMessage("user2", "hi");
     callbacks.onMessage("user3", "yo");

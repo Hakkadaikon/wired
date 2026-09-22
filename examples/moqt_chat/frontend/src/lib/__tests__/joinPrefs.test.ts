@@ -16,11 +16,12 @@ describe("joinPrefs", () => {
   });
 
   it("round-trips the join form fields", () => {
-    saveJoinPrefs({ url: "https://x:4433/", certHash: "ab:cd", name: "user1" });
+    saveJoinPrefs({ url: "https://x:4433/", certHash: "ab:cd", name: "user1", nickname: "Alice" });
     expect(loadJoinPrefs()).toEqual({
       url: "https://x:4433/",
       certHash: "ab:cd",
       name: "user1",
+      nickname: "Alice",
     });
   });
 
@@ -32,6 +33,19 @@ describe("joinPrefs", () => {
     localStorage.setItem("moqt-chat.join", "{not json");
     expect(loadJoinPrefs()).toBeNull();
     localStorage.setItem("moqt-chat.join", JSON.stringify({ url: 1 }));
+    expect(loadJoinPrefs()).toBeNull();
+  });
+
+  it("reads old saved prefs that predate the nickname field", () => {
+    localStorage.setItem("moqt-chat.join", JSON.stringify({ url: "u", certHash: "c", name: "user1" }));
+    expect(loadJoinPrefs()).toEqual({ url: "u", certHash: "c", name: "user1" });
+  });
+
+  it("rejects a non-string nickname", () => {
+    localStorage.setItem(
+      "moqt-chat.join",
+      JSON.stringify({ url: "u", certHash: "c", name: "user1", nickname: 5 }),
+    );
     expect(loadJoinPrefs()).toBeNull();
   });
 
