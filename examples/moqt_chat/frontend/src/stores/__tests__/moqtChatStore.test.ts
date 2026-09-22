@@ -193,6 +193,55 @@ describe("resolveDisplayName", () => {
     expect(useMoqtChatStore.getState().screenSharing).toBe(true);
   });
 
+  it("sets and clears the image send error independently of other error state", () => {
+    useMoqtChatStore.getState().setImageSendError("image upload failed");
+    expect(useMoqtChatStore.getState().imageSendError).toBe("image upload failed");
+    expect(useMoqtChatStore.getState().liveError).toBeNull();
+    useMoqtChatStore.getState().setImageSendError(null);
+    expect(useMoqtChatStore.getState().imageSendError).toBeNull();
+  });
+
+  it("appends a chat message with image data url and mime type", () => {
+    useMoqtChatStore.getState().clearMessages();
+    const id = useMoqtChatStore.getState().addMessage({
+      senderId: "user1",
+      text: "",
+      at: 1234,
+      own: true,
+      imageDataUrl: "data:image/png;base64,iVBORw0KGgo=",
+      imageMimeType: "image/png",
+    });
+    expect(useMoqtChatStore.getState().messages).toEqual([
+      {
+        id,
+        senderId: "user1",
+        text: "",
+        at: 1234,
+        own: true,
+        imageDataUrl: "data:image/png;base64,iVBORw0KGgo=",
+        imageMimeType: "image/png",
+      },
+    ]);
+  });
+
+  it("appends a plain text chat message still works (regression check)", () => {
+    useMoqtChatStore.getState().clearMessages();
+    const id = useMoqtChatStore.getState().addMessage({
+      senderId: "user1",
+      text: "hello",
+      at: 1234,
+      own: true,
+    });
+    const msg = useMoqtChatStore.getState().messages[0];
+    expect(msg.id).toBe(id);
+    expect(msg.senderId).toBe("user1");
+    expect(msg.text).toBe("hello");
+    expect(msg.at).toBe(1234);
+    expect(msg.own).toBe(true);
+    expect(msg.imageDataUrl).toBeUndefined();
+    expect(msg.imageMimeType).toBeUndefined();
+  });
+
   it("adds screen tiles uniquely (dedupes) in observation order", () => {
     useMoqtChatStore.getState().addScreenTile("user2");
     useMoqtChatStore.getState().addScreenTile("user3");
