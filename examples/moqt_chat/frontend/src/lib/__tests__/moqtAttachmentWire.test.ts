@@ -46,6 +46,117 @@ describe("encodeTextPartMessage / decodeTextPartMessage", () => {
   });
 });
 
+describe("golden wire vectors (hand-computed, not copied from the encoder)", () => {
+  it("text-part: marker | messageId u32 BE | attachmentCount u8 | textLen u16 BE | text", () => {
+    // marker=0xFE, messageId u32 BE=1, attachmentCount=2, textLen u16 BE=2,
+    // text="ab" (UTF-8: 0x61 0x62).
+    const golden = bytes(
+      0xfe, // marker
+      0x00,
+      0x00,
+      0x00,
+      0x01, // messageId u32 BE = 1
+      0x02, // attachmentCount = 2
+      0x00,
+      0x02, // textLen u16 BE = 2
+      0x61,
+      0x62, // "ab"
+    );
+
+    expect(decodeTextPartMessage(golden)).toEqual({ messageId: 1, attachmentCount: 2, text: "ab" });
+    expect(encodeTextPartMessage(1, 2, "ab")).toEqual(golden);
+  });
+
+  it("attachment chunk idx=0: marker | messageId u32 | attachmentIdx u8 | seq u32 | idx u16 | count u16 | mimeLen u8 + mimeType + totalBytes u32 | data", () => {
+    // marker=0xFD, messageId u32 BE=1, attachmentIdx=0, seq u32 BE=0,
+    // idx u16 BE=0, count u16 BE=2, mimeLen=9, "image/png" (9 bytes),
+    // totalBytes u32 BE=5, data=[0xAA,0xBB].
+    const golden = bytes(
+      0xfd, // marker
+      0x00,
+      0x00,
+      0x00,
+      0x01, // messageId u32 BE = 1
+      0x00, // attachmentIdx = 0
+      0x00,
+      0x00,
+      0x00,
+      0x00, // seq u32 BE = 0
+      0x00,
+      0x00, // idx u16 BE = 0
+      0x00,
+      0x02, // count u16 BE = 2
+      0x09, // mimeType len = 9
+      0x69,
+      0x6d,
+      0x61,
+      0x67,
+      0x65,
+      0x2f,
+      0x70,
+      0x6e,
+      0x67, // "image/png"
+      0x00,
+      0x00,
+      0x00,
+      0x05, // totalBytes u32 BE = 5
+      0xaa,
+      0xbb, // chunk data
+    );
+
+    const expected: AttachmentChunk = {
+      messageId: 1,
+      attachmentIdx: 0,
+      seq: 0,
+      idx: 0,
+      count: 2,
+      mimeType: "image/png",
+      totalBytes: 5,
+      data: bytes(0xaa, 0xbb),
+    };
+    expect(decodeAttachmentChunkMessage(golden)).toEqual(expected);
+    expect(encodeAttachmentChunkMessage(expected)).toEqual(golden);
+  });
+
+  it("attachment chunk idx>0: marker | messageId u32 | attachmentIdx u8 | seq u32 | idx u16 | count u16 | data (no metadata)", () => {
+    // marker=0xFD, messageId u32 BE=1, attachmentIdx=0, seq u32 BE=0,
+    // idx u16 BE=1, count u16 BE=2, data=[0xCC,0xDD,0xEE] (no mimeType/
+    // totalBytes -- those only ride on idx===0).
+    const golden = bytes(
+      0xfd, // marker
+      0x00,
+      0x00,
+      0x00,
+      0x01, // messageId u32 BE = 1
+      0x00, // attachmentIdx = 0
+      0x00,
+      0x00,
+      0x00,
+      0x00, // seq u32 BE = 0
+      0x00,
+      0x01, // idx u16 BE = 1
+      0x00,
+      0x02, // count u16 BE = 2
+      0xcc,
+      0xdd,
+      0xee, // chunk data
+    );
+
+    const expected: AttachmentChunk = {
+      messageId: 1,
+      attachmentIdx: 0,
+      seq: 0,
+      idx: 1,
+      count: 2,
+      mimeType: undefined,
+      totalBytes: undefined,
+      data: bytes(0xcc, 0xdd, 0xee),
+    };
+    expect(decodeAttachmentChunkMessage(golden)).toEqual(expected);
+    expect(encodeAttachmentChunkMessage(expected)).toEqual(golden);
+  });
+});
+
 describe("encodeAttachmentChunkMessage / decodeAttachmentChunkMessage", () => {
   it("round-trips a chunk with 0-byte data", () => {
     const chunk: AttachmentChunk = {
