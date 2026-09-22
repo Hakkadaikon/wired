@@ -1,6 +1,6 @@
 # bench — comparison lanes
 
-Tooling behind [docs/comparison.md](../docs/comparison.md)'s speed and
+Tooling behind [docs/performance/comparison.md](../docs/performance/comparison.md)'s speed and
 footprint tables, runnable locally or via the manual GitHub Actions
 workflow (`.github/workflows/comparison.yml`, workflow_dispatch → pick
 lanes and rounds; results land in the job summary and artifacts. Hosted
