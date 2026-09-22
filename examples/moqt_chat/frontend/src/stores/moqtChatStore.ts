@@ -39,7 +39,7 @@ export type MoqtChatState = {
   messages: ChatMessage[];
   peers: string[]; // found participant ids, in observation order
   nicknames: Record<string, string>; // per-participant self-announced nickname; absent key means none set
-  liveError: string | null; // fatal live-movie playback error, if any
+  liveError: string | null; // fatal live-playback error, if any
   liveFirstGroup: string | null; // first live Group id received (decimal string)
   screenSharing: boolean; // am I currently sharing my screen
   screenTiles: string[]; // participant ids currently sharing, for rendering tiles
