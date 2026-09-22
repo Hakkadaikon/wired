@@ -384,24 +384,42 @@ describe("MoqtChatClient.sendMessage", () => {
     vi.stubGlobal("WebTransport", function () {
       return fake;
     });
-    const written: Uint8Array[] = [];
-    fake.createUnidirectionalStream = (async () => ({
-      getWriter: () => ({
-        write: async (chunk: Uint8Array) => {
-          written.push(chunk);
-        },
-        close: async () => {},
-      }),
-    })) as typeof fake.createUnidirectionalStream;
+    // One entry per opened uni stream, holding everything written to it.
+    const streams: Uint8Array[] = [];
+    fake.createUnidirectionalStream = (async () => {
+      const index = streams.push(new Uint8Array(0)) - 1;
+      return {
+        getWriter: () => ({
+          write: async (chunk: Uint8Array) => {
+            streams[index] = concatBytes([streams[index], chunk]);
+          },
+          close: async () => {},
+        }),
+      };
+    }) as typeof fake.createUnidirectionalStream;
     const client = new MoqtChatClient("user1", { onStatusChange: () => {}, onMessage: () => {} });
     const connected = client.connect("https://hub.example/", []);
     fake.resolveReady();
     await connected;
-    return { client, written };
+    return { client, streams, written: streams };
   }
 
-  it("publishes the text part once, then each attachment as its chunked run, in order", async () => {
-    const { client, written } = await connectedWithCapture();
+  // Every Object payload on one SUBGROUP stream, in wire order.
+  function decodeObjects(wire: Uint8Array, headerLen: number, hasProperties: boolean): Uint8Array[] {
+    const payloads: Uint8Array[] = [];
+    let offset = headerLen;
+    let prevId = 0n;
+    while (offset < wire.length) {
+      const { object, len } = decodeSubgroupObject(wire, offset, hasProperties, prevId, payloads.length === 0);
+      payloads.push(object.payload);
+      prevId = object.objectId;
+      offset += len;
+    }
+    return payloads;
+  }
+
+  it("publishes the text part once, then one stream per attachment, in order", async () => {
+    const { client, streams } = await connectedWithCapture();
 
     const dataA = new Uint8Array(1000).map((_, i) => i % 256);
     const dataB = new Uint8Array(10).map((_, i) => i);
@@ -412,43 +430,32 @@ describe("MoqtChatClient.sendMessage", () => {
 
     const expectedChunksA = splitAttachmentIntoChunks(1, 0, "image/png", dataA);
     const expectedChunksB = splitAttachmentIntoChunks(1, 1, "video/mp4", dataB);
-    // 1 text-part stream + chunked streams for each attachment.
-    expect(written).toHaveLength(1 + expectedChunksA.length + expectedChunksB.length);
+    expect(expectedChunksA.length).toBeGreaterThan(1); // the interesting case: several Objects on one stream
+    // 1 text-part stream + exactly one stream per attachment, however many chunks it holds.
+    expect(streams).toHaveLength(1 + 2);
 
-    const { header: h0, len: l0 } = decodeSubgroupHeader(written[0]);
+    const { header: h0, len: l0 } = decodeSubgroupHeader(streams[0]);
     expect(h0.trackAlias).toBe(0n); // user1's own track alias
-    const { object: o0 } = decodeSubgroupObject(written[0], l0, h0.flags.properties, 0n, true);
+    const { object: o0 } = decodeSubgroupObject(streams[0], l0, h0.flags.properties, 0n, true);
     const textPart = decodeTextPartMessage(o0.payload);
     const messageId = textPart.messageId; // seeded from crypto.getRandomValues, not fixed
     expect(textPart.attachmentCount).toBe(2);
     expect(textPart.text).toBe("hello");
 
     let prevGroupId = h0.groupId;
-    for (let i = 0; i < expectedChunksA.length; i++) {
-      const wire = written[1 + i];
+    for (const [attachmentIdx, expected] of [expectedChunksA, expectedChunksB].entries()) {
+      const wire = streams[1 + attachmentIdx];
       const { header, len } = decodeSubgroupHeader(wire);
       expect(header.groupId).toBeGreaterThan(prevGroupId);
       prevGroupId = header.groupId;
-      const { object } = decodeSubgroupObject(wire, len, header.flags.properties, 0n, true);
-      const chunk = decodeAttachmentChunkMessage(object.payload);
-      expect(chunk.messageId).toBe(messageId);
-      expect(chunk.attachmentIdx).toBe(0);
-      expect(chunk.idx).toBe(i);
-      expect(chunk.data).toEqual(expectedChunksA[i].data);
-    }
-
-    const offsetB = 1 + expectedChunksA.length;
-    for (let i = 0; i < expectedChunksB.length; i++) {
-      const wire = written[offsetB + i];
-      const { header, len } = decodeSubgroupHeader(wire);
-      expect(header.groupId).toBeGreaterThan(prevGroupId);
-      prevGroupId = header.groupId;
-      const { object } = decodeSubgroupObject(wire, len, header.flags.properties, 0n, true);
-      const chunk = decodeAttachmentChunkMessage(object.payload);
-      expect(chunk.messageId).toBe(messageId);
-      expect(chunk.attachmentIdx).toBe(1);
-      expect(chunk.idx).toBe(i);
-      expect(chunk.data).toEqual(expectedChunksB[i].data);
+      const chunks = decodeObjects(wire, len, header.flags.properties).map(decodeAttachmentChunkMessage);
+      expect(chunks).toHaveLength(expected.length);
+      chunks.forEach((chunk, i) => {
+        expect(chunk.messageId).toBe(messageId);
+        expect(chunk.attachmentIdx).toBe(attachmentIdx);
+        expect(chunk.idx).toBe(i);
+        expect(chunk.data).toEqual(expected[i].data);
+      });
     }
 
     client.close();
@@ -545,6 +552,33 @@ describe("MoqtChatClient message aggregation", () => {
       );
     });
   }
+
+  // One attachment = one uni stream carrying every chunk as consecutive
+  // Objects (how sendMessage publishes it).
+  function pushAttachmentStream(fake: FakeWebTransport, messageId: number, attachmentIdx: number, mimeType: string, data: Uint8Array, groupId: bigint) {
+    const chunks = splitAttachmentIntoChunks(messageId, attachmentIdx, mimeType, data);
+    fake.incomingUnidirectionalStreams.push(
+      concatBytes([
+        buildAttachmentSubgroupHeader(SENDER_ALIAS, groupId),
+        ...chunks.map((chunk) => {
+          const body = encodeAttachmentChunkMessage(chunk);
+          return concatBytes([encodeVarint(0n), encodeVarint(BigInt(body.length)), body]);
+        }),
+      ]),
+    );
+  }
+
+  it("reassembles an attachment whose chunks arrive as Objects on a single stream", async () => {
+    const { fake, messages } = await connectedListening();
+    const data = new Uint8Array(1000).map((_, i) => (i * 7) & 0xff);
+
+    pushTextPart(fake, 3, 1, "one stream", 0n);
+    pushAttachmentStream(fake, 3, 0, "image/png", data, 1n);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].attachments).toEqual([{ bytes: data, mimeType: "image/png" }]);
+  });
 
   it("scenario 1: text then all attachments -> onMessage fires exactly once", async () => {
     const { fake, messages } = await connectedListening();
