@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { MoqtDecodeError } from "../moqtWire";
+import { ATTACHMENT_MAX_COUNT } from "../attachmentValidation";
 import {
   ATTACHMENT_CHUNK_MARKER,
   TEXT_PART_MARKER,
@@ -168,6 +169,120 @@ describe("attachmentReassemblerPush timeout", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("attachmentReassemblerPush trust-boundary guards (I1)", () => {
+  it("I1(c): a chunk with count===0 is dropped, never emitted as an empty attachment", () => {
+    const state = attachmentReassemblerInit();
+    const chunk: AttachmentChunk = {
+      messageId: 1,
+      attachmentIdx: 0,
+      seq: 0,
+      idx: 0,
+      count: 0,
+      mimeType: "image/png",
+      totalBytes: 0,
+      data: new Uint8Array(0),
+    };
+    expect(attachmentReassemblerPush(state, chunk)).toBeNull();
+    expect(state.pending.size).toBe(0);
+  });
+
+  it("I1(b1): attachmentIdx at the boundary (ATTACHMENT_MAX_COUNT - 1) is accepted", () => {
+    const state = attachmentReassemblerInit();
+    const chunk: AttachmentChunk = {
+      messageId: 1,
+      attachmentIdx: ATTACHMENT_MAX_COUNT - 1,
+      seq: 0,
+      idx: 0,
+      count: 1,
+      mimeType: "image/png",
+      totalBytes: 1,
+      data: new Uint8Array([1]),
+    };
+    expect(attachmentReassemblerPush(state, chunk)).toEqual(new Uint8Array([1]));
+  });
+
+  it("I1(b1): attachmentIdx === ATTACHMENT_MAX_COUNT is dropped", () => {
+    const state = attachmentReassemblerInit();
+    const chunk: AttachmentChunk = {
+      messageId: 1,
+      attachmentIdx: ATTACHMENT_MAX_COUNT,
+      seq: 0,
+      idx: 0,
+      count: 1,
+      mimeType: "image/png",
+      totalBytes: 1,
+      data: new Uint8Array([1]),
+    };
+    expect(attachmentReassemblerPush(state, chunk)).toBeNull();
+    expect(state.pending.size).toBe(0);
+  });
+
+  it("I1(e): an unsupported mimeType on the idx===0 chunk is dropped", () => {
+    const state = attachmentReassemblerInit();
+    const chunk: AttachmentChunk = {
+      messageId: 1,
+      attachmentIdx: 0,
+      seq: 0,
+      idx: 0,
+      count: 1,
+      mimeType: "application/octet-stream",
+      totalBytes: 1,
+      data: new Uint8Array([1]),
+    };
+    expect(attachmentReassemblerPush(state, chunk)).toBeNull();
+    expect(state.pending.size).toBe(0);
+  });
+
+  it("I1(e): an allowed image/* mimeType on idx===0 is accepted", () => {
+    const state = attachmentReassemblerInit();
+    const chunk: AttachmentChunk = {
+      messageId: 1,
+      attachmentIdx: 0,
+      seq: 0,
+      idx: 0,
+      count: 1,
+      mimeType: "image/png",
+      totalBytes: 1,
+      data: new Uint8Array([1]),
+    };
+    expect(attachmentReassemblerPush(state, chunk)).toEqual(new Uint8Array([1]));
+  });
+
+  it("I1(d): count at the boundary (count * MAX_ATTACHMENT_CHUNK_BYTES === 5MB) is accepted", () => {
+    const state = attachmentReassemblerInit();
+    const maxCount = Math.floor((5 * 1024 * 1024) / MAX_ATTACHMENT_CHUNK_BYTES);
+    const chunk: AttachmentChunk = {
+      messageId: 1,
+      attachmentIdx: 0,
+      seq: 0,
+      idx: 0,
+      count: maxCount,
+      mimeType: "image/png",
+      totalBytes: maxCount * MAX_ATTACHMENT_CHUNK_BYTES,
+      data: new Uint8Array([1]),
+    };
+    expect(attachmentReassemblerPush(state, chunk)).toBeNull(); // incomplete, but not dropped
+    expect(state.pending.size).toBe(1);
+  });
+
+  it("I1(d): count one past the boundary is dropped before any chunk is buffered", () => {
+    const state = attachmentReassemblerInit();
+    const maxCount = Math.floor((5 * 1024 * 1024) / MAX_ATTACHMENT_CHUNK_BYTES) + 1;
+    const chunk: AttachmentChunk = {
+      messageId: 1,
+      attachmentIdx: 0,
+      seq: 0,
+      idx: 0,
+      count: maxCount,
+      mimeType: "image/png",
+      totalBytes: maxCount * MAX_ATTACHMENT_CHUNK_BYTES,
+      data: new Uint8Array([1]),
+    };
+    expect(attachmentReassemblerPush(state, chunk)).toBeNull();
+    expect(state.pending.size).toBe(0);
   });
 });
 
