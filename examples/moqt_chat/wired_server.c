@@ -13,7 +13,6 @@
  * non-communicating hub instance. */
 
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim */
-#include "app/media/mp4frag/mp4frag.h"
 #include "app/moqt/run/moqtrun.h"
 #include "app/webtransport/wtwire/wtwire.h"
 #include "common/platform/clock/mono.h"
@@ -34,27 +33,6 @@
  * safe everywhere below: wired_server_wt_* COPY any payload that fits their
  * own per-slot staging (srvrun.h), so nothing here must outlive its call. */
 #define MOQT_SIG_BUF 2048
-
-/* --- Movie track (--movie PATH, a fragmented MP4) ----------------------
- *
- * Read once at boot into g_movie; mp4frag_scan splits it into the init
- * segment (published as the "movie/init" blob track, alias 9) and its
- * moof+mdat fragments (published as the clock-paced "movie" live track,
- * alias 8, one fragment per 2-second Group -- the encode's GOP, see the
- * README's ffmpeg command). Aliases must match the frontend's
- * moqtMovieClient.ts/moqtLiveClient.ts: chat 0..3, audio 4..7, movie 8,
- * movie/init 9. 8 MiB: assets/movie-live.mp4 is 5.1 MB; a bigger file must
- * raise this (wired_fio_read fails loudly with WIRED_FIO_ETOOBIG rather
- * than truncating). */
-#define MOVIE_MAX (8u << 20)
-#define MOVIE_GROUP_MS 2000
-#define MOVIE_TRACK_ALIAS 8
-#define MOVIE_INIT_TRACK_ALIAS 9
-#define MOVIE_TRACK_NAME "movie"
-#define MOVIE_INIT_TRACK_NAME "movie/init"
-static u8             g_movie[MOVIE_MAX];
-static mp4frag_layout g_movie_layout;
-static u8             g_movie_init_wire[MOQDATA_BLOB_WIRE_CAP(4096)];
 
 /* Per-session staging ring for live fragments: wired_server_wt_open_uni
  * holds a payload above its 4096-byte staging as a VIEW until every byte
@@ -173,8 +151,8 @@ static void live_session_release(wired_wt_session* s) {
  * relayed Object, which always completes in its stream's only round -- see
  * moqtrun.h's send_uni doc for why this must not go through
  * open_uni_stream + a bare stream_send(fin=1) instead. A payload past the
- * stack staging is refused (the movie's init blob is ~1.2 KB and fits;
- * live fragments go through send_uni2's staging ring instead). */
+ * stack staging is refused; live fragments go through send_uni2's staging
+ * ring instead. */
 static i64 moqt_io_send_uni(wired_wt_session* s, wired_span payload) {
   u8  buf[MOQT_SIG_BUF];
   usz sig = wired_wtwire_signal_put(buf, sizeof buf, 0, s->connect_stream_id);
@@ -353,42 +331,6 @@ static void log_relay_stats(const wired_moqt_hub* hub) {
   wired_log_str(line);
 }
 
-/* --movie PATH: read the fMP4, publish its init segment as the
- * "movie/init" blob track and its fragments as the clock-paced "movie"
- * live track (the movie-track block near the top of this file). No flag,
- * no tracks. */
-static void publish_movie(const char* path) {
-  if (!path) return;
-  ssz n = wired_fio_read(path, wired_mspan_of(g_movie, sizeof g_movie));
-  if (n <= 0) wired_die("--movie: cannot read the file (or > MOVIE_MAX)\n");
-  if (!mp4frag_scan(wired_span_of(g_movie, (usz)n), &g_movie_layout))
-    wired_die("--movie: not a fragmented MP4 (see the README's ffmpeg cmd)\n");
-  usz wl = wired_moqt_publish_blob(
-      &g_hub,
-      wired_span_of(
-          (const u8*)MOVIE_INIT_TRACK_NAME, sizeof MOVIE_INIT_TRACK_NAME - 1),
-      MOVIE_INIT_TRACK_ALIAS, g_movie_layout.init,
-      wired_mspan_of(g_movie_init_wire, sizeof g_movie_init_wire));
-  if (wl == 0) wired_die("--movie: init segment framing failed (> 4 KiB?)\n");
-  if (!wired_moqt_publish_live(
-          &g_hub,
-          wired_span_of((const u8*)MOVIE_TRACK_NAME, sizeof MOVIE_TRACK_NAME - 1),
-          MOVIE_TRACK_ALIAS, g_movie_layout.frags, g_movie_layout.n_frags,
-          MOVIE_GROUP_MS, clock_mono_ms()))
-    wired_die("--movie: live publish failed\n");
-  char line[96];
-  usz  ln = 0;
-  append_cstr(line, &ln, "movie: ");
-  ln += dec_u64(line + ln, (u64)g_movie_layout.n_frags);
-  append_cstr(line, &ln, " fragments, init ");
-  ln += dec_u64(line + ln, (u64)g_movie_layout.init.n);
-  append_cstr(line, &ln, " bytes, group ");
-  ln += dec_u64(line + ln, (u64)MOVIE_GROUP_MS);
-  append_cstr(line, &ln, " ms\n");
-  line[ln] = 0;
-  wired_log_str(line);
-}
-
 /* wired_srvrun_on_step-shaped: paces the hub's live track (moqtrun.h's
  * wired_moqt_tick doc). ctx is the hub. */
 static void on_step(void* ctx, u64 now_ms) {
@@ -450,7 +392,6 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   log_cert_fingerprint(&id);
 
   wired_moqt_init(&g_hub, g_moqt_io);
-  publish_movie(wired_cliargs_str(argc, argv, "--movie", 0));
 
   if (!wired_srvdriver_parse(argc, argv, &opt))
     wired_die(
