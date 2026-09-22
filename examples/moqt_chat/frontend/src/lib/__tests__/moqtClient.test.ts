@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildChatObjectMessage,
   buildNicknameObjectMessage,
+  classifyChatPayload,
   MoqtChatClient,
   parseChatObjectMessage,
   parseNicknameFromChatText,
@@ -19,6 +20,12 @@ import {
   encodeSubscribeOk,
   utf8ToBytes,
 } from "../moqtWire";
+import {
+  decodeImageChunkMessage,
+  encodeImageChunkMessage,
+  IMAGE_CHUNK_MARKER,
+  splitImageIntoChunks,
+} from "../moqtImageWire";
 
 describe("buildChatObjectMessage", () => {
   it("round-trips through the moqtWire subgroup decoder", () => {
@@ -76,6 +83,36 @@ describe("nickname self-announce message", () => {
 
   it("an empty nickname is not sent as an announce", () => {
     expect(() => buildNicknameObjectMessage({ trackAlias: 2n, groupId: 0n, nickname: "" })).toThrow();
+  });
+});
+
+describe("classifyChatPayload", () => {
+  it("classifies plain UTF-8 chat text as text", () => {
+    expect(classifyChatPayload(utf8ToBytes("hello everyone"))).toBe("text");
+  });
+
+  it("classifies a nickname-marker payload as nickname", () => {
+    expect(classifyChatPayload(utf8ToBytes("\u0000nick:Alice"))).toBe("nickname");
+  });
+
+  it("classifies an image-chunk-marker payload as image", () => {
+    const { chunk } = decodeImageChunkMessage(
+      encodeImageChunkMessage({ seq: 1, idx: 0, count: 1, mimeType: "image/png", totalBytes: 3, data: new Uint8Array([1, 2, 3]) }),
+    );
+    const wire = encodeImageChunkMessage(chunk);
+    expect(classifyChatPayload(wire)).toBe("image");
+  });
+
+  it("IMAGE_CHUNK_MARKER (0xFF) never appears as a valid UTF-8 lead byte, so it cannot collide with text", () => {
+    // 0xFF is not a valid UTF-8 lead byte per RFC 3629 (max lead byte is 0xF4);
+    // any real chat text's first byte can therefore never equal the marker.
+    expect(IMAGE_CHUNK_MARKER).toBe(0xff);
+    const text = utf8ToBytes("some ordinary message");
+    expect(text[0]).not.toBe(IMAGE_CHUNK_MARKER);
+  });
+
+  it("does not collide with the nickname marker (0x00)", () => {
+    expect(IMAGE_CHUNK_MARKER).not.toBe(0x00);
   });
 });
 
@@ -304,6 +341,57 @@ describe("MoqtChatClient incoming datagrams", () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(aliases).toEqual([7n]);
+  });
+});
+
+describe("MoqtChatClient.sendImage", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("sends one uni stream per chunk, each a valid SUBGROUP_HEADER + image Object, in order", async () => {
+    vi.useFakeTimers();
+    const fake = new FakeWebTransport();
+    vi.stubGlobal("WebTransport", function () {
+      return fake;
+    });
+    const written: Uint8Array[] = [];
+    fake.createUnidirectionalStream = (async () => ({
+      getWriter: () => ({
+        write: async (chunk: Uint8Array) => {
+          written.push(chunk);
+        },
+        close: async () => {},
+      }),
+    })) as typeof fake.createUnidirectionalStream;
+    const client = new MoqtChatClient("user1", { onStatusChange: () => {}, onMessage: () => {} });
+    const connected = client.connect("https://hub.example/", []);
+    fake.resolveReady();
+    await connected;
+
+    const data = new Uint8Array(1000).map((_, i) => i % 256);
+    await client.sendImage(data, "image/png");
+
+    const expectedChunks = splitImageIntoChunks(0, data, "image/png");
+    expect(written).toHaveLength(expectedChunks.length);
+
+    let prevGroupId = -1n;
+    for (let i = 0; i < written.length; i++) {
+      const { header, len } = decodeSubgroupHeader(written[i]);
+      expect(header.trackAlias).toBe(0n); // user1's own track alias
+      expect(header.groupId).toBeGreaterThan(prevGroupId); // increasing -> order preserved
+      prevGroupId = header.groupId;
+
+      const { object } = decodeSubgroupObject(written[i], len, header.flags.properties, 0n, true);
+      const { chunk } = decodeImageChunkMessage(object.payload);
+      expect(chunk.seq).toBe(0);
+      expect(chunk.idx).toBe(i);
+      expect(chunk.count).toBe(expectedChunks.length);
+      expect(chunk.data).toEqual(expectedChunks[i].data);
+    }
+
+    client.close();
   });
 });
 
