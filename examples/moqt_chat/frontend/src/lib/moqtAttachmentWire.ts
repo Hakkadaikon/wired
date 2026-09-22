@@ -161,6 +161,12 @@ export function encodeTextPartMessage(
   text: string,
 ): Uint8Array {
   const textBytes = new TextEncoder().encode(text);
+  // M2: textLen is a u16 field -- silently wrapping past 65535 would encode
+  // a truncated length and the receiver would decode a shorter, possibly
+  // mid-character string with no indication anything was cut.
+  if (textBytes.length > 0xffff) {
+    throw new MoqtDecodeError("text part UTF-8 byte length exceeds u16 textLen");
+  }
   const out = new Uint8Array(1 + 4 + 1 + 2 + textBytes.length);
   const view = new DataView(out.buffer);
 
