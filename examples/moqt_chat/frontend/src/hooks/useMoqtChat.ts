@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   candidateParticipantIds,
   MoqtChatClient,
+  type ChatAttachment as WireChatAttachment,
   type MoqtChatCallbacks,
 } from "@/lib/moqtClient";
 import { MoqtVoiceClient } from "@/lib/moqtVoiceClient";
@@ -123,35 +124,34 @@ function makeProcessor(track: unknown): ProcessorLike {
 // Pure translation from MoqtChatClient's callbacks to store actions --
 // exported so a test can exercise it against a store instance and a fake
 // client shaped like MoqtChatClient, without touching WebTransport.
+// Builds one Blob URL per received attachment (moqtClient.ts's ChatAttachment
+// carries only bytes/mimeType; the store's ChatAttachment additionally wants
+// a url the UI can render directly).
+function attachBlobUrls(attachments: WireChatAttachment[]) {
+  return attachments.map((a) => ({
+    ...a,
+    url: URL.createObjectURL(new Blob([a.bytes as BlobPart], { type: a.mimeType })),
+  }));
+}
+
 export function moqtChatCallbacks(
   store: Pick<MoqtChatState, "setConnectionState" | "addPeer" | "addMessage" | "setNickname">,
-): Pick<MoqtChatCallbacks, "onStatusChange" | "onMessage" | "onNickname" | "onImage"> {
+): Pick<MoqtChatCallbacks, "onStatusChange" | "onMessage" | "onNickname"> {
   return {
     onStatusChange: (status) => store.setConnectionState(status),
-    onMessage: (participantId, text) => {
+    onMessage: (participantId, text, attachments) => {
       store.addPeer(participantId);
       store.addMessage({
         senderId: participantId,
         text,
         at: Date.now(),
         own: false,
+        attachments: attachBlobUrls(attachments),
       });
     },
     onNickname: (participantId, nickname) => {
       store.addPeer(participantId);
       store.setNickname(participantId, nickname);
-    },
-    onImage: (participantId, bytes, mimeType) => {
-      store.addPeer(participantId);
-      const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mimeType }));
-      store.addMessage({
-        senderId: participantId,
-        text: "",
-        at: Date.now(),
-        own: false,
-        imageDataUrl: url,
-        imageMimeType: mimeType,
-      });
     },
   };
 }
@@ -956,44 +956,27 @@ export function useMoqtChat() {
     [store, startVoice, drawScreenFrame, teardownCurrentSession],
   );
 
-  const sendChat = useCallback(
-    async (text: string) => {
-      const client = clientRef.current;
-      const senderId = localIdRef.current;
-      if (!client) return;
-      const message = { senderId, text, at: Date.now(), own: true };
-      try {
-        await client.send(text);
-        store.addMessage(message);
-      } catch {
-        store.addMessage({ ...message, failed: true });
-      }
-    },
-    [store],
-  );
-
-  // Same optimistic-local-entry shape as sendChat: on success, the sender
-  // sees their own image in their own timeline too (own: true), built from
-  // the same bytes/mimeType they sent rather than round-tripping through
-  // the wire -- no need to wait for anything back from the hub.
-  const sendImage = useCallback(
-    async (bytes: Uint8Array, mimeType: string) => {
+  // One call for both a plain text message (attachments: []) and a message
+  // with attachments -- moqtClient.ts's sendMessage already sends the text
+  // part and every attachment's chunks as one unit. On success, the sender
+  // sees their own message (with local Blob URLs, own: true) in their own
+  // timeline right away rather than round-tripping through the wire.
+  const sendMessage = useCallback(
+    async (text: string, attachments: WireChatAttachment[]) => {
       const client = clientRef.current;
       const senderId = localIdRef.current;
       if (!client) return;
       try {
-        await client.sendImage(bytes, mimeType);
-        const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mimeType }));
+        await client.sendMessage(text, attachments);
         store.addMessage({
           senderId,
-          text: "",
+          text,
           at: Date.now(),
           own: true,
-          imageDataUrl: url,
-          imageMimeType: mimeType,
+          attachments: attachBlobUrls(attachments),
         });
       } catch {
-        store.setImageSendError("image send failed");
+        store.setMessageSendError("message send failed");
       }
     },
     [store],
@@ -1171,8 +1154,7 @@ export function useMoqtChat() {
 
   return {
     connect,
-    sendChat,
-    sendImage,
+    sendMessage,
     toggleMute,
     leave,
     micError,
