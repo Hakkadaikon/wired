@@ -8,10 +8,10 @@
 // reassembling it on receive (screenFrameReassemblerPush).
 //
 // Track Alias space: chat aliases are 0..N-1, audio N..2N-1
-// (moqtVoiceClient.ts), the live movie sits at 2N/2N+1
-// (moqtMovieClient.ts's MOVIE_TRACK_ALIAS/MOVIE_INIT_TRACK_ALIAS). Screen
-// aliases are offset from MOVIE_INIT_TRACK_ALIAS + 1 (relative, not a bare
-// 10) so they self-adjust if CANDIDATE_PARTICIPANT_IDS.length ever changes.
+// (moqtVoiceClient.ts). Screen aliases are offset from
+// CANDIDATE_PARTICIPANT_IDS.length * 2 (relative, not a bare 8) so they
+// self-adjust if CANDIDATE_PARTICIPANT_IDS.length ever changes; the extra
+// +2 leaves a 2-alias gap above the audio range for future use.
 
 import {
   CANDIDATE_PARTICIPANT_IDS,
@@ -19,7 +19,6 @@ import {
   participantForTrackAlias,
   type MoqtChatClient,
 } from "./moqtClient";
-import { MOVIE_INIT_TRACK_ALIAS } from "./moqtMovieClient";
 import {
   concatBytes,
   decodeSubgroupObject,
@@ -33,7 +32,7 @@ import {
   type ScreenChunk,
 } from "./moqtScreenWire";
 
-export const SCREEN_ALIAS_OFFSET = MOVIE_INIT_TRACK_ALIAS + 1n;
+export const SCREEN_ALIAS_OFFSET = BigInt(CANDIDATE_PARTICIPANT_IDS.length * 2 + 2);
 
 export function ownScreenTrackAlias(localId: string): bigint {
   return ownTrackAlias(localId) + SCREEN_ALIAS_OFFSET;
@@ -212,7 +211,7 @@ interface ScreenObjectSeq {
  * for each, and returns the undecoded remainder. Mirrors
  * drainVoiceObjectStream's incremental shape: decodeSubgroupObject slices a
  * short payload without throwing on a truncated tail, so `len >
- * buffered.length` is checked explicitly (moqtMovieClient.ts's own doc). */
+ * buffered.length` is checked explicitly. */
 function drainScreenObjectStream(
   buffered: Uint8Array,
   seq: ScreenObjectSeq,

@@ -13,8 +13,8 @@ import {
   OWN_SCREEN_KEY,
   reconnectDelayMs,
   sampleLocalLevel,
+  sendChatMessage,
   shouldAutoStopOwnScreen,
-  shouldStartLive,
   teardownSession,
   type ReconnectRefs,
   type SessionRefs,
@@ -46,7 +46,6 @@ function fakeSessionRefs(): SessionRefs {
     screenKeyframeMeta: { current: new Map([["peerA", {}]]) },
     screenStall: { current: new Map([["peerA", {}]]) },
     client: { current: { close: vi.fn() } },
-    live: { current: { stop: vi.fn() } },
     unregisterLifecycle: { current: vi.fn() },
     audioCtx: { current: { close: vi.fn().mockResolvedValue(undefined) } },
   };
@@ -74,7 +73,7 @@ describe("moqtChatCallbacks", () => {
     expect(setConnectionState).toHaveBeenNthCalledWith(2, "connected");
   });
 
-  it("onMessage adds the sender as a peer and appends a not-own message", () => {
+  it("onMessage adds the sender as a peer and appends a not-own text-only message with attachments: []", () => {
     const addPeer = vi.fn();
     const addMessage = vi.fn();
     const callbacks = moqtChatCallbacks({
@@ -83,13 +82,14 @@ describe("moqtChatCallbacks", () => {
       addMessage,
       setNickname: vi.fn(),
     });
-    callbacks.onMessage("user2", "hello");
+    callbacks.onMessage("user2", "hello", []);
     expect(addPeer).toHaveBeenCalledWith("user2");
     expect(addMessage).toHaveBeenCalledTimes(1);
     const arg = addMessage.mock.calls[0][0];
     expect(arg.senderId).toBe("user2");
     expect(arg.text).toBe("hello");
     expect(arg.own).toBe(false);
+    expect(arg.attachments).toEqual([]);
     expect(typeof arg.at).toBe("number");
   });
 
@@ -102,8 +102,8 @@ describe("moqtChatCallbacks", () => {
       addMessage,
       setNickname: vi.fn(),
     });
-    callbacks.onMessage("user2", "hi");
-    callbacks.onMessage("user3", "yo");
+    callbacks.onMessage("user2", "hi", []);
+    callbacks.onMessage("user3", "yo", []);
     expect(addPeer.mock.calls).toEqual([["user2"], ["user3"]]);
     expect(addMessage.mock.calls.map((c) => c[0].senderId)).toEqual([
       "user2",
@@ -111,7 +111,7 @@ describe("moqtChatCallbacks", () => {
     ]);
   });
 
-  it("onImage adds the sender as a peer and appends an image message", () => {
+  it("onMessage with attachments builds a Blob URL per attachment and passes them through as-is", () => {
     vi.stubGlobal("URL", { createObjectURL: () => "blob:mock-url" });
     const addPeer = vi.fn();
     const addMessage = vi.fn();
@@ -121,21 +121,45 @@ describe("moqtChatCallbacks", () => {
       addMessage,
       setNickname: vi.fn(),
     });
-    callbacks.onImage!("user2", new Uint8Array([1, 2, 3]), "image/png");
+    callbacks.onMessage("user2", "", [
+      { bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png" },
+    ]);
     expect(addPeer).toHaveBeenCalledWith("user2");
     expect(addMessage).toHaveBeenCalledTimes(1);
     const arg = addMessage.mock.calls[0][0];
     expect(arg.senderId).toBe("user2");
     expect(arg.text).toBe("");
     expect(arg.own).toBe(false);
-    expect(arg.imageDataUrl).toBe("blob:mock-url");
-    expect(arg.imageMimeType).toBe("image/png");
+    expect(arg.attachments).toEqual([
+      { bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png", url: "blob:mock-url" },
+    ]);
     expect(typeof arg.at).toBe("number");
     vi.unstubAllGlobals();
   });
 
-  it("onImage does not interfere with onMessage/onNickname handlers", () => {
-    vi.stubGlobal("URL", { createObjectURL: () => "blob:mock-url" });
+  it("onMessage with multiple attachments builds one Blob URL each, in order", () => {
+    let n = 0;
+    vi.stubGlobal("URL", { createObjectURL: () => `blob:mock-url-${n++}` });
+    const addMessage = vi.fn();
+    const callbacks = moqtChatCallbacks({
+      setConnectionState: vi.fn(),
+      addPeer: vi.fn(),
+      addMessage,
+      setNickname: vi.fn(),
+    });
+    callbacks.onMessage("user2", "look", [
+      { bytes: new Uint8Array([1]), mimeType: "image/png" },
+      { bytes: new Uint8Array([2]), mimeType: "image/jpeg" },
+    ]);
+    const arg = addMessage.mock.calls[0][0];
+    expect(arg.attachments).toEqual([
+      { bytes: new Uint8Array([1]), mimeType: "image/png", url: "blob:mock-url-0" },
+      { bytes: new Uint8Array([2]), mimeType: "image/jpeg", url: "blob:mock-url-1" },
+    ]);
+    vi.unstubAllGlobals();
+  });
+
+  it("onMessage does not interfere with onNickname handling", () => {
     const addPeer = vi.fn();
     const addMessage = vi.fn();
     const setNickname = vi.fn();
@@ -145,17 +169,15 @@ describe("moqtChatCallbacks", () => {
       addMessage,
       setNickname,
     });
-    callbacks.onImage!("user2", new Uint8Array([1]), "image/png");
-    callbacks.onMessage("user2", "hello");
+    callbacks.onMessage("user2", "hello", []);
     callbacks.onNickname!("user2", "Alice");
-    expect(addPeer.mock.calls).toEqual([["user2"], ["user2"], ["user2"]]);
-    expect(addMessage.mock.calls[1][0]).toMatchObject({
+    expect(addPeer.mock.calls).toEqual([["user2"], ["user2"]]);
+    expect(addMessage.mock.calls[0][0]).toMatchObject({
       senderId: "user2",
       text: "hello",
       own: false,
     });
     expect(setNickname).toHaveBeenCalledWith("user2", "Alice");
-    vi.unstubAllGlobals();
   });
 });
 
@@ -196,6 +218,51 @@ describe("connectChatThenVoice", () => {
 
     expect(onChatFailed).not.toHaveBeenCalled();
     expect(onVoiceFailed).not.toHaveBeenCalled();
+  });
+});
+
+describe("sendChatMessage", () => {
+  function fakeStore() {
+    return { addMessage: vi.fn(), setMessageSendError: vi.fn() };
+  }
+
+  it("does nothing when there is no client", async () => {
+    const store = fakeStore();
+    await sendChatMessage(null, store, "user1", "hi", []);
+    expect(store.addMessage).not.toHaveBeenCalled();
+    expect(store.setMessageSendError).not.toHaveBeenCalled();
+  });
+
+  it("on success, adds the message as own with no failed flag", async () => {
+    const store = fakeStore();
+    const client = { sendMessage: vi.fn().mockResolvedValue(undefined) };
+    await sendChatMessage(client, store, "user1", "hi", []);
+
+    expect(client.sendMessage).toHaveBeenCalledWith("hi", []);
+    expect(store.setMessageSendError).not.toHaveBeenCalled();
+    expect(store.addMessage).toHaveBeenCalledTimes(1);
+    const arg = store.addMessage.mock.calls[0][0];
+    expect(arg.senderId).toBe("user1");
+    expect(arg.text).toBe("hi");
+    expect(arg.own).toBe(true);
+    expect(arg.failed).toBeUndefined();
+  });
+
+  // I4 regression: sendMessage used to only set messageSendError on
+  // rejection, dropping the attempted text from the timeline entirely and
+  // leaving ChatMessage.failed / page.tsx's "Not sent" rendering dead code.
+  it("I4: on rejection, the message still appears in the timeline with failed: true", async () => {
+    const store = fakeStore();
+    const client = { sendMessage: vi.fn().mockRejectedValue(new Error("transport gone")) };
+    await sendChatMessage(client, store, "user1", "hi", []);
+
+    expect(store.setMessageSendError).toHaveBeenCalledWith("message send failed");
+    expect(store.addMessage).toHaveBeenCalledTimes(1);
+    const arg = store.addMessage.mock.calls[0][0];
+    expect(arg.senderId).toBe("user1");
+    expect(arg.text).toBe("hi");
+    expect(arg.own).toBe(true);
+    expect(arg.failed).toBe(true);
   });
 });
 
@@ -309,7 +376,6 @@ describe("teardownSession", () => {
     const voice = refs.voice.current as { close: ReturnType<typeof vi.fn> };
     const screen = refs.screen.current as { close: ReturnType<typeof vi.fn> };
     const client = refs.client.current as { close: ReturnType<typeof vi.fn> };
-    const live = refs.live.current as { stop: ReturnType<typeof vi.fn> };
     const store = fakeScreenStore();
 
     teardownSession(refs, store);
@@ -317,7 +383,6 @@ describe("teardownSession", () => {
     expect(voice.close).toHaveBeenCalledTimes(1);
     expect(screen.close).toHaveBeenCalledTimes(1);
     expect(client.close).toHaveBeenCalledTimes(1);
-    expect(live.stop).toHaveBeenCalledTimes(1);
     expect(refs.knownSenders.current.size).toBe(0);
     expect(refs.screenKnownSenders.current.size).toBe(0);
     expect(refs.screenReassemblers.current.size).toBe(0);
@@ -737,19 +802,6 @@ describe("sampleLocalLevel", () => {
     const scratch = new Float32Array(4);
     const analyser = { getFloatTimeDomainData: (buf: Float32Array) => buf.fill(0) };
     expect(sampleLocalLevel(analyser, scratch)).toBe(0);
-  });
-});
-
-describe("shouldStartLive", () => {
-  it("starts only when connected with a mounted <video> and no live movie yet", () => {
-    expect(shouldStartLive("connected", true, false)).toBe(true);
-  });
-
-  it("never starts while disconnected/connecting, without a video, or twice", () => {
-    expect(shouldStartLive("disconnected", true, false)).toBe(false);
-    expect(shouldStartLive("connecting", true, false)).toBe(false);
-    expect(shouldStartLive("connected", false, false)).toBe(false);
-    expect(shouldStartLive("connected", true, true)).toBe(false);
   });
 });
 

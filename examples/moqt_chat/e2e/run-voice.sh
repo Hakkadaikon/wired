@@ -37,8 +37,7 @@ node e2e/run-voice-load-test.mjs \
 
 # The hub prints its relay-stats line (dg_sent=/dg_dropped=/dg_bad=,
 # wired_server.c log_relay_stats) only at shutdown, so the gate must read
-# the log AFTER a clean stop -- same ordering as run-live-check.mjs's
-# server.stop()-then-grep for live_sent.
+# the log AFTER a clean stop.
 kill -TERM "$SERVER_PID" 2>/dev/null || true
 wait "$SERVER_PID" 2>/dev/null || true
 
