@@ -19,8 +19,6 @@ import {
 } from "@/lib/moqtClient";
 import { MoqtVoiceClient } from "@/lib/moqtVoiceClient";
 import { isScreenTrackAlias, MoqtScreenClient } from "@/lib/moqtScreenClient";
-import { MOVIE_INIT_TRACK_ALIAS, MOVIE_TRACK_ALIAS, readMovie } from "@/lib/moqtMovieClient";
-import { LiveMovie } from "@/lib/moqtLiveClient";
 import { startMicPipeline, type MicPipeline } from "@/lib/micPipeline";
 import { startNoiseSuppressor, type NoiseSuppressorHandle } from "@/lib/noiseSuppressor";
 import { startScreenSharePipeline, type ScreenSharePipeline } from "@/lib/screenSharePipeline";
@@ -227,9 +225,6 @@ export function sampleLocalLevel(
   return rmsLevel(scratch);
 }
 
-// When to open the live movie's MediaSource: only in the connected room
-// view (the <video> ref is mounted there), and never a second time while
-// one is already live. Pure so it's testable without rendering the hook.
 // Routes one voiceTap event (moqtVoiceClient/voiceReceivePipeline/
 // playbackSink's shared trace point, voiceTap.ts) into the quality window.
 // "send" carries no sender key from the receiver's own perspective and is
@@ -255,14 +250,6 @@ export function chainVoiceTap(
     applyVoiceTapEvent(window, e);
     previous?.(e);
   };
-}
-
-export function shouldStartLive(
-  connectionState: ConnectionState,
-  hasVideo: boolean,
-  alreadyStarted: boolean,
-): boolean {
-  return connectionState === "connected" && hasVideo && !alreadyStarted;
 }
 
 // The current session's live resources -- everything a manual Rejoin
@@ -296,7 +283,6 @@ export type SessionRefs = {
   screenKeyframeMeta: { current: Map<string, unknown> };
   screenStall: { current: Map<string, unknown> };
   client: { current: { close: () => void } | null };
-  live: { current: { stop: () => void } | null };
   unregisterLifecycle: { current: (() => void) | null };
   audioCtx: { current: { close: () => Promise<void> } | null };
 };
@@ -355,8 +341,6 @@ export function teardownSession(
   store.setScreenShareError(null);
   refs.client.current?.close();
   refs.client.current = null;
-  refs.live.current?.stop();
-  refs.live.current = null;
   refs.unregisterLifecycle.current?.();
   refs.unregisterLifecycle.current = null;
   // close() rejects on an already-closed context; swallow it since teardown
@@ -536,9 +520,6 @@ export function useMoqtChat() {
   const connectRef = useRef<
     ((url: string, localId: string, certHashesHex: string[], nickname?: string) => Promise<void>) | null
   >(null);
-  // The live <video> element page.tsx renders; LiveMovie drives it directly.
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const liveRef = useRef<LiveMovie | null>(null);
   // One <canvas> per screen-share tile (remote senders keyed by participant
   // id, own outgoing preview keyed by "own"). page.tsx registers/unregisters
   // as tiles mount/unmount; the decode pipeline's onFrame draws into
@@ -581,37 +562,6 @@ export function useMoqtChat() {
     },
     [],
   );
-
-  const clearLive = useCallback(() => {
-    store.setLiveError(null);
-    store.setLiveFirstGroup(null);
-  }, [store]);
-
-  // Start the live movie only once the room view is on screen: the <video>
-  // mounts in the same render that flips connectionState to "connected", so
-  // this effect (which runs after the DOM commit) is the first moment
-  // videoRef.current is reliably non-null. The cleanup stops playback
-  // whenever connectionState leaves "connected" (leave() or a drop).
-  const connectionState = store.connectionState;
-  useEffect(() => {
-    const client = clientRef.current;
-    const video = videoRef.current;
-    if (!shouldStartLive(connectionState, video !== null, liveRef.current !== null)) return;
-    if (!client || !video) return;
-    const live = new LiveMovie(client, video, {
-      onError: (m) => useMoqtChatStore.getState().setLiveError(m),
-      onFirstGroup: (g) => useMoqtChatStore.getState().setLiveFirstGroup(g.toString()),
-    });
-    liveRef.current = live;
-    // start() reports its own failures through onError, but if anything
-    // still escapes, surface it -- a swallowed rejection here is exactly
-    // the silent forever-spinner this pipeline must never show.
-    live.start().catch((err) => useMoqtChatStore.getState().setLiveError(String(err)));
-    return () => {
-      liveRef.current?.stop();
-      liveRef.current = null;
-    };
-  }, [connectionState]);
 
   const startDrainLoop = useCallback(() => {
     const tick = () => {
@@ -657,7 +607,6 @@ export function useMoqtChat() {
         screenKeyframeMeta: screenKeyframeMetaRef,
         screenStall: screenStallRef,
         client: clientRef,
-        live: liveRef,
         unregisterLifecycle: unregisterLifecycleRef,
         audioCtx: audioCtxRef,
       },
@@ -872,14 +821,7 @@ export function useMoqtChat() {
       // self-announce round trip below (it never needs to travel the wire
       // back to its own sender).
       if (nickname) store.setNickname(localId, nickname);
-      clearLive();
 
-      // The movie aliases must be checked BEFORE voice: MoqtVoiceClient
-      // cancels any stream whose alias it doesn't own. Both movie branches
-      // no-op while liveRef is still null (the effect above hasn't started
-      // playback yet -- defensive, since LiveMovie itself issues the movie
-      // SUBSCRIBEs after liveRef is set): a stray init/fragment is simply
-      // dropped, and the hub paces the next Group within ~2 s.
       // Every status report for this session -- the client's own
       // onStatusChange and a failed connect()'s rejection below -- funnels
       // through here, so the store and the auto-rejoin back-off see one
@@ -896,21 +838,6 @@ export function useMoqtChat() {
         ...moqtChatCallbacks(store),
         onStatusChange: reportStatus,
         onUnknownUniStream: (header, firstChunkTail, reader) => {
-          if (header.trackAlias === MOVIE_INIT_TRACK_ALIAS) {
-            void readMovie(firstChunkTail, reader, header.flags.properties).then(
-              (bytes) => bytes && liveRef.current?.handleInit(bytes),
-            );
-            return;
-          }
-          if (header.trackAlias === MOVIE_TRACK_ALIAS) {
-            void liveRef.current?.handleFragment(
-              firstChunkTail,
-              reader,
-              header.flags.properties,
-              header.groupId,
-            );
-            return;
-          }
           // Screen alias range must be checked before the voice fallback
           // below: MoqtVoiceClient cancels any stream whose alias it
           // doesn't own, so a screen stream routed there first is eaten.
@@ -921,8 +848,8 @@ export function useMoqtChat() {
           voiceRef.current?.handleIncomingStream(header, firstChunkTail, reader);
         },
         // Only voice sends OBJECT_DATAGRAMs (moqtVoiceClient.ts's
-        // sendOpusFrame); movie/screen are stream-borne, so no alias
-        // dispatch is needed here yet.
+        // sendOpusFrame); screen is stream-borne, so no alias dispatch is
+        // needed here yet.
         onUnknownDatagram: (datagram) => {
           voiceRef.current?.handleIncomingDatagram(datagram);
         },
@@ -1008,10 +935,6 @@ export function useMoqtChat() {
         getMicTracks: () => micTracksFrom(micRef.current),
       });
 
-      // The live movie is NOT started here: the effect above starts it once
-      // the connected room view (and its <video>) has actually mounted, so
-      // it is fire-and-forget and never affects chat/voice failure handling
-      // (connectChatThenVoice's own doc).
       await connectChatThenVoice(
         async () => {
           await client.connect(url, certHashesHex);
@@ -1030,7 +953,7 @@ export function useMoqtChat() {
         (err) => setMicError(err instanceof Error ? err.message : "voice setup failed"),
       );
     },
-    [store, startVoice, clearLive, drawScreenFrame, teardownCurrentSession],
+    [store, startVoice, drawScreenFrame, teardownCurrentSession],
   );
 
   const sendChat = useCallback(
@@ -1234,8 +1157,7 @@ export function useMoqtChat() {
     store.setConnectionState("disconnected");
     store.clearPeers();
     store.clearMessages();
-    clearLive();
-  }, [teardownCurrentSession, store, clearLive]);
+  }, [teardownCurrentSession, store]);
 
   // Routes voice output to a chosen audiooutput device (AudioContext.setSinkId,
   // not yet in TS's DOM lib -- same as makeProcessor's MediaStreamTrackProcessor
@@ -1254,7 +1176,6 @@ export function useMoqtChat() {
     toggleMute,
     leave,
     micError,
-    videoRef,
     startScreenShare,
     stopScreenShare,
     registerScreenCanvas,
