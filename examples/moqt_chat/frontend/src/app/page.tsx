@@ -564,7 +564,7 @@ function JoinScreen({
       <div>
         <h1>Join the room</h1>
         <p className="cover__lede">
-          Voice, a live movie track, screen sharing and text over one MOQT session. Pick a participant
+          Voice, screen sharing and text over one MOQT session. Pick a participant
           id and connect to the hub.
         </p>
       </div>

@@ -73,7 +73,7 @@ describe("moqtChatStore", () => {
     expect(useMoqtChatStore.getState().stalledScreenTiles).toBe(before);
   });
 
-  it("sets and clears the live movie error and first group", () => {
+  it("sets and clears the live error and first group", () => {
     useMoqtChatStore.getState().setLiveError("video buffer error");
     useMoqtChatStore.getState().setLiveFirstGroup("7");
     expect(useMoqtChatStore.getState().liveError).toBe("video buffer error");
