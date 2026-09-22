@@ -260,6 +260,7 @@ async function runTextOnlyCase(sender, receiver, failures, report) {
   const name = "text-only";
   const text = `text-only:${Date.now()}`;
   const previousCount = await receiver.page.evaluate(() => document.querySelectorAll('[data-testid="message"]').length);
+  const previousAttachments = await countAttachments(receiver.page);
 
   await setText(sender.page, text);
   await submitDraft(sender.page);
@@ -275,7 +276,19 @@ async function runTextOnlyCase(sender, receiver, failures, report) {
       previousCount,
       text,
     );
-    report.cases[name] = { received: true };
+    // A text-only send must not grow the receiver's attachment count --
+    // attachmentCount was sent as 0, so no message-image/message-video
+    // should appear for this message.
+    const afterAttachments = await countAttachments(receiver.page);
+    const grewAttachments =
+      afterAttachments.images !== previousAttachments.images ||
+      afterAttachments.videos !== previousAttachments.videos;
+    if (grewAttachments) {
+      failures.push(
+        `${name}: attachment count grew on a text-only send (before ${JSON.stringify(previousAttachments)}, after ${JSON.stringify(afterAttachments)})`,
+      );
+    }
+    report.cases[name] = { received: true, attachmentsGrew: grewAttachments };
   } catch (err) {
     failures.push(`${name}: receiver never showed the text message: ${err}`);
     report.cases[name] = { received: false };
@@ -299,7 +312,19 @@ async function runAttachmentOnlyCase(sender, receiver, failures, report) {
     const [b64] = await readBytesFromElements(receiver.page, '[data-testid="message-image"]', previousCount);
     const received = Buffer.from(b64, "base64");
     const match = bytesEqual(sent, received);
-    report.cases[name] = { sentBytes: sent.length, receivedBytes: received.length, match };
+    // Attachment-only: text was sent empty, so the receiver's newest
+    // message bubble must render no message__text span at all
+    // (page.tsx's `{m.text && <span className="message__text">}` skips it
+    // for an empty string).
+    const hasTextSpan = await receiver.page.evaluate(() => {
+      const messages = document.querySelectorAll('[data-testid="message"]');
+      const newest = messages[messages.length - 1];
+      return newest ? newest.querySelector(".message__text") !== null : null;
+    });
+    if (hasTextSpan) {
+      failures.push(`${name}: receiver's newest message rendered a message__text span for an empty-text send`);
+    }
+    report.cases[name] = { sentBytes: sent.length, receivedBytes: received.length, match, hasTextSpan };
     if (!match) failures.push(`${name}: byte mismatch (sent ${sent.length}, received ${received.length})`);
   } catch (err) {
     failures.push(`${name}: receiver never showed message-image: ${err}`);
