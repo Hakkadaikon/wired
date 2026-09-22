@@ -107,17 +107,6 @@ e2e-stability-nightly: e2e-stability-ci
     ./e2e/run-stability.sh s6-voice-soak --talk-ms=1500000
     ./e2e/run-stability.sh s10-voice-chat-longevity
 
-# Live-movie check: starts wired_server --movie with assets/movie-live.mp4
-# and a static frontend, joins two headless-Chrome participants 5 s apart
-# and verifies each one's <video data-testid="live"> plays and keeps
-# advancing, that the late joiner's first Group is later than the first
-# one's (live position, not the file's start), and that the server's
-# shutdown stats count live Group sends -- the independent-peer check for
-# the hub's clock-paced live track (frontend/src/lib/moqtLiveClient.ts
-# decodes it). Run e2e-setup once first.
-e2e-live *ARGS: build build-frontend
-    node e2e/run-live-check.mjs {{ARGS}}
-
 # Screen-share check: 2 headless-Chrome participants, one shares a fake
 # getDisplayMedia canvas, the other's window.__wiredScreenTap (screenTap.ts)
 # is polled until decoded frames arrive with plausible dimensions -- the

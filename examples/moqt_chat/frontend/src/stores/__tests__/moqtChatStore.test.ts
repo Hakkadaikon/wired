@@ -13,8 +13,6 @@ describe("moqtChatStore", () => {
     expect(s.messages).toEqual([]);
     expect(s.peers).toEqual([]);
     expect(s.nicknames).toEqual({});
-    expect(s.liveError).toBeNull();
-    expect(s.liveFirstGroup).toBeNull();
     expect(s.screenSharing).toBe(false);
     expect(s.screenTiles).toEqual([]);
     expect(s.screenShareError).toBeNull();
@@ -71,17 +69,6 @@ describe("moqtChatStore", () => {
     const before = useMoqtChatStore.getState().stalledScreenTiles;
     s.setScreenTileStalled("user2", true);
     expect(useMoqtChatStore.getState().stalledScreenTiles).toBe(before);
-  });
-
-  it("sets and clears the live movie error and first group", () => {
-    useMoqtChatStore.getState().setLiveError("video buffer error");
-    useMoqtChatStore.getState().setLiveFirstGroup("7");
-    expect(useMoqtChatStore.getState().liveError).toBe("video buffer error");
-    expect(useMoqtChatStore.getState().liveFirstGroup).toBe("7");
-    useMoqtChatStore.getState().setLiveError(null);
-    useMoqtChatStore.getState().setLiveFirstGroup(null);
-    expect(useMoqtChatStore.getState().liveError).toBeNull();
-    expect(useMoqtChatStore.getState().liveFirstGroup).toBeNull();
   });
 
   it("assigns monotonically increasing message ids and returns them", () => {
@@ -193,44 +180,22 @@ describe("resolveDisplayName", () => {
     expect(useMoqtChatStore.getState().screenSharing).toBe(true);
   });
 
-  it("sets and clears the image send error independently of other error state", () => {
-    useMoqtChatStore.getState().setImageSendError("image upload failed");
-    expect(useMoqtChatStore.getState().imageSendError).toBe("image upload failed");
-    expect(useMoqtChatStore.getState().liveError).toBeNull();
-    useMoqtChatStore.getState().setImageSendError(null);
-    expect(useMoqtChatStore.getState().imageSendError).toBeNull();
+  it("sets and clears the message send error independently of other error state", () => {
+    useMoqtChatStore.getState().setMessageSendError("send failed");
+    expect(useMoqtChatStore.getState().messageSendError).toBe("send failed");
+    expect(useMoqtChatStore.getState().screenShareError).toBeNull();
+    useMoqtChatStore.getState().setMessageSendError(null);
+    expect(useMoqtChatStore.getState().messageSendError).toBeNull();
   });
 
-  it("appends a chat message with image data url and mime type", () => {
-    useMoqtChatStore.getState().clearMessages();
-    const id = useMoqtChatStore.getState().addMessage({
-      senderId: "user1",
-      text: "",
-      at: 1234,
-      own: true,
-      imageDataUrl: "data:image/png;base64,iVBORw0KGgo=",
-      imageMimeType: "image/png",
-    });
-    expect(useMoqtChatStore.getState().messages).toEqual([
-      {
-        id,
-        senderId: "user1",
-        text: "",
-        at: 1234,
-        own: true,
-        imageDataUrl: "data:image/png;base64,iVBORw0KGgo=",
-        imageMimeType: "image/png",
-      },
-    ]);
-  });
-
-  it("appends a plain text chat message still works (regression check)", () => {
+  it("appends a chat message with no attachments (plain text, regression check)", () => {
     useMoqtChatStore.getState().clearMessages();
     const id = useMoqtChatStore.getState().addMessage({
       senderId: "user1",
       text: "hello",
       at: 1234,
       own: true,
+      attachments: [],
     });
     const msg = useMoqtChatStore.getState().messages[0];
     expect(msg.id).toBe(id);
@@ -238,8 +203,40 @@ describe("resolveDisplayName", () => {
     expect(msg.text).toBe("hello");
     expect(msg.at).toBe(1234);
     expect(msg.own).toBe(true);
-    expect(msg.imageDataUrl).toBeUndefined();
-    expect(msg.imageMimeType).toBeUndefined();
+    expect(msg.attachments).toEqual([]);
+  });
+
+  it("appends a chat message with a single attachment", () => {
+    useMoqtChatStore.getState().clearMessages();
+    const attachment = { bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png", url: "blob:1" };
+    const id = useMoqtChatStore.getState().addMessage({
+      senderId: "user1",
+      text: "",
+      at: 1234,
+      own: true,
+      attachments: [attachment],
+    });
+    expect(useMoqtChatStore.getState().messages).toEqual([
+      { id, senderId: "user1", text: "", at: 1234, own: true, attachments: [attachment] },
+    ]);
+  });
+
+  it("appends a chat message with four attachments", () => {
+    useMoqtChatStore.getState().clearMessages();
+    const attachments = Array.from({ length: 4 }, (_, i) => ({
+      bytes: new Uint8Array([i]),
+      mimeType: "image/png",
+      url: `blob:${i}`,
+    }));
+    useMoqtChatStore.getState().addMessage({
+      senderId: "user1",
+      text: "",
+      at: 1234,
+      own: true,
+      attachments,
+    });
+    expect(useMoqtChatStore.getState().messages[0].attachments).toEqual(attachments);
+    expect(useMoqtChatStore.getState().messages[0].attachments).toHaveLength(4);
   });
 
   it("adds screen tiles uniquely (dedupes) in observation order", () => {
@@ -261,7 +258,7 @@ describe("resolveDisplayName", () => {
   it("sets and clears the screen-share error independently of other error state", () => {
     useMoqtChatStore.getState().setScreenShareError("getDisplayMedia was denied");
     expect(useMoqtChatStore.getState().screenShareError).toBe("getDisplayMedia was denied");
-    expect(useMoqtChatStore.getState().liveError).toBeNull();
+    expect(useMoqtChatStore.getState().messageSendError).toBeNull();
     useMoqtChatStore.getState().setScreenShareError(null);
     expect(useMoqtChatStore.getState().screenShareError).toBeNull();
   });

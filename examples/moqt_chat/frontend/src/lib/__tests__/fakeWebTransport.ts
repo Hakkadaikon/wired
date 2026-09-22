@@ -78,11 +78,58 @@ export class FakeDatagrams {
   }
 }
 
+/** One incoming uni stream whose entire wire payload is delivered in a
+ * single reader.read() chunk (real streams may fragment, but every writer
+ * in this codebase writes a whole message in one write() call, and
+ * #readOneUniStream/readToEof only need done:false once then done:true). */
+function fakeUniStream(wire: Uint8Array) {
+  let delivered = false;
+  return {
+    getReader: () => ({
+      read: async () => {
+        if (delivered) return { value: undefined, done: true };
+        delivered = true;
+        return { value: wire, done: false };
+      },
+      releaseLock: () => {},
+    }),
+  };
+}
+
+/** Incoming uni streams: readable.getReader().read() yields whatever a test
+ * push()es, one fake stream per push, parking between pushes. */
+class FakeIncomingUniStreams {
+  #queue: Uint8Array[] = [];
+  #wake: (() => void) | undefined;
+
+  getReader() {
+    return {
+      read: async () => {
+        for (;;) {
+          const wire = this.#queue.shift();
+          if (wire) return { value: fakeUniStream(wire), done: false };
+          await new Promise<void>((resolve) => {
+            this.#wake = resolve;
+          });
+        }
+      },
+    };
+  }
+
+  push(wire: Uint8Array): void {
+    this.#queue.push(wire);
+    this.#wake?.();
+    this.#wake = undefined;
+  }
+}
+
 export class FakeWebTransport {
   readonly ready: Promise<void>;
   readonly datagrams = new FakeDatagrams();
   /** Hub replies on the control stream: push() an encoded control frame. */
   readonly controlReplies = new FakeControlReplies();
+  /** Incoming uni streams (chat/attachment Objects): push() one wire message. */
+  readonly incomingUnidirectionalStreams = new FakeIncomingUniStreams();
   readonly closed: Promise<unknown>;
   closeCalls = 0;
   resolveReady!: () => void;
@@ -95,9 +142,6 @@ export class FakeWebTransport {
       read: async () => ({ value: fakeControlStream(this.controlReplies), done: false }),
       releaseLock: () => {},
     }),
-  };
-  incomingUnidirectionalStreams = {
-    getReader: () => ({ read: () => new Promise<never>(() => {}) }),
   };
 
   constructor() {
