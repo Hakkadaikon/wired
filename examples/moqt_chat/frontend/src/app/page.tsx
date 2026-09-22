@@ -463,13 +463,16 @@ function Compose({
   // Pasted images/videos are picked up the same way as a file-picker
   // selection; plain-text paste (item.kind === "string") is left completely
   // alone -- no preventDefault, so the browser's normal paste-into-input
-  // still happens.
+  // still happens. When a file WAS picked up, preventDefault stops the
+  // browser from also inserting the file's name/a raw data URL into the
+  // text input alongside the draft chip this creates.
   const onPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     const files = Array.from(e.clipboardData.items)
       .filter((item) => item.kind === "file" && (item.type.startsWith("image/") || item.type.startsWith("video/")))
       .map((item) => item.getAsFile())
       .filter((f): f is File => f !== null);
     if (files.length === 0) return;
+    e.preventDefault();
     void addFiles(files);
   };
 
