@@ -114,13 +114,20 @@ function ScreenTiles({
   return (
     <div className="screens" style={{ "--tile-w": `${screenTileWidth}px` } as React.CSSProperties}>
       {screenSharing && (
-        <canvas
-          ref={(el) => registerScreenCanvas("own", el)}
-          className="screen-own"
-          data-testid="screen-tile-own"
-          width={160}
-          height={90}
-        />
+        <div className="screen-own-wrap">
+          <canvas
+            ref={(el) => registerScreenCanvas("own", el)}
+            className="screen-own"
+            data-testid="screen-tile-own"
+            width={160}
+            height={90}
+          />
+          {stalledScreenTiles.own && (
+            <span className="caption" data-testid="screen-stalled-own">
+              画面共有が停止しているようです。一度停止してから再度共有してください
+            </span>
+          )}
+        </div>
       )}
       {screenTiles
         .filter((id) => id !== "own")
@@ -514,6 +521,7 @@ export default function Home() {
   } = useMoqtChat();
   const connectionState = useMoqtChatStore((s) => s.connectionState);
   const screenSharing = useMoqtChatStore((s) => s.screenSharing);
+  const screenShareError = useMoqtChatStore((s) => s.screenShareError);
 
   // Switch to the chat screen once the connection is established.
   useEffect(
@@ -596,6 +604,11 @@ export default function Home() {
         </button>
       </Notice>
       <Notice message={micError} />
+      {/* Also shown inside ScreenTiles while a tile is on screen; repeated
+          here so the message survives an auto-stop that removed the last
+          tile (own's auto-stop clears screenSharing and its own tile,
+          which can make ScreenTiles render nothing at all). */}
+      <Notice message={screenShareError} />
 
       {joined ? (
         <div className="room">
