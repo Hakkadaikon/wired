@@ -30,8 +30,7 @@
 //
 // Before running, kill any stale server (`pgrep -a wired_server`): the
 // listener binds 4433 with SO_REUSEPORT, so a leftover wired_server from an
-// earlier run shares the port and steals this run's handshake (same note
-// as run-live-check.mjs).
+// earlier run shares the port and steals this run's handshake.
 
 import puppeteer from "puppeteer-core";
 import { spawn, execSync } from "node:child_process";
