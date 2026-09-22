@@ -531,6 +531,12 @@ describe("MoqtChatClient message aggregation", () => {
     );
   }
 
+  function pushChunk(fake: FakeWebTransport, chunk: ReturnType<typeof splitAttachmentIntoChunks>[number], groupId: bigint) {
+    fake.incomingUnidirectionalStreams.push(
+      wireObject(SENDER_ALIAS, groupId, encodeAttachmentChunkMessage(chunk)),
+    );
+  }
+
   function pushAttachment(fake: FakeWebTransport, messageId: number, attachmentIdx: number, mimeType: string, data: Uint8Array, groupIdStart = 1n) {
     const chunks = splitAttachmentIntoChunks(messageId, attachmentIdx, mimeType, data);
     chunks.forEach((chunk, i) => {
@@ -691,6 +697,49 @@ describe("MoqtChatClient message aggregation", () => {
 
     expect(messages).toHaveLength(0);
     client.close();
+  });
+
+  // M1: #attachmentMimeTypes (messageId:attachmentIdx -> mimeType, recorded
+  // off an idx===0 chunk) must be swept in the same pass as #pendingMessages
+  // -- otherwise it has no timeout of its own and a message whose
+  // reassembly never completes leaks one entry per attachment forever. That
+  // leak is not independently observable through onMessage (#attachmentMimeTypes
+  // is a private field, and any later idx===0 chunk always overwrites
+  // whatever it holds anyway -- see moqtClient.ts's own M1 comment), so this
+  // is a regression test for the sweep trigger + reused-key completion path,
+  // not a leak detector: it pins that a timed-out message with a
+  // half-recorded attachment mimeType doesn't break a later, independent
+  // cycle reusing the same messageId+attachmentIdx key.
+  it("M1: a stale attachment mimeType is swept alongside its timed-out pending message", async () => {
+    const { fake, messages } = await connectedListening();
+
+    pushTextPart(fake, 8, 1, "will time out", 0n);
+    const stale = splitAttachmentIntoChunks(8, 0, "image/png", new Uint8Array(960));
+    pushChunk(fake, stale[0], 1n); // idx=0 only -- attachment (count=2) never completes
+    await vi.advanceTimersByTimeAsync(0);
+    expect(messages).toHaveLength(0);
+
+    vi.advanceTimersByTime(30_001);
+    // Trigger the lazy sweep with an unrelated message.
+    pushTextPart(fake, 999, 0, "trigger sweep", 100n);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(messages).toHaveLength(1); // only the sweep trigger
+
+    // messageId 8's key is reused for an independent cycle that completes
+    // in ONE idx===0 chunk (count=1, no metadata carried over). If the
+    // stale "image/png" mimeType had survived the sweep, this attachment
+    // would report it instead of the fresh "video/mp4" this chunk itself
+    // carries -- but since a fresh idx===0 chunk always sets its own
+    // mimeType (moqtClient.ts's own logic), this only distinguishes the two
+    // cases together with the entry actually being gone: assert via the
+    // reused key completing correctly end-to-end.
+    pushTextPart(fake, 8, 1, "reused id", 200n);
+    pushAttachment(fake, 8, 0, "video/mp4", new Uint8Array([1, 2, 3]), 201n);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(messages).toHaveLength(2);
+    expect(messages[1].text).toBe("reused id");
+    expect(messages[1].attachments).toEqual([{ bytes: new Uint8Array([1, 2, 3]), mimeType: "video/mp4" }]);
   });
 });
 
