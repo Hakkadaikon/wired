@@ -238,8 +238,8 @@ export interface MoqtChatCallbacks {
   // Fires for an incoming uni stream whose SUBGROUP_HEADER's Track Alias is
   // not this client's chat candidate-list mapping -- the audio track uses a
   // separate alias range (moqtVoiceClient.ts's ownAudioTrackAlias), the
-  // hub's movie track sits above it (moqtMovieClient.ts's
-  // MOVIE_TRACK_ALIAS), and neither is read to completion here (audio is a
+  // screen-share track sits above it (moqtScreenClient.ts's
+  // SCREEN_ALIAS_OFFSET), and neither is read to completion here (audio is a
   // long-lived stream the publisher keeps appending Objects to). The
   // header is already decoded (avoids re-parsing it); firstChunkTail is
   // whatever bytes followed the header in the SAME first chunk (often the
@@ -704,8 +704,8 @@ export class MoqtChatClient {
   // buildVoiceSubgroupHeader), then routes by Track Alias: a chat alias
   // (0..N-1, this room's candidate-list range) is read to completion and
   // parsed as one chat Object; anything else (the audio track's separate
-  // alias range, moqtVoiceClient.ts's ownAudioTrackAlias, or the hub's
-  // movie alias, moqtMovieClient.ts) is handed to onUnknownUniStream
+  // alias range, moqtVoiceClient.ts's ownAudioTrackAlias, or the screen
+  // track's alias range, moqtScreenClient.ts) is handed to onUnknownUniStream
   // instead of read to EOF here.
   async #readOneUniStream(stream: ReadableStream<Uint8Array>): Promise<void> {
     const reader = stream.getReader();

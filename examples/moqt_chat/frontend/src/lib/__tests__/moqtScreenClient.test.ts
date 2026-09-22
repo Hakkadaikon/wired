@@ -1,15 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MoqtScreenClient, ownScreenTrackAlias, SCREEN_WRITE_TIMEOUT_MS } from "../moqtScreenClient";
+import {
+  MoqtScreenClient,
+  ownScreenTrackAlias,
+  SCREEN_ALIAS_OFFSET,
+  SCREEN_WRITE_TIMEOUT_MS,
+} from "../moqtScreenClient";
 import { CANDIDATE_PARTICIPANT_IDS, type MoqtChatClient } from "../moqtClient";
-import { MOVIE_INIT_TRACK_ALIAS } from "../moqtMovieClient";
 import { concatBytes, decodeSubgroupHeader, decodeSubgroupObject, encodeVarint } from "../moqtWire";
 import { decodeScreenObjectMessage, encodeScreenObjectMessage } from "../moqtScreenWire";
 
 describe("ownScreenTrackAlias", () => {
-  it("sits immediately after the movie init alias (SCREEN_ALIAS_OFFSET), not a bare 10", () => {
-    for (const id of CANDIDATE_PARTICIPANT_IDS) {
-      expect(ownScreenTrackAlias(id)).toBeGreaterThanOrEqual(MOVIE_INIT_TRACK_ALIAS + 1n);
-    }
+  it("SCREEN_ALIAS_OFFSET is CANDIDATE_PARTICIPANT_IDS.length * 2 + 2 (10 for the current 4-id pool)", () => {
+    expect(SCREEN_ALIAS_OFFSET).toBe(BigInt(CANDIDATE_PARTICIPANT_IDS.length * 2 + 2));
+    expect(SCREEN_ALIAS_OFFSET).toBe(10n);
   });
 
   it("is distinct per participant (no two screen aliases collide)", () => {
@@ -18,7 +21,7 @@ describe("ownScreenTrackAlias", () => {
   });
 
   it("covers exactly [offset, offset+N) for id=0..N-1 (boundary check)", () => {
-    const offset = MOVIE_INIT_TRACK_ALIAS + 1n;
+    const offset = SCREEN_ALIAS_OFFSET;
     const aliases = CANDIDATE_PARTICIPANT_IDS.map(ownScreenTrackAlias).sort((a, b) =>
       a < b ? -1 : a > b ? 1 : 0,
     );
