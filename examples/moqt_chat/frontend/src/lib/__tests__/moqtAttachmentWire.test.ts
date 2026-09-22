@@ -44,6 +44,20 @@ describe("encodeTextPartMessage / decodeTextPartMessage", () => {
       text: "こんにちは🎉",
     });
   });
+
+  // M2: textLen is a u16 field -- silently letting it wrap would truncate
+  // the receiver's text mid-character instead of failing loudly at encode
+  // time.
+  it("M2: encodes text at exactly the u16 textLen boundary (65535 bytes)", () => {
+    const text = "a".repeat(65535);
+    const wire = encodeTextPartMessage(1, 0, text);
+    expect(decodeTextPartMessage(wire).text).toBe(text);
+  });
+
+  it("M2: throws when the UTF-8 byte length exceeds the u16 textLen boundary (65536 bytes)", () => {
+    const text = "a".repeat(65536);
+    expect(() => encodeTextPartMessage(1, 0, text)).toThrow(MoqtDecodeError);
+  });
 });
 
 describe("golden wire vectors (hand-computed, not copied from the encoder)", () => {
