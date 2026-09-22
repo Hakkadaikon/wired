@@ -110,6 +110,53 @@ describe("moqtChatCallbacks", () => {
       "user3",
     ]);
   });
+
+  it("onImage adds the sender as a peer and appends an image message", () => {
+    vi.stubGlobal("URL", { createObjectURL: () => "blob:mock-url" });
+    const addPeer = vi.fn();
+    const addMessage = vi.fn();
+    const callbacks = moqtChatCallbacks({
+      setConnectionState: vi.fn(),
+      addPeer,
+      addMessage,
+      setNickname: vi.fn(),
+    });
+    callbacks.onImage!("user2", new Uint8Array([1, 2, 3]), "image/png");
+    expect(addPeer).toHaveBeenCalledWith("user2");
+    expect(addMessage).toHaveBeenCalledTimes(1);
+    const arg = addMessage.mock.calls[0][0];
+    expect(arg.senderId).toBe("user2");
+    expect(arg.text).toBe("");
+    expect(arg.own).toBe(false);
+    expect(arg.imageDataUrl).toBe("blob:mock-url");
+    expect(arg.imageMimeType).toBe("image/png");
+    expect(typeof arg.at).toBe("number");
+    vi.unstubAllGlobals();
+  });
+
+  it("onImage does not interfere with onMessage/onNickname handlers", () => {
+    vi.stubGlobal("URL", { createObjectURL: () => "blob:mock-url" });
+    const addPeer = vi.fn();
+    const addMessage = vi.fn();
+    const setNickname = vi.fn();
+    const callbacks = moqtChatCallbacks({
+      setConnectionState: vi.fn(),
+      addPeer,
+      addMessage,
+      setNickname,
+    });
+    callbacks.onImage!("user2", new Uint8Array([1]), "image/png");
+    callbacks.onMessage("user2", "hello");
+    callbacks.onNickname!("user2", "Alice");
+    expect(addPeer.mock.calls).toEqual([["user2"], ["user2"], ["user2"]]);
+    expect(addMessage.mock.calls[1][0]).toMatchObject({
+      senderId: "user2",
+      text: "hello",
+      own: false,
+    });
+    expect(setNickname).toHaveBeenCalledWith("user2", "Alice");
+    vi.unstubAllGlobals();
+  });
 });
 
 describe("connectChatThenVoice", () => {

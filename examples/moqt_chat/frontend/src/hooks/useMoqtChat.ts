@@ -127,7 +127,7 @@ function makeProcessor(track: unknown): ProcessorLike {
 // client shaped like MoqtChatClient, without touching WebTransport.
 export function moqtChatCallbacks(
   store: Pick<MoqtChatState, "setConnectionState" | "addPeer" | "addMessage" | "setNickname">,
-): Pick<MoqtChatCallbacks, "onStatusChange" | "onMessage" | "onNickname"> {
+): Pick<MoqtChatCallbacks, "onStatusChange" | "onMessage" | "onNickname" | "onImage"> {
   return {
     onStatusChange: (status) => store.setConnectionState(status),
     onMessage: (participantId, text) => {
@@ -142,6 +142,18 @@ export function moqtChatCallbacks(
     onNickname: (participantId, nickname) => {
       store.addPeer(participantId);
       store.setNickname(participantId, nickname);
+    },
+    onImage: (participantId, bytes, mimeType) => {
+      store.addPeer(participantId);
+      const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mimeType }));
+      store.addMessage({
+        senderId: participantId,
+        text: "",
+        at: Date.now(),
+        own: false,
+        imageDataUrl: url,
+        imageMimeType: mimeType,
+      });
     },
   };
 }
@@ -1037,6 +1049,22 @@ export function useMoqtChat() {
     [store],
   );
 
+  // Unlike sendChat, the sender's own history does NOT get an optimistic
+  // local entry: only the remote receiver's onImage callback above adds a
+  // message. Intentional (task brief's documented tradeoff).
+  const sendImage = useCallback(
+    async (bytes: Uint8Array, mimeType: string) => {
+      const client = clientRef.current;
+      if (!client) return;
+      try {
+        await client.sendImage(bytes, mimeType);
+      } catch {
+        store.setImageSendError("image send failed");
+      }
+    },
+    [store],
+  );
+
   const toggleMute = useCallback(() => {
     store.setMuted(!store.muted);
   }, [store]);
@@ -1211,6 +1239,7 @@ export function useMoqtChat() {
   return {
     connect,
     sendChat,
+    sendImage,
     toggleMute,
     leave,
     micError,
