@@ -39,8 +39,6 @@ export type MoqtChatState = {
   messages: ChatMessage[];
   peers: string[]; // found participant ids, in observation order
   nicknames: Record<string, string>; // per-participant self-announced nickname; absent key means none set
-  liveError: string | null; // fatal live-playback error, if any
-  liveFirstGroup: string | null; // first live Group id received (decimal string)
   screenSharing: boolean; // am I currently sharing my screen
   screenTiles: string[]; // participant ids currently sharing, for rendering tiles
   screenShareError: string | null; // screen-share-only error; never surfaces in chat/voice errors
@@ -59,8 +57,6 @@ export type MoqtChatState = {
   addMessage: (message: Omit<ChatMessage, "id">) => number;
   removeMessage: (id: number) => void;
   setNickname: (id: string, nickname: string) => void;
-  setLiveError: (msg: string | null) => void;
-  setLiveFirstGroup: (groupId: string | null) => void;
   addPeer: (id: string) => void;
   removePeer: (id: string) => void;
   clearPeers: () => void;
@@ -92,8 +88,6 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   messages: [],
   peers: [],
   nicknames: {},
-  liveError: null,
-  liveFirstGroup: null,
   screenSharing: false,
   screenTiles: [],
   screenShareError: null,
@@ -119,8 +113,6 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
     set((s) => ({ messages: s.messages.filter((m) => m.id !== id) })),
   setNickname: (id, nickname) =>
     set((s) => ({ nicknames: { ...s.nicknames, [id]: nickname } })),
-  setLiveError: (liveError) => set({ liveError }),
-  setLiveFirstGroup: (liveFirstGroup) => set({ liveFirstGroup }),
   addPeer: (id) =>
     set((s) => (s.peers.includes(id) ? s : { peers: [...s.peers, id] })),
   removePeer: (id) => set((s) => ({ peers: s.peers.filter((p) => p !== id) })),
