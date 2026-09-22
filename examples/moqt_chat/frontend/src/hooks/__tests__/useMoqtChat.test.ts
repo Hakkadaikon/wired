@@ -14,7 +14,6 @@ import {
   reconnectDelayMs,
   sampleLocalLevel,
   shouldAutoStopOwnScreen,
-  shouldStartLive,
   teardownSession,
   type ReconnectRefs,
   type SessionRefs,
@@ -46,7 +45,6 @@ function fakeSessionRefs(): SessionRefs {
     screenKeyframeMeta: { current: new Map([["peerA", {}]]) },
     screenStall: { current: new Map([["peerA", {}]]) },
     client: { current: { close: vi.fn() } },
-    live: { current: { stop: vi.fn() } },
     unregisterLifecycle: { current: vi.fn() },
     audioCtx: { current: { close: vi.fn().mockResolvedValue(undefined) } },
   };
@@ -309,7 +307,6 @@ describe("teardownSession", () => {
     const voice = refs.voice.current as { close: ReturnType<typeof vi.fn> };
     const screen = refs.screen.current as { close: ReturnType<typeof vi.fn> };
     const client = refs.client.current as { close: ReturnType<typeof vi.fn> };
-    const live = refs.live.current as { stop: ReturnType<typeof vi.fn> };
     const store = fakeScreenStore();
 
     teardownSession(refs, store);
@@ -317,7 +314,6 @@ describe("teardownSession", () => {
     expect(voice.close).toHaveBeenCalledTimes(1);
     expect(screen.close).toHaveBeenCalledTimes(1);
     expect(client.close).toHaveBeenCalledTimes(1);
-    expect(live.stop).toHaveBeenCalledTimes(1);
     expect(refs.knownSenders.current.size).toBe(0);
     expect(refs.screenKnownSenders.current.size).toBe(0);
     expect(refs.screenReassemblers.current.size).toBe(0);
@@ -737,19 +733,6 @@ describe("sampleLocalLevel", () => {
     const scratch = new Float32Array(4);
     const analyser = { getFloatTimeDomainData: (buf: Float32Array) => buf.fill(0) };
     expect(sampleLocalLevel(analyser, scratch)).toBe(0);
-  });
-});
-
-describe("shouldStartLive", () => {
-  it("starts only when connected with a mounted <video> and no live movie yet", () => {
-    expect(shouldStartLive("connected", true, false)).toBe(true);
-  });
-
-  it("never starts while disconnected/connecting, without a video, or twice", () => {
-    expect(shouldStartLive("disconnected", true, false)).toBe(false);
-    expect(shouldStartLive("connecting", true, false)).toBe(false);
-    expect(shouldStartLive("connected", false, false)).toBe(false);
-    expect(shouldStartLive("connected", true, true)).toBe(false);
   });
 });
 
