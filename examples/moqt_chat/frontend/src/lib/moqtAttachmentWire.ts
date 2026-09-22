@@ -5,6 +5,11 @@
 
 import { concatBytes, encodeVarint, MoqtDecodeError } from "./moqtWire";
 import { SUBGROUP_HEADER_TYPE } from "./moqtClient";
+import {
+  ATTACHMENT_MAX_BYTES,
+  ATTACHMENT_MAX_COUNT,
+  isAllowedAttachmentMimeType,
+} from "./attachmentValidation";
 
 /** Max bytes of attachment data per chunk (stays under the relay's 512-byte
  * fragment limit once framing overhead is added). */
@@ -227,14 +232,34 @@ function pruneExpired(pending: Map<string, PendingAttachment>, now: number): voi
   }
 }
 
+// Trust-boundary guards on an incoming chunk, checked before it is ever
+// buffered (a rejected chunk starts/extends no pending frame at all):
+// - attachmentIdx must fit the app's own attachment-per-message limit.
+// - count===0 would otherwise satisfy `0 < 0` as "already complete" and
+//   emit a bogus empty attachment on the very first (and only) chunk.
+// - the chunk's own declared count, at MAX_ATTACHMENT_CHUNK_BYTES each,
+//   must not imply a total past the per-attachment byte limit.
+// - an idx===0 chunk's mimeType must be one Compose/Message can render.
+function isTrustedChunk(chunk: AttachmentChunk): boolean {
+  if (chunk.attachmentIdx >= ATTACHMENT_MAX_COUNT) return false;
+  if (chunk.count === 0) return false;
+  if (chunk.count * MAX_ATTACHMENT_CHUNK_BYTES > ATTACHMENT_MAX_BYTES) return false;
+  if (chunk.idx === 0 && !isAllowedAttachmentMimeType(chunk.mimeType ?? "")) return false;
+  return true;
+}
+
 /** Feeds one chunk into the reassembler. Returns the reassembled attachment
  * bytes once `count` distinct chunks for the same messageId+attachmentIdx
  * key have all arrived, else null. A pending frame stale for more than
- * ATTACHMENT_TIMEOUT_MS is dropped silently before being fed further. */
+ * ATTACHMENT_TIMEOUT_MS is dropped silently before being fed further. A
+ * chunk that fails isTrustedChunk's guards is dropped the same way (no log,
+ * matching this module's existing silent-drop pattern). */
 export function attachmentReassemblerPush(
   reassembler: AttachmentReassembler,
   chunk: AttachmentChunk,
 ): Uint8Array | null {
+  if (!isTrustedChunk(chunk)) return null;
+
   const now = Date.now();
   pruneExpired(reassembler.pending, now);
 
