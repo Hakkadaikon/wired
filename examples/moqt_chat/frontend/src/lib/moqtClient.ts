@@ -38,6 +38,16 @@ import {
   type ObjectDatagram,
   type SubgroupHeader,
 } from "./moqtWire";
+import {
+  buildImageSubgroupHeader,
+  decodeImageChunkMessage,
+  encodeImageChunkMessage,
+  imageFrameReassemblerInit,
+  imageFrameReassemblerPush,
+  isImageChunkPayload,
+  splitImageIntoChunks,
+  type ImageFrameReassembler,
+} from "./moqtImageWire";
 
 // draft-ietf-moq-transport-19 SS10 message type IDs used on the wire here.
 const MSG_TYPE_PUBLISH = 0x1dn;
@@ -187,6 +197,19 @@ export function parseNicknameFromChatText(text: string): string | undefined {
   return text.startsWith(NICKNAME_MARKER) ? text.slice(NICKNAME_MARKER.length) : undefined;
 }
 
+/** Classifies a raw chat-track Object payload before it is decoded any
+ * further: an image chunk carries a binary marker byte (0xFF) that is not a
+ * valid UTF-8 lead byte (RFC 3629 caps lead bytes at 0xF4), so it can never
+ * collide with real chat text; the nickname marker (NUL, 0x00) is likewise
+ * not producible by hand in the chat input. #readChatObjectStream uses this
+ * to pick a decode path without running image bytes through the UTF-8
+ * decoder. */
+export function classifyChatPayload(payload: Uint8Array): "text" | "nickname" | "image" {
+  if (isImageChunkPayload(payload)) return "image";
+  if (bytesToUtf8(payload).startsWith(NICKNAME_MARKER)) return "nickname";
+  return "text";
+}
+
 // --- MOQT session over one WebTransport connection -------------------------
 
 const ROOM_NAMESPACE = [utf8ToBytes("wired"), utf8ToBytes("moqt_chat")];
@@ -197,6 +220,9 @@ export interface MoqtChatCallbacks {
   // A nickname self-announce (buildNicknameObjectMessage) from participantId
   // -- never forwarded to onMessage, so it never appears in the chat log.
   onNickname?(participantId: string, nickname: string): void;
+  // A fully reassembled image attachment from participantId (see
+  // #readChatObjectStream's image-chunk branch and moqtImageWire.ts).
+  onImage?(participantId: string, bytes: Uint8Array, mimeType: string): void;
   // Fires for an incoming uni stream whose SUBGROUP_HEADER's Track Alias is
   // not this client's chat candidate-list mapping -- the audio track uses a
   // separate alias range (moqtVoiceClient.ts's ownAudioTrackAlias), the
@@ -248,6 +274,8 @@ export class MoqtChatClient {
   #localId: string;
   #localTrackAlias: bigint;
   #groupId = 0n;
+  #imageSeq = 0;
+  #imageReassemblers = new Map<string, ImageFrameReassembler>();
   #foundParticipants = new Set<string>();
   #retryTimer?: ReturnType<typeof setInterval>;
   #callbacks: MoqtChatCallbacks;
@@ -335,6 +363,28 @@ export class MoqtChatClient {
       nickname,
     });
     await this.#sendUniStream(wire);
+  }
+
+  /** Sends an image attachment as one uni stream per chunk (splitImageIntoChunks,
+   * moqtImageWire.ts), each stream carrying its own SUBGROUP_HEADER + one
+   * Object. Chunks are awaited one at a time, never fired concurrently: the
+   * reassembler on the receiving end depends on chunks landing in order. */
+  async sendImage(bytes: Uint8Array, mimeType: string): Promise<void> {
+    if (!this.#wt) return;
+    const chunks = splitImageIntoChunks(this.#imageSeq++, bytes, mimeType);
+    for (const chunk of chunks) {
+      const body = encodeImageChunkMessage(chunk);
+      // Object ID Delta (0 -> FIRST_OBJECT makes it the absolute id) +
+      // Length, same framing #sendVideoChunk/buildChatObjectMessage wrap
+      // every Object body in -- encodeImageChunkMessage only encodes the
+      // Object's payload bytes, not the Object envelope around it.
+      const object = concatBytes([encodeVarint(0n), encodeVarint(BigInt(body.length)), body]);
+      const wire = concatBytes([
+        buildImageSubgroupHeader(this.#localTrackAlias, this.#groupId++),
+        object,
+      ]);
+      await this.#sendUniStream(wire);
+    }
   }
 
   async #sendUniStream(wire: Uint8Array): Promise<void> {
@@ -638,19 +688,52 @@ export class MoqtChatClient {
   ): Promise<void> {
     const wire = await readToEof(firstChunk, reader);
 
-    let parsed;
+    // Decode only the SUBGROUP_HEADER + Object framing here -- NOT via
+    // parseChatObjectMessage, which also UTF-8-decodes the payload and
+    // would corrupt/throw on binary image-chunk bytes (classifyChatPayload's
+    // own doc on why the marker byte must be checked first).
+    let trackAlias: bigint;
+    let payload: Uint8Array;
     try {
-      parsed = parseChatObjectMessage(wire);
+      const { header, len } = decodeSubgroupHeader(wire);
+      const { object } = decodeSubgroupObject(wire, len, header.flags.properties, 0n, true);
+      trackAlias = header.trackAlias;
+      payload = object.payload;
     } catch {
       return;
     }
     // ownTrackAlias's doc: resolve the sender from the fixed candidate-list
     // mapping (the publisher's own alias, unmodified by relay), not from
     // this session's SUBSCRIBE_OK aliases.
-    const participant = participantForTrackAlias(parsed.trackAlias);
+    const participant = participantForTrackAlias(trackAlias);
     if (!participant) return;
-    const nickname = parseNicknameFromChatText(parsed.text);
-    if (nickname !== undefined) this.#callbacks.onNickname?.(participant, nickname);
-    else this.#callbacks.onMessage(participant, parsed.text);
+
+    const kind = classifyChatPayload(payload);
+    if (kind === "image") {
+      this.#handleImageChunkPayload(participant, payload);
+      return;
+    }
+    const text = bytesToUtf8(payload);
+    if (kind === "nickname") {
+      this.#callbacks.onNickname?.(participant, parseNicknameFromChatText(text) ?? "");
+      return;
+    }
+    this.#callbacks.onMessage(participant, text);
+  }
+
+  #handleImageChunkPayload(participant: string, payload: Uint8Array): void {
+    let chunk;
+    try {
+      ({ chunk } = decodeImageChunkMessage(payload));
+    } catch {
+      return;
+    }
+    let reassembler = this.#imageReassemblers.get(participant);
+    if (!reassembler) {
+      reassembler = imageFrameReassemblerInit();
+      this.#imageReassemblers.set(participant, reassembler);
+    }
+    const result = imageFrameReassemblerPush(reassembler, chunk);
+    if (result) this.#callbacks.onImage?.(participant, result.bytes, result.mimeType);
   }
 }
