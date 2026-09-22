@@ -325,11 +325,22 @@ function OutputDevice({ onSelect }: { onSelect: (deviceId: string) => void }) {
 // on the store's ChatAttachment (attachBlobUrls in useMoqtChat.ts creates it
 // once per message), so this only picks image vs. video by MIME type --
 // unlike DraftChip below, it does not own the URL's lifetime.
-function MessageAttachment({ mimeType, url }: { mimeType: string; url: string }) {
-  if (mimeType.startsWith("video/")) {
-    return <video src={url} controls data-testid="message-video" />;
-  }
-  return <img src={url} data-testid="message-image" alt="" />;
+function MessageAttachment({ mimeType, url, index }: { mimeType: string; url: string; index: number }) {
+  // The Blob URL holds the original bytes, so a download link on it saves
+  // the file at full size even though the preview is scaled by CSS.
+  const fileName = `attachment-${index + 1}.${mimeType.split("/")[1] ?? "bin"}`;
+  return (
+    <figure className="message__attachment">
+      {mimeType.startsWith("video/") ? (
+        <video src={url} controls data-testid="message-video" />
+      ) : (
+        <img src={url} data-testid="message-image" alt="" />
+      )}
+      <a className="caption" href={url} download={fileName}>
+        download
+      </a>
+    </figure>
+  );
 }
 
 function Message({ m }: { m: ChatMessage }) {
@@ -353,8 +364,14 @@ function Message({ m }: { m: ChatMessage }) {
         {m.own ? "You" : resolveDisplayName(m.senderId, nicknames)}
       </span>
       <span className="message__time caption">{time}</span>
-      {m.attachments?.map((a, i) => <MessageAttachment key={i} mimeType={a.mimeType} url={a.url} />)}
       {m.text && <span className="message__text">{m.text}</span>}
+      {m.attachments && m.attachments.length > 0 && (
+        <div className="message__attachments">
+          {m.attachments.map((a, i) => (
+            <MessageAttachment key={i} mimeType={a.mimeType} url={a.url} index={i} />
+          ))}
+        </div>
+      )}
       {m.failed && <span className="message__failed caption">Not sent</span>}
     </div>
   );
