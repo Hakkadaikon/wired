@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildChatObjectMessage,
+  buildNicknameObjectMessage,
   MoqtChatClient,
   parseChatObjectMessage,
+  parseNicknameFromChatText,
   candidateParticipantIds,
   certHashesToWebTransportOptions,
 } from "../moqtClient";
@@ -58,6 +60,22 @@ describe("parseChatObjectMessage", () => {
 
   it("throws MoqtDecodeError-shaped error on truncated input", () => {
     expect(() => parseChatObjectMessage(new Uint8Array([0x70]))).toThrow();
+  });
+});
+
+describe("nickname self-announce message", () => {
+  it("round-trips a nickname through the same SUBGROUP wire framing as chat", () => {
+    const wire = buildNicknameObjectMessage({ trackAlias: 2n, groupId: 0n, nickname: "Alice" });
+    const parsed = parseChatObjectMessage(wire);
+    expect(parseNicknameFromChatText(parsed.text)).toBe("Alice");
+  });
+
+  it("a normal chat message is never mistaken for a nickname announce", () => {
+    expect(parseNicknameFromChatText("hello everyone")).toBeUndefined();
+  });
+
+  it("an empty nickname is not sent as an announce", () => {
+    expect(() => buildNicknameObjectMessage({ trackAlias: 2n, groupId: 0n, nickname: "" })).toThrow();
   });
 });
 

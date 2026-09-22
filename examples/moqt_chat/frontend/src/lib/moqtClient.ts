@@ -155,6 +155,38 @@ export function parseChatObjectMessage(wire: Uint8Array): ParsedChatObject {
   };
 }
 
+// --- nickname self-announce (rides the same Object channel as chat) -------
+
+// Rides in the chat Object's text (buildChatObjectMessage's own wire, no hub
+// change): a marker no real chat message can produce by hand (NUL is not
+// valid input to Compose's <input>), so parseNicknameFromChatText tells an
+// announce apart from a normal message without a new SUBGROUP header field.
+const NICKNAME_MARKER = "\u0000nick:";
+
+export interface NicknameObjectInput {
+  trackAlias: bigint;
+  groupId: bigint;
+  nickname: string;
+}
+
+/** Builds one self-announce message: same SUBGROUP_HEADER + Object framing
+ * as buildChatObjectMessage, with the nickname marked so the receiver never
+ * shows it in the chat log. */
+export function buildNicknameObjectMessage(input: NicknameObjectInput): Uint8Array {
+  if (!input.nickname) throw new Error("nickname must not be empty");
+  return buildChatObjectMessage({
+    trackAlias: input.trackAlias,
+    groupId: input.groupId,
+    text: NICKNAME_MARKER + input.nickname,
+  });
+}
+
+/** Extracts the nickname from a parsed chat Object's text, or undefined if
+ * it is an ordinary chat message. */
+export function parseNicknameFromChatText(text: string): string | undefined {
+  return text.startsWith(NICKNAME_MARKER) ? text.slice(NICKNAME_MARKER.length) : undefined;
+}
+
 // --- MOQT session over one WebTransport connection -------------------------
 
 const ROOM_NAMESPACE = [utf8ToBytes("wired"), utf8ToBytes("moqt_chat")];
@@ -162,6 +194,9 @@ const ROOM_NAMESPACE = [utf8ToBytes("wired"), utf8ToBytes("moqt_chat")];
 export interface MoqtChatCallbacks {
   onStatusChange(status: "connecting" | "connected" | "disconnected"): void;
   onMessage(participantId: string, text: string): void;
+  // A nickname self-announce (buildNicknameObjectMessage) from participantId
+  // -- never forwarded to onMessage, so it never appears in the chat log.
+  onNickname?(participantId: string, nickname: string): void;
   // Fires for an incoming uni stream whose SUBGROUP_HEADER's Track Alias is
   // not this client's chat candidate-list mapping -- the audio track uses a
   // separate alias range (moqtVoiceClient.ts's ownAudioTrackAlias), the
@@ -286,6 +321,24 @@ export class MoqtChatClient {
       groupId: this.#groupId++,
       text,
     });
+    await this.#sendUniStream(wire);
+  }
+
+  /** Sends this client's nickname self-announce once, over the same Object
+   * channel as chat -- see moqtClient.ts's own doc on why no hub change is
+   * needed. No-op for an empty nickname (the "don't use the feature" case). */
+  async sendNickname(nickname: string): Promise<void> {
+    if (!this.#wt || !nickname) return;
+    const wire = buildNicknameObjectMessage({
+      trackAlias: this.#localTrackAlias,
+      groupId: this.#groupId++,
+      nickname,
+    });
+    await this.#sendUniStream(wire);
+  }
+
+  async #sendUniStream(wire: Uint8Array): Promise<void> {
+    if (!this.#wt) return;
     const stream = await this.#wt.createUnidirectionalStream();
     const writer = stream.getWriter();
     try {
@@ -595,6 +648,9 @@ export class MoqtChatClient {
     // mapping (the publisher's own alias, unmodified by relay), not from
     // this session's SUBSCRIBE_OK aliases.
     const participant = participantForTrackAlias(parsed.trackAlias);
-    if (participant) this.#callbacks.onMessage(participant, parsed.text);
+    if (!participant) return;
+    const nickname = parseNicknameFromChatText(parsed.text);
+    if (nickname !== undefined) this.#callbacks.onNickname?.(participant, nickname);
+    else this.#callbacks.onMessage(participant, parsed.text);
   }
 }
