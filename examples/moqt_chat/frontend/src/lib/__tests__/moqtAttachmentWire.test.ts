@@ -432,3 +432,18 @@ describe("attachmentReassemblerPush key reuse across independent cycles", () => 
     expect(secondResult).toEqual(bytes(4, 5));
   });
 });
+
+describe("relay fragment limit", () => {
+  // The hub forwards a keep-open stream at Object boundaries and can hold at
+  // most 512 bytes of a torn Object between rounds (moqtrun.h
+  // WIRED_MOQTRUN_RELAY_FRAG_MAX), so every Object -- envelope included --
+  // must fit in 512 bytes. The idx===0 chunk is the worst case: it also
+  // carries the MIME type and totalBytes.
+  it("keeps the largest possible chunk Object within 512 bytes", () => {
+    const mimeType = "video/" + "x".repeat(36); // 42 chars, longer than any real type
+    const [first] = splitAttachmentIntoChunks(0xffffffff, 3, mimeType, new Uint8Array(MAX_ATTACHMENT_CHUNK_BYTES * 3));
+    const body = encodeAttachmentChunkMessage(first);
+    const envelope = 1 + 2; // Object ID Delta varint + 2-byte length varint
+    expect(body.length + envelope).toBeLessThanOrEqual(512);
+  });
+});
