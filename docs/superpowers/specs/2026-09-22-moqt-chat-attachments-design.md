@@ -107,7 +107,7 @@ not a dual-write), `moqtImageWire.ts` is deleted and `moqtClient.ts`'s
 attachments (see API section). No backward-compat wire shim: this is a
 single-repo demo app with no independently-deployed old clients to support.
 
-## Receive-side aggregation (state machine — TLA+-verified design, see
+## Receive-side aggregation (state machine — verified design, see
 Verification section)
 
 `MoqtChatClient` gains a `#pendingMessages: Map<string, PendingMessage>`
@@ -156,7 +156,7 @@ Transitions:
   no concurrency cap is enforced in the data structure itself (YAGNI, per
   the approved design decision).
 
-This is the state machine TLA+ will verify: does every reachable
+This is the state machine to verify: does every reachable
 interleaving of (text-first vs. attachment-first arrival, any attachment
 completion order, timeout racing arrival) either (a) eventually fire
 exactly one `onMessage` with the correct assembled content, or (b) time out
@@ -289,19 +289,17 @@ attachment instead of per-message).
 
 1. **State transitions/concurrency**: YES — the receive-side aggregation
    state machine above (interleaved text/attachment arrival, timeout races,
-   multiple pending messages per sender in the Map). Verified via
-   loop-engineering (TLA+) before implementation; results (confirmed safe
-   interleavings, any design fix the model check forces) feed directly into
-   this spec's aggregation section above and the plan's Gherkin-derived
-   test list. Method-name and management-ID traces stay in `tasks/loopeng/`,
-   never leak into `moqtClient.ts` comments/tests/commits.
+   multiple pending messages per sender in the Map). Verified before
+   implementation; results (confirmed safe interleavings, any design fix
+   the verification forced) feed directly into this spec's aggregation
+   section above and the plan's derived test list.
 2. **Lean-grade critical algorithm**: NO — chunk encode/decode and
    reassembly are round-trip-testable extensions of the already-shipped,
    already-TDD-covered `moqtImageWire.ts` pattern. No new cryptographic or
    exhaustive-classification property beyond what TDD round-trip tests
    already cover for the shipped feature.
 3. **TDD bridge**: the state machine's confirmed-safe interleavings (or any
-   fix TLA+'s model check forces) become the test list for
+   fix the verification forced) become the test list for
    `moqtAttachmentWire.test.ts` and `moqtClient.test.ts`'s aggregation
    tests, one test per interleaving/edge case (text-first, attachment-
    first, timeout mid-assembly, multiple concurrent pending messages from
@@ -311,7 +309,7 @@ attachment instead of per-message).
 
 - Unit (vitest, TDD): wire encode/decode round-trips (`moqtAttachmentWire.
   test.ts`), aggregation state machine (`moqtClient.test.ts`, informed by
-  the TLA+ model check), store shape (`moqtChatStore.test.ts`), Compose
+  the verified design), store shape (`moqtChatStore.test.ts`), Compose
   draft/paste/remove logic to the extent it can be isolated as pure
   functions from `page.tsx` (paste-item-filtering, cap enforcement),
   useMoqtChat wiring (`moqtChatCallbacks`'s `onMessage`-with-attachments
