@@ -1,14 +1,13 @@
 // Multi-attachment chat Object wire framing on top of moqtWire.ts's generic
-// MOQT codec. Same shape as moqtImageWire.ts, extended so one text message
-// can carry several attachments (messageId + attachmentIdx identify which
-// attachment a chunk belongs to) plus a separate text-part message.
+// MOQT codec, extended so one text message can carry several attachments
+// (messageId + attachmentIdx identify which attachment a chunk belongs to)
+// plus a separate text-part message.
 
 import { concatBytes, encodeVarint, MoqtDecodeError } from "./moqtWire";
 import { SUBGROUP_HEADER_TYPE } from "./moqtClient";
 
-/** Max bytes of attachment data per chunk; same budget as moqtImageWire.ts's
- * MAX_IMAGE_CHUNK_BYTES (stays under the relay's 512-byte fragment limit
- * once framing overhead is added). */
+/** Max bytes of attachment data per chunk (stays under the relay's 512-byte
+ * fragment limit once framing overhead is added). */
 export const MAX_ATTACHMENT_CHUNK_BYTES = 480;
 
 /** First byte of every Object payload carrying an attachment chunk. */
