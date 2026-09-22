@@ -322,6 +322,14 @@ function OutputDevice({ onSelect }: { onSelect: (deviceId: string) => void }) {
 function Message({ m }: { m: ChatMessage }) {
   const nicknames = useMoqtChatStore((s) => s.nicknames);
   const time = new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  // The Blob URL is created once in onImage (useMoqtChat.ts) and belongs to
+  // this message instance for its whole lifetime, so revoke it on unmount
+  // only -- capture the value the effect closed over, not a fresh read of m.
+  useEffect(() => {
+    const url = m.imageDataUrl;
+    if (!url) return;
+    return () => URL.revokeObjectURL(url);
+  }, [m.imageDataUrl]);
   // DOM order is sender, time, text (the grid puts the time last): the e2e
   // load harness matches "msg:<tag>:<seq>" in textContent, and a time
   // directly after the text would extend the digits.
@@ -331,7 +339,11 @@ function Message({ m }: { m: ChatMessage }) {
         {m.own ? "You" : resolveDisplayName(m.senderId, nicknames)}
       </span>
       <span className="message__time caption">{time}</span>
-      <span className="message__text">{m.text}</span>
+      {m.imageDataUrl ? (
+        <img src={m.imageDataUrl} data-testid="message-image" alt="" />
+      ) : (
+        <span className="message__text">{m.text}</span>
+      )}
       {m.failed && <span className="message__failed caption">Not sent</span>}
     </div>
   );
@@ -387,13 +399,37 @@ function MessageList() {
   );
 }
 
-function Compose({ onSend, disabled }: { onSend: (text: string) => void; disabled: boolean }) {
+const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
+function Compose({
+  onSend,
+  onSendImage,
+  onImageTooLarge,
+  disabled,
+}: {
+  onSend: (text: string) => void;
+  onSendImage: (bytes: Uint8Array, mimeType: string) => void;
+  onImageTooLarge: () => void;
+  disabled: boolean;
+}) {
   const [draft, setDraft] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const submit = () => {
     const text = draft.trim();
     if (!text) return;
     onSend(text);
     setDraft("");
+  };
+  const pickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.byteLength > IMAGE_MAX_BYTES) {
+      onImageTooLarge();
+      return;
+    }
+    onSendImage(bytes, file.type);
   };
   // Enter is handled on keydown rather than via a <form>: the e2e load
   // harness dispatches a synthetic keydown, which never submits a form.
@@ -410,6 +446,22 @@ function Compose({ onSend, disabled }: { onSend: (text: string) => void; disable
           if (e.key === "Enter") submit();
         }}
       />
+      <input
+        type="file"
+        accept="image/*"
+        data-testid="image-file"
+        hidden
+        ref={fileInputRef}
+        onChange={(e) => void pickImage(e)}
+      />
+      <button
+        type="button"
+        className="sign sign--outline"
+        disabled={disabled}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        📎
+      </button>
       <button type="button" className="sign" disabled={disabled} onClick={submit}>
         Send →
       </button>
@@ -528,6 +580,7 @@ export default function Home() {
   const {
     connect,
     sendChat,
+    sendImage,
     toggleMute,
     leave,
     micError,
@@ -540,6 +593,7 @@ export default function Home() {
   const connectionState = useMoqtChatStore((s) => s.connectionState);
   const screenSharing = useMoqtChatStore((s) => s.screenSharing);
   const screenShareError = useMoqtChatStore((s) => s.screenShareError);
+  const imageSendError = useMoqtChatStore((s) => s.imageSendError);
 
   // Switch to the chat screen once the connection is established.
   useEffect(
@@ -629,6 +683,7 @@ export default function Home() {
           tile (own's auto-stop clears screenSharing and its own tile,
           which can make ScreenTiles render nothing at all). */}
       <Notice message={screenShareError} />
+      <Notice message={imageSendError} />
 
       {joined ? (
         <div className="room">
@@ -646,7 +701,14 @@ export default function Home() {
             <LivePlayer videoRef={videoRef} />
             <ScreenTiles registerScreenCanvas={registerScreenCanvas} />
             <MessageList />
-            <Compose onSend={sendChat} disabled={connectionState !== "connected"} />
+            <Compose
+              onSend={sendChat}
+              onSendImage={sendImage}
+              onImageTooLarge={() =>
+                useMoqtChatStore.getState().setImageSendError("image too large (max 5MB)")
+              }
+              disabled={connectionState !== "connected"}
+            />
           </section>
         </div>
       ) : (
