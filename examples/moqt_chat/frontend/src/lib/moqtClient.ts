@@ -17,7 +17,8 @@
 //    which one each in-flight SUBSCRIBE was for, to pair it with the
 //    resulting SUBSCRIBE_OK's Track Alias (or drop it on REQUEST_ERROR).
 //  - Chat messages are sent as one uni stream each: SUBGROUP_HEADER + one
-//    Object (1 message = 1 Object = 1 Group = 1 Subgroup), matching
+//    Object (1 message = 1 Object = 1 Group = 1 Subgroup; an attachment
+//    stream instead carries one Object per chunk, see sendMessage), matching
 //    moqdata.h's moqdata_msg_build layout on the server side.
 
 import {
@@ -398,13 +399,11 @@ export class MoqtChatClient {
     await this.#sendUniStream(wire);
   }
 
-  /** Sends one chat message: one text-part uni stream, then each attachment
-   * as its own run of chunk uni streams (splitAttachmentIntoChunks,
-   * moqtAttachmentWire.ts). All streams share one messageId so the
-   * receiving end's #pendingMessages can regroup them regardless of
-   * arrival order. Every stream is awaited one at a time, never fired
-   * concurrently: the reassembler on the receiving end depends on a given
-   * attachment's chunks landing in order. */
+  /** Sends one chat message: one text-part uni stream, then one uni stream
+   * per attachment carrying every chunk as consecutive Objects
+   * (splitAttachmentIntoChunks, moqtAttachmentWire.ts). All streams share
+   * one messageId so the receiving end's #pendingMessages can regroup them
+   * regardless of arrival order. */
   async sendMessage(text: string, attachments: ChatAttachment[]): Promise<void> {
     if (!this.#wt) return;
     const messageId = this.#nextMessageId++;
@@ -434,19 +433,21 @@ export class MoqtChatClient {
       attachment.mimeType,
       attachment.bytes,
     );
-    for (const chunk of chunks) {
+    // One SUBGROUP_HEADER, then every chunk as its own Object: Object ID
+    // Delta 0 on each (FIRST_OBJECT makes the first one absolute, the
+    // decoder's prevId + delta + 1 rule increments the rest, exactly as
+    // moqtScreenClient.ts's sendVideoChunk does) + Length + body --
+    // encodeAttachmentChunkMessage only encodes the payload bytes.
+    const objects = chunks.map((chunk) => {
       const body = encodeAttachmentChunkMessage(chunk);
-      // Object ID Delta (0 -> FIRST_OBJECT makes it the absolute id) +
-      // Length, same framing buildChatObjectMessage wraps every Object
-      // body in -- encodeAttachmentChunkMessage only encodes the Object's
-      // payload bytes, not the Object envelope around it.
-      const object = concatBytes([encodeVarint(0n), encodeVarint(BigInt(body.length)), body]);
-      const wire = concatBytes([
+      return concatBytes([encodeVarint(0n), encodeVarint(BigInt(body.length)), body]);
+    });
+    await this.#sendUniStream(
+      concatBytes([
         buildAttachmentSubgroupHeader(this.#localTrackAlias, this.#groupId++),
-        object,
-      ]);
-      await this.#sendUniStream(wire);
-    }
+        ...objects,
+      ]),
+    );
   }
 
   async #sendUniStream(wire: Uint8Array): Promise<void> {
@@ -716,7 +717,7 @@ export class MoqtChatClient {
   // written in one call by both buildChatObjectMessage and
   // buildVoiceSubgroupHeader), then routes by Track Alias: a chat alias
   // (0..N-1, this room's candidate-list range) is read to completion and
-  // parsed as one chat Object; anything else (the audio track's separate
+  // its chat Objects parsed; anything else (the audio track's separate
   // alias range, moqtVoiceClient.ts's ownAudioTrackAlias, or the screen
   // track's alias range, moqtScreenClient.ts) is handed to onUnknownUniStream
   // instead of read to EOF here.
@@ -753,23 +754,43 @@ export class MoqtChatClient {
     // Decode only the SUBGROUP_HEADER + Object framing here -- NOT via
     // parseChatObjectMessage, which also UTF-8-decodes the payload and
     // would corrupt/throw on binary image-chunk bytes (classifyChatPayload's
-    // own doc on why the marker byte must be checked first).
-    let trackAlias: bigint;
-    let payload: Uint8Array;
+    // own doc on why the marker byte must be checked first). A text or
+    // nickname stream carries one Object; an attachment stream carries one
+    // per chunk, so walk them all. A torn trailing Object ends the walk --
+    // whatever decoded before it still counts.
+    let header;
+    let offset;
     try {
-      const { header, len } = decodeSubgroupHeader(wire);
-      const { object } = decodeSubgroupObject(wire, len, header.flags.properties, 0n, true);
-      trackAlias = header.trackAlias;
-      payload = object.payload;
+      const decoded = decodeSubgroupHeader(wire);
+      header = decoded.header;
+      offset = decoded.len;
     } catch {
       return;
     }
     // ownTrackAlias's doc: resolve the sender from the fixed candidate-list
     // mapping (the publisher's own alias, unmodified by relay), not from
     // this session's SUBSCRIBE_OK aliases.
-    const participant = participantForTrackAlias(trackAlias);
+    const participant = participantForTrackAlias(header.trackAlias);
     if (!participant) return;
 
+    let prevObjectId = 0n;
+    let first = true;
+    while (offset < wire.length) {
+      let payload: Uint8Array;
+      try {
+        const { object, len } = decodeSubgroupObject(wire, offset, header.flags.properties, prevObjectId, first);
+        payload = object.payload;
+        prevObjectId = object.objectId;
+        offset += len;
+        first = false;
+      } catch {
+        return;
+      }
+      this.#dispatchChatPayload(participant, payload);
+    }
+  }
+
+  #dispatchChatPayload(participant: string, payload: Uint8Array): void {
     const kind = classifyChatPayload(payload);
     if (kind === "attachment-chunk") {
       this.#handleAttachmentChunkPayload(participant, payload);
