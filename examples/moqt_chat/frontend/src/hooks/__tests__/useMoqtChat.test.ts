@@ -72,7 +72,7 @@ describe("moqtChatCallbacks", () => {
     expect(setConnectionState).toHaveBeenNthCalledWith(2, "connected");
   });
 
-  it("onMessage adds the sender as a peer and appends a not-own message", () => {
+  it("onMessage adds the sender as a peer and appends a not-own text-only message with attachments: []", () => {
     const addPeer = vi.fn();
     const addMessage = vi.fn();
     const callbacks = moqtChatCallbacks({
@@ -81,13 +81,14 @@ describe("moqtChatCallbacks", () => {
       addMessage,
       setNickname: vi.fn(),
     });
-    callbacks.onMessage("user2", "hello");
+    callbacks.onMessage("user2", "hello", []);
     expect(addPeer).toHaveBeenCalledWith("user2");
     expect(addMessage).toHaveBeenCalledTimes(1);
     const arg = addMessage.mock.calls[0][0];
     expect(arg.senderId).toBe("user2");
     expect(arg.text).toBe("hello");
     expect(arg.own).toBe(false);
+    expect(arg.attachments).toEqual([]);
     expect(typeof arg.at).toBe("number");
   });
 
@@ -100,8 +101,8 @@ describe("moqtChatCallbacks", () => {
       addMessage,
       setNickname: vi.fn(),
     });
-    callbacks.onMessage("user2", "hi");
-    callbacks.onMessage("user3", "yo");
+    callbacks.onMessage("user2", "hi", []);
+    callbacks.onMessage("user3", "yo", []);
     expect(addPeer.mock.calls).toEqual([["user2"], ["user3"]]);
     expect(addMessage.mock.calls.map((c) => c[0].senderId)).toEqual([
       "user2",
@@ -109,7 +110,7 @@ describe("moqtChatCallbacks", () => {
     ]);
   });
 
-  it("onImage adds the sender as a peer and appends an image message", () => {
+  it("onMessage with attachments builds a Blob URL per attachment and passes them through as-is", () => {
     vi.stubGlobal("URL", { createObjectURL: () => "blob:mock-url" });
     const addPeer = vi.fn();
     const addMessage = vi.fn();
@@ -119,21 +120,45 @@ describe("moqtChatCallbacks", () => {
       addMessage,
       setNickname: vi.fn(),
     });
-    callbacks.onImage!("user2", new Uint8Array([1, 2, 3]), "image/png");
+    callbacks.onMessage("user2", "", [
+      { bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png" },
+    ]);
     expect(addPeer).toHaveBeenCalledWith("user2");
     expect(addMessage).toHaveBeenCalledTimes(1);
     const arg = addMessage.mock.calls[0][0];
     expect(arg.senderId).toBe("user2");
     expect(arg.text).toBe("");
     expect(arg.own).toBe(false);
-    expect(arg.imageDataUrl).toBe("blob:mock-url");
-    expect(arg.imageMimeType).toBe("image/png");
+    expect(arg.attachments).toEqual([
+      { bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png", url: "blob:mock-url" },
+    ]);
     expect(typeof arg.at).toBe("number");
     vi.unstubAllGlobals();
   });
 
-  it("onImage does not interfere with onMessage/onNickname handlers", () => {
-    vi.stubGlobal("URL", { createObjectURL: () => "blob:mock-url" });
+  it("onMessage with multiple attachments builds one Blob URL each, in order", () => {
+    let n = 0;
+    vi.stubGlobal("URL", { createObjectURL: () => `blob:mock-url-${n++}` });
+    const addMessage = vi.fn();
+    const callbacks = moqtChatCallbacks({
+      setConnectionState: vi.fn(),
+      addPeer: vi.fn(),
+      addMessage,
+      setNickname: vi.fn(),
+    });
+    callbacks.onMessage("user2", "look", [
+      { bytes: new Uint8Array([1]), mimeType: "image/png" },
+      { bytes: new Uint8Array([2]), mimeType: "image/jpeg" },
+    ]);
+    const arg = addMessage.mock.calls[0][0];
+    expect(arg.attachments).toEqual([
+      { bytes: new Uint8Array([1]), mimeType: "image/png", url: "blob:mock-url-0" },
+      { bytes: new Uint8Array([2]), mimeType: "image/jpeg", url: "blob:mock-url-1" },
+    ]);
+    vi.unstubAllGlobals();
+  });
+
+  it("onMessage does not interfere with onNickname handling", () => {
     const addPeer = vi.fn();
     const addMessage = vi.fn();
     const setNickname = vi.fn();
@@ -143,17 +168,15 @@ describe("moqtChatCallbacks", () => {
       addMessage,
       setNickname,
     });
-    callbacks.onImage!("user2", new Uint8Array([1]), "image/png");
-    callbacks.onMessage("user2", "hello");
+    callbacks.onMessage("user2", "hello", []);
     callbacks.onNickname!("user2", "Alice");
-    expect(addPeer.mock.calls).toEqual([["user2"], ["user2"], ["user2"]]);
-    expect(addMessage.mock.calls[1][0]).toMatchObject({
+    expect(addPeer.mock.calls).toEqual([["user2"], ["user2"]]);
+    expect(addMessage.mock.calls[0][0]).toMatchObject({
       senderId: "user2",
       text: "hello",
       own: false,
     });
     expect(setNickname).toHaveBeenCalledWith("user2", "Alice");
-    vi.unstubAllGlobals();
   });
 });
 
