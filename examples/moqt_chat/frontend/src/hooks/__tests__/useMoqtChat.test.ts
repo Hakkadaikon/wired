@@ -13,6 +13,7 @@ import {
   OWN_SCREEN_KEY,
   reconnectDelayMs,
   sampleLocalLevel,
+  sendChatMessage,
   shouldAutoStopOwnScreen,
   teardownSession,
   type ReconnectRefs,
@@ -217,6 +218,51 @@ describe("connectChatThenVoice", () => {
 
     expect(onChatFailed).not.toHaveBeenCalled();
     expect(onVoiceFailed).not.toHaveBeenCalled();
+  });
+});
+
+describe("sendChatMessage", () => {
+  function fakeStore() {
+    return { addMessage: vi.fn(), setMessageSendError: vi.fn() };
+  }
+
+  it("does nothing when there is no client", async () => {
+    const store = fakeStore();
+    await sendChatMessage(null, store, "user1", "hi", []);
+    expect(store.addMessage).not.toHaveBeenCalled();
+    expect(store.setMessageSendError).not.toHaveBeenCalled();
+  });
+
+  it("on success, adds the message as own with no failed flag", async () => {
+    const store = fakeStore();
+    const client = { sendMessage: vi.fn().mockResolvedValue(undefined) };
+    await sendChatMessage(client, store, "user1", "hi", []);
+
+    expect(client.sendMessage).toHaveBeenCalledWith("hi", []);
+    expect(store.setMessageSendError).not.toHaveBeenCalled();
+    expect(store.addMessage).toHaveBeenCalledTimes(1);
+    const arg = store.addMessage.mock.calls[0][0];
+    expect(arg.senderId).toBe("user1");
+    expect(arg.text).toBe("hi");
+    expect(arg.own).toBe(true);
+    expect(arg.failed).toBeUndefined();
+  });
+
+  // I4 regression: sendMessage used to only set messageSendError on
+  // rejection, dropping the attempted text from the timeline entirely and
+  // leaving ChatMessage.failed / page.tsx's "Not sent" rendering dead code.
+  it("I4: on rejection, the message still appears in the timeline with failed: true", async () => {
+    const store = fakeStore();
+    const client = { sendMessage: vi.fn().mockRejectedValue(new Error("transport gone")) };
+    await sendChatMessage(client, store, "user1", "hi", []);
+
+    expect(store.setMessageSendError).toHaveBeenCalledWith("message send failed");
+    expect(store.addMessage).toHaveBeenCalledTimes(1);
+    const arg = store.addMessage.mock.calls[0][0];
+    expect(arg.senderId).toBe("user1");
+    expect(arg.text).toBe("hi");
+    expect(arg.own).toBe(true);
+    expect(arg.failed).toBe(true);
   });
 });
 

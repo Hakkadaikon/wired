@@ -166,6 +166,47 @@ export function moqtChatCallbacks(
 // the join screen back to "Connecting..." even though chat was already
 // working (see moqtClient.ts's connect(): onStatusChange("connected") has
 // already fired by the time connectChat resolves).
+// One call for both a plain text message (attachments: []) and a message
+// with attachments -- moqtClient.ts's sendMessage already sends the text
+// part and every attachment's chunks as one unit. On success, the sender
+// sees their own message (with local Blob URLs, own: true) in their own
+// timeline right away rather than round-tripping through the wire. On
+// failure, the message still appears (failed: true) rather than vanishing --
+// the old sendChat behavior this replaces kept a failed send visible so the
+// user knows what didn't go out, instead of just an error toast and no
+// timeline trace of the attempt. Pulled out of the hook's own closure so
+// it's testable without a real MoqtChatClient (same pattern as
+// connectChatThenVoice below).
+export async function sendChatMessage(
+  client: Pick<MoqtChatClient, "sendMessage"> | null,
+  store: Pick<MoqtChatState, "addMessage" | "setMessageSendError">,
+  senderId: string,
+  text: string,
+  attachments: WireChatAttachment[],
+): Promise<void> {
+  if (!client) return;
+  try {
+    await client.sendMessage(text, attachments);
+    store.addMessage({
+      senderId,
+      text,
+      at: Date.now(),
+      own: true,
+      attachments: attachBlobUrls(attachments),
+    });
+  } catch {
+    store.setMessageSendError("message send failed");
+    store.addMessage({
+      senderId,
+      text,
+      at: Date.now(),
+      own: true,
+      failed: true,
+      attachments: attachBlobUrls(attachments),
+    });
+  }
+}
+
 export async function connectChatThenVoice(
   connectChat: () => Promise<void>,
   startVoice: () => Promise<void>,
@@ -956,29 +997,9 @@ export function useMoqtChat() {
     [store, startVoice, drawScreenFrame, teardownCurrentSession],
   );
 
-  // One call for both a plain text message (attachments: []) and a message
-  // with attachments -- moqtClient.ts's sendMessage already sends the text
-  // part and every attachment's chunks as one unit. On success, the sender
-  // sees their own message (with local Blob URLs, own: true) in their own
-  // timeline right away rather than round-tripping through the wire.
   const sendMessage = useCallback(
-    async (text: string, attachments: WireChatAttachment[]) => {
-      const client = clientRef.current;
-      const senderId = localIdRef.current;
-      if (!client) return;
-      try {
-        await client.sendMessage(text, attachments);
-        store.addMessage({
-          senderId,
-          text,
-          at: Date.now(),
-          own: true,
-          attachments: attachBlobUrls(attachments),
-        });
-      } catch {
-        store.setMessageSendError("message send failed");
-      }
-    },
+    (text: string, attachments: WireChatAttachment[]) =>
+      sendChatMessage(clientRef.current, store, localIdRef.current, text, attachments),
     [store],
   );
 
