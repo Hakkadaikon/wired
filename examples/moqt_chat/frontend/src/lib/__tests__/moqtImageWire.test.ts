@@ -110,6 +110,20 @@ describe("encodeImageChunkMessage / decodeImageChunkMessage", () => {
   it("throws MoqtDecodeError on truncated input", () => {
     expect(() => decodeImageChunkMessage(bytes(0xff, 0x00, 0x01))).toThrow(MoqtDecodeError);
   });
+
+  it("throws MoqtDecodeError when idx=0 metadata is truncated before the mimeLen byte", () => {
+    // marker + seq u32 + idx u16=0 + count u16, then nothing: the mimeLen
+    // byte itself is missing.
+    const truncated = bytes(0xff, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02);
+    expect(() => decodeImageChunkMessage(truncated)).toThrow(MoqtDecodeError);
+  });
+
+  it("throws MoqtDecodeError when idx=0 metadata is truncated after mimeLen", () => {
+    // Same 9-byte header, then mimeLen=3 claiming 3 mimeType bytes + 4
+    // totalBytes bytes that never follow.
+    const truncated = bytes(0xff, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x03);
+    expect(() => decodeImageChunkMessage(truncated)).toThrow(MoqtDecodeError);
+  });
 });
 
 describe("isImageChunkPayload", () => {
