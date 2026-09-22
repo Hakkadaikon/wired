@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMoqtChat } from "@/hooks/useMoqtChat";
+import { useObjectUrl } from "@/hooks/useObjectUrl";
 import { clearJoinPrefs, loadJoinPrefs, saveJoinPrefs } from "@/lib/joinPrefs";
-import { CANDIDATE_PARTICIPANT_IDS } from "@/lib/moqtClient";
+import { CANDIDATE_PARTICIPANT_IDS, type ChatAttachment as WireChatAttachment } from "@/lib/moqtClient";
 import { resolveDisplayName, useMoqtChatStore, type ChatMessage } from "@/stores/moqtChatStore";
 import { canPickOutput } from "@/lib/outputMixer";
 import { SCREEN_TILE_MAX_PX, SCREEN_TILE_MIN_PX, SCREEN_TILE_STEP_PX } from "@/lib/screenTileSize";
+import { validateAttachmentCandidate } from "@/lib/attachmentValidation";
 import { Wordmark } from "./wordmark";
 
 const DEFAULT_URL = "https://localhost:4433/";
@@ -319,18 +321,29 @@ function OutputDevice({ onSelect }: { onSelect: (deviceId: string) => void }) {
   );
 }
 
+// One attachment inside a sent/received message. The Blob URL already lives
+// on the store's ChatAttachment (attachBlobUrls in useMoqtChat.ts creates it
+// once per message), so this only picks image vs. video by MIME type --
+// unlike DraftChip below, it does not own the URL's lifetime.
+function MessageAttachment({ mimeType, url }: { mimeType: string; url: string }) {
+  if (mimeType.startsWith("video/")) {
+    return <video src={url} controls data-testid="message-video" />;
+  }
+  return <img src={url} data-testid="message-image" alt="" />;
+}
+
 function Message({ m }: { m: ChatMessage }) {
   const nicknames = useMoqtChatStore((s) => s.nicknames);
   const time = new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  // The Blob URL is created once (onImage for a received image, sendImage
-  // for the sender's own) and belongs to this message instance for its
-  // whole lifetime, so revoke it on unmount only -- capture the value the
-  // effect closed over, not a fresh read of m.
+  // The Blob URLs are created once (attachBlobUrls in useMoqtChat.ts) and
+  // belong to this message instance for its whole lifetime, so revoke them
+  // on unmount only -- capture the values the effect closed over, not a
+  // fresh read of m.
   useEffect(() => {
-    const url = m.imageDataUrl;
-    if (!url) return;
-    return () => URL.revokeObjectURL(url);
-  }, [m.imageDataUrl]);
+    const urls = m.attachments?.map((a) => a.url) ?? [];
+    if (urls.length === 0) return;
+    return () => urls.forEach((url) => URL.revokeObjectURL(url));
+  }, [m.attachments]);
   // DOM order is sender, time, text (the grid puts the time last): the e2e
   // load harness matches "msg:<tag>:<seq>" in textContent, and a time
   // directly after the text would extend the digits.
@@ -340,44 +353,10 @@ function Message({ m }: { m: ChatMessage }) {
         {m.own ? "You" : resolveDisplayName(m.senderId, nicknames)}
       </span>
       <span className="message__time caption">{time}</span>
-      {m.imageDataUrl ? (
-        <img src={m.imageDataUrl} data-testid="message-image" alt="" />
-      ) : (
-        <span className="message__text">{m.text}</span>
-      )}
+      {m.attachments?.map((a, i) => <MessageAttachment key={i} mimeType={a.mimeType} url={a.url} />)}
+      {m.text && <span className="message__text">{m.text}</span>}
       {m.failed && <span className="message__failed caption">Not sent</span>}
     </div>
-  );
-}
-
-function LivePlayer({ videoRef }: { videoRef: React.RefObject<HTMLVideoElement | null> }) {
-  const liveError = useMoqtChatStore((s) => s.liveError);
-  const liveFirstGroup = useMoqtChatStore((s) => s.liveFirstGroup);
-  // Distinguishes "not playing yet" (caption) from "playing" (no caption)
-  // and from a real failure (liveError banner). LiveMovie holds play() back
-  // until enough is buffered, so wait for actual playback, not readiness.
-  const [waiting, setWaiting] = useState(true);
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    const ready = () => setWaiting(false);
-    video.addEventListener("playing", ready);
-    return () => video.removeEventListener("playing", ready);
-  }, [videoRef]);
-  return (
-    <>
-      <video
-        ref={videoRef}
-        className="live"
-        data-testid="live"
-        data-first-group={liveFirstGroup ?? undefined}
-        muted
-        playsInline
-        controls
-      />
-      <Notice message={liveError} />
-      {!liveError && waiting && <p className="caption">Waiting for the movie stream…</p>}
-    </>
   );
 }
 
@@ -400,42 +379,125 @@ function MessageList() {
   );
 }
 
-const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+type Draft = { id: string; bytes: Uint8Array; mimeType: string; fileName: string };
+
+let nextDraftId = 1;
+
+// One preview chip. Owns its Blob URL for the draft's whole lifetime via
+// useObjectUrl -- removing the item from draftAttachments unmounts this
+// component, which is what revokes the URL (no parent-managed URL map).
+function DraftChip({ draft, onRemove }: { draft: Draft; onRemove: () => void }) {
+  const previewUrl = useObjectUrl(draft.bytes, draft.mimeType);
+  return (
+    <div className="draft-chip">
+      {draft.mimeType.startsWith("video/") ? (
+        <video
+          src={previewUrl}
+          muted
+          preload="metadata"
+          // Safari/WebKit doesn't decode a frame for the poster just from
+          // preload="metadata"; nudging currentTime forces a decode so the
+          // chip shows a real thumbnail instead of a blank rectangle.
+          onLoadedMetadata={(e) => {
+            e.currentTarget.currentTime = 0.1;
+          }}
+        />
+      ) : (
+        <img src={previewUrl} alt={draft.fileName} />
+      )}
+      <button type="button" className="draft-chip__remove" data-testid="draft-remove" onClick={onRemove}>
+        ✕
+      </button>
+    </div>
+  );
+}
 
 function Compose({
   onSend,
-  onSendImage,
-  onImageTooLarge,
+  onAttachmentRejected,
   disabled,
 }: {
-  onSend: (text: string) => void;
-  onSendImage: (bytes: Uint8Array, mimeType: string) => void;
-  onImageTooLarge: () => void;
+  onSend: (text: string, attachments: WireChatAttachment[]) => void;
+  onAttachmentRejected: (reason: string) => void;
   disabled: boolean;
 }) {
   const [draft, setDraft] = useState("");
+  const [draftAttachments, setDraftAttachments] = useState<Draft[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const submit = () => {
-    const text = draft.trim();
-    if (!text) return;
-    onSend(text);
-    setDraft("");
-  };
-  const pickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    if (bytes.byteLength > IMAGE_MAX_BYTES) {
-      onImageTooLarge();
-      return;
+
+  const tryAddFile = (file: File, bytes: Uint8Array, existingCount: number): Draft | null => {
+    const result = validateAttachmentCandidate({ byteLength: bytes.byteLength, mimeType: file.type }, existingCount);
+    if (!result.ok) {
+      onAttachmentRejected(
+        result.reason === "too-large"
+          ? "attachment too large (max 5MB)"
+          : result.reason === "too-many"
+            ? "too many attachments (max 4)"
+            : "unsupported attachment type",
+      );
+      return null;
     }
-    onSendImage(bytes, file.type);
+    return { id: String(nextDraftId++), bytes, mimeType: file.type, fileName: file.name };
+  };
+
+  const addFiles = async (files: File[]) => {
+    let count = draftAttachments.length;
+    const added: Draft[] = [];
+    for (const file of files) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const item = tryAddFile(file, bytes, count);
+      if (!item) continue;
+      added.push(item);
+      count += 1;
+    }
+    if (added.length > 0) setDraftAttachments((prev) => [...prev, ...added]);
+  };
+
+  const pickFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    await addFiles(files);
+  };
+
+  // Pasted images/videos are picked up the same way as a file-picker
+  // selection; plain-text paste (item.kind === "string") is left completely
+  // alone -- no preventDefault, so the browser's normal paste-into-input
+  // still happens.
+  const onPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const files = Array.from(e.clipboardData.items)
+      .filter((item) => item.kind === "file" && (item.type.startsWith("image/") || item.type.startsWith("video/")))
+      .map((item) => item.getAsFile())
+      .filter((f): f is File => f !== null);
+    if (files.length === 0) return;
+    void addFiles(files);
+  };
+
+  const canSend = draft.trim().length > 0 || draftAttachments.length > 0;
+  const submit = () => {
+    if (!canSend) return;
+    onSend(
+      draft.trim(),
+      draftAttachments.map((d) => ({ bytes: d.bytes, mimeType: d.mimeType })),
+    );
+    setDraft("");
+    setDraftAttachments([]);
   };
   // Enter is handled on keydown rather than via a <form>: the e2e load
   // harness dispatches a synthetic keydown, which never submits a form.
   return (
     <div className="compose" data-testid="chat-form">
+      {draftAttachments.length > 0 && (
+        <div className="draft-row">
+          {draftAttachments.map((d) => (
+            <DraftChip
+              key={d.id}
+              draft={d}
+              onRemove={() => setDraftAttachments((prev) => prev.filter((x) => x.id !== d.id))}
+            />
+          ))}
+        </div>
+      )}
       <input
         name="chat-message"
         placeholder="Type a message"
@@ -443,17 +505,19 @@ function Compose({
         disabled={disabled}
         data-testid="text"
         onChange={(e) => setDraft(e.target.value)}
+        onPaste={onPaste}
         onKeyDown={(e) => {
           if (e.key === "Enter") submit();
         }}
       />
       <input
         type="file"
-        accept="image/*"
-        data-testid="image-file"
+        accept="image/*,video/*"
+        multiple
+        data-testid="attachment-file"
         hidden
         ref={fileInputRef}
-        onChange={(e) => void pickImage(e)}
+        onChange={(e) => void pickFiles(e)}
       />
       <button
         type="button"
@@ -463,7 +527,7 @@ function Compose({
       >
         📎
       </button>
-      <button type="button" className="sign" disabled={disabled} onClick={submit}>
+      <button type="button" className="sign" disabled={disabled || !canSend} onClick={submit}>
         Send →
       </button>
     </div>
@@ -580,12 +644,10 @@ export default function Home() {
   const [joined, setJoined] = useState(false);
   const {
     connect,
-    sendChat,
-    sendImage,
+    sendMessage,
     toggleMute,
     leave,
     micError,
-    videoRef,
     startScreenShare,
     stopScreenShare,
     registerScreenCanvas,
@@ -594,7 +656,7 @@ export default function Home() {
   const connectionState = useMoqtChatStore((s) => s.connectionState);
   const screenSharing = useMoqtChatStore((s) => s.screenSharing);
   const screenShareError = useMoqtChatStore((s) => s.screenShareError);
-  const imageSendError = useMoqtChatStore((s) => s.imageSendError);
+  const messageSendError = useMoqtChatStore((s) => s.messageSendError);
 
   // Switch to the chat screen once the connection is established.
   useEffect(
@@ -684,7 +746,7 @@ export default function Home() {
           tile (own's auto-stop clears screenSharing and its own tile,
           which can make ScreenTiles render nothing at all). */}
       <Notice message={screenShareError} />
-      <Notice message={imageSendError} />
+      <Notice message={messageSendError} />
 
       {joined ? (
         <div className="room">
@@ -699,15 +761,11 @@ export default function Home() {
             </section>
           </aside>
           <section className="body">
-            <LivePlayer videoRef={videoRef} />
             <ScreenTiles registerScreenCanvas={registerScreenCanvas} />
             <MessageList />
             <Compose
-              onSend={sendChat}
-              onSendImage={sendImage}
-              onImageTooLarge={() =>
-                useMoqtChatStore.getState().setImageSendError("image too large (max 5MB)")
-              }
+              onSend={(text, attachments) => void sendMessage(text, attachments)}
+              onAttachmentRejected={(reason) => useMoqtChatStore.getState().setMessageSendError(reason)}
               disabled={connectionState !== "connected"}
             />
           </section>
