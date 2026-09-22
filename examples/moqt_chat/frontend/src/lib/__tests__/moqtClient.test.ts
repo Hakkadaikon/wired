@@ -419,7 +419,7 @@ describe("MoqtChatClient.sendMessage", () => {
     expect(h0.trackAlias).toBe(0n); // user1's own track alias
     const { object: o0 } = decodeSubgroupObject(written[0], l0, h0.flags.properties, 0n, true);
     const textPart = decodeTextPartMessage(o0.payload);
-    expect(textPart.messageId).toBe(1);
+    const messageId = textPart.messageId; // seeded from crypto.getRandomValues, not fixed
     expect(textPart.attachmentCount).toBe(2);
     expect(textPart.text).toBe("hello");
 
@@ -431,7 +431,7 @@ describe("MoqtChatClient.sendMessage", () => {
       prevGroupId = header.groupId;
       const { object } = decodeSubgroupObject(wire, len, header.flags.properties, 0n, true);
       const chunk = decodeAttachmentChunkMessage(object.payload);
-      expect(chunk.messageId).toBe(1);
+      expect(chunk.messageId).toBe(messageId);
       expect(chunk.attachmentIdx).toBe(0);
       expect(chunk.idx).toBe(i);
       expect(chunk.data).toEqual(expectedChunksA[i].data);
@@ -445,7 +445,7 @@ describe("MoqtChatClient.sendMessage", () => {
       prevGroupId = header.groupId;
       const { object } = decodeSubgroupObject(wire, len, header.flags.properties, 0n, true);
       const chunk = decodeAttachmentChunkMessage(object.payload);
-      expect(chunk.messageId).toBe(1);
+      expect(chunk.messageId).toBe(messageId);
       expect(chunk.attachmentIdx).toBe(1);
       expect(chunk.idx).toBe(i);
       expect(chunk.data).toEqual(expectedChunksB[i].data);
@@ -465,6 +465,30 @@ describe("MoqtChatClient.sendMessage", () => {
     const textPart = decodeTextPartMessage(object.payload);
     expect(textPart.attachmentCount).toBe(0);
     expect(textPart.text).toBe("just text");
+
+    client.close();
+  });
+
+  // C1 regression: a fixed #nextMessageId = 1 start meant a reloaded sender
+  // reused messageIds a previous session's session already used, so a
+  // receiver's still-pending (attachment-only) entry for that id could
+  // absorb a new, unrelated text-only send. The counter must start from a
+  // value seeded by crypto.getRandomValues, not a hardcoded 1.
+  it("C1: the first messageId sent is seeded from crypto.getRandomValues, not a hardcoded 1", async () => {
+    const getRandomValues = vi.fn((arr: Uint32Array) => {
+      arr[0] = 0xdeadbeef;
+      return arr;
+    });
+    vi.stubGlobal("crypto", { getRandomValues });
+    const { client, written } = await connectedWithCapture();
+
+    await client.sendMessage("hello", []);
+
+    const { header, len } = decodeSubgroupHeader(written[0]);
+    const { object } = decodeSubgroupObject(written[0], len, header.flags.properties, 0n, true);
+    const textPart = decodeTextPartMessage(object.payload);
+    expect(textPart.messageId).toBe(0xdeadbeef);
+    expect(getRandomValues).toHaveBeenCalled();
 
     client.close();
   });

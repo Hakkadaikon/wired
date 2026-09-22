@@ -297,13 +297,25 @@ interface PendingMessage {
   receivedAt: number;
 }
 
+// A fixed starting point (e.g. 1) collides across page reloads: a receiver
+// can still hold a pending (attachment-only) entry keyed by a messageId the
+// previous session used, and a fresh session restarting from the same value
+// would have its own unrelated text-only send absorbed into that stale
+// entry's leftover attachments. Seeding from crypto.getRandomValues instead
+// makes a same-id collision between two independent sessions vanishingly
+// unlikely, matching what #pendingKey's own doc assumes ("messageId re-use
+// needs no explicit cleanup" -- true only if re-use is rare).
+function randomMessageIdSeed(): number {
+  return crypto.getRandomValues(new Uint32Array(1))[0];
+}
+
 export class MoqtChatClient {
   #wt?: WebTransport;
   #controlWriter?: WritableStreamDefaultWriter<Uint8Array>;
   #localId: string;
   #localTrackAlias: bigint;
   #groupId = 0n;
-  #nextMessageId = 1;
+  #nextMessageId = randomMessageIdSeed();
   #attachmentReassemblers = new Map<string, AttachmentReassembler>();
   #pendingMessages = new Map<string, PendingMessage>();
   #foundParticipants = new Set<string>();
