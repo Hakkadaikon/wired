@@ -13,8 +13,6 @@ describe("moqtChatStore", () => {
     expect(s.messages).toEqual([]);
     expect(s.peers).toEqual([]);
     expect(s.nicknames).toEqual({});
-    expect(s.liveError).toBeNull();
-    expect(s.liveFirstGroup).toBeNull();
     expect(s.screenSharing).toBe(false);
     expect(s.screenTiles).toEqual([]);
     expect(s.screenShareError).toBeNull();
@@ -71,17 +69,6 @@ describe("moqtChatStore", () => {
     const before = useMoqtChatStore.getState().stalledScreenTiles;
     s.setScreenTileStalled("user2", true);
     expect(useMoqtChatStore.getState().stalledScreenTiles).toBe(before);
-  });
-
-  it("sets and clears the live error and first group", () => {
-    useMoqtChatStore.getState().setLiveError("video buffer error");
-    useMoqtChatStore.getState().setLiveFirstGroup("7");
-    expect(useMoqtChatStore.getState().liveError).toBe("video buffer error");
-    expect(useMoqtChatStore.getState().liveFirstGroup).toBe("7");
-    useMoqtChatStore.getState().setLiveError(null);
-    useMoqtChatStore.getState().setLiveFirstGroup(null);
-    expect(useMoqtChatStore.getState().liveError).toBeNull();
-    expect(useMoqtChatStore.getState().liveFirstGroup).toBeNull();
   });
 
   it("assigns monotonically increasing message ids and returns them", () => {
@@ -196,7 +183,7 @@ describe("resolveDisplayName", () => {
   it("sets and clears the message send error independently of other error state", () => {
     useMoqtChatStore.getState().setMessageSendError("send failed");
     expect(useMoqtChatStore.getState().messageSendError).toBe("send failed");
-    expect(useMoqtChatStore.getState().liveError).toBeNull();
+    expect(useMoqtChatStore.getState().screenShareError).toBeNull();
     useMoqtChatStore.getState().setMessageSendError(null);
     expect(useMoqtChatStore.getState().messageSendError).toBeNull();
   });
@@ -271,7 +258,7 @@ describe("resolveDisplayName", () => {
   it("sets and clears the screen-share error independently of other error state", () => {
     useMoqtChatStore.getState().setScreenShareError("getDisplayMedia was denied");
     expect(useMoqtChatStore.getState().screenShareError).toBe("getDisplayMedia was denied");
-    expect(useMoqtChatStore.getState().liveError).toBeNull();
+    expect(useMoqtChatStore.getState().messageSendError).toBeNull();
     useMoqtChatStore.getState().setScreenShareError(null);
     expect(useMoqtChatStore.getState().screenShareError).toBeNull();
   });
