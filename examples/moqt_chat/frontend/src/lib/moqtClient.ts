@@ -823,6 +823,14 @@ export class MoqtChatClient {
     for (const [key, pending] of this.#pendingMessages) {
       if (now - pending.receivedAt >= PENDING_MESSAGE_TIMEOUT_MS) {
         this.#pendingMessages.delete(key);
+        // M1: an idx===0 chunk's mimeType recorded for this message (below)
+        // outlives the message itself otherwise -- #attachmentMimeTypes has
+        // no timeout of its own, so a message that never completes would
+        // leak one entry per attachment forever.
+        const prefix = `${key}:`;
+        for (const mimeKey of this.#attachmentMimeTypes.keys()) {
+          if (mimeKey.startsWith(prefix)) this.#attachmentMimeTypes.delete(mimeKey);
+        }
       }
     }
   }
