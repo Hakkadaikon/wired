@@ -471,8 +471,36 @@ input {
   overflow-wrap: anywhere;
 }
 
-.message__failed {
+.message__attachments {
   grid-area: 2 / 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  align-items: flex-start;
+}
+
+/* The cap lives on the figure (a third of the row, minus the two gaps) so
+ * three sit side by side even when one is very wide; the media inside keeps
+ * its aspect ratio via width: auto and letterboxes only when it hits the cap. */
+.message__attachment {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25em;
+  max-width: calc((100% - 1em) / 3);
+}
+
+.message__attachment img,
+.message__attachment video {
+  height: 8em;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.message__failed {
+  grid-area: 3 / 2;
   color: var(--mark);
 }
 
