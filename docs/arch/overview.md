@@ -171,7 +171,7 @@ the QUIC header to route the packet, then hands it to an `AF_XDP` socket —
 a ring buffer shared between the kernel and this process's memory, so the
 packet data does not need a second copy into a socket buffer. Fewer copies
 and less stack traversal per packet is why this path measured faster in
-practice (see [`comparison.md`](../comparison.md#speed-af_xdp-driver-over-a-real-nic-informational)).
+practice (see [`comparison.md`](../performance/comparison.md#speed-af_xdp-driver-over-a-real-nic-informational)).
 
 Both drivers still run in **one process**; AF_XDP changes the *path* a
 packet takes to reach that process, not how many processes are involved.
@@ -227,7 +227,7 @@ this SDK, since the AF_XDP ring has no file-descriptor-readable event to
 | Default UDP | *(none)* | 1 | blocking `poll` | The safe default: low idle CPU, no special privileges, works everywhere. |
 | Busy-poll UDP | `--busy-poll` | 1 | spinning | Lower per-packet latency than the default, still a normal socket, no root/capabilities needed. |
 | Multi-worker | `--workers N` | N (forked) | driver-dependent per worker | More cores for throughput, but see the known limitation in `src/app/http3/server/srvworkers/srvworkers.h`: `SO_REUSEPORT`'s kernel-side routing gives no guarantee a connection's packets keep landing on the same worker, so handshakes can intermittently fail. |
-| AF_XDP | `--ifindex <n> --ip <addr> [--skb-mode]` | 1 (or 1 process with N worker *threads* via `--cores`, distinct from `--workers`' processes) | spinning | Highest throughput measured so far ([data](../comparison.md#speed-af_xdp-driver-over-a-real-nic-informational)), at the cost of needing `CAP_BPF`/`CAP_NET_ADMIN`, generic mode without a NIC driver's native support, and less production-hardening than the default path. |
+| AF_XDP | `--ifindex <n> --ip <addr> [--skb-mode]` | 1 (or 1 process with N worker *threads* via `--cores`, distinct from `--workers`' processes) | spinning | Highest throughput measured so far ([data](../performance/comparison.md#speed-af_xdp-driver-over-a-real-nic-informational)), at the cost of needing `CAP_BPF`/`CAP_NET_ADMIN`, generic mode without a NIC driver's native support, and less production-hardening than the default path. |
 
 ---
 

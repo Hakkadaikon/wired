@@ -131,7 +131,7 @@ integrator(配線・ゲート・コミット)の既存パイプライン。台�
 - 退行判定の予算は決めの問題(質問 2)。暫定: いずれかのレーンで中央値 3% 超の
   悪化は「原因特定してから merge」。セキュリティ修正はホットパス(ACK 処理、
   フレーム分岐)に検査を足すことが多いので、per-packet レーンを必ず見る。
-- 最後に `docs/comparison.md` の表を更新(手順は同文書の Run manifest に従う)。
+- 最後に `docs/performance/comparison.md` の表を更新(手順は同文書の Run manifest に従う)。
 
 ## 6. フェーズと成果物
 

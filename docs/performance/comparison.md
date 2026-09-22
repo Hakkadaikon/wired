@@ -1,4 +1,4 @@
-[Docs](README.md) › Comparison
+[Docs](../README.md) › [Performance](./) › Comparison
 
 # Implementation Comparison
 
@@ -243,7 +243,7 @@ quic-go, runner commit `1d6f655`):
 | `blackhole` | ✅ | |
 
 Full per-testcase status (broader set, including WebTransport) is
-maintained separately in [Interop Results](interop.md); the five rows above
+maintained separately in [Interop Results](../interop.md); the five rows above
 are the ones this comparison's benchmarks depend on and were independently
 re-verified for this document.
 
@@ -254,7 +254,7 @@ suite contains functional test cases only (fixed-size transfers, no
 goodput-style measurement), and a custom benchmark would require writing a
 per-implementation application layer, which breaks the equal-conditions
 premise. Functional WebTransport interop results against webtransport-go are
-in [Interop Results](interop.md).
+in [Interop Results](../interop.md).
 
 **MOQT (interop):** wired speaks draft-ietf-moq-transport-19; the only other
 implementation surveyed that speaks draft-19 is imquic [^moqt-survey]. A live
@@ -321,7 +321,7 @@ static-allocation design makes bigger windows a real memory decision —
 ### Reproduction
 
 Goodput lane: register `wired` in the runner's `implementations_quic.json`
-per [interop/README.md](../interop/README.md), then
+per [interop/README.md](../../interop/README.md), then
 `python run.py -s <server> -c quic-go -t goodput` at runner commit `1d6f655`.
 
 Loopback lane servers (each behind `taskset -c 3`):
@@ -480,22 +480,22 @@ cert.pem --key key.pem` (single-process) or `--ifindex <n> --ip <server-ip>
     (Meta), moq-rs/moq-lite (kixelated, diverged fork), libquicr (Cisco),
     moqtail, aiomoqt, mengelbart/moqtransport.
 [^w-libc]: `justfile` (`ninja` recipe compiles every `src/**/*.c` with
-    `-ffreestanding -nostdlib -static`); [Syscalls](syscalls.md).
-[^w-tls]: [Features › RFC 8446](features/rfc8446.md) — server side of
+    `-ffreestanding -nostdlib -static`); [Syscalls](../syscalls.md).
+[^w-tls]: [Features › RFC 8446](../features/rfc8446.md) — server side of
     TLS 1.3 embedded in QUIC.
-[^w-h3]: [Features › RFC 9114](features/rfc9114.md); `http3` interop PASS
-    in [Interop Results](interop.md). Server implementation under
+[^w-h3]: [Features › RFC 9114](../features/rfc9114.md); `http3` interop PASS
+    in [Interop Results](../interop.md). Server implementation under
     `src/app/http3/server/` (`srvloop.c`, `srvrun.c`, `srvboot.c`).
-[^w-qpack]: [Features › RFC 9204](features/rfc9204.md) — decoder applies Set
+[^w-qpack]: [Features › RFC 9204](../features/rfc9204.md) — decoder applies Set
     Dynamic Table Capacity and resolves dynamic/post-Base references
     (`src/app/qpack/qpack/dyntable.c`). The server advertises
     `SETTINGS_QPACK_MAX_TABLE_CAPACITY 0` to the peer
     (`src/app/http3/core/h3settings/settings_build.c`), and its own response
     encoder (`src/app/http3/request/h3resp/field_encode.c`) uses only the
     static table and literals, never the dynamic-table encode path.
-[^w-wt]: [Features › RFC 9220](features/rfc9220.md),
-    [draft-webtrans-http3](features/draft-webtrans-http3.md);
-    WebTransport interop table in [Interop Results](interop.md) (receive
+[^w-wt]: [Features › RFC 9220](../features/rfc9220.md),
+    [draft-webtrans-http3](../features/draft-webtrans-http3.md);
+    WebTransport interop table in [Interop Results](../interop.md) (receive
     directions PASS; `*-send` cases against webtransport-go still stall.
     `transfer-unidirectional-send`'s root cause -- a WT-signalled stream
     reaching the wire before its session's own 2xx -- was found and fixed
@@ -504,10 +504,10 @@ cert.pem --key key.pem` (single-process) or `--ifindex <n> --ip <server-ip>
     Implementation under `src/app/webtransport/` (`session/session/session.c`,
     `capsule/wtcapsule/wtcapsule.c`, Extended CONNECT in
     `src/app/http3/core/h3/connect.c`).
-[^w-dgram]: [Features › RFC 9221](features/rfc9221.md),
-    [RFC 9297](features/rfc9297.md); `transfer-datagram-receive`
+[^w-dgram]: [Features › RFC 9221](../features/rfc9221.md),
+    [RFC 9297](../features/rfc9297.md); `transfer-datagram-receive`
     interop PASS.
-[^w-interop]: [Interop Results](interop.md) — `zerortt`, `keyupdate`,
+[^w-interop]: [Interop Results](../interop.md) — `zerortt`, `keyupdate`,
     `chacha20` PASS vs quic-go; `ecn`, `v2`, `connectionmigration` are
     implemented but carry no third-party verdict (peer/tooling limitations,
     detailed there).
