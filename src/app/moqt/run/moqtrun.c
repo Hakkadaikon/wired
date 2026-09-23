@@ -52,22 +52,27 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   }
   moqtrun_track_clear_relays(&hub->blob_track);
   moqtrun_track_clear_relays(&hub->live.track);
-  hub->io                  = io;
-  hub->authorize_subscribe = 0;
-  hub->authorize_ctx       = 0;
-  hub->stat_frag_drop      = 0;
-  hub->stat_relay_sent     = 0;
-  hub->stat_relay_drop     = 0;
-  hub->stat_open_drop      = 0;
-  hub->stat_relay_reset    = 0;
-  hub->stat_relay_full     = 0;
-  hub->stat_dg_sent        = 0;
-  hub->stat_dg_drop        = 0;
-  hub->stat_dg_bad         = 0;
-  hub->blob_track.in_use   = 0;
-  hub->live.track.in_use   = 0;
-  hub->stat_live_sent      = 0;
-  hub->stat_live_drop      = 0;
+  hub->io                   = io;
+  hub->authorize_subscribe  = 0;
+  hub->authorize_ctx        = 0;
+  hub->stat_frag_drop       = 0;
+  hub->stat_relay_sent      = 0;
+  hub->stat_relay_drop      = 0;
+  hub->stat_open_drop       = 0;
+  hub->stat_relay_reset     = 0;
+  hub->stat_relay_full      = 0;
+  hub->stat_dg_sent         = 0;
+  hub->stat_dg_drop         = 0;
+  hub->stat_dg_bad          = 0;
+  hub->blob_track.in_use    = 0;
+  hub->live.track.in_use    = 0;
+  hub->live.last_now_ms     = 0;
+  hub->stat_live_sent       = 0;
+  hub->stat_live_drop       = 0;
+  hub->reliable_alias_limit = 0;
+  hub->stat_rel_stall       = 0;
+  hub->stat_rel_overflow    = 0;
+  for (usz i = 0; i < WIRED_MOQTREL_POOL; i++) moqtrel_reset(&hub->rel_pool[i]);
 }
 
 /* SS10 common envelope (Type vi64 + 16-bit Length + Body): every control
@@ -1224,6 +1229,105 @@ static int moqtrun_relay_round_due(wired_span whole, int fin) {
   return whole.n != 0 || fin;
 }
 
+/* ========== reliable relay: ring-backed forwarding (moqtrel) ==========
+ * A track whose own_alias is below hub->reliable_alias_limit forwards
+ * through a moqtrel ring instead of the drop-on-refusal path above:
+ * refused sends retry from the ring on later ticks, and the publisher's
+ * receive credit is held (io.stream_hold) when the ring nears capacity --
+ * bytes are delayed, never dropped, for every subscriber that keeps up.
+ * The ring module only decides (moqtrel.h); every io call stays here. */
+
+static int moqtrun_track_is_reliable(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t) {
+  return t->own_alias < hub->reliable_alias_limit;
+}
+
+/* First free ring in the pool, or 0 (the caller falls back to lossy). */
+static moqtrel_buf* moqtrun_rel_acquire(wired_moqt_hub* hub) {
+  for (usz i = 0; i < WIRED_MOQTREL_POOL; i++)
+    if (!hub->rel_pool[i].in_use) return &hub->rel_pool[i];
+  return 0;
+}
+
+/* Ring append, counting the by-design-impossible refusal: the hold
+ * watermark keeps free space ahead of the publisher's window, so a full
+ * ring is an invariant violation to record (stat_rel_overflow, the
+ * reliable twin of stat_frag_drop), not a loss to handle. */
+static void moqtrun_rel_take(
+    wired_moqt_hub* hub, moqtrel_buf* rb, wired_span whole) {
+  if (whole.n == 0) return;
+  if (!moqtrel_append(rb, whole)) hub->stat_rel_overflow++;
+}
+
+/* Binds a free ring to relay for a reliable track: the publisher recorded
+ * for the hold/release calls, the opening round (header + whole Objects)
+ * appended so cursor offsets match the true stream offsets. An exhausted
+ * pool counts stat_relay_full and leaves rel_idx -1: the caller's lossy
+ * start continues unchanged (the fallback path). */
+static void moqtrun_rel_bind(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_relay* relay,
+    wired_wt_session*    pub_wt,
+    u64                  pub_stream_id,
+    wired_span           head) {
+  moqtrel_buf* rb = moqtrun_rel_acquire(hub);
+  if (!rb) {
+    hub->stat_relay_full++; /* pool dry: this stream relays lossily */
+    return;
+  }
+  moqtrel_reset(rb);
+  rb->in_use     = 1;
+  rb->pub        = pub_wt;
+  rb->pub_stream = pub_stream_id;
+  moqtrun_rel_take(hub, rb, head);
+  relay->rel_idx = (i32)(rb - hub->rel_pool);
+}
+
+/* Reliable gate for a fresh keep-open stream: only a track below the
+ * alias limit, and only when the io table can actually hold the
+ * publisher back (without stream_hold a ring would only overflow). */
+static void moqtrun_rel_start(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay,
+    wired_wt_session*    pub_wt,
+    u64                  pub_stream_id,
+    wired_span           head) {
+  if (!hub->io.stream_hold || !moqtrun_track_is_reliable(hub, track)) return;
+  moqtrun_rel_bind(hub, relay, pub_wt, pub_stream_id, head);
+}
+
+/* Activates sub slot i's ring cursor if its relay stream opened: the
+ * opening round already carried every byte appended so far, so the
+ * cursor starts at tail; the stall clock anchors at the last tick. */
+static void moqtrun_rel_attach_sub(
+    moqtrel_buf*               rb,
+    const wired_moqtrun_track* track,
+    const wired_moqtrun_relay* relay,
+    usz                        i,
+    u64                        now_ms) {
+  if (!track->subs[i].active || !relay->sub_stream_set[i]) return;
+  rb->subs[i].active     = 1;
+  rb->subs[i].sent       = rb->tail;
+  rb->subs[i].last_ok_ms = now_ms;
+}
+
+/* After the opening moqtrun_relay_open_all: record each subscriber stream
+ * that actually opened as a ring cursor. A slot that failed to open, or
+ * subscribes later, never rides this ring -- it keeps the lossy late-open
+ * behavior (saved header only). */
+static void moqtrun_rel_attach_subs(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay) {
+  if (relay->rel_idx < 0) return;
+  moqtrel_buf* rb = &hub->rel_pool[relay->rel_idx];
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
+    moqtrun_rel_attach_sub(rb, track, relay, i, hub->live.last_now_ms);
+}
+
+/* ============== end of the reliable-relay (moqtrel) block ============== */
+
 /* A later call on an already-relayed publisher stream: forward its
  * whole-Object bytes (moqtrun_relay_normalize) to every subscriber-side
  * stream this relay opened, and free the entry once the publisher's FIN
@@ -1295,10 +1399,14 @@ static void moqtrun_relay_save_hdr(
  * keep-open uni stream per subscriber carrying wire as the first round.
  * Every entry busy -> this stream is not relayed at all (its subscribers
  * miss it; WIRED_MOQTRUN_MAX_RELAYS is sized so this only happens under a
- * burst the room's own pacing never produces). */
+ * burst the room's own pacing never produces). A reliable track's stream
+ * (moqtrun_rel_start) additionally binds a ring and records each opened
+ * subscriber stream as a ring cursor (moqtrun_rel_attach_subs); the open
+ * calls themselves are shared with the lossy path. */
 static void moqtrun_relay_start(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
+    wired_wt_session*    pub_wt,
     u64                  pub_stream_id,
     wired_span           wire,
     usz                  whole_end) {
@@ -1309,14 +1417,19 @@ static void moqtrun_relay_start(
   }
   relay->in_use        = 1;
   relay->pub_stream_id = pub_stream_id;
+  relay->rel_idx       = -1; /* lossy until moqtrun_rel_start binds a ring */
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
     relay->sub_stream_set[i]  = 0;
     relay->sub_busy_streak[i] = 0; /* freestanding memory starts unzeroed */
   }
   relay->frag_len = 0;
+  moqtrun_rel_start(
+      hub, track, relay, pub_wt, pub_stream_id,
+      wired_span_of(wire.p, whole_end));
   moqtrun_relay_save_frag(hub, relay, wire.p + whole_end, wire.n - whole_end);
   moqtrun_relay_save_hdr(relay, wire);
   moqtrun_relay_open_all(hub, track, relay, wired_span_of(wire.p, whole_end));
+  moqtrun_rel_attach_subs(hub, track, relay);
 }
 
 /* Decodes the SUBGROUP_HEADER + the one Object this subset always sends
@@ -1429,7 +1542,7 @@ static void moqtrun_dispatch_fresh_stream(
     moqtrun_relay_object(hub, track, data);
     return;
   }
-  moqtrun_relay_start(hub, track, stream_id, data, whole_end);
+  moqtrun_relay_start(hub, track, p->wt, stream_id, data, whole_end);
 }
 
 /* draft 3.4/11.4.2: relay a data stream's bytes verbatim to the
