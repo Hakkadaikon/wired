@@ -4,6 +4,7 @@
 #include "app/http3/server/srvrun/srvrun.h"
 #include "app/moqt/ctl/moqctl.h"
 #include "app/moqt/data/moqdata.h"
+#include "app/moqt/run/moqtrel.h"
 #include "app/moqt/sess/moqsess.h"
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -92,6 +93,12 @@ typedef struct {
    * simply has no datagram plane -- wired_moqt_on_datagram then relays
    * nothing (and never dereferences the null pointer). */
   int (*send_datagram)(wired_wt_session* s, wired_span payload);
+  /** wired_server_wt_stream_hold-shaped: hold=1 stops raising the
+   * publisher's receive credit on stream_id, hold=0 resumes it. Kept last
+   * so older positional initializers stay valid; a table built without it
+   * (0) has no backpressure plane, so the reliable relay is never engaged
+   * (a ring that cannot hold its publisher would only overflow). */
+  int (*stream_hold)(wired_wt_session* s, u64 stream_id, int hold);
 } wired_moqt_io;
 
 /** One subscriber recorded against the hub's track: which session, and the
@@ -159,6 +166,10 @@ typedef struct {
    * (io.stream_reset) so the next round re-opens fresh at the newest frame
    * instead of replaying the stale backlog. Any accepted round zeroes it. */
   u8 sub_busy_streak[WIRED_MOQTRUN_MAX_SUBS];
+  /** Index into the hub's rel_pool while this relay runs reliably (its
+   * bytes ride a moqtrel ring instead of the drop-on-refusal path); -1 is
+   * the default: the lossy relay above, untouched. */
+  i32 rel_idx;
 } wired_moqtrun_relay;
 
 /** Consecutive refused relay rounds (io.stream_send returning busy) after
@@ -375,6 +386,22 @@ typedef struct {
    * (VIOLATION/INSUFFICIENT) or their Track Alias matched none of the
    * sending peer's tracks. Diagnostic only. */
   u64 stat_dg_bad;
+  /** A track whose own_alias is below this relays reliably (refused sends
+   * retried from a moqtrel ring, publisher held back instead of dropping).
+   * The wired_moqt_init default 0 keeps every track on the lossy path. */
+  u64 reliable_alias_limit;
+  /** Ring pool for the reliable relays: one ring per concurrently relayed
+   * reliable publisher stream, bound via wired_moqtrun_relay.rel_idx. An
+   * exhausted pool falls back to the lossy path (stat_relay_full). */
+  moqtrel_buf rel_pool[WIRED_MOQTREL_POOL];
+  /** Reliable-relay subscribers given up on after WIRED_MOQTREL_STALL_MS
+   * without an accepted send (their stream is reset and their cursor
+   * stops pinning the ring). Diagnostic only. */
+  u64 stat_rel_stall;
+  /** Reliable-relay ring appends refused for lack of space. By design 0:
+   * the publisher hold lands before the ring can fill, so a nonzero count
+   * is an invariant violation worth investigating, not normal loss. */
+  u64 stat_rel_overflow;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
