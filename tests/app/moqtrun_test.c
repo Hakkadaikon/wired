@@ -3683,6 +3683,46 @@ static void test_moqt_reliable_relay_sub_leave_unblocks_ring(void) {
   CHECK(moqtrun_test_last_kind(3)->stream_id == sid_b);
 }
 
+/* A subscriber with pending bytes and no accepted send for
+ * WIRED_MOQTREL_STALL_MS is shed exactly once (stream_reset, counted on
+ * stat_rel_stall): its cursor stops pinning the ring (the hold it caused
+ * releases) and the healthy subscriber still finishes with its FIN. */
+static void test_moqt_reliable_relay_sheds_stalled_sub(void) {
+  wired_moqt_hub hub;
+  u64            sid_b = 0, sid_c = 0;
+  moqtrun_test_start_reliable_two_subs(&hub, &sid_b, &sid_c);
+
+  moqtrun_test_reset();
+  g_stream_send_reject_sess = SESS_C; /* C accepts nothing from t=0 on */
+  for (u8 v = 0; v < 4; v++) moqtrun_test_send_big_round(&hub, 999, v, 16000);
+  CHECK(moqtrun_test_count_kind(10) == 1); /* C pins the ring: held */
+
+  moqtrun_test_reset();
+  g_stream_send_reject_sess = SESS_C; /* reset cleared the knob: re-arm */
+  wired_moqt_tick(&hub, WIRED_MOQTREL_STALL_MS / 2); /* not yet stalled */
+  CHECK(moqtrun_test_count_kind(7) == 0);
+  CHECK(hub.stat_rel_stall == 0);
+
+  moqtrun_test_reset();
+  g_stream_send_reject_sess = SESS_C;
+  wired_moqt_tick(&hub, WIRED_MOQTREL_STALL_MS + 1); /* stall clock expires */
+  CHECK(moqtrun_test_count_kind(7) == 1);            /* C's stream is reset */
+  CHECK(moqtrun_test_last_kind(7)->s == SESS_C);
+  CHECK(moqtrun_test_last_kind(7)->stream_id == sid_c);
+  CHECK(hub.stat_rel_stall == 1);
+  CHECK(moqtrun_test_count_kind(10) == 1); /* shed unpinned: released */
+  CHECK(moqtrun_test_last_kind(10)->fin == 0);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, wired_span_of(0, 0), 1); /* bare publisher FIN */
+  CHECK(moqtrun_test_count_kind(6) == 1);         /* B closes; C never does */
+  CHECK(moqtrun_test_last_kind(6)->s == SESS_B);
+  CHECK(moqtrun_test_last_kind(6)->stream_id == sid_b);
+  CHECK(hub.rel_pool[0].in_use == 0); /* B done + C shed: pool returned */
+  CHECK(hub.stat_rel_stall == 1);     /* shed once, not once per tick */
+}
+
 /* The closing FIN rides the send that carries the stream's last byte --
  * exactly once, never on an earlier round -- and the finished ring (and
  * its relay entry) returns to the pool. */
@@ -3820,4 +3860,5 @@ void test_moqtrun(void) {
   test_moqt_reliable_relay_holds_then_releases_publisher();
   test_moqt_reliable_relay_two_speed_subs_no_loss();
   test_moqt_reliable_relay_sub_leave_unblocks_ring();
+  test_moqt_reliable_relay_sheds_stalled_sub();
 }
