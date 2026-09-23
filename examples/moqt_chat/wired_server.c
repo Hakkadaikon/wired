@@ -313,7 +313,8 @@ static void log_cert_fingerprint(const wired_srvboot_id* id) {
  * measurement run can compare server-side drops against the receivers' own
  * sequence gaps. */
 static void log_relay_stats(const wired_moqt_hub* hub) {
-  char line[400]; /* 11 labels + 11 u64s at 20 digits each, with room over */
+  char line[480]; /* 13 labels (152 chars) + 13 u64s at 20 digits (260) +
+                     newline/NUL = 414 worst case; 480 keeps headroom */
   usz  n = 0;
   append_cstr(line, &n, "moqt relay: sent=");
   n += dec_u64(line + n, hub->stat_relay_sent);
@@ -337,6 +338,10 @@ static void log_relay_stats(const wired_moqt_hub* hub) {
   n += dec_u64(line + n, hub->stat_dg_drop);
   append_cstr(line, &n, " dg_bad=");
   n += dec_u64(line + n, hub->stat_dg_bad);
+  append_cstr(line, &n, " rel_stall=");
+  n += dec_u64(line + n, hub->stat_rel_stall);
+  append_cstr(line, &n, " rel_overflow=");
+  n += dec_u64(line + n, hub->stat_rel_overflow);
   line[n++] = '\n';
   line[n]   = 0;
   wired_log_str(line);
