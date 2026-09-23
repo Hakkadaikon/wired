@@ -3929,6 +3929,39 @@ static void test_moqt_reliable_relay_keeps_entry_with_no_subs(void) {
   CHECK(hub.peers[0].tracks[1].relays[0].in_use == 0);
 }
 
+/* A shed subscriber's stream was reset: no later round may stream_send to
+ * that stream id -- in particular after the ring returns (its last live
+ * cursor left) and the entry falls back to the lossy continue, which
+ * would otherwise still see the shed slot's stream as open. The lossy
+ * round late-opens the shed subscriber a fresh stream instead. */
+static void test_moqt_reliable_relay_never_resends_a_shed_stream(void) {
+  wired_moqt_hub hub;
+  u64            sid_b = 0, sid_c = 0;
+  moqtrun_test_start_reliable_two_subs(&hub, &sid_b, &sid_c);
+
+  moqtrun_test_reset();
+  g_stream_send_reject_sess = SESS_C; /* C accepts nothing from t=0 on */
+  moqtrun_test_send_audio_round(&hub, 999, 1);
+
+  moqtrun_test_reset();
+  g_stream_send_reject_sess = SESS_C; /* reset cleared the knob: re-arm */
+  wired_moqt_tick(&hub, WIRED_MOQTREL_STALL_MS + 1); /* C sheds */
+  CHECK(moqtrun_test_count_kind(7) == 1);
+  CHECK(moqtrun_test_last_kind(7)->stream_id == sid_c);
+
+  wired_moqt_on_session_close(&hub, SESS_B); /* last live cursor leaves */
+  wired_moqt_tick(&hub, WIRED_MOQTREL_STALL_MS + 2);
+  CHECK(hub.rel_pool[0].in_use == 0); /* ring returned, entry kept */
+  CHECK(hub.peers[0].tracks[1].relays[0].in_use == 1);
+
+  moqtrun_test_reset();
+  moqtrun_test_send_audio_round(&hub, 999, 2); /* lossy continuation now */
+  for (usz i = 0; i < g_n_calls; i++)
+    CHECK(!(g_calls[i].kind == 3 && g_calls[i].stream_id == sid_c));
+  CHECK(moqtrun_test_count_kind(5) == 1); /* C re-opened afresh instead */
+  CHECK(moqtrun_test_last_kind(5)->s == SESS_C);
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -4037,4 +4070,5 @@ void test_moqtrun(void) {
   test_moqt_relay_lossy_path_unchanged_for_high_alias();
   test_moqt_reliable_relay_keeps_entry_after_all_subs_leave();
   test_moqt_reliable_relay_keeps_entry_with_no_subs();
+  test_moqt_reliable_relay_never_resends_a_shed_stream();
 }
