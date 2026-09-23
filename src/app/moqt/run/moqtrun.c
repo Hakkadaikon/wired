@@ -385,6 +385,36 @@ static void moqtrun_track_reset_stale_relays(
     moqtrun_relay_reset_stale(hub, t, &t->relays[r]);
 }
 
+/* Returns relay r's bound ring to the pool on a publisher-side teardown
+ * (the publisher's session closed, or a re-PUBLISH abandoned its old
+ * streams). Nothing else can return it: the tick skips a dead
+ * publisher's relays, so a ring left bound here would stay in_use
+ * forever and each mid-stream disconnect would drain the pool by one
+ * until every reliable stream fell back to lossy. Deliberately io-free:
+ * on a session close the publisher's connection -- and any receive-
+ * credit hold on it -- dies with the session, and on a re-PUBLISH a
+ * still-held old stream stays harmlessly frozen: the hold is per-stream
+ * (wired_server_wt_stream_hold), the publisher abandoned that stream (a
+ * new PUBLISH opens new ones), and a receive slot resets its hold flag
+ * when claimed, so the freeze can never leak onto a new stream. */
+static void moqtrun_rel_drop_ring(wired_moqt_hub* hub, wired_moqtrun_relay* r) {
+  if (!r->in_use || r->rel_idx < 0) return;
+  hub->rel_pool[r->rel_idx].in_use = 0;
+  r->rel_idx                       = -1;
+}
+
+static void moqtrun_track_drop_rings(
+    wired_moqt_hub* hub, wired_moqtrun_track* t) {
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
+    moqtrun_rel_drop_ring(hub, &t->relays[r]);
+}
+
+static void moqtrun_peer_drop_rings(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    moqtrun_track_drop_rings(hub, &p->tracks[t]);
+}
+
 /* Claims slot t for a PUBLISH naming name/track_alias: clears subs only on
  * a fresh (not-yet-in_use) slot, so a re-PUBLISH under the same name keeps
  * its existing subscribers (matching the prior single-track hub's
@@ -409,6 +439,7 @@ static void moqtrun_track_claim(
   if (!t->in_use) moqtrun_track_clear_subs(t);
   t->in_use    = 1;
   t->own_alias = track_alias;
+  moqtrun_track_drop_rings(hub, t);
   moqtrun_track_clear_relays(t);
   moqtrun_record_track_name(t, name);
 }
@@ -1320,8 +1351,10 @@ static void moqtrun_rel_attach_sub(
 
 /* After the opening moqtrun_relay_open_all: record each subscriber stream
  * that actually opened as a ring cursor. A slot that failed to open, or
- * subscribes later, never rides this ring -- it keeps the lossy late-open
- * behavior (saved header only). */
+ * subscribes later, never rides this ring -- and since the reliable
+ * continue bypasses moqtrun_relay_append_all, it is never late-opened
+ * either and receives nothing from this stream. Deliberate: a mid-stream
+ * join would only get a torn attachment, useless to the receiver. */
 static void moqtrun_rel_attach_subs(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
@@ -1943,5 +1976,9 @@ void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s) {
   wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
   if (!p) return;
   moqtrun_drop_peer_subs(hub, (usz)(p - hub->peers));
+  /* The leaver's own rings return now (moqtrun_rel_drop_ring's doc); its
+   * relay entries stay untouched so a later re-claim can still reset the
+   * subscriber streams they record (moqtrun_track_reset_stale_relays). */
+  moqtrun_peer_drop_rings(hub, p);
   p->in_use = 0;
 }
