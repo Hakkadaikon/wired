@@ -2430,10 +2430,12 @@ static void srvrun_grant_stream_credit(
 }
 
 /* One in-use wt_streams slot's own credit re-grant, split out so the driving
- * loop stays at the CCN gate. */
+ * loop stays at the CCN gate. A held slot (credit_hold, the app's
+ * backpressure request via wired_server_wt_stream_hold) is skipped: its
+ * advertisement stays frozen at the last value sent, never lowered. */
 static void srvrun_grant_wt_slot_credit(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
-  if (!slot->in_use) return;
+  if (!slot->in_use || slot->credit_hold) return;
   srvrun_grant_stream_credit(
       cfg, c, slot->stream_id, slot->delivered_len, &slot->credit_advertised);
 }
@@ -2442,7 +2444,7 @@ static void srvrun_grant_wt_uni_slot_credit(
     const srvrun_cfg*                 cfg,
     srvrun_conn*                      c,
     wired_srvloop_wt_uni_stream_slot* slot) {
-  if (!slot->in_use) return;
+  if (!slot->in_use || slot->credit_hold) return;
   srvrun_grant_stream_credit(
       cfg, c, slot->stream_id, slot->delivered_len, &slot->credit_advertised);
 }
@@ -4413,6 +4415,32 @@ int wired_server_wt_stream_fin(wired_wt_session* s, u64 stream_id) {
   if (!srvrun_wtsend_open_slot(w)) return -1;
   srvrun_wtsend_request_fin(c, w);
   return 1;
+}
+
+/* Set the bidi receive slot reassembling stream_id to hold (or resume) its
+ * credit raises, -1 when no wt_streams slot holds the id -- the bidi half
+ * of wired_server_wt_stream_hold's lookup, split out with its uni mirror
+ * below to keep the entry point at the CCN gate. */
+static int srvrun_wt_rx_hold_bidi(wired_srvloop* l, u64 stream_id, int hold) {
+  int i = wired_srvloop_wt_slot_find(l, stream_id);
+  if (i < 0) return -1;
+  l->wt_streams[i].credit_hold = hold;
+  return 1;
+}
+
+static int srvrun_wt_rx_hold_uni(wired_srvloop* l, u64 stream_id, int hold) {
+  int i = wired_srvloop_wt_uni_slot_find(l, stream_id);
+  if (i < 0) return -1;
+  l->wt_uni_streams[i].credit_hold = hold;
+  return 1;
+}
+
+int wired_server_wt_stream_hold(wired_wt_session* s, u64 stream_id, int hold) {
+  srvrun_conn* c    = srvrun_session_conn(s);
+  int          sidx = wt_session_slot_or_absent(c, s);
+  if (sidx < 0) return -1;
+  if (srvrun_wt_rx_hold_bidi(&c->l, stream_id, hold) == 1) return 1;
+  return srvrun_wt_rx_hold_uni(&c->l, stream_id, hold);
 }
 
 /* Free the WT send slot armed on stream_id, if any: abandoning delivery

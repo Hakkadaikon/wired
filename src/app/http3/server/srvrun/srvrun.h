@@ -548,6 +548,23 @@ int wired_server_wt_stream_send(
  *   flight */
 int wired_server_wt_stream_fin(wired_wt_session* s, u64 stream_id);
 
+/** Hold or release the receive flow-control credit of a client-initiated
+ * stream (RFC 9000 4.1/19.10): while held, the loop stops RAISING the
+ * advertised MAX_STREAM_DATA for stream_id as the app consumes its bytes,
+ * so the peer's remaining send window drains and it pauses -- backpressure
+ * without discarding anything. The advertisement is never lowered (an
+ * advertisement MUST NOT decrease), so bytes the peer was already granted
+ * still arrive and must be absorbed by the app; hold=0 resumes raising on
+ * one of the loop's next steps. Applies to the receive slot (bidi or uni)
+ * currently reassembling stream_id on s's connection. Like the other
+ * wired_server_wt_* calls, call this from within the loop's callbacks.
+ * @param s the session whose connection carries the stream
+ * @param stream_id the client-initiated stream whose credit to hold
+ * @param hold 1 to freeze the advertised credit, 0 to resume raising
+ * @return 1 applied, negative when s resolves to no live connection or
+ *   stream_id names no receive slot on it */
+int wired_server_wt_stream_hold(wired_wt_session* s, u64 stream_id, int hold);
+
 /** Abort a stream opened for appending: queue a standard RESET_STREAM (RFC
  * 9000 19.4) on stream_id carrying error_code mapped into HTTP/3's
  * WebTransport range (draft-ietf-webtrans-http3-15 SS4.4/8.2) and the
