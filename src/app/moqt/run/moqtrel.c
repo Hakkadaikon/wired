@@ -21,6 +21,11 @@ static u64 rel_free(const moqtrel_buf* b) {
 /* 1 while cursor s still pins head (live and not given up on). */
 static int rel_sub_pins(const moqtrel_sub* s) { return s->active && !s->shed; }
 
+/* 1 while cursor s still needs delivery work before the ring can close. */
+static int rel_sub_open(const moqtrel_sub* s) {
+  return rel_sub_pins(s) && !s->fin_done;
+}
+
 /* Copy src at tail, splitting at the physical ring end; caller checked fit. */
 static void rel_copy_in(moqtrel_buf* b, wired_span src) {
   usz pos   = (usz)(b->tail % WIRED_MOQTREL_CAP);
@@ -56,4 +61,24 @@ void moqtrel_reclaim(moqtrel_buf* b) {
   for (u32 i = 0; i < WIRED_MOQTREL_MAX_SUBS; i++)
     if (rel_sub_pins(&b->subs[i])) low = u64_min(low, b->subs[i].sent);
   b->head = low;
+}
+
+int moqtrel_should_hold(const moqtrel_buf* b) {
+  return rel_free(b) < 2 * WIRED_SRVLOOP_WT_BUF_CAP && !b->held;
+}
+
+int moqtrel_should_release(const moqtrel_buf* b) {
+  return b->held && rel_used(b) <= WIRED_SRVLOOP_WT_BUF_CAP / 2;
+}
+
+int moqtrel_stalled(const moqtrel_buf* b, u32 sub, u64 now_ms) {
+  const moqtrel_sub* s = &b->subs[sub];
+  if (!rel_sub_pins(s) || s->sent >= b->tail) return 0;
+  return now_ms - s->last_ok_ms > WIRED_MOQTREL_STALL_MS;
+}
+
+int moqtrel_all_done(const moqtrel_buf* b) {
+  for (u32 i = 0; i < WIRED_MOQTREL_MAX_SUBS; i++)
+    if (rel_sub_open(&b->subs[i])) return 0;
+  return 1;
 }
