@@ -1355,7 +1355,10 @@ static wired_moqtrun_peer* moqtrun_rel_sub_dst(
 /* Gives up on stalled sub slot i: reset its relay stream and mark the
  * cursor shed so it stops pinning the ring. Unlike the lossy shed, a
  * reliable shed never re-opens, so a refused reset is not retried -- it
- * only costs that peer a dangling stream. */
+ * only costs that peer a dangling stream. The relay's record of the
+ * stream clears too (as the lossy shed does): should this entry later
+ * fall back to the lossy continue, a round must never stream_send to the
+ * reset stream -- the subscriber late-opens afresh instead. */
 static void moqtrun_rel_shed(
     wired_moqt_hub*      hub,
     wired_wt_session*    wt,
@@ -1363,7 +1366,8 @@ static void moqtrun_rel_shed(
     moqtrel_buf*         rb,
     usz                  i) {
   hub->io.stream_reset(wt, relay->sub_stream_id[i], 0);
-  rb->subs[i].shed = 1;
+  relay->sub_stream_set[i] = 0;
+  rb->subs[i].shed         = 1;
   hub->stat_rel_stall++;
 }
 
