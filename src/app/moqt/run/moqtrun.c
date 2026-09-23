@@ -1867,41 +1867,57 @@ void wired_moqt_on_datagram(
   moqtrun_dg_fanout(hub, track, data);
 }
 
+/* A ring-backed relay also deactivates the dead subscriber's ring
+ * cursor, so the next drain reclaims past it (and can release a
+ * publisher hold the leaver's backlog was causing). */
+static void moqtrun_rel_clear_sub(
+    wired_moqt_hub* hub, const wired_moqtrun_relay* r, usz si) {
+  if (r->in_use && r->rel_idx >= 0)
+    hub->rel_pool[r->rel_idx].subs[si].active = 0;
+}
+
 /* Clear every relay's record of subscriber slot si's stream, so a later
  * relay round neither appends to nor late-opens a stream on the dead
  * session. */
-static void moqtrun_relays_clear_sub(wired_moqtrun_track* t, usz si) {
-  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
+static void moqtrun_relays_clear_sub(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, usz si) {
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) {
     t->relays[r].sub_stream_set[si] = 0;
-}
-
-/* Deactivate track t's subscription entries held by peer index idx. */
-static void moqtrun_track_drop_sub(wired_moqtrun_track* t, usz idx) {
-  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++) {
-    if (!moqtrun_sub_is_peer(&t->subs[si], idx)) continue;
-    t->subs[si].active = 0;
-    moqtrun_relays_clear_sub(t, si);
+    moqtrun_rel_clear_sub(hub, &t->relays[r], si);
   }
 }
 
-static void moqtrun_peer_drop_subs(wired_moqtrun_peer* q, usz idx) {
+/* Deactivate track t's subscription entries held by peer index idx. */
+static void moqtrun_track_drop_sub(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, usz idx) {
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++) {
+    if (!moqtrun_sub_is_peer(&t->subs[si], idx)) continue;
+    t->subs[si].active = 0;
+    moqtrun_relays_clear_sub(hub, t, si);
+  }
+}
+
+static void moqtrun_peer_drop_subs(
+    wired_moqt_hub* hub, wired_moqtrun_peer* q, usz idx) {
   for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
-    if (q->tracks[t].in_use) moqtrun_track_drop_sub(&q->tracks[t], idx);
+    if (q->tracks[t].in_use) moqtrun_track_drop_sub(hub, &q->tracks[t], idx);
 }
 
 /* The hub's own tracks (blob and live) forget peer index idx too: a
  * reconnect landing in the same slot must be served afresh, not mistaken
  * for the dead peer. */
 static void moqtrun_hub_tracks_drop_sub(wired_moqt_hub* hub, usz idx) {
-  if (hub->blob_track.in_use) moqtrun_track_drop_sub(&hub->blob_track, idx);
-  if (hub->live.track.in_use) moqtrun_track_drop_sub(&hub->live.track, idx);
+  if (hub->blob_track.in_use)
+    moqtrun_track_drop_sub(hub, &hub->blob_track, idx);
+  if (hub->live.track.in_use)
+    moqtrun_track_drop_sub(hub, &hub->live.track, idx);
 }
 
 /* Deactivate every subscription any peer's tracks (and the hub's own
  * tracks) hold for peer index idx. */
 static void moqtrun_drop_peer_subs(wired_moqt_hub* hub, usz idx) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
-    if (hub->peers[i].in_use) moqtrun_peer_drop_subs(&hub->peers[i], idx);
+    if (hub->peers[i].in_use) moqtrun_peer_drop_subs(hub, &hub->peers[i], idx);
   moqtrun_hub_tracks_drop_sub(hub, idx);
 }
 
