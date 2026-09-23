@@ -1,6 +1,6 @@
 # MoQT hub: chat track の keep-open 中継を「捨てない」信頼配送にする(添付の大容量送信)
 
-Spec(上位の権威): このファイルの「設計」節。手法名(TLA+/EARS/Gherkin)は git 管理下の本体ソース・コメント・コミットに出さない(`tasks/loopeng/` の中だけ)。
+Spec(上位の権威): このファイルの「設計」節。
 
 ## Context
 
@@ -25,7 +25,6 @@ moqt_chat の複数添付機能(main 済み)は、1添付を「480→448B チャ
 - track 名: chat=`<id>`、voice=`<id>/audio`、screen=`<id>/screen`。alias は client が PUBLISH で宣言(chat 0..3、voice/screen はそれ以上)。hub 側 `wired_moqtrun_track.own_alias`(moqtrun.h:224)で判別可能。
 - 容量: `WIRED_MOQTRUN_MAX_SESSIONS`=32、`MAX_SUBS`=31、`MAX_RELAYS`=4/track、`MAX_TRACKS_PER_PEER`=3。
 - テスト: `tests/app/moqtrun_test.c`(3501行)は fake io(`moqtrun_test_stream_send` が `g_stream_send_reject_n`/`_sess` で拒否を注入、`moqtrun_test_record` で送信を記録)。`tests/app/srvrun_test.c` は credit を `stream_credit` で扱う。unity build(`tests/run.c`)に `#include "app/moqt/run/moqtrun.c"`(557行目)。
-- 既存の設計台帳: `tasks/loopeng/moqt/MoqtDelivery.tla`(1 message = 1 Object の one-shot 配送完全性)、`tasks/loopeng/HubSubs.*`(subscribe slot)。keep-open の背圧は未モデル。
 
 ## 設計(Spec)
 
@@ -62,10 +61,16 @@ moqt_chat の複数添付機能(main 済み)は、1添付を「480→448B チャ
 - `wired_moqt_init` 後に `g_hub.reliable_alias_limit = CHAT_ALIAS_LIMIT`(4、コメントで `moqtClient.ts` の `CANDIDATE_PARTICIPANT_IDS` と対応させる)。
 - フロントエンドは変更不要(1添付=1ストリーム、448B チャンクのまま)。
 
-## 検証層の判定(実装前に確定)
+## 検証する性質(実装前に確定)
 
-1. **状態遷移・並行あり → 設計モデル検査(modeler へ委譲、`tasks/loopeng/ReliableRelay.*`、git 管理外)**: 発行者の配送(hold により outstanding ≤ BUF)、ring 容量、購読者ごとの send 受理/拒否の非決定、reclaim、fin、sub 離脱、stall shed。性質: (S1) `used <= CAP` 常に(hold の閾値 `2*BUF` の正当性)、(S2) 各 sub が受け取る列は ring 内容の連続 prefix(欠落・重複・順序崩れ無し)、(S3) fin は全バイト送信後のみ、(S4) VIEW 送信中のバイトは reclaim されない、(L1) 受理が eventually 起きる sub には全バイト+fin が届く、(L2) 全 sub が drain すれば hold は eventually 解除。反例は Gherkin → C テストへ。
-2. 数学的証明(Lean)は不要(コーデックの可逆性等は今回変更しない)。
+1. **設計段階で成り立ちを固める性質**(発行者の配送は hold により outstanding ≤ BUF、購読者ごとの send 受理/拒否は非決定、reclaim・fin・sub 離脱・stall shed を含めた全遷移で):
+   - リングの使用量は常に容量を超えない(hold の閾値 `2*BUF` の正当性)。
+   - 各 sub が受け取る列は ring 内容の連続 prefix(欠落・重複・順序崩れ無し)。
+   - fin は全バイト送信後にのみ送られる。
+   - VIEW 送信中のバイトは reclaim されない。
+   - 受理が eventually 起きる sub には全バイト+fin が届く。
+   - 全 sub が drain すれば hold は eventually 解除される。
+2. コーデックの可逆性等は今回変更しないので、これ以上の保証は不要。
 3. TDD: 上記性質を 1:1 で `tests/app/moqtrun_test.c`(fake io の拒否注入+tick 駆動)と `tests/app/srvrun_test.c`(hold で ceiling が上がらない/解除で再 grant)に落とす。
 
 ## リポジトリ規約(Global Constraints)
@@ -75,12 +80,11 @@ moqt_chat の複数添付機能(main 済み)は、1添付を「480→448B チャ
 - 新ファイル `moqtrel.c` は `tests/run.c` に手で `#include`(production ブロック)、count check。
 - 並列: 実装は別ファイルで並列可、`tests/run.c`・git は1人が直列。コミットは conventional micro-commit、C 側/TS 側は別系列(今回 TS 無し)。
 - `tasks/todo.md` を新 epoch に使う前に `todo-<epoch>-done.md` へ退避(tasks-ledger.md)。
-- 設計手法の用語・管理番号を本体・コミットに漏らさない。
 
 ## タスク
 
-### Task 1: 設計モデル検査(modeler、`tasks/loopeng/ReliableRelay.*`)
-上記「設計」§2 の状態と遷移を有限化(Subs=2, CAP=6, BUF=2, ROUND=2, Bytes=8 程度)してモデル化し、S1〜S4/L1/L2 を検査、mutation で survivor 0 まで。成果: `.tla/.cfg/.feature` と、C テストリスト(各性質→テスト名)。本体には手法名を出さない。
+### Task 1: 設計の検証
+上記「設計」§2 の状態と遷移を小さな構成(Subs=2, CAP=6, BUF=2, ROUND=2, Bytes=8 程度)で網羅的に確かめ、「検証する性質」の各項目が全遷移で成り立つことを固める。成果: C テストリスト(各性質→テスト名)。
 
 ### Task 2: srvrun 受信 credit hold
 `src/app/http3/server/srvloop/srvloop.h` の両 slot に `int credit_hold`(claim 時 0 初期化: srvloop.c:58/78/472/565 と同じ箇所)。`srvrun.c` の `srvrun_grant_wt_slot_credit`/`_uni_slot_credit` で `credit_hold` なら return。`srvrun.h` に `wired_server_wt_stream_hold` 宣言+doc(doxygen 形式は隣の `wired_server_wt_stream_fin` に揃える)、`srvrun.c` に実装(slot 検索は `wt_uni_streams[i].stream_id`/`wt_streams[i].stream_id` を走査、CCN 内で bidi/uni を helper 分割)。テスト(`tests/app/srvrun_test.c`): hold 中は delivered が進んでも MAX_STREAM_DATA が出ない / hold 解除の次 step で出る / 未知 stream は負。
