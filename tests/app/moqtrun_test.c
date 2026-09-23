@@ -3793,6 +3793,43 @@ static void test_moqt_reliable_relay_pool_kept_while_sub_drains(void) {
   CHECK(moqtrun_test_rings_in_use(&hub) == WIRED_MOQTREL_POOL);
 }
 
+/* A track whose alias is NOT below the limit keeps the pre-existing
+ * lossy behavior with the limit set: no ring is bound, a refused round
+ * is dropped and counted (never retried by the tick), and sustained
+ * refusal still sheds through the busy streak, not the stall clock. */
+static void test_moqt_relay_lossy_path_unchanged_for_high_alias(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  hub.reliable_alias_limit = 2; /* audio's alias IS 2: not below it */
+  moqtrun_test_setup_audio_relay(&hub);
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, wired_span_of(first, first_n), 0);
+  u64 relay_sid = moqtrun_test_last_kind(5)->stream_id;
+  CHECK(hub.peers[0].tracks[1].relays[0].rel_idx == -1);
+  CHECK(moqtrun_test_rings_in_use(&hub) == 0);
+
+  moqtrun_test_reset();
+  g_stream_send_reject_n = 1;
+  moqtrun_test_send_audio_round(&hub, 999, 1); /* refused: dropped */
+  CHECK(hub.stat_relay_drop == 1);
+  moqtrun_test_reset();
+  wired_moqt_tick(&hub, 5);
+  CHECK(moqtrun_test_count_kind(3) == 0); /* lossy: nothing to retry */
+
+  moqtrun_test_reset();
+  g_stream_send_reject_n = WIRED_MOQTRUN_RESET_AFTER_BUSY;
+  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY; v++)
+    moqtrun_test_send_audio_round(&hub, 999, v);
+  CHECK(moqtrun_test_count_kind(7) == 1); /* busy streak shed, as ever */
+  CHECK(moqtrun_test_last_kind(7)->stream_id == relay_sid);
+  CHECK(hub.stat_relay_reset == 1);
+  CHECK(hub.stat_rel_stall == 0 && hub.stat_rel_overflow == 0);
+}
+
 /* The closing FIN rides the send that carries the stream's last byte --
  * exactly once, never on an earlier round -- and the finished ring (and
  * its relay entry) returns to the pool. */
@@ -3933,4 +3970,5 @@ void test_moqtrun(void) {
   test_moqt_reliable_relay_sheds_stalled_sub();
   test_moqt_reliable_relay_pool_returns_after_all_done();
   test_moqt_reliable_relay_pool_kept_while_sub_drains();
+  test_moqt_relay_lossy_path_unchanged_for_high_alias();
 }
