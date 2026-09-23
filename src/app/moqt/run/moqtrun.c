@@ -1391,7 +1391,7 @@ static int moqtrun_rel_round_fins(const moqtrel_buf* rb, usz i, usz n) {
  * mark the FIN done when the round carried it. */
 static void moqtrun_rel_round_ok(
     moqtrel_buf* rb, usz i, usz n, int fin_flag, u64 now_ms) {
-  moqtrel_note_sent(rb, i, (usz)n, now_ms);
+  moqtrel_note_sent(rb, (u32)i, n, now_ms);
   if (fin_flag) rb->subs[i].fin_done = 1;
 }
 
