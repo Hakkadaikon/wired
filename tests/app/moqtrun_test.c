@@ -3529,6 +3529,91 @@ static void test_moqt_reliable_relay_retries_refused_send(void) {
   CHECK(moqtrun_test_count_kind(3) == 0);
 }
 
+/* One large header-less Object round (payload_n bytes of value v) on
+ * publisher stream pub_sid: the watermark tests must fill the ring
+ * faster than a refused subscriber drains it, so rounds are ring-scale
+ * (static staging: MOQTRUN_TEST_MAX_PAYLOAD is far too small). */
+static void moqtrun_test_send_big_round(
+    wired_moqt_hub* hub, u64 pub_sid, u8 v, usz payload_n) {
+  static u8 payload[WIRED_MOQTREL_ROUND_MAX];
+  static u8 buf[WIRED_MOQTREL_ROUND_MAX + 16];
+  for (usz i = 0; i < payload_n; i++) payload[i] = v;
+  usz off = 0;
+  moqdata_obj_put(
+      wired_mspan_of(buf, sizeof buf), &off, 1,
+      wired_span_of(payload, payload_n));
+  wired_moqt_on_stream_data(hub, SESS_A, pub_sid, wired_span_of(buf, off), 0);
+}
+
+/* The publisher's receive credit is held once the ring nears capacity
+ * (a refusing subscriber pins reclaim), exactly once -- and released,
+ * exactly once, when later ticks drain the backlog past the low
+ * watermark. */
+static void test_moqt_reliable_relay_holds_then_releases_publisher(void) {
+  wired_moqt_hub hub;
+  moqtrun_test_start_reliable_fixture(&hub);
+
+  moqtrun_test_reset();
+  g_stream_send_reject_sess = SESS_B; /* the subscriber stops accepting */
+  for (u8 v = 0; v < 3; v++) moqtrun_test_send_big_round(&hub, 999, v, 16000);
+  CHECK(moqtrun_test_count_kind(10) == 0); /* 48009 used: under watermark */
+  moqtrun_test_send_big_round(&hub, 999, 3, 16000);
+  CHECK(moqtrun_test_count_kind(10) == 1); /* 64012 used: hold lands */
+  const moqtrun_test_call* hold = moqtrun_test_last_kind(10);
+  CHECK(hold->fin == 1 && hold->s == SESS_A && hold->stream_id == 999);
+  CHECK(hub.stat_rel_overflow == 0);
+
+  g_stream_send_reject_sess = 0; /* the subscriber drains again */
+  moqtrun_test_reset();
+  wired_moqt_tick(&hub, 1); /* 16384 of 64012 drained */
+  wired_moqt_tick(&hub, 2); /* 32768 drained: still above low watermark */
+  CHECK(moqtrun_test_count_kind(10) == 0);
+  wired_moqt_tick(&hub, 3); /* 49152 drained, 14860 left: released */
+  CHECK(moqtrun_test_count_kind(10) == 1);
+  const moqtrun_test_call* rel = moqtrun_test_last_kind(10);
+  CHECK(rel->fin == 0 && rel->s == SESS_A && rel->stream_id == 999);
+
+  moqtrun_test_reset();
+  wired_moqt_tick(&hub, 4); /* the tail drains; no second release */
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  CHECK(moqtrun_test_count_kind(10) == 0);
+}
+
+/* The closing FIN rides the send that carries the stream's last byte --
+ * exactly once, never on an earlier round -- and the finished ring (and
+ * its relay entry) returns to the pool. */
+static void test_moqt_reliable_relay_fin_after_last_byte(void) {
+  wired_moqt_hub hub;
+  u64            relay_sid = moqtrun_test_start_reliable_fixture(&hub);
+
+  moqtrun_test_reset();
+  moqtrun_test_send_audio_round(&hub, 999, 7); /* not last: no FIN yet */
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  CHECK(moqtrun_test_last_kind(3)->fin == 0);
+
+  u8         v = 8;
+  u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz        off = 0;
+  wired_span p   = wired_span_of(&v, 1);
+  moqdata_obj_put(wired_mspan_of(buf, sizeof buf), &off, 1, p);
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, wired_span_of(buf, off), 1 /* fin with last bytes */);
+
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  const moqtrun_test_call* last = moqtrun_test_last_kind(3);
+  CHECK(last->fin == 1);
+  CHECK(last->stream_id == relay_sid);
+  CHECK(last->payload_len == off);        /* the FIN carried the final bytes */
+  CHECK(moqtrun_test_count_kind(6) == 0); /* no separate byte-less FIN */
+  CHECK(hub.rel_pool[0].in_use == 0);     /* ring back in the pool */
+  CHECK(hub.peers[0].tracks[1].relays[0].in_use == 0);
+
+  moqtrun_test_reset();
+  wired_moqt_tick(&hub, 7); /* done: no duplicate FIN, no resend */
+  CHECK(moqtrun_test_count_kind(3) == 0 && moqtrun_test_count_kind(6) == 0);
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -3627,4 +3712,6 @@ void test_moqtrun(void) {
   test_moqtrun_dg_unregistered_session_noop();
   test_moqtrun_dg_null_send_datagram_is_noop();
   test_moqt_reliable_relay_retries_refused_send();
+  test_moqt_reliable_relay_fin_after_last_byte();
+  test_moqt_reliable_relay_holds_then_releases_publisher();
 }
