@@ -1363,18 +1363,32 @@ static wired_moqtrun_track* moqtrun_track_by_alias(
   return 0;
 }
 
+/* 1 iff a fresh delivery has nothing worth relaying at all: no complete
+ * Object AND the stream ends here (fin) -- no continuation can ever finish
+ * the torn head. Without fin the header alone is worth accepting: the torn
+ * head becomes the relay's first fragment and later deliveries complete it
+ * (a keep-open stream whose first slice tore mid-Object used to be dropped
+ * outright, orphaning every later header-less delivery on it). */
+static int moqtrun_fresh_nothing_due(usz whole_objects, int fin) {
+  return whole_objects == 0 && fin;
+}
+
 /* SUBGROUP_HEADER + every following Object, for a stream already
  * confirmed to classify as SUBGROUP -- split out of moqtrun_resolve_fresh_
  * stream_track to keep that function's own branch count at the CCN gate.
  * *whole_end receives the end of the last COMPLETE Object (the fresh
  * stream's own normalization boundary, moqtrun_relay_normalize's twin for
- * the opening delivery). */
+ * the opening delivery); with zero complete Objects it is the header's
+ * end, accepted only when more deliveries are coming (fin=0,
+ * moqtrun_fresh_nothing_due). */
 static wired_moqtrun_track* moqtrun_decode_fresh_subgroup(
-    wired_moqtrun_peer* p, wired_span data, usz* whole_end) {
+    wired_moqtrun_peer* p, wired_span data, usz* whole_end, int fin) {
   usz            off = 0;
   moqdata_subhdr hdr;
   if (moqdata_subhdr_take(data, &off, &hdr) != MOQDATA_OK) return 0;
-  if (moqtrun_decode_object_loop(data, &off, &hdr) == 0) return 0;
+  if (moqtrun_fresh_nothing_due(
+          moqtrun_decode_object_loop(data, &off, &hdr), fin))
+    return 0;
   *whole_end = off;
   return moqtrun_track_by_alias(p, hdr.track_alias);
 }
@@ -1383,13 +1397,14 @@ static wired_moqtrun_track* moqtrun_decode_fresh_subgroup(
  * SUBGROUP_HEADER, decodes the header + every following Object,
  * resolving the header's Track Alias to one of p's (chat/audio) track
  * slots -- else 0 (not a SUBGROUP stream, header decode failure, zero
- * Objects decoded, or an unknown Track Alias). */
+ * Objects decoded on a one-shot fin delivery, or an unknown Track
+ * Alias). */
 static wired_moqtrun_track* moqtrun_resolve_fresh_stream_track(
-    wired_moqtrun_peer* p, wired_span data, usz* whole_end) {
+    wired_moqtrun_peer* p, wired_span data, usz* whole_end, int fin) {
   usz classify_off = 0;
   int kind         = moqdata_classify(data, &classify_off);
   if (kind != MOQDATA_STREAM_SUBGROUP) return 0;
-  return moqtrun_decode_fresh_subgroup(p, data, whole_end);
+  return moqtrun_decode_fresh_subgroup(p, data, whole_end, fin);
 }
 
 /* A publisher stream seen for the first time: resolve its track from the
@@ -1408,7 +1423,7 @@ static void moqtrun_dispatch_fresh_stream(
     int                 fin) {
   usz                  whole_end = 0;
   wired_moqtrun_track* track =
-      moqtrun_resolve_fresh_stream_track(p, data, &whole_end);
+      moqtrun_resolve_fresh_stream_track(p, data, &whole_end, fin);
   if (!track) return;
   if (fin) {
     moqtrun_relay_object(hub, track, data);
