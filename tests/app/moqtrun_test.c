@@ -3865,6 +3865,70 @@ static void test_moqt_reliable_relay_fin_after_last_byte(void) {
   CHECK(moqtrun_test_count_kind(3) == 0 && moqtrun_test_count_kind(6) == 0);
 }
 
+/* Every subscriber left before the publisher's FIN: the ring returns to
+ * the pool (nothing left to retry) but the relay entry stays bound, so
+ * later deliveries on the same publisher stream still match it -- routed
+ * through the lossy continue (which sends nothing with no subscribers)
+ * instead of re-entering fresh-stream classification, where mid-Object
+ * bytes decoded as a header could resolve to another track. Only the
+ * publisher's FIN frees the entry. */
+static void test_moqt_reliable_relay_keeps_entry_after_all_subs_leave(void) {
+  wired_moqt_hub hub;
+  moqtrun_test_start_reliable_fixture(&hub);
+  u64 full_before = hub.stat_relay_full;
+
+  wired_moqt_on_session_close(&hub, SESS_B); /* the only subscriber leaves */
+  moqtrun_test_reset();
+  moqtrun_test_send_audio_round(&hub, 999, 9); /* mid-stream, before FIN */
+  CHECK(hub.rel_pool[0].in_use == 0); /* nothing left to retry: returned */
+  CHECK(hub.peers[0].tracks[1].relays[0].rel_idx == -1);
+  CHECK(hub.peers[0].tracks[1].relays[0].in_use == 1); /* entry kept */
+  CHECK(moqtrun_test_count_kind(3) == 0 && moqtrun_test_count_kind(5) == 0);
+  CHECK(moqtrun_test_count_kind(4) == 0);
+  CHECK(hub.stat_relay_full == full_before); /* never re-classified */
+
+  moqtrun_test_reset();
+  moqtrun_test_send_audio_round(&hub, 999, 10); /* still matches the entry */
+  CHECK(moqtrun_test_count_kind(3) == 0 && moqtrun_test_count_kind(5) == 0);
+  CHECK(hub.stat_relay_full == full_before);
+  CHECK(hub.peers[0].tracks[1].relays[0].in_use == 1);
+
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, wired_span_of(0, 0), 1);      /* publisher's FIN */
+  CHECK(hub.peers[0].tracks[1].relays[0].in_use == 0); /* now it frees */
+}
+
+/* A reliable stream that starts with no subscriber at all: the first
+ * drain (a tick here) returns the never-needed ring but keeps the entry,
+ * so the stream's later bytes stay recognized (and silently discarded --
+ * no one subscribed) until the publisher's FIN frees it. */
+static void test_moqt_reliable_relay_keeps_entry_with_no_subs(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  hub.reliable_alias_limit = 100; /* audio's alias 2 < 100: reliable */
+  u64 ctrl_a               = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, wired_span_of(first, first_n), 0);
+  CHECK(hub.rel_pool[0].in_use == 1); /* bound at start */
+
+  wired_moqt_tick(&hub, 1); /* first drain: no cursor was ever attached */
+  CHECK(hub.rel_pool[0].in_use == 0);
+  CHECK(hub.peers[0].tracks[1].relays[0].rel_idx == -1);
+  CHECK(hub.peers[0].tracks[1].relays[0].in_use == 1);
+
+  moqtrun_test_reset();
+  moqtrun_test_send_audio_round(&hub, 999, 9);
+  CHECK(moqtrun_test_count_kind(3) == 0 && moqtrun_test_count_kind(5) == 0);
+  CHECK(hub.stat_relay_full == 0); /* never re-classified as fresh */
+
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(0, 0), 1);
+  CHECK(hub.peers[0].tracks[1].relays[0].in_use == 0);
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -3971,4 +4035,6 @@ void test_moqtrun(void) {
   test_moqt_reliable_relay_pool_returns_after_all_done();
   test_moqt_reliable_relay_pool_kept_while_sub_drains();
   test_moqt_relay_lossy_path_unchanged_for_high_alias();
+  test_moqt_reliable_relay_keeps_entry_after_all_subs_leave();
+  test_moqt_reliable_relay_keeps_entry_with_no_subs();
 }
