@@ -3656,6 +3656,33 @@ static void test_moqt_reliable_relay_two_speed_subs_no_loss(void) {
   for (usz i = 0; i < exp_n; i++) CHECK(got_c[i] == exp[i]);
 }
 
+/* A subscriber that leaves (session close) stops pinning the ring: the
+ * next tick reclaims past its cursor, releases the publisher hold it
+ * caused, and the remaining subscriber keeps being served. */
+static void test_moqt_reliable_relay_sub_leave_unblocks_ring(void) {
+  wired_moqt_hub hub;
+  u64            sid_b = 0, sid_c = 0;
+  moqtrun_test_start_reliable_two_subs(&hub, &sid_b, &sid_c);
+
+  moqtrun_test_reset();
+  g_stream_send_reject_sess = SESS_C; /* C stops accepting and pins head */
+  for (u8 v = 0; v < 4; v++) moqtrun_test_send_big_round(&hub, 999, v, 16000);
+  CHECK(moqtrun_test_count_kind(10) == 1); /* the pinned ring held */
+  CHECK(moqtrun_test_last_kind(10)->fin == 1);
+
+  wired_moqt_on_session_close(&hub, SESS_C);
+  moqtrun_test_reset();
+  wired_moqt_tick(&hub, 1);
+  CHECK(moqtrun_test_count_kind(10) == 1); /* leaver unpins: released */
+  CHECK(moqtrun_test_last_kind(10)->fin == 0);
+
+  moqtrun_test_reset();
+  moqtrun_test_send_audio_round(&hub, 999, 9); /* B is still served */
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  CHECK(moqtrun_test_last_kind(3)->s == SESS_B);
+  CHECK(moqtrun_test_last_kind(3)->stream_id == sid_b);
+}
+
 /* The closing FIN rides the send that carries the stream's last byte --
  * exactly once, never on an earlier round -- and the finished ring (and
  * its relay entry) returns to the pool. */
@@ -3792,4 +3819,5 @@ void test_moqtrun(void) {
   test_moqt_reliable_relay_fin_after_last_byte();
   test_moqt_reliable_relay_holds_then_releases_publisher();
   test_moqt_reliable_relay_two_speed_subs_no_loss();
+  test_moqt_reliable_relay_sub_leave_unblocks_ring();
 }
