@@ -3529,6 +3529,49 @@ static void test_moqt_reliable_relay_retries_refused_send(void) {
   CHECK(moqtrun_test_count_kind(3) == 0);
 }
 
+/* Registers sess and SUBSCRIBEs it to the audio track. */
+static void moqtrun_test_subscribe_audio_as(
+    wired_moqt_hub* hub, wired_wt_session* sess) {
+  wired_moqt_on_session(hub, sess, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl = moqtrun_test_last_kind(1)->stream_id;
+  u8  sub[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n = moqtrun_test_subscribe_audio_msg(sub);
+  wired_moqt_on_stream_data(hub, sess, ctrl, wired_span_of(sub, n), 0);
+}
+
+/* The two-subscriber reliable fixture: like moqtrun_test_start_reliable_
+ * fixture but with SESS_C also subscribed before the relay starts,
+ * returning each subscriber's relay stream id. */
+static void moqtrun_test_start_reliable_two_subs(
+    wired_moqt_hub* hub, u64* sid_b, u64* sid_c) {
+  moqtrun_test_reset();
+  wired_moqt_init(hub, moqtrun_test_io());
+  hub->reliable_alias_limit = 100;     /* audio's alias 2 < 100: reliable */
+  moqtrun_test_setup_audio_relay(hub); /* subscribes SESS_B */
+  moqtrun_test_subscribe_audio_as(hub, SESS_C);
+  moqtrun_test_reset();
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(hub, SESS_A, 999, wired_span_of(first, first_n), 0);
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].kind != 5) continue;
+    if (g_calls[i].s == SESS_B) *sid_b = g_calls[i].stream_id;
+    if (g_calls[i].s == SESS_C) *sid_c = g_calls[i].stream_id;
+  }
+}
+
+/* Concatenates the payloads of every recorded stream_send addressed to
+ * sess into out (bounded by the caller); returns the total length. */
+static usz moqtrun_test_concat_sends(wired_wt_session* sess, u8* out, usz cap) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].kind != 3 || g_calls[i].s != sess) continue;
+    for (usz b = 0; b < g_calls[i].payload_len && n < cap; b++)
+      out[n++] = g_calls[i].payload[b];
+  }
+  return n;
+}
+
 /* One large header-less Object round (payload_n bytes of value v) on
  * publisher stream pub_sid: the watermark tests must fill the ring
  * faster than a refused subscriber drains it, so rounds are ring-scale
@@ -3577,6 +3620,40 @@ static void test_moqt_reliable_relay_holds_then_releases_publisher(void) {
   wired_moqt_tick(&hub, 4); /* the tail drains; no second release */
   CHECK(moqtrun_test_count_kind(3) == 1);
   CHECK(moqtrun_test_count_kind(10) == 0);
+}
+
+/* A fast and a slow subscriber end up with the SAME complete byte
+ * sequence: the slow one's refused rounds stay in the ring (undamaged by
+ * the fast one's progress) and drain in order once it accepts again. */
+static void test_moqt_reliable_relay_two_speed_subs_no_loss(void) {
+  wired_moqt_hub hub;
+  u64            sid_b = 0, sid_c = 0;
+  moqtrun_test_start_reliable_two_subs(&hub, &sid_b, &sid_c);
+  CHECK(sid_b != 0 && sid_c != 0 && sid_b != sid_c);
+
+  u8  exp[64];
+  usz exp_n = 0;
+  for (u8 v = 1; v <= 3; v++) {
+    wired_span p = wired_span_of(&v, 1);
+    moqdata_obj_put(wired_mspan_of(exp, sizeof exp), &exp_n, 1, p);
+  }
+
+  moqtrun_test_reset();
+  g_stream_send_reject_sess = SESS_C; /* C falls behind, B keeps up */
+  for (u8 v = 1; v <= 3; v++) moqtrun_test_send_audio_round(&hub, 999, v);
+  u8  got_b[64];
+  usz got_b_n = moqtrun_test_concat_sends(SESS_B, got_b, sizeof got_b);
+  CHECK(got_b_n == exp_n);
+  for (usz i = 0; i < exp_n; i++) CHECK(got_b[i] == exp[i]);
+
+  g_stream_send_reject_sess = 0; /* C accepts again */
+  moqtrun_test_reset();
+  wired_moqt_tick(&hub, 1);
+  CHECK(moqtrun_test_count_kind(3) == 1); /* one catch-up round, C only */
+  u8  got_c[64];
+  usz got_c_n = moqtrun_test_concat_sends(SESS_C, got_c, sizeof got_c);
+  CHECK(got_c_n == exp_n); /* the whole backlog, byte-identical */
+  for (usz i = 0; i < exp_n; i++) CHECK(got_c[i] == exp[i]);
 }
 
 /* The closing FIN rides the send that carries the stream's last byte --
@@ -3714,4 +3791,5 @@ void test_moqtrun(void) {
   test_moqt_reliable_relay_retries_refused_send();
   test_moqt_reliable_relay_fin_after_last_byte();
   test_moqt_reliable_relay_holds_then_releases_publisher();
+  test_moqt_reliable_relay_two_speed_subs_no_loss();
 }
