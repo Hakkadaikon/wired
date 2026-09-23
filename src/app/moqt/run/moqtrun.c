@@ -1472,6 +1472,32 @@ static void moqtrun_rel_drain_one(
   moqtrun_rel_maybe_done(hub, relay, rb);
 }
 
+/* Backpressure hold, decided on the post-drain fill so a round that
+ * empties the ring never holds at all. in_use guards the ring
+ * moqtrun_rel_maybe_done freed a moment earlier; a bound ring implies a
+ * non-null stream_hold (the moqtrun_rel_start gate). */
+static void moqtrun_rel_maybe_hold(wired_moqt_hub* hub, moqtrel_buf* rb) {
+  if (!rb->in_use || !moqtrel_should_hold(rb)) return;
+  hub->io.stream_hold(rb->pub, rb->pub_stream, 1);
+  rb->held = 1;
+}
+
+/* A later delivery on a ring-backed relay: append the whole-Object bytes
+ * (the Object-boundary rounding is shared with the lossy path), record
+ * the publisher's FIN, drain this ring now, and decide the hold. */
+static void moqtrun_rel_continue(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay,
+    wired_span           whole,
+    int                  fin) {
+  moqtrel_buf* rb = &hub->rel_pool[relay->rel_idx];
+  moqtrun_rel_take(hub, rb, whole);
+  if (fin) rb->fin_seen = 1;
+  moqtrun_rel_drain_one(hub, track, relay, rb, hub->live.last_now_ms);
+  moqtrun_rel_maybe_hold(hub, rb);
+}
+
 /* wired_moqt_tick's reliable-relay walk: drain every ring-backed relay so
  * refused rounds retry, stalls shed, and holds release on the clock, not
  * only when the publisher happens to deliver again. */
@@ -1506,12 +1532,27 @@ static void moqtrun_rel_tick_all(wired_moqt_hub* hub, u64 now_ms) {
 
 /* ============== end of the reliable-relay (moqtrel) block ============== */
 
+/* The pre-existing drop-on-refusal continue, byte-for-byte: forward the
+ * round and free the entry at the publisher's FIN. */
+static void moqtrun_relay_continue_lossy(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay,
+    wired_span           whole,
+    int                  fin) {
+  if (moqtrun_relay_round_due(whole, fin))
+    moqtrun_relay_append_all(hub, track, relay, whole, fin);
+  if (fin) relay->in_use = 0;
+}
+
 /* A later call on an already-relayed publisher stream: forward its
  * whole-Object bytes (moqtrun_relay_normalize) to every subscriber-side
  * stream this relay opened, and free the entry once the publisher's FIN
  * has been forwarded (the subscriber streams are closed by that same
  * round; a fragment still held at FIN time is a torn tail with no
- * continuation coming -- dropped). */
+ * continuation coming -- dropped). A ring-backed relay (rel_idx >= 0)
+ * takes the reliable path instead: its bytes are retried, not dropped,
+ * and its entry lives until every cursor is delivered or given up. */
 static void moqtrun_relay_continue(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
@@ -1519,9 +1560,11 @@ static void moqtrun_relay_continue(
     wired_span           wire,
     int                  fin) {
   wired_span whole = moqtrun_relay_normalize(hub, relay, wire);
-  if (moqtrun_relay_round_due(whole, fin))
-    moqtrun_relay_append_all(hub, track, relay, whole, fin);
-  if (fin) relay->in_use = 0;
+  if (relay->rel_idx >= 0) {
+    moqtrun_rel_continue(hub, track, relay, whole, fin);
+    return;
+  }
+  moqtrun_relay_continue_lossy(hub, track, relay, whole, fin);
 }
 
 /* Opens sub slot i's relay stream carrying wire as its first round and
