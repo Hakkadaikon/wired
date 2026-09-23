@@ -3723,6 +3723,76 @@ static void test_moqt_reliable_relay_sheds_stalled_sub(void) {
   CHECK(hub.stat_rel_stall == 1);     /* shed once, not once per tick */
 }
 
+static usz moqtrun_test_rings_in_use(const wired_moqt_hub* hub) {
+  usz n = 0;
+  for (usz i = 0; i < WIRED_MOQTREL_POOL; i++)
+    if (hub->rel_pool[i].in_use) n++;
+  return n;
+}
+
+/* A finished ring (publisher FIN forwarded to every cursor) returns to
+ * the pool: with all four rings bound, closing one stream frees exactly
+ * one ring, and the next fresh reliable stream claims it instead of
+ * falling back (stat_relay_full stays 0). */
+static void test_moqt_reliable_relay_pool_returns_after_all_done(void) {
+  wired_moqt_hub hub;
+  moqtrun_test_start_reliable_fixture(&hub); /* stream 999: first ring */
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  for (u64 sid = 1003; sid <= 1011; sid += 4) /* three more streams */
+    wired_moqt_on_stream_data(
+        &hub, SESS_A, sid, wired_span_of(first, first_n), 0);
+  CHECK(moqtrun_test_rings_in_use(&hub) == WIRED_MOQTREL_POOL);
+  CHECK(hub.stat_relay_full == 0);
+
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, wired_span_of(0, 0), 1); /* finish stream 999 */
+  CHECK(moqtrun_test_rings_in_use(&hub) == WIRED_MOQTREL_POOL - 1);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 1015, wired_span_of(first, first_n), 0);
+  CHECK(moqtrun_test_rings_in_use(&hub) == WIRED_MOQTREL_POOL);
+  CHECK(hub.stat_relay_full == 0); /* the returned ring, not the fallback */
+}
+
+/* While rings are still draining (no publisher FIN yet), none may be
+ * stolen: a fresh reliable stream on ANOTHER track finds the pool dry,
+ * counts stat_relay_full, and relays lossily (rel_idx -1) -- the four
+ * bound rings stay bound. */
+static void test_moqt_reliable_relay_pool_kept_while_sub_drains(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  hub.reliable_alias_limit = 100; /* chat, audio, AND screen reliable */
+  u64 ctrl_a               = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+  moqtrun_test_publish_alice_screen(&hub, ctrl_a);
+  wired_moqt_on_session(&hub, SESS_B, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  u8  sub[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz sub_n = moqtrun_test_subscribe_audio_msg(sub);
+  wired_moqt_on_stream_data(&hub, SESS_B, ctrl_b, wired_span_of(sub, sub_n), 0);
+  sub_n = moqtrun_test_subscribe_screen_msg(sub);
+  wired_moqt_on_stream_data(&hub, SESS_B, ctrl_b, wired_span_of(sub, sub_n), 0);
+
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  for (u64 sid = 999; sid <= 1011; sid += 4) /* audio takes every ring */
+    wired_moqt_on_stream_data(
+        &hub, SESS_A, sid, wired_span_of(first, first_n), 0);
+  CHECK(moqtrun_test_rings_in_use(&hub) == WIRED_MOQTREL_POOL);
+  CHECK(hub.stat_relay_full == 0);
+
+  usz scr_n = moqtrun_test_subgroup_with_alias(0x03, first);
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(&hub, SESS_A, 2003, wired_span_of(first, scr_n), 0);
+  CHECK(hub.stat_relay_full == 1);        /* the pool miss is counted */
+  CHECK(moqtrun_test_count_kind(5) == 1); /* still relayed, lossily */
+  CHECK(hub.peers[0].tracks[2].relays[0].rel_idx == -1);
+  CHECK(moqtrun_test_rings_in_use(&hub) == WIRED_MOQTREL_POOL);
+}
+
 /* The closing FIN rides the send that carries the stream's last byte --
  * exactly once, never on an earlier round -- and the finished ring (and
  * its relay entry) returns to the pool. */
@@ -3861,4 +3931,6 @@ void test_moqtrun(void) {
   test_moqt_reliable_relay_two_speed_subs_no_loss();
   test_moqt_reliable_relay_sub_leave_unblocks_ring();
   test_moqt_reliable_relay_sheds_stalled_sub();
+  test_moqt_reliable_relay_pool_returns_after_all_done();
+  test_moqt_reliable_relay_pool_kept_while_sub_drains();
 }
