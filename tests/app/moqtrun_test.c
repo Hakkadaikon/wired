@@ -2432,6 +2432,73 @@ static void test_moqtrun_fresh_delivery_tail_held_back(void) {
     CHECK(sent->payload[i] == wire[whole_end + i]);
 }
 
+/* The OPENING delivery can even be torn before its FIRST Object completes
+ * (a 200KB attachment's first slice easily ends mid-Object): with no FIN,
+ * the header alone is worth accepting -- the relay opens each subscriber's
+ * stream carrying just the header, holds the torn head as the first
+ * fragment, and the next delivery completes it. Dropping the stream here
+ * would orphan every later (header-less) delivery on it. */
+static void test_moqtrun_fresh_torn_first_object_accepted(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_audio_relay(&hub);
+
+  u8  wire[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n        = moqtrun_test_subgroup_with_alias(0x02, wire); /* hdr + obj0 */
+  usz obj0_end = n;
+  usz hdr_end  = 0;
+  moqdata_subhdr hdr;
+  CHECK(
+      moqdata_subhdr_take(wired_span_of(wire, n), &hdr_end, &hdr) ==
+      MOQDATA_OK);
+  u8 p2[4] = {9, 9, 9, 9};
+  moqdata_obj_put(
+      wired_mspan_of(wire, sizeof wire), &n, 1, wired_span_of(p2, 4));
+  usz cut = (hdr_end + obj0_end) / 2; /* tear inside Object 0 */
+  CHECK(hdr_end < cut && cut < obj0_end);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(wire, cut), 0);
+  CHECK(moqtrun_test_count_kind(5) == 1); /* opened despite 0 whole Objects */
+  const moqtrun_test_call* opened = moqtrun_test_last_kind(5);
+  CHECK(opened->payload_len == hdr_end); /* header alone, torn head held */
+  for (usz i = 0; i < hdr_end; i++) CHECK(opened->payload[i] == wire[i]);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, wired_span_of(wire + cut, n - cut), 0);
+  CHECK(moqtrun_test_count_kind(5) == 0); /* same stream, no reopen */
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  const moqtrun_test_call* sent = moqtrun_test_last_kind(3);
+  CHECK(sent->payload_len == n - hdr_end); /* Object 0 + Object 1, in order */
+  for (usz i = 0; i < n - hdr_end; i++)
+    CHECK(sent->payload[i] == wire[hdr_end + i]);
+}
+
+/* A one-shot delivery (FIN with the data) whose Objects are ALL torn has
+ * no continuation coming: header + zero complete Objects relays nothing --
+ * no one-shot send, no stream opened. */
+static void test_moqtrun_fresh_oneshot_no_object_discarded(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_audio_relay(&hub);
+
+  u8             wire[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz            n       = moqtrun_test_subgroup_with_alias(0x02, wire);
+  usz            hdr_end = 0;
+  moqdata_subhdr hdr;
+  CHECK(
+      moqdata_subhdr_take(wired_span_of(wire, n), &hdr_end, &hdr) ==
+      MOQDATA_OK);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, wired_span_of(wire, hdr_end + 1), 1 /* fin */);
+  CHECK(g_n_calls == 0); /* nothing complete, nothing sent */
+}
+
 /* An undeliverable tail larger than one whole relayable Object is dropped
  * (torn frame for that stream) and counted on the hub; an in-bounds tail is
  * saved without touching the counter. */
@@ -3461,6 +3528,8 @@ void test_moqtrun(void) {
   test_moqtrun_torn_object_held_until_complete();
   test_moqtrun_normalize_forwards_only_whole_objects();
   test_moqtrun_fresh_delivery_tail_held_back();
+  test_moqtrun_fresh_torn_first_object_accepted();
+  test_moqtrun_fresh_oneshot_no_object_discarded();
   test_moqtrun_frag_overflow_counted();
   test_moqtrun_close_frees_peer_for_reregistration();
   test_moqtrun_close_drops_subscriptions();
