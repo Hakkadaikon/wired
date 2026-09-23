@@ -936,8 +936,14 @@ static void moqtrun_live_serve_sub(wired_moqt_hub* hub, usz i, u64 g) {
   moqtrun_live_send_one(hub, i, g);
 }
 
+/* Forward-declared: defined in the reliable-relay block below (which sits
+ * with the rest of the relay logic); the tick must drive it so refused
+ * rounds retry on the clock, not only when the publisher delivers. */
+static void moqtrun_rel_tick_all(wired_moqt_hub* hub, u64 now_ms);
+
 void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
   hub->live.last_now_ms = now_ms;
+  moqtrun_rel_tick_all(hub, now_ms);
   if (!hub->live.track.in_use) return;
   u64 g = moqtrun_live_group_at(&hub->live, now_ms);
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
@@ -1324,6 +1330,178 @@ static void moqtrun_rel_attach_subs(
   moqtrel_buf* rb = &hub->rel_pool[relay->rel_idx];
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
     moqtrun_rel_attach_sub(rb, track, relay, i, hub->live.last_now_ms);
+}
+
+/* 1 while cursor i still expects delivery work (live, not given up on,
+ * not yet FIN'd) -- the && chain lives here for the CCN gate. */
+static int moqtrun_rel_sub_open(const moqtrel_buf* rb, usz i) {
+  return rb->subs[i].active && !rb->subs[i].shed && !rb->subs[i].fin_done;
+}
+
+/* Destination peer for cursor i's sends, or 0 when the cursor has no
+ * work (indexing peers[] on an inactive slot would read a garbage
+ * session_idx -- same guard as every other session_idx use here) or the
+ * peer vanished (skipped, retried next tick). */
+static wired_moqtrun_peer* moqtrun_rel_sub_dst(
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_track* track,
+    const moqtrel_buf*         rb,
+    usz                        i) {
+  if (!moqtrun_rel_sub_open(rb, i)) return 0;
+  wired_moqtrun_peer* dst = &hub->peers[track->subs[i].session_idx];
+  return dst->in_use ? dst : 0;
+}
+
+/* Gives up on stalled sub slot i: reset its relay stream and mark the
+ * cursor shed so it stops pinning the ring. Unlike the lossy shed, a
+ * reliable shed never re-opens, so a refused reset is not retried -- it
+ * only costs that peer a dangling stream. */
+static void moqtrun_rel_shed(
+    wired_moqt_hub*      hub,
+    wired_wt_session*    wt,
+    wired_moqtrun_relay* relay,
+    moqtrel_buf*         rb,
+    usz                  i) {
+  hub->io.stream_reset(wt, relay->sub_stream_id[i], 0);
+  rb->subs[i].shed = 1;
+  hub->stat_rel_stall++;
+}
+
+/* The publisher's FIN reached cursor i with no bytes pending: close its
+ * stream via the byte-less stream_fin (the io contract forbids an empty
+ * stream_send). A refusal retries next tick. */
+static void moqtrun_rel_try_fin(
+    wired_moqt_hub*      hub,
+    wired_wt_session*    wt,
+    wired_moqtrun_relay* relay,
+    moqtrel_buf*         rb,
+    usz                  i) {
+  if (!rb->fin_seen) return;
+  if (hub->io.stream_fin(wt, relay->sub_stream_id[i]) == 1)
+    rb->subs[i].fin_done = 1;
+}
+
+/* 1 when this round's last byte is the stream's last byte ever: the
+ * send can carry the closing FIN itself. */
+static int moqtrun_rel_round_fins(const moqtrel_buf* rb, usz i, usz n) {
+  return rb->fin_seen && rb->subs[i].sent + n == rb->tail;
+}
+
+/* An accepted round: advance the cursor (restarting its stall clock) and
+ * mark the FIN done when the round carried it. */
+static void moqtrun_rel_round_ok(
+    moqtrel_buf* rb, usz i, usz n, int fin_flag, u64 now_ms) {
+  moqtrel_note_sent(rb, i, (usz)n, now_ms);
+  if (fin_flag) rb->subs[i].fin_done = 1;
+}
+
+/* One send round for cursor i: the ring's next contiguous span, the FIN
+ * riding the last one. A refusal changes nothing -- the same span
+ * retries on a later tick (delayed, never dropped). */
+static void moqtrun_rel_send_round(
+    wired_moqt_hub*      hub,
+    wired_wt_session*    wt,
+    wired_moqtrun_relay* relay,
+    moqtrel_buf*         rb,
+    usz                  i,
+    u64                  now_ms) {
+  wired_span span = moqtrel_next_round(rb, (u32)i);
+  if (span.n == 0) { /* caught up: only the FIN can remain */
+    moqtrun_rel_try_fin(hub, wt, relay, rb, i);
+    return;
+  }
+  int fin_flag = moqtrun_rel_round_fins(rb, i, span.n);
+  if (hub->io.stream_send(wt, relay->sub_stream_id[i], span, fin_flag) == 1)
+    moqtrun_rel_round_ok(rb, i, span.n, fin_flag, now_ms);
+}
+
+/* Cursor i's whole drain turn: skip one with nothing to do or a vanished
+ * destination, shed a stalled one, send one round otherwise. */
+static void moqtrun_rel_drain_sub(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay,
+    moqtrel_buf*         rb,
+    usz                  i,
+    u64                  now_ms) {
+  wired_moqtrun_peer* dst = moqtrun_rel_sub_dst(hub, track, rb, i);
+  if (!dst) return;
+  if (moqtrel_stalled(rb, (u32)i, now_ms)) {
+    moqtrun_rel_shed(hub, dst->wt, relay, rb, i);
+    return;
+  }
+  moqtrun_rel_send_round(hub, dst->wt, relay, rb, i, now_ms);
+}
+
+/* Backpressure release: enough drained -- give the publisher its credit
+ * back. held is only ever set through a non-null stream_hold (the gate
+ * in moqtrun_rel_start), so no null check is needed. */
+static void moqtrun_rel_maybe_release(wired_moqt_hub* hub, moqtrel_buf* rb) {
+  if (!rb->held || !moqtrel_should_release(rb)) return;
+  hub->io.stream_hold(rb->pub, rb->pub_stream, 0);
+  rb->held = 0;
+}
+
+/* Every cursor delivered or given up: the ring returns to the pool and
+ * the relay entry frees. A still-applied hold is released first -- an
+ * all-shed ring can finish while the publisher still sends, and its
+ * receive credit must not stay frozen forever. */
+static void moqtrun_rel_maybe_done(
+    wired_moqt_hub* hub, wired_moqtrun_relay* relay, moqtrel_buf* rb) {
+  if (!moqtrel_all_done(rb)) return;
+  if (rb->held) hub->io.stream_hold(rb->pub, rb->pub_stream, 0);
+  rb->in_use     = 0;
+  relay->rel_idx = -1;
+  relay->in_use  = 0;
+}
+
+/* One full drain pass over a ring: a round per open cursor, reclaim what
+ * every live cursor has passed, then the two closing decisions (release
+ * the hold once enough drained, return everything once every cursor is
+ * delivered or given up). */
+static void moqtrun_rel_drain_one(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay,
+    moqtrel_buf*         rb,
+    u64                  now_ms) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
+    moqtrun_rel_drain_sub(hub, track, relay, rb, i, now_ms);
+  moqtrel_reclaim(rb);
+  moqtrun_rel_maybe_release(hub, rb);
+  moqtrun_rel_maybe_done(hub, relay, rb);
+}
+
+/* wired_moqt_tick's reliable-relay walk: drain every ring-backed relay so
+ * refused rounds retry, stalls shed, and holds release on the clock, not
+ * only when the publisher happens to deliver again. */
+static void moqtrun_rel_tick_relay(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay,
+    u64                  now_ms) {
+  if (!relay->in_use || relay->rel_idx < 0) return;
+  moqtrun_rel_drain_one(
+      hub, track, relay, &hub->rel_pool[relay->rel_idx], now_ms);
+}
+
+static void moqtrun_rel_tick_track(
+    wired_moqt_hub* hub, wired_moqtrun_track* track, u64 now_ms) {
+  if (!track->in_use) return;
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
+    moqtrun_rel_tick_relay(hub, track, &track->relays[r], now_ms);
+}
+
+static void moqtrun_rel_tick_peer(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 now_ms) {
+  if (!p->in_use) return;
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    moqtrun_rel_tick_track(hub, &p->tracks[t], now_ms);
+}
+
+static void moqtrun_rel_tick_all(wired_moqt_hub* hub, u64 now_ms) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
+    moqtrun_rel_tick_peer(hub, &hub->peers[i], now_ms);
 }
 
 /* ============== end of the reliable-relay (moqtrel) block ============== */
