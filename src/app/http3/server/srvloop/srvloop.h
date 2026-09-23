@@ -303,6 +303,12 @@ typedef struct {
    * the window has advanced enough to be worth re-announcing -- an
    * advertisement MUST NOT decrease, so this only ever grows. */
   u64 credit_advertised;
+  /** 1 while the app (wired_server_wt_stream_hold) is holding this
+   * stream's receive credit: the caller driving the loop (srvrun.c) stops
+   * raising the advertised MAX_STREAM_DATA -- never lowers it (RFC 9000
+   * 19.10) -- so the peer's send window drains and it pauses; 0 resumes
+   * raising on the next step. */
+  int credit_hold;
 } wired_srvloop_wt_stream_slot;
 
 /** draft-ietf-webtrans-http3-15 4.3: how many concurrent WebTransport uni
@@ -374,6 +380,9 @@ typedef struct {
   /** MAX_STREAM_DATA last advertised for this stream, mirroring
    * wired_srvloop_wt_stream_slot's credit_advertised field. */
   u64 credit_advertised;
+  /** 1 while the app is holding this stream's receive credit, mirroring
+   * wired_srvloop_wt_stream_slot's credit_hold field (see its doc). */
+  int credit_hold;
 } wired_srvloop_wt_uni_stream_slot;
 
 /** RFC 9221 5: how many received QUIC DATAGRAM frames one connection queues

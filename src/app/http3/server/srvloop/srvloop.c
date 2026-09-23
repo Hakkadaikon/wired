@@ -56,6 +56,7 @@ static void wt_streams_reset(wired_srvloop* l) {
     l->wt_streams[i].delivered_len     = 0;
     l->wt_streams[i].fin_delivered     = 0;
     l->wt_streams[i].credit_advertised = 0;
+    l->wt_streams[i].credit_hold       = 0;
     wt_window_reset(&l->wt_streams[i].win);
   }
   for (usz i = 0; i < 8; i++) l->wt_released_recent[i] = 0;
@@ -76,6 +77,7 @@ static void wt_uni_streams_reset(wired_srvloop* l) {
     l->wt_uni_streams[i].delivered_len     = 0;
     l->wt_uni_streams[i].fin_delivered     = 0;
     l->wt_uni_streams[i].credit_advertised = 0;
+    l->wt_uni_streams[i].credit_hold       = 0;
     wt_window_reset(&l->wt_uni_streams[i].win);
   }
   for (usz i = 0; i < 8; i++) l->wt_uni_released_recent[i] = 0;
@@ -470,6 +472,7 @@ static int wt_slot_claim_at(wired_srvloop* l, usz i, u64 stream_id) {
   l->wt_streams[i].delivered_len     = 0;
   l->wt_streams[i].fin_delivered     = 0;
   l->wt_streams[i].credit_advertised = 0;
+  l->wt_streams[i].credit_hold       = 0;
   wt_window_reset(&l->wt_streams[i].win);
   return (int)i;
 }
@@ -563,6 +566,7 @@ static int wt_uni_slot_claim_at(wired_srvloop* l, usz i, u64 stream_id) {
   l->wt_uni_streams[i].delivered_len     = 0;
   l->wt_uni_streams[i].fin_delivered     = 0;
   l->wt_uni_streams[i].credit_advertised = 0;
+  l->wt_uni_streams[i].credit_hold       = 0;
   wt_window_reset(&l->wt_uni_streams[i].win);
   return (int)i;
 }
