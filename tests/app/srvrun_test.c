@@ -16912,6 +16912,76 @@ static void test_srvrun_wt_credit_no_op_without_any_wt_slot(void) {
   CHECK(c->rx_max_data_advertised == 0);
 }
 
+/* BACKPRESSURE (RFC 9000 19.10): wired_server_wt_stream_hold(hold=1) stops
+ * srvrun_grant_wt_credit from raising the held bidi stream's advertised
+ * MAX_STREAM_DATA even as delivered_len keeps advancing -- the
+ * advertisement is frozen, never lowered. hold=0 resumes: the very next
+ * grant announces the full current ceiling. */
+static void test_srvrun_wt_stream_hold_freezes_bidi_credit(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  srvrun_cfg    cfg;
+  ob                           = (wired_obuf){obuf, sizeof obuf, 0};
+  c                            = sr_wtsend_fixture(&f, &ob);
+  cfg                          = sr_wt_send_cfg();
+  c->l.wt_streams[0].in_use    = 1;
+  c->l.wt_streams[0].stream_id = 4;
+  sr_wt_slot_set_frontier(&c->l.wt_streams[0], 100);
+  c->l.wt_streams[0].delivered_len = 100;
+  CHECK(wired_server_wt_stream_hold(&c->wt, 4, 1) == 1);
+  srvrun_grant_wt_credit(&cfg, c);
+  CHECK(c->l.wt_streams[0].credit_advertised == 0);
+  /* delivery keeps advancing while held -- still nothing advertised. */
+  sr_wt_slot_set_frontier(&c->l.wt_streams[0], 500);
+  c->l.wt_streams[0].delivered_len = 500;
+  srvrun_grant_wt_credit(&cfg, c);
+  CHECK(c->l.wt_streams[0].credit_advertised == 0);
+  /* release: the next grant announces the full current ceiling. */
+  CHECK(wired_server_wt_stream_hold(&c->wt, 4, 0) == 1);
+  srvrun_grant_wt_credit(&cfg, c);
+  CHECK(c->l.wt_streams[0].credit_advertised == 500 + WIRED_SRVLOOP_WT_BUF_CAP);
+}
+
+/* Same freeze/resume for a UNI slot -- its grant runs through the separate
+ * srvrun_grant_wt_uni_slot_credit path, which must gate on the same
+ * credit_hold flag. */
+static void test_srvrun_wt_stream_hold_freezes_uni_credit(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  srvrun_cfg    cfg;
+  ob                               = (wired_obuf){obuf, sizeof obuf, 0};
+  c                                = sr_wtsend_fixture(&f, &ob);
+  cfg                              = sr_wt_send_cfg();
+  c->l.wt_uni_streams[0].in_use    = 1;
+  c->l.wt_uni_streams[0].stream_id = 2;
+  sr_wt_uni_slot_set_frontier(&c->l.wt_uni_streams[0], 100);
+  c->l.wt_uni_streams[0].delivered_len = 100;
+  CHECK(wired_server_wt_stream_hold(&c->wt, 2, 1) == 1);
+  srvrun_grant_wt_credit(&cfg, c);
+  CHECK(c->l.wt_uni_streams[0].credit_advertised == 0);
+  CHECK(wired_server_wt_stream_hold(&c->wt, 2, 0) == 1);
+  srvrun_grant_wt_credit(&cfg, c);
+  CHECK(
+      c->l.wt_uni_streams[0].credit_advertised ==
+      100 + WIRED_SRVLOOP_WT_BUF_CAP);
+}
+
+/* A stream_id no receive slot (bidi or uni) is reassembling refuses the
+ * hold with a negative result -- nothing to freeze, nothing changed. */
+static void test_srvrun_wt_stream_hold_unknown_stream_is_negative(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  CHECK(wired_server_wt_stream_hold(&c->wt, 999, 1) < 0);
+}
+
 /* SLOT RELEASE + RECLAIM (RFC 9000 2.1/19.8): once a WT bidi slot's FIN has
  * been delivered to the app, srvrun_offer_and_deliver_wt_slot (reached via
  * srvrun_offer_wt_streams) frees it -- a 5th distinct WT bidi stream (past
@@ -18280,6 +18350,9 @@ void test_srvrun(void) {
   test_srvrun_wt_credit_advances_with_delivery();
   test_srvrun_wt_credit_conn_ceiling_scales_with_slot_count();
   test_srvrun_wt_credit_no_op_without_any_wt_slot();
+  test_srvrun_wt_stream_hold_freezes_bidi_credit();
+  test_srvrun_wt_stream_hold_freezes_uni_credit();
+  test_srvrun_wt_stream_hold_unknown_stream_is_negative();
   test_srvrun_wt_slot_released_after_fin_and_reclaimed();
   test_srvrun_wt_released_id_not_reclaimed();
   test_srvrun_incomplete_request_stream_sends_reset();
