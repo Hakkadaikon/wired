@@ -34,6 +34,13 @@
  * own per-slot staging (srvrun.h), so nothing here must outlive its call. */
 #define MOQT_SIG_BUF 2048
 
+/* Track aliases below this limit get the reliable relay; the rest stay
+ * lossy. The chat tracks use aliases 0..3 -- one per entry of the
+ * frontend's CANDIDATE_PARTICIPANT_IDS (4 ids, moqtClient.ts) -- while
+ * voice/screen tracks (<id>/audio, <id>/screen) use higher aliases and
+ * must remain lossy. */
+#define CHAT_ALIAS_LIMIT 4
+
 /* Per-session staging ring for live fragments: wired_server_wt_open_uni
  * holds a payload above its 4096-byte staging as a VIEW until every byte
  * is ACKed (srvrun.h), and the WebTransport signal prefix -- different
@@ -195,6 +202,10 @@ static const wired_moqt_io g_moqt_io = {
      * no WebTransport signal prefix to add (the SDK applies the RFC 9297
      * quarter-stream-id itself), so the io shape matches exactly. */
     wired_server_wt_send_datagram_to,
+    /* stream_hold needs no wrapper either: it toggles retransmission
+     * shedding on an already-open stream, so there is no signal prefix
+     * to add and the io shape matches srvrun.h exactly. */
+    wired_server_wt_stream_hold,
 };
 
 static wired_moqt_hub g_hub;
@@ -392,6 +403,7 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   log_cert_fingerprint(&id);
 
   wired_moqt_init(&g_hub, g_moqt_io);
+  g_hub.reliable_alias_limit = CHAT_ALIAS_LIMIT;
 
   if (!wired_srvdriver_parse(argc, argv, &opt))
     wired_die(
