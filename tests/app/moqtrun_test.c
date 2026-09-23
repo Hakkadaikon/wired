@@ -176,6 +176,15 @@ static int moqtrun_test_send_datagram(wired_wt_session* s, wired_span payload) {
   return 1;
 }
 
+/* wired_server_wt_stream_hold-shaped: records the publisher-credit
+ * hold/release calls the reliable relay makes (the hold value rides the
+ * recorder's fin field). */
+static int moqtrun_test_stream_hold(
+    wired_wt_session* s, u64 stream_id, int hold) {
+  moqtrun_test_record(10, s, stream_id, hold, wired_span_of(0, 0));
+  return 1;
+}
+
 static wired_moqt_io moqtrun_test_io(void) {
   wired_moqt_io io;
   io.open_bidi_stream = moqtrun_test_open_bidi_stream;
@@ -186,6 +195,7 @@ static wired_moqt_io moqtrun_test_io(void) {
   io.stream_reset     = moqtrun_test_stream_reset;
   io.send_uni2        = moqtrun_test_send_uni2;
   io.send_datagram    = moqtrun_test_send_datagram;
+  io.stream_hold      = moqtrun_test_stream_hold;
   return io;
 }
 
@@ -3470,6 +3480,55 @@ static void test_moqtrun_dg_null_send_datagram_is_noop(void) {
   CHECK(hub.stat_dg_bad == 0);
 }
 
+/* ===================== 10. reliable relay (ring-backed)
+ * ===================== */
+
+/* Makes every track reliable (any alias < 100) and establishes the audio
+ * relay: SESS_A publishing chat+audio, SESS_B subscribed to audio, first
+ * Object delivered on publisher stream 999 -- returns SESS_B's relay
+ * stream id. The reliable twin of moqtrun_test_start_busy_fixture. */
+static u64 moqtrun_test_start_reliable_fixture(wired_moqt_hub* hub) {
+  moqtrun_test_reset();
+  wired_moqt_init(hub, moqtrun_test_io());
+  hub->reliable_alias_limit = 100; /* audio's alias 2 < 100: reliable */
+  moqtrun_test_setup_audio_relay(hub);
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(hub, SESS_A, 999, wired_span_of(first, first_n), 0);
+  return moqtrun_test_last_kind(5)->stream_id;
+}
+
+/* A refused reliable-relay send is retried from the ring on a later tick:
+ * the retried round carries the same bytes as the refused one, nothing is
+ * counted as a lossy drop, and once accepted no duplicate follows. */
+static void test_moqt_reliable_relay_retries_refused_send(void) {
+  wired_moqt_hub hub;
+  u64            relay_sid = moqtrun_test_start_reliable_fixture(&hub);
+
+  moqtrun_test_reset();
+  g_stream_send_reject_n = 1;
+  moqtrun_test_send_audio_round(&hub, 999, 9);
+  CHECK(moqtrun_test_count_kind(3) == 1); /* attempted and refused */
+  const moqtrun_test_call* refused = moqtrun_test_last_kind(3);
+  CHECK(refused->stream_id == relay_sid);
+  usz round_n = refused->payload_len;
+  u8  round[MOQTRUN_TEST_MAX_PAYLOAD];
+  for (usz i = 0; i < round_n; i++) round[i] = refused->payload[i];
+  CHECK(hub.stat_relay_drop == 0); /* a held byte is not a dropped byte */
+
+  moqtrun_test_reset();
+  wired_moqt_tick(&hub, 5);
+  CHECK(moqtrun_test_count_kind(3) == 1); /* retried, not forgotten */
+  const moqtrun_test_call* retried = moqtrun_test_last_kind(3);
+  CHECK(retried->stream_id == relay_sid);
+  CHECK(retried->payload_len == round_n);
+  for (usz i = 0; i < round_n; i++) CHECK(retried->payload[i] == round[i]);
+
+  moqtrun_test_reset();
+  wired_moqt_tick(&hub, 6); /* accepted above: nothing left to resend */
+  CHECK(moqtrun_test_count_kind(3) == 0);
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -3567,4 +3626,5 @@ void test_moqtrun(void) {
   test_moqtrun_dg_closed_subscription_skipped();
   test_moqtrun_dg_unregistered_session_noop();
   test_moqtrun_dg_null_send_datagram_is_noop();
+  test_moqt_reliable_relay_retries_refused_send();
 }
