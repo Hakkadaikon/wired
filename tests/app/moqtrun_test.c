@@ -3962,6 +3962,58 @@ static void test_moqt_reliable_relay_never_resends_a_shed_stream(void) {
   CHECK(moqtrun_test_last_kind(5)->s == SESS_C);
 }
 
+/* A publisher that leaves mid-stream (no FIN) gives its bound ring back
+ * to the pool: nothing ever drains a dead publisher's relay (the tick
+ * skips peers with in_use 0), so without the return each mid-stream
+ * disconnect would leak one of the four rings until every new reliable
+ * stream silently fell back to lossy. */
+static void test_moqt_reliable_relay_returns_ring_when_publisher_leaves(void) {
+  wired_moqt_hub hub;
+  moqtrun_test_start_reliable_fixture(&hub);
+  moqtrun_test_reset();
+  g_stream_send_reject_sess = SESS_B; /* bytes stay pending in the ring */
+  moqtrun_test_send_audio_round(&hub, 999, 9);
+  CHECK(moqtrun_test_rings_in_use(&hub) == 1);
+
+  wired_moqt_on_session_close(&hub, SESS_A); /* publisher drops mid-stream */
+  CHECK(moqtrun_test_rings_in_use(&hub) == 0);
+  CHECK(hub.stat_relay_full == 0);
+
+  moqtrun_test_reset(); /* rejoin + re-PUBLISH: a fresh stream binds again */
+  u64 ctrl_a2 = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a2);
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 1999, wired_span_of(first, first_n), 0);
+  CHECK(moqtrun_test_rings_in_use(&hub) == 1);
+  CHECK(hub.stat_relay_full == 0);
+}
+
+/* A re-PUBLISH of the same track name abandons the publisher's old
+ * streams and clears their relay entries -- a ring bound to one of those
+ * entries must return to the pool with it, not stay in_use forever. */
+static void test_moqt_reliable_relay_returns_ring_on_republish(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  hub.reliable_alias_limit = 100; /* audio's alias 2 < 100: reliable */
+  u64 ctrl_a               = moqtrun_test_setup_audio_relay(&hub);
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, wired_span_of(first, first_n), 0);
+  moqtrun_test_reset();
+  g_stream_send_reject_sess = SESS_B; /* bytes stay pending in the ring */
+  moqtrun_test_send_audio_round(&hub, 999, 9);
+  CHECK(moqtrun_test_rings_in_use(&hub) == 1);
+
+  moqtrun_test_reset();
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a); /* re-PUBLISH same name */
+  CHECK(moqtrun_test_rings_in_use(&hub) == 0);
+  CHECK(hub.stat_relay_full == 0);
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -4071,4 +4123,6 @@ void test_moqtrun(void) {
   test_moqt_reliable_relay_keeps_entry_after_all_subs_leave();
   test_moqt_reliable_relay_keeps_entry_with_no_subs();
   test_moqt_reliable_relay_never_resends_a_shed_stream();
+  test_moqt_reliable_relay_returns_ring_when_publisher_leaves();
+  test_moqt_reliable_relay_returns_ring_on_republish();
 }
