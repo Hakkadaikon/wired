@@ -1329,6 +1329,7 @@ static void moqtrun_rel_bind(
   rb->in_use     = 1;
   rb->pub        = pub_wt;
   rb->pub_stream = pub_stream_id;
+  rb->bound_ms   = hub->live.last_now_ms;
   moqtrun_rel_take(hub, rb, head);
   relay->rel_idx = (i32)(rb - hub->rel_pool);
   hub->stat_rel_rings++;
@@ -1348,19 +1349,22 @@ static void moqtrun_rel_start(
   moqtrun_rel_bind(hub, relay, pub_wt, pub_stream_id, head);
 }
 
-/* Activates sub slot i's ring cursor if its relay stream opened: the
- * opening round already carried every byte appended so far, so the
- * cursor starts at tail; the stall clock anchors at the last tick. */
+/* Activates sub slot i's ring cursor at offset sent if its relay stream
+ * opened (the stream already carries every byte before sent); the stall
+ * clock anchors at now_ms. head moves up to sent: no cursor reads below
+ * it, and a nonzero head ends moqtrel_awaits_sub's wait. */
 static void moqtrun_rel_attach_sub(
     moqtrel_buf*               rb,
     const wired_moqtrun_track* track,
     const wired_moqtrun_relay* relay,
     usz                        i,
+    u64                        sent,
     u64                        now_ms) {
   if (!track->subs[i].active || !relay->sub_stream_set[i]) return;
   rb->subs[i].active     = 1;
-  rb->subs[i].sent       = rb->tail;
+  rb->subs[i].sent       = sent;
   rb->subs[i].last_ok_ms = now_ms;
+  rb->head               = sent;
 }
 
 /* After the opening moqtrun_relay_open_all: record each subscriber stream
@@ -1376,7 +1380,8 @@ static void moqtrun_rel_attach_subs(
   if (relay->rel_idx < 0) return;
   moqtrel_buf* rb = &hub->rel_pool[relay->rel_idx];
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    moqtrun_rel_attach_sub(rb, track, relay, i, hub->live.last_now_ms);
+    moqtrun_rel_attach_sub(
+        rb, track, relay, i, rb->tail, hub->live.last_now_ms);
 }
 
 /* 1 while cursor i still expects delivery work (live, not given up on,
