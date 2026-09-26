@@ -459,6 +459,41 @@ static void moqtrun_reattach_subs(
     usz                  pub_idx,
     wired_span           name);
 
+static wired_moqtrun_track* moqtrun_peer_track_for_name(
+    wired_moqtrun_peer* p, wired_span name);
+
+/* Frees a superseded track: its subscribers' still-open relay streams are
+ * reset (moqtrun_track_reset_stale_relays' own doc), its rings go back to
+ * the pool, and the slot stops matching any name or Track Alias, so the
+ * lingering session's stray Objects are dropped instead of relayed. */
+static void moqtrun_track_retire(wired_moqt_hub* hub, wired_moqtrun_track* t) {
+  moqtrun_track_reset_stale_relays(hub, t);
+  moqtrun_track_drop_rings(hub, t);
+  moqtrun_track_clear_relays(t);
+  t->in_use = 0;
+}
+
+/* Peer i's track named name, unless i is the publisher itself. */
+static wired_moqtrun_track* moqtrun_other_track_for_name(
+    wired_moqt_hub* hub, usz i, usz pub_idx, wired_span name) {
+  return i != pub_idx ? moqtrun_peer_track_for_name(&hub->peers[i], name) : 0;
+}
+
+/* A participant that rejoins on a new session while its old one still
+ * lingers (no clean close reached the hub -- it stays until the idle
+ * timeout reaps it) PUBLISHes the same name twice. The newest PUBLISH is
+ * the one its client sends on, so every other peer's same-name track is
+ * retired: SUBSCRIBE resolves to the new track only, and the old track's
+ * subscribers follow via moqtrun_reattach_subs. */
+static void moqtrun_supersede_name(
+    wired_moqt_hub* hub, usz pub_idx, wired_span name) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    wired_moqtrun_track* t =
+        moqtrun_other_track_for_name(hub, i, pub_idx, name);
+    if (t) moqtrun_track_retire(hub, t);
+  }
+}
+
 /* draft SS10.9 PUBLISH: accept a track into a free (or matching-name) slot
  * and reply REQUEST_OK; a third distinct track name (no free slot) gets
  * REQUEST_ERROR instead of silently overwriting an existing track. */
@@ -472,6 +507,7 @@ static void moqtrun_handle_publish(
     moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
     return;
   }
+  moqtrun_supersede_name(hub, peer_idx, m.name.name);
   moqtrun_track_claim(hub, t, m.name.name, m.track_alias);
   moqtrun_reattach_subs(hub, t, peer_idx, m.name.name);
   u8                msg[WIRED_MOQTRUN_CTL_MSG_MAX];
