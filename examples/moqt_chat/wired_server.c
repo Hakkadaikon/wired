@@ -190,6 +190,15 @@ static i64 moqt_io_open_uni_stream(wired_wt_session* s, wired_span payload) {
   return wired_server_wt_open_uni_stream(s, wired_span_of(buf, sig + payload.n));
 }
 
+/* wired_moqt_io.send_budget-shaped: remaining session-level send credit
+ * in bytes. sent_data is charged when a send is staged (session.h), so
+ * max_data - sent_data already excludes staged-but-unsent bytes; a peer
+ * that never announced WT_MAX_DATA (max_data == 0) has no limit. */
+static usz moqt_io_send_budget(wired_wt_session* s) {
+  if (s->max_data == 0) return (usz)-1;
+  return s->max_data > s->sent_data ? s->max_data - s->sent_data : 0;
+}
+
 static const wired_moqt_io g_moqt_io = {
     moqt_io_open_bidi_stream,
     wired_server_wt_stream_send,
@@ -206,6 +215,7 @@ static const wired_moqt_io g_moqt_io = {
      * shedding on an already-open stream, so there is no signal prefix
      * to add and the io shape matches srvrun.h exactly. */
     wired_server_wt_stream_hold,
+    moqt_io_send_budget,
 };
 
 static wired_moqt_hub g_hub;
