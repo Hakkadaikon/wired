@@ -444,11 +444,11 @@ int wired_server_broadcast_datagram_ring(wired_span data);
  * on the final slice. payload must already carry the WebTransport stream
  * signal prefix (draft-ietf-webtrans-http3-15 4.2: varint 0x54 + the CONNECT
  * stream id, wired_wtwire_signal_put) -- this SDK sends the bytes verbatim.
- * A payload up to the send slot's own staging capacity (65536 bytes) is
- * COPIED: the caller's storage is free the moment the call returns. Only a
- * larger payload is held as a VIEW, and then the caller must keep it alive
- * and unmoved until every byte has been acknowledged (the send slot frees
- * itself then). Delivery is congestion/flow-control gated and paced
+ * A payload up to the send slot's own staging capacity (SRVRUN_WTSEND_BUF,
+ * 65536 bytes) is COPIED: the caller's storage is free the moment the call
+ * returns. Only a larger payload is held as a VIEW, and then the caller must
+ * keep it alive and unmoved until every byte has been acknowledged (the send
+ * slot frees itself then). Delivery is congestion/flow-control gated and paced
  * like any response stream (RFC 9000 4.1 / RFC 9002 7). Callable only from
  * inside the server's own loop (a callback), same contract as
  * wired_server_broadcast_datagram.
@@ -513,11 +513,11 @@ int wired_server_wt_stream_reply_open(
  * itself once fully acknowledged (the one-shot opens' behavior). An
  * accepted round is COPIED into the slot's own staging (the caller's
  * storage is free the moment the call returns) and pipelines onto the wire
- * behind any earlier rounds still awaiting their ACKs -- rounds queue up
- * to the slot's staging capacity (65536 bytes of not-yet-ACKed rounds), and
- * only a round that no longer fits is refused. A stream whose OPENING
- * payload was oversized (held as a view) refuses appends until that view
- * fully ACKs.
+ * behind any earlier rounds still awaiting their ACKs -- rounds queue up to
+ * the slot's staging capacity (SRVRUN_WTSEND_BUF, 65536 bytes of not-yet-
+ * ACKed rounds), and only a round that no longer fits is refused. A stream
+ * whose OPENING payload was oversized (held as a view) refuses appends until
+ * that view fully ACKs.
  * @param s the session whose connection carries the stream
  * @param stream_id a stream opened by one of the three calls above
  * @param payload this round's bytes; must be non-empty (the FIN rides the
