@@ -4015,6 +4015,98 @@ static void test_moqt_reliable_relay_returns_ring_on_republish(void) {
   CHECK(hub.stat_relay_full == 0);
 }
 
+/* ===================== 11. reliable relay send budget
+ * ===================== */
+
+/* Session credit the send_budget stub reports. A budget test installs the
+ * stub on hub.io AFTER its fixture ran, so the fixture's own opening
+ * rounds stay unconstrained. */
+static usz g_send_budget_val;
+
+static usz moqtrun_test_send_budget(wired_wt_session* s) {
+  (void)s;
+  return g_send_budget_val;
+}
+
+/* A round the session's remaining credit cannot carry (plus the headroom)
+ * is deferred -- no stream_send at all, counted on stat_rel_wait -- and
+ * retried from the ring once the credit recovers: the retried round
+ * carries exactly the deferred bytes, once. */
+static void test_moqt_reliable_relay_budget_defers_then_sends_same_span(void) {
+  wired_moqt_hub hub;
+  u64            relay_sid = moqtrun_test_start_reliable_fixture(&hub);
+  hub.io.send_budget       = moqtrun_test_send_budget;
+
+  moqtrun_test_reset();
+  g_send_budget_val = 0; /* no credit at all */
+  moqtrun_test_send_audio_round(&hub, 999, 9);
+  CHECK(moqtrun_test_count_kind(3) == 0); /* deferred: never attempted */
+  CHECK(hub.stat_rel_wait == 1);
+  CHECK(hub.stat_relay_drop == 0); /* a deferred byte is not a dropped one */
+
+  wired_moqt_tick(&hub, 5); /* still no credit: deferred again */
+  CHECK(moqtrun_test_count_kind(3) == 0);
+  CHECK(hub.stat_rel_wait == 2);
+
+  u8  exp[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz exp_n = 0;
+  u8  v     = 9;
+  moqdata_obj_put(
+      wired_mspan_of(exp, sizeof exp), &exp_n, 1, wired_span_of(&v, 1));
+  g_send_budget_val = exp_n + WIRED_MOQTREL_HEADROOM; /* recovered */
+  wired_moqt_tick(&hub, 6);
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  const moqtrun_test_call* sent = moqtrun_test_last_kind(3);
+  CHECK(sent->stream_id == relay_sid);
+  CHECK(sent->payload_len == exp_n);
+  for (usz i = 0; i < exp_n; i++) CHECK(sent->payload[i] == exp[i]);
+
+  moqtrun_test_reset();
+  wired_moqt_tick(&hub, 7); /* accepted above: nothing left to resend */
+  CHECK(moqtrun_test_count_kind(3) == 0);
+}
+
+/* The headroom is inviolable: credit of round + headroom - 1 defers, and
+ * exactly round + headroom sends -- a lossy screen-share round sharing
+ * the session always finds WIRED_MOQTREL_HEADROOM of credit left. */
+static void test_moqt_reliable_relay_budget_leaves_headroom(void) {
+  wired_moqt_hub hub;
+  moqtrun_test_start_reliable_fixture(&hub);
+  hub.io.send_budget = moqtrun_test_send_budget;
+
+  u8  obj[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz obj_n = 0;
+  u8  v     = 7;
+  moqdata_obj_put(
+      wired_mspan_of(obj, sizeof obj), &obj_n, 1, wired_span_of(&v, 1));
+
+  moqtrun_test_reset();
+  g_send_budget_val = obj_n + WIRED_MOQTREL_HEADROOM - 1; /* one short */
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(obj, obj_n), 0);
+  CHECK(moqtrun_test_count_kind(3) == 0);
+  CHECK(hub.stat_rel_wait == 1);
+
+  g_send_budget_val = obj_n + WIRED_MOQTREL_HEADROOM; /* exactly enough */
+  wired_moqt_tick(&hub, 5);
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  CHECK(moqtrun_test_last_kind(3)->payload_len == obj_n);
+  CHECK(hub.stat_rel_wait == 1); /* the boundary send is not a wait */
+}
+
+/* An io table without send_budget (0 -- every existing positional
+ * initializer) is unconstrained: rounds send immediately and
+ * stat_rel_wait never moves. */
+static void test_moqt_reliable_relay_no_send_budget_unchanged(void) {
+  wired_moqt_hub hub;
+  u64            relay_sid = moqtrun_test_start_reliable_fixture(&hub);
+
+  moqtrun_test_reset();
+  moqtrun_test_send_audio_round(&hub, 999, 9);
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  CHECK(moqtrun_test_last_kind(3)->stream_id == relay_sid);
+  CHECK(hub.stat_rel_wait == 0);
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -4126,4 +4218,7 @@ void test_moqtrun(void) {
   test_moqt_reliable_relay_never_resends_a_shed_stream();
   test_moqt_reliable_relay_returns_ring_when_publisher_leaves();
   test_moqt_reliable_relay_returns_ring_on_republish();
+  test_moqt_reliable_relay_budget_defers_then_sends_same_span();
+  test_moqt_reliable_relay_budget_leaves_headroom();
+  test_moqt_reliable_relay_no_send_budget_unchanged();
 }
