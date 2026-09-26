@@ -4137,6 +4137,32 @@ static void test_moqt_reliable_relay_returns_ring_on_republish(void) {
   CHECK(hub.stat_relay_full == 0);
 }
 
+/* A newer session PUBLISHing "alice/audio" retires the old session's
+ * audio track mid-stream: the ring returns to the pool AND the old
+ * publisher stream's credit hold is released -- the old session is still
+ * live, and a hold left on its stream would freeze it for good. */
+static void test_moqt_reliable_relay_supersede_returns_ring_and_hold(void) {
+  static const u8 audio[] = {'a', 'l', 'i', 'c', 'e', '/',
+                             'a', 'u', 'd', 'i', 'o'};
+  wired_moqt_hub  hub;
+  moqtrun_test_start_reliable_fixture(&hub);
+  moqtrun_test_reset();
+  g_stream_send_reject_sess = SESS_B; /* the subscriber stops accepting */
+  for (u8 v = 0; v < 4; v++) moqtrun_test_send_big_round(&hub, 999, v, 16000);
+  CHECK(moqtrun_test_count_kind(10) == 1); /* hold landed on SESS_A/999 */
+  CHECK(moqtrun_test_rings_in_use(&hub) == 1);
+  g_stream_send_reject_sess = 0;
+
+  u64 ctrl_d = moqtrun_test_join(&hub, SESS_D);
+  moqtrun_test_reset();
+  moqtrun_test_publish_named(&hub, SESS_D, ctrl_d, audio, sizeof audio, 2);
+
+  CHECK(moqtrun_test_rings_in_use(&hub) == 0);
+  CHECK(moqtrun_test_count_kind(10) == 1);
+  const moqtrun_test_call* rel = moqtrun_test_last_kind(10);
+  CHECK(rel->fin == 0 && rel->s == SESS_A && rel->stream_id == 999);
+}
+
 /* ===================== 11. reliable relay send budget
  * ===================== */
 
@@ -4603,6 +4629,7 @@ void test_moqtrun(void) {
   test_moqt_reliable_relay_never_resends_a_shed_stream();
   test_moqt_reliable_relay_returns_ring_when_publisher_leaves();
   test_moqt_reliable_relay_returns_ring_on_republish();
+  test_moqt_reliable_relay_supersede_returns_ring_and_hold();
   test_moqt_reliable_relay_budget_defers_then_sends_same_span();
   test_moqt_reliable_relay_budget_leaves_headroom();
   test_moqt_reliable_relay_budget_drought_sheds_sub();
