@@ -29,9 +29,11 @@
  * to read connect_stream_id from -- srvrun.h documents this as the
  * open_bidi_stream/open_uni_stream caller's responsibility. */
 
-/* Signal prefix (<=9B) + one relay round. A stack buffer of this size is
- * safe everywhere below: wired_server_wt_* COPY any payload that fits their
- * own per-slot staging (srvrun.h), so nothing here must outlive its call. */
+/* Signal prefix (<=9B) + one bidi control reply. Only the bidi control
+ * path below still stages on the stack at this size; the uni open paths
+ * go through g_open_buf (below), sized for a full relay round. Safe
+ * because wired_server_wt_* COPY any payload that fits their own per-slot
+ * staging (srvrun.h), so nothing here must outlive its call. */
 #define MOQT_SIG_BUF 2048
 
 /* Track aliases below this limit get the reliable relay; the rest stay
@@ -71,6 +73,21 @@ typedef struct {
   live_slot         ring[LIVE_RING];
 } live_session;
 static live_session g_live[BIG_SLOTS];
+
+/* Signal prefix + one full relay round for the uni open paths
+ * (moqt_io_send_uni / moqt_io_open_uni_stream):
+ *   BIG_SIG_MAX (9) + WIRED_MOQTRUN_RELAY_HDR_MAX (40)
+ *   + WIRED_MOQTRUN_RELAY_FRAG_MAX (512) + WIRED_SRVLOOP_WT_BUF_CAP (49152)
+ *   = 49713 bytes. Must stay below SRVRUN_WTSEND_BUF (65536, srvrun.c):
+ * wired_server_wt_open_uni / wired_server_wt_open_uni_stream copy a
+ * payload up to that size into their own per-slot staging DURING the
+ * call, so nothing here outlives it. Single thread, synchronous
+ * callbacks, no re-entry -- one static buffer (not ~50KB of stack)
+ * serves every open. */
+#define MOQT_OPEN_BUF                                                  \
+  (BIG_SIG_MAX + WIRED_MOQTRUN_RELAY_HDR_MAX +                         \
+   WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP)
+static u8 g_open_buf[MOQT_OPEN_BUF];
 
 /* Decimal/string/hex line-building helpers (also used by the shutdown
  * relay-stats log below). */
@@ -157,15 +174,16 @@ static void live_session_release(wired_wt_session* s) {
 /* One-shot open+send+FIN (wired_server_wt_open_uni-shaped): used for a
  * relayed Object, which always completes in its stream's only round -- see
  * moqtrun.h's send_uni doc for why this must not go through
- * open_uni_stream + a bare stream_send(fin=1) instead. A payload past the
- * stack staging is refused; live fragments go through send_uni2's staging
- * ring instead. */
+ * open_uni_stream + a bare stream_send(fin=1) instead. A payload past
+ * g_open_buf's relay-round staging is refused; live fragments go through
+ * send_uni2's staging ring instead. */
 static i64 moqt_io_send_uni(wired_wt_session* s, wired_span payload) {
-  u8  buf[MOQT_SIG_BUF];
-  usz sig = wired_wtwire_signal_put(buf, sizeof buf, 0, s->connect_stream_id);
-  if (sig == 0 || payload.n > sizeof buf - sig) return -1;
-  for (usz i = 0; i < payload.n; i++) buf[sig + i] = payload.p[i];
-  return wired_server_wt_open_uni(s, wired_span_of(buf, sig + payload.n));
+  usz sig = wired_wtwire_signal_put(
+      g_open_buf, sizeof g_open_buf, 0, s->connect_stream_id);
+  if (sig == 0 || payload.n > sizeof g_open_buf - sig) return -1;
+  bytes_memcpy(g_open_buf + sig, payload.p, payload.n);
+  return wired_server_wt_open_uni(
+      s, wired_span_of(g_open_buf, sig + payload.n));
 }
 
 /* wired_wt_on_session_close-shaped: frees the session's staging ring (its
@@ -183,11 +201,12 @@ static void on_session_close(void* ctx, wired_wt_session* s) {
  * rounds (srvrun.h), so the io table points straight at
  * wired_server_wt_stream_send / wired_server_wt_stream_fin. */
 static i64 moqt_io_open_uni_stream(wired_wt_session* s, wired_span payload) {
-  u8  buf[MOQT_SIG_BUF];
-  usz sig = wired_wtwire_signal_put(buf, sizeof buf, 0, s->connect_stream_id);
-  if (sig == 0 || payload.n > sizeof buf - sig) return -1;
-  for (usz i = 0; i < payload.n; i++) buf[sig + i] = payload.p[i];
-  return wired_server_wt_open_uni_stream(s, wired_span_of(buf, sig + payload.n));
+  usz sig = wired_wtwire_signal_put(
+      g_open_buf, sizeof g_open_buf, 0, s->connect_stream_id);
+  if (sig == 0 || payload.n > sizeof g_open_buf - sig) return -1;
+  bytes_memcpy(g_open_buf + sig, payload.p, payload.n);
+  return wired_server_wt_open_uni_stream(
+      s, wired_span_of(g_open_buf, sig + payload.n));
 }
 
 /* wired_moqt_io.send_budget-shaped: remaining session-level send credit
