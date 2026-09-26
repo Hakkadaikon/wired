@@ -3899,10 +3899,10 @@ static void test_moqt_reliable_relay_keeps_entry_after_all_subs_leave(void) {
   CHECK(hub.peers[0].tracks[1].relays[0].in_use == 0); /* now it frees */
 }
 
-/* A reliable stream that starts with no subscriber at all: the first
- * drain (a tick here) returns the never-needed ring but keeps the entry,
- * so the stream's later bytes stay recognized (and silently discarded --
- * no one subscribed) until the publisher's FIN frees it. */
+/* A reliable stream that starts with no subscriber at all: the ring waits
+ * for one for up to WIRED_MOQTREL_STALL_MS, then returns but keeps the
+ * entry, so the stream's later bytes stay recognized (and silently
+ * discarded -- no one subscribed) until the publisher's FIN frees it. */
 static void test_moqt_reliable_relay_keeps_entry_with_no_subs(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
@@ -3916,7 +3916,9 @@ static void test_moqt_reliable_relay_keeps_entry_with_no_subs(void) {
       &hub, SESS_A, 999, wired_span_of(first, first_n), 0);
   CHECK(hub.rel_pool[0].in_use == 1); /* bound at start */
 
-  wired_moqt_tick(&hub, 1); /* first drain: no cursor was ever attached */
+  wired_moqt_tick(&hub, 1); /* no cursor yet: waits for a subscriber */
+  CHECK(hub.rel_pool[0].in_use == 1);
+  wired_moqt_tick(&hub, WIRED_MOQTREL_STALL_MS + 1); /* nobody came */
   CHECK(hub.rel_pool[0].in_use == 0);
   CHECK(hub.peers[0].tracks[1].relays[0].rel_idx == -1);
   CHECK(hub.peers[0].tracks[1].relays[0].in_use == 1);
@@ -4131,6 +4133,110 @@ static void test_moqt_reliable_relay_no_send_budget_unchanged(void) {
   CHECK(hub.stat_rel_wait == 0);
 }
 
+/* The reliable fixture with NO subscriber yet: SESS_A publishing
+ * chat+audio, the first audio delivery (header + one Object, copied to
+ * first) on publisher stream 999. Returns its length. */
+static usz moqtrun_test_start_reliable_no_subs(wired_moqt_hub* hub, u8* first) {
+  moqtrun_test_reset();
+  wired_moqt_init(hub, moqtrun_test_io());
+  hub->reliable_alias_limit = 100; /* audio's alias 2 < 100: reliable */
+  u64 ctrl_a                = moqtrun_test_publish_alice(hub);
+  moqtrun_test_publish_alice_audio(hub, ctrl_a);
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(hub, SESS_A, 999, wired_span_of(first, first_n), 0);
+  return first_n;
+}
+
+/* The bytes a late subscriber must read after the header: the opening
+ * delivery's Objects, then one 1-byte Object per value in [lo, hi]. */
+static usz moqtrun_test_late_expect(
+    const u8* first, usz first_n, usz hdr_n, u8 lo, u8 hi, u8* exp) {
+  usz n = 0;
+  for (usz i = hdr_n; i < first_n; i++) exp[n++] = first[i];
+  for (u8 v = lo; v <= hi; v++)
+    moqdata_obj_put(wired_mspan_of(exp, 64), &n, 1, wired_span_of(&v, 1));
+  return n;
+}
+
+/* 1 iff sess got exactly one relay stream opened with the saved header
+ * and its stream_sends carry exp byte-for-byte (no gap, no duplicate). */
+static int moqtrun_test_got_whole(
+    wired_wt_session* sess,
+    const u8*         first,
+    usz               hdr_n,
+    const u8*         exp,
+    usz               exp_n) {
+  const moqtrun_test_call* open = 0;
+  for (usz i = 0; i < g_n_calls; i++)
+    if (g_calls[i].kind == 5 && g_calls[i].s == sess) open = &g_calls[i];
+  if (!open || open->payload_len != hdr_n) return 0;
+  for (usz i = 0; i < hdr_n; i++)
+    if (open->payload[i] != first[i]) return 0;
+  u8  got[64];
+  usz got_n = moqtrun_test_concat_sends(sess, got, sizeof got);
+  if (got_n != exp_n) return 0;
+  for (usz i = 0; i < exp_n; i++)
+    if (got[i] != exp[i]) return 0;
+  return 1;
+}
+
+/* A subscriber accepted while a reliable stream is already in progress
+ * (it started with nobody subscribed) still receives the WHOLE stream:
+ * the saved header, every byte from the start in order, then the FIN --
+ * and the ring never returns before the publisher's FIN. */
+static void test_moqt_reliable_relay_late_sub_gets_whole_stream(void) {
+  wired_moqt_hub hub;
+  u8             first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz            first_n = moqtrun_test_start_reliable_no_subs(&hub, first);
+  wired_moqt_tick(&hub, 1);                    /* nobody subscribed yet */
+  moqtrun_test_send_audio_round(&hub, 999, 7); /* still nobody */
+  moqtrun_test_subscribe_audio_as(&hub, SESS_B);
+
+  moqtrun_test_reset();
+  moqtrun_test_send_audio_round(&hub, 999, 8);
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(0, 0), 1);
+  wired_moqt_tick(&hub, 2);
+  wired_moqt_tick(&hub, 3); /* nothing may be sent twice */
+
+  usz hdr_n = hub.peers[0].tracks[1].relays[0].hdr_len;
+  u8  exp[64];
+  usz exp_n = moqtrun_test_late_expect(first, first_n, hdr_n, 7, 8, exp);
+  CHECK(hdr_n != 0);
+  CHECK(moqtrun_test_count_kind(5) == 1);
+  CHECK(moqtrun_test_got_whole(SESS_B, first, hdr_n, exp, exp_n));
+  CHECK(moqtrun_test_count_kind(6) == 1); /* closed exactly once */
+  CHECK(moqtrun_test_last_kind(6)->s == SESS_B);
+  CHECK(hub.stat_rel_early_return == 0);
+  CHECK(hub.rel_pool[0].in_use == 0); /* returned after the FIN */
+  CHECK(hub.peers[0].tracks[1].relays[0].in_use == 0);
+}
+
+/* A reliable stream nobody ever subscribes to, larger than the ring keeps
+ * unheld: the publisher is held at the watermark like any other ring,
+ * but only for WIRED_MOQTREL_STALL_MS -- then the hold is released and
+ * the ring returns (the lossy fallback), so no hold is ever permanent. */
+static void test_moqt_reliable_relay_unsubscribed_hold_is_bounded(void) {
+  wired_moqt_hub hub;
+  u8             first[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqtrun_test_start_reliable_no_subs(&hub, first);
+  moqtrun_test_reset();
+  for (u8 v = 0; v < 4; v++) moqtrun_test_send_big_round(&hub, 999, v, 16000);
+  CHECK(moqtrun_test_count_kind(10) == 1); /* held at the watermark */
+  CHECK(moqtrun_test_last_kind(10)->fin == 1);
+  CHECK(hub.stat_rel_overflow == 0);
+
+  moqtrun_test_reset();
+  wired_moqt_tick(&hub, WIRED_MOQTREL_STALL_MS); /* still waiting */
+  CHECK(moqtrun_test_count_kind(10) == 0);
+  wired_moqt_tick(&hub, WIRED_MOQTREL_STALL_MS + 1);
+  CHECK(moqtrun_test_count_kind(10) == 1); /* released */
+  CHECK(moqtrun_test_last_kind(10)->fin == 0);
+  CHECK(hub.rel_pool[0].in_use == 0);
+  CHECK(hub.peers[0].tracks[1].relays[0].rel_idx == -1);
+  CHECK(hub.peers[0].tracks[1].relays[0].in_use == 1);
+  CHECK(hub.stat_rel_early_return == 1);
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -4246,4 +4352,6 @@ void test_moqtrun(void) {
   test_moqt_reliable_relay_budget_leaves_headroom();
   test_moqt_reliable_relay_budget_drought_sheds_sub();
   test_moqt_reliable_relay_no_send_budget_unchanged();
+  test_moqt_reliable_relay_late_sub_gets_whole_stream();
+  test_moqt_reliable_relay_unsubscribed_hold_is_bounded();
 }

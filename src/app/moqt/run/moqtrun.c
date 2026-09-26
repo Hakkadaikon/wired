@@ -1368,11 +1368,10 @@ static void moqtrun_rel_attach_sub(
 }
 
 /* After the opening moqtrun_relay_open_all: record each subscriber stream
- * that actually opened as a ring cursor. A slot that failed to open, or
- * subscribes later, never rides this ring -- and since the reliable
- * continue bypasses moqtrun_relay_append_all, it is never late-opened
- * either and receives nothing from this stream. Deliberate: a mid-stream
- * join would only get a torn attachment, useless to the receiver. */
+ * that actually opened as a ring cursor at tail (the opening round carried
+ * every byte so far). A slot that failed to open, or subscribes later,
+ * rides this ring only through moqtrun_rel_late_attach_all -- i.e. only
+ * while the ring still holds the stream right after its header. */
 static void moqtrun_rel_attach_subs(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
@@ -1382,6 +1381,64 @@ static void moqtrun_rel_attach_subs(
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
     moqtrun_rel_attach_sub(
         rb, track, relay, i, rb->tail, hub->live.last_now_ms);
+}
+
+static void moqtrun_relay_open_one(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_sub*   sub,
+    wired_moqtrun_relay* relay,
+    usz                  i,
+    wired_span           wire);
+
+/* 1 while nothing past the SUBGROUP_HEADER was reclaimed (and a header
+ * was saved): a late subscriber's stream can be the saved header followed
+ * by the ring from offset hdr_len -- the whole stream, not a torn tail. */
+static int moqtrun_rel_holds_start(
+    const wired_moqtrun_relay* relay, const moqtrel_buf* rb) {
+  return relay->hdr_len != 0 && rb->head <= relay->hdr_len;
+}
+
+/* 1 for an active sub slot with neither a relay stream nor a cursor on
+ * this ring (it became active after the relay started). A shed or
+ * FIN'd cursor stays active, so it is never re-opened here. */
+static int moqtrun_rel_late_wanted(
+    const wired_moqtrun_track* track,
+    const wired_moqtrun_relay* relay,
+    const moqtrel_buf*         rb,
+    usz                        i) {
+  return track->subs[i].active && !relay->sub_stream_set[i] &&
+         !rb->subs[i].active;
+}
+
+/* A late subscriber on a ring that still holds the whole stream: open its
+ * relay stream with the saved header and attach its cursor right after
+ * it, so the normal drain sends every byte, then the FIN. An open failure
+ * attaches nothing and retries on the next drain. */
+static void moqtrun_rel_late_attach(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay,
+    moqtrel_buf*         rb,
+    usz                  i,
+    u64                  now_ms) {
+  if (!moqtrun_rel_late_wanted(track, relay, rb, i)) return;
+  moqtrun_relay_open_one(
+      hub, &track->subs[i], relay, i,
+      wired_span_of(relay->hdr, relay->hdr_len));
+  moqtrun_rel_attach_sub(rb, track, relay, i, relay->hdr_len, now_ms);
+}
+
+/* Covers both ways a subscription turns active mid-stream (SUBSCRIBE, and
+ * the silent re-attach): every drain looks for such slots. */
+static void moqtrun_rel_late_attach_all(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay,
+    moqtrel_buf*         rb,
+    u64                  now_ms) {
+  if (!moqtrun_rel_holds_start(relay, rb)) return;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
+    moqtrun_rel_late_attach(hub, track, relay, rb, i, now_ms);
 }
 
 /* 1 while cursor i still expects delivery work (live, not given up on,
@@ -1575,18 +1632,24 @@ static void moqtrun_rel_maybe_done(
   if (fin_seen) relay->in_use = 0;
 }
 
-/* One full drain pass over a ring: a round per open cursor, reclaim what
- * every live cursor has passed, then the two closing decisions (release
- * the hold once enough drained, return everything once every cursor is
- * delivered or given up). */
+/* One full drain pass over a ring: attach late subscribers, a round per
+ * open cursor, reclaim what every live cursor has passed, then the two
+ * closing decisions (release the hold once enough drained, return
+ * everything once every cursor is delivered or given up). A ring no
+ * cursor ever joined skips all three while it awaits a first subscriber
+ * (moqtrel_awaits_sub): reclaiming would discard the stream's start.
+ * ponytail: a subscriber-less ring may hold its publisher up to
+ * WIRED_MOQTREL_STALL_MS; a separate wait budget if that proves long. */
 static void moqtrun_rel_drain_one(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     moqtrel_buf*         rb,
     u64                  now_ms) {
+  moqtrun_rel_late_attach_all(hub, track, relay, rb, now_ms);
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
     moqtrun_rel_drain_sub(hub, track, relay, rb, i, now_ms);
+  if (moqtrel_awaits_sub(rb, now_ms)) return;
   moqtrel_reclaim(rb);
   moqtrun_rel_maybe_release(hub, rb);
   moqtrun_rel_maybe_done(hub, relay, rb);
