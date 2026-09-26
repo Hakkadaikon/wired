@@ -45,6 +45,10 @@ export async function startUdpProxy({
   const { lossRate = 0, seed = 1, jitterBaseMs = 0, jitterSpreadMs = 0 } = profile;
   const upstreamHost = "127.0.0.1";
   const flows = [];
+  // A jitter-delayed packet can outlive close(): its setTimeout fires after
+  // the sockets are gone and dgram throws ERR_SOCKET_DGRAM_NOT_RUNNING,
+  // crashing the whole runner. Drop deliveries scheduled past close.
+  let closed = false;
 
   const impair = (flow, deliver) => {
     flow.stats.seen++;
@@ -58,7 +62,9 @@ export async function startUdpProxy({
     }
     flow.stats.forwarded++;
     if (jitterBaseMs > 0 || jitterSpreadMs > 0) {
-      setTimeout(deliver, jitterBaseMs + flow.rand() * jitterSpreadMs);
+      setTimeout(() => {
+        if (!closed) deliver();
+      }, jitterBaseMs + flow.rand() * jitterSpreadMs);
       return;
     }
     deliver();
@@ -108,6 +114,7 @@ export async function startUdpProxy({
       return flows.map((f) => ({ ...f.stats }));
     },
     close() {
+      closed = true;
       for (const f of flows) {
         f.down.close();
         f.up.close();
