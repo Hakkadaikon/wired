@@ -1246,6 +1246,23 @@ static void srvrun_send(
   }
 }
 
+/* One unconditional line per connection-ending event (the "conn refused:
+ * table full" precedent below), so a deployment's plain logs say WHY a
+ * peer went away: a WebTransport session dropping mid-transfer looked like
+ * "the attachment never arrived" until the cause was visible here. what
+ * is a NUL-terminated prefix, reason the (possibly empty) detail. */
+static void srvrun_log_close(const char* what, wired_span reason) {
+  char line[160];
+  usz  n = wired_cstr_len(what);
+  usz  r = reason.n > 96 ? 96 : reason.n;
+  bytes_memcpy(line, what, n);
+  bytes_memcpy(line + n, reason.p, r);
+  n += r;
+  line[n++] = '\n';
+  line[n]   = 0;
+  wired_log_str(line);
+}
+
 /* --- GSO staging: sealed datagrams batched into one sendmsg ------------- */
 
 static void srvrun_stage_reset(wired_srvrun_env* e) {
@@ -1740,6 +1757,7 @@ static void srvrun_send_app_close(
   u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof out);
   if (!srvrun_seal_app_close(c, error_code, reason, &ob)) return;
+  srvrun_log_close("conn closed by server (app): ", reason);
   srvrun_send(
       cfg, c, wired_span_of(out, ob.len), "app CONNECTION_CLOSE sent\n");
 }
@@ -1842,6 +1860,7 @@ static void srvrun_send_transport_close(
   u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof out);
   if (!srvrun_seal_transport_close(c, error_code, reason, &ob)) return;
+  srvrun_log_close("conn closed by server (transport): ", reason);
   srvrun_send(
       cfg, c, wired_span_of(out, ob.len), "transport CONNECTION_CLOSE sent\n");
 }
@@ -3097,8 +3116,11 @@ static void srvrun_wt_rx_capsules(const srvrun_cfg* cfg, srvrun_conn* c) {
 static void srvrun_close_wt_on_stream_close(
     const srvrun_cfg* cfg, srvrun_conn* c) {
   int sidx = wt_connect_stream_slot(c);
-  if (sidx >= 0)
+  if (sidx >= 0) {
+    srvrun_log_close(
+        "wt session closed by peer (CONNECT stream)", wired_span_of(0, 0));
     srvrun_close_wt_session_slot(cfg, c, sidx, srvrun_wt_session_gone_code());
+  }
   c->l.closed_stream_seen = 0;
 }
 
@@ -4949,8 +4971,10 @@ static int srvrun_reap_due(const srvrun_conn* c, u64 now_ms) {
 static void srvrun_sweep_idle(
     const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms) {
   for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
-    if (srvrun_reap_due(&st->conns[i], now_ms))
+    if (srvrun_reap_due(&st->conns[i], now_ms)) {
+      srvrun_log_close("conn dropped: idle timeout", wired_span_of(0, 0));
       srvrun_free_slot(cfg, st, (int)i);
+    }
 }
 
 /* Cold-start outcome for a slot: on success, rekey its table entry to the
@@ -7553,6 +7577,8 @@ static void srvrun_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   if (!srvrun_sess_waiting(c)) return;
   if (!srvrun_pto_all(c, ctx->now_ms)) {
+    srvrun_log_close(
+        "conn dropped: probe budget exhausted", wired_span_of(0, 0));
     srvrun_free_slot(ctx->cfg, ctx->st, slot);
     return;
   }
@@ -7577,6 +7603,8 @@ static void srvrun_step_and_reap(
   srvrun_conn* c = &ctx->st->conns[slot];
   srvrun_on_step(ctx, c, dg);
   if (c->l.peer_closed) {
+    srvrun_log_close(
+        "conn closed by peer (CONNECTION_CLOSE)", wired_span_of(0, 0));
     srvrun_note_ghost(ctx, c); /* swallow its closing-period stragglers */
     srvrun_free_slot(ctx->cfg, ctx->st, slot);
     return;
@@ -8492,6 +8520,8 @@ static int srvrun_evict_for_initial(
   if (!srvrun_evict_applies(ctx, dcid, is_initial)) return -1;
   cand = srvrun_evict_candidate(ctx->st);
   if (!srvrun_evict_grace_ok(ctx, cand)) return -1;
+  srvrun_log_close(
+      "conn dropped: evicted for a new client", wired_span_of(0, 0));
   srvrun_free_slot(ctx->cfg, ctx->st, cand);
   return srvrun_open_slot(ctx, dcid, is_initial);
 }
