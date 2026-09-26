@@ -12378,6 +12378,29 @@ static void test_srvrun_retransmit_fits_validated_probe(void) {
   CHECK(g_srvrun_tx_max_len <= bound);
 }
 
+/* RFC 9221 5 / RFC 9000 14: a DATAGRAM frame cannot be split, so one too
+ * big for the validated PMTU (here still the 1200-byte base) is refused
+ * rather than sent into a path that drops it. */
+static void test_srvrun_datagram_fits_validated_probe(void) {
+  static u8     payload[1180];
+  struct lp_fix f;
+  srvrun_conn*  c = sr_test_conns();
+  u8            obuf[4096], out[1500], pb[1500];
+  wired_obuf    ob    = obuf_of(obuf, sizeof obuf);
+  wired_obuf    dgo   = obuf_of(out, sizeof out);
+  wired_obuf    probe = obuf_of(pb, sizeof pb);
+  u64           pn;
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  sr_pmtu_bound_conn(c, &f, &ob, 8);
+  pmtu_init(&c->pmtu); /* nothing validated past the base yet */
+  CHECK(srvrun_seal_pmtu_probe(c, c->pmtu.validated, &probe, &pn));
+  g_srvrun_tx_max_len = 0;
+  srvrun_send_datagram_now(
+      &cfg, c, wired_span_of(payload, sizeof payload), &dgo);
+  CHECK(g_srvrun_tx_max_len <= probe.len);
+}
+
 /* ROUND-ROBIN, NOT DRAIN-THEN-NEXT: with three responses armed at once and
  * cwnd tight enough to allow only a few chunks per pump, every resp[] slot
  * must get a turn before any slot gets a second one -- srvrun_pump_sess used
@@ -18085,6 +18108,7 @@ void test_srvrun(void) {
   test_srvrun_pump_full_mps_slice_reaches_log();
   test_srvrun_data_datagrams_fit_validated_probe();
   test_srvrun_retransmit_fits_validated_probe();
+  test_srvrun_datagram_fits_validated_probe();
   test_srvrun_cc_algo_zero_means_build_default();
   test_srvrun_pump_round_robins_across_slots();
   test_srvrun_pacing_floor_does_not_starve_round();
