@@ -4271,6 +4271,34 @@ static void test_moqt_reliable_relay_unsubscribed_hold_is_bounded(void) {
   CHECK(hub.stat_rel_early_return == 1);
 }
 
+/* A slot reused after a late subscriber finished: C late-joins after the
+ * FIN (B pins the ring at the header), completes, leaves; D takes C's
+ * slot and must get its own whole stream and FIN, not C's stale
+ * fin_done. */
+static void test_moqt_reliable_relay_reused_slot_gets_whole_stream(void) {
+  wired_moqt_hub hub;
+  u8             first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz            first_n = moqtrun_test_start_reliable_no_subs(&hub, first);
+  moqtrun_test_subscribe_audio_as(&hub, SESS_B);
+  g_stream_send_reject_sess = SESS_B; /* B pins head at the header */
+  moqtrun_test_send_audio_round(&hub, 999, 8);
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(0, 0), 1);
+  moqtrun_test_subscribe_audio_as(&hub, SESS_C);
+  wired_moqt_tick(&hub, 1); /* C: whole stream + FIN */
+  wired_moqt_on_session_close(&hub, SESS_C);
+  moqtrun_test_subscribe_audio_as(&hub, SESS_D); /* reuses C's slot */
+
+  moqtrun_test_reset();
+  g_stream_send_reject_sess = SESS_B;
+  wired_moqt_tick(&hub, 2);
+  usz hdr_n = hub.peers[0].tracks[1].relays[0].hdr_len;
+  u8  exp[64];
+  usz exp_n = moqtrun_test_late_expect(first, first_n, hdr_n, 8, 8, exp);
+  CHECK(moqtrun_test_got_whole(SESS_D, first, hdr_n, exp, exp_n));
+  CHECK(moqtrun_test_last_kind(3)->s == SESS_D);
+  CHECK(moqtrun_test_last_kind(3)->fin == 1);
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -4389,4 +4417,5 @@ void test_moqtrun(void) {
   test_moqt_reliable_relay_late_sub_gets_whole_stream();
   test_moqt_reliable_relay_late_sub_after_fin_gets_whole();
   test_moqt_reliable_relay_unsubscribed_hold_is_bounded();
+  test_moqt_reliable_relay_reused_slot_gets_whole_stream();
 }

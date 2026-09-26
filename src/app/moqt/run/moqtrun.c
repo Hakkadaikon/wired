@@ -1362,6 +1362,8 @@ static void moqtrun_rel_attach_sub(
     u64                        now_ms) {
   if (!track->subs[i].active || !relay->sub_stream_set[i]) return;
   rb->subs[i].active     = 1;
+  rb->subs[i].shed       = 0; /* a reused slot must not inherit these */
+  rb->subs[i].fin_done   = 0;
   rb->subs[i].sent       = sent;
   rb->subs[i].last_ok_ms = now_ms;
   rb->head               = sent;
