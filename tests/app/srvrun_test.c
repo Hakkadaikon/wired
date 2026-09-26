@@ -15456,6 +15456,46 @@ static void test_srvrun_wt_rx_max_data_capsule_via_on_step_raises_max_data(
   CHECK(c->wt.max_data == 9);
 }
 
+/* draft-ietf-webtrans-http3-15 SS5.4: a wired_server_wt_stream_send round
+ * refused at the peer's WT_MAX_DATA limit is a wait, not a failure -- the
+ * session stays established, and once the peer raises the limit with a
+ * WT_MAX_DATA capsule (delivered through srvrun_on_step's real receive
+ * path, srvrun_wt_rx_capsules), the SAME round is accepted: the relay's
+ * credit-starved-this-tick, progresses-next-tick loop. */
+static void test_srvrun_wt_stream_send_at_max_data_resumes_after_raise(void) {
+  struct lp_fix   f;
+  wired_obuf      ob  = {0};
+  srvrun_cfg      cfg = sr_wt_send_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, 0, 0, 0};
+  u8              obuf[1024], capbuf[64], frame[256], spkt[1024];
+  wired_obuf      capb    = obuf_of(capbuf, sizeof capbuf);
+  static const u8 pay[]   = {0x54, 0x04, 'h', 'i'};
+  static const u8 round[] = {'m', 'o', 'r', 'e'};
+  wired_span      rspan   = wired_span_of(round, sizeof round);
+  srvrun_conn*    c;
+  stream_frame    sf;
+  usz             flen, slen;
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt_capsule_rx_at[0] = 0;
+  CHECK(
+      wired_server_wt_open_uni_stream(&c->wt, wired_span_of(pay, sizeof pay)) ==
+      11);
+  CHECK(wired_wt_session_set_max_data(&c->wt, sizeof pay) == 1);
+  CHECK(wired_server_wt_stream_send(&c->wt, 11, rspan, 0) == -1);
+  CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(wtcapsule_encode_max_data(&capb, 1000) == 1);
+  sf   = (stream_frame){4, 0, capb.len, capbuf, 0};
+  flen = frame_put_stream(frame, sizeof frame, &sf);
+  CHECK(flen != 0);
+  slen = client_seal_onertt_pn(&f, 3, frame, flen, spkt, sizeof spkt);
+  CHECK(slen != 0);
+  srvrun_on_step(&ctx, c, wired_mspan_of(spkt, slen));
+  CHECK(c->wt.max_data == 1000);
+  CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(wired_server_wt_stream_send(&c->wt, 11, rspan, 0) == 1);
+}
+
 /* V-0503/V-0509 (SS5.1/SS8): a received WT_MAX_DATA capsule enables session
  * flow control (a low limit blocks a would-be over-send), and a later,
  * higher WT_MAX_DATA raises the limit so the previously blocked send
@@ -18330,6 +18370,7 @@ void test_srvrun(void) {
   test_srvrun_wt_rx_unknown_capsule_via_dispatch_skipped();
   test_srvrun_wt_rx_truncated_capsule_via_dispatch_closes_session();
   test_srvrun_wt_rx_max_data_capsule_via_on_step_raises_max_data();
+  test_srvrun_wt_stream_send_at_max_data_resumes_after_raise();
   test_srvrun_wt_session_sharing_enables_flow_control();
   test_srvrun_wt_rx_max_streams_capsules_raise_limits();
   test_srvrun_wt_ignores_stale_flow_control_capsules();
