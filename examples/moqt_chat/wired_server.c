@@ -186,9 +186,24 @@ static i64 moqt_io_send_uni(wired_wt_session* s, wired_span payload) {
       s, wired_span_of(g_open_buf, sig + payload.n));
 }
 
+/* Live/closed session counts for the relay-stats line: incremented and
+ * decremented by the wrappers below, read by log_relay_stats. */
+static u64 g_sessions_live;
+static u64 g_sessions_closed;
+
+/* wired_wt_on_session-shaped: counts the session live for the stats line,
+ * then registers it with the hub. */
+static void on_session(
+    void* ctx, wired_wt_session* s, wired_span path, wired_span protocol) {
+  g_sessions_live++;
+  wired_moqt_on_session(ctx, s, path, protocol);
+}
+
 /* wired_wt_on_session_close-shaped: frees the session's staging ring (its
  * views are dead with the connection) before the hub forgets the peer. */
 static void on_session_close(void* ctx, wired_wt_session* s) {
+  g_sessions_live--;
+  g_sessions_closed++;
   live_session_release(s);
   wired_moqt_on_session_close(ctx, s);
 }
@@ -336,16 +351,21 @@ static void log_cert_fingerprint(const wired_srvboot_id* id) {
   wired_log_str(line);
 }
 
-/* --- Shutdown relay-stats log ------------------------------------------ */
+/* --- Relay-stats log ---------------------------------------------------- */
 
-/* One line at shutdown with the hub's cumulative relay outcomes, so a
- * measurement run can compare server-side drops against the receivers' own
- * sequence gaps. */
-static void log_relay_stats(const wired_moqt_hub* hub) {
-  char line[480]; /* 13 labels (152 chars) + 13 u64s at 20 digits (260) +
-                     newline/NUL = 414 worst case; 480 keeps headroom */
+/* One line with the hub's cumulative relay outcomes, so a measurement run
+ * can compare server-side drops against the receivers' own sequence gaps.
+ * label is "moqt relay: " at shutdown and "moqt relay(10s): " from the
+ * periodic on_step timer -- one format, so log-scraping regexes match
+ * both. */
+static void log_relay_stats(const char* label) {
+  const wired_moqt_hub* hub = &g_hub;
+  char line[576]; /* label (<=17) + 16 field labels (~190 chars) + 16 u64s
+                     at 20 digits (320) + newline/NUL = ~529 worst case;
+                     576 keeps headroom */
   usz  n = 0;
-  append_cstr(line, &n, "moqt relay: sent=");
+  append_cstr(line, &n, label);
+  append_cstr(line, &n, "sent=");
   n += dec_u64(line + n, hub->stat_relay_sent);
   append_cstr(line, &n, " dropped=");
   n += dec_u64(line + n, hub->stat_relay_drop);
@@ -371,15 +391,28 @@ static void log_relay_stats(const wired_moqt_hub* hub) {
   n += dec_u64(line + n, hub->stat_rel_stall);
   append_cstr(line, &n, " rel_overflow=");
   n += dec_u64(line + n, hub->stat_rel_overflow);
+  append_cstr(line, &n, " sessions=");
+  n += dec_u64(line + n, g_sessions_live);
+  append_cstr(line, &n, " closed=");
+  n += dec_u64(line + n, g_sessions_closed);
+  append_cstr(line, &n, " rel_wait=");
+  n += dec_u64(line + n, hub->stat_rel_wait);
   line[n++] = '\n';
   line[n]   = 0;
   wired_log_str(line);
 }
 
 /* wired_srvrun_on_step-shaped: paces the hub's live track (moqtrun.h's
- * wired_moqt_tick doc). ctx is the hub. */
+ * wired_moqt_tick doc) and emits the relay-stats line every 10 seconds,
+ * so a deployment's docker logs show whether refusals or session drops
+ * are ongoing without waiting for shutdown. ctx is the hub. */
 static void on_step(void* ctx, u64 now_ms) {
+  static u64 next_ms;
   wired_moqt_tick((wired_moqt_hub*)ctx, now_ms);
+  if (now_ms >= next_ms) {
+    next_ms = now_ms + 10000;
+    log_relay_stats("moqt relay(10s): ");
+  }
 }
 
 static void load_san_ipv4(int argc, char** argv, u8 san_ipv4[4], int* have_it) {
@@ -444,7 +477,7 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
         "bad CLI flags (moqt_chat is single-process only: do not pass "
         "--workers/--cores/--ifindex)\n");
   opt.run.incoming_cpu      = -1;
-  opt.run.wt_on_session     = wired_moqt_on_session;
+  opt.run.wt_on_session     = on_session;
   opt.run.wt_session_ctx    = &g_hub;
   opt.run.wt_on_stream_data = wired_moqt_on_stream_data;
   opt.run.wt_stream_data_ctx = &g_hub;
@@ -460,6 +493,6 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   opt.run.on_step_ctx          = &g_hub;
 
   if (!wired_srvdriver_run(&id, h, obs, &opt)) wired_die("listen failed\n");
-  log_relay_stats(&g_hub);
+  log_relay_stats("moqt relay: ");
   return 0;
 }
