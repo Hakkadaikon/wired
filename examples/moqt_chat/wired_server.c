@@ -202,7 +202,7 @@ static void on_session(
 /* wired_wt_on_session_close-shaped: frees the session's staging ring (its
  * views are dead with the connection) before the hub forgets the peer. */
 static void on_session_close(void* ctx, wired_wt_session* s) {
-  g_sessions_live--;
+  if (g_sessions_live) g_sessions_live--;
   g_sessions_closed++;
   live_session_release(s);
   wired_moqt_on_session_close(ctx, s);
