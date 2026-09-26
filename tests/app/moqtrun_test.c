@@ -4331,6 +4331,51 @@ static void test_moqt_reliable_relay_late_open_refused_retries(void) {
   CHECK(moqtrun_test_got_whole(SESS_B, first, hdr_n, exp, exp_n));
 }
 
+/* Negative: once bytes past the header were reclaimed (B, subscribed from
+ * the start, already took them), a later subscriber is NOT attached from
+ * the start -- it would get a torn stream -- and nothing opens for it. */
+static void test_moqt_reliable_relay_no_late_attach_after_reclaim(void) {
+  wired_moqt_hub hub;
+  moqtrun_test_start_reliable_fixture(&hub);
+  moqtrun_test_send_audio_round(&hub, 999, 8); /* B drains: head moves */
+  moqtrun_test_subscribe_audio_as(&hub, SESS_C);
+
+  moqtrun_test_reset();
+  moqtrun_test_send_audio_round(&hub, 999, 9);
+  wired_moqt_tick(&hub, 1);
+  CHECK(moqtrun_test_count_kind(5) == 0); /* no stream opened for C */
+  CHECK(hub.rel_pool[0].subs[1].active == 0);
+  CHECK(moqtrun_test_last_kind(3)->s == SESS_B);
+}
+
+/* A late subscriber joining while an Object is torn across deliveries
+ * (its head held as the relay's fragment) still gets a byte-exact
+ * stream: the ring only ever holds whole Objects. */
+static void test_moqt_reliable_relay_late_sub_across_torn_object(void) {
+  wired_moqt_hub hub;
+  u8             first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz            first_n    = moqtrun_test_start_reliable_no_subs(&hub, first);
+  u8             payload[5] = {1, 2, 3, 4, 5};
+  u8             obj[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz            obj_n = 0;
+  moqdata_obj_put(
+      wired_mspan_of(obj, sizeof obj), &obj_n, 1, wired_span_of(payload, 5));
+  usz cut = obj_n - 3; /* tear inside the payload */
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(obj, cut), 0);
+  moqtrun_test_subscribe_audio_as(&hub, SESS_B);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, wired_span_of(obj + cut, obj_n - cut), 1);
+  usz hdr_n = hub.peers[0].tracks[1].relays[0].hdr_len;
+  u8  exp[64];
+  usz exp_n = 0;
+  for (usz i = hdr_n; i < first_n; i++) exp[exp_n++] = first[i];
+  for (usz i = 0; i < obj_n; i++) exp[exp_n++] = obj[i];
+  CHECK(moqtrun_test_got_whole(SESS_B, first, hdr_n, exp, exp_n));
+  CHECK(moqtrun_test_last_kind(3)->fin == 1);
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -4451,4 +4496,6 @@ void test_moqtrun(void) {
   test_moqt_reliable_relay_unsubscribed_hold_is_bounded();
   test_moqt_reliable_relay_reused_slot_gets_whole_stream();
   test_moqt_reliable_relay_late_open_refused_retries();
+  test_moqt_reliable_relay_no_late_attach_after_reclaim();
+  test_moqt_reliable_relay_late_sub_across_torn_object();
 }
