@@ -86,6 +86,8 @@ typedef struct {
   wired_wt_session* pub;
   /** Publisher's stream id for the same hold/release calls. */
   u64 pub_stream;
+  /** Time (ms) the ring was bound; bounds the wait for a first cursor. */
+  u64 bound_ms;
   /** Per-subscriber read cursors, indexed like the hub's sub table. */
   moqtrel_sub subs[WIRED_MOQTREL_MAX_SUBS];
 } moqtrel_buf;
@@ -143,6 +145,16 @@ int moqtrel_should_release(const moqtrel_buf* b);
  * @param now_ms current time in ms
  * @return 1 stalled (shed it), 0 otherwise. */
 int moqtrel_stalled(const moqtrel_buf* b, u32 sub, u64 now_ms);
+
+/** Late-subscriber wait: 1 while no cursor ever attached (head is still
+ * 0, so the ring holds the stream from its first byte), the publisher's
+ * FIN has not arrived, and the ring was bound at most
+ * WIRED_MOQTREL_STALL_MS before now_ms -- keep the ring bound so a
+ * subscriber activated mid-stream can still read it all.
+ * @param b the ring
+ * @param now_ms current time in ms
+ * @return 1 keep waiting, 0 otherwise. */
+int moqtrel_awaits_sub(const moqtrel_buf* b, u64 now_ms);
 
 /** Completion check: 1 when every active cursor is shed or fin_done (so
  * the ring can go back to the pool).

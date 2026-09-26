@@ -82,3 +82,8 @@ int moqtrel_all_done(const moqtrel_buf* b) {
     if (rel_sub_open(&b->subs[i])) return 0;
   return 1;
 }
+
+int moqtrel_awaits_sub(const moqtrel_buf* b, u64 now_ms) {
+  return !b->fin_seen && b->head == 0 &&
+         now_ms - b->bound_ms <= WIRED_MOQTREL_STALL_MS;
+}
