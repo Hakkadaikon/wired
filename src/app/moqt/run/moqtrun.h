@@ -412,7 +412,9 @@ typedef struct {
   /** Reliable-relay rounds deferred because the subscriber session's
    * remaining send credit (io.send_budget) could not carry the round and
    * still leave WIRED_MOQTREL_HEADROOM for the session's lossy traffic.
-   * Each deferral retries on a later tick; nothing is lost. */
+   * Each deferral retries on a later tick, and none restarts the
+   * subscriber's stall clock: a credit drought outlasting
+   * WIRED_MOQTREL_STALL_MS sheds it like sustained refusals do. */
   u64 stat_rel_wait;
 } wired_moqt_hub;
 
