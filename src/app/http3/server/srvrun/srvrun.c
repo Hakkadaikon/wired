@@ -804,7 +804,7 @@ typedef struct {
  * srvrun_conn that never routes through srvrun_open_slot). */
 #define SRVRUN_CHUNK 1100
 /* Plaintext capacity for one STREAM-frame slice: the largest slice
- * srvrun_mps can yield (PMTU_MAX - PMTU_OVERHEAD) plus the
+ * srvrun_mps can yield (at most PMTU_MAX - PMTU_OVERHEAD) plus the
  * worst-case RFC 9000 19.8 STREAM header (1 type byte + three 8-byte
  * varints = 25). Derived from the PMTU constants, not a bare number: a
  * fixed 1400 held every SRVRUN_CHUNK-sized slice but not a full
@@ -829,8 +829,21 @@ typedef struct {
  * ~BDP (39.6kB observed) instead of BDP+queue and costing ~18% goodput. */
 #define SRVRUN_PACE_BURST (10 * MAX_DATAGRAM)
 
-/* RFC 8899 4.4: the Maximum Packet Size c's DPLPMTUD search has validated so
- * far, in stream bytes per packet -- every send-sizing call site in this
+/* RFC 9000 19.8: the largest STREAM frame header a slice can carry -- type
+ * byte + 8-byte stream id + 8-byte offset + 2-byte length (a slice never
+ * reaches 16384 bytes, the 4-byte varint threshold). */
+#define SRVRUN_STREAM_HDR_MAX 19
+
+/* RFC 8899 4.4 / RFC 9000 14: the Maximum Packet Size c's DPLPMTUD search
+ * has validated so far, in stream bytes per packet. pmtu_mps is the WHOLE
+ * plaintext of the acked probe (srvrun_pmtu_probe_len seals exactly that
+ * much PING+PADDING), so a slice gets that minus the worst-case STREAM
+ * header: header + slice (+ any piggybacked ACK, srvrun_slice_ack_peek)
+ * then never outgrows the validated probe's wire size, for any DCID length
+ * (the same short header wraps both). Spending pmtu_mps on stream bytes
+ * alone overshot every validated probe by the header -- 6 bytes on a
+ * 1432-byte PPPoE path, where every full-size packet was then lost and
+ * resent at the same size forever. Every send-sizing call site in this
  * file (wired_sendsess_arm's chunk argument, and the cwnd/credit gates that
  * must reserve room for the same chunk they will actually send) goes
  * through this one function instead of pmtu_mps directly, so a
@@ -839,7 +852,8 @@ typedef struct {
  * falls back to SRVRUN_CHUNK rather than underflowing pmtu_mps's
  * unsigned subtraction. */
 static usz srvrun_mps(const srvrun_conn* c) {
-  return c->pmtu.validated ? pmtu_mps(&c->pmtu) : SRVRUN_CHUNK;
+  return c->pmtu.validated ? pmtu_mps(&c->pmtu) - SRVRUN_STREAM_HDR_MAX
+                           : SRVRUN_CHUNK;
 }
 
 /* srvrun_conn.pmtu_probe_pn sentinel: no probe outstanding. A real pn never
@@ -983,6 +997,9 @@ struct wired_srvrun_env {
    * one whole GSO sendmsg each count 1) since srvrun_test_reset_flush_count.
    */
   usz tx_flush_count;
+  /* Test-only: the largest datagram srvrun_send/srvrun_send_staged has put
+   * out since the test last zeroed it (RFC 8899 4.4 PLPMTU bound checks). */
+  usz tx_max_len;
   /* GSO staging (srvrun_stage_put/srvrun_stage_flush): equal-size sealed
    * datagrams for one peer accumulated during a pump pass, flushed as one
    * UDP_SEGMENT sendmsg. seg_size is the first datagram's size; GSO's one
@@ -1054,6 +1071,7 @@ void wired_srvrun_env_wt_usage(
 #define g_srvrun_pto_next_ms (g_srvrun_env.pto_next_ms)
 #define g_srvrun_pto_spin (g_srvrun_env.pto_spin)
 #define g_srvrun_send_count (g_srvrun_env.send_count)
+#define g_srvrun_tx_max_len (g_srvrun_env.tx_max_len)
 
 typedef struct {
   conntable*   table;
@@ -1243,6 +1261,7 @@ static void srvrun_send(
     srvrun_qlog_sent(cfg, c, pkt.n);
     WIRED_LOG(what);
     g_srvrun_send_count++;
+    g_srvrun_tx_max_len = (usz)u64_max(g_srvrun_tx_max_len, pkt.n);
   }
 }
 
@@ -1359,6 +1378,7 @@ static void srvrun_send_staged(
   srvrun_qlog_sent(cfg, c, pkt.n);
   WIRED_LOG(what);
   g_srvrun_send_count++;
+  g_srvrun_tx_max_len = (usz)u64_max(g_srvrun_tx_max_len, pkt.n);
 }
 
 /* RFC 9000 8.1: this slot's remaining antiamp budget before path validation.
@@ -3623,6 +3643,14 @@ static int srvrun_queue_datagram(srvrun_conn* c, wired_span data) {
   return 1;
 }
 
+/* RFC 9221 5 / RFC 9000 14: the plaintext room one DATAGRAM frame may take
+ * -- the validated probe's whole plaintext (srvrun_mps plus the STREAM header
+ * it reserves), capped at the local buffer. A DATAGRAM cannot be split, so
+ * one past this is refused instead of sent into a path that drops it. */
+static usz srvrun_dg_room(const srvrun_conn* c, usz cap) {
+  return (usz)u64_min(cap, srvrun_mps(c) + SRVRUN_STREAM_HDR_MAX);
+}
+
 /* Seal one QUIC DATAGRAM (RFC 9221 5) carrying data into a 1-RTT packet and
  * send it. Unlike srvrun_send_slice/srvrun_send_goaway, there is no
  * wired_sendsess/ACK-loss bookkeeping: RFC 9221 1 DATAGRAM frames are never
@@ -3634,11 +3662,11 @@ static int srvrun_queue_datagram(srvrun_conn* c, wired_span data) {
  * exceed the peer's advertised limit. Shared by the single-slot pending
  * queue below and the session-addressed ring (srvrun_dgring_drain).
  * Returns 1 if sent, 0 if the frame could not be built (too large for the
- * peer's limit, or it would not fit the local buffer). */
+ * peer's limit, or past the validated PMTU's room, srvrun_dg_room). */
 static int srvrun_send_datagram_now(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_span data, wired_obuf* out) {
   u8                    pl[1400];
-  wired_obuf            plb        = obuf_of(pl, sizeof pl);
+  wired_obuf            plb        = obuf_of(pl, srvrun_dg_room(c, sizeof pl));
   u64                   peer_limit = c->s.sdrv.peer_max_datagram_frame_size;
   dgdeliver_opts        o = {.with_length = 1, .max_frame_size = peer_limit};
   wired_srvloop_send_in sin;
