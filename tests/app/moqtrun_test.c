@@ -60,6 +60,9 @@ static wired_wt_session* g_send_uni2_reject_sess;
  * (refused) while other sessions' sends succeed -- the datagram twin of
  * g_send_uni_reject_sess. */
 static wired_wt_session* g_send_dg_reject_sess;
+/* When >0, the next N open_uni_stream calls are recorded but return -1
+ * (refused) -- no uni-stream credit on the subscriber's connection. */
+static int g_open_uni_fail_n;
 
 static void moqtrun_test_reset(void) {
   g_n_calls                 = 0;
@@ -72,6 +75,7 @@ static void moqtrun_test_reset(void) {
   g_send_uni2_fail_n        = 0;
   g_send_uni2_reject_sess   = 0;
   g_send_dg_reject_sess     = 0;
+  g_open_uni_fail_n         = 0;
 }
 
 static void moqtrun_test_record(
@@ -146,6 +150,10 @@ static i64 moqtrun_test_open_uni_stream(
     wired_wt_session* s, wired_span payload) {
   i64 sid = g_next_stream_id++;
   moqtrun_test_record(5, s, (u64)sid, 0, payload);
+  if (g_open_uni_fail_n > 0) {
+    g_open_uni_fail_n--;
+    return -1;
+  }
   return sid;
 }
 
@@ -4299,6 +4307,30 @@ static void test_moqt_reliable_relay_reused_slot_gets_whole_stream(void) {
   CHECK(moqtrun_test_last_kind(3)->fin == 1);
 }
 
+/* A late subscriber whose stream open is refused gets no cursor (counted
+ * on stat_open_drop) and is retried on the next drain, still receiving
+ * the whole stream. */
+static void test_moqt_reliable_relay_late_open_refused_retries(void) {
+  wired_moqt_hub hub;
+  u8             first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz            first_n = moqtrun_test_start_reliable_no_subs(&hub, first);
+  moqtrun_test_subscribe_audio_as(&hub, SESS_B);
+
+  moqtrun_test_reset();
+  g_open_uni_fail_n = 1;
+  moqtrun_test_send_audio_round(&hub, 999, 8);
+  CHECK(hub.stat_open_drop == 1);
+  CHECK(hub.rel_pool[0].subs[0].active == 0); /* no cursor */
+  CHECK(moqtrun_test_count_kind(3) == 0);
+
+  moqtrun_test_reset();
+  wired_moqt_tick(&hub, 1); /* retried */
+  usz hdr_n = hub.peers[0].tracks[1].relays[0].hdr_len;
+  u8  exp[64];
+  usz exp_n = moqtrun_test_late_expect(first, first_n, hdr_n, 8, 8, exp);
+  CHECK(moqtrun_test_got_whole(SESS_B, first, hdr_n, exp, exp_n));
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -4418,4 +4450,5 @@ void test_moqtrun(void) {
   test_moqt_reliable_relay_late_sub_after_fin_gets_whole();
   test_moqt_reliable_relay_unsubscribed_hold_is_bounded();
   test_moqt_reliable_relay_reused_slot_gets_whole_stream();
+  test_moqt_reliable_relay_late_open_refused_retries();
 }
