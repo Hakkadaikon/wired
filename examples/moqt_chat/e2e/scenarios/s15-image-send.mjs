@@ -14,31 +14,13 @@
 // loadTest.mjs uses to submit.
 
 import { CANDIDATE_PARTICIPANT_IDS } from "../lib/loadTest.mjs";
+import { startUdpProxy } from "../lib/udpProxy.mjs";
+import { joinStabilityClient, closeClient } from "../lib/stabilityClient.mjs";
 
 const JOIN_TIMEOUT_MS = 20000;
 const IMAGE_TIMEOUT_MS = 30000;
-
-async function joinClient(browser, pageUrl, certHash, participantId) {
-  const ctx = await browser.createBrowserContext();
-  const page = await ctx.newPage();
-  const errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-
-  // ns=0 disables the voice pipeline (see loadTest.mjs's joinClient for
-  // why): this scenario measures the image chunk transport, not RNNoise CPU.
-  const nsOffUrl = new URL(pageUrl);
-  nsOffUrl.searchParams.set("ns", "0");
-  await page.goto(nsOffUrl.href);
-  await page.type('input[data-testid="certHash"]', certHash);
-  await page.click(`[data-testid="participant-${participantId}"]`);
-  await page.click('[data-testid="connect"]');
-  await page.waitForFunction(
-    () => document.querySelector('[data-testid="status"]')?.getAttribute("data-status") === "connected",
-    { timeout: JOIN_TIMEOUT_MS },
-  );
-
-  return { tag: participantId, page, errors, ctx };
-}
+const PROXY_BASE = 25433; // distinct from s13 (24433)
+const SERVER_PORT = 4433;
 
 /** Deterministic non-zero byte pattern -- catches an all-zero reassembly bug
  * that an all-zero fixture would hide. */
@@ -332,18 +314,39 @@ async function runAttachmentOnlyCase(sender, receiver, failures, report) {
   }
 }
 
-export async function run({ browser, pageUrl, server, arg, log }) {
+export async function run({ pageUrl, server, arg, log }) {
   const smallBytes = Number(arg("small-bytes", "300"));
   const largeBytes = Number(arg("large-bytes", "20000"));
+  // RTT/loss injection through the same per-flow UDP proxy s13 uses; the
+  // defaults (0/0) forward untouched, so the plain run behaves as before.
+  const jitterMs = Number(arg("jitter-ms", "0"));
+  const lossRate = Number(arg("loss-rate", "0"));
   const [tagA, tagB] = CANDIDATE_PARTICIPANT_IDS;
 
-  log(`connecting 2 clients (${tagA}, ${tagB})`);
-  const clientA = await joinClient(browser, pageUrl, server.certHash, tagA);
-  const clientB = await joinClient(browser, pageUrl, server.certHash, tagB);
+  const proxy = await startUdpProxy({
+    listenBase: PROXY_BASE,
+    upstreamPort: SERVER_PORT,
+    flowCount: 2,
+    profile: { lossRate, seed: 1, jitterBaseMs: jitterMs },
+  });
 
   const failures = [];
-  const report = { cases: {} };
+  const report = { cases: {}, jitterMs, lossRate };
+  const clients = [];
   try {
+    log(`connecting 2 clients (${tagA}, ${tagB}) via proxy (jitter ${jitterMs}ms, loss ${lossRate})`);
+    for (const [i, tag] of [tagA, tagB].entries()) {
+      clients.push(
+        await joinStabilityClient({
+          pageUrl,
+          serverUrl: `https://127.0.0.1:${proxy.port(i)}/`,
+          certHash: server.certHash,
+          participantId: tag,
+        }),
+      );
+    }
+    const [clientA, clientB] = clients;
+
     log(`case small: ${smallBytes} bytes, A -> B`);
     await runCase(clientA, clientB, "small", smallBytes, failures, report);
 
@@ -359,14 +362,15 @@ export async function run({ browser, pageUrl, server, arg, log }) {
     log("case attachment-only: A -> B");
     await runAttachmentOnlyCase(clientA, clientB, failures, report);
 
-    for (const client of [clientA, clientB]) {
+    for (const client of clients) {
       if (client.errors.length > 0) {
         failures.push(`client ${client.tag} page errors: ${client.errors.join("; ")}`);
       }
     }
+    report.proxyStats = proxy.stats();
   } finally {
-    await clientA.ctx.close().catch(() => {});
-    await clientB.ctx.close().catch(() => {});
+    for (const client of clients) await closeClient(client);
+    proxy.close();
   }
 
   return { report, failures };
