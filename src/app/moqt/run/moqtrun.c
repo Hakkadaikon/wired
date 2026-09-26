@@ -73,6 +73,8 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   hub->stat_rel_stall       = 0;
   hub->stat_rel_overflow    = 0;
   hub->stat_rel_wait        = 0;
+  hub->stat_rel_sent        = 0;
+  hub->stat_rel_refused     = 0;
   for (usz i = 0; i < WIRED_MOQTREL_POOL; i++) moqtrel_reset(&hub->rel_pool[i]);
 }
 
@@ -1467,8 +1469,12 @@ static void moqtrun_rel_send_span(
     wired_span           span,
     u64                  now_ms) {
   int fin_flag = moqtrun_rel_round_fins(rb, i, span.n);
-  if (hub->io.stream_send(wt, relay->sub_stream_id[i], span, fin_flag) == 1)
-    moqtrun_rel_round_ok(rb, i, span.n, fin_flag, now_ms);
+  if (hub->io.stream_send(wt, relay->sub_stream_id[i], span, fin_flag) != 1) {
+    hub->stat_rel_refused++;
+    return;
+  }
+  hub->stat_rel_sent++;
+  moqtrun_rel_round_ok(rb, i, span.n, fin_flag, now_ms);
 }
 
 /* One send round for cursor i: the ring's next contiguous span, deferred
