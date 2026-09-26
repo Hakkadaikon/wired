@@ -983,6 +983,9 @@ struct wired_srvrun_env {
    * one whole GSO sendmsg each count 1) since srvrun_test_reset_flush_count.
    */
   usz tx_flush_count;
+  /* Test-only: the largest datagram srvrun_send/srvrun_send_staged has put
+   * out since the test last zeroed it (RFC 8899 4.4 PLPMTU bound checks). */
+  usz tx_max_len;
   /* GSO staging (srvrun_stage_put/srvrun_stage_flush): equal-size sealed
    * datagrams for one peer accumulated during a pump pass, flushed as one
    * UDP_SEGMENT sendmsg. seg_size is the first datagram's size; GSO's one
@@ -1054,6 +1057,7 @@ void wired_srvrun_env_wt_usage(
 #define g_srvrun_pto_next_ms (g_srvrun_env.pto_next_ms)
 #define g_srvrun_pto_spin (g_srvrun_env.pto_spin)
 #define g_srvrun_send_count (g_srvrun_env.send_count)
+#define g_srvrun_tx_max_len (g_srvrun_env.tx_max_len)
 
 typedef struct {
   conntable*   table;
@@ -1243,6 +1247,7 @@ static void srvrun_send(
     srvrun_qlog_sent(cfg, c, pkt.n);
     WIRED_LOG(what);
     g_srvrun_send_count++;
+    g_srvrun_tx_max_len = (usz)u64_max(g_srvrun_tx_max_len, pkt.n);
   }
 }
 
@@ -1359,6 +1364,7 @@ static void srvrun_send_staged(
   srvrun_qlog_sent(cfg, c, pkt.n);
   WIRED_LOG(what);
   g_srvrun_send_count++;
+  g_srvrun_tx_max_len = (usz)u64_max(g_srvrun_tx_max_len, pkt.n);
 }
 
 /* RFC 9000 8.1: this slot's remaining antiamp budget before path validation.
