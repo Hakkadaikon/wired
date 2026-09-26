@@ -423,6 +423,25 @@ typedef struct {
   /** Reliable-relay rounds the subscriber's transport refused (send slot
    * busy or session credit exhausted); each retries on a later tick. */
   u64 stat_rel_refused;
+  /** Reliable-relay rings bound to a fresh publisher stream (one per
+   * attachment stream a reliable track's publisher opened). */
+  u64 stat_rel_rings;
+  /** Bytes the reliable relay appended from publishers (header and whole
+   * Objects; the ring's own overflow refusals are not included). */
+  u64 stat_rel_in_bytes;
+  /** Publisher FINs the reliable relay recorded (the attachment stream's
+   * last byte reached the hub). */
+  u64 stat_rel_fin_in;
+  /** Subscriber streams the reliable relay closed with a FIN (the
+   * attachment's last byte was accepted by that subscriber's transport). */
+  u64 stat_rel_fin_out;
+  /** Times the reliable relay froze a publisher's receive credit because
+   * its ring filled past the hold watermark. */
+  u64 stat_rel_hold;
+  /** Rings returned to the pool before the publisher's FIN because no
+   * subscriber cursor was left (none attached at the start, or all were
+   * given up): the rest of that stream relays on the lossy path. */
+  u64 stat_rel_early_return;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */

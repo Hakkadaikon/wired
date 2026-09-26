@@ -52,29 +52,35 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   }
   moqtrun_track_clear_relays(&hub->blob_track);
   moqtrun_track_clear_relays(&hub->live.track);
-  hub->io                   = io;
-  hub->authorize_subscribe  = 0;
-  hub->authorize_ctx        = 0;
-  hub->stat_frag_drop       = 0;
-  hub->stat_relay_sent      = 0;
-  hub->stat_relay_drop      = 0;
-  hub->stat_open_drop       = 0;
-  hub->stat_relay_reset     = 0;
-  hub->stat_relay_full      = 0;
-  hub->stat_dg_sent         = 0;
-  hub->stat_dg_drop         = 0;
-  hub->stat_dg_bad          = 0;
-  hub->blob_track.in_use    = 0;
-  hub->live.track.in_use    = 0;
-  hub->live.last_now_ms     = 0;
-  hub->stat_live_sent       = 0;
-  hub->stat_live_drop       = 0;
-  hub->reliable_alias_limit = 0;
-  hub->stat_rel_stall       = 0;
-  hub->stat_rel_overflow    = 0;
-  hub->stat_rel_wait        = 0;
-  hub->stat_rel_sent        = 0;
-  hub->stat_rel_refused     = 0;
+  hub->io                    = io;
+  hub->authorize_subscribe   = 0;
+  hub->authorize_ctx         = 0;
+  hub->stat_frag_drop        = 0;
+  hub->stat_relay_sent       = 0;
+  hub->stat_relay_drop       = 0;
+  hub->stat_open_drop        = 0;
+  hub->stat_relay_reset      = 0;
+  hub->stat_relay_full       = 0;
+  hub->stat_dg_sent          = 0;
+  hub->stat_dg_drop          = 0;
+  hub->stat_dg_bad           = 0;
+  hub->blob_track.in_use     = 0;
+  hub->live.track.in_use     = 0;
+  hub->live.last_now_ms      = 0;
+  hub->stat_live_sent        = 0;
+  hub->stat_live_drop        = 0;
+  hub->reliable_alias_limit  = 0;
+  hub->stat_rel_stall        = 0;
+  hub->stat_rel_overflow     = 0;
+  hub->stat_rel_wait         = 0;
+  hub->stat_rel_sent         = 0;
+  hub->stat_rel_refused      = 0;
+  hub->stat_rel_rings        = 0;
+  hub->stat_rel_in_bytes     = 0;
+  hub->stat_rel_fin_in       = 0;
+  hub->stat_rel_fin_out      = 0;
+  hub->stat_rel_hold         = 0;
+  hub->stat_rel_early_return = 0;
   for (usz i = 0; i < WIRED_MOQTREL_POOL; i++) moqtrel_reset(&hub->rel_pool[i]);
 }
 
@@ -1296,7 +1302,11 @@ static moqtrel_buf* moqtrun_rel_acquire(wired_moqt_hub* hub) {
 static void moqtrun_rel_take(
     wired_moqt_hub* hub, moqtrel_buf* rb, wired_span whole) {
   if (whole.n == 0) return;
-  if (!moqtrel_append(rb, whole)) hub->stat_rel_overflow++;
+  if (!moqtrel_append(rb, whole)) {
+    hub->stat_rel_overflow++;
+    return;
+  }
+  hub->stat_rel_in_bytes += whole.n;
 }
 
 /* Binds a free ring to relay for a reliable track: the publisher recorded
@@ -1321,6 +1331,7 @@ static void moqtrun_rel_bind(
   rb->pub_stream = pub_stream_id;
   moqtrun_rel_take(hub, rb, head);
   relay->rel_idx = (i32)(rb - hub->rel_pool);
+  hub->stat_rel_rings++;
 }
 
 /* Reliable gate for a fresh keep-open stream: only a track below the
@@ -1417,8 +1428,9 @@ static void moqtrun_rel_try_fin(
     moqtrel_buf*         rb,
     usz                  i) {
   if (!rb->fin_seen) return;
-  if (hub->io.stream_fin(wt, relay->sub_stream_id[i]) == 1)
-    rb->subs[i].fin_done = 1;
+  if (hub->io.stream_fin(wt, relay->sub_stream_id[i]) != 1) return;
+  rb->subs[i].fin_done = 1;
+  hub->stat_rel_fin_out++;
 }
 
 /* 1 when this round's last byte is the stream's last byte ever: the
@@ -1430,9 +1442,16 @@ static int moqtrun_rel_round_fins(const moqtrel_buf* rb, usz i, usz n) {
 /* An accepted round: advance the cursor (restarting its stall clock) and
  * mark the FIN done when the round carried it. */
 static void moqtrun_rel_round_ok(
-    moqtrel_buf* rb, usz i, usz n, int fin_flag, u64 now_ms) {
+    wired_moqt_hub* hub,
+    moqtrel_buf*    rb,
+    usz             i,
+    usz             n,
+    int             fin_flag,
+    u64             now_ms) {
   moqtrel_note_sent(rb, (u32)i, n, now_ms);
-  if (fin_flag) rb->subs[i].fin_done = 1;
+  if (!fin_flag) return;
+  rb->subs[i].fin_done = 1;
+  hub->stat_rel_fin_out++;
 }
 
 /* 1 when session wt's remaining credit can carry an n-byte round and
@@ -1474,7 +1493,7 @@ static void moqtrun_rel_send_span(
     return;
   }
   hub->stat_rel_sent++;
-  moqtrun_rel_round_ok(rb, i, span.n, fin_flag, now_ms);
+  moqtrun_rel_round_ok(hub, rb, i, span.n, fin_flag, now_ms);
 }
 
 /* One send round for cursor i: the ring's next contiguous span, deferred
@@ -1546,6 +1565,7 @@ static void moqtrun_rel_maybe_done(
     wired_moqt_hub* hub, wired_moqtrun_relay* relay, moqtrel_buf* rb) {
   if (!moqtrel_all_done(rb)) return;
   int fin_seen = rb->fin_seen;
+  hub->stat_rel_early_return += (u64)!fin_seen;
   moqtrun_rel_return_ring(hub, relay, rb);
   if (fin_seen) relay->in_use = 0;
 }
@@ -1575,6 +1595,7 @@ static void moqtrun_rel_maybe_hold(wired_moqt_hub* hub, moqtrel_buf* rb) {
   if (!rb->in_use || !moqtrel_should_hold(rb)) return;
   hub->io.stream_hold(rb->pub, rb->pub_stream, 1);
   rb->held = 1;
+  hub->stat_rel_hold++;
 }
 
 /* A later delivery on a ring-backed relay: append the whole-Object bytes
@@ -1588,7 +1609,10 @@ static void moqtrun_rel_continue(
     int                  fin) {
   moqtrel_buf* rb = &hub->rel_pool[relay->rel_idx];
   moqtrun_rel_take(hub, rb, whole);
-  if (fin) rb->fin_seen = 1;
+  if (fin) {
+    rb->fin_seen = 1;
+    hub->stat_rel_fin_in++;
+  }
   moqtrun_rel_drain_one(hub, track, relay, rb, hub->live.last_now_ms);
   moqtrun_rel_maybe_hold(hub, rb);
 }
