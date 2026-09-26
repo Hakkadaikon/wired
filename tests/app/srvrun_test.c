@@ -15053,6 +15053,16 @@ static void test_srvrun_wt_stream_reset_latch_full_keeps_slot(void) {
  * raise the limit with a capsule (srvrun_wt_rx_capsules); it never closes
  * its own session over its own refused send. */
 
+/* One srvrun_on_step pass with no inbound datagram -- the step the old
+ * refuse-then-close latch used to convert a refusal into a session close.
+ * The refused-send tests below cross it before asserting the session is
+ * untouched, so a step-time close (however reintroduced) fails them. */
+static void sr_step_once_no_input(srvrun_conn* c) {
+  srvrun_cfg      cfg = sr_wt_send_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, 0, 0, 0};
+  srvrun_on_step(&ctx, c, wired_mspan_of(0, 0));
+}
+
 /* MAX_STREAMS OK: with max_streams_uni == 1, the first open succeeds and
  * advances the session's own opened_streams_uni counter (session.h's
  * wired_wt_session_note_stream_opened, so a second call sees count==1). */
@@ -15071,10 +15081,10 @@ static void test_srvrun_wt_open_uni_within_max_streams_succeeds(void) {
 
 /* MAX_STREAMS EXCEEDED (W-07/WTH3-058): with max_streams_uni already at its
  * limit (1 opened, 1 allowed), the next open is refused (-1) and consumes no
- * send slot -- and NOTHING else happens: the session stays established and
- * the session's own streams are left alone (no RESET_STREAM/STOP_SENDING),
- * because the sender's job is to wait for a WT_MAX_STREAMS raise, not to
- * close (SS5.3). */
+ * send slot -- and NOTHING else happens, including on the NEXT step
+ * (sr_step_once_no_input): the session stays established and the session's
+ * own streams are left alone (no RESET_STREAM/STOP_SENDING), because the
+ * sender's job is to wait for a WT_MAX_STREAMS raise, not to close (SS5.3). */
 static void test_srvrun_wt_open_uni_exceeding_max_streams_refused(void) {
   struct lp_fix   f;
   wired_obuf      ob = {0};
@@ -15091,6 +15101,7 @@ static void test_srvrun_wt_open_uni_exceeding_max_streams_refused(void) {
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == -1);
   CHECK(c->wtsend[1].in_use == 0); /* second slot never claimed */
+  sr_step_once_no_input(c);
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
   CHECK(c->wt_active == 1);
   CHECK(c->l.wt_streams[0].in_use == 1); /* owned stream not reset */
@@ -15116,6 +15127,7 @@ static void test_srvrun_wt_open_bidi_exceeding_max_streams_refused(void) {
   CHECK(
       wired_server_wt_open_bidi(&c->wt, wired_span_of(pay, sizeof pay)) == -1);
   CHECK(c->wtsend[1].in_use == 0); /* second slot never claimed */
+  sr_step_once_no_input(c);
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
   CHECK(c->wt_active == 1);
   CHECK(c->l.wt_streams[0].in_use == 1); /* owned stream not reset */
@@ -15138,6 +15150,7 @@ static void test_srvrun_wt_open_uni_exceeding_max_data_refused(void) {
   c->l.wt_streams[0].offered         = 1;
   c->l.wt_streams[0].wt_session_slot = 0;
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == -1);
+  sr_step_once_no_input(c);
   CHECK(c->wt.sent_data == 0);
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
   CHECK(c->wt_active == 1);
@@ -15163,6 +15176,7 @@ static void test_srvrun_wt_stream_reply_exceeding_max_data_refused(void) {
   CHECK(
       wired_server_wt_stream_reply(&c->wt, 8, wired_span_of(pay, sizeof pay)) ==
       0);
+  sr_step_once_no_input(c);
   CHECK(c->wt.sent_data == 0);
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
   CHECK(c->wt_active == 1);
