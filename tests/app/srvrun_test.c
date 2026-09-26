@@ -15070,9 +15070,11 @@ static void test_srvrun_wt_open_uni_within_max_streams_succeeds(void) {
 }
 
 /* MAX_STREAMS EXCEEDED (W-07/WTH3-058): with max_streams_uni already at its
- * limit (1 opened, 1 allowed), the next open is refused (-1), consumes no
- * send slot, and latches wt_flow_violation[0] for srvrun_close_wt_flow_
- * violations to close on the next step. */
+ * limit (1 opened, 1 allowed), the next open is refused (-1) and consumes no
+ * send slot -- and NOTHING else happens: the session stays established and
+ * the session's own streams are left alone (no RESET_STREAM/STOP_SENDING),
+ * because the sender's job is to wait for a WT_MAX_STREAMS raise, not to
+ * close (SS5.3). */
 static void test_srvrun_wt_open_uni_exceeding_max_streams_refused(void) {
   struct lp_fix   f;
   wired_obuf      ob = {0};
@@ -15082,14 +15084,21 @@ static void test_srvrun_wt_open_uni_exceeding_max_streams_refused(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_wtsend_fixture(&f, &ob);
   wired_wt_session_set_max_streams(&c->wt, 0, 1);
+  c->l.wt_streams[0].in_use          = 1;
+  c->l.wt_streams[0].stream_id       = 8;
+  c->l.wt_streams[0].offered         = 1;
+  c->l.wt_streams[0].wt_session_slot = 0;
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == -1);
   CHECK(c->wtsend[1].in_use == 0); /* second slot never claimed */
-  CHECK(c->wt_flow_violation[0] == 1);
+  CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(c->wt_active == 1);
+  CHECK(c->l.wt_streams[0].in_use == 1); /* owned stream not reset */
 }
 
 /* MAX_STREAMS EXCEEDED, BIDI (W-07/WTH3-058): same gate, the bidi direction
- * (wired_server_wt_open_bidi, bidi=1 checked against max_streams_bidi). */
+ * (wired_server_wt_open_bidi, bidi=1 checked against max_streams_bidi) --
+ * and the same refuse-without-closing contract as the uni test above. */
 static void test_srvrun_wt_open_bidi_exceeding_max_streams_refused(void) {
   struct lp_fix   f;
   wired_obuf      ob = {0};
@@ -15099,11 +15108,17 @@ static void test_srvrun_wt_open_bidi_exceeding_max_streams_refused(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_wtsend_fixture(&f, &ob);
   wired_wt_session_set_max_streams(&c->wt, 1, 1); /* bidi limit = 1 */
+  c->l.wt_streams[0].in_use          = 1;
+  c->l.wt_streams[0].stream_id       = 8;
+  c->l.wt_streams[0].offered         = 1;
+  c->l.wt_streams[0].wt_session_slot = 0;
   CHECK(wired_server_wt_open_bidi(&c->wt, wired_span_of(pay, sizeof pay)) == 1);
   CHECK(
       wired_server_wt_open_bidi(&c->wt, wired_span_of(pay, sizeof pay)) == -1);
   CHECK(c->wtsend[1].in_use == 0); /* second slot never claimed */
-  CHECK(c->wt_flow_violation[0] == 1);
+  CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(c->wt_active == 1);
+  CHECK(c->l.wt_streams[0].in_use == 1); /* owned stream not reset */
 }
 
 /* MAX_DATA EXCEEDED (W-10/WTH3-061): with max_data == 2 and a 4-byte payload,
@@ -15118,9 +15133,15 @@ static void test_srvrun_wt_open_uni_exceeding_max_data_refused(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_wtsend_fixture(&f, &ob);
   wired_wt_session_set_max_data(&c->wt, 2);
+  c->l.wt_streams[0].in_use          = 1;
+  c->l.wt_streams[0].stream_id       = 8;
+  c->l.wt_streams[0].offered         = 1;
+  c->l.wt_streams[0].wt_session_slot = 0;
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == -1);
   CHECK(c->wt.sent_data == 0);
-  CHECK(c->wt_flow_violation[0] == 1);
+  CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(c->wt_active == 1);
+  CHECK(c->l.wt_streams[0].in_use == 1); /* owned stream not reset */
 }
 
 /* MAX_DATA EXCEEDED, STREAM REPLY (W-10/WTH3-061): wired_server_wt_stream_
@@ -15135,11 +15156,17 @@ static void test_srvrun_wt_stream_reply_exceeding_max_data_refused(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_wtsend_fixture(&f, &ob);
   wired_wt_session_set_max_data(&c->wt, 1);
+  c->l.wt_streams[0].in_use          = 1;
+  c->l.wt_streams[0].stream_id       = 8;
+  c->l.wt_streams[0].offered         = 1;
+  c->l.wt_streams[0].wt_session_slot = 0;
   CHECK(
       wired_server_wt_stream_reply(&c->wt, 8, wired_span_of(pay, sizeof pay)) ==
       0);
   CHECK(c->wt.sent_data == 0);
-  CHECK(c->wt_flow_violation[0] == 1);
+  CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(c->wt_active == 1);
+  CHECK(c->l.wt_streams[0].in_use == 1); /* owned stream not reset */
 }
 
 /* CLOSE ON VIOLATION (W-07/W-10, WTH3-058/WTH3-061): once wt_flow_violation[0]

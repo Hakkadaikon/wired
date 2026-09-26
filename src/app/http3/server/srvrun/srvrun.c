@@ -4097,26 +4097,21 @@ static int wt_session_slot_or_absent(srvrun_conn* c, wired_wt_session* s) {
   return c ? srvrun_conn_session_slot(c, s) : -1;
 }
 
-/* draft-ietf-webtrans-http3-15 SS5.3/SS5.4/8.2 (WTH3-058/WTH3-061): 1 iff
- * sidx names a real slot (c is live and owns s) AND opening one more stream
- * of the given direction with payload.n bytes of Stream Body stays within
- * whichever peer-advertised WT_MAX_STREAMS/WT_MAX_DATA limits are currently
- * in force (wt_flow_allows_open -- a limit of 0 means "no capsule received
- * yet", which both predicates already treat as "allowed", so a session that
- * never opted into flow control is never gated here). On a limit violation,
- * c's session slot sidx is latched for closing with WT_FLOW_CONTROL_ERROR on
- * the next srvrun_on_step (wt_flow_violation's own doc) instead of opening
- * the stream. @param sidx wt_session_slot_or_absent's result */
+/* draft-ietf-webtrans-http3-15 SS5.3/SS5.4 (WTH3-058/WTH3-061): 1 iff sidx
+ * names a real slot (the owning connection is live and owns s) AND opening
+ * one more stream of the given direction with payload.n bytes of Stream Body
+ * stays within whichever peer-advertised WT_MAX_STREAMS/WT_MAX_DATA limits
+ * are currently in force (wt_flow_allows_open -- a limit of 0 means "no
+ * capsule received yet", which both predicates already treat as "allowed",
+ * so a session that never opted into flow control is never gated here). A
+ * sender must simply not exceed the peer's limits, so an over-limit open is
+ * refused and nothing else happens: the session stays established, and the
+ * same open succeeds once the peer raises the limit with a WT_MAX_DATA/
+ * WT_MAX_STREAMS capsule (srvrun_wt_rx_capsules). Only a RECEIVER closes on
+ * the PEER's violation. @param sidx wt_session_slot_or_absent's result */
 static int wt_open_flow_ok(
-    srvrun_conn*      c,
-    int               sidx,
-    wired_wt_session* s,
-    int               bidi,
-    wired_span        payload) {
-  if (sidx < 0) return 0;
-  if (wt_flow_allows_open(s, bidi, payload)) return 1;
-  c->wt_flow_violation[sidx] = 1;
-  return 0;
+    int sidx, wired_wt_session* s, int bidi, wired_span payload) {
+  return sidx >= 0 && wt_flow_allows_open(s, bidi, payload);
 }
 
 /* 1 iff c's own server-initiated uni-stream grant (peer_uni_stream_limit)
@@ -4138,7 +4133,7 @@ static int srvrun_wt_uni_grant_ok(srvrun_conn* c) {
  * the stream and everything sent on it. */
 static int srvrun_wt_uni_open_ok(
     srvrun_conn* c, int sidx, wired_wt_session* s, wired_span payload) {
-  if (!wt_open_flow_ok(c, sidx, s, 0, payload)) return 0;
+  if (!wt_open_flow_ok(sidx, s, 0, payload)) return 0;
   return srvrun_wt_uni_grant_ok(c);
 }
 
@@ -4189,7 +4184,7 @@ static i64 srvrun_wt_open_bidi_common(
   int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
   u64            id;
-  if (!wt_open_flow_ok(c, sidx, s, 1, payload)) return -1;
+  if (!wt_open_flow_ok(sidx, s, 1, payload)) return -1;
   w = srvrun_wtsend_claim(
       c, c->s.sdrv.peer_initial_max_stream_data_bidi_remote);
   if (!w) return -1;
@@ -4209,17 +4204,14 @@ i64 wired_server_wt_open_bidi_stream(wired_wt_session* s, wired_span payload) {
   return srvrun_wt_open_bidi_common(s, payload, 1);
 }
 
-/* draft-ietf-webtrans-http3-15 SS5.4/8.2 (WTH3-061): same WT_MAX_DATA gate as
+/* draft-ietf-webtrans-http3-15 SS5.4 (WTH3-061): same WT_MAX_DATA gate as
  * wt_open_flow_ok, minus the stream-count half -- a reply on an already-open
  * client-initiated stream opens no new stream, so only wired_wt_session_data_
- * send_allowed applies. On a violation, c's session slot sidx is latched the
- * same way wt_open_flow_ok does. */
-static int wt_reply_flow_ok(
-    srvrun_conn* c, int sidx, wired_wt_session* s, usz len) {
-  if (sidx < 0) return 0;
-  if (wired_wt_session_data_send_allowed(s, len)) return 1;
-  c->wt_flow_violation[sidx] = 1;
-  return 0;
+ * send_allowed applies. An over-limit send is refused the same way
+ * wt_open_flow_ok refuses: the session stays established and the same round
+ * is accepted once a WT_MAX_DATA capsule raises the limit. */
+static int wt_reply_flow_ok(int sidx, wired_wt_session* s, usz len) {
+  return sidx >= 0 && wired_wt_session_data_send_allowed(s, len);
 }
 
 /* Shared body of the one-shot and keep-open replies on a client-initiated
@@ -4229,7 +4221,7 @@ static int srvrun_wt_stream_reply_common(
   srvrun_conn*   c    = srvrun_session_conn(s);
   int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
-  if (!wt_reply_flow_ok(c, sidx, s, payload.n)) return 0;
+  if (!wt_reply_flow_ok(sidx, s, payload.n)) return 0;
   /* RFC 9000 18.2: the peer's bidi_local TP governs what we may send on a
    * stream the peer itself initiated -- same seed resp[] claiming uses. */
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_bidi_local);
@@ -4356,15 +4348,21 @@ static int srvrun_wtsend_busy_reject(const srvrun_wtsend* w, usz len) {
   return srvrun_wtsend_open_slot(w) && len != 0;
 }
 
+/* The flow-refused -1: count the drop where a live connection exists to
+ * count it on (c is 0 when s resolves to no connection at all -- that
+ * lookup failure shares the same refusal return). */
+static int srvrun_wtsend_flow_refuse(srvrun_conn* c) {
+  if (c) c->stat_wtsend_flow++;
+  return -1;
+}
+
 int wired_server_wt_stream_send(
     wired_wt_session* s, u64 stream_id, wired_span payload, int fin) {
   srvrun_conn*   c    = srvrun_session_conn(s);
   int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
-  if (!wt_reply_flow_ok(c, sidx, s, payload.n)) {
-    c->stat_wtsend_flow++;
-    return -1;
-  }
+  if (!wt_reply_flow_ok(sidx, s, payload.n))
+    return srvrun_wtsend_flow_refuse(c);
   w = srvrun_wtsend_find(c, stream_id);
   if (!srvrun_wtsend_accept_round(c, w, payload, fin)) {
     c->stat_wtsend_busy += (u64)srvrun_wtsend_busy_reject(w, payload.n);
