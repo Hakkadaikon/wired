@@ -254,11 +254,15 @@ typedef struct {
  * control-stream MOQT session machine, and the tracks (chat/audio) it has
  * PUBLISHed. */
 typedef struct {
-  int                 in_use;
-  wired_wt_session*   wt;
-  u64                 control_stream_id;
-  moqsess             sess;
-  u64                 request_id_next; /* next Request ID this hub sends */
+  int               in_use;
+  wired_wt_session* wt;
+  u64               control_stream_id;
+  moqsess           sess;
+  u64               request_id_next; /* next Request ID this hub sends */
+  /** Registration order (wired_moqt_init-relative, never reused): a
+   * higher value is a newer session. Decides which of two sessions
+   * PUBLISHing the same name owns it (moqtrun_supersede_name). */
+  u64                 join_seq;
   wired_moqtrun_track tracks[WIRED_MOQTRUN_MAX_TRACKS_PER_PEER];
   /** Track Names this peer has successfully SUBSCRIBEd to (ring, newest
    * overwrites oldest past WIRED_MOQTRUN_SUB_NAMES) -- kept on the
@@ -329,6 +333,8 @@ typedef int (*wired_moqt_authorize_fn)(
 typedef struct {
   wired_moqtrun_peer peers[WIRED_MOQTRUN_MAX_SESSIONS];
   wired_moqt_io      io;
+  /** Next wired_moqtrun_peer.join_seq to hand out. */
+  u64 join_seq_next;
   /** Subscriber authorizer (SS13.3); 0 (the wired_moqt_init default)
    * means an open hub that grants every SUBSCRIBE -- the sample-room
    * policy, not one for a public relay, which sets this. */

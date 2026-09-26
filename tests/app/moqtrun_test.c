@@ -2743,6 +2743,53 @@ static void test_moqtrun_newer_publish_supersedes_old_track(void) {
   CHECK(moqtrun_test_relay_chat_on(&hub, SESS_A) == 0);
 }
 
+/* Order independence: the rejoined session C (newer) PUBLISHes first and
+ * the dying attempt A (older) PUBLISHes the same name late. A must not
+ * take the name back -- its PUBLISH is refused and C keeps delivering to
+ * the subscriber. */
+static void test_moqtrun_older_late_publish_does_not_supersede(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_join(&hub, SESS_A); /* older, still silent */
+  moqtrun_test_publish_alice_on(&hub, SESS_C);
+  u64 ctrl_b = moqtrun_test_join(&hub, SESS_B);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, ctrl_a,
+      wired_span_of(g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN), 0);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_REQUEST_ERROR);
+
+  CHECK(moqtrun_test_relay_chat_on(&hub, SESS_C) == 1);
+  CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
+  CHECK(moqtrun_test_relay_chat_on(&hub, SESS_A) == 0);
+}
+
+/* The superseded session is finally reaped: its close must not take the
+ * moved subscription with it. */
+static void test_moqtrun_superseded_close_keeps_new_delivery(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  u64 ctrl_b = moqtrun_test_join(&hub, SESS_B);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+  moqtrun_test_publish_alice_on(&hub, SESS_C);
+
+  wired_moqt_on_session_close(&hub, SESS_A);
+
+  CHECK(moqtrun_test_relay_chat_on(&hub, SESS_C) == 1);
+  CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
+}
+
 /* Each of three other participants publishes chat+audio+screen (nine
  * names); B subscribes to all nine, oldest first. The first publisher then
  * drops and rejoins: its chat Object must still reach B -- the name B
@@ -4509,6 +4556,8 @@ void test_moqtrun(void) {
   test_moqtrun_reattach_survives_nine_subscribed_names();
   test_moqtrun_subscribe_resolves_newest_publisher();
   test_moqtrun_newer_publish_supersedes_old_track();
+  test_moqtrun_older_late_publish_does_not_supersede();
+  test_moqtrun_superseded_close_keeps_new_delivery();
   test_moqtrun_reconnected_subscriber_is_not_reattached();
   test_moqtrun_publisher_is_not_reattached_to_own_track();
   test_moqtrun_refused_subscribe_is_not_remembered();

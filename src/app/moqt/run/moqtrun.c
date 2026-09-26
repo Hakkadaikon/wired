@@ -53,6 +53,7 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   moqtrun_track_clear_relays(&hub->blob_track);
   moqtrun_track_clear_relays(&hub->live.track);
   hub->io                    = io;
+  hub->join_seq_next         = 0;
   hub->authorize_subscribe   = 0;
   hub->authorize_ctx         = 0;
   hub->stat_frag_drop        = 0;
@@ -137,6 +138,7 @@ static void moqtrun_init_peer(
   p->in_use          = 1;
   p->wt              = s;
   p->request_id_next = 1; /* hub is the server: odd, 1-origin (draft SS10.2) */
+  p->join_seq        = hub->join_seq_next++;
   p->sub_names_n     = 0;
   p->sub_names_at    = 0;
   p->send_lens[0]    = 0;
@@ -464,8 +466,9 @@ static wired_moqtrun_track* moqtrun_peer_track_for_name(
 
 /* Frees a superseded track: its subscribers' still-open relay streams are
  * reset (moqtrun_track_reset_stale_relays' own doc), its rings go back to
- * the pool, and the slot stops matching any name or Track Alias, so the
- * lingering session's stray Objects are dropped instead of relayed. */
+ * the pool, and the slot stops matching any name or Track
+ * Alias, so the lingering session's stray Objects are dropped instead of
+ * relayed. */
 static void moqtrun_track_retire(wired_moqt_hub* hub, wired_moqtrun_track* t) {
   moqtrun_track_reset_stale_relays(hub, t);
   moqtrun_track_drop_rings(hub, t);
@@ -479,12 +482,30 @@ static wired_moqtrun_track* moqtrun_other_track_for_name(
   return i != pub_idx ? moqtrun_peer_track_for_name(&hub->peers[i], name) : 0;
 }
 
-/* A participant that rejoins on a new session while its old one still
- * lingers (no clean close reached the hub -- it stays until the idle
- * timeout reaps it) PUBLISHes the same name twice. The newest PUBLISH is
- * the one its client sends on, so every other peer's same-name track is
- * retired: SUBSCRIBE resolves to the new track only, and the old track's
- * subscribers follow via moqtrun_reattach_subs. */
+/* 1 iff peer i, a NEWER session than the publisher (higher join_seq),
+ * already holds a track named name. */
+static int moqtrun_newer_owner(
+    wired_moqt_hub* hub, usz i, usz pub_idx, wired_span name) {
+  return moqtrun_other_track_for_name(hub, i, pub_idx, name) != 0 &&
+         hub->peers[i].join_seq > hub->peers[pub_idx].join_seq;
+}
+
+static int moqtrun_newer_holds_name(
+    wired_moqt_hub* hub, usz pub_idx, wired_span name) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
+    if (moqtrun_newer_owner(hub, i, pub_idx, name)) return 1;
+  return 0;
+}
+
+/* Name ownership policy (no auth on PUBLISH): the NEWEST session holding
+ * a name owns it -- the same participant id opened in two tabs means the
+ * newer tab wins. A participant that rejoins while its old session still
+ * lingers (no clean close reached the hub, so it stays until the idle
+ * timeout) PUBLISHes the same name twice; every OLDER peer's same-name
+ * track is retired, so SUBSCRIBE resolves to the live track only and the
+ * old track's subscribers follow via moqtrun_reattach_subs. Callers first
+ * refuse a PUBLISH a newer peer already owns (moqtrun_publish_slot), so
+ * arrival order never lets a stale session take the name back. */
 static void moqtrun_supersede_name(
     wired_moqt_hub* hub, usz pub_idx, wired_span name) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
@@ -494,15 +515,28 @@ static void moqtrun_supersede_name(
   }
 }
 
+/* p's slot for a PUBLISH of name (moqtrun_track_alloc_slot), or 0 when
+ * a newer session already owns name. Refusing -- rather than accepting
+ * without superseding -- keeps every name on at most one live track: two
+ * would make SUBSCRIBE resolve by peer-slot order, the stale-mapping bug
+ * moqtrun_supersede_name exists to prevent. The refused, older session is
+ * stale by definition (its client has moved on to the newer one). */
+static wired_moqtrun_track* moqtrun_publish_slot(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span name) {
+  if (moqtrun_newer_holds_name(hub, peer_idx, name)) return 0;
+  return moqtrun_track_alloc_slot(p, name);
+}
+
 /* draft SS10.9 PUBLISH: accept a track into a free (or matching-name) slot
- * and reply REQUEST_OK; a third distinct track name (no free slot) gets
+ * and reply REQUEST_OK; a third distinct track name (no free slot), or a
+ * name a newer session already owns (moqtrun_publish_slot), gets
  * REQUEST_ERROR instead of silently overwriting an existing track. */
 static void moqtrun_handle_publish(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   usz            off = 0;
   moqctl_publish m;
   if (moqctl_publish_take(body, &off, &m) != MOQCTL_OK) return;
-  wired_moqtrun_track* t = moqtrun_track_alloc_slot(p, m.name.name);
+  wired_moqtrun_track* t = moqtrun_publish_slot(hub, p, peer_idx, m.name.name);
   if (!t) {
     moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
     return;
