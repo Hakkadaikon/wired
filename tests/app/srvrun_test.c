@@ -15046,11 +15046,12 @@ static void test_srvrun_wt_stream_reset_latch_full_keeps_slot(void) {
 }
 
 /* ===== W-07/WTH3-058, W-10/WTH3-061: WT_MAX_STREAMS/WT_MAX_DATA flow control
- * on server-initiated stream opens (draft-ietf-webtrans-http3-15 SS5.3/5.4/
- * 8.2). wired_wt_session_stream_open_allowed/data_send_allowed (session.c)
- * are wired into wired_server_wt_open_uni/_bidi/_stream_reply: exceeding
- * either latches wt_flow_violation[] and refuses the open; srvrun_close_wt_
- * flow_violations later closes that session with WT_FLOW_CONTROL_ERROR. */
+ * on server-initiated stream opens (draft-ietf-webtrans-http3-15 SS5.3/5.4).
+ * wired_wt_session_stream_open_allowed/data_send_allowed (session.c) are
+ * wired into wired_server_wt_open_uni/_bidi/_stream_reply: exceeding either
+ * refuses the open and nothing more -- the sender waits for the peer to
+ * raise the limit with a capsule (srvrun_wt_rx_capsules); it never closes
+ * its own session over its own refused send. */
 
 /* MAX_STREAMS OK: with max_streams_uni == 1, the first open succeeds and
  * advances the session's own opened_streams_uni counter (session.h's
@@ -15066,7 +15067,6 @@ static void test_srvrun_wt_open_uni_within_max_streams_succeeds(void) {
   wired_wt_session_set_max_streams(&c->wt, 0, 1); /* uni limit = 1 */
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
   CHECK(c->wt.opened_streams_uni == 1);
-  CHECK(c->wt_flow_violation[0] == 0);
 }
 
 /* MAX_STREAMS EXCEEDED (W-07/WTH3-058): with max_streams_uni already at its
@@ -15169,76 +15169,6 @@ static void test_srvrun_wt_stream_reply_exceeding_max_data_refused(void) {
   CHECK(c->l.wt_streams[0].in_use == 1); /* owned stream not reset */
 }
 
-/* CLOSE ON VIOLATION (W-07/W-10, WTH3-058/WTH3-061): once wt_flow_violation[0]
- * is latched, srvrun_close_wt_flow_violations closes the session with WT_
- * FLOW_CONTROL_ERROR mapped through wired_wterrmap_to_http3 -- the expected
- * wire value is hand-derived the same way test_srvrun_connect_stream_reset_
- * resets_owned_wt_bidi_stream derives WT_SESSION_GONE's: first=0x52e4a40fa8db,
- * n=WTERR_FLOW_CONTROL_ERROR=0x045d4487 (73375879), h = first + n +
- * floor(n/0x1e) = 0x52e4a40fa8db + 73375879 + 2446062 (floor(73375879/30))
- * = 0x52e4a92b442e. Also proves the violation latch itself is cleared (a
- * later step must not re-close an already-closed slot) and the session's
- * own WT bidi stream is reset+freed the same way srvrun_close_wt_on_stream_
- * close's WT_SESSION_GONE path does. */
-static void test_srvrun_close_wt_flow_violations_resets_session(void) {
-  struct lp_fix      f;
-  conntable          table[WIRED_CONNTABLE_CAP];
-  srvrun_conn*       conns = sr_test_conns();
-  wired_obuf         ob;
-  u8                 obuf[1024];
-  u8                 pkt[256];
-  wired_obuf         pktb = obuf_of(pkt, sizeof pkt);
-  const u8*          pl;
-  usz                pll;
-  reset_stream_frame rs;
-  stop_sending_frame ss;
-  usz                rn, sn;
-  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
-                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-  ob             = (wired_obuf){obuf, sizeof obuf, 0};
-  conntable_init(table, WIRED_CONNTABLE_CAP);
-  sr_make_confirmed_conn(&conns[0], &f, &ob);
-  sr_set_req(&conns[0], 1, 1, 4);
-  {
-    srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
-    srvrun_start_resp(&ctx, 0);
-  }
-  conns[0].l.wt_streams[0].in_use          = 1;
-  conns[0].l.wt_streams[0].stream_id       = 8;
-  conns[0].l.wt_streams[0].offered         = 1;
-  conns[0].l.wt_streams[0].wt_session_slot = 0;
-  conns[0].wt_flow_violation[0]            = 1;
-  srvrun_close_wt_flow_violations(&cfg, &conns[0]);
-  CHECK(conns[0].wt.state == WIRED_WT_CLOSED);
-  CHECK(conns[0].wt_active == 0);
-  CHECK(conns[0].wt_flow_violation[0] == 0); /* latch cleared */
-  CHECK(conns[0].l.wt_streams[0].in_use == 0);
-  CHECK(srvrun_seal_wt_busy_reset(&conns[0], 8, 0x52e4a92b442eULL, &pktb) == 1);
-  CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
-  rn = reset_stream_decode(pl, pll, &rs);
-  CHECK(rn != 0);
-  CHECK(rs.error_code == 0x52e4a92b442eULL);
-  sn = stop_sending_decode(pl + rn, pll - rn, &ss);
-  CHECK(sn != 0);
-  CHECK(ss.error_code == 0x52e4a92b442eULL);
-}
-
-/* NO VIOLATION: an inactive/untouched slot's wt_flow_violation stays a no-op
- * (nothing latched, nothing to close) -- srvrun_close_wt_flow_violations must
- * not disturb a session that never exceeded a limit. */
-static void test_srvrun_close_wt_flow_violations_noop_without_latch(void) {
-  srvrun_conn* conns = sr_test_conns();
-  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
-                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-  conns[0].wt_active = 1;
-  wired_wt_session_init(&conns[0].wt, 4);
-  wired_wt_session_establish(&conns[0].wt);
-  srvrun_close_wt_flow_violations(&cfg, &conns[0]);
-  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED); /* untouched */
-  CHECK(conns[0].wt_active == 1);
-}
-
 /* ===== draft-ietf-webtrans-http3-15 SS5.1/SS5.6/SS8 (WTH3-053/058/060/062):
  * WT_MAX_DATA/WT_MAX_STREAMS capsules received on the CONNECT stream are
  * decoded (srvrun_wt_rx_capsules) and applied to the session via
@@ -15333,7 +15263,6 @@ static void test_srvrun_wt_rx_max_data_capsule_via_dispatch_unblocks_send(
   CHECK(c->wt.max_data == 1000);
   CHECK(wired_wt_session_data_send_allowed(&c->wt, sizeof pay) == 1);
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
-  CHECK(c->wt_flow_violation[0] == 0);
 }
 
 /* SS5.6.2, through dispatch: a WT_MAX_STREAMS(bidi) capsule delivered as a
@@ -15499,7 +15428,7 @@ static void test_srvrun_wt_stream_send_at_max_data_resumes_after_raise(void) {
 /* V-0503/V-0509 (SS5.1/SS8): a received WT_MAX_DATA capsule enables session
  * flow control (a low limit blocks a would-be over-send), and a later,
  * higher WT_MAX_DATA raises the limit so the previously blocked send
- * proceeds -- without ever latching a flow violation. */
+ * proceeds. */
 static void test_srvrun_wt_session_sharing_enables_flow_control(void) {
   struct lp_fix   f;
   wired_obuf      ob  = {0};
@@ -15526,7 +15455,6 @@ static void test_srvrun_wt_session_sharing_enables_flow_control(void) {
   CHECK(c->wt.max_data == 1000);
   CHECK(wired_wt_session_data_send_allowed(&c->wt, sizeof pay) == 1);
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
-  CHECK(c->wt_flow_violation[0] == 0);
 }
 
 /* SS5.6.2 (WTH3-058/060): WT_MAX_STREAMS capsules of both directions apply
@@ -18363,8 +18291,6 @@ void test_srvrun(void) {
   test_srvrun_wt_open_bidi_exceeding_max_streams_refused();
   test_srvrun_wt_open_uni_exceeding_max_data_refused();
   test_srvrun_wt_stream_reply_exceeding_max_data_refused();
-  test_srvrun_close_wt_flow_violations_resets_session();
-  test_srvrun_close_wt_flow_violations_noop_without_latch();
   test_srvrun_wt_rx_max_data_capsule_via_dispatch_unblocks_send();
   test_srvrun_wt_rx_max_streams_capsule_via_dispatch_raises_limit();
   test_srvrun_wt_rx_unknown_capsule_via_dispatch_skipped();

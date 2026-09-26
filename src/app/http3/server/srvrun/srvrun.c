@@ -457,17 +457,6 @@ typedef struct {
    * inactive. */
   u8  wt_path[SRVRUN_MAX_WT_SESSIONS][SRVRUN_WT_PATH_CAP];
   usz wt_path_len[SRVRUN_MAX_WT_SESSIONS];
-  /** draft-ietf-webtrans-http3-15 SS5.3/5.4/8.2 (WTH3-058/WTH3-061): 1 once
-   * this slot's session has exceeded a peer-advertised WT_MAX_STREAMS/WT_MAX_
-   * DATA limit (wired_server_wt_open_uni/_bidi/_stream_reply, checked against
-   * wired_wt_session_stream_open_allowed/data_send_allowed) and must be
-   * closed with WT_FLOW_CONTROL_ERROR. Latched rather than closed on the
-   * spot: those entry points are called from app callbacks with no srvrun_cfg
-   * in hand to seal the RESET_STREAM/STOP_SENDING wire bytes with, so the
-   * actual close (srvrun_close_wt_flow_violations) runs on the next
-   * srvrun_on_step, which does have one -- mirrors closed_stream_seen's own
-   * latch-in-a-callback/consume-at-step-time shape (wired_srvloop.h). */
-  int wt_flow_violation[SRVRUN_MAX_WT_SESSIONS];
   /** draft-ietf-webtrans-http3-15 SS4.2/SS4.7 (WTH3-048/WTH3-067): the
    * CONNECT stream's own absolute QUIC stream offset (RFC 9000 19.8) just
    * past the last byte srvrun_start_wt/srvrun_send_wt_capsule has sealed onto
@@ -494,8 +483,10 @@ typedef struct {
   usz wt_capsule_rx_at[SRVRUN_MAX_WT_SESSIONS];
   /** draft-ietf-webtrans-http3-15 SS4.2/SS4.4/8.2 (WTH3-067): a
    * wired_server_wt_close_session call for this slot is pending -- latched
-   * (not sent inline) for the same no-srvrun_cfg-in-a-callback reason as
-   * wt_flow_violation, drained on the next srvrun_on_step
+   * rather than sent inline (that entry point runs in an app callback with
+   * no srvrun_cfg in hand to seal wire bytes with, mirroring
+   * closed_stream_seen's own latch-in-a-callback/consume-at-step-time shape,
+   * wired_srvloop.h), drained on the next srvrun_on_step
    * (srvrun_drain_wt_close_pending): send WT_CLOSE_SESSION (wt_close_code/
    * wt_close_msg/wt_close_msg_len) with FIN on the CONNECT stream, then reset
    * every OTHER WT stream this session owns with WT_SESSION_GONE (the
@@ -2849,14 +2840,6 @@ static u64 srvrun_wt_session_gone_code(void) {
   return wired_wterrmap_to_http3(WTERR_SESSION_GONE);
 }
 
-/* draft-ietf-webtrans-http3-15 SS5.3/5.4/8.2: WT_FLOW_CONTROL_ERROR, mapped
- * the same way as srvrun_wt_session_gone_code -- the application error code a
- * session closing for exceeding its peer-advertised WT_MAX_STREAMS/WT_MAX_
- * DATA limit is reset/stopped with (srvrun_close_flow_violated_slot). */
-static u64 srvrun_wt_flow_control_code(void) {
-  return wired_wterrmap_to_http3(WTERR_FLOW_CONTROL_ERROR);
-}
-
 /* draft-ietf-webtrans-http3-15 SS4.4: abort one still-`in_use` WT bidi
  * stream that session_slot owned with err_code (RESET_STREAM +
  * STOP_SENDING via srvrun_send_wt_busy_reset, which picks the frames the
@@ -2951,10 +2934,9 @@ static void srvrun_reset_wt_streams_for_session(
 /* Common body of "close WT session slot sidx, resetting every stream it owns
  * with err_code and freeing the slot" -- shared by srvrun_close_wt_on_stream_
  * close (WT_SESSION_GONE, triggered by the CONNECT stream itself closing),
- * srvrun_close_flow_violated_slot (WT_FLOW_CONTROL_ERROR, triggered by a
- * WT_MAX_STREAMS/WT_MAX_DATA violation, WTH3-058/WTH3-061), and
- * srvrun_send_wt_close (WT_CLOSE_SESSION, WTH3-067). Split out so no caller
- * repeats the free-slot bookkeeping. */
+ * srvrun_wt_rx_capsules_one (WT_SESSION_GONE, triggered by a malformed
+ * capsule on the CONNECT stream), and srvrun_send_wt_close (WT_CLOSE_SESSION,
+ * WTH3-067). Split out so no caller repeats the free-slot bookkeeping. */
 /* App-facing session-ended delivery (wired_wt_on_session_close): every path
  * that ends a WT session server-side funnels through here, BEFORE the
  * session's storage can be reused by a later connection -- an app keying
@@ -3106,7 +3088,7 @@ static void srvrun_wt_rx_capsules_one(
 }
 
 /* Per-step receive pass over every session slot, same fan-out shape as
- * srvrun_close_wt_flow_violations. */
+ * srvrun_drain_wt_close_pending. */
 static void srvrun_wt_rx_capsules(const srvrun_cfg* cfg, srvrun_conn* c) {
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
     srvrun_wt_rx_capsules_one(cfg, c, i);
@@ -3156,7 +3138,7 @@ static void srvrun_drain_wt_close_one(
 
 /* Drain every session slot's pending wired_server_wt_close_session
  * (wt_close_pending, latched from an app callback), same per-step shape as
- * srvrun_close_wt_flow_violations. */
+ * srvrun_wt_rx_capsules. */
 static void srvrun_drain_wt_close_pending(
     const srvrun_cfg* cfg, srvrun_conn* c) {
   u8 out[1500]; /* worst case: WT_CLOSE_SESSION's 1024-byte message
@@ -3305,27 +3287,6 @@ static void srvrun_deliver_wt_reset_if_owned(
   sidx = wt_reset_session_slot(c);
   if (sidx >= 0) srvrun_deliver_wt_reset(cfg, c, sidx);
   c->l.wt_reset_seen = 0;
-}
-
-/* draft-ietf-webtrans-http3-15 SS5.3/SS5.4/8.2 (WTH3-058/WTH3-061): close one
- * session slot that wt_open_flow_ok/wt_reply_flow_ok latched
- * (wt_flow_violation[i]) for exceeding a peer-advertised WT_MAX_STREAMS/
- * WT_MAX_DATA limit, resetting every WT stream it owns with WT_FLOW_CONTROL_
- * ERROR (srvrun_close_wt_session_slot) -- run every step so a violation
- * latched from an app callback between steps is always closed on the very
- * next one, mirroring srvrun_close_wt_on_stream_close's own per-step shape. */
-static void srvrun_close_flow_violated_slot(
-    const srvrun_cfg* cfg, srvrun_conn* c, int i) {
-  if (!c->wt_flow_violation[i]) return;
-  c->wt_flow_violation[i] = 0;
-  if (srvrun_wt_is_active(c, i))
-    srvrun_close_wt_session_slot(cfg, c, i, srvrun_wt_flow_control_code());
-}
-
-static void srvrun_close_wt_flow_violations(
-    const srvrun_cfg* cfg, srvrun_conn* c) {
-  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
-    srvrun_close_flow_violated_slot(cfg, c, i);
 }
 
 /* RFC 9221 3: this step's DATAGRAM gathering (dispatch.c) latched a violation
@@ -3487,7 +3448,6 @@ static void srvrun_on_step(
   srvrun_wt_rx_capsules(ctx->cfg, c);
   srvrun_close_wt_on_stream_close(ctx->cfg, c);
   srvrun_deliver_wt_reset_if_owned(ctx->cfg, c);
-  srvrun_close_wt_flow_violations(ctx->cfg, c);
   srvrun_drain_wt_close_pending(ctx->cfg, c);
   srvrun_drain_wt_stream_reset(ctx->cfg, c);
   if (srvrun_close_on_step_violation(ctx->cfg, c)) return;
@@ -3911,7 +3871,7 @@ static int srvrun_conn_owns_session(srvrun_conn* c, wired_wt_session* s) {
 
 /* s's own slot index on c (0 or 1), or -1 if c does not own s -- the index
  * form of wt_slot_holds_session's search, needed wherever a caller must name
- * WHICH slot (wt_flow_violation[sidx], srvrun_reset_wt_streams_for_session's
+ * WHICH slot (wt_close_pending[sidx], srvrun_reset_wt_streams_for_session's
  * own session_slot param) rather than just whether c owns s at all. */
 static int srvrun_conn_session_slot(srvrun_conn* c, wired_wt_session* s) {
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
