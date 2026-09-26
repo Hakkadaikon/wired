@@ -4211,6 +4211,40 @@ static void test_moqt_reliable_relay_late_sub_gets_whole_stream(void) {
   CHECK(hub.peers[0].tracks[1].relays[0].in_use == 0);
 }
 
+/* A second late subscriber arriving AFTER the publisher's FIN, while the
+ * ring is still bound (the first late subscriber is refusing sends, so
+ * nothing was reclaimed), also gets the whole stream -- its FIN riding
+ * the last byte. With no cursor at all the ring returns in the very call
+ * that sees the FIN, so the "after FIN" join needs a pinning cursor. */
+static void test_moqt_reliable_relay_late_sub_after_fin_gets_whole(void) {
+  wired_moqt_hub hub;
+  u8             first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz            first_n = moqtrun_test_start_reliable_no_subs(&hub, first);
+  moqtrun_test_subscribe_audio_as(&hub, SESS_B);
+  g_stream_send_reject_sess = SESS_B; /* B attaches but cannot drain */
+  moqtrun_test_send_audio_round(&hub, 999, 8);
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(0, 0), 1);
+  CHECK(hub.rel_pool[0].in_use == 1);
+  moqtrun_test_subscribe_audio_as(&hub, SESS_C);
+
+  moqtrun_test_reset();
+  g_stream_send_reject_sess = SESS_B;
+  wired_moqt_tick(&hub, 1);
+  usz hdr_n = hub.peers[0].tracks[1].relays[0].hdr_len;
+  u8  exp[64];
+  usz exp_n = moqtrun_test_late_expect(first, first_n, hdr_n, 8, 8, exp);
+  CHECK(moqtrun_test_got_whole(SESS_C, first, hdr_n, exp, exp_n));
+  CHECK(moqtrun_test_last_kind(3)->s == SESS_C);
+  CHECK(moqtrun_test_last_kind(3)->fin == 1);
+
+  moqtrun_test_reset(); /* B drains again: everything closes */
+  wired_moqt_tick(&hub, 2);
+  CHECK(moqtrun_test_last_kind(3)->s == SESS_B);
+  CHECK(moqtrun_test_last_kind(3)->fin == 1);
+  CHECK(hub.rel_pool[0].in_use == 0);
+  CHECK(hub.stat_rel_early_return == 0);
+}
+
 /* A reliable stream nobody ever subscribes to, larger than the ring keeps
  * unheld: the publisher is held at the watermark like any other ring,
  * but only for WIRED_MOQTREL_STALL_MS -- then the hold is released and
@@ -4353,5 +4387,6 @@ void test_moqtrun(void) {
   test_moqt_reliable_relay_budget_drought_sheds_sub();
   test_moqt_reliable_relay_no_send_budget_unchanged();
   test_moqt_reliable_relay_late_sub_gets_whole_stream();
+  test_moqt_reliable_relay_late_sub_after_fin_gets_whole();
   test_moqt_reliable_relay_unsubscribed_hold_is_bounded();
 }
