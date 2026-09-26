@@ -1442,19 +1442,16 @@ static int moqtrun_rel_budget_ok(
   return hub->io.send_budget(wt) >= n + WIRED_MOQTREL_HEADROOM;
 }
 
-/* Budget gate for one round: 0 lets it proceed, 1 defers it -- the
- * cursor stays put (the same span retries next tick) but its stall clock
- * restarts (a deferral is the hub's own choice, not the subscriber
- * stalling), counted on stat_rel_wait. */
+/* Budget gate for one round: 0 lets it proceed, 1 defers it whole,
+ * counted on stat_rel_wait. The cursor AND its stall clock stay put: a
+ * deferral is not progress, so a peer whose credit never recovers trips
+ * moqtrel_stalled after WIRED_MOQTREL_STALL_MS and is shed exactly like
+ * one whose sends are refused -- it must not pin the ring (and the
+ * publisher hold) forever. A healthy line recovers credit within an RTT,
+ * far under the stall clock. */
 static int moqtrun_rel_budget_wait(
-    wired_moqt_hub*   hub,
-    wired_wt_session* wt,
-    moqtrel_buf*      rb,
-    usz               i,
-    usz               n,
-    u64               now_ms) {
+    wired_moqt_hub* hub, wired_wt_session* wt, usz n) {
   if (moqtrun_rel_budget_ok(hub, wt, n)) return 0;
-  moqtrel_note_sent(rb, (u32)i, 0, now_ms);
   hub->stat_rel_wait++;
   return 1;
 }
@@ -1490,7 +1487,7 @@ static void moqtrun_rel_send_round(
     moqtrun_rel_try_fin(hub, wt, relay, rb, i);
     return;
   }
-  if (moqtrun_rel_budget_wait(hub, wt, rb, i, span.n, now_ms)) return;
+  if (moqtrun_rel_budget_wait(hub, wt, span.n)) return;
   moqtrun_rel_send_span(hub, wt, relay, rb, i, span, now_ms);
 }
 
