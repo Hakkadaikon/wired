@@ -416,6 +416,13 @@ typedef struct {
    * subscriber's stall clock: a credit drought outlasting
    * WIRED_MOQTREL_STALL_MS sheds it like sustained refusals do. */
   u64 stat_rel_wait;
+  /** Reliable-relay rounds the subscriber's transport accepted (the
+   * attachment bytes that actually left the hub; stat_relay_sent counts
+   * only the lossy path). Diagnostic only. */
+  u64 stat_rel_sent;
+  /** Reliable-relay rounds the subscriber's transport refused (send slot
+   * busy or session credit exhausted); each retries on a later tick. */
+  u64 stat_rel_refused;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
