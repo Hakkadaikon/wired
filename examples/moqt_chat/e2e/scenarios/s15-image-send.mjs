@@ -22,6 +22,25 @@ const IMAGE_TIMEOUT_MS = 30000;
 const PROXY_BASE = 25433; // distinct from s13 (24433)
 const SERVER_PORT = 4433;
 
+// After every case, both ends must still be alive: no WebTransport close
+// event (stabilityClient's WT_INSTRUMENTATION_SCRIPT records closedAt) and
+// the status badge still "connected". On localhost the hub's flow-credit
+// close never fires; with --jitter-ms it is the failure this asserts on.
+async function assertAlive(client, name, failures) {
+  const state = await client.page
+    .evaluate(() => ({
+      status: document.querySelector('[data-testid="status"]')?.getAttribute("data-status") ?? "(no badge)",
+      closed: (window.__wtEvents ?? []).filter((e) => e.closedAt !== null).map((e) => e.closeInfo),
+    }))
+    .catch((err) => ({ status: `(evaluate failed: ${err})`, closed: [] }));
+  if (state.closed.length > 0) {
+    failures.push(`${name}: ${client.tag} WebTransport closed mid-case (${state.closed.join("; ")})`);
+  }
+  if (state.status !== "connected") {
+    failures.push(`${name}: ${client.tag} status badge is "${state.status}" (want "connected")`);
+  }
+}
+
 /** Deterministic non-zero byte pattern -- catches an all-zero reassembly bug
  * that an all-zero fixture would hide. */
 function makePattern(length) {
@@ -347,20 +366,27 @@ export async function run({ pageUrl, server, arg, log }) {
     }
     const [clientA, clientB] = clients;
 
+    const timedCase = async (name, fn) => {
+      const start = Date.now();
+      await fn();
+      report.cases[name] = { ...(report.cases[name] ?? {}), elapsedMs: Date.now() - start };
+      for (const c of clients) await assertAlive(c, name, failures);
+    };
+
     log(`case small: ${smallBytes} bytes, A -> B`);
-    await runCase(clientA, clientB, "small", smallBytes, failures, report);
+    await timedCase("small", () => runCase(clientA, clientB, "small", smallBytes, failures, report));
 
     log(`case large: ${largeBytes} bytes, B -> A`);
-    await runCase(clientB, clientA, "large", largeBytes, failures, report);
+    await timedCase("large", () => runCase(clientB, clientA, "large", largeBytes, failures, report));
 
     log("case multi-attachment: 2 images + 1 video, A -> B");
-    await runMultiAttachmentCase(clientA, clientB, failures, report);
+    await timedCase("multi-attachment", () => runMultiAttachmentCase(clientA, clientB, failures, report));
 
     log("case text-only: B -> A");
-    await runTextOnlyCase(clientB, clientA, failures, report);
+    await timedCase("text-only", () => runTextOnlyCase(clientB, clientA, failures, report));
 
     log("case attachment-only: A -> B");
-    await runAttachmentOnlyCase(clientA, clientB, failures, report);
+    await timedCase("attachment-only", () => runAttachmentOnlyCase(clientA, clientB, failures, report));
 
     for (const client of clients) {
       if (client.errors.length > 0) {
