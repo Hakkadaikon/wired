@@ -1757,9 +1757,11 @@ static void moqtrun_relay_continue(
 }
 
 /* Opens sub slot i's relay stream carrying wire as its first round and
- * records the id for later moqtrun_relay_append_one calls. An open failure
- * (no free send slot on that connection) leaves the slot unset: later
- * rounds skip this subscriber (moqtrun_relay_sub_ready). */
+ * records the id for later rounds. An open failure (no free send slot on
+ * that connection) leaves the slot unset: a lossy relay late-opens it on
+ * a later round (moqtrun_relay_late_open), a ring-backed one retries on
+ * the next drain while the ring still holds the stream's start
+ * (moqtrun_rel_late_attach_all), else it gets nothing. */
 static void moqtrun_relay_open_one(
     wired_moqt_hub*      hub,
     wired_moqtrun_sub*   sub,

@@ -146,7 +146,10 @@ typedef struct {
  * long-lived stream typically opens before any peer has subscribed): a
  * late joiner's stream is opened carrying the saved header alone, so its
  * decoder sees a well-formed stream head even though it missed the
- * original opening round (moqtrun_relay_late_open).
+ * original opening round (moqtrun_relay_late_open). On a ring-backed
+ * (reliable) relay whose ring still holds everything past the header, the
+ * late joiner then reads the whole stream from there
+ * (moqtrun_rel_late_attach_all).
  *
  * frag/frag_len hold the bytes past the LAST COMPLETE Object boundary of
  * the most recent delivery, prepended to the next one before relaying
