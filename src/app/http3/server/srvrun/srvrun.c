@@ -2600,6 +2600,10 @@ static void srvrun_send_data_blocked(
   u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof out);
   if (!srvrun_seal_data_blocked(c, limit, &ob)) return;
+  /* Once per blocking ceiling, so cheap enough to log unconditionally: a
+   * peer whose MAX_DATA never rises again silently stalls every later
+   * stream on the connection. */
+  wired_log_str("conn send blocked: peer MAX_DATA exhausted\n");
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "DATA_BLOCKED sent\n");
 }
 
