@@ -99,6 +99,13 @@ typedef struct {
    * (0) has no backpressure plane, so the reliable relay is never engaged
    * (a ring that cannot hold its publisher would only overflow). */
   int (*stream_hold)(wired_wt_session* s, u64 stream_id, int hold);
+  /** Remaining session-level send credit for s in bytes (the peer's
+   * WT_MAX_DATA minus bytes already staged), (usz)-1 for a session
+   * without a limit. Kept last so older positional initializers stay
+   * valid; a table built without it (0) reports no limit, so the reliable
+   * relay drains as fast as its per-round refusals allow -- the pre-
+   * send_budget behavior, unchanged. */
+  usz (*send_budget)(wired_wt_session* s);
 } wired_moqt_io;
 
 /** One subscriber recorded against the hub's track: which session, and the
@@ -402,6 +409,11 @@ typedef struct {
    * the publisher hold lands before the ring can fill, so a nonzero count
    * is an invariant violation worth investigating, not normal loss. */
   u64 stat_rel_overflow;
+  /** Reliable-relay rounds deferred because the subscriber session's
+   * remaining send credit (io.send_budget) could not carry the round and
+   * still leave WIRED_MOQTREL_HEADROOM for the session's lossy traffic.
+   * Each deferral retries on a later tick; nothing is lost. */
+  u64 stat_rel_wait;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */

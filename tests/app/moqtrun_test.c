@@ -196,6 +196,7 @@ static wired_moqt_io moqtrun_test_io(void) {
   io.send_uni2        = moqtrun_test_send_uni2;
   io.send_datagram    = moqtrun_test_send_datagram;
   io.stream_hold      = moqtrun_test_stream_hold;
+  io.send_budget      = 0; /* default: unconstrained, like a table without */
   return io;
 }
 
