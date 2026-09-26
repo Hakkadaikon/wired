@@ -402,17 +402,28 @@ static void log_relay_stats(const char* label) {
   wired_log_str(line);
 }
 
+/* The periodic line is worth printing only while a session is live, plus
+ * one more time after the last one closes (so the final closed= count
+ * lands). An idle hub stays quiet: 8 hours of all-zero lines once buried
+ * the startup cert fingerprint in docker logs. */
+static int relay_stats_moved(void) {
+  static u64 last_closed;
+  int        moved = g_sessions_live != 0 || g_sessions_closed != last_closed;
+  last_closed      = g_sessions_closed;
+  return moved;
+}
+
 /* wired_srvrun_on_step-shaped: paces the hub's live track (moqtrun.h's
- * wired_moqt_tick doc) and emits the relay-stats line every 10 seconds,
- * so a deployment's docker logs show whether refusals or session drops
- * are ongoing without waiting for shutdown. ctx is the hub. */
+ * wired_moqt_tick doc) and emits the relay-stats line every 10 seconds
+ * while sessions are live, so a deployment's docker logs show whether
+ * refusals or session drops are ongoing without waiting for shutdown.
+ * ctx is the hub. */
 static void on_step(void* ctx, u64 now_ms) {
   static u64 next_ms;
   wired_moqt_tick((wired_moqt_hub*)ctx, now_ms);
-  if (now_ms >= next_ms) {
-    next_ms = now_ms + 10000;
-    log_relay_stats("moqt relay(10s): ");
-  }
+  if (now_ms < next_ms) return;
+  next_ms = now_ms + 10000;
+  if (relay_stats_moved()) log_relay_stats("moqt relay(10s): ");
 }
 
 static void load_san_ipv4(int argc, char** argv, u8 san_ipv4[4], int* have_it) {
