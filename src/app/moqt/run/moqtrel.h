@@ -37,6 +37,16 @@
  * are pending is shed (reset) so it cannot pin the ring forever. */
 #define WIRED_MOQTREL_STALL_MS 10000
 
+/** Session send credit (WT_MAX_DATA remaining) a reliable-relay round
+ * must leave unspent, so one lossy screen-share round on the SAME session
+ * still fits: a held fragment plus one receive window of delivered bytes
+ * plus 16 for the adapter's signal prefix, which the hub never sees.
+ * WIRED_MOQTRUN_RELAY_FRAG_MAX comes from this header's includer
+ * (moqtrun.h), so this macro expands only past that point (moqtrun.c and
+ * its tests) -- the same include-order note as WIRED_MOQTREL_MAX_SUBS. */
+#define WIRED_MOQTREL_HEADROOM \
+  (WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP + 16)
+
 /** Fixed capacity: subscriber cursors per ring. Mirrors
  * WIRED_MOQTRUN_MAX_SUBS (moqtrun.h includes this header, so the value is
  * repeated here instead of the macro). */
