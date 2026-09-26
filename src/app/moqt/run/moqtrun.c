@@ -464,14 +464,33 @@ static void moqtrun_reattach_subs(
 static wired_moqtrun_track* moqtrun_peer_track_for_name(
     wired_moqtrun_peer* p, wired_span name);
 
+static void moqtrun_rel_return_ring(
+    wired_moqt_hub* hub, wired_moqtrun_relay* relay, moqtrel_buf* rb);
+
+/* Returns relay r's bound ring to the pool AND releases the publisher
+ * credit hold it may have placed (moqtrun_rel_return_ring). Unlike
+ * moqtrun_rel_drop_ring's io-free teardown, a superseded publisher's
+ * session is still live: a hold left on its stream would freeze it. */
+static void moqtrun_relay_return_ring(
+    wired_moqt_hub* hub, wired_moqtrun_relay* r) {
+  if (!r->in_use || r->rel_idx < 0) return;
+  moqtrun_rel_return_ring(hub, r, &hub->rel_pool[r->rel_idx]);
+}
+
+static void moqtrun_track_return_rings(
+    wired_moqt_hub* hub, wired_moqtrun_track* t) {
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
+    moqtrun_relay_return_ring(hub, &t->relays[r]);
+}
+
 /* Frees a superseded track: its subscribers' still-open relay streams are
  * reset (moqtrun_track_reset_stale_relays' own doc), its rings go back to
- * the pool, and the slot stops matching any name or Track
+ * the pool (holds released), and the slot stops matching any name or Track
  * Alias, so the lingering session's stray Objects are dropped instead of
  * relayed. */
 static void moqtrun_track_retire(wired_moqt_hub* hub, wired_moqtrun_track* t) {
   moqtrun_track_reset_stale_relays(hub, t);
-  moqtrun_track_drop_rings(hub, t);
+  moqtrun_track_return_rings(hub, t);
   moqtrun_track_clear_relays(t);
   t->in_use = 0;
 }
