@@ -72,6 +72,7 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   hub->reliable_alias_limit = 0;
   hub->stat_rel_stall       = 0;
   hub->stat_rel_overflow    = 0;
+  hub->stat_rel_wait        = 0;
   for (usz i = 0; i < WIRED_MOQTREL_POOL; i++) moqtrel_reset(&hub->rel_pool[i]);
 }
 
@@ -1432,8 +1433,50 @@ static void moqtrun_rel_round_ok(
   if (fin_flag) rb->subs[i].fin_done = 1;
 }
 
-/* One send round for cursor i: the ring's next contiguous span, the FIN
- * riding the last one. A refusal changes nothing -- the same span
+/* 1 when session wt's remaining credit can carry an n-byte round and
+ * still leave WIRED_MOQTREL_HEADROOM for the session's other (lossy)
+ * traffic; a table without send_budget never constrains. */
+static int moqtrun_rel_budget_ok(
+    wired_moqt_hub* hub, wired_wt_session* wt, usz n) {
+  if (!hub->io.send_budget) return 1;
+  return hub->io.send_budget(wt) >= n + WIRED_MOQTREL_HEADROOM;
+}
+
+/* Budget gate for one round: 0 lets it proceed, 1 defers it -- the
+ * cursor stays put (the same span retries next tick) but its stall clock
+ * restarts (a deferral is the hub's own choice, not the subscriber
+ * stalling), counted on stat_rel_wait. */
+static int moqtrun_rel_budget_wait(
+    wired_moqt_hub*   hub,
+    wired_wt_session* wt,
+    moqtrel_buf*      rb,
+    usz               i,
+    usz               n,
+    u64               now_ms) {
+  if (moqtrun_rel_budget_ok(hub, wt, n)) return 0;
+  moqtrel_note_sent(rb, (u32)i, 0, now_ms);
+  hub->stat_rel_wait++;
+  return 1;
+}
+
+/* The send itself: the FIN rides the stream's last byte; an accepted
+ * round advances the cursor, a refusal changes nothing. */
+static void moqtrun_rel_send_span(
+    wired_moqt_hub*      hub,
+    wired_wt_session*    wt,
+    wired_moqtrun_relay* relay,
+    moqtrel_buf*         rb,
+    usz                  i,
+    wired_span           span,
+    u64                  now_ms) {
+  int fin_flag = moqtrun_rel_round_fins(rb, i, span.n);
+  if (hub->io.stream_send(wt, relay->sub_stream_id[i], span, fin_flag) == 1)
+    moqtrun_rel_round_ok(rb, i, span.n, fin_flag, now_ms);
+}
+
+/* One send round for cursor i: the ring's next contiguous span, deferred
+ * whole while the session's credit cannot spare it, the FIN riding the
+ * last one. A refusal or deferral changes nothing -- the same span
  * retries on a later tick (delayed, never dropped). */
 static void moqtrun_rel_send_round(
     wired_moqt_hub*      hub,
@@ -1447,9 +1490,8 @@ static void moqtrun_rel_send_round(
     moqtrun_rel_try_fin(hub, wt, relay, rb, i);
     return;
   }
-  int fin_flag = moqtrun_rel_round_fins(rb, i, span.n);
-  if (hub->io.stream_send(wt, relay->sub_stream_id[i], span, fin_flag) == 1)
-    moqtrun_rel_round_ok(rb, i, span.n, fin_flag, now_ms);
+  if (moqtrun_rel_budget_wait(hub, wt, rb, i, span.n, now_ms)) return;
+  moqtrun_rel_send_span(hub, wt, relay, rb, i, span, now_ms);
 }
 
 /* Cursor i's whole drain turn: skip one with nothing to do or a vanished
