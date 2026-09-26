@@ -12303,6 +12303,104 @@ static void test_srvrun_pump_full_mps_slice_reaches_log(void) {
   }
 }
 
+/* RFC 8899 4.4 / RFC 9000 14: the validated PLPMTU is the WIRE size of the
+ * acknowledged probe (srvrun_seal_pmtu_probe at the same search value and the
+ * same client DCID), so no 1-RTT data datagram may exceed it. pmtu_mps is the
+ * probe's whole plaintext, but it used to be spent on stream bytes alone --
+ * the STREAM frame header (type + stream id + offset + length varints) then
+ * rode on top, overshooting every validated probe (a 1432-byte PPPoE path
+ * saw 1438-byte data datagrams, all lost). Returns the probe's wire size. */
+static usz sr_pmtu_bound_conn(
+    srvrun_conn* c, struct lp_fix* f, wired_obuf* ob, u8 dcid_len) {
+  u8         pb[1500];
+  wired_obuf probe = obuf_of(pb, sizeof pb);
+  u64        pn;
+  sr_make_confirmed_conn(c, f, ob);
+  c->l.cli_scid_len = dcid_len;
+  c->cc.cwnd        = 1u << 20;
+  c->conn_credit    = 1u << 24;
+  pmtu_init(&c->pmtu);
+  c->pmtu.validated        = PMTU_MAX;
+  c->pmtu_probe_pn         = SRVRUN_PMTU_NO_PROBE;
+  c->resp[0].in_use        = 1;
+  c->resp[0].stream_id     = 0;
+  c->resp[0].stream_credit = 1u << 24;
+  CHECK(srvrun_seal_pmtu_probe(c, c->pmtu.validated, &probe, &pn));
+  return probe.len;
+}
+
+static void sr_pmtu_bound_pump(srvrun_conn* c) {
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_state    st  = {0, c};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
+  g_srvrun_tx_max_len = 0;
+  srvrun_pump_sess(&ctx, 0);
+}
+
+/* First transmission, for the DCID lengths real clients use (0: Chrome's
+ * zero-length SCID, 8: the common default, 20: the RFC 9000 17.2 maximum),
+ * with a deferred ACK pending so a piggyback is in play too. */
+static void test_srvrun_data_datagrams_fit_validated_probe(void) {
+  static const u8 lens[] = {0, 8, 20};
+  static u8       body[40000];
+  for (usz i = 0; i < sizeof lens; i++) {
+    struct lp_fix f;
+    srvrun_conn*  c = sr_test_conns();
+    u8            obuf[4096];
+    wired_obuf    ob    = obuf_of(obuf, sizeof obuf);
+    usz           bound = sr_pmtu_bound_conn(c, &f, &ob, lens[i]);
+    wired_sendsess_arm(&c->resp[0].sess, body, sizeof body, srvrun_mps(c));
+    pnspaces_on_recv(&c->l.ack_recv, PNS_APP, 0);
+    c->l.app_ack_policy.pending = 2;
+    c->l.ack_defer              = 1;
+    sr_pmtu_bound_pump(c);
+    CHECK(c->resp[0].sess.q.cur > 0); /* data did go out */
+    CHECK(g_srvrun_tx_max_len <= bound);
+  }
+}
+
+/* A requeued (lost) slice retransmits at its original length: it must obey
+ * the same validated-probe bound as its first transmission. */
+static void test_srvrun_retransmit_fits_validated_probe(void) {
+  static u8     body[40000];
+  struct lp_fix f;
+  srvrun_conn*  c = sr_test_conns();
+  u8            obuf[4096];
+  wired_obuf    ob    = obuf_of(obuf, sizeof obuf);
+  usz           bound = sr_pmtu_bound_conn(c, &f, &ob, 0);
+  wired_sendsess_arm(&c->resp[0].sess, body, sizeof body, srvrun_mps(c));
+  sr_pmtu_bound_pump(c);
+  CHECK(wired_sendsess_pto_fire(&c->resp[0].sess, SRVRUN_PTO_MAX) == 1);
+  c->acct_inflight = srvrun_inflight_bytes_all(c);
+  sr_pmtu_bound_pump(c);
+  CHECK(c->resp[0].sess.requeue_n == 0); /* the requeued slices went out */
+  CHECK(g_srvrun_tx_max_len <= bound);
+}
+
+/* RFC 9221 5 / RFC 9000 14: a DATAGRAM frame cannot be split, so one too
+ * big for the validated PMTU (here still the 1200-byte base) is refused
+ * rather than sent into a path that drops it. */
+static void test_srvrun_datagram_fits_validated_probe(void) {
+  static u8     payload[1180];
+  struct lp_fix f;
+  srvrun_conn*  c = sr_test_conns();
+  u8            obuf[4096], out[1500], pb[1500];
+  wired_obuf    ob    = obuf_of(obuf, sizeof obuf);
+  wired_obuf    dgo   = obuf_of(out, sizeof out);
+  wired_obuf    probe = obuf_of(pb, sizeof pb);
+  u64           pn;
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  sr_pmtu_bound_conn(c, &f, &ob, 8);
+  pmtu_init(&c->pmtu); /* nothing validated past the base yet */
+  CHECK(srvrun_seal_pmtu_probe(c, c->pmtu.validated, &probe, &pn));
+  g_srvrun_tx_max_len = 0;
+  srvrun_send_datagram_now(
+      &cfg, c, wired_span_of(payload, sizeof payload), &dgo);
+  CHECK(g_srvrun_tx_max_len <= probe.len);
+}
+
 /* ROUND-ROBIN, NOT DRAIN-THEN-NEXT: with three responses armed at once and
  * cwnd tight enough to allow only a few chunks per pump, every resp[] slot
  * must get a turn before any slot gets a second one -- srvrun_pump_sess used
@@ -18008,6 +18106,9 @@ void test_srvrun(void) {
   test_srvrun_pmtu_timeout_reaped_as_loss();
   test_srvrun_pmtu_probe_at_ceiling_does_not_spin();
   test_srvrun_pump_full_mps_slice_reaches_log();
+  test_srvrun_data_datagrams_fit_validated_probe();
+  test_srvrun_retransmit_fits_validated_probe();
+  test_srvrun_datagram_fits_validated_probe();
   test_srvrun_cc_algo_zero_means_build_default();
   test_srvrun_pump_round_robins_across_slots();
   test_srvrun_pacing_floor_does_not_starve_round();
