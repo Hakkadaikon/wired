@@ -360,9 +360,9 @@ static void log_cert_fingerprint(const wired_srvboot_id* id) {
  * both. */
 static void log_relay_stats(const char* label) {
   const wired_moqt_hub* hub = &g_hub;
-  char line[704]; /* label (<=17) + 18 field labels (~215 chars) + 18 u64s
-                     at 20 digits (360) + newline/NUL = ~594 worst case;
-                     704 keeps headroom */
+  char line[1024]; /* label (<=17) + 24 field labels (~290 chars) + 24
+                      u64s at 20 digits (480) + newline/NUL = ~790 worst
+                      case; 1024 keeps headroom */
   usz  n = 0;
   append_cstr(line, &n, label);
   append_cstr(line, &n, "sent=");
@@ -401,6 +401,18 @@ static void log_relay_stats(const char* label) {
   n += dec_u64(line + n, hub->stat_rel_sent);
   append_cstr(line, &n, " rel_refused=");
   n += dec_u64(line + n, hub->stat_rel_refused);
+  append_cstr(line, &n, " rel_rings=");
+  n += dec_u64(line + n, hub->stat_rel_rings);
+  append_cstr(line, &n, " rel_in=");
+  n += dec_u64(line + n, hub->stat_rel_in_bytes);
+  append_cstr(line, &n, " rel_fin_in=");
+  n += dec_u64(line + n, hub->stat_rel_fin_in);
+  append_cstr(line, &n, " rel_fin_out=");
+  n += dec_u64(line + n, hub->stat_rel_fin_out);
+  append_cstr(line, &n, " rel_hold=");
+  n += dec_u64(line + n, hub->stat_rel_hold);
+  append_cstr(line, &n, " rel_early=");
+  n += dec_u64(line + n, hub->stat_rel_early_return);
   line[n++] = '\n';
   line[n]   = 0;
   wired_log_str(line);
