@@ -360,9 +360,9 @@ static void log_cert_fingerprint(const wired_srvboot_id* id) {
  * both. */
 static void log_relay_stats(const char* label) {
   const wired_moqt_hub* hub = &g_hub;
-  char line[576]; /* label (<=17) + 16 field labels (~190 chars) + 16 u64s
-                     at 20 digits (320) + newline/NUL = ~529 worst case;
-                     576 keeps headroom */
+  char line[704]; /* label (<=17) + 18 field labels (~215 chars) + 18 u64s
+                     at 20 digits (360) + newline/NUL = ~594 worst case;
+                     704 keeps headroom */
   usz  n = 0;
   append_cstr(line, &n, label);
   append_cstr(line, &n, "sent=");
@@ -397,6 +397,10 @@ static void log_relay_stats(const char* label) {
   n += dec_u64(line + n, g_sessions_closed);
   append_cstr(line, &n, " rel_wait=");
   n += dec_u64(line + n, hub->stat_rel_wait);
+  append_cstr(line, &n, " rel_sent=");
+  n += dec_u64(line + n, hub->stat_rel_sent);
+  append_cstr(line, &n, " rel_refused=");
+  n += dec_u64(line + n, hub->stat_rel_refused);
   line[n++] = '\n';
   line[n]   = 0;
   wired_log_str(line);
