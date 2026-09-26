@@ -444,7 +444,7 @@ int wired_server_broadcast_datagram_ring(wired_span data);
  * on the final slice. payload must already carry the WebTransport stream
  * signal prefix (draft-ietf-webtrans-http3-15 4.2: varint 0x54 + the CONNECT
  * stream id, wired_wtwire_signal_put) -- this SDK sends the bytes verbatim.
- * A payload up to the send slot's own staging capacity (4096 bytes) is
+ * A payload up to the send slot's own staging capacity (65536 bytes) is
  * COPIED: the caller's storage is free the moment the call returns. Only a
  * larger payload is held as a VIEW, and then the caller must keep it alive
  * and unmoved until every byte has been acknowledged (the send slot frees
@@ -514,7 +514,7 @@ int wired_server_wt_stream_reply_open(
  * accepted round is COPIED into the slot's own staging (the caller's
  * storage is free the moment the call returns) and pipelines onto the wire
  * behind any earlier rounds still awaiting their ACKs -- rounds queue up
- * to the slot's staging capacity (4096 bytes of not-yet-ACKed rounds), and
+ * to the slot's staging capacity (65536 bytes of not-yet-ACKed rounds), and
  * only a round that no longer fits is refused. A stream whose OPENING
  * payload was oversized (held as a view) refuses appends until that view
  * fully ACKs.
