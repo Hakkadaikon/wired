@@ -804,7 +804,7 @@ typedef struct {
  * srvrun_conn that never routes through srvrun_open_slot). */
 #define SRVRUN_CHUNK 1100
 /* Plaintext capacity for one STREAM-frame slice: the largest slice
- * srvrun_mps can yield (PMTU_MAX - PMTU_OVERHEAD) plus the
+ * srvrun_mps can yield (at most PMTU_MAX - PMTU_OVERHEAD) plus the
  * worst-case RFC 9000 19.8 STREAM header (1 type byte + three 8-byte
  * varints = 25). Derived from the PMTU constants, not a bare number: a
  * fixed 1400 held every SRVRUN_CHUNK-sized slice but not a full
@@ -829,8 +829,21 @@ typedef struct {
  * ~BDP (39.6kB observed) instead of BDP+queue and costing ~18% goodput. */
 #define SRVRUN_PACE_BURST (10 * MAX_DATAGRAM)
 
-/* RFC 8899 4.4: the Maximum Packet Size c's DPLPMTUD search has validated so
- * far, in stream bytes per packet -- every send-sizing call site in this
+/* RFC 9000 19.8: the largest STREAM frame header a slice can carry -- type
+ * byte + 8-byte stream id + 8-byte offset + 2-byte length (a slice never
+ * reaches 16384 bytes, the 4-byte varint threshold). */
+#define SRVRUN_STREAM_HDR_MAX 19
+
+/* RFC 8899 4.4 / RFC 9000 14: the Maximum Packet Size c's DPLPMTUD search
+ * has validated so far, in stream bytes per packet. pmtu_mps is the WHOLE
+ * plaintext of the acked probe (srvrun_pmtu_probe_len seals exactly that
+ * much PING+PADDING), so a slice gets that minus the worst-case STREAM
+ * header: header + slice (+ any piggybacked ACK, srvrun_slice_ack_peek)
+ * then never outgrows the validated probe's wire size, for any DCID length
+ * (the same short header wraps both). Spending pmtu_mps on stream bytes
+ * alone overshot every validated probe by the header -- 6 bytes on a
+ * 1432-byte PPPoE path, where every full-size packet was then lost and
+ * resent at the same size forever. Every send-sizing call site in this
  * file (wired_sendsess_arm's chunk argument, and the cwnd/credit gates that
  * must reserve room for the same chunk they will actually send) goes
  * through this one function instead of pmtu_mps directly, so a
@@ -839,7 +852,8 @@ typedef struct {
  * falls back to SRVRUN_CHUNK rather than underflowing pmtu_mps's
  * unsigned subtraction. */
 static usz srvrun_mps(const srvrun_conn* c) {
-  return c->pmtu.validated ? pmtu_mps(&c->pmtu) : SRVRUN_CHUNK;
+  return c->pmtu.validated ? pmtu_mps(&c->pmtu) - SRVRUN_STREAM_HDR_MAX
+                           : SRVRUN_CHUNK;
 }
 
 /* srvrun_conn.pmtu_probe_pn sentinel: no probe outstanding. A real pn never
