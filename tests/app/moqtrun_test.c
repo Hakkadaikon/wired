@@ -2678,6 +2678,50 @@ static void test_moqtrun_republish_reattaches_subscriber(void) {
   CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
 }
 
+/* Session s joins and PUBLISHes "alice" (alias 1): the same participant
+ * id arriving on a second, newer session while its old one lingers. */
+static void moqtrun_test_publish_alice_on(
+    wired_moqt_hub* hub, wired_wt_session* s) {
+  u64 ctrl = moqtrun_test_join(hub, s);
+  wired_moqt_on_stream_data(
+      hub, s, ctrl,
+      wired_span_of(g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN), 0);
+}
+
+/* Session s sends alice's chat Object on a fresh data stream; returns how
+ * many subscriber streams it opened. */
+static usz moqtrun_test_relay_chat_on(
+    wired_moqt_hub* hub, wired_wt_session* s) {
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      hub, s, 999,
+      wired_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      1);
+  return moqtrun_test_count_kind(4);
+}
+
+/* alice rejoins on a new session (C) before her old one (A) is reaped by
+ * the idle timeout. A subscriber arriving now must be attached to the
+ * newest publisher -- the one alice's client actually sends on -- not to
+ * the lingering one that happens to sit in a lower peer slot. */
+static void test_moqtrun_subscribe_resolves_newest_publisher(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_on(&hub, SESS_C);
+  u64 ctrl_b = moqtrun_test_join(&hub, SESS_B);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+
+  CHECK(moqtrun_test_relay_chat_on(&hub, SESS_C) == 1);
+  CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
+}
+
 /* Each of three other participants publishes chat+audio+screen (nine
  * names); B subscribes to all nine, oldest first. The first publisher then
  * drops and rejoins: its chat Object must still reach B -- the name B
@@ -4442,6 +4486,7 @@ void test_moqtrun(void) {
   test_moqtrun_duplicate_subscribe_reuses_slot();
   test_moqtrun_republish_reattaches_subscriber();
   test_moqtrun_reattach_survives_nine_subscribed_names();
+  test_moqtrun_subscribe_resolves_newest_publisher();
   test_moqtrun_reconnected_subscriber_is_not_reattached();
   test_moqtrun_publisher_is_not_reattached_to_own_track();
   test_moqtrun_refused_subscribe_is_not_remembered();
