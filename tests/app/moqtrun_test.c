@@ -4093,6 +4093,30 @@ static void test_moqt_reliable_relay_budget_leaves_headroom(void) {
   CHECK(hub.stat_rel_wait == 1); /* the boundary send is not a wait */
 }
 
+/* A subscriber whose session credit never recovers is shed by the stall
+ * clock exactly like one whose sends are refused: a deferral is not
+ * progress, so a credit drought longer than WIRED_MOQTREL_STALL_MS trips
+ * moqtrel_stalled, the stream resets, and the ring unpins. */
+static void test_moqt_reliable_relay_budget_drought_sheds_sub(void) {
+  wired_moqt_hub hub;
+  u64            relay_sid = moqtrun_test_start_reliable_fixture(&hub);
+  hub.io.send_budget       = moqtrun_test_send_budget;
+
+  moqtrun_test_reset();
+  g_send_budget_val = 0;                             /* credit never recovers */
+  moqtrun_test_send_audio_round(&hub, 999, 9);       /* deferred at t=0 */
+  wired_moqt_tick(&hub, WIRED_MOQTREL_STALL_MS / 2); /* deferred again */
+  CHECK(moqtrun_test_count_kind(7) == 0);            /* not yet stalled */
+  CHECK(hub.stat_rel_stall == 0);
+  CHECK(hub.stat_rel_wait == 2);
+
+  wired_moqt_tick(&hub, WIRED_MOQTREL_STALL_MS + 1); /* clock expires */
+  CHECK(moqtrun_test_count_kind(7) == 1); /* the sub's stream is reset */
+  CHECK(moqtrun_test_last_kind(7)->stream_id == relay_sid);
+  CHECK(hub.stat_rel_stall == 1);
+  CHECK(hub.stat_rel_wait == 2); /* the shed tick defers nothing */
+}
+
 /* An io table without send_budget (0 -- every existing positional
  * initializer) is unconstrained: rounds send immediately and
  * stat_rel_wait never moves. */
@@ -4220,5 +4244,6 @@ void test_moqtrun(void) {
   test_moqt_reliable_relay_returns_ring_on_republish();
   test_moqt_reliable_relay_budget_defers_then_sends_same_span();
   test_moqt_reliable_relay_budget_leaves_headroom();
+  test_moqt_reliable_relay_budget_drought_sheds_sub();
   test_moqt_reliable_relay_no_send_budget_unchanged();
 }
