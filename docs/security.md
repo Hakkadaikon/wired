@@ -34,10 +34,10 @@ ECH, DSA, ...): adding such a feature re-opens its rows.
 `docs/security/vuln-ledger.md` is an 837-row ledger built from CVE
 databases, peer-implementation security advisories, and RFC "Security
 Considerations" sections, each row mapped to the `wired` code path it does
-or does not apply to. A row closes (`[x]`) only with a verdict (`fixed` /
-`already-safe` / `n/a`) plus a real test function name, or for `n/a` rows a
-one-line reason the class does not apply (no heap, no hash table, no network
-client). `python3 scripts/vulnaudit/ledger_check.py
+or does not apply to, one table row each. A row closes (`done`) only with
+a verdict (`fixed` / `already-safe` / `n/a`) plus a real test function name,
+or for `n/a` rows a one-line reason the class does not apply (no heap, no
+hash table, no network client). `python3 scripts/vulnaudit/ledger_check.py
 docs/security/vuln-ledger.md` machine-checks the row grammar and prints
 per-section counts: QUIC transport 233, TLS 1.3 185, symmetric crypto 31,
 signatures & key agreement 108, X.509/DER/PKI 131, HTTP/3+QPACK+Datagrams
