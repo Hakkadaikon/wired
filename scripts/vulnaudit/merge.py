@@ -3,8 +3,8 @@
 rows for every catalog entry not yet present in docs/security/vuln-ledger.md.
 
 Usage: merge.py [--ledger docs/security/vuln-ledger.md] [--raw tasks/vuln/raw]
-The rows are printed grouped by ledger section; paste them under the matching
-heading (ids are assigned in catalog order, continuing after the ledger's
+The table rows are printed grouped by ledger section; paste them at the end
+of the matching section's table (ids are assigned in catalog order, continuing after the ledger's
 highest V-number). Dedup key: CVE/GHSA id, else spec section id.
 """
 import glob
@@ -12,6 +12,8 @@ import json
 import os
 import re
 import sys
+
+from ledger_table import format_row
 
 AREA_TO_SECTION = {
     "quic-transport": "QUIC transport",
@@ -80,16 +82,19 @@ def ledger_ids(ledger_path):
     return known, (max(nums) if nums else 0)
 
 
-def summary_of(r):
+def class_and_summary(r):
     if r["id"].startswith("S-"):
-        return f"{r.get('title') or r.get('attack','')[:70]}: {r.get('defense','')[:90]}"
-    return f"{r.get('bug_class','?')}: {(r.get('summary') or '')[:110]}"
+        return r.get("title") or r.get("attack", "")[:70], (r.get("defense") or "")[:90]
+    return r.get("bug_class", "?"), (r.get("summary") or "")[:110]
 
 
 def row(vnum, r):
-    origin = r.get("product") or r.get("spec") or r.get("title", "")[:30]
-    return (f"- [ ] V-{vnum:04d} {r['id']} ({origin}) {summary_of(r)}\n"
-            f"      ours: {r.get('component_hint') or r.get('bug_class') or '?'} — verdict: ? — test: — commit: — perf: —")
+    cls, summary = class_and_summary(r)
+    return format_row({
+        "id": f"V-{vnum:04d}", "status": "open", "source": r["id"],
+        "target": r.get("product") or r.get("spec") or r.get("title", "")[:30],
+        "class": cls, "summary": summary, "verdict": "?",
+        "ours": r.get("component_hint") or r.get("bug_class") or "?"})
 
 
 def main(argv):
