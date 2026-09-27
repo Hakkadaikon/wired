@@ -1,52 +1,26 @@
 #!/usr/bin/env python3
 """Check docs/security/vuln-ledger.md rows and print per-section counts.
 
-Rules: a `[x]` row needs `verdict: fixed|already-safe` with `test:` and
-`commit:` filled, or `verdict: n/a` with a reason after `test:`. Exits 1 on
+Rules: a `done` row needs Verdict `fixed|already-safe` with Test and Commit
+filled, or Verdict `n/a` with a Rationale (rows: ledger_table.py). Exits 1 on
 any violation or duplicate id. Usage: ledger_check.py <ledger.md>
 """
 import re
 import sys
 from collections import defaultdict
 
-ROW = re.compile(r"^- \[([ ~x])\] (V-\d{4}) ")
-FIELD = re.compile(r"(ours|verdict|test|commit|perf): ([^—]*)")
-
-
-def parse(lines):
-    rows, cur, section, fenced = [], None, "(none)", False
-    for ln in lines:
-        if ln.startswith("```"):
-            fenced = not fenced
-            continue
-        if fenced:
-            continue
-        if ln.startswith("## "):
-            section = ln[3:].strip()
-            continue
-        m = ROW.match(ln)
-        if m:
-            cur = {"state": m.group(1), "id": m.group(2), "section": section, "text": ln}
-            rows.append(cur)
-        elif cur and ln.startswith("      "):
-            cur["text"] += " " + ln.strip()
-    return rows
-
-
-def fields(row):
-    return {k: v.strip() for k, v in FIELD.findall(row["text"])}
+from ledger_table import parse
 
 
 def violations(row):
-    f = fields(row)
-    v, test, commit = f.get("verdict", ""), f.get("test", ""), f.get("commit", "")
-    if row["state"] != "x":
+    v, test, commit, why = row["verdict"], row["test"], row["commit"], row["why"]
+    if row["status"] != "done":
         return []
     if v in ("fixed", "already-safe") and test and commit:
         return []
-    if v == "n/a" and test:
+    if v == "n/a" and why:
         return []
-    return [f"{row['id']}: [x] without a complete verdict/test/commit ({v!r}, {test!r}, {commit!r})"]
+    return [f"{row['id']}: done without a complete verdict/test/commit ({v!r}, {test!r}, {commit!r})"]
 
 
 def known_tests(root="tests"):
@@ -60,10 +34,9 @@ def known_tests(root="tests"):
 
 
 def test_missing(row, names):
-    f = fields(row)
-    if row["state"] != "x" or f.get("verdict") not in ("fixed", "already-safe"):
+    if row["status"] != "done" or row["verdict"] not in ("fixed", "already-safe"):
         return []
-    cited = re.findall(r"\btest_[A-Za-z0-9_]+", f.get("test", ""))
+    cited = re.findall(r"\btest_[A-Za-z0-9_]+", row["test"])
     if not cited:
         return []  # a non-C evidence (e.g. an audit output) is allowed for deps rows
     missing = [t for t in cited if t not in names]
@@ -80,7 +53,7 @@ def main(path):
         seen.add(r["id"])
         bad += violations(r)
         bad += test_missing(r, names)
-        counts[r["section"]][" ~x".index(r["state"])] += 1
+        counts[r["section"]][("open", "triaged", "done").index(r["status"])] += 1
     for sec, (o, t, d) in counts.items():
         print(f"{sec}: open={o} triaged={t} done={d}")
     total = sum(sum(c) for c in counts.values())
