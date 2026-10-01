@@ -58,6 +58,13 @@ typedef struct {
   void*        ctx;
 } bodywin_run;
 
+/* RFC 9114 7.2.3-7.2.7 / 11.2.1: CANCEL_PUSH, SETTINGS, PUSH_PROMISE (from a
+ * client), GOAWAY, MAX_PUSH_ID and the reserved HTTP/2 types 0x2, 0x6, 0x8,
+ * 0x9 are H3_FRAME_UNEXPECTED on a request stream. */
+static int bodywin_forbidden(u64 type) {
+  return type < 14 && ((0x23fcu >> type) & 1u);
+}
+
 /* RFC 9114 7.1: a frame header counts only once both varints are whole --
  * a partial one stays in the window untouched. Returns its length, or 0. */
 static usz bodywin_header_take(const bodywin_run* r, u64* type, u64* len) {
@@ -72,6 +79,10 @@ static int bodywin_header(bodywin_run* r) {
   u64 type, len;
   usz n = bodywin_header_take(r, &type, &len);
   if (!n) return 0;
+  if (bodywin_forbidden(type)) {
+    r->w->state = BODYWIN_FRAME_UNEXPECTED;
+    return 0;
+  }
   r->w->left    = len;
   r->w->is_data = type == H3_FRAME_DATA;
   r->pos += n;
