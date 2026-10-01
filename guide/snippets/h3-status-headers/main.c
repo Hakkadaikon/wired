@@ -65,7 +65,7 @@ static int on_request(void* ctx, wired_http_exchange* x) {
   }
   if (path_is(x->req, "/secret"))
     return authorized(x->req) ? reply(x, 200, "top secret")
-                               : reply(x, 403, "forbidden");
+                               : reply(x, 401, "unauthorized");
   return reply(x, 404, "not found");
 }
 
@@ -89,7 +89,7 @@ int wired_main(int argc, char** argv) {
   id.scid_len  = sizeof scid - 1; /* without the string's NUL */
 
   u16                  port = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
-  wired_srvrun_handler h    = {0, 0, on_request};
+  wired_srvrun_handler h    = {.http = on_request};
   wired_srvrun_obs     obs  = {0};
   return wired_server_run(port, &id, h, obs) ? 0 : 1;
 }

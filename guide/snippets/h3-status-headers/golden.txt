@@ -16,10 +16,10 @@ set-cookie: session=granted
 
 logged in
 $ probe h3req 127.0.0.1:4433 GET /secret
-status 403
+status 401
 content-type: text/plain
 
-forbidden
+unauthorized
 $ probe h3req 127.0.0.1:4433 GET /secret -H Authorization: Bearer secret-token
 status 200
 content-type: text/plain
