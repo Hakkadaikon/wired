@@ -1,0 +1,26 @@
+---
+title: ステータスコードとレスポンスヘッダー
+description: Location によるリダイレクト、クッキーの発行、ヘッダーやクッキーによる認可チェック。
+sidebar:
+  order: 5
+---
+import Example from '../../../../components/Example.astro';
+
+`wired_http_handler` は、ボディだけでなく `wired_http_exchange` を埋めるハンドラーです。
+そのため、レスポンスのステータスやヘッダーフィールドも選べます。
+このページのサーバーは、リダイレクトとクッキーの発行を行い、`Authorization` ヘッダーまたはクッキーを読んで応答を決めます。
+
+<Example id="h3-status-headers" />
+
+## 仕組み
+
+- `/redirect` は `x->status = 302` と `x->fields[0]`（`location: /target`）を 1 つ設定し、
+  0 を返してボディなしの応答にします。
+- `/login` は 200 のボディと一緒に `set-cookie` フィールドを設定します。
+- `/secret` は `wired_http_req_header(req, "authorization", &v)` で通常のヘッダーを名前で読み、
+  `req->cookie` と `req->cookie_len` を直接読みます。
+  クッキーは専用のフィールドであり、`wired_http_req_header` 経由では読めません（そのドキュメントコメントを参照）。
+- `x->fields` には最大 `WIRED_HTTP_MAX_FIELDS`（8）個まで入ります。
+  各要素は `wired_http_field`（name、value の組）で、どちらもワイヤー上は小文字です（RFC 9114 4.2）。
+- probe クライアントの `h3req -H 'name: value'` は、追加のリクエストヘッダーを 1 つ送ります。
+  また `CheckRedirect` を無効にしているので、`/target` へ黙って追従せず、302 そのものを表示します。

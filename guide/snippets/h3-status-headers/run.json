@@ -1,0 +1,10 @@
+{
+  "client": "probe",
+  "steps": [
+    { "client": "probe", "args": ["h3req", "GET", "/redirect"] },
+    { "client": "probe", "args": ["h3req", "GET", "/login"] },
+    { "client": "probe", "args": ["h3req", "GET", "/secret"] },
+    { "client": "probe", "args": ["h3req", "GET", "/secret", "-H", "Authorization: Bearer secret-token"] },
+    { "client": "probe", "args": ["h3req", "GET", "/secret", "-H", "cookie: session=granted"] }
+  ]
+}
