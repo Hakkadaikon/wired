@@ -354,6 +354,8 @@ typedef struct {
    * has_largest; restarts with each PUBLISH. */
   moqctl_loc largest;
   int        has_largest;
+  /** Request ID of the PUBLISH that claimed this slot. */
+  u64 request_id;
 } wired_moqtrun_track;
 
 /** One connected participant's hub-side state: its WT session, its own
@@ -623,6 +625,18 @@ void wired_moqt_on_datagram(
  * dead peer -- it never receives SETUP and stays mute until the process
  * restarts. A session the hub never registered is a no-op. */
 void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s);
+
+/** wired_wt_on_stream_reset-shaped: a RESET_STREAM / STOP_SENDING on one
+ * of s's request streams cancels that request (draft-ietf-moq-transport-19
+ * 3.3.3) -- a SUBSCRIBE's subscription is released, a PUBLISH's track
+ * withdrawn -- and frees the stream's slot. Any other stream is a no-op.
+ * mapped/app_error_code are unused. */
+void wired_moqt_on_stream_reset(
+    void*             app_ctx,
+    wired_wt_session* s,
+    u64               stream_id,
+    int               mapped,
+    u32               app_error_code);
 
 /** Publish a hub-owned static track: frames blob into wire
  * (moqdata_blob_build: one SUBGROUP_HEADER carrying track_alias, then

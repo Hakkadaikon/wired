@@ -583,6 +583,35 @@ static void test_moqtrun_req_update_answered_on_same_stream(void) {
   CHECK(mtrq_closes() == 0);
 }
 
+/* draft 3.3.3: resetting a request stream cancels the request -- the
+ * subscription is gone, and a later rejoin of its publisher does not
+ * revive it. A reset of a stream carrying no request changes nothing. */
+static void test_moqtrun_req_reset_unsubscribes(void) {
+  moqctl_ftn f = mtrq_setup();
+  mtst_subscribe(SESS_B, MTRQ_S1, &f);
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, MTRQ_S2, 0, 0);
+  CHECK(mtst_sub(SESS_A, SESS_B) != 0);
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, MTRQ_S1, 0, 0);
+  CHECK(mtst_sub(SESS_A, SESS_B) == 0);
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  u64 ca = mtst_join(SESS_A);
+  mtst_publish(SESS_A, ca, &f, 1);
+  CHECK(mtst_sub(SESS_A, SESS_B) == 0);
+}
+
+/* Resetting a PUBLISH's request stream withdraws the track. */
+static void test_moqtrun_req_reset_unpublishes(void) {
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_OK);
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MTRQ_S1, 0, 0);
+  mtst_subscribe(SESS_B, cb, &f);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_REQUEST_ERROR);
+}
+
 /* draft 3.3: a bidi stream not starting with a request type closes the
  * session with PROTOCOL_VIOLATION -- a response type, or Object data
  * (whose stream types are unidirectional only). */
@@ -687,6 +716,8 @@ void test_moqtrun_sub(void) {
   test_moqtrun_req_subscribe_answered_on_its_stream();
   test_moqtrun_req_two_streams_answered_apart();
   test_moqtrun_req_update_answered_on_same_stream();
+  test_moqtrun_req_reset_unsubscribes();
+  test_moqtrun_req_reset_unpublishes();
   test_moqtrun_req_bad_first_message_closes();
   test_moqtrun_req_second_message_checked();
   test_moqtrun_req_fin_keeps_request();
