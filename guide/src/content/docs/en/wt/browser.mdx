@@ -1,0 +1,31 @@
+---
+title: What a browser needs
+description: SAN IP, a validity window, and the cert fingerprint a browser pins via serverCertificateHashes.
+sidebar:
+  order: 4
+---
+import Example from '../../../../components/Example.astro';
+
+A browser dialing WebTransport by IP literal (no DNS name, no CA) needs
+three things from the server identity, and pins the connection to the
+third: a SAN IP entry in the self-signed cert, a validity window the cert
+is actually inside of, and the cert's own SHA-256 hash
+(`serverCertificateHashes`).
+
+<Example id="wt-browser" />
+
+## How it works
+
+- `id.san_ipv4` adds an RFC 5280 4.2.1.6 SAN IP address entry (here
+  `127.0.0.1`) to the self-signed cert; without it a browser connecting to
+  a bare IP rejects the cert (its SAN would carry only `dNSName=localhost`).
+- `id.now_secs` anchors the cert's validity window; `0` keeps the SDK's
+  fixed 2020-2030 window, deterministic for this page. A real deployment
+  passes `wired_clock_epoch_secs()` instead (see `webtransport_chat`).
+- `log_cert_fingerprint` builds the exact certificate `wired_server_init`
+  would serve, hashes it with `wired_sha256`, and logs it the same way a
+  browser's `serverCertificateHashes` entry is computed -- the client page
+  does the identical hash over the bytes it actually received, and both
+  lines match.
+- With no `wt_resource_check` registered, the Extended CONNECT to `/chat`
+  proceeds straight through (the same default `wt-session` describes).

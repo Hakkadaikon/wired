@@ -1,0 +1,29 @@
+---
+title: ブラウザーが必要とするもの
+description: SAN の IP アドレス、有効期間、そしてブラウザーが serverCertificateHashes で検証する証明書のハッシュ。
+sidebar:
+  order: 4
+---
+import Example from '../../../../components/Example.astro';
+
+IP リテラルで（DNS 名も CA もなしに）WebTransport に接続するブラウザーは、
+サーバーの証明書に 3 つのものを要求し、3 つ目の値に接続を固定（ピン留め）します。
+自己署名証明書に含まれる SAN の IP アドレス、証明書が実際にその範囲内にある有効期間、
+そして証明書自身の SHA-256 ハッシュ（`serverCertificateHashes`）です。
+
+<Example id="wt-browser" />
+
+## 仕組み
+
+- `id.san_ipv4` は、自己署名証明書に RFC 5280 4.2.1.6 の SAN IP アドレスエントリー
+  （ここでは `127.0.0.1`）を追加します。
+  これがないと、ベアな IP アドレスに接続するブラウザーは証明書を拒否します
+  （SAN には `dNSName=localhost` しか含まれないため）。
+- `id.now_secs` は、証明書の有効期間の基準になります。
+  `0` を渡すと SDK の固定された 2020〜2030 年の有効期間になり、このページでは決定的な出力になります。
+  実運用では、代わりに `wired_clock_epoch_secs()` を渡します（`webtransport_chat` を参照）。
+- `log_cert_fingerprint` は、`wired_server_init` が配信する証明書そのものを組み立て、
+  `wired_sha256` でハッシュを取り、ブラウザーの `serverCertificateHashes` と同じ方法でログに出します。
+  クライアント側のページは、実際に受信したバイト列に対して同じハッシュ計算をしており、両者の行は一致します。
+- `wt_resource_check` を登録していないので、`/chat` への Extended CONNECT はそのまま通ります
+  （[WebTransport セッション](../session/) のページで説明した、デフォルトの挙動と同じです）。
