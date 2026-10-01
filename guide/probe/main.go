@@ -1,11 +1,13 @@
 // probe is the guide's external client: it talks to a snippet server over
 // real UDP and prints only what it understood, so the output is stable.
 //
-//	probe tls   <addr> [n]       TLS 1.3 handshake over QUIC, n times
-//	probe h3get <addr> <path>... HTTP/3 GET each path
+//	probe tls   <addr> [n]                                        TLS 1.3 handshake over QUIC, n times
+//	probe h3get <addr> <path>...                                  HTTP/3 GET each path
+//	probe h3req <addr> METHOD path [-H 'k: v']... [--body-file f]  one HTTP/3 request
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -13,7 +15,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/quic-go/quic-go"
@@ -22,7 +26,7 @@ import (
 
 func main() {
 	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "usage: probe tls|h3get <addr> ...")
+		fmt.Fprintln(os.Stderr, "usage: probe tls|h3get|h3req <addr> ...")
 		os.Exit(2)
 	}
 	var err error
@@ -31,6 +35,8 @@ func main() {
 		err = probeTLS(os.Args[2], os.Args[3:])
 	case "h3get":
 		err = h3get(os.Args[2], os.Args[3:])
+	case "h3req":
+		err = h3req(os.Args[2], os.Args[3:])
 	default:
 		err = fmt.Errorf("unknown subcommand %q", os.Args[1])
 	}
@@ -97,5 +103,96 @@ func h3get(addr string, paths []string) error {
 			fmt.Printf(" body=%q\n", body)
 		}
 	}
+	return nil
+}
+
+// formatHeaders renders h as sorted "name: value" lines, dropping any header
+// whose name looks date-like (Date, Last-Modified, Expires, ...) since those
+// vary per run and would break the golden diff.
+func formatHeaders(h http.Header) []string {
+	names := make([]string, 0, len(h))
+	for name := range h {
+		if !strings.Contains(strings.ToLower(name), "date") {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	lines := make([]string, len(names))
+	for i, name := range names {
+		lines[i] = fmt.Sprintf("%s: %s", strings.ToLower(name), strings.Join(h[name], ", "))
+	}
+	return lines
+}
+
+// parseH3req splits "-H 'name: value'" and "--body-file f" out of args,
+// returning the request headers and the body file path (empty if none).
+func parseH3req(args []string) (http.Header, string, error) {
+	hdr := http.Header{}
+	bodyFile := ""
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-H":
+			if i+1 >= len(args) {
+				return nil, "", fmt.Errorf("-H needs 'name: value'")
+			}
+			i++
+			name, value, ok := strings.Cut(args[i], ":")
+			if !ok {
+				return nil, "", fmt.Errorf("-H %q: want 'name: value'", args[i])
+			}
+			hdr.Add(strings.TrimSpace(name), strings.TrimSpace(value))
+		case "--body-file":
+			if i+1 >= len(args) {
+				return nil, "", fmt.Errorf("--body-file needs a path")
+			}
+			i++
+			bodyFile = args[i]
+		default:
+			return nil, "", fmt.Errorf("h3req: unexpected arg %q", args[i])
+		}
+	}
+	return hdr, bodyFile, nil
+}
+
+func h3req(addr string, args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: h3req METHOD path [-H 'name: value']... [--body-file f]")
+	}
+	method, path := args[0], args[1]
+	hdr, bodyFile, err := parseH3req(args[2:])
+	if err != nil {
+		return err
+	}
+	var body io.Reader
+	if bodyFile != "" {
+		b, err := os.ReadFile(bodyFile)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(b)
+	}
+	req, err := http.NewRequest(method, "https://"+addr+path, body)
+	if err != nil {
+		return err
+	}
+	req.Header = hdr
+	tr := &http3.Transport{TLSClientConfig: tlsConf()}
+	defer tr.Close()
+	c := &http.Client{Transport: tr, Timeout: 5 * time.Second}
+	rsp, err := c.Do(req)
+	if err != nil {
+		return err
+	}
+	defer rsp.Body.Close()
+	respBody, err := io.ReadAll(rsp.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("status %d\n", rsp.StatusCode)
+	for _, line := range formatHeaders(rsp.Header) {
+		fmt.Println(line)
+	}
+	fmt.Println()
+	fmt.Println(string(respBody))
 	return nil
 }
