@@ -6,3 +6,8 @@ node_modules
 # qlog/keylog (ops-handshake-knobs)
 snippets/*/demo.qlog
 snippets/*/demo.keylog
+
+# ops-cert-reload seeds/replaces these at runtime; never the source of truth
+# (CERT_A/CERT_B in main.c are)
+snippets/*/live-cert.pem
+snippets/*/live-key.pem

@@ -1,7 +1,7 @@
 // probe is the guide's external client: it talks to a snippet server over
 // real UDP and prints only what it understood, so the output is stable.
 //
-//	probe tls      <addr> [n]                             TLS 1.3 handshake over QUIC, n times
+//	probe tls      <addr> [n] [--fp]                       TLS 1.3 handshake over QUIC, n times; --fp prints the leaf cert's sha256
 //	probe h3get    <addr> <path>...                       HTTP/3 GET each path
 //	probe h3req    <addr> METHOD path [-H 'k: v']... [--body-file f]  one HTTP/3 request
 //	probe wtconnect <addr> [--origin O] path               WebTransport CONNECT, prints status
@@ -57,9 +57,14 @@ func tlsConf() *tls.Config {
 
 func probeTLS(addr string, rest []string) error {
 	n := 1
-	if len(rest) > 0 {
+	fp := false
+	for _, a := range rest {
+		if a == "--fp" {
+			fp = true
+			continue
+		}
 		var err error
-		if n, err = strconv.Atoi(rest[0]); err != nil {
+		if n, err = strconv.Atoi(a); err != nil {
 			return err
 		}
 	}
@@ -75,6 +80,9 @@ func probeTLS(addr string, rest []string) error {
 			fmt.Println("version:", tls.VersionName(st.Version))
 			fmt.Println("cipher:", tls.CipherSuiteName(st.CipherSuite))
 			fmt.Println("alpn:", st.NegotiatedProtocol)
+			if fp && len(st.PeerCertificates) > 0 {
+				fmt.Printf("leaf sha256=%x\n", sha256.Sum256(st.PeerCertificates[0].Raw))
+			}
 		} else {
 			fmt.Println("handshake", i+1, "ok:", tls.VersionName(st.Version))
 		}

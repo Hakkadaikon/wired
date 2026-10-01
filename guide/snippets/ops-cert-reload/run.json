@@ -1,0 +1,10 @@
+{
+  "client": "probe",
+  "steps": [
+    { "sleep": 300 },
+    { "client": "probe", "args": ["tls", "--fp"] },
+    { "signal": "SIGHUP" },
+    { "sleep": 300 },
+    { "client": "probe", "args": ["tls", "--fp"] }
+  ]
+}
