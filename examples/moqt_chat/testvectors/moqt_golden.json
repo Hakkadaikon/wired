@@ -712,6 +712,194 @@
     ],
     "track_properties": []
    }
+  },
+  {
+   "name": "fetch_standalone",
+   "type": "0x16",
+   "type_hex": "16",
+   "msg_len": 12,
+   "hex": "16000c000101016101620000010000",
+   "fields": {
+    "request_id": "0",
+    "fetch_type": "1",
+    "track_namespace": [
+     "a"
+    ],
+    "track_name": "b",
+    "start_location": [
+     "0",
+     "0"
+    ],
+    "end_location": [
+     "1",
+     "0"
+    ],
+    "number_of_parameters": "0"
+   },
+   "note": "End Location {1,0}: Object 0 = the whole of Group 0 (10.12.1)"
+  },
+  {
+   "name": "fetch_relative_joining",
+   "type": "0x16",
+   "type_hex": "16",
+   "msg_len": 5,
+   "hex": "1600050202000100",
+   "fields": {
+    "request_id": "2",
+    "fetch_type": "2",
+    "joining_request_id": "0",
+    "joining_start": "1",
+    "number_of_parameters": "0"
+   }
+  },
+  {
+   "name": "fetch_absolute_joining",
+   "type": "0x16",
+   "type_hex": "16",
+   "msg_len": 7,
+   "hex": "16000704030005012080",
+   "fields": {
+    "request_id": "4",
+    "fetch_type": "3",
+    "joining_request_id": "0",
+    "joining_start": "5",
+    "number_of_parameters": "1",
+    "parameters": [
+     {
+      "delta": "32",
+      "type": "0x20",
+      "name": "SUBSCRIBER_PRIORITY",
+      "value": "128"
+     }
+    ]
+   }
+  },
+  {
+   "name": "fetch_ok_basic",
+   "type": "0x18",
+   "type_hex": "18",
+   "msg_len": 4,
+   "hex": "18000401030500",
+   "fields": {
+    "end_of_track": "1",
+    "end_location": [
+     "3",
+     "5"
+    ],
+    "number_of_parameters": "0",
+    "track_properties": []
+   }
+  },
+  {
+   "name": "subscribe_namespace_basic",
+   "type": "0x50",
+   "type_hex": "50",
+   "msg_len": 8,
+   "hex": "5000080601046368617400",
+   "fields": {
+    "request_id": "6",
+    "track_namespace_prefix": [
+     "chat"
+    ],
+    "number_of_parameters": "0"
+   }
+  },
+  {
+   "name": "publish_namespace_basic",
+   "type": "0x6",
+   "type_hex": "06",
+   "msg_len": 14,
+   "hex": "06000e0802046368617405726f6f6d3100",
+   "fields": {
+    "request_id": "8",
+    "track_namespace": [
+     "chat",
+     "room1"
+    ],
+    "number_of_parameters": "0"
+   }
+  },
+  {
+   "name": "namespace_basic",
+   "type": "0x8",
+   "type_hex": "08",
+   "msg_len": 7,
+   "hex": "0800070105726f6f6d31",
+   "fields": {
+    "track_namespace_suffix": [
+     "room1"
+    ]
+   }
+  },
+  {
+   "name": "namespace_done_basic",
+   "type": "0xe",
+   "type_hex": "0e",
+   "msg_len": 7,
+   "hex": "0e00070105726f6f6d31",
+   "fields": {
+    "track_namespace_suffix": [
+     "room1"
+    ]
+   }
+  },
+  {
+   "name": "track_status_basic",
+   "type": "0xd",
+   "type_hex": "0d",
+   "msg_len": 20,
+   "hex": "0d00140a02046368617405726f6f6d3105616c69636500",
+   "fields": {
+    "request_id": "10",
+    "track_namespace": [
+     "chat",
+     "room1"
+    ],
+    "track_name": "alice",
+    "number_of_parameters": "0"
+   }
+  },
+  {
+   "name": "track_status_ok_basic",
+   "type": "0x7",
+   "type_hex": "07",
+   "msg_len": 6,
+   "hex": "070006010902050e40",
+   "fields": {
+    "number_of_parameters": "1",
+    "parameters": [
+     {
+      "delta": "9",
+      "type": "0x9",
+      "name": "LARGEST_OBJECT",
+      "value": [
+       "2",
+       "5"
+      ]
+     }
+    ],
+    "track_properties_hex": "0e40"
+   },
+   "note": "REQUEST_OK answering TRACK_STATUS (10.14): Track Properties = KVP type 0x0E (DEFAULT_PUBLISHER_PRIORITY) value 64"
+  },
+  {
+   "name": "request_update_forward",
+   "type": "0x2",
+   "type_hex": "02",
+   "msg_len": 4,
+   "hex": "0200040c011000",
+   "fields": {
+    "request_id": "12",
+    "number_of_parameters": "1",
+    "parameters": [
+     {
+      "delta": "16",
+      "type": "0x10",
+      "name": "FORWARD",
+      "value": "0"
+     }
+    ]
+   }
   }
  ],
  "data": [
@@ -964,6 +1152,62 @@
    "hex": "080200",
    "op": "insufficient",
    "note": "Object ID varint missing (ZERO_OBJECT_ID clear)"
+  },
+  {
+   "kind": "fetch_stream",
+   "name": "fetch_stream_basic",
+   "hex": "05001c050080026869010178",
+   "fin": true,
+   "request_id": "0",
+   "objects": [
+    {
+     "flags": "0x1c",
+     "group_id": "5",
+     "subgroup_id": "0",
+     "object_id": "0",
+     "publisher_priority": "128",
+     "payload_hex": "6869"
+    },
+    {
+     "flags": "0x1",
+     "group_id": "5",
+     "subgroup_id": "0",
+     "object_id": "1",
+     "publisher_priority": "128",
+     "payload_hex": "78"
+    }
+   ],
+   "note": "11.4.4: first Object carries absolute Group/Object; the second inherits Group, Subgroup and Priority, Object = prior + 1"
+  },
+  {
+   "kind": "fetch_stream",
+   "name": "fetch_stream_end_of_range",
+   "hex": "0501808c020314014000810c0307",
+   "fin": true,
+   "request_id": "1",
+   "objects": [
+    {
+     "flags": "0x8c",
+     "end_of_range": "non_existent",
+     "group_id": "2",
+     "object_id": "3"
+    },
+    {
+     "flags": "0x14",
+     "group_id": "2",
+     "subgroup_id": "0",
+     "object_id": "4",
+     "publisher_priority": "64",
+     "payload_hex": ""
+    },
+    {
+     "flags": "0x10c",
+     "end_of_range": "unknown",
+     "group_id": "3",
+     "object_id": "7"
+    }
+   ],
+   "note": "11.4.4.2: an End of Range carries the absolute Group ID and Object ID of the range end and nothing else (no Subgroup, Priority, Properties or Object Payload Length); the next Object's prior Group/Object are the marker's, its prior Subgroup/Priority the last real Object's"
   }
  ],
  "name": [
