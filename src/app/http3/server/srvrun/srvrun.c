@@ -1,7 +1,6 @@
 #include "app/http3/server/srvrun/srvrun.h"
 
 #include "app/datagram/dgdeliver/dg_send.h"
-#include "app/http3/core/capsule/capsule.h"
 #include "app/http3/core/h3/connect.h"
 #include "app/http3/core/h3/errclass.h"
 #include "app/http3/core/h3/frame.h"
@@ -475,17 +474,12 @@ typedef struct {
    * concatenate correctly on the wire without either overlapping or leaving a
    * gap. */
   u64 wt_connect_sent_len[SRVRUN_MAX_WT_SESSIONS];
-  /** draft-ietf-webtrans-http3-15 SS5.6 / RFC 9297 SS3.2: receive-side
-   * cursor into this slot's CONNECT stream reassembly buffer (the
-   * l.streams[] slot's req_buf, offset-indexed from stream offset 0) just
-   * past the last capsule srvrun_wt_rx_capsules consumed. Set at
-   * establishment (srvrun_start_wt) to the end of the request's own HEADERS
-   * frame -- everything after that on the CONNECT stream is capsule bytes.
-   * ponytail: capsule bytes past req_buf's fixed capacity are truncated by
-   * the reassembly slot itself (dispatch.c's gather_one policy), so a
-   * session whose lifetime capsule traffic exceeds that capacity stops
-   * seeing limit raises; widen req_buf or give the CONNECT stream a sliding
-   * window if real peers ever send that much. */
+  /** draft-ietf-webtrans-http3-15 SS5.6 / RFC 9297 SS3.2: bytes at the
+   * front of this slot's CONNECT stream receive window (the l.streams[]
+   * slot's req_buf) that are not capsules. Set at establishment
+   * (srvrun_start_wt) to the request's own HEADERS frame length; the next
+   * capsule pass slides them out and resets it to 0 -- from then on the
+   * window base is the capsule cursor. */
   usz wt_capsule_rx_at[SRVRUN_MAX_WT_SESSIONS];
   /** draft-ietf-webtrans-http3-15 SS4.2/SS4.4/8.2 (WTH3-067): a
    * wired_server_wt_close_session call for this slot is pending -- latched
@@ -2938,12 +2932,17 @@ static void srvrun_grant_wt_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
   srvrun_grant_conn_credit(cfg, c);
 }
 
+/* RFC 9000 4.1/19.10: raise slot's stream credit to its window's new end
+ * once the window slid (bodywin_credit_due: never past it, only growing). */
+static void srvrun_grant_body_credit(
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_stream_slot* slot) {
+  u64 v = bodywin_credit_due(&slot->body);
+  if (v) srvrun_send_max_stream_data(cfg, c, slot->stream_id, v);
+}
+
 static void srvrun_grant_req_slot_credit(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_stream_slot* slot) {
-  u64 v;
-  if (!srvrun_req_credit_live(slot)) return;
-  v = bodywin_credit_due(&slot->body);
-  if (v) srvrun_send_max_stream_data(cfg, c, slot->stream_id, v);
+  if (srvrun_req_credit_live(slot)) srvrun_grant_body_credit(cfg, c, slot);
 }
 
 /* RFC 9000 4.1/19.10: as a streamed request body slides its window, raise
@@ -3129,10 +3128,11 @@ static const wired_srvloop_stream_slot* srvrun_req_slot_of(
   return 0;
 }
 
-static const wired_srvloop_stream_slot* srvrun_wt_rx_slot(
+static wired_srvloop_stream_slot* srvrun_wt_rx_slot(
     const srvrun_conn* c, int sidx) {
   if (!srvrun_wt_is_active(c, sidx)) return 0;
-  return srvrun_req_slot_of(c, srvrun_wt_slot_c(c, sidx)->connect_stream_id);
+  return (wired_srvloop_stream_slot*)srvrun_req_slot_of(
+      c, srvrun_wt_slot_c(c, sidx)->connect_stream_id);
 }
 
 /* RFC 9297 SS3.2 / RFC 9220 3: on the CONNECT stream, everything after the
@@ -3182,42 +3182,27 @@ static void srvrun_wt_capsule_raise(wired_wt_session* s, u64 type, u64 v) {
  * resets the session's streams with WT_SESSION_GONE and frees the slot, so
  * a peer that sends the close but withholds the CONNECT stream's FIN
  * cannot keep the session alive. */
-static int srvrun_wt_capsule_apply(
-    wired_wt_session* s, u64 type, wired_span value) {
-  u64 v;
+static int srvrun_wt_capsule_apply(void* ctx, u64 type, wired_span value) {
+  wired_wt_session* s = ctx;
+  u64               v;
   if (!srvrun_wt_capsule_flow_type(type)) return type != WTCAPSULE_TYPE_CLOSE;
   if (!wtcapsule_value_varint(value, &v)) return 0;
   srvrun_wt_capsule_raise(s, type, v);
   return 1;
 }
 
-/* Decode every complete capsule at *at and apply it; stops at the first
- * incomplete one (benign: wait for more bytes, RFC 9297 SS3.2). Returns 0 on
- * the first malformed capsule, or a WT_CLOSE_SESSION (srvrun_wt_capsule_
- * apply) -- the session ends either way. */
-static int srvrun_wt_rx_capsule_loop(
-    wired_wt_session* s, wired_span data, usz* at) {
-  u64        type;
-  wired_span value;
-  while (capsule_decode(data, at, &type, &value))
-    if (!srvrun_wt_capsule_apply(s, type, value)) return 0;
-  return 1;
-}
-
-/* One session slot's receive pass over its CONNECT stream bytes past the
- * request HEADERS (cursor wt_capsule_rx_at, srvrun_conn). Returns 1 when the
- * session stays healthy, 0 when a capsule was malformed -- either outright
- * (bad body) or by the stream FINing mid-capsule (capsule_fin_truncated,
- * RFC 9297 SS3.3). NOTE: req_buf reassembly is a high-water mark, not a
- * contiguity frontier (dispatch.c) -- same tolerance the request decode
- * path itself already accepts. */
+/* One session slot's receive pass over its CONNECT stream window: slide out
+ * the request HEADERS still in front (wt_capsule_rx_at), then apply every
+ * whole capsule (bodywin_capsules). Returns 1 while the session stays
+ * healthy, 0 on a malformed capsule (bad body, or the stream FINing
+ * mid-capsule, RFC 9297 SS3.3) or a WT_CLOSE_SESSION. */
 static int srvrun_wt_rx_walk(
-    srvrun_conn* c, int sidx, const wired_srvloop_stream_slot* slot) {
-  wired_span data = wired_span_of(slot->req_buf, slot->req_len);
-  usz        at   = c->wt_capsule_rx_at[sidx];
-  if (!srvrun_wt_rx_capsule_loop(srvrun_wt_slot(c, sidx), data, &at)) return 0;
-  c->wt_capsule_rx_at[sidx] = at;
-  return !capsule_fin_truncated(data, at, slot->req_fin);
+    srvrun_conn* c, int sidx, wired_srvloop_stream_slot* slot) {
+  bodywin_consume(&slot->body, slot->req_buf, c->wt_capsule_rx_at[sidx]);
+  c->wt_capsule_rx_at[sidx] = 0;
+  return bodywin_capsules(
+             &slot->body, slot->req_buf, srvrun_wt_capsule_apply,
+             srvrun_wt_slot(c, sidx)) == BODYWIN_OPEN;
 }
 
 /* draft-ietf-webtrans-http3-15 SS5.1/SS5.6/SS8: apply the peer's session
@@ -3225,9 +3210,11 @@ static int srvrun_wt_rx_walk(
  * slot sidx's CONNECT stream; a malformed capsule closes the session. */
 static void srvrun_wt_rx_capsules_one(
     const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
-  const wired_srvloop_stream_slot* slot = srvrun_wt_rx_slot(c, sidx);
+  wired_srvloop_stream_slot* slot = srvrun_wt_rx_slot(c, sidx);
   if (!slot) return;
-  if (!srvrun_wt_rx_walk(c, sidx, slot))
+  if (srvrun_wt_rx_walk(c, sidx, slot))
+    srvrun_grant_body_credit(cfg, c, slot);
+  else
     srvrun_close_wt_session_slot(cfg, c, sidx, srvrun_wt_session_gone_code());
 }
 
