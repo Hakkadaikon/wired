@@ -53,6 +53,10 @@ static void moqtrun_reqs_clear(wired_moqt_hub* hub) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) hub->reqs[i].in_use = 0;
 }
 
+static void moqtrun_frag_pool_clear(wired_moqt_hub* hub) {
+  for (usz i = 0; i < WIRED_MOQTRUN_FRAG_POOL; i++) hub->frag_owner[i] = 0;
+}
+
 void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
     hub->peers[i].in_use = 0;
@@ -92,6 +96,7 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   hub->stat_rel_early_return = 0;
   for (usz i = 0; i < WIRED_MOQTREL_POOL; i++) moqtrel_reset(&hub->rel_pool[i]);
   moqtrun_reqs_clear(hub);
+  moqtrun_frag_pool_clear(hub);
 }
 
 /* SS10 common envelope (Type vi64 + 16-bit Length + Body): every control
@@ -1851,19 +1856,54 @@ static void moqtrun_relay_append_all(
       moqtrun_relay_append_one(hub, &track->subs[i], relay, i, wire, fin);
 }
 
+static int moqtrun_frag_slot_free(const wired_moqt_hub* hub, usz i) {
+  const wired_moqtrun_relay* o = hub->frag_owner[i];
+  return !o || !o->in_use || o->frag_idx != (i32)i;
+}
+
+static i32 moqtrun_frag_take_free(wired_moqt_hub* hub, wired_moqtrun_relay* r) {
+  for (usz i = 0; i < WIRED_MOQTRUN_FRAG_POOL; i++)
+    if (moqtrun_frag_slot_free(hub, i)) {
+      hub->frag_owner[i] = r;
+      return (i32)i;
+    }
+  return -1;
+}
+
+/* The pool buffer that will hold an n-byte fragment for relay: the one it
+ * already holds, else a free one; -1 when n is over the limit or the pool
+ * is exhausted. */
+static i32 moqtrun_frag_slot_for(
+    wired_moqt_hub* hub, wired_moqtrun_relay* relay, usz n) {
+  if (n > WIRED_MOQTRUN_RELAY_FRAG_MAX) return -1;
+  if (relay->frag_idx >= 0) return relay->frag_idx;
+  return moqtrun_frag_take_free(hub, relay);
+}
+
+/* Gives relay's fragment buffer (if any) back to the pool. */
+static void moqtrun_frag_release(wired_moqtrun_relay* relay) {
+  relay->frag_idx = -1;
+  relay->frag_len = 0;
+}
+
 /* Saves the undelivered tail (bytes past the last complete Object) as the
- * relay's fragment for the next delivery. A tail larger than one whole
- * Object can never complete (WIRED_MOQTRUN_RELAY_FRAG_MAX is the largest
- * relayable Object) -- drop it (counted on the hub), degrading to a torn
- * frame for this one stream rather than corrupting the relay's own state. */
+ * relay's fragment for the next delivery, in a buffer from the hub's
+ * shared pool (released once nothing is held). A tail larger than one
+ * whole Object can never complete (WIRED_MOQTRUN_RELAY_FRAG_MAX is the
+ * largest relayable Object), and one finding the pool exhausted has
+ * nowhere to wait -- both are dropped (counted on the hub), degrading to a
+ * torn frame for this one stream rather than corrupting the relay's own
+ * state. */
 static void moqtrun_relay_save_frag(
     wired_moqt_hub* hub, wired_moqtrun_relay* relay, const u8* p, usz n) {
-  if (n > WIRED_MOQTRUN_RELAY_FRAG_MAX) {
-    relay->frag_len = 0;
-    hub->stat_frag_drop++;
+  i32 slot = n ? moqtrun_frag_slot_for(hub, relay, n) : -1;
+  moqtrun_frag_release(relay);
+  if (slot < 0) {
+    hub->stat_frag_drop += n != 0;
     return;
   }
-  bytes_memcpy(relay->frag, p, n);
+  bytes_memcpy(hub->frag_pool[slot], p, n);
+  relay->frag_idx = slot;
   relay->frag_len = n;
 }
 
@@ -1883,7 +1923,9 @@ static wired_span moqtrun_relay_normalize(
     wired_span           data) {
   usz total = relay->frag_len + data.n;
   usz off   = 0;
-  bytes_memcpy(hub->relay_scratch, relay->frag, relay->frag_len);
+  if (relay->frag_len)
+    bytes_memcpy(
+        hub->relay_scratch, hub->frag_pool[relay->frag_idx], relay->frag_len);
   bytes_memcpy(hub->relay_scratch + relay->frag_len, data.p, data.n);
   moqtrun_decode_object_loop(
       wired_span_of(hub->relay_scratch, total), &off, &relay->seq,
@@ -2459,7 +2501,7 @@ static void moqtrun_relay_start(
     relay->sub_stream_set[i]  = 0;
     relay->sub_busy_streak[i] = 0; /* freestanding memory starts unzeroed */
   }
-  relay->frag_len = 0;
+  moqtrun_frag_release(relay);
   moqtrun_rel_start(
       hub, track, relay, pub_wt, pub_stream_id,
       wired_span_of(wire.p, whole_end));

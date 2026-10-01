@@ -2818,6 +2818,71 @@ static void test_moqtrun_frag_overflow_counted(void) {
   CHECK(relay.frag_len == 3 && hub.stat_frag_drop == 1);
 }
 
+/* Writes Object 1 (the golden stream's next Object) framed to exactly
+ * obj_bytes on the wire -- Object ID Delta + Payload Length + payload, the
+ * unit the held-fragment limit counts -- and returns its length. */
+static usz moqtrun_test_big_object(usz obj_bytes, u8* out) {
+  static u8 pay[WIRED_MOQTRUN_RELAY_FRAG_MAX + 1];
+  usz       n = 0;
+  for (usz i = 0; i < sizeof pay; i++) pay[i] = (u8)(i * 7);
+  usz guess = obj_bytes - 4; /* same Payload Length width as the end */
+  moqdata_obj_put(
+      wired_mspan_of(out, obj_bytes + 8), &n, 1, wired_span_of(pay, guess));
+  usz frame = n - guess;
+  n         = 0;
+  moqdata_obj_put(
+      wired_mspan_of(out, obj_bytes + 8), &n, 1,
+      wired_span_of(pay, obj_bytes - frame));
+  return n;
+}
+
+/* Opens publisher stream sid on alias (header + Object 0 whole), then
+ * delivers the first head bytes of obj: the relay now holds a fragment. */
+static void moqtrun_test_open_torn(
+    wired_moqt_hub* hub, u8 alias, u64 sid, const u8* obj, usz head) {
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n = moqtrun_test_subgroup_with_alias(alias, first);
+  wired_moqt_on_stream_data(hub, SESS_A, sid, wired_span_of(first, n), 0);
+  wired_moqt_on_stream_data(hub, SESS_A, sid, wired_span_of(obj, head), 0);
+}
+
+static usz moqtrun_test_frag_free(const wired_moqt_hub* hub) {
+  usz n = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_FRAG_POOL; i++)
+    n += (usz)moqtrun_frag_slot_free(hub, i);
+  return n;
+}
+
+/* Held fragments share one hub-wide pool: with every buffer taken by a
+ * torn Object, the next stream's torn Object is dropped and counted (the
+ * over-limit rule), while the streams that hold a buffer still complete
+ * their Objects intact and give the buffer back on completion. */
+static void test_moqtrun_frag_pool_exhaustion_drops_extra(void) {
+  static u8       obj[WIRED_MOQTRUN_RELAY_FRAG_MAX + 8];
+  static const u8 alias[WIRED_MOQTRUN_FRAG_POOL + 1] = {3, 3, 3, 3, 2,
+                                                        2, 2, 2, 1};
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_screen_relay(&hub);
+  usz n = moqtrun_test_big_object(WIRED_MOQTRUN_RELAY_FRAG_MAX, obj);
+  CHECK(n == WIRED_MOQTRUN_RELAY_FRAG_MAX);
+  for (usz i = 0; i <= WIRED_MOQTRUN_FRAG_POOL; i++)
+    moqtrun_test_open_torn(&hub, alias[i], 999 + 4 * i, obj, n - 1);
+  CHECK(hub.stat_frag_drop == 1); /* only the 9th found no buffer */
+  CHECK(moqtrun_test_frag_free(&hub) == 0);
+
+  moqtrun_test_reset();
+  for (usz i = 0; i < 4; i++) /* the screen streams complete their Object */
+    wired_moqt_on_stream_data(
+        &hub, SESS_A, 999 + 4 * i, wired_span_of(obj + n - 1, 1), 0);
+  CHECK(moqtrun_test_count_kind(3) == 4);
+  u64 want = moqtrun_test_fnv1a64(MOQTRUN_TEST_FNV1A64_SEED, obj, n);
+  for (usz i = 0; i < g_n_calls; i++)
+    CHECK(g_calls[i].kind != 3 || g_calls[i].payload_hash == want);
+  CHECK(moqtrun_test_frag_free(&hub) == 4);
+}
+
 /* ===================== session teardown ===================== */
 
 /* A closed session's peer slot is freed: the SAME wt pointer re-registers
@@ -4914,6 +4979,7 @@ void test_moqtrun(void) {
   test_moqtrun_fresh_torn_first_object_accepted();
   test_moqtrun_fresh_oneshot_no_object_discarded();
   test_moqtrun_frag_overflow_counted();
+  test_moqtrun_frag_pool_exhaustion_drops_extra();
   test_moqtrun_close_frees_peer_for_reregistration();
   test_moqtrun_close_drops_subscriptions();
   test_moqtrun_duplicate_subscribe_reuses_slot();
