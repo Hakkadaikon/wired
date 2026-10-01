@@ -1,9 +1,10 @@
 // probe is the guide's external client: it talks to a snippet server over
 // real UDP and prints only what it understood, so the output is stable.
 //
-//	probe tls   <addr> [n]                                        TLS 1.3 handshake over QUIC, n times
-//	probe h3get <addr> <path>...                                  HTTP/3 GET each path
-//	probe h3req <addr> METHOD path [-H 'k: v']... [--body-file f]  one HTTP/3 request
+//	probe tls      <addr> [n]                             TLS 1.3 handshake over QUIC, n times
+//	probe h3get    <addr> <path>...                       HTTP/3 GET each path
+//	probe h3req    <addr> METHOD path [-H 'k: v']... [--body-file f]  one HTTP/3 request
+//	probe wtconnect <addr> [--origin O] path               WebTransport CONNECT, prints status
 package main
 
 import (
@@ -22,11 +23,12 @@ import (
 
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
+	"github.com/quic-go/webtransport-go"
 )
 
 func main() {
 	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "usage: probe tls|h3get|h3req <addr> ...")
+		fmt.Fprintln(os.Stderr, "usage: probe tls|h3get|h3req|wtconnect <addr> ...")
 		os.Exit(2)
 	}
 	var err error
@@ -37,6 +39,8 @@ func main() {
 		err = h3get(os.Args[2], os.Args[3:])
 	case "h3req":
 		err = h3req(os.Args[2], os.Args[3:])
+	case "wtconnect":
+		err = wtConnect(os.Args[2], os.Args[3:])
 	default:
 		err = fmt.Errorf("unknown subcommand %q", os.Args[1])
 	}
@@ -194,5 +198,36 @@ func h3req(addr string, args []string) error {
 	}
 	fmt.Println()
 	fmt.Println(string(respBody))
+	return nil
+}
+
+// wtConnect performs a WebTransport CONNECT (extended CONNECT, :protocol
+// webtransport) and prints only the response status, so the output is
+// stable across runs.
+func wtConnect(addr string, args []string) error {
+	origin := ""
+	if len(args) >= 2 && args[0] == "--origin" {
+		origin = args[1]
+		args = args[2:]
+	}
+	if len(args) < 1 {
+		return fmt.Errorf("usage: wtconnect [--origin O] path")
+	}
+	hdr := http.Header{}
+	if origin != "" {
+		hdr.Set("Origin", origin)
+	}
+	d := &webtransport.Transport{TLSClientConfig: tlsConf()}
+	defer d.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rsp, sess, err := d.Dial(ctx, "https://"+addr+args[0], hdr)
+	if rsp == nil {
+		return err
+	}
+	fmt.Println(rsp.StatusCode)
+	if sess != nil {
+		sess.CloseWithError(0, "")
+	}
 	return nil
 }
