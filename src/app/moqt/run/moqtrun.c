@@ -726,24 +726,105 @@ static int moqtrun_reattach_wanted(
   return moqtrun_sub_name_known(&hub->peers[i], k);
 }
 
-/* Opens slot s on t for peer_idx under alias; m is the SUBSCRIBE (0 for
- * a silent re-attach). */
+/* ===== subscription state (draft 10.6 SUBSCRIBE parameters) ===== */
+
+static const moqctl_param* moqtrun_sub_param(
+    const moqctl_subscribe* m, u64 type) {
+  return m ? moqctl_params_find(&m->params, type) : 0;
+}
+
+static u8 moqtrun_param_u8(const moqctl_param* p) { return p ? (u8)p->u8v : 0; }
+
+static u64 moqtrun_param_vi(const moqctl_param* p) { return p ? p->vi : 0; }
+
+/* FORWARD omitted defaults to 1 (10.2.17). */
+static u8 moqtrun_forward_off(const moqctl_param* p) {
+  return p && p->u8v == 0;
+}
+
+/* Filter Start Location per type (9.3.1), indexed by MOQCTL_FILTER_*:
+ * Largest-relative ones resolve against t's Largest now, {0, 0} when
+ * nothing was published; Absolute ones take the given start. */
+typedef moqctl_loc (*moqtrun_start_fn)(const wired_moqtrun_track*, moqctl_loc);
+
+static moqctl_loc moqtrun_start_given(
+    const wired_moqtrun_track* t, moqctl_loc start) {
+  (void)t;
+  return start;
+}
+
+static moqctl_loc moqtrun_start_next_group(
+    const wired_moqtrun_track* t, moqctl_loc start) {
+  moqctl_loc l = {0, 0};
+  (void)start;
+  if (t->has_largest) l.group = t->largest.group + 1;
+  return l;
+}
+
+static moqctl_loc moqtrun_start_largest(
+    const wired_moqtrun_track* t, moqctl_loc start) {
+  moqctl_loc l = {0, 0};
+  (void)start;
+  if (!t->has_largest) return l;
+  l = t->largest;
+  l.object++;
+  return l;
+}
+
+static const moqtrun_start_fn MOQTRUN_START_FNS[5] = {
+    moqtrun_start_given, moqtrun_start_next_group, moqtrun_start_largest,
+    moqtrun_start_given, moqtrun_start_given};
+
+/* LOCATION_FILTER f (0: unfiltered, start {0, 0}) resolved onto s. The
+ * decoder admits only types 1-4 (moqctl_locfilter_take). */
+static void moqtrun_sub_filter(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* f) {
+  moqctl_loc zero  = {0, 0};
+  s->start         = zero;
+  s->has_end_group = 0;
+  if (!f) return;
+  s->start         = MOQTRUN_START_FNS[f->lf.type](t, f->lf.start);
+  s->has_end_group = f->lf.type == MOQCTL_FILTER_ABS_RANGE;
+  s->end_group     = s->start.group + f->lf.end_group_delta;
+}
+
+/* Priority and group order are recorded only; delivery is not reordered
+ * by them yet. */
+static void moqtrun_sub_scalars(
+    wired_moqtrun_sub* s, const moqctl_subscribe* m) {
+  const moqctl_param* pr =
+      moqtrun_sub_param(m, MOQCTL_PARAM_SUBSCRIBER_PRIORITY);
+  const moqctl_param* dt =
+      moqtrun_sub_param(m, MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT);
+  s->priority     = moqtrun_param_u8(pr);
+  s->has_priority = pr != 0;
+  s->group_order =
+      moqtrun_param_u8(moqtrun_sub_param(m, MOQCTL_PARAM_GROUP_ORDER));
+  s->forward_off =
+      moqtrun_forward_off(moqtrun_sub_param(m, MOQCTL_PARAM_FORWARD));
+  s->delivery_timeout     = moqtrun_param_vi(dt);
+  s->has_delivery_timeout = dt != 0;
+}
+
+/* Opens slot s on t for peer_idx under alias, its state taken from
+ * SUBSCRIBE m (0 for a silent re-attach: every draft default). */
 static void moqtrun_sub_open(
     wired_moqtrun_sub*         s,
     const wired_moqtrun_track* t,
     usz                        peer_idx,
     u64                        alias,
     const moqctl_subscribe*    m) {
-  (void)t;
-  (void)m;
   s->session_idx = peer_idx;
   s->track_alias = alias;
   s->active      = 1;
+  s->request_id  = m ? m->request_id : 0;
+  moqtrun_sub_scalars(s, m);
+  moqtrun_sub_filter(s, t, moqtrun_sub_param(m, MOQCTL_PARAM_LOCATION_FILTER));
 }
 
-/* 1 iff Objects go to s. */
+/* 1 iff Objects go to s: Established and not FORWARD 0 (10.2.17). */
 static int moqtrun_sub_forwards(const wired_moqtrun_sub* s) {
-  return s->active;
+  return s->active && !s->forward_off;
 }
 
 static void moqtrun_reattach_one_sub(wired_moqtrun_track* track, usz i) {
