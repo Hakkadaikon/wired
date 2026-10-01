@@ -1,0 +1,63 @@
+name: Guide
+
+# The usage guide under guide/ (published at /wired/guide/ by docs.yml).
+# site: lint, type-check, unit tests, build, post-build tests.
+# snippets: build every guide/snippets/<id>/main.c against the SDK, run it
+# against the Go client, and compare the real output with golden.txt -- so
+# an SDK change that alters what a page shows fails here, not on the page.
+on:
+  push:
+    paths: ['guide/**', 'src/**', 'scripts/gen_ninja.sh', 'justfile', '.github/workflows/guide.yml']
+  pull_request:
+    paths: ['guide/**', 'src/**', 'scripts/gen_ninja.sh', 'justfile', '.github/workflows/guide.yml']
+  workflow_dispatch:
+
+jobs:
+  site:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: guide
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: guide/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: guide/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm test:dist
+
+  snippets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: build the SDK and the snippets
+        run: nix develop -c sh -c 'just lib && ninja guide'
+
+      # Outside nix: the runner only needs go and node on PATH.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: guide/go.mod
+          cache-dependency-path: guide/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: run snippets and compare with golden.txt
+        working-directory: guide
+        run: node runner/run.ts
