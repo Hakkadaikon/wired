@@ -63,6 +63,19 @@ void bodywin_consume(bodywin* w, u8* buf, usz n);
  * @return the new state */
 int bodywin_pump(bodywin* w, u8* buf, bodywin_sink fn, void* ctx);
 
+/** Receives one whole capsule (RFC 9297 3.2). Returns 0 to stop. */
+typedef int (*bodywin_capsule_fn)(void* ctx, u64 type, wired_span value);
+
+/** RFC 9297 3.2: parse capsules (type, length, value) inside the frontier,
+ * handing each whole one to fn, and slide past everything consumed. A
+ * capsule too large for the window is handed over with an empty value and
+ * its bytes are skipped by length across windows (an unknown type is
+ * skipped either way; no known WebTransport capsule is that large). fn
+ * returning 0 is BODYWIN_REJECTED; the stream ending inside a capsule is
+ * BODYWIN_FRAME_ERROR (RFC 9297 3.3). The window slides once per call.
+ * @return the new state */
+int bodywin_capsules(bodywin* w, u8* buf, bodywin_capsule_fn fn, void* ctx);
+
 /** RFC 9000 4.1/19.10: the MAX_STREAM_DATA value to send now (base +
  * BODYWIN_CAP), or 0 when base has not moved since the last one. Each
  * nonzero result is recorded and strictly larger than the previous. */

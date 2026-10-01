@@ -156,6 +156,72 @@ int bodywin_pump(bodywin* w, u8* buf, bodywin_sink fn, void* ctx) {
   return w->state;
 }
 
+/* One capsule pump: the frame cursor plus the capsule receiver. */
+typedef struct {
+  bodywin_run        r;
+  bodywin_capsule_fn fn;
+  void*              ctx;
+} bodywin_caprun;
+
+static void bodywin_cap_call(bodywin_caprun* c, u64 type, wired_span value) {
+  if (!c->fn(c->ctx, type, value)) c->r.w->state = BODYWIN_REJECTED;
+}
+
+/* Skip the available part of an oversized capsule's value. */
+static int bodywin_cap_skip(bodywin_run* r) {
+  usz avail = r->fr - r->pos;
+  usz n     = r->w->left < avail ? (usz)r->w->left : avail;
+  r->w->left -= n;
+  r->pos += n;
+  return n != 0;
+}
+
+/* A capsule whose n-byte header and len-byte value can never share the
+ * window: announce it, then skip its value by length. */
+static int bodywin_cap_oversized(bodywin_caprun* c, u64 type, usz n, u64 len) {
+  bodywin_cap_call(c, type, wired_span_of(0, 0));
+  c->r.w->left = len;
+  c->r.pos += n;
+  return 1;
+}
+
+/* Hand over the capsule at pos once its value is inside the frontier. */
+static int bodywin_cap_whole(bodywin_caprun* c, u64 type, usz n, u64 len) {
+  bodywin_run* r = &c->r;
+  if (len > r->fr - r->pos - n) return 0;
+  bodywin_cap_call(c, type, wired_span_of(r->buf + r->pos + n, (usz)len));
+  r->pos += n + (usz)len;
+  return 1;
+}
+
+static int bodywin_cap_one(bodywin_caprun* c) {
+  u64 type, len;
+  usz n = bodywin_header_take(&c->r, &type, &len);
+  if (!n) return 0;
+  if (len > BODYWIN_CAP - n) return bodywin_cap_oversized(c, type, n, len);
+  return bodywin_cap_whole(c, type, n, len);
+}
+
+static int bodywin_cap_step(bodywin_caprun* c) {
+  if (c->r.w->left) return bodywin_cap_skip(&c->r);
+  return bodywin_cap_one(c);
+}
+
+/* RFC 9297 3.3: the stream ended inside a capsule. */
+static void bodywin_cap_end(bodywin* w) {
+  if (bodywin_at_end(w) && w->left + bodywin_frontier(w))
+    w->state = BODYWIN_FRAME_ERROR;
+}
+
+int bodywin_capsules(bodywin* w, u8* buf, bodywin_capsule_fn fn, void* ctx) {
+  bodywin_caprun c = {{w, buf, 0, bodywin_frontier(w), 0, 0}, fn, ctx};
+  while (w->state == BODYWIN_OPEN && bodywin_cap_step(&c)) {
+  }
+  bodywin_consume(w, buf, c.r.pos);
+  bodywin_cap_end(w);
+  return w->state;
+}
+
 u64 bodywin_credit_due(bodywin* w) {
   if (w->base <= w->granted) return 0;
   w->granted = w->base;
