@@ -491,6 +491,7 @@ static int moqctl_param_take_value(
 
 static int moqctl_param_in_range(
     const moqctl_param_rule* rule, const moqctl_param* p) {
+  if (rule->enc != MOQCTL_PENC_UINT8) return 1;
   return p->u8v >= rule->lo && p->u8v <= rule->hi;
 }
 
