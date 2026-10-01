@@ -19,6 +19,7 @@ export default defineConfig({
         { label: 'HTTP/3', items: [{ autogenerate: { directory: 'h3' } }] },
         { label: 'WebTransport', items: [{ autogenerate: { directory: 'wt' } }] },
         { label: 'MoQT', items: [{ autogenerate: { directory: 'moqt' } }] },
+        { label: 'Operations', translations: { ja: '運用' }, items: [{ autogenerate: { directory: 'ops' } }] },
       ],
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/hakkadaikon/wired' }],
     }),

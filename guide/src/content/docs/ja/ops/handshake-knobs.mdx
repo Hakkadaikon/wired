@@ -1,0 +1,36 @@
+---
+title: ハンドシェイクと可観測性のつまみ
+description: セッション再開、ステートレス Retry、輻輳制御アルゴリズム、qlog / keylog 出力。
+sidebar:
+  order: 1
+---
+import Example from '../../../../components/Example.astro';
+
+接続が運ぶ内容そのものは変えず、そこへ至る経路と一緒に記録される情報だけを変える、
+4 つのサーバーオプションです。
+セッションチケットによる再開、RFC 9000 8.1.2 の Retry、輻輳制御アルゴリズム、
+そして qlog / NSS key log の出力です。
+
+<Example id="ops-handshake-knobs" />
+
+## 仕組み
+
+- `id.ticket_key = wired_srvloop_ticket_key()` は、セッションチケットによる再開
+  （RFC 8446 4.6.1、0-RTT の前提条件）を有効にします。
+  SDK 自身が持つプロセス単位の固定キーが、発行するチケットの封印と、
+  提示されたチケットの復号の両方に使われます。
+  封印と復号は対称な操作だからです。
+- `opt.force_retry = 1` を設定すると、有効な Retry トークンを持たない Initial には、
+  まずステートレスな Retry が返るようになります（RFC 9000 8.1.2）。
+  quic-interop-runner の retry テストケースにおけるサーバー側の動作です。
+  実際のクライアントはこれを裏側で処理するので、往復が 1 回増えるだけで、ハンドシェイクは普通に完了します。
+- `obs.cc_algo` は、新しい接続の輻輳制御アルゴリズムを選びます
+  （`CC_ALGO_NEWRENO` が 0、`CC_ALGO_CUBIC` が 1、`CC_ALGO_BBR` が 2。
+  `transport/recovery/congestion/cc/cc.h` を参照）。
+  ビルド側で上書きしない限り `0` は NewReno を意味するので、
+  Cubic や BBR を使いたいビルドは、接続ごとにこの値を設定するか、
+  `WIRED_CC_ALGO_DEFAULT` 自体を上書きします。
+- `obs.qlog_path` と `obs.keylog_path` は、qlog（RFC 9002 の形式に沿った
+  `packet_sent` / `packet_received` イベント）と、
+  Wireshark などのツールがキャプチャの復号に使う NSS key log（`SSLKEYLOGFILE` 形式）を書き出します。
+  どちらもデフォルトは 0（無効）です。
