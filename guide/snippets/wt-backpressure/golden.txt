@@ -1,0 +1,10 @@
+$ ./wt-backpressure --port 4433
+held
+released
+inflight 1
+reset
+inflight 0
+conn closed by peer (CONNECTION_CLOSE)
+$ go run . https://127.0.0.1:4433
+ack1 ok
+ack2 ok
