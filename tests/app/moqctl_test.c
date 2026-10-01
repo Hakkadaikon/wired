@@ -1053,6 +1053,31 @@ static void test_moqctl_params_repeatable_filters(void) {
   CHECK(mqpt_twice(&order, MOQCTL_PCTX_SUBSCRIBE, &out) == MOQCTL_VIOLATION);
 }
 
+/* REQUEST_OK (10.5) carries the parameters of whichever OK it stands for
+ * (PUBLISH_OK, TRACK_STATUS_OK, ...): SUBSCRIBER_PRIORITY (PUBLISH_OK) and
+ * LARGEST_OBJECT (TRACK_STATUS_OK) decode; GROUP_ORDER, legal in no OK,
+ * is a PROTOCOL_VIOLATION. */
+static void test_moqctl_request_ok_params_scope(void) {
+  static const u8          prio[]  = {0x01, 0x20, 0x07};
+  static const u8          large[] = {0x01, 0x09, 0x07, 0x03};
+  static const u8          order[] = {0x01, 0x22, 0x01};
+  static moqctl_request_ok m;
+  usz                      off = 0;
+  CHECK(
+      moqctl_request_ok_take(wired_span_of(prio, sizeof prio), &off, &m) ==
+      MOQCTL_OK);
+  CHECK(m.params.n == 1 && m.params.items[0].u8v == 7);
+  off = 0;
+  CHECK(
+      moqctl_request_ok_take(wired_span_of(large, sizeof large), &off, &m) ==
+      MOQCTL_OK);
+  CHECK(m.params.items[0].loc.group == 7 && m.params.items[0].loc.object == 3);
+  off = 0;
+  CHECK(
+      moqctl_request_ok_take(wired_span_of(order, sizeof order), &off, &m) ==
+      MOQCTL_VIOLATION);
+}
+
 /* ===== TEST: SETUP Setup Options behaviors ===== */
 
 /* Unknown Setup Option (including a duplicate of it) is ignored. */
@@ -1284,6 +1309,7 @@ void test_moqctl(void) {
   test_moqctl_params_namespace_prefix();
   test_moqctl_params_uint8_value_ranges();
   test_moqctl_params_repeatable_filters();
+  test_moqctl_request_ok_params_scope();
 
   test_moqctl_setup_unknown_option_ignored();
   test_moqctl_setup_path_option_decode();

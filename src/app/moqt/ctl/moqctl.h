@@ -118,6 +118,11 @@
 #define MOQCTL_PCTX_UPDATE_SUBSCRIBE_TRACKS 0x20000u
 #define MOQCTL_PCTX_UPDATE_PUBLISH_NAMESPACE 0x40000u
 #define MOQCTL_PCTX_REQUEST_UPDATE_OK 0x80000u
+/** Every OK a REQUEST_OK may stand for (SS10.5). */
+#define MOQCTL_PCTX_REQUEST_OK_ANY                                         \
+  (MOQCTL_PCTX_PUBLISH_OK | MOQCTL_PCTX_TRACK_STATUS_OK |                  \
+   MOQCTL_PCTX_PUBLISH_NAMESPACE_OK | MOQCTL_PCTX_SUBSCRIBE_NAMESPACE_OK | \
+   MOQCTL_PCTX_SUBSCRIBE_TRACKS_OK | MOQCTL_PCTX_REQUEST_UPDATE_OK)
 
 /** Message Parameter value encodings (SS10.2). */
 #define MOQCTL_PENC_UINT8 0
@@ -308,10 +313,11 @@ typedef struct {
 int moqctl_publish_take(wired_span buf, usz* off, moqctl_publish* out);
 int moqctl_publish_encode(wired_mspan buf, usz* off, const moqctl_publish* m);
 
-/** draft-ietf-moq-transport-19 SS10.5 REQUEST_OK. Non-empty
- * track_properties is only legal for the TRACK_STATUS_OK variant; this
- * codec always decodes the residual bytes and lets the caller (which
- * knows which request it answers) enforce SS10.5's "MUST be empty for
+/** draft-ietf-moq-transport-19 SS10.5 REQUEST_OK. Parameters are
+ * checked against MOQCTL_PCTX_REQUEST_OK_ANY, the union of every OK's
+ * scope. Non-empty track_properties is only legal for the TRACK_STATUS_OK
+ * variant; this codec always decodes the residual bytes and lets the caller
+ * (which knows which request it answers) enforce SS10.5's "MUST be empty for
  * PUBLISH_OK etc." rule. */
 typedef struct {
   moqctl_params params;
