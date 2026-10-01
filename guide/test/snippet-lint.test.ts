@@ -13,4 +13,9 @@ describe('snippet includes', () => {
     expect(incs).toContain('wired.h');
     for (const inc of incs) expect(allowed).toContain(inc);
   });
+  // api-stability.md: these are reachable from wired.h but not application API.
+  it.each(ids)('%s/main.c calls no internal helpers', (id) => {
+    const src = readFileSync(new URL(`../snippets/${id}/main.c`, import.meta.url), 'utf8');
+    expect(src.match(/\b(bytes_\w+|wired_cstr_len|wired_die)\s*\(/g) ?? []).toEqual([]);
+  });
 });
