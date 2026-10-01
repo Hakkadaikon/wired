@@ -18037,6 +18037,163 @@ static void test_srvrun_wt_usage_counters_exposed(void) {
   CHECK(after.datagrams == before.datagrams + 1);
 }
 
+/* ===== Request-slot lifecycle driven by real client bytes: every step below
+ * seals a 1-RTT packet with the client keys and runs it through the same
+ * srvrun_on_step + srvrun_sess_on_step pair srvrun_serve does (fd=-1: sends
+ * are no-ops, the sent-packet bookkeeping still runs). */
+static struct lp_fix   g_sl_f;
+static srvrun_cfg      g_sl_cfg;
+static srvrun_state    g_sl_st;
+static srvrun_step_ctx g_sl_ctx;
+static u64             g_sl_pn;
+static int             g_sl_closes;
+
+static void sr_sl_on_close(void* app_ctx, wired_wt_session* s) {
+  (void)app_ctx;
+  (void)s;
+  g_sl_closes++;
+}
+
+static srvrun_conn* sr_sl_fixture(void) {
+  u8           obuf[1024];
+  wired_obuf   ob    = obuf_of(obuf, sizeof obuf);
+  srvrun_conn* conns = sr_test_conns();
+  sr_make_confirmed_conn(&conns[0], &g_sl_f, &ob);
+  g_sl_cfg                     = (srvrun_cfg){0};
+  g_sl_cfg.fd                  = -1;
+  g_sl_cfg.env                 = &g_srvrun_env;
+  g_sl_cfg.handler             = sr_wt_handler;
+  g_sl_cfg.wt_on_session_close = sr_sl_on_close;
+  g_sl_st                      = (srvrun_state){0, conns};
+  g_sl_ctx              = (srvrun_step_ctx){&g_sl_cfg, 0, &g_sl_st, 0, 0};
+  g_sl_pn               = 10;
+  g_sl_closes           = 0;
+  g_sr_wt_handler_calls = 0;
+  return &conns[0];
+}
+
+/* Seal pl as the client's next 1-RTT packet and run one full server step. */
+static void sr_sl_step(srvrun_conn* c, const u8* pl, usz n) {
+  u8  spkt[1400];
+  usz slen =
+      client_seal_onertt_pn(&g_sl_f, g_sl_pn++, pl, n, spkt, sizeof spkt);
+  srvrun_on_step(&g_sl_ctx, c, wired_mspan_of(spkt, slen));
+  srvrun_sess_on_step(&g_sl_ctx, 0);
+}
+
+/* One STREAM frame on stream id carrying a single HEADERS frame for method
+ * (CONNECT adds :protocol=webtransport); *hlen gets the HEADERS frame's own
+ * length, i.e. where a CONNECT stream's capsules start. */
+static usz sr_sl_headers(
+    u64 id, const char* method, int fin, u8* out, usz cap, usz* hlen) {
+  int             connect = method[0] == 'C';
+  u8              fields[256], h3buf[300];
+  wired_obuf      fob = obuf_of(fields, sizeof fields);
+  wired_obuf      hob = obuf_of(h3buf, sizeof h3buf);
+  wired_obuf      sob = obuf_of(out, cap);
+  h3req_pseudo_in pin = {
+      wired_span_of((const u8*)method, connect ? 7 : 3),
+      wired_span_of((const u8*)"https", 5), wired_span_of((const u8*)"h", 1),
+      wired_span_of((const u8*)"/", 1),
+      wired_span_of((const u8*)"webtransport", connect ? 12 : 0)};
+  CHECK(h3req_enc_pseudo(&pin, &fob) == 1);
+  CHECK(h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fields, fob.len)));
+  *hlen = hob.len;
+  {
+    stream_frame sf = {id, 0, hob.len, h3buf, (u8)fin};
+    CHECK(appdata_stream_frame(&sf, &sob) == 1);
+  }
+  return sob.len;
+}
+
+/* Send the request HEADERS on stream id as one client packet. */
+static usz sr_sl_send_headers(srvrun_conn* c, u64 id, const char* m, int fin) {
+  u8  pl[512];
+  usz hlen;
+  usz n = sr_sl_headers(id, m, fin, pl, sizeof pl, &hlen);
+  sr_sl_step(c, pl, n);
+  return hlen;
+}
+
+/* ACK every 1-RTT pn the server used from lo on, so each armed response
+ * is fully acknowledged and the next step's reap frees it. */
+static void sr_sl_ack_from(srvrun_conn* c, u64 lo) {
+  u8        pl[64];
+  ack_frame a = {0};
+  a.n_ranges  = 1;
+  a.ranges[0] = (ack_range){c->l.tx_pn - 1, lo};
+  sr_sl_step(c, pl, ack_encode(pl, sizeof pl, &a));
+}
+
+/* 1 iff a request reassembly slot is claimed for stream id. */
+static int sr_sl_has_slot(const srvrun_conn* c, u64 id) {
+  return srvrun_req_slot_of(c, id) != 0;
+}
+
+/* An established CONNECT stream (no FIN) whose 200 was acknowledged and
+ * reaped later carries WT_CLOSE_SESSION (draft-ietf-webtrans-http3-15 SS6):
+ * the request is never dispatched a second time (still exactly one
+ * session), the close is applied, and only then is the slot released. */
+static void test_srvrun_wt_close_on_established_connect_stream(void) {
+  srvrun_conn*          c  = sr_sl_fixture();
+  u64                   lo = c->l.tx_pn;
+  wired_srvrun_wt_usage before, after;
+  usz                   hlen;
+  u8                    cap[64], pl[128];
+  wired_obuf            capb = obuf_of(cap, sizeof cap);
+  wired_obuf            sob  = obuf_of(pl, sizeof pl);
+  wired_srvrun_env_wt_usage(&g_srvrun_env, &before);
+  hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  CHECK(c->wt_active == 1);
+  CHECK(c->wt_capsule_rx_at[0] == hlen); /* cursor right after HEADERS */
+  sr_sl_ack_from(c, lo);
+  CHECK(c->resp[0].in_use == 0); /* the 200 was reaped ... */
+  CHECK(sr_sl_has_slot(c, 0));   /* ... but the session keeps its slot */
+  CHECK(
+      wired_wtcapsule_encode_close(
+          &capb, 7, wired_span_of((const u8*)"bye", 3)) == 1);
+  {
+    stream_frame sf = {0, hlen, capb.len, cap, 0};
+    CHECK(appdata_stream_frame(&sf, &sob) == 1);
+  }
+  sr_sl_step(c, pl, sob.len);
+  wired_srvrun_env_wt_usage(&g_srvrun_env, &after);
+  CHECK(after.sessions == before.sessions + 1);
+  CHECK(g_sl_closes == 1);
+  CHECK(c->wt_active == 0);
+  CHECK(!sr_sl_has_slot(c, 0));
+}
+
+/* RFC 9114 4.1: a GET with FIN is dispatched once; its slot is re-armed
+ * right away and released once the response is acknowledged. */
+static void test_srvrun_get_with_fin_dispatched_once_then_released(void) {
+  srvrun_conn* c  = sr_sl_fixture();
+  u64          lo = c->l.tx_pn;
+  sr_sl_send_headers(c, 0, "GET", 1);
+  CHECK(g_sr_wt_handler_calls == 1);
+  CHECK(srvrun_req_slot_of(c, 0)->req_len == 0); /* re-armed */
+  sr_sl_ack_from(c, lo);
+  CHECK(g_sr_wt_handler_calls == 1);
+  CHECK(c->resp[0].in_use == 0);
+  CHECK(!sr_sl_has_slot(c, 0));
+}
+
+/* RFC 9000 13.3: a retransmitted HEADERS+FIN arriving while the response is
+ * still in flight is not dispatched again; once the stream is answered and
+ * released, a further copy is dropped without claiming a slot. */
+static void test_srvrun_retransmitted_request_not_redispatched(void) {
+  srvrun_conn* c  = sr_sl_fixture();
+  u64          lo = c->l.tx_pn;
+  sr_sl_send_headers(c, 0, "GET", 1);
+  sr_sl_send_headers(c, 0, "GET", 1);
+  CHECK(g_sr_wt_handler_calls == 1);
+  sr_sl_ack_from(c, lo);
+  CHECK(!sr_sl_has_slot(c, 0));
+  sr_sl_send_headers(c, 0, "GET", 1);
+  CHECK(g_sr_wt_handler_calls == 1);
+  CHECK(!sr_sl_has_slot(c, 0));
+}
+
 void test_srvrun(void) {
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
@@ -18491,4 +18648,7 @@ void test_srvrun(void) {
   test_srvrun_wt_close_session_capsule_received();
   test_srvrun_wt_session_creation_rate_limited();
   test_srvrun_wt_usage_counters_exposed();
+  test_srvrun_wt_close_on_established_connect_stream();
+  test_srvrun_get_with_fin_dispatched_once_then_released();
+  test_srvrun_retransmitted_request_not_redispatched();
 }

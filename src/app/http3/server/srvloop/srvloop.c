@@ -983,13 +983,17 @@ static void step_one(const wired_srvloop_conn* conn, wired_mspan pkt) {
 /* RFC 9000 2.2: re-arm every slot that answered a request this step, so the
  * next request on that stream (curl reuses stream 0 across requests)
  * reassembles from a clean buffer rather than re-triggering the finished
- * one. */
+ * one. Only a slot that saw FIN: an Extended CONNECT completes at its
+ * HEADERS (RFC 9220 3) and its stream keeps carrying capsules -- re-arming
+ * it would leave the old HEADERS in req_buf to complete (and dispatch) the
+ * same request again, and restart the capsule bytes from zero. */
 static void rearm_reqacc(wired_srvloop* l) {
   for (usz i = 0; i < l->done_n; i++) {
     wired_srvloop_stream_slot* slot = &l->streams[l->done_slots[i]];
-    slot->req_len                   = 0;
-    slot->req_fin                   = 0;
-    slot->req_done                  = 0;
+    if (!slot->req_fin) continue;
+    slot->req_len  = 0;
+    slot->req_fin  = 0;
+    slot->req_done = 0;
   }
 }
 
