@@ -1221,7 +1221,7 @@ static void test_reqdrive_req_header_lookup(void) {
   off += sizeof xcustom;
   CHECK(rd_hdr_decode(fs, off, scratch, 0, &r));
   CHECK(rd_hdr_is(&r, "authorization", "Bearer t"));
-  CHECK(rd_hdr_is(&r, "cookie", "a=1"));
+  CHECK(rd_hdr_is(&r, "cookie", "a=1; b=2"));
   CHECK(rd_hdr_is(&r, "x-custom", "custom-value"));
   CHECK(
       !wired_http_req_header(&r, wired_span_of((const u8*)"X-Custom", 8), &v));
@@ -1233,20 +1233,66 @@ static void test_reqdrive_req_header_lookup(void) {
  * ignored, not an error. */
 static void test_reqdrive_req_header_cap(void) {
   static u8            scratch[WIRED_H3_MAX_FIELD_SECTION];
-  u8                   fs[256];
+  u8                   fs[512];
+  qpack_prefix         pfx = {0, 0, 0};
+  qpack_nameref        age = {2, 1, 0}; /* static "age" */
+  usz                  off = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  wired_h3reqdrive_req r;
+  off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
+  put_litname(fs, &off, "xa", "xa");
+  for (usz i = 1; i < WIRED_H3REQDRIVE_MAX_HDRS; i++)
+    off += qpack_literal_namref_encode(
+        wired_mspan_of(fs + off, 64), &age, wired_span_of((const u8*)"1", 1));
+  put_litname(fs, &off, "xz", "xz");
+  CHECK(WIRED_H3REQDRIVE_MAX_HDRS == 32);
+  CHECK(rd_hdr_decode(fs, off, scratch, 0, &r));
+  CHECK(r.hdr_count == WIRED_H3REQDRIVE_MAX_HDRS);
+  CHECK(rd_hdr_is(&r, "xa", "xa"));
+  CHECK(rd_hdr_is(&r, "age", "1"));
+  CHECK(!rd_hdr_is(&r, "xz", "xz")); /* the 33rd */
+}
+
+/* A Chrome-like fetch: 20 regular field lines with the cookie split into
+ * three crumbs (RFC 9114 4.2.1) and authorization last. Cookie and origin
+ * come from their dedicated fields (joined cookie, no hdrs slot spent), so
+ * the trailing authorization still fits. */
+static void test_reqdrive_req_header_chrome(void) {
+  static const char* const lines[][2] = {
+      {"sec-ch-ua", "\"Chromium\";v=\"130\""},
+      {"sec-ch-ua-mobile", "?0"},
+      {"sec-ch-ua-platform", "\"Linux\""},
+      {"upgrade-insecure-requests", "1"},
+      {"user-agent", "Mozilla/5.0"},
+      {"accept", "*/*"},
+      {"sec-fetch-site", "same-origin"},
+      {"sec-fetch-mode", "cors"},
+      {"sec-fetch-user", "?1"},
+      {"sec-fetch-dest", "empty"},
+      {"accept-encoding", "gzip, br"},
+      {"accept-language", "ja"},
+      {"priority", "u=1, i"},
+      {"origin", "https://o.test"},
+      {"referer", "https://o.test/"},
+      {"cookie", "a=1"},
+      {"cookie", "b=2"},
+      {"cookie", "c=3"},
+      {"dnt", "1"},
+      {"authorization", "Bearer z"}};
+  static u8            scratch[WIRED_H3_MAX_FIELD_SECTION];
+  u8                   fs[1024];
   qpack_prefix         pfx = {0, 0, 0};
   usz                  off = qpack_prefix_encode(fs, sizeof fs, &pfx);
   wired_h3reqdrive_req r;
-  char                 nm[] = "xa";
   off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
-  for (usz i = 0; i <= WIRED_H3REQDRIVE_MAX_HDRS; i++) {
-    nm[1] = (char)('a' + i);
-    put_litname(fs, &off, nm, nm);
-  }
+  put_litname(fs, &off, ":path", "/api");
+  for (usz i = 0; i < sizeof lines / sizeof lines[0]; i++)
+    put_litname(fs, &off, lines[i][0], lines[i][1]);
   CHECK(rd_hdr_decode(fs, off, scratch, 0, &r));
-  CHECK(rd_hdr_is(&r, "xa", "xa"));
-  CHECK(rd_hdr_is(&r, "xp", "xp"));  /* the 16th */
-  CHECK(!rd_hdr_is(&r, "xq", "xq")); /* the 17th */
+  CHECK(rd_hdr_is(&r, "cookie", "a=1; b=2; c=3"));
+  CHECK(rd_hdr_is(&r, "authorization", "Bearer z"));
+  CHECK(rd_hdr_is(&r, "origin", "https://o.test"));
+  CHECK(rd_hdr_is(&r, "user-agent", "Mozilla/5.0"));
+  CHECK(r.hdr_count == 16); /* 20 lines minus 3 cookie crumbs and origin */
 }
 
 /* RFC 9204 2.1.1 / 3.2: a header taken from the dynamic table is copied into
@@ -1277,6 +1323,7 @@ static void test_reqdrive_req_header_dynamic_copied(void) {
 void test_h3reqdrive(void) {
   test_reqdrive_req_header_lookup();
   test_reqdrive_req_header_cap();
+  test_reqdrive_req_header_chrome();
   test_reqdrive_req_header_dynamic_copied();
   test_reqdrive_priority_header();
   test_reqdrive_origin_header();

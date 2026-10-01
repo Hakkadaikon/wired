@@ -49,11 +49,13 @@ int wired_h3reqdrive_send_method(
 
 /** Regular request headers kept per request (see wired_h3reqdrive_req's
  * hdrs); further ones are ignored. */
-#define WIRED_H3REQDRIVE_MAX_HDRS 16
+#define WIRED_H3REQDRIVE_MAX_HDRS 32
 
 /** One regular request header: name and value as octet positions inside the
  * request's hdr_base (its decode scratch), so a copy of the request only has
- * to move the bytes and re-point hdr_base. */
+ * to move the bytes and re-point hdr_base. u16 positions suffice: the
+ * decode scratch is bounded by the advertised SETTINGS_MAX_FIELD_SECTION_SIZE
+ * (RFC 9114 4.2.2, WIRED_H3_MAX_FIELD_SECTION), far below 64 KiB. */
 typedef struct {
   u16 name_off;  /**< name position in hdr_base */
   u16 name_len;  /**< name length in octets */
@@ -117,11 +119,12 @@ typedef struct {
    * instead of calling the application. 0 otherwise. */
   u16 too_large_status;
   /** RFC 9114 4.2: the first WIRED_H3REQDRIVE_MAX_HDRS regular
-   * (non-pseudo) header field lines in received order, each cookie crumb
-   * (RFC 9114 4.2.1) separately; read them with wired_http_req_header.
-   * Bytes are copied into scratch at decode time (a dynamic-table entry can
-   * change afterwards, RFC 9204 2.1.1/3.2); a line that no longer fits the
-   * scratch is skipped. hdr_base is the scratch the positions index. */
+   * (non-pseudo) header field lines in received order, except cookie,
+   * origin and wt-available-protocols, which wired_http_req_header serves
+   * from their dedicated fields above. Bytes are copied into scratch at
+   * decode time (a dynamic-table entry can change afterwards, RFC 9204
+   * 2.1.1/3.2); a line that no longer fits the scratch is skipped. hdr_base
+   * is the scratch the positions index. */
   const u8* hdr_base;
   /** the kept headers, in received order (see hdr_base) */
   wired_h3reqdrive_hdr hdrs[WIRED_H3REQDRIVE_MAX_HDRS];
@@ -129,9 +132,10 @@ typedef struct {
 } wired_h3reqdrive_req;
 
 /** RFC 9114 4.2: find a regular request header by name. Field names are
- * lowercase on the wire, so the match is exact (case-sensitive). With
- * duplicates (including cookie crumbs, RFC 9114 4.2.1) the first wins; only
- * the first WIRED_H3REQDRIVE_MAX_HDRS regular headers are searched.
+ * lowercase on the wire, so the match is exact (case-sensitive). cookie
+ * returns the crumbs joined with "; " (RFC 9114 4.2.1); other duplicates
+ * return the first. Only the first WIRED_H3REQDRIVE_MAX_HDRS other regular
+ * headers are searched.
  * @param req the decoded request
  * @param name the lowercase field name
  * @param out receives a view of the value, valid as long as req's views
