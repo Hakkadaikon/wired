@@ -89,6 +89,68 @@ static void test_moqctl_peek_type_known_unimplemented(void) {
       MOQCTL_KNOWN_UNIMPLEMENTED);
 }
 
+/* A complete unknown or known-but-unimplemented message is still framed
+ * by its Length: off skips the whole message so the caller can carry on
+ * with the next one (draft-ietf-moq-transport-19 SS10). */
+static void test_moqctl_peek_type_unknown_skips_whole_message(void) {
+  const u8   in[] = {0x99, 0x01, 0x00, 0x02, 0xAA, 0xBB, 0x03};
+  usz        off  = 0;
+  u64        type = 0;
+  wired_span body = {0, 0};
+
+  CHECK(
+      moqctl_peek_type(wired_span_of(in, sizeof in), &off, &type, &body) ==
+      MOQCTL_UNKNOWN_TYPE);
+  CHECK(off == 6);
+  CHECK(type == 0x1901); /* 2-byte vi64 */
+  CHECK(body.n == 2 && body.p == in + 4);
+}
+
+static void test_moqctl_peek_type_unimplemented_skips_whole_message(void) {
+  const u8   in[] = {0x16, 0x00, 0x01, 0x07, 0x03};
+  usz        off  = 0;
+  u64        type = 0;
+  wired_span body = {0, 0};
+
+  CHECK(
+      moqctl_peek_type(wired_span_of(in, sizeof in), &off, &type, &body) ==
+      MOQCTL_KNOWN_UNIMPLEMENTED);
+  CHECK(off == 4);
+  CHECK(type == 0x16);
+}
+
+/* FETCH_OK (0x18) is in the SS10 table: known, not unknown. */
+static void test_moqctl_peek_type_fetch_ok_is_known(void) {
+  const u8   in[] = {0x18, 0x00, 0x00};
+  usz        off  = 0;
+  u64        type;
+  wired_span body;
+
+  CHECK(
+      moqctl_peek_type(wired_span_of(in, sizeof in), &off, &type, &body) ==
+      MOQCTL_KNOWN_UNIMPLEMENTED);
+}
+
+/* An unknown message whose body is cut short, or whose Length (up to the
+ * 16-bit maximum) runs past the bytes available, waits for more bytes
+ * exactly like a known one: INSUFFICIENT, off untouched. */
+static void test_moqctl_peek_type_unknown_truncated_waits(void) {
+  const u8   cut[]  = {0x99, 0x01, 0x00, 0x05, 0xAA, 0xBB};
+  const u8   huge[] = {0x99, 0x01, 0xFF, 0xFF, 0xAA};
+  usz        off    = 0;
+  u64        type;
+  wired_span body;
+
+  CHECK(
+      moqctl_peek_type(wired_span_of(cut, sizeof cut), &off, &type, &body) ==
+      MOQCTL_INSUFFICIENT);
+  CHECK(off == 0);
+  CHECK(
+      moqctl_peek_type(wired_span_of(huge, sizeof huge), &off, &type, &body) ==
+      MOQCTL_INSUFFICIENT);
+  CHECK(off == 0);
+}
+
 /* TEST 6: message total length boundary at 2^16-1. A Length field
  * that itself claims the max is accepted by peek_type as long as the body
  * bytes are actually present; this test only exercises the encoding of
@@ -1008,6 +1070,10 @@ void test_moqctl(void) {
   test_moqctl_peek_type_truncated();
   test_moqctl_peek_type_unknown();
   test_moqctl_peek_type_known_unimplemented();
+  test_moqctl_peek_type_unknown_skips_whole_message();
+  test_moqctl_peek_type_unimplemented_skips_whole_message();
+  test_moqctl_peek_type_fetch_ok_is_known();
+  test_moqctl_peek_type_unknown_truncated_waits();
   test_moqctl_peek_type_max_len_field();
 
   test_moqctl_setup_roundtrip();

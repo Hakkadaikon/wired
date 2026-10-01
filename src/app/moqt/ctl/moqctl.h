@@ -327,12 +327,14 @@ int moqctl_goaway_encode(wired_mspan buf, usz* off, const moqctl_goaway* m);
  * MOQCTL_OK, *type_out is the Message Type, *body is the Message
  * Body view (exactly Length bytes, already bounds-checked against buf),
  * and *off has advanced past Type+Length+Body (the whole message).
- * MOQCTL_INSUFFICIENT: header or body not fully in buf yet.
- * MOQCTL_UNKNOWN_TYPE: Type is not in the SS10 table (caller
- * closes). MOQCTL_KNOWN_UNIMPLEMENTED: Type is a known-but-
- * unimplemented ID (REQUEST_UPDATE/FETCH/TRACK_STATUS/PUBLISH_NAMESPACE/
+ * MOQCTL_INSUFFICIENT: header or body not fully in buf yet (*off
+ * untouched). MOQCTL_UNKNOWN_TYPE: Type is not in the SS10 table.
+ * MOQCTL_KNOWN_UNIMPLEMENTED: Type is a known-but-unimplemented ID
+ * (REQUEST_UPDATE/FETCH/FETCH_OK/TRACK_STATUS/PUBLISH_NAMESPACE/
  * SUBSCRIBE_NAMESPACE/SUBSCRIBE_TRACKS/NAMESPACE/NAMESPACE_DONE/
- * PUBLISH_SKIPPED); caller replies NOT_SUPPORTED rather than closing. */
+ * PUBLISH_SKIPPED). Both still fill *type_out / *body and advance *off
+ * past the whole message, exactly like MOQCTL_OK, so the caller can
+ * answer or skip it and go on with the next one. */
 int moqctl_peek_type(wired_span buf, usz* off, u64* type_out, wired_span* body);
 
 #endif
