@@ -18,7 +18,7 @@ static int on_request(
   (void)total_size;
   wired_log_str("request /\n");
   *content_type = "text/plain";
-  bytes_memcpy(body_out->p, "hello", 5);
+  memcpy(body_out->p, "hello", 5);
   body_out->len = 5;
   return 1;
 }
