@@ -2883,6 +2883,24 @@ static void test_moqtrun_frag_pool_exhaustion_drops_extra(void) {
   CHECK(moqtrun_test_frag_free(&hub) == 4);
 }
 
+/* A held fragment's buffer goes back to the pool when its publisher
+ * stream is reset and when the publisher's session closes. */
+static void test_moqtrun_frag_pool_released_on_reset_and_close(void) {
+  static u8 obj[WIRED_MOQTRUN_RELAY_FRAG_MAX + 8];
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_screen_relay(&hub);
+  usz n = moqtrun_test_big_object(WIRED_MOQTRUN_RELAY_FRAG_MAX, obj);
+  moqtrun_test_open_torn(&hub, 3, 999, obj, n - 1);
+  moqtrun_test_open_torn(&hub, 2, 1003, obj, n - 1);
+  CHECK(moqtrun_test_frag_free(&hub) == WIRED_MOQTRUN_FRAG_POOL - 2);
+  wired_moqt_on_stream_reset(&hub, SESS_A, 999, 1, 0);
+  CHECK(moqtrun_test_frag_free(&hub) == WIRED_MOQTRUN_FRAG_POOL - 1);
+  wired_moqt_on_session_close(&hub, SESS_A);
+  CHECK(moqtrun_test_frag_free(&hub) == WIRED_MOQTRUN_FRAG_POOL);
+}
+
 /* ===================== session teardown ===================== */
 
 /* A closed session's peer slot is freed: the SAME wt pointer re-registers
@@ -4980,6 +4998,7 @@ void test_moqtrun(void) {
   test_moqtrun_fresh_oneshot_no_object_discarded();
   test_moqtrun_frag_overflow_counted();
   test_moqtrun_frag_pool_exhaustion_drops_extra();
+  test_moqtrun_frag_pool_released_on_reset_and_close();
   test_moqtrun_close_frees_peer_for_reregistration();
   test_moqtrun_close_drops_subscriptions();
   test_moqtrun_duplicate_subscribe_reuses_slot();
