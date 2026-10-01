@@ -38,8 +38,9 @@ typedef struct {
   /** RFC 9204 2.1/3.2: this connection's OWN encoder-side dynamic table --
    * the send-direction counterpart to qdyn above (which holds the peer's
    * instructions applied to this endpoint's decoder). Initialised by
-   * wired_h3srv_state_init with the same capacity this server advertises
-   * via SETTINGS_QPACK_MAX_TABLE_CAPACITY (qpack_max_table_capacity). */
+   * wired_h3srv_state_init with capacity 0 (RFC 9204 3.2.3): no Set Dynamic
+   * Table Capacity is ever sent, so every field line stays static or
+   * literal with Required Insert Count 0. */
   qpackenc_state qenc;
 } wired_h3srv_state;
 

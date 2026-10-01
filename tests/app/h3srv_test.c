@@ -3,9 +3,15 @@
 #include "app/http3/core/h3conn/response.h"
 #include "app/http3/core/h3settings/control_settings.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
+#include "app/http3/request/h3resp/field_encode.h"
 #include "app/http3/server/h3srv/control.h"
 #include "app/http3/server/h3srv/peer.h"
 #include "app/http3/server/h3srv/respond.h"
+#include "app/http3/server/h3srv/state.h"
+#include "app/qpack/qpack/insertcount.h"
+#include "app/qpack/qpack/literal.h"
+#include "app/qpack/qpack/prefix.h"
+#include "app/qpack/qpack/static_table.h"
 #include "test.h"
 #include "transport/stream/data/appdata/stream_send.h"
 
@@ -389,6 +395,64 @@ static void test_h3srv_respond_without_peer_settings(void) {
       200); /* :status present without waiting on peer SETTINGS */
 }
 
+/* RFC 9204 3.2.3 / 2.1.4 / 4.5.1.1: the encoder's dynamic table starts at
+ * capacity 0 and stays there until a Set Dynamic Table Capacity instruction
+ * the peer's SETTINGS_QPACK_MAX_TABLE_CAPACITY allows -- independent of the
+ * capacity this server advertises for its OWN decoder. A :status with no
+ * static-table entry (401) therefore must be a Literal Field Line With Name
+ * Reference to static :status (index 24, RFC 9204 App. A), Required Insert
+ * Count 0, no encoder-stream insert -- decodable by a peer whose table
+ * capacity is 0 (quic-go). Hand-derived (RFC 9204 4.5.1 / 4.5.4):
+ *   00 00            prefix: EncodedInsertCount 0, S=0, Delta Base 0
+ *   5f 09            01 N=0 T=1 index 24 (4-bit prefix: 15 + 9)
+ *   03 '4' '0' '1'   H=0 length 3, value */
+static void h3srv_status_decodes_without_table(
+    const u8* fs, usz n, const char* digits) {
+  qpack_prefix  p;
+  qpack_ric_ctx none = {0, 0};
+  u64           ric  = 1;
+  qpack_nameref r;
+  u8            v[8];
+  wired_obuf    vob = {v, sizeof v, 0};
+  const char *  name, *value;
+  usz           off = qpack_prefix_decode(fs, n, &p);
+  CHECK(off == 2);
+  CHECK(qpack_ric_decode(p.required_insert_count, &none, &ric));
+  CHECK(ric == 0);
+  CHECK(
+      off + qpack_literal_namref_decode(
+                wired_span_of(fs + off, n - off), &r, &vob) ==
+      n);
+  CHECK(r.is_static);
+  CHECK(qpack_static_get((usz)r.index, &name, &value));
+  CHECK(srv_eq((const u8*)name, wired_cstr_len(name), ":status", 7));
+  CHECK(srv_eq(v, vob.len, digits, 3));
+}
+
+static void h3srv_status_encodes_literal(u16 status, const char* digits) {
+  wired_h3srv_state      st;
+  qpackenc_status_result ins;
+  u8                     out[64];
+  wired_obuf             ob = {out, sizeof out, 0};
+  wired_h3srv_state_init(&st, DEFAULT_QPACK_MAX_TABLE_CAP);
+  CHECK(
+      h3resp_encode_headers_fields_qenc(status, 0, 0, 0, &st.qenc, &ins, &ob));
+  CHECK(ins.required_insert_count == 0);
+  CHECK(ins.insert_len == 0);
+  CHECK(ob.len == 8);
+  CHECK(out[0] == 0x00 && out[1] == 0x00);
+  CHECK(out[2] == 0x5f && out[3] == 0x09 && out[4] == 0x03);
+  CHECK(srv_eq(out + 5, 3, digits, 3));
+  h3srv_status_decodes_without_table(out, ob.len, digits);
+}
+
+static void test_h3srv_non_static_status_needs_no_dynamic_table(void) {
+  h3srv_status_encodes_literal(401, "401");
+  h3srv_status_encodes_literal(299, "299");
+  h3srv_status_encodes_literal(418, "418");
+  h3srv_status_encodes_literal(451, "451");
+}
+
 void test_h3srv(void) {
   test_h3srv_control_settings_first();
   test_h3srv_control_no_capacity();
@@ -411,4 +475,5 @@ void test_h3srv(void) {
   test_h3srv_no_response_without_request();
   test_h3srv_no_response_before_own_settings();
   test_h3srv_respond_without_peer_settings();
+  test_h3srv_non_static_status_needs_no_dynamic_table();
 }
