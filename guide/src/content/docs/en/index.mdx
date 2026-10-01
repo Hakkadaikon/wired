@@ -1,6 +1,27 @@
 ---
 title: wired guide
-description: Try each wired feature with the smallest working code.
+description: Try each wired feature with the smallest working code and its real output.
 ---
 
-wired is a libc-free TLS 1.3 / QUIC / HTTP/3 / WebTransport / MoQT server SDK in C.
+wired is a libc-free TLS 1.3 / QUIC / HTTP/3 / WebTransport / MoQT server SDK
+in C. Every page here shows a complete program you can copy, and the output
+it actually printed when CI last ran it against an independent client
+([quic-go](https://github.com/quic-go/quic-go) /
+[webtransport-go](https://github.com/quic-go/webtransport-go)).
+
+Start with [Hello, wired](./getting-started/hello/) for the build command.
+
+| Layer | Pages |
+|---|---|
+| TLS & crypto | [SHA-256](./tls/sha256/) · [X25519](./tls/x25519/) · [Certificates](./tls/certificates/) · [TLS handshake](./tls/handshake/) |
+| QUIC | [Packet headers](./quic/header/) · [UDP sockets](./quic/udp/) · [Server flags](./quic/server-flags/) |
+| HTTP/3 | [Hello](./h3/hello/) · [Routing](./h3/routing/) · [Streaming](./h3/streaming/) |
+| WebTransport | [Datagrams](./wt/datagram/) · [Streams](./wt/streams/) · [Sessions](./wt/session/) |
+| MoQT | [Relay hub](./moqt/hub/) · [Publish](./moqt/publish/) |
+
+Each layer builds on the one above it: HTTP/3 pages run QUIC and TLS
+underneath, WebTransport runs over HTTP/3, and MoQT over WebTransport.
+
+For every function and struct, see the
+[API reference](https://hakkadaikon.github.io/wired/). For a full
+application, see the [moqt_chat demo](https://hakkadaikon.github.io/wired/moqt_chat/).
