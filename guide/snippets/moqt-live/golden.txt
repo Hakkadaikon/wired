@@ -1,0 +1,8 @@
+$ ./moqt-live --port 4433
+conn closed by peer (CONNECTION_CLOSE)
+$ go run . https://127.0.0.1:4433
+movie/init bytes=28
+movie group=0 bytes=36
+movie group=1 bytes=44
+movie group=2 bytes=52
+movie group=3 bytes=36
