@@ -488,7 +488,7 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
    * ever moves now_secs earlier within the same day; a restart after UTC
    * midnight still needs a manual rejoin with the new hash. */
   now_secs -= now_secs % 86400;
-  wired_srvrun_handler h        = {app_on_request, 0};
+  wired_srvrun_handler h        = {app_on_request, 0, 0};
   wired_srvrun_obs     obs      = {
       wired_cliargs_str(argc, argv, "--qlog", 0),
       wired_cliargs_str(argc, argv, "--keylog", 0), 0, 0,

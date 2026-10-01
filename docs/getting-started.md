@@ -139,7 +139,7 @@ SIGTERM:
 int wired_main(int argc, char** argv) {
   wired_srvboot_id     id;
   wired_srvdriver_opt  opt;
-  wired_srvrun_handler h   = {app_on_request, /*ctx=*/0};
+  wired_srvrun_handler h   = {app_on_request, /*ctx=*/0, /*http=*/0};
   wired_srvrun_obs     obs = {0}; /* qlog/keylog/cert-reload paths, all off */
 
   server_identity(&id);  /* fill the wired_srvboot_id (see examples/) */

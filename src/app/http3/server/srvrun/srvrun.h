@@ -5,6 +5,7 @@
 #include "app/http3/server/srvinbox/srvinbox.h"
 #include "app/http3/server/srvloop/srvloop.h"
 #include "app/http3/server/srvxdp/srvxdp.h"
+#include "app/qpack/qpack/field.h"
 #include "app/webtransport/capsule/wtcapsule/wtcapsule.h"
 #include "app/webtransport/session/session/session.h"
 
@@ -131,12 +132,85 @@ typedef void (*wired_wt_resource_check)(
  * @param now_ms the loop's monotonic clock at this step */
 typedef void (*wired_srvrun_on_step)(void* ctx, u64 now_ms);
 
+/** Most response header fields one wired_http_handler round may set. */
+#define WIRED_HTTP_MAX_FIELDS 8
+
+/** One response header field line: lowercase name and value views
+ * (RFC 9114 4.2). Both must stay valid after the handler returns (static
+ * or ctx-owned storage): they are encoded once the call is over. */
+typedef qpack_field wired_http_field;
+
+/** One request/response exchange handed to a wired_http_handler. The
+ * caller zeroes every out-member before each call, so a handler that sets
+ * nothing answers a body-less 200, exactly like a 7-argument handler.
+ *
+ * Validated after the first round (offset == 0); any violation answers
+ * 500 with no fields and no body instead: status in 100-199 (101
+ * included), below 100 or above 599; field_count above
+ * WIRED_HTTP_MAX_FIELDS (a 9th field is rejected, never silently dropped);
+ * an empty field name, a name starting with ':', carrying an uppercase
+ * letter, or naming a connection-specific field (RFC 9114 4.2); CR, LF or
+ * NUL in a name or value (RFC 9110 5.5); more than
+ * WIRED_HTTP_FIELD_BYTES_MAX name+value+content_type bytes in total.
+ * 204 and 304 never carry content (RFC 9110 15.3.5 / 15.4.5): the body is
+ * dropped and HEADERS ends the stream. */
+typedef struct {
+  /** the decoded request; its views are not valid past the call */
+  const wired_h3reqdrive_req* req;
+  /** response body bytes already delivered by prior rounds */
+  u64 offset;
+  /** receives this round's response body bytes (see wired_srvloop_handler)
+   */
+  wired_obuf* body;
+  /** response status; 0 means 200 (first round only) */
+  u16 status;
+  /** static NUL-terminated content-type, or 0 to omit (first round only) */
+  const char* content_type;
+  /** extra response header fields, in order (first round only) */
+  wired_http_field fields[WIRED_HTTP_MAX_FIELDS];
+  /** entries used in fields */
+  usz field_count;
+  /** set to 1 to request another round (see wired_srvloop_handler) */
+  int more;
+  /** full body length if known, first round only (see
+   * wired_srvloop_handler) */
+  u64 total_size;
+} wired_http_exchange;
+
+/** Upper bound on the summed name, value and content_type bytes of one
+ * response's header fields, so the framed HEADERS always fits the response
+ * row's header room. */
+#define WIRED_HTTP_FIELD_BYTES_MAX 384
+
+/** Build (a round of) the response for a decoded request: like
+ * wired_srvloop_handler, but able to choose the status and add response
+ * header fields (see wired_http_exchange).
+ * @param ctx the opaque context registered alongside this callback
+ * @param x the exchange to fill in
+ * @return 1 to send x->body, 0 for a body-less response */
+typedef int (*wired_http_handler)(void* ctx, wired_http_exchange* x);
+
 /** The application's request responder: the callback and its opaque context,
  * registered on the loop as a pair (wired_srvloop_set_handler takes the same
- * pair). */
+ * pair). Example, answering a redirect:
+ * @code
+ * static int on_http(void* ctx, wired_http_exchange* x) {
+ *   static const u8 n[] = "location", v[] = "/new";
+ *   (void)ctx;
+ *   x->status    = 302;
+ *   x->fields[0] = (wired_http_field){wired_span_of(n, sizeof n - 1),
+ *                                     wired_span_of(v, sizeof v - 1)};
+ *   x->field_count = 1;
+ *   return 0;
+ * }
+ * wired_srvrun_handler h = {0, 0, on_http};
+ * @endcode */
 typedef struct {
   wired_srvloop_handler cb;  /**< the response-body builder callback */
-  void*                 ctx; /**< opaque context passed back to cb */
+  void*                 ctx; /**< opaque context passed back to cb / http */
+  /** status- and header-aware responder; when set it is used instead of
+   * cb (0 keeps cb) */
+  wired_http_handler http;
 } wired_srvrun_handler;
 
 /** Optional debug-log file paths, each 0 to disable (the default): a qlog

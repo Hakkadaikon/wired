@@ -1234,7 +1234,7 @@ static void test_srvrun_hrr_lost_ch1_retransmit_resends_hrr(void) {
   {
     srvrun_cfg cfg = {
         -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
-        0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+        0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     conntable_init(table, WIRED_CONNTABLE_CAP);
     srvrun_test_reset_send_count();

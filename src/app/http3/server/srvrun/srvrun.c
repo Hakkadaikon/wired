@@ -146,6 +146,9 @@ typedef struct {
   /** Per-step app hook, 0 to disable, see wired_srvrun_opt. */
   wired_srvrun_on_step on_step;
   void*                on_step_ctx; /**< opaque ctx for on_step */
+  /** status/header-aware app responder, used instead of handler when set
+   * (wired_srvrun_handler.http) */
+  wired_http_handler http;
 } srvrun_cfg;
 
 /* One live connection's mutable state: the orchestrator, the HTTP/3 loop,
@@ -9216,7 +9219,8 @@ static srvrun_cfg srvrun_build_cfg(
       opt->wt_on_session_close,
       opt->wt_session_close_ctx,
       opt->on_step,
-      opt->on_step_ctx};
+      opt->on_step_ctx,
+      h.http};
 }
 
 usz wired_srvrun_env_size(void) { return sizeof(wired_srvrun_env); }
