@@ -1,10 +1,11 @@
 name: Docs
 
 # One GitHub Pages site for the whole repo: the Doxygen API reference at
-# the root, and moqt_chat's static frontend demo under /moqt_chat/ (the
+# the root, the usage guide (guide/, Astro) under /guide/, and moqt_chat's
+# static frontend demo under /moqt_chat/ (the
 # repo is served at https://<user>.github.io/wired/, so that subpath is
 # .../wired/moqt_chat/ -- next.config.ts's NEXT_PUBLIC_BASE_PATH below must
-# match). Both are built into one merged directory before the single
+# match). All three are built into one merged directory before the single
 # upload-pages-artifact step, since a Pages site can only publish one
 # artifact.
 on:
@@ -51,12 +52,29 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build
 
+      # guide/'s astro.config.mjs base ('/wired/guide') must match the
+      # pages-site/guide/ path below. pnpm itself is already set up above
+      # (both packages pin the same pnpm version).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: guide/pnpm-lock.yaml
+
+      - name: Build the guide
+        working-directory: guide
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
       - name: Merge into one Pages site
         run: |
           mkdir -p pages-site
           cp -r docs/sdk/. pages-site/
           mkdir -p pages-site/moqt_chat
           cp -r examples/moqt_chat/frontend/out/. pages-site/moqt_chat/
+          mkdir -p pages-site/guide
+          cp -r guide/dist/. pages-site/guide/
 
       - uses: actions/upload-pages-artifact@v3
         with:
