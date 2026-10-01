@@ -1,0 +1,29 @@
+---
+title: Serving static files
+description: Resolve a request path to a file under a document root, with the right Content-Type and a real 404.
+sidebar:
+  order: 4
+---
+import Example from '../../../../components/Example.astro';
+
+`wired_staticfile_resolve` turns a request path into a file under a document
+root, rejecting path traversal, and `wired_mimetype_for_path` picks the
+Content-Type from its extension. This page serves two files committed next
+to the snippet and answers 404 for anything else.
+
+<Example id="h3-static-files" />
+
+## How it works
+
+- `wired_staticfile_resolve(".", reqpath, "index.html", resolved, cap)`
+  resolves the request path under the current directory, rejecting any
+  `..` segment.
+- `wired_mimetype_for_path(resolved)` reads the resolved path's extension
+  (`.txt` → `text/plain`, `.html` → `text/html`), set once on the first
+  round, like `wired_h3reqdrive`'s own content-type field.
+- `wired_fio_open` / `wired_fio_size` / `wired_fio_pread` / `wired_fio_close`
+  stream the file in chunks of `x->body->cap`, the same chunked read the
+  `word_list` example uses for a document root larger than one round.
+- A missing file, or one `wired_staticfile_resolve` rejects, answers a real
+  404 via `x->status` (`wired_http_handler`, like the fix on the
+  [routing](../routing/) page).
