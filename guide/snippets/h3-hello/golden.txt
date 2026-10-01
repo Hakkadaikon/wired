@@ -1,0 +1,5 @@
+$ ./h3-hello --port 4433
+request /
+conn closed by peer (CONNECTION_CLOSE)
+$ probe h3get 127.0.0.1:4433 /
+GET / status=200 content-type=text/plain body="hello"

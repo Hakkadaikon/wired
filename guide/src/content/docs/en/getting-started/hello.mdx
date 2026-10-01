@@ -1,0 +1,35 @@
+---
+title: Hello, wired
+description: The smallest wired program — entry point and logging, nothing else.
+sidebar:
+  order: 1
+---
+import Example from '../../../../components/Example.astro';
+
+A wired program has no libc: no `main`, no `printf`. `wired.h` gives you the
+replacement for both, and this page shows the smallest program that uses them.
+
+<Example id="hello" />
+
+## How it works
+
+- `#define WIRED_MAIN` before `#include "wired.h"` emits the `_start` entry
+  point and the `memcpy`/`memset` a `-nostdlib` binary needs. Define it in
+  exactly one file.
+- `_start` calls your `wired_main(argc, argv)`; its return value becomes the
+  exit status.
+- `wired_log_str` writes a NUL-terminated string to stderr.
+
+## Build and run
+
+Build the SDK archive once, then compile your file freestanding against it:
+
+```sh
+just lib
+clang -target x86_64-linux-gnu -ffreestanding -fno-stack-protector \
+      -fno-builtin -nostdlib -static \
+      -Isrc -o hello main.c build/libwired.a
+./hello
+```
+
+Every other page in this guide builds the same way.

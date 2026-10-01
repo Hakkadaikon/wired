@@ -1,0 +1,34 @@
+---
+title: はじめての wired
+description: いちばん小さな wired プログラム。エントリポイントとログ出力だけを使う。
+sidebar:
+  order: 1
+---
+import Example from '../../../../components/Example.astro';
+
+wired のプログラムは libc を使いません。
+`main` も `printf` もありません。
+代わりになるものを `wired.h` が用意しており、このページではそれだけを使う最小のプログラムを示します。
+
+<Example id="hello" />
+
+## 仕組み
+
+- `#include "wired.h"` の前に `#define WIRED_MAIN` を置くと、エントリポイント `_start` と、`-nostdlib` のバイナリが必要とする `memcpy`/`memset` が生成されます。
+  定義するのは 1 ファイルだけにします。
+- `_start` は `wired_main(argc, argv)` を呼び、その戻り値が終了ステータスになります。
+- `wired_log_str` は NUL 終端の文字列を標準エラー出力に書きます。
+
+## ビルドと実行
+
+SDK のアーカイブを一度ビルドし、それに対してフリースタンディングでコンパイルします。
+
+```sh
+just lib
+clang -target x86_64-linux-gnu -ffreestanding -fno-stack-protector \
+      -fno-builtin -nostdlib -static \
+      -Isrc -o hello main.c build/libwired.a
+./hello
+```
+
+このガイドの他のページも、同じ手順でビルドできます。
