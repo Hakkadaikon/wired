@@ -18695,6 +18695,15 @@ static const u8 sr_hx_ck_n[] = "set-cookie", sr_hx_ck_a[] = "a=1",
                 sr_hx_ck_b[] = "b=2";
 #define SR_HX_FIELD(n, v) {{n, sizeof n - 1}, {v, sizeof v - 1}}
 
+/* Answer g_sr_hx and expect exactly a lone :status 500, no DATA. */
+static void sr_hx_expect_500(void) {
+  sr_hx_dec d;
+  sr_hx_run(&d);
+  CHECK(d.n == 1);
+  CHECK(sr_hx_line_is(&d, 0, ":status", "500"));
+  CHECK(d.body.n == 0);
+}
+
 /* RFC 9110 15.4: a 3xx with its location field. */
 static void test_srvrun_http_redirect_with_location(void) {
   static const wired_http_field f[] = {SR_HX_FIELD(sr_hx_loc_n, sr_hx_loc_v)};
@@ -18730,6 +18739,88 @@ static void test_srvrun_http_404_with_body(void) {
   CHECK(sr_hx_line_is(&d, 0, ":status", "404"));
   CHECK(sr_hx_line_is(&d, 1, "content-type", "text/plain"));
   CHECK(d.body.n == 4 && d.body.p[3] == 'e');
+}
+
+/* RFC 9110 15.3.5 / 15.4.5: 204 and 304 send HEADERS only, even when the
+ * handler wrote a body. */
+static void test_srvrun_http_204_304_send_no_data(void) {
+  static const u16 st[] = {204, 304};
+  for (usz i = 0; i < 2; i++) {
+    sr_hx_dec d;
+    g_sr_hx = (sr_hx_case){st[i], "text/plain", 0, 0, "body", 1, 99};
+    sr_hx_run(&d);
+    CHECK(d.l[0].value_len == 3 && d.l[0].value[0] == (u8)('0' + st[i] / 100));
+    CHECK(d.n == 1); /* content-type dropped with the content */
+    CHECK(d.body.n == 0);
+    CHECK(g_test_conns[0].resp[0].streaming == 0);
+  }
+}
+
+/* RFC 9110 15: a final status is 200-599; 1xx (101 included), below 100
+ * and 600+ become 500, the 200/599 edges pass. */
+static void test_srvrun_http_status_range(void) {
+  static const u16 bad[] = {1, 99, 100, 101, 199, 600, 999};
+  sr_hx_dec        d;
+  for (usz i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+    g_sr_hx = (sr_hx_case){bad[i], "text/plain", 0, 0, "x", 0, 0};
+    sr_hx_expect_500();
+  }
+  g_sr_hx = (sr_hx_case){599, 0, 0, 0, 0, 0, 0};
+  sr_hx_run(&d);
+  CHECK(d.n == 1 && sr_hx_line_is(&d, 0, ":status", "599"));
+  g_sr_hx = (sr_hx_case){200, 0, 0, 0, 0, 0, 0};
+  sr_hx_run(&d);
+  CHECK(d.n == 1 && sr_hx_line_is(&d, 0, ":status", "200"));
+}
+
+/* RFC 9110 5.5 / RFC 9114 4.2 / 4.3: a malformed field turns the whole
+ * response into a bare 500 -- CR/LF/NUL in a value or name, an uppercase,
+ * empty, pseudo (':') or connection-specific name. */
+static void test_srvrun_http_bad_field_is_500(void) {
+  static const u8 crlf[] = "a\r\nb", nul[] = {'a', 0, 'b', 0};
+  static const u8 up[] = "Location", empty[] = "", pseudo[] = ":status",
+                  conn[]              = "connection";
+  static const wired_http_field bad[] = {
+      SR_HX_FIELD(sr_hx_loc_n, crlf),  SR_HX_FIELD(sr_hx_loc_n, nul),
+      SR_HX_FIELD(crlf, sr_hx_loc_v),  SR_HX_FIELD(up, sr_hx_loc_v),
+      SR_HX_FIELD(empty, sr_hx_loc_v), SR_HX_FIELD(pseudo, sr_hx_loc_v),
+      SR_HX_FIELD(conn, sr_hx_loc_v)};
+  for (usz i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+    g_sr_hx = (sr_hx_case){302, 0, 1, &bad[i], "x", 0, 0};
+    sr_hx_expect_500();
+  }
+}
+
+/* WIRED_HTTP_MAX_FIELDS fields pass; a 9th is rejected with 500, never
+ * silently dropped. */
+static void test_srvrun_http_field_count_limit(void) {
+  wired_http_field f[WIRED_HTTP_MAX_FIELDS];
+  sr_hx_dec        d;
+  for (usz i = 0; i < WIRED_HTTP_MAX_FIELDS; i++)
+    f[i] = (wired_http_field)SR_HX_FIELD(sr_hx_ck_n, sr_hx_ck_a);
+  g_sr_hx = (sr_hx_case){0, 0, WIRED_HTTP_MAX_FIELDS, f, 0, 0, 0};
+  sr_hx_run(&d);
+  CHECK(d.n == 1 + WIRED_HTTP_MAX_FIELDS);
+  g_sr_hx.n = WIRED_HTTP_MAX_FIELDS + 1;
+  sr_hx_expect_500();
+}
+
+/* Fields past WIRED_HTTP_FIELD_BYTES_MAX in total answer 500 rather than
+ * overflowing the response's header room; the limit itself still fits. */
+static void test_srvrun_http_field_bytes_limit(void) {
+  static u8        big[WIRED_HTTP_FIELD_BYTES_MAX];
+  wired_http_field f[WIRED_HTTP_MAX_FIELDS];
+  usz              each = WIRED_HTTP_FIELD_BYTES_MAX / WIRED_HTTP_MAX_FIELDS;
+  sr_hx_dec        d;
+  bytes_memset(big, 'v', sizeof big);
+  for (usz i = 0; i < WIRED_HTTP_MAX_FIELDS; i++)
+    f[i] = (wired_http_field){
+        wired_span_of(sr_hx_ck_n, 1), wired_span_of(big, each - 1)};
+  g_sr_hx = (sr_hx_case){0, 0, WIRED_HTTP_MAX_FIELDS, f, "x", 0, 0};
+  sr_hx_run(&d);
+  CHECK(d.n == 1 + WIRED_HTTP_MAX_FIELDS && d.body.n == 1);
+  g_sr_hx.ct = "t"; /* one byte over */
+  sr_hx_expect_500();
 }
 
 /* A handler that asks for more rounds gets the same streaming framing a
@@ -18771,6 +18862,11 @@ void test_srvrun(void) {
   test_srvrun_http_redirect_with_location();
   test_srvrun_http_two_set_cookie_fields();
   test_srvrun_http_404_with_body();
+  test_srvrun_http_204_304_send_no_data();
+  test_srvrun_http_status_range();
+  test_srvrun_http_bad_field_is_500();
+  test_srvrun_http_field_count_limit();
+  test_srvrun_http_field_bytes_limit();
   test_srvrun_http_streaming_round0();
   test_srvrun_legacy_handler_headers_golden();
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
