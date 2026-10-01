@@ -15,6 +15,7 @@
 #include "app/qpack/qpack/static_table.h"
 #include "app/qpack/qpackdyn/field_decode.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/util/ct.h"
 
 /* RFC 9114 4.1 / 4.3.1, RFC 9204 4.5 */
 int wired_h3reqdrive_send_method(
@@ -288,6 +289,54 @@ static int line_ok(const rline* L) {
   return line_bytes_ok(L) && line_smuggling_ok(L);
 }
 
+/* Copy n octets to cur's unused scratch tail. Returns their position, or
+ * (usz)-1 if they do not fit. */
+static usz rd_copy(rd_cursor* cur, const u8* p, usz n) {
+  usz at = cur->used;
+  if (n > cur->scr.n - at) return (usz)-1;
+  bytes_memcpy(cur->scr.p + at, p, n);
+  cur->used += n;
+  return at;
+}
+
+/* Position of p's n octets inside cur's scratch: where the line decoder
+ * already wrote them, else a fresh copy (a static- or dynamic-table view;
+ * RFC 9204 2.1.1/3.2: a dynamic entry may change after this decode). */
+static usz rd_pos(rd_cursor* cur, const u8* p, usz n) {
+  usz at = (usz)p - (usz)cur->scr.p;
+  if (at < cur->scr.n) return at;
+  return rd_copy(cur, p, n);
+}
+
+/* Place p's n octets in scratch with *pos set; 0 if they do not fit or the
+ * position overflows wired_h3reqdrive_hdr's u16 fields. */
+static int rd_place(rd_cursor* cur, const u8* p, usz n, u16* pos) {
+  usz at = rd_pos(cur, p, n);
+  *pos   = (u16)at;
+  return at < 0x10000 && n < 0x10000 - at;
+}
+
+static int rd_place_line(
+    rd_cursor* cur, const rline* L, wired_h3reqdrive_hdr* h) {
+  return rd_place(cur, L->name, L->name_len, &h->name_off) &&
+         rd_place(cur, L->value, L->value_len, &h->value_off);
+}
+
+static int rd_keeps(const rline* L, const wired_h3reqdrive_req* r) {
+  return r->hdr_count < WIRED_H3REQDRIVE_MAX_HDRS &&
+         h3_ph_classify(L->name, L->name_len) == H3_PH_NONE;
+}
+
+/* RFC 9114 4.2: keep a regular header line for wired_http_req_header. */
+static void rd_record(rd_cursor* cur, const rline* L, wired_h3reqdrive_req* r) {
+  wired_h3reqdrive_hdr* h;
+  if (!rd_keeps(L, r)) return;
+  h            = &r->hdrs[r->hdr_count];
+  h->name_len  = (u16)L->name_len;
+  h->value_len = (u16)L->value_len;
+  if (rd_place_line(cur, L, h)) r->hdr_count++;
+}
+
 /* Decode one line at cur->off into r, advancing cur. Returns 1 ok, 0 on a
  * malformed line (decode failure or a forbidden CR/LF/NUL octet). */
 static int step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
@@ -300,6 +349,7 @@ static int step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
   classify_line(&L, r);
   cur->off += c;
   cur->used += L.scratch_used;
+  rd_record(cur, &L, r);
   return 1;
 }
 
@@ -388,6 +438,7 @@ int wired_h3reqdrive_recv_get_dyn(
   wired_span fs = wired_span_of(0, 0);
   *r            = (wired_h3reqdrive_req){0};
   h3_priority_init(&r->priority);
+  r->hdr_base = scratch.p;
   if (!wired_h3reqdrive_request_sections(stream_data, &fs, r)) return 0;
   if (!decode_lines(fs, scratch, dyn, r)) return 0;
   return !path_present_and_empty(r);
@@ -398,6 +449,26 @@ int wired_h3reqdrive_recv_get_dyn(
 int wired_h3reqdrive_recv_get(
     wired_span stream_data, wired_mspan scratch, wired_h3reqdrive_req* r) {
   return wired_h3reqdrive_recv_get_dyn(stream_data, scratch, 0, r);
+}
+
+static int rd_hdr_name_is(
+    const wired_h3reqdrive_req* req,
+    const wired_h3reqdrive_hdr* h,
+    wired_span                  name) {
+  return h->name_len == name.n &&
+         ct_diffn(req->hdr_base + h->name_off, name.p, name.n) == 0;
+}
+
+/* RFC 9114 4.2 */
+int wired_http_req_header(
+    const wired_h3reqdrive_req* req, wired_span name, wired_span* out) {
+  for (usz i = 0; i < req->hdr_count; i++) {
+    const wired_h3reqdrive_hdr* h = &req->hdrs[i];
+    if (!rd_hdr_name_is(req, h, name)) continue;
+    *out = wired_span_of(req->hdr_base + h->value_off, h->value_len);
+    return 1;
+  }
+  return 0;
 }
 
 /* 1 if the decoded line is well-formed AND carries no pseudo-header name
