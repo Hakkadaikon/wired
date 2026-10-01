@@ -168,6 +168,13 @@ typedef struct {
  * size), so a fragment can never legitimately outgrow it. */
 #define WIRED_MOQTRUN_RELAY_FRAG_MAX 512
 
+/** Hub-wide buffers for held-back Object fragments, shared by every relay
+ * (a relay holds one only while an Object is torn across deliveries). A
+ * torn Object finding none free is dropped like an oversized one
+ * (moqtrun_relay_save_frag). 8 covers every concurrently torn stream the
+ * chat room produces (a few screen/audio/chat streams in flight at once). */
+#define WIRED_MOQTRUN_FRAG_POOL 8
+
 /** One in-flight relayed publisher stream: which publisher-side stream
  * (pub_stream_id) this relay follows, and -- per subscriber slot index in
  * the owning track's subs[] -- the subscriber-side uni stream its bytes are
@@ -189,7 +196,7 @@ typedef struct {
  * late joiner then reads the whole stream from there
  * (moqtrun_rel_late_attach_all).
  *
- * frag/frag_len hold the bytes past the LAST COMPLETE Object boundary of
+ * frag_idx/frag_len hold the bytes past the LAST COMPLETE Object boundary of
  * the most recent delivery, prepended to the next one before relaying
  * (moqtrun_relay_normalize): deliveries slice the publisher's stream at
  * arbitrary byte positions, but a relay round that gets dropped for one
@@ -205,7 +212,9 @@ typedef struct {
   u64 pub_stream_id;
   u8  hdr[WIRED_MOQTRUN_RELAY_HDR_MAX];
   usz hdr_len;
-  u8  frag[WIRED_MOQTRUN_RELAY_FRAG_MAX];
+  /** Index of the hub's frag_pool buffer holding the fragment, -1 when
+   * none is held (frag_len 0). */
+  i32 frag_idx;
   usz frag_len;
   u64 sub_stream_id[WIRED_MOQTRUN_MAX_SUBS];
   int sub_stream_set[WIRED_MOQTRUN_MAX_SUBS];
@@ -588,6 +597,11 @@ typedef struct {
   u64 stat_rel_early_return;
   /** Peer-opened request streams in flight, all sessions. */
   wired_moqtrun_req reqs[WIRED_MOQTRUN_MAX_REQS];
+  /** Held-fragment buffers shared by every relay (relay frag_idx). */
+  u8 frag_pool[WIRED_MOQTRUN_FRAG_POOL][WIRED_MOQTRUN_RELAY_FRAG_MAX];
+  /** The relay that last took each buffer; the buffer is free unless that
+   * relay is still in use and still names it (moqtrun_frag_slot_free). */
+  wired_moqtrun_relay* frag_owner[WIRED_MOQTRUN_FRAG_POOL];
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
