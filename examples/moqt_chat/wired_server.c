@@ -250,6 +250,8 @@ static const wired_moqt_io g_moqt_io = {
      * to add and the io shape matches srvrun.h exactly. */
     wired_server_wt_stream_hold,
     moqt_io_send_budget,
+    /* close_session: the io shape matches srvrun.h exactly. */
+    wired_server_wt_close_session,
 };
 
 static wired_moqt_hub g_hub;
