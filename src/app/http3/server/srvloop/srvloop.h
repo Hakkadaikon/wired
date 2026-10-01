@@ -835,6 +835,10 @@ typedef struct {
    * a connection error of type H3_FRAME_ERROR. dispatch.c only latches it;
    * the caller (srvrun.c) closes the connection and clears it. */
   int req_frame_error;
+  /** RFC 9000 4.1: streamed request-body bytes consumed (window base) on
+   * every request slot released so far -- with the live slots' bases, the
+   * request side of the connection-wide MAX_DATA ceiling (srvrun.c). */
+  u64 req_body_released;
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
