@@ -531,6 +531,115 @@ static void test_moqtrun_unimplemented_non_request_skipped(void) {
   CHECK(off == c->payload_len);
 }
 
+/* ---- control-stream reassembly across deliveries ---- */
+
+/* Room for one maximum-size FETCH envelope plus a SUBSCRIBE behind it. */
+#define MTASM_BUF (WIRED_MOQTRUN_CTL_MSG_MAX + 64)
+
+static wired_moqt_hub mtasm_hub;
+static u64            mtasm_ctrl_b;
+static u8             mtasm_buf[MTASM_BUF];
+
+/* A publishes alice; B joins (control stream mtasm_ctrl_b). */
+static void mtasm_setup(void) {
+  moqtrun_test_reset();
+  wired_moqt_init(&mtasm_hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&mtasm_hub);
+  wired_moqt_on_session(
+      &mtasm_hub, SESS_B, wired_span_of(0, 0), wired_span_of(0, 0));
+  mtasm_ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+}
+
+static void mtasm_feed(usz from, usz to) {
+  wired_moqt_on_stream_data(
+      &mtasm_hub, SESS_B, mtasm_ctrl_b,
+      wired_span_of(mtasm_buf + from, to - from), 0);
+}
+
+/* FETCH (0x16) with a body_len-byte body, then SUBSCRIBE(alice), into
+ * mtasm_buf. Returns the total length. */
+static usz mtasm_fetch_then_subscribe(usz body_len) {
+  mtasm_buf[0] = 0x16;
+  mtasm_buf[1] = (u8)(body_len >> 8);
+  mtasm_buf[2] = (u8)body_len;
+  bytes_memset(mtasm_buf + 3, 0, body_len);
+  bytes_memcpy(
+      mtasm_buf + 3 + body_len, g_moqt_ctl_subscribe_basic,
+      G_MOQT_CTL_SUBSCRIBE_BASIC_LEN);
+  return 3 + body_len + G_MOQT_CTL_SUBSCRIBE_BASIC_LEN;
+}
+
+/* Types of every reply message B received, concatenated in order. */
+static usz mtasm_reply_types(u64* out, usz cap) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].kind != 3 || g_calls[i].s != SESS_B) continue;
+    usz off = 0;
+    while (off < g_calls[i].payload_len && n < cap)
+      out[n++] = mtskip_next_type(&g_calls[i], &off);
+  }
+  return n;
+}
+
+/* draft-ietf-moq-transport-19 SS10: a stream is a byte sequence, so a
+ * SUBSCRIBE split anywhere across two deliveries is reassembled and
+ * answered exactly once -- nothing for the first part alone. */
+static void test_moqtrun_ctl_split_subscribe_answered_once(void) {
+  for (usz k = 1; k < G_MOQT_CTL_SUBSCRIBE_BASIC_LEN; k++) {
+    u64 types[4];
+    mtasm_setup();
+    bytes_memcpy(
+        mtasm_buf, g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN);
+    mtasm_feed(0, k);
+    CHECK(mtasm_reply_types(types, 4) == 0);
+    mtasm_feed(k, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN);
+    CHECK(mtasm_reply_types(types, 4) == 1);
+    CHECK(types[0] == MOQCTL_T_SUBSCRIBE_OK);
+  }
+}
+
+/* A whole message plus half of the next: the first is answered at once,
+ * the second when its rest arrives. */
+static void test_moqtrun_ctl_message_then_half(void) {
+  u64 types[4];
+  mtasm_setup();
+  usz n    = mtasm_fetch_then_subscribe(1);
+  usz half = 4 + G_MOQT_CTL_SUBSCRIBE_BASIC_LEN / 2;
+  mtasm_feed(0, half);
+  CHECK(mtasm_reply_types(types, 4) == 1);
+  CHECK(types[0] == MOQCTL_T_REQUEST_ERROR);
+  mtasm_feed(half, n);
+  CHECK(mtasm_reply_types(types, 4) == 2);
+  CHECK(types[1] == MOQCTL_T_SUBSCRIBE_OK);
+}
+
+/* A message whose Length is exactly the cap is handled. */
+static void test_moqtrun_ctl_max_length_accepted(void) {
+  u64 types[4];
+  mtasm_setup();
+  mtasm_feed(0, mtasm_fetch_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX));
+  CHECK(mtasm_reply_types(types, 4) == 2);
+  CHECK(types[0] == MOQCTL_T_REQUEST_ERROR);
+  CHECK(types[1] == MOQCTL_T_SUBSCRIBE_OK);
+}
+
+/* One byte over the cap: skipped by its Length without a reply, and the
+ * stream goes on -- whether it arrives whole or split. */
+static void test_moqtrun_ctl_over_max_skipped(void) {
+  u64 types[4];
+  usz n;
+  mtasm_setup();
+  mtasm_feed(0, mtasm_fetch_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX + 1));
+  CHECK(mtasm_reply_types(types, 4) == 1);
+  CHECK(types[0] == MOQCTL_T_SUBSCRIBE_OK);
+  mtasm_setup();
+  n = mtasm_fetch_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX + 1);
+  mtasm_feed(0, 10);
+  mtasm_feed(10, n);
+  CHECK(mtasm_reply_types(types, 4) == 1);
+  CHECK(types[0] == MOQCTL_T_SUBSCRIBE_OK);
+}
+
 /* Local twin of moqtrun_test_last_reply_type (defined later in this file,
  * after the blob-track tests) so this earlier test does not forward-
  * reference it in the same translation unit. */
@@ -4672,6 +4781,10 @@ void test_moqtrun(void) {
   test_moqtrun_unknown_type_skipped_then_subscribe_answered();
   test_moqtrun_unimplemented_request_not_supported_then_subscribe();
   test_moqtrun_unimplemented_non_request_skipped();
+  test_moqtrun_ctl_split_subscribe_answered_once();
+  test_moqtrun_ctl_message_then_half();
+  test_moqtrun_ctl_max_length_accepted();
+  test_moqtrun_ctl_over_max_skipped();
   test_moqtrun_subscribe_fits_every_other_peer();
   test_moqtrun_object_relay_to_subscriber();
   test_moqtrun_object_relay_preserves_bytes();
