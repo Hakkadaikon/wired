@@ -18559,6 +18559,7 @@ typedef struct {
   int handler_calls_at_fin; /* g_sr_wt_handler_calls when fin arrived */
   usz reject_at;            /* 1-based call that returns 0; 0 = never */
   int saw_post;             /* req carried the decoded :method */
+  u64 total;                /* body bytes received */
 } sr_body_rec;
 
 static sr_body_rec g_sr_body;
@@ -18574,6 +18575,7 @@ static int sr_on_body(
   for (usz i = 0; i < chunk.n && g_sr_body.got_n < 4096; i++)
     g_sr_body.got[g_sr_body.got_n++] = chunk.p[i];
   g_sr_body.calls++;
+  g_sr_body.total += chunk.n;
   g_sr_body.saw_post = req->method_len == 4 && req->method[0] == 'P';
   if (fin) {
     g_sr_body.fins++;
@@ -18743,6 +18745,46 @@ static void test_srvrun_early_413_also_stops_sending(void) {
   }
   CHECK(sr_resp_is_status(&c->resp[0], 413));
   CHECK(srvrun_test_send_count() == SR_EARLY_413_SENDS);
+}
+
+/* RFC 9000 4.1: a body larger than the connection's initial_max_data
+ * streams through on_body whole -- MAX_DATA follows the consumed body, the
+ * client honoring both the stream and the connection credit. */
+static void test_srvrun_on_body_past_initial_max_data(void) {
+  enum { INIT = 65536, BODY = 3 * INIT };
+  static u8       head[64];
+  srvrun_conn*    c = sr_body_fixture(0);
+  usz             hn, sent = 0, total;
+  u8              fields[64];
+  wired_obuf      fob = obuf_of(fields, sizeof fields);
+  wired_obuf      hob = obuf_of(head, sizeof head);
+  h3req_pseudo_in pin = {
+      wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"https", 5),
+      wired_span_of((const u8*)"h", 1), wired_span_of((const u8*)"/", 1),
+      wired_span_of((const u8*)"", 0)};
+  CHECK(h3req_enc_pseudo(&pin, &fob) == 1);
+  CHECK(h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fields, fob.len)));
+  hn = hob.len;
+  hn += varint_encode(head + hn, H3_FRAME_DATA);
+  hn += varint_encode(head + hn, BODY);
+  total = hn + BODY;
+  while (sent < total) {
+    u64          conn = u64_max(c->rx_max_data_advertised, INIT);
+    usz          lim  = (usz)u64_min(u64_min(sr_body_credit(c), conn), total);
+    usz          k    = lim - sent < 700 ? lim - sent : 700;
+    u8           d[700], pl[800];
+    wired_obuf   sob = obuf_of(pl, sizeof pl);
+    stream_frame sf  = {0, sent, k, d, (u8)(sent + k == total)};
+    if (!k) break;
+    for (usz i = 0; i < k; i++)
+      d[i] = sent + i < hn ? head[sent + i] : (u8)(sent + i - hn);
+    CHECK(appdata_stream_frame(&sf, &sob) == 1);
+    sr_sl_step(c, pl, sob.len);
+    sent += k;
+  }
+  CHECK(sent == total);
+  CHECK(g_sr_body.fins == 1 && g_sr_body.total == BODY);
+  CHECK(g_sr_wt_handler_calls == 1);
 }
 
 /* Send c's GOAWAY and return the stream id it carried (~0 if unreadable). */
@@ -19721,6 +19763,7 @@ void test_srvrun(void) {
   test_srvrun_req_frame_error_closes();
   test_srvrun_on_body_empty_body_gets_fin();
   test_srvrun_on_body_skips_connect();
+  test_srvrun_on_body_past_initial_max_data();
   test_srvrun_on_body_frame_unexpected();
   test_srvrun_handler_on_body_reaches_cfg();
   test_srvrun_stop_sending_wire_shape();

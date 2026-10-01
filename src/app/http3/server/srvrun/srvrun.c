@@ -2870,17 +2870,54 @@ static usz wt_slots_in_use(const srvrun_conn* c) {
   return wt_bidi_slots_in_use(c) + wt_uni_slots_in_use(c);
 }
 
+/* A request slot whose body is still streaming (srvloop's body window). */
+static int srvrun_req_credit_live(const wired_srvloop_stream_slot* slot) {
+  return slot->in_use && slot->body.on && slot->body.state == BODYWIN_OPEN;
+}
+
+/* One request slot's share of the MAX_DATA ceiling: the body bytes its
+ * window already consumed, plus the window itself while it streams. */
+static u64 srvrun_req_slot_ceiling(const wired_srvloop_stream_slot* slot) {
+  u64 open = srvrun_req_credit_live(slot) ? BODYWIN_CAP : 0;
+  return slot->in_use ? slot->body.base + open : 0;
+}
+
+/* RFC 9000 4.1: the request side of the connection ceiling -- streamed body
+ * bytes of every released slot plus each live slot's share. */
+static u64 srvrun_req_rx_ceiling(const srvrun_conn* c) {
+  u64 total = c->l.req_body_released;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    total += srvrun_req_slot_ceiling(&c->l.streams[i]);
+  return total;
+}
+
+/* 1 while some request body streams. */
+static int srvrun_req_any_streaming(const srvrun_conn* c) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    if (srvrun_req_credit_live(&c->l.streams[i])) return 1;
+  return 0;
+}
+
+/* The connection credit moves while a WT slot or a streamed request body
+ * is consuming it. */
+static int srvrun_conn_credit_live(const srvrun_conn* c) {
+  return wt_any_slot_in_use(c) || srvrun_req_any_streaming(c);
+}
+
 /* RFC 9000 4.1/19.9: re-grant this connection's receive credit once its total
- * WT progress (every slot combined) has advanced enough past what was last
+ * WT and streamed request-body progress has advanced enough past what was last
  * advertised -- the connection-wide counterpart of srvrun_grant_stream_
  * credit, using the same ceiling shape (delivered + one buffer's worth of
  * slack) so raising every open stream's own window never outruns the shared
- * connection ceiling. A no-op while no WT slot has ever been claimed
- * (wt_any_slot_in_use). */
+ * connection ceiling. A no-op while neither a WT slot nor a streamed request
+ * body is live (srvrun_conn_credit_live). ponytail: bytes outside both
+ * (control/QPACK streams, CONNECT capsules, buffered requests) are not
+ * counted -- the slack absorbs them; count them if a peer ever stalls. */
 static void srvrun_grant_conn_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
   u64 ceiling = c->wt_rx_reaped_total + srvrun_wt_rx_delivered_total(c) +
-                (u64)wt_slots_in_use(c) * WIRED_SRVLOOP_WT_BUF_CAP;
-  if (!wt_any_slot_in_use(c)) return;
+                (u64)wt_slots_in_use(c) * WIRED_SRVLOOP_WT_BUF_CAP +
+                srvrun_req_rx_ceiling(c);
+  if (!srvrun_conn_credit_live(c)) return;
   if (!wt_credit_stream_due(ceiling, c->rx_max_data_advertised)) return;
   srvrun_send_max_data(cfg, c, ceiling);
   c->rx_max_data_advertised = ceiling;
@@ -2901,11 +2938,6 @@ static void srvrun_grant_wt_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
   srvrun_grant_conn_credit(cfg, c);
 }
 
-/* A request slot whose body is still streaming (srvloop's body window). */
-static int srvrun_req_credit_live(const wired_srvloop_stream_slot* slot) {
-  return slot->in_use && slot->body.state == BODYWIN_OPEN;
-}
-
 static void srvrun_grant_req_slot_credit(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_stream_slot* slot) {
   u64 v;
@@ -2916,9 +2948,8 @@ static void srvrun_grant_req_slot_credit(
 
 /* RFC 9000 4.1/19.10: as a streamed request body slides its window, raise
  * that stream's credit to the window's new end (bodywin_credit_due: never
- * past it, only ever growing). ponytail: request bytes still draw on the
- * connection's initial MAX_DATA, which only WT traffic re-grants -- add
- * them to srvrun_grant_conn_credit once uploads near that size. */
+ * past it, only ever growing); the connection-wide MAX_DATA follows in
+ * srvrun_grant_conn_credit (srvrun_req_rx_ceiling). */
 static void srvrun_grant_req_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
     srvrun_grant_req_slot_credit(cfg, c, &c->l.streams[i]);

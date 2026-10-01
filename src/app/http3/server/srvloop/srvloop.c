@@ -166,6 +166,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->req_next_id                    = 0;
   l->on_body                        = 0;
   l->req_frame_error                = 0;
+  l->req_body_released              = 0;
   pnspaces_recv_init(&l->ack_recv);
   ackpolicy_init(&l->app_ack_policy);
   ackpolicy_init(&l->hs_ack_policy);
@@ -409,6 +410,7 @@ void wired_srvloop_slot_release(wired_srvloop* l, u64 stream_id) {
   int i = stream_slot_find(l, stream_id);
   req_closed_mark(l, stream_id);
   if (i < 0) return;
+  l->req_body_released += l->streams[i].body.base;
   l->streams[i].in_use         = 0;
   l->streams[i].stream_id      = 0;
   l->streams[i].req_len        = 0;
