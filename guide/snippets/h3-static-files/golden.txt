@@ -1,0 +1,6 @@
+$ ./h3-static-files --port 4433
+conn closed by peer (CONNECTION_CLOSE)
+$ probe h3get 127.0.0.1:4433 /hello.txt /page.html /nope.txt
+GET /hello.txt status=200 content-type=text/plain body="hello static file"
+GET /page.html status=200 content-type=text/html body="<h1>hi</h1>"
+GET /nope.txt status=404 content-type=text/plain body="not found"
