@@ -1,0 +1,7 @@
+$ ./wt-browser --port 4433
+cert sha-256 fingerprint: fd:ef:07:1f:c8:07:4b:45:60:67:f3:a0:52:de:62:e8:86:03:32:12:04:61:ce:77:7f:25:4f:0f:9b:77:1c:e8
+conn closed by peer (CONNECTION_CLOSE)
+conn closed by peer (CONNECTION_CLOSE)
+$ go run . https://127.0.0.1:4433
+cert sha256: fdef071fc8074b456067f3a052de62e8860332120461ce777f254f0f9b771ce8
+status 200
