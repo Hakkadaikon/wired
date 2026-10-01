@@ -55,7 +55,8 @@ void bodywin_consume(bodywin* w, u8* buf, usz n);
  * slide past everything consumed. fin=1 rides on the chunk that ends the
  * last DATA frame at the final size; when nothing is left to deliver at a
  * frame boundary at the final size, fn gets an empty chunk with fin=1. A
- * final size inside a frame is BODYWIN_FRAME_ERROR, never fin=1.
+ * final size inside a frame is BODYWIN_FRAME_ERROR, never fin=1. The
+ * window slides once per call, past everything parsed.
  * @return the new state */
 int bodywin_pump(bodywin* w, u8* buf, bodywin_sink fn, void* ctx);
 
