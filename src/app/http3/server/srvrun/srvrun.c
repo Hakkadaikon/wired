@@ -150,6 +150,8 @@ typedef struct {
   /** status/header-aware app responder, used instead of handler when set
    * (wired_srvrun_handler.http) */
   wired_http_handler http;
+  /** request-body streaming callback (wired_srvrun_handler.on_body) */
+  wired_srvloop_on_body on_body;
 } srvrun_cfg;
 
 /* One live connection's mutable state: the orchestrator, the HTTP/3 loop,
@@ -1603,6 +1605,7 @@ static int srvrun_boot_up(
   srvrun_qlog_recv(ctx->cfg, c, out->client_pn, dg.n);
   wired_server_set_keylog_path(&c->s, ctx->cfg->keylog_path);
   wired_srvloop_set_handler(&c->l, ctx->cfg->handler, ctx->cfg->ctx);
+  c->l.on_body       = ctx->cfg->on_body;
   c->l.resp_external = 1; /* srvrun streams the response (multi-packet) */
   /* RFC 9221 3: this connection's own advertised max_datagram_frame_size,
    * threaded to dispatch.c's DATAGRAM-gathering size check (see
@@ -9436,7 +9439,8 @@ static srvrun_cfg srvrun_build_cfg(
       opt->wt_session_close_ctx,
       opt->on_step,
       opt->on_step_ctx,
-      h.http};
+      h.http,
+      h.on_body};
 }
 
 usz wired_srvrun_env_size(void) { return sizeof(wired_srvrun_env); }

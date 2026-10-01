@@ -42,7 +42,7 @@ int wired_main(int argc, char** argv) {
   /* --port and the driver flags (--workers, --cores, ...) come from argv. */
   wired_srvdriver_opt opt;
   if (!wired_srvdriver_parse(argc, argv, &opt)) return 1;
-  wired_srvrun_handler h   = {on_request, 0, 0};
+  wired_srvrun_handler h   = {on_request, 0, 0, 0};
   wired_srvrun_obs     obs = {0};
   return wired_srvdriver_run(&id, h, obs, &opt) ? 0 : 1;
 }

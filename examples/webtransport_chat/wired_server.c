@@ -160,7 +160,7 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   wired_srvdriver_opt  opt;
   int                  have_san_ipv4;
   u64                  now_secs = wired_clock_epoch_secs();
-  wired_srvrun_handler h        = {app_on_request, 0, 0};
+  wired_srvrun_handler h        = {app_on_request, 0, 0, 0};
   wired_srvrun_obs     obs      = {
       wired_cliargs_str(argc, argv, "--qlog", 0),
       wired_cliargs_str(argc, argv, "--keylog", 0), 0, 0, 0};
