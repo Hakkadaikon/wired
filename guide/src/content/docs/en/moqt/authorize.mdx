@@ -1,0 +1,32 @@
+---
+title: Authorize subscribers
+description: Grant or refuse a SUBSCRIBE per track with wired_moqt_hub.authorize_subscribe.
+sidebar:
+  order: 4
+---
+import Example from '../../../../components/Example.astro';
+
+By default a hub grants every SUBSCRIBE. Setting
+`wired_moqt_hub.authorize_subscribe` turns it into a relay that checks
+every request -- own tracks and peer tracks alike -- before anything else
+runs.
+
+<Example id="moqt-authorize" />
+
+## How it works
+
+- `hub.authorize_subscribe = authorize` registers the hook; `authorize_ctx`
+  is its opaque first argument. 0 (the `wired_moqt_init` default) keeps the
+  hub open.
+- The hook receives the requested Full Track Name and the presented
+  AUTHORIZATION TOKEN parameter (0 when the request carried none) --
+  verifying a real token scheme (CAT, Privacy Pass) is the deployment's
+  job; the SDK only carries the bytes and calls the hook.
+- draft-ietf-moq-transport-19 SS13.3: every SUBSCRIBE passes the check
+  before any track matching. A name the policy refuses answers
+  REQUEST_ERROR UNAUTHORIZED even if no track by that name exists at all --
+  this page's `secret` is never published anywhere, so the refusal is
+  entirely the policy's, not a side effect of a missing track.
+- A name the policy grants proceeds exactly as the previous pages: matched
+  against the hub's own tracks (and peer tracks), then SUBSCRIBE_OK and the
+  usual delivery.

@@ -1,0 +1,6 @@
+$ ./moqt-authorize --port 4433
+conn closed by peer (CONNECTION_CLOSE)
+$ go run . https://127.0.0.1:4433
+public SUBSCRIBE_OK alias=1
+public payload="ok"
+secret REQUEST_ERROR error_code=1
