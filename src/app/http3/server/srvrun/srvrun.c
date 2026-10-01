@@ -2898,6 +2898,29 @@ static void srvrun_grant_wt_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
   srvrun_grant_conn_credit(cfg, c);
 }
 
+/* A request slot whose body is still streaming (srvloop's body window). */
+static int srvrun_req_credit_live(const wired_srvloop_stream_slot* slot) {
+  return slot->in_use && slot->body.state == BODYWIN_OPEN;
+}
+
+static void srvrun_grant_req_slot_credit(
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_stream_slot* slot) {
+  u64 v;
+  if (!srvrun_req_credit_live(slot)) return;
+  v = bodywin_credit_due(&slot->body);
+  if (v) srvrun_send_max_stream_data(cfg, c, slot->stream_id, v);
+}
+
+/* RFC 9000 4.1/19.10: as a streamed request body slides its window, raise
+ * that stream's credit to the window's new end (bodywin_credit_due: never
+ * past it, only ever growing). ponytail: request bytes still draw on the
+ * connection's initial MAX_DATA, which only WT traffic re-grants -- add
+ * them to srvrun_grant_conn_credit once uploads near that size. */
+static void srvrun_grant_req_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    srvrun_grant_req_slot_credit(cfg, c, &c->l.streams[i]);
+}
+
 /* draft-ietf-webtrans-http3-15 SS4.4: this step's stream-close gathering
  * (dispatch.c's gather_stream_closes) latched a RESET_STREAM/STOP_SENDING/FIN
  * on the exact stream id that is one of this connection's active WT
@@ -3427,15 +3450,39 @@ static void srvrun_close_on_aead_limit(const srvrun_cfg* cfg, srvrun_conn* c) {
       cfg, c, ERR_AEAD_LIMIT_REACHED, wired_span_of(reason, sizeof reason - 1));
 }
 
-/* The second half of srvrun_close_on_step_violation: the WT signal
- * violation, then the AEAD integrity limit (RFC 9001 6.6). */
+/* RFC 9114 7.1: a request stream ended inside a frame -- "MUST be treated
+ * as a connection error of type H3_FRAME_ERROR" (srvloop's body window
+ * latched it). */
+static int srvrun_close_on_req_frame_error(
+    const srvrun_cfg* cfg, srvrun_conn* c) {
+  static const u8 reason[] = "request stream ended inside a frame";
+  if (!c->l.req_frame_error) return 0;
+  c->l.req_frame_error = 0;
+  srvrun_send_app_close(
+      cfg, c, H3_FRAME_ERROR, wired_span_of(reason, sizeof reason - 1));
+  return 1;
+}
+
+/* The latched WT signal violation, consumed. */
+static int srvrun_close_on_wt_signal_latched(
+    const srvrun_cfg* cfg, srvrun_conn* c) {
+  if (!c->l.wt_signal_mid_stream_violation) return 0;
+  c->l.wt_signal_mid_stream_violation = 0;
+  srvrun_close_on_wt_signal_violation(cfg, c);
+  return 1;
+}
+
+/* The two H3_FRAME_ERROR latches: the WT signal, a truncated request. */
+static int srvrun_close_on_frame_error(const srvrun_cfg* cfg, srvrun_conn* c) {
+  if (srvrun_close_on_wt_signal_latched(cfg, c)) return 1;
+  return srvrun_close_on_req_frame_error(cfg, c);
+}
+
+/* The second half of srvrun_close_on_step_violation: the H3_FRAME_ERROR
+ * latches, then the AEAD integrity limit (RFC 9001 6.6). */
 static int srvrun_close_on_step_violation_rest(
     const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (c->l.wt_signal_mid_stream_violation) {
-    c->l.wt_signal_mid_stream_violation = 0;
-    srvrun_close_on_wt_signal_violation(cfg, c);
-    return 1;
-  }
+  if (srvrun_close_on_frame_error(cfg, c)) return 1;
   if (srvrun_aead_limit_reached(c)) {
     srvrun_close_on_aead_limit(cfg, c);
     return 1;
@@ -3534,6 +3581,7 @@ static void srvrun_on_step(
   srvrun_offer_wt_streams(ctx->cfg, c);
   srvrun_offer_wt_uni_streams(ctx->cfg, c);
   srvrun_grant_wt_credit(ctx->cfg, c);
+  srvrun_grant_req_credit(ctx->cfg, c);
   srvrun_drain_rx_datagrams(ctx->cfg, c);
   srvrun_wt_rx_capsules(ctx->cfg, c);
   srvrun_close_wt_on_stream_close(ctx->cfg, c);

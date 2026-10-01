@@ -69,6 +69,33 @@ typedef int (*wired_srvloop_handler)(
     int*                        more,
     u64*                        total_size);
 
+/** Receive a request body as it streams in (RFC 9114 4.1), instead of
+ * having it buffered whole into req's body (limited to one request window,
+ * BODYWIN_CAP bytes, larger bodies answered 413).
+ *
+ * Sequencing, per request stream (CONNECT excepted, its stream carries
+ * capsules): once the HEADERS frame is whole, req is decoded (method, path,
+ * headers; req->body stays empty) and every DATA payload byte is passed
+ * here in order, in chunks that never cross a frame. The call that ends
+ * the body has fin=1 -- an empty chunk when the body is empty or ends in a
+ * non-DATA frame. Only after fin=1 does the response handler run, with the
+ * same request. Returning 0 stops the body: no further call for the stream
+ * (no fin), the client is asked to stop sending, and the response is 413
+ * (the handler is not called). A stream that ends inside a frame closes the
+ * connection with H3_FRAME_ERROR (RFC 9114 7.1); fin=1 never arrives.
+ * @param ctx the context registered with wired_srvloop_set_handler
+ * @param req the decoded request; valid until its response is reaped
+ * @param stream_id the request stream
+ * @param chunk body bytes, valid only during the call
+ * @param fin 1 on the last call for the stream
+ * @return 1 to keep receiving, 0 to stop and answer 413 */
+typedef int (*wired_srvloop_on_body)(
+    void*                       ctx,
+    const wired_h3reqdrive_req* req,
+    u64                         stream_id,
+    wired_span                  chunk,
+    int                         fin);
+
 /** RFC 9000 2.2: how many client bidi (request) streams one connection can
  * reassemble concurrently. 40, not a handful: quic-interop-runner's zerortt
  * testcase (TestCaseZeroRTT.NUM_FILES) opens 40 concurrent request streams
@@ -801,6 +828,13 @@ typedef struct {
    * slot was ever claimed for (id + 4), 0 before any -- the stream id a
    * GOAWAY sent now carries. */
   u64 req_next_id;
+  /** Streams request bodies to the app (see wired_srvloop_on_body), its
+   * ctx being req_ctx; 0 buffers each request whole (the default). */
+  wired_srvloop_on_body on_body;
+  /** RFC 9114 7.1: 1 once a streamed request body ended inside a frame --
+   * a connection error of type H3_FRAME_ERROR. dispatch.c only latches it;
+   * the caller (srvrun.c) closes the connection and clears it. */
+  int req_frame_error;
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
