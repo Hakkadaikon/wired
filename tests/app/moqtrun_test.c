@@ -455,6 +455,82 @@ static void test_moqtrun_subscribe_without_publish_replies_error(void) {
   CHECK(e.error_code == MOQCTL_ERR_DOES_NOT_EXIST);
 }
 
+/* Session B sends prefix || SUBSCRIBE(alice) in one delivery after A has
+ * published alice; returns the hub's one reply round to B. */
+static const moqtrun_test_call* mtskip_prefix_then_subscribe(
+    const u8* prefix, usz prefix_len) {
+  wired_moqt_hub hub;
+  u8             buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  wired_moqt_on_session(&hub, SESS_B, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  bytes_memcpy(buf, prefix, prefix_len);
+  bytes_memcpy(
+      buf + prefix_len, g_moqt_ctl_subscribe_basic,
+      G_MOQT_CTL_SUBSCRIBE_BASIC_LEN);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      wired_span_of(buf, prefix_len + G_MOQT_CTL_SUBSCRIBE_BASIC_LEN), 0);
+  return moqtrun_test_last_kind(3);
+}
+
+/* Type of the message at *off in reply c, advancing *off past it. */
+static u64 mtskip_next_type(const moqtrun_test_call* c, usz* off) {
+  u64        type = 0;
+  wired_span body;
+  moqctl_peek_type(
+      wired_span_of(c->payload, c->payload_len), off, &type, &body);
+  return type;
+}
+
+/* draft-ietf-moq-transport-19 SS10: an unknown Type is skipped by its
+ * Length; the SUBSCRIBE behind it is still answered, and nothing is sent
+ * for the unknown message itself. */
+static void test_moqtrun_unknown_type_skipped_then_subscribe_answered(void) {
+  static const u8          unknown[] = {0x99, 0x01, 0x00, 0x02, 0xAA, 0xBB};
+  const moqtrun_test_call* c =
+      mtskip_prefix_then_subscribe(unknown, sizeof unknown);
+  usz off = 0;
+  CHECK(c->s == SESS_B);
+  CHECK(mtskip_next_type(c, &off) == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(off == c->payload_len);
+}
+
+/* SS4 / SS10.6: a known request this hub does not implement (FETCH)
+ * gets REQUEST_ERROR NOT_SUPPORTED, and the following SUBSCRIBE is still
+ * answered in the same reply round. */
+static void test_moqtrun_unimplemented_request_not_supported_then_subscribe(
+    void) {
+  static const u8          fetch[] = {0x16, 0x00, 0x01, 0x05};
+  const moqtrun_test_call* c =
+      mtskip_prefix_then_subscribe(fetch, sizeof fetch);
+  usz                  off = 0;
+  u64                  type;
+  wired_span           body;
+  moqctl_request_error e;
+  usz                  body_off = 0;
+  CHECK(
+      moqctl_peek_type(
+          wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
+      MOQCTL_OK);
+  CHECK(type == MOQCTL_T_REQUEST_ERROR);
+  CHECK(moqctl_request_error_take(body, &body_off, &e) == MOQCTL_OK);
+  CHECK(e.error_code == MOQCTL_ERR_NOT_SUPPORTED);
+  CHECK(mtskip_next_type(c, &off) == MOQCTL_T_SUBSCRIBE_OK);
+}
+
+/* A known non-request message the hub does not implement (NAMESPACE,
+ * 0x8) carries no request to refuse: skipped silently. */
+static void test_moqtrun_unimplemented_non_request_skipped(void) {
+  static const u8          ns[] = {0x08, 0x00, 0x01, 0x00};
+  const moqtrun_test_call* c    = mtskip_prefix_then_subscribe(ns, sizeof ns);
+  usz                      off  = 0;
+  CHECK(mtskip_next_type(c, &off) == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(off == c->payload_len);
+}
+
 /* Local twin of moqtrun_test_last_reply_type (defined later in this file,
  * after the blob-track tests) so this earlier test does not forward-
  * reference it in the same translation unit. */
@@ -2551,9 +2627,9 @@ static void test_moqtrun_fresh_oneshot_no_object_discarded(void) {
  * (torn frame for that stream) and counted on the hub; an in-bounds tail is
  * saved without touching the counter. */
 static void test_moqtrun_frag_overflow_counted(void) {
-  static wired_moqt_hub hub;
-  static u8             tail[WIRED_MOQTRUN_RELAY_FRAG_MAX + 1];
-  wired_moqtrun_relay   relay = {0};
+  wired_moqt_hub      hub;
+  static u8           tail[WIRED_MOQTRUN_RELAY_FRAG_MAX + 1];
+  wired_moqtrun_relay relay = {0};
   wired_moqt_init(&hub, moqtrun_test_io());
   moqtrun_relay_save_frag(&hub, &relay, tail, sizeof tail);
   CHECK(relay.frag_len == 0 && hub.stat_frag_drop == 1);
@@ -4593,6 +4669,9 @@ void test_moqtrun(void) {
   test_moqtrun_publish_replies_request_ok();
   test_moqtrun_subscribe_matching_publish_replies_ok();
   test_moqtrun_subscribe_without_publish_replies_error();
+  test_moqtrun_unknown_type_skipped_then_subscribe_answered();
+  test_moqtrun_unimplemented_request_not_supported_then_subscribe();
+  test_moqtrun_unimplemented_non_request_skipped();
   test_moqtrun_subscribe_fits_every_other_peer();
   test_moqtrun_object_relay_to_subscriber();
   test_moqtrun_object_relay_preserves_bytes();

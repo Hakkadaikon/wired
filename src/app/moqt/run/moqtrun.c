@@ -898,6 +898,15 @@ static void moqtrun_dispatch_goaway(
   moqtrun_handle_request_goaway();
 }
 
+/* A message with no request to refuse: consumed by its Length, no reply. */
+static void moqtrun_dispatch_skip(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  (void)hub;
+  (void)p;
+  (void)peer_idx;
+  (void)body;
+}
+
 /* First-type table (draft table in ctl.h's peek_type doc): only PUBLISH and
  * SUBSCRIBE are implemented; every other First type this hub can see on a
  * fresh request stream gets NOT_SUPPORTED. GOAWAY is not a
@@ -910,6 +919,12 @@ static const struct {
     {MOQCTL_T_PUBLISH, moqtrun_dispatch_publish},
     {MOQCTL_T_SUBSCRIBE, moqtrun_dispatch_subscribe},
     {MOQCTL_T_GOAWAY, moqtrun_dispatch_goaway},
+    /* draft SS10 known non-request messages this hub does not implement:
+     * nothing carries a Request ID to answer, so they are skipped. */
+    {0x8, moqtrun_dispatch_skip},  /* NAMESPACE */
+    {0xE, moqtrun_dispatch_skip},  /* NAMESPACE_DONE */
+    {0xF, moqtrun_dispatch_skip},  /* PUBLISH_SKIPPED */
+    {0x18, moqtrun_dispatch_skip}, /* FETCH_OK */
 };
 #define MOQTRUN_CTL_TABLE_N \
   (sizeof(moqtrun_ctl_table) / sizeof(moqtrun_ctl_table[0]))
@@ -918,6 +933,14 @@ static moqtrun_ctl_fn moqtrun_ctl_lookup(u64 type) {
   for (usz i = 0; i < MOQTRUN_CTL_TABLE_N; i++)
     if (moqtrun_ctl_table[i].type == type) return moqtrun_ctl_table[i].fn;
   return moqtrun_dispatch_not_supported;
+}
+
+/* draft SS10 says an unknown Type MUST close the session, but this hub's
+ * io table has no close operation (cf. stat_dg_bad), so it skips the
+ * message by its Length and keeps the rest of the stream alive. */
+static moqtrun_ctl_fn moqtrun_ctl_route(int peek, u64 type) {
+  if (peek == MOQCTL_UNKNOWN_TYPE) return moqtrun_dispatch_skip;
+  return moqtrun_ctl_lookup(type);
 }
 
 /* Dispatches every complete control message found in data (a request
@@ -941,8 +964,8 @@ static void moqtrun_dispatch_ctl_stream(
     u64        type = 0;
     wired_span body = {0, 0};
     int        r    = moqctl_peek_type(data, &off, &type, &body);
-    if (r != MOQCTL_OK) break;
-    moqtrun_ctl_lookup(type)(hub, p, peer_idx, body);
+    if (r == MOQCTL_INSUFFICIENT) break;
+    moqtrun_ctl_route(r, type)(hub, p, peer_idx, body);
   }
   moqtrun_flush_replies(&hub->io, p);
 }
