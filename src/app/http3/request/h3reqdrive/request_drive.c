@@ -322,9 +322,30 @@ static int rd_place_line(
          rd_place(cur, L->value, L->value_len, &h->value_off);
 }
 
+/* Regular headers whose value wired_h3reqdrive_req already exposes in a
+ * dedicated field: wired_http_req_header serves them from there (cookie
+ * already joined, RFC 9114 4.2.1), so they spend no hdrs slot. */
+static const char* const rd_dedicated[] = {
+    "cookie", "origin", "wt-available-protocols"};
+#define RD_DEDICATED_N (sizeof rd_dedicated / sizeof rd_dedicated[0])
+
+static int rd_name_eq(wired_span a, const char* s) {
+  usz n = wired_cstr_len(s);
+  return a.n == n && ct_diffn(a.p, (const u8*)s, n) == 0;
+}
+
+/* Index of name in rd_dedicated, RD_DEDICATED_N if it is not one. */
+static usz rd_dedicated_idx(wired_span name) {
+  usz i = 0;
+  while (i < RD_DEDICATED_N && !rd_name_eq(name, rd_dedicated[i])) i++;
+  return i;
+}
+
 static int rd_keeps(const rline* L, const wired_h3reqdrive_req* r) {
   return r->hdr_count < WIRED_H3REQDRIVE_MAX_HDRS &&
-         h3_ph_classify(L->name, L->name_len) == H3_PH_NONE;
+         h3_ph_classify(L->name, L->name_len) == H3_PH_NONE &&
+         rd_dedicated_idx(wired_span_of(L->name, L->name_len)) ==
+             RD_DEDICATED_N;
 }
 
 /* RFC 9114 4.2: keep a regular header line for wired_http_req_header. */
@@ -459,8 +480,7 @@ static int rd_hdr_name_is(
          ct_diffn(req->hdr_base + h->name_off, name.p, name.n) == 0;
 }
 
-/* RFC 9114 4.2 */
-int wired_http_req_header(
+static int rd_hdrs_find(
     const wired_h3reqdrive_req* req, wired_span name, wired_span* out) {
   for (usz i = 0; i < req->hdr_count; i++) {
     const wired_h3reqdrive_hdr* h = &req->hdrs[i];
@@ -469,6 +489,26 @@ int wired_http_req_header(
     return 1;
   }
   return 0;
+}
+
+/* The dedicated field behind rd_dedicated[i]; empty means absent. */
+static int rd_dedicated_found(
+    const wired_h3reqdrive_req* req, usz i, wired_span* out) {
+  wired_span v[RD_DEDICATED_N] = {
+      wired_span_of(req->cookie, req->cookie_len),
+      wired_span_of(req->origin, req->origin_len),
+      wired_span_of(req->wt_avail, req->wt_avail_len)};
+  if (!v[i].n) return 0;
+  *out = v[i];
+  return 1;
+}
+
+/* RFC 9114 4.2 */
+int wired_http_req_header(
+    const wired_h3reqdrive_req* req, wired_span name, wired_span* out) {
+  usz d = rd_dedicated_idx(name);
+  if (d < RD_DEDICATED_N) return rd_dedicated_found(req, d, out);
+  return rd_hdrs_find(req, name, out);
 }
 
 /* 1 if the decoded line is well-formed AND carries no pseudo-header name
