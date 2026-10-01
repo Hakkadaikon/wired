@@ -1,0 +1,30 @@
+---
+title: WebTransport のデータグラム
+description: 信頼性のない WebTransport データグラムを、送ってきたセッションへそのまま返す。
+sidebar:
+  order: 1
+---
+import Example from '../../../../components/Example.astro';
+
+WebTransport のセッションでは、データグラムをやり取りできます。
+データグラムは小さなメッセージで、順序の保証も再送もありません。
+このページのサーバーは、受け取ったデータグラムを送り元のクライアントへそのまま返します。
+
+<Example id="wt-datagram" />
+
+## 仕組み
+
+- `wired_server_run_opt` は、`wired_server_run` にコールバックを加えたものです。
+  `opt.incoming_cpu = -1`（「無効」を表す既定値）を設定してから、必要な WebTransport のフックを登録します。
+- `id.max_datagram_frame_size = 65535` は、QUIC DATAGRAM に対応していることを告知します。
+  WebTransport のクライアントは、これがないサーバーとは接続しません。
+  サーバーがデータグラムを一度も送らない場合でも同じです。
+- `wt_on_session` は、受け入れたセッションごとに 1 回、その `:path` を引数に呼ばれます。
+- `wt_on_datagram` は、受信したデータグラムを 1 つずつ渡します。
+  `data` が有効なのは、呼び出しのあいだだけです。
+- `wired_server_wt_send_datagram_to(s, data)` は、1 つのセッションへの返信をキューに積みます（ペイロードはコピーされます）。
+  チャットのように接続中のすべてのクライアントへ同じデータグラムを送るときは、`wired_server_broadcast_datagram` か `wired_server_broadcast_datagram_ring` を使います。
+  前者は未送信のペイロードを 1 つだけ持ち、次の呼び出しで上書きされます。
+  後者はキューに積みますが、単一プロセスでしか使えません。
+- クライアントは QUIC コネクションを保持しておき、終了する前に閉じます。
+  そのため、サーバーはすぐに `conn closed by peer` をログに出します。

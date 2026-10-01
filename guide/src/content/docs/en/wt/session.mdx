@@ -1,0 +1,29 @@
+---
+title: WebTransport sessions
+description: Accept or reject a session by path, negotiate a subprotocol, and see it end.
+sidebar:
+  order: 3
+---
+import Example from '../../../../components/Example.astro';
+
+A session starts with an Extended CONNECT request. The server can reject the
+`:path`, pick a subprotocol, and learn when the session ends.
+
+<Example id="wt-session" />
+
+## How it works
+
+- `wt_resource_check` runs before a session exists. Leave `out` untouched to
+  accept, or set `out->status` (here `404`) to send that status instead.
+  Rejected requests never reach `wt_on_session`.
+- `opt.wt_protocols` is the space-separated list of subprotocols the server
+  supports. The one the client also offered arrives as `protocol` in
+  `wt_on_session`.
+- `wt_on_session_close` fires exactly once per session, however it ended:
+  the client closed it, the server closed it with
+  `wired_server_wt_close_session`, or the connection went away. Free any
+  state you keyed on the session pointer here, because the slot is reused.
+- The first `conn closed by peer` line is the rejected `/forbidden`
+  connection going away.
+- The client ends the `/chat` session by closing its QUIC connection, so the
+  server logs the connection close first and then `session closed`.

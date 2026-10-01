@@ -1,0 +1,30 @@
+---
+title: WebTransport datagrams
+description: Echo unreliable WebTransport datagrams back to the session that sent them.
+sidebar:
+  order: 1
+---
+import Example from '../../../../components/Example.astro';
+
+A WebTransport session can exchange datagrams: small, unordered messages with
+no retransmission. This server echoes each one back to the client that sent it.
+
+<Example id="wt-datagram" />
+
+## How it works
+
+- `wired_server_run_opt` is `wired_server_run` plus callbacks. Set
+  `opt.incoming_cpu = -1` (the default for "off"), then register the
+  WebTransport hooks you need.
+- `id.max_datagram_frame_size = 65535` advertises QUIC DATAGRAM support.
+  WebTransport clients refuse a server without it, even if you never send one.
+- `wt_on_session` runs once per accepted session, with its `:path`.
+- `wt_on_datagram` hands you each received datagram; `data` is only valid
+  during the call.
+- `wired_server_wt_send_datagram_to(s, data)` queues a reply to one session
+  (the payload is copied). To send one datagram to every connected client,
+  as a chat does, use `wired_server_broadcast_datagram` (one pending payload,
+  a later call replaces it) or `wired_server_broadcast_datagram_ring`
+  (queued, single process only).
+- The client keeps the QUIC connection and closes it before exiting, so the
+  server logs `conn closed by peer` right away.
