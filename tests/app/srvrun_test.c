@@ -18607,7 +18607,171 @@ static void test_srvrun_legacy_handler_headers_golden(void) {
   CHECK(ct_diffn(got.p, want, sizeof want) == 0);
 }
 
+/* What sr_hx_handler sets on the exchange: status, content-type, n fields
+ * (copied up to the array's capacity, field_count set to n verbatim),
+ * an optional body, and the streaming out-params. */
+typedef struct {
+  u16                     status;
+  const char*             ct;
+  usz                     n;
+  const wired_http_field* f;
+  const char*             body;
+  int                     more;
+  u64                     total_size;
+} sr_hx_case;
+static sr_hx_case g_sr_hx;
+static int        g_sr_hx_calls;
+static u64        g_sr_hx_off; /* x->offset of the latest call */
+
+static int sr_hx_handler(void* hctx, wired_http_exchange* x) {
+  (void)hctx;
+  g_sr_hx_calls++;
+  g_sr_hx_off     = x->offset;
+  x->status       = g_sr_hx.status;
+  x->content_type = g_sr_hx.ct;
+  x->field_count  = g_sr_hx.n;
+  for (usz i = 0; i < g_sr_hx.n && i < WIRED_HTTP_MAX_FIELDS; i++)
+    x->fields[i] = g_sr_hx.f[i];
+  x->more       = g_sr_hx.more;
+  x->total_size = g_sr_hx.total_size;
+  if (!g_sr_hx.body) return 0;
+  x->body->len = wired_cstr_len(g_sr_hx.body);
+  bytes_memcpy(x->body->p, g_sr_hx.body, x->body->len);
+  return 1;
+}
+
+/* An armed response decoded back: its field lines (via the request
+ * decoder's own line decoder) and DATA payload. */
+typedef struct {
+  usz        n;
+  rline      l[12];
+  wired_span body;
+  u8         scr[2048];
+} sr_hx_dec;
+
+static void sr_hx_decode_lines(wired_span fs, sr_hx_dec* d) {
+  qpack_prefix pfx;
+  qdyn_src     dyn  = {0, 0, fs};
+  usz          off  = qpack_prefix_decode(fs.p, fs.n, &pfx);
+  usz          used = 0;
+  while (off && off < fs.n && d->n < 12) {
+    rline* L = &d->l[d->n++];
+    usz    c = decode_line(
+        wired_span_of(fs.p + off, fs.n - off),
+        wired_mspan_of(d->scr + used, sizeof d->scr - used), &dyn, L);
+    CHECK(c != 0);
+    if (!c) return;
+    off += c;
+    used += L->scratch_used;
+  }
+}
+
+/* Run g_sr_hx through the real response path as a wired_http_handler and
+ * decode what was armed. */
+static void sr_hx_run(sr_hx_dec* d) {
+  srvrun_cfg cfg  = {0};
+  h3req_resp resp = {0};
+  wired_span got;
+  bytes_memset(d, 0, sizeof *d);
+  cfg.http = sr_hx_handler;
+  got      = sr_arm_with_cfg(sr_test_conns(), &cfg);
+  CHECK(h3req_resp_parse(got, &resp) == 1);
+  d->body = resp.body;
+  sr_hx_decode_lines(resp.headers, d);
+}
+
+/* Line i of d is (name, value). */
+static int sr_hx_line_is(
+    const sr_hx_dec* d, usz i, const char* name, const char* value) {
+  const rline* L = &d->l[i];
+  return i < d->n && L->name_len == wired_cstr_len(name) &&
+         L->value_len == wired_cstr_len(value) &&
+         ct_diffn(L->name, (const u8*)name, L->name_len) == 0 &&
+         ct_diffn(L->value, (const u8*)value, L->value_len) == 0;
+}
+
+static const u8 sr_hx_loc_n[] = "location", sr_hx_loc_v[] = "/new";
+static const u8 sr_hx_ck_n[] = "set-cookie", sr_hx_ck_a[] = "a=1",
+                sr_hx_ck_b[] = "b=2";
+#define SR_HX_FIELD(n, v) {{n, sizeof n - 1}, {v, sizeof v - 1}}
+
+/* RFC 9110 15.4: a 3xx with its location field. */
+static void test_srvrun_http_redirect_with_location(void) {
+  static const wired_http_field f[] = {SR_HX_FIELD(sr_hx_loc_n, sr_hx_loc_v)};
+  sr_hx_dec                     d;
+  g_sr_hx = (sr_hx_case){302, 0, 1, f, 0, 0, 0};
+  sr_hx_run(&d);
+  CHECK(d.n == 2);
+  CHECK(sr_hx_line_is(&d, 0, ":status", "302"));
+  CHECK(sr_hx_line_is(&d, 1, "location", "/new"));
+  CHECK(d.body.n == 0);
+}
+
+/* RFC 9110 5.3: two set-cookie fields stay two field lines, in order. */
+static void test_srvrun_http_two_set_cookie_fields(void) {
+  static const wired_http_field f[] = {
+      SR_HX_FIELD(sr_hx_ck_n, sr_hx_ck_a), SR_HX_FIELD(sr_hx_ck_n, sr_hx_ck_b)};
+  sr_hx_dec d;
+  g_sr_hx = (sr_hx_case){0, 0, 2, f, "ok", 0, 0};
+  sr_hx_run(&d);
+  CHECK(d.n == 3);
+  CHECK(sr_hx_line_is(&d, 0, ":status", "200")); /* 0 means 200 */
+  CHECK(sr_hx_line_is(&d, 1, "set-cookie", "a=1"));
+  CHECK(sr_hx_line_is(&d, 2, "set-cookie", "b=2"));
+  CHECK(d.body.n == 2 && d.body.p[0] == 'o');
+}
+
+/* A 404 still carries its content-type and body. */
+static void test_srvrun_http_404_with_body(void) {
+  sr_hx_dec d;
+  g_sr_hx = (sr_hx_case){404, "text/plain", 0, 0, "nope", 0, 0};
+  sr_hx_run(&d);
+  CHECK(d.n == 2);
+  CHECK(sr_hx_line_is(&d, 0, ":status", "404"));
+  CHECK(sr_hx_line_is(&d, 1, "content-type", "text/plain"));
+  CHECK(d.body.n == 4 && d.body.p[3] == 'e');
+}
+
+/* A handler that asks for more rounds gets the same streaming framing a
+ * 7-argument handler gets: DATA declares total_size up front. */
+static void test_srvrun_http_streaming_round0(void) {
+  u8         pre[SRVRUN_RESP_HDR_ROOM];
+  wired_obuf preb = {pre, sizeof pre, 0};
+  srvrun_cfg cfg  = {0};
+  wired_span got;
+  g_sr_hx  = (sr_hx_case){0, 0, 0, 0, "abc", 1, 300};
+  cfg.http = sr_hx_handler;
+  got      = sr_arm_with_cfg(sr_test_conns(), &cfg);
+  CHECK(h3resp_prefix(200, 0, 300, &preb) == 1);
+  CHECK(got.n == preb.len + 3);
+  CHECK(ct_diffn(got.p, pre, preb.len) == 0);
+  CHECK(g_test_conns[0].resp[0].streaming == 1);
+}
+
+/* Later rounds of a streaming wired_http_handler response come from the
+ * same handler, at the offset already delivered. */
+static void test_srvrun_http_streaming_refill(void) {
+  srvrun_cfg   cfg = {0};
+  srvrun_conn* c   = sr_test_conns();
+  g_sr_hx          = (sr_hx_case){0, 0, 0, 0, "abc", 1, 300};
+  cfg.http         = sr_hx_handler;
+  sr_arm_with_cfg(c, &cfg);
+  g_sr_hx_calls = 0;
+  {
+    srvrun_state    st  = {0, c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    srvrun_resp_refill(&ctx, c, 0, &c->resp[0]);
+  }
+  CHECK(g_sr_hx_calls == 1);
+  CHECK(g_sr_hx_off == 3);
+}
+
 void test_srvrun(void) {
+  test_srvrun_http_streaming_refill();
+  test_srvrun_http_redirect_with_location();
+  test_srvrun_http_two_set_cookie_fields();
+  test_srvrun_http_404_with_body();
+  test_srvrun_http_streaming_round0();
   test_srvrun_legacy_handler_headers_golden();
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
