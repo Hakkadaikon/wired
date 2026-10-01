@@ -627,7 +627,8 @@ static void moqfetch_t_same_obj(const moqfetch_obj* a, const moqfetch_obj* b) {
   CHECK(a->group == b->group && a->object == b->object);
   CHECK(a->has_subgroup == b->has_subgroup && a->subgroup == b->subgroup);
   CHECK(a->priority == b->priority && a->has_props == b->has_props);
-  CHECK(a->props.n == b->props.n && a->payload.n == b->payload.n);
+  moqfetch_t_same(a->props.p, a->props.n, b->props);
+  moqfetch_t_same(a->payload.p, a->payload.n, b->payload);
 }
 
 static void moqfetch_t_roundtrip(moqfetch_obj* objs, usz k, int desc) {
@@ -651,6 +652,8 @@ static void moqfetch_t_roundtrip(moqfetch_obj* objs, usz k, int desc) {
 }
 
 static void test_moqfetch_obj_roundtrip(void) {
+  for (usz i = 0; i < sizeof moqfetch_t_pay; i++)
+    moqfetch_t_pay[i] = (u8)(i * 7 + 1);
   moqfetch_t_asc[7].has_props = 1;
   moqfetch_t_asc[7].props     = wired_span_of(moqfetch_t_props, 2);
   moqfetch_t_asc[8].has_props = 1;
