@@ -5042,23 +5042,29 @@ static void srvrun_open_done(const srvrun_step_ctx* ctx, int slot, int ok) {
         c->l.spare_cid_len);
 }
 
-/* Fill one round of the response body from the app handler (empty without
- * one, or when it declines), starting at offset (0 on a response's first
- * round). more and total_size are the handler's streaming out-params (see
- * wired_srvloop_handler): left at their caller-zeroed defaults by every
- * ordinary (single-round) handler. */
+/* The 7-argument handler run over x's members (0 without one). */
+static int srvrun_call_cb(const srvrun_cfg* cfg, wired_http_exchange* x) {
+  if (!cfg->handler) return 0;
+  return cfg->handler(
+      cfg->ctx, x->req, x->offset, x->body, &x->content_type, &x->more,
+      &x->total_size);
+}
+
+/* Fill one round of the response body (x->body, empty without a handler
+ * or when it declines) from the app's wired_http_handler when registered,
+ * else its 7-argument handler, starting at x->offset (0 on a response's
+ * first round). x's other out-members arrive zeroed and are left at those
+ * defaults by every ordinary (single-round, 200) handler. */
 static void srvrun_call_handler(
-    const srvrun_step_ctx*      ctx,
-    const wired_h3reqdrive_req* req,
-    u64                         offset,
-    wired_obuf*                 body,
-    const char**                ct,
-    int*                        more,
-    u64*                        total_size) {
-  if (!ctx->cfg->handler) return;
-  if (!ctx->cfg->handler(
-          ctx->cfg->ctx, req, offset, body, ct, more, total_size))
-    body->len = 0;
+    const srvrun_step_ctx* ctx, wired_http_exchange* x) {
+  const srvrun_cfg* cfg = ctx->cfg;
+  int ok = cfg->http ? cfg->http(cfg->ctx, x) : srvrun_call_cb(cfg, x);
+  if (!ok) x->body->len = 0;
+}
+
+/* x's status: 0 (every 7-argument handler's) means 200. */
+static u16 srvrun_http_status(const wired_http_exchange* x) {
+  return (u16)(x->status + 200 * (x->status == 0));
 }
 
 /* All len octets of m equal want (draft-ietf-webtrans-http3-15 SS3: the
@@ -5562,20 +5568,21 @@ static void srvrun_qenc_send_insert(
 }
 
 static void srvrun_arm_h3_resp_framed(
-    const srvrun_step_ctx* ctx,
-    srvrun_conn*           c,
-    int                    slot,
-    srvrun_resp*           r,
-    u8*                    st,
-    const wired_obuf*      body,
-    const char*            ct,
-    u64                    total_len) {
+    const srvrun_step_ctx*     ctx,
+    srvrun_conn*               c,
+    int                        slot,
+    srvrun_resp*               r,
+    u8*                        st,
+    const wired_http_exchange* x,
+    u64                        total_len) {
   u8                     pre[SRVRUN_RESP_HDR_ROOM];
-  wired_obuf             pob = obuf_of(pre, sizeof pre);
+  wired_obuf             pob  = obuf_of(pre, sizeof pre);
+  const wired_obuf*      body = x->body;
   qpackenc_status_result ins;
   usz                    off;
-  if (!h3resp_prefix_field_qenc(
-          200, ct, total_len, 0, srvrun_qenc_active(c), &ins, &pob))
+  if (!h3resp_prefix_fields_qenc(
+          srvrun_http_status(x), x->content_type, total_len, x->fields,
+          x->field_count, srvrun_qenc_active(c), &ins, &pob))
     return;
   srvrun_qenc_send_insert(c, &ins);
   off = SRVRUN_RESP_HDR_ROOM - pob.len;
@@ -5592,16 +5599,15 @@ static void srvrun_arm_h3_resp_framed(
  * -- a streaming response's later bytes continue the same DATA frame via
  * the ring refill's extend, srvrun_resp_refill, never a re-arm). */
 static void srvrun_arm_h3_resp(
-    const srvrun_step_ctx* ctx,
-    srvrun_conn*           c,
-    int                    slot,
-    srvrun_resp*           r,
-    u8*                    st,
-    const wired_obuf*      body,
-    const char*            ct,
-    u64                    total_len) {
+    const srvrun_step_ctx*     ctx,
+    srvrun_conn*               c,
+    int                        slot,
+    srvrun_resp*               r,
+    u8*                        st,
+    const wired_http_exchange* x,
+    u64                        total_len) {
   r->stream_h3_framed = 1;
-  srvrun_arm_h3_resp_framed(ctx, c, slot, r, st, body, ct, total_len);
+  srvrun_arm_h3_resp_framed(ctx, c, slot, r, st, x, total_len);
 }
 
 /* Copy one view of r->stream_req into r's own scratch at *off (capped at
@@ -5683,35 +5689,29 @@ static void srvrun_resp_ring_init(
 }
 
 static void srvrun_arm_round0(
-    const srvrun_step_ctx* ctx,
-    srvrun_conn*           c,
-    int                    slot,
-    srvrun_resp*           r,
-    u8*                    st,
-    const wired_obuf*      body,
-    const char*            ct,
-    int                    more,
-    u64                    total_size,
-    u64                    base_shift) {
-  u64 total_len = srvrun_round0_total_len(more, total_size, body->len);
+    const srvrun_step_ctx*     ctx,
+    srvrun_conn*               c,
+    int                        slot,
+    srvrun_resp*               r,
+    u8*                        st,
+    const wired_http_exchange* x,
+    u64                        base_shift) {
+  const wired_obuf* body = x->body;
+  u64 total_len = srvrun_round0_total_len(x->more, x->total_size, body->len);
   if (c->s.sdrv.alpn == SALPN_HQ)
     srvrun_arm_hq09_resp(c, r, st, body);
   else
-    srvrun_arm_h3_resp(ctx, c, slot, r, st, body, ct, total_len);
+    srvrun_arm_h3_resp(ctx, c, slot, r, st, x, total_len);
   wired_sendsess_set_base_offset(&r->sess, base_shift);
-  srvrun_prime_streaming(r, &c->l.req, more, body->len, base_shift);
+  srvrun_prime_streaming(r, &c->l.req, x->more, body->len, base_shift);
   if (r->streaming) srvrun_resp_ring_init(ctx, c, slot, r);
 }
 
-/* Run the app handler's round 0 into body/ct/more/total_size (out params). */
+/* Run the app handler's round 0 into x. */
 static void srvrun_call_round0(
-    const srvrun_step_ctx* ctx,
-    srvrun_conn*           c,
-    wired_obuf*            body,
-    const char**           ct,
-    int*                   more,
-    u64*                   total_size) {
-  srvrun_call_handler(ctx, &c->l.req, 0, body, ct, more, total_size);
+    const srvrun_step_ctx* ctx, srvrun_conn* c, wired_http_exchange* x) {
+  x->req = &c->l.req;
+  srvrun_call_handler(ctx, x);
 }
 
 /* RFC 9110 10.1.1: send the 100-continue interim ahead of round 0 when the
@@ -5735,14 +5735,12 @@ static void srvrun_start_app_resp(
   u8*        st = srvrun_resp_storage(ctx, slot, c, r);
   wired_obuf body =
       obuf_of(st + SRVRUN_RESP_HDR_ROOM, srvrun_resp_storage_cap(r));
-  const char* ct         = 0;
-  int         more       = 0;
-  u64         total_size = 0;
-  u64         base_shift = srvrun_maybe_send_continue(ctx->cfg, c);
-  r->stream_h3_framed    = 0;
-  srvrun_call_round0(ctx, c, &body, &ct, &more, &total_size);
-  srvrun_arm_round0(
-      ctx, c, slot, r, st, &body, ct, more, total_size, base_shift);
+  wired_http_exchange x          = {0};
+  u64                 base_shift = srvrun_maybe_send_continue(ctx->cfg, c);
+  r->stream_h3_framed            = 0;
+  x.body                         = &body;
+  srvrun_call_round0(ctx, c, &x);
+  srvrun_arm_round0(ctx, c, slot, r, st, &x, base_shift);
 }
 
 /* Reject this Extended CONNECT with 429 (a new Extended CONNECT arriving
@@ -7351,12 +7349,10 @@ static usz srvrun_resp_refill_take(const srvrun_resp* r, usz room) {
  * c->l.req -- see stream_req's own doc. */
 static void srvrun_resp_refill(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
-  usz         room, take;
-  u8*         base;
-  wired_obuf  body;
-  const char* ct         = 0;
-  int         more       = 0;
-  u64         total_size = 0;
+  usz                 room, take;
+  u8*                 base;
+  wired_obuf          body;
+  wired_http_exchange x = {0};
   if (!srvrun_resp_streaming_live(r)) return;
   room = wired_sendsess_ring_room(&r->sess, r->ring_cap);
   if (room < r->ring_cap / 4) return;
@@ -7364,11 +7360,13 @@ static void srvrun_resp_refill(
   base = srvrun_resp_storage_ro(ctx, slot, c, r);
   body = obuf_of(
       base + (usz)(r->sess.q.p - base) + r->sess.q.len % r->ring_cap, take);
-  srvrun_call_handler(
-      ctx, &r->stream_req, r->stream_off, &body, &ct, &more, &total_size);
+  x.req    = &r->stream_req;
+  x.offset = r->stream_off;
+  x.body   = &body;
+  srvrun_call_handler(ctx, &x);
   wired_sendsess_extend(&r->sess, body.len);
   r->stream_off += body.len;
-  r->streaming = more != 0;
+  r->streaming = x.more != 0;
 }
 
 /* Once r's session goes idle (wired_sendsess_done: every slice sent and
