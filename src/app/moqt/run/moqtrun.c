@@ -720,6 +720,7 @@ static void moqtrun_handle_publish(
   moqtrun_supersede_name(hub, peer_idx, k);
   moqtrun_track_claim(hub, t, k, m.track_alias);
   moqtrun_track_seed_largest(t, &m.params);
+  t->request_id = m.request_id;
   moqtrun_reattach_subs(hub, t, peer_idx, k);
   u8                msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqctl_request_ok ok = {0};
@@ -2803,38 +2804,50 @@ static void moqtrun_relays_clear_sub(
   }
 }
 
-/* Deactivate track t's subscription entries held by peer index idx. */
+/* Any Request ID: a closed session drops all of a peer's subscriptions. */
+#define MOQTRUN_RID_ANY (~(u64)0)
+
+/* sub is held by peer index idx under Request ID rid (or any rid). */
+static int moqtrun_sub_is_req(const wired_moqtrun_sub* sub, usz idx, u64 rid) {
+  return moqtrun_sub_is_peer(sub, idx) &&
+         (rid == MOQTRUN_RID_ANY || sub->request_id == rid);
+}
+
+/* Deactivate track t's subscription entries held by peer index idx under
+ * Request ID rid. */
 static void moqtrun_track_drop_sub(
-    wired_moqt_hub* hub, wired_moqtrun_track* t, usz idx) {
+    wired_moqt_hub* hub, wired_moqtrun_track* t, usz idx, u64 rid) {
   for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++) {
-    if (!moqtrun_sub_is_peer(&t->subs[si], idx)) continue;
+    if (!moqtrun_sub_is_req(&t->subs[si], idx, rid)) continue;
     t->subs[si].active = 0;
     moqtrun_relays_clear_sub(hub, t, si);
   }
 }
 
 static void moqtrun_peer_drop_subs(
-    wired_moqt_hub* hub, wired_moqtrun_peer* q, usz idx) {
+    wired_moqt_hub* hub, wired_moqtrun_peer* q, usz idx, u64 rid) {
   for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
-    if (q->tracks[t].in_use) moqtrun_track_drop_sub(hub, &q->tracks[t], idx);
+    if (q->tracks[t].in_use)
+      moqtrun_track_drop_sub(hub, &q->tracks[t], idx, rid);
 }
 
 /* The hub's own tracks (blob and live) forget peer index idx too: a
  * reconnect landing in the same slot must be served afresh, not mistaken
  * for the dead peer. */
-static void moqtrun_hub_tracks_drop_sub(wired_moqt_hub* hub, usz idx) {
+static void moqtrun_hub_tracks_drop_sub(wired_moqt_hub* hub, usz idx, u64 rid) {
   if (hub->blob_track.in_use)
-    moqtrun_track_drop_sub(hub, &hub->blob_track, idx);
+    moqtrun_track_drop_sub(hub, &hub->blob_track, idx, rid);
   if (hub->live.track.in_use)
-    moqtrun_track_drop_sub(hub, &hub->live.track, idx);
+    moqtrun_track_drop_sub(hub, &hub->live.track, idx, rid);
 }
 
 /* Deactivate every subscription any peer's tracks (and the hub's own
- * tracks) hold for peer index idx. */
-static void moqtrun_drop_peer_subs(wired_moqt_hub* hub, usz idx) {
+ * tracks) hold for peer index idx under Request ID rid. */
+static void moqtrun_drop_peer_subs(wired_moqt_hub* hub, usz idx, u64 rid) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
-    if (hub->peers[i].in_use) moqtrun_peer_drop_subs(hub, &hub->peers[i], idx);
-  moqtrun_hub_tracks_drop_sub(hub, idx);
+    if (hub->peers[i].in_use)
+      moqtrun_peer_drop_subs(hub, &hub->peers[i], idx, rid);
+  moqtrun_hub_tracks_drop_sub(hub, idx, rid);
 }
 
 static int moqtrun_req_owned(const wired_moqtrun_req* q, wired_wt_session* s) {
@@ -2851,11 +2864,60 @@ void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s) {
   wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
   wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
   if (!p) return;
-  moqtrun_drop_peer_subs(hub, (usz)(p - hub->peers));
+  moqtrun_drop_peer_subs(hub, (usz)(p - hub->peers), MOQTRUN_RID_ANY);
   moqtrun_reqs_drop(hub, s);
   /* The leaver's own rings return now (moqtrun_rel_drop_ring's doc); its
    * relay entries stay untouched so a later re-claim can still reset the
    * subscriber streams they record (moqtrun_track_reset_stale_relays). */
   moqtrun_peer_drop_rings(hub, p);
   p->in_use = 0;
+}
+
+/* A cancelled SUBSCRIBE's recorded name stops matching (no name is longer
+ * than WIRED_MOQTRUN_MAX_NAME), so a REPUBLISH does not re-attach it
+ * (moqtrun_reattach_subs). */
+static void moqtrun_sub_names_forget(wired_moqtrun_peer* p, u64 rid) {
+  for (usz i = 0; i < p->sub_names_n; i++)
+    if (p->sub_state[i].request_id == rid)
+      p->sub_name_lens[i] = WIRED_MOQTRUN_MAX_NAME + 1;
+}
+
+static int moqtrun_track_is_req(const wired_moqtrun_track* t, u64 rid) {
+  return t->in_use && t->request_id == rid;
+}
+
+/* A cancelled PUBLISH withdraws its track. */
+static void moqtrun_peer_unpublish(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 rid) {
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    if (moqtrun_track_is_req(&p->tracks[t], rid))
+      moqtrun_track_retire(hub, &p->tracks[t]);
+}
+
+/* draft-ietf-moq-transport-19 3.3.3: the request is cancelled -- its
+ * subscription or track goes, the hub's own direction is reset with
+ * CANCELLED (3.3.4; this also releases the reply bytes the transport
+ * holds as a view), and the slot is freed. */
+static void moqtrun_req_cancel(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_req* q) {
+  moqtrun_drop_peer_subs(hub, (usz)(p - hub->peers), q->request_id);
+  moqtrun_sub_names_forget(p, q->request_id);
+  moqtrun_peer_unpublish(hub, p, q->request_id);
+  if (q->opened) hub->io.stream_reset(p->wt, q->stream_id, 0x1);
+  q->in_use = 0;
+}
+
+void wired_moqt_on_stream_reset(
+    void*             app_ctx,
+    wired_wt_session* s,
+    u64               stream_id,
+    int               mapped,
+    u32               app_error_code) {
+  wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
+  wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
+  wired_moqtrun_req*  q   = moqtrun_req_find(hub, s, stream_id);
+  (void)mapped;
+  (void)app_error_code;
+  if (!p || !q) return;
+  moqtrun_req_cancel(hub, p, q);
 }
