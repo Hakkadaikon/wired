@@ -1,0 +1,30 @@
+---
+title: Holding and resetting a stream
+description: Pause a peer's send window without discarding bytes, then abort a server-sent stream.
+sidebar:
+  order: 7
+---
+import Example from '../../../../components/Example.astro';
+
+Backpressure on a client-initiated stream: hold its receive credit instead
+of reading faster than the app can keep up, then release it. Separately,
+abort a server-sent stream the app no longer needs, and check whether one
+is still in flight.
+
+<Example id="wt-backpressure" />
+
+## How it works
+
+- The first delta of a client upload (`fin=0`) calls
+  `wired_server_wt_stream_hold(s, stream_id, 1)`: the loop stops raising
+  the advertised `MAX_STREAM_DATA`, so the peer's already-granted bytes
+  still arrive but no more credit is handed out.
+- The closing delta (`fin=1`) calls `hold(..., 0)` to resume, then checks
+  `wired_server_wt_stream_inflight(s, g_uni)` on the separate server-opened
+  stream from `on_session` -- `1` while it is still open or unacknowledged.
+- Sending `"abort"` instead calls `wired_server_wt_stream_reset(s, g_uni,
+  1)`, which frees that stream's send slot at once: `inflight` reads back
+  `0` right after.
+- The client sends each upload as two separate writes before closing, so
+  the server sees two reassembly deltas instead of one -- the `hold` only
+  fires when there is a chunk before the final one.
