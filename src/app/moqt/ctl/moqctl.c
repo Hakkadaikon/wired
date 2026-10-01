@@ -863,13 +863,12 @@ int moqctl_publish_encode(wired_mspan buf, usz* off, const moqctl_publish* m) {
 
 /* ===== REQUEST_OK (SS10.5) =====
  * Parameters use the scope of whichever request REQUEST_OK answers, which
- * this codec does not track (session-layer concern). Decoding with
- * MOQCTL_T_REQUEST_OK (which has no rule-table entries) means any
- * parameter type is unknown/VIOLATION -- matching golden vectors, which
- * all carry zero parameters. */
+ * this codec does not track (session-layer concern), so it admits the
+ * union of every OK's scope. */
 int moqctl_request_ok_take(wired_span buf, usz* off, moqctl_request_ok* out) {
   usz at = *off;
-  int r  = moqctl_params_take(buf, &at, 0, &out->params);
+  int r =
+      moqctl_params_take(buf, &at, MOQCTL_PCTX_REQUEST_OK_ANY, &out->params);
   if (r != MOQCTL_OK) return r;
   out->track_properties = moqctl_residual(buf, at);
   *off                  = buf.n;
