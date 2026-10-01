@@ -209,13 +209,13 @@ int moqctl_ns_take(wired_span buf, usz* off, moqctl_ns* out) {
   return MOQCTL_OK;
 }
 
-static usz moqctl_ns_bytelen(const moqctl_ns* ns) {
+usz moqctl_ns_bytelen(const moqctl_ns* ns) {
   usz total = 0;
   for (usz i = 0; i < ns->n; i++) total += ns->fields[i].n;
   return total;
 }
 
-static int moqctl_name_take(wired_span buf, usz* at, wired_span* name) {
+int moqctl_name_take(wired_span buf, usz* at, wired_span* name) {
   u64 len;
   if (!moqctl_span_take_len(buf, at, &len)) return MOQCTL_INSUFFICIENT;
   return moqctl_bytes_take(buf, at, len, name);
@@ -260,7 +260,7 @@ int moqctl_ns_put(wired_mspan buf, usz* at, const moqctl_ns* ns) {
   return moqctl_ns_put_fields(buf, at, ns);
 }
 
-static int moqctl_name_put(wired_mspan buf, usz* at, wired_span name) {
+int moqctl_name_put(wired_mspan buf, usz* at, wired_span name) {
   if (!moqvi_put(buf, at, name.n)) return 0;
   return bytes_put(buf, at, name);
 }
@@ -1109,4 +1109,17 @@ int moqctl_peek_type(
   *body     = wired_span_of(buf.p + at, len);
   *off      = at + len;
   return moqctl_classify_type(type);
+}
+
+/* A Message Body is framed by its Length (SS10), so running out of bytes
+ * inside it, or bytes left over after it, is a Length mismatch: VIOLATION
+ * (SS10 "If the length does not match ... PROTOCOL_VIOLATION"). */
+static int moqctl_body_left(usz off, wired_span body) {
+  return off == body.n ? MOQCTL_OK : MOQCTL_VIOLATION;
+}
+
+int moqctl_body_end(int r, usz off, wired_span body) {
+  if (r == MOQCTL_INSUFFICIENT) return MOQCTL_VIOLATION;
+  if (r != MOQCTL_OK) return r;
+  return moqctl_body_left(off, body);
 }
