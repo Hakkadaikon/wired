@@ -1,0 +1,25 @@
+---
+title: Publish a track
+description: Publish a fixed object from the hub and receive it with SUBSCRIBE.
+sidebar:
+  order: 2
+---
+import Example from '../../../../components/Example.astro';
+
+The hub can publish a track of its own. This page publishes `hello` as track
+`greeting`; the client SUBSCRIBEs and receives it.
+
+<Example id="moqt-publish" />
+
+## How it works
+
+- `wired_moqt_publish_blob(&hub, name, alias, blob, wire)` frames `blob` into
+  `wire` once, at startup. `MOQDATA_BLOB_WIRE_CAP(n)` sizes `wire`, and
+  `wire` must outlive the hub.
+- A SUBSCRIBE that names the track gets SUBSCRIBE_OK with that Track Alias.
+  The framed bytes then go to that peer on a new unidirectional stream,
+  through the `send_uni` entry of the io table.
+- The stream holds a SUBGROUP_HEADER (Track Alias, Group 0) followed by the
+  Object (ID 0, payload `hello`). The hub matches the Track Name only, not
+  the namespace.
+- Everything else is the MoQT hub page unchanged.
