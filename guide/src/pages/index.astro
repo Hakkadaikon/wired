@@ -1,0 +1,13 @@
+---
+const to = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/en/`;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="refresh" content={`0; url=${to}`} />
+    <link rel="canonical" href={to} />
+    <title>wired guide</title>
+  </head>
+  <body><a href={to}>wired guide</a></body>
+</html>
