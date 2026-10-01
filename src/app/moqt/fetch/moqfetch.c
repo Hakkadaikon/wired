@@ -3,6 +3,7 @@
 #include "app/moqt/data/moqdata.h"
 #include "app/moqt/vi/moqvi.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/util/num.h"
 
 /* Every helper returns MOQCTL_OK / INSUFFICIENT / VIOLATION (takes) or
  * 1 / 0 (puts); multi-field layouts run as step tables so no function
@@ -100,20 +101,8 @@ int moqfetch_fetch_encode(wired_mspan buf, usz* off, const moqfetch_fetch* m) {
 
 /* ===== FETCH_OK (10.13 Figure 16) ===== */
 
-static int moqfetch_u8_take(wired_span b, usz* at, u64* out) {
-  u8 v;
-  if (!bytes_take(b, at, wired_mspan_of(&v, 1))) return MOQCTL_INSUFFICIENT;
-  *out = v;
-  return MOQCTL_OK;
-}
-
-static int moqfetch_u8_put(wired_mspan b, usz* at, u64 v) {
-  u8 byte = (u8)v;
-  return bytes_put(b, at, wired_span_of(&byte, 1));
-}
-
 static int moqfetch_ok_take_head(wired_span b, usz* at, moqfetch_ok* m) {
-  int r = moqfetch_u8_take(b, at, &m->end_of_track);
+  int r = moqctl_param_take_uint8(b, at, &m->end_of_track);
   if (r != MOQCTL_OK) return r;
   return moqctl_loc_take(b, at, &m->end);
 }
@@ -128,7 +117,7 @@ int moqfetch_ok_take(wired_span body, moqfetch_ok* out) {
 }
 
 static int moqfetch_ok_put_head(wired_mspan b, usz* at, const moqfetch_ok* m) {
-  if (!moqfetch_u8_put(b, at, m->end_of_track)) return 0;
+  if (!moqctl_param_put_uint8(b, at, m->end_of_track)) return 0;
   return moqctl_loc_put(b, at, m->end);
 }
 
@@ -162,13 +151,9 @@ int moqfetch_hdr_put(wired_mspan buf, usz* off, u64 request_id) {
 
 /* ===== Fetch Objects (11.4.4 Figure 27, 11.4.4.1, 11.4.4.2) ===== */
 
-#define MOQFETCH_MAX_U64 0xFFFFFFFFFFFFFFFFULL
-
 /* a + b, or VIOLATION past 2^64-1 (11.4.4.1). */
 static int moqfetch_add(u64 a, u64 b, u64* out) {
-  if (b > MOQFETCH_MAX_U64 - a) return MOQCTL_VIOLATION;
-  *out = a + b;
-  return MOQCTL_OK;
+  return u64_add_ok(a, b, out) ? MOQCTL_OK : MOQCTL_VIOLATION;
 }
 
 /* Ascending: prior + (Delta + 1). */
@@ -290,7 +275,7 @@ static int moqfetch_take_object(
 static int moqfetch_take_priority(
     wired_span b, usz* at, const moqfetch_seq* s, moqfetch_obj* o) {
   if (o->flags & MOQFETCH_F_PRIORITY)
-    return moqfetch_u8_take(b, at, &o->priority);
+    return moqctl_param_take_uint8(b, at, &o->priority);
   if (!s->have_priority) return MOQCTL_VIOLATION;
   o->priority = s->priority;
   return MOQCTL_OK;
@@ -460,7 +445,7 @@ static int moqfetch_put_priority(
     wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o) {
   (void)s;
   if (!(o->flags & MOQFETCH_F_PRIORITY)) return 1;
-  return moqfetch_u8_put(b, at, o->priority);
+  return moqctl_param_put_uint8(b, at, o->priority);
 }
 
 static int moqfetch_put_props(
