@@ -805,7 +805,9 @@ typedef struct {
  * wired_http_handler can produce: WIRED_HTTP_FIELD_BYTES_MAX (384) field
  * bytes plus per-line QPACK overhead (<= 6 x 8 fields), :status, the
  * section prefix and both frame headers (< 80). Taken out of the row, so
- * the body cap shrinks by 448 bytes instead of BSS growing.
+ * the body cap shrinks by 448 bytes instead of BSS growing: one fixed-row
+ * round holds at most WIRED_SRVRUN_RESP_MAX - SRVRUN_RESP_HDR_ROOM =
+ * 15872 body bytes (a larger body takes a bigbuf row or streams).
  * ponytail: 16KB per response, 64 conns x 4 response slots = 4MB BSS; raise
  * WIRED_SRVRUN_RESP_MAX when a deployment needs bigger bodies (srvbigbuf.h
  * covers the >16KB case without growing this fixed grid). A srvthreads
