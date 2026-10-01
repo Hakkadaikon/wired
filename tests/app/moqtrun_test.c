@@ -20,7 +20,8 @@ typedef struct {
   int kind; /* 1=open_bidi_stream 3=stream_send 4=send_uni
              * 5=open_uni_stream 6=stream_fin 7=stream_reset
              * 8=send_uni2 9=send_datagram 10=stream_hold
-             * 11=close_session (error code in stream_id) */
+             * 11=close_session (error code in stream_id)
+             * 12=stream_reply_open */
   wired_wt_session* s;
   u64               stream_id; /* stream_send/stream_fin/stream_reset only */
   int               fin;       /* stream_send only */
@@ -231,19 +232,28 @@ static int moqtrun_test_close_session(
   return 1;
 }
 
+/* wired_server_wt_stream_reply_open-shaped: the first reply round on a
+ * peer-opened request stream. */
+static int moqtrun_test_stream_reply_open(
+    wired_wt_session* s, u64 stream_id, wired_span payload) {
+  moqtrun_test_record(12, s, stream_id, 0, payload);
+  return 1;
+}
+
 static wired_moqt_io moqtrun_test_io(void) {
   wired_moqt_io io;
-  io.open_bidi_stream = moqtrun_test_open_bidi_stream;
-  io.stream_send      = moqtrun_test_stream_send;
-  io.send_uni         = moqtrun_test_send_uni;
-  io.open_uni_stream  = moqtrun_test_open_uni_stream;
-  io.stream_fin       = moqtrun_test_stream_fin;
-  io.stream_reset     = moqtrun_test_stream_reset;
-  io.send_uni2        = moqtrun_test_send_uni2;
-  io.send_datagram    = moqtrun_test_send_datagram;
-  io.stream_hold      = moqtrun_test_stream_hold;
-  io.send_budget      = 0; /* default: unconstrained, like a table without */
-  io.close_session    = moqtrun_test_close_session;
+  io.open_bidi_stream  = moqtrun_test_open_bidi_stream;
+  io.stream_send       = moqtrun_test_stream_send;
+  io.send_uni          = moqtrun_test_send_uni;
+  io.open_uni_stream   = moqtrun_test_open_uni_stream;
+  io.stream_fin        = moqtrun_test_stream_fin;
+  io.stream_reset      = moqtrun_test_stream_reset;
+  io.send_uni2         = moqtrun_test_send_uni2;
+  io.send_datagram     = moqtrun_test_send_datagram;
+  io.stream_hold       = moqtrun_test_stream_hold;
+  io.send_budget       = 0; /* default: unconstrained, like a table without */
+  io.close_session     = moqtrun_test_close_session;
+  io.stream_reply_open = moqtrun_test_stream_reply_open;
   return io;
 }
 

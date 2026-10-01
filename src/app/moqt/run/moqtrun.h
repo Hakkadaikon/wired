@@ -112,6 +112,14 @@ typedef struct {
    * without it (0) never closes a session -- a control message that
    * requires a close is skipped by its Length instead. */
   int (*close_session)(wired_wt_session* s, u32 error_code, wired_span reason);
+  /** wired_server_wt_stream_reply_open-shaped: the first reply round on a
+   * peer-opened request stream (draft-ietf-moq-transport-19 3.3), kept
+   * open for later stream_send rounds. Returns 1 accepted, 0 on failure.
+   * Kept last so older positional initializers stay valid; a table built
+   * without it (0) has no request streams -- a peer-opened bidi stream is
+   * left to the data path, which drops it. */
+  int (*stream_reply_open)(
+      wired_wt_session* s, u64 stream_id, wired_span payload);
 } wired_moqt_io;
 
 /** draft-ietf-moq-transport-19 SS3.5 PROTOCOL_VIOLATION session code. */
@@ -279,6 +287,13 @@ typedef struct {
   usz skip; /**< bytes still to discard */
 } wired_moqtrun_ctl_asm;
 
+/** Fixed capacity: peer-opened request streams (draft-ietf-moq-transport-19
+ * 3.3) tracked at once, hub-wide. A request stream past it is left to the
+ * data path (dropped, unanswered). Each slot is ~1.6 KB of BSS.
+ * ponytail: room-sized; raise when clients move every request onto its
+ * own stream. */
+#define WIRED_MOQTRUN_MAX_REQS 64
+
 /** Largest total this hub ever needs to buffer for one peer within one
  * wired_moqt_on_stream_data dispatch: the shared control stream can carry
  * several requests per call (moqtrun_dispatch_ctl_stream's own doc), and
@@ -288,6 +303,29 @@ typedef struct {
 #define WIRED_MOQTRUN_CTL_SEND_BUF                                  \
   ((usz)WIRED_MOQTRUN_CTL_REPLY_MAX * (usz)WIRED_MOQTRUN_MAX_SUBS * \
    (usz)WIRED_MOQTRUN_MAX_TRACKS_PER_PEER)
+
+/** Replies one request-stream delivery can queue: the request's own
+ * answer plus a few REQUEST_UPDATE answers arriving with it. */
+#define WIRED_MOQTRUN_REQ_SEND_BUF ((usz)WIRED_MOQTRUN_CTL_REPLY_MAX * 4)
+
+/** One peer-opened request stream (draft-ietf-moq-transport-19 3.3): its
+ * own reassembly and reply queue (the same ARMED/PENDING pair as
+ * wired_moqtrun_peer.send_bufs, at request-stream size). */
+typedef struct {
+  int               in_use;
+  wired_wt_session* wt;
+  u64               stream_id;
+  /** Type of the stream's first message; 0 until it arrives. */
+  u64 kind;
+  /** That message's Request ID: what a reset cancels. */
+  u64 request_id;
+  /** 1 once stream_reply_open has accepted the first reply round. */
+  int                   opened;
+  wired_moqtrun_ctl_asm in;
+  u8                    send_bufs[2][WIRED_MOQTRUN_REQ_SEND_BUF];
+  usz                   send_lens[2];
+  int                   armed_idx;
+} wired_moqtrun_req;
 
 /** One track a peer PUBLISHes (chat or audio), and the subscribers recorded
  * against it. in_use marks the slot live; own_alias is the Track Alias this
@@ -374,6 +412,9 @@ typedef struct {
   /** Subscription state of each sub_names entry (same index), restored
    * when a REPUBLISH re-attaches this peer. */
   wired_moqtrun_sub sub_state[WIRED_MOQTRUN_SUB_NAMES];
+  /** The request stream whose message is being handled, 0 for the
+   * control stream: replies go to it. */
+  wired_moqtrun_req* req;
 } wired_moqtrun_peer;
 
 /** The hub's own clock-paced live track (wired_moqt_publish_live): Group
@@ -527,6 +568,8 @@ typedef struct {
    * subscriber cursor was left (none attached at the start, or all were
    * given up): the rest of that stream relays on the lossy path. */
   u64 stat_rel_early_return;
+  /** Peer-opened request streams in flight, all sessions. */
+  wired_moqtrun_req reqs[WIRED_MOQTRUN_MAX_REQS];
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
@@ -539,14 +582,16 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io);
 void wired_moqt_on_session(
     void* app_ctx, wired_wt_session* s, wired_span path, wired_span protocol);
 
-/** wired_wt_on_stream_data-shaped: dispatches one chunk of a control or
- * data stream to the hub's session/subscribe state machines and the
- * relay logic. app_ctx must be the wired_moqt_hub*.
+/** wired_wt_on_stream_data-shaped: dispatches one chunk of a control,
+ * request or data stream to the hub's session/subscribe state machines and
+ * the relay logic. app_ctx must be the wired_moqt_hub*.
  *
- * ponytail: this subset buffers nothing across calls -- each call's data
- * must already contain one or more complete messages/objects (matches the
- * chat-message-sized payloads this hub relays; a partial-message boundary
- * spanning two calls is not reassembled). */
+ * A peer-opened bidi stream is a request stream (draft-ietf-moq-transport-19
+ * 3.3): its messages go through the same handlers as the control stream's,
+ * and their replies go back on it. Its first message must be a request
+ * type and every later one must belong to that request, else the session
+ * closes with PROTOCOL_VIOLATION. Control and request messages are
+ * reassembled across calls; a FIN does not cancel a request (3.3.2). */
 void wired_moqt_on_stream_data(
     void*             app_ctx,
     wired_wt_session* s,
