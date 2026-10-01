@@ -137,6 +137,22 @@ static inline i64 wired_arch_wait4(
   return syscall4(SYS_wait4, pid, status, opts, rusage);
 }
 
+/** kill(2). */
+static inline i64 wired_arch_kill(i64 pid, i64 sig) {
+  return syscall2(SYS_kill, pid, sig);
+}
+
+/** getpid(2). */
+static inline i64 wired_arch_getpid(void) { return syscall1(SYS_getpid, 0); }
+
+/** getppid(2). */
+static inline i64 wired_arch_getppid(void) { return syscall1(SYS_getppid, 0); }
+
+/** prctl(2). */
+static inline i64 wired_arch_prctl(i64 op, i64 arg2) {
+  return syscall5(SYS_prctl, op, arg2, 0, 0, 0);
+}
+
 /** gettid(2). */
 static inline i64 wired_arch_gettid(void) { return syscall1(SYS_gettid, 0); }
 
