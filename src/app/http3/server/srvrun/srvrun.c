@@ -785,6 +785,11 @@ typedef struct {
    * established in the current window (srvrun_start_wt), cleared with it
    * (srvrun_roll_reset_window); SRVRUN_MAX_WT_SESSIONS_PER_WINDOW refuses. */
   u32 wt_sess_window_count;
+  /** draft-ietf-webtrans-http3-15 SS3.1: one bit per l.streams[] slot whose
+   * Extended CONNECT arrived before the client's SETTINGS -- held without
+   * a response, then processed once when the SETTINGS arrive
+   * (srvrun_start_held_resps). Zeroed with the slot on reuse. */
+  u64 wt_held_mask;
 } srvrun_conn;
 
 /* Response storage, one row per (connection slot, response slot): 64-byte
@@ -5840,16 +5845,30 @@ static int srvrun_wt_tp_ok(const srvrun_conn* c) {
   return c->s.sdrv.peer_max_datagram_frame_size != 0;
 }
 
+/* WTH3-009/042: hold this CONNECT until the client's SETTINGS arrive --
+ * no response yet (r is handed back unused), only its request slot's bit
+ * in wt_held_mask; srvrun_start_held_resps processes it then. */
+static void srvrun_wt_hold(srvrun_conn* c, srvrun_resp* r) {
+  const wired_srvloop_stream_slot* s =
+      srvrun_req_slot_of(c, c->l.req_stream_id);
+  r->in_use = 0;
+  if (s) c->wt_held_mask |= (u64)1 << (s - c->l.streams);
+}
+
 /* srvrun_dispatch_wt gated on the client's own SETTINGS having arrived first
- * (WTH3-009/042) and its transport parameters carrying every value
- * WebTransport requires (WTH3-007) -- split out so srvrun_dispatch_resp's
- * own dispatch decision stays a single branch (CCN). A CONNECT failing
- * either gate is rejected the same way a malformed Origin is (403), since
- * draft-ietf-webtrans-http3-15 does not name a specific status for either
- * case. */
+ * (WTH3-009/042: held until they do) and its transport parameters carrying
+ * every value WebTransport requires (WTH3-007) -- split out so
+ * srvrun_dispatch_resp's own dispatch decision stays a single branch (CCN).
+ * A CONNECT failing the transport-parameter gate is rejected the same way a
+ * malformed Origin is (403), since draft-ietf-webtrans-http3-15 does not
+ * name a specific status for it. */
 static void srvrun_dispatch_wt_gated(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r) {
-  if (!srvrun_wt_settings_ready(c) || !srvrun_wt_tp_ok(c)) {
+  if (!srvrun_wt_settings_ready(c)) {
+    srvrun_wt_hold(c, r);
+    return;
+  }
+  if (!srvrun_wt_tp_ok(c)) {
     srvrun_reject_wt(cfg->env, slot, c, r);
     return;
   }
@@ -7192,6 +7211,24 @@ static void srvrun_start_done_resp(
   srvrun_start_resp(ctx, slot);
 }
 
+/* Process held request slot i once: clear its bit, then dispatch it like a
+ * request that just completed. */
+static void srvrun_start_held_resp(const srvrun_step_ctx* ctx, int slot, u8 i) {
+  srvrun_conn* c   = &ctx->st->conns[slot];
+  u64          bit = (u64)1 << i;
+  if (!(c->wt_held_mask & bit)) return;
+  c->wt_held_mask &= ~bit;
+  srvrun_start_done_resp(ctx, slot, i);
+}
+
+/* WTH3-009/042: once the client's SETTINGS have arrived, every CONNECT held
+ * before them (srvrun_wt_hold) is processed exactly once. */
+static void srvrun_start_held_resps(const srvrun_step_ctx* ctx, int slot) {
+  if (!srvrun_wt_settings_ready(&ctx->st->conns[slot])) return;
+  for (u8 i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    srvrun_start_held_resp(ctx, slot, i);
+}
+
 /* Start a response for every request that completed this step (RFC 9000
  * 2.2: a datagram may complete several request streams at once). */
 static void srvrun_start_done_resps(const srvrun_step_ctx* ctx, int slot) {
@@ -7474,6 +7511,7 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_reannounce_uni_stream_limit(ctx->cfg, c);
   srvrun_abort_incomplete_reqs(ctx, slot);
   srvrun_abort_frame_unexpected_reqs(ctx, slot);
+  srvrun_start_held_resps(ctx, slot);
   srvrun_start_done_resps(ctx, slot);
   srvrun_pump_sess(ctx, slot);
   srvrun_pump_datagram(ctx, c);
