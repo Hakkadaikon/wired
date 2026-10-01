@@ -255,7 +255,7 @@ static int moqctl_ns_put_fields(wired_mspan buf, usz* at, const moqctl_ns* ns) {
   return 1;
 }
 
-static int moqctl_ns_put(wired_mspan buf, usz* at, const moqctl_ns* ns) {
+int moqctl_ns_put(wired_mspan buf, usz* at, const moqctl_ns* ns) {
   if (!moqvi_put(buf, at, ns->n)) return 0;
   return moqctl_ns_put_fields(buf, at, ns);
 }
