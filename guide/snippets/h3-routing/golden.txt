@@ -6,4 +6,4 @@ conn closed by peer (CONNECTION_CLOSE)
 $ probe h3get 127.0.0.1:4433 / /about /missing
 GET / status=200 content-type=text/plain body="home"
 GET /about status=200 content-type=text/plain body="about"
-GET /missing status=200 body=""
+GET /missing status=404 body=""
