@@ -353,6 +353,7 @@ static const moqctl_param_rule MOQCTL_PARAM_RULES[] = {
     {MOQCTL_PARAM_FILL_TIMEOUT, MOQCTL_PENC_VARINT, 0x10},
     {MOQCTL_PARAM_FORWARD, MOQCTL_PENC_UINT8, 0x500D},
     {MOQCTL_PARAM_SUBSCRIBER_PRIORITY, MOQCTL_PENC_UINT8, 0xD019},
+    {MOQCTL_PARAM_LOCATION_FILTER, MOQCTL_PENC_LOCFILTER, 0x5009},
     {MOQCTL_PARAM_GROUP_ORDER, MOQCTL_PENC_UINT8, 0x1011},
     {MOQCTL_PARAM_SUBGROUP_FILTER, MOQCTL_PENC_BYTES, 0x5019},
     {MOQCTL_PARAM_OBJECTID_FILTER, MOQCTL_PENC_BYTES, 0x5019},
@@ -360,6 +361,7 @@ static const moqctl_param_rule MOQCTL_PARAM_RULES[] = {
     {MOQCTL_PARAM_OBJECT_PROPERTY_FILTER, MOQCTL_PENC_BYTES, 0x5019},
     {MOQCTL_PARAM_TRACK_PROPERTY_FILTER, MOQCTL_PENC_BYTES, 0x21000},
     {MOQCTL_PARAM_NEW_GROUP_REQUEST, MOQCTL_PENC_VARINT, 0x5009},
+    {MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX, MOQCTL_PENC_NS, 0x30000},
 };
 #define MOQCTL_PARAM_RULE_N \
   (sizeof MOQCTL_PARAM_RULES / sizeof MOQCTL_PARAM_RULES[0])
@@ -453,9 +455,30 @@ static int moqctl_pv_token(wired_span buf, usz* at, moqctl_param* p) {
   return moqctl_token_take(p->bytes, &p->token);
 }
 
-static const moqctl_param_value_fn MOQCTL_PARAM_VALUE_FNS[5] = {
-    moqctl_pv_uint8, moqctl_pv_varint, moqctl_pv_location, moqctl_pv_bytes,
-    moqctl_pv_token};
+/* A Location Filter must fill its Length exactly (SS5.1.2). */
+static int moqctl_locfilter_exact(wired_span v, moqctl_locfilter* f) {
+  usz a = 0;
+  if (moqctl_locfilter_take(v, &a, f) != MOQCTL_OK) return MOQCTL_VIOLATION;
+  return a == v.n ? MOQCTL_OK : MOQCTL_VIOLATION;
+}
+
+static int moqctl_pv_locfilter(wired_span buf, usz* at, moqctl_param* p) {
+  int r = moqctl_pv_bytes(buf, at, p);
+  if (r != MOQCTL_OK) return r;
+  return moqctl_locfilter_exact(p->bytes, &p->lf);
+}
+
+static int moqctl_pv_ns(wired_span buf, usz* at, moqctl_param* p) {
+  moqctl_ns ns;
+  usz       start = *at;
+  int       r     = moqctl_ns_take(buf, at, &ns);
+  p->bytes        = wired_span_of(buf.p + start, *at - start);
+  return r;
+}
+
+static const moqctl_param_value_fn MOQCTL_PARAM_VALUE_FNS[7] = {
+    moqctl_pv_uint8, moqctl_pv_varint,    moqctl_pv_location, moqctl_pv_bytes,
+    moqctl_pv_token, moqctl_pv_locfilter, moqctl_pv_ns};
 
 static int moqctl_param_take_value(
     wired_span buf, usz* at, int enc, moqctl_param* p) {
@@ -561,11 +584,29 @@ static int moqctl_pp_bytes(wired_mspan buf, usz* at, const moqctl_param* p) {
   return bytes_put(buf, at, p->bytes);
 }
 
+/* Largest Location Filter: Type + Location + End Group Delta, three
+ * 9-byte varints at most plus one. */
+#define MOQCTL_LOCFILTER_MAX 28
+
+static int moqctl_pp_locfilter(
+    wired_mspan buf, usz* at, const moqctl_param* p) {
+  u8  tmp[MOQCTL_LOCFILTER_MAX];
+  usz n = 0;
+  if (!moqctl_locfilter_put(wired_mspan_of(tmp, sizeof tmp), &n, &p->lf))
+    return 0;
+  if (!moqvi_put(buf, at, n)) return 0;
+  return bytes_put(buf, at, wired_span_of(tmp, n));
+}
+
+static int moqctl_pp_raw(wired_mspan buf, usz* at, const moqctl_param* p) {
+  return bytes_put(buf, at, p->bytes);
+}
+
 /* PENC_TOKEN re-emits the raw Token bytes the sender placed in p->bytes
  * (this subset only receives tokens; no Token-structure encoder). */
-static const moqctl_param_put_fn MOQCTL_PARAM_PUT_FNS[5] = {
-    moqctl_pp_uint8, moqctl_pp_varint, moqctl_pp_location, moqctl_pp_bytes,
-    moqctl_pp_bytes};
+static const moqctl_param_put_fn MOQCTL_PARAM_PUT_FNS[7] = {
+    moqctl_pp_uint8, moqctl_pp_varint,    moqctl_pp_location, moqctl_pp_bytes,
+    moqctl_pp_bytes, moqctl_pp_locfilter, moqctl_pp_raw};
 
 static int moqctl_param_put_value(
     wired_mspan buf, usz* at, const moqctl_param* p) {
