@@ -43,11 +43,14 @@
 #define STP_DEFAULT_STREAM_DATA_LOCAL 49152
 #endif
 /** Built-in initial_max_stream_data_bidi_remote default (RFC 9000 18.2,
- * 0x06): client-initiated request streams. Kept at its historic value (the
- * request path's own buffers predate the local/uni fix above and interop
- * pins the old behavior). */
+ * 0x06): client-initiated request streams. The same buffering promise as
+ * above, backed by a request slot's receive window -- so it must equal
+ * BODYWIN_CAP (srvloop/body_window.h, pinned by server_tp_test.c). A
+ * request stream's credit grows with MAX_STREAM_DATA as its window slides;
+ * a client bidi stream classified as WebTransport is raised to
+ * WIRED_SRVLOOP_WT_BUF_CAP the same way. */
 #ifndef STP_DEFAULT_STREAM_DATA_REMOTE
-#define STP_DEFAULT_STREAM_DATA_REMOTE 262144
+#define STP_DEFAULT_STREAM_DATA_REMOTE 2048
 #endif
 /** Built-in initial_max_streams_uni default (RFC 9000 18.2, 0x09). */
 #ifndef STP_DEFAULT_MAX_STREAMS_UNI
