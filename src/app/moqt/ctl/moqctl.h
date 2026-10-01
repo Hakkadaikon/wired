@@ -212,6 +212,22 @@ int moqctl_ns_take(wired_span buf, usz* off, moqctl_ns* out);
  * 0 when buf runs out. */
 int moqctl_ns_put(wired_mspan buf, usz* off, const moqctl_ns* ns);
 
+/** Encodes a bare Track Namespace (field count + fields). Returns 1 ok,
+ * 0 if buf is too small (*off may then have advanced). */
+int moqctl_ns_put(wired_mspan buf, usz* off, const moqctl_ns* ns);
+
+/** Sum of the Track Namespace Field Lengths (SS2.4.1 namespace length). */
+usz moqctl_ns_bytelen(const moqctl_ns* ns);
+
+/** Length (vi64) + that many bytes, as a view into buf (Track Name and
+ * every other length-prefixed byte string). MOQCTL_OK or INSUFFICIENT;
+ * on INSUFFICIENT *off may have advanced past the Length. */
+int moqctl_name_take(wired_span buf, usz* off, wired_span* name);
+
+/** Length (vi64) + bytes. Returns 1 ok, 0 if buf is too small (*off may
+ * then have advanced). */
+int moqctl_name_put(wired_mspan buf, usz* off, wired_span name);
+
 /** Exact byte comparison (SS1.5): 1 if equal, 0 otherwise. */
 int moqctl_ftn_eq(const moqctl_ftn* a, const moqctl_ftn* b);
 
@@ -398,5 +414,11 @@ int moqctl_peek_type(wired_span buf, usz* off, u64* type_out, wired_span* body);
 /** Reads only Type + Length at *at (no body check): MOQCTL_OK advances *at
  * past them; on MOQCTL_INSUFFICIENT *len is unset and *at may have moved. */
 int moqctl_peek_header(wired_span buf, usz* at, u64* type, u16* len);
+
+/** Whole-body decode verdict: r is a take's result after reading from the
+ * start of a Message Body, off where it stopped. INSUFFICIENT (truncated
+ * inside the Length) and OK with bytes left over are both a Length
+ * mismatch, so VIOLATION (SS10); any other r passes through. */
+int moqctl_body_end(int r, usz off, wired_span body);
 
 #endif
