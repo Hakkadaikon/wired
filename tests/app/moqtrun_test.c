@@ -13,7 +13,7 @@
 
 /* ===================== recording io stub ===================== */
 
-#define MOQTRUN_TEST_MAX_CALLS 32
+#define MOQTRUN_TEST_MAX_CALLS 128
 #define MOQTRUN_TEST_MAX_PAYLOAD 256
 
 typedef struct {
@@ -23,13 +23,19 @@ typedef struct {
   wired_wt_session* s;
   u64               stream_id; /* stream_send/stream_fin/stream_reset only */
   int               fin;       /* stream_send only */
-  u8                payload[MOQTRUN_TEST_MAX_PAYLOAD];
-  usz               payload_len;
+  u8                payload[MOQTRUN_TEST_MAX_PAYLOAD]; /* may be truncated */
+  usz               payload_len;  /* TRUE length, even if truncated above */
+  u64               payload_hash; /* FNV-1a 64 over the untruncated bytes */
 } moqtrun_test_call;
 
 static moqtrun_test_call g_calls[MOQTRUN_TEST_MAX_CALLS];
 static usz               g_n_calls;
-static i64               g_next_stream_id;
+/* Calls recorded past MOQTRUN_TEST_MAX_CALLS: counted instead of written
+ * out of bounds. moqtrun_test_reset() asserts this is 0 at the start of
+ * every test, so a capacity that's silently too small fails loudly instead
+ * of truncating a recording unnoticed. */
+static usz g_overflow;
+static i64 g_next_stream_id;
 /* When >0, the next N stream_send calls are recorded (so a test can still
  * see they happened) but return 0 (rejected) -- simulates the "previous
  * round not yet ACKed" refusal (srvrun.h's wired_server_wt_stream_send
@@ -65,7 +71,9 @@ static wired_wt_session* g_send_dg_reject_sess;
 static int g_open_uni_fail_n;
 
 static void moqtrun_test_reset(void) {
+  CHECK(g_overflow == 0); /* prior test silently overflowed the recorder */
   g_n_calls                 = 0;
+  g_overflow                = 0;
   g_next_stream_id          = 100;
   g_stream_send_reject_n    = 0;
   g_stream_send_reject_sess = 0;
@@ -78,8 +86,24 @@ static void moqtrun_test_reset(void) {
   g_open_uni_fail_n         = 0;
 }
 
+/* FNV-1a 64 (not an RFC algorithm, a well-known public-domain hash;
+ * http://www.isthe.com/chongo/tech/comp/fnv/). Used only to detect
+ * recorded-payload corruption/truncation in this test stub. */
+static u64 moqtrun_test_fnv1a64(u64 h, const u8* p, usz n) {
+  for (usz i = 0; i < n; i++) {
+    h ^= p[i];
+    h *= 1099511628211ULL; /* FNV prime */
+  }
+  return h;
+}
+#define MOQTRUN_TEST_FNV1A64_SEED 14695981039346656037ULL
+
 static void moqtrun_test_record(
     int kind, wired_wt_session* s, u64 stream_id, int fin, wired_span p) {
+  if (g_n_calls >= MOQTRUN_TEST_MAX_CALLS) {
+    g_overflow++;
+    return;
+  }
   moqtrun_test_call* c = &g_calls[g_n_calls++];
   c->kind              = kind;
   c->s                 = s;
@@ -88,6 +112,7 @@ static void moqtrun_test_record(
   c->payload_len =
       p.n < MOQTRUN_TEST_MAX_PAYLOAD ? p.n : MOQTRUN_TEST_MAX_PAYLOAD;
   for (usz i = 0; i < c->payload_len; i++) c->payload[i] = p.p[i];
+  c->payload_hash = moqtrun_test_fnv1a64(MOQTRUN_TEST_FNV1A64_SEED, p.p, p.n);
 }
 
 static i64 moqtrun_test_open_bidi_stream(
@@ -128,13 +153,17 @@ static i64 moqtrun_test_send_uni(wired_wt_session* s, wired_span payload) {
  * MOQTRUN_TEST_MAX_PAYLOAD). */
 static i64 moqtrun_test_send_uni2(
     wired_wt_session* s, wired_span head, wired_span body) {
-  i64 sid = g_next_stream_id++;
+  i64 sid    = g_next_stream_id++;
+  usz before = g_n_calls;
   moqtrun_test_record(8, s, (u64)sid, 1, head);
+  if (g_n_calls == before) return sid; /* overflow: head wasn't recorded */
   moqtrun_test_call* c    = &g_calls[g_n_calls - 1];
   usz                room = MOQTRUN_TEST_MAX_PAYLOAD - c->payload_len;
   usz                take = body.n < room ? body.n : room;
   for (usz i = 0; i < take; i++) c->payload[c->payload_len + i] = body.p[i];
   c->payload_len = head.n + body.n; /* true length, buffer may be shorter */
+  c->payload_hash =
+      moqtrun_test_fnv1a64(c->payload_hash, body.p, body.n); /* head+body */
   if (g_send_uni2_fail_n > 0) {
     g_send_uni2_fail_n--;
     return -1;
@@ -4514,7 +4543,51 @@ static void test_moqt_reliable_relay_late_sub_across_torn_object(void) {
   CHECK(moqtrun_test_last_kind(3)->fin == 1);
 }
 
+/* ===================== recording stub hardening ===================== */
+
+/* Recording past MOQTRUN_TEST_MAX_CALLS must count instead of write out of
+ * bounds: 129 calls into a 128-slot recorder overflows by exactly one. */
+static void test_moqtrun_recording_overflow_counts_and_does_not_crash(void) {
+  moqtrun_test_reset();
+  for (int i = 0; i < MOQTRUN_TEST_MAX_CALLS + 1; i++)
+    moqtrun_test_stream_fin(SESS_A, (u64)i);
+  CHECK(g_n_calls == MOQTRUN_TEST_MAX_CALLS);
+  CHECK(g_overflow == 1);
+  /* this test deliberately overflows; clear it so the next test's
+   * moqtrun_test_reset() CHECK(g_overflow == 0) doesn't fail on OUR
+   * overflow instead of a real one. */
+  g_overflow = 0;
+}
+
+/* A payload longer than MOQTRUN_TEST_MAX_PAYLOAD is truncated in
+ * c->payload (by design -- the fixed buffer can't grow), so two payloads
+ * that differ only past the truncation boundary look identical by
+ * payload_len + the truncated bytes alone. payload_hash is computed over
+ * the untruncated input and must still tell them apart. */
+static void test_moqtrun_payload_hash_detects_tail_past_truncation(void) {
+  moqtrun_test_reset();
+  u8 a[MOQTRUN_TEST_MAX_PAYLOAD + 8];
+  u8 b[MOQTRUN_TEST_MAX_PAYLOAD + 8];
+  for (usz i = 0; i < sizeof a; i++) a[i] = b[i] = (u8)i;
+  b[sizeof b - 1] ^= 0xff; /* differ only past the truncation boundary */
+  moqtrun_test_stream_send(SESS_A, 1, wired_span_of(a, sizeof a), 0);
+  moqtrun_test_stream_send(SESS_A, 2, wired_span_of(b, sizeof b), 0);
+  /* stream_send's record() caps payload_len at MOQTRUN_TEST_MAX_PAYLOAD too
+   * (unlike send_uni2, which restores the true total) -- so length alone
+   * can't tell these two calls apart either. */
+  CHECK(g_calls[0].payload_len == MOQTRUN_TEST_MAX_PAYLOAD);
+  CHECK(g_calls[1].payload_len == MOQTRUN_TEST_MAX_PAYLOAD);
+  for (usz i = 0; i < MOQTRUN_TEST_MAX_PAYLOAD; i++)
+    CHECK(g_calls[0].payload[i] == g_calls[1].payload[i]);   /* truncated copy
+                                                              * looks equal */
+  CHECK(g_calls[0].payload_hash != g_calls[1].payload_hash); /* hash tells
+                                                                 them apart */
+  moqtrun_test_reset();
+}
+
 void test_moqtrun(void) {
+  test_moqtrun_recording_overflow_counts_and_does_not_crash();
+  test_moqtrun_payload_hash_detects_tail_past_truncation();
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
   test_moqtrun_publish_replies_request_ok();
