@@ -1078,6 +1078,17 @@ static void test_moqctl_request_ok_params_scope(void) {
       MOQCTL_VIOLATION);
 }
 
+/* moqctl_params_find: the first item of a Type, or 0 when absent -- so a
+ * caller tells "absent" (use the draft default) from a decoded 0. */
+static void test_moqctl_params_find(void) {
+  static moqctl_params out;
+  const mqpt_row       flt = {MOQCTL_PARAM_SUBGROUP_FILTER, 0, MQPT_RANGE, 3};
+  CHECK(mqpt_twice(&flt, MOQCTL_PCTX_SUBSCRIBE, &out) == MOQCTL_OK);
+  CHECK(
+      moqctl_params_find(&out, MOQCTL_PARAM_SUBGROUP_FILTER) == &out.items[0]);
+  CHECK(moqctl_params_find(&out, MOQCTL_PARAM_FORWARD) == 0);
+}
+
 /* ===== TEST: SETUP Setup Options behaviors ===== */
 
 /* Unknown Setup Option (including a duplicate of it) is ignored. */
@@ -1310,6 +1321,7 @@ void test_moqctl(void) {
   test_moqctl_params_uint8_value_ranges();
   test_moqctl_params_repeatable_filters();
   test_moqctl_request_ok_params_scope();
+  test_moqctl_params_find();
 
   test_moqctl_setup_unknown_option_ignored();
   test_moqctl_setup_path_option_decode();

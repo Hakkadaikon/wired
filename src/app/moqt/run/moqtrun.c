@@ -804,10 +804,9 @@ static void moqtrun_route_subscribe(
 /* First AUTHORIZATION TOKEN parameter (draft SS10.2.2) of a message, or
  * 0 when it carries none. */
 static const moqctl_token* moqtrun_auth_token_of(const moqctl_params* params) {
-  for (usz i = 0; i < params->n; i++)
-    if (params->items[i].type == MOQCTL_PARAM_AUTHORIZATION_TOKEN)
-      return &params->items[i].token;
-  return 0;
+  const moqctl_param* t =
+      moqctl_params_find(params, MOQCTL_PARAM_AUTHORIZATION_TOKEN);
+  return t ? &t->token : 0;
 }
 
 /* This hub never advertises MAX_AUTH_TOKEN_CACHE_SIZE (SS10.3.1.3), so its
