@@ -6,6 +6,7 @@
 #include "app/http3/core/h3/errclass.h"
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3/grease.h"
+#include "app/http3/core/h3/headercase.h"
 #include "app/http3/core/h3/method.h"
 #include "app/http3/core/h3conn/establish.h"
 #include "app/http3/core/h3prio/h3prio.h"
@@ -5062,9 +5063,83 @@ static void srvrun_call_handler(
   if (!ok) x->body->len = 0;
 }
 
+/* RFC 9110 15: a final status (2xx-5xx); 1xx are interim, the rest are
+ * not HTTP status codes at all. */
+static int srvrun_http_status_final(u16 status) {
+  return (u16)(status - 200) < 400;
+}
+
+/* RFC 9110 15.3.5 / 15.4.5: 204 and 304 never carry content. */
+static int srvrun_http_status_bodiless(u16 status) {
+  return status == 204 || status == 304;
+}
+
+/* RFC 9114 4.2 / 4.3: a non-empty regular (non-pseudo) field name that is
+ * not connection-specific. */
+static int srvrun_http_name_shape_ok(wired_span n) {
+  return n.n && n.p[0] != ':' && !h3_header_name_forbidden(n.p, n.n);
+}
+
+/* RFC 9114 4.2 (lowercase) / RFC 9110 5.5 (no CR, LF or NUL). */
+static int srvrun_http_name_ok(wired_span n) {
+  return srvrun_http_name_shape_ok(n) && h3_header_name_ok(n.p, n.n) &&
+         h3_header_bytes_ok(n.p, n.n);
+}
+
+static int srvrun_http_field_ok(const wired_http_field* f) {
+  return srvrun_http_name_ok(f->name) &&
+         h3_header_bytes_ok(f->value.p, f->value.n);
+}
+
+static usz srvrun_http_ct_len(const char* ct) {
+  return ct ? wired_cstr_len(ct) : 0;
+}
+
+/* Every used field is well-formed and, with the content-type, fits
+ * WIRED_HTTP_FIELD_BYTES_MAX (so the framed HEADERS fits the header room).
+ * field_count is already within the array. */
+static int srvrun_http_fields_ok(const wired_http_exchange* x) {
+  usz total = srvrun_http_ct_len(x->content_type);
+  for (usz i = 0; i < x->field_count; i++) {
+    if (!srvrun_http_field_ok(&x->fields[i])) return 0;
+    total += x->fields[i].name.n + x->fields[i].value.n;
+  }
+  return total <= WIRED_HTTP_FIELD_BYTES_MAX;
+}
+
+static int srvrun_http_ok(const wired_http_exchange* x) {
+  return srvrun_http_status_final(x->status) &&
+         x->field_count <= WIRED_HTTP_MAX_FIELDS && srvrun_http_fields_ok(x);
+}
+
+/* No content: no body, no further rounds, no content-type. */
+static void srvrun_http_drop_content(wired_http_exchange* x) {
+  x->body->len    = 0;
+  x->more         = 0;
+  x->total_size   = 0;
+  x->content_type = 0;
+}
+
+/* RFC 9110 15.6.1: the application produced an unsendable response --
+ * answer a bare 500 instead. */
+static void srvrun_http_reject(wired_http_exchange* x) {
+  x->status      = 500;
+  x->field_count = 0;
+  srvrun_http_drop_content(x);
+}
+
 /* x's status: 0 (every 7-argument handler's) means 200. */
 static u16 srvrun_http_status(const wired_http_exchange* x) {
   return (u16)(x->status + 200 * (x->status == 0));
+}
+
+/* Settle round 0 of a wired_http_handler response: 0 means 200, an invalid
+ * status/field set becomes 500 (see wired_http_exchange), and a 204/304
+ * loses its content. */
+static void srvrun_http_settle(wired_http_exchange* x) {
+  x->status = srvrun_http_status(x);
+  if (!srvrun_http_ok(x)) srvrun_http_reject(x);
+  if (srvrun_http_status_bodiless(x->status)) srvrun_http_drop_content(x);
 }
 
 /* All len octets of m equal want (draft-ietf-webtrans-http3-15 SS3: the
@@ -5707,11 +5782,14 @@ static void srvrun_arm_round0(
   if (r->streaming) srvrun_resp_ring_init(ctx, c, slot, r);
 }
 
-/* Run the app handler's round 0 into x. */
+/* Run the app handler's round 0 into x, settling a wired_http_handler's
+ * status/fields (srvrun_http_settle; a 7-argument handler is always 200
+ * and is left untouched). */
 static void srvrun_call_round0(
     const srvrun_step_ctx* ctx, srvrun_conn* c, wired_http_exchange* x) {
   x->req = &c->l.req;
   srvrun_call_handler(ctx, x);
+  if (ctx->cfg->http) srvrun_http_settle(x);
 }
 
 /* RFC 9110 10.1.1: send the 100-continue interim ahead of round 0 when the
