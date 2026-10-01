@@ -470,6 +470,205 @@ static void test_moqtrun_sub_largest_own_tracks(void) {
   CHECK(l && l->loc.group == 2 && l->loc.object == 0);
 }
 
+/* ===================== per-request bidi streams ===================== */
+
+/* draft-ietf-moq-transport-19 3.3: a request is the first message of a
+ * bidi stream the requester opens; its responses travel on that same
+ * stream. Client-initiated bidi stream ids are 0 mod 4 (RFC 9000 2.1). */
+#define MTRQ_S1 4
+#define MTRQ_S2 8
+
+static u64 mtrq_type_of(const moqtrun_test_call* c) {
+  usz        off = 0;
+  u64        type;
+  wired_span body;
+  if (moqctl_peek_type(
+          wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
+      MOQCTL_OK)
+    return 0;
+  return type;
+}
+
+/* Type of the last message recorded as io kind on stream sid; 0 if none. */
+static u64 mtrq_type_on(int kind, u64 sid) {
+  for (usz i = g_n_calls; i > 0; i--)
+    if (g_calls[i - 1].kind == kind && g_calls[i - 1].stream_id == sid)
+      return mtrq_type_of(&g_calls[i - 1]);
+  return 0;
+}
+
+static usz mtrq_closes(void) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++)
+    n += g_calls[i].kind == 11 &&
+         g_calls[i].stream_id == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
+  return n;
+}
+
+/* Sends Type + Length + the given body bytes on sid. */
+static void mtrq_raw(
+    wired_wt_session* s, u64 sid, u64 type, const u8* body, usz n) {
+  u8  buf[MTST_MSG_MAX];
+  usz off = 0;
+  CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, type));
+  buf[off++] = (u8)(n >> 8);
+  buf[off++] = (u8)n;
+  bytes_memcpy(buf + off, body, n);
+  wired_moqt_on_stream_data(&mtst_hub, s, sid, wired_span_of(buf, off + n), 0);
+}
+
+/* SUBSCRIBE f (Request ID rid) encoded into buf; returns its length. */
+static usz mtrq_sub_bytes(const moqctl_ftn* f, u64 rid, u8* buf) {
+  static moqctl_subscribe m;
+  m.request_id = rid;
+  m.name       = *f;
+  m.params.n   = 0;
+  return moqtrun_envelope_put(
+      wired_mspan_of(buf, MTST_MSG_MAX), MOQCTL_T_SUBSCRIBE, mtst_enc_subscribe,
+      &m);
+}
+
+/* A, B joined; A PUBLISHes alice on its control stream. */
+static moqctl_ftn mtrq_setup(void) {
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  return f;
+}
+
+static void test_moqtrun_req_subscribe_answered_on_its_stream(void) {
+  moqctl_ftn f  = mtrq_setup();
+  u64        cb = moqtrun_find_by_wt(&mtst_hub, SESS_B)->control_stream_id;
+  mtst_subscribe(SESS_B, MTRQ_S1, &f);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(moqtrun_test_last_kind(12) && moqtrun_test_last_kind(12)->s == SESS_B);
+  CHECK(mtrq_type_on(3, cb) == 0);
+  CHECK(mtst_sub(SESS_A, SESS_B) != 0);
+  CHECK(moqtrun_test_relay_alice_chat(&mtst_hub) == 1);
+}
+
+/* Two requests in flight on two streams, the first split across
+ * deliveries around the second: each is reassembled on its own stream and
+ * answered there. */
+static void test_moqtrun_req_two_streams_answered_apart(void) {
+  moqctl_ftn f = mtrq_setup();
+  moqctl_ftn g = mtst_ftn("chat", "room1", "bob");
+  u8         buf[MTST_MSG_MAX];
+  u64        cc = mtst_join(SESS_C);
+  mtst_publish(SESS_C, cc, &g, 1);
+  usz n = mtrq_sub_bytes(&f, 2, buf);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_B, MTRQ_S1, wired_span_of(buf, 3), 0);
+  mtst_subscribe_p(SESS_B, MTRQ_S2, &g, 4, 0);
+  CHECK(mtrq_type_on(12, MTRQ_S2) == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == 0);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_B, MTRQ_S1, wired_span_of(buf + 3, n - 3), 0);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(moqtrun_test_count_kind(12) == 2);
+  CHECK(mtst_sub(SESS_A, SESS_B) != 0 && mtst_sub(SESS_C, SESS_B) != 0);
+}
+
+/* A later reply on an already-answered stream appends to it (draft 10.9:
+ * REQUEST_UPDATE is answered on the request's stream). */
+static void test_moqtrun_req_update_answered_on_same_stream(void) {
+  static const u8 upd[] = {0x02, 0x00}; /* Request ID 2, no parameters */
+  moqctl_ftn      f     = mtrq_setup();
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  mtrq_raw(SESS_B, MTRQ_S1, 0x2 /* REQUEST_UPDATE */, upd, sizeof upd);
+  CHECK(mtrq_type_on(3, MTRQ_S1) == MOQCTL_T_REQUEST_ERROR);
+  CHECK(moqtrun_test_count_kind(12) == 1);
+  CHECK(mtrq_closes() == 0);
+}
+
+/* draft 3.3: a bidi stream not starting with a request type closes the
+ * session with PROTOCOL_VIOLATION -- a response type, or Object data
+ * (whose stream types are unidirectional only). */
+static void test_moqtrun_req_bad_first_message_closes(void) {
+  static const u8 body[] = {0x00, 0x00};
+  mtrq_setup();
+  mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_SUBSCRIBE_OK, body, sizeof body);
+  CHECK(mtrq_closes() == 1);
+  mtrq_setup();
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_B, MTRQ_S1,
+      wired_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      0);
+  CHECK(mtrq_closes() == 1);
+  CHECK(moqtrun_test_count_kind(12) == 0);
+}
+
+/* After the first message a request stream carries only what its kind
+ * allows (draft 10.4, 10.9, 10.11): a second request, or REQUEST_UPDATE
+ * on TRACK_STATUS, is a PROTOCOL_VIOLATION; GOAWAY, and PUBLISH_DONE on a
+ * PUBLISH, are not. */
+static void test_moqtrun_req_second_message_checked(void) {
+  static const u8 upd[]  = {0x00, 0x00};
+  static const u8 away[] = {0x00};
+  moqctl_ftn      f      = mtrq_setup();
+  mtst_subscribe(SESS_B, MTRQ_S1, &f);
+  mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_GOAWAY, away, sizeof away);
+  CHECK(mtrq_closes() == 0);
+  mtst_subscribe(SESS_B, MTRQ_S1, &f);
+  CHECK(mtrq_closes() == 1);
+  mtrq_setup();
+  mtrq_raw(SESS_B, MTRQ_S1, 0xD /* TRACK_STATUS */, upd, sizeof upd);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_ERROR);
+  mtrq_raw(SESS_B, MTRQ_S1, 0x2 /* REQUEST_UPDATE */, upd, sizeof upd);
+  CHECK(mtrq_closes() == 1);
+  mtrq_setup();
+  mtst_publish(SESS_B, MTRQ_S1, &f, 1);
+  mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_PUBLISH_DONE, upd, sizeof upd);
+  CHECK(mtrq_closes() == 0);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_OK);
+  CHECK(moqtrun_test_count_kind(3) == 1); /* A's own REQUEST_OK only */
+}
+
+/* draft 3.3.2: a FIN is not a cancellation. */
+static void test_moqtrun_req_fin_keeps_request(void) {
+  moqctl_ftn f = mtrq_setup();
+  u8         buf[MTST_MSG_MAX];
+  usz        n = mtrq_sub_bytes(&f, 2, buf);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_B, MTRQ_S1, wired_span_of(buf, n), 1);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(mtst_sub(SESS_A, SESS_B) != 0);
+}
+
+/* The request-stream pool is bounded: past WIRED_MOQTRUN_MAX_REQS open
+ * streams a new one goes unanswered, and a closed session returns its
+ * streams to the pool. */
+static void test_moqtrun_req_pool_bounded_and_freed(void) {
+  static const u8 body[] = {0x00, 0x00};
+  mtst_init();
+  mtst_join(SESS_B);
+  for (usz i = 0; i <= WIRED_MOQTRUN_MAX_REQS; i++)
+    mtrq_raw(SESS_B, 4 * (u64)i, 0xD /* TRACK_STATUS */, body, sizeof body);
+  CHECK(moqtrun_test_count_kind(12) == WIRED_MOQTRUN_MAX_REQS);
+  CHECK(mtrq_closes() == 0);
+  wired_moqt_on_session_close(&mtst_hub, SESS_B);
+  mtst_join(SESS_C);
+  mtrq_raw(SESS_C, MTRQ_S1, 0xD /* TRACK_STATUS */, body, sizeof body);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_ERROR);
+}
+
+/* An io table without stream_reply_open cannot answer on a request
+ * stream: a peer bidi stream is left to the data path, as before. */
+static void test_moqtrun_req_needs_reply_op(void) {
+  moqctl_ftn    f      = mtst_ftn("chat", "room1", "alice");
+  wired_moqt_io io     = moqtrun_test_io();
+  io.stream_reply_open = 0;
+  moqtrun_test_reset();
+  wired_moqt_init(&mtst_hub, io);
+  mtst_join(SESS_B);
+  mtst_subscribe(SESS_B, MTRQ_S1, &f);
+  CHECK(g_n_calls == 1); /* SETUP only */
+}
+
 void test_moqtrun_sub(void) {
   test_moqtrun_sub_ns_must_match();
   test_moqtrun_sub_ns_max_fields();
@@ -485,4 +684,12 @@ void test_moqtrun_sub(void) {
   test_moqtrun_sub_largest_from_datagram();
   test_moqtrun_sub_republish_resets_largest();
   test_moqtrun_sub_largest_own_tracks();
+  test_moqtrun_req_subscribe_answered_on_its_stream();
+  test_moqtrun_req_two_streams_answered_apart();
+  test_moqtrun_req_update_answered_on_same_stream();
+  test_moqtrun_req_bad_first_message_closes();
+  test_moqtrun_req_second_message_checked();
+  test_moqtrun_req_fin_keeps_request();
+  test_moqtrun_req_pool_bounded_and_freed();
+  test_moqtrun_req_needs_reply_op();
 }
