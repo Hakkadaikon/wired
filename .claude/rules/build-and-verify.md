@@ -39,7 +39,9 @@ As of writing, the jobs are:
 | `ci.yml`  | ccn (`just ccn`)                 | any `src/**/*.c`                   | part of the three-point gate |
 | `ci.yml`  | lint (`just lint`, clang-tidy)   | any `src/**/*.c`                   | `just lint` (needs the pinned clang-tidy — same caveat) |
 | `ci.yml`  | fuzz smoke (`just fuzz-smoke`)   | any `src/**/*.c`, `fuzz/**`        | `just fuzz-smoke` (clang + libFuzzer/ASan; a `src/` API signature change can break a `fuzz/*.c` harness the three-point gate never compiles — this shipped red to `main` on 2026-08-21) |
-| `docs.yml`| build+deploy (`just docs`)       | any push to `main` (struct/enum/fn doc comments in `src/**/*.h`) | `just docs` (doxygen; pure-hosted, usually runnable without nix — see below) |
+| `docs.yml`| build+deploy (`just docs` + guide `pnpm build`) | any push to `main` (struct/enum/fn doc comments in `src/**/*.h`, anything under `guide/`) | `just docs` (doxygen; pure-hosted, usually runnable without nix — see below); `cd guide && pnpm build` |
+| `guide.yml`| site (`pnpm lint/check/test/build/test:dist`) | any `guide/**` | `cd guide && pnpm lint && pnpm check && pnpm test && pnpm build && pnpm test:dist` |
+| `guide.yml`| snippets (runner vs `golden.txt`) | any `src/**`, `guide/**`, `scripts/gen_ninja.sh` | `just guide-verify` (an SDK log/behavior change that alters a page's output fails here; update the golden with `node runner/run.ts --update <id>` and review the diff) |
 
 (`examples.yml`, `interop-image.yml`, `fuzz.yml`, `coverage.yml`, and
 `comparison.yml` also exist — run `find .github/workflows -type f` and match
