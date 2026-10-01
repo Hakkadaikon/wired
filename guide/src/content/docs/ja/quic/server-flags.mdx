@@ -1,0 +1,21 @@
+---
+title: サーバーのフラグ
+description: サーバーの動かし方（単一プロセスか、コアごとに一つのスレッドか）を、コマンドラインのフラグで選ぶ。
+sidebar:
+  order: 3
+---
+import Example from '../../../../components/Example.astro';
+
+同じサーバーを、シングルスレッド、複数スレッド、複数プロセス、AF_XDP のいずれでも動かせます。
+`wired_srvdriver_parse` は、どれを使うかをコマンドラインから読み取ります。
+このページでは `--cores 0,1` で CPU 0 と 1 にワーカースレッドを一つずつ起動し、TLS ハンドシェイクを 3 回受けます。
+
+<Example id="quic-server-flags" />
+
+## 仕組み
+
+- `wired_srvdriver_parse(argc, argv, &opt)` は `--port`、`--workers`、`--cores`、`--ifindex`、`--pin-core` などのフラグを `wired_srvdriver_opt` に読み込みます。
+  値が不正なときや、`--workers` と `--cores` のように両立しない組み合わせのときは 0 を返します。
+- `wired_srvdriver_run(&id, h, obs, &opt)` は `opt.kind` が示すドライバーを起動します。
+  ドライバーは、単一プロセス、`--workers N` で fork する複数プロセス、`--cores 0,1` で指定した CPU ごとに一つのスレッド、`--ifindex` による AF_XDP のいずれかです。
+- 識別情報とハンドラーは、「はじめての HTTP/3」のページと同じものです。
