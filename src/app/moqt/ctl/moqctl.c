@@ -990,6 +990,7 @@ static const u64 MOQCTL_KNOWN_UNIMPL[] = {
     0x8,  /* NAMESPACE */
     0xE,  /* NAMESPACE_DONE */
     0xF,  /* PUBLISH_SKIPPED */
+    0x18, /* FETCH_OK */
 };
 #define MOQCTL_KNOWN_UNIMPL_N \
   (sizeof MOQCTL_KNOWN_UNIMPL / sizeof MOQCTL_KNOWN_UNIMPL[0])
@@ -1018,13 +1019,9 @@ static int moqctl_peek_header(wired_span buf, usz* at, u64* type, u16* len) {
   return MOQCTL_OK;
 }
 
-/* Header already read: check the body fits and the Type is one this codec
- * accepts (known-implemented). */
-static int moqctl_peek_body(wired_span buf, usz at, u64 type, u16 len) {
-  if (buf.n - at < len) return MOQCTL_INSUFFICIENT;
-  return moqctl_classify_type(type);
-}
-
+/* A complete message of any Type is framed by its Length (SS10), so the
+ * outputs are filled and *off skips it whatever the classification --
+ * the caller decides what an unknown/unimplemented Type means. */
 int moqctl_peek_type(
     wired_span buf, usz* off, u64* type_out, wired_span* body) {
   usz at = *off;
@@ -1032,10 +1029,9 @@ int moqctl_peek_type(
   u16 len;
   int r = moqctl_peek_header(buf, &at, &type, &len);
   if (r != MOQCTL_OK) return r;
-  r = moqctl_peek_body(buf, at, type, len);
-  if (r != MOQCTL_OK) return r;
+  if (buf.n - at < len) return MOQCTL_INSUFFICIENT;
   *type_out = type;
   *body     = wired_span_of(buf.p + at, len);
   *off      = at + len;
-  return MOQCTL_OK;
+  return moqctl_classify_type(type);
 }
