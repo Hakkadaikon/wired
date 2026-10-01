@@ -7,16 +7,17 @@ sidebar:
 import Example from '../../../../components/Example.astro';
 
 There is no router: the handler reads `:path` from the request and decides.
-This page answers `/` and `/about`, and sends an empty body for anything else.
+This page answers `/` and `/about`, and a real 404 for anything else.
 
 <Example id="h3-routing" />
 
 ## How it works
 
-- `req->path` / `req->path_len` hold the request's `:path` (not
+- `x->req->path` / `x->req->path_len` hold the request's `:path` (not
   NUL-terminated). Compare them byte by byte.
-- Returning 0 from the handler sends a 200 with no body.
-- The handler cannot choose the status code yet: every response is 200, so
-  an unknown path is signalled with an empty body here, not a 404.
+- The handler takes a `wired_http_exchange*` (`wired_srvrun_handler.http`),
+  so it can set `x->status` instead of always answering 200.
+- Returning 0 with `x->status` left unset sends a 200 with no body;
+  setting `x->status = 404` before returning 0 sends that status instead.
 - `wired_log_str` needs a NUL-terminated string, so `log_request` copies the
   path into a local buffer first.

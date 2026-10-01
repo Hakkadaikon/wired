@@ -24,30 +24,23 @@ static void log_request(const wired_h3reqdrive_req* req) {
   wired_log_str(line);
 }
 
-static int reply(wired_obuf* body_out, const char** content_type, const char* text) {
+static int reply(wired_http_exchange* x, const char* text) {
   usz n = len(text);
-  memcpy(body_out->p, text, n);
-  body_out->len = n;
-  *content_type = "text/plain";
+  memcpy(x->body->p, text, n);
+  x->body->len   = n;
+  x->content_type = "text/plain";
   return 1;
 }
 
-/* Pick the response by :path. Returning 0 sends 200 with no body. */
-static int on_request(
-    void*                       ctx,
-    const wired_h3reqdrive_req* req,
-    u64                         offset,
-    wired_obuf*                 body_out,
-    const char**                content_type,
-    int*                        more,
-    u64*                        total_size) {
+/* Pick the response by :path; an unknown path answers a real 404
+ * (wired_http_handler can choose the status, unlike the 7-argument
+ * handler, which always sends 200). */
+static int on_request(void* ctx, wired_http_exchange* x) {
   (void)ctx;
-  (void)offset;
-  (void)more;
-  (void)total_size;
-  log_request(req);
-  if (path_is(req, "/")) return reply(body_out, content_type, "home");
-  if (path_is(req, "/about")) return reply(body_out, content_type, "about");
+  log_request(x->req);
+  if (path_is(x->req, "/")) return reply(x, "home");
+  if (path_is(x->req, "/about")) return reply(x, "about");
+  x->status = 404;
   return 0;
 }
 
@@ -71,7 +64,7 @@ int wired_main(int argc, char** argv) {
   id.scid_len  = sizeof scid - 1; /* without the string's NUL */
 
   u16                  port = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
-  wired_srvrun_handler h    = {on_request, 0, 0, 0};
+  wired_srvrun_handler h    = {0, 0, on_request, 0};
   wired_srvrun_obs     obs  = {0};
   return wired_server_run(port, &id, h, obs) ? 0 : 1;
 }
