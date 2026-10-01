@@ -18744,15 +18744,21 @@ static void test_srvrun_http_404_with_body(void) {
 /* RFC 9110 15.3.5 / 15.4.5: 204 and 304 send HEADERS only, even when the
  * handler wrote a body. */
 static void test_srvrun_http_204_304_send_no_data(void) {
-  static const u16 st[] = {204, 304};
+  static const u16   st[]  = {204, 304};
+  static const char* txt[] = {"204", "304"};
   for (usz i = 0; i < 2; i++) {
-    sr_hx_dec d;
+    wired_sendsess*   ss = &g_test_conns[0].resp[0].sess;
+    wired_sendq_slice sl;
+    sr_hx_dec         d;
     g_sr_hx = (sr_hx_case){st[i], "text/plain", 0, 0, "body", 1, 99};
     sr_hx_run(&d);
-    CHECK(d.l[0].value_len == 3 && d.l[0].value[0] == (u8)('0' + st[i] / 100));
+    CHECK(sr_hx_line_is(&d, 0, ":status", txt[i]));
     CHECK(d.n == 1); /* content-type dropped with the content */
-    CHECK(d.body.n == 0);
+    CHECK(d.body.p == 0 && d.body.n == 0); /* no DATA frame at all */
     CHECK(g_test_conns[0].resp[0].streaming == 0);
+    /* the single slice carrying the HEADERS frame ends the stream */
+    CHECK(wired_sendsess_take(ss, &sl) == 1);
+    CHECK(sl.fin == 1 && sl.offset + sl.len == ss->q.len);
   }
 }
 
