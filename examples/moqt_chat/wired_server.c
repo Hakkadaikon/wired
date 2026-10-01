@@ -252,6 +252,8 @@ static const wired_moqt_io g_moqt_io = {
     moqt_io_send_budget,
     /* close_session: the io shape matches srvrun.h exactly. */
     wired_server_wt_close_session,
+    /* stream_reply_open: the io shape matches srvrun.h exactly. */
+    wired_server_wt_stream_reply_open,
 };
 
 static wired_moqt_hub g_hub;
@@ -512,6 +514,9 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   opt.run.wt_stream_data_ctx = &g_hub;
   opt.run.wt_on_datagram    = wired_moqt_on_datagram;
   opt.run.wt_datagram_ctx   = &g_hub;
+  /* A reset request stream cancels its request (subscription/track). */
+  opt.run.wt_on_stream_reset  = wired_moqt_on_stream_reset;
+  opt.run.wt_stream_reset_ctx = &g_hub;
   /* Without this, a session ended server-side (idle timeout after a network
    * drop, CONNECT stream close, ...) leaks its hub peer slot forever, and a
    * reconnecting client whose new session reuses the same slot memory is
