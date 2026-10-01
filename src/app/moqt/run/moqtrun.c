@@ -256,6 +256,39 @@ static void moqtrun_send_request_error(wired_moqtrun_peer* p, u64 code) {
   moqtrun_queue_reply(p, wired_span_of(msg, n));
 }
 
+/* Full Track Name as this hub keys peer tracks (draft 1.5): the encoded
+ * Track Namespace plus the Track Name. */
+typedef struct {
+  wired_span ns;
+  wired_span name;
+} moqtrun_key;
+
+/* f's key, its namespace encoded into ns_buf (WIRED_MOQTRUN_MAX_NS bytes).
+ * A namespace that does not fit gets length WIRED_MOQTRUN_MAX_NS + 1,
+ * which no stored namespace has: it matches nothing and is never stored. */
+static moqtrun_key moqtrun_key_of(const moqctl_ftn* f, u8* ns_buf) {
+  moqtrun_key k;
+  usz         n = 0;
+  if (!moqctl_ns_put(wired_mspan_of(ns_buf, WIRED_MOQTRUN_MAX_NS), &n, &f->ns))
+    n = WIRED_MOQTRUN_MAX_NS + 1;
+  k.ns   = wired_span_of(ns_buf, n);
+  k.name = f->name;
+  return k;
+}
+
+/* A hub-owned track's key: no namespace (matched by name only). */
+static moqtrun_key moqtrun_key_name(wired_span name) {
+  moqtrun_key k;
+  k.ns   = wired_span_of(0, 0);
+  k.name = name;
+  return k;
+}
+
+/* 1 iff k cannot be stored: namespace or name past its capacity. */
+static int moqtrun_key_oversized(moqtrun_key k) {
+  return k.ns.n > WIRED_MOQTRUN_MAX_NS || k.name.n > WIRED_MOQTRUN_MAX_NAME;
+}
+
 /* Copies name into t->name (Track Name = participant id, or
  * "<participant id>/audio"), truncated to WIRED_MOQTRUN_MAX_NAME (room ids
  * are short; a real deployment would reject an oversized one instead --
@@ -264,6 +297,13 @@ static void moqtrun_record_track_name(wired_moqtrun_track* t, wired_span name) {
   usz n = name.n < WIRED_MOQTRUN_MAX_NAME ? name.n : WIRED_MOQTRUN_MAX_NAME;
   bytes_memcpy(t->name, name.p, n);
   t->name_len = n;
+}
+
+/* Records k on t; k.ns fits (callers refuse an oversized key first). */
+static void moqtrun_record_track_key(wired_moqtrun_track* t, moqtrun_key k) {
+  moqtrun_record_track_name(t, k.name);
+  bytes_memcpy(t->ns, k.ns.p, k.ns.n);
+  t->ns_len = k.ns.n;
 }
 
 static int moqtrun_bytes_eq(const u8* a, const u8* b, usz n) {
@@ -278,11 +318,23 @@ static int moqtrun_track_name_matches(
          moqtrun_bytes_eq(t->name, name.p, name.n);
 }
 
-/* Finds p's own track slot already PUBLISHed under name, else 0. */
+static int moqtrun_ns_eq(const u8* ns, usz ns_len, wired_span k) {
+  return ns_len == k.n && moqtrun_bytes_eq(ns, k.p, k.n);
+}
+
+/* Full Track Name match: namespace AND name (draft 1.5). */
+static int moqtrun_track_key_matches(
+    const wired_moqtrun_track* t, moqtrun_key k) {
+  return moqtrun_track_name_matches(t, k.name) &&
+         moqtrun_ns_eq(t->ns, t->ns_len, k.ns);
+}
+
+/* Finds p's own track slot already PUBLISHed under Full Track Name k,
+ * else 0. */
 static wired_moqtrun_track* moqtrun_track_slot_for_name(
-    wired_moqtrun_peer* p, wired_span name) {
+    wired_moqtrun_peer* p, moqtrun_key k) {
   for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
-    if (moqtrun_track_name_matches(&p->tracks[t], name)) return &p->tracks[t];
+    if (moqtrun_track_key_matches(&p->tracks[t], k)) return &p->tracks[t];
   return 0;
 }
 
@@ -299,29 +351,31 @@ static wired_moqtrun_track* moqtrun_track_free_slot(wired_moqtrun_peer* p) {
  * single-track hub's overwrite behavior), else a fresh free slot, else 0
  * when both slots are already taken by other names. */
 static wired_moqtrun_track* moqtrun_track_alloc_slot(
-    wired_moqtrun_peer* p, wired_span name) {
-  wired_moqtrun_track* existing = moqtrun_track_slot_for_name(p, name);
+    wired_moqtrun_peer* p, moqtrun_key k) {
+  wired_moqtrun_track* existing = moqtrun_track_slot_for_name(p, k);
   return existing ? existing : moqtrun_track_free_slot(p);
 }
 
 /* 1 iff sub-name ring entry i of p equals name. */
 static int moqtrun_sub_name_eq(
-    const wired_moqtrun_peer* p, usz i, wired_span name) {
-  return p->sub_name_lens[i] == name.n &&
-         moqtrun_bytes_eq(p->sub_names[i], name.p, name.n);
+    const wired_moqtrun_peer* p, usz i, moqtrun_key k) {
+  return p->sub_name_lens[i] == k.name.n &&
+         moqtrun_bytes_eq(p->sub_names[i], k.name.p, k.name.n) &&
+         moqtrun_ns_eq(p->sub_ns[i], p->sub_ns_lens[i], k.ns);
 }
 
 /* 1 iff p has recorded a successful SUBSCRIBE for name. */
-static int moqtrun_sub_name_known(
-    const wired_moqtrun_peer* p, wired_span name) {
+static int moqtrun_sub_name_known(const wired_moqtrun_peer* p, moqtrun_key k) {
   for (usz i = 0; i < p->sub_names_n; i++)
-    if (moqtrun_sub_name_eq(p, i, name)) return 1;
+    if (moqtrun_sub_name_eq(p, i, k)) return 1;
   return 0;
 }
 
-static void moqtrun_sub_name_store(wired_moqtrun_peer* p, wired_span name) {
-  bytes_memcpy(p->sub_names[p->sub_names_at], name.p, name.n);
-  p->sub_name_lens[p->sub_names_at] = name.n;
+static void moqtrun_sub_name_store(wired_moqtrun_peer* p, moqtrun_key k) {
+  bytes_memcpy(p->sub_names[p->sub_names_at], k.name.p, k.name.n);
+  p->sub_name_lens[p->sub_names_at] = k.name.n;
+  bytes_memcpy(p->sub_ns[p->sub_names_at], k.ns.p, k.ns.n);
+  p->sub_ns_lens[p->sub_names_at] = k.ns.n;
   p->sub_names_at = (u8)((p->sub_names_at + 1) % WIRED_MOQTRUN_SUB_NAMES);
   if (p->sub_names_n < WIRED_MOQTRUN_SUB_NAMES) p->sub_names_n++;
 }
@@ -329,10 +383,10 @@ static void moqtrun_sub_name_store(wired_moqtrun_peer* p, wired_span name) {
 /* Remember a name p subscribed to, so a later REPUBLISH of it can
  * re-attach p (wired_moqtrun_peer.sub_names' doc). An oversized name could
  * never match a recorded track name, so it is not stored. */
-static void moqtrun_note_sub_name(wired_moqtrun_peer* p, wired_span name) {
-  if (name.n > WIRED_MOQTRUN_MAX_NAME) return;
-  if (moqtrun_sub_name_known(p, name)) return;
-  moqtrun_sub_name_store(p, name);
+static void moqtrun_note_sub_name(wired_moqtrun_peer* p, moqtrun_key k) {
+  if (moqtrun_key_oversized(k)) return;
+  if (moqtrun_sub_name_known(p, k)) return;
+  moqtrun_sub_name_store(p, k);
 }
 
 static int moqtrun_encode_request_ok(wired_mspan buf, usz* off, const void* m) {
@@ -441,7 +495,7 @@ static void moqtrun_peer_drop_rings(
 static void moqtrun_track_claim(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* t,
-    wired_span           name,
+    moqtrun_key          k,
     u64                  track_alias) {
   /* Reset every orphaned relay stream BEFORE clear_subs deactivates the
    * very subs[] entries this walk reads (moqtrun_track_reset_stale_relays'
@@ -456,17 +510,17 @@ static void moqtrun_track_claim(
   t->own_alias = track_alias;
   moqtrun_track_drop_rings(hub, t);
   moqtrun_track_clear_relays(t);
-  moqtrun_record_track_name(t, name);
+  moqtrun_record_track_key(t, k);
 }
 
 static void moqtrun_reattach_subs(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     usz                  pub_idx,
-    wired_span           name);
+    moqtrun_key          k);
 
 static wired_moqtrun_track* moqtrun_peer_track_for_name(
-    wired_moqtrun_peer* p, wired_span name);
+    wired_moqtrun_peer* p, moqtrun_key k);
 
 static void moqtrun_rel_return_ring(
     wired_moqt_hub* hub, wired_moqtrun_relay* relay, moqtrel_buf* rb);
@@ -499,24 +553,24 @@ static void moqtrun_track_retire(wired_moqt_hub* hub, wired_moqtrun_track* t) {
   t->in_use = 0;
 }
 
-/* Peer i's track named name, unless i is the publisher itself. */
+/* Peer i's track keyed k, unless i is the publisher itself. */
 static wired_moqtrun_track* moqtrun_other_track_for_name(
-    wired_moqt_hub* hub, usz i, usz pub_idx, wired_span name) {
-  return i != pub_idx ? moqtrun_peer_track_for_name(&hub->peers[i], name) : 0;
+    wired_moqt_hub* hub, usz i, usz pub_idx, moqtrun_key k) {
+  return i != pub_idx ? moqtrun_peer_track_for_name(&hub->peers[i], k) : 0;
 }
 
 /* 1 iff peer i, a NEWER session than the publisher (higher join_seq),
  * already holds a track named name. */
 static int moqtrun_newer_owner(
-    wired_moqt_hub* hub, usz i, usz pub_idx, wired_span name) {
-  return moqtrun_other_track_for_name(hub, i, pub_idx, name) != 0 &&
+    wired_moqt_hub* hub, usz i, usz pub_idx, moqtrun_key k) {
+  return moqtrun_other_track_for_name(hub, i, pub_idx, k) != 0 &&
          hub->peers[i].join_seq > hub->peers[pub_idx].join_seq;
 }
 
 static int moqtrun_newer_holds_name(
-    wired_moqt_hub* hub, usz pub_idx, wired_span name) {
+    wired_moqt_hub* hub, usz pub_idx, moqtrun_key k) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
-    if (moqtrun_newer_owner(hub, i, pub_idx, name)) return 1;
+    if (moqtrun_newer_owner(hub, i, pub_idx, k)) return 1;
   return 0;
 }
 
@@ -530,10 +584,9 @@ static int moqtrun_newer_holds_name(
  * refuse a PUBLISH a newer peer already owns (moqtrun_publish_slot), so
  * arrival order never lets a stale session take the name back. */
 static void moqtrun_supersede_name(
-    wired_moqt_hub* hub, usz pub_idx, wired_span name) {
+    wired_moqt_hub* hub, usz pub_idx, moqtrun_key k) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
-    wired_moqtrun_track* t =
-        moqtrun_other_track_for_name(hub, i, pub_idx, name);
+    wired_moqtrun_track* t = moqtrun_other_track_for_name(hub, i, pub_idx, k);
     if (t) moqtrun_track_retire(hub, t);
   }
 }
@@ -545,9 +598,10 @@ static void moqtrun_supersede_name(
  * moqtrun_supersede_name exists to prevent. The refused, older session is
  * stale by definition (its client has moved on to the newer one). */
 static wired_moqtrun_track* moqtrun_publish_slot(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span name) {
-  if (moqtrun_newer_holds_name(hub, peer_idx, name)) return 0;
-  return moqtrun_track_alloc_slot(p, name);
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, moqtrun_key k) {
+  if (moqtrun_key_oversized(k)) return 0;
+  if (moqtrun_newer_holds_name(hub, peer_idx, k)) return 0;
+  return moqtrun_track_alloc_slot(p, k);
 }
 
 /* draft SS10.9 PUBLISH: accept a track into a free (or matching-name) slot
@@ -558,15 +612,17 @@ static void moqtrun_handle_publish(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   usz            off = 0;
   moqctl_publish m;
+  u8             ns_buf[WIRED_MOQTRUN_MAX_NS];
   if (moqctl_publish_take(body, &off, &m) != MOQCTL_OK) return;
-  wired_moqtrun_track* t = moqtrun_publish_slot(hub, p, peer_idx, m.name.name);
+  moqtrun_key          k = moqtrun_key_of(&m.name, ns_buf);
+  wired_moqtrun_track* t = moqtrun_publish_slot(hub, p, peer_idx, k);
   if (!t) {
     moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
     return;
   }
-  moqtrun_supersede_name(hub, peer_idx, m.name.name);
-  moqtrun_track_claim(hub, t, m.name.name, m.track_alias);
-  moqtrun_reattach_subs(hub, t, peer_idx, m.name.name);
+  moqtrun_supersede_name(hub, peer_idx, k);
+  moqtrun_track_claim(hub, t, k, m.track_alias);
+  moqtrun_reattach_subs(hub, t, peer_idx, k);
   u8                msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqctl_request_ok ok = {0};
   usz               n  = moqtrun_envelope_put(
@@ -579,18 +635,16 @@ static void moqtrun_handle_publish(
  * in_use check ahead of the name scan so the caller's loop body is one
  * unconditional call. */
 static wired_moqtrun_track* moqtrun_peer_track_for_name(
-    wired_moqtrun_peer* p, wired_span name) {
-  return p->in_use ? moqtrun_track_slot_for_name(p, name) : 0;
+    wired_moqtrun_peer* p, moqtrun_key k) {
+  return p->in_use ? moqtrun_track_slot_for_name(p, k) : 0;
 }
 
-/* Finds the track whose own PUBLISHed Track Name equals the requested
- * SUBSCRIBE's Track Name (room membership keys on participant id/suffix,
- * namespace is hub-fixed and not compared), across every connected peer. */
+/* Finds the track whose PUBLISHed Full Track Name (namespace AND name,
+ * draft 1.5) equals the SUBSCRIBE's, across every connected peer. */
 static wired_moqtrun_track* moqtrun_find_published_track(
-    wired_moqt_hub* hub, const moqctl_ftn* name) {
+    wired_moqt_hub* hub, moqtrun_key k) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
-    wired_moqtrun_track* t =
-        moqtrun_peer_track_for_name(&hub->peers[i], name->name);
+    wired_moqtrun_track* t = moqtrun_peer_track_for_name(&hub->peers[i], k);
     if (t) return t;
   }
   return 0;
@@ -641,10 +695,10 @@ static int moqtrun_reattach_wanted(
     wired_moqtrun_track*  t,
     usz                   i,
     usz                   pub_idx,
-    wired_span            name) {
+    moqtrun_key           k) {
   if (!moqtrun_reattach_peer_live(hub, i, pub_idx)) return 0;
   if (moqtrun_track_sub_of_peer(t, i)) return 0;
-  return moqtrun_sub_name_known(&hub->peers[i], name);
+  return moqtrun_sub_name_known(&hub->peers[i], k);
 }
 
 static void moqtrun_reattach_one_sub(wired_moqtrun_track* track, usz i) {
@@ -667,9 +721,9 @@ static void moqtrun_reattach_subs(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     usz                  pub_idx,
-    wired_span           name) {
+    moqtrun_key          k) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
-    if (moqtrun_reattach_wanted(hub, track, i, pub_idx, name))
+    if (moqtrun_reattach_wanted(hub, track, i, pub_idx, k))
       moqtrun_reattach_one_sub(track, i);
 }
 
@@ -748,7 +802,7 @@ static void moqtrun_subscribe_peer_track(
     wired_moqtrun_peer*  p,
     wired_moqtrun_track* track,
     usz                  peer_idx,
-    wired_span           name) {
+    moqtrun_key          k) {
   wired_moqtrun_sub* held = moqtrun_track_sub_of_peer(track, peer_idx);
   if (held) {
     moqtrun_queue_subscribe_ok(p, held->track_alias);
@@ -760,7 +814,7 @@ static void moqtrun_subscribe_peer_track(
     return;
   }
   moqtrun_accept_subscribe(p, track, slot, peer_idx);
-  moqtrun_note_sub_name(p, name);
+  moqtrun_note_sub_name(p, k);
 }
 
 /* draft SS10.6 SUBSCRIBE for a peer-published track: find it and reply
@@ -770,12 +824,14 @@ static void moqtrun_route_peer_subscribe(
     wired_moqtrun_peer*     p,
     usz                     peer_idx,
     const moqctl_subscribe* m) {
-  wired_moqtrun_track* track = moqtrun_find_published_track(hub, &m->name);
+  u8                   ns_buf[WIRED_MOQTRUN_MAX_NS];
+  moqtrun_key          k     = moqtrun_key_of(&m->name, ns_buf);
+  wired_moqtrun_track* track = moqtrun_find_published_track(hub, k);
   if (!track) {
     moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
     return;
   }
-  moqtrun_subscribe_peer_track(p, track, peer_idx, m->name.name);
+  moqtrun_subscribe_peer_track(p, track, peer_idx, k);
 }
 
 static void moqtrun_subscribe_live(
@@ -1080,7 +1136,8 @@ usz wired_moqt_publish_blob(
     wired_mspan     wire) {
   usz n = moqdata_blob_build(wire, track_alias, blob);
   if (n == 0) return 0;
-  moqtrun_track_claim(hub, &hub->blob_track, name, track_alias);
+  moqtrun_track_claim(
+      hub, &hub->blob_track, moqtrun_key_name(name), track_alias);
   hub->blob_wire = wired_span_of(wire.p, n);
   return n;
 }
@@ -1114,7 +1171,8 @@ int wired_moqt_publish_live(
     u64               now_ms) {
   if (moqtrun_live_args_bad(frags, n_frags, group_ms)) return 0;
   hub->live.track.in_use = 0; /* a re-publish forgets old subscribers */
-  moqtrun_track_claim(hub, &hub->live.track, name, track_alias);
+  moqtrun_track_claim(
+      hub, &hub->live.track, moqtrun_key_name(name), track_alias);
   hub->live.frags       = frags;
   hub->live.n_frags     = n_frags;
   hub->live.t0_ms       = now_ms;

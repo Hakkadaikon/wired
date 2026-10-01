@@ -1070,6 +1070,7 @@
 #include "app/moqdg_test.c"
 #include "app/moqsess_test.c"
 #include "app/moqtrun_test.c"
+#include "app/moqtrun_sub_test.c"
 #include "app/moqtrel_test.c"
 // clang-format on
 
@@ -1615,6 +1616,7 @@ int main(void) {
   test_moqdg();
   test_moqsess();
   test_moqtrun();
+  test_moqtrun_sub();
   test_moqtrel();
   test_ed25519_field();
   test_v2ku_appendix();
