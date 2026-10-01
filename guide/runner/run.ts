@@ -24,8 +24,8 @@ interface Proc {
   out: Promise<{ stdout: string; stderr: string; code: number | null }>;
 }
 
-function start(cmd: string, args: string[]): Proc {
-  const child = spawn(cmd, args, { cwd: bin });
+function start(cmd: string, args: string[], cwd: string): Proc {
+  const child = spawn(cmd, args, { cwd });
   let stdout = '';
   let stderr = '';
   child.stdout?.on('data', (d) => (stdout += d));
@@ -85,19 +85,21 @@ function client(id: string, run: Run): { shown: string; cmd: string; args: strin
 
 async function execute(id: string, run: Run): Promise<string> {
   const server = join(bin, id);
+  // Run in the snippet's own directory so it can read files committed next to it.
+  const dir = join(guide, 'snippets', id);
   if (!existsSync(server)) throw new Error(`${server} missing: run \`ninja guide\` first`);
   if (run.client === 'none') {
-    const p = start(server, run.serverArgs ?? []);
+    const p = start(server, run.serverArgs ?? [], dir);
     const res = await within(p.out, 5000, id);
     return `$ ${['./' + id, ...(run.serverArgs ?? [])].join(' ')}\n${res.stderr}${res.stdout}`;
   }
   if (udpBound()) throw new Error(`udp ${port} already in use (set GUIDE_PORT)`);
   const sargs = ['--port', String(port), ...(run.serverArgs ?? [])];
-  const srv = start(server, sargs);
+  const srv = start(server, sargs, dir);
   try {
     await waitBound(srv);
     const c = client(id, run);
-    const res = await within(start(c.cmd, c.args).out, 10000, `${id} client`);
+    const res = await within(start(c.cmd, c.args, dir).out, 10000, `${id} client`);
     if (res.code !== 0) throw new Error(`${id} client exited ${res.code}\n${res.stderr}`);
     const s = await stop(srv);
     return `$ ./${id} ${sargs.join(' ')}\n${s.stderr}$ ${c.shown}\n${res.stdout}`;
