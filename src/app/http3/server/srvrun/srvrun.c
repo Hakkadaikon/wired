@@ -5724,6 +5724,34 @@ static void srvrun_scratch_view(
   *off += n;
 }
 
+/* Move one recorded header position (*pos, len octets of base) into r's
+ * scratch at *off. 0 if it no longer fits. */
+static int srvrun_copy_hdr_part(
+    srvrun_resp* r, usz* off, const u8* base, u16* pos, u16 len) {
+  if (len > sizeof r->stream_req_scratch - *off) return 0;
+  bytes_memcpy(r->stream_req_scratch + *off, base + *pos, len);
+  *pos = (u16)*off;
+  *off += len;
+  return 1;
+}
+
+static int srvrun_copy_hdr(
+    srvrun_resp* r, usz* off, const u8* base, wired_h3reqdrive_hdr* h) {
+  return srvrun_copy_hdr_part(r, off, base, &h->name_off, h->name_len) &&
+         srvrun_copy_hdr_part(r, off, base, &h->value_off, h->value_len);
+}
+
+/* Move the recorded request headers after the views; those that no longer
+ * fit the copy's scratch are dropped from the end. */
+static void srvrun_copy_stream_hdrs(srvrun_resp* r, usz off) {
+  wired_h3reqdrive_req* q    = &r->stream_req;
+  const u8*             base = q->hdr_base;
+  usz                   i    = 0;
+  while (i < q->hdr_count && srvrun_copy_hdr(r, &off, base, &q->hdrs[i])) i++;
+  q->hdr_count = i;
+  q->hdr_base  = r->stream_req_scratch;
+}
+
 /* Copy req into r->stream_req with every view re-pointed at r's own scratch
  * (see stream_req's doc): later rounds must call the handler with THIS copy,
  * never c->l.req directly, since c->l.req is a per-connection mirror any
@@ -5742,6 +5770,7 @@ static void srvrun_copy_stream_req(
   srvrun_scratch_view(r, &off, &q->scheme, &q->scheme_len);
   srvrun_scratch_view(r, &off, &q->protocol, &q->protocol_len);
   srvrun_scratch_view(r, &off, &q->origin, &q->origin_len);
+  srvrun_copy_stream_hdrs(r, off);
   q->body     = 0; /* not valid past round 0, streaming is GET */
   q->body_len = 0;
 }
