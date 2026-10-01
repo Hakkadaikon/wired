@@ -4,6 +4,7 @@
 #include "app/http3/server/srvloop/dispatch.h"
 #include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvloop/respond.h"
+#include "common/bytes/util/num.h"
 #include "transport/conn/loop/connrunner/level.h"
 #include "transport/io/udp/udploop/rxloop.h"
 #include "transport/packet/frame/frame/ack.h"
@@ -148,6 +149,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->wt_reset_is_stop               = 0;
   l->wt_reset_seen                  = 0;
   l->peer_reset_count               = 0;
+  l->req_next_id                    = 0;
   pnspaces_recv_init(&l->ack_recv);
   ackpolicy_init(&l->app_ack_policy);
   ackpolicy_init(&l->hs_ack_policy);
@@ -359,6 +361,7 @@ static int stream_slot_claim(wired_srvloop* l, u64 stream_id) {
     l->streams[i].req_done       = 0;
     l->streams[i].req_incomplete = 0;
     l->streams[i].req_over       = 0;
+    l->req_next_id               = u64_max(l->req_next_id, stream_id + 4);
     h3_priority_init(&l->streams[i].priority);
     pending_priority_consume(l, i);
     return (int)i;

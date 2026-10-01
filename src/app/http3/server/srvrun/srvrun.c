@@ -790,6 +790,9 @@ typedef struct {
    * a response, then processed once when the SETTINGS arrive
    * (srvrun_start_held_resps). Zeroed with the slot on reuse. */
   u64 wt_held_mask;
+  /** RFC 9114 5.2: the stream id the GOAWAY carried (l.req_next_id when it
+   * was sent); meaningful only once goaway_sent. */
+  u64 goaway_id;
 } srvrun_conn;
 
 /* Response storage, one row per (connection slot, response slot): 64-byte
@@ -3509,16 +3512,6 @@ static void srvrun_on_step(
  * respond.c's build_settings_frame uses. */
 #define SRVRUN_CTRL_STREAM 3
 
-/* RFC 9114 5.2: the id a server GOAWAY carries is the lowest client-initiated
- * bidi stream the server will no longer accept. This SDK serves at most one
- * request stream per connection (id 0, srvloop.h), so there is no live
- * request id to preserve — id 4 (the next bidi stream after 0) simply says
- * "nothing further accepted", the simplest correct value for this server's
- * one-request-per-connection model.
- * ponytail: a real multi-stream server would track the highest in-flight
- * request id and GOAWAY one past it instead. */
-#define SRVRUN_GOAWAY_ID 4
-
 /* Byte length of the control stream's leading type+SETTINGS (RFC 9114 6.2.1),
  * recomputed via the same pure encoder respond.c's build_settings_frame uses.
  * A GOAWAY sent after confirmation is appended right after it, at this fixed
@@ -3532,12 +3525,13 @@ static usz srvrun_ctrl_settings_len(int advertise_wt) {
   return n;
 }
 
-/* Build the 1-RTT payload for a GOAWAY (RFC 9114 5.2): the H3 GOAWAY frame
- * wrapped in a STREAM frame at the control stream's fixed post-SETTINGS
- * offset. Returns 1 with plb->len set, 0 on overflow. */
-static int srvrun_goaway_payload(int advertise_wt, wired_obuf* plb) {
+/* Build the 1-RTT payload for a GOAWAY (RFC 9114 5.2) carrying id -- the
+ * lowest client request stream id the server will no longer process: the H3
+ * GOAWAY frame wrapped in a STREAM frame at the control stream's fixed
+ * post-SETTINGS offset. Returns 1 with plb->len set, 0 on overflow. */
+static int srvrun_goaway_payload(int advertise_wt, u64 id, wired_obuf* plb) {
   u8           h3[16];
-  usz          h3n = h3_goaway_put(h3, sizeof h3, SRVRUN_GOAWAY_ID);
+  usz          h3n = h3_goaway_put(h3, sizeof h3, id);
   stream_frame f;
   if (h3n == 0) return 0;
   f = (stream_frame){
@@ -3554,7 +3548,9 @@ static int srvrun_send_goaway(
   u8                    pl[64];
   wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
-  if (!srvrun_goaway_payload(c->l.we_advertised_max_datagram > 0, &plb))
+  c->goaway_id = c->l.req_next_id; /* every stream taken up keeps going */
+  if (!srvrun_goaway_payload(
+          c->l.we_advertised_max_datagram > 0, c->goaway_id, &plb))
     return 0;
   sin = (wired_srvloop_send_in){
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
@@ -5964,9 +5960,28 @@ static void srvrun_dispatch_resp(
   srvrun_start_app_resp(ctx, c, slot, r);
 }
 
+/* RFC 9114 5.2: 1 if stream id is at or past the GOAWAY c already sent --
+ * a request the server announced it will not process. */
+static int srvrun_past_goaway(const srvrun_conn* c, u64 id) {
+  return c->goaway_sent && id >= c->goaway_id;
+}
+
+/* RFC 9114 5.2 / 8.1: refuse a request opened past the GOAWAY with
+ * H3_REQUEST_REJECTED (RESET_STREAM + STOP_SENDING) and free its slot,
+ * never dispatching it. */
+static void srvrun_reject_past_goaway(const srvrun_cfg* cfg, srvrun_conn* c) {
+  srvrun_send_wt_busy_reset(cfg, c, c->l.req_stream_id, H3_REQUEST_REJECTED);
+  wired_srvloop_slot_release(&c->l, c->l.req_stream_id);
+}
+
 static void srvrun_start_resp(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
-  srvrun_resp* r = srvrun_start_resp_claim(c);
+  srvrun_resp* r;
+  if (srvrun_past_goaway(c, c->l.req_stream_id)) {
+    srvrun_reject_past_goaway(ctx->cfg, c);
+    return;
+  }
+  r = srvrun_start_resp_claim(c);
   if (!r) return;
   srvrun_dispatch_resp(ctx, c, slot, r);
 }

@@ -210,7 +210,8 @@ static void test_srvrun_no_goaway_on_hq(void) {
 }
 
 /* GOAWAY WIRE CONTENT: the sealed packet opens under the client's 1-RTT peer
- * key and carries a GOAWAY frame on the control stream. */
+ * key and carries a GOAWAY frame on the control stream -- id 0 on a
+ * connection that has not taken up any request. */
 static void test_srvrun_goaway_wire_content(void) {
   struct lp_fix f;
   srvrun_conn   c;
@@ -230,7 +231,7 @@ static void test_srvrun_goaway_wire_content(void) {
     CHECK(client_open_onertt(&f, out, gob.len, &pl, &pll) == 1);
   }
   CHECK(sr_find_goaway_id(pl, pll, &id) == 1);
-  CHECK(id == SRVRUN_GOAWAY_ID);
+  CHECK(id == 0); /* RFC 9114 5.2: no request taken up yet */
 }
 
 /* NOT UP: a slot that never came up owes no GOAWAY (no peer to send it to). */
@@ -18269,6 +18270,46 @@ static void test_srvrun_body_over_req_buf_gets_413(void) {
   CHECK(sr_resp_is_status(&c->resp[0], 413));
 }
 
+/* Send c's GOAWAY and return the stream id it carried (~0 if unreadable). */
+static u64 sr_sl_goaway(srvrun_conn* c) {
+  u8         out[256];
+  wired_obuf gob = obuf_of(out, sizeof out);
+  const u8*  pl;
+  usz        pll;
+  u64        id = ~(u64)0;
+  CHECK(srvrun_send_goaway(&g_sl_cfg, c, &gob) == 1);
+  CHECK(client_open_onertt(&g_sl_f, out, gob.len, &pl, &pll) == 1);
+  CHECK(sr_find_goaway_id(pl, pll, &id) == 1);
+  return id;
+}
+
+/* RFC 9114 5.2: GOAWAY carries one past the largest client request stream
+ * the server took up -- streams 0 and 4 answered, 8 still mid-request ->
+ * 12. A new stream at or past 12 is refused with H3_REQUEST_REJECTED
+ * (never reaching the app, its slot released), while 8 keeps being served
+ * once its request completes. */
+static void test_srvrun_goaway_id_past_largest_accepted(void) {
+  srvrun_conn* c = sr_sl_fixture();
+  usz          hlen8;
+  u8           pl[64];
+  wired_obuf   sob = obuf_of(pl, sizeof pl);
+  sr_sl_send_headers(c, 0, "GET", 1);
+  sr_sl_send_headers(c, 4, "GET", 1);
+  hlen8 = sr_sl_send_headers(c, 8, "GET", 0);
+  CHECK(g_sr_wt_handler_calls == 2);
+  CHECK(sr_sl_goaway(c) == 12);
+  sr_sl_send_headers(c, 12, "GET", 1);
+  CHECK(g_sr_wt_handler_calls == 2);
+  CHECK(srvrun_resp_find(c, 12) == 0);
+  CHECK(!sr_sl_has_slot(c, 12));
+  {
+    stream_frame sf = {8, hlen8, 0, pl, 1}; /* stream 8's FIN */
+    CHECK(appdata_stream_frame(&sf, &sob) == 1);
+  }
+  sr_sl_step(c, pl, sob.len);
+  CHECK(g_sr_wt_handler_calls == 3);
+}
+
 /* RFC 9114 4.1: a GET with FIN is dispatched once; its slot is re-armed
  * right away and released once the response is acknowledged. */
 static void test_srvrun_get_with_fin_dispatched_once_then_released(void) {
@@ -18858,6 +18899,7 @@ void test_srvrun(void) {
   test_srvrun_wt_usage_counters_exposed();
   test_srvrun_wt_close_on_established_connect_stream();
   test_srvrun_get_with_fin_dispatched_once_then_released();
+  test_srvrun_goaway_id_past_largest_accepted();
   test_srvrun_headers_at_req_buf_limit_served();
   test_srvrun_headers_over_req_buf_gets_431();
   test_srvrun_body_at_req_buf_limit_served();
