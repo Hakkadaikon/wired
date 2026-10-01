@@ -252,6 +252,64 @@ static const u8 g_moqt_ctl_request_ok_params[] = {0x07, 0x00, 0x05, 0x02,
 #define G_MOQT_CTL_REQUEST_OK_PARAMS_LEN 8
 #define G_MOQT_CTL_REQUEST_OK_PARAMS_TYPE 0x7ULL
 #define G_MOQT_CTL_REQUEST_OK_PARAMS_MSG_LEN 5
+static const u8 g_moqt_ctl_fetch_standalone[] = {0x16, 0x00, 0x0c, 0x00, 0x01,
+                                                 0x01, 0x01, 0x61, 0x01, 0x62,
+                                                 0x00, 0x00, 0x01, 0x00, 0x00};
+#define G_MOQT_CTL_FETCH_STANDALONE_LEN 15
+#define G_MOQT_CTL_FETCH_STANDALONE_TYPE 0x16ULL
+#define G_MOQT_CTL_FETCH_STANDALONE_MSG_LEN 12
+static const u8 g_moqt_ctl_fetch_relative_joining[] = {0x16, 0x00, 0x05, 0x02,
+                                                       0x02, 0x00, 0x01, 0x00};
+#define G_MOQT_CTL_FETCH_RELATIVE_JOINING_LEN 8
+#define G_MOQT_CTL_FETCH_RELATIVE_JOINING_TYPE 0x16ULL
+#define G_MOQT_CTL_FETCH_RELATIVE_JOINING_MSG_LEN 5
+static const u8 g_moqt_ctl_fetch_absolute_joining[] = {
+    0x16, 0x00, 0x07, 0x04, 0x03, 0x00, 0x05, 0x01, 0x20, 0x80};
+#define G_MOQT_CTL_FETCH_ABSOLUTE_JOINING_LEN 10
+#define G_MOQT_CTL_FETCH_ABSOLUTE_JOINING_TYPE 0x16ULL
+#define G_MOQT_CTL_FETCH_ABSOLUTE_JOINING_MSG_LEN 7
+static const u8 g_moqt_ctl_fetch_ok_basic[] = {0x18, 0x00, 0x04, 0x01,
+                                               0x03, 0x05, 0x00};
+#define G_MOQT_CTL_FETCH_OK_BASIC_LEN 7
+#define G_MOQT_CTL_FETCH_OK_BASIC_TYPE 0x18ULL
+#define G_MOQT_CTL_FETCH_OK_BASIC_MSG_LEN 4
+static const u8 g_moqt_ctl_subscribe_namespace_basic[] = {
+    0x50, 0x00, 0x08, 0x06, 0x01, 0x04, 0x63, 0x68, 0x61, 0x74, 0x00};
+#define G_MOQT_CTL_SUBSCRIBE_NAMESPACE_BASIC_LEN 11
+#define G_MOQT_CTL_SUBSCRIBE_NAMESPACE_BASIC_TYPE 0x50ULL
+#define G_MOQT_CTL_SUBSCRIBE_NAMESPACE_BASIC_MSG_LEN 8
+static const u8 g_moqt_ctl_publish_namespace_basic[] = {
+    0x06, 0x00, 0x0e, 0x08, 0x02, 0x04, 0x63, 0x68, 0x61,
+    0x74, 0x05, 0x72, 0x6f, 0x6f, 0x6d, 0x31, 0x00};
+#define G_MOQT_CTL_PUBLISH_NAMESPACE_BASIC_LEN 17
+#define G_MOQT_CTL_PUBLISH_NAMESPACE_BASIC_TYPE 0x6ULL
+#define G_MOQT_CTL_PUBLISH_NAMESPACE_BASIC_MSG_LEN 14
+static const u8 g_moqt_ctl_namespace_basic[] = {0x08, 0x00, 0x07, 0x01, 0x05,
+                                                0x72, 0x6f, 0x6f, 0x6d, 0x31};
+#define G_MOQT_CTL_NAMESPACE_BASIC_LEN 10
+#define G_MOQT_CTL_NAMESPACE_BASIC_TYPE 0x8ULL
+#define G_MOQT_CTL_NAMESPACE_BASIC_MSG_LEN 7
+static const u8 g_moqt_ctl_namespace_done_basic[] = {
+    0x0e, 0x00, 0x07, 0x01, 0x05, 0x72, 0x6f, 0x6f, 0x6d, 0x31};
+#define G_MOQT_CTL_NAMESPACE_DONE_BASIC_LEN 10
+#define G_MOQT_CTL_NAMESPACE_DONE_BASIC_TYPE 0xeULL
+#define G_MOQT_CTL_NAMESPACE_DONE_BASIC_MSG_LEN 7
+static const u8 g_moqt_ctl_track_status_basic[] = {
+    0x0d, 0x00, 0x14, 0x0a, 0x02, 0x04, 0x63, 0x68, 0x61, 0x74, 0x05, 0x72,
+    0x6f, 0x6f, 0x6d, 0x31, 0x05, 0x61, 0x6c, 0x69, 0x63, 0x65, 0x00};
+#define G_MOQT_CTL_TRACK_STATUS_BASIC_LEN 23
+#define G_MOQT_CTL_TRACK_STATUS_BASIC_TYPE 0xdULL
+#define G_MOQT_CTL_TRACK_STATUS_BASIC_MSG_LEN 20
+static const u8 g_moqt_ctl_track_status_ok_basic[] = {
+    0x07, 0x00, 0x06, 0x01, 0x09, 0x02, 0x05, 0x0e, 0x40};
+#define G_MOQT_CTL_TRACK_STATUS_OK_BASIC_LEN 9
+#define G_MOQT_CTL_TRACK_STATUS_OK_BASIC_TYPE 0x7ULL
+#define G_MOQT_CTL_TRACK_STATUS_OK_BASIC_MSG_LEN 6
+static const u8 g_moqt_ctl_request_update_forward[] = {0x02, 0x00, 0x04, 0x0c,
+                                                       0x01, 0x10, 0x00};
+#define G_MOQT_CTL_REQUEST_UPDATE_FORWARD_LEN 7
+#define G_MOQT_CTL_REQUEST_UPDATE_FORWARD_TYPE 0x2ULL
+#define G_MOQT_CTL_REQUEST_UPDATE_FORWARD_MSG_LEN 4
 
 /* === data === */
 static const u8 g_moqt_data_subgroup_stream_basic[] = {0x70, 0x01, 0x00, 0x00,
@@ -315,6 +373,13 @@ static const u8 g_moqt_data_dgram_reject_status_props_not_normal[] = {
 #define G_MOQT_DATA_DGRAM_REJECT_STATUS_PROPS_NOT_NORMAL_LEN 8
 static const u8 g_moqt_data_dgram_insufficient_ids[] = {0x08, 0x02, 0x00};
 #define G_MOQT_DATA_DGRAM_INSUFFICIENT_IDS_LEN 3
+static const u8 g_moqt_data_fetch_stream_basic[] = {
+    0x05, 0x00, 0x1c, 0x05, 0x00, 0x80, 0x02, 0x68, 0x69, 0x01, 0x01, 0x78};
+#define G_MOQT_DATA_FETCH_STREAM_BASIC_LEN 12
+static const u8 g_moqt_data_fetch_stream_end_of_range[] = {
+    0x05, 0x01, 0x80, 0x8c, 0x02, 0x03, 0x14,
+    0x01, 0x40, 0x00, 0x81, 0x0c, 0x03, 0x07};
+#define G_MOQT_DATA_FETCH_STREAM_END_OF_RANGE_LEN 14
 
 /* === name === */
 static const u8 g_moqt_name_full_track_name_basic[] = {
