@@ -16,8 +16,8 @@ wired は C で書かれた libc 非依存の TLS 1.3 / QUIC / HTTP/3 / WebTrans
 | QUIC | [パケットヘッダー](./quic/header/)、[UDP ソケット](./quic/udp/)、[サーバーのフラグ](./quic/server-flags/) |
 | HTTP/3 | [はじめての HTTP/3](./h3/hello/)、[パスによる振り分け](./h3/routing/)、[大きなボディのストリーミング](./h3/streaming/)、[静的ファイルの配信](./h3/static-files/)、[ステータスコードとヘッダー](./h3/status-headers/) |
 | WebTransport | [データグラム](./wt/datagram/)、[ストリーム](./wt/streams/)、[セッション](./wt/session/)、[ブラウザーが必要とするもの](./wt/browser/)、[ブロードキャスト](./wt/broadcast/)、[開いたままのストリーム](./wt/open-streams/)、[バックプレッシャー](./wt/backpressure/) |
-| MoQT | [リレーハブ](./moqt/hub/)、[パブリッシュ](./moqt/publish/) |
-| 運用 | [ハンドシェイクのつまみ](./ops/handshake-knobs/)、[アプリ側のタイマー](./ops/timers/) |
+| MoQT | [リレーハブ](./moqt/hub/)、[パブリッシュ](./moqt/publish/)、[ライブトラック](./moqt/live/)、[購読者の認可](./moqt/authorize/) |
+| 運用 | [ハンドシェイクのつまみ](./ops/handshake-knobs/)、[アプリ側のタイマー](./ops/timers/)、[証明書のホットリロード](./ops/cert-reload/) |
 
 各層は、表で一つ上にある層の上に成り立っています。
 HTTP/3 のページは下で QUIC と TLS を動かしており、WebTransport は HTTP/3 の上で、MoQT は WebTransport の上で動きます。
