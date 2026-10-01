@@ -1,0 +1,16 @@
+$ ./ops-cert-reload --port 4433
+cert.pem: 1 cert
+leaf sha256=228a9709b1c42548397c104ab2734c789aab03c89e77c77e07eb5cc99d4758da
+conn closed by peer (CONNECTION_CLOSE)
+cert reloaded, leaf sha256=ecb6e665e668ce71d3e9846ed7f35b8096b0e4cdfd90cc959dec152499787312
+conn closed by peer (CONNECTION_CLOSE)
+$ probe tls 127.0.0.1:4433 --fp
+version: TLS 1.3
+cipher: TLS_AES_128_GCM_SHA256
+alpn: h3
+leaf sha256=228a9709b1c42548397c104ab2734c789aab03c89e77c77e07eb5cc99d4758da
+$ probe tls 127.0.0.1:4433 --fp
+version: TLS 1.3
+cipher: TLS_AES_128_GCM_SHA256
+alpn: h3
+leaf sha256=ecb6e665e668ce71d3e9846ed7f35b8096b0e4cdfd90cc959dec152499787312

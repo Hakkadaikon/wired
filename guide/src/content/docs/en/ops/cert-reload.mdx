@@ -1,0 +1,31 @@
+---
+title: Certificate hot reload
+description: Replace a running server's certificate on SIGHUP without dropping it.
+sidebar:
+  order: 3
+---
+import Example from '../../../../components/Example.astro';
+
+`obs.cert_path`/`obs.key_path` enable a `SIGHUP`-triggered certificate
+reload: an operator drops a new PEM pair at the same path, signals the
+process, and every connection cold-started afterward uses the new identity
+-- a connection already past its handshake is never disturbed.
+
+<Example id="ops-cert-reload" />
+
+## How it works
+
+- `obs.cert_path`/`obs.key_path` (both set) install a `SIGHUP` handler
+  inside `wired_server_run_opt`; on receipt it re-reads and re-decodes the
+  same PEM pair and updates `id->chain`/`chain_count`/`cert_seed` in place.
+  `id` is therefore not const -- the caller keeps it (and its backing
+  storage) mutable for the whole run.
+- This page's server owns `id`, so its `on_step` hook can read
+  `id->chain[0]` on every tick and log the leaf certificate's SHA-256
+  whenever it changes: once at startup, and again right after the reload.
+- The replacement PEM pair is written to `cert.pem`/`key.pem` once, early
+  -- standing in for an operator's deploy step -- which is safe because the
+  server keeps its already-loaded identity until the `SIGHUP` actually
+  arrives.
+- `probe tls --fp` prints the same leaf fingerprint from the client side,
+  independently confirming the second handshake sees the new certificate.
