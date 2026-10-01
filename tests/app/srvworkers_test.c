@@ -1,5 +1,6 @@
 #include "app/http3/server/srvworkers/srvworkers.h"
 
+#include "app/http3/server/sigterm/sigterm.h"
 #include "common/platform/sys/syscall.h"
 #include "test.h"
 
@@ -11,9 +12,8 @@
  * child returns immediately instead of calling the real wired_server_run
  * (which binds a socket and loops forever) -- this keeps the test bounded
  * without needing an infinite-loop escape hatch. wired_srvworkers_run itself
- * is a thin `while (1) srvworkers_supervise_once(...)` wrapper and is
- * exercised only through that one-call seam, never invoked directly (it does
- * not return by contract). */
+ * runs in a forked stand-in supervisor process so a test can SIGTERM it and
+ * bound the wait. */
 
 /* TEST: slot_for_pid finds an exact match and reports -1 for a pid not in the
  * table (unit test of the pure bookkeeping helper, no fork involved). */
@@ -66,7 +66,33 @@ static void test_srvworkers_fork_all_starts_two_children(void) {
   srvworkers_test_set_child_fn(0);
 }
 
-/* TEST: after a worker exits, one srvworkers_supervise_once call detects it
+/* Supervise steps (each reaps at most one child without blocking) until
+ * slot 0 no longer holds pid, bounded at ~5 s. */
+static void sw_supervise_until_reaped(
+    srvworkers_table* t, i64 pid, const wired_srvworkers_opt* opt) {
+  wired_srvboot_id     id  = {0};
+  wired_srvrun_handler h   = {0};
+  wired_srvrun_obs     obs = {0};
+  for (int i = 0; i < 50 && t->pid[0] == pid; i++)
+    srvworkers_supervise_once(t, 0, &id, h, obs, opt);
+}
+
+/* Test child body that crashes: a non-zero exit status. */
+static void sw_child_crash(
+    u16                  port,
+    wired_srvboot_id*    id,
+    wired_srvrun_handler h,
+    wired_srvrun_obs     obs,
+    int                  worker_index) {
+  (void)port;
+  (void)id;
+  (void)h;
+  (void)obs;
+  (void)worker_index;
+  wired_arch_exit_group(1);
+}
+
+/* TEST: after a worker crashes, one srvworkers_supervise_once call detects it
  * (via the real slot_for_pid lookup on a real wait4 result) and re-forks a
  * replacement in the SAME slot -- proving the restart-with-same-index
  * contract without an infinite supervisor loop. */
@@ -78,14 +104,13 @@ static void test_srvworkers_supervise_once_restarts_same_slot(void) {
   wired_srvrun_obs     obs = {0};
   i64                  first_pid, status;
 
-  srvworkers_test_set_child_fn(sw_child_noop);
+  srvworkers_test_set_child_fn(sw_child_crash);
   CHECK(srvworkers_fork_all(&t, 0, &id, h, obs, &opt) == 0);
   first_pid = t.pid[0];
 
-  /* The lone child already ran sw_child_noop and exit_group'd by the time
-   * this parent gets here in the common case, but supervise_once's own
-   * wait4 blocks until it has, so this is not a race. */
-  srvworkers_supervise_once(&t, 0, &id, h, obs, &opt);
+  /* supervise_once never blocks, so step until the crashed child is
+   * reaped and replaced. */
+  sw_supervise_until_reaped(&t, first_pid, &opt);
 
   CHECK(t.pid[0] > 0);
   CHECK(t.pid[0] != first_pid); /* same slot, new pid: replacement worker */
@@ -200,6 +225,177 @@ static void test_srvworkers_child_opt_layers_worker_fields(void) {
   g_srvworkers_run_base = (wired_srvrun_opt){0};
 }
 
+/* TEST: exit status 0 never respawns, shutting down or not. */
+static void test_srvworkers_should_respawn_exit0(void) {
+  CHECK(srvworkers_should_respawn(0, 0) == 0);
+  CHECK(srvworkers_should_respawn(0, 1) == 0);
+}
+
+/* TEST: a crash (killed by a signal, or a non-zero exit code) respawns only
+ * while the supervisor is not shutting down. */
+static void test_srvworkers_should_respawn_crash(void) {
+  CHECK(srvworkers_should_respawn(9, 0) == 1);      /* SIGKILL */
+  CHECK(srvworkers_should_respawn(1 << 8, 0) == 1); /* exit(1) */
+  CHECK(srvworkers_should_respawn(9, 1) == 0);      /* during shutdown */
+  CHECK(srvworkers_should_respawn(1 << 8, 1) == 0);
+}
+
+/* TEST: a worker that exits 0 is reaped and its slot stays empty. */
+static void test_srvworkers_supervise_once_exit0_leaves_slot_empty(void) {
+  srvworkers_table     t   = {0};
+  wired_srvworkers_opt opt = {1, 0, {0}};
+  wired_srvboot_id     id  = {0};
+  wired_srvrun_handler h   = {0};
+  wired_srvrun_obs     obs = {0};
+
+  srvworkers_test_set_child_fn(sw_child_noop);
+  CHECK(srvworkers_fork_all(&t, 0, &id, h, obs, &opt) == 0);
+  sw_supervise_until_reaped(&t, t.pid[0], &opt);
+  CHECK(t.pid[0] == 0);
+  srvworkers_test_set_child_fn(0);
+}
+
+/* Child body that marks that it ran with a distinctive exit code. */
+static void sw_child_exit7(
+    u16                  port,
+    wired_srvboot_id*    id,
+    wired_srvrun_handler h,
+    wired_srvrun_obs     obs,
+    int                  worker_index) {
+  (void)port;
+  (void)id;
+  (void)h;
+  (void)obs;
+  (void)worker_index;
+  wired_arch_exit_group(7);
+}
+
+/* Wait for pid for at most ~5 s; on timeout SIGKILL and reap it.
+ * @return the wait4 status, or -1 on timeout. */
+static i64 sw_wait_bounded(i64 pid) {
+  i64 status = 0;
+  for (int i = 0; i < 500; i++) {
+    if (wired_arch_wait4(pid, &status, 1 /* WNOHANG */, 0) == pid)
+      return status & 0xffff;
+    wired_arch_poll(0, 0, 10);
+  }
+  wired_arch_kill(pid, 9);
+  wired_arch_wait4(pid, &status, 0, 0);
+  return -1;
+}
+
+/* TEST: a fresh worker whose parent is already gone (getppid differs from
+ * the pid saved before fork) exits at once without running its body. */
+static void test_srvworkers_child_start_exits_when_parent_gone(void) {
+  wired_srvboot_id     id  = {0};
+  wired_srvrun_handler h   = {0};
+  wired_srvrun_obs     obs = {0};
+  i64                  pid;
+
+  srvworkers_test_set_child_fn(sw_child_exit7);
+  pid = wired_arch_fork();
+  if (pid == 0) srvworkers_child_start(0, 0, &id, h, obs, 0, -1);
+  CHECK(sw_wait_bounded(pid) == 0);
+  srvworkers_test_set_child_fn(0);
+}
+
+static volatile int sw_term_seen;
+
+static void sw_on_term(int sig) {
+  (void)sig;
+  sw_term_seen = 1;
+}
+
+/* Child body that serves ~3 s without a SIGTERM handler of its own. */
+static void sw_child_spin(
+    u16                  port,
+    wired_srvboot_id*    id,
+    wired_srvrun_handler h,
+    wired_srvrun_obs     obs,
+    int                  worker_index) {
+  (void)port;
+  (void)id;
+  (void)h;
+  (void)obs;
+  (void)worker_index;
+  for (int i = 0; i < 300; i++) wired_arch_poll(0, 0, 10);
+  wired_arch_exit_group(5);
+}
+
+/* TEST: a SIGTERM that reaches a worker before it installs its own handler
+ * is not swallowed by the flag-only handler inherited from the supervisor:
+ * the worker resets SIGTERM to the default action, so it dies. */
+static void test_srvworkers_child_start_resets_sigterm(void) {
+  srvworkers_table     t   = {0};
+  wired_srvboot_id     id  = {0};
+  wired_srvrun_handler h   = {0};
+  wired_srvrun_obs     obs = {0};
+
+  t.n = 1;
+  wired_sigterm_install(sw_on_term);
+  srvworkers_test_set_child_fn(sw_child_spin);
+  CHECK(srvworkers_fork_one(&t, 0, 0, &id, h, obs, 0) == 0);
+  wired_arch_kill(t.pid[0], SIGTERM);
+  CHECK(sw_wait_bounded(t.pid[0]) == SIGTERM);
+  srvworkers_test_set_child_fn(0);
+  wired_sigterm_install(0); /* SIG_DFL */
+}
+
+/* Fork a process that runs wired_srvworkers_run with 2 workers, send it
+ * SIGTERM first if term, and return its bounded wait status. SIGTERM is
+ * blocked across the fork so it stays pending until the supervisor's own
+ * handler is in place. */
+static i64 sw_run_supervisor(int term) {
+  wired_srvworkers_opt opt = {2, 0, {0}};
+  wired_srvboot_id     id  = {0};
+  wired_srvrun_handler h   = {0};
+  wired_srvrun_obs     obs = {0};
+  i64                  pid;
+
+  wired_sigmask_block_shutdown();
+  pid = wired_arch_fork();
+  if (pid == 0)
+    wired_arch_exit_group(wired_srvworkers_run(0, &id, h, obs, &opt) ? 3 : 0);
+  if (term) wired_arch_kill(pid, SIGTERM);
+  wired_sigmask_unblock_shutdown();
+  return sw_wait_bounded(pid);
+}
+
+/* TEST: once every worker exited 0 and was reaped, the supervisor returns
+ * instead of respawning or spinning on wait4. */
+static void test_srvworkers_run_returns_when_all_exit(void) {
+  srvworkers_test_set_child_fn(sw_child_noop);
+  CHECK(sw_run_supervisor(0) == 0);
+  srvworkers_test_set_child_fn(0);
+}
+
+/* Child body that drains on SIGTERM: installs its own handler, then serves
+ * until told to stop (bounded at ~10 s, past the
+ * supervisor wait bound so a missing forward fails the test) and returns (exit
+ * 0). */
+static void sw_child_wait_term(
+    u16                  port,
+    wired_srvboot_id*    id,
+    wired_srvrun_handler h,
+    wired_srvrun_obs     obs,
+    int                  worker_index) {
+  (void)port;
+  (void)id;
+  (void)h;
+  (void)obs;
+  (void)worker_index;
+  wired_sigterm_install(sw_on_term);
+  for (int i = 0; i < 1000 && !sw_term_seen; i++) wired_arch_poll(0, 0, 10);
+}
+
+/* TEST: SIGTERM to the supervisor does not kill it; it forwards SIGTERM to
+ * every worker, reaps them all without respawning, then returns 0. */
+static void test_srvworkers_run_sigterm_drains_and_exits(void) {
+  srvworkers_test_set_child_fn(sw_child_wait_term);
+  CHECK(sw_run_supervisor(1) == 0);
+  srvworkers_test_set_child_fn(0);
+}
+
 void test_srvworkers(void) {
   test_srvworkers_slot_for_pid_finds_match();
   test_srvworkers_slot_for_pid_empty_table();
@@ -211,4 +407,11 @@ void test_srvworkers(void) {
   test_srvworkers_child_start_passes_worker_index();
   test_srvworkers_fork_all_seeds_child_run_base();
   test_srvworkers_child_opt_layers_worker_fields();
+  test_srvworkers_should_respawn_exit0();
+  test_srvworkers_should_respawn_crash();
+  test_srvworkers_supervise_once_exit0_leaves_slot_empty();
+  test_srvworkers_child_start_exits_when_parent_gone();
+  test_srvworkers_child_start_resets_sigterm();
+  test_srvworkers_run_returns_when_all_exit();
+  test_srvworkers_run_sigterm_drains_and_exits();
 }

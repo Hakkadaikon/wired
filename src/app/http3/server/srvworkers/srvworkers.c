@@ -1,5 +1,6 @@
 #include "app/http3/server/srvworkers/srvworkers.h"
 
+#include "app/http3/server/sigterm/sigterm.h"
 #include "app/http3/server/srvpin/srvpin.h"
 #include "common/platform/sys/syscall.h"
 
@@ -12,7 +13,18 @@
 typedef struct {
   i64 pid[WIRED_SRVWORKERS_MAX];
   int n;
+  int forwarded; /* SIGTERM already forwarded to the workers */
 } srvworkers_table;
+
+/* Set by the supervisor's SIGTERM handler, which does nothing else: the
+ * forward to the workers happens in the supervise loop (after any fork in
+ * flight), so a worker forked around the signal is never missed. */
+static volatile int g_srvworkers_term;
+
+static void srvworkers_on_term(int sig) {
+  (void)sig;
+  g_srvworkers_term = 1;
+}
 
 /* Find the slot whose recorded pid == pid. Pure lookup, no syscalls: kept
  * free of I/O so it is unit-testable without an actual fork.
@@ -76,8 +88,14 @@ __attribute__((unused)) static void srvworkers_test_set_child_fn(
   g_srvworkers_child_fn = fn ? fn : srvworkers_run_real;
 }
 
-/* Runs inside the child after fork() returns 0. Pins to CPU == worker_index
- * first if requested, then runs the (real or test-substituted) server body.
+/* Runs inside the child after fork() returns 0. SIGTERM first goes back to
+ * the default action (the inherited handler would only set the supervisor's
+ * flag in this copy, swallowing a forward that lands before the server loop
+ * installs its own), then unblocks it (blocked across fork), and arms
+ * PR_SET_PDEATHSIG(1) so the worker drains if the supervisor dies. A
+ * supervisor that died before the arm is caught by getppid no longer being
+ * the pid saved before fork. Then pins to CPU == worker_index if requested,
+ * and runs the (real or test-substituted) server body.
  * That body does not return in normal operation; if it ever does, exit_group
  * cleanly rather than falling into the parent's supervisor code below this
  * call. Never returns. */
@@ -87,7 +105,12 @@ static void srvworkers_child_start(
     wired_srvboot_id*    id,
     wired_srvrun_handler h,
     wired_srvrun_obs     obs,
-    int                  pin_cores) {
+    int                  pin_cores,
+    i64                  parent) {
+  wired_sigterm_install(0); /* SIG_DFL */
+  wired_sigmask_unblock_shutdown();
+  wired_arch_prctl(1 /* PR_SET_PDEATHSIG */, SIGTERM);
+  if (wired_arch_getppid() != parent) wired_arch_exit_group(0);
   if (pin_cores) wired_srvpin_bind_self(worker_index);
   g_srvworkers_child_fn(port, id, h, obs, worker_index);
   wired_arch_exit_group(0);
@@ -104,10 +127,14 @@ static int srvworkers_fork_one(
     wired_srvrun_handler h,
     wired_srvrun_obs     obs,
     int                  pin_cores) {
-  i64 pid = wired_arch_fork();
-  if (pid < 0) return (int)pid;
+  i64 parent = wired_arch_getpid();
+  i64 pid;
+  wired_sigmask_block_shutdown();
+  pid = wired_arch_fork();
   if (pid == 0)
-    srvworkers_child_start(worker_index, port, id, h, obs, pin_cores);
+    srvworkers_child_start(worker_index, port, id, h, obs, pin_cores, parent);
+  wired_sigmask_unblock_shutdown();
+  if (pid < 0) return (int)pid;
   t->pid[worker_index] = pid;
   return 0;
 }
@@ -131,11 +158,63 @@ static int srvworkers_fork_all(
   return 0;
 }
 
-/* Block for any one child to change state, find which worker slot it was,
- * and re-fork a replacement with the SAME worker index (so pinning stays
- * consistent). A wait4 error (e.g. ECHILD, no children left to wait for) or
- * an exited pid this table does not track is silently ignored -- there is
- * nothing this supervisor step can do about it, and it simply loops again.
+/* Respawn only a crash (killed by a signal, or a non-zero exit code; both
+ * make the low 16 wait4 status bits non-zero) and only while not shutting
+ * down. A clean exit 0 never respawns. */
+static int srvworkers_should_respawn(i64 status, int terminating) {
+  return (status & 0xffff) != 0 && !terminating;
+}
+
+static int srvworkers_should_forward(const srvworkers_table* t) {
+  return g_srvworkers_term && !t->forwarded;
+}
+
+static void srvworkers_kill_all(const srvworkers_table* t) {
+  for (int i = 0; i < t->n; i++)
+    if (t->pid[i]) wired_arch_kill(t->pid[i], SIGTERM);
+}
+
+/* Once SIGTERM has arrived, send it to every still-live worker, once. */
+static void srvworkers_forward(srvworkers_table* t) {
+  if (!srvworkers_should_forward(t)) return;
+  t->forwarded = 1;
+  srvworkers_kill_all(t);
+}
+
+/* Reap one exited worker without blocking; nap when none has, so a SIGTERM
+ * whose handler ran outside the wait (no EINTR to wake on) is still
+ * forwarded within one nap.
+ * ponytail: 100 ms idle wakeups and up to 100 ms forward latency; a
+ * signalfd in the wait set if that ever matters.
+ * @return the reaped pid, or -1 if none (never 0: a free slot holds 0). */
+static i64 srvworkers_wait(i64* status) {
+  i64 dead = wired_arch_wait4(-1, status, 1 /* WNOHANG */, 0);
+  if (dead == 0) wired_arch_poll(0, 0, 100);
+  return dead ? dead : -1;
+}
+
+/* Empty the slot of a reaped worker and respawn it if it crashed while not
+ * shutting down. */
+static void srvworkers_reap(
+    srvworkers_table*           t,
+    int                         slot,
+    i64                         status,
+    u16                         port,
+    wired_srvboot_id*           id,
+    wired_srvrun_handler        h,
+    wired_srvrun_obs            obs,
+    const wired_srvworkers_opt* opt) {
+  t->pid[slot] = 0;
+  if (srvworkers_should_respawn(status, g_srvworkers_term))
+    srvworkers_fork_one(t, slot, port, id, h, obs, opt->pin_cores);
+}
+
+/* Reap at most one child that changed state, find which
+ * worker slot it was, empty the slot, and re-fork a replacement with the
+ * SAME worker index (so pinning stays consistent) if it crashed while not
+ * shutting down. Then forward a pending SIGTERM -- after the fork, so a
+ * worker forked as the signal landed gets it too. A wait4 error or an exited
+ * pid this table does not track only falls through to the forward.
  * This is the unit test seam: one call = one detect-and-restart cycle, no
  * infinite loop. */
 static void srvworkers_supervise_once(
@@ -145,10 +224,17 @@ static void srvworkers_supervise_once(
     wired_srvrun_handler        h,
     wired_srvrun_obs            obs,
     const wired_srvworkers_opt* opt) {
-  i64 status;
-  i64 dead = wired_arch_wait4(-1, &status, 0, 0);
-  int slot = srvworkers_slot_for_pid(t->pid, t->n, dead);
-  if (slot >= 0) srvworkers_fork_one(t, slot, port, id, h, obs, opt->pin_cores);
+  i64 status = 0;
+  int slot   = srvworkers_slot_for_pid(t->pid, t->n, srvworkers_wait(&status));
+  if (slot >= 0) srvworkers_reap(t, slot, status, port, id, h, obs, opt);
+  srvworkers_forward(t);
+}
+
+/* Any worker slot still holding an unreaped pid? */
+static int srvworkers_live(const srvworkers_table* t) {
+  for (int i = 0; i < t->n; i++)
+    if (t->pid[i]) return 1;
+  return 0;
 }
 
 /* Resolve opt->workers into a concrete count: 0 means auto-detect via
@@ -170,7 +256,10 @@ int wired_srvworkers_run(
   wired_srvworkers_opt local = *opt;
   int                  r;
   local.workers = srvworkers_resolve_count(local.workers);
-  r             = srvworkers_fork_all(&t, port, id, h, obs, &local);
+  wired_sigterm_install(srvworkers_on_term);
+  r = srvworkers_fork_all(&t, port, id, h, obs, &local);
   if (r < 0) return r;
-  while (1) srvworkers_supervise_once(&t, port, id, h, obs, &local);
+  while (srvworkers_live(&t))
+    srvworkers_supervise_once(&t, port, id, h, obs, &local);
+  return 0;
 }
