@@ -1,0 +1,29 @@
+---
+title: MoQT hub
+description: A Media over QUIC Transport hub — the WebTransport callbacks wired to wired_moqt.
+sidebar:
+  order: 1
+---
+import Example from '../../../../components/Example.astro';
+
+A MoQT (draft-ietf-moq-transport-19) server is a `wired_moqt_hub` sitting on
+the WebTransport callbacks. This page shows the hub alone: a client connects
+and receives the server's SETUP.
+
+<Example id="moqt-hub" />
+
+## How it works
+
+- `wired_moqt_init(&hub, io)` sets up the hub. `io` is the table of
+  WebTransport sends the hub uses. `wired_server_wt_stream_send` fits as is;
+  the two calls that open a stream need the stream signal in front, so
+  `with_signal` adds it with `wired_wtwire_signal_put`.
+- The hub's `wired_moqt_on_session`, `_on_stream_data`, `_on_datagram` and
+  `_on_session_close` go straight into `wired_srvrun_opt`, each with
+  `&hub` as its context. `wired_server_run_opt` runs the server.
+- When a session opens, the hub opens a bidirectional control stream and
+  sends SETUP (type `0x2f00`) on it. The client reads it there and sends its
+  requests on that same stream.
+- `max_datagram_frame_size` in the identity enables QUIC DATAGRAM, which
+  WebTransport clients require. `moqtrun.h` is not part of `wired.h`;
+  include it on its own.
