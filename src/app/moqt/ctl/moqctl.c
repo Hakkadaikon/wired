@@ -337,6 +337,7 @@ typedef struct {
   int enc;
   u32 ctx;
   u8  lo, hi; /* allowed uint8 values; other encodings leave u8v 0 */
+  u8  repeat; /* the Type MAY appear more than once (SS5.1.3) */
 } moqctl_param_rule;
 
 /* ctx sets: draft-ietf-moq-transport-19 10.2.2-10.2.18 "MAY appear in",
@@ -345,24 +346,26 @@ typedef struct {
  * and FILL timeouts state no encoding; varint is assumed. Range filters
  * (5.1.3) are kept as their raw Length-prefixed bytes. */
 static const moqctl_param_rule MOQCTL_PARAM_RULES[] = {
-    {MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, MOQCTL_PENC_VARINT, 0x7D009, 0, 0},
-    {MOQCTL_PARAM_AUTHORIZATION_TOKEN, MOQCTL_PENC_TOKEN, 0x7D555, 0, 0},
-    {MOQCTL_PARAM_RENDEZVOUS_TIMEOUT, MOQCTL_PENC_VARINT, 0x1001, 0, 0},
-    {MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, MOQCTL_PENC_VARINT, 0x7D009, 0, 0},
-    {MOQCTL_PARAM_EXPIRES, MOQCTL_PENC_VARINT, 0x82A0E, 0, 0},
-    {MOQCTL_PARAM_LARGEST_OBJECT, MOQCTL_PENC_LOCATION, 0x80086, 0, 0},
-    {MOQCTL_PARAM_FILL_TIMEOUT, MOQCTL_PENC_VARINT, 0x10, 0, 0},
-    {MOQCTL_PARAM_FORWARD, MOQCTL_PENC_UINT8, 0x500D, 0, 1},
-    {MOQCTL_PARAM_SUBSCRIBER_PRIORITY, MOQCTL_PENC_UINT8, 0xD019, 0, 255},
-    {MOQCTL_PARAM_LOCATION_FILTER, MOQCTL_PENC_LOCFILTER, 0x5009, 0, 0},
-    {MOQCTL_PARAM_GROUP_ORDER, MOQCTL_PENC_UINT8, 0x1011, 1, 2},
-    {MOQCTL_PARAM_SUBGROUP_FILTER, MOQCTL_PENC_BYTES, 0x5019, 0, 0},
-    {MOQCTL_PARAM_OBJECTID_FILTER, MOQCTL_PENC_BYTES, 0x5019, 0, 0},
-    {MOQCTL_PARAM_PRIORITY_FILTER, MOQCTL_PENC_BYTES, 0x5019, 0, 0},
-    {MOQCTL_PARAM_OBJECT_PROPERTY_FILTER, MOQCTL_PENC_BYTES, 0x5019, 0, 0},
-    {MOQCTL_PARAM_TRACK_PROPERTY_FILTER, MOQCTL_PENC_BYTES, 0x21000, 0, 0},
-    {MOQCTL_PARAM_NEW_GROUP_REQUEST, MOQCTL_PENC_VARINT, 0x5009, 0, 0},
-    {MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX, MOQCTL_PENC_NS, 0x30000, 0, 0},
+    {MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, MOQCTL_PENC_VARINT, 0x7D009, 0, 0,
+     0},
+    {MOQCTL_PARAM_AUTHORIZATION_TOKEN, MOQCTL_PENC_TOKEN, 0x7D555, 0, 0, 0},
+    {MOQCTL_PARAM_RENDEZVOUS_TIMEOUT, MOQCTL_PENC_VARINT, 0x1001, 0, 0, 0},
+    {MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, MOQCTL_PENC_VARINT, 0x7D009, 0, 0,
+     0},
+    {MOQCTL_PARAM_EXPIRES, MOQCTL_PENC_VARINT, 0x82A0E, 0, 0, 0},
+    {MOQCTL_PARAM_LARGEST_OBJECT, MOQCTL_PENC_LOCATION, 0x80086, 0, 0, 0},
+    {MOQCTL_PARAM_FILL_TIMEOUT, MOQCTL_PENC_VARINT, 0x10, 0, 0, 0},
+    {MOQCTL_PARAM_FORWARD, MOQCTL_PENC_UINT8, 0x500D, 0, 1, 0},
+    {MOQCTL_PARAM_SUBSCRIBER_PRIORITY, MOQCTL_PENC_UINT8, 0xD019, 0, 255, 0},
+    {MOQCTL_PARAM_LOCATION_FILTER, MOQCTL_PENC_LOCFILTER, 0x5009, 0, 0, 0},
+    {MOQCTL_PARAM_GROUP_ORDER, MOQCTL_PENC_UINT8, 0x1011, 1, 2, 0},
+    {MOQCTL_PARAM_SUBGROUP_FILTER, MOQCTL_PENC_BYTES, 0x5019, 0, 0, 1},
+    {MOQCTL_PARAM_OBJECTID_FILTER, MOQCTL_PENC_BYTES, 0x5019, 0, 0, 1},
+    {MOQCTL_PARAM_PRIORITY_FILTER, MOQCTL_PENC_BYTES, 0x5019, 0, 0, 1},
+    {MOQCTL_PARAM_OBJECT_PROPERTY_FILTER, MOQCTL_PENC_BYTES, 0x5019, 0, 0, 1},
+    {MOQCTL_PARAM_TRACK_PROPERTY_FILTER, MOQCTL_PENC_BYTES, 0x21000, 0, 0, 1},
+    {MOQCTL_PARAM_NEW_GROUP_REQUEST, MOQCTL_PENC_VARINT, 0x5009, 0, 0, 0},
+    {MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX, MOQCTL_PENC_NS, 0x30000, 0, 0, 0},
 };
 #define MOQCTL_PARAM_RULE_N \
   (sizeof MOQCTL_PARAM_RULES / sizeof MOQCTL_PARAM_RULES[0])
@@ -500,21 +503,25 @@ static int moqctl_param_take_checked(
   return moqctl_param_in_range(rule, p) ? MOQCTL_OK : MOQCTL_VIOLATION;
 }
 
-/* Known type: enforce scope + encoding via the rule table. Unknown Type:
- * always a VIOLATION per SS10.2 (no skip mechanism exists). */
-static int moqctl_param_take_known(
-    wired_span buf, usz* at, u32 ctx, moqctl_param* p) {
-  const moqctl_param_rule* rule = moqctl_param_rule_for(p->type);
-  if (!rule) return MOQCTL_VIOLATION;
-  if (!moqctl_param_allowed_in(rule, ctx)) return MOQCTL_VIOLATION;
-  p->enc = rule->enc;
-  return moqctl_param_take_checked(buf, at, rule, p);
-}
-
 static int moqctl_param_dup(const moqctl_params* out, u64 type) {
   for (usz i = 0; i < out->n; i++)
     if (out->items[i].type == type) return 1;
   return 0;
+}
+
+/* A Type already in out may come again only where its definition allows
+ * repeats (SS10.2). */
+static int moqctl_param_fresh(
+    const moqctl_param_rule* rule, const moqctl_params* out, u64 type) {
+  return rule->repeat || !moqctl_param_dup(out, type);
+}
+
+/* Unknown Type is always a VIOLATION per SS10.2 (no skip mechanism
+ * exists); so is a known one outside ctx or repeated. */
+static int moqctl_param_admit(
+    const moqctl_param_rule* rule, u32 ctx, const moqctl_params* out, u64 t) {
+  if (!rule) return 0;
+  return moqctl_param_allowed_in(rule, ctx) && moqctl_param_fresh(rule, out, t);
 }
 
 static int moqctl_param_take_delta(
@@ -528,8 +535,10 @@ static int moqctl_param_take_delta(
 
 static int moqctl_param_take_body(
     wired_span buf, usz* at, u32 ctx, moqctl_params* out, moqctl_param* p) {
-  if (moqctl_param_dup(out, p->type)) return MOQCTL_VIOLATION;
-  return moqctl_param_take_known(buf, at, ctx, p);
+  const moqctl_param_rule* rule = moqctl_param_rule_for(p->type);
+  if (!moqctl_param_admit(rule, ctx, out, p->type)) return MOQCTL_VIOLATION;
+  p->enc = rule->enc;
+  return moqctl_param_take_checked(buf, at, rule, p);
 }
 
 static int moqctl_param_take_one(

@@ -1027,6 +1027,32 @@ static void test_moqctl_params_uint8_value_ranges(void) {
   CHECK(mqpt_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 255) == MOQCTL_OK);
 }
 
+/* The same Type twice (Type Delta 0), each with r's Value, under ctx. */
+static int mqpt_twice(const mqpt_row* r, u32 ctx, moqctl_params* out) {
+  u8  buf[32];
+  usz n    = mqpt_build(buf, sizeof buf, r);
+  usz off  = n;
+  usz roff = 0;
+  buf[0]   = 2; /* count */
+  CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 0));
+  for (usz i = 0; i < r->n; i++) buf[off + i] = r->val[i];
+  return moqctl_params_take(wired_span_of(buf, off + r->n), &roff, ctx, out);
+}
+
+/* Range Filters MAY repeat (5.1.3); any other Type repeated is a
+ * PROTOCOL_VIOLATION (10.2). */
+static void test_moqctl_params_repeatable_filters(void) {
+  static moqctl_params out;
+  const mqpt_row sub_flt = {MOQCTL_PARAM_SUBGROUP_FILTER, 0, MQPT_RANGE, 3};
+  const mqpt_row trk_flt = {
+      MOQCTL_PARAM_TRACK_PROPERTY_FILTER, 0, MQPT_PROPRNG, 4};
+  const mqpt_row order = {MOQCTL_PARAM_GROUP_ORDER, 0, MQPT_UINT8, 1};
+  CHECK(mqpt_twice(&sub_flt, MOQCTL_PCTX_SUBSCRIBE, &out) == MOQCTL_OK);
+  CHECK(out.n == 2 && out.items[1].type == MOQCTL_PARAM_SUBGROUP_FILTER);
+  CHECK(mqpt_twice(&trk_flt, MOQCTL_PCTX_SUBSCRIBE_TRACKS, &out) == MOQCTL_OK);
+  CHECK(mqpt_twice(&order, MOQCTL_PCTX_SUBSCRIBE, &out) == MOQCTL_VIOLATION);
+}
+
 /* ===== TEST: SETUP Setup Options behaviors ===== */
 
 /* Unknown Setup Option (including a duplicate of it) is ignored. */
@@ -1257,6 +1283,7 @@ void test_moqctl(void) {
   test_moqctl_params_location_filter_malformed();
   test_moqctl_params_namespace_prefix();
   test_moqctl_params_uint8_value_ranges();
+  test_moqctl_params_repeatable_filters();
 
   test_moqctl_setup_unknown_option_ignored();
   test_moqctl_setup_path_option_decode();
