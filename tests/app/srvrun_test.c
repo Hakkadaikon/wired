@@ -17562,8 +17562,8 @@ static void test_srvrun_qenc_first_use_inserts_and_references_dynamic(void) {
   qpackenc_status_result ins;
   u8                     field[64];
   wired_obuf             fob = obuf_of(field, sizeof field);
-  qpackenc_init(&c.l.h3.qenc, 4096); /* the real DEFAULT_QPACK_MAX_TABLE_CAP,
-                                         wired_h3srv_state_init's own value */
+  qpackenc_init(&c.l.h3.qenc, 4096); /* a peer-allowed capacity; the
+                                         server itself starts at 0 */
   srvrun_open_qenc_stream(&c);
   CHECK(h3resp_encode_headers_field_qenc(
       201, 0, 0, srvrun_qenc_active(&c), &ins, &fob));
