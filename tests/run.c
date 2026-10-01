@@ -508,6 +508,7 @@
 #include "app/http3/server/h3srv/respond.c"
 #include "app/http3/server/h3srv/priupdate.c"
 #include "app/http3/server/srvwire/wire.c"
+#include "app/http3/server/srvloop/body_window.c"
 #include "app/http3/server/srvloop/keys.c"
 #include "app/http3/server/srvloop/recv.c"
 #include "app/http3/server/srvloop/priority_ctrl.c"
