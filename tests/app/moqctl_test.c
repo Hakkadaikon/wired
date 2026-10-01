@@ -1027,6 +1027,17 @@ static void test_moqctl_params_uint8_value_ranges(void) {
   CHECK(mqpt_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 255) == MOQCTL_OK);
 }
 
+/* The value range applies only to uint8-encoded rows: a varint row's
+ * value is never range-rejected, even with a stray u8v. */
+static void test_moqctl_param_range_uint8_only(void) {
+  moqctl_param p = {0};
+  p.u8v          = 5;
+  CHECK(moqctl_param_in_range(
+      moqctl_param_rule_for(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT), &p));
+  CHECK(
+      !moqctl_param_in_range(moqctl_param_rule_for(MOQCTL_PARAM_FORWARD), &p));
+}
+
 /* The same Type twice (Type Delta 0), each with r's Value, under ctx. */
 static int mqpt_twice(const mqpt_row* r, u32 ctx, moqctl_params* out) {
   u8  buf[32];
@@ -1393,6 +1404,7 @@ void test_moqctl(void) {
   test_moqctl_params_location_filter_malformed();
   test_moqctl_params_namespace_prefix();
   test_moqctl_params_uint8_value_ranges();
+  test_moqctl_param_range_uint8_only();
   test_moqctl_params_repeatable_filters();
   test_moqctl_request_ok_params_scope();
   test_moqctl_params_find();
