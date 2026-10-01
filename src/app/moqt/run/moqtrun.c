@@ -939,24 +939,42 @@ static moqtrun_ctl_fn moqtrun_ctl_lookup(u64 type) {
   return moqtrun_dispatch_not_supported;
 }
 
-/* draft SS10: an unknown message type MUST close the session; SS3.5
- * PROTOCOL_VIOLATION is the code. Every later byte of p's control stream
+/* Closes p's session with code. Every later byte of p's control stream
  * is discarded (ctl_asm.skip never runs out). An io table without
  * close_session skips the message by its Length instead and keeps the
  * stream alive. */
-static void moqtrun_dispatch_close(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
-  (void)peer_idx;
-  (void)body;
+static void moqtrun_close_with(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
   if (!hub->io.close_session) return;
-  hub->io.close_session(
-      p->wt, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION, wired_span_of(0, 0));
+  hub->io.close_session(p->wt, code, wired_span_of(0, 0));
   p->ctl_asm.at   = p->ctl_asm.n;
   p->ctl_asm.skip = (usz)-1;
 }
 
+/* draft SS10: an unknown message type MUST close the session; SS3.5
+ * PROTOCOL_VIOLATION is the code. */
+static void moqtrun_dispatch_close(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  (void)peer_idx;
+  (void)body;
+  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
+/* A message longer than WIRED_MOQTRUN_CTL_MSG_MAX: the peer broke no
+ * rule, the limit is ours, so SS3.5 INTERNAL_ERROR is the code. */
+static void moqtrun_dispatch_over_cap(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  (void)peer_idx;
+  (void)body;
+  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR);
+}
+
+/* moqtrun_asm_pop's result for a message over the cap. */
+#define MOQTRUN_ASM_OVER_CAP (-100)
+
 static moqtrun_ctl_fn moqtrun_ctl_route(int peek, u64 type) {
   if (peek == MOQCTL_UNKNOWN_TYPE) return moqtrun_dispatch_close;
+  if (peek == MOQTRUN_ASM_OVER_CAP) return moqtrun_dispatch_over_cap;
   return moqtrun_ctl_lookup(type);
 }
 
@@ -998,8 +1016,8 @@ static int moqtrun_asm_over_cap(wired_span rest, usz* total) {
  * into a->buf valid until the next push), or MOQCTL_INSUFFICIENT when more
  * bytes are needed. A message whose Length exceeds
  * WIRED_MOQTRUN_CTL_MSG_MAX is consumed by its Length, now and across
- * later deliveries (a->skip), and reported as MOQCTL_UNKNOWN_TYPE so the
- * caller treats it like one (moqtrun_dispatch_close). */
+ * later deliveries (a->skip), and reported as MOQTRUN_ASM_OVER_CAP
+ * (moqtrun_dispatch_over_cap). */
 static int moqtrun_asm_pop(
     wired_moqtrun_ctl_asm* a, u64* type, wired_span* body) {
   if (a->skip) return MOQCTL_INSUFFICIENT; /* rest of a held message */
@@ -1009,7 +1027,7 @@ static int moqtrun_asm_pop(
     usz held = (usz)u64_min(total, rest.n);
     a->at += held;
     a->skip = total - held;
-    return MOQCTL_UNKNOWN_TYPE; /* the caller handles it like one */
+    return MOQTRUN_ASM_OVER_CAP;
   }
   usz off = 0;
   int r   = moqctl_peek_type(rest, &off, type, body);
