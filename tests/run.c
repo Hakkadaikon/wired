@@ -557,6 +557,7 @@
 #include "app/moqt/run/moqtrun.c"
 #include "app/moqt/run/moqtrel.c"
 #include "app/moqt/ns/moqns.c"
+#include "app/moqt/tstat/moqtstat.c"
 #include "common/varint_test.c"
 #include "transport/header_test.c"
 #include "transport/dcidresolve_test.c"
@@ -1074,6 +1075,7 @@
 #include "app/moqtrun_sub_test.c"
 #include "app/moqtrel_test.c"
 #include "app/moqns_test.c"
+#include "app/moqtstat_test.c"
 // clang-format on
 
 int main(void) {
@@ -1621,6 +1623,7 @@ int main(void) {
   test_moqtrun_sub();
   test_moqtrel();
   test_moqns();
+  test_moqtstat();
   test_ed25519_field();
   test_v2ku_appendix();
   test_h3prio();
