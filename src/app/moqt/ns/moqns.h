@@ -18,10 +18,6 @@
 #define MOQNS_T_NAMESPACE_DONE 0xEULL
 #define MOQNS_T_SUBSCRIBE_NAMESPACE 0x50ULL
 
-/** Track Namespace (2.4.1): moqctl_ns_take plus the 4,096-byte bound on
- * the sum of the field lengths (VIOLATION when exceeded). */
-int moqns_tuple_take(wired_span buf, usz* off, moqctl_ns* out);
-
 /** SUBSCRIBE_NAMESPACE (ns = Track Namespace Prefix) and
  * PUBLISH_NAMESPACE (ns = Track Namespace): the same body layout. */
 typedef struct {

@@ -204,8 +204,8 @@ typedef struct {
 int moqctl_ftn_take(wired_span buf, usz* off, moqctl_ftn* out);
 int moqctl_ftn_put(wired_mspan buf, usz* off, const moqctl_ftn* f);
 
-/** Track Namespace alone (no Track Name): same VIOLATION rules as the
- * namespace half of moqctl_ftn_take (field length 0, >32 fields).
+/** Track Namespace alone (no Track Name): VIOLATION on a field of length
+ * 0, >32 fields, or field lengths summing past MOQCTL_MAX_FTN_LEN.
  * Exposed separately for contexts that decode a bare Track Namespace. */
 int moqctl_ns_take(wired_span buf, usz* off, moqctl_ns* out);
 /** Encodes a bare Track Namespace (count + Length-prefixed fields);
@@ -227,6 +227,11 @@ int moqctl_name_take(wired_span buf, usz* off, wired_span* name);
 /** Length (vi64) + bytes. Returns 1 ok, 0 if buf is too small (*off may
  * then have advanced). */
 int moqctl_name_put(wired_mspan buf, usz* off, wired_span name);
+
+/** One fixed 8-bit field (uint8 parameter values, Publisher Priority,
+ * End Of Track). take: MOQCTL_OK or INSUFFICIENT; put: 1 ok, 0 no room. */
+int moqctl_param_take_uint8(wired_span buf, usz* at, u64* out);
+int moqctl_param_put_uint8(wired_mspan buf, usz* at, u64 v);
 
 /** Exact byte comparison (SS1.5): 1 if equal, 0 otherwise. */
 int moqctl_ftn_eq(const moqctl_ftn* a, const moqctl_ftn* b);
