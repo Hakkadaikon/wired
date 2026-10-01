@@ -1,0 +1,25 @@
+---
+title: App timers
+description: Run code on a fixed cadence inside the event loop, independent of any connection.
+sidebar:
+  order: 2
+---
+import Example from '../../../../components/Example.astro';
+
+`wired_srvrun_opt.on_step` runs once per event-loop step, whether or not
+any connection is live -- a clock tick, a periodic flush, anything the app
+needs to drive on its own schedule rather than a peer's.
+
+<Example id="ops-timers" />
+
+## How it works
+
+- `opt.on_step = on_step` registers the hook; while one is registered the
+  loop never blocks without a timeout, so it keeps firing at least every
+  `SRVRUN_PTO_MS` (25ms) even with no traffic at all.
+- The hook receives the loop's own monotonic clock (`now_ms`); this page
+  logs a fixed count instead of the clock itself, so the golden output
+  stays the same length regardless of how long the server actually ran
+  before the client connected.
+- Every `wired_server_wt_*` send API may be called from inside this hook,
+  same as from a request or datagram callback -- it runs inside the loop.

@@ -1,0 +1,7 @@
+$ ./ops-timers --port 4433
+tick 1
+tick 2
+tick 3
+conn closed by peer (CONNECTION_CLOSE)
+$ probe h3get 127.0.0.1:4433 /
+GET / status=200 content-type=text/plain body="ok"
