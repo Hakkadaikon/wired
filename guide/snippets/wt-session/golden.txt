@@ -1,0 +1,10 @@
+$ ./wt-session --port 4433
+conn closed by peer (CONNECTION_CLOSE)
+session /chat
+protocol chat
+conn closed by peer (CONNECTION_CLOSE)
+session closed
+$ go run . https://127.0.0.1:4433
+/forbidden: 404
+/chat: 200 protocol "chat"
+closed /chat

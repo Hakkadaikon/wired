@@ -1,0 +1,25 @@
+---
+title: WebTransport のストリーム
+description: クライアントの双方向ストリームをエコーし、サーバーから単方向ストリームを送る。
+sidebar:
+  order: 2
+---
+import Example from '../../../../components/Example.astro';
+
+ストリームは信頼性があり、順序も保証されます。
+このページのサーバーは、新しいセッションごとに自分で開いたストリームで挨拶を送り、クライアントが開いた双方向ストリームはエコーします。
+
+<Example id="wt-streams" />
+
+## 仕組み
+
+- `wired_server_wt_open_uni(s, payload)` は、サーバーからクライアントへのストリームを開き、`payload` を送って閉じます。
+  ペイロードの先頭には、セッションを示す WebTransport のストリームシグナルが必要です。
+  `wired_wtwire_signal_put` が、`s->connect_stream_id` からこれを書きます。
+- `wt_on_stream_data` は、クライアントのストリームのバイト列を渡します。
+  クライアントが書き込みを終えると、`fin` が 1 になります。
+  この例は `fin` を待ち、メッセージ全体が 1 つのチャンクで届いたと仮定します。
+  小さなメッセージなら、この仮定は成り立ちます。
+- `wired_server_wt_stream_reply(s, stream_id, data)` は、同じ双方向ストリームに書き戻して閉じます。
+  プレフィックスは付きません。
+- データグラムと同じく、WebTransport のストリームにも `id.max_datagram_frame_size` の設定が必要です。

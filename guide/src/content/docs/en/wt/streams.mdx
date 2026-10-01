@@ -1,0 +1,25 @@
+---
+title: WebTransport streams
+description: Echo a client's bidirectional stream and push a unidirectional stream from the server.
+sidebar:
+  order: 2
+---
+import Example from '../../../../components/Example.astro';
+
+Streams are reliable and ordered. This server greets each new session on a
+stream it opens itself, and echoes any bidirectional stream the client opens.
+
+<Example id="wt-streams" />
+
+## How it works
+
+- `wired_server_wt_open_uni(s, payload)` opens a server-to-client stream,
+  sends `payload`, and closes it. The payload must start with the WebTransport
+  stream signal naming the session; `wired_wtwire_signal_put` writes it from
+  `s->connect_stream_id`.
+- `wt_on_stream_data` delivers a client stream's bytes; `fin` is 1 once the
+  client has finished writing. This example waits for `fin` and assumes the
+  whole message arrived in one chunk, which holds for small messages.
+- `wired_server_wt_stream_reply(s, stream_id, data)` writes back on the same
+  bidirectional stream and closes it. No prefix is added.
+- Like datagrams, WebTransport streams need `id.max_datagram_frame_size` set.

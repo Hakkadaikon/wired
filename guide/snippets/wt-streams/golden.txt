@@ -1,0 +1,8 @@
+$ ./wt-streams --port 4433
+session /echo
+stream hello
+conn closed by peer (CONNECTION_CLOSE)
+$ go run . https://127.0.0.1:4433
+status 200
+uni from server: "welcome"
+sent "hello", echoed "hello"
