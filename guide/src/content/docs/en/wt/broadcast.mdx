@@ -1,0 +1,28 @@
+---
+title: Fanning a datagram out to every session
+description: The single-slot broadcast, the burst-safe ring, and addressing one session directly.
+sidebar:
+  order: 5
+---
+import Example from '../../../../components/Example.astro';
+
+srvrun.h has three ways to fan a datagram out from inside a callback: a
+single-slot broadcast (last writer wins if two land in the same step), a
+bounded ring that queues several without overwriting, and sending to one
+session directly. This page picks between them by a leading tag byte.
+
+<Example id="wt-broadcast" />
+
+## How it works
+
+- Tag `1` calls `wired_server_broadcast_datagram`: queues one payload per
+  connection with an active WT session, overwritten by a second call in
+  the same step.
+- Tag `2` calls `wired_server_broadcast_datagram_ring`: the same fan-out,
+  but into the bounded ring also backing `wired_server_wt_send_datagram_to`
+  -- several calls in one step are all delivered, none overwritten.
+- Tag `3` calls `wired_server_wt_send_datagram_to(s, ...)`: addressed at
+  `s` only, not a broadcast -- the client's second session never sees it.
+- Neither primitive excludes the sender: a broadcast reaches every active
+  session, including the one it came from, so the client reads its own
+  copy back too.
