@@ -85,7 +85,47 @@ static void test_resp_build_prefix_matches_full(void) {
   CHECK(pb.len == fb.len);
 }
 
+/* Decode one Literal Field Line With Literal Name at *off and check it
+ * carries (name, value). */
+static int rb_litname_is(
+    wired_span fs, usz* off, const char* name, const char* value) {
+  u8             nb[32], vb[32];
+  int            never = 0;
+  qpack_fieldbuf fb    = {obuf_of(nb, sizeof nb), obuf_of(vb, sizeof vb)};
+  usz            c     = qpack_literal_name_decode(
+      wired_span_of(fs.p + *off, fs.n - *off), &never, &fb);
+  *off += c;
+  return c && fb.name.len == wired_cstr_len(name) &&
+         fb.value.len == wired_cstr_len(value) &&
+         ct_diffn(nb, (const u8*)name, fb.name.len) == 0 &&
+         ct_diffn(vb, (const u8*)value, fb.value.len) == 0;
+}
+
+/* RFC 9204 4.5.6: a list of extra fields becomes one literal-name line
+ * each, in order, after :status; an empty list adds none. */
+static void test_resp_build_prefix_fields(void) {
+  static const u8 n0[] = "location", v0[] = "/a", n1[] = "set-cookie",
+                  v1[] = "x=1";
+  qpack_field     f[2] = {
+      {wired_span_of(n0, sizeof n0 - 1), wired_span_of(v0, sizeof v0 - 1)},
+      {wired_span_of(n1, sizeof n1 - 1), wired_span_of(v1, sizeof v1 - 1)}};
+  u8                     pre[128];
+  wired_obuf             pb   = {pre, sizeof pre, 0};
+  h3req_resp             resp = {0};
+  qpackenc_status_result ins;
+  usz off = 4; /* prefix (2) + :status 302, static index 66 (2) */
+  CHECK(h3resp_prefix_fields_qenc(302, 0, 0, f, 2, 0, &ins, &pb) == 1);
+  CHECK(h3req_resp_parse(wired_span_of(pre, pb.len), &resp) == 1);
+  CHECK(rb_litname_is(resp.headers, &off, "location", "/a"));
+  CHECK(rb_litname_is(resp.headers, &off, "set-cookie", "x=1"));
+  CHECK(off == resp.headers.n);
+  pb.len = 0;
+  CHECK(h3resp_prefix_fields_qenc(302, 0, 0, f, 0, 0, &ins, &pb) == 1);
+  CHECK(pb.len == 2 + 4); /* HEADERS type + length + 4-byte section */
+}
+
 void test_resp_build(void) {
+  test_resp_build_prefix_fields();
   test_resp_build_prefix_matches_full();
   test_resp_build_roundtrip();
   test_resp_build_no_body();

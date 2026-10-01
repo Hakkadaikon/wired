@@ -46,4 +46,17 @@ int h3resp_encode_headers_field_qenc(
     qpackenc_status_result* insert_out,
     wired_obuf*             out);
 
+/* Same as h3resp_encode_headers_field_qenc, but with n_extra trailing
+ * Literal Field Lines With Literal Name (RFC 9204 4.5.6), one per entry of
+ * extra[0..n_extra), in order. n_extra == 0 adds none. Returns 1 with
+ * out->len set, 0 if out lacks capacity. */
+int h3resp_encode_headers_fields_qenc(
+    u16                     status,
+    const char*             content_type,
+    const qpack_field*      extra,
+    usz                     n_extra,
+    qpackenc_state*         qenc,
+    qpackenc_status_result* insert_out,
+    wired_obuf*             out);
+
 #endif
