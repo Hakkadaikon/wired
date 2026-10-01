@@ -2500,13 +2500,21 @@ static void srvrun_grant_stream_credit(
   *credit_advertised = ceiling;
 }
 
+/* A held bidi slot stops raising only past its first grant: the stream
+ * started at the request window's credit (initial_max_stream_data_bidi_
+ * remote), and the first grant is what lifts it to the WT buffer. */
+static int srvrun_wt_bidi_held(const wired_srvloop_wt_stream_slot* slot) {
+  return slot->credit_hold && slot->credit_advertised;
+}
+
 /* One in-use wt_streams slot's own credit re-grant, split out so the driving
  * loop stays at the CCN gate. A held slot (credit_hold, the app's
- * backpressure request via wired_server_wt_stream_hold) is skipped: its
- * advertisement stays frozen at the last value sent, never lowered. */
+ * backpressure request via wired_server_wt_stream_hold) is skipped once
+ * granted (srvrun_wt_bidi_held): its advertisement stays frozen at the last
+ * value sent, never lowered. */
 static void srvrun_grant_wt_slot_credit(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
-  if (!slot->in_use || slot->credit_hold) return;
+  if (!slot->in_use || srvrun_wt_bidi_held(slot)) return;
   srvrun_grant_stream_credit(
       cfg, c, slot->stream_id, slot->delivered_len, &slot->credit_advertised);
 }
