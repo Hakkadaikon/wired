@@ -1089,6 +1089,80 @@ static void test_moqctl_params_find(void) {
   CHECK(moqctl_params_find(&out, MOQCTL_PARAM_FORWARD) == 0);
 }
 
+/* Body of golden control message g (its envelope already checked). */
+static wired_span mqpt_golden_body(const u8* g, usz n) {
+  usz        off = 0;
+  u64        type;
+  wired_span body = {0, 0};
+  CHECK(moqctl_peek_type(wired_span_of(g, n), &off, &type, &body) == MOQCTL_OK);
+  return body;
+}
+
+/* Re-encodes m as golden g's type and checks it reproduces g exactly. */
+static void mqpt_golden_reencode(
+    const u8* g, usz n, u64 type, moqctl_encode_body_fn fn, const void* m) {
+  u8  out[64];
+  usz len = 0;
+  moqctl_reencode(out, sizeof out, type, fn, m, &len);
+  CHECK(len == n);
+  for (usz i = 0; i < len; i++) CHECK(out[i] == g[i]);
+}
+
+/* Golden subscribe_params: FORWARD 1, SUBSCRIBER_PRIORITY 64,
+ * LOCATION_FILTER AbsoluteRange {5,0}+3, GROUP_ORDER 2. */
+static void test_moqctl_golden_subscribe_params(void) {
+  static moqctl_subscribe m;
+  wired_span              body = mqpt_golden_body(
+      g_moqt_ctl_subscribe_params, G_MOQT_CTL_SUBSCRIBE_PARAMS_LEN);
+  usz boff = 0;
+  CHECK(moqctl_subscribe_take(body, &boff, &m) == MOQCTL_OK);
+  CHECK(m.params.n == 4);
+  CHECK(moqctl_params_find(&m.params, MOQCTL_PARAM_FORWARD)->u8v == 1);
+  CHECK(
+      moqctl_params_find(&m.params, MOQCTL_PARAM_SUBSCRIBER_PRIORITY)->u8v ==
+      64);
+  CHECK(
+      moqctl_params_find(&m.params, MOQCTL_PARAM_LOCATION_FILTER)
+          ->lf.end_group_delta == 3);
+  CHECK(moqctl_params_find(&m.params, MOQCTL_PARAM_GROUP_ORDER)->u8v == 2);
+  mqpt_golden_reencode(
+      g_moqt_ctl_subscribe_params, G_MOQT_CTL_SUBSCRIBE_PARAMS_LEN,
+      MOQCTL_T_SUBSCRIBE, moqctl_encode_subscribe, &m);
+}
+
+/* Golden subscribe_ok_params: EXPIRES 100, LARGEST_OBJECT {7,3}. */
+static void test_moqctl_golden_subscribe_ok_params(void) {
+  static moqctl_subscribe_ok m;
+  wired_span                 body = mqpt_golden_body(
+      g_moqt_ctl_subscribe_ok_params, G_MOQT_CTL_SUBSCRIBE_OK_PARAMS_LEN);
+  usz boff = 0;
+  CHECK(moqctl_subscribe_ok_take(body, &boff, &m) == MOQCTL_OK);
+  CHECK(moqctl_params_find(&m.params, MOQCTL_PARAM_EXPIRES)->vi == 100);
+  CHECK(
+      moqctl_params_find(&m.params, MOQCTL_PARAM_LARGEST_OBJECT)->loc.object ==
+      3);
+  mqpt_golden_reencode(
+      g_moqt_ctl_subscribe_ok_params, G_MOQT_CTL_SUBSCRIBE_OK_PARAMS_LEN,
+      MOQCTL_T_SUBSCRIBE_OK, moqctl_encode_subscribe_ok, &m);
+}
+
+/* Golden request_ok_params (a PUBLISH_OK): FORWARD 0,
+ * SUBSCRIBER_PRIORITY 7. */
+static void test_moqctl_golden_request_ok_params(void) {
+  static moqctl_request_ok m;
+  wired_span               body = mqpt_golden_body(
+      g_moqt_ctl_request_ok_params, G_MOQT_CTL_REQUEST_OK_PARAMS_LEN);
+  usz boff = 0;
+  CHECK(moqctl_request_ok_take(body, &boff, &m) == MOQCTL_OK);
+  CHECK(moqctl_params_find(&m.params, MOQCTL_PARAM_FORWARD)->u8v == 0);
+  CHECK(
+      moqctl_params_find(&m.params, MOQCTL_PARAM_SUBSCRIBER_PRIORITY)->u8v ==
+      7);
+  mqpt_golden_reencode(
+      g_moqt_ctl_request_ok_params, G_MOQT_CTL_REQUEST_OK_PARAMS_LEN,
+      MOQCTL_T_REQUEST_OK, moqctl_encode_request_ok, &m);
+}
+
 /* ===== TEST: SETUP Setup Options behaviors ===== */
 
 /* Unknown Setup Option (including a duplicate of it) is ignored. */
@@ -1322,6 +1396,9 @@ void test_moqctl(void) {
   test_moqctl_params_repeatable_filters();
   test_moqctl_request_ok_params_scope();
   test_moqctl_params_find();
+  test_moqctl_golden_subscribe_params();
+  test_moqctl_golden_subscribe_ok_params();
+  test_moqctl_golden_request_ok_params();
 
   test_moqctl_setup_unknown_option_ignored();
   test_moqctl_setup_path_option_decode();
