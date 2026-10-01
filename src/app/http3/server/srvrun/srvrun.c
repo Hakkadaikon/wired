@@ -1727,23 +1727,30 @@ static usz srvrun_wt_busy_reset_payload(
 /* Seal the type-appropriate abort frames above into out as their own 1-RTT
  * packet on stream_id. Returns 1 with out->len set, 0 if the payload or the
  * seal failed. */
-static int srvrun_seal_wt_busy_reset(
-    srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* out) {
-  u8                    pl[64];
-  wired_obuf            plb = obuf_of(pl, sizeof pl);
-  wired_srvloop_send_in sin;
-  usz pln = srvrun_wt_busy_reset_payload(c, stream_id, err_code, &plb);
-  if (!pln) return 0;
-  sin = (wired_srvloop_send_in){
+/* Seal the pln control-frame bytes at pl (0: nothing built) into out as
+ * their own 1-RTT packet. Returns 1 with out->len set, 0 on failure. */
+static int srvrun_seal_ctl(
+    srvrun_conn* c, const u8* pl, usz pln, wired_obuf* out) {
+  wired_srvloop_send_in sin = {
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
-      c->l.tx_pn++,
+      0,
       -1,
       wired_span_of(pl, pln),
       0,
       0,
       0,
       0};
+  if (!pln) return 0;
+  sin.pn = c->l.tx_pn++;
   return wired_srvloop_send_onertt(&c->s, &sin, out);
+}
+
+static int srvrun_seal_wt_busy_reset(
+    srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* out) {
+  u8         pl[64];
+  wired_obuf plb = obuf_of(pl, sizeof pl);
+  usz        pln = srvrun_wt_busy_reset_payload(c, stream_id, err_code, &plb);
+  return srvrun_seal_ctl(c, pl, pln, out);
 }
 
 /* Seal and send the type-appropriate abort frames carrying err_code as
