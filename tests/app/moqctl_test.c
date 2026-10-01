@@ -1006,6 +1006,27 @@ static void test_moqctl_params_namespace_prefix(void) {
           MOQCTL_PCTX_UPDATE_SUBSCRIBE_TRACKS, &out) == MOQCTL_VIOLATION);
 }
 
+/* uint8 value v of type under SUBSCRIBE: MOQCTL_OK or VIOLATION. */
+static int mqpt_u8(u64 type, u8 v) {
+  static moqctl_params out;
+  return mqpt_take(type, &v, 1, MOQCTL_PCTX_SUBSCRIBE, &out);
+}
+
+/* FORWARD is 0 or 1 (10.2.17), GROUP_ORDER 1 or 2 (10.2.8); any other
+ * value closes the session with PROTOCOL_VIOLATION. SUBSCRIBER_PRIORITY
+ * takes the whole uint8. */
+static void test_moqctl_params_uint8_value_ranges(void) {
+  CHECK(mqpt_u8(MOQCTL_PARAM_FORWARD, 0) == MOQCTL_OK);
+  CHECK(mqpt_u8(MOQCTL_PARAM_FORWARD, 1) == MOQCTL_OK);
+  CHECK(mqpt_u8(MOQCTL_PARAM_FORWARD, 2) == MOQCTL_VIOLATION);
+  CHECK(mqpt_u8(MOQCTL_PARAM_GROUP_ORDER, 0) == MOQCTL_VIOLATION);
+  CHECK(mqpt_u8(MOQCTL_PARAM_GROUP_ORDER, 1) == MOQCTL_OK);
+  CHECK(mqpt_u8(MOQCTL_PARAM_GROUP_ORDER, 2) == MOQCTL_OK);
+  CHECK(mqpt_u8(MOQCTL_PARAM_GROUP_ORDER, 3) == MOQCTL_VIOLATION);
+  CHECK(mqpt_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 0) == MOQCTL_OK);
+  CHECK(mqpt_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 255) == MOQCTL_OK);
+}
+
 /* ===== TEST: SETUP Setup Options behaviors ===== */
 
 /* Unknown Setup Option (including a duplicate of it) is ignored. */
@@ -1235,6 +1256,7 @@ void test_moqctl(void) {
   test_moqctl_params_location_filter_roundtrip();
   test_moqctl_params_location_filter_malformed();
   test_moqctl_params_namespace_prefix();
+  test_moqctl_params_uint8_value_ranges();
 
   test_moqctl_setup_unknown_option_ignored();
   test_moqctl_setup_path_option_decode();
