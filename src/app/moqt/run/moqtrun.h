@@ -325,6 +325,8 @@ typedef struct {
   u8                    send_bufs[2][WIRED_MOQTRUN_REQ_SEND_BUF];
   usz                   send_lens[2];
   int                   armed_idx;
+  /** 1 once a GOAWAY arrived on the stream (draft 10.4: at most one). */
+  int goaway;
 } wired_moqtrun_req;
 
 /** One track a peer PUBLISHes (chat or audio), and the subscribers recorded
