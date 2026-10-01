@@ -672,7 +672,7 @@ static void test_moqctl_params_forward_roundtrip(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, MOQCTL_T_SUBSCRIBE, &out) ==
+            wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE, &out) ==
         MOQCTL_OK);
   }
   CHECK(out.n == 1);
@@ -697,7 +697,7 @@ static void test_moqctl_params_type_overflow_violation(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, MOQCTL_T_SUBSCRIBE, &out) ==
+            wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE, &out) ==
         MOQCTL_VIOLATION);
   }
 }
@@ -715,7 +715,7 @@ static void test_moqctl_params_unknown_type_violation(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, MOQCTL_T_SUBSCRIBE, &out) ==
+            wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE, &out) ==
         MOQCTL_VIOLATION);
   }
 }
@@ -739,7 +739,7 @@ static void test_moqctl_params_duplicate_type_violation(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, MOQCTL_T_SUBSCRIBE, &out) ==
+            wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE, &out) ==
         MOQCTL_VIOLATION);
   }
 }
@@ -759,7 +759,7 @@ static void test_moqctl_params_scope_violation(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, MOQCTL_T_SUBSCRIBE_OK, &out) ==
+            wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE_OK, &out) ==
         MOQCTL_VIOLATION);
   }
 }
@@ -779,7 +779,7 @@ static void test_moqctl_params_delivery_timeout_decode(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, MOQCTL_T_SUBSCRIBE, &out) ==
+            wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE, &out) ==
         MOQCTL_OK);
   }
   CHECK(out.n == 1);
@@ -809,7 +809,8 @@ static void test_moqctl_params_auth_token_use_value_decode(void) {
   usz             roff = 0;
   CHECK(
       moqctl_params_take(
-          wired_span_of(buf, n), &roff, MOQCTL_T_SUBSCRIBE, &out) == MOQCTL_OK);
+          wired_span_of(buf, n), &roff, MOQCTL_PCTX_SUBSCRIBE, &out) ==
+      MOQCTL_OK);
   CHECK(out.n == 1);
   CHECK(out.items[0].type == MOQCTL_PARAM_AUTHORIZATION_TOKEN);
   CHECK(out.items[0].enc == MOQCTL_PENC_TOKEN);
@@ -831,7 +832,8 @@ static void test_moqctl_params_auth_token_alias_shapes_decode(void) {
   usz             roff = 0;
   CHECK(
       moqctl_params_take(
-          wired_span_of(buf, n), &roff, MOQCTL_T_PUBLISH, &out) == MOQCTL_OK);
+          wired_span_of(buf, n), &roff, MOQCTL_PCTX_PUBLISH, &out) ==
+      MOQCTL_OK);
   CHECK(out.items[0].token.alias_type == MOQCTL_TOKEN_REGISTER);
   CHECK(out.items[0].token.alias == 7);
   CHECK(out.items[0].token.token_type == 1);
@@ -840,7 +842,8 @@ static void test_moqctl_params_auth_token_alias_shapes_decode(void) {
   roff = 0;
   CHECK(
       moqctl_params_take(
-          wired_span_of(buf, n), &roff, MOQCTL_T_SUBSCRIBE, &out) == MOQCTL_OK);
+          wired_span_of(buf, n), &roff, MOQCTL_PCTX_SUBSCRIBE, &out) ==
+      MOQCTL_OK);
   CHECK(out.items[0].token.alias_type == MOQCTL_TOKEN_USE_ALIAS);
   CHECK(out.items[0].token.alias == 7);
 }
@@ -861,7 +864,7 @@ static void test_moqctl_params_auth_token_malformed_kvfmt(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, n), &roff, MOQCTL_T_SUBSCRIBE, &out) ==
+            wired_span_of(buf, n), &roff, MOQCTL_PCTX_SUBSCRIBE, &out) ==
         MOQCTL_PARAMS_KVFMT);
   }
 }
@@ -876,7 +879,7 @@ static void test_moqctl_params_auth_token_scope_violation(void) {
   usz             roff = 0;
   CHECK(
       moqctl_params_take(
-          wired_span_of(buf, n), &roff, MOQCTL_T_SUBSCRIBE_OK, &out) ==
+          wired_span_of(buf, n), &roff, MOQCTL_PCTX_SUBSCRIBE_OK, &out) ==
       MOQCTL_VIOLATION);
 }
 
