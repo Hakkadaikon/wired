@@ -10095,6 +10095,64 @@ static void test_srvrun_streaming_later_round_uses_own_stream_not_sibling(
  * slice -- h3resp_prefix's body_len argument must have been the total,
  * provable by decoding the prefix bytes at the front of the armed session
  * and checking the DATA frame's length varint. */
+/* A streaming response's stream_req copy must own EVERY view it carries:
+ * the decode buffer behind the original request is reused once round 0
+ * returns, so a view left pointing into it would serve whatever bytes the
+ * next request wrote there. */
+static void test_srvrun_copy_stream_req_repoints_every_view(void) {
+  static srvrun_resp   r;
+  wired_h3reqdrive_req req = {0};
+  u8 buf[]          = "POSThttps/upexample.comwebtransporthttps://o.example";
+  req.method        = buf;
+  req.method_len    = 4;
+  req.scheme        = buf + 4;
+  req.scheme_len    = 5;
+  req.path          = buf + 9;
+  req.path_len      = 3;
+  req.authority     = buf + 12;
+  req.authority_len = 11;
+  req.protocol      = buf + 23;
+  req.protocol_len  = 12;
+  req.origin        = buf + 35;
+  req.origin_len    = 17;
+  srvrun_copy_stream_req(&r, &req);
+  bytes_memset(buf, 0, sizeof buf);
+  CHECK(
+      r.stream_req.method_len == 4 &&
+      wt_bytes_eq(r.stream_req.method, (const u8*)"POST", 4));
+  CHECK(
+      r.stream_req.scheme_len == 5 &&
+      wt_bytes_eq(r.stream_req.scheme, (const u8*)"https", 5));
+  CHECK(
+      r.stream_req.path_len == 3 &&
+      wt_bytes_eq(r.stream_req.path, (const u8*)"/up", 3));
+  CHECK(
+      r.stream_req.authority_len == 11 &&
+      wt_bytes_eq(r.stream_req.authority, (const u8*)"example.com", 11));
+  CHECK(
+      r.stream_req.protocol_len == 12 &&
+      wt_bytes_eq(r.stream_req.protocol, (const u8*)"webtransport", 12));
+  CHECK(
+      r.stream_req.origin_len == 17 &&
+      wt_bytes_eq(r.stream_req.origin, (const u8*)"https://o.example", 17));
+}
+
+/* An absent optional view (0, as the decoder leaves :protocol/origin when
+ * the peer sent none) must stay 0 in the copy, not turn into an empty
+ * non-null view a handler would read as "present". */
+static void test_srvrun_copy_stream_req_keeps_absent_views_null(void) {
+  static srvrun_resp   r;
+  wired_h3reqdrive_req req   = {0};
+  u8                   buf[] = "GET/";
+  req.method                 = buf;
+  req.method_len             = 3;
+  req.path                   = buf + 3;
+  req.path_len               = 1;
+  srvrun_copy_stream_req(&r, &req);
+  CHECK(r.stream_req.protocol == 0 && r.stream_req.origin == 0);
+  CHECK(r.stream_req.scheme == 0 && r.stream_req.authority == 0);
+}
+
 static void test_srvrun_streaming_h3_prefix_receives_total_size_not_round_len(
     void) {
   struct lp_fix f;
@@ -18278,6 +18336,8 @@ void test_srvrun(void) {
   test_srvrun_streaming_stream_offset_accumulates_across_rounds();
   test_srvrun_streaming_concurrent_requests_do_not_corrupt_each_other();
   test_srvrun_streaming_later_round_uses_own_stream_not_sibling();
+  test_srvrun_copy_stream_req_repoints_every_view();
+  test_srvrun_copy_stream_req_keeps_absent_views_null();
   test_srvrun_streaming_h3_prefix_receives_total_size_not_round_len();
   test_srvrun_streaming_body_exactly_row_cap_single_round();
   test_srvrun_streaming_body_row_cap_plus_one_streams();

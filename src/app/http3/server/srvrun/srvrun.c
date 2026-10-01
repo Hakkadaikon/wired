@@ -263,7 +263,7 @@ typedef struct {
    * continuing the same DATA frame). Meaningless on the hq-interop path,
    * which never frames at all. */
   int stream_h3_framed;
-  /* Round 0's request method/path, copied out of c->l.req (a per-connection
+  /* Round 0's request, every view copied out of c->l.req (a per-connection
    * mirror of "whichever request completed most recently this step" --
    * route_note_done overwrites it every time ANY stream on this connection
    * finishes, so a later round calling the handler with c->l.req directly
@@ -5601,31 +5601,40 @@ static void srvrun_arm_h3_resp(
   srvrun_arm_h3_resp_framed(ctx, c, slot, r, st, body, ct, total_len);
 }
 
-/* Copy up to n bytes of src into dst, capped at n -- the shared byte-copy
- * loop for both fields srvrun_copy_stream_req scratches out. */
-static void srvrun_scratch_copy(u8* dst, const u8* src, usz n) {
-  for (usz i = 0; i < n; i++) dst[i] = src[i];
+/* Copy one view of r->stream_req into r's own scratch at *off (capped at
+ * what is left of it) and re-point the view there. An absent view (0, e.g.
+ * no :protocol / origin) stays 0 so the handler still reads it as absent. */
+static void srvrun_scratch_view(
+    srvrun_resp* r, usz* off, const u8** p, usz* len) {
+  usz n;
+  if (!*p) return;
+  n = (usz)u64_min(*len, sizeof r->stream_req_scratch - *off);
+  bytes_memcpy(r->stream_req_scratch + *off, *p, n);
+  *p   = r->stream_req_scratch + *off;
+  *len = n;
+  *off += n;
 }
 
-/* Copy req's method/path into r's own scratch (see stream_req's doc): later
- * rounds must call the handler with THIS copy, never c->l.req directly,
- * since c->l.req is a per-connection mirror any sibling stream's completion
- * overwrites between rounds. method+path share one scratch buffer, method
- * first (it is always short: "GET"/"POST"/...). */
+/* Copy req into r->stream_req with every view re-pointed at r's own scratch
+ * (see stream_req's doc): later rounds must call the handler with THIS copy,
+ * never c->l.req directly, since c->l.req is a per-connection mirror any
+ * sibling stream's completion overwrites between rounds -- and its views
+ * point into a decode scratch the next request reuses. :path goes first so
+ * it is the last to be truncated. wt_avail/cookie are inline arrays the
+ * struct copy already owns. */
 static void srvrun_copy_stream_req(
     srvrun_resp* r, const wired_h3reqdrive_req* req) {
-  usz cap  = sizeof r->stream_req_scratch;
-  usz mlen = req->method_len < 8 ? req->method_len : 8;
-  usz plen = req->path_len < cap - mlen ? req->path_len : cap - mlen;
-  srvrun_scratch_copy(r->stream_req_scratch, req->method, mlen);
-  srvrun_scratch_copy(r->stream_req_scratch + mlen, req->path, plen);
-  r->stream_req            = *req;
-  r->stream_req.method     = r->stream_req_scratch;
-  r->stream_req.method_len = mlen;
-  r->stream_req.path       = r->stream_req_scratch + mlen;
-  r->stream_req.path_len   = plen;
-  r->stream_req.body       = 0; /* not valid past round 0, streaming is GET */
-  r->stream_req.body_len   = 0;
+  wired_h3reqdrive_req* q   = &r->stream_req;
+  usz                   off = 0;
+  *q                        = *req;
+  srvrun_scratch_view(r, &off, &q->path, &q->path_len);
+  srvrun_scratch_view(r, &off, &q->method, &q->method_len);
+  srvrun_scratch_view(r, &off, &q->authority, &q->authority_len);
+  srvrun_scratch_view(r, &off, &q->scheme, &q->scheme_len);
+  srvrun_scratch_view(r, &off, &q->protocol, &q->protocol_len);
+  srvrun_scratch_view(r, &off, &q->origin, &q->origin_len);
+  q->body     = 0; /* not valid past round 0, streaming is GET */
+  q->body_len = 0;
 }
 
 /* Prime r's streaming state after round 0: stays 0 for an
