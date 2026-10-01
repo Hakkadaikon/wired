@@ -1014,6 +1014,7 @@
 #include "app/h3srv_test.c"
 #include "app/h3srv_priupdate_test.c"
 #include "app/srvwire_test.c"
+#include "app/body_window_test.c"
 #include "app/srvloop_test.c"
 #include "app/srvloop_priupdate_test.c"
 #include "app/srvboot_version_test.c"
@@ -1566,6 +1567,7 @@ int main(void) {
   test_h3srv();
   test_h3srv_priupdate();
   test_srvwire();
+  test_body_window();
   test_srvloop();
   test_srvloop_priupdate();
   test_srvboot_version();
