@@ -1,8 +1,21 @@
 ---
-title: Hello, HTTP/3
+title: はじめての HTTP/3
+description: いちばん小さな HTTP/3 サーバー。すべてのリクエストに一つのハンドラーで応答する。
 sidebar:
   order: 1
 ---
 import Example from '../../../../components/Example.astro';
 
+HTTP/3 サーバーは、リクエストハンドラーとサーバーの識別情報からなります。
+このページのサーバーは、すべてのリクエストに `hello` と応答します。
+
 <Example id="h3-hello" />
+
+## 仕組み
+
+- `wired_server_run(port, &id, h, obs)` は UDP ポート上で QUIC、TLS 1.3、HTTP/3 を動かし、リクエストごとにハンドラーを 1 回呼びます。
+- `wired_srvboot_id` はサーバーの識別情報で、X25519 の鍵ペア、証明書署名用のシード、コネクション ID、ServerHello.random を持ちます。
+  このデモでは固定のバイト列から作り、公開鍵は `wired_x25519_base` で計算します。
+- ハンドラーは `body_out` にボディを書き、`*content_type` を設定して 1 を返します。
+  0 を返すと、ボディのない 200 が送られます。
+- `wired_cliargs_int` はコマンドラインから `--port` を読みます。

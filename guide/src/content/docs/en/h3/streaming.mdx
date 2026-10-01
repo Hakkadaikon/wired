@@ -1,0 +1,20 @@
+---
+title: Streaming a large body
+description: Send a body bigger than one buffer by filling it over several rounds.
+sidebar:
+  order: 3
+---
+import Example from '../../../../components/Example.astro';
+
+A response body larger than `body_out` is produced in rounds. This page
+serves 1 MiB, and the client prints its length and SHA-256.
+
+<Example id="h3-streaming" />
+
+## How it works
+
+- The handler is called again for the same request while it sets
+  `*more = 1`. `offset` is the number of body bytes already sent.
+- Each round writes at most `body_out->cap` bytes, starting at `offset`.
+- `*total_size` gives the full body length up front, so the response can
+  announce it before every byte exists. It is read on the first round only.

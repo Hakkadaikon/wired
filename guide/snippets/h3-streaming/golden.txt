@@ -1,0 +1,4 @@
+$ ./h3-streaming --port 4433
+conn closed by peer (CONNECTION_CLOSE)
+$ probe h3get 127.0.0.1:4433 /big
+GET /big status=200 content-type=application/octet-stream bytes=1048576 sha256=fbbab289f7f94b25736c58be46a994c441fd02552cc6022352e3d86d2fab7c83
