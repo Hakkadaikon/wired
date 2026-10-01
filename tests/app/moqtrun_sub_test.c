@@ -577,7 +577,7 @@ static void test_moqtrun_req_update_answered_on_same_stream(void) {
   static const u8 upd[] = {0x02, 0x00}; /* Request ID 2, no parameters */
   moqctl_ftn      f     = mtrq_setup();
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
-  mtrq_raw(SESS_B, MTRQ_S1, 0x2 /* REQUEST_UPDATE */, upd, sizeof upd);
+  mtrq_raw(SESS_B, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd, sizeof upd);
   CHECK(mtrq_type_on(3, MTRQ_S1) == MOQCTL_T_REQUEST_ERROR);
   CHECK(moqtrun_test_count_kind(12) == 1);
   CHECK(mtrq_closes() == 0);
@@ -645,9 +645,9 @@ static void test_moqtrun_req_second_message_checked(void) {
   mtst_subscribe(SESS_B, MTRQ_S1, &f);
   CHECK(mtrq_closes() == 1);
   mtrq_setup();
-  mtrq_raw(SESS_B, MTRQ_S1, 0xD /* TRACK_STATUS */, upd, sizeof upd);
+  mtrq_raw(SESS_B, MTRQ_S1, MOQTSTAT_T_TRACK_STATUS, upd, sizeof upd);
   CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_ERROR);
-  mtrq_raw(SESS_B, MTRQ_S1, 0x2 /* REQUEST_UPDATE */, upd, sizeof upd);
+  mtrq_raw(SESS_B, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd, sizeof upd);
   CHECK(mtrq_closes() == 1);
   mtrq_setup();
   mtst_publish(SESS_B, MTRQ_S1, &f, 1);
@@ -655,6 +655,18 @@ static void test_moqtrun_req_second_message_checked(void) {
   CHECK(mtrq_closes() == 0);
   CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_OK);
   CHECK(moqtrun_test_count_kind(3) == 1); /* A's own REQUEST_OK only */
+}
+
+/* draft 10.4: a second GOAWAY on one request stream is a
+ * PROTOCOL_VIOLATION. */
+static void test_moqtrun_req_second_goaway_closes(void) {
+  static const u8 away[] = {0x00};
+  moqctl_ftn      f      = mtrq_setup();
+  mtst_subscribe(SESS_B, MTRQ_S1, &f);
+  mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_GOAWAY, away, sizeof away);
+  CHECK(mtrq_closes() == 0);
+  mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_GOAWAY, away, sizeof away);
+  CHECK(mtrq_closes() == 1);
 }
 
 /* draft 3.3.2: a FIN is not a cancellation. */
@@ -676,12 +688,12 @@ static void test_moqtrun_req_pool_bounded_and_freed(void) {
   mtst_init();
   mtst_join(SESS_B);
   for (usz i = 0; i <= WIRED_MOQTRUN_MAX_REQS; i++)
-    mtrq_raw(SESS_B, 4 * (u64)i, 0xD /* TRACK_STATUS */, body, sizeof body);
+    mtrq_raw(SESS_B, 4 * (u64)i, MOQTSTAT_T_TRACK_STATUS, body, sizeof body);
   CHECK(moqtrun_test_count_kind(12) == WIRED_MOQTRUN_MAX_REQS);
   CHECK(mtrq_closes() == 0);
   wired_moqt_on_session_close(&mtst_hub, SESS_B);
   mtst_join(SESS_C);
-  mtrq_raw(SESS_C, MTRQ_S1, 0xD /* TRACK_STATUS */, body, sizeof body);
+  mtrq_raw(SESS_C, MTRQ_S1, MOQTSTAT_T_TRACK_STATUS, body, sizeof body);
   CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_ERROR);
 }
 
@@ -722,5 +734,6 @@ void test_moqtrun_sub(void) {
   test_moqtrun_req_second_message_checked();
   test_moqtrun_req_fin_keeps_request();
   test_moqtrun_req_pool_bounded_and_freed();
+  test_moqtrun_req_second_goaway_closes();
   test_moqtrun_req_needs_reply_op();
 }

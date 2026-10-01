@@ -33,6 +33,8 @@
 #define MOQCTL_T_REQUEST_OK 0x7ULL
 #define MOQCTL_T_PUBLISH_DONE 0xBULL
 #define MOQCTL_T_PUBLISH 0x1DULL
+#define MOQCTL_T_PUBLISH_SKIPPED 0xFULL
+#define MOQCTL_T_SUBSCRIBE_TRACKS 0x51ULL
 
 /** moqctl_peek_type results (in addition to MOQCTL_OK). */
 #define MOQCTL_UNKNOWN_TYPE (-2)

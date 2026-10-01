@@ -3,6 +3,9 @@
 #include "app/moqt/ctl/moqctl.h"
 #include "app/moqt/data/moqdata.h"
 #include "app/moqt/dgram/moqdg.h"
+#include "app/moqt/fetch/moqfetch.h"
+#include "app/moqt/ns/moqns.h"
+#include "app/moqt/tstat/moqtstat.h"
 #include "app/moqt/vi/moqvi.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/util/num.h"
@@ -1272,13 +1275,10 @@ static moqtrun_ctl_fn moqtrun_ctl_route(int peek, u64 type) {
 /* draft-ietf-moq-transport-19 3.3: the seven types a request stream may
  * begin with. */
 static const u64 moqtrun_req_first[] = {
-    MOQCTL_T_SUBSCRIBE,
-    MOQCTL_T_PUBLISH,
-    0x16, /* FETCH */
-    0xD,  /* TRACK_STATUS */
-    0x6,  /* PUBLISH_NAMESPACE */
-    0x50, /* SUBSCRIBE_NAMESPACE */
-    0x51, /* SUBSCRIBE_TRACKS */
+    MOQCTL_T_SUBSCRIBE,        MOQCTL_T_PUBLISH,
+    MOQFETCH_T_FETCH,          MOQTSTAT_T_TRACK_STATUS,
+    MOQNS_T_PUBLISH_NAMESPACE, MOQNS_T_SUBSCRIBE_NAMESPACE,
+    MOQCTL_T_SUBSCRIBE_TRACKS,
 };
 #define MOQTRUN_REQ_FIRST_N \
   (sizeof(moqtrun_req_first) / sizeof(moqtrun_req_first[0]))
@@ -1289,35 +1289,41 @@ static int moqtrun_req_is_first(u64 type) {
   return 0;
 }
 
-/* draft 10.9: REQUEST_UPDATE (0x2) follows any request but TRACK_STATUS. */
+/* draft 10.9: REQUEST_UPDATE follows any request but TRACK_STATUS. */
 static int moqtrun_req_update_ok(u64 kind, u64 type) {
-  return type == 0x2 && kind != 0xD;
+  return type == MOQTSTAT_T_REQUEST_UPDATE && kind != MOQTSTAT_T_TRACK_STATUS;
 }
 
 /* draft 10.11/10.20: a PUBLISH's sender ends or reports gaps on its own
- * stream with PUBLISH_DONE / PUBLISH_SKIPPED (0xF). */
+ * stream with PUBLISH_DONE / PUBLISH_SKIPPED. */
 static int moqtrun_req_done_ok(u64 kind, u64 type) {
   return kind == MOQCTL_T_PUBLISH &&
-         (type == MOQCTL_T_PUBLISH_DONE || type == 0xF);
+         (type == MOQCTL_T_PUBLISH_DONE || type == MOQCTL_T_PUBLISH_SKIPPED);
 }
 
-/* What the requester may send after its request; draft 10.4 allows GOAWAY
- * on any request stream. */
-static int moqtrun_req_follow_ok(u64 kind, u64 type) {
-  return type == MOQCTL_T_GOAWAY || moqtrun_req_update_ok(kind, type) ||
-         moqtrun_req_done_ok(kind, type);
+/* draft 10.4: GOAWAY may appear on a request stream, but only once. */
+static int moqtrun_req_goaway_ok(const wired_moqtrun_req* q, u64 type) {
+  return type == MOQCTL_T_GOAWAY && !q->goaway;
+}
+
+/* What the requester may send after its request. */
+static int moqtrun_req_follow_ok(const wired_moqtrun_req* q, u64 type) {
+  return moqtrun_req_goaway_ok(q, type) ||
+         moqtrun_req_update_ok(q->kind, type) ||
+         moqtrun_req_done_ok(q->kind, type);
 }
 
 /* kind 0: nothing read yet, so type must open the stream. */
-static int moqtrun_req_allowed(u64 kind, u64 type) {
-  if (!kind) return moqtrun_req_is_first(type);
-  return moqtrun_req_follow_ok(kind, type);
+static int moqtrun_req_allowed(const wired_moqtrun_req* q, u64 type) {
+  if (!q->kind) return moqtrun_req_is_first(type);
+  return moqtrun_req_follow_ok(q, type);
 }
 
 /* Records the request q carries: its type and Request ID (the first field
- * of every request message, draft 10.1). */
+ * of every request message, draft 10.1), and whether GOAWAY was seen. */
 static void moqtrun_req_note(wired_moqtrun_req* q, u64 type, wired_span body) {
   usz off = 0;
+  q->goaway |= type == MOQCTL_T_GOAWAY;
   if (q->kind) return;
   q->kind = type;
   moqvi_take(body, &off, &q->request_id);
@@ -1329,7 +1335,7 @@ static void moqtrun_req_note(wired_moqtrun_req* q, u64 type, wired_span body) {
  * PROTOCOL_VIOLATION; the rest goes to the shared handlers. */
 static moqtrun_ctl_fn moqtrun_req_route(
     wired_moqtrun_req* q, u64 type, wired_span body) {
-  if (!moqtrun_req_allowed(q->kind, type)) return moqtrun_dispatch_close;
+  if (!moqtrun_req_allowed(q, type)) return moqtrun_dispatch_close;
   moqtrun_req_note(q, type, body);
   return moqtrun_ctl_lookup(type);
 }
@@ -2656,6 +2662,7 @@ static wired_moqtrun_req* moqtrun_req_open(
   q->send_lens[0] = 0;
   q->send_lens[1] = 0;
   q->armed_idx    = 0;
+  q->goaway       = 0;
   return q;
 }
 
