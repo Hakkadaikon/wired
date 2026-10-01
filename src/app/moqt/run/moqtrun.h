@@ -192,6 +192,11 @@ typedef struct {
    * bytes ride a moqtrel ring instead of the drop-on-refusal path); -1 is
    * the default: the lossy relay above, untouched. */
   i32 rel_idx;
+  /** Object-ID chaining state after the last whole Object relayed, and
+   * the stream's Group ID: lets header-less later deliveries resolve each
+   * Object's Location (11.4.2) for the track's Largest Object. */
+  moqdata_objseq seq;
+  u64            group_id;
 } wired_moqtrun_relay;
 
 /** Consecutive refused relay rounds (io.stream_send returning busy) after
@@ -289,6 +294,10 @@ typedef struct {
    * the hub's own blob/live tracks, which match by name only. */
   u8  ns[WIRED_MOQTRUN_MAX_NS];
   usz ns_len;
+  /** Largest Object published on this track (10.2.16), valid when
+   * has_largest; restarts with each PUBLISH. */
+  moqctl_loc largest;
+  int        has_largest;
 } wired_moqtrun_track;
 
 /** One connected participant's hub-side state: its WT session, its own

@@ -1583,6 +1583,13 @@ static void test_moqtrun_two_subscribe_oks_one_dispatch_no_overflow(void) {
  * resolution) followed by n_objects Objects, each with a 1-byte payload
  * (its own index) and Object ID == its index (id_delta 0 for the first,
  * else 1). Returns the total bytes written. */
+/* The relay's Object loop from a fresh SUBGROUP_HEADER, no track. */
+static usz moqtrun_test_decode_loop(
+    wired_span data, usz* off, const moqdata_subhdr* hdr) {
+  moqdata_objseq seq = moqdata_objseq_of(hdr->type);
+  return moqtrun_decode_object_loop(data, off, &seq, hdr->group_id, 0);
+}
+
 static usz moqtrun_test_build_multi_object_stream(usz n_objects, u8* buf) {
   moqdata_subhdr h = {0};
   h.type =
@@ -1609,7 +1616,7 @@ static void test_moqtrun_decode_loop_single_object_matches_one_shot(void) {
   moqdata_subhdr hdr;
   CHECK(
       moqdata_subhdr_take(wired_span_of(buf, total), &off, &hdr) == MOQDATA_OK);
-  usz n = moqtrun_decode_object_loop(wired_span_of(buf, total), &off, &hdr);
+  usz n = moqtrun_test_decode_loop(wired_span_of(buf, total), &off, &hdr);
   CHECK(n == 1);
   CHECK(off == total);
 }
@@ -1627,7 +1634,7 @@ static void test_moqtrun_decode_loop_multiple_objects(void) {
     CHECK(
         moqdata_subhdr_take(wired_span_of(buf, total), &off, &hdr) ==
         MOQDATA_OK);
-    usz n = moqtrun_decode_object_loop(wired_span_of(buf, total), &off, &hdr);
+    usz n = moqtrun_test_decode_loop(wired_span_of(buf, total), &off, &hdr);
     CHECK(n == counts[c]);
     CHECK(off == total);
   }
@@ -1648,7 +1655,7 @@ static void test_moqtrun_decode_loop_stops_at_truncation(void) {
       MOQDATA_OK);
   usz        header_end = off;
   wired_span data       = wired_span_of(buf, truncated);
-  usz        n          = moqtrun_decode_object_loop(data, &off, &hdr);
+  usz        n          = moqtrun_test_decode_loop(data, &off, &hdr);
   CHECK(n == 2); /* only the first 2 Objects were whole */
   CHECK(off > header_end);
   CHECK(off < truncated); /* stopped short of the truncated tail */
@@ -1677,7 +1684,7 @@ static void test_moqtrun_decode_loop_stops_at_violation(void) {
       moqdata_subhdr_take(wired_span_of(buf, total), &decode_off, &hdr) ==
       MOQDATA_OK);
   usz n =
-      moqtrun_decode_object_loop(wired_span_of(buf, total), &decode_off, &hdr);
+      moqtrun_test_decode_loop(wired_span_of(buf, total), &decode_off, &hdr);
   CHECK(n == 1); /* the 2nd (VIOLATION) Object is not counted */
 }
 
