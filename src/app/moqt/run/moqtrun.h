@@ -371,6 +371,9 @@ typedef struct {
   /** Encoded Track Namespace of each sub_names entry (same index). */
   u8  sub_ns[WIRED_MOQTRUN_SUB_NAMES][WIRED_MOQTRUN_MAX_NS];
   usz sub_ns_lens[WIRED_MOQTRUN_SUB_NAMES];
+  /** Subscription state of each sub_names entry (same index), restored
+   * when a REPUBLISH re-attaches this peer. */
+  wired_moqtrun_sub sub_state[WIRED_MOQTRUN_SUB_NAMES];
 } wired_moqtrun_peer;
 
 /** The hub's own clock-paced live track (wired_moqt_publish_live): Group

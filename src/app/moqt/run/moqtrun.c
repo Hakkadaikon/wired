@@ -364,29 +364,40 @@ static int moqtrun_sub_name_eq(
          moqtrun_ns_eq(p->sub_ns[i], p->sub_ns_lens[i], k.ns);
 }
 
-/* 1 iff p has recorded a successful SUBSCRIBE for name. */
-static int moqtrun_sub_name_known(const wired_moqtrun_peer* p, moqtrun_key k) {
+/* p's ring index recording k, else WIRED_MOQTRUN_SUB_NAMES. */
+static usz moqtrun_sub_name_find(const wired_moqtrun_peer* p, moqtrun_key k) {
   for (usz i = 0; i < p->sub_names_n; i++)
-    if (moqtrun_sub_name_eq(p, i, k)) return 1;
-  return 0;
+    if (moqtrun_sub_name_eq(p, i, k)) return i;
+  return WIRED_MOQTRUN_SUB_NAMES;
 }
 
-static void moqtrun_sub_name_store(wired_moqtrun_peer* p, moqtrun_key k) {
+/* 1 iff p has recorded a successful SUBSCRIBE for name. */
+static int moqtrun_sub_name_known(const wired_moqtrun_peer* p, moqtrun_key k) {
+  return moqtrun_sub_name_find(p, k) < WIRED_MOQTRUN_SUB_NAMES;
+}
+
+/* Records k at the ring's write index; returns that index. */
+static usz moqtrun_sub_name_store(wired_moqtrun_peer* p, moqtrun_key k) {
+  usz at = p->sub_names_at;
   bytes_memcpy(p->sub_names[p->sub_names_at], k.name.p, k.name.n);
   p->sub_name_lens[p->sub_names_at] = k.name.n;
   bytes_memcpy(p->sub_ns[p->sub_names_at], k.ns.p, k.ns.n);
   p->sub_ns_lens[p->sub_names_at] = k.ns.n;
   p->sub_names_at = (u8)((p->sub_names_at + 1) % WIRED_MOQTRUN_SUB_NAMES);
   if (p->sub_names_n < WIRED_MOQTRUN_SUB_NAMES) p->sub_names_n++;
+  return at;
 }
 
-/* Remember a name p subscribed to, so a later REPUBLISH of it can
- * re-attach p (wired_moqtrun_peer.sub_names' doc). An oversized name could
- * never match a recorded track name, so it is not stored. */
-static void moqtrun_note_sub_name(wired_moqtrun_peer* p, moqtrun_key k) {
+/* Remember a name p subscribed to, and the subscription's state s, so a
+ * later REPUBLISH of it can re-attach p as it was
+ * (wired_moqtrun_peer.sub_names' doc). An oversized name could never
+ * match a recorded track name, so it is not stored. */
+static void moqtrun_note_sub_name(
+    wired_moqtrun_peer* p, moqtrun_key k, const wired_moqtrun_sub* s) {
   if (moqtrun_key_oversized(k)) return;
-  if (moqtrun_sub_name_known(p, k)) return;
-  moqtrun_sub_name_store(p, k);
+  usz i = moqtrun_sub_name_find(p, k);
+  if (i == WIRED_MOQTRUN_SUB_NAMES) i = moqtrun_sub_name_store(p, k);
+  p->sub_state[i] = *s;
 }
 
 static int moqtrun_encode_request_ok(wired_mspan buf, usz* off, const void* m) {
@@ -730,7 +741,7 @@ static int moqtrun_reattach_wanted(
 
 static const moqctl_param* moqtrun_sub_param(
     const moqctl_subscribe* m, u64 type) {
-  return m ? moqctl_params_find(&m->params, type) : 0;
+  return moqctl_params_find(&m->params, type);
 }
 
 static u8 moqtrun_param_u8(const moqctl_param* p) { return p ? (u8)p->u8v : 0; }
@@ -807,7 +818,7 @@ static void moqtrun_sub_scalars(
 }
 
 /* Opens slot s on t for peer_idx under alias, its state taken from
- * SUBSCRIBE m (0 for a silent re-attach: every draft default). */
+ * SUBSCRIBE m. */
 static void moqtrun_sub_open(
     wired_moqtrun_sub*         s,
     const wired_moqtrun_track* t,
@@ -817,7 +828,7 @@ static void moqtrun_sub_open(
   s->session_idx = peer_idx;
   s->track_alias = alias;
   s->active      = 1;
-  s->request_id  = m ? m->request_id : 0;
+  s->request_id  = m->request_id;
   moqtrun_sub_scalars(s, m);
   moqtrun_sub_filter(s, t, moqtrun_sub_param(m, MOQCTL_PARAM_LOCATION_FILTER));
 }
@@ -827,10 +838,19 @@ static int moqtrun_sub_forwards(const wired_moqtrun_sub* s) {
   return s->active && !s->forward_off;
 }
 
-static void moqtrun_reattach_one_sub(wired_moqtrun_track* track, usz i) {
+/* Re-attaches peer i to track with the state it SUBSCRIBEd to k with
+ * (Forward State, Request ID, parameters: only the subscriber changes
+ * them, draft 5.1) under a fresh alias. */
+static void moqtrun_reattach_one_sub(
+    wired_moqt_hub* hub, wired_moqtrun_track* track, usz i, moqtrun_key k) {
   wired_moqtrun_sub* slot = moqtrun_sub_slot(track);
   if (!slot) return;
-  moqtrun_sub_open(slot, track, i, moqtrun_next_alias(track), 0);
+  const wired_moqtrun_peer* p     = &hub->peers[i];
+  u64                       alias = moqtrun_next_alias(track);
+  *slot                           = p->sub_state[moqtrun_sub_name_find(p, k)];
+  slot->session_idx               = i;
+  slot->track_alias               = alias;
+  slot->active                    = 1;
 }
 
 /* A (re)PUBLISHed name re-attaches every still-connected peer that had
@@ -848,7 +868,7 @@ static void moqtrun_reattach_subs(
     moqtrun_key          k) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
     if (moqtrun_reattach_wanted(hub, track, i, pub_idx, k))
-      moqtrun_reattach_one_sub(track, i);
+      moqtrun_reattach_one_sub(hub, track, i, k);
 }
 
 static int moqtrun_encode_subscribe_ok(
@@ -960,7 +980,7 @@ static void moqtrun_subscribe_peer_track(
     return;
   }
   moqtrun_accept_subscribe(p, track, slot, peer_idx, m);
-  moqtrun_note_sub_name(p, k);
+  moqtrun_note_sub_name(p, k, slot);
 }
 
 /* draft SS10.6 SUBSCRIBE for a peer-published track: find it and reply

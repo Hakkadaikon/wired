@@ -320,6 +320,32 @@ static void test_moqtrun_sub_forward0_blob_not_sent(void) {
   CHECK(moqtrun_test_count_kind(4) == 0);
 }
 
+/* A publisher that leaves and re-PUBLISHes re-attaches its subscribers
+ * with the state they SUBSCRIBEd with: FORWARD 0 still holds every Object
+ * back (5.1: only the subscriber changes Forward State), and the Request
+ * ID and parameters survive. */
+static void test_moqtrun_sub_reattach_keeps_state(void) {
+  moqctl_params p = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  moqctl_ftn    f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  p.items[1].type = MOQCTL_PARAM_SUBSCRIBER_PRIORITY;
+  p.items[1].enc  = MOQCTL_PENC_UINT8;
+  p.items[1].u8v  = 7;
+  p.n             = 2;
+  mtst_subscribe_p(SESS_B, cb, &f, 42, &p);
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  ca = mtst_join(SESS_A);
+  mtst_publish(SESS_A, ca, &f, 1);
+  wired_moqtrun_sub* s = mtst_sub(SESS_A, SESS_B);
+  CHECK(s != 0);
+  CHECK(s && s->forward_off == 1 && s->request_id == 42);
+  CHECK(s && s->has_priority == 1 && s->priority == 7);
+  CHECK(moqtrun_test_relay_alice_chat(&mtst_hub) == 0);
+}
+
 /* ===================== Largest Object (10.2.16) ===================== */
 
 /* Header (Type 0x30, alias 1, Group g, Subgroup 0) + n Objects, each ID
@@ -453,6 +479,7 @@ void test_moqtrun_sub(void) {
   test_moqtrun_sub_params_absent();
   test_moqtrun_sub_forward0_gets_nothing();
   test_moqtrun_sub_forward0_blob_not_sent();
+  test_moqtrun_sub_reattach_keeps_state();
   test_moqtrun_sub_ok_largest();
   test_moqtrun_sub_filter_from_largest();
   test_moqtrun_sub_largest_from_datagram();
