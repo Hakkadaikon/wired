@@ -4,6 +4,7 @@
 #include "app/moqt/vi/moqvi.h"
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/util/num.h"
 
 /* Every take/put in this file returns MOQCTL_OK/INSUFFICIENT/
  * VIOLATION (or 1/0 for encode). To keep CCN<=3, no function chains more
@@ -86,9 +87,10 @@ static int moqctl_locfilter_needs_start(u64 t) {
 static int moqctl_locfilter_take_end_value(
     wired_span buf, usz* at, moqctl_locfilter* out) {
   if (!moqvi_take(buf, at, &out->end_group_delta)) return MOQCTL_INSUFFICIENT;
-  if (out->end_group_delta > (u64)-1 - out->start.group)
-    return MOQCTL_VIOLATION;
-  return MOQCTL_OK;
+  u64 end;
+  return u64_add_ok(out->start.group, out->end_group_delta, &end)
+             ? MOQCTL_OK
+             : MOQCTL_VIOLATION;
 }
 
 static int moqctl_locfilter_take_end(
@@ -195,10 +197,25 @@ static int moqctl_ns_take_count(wired_span buf, usz* at, moqctl_ns* ns) {
   return MOQCTL_OK;
 }
 
+/* SS2.4.1: "If an endpoint receives a Track Namespace ... exceeding 4,096
+ * bytes, it MUST close the session with a PROTOCOL_VIOLATION" (length =
+ * sum of the field lengths). Applies to every Track Namespace this file
+ * decodes: FTN, redirect, TRACK_NAMESPACE_PREFIX, and moqctl_ns_take. */
+static int moqctl_ns_bound(const moqctl_ns* ns) {
+  return moqctl_ns_bytelen(ns) > MOQCTL_MAX_FTN_LEN ? MOQCTL_VIOLATION
+                                                    : MOQCTL_OK;
+}
+
+static int moqctl_ns_take_fields_bound(wired_span buf, usz* at, moqctl_ns* ns) {
+  int r = moqctl_ns_take_fields(buf, at, ns);
+  if (r != MOQCTL_OK) return r;
+  return moqctl_ns_bound(ns);
+}
+
 static int moqctl_ns_take_at(wired_span buf, usz* at, moqctl_ns* ns) {
   int r = moqctl_ns_take_count(buf, at, ns);
   if (r != MOQCTL_OK) return r;
-  return moqctl_ns_take_fields(buf, at, ns);
+  return moqctl_ns_take_fields_bound(buf, at, ns);
 }
 
 int moqctl_ns_take(wired_span buf, usz* off, moqctl_ns* out) {
@@ -380,7 +397,7 @@ static int moqctl_param_allowed_in(const moqctl_param_rule* rule, u32 ctx) {
   return (rule->ctx & ctx) != 0;
 }
 
-static int moqctl_param_take_uint8(wired_span buf, usz* at, u64* out) {
+int moqctl_param_take_uint8(wired_span buf, usz* at, u64* out) {
   if (buf.n - *at < 1) return MOQCTL_INSUFFICIENT;
   *out = buf.p[*at];
   *at += 1;
@@ -529,9 +546,7 @@ static int moqctl_param_take_delta(
     wired_span buf, usz* at, u64 prev, moqctl_param* p) {
   u64 delta;
   if (!moqvi_take(buf, at, &delta)) return MOQCTL_INSUFFICIENT;
-  if (delta > (u64)-1 - prev) return MOQCTL_VIOLATION;
-  p->type = prev + delta;
-  return MOQCTL_OK;
+  return u64_add_ok(prev, delta, &p->type) ? MOQCTL_OK : MOQCTL_VIOLATION;
 }
 
 static int moqctl_param_take_body(
@@ -586,7 +601,7 @@ int moqctl_params_take(wired_span buf, usz* off, u32 ctx, moqctl_params* out) {
   return MOQCTL_OK;
 }
 
-static int moqctl_param_put_uint8(wired_mspan buf, usz* at, u64 v) {
+int moqctl_param_put_uint8(wired_mspan buf, usz* at, u64 v) {
   if (*at + 1 > buf.n) return 0;
   buf.p[*at] = (u8)v;
   *at += 1;

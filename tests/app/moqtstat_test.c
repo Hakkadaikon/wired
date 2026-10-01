@@ -1,5 +1,6 @@
 #include "app/moqt/tstat/moqtstat.h"
 
+#include "app/moqt/vi/moqvi.h"
 #include "moqt_golden.h"
 #include "test.h"
 
@@ -182,6 +183,30 @@ static void test_moqtstat_update_no_room(void) {
   CHECK(!moqtstat_update_encode(wired_mspan_of(out, sizeof out), &n, &m));
 }
 
+/* 2.4.1: a namespace inside a parameter (TRACK_NAMESPACE_PREFIX, 10.2.19)
+ * gets the same 4,096-byte bound as any Track Namespace. */
+static int moqtstat_t_prefix(usz first_len) {
+  static u8       body[16 + MOQCTL_MAX_FTN_LEN + 1];
+  wired_mspan     m = wired_mspan_of(body, sizeof body);
+  usz             n = 0;
+  moqtstat_update u;
+  body[n++] = 0x00; /* Request ID */
+  body[n++] = 0x01; /* one parameter */
+  body[n++] = 0x34; /* TRACK_NAMESPACE_PREFIX */
+  body[n++] = 0x02; /* two fields */
+  CHECK(moqvi_put(m, &n, first_len));
+  for (usz i = 0; i < first_len; i++) body[n++] = 'p';
+  body[n++] = 0x01;
+  body[n++] = 'q';
+  return moqtstat_update_take(
+      wired_span_of(body, n), MOQCTL_PCTX_UPDATE_SUBSCRIBE_NAMESPACE, &u);
+}
+
+static void test_moqtstat_update_prefix_bound(void) {
+  CHECK(moqtstat_t_prefix(MOQCTL_MAX_FTN_LEN - 1) == MOQCTL_OK);
+  CHECK(moqtstat_t_prefix(MOQCTL_MAX_FTN_LEN) == MOQCTL_VIOLATION);
+}
+
 void test_moqtstat(void) {
   test_moqtstat_golden();
   test_moqtstat_param_scope();
@@ -193,4 +218,5 @@ void test_moqtstat(void) {
   test_moqtstat_update_length_mismatch();
   test_moqtstat_varint_boundaries();
   test_moqtstat_update_no_room();
+  test_moqtstat_update_prefix_bound();
 }

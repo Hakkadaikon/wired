@@ -200,7 +200,7 @@ static void test_moqns_encode_no_room(void) {
   CHECK(!moqns_req_encode(wired_mspan_of(out, sizeof out), &n, &m));
 }
 
-/* Encodes ns, appends one stray byte, and expects moqns_tuple_take to
+/* Encodes ns, appends one stray byte, and expects moqctl_ns_take to
  * stop right before it with the same fields (2.4.1). Returns the encoded
  * length. */
 static usz moqns_t_tuple_rt(const moqctl_ns* ns, u8* buf, usz cap) {
@@ -209,7 +209,7 @@ static usz moqns_t_tuple_rt(const moqctl_ns* ns, u8* buf, usz cap) {
   moqctl_ns d;
   CHECK(moqctl_ns_put(wired_mspan_of(buf, cap), &n, ns));
   buf[n] = 0xaa;
-  CHECK(moqns_tuple_take(wired_span_of(buf, n + 1), &off, &d) == MOQCTL_OK);
+  CHECK(moqctl_ns_take(wired_span_of(buf, n + 1), &off, &d) == MOQCTL_OK);
   CHECK(off == n && d.n == ns->n);
   for (usz i = 0; i < d.n && i < ns->n; i++)
     CHECK(d.fields[i].n == ns->fields[i].n);
@@ -247,7 +247,7 @@ static void test_moqns_tuple_nonminimal(void) {
   static const u8 b[] = {0x80, 0x01, 0x80, 0x01, 'a'};
   usz             off = 0;
   moqctl_ns       ns;
-  CHECK(moqns_tuple_take(wired_span_of(b, sizeof b), &off, &ns) == MOQCTL_OK);
+  CHECK(moqctl_ns_take(wired_span_of(b, sizeof b), &off, &ns) == MOQCTL_OK);
   CHECK(off == sizeof b && ns.n == 1 && ns.fields[0].p[0] == 'a');
 }
 
@@ -265,15 +265,15 @@ static void test_moqns_tuple_rejects(void) {
   usz             n   = 0;
   usz             off = 0;
   moqctl_ns       ns;
-  CHECK(moqns_tuple_take(wired_span_of(c33, 1), &off, &ns) == MOQCTL_VIOLATION);
+  CHECK(moqctl_ns_take(wired_span_of(c33, 1), &off, &ns) == MOQCTL_VIOLATION);
   CHECK(
-      moqns_tuple_take(wired_span_of(cmax, sizeof cmax), &off, &ns) ==
+      moqctl_ns_take(wired_span_of(cmax, sizeof cmax), &off, &ns) ==
       MOQCTL_VIOLATION);
   CHECK(
-      moqns_tuple_take(wired_span_of(z, sizeof z), &off, &ns) ==
+      moqctl_ns_take(wired_span_of(z, sizeof z), &off, &ns) ==
       MOQCTL_VIOLATION);
   CHECK(
-      moqns_tuple_take(wired_span_of(cut, sizeof cut), &off, &ns) ==
+      moqctl_ns_take(wired_span_of(cut, sizeof cut), &off, &ns) ==
       MOQCTL_INSUFFICIENT);
   CHECK(off == 0);
   CHECK(
@@ -284,8 +284,7 @@ static void test_moqns_tuple_rejects(void) {
   n += MOQCTL_MAX_FTN_LEN;
   over[n++] = 1;
   over[n++] = 'z';
-  CHECK(
-      moqns_tuple_take(wired_span_of(over, n), &off, &ns) == MOQCTL_VIOLATION);
+  CHECK(moqctl_ns_take(wired_span_of(over, n), &off, &ns) == MOQCTL_VIOLATION);
 }
 
 void test_moqns(void) {
