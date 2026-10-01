@@ -70,7 +70,7 @@ int wired_main(int argc, char** argv) {
   id.scid_len  = sizeof scid - 1; /* without the string's NUL */
 
   u16                  port = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
-  wired_srvrun_handler h    = {0, 0, on_request};
+  wired_srvrun_handler h    = {.http = on_request};
   wired_srvrun_obs     obs  = {0};
   return wired_server_run(port, &id, h, obs) ? 0 : 1;
 }

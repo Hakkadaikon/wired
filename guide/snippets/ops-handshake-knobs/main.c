@@ -60,6 +60,6 @@ int wired_main(int argc, char** argv) {
   };
 
   u16                  port = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
-  wired_srvrun_handler h    = {on_request, 0, 0};
+  wired_srvrun_handler h    = {.cb = on_request};
   return wired_server_run_opt(port, &id, h, obs, &opt) ? 0 : 1;
 }

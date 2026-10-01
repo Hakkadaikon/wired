@@ -74,7 +74,7 @@ int wired_main(int argc, char** argv) {
   opt.wt_session_close_ctx = &g_hub;
 
   u16                  port = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
-  wired_srvrun_handler h    = {0, 0, 0, 0};
+  wired_srvrun_handler h    = {0};
   wired_srvrun_obs     obs  = {0};
   return wired_server_run_opt(port, &id, h, obs, &opt) ? 0 : 1;
 }

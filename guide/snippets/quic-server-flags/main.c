@@ -44,7 +44,7 @@ int wired_main(int argc, char** argv) {
     wired_log_str("bad flags\n");
     return 2;
   }
-  wired_srvrun_handler h   = {on_request, 0, 0, 0};
+  wired_srvrun_handler h   = {.cb = on_request};
   wired_srvrun_obs     obs = {0};
   return wired_srvdriver_run(&id, h, obs, &opt) < 0 ? 1 : 0;
 }
