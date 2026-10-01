@@ -132,6 +132,10 @@ typedef struct {
    * whatever the Priority request header field set (RFC 9218 5), unaffected
    * by this field. */
   h3_priority priority;
+  /** 1 once a STREAM frame reached past req_buf's end: the request no
+   * longer fits and is answered 431/413 (dispatch.c route_complete_over)
+   * instead of being decoded truncated. */
+  int req_over;
 } wired_srvloop_stream_slot;
 
 /** RFC 9218 7.1 / 10: how many PRIORITY_UPDATE frames naming a not-yet-open

@@ -97,6 +97,11 @@ typedef struct {
    * H3_FRAME_UNEXPECTED instead of the H3_REQUEST_INCOMPLETE an ordinary
    * decode failure gets. */
   int frame_unexpected;
+  /** RFC 9110 15.5.14 / RFC 6585 5: 413 (body) or 431 (header section) when
+   * the request stream overflowed the server's per-request buffer -- every
+   * other field is then unset and the server answers with this status
+   * instead of calling the application. 0 otherwise. */
+  u16 too_large_status;
 } wired_h3reqdrive_req;
 
 /** RFC 9114 4.1, RFC 9204 4.5: decode a STREAM frame carrying a request:

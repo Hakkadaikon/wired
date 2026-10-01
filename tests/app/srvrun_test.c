@@ -18164,6 +18164,111 @@ static void test_srvrun_wt_close_on_established_connect_stream(void) {
   CHECK(!sr_sl_has_slot(c, 0));
 }
 
+/* ===== Request-size limits (RFC 9110 15.5.14 413, RFC 6585 5 431): a
+ * request stream that overflows its reassembly slot's req_buf is answered
+ * with a real status instead of being silently truncated. Boundaries use
+ * the production buffer itself (sizeof req_buf). */
+#define SR_REQ_BUF_CAP sizeof(((wired_srvloop_stream_slot*)0)->req_buf)
+
+/* A request stream's bytes: one HEADERS frame (POST, :path of plen bytes)
+ * then, when blen > 0, one DATA frame of blen bytes. Returns the length. */
+static usz sr_big_req(u8* out, usz cap, usz plen, usz blen) {
+  static u8       path[4096], body[4096], fields[4200];
+  wired_obuf      fob = obuf_of(fields, sizeof fields);
+  wired_obuf      ob  = obuf_of(out, cap);
+  h3req_pseudo_in pin = {
+      wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"https", 5),
+      wired_span_of((const u8*)"h", 1), wired_span_of(path, plen),
+      wired_span_of((const u8*)"", 0)};
+  bytes_memset(path, 'a', plen);
+  path[0] = '/';
+  bytes_memset(body, 'b', blen);
+  CHECK(h3req_enc_pseudo(&pin, &fob) == 1);
+  CHECK(h3_frame_put(&ob, H3_FRAME_HEADERS, wired_span_of(fields, fob.len)));
+  if (blen) { /* h3_frame_put writes at out->p: append via a tail view */
+    wired_obuf db = obuf_of(out + ob.len, cap - ob.len);
+    CHECK(h3_frame_put(&db, H3_FRAME_DATA, wired_span_of(body, blen)));
+    ob.len += db.len;
+  }
+  return ob.len;
+}
+
+/* sr_big_req sized to exactly target bytes, grown through the :path (body
+ * == 0, so the HEADERS frame alone is target bytes) or through the body
+ * (:path "/"). Returns the grown length (path or body), 0 if unreachable. */
+static usz sr_big_req_fit(u8* out, usz cap, usz target, int body) {
+  for (usz n = 1; n < 4000; n++) {
+    usz len = body ? sr_big_req(out, cap, 1, n) : sr_big_req(out, cap, n, 0);
+    if (len == target) return n;
+  }
+  return 0;
+}
+
+/* Send stream 0's bytes as consecutive 1000-byte STREAM frames, one client
+ * packet each, FIN on the last one when fin. */
+static void sr_sl_send_stream(srvrun_conn* c, const u8* d, usz n, int fin) {
+  for (usz off = 0; off < n; off += 1000) {
+    u8           pl[1100];
+    wired_obuf   sob = obuf_of(pl, sizeof pl);
+    usz          k   = n - off < 1000 ? n - off : 1000;
+    stream_frame sf  = {0, off, k, d + off, (u8)(fin && off + k == n)};
+    CHECK(appdata_stream_frame(&sf, &sob) == 1);
+    sr_sl_step(c, pl, sob.len);
+  }
+}
+
+/* 1 iff r is armed with exactly the bare status-only HEADERS frame. */
+static int sr_resp_is_status(const srvrun_resp* r, u16 status) {
+  u8         want[64];
+  wired_obuf ob = obuf_of(want, sizeof want);
+  if (!h3resp_prefix_field(status, 0, 0, 0, &ob)) return 0;
+  return r->in_use && r->sess.q.len == ob.len &&
+         wt_bytes_eq(r->sess.q.p, want, ob.len);
+}
+
+/* A HEADERS frame exactly filling req_buf is still decoded and served. */
+static void test_srvrun_headers_at_req_buf_limit_served(void) {
+  static u8    req[4096];
+  srvrun_conn* c = sr_sl_fixture();
+  CHECK(sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP, 0) != 0);
+  sr_sl_send_stream(c, req, SR_REQ_BUF_CAP, 1);
+  CHECK(g_sr_wt_handler_calls == 1);
+}
+
+/* RFC 6585 5: one byte more of HEADERS than req_buf holds earns 431, and
+ * the app handler never sees the truncated request. */
+static void test_srvrun_headers_over_req_buf_gets_431(void) {
+  static u8    req[4096];
+  srvrun_conn* c = sr_sl_fixture();
+  CHECK(sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP + 1, 0) != 0);
+  sr_sl_send_stream(c, req, SR_REQ_BUF_CAP + 1, 1);
+  CHECK(g_sr_wt_handler_calls == 0);
+  CHECK(sr_resp_is_status(&c->resp[0], 431));
+}
+
+/* HEADERS + DATA exactly filling req_buf: the whole body reaches the app. */
+static void test_srvrun_body_at_req_buf_limit_served(void) {
+  static u8    req[4096];
+  srvrun_conn* c    = sr_sl_fixture();
+  usz          blen = sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP, 1);
+  CHECK(blen != 0);
+  sr_sl_send_stream(c, req, SR_REQ_BUF_CAP, 1);
+  CHECK(g_sr_wt_handler_calls == 1);
+  CHECK(c->l.req.body_len == blen);
+}
+
+/* RFC 9110 15.5.14: a body one byte past req_buf earns 413 -- answered as
+ * soon as the overflow arrives, without waiting for a FIN a client blocked
+ * on flow control might never send. */
+static void test_srvrun_body_over_req_buf_gets_413(void) {
+  static u8    req[4096];
+  srvrun_conn* c = sr_sl_fixture();
+  CHECK(sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP + 1, 1) != 0);
+  sr_sl_send_stream(c, req, SR_REQ_BUF_CAP + 1, 0);
+  CHECK(g_sr_wt_handler_calls == 0);
+  CHECK(sr_resp_is_status(&c->resp[0], 413));
+}
+
 /* RFC 9114 4.1: a GET with FIN is dispatched once; its slot is re-armed
  * right away and released once the response is acknowledged. */
 static void test_srvrun_get_with_fin_dispatched_once_then_released(void) {
@@ -18753,6 +18858,10 @@ void test_srvrun(void) {
   test_srvrun_wt_usage_counters_exposed();
   test_srvrun_wt_close_on_established_connect_stream();
   test_srvrun_get_with_fin_dispatched_once_then_released();
+  test_srvrun_headers_at_req_buf_limit_served();
+  test_srvrun_headers_over_req_buf_gets_431();
+  test_srvrun_body_at_req_buf_limit_served();
+  test_srvrun_body_over_req_buf_gets_413();
   test_srvrun_retransmitted_request_not_redispatched();
   test_srvrun_wt_connect_stream_with_session_not_redispatched();
   test_srvrun_wt_connect_before_client_settings_held();

@@ -5941,6 +5941,7 @@ static srvrun_resp* srvrun_start_resp_claim(srvrun_conn* c) {
  * through as a plain CONNECT). 0 once neither applies. Split out of
  * srvrun_dispatch_resp so its own branch count stays at the CCN gate. */
 static u16 srvrun_non_wt_status(const wired_h3reqdrive_req* r) {
+  if (r->too_large_status) return r->too_large_status;
   if (srvrun_is_wt_connect_unsupported_protocol(r)) return 501;
   return srvrun_method_status(r);
 }
