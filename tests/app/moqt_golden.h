@@ -1,7 +1,6 @@
 /* Generated from examples/moqt_chat/testvectors/moqt_golden.json.
  * Do not edit by hand: edit the JSON, then regenerate
- * (python3 tasks/test-design/gen_moqt_golden_h.py). Draft:
- * draft-ietf-moq-transport-19. */
+ * (python3 scripts/gen_moqt_golden.py). Draft: draft-ietf-moq-transport-19. */
 #ifndef MOQT_GOLDEN_H
 #define MOQT_GOLDEN_H
 
