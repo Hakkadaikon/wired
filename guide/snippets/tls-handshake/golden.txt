@@ -1,0 +1,6 @@
+$ ./tls-handshake --port 4433
+conn closed by peer (CONNECTION_CLOSE)
+$ probe tls 127.0.0.1:4433
+version: TLS 1.3
+cipher: TLS_AES_128_GCM_SHA256
+alpn: h3

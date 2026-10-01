@@ -1,0 +1,20 @@
+---
+title: SHA-256
+description: wired_sha256 でバイト列をハッシュし、ダイジェストを表示する。
+sidebar:
+  order: 1
+---
+import Example from '../../../../components/Example.astro';
+
+SHA-256 は TLS 1.3 の鍵スケジュールの土台にあるハッシュ関数です。
+このページでは `abc` をハッシュします。
+得られるダイジェストは、FIPS 180 と RFC 6234 にある "abc" のテストベクタです。
+
+<Example id="tls-sha256" />
+
+## 仕組み
+
+- `wired_sha256(data, len, out)` は `len` バイトを 1 回の呼び出しでハッシュし、`SHA256_DIGEST`（32）バイトのバッファに書きます。
+- `wired_sha256` は `wired.h` に含まれないので、`crypto/symmetric/hash/hash/sha256.h` を明示的にインクルードします。
+- `log_hex` はこのプログラム内のヘルパーです。
+  `printf` がないため、各バイトを 2 桁の 16 進数に変換し、`wired_log_str` で書き出します。

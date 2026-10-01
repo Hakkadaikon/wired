@@ -1,0 +1,1 @@
+{ "client": "none", "serverArgs": ["cert.pem", "key.pem"] }
