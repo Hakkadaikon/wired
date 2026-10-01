@@ -5085,64 +5085,6 @@ static void test_srvrun_wt_connect_establishes_session(void) {
   CHECK(conns[0].resp[0].sess.active == 1); /* the bare 2xx was armed */
 }
 
-/* WTH3-009/042 (draft-ietf-webtrans-http3-15 SS3.1): the server shall not
- * process any incoming WebTransport request until the client's own SETTINGS
- * has been received. An otherwise well-formed Extended CONNECT arriving
- * before that is rejected (no session established) rather than falling
- * through to the app handler either. */
-static void test_srvrun_wt_connect_before_client_settings_rejected(void) {
-  struct lp_fix f;
-  conntable     table[WIRED_CONNTABLE_CAP];
-  srvrun_conn*  conns = sr_test_conns();
-  wired_obuf    ob;
-  u8            obuf[1024];
-  ob                    = (wired_obuf){obuf, sizeof obuf, 0};
-  g_sr_wt_handler_calls = 0;
-  conntable_init(table, WIRED_CONNTABLE_CAP);
-  sr_make_confirmed_conn(&conns[0], &f, &ob);
-  conns[0].l.peer_ctrl.settings_seen = 0; /* client SETTINGS not yet seen */
-  sr_set_req(&conns[0], 1, 1, 4);
-  {
-    srvrun_cfg cfg = {
-        -1,
-        0,
-        sr_wt_handler,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        &g_srvrun_env,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0};
-    srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
-    srvrun_start_resp(&ctx, 0);
-  }
-  CHECK(g_sr_wt_handler_calls == 0); /* never falls through to the app either */
-  CHECK(conns[0].wt_active == 0);
-  CHECK(conns[0].resp[0].sess.active == 1); /* a bare status WAS sealed */
-}
-
 /* Same request, but with the client's SETTINGS already observed (the normal
  * case every other WT test in this file defaults to via
  * sr_make_confirmed_conn) -- establishes the session as before, proving the
@@ -18211,6 +18153,91 @@ static void test_srvrun_wt_connect_stream_with_session_not_redispatched(void) {
   CHECK(c->resp[0].in_use == 0);
 }
 
+/* The client's control stream (RFC 9114 6.2.1, client uni stream 2): the
+ * stream type 0x00 and an empty SETTINGS frame, as one client packet. */
+static void sr_sl_send_settings(srvrun_conn* c) {
+  static const u8 ctrl[] = {0x00, H3_FRAME_SETTINGS, 0x00};
+  u8              pl[64];
+  wired_obuf      sob = obuf_of(pl, sizeof pl);
+  stream_frame    sf  = {2, 0, sizeof ctrl, ctrl, 0};
+  CHECK(appdata_stream_frame(&sf, &sob) == 1);
+  sr_sl_step(c, pl, sob.len);
+}
+
+/* The fixture with the client's SETTINGS not yet seen. */
+static srvrun_conn* sr_sl_fixture_no_settings(void) {
+  srvrun_conn* c               = sr_sl_fixture();
+  c->l.peer_ctrl.settings_seen = 0;
+  return c;
+}
+
+/* Sessions established so far through the shared env. */
+static u64 sr_sl_sessions(void) {
+  wired_srvrun_wt_usage u;
+  wired_srvrun_env_wt_usage(&g_srvrun_env, &u);
+  return u.sessions;
+}
+
+/* WTH3-009/042 (draft-ietf-webtrans-http3-15 SS3.1): the server shall not
+ * process an incoming WebTransport request until the client's SETTINGS
+ * arrive. A CONNECT arriving first gets no response at all and is held;
+ * the SETTINGS then let it through to a 200 and the hold is cleared. */
+static void test_srvrun_wt_connect_before_client_settings_held(void) {
+  srvrun_conn* c    = sr_sl_fixture_no_settings();
+  u64          base = sr_sl_sessions();
+  sr_sl_send_headers(c, 0, "CONNECT", 0);
+  CHECK(c->resp[0].in_use == 0); /* no response, not even a rejection */
+  CHECK(c->wt_active == 0);
+  CHECK(c->wt_held_mask != 0);
+  sr_sl_send_settings(c);
+  CHECK(c->wt_held_mask == 0);
+  CHECK(c->wt_active == 1);
+  CHECK(c->resp[0].in_use == 1); /* the 200 */
+  CHECK(sr_sl_sessions() == base + 1);
+  CHECK(g_sr_wt_handler_calls == 0);
+}
+
+/* Two CONNECTs held before SETTINGS are each processed exactly once. */
+static void test_srvrun_wt_two_held_connects_each_processed_once(void) {
+  srvrun_conn* c    = sr_sl_fixture_no_settings();
+  u64          base = sr_sl_sessions();
+  sr_sl_send_headers(c, 0, "CONNECT", 0);
+  sr_sl_send_headers(c, 4, "CONNECT", 0);
+  CHECK(c->resp[0].in_use == 0);
+  sr_sl_send_settings(c);
+  CHECK(sr_sl_sessions() == base + 2);
+  CHECK(c->wt_held_mask == 0);
+  sr_sl_send_settings(c); /* a later step re-processes nothing */
+  CHECK(sr_sl_sessions() == base + 2);
+}
+
+/* A held CONNECT whose HEADERS are retransmitted before the SETTINGS
+ * still yields exactly one session. */
+static void test_srvrun_wt_held_connect_retransmitted_one_session(void) {
+  srvrun_conn* c    = sr_sl_fixture_no_settings();
+  u64          base = sr_sl_sessions();
+  sr_sl_send_headers(c, 0, "CONNECT", 0);
+  sr_sl_send_headers(c, 0, "CONNECT", 0);
+  sr_sl_send_settings(c);
+  CHECK(sr_sl_sessions() == base + 1);
+  sr_sl_send_headers(c, 0, "CONNECT", 0);
+  CHECK(sr_sl_sessions() == base + 1);
+}
+
+/* WTH3-007: a held CONNECT from a peer whose transport parameters lack a
+ * WebTransport requirement is rejected (403, no session) once the SETTINGS
+ * arrive, exactly as it would be without the hold. */
+static void test_srvrun_wt_held_connect_rejected_after_settings(void) {
+  srvrun_conn* c                         = sr_sl_fixture_no_settings();
+  c->s.sdrv.peer_max_datagram_frame_size = 0;
+  sr_sl_send_headers(c, 0, "CONNECT", 0);
+  CHECK(c->resp[0].in_use == 0);
+  sr_sl_send_settings(c);
+  CHECK(c->wt_active == 0);
+  CHECK(c->resp[0].in_use == 1); /* the rejection */
+  CHECK(c->wt_held_mask == 0);
+}
+
 void test_srvrun(void) {
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
@@ -18494,7 +18521,6 @@ void test_srvrun(void) {
   test_srvrun_wt_uni_stream_buffer_full_sends_reset();
   test_srvrun_normal_request_unaffected_by_wt_branch();
   test_srvrun_wt_connect_establishes_session();
-  test_srvrun_wt_connect_before_client_settings_rejected();
   test_srvrun_wt_connect_after_client_settings_establishes();
   test_srvrun_wt_connect_webtransport_token();
   test_srvrun_wt_connect_unsupported_protocol_gets_501();
@@ -18669,4 +18695,8 @@ void test_srvrun(void) {
   test_srvrun_get_with_fin_dispatched_once_then_released();
   test_srvrun_retransmitted_request_not_redispatched();
   test_srvrun_wt_connect_stream_with_session_not_redispatched();
+  test_srvrun_wt_connect_before_client_settings_held();
+  test_srvrun_wt_two_held_connects_each_processed_once();
+  test_srvrun_wt_held_connect_retransmitted_one_session();
+  test_srvrun_wt_held_connect_rejected_after_settings();
 }
