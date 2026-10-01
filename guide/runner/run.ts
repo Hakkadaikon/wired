@@ -25,7 +25,8 @@ interface Proc {
 }
 
 function start(cmd: string, args: string[], cwd: string): Proc {
-  const child = spawn(cmd, args, { cwd });
+  // detached = own process group, so a server that forks workers stops as a whole.
+  const child = spawn(cmd, args, { cwd, detached: true });
   let stdout = '';
   let stderr = '';
   child.stdout?.on('data', (d) => (stdout += d));
@@ -68,9 +69,17 @@ async function waitBound(server: Proc): Promise<void> {
   throw new Error(`server did not bind udp ${port} within 5s`);
 }
 
+function signal(p: Proc, sig: NodeJS.Signals) {
+  try {
+    process.kill(-p.child.pid!, sig);
+  } catch {
+    // already gone
+  }
+}
+
 async function stop(server: Proc) {
-  server.child.kill('SIGTERM');
-  const kill = setTimeout(() => server.child.kill('SIGKILL'), 3000);
+  signal(server, 'SIGTERM');
+  const kill = setTimeout(() => signal(server, 'SIGKILL'), 3000);
   const res = await server.out;
   clearTimeout(kill);
   return res;
@@ -104,14 +113,14 @@ async function execute(id: string, run: Run): Promise<string> {
     const s = await stop(srv);
     return `$ ./${id} ${sargs.join(' ')}\n${s.stderr}$ ${c.shown}\n${res.stdout}`;
   } finally {
-    srv.child.kill('SIGKILL');
+    signal(srv, 'SIGKILL');
   }
 }
 
 function buildGo(ids: string[], runs: Map<string, Run>) {
   const go = (out: string, pkg: string) => execFileSync('go', ['build', '-o', join(bin, out), pkg], { cwd: guide, stdio: 'inherit' });
   if (ids.some((id) => runs.get(id)?.client === 'probe')) go('probe', './probe');
-  for (const id of ids) if (runs.get(id)?.client === 'go') go(`${id}-client`, `./snippets/${id}`);
+  for (const id of ids) if (runs.get(id)?.client === 'go') go(`${id}-client`, `./snippets/${id}/client.go`);
 }
 
 function diff(goldenPath: string, got: string): string {
