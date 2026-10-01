@@ -1,0 +1,44 @@
+---
+title: ライブトラックの公開
+description: フラグメント化された MP4 を、連続する MoQT Group として配信する。
+sidebar:
+  order: 3
+---
+import Example from '../../../../components/Example.astro';
+
+クロックに合わせて配信するトラックです。
+`wired_moqt_publish_live` は、フラグメント化された MP4 の各フラグメントを、
+連続する Group に変換します。
+`group_ms` ごとに 1 つずつ、サーバーのクロックがその Group に入った瞬間、
+すべての購読者へ送られます。
+
+<Example id="moqt-live" />
+
+## 仕組み
+
+- `mp4frag_scan` は、フラグメント化された MP4 のトップレベルボックス
+  （ISO/IEC 14496-12）を走査し、init セグメント（`ftyp`+`moov`）と、
+  `moof`+`mdat` の各フラグメントへのビューの一覧に分けます。
+  サンプルテーブルは解析しません。
+  公開に必要な境界だけを読みます。
+  `movie-live.mp4`（`main.c` の隣に置かれており、`gen_movie.py` で再生成できます）は、
+  小さな合成ファイルです。
+  ボックス構造は本物ですが、メディアのバイト列はダミーです。
+  このページが示すのは MoQT の Group 配信であり、動画のデコードではありません。
+- init セグメントは、前のページと同じく `wired_moqt_publish_blob` で、
+  単独のトラック（`movie/init`）として公開します。
+- `wired_moqt_publish_live(&hub, name, alias, frags, n_frags, group_ms, now_ms)` は、
+  各フラグメントをトラック `movie` として公開します。
+  Group `g` は、フラグメント `g mod n_frags` を運びます。
+  SUBSCRIBE には SUBSCRIBE_OK とその時点の Group が即座に返ります。
+  `wired_srvrun_opt.on_step` に接続した `wired_moqt_tick` が、
+  クロックが新しい Group に入った瞬間、それ以降の各 Group を送ります。
+- Group の配信には、もう一つの io エントリ `send_uni2` が必要です。
+  ハブは、短いフレーミング（`head`）を組み立て、ビューとして持っているだけの
+  フラグメント（`body`）の手前に置きます。
+  アダプタ側は、WebTransport の signal の後ろでこの両方を連結し、
+  自前の領域へ書き込みます。
+  この領域は、SDK がそのストリームをもう `wired_server_wt_stream_inflight`
+  ではないと報告するまで、書き換えてはいけません。
+  このページが小さなリングを持っているのはこのためです。
+  `examples/moqt_chat` のサーバーが、より大きな規模で使っているのと同じ仕組みです。
