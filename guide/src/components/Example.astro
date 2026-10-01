@@ -1,0 +1,33 @@
+---
+import { Code } from '@astrojs/starlight/components';
+import { getExample, splitGolden } from '../lib/examples.ts';
+
+interface Props {
+  id: string;
+}
+
+const labels = {
+  en: { code: 'Code', client: 'Client', output: 'Output' },
+  ja: { code: 'コード', client: 'クライアント', output: '実行結果' },
+};
+const t = Astro.currentLocale === 'ja' ? labels.ja : labels.en;
+const { id } = Astro.props;
+const ex = getExample(id);
+---
+
+<div data-example={id}>
+  <p><strong>{t.code}</strong></p>
+  <Code code={ex.code} lang="c" title="main.c" />
+  {
+    ex.client && (
+      <>
+        <p><strong>{t.client}</strong></p>
+        <Code code={ex.client} lang="go" title="client.go" />
+      </>
+    )
+  }
+  <div data-example-result>
+    <p><strong>{t.output}</strong></p>
+    {splitGolden(ex.golden).map((s) => <Code code={`$ ${s.cmd}\n${s.out}`} lang="shellsession" />)}
+  </div>
+</div>
