@@ -18464,6 +18464,42 @@ static void test_srvrun_wt_bidi_credit_raised_from_request_window(void) {
   CHECK(STP_DEFAULT_STREAM_DATA_REMOTE < WIRED_SRVLOOP_WT_BUF_CAP);
 }
 
+/* RFC 9114 4.1.2: an early answer asks the client to stop sending the
+ * rest of the request with H3_NO_ERROR (STOP_SENDING, RFC 9000 19.5). */
+static void test_srvrun_stop_sending_wire_shape(void) {
+  u8                 pkt[256];
+  wired_obuf         pktb = obuf_of(pkt, sizeof pkt);
+  const u8*          pl;
+  usz                pll;
+  stop_sending_frame ss;
+  srvrun_conn*       c = sr_sl_fixture();
+  CHECK(srvrun_seal_stop_sending(c, 8, H3_NO_ERROR, &pktb) == 1);
+  CHECK(client_open_onertt(&g_sl_f, pktb.p, pktb.len, &pl, &pll) == 1);
+  CHECK(pl[0] == FRAME_STOP_SENDING);
+  CHECK(stop_sending_decode(pl, pll, &ss) == pll);
+  CHECK(ss.stream_id == 8 && ss.error_code == H3_NO_ERROR);
+}
+
+/* The early 413 sends one packet more than its bare response: the
+ * STOP_SENDING above. */
+#define SR_EARLY_413_SENDS 2
+static void test_srvrun_early_413_also_stops_sending(void) {
+  static u8    req[4096];
+  srvrun_conn* c = sr_sl_fixture();
+  CHECK(sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP + 1, 1) != 0);
+  sr_sl_send_stream(c, req, 2000, 0);
+  {
+    u8           pl[200];
+    wired_obuf   sob = obuf_of(pl, sizeof pl);
+    stream_frame sf  = {0, 2000, SR_REQ_BUF_CAP + 1 - 2000, req + 2000, 0};
+    CHECK(appdata_stream_frame(&sf, &sob) == 1);
+    srvrun_test_reset_send_count();
+    sr_sl_step(c, pl, sob.len);
+  }
+  CHECK(sr_resp_is_status(&c->resp[0], 413));
+  CHECK(srvrun_test_send_count() == SR_EARLY_413_SENDS);
+}
+
 /* Send c's GOAWAY and return the stream id it carried (~0 if unreadable). */
 static u64 sr_sl_goaway(srvrun_conn* c) {
   u8         out[256];
@@ -19434,6 +19470,8 @@ void test_srvrun(void) {
   test_srvrun_full_window_body_gets_413();
   test_srvrun_full_window_headers_get_431();
   test_srvrun_wt_bidi_credit_raised_from_request_window();
+  test_srvrun_stop_sending_wire_shape();
+  test_srvrun_early_413_also_stops_sending();
   test_srvrun_retransmitted_request_not_redispatched();
   test_srvrun_wt_connect_stream_with_session_not_redispatched();
   test_srvrun_wt_connect_before_client_settings_held();

@@ -1753,6 +1753,25 @@ static int srvrun_seal_wt_busy_reset(
   return srvrun_seal_ctl(c, pl, pln, out);
 }
 
+/* RFC 9000 19.5: a STOP_SENDING alone, as its own 1-RTT packet. */
+static int srvrun_seal_stop_sending(
+    srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* out) {
+  u8         pl[32];
+  wired_obuf plb = obuf_of(pl, sizeof pl);
+  return srvrun_seal_ctl(
+      c, pl, srvrun_wt_abort_stop(stream_id, err_code, &plb, 0), out);
+}
+
+/* RFC 9114 4.1.2: a server answering before it read the whole request
+ * "SHOULD" ask with H3_NO_ERROR that the client stop sending the rest. */
+static void srvrun_send_stop_sending(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id) {
+  u8         out[128];
+  wired_obuf ob = obuf_of(out, sizeof out);
+  if (!srvrun_seal_stop_sending(c, stream_id, H3_NO_ERROR, &ob)) return;
+  srvrun_send(cfg, c, wired_span_of(out, ob.len), "STOP_SENDING sent\n");
+}
+
 /* Seal and send the type-appropriate abort frames carrying err_code as
  * their own 1-RTT packet. */
 static void srvrun_send_wt_busy_reset(
@@ -6086,6 +6105,13 @@ static u16 srvrun_non_wt_status(const wired_h3reqdrive_req* r) {
   return srvrun_method_status(r);
 }
 
+/* A 413/431 answers a request the server stopped reading (an overflow, or
+ * on_body declining): ask the client to stop sending the rest. */
+static void srvrun_stop_unread(const srvrun_cfg* cfg, srvrun_conn* c) {
+  if (c->l.req.too_large_status)
+    srvrun_send_stop_sending(cfg, c, c->l.req_stream_id);
+}
+
 /* Route a claimed slot to WT dispatch, a method/protocol-status response
  * (501/405), or the application handler -- split out of srvrun_start_resp so
  * its own `!r` guard stays a single branch at the CCN gate. */
@@ -6099,6 +6125,7 @@ static void srvrun_dispatch_resp(
   status = srvrun_non_wt_status(&c->l.req);
   if (status) {
     srvrun_start_method_status(ctx->cfg->env, slot, c, r, status);
+    srvrun_stop_unread(ctx->cfg, c);
     return;
   }
   srvrun_start_app_resp(ctx, c, slot, r);
