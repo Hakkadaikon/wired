@@ -883,6 +883,64 @@ static void test_moqctl_params_auth_token_scope_violation(void) {
       MOQCTL_VIOLATION);
 }
 
+/* draft-ietf-moq-transport-19 10.2.x / 15.7 Table 13: each Message
+ * Parameter Type, a well-formed Value, and the MOQCTL_PCTX_* set whose
+ * "MAY appear in" sentence names it (plus SUBSCRIBE_TRACKS where 10.19.1
+ * extends every SUBSCRIBE parameter to it). Copied from the draft, not
+ * from moqctl.c, so the test is an independent oracle. */
+typedef struct {
+  u64       type;
+  u32       ctx;
+  const u8* val;
+  usz       n;
+} mqpt_row;
+
+static const u8 MQPT_VARINT[]  = {0x05};
+static const u8 MQPT_UINT8[]   = {0x01};
+static const u8 MQPT_TOKEN[]   = {0x02, 0x02, 0x07}; /* USE_ALIAS 7 */
+static const u8 MQPT_LOC[]     = {0x07, 0x03};
+static const u8 MQPT_RANGE[]   = {0x02, 0x00, 0x03}; /* SetID 0, Start 3 */
+static const u8 MQPT_PROPRNG[] = {0x03, 0x00, 0x02, 0x03};
+
+static const mqpt_row MQPT_REGISTRY[] = {
+    {0x02, 0x7D009, MQPT_VARINT, 1},  {0x03, 0x7D555, MQPT_TOKEN, 3},
+    {0x04, 0x1001, MQPT_VARINT, 1},   {0x06, 0x7D009, MQPT_VARINT, 1},
+    {0x08, 0x82A0E, MQPT_VARINT, 1},  {0x09, 0x80086, MQPT_LOC, 2},
+    {0x0A, 0x10, MQPT_VARINT, 1},     {0x10, 0x500D, MQPT_UINT8, 1},
+    {0x20, 0xD019, MQPT_UINT8, 1},    {0x22, 0x1011, MQPT_UINT8, 1},
+    {0x25, 0x5019, MQPT_RANGE, 3},    {0x26, 0x5019, MQPT_RANGE, 3},
+    {0x27, 0x5019, MQPT_RANGE, 3},    {0x28, 0x5019, MQPT_PROPRNG, 4},
+    {0x29, 0x21000, MQPT_PROPRNG, 4}, {0x32, 0x5009, MQPT_VARINT, 1},
+};
+#define MQPT_REGISTRY_N (sizeof MQPT_REGISTRY / sizeof MQPT_REGISTRY[0])
+
+/* count 1 + Type + r's Value; returns the list length. */
+static usz mqpt_build(u8* buf, usz cap, const mqpt_row* r) {
+  usz off = 0;
+  CHECK(moqvi_put(wired_mspan_of(buf, cap), &off, 1));
+  CHECK(moqvi_put(wired_mspan_of(buf, cap), &off, r->type));
+  for (usz i = 0; i < r->n; i++) buf[off + i] = r->val[i];
+  return off + r->n;
+}
+
+/* One parameter decoded under one context bit: accepted (and consumed
+ * whole) exactly when the registry lists that context, else
+ * PROTOCOL_VIOLATION (10.2.1). */
+static void mqpt_check_one(const mqpt_row* r, u32 bit) {
+  static moqctl_params out;
+  u8                   buf[16];
+  usz                  n    = mqpt_build(buf, sizeof buf, r);
+  usz                  roff = 0;
+  int got = moqctl_params_take(wired_span_of(buf, n), &roff, bit, &out);
+  CHECK(got == ((r->ctx & bit) ? MOQCTL_OK : MOQCTL_VIOLATION));
+  CHECK(got != MOQCTL_OK || (roff == n && out.items[0].type == r->type));
+}
+
+static void test_moqctl_params_registry_scope(void) {
+  for (usz i = 0; i < MQPT_REGISTRY_N; i++)
+    for (u32 b = 0; b < 20; b++) mqpt_check_one(&MQPT_REGISTRY[i], 1u << b);
+}
+
 /* ===== TEST: SETUP Setup Options behaviors ===== */
 
 /* Unknown Setup Option (including a duplicate of it) is ignored. */
@@ -1108,6 +1166,7 @@ void test_moqctl(void) {
   test_moqctl_params_auth_token_alias_shapes_decode();
   test_moqctl_params_auth_token_malformed_kvfmt();
   test_moqctl_params_auth_token_scope_violation();
+  test_moqctl_params_registry_scope();
 
   test_moqctl_setup_unknown_option_ignored();
   test_moqctl_setup_path_option_decode();
