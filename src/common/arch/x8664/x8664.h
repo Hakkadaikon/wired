@@ -41,6 +41,10 @@
 #define SYS_getrandom 318         /**< getrandom(2) syscall number */
 #define SYS_fork 57               /**< fork(2) syscall number */
 #define SYS_wait4 61              /**< wait4(2) syscall number */
+#define SYS_kill 62               /**< kill(2) syscall number */
+#define SYS_getpid 39             /**< getpid(2) syscall number */
+#define SYS_getppid 110           /**< getppid(2) syscall number */
+#define SYS_prctl 157             /**< prctl(2) syscall number */
 #define SYS_exit_group 231        /**< exit_group(2) syscall number */
 #define SYS_poll 7                /**< poll(2) syscall number */
 #define SYS_getsockopt 55         /**< getsockopt(2) syscall number */
