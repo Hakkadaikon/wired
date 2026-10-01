@@ -27,13 +27,16 @@ static usz put_headers_qenc(
     u16                     status,
     const char*             content_type,
     const qpack_field*      extra,
+    usz                     n_extra,
     qpackenc_state*         qenc,
     qpackenc_status_result* insert_out,
     wired_obuf*             out) {
-  u8         field[192];
+  /* sized for the largest prefix a caller frames: srvrun's 512-byte
+   * response header room */
+  u8         field[512];
   wired_obuf fob = obuf_of(field, sizeof field);
-  if (!h3resp_encode_headers_field_qenc(
-          status, content_type, extra, qenc, insert_out, &fob))
+  if (!h3resp_encode_headers_fields_qenc(
+          status, content_type, extra, n_extra, qenc, insert_out, &fob))
     return 0;
   return h3_frame_put(out, H3_FRAME_HEADERS, wired_span_of(field, fob.len));
 }
@@ -44,7 +47,8 @@ static usz put_headers(
     const qpack_field* extra,
     wired_obuf*        out) {
   qpackenc_status_result unused;
-  return put_headers_qenc(status, content_type, extra, 0, &unused, out);
+  return put_headers_qenc(
+      status, content_type, extra, extra != 0, 0, &unused, out);
 }
 
 /* RFC 9114 4.1 */
@@ -71,12 +75,29 @@ static int prefix_data_hdr(u64 body_len, wired_obuf* out) {
 }
 
 /* Same as h3resp_prefix_field, but :status is encoded through qenc's
- * dynamic table when non-null (put_headers_qenc). qenc == 0 behaves
- * identically to h3resp_prefix_field. *insert_out receives any pending
- * encoder-stream instruction the :status line generated (insert_len == 0 if
- * none, always the case when qenc == 0) -- the caller sends it on the QPACK
- * encoder stream and calls qpackenc_note_sent once it does (RFC 9204 4.3.3
- * / 4.4.1). */
+ * dynamic table when non-null (put_headers_qenc), and extra is a list of
+ * n_extra fields. *insert_out receives any pending encoder-stream
+ * instruction the :status line generated (insert_len == 0 if none, always
+ * the case when qenc == 0) -- the caller sends it on the QPACK encoder
+ * stream and calls qpackenc_note_sent once it does (RFC 9204 4.3.3 /
+ * 4.4.1). */
+int h3resp_prefix_fields_qenc(
+    u16                     status,
+    const char*             content_type,
+    u64                     body_len,
+    const qpack_field*      extra,
+    usz                     n_extra,
+    qpackenc_state*         qenc,
+    qpackenc_status_result* insert_out,
+    wired_obuf*             out) {
+  wired_obuf head = obuf_of(out->p, out->cap);
+  usz        off  = put_headers_qenc(
+      status, content_type, extra, n_extra, qenc, insert_out, &head);
+  if (!off) return 0;
+  out->len = off;
+  return prefix_data_hdr(body_len, out);
+}
+
 int h3resp_prefix_field_qenc(
     u16                     status,
     const char*             content_type,
@@ -85,12 +106,8 @@ int h3resp_prefix_field_qenc(
     qpackenc_state*         qenc,
     qpackenc_status_result* insert_out,
     wired_obuf*             out) {
-  wired_obuf head = obuf_of(out->p, out->cap);
-  usz        off =
-      put_headers_qenc(status, content_type, extra, qenc, insert_out, &head);
-  if (!off) return 0;
-  out->len = off;
-  return prefix_data_hdr(body_len, out);
+  return h3resp_prefix_fields_qenc(
+      status, content_type, body_len, extra, extra != 0, qenc, insert_out, out);
 }
 
 int h3resp_prefix_field(

@@ -105,16 +105,16 @@ static usz put_prefix_and_status(
   return pre_len + status_len;
 }
 
-/* Append one Literal Field Line With Literal Name (RFC 9204 4.5.6) at *off
- * when extra is non-null; a no-op (success) otherwise. */
-static int append_extra_field(
-    const qpack_field* extra, u8* out, usz cap, usz* off) {
-  usz n;
-  if (!extra) return 1;
-  n = qpack_literal_name_encode(
-      wired_mspan_of(out + *off, cap - *off), 0, extra);
-  if (!n) return 0;
-  *off += n;
+/* Append one Literal Field Line With Literal Name (RFC 9204 4.5.6) per
+ * entry of extra[0..n) at *off, in order; n == 0 is a no-op (success). */
+static int append_extra_fields(
+    const qpack_field* extra, usz n, u8* out, usz cap, usz* off) {
+  for (usz i = 0; i < n; i++) {
+    usz c = qpack_literal_name_encode(
+        wired_mspan_of(out + *off, cap - *off), 0, &extra[i]);
+    if (!c) return 0;
+    *off += c;
+  }
   return 1;
 }
 
@@ -137,6 +137,23 @@ static usz put_status_and_ct(
  * *insert_out (never null: caller-owned scratch) receives any pending
  * encoder-stream instruction the :status line generated -- insert_len == 0
  * always when qenc == 0. */
+int h3resp_encode_headers_fields_qenc(
+    u16                     status,
+    const char*             content_type,
+    const qpack_field*      extra,
+    usz                     n_extra,
+    qpackenc_state*         qenc,
+    qpackenc_status_result* insert_out,
+    wired_obuf*             out) {
+  usz off = put_status_and_ct(
+      status, content_type, qenc, out->p, out->cap, insert_out);
+  if (!off) return 0;
+  if (!append_extra_fields(extra, n_extra, out->p, out->cap, &off)) return 0;
+  out->len = off;
+  return 1;
+}
+
+/* RFC 9204 4.5: the single-extra form (extra == 0 adds none). */
 int h3resp_encode_headers_field_qenc(
     u16                     status,
     const char*             content_type,
@@ -144,12 +161,8 @@ int h3resp_encode_headers_field_qenc(
     qpackenc_state*         qenc,
     qpackenc_status_result* insert_out,
     wired_obuf*             out) {
-  usz off = put_status_and_ct(
-      status, content_type, qenc, out->p, out->cap, insert_out);
-  if (!off) return 0;
-  if (!append_extra_field(extra, out->p, out->cap, &off)) return 0;
-  out->len = off;
-  return 1;
+  return h3resp_encode_headers_fields_qenc(
+      status, content_type, extra, extra != 0, qenc, insert_out, out);
 }
 
 /* RFC 9204 4.5 */
