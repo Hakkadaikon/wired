@@ -1,0 +1,34 @@
+---
+title: Handshake and observability knobs
+description: Session resumption, stateless Retry, the congestion control algorithm, and qlog/keylog output.
+sidebar:
+  order: 1
+---
+import Example from '../../../../components/Example.astro';
+
+Four server options that do not change what a connection carries, only how
+it gets there and what gets logged alongside it: session-ticket
+resumption, RFC 9000 8.1.2 Retry, the congestion controller, and qlog/NSS
+key log output.
+
+<Example id="ops-handshake-knobs" />
+
+## How it works
+
+- `id.ticket_key = wired_srvloop_ticket_key()` enables session-ticket
+  resumption (RFC 8446 4.6.1, 0-RTT's prerequisite): the SDK's own fixed
+  per-process key both seals the tickets it issues and opens ones
+  presented back, since sealing and opening are symmetric.
+- `opt.force_retry = 1` makes every Initial without a valid Retry token
+  get a stateless Retry first (RFC 9000 8.1.2) -- the quic-interop-runner's
+  retry testcase's server mode. A real client handles this transparently;
+  the handshake still completes, just with one extra round trip.
+- `obs.cc_algo` picks the congestion controller for fresh connections
+  (`CC_ALGO_NEWRENO` 0, `CC_ALGO_CUBIC` 1, `CC_ALGO_BBR` 2, see
+  `transport/recovery/congestion/cc/cc.h`); `0` with no build override
+  means NewReno, so a build wanting Cubic/BBR either sets this per
+  connection or overrides `WIRED_CC_ALGO_DEFAULT`.
+- `obs.qlog_path` / `obs.keylog_path` write a qlog (RFC 9002-shaped
+  `packet_sent`/`packet_received` events) and an NSS key log
+  (`SSLKEYLOGFILE` format) a tool like Wireshark reads to decrypt a
+  capture -- both 0 by default.
