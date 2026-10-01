@@ -106,7 +106,16 @@ typedef struct {
    * relay drains as fast as its per-round refusals allow -- the pre-
    * send_budget behavior, unchanged. */
   usz (*send_budget)(wired_wt_session* s);
+  /** wired_server_wt_close_session-shaped: closes s's WebTransport session
+   * with a draft-ietf-moq-transport-19 SS3.5 termination code and reason.
+   * Kept last so older positional initializers stay valid; a table built
+   * without it (0) never closes a session -- a control message that
+   * requires a close is skipped by its Length instead. */
+  int (*close_session)(wired_wt_session* s, u32 error_code, wired_span reason);
 } wired_moqt_io;
+
+/** draft-ietf-moq-transport-19 SS3.5 PROTOCOL_VIOLATION session code. */
+#define WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION 0x3
 
 /** One subscriber recorded against the hub's track: which session, and the
  * Track Alias this hub assigned it (hub-local per subscriber, draft SS10.7
