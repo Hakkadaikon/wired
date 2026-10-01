@@ -17259,7 +17259,8 @@ static void test_srvrun_wt_credit_no_op_without_any_wt_slot(void) {
 
 /* BACKPRESSURE (RFC 9000 19.10): wired_server_wt_stream_hold(hold=1) stops
  * srvrun_grant_wt_credit from raising the held bidi stream's advertised
- * MAX_STREAM_DATA even as delivered_len keeps advancing -- the
+ * MAX_STREAM_DATA past its first grant (which lifts it off the request
+ * window it started at) even as delivered_len keeps advancing -- the
  * advertisement is frozen, never lowered. hold=0 resumes: the very next
  * grant announces the full current ceiling. */
 static void test_srvrun_wt_stream_hold_freezes_bidi_credit(void) {
@@ -17276,13 +17277,13 @@ static void test_srvrun_wt_stream_hold_freezes_bidi_credit(void) {
   sr_wt_slot_set_frontier(&c->l.wt_streams[0], 100);
   c->l.wt_streams[0].delivered_len = 100;
   CHECK(wired_server_wt_stream_hold(&c->wt, 4, 1) == 1);
-  srvrun_grant_wt_credit(&cfg, c);
-  CHECK(c->l.wt_streams[0].credit_advertised == 0);
-  /* delivery keeps advancing while held -- still nothing advertised. */
+  srvrun_grant_wt_credit(&cfg, c); /* the first grant lifts the stream */
+  CHECK(c->l.wt_streams[0].credit_advertised == 100 + WIRED_SRVLOOP_WT_BUF_CAP);
+  /* delivery keeps advancing while held -- no further raise. */
   sr_wt_slot_set_frontier(&c->l.wt_streams[0], 500);
   c->l.wt_streams[0].delivered_len = 500;
   srvrun_grant_wt_credit(&cfg, c);
-  CHECK(c->l.wt_streams[0].credit_advertised == 0);
+  CHECK(c->l.wt_streams[0].credit_advertised == 100 + WIRED_SRVLOOP_WT_BUF_CAP);
   /* release: the next grant announces the full current ceiling. */
   CHECK(wired_server_wt_stream_hold(&c->wt, 4, 0) == 1);
   srvrun_grant_wt_credit(&cfg, c);
@@ -18948,6 +18949,25 @@ static void test_srvrun_wt_drain_after_long_capsule_run(void) {
   CHECK(c->wt_active == 1);
 }
 
+/* A WT bidi stream the app holds before its first credit grant still gets
+ * the WT buffer's credit once: the hold freezes raises past it, it does not
+ * leave the stream at the request window it started with. */
+static void test_srvrun_wt_bidi_held_before_first_grant_gets_wt_window(void) {
+  struct lp_fix f;
+  u8            obuf[1024];
+  wired_obuf    ob               = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*  c                = sr_wtsend_fixture(&f, &ob);
+  srvrun_cfg    cfg              = sr_wt_send_cfg();
+  c->l.wt_streams[0].in_use      = 1;
+  c->l.wt_streams[0].stream_id   = 4;
+  c->l.wt_streams[0].credit_hold = 1;
+  srvrun_grant_wt_credit(&cfg, c);
+  CHECK(c->l.wt_streams[0].credit_advertised == WIRED_SRVLOOP_WT_BUF_CAP);
+  c->l.wt_streams[0].delivered_len = 100;
+  srvrun_grant_wt_credit(&cfg, c); /* held: no further raise */
+  CHECK(c->l.wt_streams[0].credit_advertised == WIRED_SRVLOOP_WT_BUF_CAP);
+}
+
 /* Send c's GOAWAY and return the stream id it carried (~0 if unreadable). */
 static u64 sr_sl_goaway(srvrun_conn* c) {
   u8         out[256];
@@ -19930,6 +19950,7 @@ void test_srvrun(void) {
   test_srvrun_wt_unknown_capsule_past_window_skipped();
   test_srvrun_wt_capsule_split_per_byte();
   test_srvrun_wt_drain_after_long_capsule_run();
+  test_srvrun_wt_bidi_held_before_first_grant_gets_wt_window();
   test_srvrun_on_body_frame_unexpected();
   test_srvrun_handler_on_body_reaches_cfg();
   test_srvrun_stop_sending_wire_shape();
