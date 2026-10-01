@@ -614,6 +614,104 @@
     "new_session_uri": "",
     "timeout": "0"
    }
+  },
+  {
+   "name": "subscribe_params",
+   "type": "0x3",
+   "type_hex": "03",
+   "msg_len": 32,
+   "hex": "0300200002046368617405726f6f6d3105616c69636504100110400104040500030102",
+   "fields": {
+    "request_id": "0",
+    "track_namespace": [
+     "chat",
+     "room1"
+    ],
+    "track_name": "alice",
+    "number_of_parameters": "4",
+    "parameters": [
+     {
+      "delta": "16",
+      "type": "0x10",
+      "name": "FORWARD",
+      "value": "1"
+     },
+     {
+      "delta": "16",
+      "type": "0x20",
+      "name": "SUBSCRIBER_PRIORITY",
+      "value": "64"
+     },
+     {
+      "delta": "1",
+      "type": "0x21",
+      "name": "LOCATION_FILTER",
+      "length": "4",
+      "filter_type": "4",
+      "start_group": "5",
+      "start_object": "0",
+      "end_group_delta": "3"
+     },
+     {
+      "delta": "1",
+      "type": "0x22",
+      "name": "GROUP_ORDER",
+      "value": "2"
+     }
+    ]
+   }
+  },
+  {
+   "name": "subscribe_ok_params",
+   "type": "0x4",
+   "type_hex": "04",
+   "msg_len": 7,
+   "hex": "04000701020864010703",
+   "fields": {
+    "track_alias": "1",
+    "number_of_parameters": "2",
+    "parameters": [
+     {
+      "delta": "8",
+      "type": "0x8",
+      "name": "EXPIRES",
+      "value": "100"
+     },
+     {
+      "delta": "1",
+      "type": "0x9",
+      "name": "LARGEST_OBJECT",
+      "group": "7",
+      "object": "3"
+     }
+    ],
+    "track_properties": []
+   }
+  },
+  {
+   "name": "request_ok_params",
+   "type": "0x7",
+   "type_hex": "07",
+   "msg_len": 5,
+   "hex": "0700050210001007",
+   "fields": {
+    "number_of_parameters": "2",
+    "parameters": [
+     {
+      "delta": "16",
+      "type": "0x10",
+      "name": "FORWARD",
+      "value": "0"
+     },
+     {
+      "delta": "16",
+      "type": "0x20",
+      "name": "SUBSCRIBER_PRIORITY",
+      "value": "7"
+     }
+    ],
+    "track_properties": []
+   }
   }
  ],
  "data": [
