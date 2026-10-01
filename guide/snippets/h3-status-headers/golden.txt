@@ -1,0 +1,32 @@
+$ ./h3-status-headers --port 4433
+conn closed by peer (CONNECTION_CLOSE)
+conn closed by peer (CONNECTION_CLOSE)
+conn closed by peer (CONNECTION_CLOSE)
+conn closed by peer (CONNECTION_CLOSE)
+conn closed by peer (CONNECTION_CLOSE)
+$ probe h3req 127.0.0.1:4433 GET /redirect
+status 302
+location: /target
+
+
+$ probe h3req 127.0.0.1:4433 GET /login
+status 200
+content-type: text/plain
+set-cookie: session=granted
+
+logged in
+$ probe h3req 127.0.0.1:4433 GET /secret
+status 403
+content-type: text/plain
+
+forbidden
+$ probe h3req 127.0.0.1:4433 GET /secret -H Authorization: Bearer secret-token
+status 200
+content-type: text/plain
+
+top secret
+$ probe h3req 127.0.0.1:4433 GET /secret -H cookie: session=granted
+status 200
+content-type: text/plain
+
+top secret

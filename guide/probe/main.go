@@ -158,6 +158,13 @@ func parseH3req(args []string) (http.Header, string, error) {
 	return hdr, bodyFile, nil
 }
 
+// noRedirect stops http.Client from auto-following a 3xx, so h3req prints
+// the server's own response (status, Location header, body) instead of
+// whatever the redirect target answered.
+func noRedirect(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
+}
+
 func h3req(addr string, args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("usage: h3req METHOD path [-H 'name: value']... [--body-file f]")
@@ -182,7 +189,8 @@ func h3req(addr string, args []string) error {
 	req.Header = hdr
 	tr := &http3.Transport{TLSClientConfig: tlsConf()}
 	defer tr.Close()
-	c := &http.Client{Transport: tr, Timeout: 5 * time.Second}
+	// Show the server's own response, not where a 3xx points to.
+	c := &http.Client{Transport: tr, Timeout: 5 * time.Second, CheckRedirect: noRedirect}
 	rsp, err := c.Do(req)
 	if err != nil {
 		return err

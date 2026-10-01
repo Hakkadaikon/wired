@@ -1,0 +1,30 @@
+---
+title: Status codes and response headers
+description: Redirect with Location, set a cookie, and check a header or cookie for authorization.
+sidebar:
+  order: 5
+---
+import Example from '../../../../components/Example.astro';
+
+`wired_http_handler` fills a `wired_http_exchange` instead of just a body, so
+it can set the response status and add header fields. This page redirects,
+sets a cookie, and reads either an `Authorization` header or a cookie back to
+decide what to answer.
+
+<Example id="h3-status-headers" />
+
+## How it works
+
+- `/redirect` sets `x->status = 302` and one `x->fields[0]` (`location:
+  /target`), then returns 0 for an empty body.
+- `/login` sets a `set-cookie` field alongside a 200 body.
+- `/secret` calls `wired_http_req_header(req, "authorization", &v)` to read
+  a regular header by name, and reads `req->cookie` / `req->cookie_len`
+  directly — a dedicated field, not looked up through
+  `wired_http_req_header` (see its doc comment).
+- `x->fields` holds up to `WIRED_HTTP_MAX_FIELDS` (8) entries; each is a
+  `wired_http_field` (name, value), both lowercase on the wire (RFC 9114
+  4.2).
+- The probe client's `h3req -H 'name: value'` sends one extra request
+  header, and `CheckRedirect` is disabled so it prints the 302 itself
+  instead of silently following it to `/target`.
