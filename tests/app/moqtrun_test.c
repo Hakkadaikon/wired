@@ -833,7 +833,7 @@ static void test_moqtrun_object_relay_two_subscribers_two_objects(void) {
           G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
       1 /* chat: publisher's one-shot stream, FIN'd */);
   wired_moqt_on_stream_data(
-      &hub, SESS_A, 1000,
+      &hub, SESS_A, 1002,
       wired_span_of(
           g_moqt_data_subgroup_stream_basic,
           G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
@@ -2018,7 +2018,7 @@ static void test_moqtrun_chat_still_uses_send_uni_every_object(void) {
           G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
       1 /* chat's publisher stream is always one-shot, FIN'd */);
   wired_moqt_on_stream_data(
-      &hub, SESS_A, 1000,
+      &hub, SESS_A, 1002,
       wired_span_of(
           g_moqt_data_subgroup_stream_basic,
           G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
