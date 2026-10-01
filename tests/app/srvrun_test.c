@@ -18785,16 +18785,22 @@ static void test_srvrun_http_status_range(void) {
 static void test_srvrun_http_bad_field_is_500(void) {
   static const u8 crlf[] = "a\r\nb", nul[] = {'a', 0, 'b', 0};
   static const u8 up[] = "Location", empty[] = "", pseudo[] = ":status",
-                  conn[]              = "connection";
+                  conn[] = "connection", sp[] = "x y", hi[] = {'x', 0xc3, 0},
+                  brace[]             = "x{y";
   static const wired_http_field bad[] = {
       SR_HX_FIELD(sr_hx_loc_n, crlf),  SR_HX_FIELD(sr_hx_loc_n, nul),
       SR_HX_FIELD(crlf, sr_hx_loc_v),  SR_HX_FIELD(up, sr_hx_loc_v),
       SR_HX_FIELD(empty, sr_hx_loc_v), SR_HX_FIELD(pseudo, sr_hx_loc_v),
-      SR_HX_FIELD(conn, sr_hx_loc_v)};
+      SR_HX_FIELD(conn, sr_hx_loc_v),  SR_HX_FIELD(sp, sr_hx_loc_v),
+      SR_HX_FIELD(hi, sr_hx_loc_v),    SR_HX_FIELD(brace, sr_hx_loc_v)};
+  static const wired_http_field ok[] = {SR_HX_FIELD(sr_hx_loc_n, sr_hx_loc_v)};
   for (usz i = 0; i < sizeof bad / sizeof bad[0]; i++) {
     g_sr_hx = (sr_hx_case){302, 0, 1, &bad[i], "x", 0, 0};
     sr_hx_expect_500();
   }
+  /* RFC 9110 5.5: the content-type value is a field value too */
+  g_sr_hx = (sr_hx_case){302, "text/plain\r\nx-evil: 1", 1, ok, "x", 0, 0};
+  sr_hx_expect_500();
 }
 
 /* WIRED_HTTP_MAX_FIELDS fields pass; a 9th is rejected with 500, never
