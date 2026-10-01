@@ -121,13 +121,14 @@ static void bump_len(wired_srvloop_reqacc* acc, usz end) {
 /* RFC 9000 2.2: write one request STREAM frame's data into acc->buf at the
  * frame's own offset (offset-indexed reassembly, robust to reordering within
  * acc->cap), advance the high-water mark, and OR its FIN into acc->fin.
- * ponytail: data past acc->cap is truncated. */
+ * Data past acc->cap is truncated (the part that fits is kept, so a request
+ * that overflows still shows its leading HEADERS frame). */
 static void gather_one(const stream_frame* sf, wired_srvloop_reqacc* acc) {
   usz off = (usz)sf->offset;
   if (off >= acc->cap) return;
   bytes_put(
       wired_mspan_of(acc->buf, acc->cap), &off,
-      wired_span_of(sf->data, (usz)sf->length));
+      wired_span_of(sf->data, (usz)u64_min(sf->length, acc->cap - off)));
   bump_len(acc, (usz)sf->offset + (usz)sf->length);
   *acc->fin |= sf->fin;
 }
@@ -1210,6 +1211,7 @@ static void route_land(wired_srvloop* l, const stream_frame* sf, u64* touched) {
   if (i < 0) return;
   acc = route_slot_acc(&l->streams[i]);
   gather_one(sf, &acc);
+  l->streams[i].req_over |= sf->offset + sf->length > acc.cap;
   /* u64: the table holds up to WIRED_SRVLOOP_MAX_STREAMS (40) slots, so a
    * 32-bit mask loses (as undefined-behavior shifts) slots 32..39. */
   *touched |= (u64)1 << i;
@@ -1294,6 +1296,45 @@ static void route_dispatch_complete(
     drive_complete(ctx->h3, acc, sin);
 }
 
+/* Record slot i's decode outcome: a request to answer, or an incomplete /
+ * rejected stream to abort. */
+static void route_note_result(wired_srvloop* l, int i, int got) {
+  if (got)
+    route_note_done(l, i);
+  else
+    route_note_incomplete(l, i);
+}
+
+/* RFC 6585 5 / RFC 9110 15.5.14: 431 when the leading HEADERS frame itself
+ * does not fit req_buf, 413 when it does (the body overflowed). The one
+ * place a streaming-body consumer would accept the overflow instead. */
+static u16 route_too_large_status(const wired_srvloop_stream_slot* slot) {
+  h3_frame f = {0};
+  usz      n = h3_frame_get(wired_span_of(slot->req_buf, slot->req_len), &f);
+  return n && f.type == H3_FRAME_HEADERS ? 413 : 431;
+}
+
+/* 1 if slot i overflowed req_buf before its request was answered, on an h3
+ * connection (an hq-interop request line has no status to answer with). */
+static int route_is_over(const wired_srvloop_dispatch_ctx* ctx, int i) {
+  const wired_srvloop_stream_slot* slot = &ctx->l->streams[i];
+  return slot->req_over && !slot->req_done && ctx->s->sdrv.alpn != SALPN_HQ;
+}
+
+/* An overflowed request is answered as soon as the overflow lands, not at
+ * FIN: a client stalled on stream flow control might never send one. The
+ * request is handed up empty except for too_large_status. Returns 1 if
+ * slot i was handled this way. */
+static int route_complete_over(const wired_srvloop_dispatch_ctx* ctx, int i) {
+  wired_srvloop_stream_slot* slot = &ctx->l->streams[i];
+  if (!route_is_over(ctx, i)) return 0;
+  slot->req_done             = 1;
+  slot->req                  = (wired_h3reqdrive_req){0};
+  slot->req.too_large_status = route_too_large_status(slot);
+  route_note_done(ctx->l, i);
+  return 1;
+}
+
 /* Decode slot i's request if it just completed, using the slot's OWN
  * scratch/wrap/req storage (each stream's decoded views must stay alive
  * independently of the others'). */
@@ -1307,12 +1348,10 @@ static void route_complete_slot(
   wired_srvloop_dispatch_in  sin  = {
       in->payload, wired_mspan_of(slot->req_scratch, sizeof slot->req_scratch),
       wired_mspan_of(slot->req_wrap, sizeof slot->req_wrap), &got, &slot->req};
+  if (route_complete_over(ctx, i)) return;
   if (!request_complete(&acc, &sin)) return;
   route_dispatch_complete(ctx, &acc, &sin);
-  if (got)
-    route_note_done(ctx->l, i);
-  else
-    route_note_incomplete(ctx->l, i);
+  route_note_result(ctx->l, i, got);
 }
 
 /* Run completion over every slot this payload touched. */

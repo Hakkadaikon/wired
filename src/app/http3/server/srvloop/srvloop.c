@@ -358,6 +358,7 @@ static int stream_slot_claim(wired_srvloop* l, u64 stream_id) {
     l->streams[i].req_fin        = 0;
     l->streams[i].req_done       = 0;
     l->streams[i].req_incomplete = 0;
+    l->streams[i].req_over       = 0;
     h3_priority_init(&l->streams[i].priority);
     pending_priority_consume(l, i);
     return (int)i;
@@ -394,6 +395,7 @@ void wired_srvloop_slot_release(wired_srvloop* l, u64 stream_id) {
   l->streams[i].req_fin        = 0;
   l->streams[i].req_done       = 0;
   l->streams[i].req_incomplete = 0;
+  l->streams[i].req_over       = 0;
   h3_priority_init(&l->streams[i].priority);
 }
 
@@ -994,6 +996,7 @@ static void rearm_reqacc(wired_srvloop* l) {
     slot->req_len  = 0;
     slot->req_fin  = 0;
     slot->req_done = 0;
+    slot->req_over = 0;
   }
 }
 
