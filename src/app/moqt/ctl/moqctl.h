@@ -208,6 +208,9 @@ int moqctl_ftn_put(wired_mspan buf, usz* off, const moqctl_ftn* f);
  * namespace half of moqctl_ftn_take (field length 0, >32 fields).
  * Exposed separately for contexts that decode a bare Track Namespace. */
 int moqctl_ns_take(wired_span buf, usz* off, moqctl_ns* out);
+/** Encodes a bare Track Namespace (count + Length-prefixed fields);
+ * 0 when buf runs out. */
+int moqctl_ns_put(wired_mspan buf, usz* off, const moqctl_ns* ns);
 
 /** Exact byte comparison (SS1.5): 1 if equal, 0 otherwise. */
 int moqctl_ftn_eq(const moqctl_ftn* a, const moqctl_ftn* b);
