@@ -290,11 +290,11 @@ typedef struct {
 
 /* Bytes of append-round staging each WT send slot owns (roundbuf below):
  * payloads up to this size are copied in, larger ones stay caller-owned
- * views. Must exceed the WT receive window (WIRED_SRVLOOP_WT_BUF_CAP,
+ * views. Must hold the WT receive window (WIRED_SRVLOOP_WT_BUF_CAP,
  * 49152 -- one delivery can fill the whole window) plus the held relay
- * fragment (WIRED_MOQTRUN_RELAY_FRAG_MAX, 512) = 49664, so a full-window
- * relayed payload (e.g. a screen-share frame) still copies instead of
- * falling back to a view_round; 65536 is the next power of two above that. */
+ * fragment (under WIRED_MOQTRUN_RELAY_FRAG_MAX, 16384) = 65535, so a
+ * full-window relayed payload (e.g. a screen-share frame) still copies
+ * instead of falling back to a view_round. */
 #define SRVRUN_WTSEND_BUF 65536
 
 /* One in-flight server-initiated WebTransport stream send (wired_server_wt_

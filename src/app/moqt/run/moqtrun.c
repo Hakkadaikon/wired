@@ -1875,7 +1875,7 @@ static i32 moqtrun_frag_take_free(wired_moqt_hub* hub, wired_moqtrun_relay* r) {
  * is exhausted. */
 static i32 moqtrun_frag_slot_for(
     wired_moqt_hub* hub, wired_moqtrun_relay* relay, usz n) {
-  if (n > WIRED_MOQTRUN_RELAY_FRAG_MAX) return -1;
+  if (n >= WIRED_MOQTRUN_RELAY_FRAG_MAX) return -1;
   if (relay->frag_idx >= 0) return relay->frag_idx;
   return moqtrun_frag_take_free(hub, relay);
 }
@@ -1888,9 +1888,10 @@ static void moqtrun_frag_release(wired_moqtrun_relay* relay) {
 
 /* Saves the undelivered tail (bytes past the last complete Object) as the
  * relay's fragment for the next delivery, in a buffer from the hub's
- * shared pool (released once nothing is held). A tail larger than one
- * whole Object can never complete (WIRED_MOQTRUN_RELAY_FRAG_MAX is the
- * largest relayable Object), and one finding the pool exhausted has
+ * shared pool (released once nothing is held). A tail of
+ * WIRED_MOQTRUN_RELAY_FRAG_MAX bytes or more belongs to an Object over the
+ * relayable limit and can never complete, and one finding the pool
+ * exhausted has
  * nowhere to wait -- both are dropped (counted on the hub), degrading to a
  * torn frame for this one stream rather than corrupting the relay's own
  * state. */

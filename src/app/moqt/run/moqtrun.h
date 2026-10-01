@@ -160,13 +160,17 @@ typedef struct {
  * Publisher Priority = at most 4*9+1 = 37 bytes). */
 #define WIRED_MOQTRUN_RELAY_HDR_MAX 40
 
-/** Fixed capacity for one relay's held-back Object fragment (the bytes
- * past the last complete Object boundary in a delivery, kept until the
- * next delivery completes them -- wired_moqtrun_relay's frag doc). Sized
- * to one whole Object: an Object bigger than this cannot ride the relay
- * at all (the example server's own per-round staging buffer is the same
- * size), so a fragment can never legitimately outgrow it. */
-#define WIRED_MOQTRUN_RELAY_FRAG_MAX 512
+/** Largest Object (framed: Object ID Delta, Properties, Payload Length and
+ * payload) a stream relay forwards, and the capacity of one held-back
+ * fragment buffer (the bytes past the last complete Object boundary in a
+ * delivery, kept until the next delivery completes them --
+ * wired_moqtrun_relay's frag doc). A torn Object's held tail is always
+ * shorter than the Object, so a tail reaching this size belongs to an
+ * Object over the limit and is dropped. 16384 fits a chat attachment
+ * chunk or a small media frame in one Object; the buffers live in the
+ * hub's shared WIRED_MOQTRUN_FRAG_POOL, not per relay. Datagram Objects
+ * are bounded by the QUIC datagram size instead. */
+#define WIRED_MOQTRUN_RELAY_FRAG_MAX 16384
 
 /** Hub-wide buffers for held-back Object fragments, shared by every relay
  * (a relay holds one only while an Object is torn across deliveries). A
