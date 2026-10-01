@@ -5074,16 +5074,28 @@ static int srvrun_http_status_bodiless(u16 status) {
   return status == 204 || status == 304;
 }
 
-/* RFC 9114 4.2 / 4.3: a non-empty regular (non-pseudo) field name that is
- * not connection-specific. */
-static int srvrun_http_name_shape_ok(wired_span n) {
-  return n.n && n.p[0] != ':' && !h3_header_name_forbidden(n.p, n.n);
+/* RFC 9110 5.6.2 tchar as a 128-bit set ("!#$%&'*+-.^_`|~", DIGIT, ALPHA):
+ * bit (c & 31) of word c >> 5. Excludes SP, ':', CTLs and every non-ASCII
+ * octet. */
+static const u32 srvrun_http_tchar_set[4] = {
+    0x00000000u, 0x03ff6cfau, 0xc7fffffeu, 0x57ffffffu};
+
+static int srvrun_http_tchar(u8 c) {
+  return c < 128 && (srvrun_http_tchar_set[c >> 5] >> (c & 31)) & 1u;
 }
 
-/* RFC 9114 4.2 (lowercase) / RFC 9110 5.5 (no CR, LF or NUL). */
+/* RFC 9110 5.1: field-name = token = 1*tchar. */
+static int srvrun_http_token_ok(wired_span n) {
+  for (usz i = 0; i < n.n; i++)
+    if (!srvrun_http_tchar(n.p[i])) return 0;
+  return n.n != 0;
+}
+
+/* RFC 9110 5.1 / RFC 9114 4.2: a token (so never pseudo, never CR/LF/NUL),
+ * lowercase, and not connection-specific. */
 static int srvrun_http_name_ok(wired_span n) {
-  return srvrun_http_name_shape_ok(n) && h3_header_name_ok(n.p, n.n) &&
-         h3_header_bytes_ok(n.p, n.n);
+  return srvrun_http_token_ok(n) && h3_header_name_ok(n.p, n.n) &&
+         !h3_header_name_forbidden(n.p, n.n);
 }
 
 static int srvrun_http_field_ok(const wired_http_field* f) {
@@ -5107,9 +5119,20 @@ static int srvrun_http_fields_ok(const wired_http_exchange* x) {
   return total <= WIRED_HTTP_FIELD_BYTES_MAX;
 }
 
-static int srvrun_http_ok(const wired_http_exchange* x) {
+/* RFC 9110 5.5: the content-type value carries no CR or LF (NUL cannot
+ * occur inside the C string); absent is fine. */
+static int srvrun_http_ct_ok(const char* ct) {
+  return h3_header_bytes_ok((const u8*)ct, srvrun_http_ct_len(ct));
+}
+
+static int srvrun_http_head_ok(const wired_http_exchange* x) {
   return srvrun_http_status_final(x->status) &&
-         x->field_count <= WIRED_HTTP_MAX_FIELDS && srvrun_http_fields_ok(x);
+         x->field_count <= WIRED_HTTP_MAX_FIELDS;
+}
+
+static int srvrun_http_ok(const wired_http_exchange* x) {
+  return srvrun_http_head_ok(x) && srvrun_http_ct_ok(x->content_type) &&
+         srvrun_http_fields_ok(x);
 }
 
 /* No content: no body, no further rounds, no content-type. */

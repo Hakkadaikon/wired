@@ -148,9 +148,10 @@ typedef qpack_field wired_http_field;
  * 500 with no fields and no body instead: status in 100-199 (101
  * included), below 100 or above 599; field_count above
  * WIRED_HTTP_MAX_FIELDS (a 9th field is rejected, never silently dropped);
- * an empty field name, a name starting with ':', carrying an uppercase
- * letter, or naming a connection-specific field (RFC 9114 4.2); CR, LF or
- * NUL in a name or value (RFC 9110 5.5); more than
+ * a field name that is not a token (RFC 9110 5.1: empty, SP, ':', CTL or
+ * non-ASCII), carries an uppercase letter, or names a connection-specific
+ * field (RFC 9114 4.2); CR, LF or NUL in a value or CR/LF in content_type
+ * (RFC 9110 5.5); more than
  * WIRED_HTTP_FIELD_BYTES_MAX name+value+content_type bytes in total.
  * 204 and 304 never carry content (RFC 9110 15.3.5 / 15.4.5): the body is
  * dropped and HEADERS ends the stream. */
