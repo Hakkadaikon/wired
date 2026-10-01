@@ -1,0 +1,24 @@
+---
+title: Long header round trip
+description: Build a QUIC long header and parse it back.
+sidebar:
+  order: 1
+---
+import Example from '../../../../components/Example.astro';
+
+Every QUIC long header starts with the same invariant fields: type, version
+and two connection IDs. This page encodes an Initial header and decodes it
+again.
+
+<Example id="quic-header" />
+
+## How it works
+
+- `wired_header` holds the fields; `long_type` takes `WIRED_LP_INITIAL`,
+  `WIRED_LP_0RTT`, `WIRED_LP_HANDSHAKE` or `WIRED_LP_RETRY`.
+- `wired_header_build_long(buf, cap, &h)` writes byte 0, the version and the
+  length-prefixed DCID and SCID, and returns the byte count (0 if it does not
+  fit).
+- `wired_header_parse(buf, n, &h)` reads them back and returns the bytes
+  consumed (0 on truncated or malformed input).
+- `wired_fmt_u64` formats a decimal; the hex helper is local to the example.

@@ -1,0 +1,61 @@
+#define WIRED_MAIN
+#include "wired.h"
+
+/* Log v in decimal (there is no printf). */
+static void log_u64(u64 v) {
+  char             s[21];
+  usz              at = 0;
+  wired_fmt_u64_in in = {v, 1};
+  wired_fmt_u64(s, &at, &in);
+  s[at] = 0;
+  wired_log_str(s);
+}
+
+/* Log n bytes as lowercase hex. */
+static void log_hex(const u8* p, usz n) {
+  char s[2 * 64 + 1];
+  for (usz i = 0; i < n; i++) {
+    s[2 * i]     = "0123456789abcdef"[p[i] >> 4];
+    s[2 * i + 1] = "0123456789abcdef"[p[i] & 15];
+  }
+  s[2 * n] = 0;
+  wired_log_str(s);
+}
+
+int wired_main(int argc, char** argv) {
+  (void)argc;
+  (void)argv;
+  /* An Initial, version 1, with the connection IDs of RFC 9001 Appendix A. */
+  wired_header in = {.long_type = WIRED_LP_INITIAL, .version = 1};
+  in.dcid_len     = 8;
+  in.scid_len     = 8;
+  memcpy(in.dcid, "\x83\x94\xc8\xf0\x3e\x51\x57\x08", 8);
+  memcpy(in.scid, "\xf0\x67\xa5\x50\x2a\x42\x62\xb5", 8);
+
+  u8  wire[64];
+  usz n = wired_header_build_long(wire, sizeof wire, &in);
+
+  wired_header out = {0};
+  if (n == 0 || wired_header_parse(wire, n, &out) != n) return 1;
+
+  static const char* types[] = {"Initial", "0-RTT", "Handshake", "Retry"};
+  u8                 ver[4]  = {
+      (u8)(out.version >> 24), (u8)(out.version >> 16), (u8)(out.version >> 8),
+      (u8)out.version};
+
+  wired_log_str("built ");
+  log_u64(n);
+  wired_log_str(" bytes: ");
+  log_hex(wire, n);
+  wired_log_str(out.form == WIRED_FORM_LONG ? "\nform=long" : "\nform=short");
+  wired_log_str(" type=");
+  wired_log_str(types[out.long_type]);
+  wired_log_str(" version=0x");
+  log_hex(ver, 4);
+  wired_log_str("\ndcid=");
+  log_hex(out.dcid, out.dcid_len);
+  wired_log_str("\nscid=");
+  log_hex(out.scid, out.scid_len);
+  wired_log_str("\n");
+  return 0;
+}

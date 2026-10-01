@@ -1,0 +1,5 @@
+$ ./quic-header
+built 23 bytes: c000000001088394c8f03e51570808f067a5502a4262b5
+form=long type=Initial version=0x00000001
+dcid=8394c8f03e515708
+scid=f067a5502a4262b5

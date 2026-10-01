@@ -1,0 +1,24 @@
+---
+title: UDP sockets
+description: Send one datagram between two sockets with the SDK's syscall-level UDP API.
+sidebar:
+  order: 2
+---
+import Example from '../../../../components/Example.astro';
+
+QUIC runs over UDP, and wired talks to the kernel directly instead of through
+libc. This page binds two sockets on 127.0.0.1 and sends `hello` from one to
+the other.
+
+<Example id="quic-udp" />
+
+## How it works
+
+- `wired_udp_addr(&sa, port, octets)` builds an address; IPv4 octets become a
+  v4-mapped IPv6 address, because every socket is dual-stack.
+- `wired_udp_socket` opens a socket, `wired_udp_bind` binds it. Both return a
+  negative errno on failure.
+- `wired_udp_send(fd, &dst, span)` sends one datagram;
+  `wired_udp_recvfrom(fd, buf, &src)` receives one and fills in the sender.
+- `sockaddr.port_be` is in network byte order; swap it to print it.
+- `wired_udp_close` releases the socket.

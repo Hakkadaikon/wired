@@ -1,0 +1,1 @@
+{ "client": "probe", "args": ["tls", "3"], "serverArgs": ["--cores", "0,1"] }

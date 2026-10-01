@@ -1,0 +1,25 @@
+---
+title: Server flags
+description: Let command-line flags pick how the server runs — one process or one thread per core.
+sidebar:
+  order: 3
+---
+import Example from '../../../../components/Example.astro';
+
+The same server can run single-threaded, on several threads, on several
+processes, or on AF_XDP. `wired_srvdriver_parse` reads that choice from the
+command line. This page runs two worker threads (`--cores 0,1`, one per
+CPU) and takes three TLS handshakes.
+
+<Example id="quic-server-flags" />
+
+## How it works
+
+- `wired_srvdriver_parse(argc, argv, &opt)` reads `--port`, `--workers`,
+  `--cores`, `--ifindex`, `--pin-core` and related flags into
+  `wired_srvdriver_opt`. It returns 0 for a bad value or a conflicting
+  combination, such as `--workers` with `--cores`.
+- `wired_srvdriver_run(&id, h, obs, &opt)` starts the driver `opt.kind`
+  names: a single process, `--workers N` forked processes, `--cores 0,1` (one
+  thread per listed CPU), or `--ifindex` AF_XDP.
+- The identity and handler are the same as in the HTTP/3 hello page.
