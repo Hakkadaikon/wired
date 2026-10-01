@@ -19,7 +19,8 @@
 typedef struct {
   int kind; /* 1=open_bidi_stream 3=stream_send 4=send_uni
              * 5=open_uni_stream 6=stream_fin 7=stream_reset
-             * 8=send_uni2 9=send_datagram */
+             * 8=send_uni2 9=send_datagram 10=stream_hold
+             * 11=close_session (error code in stream_id) */
   wired_wt_session* s;
   u64               stream_id; /* stream_send/stream_fin/stream_reset only */
   int               fin;       /* stream_send only */
@@ -222,6 +223,14 @@ static int moqtrun_test_stream_hold(
   return 1;
 }
 
+/* wired_server_wt_close_session-shaped: records the close (the error code
+ * rides the recorder's stream_id field, the reason its payload). */
+static int moqtrun_test_close_session(
+    wired_wt_session* s, u32 error_code, wired_span reason) {
+  moqtrun_test_record(11, s, error_code, 0, reason);
+  return 1;
+}
+
 static wired_moqt_io moqtrun_test_io(void) {
   wired_moqt_io io;
   io.open_bidi_stream = moqtrun_test_open_bidi_stream;
@@ -234,6 +243,7 @@ static wired_moqt_io moqtrun_test_io(void) {
   io.send_datagram    = moqtrun_test_send_datagram;
   io.stream_hold      = moqtrun_test_stream_hold;
   io.send_budget      = 0; /* default: unconstrained, like a table without */
+  io.close_session    = moqtrun_test_close_session;
   return io;
 }
 
@@ -461,8 +471,10 @@ static const moqtrun_test_call* mtskip_prefix_then_subscribe(
     const u8* prefix, usz prefix_len) {
   wired_moqt_hub hub;
   u8             buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  wired_moqt_io  io = moqtrun_test_io();
+  io.close_session  = 0; /* a table without close: skip, never close */
   moqtrun_test_reset();
-  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_init(&hub, io);
   moqtrun_test_publish_alice(&hub);
   wired_moqt_on_session(&hub, SESS_B, wired_span_of(0, 0), wired_span_of(0, 0));
   u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
@@ -485,7 +497,7 @@ static u64 mtskip_next_type(const moqtrun_test_call* c, usz* off) {
   return type;
 }
 
-/* draft-ietf-moq-transport-19 SS10: an unknown Type is skipped by its
+/* An io table without close_session: an unknown Type is skipped by its
  * Length; the SUBSCRIBE behind it is still answered, and nothing is sent
  * for the unknown message itself. */
 static void test_moqtrun_unknown_type_skipped_then_subscribe_answered(void) {
@@ -621,23 +633,65 @@ static void test_moqtrun_ctl_max_length_accepted(void) {
   CHECK(mtasm_reply_types(types, 4) == 2);
   CHECK(types[0] == MOQCTL_T_REQUEST_ERROR);
   CHECK(types[1] == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(moqtrun_test_count_kind(11) == 0); /* unimplemented: no close */
 }
 
-/* One byte over the cap: skipped by its Length without a reply, and the
- * stream goes on -- whether it arrives whole or split. */
-static void test_moqtrun_ctl_over_max_skipped(void) {
+/* One byte over the cap with an io table without close_session: skipped
+ * by its Length without a reply, and the stream goes on -- whether it
+ * arrives whole or split. */
+static void test_moqtrun_ctl_over_max_skipped_without_close(void) {
   u64 types[4];
   usz n;
   mtasm_setup();
+  mtasm_hub.io.close_session = 0;
   mtasm_feed(0, mtasm_fetch_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX + 1));
   CHECK(mtasm_reply_types(types, 4) == 1);
   CHECK(types[0] == MOQCTL_T_SUBSCRIBE_OK);
   mtasm_setup();
+  mtasm_hub.io.close_session = 0;
   n = mtasm_fetch_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX + 1);
   mtasm_feed(0, 10);
   mtasm_feed(10, n);
   CHECK(mtasm_reply_types(types, 4) == 1);
   CHECK(types[0] == MOQCTL_T_SUBSCRIBE_OK);
+}
+
+/* Exactly one close of B with PROTOCOL_VIOLATION, and no reply at all:
+ * the SUBSCRIBE behind the offending message is not answered. */
+static void mtasm_check_closed(void) {
+  u64                      types[4];
+  const moqtrun_test_call* c = moqtrun_test_last_kind(11);
+  CHECK(moqtrun_test_count_kind(11) == 1);
+  if (!c) return;
+  CHECK(c->s == SESS_B);
+  CHECK(c->stream_id == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  CHECK(mtasm_reply_types(types, 4) == 0);
+}
+
+/* draft-ietf-moq-transport-19 SS10: an unknown message type MUST close
+ * the session. */
+static void test_moqtrun_ctl_unknown_type_closes_session(void) {
+  mtasm_setup();
+  usz n        = mtasm_fetch_then_subscribe(2);
+  mtasm_buf[0] = 0x3E; /* 1-byte varint, no draft-19 type */
+  mtasm_feed(0, n);
+  mtasm_check_closed();
+  mtasm_feed(0, n); /* more bytes after the close are not dispatched */
+  mtasm_check_closed();
+}
+
+/* Over the cap: the session is closed (PROTOCOL_VIOLATION), whether the
+ * message arrives whole or split. */
+static void test_moqtrun_ctl_over_max_closes_session(void) {
+  usz n;
+  mtasm_setup();
+  mtasm_feed(0, mtasm_fetch_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX + 1));
+  mtasm_check_closed();
+  mtasm_setup();
+  n = mtasm_fetch_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX + 1);
+  mtasm_feed(0, 10);
+  mtasm_feed(10, n);
+  mtasm_check_closed();
 }
 
 /* Local twin of moqtrun_test_last_reply_type (defined later in this file,
@@ -4784,7 +4838,9 @@ void test_moqtrun(void) {
   test_moqtrun_ctl_split_subscribe_answered_once();
   test_moqtrun_ctl_message_then_half();
   test_moqtrun_ctl_max_length_accepted();
-  test_moqtrun_ctl_over_max_skipped();
+  test_moqtrun_ctl_over_max_skipped_without_close();
+  test_moqtrun_ctl_unknown_type_closes_session();
+  test_moqtrun_ctl_over_max_closes_session();
   test_moqtrun_subscribe_fits_every_other_peer();
   test_moqtrun_object_relay_to_subscriber();
   test_moqtrun_object_relay_preserves_bytes();

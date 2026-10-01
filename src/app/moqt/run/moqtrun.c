@@ -939,11 +939,24 @@ static moqtrun_ctl_fn moqtrun_ctl_lookup(u64 type) {
   return moqtrun_dispatch_not_supported;
 }
 
-/* draft SS10 says an unknown Type MUST close the session, but this hub's
- * io table has no close operation (cf. stat_dg_bad), so it skips the
- * message by its Length and keeps the rest of the stream alive. */
+/* draft SS10: an unknown message type MUST close the session; SS3.5
+ * PROTOCOL_VIOLATION is the code. Every later byte of p's control stream
+ * is discarded (ctl_asm.skip never runs out). An io table without
+ * close_session skips the message by its Length instead and keeps the
+ * stream alive. */
+static void moqtrun_dispatch_close(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  (void)peer_idx;
+  (void)body;
+  if (!hub->io.close_session) return;
+  hub->io.close_session(
+      p->wt, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION, wired_span_of(0, 0));
+  p->ctl_asm.at   = p->ctl_asm.n;
+  p->ctl_asm.skip = (usz)-1;
+}
+
 static moqtrun_ctl_fn moqtrun_ctl_route(int peek, u64 type) {
-  if (peek == MOQCTL_UNKNOWN_TYPE) return moqtrun_dispatch_skip;
+  if (peek == MOQCTL_UNKNOWN_TYPE) return moqtrun_dispatch_close;
   return moqtrun_ctl_lookup(type);
 }
 
@@ -984,10 +997,9 @@ static int moqtrun_asm_over_cap(wired_span rest, usz* total) {
 /* Next complete message held in a (moqctl_peek_type's result, *body a view
  * into a->buf valid until the next push), or MOQCTL_INSUFFICIENT when more
  * bytes are needed. A message whose Length exceeds
- * WIRED_MOQTRUN_CTL_MSG_MAX is skipped by its Length, now and across
- * later deliveries (a->skip): draft-ietf-moq-
- * transport-19 SS10 sets no cap of its own, so no error is defined, and
- * the stream stays alive like it does past an unknown Type. */
+ * WIRED_MOQTRUN_CTL_MSG_MAX is consumed by its Length, now and across
+ * later deliveries (a->skip), and reported as MOQCTL_UNKNOWN_TYPE so the
+ * caller treats it like one (moqtrun_dispatch_close). */
 static int moqtrun_asm_pop(
     wired_moqtrun_ctl_asm* a, u64* type, wired_span* body) {
   if (a->skip) return MOQCTL_INSUFFICIENT; /* rest of a held message */
@@ -997,7 +1009,7 @@ static int moqtrun_asm_pop(
     usz held = (usz)u64_min(total, rest.n);
     a->at += held;
     a->skip = total - held;
-    return MOQCTL_UNKNOWN_TYPE; /* the caller skips it like one */
+    return MOQCTL_UNKNOWN_TYPE; /* the caller handles it like one */
   }
   usz off = 0;
   int r   = moqctl_peek_type(rest, &off, type, body);
