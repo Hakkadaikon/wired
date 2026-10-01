@@ -1,0 +1,27 @@
+---
+title: Keeping a server-opened stream open
+description: Open a uni stream without closing it, then append further rounds and end it later.
+sidebar:
+  order: 6
+---
+import Example from '../../../../components/Example.astro';
+
+The [streams](../streams/) page's `wired_server_wt_open_uni` sends its
+whole payload and closes with FIN right away. `wired_server_wt_open_uni_stream`
+opens the same kind of stream but leaves it open, so the app can append
+more rounds later with `wired_server_wt_stream_send` and decide the FIN
+round itself.
+
+<Example id="wt-open-streams" />
+
+## How it works
+
+- `on_session` opens the uni stream with `wired_server_wt_open_uni_stream`
+  and keeps its id in `g_uni` -- `fin` is never set on this call, so the
+  stream stays open past the first round.
+- Each client request appends one round: `wired_server_wt_stream_send(s,
+  g_uni, payload, fin)` with `fin=0` keeps it open for more, `fin=1` ends
+  it after this round's bytes.
+- The client's uni-stream read (`io.ReadAll`) only returns once the server
+  sends that `fin=1` round -- until then it blocks, same as any stream read
+  waiting on data.
