@@ -1,0 +1,22 @@
+---
+title: X25519 key exchange
+description: Derive two public keys and one shared secret with wired_x25519.
+sidebar:
+  order: 2
+---
+import Example from '../../../../components/Example.astro';
+
+X25519 is the key exchange a TLS 1.3 handshake runs. This page uses the
+Alice and Bob private keys from RFC 7748 6.1; every printed value matches
+that section.
+
+<Example id="tls-x25519" />
+
+## How it works
+
+- `wired_x25519_base(pub, priv)` computes a public key from a 32-byte
+  private key.
+- `wired_x25519(shared, priv, peer_pub)` combines your private key with the
+  peer's public key. Both sides get the same secret.
+- `wired_x25519` returns 0 for a low-order peer key (an all-zero result).
+  You must reject that return (RFC 7748 6.1).

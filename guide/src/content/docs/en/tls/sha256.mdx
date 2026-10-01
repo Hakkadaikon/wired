@@ -1,0 +1,21 @@
+---
+title: SHA-256
+description: Hash a byte string with wired_sha256 and print the digest.
+sidebar:
+  order: 1
+---
+import Example from '../../../../components/Example.astro';
+
+SHA-256 is the hash under TLS 1.3's key schedule. This page hashes `abc`;
+the digest is the "abc" test vector from FIPS 180 and RFC 6234.
+
+<Example id="tls-sha256" />
+
+## How it works
+
+- `wired_sha256(data, len, out)` hashes `len` bytes into a
+  `SHA256_DIGEST` (32) byte buffer in one call.
+- It is not part of `wired.h`; include
+  `crypto/symmetric/hash/hash/sha256.h` explicitly.
+- `log_hex` is a local helper: there is no `printf`, so the program turns
+  each byte into two hex digits and writes them with `wired_log_str`.

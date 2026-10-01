@@ -1,0 +1,23 @@
+---
+title: TLS 1.3 handshake
+description: Serve QUIC with a self-signed identity and complete a TLS 1.3 handshake.
+sidebar:
+  order: 4
+---
+import Example from '../../../../components/Example.astro';
+
+QUIC carries TLS 1.3 inside its own packets. This page runs a server with a
+self-signed identity; the client completes the handshake and prints what it
+negotiated.
+
+<Example id="tls-handshake" />
+
+## How it works
+
+- `wired_srvdriver_parse(argc, argv, &opt)` reads `--port` and the driver
+  flags (`--workers`, `--cores`, ...) from the command line.
+- `wired_srvdriver_run(&id, h, obs, &opt)` runs the selected server driver.
+- `wired_srvboot_id` is the identity. With no `chain` set, the server builds
+  a self-signed certificate from `cert_seed`.
+- The handler is never called here: the client closes the connection right
+  after the handshake.

@@ -1,0 +1,4 @@
+$ ./tls-certificates cert.pem key.pem
+block CERTIFICATE len=386
+key ok
+load ok: 1 certificate(s)

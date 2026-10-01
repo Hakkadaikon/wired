@@ -1,0 +1,24 @@
+---
+title: Loading certificates
+description: Read a PEM certificate and key, then load them as a server identity.
+sidebar:
+  order: 3
+---
+import Example from '../../../../components/Example.astro';
+
+A server that uses a real certificate reads it from a `cert.pem`/`key.pem`
+pair. This page decodes the pair step by step, then loads it with one call.
+The pair is a self-signed demo for `localhost`.
+
+<Example id="tls-certificates" />
+
+## How it works
+
+- `wired_fio_read(path, buf)` reads a whole file into a caller-owned buffer.
+- `wired_pem_next(text, &at, &label, &der)` decodes the next PEM block to
+  DER and advances `at`. Call it in a loop to walk a fullchain file.
+- `wired_eckey_p256_priv(der, priv)` extracts the P-256 private key from
+  SEC1 or PKCS#8 DER.
+- `wired_certreload_load(cert, key, &store, &id)` does all of the above and
+  points `id.chain`/`id.chain_count`/`id.cert_seed` at `store`. Keep
+  `store` alive as long as `id` is in use.
