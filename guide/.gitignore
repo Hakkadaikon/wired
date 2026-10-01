@@ -1,3 +1,8 @@
 node_modules
 /dist/
 /.astro/
+
+# runner output written into a snippet's own dir when it exercises
+# qlog/keylog (ops-handshake-knobs)
+snippets/*/demo.qlog
+snippets/*/demo.keylog
