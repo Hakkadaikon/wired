@@ -792,6 +792,10 @@ typedef struct {
    * convention. */
   const char* qlog_path;
   u64         qlog_group; /**< srvrun_conn.qlog_slot's value for this conn */
+  /** RFC 9114 5.2: one past the largest client request stream id a streams[]
+   * slot was ever claimed for (id + 4), 0 before any -- the stream id a
+   * GOAWAY sent now carries. */
+  u64 req_next_id;
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
