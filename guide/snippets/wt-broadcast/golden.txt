@@ -1,0 +1,13 @@
+$ ./wt-broadcast --port 4433
+conn closed by peer (CONNECTION_CLOSE)
+conn closed by peer (CONNECTION_CLOSE)
+$ go run . https://127.0.0.1:4433
+A recv "slot"
+B recv "slot"
+A recv "ring1"
+B recv "ring1"
+A recv "ring2"
+B recv "ring2"
+A recv "ring3"
+B recv "ring3"
+A recv "direct"
