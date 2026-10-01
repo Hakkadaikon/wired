@@ -1,6 +1,25 @@
 ---
 title: wired ガイド
-description: wired の各機能を最小のコードで試す。
+description: wired の各機能を、動く最小のコードとその実際の出力で試す。
 ---
 
-wired は C で書かれた libc 非依存の TLS 1.3 / QUIC / HTTP/3 / WebTransport / MoQT サーバ SDK です。
+wired は C で書かれた libc 非依存の TLS 1.3 / QUIC / HTTP/3 / WebTransport / MoQT サーバー SDK です。
+各ページには、コピーしてそのまま使える完全なプログラムと、その出力を載せています。
+出力は、CI が独立したクライアント（[quic-go](https://github.com/quic-go/quic-go)、[webtransport-go](https://github.com/quic-go/webtransport-go)）を相手に最後に実行したとき、実際に表示されたものです。
+
+ビルドコマンドは [はじめての wired](./getting-started/hello/) で説明しています。
+まずここから読んでください。
+
+| 層 | ページ |
+|---|---|
+| TLS と暗号 | [SHA-256](./tls/sha256/)、[X25519](./tls/x25519/)、[証明書](./tls/certificates/)、[TLS ハンドシェイク](./tls/handshake/) |
+| QUIC | [パケットヘッダー](./quic/header/)、[UDP ソケット](./quic/udp/)、[サーバーのフラグ](./quic/server-flags/) |
+| HTTP/3 | [はじめての HTTP/3](./h3/hello/)、[パスによる振り分け](./h3/routing/)、[大きなボディのストリーミング](./h3/streaming/) |
+| WebTransport | [データグラム](./wt/datagram/)、[ストリーム](./wt/streams/)、[セッション](./wt/session/) |
+| MoQT | [リレーハブ](./moqt/hub/)、[パブリッシュ](./moqt/publish/) |
+
+各層は、表で一つ上にある層の上に成り立っています。
+HTTP/3 のページは下で QUIC と TLS を動かしており、WebTransport は HTTP/3 の上で、MoQT は WebTransport の上で動きます。
+
+個々の関数と構造体は [API リファレンス](https://hakkadaikon.github.io/wired/) を参照してください。
+アプリケーション全体の例は [moqt_chat デモ](https://hakkadaikon.github.io/wired/moqt_chat/) にあります。
