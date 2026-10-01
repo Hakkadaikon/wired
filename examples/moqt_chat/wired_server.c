@@ -74,19 +74,19 @@ typedef struct {
 } live_session;
 static live_session g_live[BIG_SLOTS];
 
-/* Signal prefix + one full relay round for the uni open paths
- * (moqt_io_send_uni / moqt_io_open_uni_stream):
- *   BIG_SIG_MAX (9) + WIRED_MOQTRUN_RELAY_HDR_MAX (40)
- *   + WIRED_MOQTRUN_RELAY_FRAG_MAX (512) + WIRED_SRVLOOP_WT_BUF_CAP (49152)
- *   = 49713 bytes. Must stay below SRVRUN_WTSEND_BUF (65536, srvrun.c):
- * wired_server_wt_open_uni / wired_server_wt_open_uni_stream copy a
- * payload up to that size into their own per-slot staging DURING the
- * call, so nothing here outlives it. Single thread, synchronous
- * callbacks, no re-entry -- one static buffer (not ~50KB of stack)
- * serves every open. */
-#define MOQT_OPEN_BUF                                                  \
-  (BIG_SIG_MAX + WIRED_MOQTRUN_RELAY_HDR_MAX +                         \
-   WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP)
+/* Signal prefix + one relay round for the uni open paths
+ * (moqt_io_send_uni / moqt_io_open_uni_stream), capped at
+ * SRVRUN_WTSEND_BUF (65536, srvrun.c): wired_server_wt_open_uni /
+ * wired_server_wt_open_uni_stream copy a payload up to that size into
+ * their own per-slot staging DURING the call, so nothing here outlives
+ * it. A larger payload would be held as a view of this reused buffer, so
+ * it is refused instead: only a round of a full receive window
+ * (WIRED_SRVLOOP_WT_BUF_CAP, 49152) plus a near-limit held fragment
+ * (WIRED_MOQTRUN_RELAY_FRAG_MAX, 16384) plus the signal prefix (9) and
+ * header (WIRED_MOQTRUN_RELAY_HDR_MAX, 40) can reach it. Single thread,
+ * synchronous callbacks, no re-entry -- one static buffer (not 64KB of
+ * stack) serves every open. */
+#define MOQT_OPEN_BUF 65536
 static u8 g_open_buf[MOQT_OPEN_BUF];
 
 /* Decimal/string/hex line-building helpers (also used by the shutdown
