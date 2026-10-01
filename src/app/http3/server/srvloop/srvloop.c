@@ -4,6 +4,7 @@
 #include "app/http3/server/srvloop/dispatch.h"
 #include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvloop/respond.h"
+#include "common/bytes/util/bytes.h"
 #include "common/bytes/util/num.h"
 #include "transport/conn/loop/connrunner/level.h"
 #include "transport/io/udp/udploop/rxloop.h"
@@ -16,6 +17,18 @@
 
 #define WIRED_SRVLOOP_MAXPKTS \
   8 /* coalesced packets per datagram (RFC 9000 12.2) */
+
+/* An empty receive window at stream offset 0. */
+static void srvloop_body_reset(wired_srvloop_stream_slot* slot) {
+  bytes_memset(&slot->body, 0, sizeof slot->body);
+}
+
+/* A re-armed slot starts its window over -- unless its body streamed: base
+ * then stays past the delivered bytes, so a late retransmission of them is
+ * stale and never reaches the app twice. */
+static void srvloop_body_rearm(wired_srvloop_stream_slot* slot) {
+  if (!slot->body.on) srvloop_body_reset(slot);
+}
 
 /* Mark every stream reassembly slot free and its accumulator clean (RFC 9000
  * 2.2) — mirrors the old flat req_len/req_fin/req_done reset in
@@ -32,6 +45,7 @@ static void streams_reset(wired_srvloop* l) {
     l->streams[i].req_fin        = 0;
     l->streams[i].req_done       = 0;
     l->streams[i].req_incomplete = 0;
+    srvloop_body_reset(&l->streams[i]);
     h3_priority_init(&l->streams[i].priority);
   }
 }
@@ -361,7 +375,8 @@ static int stream_slot_claim(wired_srvloop* l, u64 stream_id) {
     l->streams[i].req_done       = 0;
     l->streams[i].req_incomplete = 0;
     l->streams[i].req_over       = 0;
-    l->req_next_id               = u64_max(l->req_next_id, stream_id + 4);
+    srvloop_body_reset(&l->streams[i]);
+    l->req_next_id = u64_max(l->req_next_id, stream_id + 4);
     h3_priority_init(&l->streams[i].priority);
     pending_priority_consume(l, i);
     return (int)i;
@@ -399,6 +414,7 @@ void wired_srvloop_slot_release(wired_srvloop* l, u64 stream_id) {
   l->streams[i].req_done       = 0;
   l->streams[i].req_incomplete = 0;
   l->streams[i].req_over       = 0;
+  srvloop_body_reset(&l->streams[i]);
   h3_priority_init(&l->streams[i].priority);
 }
 
@@ -1000,6 +1016,7 @@ static void rearm_reqacc(wired_srvloop* l) {
     slot->req_fin  = 0;
     slot->req_done = 0;
     slot->req_over = 0;
+    srvloop_body_rearm(slot);
   }
 }
 
@@ -1014,6 +1031,7 @@ static void rearm_incomplete(wired_srvloop* l) {
     slot->req_fin                   = 0;
     slot->req_done                  = 0;
     slot->req_incomplete            = 0;
+    srvloop_body_rearm(slot);
   }
 }
 
@@ -1029,6 +1047,7 @@ static void rearm_frame_unexpected(wired_srvloop* l) {
     slot->req_fin                   = 0;
     slot->req_done                  = 0;
     slot->req                       = (wired_h3reqdrive_req){0};
+    srvloop_body_rearm(slot);
   }
 }
 

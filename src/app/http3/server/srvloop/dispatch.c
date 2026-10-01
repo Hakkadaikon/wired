@@ -1202,16 +1202,27 @@ static wired_srvloop_reqacc route_slot_acc(wired_srvloop_stream_slot* slot) {
 /* Land one request STREAM frame in its own stream's slot (claiming one on
  * first sight) and mark that slot touched. A full table drops the frame --
  * same policy as the old single fixed slot. */
+/* RFC 9000 2.2: write sf into slot's window (only its in-window part,
+ * relative to the window base), raise the high-water mark, latch FIN, and
+ * flag data the window could not take. */
+static void route_land_bytes(
+    wired_srvloop_stream_slot* slot, const stream_frame* sf) {
+  wired_srvloop_reqacc acc = route_slot_acc(slot);
+  bodywin_land(
+      &slot->body, slot->req_buf, sf->offset,
+      wired_span_of(sf->data, (usz)sf->length), sf->fin);
+  bump_len(&acc, (usz)sf->offset + (usz)sf->length);
+  slot->req_fin |= sf->fin;
+  slot->req_over |= sf->offset + sf->length > slot->body.base + acc.cap;
+}
+
 static void route_land(wired_srvloop* l, const stream_frame* sf, u64* touched) {
-  int                  i = wired_srvloop_slot_for(l, sf->stream_id);
-  wired_srvloop_reqacc acc;
+  int i = wired_srvloop_slot_for(l, sf->stream_id);
   /* RFC 9000 3.2: a late duplicate of an answered-and-released stream is
    * discarded outright -- it must not consume a slot or count as new. */
   if (i == -2) return;
   if (i < 0) return;
-  acc = route_slot_acc(&l->streams[i]);
-  gather_one(sf, &acc);
-  l->streams[i].req_over |= sf->offset + sf->length > acc.cap;
+  route_land_bytes(&l->streams[i], sf);
   /* u64: the table holds up to WIRED_SRVLOOP_MAX_STREAMS (40) slots, so a
    * 32-bit mask loses (as undefined-behavior shifts) slots 32..39. */
   *touched |= (u64)1 << i;
@@ -1314,11 +1325,26 @@ static u16 route_too_large_status(const wired_srvloop_stream_slot* slot) {
   return n && f.type == H3_FRAME_HEADERS ? 413 : 431;
 }
 
+/* RFC 9000 4.1: a window full of contiguous bytes with no FIN -- a client
+ * that honors the request-stream credit can send no more, so the request
+ * can never complete in it. ponytail: a request of exactly one window whose
+ * FIN comes in a later, separate empty frame is answered here too. */
+static int route_window_stuck(const wired_srvloop_stream_slot* slot) {
+  return bodywin_frontier(&slot->body) == BODYWIN_CAP && !slot->req_fin;
+}
+
+/* req_buf could not hold the request: data landed past it, or it stalled
+ * full (route_window_stuck). */
+static int route_overflowed(const wired_srvloop_stream_slot* slot) {
+  return slot->req_over || route_window_stuck(slot);
+}
+
 /* 1 if slot i overflowed req_buf before its request was answered, on an h3
  * connection (an hq-interop request line has no status to answer with). */
 static int route_is_over(const wired_srvloop_dispatch_ctx* ctx, int i) {
   const wired_srvloop_stream_slot* slot = &ctx->l->streams[i];
-  return slot->req_over && !slot->req_done && ctx->s->sdrv.alpn != SALPN_HQ;
+  return route_overflowed(slot) && !slot->req_done &&
+         ctx->s->sdrv.alpn != SALPN_HQ;
 }
 
 /* An overflowed request is answered as soon as the overflow lands, not at

@@ -18426,6 +18426,28 @@ static void test_srvrun_body_over_req_buf_gets_413(void) {
   CHECK(sr_resp_is_status(&c->resp[0], 413));
 }
 
+/* A client honoring the request-stream credit (one window) stops at the
+ * window's end and never sends FIN: a full window holding the whole
+ * HEADERS frame but not the body earns 413 right away. */
+static void test_srvrun_full_window_body_gets_413(void) {
+  static u8    req[4096];
+  srvrun_conn* c = sr_sl_fixture();
+  CHECK(sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP + 1, 1) != 0);
+  sr_sl_send_stream(c, req, SR_REQ_BUF_CAP, 0);
+  CHECK(g_sr_wt_handler_calls == 0);
+  CHECK(sr_resp_is_status(&c->resp[0], 413));
+}
+
+/* Same stall with a HEADERS frame larger than the window: 431. */
+static void test_srvrun_full_window_headers_get_431(void) {
+  static u8    req[4096];
+  srvrun_conn* c = sr_sl_fixture();
+  CHECK(sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP + 1, 0) != 0);
+  sr_sl_send_stream(c, req, SR_REQ_BUF_CAP, 0);
+  CHECK(g_sr_wt_handler_calls == 0);
+  CHECK(sr_resp_is_status(&c->resp[0], 431));
+}
+
 /* Send c's GOAWAY and return the stream id it carried (~0 if unreadable). */
 static u64 sr_sl_goaway(srvrun_conn* c) {
   u8         out[256];
@@ -19393,6 +19415,8 @@ void test_srvrun(void) {
   test_srvrun_headers_over_req_buf_gets_431();
   test_srvrun_body_at_req_buf_limit_served();
   test_srvrun_body_over_req_buf_gets_413();
+  test_srvrun_full_window_body_gets_413();
+  test_srvrun_full_window_headers_get_431();
   test_srvrun_retransmitted_request_not_redispatched();
   test_srvrun_wt_connect_stream_with_session_not_redispatched();
   test_srvrun_wt_connect_before_client_settings_held();

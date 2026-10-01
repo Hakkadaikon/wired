@@ -6,6 +6,7 @@
 #include "app/http3/core/h3settings/control_settings.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/server/h3srv/state.h"
+#include "app/http3/server/srvloop/body_window.h"
 #include "common/bytes/span/span.h"
 #include "tls/ext/stp/server_tp.h"
 #include "tls/handshake/roles/server/server.h"
@@ -111,10 +112,10 @@ typedef struct {
    * packets; each frame's data is written at its offset here and the request
    * is decoded only once FIN arrives.
    * ponytail: overflow past req_buf is truncated. */
-  u8  req_buf[2048]; /**< offset-indexed request stream bytes */
-  usz req_len;       /**< highest offset+len written into req_buf */
-  u8  req_fin;       /**< 1 once a request-stream FIN was seen */
-  int req_done;      /**< 1 once this request was decoded/answered */
+  u8  req_buf[BODYWIN_CAP]; /**< offset-indexed request stream bytes */
+  usz req_len;              /**< highest offset+len written into req_buf */
+  u8  req_fin;              /**< 1 once a request-stream FIN was seen */
+  int req_done;             /**< 1 once this request was decoded/answered */
   /** RFC 9114 4.1: 1 once this stream's FIN arrived without enough of the
    * request to decode (e.g. a truncated HEADERS frame) -- req_done is also
    * set in this case (decode is attempted at most once), but no request was
@@ -136,6 +137,10 @@ typedef struct {
    * longer fits and is answered 431/413 (dispatch.c route_complete_over)
    * instead of being decoded truncated. */
   int req_over;
+  /** RFC 9000 2.2/4.1: req_buf as a receive window -- which bytes arrived
+   * (so only the contiguous prefix is ever read) and, once the request
+   * body streams to the app, where req_buf[0] sits in the stream. */
+  bodywin body;
 } wired_srvloop_stream_slot;
 
 /** RFC 9218 7.1 / 10: how many PRIORITY_UPDATE frames naming a not-yet-open
