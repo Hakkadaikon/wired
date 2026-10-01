@@ -492,6 +492,29 @@ static void moqtrun_peer_drop_rings(
  * unzeroed, so a fresh slot's relays hold garbage until this) -- but any
  * of those old streams still open on a subscriber's transport are reset
  * first, not just forgotten (moqtrun_track_reset_stale_relays' own doc). */
+/* ===== Largest Object (draft 10.2.16) ===== */
+
+static int moqtrun_loc_newer(const wired_moqtrun_track* t, moqctl_loc l) {
+  return !t->has_largest || moqctl_loc_less(t->largest, l);
+}
+
+/* Notes an Object at {group, object} published on t (0: no track). */
+static void moqtrun_track_note(wired_moqtrun_track* t, u64 group, u64 object) {
+  moqctl_loc l = {group, object};
+  if (t && moqtrun_loc_newer(t, l)) {
+    t->largest     = l;
+    t->has_largest = 1;
+  }
+}
+
+/* A relay MUST count the upstream PUBLISH's LARGEST_OBJECT (10.2.16). */
+static void moqtrun_track_seed_largest(
+    wired_moqtrun_track* t, const moqctl_params* params) {
+  const moqctl_param* l =
+      moqctl_params_find(params, MOQCTL_PARAM_LARGEST_OBJECT);
+  if (l) moqtrun_track_note(t, l->loc.group, l->loc.object);
+}
+
 static void moqtrun_track_claim(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* t,
@@ -506,8 +529,9 @@ static void moqtrun_track_claim(
    * each SUBSCRIBER's own surviving sub_names ring instead. */
   moqtrun_track_reset_stale_relays(hub, t);
   if (!t->in_use) moqtrun_track_clear_subs(t);
-  t->in_use    = 1;
-  t->own_alias = track_alias;
+  t->in_use      = 1;
+  t->own_alias   = track_alias;
+  t->has_largest = 0; /* a new PUBLISH restarts the Largest */
   moqtrun_track_drop_rings(hub, t);
   moqtrun_track_clear_relays(t);
   moqtrun_record_track_key(t, k);
@@ -622,6 +646,7 @@ static void moqtrun_handle_publish(
   }
   moqtrun_supersede_name(hub, peer_idx, k);
   moqtrun_track_claim(hub, t, k, m.track_alias);
+  moqtrun_track_seed_largest(t, &m.params);
   moqtrun_reattach_subs(hub, t, peer_idx, k);
   u8                msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqctl_request_ok ok = {0};
@@ -701,12 +726,30 @@ static int moqtrun_reattach_wanted(
   return moqtrun_sub_name_known(&hub->peers[i], k);
 }
 
+/* Opens slot s on t for peer_idx under alias; m is the SUBSCRIBE (0 for
+ * a silent re-attach). */
+static void moqtrun_sub_open(
+    wired_moqtrun_sub*         s,
+    const wired_moqtrun_track* t,
+    usz                        peer_idx,
+    u64                        alias,
+    const moqctl_subscribe*    m) {
+  (void)t;
+  (void)m;
+  s->session_idx = peer_idx;
+  s->track_alias = alias;
+  s->active      = 1;
+}
+
+/* 1 iff Objects go to s. */
+static int moqtrun_sub_forwards(const wired_moqtrun_sub* s) {
+  return s->active;
+}
+
 static void moqtrun_reattach_one_sub(wired_moqtrun_track* track, usz i) {
   wired_moqtrun_sub* slot = moqtrun_sub_slot(track);
   if (!slot) return;
-  slot->session_idx = i;
-  slot->track_alias = moqtrun_next_alias(track);
-  slot->active      = 1;
+  moqtrun_sub_open(slot, track, i, moqtrun_next_alias(track), 0);
 }
 
 /* A (re)PUBLISHed name re-attaches every still-connected peer that had
@@ -732,11 +775,18 @@ static int moqtrun_encode_subscribe_ok(
   return moqctl_subscribe_ok_encode(buf, off, m);
 }
 
-static void moqtrun_queue_subscribe_ok(wired_moqtrun_peer* p, u64 alias) {
+/* SUBSCRIBE_OK with alias; LARGEST_OBJECT once t has published Objects
+ * (MUST, draft 10.2.16). */
+static void moqtrun_queue_subscribe_ok(
+    wired_moqtrun_peer* p, const wired_moqtrun_track* t, u64 alias) {
   u8                  msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
-  moqctl_subscribe_ok ok = {0};
-  ok.track_alias         = alias;
-  usz n                  = moqtrun_envelope_put(
+  moqctl_subscribe_ok ok  = {0};
+  ok.track_alias          = alias;
+  ok.params.items[0].type = MOQCTL_PARAM_LARGEST_OBJECT;
+  ok.params.items[0].enc  = MOQCTL_PENC_LOCATION;
+  ok.params.items[0].loc  = t->largest;
+  ok.params.n             = t->has_largest ? 1 : 0;
+  usz n                   = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_SUBSCRIBE_OK,
       moqtrun_encode_subscribe_ok, &ok);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
@@ -745,14 +795,13 @@ static void moqtrun_queue_subscribe_ok(wired_moqtrun_peer* p, u64 alias) {
 /* Records slot (peer_idx, a fresh alias) against track and replies
  * SUBSCRIBE_OK with that alias. */
 static void moqtrun_accept_subscribe(
-    wired_moqtrun_peer*  p,
-    wired_moqtrun_track* track,
-    wired_moqtrun_sub*   slot,
-    usz                  peer_idx) {
-  slot->session_idx = peer_idx;
-  slot->track_alias = moqtrun_next_alias(track);
-  slot->active      = 1;
-  moqtrun_queue_subscribe_ok(p, slot->track_alias);
+    wired_moqtrun_peer*     p,
+    wired_moqtrun_track*    track,
+    wired_moqtrun_sub*      slot,
+    usz                     peer_idx,
+    const moqctl_subscribe* m) {
+  moqtrun_sub_open(slot, track, peer_idx, moqtrun_next_alias(track), m);
+  moqtrun_queue_subscribe_ok(p, track, slot->track_alias);
 }
 
 /* A peer's first SUBSCRIBE for the hub's blob: one io.send_uni with the
@@ -761,36 +810,51 @@ static void moqtrun_accept_subscribe(
  * again). Unlike a peer track's per-subscriber alias, SUBSCRIBE_OK carries
  * the blob's own alias -- the one its framed header has -- so the
  * subscriber can bind the stream to this subscription. */
+/* Sends the blob to slot's peer p unless FORWARD 0 holds it back; 0 when
+ * the send is refused. */
+static int moqtrun_blob_deliver(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const wired_moqtrun_sub* slot) {
+  if (!moqtrun_sub_forwards(slot)) return 1;
+  if (hub->io.send_uni(p->wt, hub->blob_wire) >= 0) return 1;
+  hub->stat_open_drop++;
+  return 0;
+}
+
 static void moqtrun_blob_send_first(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx) {
+    wired_moqt_hub*         hub,
+    wired_moqtrun_peer*     p,
+    usz                     peer_idx,
+    const moqctl_subscribe* m) {
   wired_moqtrun_sub* slot = moqtrun_sub_slot(&hub->blob_track);
   if (!slot) {
     moqtrun_send_request_error(p, MOQCTL_ERR_INTERNAL_ERROR);
     return;
   }
-  if (hub->io.send_uni(p->wt, hub->blob_wire) < 0) {
-    hub->stat_open_drop++;
+  moqtrun_sub_open(
+      slot, &hub->blob_track, peer_idx, hub->blob_track.own_alias, m);
+  if (!moqtrun_blob_deliver(hub, p, slot)) {
+    slot->active = 0;
     moqtrun_send_request_error(p, MOQCTL_ERR_INTERNAL_ERROR);
     return;
   }
-  slot->session_idx = peer_idx;
-  slot->track_alias = hub->blob_track.own_alias;
-  slot->active      = 1;
-  moqtrun_queue_subscribe_ok(p, slot->track_alias);
+  moqtrun_queue_subscribe_ok(p, &hub->blob_track, slot->track_alias);
 }
 
 /* SUBSCRIBE for the hub's own blob track: a peer already holding a
  * subscription is answered SUBSCRIBE_OK again (its copy is on the way or
  * delivered -- never sent twice), anyone else gets the blob now. */
 static void moqtrun_subscribe_blob(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx) {
+    wired_moqt_hub*         hub,
+    wired_moqtrun_peer*     p,
+    usz                     peer_idx,
+    const moqctl_subscribe* m) {
   wired_moqtrun_sub* held =
       moqtrun_track_sub_of_peer(&hub->blob_track, peer_idx);
   if (held) {
-    moqtrun_queue_subscribe_ok(p, held->track_alias);
+    moqtrun_queue_subscribe_ok(p, &hub->blob_track, held->track_alias);
     return;
   }
-  moqtrun_blob_send_first(hub, p, peer_idx);
+  moqtrun_blob_send_first(hub, p, peer_idx, m);
 }
 
 /* SUBSCRIBE on a found peer track: a peer already holding a subscription
@@ -799,13 +863,14 @@ static void moqtrun_subscribe_blob(
  * one -- each resend must not consume another slot), anyone else gets a
  * fresh slot, or DOES_NOT_EXIST once the table is full. */
 static void moqtrun_subscribe_peer_track(
-    wired_moqtrun_peer*  p,
-    wired_moqtrun_track* track,
-    usz                  peer_idx,
-    moqtrun_key          k) {
+    wired_moqtrun_peer*     p,
+    wired_moqtrun_track*    track,
+    usz                     peer_idx,
+    moqtrun_key             k,
+    const moqctl_subscribe* m) {
   wired_moqtrun_sub* held = moqtrun_track_sub_of_peer(track, peer_idx);
   if (held) {
-    moqtrun_queue_subscribe_ok(p, held->track_alias);
+    moqtrun_queue_subscribe_ok(p, track, held->track_alias);
     return;
   }
   wired_moqtrun_sub* slot = moqtrun_sub_slot(track);
@@ -813,7 +878,7 @@ static void moqtrun_subscribe_peer_track(
     moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
     return;
   }
-  moqtrun_accept_subscribe(p, track, slot, peer_idx);
+  moqtrun_accept_subscribe(p, track, slot, peer_idx, m);
   moqtrun_note_sub_name(p, k);
 }
 
@@ -831,11 +896,14 @@ static void moqtrun_route_peer_subscribe(
     moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
     return;
   }
-  moqtrun_subscribe_peer_track(p, track, peer_idx, k);
+  moqtrun_subscribe_peer_track(p, track, peer_idx, k, m);
 }
 
 static void moqtrun_subscribe_live(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx);
+    wired_moqt_hub*         hub,
+    wired_moqtrun_peer*     p,
+    usz                     peer_idx,
+    const moqctl_subscribe* m);
 
 /* draft SS10.6 SUBSCRIBE: the hub's own tracks answer first (they win
  * over a peer track of the same name), everything else is matched against
@@ -847,11 +915,11 @@ static void moqtrun_route_subscribe(
     usz                     peer_idx,
     const moqctl_subscribe* m) {
   if (moqtrun_track_name_matches(&hub->blob_track, m->name.name)) {
-    moqtrun_subscribe_blob(hub, p, peer_idx);
+    moqtrun_subscribe_blob(hub, p, peer_idx, m);
     return;
   }
   if (moqtrun_track_name_matches(&hub->live.track, m->name.name)) {
-    moqtrun_subscribe_live(hub, p, peer_idx);
+    moqtrun_subscribe_live(hub, p, peer_idx, m);
     return;
   }
   moqtrun_route_peer_subscribe(hub, p, peer_idx, m);
@@ -1128,6 +1196,9 @@ static void moqtrun_dispatch_ctl_stream(
 
 /* ===================== hub-owned blob track ===================== */
 
+static void moqtrun_subgroup_scan(
+    wired_span wire, wired_moqtrun_track* t, moqdata_objseq* seq, u64* group);
+
 usz wired_moqt_publish_blob(
     wired_moqt_hub* hub,
     wired_span      name,
@@ -1139,6 +1210,9 @@ usz wired_moqt_publish_blob(
   moqtrun_track_claim(
       hub, &hub->blob_track, moqtrun_key_name(name), track_alias);
   hub->blob_wire = wired_span_of(wire.p, n);
+  moqdata_objseq seq;
+  u64            group;
+  moqtrun_subgroup_scan(hub->blob_wire, &hub->blob_track, &seq, &group);
   return n;
 }
 
@@ -1178,6 +1252,7 @@ int wired_moqt_publish_live(
   hub->live.t0_ms       = now_ms;
   hub->live.group_ms    = group_ms;
   hub->live.last_now_ms = now_ms;
+  moqtrun_track_note(&hub->live.track, 0, 0); /* Group 0 starts at t0 */
   return 1;
 }
 
@@ -1241,7 +1316,7 @@ static void moqtrun_live_send_one(wired_moqt_hub* hub, usz i, u64 g) {
 }
 
 static void moqtrun_live_serve_sub(wired_moqt_hub* hub, usz i, u64 g) {
-  if (!hub->live.track.subs[i].active) return;
+  if (!moqtrun_sub_forwards(&hub->live.track.subs[i])) return;
   if (!moqtrun_live_owes(&hub->live, i, g)) return;
   moqtrun_live_send_one(hub, i, g);
 }
@@ -1256,6 +1331,7 @@ void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
   moqtrun_rel_tick_all(hub, now_ms);
   if (!hub->live.track.in_use) return;
   u64 g = moqtrun_live_group_at(&hub->live, now_ms);
+  moqtrun_track_note(&hub->live.track, g, 0);
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
     moqtrun_live_serve_sub(hub, i, g);
 }
@@ -1264,29 +1340,33 @@ void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
  * own alias, and sends the Group current at the last tick at once (its
  * fragment starts with a keyframe). */
 static void moqtrun_live_attach(
-    wired_moqt_hub*     hub,
-    wired_moqtrun_peer* p,
-    wired_moqtrun_sub*  slot,
-    usz                 peer_idx) {
-  usz i                 = (usz)(slot - hub->live.track.subs);
-  slot->session_idx     = peer_idx;
-  slot->track_alias     = hub->live.track.own_alias;
-  slot->active          = 1;
+    wired_moqt_hub*         hub,
+    wired_moqtrun_peer*     p,
+    wired_moqtrun_sub*      slot,
+    usz                     peer_idx,
+    const moqctl_subscribe* m) {
+  usz i = (usz)(slot - hub->live.track.subs);
+  moqtrun_sub_open(
+      slot, &hub->live.track, peer_idx, hub->live.track.own_alias, m);
   hub->live.sent_any[i] = 0;
-  moqtrun_queue_subscribe_ok(p, slot->track_alias);
-  moqtrun_live_send_one(
-      hub, i, moqtrun_live_group_at(&hub->live, hub->live.last_now_ms));
+  moqtrun_queue_subscribe_ok(p, &hub->live.track, slot->track_alias);
+  if (moqtrun_sub_forwards(slot))
+    moqtrun_live_send_one(
+        hub, i, moqtrun_live_group_at(&hub->live, hub->live.last_now_ms));
 }
 
 /* SUBSCRIBE for the live track: a peer already holding a subscription is
  * answered SUBSCRIBE_OK again (nothing re-sent), anyone else is attached
  * and served the current Group. */
 static void moqtrun_subscribe_live(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx) {
+    wired_moqt_hub*         hub,
+    wired_moqtrun_peer*     p,
+    usz                     peer_idx,
+    const moqctl_subscribe* m) {
   wired_moqtrun_track* t    = &hub->live.track;
   wired_moqtrun_sub*   held = moqtrun_track_sub_of_peer(t, peer_idx);
   if (held) {
-    moqtrun_queue_subscribe_ok(p, held->track_alias);
+    moqtrun_queue_subscribe_ok(p, t, held->track_alias);
     return;
   }
   wired_moqtrun_sub* slot = moqtrun_sub_slot(t);
@@ -1294,7 +1374,7 @@ static void moqtrun_subscribe_live(
     moqtrun_send_request_error(p, MOQCTL_ERR_INTERNAL_ERROR);
     return;
   }
-  moqtrun_live_attach(hub, p, slot, peer_idx);
+  moqtrun_live_attach(hub, p, slot, peer_idx, m);
 }
 
 /* ===================== data-stream (Object) relay ===================== */
@@ -1316,7 +1396,8 @@ static void moqtrun_relay_to_one(
 static void moqtrun_relay_object(
     wired_moqt_hub* hub, wired_moqtrun_track* track, wired_span wire) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (track->subs[i].active) moqtrun_relay_to_one(hub, &track->subs[i], wire);
+    if (moqtrun_sub_forwards(&track->subs[i]))
+      moqtrun_relay_to_one(hub, &track->subs[i], wire);
 }
 
 /* --- relay map: one entry per in-flight publisher stream (moqtrun.h's
@@ -1324,7 +1405,11 @@ static void moqtrun_relay_object(
  * of one track's streams can be forwarded concurrently). --- */
 
 static usz moqtrun_decode_object_loop(
-    wired_span data, usz* off, const moqdata_subhdr* hdr);
+    wired_span           data,
+    usz*                 off,
+    moqdata_objseq*      seq,
+    u64                  group,
+    wired_moqtrun_track* t);
 
 static int moqtrun_relay_matches(
     const wired_moqtrun_relay* r, u64 pub_stream_id) {
@@ -1497,7 +1582,7 @@ static void moqtrun_relay_append_all(
     wired_span           wire,
     int                  fin) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (track->subs[i].active)
+    if (moqtrun_sub_forwards(&track->subs[i]))
       moqtrun_relay_append_one(hub, &track->subs[i], relay, i, wire, fin);
 }
 
@@ -1522,18 +1607,22 @@ static void moqtrun_relay_save_frag(
  * the last complete Object boundary, keeps the tail past it as the next
  * fragment, and returns the whole-Objects prefix -- the only bytes safe to
  * forward, because a forwarded round can be dropped per subscriber and a
- * dropped round must never end mid-Object. hdr type 0 is the right decode
- * context here for the same reason it was for the former known-stream
- * resolver: every relayed stream's header has the Properties bit off. */
+ * dropped round must never end mid-Object. Decoding continues the
+ * stream's own Object sequence (relay->seq, set from its SUBGROUP_HEADER
+ * by moqtrun_relay_start), so each Object's ID counts toward the track's
+ * Largest. */
 static wired_span moqtrun_relay_normalize(
-    wired_moqt_hub* hub, wired_moqtrun_relay* relay, wired_span data) {
-  usz            total = relay->frag_len + data.n;
-  moqdata_subhdr hdr   = {0};
-  usz            off   = 0;
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay,
+    wired_span           data) {
+  usz total = relay->frag_len + data.n;
+  usz off   = 0;
   bytes_memcpy(hub->relay_scratch, relay->frag, relay->frag_len);
   bytes_memcpy(hub->relay_scratch + relay->frag_len, data.p, data.n);
   moqtrun_decode_object_loop(
-      wired_span_of(hub->relay_scratch, total), &off, &hdr);
+      wired_span_of(hub->relay_scratch, total), &off, &relay->seq,
+      relay->group_id, track);
   moqtrun_relay_save_frag(hub, relay, hub->relay_scratch + off, total - off);
   return wired_span_of(hub->relay_scratch, off);
 }
@@ -1630,7 +1719,8 @@ static void moqtrun_rel_attach_sub(
     usz                        i,
     u64                        sent,
     u64                        now_ms) {
-  if (!track->subs[i].active || !relay->sub_stream_set[i]) return;
+  if (!moqtrun_sub_forwards(&track->subs[i]) || !relay->sub_stream_set[i])
+    return;
   rb->subs[i].active     = 1;
   rb->subs[i].shed       = 0; /* a reused slot must not inherit these */
   rb->subs[i].fin_done   = 0;
@@ -1678,7 +1768,7 @@ static int moqtrun_rel_late_wanted(
     const wired_moqtrun_relay* relay,
     const moqtrel_buf*         rb,
     usz                        i) {
-  return track->subs[i].active && !relay->sub_stream_set[i] &&
+  return moqtrun_sub_forwards(&track->subs[i]) && !relay->sub_stream_set[i] &&
          !rb->subs[i].active;
 }
 
@@ -2018,7 +2108,7 @@ static void moqtrun_relay_continue(
     wired_moqtrun_relay* relay,
     wired_span           wire,
     int                  fin) {
-  wired_span whole = moqtrun_relay_normalize(hub, relay, wire);
+  wired_span whole = moqtrun_relay_normalize(hub, track, relay, wire);
   if (relay->rel_idx >= 0) {
     moqtrun_rel_continue(hub, track, relay, whole, fin);
     return;
@@ -2056,7 +2146,7 @@ static void moqtrun_relay_open_all(
     wired_moqtrun_relay* relay,
     wired_span           wire) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (track->subs[i].active)
+    if (moqtrun_sub_forwards(&track->subs[i]))
       moqtrun_relay_open_one(hub, &track->subs[i], relay, i, wire);
 }
 
@@ -2110,6 +2200,8 @@ static void moqtrun_relay_start(
       wired_span_of(wire.p, whole_end));
   moqtrun_relay_save_frag(hub, relay, wire.p + whole_end, wire.n - whole_end);
   moqtrun_relay_save_hdr(relay, wire);
+  moqtrun_subgroup_scan(
+      wired_span_of(wire.p, whole_end), 0, &relay->seq, &relay->group_id);
   moqtrun_relay_open_all(hub, track, relay, wired_span_of(wire.p, whole_end));
   moqtrun_rel_attach_subs(hub, track, relay);
 }
@@ -2131,15 +2223,32 @@ static void moqtrun_relay_start(
  * hub's former one-shot-Object path, this is that path's generalization to
  * N Objects on one stream. */
 static usz moqtrun_decode_object_loop(
-    wired_span data, usz* off, const moqdata_subhdr* hdr) {
-  moqdata_objseq seq = moqdata_objseq_of(hdr->type);
-  usz            n   = 0;
+    wired_span           data,
+    usz*                 off,
+    moqdata_objseq*      seq,
+    u64                  group,
+    wired_moqtrun_track* t) {
+  usz n = 0;
   while (*off < data.n) {
     moqdata_obj obj;
-    if (moqdata_obj_take(data, off, &seq, &obj) != MOQDATA_OK) break;
+    if (moqdata_obj_take(data, off, seq, &obj) != MOQDATA_OK) break;
+    moqtrun_track_note(t, group, obj.object_id);
     n++;
   }
   return n;
+}
+
+/* SUBGROUP_HEADER + every whole Object of wire, noting each on t (0: no
+ * track); *seq / *group receive the stream's state after the last whole
+ * Object, for a relay's header-less later deliveries. */
+static void moqtrun_subgroup_scan(
+    wired_span wire, wired_moqtrun_track* t, moqdata_objseq* seq, u64* group) {
+  usz            off = 0;
+  moqdata_subhdr hdr;
+  if (moqdata_subhdr_take(wire, &off, &hdr) != MOQDATA_OK) return;
+  *seq   = moqdata_objseq_of(hdr.type);
+  *group = hdr.group_id;
+  moqtrun_decode_object_loop(wire, &off, seq, hdr.group_id, t);
 }
 
 static int moqtrun_track_has_alias(
@@ -2181,11 +2290,13 @@ static wired_moqtrun_track* moqtrun_decode_fresh_subgroup(
   usz            off = 0;
   moqdata_subhdr hdr;
   if (moqdata_subhdr_take(data, &off, &hdr) != MOQDATA_OK) return 0;
+  wired_moqtrun_track* t   = moqtrun_track_by_alias(p, hdr.track_alias);
+  moqdata_objseq       seq = moqdata_objseq_of(hdr.type);
   if (moqtrun_fresh_nothing_due(
-          moqtrun_decode_object_loop(data, &off, &hdr), fin))
+          moqtrun_decode_object_loop(data, &off, &seq, hdr.group_id, t), fin))
     return 0;
   *whole_end = off;
-  return moqtrun_track_by_alias(p, hdr.track_alias);
+  return t;
 }
 
 /* Classifies a FRESH data stream's leading Stream Type varint and, for
@@ -2286,7 +2397,9 @@ static wired_moqtrun_track* moqtrun_dg_track(
   usz       off = 0;
   moqdg_obj obj;
   if (moqdg_take(data, &off, &obj) != MOQDATA_OK) return 0;
-  return moqtrun_track_by_alias(p, obj.track_alias);
+  wired_moqtrun_track* t = moqtrun_track_by_alias(p, obj.track_alias);
+  moqtrun_track_note(t, obj.group_id, obj.object_id);
+  return t;
 }
 
 /* One subscriber's copy: the SAME bytes, unmodified (the relay never
@@ -2309,7 +2422,8 @@ static void moqtrun_dg_to_one(
 static void moqtrun_dg_fanout(
     wired_moqt_hub* hub, const wired_moqtrun_track* track, wired_span data) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (track->subs[i].active) moqtrun_dg_to_one(hub, &track->subs[i], data);
+    if (moqtrun_sub_forwards(&track->subs[i]))
+      moqtrun_dg_to_one(hub, &track->subs[i], data);
 }
 
 void wired_moqt_on_datagram(

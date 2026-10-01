@@ -90,6 +90,29 @@ static void mtst_init(void) {
   wired_moqt_init(&mtst_hub, moqtrun_test_io());
 }
 
+/* The last reply decoded as SUBSCRIBE_OK; 0 if it is anything else. */
+static const moqctl_subscribe_ok* mtst_last_ok(void) {
+  static moqctl_subscribe_ok ok;
+  const moqtrun_test_call*   c   = moqtrun_test_last_kind(3);
+  usz                        off = 0, boff = 0;
+  u64                        type;
+  wired_span                 body;
+  if (!c) return 0;
+  if (moqctl_peek_type(
+          wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
+      MOQCTL_OK)
+    return 0;
+  if (type != MOQCTL_T_SUBSCRIBE_OK) return 0;
+  if (moqctl_subscribe_ok_take(body, &boff, &ok) != MOQCTL_OK) return 0;
+  return &ok;
+}
+
+static const moqctl_param* mtst_largest(void) {
+  const moqctl_subscribe_ok* ok = mtst_last_ok();
+  CHECK(ok != 0);
+  return ok ? moqctl_params_find(&ok->params, MOQCTL_PARAM_LARGEST_OBJECT) : 0;
+}
+
 /* ===================== Full Track Name matching ===================== */
 
 /* Same Track Name under another namespace is another track (1.5): no
@@ -159,9 +182,114 @@ static void test_moqtrun_sub_ns_over_cap_refused(void) {
   CHECK(mtsub_last_reply_type() == MOQCTL_T_REQUEST_ERROR);
 }
 
+/* ===================== Largest Object (10.2.16) ===================== */
+
+/* Header (Type 0x30, alias 1, Group g, Subgroup 0) + n Objects, each ID
+ * Delta 0 (IDs first_id.., 11.4.2 chaining) with a 1-byte payload. */
+static usz mtst_stream(u64 g, usz n, int hdr, u8* buf) {
+  moqdata_subhdr h   = {0};
+  usz            off = 0;
+  h.type             = 0x30;
+  h.track_alias      = 1;
+  h.group_id         = g;
+  if (hdr)
+    moqdata_subhdr_put(wired_mspan_of(buf, MOQTRUN_TEST_MAX_PAYLOAD), &off, &h);
+  for (usz i = 0; i < n; i++) {
+    u8 b = (u8)i;
+    moqdata_obj_put(
+        wired_mspan_of(buf, MOQTRUN_TEST_MAX_PAYLOAD), &off, 0,
+        wired_span_of(&b, 1));
+  }
+  return off;
+}
+
+/* SUBSCRIBE_OK carries no LARGEST_OBJECT while nothing is published, and
+ * the Largest Location once Objects were (MUST, 10.2.16) -- tracked
+ * across a keep-open stream's header-less later deliveries. */
+static void test_moqtrun_sub_ok_largest(void) {
+  u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_subscribe(SESS_B, cb, &f);
+  CHECK(mtst_largest() == 0);
+  usz n = mtst_stream(4, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 0);
+  n = mtst_stream(4, 2, 0, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 0);
+  mtst_subscribe(SESS_B, cb, &f);
+  const moqctl_param* l = mtst_largest();
+  CHECK(l != 0);
+  CHECK(l && l->loc.group == 4 && l->loc.object == 2);
+}
+
+/* A datagram's Location counts toward the Largest too. */
+static void test_moqtrun_sub_largest_from_datagram(void) {
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  wired_moqt_on_datagram(
+      &mtst_hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+  mtst_subscribe(SESS_B, cb, &f);
+  const moqctl_param* l = mtst_largest();
+  CHECK(l && l->loc.group == 0 && l->loc.object == 5);
+}
+
+/* A new PUBLISH starts a new Largest: Objects of the previous incarnation
+ * no longer count, and the PUBLISH's own LARGEST_OBJECT seeds it. */
+static void test_moqtrun_sub_republish_resets_largest(void) {
+  moqctl_params lp = {0};
+  moqctl_ftn    f  = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  moqtrun_test_relay_alice_chat(&mtst_hub);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_subscribe(SESS_B, cb, &f);
+  CHECK(mtst_largest() == 0);
+  lp.items[0].type       = MOQCTL_PARAM_LARGEST_OBJECT;
+  lp.items[0].enc        = MOQCTL_PENC_LOCATION;
+  lp.items[0].loc.group  = 7;
+  lp.items[0].loc.object = 1;
+  lp.n                   = 1;
+  mtst_publish_p(SESS_A, ca, &f, 1, &lp);
+  mtst_subscribe(SESS_B, cb, &f);
+  const moqctl_param* l = mtst_largest();
+  CHECK(l && l->loc.group == 7 && l->loc.object == 1);
+}
+
+/* The hub's own tracks: a blob's last Object, a live track's current
+ * Group (Object 0). */
+static void test_moqtrun_sub_largest_own_tracks(void) {
+  moqctl_ftn f = mtst_ftn("chat", "room1", "movie");
+  mtst_init();
+  CHECK(moqtrun_test_publish_small_blob(&mtst_hub, 10) != 0);
+  u64 cb = mtst_join(SESS_B);
+  mtst_subscribe(SESS_B, cb, &f);
+  const moqctl_param* l = mtst_largest();
+  CHECK(l && l->loc.group == 0 && l->loc.object == 0);
+  mtst_init();
+  moqtrun_test_publish_live(&mtst_hub);
+  wired_moqt_tick(&mtst_hub, 1000 + 2 * 2000);
+  cb = mtst_join(SESS_B);
+  mtst_subscribe(SESS_B, cb, &f);
+  l = mtst_largest();
+  CHECK(l && l->loc.group == 2 && l->loc.object == 0);
+}
+
 void test_moqtrun_sub(void) {
   test_moqtrun_sub_ns_must_match();
   test_moqtrun_sub_ns_max_fields();
   test_moqtrun_sub_same_name_other_ns_coexist();
   test_moqtrun_sub_ns_over_cap_refused();
+  test_moqtrun_sub_ok_largest();
+  test_moqtrun_sub_largest_from_datagram();
+  test_moqtrun_sub_republish_resets_largest();
+  test_moqtrun_sub_largest_own_tracks();
 }
