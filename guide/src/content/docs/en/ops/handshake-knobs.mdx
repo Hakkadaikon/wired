@@ -26,8 +26,10 @@ key log output.
 - `obs.cc_algo` picks the congestion controller for fresh connections
   (`CC_ALGO_NEWRENO` 0, `CC_ALGO_CUBIC` 1, `CC_ALGO_BBR` 2, see
   `transport/recovery/congestion/cc/cc.h`); `0` with no build override
-  means NewReno, so a build wanting Cubic/BBR either sets this per
-  connection or overrides `WIRED_CC_ALGO_DEFAULT`.
+  means Cubic (`WIRED_CC_ALGO_DEFAULT` in srvrun.c), since an explicit
+  runtime NewReno request is itself `0` and indistinguishable from
+  "unset" -- a build wanting NewReno by default overrides
+  `-DWIRED_CC_ALGO_DEFAULT=0` instead.
 - `obs.qlog_path` / `obs.keylog_path` write a qlog (RFC 9002-shaped
   `packet_sent`/`packet_received` events) and an NSS key log
   (`SSLKEYLOGFILE` format) a tool like Wireshark reads to decrypt a
