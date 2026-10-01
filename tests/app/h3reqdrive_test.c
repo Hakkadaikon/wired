@@ -1,6 +1,7 @@
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3conn/request.h"
 #include "app/http3/core/h3conn/response.h"
+#include "app/http3/core/h3settings/control_settings.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/qpack/qpack/base.h"
 #include "app/qpack/qpack/dynfind.h"
@@ -1166,7 +1167,117 @@ static void test_h3reqdrive_deeply_nested_frames_no_stack_overflow(void) {
   CHECK(rd_eq(r.body, r.body_len, "body", 4));
 }
 
+/* Decode fs (one request field section) into r over the production-sized
+ * scratch. */
+static int rd_hdr_decode(
+    const u8*             fs,
+    usz                   fs_len,
+    u8*                   scratch,
+    const qpack_dyn*      dyn,
+    wired_h3reqdrive_req* r) {
+  u8            req[1024];
+  wired_obuf    ob = {req, sizeof req, 0};
+  h3conn_req_in in = {wired_span_of(fs, fs_len), wired_span_of(0, 0)};
+  if (!h3conn_send_request(0, &in, &ob)) return 0;
+  return wired_h3reqdrive_recv_get_dyn(
+      wired_span_of(req, ob.len),
+      wired_mspan_of(scratch, WIRED_H3_MAX_FIELD_SECTION), dyn, r);
+}
+
+/* 1 if header name is present on r with exactly value. */
+static int rd_hdr_is(
+    const wired_h3reqdrive_req* r, const char* name, const char* value) {
+  wired_span v;
+  if (!wired_http_req_header(r, wired_span_of((const u8*)name, cstr(name)), &v))
+    return 0;
+  return rd_eq(v.p, v.n, value, cstr(value));
+}
+
+/* RFC 9114 4.2 / RFC 9204 4.5.4 / 4.5.6: any regular request header is
+ * reachable by its lowercase name -- a static-table name reference
+ * (authorization), a literal name (cookie: the first crumb of several,
+ * RFC 9114 4.2.1) and a literal name with a Huffman-coded value (x-custom,
+ * RFC 7541 C.4.3's "custom-value"). Pseudo-headers, other spellings and
+ * absent names are not found. */
+static void test_reqdrive_req_header_lookup(void) {
+  static const u8      xcustom[] = {0x27, 0x01, 'x',  '-',  'c',  'u',  's',
+                                    't',  'o',  'm',  0x89, 0x25, 0xa8, 0x49,
+                                    0xe9, 0x5b, 0xb8, 0xe8, 0xb4, 0xbf};
+  static u8            scratch[WIRED_H3_MAX_FIELD_SECTION];
+  u8                   fs[160];
+  qpack_prefix         pfx  = {0, 0, 0};
+  qpack_nameref        auth = {84, 1, 0}; /* static "authorization" */
+  usz                  off  = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  wired_h3reqdrive_req r;
+  wired_span           v = {0, 0};
+  off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
+  put_litname(fs, &off, ":path", "/x");
+  off += qpack_literal_namref_encode(
+      wired_mspan_of(fs + off, 64), &auth,
+      wired_span_of((const u8*)"Bearer t", 8));
+  put_litname(fs, &off, "cookie", "a=1");
+  put_litname(fs, &off, "cookie", "b=2");
+  bytes_memcpy(fs + off, xcustom, sizeof xcustom);
+  off += sizeof xcustom;
+  CHECK(rd_hdr_decode(fs, off, scratch, 0, &r));
+  CHECK(rd_hdr_is(&r, "authorization", "Bearer t"));
+  CHECK(rd_hdr_is(&r, "cookie", "a=1"));
+  CHECK(rd_hdr_is(&r, "x-custom", "custom-value"));
+  CHECK(
+      !wired_http_req_header(&r, wired_span_of((const u8*)"X-Custom", 8), &v));
+  CHECK(!wired_http_req_header(&r, wired_span_of((const u8*)":path", 5), &v));
+  CHECK(!wired_http_req_header(&r, wired_span_of((const u8*)"accept", 6), &v));
+}
+
+/* Up to WIRED_H3REQDRIVE_MAX_HDRS regular headers are kept; the next one is
+ * ignored, not an error. */
+static void test_reqdrive_req_header_cap(void) {
+  static u8            scratch[WIRED_H3_MAX_FIELD_SECTION];
+  u8                   fs[256];
+  qpack_prefix         pfx = {0, 0, 0};
+  usz                  off = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  wired_h3reqdrive_req r;
+  char                 nm[] = "xa";
+  off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
+  for (usz i = 0; i <= WIRED_H3REQDRIVE_MAX_HDRS; i++) {
+    nm[1] = (char)('a' + i);
+    put_litname(fs, &off, nm, nm);
+  }
+  CHECK(rd_hdr_decode(fs, off, scratch, 0, &r));
+  CHECK(rd_hdr_is(&r, "xa", "xa"));
+  CHECK(rd_hdr_is(&r, "xp", "xp"));  /* the 16th */
+  CHECK(!rd_hdr_is(&r, "xq", "xq")); /* the 17th */
+}
+
+/* RFC 9204 2.1.1 / 3.2: a header taken from the dynamic table is copied into
+ * the request's scratch at decode time -- the table may evict or change the
+ * entry afterwards, so the lookup must not view the table itself. */
+static void test_reqdrive_req_header_dynamic_copied(void) {
+  static u8   scratch[WIRED_H3_MAX_FIELD_SECTION];
+  qpack_dyn   t;
+  qpack_field f = {
+      wired_span_of((const u8*)"x-dyn", 5), wired_span_of((const u8*)"dv", 2)};
+  u8                   fs[64];
+  qpack_prefix         pfx;
+  usz                  off;
+  wired_h3reqdrive_req r;
+  wired_span           v = {0, 0};
+  qpack_dyn_init(&t, 4096);
+  CHECK(qpack_dyn_insert(&t, &f));
+  pfx = (qpack_prefix){qpack_ric_encode(1, 4096 / 32), 0, 0};
+  off = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
+  off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 0, 0);
+  CHECK(rd_hdr_decode(fs, off, scratch, &t, &r));
+  CHECK(wired_http_req_header(&r, wired_span_of((const u8*)"x-dyn", 5), &v));
+  CHECK(rd_eq(v.p, v.n, "dv", 2));
+  CHECK(v.p >= scratch && v.p < scratch + sizeof scratch);
+}
+
 void test_h3reqdrive(void) {
+  test_reqdrive_req_header_lookup();
+  test_reqdrive_req_header_cap();
+  test_reqdrive_req_header_dynamic_copied();
   test_reqdrive_priority_header();
   test_reqdrive_origin_header();
   test_reqdrive_long_value_header();
