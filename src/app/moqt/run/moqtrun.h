@@ -127,6 +127,24 @@ typedef struct {
   usz session_idx;
   u64 track_alias;
   int active; /* 1 while the subscription is Established */
+  /** SUBSCRIBE's Request ID (draft-ietf-moq-transport-19 10.6). */
+  u64 request_id;
+  /** OBJECT_DELIVERY_TIMEOUT (10.2.4), valid when has_delivery_timeout. */
+  u64 delivery_timeout;
+  /** Location Filter Start (9.3.1), resolved at SUBSCRIBE time; {0, 0}
+   * when unfiltered. */
+  moqctl_loc start;
+  /** Last Group to deliver (AbsoluteRange), valid when has_end_group. */
+  u64 end_group;
+  /** SUBSCRIBER_PRIORITY (10.2.7), valid when has_priority. */
+  u8 priority;
+  u8 has_priority;
+  /** GROUP_ORDER (10.2.8); 0 = absent (the publisher's preference). */
+  u8 group_order;
+  /** 1 when FORWARD was 0 (10.2.17): no Objects go to this subscription. */
+  u8 forward_off;
+  u8 has_delivery_timeout;
+  u8 has_end_group;
 } wired_moqtrun_sub;
 
 /** Fixed capacity for a saved SUBGROUP_HEADER (draft SS11.4.2: Type +
