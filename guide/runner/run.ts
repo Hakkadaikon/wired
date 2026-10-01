@@ -6,18 +6,13 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } fro
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { normalize } from '../src/lib/normalize.ts';
+import { expandSteps, type Run, type Step } from '../src/lib/steps.ts';
 
 const guide = join(import.meta.dirname, '..');
 const root = join(guide, '..');
 const bin = join(root, 'build/guide');
 const port = Number(process.env.GUIDE_PORT ?? 4433);
 const addr = `127.0.0.1:${port}`;
-
-interface Run {
-  client: 'none' | 'probe' | 'go';
-  args?: string[];
-  serverArgs?: string[];
-}
 
 interface Proc {
   child: ChildProcess;
@@ -85,11 +80,31 @@ async function stop(server: Proc) {
   return res;
 }
 
-function client(id: string, run: Run): { shown: string; cmd: string; args: string[] } {
-  const rest = run.args ?? [];
-  if (run.client === 'probe')
+type ClientStep = Extract<Step, { client: string }>;
+
+function client(id: string, step: ClientStep): { shown: string; cmd: string; args: string[] } {
+  const rest = step.args ?? [];
+  if (step.client === 'probe')
     return { shown: ['probe', rest[0], addr, ...rest.slice(1)].join(' '), cmd: join(bin, 'probe'), args: [rest[0], addr, ...rest.slice(1)] };
   return { shown: `go run . https://${addr}`, cmd: join(bin, `${id}-client`), args: [`https://${addr}`, ...rest] };
+}
+
+/** Run one step against the live server; returns the text to append to the
+ * transcript (empty for signal/sleep, which act but print nothing). */
+async function runStep(id: string, dir: string, srv: Proc, step: Step): Promise<string> {
+  if ('sleep' in step) {
+    await sleep(step.sleep);
+    return '';
+  }
+  if ('signal' in step) {
+    signal(srv, step.signal);
+    await sleep(200);
+    return '';
+  }
+  const c = client(id, step);
+  const res = await within(start(c.cmd, c.args, dir).out, 10000, `${id} client`);
+  if (res.code !== 0) throw new Error(`${id} client exited ${res.code}\n${res.stderr}`);
+  return `$ ${c.shown}\n${res.stdout}`;
 }
 
 async function execute(id: string, run: Run): Promise<string> {
@@ -107,11 +122,10 @@ async function execute(id: string, run: Run): Promise<string> {
   const srv = start(server, sargs, dir);
   try {
     await waitBound(srv);
-    const c = client(id, run);
-    const res = await within(start(c.cmd, c.args, dir).out, 10000, `${id} client`);
-    if (res.code !== 0) throw new Error(`${id} client exited ${res.code}\n${res.stderr}`);
+    let out = '';
+    for (const step of expandSteps(run)) out += await runStep(id, dir, srv, step);
     const s = await stop(srv);
-    return `$ ./${id} ${sargs.join(' ')}\n${s.stderr}$ ${c.shown}\n${res.stdout}`;
+    return `$ ./${id} ${sargs.join(' ')}\n${s.stderr}${out}`;
   } finally {
     signal(srv, 'SIGKILL');
   }
@@ -119,8 +133,9 @@ async function execute(id: string, run: Run): Promise<string> {
 
 function buildGo(ids: string[], runs: Map<string, Run>) {
   const go = (out: string, pkg: string) => execFileSync('go', ['build', '-o', join(bin, out), pkg], { cwd: guide, stdio: 'inherit' });
-  if (ids.some((id) => runs.get(id)?.client === 'probe')) go('probe', './probe');
-  for (const id of ids) if (runs.get(id)?.client === 'go') go(`${id}-client`, `./snippets/${id}/client.go`);
+  const clientSteps = (id: string) => expandSteps(runs.get(id)!).filter((s): s is ClientStep => 'client' in s);
+  if (ids.some((id) => clientSteps(id).some((s) => s.client === 'probe'))) go('probe', './probe');
+  for (const id of ids) if (clientSteps(id).some((s) => s.client === 'go')) go(`${id}-client`, `./snippets/${id}/client.go`);
 }
 
 function diff(goldenPath: string, got: string): string {
