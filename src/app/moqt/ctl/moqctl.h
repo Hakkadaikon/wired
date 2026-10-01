@@ -79,6 +79,32 @@
 #define MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT 0x06ULL
 #define MOQCTL_PARAM_FORWARD 0x10ULL
 
+/** Message contexts a Message Parameter may appear in, one bit each
+ * (draft-ietf-moq-transport-19 10.2.x "MAY appear in"). REQUEST_OK and
+ * REQUEST_UPDATE are split by the request they answer / update, since
+ * 10.2.x qualifies several entries ("REQUEST_UPDATE (for a
+ * subscription)"). */
+#define MOQCTL_PCTX_SUBSCRIBE 0x1u
+#define MOQCTL_PCTX_SUBSCRIBE_OK 0x2u
+#define MOQCTL_PCTX_PUBLISH 0x4u
+#define MOQCTL_PCTX_PUBLISH_OK 0x8u
+#define MOQCTL_PCTX_FETCH 0x10u
+#define MOQCTL_PCTX_FETCH_OK 0x20u
+#define MOQCTL_PCTX_TRACK_STATUS 0x40u
+#define MOQCTL_PCTX_TRACK_STATUS_OK 0x80u
+#define MOQCTL_PCTX_PUBLISH_NAMESPACE 0x100u
+#define MOQCTL_PCTX_PUBLISH_NAMESPACE_OK 0x200u
+#define MOQCTL_PCTX_SUBSCRIBE_NAMESPACE 0x400u
+#define MOQCTL_PCTX_SUBSCRIBE_NAMESPACE_OK 0x800u
+#define MOQCTL_PCTX_SUBSCRIBE_TRACKS 0x1000u
+#define MOQCTL_PCTX_SUBSCRIBE_TRACKS_OK 0x2000u
+#define MOQCTL_PCTX_UPDATE_SUBSCRIPTION 0x4000u
+#define MOQCTL_PCTX_UPDATE_FETCH 0x8000u
+#define MOQCTL_PCTX_UPDATE_SUBSCRIBE_NAMESPACE 0x10000u
+#define MOQCTL_PCTX_UPDATE_SUBSCRIBE_TRACKS 0x20000u
+#define MOQCTL_PCTX_UPDATE_PUBLISH_NAMESPACE 0x40000u
+#define MOQCTL_PCTX_REQUEST_UPDATE_OK 0x80000u
+
 /** Message Parameter value encodings (SS10.2). */
 #define MOQCTL_PENC_UINT8 0
 #define MOQCTL_PENC_VARINT 1
@@ -191,23 +217,21 @@ typedef struct {
   moqctl_token token; /* PENC_TOKEN */
 } moqctl_param;
 
-/** A decoded/to-encode Message Parameter list. msg_type selects which
- * types are legal in this list (SS10.2 Parameter Scope) and which
- * encoding each known type uses. */
+/** A decoded/to-encode Message Parameter list. */
 typedef struct {
   moqctl_param items[MOQCTL_MAX_PARAMS];
   usz          n;
 } moqctl_params;
 
-/** Decodes count-prefixed Message Parameters. VIOLATION on: cumulative
- * Type overflow, unknown Type, duplicate Type, a known Type appearing in
- * a msg_type where it is not permitted, or a known Type's Value not
- * matching its defined encoding (mapped by the caller to
+/** Decodes count-prefixed Message Parameters. ctx is the MOQCTL_PCTX_*
+ * set the list may appear in (SS10.2.1 Parameter Scope): a Type is legal
+ * when its own set shares a bit with ctx. VIOLATION on: cumulative Type
+ * overflow, unknown Type, duplicate Type, a known Type outside ctx, or a
+ * known Type's Value not matching its defined encoding (mapped by the caller to
  * KEY_VALUE_FORMATTING_ERROR rather than PROTOCOL_VIOLATION -- see
  * moqctl_params_take's return contract below). */
 #define MOQCTL_PARAMS_KVFMT (-4)
-int moqctl_params_take(
-    wired_span buf, usz* off, u64 msg_type, moqctl_params* out);
+int moqctl_params_take(wired_span buf, usz* off, u32 ctx, moqctl_params* out);
 int moqctl_params_put(wired_mspan buf, usz* off, const moqctl_params* params);
 
 /** draft-ietf-moq-transport-19 SS10.4 SETUP: Setup Options are a KVP list

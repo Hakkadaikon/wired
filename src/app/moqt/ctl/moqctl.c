@@ -329,28 +329,20 @@ int moqctl_reason_put(wired_mspan buf, usz* off, moqctl_reason reason) {
 
 /* ===== Message Parameters (SS10.2) ===== */
 
-/* Legality table: which known parameter types are allowed in which
- * message, and what encoding each uses. Table-driven to keep dispatch a
- * single lookup instead of an if/else chain per type. */
+/* Registry (SS10.2.x): per known Type, its encoding and the MOQCTL_PCTX_*
+ * set it may appear in. Table-driven to keep dispatch a single lookup
+ * instead of an if/else chain per type. */
 typedef struct {
   u64 type;
   int enc;
-  u64 allowed_msgs[4]; /* remaining slots are 0 (no real type is 0) */
+  u32 ctx;
 } moqctl_param_rule;
 
 static const moqctl_param_rule MOQCTL_PARAM_RULES[] = {
-    {MOQCTL_PARAM_AUTHORIZATION_TOKEN,
-     MOQCTL_PENC_TOKEN,
-     {MOQCTL_T_SUBSCRIBE, MOQCTL_T_PUBLISH, 0, 0}},
-    {MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT,
-     MOQCTL_PENC_VARINT,
-     {MOQCTL_T_SUBSCRIBE, 0, 0, 0}},
-    {MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT,
-     MOQCTL_PENC_VARINT,
-     {MOQCTL_T_SUBSCRIBE, 0, 0, 0}},
-    {MOQCTL_PARAM_FORWARD,
-     MOQCTL_PENC_UINT8,
-     {MOQCTL_T_SUBSCRIBE, MOQCTL_T_PUBLISH, 0, 0}},
+    {MOQCTL_PARAM_AUTHORIZATION_TOKEN, MOQCTL_PENC_TOKEN, 0x5},
+    {MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, MOQCTL_PENC_VARINT, 0x1},
+    {MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, MOQCTL_PENC_VARINT, 0x1},
+    {MOQCTL_PARAM_FORWARD, MOQCTL_PENC_UINT8, 0x5},
 };
 #define MOQCTL_PARAM_RULE_N \
   (sizeof MOQCTL_PARAM_RULES / sizeof MOQCTL_PARAM_RULES[0])
@@ -361,8 +353,8 @@ static const moqctl_param_rule* moqctl_param_rule_for(u64 type) {
   return 0;
 }
 
-static int moqctl_param_allowed_in(const moqctl_param_rule* rule, u64 msg) {
-  return moqctl_u64_in(rule->allowed_msgs, 4, msg);
+static int moqctl_param_allowed_in(const moqctl_param_rule* rule, u32 ctx) {
+  return (rule->ctx & ctx) != 0;
 }
 
 static int moqctl_param_take_uint8(wired_span buf, usz* at, u64* out) {
@@ -456,10 +448,10 @@ static int moqctl_param_take_value(
 /* Known type: enforce scope + encoding via the rule table. Unknown Type:
  * always a VIOLATION per SS10.2 (no skip mechanism exists). */
 static int moqctl_param_take_known(
-    wired_span buf, usz* at, u64 msg_type, moqctl_param* p) {
+    wired_span buf, usz* at, u32 ctx, moqctl_param* p) {
   const moqctl_param_rule* rule = moqctl_param_rule_for(p->type);
   if (!rule) return MOQCTL_VIOLATION;
-  if (!moqctl_param_allowed_in(rule, msg_type)) return MOQCTL_VIOLATION;
+  if (!moqctl_param_allowed_in(rule, ctx)) return MOQCTL_VIOLATION;
   p->enc = rule->enc;
   return moqctl_param_take_value(buf, at, rule->enc, p);
 }
@@ -480,21 +472,17 @@ static int moqctl_param_take_delta(
 }
 
 static int moqctl_param_take_body(
-    wired_span     buf,
-    usz*           at,
-    u64            msg_type,
-    moqctl_params* out,
-    moqctl_param*  p) {
+    wired_span buf, usz* at, u32 ctx, moqctl_params* out, moqctl_param* p) {
   if (moqctl_param_dup(out, p->type)) return MOQCTL_VIOLATION;
-  return moqctl_param_take_known(buf, at, msg_type, p);
+  return moqctl_param_take_known(buf, at, ctx, p);
 }
 
 static int moqctl_param_take_one(
-    wired_span buf, usz* at, u64 msg_type, u64 prev, moqctl_params* out) {
+    wired_span buf, usz* at, u32 ctx, u64 prev, moqctl_params* out) {
   moqctl_param p = {0};
   int          r = moqctl_param_take_delta(buf, at, prev, &p);
   if (r != MOQCTL_OK) return r;
-  r = moqctl_param_take_body(buf, at, msg_type, out, &p);
+  r = moqctl_param_take_body(buf, at, ctx, out, &p);
   if (r != MOQCTL_OK) return r;
   out->items[out->n] = p;
   out->n++;
@@ -502,33 +490,32 @@ static int moqctl_param_take_one(
 }
 
 static int moqctl_params_take_step(
-    wired_span buf, usz* at, u64 msg_type, u64* prev, moqctl_params* out) {
+    wired_span buf, usz* at, u32 ctx, u64* prev, moqctl_params* out) {
   int r;
   if (out->n >= MOQCTL_MAX_PARAMS) return MOQCTL_VIOLATION;
-  r = moqctl_param_take_one(buf, at, msg_type, *prev, out);
+  r = moqctl_param_take_one(buf, at, ctx, *prev, out);
   if (r != MOQCTL_OK) return r;
   *prev = out->items[out->n - 1].type;
   return MOQCTL_OK;
 }
 
 static int moqctl_params_take_loop(
-    wired_span buf, usz* at, u64 msg_type, u64 count, moqctl_params* out) {
+    wired_span buf, usz* at, u32 ctx, u64 count, moqctl_params* out) {
   u64 prev = 0;
   for (u64 i = 0; i < count; i++) {
-    int r = moqctl_params_take_step(buf, at, msg_type, &prev, out);
+    int r = moqctl_params_take_step(buf, at, ctx, &prev, out);
     if (r != MOQCTL_OK) return r;
   }
   return MOQCTL_OK;
 }
 
-int moqctl_params_take(
-    wired_span buf, usz* off, u64 msg_type, moqctl_params* out) {
+int moqctl_params_take(wired_span buf, usz* off, u32 ctx, moqctl_params* out) {
   usz at = *off;
   u64 count;
   int r;
   out->n = 0;
   if (!moqvi_take(buf, &at, &count)) return MOQCTL_INSUFFICIENT;
-  r = moqctl_params_take_loop(buf, &at, msg_type, count, out);
+  r = moqctl_params_take_loop(buf, &at, ctx, count, out);
   if (r != MOQCTL_OK) return r;
   *off = at;
   return MOQCTL_OK;
@@ -682,7 +669,7 @@ static int moqctl_subscribe_take_body(
     wired_span buf, usz* at, moqctl_subscribe* out) {
   int r = moqctl_ftn_take(buf, at, &out->name);
   if (r != MOQCTL_OK) return r;
-  return moqctl_params_take(buf, at, MOQCTL_T_SUBSCRIBE, &out->params);
+  return moqctl_params_take(buf, at, MOQCTL_PCTX_SUBSCRIBE, &out->params);
 }
 
 int moqctl_subscribe_take(wired_span buf, usz* off, moqctl_subscribe* out) {
@@ -721,7 +708,7 @@ int moqctl_subscribe_ok_take(
   usz at = *off;
   int r;
   if (!moqvi_take(buf, &at, &out->track_alias)) return MOQCTL_INSUFFICIENT;
-  r = moqctl_params_take(buf, &at, MOQCTL_T_SUBSCRIBE_OK, &out->params);
+  r = moqctl_params_take(buf, &at, MOQCTL_PCTX_SUBSCRIBE_OK, &out->params);
   if (r != MOQCTL_OK) return r;
   out->track_properties = moqctl_residual(buf, at);
   *off                  = buf.n;
@@ -749,7 +736,7 @@ static int moqctl_publish_take_alias_params(
     wired_span buf, usz* at, moqctl_publish* out) {
   int r;
   if (!moqvi_take(buf, at, &out->track_alias)) return MOQCTL_INSUFFICIENT;
-  r = moqctl_params_take(buf, at, MOQCTL_T_PUBLISH, &out->params);
+  r = moqctl_params_take(buf, at, MOQCTL_PCTX_PUBLISH, &out->params);
   if (r != MOQCTL_OK) return r;
   out->track_properties = moqctl_residual(buf, *at);
   return MOQCTL_OK;
@@ -800,7 +787,7 @@ int moqctl_publish_encode(wired_mspan buf, usz* off, const moqctl_publish* m) {
  * all carry zero parameters. */
 int moqctl_request_ok_take(wired_span buf, usz* off, moqctl_request_ok* out) {
   usz at = *off;
-  int r  = moqctl_params_take(buf, &at, MOQCTL_T_REQUEST_OK, &out->params);
+  int r  = moqctl_params_take(buf, &at, 0, &out->params);
   if (r != MOQCTL_OK) return r;
   out->track_properties = moqctl_residual(buf, at);
   *off                  = buf.n;
