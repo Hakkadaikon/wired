@@ -10210,6 +10210,29 @@ static void test_srvrun_copy_stream_req_repoints_every_view(void) {
       wt_bytes_eq(r.stream_req.origin, (const u8*)"https://o.example", 17));
 }
 
+/* The request headers recorded at decode time survive the streaming copy:
+ * they are re-pointed into the copy's own scratch like every other view. */
+static void test_srvrun_copy_stream_req_keeps_headers(void) {
+  static srvrun_resp   r;
+  wired_h3reqdrive_req req   = {0};
+  u8                   buf[] = "/pauthorizationBearer tx-ab";
+  wired_span           v     = {0, 0};
+  req.path                   = buf;
+  req.path_len               = 2;
+  req.hdr_base               = buf;
+  req.hdrs[0]                = (wired_h3reqdrive_hdr){2, 13, 15, 8};
+  req.hdrs[1]                = (wired_h3reqdrive_hdr){23, 1, 25, 2};
+  req.hdr_count              = 2;
+  srvrun_copy_stream_req(&r, &req);
+  bytes_memset(buf, 0, sizeof buf);
+  CHECK(wired_http_req_header(
+      &r.stream_req, wired_span_of((const u8*)"authorization", 13), &v));
+  CHECK(v.n == 8 && wt_bytes_eq(v.p, (const u8*)"Bearer t", 8));
+  CHECK(wired_http_req_header(
+      &r.stream_req, wired_span_of((const u8*)"x", 1), &v));
+  CHECK(v.n == 2 && wt_bytes_eq(v.p, (const u8*)"ab", 2));
+}
+
 /* An absent optional view (0, as the decoder leaves :protocol/origin when
  * the peer sent none) must stay 0 in the copy, not turn into an empty
  * non-null view a handler would read as "present". */
@@ -18921,6 +18944,7 @@ void test_srvrun(void) {
   test_srvrun_streaming_concurrent_requests_do_not_corrupt_each_other();
   test_srvrun_streaming_later_round_uses_own_stream_not_sibling();
   test_srvrun_copy_stream_req_repoints_every_view();
+  test_srvrun_copy_stream_req_keeps_headers();
   test_srvrun_copy_stream_req_keeps_absent_views_null();
   test_srvrun_streaming_h3_prefix_receives_total_size_not_round_len();
   test_srvrun_streaming_body_exactly_row_cap_single_round();
