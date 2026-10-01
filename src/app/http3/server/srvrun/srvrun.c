@@ -798,16 +798,20 @@ typedef struct {
   u64 goaway_id;
 } srvrun_conn;
 
-/* Response storage, one row per (connection slot, response slot): 64-byte
+/* Response storage, one row per (connection slot, response slot): 512-byte
  * prefix room (HEADERS + DATA header framed in place, h3resp_prefix)
- * followed by the handler's body.
+ * followed by the handler's body. 512 fits the largest HEADERS a
+ * wired_http_handler can produce: WIRED_HTTP_FIELD_BYTES_MAX (384) field
+ * bytes plus per-line QPACK overhead (<= 6 x 8 fields), :status, the
+ * section prefix and both frame headers (< 80). Taken out of the row, so
+ * the body cap shrinks by 448 bytes instead of BSS growing.
  * ponytail: 16KB per response, 64 conns x 4 response slots = 4MB BSS; raise
  * WIRED_SRVRUN_RESP_MAX when a deployment needs bigger bodies (srvbigbuf.h
  * covers the >16KB case without growing this fixed grid). A srvthreads
  * deployment (--cores N) holds one wired_srvrun_env per worker, so this
  * multiplies by N there too. */
 #define WIRED_SRVRUN_RESP_MAX 16384
-#define SRVRUN_RESP_HDR_ROOM 64
+#define SRVRUN_RESP_HDR_ROOM 512
 /* Fallback stream bytes per packet (fits a 1500 MTU) -- no longer used to
  * size an actual send (srvrun_mps below drives that from c->pmtu instead);
  * kept only as the value srvrun_mps itself falls back to for a not-yet-
