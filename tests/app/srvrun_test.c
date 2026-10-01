@@ -18727,14 +18727,32 @@ static void test_srvrun_stop_sending_wire_shape(void) {
   CHECK(ss.stream_id == 8 && ss.error_code == H3_NO_ERROR);
 }
 
-/* The early 413 sends one packet more than its bare response: the
- * STOP_SENDING above. */
-#define SR_EARLY_413_SENDS 2
+/* 1 iff the sealed server packet pkt[0..n) is exactly STOP_SENDING(id,
+ * H3_NO_ERROR). */
+static int sr_is_stop_sending(const u8* pkt, usz n, u64 id) {
+  const u8*          pl;
+  usz                pll;
+  stop_sending_frame ss;
+  if (client_open_onertt(&g_sl_f, (u8*)pkt, n, &pl, &pll) != 1) return 0;
+  if (pl[0] != FRAME_STOP_SENDING) return 0;
+  if (stop_sending_decode(pl, pll, &ss) != pll) return 0;
+  return ss.stream_id == id && ss.error_code == H3_NO_ERROR;
+}
+
+/* The early 413 goes out with one more packet than its bare response: a
+ * STOP_SENDING(H3_NO_ERROR) naming the request stream. */
 static void test_srvrun_early_413_also_stops_sending(void) {
   static u8    req[4096];
   srvrun_conn* c = sr_sl_fixture();
+  i64          sfd, cfd;
+  sockaddr     srv, from;
+  int          stops = 0;
+  usz          sent;
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   CHECK(sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP + 1, 1) != 0);
   sr_sl_send_stream(c, req, 2000, 0);
+  g_sl_cfg.fd = cfd;
+  c->peer     = srv;
   {
     u8           pl[200];
     wired_obuf   sob = obuf_of(pl, sizeof pl);
@@ -18743,8 +18761,18 @@ static void test_srvrun_early_413_also_stops_sending(void) {
     srvrun_test_reset_send_count();
     sr_sl_step(c, pl, sob.len);
   }
+  sent = srvrun_test_send_count();
   CHECK(sr_resp_is_status(&c->resp[0], 413));
-  CHECK(srvrun_test_send_count() == SR_EARLY_413_SENDS);
+  CHECK(sent == 2);
+  for (usz k = 0; k < sent; k++) {
+    u8  pkt[1500];
+    i64 r = wired_udp_recvfrom(sfd, wired_mspan_of(pkt, sizeof pkt), &from);
+    if (r > 0) stops += sr_is_stop_sending(pkt, (usz)r, 0);
+  }
+  CHECK(stops == 1);
+  g_sl_cfg.fd = -1;
+  wired_udp_close(sfd);
+  wired_udp_close(cfd);
 }
 
 /* RFC 9000 4.1: a body larger than the connection's initial_max_data
