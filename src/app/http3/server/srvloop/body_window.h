@@ -17,6 +17,8 @@ enum {
   BODYWIN_DONE,        /**< fin=1 delivered */
   BODYWIN_REJECTED,    /**< the sink returned 0 */
   BODYWIN_FRAME_ERROR, /**< the stream ended inside a frame (RFC 9114 7.1) */
+  /** a frame type a request stream must not carry (RFC 9114 7.2) */
+  BODYWIN_FRAME_UNEXPECTED,
 };
 
 /** Receives one body chunk; fin=1 on the last. Returns 0 to stop. */
@@ -55,7 +57,8 @@ void bodywin_consume(bodywin* w, u8* buf, usz n);
  * slide past everything consumed. fin=1 rides on the chunk that ends the
  * last DATA frame at the final size; when nothing is left to deliver at a
  * frame boundary at the final size, fn gets an empty chunk with fin=1. A
- * final size inside a frame is BODYWIN_FRAME_ERROR, never fin=1. The
+ * final size inside a frame is BODYWIN_FRAME_ERROR, never fin=1; a frame
+ * type a request stream must not carry is BODYWIN_FRAME_UNEXPECTED. The
  * window slides once per call, past everything parsed.
  * @return the new state */
 int bodywin_pump(bodywin* w, u8* buf, bodywin_sink fn, void* ctx);

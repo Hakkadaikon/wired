@@ -18675,6 +18675,20 @@ static void test_srvrun_on_body_skips_connect(void) {
   CHECK(g_sr_body.calls == 0);
 }
 
+/* RFC 9114 7.2.4: SETTINGS on a request stream is H3_FRAME_UNEXPECTED on
+ * the streaming path too -- no fin, no handler. */
+static void test_srvrun_on_body_frame_unexpected(void) {
+  static u8    req[4096];
+  srvrun_conn* c = sr_body_fixture(0);
+  usz          n = sr_big_req(req, sizeof req, 1, 10);
+  req[n++]       = 0x04; /* SETTINGS, empty */
+  req[n++]       = 0x00;
+  sr_body_send(c, req, n, 1);
+  CHECK(g_sr_body.got_n == 10 && g_sr_body.fins == 0);
+  CHECK(g_sr_wt_handler_calls == 0);
+  CHECK(c->l.streams[0].body.state == BODYWIN_FRAME_UNEXPECTED);
+}
+
 /* The latched frame error closes the connection (and is consumed). */
 static void test_srvrun_req_frame_error_closes(void) {
   srvrun_conn* c       = sr_sl_fixture();
@@ -19707,6 +19721,7 @@ void test_srvrun(void) {
   test_srvrun_req_frame_error_closes();
   test_srvrun_on_body_empty_body_gets_fin();
   test_srvrun_on_body_skips_connect();
+  test_srvrun_on_body_frame_unexpected();
   test_srvrun_handler_on_body_reaches_cfg();
   test_srvrun_stop_sending_wire_shape();
   test_srvrun_early_413_also_stops_sending();

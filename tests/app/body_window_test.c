@@ -229,6 +229,28 @@ static void test_bodywin_multi_window_reordered(void) {
   for (usz i = 0; i < wn; i++) CHECK(r.got[i] == want[i]);
 }
 
+/* RFC 9114 7.2.4-7.2.7 / 11.2.1: a request stream must not carry the
+ * control-stream frames (CANCEL_PUSH, SETTINGS, GOAWAY, MAX_PUSH_ID), a
+ * PUSH_PROMISE from a client, or a reserved HTTP/2 type -- each is
+ * H3_FRAME_UNEXPECTED; the DATA before it was still delivered and nothing
+ * after it is. */
+static void test_bodywin_forbidden_frame_unexpected(void) {
+  static const u64 types[] = {0x3, 0x4, 0x7, 0xd, 0x5, 0x2, 0x6, 0x8, 0x9};
+  for (usz k = 0; k < sizeof types / sizeof types[0]; k++) {
+    static u8 buf[BODYWIN_CAP];
+    bodywin   w = {0};
+    bw_rec    r = {0};
+    u8        s[32];
+    usz       n = 0;
+    bw_frame(s, &n, 0x00, 2, 'a');
+    bw_frame(s, &n, types[k], 1, 0);
+    bw_frame(s, &n, 0x00, 2, 'b');
+    bw_land(&w, buf, s, 0, n, 1);
+    CHECK(bodywin_pump(&w, buf, bw_sink, &r) == BODYWIN_FRAME_UNEXPECTED);
+    CHECK(r.calls == 1 && r.got_n == 2 && r.fins[0] == 0);
+  }
+}
+
 /* Trailer HEADERS (and unknown types) after the body stay skipped. */
 static void test_bodywin_trailers_skipped(void) {
   static u8 buf[BODYWIN_CAP];
@@ -268,6 +290,7 @@ void test_body_window(void) {
   test_bodywin_unknown_skipped_and_frames_split();
   test_bodywin_reject_is_final();
   test_bodywin_multi_window_reordered();
+  test_bodywin_forbidden_frame_unexpected();
   test_bodywin_trailers_skipped();
   test_bodywin_window_of_empty_frames();
 }

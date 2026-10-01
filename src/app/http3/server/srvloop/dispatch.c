@@ -1445,12 +1445,19 @@ static void route_body_frame_error(wired_srvloop* l, int i) {
   l->req_frame_error     = 1;
 }
 
+/* RFC 9114 7.2: a frame a request stream must not carry -- rejected the
+ * same way the buffered path rejects it (H3_FRAME_UNEXPECTED). */
+static void route_body_frame_unexpected(wired_srvloop* l, int i) {
+  l->streams[i].req_done = 1;
+  route_note_frame_unexpected(l, i);
+}
+
 /* Parse what the window holds and settle the outcome (once: a finished
  * body is never pumped again, so a re-armed slot cannot re-settle). */
 static void route_body_pump(wired_srvloop* l, int i) {
   static void (*const settle[])(wired_srvloop*, int) = {
       route_body_open, route_body_done, route_body_reject,
-      route_body_frame_error};
+      route_body_frame_error, route_body_frame_unexpected};
   wired_srvloop_stream_slot* slot = &l->streams[i];
   route_body_call            c    = {l, slot};
   if (slot->body.state != BODYWIN_OPEN) return;
