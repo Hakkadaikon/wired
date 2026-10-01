@@ -120,7 +120,7 @@ static void sdt_server_thread(void* argp) {
   opt.control_core         = -1;
   opt.run.incoming_cpu     = -1;
   opt.run.wt_on_datagram   = sdt_on_datagram_cb;
-  wired_srvrun_handler h   = {0, 0};
+  wired_srvrun_handler h   = {0, 0, 0};
   wired_srvrun_obs     obs = {0, 0, 0, 0, 0};
   wired_srvthreads_run(SDT_PORT, id, h, obs, &opt);
 }
