@@ -29,6 +29,9 @@ jobs:
       - name: ccn (lizard, CCN <= 3)
         run: nix develop -c just ccn
 
+      - name: golden-check (moqt_golden.h matches the testvectors JSON)
+        run: nix develop -c just golden-check
+
       - name: lint (clang-tidy, CERT C + bug finders)
         run: nix develop -c just lint
 

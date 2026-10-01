@@ -274,6 +274,22 @@ fmt-check:
     fi
     clang-format --dry-run --Werror $(find src tests \( -name '*.c' -o -name '*.h' \))
 
+# verify tests/app/moqt_golden.h matches a fresh regeneration from
+# examples/moqt_chat/testvectors/moqt_golden.json (scripts/gen_moqt_golden.py),
+# formatted with the same pinned clang-format as `just fmt`. Non-zero on
+# drift. Same devShell reroute as fmt-check -- the regenerated file must be
+# formatted with the exact clang-format CI uses, or wrapping differs and
+# this reports false drift.
+golden-check:
+    #!/usr/bin/env sh
+    if [ -z "$IN_NIX_SHELL" ] && command -v nix >/dev/null 2>&1; then
+        exec nix develop -c just golden-check
+    fi
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    python3 scripts/gen_moqt_golden.py "$tmp/moqt_golden.h"
+    clang-format -style=file:.clang-format -i "$tmp/moqt_golden.h"
+    diff -u tests/app/moqt_golden.h "$tmp/moqt_golden.h"
+
 # clang-tidy check set: CERT C secure-coding rules + bug finders, minus the
 # unavoidable-in-this-repo noise. `_start` is a required freestanding entry point
 # (reserved-identifier / dcl37 excluded); every p256_fe is `const u64*` so
