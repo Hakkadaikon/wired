@@ -337,4 +337,8 @@ int moqctl_goaway_encode(wired_mspan buf, usz* off, const moqctl_goaway* m);
  * answer or skip it and go on with the next one. */
 int moqctl_peek_type(wired_span buf, usz* off, u64* type_out, wired_span* body);
 
+/** Reads only Type + Length at *at (no body check): MOQCTL_OK advances *at
+ * past them; on MOQCTL_INSUFFICIENT *len is unset and *at may have moved. */
+int moqctl_peek_header(wired_span buf, usz* at, u64* type, u16* len);
+
 #endif

@@ -1011,7 +1011,7 @@ static int moqctl_classify_type(u64 type) {
   return MOQCTL_UNKNOWN_TYPE;
 }
 
-static int moqctl_peek_header(wired_span buf, usz* at, u64* type, u16* len) {
+int moqctl_peek_header(wired_span buf, usz* at, u64* type, u16* len) {
   if (!moqvi_take(buf, at, type)) return MOQCTL_INSUFFICIENT;
   if (buf.n - *at < 2) return MOQCTL_INSUFFICIENT;
   *len = be_get_be16(buf.p + *at);
