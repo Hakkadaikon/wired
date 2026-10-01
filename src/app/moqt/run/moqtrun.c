@@ -5,6 +5,7 @@
 #include "app/moqt/dgram/moqdg.h"
 #include "app/moqt/vi/moqvi.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/util/num.h"
 
 /* draft-ietf-moq-transport-19 hub relay. See moqtrun.h for the
  * design summary; each function here stays a thin dispatch over the
@@ -144,6 +145,9 @@ static void moqtrun_init_peer(
   p->send_lens[0]    = 0;
   p->send_lens[1]    = 0;
   p->armed_idx       = 0;
+  p->ctl_asm.n       = 0;
+  p->ctl_asm.at      = 0;
+  p->ctl_asm.skip    = 0;
   for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
     p->tracks[t].in_use = 0;
   moqsess_init(&p->sess);
@@ -243,7 +247,7 @@ static int moqtrun_encode_request_error(
 }
 
 static void moqtrun_send_request_error(wired_moqtrun_peer* p, u64 code) {
-  u8                   msg[WIRED_MOQTRUN_CTL_MSG_MAX];
+  u8                   msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqctl_request_error e = {0};
   e.error_code           = code;
   usz n                  = moqtrun_envelope_put(
@@ -563,7 +567,7 @@ static void moqtrun_handle_publish(
   moqtrun_supersede_name(hub, peer_idx, m.name.name);
   moqtrun_track_claim(hub, t, m.name.name, m.track_alias);
   moqtrun_reattach_subs(hub, t, peer_idx, m.name.name);
-  u8                msg[WIRED_MOQTRUN_CTL_MSG_MAX];
+  u8                msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqctl_request_ok ok = {0};
   usz               n  = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
@@ -675,7 +679,7 @@ static int moqtrun_encode_subscribe_ok(
 }
 
 static void moqtrun_queue_subscribe_ok(wired_moqtrun_peer* p, u64 alias) {
-  u8                  msg[WIRED_MOQTRUN_CTL_MSG_MAX];
+  u8                  msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqctl_subscribe_ok ok = {0};
   ok.track_alias         = alias;
   usz n                  = moqtrun_envelope_put(
@@ -943,11 +947,82 @@ static moqtrun_ctl_fn moqtrun_ctl_route(int peek, u64 type) {
   return moqtrun_ctl_lookup(type);
 }
 
+/* ===================== control-stream reassembly ===================== */
+
+static void moqtrun_span_drop(wired_span* s, usz d) {
+  s->p += d;
+  s->n -= d;
+}
+
+/* Moves a's unread tail to the front, then appends as much of *data as
+ * fits -- after discarding the bytes of an over-cap message still owed
+ * (a->skip) -- and advances *data past everything consumed. */
+static void moqtrun_asm_push(wired_moqtrun_ctl_asm* a, wired_span* data) {
+  usz drop = (usz)u64_min(a->skip, data->n);
+  a->skip -= drop;
+  moqtrun_span_drop(data, drop);
+  usz keep = a->n - a->at;
+  bytes_memcpy(a->buf, a->buf + a->at, keep); /* forward copy: dst < src */
+  usz take = (usz)u64_min(sizeof a->buf - keep, data->n);
+  bytes_memcpy(a->buf + keep, data->p, take);
+  a->n  = keep + take;
+  a->at = 0;
+  moqtrun_span_drop(data, take);
+}
+
+/* 1 iff rest starts with a complete header whose Length exceeds the cap;
+ * *total is then the whole message's size. */
+static int moqtrun_asm_over_cap(wired_span rest, usz* total) {
+  usz at = 0;
+  u64 type;
+  u16 len;
+  if (moqctl_peek_header(rest, &at, &type, &len) != MOQCTL_OK) return 0;
+  *total = at + len;
+  return len > WIRED_MOQTRUN_CTL_MSG_MAX;
+}
+
+/* Next complete message held in a (moqctl_peek_type's result, *body a view
+ * into a->buf valid until the next push), or MOQCTL_INSUFFICIENT when more
+ * bytes are needed. A message whose Length exceeds
+ * WIRED_MOQTRUN_CTL_MSG_MAX is skipped by its Length, now and across
+ * later deliveries (a->skip): draft-ietf-moq-
+ * transport-19 SS10 sets no cap of its own, so no error is defined, and
+ * the stream stays alive like it does past an unknown Type. */
+static int moqtrun_asm_pop(
+    wired_moqtrun_ctl_asm* a, u64* type, wired_span* body) {
+  if (a->skip) return MOQCTL_INSUFFICIENT; /* rest of a held message */
+  wired_span rest  = wired_span_of(a->buf + a->at, a->n - a->at);
+  usz        total = 0;
+  if (moqtrun_asm_over_cap(rest, &total)) {
+    usz held = (usz)u64_min(total, rest.n);
+    a->at += held;
+    a->skip = total - held;
+    return MOQCTL_UNKNOWN_TYPE; /* the caller skips it like one */
+  }
+  usz off = 0;
+  int r   = moqctl_peek_type(rest, &off, type, body);
+  a->at += off;
+  return r;
+}
+
+/* Routes every complete message p->ctl_asm holds. */
+static void moqtrun_ctl_drain(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx) {
+  u64        type = 0;
+  wired_span body = {0, 0};
+  int        r;
+  while ((r = moqtrun_asm_pop(&p->ctl_asm, &type, &body)) !=
+         MOQCTL_INSUFFICIENT)
+    moqtrun_ctl_route(r, type)(hub, p, peer_idx, body);
+}
+
 /* Dispatches every complete control message found in data (a request
  * stream carries exactly one; the shared control stream may carry more
- * than one per call). peer_idx is passed through for handlers that need
- * to record which session a subscription belongs to. Every handler queues
- * its reply (moqtrun_queue_reply) rather than sending it immediately.
+ * than one per call), prefixed by the incomplete tail the previous call
+ * left in p->ctl_asm -- a message may arrive split across calls. peer_idx is
+ * passed through for handlers that need to record which session a subscription
+ * belongs to. Every handler queues its reply (moqtrun_queue_reply) rather than
+ * sending it immediately.
  *
  * Flushes at BOTH ends: the leading flush retries whatever an earlier
  * dispatch could not send yet (moqtrun_flush_replies' own doc -- a
@@ -958,15 +1033,11 @@ static moqtrun_ctl_fn moqtrun_ctl_route(int peek, u64 type) {
  * queued for the next try -- never dropped. */
 static void moqtrun_dispatch_ctl_stream(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span data) {
-  usz off = 0;
   moqtrun_flush_replies(&hub->io, p);
-  while (off < data.n) {
-    u64        type = 0;
-    wired_span body = {0, 0};
-    int        r    = moqctl_peek_type(data, &off, &type, &body);
-    if (r == MOQCTL_INSUFFICIENT) break;
-    moqtrun_ctl_route(r, type)(hub, p, peer_idx, body);
-  }
+  do {
+    moqtrun_asm_push(&p->ctl_asm, &data);
+    moqtrun_ctl_drain(hub, p, peer_idx);
+  } while (data.n > 0);
   moqtrun_flush_replies(&hub->io, p);
 }
 

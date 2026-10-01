@@ -216,9 +216,27 @@ typedef struct {
  * leaves room without a rejoined publisher's oldest name being evicted. */
 #define WIRED_MOQTRUN_SUB_NAMES (WIRED_MOQTRUN_MAX_TRACKS_PER_PEER * 4)
 
-/** Largest single control-message envelope this hub ever sends (SS10
+/** Largest control-message envelope this hub ever sends (SS10
  * Type+Length+Body). */
-#define WIRED_MOQTRUN_CTL_MSG_MAX 64
+#define WIRED_MOQTRUN_CTL_REPLY_MAX 64
+
+/** Largest received control-message Length (body bytes) this hub handles.
+ * draft-ietf-moq-transport-19 SS10 allows up to 65535; a longer message is
+ * skipped by its Length (moqtrun_asm_pop). */
+#define WIRED_MOQTRUN_CTL_MSG_MAX 1024
+
+/** Type (vi64, up to 9 bytes) + 16-bit Length. */
+#define WIRED_MOQTRUN_CTL_HDR_MAX 11
+
+/** Reassembly of control messages split across stream deliveries: holds
+ * the not-yet-complete tail of one stream. skip counts bytes of an
+ * over-cap message still to discard. */
+typedef struct {
+  u8  buf[WIRED_MOQTRUN_CTL_MSG_MAX + WIRED_MOQTRUN_CTL_HDR_MAX];
+  usz n;    /**< bytes held */
+  usz at;   /**< next unread byte */
+  usz skip; /**< bytes still to discard */
+} wired_moqtrun_ctl_asm;
 
 /** Largest total this hub ever needs to buffer for one peer within one
  * wired_moqt_on_stream_data dispatch: the shared control stream can carry
@@ -226,8 +244,8 @@ typedef struct {
  * each can produce one reply -- worst case here is one SUBSCRIBE reply per
  * other connected peer's track, WIRED_MOQTRUN_MAX_SUBS *
  * WIRED_MOQTRUN_MAX_TRACKS_PER_PEER of them. */
-#define WIRED_MOQTRUN_CTL_SEND_BUF                                \
-  ((usz)WIRED_MOQTRUN_CTL_MSG_MAX * (usz)WIRED_MOQTRUN_MAX_SUBS * \
+#define WIRED_MOQTRUN_CTL_SEND_BUF                                  \
+  ((usz)WIRED_MOQTRUN_CTL_REPLY_MAX * (usz)WIRED_MOQTRUN_MAX_SUBS * \
    (usz)WIRED_MOQTRUN_MAX_TRACKS_PER_PEER)
 
 /** One track a peer PUBLISHes (chat or audio), and the subscribers recorded
@@ -298,6 +316,8 @@ typedef struct {
   u8  send_bufs[2][WIRED_MOQTRUN_CTL_SEND_BUF];
   usz send_lens[2];
   int armed_idx;
+  /** Control-stream bytes carried over to the next delivery. */
+  wired_moqtrun_ctl_asm ctl_asm;
 } wired_moqtrun_peer;
 
 /** The hub's own clock-paced live track (wired_moqt_publish_live): Group
