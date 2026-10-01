@@ -901,6 +901,8 @@ static const u8 MQPT_TOKEN[]   = {0x02, 0x02, 0x07}; /* USE_ALIAS 7 */
 static const u8 MQPT_LOC[]     = {0x07, 0x03};
 static const u8 MQPT_RANGE[]   = {0x02, 0x00, 0x03}; /* SetID 0, Start 3 */
 static const u8 MQPT_PROPRNG[] = {0x03, 0x00, 0x02, 0x03};
+static const u8 MQPT_LOCFLT[]  = {0x01, 0x01};       /* Next Group Start */
+static const u8 MQPT_NS[]      = {0x01, 0x01, 0x61}; /* namespace ("a") */
 
 static const mqpt_row MQPT_REGISTRY[] = {
     {0x02, 0x7D009, MQPT_VARINT, 1},  {0x03, 0x7D555, MQPT_TOKEN, 3},
@@ -911,6 +913,7 @@ static const mqpt_row MQPT_REGISTRY[] = {
     {0x25, 0x5019, MQPT_RANGE, 3},    {0x26, 0x5019, MQPT_RANGE, 3},
     {0x27, 0x5019, MQPT_RANGE, 3},    {0x28, 0x5019, MQPT_PROPRNG, 4},
     {0x29, 0x21000, MQPT_PROPRNG, 4}, {0x32, 0x5009, MQPT_VARINT, 1},
+    {0x21, 0x5009, MQPT_LOCFLT, 2},   {0x34, 0x30000, MQPT_NS, 3},
 };
 #define MQPT_REGISTRY_N (sizeof MQPT_REGISTRY / sizeof MQPT_REGISTRY[0])
 
@@ -939,6 +942,68 @@ static void mqpt_check_one(const mqpt_row* r, u32 bit) {
 static void test_moqctl_params_registry_scope(void) {
   for (usz i = 0; i < MQPT_REGISTRY_N; i++)
     for (u32 b = 0; b < 20; b++) mqpt_check_one(&MQPT_REGISTRY[i], 1u << b);
+}
+
+/* Decodes the one-parameter list {type, val} under ctx into *out. */
+static int mqpt_take(
+    u64 type, const u8* val, usz n, u32 ctx, moqctl_params* out) {
+  mqpt_row r = {type, 0, val, n};
+  u8       buf[32];
+  usz      len  = mqpt_build(buf, sizeof buf, &r);
+  usz      roff = 0;
+  return moqctl_params_take(wired_span_of(buf, len), &roff, ctx, out);
+}
+
+/* LOCATION_FILTER (10.2.9) is a Length-prefixed Location Filter (5.1.2):
+ * AbsoluteRange {5,0} + End Group Delta 3 decodes into .lf and encodes
+ * back to the same bytes. */
+static void test_moqctl_params_location_filter_roundtrip(void) {
+  static const u8      val[] = {0x04, 0x04, 0x05, 0x00, 0x03};
+  static moqctl_params out;
+  u8                   buf[32];
+  usz                  off = 0;
+  CHECK(
+      mqpt_take(
+          MOQCTL_PARAM_LOCATION_FILTER, val, sizeof val, MOQCTL_PCTX_SUBSCRIBE,
+          &out) == MOQCTL_OK);
+  CHECK(out.items[0].lf.type == MOQCTL_FILTER_ABS_RANGE);
+  CHECK(out.items[0].lf.start.group == 5 && out.items[0].lf.start.object == 0);
+  CHECK(out.items[0].lf.end_group_delta == 3);
+  CHECK(moqctl_params_put(wired_mspan_of(buf, sizeof buf), &off, &out));
+  CHECK(off == 2 + sizeof val);
+  for (usz i = 0; i < sizeof val; i++) CHECK(buf[2 + i] == val[i]);
+}
+
+/* A Location Filter that is not exactly its Length: unknown Filter Type
+ * (5.1.2), a trailing byte, or a filter cut short inside the Length. */
+static void test_moqctl_params_location_filter_malformed(void) {
+  static const u8      bad_type[] = {0x01, 0x05};
+  static const u8      trailing[] = {0x02, 0x01, 0x00};
+  static const u8      short_[]   = {0x02, 0x04, 0x05};
+  static moqctl_params out;
+  const u8*            cases[3] = {bad_type, trailing, short_};
+  for (usz i = 0; i < 3; i++)
+    CHECK(
+        mqpt_take(
+            MOQCTL_PARAM_LOCATION_FILTER, cases[i], 1 + cases[i][0],
+            MOQCTL_PCTX_SUBSCRIBE, &out) == MOQCTL_VIOLATION);
+}
+
+/* TRACK_NAMESPACE_PREFIX (10.2.19) is a bare Track Namespace (2.4.1):
+ * .bytes spans its encoding; a zero-length field is a VIOLATION. */
+static void test_moqctl_params_namespace_prefix(void) {
+  static const u8      ok[]  = {0x02, 0x01, 0x61, 0x02, 0x62, 0x63};
+  static const u8      bad[] = {0x01, 0x00};
+  static moqctl_params out;
+  CHECK(
+      mqpt_take(
+          MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX, ok, sizeof ok,
+          MOQCTL_PCTX_UPDATE_SUBSCRIBE_TRACKS, &out) == MOQCTL_OK);
+  CHECK(out.items[0].bytes.n == sizeof ok && out.items[0].bytes.p[5] == 0x63);
+  CHECK(
+      mqpt_take(
+          MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX, bad, sizeof bad,
+          MOQCTL_PCTX_UPDATE_SUBSCRIBE_TRACKS, &out) == MOQCTL_VIOLATION);
 }
 
 /* ===== TEST: SETUP Setup Options behaviors ===== */
@@ -1167,6 +1232,9 @@ void test_moqctl(void) {
   test_moqctl_params_auth_token_malformed_kvfmt();
   test_moqctl_params_auth_token_scope_violation();
   test_moqctl_params_registry_scope();
+  test_moqctl_params_location_filter_roundtrip();
+  test_moqctl_params_location_filter_malformed();
+  test_moqctl_params_namespace_prefix();
 
   test_moqctl_setup_unknown_option_ignored();
   test_moqctl_setup_path_option_decode();
