@@ -662,6 +662,12 @@ int moqctl_params_put(wired_mspan buf, usz* off, const moqctl_params* params) {
   return 1;
 }
 
+const moqctl_param* moqctl_params_find(const moqctl_params* params, u64 type) {
+  for (usz i = 0; i < params->n; i++)
+    if (params->items[i].type == type) return &params->items[i];
+  return 0;
+}
+
 /* ===== SETUP (SS10.4) via Setup Options KVP list ===== */
 
 static void moqctl_setup_apply_path_authority(

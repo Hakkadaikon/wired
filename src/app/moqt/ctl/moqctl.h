@@ -260,6 +260,10 @@ typedef struct {
 int moqctl_params_take(wired_span buf, usz* off, u32 ctx, moqctl_params* out);
 int moqctl_params_put(wired_mspan buf, usz* off, const moqctl_params* params);
 
+/** First item of Type type in params, or 0 when absent (the draft
+ * default then applies, e.g. SUBSCRIBER_PRIORITY 128, SS10.2.7). */
+const moqctl_param* moqctl_params_find(const moqctl_params* params, u64 type);
+
 /** draft-ietf-moq-transport-19 SS10.4 SETUP: Setup Options are a KVP list
  * (unknown options ignored on decode -- not surfaced here). PATH/AUTHORITY
  * are surfaced explicitly since WebTransport-context rejection is a
