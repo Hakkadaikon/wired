@@ -236,6 +236,11 @@ static void moqtrun_queue_reply(wired_moqtrun_peer* p, wired_span msg) {
       WIRED_MOQTRUN_CTL_SEND_BUF, msg);
 }
 
+/* The request p is handling established a subscription or track. */
+static void moqtrun_req_mark_live(wired_moqtrun_peer* p) {
+  if (p->req) p->req->live = 1;
+}
+
 /* The reassembly of the stream p is handling. */
 static wired_moqtrun_ctl_asm* moqtrun_cur_asm(wired_moqtrun_peer* p) {
   return p->req ? &p->req->in : &p->ctl_asm;
@@ -731,6 +736,7 @@ static void moqtrun_handle_publish(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
       moqtrun_encode_request_ok, &ok);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
+  moqtrun_req_mark_live(p);
 }
 
 /* p's matching track slot if p is a connected peer, else 0 -- guards the
@@ -957,6 +963,7 @@ static void moqtrun_queue_subscribe_ok(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_SUBSCRIBE_OK,
       moqtrun_encode_subscribe_ok, &ok);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
+  moqtrun_req_mark_live(p);
 }
 
 /* Records slot (peer_idx, a fresh alias) against track and replies
@@ -1581,9 +1588,12 @@ static void moqtrun_live_serve_sub(wired_moqt_hub* hub, usz i, u64 g) {
  * rounds retry on the clock, not only when the publisher delivers. */
 static void moqtrun_rel_tick_all(wired_moqt_hub* hub, u64 now_ms);
 
+static void moqtrun_reqs_tick(wired_moqt_hub* hub);
+
 void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
   hub->live.last_now_ms = now_ms;
   moqtrun_rel_tick_all(hub, now_ms);
+  moqtrun_reqs_tick(hub);
   if (!hub->live.track.in_use) return;
   u64 g = moqtrun_live_group_at(&hub->live, now_ms);
   moqtrun_track_note(&hub->live.track, g, 0);
@@ -2647,9 +2657,7 @@ static int moqtrun_req_stream_ok(const wired_moqt_hub* hub, u64 stream_id) {
 }
 
 static wired_moqtrun_req* moqtrun_req_open(
-    wired_moqt_hub* hub, wired_wt_session* s, u64 stream_id) {
-  wired_moqtrun_req* q = moqtrun_req_free_slot(hub);
-  if (!q) return 0;
+    wired_moqtrun_req* q, wired_wt_session* s, u64 stream_id) {
   q->in_use       = 1;
   q->wt           = s;
   q->stream_id    = stream_id;
@@ -2663,17 +2671,99 @@ static wired_moqtrun_req* moqtrun_req_open(
   q->send_lens[1] = 0;
   q->armed_idx    = 0;
   q->goaway       = 0;
+  q->live         = 0;
+  q->fin_in       = 0;
+  q->fin_out      = 0;
   return q;
 }
 
-/* stream_id's request slot, a fresh one for a new peer-opened bidi
- * stream, else 0 (a data stream, or the pool is full). */
-static wired_moqtrun_req* moqtrun_req_for(
+static int moqtrun_req_owned(const wired_moqtrun_req* q, wired_wt_session* s) {
+  return q->in_use && q->wt == s;
+}
+
+static usz moqtrun_req_count(const wired_moqt_hub* hub, wired_wt_session* s) {
+  usz n = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+    n += (usz)moqtrun_req_owned(&hub->reqs[i], s);
+  return n;
+}
+
+/* draft-ietf-moq-transport-19 3.3.4 EXCESSIVE_LOAD stream reset code. */
+#define MOQTRUN_RESET_EXCESSIVE_LOAD 0x9
+
+/* A fresh slot for a new request stream of s, or -- s at its share of the
+ * pool, or the pool full -- the stream is reset with EXCESSIVE_LOAD and 0
+ * returned. */
+static wired_moqtrun_req* moqtrun_req_admit(
     wired_moqt_hub* hub, wired_wt_session* s, u64 stream_id) {
+  wired_moqtrun_req* q =
+      moqtrun_req_count(hub, s) < WIRED_MOQTRUN_MAX_REQS_PER_SESSION
+          ? moqtrun_req_free_slot(hub)
+          : 0;
+  if (q) return moqtrun_req_open(q, s, stream_id);
+  hub->io.stream_reset(s, stream_id, MOQTRUN_RESET_EXCESSIVE_LOAD);
+  return 0;
+}
+
+/* stream_id's request slot, else a fresh one -- but not for a delivery
+ * with no bytes (a FIN trailing a request whose slot is already freed). */
+static wired_moqtrun_req* moqtrun_req_for(
+    wired_moqt_hub* hub, wired_wt_session* s, u64 stream_id, wired_span data) {
   wired_moqtrun_req* q = moqtrun_req_find(hub, s, stream_id);
   if (q) return q;
-  if (!moqtrun_req_stream_ok(hub, stream_id)) return 0;
-  return moqtrun_req_open(hub, s, stream_id);
+  if (data.n == 0) return 0;
+  return moqtrun_req_admit(hub, s, stream_id);
+}
+
+/* ----- request completion (draft 3.3.2) ----- */
+
+/* Answered without establishing anything: the request is complete. */
+static int moqtrun_req_answered(const wired_moqtrun_req* q) {
+  return q->kind && !q->live;
+}
+
+/* The peer ended its side before sending a whole request. */
+static int moqtrun_req_orphan(const wired_moqtrun_req* q) {
+  return q->fin_in && !q->kind;
+}
+
+static int moqtrun_req_ending(const wired_moqtrun_req* q) {
+  return moqtrun_req_answered(q) || moqtrun_req_orphan(q);
+}
+
+/* 1 iff the hub may end its side now: the request is complete and its
+ * answer has left the queue. */
+static int moqtrun_req_may_end(const wired_moqtrun_req* q) {
+  return !q->fin_out && moqtrun_req_ending(q) &&
+         q->send_lens[q->armed_idx ^ 1] == 0;
+}
+
+/* Ends the hub's side: a FIN after the answer, or -- nothing was ever
+ * sent (an orphan, or a request that could not be decoded) -- a reset
+ * with INTERNAL_ERROR (draft 3.3.4). 1 when accepted. */
+static int moqtrun_req_end_out(wired_moqt_io* io, wired_moqtrun_req* q) {
+  if (q->opened) return io->stream_fin(q->wt, q->stream_id) > 0;
+  return io->stream_reset(q->wt, q->stream_id, 0x0) > 0;
+}
+
+static int moqtrun_req_both_ended(const wired_moqtrun_req* q) {
+  return q->fin_in && q->fin_out;
+}
+
+/* Sends what is queued, ends the hub's side once the request is complete,
+ * and frees the slot when both sides have ended. Replies this small are
+ * copied by the transport (srvrun.h: only payloads past its 64 KiB
+ * staging are held as views), so freeing the slot never strands bytes. A
+ * refused send or end is retried on the next delivery or tick. */
+static void moqtrun_req_settle(wired_moqt_io* io, wired_moqtrun_req* q) {
+  moqtrun_req_flush(io, q->wt, q);
+  if (moqtrun_req_may_end(q)) q->fin_out = moqtrun_req_end_out(io, q);
+  q->in_use = !moqtrun_req_both_ended(q);
+}
+
+static void moqtrun_reqs_tick(wired_moqt_hub* hub) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+    if (hub->reqs[i].in_use) moqtrun_req_settle(&hub->io, &hub->reqs[i]);
 }
 
 /* 1 iff q's first message is still incomplete but its Type is already
@@ -2692,21 +2782,35 @@ static void moqtrun_req_check_open(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
 
+static void moqtrun_dispatch_req_stream(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin) {
+  wired_moqtrun_req* q = moqtrun_req_for(hub, p->wt, stream_id, data);
+  if (!q) return;
+  p->req = q;
+  moqtrun_dispatch_ctl_stream(hub, p, (usz)(p - hub->peers), data);
+  moqtrun_req_check_open(hub, p);
+  p->req = 0;
+  q->fin_in |= fin;
+  moqtrun_req_settle(&hub->io, q);
+}
+
+/* With request streams on, a peer-opened bidi stream is never Object data
+ * (draft 3.3: Objects travel on unidirectional streams only). */
 static void moqtrun_dispatch_other(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
     u64                 stream_id,
     wired_span          data,
     int                 fin) {
-  wired_moqtrun_req* q = moqtrun_req_for(hub, p->wt, stream_id);
-  if (!q) {
-    moqtrun_dispatch_data_stream(hub, p, stream_id, data, fin);
+  if (moqtrun_req_stream_ok(hub, stream_id)) {
+    moqtrun_dispatch_req_stream(hub, p, stream_id, data, fin);
     return;
   }
-  p->req = q;
-  moqtrun_dispatch_ctl_stream(hub, p, (usz)(p - hub->peers), data);
-  moqtrun_req_check_open(hub, p);
-  p->req = 0;
+  moqtrun_dispatch_data_stream(hub, p, stream_id, data, fin);
 }
 
 /* ===================== public entry points ===================== */
@@ -2857,10 +2961,6 @@ static void moqtrun_drop_peer_subs(wired_moqt_hub* hub, usz idx, u64 rid) {
   moqtrun_hub_tracks_drop_sub(hub, idx, rid);
 }
 
-static int moqtrun_req_owned(const wired_moqtrun_req* q, wired_wt_session* s) {
-  return q->in_use && q->wt == s;
-}
-
 /* A closed session's request streams go back to the pool. */
 static void moqtrun_reqs_drop(wired_moqt_hub* hub, wired_wt_session* s) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
@@ -2901,16 +3001,20 @@ static void moqtrun_peer_unpublish(
       moqtrun_track_retire(hub, &p->tracks[t]);
 }
 
+/* draft-ietf-moq-transport-19 3.3.4 CANCELLED stream reset code. */
+#define MOQTRUN_RESET_CANCELLED 0x1
+
 /* draft-ietf-moq-transport-19 3.3.3: the request is cancelled -- its
- * subscription or track goes, the hub's own direction is reset with
- * CANCELLED (3.3.4; this also releases the reply bytes the transport
- * holds as a view), and the slot is freed. */
+ * subscription or track goes (the hub keeps no namespace state, so there
+ * is nothing else to release), the hub's own side is reset with CANCELLED
+ * unless it already ended, answered or not, and the slot is freed. */
 static void moqtrun_req_cancel(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_req* q) {
   moqtrun_drop_peer_subs(hub, (usz)(p - hub->peers), q->request_id);
   moqtrun_sub_names_forget(p, q->request_id);
   moqtrun_peer_unpublish(hub, p, q->request_id);
-  if (q->opened) hub->io.stream_reset(p->wt, q->stream_id, 0x1);
+  if (!q->fin_out)
+    hub->io.stream_reset(p->wt, q->stream_id, MOQTRUN_RESET_CANCELLED);
   q->in_use = 0;
 }
 

@@ -288,11 +288,17 @@ typedef struct {
 } wired_moqtrun_ctl_asm;
 
 /** Fixed capacity: peer-opened request streams (draft-ietf-moq-transport-19
- * 3.3) tracked at once, hub-wide. A request stream past it is left to the
- * data path (dropped, unanswered). Each slot is ~1.6 KB of BSS.
+ * 3.3) tracked at once, hub-wide. A request stream past it is reset with
+ * EXCESSIVE_LOAD; a completed request frees its slot once both sides have
+ * ended. Each slot is ~1.7 KB of BSS.
  * ponytail: room-sized; raise when clients move every request onto its
  * own stream. */
 #define WIRED_MOQTRUN_MAX_REQS 64
+
+/** Request streams one session may hold at once, so one session cannot
+ * take the whole pool: a fair quarter of it. Past it a new request stream
+ * is reset with EXCESSIVE_LOAD (draft-ietf-moq-transport-19 3.3.4). */
+#define WIRED_MOQTRUN_MAX_REQS_PER_SESSION (WIRED_MOQTRUN_MAX_REQS / 4)
 
 /** Largest total this hub ever needs to buffer for one peer within one
  * wired_moqt_on_stream_data dispatch: the shared control stream can carry
@@ -327,6 +333,14 @@ typedef struct {
   int                   armed_idx;
   /** 1 once a GOAWAY arrived on the stream (draft 10.4: at most one). */
   int goaway;
+  /** 1 once the request established a subscription or track: it stays
+   * open until cancelled or the session ends. */
+  int live;
+  /** 1 once the peer's side ended (FIN). */
+  int fin_in;
+  /** 1 once the hub's side ended (FIN, or a reset). The slot is freed when
+   * both sides have ended. */
+  int fin_out;
 } wired_moqtrun_req;
 
 /** One track a peer PUBLISHes (chat or audio), and the subscribers recorded
@@ -595,7 +609,11 @@ void wired_moqt_on_session(
  * and their replies go back on it. Its first message must be a request
  * type and every later one must belong to that request, else the session
  * closes with PROTOCOL_VIOLATION. Control and request messages are
- * reassembled across calls; a FIN does not cancel a request (3.3.2). */
+ * reassembled across calls; a FIN does not cancel a request (3.3.2). A
+ * request answered without establishing a subscription or track is
+ * complete: the hub FINs its side after the answer and frees the slot
+ * once the peer's side has ended too. With request streams on, a
+ * peer-opened bidi stream is never read as Object data. */
 void wired_moqt_on_stream_data(
     void*             app_ctx,
     wired_wt_session* s,
