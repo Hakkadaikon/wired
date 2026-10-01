@@ -27,9 +27,12 @@ import Example from '../../../../components/Example.astro';
 - `obs.cc_algo` は、新しい接続の輻輳制御アルゴリズムを選びます
   （`CC_ALGO_NEWRENO` が 0、`CC_ALGO_CUBIC` が 1、`CC_ALGO_BBR` が 2。
   `transport/recovery/congestion/cc/cc.h` を参照）。
-  ビルド側で上書きしない限り `0` は NewReno を意味するので、
-  Cubic や BBR を使いたいビルドは、接続ごとにこの値を設定するか、
-  `WIRED_CC_ALGO_DEFAULT` 自体を上書きします。
+  ビルド側で上書きしない限り、`0` は Cubic（srvrun.c の
+  `WIRED_CC_ALGO_DEFAULT`）を意味します。
+  実行時に明示的に NewReno を指定しても、その値自体が `0` なので、
+  「未指定」とは区別できないからです。
+  デフォルトを NewReno にしたいビルドは、代わりに
+  `-DWIRED_CC_ALGO_DEFAULT=0` を上書きします。
 - `obs.qlog_path` と `obs.keylog_path` は、qlog（RFC 9002 の形式に沿った
   `packet_sent` / `packet_received` イベント）と、
   Wireshark などのツールがキャプチャの復号に使う NSS key log（`SSLKEYLOGFILE` 形式）を書き出します。
