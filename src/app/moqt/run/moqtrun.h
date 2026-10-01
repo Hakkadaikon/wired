@@ -663,7 +663,9 @@ void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s);
 /** wired_wt_on_stream_reset-shaped: a RESET_STREAM / STOP_SENDING on one
  * of s's request streams cancels that request (draft-ietf-moq-transport-19
  * 3.3.3) -- a SUBSCRIBE's subscription is released, a PUBLISH's track
- * withdrawn -- and frees the stream's slot. Any other stream is a no-op.
+ * withdrawn -- and frees the stream's slot. On a relayed publisher stream
+ * it returns the relay's held fragment buffer to the hub's pool; any other
+ * stream is a no-op.
  * mapped/app_error_code are unused. */
 void wired_moqt_on_stream_reset(
     void*             app_ctx,

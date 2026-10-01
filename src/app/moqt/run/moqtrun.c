@@ -3009,6 +3009,14 @@ static void moqtrun_reqs_drop(wired_moqt_hub* hub, wired_wt_session* s) {
     if (moqtrun_req_owned(&hub->reqs[i], s)) hub->reqs[i].in_use = 0;
 }
 
+/* A closed publisher's held fragments can never complete: their buffers
+ * go back to the pool (the relay entries themselves stay -- see below). */
+static void moqtrun_peer_frags_release(wired_moqtrun_peer* p) {
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
+      moqtrun_frag_release(&p->tracks[t].relays[r]);
+}
+
 void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s) {
   wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
   wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
@@ -3019,6 +3027,7 @@ void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s) {
    * relay entries stay untouched so a later re-claim can still reset the
    * subscriber streams they record (moqtrun_track_reset_stale_relays). */
   moqtrun_peer_drop_rings(hub, p);
+  moqtrun_peer_frags_release(p);
   p->in_use = 0;
 }
 
@@ -3060,6 +3069,14 @@ static void moqtrun_req_cancel(
   q->in_use = 0;
 }
 
+/* A reset publisher stream sends no more bytes: a fragment its relay
+ * holds can never complete, so its buffer goes back to the pool. */
+static void moqtrun_stream_frag_release(wired_moqtrun_peer* p, u64 stream_id) {
+  wired_moqtrun_track* t;
+  wired_moqtrun_relay* r = moqtrun_peer_relay_by_stream(p, stream_id, &t);
+  if (r) moqtrun_frag_release(r);
+}
+
 void wired_moqt_on_stream_reset(
     void*             app_ctx,
     wired_wt_session* s,
@@ -3071,6 +3088,9 @@ void wired_moqt_on_stream_reset(
   wired_moqtrun_req*  q   = moqtrun_req_find(hub, s, stream_id);
   (void)mapped;
   (void)app_error_code;
-  if (!p || !q) return;
-  moqtrun_req_cancel(hub, p, q);
+  if (!p) return;
+  if (q)
+    moqtrun_req_cancel(hub, p, q);
+  else
+    moqtrun_stream_frag_release(p, stream_id);
 }
