@@ -694,7 +694,7 @@ __attribute__((force_align_arg_pointer)) int wired_main(int argc, char** argv) {
   u16              port = (u16)wired_cliargs_int(argc, argv, "--port", 443);
   const char*      cert_path = wired_cliargs_str(argc, argv, "--cert", 0);
   const char*      key_path = wired_cliargs_str(argc, argv, "--key", "key.pem");
-  wired_srvrun_handler h    = {app_on_request, 0, 0};
+  wired_srvrun_handler h    = {app_on_request, 0, 0, 0};
   wired_srvrun_opt     opt  = {0};
   wired_srvrun_obs     obs  = {
       wired_cliargs_str(argc, argv, "--qlog-file", 0),

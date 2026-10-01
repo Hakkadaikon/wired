@@ -204,7 +204,7 @@ typedef int (*wired_http_handler)(void* ctx, wired_http_exchange* x);
  *   x->field_count = 1;
  *   return 0;
  * }
- * wired_srvrun_handler h = {0, 0, on_http};
+ * wired_srvrun_handler h = {0, 0, on_http, 0};
  * @endcode */
 typedef struct {
   wired_srvloop_handler cb;  /**< the response-body builder callback */
@@ -212,6 +212,10 @@ typedef struct {
   /** status- and header-aware responder; when set it is used instead of
    * cb (0 keeps cb) */
   wired_http_handler http;
+  /** streams each request body here before the responder runs (see
+   * wired_srvloop_on_body for the sequencing); 0 buffers the body whole
+   * into req->body, up to one request window */
+  wired_srvloop_on_body on_body;
 } wired_srvrun_handler;
 
 /** Optional debug-log file paths, each 0 to disable (the default): a qlog

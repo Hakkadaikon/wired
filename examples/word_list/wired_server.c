@@ -331,7 +331,7 @@ int wired_main(int argc, char** argv) {
   wired_srvboot_id     id = {0};
   server_keys          keys;
   app_config           cfg = {0};
-  wired_srvrun_handler h   = {app_on_request, &cfg, 0};
+  wired_srvrun_handler h   = {app_on_request, &cfg, 0, 0};
   wired_srvrun_obs     obs;
   app_selfcheck();
   load_config(&cfg, argc, argv);
