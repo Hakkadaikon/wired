@@ -117,6 +117,9 @@ typedef struct {
 /** draft-ietf-moq-transport-19 SS3.5 PROTOCOL_VIOLATION session code. */
 #define WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION 0x3
 
+/** draft-ietf-moq-transport-19 SS3.5 INTERNAL_ERROR session code. */
+#define WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR 0x1
+
 /** One subscriber recorded against the hub's track: which session, and the
  * Track Alias this hub assigned it (hub-local per subscriber, draft SS10.7
  * moqsub scope). */

@@ -656,15 +656,15 @@ static void test_moqtrun_ctl_over_max_skipped_without_close(void) {
   CHECK(types[0] == MOQCTL_T_SUBSCRIBE_OK);
 }
 
-/* Exactly one close of B with PROTOCOL_VIOLATION, and no reply at all:
- * the SUBSCRIBE behind the offending message is not answered. */
-static void mtasm_check_closed(void) {
+/* Exactly one close of B with code, and no reply at all: the SUBSCRIBE
+ * behind the offending message is not answered. */
+static void mtasm_check_closed(u32 code) {
   u64                      types[4];
   const moqtrun_test_call* c = moqtrun_test_last_kind(11);
   CHECK(moqtrun_test_count_kind(11) == 1);
   if (!c) return;
   CHECK(c->s == SESS_B);
-  CHECK(c->stream_id == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  CHECK(c->stream_id == code);
   CHECK(mtasm_reply_types(types, 4) == 0);
 }
 
@@ -675,23 +675,24 @@ static void test_moqtrun_ctl_unknown_type_closes_session(void) {
   usz n        = mtasm_fetch_then_subscribe(2);
   mtasm_buf[0] = 0x3E; /* 1-byte varint, no draft-19 type */
   mtasm_feed(0, n);
-  mtasm_check_closed();
+  mtasm_check_closed(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
   mtasm_feed(0, n); /* more bytes after the close are not dispatched */
-  mtasm_check_closed();
+  mtasm_check_closed(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
 
-/* Over the cap: the session is closed (PROTOCOL_VIOLATION), whether the
- * message arrives whole or split. */
+/* Over the cap: the session is closed with INTERNAL_ERROR (the limit is
+ * ours, the peer broke no rule), whether the message arrives whole or
+ * split. */
 static void test_moqtrun_ctl_over_max_closes_session(void) {
   usz n;
   mtasm_setup();
   mtasm_feed(0, mtasm_fetch_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX + 1));
-  mtasm_check_closed();
+  mtasm_check_closed(WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR);
   mtasm_setup();
   n = mtasm_fetch_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX + 1);
   mtasm_feed(0, 10);
   mtasm_feed(10, n);
-  mtasm_check_closed();
+  mtasm_check_closed(WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR);
 }
 
 /* Local twin of moqtrun_test_last_reply_type (defined later in this file,
