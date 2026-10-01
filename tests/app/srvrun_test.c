@@ -18442,7 +18442,66 @@ static void test_srvrun_wt_held_connect_rejected_after_settings(void) {
   CHECK(c->wt_held_mask == 0);
 }
 
+/* A 7-argument handler answering "hello" with a non-static content-type,
+ * so the pinned HEADERS below exercise the literal-with-name-reference
+ * path as well as the indexed :status 200. */
+static int sr_golden_legacy_handler(
+    void*                       hctx,
+    const wired_h3reqdrive_req* req,
+    u64                         offset,
+    wired_obuf*                 body_out,
+    const char**                ct,
+    int*                        more,
+    u64*                        total_size) {
+  (void)hctx;
+  (void)req;
+  (void)offset;
+  (void)more;
+  (void)total_size;
+  *ct = "text/x-golden";
+  bytes_memcpy(body_out->p, "hello", 5);
+  body_out->len = 5;
+  return 1;
+}
+
+/* Arm one response on a confirmed fixture conn through the real
+ * srvrun_start_resp path with cfg (fd/env filled in here) and return the
+ * armed stream bytes. */
+static wired_span sr_arm_with_cfg(srvrun_conn* c, srvrun_cfg* cfg) {
+  struct lp_fix f;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(c, &f, &ob);
+  sr_set_req(c, 0, 0, 0);
+  cfg->fd  = -1;
+  cfg->env = &g_srvrun_env;
+  {
+    srvrun_state    st  = {0, c};
+    srvrun_step_ctx ctx = {cfg, 0, &st, 0, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  return wired_span_of(c->resp[0].sess.q.p, c->resp[0].sess.q.len);
+}
+
+/* RFC 9114 4.1 / RFC 9204 4.5: the exact response bytes a 7-argument
+ * handler produces -- :status 200 (static index 25) plus a content-type
+ * literal referencing static name 44, then DATA. Pinned so changes to the
+ * response path provably leave the classic handler's output alone. */
+static void test_srvrun_legacy_handler_headers_golden(void) {
+  static const u8 want[] = {0x01, 0x13, 0x00, 0x00, 0xd9, 0x5f, 0x1d,
+                            0x0d, 't',  'e',  'x',  't',  '/',  'x',
+                            '-',  'g',  'o',  'l',  'd',  'e',  'n',
+                            0x00, 0x05, 'h',  'e',  'l',  'l',  'o'};
+  srvrun_cfg      cfg    = {0};
+  wired_span      got;
+  cfg.handler = sr_golden_legacy_handler;
+  got         = sr_arm_with_cfg(sr_test_conns(), &cfg);
+  CHECK(got.n == sizeof want);
+  CHECK(ct_diffn(got.p, want, sizeof want) == 0);
+}
+
 void test_srvrun(void) {
+  test_srvrun_legacy_handler_headers_golden();
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
   test_srvrun_broadcast_datagram_skips_unused_slot();
