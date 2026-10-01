@@ -230,8 +230,8 @@ typedef struct {
 #define WIRED_MOQTRUN_CTL_REPLY_MAX 64
 
 /** Largest received control-message Length (body bytes) this hub handles.
- * draft-ietf-moq-transport-19 SS10 allows up to 65535; a longer message is
- * skipped by its Length (moqtrun_asm_pop). */
+ * draft-ietf-moq-transport-19 SS10 allows up to 65535; a longer message
+ * closes the session like an unknown Type (moqtrun_asm_pop). */
 #define WIRED_MOQTRUN_CTL_MSG_MAX 1024
 
 /** Type (vi64, up to 9 bytes) + 16-bit Length. */
