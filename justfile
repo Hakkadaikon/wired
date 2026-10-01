@@ -295,6 +295,13 @@ lint:
     fi
     clang-tidy -checks='{{tidychecks}}' $(find src -name '*.c') -- {{tidyflags}}
 
+# build the guide's snippets (guide/snippets/<id>/main.c), run each one for
+# real, and compare its normalized output with the committed golden.txt.
+# No ids = all. Needs go + node 22 on PATH (the Go clients build here).
+guide-verify *ids: lib
+    ninja guide
+    cd guide && node runner/run.ts {{ids}}
+
 # regenerate the public-API reference into docs/sdk. The input set is derived
 # from wired.h's transitive includes at run time, so it never drifts from the
 # real public API surface. Config lives in docs/Doxyfile.

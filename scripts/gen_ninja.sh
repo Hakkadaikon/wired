@@ -129,6 +129,17 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "build examples/moqt_chat/wired_server: cc_freestanding_bin \$"
     echo "    examples/moqt_chat/wired_server.c build/libwired.a"
     echo
+    echo "# guide/ snippets: each guide/snippets/<id>/main.c is a standalone"
+    echo "# program built like the examples above (the guide shows and runs it)."
+    guide_bins=""
+    for f in guide/snippets/*/main.c; do
+        [ -f "$f" ] || continue
+        id=$(basename "$(dirname "$f")")
+        echo "build build/guide/$id: cc_freestanding_bin $f build/libwired.a"
+        guide_bins="$guide_bins build/guide/$id"
+    done
+    echo "build guide: phony$guide_bins"
+    echo
     echo "# 'ninja' with no args builds only the freestanding objects (the"
     echo "# libc-independence proof); everything else is opt-in by target."
     echo "build freestanding: phony $objs"
