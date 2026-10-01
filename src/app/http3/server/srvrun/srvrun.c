@@ -5891,10 +5891,17 @@ static void srvrun_start_method_status(
  * per-connection table). An Extended CONNECT for WebTransport (RFC 9220 3,
  * draft-ietf-webtrans-http3-15 SS3) establishes a WT session or is rejected
  * with 403, and never reaches the app handler. */
+/* 1 iff stream id was already answered and its answer still stands: a
+ * response in flight, or an established WT session on it (one response
+ * per request -- a CONNECT stream outlives its reaped 200). */
+static int srvrun_req_answered(srvrun_conn* c, u64 id) {
+  return srvrun_resp_find(c, id) || srvrun_wt_slot_by_connect_id(c, id) >= 0;
+}
+
 /* Claim a fresh resp[] slot for c->l.req_stream_id, or 0 when the stream
- * already has one in flight (guard 1) or every slot is busy. */
+ * was already answered (srvrun_req_answered) or every slot is busy. */
 static srvrun_resp* srvrun_start_resp_claim(srvrun_conn* c) {
-  if (srvrun_resp_find(c, c->l.req_stream_id)) return 0;
+  if (srvrun_req_answered(c, c->l.req_stream_id)) return 0;
   return srvrun_resp_claim(c, c->l.req_stream_id);
 }
 

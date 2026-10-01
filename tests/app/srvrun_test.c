@@ -18194,6 +18194,23 @@ static void test_srvrun_retransmitted_request_not_redispatched(void) {
   CHECK(!sr_sl_has_slot(c, 0));
 }
 
+/* One response per request: a stream that already carries an established
+ * WT session is never dispatched again, even once its 200 has been reaped
+ * (no second session, no second response). */
+static void test_srvrun_wt_connect_stream_with_session_not_redispatched(void) {
+  srvrun_conn*          c = sr_sl_fixture();
+  wired_srvrun_wt_usage before, after;
+  wired_srvrun_env_wt_usage(&g_srvrun_env, &before);
+  sr_set_req(c, 1, 1, 4);
+  srvrun_start_resp(&g_sl_ctx, 0);
+  CHECK(c->wt_active == 1);
+  c->resp[0].in_use = 0; /* the 200 was reaped */
+  srvrun_start_resp(&g_sl_ctx, 0);
+  wired_srvrun_env_wt_usage(&g_srvrun_env, &after);
+  CHECK(after.sessions == before.sessions + 1);
+  CHECK(c->resp[0].in_use == 0);
+}
+
 void test_srvrun(void) {
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
@@ -18651,4 +18668,5 @@ void test_srvrun(void) {
   test_srvrun_wt_close_on_established_connect_stream();
   test_srvrun_get_with_fin_dispatched_once_then_released();
   test_srvrun_retransmitted_request_not_redispatched();
+  test_srvrun_wt_connect_stream_with_session_not_redispatched();
 }
