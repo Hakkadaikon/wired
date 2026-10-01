@@ -2901,6 +2901,65 @@ static void test_moqtrun_frag_pool_released_on_reset_and_close(void) {
   CHECK(moqtrun_test_frag_free(&hub) == WIRED_MOQTRUN_FRAG_POOL);
 }
 
+/* Delivers obj[0..n) to publisher stream 999 in chunk-byte deliveries,
+ * then its last byte alone: the relay's held tail peaks at n - 1 bytes. */
+static void moqtrun_test_deliver_to_last_byte(
+    wired_moqt_hub* hub, const u8* obj, usz n, usz chunk) {
+  for (usz off = 0; off < n - 1; off += chunk) {
+    usz k = n - 1 - off < chunk ? n - 1 - off : chunk;
+    wired_moqt_on_stream_data(hub, SESS_A, 999, wired_span_of(obj + off, k), 0);
+  }
+  wired_moqt_on_stream_data(hub, SESS_A, 999, wired_span_of(obj + n - 1, 1), 0);
+}
+
+/* An Object of exactly WIRED_MOQTRUN_RELAY_FRAG_MAX framed bytes, torn
+ * across many deliveries, is relayed whole and byte-identical, and its
+ * pool buffer is free again once it completes. */
+static void test_moqtrun_relay_max_object_intact(void) {
+  static u8 obj[WIRED_MOQTRUN_RELAY_FRAG_MAX + 8];
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_audio_relay(&hub);
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, wired_span_of(first, first_n), 0);
+  usz n = moqtrun_test_big_object(WIRED_MOQTRUN_RELAY_FRAG_MAX, obj);
+  CHECK(n == WIRED_MOQTRUN_RELAY_FRAG_MAX);
+
+  moqtrun_test_reset();
+  moqtrun_test_deliver_to_last_byte(&hub, obj, n, 1000);
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  CHECK(
+      moqtrun_test_last_kind(3)->payload_hash ==
+      moqtrun_test_fnv1a64(MOQTRUN_TEST_FNV1A64_SEED, obj, n));
+  CHECK(hub.stat_frag_drop == 0);
+  CHECK(moqtrun_test_frag_free(&hub) == WIRED_MOQTRUN_FRAG_POOL);
+}
+
+/* One byte more is over the limit: once its held tail reaches
+ * WIRED_MOQTRUN_RELAY_FRAG_MAX bytes it is dropped and counted, and the
+ * Object is never relayed. */
+static void test_moqtrun_relay_object_over_max_dropped(void) {
+  static u8 obj[WIRED_MOQTRUN_RELAY_FRAG_MAX + 8];
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_audio_relay(&hub);
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, wired_span_of(first, first_n), 0);
+  usz n = moqtrun_test_big_object(WIRED_MOQTRUN_RELAY_FRAG_MAX + 1, obj);
+  CHECK(n == WIRED_MOQTRUN_RELAY_FRAG_MAX + 1);
+
+  moqtrun_test_reset();
+  moqtrun_test_deliver_to_last_byte(&hub, obj, n, 1000);
+  CHECK(moqtrun_test_count_kind(3) == 0);
+  CHECK(hub.stat_frag_drop == 1);
+}
+
 /* ===================== session teardown ===================== */
 
 /* A closed session's peer slot is freed: the SAME wt pointer re-registers
@@ -4999,6 +5058,8 @@ void test_moqtrun(void) {
   test_moqtrun_frag_overflow_counted();
   test_moqtrun_frag_pool_exhaustion_drops_extra();
   test_moqtrun_frag_pool_released_on_reset_and_close();
+  test_moqtrun_relay_max_object_intact();
+  test_moqtrun_relay_object_over_max_dropped();
   test_moqtrun_close_frees_peer_for_reregistration();
   test_moqtrun_close_drops_subscriptions();
   test_moqtrun_duplicate_subscribe_reuses_slot();
