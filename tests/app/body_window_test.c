@@ -229,6 +229,34 @@ static void test_bodywin_multi_window_reordered(void) {
   for (usz i = 0; i < wn; i++) CHECK(r.got[i] == want[i]);
 }
 
+/* Trailer HEADERS (and unknown types) after the body stay skipped. */
+static void test_bodywin_trailers_skipped(void) {
+  static u8 buf[BODYWIN_CAP];
+  bodywin   w = {0};
+  bw_rec    r = {0};
+  u8        s[32];
+  usz       n = 0;
+  bw_frame(s, &n, 0x00, 2, 'a');
+  bw_frame(s, &n, 0x01, 3, 't');
+  bw_land(&w, buf, s, 0, n, 1);
+  CHECK(bodywin_pump(&w, buf, bw_sink, &r) == BODYWIN_DONE);
+  CHECK(r.got_n == 2 && r.fins[r.calls - 1] == 1);
+}
+
+/* A window packed with 2-byte empty frames is parsed in one pump and slid
+ * once to its end. */
+static void test_bodywin_window_of_empty_frames(void) {
+  static u8 s[BODYWIN_CAP], buf[BODYWIN_CAP];
+  bodywin   w = {0};
+  bw_rec    r = {0};
+  usz       n = 0;
+  while (n < BODYWIN_CAP) bw_frame(s, &n, 0x21, 0, 0);
+  bw_land(&w, buf, s, 0, n, 1);
+  CHECK(bodywin_pump(&w, buf, bw_sink, &r) == BODYWIN_DONE);
+  CHECK(w.base == BODYWIN_CAP && bodywin_frontier(&w) == 0);
+  CHECK(r.calls == 1 && r.fins[0] == 1);
+}
+
 void test_body_window(void) {
   test_bodywin_cap_holds_largest_header();
   test_bodywin_gap_not_parsed();
@@ -240,4 +268,6 @@ void test_body_window(void) {
   test_bodywin_unknown_skipped_and_frames_split();
   test_bodywin_reject_is_final();
   test_bodywin_multi_window_reordered();
+  test_bodywin_trailers_skipped();
+  test_bodywin_window_of_empty_frames();
 }
