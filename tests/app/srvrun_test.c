@@ -18448,6 +18448,22 @@ static void test_srvrun_full_window_headers_get_431(void) {
   CHECK(sr_resp_is_status(&c->resp[0], 431));
 }
 
+/* A client bidi stream starts at the request-window credit (the transport
+ * parameter); once classified as WebTransport its first grant raises it to
+ * the WT buffer. */
+static void test_srvrun_wt_bidi_credit_raised_from_request_window(void) {
+  struct lp_fix f;
+  u8            obuf[1024];
+  wired_obuf    ob             = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*  c              = sr_wtsend_fixture(&f, &ob);
+  srvrun_cfg    cfg            = sr_wt_send_cfg();
+  c->l.wt_streams[0].in_use    = 1;
+  c->l.wt_streams[0].stream_id = 4;
+  srvrun_grant_wt_credit(&cfg, c);
+  CHECK(c->l.wt_streams[0].credit_advertised == WIRED_SRVLOOP_WT_BUF_CAP);
+  CHECK(STP_DEFAULT_STREAM_DATA_REMOTE < WIRED_SRVLOOP_WT_BUF_CAP);
+}
+
 /* Send c's GOAWAY and return the stream id it carried (~0 if unreadable). */
 static u64 sr_sl_goaway(srvrun_conn* c) {
   u8         out[256];
@@ -19417,6 +19433,7 @@ void test_srvrun(void) {
   test_srvrun_body_over_req_buf_gets_413();
   test_srvrun_full_window_body_gets_413();
   test_srvrun_full_window_headers_get_431();
+  test_srvrun_wt_bidi_credit_raised_from_request_window();
   test_srvrun_retransmitted_request_not_redispatched();
   test_srvrun_wt_connect_stream_with_session_not_redispatched();
   test_srvrun_wt_connect_before_client_settings_held();

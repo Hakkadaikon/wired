@@ -69,8 +69,12 @@ static void test_server_tp_ids_and_values(void) {
   CHECK(
       parse_int(tp, TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, &v) &&
       v == WIRED_SRVLOOP_WT_BUF_CAP);
+  /* Client-initiated bidi streams carry requests, whose bytes land in a
+   * slot's BODYWIN_CAP window -- the same promise, so the same pin (a WT
+   * bidi stream is raised to its own larger buffer once classified). */
   CHECK(
-      parse_int(tp, TP_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE, &v) && v == 262144);
+      parse_int(tp, TP_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE, &v) &&
+      v == BODYWIN_CAP);
   CHECK(
       parse_int(tp, TP_INITIAL_MAX_STREAM_DATA_UNI, &v) &&
       v == WIRED_SRVLOOP_WT_BUF_CAP);
