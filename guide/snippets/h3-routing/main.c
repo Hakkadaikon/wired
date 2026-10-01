@@ -55,7 +55,7 @@ int wired_main(int argc, char** argv) {
   /* A fixed demo identity: X25519 key share, certificate signing seed,
    * connection id and ServerHello.random. The certificate is self-signed. */
   static u8       priv[32], pub[32], seed[32], rnd[32];
-  static const u8 scid[8] = "guide-h3";
+  static const u8 scid[] = "guide-h3";
   wired_srvboot_id id = {0};
   for (usz i = 0; i < 32; i++) {
     priv[i] = (u8)(0x50 + i);
@@ -68,7 +68,7 @@ int wired_main(int argc, char** argv) {
   id.cert_seed = seed;
   id.random    = rnd;
   id.scid      = scid;
-  id.scid_len  = sizeof scid;
+  id.scid_len  = sizeof scid - 1; /* without the string's NUL */
 
   u16                  port = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
   wired_srvrun_handler h    = {on_request, 0};

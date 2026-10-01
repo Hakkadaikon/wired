@@ -23,7 +23,7 @@ static int on_request(
 int wired_main(int argc, char** argv) {
   /* The same fixed demo identity as the HTTP/3 hello page. */
   static u8        priv[32], pub[32], seed[32], rnd[32];
-  static const u8  scid[8] = "guide-h3";
+  static const u8  scid[] = "guide-h3";
   wired_srvboot_id id      = {0};
   for (usz i = 0; i < 32; i++) {
     priv[i] = (u8)(0x50 + i);
@@ -36,7 +36,7 @@ int wired_main(int argc, char** argv) {
   id.cert_seed = seed;
   id.random    = rnd;
   id.scid      = scid;
-  id.scid_len  = sizeof scid;
+  id.scid_len  = sizeof scid - 1; /* without the string's NUL */
 
   /* --port, --workers, --cores, --ifindex, ... pick and configure a driver. */
   wired_srvdriver_opt opt = {0};
