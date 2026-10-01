@@ -10233,6 +10233,32 @@ static void test_srvrun_copy_stream_req_keeps_headers(void) {
   CHECK(v.n == 2 && wt_bytes_eq(v.p, (const u8*)"ab", 2));
 }
 
+/* The streaming copy keeps a header that exactly fills its scratch and drops
+ * the next one: later rounds see only the headers that fit. */
+static void test_srvrun_copy_stream_req_header_boundary(void) {
+  static srvrun_resp   r;
+  static u8            buf[sizeof r.stream_req_scratch + 8];
+  wired_h3reqdrive_req req  = {0};
+  wired_span           v    = {0, 0};
+  u16                  fill = (u16)(sizeof r.stream_req_scratch - 3);
+  bytes_memset(buf, 'v', sizeof buf);
+  buf[2]        = 'a';
+  buf[3 + fill] = 'b';
+  req.path      = buf;
+  req.path_len  = 2;
+  req.hdr_base  = buf;
+  req.hdrs[0]   = (wired_h3reqdrive_hdr){2, 1, 3, fill};
+  req.hdrs[1]   = (wired_h3reqdrive_hdr){(u16)(3 + fill), 1, 0, 1};
+  req.hdr_count = 2;
+  srvrun_copy_stream_req(&r, &req);
+  CHECK(r.stream_req.hdr_count == 1);
+  CHECK(wired_http_req_header(
+      &r.stream_req, wired_span_of((const u8*)"a", 1), &v));
+  CHECK(v.n == fill && v.p == r.stream_req_scratch + 3);
+  CHECK(!wired_http_req_header(
+      &r.stream_req, wired_span_of((const u8*)"b", 1), &v));
+}
+
 /* An absent optional view (0, as the decoder leaves :protocol/origin when
  * the peer sent none) must stay 0 in the copy, not turn into an empty
  * non-null view a handler would read as "present". */
@@ -18945,6 +18971,7 @@ void test_srvrun(void) {
   test_srvrun_streaming_later_round_uses_own_stream_not_sibling();
   test_srvrun_copy_stream_req_repoints_every_view();
   test_srvrun_copy_stream_req_keeps_headers();
+  test_srvrun_copy_stream_req_header_boundary();
   test_srvrun_copy_stream_req_keeps_absent_views_null();
   test_srvrun_streaming_h3_prefix_receives_total_size_not_round_len();
   test_srvrun_streaming_body_exactly_row_cap_single_round();
