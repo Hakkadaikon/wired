@@ -13,7 +13,7 @@
 
 /* ===================== recording io stub ===================== */
 
-#define MOQTRUN_TEST_MAX_CALLS 128
+#define MOQTRUN_TEST_MAX_CALLS 512
 #define MOQTRUN_TEST_MAX_PAYLOAD 256
 
 typedef struct {
@@ -201,8 +201,8 @@ static int moqtrun_test_stream_fin(wired_wt_session* s, u64 stream_id) {
  * g_stream_reset_ret so a test can simulate the SDK refusing (latch full). */
 static int moqtrun_test_stream_reset(
     wired_wt_session* s, u64 stream_id, u32 error_code) {
-  (void)error_code;
-  moqtrun_test_record(7, s, stream_id, 0, wired_span_of(0, 0));
+  /* the error code rides the recorder's fin field */
+  moqtrun_test_record(7, s, stream_id, (int)error_code, wired_span_of(0, 0));
   return g_stream_reset_ret;
 }
 

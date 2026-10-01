@@ -477,6 +477,8 @@ static void test_moqtrun_sub_largest_own_tracks(void) {
  * stream. Client-initiated bidi stream ids are 0 mod 4 (RFC 9000 2.1). */
 #define MTRQ_S1 4
 #define MTRQ_S2 8
+/* Bidi ids clear of the recorder's control-stream ids (100 up). */
+#define MTRQ_ID(i) (1000 + 4 * (u64)(i))
 
 static u64 mtrq_type_of(const moqtrun_test_call* c) {
   usz        off = 0;
@@ -502,6 +504,29 @@ static usz mtrq_closes(void) {
   for (usz i = 0; i < g_n_calls; i++)
     n += g_calls[i].kind == 11 &&
          g_calls[i].stream_id == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
+  return n;
+}
+
+/* 1 iff the hub FINed its side of sid (io.stream_fin). */
+static int mtrq_fin_on(u64 sid) {
+  for (usz i = 0; i < g_n_calls; i++)
+    if (g_calls[i].kind == 6 && g_calls[i].stream_id == sid) return 1;
+  return 0;
+}
+
+/* Error code of the last io.stream_reset on sid; -1 if none. */
+static int mtrq_reset_code(u64 sid) {
+  for (usz i = g_n_calls; i > 0; i--)
+    if (g_calls[i - 1].kind == 7 && g_calls[i - 1].stream_id == sid)
+      return g_calls[i - 1].fin;
+  return -1;
+}
+
+/* Request-stream slots in use. */
+static usz mtrq_used(void) {
+  usz n = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+    n += mtst_hub.reqs[i].in_use != 0;
   return n;
 }
 
@@ -657,6 +682,105 @@ static void test_moqtrun_req_second_message_checked(void) {
   CHECK(moqtrun_test_count_kind(3) == 1); /* A's own REQUEST_OK only */
 }
 
+/* draft 3.3.2: a FIN is not a cancellation. */
+static void test_moqtrun_req_fin_keeps_request(void) {
+  moqctl_ftn f = mtrq_setup();
+  u8         buf[MTST_MSG_MAX];
+  usz        n = mtrq_sub_bytes(&f, 2, buf);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_B, MTRQ_S1, wired_span_of(buf, n), 1);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(mtst_sub(SESS_A, SESS_B) != 0);
+  CHECK(mtrq_fin_on(MTRQ_S1) == 0); /* Established: our side stays open */
+  CHECK(mtrq_used() == 1);
+}
+
+/* draft 3.3.2/3.3.3: a request answered without establishing anything
+ * (REQUEST_ERROR) is complete -- the hub FINs its side after the answer,
+ * and the slot is freed once the peer's side has ended too. */
+static void test_moqtrun_req_refusal_fins_and_frees(void) {
+  static const u8 body[] = {0x00, 0x00};
+  moqctl_ftn      g      = mtst_ftn("chat", "room1", "nobody");
+  u8              buf[MTST_MSG_MAX];
+  mtrq_setup();
+  mtrq_raw(SESS_B, MTRQ_S1, MOQTSTAT_T_TRACK_STATUS, body, sizeof body);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_ERROR);
+  CHECK(mtrq_fin_on(MTRQ_S1) == 1);
+  CHECK(mtrq_used() == 1);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(0, 0), 1);
+  CHECK(mtrq_used() == 0);
+  usz n = mtrq_sub_bytes(&g, 2, buf);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_B, MTRQ_S2, wired_span_of(buf, n), 1);
+  CHECK(mtrq_type_on(12, MTRQ_S2) == MOQCTL_T_REQUEST_ERROR);
+  CHECK(mtrq_fin_on(MTRQ_S2) == 1);
+  CHECK(mtrq_used() == 0);
+}
+
+/* Finished requests return their slots: one session can make many more
+ * requests than it may hold open at once. */
+static void test_moqtrun_req_finished_do_not_exhaust(void) {
+  static const u8 body[] = {0x00, 0x00};
+  mtst_init();
+  mtst_join(SESS_B);
+  for (usz i = 0; i < 2 * WIRED_MOQTRUN_MAX_REQS_PER_SESSION; i++) {
+    mtrq_raw(SESS_B, MTRQ_ID(i), MOQTSTAT_T_TRACK_STATUS, body, sizeof body);
+    wired_moqt_on_stream_data(
+        &mtst_hub, SESS_B, MTRQ_ID(i), wired_span_of(0, 0), 1);
+  }
+  CHECK(moqtrun_test_count_kind(12) == 2 * WIRED_MOQTRUN_MAX_REQS_PER_SESSION);
+  CHECK(mtrq_used() == 0);
+}
+
+/* One session holds at most WIRED_MOQTRUN_MAX_REQS_PER_SESSION request
+ * streams; past it a new one is reset with EXCESSIVE_LOAD (draft 3.3.4)
+ * while other sessions are still served, and a closed session's streams
+ * return to the pool. */
+static void test_moqtrun_req_per_session_cap(void) {
+  static const u8 body[] = {0x00, 0x00};
+  const u64       over   = MTRQ_ID(WIRED_MOQTRUN_MAX_REQS_PER_SESSION);
+  mtst_init();
+  mtst_join(SESS_B);
+  mtst_join(SESS_C);
+  for (usz i = 0; i <= WIRED_MOQTRUN_MAX_REQS_PER_SESSION; i++)
+    mtrq_raw(SESS_B, MTRQ_ID(i), MOQTSTAT_T_TRACK_STATUS, body, sizeof body);
+  CHECK(moqtrun_test_count_kind(12) == WIRED_MOQTRUN_MAX_REQS_PER_SESSION);
+  CHECK(mtrq_reset_code(over) == 0x9);
+  CHECK(mtrq_closes() == 0);
+  mtrq_raw(SESS_C, MTRQ_S1, MOQTSTAT_T_TRACK_STATUS, body, sizeof body);
+  CHECK(moqtrun_test_last_kind(12)->s == SESS_C);
+  wired_moqt_on_session_close(&mtst_hub, SESS_B);
+  CHECK(mtrq_used() == 1);
+}
+
+/* With the pool full a peer-opened bidi stream is reset with
+ * EXCESSIVE_LOAD, never read as Object data (draft 3.3: Objects travel on
+ * unidirectional streams only). */
+static void test_moqtrun_req_pool_full_resets(void) {
+  static const u8         body[] = {0x00, 0x00};
+  wired_wt_session* const sess[] = {SESS_A, SESS_B, SESS_C, SESS_D};
+  wired_wt_session* const late   = (wired_wt_session*)(usz)5;
+  const usz               per    = WIRED_MOQTRUN_MAX_REQS_PER_SESSION;
+  mtst_init();
+  for (usz s = 0; s < 4; s++) {
+    mtst_join(sess[s]);
+    for (usz i = 0; i < per; i++)
+      mtrq_raw(sess[s], MTRQ_ID(i), MOQTSTAT_T_TRACK_STATUS, body, sizeof body);
+  }
+  CHECK(4 * per == WIRED_MOQTRUN_MAX_REQS);
+  CHECK(mtrq_used() == WIRED_MOQTRUN_MAX_REQS);
+  mtst_join(late);
+  wired_moqt_on_stream_data(
+      &mtst_hub, late, MTRQ_S1,
+      wired_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      0);
+  CHECK(moqtrun_test_last_kind(7) && moqtrun_test_last_kind(7)->s == late);
+  CHECK(mtrq_reset_code(MTRQ_S1) == 0x9);
+  CHECK(mtrq_closes() == 0);
+}
+
 /* draft 10.4: a second GOAWAY on one request stream is a
  * PROTOCOL_VIOLATION. */
 static void test_moqtrun_req_second_goaway_closes(void) {
@@ -669,32 +793,17 @@ static void test_moqtrun_req_second_goaway_closes(void) {
   CHECK(mtrq_closes() == 1);
 }
 
-/* draft 3.3.2: a FIN is not a cancellation. */
-static void test_moqtrun_req_fin_keeps_request(void) {
+/* A reset before the hub answered still resets the hub's side with
+ * CANCELLED (draft 3.3.3/3.3.4) and frees the slot. */
+static void test_moqtrun_req_reset_unanswered(void) {
   moqctl_ftn f = mtrq_setup();
   u8         buf[MTST_MSG_MAX];
-  usz        n = mtrq_sub_bytes(&f, 2, buf);
+  mtrq_sub_bytes(&f, 2, buf);
   wired_moqt_on_stream_data(
-      &mtst_hub, SESS_B, MTRQ_S1, wired_span_of(buf, n), 1);
-  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_SUBSCRIBE_OK);
-  CHECK(mtst_sub(SESS_A, SESS_B) != 0);
-}
-
-/* The request-stream pool is bounded: past WIRED_MOQTRUN_MAX_REQS open
- * streams a new one goes unanswered, and a closed session returns its
- * streams to the pool. */
-static void test_moqtrun_req_pool_bounded_and_freed(void) {
-  static const u8 body[] = {0x00, 0x00};
-  mtst_init();
-  mtst_join(SESS_B);
-  for (usz i = 0; i <= WIRED_MOQTRUN_MAX_REQS; i++)
-    mtrq_raw(SESS_B, 4 * (u64)i, MOQTSTAT_T_TRACK_STATUS, body, sizeof body);
-  CHECK(moqtrun_test_count_kind(12) == WIRED_MOQTRUN_MAX_REQS);
-  CHECK(mtrq_closes() == 0);
-  wired_moqt_on_session_close(&mtst_hub, SESS_B);
-  mtst_join(SESS_C);
-  mtrq_raw(SESS_C, MTRQ_S1, MOQTSTAT_T_TRACK_STATUS, body, sizeof body);
-  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_ERROR);
+      &mtst_hub, SESS_B, MTRQ_S1, wired_span_of(buf, 3), 0);
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, MTRQ_S1, 0, 0);
+  CHECK(mtrq_reset_code(MTRQ_S1) == 0x1);
+  CHECK(mtrq_used() == 0);
 }
 
 /* An io table without stream_reply_open cannot answer on a request
@@ -733,7 +842,11 @@ void test_moqtrun_sub(void) {
   test_moqtrun_req_bad_first_message_closes();
   test_moqtrun_req_second_message_checked();
   test_moqtrun_req_fin_keeps_request();
-  test_moqtrun_req_pool_bounded_and_freed();
+  test_moqtrun_req_refusal_fins_and_frees();
+  test_moqtrun_req_finished_do_not_exhaust();
+  test_moqtrun_req_per_session_cap();
+  test_moqtrun_req_pool_full_resets();
   test_moqtrun_req_second_goaway_closes();
+  test_moqtrun_req_reset_unanswered();
   test_moqtrun_req_needs_reply_op();
 }
