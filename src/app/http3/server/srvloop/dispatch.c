@@ -1361,6 +1361,122 @@ static int route_complete_over(const wired_srvloop_dispatch_ctx* ctx, int i) {
   return 1;
 }
 
+/* ---- Streaming request body (wired_srvloop_on_body) ---- */
+
+/* The app streams request bodies, and this is an h3 connection (an
+ * hq-interop request line has no body framing). */
+static int route_body_on(const wired_srvloop_dispatch_ctx* ctx) {
+  return ctx->l->on_body && ctx->s->sdrv.alpn != SALPN_HQ;
+}
+
+/* Bytes of the HEADERS frame whole inside slot's contiguous window prefix,
+ * 0 when there is none yet -- or the slot was already answered on the
+ * buffered path. */
+static usz route_body_head_len(const wired_srvloop_stream_slot* slot) {
+  h3_frame f = {0};
+  usz      n;
+  if (slot->req_done) return 0;
+  n = h3_frame_get(
+      wired_span_of(slot->req_buf, bodywin_frontier(&slot->body)), &f);
+  return f.type == H3_FRAME_HEADERS ? n : 0;
+}
+
+/* RFC 9114 4.1: decode slot's leading n-byte HEADERS frame alone into
+ * slot->req (views into req_wrap/req_scratch, which the window never
+ * touches). 1 for a decoded non-CONNECT request. */
+static int route_body_decode(
+    const wired_srvloop_dispatch_ctx* ctx,
+    wired_srvloop_stream_slot*        slot,
+    usz                               n) {
+  stream_frame       f  = {0, 0, n, slot->req_buf, 0};
+  wired_obuf         ob = obuf_of(slot->req_wrap, sizeof slot->req_wrap);
+  wired_h3srv_req_in rin;
+  if (!appdata_stream_frame(&f, &ob)) return 0;
+  rin = (wired_h3srv_req_in){
+      wired_span_of(slot->req_wrap, ob.len),
+      wired_mspan_of(slot->req_scratch, sizeof slot->req_scratch)};
+  return wired_h3srv_on_request(ctx->h3, &rin, &slot->req) &&
+         !req_method_is_connect(&slot->req);
+}
+
+/* Start streaming slot's body once its HEADERS frame is whole: decode it
+ * and slide it out of the window. 0 leaves the slot on the buffered path
+ * (no whole HEADERS yet, undecodable, or a CONNECT). */
+static int route_body_start(
+    const wired_srvloop_dispatch_ctx* ctx, wired_srvloop_stream_slot* slot) {
+  usz n = route_body_head_len(slot);
+  if (!n || !route_body_decode(ctx, slot, n)) return 0;
+  bodywin_consume(&slot->body, slot->req_buf, n);
+  slot->body.on = 1;
+  return 1;
+}
+
+typedef struct {
+  wired_srvloop*             l;
+  wired_srvloop_stream_slot* slot;
+} route_body_call;
+
+static int route_body_sink(void* ctx, wired_span chunk, int fin) {
+  route_body_call* c = ctx;
+  return c->l->on_body(
+      c->l->req_ctx, &c->slot->req, c->slot->stream_id, chunk, fin);
+}
+
+static void route_body_open(wired_srvloop* l, int i) {
+  (void)l;
+  (void)i;
+}
+
+/* fin delivered: the request is complete; the handler answers it. */
+static void route_body_done(wired_srvloop* l, int i) {
+  l->streams[i].req_done = 1;
+  route_note_done(l, i);
+}
+
+/* on_body declined: answer 413 (RFC 9110 15.5.14), like an overflow. */
+static void route_body_reject(wired_srvloop* l, int i) {
+  l->streams[i].req.too_large_status = 413;
+  route_body_done(l, i);
+}
+
+/* RFC 9114 7.1: the stream ended inside a frame -- H3_FRAME_ERROR. */
+static void route_body_frame_error(wired_srvloop* l, int i) {
+  l->streams[i].req_done = 1;
+  l->req_frame_error     = 1;
+}
+
+/* Parse what the window holds and settle the outcome (once: a finished
+ * body is never pumped again, so a re-armed slot cannot re-settle). */
+static void route_body_pump(wired_srvloop* l, int i) {
+  static void (*const settle[])(wired_srvloop*, int) = {
+      route_body_open, route_body_done, route_body_reject,
+      route_body_frame_error};
+  wired_srvloop_stream_slot* slot = &l->streams[i];
+  route_body_call            c    = {l, slot};
+  if (slot->body.state != BODYWIN_OPEN) return;
+  settle[bodywin_pump(&slot->body, slot->req_buf, route_body_sink, &c)](l, i);
+}
+
+/* slot streams its body: already started, or starts now. */
+static int route_body_ready(
+    const wired_srvloop_dispatch_ctx* ctx, wired_srvloop_stream_slot* slot) {
+  return slot->body.on || route_body_start(ctx, slot);
+}
+
+/* RFC 9114 4.1: stream slot i's body to on_body. 1 if the slot is on the
+ * streaming path (the buffered completion below then stays out of it). */
+static int route_body(const wired_srvloop_dispatch_ctx* ctx, int i) {
+  if (!route_body_on(ctx)) return 0;
+  if (!route_body_ready(ctx, &ctx->l->streams[i])) return 0;
+  route_body_pump(ctx->l, i);
+  return 1;
+}
+
+/* Slot i is on the streaming-body path, or was answered for overflowing. */
+static int route_answered_early(const wired_srvloop_dispatch_ctx* ctx, int i) {
+  return route_body(ctx, i) || route_complete_over(ctx, i);
+}
+
 /* Decode slot i's request if it just completed, using the slot's OWN
  * scratch/wrap/req storage (each stream's decoded views must stay alive
  * independently of the others'). */
@@ -1374,7 +1490,7 @@ static void route_complete_slot(
   wired_srvloop_dispatch_in  sin  = {
       in->payload, wired_mspan_of(slot->req_scratch, sizeof slot->req_scratch),
       wired_mspan_of(slot->req_wrap, sizeof slot->req_wrap), &got, &slot->req};
-  if (route_complete_over(ctx, i)) return;
+  if (route_answered_early(ctx, i)) return;
   if (!request_complete(&acc, &sin)) return;
   route_dispatch_complete(ctx, &acc, &sin);
   route_note_result(ctx->l, i, got);

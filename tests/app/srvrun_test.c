@@ -18464,6 +18464,141 @@ static void test_srvrun_wt_bidi_credit_raised_from_request_window(void) {
   CHECK(STP_DEFAULT_STREAM_DATA_REMOTE < WIRED_SRVLOOP_WT_BUF_CAP);
 }
 
+/* ===== Streaming request body (RFC 9114 4.1): with an on_body callback
+ * the body reaches the app in chunks through req_buf as a sliding window,
+ * credit following it, and the handler answers after fin. */
+typedef struct {
+  u8  got[4096];
+  usz got_n;
+  usz calls;
+  usz fins;
+  int handler_calls_at_fin; /* g_sr_wt_handler_calls when fin arrived */
+  usz reject_at;            /* 1-based call that returns 0; 0 = never */
+  int saw_post;             /* req carried the decoded :method */
+} sr_body_rec;
+
+static sr_body_rec g_sr_body;
+
+static int sr_on_body(
+    void*                       ctx,
+    const wired_h3reqdrive_req* req,
+    u64                         stream_id,
+    wired_span                  chunk,
+    int                         fin) {
+  (void)ctx;
+  (void)stream_id;
+  for (usz i = 0; i < chunk.n && g_sr_body.got_n < 4096; i++)
+    g_sr_body.got[g_sr_body.got_n++] = chunk.p[i];
+  g_sr_body.calls++;
+  g_sr_body.saw_post = req->method_len == 4 && req->method[0] == 'P';
+  if (fin) {
+    g_sr_body.fins++;
+    g_sr_body.handler_calls_at_fin = g_sr_wt_handler_calls;
+  }
+  return g_sr_body.calls != g_sr_body.reject_at;
+}
+
+/* sr_sl_fixture with on_body registered on the loop. */
+static srvrun_conn* sr_body_fixture(usz reject_at) {
+  srvrun_conn* c      = sr_sl_fixture();
+  g_sr_body           = (sr_body_rec){0};
+  g_sr_body.reject_at = reject_at;
+  c->l.on_body        = sr_on_body;
+  return c;
+}
+
+/* Stream 0's credit as the server last announced it: the window it
+ * advertised initially, or base + window after a MAX_STREAM_DATA. */
+static u64 sr_body_credit(const srvrun_conn* c) {
+  return c->l.streams[0].body.granted + SR_REQ_BUF_CAP;
+}
+
+/* Send d[0..n) on stream 0 the way a compliant client does: never past the
+ * current credit, in frames of at most 700 bytes, FIN on the last when
+ * fin. Stops when the credit no longer grows. */
+static void sr_body_send(srvrun_conn* c, const u8* d, usz n, int fin) {
+  usz sent = 0;
+  while (sent < n) {
+    usz          lim = (usz)u64_min(sr_body_credit(c), n);
+    usz          k   = lim - sent < 700 ? lim - sent : 700;
+    u8           pl[800];
+    wired_obuf   sob = obuf_of(pl, sizeof pl);
+    stream_frame sf  = {0, sent, k, d + sent, (u8)(fin && sent + k == n)};
+    if (!k) return;
+    CHECK(appdata_stream_frame(&sf, &sob) == 1);
+    sr_sl_step(c, pl, sob.len);
+    sent += k;
+  }
+}
+
+/* A body two windows long streams through on_body whole and in order,
+ * fin=1 on the last call, the credit growing past the first window; the
+ * handler answers after fin. */
+static void test_srvrun_on_body_streams_body_then_handler(void) {
+  static u8    req[4096];
+  srvrun_conn* c = sr_body_fixture(0);
+  usz          n = sr_big_req(req, sizeof req, 1, 4000);
+  sr_body_send(c, req, n, 1);
+  CHECK(g_sr_body.got_n == 4000 && g_sr_body.got[3999] == 'b');
+  CHECK(g_sr_body.fins == 1 && g_sr_body.saw_post);
+  CHECK(sr_body_credit(c) >= n);
+  CHECK(g_sr_body.handler_calls_at_fin == 0);
+  CHECK(g_sr_wt_handler_calls == 1);
+}
+
+/* on_body declining stops the body: 413, and no further call -- not even
+ * fin -- however much more of the stream arrives. */
+static void test_srvrun_on_body_reject_answers_413(void) {
+  static u8    req[4096];
+  srvrun_conn* c = sr_body_fixture(1);
+  usz          n = sr_big_req(req, sizeof req, 1, 1500);
+  sr_body_send(c, req, n, 1);
+  CHECK(g_sr_body.calls == 1 && g_sr_body.fins == 0);
+  CHECK(g_sr_wt_handler_calls == 0);
+  CHECK(sr_resp_is_status(&c->resp[0], 413));
+}
+
+/* RFC 9114 7.1: a stream ending inside its last frame closes the
+ * connection with H3_FRAME_ERROR; on_body never sees fin. */
+static void test_srvrun_on_body_truncated_frame_is_frame_error(void) {
+  static u8    req[4096];
+  srvrun_conn* c = sr_body_fixture(0);
+  usz          n = sr_big_req(req, sizeof req, 1, 100);
+  sr_body_send(c, req, n - 10, 1);
+  CHECK(g_sr_body.fins == 0);
+  CHECK(c->l.streams[0].body.state == BODYWIN_FRAME_ERROR);
+  CHECK(c->l.req_frame_error == 0); /* consumed by the close */
+  CHECK(g_sr_wt_handler_calls == 0);
+}
+
+/* An empty body (GET with FIN) still ends with on_body(empty, fin=1),
+ * then the handler; a retransmitted copy reaches neither again. */
+static void test_srvrun_on_body_empty_body_gets_fin(void) {
+  srvrun_conn* c = sr_body_fixture(0);
+  sr_sl_send_headers(c, 0, "GET", 1);
+  CHECK(g_sr_body.calls == 1 && g_sr_body.fins == 1 && g_sr_body.got_n == 0);
+  CHECK(g_sr_wt_handler_calls == 1);
+  sr_sl_send_headers(c, 0, "GET", 1);
+  CHECK(g_sr_body.calls == 1 && g_sr_wt_handler_calls == 1);
+}
+
+/* A CONNECT stream carries capsules, not a body: no on_body, and the
+ * session is established as without one. */
+static void test_srvrun_on_body_skips_connect(void) {
+  srvrun_conn* c = sr_body_fixture(0);
+  sr_sl_send_headers(c, 0, "CONNECT", 0);
+  CHECK(c->wt_active == 1);
+  CHECK(g_sr_body.calls == 0);
+}
+
+/* The latched frame error closes the connection (and is consumed). */
+static void test_srvrun_req_frame_error_closes(void) {
+  srvrun_conn* c       = sr_sl_fixture();
+  c->l.req_frame_error = 1;
+  CHECK(srvrun_close_on_step_violation(&g_sl_cfg, c) == 1);
+  CHECK(c->l.req_frame_error == 0);
+}
+
 /* RFC 9114 4.1.2: an early answer asks the client to stop sending the
  * rest of the request with H3_NO_ERROR (STOP_SENDING, RFC 9000 19.5). */
 static void test_srvrun_stop_sending_wire_shape(void) {
@@ -19470,6 +19605,12 @@ void test_srvrun(void) {
   test_srvrun_full_window_body_gets_413();
   test_srvrun_full_window_headers_get_431();
   test_srvrun_wt_bidi_credit_raised_from_request_window();
+  test_srvrun_on_body_streams_body_then_handler();
+  test_srvrun_on_body_reject_answers_413();
+  test_srvrun_on_body_truncated_frame_is_frame_error();
+  test_srvrun_req_frame_error_closes();
+  test_srvrun_on_body_empty_body_gets_fin();
+  test_srvrun_on_body_skips_connect();
   test_srvrun_stop_sending_wire_shape();
   test_srvrun_early_413_also_stops_sending();
   test_srvrun_retransmitted_request_not_redispatched();

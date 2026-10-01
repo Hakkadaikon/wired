@@ -164,6 +164,8 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->wt_reset_seen                  = 0;
   l->peer_reset_count               = 0;
   l->req_next_id                    = 0;
+  l->on_body                        = 0;
+  l->req_frame_error                = 0;
   pnspaces_recv_init(&l->ack_recv);
   ackpolicy_init(&l->app_ack_policy);
   ackpolicy_init(&l->hs_ack_policy);
