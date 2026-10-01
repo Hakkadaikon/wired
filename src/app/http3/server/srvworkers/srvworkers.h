@@ -8,7 +8,7 @@
  * Multi-process worker fan-out over the single-process wired_server_run:
  * fork N shared-nothing child processes, each optionally pinned to one CPU,
  * each running its own copy of the existing server loop unmodified. The
- * parent becomes a supervisor that restarts any worker that dies.
+ * parent becomes a supervisor that restarts any worker that crashes.
  *
  * ponytail: for N workers to actually share one UDP port, the socket
  * wired_server_run binds must have SO_REUSEPORT enabled before bind — that
@@ -58,18 +58,21 @@ typedef struct {
  * return under normal operation; if it ever does, the child exits cleanly
  * (exit_group) rather than falling into the parent's supervisor code.
  *
- * The parent enters a wait4 supervisor loop: block for any child to change
- * state, and re-fork a replacement with the SAME worker index (so pinning
- * stays consistent) whenever a worker exits. This does NOT return in normal
- * operation -- it is a supervisor loop, not a one-shot call.
+ * The parent enters a wait4 supervisor loop: it re-forks a replacement with
+ * the SAME worker index (so pinning stays consistent) whenever a worker
+ * crashes (killed by a signal or a non-zero exit); a worker that exits 0 is
+ * not replaced. On SIGTERM the parent forwards SIGTERM once to every live
+ * worker, stops respawning, and keeps reaping. Each worker arms
+ * PR_SET_PDEATHSIG(SIGTERM), so it drains if the parent dies. The parent
+ * returns once every worker has been reaped.
  *
  * @param port UDP port passed through to each worker's wired_server_run
  * @param id the fixed server identity, passed through to every worker
  * @param h the application's request responder, passed through
  * @param obs optional qlog/keylog/cert-reload settings, passed through
  * @param opt worker count / pinning policy; 0 workers means auto-detect
- * @return negative only if the very first fork() itself fails before any
- *   worker starts; otherwise this does not return. */
+ * @return negative if the initial fork() fails; 0 once every worker has
+ *   been reaped (after SIGTERM, or when all exited 0). */
 int wired_srvworkers_run(
     u16                         port,
     wired_srvboot_id*           id,
