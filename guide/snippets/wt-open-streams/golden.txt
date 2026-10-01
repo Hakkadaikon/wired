@@ -1,0 +1,6 @@
+$ ./wt-open-streams --port 4433
+conn closed by peer (CONNECTION_CLOSE)
+$ go run . https://127.0.0.1:4433
+more: "ok"
+bye: "ok"
+uni stream: "chunk1 chunk2 chunk3"

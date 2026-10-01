@@ -1,0 +1,27 @@
+---
+title: サーバーが開いたストリームを開いたままにする
+description: uni ストリームを閉じずに開き、あとからラウンドを追加して、最後に自分で終える。
+sidebar:
+  order: 6
+---
+import Example from '../../../../components/Example.astro';
+
+[ストリーム](../streams/) のページの `wired_server_wt_open_uni` は、
+ペイロード全体を送ってすぐに FIN で閉じます。
+`wired_server_wt_open_uni_stream` は同じ種類のストリームを開きますが、閉じずに残します。
+アプリは、あとから `wired_server_wt_stream_send` でラウンドを追加し、
+FIN を送るラウンドも自分で決められます。
+
+<Example id="wt-open-streams" />
+
+## 仕組み
+
+- `on_session` は `wired_server_wt_open_uni_stream` で uni ストリームを開き、
+  その ID を `g_uni` に保持します。
+  この呼び出しでは `fin` を設定しないので、最初のラウンドの後もストリームは開いたままです。
+- クライアントからのリクエストごとに 1 ラウンドを追加します。
+  `wired_server_wt_stream_send(s, g_uni, payload, fin)` は、`fin=0` なら開いたままにし、
+  `fin=1` ならこのラウンドのバイトの後でストリームを終えます。
+- クライアントの uni ストリームの読み取り（`io.ReadAll`）は、
+  サーバーが `fin=1` のラウンドを送るまで返りません。
+  それまでは、データを待つ他のストリーム読み取りと同じようにブロックします。
