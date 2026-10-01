@@ -213,9 +213,15 @@ typedef struct {
 #define WIRED_MOQTRUN_MAX_RELAYS 4
 
 /** Fixed capacity for the copied participant id (Track Name) recorded on
- * PUBLISH, used to match a later SUBSCRIBE to the right peer. Namespace is
- * not compared (room membership is a hub-side fixed namespace). */
+ * PUBLISH, used with the namespace (WIRED_MOQTRUN_MAX_NS) to match a later
+ * SUBSCRIBE to the right peer. */
 #define WIRED_MOQTRUN_MAX_NAME 64
+
+/** Fixed capacity for a track's encoded Track Namespace (count + each
+ * field's length + bytes, draft 1.5): MOQCTL_MAX_NS_FIELDS one-byte
+ * fields take 65. A longer namespace is refused on PUBLISH, never
+ * truncated (truncation would make distinct tracks match). */
+#define WIRED_MOQTRUN_MAX_NS 128
 
 /** Fixed capacity: tracks one peer can PUBLISH at once (chat + audio +
  * screen). */
@@ -278,6 +284,11 @@ typedef struct {
   u64                 own_alias; /* Track Alias this slot's PUBLISH declared */
   wired_moqtrun_sub   subs[WIRED_MOQTRUN_MAX_SUBS];
   wired_moqtrun_relay relays[WIRED_MOQTRUN_MAX_RELAYS];
+  /** Encoded Track Namespace this slot's PUBLISH declared: a SUBSCRIBE
+   * matches on namespace AND name (draft 1.5 Full Track Name). Empty on
+   * the hub's own blob/live tracks, which match by name only. */
+  u8  ns[WIRED_MOQTRUN_MAX_NS];
+  usz ns_len;
 } wired_moqtrun_track;
 
 /** One connected participant's hub-side state: its WT session, its own
@@ -330,6 +341,9 @@ typedef struct {
   int armed_idx;
   /** Control-stream bytes carried over to the next delivery. */
   wired_moqtrun_ctl_asm ctl_asm;
+  /** Encoded Track Namespace of each sub_names entry (same index). */
+  u8  sub_ns[WIRED_MOQTRUN_SUB_NAMES][WIRED_MOQTRUN_MAX_NS];
+  usz sub_ns_lens[WIRED_MOQTRUN_SUB_NAMES];
 } wired_moqtrun_peer;
 
 /** The hub's own clock-paced live track (wired_moqt_publish_live): Group
