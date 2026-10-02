@@ -525,7 +525,10 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
    * mistaken for the dead peer -- it never receives SETUP again. */
   opt.run.wt_on_session_close  = on_session_close;
   opt.run.wt_session_close_ctx = &g_hub;
-  opt.run.on_step              = on_step;
+  /* A peer's WT_DRAIN_SESSION drains its MOQT session (GOAWAY). */
+  opt.run.wt_on_session_draining  = wired_moqt_on_session_draining;
+  opt.run.wt_session_draining_ctx = &g_hub;
+  opt.run.on_step             = on_step;
   opt.run.on_step_ctx          = &g_hub;
 
   if (!wired_srvdriver_run(&id, h, obs, &opt)) wired_die("listen failed\n");
