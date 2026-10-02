@@ -14,6 +14,12 @@
  * design summary; each function here stays a thin dispatch over the
  * vi/kvp/ctl/data/sess domains, never reimplementing their codecs. */
 
+/* draft-ietf-moq-transport-19 3.3.4 stream reset codes. */
+#define MOQTRUN_RESET_INTERNAL_ERROR 0x0
+#define MOQTRUN_RESET_CANCELLED 0x1
+#define MOQTRUN_RESET_DELIVERY_TIMEOUT 0x2
+#define MOQTRUN_RESET_EXCESSIVE_LOAD 0x9
+
 /* ===================== peer table ===================== */
 
 static int moqtrun_peer_matches_wt(
@@ -93,6 +99,7 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   hub->stat_live_drop        = 0;
   hub->reliable_alias_limit  = 0;
   hub->stat_rel_stall        = 0;
+  hub->stat_timeout_reset    = 0;
   hub->stat_rel_overflow     = 0;
   hub->stat_rel_wait         = 0;
   hub->stat_rel_sent         = 0;
@@ -1254,9 +1261,6 @@ static void moqtrun_handle_subscribe(
 
 /* ===================== FETCH (draft 10.12, 10.13, 11.4.4) =============== */
 
-/* draft-ietf-moq-transport-19 3.3.4 CANCELLED stream reset code. */
-#define MOQTRUN_RESET_CANCELLED 0x1
-
 /* The Location right after l. */
 static moqctl_loc moqtrun_after(moqctl_loc l) {
   return moqctl_loc_of(l.group, l.object + 1);
@@ -1618,7 +1622,7 @@ static void moqtrun_fetches_drop(wired_moqt_hub* hub, wired_wt_session* s) {
 }
 
 /* Not a REQUEST_ERROR code: the request is accepted. */
-#define MOQTRUN_DISC_OK (~(u64)0)
+#define MOQTRUN_REQ_ACCEPT (~(u64)0)
 
 /* ===================== TRACK_STATUS (draft 10.14) ===================== */
 
@@ -1644,21 +1648,33 @@ static u64 moqtrun_tstat_verdict(
   u64 code = MOQCTL_ERR_DOES_NOT_EXIST;
   if (!t) return code;
   if (moqtrun_subscribe_refused(hub, m, &code)) return code;
-  return MOQTRUN_DISC_OK;
+  return MOQTRUN_REQ_ACCEPT;
 }
 
-static void moqtrun_handle_tstat(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+static void moqtrun_tstat_answer(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body) {
   moqctl_subscribe m;
-  (void)peer_idx;
   if (moqtstat_take(body, &m) != MOQCTL_OK) return;
   wired_moqtrun_track* t    = moqtrun_tstat_track(hub, &m.name);
   u64                  code = moqtrun_tstat_verdict(hub, &m, t);
-  if (code != MOQTRUN_DISC_OK) {
+  if (code != MOQTRUN_REQ_ACCEPT) {
     moqtrun_send_request_error(p, code);
     return;
   }
   moqtrun_queue_request_ok(p, t);
+}
+
+/* TRACK_STATUS is the first and only message of a new request stream
+ * (10.14): on the control stream it is NOT_SUPPORTED, like the namespace
+ * requests. */
+static void moqtrun_handle_tstat(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  (void)peer_idx;
+  if (!p->req) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
+    return;
+  }
+  moqtrun_tstat_answer(hub, p, body);
 }
 
 /* ===================== REQUEST_UPDATE (draft 10.9) ===================== */
@@ -1806,11 +1822,11 @@ static u64 moqtrun_upd_checked(
     const wired_moqtrun_track* t,
     const moqctl_params*       params) {
   if (moqtrun_has_timeout_param(params)) return MOQCTL_ERR_NOT_SUPPORTED;
-  return moqtrun_upd_apply(hub, p, s, t, params) ? MOQTRUN_DISC_OK
+  return moqtrun_upd_apply(hub, p, s, t, params) ? MOQTRUN_REQ_ACCEPT
                                                  : MOQCTL_ERR_INTERNAL_ERROR;
 }
 
-/* The REQUEST_ERROR code for the update, or MOQTRUN_DISC_OK once it is
+/* The REQUEST_ERROR code for the update, or MOQTRUN_REQ_ACCEPT once it is
  * applied. */
 static u64 moqtrun_upd_verdict(
     wired_moqt_hub*            hub,
@@ -1838,7 +1854,7 @@ static void moqtrun_update_sub(
   wired_moqtrun_track* t    = 0;
   wired_moqtrun_sub*   s    = moqtrun_upd_target(hub, p, idx, &t);
   u64                  code = moqtrun_upd_verdict(hub, p, s, t, params);
-  if (code != MOQTRUN_DISC_OK) {
+  if (code != MOQTRUN_REQ_ACCEPT) {
     moqtrun_send_request_error(p, code);
     return;
   }
@@ -1967,14 +1983,14 @@ static u64 moqtrun_disc_pub_check(
     const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
   int dup = moqtrun_disc_any(
       hub, q, MOQNS_T_PUBLISH_NAMESPACE, moqtrun_disc_same_session);
-  return dup ? MOQCTL_ERR_UNINTERESTED : MOQTRUN_DISC_OK;
+  return dup ? MOQCTL_ERR_UNINTERESTED : MOQTRUN_REQ_ACCEPT;
 }
 
 static u64 moqtrun_disc_sub_check(
     const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
   int clash = moqtrun_disc_any(
       hub, q, MOQNS_T_SUBSCRIBE_NAMESPACE, moqtrun_disc_overlap);
-  return clash ? MOQCTL_ERR_PREFIX_OVERLAP : MOQTRUN_DISC_OK;
+  return clash ? MOQCTL_ERR_PREFIX_OVERLAP : MOQTRUN_REQ_ACCEPT;
 }
 
 typedef u64 (*moqtrun_disc_check_fn)(
@@ -2016,7 +2032,7 @@ static u64 moqtrun_disc_verdict(
 /* REQUEST_OK makes the request live: the pushes follow it on the stream
  * (moqtrun_disc_sync). A refusal is answered and the stream FINed. */
 static void moqtrun_disc_answer(wired_moqtrun_peer* p, u64 err) {
-  if (err != MOQTRUN_DISC_OK) {
+  if (err != MOQTRUN_REQ_ACCEPT) {
     moqtrun_send_request_error(p, err);
     return;
   }
@@ -2916,12 +2932,17 @@ static void moqtrun_relay_deliver_one(
   moqtrun_relay_late_open(hub, dst, relay, i, fin);
 }
 
-/* draft-ietf-moq-transport-19 3.3.4 DELIVERY_TIMEOUT stream reset code. */
-#define MOQTRUN_RESET_DELIVERY_TIMEOUT 0x2
-
 _Static_assert(WIRED_MOQTRUN_MAX_SUBS <= 32, "sub_expired: one bit per sub");
 
 static u32 moqtrun_sub_bit(usz i) { return (u32)1 << i; }
+
+/* Sub slot i's stream on relay was reset for DELIVERY_TIMEOUT: counted,
+ * and never reopened for this Subgroup. */
+static void moqtrun_note_expired(
+    wired_moqt_hub* hub, wired_moqtrun_relay* relay, usz i) {
+  relay->sub_expired |= moqtrun_sub_bit(i);
+  hub->stat_timeout_reset++;
+}
 
 /* Sub slot i is not served on relay: its peer left, or its stream timed
  * out for this Subgroup. */
@@ -2945,7 +2966,7 @@ static int moqtrun_relay_expire(
     hub->io.stream_reset(
         dst->wt, relay->sub_stream_id[i], MOQTRUN_RESET_DELIVERY_TIMEOUT);
   relay->sub_stream_set[i] = 0;
-  relay->sub_expired |= moqtrun_sub_bit(i);
+  moqtrun_note_expired(hub, relay, i);
   return 1;
 }
 
@@ -3143,6 +3164,9 @@ static void moqtrun_rel_take(
     hub->stat_rel_overflow++;
     return;
   }
+  /* ponytail: arrival = when the whole Object was appended, not its
+   * first byte (a torn Object waits in the relay's fragment first); pass
+   * the fragment's frag_ms here if a reliable timeout must be exact. */
   moqtrel_mark(rb, hub->live.last_now_ms);
   hub->stat_rel_in_bytes += whole.n;
 }
@@ -3338,7 +3362,7 @@ static void moqtrun_rel_shed(
   rb->subs[i].shed         = 1;
   hub->stat_rel_stall += code == 0;
   if (code == MOQTRUN_RESET_DELIVERY_TIMEOUT)
-    relay->sub_expired |= moqtrun_sub_bit(i);
+    moqtrun_note_expired(hub, relay, i);
 }
 
 /* Not a stream reset code: cursor i goes on. */
@@ -4036,9 +4060,6 @@ static usz moqtrun_req_count(const wired_moqt_hub* hub, wired_wt_session* s) {
   return n;
 }
 
-/* draft-ietf-moq-transport-19 3.3.4 EXCESSIVE_LOAD stream reset code. */
-#define MOQTRUN_RESET_EXCESSIVE_LOAD 0x9
-
 /* A fresh slot for a new request stream of s, or -- s at its share of the
  * pool, or the pool full -- the stream is reset with EXCESSIVE_LOAD and 0
  * returned. */
@@ -4091,7 +4112,8 @@ static int moqtrun_req_may_end(const wired_moqtrun_req* q) {
  * with INTERNAL_ERROR (draft 3.3.4). 1 when accepted. */
 static int moqtrun_req_end_out(wired_moqt_io* io, wired_moqtrun_req* q) {
   if (q->opened) return io->stream_fin(q->wt, q->stream_id) > 0;
-  return io->stream_reset(q->wt, q->stream_id, 0x0) > 0;
+  return io->stream_reset(q->wt, q->stream_id, MOQTRUN_RESET_INTERNAL_ERROR) >
+         0;
 }
 
 static int moqtrun_req_both_ended(const wired_moqtrun_req* q) {

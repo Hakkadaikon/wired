@@ -699,6 +699,10 @@ typedef struct {
   wired_moqt_authorize_ns_fn authorize_namespace;
   /** Opaque first argument handed to authorize_namespace. */
   void* authorize_ns_ctx;
+  /** Subscriber streams reset with DELIVERY_TIMEOUT because an Object
+   * outlived the subscription's OBJECT_DELIVERY_TIMEOUT (draft 8).
+   * Diagnostic only. */
+  u64 stat_timeout_reset;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
