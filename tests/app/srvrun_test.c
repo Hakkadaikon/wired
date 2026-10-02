@@ -18162,6 +18162,33 @@ static void test_srvrun_wt_reset_after_deferred_reply_mid_send(void) {
   CHECK(c->wt_stream_reset_final[0] == 2);
 }
 
+/* draft-ietf-webtrans-http3-15 4.4/8.2: a session teardown also resets the
+ * streams this server itself opened for it, which live in no receive
+ * table. Final Size = the bytes actually sent, kept until ACKed (the rst[]
+ * path), and the send slot is released -- the pump must not keep serving a
+ * dead session, and an unfinished uni stream must return the peer's
+ * uni-stream credit. */
+static void test_srvrun_wt_teardown_resets_owned_server_uni(void) {
+  struct lp_fix      f;
+  u8                 obuf[1024];
+  wired_obuf         ob  = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*       c   = sr_wtsend_fixture(&f, &ob);
+  srvrun_cfg         cfg = sr_wt_send_cfg();
+  wired_sendq_slice  sl;
+  reset_stream_frame rs;
+  CHECK(
+      wired_server_wt_open_uni_stream(
+          &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
+      11);
+  c->wtsend[0].sess.q.chunk = 2;
+  CHECK(wired_sendsess_take(&c->wtsend[0].sess, &sl)); /* 2 of 4 sent */
+  srvrun_reset_wt_streams_for_session(&cfg, c, 0, H3_NO_ERROR);
+  CHECK(c->wtsend[0].in_use == 0);
+  CHECK(c->rst[0].pln > 0);
+  CHECK(reset_stream_decode(c->rst[0].pl, c->rst[0].pln, &rs) > 0);
+  CHECK(rs.stream_id == 11 && rs.final_size == 2);
+}
+
 /* The CONNECT stream's send slot does not pin an app send slot for the
  * session's life: once a WT_DRAIN_SESSION round is fully ACKed the slot is
  * reaped, and a later capsule claims a fresh one at the right offset. */
@@ -21024,6 +21051,7 @@ void test_srvrun(void) {
   test_srvrun_wt_stream_reset_after_reap_sends_nothing();
   test_srvrun_wt_reset_after_deferred_reply_latches_nothing();
   test_srvrun_wt_reset_after_deferred_reply_mid_send();
+  test_srvrun_wt_teardown_resets_owned_server_uni();
   test_srvrun_wt_drain_slot_reaped_once_acked();
   test_srvrun_wt_offer_reject_returns_credit();
   test_srvrun_wt_teardown_returns_credit();

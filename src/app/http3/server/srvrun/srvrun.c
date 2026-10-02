@@ -362,6 +362,12 @@ typedef struct {
    * never set, read as the default H3_URGENCY_DEFAULT
    * (srvrun_wtsend_urgency). */
   u8 urgency1;
+  /** The owning WT session's slot index for a stream opened/replied through
+   * the wired_server_wt_* API, so that session's teardown can reset what it
+   * owns (srvrun_reset_wt_sends_for_session); -1 for connection plumbing
+   * (the QPACK encoder stream, CONNECT-stream capsule sends), which no
+   * session teardown may touch. */
+  int wt_session_slot;
 } srvrun_wtsend;
 /* Concurrent server-initiated WT stream sends per connection. Sized for a
  * 4-participant relay room's worst case, not a handful: 3 long-lived voice
@@ -3248,6 +3254,31 @@ static void srvrun_wt_connect_sender_drop(srvrun_conn* c, int sidx);
  * tells these apart from a sibling session's own streams when
  * SRVRUN_MAX_WT_SESSIONS > 1 sessions are open at once on the same
  * connection. */
+/* draft-ietf-webtrans-http3-15 SS4.4/8.2: the streams this server itself
+ * opened (or is still answering) for the closing session live in no receive
+ * table, only in wtsend[] -- without this sweep the pump keeps sending
+ * STREAM frames for a dead session, and an unfinished server uni stream
+ * never returns the peer's uni-stream credit. srvrun_send_wt_busy_reset
+ * picks the type-appropriate frames (final size = bytes sent, kept until
+ * ACKed) and releases the slot. A slot the receive-table pass already
+ * reset is free by now and skipped. */
+static void srvrun_reset_wt_send_if_owned(
+    const srvrun_cfg* cfg,
+    srvrun_conn*      c,
+    srvrun_wtsend*    w,
+    int               session_slot,
+    u64               err_code) {
+  if (!w->in_use || w->wt_session_slot != session_slot) return;
+  srvrun_send_wt_busy_reset(cfg, c, w->stream_id, err_code);
+}
+
+static void srvrun_reset_wt_sends_for_session(
+    const srvrun_cfg* cfg, srvrun_conn* c, int session_slot, u64 err_code) {
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
+    srvrun_reset_wt_send_if_owned(
+        cfg, c, &c->wtsend[i], session_slot, err_code);
+}
+
 static void srvrun_reset_wt_streams_for_session(
     const srvrun_cfg* cfg, srvrun_conn* c, int session_slot, u64 err_code) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
@@ -3256,6 +3287,7 @@ static void srvrun_reset_wt_streams_for_session(
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
     srvrun_reset_wt_uni_if_owned(
         cfg, c, &c->l.wt_uni_streams[i], session_slot, err_code);
+  srvrun_reset_wt_sends_for_session(cfg, c, session_slot, err_code);
 }
 
 /* Common body of "close WT session slot sidx, resetting every stream it owns
@@ -4346,8 +4378,9 @@ static srvrun_wtsend* srvrun_wtsend_claim(srvrun_conn* c, u64 credit) {
     c->wtsend[i].stream_credit    = credit;
     c->wtsend[i].fin_only_pending = 0; /* a reused slot may still carry a
                                            stale 1 from its prior stream */
-    c->wtsend[i].fin_requested = 0;
-    c->wtsend[i].urgency1      = 0;
+    c->wtsend[i].fin_requested   = 0;
+    c->wtsend[i].urgency1        = 0;
+    c->wtsend[i].wt_session_slot = -1;
     return &c->wtsend[i];
   }
   return 0;
@@ -4534,7 +4567,8 @@ static i64 srvrun_wt_open_uni_common(
   if (!srvrun_wt_uni_open_ok(c, sidx, s, payload)) return -1;
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_uni);
   if (!w) return -1;
-  w->append_open = keep_open;
+  w->append_open     = keep_open;
+  w->wt_session_slot = sidx;
   wired_wt_session_note_stream_opened(s, 0);
   wired_wt_session_note_data_sent(s, payload.n);
   return srvrun_wtsend_arm_id(c, w, srvrun_next_uni_id(c), payload);
@@ -4577,7 +4611,8 @@ static i64 srvrun_wt_open_bidi_common(
   w = srvrun_wtsend_claim(
       c, c->s.sdrv.peer_initial_max_stream_data_bidi_remote);
   if (!w) return -1;
-  w->append_open = keep_open;
+  w->append_open     = keep_open;
+  w->wt_session_slot = sidx;
   wired_wt_session_note_stream_opened(s, 1);
   wired_wt_session_note_data_sent(s, payload.n);
   id = srvrun_next_bidi_id(c);
@@ -4615,7 +4650,8 @@ static int srvrun_wt_stream_reply_common(
    * stream the peer itself initiated -- same seed resp[] claiming uses. */
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_bidi_local);
   if (!w) return 0;
-  w->append_open = keep_open;
+  w->append_open     = keep_open;
+  w->wt_session_slot = sidx;
   wired_wt_session_note_data_sent(s, payload.n);
   srvrun_wtsend_arm_id(c, w, stream_id, payload);
   return 1;
