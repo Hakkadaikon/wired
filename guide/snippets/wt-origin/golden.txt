@@ -1,0 +1,6 @@
+$ ./wt-origin --port 4433
+conn closed by peer (CONNECTION_CLOSE)
+conn closed by peer (CONNECTION_CLOSE)
+$ go run . https://127.0.0.1:4433
+https://ok.example status 200
+https://evil.example status 403
