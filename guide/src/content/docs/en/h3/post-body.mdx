@@ -1,0 +1,32 @@
+---
+title: Streaming a POST body
+description: Receive a request body as it arrives instead of buffering it whole, and enforce an app-level size limit.
+sidebar:
+  order: 6
+---
+import Example from '../../../../components/Example.astro';
+
+`wired_srvrun_handler.on_body` streams a request body in as it arrives,
+instead of having the SDK buffer it whole (up to one fixed window) before
+the responder runs. This page accumulates the body's byte count and answers
+with it, enforcing a 4096-byte app limit of its own: a body over that limit
+stops early and gets `413` automatically, the same status the SDK's own
+window overflow would answer.
+
+<Example id="h3-post-body" />
+
+## How it works
+
+- `wired_srvrun_handler.on_body` is called once per DATA chunk, in order,
+  with `fin=1` on the last — `req` is already decoded (method, path,
+  headers) but its own `req->body` stays empty, since the body is going
+  through this callback instead.
+- Returning `0` stops the body right there: no further call for the
+  stream, and the response is `413` (`wired_http_handler` is never called
+  for that request). This page returns 0 once its own running total passes
+  `APP_BODY_LIMIT` (4096 bytes).
+- Chunk boundaries follow the client's own QUIC send packetization, which
+  is not fixed from one run to the next — only the final total (once the
+  body is whole) is logged, to keep the page's output deterministic.
+- The `wired_http_handler` set alongside `on_body` only runs once the body
+  finished without being stopped; it answers with the accumulated total.
