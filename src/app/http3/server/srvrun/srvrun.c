@@ -151,6 +151,9 @@ typedef struct {
   wired_http_handler http;
   /** request-body streaming callback (wired_srvrun_handler.on_body) */
   wired_srvloop_on_body on_body;
+  /** WT Origin verdict, 0 to disable, see wired_srvrun_opt. */
+  int (*wt_origin_check)(void* ctx, wired_span origin, wired_span authority);
+  void* wt_origin_ctx; /**< opaque ctx for wt_origin_check */
 } srvrun_cfg;
 
 /* One live connection's mutable state: the orchestrator, the HTTP/3 loop,
@@ -5356,15 +5359,25 @@ static int srvrun_is_wt_connect_unsupported_protocol(
   return !wt_protocol_is_webtransport(r);
 }
 
+/* draft-ietf-webtrans-http3-15 SS3.1: the app's own Origin verdict
+ * (wired_srvrun_opt.wt_origin_check), 1 when none is registered. An absent
+ * origin header reaches the callback as an empty span. */
+static int wt_origin_app_ok(
+    const srvrun_cfg* cfg, const wired_h3reqdrive_req* r) {
+  if (!cfg->wt_origin_check) return 1;
+  return cfg->wt_origin_check(
+             cfg->wt_origin_ctx, wired_span_of(r->origin, r->origin_len),
+             wired_span_of(r->authority, r->authority_len)) != 0;
+}
+
 /* WebTransport draft-ietf-webtrans-http3-15 SS3.6: when Origin is present it
- * must be a non-empty value for the server to validate; this SDK has no
- * origin-allowlist configuration surface yet (YAGNI -- no in-tree consumer
- * needs one), so "well-formed and non-empty" is the whole check today.
- * Absent Origin is not itself a rejection reason: it only applies to
- * browser clients, which this SDK cannot detect server-side. */
-static int wt_origin_ok(const wired_h3reqdrive_req* r) {
-  if (!r->origin) return 1; /* absent: not a browser client, or none sent */
-  return r->origin_len != 0;
+ * must be a non-empty value for the server to validate; past that, the app's
+ * registered wt_origin_check (if any) decides. Absent Origin is not itself a
+ * rejection reason: it only applies to browser clients, which this SDK
+ * cannot detect server-side. */
+static int wt_origin_ok(const srvrun_cfg* cfg, const wired_h3reqdrive_req* r) {
+  if (r->origin && !r->origin_len) return 0; /* present but empty */
+  return wt_origin_app_ok(cfg, r);
 }
 
 /* 1 if r is claimed and answering stream_id. */
@@ -5646,8 +5659,8 @@ static void srvrun_start_wt(
   srvrun_wt_notify(cfg, c, sidx, wired_span_of(p.tok, p.tok_len));
 }
 
-/* Reject this Extended CONNECT with 403 (a present but malformed Origin)
- * without establishing a session. */
+/* Reject this Extended CONNECT with 403 (a present but malformed Origin, or
+ * one the app's wt_origin_check refused) without establishing a session. */
 static void srvrun_reject_wt(
     wired_srvrun_env* env, int slot, srvrun_conn* c, srvrun_resp* r) {
   srvrun_start_wt_status(env, slot, c, r, 403, 0);
@@ -6029,12 +6042,12 @@ static void srvrun_dispatch_wt_free_slot(
 /* A well-formed Extended CONNECT for WebTransport either establishes a
  * session (Origin absent, or present and well-formed, and no session
  * already active on this connection), or is rejected: 403 for a malformed
- * Origin, 429 if no session slot is free (per connection or server-wide,
- * srvrun_wt_no_room), or H3_ID_ERROR if the CONNECT stream's own id is not
- * a client-initiated bidi stream id. */
+ * or app-refused Origin, 429 if no session slot is free (per connection or
+ * server-wide, srvrun_wt_no_room), or H3_ID_ERROR if the CONNECT stream's own
+ * id is not a client-initiated bidi stream id. */
 static void srvrun_dispatch_wt(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r) {
-  if (!wt_origin_ok(&c->l.req)) {
+  if (!wt_origin_ok(cfg, &c->l.req)) {
     srvrun_reject_wt(cfg->env, slot, c, r);
     return;
   }
@@ -9466,7 +9479,9 @@ static srvrun_cfg srvrun_build_cfg(
       opt->on_step,
       opt->on_step_ctx,
       h.http,
-      h.on_body};
+      h.on_body,
+      opt->wt_origin_check,
+      opt->wt_origin_ctx};
 }
 
 usz wired_srvrun_env_size(void) { return sizeof(wired_srvrun_env); }
@@ -9542,7 +9557,8 @@ int wired_server_run(
     wired_srvboot_id*    id,
     wired_srvrun_handler h,
     wired_srvrun_obs     obs) {
-  static const wired_srvrun_opt default_opt = {
-      0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  static const wired_srvrun_opt default_opt = {0, 0, 0,  0, 0, 0, 0, 0, -1,
+                                               0, 0, -1, 0, 0, 0, 0, 0, 0,
+                                               0, 0, 0,  0, 0, 0, 0, 0};
   return wired_server_run_opt(port, id, h, obs, &default_opt);
 }
