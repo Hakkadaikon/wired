@@ -17833,6 +17833,14 @@ static void test_srvrun_wt_bidi_peer_reset_owes_credit(void) {
   CHECK(c->wt_bidi_credit_owed == 1);
 }
 
+/* Capacity: a 4-person moqt_chat room keeps ~16 request streams per browser
+ * session open at once (3 PUBLISH + 2 PUBLISH_NAMESPACE + 1
+ * SUBSCRIBE_NAMESPACE + 3 tracks x 3 peers + a FETCH) plus the server's own
+ * control stream -- the default table must hold all of them. */
+static void test_srvrun_wt_bidi_capacity_fits_room(void) {
+  CHECK(WIRED_SRVLOOP_MAX_WT_STREAMS >= 18);
+}
+
 /* ===================== WT session-close notification ===================== */
 
 static usz               g_wtclose_calls;
@@ -20585,6 +20593,7 @@ void test_srvrun(void) {
   test_srvrun_wt_bidi_reap_grants_one_more_stream();
   test_srvrun_wt_server_bidi_reap_grants_nothing();
   test_srvrun_wt_bidi_peer_reset_owes_credit();
+  test_srvrun_wt_bidi_capacity_fits_room();
   test_srvrun_incomplete_request_stream_sends_reset();
   test_srvrun_qenc_stream_opens_with_type_prefix_only();
   test_srvrun_qenc_stream_open_is_idempotent();
