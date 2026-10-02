@@ -17947,6 +17947,58 @@ static void test_srvrun_wt_busy_reset_retransmitted_until_acked(void) {
   CHECK(!srvrun_slot_waiting(c));
 }
 
+/* RFC 9000 13.3: the other one-shot control packets ride the same resend
+ * table -- GOAWAY on the control stream (same offset on resend), the app's
+ * wired_server_wt_stream_reset RESET_STREAM, and the early-response
+ * STOP_SENDING (RFC 9114 4.1.2) all stay pending until ACKed. */
+static void test_srvrun_control_packets_kept_until_acked(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  u8              out[256];
+  wired_obuf      gob = obuf_of(out, sizeof out);
+  CHECK(!srvrun_slot_waiting(c));
+  CHECK(srvrun_send_goaway(&cfg, c, &gob) == 1);
+  CHECK(srvrun_slot_waiting(c));
+  srvrun_test_reset_send_count();
+  ctx.now_ms = 100 * 1000;
+  srvrun_rst_retry_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() == 1); /* GOAWAY resent */
+  srvrun_feed_ack_range(c, 0, c->l.tx_pn, ctx.now_ms);
+  CHECK(!srvrun_slot_waiting(c));
+  c->wt_stream_reset_id[0]       = 11;
+  c->wt_stream_reset_app_code[0] = 3;
+  c->wt_stream_reset_final[0]    = 5;
+  c->wt_stream_reset_n           = 1;
+  srvrun_drain_wt_stream_reset(&cfg, c);
+  CHECK(srvrun_slot_waiting(c)); /* app RESET_STREAM kept */
+  srvrun_feed_ack_range(c, 0, c->l.tx_pn, ctx.now_ms);
+  srvrun_send_stop_sending(&cfg, c, 8);
+  CHECK(srvrun_slot_waiting(c)); /* STOP_SENDING kept */
+}
+
+/* RFC 9002 6.2 policy, as for stream data: a control packet still unACKed
+ * after its whole resend budget means the peer stopped answering -- the
+ * connection is torn down, not left with the frame silently forgotten. */
+static void test_srvrun_rst_budget_exhausted_tears_down(void) {
+  struct lp_fix   f;
+  u8              obuf[1024];
+  wired_obuf      ob  = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*    c   = sr_wtsend_fixture(&f, &ob);
+  srvrun_cfg      cfg = sr_wt_send_cfg();
+  srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 100 * 1000, 0};
+  srvrun_send_stop_sending(&cfg, c, 8);
+  CHECK(c->up == 1);
+  for (int i = 0; i < SRVRUN_PTO_MAX + 2 && c->up; i++) {
+    ctx.now_ms += 10 * 1000 * 1000; /* past every backed-off deadline */
+    srvrun_rst_retry_slot(&ctx, 0);
+  }
+  CHECK(c->up == 0);
+}
+
 /* draft-ietf-webtrans-http3-15 4.6: a stream offered to a session whose
  * pre-establishment buffer is full is reset and its slot freed -- bidi and
  * uni alike, that stream's QUIC credit is returned (RFC 9000 4.6). */
@@ -19438,6 +19490,17 @@ static void test_srvrun_handler_on_body_reaches_cfg(void) {
   if (cfg.fd >= 0) wired_udp_close(cfg.fd);
 }
 
+/* RFC 9000 19.5: a STOP_SENDING alone, sealed as its own 1-RTT packet --
+ * the bytes srvrun_send_stop_sending puts on the wire, for tests that open
+ * them. */
+static int srvrun_seal_stop_sending(
+    srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* out) {
+  u8         pl[32];
+  wired_obuf plb = obuf_of(pl, sizeof pl);
+  return srvrun_seal_ctl(
+      c, pl, srvrun_wt_abort_stop(stream_id, err_code, &plb, 0), out);
+}
+
 /* RFC 9114 4.1.2: an early answer asks the client to stop sending the
  * rest of the request with H3_NO_ERROR (STOP_SENDING, RFC 9000 19.5). */
 static void test_srvrun_stop_sending_wire_shape(void) {
@@ -20768,6 +20831,8 @@ void test_srvrun(void) {
   test_srvrun_wt_server_bidi_reap_grants_nothing();
   test_srvrun_wt_bidi_peer_reset_owes_credit();
   test_srvrun_wt_busy_reset_retransmitted_until_acked();
+  test_srvrun_control_packets_kept_until_acked();
+  test_srvrun_rst_budget_exhausted_tears_down();
   test_srvrun_wt_offer_reject_returns_credit();
   test_srvrun_wt_teardown_returns_credit();
   test_srvrun_wt_uni_peer_reset_returns_credit();
