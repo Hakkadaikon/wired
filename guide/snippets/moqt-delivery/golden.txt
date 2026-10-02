@@ -1,0 +1,6 @@
+$ ./moqt-delivery --port 4433
+conn closed by peer (CONNECTION_CLOSE)
+$ go run . https://127.0.0.1:4433
+status 200
+datagram alias=2 group=0 id=0 payload="ping-obj"
+stream alias=1 group=0 object_1=16384 bytes object_2=3616 bytes total=20000 bytes
