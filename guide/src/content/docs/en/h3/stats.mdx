@@ -1,0 +1,31 @@
+---
+title: WebTransport stats endpoint
+description: Expose point-in-time occupancy and cumulative usage counters over plain HTTP/3.
+sidebar:
+  order: 7
+---
+import Example from '../../../../components/Example.astro';
+
+A server often wants its own WebTransport load visible as plain JSON, for a
+dashboard or a health check. This page answers `GET /stats` with two kinds of
+counters: how many sessions and streams are open right now, and how many
+have ever existed since boot.
+
+<Example id="h3-stats" />
+
+## How it works
+
+- `wired_server_wt_occupancy(&occ)` is a point-in-time snapshot: WT sessions
+  and client-opened streams open right now, against the compile-time
+  capacity each is bounded by. `peer_streams` counts only streams the client
+  opened; streams the server itself opens are not counted.
+- `wired_srvrun_env_wt_usage(env, &usage)` is the cumulative total since
+  `wired_srvrun_env_init`: every session ever established, every stream ever
+  offered, every datagram ever received. It never decreases.
+- The cumulative counters need an `env` the app can address, so this page
+  calls `wired_srvrun_serve_env` instead of `wired_server_run_opt`. The env
+  is `wired_srvrun_env_size()` bytes, allocated once with `wired_arch_mmap`
+  and handed to the HTTP handler as its `ctx`.
+- With no WebTransport client ever connecting, every counter in the JSON is
+  `0` except the two compile-time capacities, which is exactly what this
+  page's golden output shows.

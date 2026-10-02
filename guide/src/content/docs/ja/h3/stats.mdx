@@ -1,0 +1,28 @@
+---
+title: WebTransport の統計エンドポイント
+description: 現在の占有状況と、起動以来の累計利用数を、普通の HTTP/3 で JSON として返す。
+sidebar:
+  order: 7
+---
+import Example from '../../../../components/Example.astro';
+
+サーバー自身の WebTransport の負荷を、ダッシュボードやヘルスチェック用に JSON として見たい場面があります。
+このページは `GET /stats` に対して、2 種類のカウンターを返します。
+今まさに開いているセッション・ストリームの数と、起動以来存在したことのある総数です。
+
+<Example id="h3-stats" />
+
+## 仕組み
+
+- `wired_server_wt_occupancy(&occ)` は、現在時点のスナップショットです。
+  今開いている WT セッションとクライアント起点のストリームの数を、それぞれのコンパイル時の上限と合わせて返します。
+  `peer_streams` が数えるのは、クライアントが開いたストリームだけです。
+  サーバー自身が開いたストリームは数えません。
+- `wired_srvrun_env_wt_usage(env, &usage)` は、`wired_srvrun_env_init` からの累計です。
+  これまで確立したセッション、提供したストリーム、受信したデータグラムのすべてを数えます。
+  値は減ることがありません。
+- 累計カウンターには、アプリ側からアドレスできる `env` が必要です。
+  そのため、このページでは `wired_server_run_opt` ではなく `wired_srvrun_serve_env` を呼びます。
+  `env` は `wired_srvrun_env_size()` バイトを `wired_arch_mmap` で一度だけ確保し、HTTP ハンドラーの `ctx` として渡します。
+- WebTransport のクライアントが一度も接続しないまま `/stats` を叩くと、2 つのコンパイル時上限を除くすべての値が `0` になります。
+  実際にこのページのゴールデン出力も、その状態を示しています。
