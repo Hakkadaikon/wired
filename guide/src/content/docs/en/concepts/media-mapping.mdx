@@ -1,0 +1,58 @@
+---
+title: How MoQT maps media
+description: Track, Group, Subgroup and Object, and how video, audio, chat and attachments fit onto them.
+sidebar:
+  order: 1
+---
+
+MoQT (draft-ietf-moq-transport-19) moves media as a four-level hierarchy.
+Choosing which level each piece of your media lands on decides what a late
+joiner sees first, what a lost packet costs, and what the relay can drop.
+
+## The four levels
+
+- **Track**: one named stream of media, such as one participant's camera.
+  A subscriber asks for a Track by its Full Track Name (namespace + name).
+- **Group**: a run of Objects a subscriber can start decoding at. On
+  streams the hub applies a subscription's Location Filter per Group (see
+  `wired_moqt_on_stream_data` in `moqtrun.h`), so a Group is the unit a
+  late joiner starts from.
+- **Subgroup**: the Objects of one Group that travel on one stream, in
+  order. The samples in this guide use one Subgroup per Group, so a Group
+  is one stream.
+- **Object**: the unit the relay forwards: one frame, one message, or one
+  chunk of a larger payload.
+
+## Mapping each kind of media
+
+- **Video**: start a new Group at every keyframe and put each frame after it
+  in that Group as one Object (or several, if a frame is large). A
+  subscriber that joins with the Largest Object filter starts at the next
+  Group, which is the next keyframe, so it can decode from its first Object
+  (see [Fetch past Objects](../../moqt/fetch/) for the filter and for
+  fetching the Groups before it). A Group lost or timed out costs only
+  the frames up to the next keyframe.
+- **Audio**: every frame decodes on its own, so each frame is one Object.
+  Group boundaries matter less; a new Group every second or so keeps late
+  joiners close to live. Audio is also the usual candidate for datagrams
+  (see [Streams vs. datagrams](../streams-vs-datagrams/)).
+- **Chat messages**: one message is one Object. Sending each message on its
+  own short stream (data and FIN together) lets the hub relay it in one
+  `io.send_uni` call, and one slow message never holds back the next.
+- **Attachments** (files, images): split the file into Objects of about
+  15 KiB and send them in one Group, so the receiver reassembles them in
+  order and a joiner either gets the whole attachment or none of it.
+
+## Why about 15 KiB per Object
+
+A WebTransport stream reaches the hub in pieces. When an Object is torn
+across two deliveries, the hub holds its tail in a buffer from a hub-wide
+pool (`WIRED_MOQTRUN_FRAG_POOL`, 8 buffers) of
+`WIRED_MOQTRUN_RELAY_FRAG_MAX` (16384) bytes each. A tail that reaches that
+size belongs to an Object too large to hold, so the hub drops it and stops
+relaying that stream. The Object's own framing (Object ID delta, payload
+length) and any header your app adds to each chunk also count, so a payload
+of about 15 KiB keeps the whole framed Object under 16384 bytes. The hub's
+own blob framing uses the same cap: `moqdata_blob_build` splits a blob into
+Objects of at most `MOQDATA_BLOB_CHUNK` (16384) bytes (see
+[Datagram vs. stream delivery](../../moqt/delivery/)).
