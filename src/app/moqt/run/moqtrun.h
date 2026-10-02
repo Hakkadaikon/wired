@@ -315,7 +315,7 @@ typedef struct {
 /** Fixed capacity: peer-opened request streams (draft-ietf-moq-transport-19
  * 3.3) tracked at once, hub-wide. A request stream past it is reset with
  * EXCESSIVE_LOAD; a completed request frees its slot once both sides have
- * ended. Each slot is ~1.7 KB of BSS.
+ * ended. Each slot is ~1.9 KB of BSS.
  * ponytail: room-sized; raise when clients move every request onto its
  * own stream. */
 #define WIRED_MOQTRUN_MAX_REQS 64
@@ -366,6 +366,16 @@ typedef struct {
   /** 1 once the hub's side ended (FIN, or a reset). The slot is freed when
    * both sides have ended. */
   int fin_out;
+  /** PUBLISH_NAMESPACE: the Track Namespace; SUBSCRIBE_NAMESPACE: the
+   * Track Namespace Prefix (draft-ietf-moq-transport-19 10.15/10.18),
+   * encoded as on the wire (count + Length-prefixed fields). */
+  u8  ns[WIRED_MOQTRUN_MAX_NS];
+  usz ns_len;
+  /** SUBSCRIBE_NAMESPACE: bit i is set while a NAMESPACE for reqs[i] has
+   * gone out with no NAMESPACE_DONE after it (10.18). reqs[i] is not
+   * reused while any live subscription holds its bit, so its namespace
+   * stays readable for the NAMESPACE_DONE still owed. */
+  u64 ns_seen;
 } wired_moqtrun_req;
 
 /** Fixed capacity: FETCH responses (draft-ietf-moq-transport-19 10.12.3)
@@ -701,7 +711,15 @@ void wired_moqt_on_session(
  * request answered without establishing a subscription or track is
  * complete: the hub FINs its side after the answer and frees the slot
  * once the peer's side has ended too. With request streams on, a
- * peer-opened bidi stream is never read as Object data. */
+ * peer-opened bidi stream is never read as Object data.
+ *
+ * Namespace discovery (6.1-6.2): a PUBLISH_NAMESPACE held open on its
+ * request stream is announced to every SUBSCRIBE_NAMESPACE whose prefix
+ * matches -- NAMESPACE on the subscriber's stream, NAMESPACE_DONE once it
+ * is withdrawn. An exact namespace already published is refused
+ * UNINTERESTED; a session's prefixes overlapping (either empty, or the
+ * same first field) are refused PREFIX_OVERLAP. Hub-owned tracks
+ * (publish_blob / publish_live) have no namespace and are not announced. */
 void wired_moqt_on_stream_data(
     void*             app_ctx,
     wired_wt_session* s,
@@ -737,7 +755,9 @@ void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s);
 /** wired_wt_on_stream_reset-shaped: a RESET_STREAM / STOP_SENDING on one
  * of s's request streams cancels that request (draft-ietf-moq-transport-19
  * 3.3.3) -- a SUBSCRIBE's subscription is released, a PUBLISH's track
- * withdrawn -- and frees the stream's slot. On a relayed publisher stream
+ * withdrawn, a PUBLISH_NAMESPACE withdrawn (NAMESPACE_DONE to its
+ * subscribers), a SUBSCRIBE_NAMESPACE's pushes stopped -- and frees the
+ * stream's slot. On a relayed publisher stream
  * it returns the relay's held fragment buffer to the hub's pool; any other
  * stream is a no-op.
  * mapped/app_error_code are unused. */

@@ -1572,6 +1572,254 @@ static void moqtrun_fetches_drop(wired_moqt_hub* hub, wired_wt_session* s) {
     if (hub->fetches[i].wt == s) hub->fetches[i].in_use = 0;
 }
 
+/* ===================== namespace discovery ===================== */
+
+/* draft-ietf-moq-transport-19 6.1-6.2, 10.15-10.18. A PUBLISH_NAMESPACE
+ * or SUBSCRIBE_NAMESPACE lives in its request-stream slot (namespace in
+ * wired_moqtrun_req.ns) until cancelled or its session ends, so the
+ * per-session request cap bounds both. Hub-owned tracks
+ * (wired_moqt_publish_blob/live) carry no namespace and PUBLISH alone
+ * (no PUBLISH_NAMESPACE) announces nothing (6.2), so neither appears. */
+
+_Static_assert(WIRED_MOQTRUN_MAX_REQS <= 64, "ns_seen holds one bit per req");
+
+/* Not a REQUEST_ERROR code: the namespace request is accepted. */
+#define MOQTRUN_DISC_OK (~(u64)0)
+
+static int moqtrun_disc_is(const wired_moqtrun_req* q, u64 kind) {
+  return q->in_use && q->live && q->kind == kind;
+}
+
+/* The fields of an encoded namespace, past its count. */
+static wired_span moqtrun_disc_fields(const wired_moqtrun_req* q, u64* count) {
+  usz        at  = 0;
+  wired_span enc = wired_span_of(q->ns, q->ns_len);
+  moqvi_take(enc, &at, count);
+  return wired_span_of(q->ns + at, q->ns_len - at);
+}
+
+/* Fields are Length-prefixed, so a byte prefix of the encoded fields is a
+ * whole-field prefix (Namespace Prefix Matching, 9.5). */
+static int moqtrun_disc_starts(wired_span pre, wired_span all) {
+  return pre.n <= all.n && moqtrun_bytes_eq(pre.p, all.p, pre.n);
+}
+
+static int moqtrun_disc_under(
+    const wired_moqtrun_req* sub, const wired_moqtrun_req* pub) {
+  u64 n;
+  return moqtrun_disc_starts(
+      moqtrun_disc_fields(sub, &n), moqtrun_disc_fields(pub, &n));
+}
+
+/* The first field of q's encoded fields; empty for zero fields. */
+static wired_span moqtrun_disc_head(const wired_moqtrun_req* q) {
+  u64        n, len = 0;
+  usz        at = 0;
+  wired_span f  = moqtrun_disc_fields(q, &n);
+  moqvi_take(f, &at, &len);
+  return wired_span_of(f.p, at + (usz)len);
+}
+
+/* 10.18 PREFIX_OVERLAP "shares a common prefix", read strictly: the same
+ * session's prefixes overlap when either is empty or their first fields
+ * are equal. */
+static int moqtrun_disc_overlap(
+    const wired_moqtrun_req* a, const wired_moqtrun_req* b) {
+  u64 n;
+  return a->wt == b->wt &&
+         (moqtrun_disc_starts(
+              moqtrun_disc_head(a), moqtrun_disc_fields(b, &n)) ||
+          moqtrun_disc_starts(
+              moqtrun_disc_head(b), moqtrun_disc_fields(a, &n)));
+}
+
+static int moqtrun_disc_same(
+    const wired_moqtrun_req* a, const wired_moqtrun_req* b) {
+  return moqtrun_ns_eq(a->ns, a->ns_len, wired_span_of(b->ns, b->ns_len));
+}
+
+typedef int (*moqtrun_disc_rel_fn)(
+    const wired_moqtrun_req*, const wired_moqtrun_req*);
+
+static int moqtrun_disc_rel(
+    const wired_moqtrun_req* r,
+    const wired_moqtrun_req* q,
+    u64                      kind,
+    moqtrun_disc_rel_fn      rel) {
+  return moqtrun_disc_is(r, kind) && rel(r, q);
+}
+
+/* 1 iff a live request of kind relates to q by rel. */
+static int moqtrun_disc_any(
+    const wired_moqt_hub*    hub,
+    const wired_moqtrun_req* q,
+    u64                      kind,
+    moqtrun_disc_rel_fn      rel) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+    if (moqtrun_disc_rel(&hub->reqs[i], q, kind, rel)) return 1;
+  return 0;
+}
+
+/* A namespace already published here (by any session) is refused
+ * UNINTERESTED (10.6.2) rather than announced twice. */
+static u64 moqtrun_disc_pub_check(
+    const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
+  int dup =
+      moqtrun_disc_any(hub, q, MOQNS_T_PUBLISH_NAMESPACE, moqtrun_disc_same);
+  return dup ? MOQCTL_ERR_UNINTERESTED : MOQTRUN_DISC_OK;
+}
+
+static u64 moqtrun_disc_sub_check(
+    const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
+  int clash = moqtrun_disc_any(
+      hub, q, MOQNS_T_SUBSCRIBE_NAMESPACE, moqtrun_disc_overlap);
+  return clash ? MOQCTL_ERR_PREFIX_OVERLAP : MOQTRUN_DISC_OK;
+}
+
+typedef u64 (*moqtrun_disc_check_fn)(
+    const wired_moqt_hub*, const wired_moqtrun_req*);
+typedef int (*moqtrun_disc_take_fn)(wired_span, moqns_req*);
+
+/* Copies ns into q; 0 when it exceeds WIRED_MOQTRUN_MAX_NS (refused, never
+ * truncated). */
+static int moqtrun_disc_record(wired_moqtrun_req* q, const moqctl_ns* ns) {
+  usz n    = 0;
+  int fits = moqctl_ns_put(wired_mspan_of(q->ns, WIRED_MOQTRUN_MAX_NS), &n, ns);
+  q->ns_len = n;
+  return fits;
+}
+
+static u64 moqtrun_disc_verdict(
+    const wired_moqt_hub* hub,
+    wired_moqtrun_req*    q,
+    const moqns_req*      m,
+    moqtrun_disc_check_fn check) {
+  if (!moqtrun_disc_record(q, &m->ns)) return MOQCTL_ERR_INTERNAL_ERROR;
+  return check(hub, q);
+}
+
+/* REQUEST_OK makes the request live: the pushes follow it on the stream
+ * (moqtrun_disc_sync). A refusal is answered and the stream FINed. */
+static void moqtrun_disc_answer(wired_moqtrun_peer* p, u64 err) {
+  if (err != MOQTRUN_DISC_OK) {
+    moqtrun_send_request_error(p, err);
+    return;
+  }
+  moqtrun_queue_request_ok(p);
+  moqtrun_req_mark_live(p);
+}
+
+/* On the control stream there is no request stream to hold the namespace:
+ * NOT_SUPPORTED. */
+static void moqtrun_handle_disc(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    wired_span            body,
+    moqtrun_disc_take_fn  take,
+    moqtrun_disc_check_fn check) {
+  moqns_req m;
+  if (!p->req) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
+    return;
+  }
+  if (take(body, &m) != MOQCTL_OK) return;
+  moqtrun_disc_answer(p, moqtrun_disc_verdict(hub, p->req, &m, check));
+}
+
+static void moqtrun_dispatch_publish_ns(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  (void)peer_idx;
+  moqtrun_handle_disc(hub, p, body, moqns_publish_take, moqtrun_disc_pub_check);
+}
+
+static void moqtrun_dispatch_subscribe_ns(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  (void)peer_idx;
+  moqtrun_handle_disc(
+      hub, p, body, moqns_subscribe_take, moqtrun_disc_sub_check);
+}
+
+/* NAMESPACE / NAMESPACE_DONE body: the Track Namespace Suffix (10.16-17),
+ * its count then the fields after the prefix. */
+typedef struct {
+  u64        n;
+  wired_span fields;
+} moqtrun_disc_suffix;
+
+static int moqtrun_encode_disc_suffix(
+    wired_mspan buf, usz* off, const void* m) {
+  const moqtrun_disc_suffix* s = (const moqtrun_disc_suffix*)m;
+  return moqvi_put(buf, off, s->n) && bytes_put(buf, off, s->fields);
+}
+
+/* Queues q's whole msg on its stream; 0 when it does not fit yet. */
+static int moqtrun_req_push(wired_moqtrun_req* q, wired_span msg) {
+  usz before = q->send_lens[q->armed_idx ^ 1];
+  moqtrun_req_queue(q, msg);
+  return q->send_lens[q->armed_idx ^ 1] != before;
+}
+
+/* Queues NAMESPACE or NAMESPACE_DONE (type) for pub's namespace on sub's
+ * stream; 1 when queued. */
+static int moqtrun_disc_push(
+    wired_moqtrun_req* sub, const wired_moqtrun_req* pub, u64 type) {
+  u8                  msg[WIRED_MOQTRUN_CTL_HDR_MAX + WIRED_MOQTRUN_MAX_NS];
+  u64                 pre_n;
+  moqtrun_disc_suffix s;
+  wired_span          pre = moqtrun_disc_fields(sub, &pre_n);
+  wired_span          all = moqtrun_disc_fields(pub, &s.n);
+  s.n -= pre_n;
+  s.fields = wired_span_of(all.p + pre.n, all.n - pre.n);
+  usz n    = moqtrun_envelope_put(
+      wired_mspan_of(msg, sizeof msg), type, moqtrun_encode_disc_suffix, &s);
+  return moqtrun_req_push(sub, wired_span_of(msg, n));
+}
+
+static int moqtrun_disc_wanted(
+    const wired_moqtrun_req* sub, const wired_moqtrun_req* pub) {
+  return moqtrun_disc_is(pub, MOQNS_T_PUBLISH_NAMESPACE) &&
+         moqtrun_disc_under(sub, pub);
+}
+
+static const u64 moqtrun_disc_push_type[2] = {
+    MOQNS_T_NAMESPACE_DONE, MOQNS_T_NAMESPACE};
+
+/* Brings sub's view of reqs[i] in line: NAMESPACE once it matches,
+ * NAMESPACE_DONE once it no longer does (10.18). A push that does not fit
+ * is retried on the next sync. */
+static void moqtrun_disc_sync_one(
+    wired_moqt_hub* hub, wired_moqtrun_req* sub, usz i) {
+  int want = moqtrun_disc_wanted(sub, &hub->reqs[i]);
+  int seen = (int)((sub->ns_seen >> i) & 1);
+  if (want == seen) return;
+  if (moqtrun_disc_push(sub, &hub->reqs[i], moqtrun_disc_push_type[want]))
+    sub->ns_seen ^= (u64)1 << i;
+}
+
+static void moqtrun_disc_sync_sub(wired_moqt_hub* hub, wired_moqtrun_req* sub) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+    moqtrun_disc_sync_one(hub, sub, i);
+}
+
+/* Every live SUBSCRIBE_NAMESPACE catches up with the published set.
+ * ponytail: O(reqs^2) scan per event; index by prefix if the pool grows. */
+static void moqtrun_disc_sync(wired_moqt_hub* hub) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+    if (moqtrun_disc_is(&hub->reqs[i], MOQNS_T_SUBSCRIBE_NAMESPACE))
+      moqtrun_disc_sync_sub(hub, &hub->reqs[i]);
+}
+
+static int moqtrun_disc_owes(const wired_moqtrun_req* q, usz i) {
+  return q->in_use && ((q->ns_seen >> i) & 1);
+}
+
+/* 1 iff a live subscription still owes reqs[i] a NAMESPACE_DONE. */
+static int moqtrun_disc_held(const wired_moqt_hub* hub, usz i) {
+  for (usz k = 0; k < WIRED_MOQTRUN_MAX_REQS; k++)
+    if (moqtrun_disc_owes(&hub->reqs[k], i)) return 1;
+  return 0;
+}
+
 static void moqtrun_handle_not_supported(wired_moqtrun_peer* p) {
   moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
 }
@@ -1629,7 +1877,8 @@ static void moqtrun_dispatch_skip(
 }
 
 /* First-type table (draft table in ctl.h's peek_type doc): only PUBLISH,
- * SUBSCRIBE and FETCH are implemented; every other First type this hub can see
+ * SUBSCRIBE, FETCH, PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE are
+ * implemented; every other First type this hub can see
  * on a fresh request stream gets NOT_SUPPORTED. GOAWAY is not a First type but
  * may legally appear mid-stream, so it is routed the same table for
  * request-stream dispatch below. */
@@ -1640,6 +1889,8 @@ static const struct {
     {MOQCTL_T_PUBLISH, moqtrun_dispatch_publish},
     {MOQCTL_T_SUBSCRIBE, moqtrun_dispatch_subscribe},
     {MOQFETCH_T_FETCH, moqtrun_dispatch_fetch},
+    {MOQNS_T_PUBLISH_NAMESPACE, moqtrun_dispatch_publish_ns},
+    {MOQNS_T_SUBSCRIBE_NAMESPACE, moqtrun_dispatch_subscribe_ns},
     {MOQCTL_T_GOAWAY, moqtrun_dispatch_goaway},
     /* draft SS10 known non-request messages this hub does not implement:
      * nothing carries a Request ID to answer, so they are skipped. */
@@ -3211,9 +3462,15 @@ static wired_moqtrun_req* moqtrun_req_find(
   return 0;
 }
 
+/* A free slot no subscription still owes a NAMESPACE_DONE for
+ * (wired_moqtrun_req.ns_seen). */
+static int moqtrun_req_slot_free(const wired_moqt_hub* hub, usz i) {
+  return !hub->reqs[i].in_use && !moqtrun_disc_held(hub, i);
+}
+
 static wired_moqtrun_req* moqtrun_req_free_slot(wired_moqt_hub* hub) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
-    if (!hub->reqs[i].in_use) return &hub->reqs[i];
+    if (moqtrun_req_slot_free(hub, i)) return &hub->reqs[i];
   return 0;
 }
 
@@ -3242,6 +3499,8 @@ static wired_moqtrun_req* moqtrun_req_open(
   q->live         = 0;
   q->fin_in       = 0;
   q->fin_out      = 0;
+  q->ns_len       = 0;
+  q->ns_seen      = 0;
   return q;
 }
 
@@ -3329,7 +3588,9 @@ static void moqtrun_req_settle(wired_moqt_io* io, wired_moqtrun_req* q) {
   q->in_use = !moqtrun_req_both_ended(q);
 }
 
+/* Pushes owed namespace changes, then settles every request stream. */
 static void moqtrun_reqs_tick(wired_moqt_hub* hub) {
+  moqtrun_disc_sync(hub);
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
     if (hub->reqs[i].in_use) moqtrun_req_settle(&hub->io, &hub->reqs[i]);
 }
@@ -3363,7 +3624,7 @@ static void moqtrun_dispatch_req_stream(
   moqtrun_req_check_open(hub, p);
   p->req = 0;
   q->fin_in |= fin;
-  moqtrun_req_settle(&hub->io, q);
+  moqtrun_reqs_tick(hub);
 }
 
 /* With request streams on, a peer-opened bidi stream is never Object data
@@ -3558,6 +3819,7 @@ void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s) {
   for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
     moqtrun_track_cache_drop(hub, &p->tracks[t]);
   p->in_use = 0;
+  moqtrun_reqs_tick(hub); /* its namespaces are withdrawn (10.18) */
 }
 
 /* A cancelled SUBSCRIBE's recorded name stops matching (no name is longer
@@ -3582,9 +3844,11 @@ static void moqtrun_peer_unpublish(
 }
 
 /* draft-ietf-moq-transport-19 3.3.3: the request is cancelled -- its
- * subscription or track goes (the hub keeps no namespace state, so there
- * is nothing else to release), the hub's own side is reset with CANCELLED
- * unless it already ended, answered or not, and the slot is freed. */
+ * subscription or track goes, the hub's own side is reset with CANCELLED
+ * unless it already ended, answered or not, and the slot is freed. A
+ * PUBLISH_NAMESPACE or SUBSCRIBE_NAMESPACE lives in the slot itself, so
+ * freeing it withdraws the namespace (6.2) or stops the pushes (6.1); the
+ * caller's moqtrun_reqs_tick sends the NAMESPACE_DONEs owed. */
 static void moqtrun_req_cancel(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_req* q) {
   moqtrun_drop_peer_subs(hub, (usz)(p - hub->peers), q->request_id);
@@ -3621,4 +3885,5 @@ void wired_moqt_on_stream_reset(
     moqtrun_req_cancel(hub, p, q);
   else
     moqtrun_stream_frag_release(p, stream_id);
+  moqtrun_reqs_tick(hub);
 }
