@@ -2,6 +2,7 @@
 #define WIRED_MOQTRUN_H
 
 #include "app/http3/server/srvrun/srvrun.h"
+#include "app/moqt/cache/moqcache.h"
 #include "app/moqt/ctl/moqctl.h"
 #include "app/moqt/data/moqdata.h"
 #include "app/moqt/run/moqtrel.h"
@@ -387,6 +388,10 @@ typedef struct {
   int        has_largest;
   /** Request ID of the PUBLISH that claimed this slot. */
   u64 request_id;
+  /** This incarnation's records in the hub cache (wired_moqt_hub.cache),
+   * fresh on every PUBLISH, so a later track in the same slot never
+   * reads the old one's Objects. */
+  u64 cache_tag;
 } wired_moqtrun_track;
 
 /** One connected participant's hub-side state: its WT session, its own
@@ -608,10 +613,27 @@ typedef struct {
   /** The relay that last took each buffer; the buffer is free unless that
    * relay is still in use and still names it (moqtrun_frag_slot_free). */
   wired_moqtrun_relay* frag_owner[WIRED_MOQTRUN_FRAG_POOL];
+  /** Object cache over the app's arena (wired_moqt_cache_attach); empty,
+   * caching nothing, until one is attached. */
+  moqcache cache;
+  /** Last wired_moqtrun_track.cache_tag handed out. */
+  u64 cache_tag_next;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
 void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io);
+
+/** Gives the hub an Object cache for FETCH (draft-ietf-moq-transport-19
+ * 10.12.3): every whole Object a publisher sends is kept in arena, the
+ * oldest whole groups evicted first (app/moqt/cache/moqcache.h). Without
+ * one the hub caches nothing and a FETCH is answered with its range as
+ * unknown. Call once after wired_moqt_init, before any session; arena
+ * must outlive the hub.
+ * @param hub the hub
+ * @param arena cache storage, owned by the app
+ * @param size arena bytes (each Object costs MOQCACHE_HDR on top)
+ * @return 1 when caching is on, 0 for an empty arena */
+int wired_moqt_cache_attach(wired_moqt_hub* hub, u8* arena, usz size);
 
 /** wired_wt_on_session-shaped: registers a new peer slot for s and opens
  * its control stream carrying SETUP (draft 3.3). app_ctx must be the
