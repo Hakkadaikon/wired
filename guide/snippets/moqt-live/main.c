@@ -75,9 +75,33 @@ static i64 send_uni2(wired_wt_session* s, wired_span head, wired_span body) {
 }
 
 static wired_moqt_hub g_hub;
+static mp4frag_layout g_layout;
 
 static void on_step(void* ctx, u64 now_ms) {
   wired_moqt_tick((wired_moqt_hub*)ctx, now_ms);
+}
+
+/* Group 0 starts not at server boot but at the first WebTransport session
+ * -- otherwise Group 0's window includes the client's own connect/
+ * handshake latency, which on a loaded machine can exceed group_ms and
+ * make the first Group (and so the whole fragment-size sequence the page
+ * prints) nondeterministic. Anchoring here instead means the only
+ * latency left before the first SUBSCRIBE is one already-established
+ * QUIC round trip (SETUP out, SUBSCRIBE back), far inside the margin. */
+static int g_live_published = 0;
+
+static void publish_live_once(void) {
+  if (g_live_published) return;
+  g_live_published = 1;
+  wired_moqt_publish_live(
+      &g_hub, wired_span_of((const u8*)"movie", 5), 2, g_layout.frags,
+      g_layout.n_frags, 300, clock_mono_ms());
+}
+
+static void on_session(
+    void* ctx, wired_wt_session* s, wired_span path, wired_span protocol) {
+  publish_live_once();
+  wired_moqt_on_session(ctx, s, path, protocol);
 }
 
 int wired_main(int argc, char** argv) {
@@ -111,10 +135,9 @@ int wired_main(int argc, char** argv) {
    * tiny synthetic fragmented MP4: an ftyp+moov init segment, then 3
    * moof+mdat fragments -- real box structure, filler media bytes (this
    * demo is about MoQT Group delivery, not video decoding). */
-  static u8      file[4096];
-  ssz            n = wired_fio_read("movie-live.mp4", wired_mspan_of(file, sizeof file));
-  mp4frag_layout layout;
-  if (n <= 0 || !mp4frag_scan(wired_span_of(file, (usz)n), &layout)) {
+  static u8 file[4096];
+  ssz       n = wired_fio_read("movie-live.mp4", wired_mspan_of(file, sizeof file));
+  if (n <= 0 || !mp4frag_scan(wired_span_of(file, (usz)n), &g_layout)) {
     wired_log_str("cannot scan movie-live.mp4\n");
     return 1;
   }
@@ -123,21 +146,19 @@ int wired_main(int argc, char** argv) {
    * subscriber on its own stream (wired_moqt_publish_blob). */
   static u8 init_wire[MOQDATA_BLOB_WIRE_CAP(64)];
   wired_moqt_publish_blob(
-      &g_hub, wired_span_of((const u8*)"movie/init", 10), 1, layout.init,
+      &g_hub, wired_span_of((const u8*)"movie/init", 10), 1, g_layout.init,
       wired_mspan_of(init_wire, sizeof init_wire));
 
   /* "movie" (Track Alias 2): Group g carries fragment g mod n_frags,
-   * advancing every 300ms from now -- paced by on_step/wired_moqt_tick
-   * below (RFC-agnostic: draft-ietf-moq-transport-19 9.x's Group model). */
-  wired_moqt_publish_live(
-      &g_hub, wired_span_of((const u8*)"movie", 5), 2, layout.frags,
-      layout.n_frags, 300, clock_mono_ms());
-
+   * advancing every 300ms (RFC-agnostic: draft-ietf-moq-transport-19
+   * 9.x's Group model) -- publish_live_once (above) defers the actual
+   * wired_moqt_publish_live call to the first WebTransport session so
+   * Group 0 starts there, not at this still-booting instant. */
   wired_srvrun_opt opt     = {0};
   opt.incoming_cpu         = -1;
   opt.on_step              = on_step;
   opt.on_step_ctx          = &g_hub;
-  opt.wt_on_session        = wired_moqt_on_session;
+  opt.wt_on_session        = on_session;
   opt.wt_session_ctx       = &g_hub;
   opt.wt_on_stream_data    = wired_moqt_on_stream_data;
   opt.wt_stream_data_ctx   = &g_hub;

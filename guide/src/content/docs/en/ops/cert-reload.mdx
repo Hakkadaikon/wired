@@ -23,9 +23,11 @@ process, and every connection cold-started afterward uses the new identity
 - This page's server owns `id`, so its `on_step` hook can read
   `id->chain[0]` on every tick and log the leaf certificate's SHA-256
   whenever it changes: once at startup, and again right after the reload.
-- The replacement PEM pair is written to `cert.pem`/`key.pem` once, early
-  -- standing in for an operator's deploy step -- which is safe because the
-  server keeps its already-loaded identity until the `SIGHUP` actually
-  arrives.
+- The replacement PEM pair is written to `live-cert.pem`/`live-key.pem`
+  (the same path `obs.cert_path`/`obs.key_path` name, gitignored since the
+  server itself seeds and replaces it -- `CERT_A`/`CERT_B` in `main.c` are
+  the actual source) once, early -- standing in for an operator's deploy
+  step -- which is safe because the server keeps its already-loaded
+  identity until the `SIGHUP` actually arrives.
 - `probe tls --fp` prints the same leaf fingerprint from the client side,
   independently confirming the second handshake sees the new certificate.
