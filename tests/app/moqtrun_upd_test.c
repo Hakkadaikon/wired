@@ -1,10 +1,15 @@
 /* Hub TRACK_STATUS (draft-ietf-moq-transport-19 10.14), REQUEST_UPDATE on a
- * subscription (10.9) and Location Filter delivery (5.1.4). Shares the
- * recording io stubs (moqtrun_test.c) and the subscription / request-stream
- * fixtures (moqtrun_sub_test.c) of the same unity TU. */
+ * subscription (10.9), Location Filter delivery (5.1.4) and
+ * OBJECT_DELIVERY_TIMEOUT (8, 10.2.4). Shares the recording io stubs
+ * (moqtrun_test.c) and the subscription / request-stream fixtures
+ * (moqtrun_sub_test.c) of the same unity TU. */
 
 static int mtup_enc_tstat(wired_mspan buf, usz* off, const void* m) {
   return moqctl_subscribe_encode(buf, off, m);
+}
+
+static int mtup_enc_update(wired_mspan buf, usz* off, const void* m) {
+  return moqtstat_update_encode(buf, off, m);
 }
 
 /* TRACK_STATUS for f on request stream sid. */
@@ -14,10 +19,6 @@ static void mtup_tstat(wired_wt_session* s, u64 sid, const moqctl_ftn* f) {
   m.name       = *f;
   m.params.n   = 0;
   mtst_send(s, sid, MOQTSTAT_T_TRACK_STATUS, mtup_enc_tstat, &m);
-}
-
-static int mtup_enc_update(wired_mspan buf, usz* off, const void* m) {
-  return moqtstat_update_encode(buf, off, m);
 }
 
 /* REQUEST_UPDATE carrying params on request stream sid; its Request ID is
@@ -74,6 +75,15 @@ static moqctl_ftn mtup_setup(void) {
   usz        n = mtst_stream(3, 2, 1, buf);
   wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 1);
   return f;
+}
+
+static moqctl_params mtup_vi(u64 type, u64 v) {
+  moqctl_params p = {0};
+  p.items[0].type = type;
+  p.items[0].enc  = MOQCTL_PENC_VARINT;
+  p.items[0].vi   = v;
+  p.n             = 1;
+  return p;
 }
 
 /* ===================== TRACK_STATUS (10.14) ===================== */
@@ -158,16 +168,20 @@ static void test_moqtrun_upd_forward_toggles(void) {
 
 /* Present parameters replace, absent ones stay (10.9). */
 static void test_moqtrun_upd_params_replace(void) {
+  moqctl_params p = mtup_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 250);
   moqctl_params q = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 9);
   moqctl_params r = mtst_params_filter(MOQCTL_FILTER_ABS_RANGE);
   moqctl_ftn    f = mtup_setup();
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &q);
-  wired_moqtrun_sub* s          = mtst_sub(SESS_A, SESS_B);
+  mtup_update(SESS_B, MTRQ_S1, &p);
+  wired_moqtrun_sub* s = mtst_sub(SESS_A, SESS_B);
+  CHECK(s && s->has_delivery_timeout && s->delivery_timeout == 250);
+  CHECK(s && s->has_priority && s->priority == 9);
   r.items[0].lf.start.group     = 5;
   r.items[0].lf.end_group_delta = 2;
   mtup_update(SESS_B, MTRQ_S1, &r);
   CHECK(s && s->start.group == 5 && s->has_end_group && s->end_group == 7);
-  CHECK(s && s->has_priority && s->priority == 9);
+  CHECK(s && s->delivery_timeout == 250);
   CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
 }
 
@@ -242,6 +256,128 @@ static void test_moqtrun_filter_groups_delivered(void) {
   CHECK(moqtrun_test_count_kind(9) == 0);
 }
 
+/* ===================== delivery timeout (8) ===================== */
+
+/* A non-zero OBJECT_DELIVERY_TIMEOUT is accepted (SUBSCRIBE_OK). */
+static void test_moqtrun_timeout_accepted(void) {
+  moqctl_params p = mtup_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 100);
+  moqctl_ftn    f = mtrq_setup();
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &p);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_SUBSCRIBE_OK);
+}
+
+/* B subscribed with OBJECT_DELIVERY_TIMEOUT t (absent when t is ~0) to a
+ * reliable track; the stream's first round reaches B at clock 0, and the
+ * next Object's round is refused. Returns B's relay stream id. */
+static u64 mtup_ring_lagging(u64 t) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params p = mtup_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, t);
+  moqctl_ftn    f = mtrq_setup();
+  mtst_hub.reliable_alias_limit = 100;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, t == ~(u64)0 ? 0 : &p);
+  wired_moqt_tick(&mtst_hub, 0);
+  usz n = mtst_stream(1, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  u64 sid                   = moqtrun_test_last_kind(5)->stream_id;
+  g_stream_send_reject_sess = SESS_B;
+  n                         = mtst_stream(1, 1, 0, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  return sid;
+}
+
+/* Reliable relay: an Object still unsent past the timeout resets B's
+ * stream with DELIVERY_TIMEOUT (0x2); before it, the retry delivers. */
+static void test_moqtrun_timeout_ring(void) {
+  u64 sid = mtup_ring_lagging(100);
+  wired_moqt_tick(&mtst_hub, 50);
+  CHECK(mtrq_reset_code(sid) == -1);
+  wired_moqt_tick(&mtst_hub, 150);
+  CHECK(mtrq_reset_code(sid) == 0x2);
+  sid                       = mtup_ring_lagging(100);
+  g_stream_send_reject_sess = 0;
+  wired_moqt_tick(&mtst_hub, 50);
+  moqtrun_test_reset();
+  wired_moqt_tick(&mtst_hub, 150);
+  CHECK(mtrq_reset_code(sid) == -1);
+  CHECK(moqtrun_test_count_kind(3) == 0); /* delivered at 50 */
+}
+
+/* Timeout 0 (or none) never expires an Object. */
+static void test_moqtrun_timeout_zero(void) {
+  u64 sid = mtup_ring_lagging(0);
+  wired_moqt_tick(&mtst_hub, 5000);
+  CHECK(mtrq_reset_code(sid) == -1);
+  sid = mtup_ring_lagging(~(u64)0);
+  wired_moqt_tick(&mtst_hub, 5000);
+  CHECK(mtrq_reset_code(sid) == -1);
+}
+
+/* A timeout set by REQUEST_UPDATE applies from then on. */
+static void test_moqtrun_timeout_by_update(void) {
+  moqctl_params p   = mtup_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 100);
+  u64           sid = mtup_ring_lagging(~(u64)0);
+  mtup_update(SESS_B, MTRQ_S1, &p);
+  wired_moqt_tick(&mtst_hub, 150);
+  CHECK(mtrq_reset_code(sid) == 0x2);
+}
+
+/* Lossy relay: an Object torn across deliveries is passed on when its
+ * rest arrives -- unless its first byte came in longer than the timeout
+ * ago: then B's stream is reset (0x2) and no later Object of that
+ * Subgroup reopens it. */
+static void test_moqtrun_timeout_torn_object(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params p = mtup_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 100);
+  moqctl_ftn    f = mtrq_setup();
+  for (int late = 0; late < 2; late++) {
+    mtrq_setup();
+    mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &p);
+    wired_moqt_tick(&mtst_hub, 0);
+    usz n = mtst_stream(1, 2, 1, buf);
+    wired_moqt_on_stream_data(
+        &mtst_hub, SESS_A, 2001, wired_span_of(buf, n - 1), 0);
+    u64 sid = moqtrun_test_last_kind(5)->stream_id;
+    wired_moqt_tick(&mtst_hub, late ? 150 : 50);
+    moqtrun_test_reset();
+    wired_moqt_on_stream_data(
+        &mtst_hub, SESS_A, 2001, wired_span_of(buf + n - 1, 1), 0);
+    CHECK(mtrq_reset_code(sid) == (late ? 0x2 : -1));
+    CHECK(moqtrun_test_count_kind(3) == (usz)!late);
+    n = mtst_stream(1, 1, 0, buf);
+    wired_moqt_on_stream_data(
+        &mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+    CHECK(moqtrun_test_count_kind(5) == 0); /* never reopened */
+  }
+}
+
+/* The hub's live track: a Group older than the timeout at send time is
+ * not opened; the next one, still fresh, is. */
+static void test_moqtrun_timeout_live(void) {
+  moqctl_params p = mtup_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 100);
+  moqctl_ftn    m = mtst_ftn("chat", "room1", "movie");
+  mtrq_setup();
+  moqtrun_test_publish_live(&mtst_hub); /* Group 0 at 1000, 2000 ms each */
+  wired_moqt_tick(&mtst_hub, 1500);
+  moqtrun_test_reset();
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &m, 2, &p);
+  wired_moqt_tick(&mtst_hub, 1600);
+  CHECK(moqtrun_test_count_kind(8) == 0);
+  wired_moqt_tick(&mtst_hub, 3050);
+  CHECK(moqtrun_test_count_kind(8) == 1);
+}
+
+/* A datagram is relayed the moment it arrives: never past its timeout. */
+static void test_moqtrun_timeout_datagram(void) {
+  moqctl_params p = mtup_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 1);
+  moqctl_ftn    f = mtrq_setup();
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &p);
+  wired_moqt_tick(&mtst_hub, 5000);
+  wired_moqt_on_datagram(
+      &mtst_hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+  CHECK(moqtrun_test_count_kind(9) == 1);
+}
+
 void test_moqtrun_upd(void) {
   test_moqtrun_tstat_ok_largest();
   test_moqtrun_tstat_ok_empty();
@@ -253,4 +389,11 @@ void test_moqtrun_upd(void) {
   test_moqtrun_upd_blob_forward();
   test_moqtrun_upd_bad_and_control();
   test_moqtrun_filter_groups_delivered();
+  test_moqtrun_timeout_accepted();
+  test_moqtrun_timeout_ring();
+  test_moqtrun_timeout_zero();
+  test_moqtrun_timeout_by_update();
+  test_moqtrun_timeout_torn_object();
+  test_moqtrun_timeout_live();
+  test_moqtrun_timeout_datagram();
 }
