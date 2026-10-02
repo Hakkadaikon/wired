@@ -16338,22 +16338,22 @@ static void test_srvrun_connect_stream_slot_kept_until_session_close(void) {
  * a STREAM frame on the session's own CONNECT stream at wt_connect_sent_len,
  * and applies wired_wt_session_drain's ESTABLISHED->DRAINING transition. */
 
-/* DRAIN SENT: the sealed packet's STREAM frame carries the CONNECT stream id
- * at the recorded offset, and decodes back to a WT_DRAIN_SESSION capsule
- * (wtcapsule_decode_drain, the encode/decode round-trip this SDK's own
- * codec already proves at the unit level -- this test proves srvrun wires it
- * onto the wire at the RIGHT stream/offset). The session moves to DRAINING
- * and wt_connect_sent_len advances past the capsule's own byte length. */
+/* The CONNECT stream's capsule send slot on c (stream 4, the fixture's
+ * session), or 0 when none is staged. */
+static srvrun_wtsend* sr_connect_sender(srvrun_conn* c) {
+  return srvrun_wtsend_find(c, 4);
+}
+
+/* DRAIN STAGED: the capsule is staged on the CONNECT stream's own
+ * retransmittable send slot at the recorded offset and decodes back to a
+ * WT_DRAIN_SESSION capsule; the stream stays open (no FIN). The session
+ * moves to DRAINING and wt_connect_sent_len advances past the capsule. */
 static void test_srvrun_send_wt_drain_seals_capsule_on_connect_stream(void) {
-  struct lp_fix f;
-  wired_obuf    ob  = {0};
-  srvrun_cfg    cfg = sr_wt_send_cfg();
-  u8            obuf[1024], out[1500];
-  wired_obuf    outb = obuf_of(out, sizeof out);
-  srvrun_conn*  c;
-  const u8*     pl;
-  usz           pll;
-  stream_frame  sf;
+  struct lp_fix  f;
+  wired_obuf     ob = {0};
+  u8             obuf[1024];
+  srvrun_conn*   c;
+  srvrun_wtsend* w;
   /* RFC 9297 3.2: the capsule rides in a DATA frame (type 0x00, Length 5)
    * whose payload is WT_DRAIN_SESSION -- type 0x78ae as a 4-byte varint
    * (RFC 9000 16), Length 0. */
@@ -16361,16 +16361,13 @@ static void test_srvrun_send_wt_drain_seals_capsule_on_connect_stream(void) {
   ob                        = (wired_obuf){obuf, sizeof obuf, 0};
   c                         = sr_wtsend_fixture(&f, &ob);
   c->wt_connect_sent_len[0] = 20; /* pretend the 2xx HEADERS took 20 bytes */
-  srvrun_send_wt_drain(&cfg, c, 0, &outb);
+  srvrun_send_wt_drain(c, 0);
   CHECK(c->wt.state == WIRED_WT_DRAINING);
   CHECK(c->wt_connect_sent_len[0] == 20 + sizeof want);
-  CHECK(client_open_onertt(&f, outb.p, outb.len, &pl, &pll) == 1);
-  CHECK(frame_get_stream(pl, pll, &sf) > 0);
-  CHECK(sf.stream_id == 4); /* sr_wtsend_fixture's own CONNECT stream id */
-  CHECK(sf.offset == 20);
-  CHECK(sf.fin == 0); /* WT_DRAIN_SESSION never FINs the session */
-  CHECK(sf.length == sizeof want);
-  CHECK(wt_bytes_eq(sf.data, want, sizeof want));
+  w = sr_connect_sender(c);
+  CHECK(w != 0 && w->append_open == 1); /* WT_DRAIN_SESSION never FINs */
+  CHECK(w->sess.stream_base_offset == 20 && w->sess.q.len == sizeof want);
+  CHECK(wt_bytes_eq(w->roundbuf, want, sizeof want));
 }
 
 /* DRAIN SKIPS INACTIVE/NON-ESTABLISHED SLOTS: srvrun_send_wt_drain_all only
@@ -16379,11 +16376,9 @@ static void test_srvrun_send_wt_drain_seals_capsule_on_connect_stream(void) {
  * had a session at all produces no packet. */
 static void test_srvrun_send_wt_drain_all_skips_inactive_slot(void) {
   srvrun_conn* conns = sr_test_conns();
-  srvrun_cfg   cfg   = sr_wt_send_cfg();
-  u8           out[1500];
-  wired_obuf   outb = obuf_of(out, sizeof out);
-  srvrun_send_wt_drain_all(&cfg, &conns[0], &outb);
-  CHECK(outb.len == 0); /* nothing sealed: no active session at all */
+  srvrun_send_wt_drain_all(&conns[0]);
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
+    CHECK(conns[0].wtsend[i].in_use == 0); /* nothing staged */
 }
 
 /* ===== W-14/WTH3-067: WT_CLOSE_SESSION capsule immediately followed by FIN
@@ -16422,24 +16417,20 @@ static void test_srvrun_wt_close_session_unknown_session_refused(void) {
   CHECK(wired_server_wt_close_session(&ghost, 1, wired_span_of(0, 0)) == 0);
 }
 
-/* CLOSE WIRE CONTENT: srvrun_send_wt_close (the body srvrun_drain_wt_close_
- * pending calls once wt_close_pending is set) seals WT_CLOSE_SESSION (app
- * error code + message, round-tripped through wired_wtcapsule_decode_close)
- * on the CONNECT stream at the recorded offset, WITH FIN set -- draft-ietf-
- * webtrans-http3-15 SS4.4/WTH3-067's "immediately followed by a FIN" -- and
- * closes the session (srvrun_close_wt_session_slot, WT_SESSION_GONE for any
- * other owned stream). */
+/* CLOSE STAGED: srvrun_send_wt_close (the body srvrun_drain_wt_close_
+ * pending calls once wt_close_pending is set) stages WT_CLOSE_SESSION (app
+ * error code + message) on the CONNECT stream's send slot at the recorded
+ * offset as its final round -- FIN follows it, draft-ietf-webtrans-http3-15
+ * SS4.4/WTH3-067 -- and closes the session; the slot outlives the session
+ * until its bytes are ACKed. */
 static void test_srvrun_send_wt_close_seals_capsule_with_fin(void) {
   struct lp_fix   f;
-  wired_obuf      ob  = {0};
-  srvrun_cfg      cfg = sr_wt_send_cfg();
-  u8              obuf[1024], out[1500];
-  wired_obuf      outb  = obuf_of(out, sizeof out);
+  wired_obuf      ob    = {0};
+  srvrun_cfg      cfg   = sr_wt_send_cfg();
   static const u8 msg[] = "app done";
+  u8              obuf[1024];
   srvrun_conn*    c;
-  const u8*       pl;
-  usz             pll;
-  stream_frame    sf;
+  srvrun_wtsend*  w;
   /* RFC 9297 3.2: a DATA frame (type 0x00, Length 15) carrying
    * WT_CLOSE_SESSION -- type 0x2843 as a 2-byte varint (0x68 0x43), Length
    * 12, the 32-bit code 7, then "app done". */
@@ -16452,17 +16443,74 @@ static void test_srvrun_send_wt_close_seals_capsule_with_fin(void) {
   c->wt_close_code[0]       = 7;
   bytes_memcpy(c->wt_close_msg[0], msg, sizeof msg - 1);
   c->wt_close_msg_len[0] = sizeof msg - 1;
-  srvrun_send_wt_close(&cfg, c, 0, &outb);
-  CHECK(client_open_onertt(&f, outb.p, outb.len, &pl, &pll) == 1);
-  CHECK(frame_get_stream(pl, pll, &sf) > 0);
-  CHECK(sf.stream_id == 4);
-  CHECK(sf.offset == 20);
-  CHECK(sf.fin == 1); /* immediately FIN, WTH3-067 */
-  CHECK(sf.length == sizeof want);
-  CHECK(wt_bytes_eq(sf.data, want, sizeof want));
+  srvrun_send_wt_close(&cfg, c, 0);
+  w = sr_connect_sender(c);
+  CHECK(w != 0 && w->append_open == 0); /* the last round: FIN follows */
+  CHECK(w->sess.stream_base_offset == 20 && w->sess.q.len == sizeof want);
+  CHECK(wt_bytes_eq(w->roundbuf, want, sizeof want));
   CHECK(c->wt_connect_sent_len[0] == 20 + sizeof want);
   CHECK(c->wt.state == WIRED_WT_CLOSED);
   CHECK(c->wt_active == 0);
+}
+
+/* Receive one datagram on sfd (non-blocking) and return its STREAM frame
+ * on stream_id in *sf. 0 when nothing arrived or none matched. */
+static int sr_recv_stream(
+    struct lp_fix* f, i64 sfd, u64 stream_id, stream_frame* sf) {
+  static u8 pkt[1500];
+  sockaddr  from;
+  const u8* pl;
+  usz       pll;
+  i64       r = wired_udp_recvfrom(sfd, wired_mspan_of(pkt, sizeof pkt), &from);
+  if (r <= 0) return 0;
+  if (!client_open_onertt(f, pkt, (usz)r, &pl, &pll)) return 0;
+  return frame_get_stream(pl, pll, sf) > 0 && sf->stream_id == stream_id;
+}
+
+/* RFC 9000 13.3: WT_CLOSE_SESSION + FIN on the CONNECT stream are stream
+ * data, so a lost packet carrying them must be sent again -- otherwise the
+ * peer never learns the session ended and the CONNECT stream is left with a
+ * hole. The first packet is dropped (never ACKed); after the probe timeout
+ * the same bytes, offset and FIN go out again. */
+static void test_srvrun_wt_close_capsule_retransmitted_after_loss(void) {
+  static const u8 want[] = {0x00, 0x0f, 0x68, 0x43, 0x0c, 0x00,
+                            0x00, 0x00, 0x07, 'a',  'p',  'p',
+                            ' ',  'd',  'o',  'n',  'e'};
+  static const u8 msg[]  = "app done";
+  struct lp_fix   f;
+  u8              obuf[1024];
+  wired_obuf      ob = obuf_of(obuf, sizeof obuf);
+  sockaddr        srv;
+  i64             sfd, cfd;
+  stream_frame    sf;
+  srvrun_conn*    c;
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  poll_set_nonblock(sfd);
+  c                         = sr_wtsend_fixture(&f, &ob);
+  c->peer                   = srv;
+  c->wt_connect_sent_len[0] = 20;
+  c->wt_close_code[0]       = 7;
+  bytes_memcpy(c->wt_close_msg[0], msg, sizeof msg - 1);
+  c->wt_close_msg_len[0] = sizeof msg - 1;
+  {
+    srvrun_cfg cfg = {
+        cfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0, 0};
+    srvrun_send_wt_close(&cfg, c, 0);
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(sr_recv_stream(&f, sfd, 4, &sf)); /* sent once -- and lost */
+    CHECK(srvrun_pto_all(c, 10 * 1000) == 1);
+    c->srtt_ms      = 0;
+    c->next_send_ms = 0;
+    srvrun_pump_sess(&ctx, 0);
+  }
+  CHECK(sr_recv_stream(&f, sfd, 4, &sf)); /* retransmitted */
+  CHECK(sf.offset == 20 && sf.fin == 1 && sf.length == sizeof want);
+  CHECK(wt_bytes_eq(sf.data, want, sizeof want));
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
 }
 
 /* CLOSE LIFECYCLE: srvrun_drain_wt_close_pending, driven off wired_server_wt_
@@ -19646,28 +19694,22 @@ static void test_srvrun_wt_drain_rx_with_value_closes(void) {
 static void test_srvrun_wt_drain_session_sends_once(void) {
   static const u8 want[] = {0x00, 0x05, 0x80, 0x00, 0x78, 0xae, 0x00};
   struct lp_fix   f;
-  u8              obuf[1024], out[1500];
-  wired_obuf      ob   = obuf_of(obuf, sizeof obuf);
-  wired_obuf      outb = obuf_of(out, sizeof out);
-  srvrun_cfg      cfg  = sr_wt_send_cfg();
-  srvrun_conn*    c    = sr_wtsend_fixture(&f, &ob);
-  const u8*       pl;
-  usz             pll;
-  stream_frame    sf;
+  u8              obuf[1024];
+  wired_obuf      ob = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*    c  = sr_wtsend_fixture(&f, &ob);
+  srvrun_wtsend*  w;
   c->wt_connect_sent_len[0] = 20;
   CHECK(wired_server_wt_drain_session(&c->wt) == 1);
   CHECK(wired_server_wt_drain_session(&c->wt) == 1);
-  srvrun_flush_wt_drain(&cfg, c, &outb);
-  CHECK(client_open_onertt(&f, outb.p, outb.len, &pl, &pll) == 1);
-  CHECK(frame_get_stream(pl, pll, &sf) > 0);
-  CHECK(sf.stream_id == 4 && sf.offset == 20 && sf.fin == 0);
-  CHECK(sf.length == sizeof want);
-  for (usz i = 0; i < sizeof want; i++) CHECK(sf.data[i] == want[i]);
+  srvrun_flush_wt_drain(c);
+  w = sr_connect_sender(c);
+  CHECK(w != 0 && w->append_open == 1 && w->sess.stream_base_offset == 20);
+  CHECK(w->sess.q.len == sizeof want);
+  CHECK(wt_bytes_eq(w->roundbuf, want, sizeof want));
   CHECK(c->wt_connect_sent_len[0] == 20 + sizeof want);
-  outb = obuf_of(out, sizeof out);
   CHECK(wired_server_wt_drain_session(&c->wt) == 1);
-  srvrun_flush_wt_drain(&cfg, c, &outb);
-  CHECK(outb.len == 0);
+  srvrun_flush_wt_drain(c);
+  CHECK(w->sess.q.len == sizeof want); /* nothing more staged */
   CHECK(c->wt_connect_sent_len[0] == 20 + sizeof want);
 }
 
@@ -20645,6 +20687,7 @@ void test_srvrun(void) {
   test_srvrun_wt_close_session_latches_pending();
   test_srvrun_wt_close_session_unknown_session_refused();
   test_srvrun_send_wt_close_seals_capsule_with_fin();
+  test_srvrun_wt_close_capsule_retransmitted_after_loss();
   test_srvrun_drain_wt_close_pending_closes_session();
   test_srvrun_drain_wt_close_pending_noop_without_latch();
   test_srvrun_wt_open_bidi_reply_received();

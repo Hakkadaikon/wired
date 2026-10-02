@@ -1554,7 +1554,7 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot);
  * it is defined alongside its own wtsend[] helpers further down. */
 static void srvrun_open_qenc_stream(srvrun_conn* c);
 /* Same: defined beside srvrun_send_wt_drain, which it sends through. */
-static void srvrun_flush_wt_drain_step(const srvrun_cfg* cfg, srvrun_conn* c);
+static void srvrun_flush_wt_drain(srvrun_conn* c);
 
 /* RFC 9001 4.6.1: dg's boot accumulator held every 0-RTT datagram that
  * arrived before this boot's early keys existed (wired_srvboot_acc_feed) --
@@ -3088,55 +3088,17 @@ static void srvrun_reset_wt_uni_if_owned(
   srvrun_wt_uni_slot_free(c, slot);
 }
 
-/* draft-ietf-webtrans-http3-15 SS4.2/SS4.7 (WTH3-048): seal capsule_bytes as
- * a STREAM frame on session slot sidx's own CONNECT stream, continuing from
- * wt_connect_sent_len[sidx] (the offset doc explains why a fresh one-shot
- * seal is used here rather than resp[]/wtsend[]'s pump), and advance that
- * offset past it. Fire-and-forget, same as srvrun_send_goaway itself: both
- * WT_DRAIN_SESSION (advisory, session.h) and GOAWAY are non-critical
- * notifications this SDK does not retransmit on loss. fin sets the STREAM
- * frame's own FIN bit (WT_CLOSE_SESSION's own send, WTH3-067, sets it; every
- * other capsule here does not). Returns 1 with out->len set, 0 on overflow or
- * no 1-RTT key. */
+/* draft-ietf-webtrans-http3-15 SS4.2/SS4.7 (WTH3-048): append capsule_bytes,
+ * DATA-framed (RFC 9297 3.2), to session slot sidx's CONNECT stream at
+ * wt_connect_sent_len[sidx] through a retransmittable send slot
+ * (srvrun_wt_connect_sender), so a lost packet is sent again (RFC 9000
+ * 13.3) -- a capsule lost for good would leave a hole that stalls every
+ * later byte of the stream, WT_CLOSE_SESSION included. fin ends the stream
+ * after it (WT_CLOSE_SESSION, WTH3-067). Returns 1 when staged, 0 when no
+ * send slot is free or the stream is already closing. */
 static int srvrun_send_wt_capsule(
-    const srvrun_cfg* cfg,
-    srvrun_conn*      c,
-    int               sidx,
-    wired_span        capsule_bytes,
-    u8                fin,
-    wired_obuf*       out) {
-  /* RFC 9297 3.2: in HTTP/3 the capsule data stream is the DATA frames'
-   * payload, so the capsule goes out wrapped in one DATA frame (+16: its
-   * worst-case Type + Length varints, RFC 9114 7.1). Every caller's capsule
-   * fits its own 16 + 4 + WTCAPSULE_CLOSE_MESSAGE_MAX body[], so the put
-   * cannot fail here. */
-  u8         df[16 + 16 + 4 + WTCAPSULE_CLOSE_MESSAGE_MAX];
-  wired_obuf dfb = obuf_of(df, sizeof df);
-  /* +32: STREAM frame header room (type + stream id + offset + length
-   * varints, RFC 9000 19.8) ahead of the DATA frame -- sized to fit the
-   * largest capsule this file sends, WT_CLOSE_SESSION's own worst case
-   * (WTCAPSULE_CLOSE_MESSAGE_MAX, srvrun_send_wt_close's own body[]). */
-  u8                    pl[32 + sizeof df];
-  wired_obuf            plb = obuf_of(pl, sizeof pl);
-  wired_srvloop_send_in sin;
-  stream_frame          f = {
-      srvrun_wt_slot(c, sidx)->connect_stream_id, c->wt_connect_sent_len[sidx],
-      h3_frame_put(&dfb, H3_FRAME_DATA, capsule_bytes), df, fin};
-  if (!appdata_stream_frame(&f, &plb)) return 0;
-  sin = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
-      c->l.tx_pn++,
-      -1,
-      wired_span_of(pl, plb.len),
-      0,
-      0,
-      0,
-      0};
-  if (!wired_srvloop_send_onertt(&c->s, &sin, out)) return 0;
-  srvrun_send(cfg, c, wired_span_of(out->p, out->len), "WT capsule sent\n");
-  c->wt_connect_sent_len[sidx] += f.length;
-  return 1;
-}
+    srvrun_conn* c, int sidx, wired_span capsule_bytes, u8 fin);
+static void srvrun_wt_connect_sender_drop(srvrun_conn* c, int sidx);
 
 /* draft-ietf-webtrans-http3-15 SS4.4/8.2: a session closing must not leave
  * any of ITS OWN WT bidi/uni streams open -- reset every one with err_code.
@@ -3174,6 +3136,7 @@ static void srvrun_close_wt_session_slot(
   srvrun_notify_wt_close(cfg, srvrun_wt_slot(c, sidx));
   wired_wt_session_close(srvrun_wt_slot(c, sidx));
   srvrun_reset_wt_streams_for_session(cfg, c, sidx, err_code);
+  srvrun_wt_connect_sender_drop(c, sidx);
   /* The CONNECT stream's reassembly slot was kept past its 2xx's resp reap
    * (srvrun_resp_release_stream) so the peer's session flow-control
    * capsules kept landing there (srvrun_wt_rx_capsules) -- with the session
@@ -3376,7 +3339,7 @@ static void srvrun_close_wt_on_stream_close(
  * stream's own FIN/reset either way, and leaving the session open forever on
  * a local encode failure would be worse. */
 static void srvrun_send_wt_close(
-    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, wired_obuf* out) {
+    const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
   /* +4: WT_CLOSE_SESSION's fixed 32-bit Application Error Code field
    * (wtcapsule.h). +16: worst-case Capsule Type + Capsule Length varint
    * overhead (RFC 9000 SS16: a varint is at most 8 bytes each,
@@ -3387,15 +3350,15 @@ static void srvrun_send_wt_close(
   if (wired_wtcapsule_encode_close(
           &bob, c->wt_close_code[sidx],
           wired_span_of(c->wt_close_msg[sidx], c->wt_close_msg_len[sidx])))
-    srvrun_send_wt_capsule(cfg, c, sidx, wired_span_of(body, bob.len), 1, out);
+    srvrun_send_wt_capsule(c, sidx, wired_span_of(body, bob.len), 1);
   srvrun_close_wt_session_slot(cfg, c, sidx, srvrun_wt_session_gone_code());
 }
 
 static void srvrun_drain_wt_close_one(
-    const srvrun_cfg* cfg, srvrun_conn* c, int i, wired_obuf* out) {
+    const srvrun_cfg* cfg, srvrun_conn* c, int i) {
   if (!c->wt_close_pending[i]) return;
   c->wt_close_pending[i] = 0;
-  if (srvrun_wt_is_active(c, i)) srvrun_send_wt_close(cfg, c, i, out);
+  if (srvrun_wt_is_active(c, i)) srvrun_send_wt_close(cfg, c, i);
 }
 
 /* Drain every session slot's pending wired_server_wt_close_session
@@ -3403,11 +3366,8 @@ static void srvrun_drain_wt_close_one(
  * srvrun_wt_rx_capsules. */
 static void srvrun_drain_wt_close_pending(
     const srvrun_cfg* cfg, srvrun_conn* c) {
-  u8 out[1500]; /* worst case: WT_CLOSE_SESSION's 1024-byte message
-                 * cap (srvrun_send_wt_close's own body[] doc) */
-  wired_obuf ob = obuf_of(out, sizeof out);
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
-    srvrun_drain_wt_close_one(cfg, c, i, &ob);
+    srvrun_drain_wt_close_one(cfg, c, i);
 }
 
 /* Seal latch entry i's standard RESET_STREAM (RFC 9000 19.4) into out as
@@ -3767,7 +3727,7 @@ static void srvrun_on_step(
   srvrun_wt_rx_capsules(ctx->cfg, c);
   srvrun_close_wt_on_stream_close(ctx->cfg, c);
   srvrun_deliver_wt_reset_if_owned(ctx->cfg, c);
-  srvrun_flush_wt_drain_step(ctx->cfg, c);
+  srvrun_flush_wt_drain(c);
   srvrun_drain_wt_close_pending(ctx->cfg, c);
   srvrun_drain_wt_stream_reset(ctx->cfg, c);
   srvrun_grant_wt_streams(ctx, c);
@@ -3827,45 +3787,35 @@ static int srvrun_send_goaway(
  * advisory-only doc) and apply the matching local state transition. A no-op
  * if the session was not ESTABLISHED (wired_wt_session_drain's own 0 return,
  * e.g. already draining/closed) -- nothing to drain twice. */
-static void srvrun_send_wt_drain(
-    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, wired_obuf* out) {
+static void srvrun_send_wt_drain(srvrun_conn* c, int sidx) {
   u8         body[8];
   wired_obuf bob = obuf_of(body, sizeof body);
   if (!wired_wt_session_drain(srvrun_wt_slot(c, sidx))) return;
   if (!wtcapsule_encode_drain(&bob)) return;
-  srvrun_send_wt_capsule(cfg, c, sidx, wired_span_of(body, bob.len), 0, out);
+  srvrun_send_wt_capsule(c, sidx, wired_span_of(body, bob.len), 0);
 }
 
 /* Fan WT_DRAIN_SESSION out to every active WT session slot on c -- run right
  * after c's own GOAWAY (srvrun_send_goaway), the trigger draft-ietf-webtrans-
  * http3-15 SS4.7 ties this capsule to ("a server sends WT_DRAIN_SESSION [...]
  * when [...] the connection is going away, for example, [...] GOAWAY"). */
-static void srvrun_send_wt_drain_all(
-    const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* out) {
+static void srvrun_send_wt_drain_all(srvrun_conn* c) {
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
-    if (srvrun_wt_is_active(c, i)) srvrun_send_wt_drain(cfg, c, i, out);
+    if (srvrun_wt_is_active(c, i)) srvrun_send_wt_drain(c, i);
 }
 
-static void srvrun_flush_wt_drain_one(
-    const srvrun_cfg* cfg, srvrun_conn* c, int i, wired_obuf* out) {
+static void srvrun_flush_wt_drain_one(srvrun_conn* c, int i) {
   if (!c->wt_drain_pending[i]) return;
   c->wt_drain_pending[i] = 0;
-  if (srvrun_wt_is_active(c, i)) srvrun_send_wt_drain(cfg, c, i, out);
+  if (srvrun_wt_is_active(c, i)) srvrun_send_wt_drain(c, i);
 }
 
 /* Send every session slot's pending wired_server_wt_drain_session
  * (wt_drain_pending). srvrun_send_wt_drain's own ESTABLISHED->DRAINING
  * guard keeps it to one capsule per session. */
-static void srvrun_flush_wt_drain(
-    const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* out) {
+static void srvrun_flush_wt_drain(srvrun_conn* c) {
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
-    srvrun_flush_wt_drain_one(cfg, c, i, out);
-}
-
-static void srvrun_flush_wt_drain_step(const srvrun_cfg* cfg, srvrun_conn* c) {
-  u8         out[1500];
-  wired_obuf ob = obuf_of(out, sizeof out);
-  srvrun_flush_wt_drain(cfg, c, &ob);
+    srvrun_flush_wt_drain_one(c, i);
 }
 
 /* GOAWAY is HTTP/3-only (RFC 9114 5.2, a control-stream frame): an
@@ -4633,6 +4583,50 @@ static int srvrun_wtsend_accept_round(
          srvrun_wtsend_stage_round(c, w, payload, fin);
 }
 
+/* Session slot sidx's CONNECT-stream send slot: the one already open, else
+ * a fresh wtsend slot armed empty at wt_connect_sent_len[sidx] -- the
+ * response's own resp[] sendsess is freed once its 2xx is ACKed, so later
+ * capsules ride their own slot, continuing the stream exactly where the 2xx
+ * ended. Seeded with the peer's bidi_local credit (RFC 9000 18.2), the same
+ * as a reply on any client-initiated stream. 0 when every slot is busy. */
+static srvrun_wtsend* srvrun_wt_connect_sender(srvrun_conn* c, int sidx) {
+  u64            id = srvrun_wt_slot(c, sidx)->connect_stream_id;
+  srvrun_wtsend* w  = srvrun_wtsend_find(c, id);
+  if (w) return w;
+  w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_bidi_local);
+  if (!w) return 0;
+  w->append_open = 1;
+  w->stream_id   = id;
+  w->stream_off  = c->wt_connect_sent_len[sidx];
+  srvrun_wtsend_epoch_reset(c, w);
+  return w;
+}
+
+static int srvrun_send_wt_capsule(
+    srvrun_conn* c, int sidx, wired_span capsule_bytes, u8 fin) {
+  /* RFC 9297 3.2: in HTTP/3 the capsule data stream is the DATA frames'
+   * payload (+16: the frame's worst-case Type + Length varints, RFC 9114
+   * 7.1); every caller's capsule fits 16 + 4 + WTCAPSULE_CLOSE_MESSAGE_MAX. */
+  u8             df[16 + 16 + 4 + WTCAPSULE_CLOSE_MESSAGE_MAX];
+  wired_obuf     dfb = obuf_of(df, sizeof df);
+  usz            n   = h3_frame_put(&dfb, H3_FRAME_DATA, capsule_bytes);
+  srvrun_wtsend* w   = srvrun_wt_connect_sender(c, sidx);
+  if (!w || !srvrun_wtsend_accept_round(c, w, wired_span_of(df, n), fin))
+    return 0;
+  c->wt_connect_sent_len[sidx] += n;
+  return 1;
+}
+
+/* A session ending without its own WT_CLOSE_SESSION (peer closed, reset)
+ * abandons whatever its still-open CONNECT-stream send slot holds; a slot
+ * already carrying the closing FIN (append_open 0) stays until it is ACKed
+ * and reaped. */
+static void srvrun_wt_connect_sender_drop(srvrun_conn* c, int sidx) {
+  srvrun_wtsend* w =
+      srvrun_wtsend_find(c, srvrun_wt_slot(c, sidx)->connect_stream_id);
+  if (srvrun_wtsend_open_slot(w)) w->in_use = 0;
+}
+
 /* 1 iff this rejected append was a live round refused only because the
  * pipeline is full (epoch buffer exhausted, or an oversized view round
  * still in flight) -- as opposed to a misuse rejection (unknown/closed
@@ -5032,7 +5026,7 @@ static void srvrun_dgring_drain(
 static void srvrun_goaway_one(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* ob) {
   if (!srvrun_send_goaway(cfg, c, ob)) return;
-  srvrun_send_wt_drain_all(cfg, c, ob);
+  srvrun_send_wt_drain_all(c);
 }
 
 static void srvrun_goaway_all(const srvrun_cfg* cfg, srvrun_state* st) {
