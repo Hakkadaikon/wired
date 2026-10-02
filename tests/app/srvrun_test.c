@@ -5124,14 +5124,16 @@ static void test_srvrun_wt_abort_frames_match_stream_type(void) {
     CHECK(ss.stream_id == 6);
   }
   { /* server uni (id % 4 == 3): RESET_STREAM alone */
-    wired_obuf pktb = obuf_of(pkt, sizeof pkt);
+    wired_obuf pktb       = obuf_of(pkt, sizeof pkt);
+    c.wtsend[0].in_use    = 1; /* live send slot, nothing sent yet */
+    c.wtsend[0].stream_id = 7;
     CHECK(srvrun_seal_wt_busy_reset(&c, 7, H3_REQUEST_REJECTED, &pktb));
     CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
     CHECK(pl[0] == FRAME_RESET_STREAM);
     n = reset_stream_decode(pl, pll, &rs);
     CHECK(n != 0 && n == pll);
     CHECK(rs.stream_id == 7);
-    CHECK(rs.final_size == 0); /* no send slot armed on this id */
+    CHECK(rs.final_size == 0); /* no byte sent on this id yet */
   }
 }
 
@@ -18047,6 +18049,22 @@ static srvrun_conn* sr_replied_bidi_fixture(struct lp_fix* f, wired_obuf* ob) {
   return c;
 }
 
+/* RFC 9000 3.1/4.5: once a reply's FIN is ACKed (send slot reaped, "Data
+ * Recvd") the send part is over -- the session teardown must not reset it
+ * (a Final Size of 0 below the bytes the peer already has is a connection-
+ * fatal FINAL_SIZE_ERROR); only the receive half is stopped. */
+static void test_srvrun_wt_teardown_skips_reset_of_finished_reply(void) {
+  struct lp_fix f;
+  u8            obuf[1024];
+  wired_obuf    ob    = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*  c     = sr_replied_bidi_fixture(&f, &ob);
+  srvrun_cfg    cfg   = sr_wt_send_cfg();
+  c->wtsend[0].in_use = 0; /* reply fully ACKed and reaped */
+  srvrun_reset_wt_streams_for_session(&cfg, c, 0, H3_NO_ERROR);
+  CHECK(c->rst[0].pln > 0);
+  CHECK(c->rst[0].pl[0] == FRAME_STOP_SENDING);
+}
+
 /* RFC 9000 4.5: a reset mid-send carries the bytes actually sent as its
  * Final Size, not the bytes merely armed (an armed tail past the peer's
  * credit would be a FLOW_CONTROL_ERROR there). */
@@ -18067,6 +18085,23 @@ static void test_srvrun_wt_reset_mid_send_final_is_bytes_sent(void) {
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   CHECK(reset_stream_decode(pl, pll, &rs) > 0);
   CHECK(rs.stream_id == 0 && rs.final_size == 2);
+}
+
+/* An app reset of a server stream whose send slot was already reaped (FIN
+ * ACKed) has nothing left to abort: no RESET_STREAM is latched, so none
+ * with a shrunken Final Size of 0 can reach the peer. */
+static void test_srvrun_wt_stream_reset_after_reap_sends_nothing(void) {
+  struct lp_fix f;
+  u8            obuf[1024];
+  wired_obuf    ob = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*  c  = sr_wtsend_fixture(&f, &ob);
+  CHECK(
+      wired_server_wt_open_uni(
+          &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
+      11);
+  c->wtsend[0].in_use = 0; /* fully ACKed and reaped */
+  CHECK(wired_server_wt_stream_reset(&c->wt, 11, 0x42) == 1);
+  CHECK(c->wt_stream_reset_n == 0);
 }
 
 /* The CONNECT stream's send slot does not pin an app send slot for the
@@ -20926,7 +20961,9 @@ void test_srvrun(void) {
   test_srvrun_control_packets_kept_until_acked();
   test_srvrun_rst_budget_exhausted_tears_down();
   test_srvrun_wt_close_without_send_slot_resets_connect();
+  test_srvrun_wt_teardown_skips_reset_of_finished_reply();
   test_srvrun_wt_reset_mid_send_final_is_bytes_sent();
+  test_srvrun_wt_stream_reset_after_reap_sends_nothing();
   test_srvrun_wt_drain_slot_reaped_once_acked();
   test_srvrun_wt_offer_reject_returns_credit();
   test_srvrun_wt_teardown_returns_credit();
