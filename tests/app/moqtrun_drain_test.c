@@ -373,7 +373,21 @@ static void test_moqtrun_upd_failed_closes_ns(void) {
   CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|DONE:room1|ERR:03|"));
 }
 
+/* A GOAWAY the control stream refused (previous round unACKed) goes out
+ * on the next tick, even if the peer sends nothing more. */
+static void test_moqtrun_goaway_retried_on_tick(void) {
+  mtrq_setup();
+  g_stream_send_reject_n = 2;
+  wired_moqt_goaway(&mtst_hub, mtst_z(""), 0);
+  CHECK(mtdr_sent(mtdr_ctl(SESS_A), MOQCTL_T_GOAWAY) == 1);
+  CHECK(moqtrun_test_last_kind(3)->refused == 1);
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mtdr_sent(mtdr_ctl(SESS_A), MOQCTL_T_GOAWAY) == 2);
+  CHECK(moqtrun_test_last_kind(3)->refused == 0);
+}
+
 void test_moqtrun_drain(void) {
+  test_moqtrun_goaway_retried_on_tick();
   test_moqtrun_upd_failed_ends_subscription();
   test_moqtrun_upd_failed_closes_ns();
   test_moqtrun_goaway_timeout_flush_then_close();

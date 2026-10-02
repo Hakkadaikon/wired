@@ -4721,10 +4721,19 @@ static int moqtrun_drain_due(const wired_moqtrun_peer* p, u64 now_ms) {
   return p->in_use && !p->closing && now_ms >= p->goaway_deadline;
 }
 
+/* Control-stream replies refused earlier (moqtrun_flush_replies) are
+ * retried on the clock too, not only when the peer sends again: a GOAWAY
+ * must go out even to a silent peer. */
+static void moqtrun_ctl_retry(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  if (p->in_use && !p->closing) moqtrun_flush_replies(&hub->io, p);
+}
+
 static void moqtrun_drain_tick(wired_moqt_hub* hub, u64 now_ms) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
     if (moqtrun_drain_due(&hub->peers[i], now_ms))
       moqtrun_drain_expire(hub, &hub->peers[i]);
+    moqtrun_ctl_retry(hub, &hub->peers[i]);
+  }
 }
 
 int wired_moqt_goaway(wired_moqt_hub* hub, wired_span new_uri, u64 timeout_ms) {
