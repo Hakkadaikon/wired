@@ -97,6 +97,13 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   for (usz i = 0; i < WIRED_MOQTREL_POOL; i++) moqtrel_reset(&hub->rel_pool[i]);
   moqtrun_reqs_clear(hub);
   moqtrun_frag_pool_clear(hub);
+  moqcache_init(&hub->cache, 0, 0);
+  hub->cache_tag_next = 0;
+}
+
+int wired_moqt_cache_attach(wired_moqt_hub* hub, u8* arena, usz size) {
+  moqcache_init(&hub->cache, arena, size);
+  return size != 0;
 }
 
 /* SS10 common envelope (Type vi64 + 16-bit Length + Body): every control
@@ -601,6 +608,13 @@ static void moqtrun_track_seed_largest(
   if (l) moqtrun_track_note(t, l->loc.group, l->loc.object);
 }
 
+/* A live track's incarnation ends: its cached Objects go (a slot never
+ * claimed holds no tag worth trusting). */
+static void moqtrun_track_cache_drop(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t) {
+  if (t->in_use) moqcache_release(&hub->cache, t->cache_tag);
+}
+
 static void moqtrun_track_claim(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* t,
@@ -614,7 +628,9 @@ static void moqtrun_track_claim(
    * that follows in moqtrun_handle_publish re-derives who to reattach from
    * each SUBSCRIBER's own surviving sub_names ring instead. */
   moqtrun_track_reset_stale_relays(hub, t);
+  moqtrun_track_cache_drop(hub, t);
   if (!t->in_use) moqtrun_track_clear_subs(t);
+  t->cache_tag   = ++hub->cache_tag_next;
   t->in_use      = 1;
   t->own_alias   = track_alias;
   t->has_largest = 0; /* a new PUBLISH restarts the Largest */
@@ -658,6 +674,7 @@ static void moqtrun_track_return_rings(
  * relayed. */
 static void moqtrun_track_retire(wired_moqt_hub* hub, wired_moqtrun_track* t) {
   moqtrun_track_reset_stale_relays(hub, t);
+  moqtrun_track_cache_drop(hub, t);
   moqtrun_track_return_rings(hub, t);
   moqtrun_track_clear_relays(t);
   t->in_use = 0;
@@ -1675,6 +1692,7 @@ static void moqtrun_relay_object(
  * of one track's streams can be forwarded concurrently). --- */
 
 static usz moqtrun_decode_object_loop(
+    wired_moqt_hub*      hub,
     wired_span           data,
     usz*                 off,
     moqdata_objseq*      seq,
@@ -1954,7 +1972,7 @@ static wired_span moqtrun_relay_normalize(
         hub->relay_scratch, hub->frag_pool[relay->frag_idx], relay->frag_len);
   bytes_memcpy(hub->relay_scratch + relay->frag_len, data.p, data.n);
   moqtrun_decode_object_loop(
-      wired_span_of(hub->relay_scratch, total), &off, &relay->seq,
+      hub, wired_span_of(hub->relay_scratch, total), &off, &relay->seq,
       relay->group_id, track);
   moqtrun_relay_save_frag(hub, relay, hub->relay_scratch + off, total - off);
   return wired_span_of(hub->relay_scratch, off);
@@ -2593,7 +2611,25 @@ static void moqtrun_relay_start(
  * nothing to relay). A single-Object stream decodes identically to this
  * hub's former one-shot-Object path, this is that path's generalization to
  * N Objects on one stream. */
+/* hub (0: not a peer track) caches each whole Object of t for FETCH
+ * (draft 10.12.3). A Status-only Object has no payload a fetch Object
+ * could carry (11.4.4), so it reads as nonexistent there. */
+static int moqtrun_cacheable(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t, u64 status) {
+  return hub && t && status == MOQDATA_STATUS_NORMAL;
+}
+
+static void moqtrun_cache_obj(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* t,
+    u64                  group,
+    const moqdata_obj*   o) {
+  if (!moqtrun_cacheable(hub, t, o->status)) return;
+  moqcache_append(&hub->cache, t->cache_tag, group, o->object_id, o->payload);
+}
+
 static usz moqtrun_decode_object_loop(
+    wired_moqt_hub*      hub,
     wired_span           data,
     usz*                 off,
     moqdata_objseq*      seq,
@@ -2604,6 +2640,7 @@ static usz moqtrun_decode_object_loop(
     moqdata_obj obj;
     if (moqdata_obj_take(data, off, seq, &obj) != MOQDATA_OK) break;
     moqtrun_track_note(t, group, obj.object_id);
+    moqtrun_cache_obj(hub, t, group, &obj);
     n++;
   }
   return n;
@@ -2619,7 +2656,7 @@ static void moqtrun_subgroup_scan(
   if (moqdata_subhdr_take(wire, &off, &hdr) != MOQDATA_OK) return;
   *seq   = moqdata_objseq_of(hdr.type);
   *group = hdr.group_id;
-  moqtrun_decode_object_loop(wire, &off, seq, hdr.group_id, t);
+  moqtrun_decode_object_loop(0, wire, &off, seq, hdr.group_id, t);
 }
 
 static int moqtrun_track_has_alias(
@@ -2657,14 +2694,19 @@ static int moqtrun_fresh_nothing_due(usz whole_objects, int fin) {
  * end, accepted only when more deliveries are coming (fin=0,
  * moqtrun_fresh_nothing_due). */
 static wired_moqtrun_track* moqtrun_decode_fresh_subgroup(
-    wired_moqtrun_peer* p, wired_span data, usz* whole_end, int fin) {
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_span          data,
+    usz*                whole_end,
+    int                 fin) {
   usz            off = 0;
   moqdata_subhdr hdr;
   if (moqdata_subhdr_take(data, &off, &hdr) != MOQDATA_OK) return 0;
   wired_moqtrun_track* t   = moqtrun_track_by_alias(p, hdr.track_alias);
   moqdata_objseq       seq = moqdata_objseq_of(hdr.type);
   if (moqtrun_fresh_nothing_due(
-          moqtrun_decode_object_loop(data, &off, &seq, hdr.group_id, t), fin))
+          moqtrun_decode_object_loop(hub, data, &off, &seq, hdr.group_id, t),
+          fin))
     return 0;
   *whole_end = off;
   return t;
@@ -2677,11 +2719,15 @@ static wired_moqtrun_track* moqtrun_decode_fresh_subgroup(
  * Objects decoded on a one-shot fin delivery, or an unknown Track
  * Alias). */
 static wired_moqtrun_track* moqtrun_resolve_fresh_stream_track(
-    wired_moqtrun_peer* p, wired_span data, usz* whole_end, int fin) {
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_span          data,
+    usz*                whole_end,
+    int                 fin) {
   usz classify_off = 0;
   int kind         = moqdata_classify(data, &classify_off);
   if (kind != MOQDATA_STREAM_SUBGROUP) return 0;
-  return moqtrun_decode_fresh_subgroup(p, data, whole_end, fin);
+  return moqtrun_decode_fresh_subgroup(hub, p, data, whole_end, fin);
 }
 
 /* A publisher stream seen for the first time: resolve its track from the
@@ -2700,7 +2746,7 @@ static void moqtrun_dispatch_fresh_stream(
     int                 fin) {
   usz                  whole_end = 0;
   wired_moqtrun_track* track =
-      moqtrun_resolve_fresh_stream_track(p, data, &whole_end, fin);
+      moqtrun_resolve_fresh_stream_track(hub, p, data, &whole_end, fin);
   if (!track) return;
   if (fin) {
     moqtrun_relay_object(hub, track, data);
@@ -3092,6 +3138,8 @@ void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s) {
    * subscriber streams they record (moqtrun_track_reset_stale_relays). */
   moqtrun_peer_drop_rings(hub, p);
   moqtrun_peer_frags_release(p);
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    moqtrun_track_cache_drop(hub, &p->tracks[t]);
   p->in_use = 0;
 }
 

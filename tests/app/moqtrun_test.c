@@ -1597,7 +1597,7 @@ static void test_moqtrun_two_subscribe_oks_one_dispatch_no_overflow(void) {
 static usz moqtrun_test_decode_loop(
     wired_span data, usz* off, const moqdata_subhdr* hdr) {
   moqdata_objseq seq = moqdata_objseq_of(hdr->type);
-  return moqtrun_decode_object_loop(data, off, &seq, hdr->group_id, 0);
+  return moqtrun_decode_object_loop(0, data, off, &seq, hdr->group_id, 0);
 }
 
 static usz moqtrun_test_build_multi_object_stream(usz n_objects, u8* buf) {
