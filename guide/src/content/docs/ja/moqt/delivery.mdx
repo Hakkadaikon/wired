@@ -1,0 +1,25 @@
+---
+title: データグラムとストリームの配送
+description: 同じ種類のデータを、ロスのあるOBJECT_DATAGRAMと、信頼性のある分割済みのObjectストリームの両方で送る。
+sidebar:
+  order: 5
+---
+import Example from '../../../../components/Example.astro';
+
+MoQT の Object は、保証の異なる 2 種類のワイヤー形式で運べます。
+このページは、1 つの Object を QUIC DATAGRAM として送り（ロスがあり、再送はなく、コネクション自体のデータグラムサイズに制限されます）、もう少し大きな Object をストリームとして送ります（信頼性があり、Object 1 つあたり 16 KiB の上限で分割されます）。
+
+<Example id="moqt-delivery" />
+
+## 仕組み
+
+- `moqdg_put` は、OBJECT_DATAGRAM（draft-ietf-moq-transport-19 11.3.1）を直接エンコードします。
+  `wired_server_wt_send_datagram_to` は、それを QUIC DATAGRAM としてキューに積むだけで、ストリームも再送も関与しません。
+- `moqdata_blob_build` は、blob を 1 つの SUBGROUP_HEADER と、それに続く最大 `MOQDATA_BLOB_CHUNK`（16384）バイトずつの Object へフレーム化します（draft-ietf-moq-transport-19 11.4.2）。
+  このページの blob は 20000 バイトなので、16384 バイトと残り 3616 バイトの、2 つの Object になります。
+  `wired_server_wt_open_uni` は、フレーム化したストリーム全体を FIN まで含めて、信頼性のある形で送ります。
+- クライアントの `go run` の出力には、両方が現れます。
+  データグラムは 1 つのペイロードとしてそのまま届き、ストリームは `object_1` と `object_2` として届き、両者の長さを足すと元の 20000 バイトに戻ります。
+- このページは、`moqdata`/`moqdg` を使って Object を直接組み立てており、`wired_moqt_hub` は経由しません。
+  PUBLISH / SUBSCRIBE のコントロールプレーンのやり取りはなく、ハブ自身もその土台としている 2 つの WebTransport 配送プリミティブだけを使っています。
+  ハブ自身のより高レベルな API については、[トラックの公開](../publish/) を参照してください。
