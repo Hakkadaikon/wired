@@ -285,7 +285,63 @@ static void test_moqtrun_done_track_ended(void) {
   CHECK(mtst_sub(SESS_A, SESS_C) != 0);
 }
 
+/* ===================== GOAWAY timeout (3.6) ===================== */
+
+/* Past the Timeout, the hub flushes first -- PUBLISH_DONE GOING_AWAY to
+ * every subscription the session holds, its stream FINed -- and closes
+ * with GOAWAY_TIMEOUT on the next tick; not before the deadline. The
+ * clock is the tick's. */
+static void test_moqtrun_goaway_timeout_flush_then_close(void) {
+  moqctl_ftn f     = mtrq_setup();
+  u64        count = 0, code = 0;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  wired_moqt_tick(&mtst_hub, 1000);
+  wired_moqt_goaway(&mtst_hub, mtst_z(""), 500);
+  wired_moqt_tick(&mtst_hub, 1499);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+  CHECK(mtdr_closes(SESS_B, &code) == 0);
+  wired_moqt_tick(&mtst_hub, 1500);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_GOING_AWAY);
+  CHECK(mtrq_fin_on(MTRQ_S1) == 1);
+  CHECK(mtst_sub(SESS_A, SESS_B) == 0);
+  CHECK(mtdr_closes(SESS_B, &code) == 0);
+  wired_moqt_tick(&mtst_hub, 1501);
+  CHECK(mtdr_closes(SESS_B, &code) == 1);
+  CHECK(code == WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT);
+  CHECK(mtdr_closes(SESS_A, &code) == 1);
+  wired_moqt_tick(&mtst_hub, 1502);
+  CHECK(mtdr_closes(SESS_B, &code) == 1); /* closed once */
+}
+
+/* Timeout 0 sets no deadline (10.4); the session stays open. */
+static void test_moqtrun_goaway_no_timeout(void) {
+  u64 code = 0;
+  mtrq_setup();
+  wired_moqt_goaway(&mtst_hub, mtst_z(""), 0);
+  wired_moqt_tick(&mtst_hub, (u64)1 << 40);
+  CHECK(mtdr_closes(SESS_A, &code) == 0);
+  CHECK(mtdr_closes(SESS_B, &code) == 0);
+}
+
+/* Nothing goes to a session the hub closed: no GOAWAY, no PUBLISH_DONE
+ * when its publisher leaves. */
+static void test_moqtrun_closed_is_frozen(void) {
+  static const u8 away[] = {0x00, 0x00};
+  moqctl_ftn      f      = mtrq_setup();
+  u64             count  = 0;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  mtrq_raw(SESS_B, mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY, away, sizeof away);
+  mtrq_raw(SESS_B, mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY, away, sizeof away);
+  CHECK(wired_moqt_goaway(&mtst_hub, mtst_z(""), 1) == 1);
+  CHECK(mtdr_sent(mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY) == 0);
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+}
+
 void test_moqtrun_drain(void) {
+  test_moqtrun_goaway_timeout_flush_then_close();
+  test_moqtrun_goaway_no_timeout();
+  test_moqtrun_closed_is_frozen();
   test_moqtrun_done_track_ended();
   test_moqtrun_goaway_once_per_session();
   test_moqtrun_goaway_uri_too_long();

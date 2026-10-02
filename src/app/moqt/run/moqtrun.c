@@ -2323,11 +2323,20 @@ static moqtrun_ctl_fn moqtrun_ctl_lookup(u64 type) {
  * handled is discarded (its skip never runs out). An io table without
  * close_session skips the message by its Length instead and keeps the
  * stream alive. */
+/* Closes p's session with code, after which nothing more is sent on it;
+ * 0 when the io table has no close_session. */
+static int moqtrun_peer_close(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
+  if (!hub->io.close_session) return 0;
+  hub->io.close_session(p->wt, code, wired_span_of(0, 0));
+  p->closing = 1;
+  return 1;
+}
+
 static void moqtrun_close_with(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
   wired_moqtrun_ctl_asm* a = moqtrun_cur_asm(p);
-  if (!hub->io.close_session) return;
-  hub->io.close_session(p->wt, code, wired_span_of(0, 0));
+  if (!moqtrun_peer_close(hub, p, code)) return;
   a->at   = a->n;
   a->skip = (usz)-1;
 }
@@ -2708,9 +2717,12 @@ static void moqtrun_rel_tick_all(wired_moqt_hub* hub, u64 now_ms);
 
 static void moqtrun_reqs_tick(wired_moqt_hub* hub);
 
+static void moqtrun_drain_tick(wired_moqt_hub* hub, u64 now_ms);
+
 void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
   hub->live.last_now_ms = now_ms;
   moqtrun_rel_tick_all(hub, now_ms);
+  moqtrun_drain_tick(hub, now_ms);
   moqtrun_reqs_tick(hub);
   moqtrun_fetches_tick(hub);
   if (!hub->live.track.in_use) return;
@@ -4373,30 +4385,42 @@ static void moqtrun_track_drop_sub(
   }
 }
 
-static void moqtrun_peer_drop_subs(
-    wired_moqt_hub* hub, wired_moqtrun_peer* q, usz idx, u64 rid) {
+/* Applied to one track with a peer index and an argument. */
+typedef void (*moqtrun_track_fn)(
+    wired_moqt_hub*, wired_moqtrun_track*, usz idx, u64 arg);
+
+static void moqtrun_peer_each_track(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* q,
+    moqtrun_track_fn    fn,
+    usz                 idx,
+    u64                 arg) {
   for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
-    if (q->tracks[t].in_use)
-      moqtrun_track_drop_sub(hub, &q->tracks[t], idx, rid);
+    if (q->tracks[t].in_use) fn(hub, &q->tracks[t], idx, arg);
 }
 
-/* The hub's own tracks (blob and live) forget peer index idx too: a
- * reconnect landing in the same slot must be served afresh, not mistaken
- * for the dead peer. */
-static void moqtrun_hub_tracks_drop_sub(wired_moqt_hub* hub, usz idx, u64 rid) {
-  if (hub->blob_track.in_use)
-    moqtrun_track_drop_sub(hub, &hub->blob_track, idx, rid);
-  if (hub->live.track.in_use)
-    moqtrun_track_drop_sub(hub, &hub->live.track, idx, rid);
+/* The hub's own tracks (blob and live) count too: e.g. they forget a
+ * closed peer index, so a reconnect landing in the same slot is served
+ * afresh, not mistaken for the dead peer. */
+static void moqtrun_hub_each_track(
+    wired_moqt_hub* hub, moqtrun_track_fn fn, usz idx, u64 arg) {
+  if (hub->blob_track.in_use) fn(hub, &hub->blob_track, idx, arg);
+  if (hub->live.track.in_use) fn(hub, &hub->live.track, idx, arg);
 }
 
-/* Deactivate every subscription any peer's tracks (and the hub's own
- * tracks) hold for peer index idx under Request ID rid. */
-static void moqtrun_drop_peer_subs(wired_moqt_hub* hub, usz idx, u64 rid) {
+/* fn on every in-use track: every peer's and the hub's own. */
+static void moqtrun_each_track(
+    wired_moqt_hub* hub, moqtrun_track_fn fn, usz idx, u64 arg) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
     if (hub->peers[i].in_use)
-      moqtrun_peer_drop_subs(hub, &hub->peers[i], idx, rid);
-  moqtrun_hub_tracks_drop_sub(hub, idx, rid);
+      moqtrun_peer_each_track(hub, &hub->peers[i], fn, idx, arg);
+  moqtrun_hub_each_track(hub, fn, idx, arg);
+}
+
+/* Deactivate every subscription held for peer index idx under Request ID
+ * rid. */
+static void moqtrun_drop_peer_subs(wired_moqt_hub* hub, usz idx, u64 rid) {
+  moqtrun_each_track(hub, moqtrun_track_drop_sub, idx, rid);
 }
 
 /* A closed session's request streams go back to the pool. */
@@ -4641,6 +4665,41 @@ static int moqtrun_goaway_send(
     sent += moqtrun_goaway_try(
         hub, &hub->peers[i], s, wired_span_of(msg, n), deadline);
   return sent;
+}
+
+/* PUBLISH_DONE status to each subscription peer index idx holds on t. */
+static void moqtrun_track_done_peer(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, usz idx, u64 status) {
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
+    if (moqtrun_sub_is_peer(&t->subs[si], idx))
+      moqtrun_sub_done_slot(hub, t, si, status);
+}
+
+/* Past the GOAWAY Timeout (3.6): first the flush -- PUBLISH_DONE
+ * GOING_AWAY to every subscription p holds and its queued answers sent
+ * (the tick's moqtrun_reqs_tick then FINs those streams) -- and on the
+ * next tick the close with GOAWAY_TIMEOUT, so the flushed bytes get a
+ * loop step to leave before the transport resets the streams. */
+static void moqtrun_drain_expire(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  if (p->goaway_flushed) {
+    moqtrun_peer_close(hub, p, WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT);
+    return;
+  }
+  moqtrun_each_track(
+      hub, moqtrun_track_done_peer, (usz)(p - hub->peers),
+      MOQCTL_DONE_GOING_AWAY);
+  moqtrun_flush_replies(&hub->io, p);
+  p->goaway_flushed = 1;
+}
+
+static int moqtrun_drain_due(const wired_moqtrun_peer* p, u64 now_ms) {
+  return p->in_use && !p->closing && now_ms >= p->goaway_deadline;
+}
+
+static void moqtrun_drain_tick(wired_moqt_hub* hub, u64 now_ms) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
+    if (moqtrun_drain_due(&hub->peers[i], now_ms))
+      moqtrun_drain_expire(hub, &hub->peers[i]);
 }
 
 int wired_moqt_goaway(wired_moqt_hub* hub, wired_span new_uri, u64 timeout_ms) {

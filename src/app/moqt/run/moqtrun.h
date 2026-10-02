@@ -858,12 +858,12 @@ void wired_moqt_on_stream_reset(
  * (new_uri, timeout_ms) once on the control stream of every open session
  * that has not had one. A session that got GOAWAY answers every later new
  * request REQUEST_ERROR GOING_AWAY (requests already answered stay, and
- * their REQUEST_UPDATEs are served). On a later wired_moqt_tick a session
- * with nothing open is closed NO_ERROR; one still open timeout_ms after
- * this call (measured on the tick clock) is sent PUBLISH_DONE GOING_AWAY
- * for every subscription it holds on a request stream, and closed with
- * GOAWAY_TIMEOUT on the tick after. timeout_ms 0 sets no deadline (10.4:
- * no specific timeout). A publisher's session ending, for any reason,
+ * their REQUEST_UPDATEs are served). A session still open timeout_ms
+ * after this call (on the wired_moqt_tick clock) is sent PUBLISH_DONE
+ * GOING_AWAY for every subscription it holds on a request stream by the
+ * next tick, and closed with GOAWAY_TIMEOUT on the tick after. timeout_ms
+ * 0 sets no deadline (10.4: no specific timeout); the hub never closes a
+ * session early. A publisher's session ending, for any reason,
  * sends its subscribers on other sessions PUBLISH_DONE TRACK_ENDED.
  * Subscriptions made on the control stream get no PUBLISH_DONE (it has
  * no Request ID to name them by).
