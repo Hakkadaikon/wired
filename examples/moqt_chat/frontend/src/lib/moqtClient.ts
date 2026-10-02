@@ -487,8 +487,9 @@ export class MoqtChatClient {
       this.#subscribed.clear();
       this.#fetches.clear();
       this.#fetchTurn = Promise.resolve();
-      this.#readIncomingUniStreams();
-      this.#readIncomingDatagrams();
+      // Both readers end by rejecting once the session closes.
+      this.#readIncomingUniStreams().catch(() => {});
+      this.#readIncomingDatagrams().catch(() => {});
       // WebTransport.draining (draft-ietf-webtrans-http3-15 4.7): the
       // server asked the session to wind down.
       void (wt as { draining?: Promise<void> }).draining?.then(
