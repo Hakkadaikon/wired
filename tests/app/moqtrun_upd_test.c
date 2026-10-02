@@ -235,7 +235,8 @@ static void test_moqtrun_tstat_control_stream(void) {
 }
 
 /* An update is all or nothing: when FORWARD 0 -> 1 cannot send the blob,
- * the priority it carried is not kept either. */
+ * the priority it carried is not kept either -- and the failure ends the
+ * subscription (10.9.1, PUBLISH_DONE UPDATE_FAILED). */
 static void test_moqtrun_upd_failed_changes_nothing(void) {
   moqctl_params p0 = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
   moqctl_params p1 = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
@@ -243,16 +244,17 @@ static void test_moqtrun_upd_failed_changes_nothing(void) {
   mtrq_setup();
   CHECK(moqtrun_test_publish_small_blob(&mtst_hub, 10) != 0);
   mtst_subscribe_p(SESS_B, MTRQ_S1, &m, 2, &p0);
-  p1.items[1].type  = MOQCTL_PARAM_SUBSCRIBER_PRIORITY;
-  p1.items[1].enc   = MOQCTL_PENC_UINT8;
-  p1.items[1].u8v   = 9;
-  p1.n              = 2;
+  p1.items[1].type = MOQCTL_PARAM_SUBSCRIBER_PRIORITY;
+  p1.items[1].enc  = MOQCTL_PENC_UINT8;
+  p1.items[1].u8v  = 9;
+  p1.n             = 2;
+  wired_moqtrun_sub* s =
+      moqtrun_track_sub_of_peer(&mtst_hub.blob_track, mtst_idx(SESS_B));
   g_send_uni_fail_n = 1;
   mtup_update(SESS_B, MTRQ_S1, &p1);
   CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_INTERNAL_ERROR);
-  wired_moqtrun_sub* s =
-      moqtrun_track_sub_of_peer(&mtst_hub.blob_track, mtst_idx(SESS_B));
   CHECK(s && s->forward_off == 1 && s->has_priority == 0);
+  CHECK(mtrq_fin_on(MTRQ_S1) == 1);
 }
 
 /* Reliable relay: FORWARD 1 -> 0 by update stops the open stream -- no

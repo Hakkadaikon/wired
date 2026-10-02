@@ -1849,6 +1849,14 @@ static void moqtrun_upd_remember(
   if (kept && kept != s) *kept = *s;
 }
 
+static void moqtrun_sub_done(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_req*   q,
+    wired_moqtrun_track* t,
+    wired_moqtrun_sub*   s,
+    u64                  status);
+
 static void moqtrun_update_sub(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  p,
@@ -1859,10 +1867,26 @@ static void moqtrun_update_sub(
   u64                  code = moqtrun_upd_verdict(hub, p, s, t, params);
   if (code != MOQTRUN_REQ_ACCEPT) {
     moqtrun_send_request_error(p, code);
+    if (s) moqtrun_sub_done(hub, p, p->req, t, s, MOQCTL_DONE_UPDATE_FAILED);
     return;
   }
   moqtrun_upd_remember(p, s);
   moqtrun_queue_request_ok(p, t);
+}
+
+static int moqtrun_kind_is_ns(u64 kind) {
+  return kind == MOQNS_T_PUBLISH_NAMESPACE ||
+         kind == MOQNS_T_SUBSCRIBE_NAMESPACE;
+}
+
+/* draft-ietf-moq-transport-19 10.9.1: a failed update of a namespace
+ * request closes its bidi stream -- the request ends (a PUBLISH_NAMESPACE
+ * is withdrawn, a SUBSCRIBE_NAMESPACE owes no NAMESPACE_DONE any more)
+ * and the hub FINs once its answer is out (3.3.2). */
+static void moqtrun_upd_close_ns(wired_moqtrun_req* q) {
+  if (!q || !moqtrun_kind_is_ns(q->kind)) return;
+  q->live    = 0;
+  q->ns_seen = 0;
 }
 
 static int moqtrun_upd_is_sub(const wired_moqtrun_peer* p) {
@@ -1878,6 +1902,7 @@ static void moqtrun_handle_update(
   moqtstat_update m;
   if (!moqtrun_upd_is_sub(p)) {
     moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
+    moqtrun_upd_close_ns(p->req);
     return;
   }
   if (moqtstat_update_take(body, MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &m) !=

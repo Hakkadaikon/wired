@@ -338,7 +338,44 @@ static void test_moqtrun_closed_is_frozen(void) {
   CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
 }
 
+/* ===================== failed REQUEST_UPDATE (10.9.1) ================ */
+
+/* A failed update of a subscription also ends it: REQUEST_ERROR, then
+ * PUBLISH_DONE UPDATE_FAILED, then FIN; no more Objects reach it. */
+static void test_moqtrun_upd_failed_ends_subscription(void) {
+  moqctl_params p     = mtup_vi(MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 9);
+  moqctl_ftn    f     = mtrq_setup();
+  u64           count = 0;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  mtup_update(SESS_B, MTRQ_S1, &p);
+  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_NOT_SUPPORTED);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_UPDATE_FAILED);
+  CHECK(mtrq_fin_on(MTRQ_S1) == 1);
+  CHECK(mtst_sub(SESS_A, SESS_B) == 0);
+  CHECK(moqtrun_test_relay_alice_chat(&mtst_hub) == 0);
+}
+
+/* A failed update of a namespace request closes its bidi stream (10.9.1,
+ * 3.3.2): the hub FINs after REQUEST_ERROR, and a withdrawn
+ * PUBLISH_NAMESPACE is NAMESPACE_DONE to its subscribers. */
+static void test_moqtrun_upd_failed_closes_ns(void) {
+  static const u8 upd[] = {0x02, 0x00}; /* Request ID 2, no parameters */
+  mtns_init();
+  mtns_sub(SESS_B, MTRQ_S1, "chat");
+  mtns_pub(SESS_A, MTRQ_S1, "chat/room1");
+  mtrq_raw(SESS_A, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd, sizeof upd);
+  CHECK(mtns_is(SESS_A, MTRQ_S1, "OK|ERR:03|"));
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|DONE:room1|"));
+  mtrq_raw(SESS_B, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd, sizeof upd);
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|DONE:room1|ERR:03|"));
+  CHECK(moqtrun_test_count_kind(6) == 2);
+  mtns_pub(SESS_A, MTRQ_S2, "chat/room2");
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|DONE:room1|ERR:03|"));
+}
+
 void test_moqtrun_drain(void) {
+  test_moqtrun_upd_failed_ends_subscription();
+  test_moqtrun_upd_failed_closes_ns();
   test_moqtrun_goaway_timeout_flush_then_close();
   test_moqtrun_goaway_no_timeout();
   test_moqtrun_closed_is_frozen();
