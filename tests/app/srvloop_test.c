@@ -2116,6 +2116,23 @@ static void test_srvloop_wt_closed_window_slides_past_long_lived_stream(void) {
   CHECK(wired_srvloop_wt_slot_claim(&f.l, last + 4) >= 0);
 }
 
+/* RFC 9114 6.2.1: the SETTINGS build records how many control-stream bytes
+ * it actually wrote, so a later append (GOAWAY, srvrun.c) continues at that
+ * offset rather than re-encoding SETTINGS (whose grease pair is random). */
+static void test_srvloop_settings_records_sent_length(void) {
+  struct lp_fix f;
+  u8            out[1024], buf[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  wired_obuf    sb = {buf, sizeof buf, 0};
+  stream_frame  sf;
+  lp_confirm(&f, &ob);
+  f.s.sdrv.alpn = SALPN_H3;
+  CHECK(build_settings_frame(&f.s, &f.l, &sb) == 1);
+  CHECK(frame_get_stream(buf, sb.len, &sf) > 0);
+  CHECK(sf.stream_id == WIRED_SRVLOOP_CTRL_STREAM);
+  CHECK(f.l.ctrl_settings_len == sf.length);
+}
+
 /* Capacity: a browser in a 4-person moqt_chat room keeps ~16 request
  * streams open at once (3 PUBLISH + 2 PUBLISH_NAMESPACE + 1
  * SUBSCRIBE_NAMESPACE + 3 tracks x 3 peers + a FETCH) next to the server's
@@ -4764,6 +4781,7 @@ void test_srvloop(void) {
   test_srvloop_wt_long_released_stream_replay_ignored();
   test_srvloop_wt_room_streams_all_slotted();
   test_srvloop_wt_closed_window_slides_past_long_lived_stream();
+  test_srvloop_settings_records_sent_length();
   test_srvloop_wt_uni_stream_reassembled();
   test_srvloop_wt_uni_stream_signal_split();
   test_srvloop_wt_bidi_stream_signal_split();

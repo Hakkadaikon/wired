@@ -70,6 +70,7 @@ static int build_settings_frame(
   if (!wired_h3srv_open_control(
           &l->h3, l->we_advertised_max_datagram > 0, &ctlb))
     return 0;
+  l->ctrl_settings_len = ctlb.len;
   f = (stream_frame){WIRED_SRVLOOP_CTRL_STREAM, 0, ctlb.len, ctl, 0};
   return appdata_stream_frame(&f, out);
 }

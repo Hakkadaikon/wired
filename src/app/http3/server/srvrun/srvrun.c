@@ -7,7 +7,6 @@
 #include "app/http3/core/h3/grease.h"
 #include "app/http3/core/h3/headercase.h"
 #include "app/http3/core/h3/method.h"
-#include "app/http3/core/h3conn/establish.h"
 #include "app/http3/core/h3prio/h3prio.h"
 #include "app/http3/core/sfield/sfield.h"
 #include "app/http3/request/h3resp/resp_build.h"
@@ -3780,30 +3779,19 @@ static void srvrun_on_step(
  * respond.c's build_settings_frame uses. */
 #define SRVRUN_CTRL_STREAM 3
 
-/* Byte length of the control stream's leading type+SETTINGS (RFC 9114 6.2.1),
- * recomputed via the same pure encoder respond.c's build_settings_frame uses.
- * A GOAWAY sent after confirmation is appended right after it, at this fixed
- * offset — this server sends control-stream data exactly twice (SETTINGS at
- * confirmation, GOAWAY at most once at shutdown), so no general offset
- * tracker is needed. */
-static usz srvrun_ctrl_settings_len(int advertise_wt) {
-  u8  tmp[H3SETTINGS_CONTROL_STREAM_MAX];
-  usz n = 0;
-  h3conn_open_control(advertise_wt, tmp, sizeof tmp, &n);
-  return n;
-}
-
 /* Build the 1-RTT payload for a GOAWAY (RFC 9114 5.2) carrying id -- the
  * lowest client request stream id the server will no longer process: the H3
- * GOAWAY frame wrapped in a STREAM frame at the control stream's fixed
- * post-SETTINGS offset. Returns 1 with plb->len set, 0 on overflow. */
-static int srvrun_goaway_payload(int advertise_wt, u64 id, wired_obuf* plb) {
+ * GOAWAY frame wrapped in a STREAM frame on the control stream right after
+ * the SETTINGS bytes actually sent (at, wired_srvloop.ctrl_settings_len) --
+ * this server sends control-stream data exactly twice (SETTINGS at
+ * confirmation, GOAWAY at most once at shutdown), so no general offset
+ * tracker is needed. Returns 1 with plb->len set, 0 on overflow. */
+static int srvrun_goaway_payload(u64 at, u64 id, wired_obuf* plb) {
   u8           h3[16];
   usz          h3n = h3_goaway_put(h3, sizeof h3, id);
   stream_frame f;
   if (h3n == 0) return 0;
-  f = (stream_frame){
-      SRVRUN_CTRL_STREAM, srvrun_ctrl_settings_len(advertise_wt), h3n, h3, 0};
+  f = (stream_frame){SRVRUN_CTRL_STREAM, at, h3n, h3, 0};
   return appdata_stream_frame(&f, plb);
 }
 
@@ -3817,8 +3805,7 @@ static int srvrun_send_goaway(
   wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   c->goaway_id = c->l.req_next_id; /* every stream taken up keeps going */
-  if (!srvrun_goaway_payload(
-          c->l.we_advertised_max_datagram > 0, c->goaway_id, &plb))
+  if (!srvrun_goaway_payload(c->l.ctrl_settings_len, c->goaway_id, &plb))
     return 0;
   sin = (wired_srvloop_send_in){
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len),

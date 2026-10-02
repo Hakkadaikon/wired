@@ -846,6 +846,11 @@ typedef struct {
   u64 wt_refused[WIRED_SRVLOOP_MAX_STREAMS];
   /** Count of queued ids in wt_refused. */
   usz wt_refused_n;
+  /** RFC 9114 6.2.1: bytes of control-stream type + SETTINGS actually sent
+   * (respond.c's build_settings_frame), where a later control-stream append
+   * such as GOAWAY must continue. Recorded, not recomputed: SETTINGS carries
+   * a random grease pair, so a re-encode may differ in length. */
+  usz ctrl_settings_len;
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
