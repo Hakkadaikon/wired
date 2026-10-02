@@ -359,6 +359,10 @@ typedef struct {
    * (a payload larger than SRVRUN_WTSEND_BUF: srvrun.h's keep-alive view
    * contract applies to it); appends wait until it fully ACKs. */
   int view_round;
+  /** RFC 9218 2.1 urgency + 1 set by wired_server_wt_stream_priority; 0 =
+   * never set, read as the default H3_URGENCY_DEFAULT
+   * (srvrun_wtsend_urgency). */
+  u8 urgency1;
 } srvrun_wtsend;
 /* Concurrent server-initiated WT stream sends per connection. Sized for a
  * 4-participant relay room's worst case, not a handful: 3 long-lived voice
@@ -4182,6 +4186,7 @@ static srvrun_wtsend* srvrun_wtsend_claim(srvrun_conn* c, u64 credit) {
     c->wtsend[i].fin_only_pending = 0; /* a reused slot may still carry a
                                            stale 1 from its prior stream */
     c->wtsend[i].fin_requested = 0;
+    c->wtsend[i].urgency1      = 0;
     return &c->wtsend[i];
   }
   return 0;
@@ -4635,6 +4640,23 @@ int wired_server_wt_stream_fin(wired_wt_session* s, u64 stream_id) {
   w = srvrun_wtsend_find(c, stream_id);
   if (!srvrun_wtsend_open_slot(w)) return -1;
   srvrun_wtsend_request_fin(c, w);
+  return 1;
+}
+
+/* The in-use WT send slot on stream_id of s's connection, 0 when s
+ * resolves to no live connection or no slot holds the id. */
+static srvrun_wtsend* srvrun_wtsend_of(wired_wt_session* s, u64 stream_id) {
+  srvrun_conn* c = srvrun_session_conn(s);
+  return c ? srvrun_wtsend_find(c, stream_id) : 0;
+}
+
+int wired_server_wt_stream_priority(
+    wired_wt_session* s, u64 stream_id, u8 urgency) {
+  srvrun_wtsend* w;
+  if (urgency > H3_URGENCY_MAX) return -1;
+  w = srvrun_wtsend_of(s, stream_id);
+  if (!w) return -1;
+  w->urgency1 = (u8)(urgency + 1);
   return 1;
 }
 
