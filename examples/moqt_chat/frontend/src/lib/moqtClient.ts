@@ -648,6 +648,21 @@ export class MoqtChatClient {
     if (!wt) return undefined;
     const requestId = this.#nextRequestId;
     this.#nextRequestId += 2n;
+    try {
+      return await this.#openRequest(wt, requestId, type, build, onLater, fin);
+    } catch {
+      return undefined; // the session is closing: there is no request to make
+    }
+  }
+
+  async #openRequest(
+    wt: WebTransport,
+    requestId: bigint,
+    type: bigint,
+    build: (requestId: bigint) => Uint8Array,
+    onLater: (r: Reply) => void,
+    fin: boolean,
+  ): Promise<Request> {
     const stream = await wt.createBidirectionalStream();
     const writer = stream.writable.getWriter();
     const reader = stream.readable.getReader();
