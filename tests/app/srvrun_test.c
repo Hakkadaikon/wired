@@ -19273,11 +19273,13 @@ static void sr_drain_rx(srvrun_conn* c, const u8* d, usz n) {
 }
 
 /* draft-ietf-webtrans-http3-15 4.7: WT_DRAIN_SESSION is advisory -- the
- * app's draining callback fires once and the session stays open. */
+ * app's draining callback fires once per session, however many DRAINs the
+ * peer repeats, and the session stays open. */
 static void test_srvrun_wt_drain_rx_notifies_app(void) {
-  u8           cap[8];
+  u8           cap[16];
   wired_obuf   cb = obuf_of(cap, sizeof cap);
   srvrun_conn* c  = sr_sl_fixture();
+  CHECK(wtcapsule_encode_drain(&cb) == 1);
   CHECK(wtcapsule_encode_drain(&cb) == 1);
   sr_drain_rx(c, cap, cb.len);
   CHECK(g_sl_drains == 1 && g_sl_drained == &c->wt);
@@ -19344,6 +19346,17 @@ static void test_srvrun_wt_drain_session_unknown_refused(void) {
   wired_wt_session_init(&ghost, 99);
   wired_wt_session_establish(&ghost);
   CHECK(wired_server_wt_drain_session(&ghost) == 0);
+}
+
+/* A real session that has since closed is refused too. */
+static void test_srvrun_wt_drain_session_closed_refused(void) {
+  struct lp_fix f;
+  u8            obuf[1024];
+  wired_obuf    ob  = obuf_of(obuf, sizeof obuf);
+  srvrun_cfg    cfg = sr_wt_send_cfg();
+  srvrun_conn*  c   = sr_wtsend_fixture(&f, &ob);
+  srvrun_close_wt_session_slot(&cfg, c, 0, srvrun_wt_session_gone_code());
+  CHECK(wired_server_wt_drain_session(&c->wt) == 0);
 }
 
 /* wired_server_wt_usage on an empty env: nothing open, caps reported. */
@@ -20391,6 +20404,7 @@ void test_srvrun(void) {
   test_srvrun_wt_drain_rx_with_value_closes();
   test_srvrun_wt_drain_session_sends_once();
   test_srvrun_wt_drain_session_unknown_refused();
+  test_srvrun_wt_drain_session_closed_refused();
   test_srvrun_wt_usage_empty();
   test_srvrun_wt_usage_counts_open();
   test_srvrun_wt_bidi_held_before_first_grant_gets_wt_window();

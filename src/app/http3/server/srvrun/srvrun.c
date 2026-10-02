@@ -803,6 +803,10 @@ typedef struct {
   /** RFC 9114 5.2: the stream id the GOAWAY carried (l.req_next_id when it
    * was sent); meaningful only once goaway_sent. */
   u64 goaway_id;
+  /** draft-ietf-webtrans-http3-15 4.7: 1 once the peer's WT_DRAIN_SESSION
+   * reached the app for this session slot, so a repeated DRAIN does not
+   * call wt_on_session_draining again; cleared when a session starts. */
+  int wt_drain_rcvd[SRVRUN_MAX_WT_SESSIONS];
 } srvrun_conn;
 
 /* Response storage, one row per (connection slot, response slot): 512-byte
@@ -3231,19 +3235,27 @@ static int srvrun_wt_capsule_flow(
 }
 
 /* One CONNECT stream capsule pass: the env holding the app's draining
- * callback, and the session the capsules belong to. */
+ * callback, the session the capsules belong to, and its slot's
+ * wt_drain_rcvd latch. */
 typedef struct {
   const wired_srvrun_env* env;
   wired_wt_session*       s;
+  int*                    drain_rcvd;
 } srvrun_wt_caprx;
+
+static void srvrun_wt_drain_notify(const srvrun_wt_caprx* x) {
+  if (x->env->wt_on_session_draining)
+    x->env->wt_on_session_draining(x->env->wt_session_draining_ctx, x->s);
+}
 
 /* draft-ietf-webtrans-http3-15 4.7 Figure 5: WT_DRAIN_SESSION's Length is 0,
  * so one carrying a value is malformed (0, the caller closes the session).
- * Otherwise tell the app; the session itself stays as it is. */
+ * Otherwise tell the app, once per session; the session stays as it is. */
 static int srvrun_wt_capsule_drain(const srvrun_wt_caprx* x, wired_span value) {
   if (value.n) return 0;
-  if (x->env->wt_on_session_draining)
-    x->env->wt_on_session_draining(x->env->wt_session_draining_ctx, x->s);
+  if (*x->drain_rcvd) return 1;
+  *x->drain_rcvd = 1;
+  srvrun_wt_drain_notify(x);
   return 1;
 }
 
@@ -3263,7 +3275,8 @@ static int srvrun_wt_rx_walk(
     srvrun_conn*               c,
     int                        sidx,
     wired_srvloop_stream_slot* slot) {
-  srvrun_wt_caprx x = {cfg->env, srvrun_wt_slot(c, sidx)};
+  srvrun_wt_caprx x = {
+      cfg->env, srvrun_wt_slot(c, sidx), &c->wt_drain_rcvd[sidx]};
   if (c->wt_capsule_rx_at[sidx])
     bodywin_consume(&slot->body, slot->req_buf, c->wt_capsule_rx_at[sidx]);
   c->wt_capsule_rx_at[sidx] = 0;
@@ -5762,6 +5775,7 @@ static void srvrun_start_wt(
   /* wt_capsule_rx_at's own doc: the peer's capsule bytes start right after
    * its request HEADERS frame on this same stream (RFC 9297 SS3.2). */
   c->wt_capsule_rx_at[sidx] = srvrun_wt_capsule_start(c);
+  c->wt_drain_rcvd[sidx]    = 0;
   srvrun_wt_notify(cfg, c, sidx, wired_span_of(p.tok, p.tok_len));
 }
 
