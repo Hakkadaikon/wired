@@ -224,7 +224,9 @@ static void test_moqtrel_age_per_append(void) {
 }
 
 /* Same-ms appends share a mark; with every mark taken the newest absorbs
- * the append (its bytes read younger, never older, than they are). */
+ * the append and keeps its time, so the absorbed bytes read as old as the
+ * oldest merged append (draft 8: age from the first byte -- never
+ * younger). */
 static void test_moqtrel_marks_merge(void) {
   moqtrel_reset(&g_moqtrel_rb);
   g_moqtrel_rb.subs[0].active = 1;
@@ -239,7 +241,7 @@ static void test_moqtrel_marks_merge(void) {
   moqtrel_note_sent(&g_moqtrel_rb, 0, 2 * (WIRED_MOQTREL_MARKS - 1), 0);
   CHECK(
       moqtrel_age_ms(&g_moqtrel_rb, 0, 1000) ==
-      1000 - 10 * WIRED_MOQTREL_MARKS);
+      1000 - 10 * (WIRED_MOQTREL_MARKS - 1));
 }
 
 void test_moqtrel(void) {

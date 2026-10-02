@@ -62,14 +62,11 @@ static int rel_mark_merges(const moqtrel_buf* b, u64 now_ms) {
          (b->marks && b->mark_ms[b->marks - 1] == now_ms);
 }
 
+/* A merge keeps the newest mark's time: merged bytes read as old as it,
+ * never younger than they are. */
 void moqtrel_mark(moqtrel_buf* b, u64 now_ms) {
-  u32 k = b->marks;
-  if (rel_mark_merges(b, now_ms))
-    k--;
-  else
-    b->marks++;
-  b->mark_end[k] = b->tail;
-  b->mark_ms[k]  = now_ms;
+  if (!rel_mark_merges(b, now_ms)) b->mark_ms[b->marks++] = now_ms;
+  b->mark_end[b->marks - 1] = b->tail;
 }
 
 u64 moqtrel_age_ms(const moqtrel_buf* b, u32 sub, u64 now_ms) {

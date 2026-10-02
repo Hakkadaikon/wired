@@ -131,10 +131,11 @@ void moqtrel_note_sent(moqtrel_buf* b, u32 sub, usz n, u64 now_ms);
 
 /** Record that every byte up to tail has arrived by now_ms; call after
  * each moqtrel_append. Same-ms appends share a mark.
- * ponytail: with every mark taken, the newest mark absorbs the append,
- * so its earlier bytes read younger than they are; raise
- * WIRED_MOQTREL_MARKS if a lagging cursor's timeouts must be exact over
- * more appends.
+ * ponytail: with every mark taken, the newest mark absorbs the append
+ * and keeps its own time, so the absorbed bytes read older than they
+ * are -- a timeout can fire early, by at most the time since that mark;
+ * raise WIRED_MOQTREL_MARKS if a lagging cursor's timeouts must be exact
+ * over more appends.
  * @param b the ring
  * @param now_ms current time in ms */
 void moqtrel_mark(moqtrel_buf* b, u64 now_ms);
