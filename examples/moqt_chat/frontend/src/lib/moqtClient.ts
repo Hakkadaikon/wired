@@ -4,38 +4,50 @@
 // src/app/moqt/run/moqtrun.c):
 //
 //  - The hub opens ONE server-initiated bidirectional stream per session and
-//    sends SETUP on it (draft 3.3). The client does not reply with its own
-//    SETUP; it reuses that same stream to send PUBLISH and SUBSCRIBE request
-//    messages (moqtrun.c dispatches every message on that stream through the
-//    same control handler, keyed only by Message Type).
-//  - PUBLISH is accepted unconditionally; the hub replies REQUEST_OK.
-//  - SUBSCRIBE is matched against another peer's already-PUBLISHed Track
-//    Name and answered with SUBSCRIBE_OK or REQUEST_ERROR, in the order the
-//    hub received the requests (it replies synchronously per message, SS10
-//    control stream). No discovery messages exist in this subset, so this
-//    client tries a fixed pool of candidate participant ids and remembers
-//    which one each in-flight SUBSCRIBE was for, to pair it with the
-//    resulting SUBSCRIBE_OK's Track Alias (or drop it on REQUEST_ERROR).
+//    sends SETUP on it (draft 3.3); the client only drains it.
+//  - Every request (PUBLISH, SUBSCRIBE, FETCH, PUBLISH_NAMESPACE,
+//    SUBSCRIBE_NAMESPACE) opens its own bidirectional request stream (3.3)
+//    with an even, client-chosen Request ID; its answer comes back on that
+//    stream, so it is matched by stream, never by arrival order. Resetting
+//    the stream cancels the request (3.3.3).
+//  - Room membership is namespace discovery (6.1-6.2): each participant
+//    announces wired/moqt_chat/<id> once its tracks are PUBLISHed and
+//    watches the wired/moqt_chat prefix. A NAMESPACE subscribes that peer's
+//    chat track (with a Joining FETCH for its history); a NAMESPACE_DONE
+//    cancels every subscription to it. Nothing is polled.
 //  - Chat messages are sent as one uni stream each: SUBGROUP_HEADER + one
 //    Object (1 message = 1 Object = 1 Group = 1 Subgroup; an attachment
-//    stream instead carries one Object per chunk, see sendMessage), matching
-//    moqdata.h's moqdata_msg_build layout on the server side.
+//    stream instead carries one Object per chunk in a Group of its own, see
+//    sendMessage), matching moqdata.h's moqdata_msg_build layout on the
+//    server side.
 
 import {
   bytesToUtf8,
   concatBytes,
   decodeControlFrame,
+  decodeFetchHeader,
+  decodeFetchObject,
+  decodeNamespaceSuffix,
   decodeSubgroupHeader,
   decodeSubgroupObject,
   decodeSubscribeOk,
+  decodeVarint,
   encodeControlFrame,
+  encodeFetch,
+  encodeNamespaceRequest,
   encodePublish,
   encodeSubscribe,
   encodeVarint,
   hexToBytes,
   decodeObjectDatagram,
+  largestObjectOf,
+  newFetchSeq,
+  PARAM_LOCATION_FILTER,
   readToEof,
   utf8ToBytes,
+  type FetchObject,
+  type FetchSeq,
+  type Location,
   type ObjectDatagram,
   type SubgroupHeader,
 } from "./moqtWire";
@@ -58,7 +70,24 @@ import { ATTACHMENT_MAX_COUNT } from "./attachmentValidation";
 const MSG_TYPE_PUBLISH = 0x1dn;
 const MSG_TYPE_SUBSCRIBE = 0x3n;
 const MSG_TYPE_SUBSCRIBE_OK = 0x4n;
-const MSG_TYPE_REQUEST_ERROR = 0x5n;
+const MSG_TYPE_REQUEST_OK = 0x7n;
+const MSG_TYPE_FETCH = 0x16n;
+const MSG_TYPE_FETCH_OK = 0x18n;
+const MSG_TYPE_PUBLISH_NAMESPACE = 0x6n;
+const MSG_TYPE_SUBSCRIBE_NAMESPACE = 0x50n;
+const MSG_TYPE_NAMESPACE = 0x8n;
+const MSG_TYPE_NAMESPACE_DONE = 0xen;
+const STREAM_TYPE_FETCH_HEADER = 0x5n;
+
+// LOCATION_FILTER (10.2.18) of type Largest Object (0x2): live delivery
+// starts after the Largest Object, which a Joining FETCH ends at (10.12.2),
+// so the two meet with no gap or overlap.
+const LARGEST_OBJECT_FILTER = { type: PARAM_LOCATION_FILTER, value: Uint8Array.of(0x2) };
+
+// Chat history a joiner asks for: the last CHAT_HISTORY_GROUPS Groups of
+// each peer's chat track (one Group per message text, attachment or
+// nickname), as far as the hub's cache still holds them.
+const CHAT_HISTORY_GROUPS = 64n;
 
 // SUBGROUP_HEADER Type (moqdata.h MOQDATA_MSG builder): PROPERTIES off,
 // SUBGROUP_ID_MODE 0b00, no end-of-group, DEFAULT_PRIORITY on, FIRST_OBJECT
@@ -67,10 +96,10 @@ const MSG_TYPE_REQUEST_ERROR = 0x5n;
 // the audio track's long-lived stream.
 export const SUBGROUP_HEADER_TYPE = 0x70n;
 
-// Fixed candidate pool: no track-namespace discovery exists in this subset
-// (moqtrun.h), so the client guesses room members from a small fixed
-// list and lets REQUEST_ERROR/DOES_NOT_EXIST tell it which ones are absent.
-// ponytail: raise/replace with real discovery if the room ever needs more.
+// Fixed id pool: membership itself comes from namespace discovery, but each
+// id's index is its Track Alias (ownTrackAlias below), so ids stay a small
+// fixed list.
+// ponytail: raise/replace with alias negotiation if the room needs more.
 export const CANDIDATE_PARTICIPANT_IDS = ["user1", "user2", "user3", "user4"];
 
 export function candidateParticipantIds(localId: string): string[] {
@@ -262,25 +291,97 @@ export interface MoqtChatCallbacks {
   // datagram is one whole Object, already decoded here; a malformed one is
   // dropped before this fires.
   onUnknownDatagram?(datagram: ObjectDatagram): void;
+  // A NAMESPACE (active) or NAMESPACE_DONE (!active) from the room watch
+  // (announce()): the suffix after wired/moqt_chat, e.g. ["user2"] for a
+  // peer joining/leaving or ["user2", "screen"] for its screen share. Own
+  // and out-of-pool ids never fire. A peer's chat subscription is already
+  // handled here; the caller adds its own tracks (audio, screen).
+  onNamespace?(suffix: string[], active: boolean): void;
 }
 
-/** Drives one chat participant's MOQT session: connects, PUBLISHes its own
- * track, SUBSCRIBEs to the fixed candidate pool, and relays incoming
- * SUBGROUP Objects to onMessage. The pure wire-framing helpers above
- * (buildChatObjectMessage/parseChatObjectMessage/candidateParticipantIds/
- * certHashesToWebTransportOptions) are what moqtClient.test.ts exercises;
- * this class is the network-facing glue around them and is out of scope for
- * unit testing (no fake WebTransport in this subset -- see the report). */
-// How often to retry SUBSCRIBE for a candidate that hasn't PUBLISHed yet
-// (see #retrySubscribes' doc for why this exists at all).
-const SUBSCRIBE_RETRY_MS = 1000;
+/** A subscription's Joining FETCH (draft-ietf-moq-transport-19 10.12.2):
+ * Relative, joiningStart Groups before the Joining Location. onObject sees
+ * every fetched Object (End of Range markers skipped); onDone fires once,
+ * when the fetch stream ends or no fetch happens at all (nothing published
+ * yet, refused, failed). */
+export interface JoiningFetch {
+  joiningStart: bigint;
+  onObject(object: FetchObject): void;
+  onDone(): void;
+}
 
-// How long a SUBSCRIBE may sit in #pendingSubscribes with no reply before
-// it is treated as lost and retried (see #retrySubscribes' own doc on why
-// a reply can be delayed indefinitely on the hub side, not just dropped).
-// Comfortably above SUBSCRIBE_RETRY_MS so a reply that is merely running a
-// tick or two late is not resent needlessly.
-const SUBSCRIBE_PENDING_TIMEOUT_MS = 3000;
+type Reply = { type: bigint; body: Uint8Array };
+
+/** One request stream (3.3). */
+interface Request {
+  requestId: bigint;
+  /** The first answer, undefined if the stream ended without one. */
+  first: Promise<Reply | undefined>;
+  /** FIN our side: the request stays alive (3.3.2). */
+  close(): void;
+  /** Reset our side and stop reading: cancels the request (3.3.3). */
+  cancel(): void;
+}
+
+/** SUBSCRIBE_OK's Largest Object (undefined: nothing published yet), or
+ * null when the body does not decode. */
+function subscribeOkLargest(body: Uint8Array): Location | undefined | null {
+  try {
+    return largestObjectOf(decodeSubscribeOk(body).parameters);
+  } catch {
+    return null;
+  }
+}
+
+/** Hands every whole fetch Object in buffered to onObject (End of Range
+ * markers are skipped) and returns the undecoded rest. */
+function drainFetchObjects(
+  buffered: Uint8Array,
+  seq: FetchSeq,
+  onObject: (o: FetchObject) => void,
+): Uint8Array {
+  let pos = 0;
+  for (;;) {
+    let item;
+    try {
+      item = decodeFetchObject(buffered, pos, seq);
+    } catch {
+      return buffered.slice(pos); // incomplete: wait for more bytes
+    }
+    pos += item.len;
+    if (!item.object.endOfRange) onObject(item.object);
+  }
+}
+
+/** Feeds every whole control message the reader yields to onFrame, until
+ * the stream ends or fails. */
+async function readControlFrames(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  onFrame: (r: Reply) => void,
+): Promise<void> {
+  let buffered: Uint8Array = new Uint8Array(0);
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return;
+      buffered = concatBytes([buffered, value]);
+      let offset = 0;
+      for (;;) {
+        let decoded;
+        try {
+          decoded = decodeControlFrame(buffered, offset);
+        } catch {
+          break; // not enough bytes yet for the next message
+        }
+        onFrame(decoded.frame);
+        offset += decoded.len;
+      }
+      buffered = buffered.slice(offset);
+    }
+  } catch {
+    // reset or cancelled: the request is over
+  }
+}
 
 // A message's text-part and attachment-chunk streams can arrive in either
 // order (or interleaved with other messages), so one message's delivery is
@@ -311,17 +412,25 @@ function randomMessageIdSeed(): number {
   return crypto.getRandomValues(new Uint32Array(1))[0];
 }
 
+/** Drives one chat participant's MOQT session: connects, PUBLISHes its own
+ * track, announces itself and follows the room through namespace discovery,
+ * and relays incoming SUBGROUP / FETCH Objects to onMessage. */
 export class MoqtChatClient {
   #wt?: WebTransport;
-  #controlWriter?: WritableStreamDefaultWriter<Uint8Array>;
   #localId: string;
   #localTrackAlias: bigint;
   #groupId = 0n;
   #nextMessageId = randomMessageIdSeed();
   #attachmentReassemblers = new Map<string, AttachmentReassembler>();
   #pendingMessages = new Map<string, PendingMessage>();
-  #foundParticipants = new Set<string>();
-  #retryTimer?: ReturnType<typeof setInterval>;
+  // Client-initiated Request IDs are even (draft-ietf-moq-transport-19 10.1).
+  #nextRequestId = 0n;
+  // Every SUBSCRIBE by its caller's label ("user2", "user2/audio", ...):
+  // in flight or established. A label is never subscribed twice at once.
+  #subs = new Map<string, Promise<Request | undefined>>();
+  #subscribed = new Set<string>();
+  // Joining FETCHes by Request ID, until their data stream ends.
+  #fetches = new Map<bigint, JoiningFetch>();
   #callbacks: MoqtChatCallbacks;
 
   constructor(localId: string, callbacks: MoqtChatCallbacks) {
@@ -354,12 +463,14 @@ export class MoqtChatClient {
         () => this.#onClosed(wt),
       );
 
+      this.#nextRequestId = 0n;
+      this.#subs.clear();
+      this.#subscribed.clear();
+      this.#fetches.clear();
       this.#readIncomingUniStreams();
       this.#readIncomingDatagrams();
       await this.#openControlStream();
-      await this.#publishOwnTrack();
-      await this.#subscribeToCandidates();
-      this.#retryTimer = setInterval(() => this.#retrySubscribes(), SUBSCRIBE_RETRY_MS);
+      await this.publishTrack(utf8ToBytes(this.#localId), this.#localTrackAlias);
 
       this.#callbacks.onStatusChange("connected");
     } catch (err) {
@@ -462,7 +573,6 @@ export class MoqtChatClient {
   }
 
   close(): void {
-    clearInterval(this.#retryTimer);
     const wt = this.#wt;
     if (!wt) return; // already down -- its "disconnected" was reported once
     this.#wt = undefined; // stale first: our own closed settling reports nothing
@@ -476,199 +586,224 @@ export class MoqtChatClient {
   #onClosed(wt: WebTransport): void {
     if (this.#wt !== wt) return;
     this.#wt = undefined;
-    clearInterval(this.#retryTimer);
     this.#callbacks.onStatusChange("disconnected");
   }
 
   // The hub opens this stream itself right after the session is
-  // established (draft 3.3 / moqtrun.c wired_moqt_on_session); the client
-  // only needs to pick it up from incomingBidirectionalStreams and reuse it
-  // for PUBLISH/SUBSCRIBE. Its readable side is drained in the background
-  // for SUBSCRIBE_OK/REQUEST_ERROR replies.
+  // established (draft 3.3 / moqtrun.c wired_moqt_on_session) and sends
+  // SETUP on it. Requests never ride it (each has its own stream), so its
+  // messages are only drained.
+  // ponytail: a session-wide GOAWAY on this stream is ignored for now.
   async #openControlStream(): Promise<void> {
     if (!this.#wt) return;
     const reader = this.#wt.incomingBidirectionalStreams.getReader();
     const { value: stream, done } = await reader.read();
     reader.releaseLock();
     if (done || !stream) throw new Error("hub did not open a control stream");
-    this.#controlWriter = stream.writable.getWriter();
-    this.#readControlReplies(stream.readable);
+    void readControlFrames(stream.readable.getReader(), () => {});
   }
 
-  async #publishOwnTrack(): Promise<void> {
-    await this.publishTrack(utf8ToBytes(this.#localId), this.#localTrackAlias);
+  // Opens one request stream (draft 3.3) and writes the request built for
+  // its fresh even Request ID; fin also ends our side right away (a FETCH
+  // has nothing more to say). The first answer resolves `first`; every
+  // later message on the stream goes to onLater.
+  async #request(
+    type: bigint,
+    build: (requestId: bigint) => Uint8Array,
+    onLater: (r: Reply) => void = () => {},
+    fin = false,
+  ): Promise<Request | undefined> {
+    const wt = this.#wt;
+    if (!wt) return undefined;
+    const requestId = this.#nextRequestId;
+    this.#nextRequestId += 2n;
+    const stream = await wt.createBidirectionalStream();
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+    let resolveFirst: ((r: Reply | undefined) => void) | undefined;
+    const first = new Promise<Reply | undefined>((resolve) => (resolveFirst = resolve));
+    void readControlFrames(reader, (r) => {
+      if (!resolveFirst) return onLater(r);
+      resolveFirst(r);
+      resolveFirst = undefined;
+    }).finally(() => resolveFirst?.(undefined));
+    await writer.write(encodeControlFrame(type, build(requestId)));
+    if (fin) await writer.close();
+    return {
+      requestId,
+      first,
+      close: () => void writer.close().catch(() => {}),
+      cancel: () => {
+        void writer.abort().catch(() => {});
+        void reader.cancel().catch(() => {});
+      },
+    };
   }
 
-  /** PUBLISHes a track under this room's fixed namespace -- exported for
-   * moqtVoiceClient.ts, which PUBLISHes the "<id>/audio" track over this
-   * same control stream (M1's hub tracks up to 2 tracks per peer). The
-   * reply (REQUEST_OK) is not awaited here, matching #publishOwnTrack's own
-   * existing behavior: this subset's hub accepts every PUBLISH
-   * unconditionally (moqtrun.c's own doc). */
-  async publishTrack(trackName: Uint8Array, trackAlias: bigint): Promise<void> {
-    if (!this.#controlWriter) return;
-    const body = encodePublish({
-      requestId: 0n,
-      trackNamespace: ROOM_NAMESPACE,
-      trackName,
-      trackAlias,
-      parameters: [],
-      trackProperties: [],
-    });
-    await this.#controlWriter.write(encodeControlFrame(MSG_TYPE_PUBLISH, body));
+  /** PUBLISHes a track under this room's fixed namespace (moqtVoiceClient
+   * and moqtScreenClient PUBLISH "<id>/audio" / "<id>/screen" through it).
+   * Resolves true once the hub answers REQUEST_OK, so a namespace announced
+   * after it only ever names tracks a subscriber can already find. */
+  async publishTrack(trackName: Uint8Array, trackAlias: bigint): Promise<boolean> {
+    const req = await this.#request(MSG_TYPE_PUBLISH, (requestId) =>
+      encodePublish({
+        requestId,
+        trackNamespace: ROOM_NAMESPACE,
+        trackName,
+        trackAlias,
+        parameters: [],
+        trackProperties: [],
+      }),
+    );
+    const reply = await req?.first;
+    if (reply?.type === MSG_TYPE_REQUEST_OK) return true;
+    req?.close();
+    return false;
   }
 
-  /** SUBSCRIBEs to a track under this room's fixed namespace -- exported
-   * for moqtVoiceClient.ts (the "<id>/audio" track). The reply is queued
-   * in #pendingSubscribes under trackNameUtf8 like any chat candidate: it
-   * only ever affects #foundParticipants (voiceStreamKey is never in
-   * CANDIDATE_PARTICIPANT_IDS, so it is inert there), and keeps this
-   * shared control stream's FIFO request/reply pairing intact -- every
-   * SUBSCRIBE sent here gets exactly one reply back, in order. */
-  /** Whether a SUBSCRIBE sent under this label (a chat candidate id, or a
-   * subscribeTrack label such as "<id>/screen") has been answered
-   * SUBSCRIBE_OK on this session. A caller that resends SUBSCRIBE until
-   * bytes arrive must stop at this point: the hub keeps the subscription
-   * across the publisher's own rejoins, and an idle track sends nothing. */
+  /** Whether the SUBSCRIBE sent under this label (a participant id for
+   * chat, or "<id>/audio", "<id>/screen") has been answered SUBSCRIBE_OK on
+   * this session. */
   isSubscribed(label: string): boolean {
-    return this.#foundParticipants.has(label);
+    return this.#subscribed.has(label);
   }
 
-  async subscribeTrack(trackName: Uint8Array, trackNameUtf8: string): Promise<void> {
-    if (!this.#controlWriter) return;
-    const rid = this.#nextRequestId++;
-    const body = encodeSubscribe({
-      requestId: rid,
-      trackNamespace: ROOM_NAMESPACE,
-      trackName,
-      parameters: [],
-    });
-    this.#pendingSubscribes.push({ candidate: trackNameUtf8, sentAt: Date.now() });
-    await this.#controlWriter.write(encodeControlFrame(MSG_TYPE_SUBSCRIBE, body));
-  }
-
-  // Requests answered in send order (the hub replies synchronously per
-  // message on this stream), so a FIFO queue pairs each SUBSCRIBE_OK/
-  // REQUEST_ERROR with the candidate participant id it was sent for.
-  // sentAt backs the pending-timeout retry (#retrySubscribes' own doc): a
-  // reply the hub could not send yet (its control stream's previous round
-  // still unacknowledged) can be delayed past the next few
-  // SUBSCRIBE_RETRY_MS ticks, not just dropped -- without a timeout this
-  // entry would block #retrySubscribes from ever resending it.
-  #pendingSubscribes: { candidate: string; sentAt: number }[] = [];
-  #nextRequestId = 1n;
-
-  // Builds one SUBSCRIBE control frame's bytes for candidate and queues it
-  // in #pendingSubscribes, without writing anything -- callers batch one or
-  // more of these into a single #controlWriter.write() (see
-  // #subscribeToCandidates/#subscribeTo's doc for why a single write matters
-  // here).
-  #buildSubscribeFrame(candidate: string): Uint8Array {
-    const rid = this.#nextRequestId++;
-    const body = encodeSubscribe({
-      requestId: rid,
-      trackNamespace: ROOM_NAMESPACE,
-      trackName: utf8ToBytes(candidate),
-      parameters: [],
-    });
-    this.#pendingSubscribes.push({ candidate, sentAt: Date.now() });
-    return encodeControlFrame(MSG_TYPE_SUBSCRIBE, body);
-  }
-
-  // moqtrun.c's control-stream dispatch (moqtrun_dispatch_ctl_stream)
-  // parses every complete message in one wt_on_stream_data delivery, but
-  // this subset's WT layer buffers nothing across separate deliveries
-  // (moqtrun.h's doc on wired_moqt_on_stream_data): a message whose bytes
-  // straddle two deliveries is silently dropped, not reassembled. Awaiting
-  // each SUBSCRIBE's write() individually risked exactly that split across
-  // browser-side buffering/pacing boundaries -- concatenating every
-  // candidate's frame into one write() keeps each SUBSCRIBE request whole
-  // within a single delivery whenever the browser doesn't itself fragment
-  // one write() call.
-  async #subscribeTo(candidate: string): Promise<void> {
-    if (!this.#controlWriter) return;
-    await this.#controlWriter.write(this.#buildSubscribeFrame(candidate));
-  }
-
-  async #subscribeToCandidates(): Promise<void> {
-    if (!this.#controlWriter) return;
-    const frames = candidateParticipantIds(this.#localId).map((c) =>
-      this.#buildSubscribeFrame(c),
+  /** SUBSCRIBEs to a track under this room's namespace, once per label at
+   * a time: a label already in flight or established is not sent again,
+   * and a refused one (REQUEST_ERROR) may be. With history, the SUBSCRIBE
+   * starts at the Largest Object and a Relative Joining FETCH fills in the
+   * Groups before it (draft 10.12.2). */
+  async subscribeTrack(trackName: Uint8Array, label: string, history?: JoiningFetch): Promise<void> {
+    if (this.#subs.has(label)) return;
+    const pending = this.#request(MSG_TYPE_SUBSCRIBE, (requestId) =>
+      encodeSubscribe({
+        requestId,
+        trackNamespace: ROOM_NAMESPACE,
+        trackName,
+        parameters: history ? [LARGEST_OBJECT_FILTER] : [],
+      }),
     );
-    await this.#controlWriter.write(concatBytes(frames));
-  }
-
-  // The hub replies REQUEST_ERROR/DOES_NOT_EXIST to a SUBSCRIBE for a
-  // participant that hasn't connected/PUBLISHed yet (no namespace discovery
-  // exists in this subset -- see the class doc), and never notifies a
-  // subscriber later when that peer does show up. Retrying on an interval
-  // for every candidate not yet found is this client's stand-in for
-  // discovery: cheap since a room only has a few candidate ids, and
-  // idempotent on the hub side (each retry is matched fresh against
-  // moqtrun's current PUBLISH state, draft SS10.7).
-  //
-  // A candidate already in #pendingSubscribes is normally skipped (its
-  // reply is still on the way), but the hub can also fail to send that
-  // reply at all for a while: its control stream is a keep-open bidi
-  // stream, and a new round is refused until the previous one is fully
-  // acknowledged, so a reply queued behind an earlier one can sit unsent
-  // across several SUBSCRIBE_RETRY_MS ticks. Dropping a pending entry once
-  // it's older than SUBSCRIBE_PENDING_TIMEOUT_MS and resending it is what
-  // keeps that case from stalling forever -- the hub matches every
-  // SUBSCRIBE fresh against its current PUBLISH state, so a resend is
-  // never wrong, only sometimes redundant.
-  async #retrySubscribes(): Promise<void> {
-    const now = Date.now();
-    this.#pendingSubscribes = this.#pendingSubscribes.filter(
-      (p) => now - p.sentAt < SUBSCRIBE_PENDING_TIMEOUT_MS,
-    );
-    for (const candidate of candidateParticipantIds(this.#localId)) {
-      if (this.#foundParticipants.has(candidate)) continue;
-      if (this.#pendingSubscribes.some((p) => p.candidate === candidate)) continue;
-      await this.#subscribeTo(candidate);
-    }
-  }
-
-  // Reads every control message the hub sends back on the control stream
-  // (REQUEST_OK for our PUBLISH, then SUBSCRIBE_OK/REQUEST_ERROR for each
-  // SUBSCRIBE). Only SUBSCRIBE_OK/REQUEST_ERROR consume the pending queue.
-  async #readControlReplies(readable: ReadableStream<Uint8Array>): Promise<void> {
-    let buffered: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
-    for await (const chunk of readable as unknown as AsyncIterable<Uint8Array>) {
-      buffered = concatBytes([buffered, chunk]);
-      buffered = this.#drainControlFrames(buffered);
-    }
-  }
-
-  #drainControlFrames(buffered: Uint8Array): Uint8Array<ArrayBufferLike> {
-    let offset = 0;
-    for (;;) {
-      let decoded;
-      try {
-        decoded = decodeControlFrame(buffered, offset);
-      } catch {
-        break; // not enough bytes yet for the next frame
-      }
-      this.#handleControlFrame(decoded.frame.type, decoded.frame.body);
-      offset += decoded.len;
-    }
-    return buffered.slice(offset);
-  }
-
-  #handleControlFrame(type: bigint, body: Uint8Array): void {
-    // SETUP (from the hub, draft 3.3) and REQUEST_OK (our own PUBLISH's
-    // reply) also arrive on this stream but need no action here; only
-    // SUBSCRIBE_OK/REQUEST_ERROR consume the pending queue.
-    if (type === MSG_TYPE_SUBSCRIBE_OK) {
-      const pending = this.#pendingSubscribes.shift();
-      if (pending) {
-        decodeSubscribeOk(body);
-        this.#foundParticipants.add(pending.candidate);
-      }
+    this.#subs.set(label, pending);
+    const req = await pending;
+    const reply = await req?.first;
+    const largest = req && reply?.type === MSG_TYPE_SUBSCRIBE_OK ? subscribeOkLargest(reply.body) : null;
+    if (largest === null) {
+      if (this.#subs.get(label) === pending) this.#subs.delete(label);
+      req?.close();
+      history?.onDone();
       return;
     }
-    if (type === MSG_TYPE_REQUEST_ERROR) {
-      this.#pendingSubscribes.shift(); // DOES_NOT_EXIST: candidate absent, drop it
+    this.#subscribed.add(label);
+    if (!history) return;
+    if (largest) void this.#joiningFetch(req!.requestId, history);
+    else history.onDone();
+  }
+
+  async #joiningFetch(subscribeRequestId: bigint, history: JoiningFetch): Promise<void> {
+    let fetchId = -1n;
+    const req = await this.#request(
+      MSG_TYPE_FETCH,
+      (requestId) => {
+        fetchId = requestId;
+        // Registered before the request goes out: its Objects may arrive
+        // before FETCH_OK (draft 10.13).
+        this.#fetches.set(requestId, history);
+        return encodeFetch({
+          requestId,
+          fetchType: 2n,
+          joiningRequestId: subscribeRequestId,
+          joiningStart: history.joiningStart,
+          parameters: [],
+        });
+      },
+      undefined,
+      true,
+    );
+    const reply = await req?.first;
+    if (reply?.type === MSG_TYPE_FETCH_OK) return;
+    if (this.#fetches.delete(fetchId)) history.onDone();
+  }
+
+  /** PUBLISH_NAMESPACEs wired/moqt_chat/<suffix...>; the returned handle's
+   * cancel() withdraws it (draft 3.3.3: a reset, not a FIN). */
+  async publishNamespace(suffix: string[]): Promise<{ cancel(): void } | undefined> {
+    return this.#request(MSG_TYPE_PUBLISH_NAMESPACE, (requestId) =>
+      encodeNamespaceRequest({
+        requestId,
+        namespace: [...ROOM_NAMESPACE, ...suffix.map(utf8ToBytes)],
+        parameters: [],
+      }),
+    );
+  }
+
+  /** Joins the room's discovery: announces wired/moqt_chat/<own id> and
+   * watches the wired/moqt_chat prefix (draft 6.1-6.2). Call once every
+   * track a peer should find is PUBLISHed. */
+  async announce(): Promise<void> {
+    await this.publishNamespace([this.#localId]);
+    await this.#request(
+      MSG_TYPE_SUBSCRIBE_NAMESPACE,
+      (requestId) => encodeNamespaceRequest({ requestId, namespace: ROOM_NAMESPACE, parameters: [] }),
+      (r) => this.#onNamespacePush(r),
+    );
+  }
+
+  #onNamespacePush({ type, body }: Reply): void {
+    if (type !== MSG_TYPE_NAMESPACE && type !== MSG_TYPE_NAMESPACE_DONE) return;
+    let suffix: string[];
+    try {
+      suffix = decodeNamespaceSuffix(body).map(bytesToUtf8);
+    } catch {
+      return;
+    }
+    const peer = suffix[0];
+    if (peer === this.#localId || !CANDIDATE_PARTICIPANT_IDS.includes(peer)) return;
+    const active = type === MSG_TYPE_NAMESPACE;
+    if (suffix.length === 1 && active) void this.#subscribeChat(peer);
+    if (suffix.length === 1 && !active) this.#dropPeer(peer);
+    this.#callbacks.onNamespace?.(suffix, active);
+  }
+
+  #subscribeChat(peer: string): Promise<void> {
+    return this.subscribeTrack(utf8ToBytes(peer), peer, {
+      joiningStart: CHAT_HISTORY_GROUPS,
+      onObject: (o) => this.#dispatchChatPayload(peer, o.payload),
+      onDone: () => {},
+    });
+  }
+
+  // The peer left: every subscription to it is cancelled (draft 3.3.3),
+  // freeing the hub's request slots; a rejoin subscribes afresh.
+  #dropPeer(peer: string): void {
+    for (const [label, pending] of this.#subs) {
+      if (label !== peer && !label.startsWith(`${peer}/`)) continue;
+      this.#subs.delete(label);
+      this.#subscribed.delete(label);
+      void pending.then((req) => req?.cancel());
+    }
+  }
+
+  // A FETCH data stream (draft 11.4.4): FETCH_HEADER names the request,
+  // then fetch Objects until FIN. An unknown Request ID is not ours.
+  async #readFetchStream(first: Uint8Array, reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+    const head = decodeFetchHeader(first);
+    const history = this.#fetches.get(head.requestId);
+    if (!history) {
+      void reader.cancel().catch(() => {});
+      return;
+    }
+    let buffered: Uint8Array = first.slice(head.len);
+    const seq = newFetchSeq();
+    try {
+      for (;;) {
+        buffered = drainFetchObjects(buffered, seq, history.onObject);
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffered = concatBytes([buffered, value]);
+      }
+    } finally {
+      this.#fetches.delete(head.requestId);
+      history.onDone();
     }
   }
 
@@ -726,6 +861,10 @@ export class MoqtChatClient {
     const { value: first, done } = await reader.read();
     if (done || !first || first.length === 0) {
       reader.releaseLock();
+      return;
+    }
+    if (decodeVarint(first).value === STREAM_TYPE_FETCH_HEADER) {
+      await this.#readFetchStream(first, reader);
       return;
     }
     let header;

@@ -8,14 +8,28 @@ import {
   parseNicknameFromChatText,
   candidateParticipantIds,
   certHashesToWebTransportOptions,
+  type MoqtChatCallbacks,
 } from "../moqtClient";
-import { FakeWebTransport } from "./fakeWebTransport";
+import {
+  FakeWebTransport,
+  MSG_FETCH,
+  MSG_PUBLISH,
+  MSG_PUBLISH_NAMESPACE,
+  MSG_SUBSCRIBE,
+  MSG_SUBSCRIBE_NAMESPACE,
+} from "./fakeWebTransport";
 import {
   concatBytes,
+  decodeNamespace,
+  decodePublish,
   decodeSubgroupHeader,
   decodeSubgroupObject,
+  decodeSubscribe,
+  decodeVarint,
   bytesToUtf8,
   encodeControlFrame,
+  encodeNamespace,
+  hexToBytes,
   encodeObjectDatagram,
   encodeRequestError,
   encodeSubscribeOk,
@@ -269,57 +283,266 @@ describe("MoqtChatClient transport close detection", () => {
   });
 });
 
-describe("MoqtChatClient subscribeTrack replies", () => {
+// draft-ietf-moq-transport-19 3.3: every request rides its own bidi stream
+// and its answer comes back on that stream.
+describe("MoqtChatClient request streams", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
-  async function connected() {
+  const flush = () => vi.advanceTimersByTimeAsync(0);
+
+  async function connected(callbacks: Partial<MoqtChatCallbacks> = {}) {
     vi.useFakeTimers();
     const fake = new FakeWebTransport();
     vi.stubGlobal("WebTransport", function () {
       return fake;
     });
-    const client = new MoqtChatClient("user1", { onStatusChange: () => {}, onMessage: () => {} });
+    const messages: string[] = [];
+    const client = new MoqtChatClient("user1", {
+      onStatusChange: () => {},
+      onMessage: (p, text) => messages.push(`${p}:${text}`),
+      ...callbacks,
+    });
     const ready = client.connect("https://hub.example/", []);
     fake.resolveReady();
     await ready;
-    // connect() itself SUBSCRIBEs to every chat candidate; answer those
-    // first so the FIFO reply pairing lines up with the track below.
-    for (let i = 0; i < candidateParticipantIds("user1").length; i++) {
-      fake.controlReplies.push(doesNotExist());
-    }
-    await vi.advanceTimersByTimeAsync(0);
-    return { fake, client };
+    return { fake, client, messages };
   }
 
-  const subscribeOk = () =>
-    encodeControlFrame(0x4n, encodeSubscribeOk({ trackAlias: 9n, parameters: [], trackProperties: [] }));
+  const subscribeOk = (largest?: { group: bigint; object: bigint }) =>
+    encodeControlFrame(
+      0x4n,
+      encodeSubscribeOk({
+        trackAlias: 9n,
+        parameters: largest ? [{ type: 0x09n, value: largest }] : [],
+        trackProperties: [],
+      }),
+    );
   const doesNotExist = () =>
-    encodeControlFrame(0x5n, encodeRequestError({ errorCode: 0x4n, retryInterval: 0n, errorReason: new Uint8Array(0) }));
+    encodeControlFrame(0x5n, encodeRequestError({ errorCode: 0x10n, retryInterval: 0n, errorReason: new Uint8Array(0) }));
+  const fetchOk = () => hexToBytes("18000400030100"); // not End of Track, End {3,1}, no params
 
-  it("isSubscribed turns true once the hub answers SUBSCRIBE_OK", async () => {
-    const { fake, client } = await connected();
-    expect(client.isSubscribed("user2/screen")).toBe(false);
+  it("connect PUBLISHes the chat track on its own request stream with an even Request ID", async () => {
+    const { fake } = await connected();
 
-    await client.subscribeTrack(utf8ToBytes("user2/screen"), "user2/screen");
-    fake.controlReplies.push(subscribeOk());
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(client.isSubscribed("user2/screen")).toBe(true);
-    client.close();
+    const [pub] = fake.requestsOf(MSG_PUBLISH);
+    const msg = decodePublish(pub.request.body);
+    expect(bytesToUtf8(msg.trackName)).toBe("user1");
+    expect(msg.requestId % 2n).toBe(0n);
   });
 
-  it("isSubscribed stays false after DOES_NOT_EXIST, so the caller keeps retrying", async () => {
+  it("matches each answer to its request by stream, not by arrival order", async () => {
     const { fake, client } = await connected();
 
-    await client.subscribeTrack(utf8ToBytes("user3/screen"), "user3/screen");
-    fake.controlReplies.push(doesNotExist());
-    await vi.advanceTimersByTimeAsync(0);
+    const a = client.subscribeTrack(utf8ToBytes("user2/screen"), "user2/screen");
+    const b = client.subscribeTrack(utf8ToBytes("user3/screen"), "user3/screen");
+    await flush();
+    const [sa, sb] = fake.requestsOf(MSG_SUBSCRIBE);
+    sb.replies.push(subscribeOk());
+    sa.replies.push(doesNotExist());
+    await Promise.all([a, b]);
 
-    expect(client.isSubscribed("user3/screen")).toBe(false);
-    client.close();
+    expect(client.isSubscribed("user2/screen")).toBe(false);
+    expect(client.isSubscribed("user3/screen")).toBe(true);
+    expect(sa.closed).toBe(true); // a refused request's stream is FINed
+    expect(new Set([decodeSubscribe(sa.request.body).requestId, decodeSubscribe(sb.request.body).requestId]).size).toBe(2);
+  });
+
+  it("a refused label can be subscribed again; an in-flight one is not sent twice", async () => {
+    const { fake, client } = await connected();
+
+    const first = client.subscribeTrack(utf8ToBytes("user2"), "user2");
+    void client.subscribeTrack(utf8ToBytes("user2"), "user2");
+    await flush();
+    expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(1);
+    fake.requestsOf(MSG_SUBSCRIBE)[0].replies.push(doesNotExist());
+    await first;
+
+    void client.subscribeTrack(utf8ToBytes("user2"), "user2");
+    await flush();
+    expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(2);
+  });
+
+  it("sends no SUBSCRIBE on a timer: membership comes from discovery", async () => {
+    const { fake } = await connected();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(0);
+  });
+
+  it("history: SUBSCRIBE asks for Largest Object, then a Relative Joining FETCH tied to it", async () => {
+    const { fake, client } = await connected();
+    const done = vi.fn();
+
+    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", {
+      joiningStart: 16n,
+      onObject: () => {},
+      onDone: done,
+    });
+    await flush();
+    const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+    const req = decodeSubscribe(s.request.body);
+    expect(req.parameters).toEqual([{ type: 0x21n, value: Uint8Array.of(0x2) }]);
+    s.replies.push(subscribeOk({ group: 3n, object: 0n }));
+    await sub;
+    await flush();
+
+    const [f] = fake.requestsOf(MSG_FETCH);
+    // Fetch Type 0x2, Joining Request ID = the SUBSCRIBE's, Joining Start 16.
+    const body = f.request.body;
+    expect(decodeVarint(body, 1).value).toBe(2n);
+    expect(decodeVarint(body, 2).value).toBe(req.requestId);
+    expect(decodeVarint(body, 3).value).toBe(16n);
+    expect(f.closed).toBe(true);
+    expect(done).not.toHaveBeenCalled();
+  });
+
+  it("history: no FETCH when SUBSCRIBE_OK carries no Largest Object", async () => {
+    const { fake, client } = await connected();
+    const done = vi.fn();
+
+    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", { joiningStart: 16n, onObject: () => {}, onDone: done });
+    await flush();
+    fake.requestsOf(MSG_SUBSCRIBE)[0].replies.push(subscribeOk());
+    await sub;
+
+    expect(fake.requestsOf(MSG_FETCH)).toHaveLength(0);
+    expect(done).toHaveBeenCalledOnce();
+  });
+
+  it("history: the FETCH_HEADER stream's Objects go to the subscription's onObject, then onDone", async () => {
+    const { fake, client } = await connected();
+    const got: string[] = [];
+    const done = vi.fn();
+
+    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", {
+      joiningStart: 16n,
+      onObject: (o) => got.push(`${o.group}/${o.object}:${bytesToUtf8(o.payload)}`),
+      onDone: done,
+    });
+    await flush();
+    fake.requestsOf(MSG_SUBSCRIBE)[0].replies.push(subscribeOk({ group: 5n, object: 1n }));
+    await sub;
+    await flush();
+    const [f] = fake.requestsOf(MSG_FETCH);
+    f.replies.push(fetchOk());
+    const rid = decodeVarint(f.request.body, 0).value;
+    // FETCH_HEADER(rid), then G5/O0 "hi" and G5/O1 "x" (fetch_stream_basic's Objects).
+    fake.incomingUnidirectionalStreams.push(concatBytes([hexToBytes("05"), encodeVarint(rid), hexToBytes("1c050080026869010178")]));
+    await flush();
+
+    expect(got).toEqual(["5/0:hi", "5/1:x"]);
+    expect(done).toHaveBeenCalledOnce();
+  });
+});
+
+// draft-ietf-moq-transport-19 6.1-6.2: who is in the room comes from
+// PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE, not from polling SUBSCRIBE.
+describe("MoqtChatClient namespace discovery", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  const flush = () => vi.advanceTimersByTimeAsync(0);
+  const ns = (type: bigint, ...fields: string[]) =>
+    encodeControlFrame(type, encodeNamespace(fields.map(utf8ToBytes)));
+
+  async function announced() {
+    vi.useFakeTimers();
+    const fake = new FakeWebTransport();
+    vi.stubGlobal("WebTransport", function () {
+      return fake;
+    });
+    const seen: string[] = [];
+    const client = new MoqtChatClient("user1", {
+      onStatusChange: () => {},
+      onMessage: () => {},
+      onNamespace: (suffix, active) => seen.push(`${active ? "+" : "-"}${suffix.join("/")}`),
+    });
+    const ready = client.connect("https://hub.example/", []);
+    fake.resolveReady();
+    await ready;
+    await client.announce();
+    await flush();
+    const [watch] = fake.requestsOf(MSG_SUBSCRIBE_NAMESPACE);
+    return { fake, client, seen, watch };
+  }
+
+  it("announce publishes wired/moqt_chat/<id> and watches the wired/moqt_chat prefix", async () => {
+    const { fake, watch } = await announced();
+
+    const [pub] = fake.requestsOf(MSG_PUBLISH_NAMESPACE);
+    expect(decodeNamespace(pub.request.body, 1).fields.map(bytesToUtf8)).toEqual(["wired", "moqt_chat", "user1"]);
+    expect(decodeNamespace(watch.request.body, 1).fields.map(bytesToUtf8)).toEqual(["wired", "moqt_chat"]);
+  });
+
+  it("a NAMESPACE for a peer reports it and subscribes its chat track with history", async () => {
+    const { fake, seen, watch } = await announced();
+
+    watch.replies.push(ns(0x8n, "user2"));
+    await flush();
+
+    expect(seen).toEqual(["+user2"]);
+    const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+    expect(bytesToUtf8(decodeSubscribe(s.request.body).trackName)).toBe("user2");
+  });
+
+  it("its own namespace and an id outside the room's pool are ignored", async () => {
+    const { fake, seen, watch } = await announced();
+
+    watch.replies.push(ns(0x8n, "user1"));
+    watch.replies.push(ns(0x8n, "mallory"));
+    await flush();
+
+    expect(seen).toEqual([]);
+    expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(0);
+  });
+
+  it("a deeper suffix (user2/screen) is reported but subscribes nothing itself", async () => {
+    const { fake, seen, watch } = await announced();
+
+    watch.replies.push(ns(0x8n, "user2", "screen"));
+    await flush();
+
+    expect(seen).toEqual(["+user2/screen"]);
+    expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(0);
+  });
+
+  it("NAMESPACE_DONE cancels every request stream subscribed to that peer", async () => {
+    const { fake, client, seen, watch } = await announced();
+    watch.replies.push(ns(0x8n, "user2"));
+    await flush();
+    void client.subscribeTrack(utf8ToBytes("user2/audio"), "user2/audio");
+    void client.subscribeTrack(utf8ToBytes("user3/audio"), "user3/audio");
+    await flush();
+
+    watch.replies.push(ns(0xen, "user2"));
+    await flush();
+
+    expect(seen).toEqual(["+user2", "-user2"]);
+    const [chat, audio2, audio3] = fake.requestsOf(MSG_SUBSCRIBE);
+    expect(chat.cancelled && audio2.cancelled).toBe(true);
+    expect(audio3.cancelled).toBe(false);
+  });
+
+  it("publishNamespace returns a handle whose cancel withdraws it (resets the stream)", async () => {
+    const { fake, client } = await announced();
+
+    const handle = await client.publishNamespace(["user1", "screen"]);
+    handle?.cancel();
+
+    const pubs = fake.requestsOf(MSG_PUBLISH_NAMESPACE);
+    expect(decodeNamespace(pubs[1].request.body, 1).fields.map(bytesToUtf8)).toEqual([
+      "wired",
+      "moqt_chat",
+      "user1",
+      "screen",
+    ]);
+    expect(pubs[1].cancelled).toBe(true);
   });
 });
 
