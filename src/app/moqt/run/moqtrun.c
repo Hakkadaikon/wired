@@ -1891,10 +1891,9 @@ static void moqtrun_frag_release(wired_moqtrun_relay* relay) {
  * shared pool (released once nothing is held). A tail of
  * WIRED_MOQTRUN_RELAY_FRAG_MAX bytes or more belongs to an Object over the
  * relayable limit and can never complete, and one finding the pool
- * exhausted has
- * nowhere to wait -- both are dropped (counted on the hub), degrading to a
- * torn frame for this one stream rather than corrupting the relay's own
- * state. */
+ * exhausted has nowhere to wait -- both are dropped (counted on the hub),
+ * degrading to a torn frame for this one stream rather than corrupting the
+ * relay's own state. */
 static void moqtrun_relay_save_frag(
     wired_moqt_hub* hub, wired_moqtrun_relay* relay, const u8* p, usz n) {
   i32 slot = n ? moqtrun_frag_slot_for(hub, relay, n) : -1;
