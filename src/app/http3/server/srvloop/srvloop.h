@@ -455,6 +455,18 @@ typedef struct {
   usz len;                                /**< bytes valid in buf */
 } wired_srvloop_rx_datagram;
 
+/** RFC 9000 3.2: closed client stream indexes (id / 4) of one stream type
+ * -- every index below floor, plus the 1024 just above it in bm (bit k =
+ * index floor + k). A late duplicate of a closed stream is discarded, not
+ * re-admitted. Ceiling: a mark past the window slides it up 64 indexes at
+ * a time, so indexes left behind count as closed even if a long-lived
+ * stream among them is still open -- harmless, since a live stream's slot
+ * is always found before this set is consulted. */
+typedef struct {
+  u64 floor;  /**< every index below this is closed */
+  u64 bm[16]; /**< the 1024 indexes from floor up */
+} wired_srvloop_closed;
+
 /** Per-connection state of the server wire loop, re-armed by
  * wired_srvloop_init and driven by wired_srvloop_step. Field order follows
  * the doc grouping (related fields stay next to their shared comment)
@@ -538,19 +550,11 @@ typedef struct {
    * first request, exactly as the old single-slot fields were — so a
    * connection that only ever uses stream 0 behaves identically to before. */
   wired_srvloop_stream_slot streams[WIRED_SRVLOOP_MAX_STREAMS];
-  /** RFC 9000 3.2: request streams already answered and released. A late
-   * duplicate (loss-delayed retransmission) of such a stream must be
-   * discarded, not re-admitted as a new stream -- re-admitted "zombies"
-   * once filled the table until genuinely new streams were dropped. All
-   * stream indexes (id/4) below this floor are closed; see req_closed_bm
-   * for the window just above it. */
-  u64 req_closed_floor;
-  /** The next 1024 stream indexes above req_closed_floor (bit k = closed at
-   * index floor+k). Ceiling: a release past this window slides the floor up
-   * (req_closed_mark), so indexes it passes count as closed even if a
-   * long-lived stream among them is still open -- harmless, since a live
-   * stream's slot is always found before this bitmap is consulted. */
-  u64 req_closed_bm[16];
+  /** RFC 9000 3.2: client bidi streams already answered and released --
+   * request streams and WT bidi streams share this id space. Re-admitted
+   * "zombies" once filled the table until genuinely new streams were
+   * dropped. */
+  wired_srvloop_closed req_closed;
   /** draft-ietf-webtrans-http3-15 4.3: one reassembly slot per concurrent WT
    * bidi stream, separate from streams[] above (see
    * wired_srvloop_wt_stream_slot's doc for why). Reachable here so a future
@@ -685,18 +689,13 @@ typedef struct {
   /** Slots in max_stream_data_stream_id/_value actually used this step (0 to
    * WIRED_SRVLOOP_MAX_STREAMS). 0 = none seen. */
   usz max_stream_data_n;
-  /** The last few RELEASED uni stream ids (ring, newest overwrites oldest).
-   * A delayed duplicate claim of an id released moments ago must be refused
-   * -- it would reopen a slot the app already saw FIN for -- but ONLY ids
-   * actually released may be refused. The previous high-watermark rule
-   * ("reject any id <= the highest released") also rejected legitimately
-   * NEW lower-id streams whose first frames were loss-delayed past a
-   * higher, faster stream's whole lifetime; their packets were already
-   * ACKed, so the peer never resent and the stream's payload (a whole chat
-   * message) was gone for good. 8 spans more releases than plausibly
-   * complete inside one retransmission window of a duplicate. */
-  u64 wt_uni_released_recent[8];
-  u8  wt_uni_released_recent_at; /**< next ring write index */
+  /** RFC 9000 3.2: client WT uni streams already released. Exact ids, not
+   * a high-watermark ("reject any id <= the highest released" also refused
+   * NEW lower-id streams loss-delayed past a faster one's whole lifetime,
+   * losing a whole chat message), and not a short ring (a MoQT publisher's
+   * many short uni streams pushed an id out of an 8-entry ring, and its
+   * late duplicate re-claimed a slot and was delivered twice). */
+  wired_srvloop_closed wt_uni_closed;
   /** RFC 9000 19.14: 1 once a client bidi STREAMS_BLOCKED frame was seen in
    * any 1-RTT payload opened this step (gather_streams_blocked in
    * dispatch.c) -- the peer's own reported limit value is not latched

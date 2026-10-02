@@ -2133,6 +2133,23 @@ static void test_srvloop_settings_records_sent_length(void) {
   CHECK(f.l.ctrl_settings_len == sf.length);
 }
 
+/* A MoQT publisher opens many short uni streams: a delayed duplicate of
+ * one released 30 streams ago (far past any small ring) is still known
+ * finished and claims no slot, while a genuinely new uni stream does. */
+static void test_srvloop_wt_uni_long_released_replay_ignored(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  for (u64 k = 0; k < 30; k++) {
+    CHECK(wired_srvloop_wt_uni_slot_claim(&f.l, 14 + 4 * k) >= 0);
+    wired_srvloop_wt_uni_slot_release(&f.l, 14 + 4 * k);
+  }
+  CHECK(wired_srvloop_wt_uni_slot_claim(&f.l, 14) < 0);
+  CHECK(wired_srvloop_wt_uni_slot_claim(&f.l, 14 + 4 * 29) < 0);
+  CHECK(wired_srvloop_wt_uni_slot_claim(&f.l, 14 + 4 * 30) >= 0);
+}
+
 /* Capacity: a browser in a 4-person moqt_chat room keeps ~16 request
  * streams open at once (3 PUBLISH + 2 PUBLISH_NAMESPACE + 1
  * SUBSCRIBE_NAMESPACE + 3 tracks x 3 peers + a FETCH) next to the server's
@@ -4782,6 +4799,7 @@ void test_srvloop(void) {
   test_srvloop_wt_room_streams_all_slotted();
   test_srvloop_wt_closed_window_slides_past_long_lived_stream();
   test_srvloop_settings_records_sent_length();
+  test_srvloop_wt_uni_long_released_replay_ignored();
   test_srvloop_wt_uni_stream_reassembled();
   test_srvloop_wt_uni_stream_signal_split();
   test_srvloop_wt_bidi_stream_signal_split();
