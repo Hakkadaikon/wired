@@ -1120,6 +1120,15 @@ describe("MoqtChatClient going away", () => {
     expect(goaways).toEqual([""]);
   });
 
+  it("draining rejected by the session closing is no GOAWAY and no unhandled rejection", async () => {
+    const { fake, goaways } = await connected();
+
+    fake.rejectDraining(new Error("The session is closed."));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(goaways).toEqual([]);
+  });
+
   it("a GOAWAY after close() is not reported", async () => {
     const { fake, client, goaways } = await connected();
 

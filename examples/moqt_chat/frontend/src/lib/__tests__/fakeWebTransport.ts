@@ -199,8 +199,12 @@ export class FakeWebTransport {
   readonly incomingUnidirectionalStreams = new FakeIncomingUniStreams();
   readonly closed: Promise<unknown>;
   /** WebTransport.draining: the test settles it (resolveDraining). */
-  readonly draining = new Promise<void>((resolve) => (this.resolveDraining = resolve));
+  readonly draining = new Promise<void>((resolve, reject) => {
+    this.resolveDraining = resolve;
+    this.rejectDraining = reject;
+  });
   resolveDraining!: () => void;
+  rejectDraining!: (err: unknown) => void;
   closeCalls = 0;
   resolveReady!: () => void;
   rejectReady!: (err: unknown) => void;
