@@ -303,6 +303,14 @@ adversarial input) without exercising that guard as a failure lever
   4.7); one carrying a value is malformed (its Length is 0) and closes the
   session — `test_srvrun_wt_drain_rx_notifies_app`, `test_srvrun_wt_drain_
   rx_with_value_closes`.
+- One-shot control frames (`WT_CLOSE_SESSION`, GOAWAY, an app-requested
+  RESET_STREAM, the early-response STOP_SENDING) are kept until
+  acknowledged and resent on loss, so a lossy peer cannot keep a session
+  or request open by dropping them; a peer that never acknowledges within
+  the resend budget gets its connection torn down —
+  `test_srvrun_wt_close_capsule_retransmitted_after_loss`, `test_srvrun_
+  control_packets_kept_until_acked`, `test_srvrun_rst_budget_exhausted_
+  tears_down`.
 - A varint length-overflow in object/property length parsing (`*at + len >
   buf.n` wrapping mod 2^64, an ~2^64-byte OOB decode span or infinite loop,
   found by `fuzz/fuzz_moqt.c`) was fixed by rewriting the check in
@@ -326,7 +334,9 @@ adversarial input) without exercising that guard as a failure lever
 
 **Known limits:** the authorization hook is opt-in — the sample hub ships
 with `authorize_subscribe == 0`, fully open by default; PUBLISH is not
-gated, only SUBSCRIBE; a duplicate `AUTHORIZATION_TOKEN` in one message is
+gated — SUBSCRIBE and TRACK_STATUS go through `authorize_subscribe`, and
+PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE through the separate, also opt-in
+`authorize_namespace`; a duplicate `AUTHORIZATION_TOKEN` in one message is
 rejected as a generic duplicate-parameter VIOLATION rather than honoring the
 spec's "MAY be repeated" allowance; `WT_DRAIN_SESSION` is advisory only —
 the SDK notifies the app but does not close the session itself; `Origin`
