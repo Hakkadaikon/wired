@@ -44,7 +44,7 @@ subscriptions, and closes the session when the grace runs out.
 - The subscriptions already granted keep flowing until the timeout. The
   hub's tick (`wired_moqt_tick` from `on_step`) enforces it: once
   `timeout_ms` passes, each subscription's relay streams are reset and
-  the subscription ends with PUBLISH_DONE (10.9) status GOING_AWAY (0x4)
+  the subscription ends with PUBLISH_DONE (10.11) status GOING_AWAY (0x4)
   on its request stream.
 - This client keeps its request streams open past the deadline, so on
   the next tick the hub closes the session with the GOAWAY_TIMEOUT
