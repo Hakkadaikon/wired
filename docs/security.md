@@ -289,6 +289,20 @@ adversarial input) without exercising that guard as a failure lever
   `test_srvrun_wt_connect_origin_ok_establishes`, `test_srvrun_wt_connect_
   origin_malformed_403`. An absent `Origin` is not itself a rejection reason
   (a non-browser client sends none).
+- An application allowlist hooks in through `wired_srvrun_opt.wt_origin_check`
+  (draft-ietf-webtrans-http3-15 SS3.1): after the empty-`Origin` rejection
+  above (that `403` is sent before the callback runs), the callback sees the
+  `Origin` value and `:authority` and returns 0 to answer `403` with no
+  session; an absent `Origin` reaches it as an empty span. Unset, every
+  well-formed `Origin` is accepted — `test_srvrun_wt_origin_check_allowed_
+  establishes`, `test_srvrun_wt_origin_check_disallowed_403`, `test_srvrun_
+  wt_origin_check_absent_empty_span`, `test_srvrun_wt_origin_check_unset_
+  unchanged`.
+- A peer's `WT_DRAIN_SESSION` reaches the app once per session through
+  `wired_srvrun_opt.wt_on_session_draining` (draft-ietf-webtrans-http3-15
+  4.7); one carrying a value is malformed (its Length is 0) and closes the
+  session — `test_srvrun_wt_drain_rx_notifies_app`, `test_srvrun_wt_drain_
+  rx_with_value_closes`.
 - A varint length-overflow in object/property length parsing (`*at + len >
   buf.n` wrapping mod 2^64, an ~2^64-byte OOB decode span or infinite loop,
   found by `fuzz/fuzz_moqt.c`) was fixed by rewriting the check in
@@ -314,10 +328,10 @@ adversarial input) without exercising that guard as a failure lever
 with `authorize_subscribe == 0`, fully open by default; PUBLISH is not
 gated, only SUBSCRIBE; a duplicate `AUTHORIZATION_TOKEN` in one message is
 rejected as a generic duplicate-parameter VIOLATION rather than honoring the
-spec's "MAY be repeated" allowance; `WT_DRAIN_SESSION` decodes but its
-handler is a no-op (no graceful-drain behavior yet); `Origin` verification
-accepts any well-formed, non-empty value — there is no allowlist
-configuration surface yet (YAGNI, no in-tree consumer needs one).
+spec's "MAY be repeated" allowance; `WT_DRAIN_SESSION` is advisory only —
+the SDK notifies the app but does not close the session itself; `Origin`
+verification accepts any well-formed, non-empty value unless the app
+registers `wt_origin_check` — no allowlist ships by default.
 
 ## Freestanding attack surface
 
