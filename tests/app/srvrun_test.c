@@ -17734,6 +17734,105 @@ static void test_srvrun_wt_released_id_not_reclaimed(void) {
   CHECK(wired_srvloop_wt_slot_claim(&l, 8) >= 0); /* a genuinely new id: ok */
 }
 
+/* A confirmed connection plus a step ctx for the WT bidi credit tests. */
+static srvrun_conn* sr_wt_credit_fixture(
+    struct lp_fix* f, srvrun_cfg* cfg, srvrun_state* st, srvrun_step_ctx* ctx) {
+  static u8    obuf[1024];
+  wired_obuf   ob    = {obuf, sizeof obuf, 0};
+  srvrun_conn* conns = sr_test_conns();
+  *cfg               = (srvrun_cfg){
+      -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+      0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  sr_make_confirmed_conn(&conns[0], f, &ob);
+  *st  = (srvrun_state){0, conns};
+  *ctx = (srvrun_step_ctx){cfg, 0, st, 0, 0};
+  return &conns[0];
+}
+
+/* RFC 9114 8.1 / RFC 9000 4.6: a WT bidi stream srvloop could not slot
+ * (wt_refused[]) is refused on the wire -- RESET_STREAM + STOP_SENDING with
+ * H3_REQUEST_REJECTED -- and the bidi stream credit it consumed is given
+ * back with MAX_STREAMS, so the peer's open-stream budget never shrinks. */
+static void test_srvrun_wt_refused_stream_reset_and_credited(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c    = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  u64             base = srvrun_stream_limit_base(&ctx);
+  c->l.wt_refused[0]   = 4;
+  c->l.wt_refused_n    = 1;
+  srvrun_test_reset_send_count();
+  srvrun_refuse_wt_streams(&cfg, c);
+  srvrun_grant_wt_bidi(&ctx, c);
+  CHECK(c->l.wt_refused_n == 0);
+  CHECK(srvrun_test_send_count() == 2); /* the refusal, then MAX_STREAMS */
+  CHECK(c->stream_limit_advertised == base + 1);
+}
+
+/* RFC 9000 4.6: reaping a client WT bidi slot (FIN delivered) raises the
+ * bidi limit by one; a long-lived stream without FIN keeps its slot and
+ * earns nothing. */
+static void test_srvrun_wt_bidi_reap_grants_one_more_stream(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c    = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  u64             base = srvrun_stream_limit_base(&ctx);
+  for (usz i = 0; i < 2; i++) {
+    c->l.wt_streams[i].in_use    = 1;
+    c->l.wt_streams[i].stream_id = 4 + 4 * (u64)i;
+    c->l.wt_streams[i].offered   = 1;
+  }
+  c->l.wt_streams[0].fin           = 1; /* empty stream, FIN at offset 0 */
+  c->l.wt_streams[0].fin_delivered = 1;
+  srvrun_offer_wt_streams(&cfg, c);
+  srvrun_grant_wt_bidi(&ctx, c);
+  CHECK(c->l.wt_streams[0].in_use == 0);
+  CHECK(c->l.wt_streams[1].in_use == 1); /* long-lived: kept */
+  CHECK(c->stream_limit_advertised == base + 1);
+  /* the freed slot is reusable by a new stream */
+  CHECK(wired_srvloop_wt_slot_claim(&c->l, 12) == 0);
+}
+
+/* A server-initiated WT bidi stream never consumed the peer's credit, so
+ * reaping its receive slot grants nothing. */
+static void test_srvrun_wt_server_bidi_reap_grants_nothing(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c                = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  c->l.wt_streams[0].in_use        = 1;
+  c->l.wt_streams[0].stream_id     = 1;
+  c->l.wt_streams[0].offered       = 1;
+  c->l.wt_streams[0].fin           = 1;
+  c->l.wt_streams[0].fin_delivered = 1;
+  srvrun_test_reset_send_count();
+  srvrun_offer_wt_streams(&cfg, c);
+  srvrun_grant_wt_bidi(&ctx, c);
+  CHECK(c->l.wt_streams[0].in_use == 0);
+  CHECK(srvrun_test_send_count() == 0);
+  CHECK(c->stream_limit_advertised == 0);
+}
+
+/* A peer RESET_STREAM ending a client WT bidi stream frees its slot, and
+ * that stream's credit is owed back the same as a FIN-reaped one. */
+static void test_srvrun_wt_bidi_peer_reset_owes_credit(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c            = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  c->l.wt_streams[0].in_use    = 1;
+  c->l.wt_streams[0].stream_id = 4;
+  c->l.wt_reset_stream_id      = 4;
+  wt_reset_bidi_session(c);
+  CHECK(c->l.wt_streams[0].in_use == 0);
+  CHECK(c->wt_bidi_credit_owed == 1);
+}
+
 /* ===================== WT session-close notification ===================== */
 
 static usz               g_wtclose_calls;
@@ -20482,6 +20581,10 @@ void test_srvrun(void) {
   test_srvrun_wt_stream_hold_unknown_stream_is_negative();
   test_srvrun_wt_slot_released_after_fin_and_reclaimed();
   test_srvrun_wt_released_id_not_reclaimed();
+  test_srvrun_wt_refused_stream_reset_and_credited();
+  test_srvrun_wt_bidi_reap_grants_one_more_stream();
+  test_srvrun_wt_server_bidi_reap_grants_nothing();
+  test_srvrun_wt_bidi_peer_reset_owes_credit();
   test_srvrun_incomplete_request_stream_sends_reset();
   test_srvrun_qenc_stream_opens_with_type_prefix_only();
   test_srvrun_qenc_stream_open_is_idempotent();
