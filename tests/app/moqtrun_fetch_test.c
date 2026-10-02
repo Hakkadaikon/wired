@@ -389,6 +389,124 @@ static void test_moqtrun_fetch_requester_leaves(void) {
   for (usz i = before; i < g_n_calls; i++) CHECK(g_calls[i].s != SESS_B);
 }
 
+/* ===================== joining FETCH ===================== */
+
+static u64 mf_sub_rid;
+
+/* B SUBSCRIBEs to alice (filter Largest Object unless params says
+ * otherwise); returns the SUBSCRIBE's Request ID. */
+static u64 mf_subscribe(const moqctl_params* params) {
+  moqctl_ftn    f  = mf_track();
+  moqctl_params lo = mtst_params_filter(MOQCTL_FILTER_LARGEST);
+  mf_sub_rid += 2;
+  mtst_subscribe_p(SESS_B, mf_ctrl_b, &f, mf_sub_rid, params ? params : &lo);
+  return mf_sub_rid;
+}
+
+static void mf_joining(u64 type, u64 joining_rid, u64 joining_start) {
+  static moqfetch_fetch m;
+  m.fetch_type         = type;
+  m.joining_request_id = joining_rid;
+  m.joining_start      = joining_start;
+  m.params.n           = 0;
+  mf_send_fetch(&m);
+}
+
+/* The Location of the last Object relayed to B on a SUBGROUP stream. */
+static int mf_relayed(u64 g, u64 o) {
+  const moqtrun_test_call* c   = moqtrun_test_last_kind(4);
+  usz                      off = 0;
+  moqdata_subhdr           h;
+  moqdata_obj              obj;
+  if (!c || c->s != SESS_B) return 0;
+  wired_span w = wired_span_of(c->payload, c->payload_len);
+  if (moqdata_subhdr_take(w, &off, &h) != MOQDATA_OK) return 0;
+  moqdata_objseq seq = moqdata_objseq_of(h.type);
+  if (moqdata_obj_take(w, &off, &seq, &obj) != MOQDATA_OK) return 0;
+  return h.group_id == g && obj.object_id == o;
+}
+
+/* AC-10: SUBSCRIBE (Largest Object) at Largest {1,0} starts at (1,1);
+ * the relative joining FETCH covers (0,0)..(1,0) and FINs; the next
+ * Object reaches B through the subscription -- each Location once. */
+static void test_moqtrun_fetch_relative_join_no_gap(void) {
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mf_obj(1, 0, 1);
+  u64 rid = mf_subscribe(0);
+  CHECK(mf_loc_eq(mtst_largest()->loc, 1, 0));
+  CHECK(mf_loc_eq(mtst_sub(SESS_A, SESS_B)->start, 1, 1));
+  mf_joining(MOQFETCH_RELATIVE_JOINING, rid, 1);
+  CHECK(mf_loc_eq(mf_ok_end(), 1, 1));
+  CHECK(mf_read());
+  CHECK(mf_n == 3);
+  CHECK(mf_is_obj(0, 0, 0, 1) && mf_is_obj(1, 0, 1, 1));
+  CHECK(mf_is_obj(2, 1, 0, 1));
+  CHECK(mf_fin);
+  mf_obj(1, 1, 1);
+  CHECK(mf_relayed(1, 1));
+}
+
+/* AC-11: a relative Joining Start past group 0 starts at {0,0}. */
+static void test_moqtrun_fetch_relative_join_clamped(void) {
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mf_joining(MOQFETCH_RELATIVE_JOINING, mf_subscribe(0), 2);
+  CHECK(mf_loc_eq(mf_ok_end(), 0, 2));
+  CHECK(mf_read());
+  CHECK(mf_n == 2 && mf_is_obj(0, 0, 0, 1) && mf_is_obj(1, 0, 1, 1));
+}
+
+/* AC-12: a subscription made before any Object has no Joining Location;
+ * an absolute start past its group is out of range (10.12.2). */
+static void test_moqtrun_fetch_join_invalid_range(void) {
+  mf_init(sizeof mf_arena);
+  u64 early = mf_subscribe(0);
+  mf_obj(0, 0, 1);
+  mf_joining(MOQFETCH_RELATIVE_JOINING, early, 0);
+  CHECK(mf_error() == MOQCTL_ERR_INVALID_RANGE);
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mf_joining(MOQFETCH_ABSOLUTE_JOINING, mf_subscribe(0), 1);
+  CHECK(mf_error() == MOQCTL_ERR_INVALID_RANGE);
+}
+
+/* AC-13: a Joining Request ID naming no subscription of this session. */
+static void test_moqtrun_fetch_join_unknown_request(void) {
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  u64 rid = mf_subscribe(0);
+  mf_joining(MOQFETCH_RELATIVE_JOINING, rid + 2, 0);
+  CHECK(mf_error() == MOQFETCH_ERR_INVALID_JOINING_REQUEST_ID);
+}
+
+/* AC-14: an absolute Joining Start n starts at {n,0} and ends at the
+ * Joining Location. */
+static void test_moqtrun_fetch_absolute_join(void) {
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(1, 0, 1);
+  mf_obj(2, 0, 1);
+  u64 rid = mf_subscribe(0);
+  CHECK(mf_loc_eq(mtst_sub(SESS_A, SESS_B)->start, 2, 1));
+  mf_joining(MOQFETCH_ABSOLUTE_JOINING, rid, 1);
+  CHECK(mf_loc_eq(mf_ok_end(), 2, 1));
+  CHECK(mf_read());
+  CHECK(mf_n == 2 && mf_is_obj(0, 1, 0, 1) && mf_is_obj(1, 2, 0, 1));
+}
+
+/* 10.12.2: a Joining Fetch needs Forward State 1. */
+static void test_moqtrun_fetch_join_forward_off(void) {
+  moqctl_params p0 = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_joining(MOQFETCH_RELATIVE_JOINING, mf_subscribe(&p0), 0);
+  CHECK(mf_error() == MOQCTL_ERR_INVALID_RANGE);
+}
+
 void test_moqtrun_fetch(void) {
   test_moqtrun_fetch_cache_attach();
   test_moqtrun_fetch_cache_default_off();
@@ -405,4 +523,10 @@ void test_moqtrun_fetch(void) {
   test_moqtrun_fetch_oversize_under_cursor();
   test_moqtrun_fetch_publisher_leaves();
   test_moqtrun_fetch_requester_leaves();
+  test_moqtrun_fetch_relative_join_no_gap();
+  test_moqtrun_fetch_relative_join_clamped();
+  test_moqtrun_fetch_join_invalid_range();
+  test_moqtrun_fetch_join_unknown_request();
+  test_moqtrun_fetch_absolute_join();
+  test_moqtrun_fetch_join_forward_off();
 }

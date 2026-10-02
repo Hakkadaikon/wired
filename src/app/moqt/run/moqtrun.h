@@ -155,6 +155,11 @@ typedef struct {
   u8 forward_off;
   u8 has_delivery_timeout;
   u8 has_end_group;
+  /** Joining Location (draft-ietf-moq-transport-19 5.1): the Largest
+   * Object SUBSCRIBE_OK carried, valid when has_jl -- where a Joining
+   * Fetch ends (10.12.2.1). */
+  moqctl_loc jl;
+  u8         has_jl;
 } wired_moqtrun_sub;
 
 /** Fixed capacity for a saved SUBGROUP_HEADER (draft SS11.4.2: Type +
