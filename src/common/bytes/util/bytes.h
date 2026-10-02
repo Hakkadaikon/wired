@@ -74,6 +74,9 @@ static inline void* bytes_memcpy(void* dst, const void* src, usz n) {
  * <= src (a forward copy then never reads a byte it already overwrote),
  * e.g. sliding a buffer's tail down to its front.
  *
+ * The loop is the same as bytes_memcpy's today, but only this contract
+ * promises forward order: bytes_memcpy stays free to copy in any order.
+ *
  * @param dst destination, at or below src
  * @param src source buffer
  * @param n   number of bytes to copy
