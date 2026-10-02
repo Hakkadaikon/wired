@@ -743,14 +743,16 @@ describe("MoqtChatClient message aggregation", () => {
     const messages: { participantId: string; text: string; attachments: { bytes: Uint8Array; mimeType: string }[] }[] = [];
     const client = new MoqtChatClient("user1", {
       onStatusChange: () => {},
-      onMessage: (participantId, text, attachments) => {
+      onMessage: (participantId, text, attachments, key) => {
         messages.push({ participantId, text, attachments });
+        if (key) keys.push(key);
       },
     });
+    const keys: string[] = [];
     const connected = client.connect("https://hub.example/", []);
     fake.resolveReady();
     await connected;
-    return { fake, client, messages };
+    return { fake, client, messages, keys };
   }
 
   // user2's track alias (CANDIDATE_PARTICIPANT_IDS index 1).
@@ -875,6 +877,16 @@ describe("MoqtChatClient message aggregation", () => {
     expect(messages).toHaveLength(2);
     expect(firstArgs.text).toBe("first"); // untouched by the second cycle
     expect(messages[1].text).toBe("second");
+  });
+
+  it("names each delivered message <sender>:<messageId>, the same for a live and a fetched copy", async () => {
+    const { fake, keys } = await connectedListening();
+
+    pushTextPart(fake, 6, 0, "once", 0n);
+    pushTextPart(fake, 6, 0, "once", 0n);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(keys).toEqual(["user2:6", "user2:6"]);
   });
 
   it("scenario 5: a text-only message (no attachments) delivers immediately on text arrival", async () => {

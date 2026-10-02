@@ -83,6 +83,14 @@ describe("moqtChatStore", () => {
     expect(ids).toEqual([id1, id2]);
   });
 
+  it("a message whose key is already in the log is not added twice (history refetched on rejoin)", () => {
+    const s = useMoqtChatStore.getState();
+    const id = s.addMessage({ senderId: "user2", text: "hi", at: 1, own: false, key: "user2:7" });
+    expect(s.addMessage({ senderId: "user2", text: "hi", at: 2, own: false, key: "user2:7" })).toBe(id);
+    s.addMessage({ senderId: "user2", text: "other", at: 3, own: false, key: "user2:8" });
+    expect(useMoqtChatStore.getState().messages.map((m) => m.text)).toEqual(["hi", "other"]);
+  });
+
   it("appends a chat message preserving text, at, own, and failed", () => {
     const id = useMoqtChatStore.getState().addMessage({
       senderId: "user1",

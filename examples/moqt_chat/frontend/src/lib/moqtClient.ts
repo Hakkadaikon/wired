@@ -262,7 +262,9 @@ export interface MoqtChatCallbacks {
   // plain-text message fires with attachments: []) -- the text-part and
   // attachment-chunk streams are reassembled into one call by
   // #pendingMessages before this ever runs (see the class doc below).
-  onMessage(participantId: string, text: string, attachments: ChatAttachment[]): void;
+  // key ("<sender>:<messageId>") names the message across sessions: a
+  // rejoin's history FETCH re-delivers messages already shown.
+  onMessage(participantId: string, text: string, attachments: ChatAttachment[], key?: string): void;
   // A nickname self-announce (buildNicknameObjectMessage) from participantId
   // -- never forwarded to onMessage, so it never appears in the chat log.
   onNickname?(participantId: string, nickname: string): void;
@@ -1017,7 +1019,7 @@ export class MoqtChatClient {
 
     if (pending.attachments.size >= pending.attachmentCount) {
       this.#pendingMessages.delete(key);
-      this.#callbacks.onMessage(participant, pending.text, this.#orderedAttachments(pending));
+      this.#callbacks.onMessage(participant, pending.text, this.#orderedAttachments(pending), key);
     }
   }
 
@@ -1072,7 +1074,7 @@ export class MoqtChatClient {
 
     if (pending.text !== undefined && pending.attachments.size >= pending.attachmentCount) {
       this.#pendingMessages.delete(key);
-      this.#callbacks.onMessage(participant, pending.text, this.#orderedAttachments(pending));
+      this.#callbacks.onMessage(participant, pending.text, this.#orderedAttachments(pending), key);
     }
   }
 }
