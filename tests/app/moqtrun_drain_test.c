@@ -233,7 +233,60 @@ static void test_moqtrun_drain_one_session(void) {
   CHECK(mtdr_sent(mtdr_ctl(SESS_A), MOQCTL_T_GOAWAY) == 1);
 }
 
+/* ===================== PUBLISH_DONE (10.11) ===================== */
+
+/* Status of the PUBLISH_DONE sent in call c; ~0 if it carries none.
+ * *count gets its Stream Count. A round may carry several messages. */
+static u64 mtdr_done_in(const moqtrun_test_call* c, u64* count) {
+  wired_span          all = wired_span_of(c->payload, c->payload_len);
+  usz                 off = 0, boff = 0;
+  u64                 type;
+  wired_span          body;
+  moqctl_publish_done d;
+  while (moqctl_peek_type(all, &off, &type, &body) == MOQCTL_OK)
+    if (type == MOQCTL_T_PUBLISH_DONE &&
+        moqctl_publish_done_take(body, &boff, &d) == MOQCTL_OK) {
+      *count = d.stream_count;
+      return d.status_code;
+    }
+  return ~(u64)0;
+}
+
+/* Status of the last PUBLISH_DONE sent on sid; ~0 if none. */
+static u64 mtdr_done_on(u64 sid, u64* count) {
+  for (usz i = g_n_calls; i > 0; i--) {
+    const moqtrun_test_call* c = &g_calls[i - 1];
+    if ((c->kind != 3 && c->kind != 12) || c->stream_id != sid) continue;
+    u64 st = mtdr_done_in(c, count);
+    if (st != ~(u64)0) return st;
+  }
+  return ~(u64)0;
+}
+
+#define MTDR_UNKNOWN_STREAMS (((u64)1 << 62) - 1)
+
+/* The publisher's session ending ends its subscribers' subscriptions:
+ * PUBLISH_DONE TRACK_ENDED, then FIN, and a rejoin does not revive them.
+ * A subscription on the control stream has no stream to carry it and is
+ * kept for the rejoin as before. */
+static void test_moqtrun_done_track_ended(void) {
+  moqctl_ftn f     = mtrq_setup();
+  u64        count = 0;
+  mtst_join(SESS_C);
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  mtst_subscribe(SESS_C, mtdr_ctl(SESS_C), &f);
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_TRACK_ENDED);
+  CHECK(count == MTDR_UNKNOWN_STREAMS);
+  CHECK(mtrq_fin_on(MTRQ_S1) == 1);
+  CHECK(mtdr_sent(mtdr_ctl(SESS_C), MOQCTL_T_PUBLISH_DONE) == 0);
+  mtst_publish(SESS_A, mtst_join(SESS_A), &f, 1);
+  CHECK(mtst_sub(SESS_A, SESS_B) == 0);
+  CHECK(mtst_sub(SESS_A, SESS_C) != 0);
+}
+
 void test_moqtrun_drain(void) {
+  test_moqtrun_done_track_ended();
   test_moqtrun_goaway_once_per_session();
   test_moqtrun_goaway_uri_too_long();
   test_moqtrun_goaway_late_rejected();
