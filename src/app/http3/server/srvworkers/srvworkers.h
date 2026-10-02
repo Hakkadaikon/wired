@@ -66,6 +66,10 @@ typedef struct {
  * PR_SET_PDEATHSIG(SIGTERM), so it drains if the parent dies. The parent
  * returns once every worker has been reaped.
  *
+ * Call it at most once per process, from a single-threaded caller: the
+ * SIGTERM handler and its flag are process-wide, and PR_SET_PDEATHSIG fires
+ * on the death of the forking THREAD, not the process.
+ *
  * @param port UDP port passed through to each worker's wired_server_run
  * @param id the fixed server identity, passed through to every worker
  * @param h the application's request responder, passed through

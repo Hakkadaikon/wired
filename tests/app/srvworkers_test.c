@@ -138,6 +138,25 @@ static void test_srvworkers_resolve_count_passthrough(void) {
   CHECK(srvworkers_resolve_count(3) == 3);
 }
 
+static i64 sw_now_ms(void) {
+  i64 ts[2];
+  wired_arch_clock_gettime(1 /* CLOCK_MONOTONIC */, ts);
+  return ts[0] * 1000 + ts[1] / 1000000;
+}
+
+/* TEST: with no child left to wait for, wait4 fails with ECHILD; the
+ * supervisor's wait must still nap rather than return at once, or the loop
+ * around it spins a CPU. */
+static void test_srvworkers_wait_naps_on_echild(void) {
+  i64 status = 0;
+  i64 t0;
+  while (syscall4(SYS_wait4, -1, &status, 1 /* WNOHANG */, 0) > 0) {
+  }
+  t0 = sw_now_ms();
+  CHECK(srvworkers_wait(&status) == -10 /* -ECHILD */);
+  CHECK(sw_now_ms() - t0 >= 50);
+}
+
 /* Test child body that proves worker_index really reaches the child body
  * (srvworkers_child_start -> g_srvworkers_child_fn): exits with worker_index
  * as its exit status, which
@@ -404,6 +423,7 @@ void test_srvworkers(void) {
   test_srvworkers_resolve_count_zero_is_auto();
   test_srvworkers_resolve_count_clamps_to_max();
   test_srvworkers_resolve_count_passthrough();
+  test_srvworkers_wait_naps_on_echild();
   test_srvworkers_child_start_passes_worker_index();
   test_srvworkers_fork_all_seeds_child_run_base();
   test_srvworkers_child_opt_layers_worker_fields();
