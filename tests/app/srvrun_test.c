@@ -15812,6 +15812,19 @@ static void test_srvrun_wt_stream_reply_exceeding_max_data_refused(void) {
  * had no production caller, so a peer's advertised session limits were
  * silently ignored and this server could over-send. */
 
+/* RFC 9297 3.2: in HTTP/3 a peer sends capsules as DATA frame payload --
+ * wrap b->p[from..len) (capsule bytes) in place in one DATA frame. */
+static void sr_h3data(wired_obuf* b, usz from) {
+  u8  hdr[16];
+  usz n = b->len - from;
+  usz h = varint_encode(hdr, H3_FRAME_DATA);
+  h += varint_encode(hdr + h, n);
+  CHECK(b->len + h <= b->cap);
+  for (usz i = n; i-- > 0;) b->p[from + h + i] = b->p[from + i];
+  for (usz i = 0; i < h; i++) b->p[from + i] = hdr[i];
+  b->len += h;
+}
+
 /* Land `bytes` in the CONNECT stream's (id 4, sr_wtsend_fixture's session
  * identity) own request reassembly slot at offset `from` -- the hand-driven
  * equivalent of dispatch.c's gather_one landing capsule bytes after the
@@ -15887,12 +15900,14 @@ static void test_srvrun_wt_rx_max_data_capsule_via_dispatch_unblocks_send(
   hdr_end                = sr_wtcap_dispatch_headers_stub(c);
   c->wt_capsule_rx_at[0] = hdr_end;
   CHECK(wtcapsule_encode_max_data(&capb, 2) == 1);
+  sr_h3data(&capb, 0);
   sr_wtcap_dispatch(c, hdr_end, wired_span_of(capbuf, capb.len));
   srvrun_wt_rx_capsules(&cfg, c);
   CHECK(c->wt.max_data == 2);
   CHECK(wired_wt_session_data_send_allowed(&c->wt, sizeof pay) == 0);
   first = capb.len;
   CHECK(wtcapsule_encode_max_data(&capb, 1000) == 1);
+  sr_h3data(&capb, first);
   sr_wtcap_dispatch(
       c, hdr_end + first, wired_span_of(capbuf + first, capb.len - first));
   srvrun_wt_rx_capsules(&cfg, c);
@@ -15925,6 +15940,7 @@ static void test_srvrun_wt_rx_max_streams_capsule_via_dispatch_raises_limit(
   wired_wt_session_note_stream_opened(&c->wt, 1);
   CHECK(wired_wt_session_stream_open_allowed(&c->wt, 1) == 0);
   CHECK(wtcapsule_encode_max_streams(&capb, 1, 5) == 1);
+  sr_h3data(&capb, 0);
   sr_wtcap_dispatch(c, hdr_end, wired_span_of(capbuf, capb.len));
   srvrun_wt_rx_capsules(&cfg, c);
   CHECK(c->wt.max_streams_bidi == 5);
@@ -15949,6 +15965,7 @@ static void test_srvrun_wt_rx_unknown_capsule_via_dispatch_skipped(void) {
   c->wt_capsule_rx_at[0] = hdr_end;
   CHECK(capsule_encode(&capb, 0x5c, wired_span_of(stuff, sizeof stuff)) == 1);
   CHECK(wtcapsule_encode_max_data(&capb, 7) == 1);
+  sr_h3data(&capb, 0);
   sr_wtcap_dispatch(c, hdr_end, wired_span_of(capbuf, capb.len));
   srvrun_wt_rx_capsules(&cfg, c);
   CHECK(c->wt.max_data == 7);
@@ -15974,13 +15991,14 @@ static void test_srvrun_wt_rx_truncated_capsule_via_dispatch_closes_session(
   hdr_end                = sr_wtcap_dispatch_headers_stub(c);
   c->wt_capsule_rx_at[0] = hdr_end;
   CHECK(wtcapsule_encode_max_data(&capb, 1000) == 1);
-  sr_wtcap_dispatch(c, hdr_end, wired_span_of(capbuf, capb.len - 1));
+  capb.len--; /* the capsule's last byte never comes */
+  sr_h3data(&capb, 0);
+  sr_wtcap_dispatch(c, hdr_end, wired_span_of(capbuf, capb.len));
   i = wired_srvloop_slot_for(&c->l, 4);
   CHECK(i >= 0);
   slot = &c->l.streams[i];
   bodywin_land( /* the FIN, at the truncated capsule's end */
-      &slot->body, slot->req_buf, hdr_end + capb.len - 1, wired_span_of(0, 0),
-      1);
+      &slot->body, slot->req_buf, hdr_end + capb.len, wired_span_of(0, 0), 1);
   srvrun_wt_rx_capsules(&cfg, c);
   CHECK(c->wt.state == WIRED_WT_CLOSED);
   CHECK(c->wt_active == 0);
@@ -16014,6 +16032,7 @@ static void test_srvrun_wt_rx_max_data_capsule_via_on_step_raises_max_data(
   c->wt_capsule_rx_at[0] = 0; /* nothing landed yet on stream 4 */
   CHECK(c->wt.max_data == 0);
   CHECK(wtcapsule_encode_max_data(&capb, 9) == 1);
+  sr_h3data(&capb, 0);
   sf   = (stream_frame){4, 0, capb.len, capbuf, 0};
   flen = frame_put_stream(frame, sizeof frame, &sf);
   CHECK(flen != 0);
@@ -16052,6 +16071,7 @@ static void test_srvrun_wt_stream_send_at_max_data_resumes_after_raise(void) {
   CHECK(wired_server_wt_stream_send(&c->wt, 11, rspan, 0) == -1);
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
   CHECK(wtcapsule_encode_max_data(&capb, 1000) == 1);
+  sr_h3data(&capb, 0);
   sf   = (stream_frame){4, 0, capb.len, capbuf, 0};
   flen = frame_put_stream(frame, sizeof frame, &sf);
   CHECK(flen != 0);
@@ -16080,12 +16100,14 @@ static void test_srvrun_wt_session_sharing_enables_flow_control(void) {
   c                      = sr_wtsend_fixture(&f, &ob);
   c->wt_capsule_rx_at[0] = 0;
   CHECK(wtcapsule_encode_max_data(&capb, 2) == 1);
+  sr_h3data(&capb, 0);
   CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
   srvrun_wt_rx_capsules(&cfg, c);
   CHECK(c->wt.max_data == 2);
   CHECK(wired_wt_session_data_send_allowed(&c->wt, sizeof pay) == 0);
   first = capb.len;
   CHECK(wtcapsule_encode_max_data(&capb, 1000) == 1);
+  sr_h3data(&capb, first);
   CHECK(
       sr_wtcap_feed(
           c, first, wired_span_of(capbuf + first, capb.len - first)) != 0);
@@ -16109,6 +16131,7 @@ static void test_srvrun_wt_rx_max_streams_capsules_raise_limits(void) {
   c->wt_capsule_rx_at[0] = 0;
   CHECK(wtcapsule_encode_max_streams(&capb, 1, 5) == 1);
   CHECK(wtcapsule_encode_max_streams(&capb, 0, 3) == 1);
+  sr_h3data(&capb, 0);
   CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
   srvrun_wt_rx_capsules(&cfg, c);
   CHECK(c->wt.max_streams_bidi == 5);
@@ -16134,6 +16157,7 @@ static void test_srvrun_wt_ignores_stale_flow_control_capsules(void) {
   CHECK(wtcapsule_encode_max_data(&capb, 2) == 1); /* stale: lower */
   CHECK(wtcapsule_encode_max_streams(&capb, 0, 4) == 1);
   CHECK(wtcapsule_encode_max_streams(&capb, 0, 1) == 1); /* stale: lower */
+  sr_h3data(&capb, 0);
   CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
   srvrun_wt_rx_capsules(&cfg, c);
   CHECK(c->wt.max_data == 100);
@@ -16156,6 +16180,7 @@ static void test_srvrun_wt_rx_unknown_capsule_skipped(void) {
   c->wt_capsule_rx_at[0] = 0;
   CHECK(capsule_encode(&capb, 0x5c, wired_span_of(stuff, sizeof stuff)) == 1);
   CHECK(wtcapsule_encode_max_data(&capb, 7) == 1);
+  sr_h3data(&capb, 0);
   CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
   srvrun_wt_rx_capsules(&cfg, c);
   CHECK(c->wt.max_data == 7);
@@ -16178,6 +16203,7 @@ static void test_srvrun_wt_rx_malformed_flow_capsule_closes_session(void) {
   CHECK(
       capsule_encode(
           &capb, WTCAPSULE_TYPE_MAX_DATA, wired_span_of(bad, sizeof bad)) == 1);
+  sr_h3data(&capb, 0);
   CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
   srvrun_wt_rx_capsules(&cfg, c);
   CHECK(c->wt.state == WIRED_WT_CLOSED);
@@ -16199,10 +16225,11 @@ static void test_srvrun_wt_rx_truncated_capsule_at_fin_closes_session(void) {
   c                      = sr_wtsend_fixture(&f, &ob);
   c->wt_capsule_rx_at[0] = 0;
   CHECK(wtcapsule_encode_max_data(&capb, 1000) == 1);
-  slot = sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len - 1));
+  capb.len--; /* the capsule's last byte never comes */
+  sr_h3data(&capb, 0);
+  slot = sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len));
   CHECK(slot != 0);
-  bodywin_land(
-      &slot->body, slot->req_buf, capb.len - 1, wired_span_of(0, 0), 1);
+  bodywin_land(&slot->body, slot->req_buf, capb.len, wired_span_of(0, 0), 1);
   srvrun_wt_rx_capsules(&cfg, c);
   CHECK(c->wt.state == WIRED_WT_CLOSED);
   CHECK(c->wt_active == 0);
@@ -16221,11 +16248,13 @@ static void test_srvrun_wt_rx_partial_capsule_waits_for_more(void) {
   c                      = sr_wtsend_fixture(&f, &ob);
   c->wt_capsule_rx_at[0] = 0;
   CHECK(wtcapsule_encode_max_data(&capb, 1000) == 1);
+  sr_h3data(&capb, 0);
   CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len - 1)) != 0);
   srvrun_wt_rx_capsules(&cfg, c);
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
   CHECK(c->wt.max_data == 0);
-  CHECK(srvrun_req_slot_of(c, 4)->body.base == 0); /* nothing consumed */
+  /* held, behind a 2-byte DATA frame head */
+  CHECK(c->wt_caprx[0].n == capb.len - 3);
   CHECK(
       sr_wtcap_feed(c, capb.len - 1, wired_span_of(capbuf + capb.len - 1, 1)) !=
       0);
@@ -18503,6 +18532,7 @@ static void test_srvrun_wt_close_session_capsule_received(void) {
   CHECK(
       wired_wtcapsule_encode_close(
           &capb, 7, wired_span_of((const u8*)"bye", 3)) == 1);
+  sr_h3data(&capb, 0);
   sr_wtcap_dispatch(c, hdr_end, wired_span_of(capbuf, capb.len));
   srvrun_wt_rx_capsules(&cfg, c);
   CHECK(c->wt.state == WIRED_WT_CLOSED);
@@ -18708,6 +18738,7 @@ static void test_srvrun_wt_close_on_established_connect_stream(void) {
   CHECK(
       wired_wtcapsule_encode_close(
           &capb, 7, wired_span_of((const u8*)"bye", 3)) == 1);
+  sr_h3data(&capb, 0);
   {
     stream_frame sf = {0, hlen, capb.len, cap, 0};
     CHECK(appdata_stream_frame(&sf, &sob) == 1);
@@ -19290,6 +19321,7 @@ static void test_srvrun_wt_close_after_long_capsule_run(void) {
   CHECK(
       wired_wtcapsule_encode_close(
           &cb, 7, wired_span_of((const u8*)"bye", 3)) == 1);
+  sr_h3data(&cb, 0);
   CHECK(sr_cap_send(c, hlen, caps, cb.len) == cb.len);
   CHECK(g_sl_closes == 1);
   CHECK(c->wt_active == 0);
@@ -19304,6 +19336,7 @@ static void test_srvrun_wt_capsules_applied_in_order_across_windows(void) {
   srvrun_conn* c    = sr_sl_fixture();
   usz          hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
   u64          v    = sr_cap_run(&cb, 3 * SR_REQ_BUF_CAP);
+  sr_h3data(&cb, 0);
   CHECK(sr_cap_send(c, hlen, caps, cb.len) == cb.len);
   CHECK(c->wt.max_data == v);
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
@@ -19321,6 +19354,7 @@ static void test_srvrun_wt_unknown_capsule_past_window_skipped(void) {
   CHECK(
       wired_wtcapsule_encode_close(&cb, 7, wired_span_of((const u8*)"", 0)) ==
       1);
+  sr_h3data(&cb, 0);
   CHECK(sr_cap_send(c, hlen, caps, cb.len) == cb.len);
   CHECK(g_sl_closes == 1);
   CHECK(c->wt_active == 0);
@@ -19333,6 +19367,7 @@ static void test_srvrun_wt_capsule_split_per_byte(void) {
   srvrun_conn* c    = sr_sl_fixture();
   usz          hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
   CHECK(wtcapsule_encode_max_data(&cb, 1000) == 1);
+  sr_h3data(&cb, 0);
   for (usz i = 0; i + 1 < cb.len; i++) {
     CHECK(sr_cap_send(c, hlen + i, caps + i, 1) == 1);
     CHECK(c->wt.max_data == 0);
@@ -19351,6 +19386,7 @@ static void test_srvrun_wt_drain_after_long_capsule_run(void) {
   u64          v    = sr_cap_run(&cb, 3000);
   CHECK(wtcapsule_encode_drain(&cb) == 1);
   CHECK(wtcapsule_encode_max_data(&cb, v + 1000) == 1);
+  sr_h3data(&cb, 0);
   CHECK(sr_cap_send(c, hlen, caps, cb.len) == cb.len);
   CHECK(c->wt.max_data == v + 1000);
   CHECK(c->wt_active == 1);
@@ -19358,10 +19394,14 @@ static void test_srvrun_wt_drain_after_long_capsule_run(void) {
   CHECK(g_sl_drained == &c->wt);
 }
 
-/* Send capsule bytes d[0..n) on CONNECT stream 0 right after its HEADERS. */
+/* Send capsule bytes d[0..n) on CONNECT stream 0 right after its HEADERS,
+ * as one DATA frame's payload (RFC 9297 3.2). */
 static void sr_drain_rx(srvrun_conn* c, const u8* d, usz n) {
-  usz hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
-  CHECK(sr_cap_send(c, hlen, d, n) == n);
+  u8         f[64];
+  wired_obuf fb   = obuf_of(f, sizeof f);
+  usz        hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  CHECK(h3_frame_put(&fb, H3_FRAME_DATA, wired_span_of(d, n)) != 0);
+  CHECK(sr_cap_send(c, hlen, f, fb.len) == fb.len);
 }
 
 /* draft-ietf-webtrans-http3-15 4.7: WT_DRAIN_SESSION is advisory -- the

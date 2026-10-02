@@ -66,14 +66,17 @@ static int bodywin_forbidden(u64 type) {
   return type < 14 && ((0x23fcu >> type) & 1u);
 }
 
-/* RFC 9114 7.1: a frame header counts only once both varints are whole --
- * a partial one stays in the window untouched. Returns its length, or 0. */
-static usz bodywin_header_take(const bodywin_run* r, u64* type, u64* len) {
-  const u8* p = r->buf + r->pos;
-  usz       n = r->fr - r->pos;
-  usz       a = varint_decode(p, n, type);
-  usz       b = a ? varint_decode(p + a, n - a, len) : 0;
+/* RFC 9114 7.1 / RFC 9297 3.2: a frame or capsule header counts only once
+ * both varints are whole -- a partial one stays put. Returns its length, or
+ * 0. */
+static usz bodywin_head(const u8* p, usz n, u64* type, u64* len) {
+  usz a = varint_decode(p, n, type);
+  usz b = a ? varint_decode(p + a, n - a, len) : 0;
   return b ? a + b : 0;
+}
+
+static usz bodywin_header_take(const bodywin_run* r, u64* type, u64* len) {
+  return bodywin_head(r->buf + r->pos, r->fr - r->pos, type, len);
 }
 
 static int bodywin_header(bodywin_run* r) {
@@ -156,68 +159,91 @@ int bodywin_pump(bodywin* w, u8* buf, bodywin_sink fn, void* ctx) {
   return w->state;
 }
 
-/* One capsule pump: the frame cursor plus the capsule receiver. */
+/* One capsule pass: the reassembly buffer plus the capsule receiver. */
 typedef struct {
-  bodywin_run        r;
+  bodywin_capq*      q;
   bodywin_capsule_fn fn;
   void*              ctx;
-} bodywin_caprun;
+} bodywin_capctx;
 
-static void bodywin_cap_call(bodywin_caprun* c, u64 type, wired_span value) {
-  if (!c->fn(c->ctx, type, value)) c->r.w->state = BODYWIN_REJECTED;
+/* Drop the n buffered bytes in front of q. */
+static void bodywin_capq_shift(bodywin_capq* q, usz n) {
+  for (usz i = 0; i + n < q->n; i++) q->buf[i] = q->buf[i + n];
+  q->n -= n;
 }
 
-/* Skip the available part of an oversized capsule's value. */
-static int bodywin_cap_skip(bodywin_run* r) {
-  usz n = (usz)u64_min(r->w->left, r->fr - r->pos);
-  r->w->left -= n;
-  r->pos += n;
-  return n != 0;
+/* A capsule whose h-byte header and len-byte value can never fit q:
+ * announce it, then drop the value bytes held now and skip the rest. */
+static int bodywin_capq_oversized(bodywin_capctx* k, u64 type, usz h, u64 len) {
+  k->q->skip = len - (k->q->n - h);
+  k->q->n    = 0;
+  return k->fn(k->ctx, type, wired_span_of(0, 0)) != 0;
 }
 
-/* A capsule whose n-byte header and len-byte value can never share the
- * window: announce it, then skip its value by length. */
-static int bodywin_cap_oversized(bodywin_caprun* c, u64 type, usz n, u64 len) {
-  bodywin_cap_call(c, type, wired_span_of(0, 0));
-  c->r.w->left = len;
-  c->r.pos += n;
-  return 1;
+/* Hand over the whole capsule in front of q, or wait (2) for its value. */
+static int bodywin_capq_whole(bodywin_capctx* k, u64 type, usz h, u64 len) {
+  bodywin_capq* q = k->q;
+  int           ok;
+  if (len > q->n - h) return 2;
+  ok = k->fn(k->ctx, type, wired_span_of(q->buf + h, (usz)len));
+  bodywin_capq_shift(q, h + (usz)len);
+  return ok != 0;
 }
 
-/* Hand over the capsule at pos once its value is inside the frontier. */
-static int bodywin_cap_whole(bodywin_caprun* c, u64 type, usz n, u64 len) {
-  bodywin_run* r = &c->r;
-  if (len > r->fr - r->pos - n) return 0;
-  bodywin_cap_call(c, type, wired_span_of(r->buf + r->pos + n, (usz)len));
-  r->pos += n + (usz)len;
-  return 1;
-}
-
-static int bodywin_cap_one(bodywin_caprun* c) {
+/* One capsule out of q: 1 handed over, 2 waiting for more bytes, 0 fn
+ * said stop. */
+static int bodywin_capq_pop(bodywin_capctx* k) {
   u64 type, len;
-  usz n = bodywin_header_take(&c->r, &type, &len);
-  if (!n) return 0;
-  if (len > BODYWIN_CAP - n) return bodywin_cap_oversized(c, type, n, len);
-  return bodywin_cap_whole(c, type, n, len);
+  usz h = bodywin_head(k->q->buf, k->q->n, &type, &len);
+  if (!h) return 2;
+  if (len > BODYWIN_CAPSULE_CAP - h)
+    return bodywin_capq_oversized(k, type, h, len);
+  return bodywin_capq_whole(k, type, h, len);
 }
 
-static int bodywin_cap_step(bodywin_caprun* c) {
-  if (c->r.w->left) return bodywin_cap_skip(&c->r);
-  return bodywin_cap_one(c);
-}
-
-/* RFC 9297 3.3: the stream ended inside a capsule. */
-static void bodywin_cap_end(bodywin* w) {
-  if (bodywin_at_end(w) && w->left + bodywin_frontier(w))
-    w->state = BODYWIN_FRAME_ERROR;
-}
-
-int bodywin_capsules(bodywin* w, u8* buf, bodywin_capsule_fn fn, void* ctx) {
-  bodywin_caprun c = {{w, buf, 0, bodywin_frontier(w), 0, 0}, fn, ctx};
-  while (w->state == BODYWIN_OPEN && bodywin_cap_step(&c)) {
+static int bodywin_capq_drain(bodywin_capctx* k) {
+  int r;
+  while ((r = bodywin_capq_pop(k)) == 1) {
   }
-  bodywin_consume(w, buf, c.r.pos);
-  bodywin_cap_end(w);
+  return r != 0;
+}
+
+/* Take what fits of chunk from *at: skipped value bytes, or bytes appended
+ * to q and every capsule they complete. 0 when fn said stop. */
+static int bodywin_capq_feed(bodywin_capctx* k, wired_span chunk, usz* at) {
+  bodywin_capq* q = k->q;
+  usz           n = chunk.n - *at;
+  if (q->skip) {
+    n = (usz)u64_min(q->skip, n);
+    q->skip -= n;
+    *at += n;
+    return 1;
+  }
+  n = (usz)u64_min(BODYWIN_CAPSULE_CAP - q->n, n);
+  for (usz i = 0; i < n; i++) q->buf[q->n++] = chunk.p[(*at)++];
+  return bodywin_capq_drain(k);
+}
+
+/* bodywin_pump sink: every DATA payload chunk is capsule bytes. */
+static int bodywin_cap_sink(void* ctx, wired_span chunk, int fin) {
+  usz at = 0;
+  (void)fin;
+  while (at < chunk.n)
+    if (!bodywin_capq_feed(ctx, chunk, &at)) return 0;
+  return 1;
+}
+
+static int bodywin_capq_partial(const bodywin_capq* q) {
+  return q->n || q->skip;
+}
+
+int bodywin_capsules(
+    bodywin* w, u8* buf, bodywin_capq* q, bodywin_capsule_fn fn, void* ctx) {
+  bodywin_capctx k = {q, fn, ctx};
+  /* RFC 9297 3.3: the stream ended inside a capsule. */
+  if (bodywin_pump(w, buf, bodywin_cap_sink, &k) == BODYWIN_DONE &&
+      bodywin_capq_partial(q))
+    w->state = BODYWIN_FRAME_ERROR;
   return w->state;
 }
 

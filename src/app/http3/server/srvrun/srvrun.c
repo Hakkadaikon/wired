@@ -491,6 +491,10 @@ typedef struct {
    * capsule pass slides them out and resets it to 0 -- from then on the
    * window base is the capsule cursor. */
   usz wt_capsule_rx_at[SRVRUN_MAX_WT_SESSIONS];
+  /** RFC 9297 3.2: capsule bytes received in this slot's CONNECT stream DATA
+   * frames that do not yet make a whole capsule. Emptied at establishment
+   * (srvrun_start_wt). */
+  bodywin_capq wt_caprx[SRVRUN_MAX_WT_SESSIONS];
   /** draft-ietf-webtrans-http3-15 SS4.2/SS4.4/8.2 (WTH3-067): a
    * wired_server_wt_close_session call for this slot is pending -- latched
    * rather than sent inline (that entry point runs in an app callback with
@@ -3291,9 +3295,10 @@ static int srvrun_wt_rx_walk(
   if (c->wt_capsule_rx_at[sidx])
     bodywin_consume(&slot->body, slot->req_buf, c->wt_capsule_rx_at[sidx]);
   c->wt_capsule_rx_at[sidx] = 0;
+  /* A clean FIN (BODYWIN_DONE) is left to srvrun_close_wt_on_stream_close. */
   return bodywin_capsules(
-             &slot->body, slot->req_buf, srvrun_wt_capsule_apply, &x) ==
-         BODYWIN_OPEN;
+             &slot->body, slot->req_buf, &c->wt_caprx[sidx],
+             srvrun_wt_capsule_apply, &x) <= BODYWIN_DONE;
 }
 
 /* draft-ietf-webtrans-http3-15 SS5.1/SS5.6/SS8: apply the peer's session
@@ -5804,6 +5809,8 @@ static void srvrun_start_wt(
   /* wt_capsule_rx_at's own doc: the peer's capsule bytes start right after
    * its request HEADERS frame on this same stream (RFC 9297 SS3.2). */
   c->wt_capsule_rx_at[sidx] = srvrun_wt_capsule_start(c);
+  c->wt_caprx[sidx].n       = 0;
+  c->wt_caprx[sidx].skip    = 0;
   c->wt_drain_rcvd[sidx]    = 0;
   srvrun_wt_notify(cfg, c, sidx, wired_span_of(p.tok, p.tok_len));
 }
