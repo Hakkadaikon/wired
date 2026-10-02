@@ -274,6 +274,23 @@ describe("MoqtChatClient transport close detection", () => {
     expect(statuses.filter((s) => s === "disconnected")).toHaveLength(0);
   });
 
+  it("incoming stream and datagram readers failing on close are no unhandled rejections", async () => {
+    vi.useFakeTimers();
+    const fake = new FakeWebTransport();
+    const failing = { getReader: () => ({ read: async () => Promise.reject(new Error("The session is closed.")) }) };
+    (fake as unknown as { incomingUnidirectionalStreams: unknown }).incomingUnidirectionalStreams = failing;
+    (fake.datagrams as unknown as { readable: unknown }).readable = failing;
+    vi.stubGlobal("WebTransport", function () {
+      return fake;
+    });
+    const client = new MoqtChatClient("user1", { onStatusChange: () => {}, onMessage: () => {} });
+    const ready = client.connect("https://hub.example/", []);
+    fake.resolveReady();
+    await ready;
+    await flushAsync();
+    client.close();
+  });
+
   it("close() on a transport the browser already closed does not throw", async () => {
     const { client, fake, disconnects } = await connectedClient();
     fake.close = () => {
