@@ -716,9 +716,10 @@ void wired_moqt_on_session(
  * Namespace discovery (6.1-6.2): a PUBLISH_NAMESPACE held open on its
  * request stream is announced to every SUBSCRIBE_NAMESPACE whose prefix
  * matches -- NAMESPACE on the subscriber's stream, NAMESPACE_DONE once it
- * is withdrawn. An exact namespace already published is refused
- * UNINTERESTED; a session's prefixes overlapping (either empty, or the
- * same first field) are refused PREFIX_OVERLAP. Hub-owned tracks
+ * is withdrawn by the last session publishing it (several may; each
+ * namespace is announced once). A session republishing its own namespace
+ * is refused UNINTERESTED; a session's prefixes overlapping (either empty,
+ * or the same first field) are refused PREFIX_OVERLAP. Hub-owned tracks
  * (publish_blob / publish_live) have no namespace and are not announced. */
 void wired_moqt_on_stream_data(
     void*             app_ctx,
