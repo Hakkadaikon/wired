@@ -19306,6 +19306,46 @@ static void test_srvrun_wt_drain_rx_with_value_closes(void) {
   CHECK(g_sl_closes == 1 && c->wt_active == 0);
 }
 
+/* wired_server_wt_drain_session queues, the step sends: called twice, one
+ * WT_DRAIN_SESSION (type 0x78ae, Length 0) goes out on the CONNECT stream;
+ * a later call sends nothing more. */
+static void test_srvrun_wt_drain_session_sends_once(void) {
+  static const u8 want[] = {0x80, 0x00, 0x78, 0xae, 0x00};
+  struct lp_fix   f;
+  u8              obuf[1024], out[1500];
+  wired_obuf      ob   = obuf_of(obuf, sizeof obuf);
+  wired_obuf      outb = obuf_of(out, sizeof out);
+  srvrun_cfg      cfg  = sr_wt_send_cfg();
+  srvrun_conn*    c    = sr_wtsend_fixture(&f, &ob);
+  const u8*       pl;
+  usz             pll;
+  stream_frame    sf;
+  c->wt_connect_sent_len[0] = 20;
+  CHECK(wired_server_wt_drain_session(&c->wt) == 1);
+  CHECK(wired_server_wt_drain_session(&c->wt) == 1);
+  srvrun_flush_wt_drain(&cfg, c, &outb);
+  CHECK(client_open_onertt(&f, outb.p, outb.len, &pl, &pll) == 1);
+  CHECK(frame_get_stream(pl, pll, &sf) > 0);
+  CHECK(sf.stream_id == 4 && sf.offset == 20 && sf.fin == 0);
+  CHECK(sf.length == sizeof want);
+  for (usz i = 0; i < sizeof want; i++) CHECK(sf.data[i] == want[i]);
+  CHECK(c->wt_connect_sent_len[0] == 20 + sizeof want);
+  outb = obuf_of(out, sizeof out);
+  CHECK(wired_server_wt_drain_session(&c->wt) == 1);
+  srvrun_flush_wt_drain(&cfg, c, &outb);
+  CHECK(outb.len == 0);
+  CHECK(c->wt_connect_sent_len[0] == 20 + sizeof want);
+}
+
+/* A session no live connection owns (closed, or never ours) is refused. */
+static void test_srvrun_wt_drain_session_unknown_refused(void) {
+  wired_wt_session ghost;
+  sr_reset_global_table();
+  wired_wt_session_init(&ghost, 99);
+  wired_wt_session_establish(&ghost);
+  CHECK(wired_server_wt_drain_session(&ghost) == 0);
+}
+
 /* A WT bidi stream the app holds before its first credit grant still gets
  * the WT buffer's credit once: the hold freezes raises past it, it does not
  * leave the stream at the request window it started with. */
@@ -20314,6 +20354,8 @@ void test_srvrun(void) {
   test_srvrun_wt_drain_rx_notifies_app();
   test_srvrun_wt_drain_rx_without_callback();
   test_srvrun_wt_drain_rx_with_value_closes();
+  test_srvrun_wt_drain_session_sends_once();
+  test_srvrun_wt_drain_session_unknown_refused();
   test_srvrun_wt_bidi_held_before_first_grant_gets_wt_window();
   test_srvrun_on_body_frame_unexpected();
   test_srvrun_handler_on_body_reaches_cfg();

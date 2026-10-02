@@ -735,6 +735,17 @@ int wired_server_wt_send_datagram_to(wired_wt_session* s, wired_span payload);
 int wired_server_wt_close_session(
     wired_wt_session* s, u32 app_error_code, wired_span message);
 
+/** draft-ietf-webtrans-http3-15 4.7: ask the peer to wind s down by sending
+ * a WT_DRAIN_SESSION capsule on s's CONNECT stream. Queued for one of the
+ * loop's next steps, and sent at most once per session: a repeat call (or
+ * the drain the server's own GOAWAY already sent) succeeds without sending
+ * again. The session stays open. Callable only from inside the server's
+ * own loop (a callback).
+ * @param s the session to drain
+ * @return 1 queued (or already drained), 0 when s resolves to no live
+ *   connection (e.g. the session already closed) */
+int wired_server_wt_drain_session(wired_wt_session* s);
+
 /** Register the calling thread as srvthreads worker `index` of `n_total`,
  * with its own N-ring inbox row (inbox_row[j] receives broadcasts sent by
  * worker j, j != index only -- the caller's own broadcasts reach its own

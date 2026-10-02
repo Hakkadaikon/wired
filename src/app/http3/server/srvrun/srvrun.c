@@ -499,6 +499,10 @@ typedef struct {
   u32 wt_close_code[SRVRUN_MAX_WT_SESSIONS];
   u8  wt_close_msg[SRVRUN_MAX_WT_SESSIONS][WTCAPSULE_CLOSE_MESSAGE_MAX];
   usz wt_close_msg_len[SRVRUN_MAX_WT_SESSIONS];
+  /** draft-ietf-webtrans-http3-15 4.7: a wired_server_wt_drain_session call
+   * for this slot is pending, latched like wt_close_pending and sent on the
+   * next step (srvrun_flush_wt_drain). */
+  int wt_drain_pending[SRVRUN_MAX_WT_SESSIONS];
   /** draft-ietf-webtrans-http3-15 SS4.4/8.2: wired_server_wt_stream_reset
    * calls pending -- latched (not sent inline) for the same
    * no-srvrun_cfg-in-a-callback reason as wt_close_pending, drained on the
@@ -1525,6 +1529,8 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot);
 /* Forward-declared for the same reason: srvrun_on_step (above) calls it, but
  * it is defined alongside its own wtsend[] helpers further down. */
 static void srvrun_open_qenc_stream(srvrun_conn* c);
+/* Same: defined beside srvrun_send_wt_drain, which it sends through. */
+static void srvrun_flush_wt_drain_step(const srvrun_cfg* cfg, srvrun_conn* c);
 
 /* RFC 9001 4.6.1: dg's boot accumulator held every 0-RTT datagram that
  * arrived before this boot's early keys existed (wired_srvboot_acc_feed) --
@@ -3665,6 +3671,7 @@ static void srvrun_on_step(
   srvrun_wt_rx_capsules(ctx->cfg, c);
   srvrun_close_wt_on_stream_close(ctx->cfg, c);
   srvrun_deliver_wt_reset_if_owned(ctx->cfg, c);
+  srvrun_flush_wt_drain_step(ctx->cfg, c);
   srvrun_drain_wt_close_pending(ctx->cfg, c);
   srvrun_drain_wt_stream_reset(ctx->cfg, c);
   if (srvrun_close_on_step_violation(ctx->cfg, c)) return;
@@ -3752,6 +3759,28 @@ static void srvrun_send_wt_drain_all(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* out) {
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
     if (srvrun_wt_is_active(c, i)) srvrun_send_wt_drain(cfg, c, i, out);
+}
+
+static void srvrun_flush_wt_drain_one(
+    const srvrun_cfg* cfg, srvrun_conn* c, int i, wired_obuf* out) {
+  if (!c->wt_drain_pending[i]) return;
+  c->wt_drain_pending[i] = 0;
+  if (srvrun_wt_is_active(c, i)) srvrun_send_wt_drain(cfg, c, i, out);
+}
+
+/* Send every session slot's pending wired_server_wt_drain_session
+ * (wt_drain_pending). srvrun_send_wt_drain's own ESTABLISHED->DRAINING
+ * guard keeps it to one capsule per session. */
+static void srvrun_flush_wt_drain(
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* out) {
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+    srvrun_flush_wt_drain_one(cfg, c, i, out);
+}
+
+static void srvrun_flush_wt_drain_step(const srvrun_cfg* cfg, srvrun_conn* c) {
+  u8         out[1500];
+  wired_obuf ob = obuf_of(out, sizeof out);
+  srvrun_flush_wt_drain(cfg, c, &ob);
 }
 
 /* GOAWAY is HTTP/3-only (RFC 9114 5.2, a control-stream frame): an
@@ -4774,6 +4803,14 @@ static void srvrun_wt_close_record_message(
   usz n = u64_min(message.n, WTCAPSULE_CLOSE_MESSAGE_MAX);
   bytes_memcpy(c->wt_close_msg[sidx], message.p, n);
   c->wt_close_msg_len[sidx] = n;
+}
+
+int wired_server_wt_drain_session(wired_wt_session* s) {
+  srvrun_conn* c    = srvrun_session_conn(s);
+  int          sidx = wt_session_slot_or_absent(c, s);
+  if (sidx < 0) return 0;
+  c->wt_drain_pending[sidx] = 1;
+  return 1;
 }
 
 int wired_server_wt_close_session(
