@@ -19359,24 +19359,24 @@ static void test_srvrun_wt_drain_session_closed_refused(void) {
   CHECK(wired_server_wt_drain_session(&c->wt) == 0);
 }
 
-/* wired_server_wt_usage on an empty env: nothing open, caps reported. */
-static void test_srvrun_wt_usage_empty(void) {
-  wired_wt_usage u;
+/* wired_server_wt_occupancy on an empty env: nothing open, caps reported. */
+static void test_srvrun_wt_occupancy_empty(void) {
+  wired_wt_occupancy u;
   sr_reset_global_table();
-  CHECK(wired_server_wt_usage(&u) == 1);
-  CHECK(u.sessions == 0 && u.streams == 0);
+  CHECK(wired_server_wt_occupancy(&u) == 1);
+  CHECK(u.sessions == 0 && u.peer_streams == 0);
   CHECK(u.sessions_cap == SRVRUN_MAX_WT_SESSIONS_GLOBAL);
   CHECK(
-      u.streams_cap ==
+      u.peer_streams_cap ==
       WIRED_CONNTABLE_CAP *
           (WIRED_SRVLOOP_MAX_WT_STREAMS + WIRED_SRVLOOP_MAX_WT_UNI_STREAMS));
 }
 
 /* Sessions and open WT stream slots summed over live connections; a dead
  * connection's leftover slot does not count. */
-static void test_srvrun_wt_usage_counts_open(void) {
-  wired_wt_usage u;
-  srvrun_conn*   c = g_srvrun_state.conns;
+static void test_srvrun_wt_occupancy_counts_open(void) {
+  wired_wt_occupancy u;
+  srvrun_conn*       c = g_srvrun_state.conns;
   sr_reset_global_table();
   c[0].up                         = 1;
   c[0].wt_active                  = 1;
@@ -19388,9 +19388,9 @@ static void test_srvrun_wt_usage_counts_open(void) {
   c[1].wt_active                  = 1;
   c[1].l.wt_uni_streams[0].in_use = 1;
   c[2].l.wt_streams[0].in_use     = 1; /* not up */
-  CHECK(wired_server_wt_usage(&u) == 1);
+  CHECK(wired_server_wt_occupancy(&u) == 1);
   CHECK(u.sessions == 3);
-  CHECK(u.streams == 4);
+  CHECK(u.peer_streams == 4);
   sr_reset_global_table();
 }
 
@@ -20405,8 +20405,8 @@ void test_srvrun(void) {
   test_srvrun_wt_drain_session_sends_once();
   test_srvrun_wt_drain_session_unknown_refused();
   test_srvrun_wt_drain_session_closed_refused();
-  test_srvrun_wt_usage_empty();
-  test_srvrun_wt_usage_counts_open();
+  test_srvrun_wt_occupancy_empty();
+  test_srvrun_wt_occupancy_counts_open();
   test_srvrun_wt_bidi_held_before_first_grant_gets_wt_window();
   test_srvrun_on_body_frame_unexpected();
   test_srvrun_handler_on_body_reaches_cfg();

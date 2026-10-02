@@ -4835,14 +4835,14 @@ static usz srvrun_wt_streams_open(const srvrun_conn* c) {
   return c->up ? wt_bidi_slots_in_use(c) + wt_uni_slots_in_use(c) : 0;
 }
 
-int wired_server_wt_usage(wired_wt_usage* out) {
+int wired_server_wt_occupancy(wired_wt_occupancy* out) {
   wired_srvrun_env* env = srvrun_caller_env();
   out->sessions         = srvrun_wt_active_total(env);
   out->sessions_cap     = SRVRUN_MAX_WT_SESSIONS_GLOBAL;
-  out->streams          = 0;
+  out->peer_streams     = 0;
   for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
-    out->streams += srvrun_wt_streams_open(&env->conns[i]);
-  out->streams_cap =
+    out->peer_streams += srvrun_wt_streams_open(&env->conns[i]);
+  out->peer_streams_cap =
       (usz)WIRED_CONNTABLE_CAP *
       (WIRED_SRVLOOP_MAX_WT_STREAMS + WIRED_SRVLOOP_MAX_WT_UNI_STREAMS);
   return 1;

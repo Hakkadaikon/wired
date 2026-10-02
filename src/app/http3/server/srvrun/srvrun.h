@@ -748,19 +748,21 @@ int wired_server_wt_close_session(
 int wired_server_wt_drain_session(wired_wt_session* s);
 
 /** Current WebTransport occupancy of the server loop the caller runs in,
- * against the compile-time capacities -- for an app exposing stats. */
+ * against the compile-time capacities -- for an app exposing stats. A
+ * point-in-time snapshot, unlike wired_srvrun_env_wt_usage's cumulative
+ * totals. */
 typedef struct {
-  usz sessions;     /**< WT sessions open now, across all connections */
-  usz sessions_cap; /**< most sessions the server holds at once */
-  usz streams;      /**< client-opened WT bidi/uni streams open now */
-  usz streams_cap;  /**< most such streams the server holds at once */
-} wired_wt_usage;
+  usz sessions;         /**< WT sessions open now, across all connections */
+  usz sessions_cap;     /**< most sessions the server holds at once */
+  usz peer_streams;     /**< client-opened WT bidi/uni streams open now */
+  usz peer_streams_cap; /**< most such streams the server holds at once */
+} wired_wt_occupancy;
 
 /** Snapshot the calling loop's WebTransport occupancy into *out.
  * Callable only from inside the server's own loop (a callback).
  * @param out receives the counts
  * @return 1 */
-int wired_server_wt_usage(wired_wt_usage* out);
+int wired_server_wt_occupancy(wired_wt_occupancy* out);
 
 /** Register the calling thread as srvthreads worker `index` of `n_total`,
  * with its own N-ring inbox row (inbox_row[j] receives broadcasts sent by
