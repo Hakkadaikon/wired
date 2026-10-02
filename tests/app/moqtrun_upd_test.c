@@ -185,15 +185,20 @@ static void test_moqtrun_upd_params_replace(void) {
   CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
 }
 
-/* An update outlives the publisher: a rejoin re-attaches the updated
- * state (only the subscriber changes it, 5.1). */
+/* An update outlives a withdrawn PUBLISH: the republish re-attaches the
+ * updated state (only the subscriber changes it, 5.1). The publisher's
+ * session ending ends the subscription instead (PUBLISH_DONE). */
 static void test_moqtrun_upd_survives_rejoin(void) {
   moqctl_params p0 = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
-  moqctl_ftn    f  = mtup_setup();
+  moqctl_ftn    f  = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish(SESS_A, MTRQ_S2, &f, 1);
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   mtup_update(SESS_B, MTRQ_S1, &p0);
-  wired_moqt_on_session_close(&mtst_hub, SESS_A);
-  mtst_publish(SESS_A, mtst_join(SESS_A), &f, 1);
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MTRQ_S2, 0, 0);
+  mtst_publish(SESS_A, MTRQ_S2 + 4, &f, 1);
   wired_moqtrun_sub* s = mtst_sub(SESS_A, SESS_B);
   CHECK(s && s->forward_off == 1);
   CHECK(moqtrun_test_relay_alice_chat(&mtst_hub) == 0);

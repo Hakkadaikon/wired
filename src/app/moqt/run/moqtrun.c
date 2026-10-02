@@ -4413,10 +4413,14 @@ static void moqtrun_peer_frags_release(wired_moqtrun_peer* p) {
       moqtrun_frag_release_unless_poisoned(&p->tracks[t].relays[r]);
 }
 
+static void moqtrun_peer_tracks_ended(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p);
+
 void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s) {
   wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
   wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
   if (!p) return;
+  moqtrun_peer_tracks_ended(hub, p);
   moqtrun_drop_peer_subs(hub, (usz)(p - hub->peers), MOQTRUN_RID_ANY);
   moqtrun_reqs_drop(hub, s);
   moqtrun_fetches_drop(hub, s);
@@ -4495,6 +4499,89 @@ void wired_moqt_on_stream_reset(
   else
     moqtrun_stream_frag_release(p, stream_id);
   moqtrun_reqs_tick(hub);
+}
+
+/* ===================== PUBLISH_DONE (draft 10.11) ===================== */
+
+/* Stream Count when the exact number is not known (10.11). */
+#define MOQTRUN_DONE_STREAMS_UNKNOWN (((u64)1 << 62) - 1)
+
+static int moqtrun_encode_publish_done(
+    wired_mspan buf, usz* off, const void* m) {
+  return moqctl_publish_done_encode(buf, off, m);
+}
+
+static int moqtrun_req_holds(const wired_moqtrun_req* q, u64 rid) {
+  return q->kind == MOQCTL_T_SUBSCRIBE && q->live && q->request_id == rid;
+}
+
+static int moqtrun_req_sub_of(
+    const wired_moqtrun_req* q, const wired_moqtrun_peer* p, u64 rid) {
+  return !p->closing && moqtrun_req_owned(q, p->wt) &&
+         moqtrun_req_holds(q, rid);
+}
+
+/* The request stream of p carrying its live subscription rid, else 0 --
+ * also for a session the hub is closing (nothing more goes to it). */
+static wired_moqtrun_req* moqtrun_sub_req(
+    wired_moqt_hub* hub, const wired_moqtrun_peer* p, u64 rid) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+    if (moqtrun_req_sub_of(&hub->reqs[i], p, rid)) return &hub->reqs[i];
+  return 0;
+}
+
+/* Subscription s (slot of track t; t 0 when s is state kept for a gone
+ * publisher) gets nothing more. */
+static void moqtrun_sub_stop(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, wired_moqtrun_sub* s) {
+  s->active = 0;
+  if (t) moqtrun_relays_clear_sub(hub, t, (usz)(s - t->subs));
+}
+
+/* Ends subscription s of peer p, carried by request stream q: PUBLISH_DONE
+ * status is q's last message, then the hub FINs it (3.3.2) once sent, and
+ * a rejoining publisher does not revive it. */
+static void moqtrun_sub_done(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_req*   q,
+    wired_moqtrun_track* t,
+    wired_moqtrun_sub*   s,
+    u64                  status) {
+  u8                  msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
+  moqctl_publish_done d = {0};
+  d.status_code         = status;
+  d.stream_count        = MOQTRUN_DONE_STREAMS_UNKNOWN;
+  usz n                 = moqtrun_envelope_put(
+      wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH_DONE,
+      moqtrun_encode_publish_done, &d);
+  moqtrun_req_queue(q, wired_span_of(msg, n));
+  q->live = 0;
+  moqtrun_sub_names_forget(p, s->request_id);
+  moqtrun_sub_stop(hub, t, s);
+}
+
+/* PUBLISH_DONE status to sub slot si of t, when it is held on a request
+ * stream. */
+static void moqtrun_sub_done_slot(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, usz si, u64 status) {
+  wired_moqtrun_sub*  s = &t->subs[si];
+  wired_moqtrun_peer* p = &hub->peers[s->session_idx];
+  wired_moqtrun_req* q = s->active ? moqtrun_sub_req(hub, p, s->request_id) : 0;
+  if (q) moqtrun_sub_done(hub, p, q, t, s, status);
+}
+
+static void moqtrun_track_ended(wired_moqt_hub* hub, wired_moqtrun_track* t) {
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
+    moqtrun_sub_done_slot(hub, t, si, MOQCTL_DONE_TRACK_ENDED);
+}
+
+/* A publisher's session is ending: every subscription to its tracks ends
+ * with TRACK_ENDED (10.11). */
+static void moqtrun_peer_tracks_ended(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    if (p->tracks[t].in_use) moqtrun_track_ended(hub, &p->tracks[t]);
 }
 
 /* ===================== drain (draft 3.6, 10.4) ===================== */
