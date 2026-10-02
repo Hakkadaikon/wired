@@ -258,6 +258,58 @@ static const wired_moqt_io g_moqt_io = {
 
 static wired_moqt_hub g_hub;
 
+/* Object cache for FETCH (draft-ietf-moq-transport-19 10.12.3): chat
+ * history and a video late-joiner's keyframe group are served from it. One
+ * arena for every track, oldest whole group evicted first (moqcache.h), so
+ * a busy screen share pushes chat history out first. */
+#define MOQT_CACHE_BYTES (1u << 20)
+static u8 g_cache_arena[MOQT_CACHE_BYTES];
+
+/* The room's Track Namespace prefix: every namespace a peer announces or
+ * watches must sit under it (draft-ietf-moq-transport-19 10.15/10.18). */
+static const char* const ROOM_NS[] = {"wired", "moqt_chat"};
+#define ROOM_NS_N (sizeof ROOM_NS / sizeof ROOM_NS[0])
+
+static int mem_eq(const u8* a, const u8* b, usz n) {
+  for (usz i = 0; i < n; i++)
+    if (a[i] != b[i]) return 0;
+  return 1;
+}
+
+static int span_eq_cstr(wired_span s, const char* c) {
+  usz n = wired_cstr_len(c);
+  return s.n == n && mem_eq(s.p, (const u8*)c, n);
+}
+
+/* wired_moqt_authorize_ns_fn: grants a namespace under ROOM_NS only. */
+static int authorize_room_ns(
+    void* ctx, u64 msg_type, const moqctl_ns* ns, const moqctl_token* token) {
+  (void)ctx;
+  (void)msg_type;
+  (void)token;
+  if (ns->n < ROOM_NS_N) return 0;
+  for (usz i = 0; i < ROOM_NS_N; i++)
+    if (!span_eq_cstr(ns->fields[i], ROOM_NS[i])) return 0;
+  return 1;
+}
+
+/* draft-ietf-webtrans-http3-15 3.1 / RFC 6454: WIRED_ALLOWED_ORIGINS is a
+ * comma-separated list of exact Origins (e.g. "https://a.example,https://
+ * b.example"); a CONNECT whose Origin is not on it gets 403. Unset leaves
+ * the check off (every Origin accepted). */
+static int origin_allowed(void* ctx, wired_span origin, wired_span authority) {
+  const char* list = (const char*)ctx;
+  (void)authority;
+  for (usz start = 0, i = 0;; i++) {
+    if (list[i] != ',' && list[i] != 0) continue;
+    if (i - start == origin.n &&
+        mem_eq((const u8*)list + start, origin.p, origin.n))
+      return 1;
+    if (list[i] == 0) return 0;
+    start = i + 1;
+  }
+}
+
 /* --- Plain HTTP/3 app: identical shape to examples/webtransport_echo ---- */
 
 static int app_on_request(
@@ -498,10 +550,22 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
 
   load_san_ipv4(argc, argv, keys.san_ipv4, &have_san_ipv4);
   server_identity(&id, &keys, have_san_ipv4, now_secs);
+  /* --cert/--key (or WIRED_CERT/WIRED_KEY): a PEM pair replaces the
+   * in-memory self-signed identity, and SIGHUP re-reads the same paths
+   * (srvrun.h's wired_srvrun_obs) without dropping a connection. */
+  static wired_certreload_store cert_store;
+  obs.cert_path = wired_cliargs_str(
+      argc, argv, "--cert", wired_envp_get(argc, argv, "WIRED_CERT"));
+  obs.key_path = wired_cliargs_str(
+      argc, argv, "--key", wired_envp_get(argc, argv, "WIRED_KEY"));
+  wired_certreload_load_or_selfsigned(
+      obs.cert_path, obs.key_path, &cert_store, &id);
   log_cert_fingerprint(&id);
 
   wired_moqt_init(&g_hub, g_moqt_io);
   g_hub.reliable_alias_limit = CHAT_ALIAS_LIMIT;
+  wired_moqt_cache_attach(&g_hub, g_cache_arena, sizeof g_cache_arena);
+  g_hub.authorize_namespace = authorize_room_ns;
 
   if (!wired_srvdriver_parse(argc, argv, &opt))
     wired_die(
@@ -525,6 +589,9 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   opt.run.wt_session_close_ctx = &g_hub;
   opt.run.on_step              = on_step;
   opt.run.on_step_ctx          = &g_hub;
+  opt.run.wt_origin_ctx =
+      (void*)wired_envp_get(argc, argv, "WIRED_ALLOWED_ORIGINS");
+  if (opt.run.wt_origin_ctx) opt.run.wt_origin_check = origin_allowed;
 
   if (!wired_srvdriver_run(&id, h, obs, &opt)) wired_die("listen failed\n");
   log_relay_stats("moqt relay: ");
