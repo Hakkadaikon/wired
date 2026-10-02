@@ -1,0 +1,12 @@
+$ ./h3-post-body --port 4433
+total 2048
+conn closed by peer (CONNECTION_CLOSE)
+conn closed by peer (CONNECTION_CLOSE)
+$ probe h3req 127.0.0.1:4433 POST /upload --body-file small.txt
+status 200
+content-type: text/plain
+
+2048
+
+$ probe h3req 127.0.0.1:4433 POST /upload --body-file big.txt
+status 413

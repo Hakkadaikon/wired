@@ -1,0 +1,7 @@
+{
+  "client": "probe",
+  "steps": [
+    { "client": "probe", "args": ["h3req", "POST", "/upload", "--body-file", "small.txt"] },
+    { "client": "probe", "args": ["h3req", "POST", "/upload", "--body-file", "big.txt"] }
+  ]
+}
