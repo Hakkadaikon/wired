@@ -274,6 +274,16 @@ describe("MoqtChatClient transport close detection", () => {
     expect(statuses.filter((s) => s === "disconnected")).toHaveLength(0);
   });
 
+  it("close() on a transport the browser already closed does not throw", async () => {
+    const { client, fake, disconnects } = await connectedClient();
+    fake.close = () => {
+      throw new Error("The session is closed.");
+    };
+
+    expect(() => client.close()).not.toThrow();
+    expect(disconnects()).toBe(1);
+  });
+
   it("close() reports disconnected once and its closed settling adds none", async () => {
     const { client, fake, disconnects } = await connectedClient();
 

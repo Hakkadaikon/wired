@@ -332,6 +332,16 @@ interface Request {
   cancel(): void;
 }
 
+/** WebTransport.close() throws on a session the browser already ended
+ * (a closing tab, a dropped connection); either way it is closed. */
+function closeQuietly(wt: WebTransport): void {
+  try {
+    wt.close();
+  } catch {
+    // already closed
+  }
+}
+
 /** SUBSCRIBE_OK's Largest Object (undefined: nothing published yet), or
  * null when the body does not decode. */
 function subscribeOkLargest(body: Uint8Array): Location | undefined | null {
@@ -491,7 +501,7 @@ export class MoqtChatClient {
       // its closed settling does not report a second one for the session.
       if (this.#wt === wt) {
         this.#wt = undefined;
-        wt.close();
+        closeQuietly(wt);
       }
       throw err;
     }
@@ -588,7 +598,7 @@ export class MoqtChatClient {
     const wt = this.#wt;
     if (!wt) return; // already down -- its "disconnected" was reported once
     this.#wt = undefined; // stale first: our own closed settling reports nothing
-    wt.close();
+    closeQuietly(wt);
     this.#callbacks.onStatusChange("disconnected");
   }
 
