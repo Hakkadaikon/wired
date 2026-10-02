@@ -98,7 +98,8 @@ typedef void (*wired_wt_on_session_close)(void* app_ctx, wired_wt_session* s);
 /** draft-ietf-webtrans-http3-15 4.7: the peer sent WT_DRAIN_SESSION on s's
  * CONNECT stream -- an advisory request to wind the session down soon. The
  * session stays open; the app decides when to close it. Fires once per
- * capsule received. s is only valid for the duration of the call.
+ * session, however often the peer repeats the capsule. s is only valid for
+ * the duration of the call.
  * @param app_ctx opaque context registered alongside this callback
  * @param s the session the peer asked to drain */
 typedef void (*wired_wt_on_session_draining)(
