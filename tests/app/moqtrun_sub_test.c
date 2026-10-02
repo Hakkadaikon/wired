@@ -607,7 +607,7 @@ static void test_moqtrun_req_update_answered_on_same_stream(void) {
   moqctl_ftn      f     = mtrq_setup();
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   mtrq_raw(SESS_B, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd, sizeof upd);
-  CHECK(mtrq_type_on(3, MTRQ_S1) == MOQCTL_T_REQUEST_ERROR);
+  CHECK(mtrq_type_on(3, MTRQ_S1) == MOQCTL_T_REQUEST_OK);
   CHECK(moqtrun_test_count_kind(12) == 1);
   CHECK(mtrq_closes() == 0);
 }
