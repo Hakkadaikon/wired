@@ -212,10 +212,16 @@ typedef struct {
  * WIRED_SRVLOOP_MAX_STREAMS/wired_srvloop_stream_slot: a WT bidi stream's
  * bytes past the leading 0x41 signal are raw application data with no HTTP/3
  * HEADERS/DATA framing, so they need no req_scratch/req_wrap-shaped fields.
- * 6, not 4: quic-interop-runner's WebTransport transfer tests open 5
- * concurrent streams per session (100KB/250KB/500KB/1MB/2MB files) -- 4 slots
- * silently dropped the 5th. */
-#define WIRED_SRVLOOP_MAX_WT_STREAMS 6
+ * 24: a MoQT session (draft-ietf-moq-transport-19) keeps one request stream
+ * open per live PUBLISH / SUBSCRIBE / PUBLISH_NAMESPACE /
+ * SUBSCRIBE_NAMESPACE -- a 4-person moqt_chat room needs ~16 per browser
+ * plus the server's control stream. A stream past the table is refused on
+ * the wire (wt_refused below), never dropped. Each slot owns one
+ * WIRED_SRVLOOP_WT_BUF_CAP window, so this is the main per-connection BSS
+ * knob: overridable per build (-DWIRED_SRVLOOP_MAX_WT_STREAMS=N). */
+#ifndef WIRED_SRVLOOP_MAX_WT_STREAMS
+#define WIRED_SRVLOOP_MAX_WT_STREAMS 24
+#endif
 
 /** Byte capacity of one WT bidi/uni reassembly slot's receive window (buf
  * below). Sized past one full BDP for quic-interop-runner's simulated link
