@@ -1,0 +1,29 @@
+---
+title: Checking the Origin header
+description: Allow-list the Origin an Extended CONNECT arrives with, independently of its path.
+sidebar:
+  order: 8
+---
+import Example from '../../../../components/Example.astro';
+
+A browser sends its page's Origin on every WebTransport Extended CONNECT.
+This server accepts one Origin and rejects every other with `403`, before any
+session is established.
+
+<Example id="wt-origin" />
+
+## How it works
+
+- `opt.wt_origin_check` runs after `wt_resource_check` (if any) accepted and
+  before the session exists. Returning `0` answers `403` with no session;
+  the default (`0`, unset) accepts every well-formed Origin.
+- `origin` is the CONNECT's `Origin` header as a view, valid only during the
+  call. A CONNECT sent with no `Origin` header at all arrives here as the
+  same empty span as one sent with an explicitly empty `Origin: `: neither
+  the draft nor this callback's `wired_span` distinguishes "absent" from
+  "present but empty", so an allow-list that never special-cases the empty
+  string rejects both the same way this page's callback does.
+- `authority` (the CONNECT's `:authority`) is also available, for a check
+  that varies by virtual host; this page ignores it.
+- Both requests target the same `/chat` path, so the only thing that
+  differs between the two client calls below is the Origin header.
