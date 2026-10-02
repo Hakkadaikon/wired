@@ -374,16 +374,17 @@ typedef struct {
  * (same fixed-slot policy as resp[]). */
 #define SRVRUN_WT_SEND_SLOTS 16
 
-/* RFC 9000 13.3: stream aborts (srvrun_send_wt_busy_reset) one connection
- * keeps until ACKed. Sized for a session teardown resetting every WT slot
- * at once (24 bidi + 6 uni) plus a couple of refusals; an abort that finds
- * the table full still goes out, just once. */
+/* RFC 9000 13.3: one-shot control packets (stream aborts, GOAWAY) one
+ * connection keeps until ACKed. Sized for a session teardown resetting
+ * every WT slot at once (24 bidi + 6 uni) plus a couple more; a packet that
+ * finds the table full still goes out, just once. */
 #define SRVRUN_RST_RETX 32
 
-/* One stream abort awaiting its ACK: the exact frames sent (RESET_STREAM +
- * STOP_SENDING, at most 42 bytes -- 1 + three 8-byte varints, then 1 + two),
- * resent verbatim so the final size never changes (RFC 9000 4.5). tries is
- * the resends left; 0 marks a free entry. */
+/* One control packet awaiting its ACK: the exact frames sent (at most 42
+ * bytes -- RESET_STREAM + STOP_SENDING is 1 + three 8-byte varints, then
+ * 1 + two; a GOAWAY STREAM frame is smaller), resent verbatim so a final
+ * size or stream offset never changes (RFC 9000 4.5/2.2). pln 0 marks a
+ * free entry; tries is the resends left. */
 typedef struct {
   u8  pl[48];
   u8  pln;
@@ -1798,23 +1799,41 @@ static int srvrun_seal_ctl(
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
-/* RFC 9000 19.5: a STOP_SENDING alone, as its own 1-RTT packet. */
-static int srvrun_seal_stop_sending(
-    srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* out) {
-  u8         pl[32];
-  wired_obuf plb = obuf_of(pl, sizeof pl);
-  return srvrun_seal_ctl(
-      c, pl, srvrun_wt_abort_stop(stream_id, err_code, &plb, 0), out);
+/* Keep pl's pln bytes for resending until the packet about to carry them
+ * (pn c->l.tx_pn) is ACKed; a full table or an oversize payload is simply
+ * not kept (sent once). */
+static void srvrun_rst_keep(srvrun_conn* c, const u8* pl, usz pln);
+
+/* Seal pl as its own 1-RTT packet into out, kept for resending until ACKed
+ * (RFC 9000 13.3). Returns 1 with out->len set, 0 on failure. */
+static int srvrun_seal_kept(
+    srvrun_conn* c, const u8* pl, usz pln, wired_obuf* out) {
+  srvrun_rst_keep(c, pl, pln);
+  return srvrun_seal_ctl(c, pl, pln, out);
+}
+
+/* srvrun_seal_kept, then send it with log line msg. */
+static void srvrun_send_kept(
+    const srvrun_cfg* cfg,
+    srvrun_conn*      c,
+    const u8*         pl,
+    usz               pln,
+    const char*       msg) {
+  u8         out[128];
+  wired_obuf ob = obuf_of(out, sizeof out);
+  if (!srvrun_seal_kept(c, pl, pln, &ob)) return;
+  srvrun_send(cfg, c, wired_span_of(out, ob.len), msg);
 }
 
 /* RFC 9114 4.1.2: a server answering before it read the whole request
  * "SHOULD" ask with H3_NO_ERROR that the client stop sending the rest. */
 static void srvrun_send_stop_sending(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id) {
-  u8         out[128];
-  wired_obuf ob = obuf_of(out, sizeof out);
-  if (!srvrun_seal_stop_sending(c, stream_id, H3_NO_ERROR, &ob)) return;
-  srvrun_send(cfg, c, wired_span_of(out, ob.len), "STOP_SENDING sent\n");
+  u8         pl[32];
+  wired_obuf plb = obuf_of(pl, sizeof pl);
+  srvrun_send_kept(
+      cfg, c, pl, srvrun_wt_abort_stop(stream_id, H3_NO_ERROR, &plb, 0),
+      "STOP_SENDING sent\n");
 }
 
 static u64 srvrun_pto_deadline_ms(const srvrun_conn* c, int pto_count);
@@ -1830,14 +1849,29 @@ static void srvrun_rst_send(
   e->due_ms =
       now_ms + srvrun_pto_deadline_ms(c, SRVRUN_PTO_MAX - (int)e->tries);
   if (!srvrun_seal_ctl(c, e->pl, e->pln, &ob)) return;
-  srvrun_send(cfg, c, wired_span_of(out, ob.len), "WT stream abort sent\n");
+  srvrun_send(cfg, c, wired_span_of(out, ob.len), "control frame resent\n");
 }
 
-/* A free abort entry on c, or 0 when all are awaiting ACKs. */
+/* A free entry on c, or 0 when all are awaiting ACKs. */
 static srvrun_rst* srvrun_rst_free(srvrun_conn* c) {
   for (usz i = 0; i < SRVRUN_RST_RETX; i++)
-    if (!c->rst[i].tries) return &c->rst[i];
+    if (!c->rst[i].pln) return &c->rst[i];
   return 0;
+}
+
+/* 1 iff a payload of pln bytes can be kept (nonempty, fits pl[]). */
+static int srvrun_rst_fits(usz pln) {
+  return pln && pln <= sizeof(((srvrun_rst*)0)->pl);
+}
+
+static void srvrun_rst_keep(srvrun_conn* c, const u8* pl, usz pln) {
+  srvrun_rst* e = srvrun_rst_free(c);
+  if (!e || !srvrun_rst_fits(pln)) return;
+  bytes_memcpy(e->pl, pl, pln);
+  e->pln    = (u8)pln;
+  e->tries  = SRVRUN_PTO_MAX;
+  e->pn     = c->l.tx_pn;
+  e->due_ms = c->l.now_ms + srvrun_pto_deadline_ms(c, 0);
 }
 
 /* Send the type-appropriate abort frames carrying err_code as their own
@@ -1847,33 +1881,32 @@ static srvrun_rst* srvrun_rst_free(srvrun_conn* c) {
  * streams are open). With the table full the abort still goes out once. */
 static void srvrun_send_wt_busy_reset(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 err_code) {
-  srvrun_rst  once = {0};
-  srvrun_rst* e    = srvrun_rst_free(c);
-  wired_obuf  plb;
-  if (!e) e = &once;
-  plb    = obuf_of(e->pl, sizeof e->pl);
-  e->pln = (u8)srvrun_wt_busy_reset_payload(c, stream_id, err_code, &plb);
-  if (!e->pln) return;
-  e->tries = SRVRUN_PTO_MAX;
-  srvrun_rst_send(cfg, c, e, c->l.now_ms);
+  u8         pl[48];
+  wired_obuf plb = obuf_of(pl, sizeof pl);
+  srvrun_send_kept(
+      cfg, c, pl, srvrun_wt_busy_reset_payload(c, stream_id, err_code, &plb),
+      "WT stream abort sent\n");
 }
+
+/* 1 iff pn lies in [lo, hi]. */
+static int srvrun_pn_in(u64 pn, u64 lo, u64 hi) { return lo <= pn && pn <= hi; }
 
 /* 1 iff e awaits an ACK that the range [lo, hi] carries. */
 static int srvrun_rst_acked(const srvrun_rst* e, u64 lo, u64 hi) {
-  return e->tries && lo <= e->pn && e->pn <= hi;
+  return e->pln && srvrun_pn_in(e->pn, lo, hi);
 }
 
-/* RFC 9000 13.3: an ACK naming an abort's packet ends its resends. */
+/* RFC 9000 13.3: an ACK naming a kept packet ends its resends. */
 static void srvrun_rst_ack(srvrun_conn* c, u64 lo, u64 hi) {
   for (usz i = 0; i < SRVRUN_RST_RETX; i++)
-    if (srvrun_rst_acked(&c->rst[i], lo, hi)) c->rst[i].tries = 0;
+    if (srvrun_rst_acked(&c->rst[i], lo, hi)) c->rst[i].pln = 0;
 }
 
-/* 1 iff any abort on c still awaits its ACK -- keeps the poll tick armed
+/* 1 iff any packet on c still awaits its ACK -- keeps the poll tick armed
  * (srvrun_slot_waiting) so the resend deadline is honored. */
 static int srvrun_rst_any(const srvrun_conn* c) {
   for (usz i = 0; i < SRVRUN_RST_RETX; i++)
-    if (c->rst[i].tries) return 1;
+    if (c->rst[i].pln) return 1;
   return 0;
 }
 
@@ -1883,24 +1916,26 @@ static int srvrun_rst_pending(const srvrun_conn* c) {
 
 /* 1 iff e awaits an ACK and its resend deadline has passed. */
 static int srvrun_rst_due(const srvrun_rst* e, u64 now_ms) {
-  return e->tries && now_ms >= e->due_ms;
+  return e->pln && now_ms >= e->due_ms;
 }
 
-/* Resend every abort on c whose deadline passed without an ACK, until its
- * resend budget (SRVRUN_PTO_MAX) is spent. */
-static void srvrun_rst_retry(const srvrun_cfg* cfg, srvrun_conn* c, u64 now) {
-  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
-    if (!srvrun_rst_due(&c->rst[i], now)) continue;
-    c->rst[i].tries--;
-    srvrun_rst_send(cfg, c, &c->rst[i], now);
-  }
+/* Resend e if its deadline passed. 0 once its resend budget is spent with
+ * the packet still unACKed (the caller tears the connection down). */
+static int srvrun_rst_retry_one(
+    const srvrun_cfg* cfg, srvrun_conn* c, srvrun_rst* e, u64 now) {
+  if (!srvrun_rst_due(e, now)) return 1;
+  if (!e->tries) return 0;
+  e->tries--;
+  srvrun_rst_send(cfg, c, e, now);
+  return 1;
 }
 
-/* srvrun_rst_retry for a live slot; a slot that went down drops its
- * aborts with everything else (the next accept zeroes the slot). */
-static void srvrun_rst_retry_slot(const srvrun_step_ctx* ctx, int slot) {
-  srvrun_conn* c = &ctx->st->conns[slot];
-  if (c->up) srvrun_rst_retry(ctx->cfg, c, ctx->now_ms);
+/* Resend every kept packet on c whose deadline passed without an ACK.
+ * 0 when one has exhausted SRVRUN_PTO_MAX resends. */
+static int srvrun_rst_retry(const srvrun_cfg* cfg, srvrun_conn* c, u64 now) {
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++)
+    if (!srvrun_rst_retry_one(cfg, c, &c->rst[i], now)) return 0;
+  return 1;
 }
 
 /* RFC 9000 10.2.3: an application-level CONNECTION_CLOSE (type 0x1d,
@@ -3467,19 +3502,8 @@ static int srvrun_seal_wt_stream_reset(srvrun_conn* c, usz i, wired_obuf* out) {
       c->wt_stream_reset_id[i],
       wired_wterrmap_to_http3(c->wt_stream_reset_app_code[i]),
       c->wt_stream_reset_final[i]};
-  usz                   pln = reset_stream_encode(pl, sizeof pl, &rs);
-  wired_srvloop_send_in sin;
-  if (!pln) return 0;
-  sin = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
-      c->l.tx_pn++,
-      -1,
-      wired_span_of(pl, pln),
-      0,
-      0,
-      0,
-      0};
-  return wired_srvloop_send_onertt(&c->s, &sin, out);
+  /* RFC 9000 13.3: kept and resent verbatim until ACKed */
+  return srvrun_seal_kept(c, pl, reset_stream_encode(pl, sizeof pl, &rs), out);
 }
 
 /* Seal and send latch entry i's RESET_STREAM as its own 1-RTT packet. */
@@ -3845,22 +3869,13 @@ static int srvrun_goaway_payload(u64 at, u64 id, wired_obuf* plb) {
  * yet. */
 static int srvrun_send_goaway(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* out) {
-  u8                    pl[64];
-  wired_obuf            plb = obuf_of(pl, sizeof pl);
-  wired_srvloop_send_in sin;
-  c->goaway_id = c->l.req_next_id; /* every stream taken up keeps going */
+  u8         pl[64];
+  wired_obuf plb = obuf_of(pl, sizeof pl);
+  c->goaway_id   = c->l.req_next_id; /* every stream taken up keeps going */
   if (!srvrun_goaway_payload(c->l.ctrl_settings_len, c->goaway_id, &plb))
     return 0;
-  sin = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
-      c->l.tx_pn++,
-      -1,
-      wired_span_of(pl, plb.len),
-      0,
-      0,
-      0,
-      0};
-  if (!wired_srvloop_send_onertt(&c->s, &sin, out)) return 0;
+  /* RFC 9000 13.3: kept and resent at the same offset until ACKed */
+  if (!srvrun_seal_kept(c, pl, plb.len, out)) return 0;
   srvrun_send(cfg, c, wired_span_of(out->p, out->len), "GOAWAY sent\n");
   c->goaway_sent = 1;
   return 1;
@@ -8284,6 +8299,20 @@ static void srvrun_pto_slot(const srvrun_step_ctx* ctx, int slot) {
     return;
   }
   srvrun_pump_sess(ctx, slot);
+}
+
+/* srvrun_rst_retry for a live slot. A kept control packet still unACKed
+ * after its whole resend budget gets the same answer as unACKed stream data
+ * (srvrun_pto_slot): the peer stopped answering, so the connection is torn
+ * down rather than left with the frame silently forgotten. A slot that
+ * went down drops its entries with everything else. */
+static void srvrun_rst_retry_slot(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  if (c->up && !srvrun_rst_retry(ctx->cfg, c, ctx->now_ms)) {
+    srvrun_log_close(
+        "conn dropped: control resend budget exhausted", wired_span_of(0, 0));
+    srvrun_free_slot(ctx->cfg, ctx->st, slot);
+  }
 }
 
 /* Flush one slot's queued broadcast DATAGRAM (if any) on a poll-loop tick --
