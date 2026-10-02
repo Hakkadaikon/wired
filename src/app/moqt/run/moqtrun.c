@@ -952,6 +952,7 @@ static void moqtrun_sub_open(
   s->track_alias = alias;
   s->active      = 1;
   s->request_id  = m->request_id;
+  s->blob_sent   = 0;
   s->jl          = t->largest;
   s->has_jl      = (u8)t->has_largest;
   moqtrun_sub_scalars(s, m);
@@ -1058,11 +1059,11 @@ static void moqtrun_accept_subscribe(
 /* Sends the blob to slot's peer p unless FORWARD 0 holds it back; 0 when
  * the send is refused. */
 static int moqtrun_blob_deliver(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, const wired_moqtrun_sub* slot) {
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_sub* slot) {
   if (!moqtrun_sub_forwards(slot)) return 1;
-  if (hub->io.send_uni(p->wt, hub->blob_wire) >= 0) return 1;
-  hub->stat_open_drop++;
-  return 0;
+  slot->blob_sent = hub->io.send_uni(p->wt, hub->blob_wire) >= 0;
+  hub->stat_open_drop += !slot->blob_sent;
+  return slot->blob_sent;
 }
 
 static void moqtrun_blob_send_first(
@@ -1637,6 +1638,205 @@ static void moqtrun_handle_tstat(
   moqtrun_queue_request_ok(p, t);
 }
 
+/* ===================== REQUEST_UPDATE (draft 10.9) ===================== */
+
+static void moqtrun_close_with(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code);
+
+/* Peer idx's live subscription rid on any track, *t its track. */
+static wired_moqtrun_sub* moqtrun_hub_sub_by_rid(
+    wired_moqt_hub* hub, usz idx, u64 rid, wired_moqtrun_track** t) {
+  wired_moqtrun_sub* s = moqtrun_sub_by_rid(hub, idx, rid, t);
+  if (s) return s;
+  *t = &hub->blob_track;
+  s  = moqtrun_live_track_sub_by_rid(*t, idx, rid);
+  if (s) return s;
+  *t = &hub->live.track;
+  return moqtrun_live_track_sub_by_rid(*t, idx, rid);
+}
+
+/* The state p remembers for subscription rid (sub_names), else 0. */
+static wired_moqtrun_sub* moqtrun_sub_state_by_rid(
+    wired_moqtrun_peer* p, u64 rid) {
+  for (usz i = 0; i < p->sub_names_n; i++)
+    if (p->sub_state[i].request_id == rid) return &p->sub_state[i];
+  return 0;
+}
+
+/* The subscription to update: its live slot (*t its track), else -- its
+ * publisher gone -- the state kept for its return (*t 0), else 0. */
+static wired_moqtrun_sub* moqtrun_upd_target(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    usz                   idx,
+    wired_moqtrun_track** t) {
+  wired_moqtrun_sub* s =
+      moqtrun_hub_sub_by_rid(hub, idx, p->req->request_id, t);
+  if (s) return s;
+  *t = 0;
+  return moqtrun_sub_state_by_rid(p, p->req->request_id);
+}
+
+typedef void (*moqtrun_upd_fn)(
+    wired_moqtrun_sub*, const wired_moqtrun_track*, const moqctl_param*);
+
+static void moqtrun_upd_forward(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* p) {
+  (void)t;
+  s->forward_off = moqtrun_forward_off(p);
+}
+
+static void moqtrun_upd_priority(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* p) {
+  (void)t;
+  s->priority     = (u8)p->u8v;
+  s->has_priority = 1;
+}
+
+static void moqtrun_upd_filter(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* p) {
+  moqtrun_sub_filter(s, t, p);
+}
+
+/* Parameters in the update's scope this hub keeps no state for. */
+static void moqtrun_upd_ignore(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* p) {
+  (void)s;
+  (void)t;
+  (void)p;
+}
+
+static const struct {
+  u64            type;
+  moqtrun_upd_fn fn;
+} moqtrun_upd_table[] = {
+    {MOQCTL_PARAM_FORWARD, moqtrun_upd_forward},
+    {MOQCTL_PARAM_SUBSCRIBER_PRIORITY, moqtrun_upd_priority},
+    {MOQCTL_PARAM_LOCATION_FILTER, moqtrun_upd_filter},
+};
+
+static moqtrun_upd_fn moqtrun_upd_lookup(u64 type) {
+  for (usz i = 0; i < sizeof moqtrun_upd_table / sizeof moqtrun_upd_table[0];
+       i++)
+    if (moqtrun_upd_table[i].type == type) return moqtrun_upd_table[i].fn;
+  return moqtrun_upd_ignore;
+}
+
+/* FORWARD went 0 -> 1 on a live subscription. */
+static int moqtrun_upd_turned_on(
+    u8 was_off, const wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
+  return was_off && !s->forward_off && t;
+}
+
+/* draft 5.1: the Largest Location REQUEST_UPDATE_OK carries becomes the
+ * Joining Location; the hub's blob, held back by FORWARD 0, goes out now.
+ * 0 when that send is refused. */
+static int moqtrun_upd_forward_on(
+    wired_moqt_hub*            hub,
+    wired_moqtrun_peer*        p,
+    wired_moqtrun_sub*         s,
+    const wired_moqtrun_track* t) {
+  s->jl     = t->largest;
+  s->has_jl = (u8)t->has_largest;
+  if (t != &hub->blob_track || s->blob_sent) return 1;
+  return moqtrun_blob_deliver(hub, p, s);
+}
+
+/* Present parameters replace, absent ones stay (10.9). */
+static void moqtrun_upd_params(
+    wired_moqtrun_sub*         s,
+    const wired_moqtrun_track* t,
+    const moqctl_params*       params) {
+  for (usz i = 0; i < params->n; i++)
+    moqtrun_upd_lookup(params->items[i].type)(s, t, &params->items[i]);
+}
+
+/* A refused blob send leaves FORWARD 0 and fails the update. */
+static int moqtrun_upd_apply(
+    wired_moqt_hub*            hub,
+    wired_moqtrun_peer*        p,
+    wired_moqtrun_sub*         s,
+    const wired_moqtrun_track* t,
+    const moqctl_params*       params) {
+  u8 was_off = s->forward_off;
+  moqtrun_upd_params(s, t, params);
+  if (!moqtrun_upd_turned_on(was_off, s, t)) return 1;
+  if (moqtrun_upd_forward_on(hub, p, s, t)) return 1;
+  s->forward_off = 1;
+  return 0;
+}
+
+/* A non-zero delivery timeout is refused as on SUBSCRIBE. */
+static u64 moqtrun_upd_checked(
+    wired_moqt_hub*            hub,
+    wired_moqtrun_peer*        p,
+    wired_moqtrun_sub*         s,
+    const wired_moqtrun_track* t,
+    const moqctl_params*       params) {
+  if (moqtrun_has_timeout_param(params)) return MOQCTL_ERR_NOT_SUPPORTED;
+  return moqtrun_upd_apply(hub, p, s, t, params) ? MOQTRUN_DISC_OK
+                                                 : MOQCTL_ERR_INTERNAL_ERROR;
+}
+
+/* The REQUEST_ERROR code for the update, or MOQTRUN_DISC_OK once it is
+ * applied. */
+static u64 moqtrun_upd_verdict(
+    wired_moqt_hub*            hub,
+    wired_moqtrun_peer*        p,
+    wired_moqtrun_sub*         s,
+    const wired_moqtrun_track* t,
+    const moqctl_params*       params) {
+  if (!s) return MOQCTL_ERR_DOES_NOT_EXIST;
+  return moqtrun_upd_checked(hub, p, s, t, params);
+}
+
+/* The updated state is also what a returning publisher re-attaches
+ * (moqtrun_reattach_one_sub; only the subscriber changes it, 5.1). */
+static void moqtrun_upd_remember(
+    wired_moqtrun_peer* p, const wired_moqtrun_sub* s) {
+  wired_moqtrun_sub* kept = moqtrun_sub_state_by_rid(p, s->request_id);
+  if (kept && kept != s) *kept = *s;
+}
+
+static void moqtrun_update_sub(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    usz                  idx,
+    const moqctl_params* params) {
+  wired_moqtrun_track* t    = 0;
+  wired_moqtrun_sub*   s    = moqtrun_upd_target(hub, p, idx, &t);
+  u64                  code = moqtrun_upd_verdict(hub, p, s, t, params);
+  if (code != MOQTRUN_DISC_OK) {
+    moqtrun_send_request_error(p, code);
+    return;
+  }
+  moqtrun_upd_remember(p, s);
+  moqtrun_queue_request_ok(p, t);
+}
+
+static int moqtrun_upd_is_sub(const wired_moqtrun_peer* p) {
+  return p->req && p->req->kind == MOQCTL_T_SUBSCRIBE;
+}
+
+/* A REQUEST_UPDATE of a SUBSCRIBE, on its stream (its own Request ID is a
+ * fresh one, 10.1: the stream names the request). On the control stream,
+ * or for another request type, NOT_SUPPORTED. A malformed one (e.g. a
+ * parameter outside the update's scope) closes the session. */
+static void moqtrun_handle_update(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  moqtstat_update m;
+  if (!moqtrun_upd_is_sub(p)) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
+    return;
+  }
+  if (moqtstat_update_take(body, MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &m) !=
+      MOQCTL_OK) {
+    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    return;
+  }
+  moqtrun_update_sub(hub, p, peer_idx, &m.params);
+}
+
 /* ===================== namespace discovery ===================== */
 
 /* draft-ietf-moq-transport-19 6.1-6.2, 10.15-10.18. A PUBLISH_NAMESPACE
@@ -2029,10 +2229,10 @@ static void moqtrun_dispatch_skip(
 
 /* First-type table (draft table in ctl.h's peek_type doc): only PUBLISH,
  * SUBSCRIBE, FETCH, TRACK_STATUS, PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE
- * are implemented; every other First type this hub can see
- * on a fresh request stream gets NOT_SUPPORTED. GOAWAY is not a First type but
- * may legally appear mid-stream, so it is routed the same table for
- * request-stream dispatch below. */
+ * (and REQUEST_UPDATE of a SUBSCRIBE) are implemented; every other First type
+ * this hub can see on a fresh request stream gets NOT_SUPPORTED. GOAWAY is not
+ * a First type but may legally appear mid-stream, so it is routed the same
+ * table for request-stream dispatch below. */
 static const struct {
   u64            type;
   moqtrun_ctl_fn fn;
@@ -2043,6 +2243,7 @@ static const struct {
     {MOQNS_T_PUBLISH_NAMESPACE, moqtrun_dispatch_publish_ns},
     {MOQNS_T_SUBSCRIBE_NAMESPACE, moqtrun_dispatch_subscribe_ns},
     {MOQTSTAT_T_TRACK_STATUS, moqtrun_handle_tstat},
+    {MOQTSTAT_T_REQUEST_UPDATE, moqtrun_handle_update},
     {MOQCTL_T_GOAWAY, moqtrun_dispatch_goaway},
     /* draft SS10 known non-request messages this hub does not implement:
      * nothing carries a Request ID to answer, so they are skipped. */

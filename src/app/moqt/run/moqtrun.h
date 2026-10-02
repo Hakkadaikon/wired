@@ -163,6 +163,9 @@ typedef struct {
   /** LOCATION_FILTER type (MOQCTL_FILTER_*), 0 when unfiltered: what a
    * re-attach re-resolves start against. */
   u8 filter_type;
+  /** Hub blob track only: 1 once the blob went out to this subscription,
+   * so a FORWARD 1 -> 0 -> 1 update never sends it twice. */
+  u8 blob_sent;
 } wired_moqtrun_sub;
 
 /** Fixed capacity for a saved SUBGROUP_HEADER (draft SS11.4.2: Type +
