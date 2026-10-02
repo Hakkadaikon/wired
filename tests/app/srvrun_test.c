@@ -15580,6 +15580,13 @@ static int sr_recv_reset_stream(
   return 1;
 }
 
+/* Mark send slot i's whole armed round as sent (one slice: the payloads
+ * here fit one chunk), as the pump would. */
+static void sr_wtsend_mark_sent(srvrun_conn* c, usz i) {
+  wired_sendq_slice sl;
+  CHECK(wired_sendsess_take(&c->wtsend[i].sess, &sl));
+}
+
 /* stream_reset frees the send slot at once (the app's payload view is
  * released, RFC 9000 19.4: delivery abandoned) and latches; the drain sends
  * a STANDARD RESET_STREAM (0x04) -- not the RESET_STREAM_AT extension frame,
@@ -15587,7 +15594,7 @@ static int sr_recv_reset_stream(
  * NO STOP_SENDING (a server-initiated uni stream has no peer-to-server half
  * to stop, RFC 9000 19.5) -- carrying the app error code mapped into
  * HTTP/3's WebTransport range (draft-ietf-webtrans-http3-15 8.2) and the
- * bytes already armed on the stream as Final Size (RFC 9000 4.5). The freed
+ * bytes already sent on the stream as Final Size (RFC 9000 4.5). The freed
  * slot also refuses any further send on the dead id. */
 static void test_srvrun_wt_stream_reset_sends_reset_and_frees_slot(void) {
   struct lp_fix f;
@@ -15604,6 +15611,7 @@ static void test_srvrun_wt_stream_reset_sends_reset_and_frees_slot(void) {
       wired_server_wt_open_uni_stream(
           &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
       11);
+  sr_wtsend_mark_sent(c, 0);
   CHECK(wired_server_wt_stream_reset(&c->wt, 11, 0x42) == 1);
   CHECK(c->wtsend[0].in_use == 0);
   CHECK(c->wt_stream_reset_n == 1);
@@ -15653,6 +15661,8 @@ static void test_srvrun_wt_stream_reset_two_latched_both_drain(void) {
   id2 = wired_server_wt_open_uni_stream(
       &c->wt, wired_span_of(sr_wtsend_hello, 2));
   CHECK(id2 > 11);
+  sr_wtsend_mark_sent(c, 0);
+  sr_wtsend_mark_sent(c, 1);
   CHECK(wired_server_wt_stream_reset(&c->wt, 11, 0x42) == 1);
   CHECK(wired_server_wt_stream_reset(&c->wt, (u64)id2, 0x43) == 1);
   CHECK(c->wt_stream_reset_n == 2);
@@ -18020,6 +18030,43 @@ static void test_srvrun_wt_close_without_send_slot_resets_connect(void) {
   CHECK(c->rst[0].pln > 0);
   CHECK(reset_stream_decode(c->rst[0].pl, c->rst[0].pln, &rs) > 0);
   CHECK(rs.stream_id == 4 && rs.final_size == 20);
+}
+
+/* Fixture: client bidi stream 0 offered to session slot 0 and answered with
+ * a one-shot reply (send slot 0). */
+static srvrun_conn* sr_replied_bidi_fixture(struct lp_fix* f, wired_obuf* ob) {
+  srvrun_conn* c = sr_wtsend_fixture(f, ob);
+  CHECK(wired_srvloop_wt_slot_claim(&c->l, 0) == 0);
+  c->l.wt_streams[0].offered                        = 1;
+  c->l.wt_streams[0].wt_session_slot                = 0;
+  c->s.sdrv.peer_initial_max_stream_data_bidi_local = 1u << 24;
+  CHECK(
+      wired_server_wt_stream_reply(
+          &c->wt, 0, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
+      1);
+  return c;
+}
+
+/* RFC 9000 4.5: a reset mid-send carries the bytes actually sent as its
+ * Final Size, not the bytes merely armed (an armed tail past the peer's
+ * credit would be a FLOW_CONTROL_ERROR there). */
+static void test_srvrun_wt_reset_mid_send_final_is_bytes_sent(void) {
+  struct lp_fix      f;
+  u8                 obuf[1024];
+  u8                 pkt[256];
+  wired_obuf         ob   = obuf_of(obuf, sizeof obuf);
+  wired_obuf         pktb = obuf_of(pkt, sizeof pkt);
+  srvrun_conn*       c    = sr_replied_bidi_fixture(&f, &ob);
+  wired_sendq_slice  sl;
+  reset_stream_frame rs;
+  const u8*          pl;
+  usz                pll;
+  c->wtsend[0].sess.q.chunk = 2;
+  CHECK(wired_sendsess_take(&c->wtsend[0].sess, &sl)); /* 2 bytes out */
+  CHECK(srvrun_seal_wt_busy_reset(c, 0, H3_NO_ERROR, &pktb));
+  CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
+  CHECK(reset_stream_decode(pl, pll, &rs) > 0);
+  CHECK(rs.stream_id == 0 && rs.final_size == 2);
 }
 
 /* The CONNECT stream's send slot does not pin an app send slot for the
@@ -20879,6 +20926,7 @@ void test_srvrun(void) {
   test_srvrun_control_packets_kept_until_acked();
   test_srvrun_rst_budget_exhausted_tears_down();
   test_srvrun_wt_close_without_send_slot_resets_connect();
+  test_srvrun_wt_reset_mid_send_final_is_bytes_sent();
   test_srvrun_wt_drain_slot_reaped_once_acked();
   test_srvrun_wt_offer_reject_returns_credit();
   test_srvrun_wt_teardown_returns_credit();

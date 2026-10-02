@@ -1723,14 +1723,14 @@ static int srvrun_on_initial(
   return srvrun_boot_finish(ctx, slot, c, dg);
 }
 
-/* Cumulative armed bytes on stream_id's WT send slot, 0 when none holds
- * the id -- defined next to wired_server_wt_stream_reset below. */
-static u64 srvrun_wtsend_final_size(srvrun_conn* c, u64 stream_id);
+/* Bytes already sent on stream_id's WT send slot, 0 when none holds the
+ * id -- defined next to wired_server_wt_stream_reset below. */
+static u64  srvrun_wtsend_final_size(srvrun_conn* c, u64 stream_id);
+static void srvrun_wtsend_release(srvrun_conn* c, u64 stream_id);
 
 /* One standard RESET_STREAM (RFC 9000 19.4) at plb->p + at, its Final Size
- * the bytes already armed on stream_id's send slot (0 for a stream this
- * server never replied on -- every abort caller fires before any response
- * bytes exist; only a WT stream_reply's own slot can carry a count). */
+ * the bytes already sent on stream_id's send slot (0 for a stream this
+ * server never replied on). */
 static usz srvrun_wt_abort_reset(
     srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb, usz at) {
   reset_stream_frame rs = {
@@ -1888,6 +1888,9 @@ static void srvrun_send_wt_busy_reset(
   srvrun_send_kept(
       cfg, c, pl, srvrun_wt_busy_reset_payload(c, stream_id, err_code, &plb),
       "WT stream abort sent\n");
+  /* RFC 9000 3.1: no STREAM frame follows a RESET_STREAM -- an unsent tail
+   * past its Final Size would be a FINAL_SIZE_ERROR at the peer. */
+  srvrun_wtsend_release(c, stream_id);
 }
 
 /* 1 iff pn lies in [lo, hi]. */
@@ -4878,13 +4881,14 @@ static void srvrun_wtsend_release(srvrun_conn* c, u64 stream_id) {
   if (w) w->in_use = 0;
 }
 
-/* Cumulative armed bytes on stream_id's send slot, 0 when no slot holds the
- * id. RFC 9000 4.5: a RESET_STREAM's Final Size must not undercut bytes
- * already sent on the stream -- stream_off is >= the largest sent offset
- * (bytes are armed before they are sent), so it is a safe final size. */
+/* Bytes already sent on stream_id's send slot (the round's base offset plus
+ * its send cursor; lost slices are requeued, never rewind it), 0 when no
+ * slot holds the id. RFC 9000 4.5: a RESET_STREAM's Final Size is exactly
+ * the bytes sent -- armed-but-unsent bytes would charge the peer's flow
+ * control for data that never comes. */
 static u64 srvrun_wtsend_final_size(srvrun_conn* c, u64 stream_id) {
   const srvrun_wtsend* w = srvrun_wtsend_find(c, stream_id);
-  return w ? w->stream_off : 0;
+  return w ? w->sess.stream_base_offset + w->sess.q.cur : 0;
 }
 
 int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id) {
