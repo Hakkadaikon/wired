@@ -75,6 +75,8 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   hub->join_seq_next         = 0;
   hub->authorize_subscribe   = 0;
   hub->authorize_ctx         = 0;
+  hub->authorize_namespace   = 0;
+  hub->authorize_ns_ctx      = 0;
   hub->stat_frag_drop        = 0;
   hub->stat_relay_sent       = 0;
   hub->stat_relay_drop       = 0;
@@ -1696,11 +1698,25 @@ static int moqtrun_disc_record(wired_moqtrun_req* q, const moqctl_ns* ns) {
   return fits;
 }
 
+/* 10.15 / 10.18: the receiver MUST verify the request is authorized
+ * (moqtrun_subscribe_refused's twin). 1 + *code when refused. */
+static int moqtrun_disc_refused(
+    const wired_moqt_hub* hub, u64 type, const moqns_req* m, u64* code) {
+  const moqctl_token* t = moqtrun_auth_token_of(&m->params);
+  *code                 = MOQCTL_ERR_MALFORMED_AUTH_TOKEN;
+  if (moqtrun_token_uses_alias(t)) return 1;
+  *code = MOQCTL_ERR_UNAUTHORIZED;
+  if (!hub->authorize_namespace) return 0;
+  return !hub->authorize_namespace(hub->authorize_ns_ctx, type, &m->ns, t);
+}
+
 static u64 moqtrun_disc_verdict(
     const wired_moqt_hub* hub,
     wired_moqtrun_req*    q,
     const moqns_req*      m,
     moqtrun_disc_check_fn check) {
+  u64 code;
+  if (moqtrun_disc_refused(hub, q->kind, m, &code)) return code;
   if (!moqtrun_disc_record(q, &m->ns)) return MOQCTL_ERR_INTERNAL_ERROR;
   return check(hub, q);
 }

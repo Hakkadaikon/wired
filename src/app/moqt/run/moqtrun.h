@@ -533,6 +533,15 @@ typedef struct {
 typedef int (*wired_moqt_authorize_fn)(
     void* ctx, const moqctl_ftn* name, const moqctl_token* token);
 
+/** draft-ietf-moq-transport-19 10.15 / 10.18 namespace authorization
+ * hook: the hub calls it once per PUBLISH_NAMESPACE or SUBSCRIBE_NAMESPACE
+ * (msg_type MOQNS_T_PUBLISH_NAMESPACE / MOQNS_T_SUBSCRIBE_NAMESPACE) with
+ * the Track Namespace or Prefix and the presented AUTHORIZATION TOKEN
+ * (Alias Type USE_VALUE; 0 when the message carried none). Return non-zero
+ * to grant, 0 to answer REQUEST_ERROR UNAUTHORIZED. */
+typedef int (*wired_moqt_authorize_ns_fn)(
+    void* ctx, u64 msg_type, const moqctl_ns* ns, const moqctl_token* token);
+
 /** The hub's whole state: fixed peer table plus the io table it sends
  * through. Zero-initialize with wired_moqt_init before first use. */
 typedef struct {
@@ -674,6 +683,12 @@ typedef struct {
   u64 cache_tag_next;
   /** FETCH responses in progress, all sessions. */
   wired_moqtrun_fetch fetches[WIRED_MOQTRUN_MAX_FETCHES];
+  /** Namespace authorizer (draft-ietf-moq-transport-19 10.15, 10.18); 0
+   * (the wired_moqt_init default) grants every PUBLISH_NAMESPACE and
+   * SUBSCRIBE_NAMESPACE, like authorize_subscribe. */
+  wired_moqt_authorize_ns_fn authorize_namespace;
+  /** Opaque first argument handed to authorize_namespace. */
+  void* authorize_ns_ctx;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
@@ -719,7 +734,8 @@ void wired_moqt_on_session(
  * is withdrawn by the last session publishing it (several may; each
  * namespace is announced once). A session republishing its own namespace
  * is refused UNINTERESTED; a session's prefixes overlapping (either empty,
- * or the same first field) are refused PREFIX_OVERLAP. Hub-owned tracks
+ * or the same first field) are refused PREFIX_OVERLAP. Both requests pass
+ * authorize_namespace first. Hub-owned tracks
  * (publish_blob / publish_live) have no namespace and are not announced. */
 void wired_moqt_on_stream_data(
     void*             app_ctx,

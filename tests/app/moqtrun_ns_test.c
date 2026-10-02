@@ -256,6 +256,64 @@ static void test_moqtrun_ns_multiple_publishers(void) {
   CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|DONE:room1|"));
 }
 
+/* Recording namespace authorizer. */
+static int mtns_auth_allow;
+static int mtns_auth_calls;
+static u64 mtns_auth_type;
+static usz mtns_auth_fields;
+static u64 mtns_auth_token_type;
+static int mtns_authorize(
+    void* ctx, u64 msg_type, const moqctl_ns* ns, const moqctl_token* token) {
+  *(int*)ctx += 1;
+  mtns_auth_type       = msg_type;
+  mtns_auth_fields     = ns->n;
+  mtns_auth_token_type = token ? token->token_type : (u64)-1;
+  return mtns_auth_allow;
+}
+
+/* Request ID 2, namespace ("chat"), one AUTHORIZATION TOKEN (10.2.2). */
+static void mtns_req_with_token(
+    wired_wt_session* s, u64 sid, u64 type, const u8* tok, usz n) {
+  u8  body[32] = {0x02, 0x01, 0x04, 'c', 'h', 'a', 't', 0x01, 0x03, (u8)n};
+  usz at       = 10;
+  for (usz i = 0; i < n; i++) body[at++] = tok[i];
+  mtrq_raw(s, sid, type, body, at);
+}
+
+/* 10.15 / 10.18: with an authorizer installed every PUBLISH_NAMESPACE and
+ * SUBSCRIBE_NAMESPACE is shown to it (type, namespace, USE_VALUE token):
+ * a refusal is REQUEST_ERROR UNAUTHORIZED and records nothing; an Alias
+ * token is MALFORMED_AUTH_TOKEN even on an open hub. */
+static void test_moqtrun_ns_authorization(void) {
+  static const u8 tok[] = {0x03, 0x01, 'o', 'k'};
+  static const u8 reg[] = {0x01, 0x07, 0x01, 'x'};
+  mtns_init();
+  mtns_req_with_token(
+      SESS_A, MTRQ_ID(5), MOQNS_T_PUBLISH_NAMESPACE, reg, sizeof reg);
+  CHECK(mtns_is(SESS_A, MTRQ_ID(5), "ERR:04|"));
+  mtns_auth_calls              = 0;
+  mtst_hub.authorize_namespace = mtns_authorize;
+  mtst_hub.authorize_ns_ctx    = &mtns_auth_calls;
+  mtns_auth_allow              = 0;
+  mtns_req_with_token(
+      SESS_A, MTRQ_S1, MOQNS_T_PUBLISH_NAMESPACE, tok, sizeof tok);
+  CHECK(mtns_is(SESS_A, MTRQ_S1, "ERR:01|"));
+  CHECK(mtns_auth_calls == 1);
+  CHECK(mtns_auth_type == MOQNS_T_PUBLISH_NAMESPACE);
+  CHECK(mtns_auth_fields == 1 && mtns_auth_token_type == 1);
+  mtns_sub(SESS_B, MTRQ_S1, "");
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "ERR:01|"));
+  CHECK(mtns_auth_type == MOQNS_T_SUBSCRIBE_NAMESPACE);
+  CHECK(mtns_auth_fields == 0 && mtns_auth_token_type == (u64)-1);
+  mtns_auth_allow = 1;
+  mtns_req_with_token(
+      SESS_A, MTRQ_S2, MOQNS_T_PUBLISH_NAMESPACE, tok, sizeof tok);
+  mtns_sub(SESS_B, MTRQ_S2, "");
+  CHECK(mtns_is(SESS_A, MTRQ_S2, "OK|"));
+  CHECK(mtns_is(SESS_B, MTRQ_S2, "OK|NS:chat|"));
+  CHECK(mtns_auth_calls == 4);
+}
+
 /* A namespace past WIRED_MOQTRUN_MAX_NS encoded bytes is refused, never
  * truncated. */
 static void test_moqtrun_ns_oversized_refused(void) {
@@ -321,6 +379,7 @@ void test_moqtrun_ns(void) {
   test_moqtrun_ns_prefix_overlap();
   test_moqtrun_ns_duplicate_refused();
   test_moqtrun_ns_multiple_publishers();
+  test_moqtrun_ns_authorization();
   test_moqtrun_ns_oversized_refused();
   test_moqtrun_ns_per_session_cap();
   test_moqtrun_ns_backpressure();
