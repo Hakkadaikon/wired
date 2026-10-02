@@ -1,0 +1,18 @@
+$ ./moqt-priority-goaway --port 4433
+subscriber stream urgency=7
+subscriber stream urgency=5
+GOAWAY sent
+conn closed by peer (CONNECTION_CLOSE)
+conn closed by peer (CONNECTION_CLOSE)
+$ go run . https://127.0.0.1:4433
+subscriber: SUBSCRIBE video priority=200 -> SUBSCRIBE_OK
+subscriber: SUBSCRIBE audio priority=10 -> SUBSCRIBE_OK
+subscriber: video group 0 "keyframe"
+subscriber: audio group 0 "frame"
+subscriber: GOAWAY new_uri=https://relay2.example/moqt timeout=1000ms
+subscriber: new SUBSCRIBE -> REQUEST_ERROR error_code=6
+subscriber: video relay stream reset error_code=0x4
+subscriber: video PUBLISH_DONE status=4
+subscriber: audio relay stream reset error_code=0x4
+subscriber: audio PUBLISH_DONE status=4
+subscriber: session closed error_code=0x10
