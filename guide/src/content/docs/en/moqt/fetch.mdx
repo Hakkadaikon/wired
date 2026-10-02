@@ -44,6 +44,9 @@ its live subscription seamlessly.
   the fetch stream: it stays open across rounds, and the hub's tick
   (`wired_moqt_tick` from `on_step`) retries a round the transport
   refused.
-- The client pauses 300 ms after publishing so the hub has taken in all six
-  Groups before the viewer subscribes: nothing on the wire tells a
-  publisher its Objects arrived.
+- Before the viewer joins, the publisher checks that the hub has taken in
+  Group 5, using FETCH itself: a standalone FETCH of Group 5 is answered
+  REQUEST_ERROR INVALID_RANGE while it is past the track's Largest Object,
+  and FETCH_OK once the hub has it. The client retries every 100 ms (up to
+  3 s), closing its side of each request stream so the retries never run
+  out of stream credit. The viewer therefore always joins at Largest 5/0.
