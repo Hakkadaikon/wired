@@ -1,0 +1,36 @@
+---
+title: 過去の Object の取得
+description: 公開済みの Object をキャッシュに残し、途中参加した購読者が見逃した分を FETCH で取得して、ライブの購読へ隙間なくつなぐ。
+sidebar:
+  order: 6
+---
+import Example from '../../../../components/Example.astro';
+
+途中から参加した購読者は、参加後に公開された Object しか受け取れません。
+それより前の Object は FETCH で要求し、ハブは Object キャッシュから応答します。
+このページは小さなキャッシュを取り付け、パブリッシャーにグループ 0 から 5 を送らせます。
+そのあと参加した視聴者が購読し、過去の分を取得し、ライブの購読へ隙間なくつなぎます。
+
+<Example id="moqt-fetch" />
+
+## 仕組み
+
+- `wired_moqt_cache_attach` は、FETCH 用のアリーナをハブに渡します（draft-ietf-moq-transport-19 10.12）。
+  クライアントが PUBLISH したトラックの Object は、完全に届いたものがすべてここへコピーされます。
+  Object 1 つあたり、ペイロードに加えて `MOQCACHE_HDR` バイトを使うので、このアリーナには 7 バイトの `frame-N` がちょうど 4 つ入ります。
+  6 グループを公開すると、最も古いグループ 0 と 1 がグループ単位で追い出されます。
+- キャッシュされるのはクライアントが PUBLISH したトラックだけで、ハブ自身の blob やライブトラックは対象外です。
+  そのため Go クライアントは、パブリッシャーと視聴者の 2 つのセッションを開きます。
+  PUBLISH、SUBSCRIBE、FETCH の各リクエストは、クライアントが開いた新しい双方向ストリームで送られ、ハブは `stream_reply_open` を通じて同じストリームで応答します。
+- 視聴者は Largest Object フィルターで SUBSCRIBE するので、現在の Largest より後の Object だけがライブで届きます。
+  SUBSCRIBE_OK はその Largest（`LARGEST_OBJECT`、5/0）を返し、これが購読の Joining Location になります。
+- グループ 0 から 2 を求める単独の FETCH は、リクエストストリームで FETCH_OK を受け取り、Object は新しい単方向ストリーム（FETCH_HEADER と、それに続く fetch Object）で受け取ります。
+  追い出されたグループ 0 と 1 は、1/4611686018427387903 までの 1 つの End of Unknown Range として返ります（最大の Object ID で、グループ 1 の残り全体を表します）。
+  その後に、キャッシュにあるグループ 2 が続きます。
+- 相対 Joining FETCH は、購読の Request ID とグループ数（2）を指定します。
+  範囲はグループ 5 - 2 = 3 から Joining Location までで、FETCH_OK の End Location は最後に送る Object の 1 つ先の 5/1 です。
+  最初のライブの Object は 6/0 なので、FETCH と購読は隙間も重複もなくつながります。
+- fetch ストリームは `open_uni_stream`、`stream_send`、`stream_reset` の io エントリで送られます。
+  このストリームは複数ラウンドにわたって開いたままで、トランスポートが拒否したラウンドは、`on_step` から呼ぶ `wired_moqt_tick` が再試行します。
+- パブリッシャーは自分の Object がハブに届いたことをワイヤー上で知る手段を持ちません。
+  そのためクライアントは公開後に 300 ms 待ち、6 グループすべてがハブに届いてから視聴者に購読させます。

@@ -1,0 +1,49 @@
+---
+title: Fetch past Objects
+description: Keep published Objects in a cache so a late joiner can FETCH what it missed and meet its live subscription with no gap.
+sidebar:
+  order: 6
+---
+import Example from '../../../../components/Example.astro';
+
+A subscriber that joins late only sees Objects published after it joined.
+To catch up, it asks for the earlier ones with FETCH, which the hub answers
+from an Object cache. This page attaches a small cache, has a publisher send
+Groups 0 to 5, and lets a late viewer subscribe, fetch the past, and join
+its live subscription seamlessly.
+
+<Example id="moqt-fetch" />
+
+## How it works
+
+- `wired_moqt_cache_attach` gives the hub an arena for FETCH
+  (draft-ietf-moq-transport-19 10.12): every whole Object a client PUBLISHes
+  is copied into it. Each Object costs `MOQCACHE_HDR` bytes on top of its
+  payload, so this arena holds exactly 4 of the 7-byte `frame-N` Objects.
+  Publishing 6 Groups evicts the oldest whole Groups, 0 and 1.
+- The hub's own blob and live tracks are not cached: only tracks a client
+  PUBLISHes are, so the Go client opens two sessions, a publisher and a
+  viewer. Each request (PUBLISH, SUBSCRIBE, FETCH) goes on a fresh bidi
+  stream the client opens, and the hub answers on that stream through
+  `stream_reply_open`.
+- The viewer SUBSCRIBEs with the Largest Object filter: only Objects after
+  the current Largest arrive live. SUBSCRIBE_OK reports that Largest
+  (`LARGEST_OBJECT`, 5/0), which becomes the subscription's Joining
+  Location.
+- A standalone FETCH of Groups 0 to 2 gets FETCH_OK on its request stream
+  and the Objects on a new uni stream (FETCH_HEADER, then fetch Objects).
+  The evicted Groups 0 and 1 come back as one End of Unknown Range up to
+  1/4611686018427387903 (the largest Object ID, meaning "the rest of
+  Group 1"), then Group 2 from the cache.
+- A Relative Joining FETCH names the subscription's Request ID and a count
+  of Groups (2): it covers Group 5 - 2 = 3 up to the Joining Location, so
+  FETCH_OK's End Location is 5/1, one past the last Object it sends. The
+  first live Object is 6/0, so the fetch and the subscription meet with no
+  gap and no duplicate.
+- The `open_uni_stream`, `stream_send` and `stream_reset` io entries carry
+  the fetch stream: it stays open across rounds, and the hub's tick
+  (`wired_moqt_tick` from `on_step`) retries a round the transport
+  refused.
+- The client pauses 300 ms after publishing so the hub has taken in all six
+  Groups before the viewer subscribes: nothing on the wire tells a
+  publisher its Objects arrived.
