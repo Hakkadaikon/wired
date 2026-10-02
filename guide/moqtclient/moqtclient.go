@@ -101,3 +101,99 @@ func ReadObject(r *bufio.Reader) (alias, group uint64, payload []byte) {
 	Check(err)
 	return
 }
+
+// WriteMsg writes one control message: Type, 16-bit Length, body. The
+// Type must fit a one-byte varint (below 64).
+func WriteMsg(w io.Writer, typ byte, body []byte) {
+	_, err := w.Write(append([]byte{typ, byte(len(body) >> 8), byte(len(body))}, body...))
+	Check(err)
+}
+
+// StandaloneFetch writes a FETCH (type 0x16, Fetch Type 0x1, draft-ietf-
+// moq-transport-19 SS10.12.1) for Track Namespace "guide", Track Name
+// name: groups startGroup through endGroup (End Location {endGroup, 0}
+// means the whole End group). Every value fits a one-byte varint.
+func StandaloneFetch(w io.Writer, id byte, name string, startGroup, endGroup byte) {
+	body := append(Str(Str([]byte{id, 0x1, 1}, "guide"), name), startGroup, 0, endGroup, 0, 0)
+	WriteMsg(w, 0x16, body)
+}
+
+// JoiningFetch writes a Relative Joining FETCH (Fetch Type 0x2,
+// SS10.12.2): from joiningStart groups before the Joining Location of the
+// subscription with Request ID subID, up to that Location.
+func JoiningFetch(w io.Writer, id, subID, joiningStart byte) {
+	WriteMsg(w, 0x16, []byte{id, 0x2, subID, joiningStart, 0})
+}
+
+// ReadFetchOk reads FETCH_OK (type 0x18, SS10.13) and returns its End
+// Location; any other reply fails the client.
+func ReadFetchOk(r *bufio.Reader) (endGroup, endObject uint64) {
+	typ, body := ReadMsg(r)
+	if typ != 0x18 {
+		log.Fatalf("FETCH answered with type %#x, not FETCH_OK", typ)
+	}
+	br := bufio.NewReader(bytes.NewReader(body))
+	_, err := br.ReadByte() // End Of Track
+	Check(err)
+	return Varint(br), Varint(br)
+}
+
+// FetchItem is one entry of a fetch data stream: an Object, or (Unknown)
+// an End of Unknown Range whose last Location is Group/Object.
+type FetchItem struct {
+	Unknown       bool
+	Group, Object uint64
+	Payload       []byte
+}
+
+// ReadFetch reads a fetch data stream to its FIN (SS11.4.4): FETCH_HEADER
+// (type 0x5, Request ID), then fetch Objects whose Serialization Flags
+// say which fields follow. Groups are taken as ascending.
+func ReadFetch(r *bufio.Reader) (requestID uint64, items []FetchItem) {
+	if t := Varint(r); t != 0x5 {
+		log.Fatalf("stream type %#x is not FETCH_HEADER", t)
+	}
+	requestID = Varint(r)
+	var g, o uint64
+	for first := true; ; first = false {
+		if _, err := r.Peek(1); err == io.EOF {
+			return
+		}
+		flags := Varint(r)
+		// End of Range (SS11.4.4.2): an absolute Location, no payload.
+		if flags == 0x8C || flags == 0x10C {
+			g, o = Varint(r), Varint(r)
+			items = append(items, FetchItem{Unknown: flags == 0x10C, Group: g, Object: o})
+			continue
+		}
+		newGroup := flags&0x08 != 0
+		if newGroup && first {
+			g = Varint(r) // the first Object's deltas are absolute
+		} else if newGroup {
+			g += Varint(r) + 1
+		}
+		if flags&0x40 == 0 && flags&0x03 == 0x03 {
+			Varint(r) // explicit Subgroup ID
+		}
+		switch {
+		case flags&0x04 == 0:
+			o++
+		case newGroup || first:
+			o = Varint(r)
+		default:
+			o += Varint(r)
+		}
+		if flags&0x10 != 0 {
+			_, err := r.ReadByte() // Publisher Priority
+			Check(err)
+		}
+		if flags&0x20 != 0 {
+			_, err := r.Discard(int(Varint(r))) // Object Properties
+			Check(err)
+		}
+		payload := make([]byte, Varint(r))
+		_, err := io.ReadFull(r, payload)
+		Check(err)
+		items = append(items, FetchItem{Group: g, Object: o, Payload: payload})
+	}
+}
