@@ -2915,9 +2915,13 @@ static int srvrun_conn_credit_live(const srvrun_conn* c) {
  * credit, using the same ceiling shape (delivered + one buffer's worth of
  * slack) so raising every open stream's own window never outruns the shared
  * connection ceiling. A no-op while neither a WT slot nor a streamed request
- * body is live (srvrun_conn_credit_live). ponytail: bytes outside both
- * (control/QPACK streams, CONNECT capsules, buffered requests) are not
- * counted -- the slack absorbs them; count them if a peer ever stalls. */
+ * body is live (srvrun_conn_credit_live). The ceiling counts a CONNECT
+ * stream's consumed capsule bytes (its window base, srvrun_req_rx_ceiling).
+ * ponytail: a connection carrying only capsules (no WT stream, no streamed
+ * body) is not live, so its MAX_DATA never re-grows past the initial 10 MB
+ * (STP_DEFAULT_MAX_DATA); control/QPACK and buffered request bytes are not
+ * counted at all. Count CONNECT slots as live if capsule traffic can
+ * approach that. */
 static void srvrun_grant_conn_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
   u64 ceiling = c->wt_rx_reaped_total + srvrun_wt_rx_delivered_total(c) +
                 (u64)wt_slots_in_use(c) * WIRED_SRVLOOP_WT_BUF_CAP +
@@ -3131,19 +3135,29 @@ static int srvrun_req_slot_matches(const wired_srvloop_stream_slot* s, u64 id) {
   return s->in_use && s->stream_id == id;
 }
 
+/* Index of the request reassembly slot claimed for stream id, -1 if none. */
+static int srvrun_req_slot_idx(const srvrun_conn* c, u64 id) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    if (srvrun_req_slot_matches(&c->l.streams[i], id)) return (int)i;
+  return -1;
+}
+
 /* The request reassembly slot claimed for stream id, or 0 if none. */
 static const wired_srvloop_stream_slot* srvrun_req_slot_of(
     const srvrun_conn* c, u64 id) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
-    if (srvrun_req_slot_matches(&c->l.streams[i], id)) return &c->l.streams[i];
-  return 0;
+  int i = srvrun_req_slot_idx(c, id);
+  return i < 0 ? 0 : &c->l.streams[i];
 }
 
-static wired_srvloop_stream_slot* srvrun_wt_rx_slot(
-    const srvrun_conn* c, int sidx) {
+/* srvrun_req_slot_of for a slot the caller writes. */
+static wired_srvloop_stream_slot* srvrun_req_slot_mut(srvrun_conn* c, u64 id) {
+  int i = srvrun_req_slot_idx(c, id);
+  return i < 0 ? 0 : &c->l.streams[i];
+}
+
+static wired_srvloop_stream_slot* srvrun_wt_rx_slot(srvrun_conn* c, int sidx) {
   if (!srvrun_wt_is_active(c, sidx)) return 0;
-  return (wired_srvloop_stream_slot*)srvrun_req_slot_of(
-      c, srvrun_wt_slot_c(c, sidx)->connect_stream_id);
+  return srvrun_req_slot_mut(c, srvrun_wt_slot_c(c, sidx)->connect_stream_id);
 }
 
 /* RFC 9297 SS3.2 / RFC 9220 3: on the CONNECT stream, everything after the
@@ -3209,7 +3223,8 @@ static int srvrun_wt_capsule_apply(void* ctx, u64 type, wired_span value) {
  * mid-capsule, RFC 9297 SS3.3) or a WT_CLOSE_SESSION. */
 static int srvrun_wt_rx_walk(
     srvrun_conn* c, int sidx, wired_srvloop_stream_slot* slot) {
-  bodywin_consume(&slot->body, slot->req_buf, c->wt_capsule_rx_at[sidx]);
+  if (c->wt_capsule_rx_at[sidx])
+    bodywin_consume(&slot->body, slot->req_buf, c->wt_capsule_rx_at[sidx]);
   c->wt_capsule_rx_at[sidx] = 0;
   return bodywin_capsules(
              &slot->body, slot->req_buf, srvrun_wt_capsule_apply,

@@ -1,6 +1,7 @@
 #include "app/http3/server/srvloop/body_window.h"
 
 #include "app/http3/core/h3/frame.h"
+#include "common/bytes/util/num.h"
 #include "common/bytes/varint/varint.h"
 
 static int bodywin_bit(const bodywin* w, usz i) {
@@ -111,9 +112,8 @@ static void bodywin_deliver(const bodywin_run* r, usz n, int fin) {
 
 /* The available part of the current frame's payload, never past its end. */
 static int bodywin_payload(bodywin_run* r) {
-  usz avail = r->fr - r->pos;
-  usz n     = r->w->left < avail ? (usz)r->w->left : avail;
-  int fin   = bodywin_chunk_fin(r, n);
+  usz n   = (usz)u64_min(r->w->left, r->fr - r->pos);
+  int fin = bodywin_chunk_fin(r, n);
   if (!n) return 0;
   bodywin_deliver(r, n, fin);
   r->w->left -= n;
@@ -169,8 +169,7 @@ static void bodywin_cap_call(bodywin_caprun* c, u64 type, wired_span value) {
 
 /* Skip the available part of an oversized capsule's value. */
 static int bodywin_cap_skip(bodywin_run* r) {
-  usz avail = r->fr - r->pos;
-  usz n     = r->w->left < avail ? (usz)r->w->left : avail;
+  usz n = (usz)u64_min(r->w->left, r->fr - r->pos);
   r->w->left -= n;
   r->pos += n;
   return n != 0;

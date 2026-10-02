@@ -643,7 +643,10 @@ int wired_server_wt_stream_fin(wired_wt_session* s, u64 stream_id);
  * without discarding anything. The advertisement is never lowered (an
  * advertisement MUST NOT decrease), so bytes the peer was already granted
  * still arrive and must be absorbed by the app; hold=0 resumes raising on
- * one of the loop's next steps. Applies to the receive slot (bidi or uni)
+ * one of the loop's next steps. A hold placed on a bidi stream before its
+ * first grant still lets that one grant through (it lifts the stream from
+ * the request-stream initial credit to the WebTransport buffer). Applies
+ * to the receive slot (bidi or uni)
  * currently reassembling stream_id on s's connection. Like the other
  * wired_server_wt_* calls, call this from within the loop's callbacks.
  * @param s the session whose connection carries the stream
