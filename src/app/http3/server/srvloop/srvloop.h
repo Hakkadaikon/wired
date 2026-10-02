@@ -839,6 +839,15 @@ typedef struct {
    * every request slot released so far -- with the live slots' bases, the
    * request side of the connection-wide MAX_DATA ceiling (srvrun.c). */
   u64 req_body_released;
+  /** RFC 9114 8.1: client WT bidi streams whose signal frame found every
+   * wt_streams[] slot busy. dispatch.c only queues them; the caller
+   * (srvrun.c) refuses each with H3_REQUEST_REJECTED, gives its stream
+   * credit back, and clears wt_refused_n. The bidi credit never has more
+   * than WIRED_SRVLOOP_MAX_STREAMS new streams outstanding, so the queue
+   * cannot overflow for a peer that honors MAX_STREAMS. */
+  u64 wt_refused[WIRED_SRVLOOP_MAX_STREAMS];
+  /** Count of queued ids in wt_refused. */
+  usz wt_refused_n;
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
@@ -948,6 +957,12 @@ int wired_srvloop_wt_uni_slot_claim(wired_srvloop* l, u64 stream_id);
  * @param stream_id the server-initiated bidi stream id
  * @return the slot index, or -1 if the table is full. */
 int wired_srvloop_wt_slot_claim_local(wired_srvloop* l, u64 stream_id);
+
+/** RFC 9114 8.1: queue client WT bidi stream_id for refusal (wt_refused)
+ * because no slot was free -- unless it is a retransmission of a stream
+ * already released or refused. Marks it closed so its later frames are not
+ * read as an HTTP/3 request. */
+void wired_srvloop_wt_refuse(wired_srvloop* l, u64 stream_id);
 
 /** draft-ietf-webtrans-http3-15 4.3: free the wt_streams[] slot reassembling
  * stream_id once its FIN has been fully delivered to the app, mirroring
