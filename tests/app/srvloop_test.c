@@ -2093,6 +2093,27 @@ static void test_srvloop_wt_long_released_stream_replay_ignored(void) {
   CHECK(f.l.wt_refused_n == 0);
 }
 
+/* Capacity: a browser in a 4-person moqt_chat room keeps ~16 request
+ * streams open at once (3 PUBLISH + 2 PUBLISH_NAMESPACE + 1
+ * SUBSCRIBE_NAMESPACE + 3 tracks x 3 peers + a FETCH) next to the server's
+ * own control stream -- 18 concurrent signalled streams all get a slot. */
+static void test_srvloop_wt_room_streams_all_slotted(void) {
+  struct lp_fix f;
+  u8            pl[64], out[1024], spkt[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  for (u64 k = 0; k < 18; k++) {
+    usz n = lp_wt_bidi_stream(pl, sizeof pl, 4 + 4 * k);
+    n     = client_seal_onertt_pn(&f, 3 + k, pl, n, spkt, sizeof spkt);
+    ob    = (wired_obuf){out, sizeof out, 0};
+    wired_srvloop_step(
+        &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, n), &ob);
+  }
+  for (u64 k = 0; k < 18; k++)
+    CHECK(wired_srvloop_wt_slot_find(&f.l, 4 + 4 * k) >= 0);
+  CHECK(f.l.wt_refused_n == 0);
+}
+
 /* A long-lived stream keeps its slot when the table is full: a
  * retransmission of its own signal frame lands in that slot instead of being
  * refused as if it were a new stream. */
@@ -4718,6 +4739,7 @@ void test_srvloop(void) {
   test_srvloop_wt_released_stream_retransmit_not_refused();
   test_srvloop_wt_live_stream_retransmit_keeps_slot();
   test_srvloop_wt_long_released_stream_replay_ignored();
+  test_srvloop_wt_room_streams_all_slotted();
   test_srvloop_wt_uni_stream_reassembled();
   test_srvloop_wt_uni_stream_signal_split();
   test_srvloop_wt_bidi_stream_signal_split();
