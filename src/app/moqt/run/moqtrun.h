@@ -394,6 +394,9 @@ typedef struct {
   int          opened;
   u64          stream_id;
   moqfetch_seq seq;
+  /** Clock (wired_moqt_tick) of the last accepted round: a fetch refused
+   * for longer than WIRED_MOQTREL_STALL_MS is given up. */
+  u64 last_ok_ms;
 } wired_moqtrun_fetch;
 
 /** One track a peer PUBLISHes (chat or audio), and the subscribers recorded
