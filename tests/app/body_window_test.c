@@ -279,6 +279,162 @@ static void test_bodywin_window_of_empty_frames(void) {
   CHECK(r.calls == 1 && r.fins[0] == 1);
 }
 
+/* Records every capsule bodywin_capsules hands over; returns 0 on call
+ * number reject_at (1-based; 0 never rejects). */
+typedef struct {
+  u64 types[8];
+  usz lens[8];
+  u8  last[BODYWIN_CAPSULE_CAP];
+  usz calls;
+  usz reject_at;
+} bw_caprec;
+
+static int bw_cap(void* ctx, u64 type, wired_span value) {
+  bw_caprec* r = ctx;
+  if (r->calls < 8) {
+    r->types[r->calls] = type;
+    r->lens[r->calls]  = value.n;
+  }
+  for (usz i = 0; i < value.n; i++) r->last[i] = value.p[i];
+  r->calls++;
+  return r->calls != r->reject_at;
+}
+
+/* WT_MAX_DATA (type 0x190b4d3d, a 4-byte varint per RFC 9000 16) with
+ * Length 1 and value 42 -- six capsule bytes. */
+#define BW_MAXDATA 0x99, 0x0b, 0x4d, 0x3d, 0x01, 0x2a
+
+static int bw_cap_is_maxdata(const bw_caprec* r, usz i) {
+  return r->types[i] == 0x190b4d3dULL && r->lens[i] == 1;
+}
+
+/* RFC 9297 3.2: in HTTP/3 the capsules are the DATA frames' payload -- a
+ * capsule inside one DATA frame (type 0x00, Length 6) is handed over whole
+ * and the window slides past the frame. */
+static void test_bodywin_capsule_in_data_frame(void) {
+  static const u8     s[] = {0x00, 0x06, BW_MAXDATA};
+  static u8           buf[BODYWIN_CAP];
+  static bodywin_capq q;
+  bodywin             w = {0};
+  bw_caprec           r = {0};
+  q                     = (bodywin_capq){0};
+  bw_land(&w, buf, s, 0, sizeof s, 0);
+  CHECK(bodywin_capsules(&w, buf, &q, bw_cap, &r) == BODYWIN_OPEN);
+  CHECK(r.calls == 1 && bw_cap_is_maxdata(&r, 0) && r.last[0] == 0x2a);
+  CHECK(w.base == sizeof s);
+}
+
+/* A capsule may straddle DATA frames, with an unknown (reserved 0x21)
+ * frame between them (RFC 9114 7.2.8: skipped) -- still one capsule. */
+static void test_bodywin_capsule_split_across_data_frames(void) {
+  static const u8     s[] = {0x00, 0x03, 0x99, 0x0b, 0x4d, 0x21, 0x01,
+                             0xff, 0x00, 0x03, 0x3d, 0x01, 0x2a};
+  static u8           buf[BODYWIN_CAP];
+  static bodywin_capq q;
+  bodywin             w = {0};
+  bw_caprec           r = {0};
+  q                     = (bodywin_capq){0};
+  bw_land(&w, buf, s, 0, 5, 0);
+  CHECK(bodywin_capsules(&w, buf, &q, bw_cap, &r) == BODYWIN_OPEN);
+  CHECK(r.calls == 0); /* only the capsule's first 3 bytes so far */
+  bw_land(&w, buf, s, 5, sizeof s - 5, 0);
+  CHECK(bodywin_capsules(&w, buf, &q, bw_cap, &r) == BODYWIN_OPEN);
+  CHECK(r.calls == 1 && bw_cap_is_maxdata(&r, 0) && r.last[0] == 0x2a);
+}
+
+/* Raw capsule bytes with no DATA frame around them are not capsules: 0x2843
+ * there is an unknown HTTP/3 frame type, skipped. */
+static void test_bodywin_capsule_raw_bytes_not_read(void) {
+  static const u8     s[] = {0x68, 0x43, 0x00};
+  static u8           buf[BODYWIN_CAP];
+  static bodywin_capq q;
+  bodywin             w = {0};
+  bw_caprec           r = {0};
+  q                     = (bodywin_capq){0};
+  bw_land(&w, buf, s, 0, sizeof s, 0);
+  CHECK(bodywin_capsules(&w, buf, &q, bw_cap, &r) == BODYWIN_OPEN);
+  CHECK(r.calls == 0);
+}
+
+/* RFC 9297 3.3: the stream ending inside a capsule is an error even when
+ * the DATA frame itself is whole; ending on a capsule boundary is not. */
+static void test_bodywin_capsule_fin_inside_is_error(void) {
+  static const u8     cut[] = {0x00, 0x03, 0x99, 0x0b, 0x4d};
+  static const u8     ok[]  = {0x00, 0x06, BW_MAXDATA};
+  static u8           buf[BODYWIN_CAP];
+  static bodywin_capq q;
+  bodywin             w = {0};
+  bw_caprec           r = {0};
+  q                     = (bodywin_capq){0};
+  bw_land(&w, buf, cut, 0, sizeof cut, 1);
+  CHECK(bodywin_capsules(&w, buf, &q, bw_cap, &r) == BODYWIN_FRAME_ERROR);
+  CHECK(r.calls == 0);
+  w = (bodywin){0};
+  q = (bodywin_capq){0};
+  bw_land(&w, buf, ok, 0, sizeof ok, 1);
+  CHECK(bodywin_capsules(&w, buf, &q, bw_cap, &r) == BODYWIN_DONE);
+  CHECK(r.calls == 1);
+}
+
+/* The largest known capsule, WT_CLOSE_SESSION with a 1024-byte message
+ * (type 0x2843, Length 1028 = 0x44 0x04), is handed over whole. */
+static void test_bodywin_capsule_largest_known_whole(void) {
+  static u8           s[BODYWIN_CAP], buf[BODYWIN_CAP];
+  static bodywin_capq q;
+  bodywin             w = {0};
+  bw_caprec           r = {0};
+  usz                 n = 0;
+  q                     = (bodywin_capq){0};
+  n += varint_encode(s + n, 0x00);
+  n += varint_encode(s + n, 4 + 1028);
+  n += varint_encode(s + n, 0x2843);
+  n += varint_encode(s + n, 1028);
+  for (usz i = 0; i < 1028; i++) s[n++] = (u8)i;
+  bw_land(&w, buf, s, 0, n, 0);
+  CHECK(bodywin_capsules(&w, buf, &q, bw_cap, &r) == BODYWIN_OPEN);
+  CHECK(r.calls == 1 && r.types[0] == 0x2843 && r.lens[0] == 1028);
+  CHECK(r.last[1027] == (u8)1027);
+}
+
+/* A capsule too large to hold is announced with an empty value and its
+ * bytes skipped by length across DATA frames; the next one still lands. */
+static void test_bodywin_capsule_oversized_skipped(void) {
+  static u8           s[BODYWIN_CAP], buf[BODYWIN_CAP];
+  static bodywin_capq q;
+  bodywin             w   = {0};
+  bw_caprec           r   = {0};
+  usz                 n   = 0;
+  usz                 big = BODYWIN_CAPSULE_CAP;
+  q                       = (bodywin_capq){0};
+  n += varint_encode(s + n, 0x00);
+  n += varint_encode(s + n, 3 + 600);
+  n += varint_encode(s + n, 0x21);
+  n += varint_encode(s + n, big);
+  for (usz i = 0; i < 600; i++) s[n++] = 0xee;
+  bw_frame(s, &n, 0x00, big - 600, 0xee);
+  s[n++] = 0x00;
+  s[n++] = 0x06;
+  for (usz i = 0; i < 6; i++) s[n++] = (u8[]){BW_MAXDATA}[i];
+  bw_land(&w, buf, s, 0, n, 0);
+  CHECK(bodywin_capsules(&w, buf, &q, bw_cap, &r) == BODYWIN_OPEN);
+  CHECK(r.calls == 2 && r.types[0] == 0x21 && r.lens[0] == 0);
+  CHECK(bw_cap_is_maxdata(&r, 1));
+}
+
+/* The receiver returning 0 stops the walk: BODYWIN_REJECTED. */
+static void test_bodywin_capsule_reject(void) {
+  static const u8     s[] = {0x00, 0x0c, BW_MAXDATA, BW_MAXDATA};
+  static u8           buf[BODYWIN_CAP];
+  static bodywin_capq q;
+  bodywin             w = {0};
+  bw_caprec           r = {0};
+  q                     = (bodywin_capq){0};
+  r.reject_at           = 1;
+  bw_land(&w, buf, s, 0, sizeof s, 0);
+  CHECK(bodywin_capsules(&w, buf, &q, bw_cap, &r) == BODYWIN_REJECTED);
+  CHECK(r.calls == 1);
+}
+
 void test_body_window(void) {
   test_bodywin_cap_holds_largest_header();
   test_bodywin_gap_not_parsed();
@@ -293,4 +449,11 @@ void test_body_window(void) {
   test_bodywin_forbidden_frame_unexpected();
   test_bodywin_trailers_skipped();
   test_bodywin_window_of_empty_frames();
+  test_bodywin_capsule_in_data_frame();
+  test_bodywin_capsule_split_across_data_frames();
+  test_bodywin_capsule_raw_bytes_not_read();
+  test_bodywin_capsule_fin_inside_is_error();
+  test_bodywin_capsule_largest_known_whole();
+  test_bodywin_capsule_oversized_skipped();
+  test_bodywin_capsule_reject();
 }
