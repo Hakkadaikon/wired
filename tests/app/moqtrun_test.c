@@ -2846,6 +2846,19 @@ static void moqtrun_test_open_torn(
   wired_moqt_on_stream_data(hub, SESS_A, sid, wired_span_of(obj, head), 0);
 }
 
+static void moqtrun_test_subscribe_audio_as(
+    wired_moqt_hub* hub, wired_wt_session* sess);
+
+/* Delivers one small whole Object on publisher stream sid. */
+static void moqtrun_test_send_small_obj(wired_moqt_hub* hub, u64 sid) {
+  u8  pay[3] = {1, 2, 3};
+  u8  buf[16];
+  usz n = 0;
+  moqdata_obj_put(
+      wired_mspan_of(buf, sizeof buf), &n, 1, wired_span_of(pay, 3));
+  wired_moqt_on_stream_data(hub, SESS_A, sid, wired_span_of(buf, n), 0);
+}
+
 static usz moqtrun_test_frag_free(const wired_moqt_hub* hub) {
   usz n = 0;
   for (usz i = 0; i < WIRED_MOQTRUN_FRAG_POOL; i++)
@@ -2855,22 +2868,27 @@ static usz moqtrun_test_frag_free(const wired_moqt_hub* hub) {
 
 /* Held fragments share one hub-wide pool: with every buffer taken by a
  * torn Object, the next stream's torn Object is dropped and counted (the
- * over-limit rule), while the streams that hold a buffer still complete
- * their Objects intact and give the buffer back on completion. */
+ * over-limit rule) and that stream stops relaying -- its subscriber stream
+ * is reset and its later bytes, now mid-Object, are never forwarded --
+ * while the streams that hold a buffer still complete their Objects
+ * intact and give the buffer back on completion. */
 static void test_moqtrun_frag_pool_exhaustion_drops_extra(void) {
   static u8       obj[WIRED_MOQTRUN_RELAY_FRAG_MAX + 8];
-  static const u8 alias[WIRED_MOQTRUN_FRAG_POOL + 1] = {3, 3, 3, 3, 2,
-                                                        2, 2, 2, 1};
+  static const u8 alias[WIRED_MOQTRUN_FRAG_POOL + 1] = {3, 3, 3, 3, 1,
+                                                        1, 1, 1, 2};
   moqtrun_test_reset();
   wired_moqt_hub hub;
   wired_moqt_init(&hub, moqtrun_test_io());
   moqtrun_test_setup_screen_relay(&hub);
+  moqtrun_test_subscribe_audio_as(&hub, SESS_C);
   usz n = moqtrun_test_big_object(WIRED_MOQTRUN_RELAY_FRAG_MAX, obj);
   CHECK(n == WIRED_MOQTRUN_RELAY_FRAG_MAX);
   for (usz i = 0; i <= WIRED_MOQTRUN_FRAG_POOL; i++)
     moqtrun_test_open_torn(&hub, alias[i], 999 + 4 * i, obj, n - 1);
   CHECK(hub.stat_frag_drop == 1); /* only the 9th found no buffer */
   CHECK(moqtrun_test_frag_free(&hub) == 0);
+  CHECK(moqtrun_test_count_kind(7) == 1); /* the 9th's subscriber stream */
+  CHECK(moqtrun_test_last_kind(7)->s == SESS_C);
 
   moqtrun_test_reset();
   for (usz i = 0; i < 4; i++) /* the screen streams complete their Object */
@@ -2881,6 +2899,13 @@ static void test_moqtrun_frag_pool_exhaustion_drops_extra(void) {
   for (usz i = 0; i < g_n_calls; i++)
     CHECK(g_calls[i].kind != 3 || g_calls[i].payload_hash == want);
   CHECK(moqtrun_test_frag_free(&hub) == 4);
+
+  moqtrun_test_reset(); /* the dropped stream's later bytes go nowhere */
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999 + 4 * WIRED_MOQTRUN_FRAG_POOL,
+      wired_span_of(obj + n - 1, 1), 0);
+  moqtrun_test_send_small_obj(&hub, 999 + 4 * WIRED_MOQTRUN_FRAG_POOL);
+  CHECK(g_n_calls == 0);
 }
 
 /* A held fragment's buffer goes back to the pool when its publisher
@@ -2939,8 +2964,10 @@ static void test_moqtrun_relay_max_object_intact(void) {
 }
 
 /* One byte more is over the limit: once its held tail reaches
- * WIRED_MOQTRUN_RELAY_FRAG_MAX bytes it is dropped and counted, and the
- * Object is never relayed. */
+ * WIRED_MOQTRUN_RELAY_FRAG_MAX bytes it is dropped and counted, the
+ * subscriber's stream is reset, and nothing more of that publisher stream
+ * is relayed -- its next bytes start mid-Object and could otherwise decode
+ * as a bogus whole Object. */
 static void test_moqtrun_relay_object_over_max_dropped(void) {
   static u8 obj[WIRED_MOQTRUN_RELAY_FRAG_MAX + 8];
   moqtrun_test_reset();
@@ -2955,9 +2982,15 @@ static void test_moqtrun_relay_object_over_max_dropped(void) {
   CHECK(n == WIRED_MOQTRUN_RELAY_FRAG_MAX + 1);
 
   moqtrun_test_reset();
-  moqtrun_test_deliver_to_last_byte(&hub, obj, n, 1000);
+  moqtrun_test_deliver_to_last_byte(&hub, obj, n - 1, 1000); /* tail = cap */
   CHECK(moqtrun_test_count_kind(3) == 0);
   CHECK(hub.stat_frag_drop == 1);
+  CHECK(moqtrun_test_count_kind(7) == 1);
+
+  moqtrun_test_reset();
+  moqtrun_test_send_small_obj(&hub, 999);
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(0, 0), 1);
+  CHECK(g_n_calls == 0);
 }
 
 /* ===================== session teardown ===================== */

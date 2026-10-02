@@ -1880,10 +1880,27 @@ static i32 moqtrun_frag_slot_for(
   return moqtrun_frag_take_free(hub, relay);
 }
 
+/* frag_idx of a relay whose held tail was dropped: the stream's next byte
+ * is mid-Object, so it must never be decoded or relayed again. */
+#define MOQTRUN_FRAG_POISONED (-2)
+
+static int moqtrun_relay_poisoned(const wired_moqtrun_relay* relay) {
+  return relay->frag_idx == MOQTRUN_FRAG_POISONED;
+}
+
 /* Gives relay's fragment buffer (if any) back to the pool. */
 static void moqtrun_frag_release(wired_moqtrun_relay* relay) {
   relay->frag_idx = -1;
   relay->frag_len = 0;
+}
+
+/* An n-byte tail with no buffer to wait in is dropped: counted, and the
+ * relay poisoned (moqtrun_relay_end_poisoned ends its subscriber side). */
+static void moqtrun_frag_drop(
+    wired_moqt_hub* hub, wired_moqtrun_relay* relay, usz n) {
+  if (n == 0) return;
+  relay->frag_idx = MOQTRUN_FRAG_POISONED;
+  hub->stat_frag_drop++;
 }
 
 /* Saves the undelivered tail (bytes past the last complete Object) as the
@@ -1891,15 +1908,15 @@ static void moqtrun_frag_release(wired_moqtrun_relay* relay) {
  * shared pool (released once nothing is held). A tail of
  * WIRED_MOQTRUN_RELAY_FRAG_MAX bytes or more belongs to an Object over the
  * relayable limit and can never complete, and one finding the pool
- * exhausted has nowhere to wait -- both are dropped (counted on the hub),
- * degrading to a torn frame for this one stream rather than corrupting the
- * relay's own state. */
+ * exhausted has nowhere to wait -- both are dropped (counted on the hub)
+ * and the relay is poisoned: everything after the tail starts mid-Object,
+ * so the stream relays nothing more (moqtrun_relay_continue). */
 static void moqtrun_relay_save_frag(
     wired_moqt_hub* hub, wired_moqtrun_relay* relay, const u8* p, usz n) {
   i32 slot = n ? moqtrun_frag_slot_for(hub, relay, n) : -1;
   moqtrun_frag_release(relay);
   if (slot < 0) {
-    hub->stat_frag_drop += n != 0;
+    moqtrun_frag_drop(hub, relay, n);
     return;
   }
   bytes_memcpy(hub->frag_pool[slot], p, n);
@@ -2409,18 +2426,53 @@ static void moqtrun_relay_continue_lossy(
  * continuation coming -- dropped). A ring-backed relay (rel_idx >= 0)
  * takes the reliable path instead: its bytes are retried, not dropped,
  * and its entry lives until every cursor is delivered or given up. */
+static void moqtrun_relay_forward(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay,
+    wired_span           whole,
+    int                  fin) {
+  if (relay->rel_idx >= 0) {
+    moqtrun_rel_continue(hub, track, relay, whole, fin);
+    return;
+  }
+  moqtrun_relay_continue_lossy(hub, track, relay, whole, fin);
+}
+
+/* A poisoned relay only absorbs its publisher's bytes, so they never get
+ * re-classified as a fresh stream, and frees at the publisher's FIN. */
+static void moqtrun_relay_sink(wired_moqtrun_relay* relay, int fin) {
+  if (fin) relay->in_use = 0;
+}
+
+/* The round that poisoned relay (moqtrun_frag_drop) ends its subscriber
+ * side the way an abandoned relay stream ends (moqtrun_relay_reset_stale):
+ * every subscriber stream is reset and a bound ring returned, so no
+ * subscriber reads past the last whole Object. */
+static void moqtrun_relay_end_poisoned(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay,
+    int                  fin) {
+  if (!moqtrun_relay_poisoned(relay)) return;
+  moqtrun_relay_reset_stale(hub, track, relay);
+  moqtrun_relay_return_ring(hub, relay);
+  moqtrun_relay_sink(relay, fin);
+}
+
 static void moqtrun_relay_continue(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     wired_span           wire,
     int                  fin) {
-  wired_span whole = moqtrun_relay_normalize(hub, track, relay, wire);
-  if (relay->rel_idx >= 0) {
-    moqtrun_rel_continue(hub, track, relay, whole, fin);
+  if (moqtrun_relay_poisoned(relay)) {
+    moqtrun_relay_sink(relay, fin);
     return;
   }
-  moqtrun_relay_continue_lossy(hub, track, relay, whole, fin);
+  wired_span whole = moqtrun_relay_normalize(hub, track, relay, wire);
+  moqtrun_relay_forward(hub, track, relay, whole, fin);
+  moqtrun_relay_end_poisoned(hub, track, relay, fin);
 }
 
 /* Opens sub slot i's relay stream carrying wire as its first round and
@@ -2511,6 +2563,7 @@ static void moqtrun_relay_start(
       wired_span_of(wire.p, whole_end), 0, &relay->seq, &relay->group_id);
   moqtrun_relay_open_all(hub, track, relay, wired_span_of(wire.p, whole_end));
   moqtrun_rel_attach_subs(hub, track, relay);
+  moqtrun_relay_end_poisoned(hub, track, relay, 0);
 }
 
 /* Decodes the SUBGROUP_HEADER + the one Object this subset always sends
