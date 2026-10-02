@@ -351,6 +351,10 @@ typedef struct {
    * 19.10) -- so the peer's send window drains and it pauses; 0 resumes
    * raising on the next step. */
   int credit_hold;
+  /** 1 once the caller driving the loop (srvrun.c) armed a send on this
+   * stream (a WT reply): with that send slot gone, the stream's send part
+   * has ended (RFC 9000 3.1 "Data Recvd", or already reset). */
+  int send_armed;
 } wired_srvloop_wt_stream_slot;
 
 /** draft-ietf-webtrans-http3-15 4.3: how many concurrent WebTransport uni

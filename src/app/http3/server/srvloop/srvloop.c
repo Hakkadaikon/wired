@@ -71,6 +71,7 @@ static void wt_streams_reset(wired_srvloop* l) {
     l->wt_streams[i].fin_delivered     = 0;
     l->wt_streams[i].credit_advertised = 0;
     l->wt_streams[i].credit_hold       = 0;
+    l->wt_streams[i].send_armed        = 0;
     wt_window_reset(&l->wt_streams[i].win);
   }
 }
@@ -504,6 +505,7 @@ static int wt_slot_claim_at(wired_srvloop* l, usz i, u64 stream_id) {
   l->wt_streams[i].fin_delivered     = 0;
   l->wt_streams[i].credit_advertised = 0;
   l->wt_streams[i].credit_hold       = 0;
+  l->wt_streams[i].send_armed        = 0;
   wt_window_reset(&l->wt_streams[i].win);
   return (int)i;
 }
