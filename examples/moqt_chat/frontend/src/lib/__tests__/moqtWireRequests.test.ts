@@ -7,10 +7,15 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   bytesToHex,
+  bytesToUtf8,
   decodeControlFrame,
+  decodeFetchOk,
+  decodeNamespaceSuffix,
   decodeRequestOk,
   decodeSubscribeOk,
   encodeControlFrame,
+  encodeFetch,
+  encodeNamespaceRequest,
   encodeSubscribe,
   hexToBytes,
   largestObjectOf,
@@ -66,5 +71,51 @@ describe("message parameters (10.2)", () => {
   it("rejects an unknown parameter Type", () => {
     // SUBSCRIBE_OK alias 1, one parameter of Type 0x3f (unregistered).
     expect(() => decodeSubscribeOk(hexToBytes("01013f00"))).toThrow(MoqtDecodeError);
+  });
+});
+
+describe("FETCH (10.12) / FETCH_OK (10.13)", () => {
+  it("encode fetch_relative_joining", () => {
+    const b = encodeFetch({ requestId: 2n, fetchType: 2n, joiningRequestId: 0n, joiningStart: 1n, parameters: [] });
+    expect(frame("fetch_relative_joining", b)).toBe(ctl.get("fetch_relative_joining")!.hex);
+  });
+
+  it("encode fetch_absolute_joining", () => {
+    const b = encodeFetch({
+      requestId: 4n,
+      fetchType: 3n,
+      joiningRequestId: 0n,
+      joiningStart: 5n,
+      parameters: [{ type: 0x20n, value: 128n }],
+    });
+    expect(frame("fetch_absolute_joining", b)).toBe(ctl.get("fetch_absolute_joining")!.hex);
+  });
+
+  it("decode fetch_ok_basic", () => {
+    const msg = decodeFetchOk(body("fetch_ok_basic"));
+    expect(msg.endOfTrack).toBe(true);
+    expect(msg.endLocation).toEqual({ group: 3n, object: 5n });
+  });
+});
+
+describe("namespace discovery (10.15-10.18)", () => {
+  it("encode subscribe_namespace_basic", () => {
+    const b = encodeNamespaceRequest({ requestId: 6n, namespace: [utf8ToBytes("chat")], parameters: [] });
+    expect(frame("subscribe_namespace_basic", b)).toBe(ctl.get("subscribe_namespace_basic")!.hex);
+  });
+
+  it("encode publish_namespace_basic", () => {
+    const b = encodeNamespaceRequest({
+      requestId: 8n,
+      namespace: ["chat", "room1"].map(utf8ToBytes),
+      parameters: [],
+    });
+    expect(frame("publish_namespace_basic", b)).toBe(ctl.get("publish_namespace_basic")!.hex);
+  });
+
+  it("decode namespace_basic / namespace_done_basic suffixes", () => {
+    for (const name of ["namespace_basic", "namespace_done_basic"]) {
+      expect(decodeNamespaceSuffix(body(name)).map(bytesToUtf8)).toEqual(["room1"]);
+    }
   });
 });

@@ -585,6 +585,73 @@ export function encodeRequestOk(msg: RequestOkMessage): Uint8Array {
   return concatBytes([encodeParams(msg.parameters), encodeKvpList(msg.trackProperties)]);
 }
 
+// --- FETCH (0x16) / FETCH_OK (0x18) ---------------------------------------
+
+/** Joining Fetch (10.12.2): Fetch Type 0x2 Relative, 0x3 Absolute. The
+ * Standalone form (0x1) is not sent by this client. */
+export interface JoiningFetchMessage {
+  requestId: bigint;
+  fetchType: 2n | 3n;
+  joiningRequestId: bigint;
+  joiningStart: bigint;
+  parameters: MessageParam[];
+}
+
+export function encodeFetch(msg: JoiningFetchMessage): Uint8Array {
+  return concatBytes([
+    encodeVarint(msg.requestId),
+    encodeVarint(msg.fetchType),
+    encodeVarint(msg.joiningRequestId),
+    encodeVarint(msg.joiningStart),
+    encodeParams(msg.parameters),
+  ]);
+}
+
+export interface FetchOkMessage {
+  endOfTrack: boolean;
+  /** One past the last Object (Object 0 = the whole End group). */
+  endLocation: Location;
+  parameters: MessageParam[];
+  trackProperties: KeyValuePair[];
+}
+
+export function decodeFetchOk(body: Uint8Array): FetchOkMessage {
+  if (body.length < 1) fail("truncated FETCH_OK");
+  const end = decodeLocation(body, 1);
+  const params = decodeParams(body, 1 + end.len);
+  return {
+    endOfTrack: body[0] === 1,
+    endLocation: end.value,
+    parameters: params.params,
+    trackProperties: decodeKvpSpan(body, 1 + end.len + params.len, body.length),
+  };
+}
+
+// --- PUBLISH_NAMESPACE (0x6) / SUBSCRIBE_NAMESPACE (0x50) / NAMESPACE (0x8)
+// / NAMESPACE_DONE (0xE) ------------------------------------------------------
+
+/** PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE share one body layout
+ * (10.15, 10.18): Request ID, Track Namespace (or Prefix), parameters. */
+export interface NamespaceRequestMessage {
+  requestId: bigint;
+  namespace: Uint8Array[];
+  parameters: MessageParam[];
+}
+
+export function encodeNamespaceRequest(msg: NamespaceRequestMessage): Uint8Array {
+  return concatBytes([
+    encodeVarint(msg.requestId),
+    encodeNamespace(msg.namespace),
+    encodeParams(msg.parameters),
+  ]);
+}
+
+/** NAMESPACE / NAMESPACE_DONE body (10.16, 10.17): the Track Namespace
+ * Suffix, the fields after the subscribed prefix. */
+export function decodeNamespaceSuffix(body: Uint8Array): Uint8Array[] {
+  return decodeNamespace(body, 0).fields;
+}
+
 // --- REQUEST_ERROR (0x5) ---------------------------------------------------
 
 export interface RequestErrorMessage {
