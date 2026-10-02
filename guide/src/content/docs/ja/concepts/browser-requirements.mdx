@@ -16,10 +16,10 @@ wired は WebTransport を HTTP/3（UDP 上の QUIC）でのみ提供するの�
 - **CA が発行した証明書**：通常の HTTPS サイトと同じく、サーバーの DNS 名に対して発行されたものです。
   アプリが `id.chain` として渡すと、wired はその証明書チェーンを送ります。
 - **ピン留めした自己署名証明書**：ページは `WebTransport` オブジェクトを作るときに、証明書の SHA-256 ハッシュを `serverCertificateHashes` に渡します。
-  W3C の WebTransport 仕様がこの方法で受け入れるのは、有効期間が 14 日以内で、鍵が ECDSA P-256（secp256r1）の証明書だけです。
+  [W3C の WebTransport 仕様](https://www.w3.org/TR/webtransport/#dom-webtransporthash)がこの方法で受け入れるのは、有効期間が 14 日以内で、鍵が ECDSA P-256（secp256r1）の証明書だけです。
 
 wired が組み立てる自己署名証明書は、この 2 つの条件を満たします。
-鍵は ECDSA P-256 で（`id.cert_seed` が署名用のスカラーです）、`id.now_secs` を設定すると、有効期間は `now_secs` から `now_secs` + 14 日までになります。
+鍵は ECDSA P-256 で（`id.cert_seed` が署名用のスカラーです）、`id.now_secs` を設定すると、有効期間は `now_secs` から `now_secs` + 14 日までになります（`src/crypto/pki/cert/p256cert/tbs.c` の `PC_VALIDITY_DAYS`）。
 IP リテラルで接続するページでは、そのアドレスが証明書の SAN にも必要です（`id.san_ipv4`）。
 [ブラウザーが必要とするもの](../../wt/browser/) では、そうした証明書を組み立て、ページがピン留めするハッシュを表示します。
 
