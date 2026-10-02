@@ -27,6 +27,13 @@ subscriber the moment the server's clock enters it.
   fragment `g mod n_frags`. A SUBSCRIBE gets SUBSCRIBE_OK and the current
   Group at once; `wired_moqt_tick`, wired to `wired_srvrun_opt.on_step`,
   sends each later Group the moment the clock enters it.
+- `now_ms` (Group 0's start) is captured at the *first WebTransport
+  session*, not at server boot: `publish_live_once` (called from
+  `wt_on_session`) runs exactly once, at the moment a client actually
+  connects. Capturing it at boot instead would fold the client's own
+  connect/handshake latency into Group 0's window -- on a loaded machine
+  that can exceed `group_ms` and shift which fragment Group 0 (and so
+  every later Group) carries.
 - Group delivery needs a second io entry, `send_uni2`: the hub builds a
   short framing prefix (`head`) in front of a fragment it only holds as a
   view (`body`), and the adapter concatenates both behind the WebTransport

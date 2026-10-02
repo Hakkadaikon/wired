@@ -33,6 +33,14 @@ import Example from '../../../../components/Example.astro';
   SUBSCRIBE には SUBSCRIBE_OK とその時点の Group が即座に返ります。
   `wired_srvrun_opt.on_step` に接続した `wired_moqt_tick` が、
   クロックが新しい Group に入った瞬間、それ以降の各 Group を送ります。
+- `now_ms`（Group 0 の起点）は、サーバーの起動時ではなく、最初の WebTransport
+  セッションが張られた瞬間に取得します。
+  `publish_live_once`（`wt_on_session` から呼ばれます）は、クライアントが実際に
+  接続したその瞬間、一度だけ実行されます。
+  起動時に取得してしまうと、クライアント自身の接続・ハンドシェイクにかかる時間が
+  Group 0 の区間に混ざり込みます。
+  負荷の高いマシンではこれが `group_ms` を超え、Group 0（とそれ以降の全 Group）
+  が運ぶフラグメントがずれてしまいます。
 - Group の配信には、もう一つの io エントリ `send_uni2` が必要です。
   ハブは、短いフレーミング（`head`）を組み立て、ビューとして持っているだけの
   フラグメント（`body`）の手前に置きます。
