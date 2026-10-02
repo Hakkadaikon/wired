@@ -40,7 +40,7 @@ func dial(ctx context.Context, url string) (*webtransport.Session, *quic.Conn) {
 // request opens a fresh bidi request stream (draft-ietf-moq-transport-19
 // SS3.3), sends one request on it and prints the hub's first answer:
 // REQUEST_OK (0x7) or REQUEST_ERROR (0x5) with its error code. The
-// stream is left open: closing it would cancel the request (SS3.3.3).
+// stream is left alone: resetting it would cancel the request (SS3.3.3).
 func request(ctx context.Context, s *webtransport.Session, who string, typ byte, id byte, name string) *bufio.Reader {
 	st, err := s.OpenStreamSync(ctx)
 	moqtclient.Check(err)
