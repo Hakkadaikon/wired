@@ -74,8 +74,6 @@ static void wt_streams_reset(wired_srvloop* l) {
     l->wt_streams[i].credit_hold       = 0;
     wt_window_reset(&l->wt_streams[i].win);
   }
-  for (usz i = 0; i < 8; i++) l->wt_released_recent[i] = 0;
-  l->wt_released_recent_at = 0;
 }
 
 /* Mark every WT uni stream reassembly slot free (draft-ietf-webtrans-http3-15
@@ -137,8 +135,8 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->max_data_seen              = 0;
   l->max_data_seen_flag         = 0;
   l->max_stream_data_n          = 0;
-  /* wt_released_recent[]/wt_uni_released_recent[] are zeroed by
-   * wt_streams_reset/wt_uni_streams_reset below. */
+  /* wt_uni_released_recent[] is zeroed by
+   * wt_uni_streams_reset below. */
   /* max_data_seen_flag/streams_blocked_seen_flag/path_response_seen_flag are
    * "not reset across steps by this loop itself" (see their own doc in
    * srvloop.h) -- but that convention only holds once a step has actually run
@@ -503,15 +501,22 @@ static int wt_slot_claim_at(wired_srvloop* l, usz i, u64 stream_id) {
   return (int)i;
 }
 
-/* 1 iff stream_id was itself released recently -- a claim for it now is a
- * delayed duplicate reopening a stream the app already saw FIN for. A new
- * id that merely sorts below older releases is NOT stale: the uni table
- * fixed this first (wt_uni_released_recent's doc), and the bidi
- * high-watermark rule had the same silent-loss hole. */
+/* 1 iff client stream_id already ended here (released or refused) -- a
+ * claim for it now is a delayed duplicate reopening a stream the app already
+ * saw FIN for. Uses the request streams' closed-id bitmap (req_closed_mark),
+ * which shares the client bidi id space and records exact ids over a
+ * 1024-stream window, so a NEW id that merely sorts below older releases is
+ * not stale (the old high-watermark rule's silent-loss hole), and an id
+ * released long ago still is (a ring of the last 8 forgot it while the
+ * table holds more). Server-opened ids (low bit 1) are never stale here:
+ * the bitmap indexes stream_id / 4 and would alias them onto client ids. */
 static int wt_slot_is_stale(const wired_srvloop* l, u64 stream_id) {
-  for (usz i = 0; i < 8; i++)
-    if (l->wt_released_recent[i] == stream_id) return 1;
-  return 0;
+  return !(stream_id & 1) && req_closed_has(l, stream_id);
+}
+
+/* Record client stream_id as ended (see wt_slot_is_stale). */
+static void wt_closed_mark(wired_srvloop* l, u64 stream_id) {
+  if (!(stream_id & 1)) req_closed_mark(l, stream_id);
 }
 
 /* Claim and reset a free wt_streams slot for stream_id.
@@ -534,14 +539,9 @@ int wired_srvloop_wt_slot_claim_local(wired_srvloop* l, u64 stream_id) {
   return wired_srvloop_wt_slot_claim(l, stream_id);
 }
 
-/* 1 iff stream_id already ended here (released or refused before). */
-static int wt_refuse_known(const wired_srvloop* l, u64 stream_id) {
-  return wt_slot_is_stale(l, stream_id) || req_closed_has(l, stream_id);
-}
-
 void wired_srvloop_wt_refuse(wired_srvloop* l, u64 stream_id) {
-  if (wt_refuse_known(l, stream_id)) return;
-  req_closed_mark(l, stream_id);
+  if (wt_slot_is_stale(l, stream_id)) return;
+  wt_closed_mark(l, stream_id);
   if (l->wt_refused_n < WIRED_SRVLOOP_MAX_STREAMS)
     l->wt_refused[l->wt_refused_n++] = stream_id;
 }
@@ -549,9 +549,8 @@ void wired_srvloop_wt_refuse(wired_srvloop* l, u64 stream_id) {
 void wired_srvloop_wt_slot_release(wired_srvloop* l, u64 stream_id) {
   int i = wired_srvloop_wt_slot_find(l, stream_id);
   if (i < 0) return;
-  l->wt_streams[i].in_use                         = 0;
-  l->wt_released_recent[l->wt_released_recent_at] = stream_id;
-  l->wt_released_recent_at = (u8)((l->wt_released_recent_at + 1) % 8);
+  l->wt_streams[i].in_use = 0;
+  wt_closed_mark(l, stream_id);
 }
 
 /* 1 if wt uni slot is claimed and reassembling stream_id. */

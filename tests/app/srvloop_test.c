@@ -2071,6 +2071,28 @@ static void test_srvloop_wt_released_stream_retransmit_not_refused(void) {
   CHECK(f.l.wt_refused_n == 0);
 }
 
+/* A delayed duplicate signal frame of a stream released long ago (30
+ * releases back, far more than the table holds) is still recognised as
+ * finished: no slot is claimed for it while slots are free, and with the
+ * table full it is not refused (which would hand its credit back twice). */
+static void test_srvloop_wt_long_released_stream_replay_ignored(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  for (u64 k = 0; k < 30; k++) {
+    CHECK(wired_srvloop_wt_slot_claim(&f.l, 4 + 4 * k) >= 0);
+    wired_srvloop_wt_slot_release(&f.l, 4 + 4 * k);
+  }
+  lp_wt_step_signal_and_more(&f, 3);
+  CHECK(wired_srvloop_wt_slot_find(&f.l, 4) < 0);
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    CHECK(!f.l.streams[i].in_use);
+  lp_wt_fill_table(&f);
+  lp_wt_step_signal_and_more(&f, 4);
+  CHECK(f.l.wt_refused_n == 0);
+}
+
 /* A long-lived stream keeps its slot when the table is full: a
  * retransmission of its own signal frame lands in that slot instead of being
  * refused as if it were a new stream. */
@@ -4695,6 +4717,7 @@ void test_srvloop(void) {
   test_srvloop_wt_refused_stream_retransmit_not_refused_twice();
   test_srvloop_wt_released_stream_retransmit_not_refused();
   test_srvloop_wt_live_stream_retransmit_keeps_slot();
+  test_srvloop_wt_long_released_stream_replay_ignored();
   test_srvloop_wt_uni_stream_reassembled();
   test_srvloop_wt_uni_stream_signal_split();
   test_srvloop_wt_bidi_stream_signal_split();

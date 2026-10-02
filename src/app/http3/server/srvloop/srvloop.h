@@ -683,16 +683,6 @@ typedef struct {
   /** Slots in max_stream_data_stream_id/_value actually used this step (0 to
    * WIRED_SRVLOOP_MAX_STREAMS). 0 = none seen. */
   usz max_stream_data_n;
-  /** The last few RELEASED WT bidi stream ids (ring, newest overwrites
-   * oldest) -- same shape and rationale as wt_uni_released_recent below:
-   * refuse a delayed duplicate re-claim of an id the app already saw FIN
-   * for, and ONLY that. The previous high-watermark rule ("reject any id
-   * <= the highest released") also rejected legitimately NEW lower-id
-   * streams whose first frames were loss-delayed past a faster, higher-id
-   * stream's whole lifetime; their packets were already ACKed, so the peer
-   * never resent and the payload was gone for good. */
-  u64 wt_released_recent[8];
-  u8  wt_released_recent_at; /**< next ring write index */
   /** The last few RELEASED uni stream ids (ring, newest overwrites oldest).
    * A delayed duplicate claim of an id released moments ago must be refused
    * -- it would reopen a slot the app already saw FIN for -- but ONLY ids
