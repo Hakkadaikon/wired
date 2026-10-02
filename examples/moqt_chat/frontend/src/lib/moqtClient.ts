@@ -703,9 +703,11 @@ export class MoqtChatClient {
    * a time: a label already in flight or established is not sent again,
    * and a refused one (REQUEST_ERROR) may be. With history, the SUBSCRIBE
    * starts at the Largest Object and a Relative Joining FETCH fills in the
-   * Groups before it (draft 10.12.2). */
-  async subscribeTrack(trackName: Uint8Array, label: string, history?: JoiningFetch): Promise<void> {
-    if (this.#subs.has(label)) return;
+   * Groups before it (draft 10.12.2). Resolves false when the label was
+   * already in flight or established (nothing sent, history untouched),
+   * else true once the SUBSCRIBE is answered. */
+  async subscribeTrack(trackName: Uint8Array, label: string, history?: JoiningFetch): Promise<boolean> {
+    if (this.#subs.has(label)) return false;
     const pending = this.#request(MSG_TYPE_SUBSCRIBE, (requestId) =>
       encodeSubscribe({
         requestId,
@@ -722,12 +724,12 @@ export class MoqtChatClient {
       if (this.#subs.get(label) === pending) this.#subs.delete(label);
       req?.close();
       history?.onDone();
-      return;
+      return true;
     }
     this.#subscribed.add(label);
-    if (!history) return;
-    if (largest) void this.#joiningFetch(req!.requestId, history);
-    else history.onDone();
+    if (largest && history) void this.#joiningFetch(req!.requestId, history);
+    else history?.onDone();
+    return true;
   }
 
   async #joiningFetch(subscribeRequestId: bigint, history: JoiningFetch): Promise<void> {
@@ -795,7 +797,7 @@ export class MoqtChatClient {
     this.#callbacks.onNamespace?.(suffix, active);
   }
 
-  #subscribeChat(peer: string): Promise<void> {
+  #subscribeChat(peer: string): Promise<boolean> {
     return this.subscribeTrack(utf8ToBytes(peer), peer, {
       joiningStart: CHAT_HISTORY_GROUPS,
       onObject: (o) => this.#dispatchChatPayload(peer, o.payload),
