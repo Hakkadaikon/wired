@@ -70,6 +70,23 @@ static inline void* bytes_memcpy(void* dst, const void* src, usz n) {
 }
 
 /**
+ * Byte copy toward lower addresses: dst may overlap src as long as dst
+ * <= src (a forward copy then never reads a byte it already overwrote),
+ * e.g. sliding a buffer's tail down to its front.
+ *
+ * @param dst destination, at or below src
+ * @param src source buffer
+ * @param n   number of bytes to copy
+ * @return dst
+ */
+static inline void* bytes_move_down(void* dst, const void* src, usz n) {
+  u8*       d = dst;
+  const u8* s = src;
+  for (usz i = 0; i < n; i++) d[i] = s[i];
+  return dst;
+}
+
+/**
  * Freestanding byte fill. See bytes_memcpy() for why the SDK owns this.
  *
  * @param dst buffer to fill

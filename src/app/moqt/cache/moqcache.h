@@ -14,7 +14,11 @@
  * group whose own bytes would exceed the arena (or an Object past
  * MOQCACHE_OBJ_MAX) is dropped whole and leaves a header-only tombstone,
  * so its later Objects are not cached either and FETCH reports it as an
- * unknown range.
+ * unknown range. Evicting another track's still-open (newest) group
+ * likewise leaves its tombstone, kept until that track moves on to a newer
+ * group, so no group is ever cached partially. An arena smaller than
+ * (open tracks + 1) * MOQCACHE_HDR may find no room even for a tombstone;
+ * the arriving group is then dropped without one.
  *
  * ponytail: eviction compacts the arena (one memmove pass) and lookups
  * scan it linearly -- O(arena) per call; a ring with an index when arenas
