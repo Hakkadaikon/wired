@@ -149,6 +149,22 @@ typedef struct {
 /** draft-ietf-moq-transport-19 SS3.5 INTERNAL_ERROR session code. */
 #define WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR 0x1
 
+/** draft-ietf-moq-transport-19 3.5 NO_ERROR session code. */
+#define WIRED_MOQTRUN_CLOSE_NO_ERROR 0x0
+
+/** draft-ietf-moq-transport-19 3.5 GOAWAY_TIMEOUT session code. */
+#define WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT 0x10
+
+/** Longest New Session URI wired_moqt_goaway sends (draft 10.4 allows
+ * 8192): a URL, sized so the GOAWAY fits one control-stream reply round
+ * (WIRED_MOQTRUN_CTL_SEND_BUF). */
+#define WIRED_MOQTRUN_GOAWAY_URI_MAX 512
+
+/** GOAWAY Timeout the hub gives a session whose peer sent
+ * WT_DRAIN_SESSION (wired_moqt_on_session_draining): the peer asked to go,
+ * so a short grace for its subscriptions to wind down. */
+#define WIRED_MOQTRUN_DRAIN_TIMEOUT_MS 5000
+
 /** One subscriber recorded against the hub's track: which session, and the
  * Track Alias this hub assigned it (hub-local per subscriber, draft SS10.7
  * moqsub scope). */
@@ -532,6 +548,15 @@ typedef struct {
   /** The request stream whose message is being handled, 0 for the
    * control stream: replies go to it. */
   wired_moqtrun_req* req;
+  /** Clock (wired_moqt_tick) past which a session sent GOAWAY
+   * (sess.goaway_sent) is closed with GOAWAY_TIMEOUT; (u64)-1 for none. */
+  u64 goaway_deadline;
+  /** 1 once the deadline passed and PUBLISH_DONE went to every
+   * subscription: the next tick closes the session. */
+  u8 goaway_flushed;
+  /** 1 once the hub asked the transport to close the session: nothing
+   * more is sent on it. */
+  u8 closing;
 } wired_moqtrun_peer;
 
 /** The hub's own clock-paced live track (wired_moqt_publish_live): Group
@@ -828,6 +853,33 @@ void wired_moqt_on_stream_reset(
     u64               stream_id,
     int               mapped,
     u32               app_error_code);
+
+/** draft-ietf-moq-transport-19 3.6 / 10.4 graceful drain: sends GOAWAY
+ * (new_uri, timeout_ms) once on the control stream of every open session
+ * that has not had one. A session that got GOAWAY answers every later new
+ * request REQUEST_ERROR GOING_AWAY (requests already answered stay, and
+ * their REQUEST_UPDATEs are served). On a later wired_moqt_tick a session
+ * with nothing open is closed NO_ERROR; one still open timeout_ms after
+ * this call (measured on the tick clock) is sent PUBLISH_DONE GOING_AWAY
+ * for every subscription it holds on a request stream, and closed with
+ * GOAWAY_TIMEOUT on the tick after. timeout_ms 0 sets no deadline (10.4:
+ * no specific timeout). A publisher's session ending, for any reason,
+ * sends its subscribers on other sessions PUBLISH_DONE TRACK_ENDED.
+ * Subscriptions made on the control stream get no PUBLISH_DONE (it has
+ * no Request ID to name them by).
+ * @param hub the hub
+ * @param new_uri where clients reconnect, empty to reuse the current URI
+ *   (copied into the message)
+ * @param timeout_ms grace before GOAWAY_TIMEOUT, 0 for none
+ * @return sessions sent GOAWAY now, or -1 when new_uri is longer than
+ *   WIRED_MOQTRUN_GOAWAY_URI_MAX (nothing sent) */
+int wired_moqt_goaway(wired_moqt_hub* hub, wired_span new_uri, u64 timeout_ms);
+
+/** wired_wt_on_session_draining-shaped: the peer of s sent
+ * WT_DRAIN_SESSION, so s alone is drained as by wired_moqt_goaway (empty
+ * URI, WIRED_MOQTRUN_DRAIN_TIMEOUT_MS). app_ctx must be the
+ * wired_moqt_hub*. */
+void wired_moqt_on_session_draining(void* app_ctx, wired_wt_session* s);
 
 /** Publish a hub-owned static track: frames blob into wire
  * (moqdata_blob_build: one SUBGROUP_HEADER carrying track_alias, then
