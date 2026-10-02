@@ -632,6 +632,19 @@ int wired_server_wt_stream_reply_open(
 int wired_server_wt_stream_send(
     wired_wt_session* s, u64 stream_id, wired_span payload, int fin);
 
+/** Set the send urgency of a server-sent stream that still holds its send
+ * slot (RFC 9218 2.1: 0 most urgent .. 7, default 3).
+ * Each pump pass sends only from the most urgent streams that can send
+ * right now; streams of equal urgency keep sharing the pass in turn. The
+ * setting lasts until the stream's send slot is released.
+ * @param s the session whose connection carries the stream
+ * @param stream_id a stream holding an open send slot
+ * @param urgency 0..7, lower is more urgent
+ * @return 1 applied, negative when urgency is above 7, s resolves to no
+ *   live connection, or stream_id names no open send slot */
+int wired_server_wt_stream_priority(
+    wired_wt_session* s, u64 stream_id, u8 urgency);
+
 /** Ends a stream opened for appending with NO further bytes: a bare FIN on
  * an otherwise-empty final round (RFC 9000 19.8 permits a zero-length
  * STREAM frame carrying only FIN). Use this instead of
