@@ -1660,12 +1660,19 @@ static int moqtrun_disc_any(
   return 0;
 }
 
-/* A namespace already published here (by any session) is refused
- * UNINTERESTED (10.6.2) rather than announced twice. */
+static int moqtrun_disc_same_session(
+    const wired_moqtrun_req* a, const wired_moqtrun_req* b) {
+  return a->wt == b->wt && moqtrun_disc_same(a, b);
+}
+
+/* A session publishing a namespace it already publishes is refused
+ * UNINTERESTED (10.6.2). Other sessions may publish the same namespace
+ * (9.3 multiple publishers; 3.6 a client migrating after GOAWAY): it is
+ * announced once (moqtrun_disc_sync_new). */
 static u64 moqtrun_disc_pub_check(
     const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
-  int dup =
-      moqtrun_disc_any(hub, q, MOQNS_T_PUBLISH_NAMESPACE, moqtrun_disc_same);
+  int dup = moqtrun_disc_any(
+      hub, q, MOQNS_T_PUBLISH_NAMESPACE, moqtrun_disc_same_session);
   return dup ? MOQCTL_ERR_UNINTERESTED : MOQTRUN_DISC_OK;
 }
 
@@ -1781,19 +1788,87 @@ static int moqtrun_disc_wanted(
          moqtrun_disc_under(sub, pub);
 }
 
-static const u64 moqtrun_disc_push_type[2] = {
-    MOQNS_T_NAMESPACE_DONE, MOQNS_T_NAMESPACE};
+static u64 moqtrun_disc_bit(usz i) {
+  return i < WIRED_MOQTRUN_MAX_REQS ? (u64)1 << i : 0;
+}
 
-/* Brings sub's view of reqs[i] in line: NAMESPACE once it matches,
- * NAMESPACE_DONE once it no longer does (10.18). A push that does not fit
+static int moqtrun_disc_seen(const wired_moqtrun_req* sub, usz i) {
+  return (int)((sub->ns_seen >> i) & 1);
+}
+
+static int moqtrun_disc_carries(
+    const wired_moqt_hub*    hub,
+    const wired_moqtrun_req* sub,
+    usz                      j,
+    const wired_moqtrun_req* q) {
+  return moqtrun_disc_seen(sub, j) && moqtrun_disc_same(&hub->reqs[j], q);
+}
+
+/* 1 iff sub was already sent a NAMESPACE for q's namespace (through
+ * another publisher's slot). */
+static int moqtrun_disc_covered(
+    const wired_moqt_hub*    hub,
+    const wired_moqtrun_req* sub,
+    const wired_moqtrun_req* q) {
+  for (usz j = 0; j < WIRED_MOQTRUN_MAX_REQS; j++)
+    if (moqtrun_disc_carries(hub, sub, j, q)) return 1;
+  return 0;
+}
+
+static int moqtrun_disc_fresh(
+    const wired_moqt_hub*    hub,
+    const wired_moqtrun_req* sub,
+    const wired_moqtrun_req* q) {
+  return moqtrun_disc_wanted(sub, q) && !moqtrun_disc_covered(hub, sub, q);
+}
+
+/* A matching namespace sub has not been told of: NAMESPACE. */
+static void moqtrun_disc_sync_new(
+    wired_moqt_hub* hub, wired_moqtrun_req* sub, usz i) {
+  if (!moqtrun_disc_fresh(hub, sub, &hub->reqs[i])) return;
+  if (moqtrun_disc_push(sub, &hub->reqs[i], MOQNS_T_NAMESPACE))
+    sub->ns_seen |= moqtrun_disc_bit(i);
+}
+
+static int moqtrun_disc_heir_at(
+    const wired_moqt_hub* hub, usz k, const wired_moqtrun_req* q) {
+  return moqtrun_disc_is(&hub->reqs[k], MOQNS_T_PUBLISH_NAMESPACE) &&
+         moqtrun_disc_same(&hub->reqs[k], q);
+}
+
+/* Index of another live publisher of q's namespace, else
+ * WIRED_MOQTRUN_MAX_REQS. */
+static usz moqtrun_disc_heir(
+    const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
+  for (usz k = 0; k < WIRED_MOQTRUN_MAX_REQS; k++)
+    if (moqtrun_disc_heir_at(hub, k, q)) return k;
+  return WIRED_MOQTRUN_MAX_REQS;
+}
+
+/* The withdrawn publisher reqs[i] carried a namespace sub was told of: an
+ * heir still publishing it takes it over silently, else NAMESPACE_DONE. */
+static void moqtrun_disc_retire(
+    wired_moqt_hub* hub, wired_moqtrun_req* sub, usz i) {
+  usz k = moqtrun_disc_heir(hub, &hub->reqs[i]);
+  if (k == WIRED_MOQTRUN_MAX_REQS &&
+      !moqtrun_disc_push(sub, &hub->reqs[i], MOQNS_T_NAMESPACE_DONE))
+    return;
+  sub->ns_seen &= ~moqtrun_disc_bit(i);
+  sub->ns_seen |= moqtrun_disc_bit(k);
+}
+
+/* Brings sub's view of reqs[i] in line (10.18): each matching namespace
+ * is announced once however many sessions publish it, and NAMESPACE_DONE
+ * follows only when the last of them withdraws. A push that does not fit
  * is retried on the next sync. */
 static void moqtrun_disc_sync_one(
     wired_moqt_hub* hub, wired_moqtrun_req* sub, usz i) {
-  int want = moqtrun_disc_wanted(sub, &hub->reqs[i]);
-  int seen = (int)((sub->ns_seen >> i) & 1);
-  if (want == seen) return;
-  if (moqtrun_disc_push(sub, &hub->reqs[i], moqtrun_disc_push_type[want]))
-    sub->ns_seen ^= (u64)1 << i;
+  if (!moqtrun_disc_seen(sub, i)) {
+    moqtrun_disc_sync_new(hub, sub, i);
+    return;
+  }
+  if (!moqtrun_disc_is(&hub->reqs[i], MOQNS_T_PUBLISH_NAMESPACE))
+    moqtrun_disc_retire(hub, sub, i);
 }
 
 static void moqtrun_disc_sync_sub(wired_moqt_hub* hub, wired_moqtrun_req* sub) {

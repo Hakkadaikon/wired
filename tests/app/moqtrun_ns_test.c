@@ -221,17 +221,39 @@ static void test_moqtrun_ns_prefix_overlap(void) {
   CHECK(mtns_is(SESS_A, MTRQ_S1, "OK|"));
 }
 
-/* A namespace already published (by any session) is refused UNINTERESTED
- * until its holder withdraws it. */
+/* A session publishing a namespace it already publishes is refused
+ * UNINTERESTED; once withdrawn it may publish it again. */
 static void test_moqtrun_ns_duplicate_refused(void) {
   mtns_init();
   mtns_pub(SESS_A, MTRQ_S1, "chat/room1");
-  mtns_pub(SESS_B, MTRQ_S1, "chat/room1");
-  CHECK(mtns_is(SESS_B, MTRQ_S1, "ERR:20|"));
-  CHECK(mtrq_fin_on(MTRQ_S1) == 1);
+  mtns_pub(SESS_A, MTRQ_S2, "chat/room1");
+  CHECK(mtns_is(SESS_A, MTRQ_S2, "ERR:20|"));
+  CHECK(mtrq_fin_on(MTRQ_S2) == 1);
   wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MTRQ_S1, 0, 0);
-  mtns_pub(SESS_B, MTRQ_S2, "chat/room1");
-  CHECK(mtns_is(SESS_B, MTRQ_S2, "OK|"));
+  mtns_pub(SESS_A, MTRQ_ID(5), "chat/room1");
+  CHECK(mtns_is(SESS_A, MTRQ_ID(5), "OK|"));
+}
+
+/* 9.3 / 3.6: several sessions may publish one namespace (a client
+ * migrating after GOAWAY republishes before its old session ends). A
+ * subscriber is told of it once; NAMESPACE_DONE follows only when the
+ * last publisher withdraws, whichever order they leave in. */
+static void test_moqtrun_ns_multiple_publishers(void) {
+  mtns_init();
+  mtst_join(SESS_C);
+  mtns_pub(SESS_A, MTRQ_S1, "chat/room1");
+  mtns_sub(SESS_B, MTRQ_S1, "chat");
+  mtns_pub(SESS_C, MTRQ_S1, "chat/room1");
+  CHECK(mtns_is(SESS_C, MTRQ_S1, "OK|"));
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|"));
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|"));
+  mtst_join(SESS_A); /* the same client, a new session */
+  mtns_pub(SESS_A, MTRQ_S1, "chat/room1");
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MTRQ_S1, 0, 0);
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|"));
+  wired_moqt_on_session_close(&mtst_hub, SESS_C);
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|DONE:room1|"));
 }
 
 /* A namespace past WIRED_MOQTRUN_MAX_NS encoded bytes is refused, never
@@ -298,6 +320,7 @@ void test_moqtrun_ns(void) {
   test_moqtrun_ns_own_echoed();
   test_moqtrun_ns_prefix_overlap();
   test_moqtrun_ns_duplicate_refused();
+  test_moqtrun_ns_multiple_publishers();
   test_moqtrun_ns_oversized_refused();
   test_moqtrun_ns_per_session_cap();
   test_moqtrun_ns_backpressure();
