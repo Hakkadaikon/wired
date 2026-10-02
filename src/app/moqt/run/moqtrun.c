@@ -931,6 +931,8 @@ static void moqtrun_sub_open(
   s->track_alias = alias;
   s->active      = 1;
   s->request_id  = m->request_id;
+  s->jl          = t->largest;
+  s->has_jl      = (u8)t->has_largest;
   moqtrun_sub_scalars(s, m);
   moqtrun_sub_filter(s, t, moqtrun_sub_param(m, MOQCTL_PARAM_LOCATION_FILTER));
 }
@@ -1391,14 +1393,101 @@ static void moqtrun_fetch_standalone(
   moqtrun_fetch_accept(hub, p, m->request_id, &r);
 }
 
+static int moqtrun_sub_has_rid(const wired_moqtrun_sub* s, usz idx, u64 rid) {
+  return moqtrun_sub_is_peer(s, idx) && s->request_id == rid;
+}
+
+static wired_moqtrun_sub* moqtrun_track_sub_by_rid(
+    wired_moqtrun_track* t, usz idx, u64 rid) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
+    if (moqtrun_sub_has_rid(&t->subs[i], idx, rid)) return &t->subs[i];
+  return 0;
+}
+
+/* t's subscription for (idx, rid) while t is published, else 0. */
+static wired_moqtrun_sub* moqtrun_live_track_sub_by_rid(
+    wired_moqtrun_track* t, usz idx, u64 rid) {
+  return t->in_use ? moqtrun_track_sub_by_rid(t, idx, rid) : 0;
+}
+
+static wired_moqtrun_sub* moqtrun_peer_sub_by_rid(
+    wired_moqtrun_peer* q, usz idx, u64 rid, wired_moqtrun_track** t) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; i++) {
+    *t                   = &q->tracks[i];
+    wired_moqtrun_sub* s = moqtrun_live_track_sub_by_rid(*t, idx, rid);
+    if (s) return s;
+  }
+  return 0;
+}
+
+static wired_moqtrun_sub* moqtrun_live_peer_sub_by_rid(
+    wired_moqtrun_peer* q, usz idx, u64 rid, wired_moqtrun_track** t) {
+  return q->in_use ? moqtrun_peer_sub_by_rid(q, idx, rid, t) : 0;
+}
+
+/* Peer idx's subscription with Request ID rid on a peer track (*t). */
+static wired_moqtrun_sub* moqtrun_sub_by_rid(
+    wired_moqt_hub* hub, usz idx, u64 rid, wired_moqtrun_track** t) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    wired_moqtrun_sub* s =
+        moqtrun_live_peer_sub_by_rid(&hub->peers[i], idx, rid, t);
+    if (s) return s;
+  }
+  return 0;
+}
+
+/* 10.12.2.1 Start group: Joining Location.Group - Joining Start (never
+ * below 0) for a Relative, Joining Start itself for an Absolute Joining
+ * Fetch. */
+static u64 moqtrun_join_group(const moqfetch_fetch* m, moqctl_loc jl) {
+  if (m->fetch_type == MOQFETCH_ABSOLUTE_JOINING) return m->joining_start;
+  return jl.group - u64_min(m->joining_start, jl.group);
+}
+
+/* 10.12.2 INVALID_RANGE: no Joining Location (nothing was published at
+ * SUBSCRIBE_OK), Forward State 0, or a Start past the Joining Location. */
+static int moqtrun_join_bad(const wired_moqtrun_sub* s, u64 group) {
+  return !s->has_jl || s->forward_off || group > s->jl.group;
+}
+
+/* 10.12.2 Joining Fetch: ends at the subscription's Joining Location so
+ * FETCH and SUBSCRIBE meet with no gap or overlap. */
+static void moqtrun_fetch_joining(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    usz                   peer_idx,
+    const moqfetch_fetch* m) {
+  wired_moqtrun_track* t = 0;
+  wired_moqtrun_sub*   s =
+      moqtrun_sub_by_rid(hub, peer_idx, m->joining_request_id, &t);
+  moqtrun_frange r;
+  if (!s) {
+    moqtrun_send_request_error(p, MOQFETCH_ERR_INVALID_JOINING_REQUEST_ID);
+    return;
+  }
+  u64 group = moqtrun_join_group(m, s->jl);
+  if (moqtrun_join_bad(s, group)) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_INVALID_RANGE);
+    return;
+  }
+  r.tag    = t->cache_tag;
+  r.start  = moqtrun_loc(group, 0);
+  r.end    = moqtrun_after(s->jl);
+  r.ok_end = r.end;
+  moqtrun_fetch_accept(hub, p, m->request_id, &r);
+}
+
 /* draft 10.12 FETCH. ponytail: groups always go in ascending order
  * (GROUP_ORDER is not consulted, 10.2.8). */
 static void moqtrun_handle_fetch(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   moqfetch_fetch m;
-  (void)peer_idx;
   if (moqfetch_fetch_take(body, &m) != MOQCTL_OK) return;
-  moqtrun_fetch_standalone(hub, p, &m);
+  if (m.fetch_type == MOQFETCH_STANDALONE) {
+    moqtrun_fetch_standalone(hub, p, &m);
+    return;
+  }
+  moqtrun_fetch_joining(hub, p, peer_idx, &m);
 }
 
 /* A closed session's fetches end: nothing more is sent for them. */
