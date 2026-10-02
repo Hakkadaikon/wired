@@ -1,0 +1,9 @@
+$ ./wt-session-lifecycle --port 4433
+session open
+drain sent
+close sent
+session closed, state released
+conn closed by peer (CONNECTION_CLOSE)
+$ go run . https://127.0.0.1:4433
+session open
+closed by server: code 4001, reason "demo done"
