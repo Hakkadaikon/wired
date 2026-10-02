@@ -1,0 +1,56 @@
+---
+title: Browser requirements
+description: What a browser checks before it opens a WebTransport session to a wired server, and which page shows each part.
+sidebar:
+  order: 3
+---
+
+A browser opens a WebTransport session only over HTTP/3 with a certificate
+it trusts, and it tells the server which page asked. wired serves
+WebTransport over HTTP/3 (QUIC over UDP) only, so the browser, the network
+and the certificate all have to allow that.
+
+## The certificate
+
+A browser accepts the server's certificate in one of two ways:
+
+- **A CA-issued certificate** for the server's DNS name, as for any HTTPS
+  site. wired sends such a chain when the app passes it as `id.chain`.
+- **A pinned self-signed certificate**: the page passes the certificate's
+  SHA-256 hash in `serverCertificateHashes` when it creates the
+  `WebTransport` object. The W3C WebTransport spec accepts such a
+  certificate only when its validity period is at most 14 days and its key
+  is ECDSA P-256 (secp256r1).
+
+The self-signed certificate wired builds meets both conditions. It is ECDSA
+P-256 (`id.cert_seed` is the signing scalar), and when `id.now_secs` is set
+its validity runs from `now_secs` to `now_secs` + 14 days. A page that
+dials an IP literal also needs that address in the certificate's SAN
+(`id.san_ipv4`). [What a browser needs](../../wt/browser/) builds such a
+certificate and prints the hash a page would pin.
+
+The hash changes whenever the certificate changes, so the page must fetch
+the current hash from the server rather than embed it, and the server must
+replace its certificate before the 14 days run out.
+[Certificate hot reload](../../ops/cert-reload/) replaces it without a
+restart.
+
+## The Origin header
+
+Every WebTransport request from a browser carries the page's Origin. wired
+answers `403` to a request whose Origin header is present but empty; any
+other Origin is accepted unless the app registers `wt_origin_check`.
+[Checking the Origin header](../../wt/origin/) allows one Origin and
+refuses the rest. A server reachable from the internet should do the same,
+because any page on any site can try to open a session to it.
+
+## Browser and network support
+
+- The browser must implement the WebTransport API over HTTP/3. Check the
+  browsers you target before relying on it.
+- The network must let UDP through to the server's port. QUIC runs over UDP
+  only, and wired has no TCP fallback, so a network that blocks UDP blocks
+  the session.
+- The page itself must run in a secure context (served over HTTPS, or from
+  `localhost` during development); the WebTransport API is not available to
+  other plain-HTTP pages.
