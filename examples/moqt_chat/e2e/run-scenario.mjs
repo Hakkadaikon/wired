@@ -38,7 +38,12 @@ mkdirSync(evidenceDir, { recursive: true });
 // other evidence. Off by default: the extra write per packet costs a
 // little and most scenarios only need the shutdown stats line.
 const serverCc = arg("server-cc", "");
+// --server-port=N moves the hub off 4433 (a stray hub you cannot stop may
+// hold it: SO_REUSEPORT lets both bind and steals packets); scenarios that
+// read `serverUrl` follow it.
+const serverPort = arg("server-port", "");
 const serverArgs = [
+  ...(serverPort !== "" ? ["--port", serverPort] : []),
   ...(arg("server-qlog", "") !== ""
     ? ["--qlog", path.join(evidenceDir, "server.qlog")]
     : []),
@@ -60,6 +65,9 @@ const server = await startServer({
   logPath: path.join(evidenceDir, "server.log"),
   args: serverArgs,
   wrap: serverWrap,
+  // A scenario may need the hub configured through its environment (e.g.
+  // WIRED_ALLOWED_ORIGINS); it exports serverEnv for that.
+  env: mod.serverEnv,
 });
 
 const { executablePath, env } = resolveChromeLaunch();
@@ -79,6 +87,7 @@ try {
   outcome = await mod.run({
     browser,
     pageUrl: arg("url", "http://localhost:8093/"),
+    serverUrl: `https://localhost:${serverPort || 4433}/`,
     server,
     arg,
     log: (msg) => console.error(`[${scenarioId}] ${msg}`),

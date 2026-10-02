@@ -11,10 +11,11 @@ import { appendFileSync } from "node:fs";
 const FINGERPRINT_RE = /cert sha-256 fingerprint: ([0-9A-Fa-f:]+)/;
 const FINGERPRINT_TIMEOUT_MS = 5000;
 
-function launch(binPath, args, logPath, wrap) {
+function launch(binPath, args, logPath, wrap, env) {
   const argv = [...(wrap ?? []), binPath, ...args];
   const proc = spawn(argv[0], argv.slice(1), {
     stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, ...env },
   });
   let buffered = "";
   let notify = () => {};
@@ -58,6 +59,7 @@ function waitExit(proc) {
  * @param {string} opts.binPath   path to wired_server
  * @param {string} opts.logPath   file to append all server output to
  * @param {string[]} [opts.args]  extra argv for the server
+ * @param {object} [opts.env]  extra environment for the server
  * @param {string[]} [opts.wrap]  argv prefix the server is launched through
  *   (e.g. ["systemd-run","--user","--scope","-q","-p","CPUQuota=2%"] for a
  *   resource-starvation experiment). Caveat: such wrappers do NOT forward
@@ -66,8 +68,8 @@ function waitExit(proc) {
  *   name via pkill instead -- fine here because run-stability.sh already
  *   guarantees this scenario's server is the only wired_server running.
  */
-export async function startServer({ binPath, logPath, args = [], wrap }) {
-  let current = launch(binPath, args, logPath, wrap);
+export async function startServer({ binPath, logPath, args = [], wrap, env }) {
+  let current = launch(binPath, args, logPath, wrap, env);
   let certHash = await current.certHash;
   const killServer = (signal) => {
     if (!wrap) {
@@ -96,7 +98,7 @@ export async function startServer({ binPath, logPath, args = [], wrap }) {
     },
     async restart(signal = "SIGKILL") {
       await this.stop(signal);
-      current = launch(binPath, args, logPath, wrap);
+      current = launch(binPath, args, logPath, wrap, env);
       certHash = await current.certHash;
       return certHash;
     },
