@@ -1,0 +1,16 @@
+$ ./moqt-discovery --port 4433
+conn closed by peer (CONNECTION_CLOSE)
+conn closed by peer (CONNECTION_CLOSE)
+conn closed by peer (CONNECTION_CLOSE)
+conn closed by peer (CONNECTION_CLOSE)
+$ go run . https://127.0.0.1:4433
+lobby: PUBLISH_NAMESPACE guide/lobby -> REQUEST_OK
+watcher: SUBSCRIBE_NAMESPACE guide -> REQUEST_OK
+watcher: NAMESPACE lobby
+room-a: PUBLISH_NAMESPACE guide/room-a -> REQUEST_OK
+watcher: NAMESPACE room-a
+room-b: PUBLISH_NAMESPACE guide/room-b -> REQUEST_OK
+watcher: NAMESPACE room-b
+room-b: PUBLISH_NAMESPACE guide/secret -> REQUEST_ERROR error_code=1
+room-a: session closed
+watcher: NAMESPACE_DONE room-a
