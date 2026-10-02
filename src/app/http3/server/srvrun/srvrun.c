@@ -1892,6 +1892,9 @@ static int srvrun_rst_fits(usz pln) {
 
 static void srvrun_rst_keep(srvrun_conn* c, const u8* pl, usz pln) {
   srvrun_rst* e = srvrun_rst_free(c);
+  /* ponytail: a full table or an oversize payload is sent once but not kept,
+   * so a lost packet is not retransmitted (RFC 9000 13.3); grow the table or
+   * the payload size if this is ever seen. */
   if (!e || !srvrun_rst_fits(pln)) return;
   bytes_memcpy(e->pl, pl, pln);
   e->pln    = (u8)pln;
