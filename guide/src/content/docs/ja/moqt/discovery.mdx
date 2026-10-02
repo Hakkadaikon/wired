@@ -1,0 +1,35 @@
+---
+title: 名前空間の発見
+description: SUBSCRIBE_NAMESPACE で名前空間のプレフィックスを監視し、パブリッシャーによる名前空間の公開と取り下げをその場で受け取る。
+sidebar:
+  order: 7
+---
+import Example from '../../../../components/Example.astro';
+
+購読者は、トラック名を前もって知っている必要はありません。
+名前空間のプレフィックスを監視すれば、その下にどの名前空間があるかを、パブリッシャーの出入りに合わせてハブが知らせます。
+このページでは、プレフィックス `guide` を監視する 1 つのウォッチャーと、4 つの名前空間の公開を動かします。
+公開のうち 1 つはウォッチャーより前、2 つは後に行われ、残る 1 つはサーバーのポリシーが拒否します。
+最後に、パブリッシャーの 1 つが退出します。
+
+<Example id="moqt-discovery" />
+
+## 仕組み
+
+- 各リクエストは、クライアントが開いた新しい双方向ストリームで送られます（draft-ietf-moq-transport-19 3.3）。
+  ハブは `stream_reply_open` を通じて同じストリームで応答します。
+  名前空間の 2 種類のリクエストは、応答の後も、ストリームがリセットされるか（3.3.3）セッションが終わるまで有効です。
+- PUBLISH_NAMESPACE（10.15）は、Track Namespace（`guide/lobby`、`guide/room-a` など）を公開し、ハブは REQUEST_OK で応答します。
+- SUBSCRIBE_NAMESPACE（10.18）は、Track Namespace Prefix を指定します。
+  REQUEST_OK の後、ハブはプレフィックスの下で公開済みの名前空間ごとに NAMESPACE（10.16）を 1 つ送ります（初期集合で、ここでは `lobby`）。
+  その後も、一致する名前空間が公開されるたびに NAMESPACE を送ります。
+  どの NAMESPACE も、プレフィックスより後ろのフィールドであるサフィックスだけを運びます。
+- `hub.authorize_namespace` は、すべての PUBLISH_NAMESPACE と SUBSCRIBE_NAMESPACE を、名前空間と提示された AUTHORIZATION TOKEN とともに受け取ります（どちらのメッセージかは `msg_type` でわかります）。
+  このサンプルは、最後のフィールドが `secret` の名前空間を拒否します。
+  パブリッシャーには REQUEST_ERROR UNAUTHORIZED（1）が返り、ウォッチャーにはその名前空間が知らされません。
+- room-a がセッションを閉じると、`wired_moqt_on_session_close` がそのセッションの公開した名前空間をすべて取り下げます。
+  ハブは、その名前空間を知らせていたウォッチャーそれぞれに NAMESPACE_DONE（10.17）を送ります。
+- クライアントは、ハブを待つために sleep しません。
+  各パブリッシャーは自分への REQUEST_OK を待ち、ウォッチャーはハブが送ってくる NAMESPACE または NAMESPACE_DONE を読みます。
+  そのため、各段階の順序はワイヤ上のメッセージで決まります。
+  トランスポートが拒否した送信は、`on_step` から呼ぶハブのティック（`wired_moqt_tick`）が再試行します。
