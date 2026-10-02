@@ -17831,6 +17831,8 @@ static void test_srvrun_wt_bidi_peer_reset_owes_credit(void) {
   wt_reset_bidi_session(c);
   CHECK(c->l.wt_streams[0].in_use == 0);
   CHECK(c->wt_bidi_credit_owed == 1);
+  /* a late signal frame (RESET overtook data) must not reopen it */
+  CHECK(wired_srvloop_wt_slot_claim(&c->l, 4) < 0);
 }
 
 /* draft-ietf-webtrans-http3-15 4.6: a stream offered to a session whose
@@ -17855,6 +17857,8 @@ static void test_srvrun_wt_offer_reject_returns_credit(void) {
   srvrun_offer_wt_uni_streams(&cfg, c);
   srvrun_grant_wt_streams(&ctx, c);
   CHECK(!c->l.wt_streams[0].in_use && !c->l.wt_uni_streams[0].in_use);
+  CHECK(wired_srvloop_wt_slot_claim(&c->l, 4) < 0);
+  CHECK(wired_srvloop_wt_uni_slot_claim(&c->l, 2) < 0);
   CHECK(c->stream_limit_advertised == base + 1);
   CHECK(c->uni_stream_limit_advertised == wired_srvloop_uni_stream_limit() + 1);
 }
@@ -17876,6 +17880,8 @@ static void test_srvrun_wt_teardown_returns_credit(void) {
   c->l.wt_uni_streams[0].wt_session_slot = 0;
   srvrun_reset_wt_bidi_if_owned(&cfg, c, &c->l.wt_streams[0], 0, 0);
   srvrun_reset_wt_uni_if_owned(&cfg, c, &c->l.wt_uni_streams[0], 0, 0);
+  CHECK(wired_srvloop_wt_slot_claim(&c->l, 4) < 0);
+  CHECK(wired_srvloop_wt_uni_slot_claim(&c->l, 2) < 0);
   srvrun_grant_wt_streams(&ctx, c);
   CHECK(c->stream_limit_advertised == base + 1);
   CHECK(c->uni_stream_limit_advertised == wired_srvloop_uni_stream_limit() + 1);
@@ -17894,6 +17900,7 @@ static void test_srvrun_wt_uni_peer_reset_returns_credit(void) {
   c->l.wt_uni_streams[0].stream_id = 2;
   c->l.wt_reset_stream_id          = 2;
   wt_reset_uni_session(c);
+  CHECK(wired_srvloop_wt_uni_slot_claim(&c->l, 2) < 0); /* stays closed */
   srvrun_grant_wt_streams(&ctx, c);
   CHECK(c->l.wt_uni_streams[0].in_use == 0);
   CHECK(c->uni_stream_limit_advertised == wired_srvloop_uni_stream_limit() + 1);

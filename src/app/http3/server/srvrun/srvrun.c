@@ -2055,16 +2055,17 @@ static int srvrun_wt_slot_for_new_stream(const srvrun_conn* c) {
  * low bit clear) -- a server-opened stream never consumed it. */
 static void srvrun_wt_bidi_slot_free(
     srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
-  slot->in_use = 0;
   c->wt_bidi_credit_owed += !(slot->stream_id & 1);
+  /* records the id as closed, so a late frame cannot reopen it */
+  wired_srvloop_wt_slot_release(&c->l, slot->stream_id);
 }
 
 /* srvrun_wt_bidi_slot_free's uni twin: free an ended client WT uni stream's
  * slot and owe the peer one stream of uni credit back (RFC 9000 4.6). */
 static void srvrun_wt_uni_slot_free(
     srvrun_conn* c, wired_srvloop_wt_uni_stream_slot* slot) {
-  slot->in_use = 0;
   c->wt_uni_credit_owed++;
+  wired_srvloop_wt_uni_slot_release(&c->l, slot->stream_id);
 }
 
 /* draft-ietf-webtrans-http3-15 4.3/8.2: a buffered-stream-capacity rejection
