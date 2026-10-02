@@ -1014,3 +1014,104 @@ export function decodeSubgroupObject(
   return { object: { objectId, properties, payload, objectStatus }, len: pos - offset };
 }
 
+// ---------------------------------------------------------------------
+// draft-ietf-moq-transport-19 11.4.4: FETCH data stream (FETCH_HEADER +
+// fetch Objects)
+// ---------------------------------------------------------------------
+
+export function decodeFetchHeader(bytes: Uint8Array, offset = 0): { requestId: bigint; len: number } {
+  const type = decodeVarint(bytes, offset);
+  if (type.value !== STREAM_TYPE_FETCH_HEADER) fail("not a FETCH_HEADER stream");
+  const rid = decodeVarint(bytes, offset + type.len);
+  return { requestId: rid.value, len: type.len + rid.len };
+}
+
+/** What a later fetch Object may inherit from the ones before it
+ * (11.4.4.1). An End of Range sets group/object but not subgroup/priority. */
+export interface FetchSeq {
+  group?: bigint;
+  object?: bigint;
+  subgroup?: bigint;
+  priority?: number;
+}
+
+export const newFetchSeq = (): FetchSeq => ({});
+
+export interface FetchObject {
+  group: bigint;
+  object: bigint;
+  priority?: number;
+  payload: Uint8Array;
+  /** Set on an End of Range marker (11.4.4.2) instead of an Object. */
+  endOfRange?: "non_existent" | "unknown";
+}
+
+const FETCH_GROUP = 0x08n;
+const FETCH_OBJECT = 0x04n;
+const FETCH_PRIORITY = 0x10n;
+const FETCH_PROPERTIES = 0x20n;
+const FETCH_DATAGRAM = 0x40n;
+const FETCH_EOR_NONE = 0x8cn;
+const FETCH_EOR_UNKNOWN = 0x10cn;
+
+function inherited<T>(v: T | undefined, what: string): T {
+  if (v === undefined) fail(`PROTOCOL_VIOLATION: fetch Object references a prior ${what}`);
+  return v;
+}
+
+/** Decode one fetch Object (or End of Range) at `offset`, updating `seq`
+ * only on success. Throws MoqtDecodeError when the bytes run out mid-item
+ * (a stream reader waits for more) or on a PROTOCOL_VIOLATION. Groups are
+ * taken as ascending (the hub's only order). An End of Range carries the
+ * range end's absolute Group and Object, like a first Object. */
+export function decodeFetchObject(
+  bytes: Uint8Array,
+  offset: number,
+  seq: FetchSeq,
+): { object: FetchObject; len: number } {
+  const flags = decodeVarint(bytes, offset);
+  let pos = offset + flags.len;
+  const take = () => {
+    const v = decodeVarint(bytes, pos);
+    pos += v.len;
+    return v.value;
+  };
+  const f = flags.value;
+  if (f === FETCH_EOR_NONE || f === FETCH_EOR_UNKNOWN) {
+    const group = take();
+    const object = take();
+    Object.assign(seq, { group, object });
+    const endOfRange = f === FETCH_EOR_NONE ? "non_existent" : "unknown";
+    return { object: { group, object, payload: new Uint8Array(0), endOfRange }, len: pos - offset };
+  }
+  if (f >= 128n) fail(`PROTOCOL_VIOLATION: fetch Serialization Flags 0x${f.toString(16)}`);
+  const newGroup = (f & FETCH_GROUP) !== 0n;
+  let group: bigint;
+  if (!newGroup) group = inherited(seq.group, "Group");
+  else if (seq.group === undefined) group = take();
+  else group = seq.group + take() + 1n;
+  let subgroup: bigint | undefined;
+  if ((f & FETCH_DATAGRAM) === 0n) {
+    const mode = f & 0x03n;
+    if (mode === 0n) subgroup = 0n;
+    else if (mode === 3n) subgroup = take();
+    else subgroup = inherited(seq.subgroup, "Subgroup") + (mode - 1n);
+  }
+  let object: bigint;
+  if ((f & FETCH_OBJECT) === 0n) object = inherited(seq.object, "Object") + 1n;
+  else if (newGroup || seq.object === undefined) object = take();
+  else object = seq.object + take();
+  let priority: number;
+  if ((f & FETCH_PRIORITY) === 0n) priority = inherited(seq.priority, "Priority");
+  else {
+    if (pos >= bytes.length) fail("truncated fetch Object: no Publisher Priority");
+    priority = bytes[pos++];
+  }
+  if ((f & FETCH_PROPERTIES) !== 0n) pos += Number(take());
+  const payloadLen = Number(take());
+  if (pos + payloadLen > bytes.length) fail("truncated fetch Object payload");
+  const payload = bytes.slice(pos, pos + payloadLen);
+  pos += payloadLen;
+  Object.assign(seq, { group, object, subgroup, priority });
+  return { object: { group, object, priority, payload }, len: pos - offset };
+}

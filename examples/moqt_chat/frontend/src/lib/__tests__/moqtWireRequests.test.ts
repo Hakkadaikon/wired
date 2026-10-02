@@ -9,6 +9,8 @@ import {
   bytesToHex,
   bytesToUtf8,
   decodeControlFrame,
+  decodeFetchHeader,
+  decodeFetchObject,
   decodeFetchOk,
   decodeNamespaceSuffix,
   decodeRequestOk,
@@ -20,6 +22,7 @@ import {
   hexToBytes,
   largestObjectOf,
   MoqtDecodeError,
+  newFetchSeq,
   utf8ToBytes,
 } from "../moqtWire";
 
@@ -117,5 +120,67 @@ describe("namespace discovery (10.15-10.18)", () => {
     for (const name of ["namespace_basic", "namespace_done_basic"]) {
       expect(decodeNamespaceSuffix(body(name)).map(bytesToUtf8)).toEqual(["room1"]);
     }
+  });
+});
+
+interface FetchVector {
+  kind: string;
+  name: string;
+  hex: string;
+  request_id: string;
+  objects: { flags: string; group_id: string; object_id: string; end_of_range?: string; payload_hex?: string; publisher_priority?: string }[];
+}
+
+describe("FETCH data stream (11.4.4)", () => {
+  const vectors = (golden.data as FetchVector[]).filter((v) => v.kind === "fetch_stream");
+
+  it("covers the golden fetch streams", () => {
+    expect(vectors.map((v) => v.name)).toEqual(["fetch_stream_basic", "fetch_stream_end_of_range"]);
+  });
+
+  for (const v of vectors) {
+    it(`decode ${v.name}`, () => {
+      const bytes = hexToBytes(v.hex);
+      const head = decodeFetchHeader(bytes);
+      expect(head.requestId).toBe(BigInt(v.request_id));
+      const seq = newFetchSeq();
+      let pos = head.len;
+      for (const want of v.objects) {
+        const { object, len } = decodeFetchObject(bytes, pos, seq);
+        expect(object.group).toBe(BigInt(want.group_id));
+        expect(object.object).toBe(BigInt(want.object_id));
+        expect(object.endOfRange).toBe(want.end_of_range);
+        if (want.payload_hex !== undefined) expect(bytesToHex(object.payload)).toBe(want.payload_hex);
+        if (want.publisher_priority !== undefined) expect(object.priority).toBe(Number(want.publisher_priority));
+        pos += len;
+      }
+      expect(pos).toBe(bytes.length);
+    });
+  }
+
+  it("a truncated Object throws so the reader waits for more bytes", () => {
+    const bytes = hexToBytes("1c050080026869"); // payload says 2 bytes, both present
+    expect(() => decodeFetchObject(bytes.slice(0, 6), 0, newFetchSeq())).toThrow(MoqtDecodeError);
+    expect(decodeFetchObject(bytes, 0, newFetchSeq()).len).toBe(7);
+  });
+
+  it("rejects a first Object that references a prior one", () => {
+    // flags 0x01: prior Subgroup, no Group/Object delta -- nothing precedes it.
+    expect(() => decodeFetchObject(hexToBytes("010178"), 0, newFetchSeq())).toThrow(MoqtDecodeError);
+  });
+
+  it("rejects Serialization Flags >= 128 other than End of Range", () => {
+    expect(() => decodeFetchObject(hexToBytes("808000"), 0, newFetchSeq())).toThrow(MoqtDecodeError);
+  });
+
+  it("a later group's Group ID Delta is relative (prior + delta + 1), its Object ID absolute", () => {
+    // first: G5/O0 "a"; then flags 0x0c: G = 5+0+1 = 6, O = 2 (absolute), prior prio.
+    const bytes = hexToBytes("1c05008001610c00020162");
+    const seq = newFetchSeq();
+    const a = decodeFetchObject(bytes, 0, seq);
+    const b = decodeFetchObject(bytes, a.len, seq);
+    expect([b.object.group, b.object.object]).toEqual([6n, 2n]);
+    expect(b.object.priority).toBe(0x80);
+    expect(bytesToUtf8(b.object.payload)).toBe("b");
   });
 });
