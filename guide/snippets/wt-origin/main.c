@@ -11,11 +11,10 @@ static int span_is(wired_span s, const char* lit) {
 }
 
 /* draft-ietf-webtrans-http3-15 SS3.1 / RFC 6454: an explicit allow-list.
- * A CONNECT with no Origin header at all arrives here as the same empty
- * span as one with an explicitly empty Origin header -- the draft's own
- * wording does not distinguish "absent" from "present but empty", and
- * neither does this callback's wired_span, so an allow-list that never
- * special-cases "" rejects both alike. */
+ * A CONNECT with no Origin header at all arrives here as an empty span --
+ * the SDK itself (srvrun.c's wt_origin_ok) already answers 403 for a
+ * present-but-empty Origin header before this callback ever runs, so an
+ * empty span here always means "absent", never "present but empty". */
 static int allowed_origin(void* ctx, wired_span origin, wired_span authority) {
   (void)ctx;
   (void)authority;
