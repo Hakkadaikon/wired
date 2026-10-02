@@ -8,6 +8,7 @@
 // budget (srvrun.c's wt_uni_opened / peer's MAX_STREAMS(uni)) and together
 // exhaust it well before either alone would.
 
+import { E2E_PORT } from "../lib/args.mjs";
 import { startUdpProxy } from "../lib/udpProxy.mjs";
 import { summarizeVoiceTrace } from "../lib/voiceMetrics.mjs";
 import { evaluateVoiceGates } from "../lib/voiceGates.mjs";
@@ -19,7 +20,7 @@ import {
 } from "../lib/stabilityClient.mjs";
 
 const PROXY_BASE = 24433;
-const SERVER_PORT = 4433;
+const SERVER_PORT = E2E_PORT;
 const TAGS = ["user1", "user2", "user3", "user4"];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

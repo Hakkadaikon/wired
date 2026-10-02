@@ -17,6 +17,8 @@
 import { summarizeDelivery } from "./metrics.mjs";
 
 const JOIN_TIMEOUT_MS = 20000;
+import { setServerUrl } from "./args.mjs";
+
 export const CANDIDATE_PARTICIPANT_IDS = ["user1", "user2", "user3", "user4"];
 export const MAX_CLIENTS = CANDIDATE_PARTICIPANT_IDS.length;
 
@@ -36,6 +38,7 @@ async function joinClient(browser, pageUrl, certHash, participantId) {
   const nsOffUrl = new URL(pageUrl);
   nsOffUrl.searchParams.set("ns", "0");
   await page.goto(nsOffUrl.href);
+  await setServerUrl(page);
   await page.type('input[data-testid="certHash"]', certHash);
   await page.click(`[data-testid="participant-${participantId}"]`);
   await page.click('[data-testid="connect"]');

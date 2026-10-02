@@ -9,20 +9,10 @@ cd "$(dirname "$0")/.."   # examples/moqt_chat/
 SCENARIO="${1:?usage: run-stability.sh <scenario-id> [--args...]}"
 shift
 
-# Stale servers keep 4433/udp via SO_REUSEPORT and silently steal packets
-# from the scenario's own server -- sweep them first. Crash scenarios also
-# strand headless-Chrome children (SIGKILL on the browser process orphans
-# them) whose pile-up eventually fails every new launch; sweep only
-# puppeteer-launched chromes (matched by their temp profile path), never a
-# user's own browser.
-pgrep -x wired_server >/dev/null 2>&1 && { pkill -x wired_server; sleep 0.5; } || true
-pkill -f puppeteer_dev_chrome_profile 2>/dev/null || true
-for d in /tmp/puppeteer_dev_chrome_profile-*; do
-  # A just-killed chrome can still be writing into its profile dir, making
-  # rm -rf race ENOTEMPTY -- under set -e that aborted the whole run before
-  # it started. Best-effort cleanup only.
-  [ -e "$d" ] && rm -rf "$d" 2>/dev/null || true
-done
+# No sweep of other processes: run-scenario.mjs starts and stops only its
+# own hub (by PID), on WIRED_E2E_PORT (default 4433). Another hub already
+# on that port would share it through SO_REUSEPORT and steal packets, so
+# pick a free port when one is running here (WIRED_E2E_PORT=14833 ...).
 
 FRONTEND_PORT=8093   # distinct from run.sh (8091) / run-voice.sh (8092)
 trap 'kill "${FRONTEND_PID:-0}" 2>/dev/null || true' EXIT

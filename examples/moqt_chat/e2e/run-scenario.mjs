@@ -11,7 +11,7 @@ import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import puppeteer from "puppeteer-core";
 import { resolveChromeLaunch } from "./lib/chromeLaunch.mjs";
 import { startServer } from "./lib/serverControl.mjs";
-import { arg } from "./lib/args.mjs";
+import { arg, E2E_PORT } from "./lib/args.mjs";
 
 const e2eDir = path.dirname(new URL(import.meta.url).pathname);
 const scenariosDir = path.join(e2eDir, "scenarios");
@@ -38,12 +38,12 @@ mkdirSync(evidenceDir, { recursive: true });
 // other evidence. Off by default: the extra write per packet costs a
 // little and most scenarios only need the shutdown stats line.
 const serverCc = arg("server-cc", "");
-// --server-port=N moves the hub off 4433 (a stray hub you cannot stop may
-// hold it: SO_REUSEPORT lets both bind and steals packets); scenarios that
-// read `serverUrl` follow it.
-const serverPort = arg("server-port", "");
+// --server-port=N (default WIRED_E2E_PORT, else 4433) is the hub's port;
+// scenarios read `serverUrl` / `serverPort`.
+const serverPort = arg("server-port", String(E2E_PORT));
 const serverArgs = [
-  ...(serverPort !== "" ? ["--port", serverPort] : []),
+  "--port",
+  serverPort,
   ...(arg("server-qlog", "") !== ""
     ? ["--qlog", path.join(evidenceDir, "server.qlog")]
     : []),
@@ -87,7 +87,8 @@ try {
   outcome = await mod.run({
     browser,
     pageUrl: arg("url", "http://localhost:8093/"),
-    serverUrl: `https://localhost:${serverPort || 4433}/`,
+    serverUrl: `https://localhost:${serverPort}/`,
+    serverPort: Number(serverPort),
     server,
     arg,
     log: (msg) => console.error(`[${scenarioId}] ${msg}`),

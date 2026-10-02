@@ -65,8 +65,8 @@ function waitExit(proc) {
  *   resource-starvation experiment). Caveat: such wrappers do NOT forward
  *   signals to the wrapped server (confirmed live: SIGTERM to systemd-run
  *   --scope orphaned its child), so stop()/restart() kill the server by
- *   name via pkill instead -- fine here because run-stability.sh already
- *   guarantees this scenario's server is the only wired_server running.
+ *   as the wrapper's own child (pkill -P), never by name -- another hub on
+ *   this host must not be touched.
  */
 export async function startServer({ binPath, logPath, args = [], wrap, env }) {
   let current = launch(binPath, args, logPath, wrap, env);
@@ -78,7 +78,7 @@ export async function startServer({ binPath, logPath, args = [], wrap, env }) {
     }
     const flag = signal === "SIGKILL" ? "-KILL" : "-TERM";
     try {
-      execSync(`pkill ${flag} -x wired_server`);
+      execSync(`pkill ${flag} -P ${current.proc.pid} -x wired_server`);
     } catch {
       /* no process left to kill */
     }

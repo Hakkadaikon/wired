@@ -23,6 +23,7 @@
 // so the 4-client shape only shows the hub's counters, while 2 clients
 // leave enough CPU for the gates to mean "the share held up over time".
 
+import { E2E_PORT } from "../lib/args.mjs";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { startUdpProxy } from "../lib/udpProxy.mjs";
@@ -32,7 +33,7 @@ import { FAKE_DISPLAY_MEDIA_SCRIPT } from "../lib/screenShareFake.mjs";
 import { joinStabilityClient, clientMetrics, closeClient } from "../lib/stabilityClient.mjs";
 
 const PROXY_BASE = 24433;
-const SERVER_PORT = 4433;
+const SERVER_PORT = E2E_PORT;
 const ALL_TAGS = ["user1", "user2", "user3", "user4"];
 const STALL_MS = 3000; // stallDetector.ts's SCREEN_STALL_MS
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

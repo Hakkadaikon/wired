@@ -21,7 +21,7 @@ FRONTEND_PORT=8091   # distinct from serve-frontend's 8443 / dev-frontend's 5173
 # next run's bind is the only listener on the port.
 trap 'kill "${SERVER_PID:-0}" "${FRONTEND_PID:-0}" 2>/dev/null || true; wait "${SERVER_PID:-0}" 2>/dev/null || true; rm -f "$SERVER_LOG"' EXIT
 
-./wired_server >"$SERVER_LOG" 2>&1 &
+./wired_server --port "${WIRED_E2E_PORT:-4433}" >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 
 for _ in $(seq 1 50); do

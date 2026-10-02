@@ -4,6 +4,7 @@
 // transparency check: the gates must hold THROUGH the proxy before any
 // impairment profile's numbers mean anything.
 
+import { E2E_PORT } from "../lib/args.mjs";
 import { startUdpProxy } from "../lib/udpProxy.mjs";
 import { summarizeVoiceTrace } from "../lib/voiceMetrics.mjs";
 import { evaluateVoiceGates } from "../lib/voiceGates.mjs";
@@ -15,7 +16,7 @@ import {
 } from "../lib/stabilityClient.mjs";
 
 const PROXY_BASE = 24433;
-const SERVER_PORT = 4433;
+const SERVER_PORT = E2E_PORT;
 const TAGS = ["user1", "user2", "user3", "user4"];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

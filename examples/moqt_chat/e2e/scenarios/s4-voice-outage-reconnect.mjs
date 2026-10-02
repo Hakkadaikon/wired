@@ -5,6 +5,7 @@
 // survivors keep decoding each other throughout, and the rejoin is decoding
 // audio again within the budget.
 
+import { E2E_PORT } from "../lib/args.mjs";
 import { startUdpProxy } from "../lib/udpProxy.mjs";
 import {
   joinStabilityClient,
@@ -15,7 +16,7 @@ import {
 } from "../lib/stabilityClient.mjs";
 
 const PROXY_BASE = 24433;
-const SERVER_PORT = 4433;
+const SERVER_PORT = E2E_PORT;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export async function run({ pageUrl, server, arg, log }) {
