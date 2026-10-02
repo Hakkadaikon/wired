@@ -817,9 +817,14 @@ typedef struct {
   int wt_drain_rcvd[SRVRUN_MAX_WT_SESSIONS];
   /** RFC 9000 4.6: client WT bidi streams ended (FIN reaped, refused, reset,
    * torn down with their session) since the last bidi MAX_STREAMS raise --
-   * each gives its stream credit back (srvrun_grant_wt_bidi), the WT twin of
+   * each gives its stream credit back (srvrun_grant_wt_streams), the WT twin of
    * srvrun_reap_resps' own request-slot grant. */
   usz wt_bidi_credit_owed;
+  /** wt_bidi_credit_owed's uni twin: client WT uni streams ended (FIN
+   * reaped, refused at offer, reset by the peer, torn down with their
+   * session) since the last MAX_STREAMS(uni) raise. Every uni receive slot
+   * is client-initiated, so each one owes credit back. */
+  usz wt_uni_credit_owed;
 } srvrun_conn;
 
 /* Response storage, one row per (connection slot, response slot): 512-byte
@@ -2054,6 +2059,14 @@ static void srvrun_wt_bidi_slot_free(
   c->wt_bidi_credit_owed += !(slot->stream_id & 1);
 }
 
+/* srvrun_wt_bidi_slot_free's uni twin: free an ended client WT uni stream's
+ * slot and owe the peer one stream of uni credit back (RFC 9000 4.6). */
+static void srvrun_wt_uni_slot_free(
+    srvrun_conn* c, wired_srvloop_wt_uni_stream_slot* slot) {
+  slot->in_use = 0;
+  c->wt_uni_credit_owed++;
+}
+
 /* draft-ietf-webtrans-http3-15 4.3/8.2: a buffered-stream-capacity rejection
  * (wired_wt_session_offer_stream returned 0, i.e. WIRED_WT_MAX_BUFFERED_
  * STREAMS is full on an unestablished session) is the caller's own contract
@@ -2417,7 +2430,7 @@ static void srvrun_offer_wt_uni_slot(
   if (!wired_wt_session_offer_stream(
           srvrun_wt_slot(c, sidx), slot->stream_id)) {
     srvrun_reject_wt_slot(cfg, c, slot->stream_id);
-    slot->in_use = 0;
+    srvrun_wt_uni_slot_free(c, slot);
     return;
   }
   slot->offered         = 1;
@@ -2432,49 +2445,53 @@ static int wt_uni_slot_needs_offer(
 }
 
 /* RFC 9000 2.2 / 19.8: same reap-once-FIN-delivered policy as
- * srvrun_reap_wt_slot, for the separate uni table. Returns 1 when the slot
- * was released (its uni stream-limit grant is owed), 0 otherwise. */
-static int srvrun_reap_wt_uni_slot(
+ * srvrun_reap_wt_slot, for the separate uni table; the released slot's uni
+ * stream-limit grant is owed (wt_uni_credit_owed). */
+static void srvrun_reap_wt_uni_slot(
     srvrun_conn* c, wired_srvloop_wt_uni_stream_slot* slot) {
-  if (!slot->in_use || !slot->fin_delivered) return 0;
+  if (!slot->in_use || !slot->fin_delivered) return;
   c->wt_rx_reaped_total += slot->delivered_len;
   wired_srvloop_wt_uni_slot_release(&c->l, slot->stream_id);
-  return 1;
+  c->wt_uni_credit_owed++;
 }
 
 /* One wt_uni_streams slot's per-step work, mirroring
- * srvrun_offer_and_deliver_wt_slot for the separate uni table. Returns 1
- * when the slot's reap released it (its uni stream-limit grant is owed). */
-static int srvrun_offer_and_deliver_wt_uni_slot(
+ * srvrun_offer_and_deliver_wt_slot for the separate uni table. */
+static void srvrun_offer_and_deliver_wt_uni_slot(
     const srvrun_cfg*                 cfg,
     srvrun_conn*                      c,
     wired_srvloop_wt_uni_stream_slot* slot) {
   int sidx;
   if (wt_uni_slot_needs_offer(slot)) srvrun_offer_wt_uni_slot(cfg, c, slot);
-  if (!slot->in_use) return 0;
+  if (!slot->in_use) return;
   sidx = srvrun_wt_slot_for_new_stream(c);
   srvrun_deliver_wt_stream_delta(
       cfg, c, sidx, slot->stream_id, slot->buf, &slot->win, slot->fin,
       slot->fin_off, &slot->delivered_len, &slot->fin_delivered);
   wired_srvloop_wt_window_slide(
       &slot->win, slot->buf, sizeof slot->buf, slot->delivered_len);
-  return srvrun_reap_wt_uni_slot(c, slot);
+  srvrun_reap_wt_uni_slot(c, slot);
 }
 
 static void srvrun_grant_uni_streams(
     const srvrun_cfg* cfg, srvrun_conn* c, usz n);
 
+/* RFC 9000 4.6/19.11: one MAX_STREAMS(uni) raise for every client WT uni
+ * stream ended since the last one (wt_uni_credit_owed). */
+static void srvrun_grant_wt_uni(const srvrun_cfg* cfg, srvrun_conn* c) {
+  srvrun_grant_uni_streams(cfg, c, c->wt_uni_credit_owed);
+  c->wt_uni_credit_owed = 0;
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: after a step has reassembled this
  * datagram's frames into c->l.wt_uni_streams[], run srvrun_offer_and_deliver_
  * wt_uni_slot over every slot, mirroring srvrun_offer_wt_streams for the
- * separate uni table -- then raise the uni stream limit by the number of
- * slots the pass released (RFC 9000 4.6/19.11). */
+ * separate uni table -- then raise the uni stream limit for the streams that
+ * ended (srvrun_grant_wt_uni). */
 static void srvrun_offer_wt_uni_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
-  usz freed = 0;
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
-    freed += (usz)srvrun_offer_and_deliver_wt_uni_slot(
-        cfg, c, &c->l.wt_uni_streams[i]);
-  srvrun_grant_uni_streams(cfg, c, freed);
+    srvrun_offer_and_deliver_wt_uni_slot(cfg, c, &c->l.wt_uni_streams[i]);
+  srvrun_grant_wt_uni(cfg, c);
 }
 
 /* RFC 9000 4.1: the most a WT slot's receive window can currently absorb --
@@ -3068,7 +3085,7 @@ static void srvrun_reset_wt_uni_if_owned(
     u64                               err_code) {
   if (!slot->in_use || slot->wt_session_slot != session_slot) return;
   srvrun_send_wt_busy_reset(cfg, c, slot->stream_id, err_code);
-  slot->in_use = 0;
+  srvrun_wt_uni_slot_free(c, slot);
 }
 
 /* draft-ietf-webtrans-http3-15 SS4.2/SS4.7 (WTH3-048): seal capsule_bytes as
@@ -3478,7 +3495,7 @@ static int wt_reset_uni_session(srvrun_conn* c) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
     wired_srvloop_wt_uni_stream_slot* slot = &c->l.wt_uni_streams[i];
     if (!wt_reset_uni_matches(slot, c->l.wt_reset_stream_id)) continue;
-    slot->in_use = 0;
+    srvrun_wt_uni_slot_free(c, slot);
     return slot->wt_session_slot;
   }
   return -1;
@@ -3705,11 +3722,15 @@ static u64 srvrun_stream_limit_base(const srvrun_step_ctx* ctx);
  * shared with HTTP/3 request streams and starts at the request table's
  * capacity (wired_srvloop_stream_limit); every ended stream of either kind
  * returns exactly one, so streams open at once never exceed that capacity
- * and a WT stream past the WT table is refused, not left unreadable. */
-static void srvrun_grant_wt_bidi(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+ * and a WT stream past the WT table is refused, not left unreadable. Then
+ * the same for uni (srvrun_grant_wt_uni), for streams that ended after this
+ * step's uni offer pass (peer reset, session teardown). */
+static void srvrun_grant_wt_streams(
+    const srvrun_step_ctx* ctx, srvrun_conn* c) {
   srvrun_grant_streams(
       ctx, c, srvrun_stream_limit_base(ctx), c->wt_bidi_credit_owed);
   c->wt_bidi_credit_owed = 0;
+  srvrun_grant_wt_uni(ctx->cfg, c);
 }
 
 /* A later datagram on a live slot: one real-wire step, send any sealed
@@ -3749,7 +3770,7 @@ static void srvrun_on_step(
   srvrun_flush_wt_drain_step(ctx->cfg, c);
   srvrun_drain_wt_close_pending(ctx->cfg, c);
   srvrun_drain_wt_stream_reset(ctx->cfg, c);
-  srvrun_grant_wt_bidi(ctx, c);
+  srvrun_grant_wt_streams(ctx, c);
   if (srvrun_close_on_step_violation(ctx->cfg, c)) return;
   srvrun_send_step_reply(ctx->cfg, c, produced, wired_span_of(out, ob.len));
 }

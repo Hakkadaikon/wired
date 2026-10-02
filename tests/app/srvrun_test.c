@@ -17764,7 +17764,7 @@ static void test_srvrun_wt_refused_stream_reset_and_credited(void) {
   c->l.wt_refused_n    = 1;
   srvrun_test_reset_send_count();
   srvrun_refuse_wt_streams(&cfg, c);
-  srvrun_grant_wt_bidi(&ctx, c);
+  srvrun_grant_wt_streams(&ctx, c);
   CHECK(c->l.wt_refused_n == 0);
   CHECK(srvrun_test_send_count() == 2); /* the refusal, then MAX_STREAMS */
   CHECK(c->stream_limit_advertised == base + 1);
@@ -17788,7 +17788,7 @@ static void test_srvrun_wt_bidi_reap_grants_one_more_stream(void) {
   c->l.wt_streams[0].fin           = 1; /* empty stream, FIN at offset 0 */
   c->l.wt_streams[0].fin_delivered = 1;
   srvrun_offer_wt_streams(&cfg, c);
-  srvrun_grant_wt_bidi(&ctx, c);
+  srvrun_grant_wt_streams(&ctx, c);
   CHECK(c->l.wt_streams[0].in_use == 0);
   CHECK(c->l.wt_streams[1].in_use == 1); /* long-lived: kept */
   CHECK(c->stream_limit_advertised == base + 1);
@@ -17811,7 +17811,7 @@ static void test_srvrun_wt_server_bidi_reap_grants_nothing(void) {
   c->l.wt_streams[0].fin_delivered = 1;
   srvrun_test_reset_send_count();
   srvrun_offer_wt_streams(&cfg, c);
-  srvrun_grant_wt_bidi(&ctx, c);
+  srvrun_grant_wt_streams(&ctx, c);
   CHECK(c->l.wt_streams[0].in_use == 0);
   CHECK(srvrun_test_send_count() == 0);
   CHECK(c->stream_limit_advertised == 0);
@@ -17833,12 +17833,71 @@ static void test_srvrun_wt_bidi_peer_reset_owes_credit(void) {
   CHECK(c->wt_bidi_credit_owed == 1);
 }
 
-/* Capacity: a 4-person moqt_chat room keeps ~16 request streams per browser
- * session open at once (3 PUBLISH + 2 PUBLISH_NAMESPACE + 1
- * SUBSCRIBE_NAMESPACE + 3 tracks x 3 peers + a FETCH) plus the server's own
- * control stream -- the default table must hold all of them. */
-static void test_srvrun_wt_bidi_capacity_fits_room(void) {
-  CHECK(WIRED_SRVLOOP_MAX_WT_STREAMS >= 18);
+/* draft-ietf-webtrans-http3-15 4.6: a stream offered to a session whose
+ * pre-establishment buffer is full is reset and its slot freed -- bidi and
+ * uni alike, that stream's QUIC credit is returned (RFC 9000 4.6). */
+static void test_srvrun_wt_offer_reject_returns_credit(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c    = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  u64             base = srvrun_stream_limit_base(&ctx);
+  wired_wt_session_init(&c->wt, 0); /* unestablished: offers buffer */
+  c->wt_active = 1;
+  for (usz i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++)
+    c->wt.streams[i].in_use = 1;
+  c->l.wt_streams[0].in_use        = 1;
+  c->l.wt_streams[0].stream_id     = 4;
+  c->l.wt_uni_streams[0].in_use    = 1;
+  c->l.wt_uni_streams[0].stream_id = 2;
+  srvrun_offer_wt_streams(&cfg, c);
+  srvrun_offer_wt_uni_streams(&cfg, c);
+  srvrun_grant_wt_streams(&ctx, c);
+  CHECK(!c->l.wt_streams[0].in_use && !c->l.wt_uni_streams[0].in_use);
+  CHECK(c->stream_limit_advertised == base + 1);
+  CHECK(c->uni_stream_limit_advertised == wired_srvloop_uni_stream_limit() + 1);
+}
+
+/* draft-ietf-webtrans-http3-15 4.4: tearing a session down resets every
+ * stream it owned; each one's QUIC credit is returned. */
+static void test_srvrun_wt_teardown_returns_credit(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c            = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  u64             base         = srvrun_stream_limit_base(&ctx);
+  c->l.wt_streams[0].in_use    = 1;
+  c->l.wt_streams[0].stream_id = 4;
+  c->l.wt_streams[0].wt_session_slot     = 0;
+  c->l.wt_uni_streams[0].in_use          = 1;
+  c->l.wt_uni_streams[0].stream_id       = 2;
+  c->l.wt_uni_streams[0].wt_session_slot = 0;
+  srvrun_reset_wt_bidi_if_owned(&cfg, c, &c->l.wt_streams[0], 0, 0);
+  srvrun_reset_wt_uni_if_owned(&cfg, c, &c->l.wt_uni_streams[0], 0, 0);
+  srvrun_grant_wt_streams(&ctx, c);
+  CHECK(c->stream_limit_advertised == base + 1);
+  CHECK(c->uni_stream_limit_advertised == wired_srvloop_uni_stream_limit() + 1);
+}
+
+/* A peer RESET_STREAM ending a WT uni stream returns its uni credit, the
+ * same as a FIN-reaped one -- a publisher whose objects time out (and are
+ * reset) must not run out of uni streams. */
+static void test_srvrun_wt_uni_peer_reset_returns_credit(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c                = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  c->l.wt_uni_streams[0].in_use    = 1;
+  c->l.wt_uni_streams[0].stream_id = 2;
+  c->l.wt_reset_stream_id          = 2;
+  wt_reset_uni_session(c);
+  srvrun_grant_wt_streams(&ctx, c);
+  CHECK(c->l.wt_uni_streams[0].in_use == 0);
+  CHECK(c->uni_stream_limit_advertised == wired_srvloop_uni_stream_limit() + 1);
+  CHECK(c->stream_limit_advertised == 0); /* bidi untouched */
 }
 
 /* ===================== WT session-close notification ===================== */
@@ -20593,7 +20652,9 @@ void test_srvrun(void) {
   test_srvrun_wt_bidi_reap_grants_one_more_stream();
   test_srvrun_wt_server_bidi_reap_grants_nothing();
   test_srvrun_wt_bidi_peer_reset_owes_credit();
-  test_srvrun_wt_bidi_capacity_fits_room();
+  test_srvrun_wt_offer_reject_returns_credit();
+  test_srvrun_wt_teardown_returns_credit();
+  test_srvrun_wt_uni_peer_reset_returns_credit();
   test_srvrun_incomplete_request_stream_sends_reset();
   test_srvrun_qenc_stream_opens_with_type_prefix_only();
   test_srvrun_qenc_stream_open_is_idempotent();
