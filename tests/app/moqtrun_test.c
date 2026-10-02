@@ -884,8 +884,9 @@ static void test_moqtrun_object_relay_two_subscribers_two_objects(void) {
 
 /* ===================== 4. loss-free hub defenses ===================== */
 
-/* A SUBSCRIBE carrying a non-zero delivery-timeout parameter is
- * rejected with REQUEST_ERROR NOT_SUPPORTED, never SUBSCRIBE_OK. */
+/* A SUBSCRIBE carrying a non-zero SUBGROUP_DELIVERY_TIMEOUT is rejected
+ * with REQUEST_ERROR NOT_SUPPORTED, never SUBSCRIBE_OK (draft 8: its timer
+ * needs the transport's "all data committed", which the hub cannot see). */
 static void test_moqtrun_subscribe_nonzero_timeout_rejected(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
@@ -894,17 +895,17 @@ static void test_moqtrun_subscribe_nonzero_timeout_rejected(void) {
   wired_moqt_on_session(&hub, SESS_B, wired_span_of(0, 0), wired_span_of(0, 0));
   u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
 
-  /* SUBSCRIBE with one added Message Parameter: Type 0x02
-   * (OBJECT_DELIVERY_TIMEOUT, even => varint value), value 5 -- built by
+  /* SUBSCRIBE with one added Message Parameter: Type 0x06
+   * (SUBGROUP_DELIVERY_TIMEOUT, even => varint value), value 5 -- built by
    * hand since no golden vector carries this parameter (draft SS10.2
    * varint parameter encoding: Delta Type then value). */
   u8 sub_with_timeout[G_MOQT_CTL_SUBSCRIBE_BASIC_LEN + 2];
   for (usz i = 0; i < G_MOQT_CTL_SUBSCRIBE_BASIC_LEN; i++)
     sub_with_timeout[i] = g_moqt_ctl_subscribe_basic[i];
   /* index 22 is the golden's trailing Num Params byte (0x00): bump it to
-   * 1, then append Delta Type 0x02, Value 0x05. */
+   * 1, then append Delta Type 0x06, Value 0x05. */
   sub_with_timeout[22] = 0x01;
-  sub_with_timeout[23] = 0x02; /* Delta Type (from 0) = 0x02 */
+  sub_with_timeout[23] = 0x06; /* Delta Type (from 0) = 0x06 */
   sub_with_timeout[24] = 0x05; /* Value */
   usz total            = G_MOQT_CTL_SUBSCRIBE_BASIC_LEN + 2;
   /* fix up the 16-bit Message Length (bytes[1..2], was 0x0014) for the two
@@ -2830,9 +2831,9 @@ static void test_moqtrun_frag_overflow_counted(void) {
   static u8           tail[WIRED_MOQTRUN_RELAY_FRAG_MAX + 1];
   wired_moqtrun_relay relay = {0};
   wired_moqt_init(&hub, moqtrun_test_io());
-  moqtrun_relay_save_frag(&hub, &relay, tail, sizeof tail);
+  moqtrun_relay_save_frag(&hub, &relay, tail, sizeof tail, 0);
   CHECK(relay.frag_len == 0 && hub.stat_frag_drop == 1);
-  moqtrun_relay_save_frag(&hub, &relay, tail, 3);
+  moqtrun_relay_save_frag(&hub, &relay, tail, 3, 0);
   CHECK(relay.frag_len == 3 && hub.stat_frag_drop == 1);
 }
 

@@ -207,15 +207,12 @@ void wired_moqt_on_session(
 
 /* ===================== control-message handlers ===================== */
 
-/* draft SS10.2 Message Parameter types this hub refuses to accept/send
- * (loss-free-hub timeout defense). */
-static int moqtrun_is_timeout_type(u64 t) {
-  return t == MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT ||
-         t == MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT;
-}
-
+/* draft-ietf-moq-transport-19 8: a SUBGROUP_DELIVERY_TIMEOUT timer runs
+ * until the transport reports "all data committed", which this hub's io
+ * table cannot see, so a non-zero one is refused. OBJECT_DELIVERY_TIMEOUT
+ * is applied (moqtrun_sub_late). */
 static int moqtrun_param_is_nonzero_timeout(const moqctl_param* item) {
-  return moqtrun_is_timeout_type(item->type) && item->vi != 0;
+  return item->type == MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT && item->vi != 0;
 }
 
 static int moqtrun_has_timeout_param(const moqctl_params* params) {
@@ -984,6 +981,12 @@ static int moqtrun_sub_gets_loc(const wired_moqtrun_sub* s, moqctl_loc l) {
   return moqtrun_sub_gets(s, l.group) && !moqctl_loc_less(l, s->start);
 }
 
+/* draft 8: an Object whose first byte reached the hub age_ms ago is past
+ * s's OBJECT_DELIVERY_TIMEOUT (0: none). */
+static int moqtrun_sub_late(const wired_moqtrun_sub* s, u64 age_ms) {
+  return s->delivery_timeout != 0 && age_ms > s->delivery_timeout;
+}
+
 /* A re-attached subscription meets a new incarnation: a Largest-relative
  * filter start (9.3.1) and the Joining Location (5.1) are resolved again
  * against its Largest -- the stored ones name the old incarnation's
@@ -1221,9 +1224,9 @@ static int moqtrun_subscribe_refused(
   return !hub->authorize_subscribe(hub->authorize_ctx, &m->name, t);
 }
 
-/* draft SS10.6 SUBSCRIBE: reject non-zero delivery-timeout parameters and
- * unauthorized subscribers, else delegate matching + response to
- * moqtrun_route_subscribe. */
+/* draft SS10.6 SUBSCRIBE: reject a non-zero SUBGROUP_DELIVERY_TIMEOUT
+ * (moqtrun_param_is_nonzero_timeout) and unauthorized subscribers, else
+ * delegate matching + response to moqtrun_route_subscribe. */
 static void moqtrun_subscribe_checked(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
@@ -1713,6 +1716,13 @@ static void moqtrun_upd_priority(
   s->has_priority = 1;
 }
 
+static void moqtrun_upd_timeout(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* p) {
+  (void)t;
+  s->delivery_timeout     = p->vi;
+  s->has_delivery_timeout = 1;
+}
+
 static void moqtrun_upd_filter(
     wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* p) {
   moqtrun_sub_filter(s, t, p);
@@ -1732,6 +1742,7 @@ static const struct {
 } moqtrun_upd_table[] = {
     {MOQCTL_PARAM_FORWARD, moqtrun_upd_forward},
     {MOQCTL_PARAM_SUBSCRIBER_PRIORITY, moqtrun_upd_priority},
+    {MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, moqtrun_upd_timeout},
     {MOQCTL_PARAM_LOCATION_FILTER, moqtrun_upd_filter},
 };
 
@@ -1786,7 +1797,7 @@ static int moqtrun_upd_apply(
   return 0;
 }
 
-/* A non-zero delivery timeout is refused as on SUBSCRIBE. */
+/* A non-zero SUBGROUP_DELIVERY_TIMEOUT is refused as on SUBSCRIBE. */
 static u64 moqtrun_upd_checked(
     wired_moqt_hub*            hub,
     wired_moqtrun_peer*        p,
@@ -2605,11 +2616,17 @@ static u64 moqtrun_live_gap(const wired_moqtrun_live* live, usz i, u64 g) {
              : 0;
 }
 
-/* 1 iff Group g may open for sub slot i: its peer is connected and g
- * passes the Location Filter (5.1.4). */
+/* 1 iff Group g may open for sub slot i: its peer is connected, g passes
+ * the Location Filter (5.1.4), and g's Object -- produced when g began --
+ * is not past the OBJECT_DELIVERY_TIMEOUT (draft 8: no stream is opened
+ * for it). */
 static int moqtrun_live_due(
     const wired_moqt_hub* hub, const wired_moqtrun_peer* dst, usz i, u64 g) {
-  return dst->in_use && moqtrun_sub_wants_group(&hub->live.track.subs[i], g);
+  const wired_moqtrun_live* live = &hub->live;
+  const wired_moqtrun_sub*  s    = &live->track.subs[i];
+  u64                       born = live->t0_ms + g * live->group_ms;
+  return dst->in_use && moqtrun_sub_wants_group(s, g) &&
+         !moqtrun_sub_late(s, live->last_now_ms - born);
 }
 
 /* Sends Group g to sub slot i; on acceptance counts any skipped Groups
@@ -2881,18 +2898,16 @@ static void moqtrun_relay_late_open(
   relay->sub_busy_streak[i] = 0;
 }
 
-/* One subscriber's share of a relayed round: forward to its open stream,
- * or -- for a subscriber whose stream was never opened (it subscribed
- * after the relay started) -- open one now (moqtrun_relay_late_open). */
-static void moqtrun_relay_append_one(
+/* Forward to sub slot i's open stream, or -- for a subscriber whose
+ * stream was never opened (it subscribed after the relay started) -- open
+ * one now (moqtrun_relay_late_open). */
+static void moqtrun_relay_deliver_one(
     wired_moqt_hub*      hub,
-    wired_moqtrun_sub*   sub,
+    wired_moqtrun_peer*  dst,
     wired_moqtrun_relay* relay,
     usz                  i,
     wired_span           wire,
     int                  fin) {
-  wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
-  if (!dst->in_use) return;
   if (relay->sub_stream_set[i]) {
     moqtrun_relay_forward_one(hub, dst->wt, relay, i, wire, fin);
     return;
@@ -2900,15 +2915,66 @@ static void moqtrun_relay_append_one(
   moqtrun_relay_late_open(hub, dst, relay, i, fin);
 }
 
+/* draft-ietf-moq-transport-19 3.3.4 DELIVERY_TIMEOUT stream reset code. */
+#define MOQTRUN_RESET_DELIVERY_TIMEOUT 0x2
+
+_Static_assert(WIRED_MOQTRUN_MAX_SUBS <= 32, "sub_expired: one bit per sub");
+
+static u32 moqtrun_sub_bit(usz i) { return (u32)1 << i; }
+
+/* Sub slot i is not served on relay: its peer left, or its stream timed
+ * out for this Subgroup. */
+static int moqtrun_relay_skips(
+    const wired_moqtrun_peer* dst, const wired_moqtrun_relay* relay, usz i) {
+  return !dst->in_use || (relay->sub_expired & moqtrun_sub_bit(i));
+}
+
+/* draft 8: the round's oldest Object reached the hub at born_ms; past
+ * sub's OBJECT_DELIVERY_TIMEOUT its stream is reset with DELIVERY_TIMEOUT
+ * and not reopened for this Subgroup. 1 when it expired. */
+static int moqtrun_relay_expire(
+    wired_moqt_hub*          hub,
+    const wired_moqtrun_sub* sub,
+    wired_moqtrun_peer*      dst,
+    wired_moqtrun_relay*     relay,
+    usz                      i,
+    u64                      born_ms) {
+  if (!moqtrun_sub_late(sub, hub->live.last_now_ms - born_ms)) return 0;
+  if (relay->sub_stream_set[i])
+    hub->io.stream_reset(
+        dst->wt, relay->sub_stream_id[i], MOQTRUN_RESET_DELIVERY_TIMEOUT);
+  relay->sub_stream_set[i] = 0;
+  relay->sub_expired |= moqtrun_sub_bit(i);
+  return 1;
+}
+
+/* One subscriber's share of a relayed round whose oldest Object arrived
+ * at born_ms. */
+static void moqtrun_relay_append_one(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_sub*   sub,
+    wired_moqtrun_relay* relay,
+    usz                  i,
+    wired_span           wire,
+    int                  fin,
+    u64                  born_ms) {
+  wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
+  if (moqtrun_relay_skips(dst, relay, i)) return;
+  if (moqtrun_relay_expire(hub, sub, dst, relay, i, born_ms)) return;
+  moqtrun_relay_deliver_one(hub, dst, relay, i, wire, fin);
+}
+
 static void moqtrun_relay_append_all(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     wired_span           wire,
-    int                  fin) {
+    int                  fin,
+    u64                  born_ms) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
     if (moqtrun_sub_gets(&track->subs[i], relay->group_id))
-      moqtrun_relay_append_one(hub, &track->subs[i], relay, i, wire, fin);
+      moqtrun_relay_append_one(
+          hub, &track->subs[i], relay, i, wire, fin, born_ms);
 }
 
 static int moqtrun_frag_slot_free(const wired_moqt_hub* hub, usz i) {
@@ -2976,7 +3042,11 @@ static void moqtrun_frag_drop(
  * and the relay is poisoned: everything after the tail starts mid-Object,
  * so the stream relays nothing more (moqtrun_relay_continue). */
 static void moqtrun_relay_save_frag(
-    wired_moqt_hub* hub, wired_moqtrun_relay* relay, const u8* p, usz n) {
+    wired_moqt_hub*      hub,
+    wired_moqtrun_relay* relay,
+    const u8*            p,
+    usz                  n,
+    u64                  born_ms) {
   i32 slot = n ? moqtrun_frag_slot_for(hub, relay, n) : -1;
   moqtrun_frag_release(relay);
   if (slot < 0) {
@@ -2986,6 +3056,20 @@ static void moqtrun_relay_save_frag(
   bytes_memcpy(hub->frag_pool[slot], p, n);
   relay->frag_idx = slot;
   relay->frag_len = n;
+  relay->frag_ms  = born_ms;
+}
+
+/* Arrival of the first byte a delivery's whole Objects start with: the
+ * held fragment's, else now. */
+static u64 moqtrun_relay_born(const wired_moqtrun_relay* r, u64 now) {
+  return r->frag_len ? r->frag_ms : now;
+}
+
+/* Arrival of the tail held after a delivery whose whole Objects end at
+ * off: a held fragment is under one Object, so past a whole one the tail
+ * starts in this delivery (now); with none it still starts at born. */
+static u64 moqtrun_tail_born(usz off, u64 now, u64 born) {
+  return off ? now : born;
 }
 
 /* Object-boundary normalization (wired_moqtrun_relay's frag doc): prepends
@@ -3001,9 +3085,12 @@ static wired_span moqtrun_relay_normalize(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
-    wired_span           data) {
+    wired_span           data,
+    u64*                 born_ms) {
+  u64 now   = hub->live.last_now_ms;
   usz total = relay->frag_len + data.n;
   usz off   = 0;
+  *born_ms  = moqtrun_relay_born(relay, now);
   if (relay->frag_len)
     bytes_memcpy(
         hub->relay_scratch, hub->frag_pool[relay->frag_idx], relay->frag_len);
@@ -3011,7 +3098,9 @@ static wired_span moqtrun_relay_normalize(
   moqtrun_decode_object_loop(
       hub, wired_span_of(hub->relay_scratch, total), &off, &relay->seq,
       relay->group_id, track);
-  moqtrun_relay_save_frag(hub, relay, hub->relay_scratch + off, total - off);
+  moqtrun_relay_save_frag(
+      hub, relay, hub->relay_scratch + off, total - off,
+      moqtrun_tail_born(off, now, *born_ms));
   return wired_span_of(hub->relay_scratch, off);
 }
 
@@ -3053,6 +3142,7 @@ static void moqtrun_rel_take(
     hub->stat_rel_overflow++;
     return;
   }
+  moqtrel_mark(rb, hub->live.last_now_ms);
   hub->stat_rel_in_bytes += whole.n;
 }
 
@@ -3240,11 +3330,32 @@ static void moqtrun_rel_shed(
     wired_wt_session*    wt,
     wired_moqtrun_relay* relay,
     moqtrel_buf*         rb,
-    usz                  i) {
-  hub->io.stream_reset(wt, relay->sub_stream_id[i], 0);
+    usz                  i,
+    u32                  code) {
+  hub->io.stream_reset(wt, relay->sub_stream_id[i], code);
   relay->sub_stream_set[i] = 0;
   rb->subs[i].shed         = 1;
-  hub->stat_rel_stall++;
+  hub->stat_rel_stall += code == 0;
+  if (code == MOQTRUN_RESET_DELIVERY_TIMEOUT)
+    relay->sub_expired |= moqtrun_sub_bit(i);
+}
+
+/* Not a stream reset code: cursor i goes on. */
+#define MOQTRUN_REL_KEEP (-1)
+
+/* The reset code to give cursor i up with: 0 for a stall, DELIVERY_TIMEOUT
+ * once its next unsent Object reached the hub longer ago than the
+ * subscription's OBJECT_DELIVERY_TIMEOUT (draft 8); else
+ * MOQTRUN_REL_KEEP. */
+static int moqtrun_rel_give_up(
+    const wired_moqtrun_track* track,
+    const moqtrel_buf*         rb,
+    usz                        i,
+    u64                        now_ms) {
+  if (moqtrel_stalled(rb, (u32)i, now_ms)) return 0;
+  if (moqtrun_sub_late(&track->subs[i], moqtrel_age_ms(rb, (u32)i, now_ms)))
+    return MOQTRUN_RESET_DELIVERY_TIMEOUT;
+  return MOQTRUN_REL_KEEP;
 }
 
 /* The publisher's FIN reached cursor i with no bytes pending: close its
@@ -3356,8 +3467,9 @@ static void moqtrun_rel_drain_sub(
     u64                  now_ms) {
   wired_moqtrun_peer* dst = moqtrun_rel_sub_dst(hub, track, rb, i);
   if (!dst) return;
-  if (moqtrel_stalled(rb, (u32)i, now_ms)) {
-    moqtrun_rel_shed(hub, dst->wt, relay, rb, i);
+  int code = moqtrun_rel_give_up(track, rb, i, now_ms);
+  if (code != MOQTRUN_REL_KEEP) {
+    moqtrun_rel_shed(hub, dst->wt, relay, rb, i, (u32)code);
     return;
   }
   moqtrun_rel_send_round(hub, dst->wt, relay, rb, i, now_ms);
@@ -3493,9 +3605,10 @@ static void moqtrun_relay_continue_lossy(
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     wired_span           whole,
-    int                  fin) {
+    int                  fin,
+    u64                  born_ms) {
   if (moqtrun_relay_round_due(whole, fin))
-    moqtrun_relay_append_all(hub, track, relay, whole, fin);
+    moqtrun_relay_append_all(hub, track, relay, whole, fin, born_ms);
   if (fin) relay->in_use = 0;
 }
 
@@ -3512,12 +3625,13 @@ static void moqtrun_relay_forward(
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     wired_span           whole,
-    int                  fin) {
+    int                  fin,
+    u64                  born_ms) {
   if (relay->rel_idx >= 0) {
     moqtrun_rel_continue(hub, track, relay, whole, fin);
     return;
   }
-  moqtrun_relay_continue_lossy(hub, track, relay, whole, fin);
+  moqtrun_relay_continue_lossy(hub, track, relay, whole, fin, born_ms);
 }
 
 /* A poisoned relay only absorbs its publisher's bytes, so they never get
@@ -3551,10 +3665,11 @@ static void moqtrun_relay_continue(
     moqtrun_relay_sink(relay, fin);
     return;
   }
-  wired_span whole = moqtrun_relay_normalize(hub, track, relay, wire);
+  u64        born_ms;
+  wired_span whole = moqtrun_relay_normalize(hub, track, relay, wire, &born_ms);
   /* Objects completed before the dropped tail are sound: deliver them,
    * then end the subscriber streams (moqtrun_relay_end_poisoned). */
-  moqtrun_relay_forward(hub, track, relay, whole, fin);
+  moqtrun_relay_forward(hub, track, relay, whole, fin, born_ms);
   moqtrun_relay_end_poisoned(hub, track, relay, fin);
 }
 
@@ -3640,7 +3755,10 @@ static void moqtrun_relay_start(
   moqtrun_rel_start(
       hub, track, relay, pub_wt, pub_stream_id,
       wired_span_of(wire.p, whole_end));
-  moqtrun_relay_save_frag(hub, relay, wire.p + whole_end, wire.n - whole_end);
+  relay->sub_expired = 0;
+  moqtrun_relay_save_frag(
+      hub, relay, wire.p + whole_end, wire.n - whole_end,
+      hub->live.last_now_ms);
   moqtrun_relay_save_hdr(relay, wire);
   moqtrun_subgroup_scan(
       wired_span_of(wire.p, whole_end), 0, &relay->seq, &relay->group_id);

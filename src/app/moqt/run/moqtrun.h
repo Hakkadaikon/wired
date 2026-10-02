@@ -139,7 +139,8 @@ typedef struct {
   int active; /* 1 while the subscription is Established */
   /** SUBSCRIBE's Request ID (draft-ietf-moq-transport-19 10.6). */
   u64 request_id;
-  /** OBJECT_DELIVERY_TIMEOUT (10.2.4), valid when has_delivery_timeout. */
+  /** OBJECT_DELIVERY_TIMEOUT (10.2.4) in ms, 0 when absent or none: an
+   * Object reaching the hub longer ago is not sent (draft 8). */
   u64 delivery_timeout;
   /** Location Filter Start (9.3.1), resolved at SUBSCRIBE time; {0, 0}
    * when unfiltered. */
@@ -251,6 +252,12 @@ typedef struct {
    * Object's Location (11.4.2) for the track's Largest Object. */
   moqdata_objseq seq;
   u64            group_id;
+  /** Clock (wired_moqt_tick) at which the held fragment's first byte
+   * arrived: the age of the torn Object it starts (draft 8). */
+  u64 frag_ms;
+  /** Bit i: sub slot i's stream was reset for OBJECT_DELIVERY_TIMEOUT and
+   * is not reopened for this Subgroup (draft 8). */
+  u32 sub_expired;
 } wired_moqtrun_relay;
 
 /** Consecutive refused relay rounds (io.stream_send returning busy) after
@@ -739,7 +746,17 @@ void wired_moqt_on_session(
  * is refused UNINTERESTED; a session's prefixes overlapping (either empty,
  * or the same first field) are refused PREFIX_OVERLAP. Both requests pass
  * authorize_namespace first. Hub-owned tracks
- * (publish_blob / publish_live) have no namespace and are not announced. */
+ * (publish_blob / publish_live) have no namespace and are not announced.
+ *
+ * TRACK_STATUS (10.14) is answered like a SUBSCRIBE that creates nothing:
+ * REQUEST_OK with the Largest Location, or REQUEST_ERROR. REQUEST_UPDATE
+ * (10.9) on a SUBSCRIBE's stream replaces the parameters it carries
+ * (FORWARD, SUBSCRIBER_PRIORITY, OBJECT_DELIVERY_TIMEOUT, LOCATION_FILTER)
+ * and is answered REQUEST_OK; elsewhere it gets NOT_SUPPORTED. Objects
+ * reach a subscription only inside its Location Filter (Group-granular on
+ * streams), and one whose first byte arrived longer ago than its
+ * OBJECT_DELIVERY_TIMEOUT resets its stream with DELIVERY_TIMEOUT
+ * (draft 8). */
 void wired_moqt_on_stream_data(
     void*             app_ctx,
     wired_wt_session* s,
