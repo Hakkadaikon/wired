@@ -77,7 +77,7 @@ typedef int (*bodywin_capsule_fn)(void* ctx, u64 type, wired_span value);
 typedef struct {
   u64 skip; /**< value bytes of an oversized capsule still to drop */
   usz n;    /**< bytes held in buf */
-  u8  buf[BODYWIN_CAPSULE_CAP];
+  u8  buf[BODYWIN_CAPSULE_CAP]; /**< the held capsule bytes */
 } bodywin_capq;
 
 /** RFC 9297 3.2: in HTTP/3 the capsule data stream is the payload of the
