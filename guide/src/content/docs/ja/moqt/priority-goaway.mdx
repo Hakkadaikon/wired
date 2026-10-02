@@ -33,7 +33,7 @@ import Example from '../../../../components/Example.astro';
   エラーコードは GOING_AWAY（0x6）で、クライアントは次のリクエストを `new_uri` に向けることが期待されます。
 - 許可済みの購読は、タイムアウトまで流れ続けます。
   期限を守らせるのは、`on_step` から呼ぶハブのティック（`wired_moqt_tick`）です。
-  `timeout_ms` が過ぎると、各購読のリレーストリームがリセットされ、購読はそのリクエストストリーム上の PUBLISH_DONE（10.9）ステータス GOING_AWAY（0x4）で終わります。
+  `timeout_ms` が過ぎると、各購読のリレーストリームがリセットされ、購読はそのリクエストストリーム上の PUBLISH_DONE（10.11）ステータス GOING_AWAY（0x4）で終わります。
 - このクライアントは期限を過ぎてもリクエストストリームを開いたままにしているため、次のティックでハブがセッションを閉じます。
   セッションコードは GOAWAY_TIMEOUT（0x10、`WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT`）です。
   期限内に自分のストリームとセッションを閉じるクライアントは、このコードを受け取りません。
