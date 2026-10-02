@@ -6862,36 +6862,86 @@ static int srvrun_pump_one_wt(
   return sent;
 }
 
-/* One arrival-order pass over every in-use wtsend slot matching keep_open
- * (append_open's own value, not just "is it set right now" -- a slot mid-
- * closing still counts as the keep-open pass so its final slice/FIN is not
- * pushed a whole extra pass behind fresh one-shot arrivals). */
+/* w's RFC 9218 2.1 urgency: the app's wired_server_wt_stream_priority
+ * value, or the default when never set. */
+static u8 srvrun_wtsend_urgency(const srvrun_wtsend* w) {
+  return w->urgency1 ? (u8)(w->urgency1 - 1) : H3_URGENCY_DEFAULT;
+}
+
+/* w has something to put on the wire: a retransmit, unsent bytes, or a
+ * pending bare FIN. */
+static int srvrun_wtsend_has_work(const srvrun_wtsend* w) {
+  return srvrun_has_requeued(&w->sess) || w->sess.q.cur < w->sess.q.len ||
+         w->fin_only_pending;
+}
+
+/* w could send a slice right now. */
+static int srvrun_wtsend_ready(const srvrun_conn* c, const srvrun_wtsend* w) {
+  return w->in_use && srvrun_wtsend_has_work(w) &&
+         srvrun_pump_gate_ok(c, &w->sess, w->stream_credit);
+}
+
+/* w's urgency when it could send a slice right now, else 0xff -- a stream
+ * blocked by its own flow-control credit must not hold back less urgent
+ * ones (RFC 9218 10: unused capacity goes to the next class). */
+static u8 srvrun_wtsend_ready_urgency(
+    const srvrun_conn* c, const srvrun_wtsend* w) {
+  return srvrun_wtsend_ready(c, w) ? srvrun_wtsend_urgency(w) : 0xff;
+}
+
+/* The most urgent class among the slots that can send this pass, 0xff when
+ * none can (every slot is then visited, as before urgency existed, so the
+ * blocked-path signals still fire). One O(slots) pass, no sort. */
+static u8 srvrun_wt_pass_urgency(const srvrun_conn* c) {
+  u8 m = 0xff;
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    u8 u = srvrun_wtsend_ready_urgency(c, &c->wtsend[i]);
+    if (u < m) m = u;
+  }
+  return m;
+}
+
+/* w takes part in this pass: it matches keep_open (append_open's own
+ * value, not just "is it set right now" -- a slot mid-closing still counts
+ * as the keep-open pass so its final slice/FIN is not pushed a whole extra
+ * pass behind fresh one-shot arrivals) and is no less urgent than the
+ * pass's class. A slot more urgent than the class cannot send this pass
+ * anyway; visiting it only promotes a deferred FIN. */
+static int srvrun_wt_in_pass(const srvrun_wtsend* w, int keep_open, u8 urg) {
+  return (w->append_open != 0) == keep_open && srvrun_wtsend_urgency(w) <= urg;
+}
+
+/* One arrival-order pass over every wtsend slot in this pass's class. */
 static int srvrun_pump_wt_round_matching(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, int keep_open) {
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int keep_open, u8 urg) {
   int sent = 0;
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
-    if ((c->wtsend[i].append_open != 0) == keep_open)
+    if (srvrun_wt_in_pass(&c->wtsend[i], keep_open, urg))
       sent |= srvrun_pump_one_wt(ctx, c, &c->wtsend[i]);
   return sent;
 }
 
-/* The WT-send half of one round-robin pass. RFC 9218 has no urgency signal
- * for WebTransport streams (Extended CONNECT carries no Priority parameters
- * of its own), so this can't read a real priority -- but moqtrun's own two
- * stream shapes (moqtrun.h) give a usable proxy: a long-lived append_open
- * relay stream carries one MOQT Object per round (audio, paced ~50/s and
- * loss-tolerant-but-latency-sensitive), while a one-shot stream carries a
- * whole chat message. Draining every append_open slot's one slice before any
- * one-shot slot's at least keeps audio's OWN pass-order position ahead of a
- * chat burst's tail-half slots within a single pass; it does not, by itself,
- * bound how often a pass runs at all -- a live 4-way call with chat every
- * 150ms still showed audio inter-arrival p99 climbing past 500ms with zero
- * relay drops (frames queued, not lost), and this reordering alone did not
- * measurably change that on a CPU-starved test host, so the pass-frequency
- * side of the problem (pacing/poll cadence under contention) remains open. */
+/* The WT-send half of one round-robin pass. RFC 9218 2.1 urgency set by the
+ * app (wired_server_wt_stream_priority -- Extended CONNECT carries no
+ * per-stream Priority of its own) picks the class: only the most urgent
+ * streams that can send take part, so a lower-urgency stream waits until
+ * the higher class has nothing it can send. Within a class, moqtrun's own
+ * two stream shapes (moqtrun.h) give a further proxy: a long-lived
+ * append_open relay stream carries one MOQT Object per round (audio, paced
+ * ~50/s and loss-tolerant-but-latency-sensitive), while a one-shot stream
+ * carries a whole chat message. Draining every append_open slot's one slice
+ * before any one-shot slot's at least keeps audio's OWN pass-order
+ * position ahead of a chat burst's tail-half slots within a single pass; it
+ * does not, by itself, bound how often a pass runs at all -- a live 4-way
+ * call with chat every 150ms still showed audio inter-arrival p99 climbing
+ * past 500ms with zero relay drops (frames queued, not lost), and this
+ * reordering alone did not measurably change that on a CPU-starved test
+ * host, so the pass-frequency side of the problem (pacing/poll cadence
+ * under contention) remains open. */
 static int srvrun_pump_wt_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  int sent = srvrun_pump_wt_round_matching(ctx, c, 1);
-  return sent | srvrun_pump_wt_round_matching(ctx, c, 0);
+  u8  urg  = srvrun_wt_pass_urgency(c);
+  int sent = srvrun_pump_wt_round_matching(ctx, c, 1, urg);
+  return sent | srvrun_pump_wt_round_matching(ctx, c, 0, urg);
 }
 
 /* resp[] slot i's current RFC 9218 priority, read from the receive-side
