@@ -15589,6 +15589,19 @@ static void sr_wtsend_mark_sent(srvrun_conn* c, usz i) {
   CHECK(wired_sendsess_take(&c->wtsend[i].sess, &sl));
 }
 
+/* Deliver send slot i's whole armed round for real -- every slice taken,
+ * logged as sent and ACKed -- then reap, so the slot is freed the way a
+ * FIN-ACKed reply's is in production (srvrun_reap_wtsends). */
+static void sr_wtsend_deliver_and_reap(srvrun_conn* c, usz i) {
+  wired_sendq_slice sl;
+  u64               pn = 7000;
+  while (wired_sendsess_take(&c->wtsend[i].sess, &sl))
+    CHECK(wired_sendsess_sent(&c->wtsend[i].sess, &sl, pn++, 0));
+  wired_sendsess_ack(&c->wtsend[i].sess, 7000, pn);
+  srvrun_reap_wtsends(c);
+  CHECK(c->wtsend[i].in_use == 0);
+}
+
 /* stream_reset frees the send slot at once (the app's payload view is
  * released, RFC 9000 19.4: delivery abandoned) and latches; the drain sends
  * a STANDARD RESET_STREAM (0x04) -- not the RESET_STREAM_AT extension frame,
@@ -18056,10 +18069,10 @@ static srvrun_conn* sr_replied_bidi_fixture(struct lp_fix* f, wired_obuf* ob) {
 static void test_srvrun_wt_teardown_skips_reset_of_finished_reply(void) {
   struct lp_fix f;
   u8            obuf[1024];
-  wired_obuf    ob    = obuf_of(obuf, sizeof obuf);
-  srvrun_conn*  c     = sr_replied_bidi_fixture(&f, &ob);
-  srvrun_cfg    cfg   = sr_wt_send_cfg();
-  c->wtsend[0].in_use = 0; /* reply fully ACKed and reaped */
+  wired_obuf    ob  = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*  c   = sr_replied_bidi_fixture(&f, &ob);
+  srvrun_cfg    cfg = sr_wt_send_cfg();
+  sr_wtsend_deliver_and_reap(c, 0); /* reply fully ACKed and reaped */
   srvrun_reset_wt_streams_for_session(&cfg, c, 0, H3_NO_ERROR);
   CHECK(c->rst[0].pln > 0);
   CHECK(c->rst[0].pl[0] == FRAME_STOP_SENDING);
@@ -18099,9 +18112,54 @@ static void test_srvrun_wt_stream_reset_after_reap_sends_nothing(void) {
       wired_server_wt_open_uni(
           &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
       11);
-  c->wtsend[0].in_use = 0; /* fully ACKed and reaped */
+  sr_wtsend_deliver_and_reap(c, 0); /* fully ACKed and reaped */
   CHECK(wired_server_wt_stream_reset(&c->wt, 11, 0x42) == 1);
   CHECK(c->wt_stream_reset_n == 0);
+}
+
+/* Fixture: the request stream's receive slot already came and went (FIN
+ * delivered, slot released) BEFORE the app's reply -- the normal deferred
+ * reply shape -- and the reply is armed on send slot 0. */
+static srvrun_conn* sr_deferred_reply_fixture(
+    struct lp_fix* f, wired_obuf* ob) {
+  srvrun_conn* c                                    = sr_wtsend_fixture(f, ob);
+  c->s.sdrv.peer_initial_max_stream_data_bidi_local = 1u << 24;
+  CHECK(wired_srvloop_wt_slot_claim(&c->l, 0) == 0);
+  wired_srvloop_wt_slot_release(&c->l, 0);
+  CHECK(
+      wired_server_wt_stream_reply(
+          &c->wt, 0, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
+      1);
+  return c;
+}
+
+/* A reply made AFTER the request stream's receive slot was reaped still
+ * ends its send part on the FIN ACK: an app reset then latches nothing --
+ * a RESET_STREAM with Final Size 0 below the bytes the peer holds is a
+ * connection-fatal FINAL_SIZE_ERROR (RFC 9000 4.5). */
+static void test_srvrun_wt_reset_after_deferred_reply_latches_nothing(void) {
+  struct lp_fix f;
+  u8            obuf[1024];
+  wired_obuf    ob = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*  c  = sr_deferred_reply_fixture(&f, &ob);
+  sr_wtsend_deliver_and_reap(c, 0);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 0, 0x42) == 1);
+  CHECK(c->wt_stream_reset_n == 0);
+}
+
+/* The same deferred reply still mid-send is NOT ended: the app reset
+ * latches, with the bytes actually sent as the Final Size. */
+static void test_srvrun_wt_reset_after_deferred_reply_mid_send(void) {
+  struct lp_fix     f;
+  u8                obuf[1024];
+  wired_obuf        ob = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*      c  = sr_deferred_reply_fixture(&f, &ob);
+  wired_sendq_slice sl;
+  c->wtsend[0].sess.q.chunk = 2;
+  CHECK(wired_sendsess_take(&c->wtsend[0].sess, &sl)); /* 2 of 4 sent */
+  CHECK(wired_server_wt_stream_reset(&c->wt, 0, 0x42) == 1);
+  CHECK(c->wt_stream_reset_n == 1);
+  CHECK(c->wt_stream_reset_final[0] == 2);
 }
 
 /* The CONNECT stream's send slot does not pin an app send slot for the
@@ -20964,6 +21022,8 @@ void test_srvrun(void) {
   test_srvrun_wt_teardown_skips_reset_of_finished_reply();
   test_srvrun_wt_reset_mid_send_final_is_bytes_sent();
   test_srvrun_wt_stream_reset_after_reap_sends_nothing();
+  test_srvrun_wt_reset_after_deferred_reply_latches_nothing();
+  test_srvrun_wt_reset_after_deferred_reply_mid_send();
   test_srvrun_wt_drain_slot_reaped_once_acked();
   test_srvrun_wt_offer_reject_returns_credit();
   test_srvrun_wt_teardown_returns_credit();
