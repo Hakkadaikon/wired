@@ -4813,6 +4813,25 @@ int wired_server_wt_drain_session(wired_wt_session* s) {
   return 1;
 }
 
+/* Client-opened WT stream slots in use on c, 0 for a connection that is
+ * down (a freed slot's tables are not cleared). */
+static usz srvrun_wt_streams_open(const srvrun_conn* c) {
+  return c->up ? wt_bidi_slots_in_use(c) + wt_uni_slots_in_use(c) : 0;
+}
+
+int wired_server_wt_usage(wired_wt_usage* out) {
+  wired_srvrun_env* env = srvrun_caller_env();
+  out->sessions         = srvrun_wt_active_total(env);
+  out->sessions_cap     = SRVRUN_MAX_WT_SESSIONS_GLOBAL;
+  out->streams          = 0;
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
+    out->streams += srvrun_wt_streams_open(&env->conns[i]);
+  out->streams_cap =
+      (usz)WIRED_CONNTABLE_CAP *
+      (WIRED_SRVLOOP_MAX_WT_STREAMS + WIRED_SRVLOOP_MAX_WT_UNI_STREAMS);
+  return 1;
+}
+
 int wired_server_wt_close_session(
     wired_wt_session* s, u32 app_error_code, wired_span message) {
   srvrun_conn* c    = srvrun_session_conn(s);
