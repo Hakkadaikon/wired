@@ -3786,7 +3786,7 @@ static void srvrun_on_step(
  * confirmation, GOAWAY at most once at shutdown), so no general offset
  * tracker is needed. */
 static usz srvrun_ctrl_settings_len(int advertise_wt) {
-  u8  tmp[64];
+  u8  tmp[H3SETTINGS_CONTROL_STREAM_MAX];
   usz n = 0;
   h3conn_open_control(advertise_wt, tmp, sizeof tmp, &n);
   return n;

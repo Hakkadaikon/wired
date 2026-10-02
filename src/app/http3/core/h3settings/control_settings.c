@@ -22,14 +22,21 @@
 #define DEFAULT_WT_MAX_SESSIONS 1
 
 /* draft-ietf-webtrans-http3-15 5.5.1/5.5.2/5.5.3 (WTH3-051): initial
- * session-level flow control limits advertised so a peer that enables flow
- * control (SS5.1) knows the starting budget rather than discovering it only
- * from a later WT_MAX_STREAMS/WT_MAX_DATA capsule. Match this SDK's own
- * static session cap (WIRED_SRVLOOP_MAX_WT_STREAMS-equivalent single-session
- * shape) rather than an arbitrary number. */
-#define DEFAULT_WT_INITIAL_MAX_STREAMS_UNI 100
-#define DEFAULT_WT_INITIAL_MAX_STREAMS_BIDI 100
-#define DEFAULT_WT_INITIAL_MAX_DATA 0x100000 /* 1 MiB */
+ * session-level flow control limits. Nonzero, so flow control is enabled
+ * (5.1: this server pools up to SRVRUN_MAX_WT_SESSIONS sessions on one
+ * connection, which MUST enable it). WT_MAX_STREAMS and WT_MAX_DATA are
+ * cumulative over the session's lifetime (5.6.2, 5.6.4) and this server
+ * never raises them by capsule -- a capsule on the CONNECT stream is not
+ * retransmitted here, and one lost would stall every later capsule behind
+ * it -- so the initial values are the maxima: 2^60 streams (5.6.2's cap)
+ * and 2^62-1 bytes (the varint cap). The receive side is bounded by the
+ * QUIC limits instead (5.3: the session limit applies "in addition to" the
+ * QUIC MAX_STREAMS): bidi/uni stream credit tied to the reassembly slot
+ * tables (srvloop.h) and per-stream windows. 100 streams / 1 MiB stopped a
+ * compliant client's long-lived MoQT session for good. */
+#define DEFAULT_WT_INITIAL_MAX_STREAMS_UNI (1ULL << 60)
+#define DEFAULT_WT_INITIAL_MAX_STREAMS_BIDI (1ULL << 60)
+#define DEFAULT_WT_INITIAL_MAX_DATA ((1ULL << 62) - 1)
 
 /* RFC 9114 7.2.4.1 / 9114-064: a receiver must ignore any SETTINGS identifier
  * it does not recognize (7.2.8), so a real HTTP/3 server sending one from
