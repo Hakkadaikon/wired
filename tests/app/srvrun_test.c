@@ -15134,6 +15134,95 @@ static void test_srvrun_wt_open_bidi_allocates_ids_and_holds_view(void) {
   CHECK(c->wtsend[0].stream_credit == (1u << 24));
 }
 
+/* ===== per-stream urgency on the WT send pump (RFC 9218 2.1) =====
+ * Test list:
+ * - urgency 1 vs 5, both with data: only the urgency-1 stream sends until
+ *   it has nothing left, then the urgency-5 stream proceeds
+ * - equal urgency keeps the existing one-slice-per-slot pass order
+ * - a more urgent stream that cannot send (stream credit exhausted) does
+ *   not block a less urgent one
+ * - urgency 8 is refused; an id with no send slot is refused */
+
+static u8 sr_prio_body[4 * SRVRUN_CHUNK];
+
+/* Opens two append-open uni streams (ids 11, 15) of sr_prio_body each, with
+ * cwnd room for exactly two slices per pump. */
+static srvrun_conn* sr_prio_fixture(struct lp_fix* f, wired_obuf* ob) {
+  srvrun_conn* c = sr_wtsend_fixture(f, ob);
+  wired_span   b = wired_span_of(sr_prio_body, sizeof sr_prio_body);
+  CHECK(wired_server_wt_open_uni_stream(&c->wt, b) == 11);
+  CHECK(wired_server_wt_open_uni_stream(&c->wt, b) == 15);
+  c->cc.cwnd = 2 * SRVRUN_CHUNK;
+  return c;
+}
+
+static void sr_prio_pump(void) {
+  srvrun_cfg      cfg = sr_wt_send_cfg();
+  srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  srvrun_pump_sess(&ctx, 0);
+}
+
+static void test_srvrun_wt_priority_lower_urgency_first(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_prio_fixture(&f, &ob);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 11, 5) == 1);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 15, 1) == 1);
+  sr_prio_pump();
+  CHECK(wired_sendsess_inflight(&c->wtsend[1].sess) == 2);
+  CHECK(wired_sendsess_inflight(&c->wtsend[0].sess) == 0);
+  sr_wtsend_ack_all_inflight(c, &c->wtsend[1].sess, 0);
+  sr_prio_pump(); /* the ACK may grow cwnd: 15's tail goes first */
+  CHECK(c->wtsend[1].sess.q.cur == sizeof sr_prio_body);
+  sr_wtsend_ack_all_inflight(c, &c->wtsend[1].sess, 0);
+  sr_prio_pump(); /* urgency-1 drained: urgency 5 proceeds */
+  CHECK(c->wtsend[0].sess.q.cur > 0);
+}
+
+static void test_srvrun_wt_priority_equal_keeps_order(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_prio_fixture(&f, &ob);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 15, 3) == 1);
+  sr_prio_pump(); /* 11 is default 3: same class, one slice each */
+  CHECK(wired_sendsess_inflight(&c->wtsend[0].sess) == 1);
+  CHECK(wired_sendsess_inflight(&c->wtsend[1].sess) == 1);
+}
+
+static void test_srvrun_wt_priority_blocked_urgent_does_not_starve(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_prio_fixture(&f, &ob);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 11, 5) == 1);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 15, 1) == 1);
+  c->wtsend[1].stream_credit = 0; /* RFC 9000 4.1: 15 may not send */
+  sr_prio_pump();
+  CHECK(wired_sendsess_inflight(&c->wtsend[1].sess) == 0);
+  CHECK(wired_sendsess_inflight(&c->wtsend[0].sess) == 2);
+}
+
+static void test_srvrun_wt_priority_rejects_bad_args(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_prio_fixture(&f, &ob);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 11, 8) < 0);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 19, 1) < 0);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 11, 7) == 1);
+}
+
 /* A payload larger than the receive window (WIRED_SRVLOOP_WT_BUF_CAP,
  * 49152) plus the held relay fragment (WIRED_MOQTRUN_RELAY_FRAG_MAX, 512) --
  * e.g. one screen-share frame delivered in a single window -- must still be
@@ -20274,6 +20363,10 @@ void test_srvrun(void) {
   test_srvrun_wt_avail_captured_from_wire();
   test_srvrun_wt_open_uni_streams_payload_on_wire();
   test_srvrun_wt_open_bidi_allocates_ids_and_holds_view();
+  test_srvrun_wt_priority_lower_urgency_first();
+  test_srvrun_wt_priority_equal_keeps_order();
+  test_srvrun_wt_priority_blocked_urgent_does_not_starve();
+  test_srvrun_wt_priority_rejects_bad_args();
   test_srvrun_wt_open_uni_stream_appends_then_finishes();
   test_srvrun_wt_stream_send_queue_bound();
   test_srvrun_metrics_due_rate_limited();
