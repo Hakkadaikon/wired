@@ -26,6 +26,7 @@ import {
   concatBytes,
   decodeControlFrame,
   decodeFetchHeader,
+  decodeGoaway,
   decodeFetchObject,
   decodeNamespaceSuffix,
   decodeSubgroupHeader,
@@ -77,6 +78,7 @@ const MSG_TYPE_PUBLISH_NAMESPACE = 0x6n;
 const MSG_TYPE_SUBSCRIBE_NAMESPACE = 0x50n;
 const MSG_TYPE_NAMESPACE = 0x8n;
 const MSG_TYPE_NAMESPACE_DONE = 0xen;
+const MSG_TYPE_GOAWAY = 0x10n;
 const STREAM_TYPE_FETCH_HEADER = 0x5n;
 
 // LOCATION_FILTER (10.2.18) of type Largest Object (0x2): live delivery
@@ -299,6 +301,11 @@ export interface MoqtChatCallbacks {
   // and out-of-pool ids never fire. A peer's chat subscription is already
   // handled here; the caller adds its own tracks (audio, screen).
   onNamespace?(suffix: string[], active: boolean): void;
+  // The session is going away (draft-ietf-moq-transport-19 3.6): a GOAWAY on
+  // the hub's control stream (uri = its New Session URI, "" to reuse the
+  // current one) or the WebTransport session draining (uri ""). Fires at
+  // most once per session; the caller reconnects.
+  onGoaway?(uri: string): void;
 }
 
 /** A subscription's Joining FETCH (draft-ietf-moq-transport-19 10.12.2):
@@ -471,6 +478,9 @@ export class MoqtChatClient {
       this.#fetches.clear();
       this.#readIncomingUniStreams();
       this.#readIncomingDatagrams();
+      // WebTransport.draining (draft-ietf-webtrans-http3-15 4.7): the
+      // server asked the session to wind down.
+      void (wt as { draining?: Promise<void> }).draining?.then(() => this.#goAway(wt, ""));
       await this.#openControlStream();
       await this.publishTrack(utf8ToBytes(this.#localId), this.#localTrackAlias);
 
@@ -593,16 +603,35 @@ export class MoqtChatClient {
 
   // The hub opens this stream itself right after the session is
   // established (draft 3.3 / moqtrun.c wired_moqt_on_session) and sends
-  // SETUP on it. Requests never ride it (each has its own stream), so its
-  // messages are only drained.
-  // ponytail: a session-wide GOAWAY on this stream is ignored for now.
+  // SETUP on it. Requests never ride it (each has its own stream); the one
+  // message acted on is a session-wide GOAWAY (draft 10.4).
   async #openControlStream(): Promise<void> {
-    if (!this.#wt) return;
-    const reader = this.#wt.incomingBidirectionalStreams.getReader();
+    const wt = this.#wt;
+    if (!wt) return;
+    const reader = wt.incomingBidirectionalStreams.getReader();
     const { value: stream, done } = await reader.read();
     reader.releaseLock();
     if (done || !stream) throw new Error("hub did not open a control stream");
-    void readControlFrames(stream.readable.getReader(), () => {});
+    void readControlFrames(stream.readable.getReader(), ({ type, body }) => {
+      if (type !== MSG_TYPE_GOAWAY) return;
+      let uri = "";
+      try {
+        uri = bytesToUtf8(decodeGoaway(body).newSessionUri);
+      } catch {
+        // a malformed GOAWAY still means "go": reconnect to the same URI
+      }
+      this.#goAway(wt, uri);
+    });
+  }
+
+  #goneAway?: WebTransport;
+
+  // Reports the session's first going-away signal; a stale or closed
+  // session's, or a second one, reports nothing.
+  #goAway(wt: WebTransport, uri: string): void {
+    if (this.#wt !== wt || this.#goneAway === wt) return;
+    this.#goneAway = wt;
+    this.#callbacks.onGoaway?.(uri);
   }
 
   // Opens one request stream (draft 3.3) and writes the request built for

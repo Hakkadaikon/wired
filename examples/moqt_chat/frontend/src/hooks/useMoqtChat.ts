@@ -472,6 +472,21 @@ export function handleSessionStatus(
   }, delay);
 }
 
+// GOAWAY / session draining (MoqtChatClient's onGoaway): while the user
+// still wants the room, reconnect right away -- to the New Session URI when
+// the hub named one, else to the same URI. The fresh connect() publishes,
+// announces and subscribes everything again.
+// ponytail: break-before-make -- the old session is torn down before the
+// new one is up; keep both open if the gap ever matters.
+export function handleGoaway(
+  args: { url: string } | null,
+  newUri: string,
+  reconnect: (url: string) => void,
+): void {
+  if (!args) return;
+  reconnect(newUri || args.url);
+}
+
 export function cancelReconnect(refs: ReconnectRefs): void {
   if (refs.timer.current !== null) {
     clearTimeout(refs.timer.current);
@@ -856,6 +871,11 @@ export function useMoqtChat() {
         onUnknownDatagram: (datagram) => {
           voiceRef.current?.handleIncomingDatagram(datagram);
         },
+        onGoaway: (uri) =>
+          handleGoaway(sessionArgsRef.current, uri, (next) => {
+            const args = sessionArgsRef.current;
+            if (args) void connectRef.current?.(next, args.localId, args.certHashesHex, args.nickname);
+          }),
         onNamespace: (suffix, active) =>
           handleRoomNamespace(suffix, active, { store, voice: voiceRef.current, screen: screenRef.current }),
       });

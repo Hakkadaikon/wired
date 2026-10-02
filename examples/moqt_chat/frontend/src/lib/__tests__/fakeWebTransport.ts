@@ -198,6 +198,9 @@ export class FakeWebTransport {
   /** Incoming uni streams (chat/attachment Objects): push() one wire message. */
   readonly incomingUnidirectionalStreams = new FakeIncomingUniStreams();
   readonly closed: Promise<unknown>;
+  /** WebTransport.draining: the test settles it (resolveDraining). */
+  readonly draining = new Promise<void>((resolve) => (this.resolveDraining = resolve));
+  resolveDraining!: () => void;
   closeCalls = 0;
   resolveReady!: () => void;
   rejectReady!: (err: unknown) => void;
