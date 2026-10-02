@@ -169,6 +169,12 @@ typedef struct {
   u64 object;
 } moqctl_loc;
 
+/** Location {group, object}. */
+static inline moqctl_loc moqctl_loc_of(u64 group, u64 object) {
+  moqctl_loc l = {group, object};
+  return l;
+}
+
 /** Location A < Location B: (A.Group, A.Object) lexicographic. */
 int moqctl_loc_less(moqctl_loc a, moqctl_loc b);
 

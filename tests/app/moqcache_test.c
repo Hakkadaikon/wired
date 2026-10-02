@@ -209,6 +209,43 @@ static void test_moqcache_items_tombstone(void) {
   CHECK(!it.unknown && mc_loc_eq(it.loc, mc_loc(1, 0)));
 }
 
+/* Another track's open group picked for eviction becomes a tombstone:
+ * its later Objects stay out (never a partial group), and a cursor inside
+ * it only moves forward. */
+static void test_moqcache_evicted_open_group_dead(void) {
+  moqcache      c;
+  moqcache_item it;
+  mc_init(&c, 3 * (MOQCACHE_HDR + 1));
+  mc_put(&c, 1, 0, 0, 1);
+  mc_put(&c, 2, 0, 0, 1);
+  mc_put(&c, 1, 0, 1, 1);
+  mc_put(&c, 2, 0, 1, 1); /* evicts track 1's open group 0 */
+  CHECK(mc_has(&c, 2, 0, 0) && mc_has(&c, 2, 0, 1));
+  mc_put(&c, 1, 0, 2, 1);
+  CHECK(!mc_has(&c, 1, 0, 0) && !mc_has(&c, 1, 0, 1));
+  CHECK(!mc_has(&c, 1, 0, 2));
+  moqcache_item_at(&c, 1, mc_loc(0, 1), mc_loc(0, 3), &it);
+  CHECK(it.unknown && mc_loc_eq(it.loc, mc_loc(0, 2)));
+  CHECK(mc_loc_eq(it.next, mc_loc(0, 3)));
+  CHECK(c.used <= c.cap);
+}
+
+/* An open group's tombstone is kept while its group is open; when it
+ * leaves no room, the arriving Object's own group is dropped whole
+ * instead of writing past the arena. */
+static void test_moqcache_open_tombstone_kept(void) {
+  moqcache c;
+  mc_init(&c, 2 * MOQCACHE_HDR + 1);
+  mc_put(&c, 1, 0, 0, 1);
+  mc_put(&c, 2, 0, 0, 0);
+  mc_put(&c, 1, 0, 1, 0); /* track 2's group 0 dies, track 1's no fit */
+  CHECK(c.used <= c.cap);
+  CHECK(!mc_has(&c, 1, 0, 0) && !mc_has(&c, 1, 0, 1));
+  mc_put(&c, 2, 0, 1, 0);
+  CHECK(!mc_has(&c, 2, 0, 1));
+  CHECK(c.used <= c.cap);
+}
+
 void test_moqcache(void) {
   test_moqcache_budget_evicts_only_when_needed();
   test_moqcache_evicts_oldest_group();
@@ -222,4 +259,6 @@ void test_moqcache(void) {
   test_moqcache_skip_nonexistent();
   test_moqcache_items_empty();
   test_moqcache_items_tombstone();
+  test_moqcache_evicted_open_group_dead();
+  test_moqcache_open_tombstone_kept();
 }
