@@ -43,6 +43,7 @@ import {
   encodeAttachmentChunkMessage,
   encodeTextPartMessage,
   ATTACHMENT_CHUNK_MARKER,
+  MAX_ATTACHMENT_CHUNK_BYTES,
   splitAttachmentIntoChunks,
 } from "../moqtAttachmentWire";
 
@@ -644,7 +645,7 @@ describe("MoqtChatClient.sendMessage", () => {
   it("publishes the text part once, then one stream per attachment, in order", async () => {
     const { client, streams } = await connectedWithCapture();
 
-    const dataA = new Uint8Array(1000).map((_, i) => i % 256);
+    const dataA = new Uint8Array(MAX_ATTACHMENT_CHUNK_BYTES + 1000).map((_, i) => i % 256);
     const dataB = new Uint8Array(10).map((_, i) => i);
     await client.sendMessage("hello", [
       { bytes: dataA, mimeType: "image/png" },
@@ -971,7 +972,7 @@ describe("MoqtChatClient message aggregation", () => {
     const { fake, messages } = await connectedListening();
 
     pushTextPart(fake, 8, 1, "will time out", 0n);
-    const stale = splitAttachmentIntoChunks(8, 0, "image/png", new Uint8Array(960));
+    const stale = splitAttachmentIntoChunks(8, 0, "image/png", new Uint8Array(MAX_ATTACHMENT_CHUNK_BYTES + 512));
     pushChunk(fake, stale[0], 1n); // idx=0 only -- attachment (count=2) never completes
     await vi.advanceTimersByTimeAsync(0);
     expect(messages).toHaveLength(0);
