@@ -412,6 +412,23 @@ describe("MoqtChatClient request streams", () => {
     expect(done).not.toHaveBeenCalled();
   });
 
+  it("history: one FETCH request at a time, so a join burst stays inside the hub's per-session request cap", async () => {
+    const { fake, client } = await connected();
+    const history = () => ({ joiningStart: 16n, onObject: () => {}, onDone: () => {} });
+
+    const a = client.subscribeTrack(utf8ToBytes("user2"), "user2", history());
+    const b = client.subscribeTrack(utf8ToBytes("user3"), "user3", history());
+    await flush();
+    for (const s of fake.requestsOf(MSG_SUBSCRIBE)) s.replies.push(subscribeOk({ group: 1n, object: 0n }));
+    await Promise.all([a, b]);
+    await flush();
+    expect(fake.requestsOf(MSG_FETCH)).toHaveLength(1);
+
+    fake.requestsOf(MSG_FETCH)[0].replies.push(fetchOk());
+    await flush();
+    expect(fake.requestsOf(MSG_FETCH)).toHaveLength(2);
+  });
+
   it("history: no FETCH when SUBSCRIBE_OK carries no Largest Object", async () => {
     const { fake, client } = await connected();
     const done = vi.fn();
