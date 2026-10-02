@@ -1,0 +1,8 @@
+{
+  "client": "probe",
+  "serverArgs": ["--workers", "1"],
+  "steps": [
+    { "client": "probe", "args": ["h3get", "/"] },
+    { "signal": "SIGTERM" }
+  ]
+}
