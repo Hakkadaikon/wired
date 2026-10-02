@@ -269,6 +269,7 @@ static wired_moqt_io moqtrun_test_io(void) {
   io.send_budget       = 0; /* default: unconstrained, like a table without */
   io.close_session     = moqtrun_test_close_session;
   io.stream_reply_open = moqtrun_test_stream_reply_open;
+  io.stream_priority   = 0; /* default: off, like a table without */
   return io;
 }
 

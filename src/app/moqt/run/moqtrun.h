@@ -122,7 +122,26 @@ typedef struct {
    * left to the data path, which drops it. */
   int (*stream_reply_open)(
       wired_wt_session* s, u64 stream_id, wired_span payload);
+  /** wired_server_wt_stream_priority-shaped: sets the RFC 9218 urgency
+   * (0..7, lower first) of a subscriber stream the hub just opened -- the
+   * subscription's priorities mapped by WIRED_MOQTRUN_URGENCY. Kept last so
+   * older positional initializers stay valid; a table built without it (0)
+   * leaves every stream at the transport's default urgency. */
+  int (*stream_priority)(wired_wt_session* s, u64 stream_id, u8 urgency);
 } wired_moqt_io;
+
+/** RFC 9218 urgency of a subscriber stream from its subscription's
+ * Subscriber Priority and the stream's Publisher Priority (both 0..255,
+ * lower first, 128 when absent -- draft-ietf-moq-transport-19 7.1,
+ * 10.2.7). 7.2 orders by subscriber priority, then publisher priority, so
+ * the subscriber's half picks the pair and the publisher's half the one
+ * within it: 4..7. Control and request streams keep the transport default
+ * 3 and so go first (7.2: they SHOULD be prioritized highest). Group
+ * Order only ranks one subscription's own streams against each other,
+ * which one urgency per stream cannot express; equal urgencies share the
+ * send pass in turn. */
+#define WIRED_MOQTRUN_URGENCY(sub_prio, pub_prio) \
+  ((u8)(4 + ((sub_prio) >> 7) * 2 + ((pub_prio) >> 7)))
 
 /** draft-ietf-moq-transport-19 SS3.5 PROTOCOL_VIOLATION session code. */
 #define WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION 0x3
