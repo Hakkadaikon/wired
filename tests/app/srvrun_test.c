@@ -17999,6 +17999,47 @@ static void test_srvrun_rst_budget_exhausted_tears_down(void) {
   CHECK(c->up == 0);
 }
 
+/* draft-ietf-webtrans-http3-15 6: with every send slot busy, a session
+ * close cannot stage WT_CLOSE_SESSION -- the CONNECT stream is reset
+ * instead ("closed [...] abruptly" terminates the session), with the final
+ * size the bytes already sent on it (RFC 9000 4.5), and kept until ACKed. */
+static void test_srvrun_wt_close_without_send_slot_resets_connect(void) {
+  struct lp_fix      f;
+  u8                 obuf[1024];
+  wired_obuf         ob  = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*       c   = sr_wtsend_fixture(&f, &ob);
+  srvrun_cfg         cfg = sr_wt_send_cfg();
+  reset_stream_frame rs;
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    c->wtsend[i].in_use    = 1;
+    c->wtsend[i].stream_id = 1000 + 4 * i;
+  }
+  c->wt_connect_sent_len[0] = 20;
+  srvrun_send_wt_close(&cfg, c, 0);
+  CHECK(c->wt_active == 0);
+  CHECK(c->rst[0].pln > 0);
+  CHECK(reset_stream_decode(c->rst[0].pl, c->rst[0].pln, &rs) > 0);
+  CHECK(rs.stream_id == 4 && rs.final_size == 20);
+}
+
+/* The CONNECT stream's send slot does not pin an app send slot for the
+ * session's life: once a WT_DRAIN_SESSION round is fully ACKed the slot is
+ * reaped, and a later capsule claims a fresh one at the right offset. */
+static void test_srvrun_wt_drain_slot_reaped_once_acked(void) {
+  struct lp_fix  f;
+  u8             obuf[1024];
+  wired_obuf     ob = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*   c  = sr_wtsend_fixture(&f, &ob);
+  srvrun_wtsend* w;
+  c->wt_connect_sent_len[0] = 20;
+  srvrun_send_wt_drain(c, 0);
+  w = srvrun_wtsend_find(c, 4);
+  CHECK(w != 0);
+  w->sess.q.cur = w->sess.q.len; /* all sent, nothing in flight: ACKed */
+  srvrun_reap_wtsends(c);
+  CHECK(srvrun_wtsend_find(c, 4) == 0);
+}
+
 /* draft-ietf-webtrans-http3-15 4.6: a stream offered to a session whose
  * pre-establishment buffer is full is reset and its slot freed -- bidi and
  * uni alike, that stream's QUIC credit is returned (RFC 9000 4.6). */
@@ -20833,6 +20874,8 @@ void test_srvrun(void) {
   test_srvrun_wt_busy_reset_retransmitted_until_acked();
   test_srvrun_control_packets_kept_until_acked();
   test_srvrun_rst_budget_exhausted_tears_down();
+  test_srvrun_wt_close_without_send_slot_resets_connect();
+  test_srvrun_wt_drain_slot_reaped_once_acked();
   test_srvrun_wt_offer_reject_returns_credit();
   test_srvrun_wt_teardown_returns_credit();
   test_srvrun_wt_uni_peer_reset_returns_credit();

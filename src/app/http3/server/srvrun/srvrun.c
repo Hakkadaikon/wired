@@ -3457,6 +3457,23 @@ static void srvrun_close_wt_on_stream_close(
  * session: a peer that never received the capsule finds out via the CONNECT
  * stream's own FIN/reset either way, and leaving the session open forever on
  * a local encode failure would be worse. */
+/* draft-ietf-webtrans-http3-15 6: a session also ends when its CONNECT
+ * stream is "closed [...] abruptly" -- the fallback when WT_CLOSE_SESSION
+ * cannot be staged (no free send slot). RESET_STREAM + STOP_SENDING with
+ * WT_SESSION_GONE, its final size every byte already sent on the stream
+ * (RFC 9000 4.5: wt_connect_sent_len), kept until ACKed. */
+static void srvrun_reset_connect_stream(
+    const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
+  u8                 pl[48];
+  wired_obuf         plb  = obuf_of(pl, sizeof pl);
+  u64                id   = srvrun_wt_slot(c, sidx)->connect_stream_id;
+  u64                code = srvrun_wt_session_gone_code();
+  reset_stream_frame rs   = {id, code, c->wt_connect_sent_len[sidx]};
+  usz                rn   = reset_stream_encode(pl, sizeof pl, &rs);
+  usz                sn   = srvrun_wt_abort_stop(id, code, &plb, rn);
+  srvrun_send_kept(cfg, c, pl, rn + sn, "WT CONNECT stream reset\n");
+}
+
 static void srvrun_send_wt_close(
     const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
   /* +4: WT_CLOSE_SESSION's fixed 32-bit Application Error Code field
@@ -3466,10 +3483,11 @@ static void srvrun_send_wt_close(
    * wired_wtcapsule_encode_close writes into this same buffer. */
   u8         body[16 + 4 + WTCAPSULE_CLOSE_MESSAGE_MAX];
   wired_obuf bob = obuf_of(body, sizeof body);
-  if (wired_wtcapsule_encode_close(
+  if (!wired_wtcapsule_encode_close(
           &bob, c->wt_close_code[sidx],
-          wired_span_of(c->wt_close_msg[sidx], c->wt_close_msg_len[sidx])))
-    srvrun_send_wt_capsule(c, sidx, wired_span_of(body, bob.len), 1);
+          wired_span_of(c->wt_close_msg[sidx], c->wt_close_msg_len[sidx])) ||
+      !srvrun_send_wt_capsule(c, sidx, wired_span_of(body, bob.len), 1))
+    srvrun_reset_connect_stream(cfg, c, sidx);
   srvrun_close_wt_session_slot(cfg, c, sidx, srvrun_wt_session_gone_code());
 }
 
@@ -8045,9 +8063,24 @@ static int srvrun_wtsend_finished(srvrun_wtsend* w) {
 
 /* Free every fully-ACKed WT send slot; the app's payload view is released
  * (nothing SDK-side to return -- the sendsess only ever borrowed it). */
+/* 1 iff w is a live session's CONNECT-stream capsule slot still open for
+ * more capsules (srvrun_wt_connect_sender). */
+static int srvrun_wtsend_capsule_open(const srvrun_conn* c, srvrun_wtsend* w) {
+  return w->append_open && srvrun_wt_slot_by_connect_id(c, w->stream_id) >= 0;
+}
+
+/* 1 iff w may be freed now: fully done, or an open capsule slot whose
+ * bytes are all ACKed -- a WT_DRAIN_SESSION must not pin a send slot for
+ * the session's life; a later capsule claims a fresh slot at
+ * wt_connect_sent_len. */
+static int srvrun_wtsend_reapable(const srvrun_conn* c, srvrun_wtsend* w) {
+  return srvrun_wtsend_finished(w) ||
+         (srvrun_wtsend_capsule_open(c, w) && srvrun_wtsend_epoch_acked(w));
+}
+
 static void srvrun_reap_wtsends(srvrun_conn* c) {
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
-    if (srvrun_wtsend_finished(&c->wtsend[i])) c->wtsend[i].in_use = 0;
+    if (srvrun_wtsend_reapable(c, &c->wtsend[i])) c->wtsend[i].in_use = 0;
 }
 
 /* Sum of receive-window overflow drops across this connection's WT stream
