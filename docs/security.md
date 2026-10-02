@@ -241,6 +241,16 @@ than pattern-matching the URI — `test_ncsan_uri_excluded_with_uri_san_rejects`
   table's own 30-bit maximum code length (RFC 9114 10.5.5 / QPACK §7,
   compression-cost DoS) — `test_qpack_huffman_decode_cost_bounded`.
 - varint and frame parsers bound every read against the remaining buffer.
+- A request body not streamed through an app's own
+  `wired_srvrun_handler.on_body` is buffered up to one fixed window
+  (`BODYWIN_CAP`, 2048 bytes); an overflow answers `413` (RFC 9110
+  15.5.14), same as an app's `on_body` returning 0 to stop a body it
+  decided is too large. An oversized leading HEADERS frame (the request's
+  headers, not its body) answers `431` instead (RFC 6585 5) —
+  `dispatch.c` — `test_srvrun_headers_over_req_buf_gets_431`, `test_
+  srvrun_body_over_req_buf_gets_413`, `test_srvrun_full_window_body_
+  gets_413`, `test_srvrun_full_window_headers_get_431`, `test_srvrun_
+  on_body_reject_answers_413`, `test_srvrun_early_413_also_stops_sending`.
 - `fuzz/fuzz_qpack.c` fuzzes QPACK decoding (`just fuzz-smoke` every push,
   `just fuzz-ci` nightly).
 
@@ -273,6 +283,12 @@ adversarial input) without exercising that guard as a failure lever
   datagrams) are exposed — `test_srvrun_wt_close_session_capsule_received`,
   `test_srvrun_wt_session_creation_rate_limited`, `test_srvrun_wt_usage_
   counters_exposed`.
+- A present `Origin` header on an Extended CONNECT must be non-empty for the
+  session to establish (draft-ietf-webtrans-http3-15 SS3.6); a malformed
+  (empty) `Origin` is rejected with `403` — `wt_origin_ok` in `srvrun.c` —
+  `test_srvrun_wt_connect_origin_ok_establishes`, `test_srvrun_wt_connect_
+  origin_malformed_403`. An absent `Origin` is not itself a rejection reason
+  (a non-browser client sends none).
 - A varint length-overflow in object/property length parsing (`*at + len >
   buf.n` wrapping mod 2^64, an ~2^64-byte OOB decode span or infinite loop,
   found by `fuzz/fuzz_moqt.c`) was fixed by rewriting the check in
@@ -299,7 +315,9 @@ with `authorize_subscribe == 0`, fully open by default; PUBLISH is not
 gated, only SUBSCRIBE; a duplicate `AUTHORIZATION_TOKEN` in one message is
 rejected as a generic duplicate-parameter VIOLATION rather than honoring the
 spec's "MAY be repeated" allowance; `WT_DRAIN_SESSION` decodes but its
-handler is a no-op (no graceful-drain behavior yet).
+handler is a no-op (no graceful-drain behavior yet); `Origin` verification
+accepts any well-formed, non-empty value — there is no allowlist
+configuration surface yet (YAGNI, no in-tree consumer needs one).
 
 ## Freestanding attack surface
 
