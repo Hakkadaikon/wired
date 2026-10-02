@@ -50,7 +50,9 @@ typedef struct {
  * wired_h3srv_state.
  * @param st the state to initialise
  * @param max_table_capacity the limit this server advertises via
- *   SETTINGS_QPACK_MAX_TABLE_CAPACITY (0 if none) */
+ *   SETTINGS_QPACK_MAX_TABLE_CAPACITY (0 if none); it bounds the peer's
+ *   encoder only and does not seed this server's own qenc, which starts at
+ *   capacity 0 (RFC 9204 3.2.3) */
 void wired_h3srv_state_init(wired_h3srv_state* st, u64 max_table_capacity);
 
 #endif

@@ -18267,7 +18267,11 @@ static int sr_qenc_field_is_dynamic_indexed(const u8* fs, usz n) {
  * QPACK encoder stream's own wtsend slot, and (b) references it from the
  * response's field section as an Indexed Field Line with T=0 (dynamic) --
  * not the literal fallback the capacity==0 default used before this stream
- * existed. */
+ * existed.
+ * NOTE: production never reaches this path today -- wired_h3srv_state_init
+ * starts qenc at capacity 0 (RFC 9204 3.2.3) and no Set Dynamic Table
+ * Capacity is sent -- so the test seeds a peer-allowed 4096 by hand to keep
+ * the dynamic-insert mechanism covered. */
 static void test_srvrun_qenc_first_use_inserts_and_references_dynamic(void) {
   srvrun_conn            c = {0};
   qpackenc_status_result ins;
