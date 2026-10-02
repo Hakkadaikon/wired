@@ -9,24 +9,36 @@ frames to every other connected participant, using the `app/moqt/run` hub
 ## What this demonstrates
 
 Unlike `examples/webtransport_chat` (which broadcasts raw QUIC DATAGRAMs and
-leaves the message framing entirely to the frontend), this sample speaks an
-actual MOQT subset on the wire: each participant PUBLISHes two
-fixed-namespace tracks — `<id>` for chat, `<id>/audio` for voice — and
-SUBSCRIBEs to the other candidates' matching tracks in a small fixed pool
-(`user1`..`user4` — this subset has no namespace discovery, see
-`moqtClient.ts`'s own doc). There is a single fixed room; unlike
-`webtransport_chat`'s client-side room tag, MOQT's track addressing makes a
-separate room concept unnecessary here.
+leaves the message framing entirely to the frontend), this sample speaks
+MOQT on the wire. Each participant (one of the fixed ids `user1`..`user4`:
+an id's index is its Track Alias) PUBLISHes up to three tracks under the
+namespace `wired/moqt_chat` — `<id>` for chat, `<id>/audio` for voice and
+`<id>/screen` for a screen share. There is a single fixed room.
 
-A chat message is sent as one MOQT Object (SUBGROUP_HEADER + Object,
-`frontend/src/lib/moqtWire.ts`) on its own unidirectional stream. Each Opus
-frame is sent the same way (`frontend/src/lib/moqtVoiceWire.ts`): one
-complete SUBGROUP_HEADER + Object per fresh uni stream, matching the hub's
-own per-call relay unit (`moqtrun.c`'s `moqtrun_relay_to_one` forwards each
-relayed chunk as its own one-shot stream) rather than a single long-lived
-stream. The hub relays the SUBGROUP bytes verbatim to every Established
-subscriber of that track (`moqtrun.c`'s `moqtrun_relay_object`); a single
-peer can PUBLISH both tracks at once (`moqtrun.h`'s per-peer track array).
+- **Requests on their own streams** (draft 3.3): every PUBLISH, SUBSCRIBE,
+  FETCH, PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE opens its own
+  bidirectional stream with an even Request ID, and its answer comes back
+  on that stream. Cancelling a request resets its stream. The hub's own
+  control stream carries SETUP and, when the hub is shutting down, GOAWAY.
+- **Namespace discovery** (draft 6.1-6.2): once its tracks are PUBLISHed, a
+  client announces `wired/moqt_chat/<id>` and watches the `wired/moqt_chat`
+  prefix. NAMESPACE for a peer puts it on the roster and subscribes its chat
+  and audio; NAMESPACE_DONE takes it off and cancels those subscriptions. A
+  screen share additionally announces `wired/moqt_chat/<id>/screen` while it
+  runs. Nothing is polled.
+- **History and late join** (draft 10.12.2): a peer's chat track is
+  subscribed from the Largest Object together with a Relative Joining FETCH
+  of the 64 Groups before it, so a joiner sees recent messages. Every
+  screen-share keyframe starts a new Group, and a late viewer's Joining
+  FETCH (Joining Start 0) hands it the current Group from its keyframe, so
+  the first frame decodes at once.
+- **Objects**: a chat message's text is one Object in a Group of its own; an
+  attachment is a Group of its own whose Objects are 15 KiB chunks (the hub
+  holds at most 16384 bytes of one Object, `WIRED_MOQTRUN_RELAY_FRAG_MAX`);
+  voice is one OBJECT_DATAGRAM per Opus frame (a stream when the frame is
+  too large). The hub relays SUBGROUP bytes verbatim to every subscriber
+  (`moqtrun.c`'s `moqtrun_relay_object`); chat tracks relay reliably, voice
+  and screen drop rather than queue.
 
 The wire codecs (varint/KVP/control messages/data messages) are implemented
 independently in C (`src/app/moqt/vi`/`kvp`/`ctl`/`data`) and TypeScript
@@ -37,9 +49,11 @@ against a shared, audited reference rather than only against each other.
 ## Build and run (server)
 
 The server runs in a `scratch` container: the binary is fully static
-(`-ffreestanding -nostdlib -static`) and touches no filesystem at runtime
-(its self-signed cert is generated in memory each boot, not read from
-disk), so the image holds nothing besides `wired_server`.
+(`-ffreestanding -nostdlib -static`) and, by default, touches no filesystem
+at runtime (its self-signed cert is generated in memory each boot), so the
+image holds nothing besides `wired_server`. Mount a PEM pair and point
+`WIRED_CERT`/`WIRED_KEY` at it to serve a real certificate instead
+(Configuration below).
 
 ```sh
 cd examples/moqt_chat
@@ -53,12 +67,48 @@ through a NAT'd port mapping — a bridge-network `-p 4433:4433/udp` setup was
 confirmed by hand to never complete the QUIC handshake (the client sits at
 "Connecting..." forever), while host networking connects immediately.
 
-This hub keeps its peer table in one process's memory, so it is
-single-process only: do not pass `--workers`/`--cores`/`--ifindex`.
+This hub keeps its peer table, request streams and object cache in one
+process's memory, so it is single-process only: do not pass
+`--workers`/`--cores`/`--ifindex` (each worker would run its own room).
 
-`--cc cubic` (default) or `--cc bbr` selects the congestion controller for
-new connections; NewReno is not selectable through this flag (any other
-value exits with a usage error).
+### Configuration
+
+| Flag / environment | Default | Effect |
+|---|---|---|
+| `--port N` | 4433 | UDP port |
+| `--cc cubic\|bbr` | `cubic` | congestion controller for new connections |
+| `--cert PATH` / `WIRED_CERT` | unset (self-signed, in memory) | fullchain PEM (leaf first) to serve |
+| `--key PATH` / `WIRED_KEY` | unset | its P-256 private key (PEM); required with a cert |
+| `WIRED_ALLOWED_ORIGINS` | unset (every Origin accepted) | comma-separated exact Origins, e.g. `https://chat.example,https://localhost:8443`; a WebTransport CONNECT from any other Origin is answered 403 (draft-ietf-webtrans-http3-15 3.1) |
+| `--goaway-uri URI` / `WIRED_GOAWAY_URI` | unset (reconnect to the same URI) | New Session URI sent in GOAWAY on shutdown (at most 512 bytes) |
+
+- **Certificate reload**: with `--cert`/`--key` set, `kill -HUP <pid>`
+  re-reads both files; connections opened afterwards use the new
+  certificate, open ones are not disturbed. A pair that fails to load leaves
+  the old one in place.
+- **Object cache**: the hub keeps the last 1 MiB of Objects (all tracks in
+  one arena, the oldest whole Group evicted first) to answer FETCH. A busy
+  screen share therefore pushes chat history out of it quickly, and one
+  Group larger than the arena (a single attachment over ~1 MiB) is not
+  cached at all, so a joiner's history skips it.
+- **Namespaces**: only namespaces under `wired/moqt_chat` may be announced
+  or watched; anything else is refused UNAUTHORIZED.
+
+### Graceful restart
+
+On SIGTERM (`docker compose stop`, `kill <pid>`) the hub stops accepting
+connections and sends every MOQT session GOAWAY (draft 3.6 / 10.4) with a
+2 s timeout and the `WIRED_GOAWAY_URI`; it exits after the SDK's ~5 s drain.
+The browser reconnects as soon as the GOAWAY (or a WebTransport drain)
+arrives — to the new URI when one was given — and the fresh session
+publishes, announces and subscribes everything again. While the old hub
+drains it refuses new connections, so the reconnect retries on the
+auto-rejoin back-off (1 s, 2 s, 4 s, ...) until the restarted hub answers.
+A restart on the same UTC day keeps the self-signed fingerprint, so the
+pinned hash still matches.
+
+NewReno is not selectable through `--cc` (any value other than `cubic` or
+`bbr` exits with a usage error).
 
 On startup it logs the self-signed certificate's SHA-256 fingerprint:
 
@@ -116,6 +166,14 @@ just e2e-setup                                        # once: installs deps + Ch
 just e2e-load --clients=4 --messages=10 --max-loss-rate=0
 ```
 
+Every e2e entry point binds and dials `WIRED_E2E_PORT` (default 4433) and
+stops only the hub it started — set it to a free port on a host that
+already runs a hub, e.g. `WIRED_E2E_PORT=14833 just e2e-stability
+s21-sigterm-goaway`. Besides the load test, `just e2e-stability <id>` runs
+one scenario from `e2e/scenarios/`, among them `s16-history-join`,
+`s17-video-join-keyframe`, `s18-discovery`, `s19-origin-403`,
+`s20-attachment-1mb` and `s21-sigterm-goaway` for the behavior above.
+
 Starts the server and frontend, drives up to `MAX_CLIENTS=4` headless-Chrome
 participants (the frontend's fixed candidate id list), has each send several
 chat messages, and grades the run for message loss and latency. This grades
@@ -130,12 +188,14 @@ network path, not the noise-suppression worklet's own CPU cost.
 - `wired_server.c` — the MOQT hub server: wires WebTransport session/stream
   callbacks to `src/app/moqt/run`'s hub and adapts `wired_server_wt_*` into
   its `wired_moqt_io` send table (prefixing the WebTransport stream signal,
-  draft-ietf-webtrans-http3-15 SS4.2).
+  draft-ietf-webtrans-http3-15 SS4.2), plus the Origin allow-list, the
+  certificate paths, the object cache and GOAWAY on shutdown.
 - `Dockerfile` / `docker-compose.yml` — the `scratch` image `just up`/
   `up-bg` build and run (see "Build and run (server)" above).
 - `frontend/` — the Next.js + React browser client:
-  `src/lib/moqtWire.ts`/`moqtClient.ts` (chat wire codec, session/PUBLISH/
-  SUBSCRIBE/relay), `moqtVoiceWire.ts`/`moqtVoiceClient.ts` (voice Object
+  `src/lib/moqtWire.ts`/`moqtClient.ts` (wire codec; session, request
+  streams, discovery, FETCH, GOAWAY), `moqtScreenWire.ts`/`moqtScreenClient.ts`
+  (screen share), `moqtVoiceWire.ts`/`moqtVoiceClient.ts` (voice Object
   framing and the audio track's publish/subscribe), `src/lib/*Pipeline.ts` +
   `jitterBuffer.ts`/`playbackSink.ts`/`audioContextGate.ts` (mic capture ->
   Opus encode -> MOQT Object, and the receive-side jitter/decode/playback
