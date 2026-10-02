@@ -57,6 +57,13 @@ static void moqtrun_frag_pool_clear(wired_moqt_hub* hub) {
   for (usz i = 0; i < WIRED_MOQTRUN_FRAG_POOL; i++) hub->frag_owner[i] = 0;
 }
 
+static void moqtrun_fetches_clear(wired_moqt_hub* hub) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    hub->fetches[i].in_use = 0;
+    hub->fetches[i].wt     = 0;
+  }
+}
+
 void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
     hub->peers[i].in_use = 0;
@@ -99,6 +106,7 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   moqtrun_frag_pool_clear(hub);
   moqcache_init(&hub->cache, 0, 0);
   hub->cache_tag_next = 0;
+  moqtrun_fetches_clear(hub);
 }
 
 int wired_moqt_cache_attach(wired_moqt_hub* hub, u8* arena, usz size) {
@@ -1179,6 +1187,226 @@ static void moqtrun_handle_subscribe(
   moqtrun_subscribe_checked(hub, p, peer_idx, &m);
 }
 
+/* ===================== FETCH (draft 10.12, 10.13, 11.4.4) =============== */
+
+static moqctl_loc moqtrun_loc(u64 group, u64 object) {
+  moqctl_loc l = {group, object};
+  return l;
+}
+
+/* The Location right after l. */
+static moqctl_loc moqtrun_after(moqctl_loc l) {
+  return moqtrun_loc(l.group, l.object + 1);
+}
+
+/* End Location "last Object + 1", Object 0 meaning the whole End Group
+ * (10.12.1), as an exclusive bound. */
+static moqctl_loc moqtrun_end_excl(moqctl_loc e) {
+  return e.object ? e : moqtrun_loc(e.group + 1, 0);
+}
+
+/* A FETCH resolved against its track: the cache records to read, the
+ * range [start, end), and the End Location FETCH_OK reports. */
+typedef struct {
+  u64        tag;
+  moqctl_loc start;
+  moqctl_loc end;
+  moqctl_loc ok_end;
+} moqtrun_frange;
+
+static int moqtrun_fetch_live(const wired_moqtrun_fetch* f) {
+  return f->in_use;
+}
+
+static wired_moqtrun_fetch* moqtrun_fetch_slot(wired_moqt_hub* hub) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+    if (!moqtrun_fetch_live(&hub->fetches[i])) return &hub->fetches[i];
+  return 0;
+}
+
+static int moqtrun_fetch_done(const wired_moqtrun_fetch* f) {
+  return !moqctl_loc_less(f->cursor, f->end);
+}
+
+/* The FETCH_HEADER stream (11.4.4); a range with nothing to serve is the
+ * header alone, closed at once (10.12.3). */
+static i64 moqtrun_fetch_open_io(
+    wired_moqt_hub* hub, const wired_moqtrun_fetch* f, wired_span hdr) {
+  return moqtrun_fetch_done(f) ? hub->io.send_uni(f->wt, hdr)
+                               : hub->io.open_uni_stream(f->wt, hdr);
+}
+
+/* 1 once f's stream is open; a refused open retries on the next tick. */
+static int moqtrun_fetch_open(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+  u8  hdr[16]; /* Type 0x5 + a Request ID varint */
+  usz n = 0;
+  if (f->opened) return 1;
+  moqfetch_hdr_put(wired_mspan_of(hdr, sizeof hdr), &n, f->request_id);
+  i64 sid = moqtrun_fetch_open_io(hub, f, wired_span_of(hdr, n));
+  if (sid < 0) return 0;
+  f->stream_id = (u64)sid;
+  f->opened    = 1;
+  f->in_use    = !moqtrun_fetch_done(f);
+  return 1;
+}
+
+static int moqtrun_fetch_new_group(const moqfetch_seq* s, u64 group) {
+  return !s->have_loc || s->group != group;
+}
+
+/* A cache item as a fetch Object (11.4.4.1): Object ID Delta and
+ * Publisher Priority always present (the cache keeps no priority, so the
+ * 12.4 default 128), Group ID Delta when the group changes, Subgroup ID
+ * zero. An unknown range is End of Unknown Range (11.4.4.2). */
+static void moqtrun_fetch_obj_of(
+    moqfetch_obj* o, const moqcache_item* it, const moqfetch_seq* s) {
+  bytes_memset(o, 0, sizeof *o);
+  o->group  = it->loc.group;
+  o->object = it->loc.object;
+  o->flags  = MOQFETCH_EOR_UNKNOWN;
+  if (it->unknown) return;
+  o->flags = MOQFETCH_F_OBJECT | MOQFETCH_F_PRIORITY |
+             (moqtrun_fetch_new_group(s, it->loc.group) ? MOQFETCH_F_GROUP : 0);
+  o->has_subgroup = 1;
+  o->priority     = 128;
+  o->payload      = it->payload;
+}
+
+/* Sends the item at f's cursor (FIN on the last); 0 when the transport
+ * refused it -- the cursor stays and the item is looked up afresh on the
+ * next try. relay_scratch is free here (its doc). */
+static int moqtrun_fetch_send_one(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+  moqcache_item it;
+  moqfetch_obj  o;
+  moqfetch_seq  seq = f->seq;
+  usz           n   = 0;
+  moqcache_item_at(&hub->cache, f->cache_tag, f->cursor, f->end, &it);
+  moqtrun_fetch_obj_of(&o, &it, &seq);
+  moqfetch_obj_put(
+      wired_mspan_of(hub->relay_scratch, sizeof hub->relay_scratch), &n, &seq,
+      &o);
+  moqctl_loc next = moqcache_skip(&hub->cache, f->cache_tag, it.next, f->end);
+  int        fin  = !moqctl_loc_less(next, f->end);
+  if (hub->io.stream_send(
+          f->wt, f->stream_id, wired_span_of(hub->relay_scratch, n), fin) <= 0)
+    return 0;
+  f->seq    = seq;
+  f->cursor = next;
+  f->in_use = !fin;
+  return 1;
+}
+
+static void moqtrun_fetch_pump(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+  while (f->in_use && moqtrun_fetch_send_one(hub, f)) {
+  }
+}
+
+/* Serves f until it ends or the transport refuses a round. */
+static void moqtrun_fetch_serve(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+  if (moqtrun_fetch_open(hub, f)) moqtrun_fetch_pump(hub, f);
+}
+
+static void moqtrun_fetches_tick(wired_moqt_hub* hub) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+    if (moqtrun_fetch_live(&hub->fetches[i]))
+      moqtrun_fetch_serve(hub, &hub->fetches[i]);
+}
+
+static int moqtrun_encode_fetch_ok(wired_mspan buf, usz* off, const void* m) {
+  return moqfetch_ok_encode(buf, off, m);
+}
+
+/* FETCH_OK (10.13): not End Of Track, End Location end, no parameters or
+ * Track Properties. */
+static void moqtrun_queue_fetch_ok(wired_moqtrun_peer* p, moqctl_loc end) {
+  u8          msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
+  moqfetch_ok ok = {0};
+  ok.end         = end;
+  usz n          = moqtrun_envelope_put(
+      wired_mspan_of(msg, sizeof msg), MOQFETCH_T_FETCH_OK,
+      moqtrun_encode_fetch_ok, &ok);
+  moqtrun_queue_reply(p, wired_span_of(msg, n));
+}
+
+/* Answers FETCH_OK and starts serving r from the cache. */
+static void moqtrun_fetch_accept(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    u64                   request_id,
+    const moqtrun_frange* r) {
+  wired_moqtrun_fetch* f = moqtrun_fetch_slot(hub);
+  if (!f) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_INTERNAL_ERROR);
+    return;
+  }
+  bytes_memset(f, 0, sizeof *f);
+  f->in_use     = 1;
+  f->wt         = p->wt;
+  f->request_id = request_id;
+  f->cache_tag  = r->tag;
+  f->end        = r->end;
+  f->cursor     = moqcache_skip(&hub->cache, r->tag, r->start, r->end);
+  moqtrun_queue_fetch_ok(p, r->ok_end);
+  moqtrun_fetch_serve(hub, f);
+}
+
+/* 10.12.3 INVALID_RANGE: nothing published, Start past the Largest
+ * Object, or End not past Start. */
+static int moqtrun_fetch_range_bad(
+    const wired_moqtrun_track* t, moqctl_loc start, moqctl_loc end) {
+  return !t->has_largest || moqctl_loc_less(t->largest, start) ||
+         !moqctl_loc_less(start, end);
+}
+
+/* 10.13: an End past the Largest Object is cut to {Largest.Group,
+ * Largest.Object + 1}, and FETCH_OK says so. */
+static void moqtrun_fetch_clamp(
+    moqtrun_frange* r, const wired_moqtrun_track* t, moqctl_loc req_end) {
+  moqctl_loc top = moqtrun_after(t->largest);
+  r->end         = moqtrun_end_excl(req_end);
+  r->ok_end      = req_end;
+  if (!moqctl_loc_less(top, r->end)) return;
+  r->end    = top;
+  r->ok_end = top;
+}
+
+/* 10.12.1 Standalone Fetch of a peer-published track. */
+static void moqtrun_fetch_standalone(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqfetch_fetch* m) {
+  u8                   ns_buf[WIRED_MOQTRUN_MAX_NS];
+  moqtrun_frange       r;
+  wired_moqtrun_track* t =
+      moqtrun_find_published_track(hub, moqtrun_key_of(&m->track, ns_buf));
+  if (!t) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
+    return;
+  }
+  if (moqtrun_fetch_range_bad(t, m->start, moqtrun_end_excl(m->end))) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_INVALID_RANGE);
+    return;
+  }
+  r.tag   = t->cache_tag;
+  r.start = m->start;
+  moqtrun_fetch_clamp(&r, t, m->end);
+  moqtrun_fetch_accept(hub, p, m->request_id, &r);
+}
+
+/* draft 10.12 FETCH. ponytail: groups always go in ascending order
+ * (GROUP_ORDER is not consulted, 10.2.8). */
+static void moqtrun_handle_fetch(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  moqfetch_fetch m;
+  (void)peer_idx;
+  if (moqfetch_fetch_take(body, &m) != MOQCTL_OK) return;
+  moqtrun_fetch_standalone(hub, p, &m);
+}
+
+/* A closed session's fetches end: nothing more is sent for them. */
+static void moqtrun_fetches_drop(wired_moqt_hub* hub, wired_wt_session* s) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+    if (hub->fetches[i].wt == s) hub->fetches[i].in_use = 0;
+}
+
 static void moqtrun_handle_not_supported(wired_moqtrun_peer* p) {
   moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
 }
@@ -1202,6 +1430,11 @@ static void moqtrun_dispatch_publish(
 static void moqtrun_dispatch_subscribe(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   moqtrun_handle_subscribe(hub, p, peer_idx, body);
+}
+
+static void moqtrun_dispatch_fetch(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  moqtrun_handle_fetch(hub, p, peer_idx, body);
 }
 
 static void moqtrun_dispatch_not_supported(
@@ -1230,17 +1463,18 @@ static void moqtrun_dispatch_skip(
   (void)body;
 }
 
-/* First-type table (draft table in ctl.h's peek_type doc): only PUBLISH and
- * SUBSCRIBE are implemented; every other First type this hub can see on a
- * fresh request stream gets NOT_SUPPORTED. GOAWAY is not a
- * First type but may legally appear mid-stream, so it is routed
- * the same table for request-stream dispatch below. */
+/* First-type table (draft table in ctl.h's peek_type doc): only PUBLISH,
+ * SUBSCRIBE and FETCH are implemented; every other First type this hub can see
+ * on a fresh request stream gets NOT_SUPPORTED. GOAWAY is not a First type but
+ * may legally appear mid-stream, so it is routed the same table for
+ * request-stream dispatch below. */
 static const struct {
   u64            type;
   moqtrun_ctl_fn fn;
 } moqtrun_ctl_table[] = {
     {MOQCTL_T_PUBLISH, moqtrun_dispatch_publish},
     {MOQCTL_T_SUBSCRIBE, moqtrun_dispatch_subscribe},
+    {MOQFETCH_T_FETCH, moqtrun_dispatch_fetch},
     {MOQCTL_T_GOAWAY, moqtrun_dispatch_goaway},
     /* draft SS10 known non-request messages this hub does not implement:
      * nothing carries a Request ID to answer, so they are skipped. */
@@ -1616,6 +1850,7 @@ void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
   hub->live.last_now_ms = now_ms;
   moqtrun_rel_tick_all(hub, now_ms);
   moqtrun_reqs_tick(hub);
+  moqtrun_fetches_tick(hub);
   if (!hub->live.track.in_use) return;
   u64 g = moqtrun_live_group_at(&hub->live, now_ms);
   moqtrun_track_note(&hub->live.track, g, 0);
@@ -3133,6 +3368,7 @@ void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s) {
   if (!p) return;
   moqtrun_drop_peer_subs(hub, (usz)(p - hub->peers), MOQTRUN_RID_ANY);
   moqtrun_reqs_drop(hub, s);
+  moqtrun_fetches_drop(hub, s);
   /* The leaver's own rings return now (moqtrun_rel_drop_ring's doc); its
    * relay entries stay untouched so a later re-claim can still reset the
    * subscriber streams they record (moqtrun_track_reset_stale_relays). */
