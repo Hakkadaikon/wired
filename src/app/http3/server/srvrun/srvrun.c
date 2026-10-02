@@ -815,6 +815,11 @@ typedef struct {
    * reached the app for this session slot, so a repeated DRAIN does not
    * call wt_on_session_draining again; cleared when a session starts. */
   int wt_drain_rcvd[SRVRUN_MAX_WT_SESSIONS];
+  /** RFC 9000 4.6: client WT bidi streams ended (FIN reaped, refused, reset,
+   * torn down with their session) since the last bidi MAX_STREAMS raise --
+   * each gives its stream credit back (srvrun_grant_wt_bidi), the WT twin of
+   * srvrun_reap_resps' own request-slot grant. */
+  usz wt_bidi_credit_owed;
 } srvrun_conn;
 
 /* Response storage, one row per (connection slot, response slot): 512-byte
@@ -2040,6 +2045,15 @@ static int srvrun_wt_slot_for_new_stream(const srvrun_conn* c) {
   return -1;
 }
 
+/* Free a WT bidi slot whose stream has ended, owing the peer one stream of
+ * bidi credit back if the stream was client-initiated (RFC 9000 2.1: the
+ * low bit clear) -- a server-opened stream never consumed it. */
+static void srvrun_wt_bidi_slot_free(
+    srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
+  slot->in_use = 0;
+  c->wt_bidi_credit_owed += !(slot->stream_id & 1);
+}
+
 /* draft-ietf-webtrans-http3-15 4.3/8.2: a buffered-stream-capacity rejection
  * (wired_wt_session_offer_stream returned 0, i.e. WIRED_WT_MAX_BUFFERED_
  * STREAMS is full on an unestablished session) is the caller's own contract
@@ -2073,7 +2087,7 @@ static void srvrun_offer_wt_slot(
   if (!wired_wt_session_offer_stream(
           srvrun_wt_slot(c, sidx), slot->stream_id)) {
     srvrun_reject_wt_slot(cfg, c, slot->stream_id);
-    slot->in_use = 0;
+    srvrun_wt_bidi_slot_free(c, slot);
     return;
   }
   slot->offered         = 1;
@@ -2197,6 +2211,7 @@ static void srvrun_reap_wt_slot(
   if (!slot->in_use || !slot->fin_delivered) return;
   c->wt_rx_reaped_total += slot->delivered_len;
   wired_srvloop_wt_slot_release(&c->l, slot->stream_id);
+  c->wt_bidi_credit_owed += !(slot->stream_id & 1);
 }
 
 /* One wt_streams slot's per-step work: offer it to the session if this step
@@ -3039,7 +3054,7 @@ static void srvrun_reset_wt_bidi_if_owned(
     u64                           err_code) {
   if (!slot->in_use || slot->wt_session_slot != session_slot) return;
   srvrun_send_wt_busy_reset(cfg, c, slot->stream_id, err_code);
-  slot->in_use = 0;
+  srvrun_wt_bidi_slot_free(c, slot);
 }
 
 /* Same as srvrun_reset_wt_bidi_if_owned, for one WT uni stream slot -- a
@@ -3452,7 +3467,7 @@ static int wt_reset_bidi_session(srvrun_conn* c) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
     wired_srvloop_wt_stream_slot* slot = &c->l.wt_streams[i];
     if (!wt_reset_bidi_matches(slot, c->l.wt_reset_stream_id)) continue;
-    slot->in_use = 0;
+    srvrun_wt_bidi_slot_free(c, slot);
     return slot->wt_session_slot;
   }
   return -1;
@@ -3670,6 +3685,33 @@ static void srvrun_ku_note_rotation(srvrun_conn* c, u64 now_ms) {
   c->ku_rotated_at_ms = now_ms;
 }
 
+/* RFC 9114 8.1 / RFC 9000 2.2: refuse every WT bidi stream this step's
+ * srvloop pass found no free slot for (wt_refused) -- RESET_STREAM +
+ * STOP_SENDING carrying H3_REQUEST_REJECTED ("not processed in any way", so
+ * the peer may retry), never a silent drop of data the transport already
+ * ACKed. Not a WebTransport application code, so a browser surfaces it as
+ * a reset with no application error (draft-ietf-webtrans-http3-15 4.4). */
+static void srvrun_refuse_wt_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
+  for (usz i = 0; i < c->l.wt_refused_n; i++)
+    srvrun_send_wt_busy_reset(cfg, c, c->l.wt_refused[i], H3_REQUEST_REJECTED);
+  c->wt_bidi_credit_owed += c->l.wt_refused_n;
+  c->l.wt_refused_n = 0;
+}
+
+static u64 srvrun_stream_limit_base(const srvrun_step_ctx* ctx);
+
+/* RFC 9000 4.6/19.11: one bidi MAX_STREAMS raise for every client WT bidi
+ * stream ended since the last one (wt_bidi_credit_owed). Bidi credit is
+ * shared with HTTP/3 request streams and starts at the request table's
+ * capacity (wired_srvloop_stream_limit); every ended stream of either kind
+ * returns exactly one, so streams open at once never exceed that capacity
+ * and a WT stream past the WT table is refused, not left unreadable. */
+static void srvrun_grant_wt_bidi(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  srvrun_grant_streams(
+      ctx, c, srvrun_stream_limit_base(ctx), c->wt_bidi_credit_owed);
+  c->wt_bidi_credit_owed = 0;
+}
+
 /* A later datagram on a live slot: one real-wire step, send any sealed
  * reply — unless this step's own gathering found a connection-ending
  * violation (RFC 9221 3 DATAGRAM, or draft-ietf-webtrans-http3-15 4.3's
@@ -3696,6 +3738,7 @@ static void srvrun_on_step(
   srvrun_ku_note_rotation(c, ctx->now_ms);
   srvrun_note_recv(ctx, &mark, c, dg.n);
   srvrun_offer_wt_streams(ctx->cfg, c);
+  srvrun_refuse_wt_streams(ctx->cfg, c);
   srvrun_offer_wt_uni_streams(ctx->cfg, c);
   srvrun_grant_wt_credit(ctx->cfg, c);
   srvrun_grant_req_credit(ctx->cfg, c);
@@ -3706,6 +3749,7 @@ static void srvrun_on_step(
   srvrun_flush_wt_drain_step(ctx->cfg, c);
   srvrun_drain_wt_close_pending(ctx->cfg, c);
   srvrun_drain_wt_stream_reset(ctx->cfg, c);
+  srvrun_grant_wt_bidi(ctx, c);
   if (srvrun_close_on_step_violation(ctx->cfg, c)) return;
   srvrun_send_step_reply(ctx->cfg, c, produced, wired_span_of(out, ob.len));
 }
