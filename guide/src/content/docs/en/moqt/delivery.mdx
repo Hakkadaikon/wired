@@ -1,0 +1,34 @@
+---
+title: Datagram vs. stream delivery
+description: Send the same kind of data as a lossy OBJECT_DATAGRAM and as a reliable, chunked Object stream.
+sidebar:
+  order: 5
+---
+import Example from '../../../../components/Example.astro';
+
+MoQT Objects can travel over two different wire shapes with different
+guarantees. This page sends one Object as a QUIC DATAGRAM (lossy, no retry,
+bounded by the connection's own datagram size) and a bigger one as a stream
+(reliable, and chunked at a 16 KiB per-Object cap).
+
+<Example id="moqt-delivery" />
+
+## How it works
+
+- `moqdg_put` encodes one OBJECT_DATAGRAM (draft-ietf-moq-transport-19
+  11.3.1) directly; `wired_server_wt_send_datagram_to` queues it as a QUIC
+  DATAGRAM, no stream and no retransmission involved.
+- `moqdata_blob_build` frames a blob as one SUBGROUP_HEADER followed by
+  Objects of at most `MOQDATA_BLOB_CHUNK` (16384) bytes each
+  (draft-ietf-moq-transport-19 11.4.2). This page's blob is 20000 bytes, so
+  it comes out as two Objects: 16384 bytes, then the remaining 3616.
+  `wired_server_wt_open_uni` then sends the whole framed stream reliably,
+  FIN included.
+- The client's `go run` output shows both: the datagram arrives whole as a
+  single payload, while the stream arrives as `object_1` and `object_2`
+  whose lengths add back up to the original 20000 bytes.
+- This page builds the Objects directly with `moqdata`/`moqdg`, bypassing
+  `wired_moqt_hub`: there is no PUBLISH/SUBSCRIBE control-plane exchange
+  here, just the two WebTransport delivery primitives the hub itself is
+  built on. See [Publish a track](../publish/) for the hub's own
+  higher-level API.
