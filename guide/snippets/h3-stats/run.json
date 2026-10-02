@@ -1,0 +1,6 @@
+{
+  "client": "probe",
+  "steps": [
+    { "client": "probe", "args": ["h3req", "GET", "/stats"] }
+  ]
+}
