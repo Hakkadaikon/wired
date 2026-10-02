@@ -13,12 +13,12 @@
 
 /** @file
  * draft-ietf-moq-transport-19 hub relay: the app-facing layer wiring the
- * six MOQT domains (vi/kvp/ctl/data/sess, plus this one) onto the WT
- * application API (app/http3/server/srvrun). One hub is a central server:
- * each connected client PUBLISHes exactly one fixed-namespace track (name =
- * participant id) and SUBSCRIBEs to the others; namespace discovery
- * messages are not used (room membership is a fixed hub-side concept, not
- * negotiated on the wire).
+ * other MOQT domains (vi/kvp/ctl/data/dgram/sess/fetch/ns/tstat/cache) onto
+ * the WT application API (app/http3/server/srvrun). One hub is a central
+ * server: clients PUBLISH tracks under namespaces of their choosing,
+ * SUBSCRIBE / FETCH / TRACK_STATUS by full track name, and discover each
+ * other through PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE. All state lives in
+ * this one struct, so a hub serves a single process.
  *
  * The actual WT sends (open/append/reset) are routed through a caller-
  * supplied wired_moqt_io table rather than calling wired_server_wt_* here
