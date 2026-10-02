@@ -172,11 +172,11 @@ typedef struct {
 /* draft-ietf-webtrans-http3-15 SS4 / RFC 9220 3: how many independent
  * WebTransport sessions one connection holds open (unest/est/draining, not
  * closed) at once. A small constant, not WIRED_SRVLOOP_MAX_WT_STREAMS/
- * WIRED_SRVLOOP_MAX_WT_UNI_STREAMS (each 4) -- those bound one connection's
- * total reassembled WT stream slots, shared across however many sessions are
- * open, so SRVRUN_MAX_WT_SESSIONS must stay well under either to leave every
- * session room for more than one stream (see srvrun_wt_session_limit_fits_
- * stream_table_capacity's compile-time check below). */
+ * WIRED_SRVLOOP_MAX_WT_UNI_STREAMS (24 and 6 by default) -- those bound one
+ * connection's total reassembled WT stream slots, shared across however many
+ * sessions are open, so SRVRUN_MAX_WT_SESSIONS must stay well under either
+ * to leave every session room for more than one stream (pinned by
+ * test_srvrun_wt_session_limit_fits_stream_table_capacity). */
 #define SRVRUN_MAX_WT_SESSIONS 2
 
 /* Bytes retained of an accepted Extended CONNECT's own :path pseudo-header
