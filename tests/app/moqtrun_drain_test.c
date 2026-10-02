@@ -148,7 +148,96 @@ static void test_moqtrun_peer_goaway_uri(void) {
   CHECK(mtdr_closes(SESS_A, &code) == 1);
 }
 
+/* ===================== GOAWAY sent (3.6, 10.4) ===================== */
+
+/* Messages of type the hub sent on stream sid (any round kind). */
+static usz mtdr_sent(u64 sid, u64 type) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++)
+    n += (g_calls[i].kind == 3 || g_calls[i].kind == 12) &&
+         g_calls[i].stream_id == sid && mtrq_type_of(&g_calls[i]) == type;
+  return n;
+}
+
+/* The GOAWAY last sent on sid, decoded into *g; 0 if none. */
+static int mtdr_goaway_on(u64 sid, moqctl_goaway* g) {
+  for (usz i = g_n_calls; i > 0; i--) {
+    const moqtrun_test_call* c   = &g_calls[i - 1];
+    usz                      off = 0, boff = 0;
+    u64                      type;
+    wired_span               body;
+    if (c->kind != 3 || c->stream_id != sid) continue;
+    if (moqctl_peek_type(
+            wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
+            MOQCTL_OK ||
+        type != MOQCTL_T_GOAWAY)
+      continue;
+    return moqctl_goaway_take(body, &boff, g) == MOQCTL_OK;
+  }
+  return 0;
+}
+
+/* Exactly one GOAWAY per open session, on its control stream, carrying
+ * the URI and Timeout; a repeat call sends nothing. */
+static void test_moqtrun_goaway_once_per_session(void) {
+  moqctl_goaway g;
+  mtrq_setup();
+  CHECK(wired_moqt_goaway(&mtst_hub, mtst_z("https://h/b"), 500) == 2);
+  CHECK(mtdr_sent(mtdr_ctl(SESS_A), MOQCTL_T_GOAWAY) == 1);
+  CHECK(mtdr_sent(mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY) == 1);
+  CHECK(mtdr_goaway_on(mtdr_ctl(SESS_B), &g));
+  CHECK(g.timeout == 500 && g.new_session_uri.n == 11);
+  CHECK(wired_moqt_goaway(&mtst_hub, mtst_z(""), 0) == 0);
+  CHECK(mtdr_sent(mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY) == 1);
+}
+
+/* A URI past WIRED_MOQTRUN_GOAWAY_URI_MAX is refused whole. */
+static void test_moqtrun_goaway_uri_too_long(void) {
+  static u8 uri[WIRED_MOQTRUN_GOAWAY_URI_MAX + 1];
+  mtrq_setup();
+  moqtrun_test_reset();
+  CHECK(wired_moqt_goaway(&mtst_hub, wired_span_of(uri, sizeof uri), 1) == -1);
+  CHECK(g_n_calls == 0);
+  CHECK(
+      wired_moqt_goaway(&mtst_hub, wired_span_of(uri, sizeof uri - 1), 1) == 2);
+}
+
+/* After GOAWAY on its session a new request is refused GOING_AWAY and
+ * creates nothing, on a request stream or the control stream; one already
+ * answered stays, and its REQUEST_UPDATE is still served. */
+static void test_moqtrun_goaway_late_rejected(void) {
+  moqctl_params p = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 9);
+  moqctl_ftn    f = mtrq_setup();
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  wired_moqt_goaway(&mtst_hub, mtst_z(""), 500);
+  mtst_subscribe_p(SESS_B, MTRQ_S2, &f, 4, 0);
+  CHECK(mtup_err_code(MTRQ_S2) == MOQCTL_ERR_GOING_AWAY);
+  CHECK(mtrq_fin_on(MTRQ_S2) == 1);
+  mtst_subscribe(SESS_B, mtdr_ctl(SESS_B), &f);
+  CHECK(mtdr_sent(mtdr_ctl(SESS_B), MOQCTL_T_REQUEST_ERROR) == 1);
+  mtup_update(SESS_B, MTRQ_S1, &p);
+  CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
+  wired_moqtrun_sub* s = mtst_sub(SESS_A, SESS_B);
+  CHECK(s && s->request_id == 2 && s->priority == 9);
+}
+
+/* WT_DRAIN_SESSION from one peer is a GOAWAY to that session only. */
+static void test_moqtrun_drain_one_session(void) {
+  moqctl_ftn f = mtrq_setup();
+  wired_moqt_on_session_draining(&mtst_hub, SESS_A);
+  CHECK(mtdr_sent(mtdr_ctl(SESS_A), MOQCTL_T_GOAWAY) == 1);
+  CHECK(mtdr_sent(mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY) == 0);
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_SUBSCRIBE_OK);
+  wired_moqt_on_session_draining(&mtst_hub, SESS_A);
+  CHECK(mtdr_sent(mtdr_ctl(SESS_A), MOQCTL_T_GOAWAY) == 1);
+}
+
 void test_moqtrun_drain(void) {
+  test_moqtrun_goaway_once_per_session();
+  test_moqtrun_goaway_uri_too_long();
+  test_moqtrun_goaway_late_rejected();
+  test_moqtrun_drain_one_session();
   test_moqtrun_peer_goaway_twice();
   test_moqtrun_peer_goaway_uri();
   test_moqtrun_prio_per_subscriber();
