@@ -160,23 +160,25 @@ typedef struct {
  * Publisher Priority = at most 4*9+1 = 37 bytes). */
 #define WIRED_MOQTRUN_RELAY_HDR_MAX 40
 
-/** Largest Object (framed: Object ID Delta, Properties, Payload Length and
- * payload) a stream relay forwards, and the capacity of one held-back
- * fragment buffer (the bytes past the last complete Object boundary in a
- * delivery, kept until the next delivery completes them --
- * wired_moqtrun_relay's frag doc). A torn Object's held tail is always
- * shorter than the Object, so a tail reaching this size belongs to an
- * Object over the limit and is dropped. 16384 fits a chat attachment
- * chunk or a small media frame in one Object; the buffers live in the
- * hub's shared WIRED_MOQTRUN_FRAG_POOL, not per relay. Datagram Objects
- * are bounded by the QUIC datagram size instead. */
+/** Cap on a held tail: the bytes of an Object split across deliveries
+ * (past the last complete Object boundary, kept until the next delivery
+ * completes them -- wired_moqtrun_relay's frag doc), and the size of one
+ * WIRED_MOQTRUN_FRAG_POOL buffer. A held tail is always shorter than its
+ * framed Object (Object ID Delta, Properties, Payload Length, payload), so
+ * a tail reaching this size belongs to a larger Object: it is dropped and
+ * its stream stops relaying (moqtrun_relay_save_frag). An Object that
+ * arrives whole in one delivery is never held. 16384 fits a chat
+ * attachment chunk or a small media frame. Datagram Objects are bounded
+ * by the QUIC datagram size instead. */
 #define WIRED_MOQTRUN_RELAY_FRAG_MAX 16384
 
 /** Hub-wide buffers for held-back Object fragments, shared by every relay
  * (a relay holds one only while an Object is torn across deliveries). A
  * torn Object finding none free is dropped like an oversized one
  * (moqtrun_relay_save_frag). 8 covers every concurrently torn stream the
- * chat room produces (a few screen/audio/chat streams in flight at once). */
+ * chat room produces (a few screen/audio/chat streams in flight at once);
+ * past that only the excess stream is dropped (ended at its last whole
+ * Object), never another stream's bytes. */
 #define WIRED_MOQTRUN_FRAG_POOL 8
 
 /** One in-flight relayed publisher stream: which publisher-side stream

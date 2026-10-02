@@ -294,7 +294,10 @@ typedef struct {
  * 49152 -- one delivery can fill the whole window) plus the held relay
  * fragment (under WIRED_MOQTRUN_RELAY_FRAG_MAX, 16384) = 65535, so a
  * full-window relayed payload (e.g. a screen-share frame) still copies
- * instead of falling back to a view_round. */
+ * instead of falling back to a view_round. An app's open path adds its own
+ * overhead (moqt_chat: signal prefix 9 + SUBGROUP_HEADER 40, up to 65584),
+ * so such an app refuses a payload past this size rather than handing it
+ * over as a view (examples/moqt_chat MOQT_OPEN_BUF). */
 #define SRVRUN_WTSEND_BUF 65536
 
 /* One in-flight server-initiated WebTransport stream send (wired_server_wt_
