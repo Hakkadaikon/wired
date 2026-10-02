@@ -486,6 +486,7 @@ export class MoqtChatClient {
       this.#subs.clear();
       this.#subscribed.clear();
       this.#fetches.clear();
+      this.#fetchTurn = Promise.resolve();
       this.#readIncomingUniStreams();
       this.#readIncomingDatagrams();
       // WebTransport.draining (draft-ietf-webtrans-http3-15 4.7): the
@@ -757,7 +758,20 @@ export class MoqtChatClient {
     return true;
   }
 
-  async #joiningFetch(subscribeRequestId: bigint, history: JoiningFetch): Promise<void> {
+  // FETCH requests go out one at a time, each once the previous one is
+  // answered (its request stream is then done; the Objects keep flowing on
+  // their own uni stream). A room's live requests alone use most of the
+  // hub's per-session cap (WIRED_MOQTRUN_MAX_REQS_PER_SESSION), so a
+  // joiner's burst of history fetches must not stack on top of them.
+  #fetchTurn: Promise<void> = Promise.resolve();
+
+  #joiningFetch(subscribeRequestId: bigint, history: JoiningFetch): Promise<void> {
+    const turn = this.#fetchTurn.then(() => this.#fetchOnce(subscribeRequestId, history));
+    this.#fetchTurn = turn;
+    return turn;
+  }
+
+  async #fetchOnce(subscribeRequestId: bigint, history: JoiningFetch): Promise<void> {
     let fetchId = -1n;
     const req = await this.#request(
       MSG_TYPE_FETCH,
