@@ -2223,14 +2223,6 @@ static void moqtrun_handle_not_supported(wired_moqtrun_peer* p) {
   moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
 }
 
-/* draft 5.1: a GOAWAY arriving on a request stream (not the control
- * stream) is informational in this subset -- accepted without closing the
- * session. The 2nd-GOAWAY-on-one-stream violation is a sess-layer
- * concern the caller already routes through moqsess_step; nothing
- * further to do here since this hub sends no GOAWAY of its own on a
- * request stream. */
-static void moqtrun_handle_request_goaway(void) {}
-
 typedef void (*moqtrun_ctl_fn)(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
 
@@ -2257,13 +2249,27 @@ static void moqtrun_dispatch_not_supported(
   moqtrun_handle_not_supported(p);
 }
 
+/* draft-ietf-moq-transport-19 10.4: a GOAWAY on the control stream must
+ * be well formed, carry no New Session URI (the hub is the server), and
+ * be the session's first. */
+static int moqtrun_goaway_bad(moqsess* sess, wired_span body) {
+  usz           off = 0;
+  moqctl_goaway g;
+  if (moqctl_goaway_take(body, &off, &g) != MOQCTL_OK || g.new_session_uri.n)
+    return 1;
+  return moqsess_step(sess, MOQSESS_EV_RECV_GOAWAY) != MOQSESS_CLOSE_NONE;
+}
+
+/* A GOAWAY on a request stream asks to migrate that one request; the
+ * route already refuses a second one, and the hub opens no requests to
+ * move. One on the control stream is recorded, a bad one closes the
+ * session with PROTOCOL_VIOLATION. */
 static void moqtrun_dispatch_goaway(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
-  (void)hub;
-  (void)p;
   (void)peer_idx;
-  (void)body;
-  moqtrun_handle_request_goaway();
+  if (p->req) return;
+  if (moqtrun_goaway_bad(&p->sess, body))
+    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
 
 /* A message with no request to refuse: consumed by its Length, no reply. */
