@@ -35,7 +35,7 @@ static int mc_has(const moqcache* c, u64 tag, u64 g, u64 o) {
 
 static void mc_init(moqcache* c, usz cap) { moqcache_init(c, mc_arena, cap); }
 
-/* AC-01: the budget holds exactly, nothing is evicted before it must be,
+/* The budget holds exactly, nothing is evicted before it must be,
  * and the next Object evicts the old group whole. */
 static void test_moqcache_budget_evicts_only_when_needed(void) {
   moqcache c;
@@ -50,7 +50,7 @@ static void test_moqcache_budget_evicts_only_when_needed(void) {
   CHECK(c.used == MOQCACHE_HDR + 1);
 }
 
-/* AC-02: the oldest whole group goes first; younger ones stay whole. */
+/* The oldest whole group goes first; younger ones stay whole. */
 static void test_moqcache_evicts_oldest_group(void) {
   moqcache c;
   mc_init(&c, 4 * (MOQCACHE_HDR + 1));
@@ -64,7 +64,7 @@ static void test_moqcache_evicts_oldest_group(void) {
   CHECK(mc_has(&c, MC_TAG, 2, 0));
 }
 
-/* AC-03: a group that cannot fit the budget is not cached at all, nor
+/* A group that cannot fit the budget is not cached at all, nor
  * any later Object of it. */
 static void test_moqcache_group_over_budget_dropped(void) {
   moqcache c;
@@ -79,7 +79,7 @@ static void test_moqcache_group_over_budget_dropped(void) {
   CHECK(mc_has(&c, MC_TAG, 1, 0));
 }
 
-/* AC-15: one Object larger than the budget drops its group; its later
+/* One Object larger than the budget drops its group; its later
  * Objects stay out and the group reads as one unknown range. */
 static void test_moqcache_object_over_budget(void) {
   moqcache      c;
@@ -129,7 +129,7 @@ static void test_moqcache_tags_share_arena(void) {
   CHECK(c.used == MOQCACHE_HDR + 1);
 }
 
-/* AC-08: cached Objects are items with their payload, in order. */
+/* Cached Objects are items with their payload, in order. */
 static void test_moqcache_items_cached(void) {
   moqcache      c;
   moqcache_item it;
@@ -147,7 +147,7 @@ static void test_moqcache_items_cached(void) {
   CHECK(mc_loc_eq(moqcache_skip(&c, MC_TAG, it.next, end), end));
 }
 
-/* AC-07: an evicted prefix is one unknown range up to the first cached
+/* An evicted prefix is one unknown range up to the first cached
  * group, then the cached Objects follow. */
 static void test_moqcache_items_evicted_prefix(void) {
   moqcache      c;

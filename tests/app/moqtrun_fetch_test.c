@@ -240,14 +240,14 @@ static int mf_loc_eq(moqctl_loc a, u64 g, u64 o) {
 
 /* ===================== standalone FETCH ===================== */
 
-/* AC-09: nothing published -> INVALID_RANGE (10.12.3). */
+/* Nothing published -> INVALID_RANGE (10.12.3). */
 static void test_moqtrun_fetch_nothing_published(void) {
   mf_init(sizeof mf_arena);
   mf_standalone(mf_loc(0, 0), mf_loc(0, 1));
   CHECK(mf_error() == MOQCTL_ERR_INVALID_RANGE);
 }
 
-/* AC-09: Start past Largest -> INVALID_RANGE; End past Largest is cut
+/* Start past Largest -> INVALID_RANGE; End past Largest is cut
  * to {Largest.Group, Largest.Object + 1} in FETCH_OK (10.13). */
 static void test_moqtrun_fetch_range_against_largest(void) {
   mf_init(sizeof mf_arena);
@@ -283,7 +283,7 @@ static void test_moqtrun_fetch_unknown_track(void) {
   CHECK(mf_error() == MOQCTL_ERR_DOES_NOT_EXIST);
 }
 
-/* AC-08: cached Objects arrive with their payload on a FETCH_HEADER
+/* Cached Objects arrive with their payload on a FETCH_HEADER
  * stream naming the request, the last one carrying FIN. */
 static void test_moqtrun_fetch_serves_cached(void) {
   mf_init(sizeof mf_arena);
@@ -308,7 +308,7 @@ static void test_moqtrun_fetch_no_cache_unknown(void) {
   CHECK(mf_fin);
 }
 
-/* AC-07: an evicted group 0 is one unknown range, then group 1's Objects
+/* An evicted group 0 is one unknown range, then group 1's Objects
  * once each, ascending, FIN last. */
 static void test_moqtrun_fetch_evicted_group_unknown(void) {
   mf_init(2 * (MOQCACHE_HDR + 1));
@@ -325,7 +325,7 @@ static void test_moqtrun_fetch_evicted_group_unknown(void) {
   CHECK(mf_fin);
 }
 
-/* AC-04: a refused round keeps the cursor on (0,1); group 0 evicted
+/* A refused round keeps the cursor on (0,1); group 0 evicted
  * meanwhile turns it into an unknown range, never stale bytes, and group
  * 1 follows. */
 static void test_moqtrun_fetch_eviction_under_cursor(void) {
@@ -347,7 +347,7 @@ static void test_moqtrun_fetch_eviction_under_cursor(void) {
   CHECK(mf_fin);
 }
 
-/* AC-05: the open group dropped for overflowing the budget under the
+/* The open group dropped for overflowing the budget under the
  * cursor reads as unknown. */
 static void test_moqtrun_fetch_oversize_under_cursor(void) {
   mf_init(2 * MOQCACHE_HDR + 3);
@@ -362,7 +362,7 @@ static void test_moqtrun_fetch_oversize_under_cursor(void) {
   CHECK(mf_fin);
 }
 
-/* AC-06: the publisher leaving mid-FETCH releases the cache; the rest
+/* The publisher leaving mid-FETCH releases the cache; the rest
  * is unknown and the stream still FINs. */
 static void test_moqtrun_fetch_publisher_leaves(void) {
   mf_init(sizeof mf_arena);
@@ -431,7 +431,7 @@ static int mf_relayed(u64 g, u64 o) {
   return h.group_id == g && obj.object_id == o;
 }
 
-/* AC-10: SUBSCRIBE (Largest Object) at Largest {1,0} starts at (1,1);
+/* SUBSCRIBE (Largest Object) at Largest {1,0} starts at (1,1);
  * the relative joining FETCH covers (0,0)..(1,0) and FINs; the next
  * Object reaches B through the subscription -- each Location once. */
 static void test_moqtrun_fetch_relative_join_no_gap(void) {
@@ -453,7 +453,7 @@ static void test_moqtrun_fetch_relative_join_no_gap(void) {
   CHECK(mf_relayed(1, 1));
 }
 
-/* AC-11: a relative Joining Start past group 0 starts at {0,0}. */
+/* A relative Joining Start past group 0 starts at {0,0}. */
 static void test_moqtrun_fetch_relative_join_clamped(void) {
   mf_init(sizeof mf_arena);
   mf_obj(0, 0, 1);
@@ -464,7 +464,7 @@ static void test_moqtrun_fetch_relative_join_clamped(void) {
   CHECK(mf_n == 2 && mf_is_obj(0, 0, 0, 1) && mf_is_obj(1, 0, 1, 1));
 }
 
-/* AC-12: a subscription made before any Object has no Joining Location;
+/* A subscription made before any Object has no Joining Location;
  * an absolute start past its group is out of range (10.12.2). */
 static void test_moqtrun_fetch_join_invalid_range(void) {
   mf_init(sizeof mf_arena);
@@ -479,7 +479,7 @@ static void test_moqtrun_fetch_join_invalid_range(void) {
   CHECK(mf_error() == MOQCTL_ERR_INVALID_RANGE);
 }
 
-/* AC-13: a Joining Request ID naming no subscription of this session. */
+/* A Joining Request ID naming no subscription of this session. */
 static void test_moqtrun_fetch_join_unknown_request(void) {
   mf_init(sizeof mf_arena);
   mf_obj(0, 0, 1);
@@ -488,7 +488,7 @@ static void test_moqtrun_fetch_join_unknown_request(void) {
   CHECK(mf_error() == MOQFETCH_ERR_INVALID_JOINING_REQUEST_ID);
 }
 
-/* AC-14: an absolute Joining Start n starts at {n,0} and ends at the
+/* An absolute Joining Start n starts at {n,0} and ends at the
  * Joining Location. */
 static void test_moqtrun_fetch_absolute_join(void) {
   mf_init(sizeof mf_arena);
