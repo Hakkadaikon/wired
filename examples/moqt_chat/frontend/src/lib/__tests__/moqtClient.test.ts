@@ -28,6 +28,7 @@ import {
   decodeVarint,
   bytesToUtf8,
   encodeControlFrame,
+  encodeGoaway,
   encodeNamespace,
   hexToBytes,
   encodeObjectDatagram,
@@ -1028,5 +1029,65 @@ describe("certHashesToWebTransportOptions", () => {
 
   it("rejects a fingerprint that is not 32 bytes", () => {
     expect(() => certHashesToWebTransportOptions(["aabb"])).toThrow();
+  });
+});
+
+// draft-ietf-moq-transport-19 3.6 / 10.4: GOAWAY on the hub's control
+// stream, or the WebTransport session draining, tells the client to move.
+describe("MoqtChatClient going away", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  async function connected() {
+    vi.useFakeTimers();
+    const fake = new FakeWebTransport();
+    vi.stubGlobal("WebTransport", function () {
+      return fake;
+    });
+    const goaways: string[] = [];
+    const client = new MoqtChatClient("user1", {
+      onStatusChange: () => {},
+      onMessage: () => {},
+      onGoaway: (uri) => goaways.push(uri),
+    });
+    const ready = client.connect("https://hub.example/", []);
+    fake.resolveReady();
+    await ready;
+    return { fake, client, goaways };
+  }
+
+  const goaway = (uri: string) =>
+    encodeControlFrame(0x10n, encodeGoaway({ newSessionUri: utf8ToBytes(uri), timeout: 2000n }));
+
+  it("a GOAWAY on the control stream reports its New Session URI, once per session", async () => {
+    const { fake, goaways } = await connected();
+
+    fake.controlReplies.push(goaway("https://next.example/"));
+    fake.controlReplies.push(goaway("https://other.example/"));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(goaways).toEqual(["https://next.example/"]);
+  });
+
+  it("the session draining reports a GOAWAY without a URI", async () => {
+    const { fake, goaways } = await connected();
+
+    fake.resolveDraining();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(goaways).toEqual([""]);
+  });
+
+  it("a GOAWAY after close() is not reported", async () => {
+    const { fake, client, goaways } = await connected();
+
+    client.close();
+    fake.controlReplies.push(goaway(""));
+    fake.resolveDraining();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(goaways).toEqual([]);
   });
 });

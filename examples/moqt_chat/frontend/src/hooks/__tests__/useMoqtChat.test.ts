@@ -6,6 +6,7 @@ import {
   captureThenPublishScreen,
   clearOwnScreenStall,
   connectChatThenVoice,
+  handleGoaway,
   handleRoomNamespace,
   handleSessionStatus,
   micPipelineIsConfigSupported,
@@ -255,6 +256,26 @@ describe("connectChatThenVoice: announcing to the room", () => {
     await connectChatThenVoice(vi.fn().mockRejectedValue(new Error("down")), vi.fn(), vi.fn(), vi.fn(), announce);
 
     expect(announce).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleGoaway", () => {
+  it("reconnects to the New Session URI when the GOAWAY carries one", () => {
+    const reconnect = vi.fn();
+    handleGoaway({ url: "https://old.example/" }, "https://new.example/", reconnect);
+    expect(reconnect).toHaveBeenCalledExactlyOnceWith("https://new.example/");
+  });
+
+  it("reconnects to the current URI when the GOAWAY has none", () => {
+    const reconnect = vi.fn();
+    handleGoaway({ url: "https://old.example/" }, "", reconnect);
+    expect(reconnect).toHaveBeenCalledExactlyOnceWith("https://old.example/");
+  });
+
+  it("does nothing once the user has left the room", () => {
+    const reconnect = vi.fn();
+    handleGoaway(null, "https://new.example/", reconnect);
+    expect(reconnect).not.toHaveBeenCalled();
   });
 });
 
