@@ -13,8 +13,9 @@
 //      the idle track every second, and the hub granted a fresh slot to
 //      each -- 31 slots gone in about 31 s).
 //   5. user1 shares again: gate C -- user3 and user4 both decode frames
-//      within resume-max-ms; gate D -- user3 receives ONE screen stream
-//      for it, not one per slot it had piled up; gate E -- the hub's
+//      within resume-max-ms; gate D -- user3 receives one screen stream
+//      per Group (each keyframe, every 2 s, opens a new one), not one per
+//      slot it had piled up; gate E -- the hub's
 //      shutdown stats report open_dropped=0.
 //
 //   just e2e-stability s14-screen-rejoin
@@ -164,8 +165,11 @@ export async function run({ pageUrl, server, arg, log }) {
     }
     await sleep(3000); // let every relay stream the hub is going to open, open
     report.user3ScreenStreams = await screenStreamsSince(user3, reshareAt);
-    if (report.user3ScreenStreams !== 1)
-      failures.push(`gate D: user3 received ${report.user3ScreenStreams} screen streams for one re-share (want 1)`);
+    // One Group per 2 s keyframe interval (screenSharePipeline.ts), plus
+    // the one in progress at either end of the window.
+    const groups = Math.ceil((Date.now() - reshareAt) / 2000) + 1;
+    if (report.user3ScreenStreams > groups)
+      failures.push(`gate D: user3 received ${report.user3ScreenStreams} screen streams for one re-share (at most ${groups} Groups)`);
 
     for (const c of clients) for (const e of c.errors) failures.push(`${c.tag} page error: ${e}`);
     for (const c of clients) await closeClient(c);

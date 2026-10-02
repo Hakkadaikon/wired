@@ -356,7 +356,7 @@ describe("MoqtChatClient request streams", () => {
     const { fake, client } = await connected();
 
     const first = client.subscribeTrack(utf8ToBytes("user2"), "user2");
-    void client.subscribeTrack(utf8ToBytes("user2"), "user2");
+    expect(await client.subscribeTrack(utf8ToBytes("user2"), "user2")).toBe(false);
     await flush();
     expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(1);
     fake.requestsOf(MSG_SUBSCRIBE)[0].replies.push(doesNotExist());

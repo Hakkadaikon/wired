@@ -120,7 +120,14 @@ export class MoqtScreenClient {
   async subscribeToScreenTrack(participantId: string): Promise<void> {
     this.#joining.set(participantId, []);
     const deliver = (chunk: ScreenChunk) => this.#callbacks.onScreenChunk(participantId, chunk);
-    await this.#chat.subscribeTrack(screenTrackName(participantId), `${participantId}/screen`, {
+    const flush = () => {
+      const held = this.#joining.get(participantId) ?? [];
+      this.#joining.delete(participantId);
+      held.forEach(deliver);
+    };
+    // A share restarted while still subscribed sends no new SUBSCRIBE, so no
+    // fetch will end the hold: release it now.
+    const sent = await this.#chat.subscribeTrack(screenTrackName(participantId), `${participantId}/screen`, {
       joiningStart: 0n,
       onObject: (o) => {
         try {
@@ -129,12 +136,9 @@ export class MoqtScreenClient {
           // a malformed fetched chunk is skipped, like a live one
         }
       },
-      onDone: () => {
-        const held = this.#joining.get(participantId) ?? [];
-        this.#joining.delete(participantId);
-        held.forEach(deliver);
-      },
+      onDone: flush,
     });
+    if (!sent) flush();
   }
 
   /** Sends one video chunk as an Object on the current Group's uni stream:

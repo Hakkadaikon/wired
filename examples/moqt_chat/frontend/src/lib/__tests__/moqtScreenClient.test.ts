@@ -66,7 +66,7 @@ function fakeChatClient(wt: ReturnType<typeof fakeWebTransport>): MoqtChatClient
     localId: "user1",
     webTransport: wt.webTransport,
     publishTrack: vi.fn(async () => true),
-    subscribeTrack: vi.fn(async () => {}),
+    subscribeTrack: vi.fn(async () => true),
     publishNamespace: vi.fn(async () => ({ cancel: vi.fn() })),
   } as unknown as MoqtChatClient;
 }
@@ -277,6 +277,24 @@ describe("MoqtScreenClient Groups and discovery", () => {
       [["user1", "screen"]],
     ]);
     expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("a re-share announced while already subscribed holds nothing back (no fetch will end it)", async () => {
+    const wt = fakeWebTransport();
+    const chat = fakeChatClient(wt);
+    (chat.subscribeTrack as ReturnType<typeof vi.fn>).mockResolvedValue(false); // label already subscribed
+    const onScreenChunk = vi.fn();
+    const client = new MoqtScreenClient(chat, { onScreenChunk });
+
+    await client.subscribeToScreenTrack("user2");
+    const body = encodeScreenObjectMessage({ ...chunkAt(0), keyframe: true });
+    const live = concatBytes([encodeVarint(0n), encodeVarint(BigInt(body.length)), body]);
+    const doneReader = { read: vi.fn(async () => ({ value: undefined, done: true })), cancel: vi.fn() };
+    const header = { trackAlias: ownScreenTrackAlias("user2"), groupId: 0n, flags: { properties: false } };
+    client.handleIncomingStream(header as never, live, doneReader as never);
+    await Promise.resolve();
+
+    expect(onScreenChunk).toHaveBeenCalledTimes(1);
   });
 
   it("subscribe joins from the current keyframe Group: fetched chunks first, live ones held until the fetch ends", async () => {
