@@ -336,7 +336,9 @@ typedef struct {
 #define WIRED_MOQTRUN_SUB_NAMES (WIRED_MOQTRUN_MAX_TRACKS_PER_PEER * 4)
 
 /** Largest control-message envelope this hub ever sends (SS10
- * Type+Length+Body). */
+ * Type+Length+Body), except GOAWAY, whose New Session URI may take up to
+ * WIRED_MOQTRUN_GOAWAY_URI_MAX bytes (wired_moqt_goaway sizes its own
+ * buffer). */
 #define WIRED_MOQTRUN_CTL_REPLY_MAX 64
 
 /** Largest received control-message Length (body bytes) this hub handles.
@@ -859,11 +861,15 @@ void wired_moqt_on_stream_reset(
  * that has not had one. A session that got GOAWAY answers every later new
  * request REQUEST_ERROR GOING_AWAY (requests already answered stay, and
  * their REQUEST_UPDATEs are served). A session still open timeout_ms
- * after this call (on the wired_moqt_tick clock) is sent PUBLISH_DONE
- * GOING_AWAY for every subscription it holds on a request stream by the
- * next tick, and closed with GOAWAY_TIMEOUT on the tick after. timeout_ms
- * 0 sets no deadline (10.4: no specific timeout); the hub never closes a
- * session early. A publisher's session ending, for any reason,
+ * after this call is sent PUBLISH_DONE GOING_AWAY for every subscription
+ * it holds on a request stream (its relay streams reset GOING_AWAY first)
+ * by the next tick, and closed on the tick after: GOAWAY_TIMEOUT while it
+ * still has a request stream, a published track or a subscription open,
+ * NO_ERROR when nothing is left. The deadline counts from the last
+ * wired_moqt_tick's now_ms, so call this once the tick runs (a call
+ * before the first tick counts from 0). timeout_ms 0 sets no deadline
+ * (10.4: no specific timeout). A publisher's session ending, for any
+ * reason,
  * sends its subscribers on other sessions PUBLISH_DONE TRACK_ENDED.
  * Subscriptions made on the control stream get no PUBLISH_DONE (it has
  * no Request ID to name them by).

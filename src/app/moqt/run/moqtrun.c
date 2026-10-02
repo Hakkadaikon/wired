@@ -18,7 +18,12 @@
 #define MOQTRUN_RESET_INTERNAL_ERROR 0x0
 #define MOQTRUN_RESET_CANCELLED 0x1
 #define MOQTRUN_RESET_DELIVERY_TIMEOUT 0x2
+#define MOQTRUN_RESET_GOING_AWAY 0x4
 #define MOQTRUN_RESET_EXCESSIVE_LOAD 0x9
+
+/* draft-ietf-moq-transport-19 10.11 PUBLISH_DONE Stream Count when the
+ * exact number is not known. */
+#define MOQTRUN_DONE_STREAMS_UNKNOWN (((u64)1 << 62) - 1)
 
 /* ===================== peer table ===================== */
 
@@ -550,10 +555,11 @@ static void moqtrun_relay_reset_one_sub(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* t,
     wired_moqtrun_relay* r,
-    usz                  si) {
+    usz                  si,
+    u32                  code) {
   if (!moqtrun_relay_orphan_ok(t, r, si)) return;
   wired_moqtrun_peer* dst = &hub->peers[t->subs[si].session_idx];
-  if (dst->in_use) hub->io.stream_reset(dst->wt, r->sub_stream_id[si], 0);
+  if (dst->in_use) hub->io.stream_reset(dst->wt, r->sub_stream_id[si], code);
   r->sub_stream_set[si] = 0;
 }
 
@@ -561,7 +567,7 @@ static void moqtrun_relay_reset_stale(
     wired_moqt_hub* hub, wired_moqtrun_track* t, wired_moqtrun_relay* r) {
   if (!r->in_use) return;
   for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
-    moqtrun_relay_reset_one_sub(hub, t, r, si);
+    moqtrun_relay_reset_one_sub(hub, t, r, si, MOQTRUN_RESET_INTERNAL_ERROR);
 }
 
 /* A publisher that drops mid-share (crash, network loss -- no clean FIN)
@@ -2344,10 +2350,6 @@ static moqtrun_ctl_fn moqtrun_ctl_lookup(u64 type) {
   return moqtrun_dispatch_not_supported;
 }
 
-/* Closes p's session with code. Every later byte of the stream being
- * handled is discarded (its skip never runs out). An io table without
- * close_session skips the message by its Length instead and keeps the
- * stream alive. */
 /* Closes p's session with code, after which nothing more is sent on it;
  * 0 when the io table has no close_session. */
 static int moqtrun_peer_close(
@@ -2358,6 +2360,10 @@ static int moqtrun_peer_close(
   return 1;
 }
 
+/* Closes p's session with code. Every later byte of the stream being
+ * handled is discarded (its skip never runs out). An io table without
+ * close_session skips the message by its Length instead and keeps the
+ * stream alive. */
 static void moqtrun_close_with(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
   wired_moqtrun_ctl_asm* a = moqtrun_cur_asm(p);
@@ -2808,7 +2814,10 @@ static u8 moqtrun_sub_prio(const wired_moqtrun_sub* s) {
 
 /* The Publisher Priority of the SUBGROUP_HEADER head starts with: 128
  * (6306: the default) when the DEFAULT_PRIORITY bit omits it, or head does
- * not decode. */
+ * not decode.
+ * ponytail: the DEFAULT_PUBLISHER_PRIORITY Track Property (12.4) is not
+ * parsed, so an omitted priority is always 128; read it from PUBLISH when
+ * a publisher sets one. */
 static u8 moqtrun_pub_prio(wired_span head) {
   usz            off = 0;
   moqdata_subhdr h;
@@ -4552,9 +4561,6 @@ void wired_moqt_on_stream_reset(
 
 /* ===================== PUBLISH_DONE (draft 10.11) ===================== */
 
-/* Stream Count when the exact number is not known (10.11). */
-#define MOQTRUN_DONE_STREAMS_UNKNOWN (((u64)1 << 62) - 1)
-
 static int moqtrun_encode_publish_done(
     wired_mspan buf, usz* off, const void* m) {
   return moqctl_publish_done_encode(buf, off, m);
@@ -4579,12 +4585,35 @@ static wired_moqtrun_req* moqtrun_sub_req(
   return 0;
 }
 
+/* draft-ietf-moq-transport-19 3.3.4 reset code for the streams of a
+ * subscription ended with PUBLISH_DONE status: GOING_AWAY for a drain,
+ * CANCELLED otherwise (track ended, update failed). */
+static u32 moqtrun_done_reset_code(u64 status) {
+  return status == MOQCTL_DONE_GOING_AWAY ? MOQTRUN_RESET_GOING_AWAY
+                                          : MOQTRUN_RESET_CANCELLED;
+}
+
+/* Every relay stream of slot si of t is reset with code. */
+static void moqtrun_sub_reset_streams(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, usz si, u32 code) {
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
+    if (t->relays[r].in_use)
+      moqtrun_relay_reset_one_sub(hub, t, &t->relays[r], si, code);
+}
+
 /* Subscription s (slot of track t; t 0 when s is state kept for a gone
- * publisher) gets nothing more. */
+ * publisher) gets nothing more: draft 10.11, every stream opened for it
+ * is closed (reset with code) before its PUBLISH_DONE. */
 static void moqtrun_sub_stop(
-    wired_moqt_hub* hub, wired_moqtrun_track* t, wired_moqtrun_sub* s) {
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* t,
+    wired_moqtrun_sub*   s,
+    u32                  code) {
+  if (t) {
+    moqtrun_sub_reset_streams(hub, t, (usz)(s - t->subs), code);
+    moqtrun_relays_clear_sub(hub, t, (usz)(s - t->subs));
+  }
   s->active = 0;
-  if (t) moqtrun_relays_clear_sub(hub, t, (usz)(s - t->subs));
 }
 
 /* Ends subscription s of peer p, carried by request stream q: PUBLISH_DONE
@@ -4604,10 +4633,10 @@ static void moqtrun_sub_done(
   usz n                 = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH_DONE,
       moqtrun_encode_publish_done, &d);
+  moqtrun_sub_stop(hub, t, s, moqtrun_done_reset_code(status));
   moqtrun_req_queue(q, wired_span_of(msg, n));
   q->live = 0;
   moqtrun_sub_names_forget(p, s->request_id);
-  moqtrun_sub_stop(hub, t, s);
 }
 
 /* PUBLISH_DONE status to sub slot si of t, when it is held on a request
@@ -4700,14 +4729,68 @@ static void moqtrun_track_done_peer(
       moqtrun_sub_done_slot(hub, t, si, status);
 }
 
+/* Subscription slots of t held by peer index idx. */
+static int moqtrun_subs_held(const wired_moqtrun_track* t, usz idx) {
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
+    if (moqtrun_sub_is_peer(&t->subs[si], idx)) return 1;
+  return 0;
+}
+
+static int moqtrun_track_held(const wired_moqtrun_track* t, usz idx) {
+  return t->in_use && moqtrun_subs_held(t, idx);
+}
+
+static int moqtrun_peer_tracks_held(const wired_moqtrun_peer* q, usz idx) {
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    if (moqtrun_track_held(&q->tracks[t], idx)) return 1;
+  return 0;
+}
+
+static int moqtrun_peer_held(const wired_moqtrun_peer* q, usz idx) {
+  return q->in_use && moqtrun_peer_tracks_held(q, idx);
+}
+
+static int moqtrun_own_held(const wired_moqt_hub* hub, usz idx) {
+  return moqtrun_track_held(&hub->blob_track, idx) ||
+         moqtrun_track_held(&hub->live.track, idx);
+}
+
+/* Peer index idx still holds a subscription on any track. */
+static int moqtrun_hub_held(const wired_moqt_hub* hub, usz idx) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
+    if (moqtrun_peer_held(&hub->peers[i], idx)) return 1;
+  return moqtrun_own_held(hub, idx);
+}
+
+static int moqtrun_peer_publishes(const wired_moqtrun_peer* p) {
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    if (p->tracks[t].in_use) return 1;
+  return 0;
+}
+
+/* Nothing of p's is open any more: no request stream, no track it
+ * publishes, no subscription it holds. */
+static int moqtrun_peer_quiet(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  return moqtrun_req_count(hub, p->wt) == 0 && !moqtrun_peer_publishes(p) &&
+         !moqtrun_hub_held(hub, (usz)(p - hub->peers));
+}
+
+/* draft-ietf-moq-transport-19 10.4: GOAWAY_TIMEOUT only while requests
+ * are still open, NO_ERROR (3.5) once nothing is left. */
+static u32 moqtrun_drain_close_code(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  return moqtrun_peer_quiet(hub, p) ? WIRED_MOQTRUN_CLOSE_NO_ERROR
+                                    : WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT;
+}
+
 /* Past the GOAWAY Timeout (3.6): first the flush -- PUBLISH_DONE
  * GOING_AWAY to every subscription p holds and its queued answers sent
  * (the tick's moqtrun_reqs_tick then FINs those streams) -- and on the
- * next tick the close with GOAWAY_TIMEOUT, so the flushed bytes get a
- * loop step to leave before the transport resets the streams. */
+ * next tick the close (moqtrun_drain_close_code), so the flushed bytes
+ * get a loop step to leave before the transport resets the streams. */
 static void moqtrun_drain_expire(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   if (p->goaway_flushed) {
-    moqtrun_peer_close(hub, p, WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT);
+    moqtrun_peer_close(hub, p, moqtrun_drain_close_code(hub, p));
     return;
   }
   moqtrun_each_track(
