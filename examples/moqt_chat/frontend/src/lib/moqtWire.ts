@@ -298,23 +298,6 @@ export function bytesToUtf8(bytes: Uint8Array): string {
 // draft-ietf-moq-transport-19 10: Control Messages
 // ---------------------------------------------------------------------
 
-/** Decode `count` consecutive Key-Value-Pairs starting at `offset`. */
-function decodeKvpList(
-  bytes: Uint8Array,
-  offset: number,
-  count: bigint,
-): { pairs: KeyValuePair[]; len: number } {
-  let pos = offset;
-  let prevType = 0n;
-  const pairs: KeyValuePair[] = [];
-  for (let i = 0n; i < count; i++) {
-    const { pair, len } = decodeKvp(bytes, pos, prevType);
-    pairs.push(pair);
-    pos += len;
-    prevType = pair.type;
-  }
-  return { pairs, len: pos - offset };
-}
 
 /** Decode Key-Value-Pairs spanning the bytes up to `end` (exclusive). */
 function decodeKvpSpan(
@@ -342,6 +325,100 @@ function encodeKvpList(pairs: KeyValuePair[]): Uint8Array {
     prevType = pair.type;
   }
   return concatBytes(parts);
+}
+
+// --- Message Parameters (10.2) ----------------------------------------------
+//
+// Not Key-Value-Pairs: each Type fixes its value encoding (10.2.x), Types
+// ascend (Type Delta), and an unknown Type is a PROTOCOL_VIOLATION.
+
+export interface Location {
+  group: bigint;
+  object: bigint;
+}
+
+export interface MessageParam {
+  type: bigint;
+  /** uint8 / varint -> bigint; LARGEST_OBJECT -> Location; Length-prefixed
+   * (and TRACK_NAMESPACE_PREFIX's raw namespace) -> bytes. */
+  value: bigint | Location | Uint8Array;
+}
+
+export const PARAM_LARGEST_OBJECT = 0x09n;
+export const PARAM_LOCATION_FILTER = 0x21n;
+const PARAM_TRACK_NAMESPACE_PREFIX = 0x34n;
+const PARAM_UINT8 = new Set([0x10n, 0x20n, 0x22n]);
+const PARAM_VARINT = new Set([0x02n, 0x04n, 0x06n, 0x08n, 0x0an, 0x32n]);
+const PARAM_BYTES = new Set([0x03n, 0x21n, 0x25n, 0x26n, 0x27n, 0x28n, 0x29n]);
+
+function decodeLocation(bytes: Uint8Array, offset: number): { value: Location; len: number } {
+  const group = decodeVarint(bytes, offset);
+  const object = decodeVarint(bytes, offset + group.len);
+  return { value: { group: group.value, object: object.value }, len: group.len + object.len };
+}
+
+function decodeParamValue(
+  type: bigint,
+  bytes: Uint8Array,
+  pos: number,
+): { value: MessageParam["value"]; len: number } {
+  if (PARAM_UINT8.has(type)) {
+    if (pos >= bytes.length) fail("truncated uint8 parameter");
+    return { value: BigInt(bytes[pos]), len: 1 };
+  }
+  if (PARAM_VARINT.has(type)) return decodeVarint(bytes, pos);
+  if (type === PARAM_LARGEST_OBJECT) return decodeLocation(bytes, pos);
+  if (PARAM_BYTES.has(type)) return decodeLenPrefixedBytes(bytes, pos, "parameter");
+  if (type === PARAM_TRACK_NAMESPACE_PREFIX) {
+    const { len } = decodeNamespace(bytes, pos);
+    return { value: bytes.slice(pos, pos + len), len };
+  }
+  fail(`PROTOCOL_VIOLATION: unknown parameter type 0x${type.toString(16)}`);
+}
+
+function encodeParamValue(p: MessageParam): Uint8Array {
+  if (PARAM_UINT8.has(p.type)) return Uint8Array.of(Number(p.value));
+  if (p.value instanceof Uint8Array) {
+    if (p.type === PARAM_TRACK_NAMESPACE_PREFIX) return p.value;
+    return concatBytes([encodeVarint(BigInt(p.value.length)), p.value]);
+  }
+  if (typeof p.value === "bigint") return encodeVarint(p.value);
+  return concatBytes([encodeVarint(p.value.group), encodeVarint(p.value.object)]);
+}
+
+/** Decode `Number of Parameters` and the parameters that follow it. */
+export function decodeParams(bytes: Uint8Array, offset: number): { params: MessageParam[]; len: number } {
+  const count = decodeVarint(bytes, offset);
+  let pos = offset + count.len;
+  let type = 0n;
+  const params: MessageParam[] = [];
+  for (let i = 0n; i < count.value; i++) {
+    const delta = decodeVarint(bytes, pos);
+    type += delta.value;
+    if (type > U64_MAX) fail("PROTOCOL_VIOLATION: parameter type overflow");
+    const value = decodeParamValue(type, bytes, pos + delta.len);
+    params.push({ type, value: value.value });
+    pos += delta.len + value.len;
+  }
+  return { params, len: pos - offset };
+}
+
+/** Encode `Number of Parameters` plus the parameters (ascending Type). */
+export function encodeParams(params: MessageParam[]): Uint8Array {
+  const parts = [encodeVarint(BigInt(params.length))];
+  let prev = 0n;
+  for (const p of params) {
+    parts.push(encodeVarint(p.type - prev), encodeParamValue(p));
+    prev = p.type;
+  }
+  return concatBytes(parts);
+}
+
+/** SUBSCRIBE_OK's LARGEST_OBJECT (10.2.16): the subscription's Joining
+ * Location, absent while nothing has been published. */
+export function largestObjectOf(params: MessageParam[]): Location | undefined {
+  const p = params.find((x) => x.type === PARAM_LARGEST_OBJECT);
+  return p ? (p.value as Location) : undefined;
 }
 
 export interface ControlFrame {
@@ -395,7 +472,7 @@ export interface SubscribeMessage {
   requestId: bigint;
   trackNamespace: Uint8Array[];
   trackName: Uint8Array;
-  parameters: KeyValuePair[];
+  parameters: MessageParam[];
 }
 
 export function decodeSubscribe(body: Uint8Array): SubscribeMessage {
@@ -405,14 +482,11 @@ export function decodeSubscribe(body: Uint8Array): SubscribeMessage {
   pos += ns.len;
   const name = decodeLenPrefixedBytes(body, pos, "track name");
   pos += name.len;
-  const numParams = decodeVarint(body, pos);
-  pos += numParams.len;
-  const { pairs } = decodeKvpList(body, pos, numParams.value);
   return {
     requestId: requestId.value,
     trackNamespace: ns.fields,
     trackName: name.value,
-    parameters: pairs,
+    parameters: decodeParams(body, pos).params,
   };
 }
 
@@ -422,8 +496,7 @@ export function encodeSubscribe(msg: SubscribeMessage): Uint8Array {
     encodeNamespace(msg.trackNamespace),
     encodeVarint(BigInt(msg.trackName.length)),
     msg.trackName,
-    encodeVarint(BigInt(msg.parameters.length)),
-    encodeKvpList(msg.parameters),
+    encodeParams(msg.parameters),
   ]);
 }
 
@@ -431,26 +504,21 @@ export function encodeSubscribe(msg: SubscribeMessage): Uint8Array {
 
 export interface SubscribeOkMessage {
   trackAlias: bigint;
-  parameters: KeyValuePair[];
+  parameters: MessageParam[];
   trackProperties: KeyValuePair[];
 }
 
 export function decodeSubscribeOk(body: Uint8Array): SubscribeOkMessage {
   const trackAlias = decodeVarint(body, 0);
-  let pos = trackAlias.len;
-  const numParams = decodeVarint(body, pos);
-  pos += numParams.len;
-  const params = decodeKvpList(body, pos, numParams.value);
-  pos += params.len;
-  const trackProperties = decodeKvpSpan(body, pos, body.length);
-  return { trackAlias: trackAlias.value, parameters: params.pairs, trackProperties };
+  const params = decodeParams(body, trackAlias.len);
+  const trackProperties = decodeKvpSpan(body, trackAlias.len + params.len, body.length);
+  return { trackAlias: trackAlias.value, parameters: params.params, trackProperties };
 }
 
 export function encodeSubscribeOk(msg: SubscribeOkMessage): Uint8Array {
   return concatBytes([
     encodeVarint(msg.trackAlias),
-    encodeVarint(BigInt(msg.parameters.length)),
-    encodeKvpList(msg.parameters),
+    encodeParams(msg.parameters),
     encodeKvpList(msg.trackProperties),
   ]);
 }
@@ -462,7 +530,7 @@ export interface PublishMessage {
   trackNamespace: Uint8Array[];
   trackName: Uint8Array;
   trackAlias: bigint;
-  parameters: KeyValuePair[];
+  parameters: MessageParam[];
   trackProperties: KeyValuePair[];
 }
 
@@ -475,9 +543,7 @@ export function decodePublish(body: Uint8Array): PublishMessage {
   pos += name.len;
   const trackAlias = decodeVarint(body, pos);
   pos += trackAlias.len;
-  const numParams = decodeVarint(body, pos);
-  pos += numParams.len;
-  const params = decodeKvpList(body, pos, numParams.value);
+  const params = decodeParams(body, pos);
   pos += params.len;
   const trackProperties = decodeKvpSpan(body, pos, body.length);
   return {
@@ -485,7 +551,7 @@ export function decodePublish(body: Uint8Array): PublishMessage {
     trackNamespace: ns.fields,
     trackName: name.value,
     trackAlias: trackAlias.value,
-    parameters: params.pairs,
+    parameters: params.params,
     trackProperties,
   };
 }
@@ -497,8 +563,7 @@ export function encodePublish(msg: PublishMessage): Uint8Array {
     encodeVarint(BigInt(msg.trackName.length)),
     msg.trackName,
     encodeVarint(msg.trackAlias),
-    encodeVarint(BigInt(msg.parameters.length)),
-    encodeKvpList(msg.parameters),
+    encodeParams(msg.parameters),
     encodeKvpList(msg.trackProperties),
   ]);
 }
@@ -506,25 +571,18 @@ export function encodePublish(msg: PublishMessage): Uint8Array {
 // --- REQUEST_OK (0x7) ------------------------------------------------------
 
 export interface RequestOkMessage {
-  parameters: KeyValuePair[];
+  parameters: MessageParam[];
   trackProperties: KeyValuePair[];
 }
 
 export function decodeRequestOk(body: Uint8Array): RequestOkMessage {
-  const numParams = decodeVarint(body, 0);
-  let pos = numParams.len;
-  const params = decodeKvpList(body, pos, numParams.value);
-  pos += params.len;
-  const trackProperties = decodeKvpSpan(body, pos, body.length);
-  return { parameters: params.pairs, trackProperties };
+  const params = decodeParams(body, 0);
+  const trackProperties = decodeKvpSpan(body, params.len, body.length);
+  return { parameters: params.params, trackProperties };
 }
 
 export function encodeRequestOk(msg: RequestOkMessage): Uint8Array {
-  return concatBytes([
-    encodeVarint(BigInt(msg.parameters.length)),
-    encodeKvpList(msg.parameters),
-    encodeKvpList(msg.trackProperties),
-  ]);
+  return concatBytes([encodeParams(msg.parameters), encodeKvpList(msg.trackProperties)]);
 }
 
 // --- REQUEST_ERROR (0x5) ---------------------------------------------------
@@ -888,3 +946,4 @@ export function decodeSubgroupObject(
 
   return { object: { objectId, properties, payload, objectStatus }, len: pos - offset };
 }
+
