@@ -1,0 +1,37 @@
+---
+title: Session lifecycle
+description: Keep per-session state, ask a client to wind down, and close a session with a code and a reason.
+sidebar:
+  order: 9
+---
+import Example from '../../../../components/Example.astro';
+
+A session can end in more ways than a dropped connection. This server keeps a
+small piece of state per session, asks the client to wind down after its first
+datagram, and closes the session with an application code and a reason after
+the second.
+
+<Example id="wt-session-lifecycle" />
+
+## How it works
+
+- The app state lives in a small table keyed on the `wired_wt_session`
+  pointer. `wt_on_session` claims a slot, and `wt_on_session_close` frees it.
+  The SDK reuses the session's storage for a later connection, so a slot left
+  behind would hand the dead session's state to the next client that lands on
+  the same pointer.
+- `wired_server_wt_drain_session(s)` sends `WT_DRAIN_SESSION`: a request to
+  finish up soon. The session stays open, which is why the second datagram
+  still arrives. It is sent at most once per session.
+- webtransport-go v0.13 has no API for drain. It skips the capsule as unknown,
+  so the client prints nothing for it.
+- `wired_server_wt_close_session(s, 4001, reason)` sends `WT_CLOSE_SESSION`
+  with that code and reason, then ends the session. It is queued, not sent
+  inline, and the reason is copied. The client sees it as a
+  `*webtransport.SessionError` carrying the same code and reason.
+- The server logs `session closed` before the connection closes, because it
+  ended the session itself. The client closes its QUIC connection afterwards.
+- The other direction exists too: register `opt.wt_on_session_draining` to
+  hear when a client sends `WT_DRAIN_SESSION`. It fires once per session,
+  however often the client repeats it. This page does not show it, because
+  webtransport-go v0.13 cannot send a drain.
