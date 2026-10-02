@@ -1,8 +1,9 @@
 // MOQT screen-share transport: PUBLISHes/SUBSCRIBEs the "<id>/screen" track
 // over the same MOQT session moqtClient.ts's MoqtChatClient already manages.
-// Mirrors moqtVoiceClient.ts's shape exactly (one long-lived uni stream per
-// publish, opened lazily on the first sendVideoChunk call) -- see that
-// file's doc for why a long-lived stream instead of one-per-frame. Each
+// Like moqtVoiceClient.ts, frames are appended to a long-lived uni stream
+// rather than one stream per frame, but every keyframe starts a new Group
+// on a fresh stream, so a late joiner's Joining FETCH of the current Group
+// begins at a keyframe (draft-ietf-moq-transport-19 10.12.2). Each
 // Object carries one video chunk (moqtScreenWire.ts); the caller
 // (Task 7's screen-share pipeline) is responsible for chunking a frame and
 // reassembling it on receive (screenFrameReassemblerPush).
@@ -84,40 +85,68 @@ export class MoqtScreenClient {
   #chat: MoqtChatClient;
   #callbacks: MoqtScreenCallbacks;
   #trackAlias = 0n;
+  // Group of the NEXT stream opened: every stream is a Group of its own.
   #groupId = 0n;
   #writer: WritableStreamDefaultWriter<Uint8Array> | undefined;
+  #published = false;
+  // The <id>/screen namespace while this client shares (discovery's
+  // "a share started" signal); cancelled by close().
+  #announcement: { cancel(): void } | undefined;
+  // Peers whose Joining FETCH is still running: their live chunks wait here
+  // so the decoder sees the keyframe Group's start first.
+  #joining = new Map<string, ScreenChunk[]>();
 
   constructor(chat: MoqtChatClient, callbacks: MoqtScreenCallbacks) {
     this.#chat = chat;
     this.#callbacks = callbacks;
   }
 
-  /** PUBLISHes this client's "<id>/screen" track. No stream is opened here
-   * -- sendVideoChunk opens the one long-lived stream on its first call
-   * (class doc). */
+  /** PUBLISHes this client's "<id>/screen" track (once per session: a
+   * later share reuses it) and announces wired/moqt_chat/<id>/screen so
+   * the room's watchers subscribe. No stream is opened here --
+   * sendVideoChunk opens one per Group. */
   async publishScreenTrack(): Promise<void> {
     this.#trackAlias = ownScreenTrackAlias(this.#chat.localId);
-    await this.#chat.publishTrack(screenTrackName(this.#chat.localId), this.#trackAlias);
+    if (!this.#published) {
+      this.#published = await this.#chat.publishTrack(screenTrackName(this.#chat.localId), this.#trackAlias);
+    }
+    this.#announcement = await this.#chat.publishNamespace([this.#chat.localId, "screen"]);
   }
 
-  /** SUBSCRIBEs to participantId's "<id>/screen" track. Not awaited beyond
-   * the SUBSCRIBE round trip itself -- mirrors subscribeToAudioTrack; the
-   * caller retries on an interval the same way (moqtVoiceClient.ts's own
-   * doc / useMoqtChat.ts's VOICE_SUBSCRIBE_RETRY_MS pattern). */
+  /** SUBSCRIBEs to participantId's "<id>/screen" track starting at the
+   * Largest Object, plus a Relative Joining FETCH of the current Group
+   * (Joining Start 0): every Group opens with a keyframe, so a late joiner
+   * decodes from there instead of waiting for the next one. */
   async subscribeToScreenTrack(participantId: string): Promise<void> {
-    await this.#chat.subscribeTrack(
-      screenTrackName(participantId),
-      `${participantId}/screen`,
-    );
+    this.#joining.set(participantId, []);
+    const deliver = (chunk: ScreenChunk) => this.#callbacks.onScreenChunk(participantId, chunk);
+    await this.#chat.subscribeTrack(screenTrackName(participantId), `${participantId}/screen`, {
+      joiningStart: 0n,
+      onObject: (o) => {
+        try {
+          deliver(decodeScreenObjectMessage(o.payload).chunk);
+        } catch {
+          // a malformed fetched chunk is skipped, like a live one
+        }
+      },
+      onDone: () => {
+        const held = this.#joining.get(participantId) ?? [];
+        this.#joining.delete(participantId);
+        held.forEach(deliver);
+      },
+    });
   }
 
-  /** Sends one video chunk as an Object on the one long-lived uni stream
-   * this client keeps open for the whole share: the SUBGROUP_HEADER goes
-   * out once, on the first call that opens the stream; every call after
-   * that appends a bare Object. Callers must serialize calls through
-   * sendGate.ts (same contract as sendOpusFrame) -- this method does not
-   * lock the writer itself. */
+  /** Sends one video chunk as an Object on the current Group's uni stream:
+   * a keyframe's first chunk FINs the previous stream and opens a new Group
+   * (SUBGROUP_HEADER once per stream, bare Objects after it). Callers must
+   * serialize calls through sendGate.ts (same contract as sendOpusFrame) --
+   * this method does not lock the writer itself. */
   async sendVideoChunk(chunk: ScreenChunk): Promise<void> {
+    if (chunk.keyframe && chunk.idx === 0 && this.#writer) {
+      void this.#writer.close().catch(() => {});
+      this.#writer = undefined;
+    }
     const body = encodeScreenObjectMessage(chunk);
     // objectIdDelta 0 on every call is correct either way -- FIRST_OBJECT
     // mode makes the first one's delta the absolute id (0), and
@@ -147,7 +176,7 @@ export class MoqtScreenClient {
     const stream = await wt.createUnidirectionalStream();
     this.#writer = stream.getWriter();
     await this.#writer.write(
-      concatBytes([buildScreenSubgroupHeader(this.#trackAlias, this.#groupId), object]),
+      concatBytes([buildScreenSubgroupHeader(this.#trackAlias, this.#groupId++), object]),
     );
   }
 
@@ -176,7 +205,11 @@ export class MoqtScreenClient {
   ): Promise<void> {
     let buffered = firstChunk;
     const seq: ScreenObjectSeq = { prevObjectId: 0n, isFirst: true };
-    const onChunk = (chunk: ScreenChunk) => this.#callbacks.onScreenChunk(participant, chunk);
+    const onChunk = (chunk: ScreenChunk) => {
+      const held = this.#joining.get(participant);
+      if (held) held.push(chunk);
+      else this.#callbacks.onScreenChunk(participant, chunk);
+    };
     try {
       for (;;) {
         buffered = drainScreenObjectStream(buffered, seq, onChunk);
@@ -190,10 +223,13 @@ export class MoqtScreenClient {
     }
   }
 
-  /** FINs the long-lived send stream, if one was ever opened. */
+  /** FINs the send stream, if one was ever opened, and withdraws the
+   * <id>/screen announcement. */
   close(): void {
     this.#writer?.close().catch(() => {});
     this.#writer = undefined;
+    this.#announcement?.cancel();
+    this.#announcement = undefined;
   }
 }
 

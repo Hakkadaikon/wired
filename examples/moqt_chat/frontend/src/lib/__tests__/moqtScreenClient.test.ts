@@ -65,8 +65,9 @@ function fakeChatClient(wt: ReturnType<typeof fakeWebTransport>): MoqtChatClient
   return {
     localId: "user1",
     webTransport: wt.webTransport,
-    publishTrack: vi.fn(async () => {}),
+    publishTrack: vi.fn(async () => true),
     subscribeTrack: vi.fn(async () => {}),
+    publishNamespace: vi.fn(async () => ({ cancel: vi.fn() })),
   } as unknown as MoqtChatClient;
 }
 
@@ -229,5 +230,83 @@ describe("MoqtScreenClient.handleIncomingStream", () => {
       reader,
     );
     expect(cancel).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("MoqtScreenClient Groups and discovery", () => {
+  it("each keyframe starts a new Group on a fresh stream; the old one is FINed", async () => {
+    const wt = fakeWebTransport();
+    const client = new MoqtScreenClient(fakeChatClient(wt), { onScreenChunk: vi.fn() });
+    await client.publishScreenTrack();
+
+    await client.sendVideoChunk({ ...chunkAt(0), keyframe: true });
+    await client.sendVideoChunk(chunkAt(1));
+    await client.sendVideoChunk({ ...chunkAt(2), keyframe: true });
+
+    expect(wt.createUnidirectionalStream).toHaveBeenCalledTimes(2);
+    expect(wt.writer.close).toHaveBeenCalledTimes(1);
+    const groups = wt.writes.filter((w) => w[0] === 0x70).map((w) => decodeSubgroupHeader(w).header.groupId);
+    expect(groups).toEqual([0n, 1n]);
+  });
+
+  it("a keyframe's later chunks stay in the Group its first chunk opened", async () => {
+    const wt = fakeWebTransport();
+    const client = new MoqtScreenClient(fakeChatClient(wt), { onScreenChunk: vi.fn() });
+    await client.publishScreenTrack();
+
+    await client.sendVideoChunk({ ...chunkAt(0), keyframe: true, count: 2 });
+    await client.sendVideoChunk({ ...chunkAt(0), keyframe: true, count: 2, idx: 1 });
+
+    expect(wt.createUnidirectionalStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("publishScreenTrack PUBLISHes once per session but announces <id>/screen on every share; close() withdraws it", async () => {
+    const wt = fakeWebTransport();
+    const chat = fakeChatClient(wt);
+    const cancel = vi.fn();
+    (chat as unknown as { publishNamespace: unknown }).publishNamespace = vi.fn(async () => ({ cancel }));
+    const client = new MoqtScreenClient(chat, { onScreenChunk: vi.fn() });
+
+    await client.publishScreenTrack();
+    client.close();
+    await client.publishScreenTrack();
+
+    expect(chat.publishTrack).toHaveBeenCalledTimes(1);
+    expect((chat as unknown as { publishNamespace: ReturnType<typeof vi.fn> }).publishNamespace.mock.calls).toEqual([
+      [["user1", "screen"]],
+      [["user1", "screen"]],
+    ]);
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("subscribe joins from the current keyframe Group: fetched chunks first, live ones held until the fetch ends", async () => {
+    const wt = fakeWebTransport();
+    const chat = fakeChatClient(wt);
+    const onScreenChunk = vi.fn();
+    const client = new MoqtScreenClient(chat, { onScreenChunk });
+
+    await client.subscribeToScreenTrack("user2");
+    const [, label, history] = (chat.subscribeTrack as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(label).toBe("user2/screen");
+    expect(history.joiningStart).toBe(0n);
+
+    // A live chunk overtakes the fetch...
+    const body = encodeScreenObjectMessage(chunkAt(2));
+    const live = concatBytes([encodeVarint(0n), encodeVarint(BigInt(body.length)), body]);
+    const doneReader = { read: vi.fn(async () => ({ value: undefined, done: true })), cancel: vi.fn() };
+    const header = { trackAlias: ownScreenTrackAlias("user2"), groupId: 4n, flags: { properties: false } };
+    client.handleIncomingStream(header as never, live, doneReader as never);
+    await Promise.resolve();
+    expect(onScreenChunk).not.toHaveBeenCalled();
+
+    // ...but is delivered after the keyframe Group's fetched chunks.
+    history.onObject({ group: 4n, object: 0n, payload: encodeScreenObjectMessage({ ...chunkAt(0), keyframe: true }) });
+    history.onObject({ group: 4n, object: 1n, payload: encodeScreenObjectMessage(chunkAt(1)) });
+    history.onDone();
+    expect(onScreenChunk.mock.calls.map((c) => [c[0], c[1].seq])).toEqual([
+      ["user2", 0],
+      ["user2", 1],
+      ["user2", 2],
+    ]);
   });
 });
