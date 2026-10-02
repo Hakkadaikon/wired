@@ -220,27 +220,13 @@ static void test_moqtrun_upd_blob_forward(void) {
 /* A parameter outside the update's scope (GROUP_ORDER, 10.2.8) is a
  * malformed message: PROTOCOL_VIOLATION. On the control stream there is
  * no request to update: NOT_SUPPORTED. */
-/* Reliable relay: FORWARD 1 -> 0 by update stops the open stream -- no
- * Object appended after the update reaches B (10.9.1); its stream is
- * reset CANCELLED and its cursor stops pinning the ring. */
-static void test_moqtrun_upd_forward_off_reliable(void) {
-  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
-  moqctl_params p0              = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
-  moqctl_ftn    f               = mtrq_setup();
-  mtst_hub.reliable_alias_limit = 100;
-  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
-  wired_moqt_tick(&mtst_hub, 0);
-  usz n = mtst_stream(1, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
-  u64 sid = moqtrun_test_last_kind(5)->stream_id;
-  mtup_update(SESS_B, MTRQ_S1, &p0);
-  moqtrun_test_reset();
-  n = mtst_stream(1, 1, 0, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
-  wired_moqt_tick(&mtst_hub, 5);
-  for (usz i = 0; i < g_n_calls; i++)
-    CHECK(!(g_calls[i].kind == 3 && g_calls[i].stream_id == sid));
-  CHECK(mtrq_reset_code(sid) == 0x1);
+/* draft 10.14: TRACK_STATUS is the only message of a new request stream;
+ * on the control stream it is NOT_SUPPORTED. */
+static void test_moqtrun_tstat_control_stream(void) {
+  moqctl_ftn f  = mtup_setup();
+  u64        cb = moqtrun_find_by_wt(&mtst_hub, SESS_B)->control_stream_id;
+  mtup_tstat(SESS_B, cb, &f);
+  CHECK(mtup_err_code(cb) == MOQCTL_ERR_NOT_SUPPORTED);
 }
 
 /* An update is all or nothing: when FORWARD 0 -> 1 cannot send the blob,
@@ -262,6 +248,29 @@ static void test_moqtrun_upd_failed_changes_nothing(void) {
   wired_moqtrun_sub* s =
       moqtrun_track_sub_of_peer(&mtst_hub.blob_track, mtst_idx(SESS_B));
   CHECK(s && s->forward_off == 1 && s->has_priority == 0);
+}
+
+/* Reliable relay: FORWARD 1 -> 0 by update stops the open stream -- no
+ * Object appended after the update reaches B (10.9.1); its stream is
+ * reset CANCELLED and its cursor stops pinning the ring. */
+static void test_moqtrun_upd_forward_off_reliable(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params p0              = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  moqctl_ftn    f               = mtrq_setup();
+  mtst_hub.reliable_alias_limit = 100;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  wired_moqt_tick(&mtst_hub, 0);
+  usz n = mtst_stream(1, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  u64 sid = moqtrun_test_last_kind(5)->stream_id;
+  mtup_update(SESS_B, MTRQ_S1, &p0);
+  moqtrun_test_reset();
+  n = mtst_stream(1, 1, 0, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  wired_moqt_tick(&mtst_hub, 5);
+  for (usz i = 0; i < g_n_calls; i++)
+    CHECK(!(g_calls[i].kind == 3 && g_calls[i].stream_id == sid));
+  CHECK(mtrq_reset_code(sid) == 0x1);
 }
 
 static void test_moqtrun_upd_bad_and_control(void) {
@@ -337,6 +346,7 @@ static void test_moqtrun_timeout_ring(void) {
   CHECK(mtrq_reset_code(sid) == -1);
   wired_moqt_tick(&mtst_hub, 150);
   CHECK(mtrq_reset_code(sid) == 0x2);
+  CHECK(mtst_hub.stat_timeout_reset == 1);
   sid                       = mtup_ring_lagging(100);
   g_stream_send_reject_sess = 0;
   wired_moqt_tick(&mtst_hub, 50);
@@ -386,6 +396,7 @@ static void test_moqtrun_timeout_torn_object(void) {
     wired_moqt_on_stream_data(
         &mtst_hub, SESS_A, 2001, wired_span_of(buf + n - 1, 1), 0);
     CHECK(mtrq_reset_code(sid) == (late ? 0x2 : -1));
+    CHECK(mtst_hub.stat_timeout_reset == (u64)late);
     CHECK(moqtrun_test_count_kind(3) == (usz)!late);
     n = mtst_stream(1, 1, 0, buf);
     wired_moqt_on_stream_data(
@@ -427,6 +438,7 @@ void test_moqtrun_upd(void) {
   test_moqtrun_tstat_ok_empty();
   test_moqtrun_tstat_unknown_and_blob();
   test_moqtrun_tstat_authorized();
+  test_moqtrun_tstat_control_stream();
   test_moqtrun_upd_failed_changes_nothing();
   test_moqtrun_upd_forward_off_reliable();
   test_moqtrun_upd_forward_toggles();
