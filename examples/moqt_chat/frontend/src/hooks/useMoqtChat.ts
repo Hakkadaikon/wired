@@ -13,7 +13,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  candidateParticipantIds,
   MoqtChatClient,
   type ChatAttachment as WireChatAttachment,
   type MoqtChatCallbacks,
@@ -59,18 +58,6 @@ const DRAIN_INTERVAL_MS = 20;
 // screenStallRef/stalledScreenTiles key for this client's own preview tile,
 // alongside remote senders' participant ids.
 export const OWN_SCREEN_KEY = "own";
-// How often to retry SUBSCRIBE for a candidate's audio track that hasn't
-// PUBLISHed yet -- mirrors moqtClient.ts's own #retrySubscribes (SS10.7:
-// no namespace discovery in this subset, so a SUBSCRIBE for a peer who
-// joins later is retried on an interval rather than notified). A
-// subscribeToAudioTrack() sent before the peer's own PUBLISH gets
-// DOES_NOT_EXIST and is never retried unless something resends it.
-const VOICE_SUBSCRIBE_RETRY_MS = 1000;
-// Same gap, same fix, for screen tracks: publishScreenTrack() only ever
-// fires when a peer manually calls startScreenShare(), typically long
-// after everyone has joined, so a one-shot SUBSCRIBE sweep at connect time
-// would miss almost every peer's share for the rest of the session.
-const SCREEN_SUBSCRIBE_RETRY_MS = 1000;
 // How often the quality window is snapshotted into the store (task brief:
 // "every 1s"); independent of DRAIN_INTERVAL_MS, which paces jitter-buffer
 // pulls, not quality reporting.
@@ -212,6 +199,11 @@ export async function connectChatThenVoice(
   startVoice: () => Promise<void>,
   onChatFailed: () => void,
   onVoiceFailed: (err: unknown) => void,
+  // Joins the room's discovery (MoqtChatClient.announce) last: by then the
+  // chat and (when voice came up) audio tracks are PUBLISHed, so a peer
+  // reacting to our namespace finds them. Voice failing does not keep us
+  // out of the room.
+  announce: () => Promise<void> = async () => {},
 ): Promise<void> {
   try {
     await connectChat();
@@ -224,6 +216,35 @@ export async function connectChatThenVoice(
   } catch (err) {
     onVoiceFailed(err);
   }
+  await announce().catch(() => {});
+}
+
+// Namespace discovery -> room state (MoqtChatClient's onNamespace): a peer's
+// own namespace is its presence -- add/remove it and subscribe its audio
+// (its chat subscription is the client's own) -- and <peer>/screen means a
+// share started: subscribe the screen track. A share's withdrawal needs
+// nothing here; the tile's stall detector already retires it.
+export function handleRoomNamespace(
+  suffix: string[],
+  active: boolean,
+  deps: {
+    store: Pick<MoqtChatState, "addPeer" | "removePeer">;
+    voice: { subscribeToAudioTrack(id: string): Promise<void> } | null;
+    screen: { subscribeToScreenTrack(id: string): Promise<void> } | null;
+  },
+): void {
+  const [peer, sub] = suffix;
+  if (sub === "screen") {
+    if (active) void deps.screen?.subscribeToScreenTrack(peer).catch(() => {});
+    return;
+  }
+  if (sub !== undefined) return;
+  if (!active) {
+    deps.store.removePeer(peer);
+    return;
+  }
+  deps.store.addPeer(peer);
+  void deps.voice?.subscribeToAudioTrack(peer).catch(() => {});
 }
 
 // The capture-before-publish ordering pulled out of startScreenShare's own
@@ -295,7 +316,7 @@ export function chainVoiceTap(
 
 // The current session's live resources -- everything a manual Rejoin
 // (connect() called while a previous session is still up) would otherwise
-// duplicate: the drain loop, both SUBSCRIBE retry timers, the mic, and the
+// duplicate: the drain loop, the mic, and the
 // page-unload handler. Pulled out of leave()'s own teardown so connect() can
 // call the identical logic before starting a new session, instead of only
 // leave() ever stopping the previous one. Plain ref-shaped params (not React
@@ -303,8 +324,6 @@ export function chainVoiceTap(
 // registerPageLifecycleCleanup's own deps/target split.
 export type SessionRefs = {
   drainTimer: { current: ReturnType<typeof setTimeout> | null };
-  voiceRetryTimer: { current: ReturnType<typeof setInterval> | null };
-  screenRetryTimer: { current: ReturnType<typeof setInterval> | null };
   qualityTimer: { current: ReturnType<typeof setInterval> | null };
   speakingTimer: { current: ReturnType<typeof setInterval> | null };
   // Whatever globalThis.__wiredVoiceTap held immediately before this session
@@ -316,7 +335,6 @@ export type SessionRefs = {
   voice: { current: { close: () => void } | null };
   receivePipeline: { current: unknown };
   knownSenders: { current: Set<string> };
-  screenKnownSenders: { current: Set<string> };
   screenShare: { current: { stop: () => void } | null };
   screen: { current: { close: () => void } | null };
   screenReceive: { current: unknown };
@@ -335,14 +353,6 @@ export function teardownSession(
   if (refs.drainTimer.current !== null) {
     clearTimeout(refs.drainTimer.current);
     refs.drainTimer.current = null;
-  }
-  if (refs.voiceRetryTimer.current !== null) {
-    clearInterval(refs.voiceRetryTimer.current);
-    refs.voiceRetryTimer.current = null;
-  }
-  if (refs.screenRetryTimer.current !== null) {
-    clearInterval(refs.screenRetryTimer.current);
-    refs.screenRetryTimer.current = null;
   }
   if (refs.qualityTimer.current !== null) {
     clearInterval(refs.qualityTimer.current);
@@ -364,7 +374,6 @@ export function teardownSession(
   refs.voice.current = null;
   refs.receivePipeline.current = null;
   refs.knownSenders.current.clear();
-  refs.screenKnownSenders.current.clear();
   try {
     refs.screenShare.current?.stop();
   } catch {
@@ -535,14 +544,8 @@ export function useMoqtChat() {
   const sinkRef = useRef<PlaybackSink | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const knownSendersRef = useRef<Set<string>>(new Set());
-  // Screen-share counterpart to knownSendersRef: a candidate is added once
-  // its first screen chunk arrives (onScreenChunk below), so the retry
-  // loop stops resending SUBSCRIBE for peers who are already streaming.
-  const screenKnownSendersRef = useRef<Set<string>>(new Set());
   const localIdRef = useRef<string>("");
   const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const voiceRetryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const screenRetryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // registerPageLifecycleCleanup's own unregister, so teardownSession can
   // remove the beforeunload handler instead of piling up a new one on
   // every connect() (a manual Rejoin would otherwise leave the previous
@@ -631,8 +634,6 @@ export function useMoqtChat() {
     teardownSession(
       {
         drainTimer: drainTimerRef,
-        voiceRetryTimer: voiceRetryTimerRef,
-        screenRetryTimer: screenRetryTimerRef,
         qualityTimer: qualityTimerRef,
         speakingTimer: speakingTimerRef,
         previousVoiceTap: previousVoiceTapRef,
@@ -640,7 +641,6 @@ export function useMoqtChat() {
         voice: voiceRef,
         receivePipeline: receivePipelineRef,
         knownSenders: knownSendersRef,
-        screenKnownSenders: screenKnownSendersRef,
         screenShare: screenShareRef,
         screen: screenRef,
         screenReceive: screenReceiveRef,
@@ -739,47 +739,8 @@ export function useMoqtChat() {
       });
       voiceRef.current = voice;
       await voice.publishAudioTrack();
-      for (const candidate of candidateParticipantIds(localId)) {
-        await voice.subscribeToAudioTrack(candidate);
-      }
-      // Both retry loops stop at SUBSCRIBE_OK (chat.isSubscribed), not only
-      // at the first received chunk: a muted peer's audio track and a
-      // stopped-but-still-PUBLISHed screen track are idle for as long as
-      // the peer likes, and a SUBSCRIBE resent every second against them
-      // used to exhaust the hub's per-track subscriber slots.
-      voiceRetryTimerRef.current = setInterval(() => {
-        for (const candidate of candidateParticipantIds(localId)) {
-          if (knownSendersRef.current.has(candidate)) continue;
-          if (chat.isSubscribed(`${candidate}/audio`)) continue;
-          void voiceRef.current?.subscribeToAudioTrack(candidate);
-        }
-      }, VOICE_SUBSCRIBE_RETRY_MS);
-
-      // SUBSCRIBE to every candidate's screen track too, same shape as the
-      // voice loop above -- a subscribe sent before that peer ever
-      // PUBLISHes just gets DOES_NOT_EXIST and is harmless
-      // (moqtScreenClient.ts's own doc); once they call startScreenShare,
-      // handleIncomingStream routes their Objects to onScreenChunk above.
-      // Screen sharing is opt-in and typically starts well after everyone
-      // has joined, so this ALSO needs the retry timer, same mechanism as
-      // voice: without it, a peer who starts sharing after this one-shot
-      // sweep would never get subscribed to. Wrapped so a screen SUBSCRIBE
-      // failure can never fail startVoice itself (which would surface as a
-      // voice error for an unrelated feature).
-      try {
-        for (const candidate of candidateParticipantIds(localId)) {
-          await screenRef.current?.subscribeToScreenTrack(candidate);
-        }
-      } catch {
-        // isolation: a screen SUBSCRIBE failure must not block/fail voice
-      }
-      screenRetryTimerRef.current = setInterval(() => {
-        for (const candidate of candidateParticipantIds(localId)) {
-          if (screenKnownSendersRef.current.has(candidate)) continue;
-          if (chat.isSubscribed(`${candidate}/screen`)) continue;
-          void screenRef.current?.subscribeToScreenTrack(candidate);
-        }
-      }, SCREEN_SUBSCRIBE_RETRY_MS);
+      // Peers' audio is subscribed as discovery reports them
+      // (handleRoomNamespace), once announce() runs after this.
 
       startMicPipeline({
         getUserMedia: (c) => navigator.mediaDevices.getUserMedia(c),
@@ -894,6 +855,8 @@ export function useMoqtChat() {
         onUnknownDatagram: (datagram) => {
           voiceRef.current?.handleIncomingDatagram(datagram);
         },
+        onNamespace: (suffix, active) =>
+          handleRoomNamespace(suffix, active, { store, voice: voiceRef.current, screen: screenRef.current }),
       });
       clientRef.current = client;
 
@@ -936,7 +899,6 @@ export function useMoqtChat() {
         // decoder can only resync on a keyframe.
         onStreamReset: () => screenShareRef.current?.requestKeyframe(),
         onScreenChunk: (participantId, chunk) => {
-          screenKnownSendersRef.current.add(participantId);
           try {
             let reassembler = screenReassemblersRef.current.get(participantId);
             if (!reassembler) {
@@ -992,6 +954,7 @@ export function useMoqtChat() {
         // schedules the automatic rejoin.
         () => reportStatus("disconnected"),
         (err) => setMicError(err instanceof Error ? err.message : "voice setup failed"),
+        () => client.announce(),
       );
     },
     [store, startVoice, drawScreenFrame, teardownCurrentSession],

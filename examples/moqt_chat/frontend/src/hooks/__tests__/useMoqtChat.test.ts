@@ -6,6 +6,7 @@ import {
   captureThenPublishScreen,
   clearOwnScreenStall,
   connectChatThenVoice,
+  handleRoomNamespace,
   handleSessionStatus,
   micPipelineIsConfigSupported,
   micTracksFrom,
@@ -29,8 +30,6 @@ import { FakeWebTransport } from "@/lib/__tests__/fakeWebTransport";
 function fakeSessionRefs(): SessionRefs {
   return {
     drainTimer: { current: setTimeout(() => {}, 1000) },
-    voiceRetryTimer: { current: setInterval(() => {}, 1000) },
-    screenRetryTimer: { current: setInterval(() => {}, 1000) },
     qualityTimer: { current: setInterval(() => {}, 1000) },
     speakingTimer: { current: setInterval(() => {}, 1000) },
     previousVoiceTap: { current: undefined },
@@ -38,7 +37,6 @@ function fakeSessionRefs(): SessionRefs {
     voice: { current: { close: vi.fn() } },
     receivePipeline: { current: {} },
     knownSenders: { current: new Set(["peerA"]) },
-    screenKnownSenders: { current: new Set(["peerA"]) },
     screenShare: { current: { stop: vi.fn() } },
     screen: { current: { close: vi.fn() } },
     screenReceive: { current: {} },
@@ -221,6 +219,84 @@ describe("connectChatThenVoice", () => {
   });
 });
 
+describe("connectChatThenVoice: announcing to the room", () => {
+  it("announces after voice setup (its audio track is PUBLISHed by then)", async () => {
+    const order: string[] = [];
+    const startVoice = vi.fn(async () => {
+      order.push("voice");
+    });
+    const announce = vi.fn(async () => {
+      order.push("announce");
+    });
+
+    await connectChatThenVoice(vi.fn().mockResolvedValue(undefined), startVoice, vi.fn(), vi.fn(), announce);
+
+    expect(order).toEqual(["voice", "announce"]);
+  });
+
+  it("still announces when voice setup rejects", async () => {
+    const announce = vi.fn(async () => {});
+
+    await connectChatThenVoice(
+      vi.fn().mockResolvedValue(undefined),
+      vi.fn().mockRejectedValue(new Error("no mic")),
+      vi.fn(),
+      vi.fn(),
+      announce,
+    );
+
+    expect(announce).toHaveBeenCalledOnce();
+  });
+
+  it("does not announce when the chat connection failed", async () => {
+    const announce = vi.fn(async () => {});
+
+    await connectChatThenVoice(vi.fn().mockRejectedValue(new Error("down")), vi.fn(), vi.fn(), vi.fn(), announce);
+
+    expect(announce).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleRoomNamespace", () => {
+  function deps() {
+    return {
+      store: { addPeer: vi.fn(), removePeer: vi.fn() },
+      voice: { subscribeToAudioTrack: vi.fn(async () => {}) },
+      screen: { subscribeToScreenTrack: vi.fn(async () => {}) },
+    };
+  }
+
+  it("a peer's namespace adds it and subscribes its audio", () => {
+    const d = deps();
+    handleRoomNamespace(["user2"], true, d);
+    expect(d.store.addPeer).toHaveBeenCalledWith("user2");
+    expect(d.voice.subscribeToAudioTrack).toHaveBeenCalledWith("user2");
+    expect(d.screen.subscribeToScreenTrack).not.toHaveBeenCalled();
+  });
+
+  it("a withdrawn peer namespace removes it", () => {
+    const d = deps();
+    handleRoomNamespace(["user2"], false, d);
+    expect(d.store.removePeer).toHaveBeenCalledWith("user2");
+    expect(d.voice.subscribeToAudioTrack).not.toHaveBeenCalled();
+  });
+
+  it("a <peer>/screen namespace subscribes that peer's screen; its withdrawal does nothing", () => {
+    const d = deps();
+    handleRoomNamespace(["user3", "screen"], true, d);
+    handleRoomNamespace(["user3", "screen"], false, d);
+    expect(d.screen.subscribeToScreenTrack).toHaveBeenCalledExactlyOnceWith("user3");
+    expect(d.store.addPeer).not.toHaveBeenCalled();
+    expect(d.store.removePeer).not.toHaveBeenCalled();
+  });
+
+  it("works before voice is set up (no voice client yet)", () => {
+    const d = deps();
+    handleRoomNamespace(["user2"], true, { ...d, voice: null });
+    expect(d.store.addPeer).toHaveBeenCalledWith("user2");
+  });
+});
+
 describe("sendChatMessage", () => {
   function fakeStore() {
     return { addMessage: vi.fn(), setMessageSendError: vi.fn() };
@@ -312,7 +388,7 @@ describe("captureThenPublishScreen", () => {
 });
 
 describe("teardownSession", () => {
-  it("stops the drain loop, both retry timers, the mic, and unregisters the lifecycle handler", () => {
+  it("stops the drain loop, the mic, and unregisters the lifecycle handler", () => {
     const refs = fakeSessionRefs();
     const mic = refs.mic.current as { stop: ReturnType<typeof vi.fn> };
     const unregister = refs.unregisterLifecycle.current as ReturnType<typeof vi.fn>;
@@ -320,8 +396,6 @@ describe("teardownSession", () => {
     teardownSession(refs, fakeScreenStore());
 
     expect(refs.drainTimer.current).toBeNull();
-    expect(refs.voiceRetryTimer.current).toBeNull();
-    expect(refs.screenRetryTimer.current).toBeNull();
     expect(refs.qualityTimer.current).toBeNull();
     expect(refs.speakingTimer.current).toBeNull();
     expect(mic.stop).toHaveBeenCalledTimes(1);
@@ -384,7 +458,6 @@ describe("teardownSession", () => {
     expect(screen.close).toHaveBeenCalledTimes(1);
     expect(client.close).toHaveBeenCalledTimes(1);
     expect(refs.knownSenders.current.size).toBe(0);
-    expect(refs.screenKnownSenders.current.size).toBe(0);
     expect(refs.screenReassemblers.current.size).toBe(0);
     expect(refs.screenKeyframeMeta.current.size).toBe(0);
     expect(store.setScreenSharing).toHaveBeenCalledWith(false);

@@ -84,10 +84,10 @@ export class MoqtVoiceClient {
     await this.#chat.publishTrack(audioTrackName(this.#chat.localId), this.#trackAlias);
   }
 
-  /** SUBSCRIBEs to participantId's "<id>/audio" track. The reply is not
-   * awaited (moqtClient.ts's subscribeTrack doc); a successful SUBSCRIBE
-   * shows up as incoming uni streams once the peer starts talking, routed
-   * here via handleIncomingStream. */
+  /** SUBSCRIBEs to participantId's "<id>/audio" track (live only, no
+   * history); called when discovery reports the peer. A successful
+   * SUBSCRIBE shows up as datagrams / uni streams once the peer talks,
+   * routed here via handleIncomingDatagram / handleIncomingStream. */
   async subscribeToAudioTrack(participantId: string): Promise<void> {
     await this.#chat.subscribeTrack(
       audioTrackName(participantId),
