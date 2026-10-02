@@ -1,0 +1,54 @@
+---
+title: Streams vs. datagrams
+description: What each MoQT delivery mode guarantees, where head-of-line blocking comes from, and how to pick one.
+sidebar:
+  order: 2
+---
+
+A MoQT Object reaches a subscriber either on a stream (a SUBGROUP stream,
+draft-ietf-moq-transport-19 11.4.2) or as one QUIC DATAGRAM (an
+OBJECT_DATAGRAM, 11.3.1). [Datagram vs. stream delivery](../../moqt/delivery/)
+sends one of each; this page explains what the difference means for an app.
+
+## What each mode guarantees
+
+| | Stream | Datagram |
+|---|---|---|
+| Lost packets | retransmitted until delivered or reset | gone; never retransmitted |
+| Order | in order within one stream | none |
+| Object size | keep it under 16384 bytes, the hub's buffer for an Object torn across deliveries (`WIRED_MOQTRUN_RELAY_FRAG_MAX`) | one QUIC packet |
+| Late subscriber | the hub can still relay a stream already in progress | only datagrams sent after it subscribed |
+| Hub relay state | a relay entry per publisher stream (`WIRED_MOQTRUN_MAX_RELAYS`, 4 per track) | none |
+
+A datagram must fit in one QUIC packet together with its framing. RFC 9000
+14 only requires a path to carry 1200-byte UDP payloads, so keep datagram
+Objects well under that unless the path is known to carry more.
+
+## Head-of-line blocking
+
+Bytes on one stream are delivered in order, so a lost packet holds back every
+later byte on that stream until the retransmission arrives. Streams do not
+block each other: a loss on one Group's stream leaves the next Group's stream
+flowing. This is why the usual layout is one stream per Group (see
+[How MoQT maps media](../media-mapping/)): a loss delays at most the rest of
+its own Group. Datagrams have no order to restore, so a loss never delays
+another datagram; the subscriber simply never sees the lost one.
+
+## Delivery timeout
+
+A reliable stream can deliver an Object long after it stopped being useful.
+A subscriber bounds that with the OBJECT_DELIVERY_TIMEOUT parameter (draft
+10.2.4) on SUBSCRIBE or REQUEST_UPDATE: when an Object's first byte reached
+the hub longer ago than the timeout, the hub resets that subscriber's stream
+with DELIVERY_TIMEOUT instead of sending it late (draft 8). A non-zero
+SUBGROUP_DELIVERY_TIMEOUT is answered REQUEST_ERROR NOT_SUPPORTED.
+
+## Which one to choose
+
+- Choose **datagrams** for small, frequent media where the next frame
+  replaces a lost one: voice frames, cursor positions, sensor readings.
+- Choose **streams** for anything that must arrive whole or in order: video
+  Groups (a decoder needs every frame since the keyframe), chat messages,
+  attachments, and any Object larger than a packet.
+- Choose **streams with a delivery timeout** for live video that should
+  degrade by skipping to the next Group instead of falling behind.

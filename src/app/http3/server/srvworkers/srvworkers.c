@@ -181,15 +181,20 @@ static void srvworkers_forward(srvworkers_table* t) {
   srvworkers_kill_all(t);
 }
 
-/* Reap one exited worker without blocking; nap when none has, so a SIGTERM
+/* Reap one exited worker without blocking; nap when none has (or wait4
+ * failed, e.g. ECHILD, so the supervisor loop never spins), so a SIGTERM
  * whose handler ran outside the wait (no EINTR to wake on) is still
  * forwarded within one nap.
  * ponytail: 100 ms idle wakeups and up to 100 ms forward latency; a
  * signalfd in the wait set if that ever matters.
  * @return the reaped pid, or -1 if none (never 0: a free slot holds 0). */
+static u64 g_srvworkers_naps; /* naps taken; read by tests */
 static i64 srvworkers_wait(i64* status) {
   i64 dead = wired_arch_wait4(-1, status, 1 /* WNOHANG */, 0);
-  if (dead == 0) wired_arch_poll(0, 0, 100);
+  if (dead <= 0) {
+    g_srvworkers_naps++;
+    wired_arch_poll(0, 0, 100);
+  }
   return dead ? dead : -1;
 }
 

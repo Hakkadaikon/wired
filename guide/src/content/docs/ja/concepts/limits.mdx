@@ -1,0 +1,71 @@
+---
+title: 現在の上限
+description: wired がビルド時に決める固定の容量と、draft-ietf-moq-transport-19 のうち実装していない部分。
+sidebar:
+  order: 5
+---
+
+wired の表は、すべてビルド時に大きさが決まる固定長の配列です。
+表に収まらない要求をした相手は、新しいメモリーで受け入れられる代わりにワイヤー上で拒否されます（ストリームのリセットや、エラーでの応答）。
+以下の値はソースコード上の値で、右の列の名前が調べる対象の定数です（注記したものは、ビルド時に `-D` で上書きできます）。
+
+## コネクションと WebTransport
+
+| 上限 | 値 | 定数 |
+|---|---|---|
+| サーバーあたりの QUIC コネクション | 64 | `WIRED_CONNTABLE_CAP` |
+| コネクションあたりの WebTransport セッション | 2 | `SRVRUN_MAX_WT_SESSIONS` |
+| 全コネクション合計の WebTransport セッション | 64 | `SRVRUN_MAX_WT_SESSIONS_GLOBAL` |
+| コネクションあたり 1 秒間に開ける WebTransport セッション | 10 | `SRVRUN_MAX_WT_SESSIONS_PER_WINDOW` |
+| コネクションあたりの、クライアントが開いた WT 双方向ストリーム | 24（`-D` で上書き可） | `WIRED_SRVLOOP_MAX_WT_STREAMS` |
+| コネクションあたりの、クライアントが開いた WT 単方向ストリーム | 6 | `WIRED_SRVLOOP_MAX_WT_UNI_STREAMS` |
+| コネクションあたり同時に送信中の、サーバーが開いた WT ストリーム | 16 | `SRVRUN_WT_SEND_SLOTS` |
+| WT ストリーム 1 本の受信ウィンドウ | 49152 バイト | `WIRED_SRVLOOP_WT_BUF_CAP` |
+
+## HTTP/3 のリクエスト
+
+| 上限 | 値 | 定数 |
+|---|---|---|
+| コネクションあたりの同時リクエストストリーム | 40（`-D` で上書き可） | `WIRED_SRVLOOP_MAX_STREAMS` |
+| リクエストボディのウィンドウ（`on_body` なしではボディ全体、ありでは 1 回分） | 2048 バイト | `BODYWIN_CAP` |
+| リクエストのヘッダーセクション | 2048 バイト | `WIRED_H3_MAX_FIELD_SECTION` |
+| リクエストごとに保持するヘッダー（それ以降は無視） | 32 | `WIRED_H3REQDRIVE_MAX_HDRS` |
+| ハンドラー 1 回あたりのレスポンスヘッダーフィールド | 8 | `WIRED_HTTP_MAX_FIELDS` |
+| エンコード済みのレスポンスヘッダーの領域 | 512 バイト | `SRVRUN_RESP_HDR_ROOM` |
+| 固定長のレスポンス 1 回分（ヘッダーとボディ） | 16384 バイト | `WIRED_SRVRUN_RESP_MAX` |
+
+2048 バイトを超えるリクエストボディには `wired_srvrun_handler.on_body` が必要で、ボディをウィンドウ 1 つ分ずつ受け取ります（[POST ボディのストリーミング](../../h3/post-body/)）。
+1 回分を超えるレスポンスはストリーミングします（[大きなボディのストリーミング](../../h3/streaming/)）。
+
+## MoQT ハブ
+
+| 上限 | 値 | 定数 |
+|---|---|---|
+| 1 つのハブが管理するセッション | 32 | `WIRED_MOQTRUN_MAX_SESSIONS` |
+| 1 つのセッションが PUBLISH できる Track | 3 | `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` |
+| Track あたり同時に中継する発行者のストリーム | 4 | `WIRED_MOQTRUN_MAX_RELAYS` |
+| 受信をまたいで保持する Object の後半 | 16384 バイト | `WIRED_MOQTRUN_RELAY_FRAG_MAX` |
+| 後半を保持するバッファー（ハブ全体） | 8 | `WIRED_MOQTRUN_FRAG_POOL` |
+| リクエストストリーム（ハブ全体） | 64 | `WIRED_MOQTRUN_MAX_REQS` |
+| セッションあたりのリクエストストリーム | 16 | `WIRED_MOQTRUN_MAX_REQS_PER_SESSION` |
+| 同時に応答中の FETCH（ハブ全体） | 8 | `WIRED_MOQTRUN_MAX_FETCHES` |
+| 受信する制御メッセージの本体 | 1024 バイト | `WIRED_MOQTRUN_CTL_MSG_MAX` |
+| Track Name | 64 バイト | `WIRED_MOQTRUN_MAX_NAME` |
+| エンコード済みの Track Namespace | 128 バイト | `WIRED_MOQTRUN_MAX_NS` |
+| GOAWAY の New Session URI | 512 バイト | `WIRED_MOQTRUN_GOAWAY_URI_MAX` |
+| FETCH 用のキャッシュ | アプリが渡すアリーナの大きさ | `wired_moqt_cache_attach` |
+
+## draft-ietf-moq-transport-19 のうち実装していない部分
+
+- ハブはセッションごとに双方向の制御ストリームを 1 本開き、その上で SETUP（0x2F00）を送ります。
+  draft の、両端がそれぞれ 1 本ずつ開く単方向の制御ストリームの組（3.3）は実装していません。
+- SUBSCRIBE_TRACKS には REQUEST_ERROR NOT_SUPPORTED で答えます。
+- 制御ストリームで行った購読には、PUBLISH_DONE が送られません。
+  制御ストリームには、その購読を指す Request ID がないためです。
+  それぞれのリクエストストリームで行った購読には送られます。
+- REQUEST_UPDATE を受け付けるのは SUBSCRIBE のリクエストストリームだけで、それ以外のリクエストには NOT_SUPPORTED で答えます。
+- 0 でない SUBGROUP_DELIVERY_TIMEOUT には NOT_SUPPORTED で答えます。
+- Track Property の DEFAULT_PUBLISHER_PRIORITY は読みません。
+  Publisher Priority を明示していない Object は 128 として扱います。
+- ハブ自身の Track（`wired_moqt_publish_blob`、`wired_moqt_publish_live`）は名前空間を持たず、SUBSCRIBE とは Track Name だけで照合します。
+- MoQT は WebTransport の上でのみ動き、QUIC の上で直接は動きません。

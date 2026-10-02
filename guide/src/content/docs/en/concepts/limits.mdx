@@ -1,0 +1,78 @@
+---
+title: Current limits
+description: The fixed capacities wired is built with, and the parts of draft-ietf-moq-transport-19 it does not implement.
+sidebar:
+  order: 5
+---
+
+Every table in wired is a fixed array sized at build time. A peer that needs more than a table holds is refused on the wire
+(the stream reset, the request answered with an error) rather than served
+from new memory. The numbers below are the values in the source; the names
+in the right column are the constants to look up (or, where noted, to
+override with `-D` at build time).
+
+## Connections and WebTransport
+
+| Limit | Value | Constant |
+|---|---|---|
+| QUIC connections per server | 64 | `WIRED_CONNTABLE_CAP` |
+| WebTransport sessions per connection | 2 | `SRVRUN_MAX_WT_SESSIONS` |
+| WebTransport sessions, all connections | 64 | `SRVRUN_MAX_WT_SESSIONS_GLOBAL` |
+| New WebTransport sessions per connection per second | 10 | `SRVRUN_MAX_WT_SESSIONS_PER_WINDOW` |
+| Client-opened WT bidi streams per connection | 24 (`-D` overridable) | `WIRED_SRVLOOP_MAX_WT_STREAMS` |
+| Client-opened WT uni streams per connection | 6 | `WIRED_SRVLOOP_MAX_WT_UNI_STREAMS` |
+| Server-opened WT streams sending at once, per connection | 16 | `SRVRUN_WT_SEND_SLOTS` |
+| Receive window of one WT stream | 49152 bytes | `WIRED_SRVLOOP_WT_BUF_CAP` |
+
+## HTTP/3 requests
+
+| Limit | Value | Constant |
+|---|---|---|
+| Concurrent request streams per connection | 40 (`-D` overridable) | `WIRED_SRVLOOP_MAX_STREAMS` |
+| Request body window (whole body without `on_body`; per round with it) | 2048 bytes | `BODYWIN_CAP` |
+| Request header section | 2048 bytes | `WIRED_H3_MAX_FIELD_SECTION` |
+| Request headers kept per request (further ones ignored) | 32 | `WIRED_H3REQDRIVE_MAX_HDRS` |
+| Response header fields per handler round | 8 | `WIRED_HTTP_MAX_FIELDS` |
+| Room for the encoded response headers | 512 bytes | `SRVRUN_RESP_HDR_ROOM` |
+| One fixed response round (headers + body) | 16384 bytes | `WIRED_SRVRUN_RESP_MAX` |
+
+A request body larger than 2048 bytes needs `wired_srvrun_handler.on_body`,
+which receives it window by window
+([Streaming a POST body](../../h3/post-body/)); a response larger than one
+round is streamed ([Streaming a large body](../../h3/streaming/)).
+
+## MoQT hub
+
+| Limit | Value | Constant |
+|---|---|---|
+| Sessions one hub tracks | 32 | `WIRED_MOQTRUN_MAX_SESSIONS` |
+| Tracks one session can PUBLISH | 3 | `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` |
+| Publisher streams relayed at once, per track | 4 | `WIRED_MOQTRUN_MAX_RELAYS` |
+| Object tail held across deliveries | 16384 bytes | `WIRED_MOQTRUN_RELAY_FRAG_MAX` |
+| Buffers for held tails, hub-wide | 8 | `WIRED_MOQTRUN_FRAG_POOL` |
+| Request streams, hub-wide | 64 | `WIRED_MOQTRUN_MAX_REQS` |
+| Request streams per session | 16 | `WIRED_MOQTRUN_MAX_REQS_PER_SESSION` |
+| FETCH responses served at once, hub-wide | 8 | `WIRED_MOQTRUN_MAX_FETCHES` |
+| Received control message body | 1024 bytes | `WIRED_MOQTRUN_CTL_MSG_MAX` |
+| Track Name | 64 bytes | `WIRED_MOQTRUN_MAX_NAME` |
+| Encoded Track Namespace | 128 bytes | `WIRED_MOQTRUN_MAX_NS` |
+| GOAWAY New Session URI | 512 bytes | `WIRED_MOQTRUN_GOAWAY_URI_MAX` |
+| FETCH cache | the arena the app passes | `wired_moqt_cache_attach` |
+
+## draft-ietf-moq-transport-19 parts not implemented
+
+- The hub opens one bidirectional control stream per session and sends
+  SETUP (0x2F00) on it; the draft's pair of unidirectional control streams
+  (one opened by each endpoint, 3.3) is not implemented.
+- SUBSCRIBE_TRACKS is answered REQUEST_ERROR NOT_SUPPORTED.
+- A subscription made on the control stream gets no PUBLISH_DONE, since that
+  stream has no Request ID to name it by; subscriptions on their own request
+  streams do.
+- REQUEST_UPDATE is served only on a SUBSCRIBE's request stream; for any
+  other request it is answered NOT_SUPPORTED.
+- A non-zero SUBGROUP_DELIVERY_TIMEOUT is answered NOT_SUPPORTED.
+- The DEFAULT_PUBLISHER_PRIORITY Track Property is not read; an Object
+  without an explicit Publisher Priority counts as 128.
+- The hub's own tracks (`wired_moqt_publish_blob`, `wired_moqt_publish_live`)
+  have no namespace and match a SUBSCRIBE by Track Name only.
+- MoQT runs over WebTransport only, not directly over QUIC.

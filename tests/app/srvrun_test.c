@@ -16293,7 +16293,7 @@ static void test_srvrun_wt_rx_partial_capsule_waits_for_more(void) {
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
   CHECK(c->wt.max_data == 0);
   /* held, behind a 2-byte DATA frame head */
-  CHECK(c->wt_caprx[0].n == capb.len - 3);
+  CHECK(c->wt_capq[0].n == capb.len - 3);
   CHECK(
       sr_wtcap_feed(c, capb.len - 1, wired_span_of(capbuf + capb.len - 1, 1)) !=
       0);
@@ -18267,7 +18267,11 @@ static int sr_qenc_field_is_dynamic_indexed(const u8* fs, usz n) {
  * QPACK encoder stream's own wtsend slot, and (b) references it from the
  * response's field section as an Indexed Field Line with T=0 (dynamic) --
  * not the literal fallback the capacity==0 default used before this stream
- * existed. */
+ * existed.
+ * NOTE: production never reaches this path today -- wired_h3srv_state_init
+ * starts qenc at capacity 0 (RFC 9204 3.2.3) and no Set Dynamic Table
+ * Capacity is sent -- so the test seeds a peer-allowed 4096 by hand to keep
+ * the dynamic-insert mechanism covered. */
 static void test_srvrun_qenc_first_use_inserts_and_references_dynamic(void) {
   srvrun_conn            c = {0};
   qpackenc_status_result ins;

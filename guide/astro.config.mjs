@@ -14,6 +14,7 @@ export default defineConfig({
       },
       sidebar: [
         { label: 'Getting started', translations: { ja: 'はじめに' }, items: [{ autogenerate: { directory: 'getting-started' } }] },
+        { label: 'Concepts', translations: { ja: '考え方' }, items: [{ autogenerate: { directory: 'concepts' } }] },
         { label: 'TLS & crypto', translations: { ja: 'TLS と暗号' }, items: [{ autogenerate: { directory: 'tls' } }] },
         { label: 'QUIC', items: [{ autogenerate: { directory: 'quic' } }] },
         { label: 'HTTP/3', items: [{ autogenerate: { directory: 'h3' } }] },
