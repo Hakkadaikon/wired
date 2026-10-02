@@ -1,0 +1,41 @@
+---
+title: SIGTERM によるグレースフルストップ
+description: SIGTERM を受けたら新規接続の受け入れを止め、生きている接続を drain してから終了する。単一プロセスと --workers の両方で。
+sidebar:
+  order: 3
+---
+import Example from '../../../../components/Example.astro';
+
+`wired_server_run` は、サーブを始める前に SIGTERM のハンドラーを登録します（RFC 9114 5.2）。
+SIGTERM を受け取ると、新しい接続の受け入れは止まり、そのとき生きている接続すべてに
+GOAWAY が一度送られ、全接続が drain を終えるか、決められた猶予期間が過ぎた時点でプロセスが終了します。
+`--workers`（`wired_srvdriver_run` の内部で呼ばれる `wired_srvworkers_run`）は、
+その上にスーパーバイザーを一枚重ねます。
+受け取った一つの SIGTERM を生きているワーカーそれぞれに転送し、以後は再起動をしなくなるので、
+プロセスグループ全体が揃って終了します。
+
+このページでは、ワーカーを一つだけ起動し（`--workers 1`）、リクエストに一度応答したあと
+SIGTERM を送ります。
+
+<Example id="ops-shutdown" />
+
+## 仕組み
+
+- `wired_srvdriver_parse`/`wired_srvdriver_run` は、`ops/handshake-knobs` と同じ方法で
+  argv からドライバーを選びます。`--workers 1` を渡すと、子プロセスをちょうど一つだけ
+  fork する `wired_srvworkers_run` が選ばれます。
+- スーパーバイザー自身の SIGTERM ハンドラーはフラグを立てるだけです（async-signal-safe）。
+  reap ループが、生きている各ワーカーの pid に SIGTERM を一度だけ転送し、
+  以後は終了したワーカーを再び fork しません。シャットダウン中に落ちたワーカーも、
+  もう再起動されません。
+- 各ワーカー自身が実行している `wired_server_run` はそのままです。
+  スーパーバイザーから転送されたこの SIGTERM こそが、上で説明した
+  「新規接続を止め、GOAWAY を送り、drain してから終了する」というワーカー自身の
+  グレースフルシャットダウンの経路を駆動しています。
+- このページでは 1 より大きい `--workers` は試していません。
+  ワーカーが複数になると、ポートの共有は `SO_REUSEPORT` のカーネル側ハッシュだけに頼ることになり、
+  ワーカーごとの振り分けは存在しません。
+  この fork モデルについて `wired_srvworkers_run` 自身のドキュメントが、
+  ハンドシェイクが断続的に失敗するリスクとして明記しています。
+  `--workers 1` はそのリスクを避けつつ、スーパーバイザーが転送して reap するという
+  実際の経路はそのまま確かめられます。

@@ -1,0 +1,38 @@
+---
+title: Graceful stop on SIGTERM
+description: Stop accepting new connections, let live ones drain, and exit cleanly on SIGTERM -- single-process and under --workers.
+sidebar:
+  order: 3
+---
+import Example from '../../../../components/Example.astro';
+
+`wired_server_run` installs a SIGTERM handler before serving (RFC 9114
+5.2): on receipt, new connections stop being accepted, GOAWAY goes out once
+to every still-live connection, and the process exits once every connection
+has drained or a bounded grace period elapses. `wired_srvworkers_run` (the
+`--workers` fan-out behind `wired_srvdriver_run`) layers a supervisor on
+top: it forwards the one SIGTERM to every live worker and stops respawning
+crashed ones, so the whole process group still winds down together.
+
+This page runs one worker (`--workers 1`), answers a request, then is sent
+SIGTERM.
+
+<Example id="ops-shutdown" />
+
+## How it works
+
+- `wired_srvdriver_parse`/`wired_srvdriver_run` pick the driver from argv
+  the same way `ops/handshake-knobs` does; `--workers 1` selects
+  `wired_srvworkers_run` with exactly one forked child.
+- The supervisor's own SIGTERM handler only sets a flag (async-signal-safe);
+  the reap loop forwards SIGTERM to every live worker's pid exactly once and
+  stops re-forking a replacement for a worker that exits — a crash during
+  shutdown is not respawned.
+- Each worker's own copy of `wired_server_run` runs unmodified: it is the
+  `SIGTERM` the supervisor forwards that drives its own graceful-shutdown
+  path (no new connections, GOAWAY, drain-then-exit) described above.
+- `--workers` beyond 1 is not exercised here: more than one worker shares
+  the port through `SO_REUSEPORT`'s kernel-side hash alone, with no
+  per-worker steering, which `wired_srvworkers_run`'s own doc flags as an
+  intermittent-handshake risk under this fork model. `--workers 1` sidesteps
+  that while still exercising the real supervisor/forward/reap path.
