@@ -2731,6 +2731,36 @@ static void moqtrun_subscribe_live(
 
 /* ===================== data-stream (Object) relay ===================== */
 
+/* draft-ietf-moq-transport-19 10.2.7: SUBSCRIBER_PRIORITY defaults to
+ * 128. */
+static u8 moqtrun_sub_prio(const wired_moqtrun_sub* s) {
+  return s->has_priority ? s->priority : 128;
+}
+
+/* The Publisher Priority of the SUBGROUP_HEADER head starts with: 128
+ * (6306: the default) when the DEFAULT_PRIORITY bit omits it, or head does
+ * not decode. */
+static u8 moqtrun_pub_prio(wired_span head) {
+  usz            off = 0;
+  moqdata_subhdr h;
+  if (moqdata_subhdr_take(head, &off, &h) != MOQDATA_OK) return 128;
+  return moqdata_type_default_priority(h.type) ? 128 : (u8)h.priority;
+}
+
+/* Sets the urgency (WIRED_MOQTRUN_URGENCY) of subscriber stream sid just
+ * opened for sub, head being its opening bytes. */
+static void moqtrun_prio_set(
+    wired_moqt_hub*          hub,
+    wired_wt_session*        wt,
+    i64                      sid,
+    const wired_moqtrun_sub* sub,
+    wired_span               head) {
+  if (!hub->io.stream_priority || sid < 0) return;
+  hub->io.stream_priority(
+      wt, (u64)sid,
+      WIRED_MOQTRUN_URGENCY(moqtrun_sub_prio(sub), moqtrun_pub_prio(head)));
+}
+
 /* One-shot relay of wire to one subscriber: a fresh uni stream, sent and
  * FIN'd in a single io.send_uni call -- the whole-message-in-one-call path
  * (a publisher stream whose data AND fin arrived together). */
@@ -2742,7 +2772,9 @@ static void moqtrun_relay_to_one(
    * 1 stream = 1 message); count it like the keep-open path's open
    * failures -- stat_open_drop's own doc always promised this loss is
    * never silent, but this call site used to discard the return. */
-  if (hub->io.send_uni(dst->wt, wire) < 0) hub->stat_open_drop++;
+  i64 sid = hub->io.send_uni(dst->wt, wire);
+  hub->stat_open_drop += sid < 0;
+  moqtrun_prio_set(hub, dst->wt, sid, sub, wire);
 }
 
 static void moqtrun_subgroup_scan(
@@ -2891,6 +2923,13 @@ static int moqtrun_late_open_skip(const wired_moqtrun_relay* relay, int fin) {
   return fin || relay->hdr_len == 0;
 }
 
+static void moqtrun_relay_open_one(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_sub*   sub,
+    wired_moqtrun_relay* relay,
+    usz                  i,
+    wired_span           wire);
+
 /* A subscriber that joined AFTER this relay started (its slot never
  * opened): open its stream now, carrying the saved SUBGROUP_HEADER bytes
  * alone -- the current round's Objects are dropped for this late joiner
@@ -2899,20 +2938,13 @@ static int moqtrun_late_open_skip(const wired_moqtrun_relay* relay, int fin) {
  * incremental decoder). */
 static void moqtrun_relay_late_open(
     wired_moqt_hub*      hub,
-    wired_moqtrun_peer*  dst,
+    wired_moqtrun_sub*   sub,
     wired_moqtrun_relay* relay,
     usz                  i,
     int                  fin) {
   if (moqtrun_late_open_skip(relay, fin)) return;
-  i64 sid = hub->io.open_uni_stream(
-      dst->wt, wired_span_of(relay->hdr, relay->hdr_len));
-  if (sid < 0) {
-    hub->stat_open_drop++;
-    return;
-  }
-  relay->sub_stream_id[i]   = (u64)sid;
-  relay->sub_stream_set[i]  = 1;
-  relay->sub_busy_streak[i] = 0;
+  moqtrun_relay_open_one(
+      hub, sub, relay, i, wired_span_of(relay->hdr, relay->hdr_len));
 }
 
 /* Forward to sub slot i's open stream, or -- for a subscriber whose
@@ -2920,6 +2952,7 @@ static void moqtrun_relay_late_open(
  * one now (moqtrun_relay_late_open). */
 static void moqtrun_relay_deliver_one(
     wired_moqt_hub*      hub,
+    wired_moqtrun_sub*   sub,
     wired_moqtrun_peer*  dst,
     wired_moqtrun_relay* relay,
     usz                  i,
@@ -2929,7 +2962,7 @@ static void moqtrun_relay_deliver_one(
     moqtrun_relay_forward_one(hub, dst->wt, relay, i, wire, fin);
     return;
   }
-  moqtrun_relay_late_open(hub, dst, relay, i, fin);
+  moqtrun_relay_late_open(hub, sub, relay, i, fin);
 }
 
 _Static_assert(WIRED_MOQTRUN_MAX_SUBS <= 32, "sub_expired: one bit per sub");
@@ -2983,7 +3016,7 @@ static void moqtrun_relay_append_one(
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
   if (moqtrun_relay_skips(dst, relay, i)) return;
   if (moqtrun_relay_expire(hub, sub, dst, relay, i, born_ms)) return;
-  moqtrun_relay_deliver_one(hub, dst, relay, i, wire, fin);
+  moqtrun_relay_deliver_one(hub, sub, dst, relay, i, wire, fin);
 }
 
 static void moqtrun_relay_append_all(
@@ -3247,13 +3280,6 @@ static void moqtrun_rel_attach_subs(
     moqtrun_rel_attach_sub(
         rb, track, relay, i, rb->tail, hub->live.last_now_ms);
 }
-
-static void moqtrun_relay_open_one(
-    wired_moqt_hub*      hub,
-    wired_moqtrun_sub*   sub,
-    wired_moqtrun_relay* relay,
-    usz                  i,
-    wired_span           wire);
 
 /* 1 while nothing past the SUBGROUP_HEADER was reclaimed (and a header
  * was saved): a late subscriber's stream can be the saved header followed
@@ -3732,6 +3758,7 @@ static void moqtrun_relay_open_one(
     hub->stat_open_drop++;
     return;
   }
+  moqtrun_prio_set(hub, dst->wt, sid, sub, wire);
   relay->sub_stream_id[i]   = (u64)sid;
   relay->sub_stream_set[i]  = 1;
   relay->sub_busy_streak[i] = 0;
