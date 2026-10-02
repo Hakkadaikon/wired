@@ -1205,20 +1205,18 @@ static void moqtrun_handle_subscribe(
 
 /* ===================== FETCH (draft 10.12, 10.13, 11.4.4) =============== */
 
-static moqctl_loc moqtrun_loc(u64 group, u64 object) {
-  moqctl_loc l = {group, object};
-  return l;
-}
+/* draft-ietf-moq-transport-19 3.3.4 CANCELLED stream reset code. */
+#define MOQTRUN_RESET_CANCELLED 0x1
 
 /* The Location right after l. */
 static moqctl_loc moqtrun_after(moqctl_loc l) {
-  return moqtrun_loc(l.group, l.object + 1);
+  return moqctl_loc_of(l.group, l.object + 1);
 }
 
 /* End Location "last Object + 1", Object 0 meaning the whole End Group
  * (10.12.1), as an exclusive bound. */
 static moqctl_loc moqtrun_end_excl(moqctl_loc e) {
-  return e.object ? e : moqtrun_loc(e.group + 1, 0);
+  return e.object ? e : moqctl_loc_of(e.group + 1, 0);
 }
 
 /* A FETCH resolved against its track: the cache records to read, the
@@ -1260,9 +1258,10 @@ static int moqtrun_fetch_open(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   moqfetch_hdr_put(wired_mspan_of(hdr, sizeof hdr), &n, f->request_id);
   i64 sid = moqtrun_fetch_open_io(hub, f, wired_span_of(hdr, n));
   if (sid < 0) return 0;
-  f->stream_id = (u64)sid;
-  f->opened    = 1;
-  f->in_use    = !moqtrun_fetch_done(f);
+  f->stream_id  = (u64)sid;
+  f->opened     = 1;
+  f->last_ok_ms = hub->live.last_now_ms;
+  f->in_use     = !moqtrun_fetch_done(f);
   return 1;
 }
 
@@ -1306,9 +1305,10 @@ static int moqtrun_fetch_send_one(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   if (hub->io.stream_send(
           f->wt, f->stream_id, wired_span_of(hub->relay_scratch, n), fin) <= 0)
     return 0;
-  f->seq    = seq;
-  f->cursor = next;
-  f->in_use = !fin;
+  f->seq        = seq;
+  f->cursor     = next;
+  f->in_use     = !fin;
+  f->last_ok_ms = hub->live.last_now_ms;
   return 1;
 }
 
@@ -1322,10 +1322,64 @@ static void moqtrun_fetch_serve(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   if (moqtrun_fetch_open(hub, f)) moqtrun_fetch_pump(hub, f);
 }
 
+/* Ends f early: its data stream is reset (3.3.4 CANCELLED) and the slot
+ * freed. */
+static void moqtrun_fetch_stop(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+  if (f->opened)
+    hub->io.stream_reset(f->wt, f->stream_id, MOQTRUN_RESET_CANCELLED);
+  f->in_use = 0;
+}
+
+/* Refused (or never opened) for longer than WIRED_MOQTREL_STALL_MS: a
+ * peer that stopped reading, so the slot is not held forever. */
+static int moqtrun_fetch_stalled(
+    const wired_moqt_hub* hub, const wired_moqtrun_fetch* f) {
+  return f->in_use &&
+         hub->live.last_now_ms - f->last_ok_ms > WIRED_MOQTREL_STALL_MS;
+}
+
+static void moqtrun_fetch_tick_one(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+  moqtrun_fetch_serve(hub, f);
+  if (moqtrun_fetch_stalled(hub, f)) moqtrun_fetch_stop(hub, f);
+}
+
 static void moqtrun_fetches_tick(wired_moqt_hub* hub) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
     if (moqtrun_fetch_live(&hub->fetches[i]))
-      moqtrun_fetch_serve(hub, &hub->fetches[i]);
+      moqtrun_fetch_tick_one(hub, &hub->fetches[i]);
+}
+
+static int moqtrun_fetch_owned(
+    const wired_moqtrun_fetch* f, const wired_wt_session* s) {
+  return f->in_use && f->wt == s;
+}
+
+static int moqtrun_fetch_is_req(
+    const wired_moqtrun_fetch* f, const wired_wt_session* s, u64 rid) {
+  return moqtrun_fetch_owned(f, s) && f->request_id == rid;
+}
+
+/* The FETCH request rid of s was cancelled (3.3.3): its fetch stops. */
+static void moqtrun_fetches_cancel(
+    wired_moqt_hub* hub, const wired_wt_session* s, u64 rid) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+    if (moqtrun_fetch_is_req(&hub->fetches[i], s, rid))
+      moqtrun_fetch_stop(hub, &hub->fetches[i]);
+}
+
+static int moqtrun_fetch_on_stream(
+    const wired_moqtrun_fetch* f, const wired_wt_session* s, u64 sid) {
+  return moqtrun_fetch_owned(f, s) && f->opened && f->stream_id == sid;
+}
+
+/* The peer stopped (or reset) s's fetch data stream sid: nothing more
+ * can be sent on it, so its slot is freed. */
+static void moqtrun_fetches_stream_gone(
+    wired_moqt_hub* hub, const wired_wt_session* s, u64 sid) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+    if (moqtrun_fetch_on_stream(&hub->fetches[i], s, sid))
+      hub->fetches[i].in_use = 0;
 }
 
 static int moqtrun_encode_fetch_ok(wired_mspan buf, usz* off, const void* m) {
@@ -1362,6 +1416,7 @@ static void moqtrun_fetch_accept(
   f->cache_tag  = r->tag;
   f->end        = r->end;
   f->cursor     = moqcache_skip(&hub->cache, r->tag, r->start, r->end);
+  f->last_ok_ms = hub->live.last_now_ms;
   moqtrun_queue_fetch_ok(p, r->ok_end);
   moqtrun_fetch_serve(hub, f);
 }
@@ -1439,7 +1494,10 @@ static wired_moqtrun_sub* moqtrun_live_peer_sub_by_rid(
   return q->in_use ? moqtrun_peer_sub_by_rid(q, idx, rid, t) : 0;
 }
 
-/* Peer idx's subscription with Request ID rid on a peer track (*t). */
+/* Peer idx's subscription with Request ID rid on a peer track (*t).
+ * Peer tracks only: the hub's own blob and live tracks are never cached,
+ * so they are no Joining Fetch target (nor a Standalone one --
+ * moqtrun_find_published_track also looks at peer tracks only). */
 static wired_moqtrun_sub* moqtrun_sub_by_rid(
     wired_moqt_hub* hub, usz idx, u64 rid, wired_moqtrun_track** t) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
@@ -1485,7 +1543,7 @@ static void moqtrun_fetch_joining(
     return;
   }
   r.tag    = t->cache_tag;
-  r.start  = moqtrun_loc(group, 0);
+  r.start  = moqctl_loc_of(group, 0);
   r.end    = moqtrun_after(s->jl);
   r.ok_end = r.end;
   moqtrun_fetch_accept(hub, p, m->request_id, &r);
@@ -1732,7 +1790,7 @@ static void moqtrun_asm_push(wired_moqtrun_ctl_asm* a, wired_span* data) {
   a->skip -= drop;
   moqtrun_span_drop(data, drop);
   usz keep = a->n - a->at;
-  bytes_memcpy(a->buf, a->buf + a->at, keep); /* forward copy: dst < src */
+  bytes_move_down(a->buf, a->buf + a->at, keep);
   usz take = (usz)u64_min(sizeof a->buf - keep, data->n);
   bytes_memcpy(a->buf + keep, data->p, take);
   a->n  = keep + take;
@@ -3519,9 +3577,6 @@ static void moqtrun_peer_unpublish(
       moqtrun_track_retire(hub, &p->tracks[t]);
 }
 
-/* draft-ietf-moq-transport-19 3.3.4 CANCELLED stream reset code. */
-#define MOQTRUN_RESET_CANCELLED 0x1
-
 /* draft-ietf-moq-transport-19 3.3.3: the request is cancelled -- its
  * subscription or track goes (the hub keeps no namespace state, so there
  * is nothing else to release), the hub's own side is reset with CANCELLED
@@ -3531,6 +3586,7 @@ static void moqtrun_req_cancel(
   moqtrun_drop_peer_subs(hub, (usz)(p - hub->peers), q->request_id);
   moqtrun_sub_names_forget(p, q->request_id);
   moqtrun_peer_unpublish(hub, p, q->request_id);
+  moqtrun_fetches_cancel(hub, p->wt, q->request_id);
   if (!q->fin_out)
     hub->io.stream_reset(p->wt, q->stream_id, MOQTRUN_RESET_CANCELLED);
   q->in_use = 0;
@@ -3556,6 +3612,7 @@ void wired_moqt_on_stream_reset(
   (void)mapped;
   (void)app_error_code;
   if (!p) return;
+  moqtrun_fetches_stream_gone(hub, s, stream_id);
   if (q)
     moqtrun_req_cancel(hub, p, q);
   else

@@ -394,6 +394,68 @@ static void test_moqtrun_fetch_requester_leaves(void) {
   for (usz i = before; i < g_n_calls; i++) CHECK(g_calls[i].s != SESS_B);
 }
 
+/* 1 iff no fetch slot is in use. */
+static int mf_no_fetch(void) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+    if (mtst_hub.fetches[i].in_use) return 0;
+  return 1;
+}
+
+/* B's fetch data stream id (its FETCH_HEADER open). */
+static u64 mf_data_sid(void) {
+  for (usz i = g_n_calls; i-- > 0;)
+    if (mf_opens(&g_calls[i])) return g_calls[i].stream_id;
+  return ~(u64)0;
+}
+
+/* 1 iff the hub reset stream sid toward B. */
+static int mf_reset_sent(u64 sid) {
+  for (usz i = 0; i < g_n_calls; i++)
+    if (g_calls[i].kind == 7 && g_calls[i].stream_id == sid) return 1;
+  return 0;
+}
+
+/* Starts a FETCH whose rounds the transport refuses. */
+static u64 mf_stuck_fetch(void) {
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  g_stream_send_ok_n = 0;
+  mf_standalone(mf_loc(0, 0), mf_loc(0, 1));
+  CHECK(!mf_no_fetch());
+  return mf_data_sid();
+}
+
+/* Resetting the FETCH request stream cancels the fetch (3.3.3): its data
+ * stream is reset and its slot freed, nothing more is sent. */
+static void test_moqtrun_fetch_cancelled_by_request_reset(void) {
+  u64 sid = mf_stuck_fetch();
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, mf_req_sid, 0, 0);
+  CHECK(mf_reset_sent(sid));
+  CHECK(mf_no_fetch());
+  g_stream_send_ok_n = -1;
+  usz before         = g_n_calls;
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(g_n_calls == before);
+}
+
+/* STOP_SENDING on the fetch data stream frees the slot. */
+static void test_moqtrun_fetch_data_stream_stopped(void) {
+  u64 sid = mf_stuck_fetch();
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, sid, 0, 0);
+  CHECK(mf_no_fetch());
+}
+
+/* A fetch refused for longer than WIRED_MOQTREL_STALL_MS is given up:
+ * its data stream is reset and its slot freed. */
+static void test_moqtrun_fetch_stall_gives_up(void) {
+  u64 sid = mf_stuck_fetch();
+  wired_moqt_tick(&mtst_hub, WIRED_MOQTREL_STALL_MS);
+  CHECK(!mf_no_fetch());
+  wired_moqt_tick(&mtst_hub, WIRED_MOQTREL_STALL_MS + 1);
+  CHECK(mf_reset_sent(sid));
+  CHECK(mf_no_fetch());
+}
+
 /* ===================== joining FETCH ===================== */
 
 static u64 mf_sub_rid;
@@ -569,6 +631,9 @@ void test_moqtrun_fetch(void) {
   test_moqtrun_fetch_oversize_under_cursor();
   test_moqtrun_fetch_publisher_leaves();
   test_moqtrun_fetch_requester_leaves();
+  test_moqtrun_fetch_cancelled_by_request_reset();
+  test_moqtrun_fetch_data_stream_stopped();
+  test_moqtrun_fetch_stall_gives_up();
   test_moqtrun_fetch_relative_join_no_gap();
   test_moqtrun_fetch_relative_join_clamped();
   test_moqtrun_fetch_join_invalid_range();
