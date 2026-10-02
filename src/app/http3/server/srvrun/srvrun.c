@@ -1723,18 +1723,24 @@ static int srvrun_on_initial(
   return srvrun_boot_finish(ctx, slot, c, dg);
 }
 
-/* Bytes already sent on stream_id's WT send slot, 0 when none holds the
- * id -- defined next to wired_server_wt_stream_reset below. */
+/* Bytes already sent on stream_id's WT send slot, 0 when none holds the id;
+ * and whether its send part already ended -- both defined next to
+ * wired_server_wt_stream_reset below. */
 static u64  srvrun_wtsend_final_size(srvrun_conn* c, u64 stream_id);
+static int  srvrun_wt_send_ended(srvrun_conn* c, u64 stream_id);
 static void srvrun_wtsend_release(srvrun_conn* c, u64 stream_id);
+static void srvrun_wt_note_send_armed(srvrun_conn* c, u64 stream_id);
 
 /* One standard RESET_STREAM (RFC 9000 19.4) at plb->p + at, its Final Size
  * the bytes already sent on stream_id's send slot (0 for a stream this
- * server never replied on). */
+ * server never replied on). Nothing (0 bytes) for a stream whose send part
+ * already ended: RFC 9000 3.1 has no reset past "Data Recvd", and RFC 9000
+ * 4.5 makes a Final Size below the bytes the peer has a FINAL_SIZE_ERROR. */
 static usz srvrun_wt_abort_reset(
     srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb, usz at) {
   reset_stream_frame rs = {
       stream_id, err_code, srvrun_wtsend_final_size(c, stream_id)};
+  if (srvrun_wt_send_ended(c, stream_id)) return 0;
   return reset_stream_encode(plb->p + at, plb->cap - at, &rs);
 }
 
@@ -1746,13 +1752,12 @@ static usz srvrun_wt_abort_stop(
 }
 
 /* RESET_STREAM followed by STOP_SENDING -- the full abort of a bidi
- * stream's both halves, same pair shape as h3cancel_request. */
+ * stream's both halves, same pair shape as h3cancel_request (STOP_SENDING
+ * alone once the send half already ended, srvrun_wt_abort_reset). */
 static usz srvrun_wt_abort_pair(
     srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb) {
   usz rn = srvrun_wt_abort_reset(c, stream_id, err_code, plb, 0);
-  usz sn;
-  if (!rn) return 0;
-  sn = srvrun_wt_abort_stop(stream_id, err_code, plb, rn);
+  usz sn = srvrun_wt_abort_stop(stream_id, err_code, plb, rn);
   if (!sn) return 0;
   return rn + sn;
 }
@@ -4600,6 +4605,7 @@ static int srvrun_wt_stream_reply_common(
   w->append_open = keep_open;
   wired_wt_session_note_data_sent(s, payload.n);
   srvrun_wtsend_arm_id(c, w, stream_id, payload);
+  srvrun_wt_note_send_armed(c, stream_id);
   return 1;
 }
 
@@ -4891,10 +4897,48 @@ static u64 srvrun_wtsend_final_size(srvrun_conn* c, u64 stream_id) {
   return w ? w->sess.stream_base_offset + w->sess.q.cur : 0;
 }
 
+/* Server-initiated streams of stream_id's direction this server opened so
+ * far, counted in id / 4 units (RFC 9000 2.1): uni counts the two plumbing
+ * streams (ids 3 and 7) ahead of wt_uni_opened, srvrun_next_uni_id. */
+static u64 srvrun_server_opened(const srvrun_conn* c, u64 stream_id) {
+  return (stream_id & 2) ? c->wt_uni_opened + 2 : c->wt_bidi_opened;
+}
+
+/* 1 iff a send was ever armed on stream_id: a server-initiated id (RFC 9000
+ * 2.1 low bit set) this server already opened -- its send slot is claimed
+ * at open -- or a client bidi once a reply set its slot's send_armed. */
+static int srvrun_wt_send_armed(srvrun_conn* c, u64 stream_id) {
+  int i;
+  if (stream_id & 1) return stream_id / 4 < srvrun_server_opened(c, stream_id);
+  i = wired_srvloop_wt_slot_find(&c->l, stream_id);
+  return i >= 0 && c->l.wt_streams[i].send_armed;
+}
+
+/* 1 iff stream_id's send part already ended: armed once, and its send slot
+ * is gone (reaped after the FIN was ACKed -- RFC 9000 3.1 "Data Recvd" --
+ * or freed by an earlier reset that already carried the Final Size). */
+static int srvrun_wt_send_ended(srvrun_conn* c, u64 stream_id) {
+  return !srvrun_wtsend_find(c, stream_id) &&
+         srvrun_wt_send_armed(c, stream_id);
+}
+
+/* Record stream_id's reply on its wt_streams slot (srvrun_wt_send_armed). */
+static void srvrun_wt_note_send_armed(srvrun_conn* c, u64 stream_id) {
+  int i = wired_srvloop_wt_slot_find(&c->l, stream_id);
+  if (i >= 0) c->l.wt_streams[i].send_armed = 1;
+}
+
 int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id) {
   srvrun_conn* c = srvrun_session_conn(s);
   if (!c) return 0;
   return srvrun_wtsend_find(c, stream_id) != 0;
+}
+
+/* 1 iff wired_server_wt_stream_reset latches nothing for stream_id: its
+ * send part already ended, or the latch is full. */
+static int srvrun_wt_reset_refused(srvrun_conn* c, u64 stream_id) {
+  return srvrun_wt_send_ended(c, stream_id) ||
+         c->wt_stream_reset_n >= SRVRUN_WT_RESET_LATCH;
 }
 
 int wired_server_wt_stream_reset(
@@ -4904,8 +4948,10 @@ int wired_server_wt_stream_reset(
   if (!c) return 0;
   /* Latch full: refuse WITHOUT touching the send slot. Freeing it here
    * would abandon delivery with no wire notification ever queued -- the
-   * peer would wait on the stream forever. */
-  if (c->wt_stream_reset_n >= SRVRUN_WT_RESET_LATCH) return 0;
+   * peer would wait on the stream forever. A send part already ended has
+   * nothing left to reset (srvrun_wt_abort_reset): done, nothing latched. */
+  if (srvrun_wt_reset_refused(c, stream_id))
+    return srvrun_wt_send_ended(c, stream_id);
   i                              = c->wt_stream_reset_n++;
   c->wt_stream_reset_id[i]       = stream_id;
   c->wt_stream_reset_app_code[i] = error_code;

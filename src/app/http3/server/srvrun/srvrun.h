@@ -699,8 +699,10 @@ int wired_server_wt_stream_hold(wired_wt_session* s, u64 stream_id, int hold);
  * @param s the session whose connection carries the stream
  * @param stream_id the stream to abort
  * @param error_code the WebTransport application error code to report
- * @return 1 queued, 0 when s resolves to no live connection or the reset
- *   latch is full (nothing changed; retry on a later step) */
+ * @return 1 queued (or nothing to do: the stream's send part already ended,
+ *   its FIN ACKed or an earlier reset sent -- no RESET_STREAM goes out),
+ *   0 when s resolves to no live connection or the reset latch is full
+ *   (nothing changed; retry on a later step) */
 int wired_server_wt_stream_reset(
     wired_wt_session* s, u64 stream_id, u32 error_code);
 
