@@ -1,0 +1,42 @@
+---
+title: Namespace discovery
+description: Watch a namespace prefix with SUBSCRIBE_NAMESPACE and see publishers announce and withdraw their namespaces live.
+sidebar:
+  order: 7
+---
+import Example from '../../../../components/Example.astro';
+
+A subscriber does not have to know track names in advance. It can watch a
+namespace prefix and let the hub tell it which namespaces exist under it,
+as publishers come and go. This page runs one watcher on the prefix
+`guide` and four publisher announcements: one before the watcher, two
+after it, and one the server's policy refuses. Then one publisher leaves.
+
+<Example id="moqt-discovery" />
+
+## How it works
+
+- Each request goes on a fresh bidi stream the client opens
+  (draft-ietf-moq-transport-19 3.3), and the hub answers on that stream
+  through `stream_reply_open`. Both namespace requests stay in force after
+  their answer, until the stream is reset (3.3.3) or the session ends.
+- PUBLISH_NAMESPACE (10.15) announces a Track Namespace (`guide/lobby`,
+  `guide/room-a`, ...), and the hub answers REQUEST_OK.
+- SUBSCRIBE_NAMESPACE (10.18) names a Track Namespace Prefix. After
+  REQUEST_OK the hub sends one NAMESPACE (10.16) for every namespace
+  already published under the prefix (the initial set, here `lobby`),
+  then one more each time a matching namespace is published. Each carries
+  only the suffix: the fields after the prefix.
+- `hub.authorize_namespace` sees every PUBLISH_NAMESPACE and
+  SUBSCRIBE_NAMESPACE (its `msg_type` says which) with the namespace and
+  the presented AUTHORIZATION TOKEN. This sample refuses any namespace
+  ending in `secret`: the publisher gets REQUEST_ERROR UNAUTHORIZED (1)
+  and the watcher is never told about it.
+- When room-a closes its session, `wired_moqt_on_session_close`
+  withdraws every namespace it published, and the hub sends NAMESPACE_DONE
+  (10.17) to each watcher that was told about it.
+- The client never sleeps to wait for the hub: each publisher waits for
+  its own REQUEST_OK, and the watcher reads the NAMESPACE or
+  NAMESPACE_DONE the hub pushes, so every step is ordered by messages on
+  the wire. The hub's tick (`wired_moqt_tick` from `on_step`) retries a
+  push the transport refused.
