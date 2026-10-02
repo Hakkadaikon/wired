@@ -11,12 +11,14 @@ import {
   isAllowedAttachmentMimeType,
 } from "./attachmentValidation";
 
-/** Max bytes of attachment data per chunk. The hub forwards a keep-open
- * stream at Object boundaries and holds at most 512 bytes of a torn Object
- * between rounds (moqtrun.h WIRED_MOQTRUN_RELAY_FRAG_MAX), so every Object
- * must fit in 512: 3 (Object envelope) + 14 (marker + chunk header) + 5 +
- * MIME type (idx===0 only) + data. 448 leaves 42 bytes for the MIME type. */
-export const MAX_ATTACHMENT_CHUNK_BYTES = 448;
+/** Max bytes of attachment data per chunk (15 KiB). The hub forwards a
+ * stream at Object boundaries and holds at most 16384 bytes of a torn
+ * Object between rounds (moqtrun.h WIRED_MOQTRUN_RELAY_FRAG_MAX), so a
+ * framed Object -- Object ID Delta (1) + Payload Length (2) + payload --
+ * must fit 16384, i.e. payload <= 16380: 14 (marker + chunk header) +
+ * 1 + MIME type (<= 255) + 4 (idx===0 only) + data leaves 16106 for data;
+ * 15360 keeps headroom. */
+export const MAX_ATTACHMENT_CHUNK_BYTES = 15 * 1024;
 
 /** First byte of every Object payload carrying an attachment chunk. */
 export const ATTACHMENT_CHUNK_MARKER = 0xfd;

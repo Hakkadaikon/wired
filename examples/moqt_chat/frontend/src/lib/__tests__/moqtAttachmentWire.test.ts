@@ -202,6 +202,25 @@ describe("encodeAttachmentChunkMessage / decodeAttachmentChunkMessage", () => {
     expect(decodeAttachmentChunkMessage(wire)).toEqual(chunk);
   });
 
+  it("a 1 MB attachment travels as ~15 KiB chunks (at most 70 Objects)", () => {
+    const chunks = splitAttachmentIntoChunks(1, 0, "image/png", new Uint8Array(1_000_000));
+    expect(chunks.length).toBeLessThanOrEqual(70);
+  });
+
+  it("the largest chunk Object (255-byte MIME type on idx 0) fits the hub's 16380-byte payload cap", () => {
+    const payload = encodeAttachmentChunkMessage({
+      messageId: 1,
+      attachmentIdx: 0,
+      seq: 0,
+      idx: 0,
+      count: 1,
+      mimeType: `image/${"x".repeat(249)}`,
+      totalBytes: MAX_ATTACHMENT_CHUNK_BYTES,
+      data: new Uint8Array(MAX_ATTACHMENT_CHUNK_BYTES),
+    });
+    expect(payload.length).toBeLessThanOrEqual(16380);
+  });
+
   it("round-trips a chunk at the MAX_ATTACHMENT_CHUNK_BYTES boundary", () => {
     const data = new Uint8Array(MAX_ATTACHMENT_CHUNK_BYTES);
     data.fill(9);
@@ -439,11 +458,4 @@ describe("relay fragment limit", () => {
   // WIRED_MOQTRUN_RELAY_FRAG_MAX), so every Object -- envelope included --
   // must fit in 512 bytes. The idx===0 chunk is the worst case: it also
   // carries the MIME type and totalBytes.
-  it("keeps the largest possible chunk Object within 512 bytes", () => {
-    const mimeType = "video/" + "x".repeat(36); // 42 chars, longer than any real type
-    const [first] = splitAttachmentIntoChunks(0xffffffff, 3, mimeType, new Uint8Array(MAX_ATTACHMENT_CHUNK_BYTES * 3));
-    const body = encodeAttachmentChunkMessage(first);
-    const envelope = 1 + 2; // Object ID Delta varint + 2-byte length varint
-    expect(body.length + envelope).toBeLessThanOrEqual(512);
-  });
 });
