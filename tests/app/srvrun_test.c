@@ -5017,6 +5017,18 @@ static void test_srvrun_wt_bidi_stream_offered_to_session(void) {
   CHECK(c.l.tx_pn == tx_pn_before); /* no RESET_STREAM sealed */
 }
 
+/* Seal the type-appropriate abort frames (srvrun_wt_busy_reset_payload)
+ * into out as their own 1-RTT packet on stream_id -- the bytes
+ * srvrun_send_wt_busy_reset puts on the wire, for tests that open them.
+ * Returns 1 with out->len set, 0 if the payload or the seal failed. */
+static int srvrun_seal_wt_busy_reset(
+    srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* out) {
+  u8         pl[64];
+  wired_obuf plb = obuf_of(pl, sizeof pl);
+  usz        pln = srvrun_wt_busy_reset_payload(c, stream_id, err_code, &plb);
+  return srvrun_seal_ctl(c, pl, pln, out);
+}
+
 /* Buffer-full rejection: fill every WIRED_WT_MAX_BUFFERED_STREAMS
  * slot of an UNESTABLISHED session directly via wired_wt_session_offer_stream
  * (the same buffering path test_srvrun_wt_uni_stream_offered_to_session
@@ -17910,6 +17922,31 @@ static void test_srvrun_wt_bidi_peer_reset_owes_credit(void) {
   CHECK(wired_srvloop_wt_slot_claim(&c->l, 4) < 0);
 }
 
+/* RFC 9000 13.3: RESET_STREAM / STOP_SENDING are retransmitted until
+ * acknowledged (draft-ietf-webtrans-http3-15 5.3 relies on resets arriving
+ * to keep both ends' stream counts in step). The refusal goes out once,
+ * goes out again when its probe deadline passes unacknowledged, keeps the
+ * poll tick armed meanwhile, and stops once the peer ACKs it. */
+static void test_srvrun_wt_busy_reset_retransmitted_until_acked(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  srvrun_test_reset_send_count();
+  srvrun_send_wt_busy_reset(&cfg, c, 4, H3_REQUEST_REJECTED);
+  CHECK(srvrun_test_send_count() == 1);
+  CHECK(srvrun_slot_waiting(c)); /* the tick stays armed for the resend */
+  ctx.now_ms = 100 * 1000;
+  srvrun_rst_retry_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() == 2); /* unacked: sent again */
+  srvrun_feed_ack_range(c, c->l.tx_pn - 1, c->l.tx_pn - 1, ctx.now_ms);
+  ctx.now_ms = 200 * 1000;
+  srvrun_rst_retry_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() == 2); /* acked: done */
+  CHECK(!srvrun_slot_waiting(c));
+}
+
 /* draft-ietf-webtrans-http3-15 4.6: a stream offered to a session whose
  * pre-establishment buffer is full is reset and its slot freed -- bidi and
  * uni alike, that stream's QUIC credit is returned (RFC 9000 4.6). */
@@ -20730,6 +20767,7 @@ void test_srvrun(void) {
   test_srvrun_wt_bidi_reap_grants_one_more_stream();
   test_srvrun_wt_server_bidi_reap_grants_nothing();
   test_srvrun_wt_bidi_peer_reset_owes_credit();
+  test_srvrun_wt_busy_reset_retransmitted_until_acked();
   test_srvrun_wt_offer_reject_returns_credit();
   test_srvrun_wt_teardown_returns_credit();
   test_srvrun_wt_uni_peer_reset_returns_credit();
