@@ -1593,6 +1593,50 @@ static void moqtrun_fetches_drop(wired_moqt_hub* hub, wired_wt_session* s) {
     if (hub->fetches[i].wt == s) hub->fetches[i].in_use = 0;
 }
 
+/* Not a REQUEST_ERROR code: the request is accepted. */
+#define MOQTRUN_DISC_OK (~(u64)0)
+
+/* ===================== TRACK_STATUS (draft 10.14) ===================== */
+
+/* The track a SUBSCRIBE for f would reach (moqtrun_route_subscribe's
+ * order: the hub's own tracks first), else 0. */
+static wired_moqtrun_track* moqtrun_tstat_track(
+    wired_moqt_hub* hub, const moqctl_ftn* f) {
+  u8 ns_buf[WIRED_MOQTRUN_MAX_NS];
+  if (moqtrun_track_name_matches(&hub->blob_track, f->name))
+    return &hub->blob_track;
+  if (moqtrun_track_name_matches(&hub->live.track, f->name))
+    return &hub->live.track;
+  return moqtrun_find_published_track(hub, moqtrun_key_of(f, ns_buf));
+}
+
+/* Treated as a SUBSCRIBE that creates no state and sends no Objects:
+ * TRACK_STATUS_OK carries what SUBSCRIBE_OK would (the Largest Location),
+ * and the request, answered without going live, is FINed. */
+static u64 moqtrun_tstat_verdict(
+    const wired_moqt_hub*      hub,
+    const moqctl_subscribe*    m,
+    const wired_moqtrun_track* t) {
+  u64 code = MOQCTL_ERR_DOES_NOT_EXIST;
+  if (!t) return code;
+  if (moqtrun_subscribe_refused(hub, m, &code)) return code;
+  return MOQTRUN_DISC_OK;
+}
+
+static void moqtrun_handle_tstat(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  moqctl_subscribe m;
+  (void)peer_idx;
+  if (moqtstat_take(body, &m) != MOQCTL_OK) return;
+  wired_moqtrun_track* t    = moqtrun_tstat_track(hub, &m.name);
+  u64                  code = moqtrun_tstat_verdict(hub, &m, t);
+  if (code != MOQTRUN_DISC_OK) {
+    moqtrun_send_request_error(p, code);
+    return;
+  }
+  moqtrun_queue_request_ok(p, t);
+}
+
 /* ===================== namespace discovery ===================== */
 
 /* draft-ietf-moq-transport-19 6.1-6.2, 10.15-10.18. A PUBLISH_NAMESPACE
@@ -1603,9 +1647,6 @@ static void moqtrun_fetches_drop(wired_moqt_hub* hub, wired_wt_session* s) {
  * (no PUBLISH_NAMESPACE) announces nothing (6.2), so neither appears. */
 
 _Static_assert(WIRED_MOQTRUN_MAX_REQS <= 64, "ns_seen holds one bit per req");
-
-/* Not a REQUEST_ERROR code: the namespace request is accepted. */
-#define MOQTRUN_DISC_OK (~(u64)0)
 
 static int moqtrun_disc_is(const wired_moqtrun_req* q, u64 kind) {
   return q->in_use && q->live && q->kind == kind;
@@ -1987,8 +2028,8 @@ static void moqtrun_dispatch_skip(
 }
 
 /* First-type table (draft table in ctl.h's peek_type doc): only PUBLISH,
- * SUBSCRIBE, FETCH, PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE are
- * implemented; every other First type this hub can see
+ * SUBSCRIBE, FETCH, TRACK_STATUS, PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE
+ * are implemented; every other First type this hub can see
  * on a fresh request stream gets NOT_SUPPORTED. GOAWAY is not a First type but
  * may legally appear mid-stream, so it is routed the same table for
  * request-stream dispatch below. */
@@ -2001,6 +2042,7 @@ static const struct {
     {MOQFETCH_T_FETCH, moqtrun_dispatch_fetch},
     {MOQNS_T_PUBLISH_NAMESPACE, moqtrun_dispatch_publish_ns},
     {MOQNS_T_SUBSCRIBE_NAMESPACE, moqtrun_dispatch_subscribe_ns},
+    {MOQTSTAT_T_TRACK_STATUS, moqtrun_handle_tstat},
     {MOQCTL_T_GOAWAY, moqtrun_dispatch_goaway},
     /* draft SS10 known non-request messages this hub does not implement:
      * nothing carries a Request ID to answer, so they are skipped. */
