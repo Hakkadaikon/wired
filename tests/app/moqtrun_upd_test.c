@@ -220,6 +220,29 @@ static void test_moqtrun_upd_blob_forward(void) {
 /* A parameter outside the update's scope (GROUP_ORDER, 10.2.8) is a
  * malformed message: PROTOCOL_VIOLATION. On the control stream there is
  * no request to update: NOT_SUPPORTED. */
+/* Reliable relay: FORWARD 1 -> 0 by update stops the open stream -- no
+ * Object appended after the update reaches B (10.9.1); its stream is
+ * reset CANCELLED and its cursor stops pinning the ring. */
+static void test_moqtrun_upd_forward_off_reliable(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params p0              = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  moqctl_ftn    f               = mtrq_setup();
+  mtst_hub.reliable_alias_limit = 100;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  wired_moqt_tick(&mtst_hub, 0);
+  usz n = mtst_stream(1, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  u64 sid = moqtrun_test_last_kind(5)->stream_id;
+  mtup_update(SESS_B, MTRQ_S1, &p0);
+  moqtrun_test_reset();
+  n = mtst_stream(1, 1, 0, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  wired_moqt_tick(&mtst_hub, 5);
+  for (usz i = 0; i < g_n_calls; i++)
+    CHECK(!(g_calls[i].kind == 3 && g_calls[i].stream_id == sid));
+  CHECK(mtrq_reset_code(sid) == 0x1);
+}
+
 static void test_moqtrun_upd_bad_and_control(void) {
   moqctl_params g  = mtst_params_u8(MOQCTL_PARAM_GROUP_ORDER, 1);
   moqctl_ftn    f  = mtup_setup();
@@ -383,6 +406,7 @@ void test_moqtrun_upd(void) {
   test_moqtrun_tstat_ok_empty();
   test_moqtrun_tstat_unknown_and_blob();
   test_moqtrun_tstat_authorized();
+  test_moqtrun_upd_forward_off_reliable();
   test_moqtrun_upd_forward_toggles();
   test_moqtrun_upd_params_replace();
   test_moqtrun_upd_survives_rejoin();

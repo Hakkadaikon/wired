@@ -3343,11 +3343,10 @@ static void moqtrun_rel_shed(
 /* Not a stream reset code: cursor i goes on. */
 #define MOQTRUN_REL_KEEP (-1)
 
-/* The reset code to give cursor i up with: 0 for a stall, DELIVERY_TIMEOUT
- * once its next unsent Object reached the hub longer ago than the
- * subscription's OBJECT_DELIVERY_TIMEOUT (draft 8); else
- * MOQTRUN_REL_KEEP. */
-static int moqtrun_rel_give_up(
+/* 0 for a stall, DELIVERY_TIMEOUT once cursor i's next unsent Object
+ * reached the hub longer ago than the subscription's
+ * OBJECT_DELIVERY_TIMEOUT (draft 8); else MOQTRUN_REL_KEEP. */
+static int moqtrun_rel_expiry(
     const wired_moqtrun_track* track,
     const moqtrel_buf*         rb,
     usz                        i,
@@ -3356,6 +3355,22 @@ static int moqtrun_rel_give_up(
   if (moqtrun_sub_late(&track->subs[i], moqtrel_age_ms(rb, (u32)i, now_ms)))
     return MOQTRUN_RESET_DELIVERY_TIMEOUT;
   return MOQTRUN_REL_KEEP;
+}
+
+/* The reset code to give cursor i up with, else MOQTRUN_REL_KEEP. A
+ * subscription that no longer takes this stream (REQUEST_UPDATE turned
+ * FORWARD off or moved its Location Filter past the Group) gets nothing
+ * appended after the update (10.9.1): CANCELLED, and its cursor stops
+ * pinning the ring. */
+static int moqtrun_rel_give_up(
+    const wired_moqtrun_track* track,
+    const wired_moqtrun_relay* relay,
+    const moqtrel_buf*         rb,
+    usz                        i,
+    u64                        now_ms) {
+  if (!moqtrun_sub_gets(&track->subs[i], relay->group_id))
+    return MOQTRUN_RESET_CANCELLED;
+  return moqtrun_rel_expiry(track, rb, i, now_ms);
 }
 
 /* The publisher's FIN reached cursor i with no bytes pending: close its
@@ -3467,7 +3482,7 @@ static void moqtrun_rel_drain_sub(
     u64                  now_ms) {
   wired_moqtrun_peer* dst = moqtrun_rel_sub_dst(hub, track, rb, i);
   if (!dst) return;
-  int code = moqtrun_rel_give_up(track, rb, i, now_ms);
+  int code = moqtrun_rel_give_up(track, relay, rb, i, now_ms);
   if (code != MOQTRUN_REL_KEEP) {
     moqtrun_rel_shed(hub, dst->wt, relay, rb, i, (u32)code);
     return;
