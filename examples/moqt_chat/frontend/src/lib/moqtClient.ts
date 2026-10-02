@@ -491,7 +491,10 @@ export class MoqtChatClient {
       this.#readIncomingDatagrams();
       // WebTransport.draining (draft-ietf-webtrans-http3-15 4.7): the
       // server asked the session to wind down.
-      void (wt as { draining?: Promise<void> }).draining?.then(() => this.#goAway(wt, ""));
+      void (wt as { draining?: Promise<void> }).draining?.then(
+        () => this.#goAway(wt, ""),
+        () => {}, // rejected when the session closes: not a drain
+      );
       await this.#openControlStream();
       await this.publishTrack(utf8ToBytes(this.#localId), this.#localTrackAlias);
 
