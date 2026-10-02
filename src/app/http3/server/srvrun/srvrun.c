@@ -847,6 +847,8 @@ typedef struct {
    * probe deadline (srvrun_rst_retry_slot) until acknowledged. */
   srvrun_rst rst[SRVRUN_RST_RETX];
 } srvrun_conn;
+_Static_assert(
+    WIRED_SRVLOOP_MAX_STREAMS <= 64, "wt_held_mask holds one bit per slot");
 
 /* Response storage, one row per (connection slot, response slot): 512-byte
  * prefix room (HEADERS + DATA header framed in place, h3resp_prefix)
