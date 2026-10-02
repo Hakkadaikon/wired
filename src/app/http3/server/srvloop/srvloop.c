@@ -167,6 +167,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->on_body                        = 0;
   l->req_frame_error                = 0;
   l->req_body_released              = 0;
+  l->wt_refused_n                   = 0;
   pnspaces_recv_init(&l->ack_recv);
   ackpolicy_init(&l->app_ack_policy);
   ackpolicy_init(&l->hs_ack_policy);
@@ -531,6 +532,18 @@ int wired_srvloop_wt_slot_claim_local(wired_srvloop* l, u64 stream_id) {
   int already = wired_srvloop_wt_slot_find(l, stream_id);
   if (already >= 0) return already;
   return wired_srvloop_wt_slot_claim(l, stream_id);
+}
+
+/* 1 iff stream_id already ended here (released or refused before). */
+static int wt_refuse_known(const wired_srvloop* l, u64 stream_id) {
+  return wt_slot_is_stale(l, stream_id) || req_closed_has(l, stream_id);
+}
+
+void wired_srvloop_wt_refuse(wired_srvloop* l, u64 stream_id) {
+  if (wt_refuse_known(l, stream_id)) return;
+  req_closed_mark(l, stream_id);
+  if (l->wt_refused_n < WIRED_SRVLOOP_MAX_STREAMS)
+    l->wt_refused[l->wt_refused_n++] = stream_id;
 }
 
 void wired_srvloop_wt_slot_release(wired_srvloop* l, u64 stream_id) {

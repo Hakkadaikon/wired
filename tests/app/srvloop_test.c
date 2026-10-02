@@ -2002,6 +2002,90 @@ static void test_srvloop_wt_stream_without_session_no_crash(void) {
   CHECK(f.l.peer_closed == 0);
 }
 
+/* Occupy every wt_streams[] slot with a long-lived stream (ids 400, 404,
+ * ...) so the next client-signalled WT bidi stream finds the table full. */
+static void lp_wt_fill_table(struct lp_fix* f) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
+    f->l.wt_streams[i].in_use    = 1;
+    f->l.wt_streams[i].stream_id = 400 + 4 * (u64)i;
+  }
+}
+
+/* Step one 1-RTT packet carrying stream 4's signal frame, followed by a
+ * continuation frame at offset 4 (past the 3-byte signal + 'X'). */
+static void lp_wt_step_signal_and_more(struct lp_fix* f, u64 pn) {
+  u8           pl[64], out[1024], spkt[1024];
+  usz          n;
+  wired_obuf   ob   = {out, sizeof out, 0};
+  stream_frame more = {4, 4, 2, (const u8*)"YZ", 0};
+  n                 = lp_wt_bidi_stream(pl, sizeof pl, 4);
+  n += frame_put_stream(pl + n, sizeof pl - n, &more);
+  n = client_seal_onertt_pn(f, pn, pl, n, spkt, sizeof spkt);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(spkt, n), &ob);
+}
+
+/* RFC 9000 2.2 / RFC 9114 8.1: a WT bidi stream that arrives while every
+ * wt_streams[] slot is busy is never silently dropped -- it is queued for an
+ * explicit refusal (wt_refused[]), its later frames are not misread as an
+ * HTTP/3 request (no streams[] slot claimed), and no other state moves. */
+static void test_srvloop_wt_table_full_refuses_stream(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  lp_wt_fill_table(&f);
+  lp_wt_step_signal_and_more(&f, 3);
+  CHECK(wired_srvloop_wt_slot_find(&f.l, 4) < 0);
+  CHECK(f.l.wt_refused_n == 1 && f.l.wt_refused[0] == 4);
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    CHECK(!f.l.streams[i].in_use);
+  CHECK(f.l.got_request == 0);
+}
+
+/* A retransmission of a refused stream's signal frame is not refused (nor
+ * credited back) a second time. */
+static void test_srvloop_wt_refused_stream_retransmit_not_refused_twice(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  lp_wt_fill_table(&f);
+  lp_wt_step_signal_and_more(&f, 3);
+  f.l.wt_refused_n = 0; /* drained by the caller (srvrun.c) */
+  lp_wt_step_signal_and_more(&f, 4);
+  CHECK(f.l.wt_refused_n == 0);
+}
+
+/* A late duplicate of an already-released (FIN-delivered) stream's signal
+ * frame is stale, not a new stream: it is not refused either. */
+static void test_srvloop_wt_released_stream_retransmit_not_refused(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  CHECK(wired_srvloop_wt_slot_claim(&f.l, 4) >= 0);
+  wired_srvloop_wt_slot_release(&f.l, 4);
+  lp_wt_fill_table(&f);
+  lp_wt_step_signal_and_more(&f, 3);
+  CHECK(f.l.wt_refused_n == 0);
+}
+
+/* A long-lived stream keeps its slot when the table is full: a
+ * retransmission of its own signal frame lands in that slot instead of being
+ * refused as if it were a new stream. */
+static void test_srvloop_wt_live_stream_retransmit_keeps_slot(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  lp_wt_fill_table(&f);
+  f.l.wt_streams[0].stream_id = 4;
+  lp_wt_step_signal_and_more(&f, 3);
+  CHECK(f.l.wt_refused_n == 0);
+  CHECK(wired_srvloop_wt_slot_find(&f.l, 4) == 0);
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: a WT uni stream's leading (offset-0)
  * bytes are TWO varints -- the type 0x54 (2-byte wire form {0x40, 0x54},
  * RFC 9000 16 -- 84 exceeds the 1-byte range) and the session id (this
@@ -4607,6 +4691,10 @@ void test_srvloop(void) {
   test_srvloop_wt_stream_concurrent_with_request();
   test_srvloop_wt_signal_only_frame_then_data();
   test_srvloop_wt_stream_without_session_no_crash();
+  test_srvloop_wt_table_full_refuses_stream();
+  test_srvloop_wt_refused_stream_retransmit_not_refused_twice();
+  test_srvloop_wt_released_stream_retransmit_not_refused();
+  test_srvloop_wt_live_stream_retransmit_keeps_slot();
   test_srvloop_wt_uni_stream_reassembled();
   test_srvloop_wt_uni_stream_signal_split();
   test_srvloop_wt_bidi_stream_signal_split();
