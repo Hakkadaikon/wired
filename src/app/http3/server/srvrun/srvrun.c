@@ -3069,16 +3069,23 @@ static int srvrun_send_wt_capsule(
     wired_span        capsule_bytes,
     u8                fin,
     wired_obuf*       out) {
+  /* RFC 9297 3.2: in HTTP/3 the capsule data stream is the DATA frames'
+   * payload, so the capsule goes out wrapped in one DATA frame (+16: its
+   * worst-case Type + Length varints, RFC 9114 7.1). Every caller's capsule
+   * fits its own 16 + 4 + WTCAPSULE_CLOSE_MESSAGE_MAX body[], so the put
+   * cannot fail here. */
+  u8         df[16 + 16 + 4 + WTCAPSULE_CLOSE_MESSAGE_MAX];
+  wired_obuf dfb = obuf_of(df, sizeof df);
   /* +32: STREAM frame header room (type + stream id + offset + length
-   * varints, RFC 9000 19.8) ahead of capsule_bytes -- sized to fit the
+   * varints, RFC 9000 19.8) ahead of the DATA frame -- sized to fit the
    * largest capsule this file sends, WT_CLOSE_SESSION's own worst case
    * (WTCAPSULE_CLOSE_MESSAGE_MAX, srvrun_send_wt_close's own body[]). */
-  u8                    pl[32 + 16 + 4 + WTCAPSULE_CLOSE_MESSAGE_MAX];
+  u8                    pl[32 + sizeof df];
   wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   stream_frame          f = {
       srvrun_wt_slot(c, sidx)->connect_stream_id, c->wt_connect_sent_len[sidx],
-      capsule_bytes.n, capsule_bytes.p, fin};
+      h3_frame_put(&dfb, H3_FRAME_DATA, capsule_bytes), df, fin};
   if (!appdata_stream_frame(&f, &plb)) return 0;
   sin = (wired_srvloop_send_in){
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
@@ -3091,7 +3098,7 @@ static int srvrun_send_wt_capsule(
       0};
   if (!wired_srvloop_send_onertt(&c->s, &sin, out)) return 0;
   srvrun_send(cfg, c, wired_span_of(out->p, out->len), "WT capsule sent\n");
-  c->wt_connect_sent_len[sidx] += capsule_bytes.n;
+  c->wt_connect_sent_len[sidx] += f.length;
   return 1;
 }
 

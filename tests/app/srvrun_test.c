@@ -16298,19 +16298,23 @@ static void test_srvrun_send_wt_drain_seals_capsule_on_connect_stream(void) {
   const u8*     pl;
   usz           pll;
   stream_frame  sf;
-  usz           at          = 0;
+  /* RFC 9297 3.2: the capsule rides in a DATA frame (type 0x00, Length 5)
+   * whose payload is WT_DRAIN_SESSION -- type 0x78ae as a 4-byte varint
+   * (RFC 9000 16), Length 0. */
+  static const u8 want[]    = {0x00, 0x05, 0x80, 0x00, 0x78, 0xae, 0x00};
   ob                        = (wired_obuf){obuf, sizeof obuf, 0};
   c                         = sr_wtsend_fixture(&f, &ob);
   c->wt_connect_sent_len[0] = 20; /* pretend the 2xx HEADERS took 20 bytes */
   srvrun_send_wt_drain(&cfg, c, 0, &outb);
   CHECK(c->wt.state == WIRED_WT_DRAINING);
-  CHECK(c->wt_connect_sent_len[0] > 20); /* advanced past the capsule */
+  CHECK(c->wt_connect_sent_len[0] == 20 + sizeof want);
   CHECK(client_open_onertt(&f, outb.p, outb.len, &pl, &pll) == 1);
   CHECK(frame_get_stream(pl, pll, &sf) > 0);
   CHECK(sf.stream_id == 4); /* sr_wtsend_fixture's own CONNECT stream id */
   CHECK(sf.offset == 20);
   CHECK(sf.fin == 0); /* WT_DRAIN_SESSION never FINs the session */
-  CHECK(wtcapsule_decode_drain(wired_span_of(sf.data, sf.length), &at) == 1);
+  CHECK(sf.length == sizeof want);
+  CHECK(wt_bytes_eq(sf.data, want, sizeof want));
 }
 
 /* DRAIN SKIPS INACTIVE/NON-ESTABLISHED SLOTS: srvrun_send_wt_drain_all only
@@ -16380,9 +16384,12 @@ static void test_srvrun_send_wt_close_seals_capsule_with_fin(void) {
   const u8*       pl;
   usz             pll;
   stream_frame    sf;
-  u32             app_error_code;
-  wired_span      message;
-  usz             at        = 0;
+  /* RFC 9297 3.2: a DATA frame (type 0x00, Length 15) carrying
+   * WT_CLOSE_SESSION -- type 0x2843 as a 2-byte varint (0x68 0x43), Length
+   * 12, the 32-bit code 7, then "app done". */
+  static const u8 want[]    = {0x00, 0x0f, 0x68, 0x43, 0x0c, 0x00,
+                               0x00, 0x00, 0x07, 'a',  'p',  'p',
+                               ' ',  'd',  'o',  'n',  'e'};
   ob                        = (wired_obuf){obuf, sizeof obuf, 0};
   c                         = sr_wtsend_fixture(&f, &ob);
   c->wt_connect_sent_len[0] = 20;
@@ -16395,13 +16402,9 @@ static void test_srvrun_send_wt_close_seals_capsule_with_fin(void) {
   CHECK(sf.stream_id == 4);
   CHECK(sf.offset == 20);
   CHECK(sf.fin == 1); /* immediately FIN, WTH3-067 */
-  CHECK(
-      wired_wtcapsule_decode_close(
-          wired_span_of(sf.data, sf.length), &at, &app_error_code, &message) ==
-      1);
-  CHECK(app_error_code == 7);
-  CHECK(message.n == sizeof msg - 1);
-  for (usz i = 0; i < message.n; i++) CHECK(message.p[i] == msg[i]);
+  CHECK(sf.length == sizeof want);
+  CHECK(wt_bytes_eq(sf.data, want, sizeof want));
+  CHECK(c->wt_connect_sent_len[0] == 20 + sizeof want);
   CHECK(c->wt.state == WIRED_WT_CLOSED);
   CHECK(c->wt_active == 0);
 }
@@ -19398,10 +19401,10 @@ static void test_srvrun_wt_drain_rx_with_value_closes(void) {
 }
 
 /* wired_server_wt_drain_session queues, the step sends: called twice, one
- * WT_DRAIN_SESSION (type 0x78ae, Length 0) goes out on the CONNECT stream;
- * a later call sends nothing more. */
+ * WT_DRAIN_SESSION (type 0x78ae, Length 0) goes out on the CONNECT stream,
+ * inside a DATA frame (RFC 9297 3.2); a later call sends nothing more. */
 static void test_srvrun_wt_drain_session_sends_once(void) {
-  static const u8 want[] = {0x80, 0x00, 0x78, 0xae, 0x00};
+  static const u8 want[] = {0x00, 0x05, 0x80, 0x00, 0x78, 0xae, 0x00};
   struct lp_fix   f;
   u8              obuf[1024], out[1500];
   wired_obuf      ob   = obuf_of(obuf, sizeof obuf);
