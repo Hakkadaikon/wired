@@ -535,12 +535,13 @@ static void test_moqtrun_unknown_type_skipped_then_subscribe_answered(void) {
   CHECK(off == c->payload_len);
 }
 
-/* SS4 / SS10.6: a known request this hub does not implement (TRACK_STATUS)
- * gets REQUEST_ERROR NOT_SUPPORTED, and the following SUBSCRIBE is still
+/* SS4 / SS10.6: a known request this hub does not serve on the control
+ * stream (REQUEST_UPDATE: no request stream names what it updates) gets
+ * REQUEST_ERROR NOT_SUPPORTED, and the following SUBSCRIBE is still
  * answered in the same reply round. */
 static void test_moqtrun_unimplemented_request_not_supported_then_subscribe(
     void) {
-  static const u8          tstat[] = {0x0D, 0x00, 0x01, 0x05};
+  static const u8          tstat[] = {0x02, 0x00, 0x01, 0x05};
   const moqtrun_test_call* c =
       mtskip_prefix_then_subscribe(tstat, sizeof tstat);
   usz                  off = 0;
@@ -594,11 +595,11 @@ static void mtasm_feed(usz from, usz to) {
       wired_span_of(mtasm_buf + from, to - from), 0);
 }
 
-/* TRACK_STATUS (0xD, unimplemented: answered NOT_SUPPORTED) with a
- * body_len-byte body, then SUBSCRIBE(alice), into mtasm_buf. Returns the
- * total length. */
+/* REQUEST_UPDATE (0x2, on the control stream answered NOT_SUPPORTED)
+ * with a body_len-byte body, then SUBSCRIBE(alice), into mtasm_buf.
+ * Returns the total length. */
 static usz mtasm_tstat_then_subscribe(usz body_len) {
-  mtasm_buf[0] = 0x0D;
+  mtasm_buf[0] = 0x02;
   mtasm_buf[1] = (u8)(body_len >> 8);
   mtasm_buf[2] = (u8)body_len;
   bytes_memset(mtasm_buf + 3, 0, body_len);

@@ -480,6 +480,10 @@ static void test_moqtrun_sub_largest_own_tracks(void) {
 /* Bidi ids clear of the recorder's control-stream ids (100 up). */
 #define MTRQ_ID(i) (1000 + 4 * (u64)(i))
 
+/* TRACK_STATUS body for a track nobody publishes ({x}/y): Request ID 0,
+ * no parameters -- a request answered without going live. */
+static const u8 MTRQ_TSTAT[] = {0x00, 0x01, 0x01, 0x78, 0x01, 0x79, 0x00};
+
 static u64 mtrq_type_of(const moqtrun_test_call* c) {
   usz        off = 0;
   u64        type;
@@ -670,7 +674,8 @@ static void test_moqtrun_req_second_message_checked(void) {
   mtst_subscribe(SESS_B, MTRQ_S1, &f);
   CHECK(mtrq_closes() == 1);
   mtrq_setup();
-  mtrq_raw(SESS_B, MTRQ_S1, MOQTSTAT_T_TRACK_STATUS, upd, sizeof upd);
+  mtrq_raw(
+      SESS_B, MTRQ_S1, MOQTSTAT_T_TRACK_STATUS, MTRQ_TSTAT, sizeof MTRQ_TSTAT);
   CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_ERROR);
   mtrq_raw(SESS_B, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd, sizeof upd);
   CHECK(mtrq_closes() == 1);
@@ -699,11 +704,11 @@ static void test_moqtrun_req_fin_keeps_request(void) {
  * (REQUEST_ERROR) is complete -- the hub FINs its side after the answer,
  * and the slot is freed once the peer's side has ended too. */
 static void test_moqtrun_req_refusal_fins_and_frees(void) {
-  static const u8 body[] = {0x00, 0x00};
-  moqctl_ftn      g      = mtst_ftn("chat", "room1", "nobody");
-  u8              buf[MTST_MSG_MAX];
+  moqctl_ftn g = mtst_ftn("chat", "room1", "nobody");
+  u8         buf[MTST_MSG_MAX];
   mtrq_setup();
-  mtrq_raw(SESS_B, MTRQ_S1, MOQTSTAT_T_TRACK_STATUS, body, sizeof body);
+  mtrq_raw(
+      SESS_B, MTRQ_S1, MOQTSTAT_T_TRACK_STATUS, MTRQ_TSTAT, sizeof MTRQ_TSTAT);
   CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_ERROR);
   CHECK(mtrq_fin_on(MTRQ_S1) == 1);
   CHECK(mtrq_used() == 1);
@@ -720,11 +725,12 @@ static void test_moqtrun_req_refusal_fins_and_frees(void) {
 /* Finished requests return their slots: one session can make many more
  * requests than it may hold open at once. */
 static void test_moqtrun_req_finished_do_not_exhaust(void) {
-  static const u8 body[] = {0x00, 0x00};
   mtst_init();
   mtst_join(SESS_B);
   for (usz i = 0; i < 2 * WIRED_MOQTRUN_MAX_REQS_PER_SESSION; i++) {
-    mtrq_raw(SESS_B, MTRQ_ID(i), MOQTSTAT_T_TRACK_STATUS, body, sizeof body);
+    mtrq_raw(
+        SESS_B, MTRQ_ID(i), MOQTSTAT_T_TRACK_STATUS, MTRQ_TSTAT,
+        sizeof MTRQ_TSTAT);
     wired_moqt_on_stream_data(
         &mtst_hub, SESS_B, MTRQ_ID(i), wired_span_of(0, 0), 1);
   }
@@ -737,17 +743,19 @@ static void test_moqtrun_req_finished_do_not_exhaust(void) {
  * while other sessions are still served, and a closed session's streams
  * return to the pool. */
 static void test_moqtrun_req_per_session_cap(void) {
-  static const u8 body[] = {0x00, 0x00};
-  const u64       over   = MTRQ_ID(WIRED_MOQTRUN_MAX_REQS_PER_SESSION);
+  const u64 over = MTRQ_ID(WIRED_MOQTRUN_MAX_REQS_PER_SESSION);
   mtst_init();
   mtst_join(SESS_B);
   mtst_join(SESS_C);
   for (usz i = 0; i <= WIRED_MOQTRUN_MAX_REQS_PER_SESSION; i++)
-    mtrq_raw(SESS_B, MTRQ_ID(i), MOQTSTAT_T_TRACK_STATUS, body, sizeof body);
+    mtrq_raw(
+        SESS_B, MTRQ_ID(i), MOQTSTAT_T_TRACK_STATUS, MTRQ_TSTAT,
+        sizeof MTRQ_TSTAT);
   CHECK(moqtrun_test_count_kind(12) == WIRED_MOQTRUN_MAX_REQS_PER_SESSION);
   CHECK(mtrq_reset_code(over) == 0x9);
   CHECK(mtrq_closes() == 0);
-  mtrq_raw(SESS_C, MTRQ_S1, MOQTSTAT_T_TRACK_STATUS, body, sizeof body);
+  mtrq_raw(
+      SESS_C, MTRQ_S1, MOQTSTAT_T_TRACK_STATUS, MTRQ_TSTAT, sizeof MTRQ_TSTAT);
   CHECK(moqtrun_test_last_kind(12)->s == SESS_C);
   wired_moqt_on_session_close(&mtst_hub, SESS_B);
   CHECK(mtrq_used() == 1);
@@ -757,7 +765,6 @@ static void test_moqtrun_req_per_session_cap(void) {
  * EXCESSIVE_LOAD, never read as Object data (draft 3.3: Objects travel on
  * unidirectional streams only). */
 static void test_moqtrun_req_pool_full_resets(void) {
-  static const u8         body[] = {0x00, 0x00};
   wired_wt_session* const sess[] = {SESS_A, SESS_B, SESS_C, SESS_D};
   wired_wt_session* const late   = (wired_wt_session*)(usz)5;
   const usz               per    = WIRED_MOQTRUN_MAX_REQS_PER_SESSION;
@@ -765,7 +772,9 @@ static void test_moqtrun_req_pool_full_resets(void) {
   for (usz s = 0; s < 4; s++) {
     mtst_join(sess[s]);
     for (usz i = 0; i < per; i++)
-      mtrq_raw(sess[s], MTRQ_ID(i), MOQTSTAT_T_TRACK_STATUS, body, sizeof body);
+      mtrq_raw(
+          sess[s], MTRQ_ID(i), MOQTSTAT_T_TRACK_STATUS, MTRQ_TSTAT,
+          sizeof MTRQ_TSTAT);
   }
   CHECK(4 * per == WIRED_MOQTRUN_MAX_REQS);
   CHECK(mtrq_used() == WIRED_MOQTRUN_MAX_REQS);
