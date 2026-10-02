@@ -546,8 +546,10 @@ typedef struct {
    * for the window just above it. */
   u64 req_closed_floor;
   /** The next 1024 stream indexes above req_closed_floor (bit k = closed at
-   * index floor+k). A release past this window is not recorded -- the safe
-   * direction: a live stream is never misclassified as closed. */
+   * index floor+k). Ceiling: a release past this window slides the floor up
+   * (req_closed_mark), so indexes it passes count as closed even if a
+   * long-lived stream among them is still open -- harmless, since a live
+   * stream's slot is always found before this bitmap is consulted. */
   u64 req_closed_bm[16];
   /** draft-ietf-webtrans-http3-15 4.3: one reassembly slot per concurrent WT
    * bidi stream, separate from streams[] above (see

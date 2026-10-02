@@ -343,13 +343,17 @@ static void req_closed_advance(wired_srvloop* l) {
 }
 
 /* Record stream_id as answered-and-released (RFC 9000 3.2). An id past the
- * 1024-index window is left unrecorded -- the safe degradation: a very old
- * duplicate may still claim a slot, but a live stream is never mistaken
- * for a closed one. */
+ * 1024-index window slides the window up (64 indexes at a time) until it
+ * fits, so a release is never forgotten: the cost is that every index the
+ * window leaves behind counts as closed, including a long-lived stream that
+ * pinned the floor (a MoQT control stream). That stream keeps working --
+ * every lookup finds its live slot before consulting this bitmap -- and an
+ * index left behind that was never opened would have to arrive 1024
+ * streams late, which RFC 9000 2.1's in-order id use makes implausible. */
 static void req_closed_mark(wired_srvloop* l, u64 stream_id) {
   u64 idx = stream_id / 4;
   if (idx < l->req_closed_floor) return;
-  if (idx - l->req_closed_floor >= 1024) return;
+  while (idx - l->req_closed_floor >= 1024) req_closed_shift64(l);
   l->req_closed_bm[(idx - l->req_closed_floor) / 64] |=
       (u64)1 << ((idx - l->req_closed_floor) % 64);
   req_closed_advance(l);

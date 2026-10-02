@@ -2093,6 +2093,29 @@ static void test_srvloop_wt_long_released_stream_replay_ignored(void) {
   CHECK(f.l.wt_refused_n == 0);
 }
 
+/* The closed-id window is 1024 stream indexes wide and anchors at the
+ * lowest stream still open. A long-lived stream (a MoQT control stream)
+ * pins it while 1100 later streams open and close: the window slides past
+ * the pinned stream instead of forgetting releases beyond it, so the oldest
+ * and the newest released ids both stay stale, the pinned stream keeps its
+ * slot, and a genuinely new id still claims one. */
+static void test_srvloop_wt_closed_window_slides_past_long_lived_stream(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob   = {out, sizeof out, 0};
+  u64           last = 8 + 4 * 1099;
+  lp_confirm(&f, &ob);
+  CHECK(wired_srvloop_wt_slot_claim(&f.l, 4) >= 0); /* long-lived */
+  for (u64 id = 8; id <= last; id += 4) {
+    CHECK(wired_srvloop_wt_slot_claim(&f.l, id) >= 0);
+    wired_srvloop_wt_slot_release(&f.l, id);
+  }
+  CHECK(wired_srvloop_wt_slot_claim(&f.l, 8) < 0);
+  CHECK(wired_srvloop_wt_slot_claim(&f.l, last) < 0);
+  CHECK(wired_srvloop_wt_slot_find(&f.l, 4) >= 0);
+  CHECK(wired_srvloop_wt_slot_claim(&f.l, last + 4) >= 0);
+}
+
 /* Capacity: a browser in a 4-person moqt_chat room keeps ~16 request
  * streams open at once (3 PUBLISH + 2 PUBLISH_NAMESPACE + 1
  * SUBSCRIBE_NAMESPACE + 3 tracks x 3 peers + a FETCH) next to the server's
@@ -4740,6 +4763,7 @@ void test_srvloop(void) {
   test_srvloop_wt_live_stream_retransmit_keeps_slot();
   test_srvloop_wt_long_released_stream_replay_ignored();
   test_srvloop_wt_room_streams_all_slotted();
+  test_srvloop_wt_closed_window_slides_past_long_lived_stream();
   test_srvloop_wt_uni_stream_reassembled();
   test_srvloop_wt_uni_stream_signal_split();
   test_srvloop_wt_bidi_stream_signal_split();
