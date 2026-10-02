@@ -895,7 +895,9 @@ static void moqtrun_sub_filter(
   moqctl_loc zero  = {0, 0};
   s->start         = zero;
   s->has_end_group = 0;
+  s->filter_type   = 0;
   if (!f) return;
+  s->filter_type   = (u8)f->lf.type;
   s->start         = MOQTRUN_START_FNS[f->lf.type](t, f->lf.start);
   s->has_end_group = f->lf.type == MOQCTL_FILTER_ABS_RANGE;
   s->end_group     = s->start.group + f->lf.end_group_delta;
@@ -942,6 +944,17 @@ static int moqtrun_sub_forwards(const wired_moqtrun_sub* s) {
   return s->active && !s->forward_off;
 }
 
+/* A re-attached subscription meets a new incarnation: a Largest-relative
+ * filter start (9.3.1) and the Joining Location (5.1) are resolved again
+ * against its Largest -- the stored ones name the old incarnation's
+ * Objects. An absolute filter keeps the subscriber's own Locations. */
+static void moqtrun_sub_reresolve(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
+  s->start  = MOQTRUN_START_FNS[s->filter_type](t, s->start);
+  s->jl     = t->largest;
+  s->has_jl = (u8)t->has_largest;
+}
+
 /* Re-attaches peer i to track with the state it SUBSCRIBEd to k with
  * (Forward State, Request ID, parameters: only the subscriber changes
  * them, draft 5.1) under a fresh alias. */
@@ -955,6 +968,7 @@ static void moqtrun_reattach_one_sub(
   slot->session_idx               = i;
   slot->track_alias               = alias;
   slot->active                    = 1;
+  moqtrun_sub_reresolve(slot, track);
 }
 
 /* A (re)PUBLISHed name re-attaches every still-connected peer that had
@@ -2451,6 +2465,20 @@ static int moqtrun_rel_late_wanted(
  * relay stream with the saved header and attach its cursor right after
  * it, so the normal drain sends every byte, then the FIN. An open failure
  * attaches nothing and retries on the next drain. */
+/* 1 iff replaying relay's stream from its header stays inside sub's
+ * Location Filter (9.3.1): the stream starts at or after the
+ * subscription start. A stream begun before it holds Objects up to the
+ * Joining Location, which a Joining Fetch covers (10.12.2.1).
+ * ponytail: stream-granular -- later Objects of such a stream are not
+ * sent to sub either (one Object per stream, as chat sends, loses
+ * nothing); slice the ring at an Object boundary if a reliable track
+ * ever sends many Objects per stream. */
+static int moqtrun_rel_replay_ok(
+    const wired_moqtrun_sub* sub, const wired_moqtrun_relay* relay) {
+  moqctl_loc first = {relay->group_id, 0};
+  return !moqctl_loc_less(first, sub->start);
+}
+
 static void moqtrun_rel_late_attach(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
@@ -2458,7 +2486,9 @@ static void moqtrun_rel_late_attach(
     moqtrel_buf*         rb,
     usz                  i,
     u64                  now_ms) {
-  if (!moqtrun_rel_late_wanted(track, relay, rb, i)) return;
+  if (!moqtrun_rel_late_wanted(track, relay, rb, i) ||
+      !moqtrun_rel_replay_ok(&track->subs[i], relay))
+    return;
   moqtrun_relay_open_one(
       hub, &track->subs[i], relay, i,
       wired_span_of(relay->hdr, relay->hdr_len));
