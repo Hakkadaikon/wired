@@ -487,14 +487,39 @@ static int relay_stats_moved(void) {
   return moved;
 }
 
+/* Graceful restart (draft-ietf-moq-transport-19 3.6 / 10.4): on SIGTERM
+ * the SDK stops accepting connections and drains for about 5 s
+ * (srvrun.c SRVRUN_DRAIN_TICKS) before it closes what is left. Within that
+ * window every MOQT session is sent GOAWAY -- New Session URI from
+ * WIRED_GOAWAY_URI, empty (reconnect to the same URI) when unset -- so
+ * clients move to the next hub themselves; a session still open after
+ * GOAWAY_TIMEOUT_MS is closed by the hub (wired_moqt_goaway). */
+#define GOAWAY_TIMEOUT_MS 2000
+static const char* g_goaway_uri = "";
+
+/* Sends GOAWAY once, at the first step after a shutdown was requested.
+ * ponytail: during the drain the SDK steps (and so calls on_step) only
+ * when a datagram arrives; live clients ACK and send audio, so it does. */
+static void goaway_on_shutdown(wired_moqt_hub* hub) {
+  static int sent;
+  if (sent || !*wired_srvrun_shutdown_word()) return;
+  sent = 1;
+  wired_moqt_goaway(
+      hub,
+      wired_span_of((const u8*)g_goaway_uri, wired_cstr_len(g_goaway_uri)),
+      GOAWAY_TIMEOUT_MS);
+  wired_log_str("moqt: shutdown requested, GOAWAY sent\n");
+}
+
 /* wired_srvrun_on_step-shaped: paces the hub's live track (moqtrun.h's
- * wired_moqt_tick doc) and emits the relay-stats line every 10 seconds
- * while sessions are live, so a deployment's docker logs show whether
- * refusals or session drops are ongoing without waiting for shutdown.
- * ctx is the hub. */
+ * wired_moqt_tick doc), sends GOAWAY once a shutdown starts, and emits
+ * the relay-stats line every 10 seconds while sessions are live, so a
+ * deployment's docker logs show whether refusals or session drops are
+ * ongoing without waiting for shutdown. ctx is the hub. */
 static void on_step(void* ctx, u64 now_ms) {
   static u64 next_ms;
   wired_moqt_tick((wired_moqt_hub*)ctx, now_ms);
+  goaway_on_shutdown((wired_moqt_hub*)ctx);
   if (now_ms < next_ms) return;
   next_ms = now_ms + 10000;
   if (relay_stats_moved()) log_relay_stats("moqt relay(10s): ");
@@ -564,6 +589,12 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
       obs.cert_path, obs.key_path, &cert_store, &id);
   log_cert_fingerprint(&id);
 
+  g_goaway_uri = wired_cliargs_str(
+      argc, argv, "--goaway-uri",
+      wired_envp_get(argc, argv, "WIRED_GOAWAY_URI"));
+  if (!g_goaway_uri) g_goaway_uri = "";
+  if (wired_cstr_len(g_goaway_uri) > WIRED_MOQTRUN_GOAWAY_URI_MAX)
+    wired_die("WIRED_GOAWAY_URI: longer than 512 bytes\n");
   wired_moqt_init(&g_hub, g_moqt_io);
   g_hub.reliable_alias_limit = CHAT_ALIAS_LIMIT;
   wired_moqt_cache_attach(&g_hub, g_cache_arena, sizeof g_cache_arena);
