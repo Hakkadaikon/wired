@@ -268,10 +268,10 @@ rendered on the page.
 
 - **DATAGRAM delivery is unreliable and unordered** (RFC 9221 1) — messages
   can be lost or arrive out of order. This is inherent to the transport this
-  sample uses, not a bug. A production chat app would need a reliable
-  delivery path; this SDK does not yet expose a server-to-client WebTransport
-  *stream* send API (only DATAGRAM), so this sample is DATAGRAM-only by
-  necessity, not by choice.
+  sample uses, not a bug. A production chat app wanting reliable delivery
+  can reach for the server's own `wired_server_wt_open_uni_stream`/
+  `wired_server_wt_open_bidi_stream` (both exist); this sample sticks to
+  DATAGRAM for simplicity, not because streams are unavailable.
 - **Broadcast is single-slot per connection, last-writer-wins**
   (`wired_server_broadcast_datagram`'s own doc, mirroring
   `srvrun_queue_datagram`) — if a second broadcast is queued before the first
