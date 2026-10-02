@@ -451,11 +451,3 @@ describe("attachmentReassemblerPush key reuse across independent cycles", () => 
     expect(secondResult).toEqual(bytes(4, 5));
   });
 });
-
-describe("relay fragment limit", () => {
-  // The hub forwards a keep-open stream at Object boundaries and can hold at
-  // most 512 bytes of a torn Object between rounds (moqtrun.h
-  // WIRED_MOQTRUN_RELAY_FRAG_MAX), so every Object -- envelope included --
-  // must fit in 512 bytes. The idx===0 chunk is the worst case: it also
-  // carries the MIME type and totalBytes.
-});
