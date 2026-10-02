@@ -65,6 +65,7 @@
 #define MOQCTL_DONE_INTERNAL_ERROR 0x0ULL
 #define MOQCTL_DONE_TRACK_ENDED 0x2ULL
 #define MOQCTL_DONE_GOING_AWAY 0x4ULL
+#define MOQCTL_DONE_UPDATE_FAILED 0x8ULL
 
 /** Session-level termination codes referenced by this codec (SS17.1). */
 #define MOQCTL_CLOSE_INVALID_AUTHORITY 0x19ULL
