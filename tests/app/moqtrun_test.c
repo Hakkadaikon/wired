@@ -28,6 +28,7 @@ typedef struct {
   u8                payload[MOQTRUN_TEST_MAX_PAYLOAD]; /* may be truncated */
   usz               payload_len;  /* TRUE length, even if truncated above */
   u64               payload_hash; /* FNV-1a 64 over the untruncated bytes */
+  int               refused;      /* stream_send only: returned 0 */
 } moqtrun_test_call;
 
 static moqtrun_test_call g_calls[MOQTRUN_TEST_MAX_CALLS];
@@ -71,6 +72,9 @@ static wired_wt_session* g_send_dg_reject_sess;
 /* When >0, the next N open_uni_stream calls are recorded but return -1
  * (refused) -- no uni-stream credit on the subscriber's connection. */
 static int g_open_uni_fail_n;
+/* When >= 0, only that many more stream_send calls are accepted; every
+ * later one is refused until it is set back to -1 (unlimited). */
+static int g_stream_send_ok_n;
 
 static void moqtrun_test_reset(void) {
   CHECK(g_overflow == 0); /* prior test silently overflowed the recorder */
@@ -86,6 +90,7 @@ static void moqtrun_test_reset(void) {
   g_send_uni2_reject_sess   = 0;
   g_send_dg_reject_sess     = 0;
   g_open_uni_fail_n         = 0;
+  g_stream_send_ok_n        = -1;
 }
 
 /* FNV-1a 64 (not an RFC algorithm, a well-known public-domain hash;
@@ -111,6 +116,7 @@ static void moqtrun_test_record(
   c->s                 = s;
   c->stream_id         = stream_id;
   c->fin               = fin;
+  c->refused           = 0;
   c->payload_len =
       p.n < MOQTRUN_TEST_MAX_PAYLOAD ? p.n : MOQTRUN_TEST_MAX_PAYLOAD;
   for (usz i = 0; i < c->payload_len; i++) c->payload[i] = p.p[i];
@@ -124,15 +130,24 @@ static i64 moqtrun_test_open_bidi_stream(
   return sid;
 }
 
-static int moqtrun_test_stream_send(
-    wired_wt_session* s, u64 stream_id, wired_span payload, int fin) {
-  moqtrun_test_record(3, s, stream_id, fin, payload);
+static int moqtrun_test_stream_send_ret(wired_wt_session* s) {
   if (g_stream_send_reject_n > 0) {
     g_stream_send_reject_n--;
     return 0;
   }
   if (g_stream_send_reject_sess && s == g_stream_send_reject_sess) return 0;
+  if (g_stream_send_ok_n == 0) return 0;
+  if (g_stream_send_ok_n > 0) g_stream_send_ok_n--;
   return 1;
+}
+
+static int moqtrun_test_stream_send(
+    wired_wt_session* s, u64 stream_id, wired_span payload, int fin) {
+  usz before = g_n_calls;
+  moqtrun_test_record(3, s, stream_id, fin, payload);
+  int r = moqtrun_test_stream_send_ret(s);
+  if (!r && g_n_calls > before) g_calls[before].refused = 1;
+  return r;
 }
 
 /* wired_server_wt_open_uni-shaped: one-shot open+send+FIN, the primitive
@@ -520,14 +535,14 @@ static void test_moqtrun_unknown_type_skipped_then_subscribe_answered(void) {
   CHECK(off == c->payload_len);
 }
 
-/* SS4 / SS10.6: a known request this hub does not implement (FETCH)
+/* SS4 / SS10.6: a known request this hub does not implement (TRACK_STATUS)
  * gets REQUEST_ERROR NOT_SUPPORTED, and the following SUBSCRIBE is still
  * answered in the same reply round. */
 static void test_moqtrun_unimplemented_request_not_supported_then_subscribe(
     void) {
-  static const u8          fetch[] = {0x16, 0x00, 0x01, 0x05};
+  static const u8          tstat[] = {0x0D, 0x00, 0x01, 0x05};
   const moqtrun_test_call* c =
-      mtskip_prefix_then_subscribe(fetch, sizeof fetch);
+      mtskip_prefix_then_subscribe(tstat, sizeof tstat);
   usz                  off = 0;
   u64                  type;
   wired_span           body;
@@ -555,7 +570,8 @@ static void test_moqtrun_unimplemented_non_request_skipped(void) {
 
 /* ---- control-stream reassembly across deliveries ---- */
 
-/* Room for one maximum-size FETCH envelope plus a SUBSCRIBE behind it. */
+/* Room for one maximum-size TRACK_STATUS envelope plus a SUBSCRIBE behind
+ * it. */
 #define MTASM_BUF (WIRED_MOQTRUN_CTL_MSG_MAX + 64)
 
 static wired_moqt_hub mtasm_hub;
@@ -578,10 +594,11 @@ static void mtasm_feed(usz from, usz to) {
       wired_span_of(mtasm_buf + from, to - from), 0);
 }
 
-/* FETCH (0x16) with a body_len-byte body, then SUBSCRIBE(alice), into
- * mtasm_buf. Returns the total length. */
-static usz mtasm_fetch_then_subscribe(usz body_len) {
-  mtasm_buf[0] = 0x16;
+/* TRACK_STATUS (0xD, unimplemented: answered NOT_SUPPORTED) with a
+ * body_len-byte body, then SUBSCRIBE(alice), into mtasm_buf. Returns the
+ * total length. */
+static usz mtasm_tstat_then_subscribe(usz body_len) {
+  mtasm_buf[0] = 0x0D;
   mtasm_buf[1] = (u8)(body_len >> 8);
   mtasm_buf[2] = (u8)body_len;
   bytes_memset(mtasm_buf + 3, 0, body_len);
@@ -625,7 +642,7 @@ static void test_moqtrun_ctl_split_subscribe_answered_once(void) {
 static void test_moqtrun_ctl_message_then_half(void) {
   u64 types[4];
   mtasm_setup();
-  usz n    = mtasm_fetch_then_subscribe(1);
+  usz n    = mtasm_tstat_then_subscribe(1);
   usz half = 4 + G_MOQT_CTL_SUBSCRIBE_BASIC_LEN / 2;
   mtasm_feed(0, half);
   CHECK(mtasm_reply_types(types, 4) == 1);
@@ -639,7 +656,7 @@ static void test_moqtrun_ctl_message_then_half(void) {
 static void test_moqtrun_ctl_max_length_accepted(void) {
   u64 types[4];
   mtasm_setup();
-  mtasm_feed(0, mtasm_fetch_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX));
+  mtasm_feed(0, mtasm_tstat_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX));
   CHECK(mtasm_reply_types(types, 4) == 2);
   CHECK(types[0] == MOQCTL_T_REQUEST_ERROR);
   CHECK(types[1] == MOQCTL_T_SUBSCRIBE_OK);
@@ -654,12 +671,12 @@ static void test_moqtrun_ctl_over_max_skipped_without_close(void) {
   usz n;
   mtasm_setup();
   mtasm_hub.io.close_session = 0;
-  mtasm_feed(0, mtasm_fetch_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX + 1));
+  mtasm_feed(0, mtasm_tstat_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX + 1));
   CHECK(mtasm_reply_types(types, 4) == 1);
   CHECK(types[0] == MOQCTL_T_SUBSCRIBE_OK);
   mtasm_setup();
   mtasm_hub.io.close_session = 0;
-  n = mtasm_fetch_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX + 1);
+  n = mtasm_tstat_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX + 1);
   mtasm_feed(0, 10);
   mtasm_feed(10, n);
   CHECK(mtasm_reply_types(types, 4) == 1);
@@ -682,7 +699,7 @@ static void mtasm_check_closed(u32 code) {
  * the session. */
 static void test_moqtrun_ctl_unknown_type_closes_session(void) {
   mtasm_setup();
-  usz n        = mtasm_fetch_then_subscribe(2);
+  usz n        = mtasm_tstat_then_subscribe(2);
   mtasm_buf[0] = 0x3E; /* 1-byte varint, no draft-19 type */
   mtasm_feed(0, n);
   mtasm_check_closed(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
@@ -696,10 +713,10 @@ static void test_moqtrun_ctl_unknown_type_closes_session(void) {
 static void test_moqtrun_ctl_over_max_closes_session(void) {
   usz n;
   mtasm_setup();
-  mtasm_feed(0, mtasm_fetch_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX + 1));
+  mtasm_feed(0, mtasm_tstat_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX + 1));
   mtasm_check_closed(WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR);
   mtasm_setup();
-  n = mtasm_fetch_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX + 1);
+  n = mtasm_tstat_then_subscribe(WIRED_MOQTRUN_CTL_MSG_MAX + 1);
   mtasm_feed(0, 10);
   mtasm_feed(10, n);
   mtasm_check_closed(WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR);

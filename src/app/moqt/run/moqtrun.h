@@ -5,6 +5,7 @@
 #include "app/moqt/cache/moqcache.h"
 #include "app/moqt/ctl/moqctl.h"
 #include "app/moqt/data/moqdata.h"
+#include "app/moqt/fetch/moqfetch.h"
 #include "app/moqt/run/moqtrel.h"
 #include "app/moqt/sess/moqsess.h"
 #include "common/bytes/span/span.h"
@@ -359,6 +360,34 @@ typedef struct {
   int fin_out;
 } wired_moqtrun_req;
 
+/** Fixed capacity: FETCH responses (draft-ietf-moq-transport-19 10.12.3)
+ * being served at once, hub-wide. A FETCH past it is answered
+ * REQUEST_ERROR INTERNAL_ERROR.
+ * ponytail: room-sized; raise when clients fetch in parallel. */
+#define WIRED_MOQTRUN_MAX_FETCHES 8
+
+/** One FETCH response being served from the hub cache: Objects of the
+ * track incarnation cache_tag in [cursor, end) go out on one uni stream
+ * (FETCH_HEADER, then fetch Objects, 11.4.4), one item per stream round
+ * as the transport accepts them. The cursor is a Location, never a
+ * pointer into the cache: an item is looked up again on every round, so
+ * eviction or a publisher leaving in between turns it into an End of
+ * Unknown Range instead of reading freed bytes. */
+typedef struct {
+  int               in_use;
+  wired_wt_session* wt;
+  u64               request_id;
+  u64               cache_tag;
+  /** Next Location to serve. */
+  moqctl_loc cursor;
+  /** First Location past the range. */
+  moqctl_loc end;
+  /** 1 once the stream is open (stream_id valid). */
+  int          opened;
+  u64          stream_id;
+  moqfetch_seq seq;
+} wired_moqtrun_fetch;
+
 /** One track a peer PUBLISHes (chat or audio), and the subscribers recorded
  * against it. in_use marks the slot live; own_alias is the Track Alias this
  * hub assigned to this slot's own PUBLISH (draft SS10.7 moqsub
@@ -517,7 +546,11 @@ typedef struct {
   /** Scratch for moqtrun_relay_normalize: one relay's held fragment
    * prepended to one delivery (a delivery is at most srvloop's whole WT
    * receive window). Only ever used within a single
-   * wired_moqt_on_stream_data call, so one shared buffer suffices. */
+   * wired_moqt_on_stream_data call, so one shared buffer suffices. A
+   * FETCH round (one fetch Object: MOQCACHE_OBJ_MAX payload plus at most
+   * 64 bytes of framing) is staged here too, never during a relay round:
+   * the transport copies each accepted round, so nothing outlives the
+   * call. */
   u8 relay_scratch[WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP];
   /** Cumulative undelivered tails dropped because they exceeded
    * WIRED_MOQTRUN_RELAY_FRAG_MAX (each degrades to a torn frame on that one
@@ -618,6 +651,8 @@ typedef struct {
   moqcache cache;
   /** Last wired_moqtrun_track.cache_tag handed out. */
   u64 cache_tag_next;
+  /** FETCH responses in progress, all sessions. */
+  wired_moqtrun_fetch fetches[WIRED_MOQTRUN_MAX_FETCHES];
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
