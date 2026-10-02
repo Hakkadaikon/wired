@@ -14,6 +14,17 @@
  * design summary; each function here stays a thin dispatch over the
  * vi/kvp/ctl/data/sess domains, never reimplementing their codecs. */
 
+/* draft-ietf-moq-transport-19 3.3.4 stream reset codes. */
+#define MOQTRUN_RESET_INTERNAL_ERROR 0x0
+#define MOQTRUN_RESET_CANCELLED 0x1
+#define MOQTRUN_RESET_DELIVERY_TIMEOUT 0x2
+#define MOQTRUN_RESET_GOING_AWAY 0x4
+#define MOQTRUN_RESET_EXCESSIVE_LOAD 0x9
+
+/* draft-ietf-moq-transport-19 10.11 PUBLISH_DONE Stream Count when the
+ * exact number is not known. */
+#define MOQTRUN_DONE_STREAMS_UNKNOWN (((u64)1 << 62) - 1)
+
 /* ===================== peer table ===================== */
 
 static int moqtrun_peer_matches_wt(
@@ -93,6 +104,7 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   hub->stat_live_drop        = 0;
   hub->reliable_alias_limit  = 0;
   hub->stat_rel_stall        = 0;
+  hub->stat_timeout_reset    = 0;
   hub->stat_rel_overflow     = 0;
   hub->stat_rel_wait         = 0;
   hub->stat_rel_sent         = 0;
@@ -179,6 +191,9 @@ static void moqtrun_init_peer(
   p->ctl_asm.at      = 0;
   p->ctl_asm.skip    = 0;
   p->req             = 0;
+  p->goaway_deadline = (u64)-1;
+  p->goaway_flushed  = 0;
+  p->closing         = 0;
   for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
     p->tracks[t].in_use = 0;
   moqsess_init(&p->sess);
@@ -207,15 +222,12 @@ void wired_moqt_on_session(
 
 /* ===================== control-message handlers ===================== */
 
-/* draft SS10.2 Message Parameter types this hub refuses to accept/send
- * (loss-free-hub timeout defense). */
-static int moqtrun_is_timeout_type(u64 t) {
-  return t == MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT ||
-         t == MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT;
-}
-
+/* draft-ietf-moq-transport-19 8: a SUBGROUP_DELIVERY_TIMEOUT timer runs
+ * until the transport reports "all data committed", which this hub's io
+ * table cannot see, so a non-zero one is refused. OBJECT_DELIVERY_TIMEOUT
+ * is applied (moqtrun_sub_late). */
 static int moqtrun_param_is_nonzero_timeout(const moqctl_param* item) {
-  return moqtrun_is_timeout_type(item->type) && item->vi != 0;
+  return item->type == MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT && item->vi != 0;
 }
 
 static int moqtrun_has_timeout_param(const moqctl_params* params) {
@@ -496,10 +508,19 @@ static int moqtrun_encode_request_ok(wired_mspan buf, usz* off, const void* m) {
   return moqctl_request_ok_encode(buf, off, m);
 }
 
-static void moqtrun_queue_request_ok(wired_moqtrun_peer* p) {
+/* LARGEST_OBJECT once t (0: no track) has published Objects (10.2.16:
+ * SUBSCRIBE_OK, REQUEST_UPDATE_OK and TRACK_STATUS_OK carry it). */
+static void moqtrun_largest_param(
+    moqctl_params* params, const wired_moqtrun_track* t);
+
+/* REQUEST_OK; answering a request about track t (0: none), it carries the
+ * Largest Location. */
+static void moqtrun_queue_request_ok(
+    wired_moqtrun_peer* p, const wired_moqtrun_track* t) {
   u8                msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqctl_request_ok ok = {0};
-  usz               n  = moqtrun_envelope_put(
+  moqtrun_largest_param(&ok.params, t);
+  usz n = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
       moqtrun_encode_request_ok, &ok);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
@@ -534,10 +555,11 @@ static void moqtrun_relay_reset_one_sub(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* t,
     wired_moqtrun_relay* r,
-    usz                  si) {
+    usz                  si,
+    u32                  code) {
   if (!moqtrun_relay_orphan_ok(t, r, si)) return;
   wired_moqtrun_peer* dst = &hub->peers[t->subs[si].session_idx];
-  if (dst->in_use) hub->io.stream_reset(dst->wt, r->sub_stream_id[si], 0);
+  if (dst->in_use) hub->io.stream_reset(dst->wt, r->sub_stream_id[si], code);
   r->sub_stream_set[si] = 0;
 }
 
@@ -545,7 +567,7 @@ static void moqtrun_relay_reset_stale(
     wired_moqt_hub* hub, wired_moqtrun_track* t, wired_moqtrun_relay* r) {
   if (!r->in_use) return;
   for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
-    moqtrun_relay_reset_one_sub(hub, t, r, si);
+    moqtrun_relay_reset_one_sub(hub, t, r, si, MOQTRUN_RESET_INTERNAL_ERROR);
 }
 
 /* A publisher that drops mid-share (crash, network loss -- no clean FIN)
@@ -771,7 +793,7 @@ static void moqtrun_handle_publish(
   moqtrun_track_seed_largest(t, &m.params);
   t->request_id = m.request_id;
   moqtrun_reattach_subs(hub, t, peer_idx, k);
-  moqtrun_queue_request_ok(p);
+  moqtrun_queue_request_ok(p, 0);
   moqtrun_req_mark_live(p);
 }
 
@@ -864,30 +886,34 @@ static u8 moqtrun_forward_off(const moqctl_param* p) {
 /* Filter Start Location per type (9.3.1), indexed by MOQCTL_FILTER_*:
  * Largest-relative ones resolve against t's Largest now, {0, 0} when
  * nothing was published; Absolute ones take the given start. */
-typedef moqctl_loc (*moqtrun_start_fn)(const wired_moqtrun_track*, moqctl_loc);
+typedef moqctl_loc (*moqtrun_start_fn)(const moqctl_loc*, moqctl_loc);
 
-static moqctl_loc moqtrun_start_given(
-    const wired_moqtrun_track* t, moqctl_loc start) {
-  (void)t;
+static moqctl_loc moqtrun_start_given(const moqctl_loc* top, moqctl_loc start) {
+  (void)top;
   return start;
 }
 
 static moqctl_loc moqtrun_start_next_group(
-    const wired_moqtrun_track* t, moqctl_loc start) {
+    const moqctl_loc* top, moqctl_loc start) {
   moqctl_loc l = {0, 0};
   (void)start;
-  if (t->has_largest) l.group = t->largest.group + 1;
+  if (top) l.group = top->group + 1;
   return l;
 }
 
 static moqctl_loc moqtrun_start_largest(
-    const wired_moqtrun_track* t, moqctl_loc start) {
+    const moqctl_loc* top, moqctl_loc start) {
   moqctl_loc l = {0, 0};
   (void)start;
-  if (!t->has_largest) return l;
-  l = t->largest;
+  if (!top) return l;
+  l = *top;
   l.object++;
   return l;
+}
+
+/* t's Largest Location, 0 when t (0: no track) published nothing. */
+static const moqctl_loc* moqtrun_track_top(const wired_moqtrun_track* t) {
+  return t && t->has_largest ? &t->largest : 0;
 }
 
 static const moqtrun_start_fn MOQTRUN_START_FNS[5] = {
@@ -903,8 +929,8 @@ static void moqtrun_sub_filter(
   s->has_end_group = 0;
   s->filter_type   = 0;
   if (!f) return;
-  s->filter_type   = (u8)f->lf.type;
-  s->start         = MOQTRUN_START_FNS[f->lf.type](t, f->lf.start);
+  s->filter_type = (u8)f->lf.type;
+  s->start = MOQTRUN_START_FNS[f->lf.type](moqtrun_track_top(t), f->lf.start);
   s->has_end_group = f->lf.type == MOQCTL_FILTER_ABS_RANGE;
   s->end_group     = s->start.group + f->lf.end_group_delta;
 }
@@ -939,6 +965,7 @@ static void moqtrun_sub_open(
   s->track_alias = alias;
   s->active      = 1;
   s->request_id  = m->request_id;
+  s->blob_sent   = 0;
   s->jl          = t->largest;
   s->has_jl      = (u8)t->has_largest;
   moqtrun_sub_scalars(s, m);
@@ -950,13 +977,39 @@ static int moqtrun_sub_forwards(const wired_moqtrun_sub* s) {
   return s->active && !s->forward_off;
 }
 
+/* 1 iff Group g passes s's Location Filter (5.1.4): not before the start
+ * Group, not past the end Group. */
+static int moqtrun_sub_wants_group(const wired_moqtrun_sub* s, u64 g) {
+  return g >= s->start.group && !(s->has_end_group && g > s->end_group);
+}
+
+/* Forward AND Location Filter (5.1.5) for a stream of Group g.
+ * ponytail: Group-granular -- Objects of the start Group below the start
+ * Object still pass (a relay round is whole Objects, never re-framed);
+ * cut rounds at the start Object if a filter ever starts mid-Group on a
+ * many-Object stream. */
+static int moqtrun_sub_gets(const wired_moqtrun_sub* s, u64 g) {
+  return moqtrun_sub_forwards(s) && moqtrun_sub_wants_group(s, g);
+}
+
+/* moqtrun_sub_gets for one Object at l (a datagram). */
+static int moqtrun_sub_gets_loc(const wired_moqtrun_sub* s, moqctl_loc l) {
+  return moqtrun_sub_gets(s, l.group) && !moqctl_loc_less(l, s->start);
+}
+
+/* draft 8: an Object whose first byte reached the hub age_ms ago is past
+ * s's OBJECT_DELIVERY_TIMEOUT (0: none). */
+static int moqtrun_sub_late(const wired_moqtrun_sub* s, u64 age_ms) {
+  return s->delivery_timeout != 0 && age_ms > s->delivery_timeout;
+}
+
 /* A re-attached subscription meets a new incarnation: a Largest-relative
  * filter start (9.3.1) and the Joining Location (5.1) are resolved again
  * against its Largest -- the stored ones name the old incarnation's
  * Objects. An absolute filter keeps the subscriber's own Locations. */
 static void moqtrun_sub_reresolve(
     wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
-  s->start  = MOQTRUN_START_FNS[s->filter_type](t, s->start);
+  s->start  = MOQTRUN_START_FNS[s->filter_type](moqtrun_track_top(t), s->start);
   s->jl     = t->largest;
   s->has_jl = (u8)t->has_largest;
 }
@@ -1000,18 +1053,24 @@ static int moqtrun_encode_subscribe_ok(
   return moqctl_subscribe_ok_encode(buf, off, m);
 }
 
+static void moqtrun_largest_param(
+    moqctl_params* params, const wired_moqtrun_track* t) {
+  const moqctl_loc* top = moqtrun_track_top(t);
+  params->items[0].type = MOQCTL_PARAM_LARGEST_OBJECT;
+  params->items[0].enc  = MOQCTL_PENC_LOCATION;
+  params->n             = top != 0;
+  if (top) params->items[0].loc = *top;
+}
+
 /* SUBSCRIBE_OK with alias; LARGEST_OBJECT once t has published Objects
  * (MUST, draft 10.2.16). */
 static void moqtrun_queue_subscribe_ok(
     wired_moqtrun_peer* p, const wired_moqtrun_track* t, u64 alias) {
   u8                  msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
-  moqctl_subscribe_ok ok  = {0};
-  ok.track_alias          = alias;
-  ok.params.items[0].type = MOQCTL_PARAM_LARGEST_OBJECT;
-  ok.params.items[0].enc  = MOQCTL_PENC_LOCATION;
-  ok.params.items[0].loc  = t->largest;
-  ok.params.n             = t->has_largest ? 1 : 0;
-  usz n                   = moqtrun_envelope_put(
+  moqctl_subscribe_ok ok = {0};
+  ok.track_alias         = alias;
+  moqtrun_largest_param(&ok.params, t);
+  usz n = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_SUBSCRIBE_OK,
       moqtrun_encode_subscribe_ok, &ok);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
@@ -1039,11 +1098,11 @@ static void moqtrun_accept_subscribe(
 /* Sends the blob to slot's peer p unless FORWARD 0 holds it back; 0 when
  * the send is refused. */
 static int moqtrun_blob_deliver(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, const wired_moqtrun_sub* slot) {
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_sub* slot) {
   if (!moqtrun_sub_forwards(slot)) return 1;
-  if (hub->io.send_uni(p->wt, hub->blob_wire) >= 0) return 1;
-  hub->stat_open_drop++;
-  return 0;
+  slot->blob_sent = hub->io.send_uni(p->wt, hub->blob_wire) >= 0;
+  hub->stat_open_drop += !slot->blob_sent;
+  return slot->blob_sent;
 }
 
 static void moqtrun_blob_send_first(
@@ -1181,9 +1240,9 @@ static int moqtrun_subscribe_refused(
   return !hub->authorize_subscribe(hub->authorize_ctx, &m->name, t);
 }
 
-/* draft SS10.6 SUBSCRIBE: reject non-zero delivery-timeout parameters and
- * unauthorized subscribers, else delegate matching + response to
- * moqtrun_route_subscribe. */
+/* draft SS10.6 SUBSCRIBE: reject a non-zero SUBGROUP_DELIVERY_TIMEOUT
+ * (moqtrun_param_is_nonzero_timeout) and unauthorized subscribers, else
+ * delegate matching + response to moqtrun_route_subscribe. */
 static void moqtrun_subscribe_checked(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
@@ -1210,9 +1269,6 @@ static void moqtrun_handle_subscribe(
 }
 
 /* ===================== FETCH (draft 10.12, 10.13, 11.4.4) =============== */
-
-/* draft-ietf-moq-transport-19 3.3.4 CANCELLED stream reset code. */
-#define MOQTRUN_RESET_CANCELLED 0x1
 
 /* The Location right after l. */
 static moqctl_loc moqtrun_after(moqctl_loc l) {
@@ -1574,6 +1630,295 @@ static void moqtrun_fetches_drop(wired_moqt_hub* hub, wired_wt_session* s) {
     if (hub->fetches[i].wt == s) hub->fetches[i].in_use = 0;
 }
 
+/* Not a REQUEST_ERROR code: the request is accepted. */
+#define MOQTRUN_REQ_ACCEPT (~(u64)0)
+
+/* ===================== TRACK_STATUS (draft 10.14) ===================== */
+
+/* The track a SUBSCRIBE for f would reach (moqtrun_route_subscribe's
+ * order: the hub's own tracks first), else 0. */
+static wired_moqtrun_track* moqtrun_tstat_track(
+    wired_moqt_hub* hub, const moqctl_ftn* f) {
+  u8 ns_buf[WIRED_MOQTRUN_MAX_NS];
+  if (moqtrun_track_name_matches(&hub->blob_track, f->name))
+    return &hub->blob_track;
+  if (moqtrun_track_name_matches(&hub->live.track, f->name))
+    return &hub->live.track;
+  return moqtrun_find_published_track(hub, moqtrun_key_of(f, ns_buf));
+}
+
+/* Treated as a SUBSCRIBE that creates no state and sends no Objects:
+ * TRACK_STATUS_OK carries what SUBSCRIBE_OK would (the Largest Location),
+ * and the request, answered without going live, is FINed. */
+static u64 moqtrun_tstat_verdict(
+    const wired_moqt_hub*      hub,
+    const moqctl_subscribe*    m,
+    const wired_moqtrun_track* t) {
+  u64 code = MOQCTL_ERR_DOES_NOT_EXIST;
+  if (!t) return code;
+  if (moqtrun_subscribe_refused(hub, m, &code)) return code;
+  return MOQTRUN_REQ_ACCEPT;
+}
+
+static void moqtrun_tstat_answer(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body) {
+  moqctl_subscribe m;
+  if (moqtstat_take(body, &m) != MOQCTL_OK) return;
+  wired_moqtrun_track* t    = moqtrun_tstat_track(hub, &m.name);
+  u64                  code = moqtrun_tstat_verdict(hub, &m, t);
+  if (code != MOQTRUN_REQ_ACCEPT) {
+    moqtrun_send_request_error(p, code);
+    return;
+  }
+  moqtrun_queue_request_ok(p, t);
+}
+
+/* TRACK_STATUS is the first and only message of a new request stream
+ * (10.14): on the control stream it is NOT_SUPPORTED, like the namespace
+ * requests. */
+static void moqtrun_handle_tstat(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  (void)peer_idx;
+  if (!p->req) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
+    return;
+  }
+  moqtrun_tstat_answer(hub, p, body);
+}
+
+/* ===================== REQUEST_UPDATE (draft 10.9) ===================== */
+
+static void moqtrun_close_with(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code);
+
+/* Peer idx's live subscription rid on any track, *t its track. */
+static wired_moqtrun_sub* moqtrun_hub_sub_by_rid(
+    wired_moqt_hub* hub, usz idx, u64 rid, wired_moqtrun_track** t) {
+  wired_moqtrun_sub* s = moqtrun_sub_by_rid(hub, idx, rid, t);
+  if (s) return s;
+  *t = &hub->blob_track;
+  s  = moqtrun_live_track_sub_by_rid(*t, idx, rid);
+  if (s) return s;
+  *t = &hub->live.track;
+  return moqtrun_live_track_sub_by_rid(*t, idx, rid);
+}
+
+/* The state p remembers for subscription rid (sub_names), else 0. */
+static wired_moqtrun_sub* moqtrun_sub_state_by_rid(
+    wired_moqtrun_peer* p, u64 rid) {
+  for (usz i = 0; i < p->sub_names_n; i++)
+    if (p->sub_state[i].request_id == rid) return &p->sub_state[i];
+  return 0;
+}
+
+/* The subscription to update: its live slot (*t its track), else -- its
+ * publisher gone -- the state kept for its return (*t 0), else 0. */
+static wired_moqtrun_sub* moqtrun_upd_target(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    usz                   idx,
+    wired_moqtrun_track** t) {
+  wired_moqtrun_sub* s =
+      moqtrun_hub_sub_by_rid(hub, idx, p->req->request_id, t);
+  if (s) return s;
+  *t = 0;
+  return moqtrun_sub_state_by_rid(p, p->req->request_id);
+}
+
+typedef void (*moqtrun_upd_fn)(
+    wired_moqtrun_sub*, const wired_moqtrun_track*, const moqctl_param*);
+
+static void moqtrun_upd_forward(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* p) {
+  (void)t;
+  s->forward_off = moqtrun_forward_off(p);
+}
+
+static void moqtrun_upd_priority(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* p) {
+  (void)t;
+  s->priority     = (u8)p->u8v;
+  s->has_priority = 1;
+}
+
+static void moqtrun_upd_timeout(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* p) {
+  (void)t;
+  s->delivery_timeout     = p->vi;
+  s->has_delivery_timeout = 1;
+}
+
+static void moqtrun_upd_filter(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* p) {
+  moqtrun_sub_filter(s, t, p);
+}
+
+/* Parameters in the update's scope this hub keeps no state for. */
+static void moqtrun_upd_ignore(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* p) {
+  (void)s;
+  (void)t;
+  (void)p;
+}
+
+static const struct {
+  u64            type;
+  moqtrun_upd_fn fn;
+} moqtrun_upd_table[] = {
+    {MOQCTL_PARAM_FORWARD, moqtrun_upd_forward},
+    {MOQCTL_PARAM_SUBSCRIBER_PRIORITY, moqtrun_upd_priority},
+    {MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, moqtrun_upd_timeout},
+    {MOQCTL_PARAM_LOCATION_FILTER, moqtrun_upd_filter},
+};
+
+static moqtrun_upd_fn moqtrun_upd_lookup(u64 type) {
+  for (usz i = 0; i < sizeof moqtrun_upd_table / sizeof moqtrun_upd_table[0];
+       i++)
+    if (moqtrun_upd_table[i].type == type) return moqtrun_upd_table[i].fn;
+  return moqtrun_upd_ignore;
+}
+
+/* FORWARD went 0 -> 1 on a live subscription. */
+static int moqtrun_upd_turned_on(
+    u8 was_off, const wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
+  return was_off && !s->forward_off && t;
+}
+
+/* draft 5.1: the Largest Location REQUEST_UPDATE_OK carries becomes the
+ * Joining Location; the hub's blob, held back by FORWARD 0, goes out now.
+ * 0 when that send is refused. */
+static int moqtrun_upd_forward_on(
+    wired_moqt_hub*            hub,
+    wired_moqtrun_peer*        p,
+    wired_moqtrun_sub*         s,
+    const wired_moqtrun_track* t) {
+  s->jl     = t->largest;
+  s->has_jl = (u8)t->has_largest;
+  if (t != &hub->blob_track || s->blob_sent) return 1;
+  return moqtrun_blob_deliver(hub, p, s);
+}
+
+/* Present parameters replace, absent ones stay (10.9). */
+static void moqtrun_upd_params(
+    wired_moqtrun_sub*         s,
+    const wired_moqtrun_track* t,
+    const moqctl_params*       params) {
+  for (usz i = 0; i < params->n; i++)
+    moqtrun_upd_lookup(params->items[i].type)(s, t, &params->items[i]);
+}
+
+/* All or nothing: a refused blob send restores the whole subscription as
+ * it was and fails the update. */
+static int moqtrun_upd_apply(
+    wired_moqt_hub*            hub,
+    wired_moqtrun_peer*        p,
+    wired_moqtrun_sub*         s,
+    const wired_moqtrun_track* t,
+    const moqctl_params*       params) {
+  wired_moqtrun_sub before = *s;
+  moqtrun_upd_params(s, t, params);
+  if (!moqtrun_upd_turned_on(before.forward_off, s, t)) return 1;
+  if (moqtrun_upd_forward_on(hub, p, s, t)) return 1;
+  *s = before;
+  return 0;
+}
+
+/* A non-zero SUBGROUP_DELIVERY_TIMEOUT is refused as on SUBSCRIBE. */
+static u64 moqtrun_upd_checked(
+    wired_moqt_hub*            hub,
+    wired_moqtrun_peer*        p,
+    wired_moqtrun_sub*         s,
+    const wired_moqtrun_track* t,
+    const moqctl_params*       params) {
+  if (moqtrun_has_timeout_param(params)) return MOQCTL_ERR_NOT_SUPPORTED;
+  return moqtrun_upd_apply(hub, p, s, t, params) ? MOQTRUN_REQ_ACCEPT
+                                                 : MOQCTL_ERR_INTERNAL_ERROR;
+}
+
+/* The REQUEST_ERROR code for the update, or MOQTRUN_REQ_ACCEPT once it is
+ * applied. */
+static u64 moqtrun_upd_verdict(
+    wired_moqt_hub*            hub,
+    wired_moqtrun_peer*        p,
+    wired_moqtrun_sub*         s,
+    const wired_moqtrun_track* t,
+    const moqctl_params*       params) {
+  if (!s) return MOQCTL_ERR_DOES_NOT_EXIST;
+  return moqtrun_upd_checked(hub, p, s, t, params);
+}
+
+/* The updated state is also what a returning publisher re-attaches
+ * (moqtrun_reattach_one_sub; only the subscriber changes it, 5.1). */
+static void moqtrun_upd_remember(
+    wired_moqtrun_peer* p, const wired_moqtrun_sub* s) {
+  wired_moqtrun_sub* kept = moqtrun_sub_state_by_rid(p, s->request_id);
+  if (kept && kept != s) *kept = *s;
+}
+
+static void moqtrun_sub_done(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_req*   q,
+    wired_moqtrun_track* t,
+    wired_moqtrun_sub*   s,
+    u64                  status);
+
+static void moqtrun_update_sub(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    usz                  idx,
+    const moqctl_params* params) {
+  wired_moqtrun_track* t    = 0;
+  wired_moqtrun_sub*   s    = moqtrun_upd_target(hub, p, idx, &t);
+  u64                  code = moqtrun_upd_verdict(hub, p, s, t, params);
+  if (code != MOQTRUN_REQ_ACCEPT) {
+    moqtrun_send_request_error(p, code);
+    if (s) moqtrun_sub_done(hub, p, p->req, t, s, MOQCTL_DONE_UPDATE_FAILED);
+    return;
+  }
+  moqtrun_upd_remember(p, s);
+  moqtrun_queue_request_ok(p, t);
+}
+
+static int moqtrun_kind_is_ns(u64 kind) {
+  return kind == MOQNS_T_PUBLISH_NAMESPACE ||
+         kind == MOQNS_T_SUBSCRIBE_NAMESPACE;
+}
+
+/* draft-ietf-moq-transport-19 10.9.1: a failed update of a namespace
+ * request closes its bidi stream -- the request ends (a PUBLISH_NAMESPACE
+ * is withdrawn, a SUBSCRIBE_NAMESPACE owes no NAMESPACE_DONE any more)
+ * and the hub FINs once its answer is out (3.3.2). */
+static void moqtrun_upd_close_ns(wired_moqtrun_req* q) {
+  if (!q || !moqtrun_kind_is_ns(q->kind)) return;
+  q->live    = 0;
+  q->ns_seen = 0;
+}
+
+static int moqtrun_upd_is_sub(const wired_moqtrun_peer* p) {
+  return p->req && p->req->kind == MOQCTL_T_SUBSCRIBE;
+}
+
+/* A REQUEST_UPDATE of a SUBSCRIBE, on its stream (its own Request ID is a
+ * fresh one, 10.1: the stream names the request). On the control stream,
+ * or for another request type, NOT_SUPPORTED. A malformed one (e.g. a
+ * parameter outside the update's scope) closes the session. */
+static void moqtrun_handle_update(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  moqtstat_update m;
+  if (!moqtrun_upd_is_sub(p)) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
+    moqtrun_upd_close_ns(p->req);
+    return;
+  }
+  if (moqtstat_update_take(body, MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &m) !=
+      MOQCTL_OK) {
+    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    return;
+  }
+  moqtrun_update_sub(hub, p, peer_idx, &m.params);
+}
+
 /* ===================== namespace discovery ===================== */
 
 /* draft-ietf-moq-transport-19 6.1-6.2, 10.15-10.18. A PUBLISH_NAMESPACE
@@ -1584,9 +1929,6 @@ static void moqtrun_fetches_drop(wired_moqt_hub* hub, wired_wt_session* s) {
  * (no PUBLISH_NAMESPACE) announces nothing (6.2), so neither appears. */
 
 _Static_assert(WIRED_MOQTRUN_MAX_REQS <= 64, "ns_seen holds one bit per req");
-
-/* Not a REQUEST_ERROR code: the namespace request is accepted. */
-#define MOQTRUN_DISC_OK (~(u64)0)
 
 static int moqtrun_disc_is(const wired_moqtrun_req* q, u64 kind) {
   return q->in_use && q->live && q->kind == kind;
@@ -1675,14 +2017,14 @@ static u64 moqtrun_disc_pub_check(
     const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
   int dup = moqtrun_disc_any(
       hub, q, MOQNS_T_PUBLISH_NAMESPACE, moqtrun_disc_same_session);
-  return dup ? MOQCTL_ERR_UNINTERESTED : MOQTRUN_DISC_OK;
+  return dup ? MOQCTL_ERR_UNINTERESTED : MOQTRUN_REQ_ACCEPT;
 }
 
 static u64 moqtrun_disc_sub_check(
     const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
   int clash = moqtrun_disc_any(
       hub, q, MOQNS_T_SUBSCRIBE_NAMESPACE, moqtrun_disc_overlap);
-  return clash ? MOQCTL_ERR_PREFIX_OVERLAP : MOQTRUN_DISC_OK;
+  return clash ? MOQCTL_ERR_PREFIX_OVERLAP : MOQTRUN_REQ_ACCEPT;
 }
 
 typedef u64 (*moqtrun_disc_check_fn)(
@@ -1724,11 +2066,11 @@ static u64 moqtrun_disc_verdict(
 /* REQUEST_OK makes the request live: the pushes follow it on the stream
  * (moqtrun_disc_sync). A refusal is answered and the stream FINed. */
 static void moqtrun_disc_answer(wired_moqtrun_peer* p, u64 err) {
-  if (err != MOQTRUN_DISC_OK) {
+  if (err != MOQTRUN_REQ_ACCEPT) {
     moqtrun_send_request_error(p, err);
     return;
   }
-  moqtrun_queue_request_ok(p);
+  moqtrun_queue_request_ok(p, 0);
   moqtrun_req_mark_live(p);
 }
 
@@ -1915,14 +2257,6 @@ static void moqtrun_handle_not_supported(wired_moqtrun_peer* p) {
   moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
 }
 
-/* draft 5.1: a GOAWAY arriving on a request stream (not the control
- * stream) is informational in this subset -- accepted without closing the
- * session. The 2nd-GOAWAY-on-one-stream violation is a sess-layer
- * concern the caller already routes through moqsess_step; nothing
- * further to do here since this hub sends no GOAWAY of its own on a
- * request stream. */
-static void moqtrun_handle_request_goaway(void) {}
-
 typedef void (*moqtrun_ctl_fn)(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
 
@@ -1949,13 +2283,27 @@ static void moqtrun_dispatch_not_supported(
   moqtrun_handle_not_supported(p);
 }
 
+/* draft-ietf-moq-transport-19 10.4: a GOAWAY on the control stream must
+ * be well formed, carry no New Session URI (the hub is the server), and
+ * be the session's first. */
+static int moqtrun_goaway_bad(moqsess* sess, wired_span body) {
+  usz           off = 0;
+  moqctl_goaway g;
+  if (moqctl_goaway_take(body, &off, &g) != MOQCTL_OK || g.new_session_uri.n)
+    return 1;
+  return moqsess_step(sess, MOQSESS_EV_RECV_GOAWAY) != MOQSESS_CLOSE_NONE;
+}
+
+/* A GOAWAY on a request stream asks to migrate that one request; the
+ * route already refuses a second one, and the hub opens no requests to
+ * move. One on the control stream is recorded, a bad one closes the
+ * session with PROTOCOL_VIOLATION. */
 static void moqtrun_dispatch_goaway(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
-  (void)hub;
-  (void)p;
   (void)peer_idx;
-  (void)body;
-  moqtrun_handle_request_goaway();
+  if (p->req) return;
+  if (moqtrun_goaway_bad(&p->sess, body))
+    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
 
 /* A message with no request to refuse: consumed by its Length, no reply. */
@@ -1968,11 +2316,11 @@ static void moqtrun_dispatch_skip(
 }
 
 /* First-type table (draft table in ctl.h's peek_type doc): only PUBLISH,
- * SUBSCRIBE, FETCH, PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE are
- * implemented; every other First type this hub can see
- * on a fresh request stream gets NOT_SUPPORTED. GOAWAY is not a First type but
- * may legally appear mid-stream, so it is routed the same table for
- * request-stream dispatch below. */
+ * SUBSCRIBE, FETCH, TRACK_STATUS, PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE
+ * (and REQUEST_UPDATE of a SUBSCRIBE) are implemented; every other First type
+ * this hub can see on a fresh request stream gets NOT_SUPPORTED. GOAWAY is not
+ * a First type but may legally appear mid-stream, so it is routed the same
+ * table for request-stream dispatch below. */
 static const struct {
   u64            type;
   moqtrun_ctl_fn fn;
@@ -1982,6 +2330,8 @@ static const struct {
     {MOQFETCH_T_FETCH, moqtrun_dispatch_fetch},
     {MOQNS_T_PUBLISH_NAMESPACE, moqtrun_dispatch_publish_ns},
     {MOQNS_T_SUBSCRIBE_NAMESPACE, moqtrun_dispatch_subscribe_ns},
+    {MOQTSTAT_T_TRACK_STATUS, moqtrun_handle_tstat},
+    {MOQTSTAT_T_REQUEST_UPDATE, moqtrun_handle_update},
     {MOQCTL_T_GOAWAY, moqtrun_dispatch_goaway},
     /* draft SS10 known non-request messages this hub does not implement:
      * nothing carries a Request ID to answer, so they are skipped. */
@@ -2000,6 +2350,16 @@ static moqtrun_ctl_fn moqtrun_ctl_lookup(u64 type) {
   return moqtrun_dispatch_not_supported;
 }
 
+/* Closes p's session with code, after which nothing more is sent on it;
+ * 0 when the io table has no close_session. */
+static int moqtrun_peer_close(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
+  if (!hub->io.close_session) return 0;
+  hub->io.close_session(p->wt, code, wired_span_of(0, 0));
+  p->closing = 1;
+  return 1;
+}
+
 /* Closes p's session with code. Every later byte of the stream being
  * handled is discarded (its skip never runs out). An io table without
  * close_session skips the message by its Length instead and keeps the
@@ -2007,8 +2367,7 @@ static moqtrun_ctl_fn moqtrun_ctl_lookup(u64 type) {
 static void moqtrun_close_with(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
   wired_moqtrun_ctl_asm* a = moqtrun_cur_asm(p);
-  if (!hub->io.close_session) return;
-  hub->io.close_session(p->wt, code, wired_span_of(0, 0));
+  if (!moqtrun_peer_close(hub, p, code)) return;
   a->at   = a->n;
   a->skip = (usz)-1;
 }
@@ -2114,11 +2473,34 @@ static int moqtrun_peek_known(int peek) {
   return peek == MOQCTL_OK || peek == MOQCTL_KNOWN_UNIMPLEMENTED;
 }
 
+/* draft-ietf-moq-transport-19 10.4: after the hub sent GOAWAY on this
+ * session, a new request is refused GOING_AWAY. */
+static void moqtrun_dispatch_going_away(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  (void)hub;
+  (void)peer_idx;
+  (void)body;
+  moqtrun_send_request_error(p, MOQCTL_ERR_GOING_AWAY);
+}
+
+static int moqtrun_is_late(const wired_moqtrun_peer* p, u64 type) {
+  return p->sess.goaway_sent && moqtrun_req_is_first(type);
+}
+
+/* fn, unless the message is a request arriving late (a closing route
+ * still wins). */
+static moqtrun_ctl_fn moqtrun_late_route(
+    const wired_moqtrun_peer* p, u64 type, moqtrun_ctl_fn fn) {
+  if (fn != moqtrun_dispatch_close && moqtrun_is_late(p, type))
+    return moqtrun_dispatch_going_away;
+  return fn;
+}
+
 static moqtrun_ctl_fn moqtrun_msg_route(
     wired_moqtrun_peer* p, int peek, u64 type, wired_span body) {
   if (p->req && moqtrun_peek_known(peek))
-    return moqtrun_req_route(p->req, type, body);
-  return moqtrun_ctl_route(peek, type);
+    return moqtrun_late_route(p, type, moqtrun_req_route(p->req, type, body));
+  return moqtrun_late_route(p, type, moqtrun_ctl_route(peek, type));
 }
 
 /* ===================== control-stream reassembly ===================== */
@@ -2323,6 +2705,19 @@ static u64 moqtrun_live_gap(const wired_moqtrun_live* live, usz i, u64 g) {
              : 0;
 }
 
+/* 1 iff Group g may open for sub slot i: its peer is connected, g passes
+ * the Location Filter (5.1.4), and g's Object -- produced when g began --
+ * is not past the OBJECT_DELIVERY_TIMEOUT (draft 8: no stream is opened
+ * for it). */
+static int moqtrun_live_due(
+    const wired_moqt_hub* hub, const wired_moqtrun_peer* dst, usz i, u64 g) {
+  const wired_moqtrun_live* live = &hub->live;
+  const wired_moqtrun_sub*  s    = &live->track.subs[i];
+  u64                       born = live->t0_ms + g * live->group_ms;
+  return dst->in_use && moqtrun_sub_wants_group(s, g) &&
+         !moqtrun_sub_late(s, live->last_now_ms - born);
+}
+
 /* Sends Group g to sub slot i; on acceptance counts any skipped Groups
  * and records g. A refused send records nothing (retried next tick while
  * the clock is still in g). */
@@ -2332,7 +2727,7 @@ static void moqtrun_live_send_one(wired_moqt_hub* hub, usz i, u64 g) {
   wired_span          frag = live->frags[g % live->n_frags];
   u8                  head[MOQDATA_MSG_OVERHEAD];
   usz                 hn = moqtrun_live_head(live, g, frag.n, head);
-  if (!dst->in_use) return;
+  if (!moqtrun_live_due(hub, dst, i, g)) return;
   if (hub->io.send_uni2(dst->wt, wired_span_of(head, hn), frag) < 0) return;
   hub->stat_live_drop += moqtrun_live_gap(live, i, g);
   live->sent_group[i] = g;
@@ -2353,9 +2748,12 @@ static void moqtrun_rel_tick_all(wired_moqt_hub* hub, u64 now_ms);
 
 static void moqtrun_reqs_tick(wired_moqt_hub* hub);
 
+static void moqtrun_drain_tick(wired_moqt_hub* hub, u64 now_ms);
+
 void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
   hub->live.last_now_ms = now_ms;
   moqtrun_rel_tick_all(hub, now_ms);
+  moqtrun_drain_tick(hub, now_ms);
   moqtrun_reqs_tick(hub);
   moqtrun_fetches_tick(hub);
   if (!hub->live.track.in_use) return;
@@ -2408,6 +2806,39 @@ static void moqtrun_subscribe_live(
 
 /* ===================== data-stream (Object) relay ===================== */
 
+/* draft-ietf-moq-transport-19 10.2.7: SUBSCRIBER_PRIORITY defaults to
+ * 128. */
+static u8 moqtrun_sub_prio(const wired_moqtrun_sub* s) {
+  return s->has_priority ? s->priority : 128;
+}
+
+/* The Publisher Priority of the SUBGROUP_HEADER head starts with: 128
+ * (6306: the default) when the DEFAULT_PRIORITY bit omits it, or head does
+ * not decode.
+ * ponytail: the DEFAULT_PUBLISHER_PRIORITY Track Property (12.4) is not
+ * parsed, so an omitted priority is always 128; read it from PUBLISH when
+ * a publisher sets one. */
+static u8 moqtrun_pub_prio(wired_span head) {
+  usz            off = 0;
+  moqdata_subhdr h;
+  if (moqdata_subhdr_take(head, &off, &h) != MOQDATA_OK) return 128;
+  return moqdata_type_default_priority(h.type) ? 128 : (u8)h.priority;
+}
+
+/* Sets the urgency (WIRED_MOQTRUN_URGENCY) of subscriber stream sid just
+ * opened for sub, head being its opening bytes. */
+static void moqtrun_prio_set(
+    wired_moqt_hub*          hub,
+    wired_wt_session*        wt,
+    i64                      sid,
+    const wired_moqtrun_sub* sub,
+    wired_span               head) {
+  if (!hub->io.stream_priority || sid < 0) return;
+  hub->io.stream_priority(
+      wt, (u64)sid,
+      WIRED_MOQTRUN_URGENCY(moqtrun_sub_prio(sub), moqtrun_pub_prio(head)));
+}
+
 /* One-shot relay of wire to one subscriber: a fresh uni stream, sent and
  * FIN'd in a single io.send_uni call -- the whole-message-in-one-call path
  * (a publisher stream whose data AND fin arrived together). */
@@ -2419,13 +2850,21 @@ static void moqtrun_relay_to_one(
    * 1 stream = 1 message); count it like the keep-open path's open
    * failures -- stat_open_drop's own doc always promised this loss is
    * never silent, but this call site used to discard the return. */
-  if (hub->io.send_uni(dst->wt, wire) < 0) hub->stat_open_drop++;
+  i64 sid = hub->io.send_uni(dst->wt, wire);
+  hub->stat_open_drop += sid < 0;
+  moqtrun_prio_set(hub, dst->wt, sid, sub, wire);
 }
+
+static void moqtrun_subgroup_scan(
+    wired_span wire, wired_moqtrun_track* t, moqdata_objseq* seq, u64* group);
 
 static void moqtrun_relay_object(
     wired_moqt_hub* hub, wired_moqtrun_track* track, wired_span wire) {
+  moqdata_objseq seq;
+  u64            group = 0;
+  moqtrun_subgroup_scan(wire, 0, &seq, &group);
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (moqtrun_sub_forwards(&track->subs[i]))
+    if (moqtrun_sub_gets(&track->subs[i], group))
       moqtrun_relay_to_one(hub, &track->subs[i], wire);
 }
 
@@ -2562,6 +3001,13 @@ static int moqtrun_late_open_skip(const wired_moqtrun_relay* relay, int fin) {
   return fin || relay->hdr_len == 0;
 }
 
+static void moqtrun_relay_open_one(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_sub*   sub,
+    wired_moqtrun_relay* relay,
+    usz                  i,
+    wired_span           wire);
+
 /* A subscriber that joined AFTER this relay started (its slot never
  * opened): open its stream now, carrying the saved SUBGROUP_HEADER bytes
  * alone -- the current round's Objects are dropped for this late joiner
@@ -2570,39 +3016,85 @@ static int moqtrun_late_open_skip(const wired_moqtrun_relay* relay, int fin) {
  * incremental decoder). */
 static void moqtrun_relay_late_open(
     wired_moqt_hub*      hub,
-    wired_moqtrun_peer*  dst,
+    wired_moqtrun_sub*   sub,
     wired_moqtrun_relay* relay,
     usz                  i,
     int                  fin) {
   if (moqtrun_late_open_skip(relay, fin)) return;
-  i64 sid = hub->io.open_uni_stream(
-      dst->wt, wired_span_of(relay->hdr, relay->hdr_len));
-  if (sid < 0) {
-    hub->stat_open_drop++;
-    return;
-  }
-  relay->sub_stream_id[i]   = (u64)sid;
-  relay->sub_stream_set[i]  = 1;
-  relay->sub_busy_streak[i] = 0;
+  moqtrun_relay_open_one(
+      hub, sub, relay, i, wired_span_of(relay->hdr, relay->hdr_len));
 }
 
-/* One subscriber's share of a relayed round: forward to its open stream,
- * or -- for a subscriber whose stream was never opened (it subscribed
- * after the relay started) -- open one now (moqtrun_relay_late_open). */
+/* Forward to sub slot i's open stream, or -- for a subscriber whose
+ * stream was never opened (it subscribed after the relay started) -- open
+ * one now (moqtrun_relay_late_open). */
+static void moqtrun_relay_deliver_one(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_sub*   sub,
+    wired_moqtrun_peer*  dst,
+    wired_moqtrun_relay* relay,
+    usz                  i,
+    wired_span           wire,
+    int                  fin) {
+  if (relay->sub_stream_set[i]) {
+    moqtrun_relay_forward_one(hub, dst->wt, relay, i, wire, fin);
+    return;
+  }
+  moqtrun_relay_late_open(hub, sub, relay, i, fin);
+}
+
+_Static_assert(WIRED_MOQTRUN_MAX_SUBS <= 32, "sub_expired: one bit per sub");
+
+static u32 moqtrun_sub_bit(usz i) { return (u32)1 << i; }
+
+/* Sub slot i's stream on relay was reset for DELIVERY_TIMEOUT: counted,
+ * and never reopened for this Subgroup. */
+static void moqtrun_note_expired(
+    wired_moqt_hub* hub, wired_moqtrun_relay* relay, usz i) {
+  relay->sub_expired |= moqtrun_sub_bit(i);
+  hub->stat_timeout_reset++;
+}
+
+/* Sub slot i is not served on relay: its peer left, or its stream timed
+ * out for this Subgroup. */
+static int moqtrun_relay_skips(
+    const wired_moqtrun_peer* dst, const wired_moqtrun_relay* relay, usz i) {
+  return !dst->in_use || (relay->sub_expired & moqtrun_sub_bit(i));
+}
+
+/* draft 8: the round's oldest Object reached the hub at born_ms; past
+ * sub's OBJECT_DELIVERY_TIMEOUT its stream is reset with DELIVERY_TIMEOUT
+ * and not reopened for this Subgroup. 1 when it expired. */
+static int moqtrun_relay_expire(
+    wired_moqt_hub*          hub,
+    const wired_moqtrun_sub* sub,
+    wired_moqtrun_peer*      dst,
+    wired_moqtrun_relay*     relay,
+    usz                      i,
+    u64                      born_ms) {
+  if (!moqtrun_sub_late(sub, hub->live.last_now_ms - born_ms)) return 0;
+  if (relay->sub_stream_set[i])
+    hub->io.stream_reset(
+        dst->wt, relay->sub_stream_id[i], MOQTRUN_RESET_DELIVERY_TIMEOUT);
+  relay->sub_stream_set[i] = 0;
+  moqtrun_note_expired(hub, relay, i);
+  return 1;
+}
+
+/* One subscriber's share of a relayed round whose oldest Object arrived
+ * at born_ms. */
 static void moqtrun_relay_append_one(
     wired_moqt_hub*      hub,
     wired_moqtrun_sub*   sub,
     wired_moqtrun_relay* relay,
     usz                  i,
     wired_span           wire,
-    int                  fin) {
+    int                  fin,
+    u64                  born_ms) {
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
-  if (!dst->in_use) return;
-  if (relay->sub_stream_set[i]) {
-    moqtrun_relay_forward_one(hub, dst->wt, relay, i, wire, fin);
-    return;
-  }
-  moqtrun_relay_late_open(hub, dst, relay, i, fin);
+  if (moqtrun_relay_skips(dst, relay, i)) return;
+  if (moqtrun_relay_expire(hub, sub, dst, relay, i, born_ms)) return;
+  moqtrun_relay_deliver_one(hub, sub, dst, relay, i, wire, fin);
 }
 
 static void moqtrun_relay_append_all(
@@ -2610,10 +3102,12 @@ static void moqtrun_relay_append_all(
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     wired_span           wire,
-    int                  fin) {
+    int                  fin,
+    u64                  born_ms) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (moqtrun_sub_forwards(&track->subs[i]))
-      moqtrun_relay_append_one(hub, &track->subs[i], relay, i, wire, fin);
+    if (moqtrun_sub_gets(&track->subs[i], relay->group_id))
+      moqtrun_relay_append_one(
+          hub, &track->subs[i], relay, i, wire, fin, born_ms);
 }
 
 static int moqtrun_frag_slot_free(const wired_moqt_hub* hub, usz i) {
@@ -2681,7 +3175,11 @@ static void moqtrun_frag_drop(
  * and the relay is poisoned: everything after the tail starts mid-Object,
  * so the stream relays nothing more (moqtrun_relay_continue). */
 static void moqtrun_relay_save_frag(
-    wired_moqt_hub* hub, wired_moqtrun_relay* relay, const u8* p, usz n) {
+    wired_moqt_hub*      hub,
+    wired_moqtrun_relay* relay,
+    const u8*            p,
+    usz                  n,
+    u64                  born_ms) {
   i32 slot = n ? moqtrun_frag_slot_for(hub, relay, n) : -1;
   moqtrun_frag_release(relay);
   if (slot < 0) {
@@ -2691,6 +3189,20 @@ static void moqtrun_relay_save_frag(
   bytes_memcpy(hub->frag_pool[slot], p, n);
   relay->frag_idx = slot;
   relay->frag_len = n;
+  relay->frag_ms  = born_ms;
+}
+
+/* Arrival of the first byte a delivery's whole Objects start with: the
+ * held fragment's, else now. */
+static u64 moqtrun_relay_born(const wired_moqtrun_relay* r, u64 now) {
+  return r->frag_len ? r->frag_ms : now;
+}
+
+/* Arrival of the tail held after a delivery whose whole Objects end at
+ * off: a held fragment is under one Object, so past a whole one the tail
+ * starts in this delivery (now); with none it still starts at born. */
+static u64 moqtrun_tail_born(usz off, u64 now, u64 born) {
+  return off ? now : born;
 }
 
 /* Object-boundary normalization (wired_moqtrun_relay's frag doc): prepends
@@ -2706,9 +3218,12 @@ static wired_span moqtrun_relay_normalize(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
-    wired_span           data) {
+    wired_span           data,
+    u64*                 born_ms) {
+  u64 now   = hub->live.last_now_ms;
   usz total = relay->frag_len + data.n;
   usz off   = 0;
+  *born_ms  = moqtrun_relay_born(relay, now);
   if (relay->frag_len)
     bytes_memcpy(
         hub->relay_scratch, hub->frag_pool[relay->frag_idx], relay->frag_len);
@@ -2716,7 +3231,9 @@ static wired_span moqtrun_relay_normalize(
   moqtrun_decode_object_loop(
       hub, wired_span_of(hub->relay_scratch, total), &off, &relay->seq,
       relay->group_id, track);
-  moqtrun_relay_save_frag(hub, relay, hub->relay_scratch + off, total - off);
+  moqtrun_relay_save_frag(
+      hub, relay, hub->relay_scratch + off, total - off,
+      moqtrun_tail_born(off, now, *born_ms));
   return wired_span_of(hub->relay_scratch, off);
 }
 
@@ -2758,6 +3275,10 @@ static void moqtrun_rel_take(
     hub->stat_rel_overflow++;
     return;
   }
+  /* ponytail: arrival = when the whole Object was appended, not its
+   * first byte (a torn Object waits in the relay's fragment first); pass
+   * the fragment's frag_ms here if a reliable timeout must be exact. */
+  moqtrel_mark(rb, hub->live.last_now_ms);
   hub->stat_rel_in_bytes += whole.n;
 }
 
@@ -2838,13 +3359,6 @@ static void moqtrun_rel_attach_subs(
         rb, track, relay, i, rb->tail, hub->live.last_now_ms);
 }
 
-static void moqtrun_relay_open_one(
-    wired_moqt_hub*      hub,
-    wired_moqtrun_sub*   sub,
-    wired_moqtrun_relay* relay,
-    usz                  i,
-    wired_span           wire);
-
 /* 1 while nothing past the SUBGROUP_HEADER was reclaimed (and a header
  * was saved): a late subscriber's stream can be the saved header followed
  * by the ring from offset hdr_len -- the whole stream, not a torn tail. */
@@ -2880,7 +3394,8 @@ static int moqtrun_rel_late_wanted(
 static int moqtrun_rel_replay_ok(
     const wired_moqtrun_sub* sub, const wired_moqtrun_relay* relay) {
   moqctl_loc first = {relay->group_id, 0};
-  return !moqctl_loc_less(first, sub->start);
+  return !moqctl_loc_less(first, sub->start) &&
+         moqtrun_sub_wants_group(sub, relay->group_id);
 }
 
 static void moqtrun_rel_late_attach(
@@ -2944,11 +3459,47 @@ static void moqtrun_rel_shed(
     wired_wt_session*    wt,
     wired_moqtrun_relay* relay,
     moqtrel_buf*         rb,
-    usz                  i) {
-  hub->io.stream_reset(wt, relay->sub_stream_id[i], 0);
+    usz                  i,
+    u32                  code) {
+  hub->io.stream_reset(wt, relay->sub_stream_id[i], code);
   relay->sub_stream_set[i] = 0;
   rb->subs[i].shed         = 1;
-  hub->stat_rel_stall++;
+  hub->stat_rel_stall += code == 0;
+  if (code == MOQTRUN_RESET_DELIVERY_TIMEOUT)
+    moqtrun_note_expired(hub, relay, i);
+}
+
+/* Not a stream reset code: cursor i goes on. */
+#define MOQTRUN_REL_KEEP (-1)
+
+/* 0 for a stall, DELIVERY_TIMEOUT once cursor i's next unsent Object
+ * reached the hub longer ago than the subscription's
+ * OBJECT_DELIVERY_TIMEOUT (draft 8); else MOQTRUN_REL_KEEP. */
+static int moqtrun_rel_expiry(
+    const wired_moqtrun_track* track,
+    const moqtrel_buf*         rb,
+    usz                        i,
+    u64                        now_ms) {
+  if (moqtrel_stalled(rb, (u32)i, now_ms)) return 0;
+  if (moqtrun_sub_late(&track->subs[i], moqtrel_age_ms(rb, (u32)i, now_ms)))
+    return MOQTRUN_RESET_DELIVERY_TIMEOUT;
+  return MOQTRUN_REL_KEEP;
+}
+
+/* The reset code to give cursor i up with, else MOQTRUN_REL_KEEP. A
+ * subscription that no longer takes this stream (REQUEST_UPDATE turned
+ * FORWARD off or moved its Location Filter past the Group) gets nothing
+ * appended after the update (10.9.1): CANCELLED, and its cursor stops
+ * pinning the ring. */
+static int moqtrun_rel_give_up(
+    const wired_moqtrun_track* track,
+    const wired_moqtrun_relay* relay,
+    const moqtrel_buf*         rb,
+    usz                        i,
+    u64                        now_ms) {
+  if (!moqtrun_sub_gets(&track->subs[i], relay->group_id))
+    return MOQTRUN_RESET_CANCELLED;
+  return moqtrun_rel_expiry(track, rb, i, now_ms);
 }
 
 /* The publisher's FIN reached cursor i with no bytes pending: close its
@@ -3060,8 +3611,9 @@ static void moqtrun_rel_drain_sub(
     u64                  now_ms) {
   wired_moqtrun_peer* dst = moqtrun_rel_sub_dst(hub, track, rb, i);
   if (!dst) return;
-  if (moqtrel_stalled(rb, (u32)i, now_ms)) {
-    moqtrun_rel_shed(hub, dst->wt, relay, rb, i);
+  int code = moqtrun_rel_give_up(track, relay, rb, i, now_ms);
+  if (code != MOQTRUN_REL_KEEP) {
+    moqtrun_rel_shed(hub, dst->wt, relay, rb, i, (u32)code);
     return;
   }
   moqtrun_rel_send_round(hub, dst->wt, relay, rb, i, now_ms);
@@ -3197,9 +3749,10 @@ static void moqtrun_relay_continue_lossy(
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     wired_span           whole,
-    int                  fin) {
+    int                  fin,
+    u64                  born_ms) {
   if (moqtrun_relay_round_due(whole, fin))
-    moqtrun_relay_append_all(hub, track, relay, whole, fin);
+    moqtrun_relay_append_all(hub, track, relay, whole, fin, born_ms);
   if (fin) relay->in_use = 0;
 }
 
@@ -3216,12 +3769,13 @@ static void moqtrun_relay_forward(
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     wired_span           whole,
-    int                  fin) {
+    int                  fin,
+    u64                  born_ms) {
   if (relay->rel_idx >= 0) {
     moqtrun_rel_continue(hub, track, relay, whole, fin);
     return;
   }
-  moqtrun_relay_continue_lossy(hub, track, relay, whole, fin);
+  moqtrun_relay_continue_lossy(hub, track, relay, whole, fin, born_ms);
 }
 
 /* A poisoned relay only absorbs its publisher's bytes, so they never get
@@ -3255,10 +3809,11 @@ static void moqtrun_relay_continue(
     moqtrun_relay_sink(relay, fin);
     return;
   }
-  wired_span whole = moqtrun_relay_normalize(hub, track, relay, wire);
+  u64        born_ms;
+  wired_span whole = moqtrun_relay_normalize(hub, track, relay, wire, &born_ms);
   /* Objects completed before the dropped tail are sound: deliver them,
    * then end the subscriber streams (moqtrun_relay_end_poisoned). */
-  moqtrun_relay_forward(hub, track, relay, whole, fin);
+  moqtrun_relay_forward(hub, track, relay, whole, fin, born_ms);
   moqtrun_relay_end_poisoned(hub, track, relay, fin);
 }
 
@@ -3281,6 +3836,7 @@ static void moqtrun_relay_open_one(
     hub->stat_open_drop++;
     return;
   }
+  moqtrun_prio_set(hub, dst->wt, sid, sub, wire);
   relay->sub_stream_id[i]   = (u64)sid;
   relay->sub_stream_set[i]  = 1;
   relay->sub_busy_streak[i] = 0;
@@ -3292,7 +3848,7 @@ static void moqtrun_relay_open_all(
     wired_moqtrun_relay* relay,
     wired_span           wire) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (moqtrun_sub_forwards(&track->subs[i]))
+    if (moqtrun_sub_gets(&track->subs[i], relay->group_id))
       moqtrun_relay_open_one(hub, &track->subs[i], relay, i, wire);
 }
 
@@ -3344,7 +3900,10 @@ static void moqtrun_relay_start(
   moqtrun_rel_start(
       hub, track, relay, pub_wt, pub_stream_id,
       wired_span_of(wire.p, whole_end));
-  moqtrun_relay_save_frag(hub, relay, wire.p + whole_end, wire.n - whole_end);
+  relay->sub_expired = 0;
+  moqtrun_relay_save_frag(
+      hub, relay, wire.p + whole_end, wire.n - whole_end,
+      hub->live.last_now_ms);
   moqtrun_relay_save_hdr(relay, wire);
   moqtrun_subgroup_scan(
       wired_span_of(wire.p, whole_end), 0, &relay->seq, &relay->group_id);
@@ -3606,9 +4165,6 @@ static usz moqtrun_req_count(const wired_moqt_hub* hub, wired_wt_session* s) {
   return n;
 }
 
-/* draft-ietf-moq-transport-19 3.3.4 EXCESSIVE_LOAD stream reset code. */
-#define MOQTRUN_RESET_EXCESSIVE_LOAD 0x9
-
 /* A fresh slot for a new request stream of s, or -- s at its share of the
  * pool, or the pool full -- the stream is reset with EXCESSIVE_LOAD and 0
  * returned. */
@@ -3661,7 +4217,8 @@ static int moqtrun_req_may_end(const wired_moqtrun_req* q) {
  * with INTERNAL_ERROR (draft 3.3.4). 1 when accepted. */
 static int moqtrun_req_end_out(wired_moqt_io* io, wired_moqtrun_req* q) {
   if (q->opened) return io->stream_fin(q->wt, q->stream_id) > 0;
-  return io->stream_reset(q->wt, q->stream_id, 0x0) > 0;
+  return io->stream_reset(q->wt, q->stream_id, MOQTRUN_RESET_INTERNAL_ERROR) >
+         0;
 }
 
 static int moqtrun_req_both_ended(const wired_moqtrun_req* q) {
@@ -3766,12 +4323,13 @@ static int moqtrun_dg_ready(const wired_moqt_hub* hub, const void* p) {
  * moqtrun_track_by_alias. 0 when the datagram is malformed or the alias
  * matches none of p's tracks -- the caller drops it whole. */
 static wired_moqtrun_track* moqtrun_dg_track(
-    wired_moqtrun_peer* p, wired_span data) {
+    wired_moqtrun_peer* p, wired_span data, moqctl_loc* loc) {
   usz       off = 0;
   moqdg_obj obj;
   if (moqdg_take(data, &off, &obj) != MOQDATA_OK) return 0;
   wired_moqtrun_track* t = moqtrun_track_by_alias(p, obj.track_alias);
   moqtrun_track_note(t, obj.group_id, obj.object_id);
+  *loc = moqctl_loc_of(obj.group_id, obj.object_id);
   return t;
 }
 
@@ -3789,13 +4347,18 @@ static void moqtrun_dg_to_one(
     hub->stat_dg_drop++;
 }
 
-/* Stateless fan-out to every active subscriber of the track -- the
- * datagram twin of moqtrun_relay_object. A deactivated (closed)
- * subscription is skipped; late subscribers get nothing retroactively. */
+/* Stateless fan-out to every active subscriber of the track whose
+ * Location Filter takes the Object at loc -- the datagram twin of
+ * moqtrun_relay_object. A deactivated (closed) subscription is skipped;
+ * late subscribers get nothing retroactively. Sent the moment it arrives,
+ * a datagram is never past an OBJECT_DELIVERY_TIMEOUT (draft 8). */
 static void moqtrun_dg_fanout(
-    wired_moqt_hub* hub, const wired_moqtrun_track* track, wired_span data) {
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_track* track,
+    wired_span                 data,
+    moqctl_loc                 loc) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (moqtrun_sub_forwards(&track->subs[i]))
+    if (moqtrun_sub_gets_loc(&track->subs[i], loc))
       moqtrun_dg_to_one(hub, &track->subs[i], data);
 }
 
@@ -3804,7 +4367,8 @@ void wired_moqt_on_datagram(
   wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
   wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
   if (!moqtrun_dg_ready(hub, p)) return;
-  wired_moqtrun_track* track = moqtrun_dg_track(p, data);
+  moqctl_loc           loc   = {0, 0};
+  wired_moqtrun_track* track = moqtrun_dg_track(p, data, &loc);
   /* Malformed or unknown-alias: dropped whole. Draft 11.3.1 says an
    * invalid Type MUST close the session (PROTOCOL_VIOLATION), but this
    * hub's io table has no close operation -- counting is the closest. */
@@ -3812,7 +4376,7 @@ void wired_moqt_on_datagram(
     hub->stat_dg_bad++;
     return;
   }
-  moqtrun_dg_fanout(hub, track, data);
+  moqtrun_dg_fanout(hub, track, data, loc);
 }
 
 /* A ring-backed relay also deactivates the dead subscriber's ring
@@ -3855,30 +4419,42 @@ static void moqtrun_track_drop_sub(
   }
 }
 
-static void moqtrun_peer_drop_subs(
-    wired_moqt_hub* hub, wired_moqtrun_peer* q, usz idx, u64 rid) {
+/* Applied to one track with a peer index and an argument. */
+typedef void (*moqtrun_track_fn)(
+    wired_moqt_hub*, wired_moqtrun_track*, usz idx, u64 arg);
+
+static void moqtrun_peer_each_track(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* q,
+    moqtrun_track_fn    fn,
+    usz                 idx,
+    u64                 arg) {
   for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
-    if (q->tracks[t].in_use)
-      moqtrun_track_drop_sub(hub, &q->tracks[t], idx, rid);
+    if (q->tracks[t].in_use) fn(hub, &q->tracks[t], idx, arg);
 }
 
-/* The hub's own tracks (blob and live) forget peer index idx too: a
- * reconnect landing in the same slot must be served afresh, not mistaken
- * for the dead peer. */
-static void moqtrun_hub_tracks_drop_sub(wired_moqt_hub* hub, usz idx, u64 rid) {
-  if (hub->blob_track.in_use)
-    moqtrun_track_drop_sub(hub, &hub->blob_track, idx, rid);
-  if (hub->live.track.in_use)
-    moqtrun_track_drop_sub(hub, &hub->live.track, idx, rid);
+/* The hub's own tracks (blob and live) count too: e.g. they forget a
+ * closed peer index, so a reconnect landing in the same slot is served
+ * afresh, not mistaken for the dead peer. */
+static void moqtrun_hub_each_track(
+    wired_moqt_hub* hub, moqtrun_track_fn fn, usz idx, u64 arg) {
+  if (hub->blob_track.in_use) fn(hub, &hub->blob_track, idx, arg);
+  if (hub->live.track.in_use) fn(hub, &hub->live.track, idx, arg);
 }
 
-/* Deactivate every subscription any peer's tracks (and the hub's own
- * tracks) hold for peer index idx under Request ID rid. */
-static void moqtrun_drop_peer_subs(wired_moqt_hub* hub, usz idx, u64 rid) {
+/* fn on every in-use track: every peer's and the hub's own. */
+static void moqtrun_each_track(
+    wired_moqt_hub* hub, moqtrun_track_fn fn, usz idx, u64 arg) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
     if (hub->peers[i].in_use)
-      moqtrun_peer_drop_subs(hub, &hub->peers[i], idx, rid);
-  moqtrun_hub_tracks_drop_sub(hub, idx, rid);
+      moqtrun_peer_each_track(hub, &hub->peers[i], fn, idx, arg);
+  moqtrun_hub_each_track(hub, fn, idx, arg);
+}
+
+/* Deactivate every subscription held for peer index idx under Request ID
+ * rid. */
+static void moqtrun_drop_peer_subs(wired_moqt_hub* hub, usz idx, u64 rid) {
+  moqtrun_each_track(hub, moqtrun_track_drop_sub, idx, rid);
 }
 
 /* A closed session's request streams go back to the pool. */
@@ -3895,10 +4471,14 @@ static void moqtrun_peer_frags_release(wired_moqtrun_peer* p) {
       moqtrun_frag_release_unless_poisoned(&p->tracks[t].relays[r]);
 }
 
+static void moqtrun_peer_tracks_ended(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p);
+
 void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s) {
   wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
   wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
   if (!p) return;
+  moqtrun_peer_tracks_ended(hub, p);
   moqtrun_drop_peer_subs(hub, (usz)(p - hub->peers), MOQTRUN_RID_ANY);
   moqtrun_reqs_drop(hub, s);
   moqtrun_fetches_drop(hub, s);
@@ -3977,4 +4557,275 @@ void wired_moqt_on_stream_reset(
   else
     moqtrun_stream_frag_release(p, stream_id);
   moqtrun_reqs_tick(hub);
+}
+
+/* ===================== PUBLISH_DONE (draft 10.11) ===================== */
+
+static int moqtrun_encode_publish_done(
+    wired_mspan buf, usz* off, const void* m) {
+  return moqctl_publish_done_encode(buf, off, m);
+}
+
+static int moqtrun_req_holds(const wired_moqtrun_req* q, u64 rid) {
+  return q->kind == MOQCTL_T_SUBSCRIBE && q->live && q->request_id == rid;
+}
+
+static int moqtrun_req_sub_of(
+    const wired_moqtrun_req* q, const wired_moqtrun_peer* p, u64 rid) {
+  return !p->closing && moqtrun_req_owned(q, p->wt) &&
+         moqtrun_req_holds(q, rid);
+}
+
+/* The request stream of p carrying its live subscription rid, else 0 --
+ * also for a session the hub is closing (nothing more goes to it). */
+static wired_moqtrun_req* moqtrun_sub_req(
+    wired_moqt_hub* hub, const wired_moqtrun_peer* p, u64 rid) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+    if (moqtrun_req_sub_of(&hub->reqs[i], p, rid)) return &hub->reqs[i];
+  return 0;
+}
+
+/* draft-ietf-moq-transport-19 3.3.4 reset code for the streams of a
+ * subscription ended with PUBLISH_DONE status: GOING_AWAY for a drain,
+ * CANCELLED otherwise (track ended, update failed). */
+static u32 moqtrun_done_reset_code(u64 status) {
+  return status == MOQCTL_DONE_GOING_AWAY ? MOQTRUN_RESET_GOING_AWAY
+                                          : MOQTRUN_RESET_CANCELLED;
+}
+
+/* Every relay stream of slot si of t is reset with code. */
+static void moqtrun_sub_reset_streams(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, usz si, u32 code) {
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
+    if (t->relays[r].in_use)
+      moqtrun_relay_reset_one_sub(hub, t, &t->relays[r], si, code);
+}
+
+/* Subscription s (slot of track t; t 0 when s is state kept for a gone
+ * publisher) gets nothing more: draft 10.11, every stream opened for it
+ * is closed (reset with code) before its PUBLISH_DONE. */
+static void moqtrun_sub_stop(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* t,
+    wired_moqtrun_sub*   s,
+    u32                  code) {
+  if (t) {
+    moqtrun_sub_reset_streams(hub, t, (usz)(s - t->subs), code);
+    moqtrun_relays_clear_sub(hub, t, (usz)(s - t->subs));
+  }
+  s->active = 0;
+}
+
+/* Ends subscription s of peer p, carried by request stream q: PUBLISH_DONE
+ * status is q's last message, then the hub FINs it (3.3.2) once sent, and
+ * a rejoining publisher does not revive it. */
+static void moqtrun_sub_done(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_req*   q,
+    wired_moqtrun_track* t,
+    wired_moqtrun_sub*   s,
+    u64                  status) {
+  u8                  msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
+  moqctl_publish_done d = {0};
+  d.status_code         = status;
+  d.stream_count        = MOQTRUN_DONE_STREAMS_UNKNOWN;
+  usz n                 = moqtrun_envelope_put(
+      wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH_DONE,
+      moqtrun_encode_publish_done, &d);
+  moqtrun_sub_stop(hub, t, s, moqtrun_done_reset_code(status));
+  moqtrun_req_queue(q, wired_span_of(msg, n));
+  q->live = 0;
+  moqtrun_sub_names_forget(p, s->request_id);
+}
+
+/* PUBLISH_DONE status to sub slot si of t, when it is held on a request
+ * stream. */
+static void moqtrun_sub_done_slot(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, usz si, u64 status) {
+  wired_moqtrun_sub*  s = &t->subs[si];
+  wired_moqtrun_peer* p = &hub->peers[s->session_idx];
+  wired_moqtrun_req* q = s->active ? moqtrun_sub_req(hub, p, s->request_id) : 0;
+  if (q) moqtrun_sub_done(hub, p, q, t, s, status);
+}
+
+static void moqtrun_track_ended(wired_moqt_hub* hub, wired_moqtrun_track* t) {
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
+    moqtrun_sub_done_slot(hub, t, si, MOQCTL_DONE_TRACK_ENDED);
+}
+
+/* A publisher's session is ending: every subscription to its tracks ends
+ * with TRACK_ENDED (10.11). */
+static void moqtrun_peer_tracks_ended(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    if (p->tracks[t].in_use) moqtrun_track_ended(hub, &p->tracks[t]);
+}
+
+/* ===================== drain (draft 3.6, 10.4) ===================== */
+
+static int moqtrun_encode_goaway(wired_mspan buf, usz* off, const void* m) {
+  return moqctl_goaway_encode(buf, off, m);
+}
+
+/* A session still owed a GOAWAY. */
+static int moqtrun_goaway_due(const wired_moqtrun_peer* p) {
+  return p->in_use && !p->sess.goaway_sent && !p->closing;
+}
+
+/* timeout_ms after the last tick; none for 0. */
+static u64 moqtrun_goaway_deadline(const wired_moqt_hub* hub, u64 timeout_ms) {
+  return timeout_ms ? hub->live.last_now_ms + timeout_ms : (u64)-1;
+}
+
+/* GOAWAY msg on p's control stream (10.4), noted in its session state. */
+static void moqtrun_goaway_one(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span msg, u64 deadline) {
+  moqtrun_queue_reply(p, msg);
+  moqtrun_flush_replies(&hub->io, p);
+  moqsess_step(&p->sess, MOQSESS_EV_SEND_GOAWAY);
+  p->goaway_deadline = deadline;
+}
+
+/* p is owed a GOAWAY and is s, or s is 0 (every session). */
+static int moqtrun_goaway_target(
+    const wired_moqtrun_peer* p, const wired_wt_session* s) {
+  return moqtrun_goaway_due(p) && (!s || p->wt == s);
+}
+
+/* Sends msg to p if it is a target; 1 when sent. */
+static int moqtrun_goaway_try(
+    wired_moqt_hub*         hub,
+    wired_moqtrun_peer*     p,
+    const wired_wt_session* s,
+    wired_span              msg,
+    u64                     deadline) {
+  if (!moqtrun_goaway_target(p, s)) return 0;
+  moqtrun_goaway_one(hub, p, msg, deadline);
+  return 1;
+}
+
+/* Sends GOAWAY to s, or to every session when s is 0; the count sent. */
+static int moqtrun_goaway_send(
+    wired_moqt_hub* hub, wired_wt_session* s, wired_span uri, u64 timeout_ms) {
+  u8            msg[WIRED_MOQTRUN_GOAWAY_URI_MAX + 32];
+  moqctl_goaway g = {uri, timeout_ms};
+  usz           n = moqtrun_envelope_put(
+      wired_mspan_of(msg, sizeof msg), MOQCTL_T_GOAWAY, moqtrun_encode_goaway,
+      &g);
+  u64 deadline = moqtrun_goaway_deadline(hub, timeout_ms);
+  int sent     = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
+    sent += moqtrun_goaway_try(
+        hub, &hub->peers[i], s, wired_span_of(msg, n), deadline);
+  return sent;
+}
+
+/* PUBLISH_DONE status to each subscription peer index idx holds on t. */
+static void moqtrun_track_done_peer(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, usz idx, u64 status) {
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
+    if (moqtrun_sub_is_peer(&t->subs[si], idx))
+      moqtrun_sub_done_slot(hub, t, si, status);
+}
+
+/* Subscription slots of t held by peer index idx. */
+static int moqtrun_subs_held(const wired_moqtrun_track* t, usz idx) {
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
+    if (moqtrun_sub_is_peer(&t->subs[si], idx)) return 1;
+  return 0;
+}
+
+static int moqtrun_track_held(const wired_moqtrun_track* t, usz idx) {
+  return t->in_use && moqtrun_subs_held(t, idx);
+}
+
+static int moqtrun_peer_tracks_held(const wired_moqtrun_peer* q, usz idx) {
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    if (moqtrun_track_held(&q->tracks[t], idx)) return 1;
+  return 0;
+}
+
+static int moqtrun_peer_held(const wired_moqtrun_peer* q, usz idx) {
+  return q->in_use && moqtrun_peer_tracks_held(q, idx);
+}
+
+static int moqtrun_own_held(const wired_moqt_hub* hub, usz idx) {
+  return moqtrun_track_held(&hub->blob_track, idx) ||
+         moqtrun_track_held(&hub->live.track, idx);
+}
+
+/* Peer index idx still holds a subscription on any track. */
+static int moqtrun_hub_held(const wired_moqt_hub* hub, usz idx) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
+    if (moqtrun_peer_held(&hub->peers[i], idx)) return 1;
+  return moqtrun_own_held(hub, idx);
+}
+
+static int moqtrun_peer_publishes(const wired_moqtrun_peer* p) {
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    if (p->tracks[t].in_use) return 1;
+  return 0;
+}
+
+/* Nothing of p's is open any more: no request stream, no track it
+ * publishes, no subscription it holds. */
+static int moqtrun_peer_quiet(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  return moqtrun_req_count(hub, p->wt) == 0 && !moqtrun_peer_publishes(p) &&
+         !moqtrun_hub_held(hub, (usz)(p - hub->peers));
+}
+
+/* draft-ietf-moq-transport-19 10.4: GOAWAY_TIMEOUT only while requests
+ * are still open, NO_ERROR (3.5) once nothing is left. */
+static u32 moqtrun_drain_close_code(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  return moqtrun_peer_quiet(hub, p) ? WIRED_MOQTRUN_CLOSE_NO_ERROR
+                                    : WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT;
+}
+
+/* Past the GOAWAY Timeout (3.6): first the flush -- PUBLISH_DONE
+ * GOING_AWAY to every subscription p holds and its queued answers sent
+ * (the tick's moqtrun_reqs_tick then FINs those streams) -- and on the
+ * next tick the close (moqtrun_drain_close_code), so the flushed bytes
+ * get a loop step to leave before the transport resets the streams. */
+static void moqtrun_drain_expire(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  if (p->goaway_flushed) {
+    moqtrun_peer_close(hub, p, moqtrun_drain_close_code(hub, p));
+    return;
+  }
+  moqtrun_each_track(
+      hub, moqtrun_track_done_peer, (usz)(p - hub->peers),
+      MOQCTL_DONE_GOING_AWAY);
+  moqtrun_flush_replies(&hub->io, p);
+  p->goaway_flushed = 1;
+}
+
+static int moqtrun_drain_due(const wired_moqtrun_peer* p, u64 now_ms) {
+  return p->in_use && !p->closing && now_ms >= p->goaway_deadline;
+}
+
+/* Control-stream replies refused earlier (moqtrun_flush_replies) are
+ * retried on the clock too, not only when the peer sends again: a GOAWAY
+ * must go out even to a silent peer. */
+static void moqtrun_ctl_retry(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  if (p->in_use && !p->closing) moqtrun_flush_replies(&hub->io, p);
+}
+
+static void moqtrun_drain_tick(wired_moqt_hub* hub, u64 now_ms) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    if (moqtrun_drain_due(&hub->peers[i], now_ms))
+      moqtrun_drain_expire(hub, &hub->peers[i]);
+    moqtrun_ctl_retry(hub, &hub->peers[i]);
+  }
+}
+
+int wired_moqt_goaway(wired_moqt_hub* hub, wired_span new_uri, u64 timeout_ms) {
+  if (new_uri.n > WIRED_MOQTRUN_GOAWAY_URI_MAX) return -1;
+  return moqtrun_goaway_send(hub, 0, new_uri, timeout_ms);
+}
+
+void wired_moqt_on_session_draining(void* app_ctx, wired_wt_session* s) {
+  moqtrun_goaway_send(
+      (wired_moqt_hub*)app_ctx, s, wired_span_of(0, 0),
+      WIRED_MOQTRUN_DRAIN_TIMEOUT_MS);
 }

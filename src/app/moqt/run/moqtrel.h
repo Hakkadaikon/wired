@@ -52,6 +52,9 @@
  * repeated here instead of the macro). */
 #define WIRED_MOQTREL_MAX_SUBS 31
 
+/** Arrival marks a ring keeps (moqtrel_mark). */
+#define WIRED_MOQTREL_MARKS 8
+
 /** One subscriber's read cursor into a ring. */
 typedef struct {
   /** Absolute offset of the next byte to send to this subscriber. */
@@ -90,6 +93,12 @@ typedef struct {
   u64 bound_ms;
   /** Per-subscriber read cursors, indexed like the hub's sub table. */
   moqtrel_sub subs[WIRED_MOQTREL_MAX_SUBS];
+  /** Arrival marks, oldest first: bytes below mark_end[k] and at or past
+   * mark_end[k-1] reached the hub at mark_ms[k]. Marks wholly reclaimed
+   * are dropped (moqtrel_reclaim). */
+  u64 mark_end[WIRED_MOQTREL_MARKS];
+  u64 mark_ms[WIRED_MOQTREL_MARKS];
+  u32 marks;
 } moqtrel_buf;
 
 /** Empty b: offsets zero, no publisher, every cursor inactive.
@@ -119,6 +128,26 @@ wired_span moqtrel_next_round(const moqtrel_buf* b, u32 sub);
  * @param n bytes the accepted round carried
  * @param now_ms current time in ms */
 void moqtrel_note_sent(moqtrel_buf* b, u32 sub, usz n, u64 now_ms);
+
+/** Record that every byte up to tail has arrived by now_ms; call after
+ * each moqtrel_append. Same-ms appends share a mark.
+ * ponytail: with every mark taken, the newest mark absorbs the append
+ * and keeps its own time, so the absorbed bytes read older than they
+ * are -- a timeout can fire early, by at most the time since that mark;
+ * raise WIRED_MOQTREL_MARKS if a lagging cursor's timeouts must be exact
+ * over more appends.
+ * @param b the ring
+ * @param now_ms current time in ms */
+void moqtrel_mark(moqtrel_buf* b, u64 now_ms);
+
+/** How long ago subscriber sub's next unsent byte arrived (draft-ietf-
+ * moq-transport-19 8, the age OBJECT_DELIVERY_TIMEOUT is checked
+ * against).
+ * @param b the ring
+ * @param sub subscriber index
+ * @param now_ms current time in ms
+ * @return age in ms, 0 when the subscriber is caught up. */
+u64 moqtrel_age_ms(const moqtrel_buf* b, u32 sub, u64 now_ms);
 
 /** Advance head to the slowest pinning cursor: min(sent) over cursors that
  * are active and not shed, or tail when no such cursor exists.

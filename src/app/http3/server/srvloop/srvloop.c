@@ -36,8 +36,7 @@ static void srvloop_body_rearm(wired_srvloop_stream_slot* slot) {
  * set, so a slot used without going through stream_slot_claim (a direct
  * wired_srvloop_dispatch call, as the tests do) still starts from zero. */
 static void streams_reset(wired_srvloop* l) {
-  l->req_closed_floor = 0;
-  for (usz i = 0; i < 16; i++) l->req_closed_bm[i] = 0;
+  bytes_memset(&l->req_closed, 0, sizeof l->req_closed);
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
     l->streams[i].in_use         = 0;
     l->streams[i].stream_id      = 0;
@@ -74,8 +73,6 @@ static void wt_streams_reset(wired_srvloop* l) {
     l->wt_streams[i].credit_hold       = 0;
     wt_window_reset(&l->wt_streams[i].win);
   }
-  for (usz i = 0; i < 8; i++) l->wt_released_recent[i] = 0;
-  l->wt_released_recent_at = 0;
 }
 
 /* Mark every WT uni stream reassembly slot free (draft-ietf-webtrans-http3-15
@@ -95,8 +92,7 @@ static void wt_uni_streams_reset(wired_srvloop* l) {
     l->wt_uni_streams[i].credit_hold       = 0;
     wt_window_reset(&l->wt_uni_streams[i].win);
   }
-  for (usz i = 0; i < 8; i++) l->wt_uni_released_recent[i] = 0;
-  l->wt_uni_released_recent_at = 0;
+  bytes_memset(&l->wt_uni_closed, 0, sizeof l->wt_uni_closed);
 }
 
 /* RFC 9218 10 / 9218-010: mark every buffered PRIORITY_UPDATE slot free. */
@@ -137,8 +133,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->max_data_seen              = 0;
   l->max_data_seen_flag         = 0;
   l->max_stream_data_n          = 0;
-  /* wt_released_recent[]/wt_uni_released_recent[] are zeroed by
-   * wt_streams_reset/wt_uni_streams_reset below. */
+  /* wt_uni_closed is zeroed by wt_uni_streams_reset below. */
   /* max_data_seen_flag/streams_blocked_seen_flag/path_response_seen_flag are
    * "not reset across steps by this loop itself" (see their own doc in
    * srvloop.h) -- but that convention only holds once a step has actually run
@@ -167,6 +162,8 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->on_body                        = 0;
   l->req_frame_error                = 0;
   l->req_body_released              = 0;
+  l->wt_refused_n                   = 0;
+  l->ctrl_settings_len              = 0;
   pnspaces_recv_init(&l->ack_recv);
   ackpolicy_init(&l->app_ack_policy);
   ackpolicy_init(&l->hs_ack_policy);
@@ -320,50 +317,59 @@ static void pending_priority_consume(wired_srvloop* l, usz i) {
 }
 
 /* Shift the closed-stream window down one whole word (64 indexes). */
-static void req_closed_shift64(wired_srvloop* l) {
-  for (usz i = 0; i + 1 < 16; i++)
-    l->req_closed_bm[i] = l->req_closed_bm[i + 1];
-  l->req_closed_bm[15] = 0;
-  l->req_closed_floor += 64;
+static void srvloop_closed_shift64(wired_srvloop_closed* w) {
+  for (usz i = 0; i + 1 < 16; i++) w->bm[i] = w->bm[i + 1];
+  w->bm[15] = 0;
+  w->floor += 64;
 }
 
 /* Shift the closed-stream window down one index (one bit, with carry). */
-static void req_closed_shift1(wired_srvloop* l) {
+static void srvloop_closed_shift1(wired_srvloop_closed* w) {
   for (usz i = 0; i < 16; i++) {
-    u64 carry           = i + 1 < 16 ? l->req_closed_bm[i + 1] << 63 : 0;
-    l->req_closed_bm[i] = (l->req_closed_bm[i] >> 1) | carry;
+    u64 carry = i + 1 < 16 ? w->bm[i + 1] << 63 : 0;
+    w->bm[i]  = (w->bm[i] >> 1) | carry;
   }
-  l->req_closed_floor += 1;
+  w->floor += 1;
 }
 
-/* Advance req_closed_floor over the contiguous closed prefix, keeping the
- * window anchored just past the lowest still-open stream index. */
-static void req_closed_advance(wired_srvloop* l) {
-  while (l->req_closed_bm[0] == ~(u64)0) req_closed_shift64(l);
-  while (l->req_closed_bm[0] & 1) req_closed_shift1(l);
+/* Advance floor over the contiguous closed prefix, keeping the window
+ * anchored just past the lowest still-open stream index. */
+static void srvloop_closed_advance(wired_srvloop_closed* w) {
+  while (w->bm[0] == ~(u64)0) srvloop_closed_shift64(w);
+  while (w->bm[0] & 1) srvloop_closed_shift1(w);
 }
 
-/* Record stream_id as answered-and-released (RFC 9000 3.2). An id past the
- * 1024-index window is left unrecorded -- the safe degradation: a very old
- * duplicate may still claim a slot, but a live stream is never mistaken
- * for a closed one. */
+/* Record stream_id as closed (RFC 9000 3.2). An id past the 1024-index
+ * window slides the window up (64 indexes at a time) until it fits, so a
+ * release is never forgotten: the cost is that every index the window
+ * leaves behind counts as closed, including a long-lived stream that
+ * pinned the floor (a MoQT control stream). That stream keeps working --
+ * every lookup finds its live slot before consulting this set -- and an
+ * index left behind that was never opened would have to arrive 1024
+ * streams late, which RFC 9000 2.1's in-order id use makes implausible. */
+static void srvloop_closed_mark(wired_srvloop_closed* w, u64 stream_id) {
+  u64 idx = stream_id / 4;
+  if (idx < w->floor) return;
+  while (idx - w->floor >= 1024) srvloop_closed_shift64(w);
+  w->bm[(idx - w->floor) / 64] |= (u64)1 << ((idx - w->floor) % 64);
+  srvloop_closed_advance(w);
+}
+
+/* 1 if stream_id was already closed (see srvloop_closed_mark). */
+static int srvloop_closed_has(const wired_srvloop_closed* w, u64 stream_id) {
+  u64 idx = stream_id / 4;
+  if (idx < w->floor) return 1;
+  if (idx - w->floor >= 1024) return 0;
+  return ((w->bm[(idx - w->floor) / 64] >> ((idx - w->floor) % 64)) & 1) != 0;
+}
+
+/* The client bidi (request + WT bidi) closed set. */
 static void req_closed_mark(wired_srvloop* l, u64 stream_id) {
-  u64 idx = stream_id / 4;
-  if (idx < l->req_closed_floor) return;
-  if (idx - l->req_closed_floor >= 1024) return;
-  l->req_closed_bm[(idx - l->req_closed_floor) / 64] |=
-      (u64)1 << ((idx - l->req_closed_floor) % 64);
-  req_closed_advance(l);
+  srvloop_closed_mark(&l->req_closed, stream_id);
 }
 
-/* 1 if stream_id was already answered and released (see req_closed_mark). */
 static int req_closed_has(const wired_srvloop* l, u64 stream_id) {
-  u64 idx = stream_id / 4;
-  if (idx < l->req_closed_floor) return 1;
-  if (idx - l->req_closed_floor >= 1024) return 0;
-  return ((l->req_closed_bm[(idx - l->req_closed_floor) / 64] >>
-           ((idx - l->req_closed_floor) % 64)) &
-          1) != 0;
+  return srvloop_closed_has(&l->req_closed, stream_id);
 }
 
 /* Claim and reset a free slot for stream_id.
@@ -502,15 +508,22 @@ static int wt_slot_claim_at(wired_srvloop* l, usz i, u64 stream_id) {
   return (int)i;
 }
 
-/* 1 iff stream_id was itself released recently -- a claim for it now is a
- * delayed duplicate reopening a stream the app already saw FIN for. A new
- * id that merely sorts below older releases is NOT stale: the uni table
- * fixed this first (wt_uni_released_recent's doc), and the bidi
- * high-watermark rule had the same silent-loss hole. */
+/* 1 iff client stream_id already ended here (released or refused) -- a
+ * claim for it now is a delayed duplicate reopening a stream the app already
+ * saw FIN for. Uses the request streams' closed-id bitmap (req_closed_mark),
+ * which shares the client bidi id space and records exact ids over a
+ * 1024-stream window, so a NEW id that merely sorts below older releases is
+ * not stale (the old high-watermark rule's silent-loss hole), and an id
+ * released long ago still is (a ring of the last 8 forgot it while the
+ * table holds more). Server-opened ids (low bit 1) are never stale here:
+ * the bitmap indexes stream_id / 4 and would alias them onto client ids. */
 static int wt_slot_is_stale(const wired_srvloop* l, u64 stream_id) {
-  for (usz i = 0; i < 8; i++)
-    if (l->wt_released_recent[i] == stream_id) return 1;
-  return 0;
+  return !(stream_id & 1) && req_closed_has(l, stream_id);
+}
+
+/* Record client stream_id as ended (see wt_slot_is_stale). */
+static void wt_closed_mark(wired_srvloop* l, u64 stream_id) {
+  if (!(stream_id & 1)) req_closed_mark(l, stream_id);
 }
 
 /* Claim and reset a free wt_streams slot for stream_id.
@@ -533,12 +546,18 @@ int wired_srvloop_wt_slot_claim_local(wired_srvloop* l, u64 stream_id) {
   return wired_srvloop_wt_slot_claim(l, stream_id);
 }
 
+void wired_srvloop_wt_refuse(wired_srvloop* l, u64 stream_id) {
+  if (wt_slot_is_stale(l, stream_id)) return;
+  wt_closed_mark(l, stream_id);
+  if (l->wt_refused_n < WIRED_SRVLOOP_MAX_STREAMS)
+    l->wt_refused[l->wt_refused_n++] = stream_id;
+}
+
 void wired_srvloop_wt_slot_release(wired_srvloop* l, u64 stream_id) {
   int i = wired_srvloop_wt_slot_find(l, stream_id);
   if (i < 0) return;
-  l->wt_streams[i].in_use                         = 0;
-  l->wt_released_recent[l->wt_released_recent_at] = stream_id;
-  l->wt_released_recent_at = (u8)((l->wt_released_recent_at + 1) % 8);
+  l->wt_streams[i].in_use = 0;
+  wt_closed_mark(l, stream_id);
 }
 
 /* 1 if wt uni slot is claimed and reassembling stream_id. */
@@ -556,15 +575,11 @@ int wired_srvloop_wt_uni_slot_find(const wired_srvloop* l, u64 stream_id) {
   return -1;
 }
 
-/* 1 iff stream_id was itself released recently -- a claim for it now is a
- * delayed duplicate reopening a stream the app already saw FIN for. A new
- * id that merely sorts below older releases is NOT stale (see
- * wt_uni_released_recent's doc for the silent loss the broader rule
- * caused). */
+/* 1 iff stream_id was itself released -- a claim for it now is a delayed
+ * duplicate reopening a stream the app already saw FIN for (see
+ * wt_uni_closed's doc). */
 static int wt_uni_slot_is_stale(const wired_srvloop* l, u64 stream_id) {
-  for (usz i = 0; i < 8; i++)
-    if (l->wt_uni_released_recent[i] == stream_id) return 1;
-  return 0;
+  return srvloop_closed_has(&l->wt_uni_closed, stream_id);
 }
 
 /* Claim and reset a free wt_uni_streams slot for stream_id. */
@@ -604,9 +619,8 @@ int wired_srvloop_wt_uni_slot_claim(wired_srvloop* l, u64 stream_id) {
 void wired_srvloop_wt_uni_slot_release(wired_srvloop* l, u64 stream_id) {
   int i = wired_srvloop_wt_uni_slot_find(l, stream_id);
   if (i < 0) return;
-  l->wt_uni_streams[i].in_use                             = 0;
-  l->wt_uni_released_recent[l->wt_uni_released_recent_at] = stream_id;
-  l->wt_uni_released_recent_at = (u8)((l->wt_uni_released_recent_at + 1) % 8);
+  l->wt_uni_streams[i].in_use = 0;
+  srvloop_closed_mark(&l->wt_uni_closed, stream_id);
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: byte count of [abs_off, abs_off+n) that

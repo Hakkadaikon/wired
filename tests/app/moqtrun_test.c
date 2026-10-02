@@ -269,6 +269,7 @@ static wired_moqt_io moqtrun_test_io(void) {
   io.send_budget       = 0; /* default: unconstrained, like a table without */
   io.close_session     = moqtrun_test_close_session;
   io.stream_reply_open = moqtrun_test_stream_reply_open;
+  io.stream_priority   = 0; /* default: off, like a table without */
   return io;
 }
 
@@ -535,12 +536,13 @@ static void test_moqtrun_unknown_type_skipped_then_subscribe_answered(void) {
   CHECK(off == c->payload_len);
 }
 
-/* SS4 / SS10.6: a known request this hub does not implement (TRACK_STATUS)
- * gets REQUEST_ERROR NOT_SUPPORTED, and the following SUBSCRIBE is still
+/* SS4 / SS10.6: a known request this hub does not serve on the control
+ * stream (REQUEST_UPDATE: no request stream names what it updates) gets
+ * REQUEST_ERROR NOT_SUPPORTED, and the following SUBSCRIBE is still
  * answered in the same reply round. */
 static void test_moqtrun_unimplemented_request_not_supported_then_subscribe(
     void) {
-  static const u8          tstat[] = {0x0D, 0x00, 0x01, 0x05};
+  static const u8          tstat[] = {0x02, 0x00, 0x01, 0x05};
   const moqtrun_test_call* c =
       mtskip_prefix_then_subscribe(tstat, sizeof tstat);
   usz                  off = 0;
@@ -594,11 +596,11 @@ static void mtasm_feed(usz from, usz to) {
       wired_span_of(mtasm_buf + from, to - from), 0);
 }
 
-/* TRACK_STATUS (0xD, unimplemented: answered NOT_SUPPORTED) with a
- * body_len-byte body, then SUBSCRIBE(alice), into mtasm_buf. Returns the
- * total length. */
+/* REQUEST_UPDATE (0x2, on the control stream answered NOT_SUPPORTED)
+ * with a body_len-byte body, then SUBSCRIBE(alice), into mtasm_buf.
+ * Returns the total length. */
 static usz mtasm_tstat_then_subscribe(usz body_len) {
-  mtasm_buf[0] = 0x0D;
+  mtasm_buf[0] = 0x02;
   mtasm_buf[1] = (u8)(body_len >> 8);
   mtasm_buf[2] = (u8)body_len;
   bytes_memset(mtasm_buf + 3, 0, body_len);
@@ -883,8 +885,9 @@ static void test_moqtrun_object_relay_two_subscribers_two_objects(void) {
 
 /* ===================== 4. loss-free hub defenses ===================== */
 
-/* A SUBSCRIBE carrying a non-zero delivery-timeout parameter is
- * rejected with REQUEST_ERROR NOT_SUPPORTED, never SUBSCRIBE_OK. */
+/* A SUBSCRIBE carrying a non-zero SUBGROUP_DELIVERY_TIMEOUT is rejected
+ * with REQUEST_ERROR NOT_SUPPORTED, never SUBSCRIBE_OK (draft 8: its timer
+ * needs the transport's "all data committed", which the hub cannot see). */
 static void test_moqtrun_subscribe_nonzero_timeout_rejected(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
@@ -893,17 +896,17 @@ static void test_moqtrun_subscribe_nonzero_timeout_rejected(void) {
   wired_moqt_on_session(&hub, SESS_B, wired_span_of(0, 0), wired_span_of(0, 0));
   u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
 
-  /* SUBSCRIBE with one added Message Parameter: Type 0x02
-   * (OBJECT_DELIVERY_TIMEOUT, even => varint value), value 5 -- built by
+  /* SUBSCRIBE with one added Message Parameter: Type 0x06
+   * (SUBGROUP_DELIVERY_TIMEOUT, even => varint value), value 5 -- built by
    * hand since no golden vector carries this parameter (draft SS10.2
    * varint parameter encoding: Delta Type then value). */
   u8 sub_with_timeout[G_MOQT_CTL_SUBSCRIBE_BASIC_LEN + 2];
   for (usz i = 0; i < G_MOQT_CTL_SUBSCRIBE_BASIC_LEN; i++)
     sub_with_timeout[i] = g_moqt_ctl_subscribe_basic[i];
   /* index 22 is the golden's trailing Num Params byte (0x00): bump it to
-   * 1, then append Delta Type 0x02, Value 0x05. */
+   * 1, then append Delta Type 0x06, Value 0x05. */
   sub_with_timeout[22] = 0x01;
-  sub_with_timeout[23] = 0x02; /* Delta Type (from 0) = 0x02 */
+  sub_with_timeout[23] = 0x06; /* Delta Type (from 0) = 0x06 */
   sub_with_timeout[24] = 0x05; /* Value */
   usz total            = G_MOQT_CTL_SUBSCRIBE_BASIC_LEN + 2;
   /* fix up the 16-bit Message Length (bytes[1..2], was 0x0014) for the two
@@ -2829,9 +2832,9 @@ static void test_moqtrun_frag_overflow_counted(void) {
   static u8           tail[WIRED_MOQTRUN_RELAY_FRAG_MAX + 1];
   wired_moqtrun_relay relay = {0};
   wired_moqt_init(&hub, moqtrun_test_io());
-  moqtrun_relay_save_frag(&hub, &relay, tail, sizeof tail);
+  moqtrun_relay_save_frag(&hub, &relay, tail, sizeof tail, 0);
   CHECK(relay.frag_len == 0 && hub.stat_frag_drop == 1);
-  moqtrun_relay_save_frag(&hub, &relay, tail, 3);
+  moqtrun_relay_save_frag(&hub, &relay, tail, 3, 0);
   CHECK(relay.frag_len == 3 && hub.stat_frag_drop == 1);
 }
 

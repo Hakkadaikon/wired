@@ -122,13 +122,48 @@ typedef struct {
    * left to the data path, which drops it. */
   int (*stream_reply_open)(
       wired_wt_session* s, u64 stream_id, wired_span payload);
+  /** wired_server_wt_stream_priority-shaped: sets the RFC 9218 urgency
+   * (0..7, lower first) of a subscriber stream the hub just opened -- the
+   * subscription's priorities mapped by WIRED_MOQTRUN_URGENCY. Kept last so
+   * older positional initializers stay valid; a table built without it (0)
+   * leaves every stream at the transport's default urgency. */
+  int (*stream_priority)(wired_wt_session* s, u64 stream_id, u8 urgency);
 } wired_moqt_io;
+
+/** RFC 9218 urgency of a subscriber stream from its subscription's
+ * Subscriber Priority and the stream's Publisher Priority (both 0..255,
+ * lower first, 128 when absent -- draft-ietf-moq-transport-19 7.1,
+ * 10.2.7). 7.2 orders by subscriber priority, then publisher priority, so
+ * the subscriber's half picks the pair and the publisher's half the one
+ * within it: 4..7. Control and request streams keep the transport default
+ * 3 and so go first (7.2: they SHOULD be prioritized highest). Group
+ * Order only ranks one subscription's own streams against each other,
+ * which one urgency per stream cannot express; equal urgencies share the
+ * send pass in turn. */
+#define WIRED_MOQTRUN_URGENCY(sub_prio, pub_prio) \
+  ((u8)(4 + ((sub_prio) >> 7) * 2 + ((pub_prio) >> 7)))
 
 /** draft-ietf-moq-transport-19 SS3.5 PROTOCOL_VIOLATION session code. */
 #define WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION 0x3
 
 /** draft-ietf-moq-transport-19 SS3.5 INTERNAL_ERROR session code. */
 #define WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR 0x1
+
+/** draft-ietf-moq-transport-19 3.5 NO_ERROR session code. */
+#define WIRED_MOQTRUN_CLOSE_NO_ERROR 0x0
+
+/** draft-ietf-moq-transport-19 3.5 GOAWAY_TIMEOUT session code. */
+#define WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT 0x10
+
+/** Longest New Session URI wired_moqt_goaway sends (draft 10.4 allows
+ * 8192): a URL, sized so the GOAWAY fits one control-stream reply round
+ * (WIRED_MOQTRUN_CTL_SEND_BUF). */
+#define WIRED_MOQTRUN_GOAWAY_URI_MAX 512
+
+/** GOAWAY Timeout the hub gives a session whose peer sent
+ * WT_DRAIN_SESSION (wired_moqt_on_session_draining): the peer asked to go,
+ * so a short grace for its subscriptions to wind down. */
+#define WIRED_MOQTRUN_DRAIN_TIMEOUT_MS 5000
 
 /** One subscriber recorded against the hub's track: which session, and the
  * Track Alias this hub assigned it (hub-local per subscriber, draft SS10.7
@@ -139,7 +174,8 @@ typedef struct {
   int active; /* 1 while the subscription is Established */
   /** SUBSCRIBE's Request ID (draft-ietf-moq-transport-19 10.6). */
   u64 request_id;
-  /** OBJECT_DELIVERY_TIMEOUT (10.2.4), valid when has_delivery_timeout. */
+  /** OBJECT_DELIVERY_TIMEOUT (10.2.4) in ms, 0 when absent or none: an
+   * Object reaching the hub longer ago is not sent (draft 8). */
   u64 delivery_timeout;
   /** Location Filter Start (9.3.1), resolved at SUBSCRIBE time; {0, 0}
    * when unfiltered. */
@@ -163,6 +199,9 @@ typedef struct {
   /** LOCATION_FILTER type (MOQCTL_FILTER_*), 0 when unfiltered: what a
    * re-attach re-resolves start against. */
   u8 filter_type;
+  /** Hub blob track only: 1 once the blob went out to this subscription,
+   * so a FORWARD 1 -> 0 -> 1 update never sends it twice. */
+  u8 blob_sent;
 } wired_moqtrun_sub;
 
 /** Fixed capacity for a saved SUBGROUP_HEADER (draft SS11.4.2: Type +
@@ -248,6 +287,12 @@ typedef struct {
    * Object's Location (11.4.2) for the track's Largest Object. */
   moqdata_objseq seq;
   u64            group_id;
+  /** Clock (wired_moqt_tick) at which the held fragment's first byte
+   * arrived: the age of the torn Object it starts (draft 8). */
+  u64 frag_ms;
+  /** Bit i: sub slot i's stream was reset for OBJECT_DELIVERY_TIMEOUT and
+   * is not reopened for this Subgroup (draft 8). */
+  u32 sub_expired;
 } wired_moqtrun_relay;
 
 /** Consecutive refused relay rounds (io.stream_send returning busy) after
@@ -291,7 +336,9 @@ typedef struct {
 #define WIRED_MOQTRUN_SUB_NAMES (WIRED_MOQTRUN_MAX_TRACKS_PER_PEER * 4)
 
 /** Largest control-message envelope this hub ever sends (SS10
- * Type+Length+Body). */
+ * Type+Length+Body), except GOAWAY, whose New Session URI may take up to
+ * WIRED_MOQTRUN_GOAWAY_URI_MAX bytes (wired_moqt_goaway sizes its own
+ * buffer). */
 #define WIRED_MOQTRUN_CTL_REPLY_MAX 64
 
 /** Largest received control-message Length (body bytes) this hub handles.
@@ -503,6 +550,15 @@ typedef struct {
   /** The request stream whose message is being handled, 0 for the
    * control stream: replies go to it. */
   wired_moqtrun_req* req;
+  /** Clock (wired_moqt_tick) past which a session sent GOAWAY
+   * (sess.goaway_sent) is closed with GOAWAY_TIMEOUT; (u64)-1 for none. */
+  u64 goaway_deadline;
+  /** 1 once the deadline passed and PUBLISH_DONE went to every
+   * subscription: the next tick closes the session. */
+  u8 goaway_flushed;
+  /** 1 once the hub asked the transport to close the session: nothing
+   * more is sent on it. */
+  u8 closing;
 } wired_moqtrun_peer;
 
 /** The hub's own clock-paced live track (wired_moqt_publish_live): Group
@@ -689,6 +745,10 @@ typedef struct {
   wired_moqt_authorize_ns_fn authorize_namespace;
   /** Opaque first argument handed to authorize_namespace. */
   void* authorize_ns_ctx;
+  /** Subscriber streams reset with DELIVERY_TIMEOUT because an Object
+   * outlived the subscription's OBJECT_DELIVERY_TIMEOUT (draft 8).
+   * Diagnostic only. */
+  u64 stat_timeout_reset;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
@@ -736,7 +796,17 @@ void wired_moqt_on_session(
  * is refused UNINTERESTED; a session's prefixes overlapping (either empty,
  * or the same first field) are refused PREFIX_OVERLAP. Both requests pass
  * authorize_namespace first. Hub-owned tracks
- * (publish_blob / publish_live) have no namespace and are not announced. */
+ * (publish_blob / publish_live) have no namespace and are not announced.
+ *
+ * TRACK_STATUS (10.14) is answered like a SUBSCRIBE that creates nothing:
+ * REQUEST_OK with the Largest Location, or REQUEST_ERROR. REQUEST_UPDATE
+ * (10.9) on a SUBSCRIBE's stream replaces the parameters it carries
+ * (FORWARD, SUBSCRIBER_PRIORITY, OBJECT_DELIVERY_TIMEOUT, LOCATION_FILTER)
+ * and is answered REQUEST_OK; elsewhere it gets NOT_SUPPORTED. Objects
+ * reach a subscription only inside its Location Filter (Group-granular on
+ * streams), and one whose first byte arrived longer ago than its
+ * OBJECT_DELIVERY_TIMEOUT resets its stream with DELIVERY_TIMEOUT
+ * (draft 8). */
 void wired_moqt_on_stream_data(
     void*             app_ctx,
     wired_wt_session* s,
@@ -746,7 +816,8 @@ void wired_moqt_on_stream_data(
 
 /** wired_wt_on_datagram-shaped: relays one received OBJECT_DATAGRAM
  * (draft-ietf-moq-transport-19 11.3.1) verbatim to every active subscriber
- * of the track its Track Alias names on the sending peer -- the datagram
+ * whose Location Filter takes it, on the track its Track Alias names on
+ * the sending peer -- the datagram
  * twin of the SUBGROUP stream relay, but stateless: no relay entry, no
  * held fragment, and no delivery to late subscribers (a datagram missed is
  * gone; live audio wants the next frame, not a replay). app_ctx must be
@@ -784,6 +855,37 @@ void wired_moqt_on_stream_reset(
     u64               stream_id,
     int               mapped,
     u32               app_error_code);
+
+/** draft-ietf-moq-transport-19 3.6 / 10.4 graceful drain: sends GOAWAY
+ * (new_uri, timeout_ms) once on the control stream of every open session
+ * that has not had one. A session that got GOAWAY answers every later new
+ * request REQUEST_ERROR GOING_AWAY (requests already answered stay, and
+ * their REQUEST_UPDATEs are served). A session still open timeout_ms
+ * after this call is sent PUBLISH_DONE GOING_AWAY for every subscription
+ * it holds on a request stream (its relay streams reset GOING_AWAY first)
+ * by the next tick, and closed on the tick after: GOAWAY_TIMEOUT while it
+ * still has a request stream, a published track or a subscription open,
+ * NO_ERROR when nothing is left. The deadline counts from the last
+ * wired_moqt_tick's now_ms, so call this once the tick runs (a call
+ * before the first tick counts from 0). timeout_ms 0 sets no deadline
+ * (10.4: no specific timeout). A publisher's session ending, for any
+ * reason,
+ * sends its subscribers on other sessions PUBLISH_DONE TRACK_ENDED.
+ * Subscriptions made on the control stream get no PUBLISH_DONE (it has
+ * no Request ID to name them by).
+ * @param hub the hub
+ * @param new_uri where clients reconnect, empty to reuse the current URI
+ *   (copied into the message)
+ * @param timeout_ms grace before GOAWAY_TIMEOUT, 0 for none
+ * @return sessions sent GOAWAY now, or -1 when new_uri is longer than
+ *   WIRED_MOQTRUN_GOAWAY_URI_MAX (nothing sent) */
+int wired_moqt_goaway(wired_moqt_hub* hub, wired_span new_uri, u64 timeout_ms);
+
+/** wired_wt_on_session_draining-shaped: the peer of s sent
+ * WT_DRAIN_SESSION, so s alone is drained as by wired_moqt_goaway (empty
+ * URI, WIRED_MOQTRUN_DRAIN_TIMEOUT_MS). app_ctx must be the
+ * wired_moqt_hub*. */
+void wired_moqt_on_session_draining(void* app_ctx, wired_wt_session* s);
 
 /** Publish a hub-owned static track: frames blob into wire
  * (moqdata_blob_build: one SUBGROUP_HEADER carrying track_alias, then

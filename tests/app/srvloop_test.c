@@ -2002,6 +2002,190 @@ static void test_srvloop_wt_stream_without_session_no_crash(void) {
   CHECK(f.l.peer_closed == 0);
 }
 
+/* Occupy every wt_streams[] slot with a long-lived stream (ids 400, 404,
+ * ...) so the next client-signalled WT bidi stream finds the table full. */
+static void lp_wt_fill_table(struct lp_fix* f) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
+    f->l.wt_streams[i].in_use    = 1;
+    f->l.wt_streams[i].stream_id = 400 + 4 * (u64)i;
+  }
+}
+
+/* Step one 1-RTT packet carrying stream 4's signal frame, followed by a
+ * continuation frame at offset 4 (past the 3-byte signal + 'X'). */
+static void lp_wt_step_signal_and_more(struct lp_fix* f, u64 pn) {
+  u8           pl[64], out[1024], spkt[1024];
+  usz          n;
+  wired_obuf   ob   = {out, sizeof out, 0};
+  stream_frame more = {4, 4, 2, (const u8*)"YZ", 0};
+  n                 = lp_wt_bidi_stream(pl, sizeof pl, 4);
+  n += frame_put_stream(pl + n, sizeof pl - n, &more);
+  n = client_seal_onertt_pn(f, pn, pl, n, spkt, sizeof spkt);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(spkt, n), &ob);
+}
+
+/* RFC 9000 2.2 / RFC 9114 8.1: a WT bidi stream that arrives while every
+ * wt_streams[] slot is busy is never silently dropped -- it is queued for an
+ * explicit refusal (wt_refused[]), its later frames are not misread as an
+ * HTTP/3 request (no streams[] slot claimed), and no other state moves. */
+static void test_srvloop_wt_table_full_refuses_stream(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  lp_wt_fill_table(&f);
+  lp_wt_step_signal_and_more(&f, 3);
+  CHECK(wired_srvloop_wt_slot_find(&f.l, 4) < 0);
+  CHECK(f.l.wt_refused_n == 1 && f.l.wt_refused[0] == 4);
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    CHECK(!f.l.streams[i].in_use);
+  CHECK(f.l.got_request == 0);
+}
+
+/* A retransmission of a refused stream's signal frame is not refused (nor
+ * credited back) a second time. */
+static void test_srvloop_wt_refused_stream_retransmit_not_refused_twice(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  lp_wt_fill_table(&f);
+  lp_wt_step_signal_and_more(&f, 3);
+  f.l.wt_refused_n = 0; /* drained by the caller (srvrun.c) */
+  lp_wt_step_signal_and_more(&f, 4);
+  CHECK(f.l.wt_refused_n == 0);
+}
+
+/* A late duplicate of an already-released (FIN-delivered) stream's signal
+ * frame is stale, not a new stream: it is not refused either. */
+static void test_srvloop_wt_released_stream_retransmit_not_refused(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  CHECK(wired_srvloop_wt_slot_claim(&f.l, 4) >= 0);
+  wired_srvloop_wt_slot_release(&f.l, 4);
+  lp_wt_fill_table(&f);
+  lp_wt_step_signal_and_more(&f, 3);
+  CHECK(f.l.wt_refused_n == 0);
+}
+
+/* A delayed duplicate signal frame of a stream released long ago (30
+ * releases back, far more than the table holds) is still recognised as
+ * finished: no slot is claimed for it while slots are free, and with the
+ * table full it is not refused (which would hand its credit back twice). */
+static void test_srvloop_wt_long_released_stream_replay_ignored(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  for (u64 k = 0; k < 30; k++) {
+    CHECK(wired_srvloop_wt_slot_claim(&f.l, 4 + 4 * k) >= 0);
+    wired_srvloop_wt_slot_release(&f.l, 4 + 4 * k);
+  }
+  lp_wt_step_signal_and_more(&f, 3);
+  CHECK(wired_srvloop_wt_slot_find(&f.l, 4) < 0);
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    CHECK(!f.l.streams[i].in_use);
+  lp_wt_fill_table(&f);
+  lp_wt_step_signal_and_more(&f, 4);
+  CHECK(f.l.wt_refused_n == 0);
+}
+
+/* The closed-id window is 1024 stream indexes wide and anchors at the
+ * lowest stream still open. A long-lived stream (a MoQT control stream)
+ * pins it while 1100 later streams open and close: the window slides past
+ * the pinned stream instead of forgetting releases beyond it, so the oldest
+ * and the newest released ids both stay stale, the pinned stream keeps its
+ * slot, and a genuinely new id still claims one. */
+static void test_srvloop_wt_closed_window_slides_past_long_lived_stream(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob   = {out, sizeof out, 0};
+  u64           last = 8 + 4 * 1099;
+  lp_confirm(&f, &ob);
+  CHECK(wired_srvloop_wt_slot_claim(&f.l, 4) >= 0); /* long-lived */
+  for (u64 id = 8; id <= last; id += 4) {
+    CHECK(wired_srvloop_wt_slot_claim(&f.l, id) >= 0);
+    wired_srvloop_wt_slot_release(&f.l, id);
+  }
+  CHECK(wired_srvloop_wt_slot_claim(&f.l, 8) < 0);
+  CHECK(wired_srvloop_wt_slot_claim(&f.l, last) < 0);
+  CHECK(wired_srvloop_wt_slot_find(&f.l, 4) >= 0);
+  CHECK(wired_srvloop_wt_slot_claim(&f.l, last + 4) >= 0);
+}
+
+/* RFC 9114 6.2.1: the SETTINGS build records how many control-stream bytes
+ * it actually wrote, so a later append (GOAWAY, srvrun.c) continues at that
+ * offset rather than re-encoding SETTINGS (whose grease pair is random). */
+static void test_srvloop_settings_records_sent_length(void) {
+  struct lp_fix f;
+  u8            out[1024], buf[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  wired_obuf    sb = {buf, sizeof buf, 0};
+  stream_frame  sf;
+  lp_confirm(&f, &ob);
+  f.s.sdrv.alpn = SALPN_H3;
+  CHECK(build_settings_frame(&f.s, &f.l, &sb) == 1);
+  CHECK(frame_get_stream(buf, sb.len, &sf) > 0);
+  CHECK(sf.stream_id == WIRED_SRVLOOP_CTRL_STREAM);
+  CHECK(f.l.ctrl_settings_len == sf.length);
+}
+
+/* A MoQT publisher opens many short uni streams: a delayed duplicate of
+ * one released 30 streams ago (far past any small ring) is still known
+ * finished and claims no slot, while a genuinely new uni stream does. */
+static void test_srvloop_wt_uni_long_released_replay_ignored(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  for (u64 k = 0; k < 30; k++) {
+    CHECK(wired_srvloop_wt_uni_slot_claim(&f.l, 14 + 4 * k) >= 0);
+    wired_srvloop_wt_uni_slot_release(&f.l, 14 + 4 * k);
+  }
+  CHECK(wired_srvloop_wt_uni_slot_claim(&f.l, 14) < 0);
+  CHECK(wired_srvloop_wt_uni_slot_claim(&f.l, 14 + 4 * 29) < 0);
+  CHECK(wired_srvloop_wt_uni_slot_claim(&f.l, 14 + 4 * 30) >= 0);
+}
+
+/* Capacity: a browser in a 4-person moqt_chat room keeps ~16 request
+ * streams open at once (3 PUBLISH + 2 PUBLISH_NAMESPACE + 1
+ * SUBSCRIBE_NAMESPACE + 3 tracks x 3 peers + a FETCH) next to the server's
+ * own control stream -- 18 concurrent signalled streams all get a slot. */
+static void test_srvloop_wt_room_streams_all_slotted(void) {
+  struct lp_fix f;
+  u8            pl[64], out[1024], spkt[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  for (u64 k = 0; k < 18; k++) {
+    usz n = lp_wt_bidi_stream(pl, sizeof pl, 4 + 4 * k);
+    n     = client_seal_onertt_pn(&f, 3 + k, pl, n, spkt, sizeof spkt);
+    ob    = (wired_obuf){out, sizeof out, 0};
+    wired_srvloop_step(
+        &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, n), &ob);
+  }
+  for (u64 k = 0; k < 18; k++)
+    CHECK(wired_srvloop_wt_slot_find(&f.l, 4 + 4 * k) >= 0);
+  CHECK(f.l.wt_refused_n == 0);
+}
+
+/* A long-lived stream keeps its slot when the table is full: a
+ * retransmission of its own signal frame lands in that slot instead of being
+ * refused as if it were a new stream. */
+static void test_srvloop_wt_live_stream_retransmit_keeps_slot(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  lp_wt_fill_table(&f);
+  f.l.wt_streams[0].stream_id = 4;
+  lp_wt_step_signal_and_more(&f, 3);
+  CHECK(f.l.wt_refused_n == 0);
+  CHECK(wired_srvloop_wt_slot_find(&f.l, 4) == 0);
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: a WT uni stream's leading (offset-0)
  * bytes are TWO varints -- the type 0x54 (2-byte wire form {0x40, 0x54},
  * RFC 9000 16 -- 84 exceeds the 1-byte range) and the session id (this
@@ -4607,6 +4791,15 @@ void test_srvloop(void) {
   test_srvloop_wt_stream_concurrent_with_request();
   test_srvloop_wt_signal_only_frame_then_data();
   test_srvloop_wt_stream_without_session_no_crash();
+  test_srvloop_wt_table_full_refuses_stream();
+  test_srvloop_wt_refused_stream_retransmit_not_refused_twice();
+  test_srvloop_wt_released_stream_retransmit_not_refused();
+  test_srvloop_wt_live_stream_retransmit_keeps_slot();
+  test_srvloop_wt_long_released_stream_replay_ignored();
+  test_srvloop_wt_room_streams_all_slotted();
+  test_srvloop_wt_closed_window_slides_past_long_lived_stream();
+  test_srvloop_settings_records_sent_length();
+  test_srvloop_wt_uni_long_released_replay_ignored();
   test_srvloop_wt_uni_stream_reassembled();
   test_srvloop_wt_uni_stream_signal_split();
   test_srvloop_wt_bidi_stream_signal_split();

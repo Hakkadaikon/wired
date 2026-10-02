@@ -22,6 +22,13 @@
  * may hold. */
 #define DEFAULT_QPACK_MAX_TABLE_CAP 4096
 
+/** Bytes one server control stream's type + SETTINGS frame can take
+ * (h3settings_control_stream); every caller sizes its buffer with this.
+ * Worst case 82: type 1 + frame type 1 + length 2 + pairs 78 -- the three
+ * WT flow-control limits are 8-byte varints (10 each with their ids), the
+ * 0xc671706a max-sessions id alone is 8, and a grease pair is up to 16. */
+#define H3SETTINGS_CONTROL_STREAM_MAX 96
+
 /* RFC 9114 6.2.1 / 7.2.4: the opening bytes of an HTTP/3 control stream:
  * stream type 0x00 followed by a SETTINGS frame with default values. When
  * advertise_wt is non-zero the SETTINGS additionally carry SETTINGS_H3_

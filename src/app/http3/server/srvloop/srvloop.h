@@ -212,10 +212,16 @@ typedef struct {
  * WIRED_SRVLOOP_MAX_STREAMS/wired_srvloop_stream_slot: a WT bidi stream's
  * bytes past the leading 0x41 signal are raw application data with no HTTP/3
  * HEADERS/DATA framing, so they need no req_scratch/req_wrap-shaped fields.
- * 6, not 4: quic-interop-runner's WebTransport transfer tests open 5
- * concurrent streams per session (100KB/250KB/500KB/1MB/2MB files) -- 4 slots
- * silently dropped the 5th. */
-#define WIRED_SRVLOOP_MAX_WT_STREAMS 6
+ * 24: a MoQT session (draft-ietf-moq-transport-19) keeps one request stream
+ * open per live PUBLISH / SUBSCRIBE / PUBLISH_NAMESPACE /
+ * SUBSCRIBE_NAMESPACE -- a 4-person moqt_chat room needs ~16 per browser
+ * plus the server's control stream. A stream past the table is refused on
+ * the wire (wt_refused below), never dropped. Each slot owns one
+ * WIRED_SRVLOOP_WT_BUF_CAP window, so this is the main per-connection BSS
+ * knob: overridable per build (-DWIRED_SRVLOOP_MAX_WT_STREAMS=N). */
+#ifndef WIRED_SRVLOOP_MAX_WT_STREAMS
+#define WIRED_SRVLOOP_MAX_WT_STREAMS 24
+#endif
 
 /** Byte capacity of one WT bidi/uni reassembly slot's receive window (buf
  * below). Sized past one full BDP for quic-interop-runner's simulated link
@@ -449,6 +455,18 @@ typedef struct {
   usz len;                                /**< bytes valid in buf */
 } wired_srvloop_rx_datagram;
 
+/** RFC 9000 3.2: closed client stream indexes (id / 4) of one stream type
+ * -- every index below floor, plus the 1024 just above it in bm (bit k =
+ * index floor + k). A late duplicate of a closed stream is discarded, not
+ * re-admitted. Ceiling: a mark past the window slides it up 64 indexes at
+ * a time, so indexes left behind count as closed even if a long-lived
+ * stream among them is still open -- harmless, since a live stream's slot
+ * is always found before this set is consulted. */
+typedef struct {
+  u64 floor;  /**< every index below this is closed */
+  u64 bm[16]; /**< the 1024 indexes from floor up */
+} wired_srvloop_closed;
+
 /** Per-connection state of the server wire loop, re-armed by
  * wired_srvloop_init and driven by wired_srvloop_step. Field order follows
  * the doc grouping (related fields stay next to their shared comment)
@@ -532,17 +550,11 @@ typedef struct {
    * first request, exactly as the old single-slot fields were — so a
    * connection that only ever uses stream 0 behaves identically to before. */
   wired_srvloop_stream_slot streams[WIRED_SRVLOOP_MAX_STREAMS];
-  /** RFC 9000 3.2: request streams already answered and released. A late
-   * duplicate (loss-delayed retransmission) of such a stream must be
-   * discarded, not re-admitted as a new stream -- re-admitted "zombies"
-   * once filled the table until genuinely new streams were dropped. All
-   * stream indexes (id/4) below this floor are closed; see req_closed_bm
-   * for the window just above it. */
-  u64 req_closed_floor;
-  /** The next 1024 stream indexes above req_closed_floor (bit k = closed at
-   * index floor+k). A release past this window is not recorded -- the safe
-   * direction: a live stream is never misclassified as closed. */
-  u64 req_closed_bm[16];
+  /** RFC 9000 3.2: client bidi streams already answered and released --
+   * request streams and WT bidi streams share this id space. Re-admitted
+   * "zombies" once filled the table until genuinely new streams were
+   * dropped. */
+  wired_srvloop_closed req_closed;
   /** draft-ietf-webtrans-http3-15 4.3: one reassembly slot per concurrent WT
    * bidi stream, separate from streams[] above (see
    * wired_srvloop_wt_stream_slot's doc for why). Reachable here so a future
@@ -677,28 +689,13 @@ typedef struct {
   /** Slots in max_stream_data_stream_id/_value actually used this step (0 to
    * WIRED_SRVLOOP_MAX_STREAMS). 0 = none seen. */
   usz max_stream_data_n;
-  /** The last few RELEASED WT bidi stream ids (ring, newest overwrites
-   * oldest) -- same shape and rationale as wt_uni_released_recent below:
-   * refuse a delayed duplicate re-claim of an id the app already saw FIN
-   * for, and ONLY that. The previous high-watermark rule ("reject any id
-   * <= the highest released") also rejected legitimately NEW lower-id
-   * streams whose first frames were loss-delayed past a faster, higher-id
-   * stream's whole lifetime; their packets were already ACKed, so the peer
-   * never resent and the payload was gone for good. */
-  u64 wt_released_recent[8];
-  u8  wt_released_recent_at; /**< next ring write index */
-  /** The last few RELEASED uni stream ids (ring, newest overwrites oldest).
-   * A delayed duplicate claim of an id released moments ago must be refused
-   * -- it would reopen a slot the app already saw FIN for -- but ONLY ids
-   * actually released may be refused. The previous high-watermark rule
-   * ("reject any id <= the highest released") also rejected legitimately
-   * NEW lower-id streams whose first frames were loss-delayed past a
-   * higher, faster stream's whole lifetime; their packets were already
-   * ACKed, so the peer never resent and the stream's payload (a whole chat
-   * message) was gone for good. 8 spans more releases than plausibly
-   * complete inside one retransmission window of a duplicate. */
-  u64 wt_uni_released_recent[8];
-  u8  wt_uni_released_recent_at; /**< next ring write index */
+  /** RFC 9000 3.2: client WT uni streams already released. Exact ids, not
+   * a high-watermark ("reject any id <= the highest released" also refused
+   * NEW lower-id streams loss-delayed past a faster one's whole lifetime,
+   * losing a whole chat message), and not a short ring (a MoQT publisher's
+   * many short uni streams pushed an id out of an 8-entry ring, and its
+   * late duplicate re-claimed a slot and was delivered twice). */
+  wired_srvloop_closed wt_uni_closed;
   /** RFC 9000 19.14: 1 once a client bidi STREAMS_BLOCKED frame was seen in
    * any 1-RTT payload opened this step (gather_streams_blocked in
    * dispatch.c) -- the peer's own reported limit value is not latched
@@ -839,6 +836,20 @@ typedef struct {
    * every request slot released so far -- with the live slots' bases, the
    * request side of the connection-wide MAX_DATA ceiling (srvrun.c). */
   u64 req_body_released;
+  /** RFC 9114 8.1: client WT bidi streams whose signal frame found every
+   * wt_streams[] slot busy. dispatch.c only queues them; the caller
+   * (srvrun.c) refuses each with H3_REQUEST_REJECTED, gives its stream
+   * credit back, and clears wt_refused_n. The bidi credit never has more
+   * than WIRED_SRVLOOP_MAX_STREAMS new streams outstanding, so the queue
+   * cannot overflow for a peer that honors MAX_STREAMS. */
+  u64 wt_refused[WIRED_SRVLOOP_MAX_STREAMS];
+  /** Count of queued ids in wt_refused. */
+  usz wt_refused_n;
+  /** RFC 9114 6.2.1: bytes of control-stream type + SETTINGS actually sent
+   * (respond.c's build_settings_frame), where a later control-stream append
+   * such as GOAWAY must continue. Recorded, not recomputed: SETTINGS carries
+   * a random grease pair, so a re-encode may differ in length. */
+  usz ctrl_settings_len;
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
@@ -948,6 +959,12 @@ int wired_srvloop_wt_uni_slot_claim(wired_srvloop* l, u64 stream_id);
  * @param stream_id the server-initiated bidi stream id
  * @return the slot index, or -1 if the table is full. */
 int wired_srvloop_wt_slot_claim_local(wired_srvloop* l, u64 stream_id);
+
+/** RFC 9114 8.1: queue client WT bidi stream_id for refusal (wt_refused)
+ * because no slot was free -- unless it is a retransmission of a stream
+ * already released or refused. Marks it closed so its later frames are not
+ * read as an HTTP/3 request. */
+void wired_srvloop_wt_refuse(wired_srvloop* l, u64 stream_id);
 
 /** draft-ietf-webtrans-http3-15 4.3: free the wt_streams[] slot reassembling
  * stream_id once its FIN has been fully delivered to the app, mirroring

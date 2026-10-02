@@ -56,11 +56,48 @@ void moqtrel_note_sent(moqtrel_buf* b, u32 sub, usz n, u64 now_ms) {
   b->subs[sub].last_ok_ms = now_ms;
 }
 
+/* 1 iff the newest mark takes this append: same ms, or no mark free. */
+static int rel_mark_merges(const moqtrel_buf* b, u64 now_ms) {
+  return b->marks == WIRED_MOQTREL_MARKS ||
+         (b->marks && b->mark_ms[b->marks - 1] == now_ms);
+}
+
+/* A merge keeps the newest mark's time: merged bytes read as old as it,
+ * never younger than they are. */
+void moqtrel_mark(moqtrel_buf* b, u64 now_ms) {
+  if (!rel_mark_merges(b, now_ms)) b->mark_ms[b->marks++] = now_ms;
+  b->mark_end[b->marks - 1] = b->tail;
+}
+
+u64 moqtrel_age_ms(const moqtrel_buf* b, u32 sub, u64 now_ms) {
+  u64 at = b->subs[sub].sent;
+  for (u32 k = 0; k < b->marks; k++)
+    if (b->mark_end[k] > at) return now_ms - b->mark_ms[k];
+  return 0;
+}
+
+/* Leading marks wholly below head. */
+static u32 rel_marks_spent(const moqtrel_buf* b) {
+  u32 d = 0;
+  while (d < b->marks && b->mark_end[d] <= b->head) d++;
+  return d;
+}
+
+static void rel_marks_trim(moqtrel_buf* b) {
+  u32 d = rel_marks_spent(b);
+  for (u32 k = d; k < b->marks; k++) {
+    b->mark_end[k - d] = b->mark_end[k];
+    b->mark_ms[k - d]  = b->mark_ms[k];
+  }
+  b->marks -= d;
+}
+
 void moqtrel_reclaim(moqtrel_buf* b) {
   u64 low = b->tail;
   for (u32 i = 0; i < WIRED_MOQTREL_MAX_SUBS; i++)
     if (rel_sub_pins(&b->subs[i])) low = u64_min(low, b->subs[i].sent);
   b->head = low;
+  rel_marks_trim(b);
 }
 
 int moqtrel_should_hold(const moqtrel_buf* b) {
