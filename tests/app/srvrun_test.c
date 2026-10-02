@@ -234,6 +234,33 @@ static void test_srvrun_goaway_wire_content(void) {
   CHECK(id == 0); /* RFC 9114 5.2: no request taken up yet */
 }
 
+/* RFC 9114 6.2.1 / RFC 9000 2.2: GOAWAY continues the control stream right
+ * after the SETTINGS bytes actually sent (l.ctrl_settings_len), never after
+ * a fresh re-encode -- SETTINGS carries a random grease pair, so a
+ * re-encode can differ in length and leave a hole or an overlap. */
+static void test_srvrun_goaway_follows_sent_settings(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  wired_obuf    ob;
+  u8            out[256], obuf[1024];
+  const u8*     pl;
+  usz           pll;
+  stream_frame  sf;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.l.ctrl_settings_len = 77;
+  {
+    wired_obuf gob = {out, sizeof out, 0};
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    CHECK(srvrun_send_goaway(&cfg, &c, &gob) == 1);
+    CHECK(client_open_onertt(&f, out, gob.len, &pl, &pll) == 1);
+  }
+  CHECK(frame_get_stream(pl, pll, &sf) > 0);
+  CHECK(sf.stream_id == SRVRUN_CTRL_STREAM && sf.offset == 77);
+}
+
 /* NOT UP: a slot that never came up owes no GOAWAY (no peer to send it to). */
 static void test_srvrun_not_up_owes_nothing(void) {
   srvrun_conn c = {0};
@@ -20472,6 +20499,7 @@ void test_srvrun(void) {
   test_srvrun_owes_goaway_once();
   test_srvrun_no_goaway_on_hq();
   test_srvrun_goaway_wire_content();
+  test_srvrun_goaway_follows_sent_settings();
   test_srvrun_not_up_owes_nothing();
   test_srvrun_unconfirmed_owes_nothing();
   test_srvrun_all_drained_true_when_all_down();
