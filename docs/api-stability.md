@@ -48,8 +48,8 @@ Call these without needing to know the QUIC/TLS state machine underneath.
 | `wired_server_wt_drain_session` | Minor addition: send WT_DRAIN_SESSION on a session's CONNECT stream on the loop's next step, at most once per session (a repeat call returns 1 without sending); 0 when the session is no longer live. Same loop-context constraint. |
 | `wired_server_wt_stream_priority` | Minor addition: set a server-sent stream's RFC 9218 urgency (0..7, lower first, default 3). Each send pass serves only the most urgent streams that can send; equal urgency keeps the existing turn order. Negative for urgency above 7 or an id with no open send slot. Same loop-context constraint. |
 | `wired_server_wt_occupancy`, `wired_wt_occupancy` (struct) | Minor addition: the calling loop's open WebTransport sessions and client-opened WT streams, with their compile-time capacities, for stats. A point-in-time snapshot, unlike the cumulative totals of `wired_srvrun_env_wt_usage`. Same loop-context constraint. |
-| `wired_srvrun_handler` (struct) | The callback + context pair passed to the run functions to answer requests; its trailing `http` member (0 = unused) takes a `wired_http_handler`, which fills a `wired_http_exchange` to choose the status and add up to `WIRED_HTTP_MAX_FIELDS` `wired_http_field` response headers. `wired_http_field` is a typedef of the internal `qpack_field` (two `wired_span`s, name then value), so its layout follows that struct. Its trailing `on_body` member (0 = buffer the body whole) takes a `wired_srvloop_on_body`, which receives the request body in chunks as it streams in before the responder runs. |
-| `wired_http_req_header` | Look up a regular request header of `wired_http_exchange.req` by its lowercase name (exact match). `cookie` returns all crumbs joined with `; `; other duplicates return the first. Apart from cookie, origin and wt-available-protocols, only the first `WIRED_H3REQDRIVE_MAX_HDRS` (32) regular headers are kept; later ones are not found. In later rounds of a streaming response the request is a copy with 512 bytes of room for its views and headers, so trailing headers that do not fit are not found there. The value view lives as long as the request's other views. |
+| `wired_srvrun_handler` (struct) | The callback + context pair passed to the run functions to answer requests. Minor additions: its trailing `http` member (0 = unused) takes a `wired_http_handler`, which fills a `wired_http_exchange` to choose the status and add up to `WIRED_HTTP_MAX_FIELDS` `wired_http_field` response headers. `wired_http_field` is a typedef of the internal `qpack_field` (two `wired_span`s, name then value), so its layout follows that struct. Its trailing `on_body` member (0 = buffer the body whole) takes a `wired_srvloop_on_body`, which receives the request body in chunks as it streams in before the responder runs. |
+| `wired_http_req_header` | Minor addition: look up a regular request header of `wired_http_exchange.req` by its lowercase name (exact match). `cookie` returns all crumbs joined with `; `; other duplicates return the first. Apart from cookie, origin and wt-available-protocols, only the first `WIRED_H3REQDRIVE_MAX_HDRS` (32) regular headers are kept; later ones are not found. In later rounds of a streaming response the request is a copy with 512 bytes of room for its views and headers, so trailing headers that do not fit are not found there. The value view lives as long as the request's other views. |
 | `wired_certreload_load`, `wired_certreload_load_or_selfsigned` | Load a cert chain + P-256 key from a PEM pair into caller-owned storage; the store must outlive the identity built from it. `_or_selfsigned` keeps the existing identity when no cert path is set, and dies with a diagnostic when a set path fails to load. |
 | `wired_udp_socket`, `wired_udp_bind`, `wired_udp_send`, `wired_udp_recv`, `wired_udp_recvfrom`, `wired_udp_close`, `wired_udp_addr` | Plain UDP socket calls, no QUIC state involved. Safe to call in any order a normal sockets program would. |
 | `wired_pem_next` | Decode one PEM block from text; repeat the call to walk a fullchain file. Self-contained, no ordering constraints beyond the cursor argument. |
@@ -76,7 +76,7 @@ users. Each has a call-order or lifetime precondition that is easy to violate.
 | Function | Why it needs care |
 |---|---|
 | `wired_srvboot_is_initial`, `wired_srvboot_accept` | Cold-starts one connection from a raw Initial datagram. `accept` must run before any `wired_srvloop_step` call for that connection, and its `wired_srvboot_id` fields are views the caller must keep alive for the call. |
-| `wired_srvloop_init`, `wired_srvloop_set_handler`, `wired_srvloop_step` | Drives one connection's per-datagram state machine. `init` must run once per connection before `step`; `step` must be called in datagram-arrival order; the decoded request in `wired_srvloop` is only valid until the next `step`. |
+| `wired_srvloop_init`, `wired_srvloop_set_handler`, `wired_srvloop_step`, `wired_srvloop_wt_refuse` | Drives one connection's per-datagram state machine. `init` must run once per connection before `step`; `step` must be called in datagram-arrival order; the decoded request in `wired_srvloop` is only valid until the next `step`. `wt_refuse` (minor addition) queues a WebTransport stream the slot table could not take, for the run loop to reset with H3_REQUEST_REJECTED. |
 | `wired_srvloop_send_initial`, `wired_srvloop_send_handshake`, `wired_srvloop_send_onertt` | Seal one specific packet type under a specific key level. Calling the wrong one for the current handshake phase (e.g. `send_handshake` before the Handshake key is derived) fails or produces an unusable packet. |
 | `wired_server_init`, `wired_server_set_cids`, `wired_server_recv_initial`, `wired_server_build_flight`, `wired_server_feed`, `wired_server_handshake_done`, `wired_server_is_confirmed`, `wired_server_listen`, `wired_server_pump`, `wired_server_run_handshake`, `wired_server_close` | The server-side handshake orchestrator's individual phase transitions (`INITIAL -> CH_RECVD -> FLIGHT_SENT -> CONFIRMED`). Each function is only valid in specific phases (e.g. `set_cids` must run before `build_flight`); calling out of order is a documented failure mode, not a crash-safe no-op. `wired_server_run` wraps all of these for the common case. |
 | `wired_srvrun_env_size`, `wired_srvrun_env_init`, `wired_srvrun_serve_env` | Caller-owned extra loop instances (e.g. one per thread): allocate `env_size()` bytes and `env_init` them before the first `serve_env`, and set `no_signal_handlers=1` on every instance but one — SIGTERM/SIGHUP handlers are process-wide. |
@@ -137,8 +137,8 @@ care.
 
 ## MOQT is not on this map
 
-`src/app/moqt/` (six modules: `ctl`, `data`, `kvp`, `run`, `sess`, `vi`)
-implements MOQT (draft-ietf-moq-transport-19) but its headers are not
+`src/app/moqt/` (eleven modules: `cache`, `ctl`, `data`, `dgram`, `fetch`,
+`kvp`, `ns`, `run`, `sess`, `tstat`, `vi`) implements MOQT (draft-ietf-moq-transport-19) but its headers are not
 included by `src/wired.h`, so none of it appears in either table above —
 `wired_moqt_init` and friends (`run/moqtrun.h`) are deliberately outside the
 one-include surface this document maps. This is a design choice, not an
@@ -146,6 +146,17 @@ oversight: `examples/moqt_chat` includes `app/moqt/run/moqtrun.h` directly
 alongside `wired.h`, the same way any other MOQT application would. Treat
 `src/app/moqt/` headers with the same care as the Low-level table — read the
 header before calling.
+
+Minor additions to `run/moqtrun.h` in this round, all zero = old behavior:
+
+| Name | Role |
+|---|---|
+| `wired_moqt_cache_attach` | Hand the hub a caller-owned arena for its whole-group object cache, which serves FETCH; without it FETCH reports every range as unknown. |
+| `wired_moqt_goaway` | Send MOQT GOAWAY (optional New Session URI, timeout) on every session, then PUBLISH_DONE and close with GOAWAY_TIMEOUT once the timeout passes. |
+| `wired_moqt_on_session_draining` | Shaped as `wired_srvrun_opt.wt_on_session_draining`: a peer's WT_DRAIN_SESSION starts the GOAWAY sequence for that session. |
+| `wired_moqt_on_stream_reset` | Tell the hub a peer reset one of its streams, which cancels the request or FETCH that stream carried. |
+| `wired_moqt_hub.authorize_namespace`, `authorize_ns_ctx`, `wired_moqt_authorize_ns_fn` | Optional authorizer for PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE; 0 grants all. |
+| `wired_moqt_io.close_session`, `stream_reply_open`, `stream_priority` | io-table ops appended at the end, shaped as `wired_server_wt_close_session`, `wired_server_wt_stream_reply_open` and `wired_server_wt_stream_priority`. A 0 op keeps the old behavior (no close, no per-request streams, default urgency). |
 
 ---
 
