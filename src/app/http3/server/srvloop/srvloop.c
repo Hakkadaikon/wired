@@ -71,7 +71,6 @@ static void wt_streams_reset(wired_srvloop* l) {
     l->wt_streams[i].fin_delivered     = 0;
     l->wt_streams[i].credit_advertised = 0;
     l->wt_streams[i].credit_hold       = 0;
-    l->wt_streams[i].send_armed        = 0;
     wt_window_reset(&l->wt_streams[i].win);
   }
 }
@@ -348,7 +347,7 @@ static void srvloop_closed_advance(wired_srvloop_closed* w) {
  * every lookup finds its live slot before consulting this set -- and an
  * index left behind that was never opened would have to arrive 1024
  * streams late, which RFC 9000 2.1's in-order id use makes implausible. */
-static void srvloop_closed_mark(wired_srvloop_closed* w, u64 stream_id) {
+void wired_srvloop_closed_mark(wired_srvloop_closed* w, u64 stream_id) {
   u64 idx = stream_id / 4;
   if (idx < w->floor) return;
   while (idx - w->floor >= 1024) srvloop_closed_shift64(w);
@@ -356,8 +355,8 @@ static void srvloop_closed_mark(wired_srvloop_closed* w, u64 stream_id) {
   srvloop_closed_advance(w);
 }
 
-/* 1 if stream_id was already closed (see srvloop_closed_mark). */
-static int srvloop_closed_has(const wired_srvloop_closed* w, u64 stream_id) {
+/* 1 if stream_id was already closed (see wired_srvloop_closed_mark). */
+int wired_srvloop_closed_has(const wired_srvloop_closed* w, u64 stream_id) {
   u64 idx = stream_id / 4;
   if (idx < w->floor) return 1;
   if (idx - w->floor >= 1024) return 0;
@@ -366,11 +365,11 @@ static int srvloop_closed_has(const wired_srvloop_closed* w, u64 stream_id) {
 
 /* The client bidi (request + WT bidi) closed set. */
 static void req_closed_mark(wired_srvloop* l, u64 stream_id) {
-  srvloop_closed_mark(&l->req_closed, stream_id);
+  wired_srvloop_closed_mark(&l->req_closed, stream_id);
 }
 
 static int req_closed_has(const wired_srvloop* l, u64 stream_id) {
-  return srvloop_closed_has(&l->req_closed, stream_id);
+  return wired_srvloop_closed_has(&l->req_closed, stream_id);
 }
 
 /* Claim and reset a free slot for stream_id.
@@ -505,7 +504,6 @@ static int wt_slot_claim_at(wired_srvloop* l, usz i, u64 stream_id) {
   l->wt_streams[i].fin_delivered     = 0;
   l->wt_streams[i].credit_advertised = 0;
   l->wt_streams[i].credit_hold       = 0;
-  l->wt_streams[i].send_armed        = 0;
   wt_window_reset(&l->wt_streams[i].win);
   return (int)i;
 }
@@ -581,7 +579,7 @@ int wired_srvloop_wt_uni_slot_find(const wired_srvloop* l, u64 stream_id) {
  * duplicate reopening a stream the app already saw FIN for (see
  * wt_uni_closed's doc). */
 static int wt_uni_slot_is_stale(const wired_srvloop* l, u64 stream_id) {
-  return srvloop_closed_has(&l->wt_uni_closed, stream_id);
+  return wired_srvloop_closed_has(&l->wt_uni_closed, stream_id);
 }
 
 /* Claim and reset a free wt_uni_streams slot for stream_id. */
@@ -622,7 +620,7 @@ void wired_srvloop_wt_uni_slot_release(wired_srvloop* l, u64 stream_id) {
   int i = wired_srvloop_wt_uni_slot_find(l, stream_id);
   if (i < 0) return;
   l->wt_uni_streams[i].in_use = 0;
-  srvloop_closed_mark(&l->wt_uni_closed, stream_id);
+  wired_srvloop_closed_mark(&l->wt_uni_closed, stream_id);
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: byte count of [abs_off, abs_off+n) that

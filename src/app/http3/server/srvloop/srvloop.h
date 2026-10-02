@@ -351,10 +351,6 @@ typedef struct {
    * 19.10) -- so the peer's send window drains and it pauses; 0 resumes
    * raising on the next step. */
   int credit_hold;
-  /** 1 once the caller driving the loop (srvrun.c) armed a send on this
-   * stream (a WT reply): with that send slot gone, the stream's send part
-   * has ended (RFC 9000 3.1 "Data Recvd", or already reset). */
-  int send_armed;
 } wired_srvloop_wt_stream_slot;
 
 /** draft-ietf-webtrans-http3-15 4.3: how many concurrent WebTransport uni
@@ -470,6 +466,14 @@ typedef struct {
   u64 floor;  /**< every index below this is closed */
   u64 bm[16]; /**< the 1024 indexes from floor up */
 } wired_srvloop_closed;
+
+/** Record stream_id's id-space index in w (see srvloop.c's closed-set doc:
+ * exact ids over a sliding 1024-index window; an id past the window slides
+ * it up, counting every index left behind as recorded). */
+void wired_srvloop_closed_mark(wired_srvloop_closed* w, u64 stream_id);
+
+/** 1 if stream_id's index is recorded in w (or below its window). */
+int wired_srvloop_closed_has(const wired_srvloop_closed* w, u64 stream_id);
 
 /** Per-connection state of the server wire loop, re-armed by
  * wired_srvloop_init and driven by wired_srvloop_step. Field order follows

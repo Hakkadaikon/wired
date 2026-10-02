@@ -556,6 +556,17 @@ typedef struct {
   u32 wt_stream_reset_app_code[SRVRUN_WT_RESET_LATCH];
   u64 wt_stream_reset_final[SRVRUN_WT_RESET_LATCH];
   usz wt_stream_reset_n;
+  /** Client-bidi stream ids whose server send part already ran to its end
+   * (reply FIN ACKed and slot reaped, or a reset already sent) -- consulted
+   * before building any further RESET_STREAM for the id. The record must
+   * outlive BOTH the receive slot (freed once the request's FIN is
+   * delivered; the reply usually comes on a later step) and the send slot
+   * (reaped on the FIN ACK), so it lives in neither: same exact-id sliding
+   * window as req_closed. Server-initiated ids are covered by the
+   * wt_uni_opened/wt_bidi_opened counters instead (and would alias client
+   * ids in this /4-indexed window, the same reason wt_closed_mark skips
+   * them). */
+  wired_srvloop_closed wt_send_done;
   /** One pending outbound QUIC DATAGRAM (RFC 9221 5), queued by
    * srvrun_wt_send_datagram and drained by srvrun_send_pending_datagram on
    * the next step. ponytail: single-slot, not a queue — a second send
@@ -1729,7 +1740,6 @@ static int srvrun_on_initial(
 static u64  srvrun_wtsend_final_size(srvrun_conn* c, u64 stream_id);
 static int  srvrun_wt_send_ended(srvrun_conn* c, u64 stream_id);
 static void srvrun_wtsend_release(srvrun_conn* c, u64 stream_id);
-static void srvrun_wt_note_send_armed(srvrun_conn* c, u64 stream_id);
 
 /* One standard RESET_STREAM (RFC 9000 19.4) at plb->p + at, its Final Size
  * the bytes already sent on stream_id's send slot (0 for a stream this
@@ -1756,6 +1766,9 @@ static usz srvrun_wt_abort_stop(
  * alone once the send half already ended, srvrun_wt_abort_reset). */
 static usz srvrun_wt_abort_pair(
     srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb) {
+  /* rn == 0 only means the send part ended: every caller's plb (48 bytes,
+   * srvrun_send_wt_busy_reset) fits one RESET_STREAM (type + 3 varints,
+   * at most 25 bytes), so it is never an encode failure. */
   usz rn = srvrun_wt_abort_reset(c, stream_id, err_code, plb, 0);
   usz sn = srvrun_wt_abort_stop(stream_id, err_code, plb, rn);
   if (!sn) return 0;
@@ -4605,7 +4618,6 @@ static int srvrun_wt_stream_reply_common(
   w->append_open = keep_open;
   wired_wt_session_note_data_sent(s, payload.n);
   srvrun_wtsend_arm_id(c, w, stream_id, payload);
-  srvrun_wt_note_send_armed(c, stream_id);
   return 1;
 }
 
@@ -4879,12 +4891,17 @@ int wired_server_wt_stream_hold(wired_wt_session* s, u64 stream_id, int hold) {
   return srvrun_wt_rx_hold_uni(&c->l, stream_id, hold);
 }
 
+static void srvrun_wt_send_done_mark(srvrun_conn* c, u64 stream_id);
+
 /* Free the WT send slot armed on stream_id, if any: abandoning delivery
  * (RFC 9000 19.4 RESET_STREAM) releases the app's payload view and stops
- * the pump from sending further slices. */
+ * the pump from sending further slices. The id is recorded as send-done so
+ * no later reset can claim a smaller Final Size (RFC 9000 4.5). */
 static void srvrun_wtsend_release(srvrun_conn* c, u64 stream_id) {
   srvrun_wtsend* w = srvrun_wtsend_find(c, stream_id);
-  if (w) w->in_use = 0;
+  if (!w) return;
+  w->in_use = 0;
+  srvrun_wt_send_done_mark(c, stream_id);
 }
 
 /* Bytes already sent on stream_id's send slot (the round's base offset plus
@@ -4904,28 +4921,27 @@ static u64 srvrun_server_opened(const srvrun_conn* c, u64 stream_id) {
   return (stream_id & 2) ? c->wt_uni_opened + 2 : c->wt_bidi_opened;
 }
 
-/* 1 iff a send was ever armed on stream_id: a server-initiated id (RFC 9000
- * 2.1 low bit set) this server already opened -- its send slot is claimed
- * at open -- or a client bidi once a reply set its slot's send_armed. */
-static int srvrun_wt_send_armed(srvrun_conn* c, u64 stream_id) {
-  int i;
+/* 1 iff stream_id's send part ran to its end once its (live) send slot is
+ * discounted: a server-initiated id (RFC 9000 2.1 low bit set) this server
+ * already opened -- its send slot is claimed at open, so a missing slot
+ * means reaped -- or a client bidi recorded in wt_send_done (its doc). */
+static int srvrun_wt_send_over(srvrun_conn* c, u64 stream_id) {
   if (stream_id & 1) return stream_id / 4 < srvrun_server_opened(c, stream_id);
-  i = wired_srvloop_wt_slot_find(&c->l, stream_id);
-  return i >= 0 && c->l.wt_streams[i].send_armed;
+  return wired_srvloop_closed_has(&c->wt_send_done, stream_id);
 }
 
-/* 1 iff stream_id's send part already ended: armed once, and its send slot
- * is gone (reaped after the FIN was ACKed -- RFC 9000 3.1 "Data Recvd" --
- * or freed by an earlier reset that already carried the Final Size). */
+/* 1 iff stream_id's send part already ended: its send slot is gone (reaped
+ * after the FIN was ACKed -- RFC 9000 3.1 "Data Recvd" -- or freed by an
+ * earlier reset that already carried the Final Size). */
 static int srvrun_wt_send_ended(srvrun_conn* c, u64 stream_id) {
-  return !srvrun_wtsend_find(c, stream_id) &&
-         srvrun_wt_send_armed(c, stream_id);
+  return !srvrun_wtsend_find(c, stream_id) && srvrun_wt_send_over(c, stream_id);
 }
 
-/* Record stream_id's reply on its wt_streams slot (srvrun_wt_send_armed). */
-static void srvrun_wt_note_send_armed(srvrun_conn* c, u64 stream_id) {
-  int i = wired_srvloop_wt_slot_find(&c->l, stream_id);
-  if (i >= 0) c->l.wt_streams[i].send_armed = 1;
+/* Record a client-bidi reply's send part as over (wt_send_done's doc).
+ * Server-initiated ids are covered by the opened counters instead, and
+ * would alias client ids in the /4-indexed window. */
+static void srvrun_wt_send_done_mark(srvrun_conn* c, u64 stream_id) {
+  if (!(stream_id & 1)) wired_srvloop_closed_mark(&c->wt_send_done, stream_id);
 }
 
 int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id) {
@@ -8136,9 +8152,24 @@ static int srvrun_wtsend_reapable(const srvrun_conn* c, srvrun_wtsend* w) {
          (srvrun_wtsend_capsule_open(c, w) && srvrun_wtsend_epoch_acked(w));
 }
 
+/* Reap w if it may be freed. A FINISHED slot (FIN sent and ACKed, "Data
+ * Recvd") records its id as send-done, so no later reset can shrink the
+ * final size (RFC 9000 4.5); a recycled open capsule slot does not -- its
+ * CONNECT stream is still live and may yet be reset. finished is checked
+ * exactly once per slot: wired_sendsess_done latches (its true also clears
+ * active), so a second call would read 0 and lose the mark. */
+static void srvrun_reap_one_wtsend(srvrun_conn* c, srvrun_wtsend* w) {
+  if (srvrun_wtsend_finished(w)) {
+    srvrun_wt_send_done_mark(c, w->stream_id);
+    w->in_use = 0;
+    return;
+  }
+  if (srvrun_wtsend_reapable(c, w)) w->in_use = 0;
+}
+
 static void srvrun_reap_wtsends(srvrun_conn* c) {
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
-    if (srvrun_wtsend_reapable(c, &c->wtsend[i])) c->wtsend[i].in_use = 0;
+    srvrun_reap_one_wtsend(c, &c->wtsend[i]);
 }
 
 /* Sum of receive-window overflow drops across this connection's WT stream
