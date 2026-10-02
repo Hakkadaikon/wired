@@ -16293,7 +16293,7 @@ static void test_srvrun_wt_rx_partial_capsule_waits_for_more(void) {
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
   CHECK(c->wt.max_data == 0);
   /* held, behind a 2-byte DATA frame head */
-  CHECK(c->wt_caprx[0].n == capb.len - 3);
+  CHECK(c->wt_capq[0].n == capb.len - 3);
   CHECK(
       sr_wtcap_feed(c, capb.len - 1, wired_span_of(capbuf + capb.len - 1, 1)) !=
       0);
