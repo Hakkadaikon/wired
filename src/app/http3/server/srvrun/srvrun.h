@@ -686,7 +686,7 @@ int wired_server_wt_stream_hold(wired_wt_session* s, u64 stream_id, int hold);
 /** Abort a stream opened for appending: queue a standard RESET_STREAM (RFC
  * 9000 19.4) on stream_id carrying error_code mapped into HTTP/3's
  * WebTransport range (draft-ietf-webtrans-http3-15 SS4.4/8.2) and the
- * stream's bytes-armed-so-far as its Final Size, delivered on one of the
+ * stream's bytes-sent-so-far as its Final Size, delivered on one of the
  * loop's next steps. Resets queue into a small bounded latch (several
  * streams can be aborted between steps -- e.g. a relay fanning one source
  * out to many subscribers); a FULL latch refuses the call and leaves the
