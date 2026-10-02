@@ -263,8 +263,6 @@ static u64 mtdr_done_on(u64 sid, u64* count) {
   return ~(u64)0;
 }
 
-#define MTDR_UNKNOWN_STREAMS (((u64)1 << 62) - 1)
-
 /* The publisher's session ending ends its subscribers' subscriptions:
  * PUBLISH_DONE TRACK_ENDED, then FIN, and a rejoin does not revive them.
  * A subscription on the control stream has no stream to carry it and is
@@ -277,12 +275,82 @@ static void test_moqtrun_done_track_ended(void) {
   mtst_subscribe(SESS_C, mtdr_ctl(SESS_C), &f);
   wired_moqt_on_session_close(&mtst_hub, SESS_A);
   CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_TRACK_ENDED);
-  CHECK(count == MTDR_UNKNOWN_STREAMS);
+  CHECK(count == MOQTRUN_DONE_STREAMS_UNKNOWN);
   CHECK(mtrq_fin_on(MTRQ_S1) == 1);
   CHECK(mtdr_sent(mtdr_ctl(SESS_C), MOQCTL_T_PUBLISH_DONE) == 0);
   mtst_publish(SESS_A, mtst_join(SESS_A), &f, 1);
   CHECK(mtst_sub(SESS_A, SESS_B) == 0);
   CHECK(mtst_sub(SESS_A, SESS_C) != 0);
+}
+
+/* Id of the last keep-open relay stream opened to s (io kind 5). */
+static u64 mtdr_uni_sid(wired_wt_session* s) {
+  for (usz i = g_n_calls; i > 0; i--)
+    if (g_calls[i - 1].kind == 5 && g_calls[i - 1].s == s)
+      return g_calls[i - 1].stream_id;
+  return ~(u64)0;
+}
+
+/* Call index of the first reset of sid (*code its code); g_n_calls if
+ * none. */
+static usz mtdr_reset_at(u64 sid, int* code) {
+  for (usz i = 0; i < g_n_calls; i++)
+    if (g_calls[i].kind == 7 && g_calls[i].stream_id == sid) {
+      *code = g_calls[i].fin;
+      return i;
+    }
+  return g_n_calls;
+}
+
+/* Call index of the first round on sid carrying a PUBLISH_DONE. */
+static usz mtdr_done_at(u64 sid) {
+  u64 count;
+  for (usz i = 0; i < g_n_calls; i++)
+    if ((g_calls[i].kind == 3 || g_calls[i].kind == 12) &&
+        g_calls[i].stream_id == sid &&
+        mtdr_done_in(&g_calls[i], &count) != ~(u64)0)
+      return i;
+  return g_n_calls;
+}
+
+/* 10.11: every stream the hub opened for a subscription is closed before
+ * its PUBLISH_DONE -- the open relay stream is reset first (CANCELLED for
+ * a track that ended). A control-stream subscriber's stream is still
+ * reset by the republish's stale-relay walk, as before. */
+static void test_moqtrun_done_resets_streams_first(void) {
+  moqctl_ftn f = mtrq_setup();
+  u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  int        code = -1;
+  mtst_join(SESS_C);
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  mtst_subscribe(SESS_C, mtdr_ctl(SESS_C), &f);
+  usz n = mtst_stream(3, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  u64 sb = mtdr_uni_sid(SESS_B), sc = mtdr_uni_sid(SESS_C);
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  usz at = mtdr_reset_at(sb, &code);
+  CHECK(at < mtdr_done_at(MTRQ_S1));
+  CHECK(code == MOQTRUN_RESET_CANCELLED);
+  CHECK(mtdr_reset_at(sc, &code) == g_n_calls);
+  mtst_publish(SESS_A, mtst_join(SESS_A), &f, 1);
+  CHECK(mtdr_reset_at(sc, &code) < g_n_calls);
+  CHECK(mtdr_reset_at(sb, &code) == at); /* reset once */
+}
+
+/* A failed update resets the subscription's open stream before its
+ * PUBLISH_DONE UPDATE_FAILED too. */
+static void test_moqtrun_upd_failed_resets_first(void) {
+  moqctl_params p = mtup_vi(MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 9);
+  moqctl_ftn    f = mtrq_setup();
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  int           code = -1;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  usz n = mtst_stream(3, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  u64 sb = mtdr_uni_sid(SESS_B);
+  mtup_update(SESS_B, MTRQ_S1, &p);
+  CHECK(mtdr_reset_at(sb, &code) < mtdr_done_at(MTRQ_S1));
+  CHECK(code == MOQTRUN_RESET_CANCELLED);
 }
 
 /* ===================== GOAWAY timeout (3.6) ===================== */
@@ -294,7 +362,13 @@ static void test_moqtrun_done_track_ended(void) {
 static void test_moqtrun_goaway_timeout_flush_then_close(void) {
   moqctl_ftn f     = mtrq_setup();
   u64        count = 0, code = 0;
+  int        rcode = -1;
+  u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  mtst_join(SESS_C);
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  usz n = mtst_stream(3, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  u64 sb = mtdr_uni_sid(SESS_B);
   wired_moqt_tick(&mtst_hub, 1000);
   wired_moqt_goaway(&mtst_hub, mtst_z(""), 500);
   wired_moqt_tick(&mtst_hub, 1499);
@@ -302,13 +376,18 @@ static void test_moqtrun_goaway_timeout_flush_then_close(void) {
   CHECK(mtdr_closes(SESS_B, &code) == 0);
   wired_moqt_tick(&mtst_hub, 1500);
   CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_GOING_AWAY);
+  CHECK(mtdr_reset_at(sb, &rcode) < mtdr_done_at(MTRQ_S1));
+  CHECK(rcode == MOQTRUN_RESET_GOING_AWAY);
   CHECK(mtrq_fin_on(MTRQ_S1) == 1);
   CHECK(mtst_sub(SESS_A, SESS_B) == 0);
   CHECK(mtdr_closes(SESS_B, &code) == 0);
   wired_moqt_tick(&mtst_hub, 1501);
-  CHECK(mtdr_closes(SESS_B, &code) == 1);
+  CHECK(mtdr_closes(SESS_B, &code) == 1); /* its request stream is open */
   CHECK(code == WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT);
-  CHECK(mtdr_closes(SESS_A, &code) == 1);
+  CHECK(mtdr_closes(SESS_A, &code) == 1); /* it publishes a track */
+  CHECK(code == WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT);
+  CHECK(mtdr_closes(SESS_C, &code) == 1); /* nothing open */
+  CHECK(code == WIRED_MOQTRUN_CLOSE_NO_ERROR);
   wired_moqt_tick(&mtst_hub, 1502);
   CHECK(mtdr_closes(SESS_B, &code) == 1); /* closed once */
 }
@@ -387,6 +466,8 @@ static void test_moqtrun_goaway_retried_on_tick(void) {
 }
 
 void test_moqtrun_drain(void) {
+  test_moqtrun_done_resets_streams_first();
+  test_moqtrun_upd_failed_resets_first();
   test_moqtrun_goaway_retried_on_tick();
   test_moqtrun_upd_failed_ends_subscription();
   test_moqtrun_upd_failed_closes_ns();
