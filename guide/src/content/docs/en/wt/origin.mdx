@@ -18,11 +18,10 @@ session is established.
   before the session exists. Returning `0` answers `403` with no session;
   the default (`0`, unset) accepts every well-formed Origin.
 - `origin` is the CONNECT's `Origin` header as a view, valid only during the
-  call. A CONNECT sent with no `Origin` header at all arrives here as the
-  same empty span as one sent with an explicitly empty `Origin: `: neither
-  the draft nor this callback's `wired_span` distinguishes "absent" from
-  "present but empty", so an allow-list that never special-cases the empty
-  string rejects both the same way this page's callback does.
+  call. A CONNECT sent with an explicitly empty `Origin: ` never reaches this
+  callback at all: the SDK itself answers `403` for a present-but-empty
+  Origin before `wt_origin_check` runs. Only a CONNECT sent with no `Origin`
+  header at all arrives here, as an empty span.
 - `authority` (the CONNECT's `:authority`) is also available, for a check
   that varies by virtual host; this page ignores it.
 - Both requests target the same `/chat` path, so the only thing that
