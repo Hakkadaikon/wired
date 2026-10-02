@@ -378,6 +378,15 @@ typedef struct {
    * traffic flows. */
   wired_srvrun_on_step on_step;
   void*                on_step_ctx; /**< opaque ctx passed to on_step */
+  /** draft-ietf-webtrans-http3-15 SS3.1 / RFC 6454: app-facing Origin
+   * verdict for one WebTransport Extended CONNECT, 0 to disable (the
+   * default, which accepts every well-formed Origin). Called after
+   * wt_resource_check accepted and before the session is established:
+   * return 1 to proceed, 0 to answer 403 with no session. origin is the
+   * request's origin header (an empty span when the CONNECT carries none);
+   * authority is its :authority. Both are views not valid past the call. */
+  int (*wt_origin_check)(void* ctx, wired_span origin, wired_span authority);
+  void* wt_origin_ctx; /**< opaque ctx passed to wt_origin_check */
 } wired_srvrun_opt;
 
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must
