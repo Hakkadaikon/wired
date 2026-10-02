@@ -504,6 +504,19 @@ describe("MoqtChatClient namespace discovery", () => {
     expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(0);
   });
 
+  it("a request the closing session can no longer open is dropped, not an unhandled rejection", async () => {
+    const { fake, client, watch } = await announced();
+    fake.createBidirectionalStream = async () => {
+      throw new Error("The session is closed.");
+    };
+
+    watch.replies.push(ns(0x8n, "user2"));
+    await flush();
+
+    expect(client.isSubscribed("user2")).toBe(false);
+    expect(await client.subscribeTrack(utf8ToBytes("user3"), "user3")).toBe(true);
+  });
+
   it("a deeper suffix (user2/screen) is reported but subscribes nothing itself", async () => {
     const { fake, seen, watch } = await announced();
 
