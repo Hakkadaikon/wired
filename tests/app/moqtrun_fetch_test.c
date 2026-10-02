@@ -26,8 +26,9 @@ static void mf_init(usz cap) {
   mtst_publish(SESS_A, mf_ctrl_a, &f, MF_ALIAS);
 }
 
-/* A sends Object {g, o} of n bytes (each 16*g+o) on its own stream. */
-static void mf_obj(u64 g, u64 o, usz n) {
+/* A opens a new stream carrying Object {g, o} of n bytes (each 16*g+o),
+ * with FIN when fin; returns the stream id. */
+static u64 mf_obj_on(u64 g, u64 o, usz n, int fin) {
   u8             buf[MOQTRUN_TEST_MAX_PAYLOAD];
   u8             pl[MOQTRUN_TEST_MAX_PAYLOAD];
   usz            off = 0;
@@ -41,8 +42,12 @@ static void mf_obj(u64 g, u64 o, usz n) {
       wired_mspan_of(buf, sizeof buf), &off, o, wired_span_of(pl, n));
   mf_pub_sid += 4;
   wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, mf_pub_sid, wired_span_of(buf, off), 1);
+      &mtst_hub, SESS_A, mf_pub_sid, wired_span_of(buf, off), fin);
+  return mf_pub_sid;
 }
+
+/* A sends Object {g, o} of n bytes on its own one-shot stream. */
+static void mf_obj(u64 g, u64 o, usz n) { mf_obj_on(g, o, n, 1); }
 
 /* ===================== cache attach ===================== */
 
@@ -507,6 +512,47 @@ static void test_moqtrun_fetch_join_forward_off(void) {
   CHECK(mf_error() == MOQCTL_ERR_INVALID_RANGE);
 }
 
+/* ===================== publisher rejoin ===================== */
+
+/* A rejoined publisher re-attaches B's Largest Object subscription; its
+ * start and Joining Location are resolved against the new incarnation's
+ * Largest (seeded by PUBLISH, 10.2.16), not kept from the old one. */
+static void test_moqtrun_fetch_rejoin_reresolves_start(void) {
+  moqctl_ftn    f    = mf_track();
+  moqctl_params seed = {0};
+  mf_init(sizeof mf_arena);
+  mf_obj(5, 0, 1);
+  mf_subscribe(0);
+  CHECK(mf_loc_eq(mtst_sub(SESS_A, SESS_B)->start, 5, 1));
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  seed.items[0].type = MOQCTL_PARAM_LARGEST_OBJECT;
+  seed.items[0].enc  = MOQCTL_PENC_LOCATION;
+  seed.items[0].loc  = mf_loc(2, 3);
+  seed.n             = 1;
+  mtst_publish_p(SESS_C, mtst_join(SESS_C), &f, MF_ALIAS, &seed);
+  wired_moqtrun_sub* s = mtst_sub(SESS_C, SESS_B);
+  CHECK(s != 0);
+  CHECK(s && mf_loc_eq(s->start, 2, 4));
+  CHECK(s && s->has_jl && mf_loc_eq(s->jl, 2, 3));
+}
+
+/* A reliable stream that began before B's subscription start carries
+ * only Objects a Joining Fetch already covers: B is not replayed onto
+ * it, while an unfiltered subscriber C still is. */
+static void test_moqtrun_fetch_no_replay_before_start(void) {
+  moqctl_ftn f = mf_track();
+  mf_init(sizeof mf_arena);
+  mtst_hub.reliable_alias_limit = 100; /* alias 1: reliable */
+  u64 sid                       = mf_obj_on(1, 0, 1, 0);
+  mf_subscribe(0); /* start (1,1) */
+  mtst_subscribe(SESS_C, mtst_join(SESS_C), &f);
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(0, 0), 1);
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(moqtrun_test_count_kind(5) == 1);
+  CHECK(moqtrun_test_last_kind(5)->s == SESS_C);
+}
+
 void test_moqtrun_fetch(void) {
   test_moqtrun_fetch_cache_attach();
   test_moqtrun_fetch_cache_default_off();
@@ -529,4 +575,6 @@ void test_moqtrun_fetch(void) {
   test_moqtrun_fetch_join_unknown_request();
   test_moqtrun_fetch_absolute_join();
   test_moqtrun_fetch_join_forward_off();
+  test_moqtrun_fetch_rejoin_reresolves_start();
+  test_moqtrun_fetch_no_replay_before_start();
 }

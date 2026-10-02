@@ -160,6 +160,9 @@ typedef struct {
    * Fetch ends (10.12.2.1). */
   moqctl_loc jl;
   u8         has_jl;
+  /** LOCATION_FILTER type (MOQCTL_FILTER_*), 0 when unfiltered: what a
+   * re-attach re-resolves start against. */
+  u8 filter_type;
 } wired_moqtrun_sub;
 
 /** Fixed capacity for a saved SUBGROUP_HEADER (draft SS11.4.2: Type +
