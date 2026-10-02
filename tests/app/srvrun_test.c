@@ -4754,8 +4754,8 @@ static void test_srvrun_polling_pto_tick(void) {
  * the srvrun_cfg they build. Both must produce busy_poll=0, proving
  * wired_server_run's internal default_opt wrapper is wired correctly. */
 static void test_srvrun_opt_zeroed_matches_plain_default(void) {
-  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   CHECK(opt.busy_poll == 0);
   CHECK(opt.so_busy_poll_us == 0);
   CHECK(opt.so_prefer_busy_poll == 0);
@@ -4773,8 +4773,8 @@ static void test_srvrun_opt_zeroed_matches_plain_default(void) {
  * covers so_prefer_busy_poll/so_busy_poll_budget/incoming_cpu at their
  * disabled defaults (0/0/-1) in the same call. */
 static void test_srvrun_so_busy_poll_zero_still_binds(void) {
-  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0,
-                          0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0,  0};
+  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0,
+                          0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0,  0, 0};
   i64              fd  = srvrun_listen(4492, &opt);
   CHECK(fd >= 0);
   wired_udp_close(fd);
@@ -18494,17 +18494,25 @@ static void test_srvrun_wt_usage_counters_exposed(void) {
  * seals a 1-RTT packet with the client keys and runs it through the same
  * srvrun_on_step + srvrun_sess_on_step pair srvrun_serve does (fd=-1: sends
  * are no-ops, the sent-packet bookkeeping still runs). */
-static struct lp_fix   g_sl_f;
-static srvrun_cfg      g_sl_cfg;
-static srvrun_state    g_sl_st;
-static srvrun_step_ctx g_sl_ctx;
-static u64             g_sl_pn;
-static int             g_sl_closes;
+static struct lp_fix     g_sl_f;
+static srvrun_cfg        g_sl_cfg;
+static srvrun_state      g_sl_st;
+static srvrun_step_ctx   g_sl_ctx;
+static u64               g_sl_pn;
+static int               g_sl_closes;
+static int               g_sl_drains;
+static wired_wt_session* g_sl_drained;
 
 static void sr_sl_on_close(void* app_ctx, wired_wt_session* s) {
   (void)app_ctx;
   (void)s;
   g_sl_closes++;
+}
+
+static void sr_sl_on_drain(void* app_ctx, wired_wt_session* s) {
+  (void)app_ctx;
+  g_sl_drains++;
+  g_sl_drained = s;
 }
 
 static srvrun_conn* sr_sl_fixture(void) {
@@ -18521,7 +18529,10 @@ static srvrun_conn* sr_sl_fixture(void) {
   g_sl_ctx              = (srvrun_step_ctx){&g_sl_cfg, 0, &g_sl_st, 0, 0};
   g_sl_pn               = 10;
   g_sl_closes           = 0;
+  g_sl_drains           = 0;
+  g_sl_drained          = 0;
   g_sr_wt_handler_calls = 0;
+  g_srvrun_env.wt_on_session_draining = sr_sl_on_drain;
   return &conns[0];
 }
 
@@ -19251,6 +19262,48 @@ static void test_srvrun_wt_drain_after_long_capsule_run(void) {
   CHECK(sr_cap_send(c, hlen, caps, cb.len) == cb.len);
   CHECK(c->wt.max_data == v + 1000);
   CHECK(c->wt_active == 1);
+  CHECK(g_sl_drains == 1); /* the app hears it once */
+  CHECK(g_sl_drained == &c->wt);
+}
+
+/* Send capsule bytes d[0..n) on CONNECT stream 0 right after its HEADERS. */
+static void sr_drain_rx(srvrun_conn* c, const u8* d, usz n) {
+  usz hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  CHECK(sr_cap_send(c, hlen, d, n) == n);
+}
+
+/* draft-ietf-webtrans-http3-15 4.7: WT_DRAIN_SESSION is advisory -- the
+ * app's draining callback fires once and the session stays open. */
+static void test_srvrun_wt_drain_rx_notifies_app(void) {
+  u8           cap[8];
+  wired_obuf   cb = obuf_of(cap, sizeof cap);
+  srvrun_conn* c  = sr_sl_fixture();
+  CHECK(wtcapsule_encode_drain(&cb) == 1);
+  sr_drain_rx(c, cap, cb.len);
+  CHECK(g_sl_drains == 1 && g_sl_drained == &c->wt);
+  CHECK(c->wt_active == 1 && g_sl_closes == 0);
+}
+
+/* No draining callback registered: the capsule is consumed, nothing else. */
+static void test_srvrun_wt_drain_rx_without_callback(void) {
+  u8           cap[8];
+  wired_obuf   cb                     = obuf_of(cap, sizeof cap);
+  srvrun_conn* c                      = sr_sl_fixture();
+  g_srvrun_env.wt_on_session_draining = 0;
+  CHECK(wtcapsule_encode_drain(&cb) == 1);
+  sr_drain_rx(c, cap, cb.len);
+  CHECK(c->wt_active == 1 && g_sl_closes == 0);
+}
+
+/* draft-ietf-webtrans-http3-15 4.7 Figure 5: the capsule's Length is 0, so
+ * a WT_DRAIN_SESSION carrying a value is malformed: no callback, and the
+ * session closes like any other malformed known capsule. */
+static void test_srvrun_wt_drain_rx_with_value_closes(void) {
+  static const u8 cap[] = {0x80, 0x00, 0x78, 0xae, 0x01, 0x00};
+  srvrun_conn*    c     = sr_sl_fixture();
+  sr_drain_rx(c, cap, sizeof cap);
+  CHECK(g_sl_drains == 0);
+  CHECK(g_sl_closes == 1 && c->wt_active == 0);
 }
 
 /* A WT bidi stream the app holds before its first credit grant still gets
@@ -20258,6 +20311,9 @@ void test_srvrun(void) {
   test_srvrun_wt_unknown_capsule_past_window_skipped();
   test_srvrun_wt_capsule_split_per_byte();
   test_srvrun_wt_drain_after_long_capsule_run();
+  test_srvrun_wt_drain_rx_notifies_app();
+  test_srvrun_wt_drain_rx_without_callback();
+  test_srvrun_wt_drain_rx_with_value_closes();
   test_srvrun_wt_bidi_held_before_first_grant_gets_wt_window();
   test_srvrun_on_body_frame_unexpected();
   test_srvrun_handler_on_body_reaches_cfg();
