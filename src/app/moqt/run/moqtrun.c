@@ -1782,18 +1782,19 @@ static void moqtrun_upd_params(
     moqtrun_upd_lookup(params->items[i].type)(s, t, &params->items[i]);
 }
 
-/* A refused blob send leaves FORWARD 0 and fails the update. */
+/* All or nothing: a refused blob send restores the whole subscription as
+ * it was and fails the update. */
 static int moqtrun_upd_apply(
     wired_moqt_hub*            hub,
     wired_moqtrun_peer*        p,
     wired_moqtrun_sub*         s,
     const wired_moqtrun_track* t,
     const moqctl_params*       params) {
-  u8 was_off = s->forward_off;
+  wired_moqtrun_sub before = *s;
   moqtrun_upd_params(s, t, params);
-  if (!moqtrun_upd_turned_on(was_off, s, t)) return 1;
+  if (!moqtrun_upd_turned_on(before.forward_off, s, t)) return 1;
   if (moqtrun_upd_forward_on(hub, p, s, t)) return 1;
-  s->forward_off = 1;
+  *s = before;
   return 0;
 }
 

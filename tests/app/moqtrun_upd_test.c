@@ -243,6 +243,27 @@ static void test_moqtrun_upd_forward_off_reliable(void) {
   CHECK(mtrq_reset_code(sid) == 0x1);
 }
 
+/* An update is all or nothing: when FORWARD 0 -> 1 cannot send the blob,
+ * the priority it carried is not kept either. */
+static void test_moqtrun_upd_failed_changes_nothing(void) {
+  moqctl_params p0 = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  moqctl_params p1 = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
+  moqctl_ftn    m  = mtst_ftn("chat", "room1", "movie");
+  mtrq_setup();
+  CHECK(moqtrun_test_publish_small_blob(&mtst_hub, 10) != 0);
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &m, 2, &p0);
+  p1.items[1].type  = MOQCTL_PARAM_SUBSCRIBER_PRIORITY;
+  p1.items[1].enc   = MOQCTL_PENC_UINT8;
+  p1.items[1].u8v   = 9;
+  p1.n              = 2;
+  g_send_uni_fail_n = 1;
+  mtup_update(SESS_B, MTRQ_S1, &p1);
+  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_INTERNAL_ERROR);
+  wired_moqtrun_sub* s =
+      moqtrun_track_sub_of_peer(&mtst_hub.blob_track, mtst_idx(SESS_B));
+  CHECK(s && s->forward_off == 1 && s->has_priority == 0);
+}
+
 static void test_moqtrun_upd_bad_and_control(void) {
   moqctl_params g  = mtst_params_u8(MOQCTL_PARAM_GROUP_ORDER, 1);
   moqctl_ftn    f  = mtup_setup();
@@ -406,6 +427,7 @@ void test_moqtrun_upd(void) {
   test_moqtrun_tstat_ok_empty();
   test_moqtrun_tstat_unknown_and_blob();
   test_moqtrun_tstat_authorized();
+  test_moqtrun_upd_failed_changes_nothing();
   test_moqtrun_upd_forward_off_reliable();
   test_moqtrun_upd_forward_toggles();
   test_moqtrun_upd_params_replace();
