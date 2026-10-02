@@ -95,6 +95,15 @@ typedef void (*wired_wt_on_session)(
  * @param s the session that ended */
 typedef void (*wired_wt_on_session_close)(void* app_ctx, wired_wt_session* s);
 
+/** draft-ietf-webtrans-http3-15 4.7: the peer sent WT_DRAIN_SESSION on s's
+ * CONNECT stream -- an advisory request to wind the session down soon. The
+ * session stays open; the app decides when to close it. Fires once per
+ * capsule received. s is only valid for the duration of the call.
+ * @param app_ctx opaque context registered alongside this callback
+ * @param s the session the peer asked to drain */
+typedef void (*wired_wt_on_session_draining)(
+    void* app_ctx, wired_wt_session* s);
+
 /** draft-ietf-webtrans-http3-15 SS3.2 (WTH3-016/WTH3-018): the app's verdict
  * for one Extended CONNECT's :authority/:path, filled in by a registered
  * wired_wt_resource_check before the session is established.
@@ -387,6 +396,10 @@ typedef struct {
    * authority is its :authority. Both are views not valid past the call. */
   int (*wt_origin_check)(void* ctx, wired_span origin, wired_span authority);
   void* wt_origin_ctx; /**< opaque ctx passed to wt_origin_check */
+  /** Peer WT_DRAIN_SESSION notification, 0 to disable (the default, which
+   * consumes the capsule silently). See wired_wt_on_session_draining. */
+  wired_wt_on_session_draining wt_on_session_draining;
+  void* wt_session_draining_ctx; /**< opaque ctx passed to it */
 } wired_srvrun_opt;
 
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must

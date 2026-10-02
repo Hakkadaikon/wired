@@ -1065,6 +1065,11 @@ struct wired_srvrun_env {
    * incoming streams offered to a session (srvrun_offer_wt_slot/_uni_slot),
    * datagrams received for a session (srvrun_deliver_to_known_session). */
   wired_srvrun_wt_usage wt_usage;
+  /* wired_srvrun_opt.wt_on_session_draining and its ctx, copied in at serve
+   * time -- held here rather than in srvrun_cfg for the same reason as
+   * max_resets_per_window above. */
+  wired_wt_on_session_draining wt_on_session_draining;
+  void*                        wt_session_draining_ctx;
 };
 
 /* The one process-wide instance wired_server_run/wired_server_run_opt drive
@@ -3207,13 +3212,36 @@ static void srvrun_wt_capsule_raise(wired_wt_session* s, u64 type, u64 v) {
  * resets the session's streams with WT_SESSION_GONE and frees the slot, so
  * a peer that sends the close but withholds the CONNECT stream's FIN
  * cannot keep the session alive. */
-static int srvrun_wt_capsule_apply(void* ctx, u64 type, wired_span value) {
-  wired_wt_session* s = ctx;
-  u64               v;
+static int srvrun_wt_capsule_flow(
+    wired_wt_session* s, u64 type, wired_span value) {
+  u64 v;
   if (!srvrun_wt_capsule_flow_type(type)) return type != WTCAPSULE_TYPE_CLOSE;
   if (!wtcapsule_value_varint(value, &v)) return 0;
   srvrun_wt_capsule_raise(s, type, v);
   return 1;
+}
+
+/* One CONNECT stream capsule pass: the env holding the app's draining
+ * callback, and the session the capsules belong to. */
+typedef struct {
+  const wired_srvrun_env* env;
+  wired_wt_session*       s;
+} srvrun_wt_caprx;
+
+/* draft-ietf-webtrans-http3-15 4.7 Figure 5: WT_DRAIN_SESSION's Length is 0,
+ * so one carrying a value is malformed (0, the caller closes the session).
+ * Otherwise tell the app; the session itself stays as it is. */
+static int srvrun_wt_capsule_drain(const srvrun_wt_caprx* x, wired_span value) {
+  if (value.n) return 0;
+  if (x->env->wt_on_session_draining)
+    x->env->wt_on_session_draining(x->env->wt_session_draining_ctx, x->s);
+  return 1;
+}
+
+static int srvrun_wt_capsule_apply(void* ctx, u64 type, wired_span value) {
+  srvrun_wt_caprx* x = ctx;
+  if (type == WTCAPSULE_TYPE_DRAIN) return srvrun_wt_capsule_drain(x, value);
+  return srvrun_wt_capsule_flow(x->s, type, value);
 }
 
 /* One session slot's receive pass over its CONNECT stream window: slide out
@@ -3222,13 +3250,17 @@ static int srvrun_wt_capsule_apply(void* ctx, u64 type, wired_span value) {
  * healthy, 0 on a malformed capsule (bad body, or the stream FINing
  * mid-capsule, RFC 9297 SS3.3) or a WT_CLOSE_SESSION. */
 static int srvrun_wt_rx_walk(
-    srvrun_conn* c, int sidx, wired_srvloop_stream_slot* slot) {
+    const srvrun_cfg*          cfg,
+    srvrun_conn*               c,
+    int                        sidx,
+    wired_srvloop_stream_slot* slot) {
+  srvrun_wt_caprx x = {cfg->env, srvrun_wt_slot(c, sidx)};
   if (c->wt_capsule_rx_at[sidx])
     bodywin_consume(&slot->body, slot->req_buf, c->wt_capsule_rx_at[sidx]);
   c->wt_capsule_rx_at[sidx] = 0;
   return bodywin_capsules(
-             &slot->body, slot->req_buf, srvrun_wt_capsule_apply,
-             srvrun_wt_slot(c, sidx)) == BODYWIN_OPEN;
+             &slot->body, slot->req_buf, srvrun_wt_capsule_apply, &x) ==
+         BODYWIN_OPEN;
 }
 
 /* draft-ietf-webtrans-http3-15 SS5.1/SS5.6/SS8: apply the peer's session
@@ -3238,7 +3270,7 @@ static void srvrun_wt_rx_capsules_one(
     const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
   wired_srvloop_stream_slot* slot = srvrun_wt_rx_slot(c, sidx);
   if (!slot) return;
-  if (srvrun_wt_rx_walk(c, sidx, slot))
+  if (srvrun_wt_rx_walk(cfg, c, sidx, slot))
     srvrun_grant_body_credit(cfg, c, slot);
   else
     srvrun_close_wt_session_slot(cfg, c, sidx, srvrun_wt_session_gone_code());
@@ -9544,6 +9576,8 @@ int wired_srvrun_serve_env(
     const wired_srvrun_opt* opt) {
   srvrun_cfg cfg = srvrun_build_cfg(env, port, id, h, obs, opt);
   if (cfg.fd < 0) return 0;
+  env->wt_on_session_draining  = opt->wt_on_session_draining;
+  env->wt_session_draining_ctx = opt->wt_session_draining_ctx;
   srvrun_pref_listen(&cfg, id, opt);
   wired_certcache_prime(&env->certcache, id);
   srvrun_install_signals(&cfg, opt);
@@ -9572,8 +9606,8 @@ int wired_server_run(
     wired_srvboot_id*    id,
     wired_srvrun_handler h,
     wired_srvrun_obs     obs) {
-  static const wired_srvrun_opt default_opt = {0, 0, 0,  0, 0, 0, 0, 0, -1,
-                                               0, 0, -1, 0, 0, 0, 0, 0, 0,
-                                               0, 0, 0,  0, 0, 0, 0, 0};
+  static const wired_srvrun_opt default_opt = {0, 0,  0, 0, 0, 0, 0, 0, -1, 0,
+                                               0, -1, 0, 0, 0, 0, 0, 0, 0,  0,
+                                               0, 0,  0, 0, 0, 0, 0, 0};
   return wired_server_run_opt(port, id, h, obs, &default_opt);
 }
