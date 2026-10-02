@@ -62,6 +62,31 @@ func publishGroup(ctx context.Context, s *webtransport.Session, g byte) {
 	moqtclient.Check(st.Close())
 }
 
+// waitIngested returns once the hub holds Group g. A standalone FETCH of
+// Group g is answered REQUEST_ERROR INVALID_RANGE (0x5) while g is past
+// the track's Largest Object (draft-ietf-moq-transport-19 SS10.12.3), and
+// FETCH_OK (0x18) once it is not, so it is retried every 100 ms, up to
+// 3 s. Request IDs 2, 4, ... follow the PUBLISH's 0 (each fits one byte).
+func waitIngested(ctx context.Context, s *webtransport.Session, g byte) {
+	for id := byte(2); id < 62; id += 2 {
+		st, err := s.OpenStreamSync(ctx)
+		moqtclient.Check(err)
+		moqtclient.StandaloneFetch(st, id, "clock", g, g)
+		// Our side of this request is done: closing it frees the stream,
+		// so the retries never run out of stream credit.
+		moqtclient.Check(st.Close())
+		typ, _ := moqtclient.ReadMsg(bufio.NewReader(st))
+		if typ == 0x18 {
+			uni, err := s.AcceptUniStream(ctx) // drain this FETCH's Objects
+			moqtclient.Check(err)
+			moqtclient.ReadFetch(bufio.NewReader(uni))
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	log.Fatalf("the hub never took in Group %d", g)
+}
+
 // printFetch prints every item of the next fetch data stream and returns
 // the last one.
 func printFetch(ctx context.Context, s *webtransport.Session, label string) moqtclient.FetchItem {
@@ -94,9 +119,9 @@ func main() {
 	for g := byte(0); g < 6; g++ {
 		publishGroup(ctx, pub, g)
 	}
-	// ponytail: a fixed pause lets the hub take in Groups 0..5 before the
-	// viewer joins; nothing on the wire tells the publisher they arrived.
-	time.Sleep(300 * time.Millisecond)
+	// The publisher asks the hub itself whether Group 5 has arrived, so
+	// the viewer below joins at a known Largest Object.
+	waitIngested(ctx, pub, 5)
 
 	// (1) The viewer joins late: SUBSCRIBE with LOCATION_FILTER (0x21) =
 	// Largest Object (0x2) -- only Objects after the current Largest come
