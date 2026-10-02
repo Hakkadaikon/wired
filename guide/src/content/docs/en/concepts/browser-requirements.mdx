@@ -18,13 +18,15 @@ A browser accepts the server's certificate in one of two ways:
   site. wired sends such a chain when the app passes it as `id.chain`.
 - **A pinned self-signed certificate**: the page passes the certificate's
   SHA-256 hash in `serverCertificateHashes` when it creates the
-  `WebTransport` object. The W3C WebTransport spec accepts such a
-  certificate only when its validity period is at most 14 days and its key
+  `WebTransport` object. The
+  [W3C WebTransport spec](https://www.w3.org/TR/webtransport/#dom-webtransporthash)
+  accepts such a certificate only when its validity period is at most 14 days and its key
   is ECDSA P-256 (secp256r1).
 
 The self-signed certificate wired builds meets both conditions. It is ECDSA
 P-256 (`id.cert_seed` is the signing scalar), and when `id.now_secs` is set
-its validity runs from `now_secs` to `now_secs` + 14 days. A page that
+its validity runs from `now_secs` to `now_secs` + 14 days
+(`PC_VALIDITY_DAYS` in `src/crypto/pki/cert/p256cert/tbs.c`). A page that
 dials an IP literal also needs that address in the certificate's SAN
 (`id.san_ipv4`). [What a browser needs](../../wt/browser/) builds such a
 certificate and prints the hash a page would pin.
