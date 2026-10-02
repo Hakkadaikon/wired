@@ -6,7 +6,7 @@
  * SETTINGS value and QPACK_DYN_MAX_ENTRIES bounds the dynamic table, both
  * independent of how many streams/connections a peer opens. */
 static void test_h3_settings_defaults_bounded(void) {
-  u8  buf[64];
+  u8  buf[H3SETTINGS_CONTROL_STREAM_MAX];
   usz n = 0;
   CHECK(h3settings_control_stream(0, buf, sizeof(buf), &n) == 1);
   h3_settings out;
@@ -24,7 +24,7 @@ static void test_h3_settings_defaults_bounded(void) {
  * that satisfies the "first frame MUST be SETTINGS" rule. */
 void test_h3settings_control_settings(void) {
   test_h3_settings_defaults_bounded();
-  u8  buf[64];
+  u8  buf[H3SETTINGS_CONTROL_STREAM_MAX];
   usz n = 0;
   CHECK(h3settings_control_stream(0, buf, sizeof(buf), &n) == 1);
 
@@ -51,7 +51,7 @@ void test_h3settings_control_settings(void) {
  * request path now validates :protocol before establishing a WebTransport
  * session (srvrun_is_wt_connect), so it is safe to advertise support. */
 void test_h3settings_control_settings_advertises_connect_protocol(void) {
-  u8  buf[64];
+  u8  buf[H3SETTINGS_CONTROL_STREAM_MAX];
   usz n        = 0;
   usz consumed = 0;
   CHECK(h3settings_control_stream(0, buf, sizeof(buf), &n) == 1);
@@ -82,8 +82,53 @@ static int hcs_has_pair(const h3_settings* s, u64 id, u64 value) {
  * SETTINGS_WEBTRANSPORT_MAX_SESSIONS>=1 -- the pair a browser requires
  * before it will open a WebTransport session (their absence surfaces as
  * ERR_METHOD_NOT_SUPPORTED); without it neither appears. */
+/* The value the parsed SETTINGS carry for id, or 0 if absent. */
+static u64 hcs_value(const h3_settings* s, u64 id) {
+  for (usz i = 0; i < s->n; i++)
+    if (s->pairs[i].id == id) return s->pairs[i].value;
+  return 0;
+}
+
+/* draft-ietf-webtrans-http3-15 5.6.2: WT_MAX_STREAMS / WT_MAX_DATA count
+ * closed streams and sent bytes cumulatively, and this server never sends
+ * a raise -- so a compliant client honoring only the advertised initial
+ * limits must still be able to keep a long-lived session going: well past
+ * 100 sequential streams each way and 1 MiB of data. */
+static void hcs_wt_limits_never_exhaust(void) {
+  u8               buf[H3SETTINGS_CONTROL_STREAM_MAX];
+  usz              n = 0, consumed = 0;
+  h3_settings      s;
+  wired_wt_session ws;
+  CHECK(h3settings_control_stream(1, buf, sizeof(buf), &n) == 1);
+  h3_stream_type_parse(wired_span_of(buf, n), &(u64){0}, &consumed);
+  CHECK(h3_settings_get(buf + consumed, n - consumed, &s) > 0);
+  wired_wt_session_init(&ws, 0);
+  CHECK(wired_wt_session_set_max_streams(&ws, 1, hcs_value(&s, 0x2b65)));
+  CHECK(wired_wt_session_set_max_streams(&ws, 0, hcs_value(&s, 0x2b64)));
+  CHECK(wired_wt_session_set_max_data(&ws, hcs_value(&s, 0x2b61)));
+  for (usz i = 0; i < 1000; i++) {
+    CHECK(wired_wt_session_stream_open_allowed(&ws, 1));
+    wired_wt_session_note_stream_opened(&ws, 1);
+    CHECK(wired_wt_session_stream_open_allowed(&ws, 0));
+    wired_wt_session_note_stream_opened(&ws, 0);
+    CHECK(wired_wt_session_data_send_allowed(&ws, 65536));
+    wired_wt_session_note_data_sent(&ws, 65536);
+  }
+}
+
+/* The shared control-stream buffer size holds the WT SETTINGS whatever
+ * grease identifier (random per call) rides along. */
+static void hcs_control_stream_fits_buffer(void) {
+  u8  buf[H3SETTINGS_CONTROL_STREAM_MAX];
+  usz n = 0;
+  for (usz i = 0; i < 256; i++)
+    CHECK(h3settings_control_stream(1, buf, sizeof(buf), &n) == 1);
+}
+
 void test_h3settings_control_settings_advertises_wt(void) {
-  u8          buf[64];
+  hcs_wt_limits_never_exhaust();
+  hcs_control_stream_fits_buffer();
+  u8          buf[H3SETTINGS_CONTROL_STREAM_MAX];
   usz         n        = 0;
   usz         consumed = 0;
   h3_settings s;

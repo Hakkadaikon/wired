@@ -204,7 +204,49 @@ static void test_moqtrel_wraps_ring_end_many_times(void) {
   CHECK(g_moqtrel_rb.tail >= 2 * WIRED_MOQTREL_CAP);
 }
 
+/* Each byte's age is its own append's: a cursor reads the mark of the
+ * byte it sends next, 0 once caught up; reclaimed marks go, so the ring
+ * never runs out of them while cursors keep up. */
+static void test_moqtrel_age_per_append(void) {
+  moqtrel_reset(&g_moqtrel_rb);
+  g_moqtrel_rb.subs[0].active = 1;
+  CHECK(moqtrel_test_fill(10) == 1);
+  moqtrel_mark(&g_moqtrel_rb, 100);
+  CHECK(moqtrel_test_fill(10) == 1);
+  moqtrel_mark(&g_moqtrel_rb, 130);
+  CHECK(moqtrel_age_ms(&g_moqtrel_rb, 0, 150) == 50);
+  moqtrel_note_sent(&g_moqtrel_rb, 0, 10, 150);
+  CHECK(moqtrel_age_ms(&g_moqtrel_rb, 0, 150) == 20);
+  moqtrel_note_sent(&g_moqtrel_rb, 0, 10, 150);
+  CHECK(moqtrel_age_ms(&g_moqtrel_rb, 0, 150) == 0);
+  moqtrel_reclaim(&g_moqtrel_rb);
+  CHECK(g_moqtrel_rb.marks == 0);
+}
+
+/* Same-ms appends share a mark; with every mark taken the newest absorbs
+ * the append and keeps its time, so the absorbed bytes read as old as the
+ * oldest merged append (draft 8: age from the first byte -- never
+ * younger). */
+static void test_moqtrel_marks_merge(void) {
+  moqtrel_reset(&g_moqtrel_rb);
+  g_moqtrel_rb.subs[0].active = 1;
+  for (u64 k = 0; k <= WIRED_MOQTREL_MARKS; k++) {
+    CHECK(moqtrel_test_fill(1) == 1);
+    moqtrel_mark(&g_moqtrel_rb, 10 * k);
+    CHECK(moqtrel_test_fill(1) == 1);
+    moqtrel_mark(&g_moqtrel_rb, 10 * k);
+  }
+  CHECK(g_moqtrel_rb.marks == WIRED_MOQTREL_MARKS);
+  CHECK(moqtrel_age_ms(&g_moqtrel_rb, 0, 1000) == 1000);
+  moqtrel_note_sent(&g_moqtrel_rb, 0, 2 * (WIRED_MOQTREL_MARKS - 1), 0);
+  CHECK(
+      moqtrel_age_ms(&g_moqtrel_rb, 0, 1000) ==
+      1000 - 10 * (WIRED_MOQTREL_MARKS - 1));
+}
+
 void test_moqtrel(void) {
+  test_moqtrel_age_per_append();
+  test_moqtrel_marks_merge();
   test_moqtrel_append_hold_at_watermark();
   test_moqtrel_hold_leaves_room_for_window();
   test_moqtrel_append_full_reports_overflow();

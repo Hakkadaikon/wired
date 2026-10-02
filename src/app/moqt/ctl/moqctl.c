@@ -39,8 +39,8 @@ u64 moqctl_known_request_error(u64 code) {
 }
 
 static const u64 MOQCTL_KNOWN_DONE[] = {
-    MOQCTL_DONE_INTERNAL_ERROR, MOQCTL_DONE_TRACK_ENDED,
-    MOQCTL_DONE_GOING_AWAY};
+    MOQCTL_DONE_INTERNAL_ERROR, MOQCTL_DONE_TRACK_ENDED, MOQCTL_DONE_GOING_AWAY,
+    MOQCTL_DONE_UPDATE_FAILED};
 #define MOQCTL_KNOWN_DONE_N (sizeof MOQCTL_KNOWN_DONE / sizeof(u64))
 
 u64 moqctl_known_publish_done(u64 code) {

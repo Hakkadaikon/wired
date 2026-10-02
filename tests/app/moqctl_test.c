@@ -1323,6 +1323,9 @@ static void test_moqctl_unknown_error_normalizes_to_internal(void) {
       moqctl_known_publish_done(MOQCTL_DONE_TRACK_ENDED) ==
       MOQCTL_DONE_TRACK_ENDED);
   CHECK(moqctl_known_publish_done(0x7FFF) == MOQCTL_DONE_INTERNAL_ERROR);
+  CHECK(
+      moqctl_known_publish_done(MOQCTL_DONE_UPDATE_FAILED) ==
+      MOQCTL_DONE_UPDATE_FAILED);
 }
 
 /* ===== TEST: REQUEST_ERROR Redirect only with REDIRECT code ===== */

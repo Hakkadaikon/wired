@@ -254,6 +254,8 @@ static const wired_moqt_io g_moqt_io = {
     wired_server_wt_close_session,
     /* stream_reply_open: the io shape matches srvrun.h exactly. */
     wired_server_wt_stream_reply_open,
+    /* stream_priority: the io shape matches srvrun.h exactly. */
+    wired_server_wt_stream_priority,
 };
 
 static wired_moqt_hub g_hub;
@@ -587,6 +589,9 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
    * mistaken for the dead peer -- it never receives SETUP again. */
   opt.run.wt_on_session_close  = on_session_close;
   opt.run.wt_session_close_ctx = &g_hub;
+  /* A peer's WT_DRAIN_SESSION drains its MOQT session (GOAWAY). */
+  opt.run.wt_on_session_draining  = wired_moqt_on_session_draining;
+  opt.run.wt_session_draining_ctx = &g_hub;
   opt.run.on_step              = on_step;
   opt.run.on_step_ctx          = &g_hub;
   opt.run.wt_origin_ctx =

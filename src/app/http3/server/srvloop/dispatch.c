@@ -350,24 +350,29 @@ static void gather_wt_one(
   }
 }
 
-/* draft-ietf-webtrans-http3-15 4.3: find-or-claim the wt_streams slot for a
+/* draft-ietf-webtrans-http3-15 4.3: claim the wt_streams slot for a
  * newly-signalled stream, marking its leading signal pending so
  * wt_sig_resolve settles sig_len from the accumulated leading bytes (which
- * may span several frames). Returns -1 (dropped, table full) exactly like
- * stream_slot_claim's fixed-capacity fallback. */
+ * may span several frames). A full table queues the stream for an explicit
+ * refusal (RFC 9114 8.1, wired_srvloop_wt_refuse) and returns -1. */
 static int wt_slot_for_signal(wired_srvloop* l, const stream_frame* sf) {
   int i = wired_srvloop_wt_slot_claim(l, sf->stream_id);
-  if (i < 0) return -1;
+  if (i < 0) {
+    wired_srvloop_wt_refuse(l, sf->stream_id);
+    return -1;
+  }
   l->wt_streams[i].sig_pending = 1;
   return i;
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: the wt_streams[] slot index for sf, which
- * wt_frame_relevant already confirmed is WT bidi traffic — claim one on the
- * leading signal frame, look up the existing one otherwise. */
+ * wt_frame_relevant already confirmed is WT bidi traffic — the stream's
+ * existing slot (a retransmitted signal frame included), else claim one on
+ * the leading signal frame. */
 static int wt_slot_for(wired_srvloop* l, const stream_frame* sf) {
-  if (sf->offset == 0) return wt_slot_for_signal(l, sf);
-  return wired_srvloop_wt_slot_find(l, sf->stream_id);
+  int i = wired_srvloop_wt_slot_find(l, sf->stream_id);
+  if (i >= 0 || sf->offset != 0) return i;
+  return wt_slot_for_signal(l, sf);
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: land sf (already confirmed WT bidi
