@@ -161,6 +161,7 @@ func ReadFetch(r *bufio.Reader) (requestID uint64, items []FetchItem) {
 		}
 		flags := Varint(r)
 		// End of Range (SS11.4.4.2): an absolute Location, no payload.
+		// Absolute per SS11.4.4.2 "the Group ID and Object ID fields are present".
 		if flags == 0x8C || flags == 0x10C {
 			g, o = Varint(r), Varint(r)
 			items = append(items, FetchItem{Unknown: flags == 0x10C, Group: g, Object: o})
