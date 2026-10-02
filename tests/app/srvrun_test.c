@@ -19346,6 +19346,41 @@ static void test_srvrun_wt_drain_session_unknown_refused(void) {
   CHECK(wired_server_wt_drain_session(&ghost) == 0);
 }
 
+/* wired_server_wt_usage on an empty env: nothing open, caps reported. */
+static void test_srvrun_wt_usage_empty(void) {
+  wired_wt_usage u;
+  sr_reset_global_table();
+  CHECK(wired_server_wt_usage(&u) == 1);
+  CHECK(u.sessions == 0 && u.streams == 0);
+  CHECK(u.sessions_cap == SRVRUN_MAX_WT_SESSIONS_GLOBAL);
+  CHECK(
+      u.streams_cap ==
+      WIRED_CONNTABLE_CAP *
+          (WIRED_SRVLOOP_MAX_WT_STREAMS + WIRED_SRVLOOP_MAX_WT_UNI_STREAMS));
+}
+
+/* Sessions and open WT stream slots summed over live connections; a dead
+ * connection's leftover slot does not count. */
+static void test_srvrun_wt_usage_counts_open(void) {
+  wired_wt_usage u;
+  srvrun_conn*   c = g_srvrun_state.conns;
+  sr_reset_global_table();
+  c[0].up                         = 1;
+  c[0].wt_active                  = 1;
+  c[0].wt1_active                 = 1;
+  c[0].l.wt_streams[0].in_use     = 1;
+  c[0].l.wt_streams[3].in_use     = 1;
+  c[0].l.wt_uni_streams[1].in_use = 1;
+  c[1].up                         = 1;
+  c[1].wt_active                  = 1;
+  c[1].l.wt_uni_streams[0].in_use = 1;
+  c[2].l.wt_streams[0].in_use     = 1; /* not up */
+  CHECK(wired_server_wt_usage(&u) == 1);
+  CHECK(u.sessions == 3);
+  CHECK(u.streams == 4);
+  sr_reset_global_table();
+}
+
 /* A WT bidi stream the app holds before its first credit grant still gets
  * the WT buffer's credit once: the hold freezes raises past it, it does not
  * leave the stream at the request window it started with. */
@@ -20356,6 +20391,8 @@ void test_srvrun(void) {
   test_srvrun_wt_drain_rx_with_value_closes();
   test_srvrun_wt_drain_session_sends_once();
   test_srvrun_wt_drain_session_unknown_refused();
+  test_srvrun_wt_usage_empty();
+  test_srvrun_wt_usage_counts_open();
   test_srvrun_wt_bidi_held_before_first_grant_gets_wt_window();
   test_srvrun_on_body_frame_unexpected();
   test_srvrun_handler_on_body_reaches_cfg();
