@@ -494,6 +494,15 @@ static int moqtrun_encode_request_ok(wired_mspan buf, usz* off, const void* m) {
   return moqctl_request_ok_encode(buf, off, m);
 }
 
+static void moqtrun_queue_request_ok(wired_moqtrun_peer* p) {
+  u8                msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
+  moqctl_request_ok ok = {0};
+  usz               n  = moqtrun_envelope_put(
+      wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
+      moqtrun_encode_request_ok, &ok);
+  moqtrun_queue_reply(p, wired_span_of(msg, n));
+}
+
 /* Clears t's subscriber slots -- only needed the first time a fresh (not
  * re-PUBLISHed) slot is claimed. */
 static void moqtrun_track_clear_subs(wired_moqtrun_track* t) {
@@ -760,12 +769,7 @@ static void moqtrun_handle_publish(
   moqtrun_track_seed_largest(t, &m.params);
   t->request_id = m.request_id;
   moqtrun_reattach_subs(hub, t, peer_idx, k);
-  u8                msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
-  moqctl_request_ok ok = {0};
-  usz               n  = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
-      moqtrun_encode_request_ok, &ok);
-  moqtrun_queue_reply(p, wired_span_of(msg, n));
+  moqtrun_queue_request_ok(p);
   moqtrun_req_mark_live(p);
 }
 
