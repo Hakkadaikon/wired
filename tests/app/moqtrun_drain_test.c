@@ -104,7 +104,53 @@ static void test_moqtrun_prio_op_absent(void) {
   CHECK(moqtrun_test_count_kind(13) == 0);
 }
 
+/* ===================== GOAWAY received (10.4) ===================== */
+
+static u64 mtdr_ctl(wired_wt_session* s) {
+  return moqtrun_find_by_wt(&mtst_hub, s)->control_stream_id;
+}
+
+/* How many times the hub closed s; *last is the last close's code. */
+static usz mtdr_closes(wired_wt_session* s, u64* last) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++)
+    if (g_calls[i].kind == 11 && g_calls[i].s == s) {
+      n++;
+      *last = g_calls[i].stream_id;
+    }
+  return n;
+}
+
+/* The first GOAWAY on the control stream is recorded and the session
+ * stays; a second is a PROTOCOL_VIOLATION. */
+static void test_moqtrun_peer_goaway_twice(void) {
+  static const u8 away[] = {0x00, 0x00}; /* no URI, Timeout 0 */
+  u64             code   = 0;
+  mtrq_setup();
+  mtrq_raw(SESS_B, mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY, away, sizeof away);
+  CHECK(mtdr_closes(SESS_B, &code) == 0);
+  mtrq_raw(SESS_B, mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY, away, sizeof away);
+  CHECK(mtdr_closes(SESS_B, &code) == 1);
+  CHECK(code == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
+/* A server receiving a non-zero New Session URI MUST close with
+ * PROTOCOL_VIOLATION (10.4), as for a malformed GOAWAY. */
+static void test_moqtrun_peer_goaway_uri(void) {
+  static const u8 uri[] = {0x01, 'x', 0x00};
+  static const u8 bad[] = {0x05};
+  u64             code  = 0;
+  mtrq_setup();
+  mtrq_raw(SESS_B, mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY, uri, sizeof uri);
+  CHECK(mtdr_closes(SESS_B, &code) == 1);
+  CHECK(code == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  mtrq_raw(SESS_A, mtdr_ctl(SESS_A), MOQCTL_T_GOAWAY, bad, sizeof bad);
+  CHECK(mtdr_closes(SESS_A, &code) == 1);
+}
+
 void test_moqtrun_drain(void) {
+  test_moqtrun_peer_goaway_twice();
+  test_moqtrun_peer_goaway_uri();
   test_moqtrun_prio_per_subscriber();
   test_moqtrun_prio_one_shot();
   test_moqtrun_prio_update_applies();
