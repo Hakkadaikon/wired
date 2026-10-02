@@ -17,8 +17,11 @@
  * establishing a WebTransport session, so it is safe to advertise. */
 #define DEFAULT_ENABLE_CONNECT_PROTOCOL 1
 
-/* draft-ietf-webtrans-http3 8.2: sessions this server accepts per
- * connection -- srvloop serves one WebTransport session at a time. */
+/* SETTINGS_WT_MAX_SESSIONS (0xc671706a, an earlier draft's codepoint that
+ * browsers still require, draft-ietf-webtrans-http3 8.2 of that era): asks
+ * a client for one session per connection. srvrun itself still accepts up
+ * to SRVRUN_MAX_WT_SESSIONS (2) on one connection, so flow control stays
+ * enabled below (draft-15 5.1). */
 #define DEFAULT_WT_MAX_SESSIONS 1
 
 /* draft-ietf-webtrans-http3-15 5.5.1/5.5.2/5.5.3 (WTH3-051): initial
