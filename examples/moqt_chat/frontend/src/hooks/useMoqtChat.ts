@@ -126,7 +126,7 @@ export function moqtChatCallbacks(
 ): Pick<MoqtChatCallbacks, "onStatusChange" | "onMessage" | "onNickname"> {
   return {
     onStatusChange: (status) => store.setConnectionState(status),
-    onMessage: (participantId, text, attachments) => {
+    onMessage: (participantId, text, attachments, key) => {
       store.addPeer(participantId);
       store.addMessage({
         senderId: participantId,
@@ -134,6 +134,7 @@ export function moqtChatCallbacks(
         at: Date.now(),
         own: false,
         attachments: attachBlobUrls(attachments),
+        key,
       });
     },
     onNickname: (participantId, nickname) => {

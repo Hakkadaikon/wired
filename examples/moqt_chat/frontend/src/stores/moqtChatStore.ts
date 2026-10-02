@@ -31,6 +31,7 @@ export type ChatMessage = {
   own: boolean; // true = sent by this client
   failed?: boolean; // own message whose send failed
   attachments?: ChatAttachment[]; // images/files attached to this message
+  key?: string; // "<sender>:<messageId>" for a received message; a repeat is dropped
 };
 
 export type MoqtChatState = {
@@ -80,7 +81,7 @@ export type MoqtChatState = {
 
 let nextMessageId = 1;
 
-export const useMoqtChatStore = create<MoqtChatState>((set) => ({
+export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
   // "disconnected" until the user actually joins -- the join button must not
   // start out in its disabled "Connecting..." state.
   connectionState: "disconnected",
@@ -105,6 +106,8 @@ export const useMoqtChatStore = create<MoqtChatState>((set) => ({
   setConnectionState: (connectionState) => set({ connectionState }),
   setMuted: (muted) => set({ muted }),
   addMessage: (message) => {
+    const seen = message.key && get().messages.find((m) => m.key === message.key);
+    if (seen) return seen.id;
     const id = nextMessageId++;
     set((s) => ({ messages: [...s.messages, { ...message, id }] }));
     return id;

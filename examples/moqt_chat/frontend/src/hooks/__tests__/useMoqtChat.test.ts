@@ -80,7 +80,8 @@ describe("moqtChatCallbacks", () => {
       addMessage,
       setNickname: vi.fn(),
     });
-    callbacks.onMessage("user2", "hello", []);
+    callbacks.onMessage("user2", "hello", [], "user2:5");
+    expect(addMessage.mock.calls[0][0].key).toBe("user2:5");
     expect(addPeer).toHaveBeenCalledWith("user2");
     expect(addMessage).toHaveBeenCalledTimes(1);
     const arg = addMessage.mock.calls[0][0];
