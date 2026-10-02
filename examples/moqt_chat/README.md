@@ -34,7 +34,11 @@ namespace `wired/moqt_chat` — `<id>` for chat, `<id>/audio` for voice and
   the first frame decodes at once.
 - **Objects**: a chat message's text is one Object in a Group of its own; an
   attachment is a Group of its own whose Objects are 15 KiB chunks (the hub
-  holds at most 16384 bytes of one Object, `WIRED_MOQTRUN_RELAY_FRAG_MAX`);
+  holds at most 16384 bytes of one Object, `WIRED_MOQTRUN_RELAY_FRAG_MAX`).
+  One Group per attachment is deliberate: the hub applies a subscription's
+  Location Filter only on reliable late replay, so an attachment whose
+  chunks shared a Group with later messages could reach a joiner torn --
+  its own Group is either replayed whole or not at all;
   voice is one OBJECT_DATAGRAM per Opus frame (a stream when the frame is
   too large). The hub relays SUBGROUP bytes verbatim to every subscriber
   (`moqtrun.c`'s `moqtrun_relay_object`); chat tracks relay reliably, voice
@@ -93,6 +97,12 @@ process's memory, so it is single-process only: do not pass
   cached at all, so a joiner's history skips it.
 - **Namespaces**: only namespaces under `wired/moqt_chat` may be announced
   or watched; anything else is refused UNAUTHORIZED.
+- **Request-stream budget**: the hub tracks at most 16 open request streams
+  per session and 64 hub-wide (`WIRED_MOQTRUN_MAX_REQS`); past that a new
+  request stream is reset EXCESSIVE_LOAD. A full 4-user room keeps up to 15
+  live per session (3 PUBLISH + 2 PUBLISH_NAMESPACE + SUBSCRIBE_NAMESPACE +
+  9 SUBSCRIBEs), which is why the client sends history FETCHes one at a
+  time and the id pool stays at four.
 
 ### Graceful restart
 
