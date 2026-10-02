@@ -2993,6 +2993,40 @@ static void test_moqtrun_relay_object_over_max_dropped(void) {
   CHECK(g_n_calls == 0);
 }
 
+/* Drops an over-cap tail on audio stream 999 (subscriber B): the relay is
+ * poisoned and B's stream reset. */
+static void moqtrun_test_poison_audio(wired_moqt_hub* hub) {
+  static u8 obj[WIRED_MOQTRUN_RELAY_FRAG_MAX + 8];
+  moqtrun_test_reset();
+  wired_moqt_init(hub, moqtrun_test_io());
+  moqtrun_test_setup_audio_relay(hub);
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(hub, SESS_A, 999, wired_span_of(first, first_n), 0);
+  usz n = moqtrun_test_big_object(WIRED_MOQTRUN_RELAY_FRAG_MAX + 1, obj);
+  moqtrun_test_deliver_to_last_byte(hub, obj, n - 1, 1000);
+  CHECK(hub->stat_frag_drop == 1);
+}
+
+/* A poisoned relay stays sunk through its publisher stream's reset and its
+ * session's close: nothing more is forwarded, and the pool is whole. */
+static void test_moqtrun_poison_survives_reset_and_close(void) {
+  wired_moqt_hub hub;
+  moqtrun_test_poison_audio(&hub);
+  wired_moqt_on_stream_reset(&hub, SESS_A, 999, 1, 0);
+  moqtrun_test_reset();
+  moqtrun_test_send_small_obj(&hub, 999);
+  CHECK(g_n_calls == 0);
+  CHECK(moqtrun_test_frag_free(&hub) == WIRED_MOQTRUN_FRAG_POOL);
+
+  moqtrun_test_poison_audio(&hub);
+  wired_moqt_on_session_close(&hub, SESS_A);
+  moqtrun_test_reset();
+  moqtrun_test_send_small_obj(&hub, 999);
+  CHECK(g_n_calls == 0);
+  CHECK(moqtrun_test_frag_free(&hub) == WIRED_MOQTRUN_FRAG_POOL);
+}
+
 /* ===================== session teardown ===================== */
 
 /* A closed session's peer slot is freed: the SAME wt pointer re-registers
@@ -5093,6 +5127,7 @@ void test_moqtrun(void) {
   test_moqtrun_frag_pool_released_on_reset_and_close();
   test_moqtrun_relay_max_object_intact();
   test_moqtrun_relay_object_over_max_dropped();
+  test_moqtrun_poison_survives_reset_and_close();
   test_moqtrun_close_frees_peer_for_reregistration();
   test_moqtrun_close_drops_subscriptions();
   test_moqtrun_duplicate_subscribe_reuses_slot();

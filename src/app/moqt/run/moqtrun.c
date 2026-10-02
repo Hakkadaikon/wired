@@ -1894,6 +1894,15 @@ static void moqtrun_frag_release(wired_moqtrun_relay* relay) {
   relay->frag_len = 0;
 }
 
+/* Teardown-side release: a poisoned relay holds no buffer, and keeps its
+ * mark so it stays sunk (moqtrun_relay_sink) instead of decoding again.
+ * An unused entry is skipped: its fields may never have been written, and
+ * its buffer already counts as free (moqtrun_frag_slot_free). */
+static void moqtrun_frag_release_unless_poisoned(wired_moqtrun_relay* relay) {
+  if (relay->in_use && !moqtrun_relay_poisoned(relay))
+    moqtrun_frag_release(relay);
+}
+
 /* An n-byte tail with no buffer to wait in is dropped: counted, and the
  * relay poisoned (moqtrun_relay_end_poisoned ends its subscriber side). */
 static void moqtrun_frag_drop(
@@ -2471,6 +2480,8 @@ static void moqtrun_relay_continue(
     return;
   }
   wired_span whole = moqtrun_relay_normalize(hub, track, relay, wire);
+  /* Objects completed before the dropped tail are sound: deliver them,
+   * then end the subscriber streams (moqtrun_relay_end_poisoned). */
   moqtrun_relay_forward(hub, track, relay, whole, fin);
   moqtrun_relay_end_poisoned(hub, track, relay, fin);
 }
@@ -3067,7 +3078,7 @@ static void moqtrun_reqs_drop(wired_moqt_hub* hub, wired_wt_session* s) {
 static void moqtrun_peer_frags_release(wired_moqtrun_peer* p) {
   for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
     for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
-      moqtrun_frag_release(&p->tracks[t].relays[r]);
+      moqtrun_frag_release_unless_poisoned(&p->tracks[t].relays[r]);
 }
 
 void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s) {
@@ -3127,7 +3138,7 @@ static void moqtrun_req_cancel(
 static void moqtrun_stream_frag_release(wired_moqtrun_peer* p, u64 stream_id) {
   wired_moqtrun_track* t;
   wired_moqtrun_relay* r = moqtrun_peer_relay_by_stream(p, stream_id, &t);
-  if (r) moqtrun_frag_release(r);
+  if (r) moqtrun_frag_release_unless_poisoned(r);
 }
 
 void wired_moqt_on_stream_reset(
