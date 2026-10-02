@@ -1,0 +1,26 @@
+---
+title: Origin ヘッダーの検査
+description: パスとは別に、Extended CONNECT が運んでくる Origin を許可リストで検査する。
+sidebar:
+  order: 8
+---
+import Example from '../../../../components/Example.astro';
+
+ブラウザーは、WebTransport の Extended CONNECT のたびに、そのページの Origin を送ってきます。
+このサーバーは 1 つの Origin だけを許可し、それ以外はセッションを確立する前に `403` で拒否します。
+
+<Example id="wt-origin" />
+
+## 仕組み
+
+- `opt.wt_origin_check` は、`wt_resource_check`（登録していればその結果）が受理した後、セッションを確立する前に呼ばれます。
+  `0` を返すと、セッションを作らずに `403` を返します。
+  既定値（`0`、未設定）では、形式の正しい Origin をすべて受理します。
+- `origin` は、CONNECT の `Origin` ヘッダーをビューとして渡したもので、呼び出しのあいだだけ有効です。
+  `Origin` ヘッダーをまったく送らなかった CONNECT は、明示的に空の `Origin: ` を送った CONNECT と、同じ空の span としてここに届きます。
+  ドラフト自体もこのコールバックの `wired_span` も、「ヘッダーが無い」と「値が空」を区別しません。
+  そのため、空文字列を特別扱いしない許可リストは、このページのコールバックのように両方を同じ扱いで拒否します。
+- `authority`（CONNECT の `:authority`）も渡されるので、仮想ホストごとに判定を変えることもできます。
+  このページでは使っていません。
+- 以下の 2 回の呼び出しは、どちらも同じ `/chat` というパスを指定しています。
+  違うのは Origin ヘッダーだけです。
