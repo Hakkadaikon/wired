@@ -198,3 +198,28 @@ func ReadFetch(r *bufio.Reader) (requestID uint64, items []FetchItem) {
 		items = append(items, FetchItem{Group: g, Object: o, Payload: payload})
 	}
 }
+
+// Namespace encodes a Track Namespace (draft-ietf-moq-transport-19
+// SS1.5): the field count, then each field length-prefixed. Every count
+// and field here is shorter than 64, so each fits a one-byte varint.
+func Namespace(fields ...string) []byte {
+	b := []byte{byte(len(fields))}
+	for _, f := range fields {
+		b = Str(b, f)
+	}
+	return b
+}
+
+// ReadNamespace decodes the Track Namespace (Suffix) that is the whole
+// body of a NAMESPACE / NAMESPACE_DONE (SS10.16, SS10.17).
+func ReadNamespace(body []byte) []string {
+	r := bufio.NewReader(bytes.NewReader(body))
+	fields := make([]string, Varint(r))
+	for i := range fields {
+		f := make([]byte, Varint(r))
+		_, err := io.ReadFull(r, f)
+		Check(err)
+		fields[i] = string(f)
+	}
+	return fields
+}
