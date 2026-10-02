@@ -26,8 +26,8 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 1404/1404 requirements demonstrated (100%) — 1168 directly tested,
-236 indirect, 0 untested.**
+**Total: 1426/1427 requirements demonstrated (99.9%) — 1191 directly tested,
+235 indirect, 1 untested.**
 
 ## QUIC core
 
@@ -84,9 +84,9 @@ independent implementation) are tracked separately: see
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 9114 — HTTP/3](rfc9114.md) | 81/81 | 70 | 11 | 0 |
+| [RFC 9114 — HTTP/3](rfc9114.md) | 81/81 | 71 | 10 | 0 |
 | [RFC 9110 — HTTP semantics](rfc9110.md) | 28/28 | 24 | 4 | 0 |
-| [RFC 9204 — QPACK](rfc9204.md) | 55/55 | 37 | 18 | 0 |
+| [RFC 9204 — QPACK](rfc9204.md) | 55/55 | 38 | 17 | 0 |
 | [RFC 7541 — HPACK (reused by QPACK)](rfc7541.md) | 16/16 | 15 | 1 | 0 |
 | [RFC 9218 — Extensible priorities](rfc9218.md) | 20/20 | 15 | 5 | 0 |
 
@@ -94,15 +94,15 @@ independent implementation) are tracked separately: see
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [draft-ietf-webtrans-http3-15](draft-webtrans-http3.md) | 68/68 | 52 | 16 | 0 |
+| [draft-ietf-webtrans-http3-15](draft-webtrans-http3.md) | 68/68 | 54 | 14 | 0 |
 | [RFC 9220 — Extended CONNECT](rfc9220.md) | 11/11 | 10 | 1 | 0 |
-| [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 22/22 | 16 | 6 | 0 |
+| [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 23/23 | 17 | 6 | 0 |
 
 ## MOQT
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 177/177 | 170 | 7 | 0 |
+| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 198/199 | 188 | 10 | 1 |
 
 ## IP/UDP foundations
 

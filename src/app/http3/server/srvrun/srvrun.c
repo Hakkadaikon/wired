@@ -172,11 +172,11 @@ typedef struct {
 /* draft-ietf-webtrans-http3-15 SS4 / RFC 9220 3: how many independent
  * WebTransport sessions one connection holds open (unest/est/draining, not
  * closed) at once. A small constant, not WIRED_SRVLOOP_MAX_WT_STREAMS/
- * WIRED_SRVLOOP_MAX_WT_UNI_STREAMS (each 4) -- those bound one connection's
- * total reassembled WT stream slots, shared across however many sessions are
- * open, so SRVRUN_MAX_WT_SESSIONS must stay well under either to leave every
- * session room for more than one stream (see srvrun_wt_session_limit_fits_
- * stream_table_capacity's compile-time check below). */
+ * WIRED_SRVLOOP_MAX_WT_UNI_STREAMS (24 and 6 by default) -- those bound one
+ * connection's total reassembled WT stream slots, shared across however many
+ * sessions are open, so SRVRUN_MAX_WT_SESSIONS must stay well under either
+ * to leave every session room for more than one stream (pinned by
+ * test_srvrun_wt_session_limit_fits_stream_table_capacity). */
 #define SRVRUN_MAX_WT_SESSIONS 2
 
 /* Bytes retained of an accepted Extended CONNECT's own :path pseudo-header
@@ -512,7 +512,7 @@ typedef struct {
   /** RFC 9297 3.2: capsule bytes received in this slot's CONNECT stream DATA
    * frames that do not yet make a whole capsule. Emptied at establishment
    * (srvrun_start_wt). */
-  bodywin_capq wt_caprx[SRVRUN_MAX_WT_SESSIONS];
+  bodywin_capq wt_capq[SRVRUN_MAX_WT_SESSIONS];
   /** draft-ietf-webtrans-http3-15 SS4.2/SS4.4/8.2 (WTH3-067): a
    * wired_server_wt_close_session call for this slot is pending -- latched
    * rather than sent inline (that entry point runs in an app callback with
@@ -847,6 +847,8 @@ typedef struct {
    * probe deadline (srvrun_rst_retry_slot) until acknowledged. */
   srvrun_rst rst[SRVRUN_RST_RETX];
 } srvrun_conn;
+_Static_assert(
+    WIRED_SRVLOOP_MAX_STREAMS <= 64, "wt_held_mask holds one bit per slot");
 
 /* Response storage, one row per (connection slot, response slot): 512-byte
  * prefix room (HEADERS + DATA header framed in place, h3resp_prefix)
@@ -3394,6 +3396,12 @@ static int srvrun_wt_capsule_apply(void* ctx, u64 type, wired_span value) {
   return srvrun_wt_capsule_flow(x->s, type, value);
 }
 
+/* A capsule pass leaves the session healthy only while the stream is still
+ * open or ended cleanly; every other state is a malformed capsule. */
+static int srvrun_wt_rx_ok(int st) {
+  return st == BODYWIN_OPEN || st == BODYWIN_DONE;
+}
+
 /* One session slot's receive pass over its CONNECT stream window: slide out
  * the request HEADERS still in front (wt_capsule_rx_at), then apply every
  * whole capsule (bodywin_capsules). Returns 1 while the session stays
@@ -3410,9 +3418,9 @@ static int srvrun_wt_rx_walk(
     bodywin_consume(&slot->body, slot->req_buf, c->wt_capsule_rx_at[sidx]);
   c->wt_capsule_rx_at[sidx] = 0;
   /* A clean FIN (BODYWIN_DONE) is left to srvrun_close_wt_on_stream_close. */
-  return bodywin_capsules(
-             &slot->body, slot->req_buf, &c->wt_caprx[sidx],
-             srvrun_wt_capsule_apply, &x) <= BODYWIN_DONE;
+  return srvrun_wt_rx_ok(bodywin_capsules(
+      &slot->body, slot->req_buf, &c->wt_capq[sidx], srvrun_wt_capsule_apply,
+      &x));
 }
 
 /* draft-ietf-webtrans-http3-15 SS5.1/SS5.6/SS8: apply the peer's session
@@ -5973,8 +5981,8 @@ static void srvrun_start_wt(
   /* wt_capsule_rx_at's own doc: the peer's capsule bytes start right after
    * its request HEADERS frame on this same stream (RFC 9297 SS3.2). */
   c->wt_capsule_rx_at[sidx] = srvrun_wt_capsule_start(c);
-  c->wt_caprx[sidx].n       = 0;
-  c->wt_caprx[sidx].skip    = 0;
+  c->wt_capq[sidx].n        = 0;
+  c->wt_capq[sidx].skip     = 0;
   c->wt_drain_rcvd[sidx]    = 0;
   srvrun_wt_notify(cfg, c, sidx, wired_span_of(p.tok, p.tok_len));
 }

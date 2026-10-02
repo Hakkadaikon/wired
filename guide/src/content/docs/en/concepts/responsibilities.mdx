@@ -1,0 +1,54 @@
+---
+title: What the SDK does and what the app does
+description: The line between the protocol work wired does and the policy, storage and scaling an application owns.
+sidebar:
+  order: 4
+---
+
+wired implements protocols: it speaks TLS 1.3, QUIC, HTTP/3, WebTransport
+and MoQT correctly and protects itself against protocol-level abuse. It does
+not decide who may do what, keep anything across restarts, or spread load
+over several machines. Those are the application's decisions.
+
+## What wired does
+
+- **Wire protocols**: the handshake, loss recovery, flow control, HTTP/3
+  framing, WebTransport sessions and streams, and the MoQT control messages
+  and Object relay of `wired_moqt_hub`.
+- **Protocol-level limits**: every table has a fixed size (see
+  [Current limits](../limits/)), and a peer that goes past one is refused on
+  the wire instead of growing memory. A connection sending more than 100
+  stream resets in one second (`SRVRUN_MAX_RESETS_PER_WINDOW`) is closed
+  with H3_EXCESSIVE_LOAD, and one connection may open at most 10
+  WebTransport sessions per second (`SRVRUN_MAX_WT_SESSIONS_PER_WINDOW`).
+- **A self-signed certificate** built from the identity the app passes in
+  (see [Browser requirements](../browser-requirements/)).
+- **Hooks where policy goes**: the hub calls `authorize_subscribe` and
+  `authorize_namespace`, and the server calls `wt_resource_check` and
+  `wt_origin_check`, before granting anything.
+
+## What the application does
+
+- **Authentication and authorization**: the hub hands the AUTHORIZATION
+  TOKEN bytes to the hooks and grants or refuses on their answer; checking
+  the token (a CAT, a Privacy Pass token, a session cookie) is the app's
+  job. [Authorize subscribers](../../moqt/authorize/) shows the hook.
+- **Origin policy**: which sites may open a session
+  ([Checking the Origin header](../../wt/origin/)).
+- **Rate limiting by user**: the SDK limits protocol events per connection,
+  not messages or bytes per user. Limits such as "5 chat messages per second
+  per participant" belong in the app.
+- **Persistence**: the hub keeps state in memory only. The FETCH cache lives
+  in an arena the app provides (`wired_moqt_cache_attach`) and is gone when
+  the process exits; chat history, recordings or room membership that must
+  survive a restart need the app's own storage.
+- **Scaling**: one `wired_moqt_hub` lives in one process and relays only
+  between the sessions of that process. Under `--workers` each worker
+  process would run its own hub that cannot see the others, which is why the
+  moqt_chat demo runs a single process. Spreading a room over several
+  processes or machines needs relaying between hubs, which wired does not
+  provide; `wired_moqt_goaway` can move clients to another server URI.
+- **Certificates in production**: obtaining a CA-issued chain (which the
+  server sends when the app passes it as `id.chain`), or rotating
+  the self-signed one within its 14 days
+  ([Certificate hot reload](../../ops/cert-reload/)).
