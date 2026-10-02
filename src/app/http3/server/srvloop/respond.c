@@ -61,7 +61,7 @@ static int emit_handshake_ack(const wired_srvloop_conn* c, wired_obuf* out) {
  * into the response body it saved). */
 static int build_settings_frame(
     const wired_server* s, wired_srvloop* l, wired_obuf* out) {
-  u8           ctl[64];
+  u8           ctl[H3SETTINGS_CONTROL_STREAM_MAX];
   wired_obuf   ctlb = obuf_of(ctl, sizeof ctl);
   stream_frame f;
   if (s->sdrv.alpn != SALPN_H3) return 1;
