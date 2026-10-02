@@ -12,6 +12,7 @@
 
 import puppeteer from "puppeteer-core";
 import { resolveChromeLaunch } from "./chromeLaunch.mjs";
+import { E2E_SERVER_URL } from "./args.mjs";
 
 const JOIN_TIMEOUT_MS = 20000;
 
@@ -207,7 +208,7 @@ export async function connectClient(
   await page.evaluateOnNewDocument(
     (prefs) => localStorage.setItem("moqt-chat.join", JSON.stringify(prefs)),
     {
-      url: serverUrl || "https://localhost:4433/",
+      url: serverUrl || E2E_SERVER_URL,
       certHash,
       name: participantId,
     },

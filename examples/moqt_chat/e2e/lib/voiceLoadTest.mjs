@@ -11,6 +11,7 @@
 // evaluateOnNewDocument) rather than instrumenting the app's own source --
 // same black-box principle as loadTest.mjs's DOM polling for chat.
 
+import { setServerUrl } from "./args.mjs";
 import { summarizeDelivery } from "./metrics.mjs";
 import { summarizeVoiceTrace } from "./voiceMetrics.mjs";
 
@@ -70,6 +71,7 @@ async function joinVoiceClient(browser, pageUrl, certHash, participantId) {
   const nsOffUrl = new URL(pageUrl);
   nsOffUrl.searchParams.set("ns", "0");
   await page.goto(nsOffUrl.href);
+  await setServerUrl(page);
   await page.type('input[data-testid="certHash"]', certHash);
   await page.click(`[data-testid="participant-${participantId}"]`);
   await page.click('[data-testid="connect"]');

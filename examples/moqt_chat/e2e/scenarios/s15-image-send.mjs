@@ -13,6 +13,7 @@
 // pressed, so every send path here also dispatches the same Enter keydown
 // loadTest.mjs uses to submit.
 
+import { E2E_PORT } from "../lib/args.mjs";
 import { CANDIDATE_PARTICIPANT_IDS } from "../lib/loadTest.mjs";
 import { startUdpProxy } from "../lib/udpProxy.mjs";
 import { joinStabilityClient, closeClient } from "../lib/stabilityClient.mjs";
@@ -20,7 +21,7 @@ import { joinStabilityClient, closeClient } from "../lib/stabilityClient.mjs";
 const JOIN_TIMEOUT_MS = 20000;
 const IMAGE_TIMEOUT_MS = 30000;
 const PROXY_BASE = 25433; // distinct from s13 (24433)
-const SERVER_PORT = 4433;
+const SERVER_PORT = E2E_PORT;
 
 // After every case, both ends must still be alive: no WebTransport close
 // event (stabilityClient's WT_INSTRUMENTATION_SCRIPT records closedAt) and

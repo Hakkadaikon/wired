@@ -28,16 +28,16 @@
 //     size is only an ideal, so an app that encodes at a fixed 16:9 shows
 //     up here as frames of the wrong shape.
 //
-// Before running, kill any stale server (`pgrep -a wired_server`): the
-// listener binds 4433 with SO_REUSEPORT, so a leftover wired_server from an
-// earlier run shares the port and steals this run's handshake.
+// The hub binds WIRED_E2E_PORT (default 4433) with SO_REUSEPORT, so any
+// other wired_server on that port shares it and steals this run's
+// handshake: pick a free port when one is running here.
 
 import puppeteer from "puppeteer-core";
-import { spawn, execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { resolveChromeLaunch } from "./lib/chromeLaunch.mjs";
 import { startServer } from "./lib/serverControl.mjs";
-import { arg } from "./lib/args.mjs";
+import { arg, E2E_PORT, setServerUrl } from "./lib/args.mjs";
 import { fakeDisplayMediaScript } from "./lib/screenShareFake.mjs";
 import { screenGapStats } from "./lib/screenMetrics.mjs";
 
@@ -64,6 +64,7 @@ async function join(id) {
   page.on("pageerror", (e) => c.consoleErrors.push(String(e)));
   await page.evaluateOnNewDocument(fakeScript);
   await page.goto(`http://localhost:${frontendPort}/`);
+  await setServerUrl(page);
   await page.type('input[data-testid="certHash"]', server.certHash);
   await page.click(`[data-testid="participant-${id}"]`);
   await page.click('[data-testid="connect"]');
@@ -105,7 +106,7 @@ const summary = {
   errors: [],
 };
 try {
-  server = await startServer({ binPath: "./wired_server", logPath, args: [] });
+  server = await startServer({ binPath: "./wired_server", logPath, args: ["--port", String(E2E_PORT)] });
   frontend = spawn(
     "python3",
     ["-m", "http.server", frontendPort, "--directory", "frontend/out"],
@@ -196,12 +197,6 @@ try {
   }
   if (frontend) frontend.kill();
   if (server) await server.stop();
-  else
-    try {
-      execSync("pkill -x wired_server");
-    } catch {
-      /* nothing was left running */
-    }
 }
 
 summary.ok = summary.errors.length === 0;
