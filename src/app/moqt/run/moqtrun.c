@@ -496,10 +496,19 @@ static int moqtrun_encode_request_ok(wired_mspan buf, usz* off, const void* m) {
   return moqctl_request_ok_encode(buf, off, m);
 }
 
-static void moqtrun_queue_request_ok(wired_moqtrun_peer* p) {
+/* LARGEST_OBJECT once t (0: no track) has published Objects (10.2.16:
+ * SUBSCRIBE_OK, REQUEST_UPDATE_OK and TRACK_STATUS_OK carry it). */
+static void moqtrun_largest_param(
+    moqctl_params* params, const wired_moqtrun_track* t);
+
+/* REQUEST_OK; answering a request about track t (0: none), it carries the
+ * Largest Location. */
+static void moqtrun_queue_request_ok(
+    wired_moqtrun_peer* p, const wired_moqtrun_track* t) {
   u8                msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqctl_request_ok ok = {0};
-  usz               n  = moqtrun_envelope_put(
+  moqtrun_largest_param(&ok.params, t);
+  usz n = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
       moqtrun_encode_request_ok, &ok);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
@@ -771,7 +780,7 @@ static void moqtrun_handle_publish(
   moqtrun_track_seed_largest(t, &m.params);
   t->request_id = m.request_id;
   moqtrun_reattach_subs(hub, t, peer_idx, k);
-  moqtrun_queue_request_ok(p);
+  moqtrun_queue_request_ok(p, 0);
   moqtrun_req_mark_live(p);
 }
 
@@ -864,30 +873,34 @@ static u8 moqtrun_forward_off(const moqctl_param* p) {
 /* Filter Start Location per type (9.3.1), indexed by MOQCTL_FILTER_*:
  * Largest-relative ones resolve against t's Largest now, {0, 0} when
  * nothing was published; Absolute ones take the given start. */
-typedef moqctl_loc (*moqtrun_start_fn)(const wired_moqtrun_track*, moqctl_loc);
+typedef moqctl_loc (*moqtrun_start_fn)(const moqctl_loc*, moqctl_loc);
 
-static moqctl_loc moqtrun_start_given(
-    const wired_moqtrun_track* t, moqctl_loc start) {
-  (void)t;
+static moqctl_loc moqtrun_start_given(const moqctl_loc* top, moqctl_loc start) {
+  (void)top;
   return start;
 }
 
 static moqctl_loc moqtrun_start_next_group(
-    const wired_moqtrun_track* t, moqctl_loc start) {
+    const moqctl_loc* top, moqctl_loc start) {
   moqctl_loc l = {0, 0};
   (void)start;
-  if (t->has_largest) l.group = t->largest.group + 1;
+  if (top) l.group = top->group + 1;
   return l;
 }
 
 static moqctl_loc moqtrun_start_largest(
-    const wired_moqtrun_track* t, moqctl_loc start) {
+    const moqctl_loc* top, moqctl_loc start) {
   moqctl_loc l = {0, 0};
   (void)start;
-  if (!t->has_largest) return l;
-  l = t->largest;
+  if (!top) return l;
+  l = *top;
   l.object++;
   return l;
+}
+
+/* t's Largest Location, 0 when t (0: no track) published nothing. */
+static const moqctl_loc* moqtrun_track_top(const wired_moqtrun_track* t) {
+  return t && t->has_largest ? &t->largest : 0;
 }
 
 static const moqtrun_start_fn MOQTRUN_START_FNS[5] = {
@@ -903,8 +916,8 @@ static void moqtrun_sub_filter(
   s->has_end_group = 0;
   s->filter_type   = 0;
   if (!f) return;
-  s->filter_type   = (u8)f->lf.type;
-  s->start         = MOQTRUN_START_FNS[f->lf.type](t, f->lf.start);
+  s->filter_type = (u8)f->lf.type;
+  s->start = MOQTRUN_START_FNS[f->lf.type](moqtrun_track_top(t), f->lf.start);
   s->has_end_group = f->lf.type == MOQCTL_FILTER_ABS_RANGE;
   s->end_group     = s->start.group + f->lf.end_group_delta;
 }
@@ -956,7 +969,7 @@ static int moqtrun_sub_forwards(const wired_moqtrun_sub* s) {
  * Objects. An absolute filter keeps the subscriber's own Locations. */
 static void moqtrun_sub_reresolve(
     wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
-  s->start  = MOQTRUN_START_FNS[s->filter_type](t, s->start);
+  s->start  = MOQTRUN_START_FNS[s->filter_type](moqtrun_track_top(t), s->start);
   s->jl     = t->largest;
   s->has_jl = (u8)t->has_largest;
 }
@@ -1000,18 +1013,24 @@ static int moqtrun_encode_subscribe_ok(
   return moqctl_subscribe_ok_encode(buf, off, m);
 }
 
+static void moqtrun_largest_param(
+    moqctl_params* params, const wired_moqtrun_track* t) {
+  const moqctl_loc* top = moqtrun_track_top(t);
+  params->items[0].type = MOQCTL_PARAM_LARGEST_OBJECT;
+  params->items[0].enc  = MOQCTL_PENC_LOCATION;
+  params->n             = top != 0;
+  if (top) params->items[0].loc = *top;
+}
+
 /* SUBSCRIBE_OK with alias; LARGEST_OBJECT once t has published Objects
  * (MUST, draft 10.2.16). */
 static void moqtrun_queue_subscribe_ok(
     wired_moqtrun_peer* p, const wired_moqtrun_track* t, u64 alias) {
   u8                  msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
-  moqctl_subscribe_ok ok  = {0};
-  ok.track_alias          = alias;
-  ok.params.items[0].type = MOQCTL_PARAM_LARGEST_OBJECT;
-  ok.params.items[0].enc  = MOQCTL_PENC_LOCATION;
-  ok.params.items[0].loc  = t->largest;
-  ok.params.n             = t->has_largest ? 1 : 0;
-  usz n                   = moqtrun_envelope_put(
+  moqctl_subscribe_ok ok = {0};
+  ok.track_alias         = alias;
+  moqtrun_largest_param(&ok.params, t);
+  usz n = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_SUBSCRIBE_OK,
       moqtrun_encode_subscribe_ok, &ok);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
@@ -1728,7 +1747,7 @@ static void moqtrun_disc_answer(wired_moqtrun_peer* p, u64 err) {
     moqtrun_send_request_error(p, err);
     return;
   }
-  moqtrun_queue_request_ok(p);
+  moqtrun_queue_request_ok(p, 0);
   moqtrun_req_mark_live(p);
 }
 
