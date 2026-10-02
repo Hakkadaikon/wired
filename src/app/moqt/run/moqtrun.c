@@ -964,6 +964,26 @@ static int moqtrun_sub_forwards(const wired_moqtrun_sub* s) {
   return s->active && !s->forward_off;
 }
 
+/* 1 iff Group g passes s's Location Filter (5.1.4): not before the start
+ * Group, not past the end Group. */
+static int moqtrun_sub_wants_group(const wired_moqtrun_sub* s, u64 g) {
+  return g >= s->start.group && !(s->has_end_group && g > s->end_group);
+}
+
+/* Forward AND Location Filter (5.1.5) for a stream of Group g.
+ * ponytail: Group-granular -- Objects of the start Group below the start
+ * Object still pass (a relay round is whole Objects, never re-framed);
+ * cut rounds at the start Object if a filter ever starts mid-Group on a
+ * many-Object stream. */
+static int moqtrun_sub_gets(const wired_moqtrun_sub* s, u64 g) {
+  return moqtrun_sub_forwards(s) && moqtrun_sub_wants_group(s, g);
+}
+
+/* moqtrun_sub_gets for one Object at l (a datagram). */
+static int moqtrun_sub_gets_loc(const wired_moqtrun_sub* s, moqctl_loc l) {
+  return moqtrun_sub_gets(s, l.group) && !moqctl_loc_less(l, s->start);
+}
+
 /* A re-attached subscription meets a new incarnation: a Largest-relative
  * filter start (9.3.1) and the Joining Location (5.1) are resolved again
  * against its Largest -- the stored ones name the old incarnation's
@@ -2585,6 +2605,13 @@ static u64 moqtrun_live_gap(const wired_moqtrun_live* live, usz i, u64 g) {
              : 0;
 }
 
+/* 1 iff Group g may open for sub slot i: its peer is connected and g
+ * passes the Location Filter (5.1.4). */
+static int moqtrun_live_due(
+    const wired_moqt_hub* hub, const wired_moqtrun_peer* dst, usz i, u64 g) {
+  return dst->in_use && moqtrun_sub_wants_group(&hub->live.track.subs[i], g);
+}
+
 /* Sends Group g to sub slot i; on acceptance counts any skipped Groups
  * and records g. A refused send records nothing (retried next tick while
  * the clock is still in g). */
@@ -2594,7 +2621,7 @@ static void moqtrun_live_send_one(wired_moqt_hub* hub, usz i, u64 g) {
   wired_span          frag = live->frags[g % live->n_frags];
   u8                  head[MOQDATA_MSG_OVERHEAD];
   usz                 hn = moqtrun_live_head(live, g, frag.n, head);
-  if (!dst->in_use) return;
+  if (!moqtrun_live_due(hub, dst, i, g)) return;
   if (hub->io.send_uni2(dst->wt, wired_span_of(head, hn), frag) < 0) return;
   hub->stat_live_drop += moqtrun_live_gap(live, i, g);
   live->sent_group[i] = g;
@@ -2684,10 +2711,16 @@ static void moqtrun_relay_to_one(
   if (hub->io.send_uni(dst->wt, wire) < 0) hub->stat_open_drop++;
 }
 
+static void moqtrun_subgroup_scan(
+    wired_span wire, wired_moqtrun_track* t, moqdata_objseq* seq, u64* group);
+
 static void moqtrun_relay_object(
     wired_moqt_hub* hub, wired_moqtrun_track* track, wired_span wire) {
+  moqdata_objseq seq;
+  u64            group = 0;
+  moqtrun_subgroup_scan(wire, 0, &seq, &group);
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (moqtrun_sub_forwards(&track->subs[i]))
+    if (moqtrun_sub_gets(&track->subs[i], group))
       moqtrun_relay_to_one(hub, &track->subs[i], wire);
 }
 
@@ -2874,7 +2907,7 @@ static void moqtrun_relay_append_all(
     wired_span           wire,
     int                  fin) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (moqtrun_sub_forwards(&track->subs[i]))
+    if (moqtrun_sub_gets(&track->subs[i], relay->group_id))
       moqtrun_relay_append_one(hub, &track->subs[i], relay, i, wire, fin);
 }
 
@@ -3142,7 +3175,8 @@ static int moqtrun_rel_late_wanted(
 static int moqtrun_rel_replay_ok(
     const wired_moqtrun_sub* sub, const wired_moqtrun_relay* relay) {
   moqctl_loc first = {relay->group_id, 0};
-  return !moqctl_loc_less(first, sub->start);
+  return !moqctl_loc_less(first, sub->start) &&
+         moqtrun_sub_wants_group(sub, relay->group_id);
 }
 
 static void moqtrun_rel_late_attach(
@@ -3554,7 +3588,7 @@ static void moqtrun_relay_open_all(
     wired_moqtrun_relay* relay,
     wired_span           wire) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (moqtrun_sub_forwards(&track->subs[i]))
+    if (moqtrun_sub_gets(&track->subs[i], relay->group_id))
       moqtrun_relay_open_one(hub, &track->subs[i], relay, i, wire);
 }
 
@@ -4028,12 +4062,13 @@ static int moqtrun_dg_ready(const wired_moqt_hub* hub, const void* p) {
  * moqtrun_track_by_alias. 0 when the datagram is malformed or the alias
  * matches none of p's tracks -- the caller drops it whole. */
 static wired_moqtrun_track* moqtrun_dg_track(
-    wired_moqtrun_peer* p, wired_span data) {
+    wired_moqtrun_peer* p, wired_span data, moqctl_loc* loc) {
   usz       off = 0;
   moqdg_obj obj;
   if (moqdg_take(data, &off, &obj) != MOQDATA_OK) return 0;
   wired_moqtrun_track* t = moqtrun_track_by_alias(p, obj.track_alias);
   moqtrun_track_note(t, obj.group_id, obj.object_id);
+  *loc = moqctl_loc_of(obj.group_id, obj.object_id);
   return t;
 }
 
@@ -4051,13 +4086,18 @@ static void moqtrun_dg_to_one(
     hub->stat_dg_drop++;
 }
 
-/* Stateless fan-out to every active subscriber of the track -- the
- * datagram twin of moqtrun_relay_object. A deactivated (closed)
- * subscription is skipped; late subscribers get nothing retroactively. */
+/* Stateless fan-out to every active subscriber of the track whose
+ * Location Filter takes the Object at loc -- the datagram twin of
+ * moqtrun_relay_object. A deactivated (closed) subscription is skipped;
+ * late subscribers get nothing retroactively. Sent the moment it arrives,
+ * a datagram is never past an OBJECT_DELIVERY_TIMEOUT (draft 8). */
 static void moqtrun_dg_fanout(
-    wired_moqt_hub* hub, const wired_moqtrun_track* track, wired_span data) {
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_track* track,
+    wired_span                 data,
+    moqctl_loc                 loc) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (moqtrun_sub_forwards(&track->subs[i]))
+    if (moqtrun_sub_gets_loc(&track->subs[i], loc))
       moqtrun_dg_to_one(hub, &track->subs[i], data);
 }
 
@@ -4066,7 +4106,8 @@ void wired_moqt_on_datagram(
   wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
   wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
   if (!moqtrun_dg_ready(hub, p)) return;
-  wired_moqtrun_track* track = moqtrun_dg_track(p, data);
+  moqctl_loc           loc   = {0, 0};
+  wired_moqtrun_track* track = moqtrun_dg_track(p, data, &loc);
   /* Malformed or unknown-alias: dropped whole. Draft 11.3.1 says an
    * invalid Type MUST close the session (PROTOCOL_VIOLATION), but this
    * hub's io table has no close operation -- counting is the closest. */
@@ -4074,7 +4115,7 @@ void wired_moqt_on_datagram(
     hub->stat_dg_bad++;
     return;
   }
-  moqtrun_dg_fanout(hub, track, data);
+  moqtrun_dg_fanout(hub, track, data, loc);
 }
 
 /* A ring-backed relay also deactivates the dead subscriber's ring

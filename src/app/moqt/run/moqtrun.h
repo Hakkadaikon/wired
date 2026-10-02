@@ -749,7 +749,8 @@ void wired_moqt_on_stream_data(
 
 /** wired_wt_on_datagram-shaped: relays one received OBJECT_DATAGRAM
  * (draft-ietf-moq-transport-19 11.3.1) verbatim to every active subscriber
- * of the track its Track Alias names on the sending peer -- the datagram
+ * whose Location Filter takes it, on the track its Track Alias names on
+ * the sending peer -- the datagram
  * twin of the SUBGROUP stream relay, but stateless: no relay entry, no
  * held fragment, and no delivery to late subscribers (a datagram missed is
  * gone; live audio wants the next frame, not a replay). app_ctx must be

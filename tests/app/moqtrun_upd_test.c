@@ -1,7 +1,7 @@
-/* Hub TRACK_STATUS (draft-ietf-moq-transport-19 10.14) and REQUEST_UPDATE
- * on a subscription (10.9). Shares the recording io
- * stubs (moqtrun_test.c) and the subscription / request-stream fixtures
- * (moqtrun_sub_test.c) of the same unity TU. */
+/* Hub TRACK_STATUS (draft-ietf-moq-transport-19 10.14), REQUEST_UPDATE on a
+ * subscription (10.9) and Location Filter delivery (5.1.4). Shares the
+ * recording io stubs (moqtrun_test.c) and the subscription / request-stream
+ * fixtures (moqtrun_sub_test.c) of the same unity TU. */
 
 static int mtup_enc_tstat(wired_mspan buf, usz* off, const void* m) {
   return moqctl_subscribe_encode(buf, off, m);
@@ -217,6 +217,31 @@ static void test_moqtrun_upd_bad_and_control(void) {
   CHECK(mtrq_closes() == 1);
 }
 
+/* ===================== Location Filter delivery (5.1.4) ============== */
+
+/* AbsoluteRange start Group 2, end Group 3: Groups 1 and 4 never reach
+ * the subscriber, nor does a datagram of Group 0. */
+static void test_moqtrun_filter_groups_delivered(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params r               = mtst_params_filter(MOQCTL_FILTER_ABS_RANGE);
+  moqctl_ftn    f               = mtrq_setup();
+  r.items[0].lf.start.group     = 2;
+  r.items[0].lf.end_group_delta = 1;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &r);
+  moqtrun_test_reset();
+  for (u64 g = 1; g <= 4; g++) {
+    usz n = mtst_stream(g, 1, 1, buf);
+    wired_moqt_on_stream_data(
+        &mtst_hub, SESS_A, 2002 + 4 * g, wired_span_of(buf, n), g != 2);
+  }
+  CHECK(moqtrun_test_count_kind(4) == 1); /* Group 3, one-shot */
+  CHECK(moqtrun_test_count_kind(5) == 1); /* Group 2, keep-open */
+  wired_moqt_on_datagram(
+      &mtst_hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+  CHECK(moqtrun_test_count_kind(9) == 0);
+}
+
 void test_moqtrun_upd(void) {
   test_moqtrun_tstat_ok_largest();
   test_moqtrun_tstat_ok_empty();
@@ -227,4 +252,5 @@ void test_moqtrun_upd(void) {
   test_moqtrun_upd_survives_rejoin();
   test_moqtrun_upd_blob_forward();
   test_moqtrun_upd_bad_and_control();
+  test_moqtrun_filter_groups_delivered();
 }
