@@ -32,7 +32,7 @@ static void test_moqtstat_golden(void) {
   moqctl_subscribe m;
   u8               out[MOQCTL_MAX_MSG_LEN];
   usz              n = 0;
-  if (moqtstat_take(body, &m) != MOQCTL_OK) {
+  if (moqtstat_take(MOQVER_D19, body, &m) != MOQCTL_OK) {
     CHECK(0);
     return;
   }
@@ -53,8 +53,11 @@ static void test_moqtstat_param_scope(void) {
                              0x01, 0x03, 0x02, 0x03, 0x00};
   moqctl_subscribe m;
   CHECK(
-      moqtstat_take(wired_span_of(prio, sizeof prio), &m) == MOQCTL_VIOLATION);
-  CHECK(moqtstat_take(wired_span_of(auth, sizeof auth), &m) == MOQCTL_OK);
+      moqtstat_take(MOQVER_D19, wired_span_of(prio, sizeof prio), &m) ==
+      MOQCTL_VIOLATION);
+  CHECK(
+      moqtstat_take(MOQVER_D19, wired_span_of(auth, sizeof auth), &m) ==
+      MOQCTL_OK);
   CHECK(m.params.n == 1);
 }
 
@@ -64,10 +67,14 @@ static void test_moqtstat_length_mismatch(void) {
   u8               extra[G_MOQT_CTL_TRACK_STATUS_BASIC_MSG_LEN + 1];
   moqctl_subscribe m;
   for (usz cut = 0; cut < n; cut++)
-    CHECK(moqtstat_take(wired_span_of(b, cut), &m) == MOQCTL_VIOLATION);
+    CHECK(
+        moqtstat_take(MOQVER_D19, wired_span_of(b, cut), &m) ==
+        MOQCTL_VIOLATION);
   for (usz i = 0; i < n; i++) extra[i] = b[i];
   extra[n] = 0;
-  CHECK(moqtstat_take(wired_span_of(extra, n + 1), &m) == MOQCTL_VIOLATION);
+  CHECK(
+      moqtstat_take(MOQVER_D19, wired_span_of(extra, n + 1), &m) ==
+      MOQCTL_VIOLATION);
 }
 
 static void test_moqtstat_ok_golden(void) {
@@ -78,7 +85,7 @@ static void test_moqtstat_ok_golden(void) {
   const moqctl_param* p;
   u8                  out[MOQCTL_MAX_MSG_LEN];
   usz                 n = 0;
-  if (moqtstat_ok_take(body, &m) != MOQCTL_OK) {
+  if (moqtstat_ok_take(MOQVER_D19, body, &m) != MOQCTL_OK) {
     CHECK(0);
     return;
   }
@@ -98,11 +105,14 @@ static void test_moqtstat_ok_scope(void) {
   moqctl_request_ok m;
   usz               off = 0;
   CHECK(
-      moqtstat_ok_take(wired_span_of(exp, sizeof exp), &m) == MOQCTL_VIOLATION);
+      moqtstat_ok_take(MOQVER_D19, wired_span_of(exp, sizeof exp), &m) ==
+      MOQCTL_VIOLATION);
   CHECK(
-      moqctl_request_ok_take(wired_span_of(exp, sizeof exp), &off, &m) ==
-      MOQCTL_OK);
-  CHECK(moqtstat_ok_take(wired_span_of(exp, 0), &m) == MOQCTL_VIOLATION);
+      moqctl_request_ok_take(
+          MOQVER_D19, wired_span_of(exp, sizeof exp), &off, &m) == MOQCTL_OK);
+  CHECK(
+      moqtstat_ok_take(MOQVER_D19, wired_span_of(exp, 0), &m) ==
+      MOQCTL_VIOLATION);
 }
 
 static void test_moqtstat_update_golden(void) {
@@ -112,8 +122,8 @@ static void test_moqtstat_update_golden(void) {
   moqtstat_update m;
   u8              out[MOQCTL_MAX_MSG_LEN];
   usz             n = 0;
-  if (moqtstat_update_take(body, MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &m) !=
-      MOQCTL_OK) {
+  if (moqtstat_update_take(
+          MOQVER_D19, body, MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &m) != MOQCTL_OK) {
     CHECK(0);
     return;
   }
@@ -132,7 +142,7 @@ static void test_moqtstat_update_scope(void) {
       G_MOQT_CTL_REQUEST_UPDATE_FORWARD_MSG_LEN);
   moqtstat_update m;
   CHECK(
-      moqtstat_update_take(body, MOQCTL_PCTX_UPDATE_FETCH, &m) ==
+      moqtstat_update_take(MOQVER_D19, body, MOQCTL_PCTX_UPDATE_FETCH, &m) ==
       MOQCTL_VIOLATION);
 }
 
@@ -144,14 +154,14 @@ static void test_moqtstat_update_length_mismatch(void) {
   for (usz cut = 0; cut < n; cut++)
     CHECK(
         moqtstat_update_take(
-            wired_span_of(b, cut), MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &m) ==
-        MOQCTL_VIOLATION);
+            MOQVER_D19, wired_span_of(b, cut), MOQCTL_PCTX_UPDATE_SUBSCRIPTION,
+            &m) == MOQCTL_VIOLATION);
   for (usz i = 0; i < n; i++) extra[i] = b[i];
   extra[n] = 0;
   CHECK(
       moqtstat_update_take(
-          wired_span_of(extra, n + 1), MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &m) ==
-      MOQCTL_VIOLATION);
+          MOQVER_D19, wired_span_of(extra, n + 1),
+          MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &m) == MOQCTL_VIOLATION);
 }
 
 /* 1.4.1 MOQT varint size boundaries on Request ID (minimal encoding). */
@@ -165,7 +175,8 @@ static void moqtstat_t_rid(u64 rid, usz want_len) {
   CHECK(n == want_len + 1);
   CHECK(
       moqtstat_update_take(
-          wired_span_of(out, n), MOQCTL_PCTX_UPDATE_FETCH, &d) == MOQCTL_OK);
+          MOQVER_D19, wired_span_of(out, n), MOQCTL_PCTX_UPDATE_FETCH, &d) ==
+      MOQCTL_OK);
   CHECK(d.request_id == rid);
 }
 
@@ -199,7 +210,8 @@ static int moqtstat_t_prefix(usz first_len) {
   body[n++] = 0x01;
   body[n++] = 'q';
   return moqtstat_update_take(
-      wired_span_of(body, n), MOQCTL_PCTX_UPDATE_SUBSCRIBE_NAMESPACE, &u);
+      MOQVER_D19, wired_span_of(body, n),
+      MOQCTL_PCTX_UPDATE_SUBSCRIBE_NAMESPACE, &u);
 }
 
 static void test_moqtstat_update_prefix_bound(void) {

@@ -39,7 +39,7 @@ static void test_moqfetch_standalone_golden(void) {
       g_moqt_ctl_fetch_standalone, G_MOQT_CTL_FETCH_STANDALONE_LEN,
       MOQFETCH_T_FETCH);
   moqfetch_fetch m;
-  if (moqfetch_fetch_take(body, &m) != MOQCTL_OK) {
+  if (moqfetch_fetch_take(MOQVER_D19, body, &m) != MOQCTL_OK) {
     CHECK(0);
     return;
   }
@@ -63,12 +63,12 @@ static void test_moqfetch_joining_golden(void) {
       g_moqt_ctl_fetch_absolute_joining, G_MOQT_CTL_FETCH_ABSOLUTE_JOINING_LEN,
       MOQFETCH_T_FETCH);
   moqfetch_fetch m;
-  CHECK(moqfetch_fetch_take(rel, &m) == MOQCTL_OK);
+  CHECK(moqfetch_fetch_take(MOQVER_D19, rel, &m) == MOQCTL_OK);
   CHECK(m.request_id == 2);
   CHECK(m.fetch_type == MOQFETCH_RELATIVE_JOINING);
   CHECK(m.joining_request_id == 0 && m.joining_start == 1);
   CHECK(moqfetch_t_reencode(&m, rel));
-  CHECK(moqfetch_fetch_take(abs, &m) == MOQCTL_OK);
+  CHECK(moqfetch_fetch_take(MOQVER_D19, abs, &m) == MOQCTL_OK);
   CHECK(m.request_id == 4);
   CHECK(m.fetch_type == MOQFETCH_ABSOLUTE_JOINING);
   CHECK(m.joining_request_id == 0 && m.joining_start == 5);
@@ -89,13 +89,13 @@ static void test_moqfetch_bad_type_and_scope(void) {
   u8              out[16];
   usz             n = 0;
   CHECK(
-      moqfetch_fetch_take(wired_span_of(t0, sizeof t0), &m) ==
+      moqfetch_fetch_take(MOQVER_D19, wired_span_of(t0, sizeof t0), &m) ==
       MOQCTL_VIOLATION);
   CHECK(
-      moqfetch_fetch_take(wired_span_of(t4, sizeof t4), &m) ==
+      moqfetch_fetch_take(MOQVER_D19, wired_span_of(t4, sizeof t4), &m) ==
       MOQCTL_VIOLATION);
   CHECK(
-      moqfetch_fetch_take(wired_span_of(fwd, sizeof fwd), &m) ==
+      moqfetch_fetch_take(MOQVER_D19, wired_span_of(fwd, sizeof fwd), &m) ==
       MOQCTL_VIOLATION);
   m.fetch_type = 4;
   CHECK(!moqfetch_fetch_encode(wired_mspan_of(out, sizeof out), &n, &m));
@@ -107,11 +107,14 @@ static void moqfetch_t_mismatch(const u8* msg, usz msg_len) {
   u8             extra[32];
   moqfetch_fetch m;
   for (usz cut = 0; cut < n; cut++)
-    CHECK(moqfetch_fetch_take(wired_span_of(b, cut), &m) == MOQCTL_VIOLATION);
+    CHECK(
+        moqfetch_fetch_take(MOQVER_D19, wired_span_of(b, cut), &m) ==
+        MOQCTL_VIOLATION);
   for (usz i = 0; i < n; i++) extra[i] = b[i];
   extra[n] = 0;
   CHECK(
-      moqfetch_fetch_take(wired_span_of(extra, n + 1), &m) == MOQCTL_VIOLATION);
+      moqfetch_fetch_take(MOQVER_D19, wired_span_of(extra, n + 1), &m) ==
+      MOQCTL_VIOLATION);
 }
 
 static void test_moqfetch_length_mismatch(void) {
@@ -132,7 +135,8 @@ static void moqfetch_t_js(u64 js, usz want_len) {
   m.joining_start  = js;
   CHECK(moqfetch_fetch_encode(wired_mspan_of(out, sizeof out), &n, &m));
   CHECK(n == 4 + want_len);
-  CHECK(moqfetch_fetch_take(wired_span_of(out, n), &d) == MOQCTL_OK);
+  CHECK(
+      moqfetch_fetch_take(MOQVER_D19, wired_span_of(out, n), &d) == MOQCTL_OK);
   CHECK(d.joining_start == js);
 }
 
@@ -150,7 +154,7 @@ static void test_moqfetch_ok_golden(void) {
   moqfetch_ok m;
   u8          out[MOQCTL_MAX_MSG_LEN];
   usz         n = 0;
-  if (moqfetch_ok_take(body, &m) != MOQCTL_OK) {
+  if (moqfetch_ok_take(MOQVER_D19, body, &m) != MOQCTL_OK) {
     CHECK(0);
     return;
   }
@@ -162,6 +166,38 @@ static void test_moqfetch_ok_golden(void) {
   moqfetch_t_same(out, n, body);
 }
 
+/* draft-19 SS10.13 FETCH_OK End Location is the last Object + 1, Object 0
+ * the whole group; the model is inclusive (draft-22 SS9.12), the whole
+ * group being Object MOQFETCH_OBJ_GROUP_END. The golden {3,5} is {3,4}
+ * and re-encodes byte for byte. */
+static void test_moqfetch_ok19_end_inclusive(void) {
+  wired_span body = moqfetch_t_body(
+      g_moqt_ctl_fetch_ok_basic, G_MOQT_CTL_FETCH_OK_BASIC_LEN,
+      MOQFETCH_T_FETCH_OK);
+  moqfetch_ok m;
+  u8          out[MOQCTL_MAX_MSG_LEN];
+  usz         n = 0;
+  if (moqfetch_ok_take(MOQVER_D19, body, &m) != MOQCTL_OK) {
+    CHECK(0);
+    return;
+  }
+  m.end = moqfetch_end19_incl(m.end);
+  CHECK(m.end.group == 3 && m.end.object == 4);
+  CHECK(moqfetch_ok19_encode(wired_mspan_of(out, sizeof out), &n, &m));
+  moqfetch_t_same(out, n, body);
+}
+
+/* Object 0 on the draft-19 wire is the whole group, both ways; the
+ * draft-22 wire is the model itself. */
+static void test_moqfetch_end19_whole_group(void) {
+  moqctl_loc whole = moqfetch_end19_incl(moqctl_loc_of(7, 0));
+  moqctl_loc back  = moqfetch_end19_wire(whole);
+  CHECK(whole.group == 7 && whole.object == MOQFETCH_OBJ_GROUP_END);
+  CHECK(back.group == 7 && back.object == 0);
+  back = moqfetch_end19_wire(moqctl_loc_of(2, 0));
+  CHECK(back.group == 2 && back.object == 1);
+}
+
 /* FETCH_OK: truncation inside the fixed fields is a Length mismatch, the
  * rest after the parameters is Track Properties, and FORWARD is out of
  * the FETCH_OK scope. */
@@ -171,12 +207,17 @@ static void test_moqfetch_ok_reject(void) {
   const u8*       b       = g_moqt_ctl_fetch_ok_basic + 3;
   moqfetch_ok     m;
   for (usz cut = 0; cut < G_MOQT_CTL_FETCH_OK_BASIC_MSG_LEN; cut++)
-    CHECK(moqfetch_ok_take(wired_span_of(b, cut), &m) == MOQCTL_VIOLATION);
-  CHECK(moqfetch_ok_take(wired_span_of(props, sizeof props), &m) == MOQCTL_OK);
+    CHECK(
+        moqfetch_ok_take(MOQVER_D19, wired_span_of(b, cut), &m) ==
+        MOQCTL_VIOLATION);
+  CHECK(
+      moqfetch_ok_take(MOQVER_D19, wired_span_of(props, sizeof props), &m) ==
+      MOQCTL_OK);
   CHECK(m.end_of_track == 0);
   CHECK(m.track_properties.n == 2);
   CHECK(
-      moqfetch_ok_take(wired_span_of(fwd, sizeof fwd), &m) == MOQCTL_VIOLATION);
+      moqfetch_ok_take(MOQVER_D19, wired_span_of(fwd, sizeof fwd), &m) ==
+      MOQCTL_VIOLATION);
 }
 
 /* 11.4.4 Figure 26: FETCH_HEADER is Type 0x5 + Request ID. */
@@ -262,6 +303,32 @@ static void test_moqfetch_stream_end_of_range(void) {
   CHECK(o[1].priority == 0x40 && o[1].payload.n == 0);
   CHECK(o[2].flags == MOQFETCH_EOR_UNKNOWN);
   CHECK(o[2].group == 3 && o[2].object == 7);
+}
+
+/* draft-22 SS11.4.1: End of Timed-Out Range 0x20C (wire 82 0C) carries
+ * Group and Object like the other markers; only a sequence that allows it
+ * (a draft-22 stream) takes it, draft-19's 11.4.4 rejects it. */
+static void test_moqfetch_eor_timed_out(void) {
+  static const u8 wire[] = {0x82, 0x0C, 0x03, 0x04};
+  moqfetch_seq    seq    = {0};
+  moqfetch_obj    o;
+  u8              out[8];
+  usz             off = 0, n = 0;
+  CHECK(
+      moqfetch_obj_take(wired_span_of(wire, sizeof wire), &off, &seq, &o) ==
+      MOQCTL_VIOLATION);
+  seq.eor_timed_out = 1;
+  CHECK(
+      moqfetch_obj_take(wired_span_of(wire, sizeof wire), &off, &seq, &o) ==
+      MOQCTL_OK);
+  CHECK(o.flags == MOQFETCH_EOR_TIMED_OUT && o.group == 3 && o.object == 4);
+  seq = (moqfetch_seq){0};
+  CHECK(!moqfetch_obj_put(wired_mspan_of(out, sizeof out), &n, &seq, &o));
+  seq.eor_timed_out = 1;
+  n                 = 0;
+  CHECK(moqfetch_obj_put(wired_mspan_of(out, sizeof out), &n, &seq, &o));
+  CHECK(n == sizeof wire);
+  for (usz i = 0; i < n; i++) CHECK(out[i] == wire[i]);
 }
 
 /* Runs one Object decode from a fresh (or given) sequence. */
@@ -411,7 +478,7 @@ static void test_moqfetch_obj_put_reject(void) {
 /* Decodes a framed FETCH, checks it re-encodes to the same body. */
 static int moqfetch_t_frame(const u8* msg, usz n, moqfetch_fetch* m) {
   wired_span body = moqfetch_t_body(msg, n, MOQFETCH_T_FETCH);
-  int        r    = moqfetch_fetch_take(body, m);
+  int        r    = moqfetch_fetch_take(MOQVER_D19, body, m);
   if (r == MOQCTL_OK) CHECK(moqfetch_t_reencode(m, body));
   return r;
 }
@@ -440,7 +507,8 @@ static void test_moqfetch_params_mix(void) {
   static const u8 b[] = {0x00, 0x02, 0x00, 0x00, 0x04, 0x03, 0x02, 0x03,
                          0x00, 0x07, 0x64, 0x16, 0x80, 0x02, 0x01};
   moqfetch_fetch  m;
-  if (moqfetch_fetch_take(wired_span_of(b, sizeof b), &m) != MOQCTL_OK) {
+  if (moqfetch_fetch_take(MOQVER_D19, wired_span_of(b, sizeof b), &m) !=
+      MOQCTL_OK) {
     CHECK(0);
     return;
   }
@@ -469,7 +537,8 @@ static void test_moqfetch_standalone_extremes(void) {
   m.end                = (moqctl_loc){~0ULL, ~0ULL};
   CHECK(moqfetch_fetch_encode(wired_mspan_of(out, sizeof out), &n, &m));
   CHECK(n == 9 + 1 + 3 + 1 + 4 * 9 + 1);
-  CHECK(moqfetch_fetch_take(wired_span_of(out, n), &d) == MOQCTL_OK);
+  CHECK(
+      moqfetch_fetch_take(MOQVER_D19, wired_span_of(out, n), &d) == MOQCTL_OK);
   CHECK(d.request_id == ~0ULL && d.track.name.n == 0);
   CHECK(d.start.group == ~0ULL && d.end.object == ~0ULL);
   CHECK(moqfetch_t_reencode(&d, wired_span_of(out, n)));
@@ -479,7 +548,8 @@ static void test_moqfetch_standalone_extremes(void) {
   m.joining_start      = ~0ULL;
   n                    = 0;
   CHECK(moqfetch_fetch_encode(wired_mspan_of(out, sizeof out), &n, &m));
-  CHECK(moqfetch_fetch_take(wired_span_of(out, n), &d) == MOQCTL_OK);
+  CHECK(
+      moqfetch_fetch_take(MOQVER_D19, wired_span_of(out, n), &d) == MOQCTL_OK);
   CHECK(d.joining_request_id == ~0ULL && d.joining_start == ~0ULL);
 }
 
@@ -498,7 +568,7 @@ static void moqfetch_t_ftn(usz ns_len, int want) {
   body[n++] = 0x01;
   body[n++] = 'b';
   for (usz i = 0; i < 5; i++) body[n++] = 0x00; /* Start, End, no params */
-  CHECK(moqfetch_fetch_take(wired_span_of(body, n), &f) == want);
+  CHECK(moqfetch_fetch_take(MOQVER_D19, wired_span_of(body, n), &f) == want);
 }
 
 static void test_moqfetch_ftn_bound(void) {
@@ -542,17 +612,17 @@ static void test_moqfetch_more_rejects(void) {
   u64             type;
   wired_span      body;
   CHECK(
-      moqfetch_fetch_take(wired_span_of(tmax, sizeof tmax), &m) ==
+      moqfetch_fetch_take(MOQVER_D19, wired_span_of(tmax, sizeof tmax), &m) ==
       MOQCTL_VIOLATION);
   CHECK(
       moqctl_peek_type(wired_span_of(over, sizeof over), &off, &type, &body) ==
       MOQCTL_KNOWN_UNIMPLEMENTED);
-  CHECK(moqfetch_fetch_take(body, &m) == MOQCTL_VIOLATION);
+  CHECK(moqfetch_fetch_take(MOQVER_D19, body, &m) == MOQCTL_VIOLATION);
   CHECK(
-      moqfetch_fetch_take(wired_span_of(lf, sizeof lf), &m) ==
+      moqfetch_fetch_take(MOQVER_D19, wired_span_of(lf, sizeof lf), &m) ==
       MOQCTL_VIOLATION);
   CHECK(
-      moqfetch_fetch_take(wired_span_of(wrap, sizeof wrap), &m) ==
+      moqfetch_fetch_take(MOQVER_D19, wired_span_of(wrap, sizeof wrap), &m) ==
       MOQCTL_VIOLATION);
 }
 
@@ -708,14 +778,15 @@ static void test_moqfetch_obj_more_rejects(void) {
   CHECK(moqfetch_t_one(od2, sizeof od2, &seq, &o) == MOQCTL_VIOLATION);
 }
 
-/* ===== moqfetch_req (version-neutral FETCH, ledger 3-7) ===== */
+/* ===== moqfetch_req (version-neutral FETCH, 19 SS10.12, 22 SS9.11) ===== */
 
 static void moqfetch_t_req19_frame(
     const moqfetch_fetch* src, moqfetch_req* out) {
   static u8 buf[128]; /* out's spans view it after return */
   usz       n = 0;
   CHECK(moqfetch_fetch_encode(wired_mspan_of(buf, sizeof buf), &n, src));
-  CHECK(moqfetch_req19_take(wired_span_of(buf, n), out) == MOQCTL_OK);
+  CHECK(
+      moqfetch_req19_take(MOQVER_D19, wired_span_of(buf, n), out) == MOQCTL_OK);
 }
 
 /* d19 Standalone: End Location Object != 0 means "end, plus 1" (exclusive);
@@ -775,7 +846,9 @@ static void test_moqfetch_req19_relative_joining_roundtrip(void) {
   CHECK(moqfetch_req19_encode(wired_mspan_of(out, sizeof out), &n, &m));
   {
     moqfetch_req back;
-    CHECK(moqfetch_req19_take(wired_span_of(out, n), &back) == MOQCTL_OK);
+    CHECK(
+        moqfetch_req19_take(MOQVER_D19, wired_span_of(out, n), &back) ==
+        MOQCTL_OK);
     CHECK(back.is_joining && back.joining_request_id == 3);
     CHECK(back.joining_start == 9);
   }
@@ -792,7 +865,9 @@ static void test_moqfetch_req19_absolute_joining_roundtrip(void) {
   CHECK(moqfetch_req19_encode(wired_mspan_of(out, sizeof out), &n, &m));
   {
     moqfetch_req back;
-    CHECK(moqfetch_req19_take(wired_span_of(out, n), &back) == MOQCTL_OK);
+    CHECK(
+        moqfetch_req19_take(MOQVER_D19, wired_span_of(out, n), &back) ==
+        MOQCTL_OK);
     CHECK(back.fetch_type == MOQFETCH_ABSOLUTE_JOINING);
     CHECK(back.joining_start == 42);
   }
@@ -874,7 +949,7 @@ static void test_moqfetch_req22_bad_ns_rejects(void) {
       MOQCTL_VIOLATION);
 }
 
-/* X1 (cross_version): the same NS/Name + absolute {2,3}..{5,0} inclusive
+/* Cross-version: the same NS/Name + absolute {2,3}..{5,0} inclusive
  * range decodes to the same moqctl_rangeloc shape from d19 Standalone and
  * d22 Absolute-Start-Group-End. */
 static void test_moqfetch_req_cross_version_range(void) {
@@ -922,6 +997,8 @@ void test_moqfetch(void) {
   test_moqfetch_varint_boundaries();
   test_moqfetch_ok_golden();
   test_moqfetch_ok_reject();
+  test_moqfetch_ok19_end_inclusive();
+  test_moqfetch_end19_whole_group();
   test_moqfetch_hdr();
   test_moqfetch_stream_golden();
   test_moqfetch_stream_end_of_range();
@@ -932,6 +1009,7 @@ void test_moqfetch(void) {
   test_moqfetch_obj_overflow();
   test_moqfetch_obj_truncated();
   test_moqfetch_obj_put_reject();
+  test_moqfetch_eor_timed_out();
   test_moqfetch_joining_vectors();
   test_moqfetch_params_mix();
   test_moqfetch_standalone_extremes();

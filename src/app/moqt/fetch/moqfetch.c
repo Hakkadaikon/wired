@@ -54,11 +54,11 @@ static int moqfetch_take_head(wired_span b, usz* at, moqfetch_fetch* m) {
   return MOQFETCH_VARIANT_TAKE[moqfetch_variant(m->fetch_type)](b, at, m);
 }
 
-int moqfetch_fetch_take(wired_span body, moqfetch_fetch* out) {
+int moqfetch_fetch_take(int ver, wired_span body, moqfetch_fetch* out) {
   usz at = 0;
   int r  = moqfetch_take_head(body, &at, out);
   if (r == MOQCTL_OK)
-    r = moqctl_params_take(body, &at, MOQCTL_PCTX_FETCH, &out->params);
+    r = moqctl_params_take(ver, body, &at, MOQCTL_PCTX_FETCH, &out->params);
   return moqctl_body_end(r, at, body);
 }
 
@@ -99,23 +99,21 @@ int moqfetch_fetch_encode(wired_mspan buf, usz* off, const moqfetch_fetch* m) {
   return moqctl_params_put(buf, off, &m->params);
 }
 
-/* ===== moqfetch_req: version-neutral FETCH (ledger 3-7) =====
+/* ===== moqfetch_req: version-neutral FETCH (19 SS10.12, 22 SS9.11) =====
  * A thin translation layer over moqfetch_fetch (d19 wire) / moqctl_rangeloc
  * (d19 Standalone Start/End <-> d22 LOCATION_FILTER), not a reimplementation
  * of either wire parser. */
 
 /* 10.12.1: "End Location: the end Location, plus 1. A Location.Object value
- * of 0 means the entire group is requested." Object 0 -> whole end.group
- * (MOQCTL_REK_GROUP); otherwise the inclusive end is {end.group,
- * end.object - 1} (MOQCTL_REK_OBJ). */
+ * of 0 means the entire group is requested." The inclusive end
+ * (moqfetch_end19_incl) is a whole group (MOQCTL_REK_GROUP) when its Object
+ * is MOQFETCH_OBJ_GROUP_END, else {end_group, end_object} (MOQCTL_REK_OBJ). */
 static void moqfetch_req_range_from_end(moqctl_loc end, moqctl_rangeloc* r) {
-  r->end_group = end.group;
-  if (end.object == 0) {
-    r->ek = MOQCTL_REK_GROUP;
-    return;
-  }
-  r->ek         = MOQCTL_REK_OBJ;
-  r->end_object = end.object - 1;
+  moqctl_loc e  = moqfetch_end19_incl(end);
+  r->end_group  = e.group;
+  r->end_object = e.object;
+  r->ek =
+      e.object == MOQFETCH_OBJ_GROUP_END ? MOQCTL_REK_GROUP : MOQCTL_REK_OBJ;
 }
 
 static void moqfetch_req_standalone_from(
@@ -141,21 +139,19 @@ static void moqfetch_req_from_fetch(
   moqfetch_req_standalone_from(f, out);
 }
 
-int moqfetch_req19_take(wired_span body, moqfetch_req* out) {
+int moqfetch_req19_take(int ver, wired_span body, moqfetch_req* out) {
   moqfetch_fetch f;
-  int            r = moqfetch_fetch_take(body, &f);
+  int            r = moqfetch_fetch_take(ver, body, &f);
   if (r != MOQCTL_OK) return r;
   *out = (moqfetch_req){0};
   moqfetch_req_from_fetch(&f, out);
   return MOQCTL_OK;
 }
 
-/* Inverse of moqfetch_req_range_from_end: an inclusive {end_group,
- * end_object} range (OBJ) re-derives the "+1" wire End Location; a whole
- * end_group range (GROUP) re-derives Object 0. */
+/* Inverse of moqfetch_req_range_from_end. */
 static moqctl_loc moqfetch_req_end_to_loc(const moqctl_rangeloc* r) {
-  if (r->ek == MOQCTL_REK_GROUP) return moqctl_loc_of(r->end_group, 0);
-  return moqctl_loc_of(r->end_group, r->end_object + 1);
+  moqctl_loc e = moqctl_loc_of(r->end_group, r->end_object);
+  return moqfetch_end19_wire(moqfetch_req_end(r, e));
 }
 
 static void moqfetch_req_to_fetch(const moqfetch_req* m, moqfetch_fetch* f) {
@@ -179,7 +175,7 @@ int moqfetch_req19_encode(wired_mspan buf, usz* off, const moqfetch_req* m) {
 }
 
 /* draft-22 FETCH body: Request ID, Track Namespace, Track Name, Parameters
- * (moqctl_params_take22 so LOCATION_FILTER decodes per SS9.20.9, not d19's
+ * (draft-22 parameters, so LOCATION_FILTER decodes per SS9.20.9, not d19's
  * Length-prefixed SS5.1.2 shape). */
 static int moqfetch_req22_take_head(wired_span b, usz* at, moqfetch_req* m) {
   int r;
@@ -211,7 +207,8 @@ int moqfetch_req22_take(wired_span body, moqfetch_req* out) {
   usz at = 0;
   int r  = moqfetch_req22_take_head(body, &at, out);
   if (r == MOQCTL_OK)
-    r = moqctl_params_take22(body, &at, MOQCTL_PCTX_FETCH, &out->params);
+    r = moqctl_params_take(
+        MOQVER_D22, body, &at, MOQCTL_PCTX_FETCH, &out->params);
   r = moqctl_body_end(r, at, body);
   if (r != MOQCTL_OK) return r;
   out->is_joining = 0;
@@ -258,11 +255,11 @@ static int moqfetch_ok_take_head(wired_span b, usz* at, moqfetch_ok* m) {
   return moqctl_loc_take(b, at, &m->end);
 }
 
-int moqfetch_ok_take(wired_span body, moqfetch_ok* out) {
+int moqfetch_ok_take(int ver, wired_span body, moqfetch_ok* out) {
   usz at = 0;
   int r  = moqfetch_ok_take_head(body, &at, out);
   if (r == MOQCTL_OK)
-    r = moqctl_params_take(body, &at, MOQCTL_PCTX_FETCH_OK, &out->params);
+    r = moqctl_params_take(ver, body, &at, MOQCTL_PCTX_FETCH_OK, &out->params);
   out->track_properties = wired_span_of(body.p + at, body.n - at);
   return moqctl_body_end(r, body.n, body);
 }
@@ -276,6 +273,27 @@ int moqfetch_ok_encode(wired_mspan buf, usz* off, const moqfetch_ok* m) {
   if (!moqfetch_ok_put_head(buf, off, m)) return 0;
   if (!moqctl_params_put(buf, off, &m->params)) return 0;
   return bytes_put(buf, off, m->track_properties);
+}
+
+moqctl_loc moqfetch_end19_incl(moqctl_loc wire) {
+  return moqctl_loc_of(wire.group, wire.object - 1); /* 0 - 1 = GROUP_END */
+}
+
+moqctl_loc moqfetch_end19_wire(moqctl_loc incl) {
+  return moqctl_loc_of(incl.group, incl.object + 1); /* GROUP_END + 1 = 0 */
+}
+
+moqctl_loc moqfetch_req_end(const moqctl_rangeloc* r, moqctl_loc largest) {
+  if (r->ek == MOQCTL_REK_UNBOUNDED) return largest;
+  if (r->ek == MOQCTL_REK_GROUP)
+    return moqctl_loc_of(r->end_group, MOQFETCH_OBJ_GROUP_END);
+  return moqctl_loc_of(r->end_group, r->end_object);
+}
+
+int moqfetch_ok19_encode(wired_mspan buf, usz* off, const moqfetch_ok* m) {
+  moqfetch_ok w = *m;
+  w.end         = moqfetch_end19_wire(m->end);
+  return moqfetch_ok_encode(buf, off, &w);
 }
 
 /* ===== FETCH_HEADER (11.4.4 Figure 26) ===== */
@@ -485,15 +503,17 @@ static void moqfetch_note_obj(moqfetch_seq* s, const moqfetch_obj* o) {
   s->priority      = o->priority;
 }
 
-static int moqfetch_is_eor(u64 flags) {
+/* 0x20C only where the stream's draft has it (draft-22 SS11.4.1). */
+static int moqfetch_is_eor(u64 flags, const moqfetch_seq* s) {
+  if (flags == MOQFETCH_EOR_TIMED_OUT) return s->eor_timed_out;
   return flags == MOQFETCH_EOR_NONEXISTENT || flags == MOQFETCH_EOR_UNKNOWN;
 }
 
-/* 11.4.4: < 128 is a flag set (kind 0), 0x8C / 0x10C an End of Range
- * (kind 1); "Any other value is a PROTOCOL_VIOLATION" (-1). */
-static int moqfetch_kind(u64 flags) {
+/* 11.4.4: < 128 is a flag set (kind 0), 0x8C / 0x10C (/ 0x20C) an End of
+ * Range (kind 1); "Any other value is a PROTOCOL_VIOLATION" (-1). */
+static int moqfetch_kind(u64 flags, const moqfetch_seq* s) {
   if (flags < 0x80) return 0;
-  return moqfetch_is_eor(flags) ? 1 : -1;
+  return moqfetch_is_eor(flags, s) ? 1 : -1;
 }
 
 typedef struct {
@@ -531,7 +551,7 @@ static int moqfetch_obj_take_at(
     wired_span b, usz* at, moqfetch_seq* s, moqfetch_obj* o) {
   u64 flags;
   if (!moqvi_take(b, at, &flags)) return MOQCTL_INSUFFICIENT;
-  int kind = moqfetch_kind(flags);
+  int kind = moqfetch_kind(flags, s);
   if (kind < 0) return MOQCTL_VIOLATION;
   moqfetch_obj_clear(o, flags);
   return moqfetch_run(&MOQFETCH_KIND_OPS[kind], b, at, s, o);
@@ -652,7 +672,7 @@ static int moqfetch_put_all(
 
 int moqfetch_obj_put(
     wired_mspan buf, usz* off, moqfetch_seq* seq, const moqfetch_obj* o) {
-  int kind = moqfetch_kind(o->flags);
+  int kind = moqfetch_kind(o->flags, seq);
   if (kind < 0) return 0;
   if (!moqfetch_put_all(&MOQFETCH_PUT_BY_KIND[kind], buf, off, seq, o))
     return 0;
