@@ -129,6 +129,9 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "build examples/moqt_chat/wired_server: cc_freestanding_bin \$"
     echo "    examples/moqt_chat/wired_server.c build/libwired.a"
     echo
+    echo "build examples/moqt_interop/wired_server: cc_freestanding_bin \$"
+    echo "    examples/moqt_interop/wired_server.c build/libwired.a"
+    echo
     echo "# guide/ snippets: each guide/snippets/<id>/main.c is a standalone"
     echo "# program built like the examples above (the guide shows and runs it)."
     guide_bins=""
