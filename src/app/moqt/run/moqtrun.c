@@ -362,7 +362,7 @@ static int moqtrun_encode_request_error(
 static void moqtrun_send_request_error(wired_moqtrun_peer* p, u64 code) {
   u8                   msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqctl_request_error e = {0};
-  e.error_code           = code;
+  e.error_code           = moqctl_request_error_for(p->ver, code);
   usz n                  = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_ERROR,
       moqtrun_encode_request_error, &e);
@@ -4638,7 +4638,7 @@ static void moqtrun_sub_done(
     u64                  status) {
   u8                  msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqctl_publish_done d = {0};
-  d.status_code         = status;
+  d.status_code         = moqctl_publish_done_for(p->ver, status);
   d.stream_count        = MOQTRUN_DONE_STREAMS_UNKNOWN;
   usz n                 = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH_DONE,

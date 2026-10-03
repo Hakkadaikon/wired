@@ -550,6 +550,24 @@ static void test_moqtrun_fetch_join_unknown_request(void) {
   CHECK(mf_error() == MOQFETCH_ERR_INVALID_JOINING_REQUEST_ID);
 }
 
+/* Session s's negotiated draft becomes ver. */
+static void mf_set_ver(const wired_wt_session* s, int ver) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
+    if (mtst_hub.peers[i].in_use && mtst_hub.peers[i].wt == s)
+      mtst_hub.peers[i].ver = ver;
+}
+
+/* draft-22 has no INVALID_JOINING_REQUEST_ID (SS12.3): the hub sends the
+ * nearest code it defines, DOES_NOT_EXIST. */
+static void test_moqtrun_fetch_join_unknown_request_d22(void) {
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  u64 rid = mf_subscribe(0);
+  mf_set_ver(SESS_B, MOQVER_D22);
+  mf_joining(MOQFETCH_RELATIVE_JOINING, rid + 2, 0);
+  CHECK(mf_error() == MOQCTL_ERR_DOES_NOT_EXIST);
+}
+
 /* An absolute Joining Start n starts at {n,0} and ends at the
  * Joining Location. */
 static void test_moqtrun_fetch_absolute_join(void) {
@@ -638,6 +656,7 @@ void test_moqtrun_fetch(void) {
   test_moqtrun_fetch_relative_join_clamped();
   test_moqtrun_fetch_join_invalid_range();
   test_moqtrun_fetch_join_unknown_request();
+  test_moqtrun_fetch_join_unknown_request_d22();
   test_moqtrun_fetch_absolute_join();
   test_moqtrun_fetch_join_forward_off();
   test_moqtrun_fetch_rejoin_reresolves_start();
