@@ -1127,6 +1127,10 @@ static void test_moqctl_params_location_filter_roundtrip(void) {
   CHECK(out.items[0].lf.type == MOQCTL_FILTER_ABS_RANGE);
   CHECK(out.items[0].lf.start.group == 5 && out.items[0].lf.start.object == 0);
   CHECK(out.items[0].lf.end_group_delta == 3);
+  /* the same filter in the version-neutral form */
+  CHECK(out.items[0].has_filter == 1 && out.items[0].rl.sk == MOQCTL_RSK_ABS);
+  CHECK(out.items[0].rl.start_group == 5 && out.items[0].rl.end_group == 8);
+  CHECK(out.items[0].rl.ek == MOQCTL_REK_GROUP);
   CHECK(moqctl_params_put(wired_mspan_of(buf, sizeof buf), &off, &out));
   CHECK(off == 2 + sizeof val);
   for (usz i = 0; i < sizeof val; i++) CHECK(buf[2 + i] == val[i]);
