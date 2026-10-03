@@ -1946,6 +1946,31 @@ static int srvrun_rst_pending(const srvrun_conn* c) {
   return c->up && srvrun_rst_any(c);
 }
 
+/* 1 iff slot i's close or drain is latched from an app callback. */
+static int srvrun_wt_close_or_drain_pending(const srvrun_conn* c, int i) {
+  return c->wt_close_pending[i] || c->wt_drain_pending[i];
+}
+
+/* 1 iff any WT session slot has a close or drain latched. */
+static int srvrun_wt_close_drain_any(const srvrun_conn* c) {
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+    if (srvrun_wt_close_or_drain_pending(c, i)) return 1;
+  return 0;
+}
+
+/* 1 iff any WT session slot has a close, drain or stream-reset latched
+ * from an app callback (wt_close_pending/wt_drain_pending/wt_stream_
+ * reset_n's own docs: all three are drained only at srvrun_on_step, which
+ * a receive-only peer -- one that calls wired_server_wt_close_session from
+ * a tick/on_step hook rather than from handling that peer's own packet --
+ * may never trigger on its own. Without this, srvrun_may_block_unbounded
+ * blocks in recvmmsg forever and the latch never leaves: the same class of
+ * bug srvrun_has_outbound's dg_pending check already closed for broadcast
+ * DATAGRAMs. */
+static int srvrun_wt_app_pending(const srvrun_conn* c) {
+  return c->wt_stream_reset_n != 0 || srvrun_wt_close_drain_any(c);
+}
+
 /* 1 iff e awaits an ACK and its resend deadline has passed. */
 static int srvrun_rst_due(const srvrun_rst* e, u64 now_ms) {
   return e->pln && now_ms >= e->due_ms;
@@ -8476,6 +8501,19 @@ static void srvrun_rst_retry_slot(const srvrun_step_ctx* ctx, int slot) {
   }
 }
 
+/* The counterpart to srvrun_rst_retry_slot for the three WT app-callback
+ * latches (srvrun_wt_app_pending's own doc): a poll-timeout tick, not only
+ * a packet the peer happens to send, must also flush them, since the app
+ * can call wired_server_wt_close_session/wt_drain_session/wt_stream_reset
+ * from a tick/on_step hook with no packet of that peer's own in flight. */
+static void srvrun_wt_app_pending_slot(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  if (!c->up) return;
+  srvrun_flush_wt_drain(c);
+  srvrun_drain_wt_close_pending(ctx->cfg, c);
+  srvrun_drain_wt_stream_reset(ctx->cfg, c);
+}
+
 /* Flush one slot's queued broadcast DATAGRAM (if any) on a poll-loop tick --
  * the counterpart to srvrun_pto_slot for dg_pending, since a receive-only
  * peer (e.g. a WebTransport client that only listens) never runs
@@ -8701,6 +8739,7 @@ static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_grant_retry_slot(ctx, slot);
   srvrun_rst_retry_slot(ctx, slot);
   srvrun_dg_slot(ctx, slot);
+  srvrun_wt_app_pending_slot(ctx, slot);
 }
 
 /* A poll timeout with responses or broadcast DATAGRAMs in flight: fire the
@@ -9722,9 +9761,22 @@ static void srvrun_serve_batch(
 /* 1 if c needs the poll-timeout tick to keep making progress: a response
  * awaiting ACKs/a queued DATAGRAM (srvrun_has_outbound), or a boot flight
  * awaiting confirm (srvrun_has_boot_outbound). */
+/* 1 iff c is up and has a WT app-callback latch pending (srvrun_wt_app_
+ * pending's own doc): split out so srvrun_slot_waiting's own branch count
+ * stays flat. */
+static int srvrun_wt_waiting(const srvrun_conn* c) {
+  return c->up && srvrun_wt_app_pending(c);
+}
+
+/* srvrun_rst_pending or srvrun_wt_waiting: the two latch-style waits,
+ * grouped so srvrun_slot_waiting's own || count stays flat. */
+static int srvrun_latch_waiting(const srvrun_conn* c) {
+  return srvrun_rst_pending(c) || srvrun_wt_waiting(c);
+}
+
 static int srvrun_slot_waiting(const srvrun_conn* c) {
   return srvrun_has_outbound(c) || srvrun_has_boot_outbound(c) ||
-         srvrun_rst_pending(c);
+         srvrun_latch_waiting(c);
 }
 
 /* Wait for input: block in recvmmsg unless some slot needs the poll-timeout

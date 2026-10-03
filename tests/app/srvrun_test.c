@@ -16444,6 +16444,38 @@ static void test_srvrun_wt_close_session_latches_pending(void) {
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED); /* not closed yet, just queued */
 }
 
+/* CLOSE FLUSHES ON A POLL TICK ALONE: an app that calls
+ * wired_server_wt_close_session from a tick/on_step hook (e.g. a GOAWAY
+ * timeout) rather than from handling that peer's own packet must still see
+ * the close go out and srvrun_may_block_unbounded stop blocking --
+ * srvrun_wt_app_pending's own regression, the WT counterpart of
+ * test_srvrun_broadcast_datagram_flushes_on_poll_tick_alone's dg_pending
+ * fix. No real peer packet is ever delivered to this connection in this
+ * test. */
+static void test_srvrun_wt_close_flushes_on_poll_tick_alone(void) {
+  struct lp_fix   f;
+  wired_obuf      ob = {0};
+  u8              obuf[1024];
+  static const u8 msg[] = "bye";
+  srvrun_conn*    c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  CHECK(
+      wired_server_wt_close_session(
+          &c->wt, 0x2a, wired_span_of(msg, sizeof msg - 1)) == 1);
+  CHECK(c->wt_close_pending[0] == 1);
+  {
+    srvrun_cfg      cfg = sr_wt_send_cfg();
+    srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    CHECK(srvrun_any_waiting(&st) == 1);
+    srvrun_fire_ptos(&cfg, &st);
+    (void)ctx;
+  }
+  CHECK(c->wt_close_pending[0] == 0);
+  CHECK(c->wt.state == WIRED_WT_CLOSED);
+}
+
 /* CLOSE UNKNOWN SESSION: a session pointer this env does not own resolves to
  * no connection, so nothing is latched. */
 static void test_srvrun_wt_close_session_unknown_session_refused(void) {
@@ -20997,6 +21029,7 @@ void test_srvrun(void) {
   test_srvrun_send_wt_drain_seals_capsule_on_connect_stream();
   test_srvrun_send_wt_drain_all_skips_inactive_slot();
   test_srvrun_wt_close_session_latches_pending();
+  test_srvrun_wt_close_flushes_on_poll_tick_alone();
   test_srvrun_wt_close_session_unknown_session_refused();
   test_srvrun_send_wt_close_seals_capsule_with_fin();
   test_srvrun_wt_close_capsule_retransmitted_after_loss();
