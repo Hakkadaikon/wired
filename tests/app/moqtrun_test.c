@@ -615,15 +615,18 @@ static wired_moqt_hub mtasm_hub;
 static u64            mtasm_ctrl_b;
 static u8             mtasm_buf[MTASM_BUF];
 
-/* A publishes alice; B joins (control stream mtasm_ctrl_b). */
-static void mtasm_setup(void) {
+/* A publishes alice; B joins with WT subprotocol tok ("" = draft-19)
+ * (control stream mtasm_ctrl_b). */
+static void mtasm_setup_ver(const char* tok) {
   moqtrun_test_reset();
   wired_moqt_init(&mtasm_hub, moqtrun_test_io());
   moqtrun_test_publish_alice(&mtasm_hub);
   wired_moqt_on_session(
-      &mtasm_hub, SESS_B, wired_span_of(0, 0), wired_span_of(0, 0));
+      &mtasm_hub, SESS_B, wired_span_of(0, 0), moqtrun_test_proto(tok));
   mtasm_ctrl_b = moqtrun_test_last_kind(1)->stream_id;
 }
+
+static void mtasm_setup(void) { mtasm_setup_ver(""); }
 
 static void mtasm_feed(usz from, usz to) {
   wired_moqt_on_stream_data(
@@ -741,6 +744,42 @@ static void test_moqtrun_ctl_unknown_type_closes_session(void) {
   mtasm_feed(0, n);
   mtasm_check_closed(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
   mtasm_feed(0, n); /* more bytes after the close are not dispatched */
+  mtasm_check_closed(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
+/* B (joined with tok) sends a 2-byte-body message of Type type, then
+ * SUBSCRIBE(alice). */
+static void mtasm_feed_typed(const char* tok, u8 type) {
+  mtasm_setup_ver(tok);
+  usz n        = mtasm_tstat_then_subscribe(2);
+  mtasm_buf[0] = type;
+  mtasm_feed(0, n);
+}
+
+/* draft-18 SS10.5: 0x1E (the table's PUBLISH_OK) is handled exactly like
+ * REQUEST_OK 0x7 -- only on a draft-18 session; draft-19 closes. */
+static void test_moqtrun_ctl_publish_ok_alias_d18_only(void) {
+  u64 want[4], got[4];
+  usz nw;
+  mtasm_feed_typed("", (u8)MOQCTL_T_REQUEST_OK);
+  nw = mtasm_reply_types(want, 4);
+  mtasm_feed_typed("moqt-18", (u8)MOQCTL_T_PUBLISH_OK18);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(mtasm_reply_types(got, 4) == nw);
+  for (usz i = 0; i < nw; i++) CHECK(got[i] == want[i]);
+  mtasm_feed_typed("", (u8)MOQCTL_T_PUBLISH_OK18);
+  mtasm_check_closed(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
+/* draft-22 SS9.10: PUBLISH_STATE_NOTIFY is known (not a close) only on a
+ * draft-22 session. */
+static void test_moqtrun_ctl_publish_state_notify_d22_only(void) {
+  u64 types[4];
+  mtasm_feed_typed("moqt-22", (u8)MOQCTL_T_PUBLISH_STATE_NOTIFY);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(mtasm_reply_types(types, 4) == 2);
+  CHECK(types[1] == MOQCTL_T_SUBSCRIBE_OK);
+  mtasm_feed_typed("moqt-19", (u8)MOQCTL_T_PUBLISH_STATE_NOTIFY);
   mtasm_check_closed(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
 
@@ -5123,6 +5162,8 @@ void test_moqtrun(void) {
   test_moqtrun_ctl_max_length_accepted();
   test_moqtrun_ctl_over_max_skipped_without_close();
   test_moqtrun_ctl_unknown_type_closes_session();
+  test_moqtrun_ctl_publish_ok_alias_d18_only();
+  test_moqtrun_ctl_publish_state_notify_d22_only();
   test_moqtrun_ctl_over_max_closes_session();
   test_moqtrun_subscribe_fits_every_other_peer();
   test_moqtrun_object_relay_to_subscriber();

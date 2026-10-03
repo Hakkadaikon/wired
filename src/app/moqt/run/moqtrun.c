@@ -2507,6 +2507,7 @@ static moqtrun_ctl_fn moqtrun_late_route(
 
 static moqtrun_ctl_fn moqtrun_msg_route(
     wired_moqtrun_peer* p, int peek, u64 type, wired_span body) {
+  peek = moqctl_type_ver(p->ver, peek, &type);
   if (p->req && moqtrun_peek_known(peek))
     return moqtrun_late_route(p, type, moqtrun_req_route(p->req, type, body));
   return moqtrun_late_route(p, type, moqtrun_ctl_route(peek, type));
