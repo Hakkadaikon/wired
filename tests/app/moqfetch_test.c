@@ -162,6 +162,37 @@ static void test_moqfetch_ok_golden(void) {
   moqfetch_t_same(out, n, body);
 }
 
+/* draft-19 SS10.13 FETCH_OK End Location is the last Object + 1, Object 0
+ * the whole group; the model is inclusive (draft-22 SS9.12), the whole
+ * group being Object MOQFETCH_OBJ_GROUP_END. The golden {3,5} is {3,4}
+ * and re-encodes byte for byte. */
+static void test_moqfetch_ok19_end_inclusive(void) {
+  wired_span body = moqfetch_t_body(
+      g_moqt_ctl_fetch_ok_basic, G_MOQT_CTL_FETCH_OK_BASIC_LEN,
+      MOQFETCH_T_FETCH_OK);
+  moqfetch_ok m;
+  u8          out[MOQCTL_MAX_MSG_LEN];
+  usz         n = 0;
+  if (moqfetch_ok19_take(body, &m) != MOQCTL_OK) {
+    CHECK(0);
+    return;
+  }
+  CHECK(m.end.group == 3 && m.end.object == 4);
+  CHECK(moqfetch_ok19_encode(wired_mspan_of(out, sizeof out), &n, &m));
+  moqfetch_t_same(out, n, body);
+}
+
+/* Object 0 on the draft-19 wire is the whole group, both ways; the
+ * draft-22 wire is the model itself. */
+static void test_moqfetch_end19_whole_group(void) {
+  moqctl_loc whole = moqfetch_end19_incl(moqctl_loc_of(7, 0));
+  moqctl_loc back  = moqfetch_end19_wire(whole);
+  CHECK(whole.group == 7 && whole.object == MOQFETCH_OBJ_GROUP_END);
+  CHECK(back.group == 7 && back.object == 0);
+  back = moqfetch_end19_wire(moqctl_loc_of(2, 0));
+  CHECK(back.group == 2 && back.object == 1);
+}
+
 /* FETCH_OK: truncation inside the fixed fields is a Length mismatch, the
  * rest after the parameters is Track Properties, and FORWARD is out of
  * the FETCH_OK scope. */
@@ -948,6 +979,8 @@ void test_moqfetch(void) {
   test_moqfetch_varint_boundaries();
   test_moqfetch_ok_golden();
   test_moqfetch_ok_reject();
+  test_moqfetch_ok19_end_inclusive();
+  test_moqfetch_end19_whole_group();
   test_moqfetch_hdr();
   test_moqfetch_stream_golden();
   test_moqfetch_stream_end_of_range();

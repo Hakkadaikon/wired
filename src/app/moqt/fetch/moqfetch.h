@@ -98,6 +98,21 @@ typedef struct {
 int moqfetch_ok_take(wired_span body, moqfetch_ok* out);
 int moqfetch_ok_encode(wired_mspan buf, usz* off, const moqfetch_ok* m);
 
+/** Inclusive End Object meaning "through the last Object of the group" --
+ * draft-19's End Location Object 0 (10.13) in the inclusive model. */
+#define MOQFETCH_OBJ_GROUP_END (~0ULL)
+
+/** draft-19 End Location (last Object + 1, Object 0 = whole group) to the
+ * inclusive model and back (draft-22 SS9.12 is inclusive on the wire). */
+moqctl_loc moqfetch_end19_incl(moqctl_loc wire);
+moqctl_loc moqfetch_end19_wire(moqctl_loc incl);
+
+/** FETCH_OK with end held inclusive: the draft-19 wire form converted on
+ * the way in and out. moqfetch_ok_take/_encode are the draft-22 form
+ * (wire == model). */
+int moqfetch_ok19_take(wired_span body, moqfetch_ok* out);
+int moqfetch_ok19_encode(wired_mspan buf, usz* off, const moqfetch_ok* m);
+
 /** FETCH_HEADER (11.4.4 Figure 26): Type 0x5 then Request ID. A Type
  * other than 0x5 is a VIOLATION. */
 int moqfetch_hdr_take(wired_span buf, usz* off, u64* request_id);
