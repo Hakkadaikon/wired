@@ -101,6 +101,9 @@
 #define MOQCTL_PARAM_TRACK_PROPERTY_FILTER 0x29ULL
 #define MOQCTL_PARAM_NEW_GROUP_REQUEST 0x32ULL
 #define MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX 0x34ULL
+/** draft-22 only (SS9.20.15, SS9.20.21). */
+#define MOQCTL_PARAM_FILL_PARAMETERS 0x23ULL
+#define MOQCTL_PARAM_INCLUDE_PROPERTIES 0x35ULL
 
 /** Message contexts a Message Parameter may appear in, one bit each
  * (draft-ietf-moq-transport-19 10.2.x "MAY appear in"). REQUEST_OK and
@@ -369,10 +372,16 @@ typedef struct {
 int moqctl_params_take(wired_span buf, usz* off, u32 ctx, moqctl_params* out);
 int moqctl_params_put(wired_mspan buf, usz* off, const moqctl_params* params);
 
-/** Same as moqctl_params_take, except LOCATION_FILTER (0x21) is decoded by
- * draft-22's unprefixed codec (moqctl_rangeloc22_take, into
- * moqctl_param.rl/has_filter) instead of draft-19's Length-prefixed one.
- * Every other known Type keeps the same wire shape in both versions. */
+/** moqctl_params_take for draft ver (MOQVER_*, a valid id): each Type's
+ * allowed contexts, and whether it exists at all, follow that draft's
+ * parameter table. Under draft-22 LOCATION_FILTER (0x21) is decoded by the
+ * unprefixed codec (moqctl_rangeloc22_take, into moqctl_param.rl/
+ * has_filter) instead of draft-19's Length-prefixed one. */
+int moqctl_params_takev(
+    int ver, wired_span buf, usz* off, u32 ctx, moqctl_params* out);
+
+/** moqctl_params_takev(MOQVER_D22, ...); moqctl_params_take is the
+ * draft-19 form. */
 int moqctl_params_take22(wired_span buf, usz* off, u32 ctx, moqctl_params* out);
 
 /** First item of Type type in params, or 0 when absent (the draft
