@@ -803,9 +803,15 @@ static int moqctl_pv_ns(wired_span buf, usz* at, moqctl_param* p) {
   return r;
 }
 
-static const moqctl_param_value_fn MOQCTL_PARAM_VALUE_FNS[7] = {
-    moqctl_pv_uint8, moqctl_pv_varint,    moqctl_pv_location, moqctl_pv_bytes,
-    moqctl_pv_token, moqctl_pv_locfilter, moqctl_pv_ns};
+/* draft-22 LOCATION_FILTER (SS9.20.9): no Length prefix at all. */
+static int moqctl_pv_rangeloc22(wired_span buf, usz* at, moqctl_param* p) {
+  return moqctl_rangeloc22_take(buf, at, &p->has_filter, &p->rl);
+}
+
+static const moqctl_param_value_fn MOQCTL_PARAM_VALUE_FNS[8] = {
+    moqctl_pv_uint8, moqctl_pv_varint,    moqctl_pv_location,
+    moqctl_pv_bytes, moqctl_pv_token,     moqctl_pv_locfilter,
+    moqctl_pv_ns,    moqctl_pv_rangeloc22};
 
 static int moqctl_param_take_value(
     wired_span buf, usz* at, int enc, moqctl_param* p) {
@@ -855,20 +861,44 @@ static int moqctl_param_take_delta(
   return u64_add_ok(prev, delta, &p->type) ? MOQCTL_OK : MOQCTL_VIOLATION;
 }
 
+/* d22's LOCATION_FILTER is the only Type whose wire shape AND scope differ
+ * from d19's (SS9.20.9 vs SS5.1.2): d22 additionally allows it in FETCH
+ * (d19's FETCH carries its range inline, never as this parameter). Every
+ * other rule is version-blind. */
+static int moqctl_param_rule_is_locfilter(const moqctl_param_rule* rule) {
+  return rule && rule->type == MOQCTL_PARAM_LOCATION_FILTER;
+}
+
+static void moqctl_param_rule_select(
+    const moqctl_param_rule* rule, int d22, moqctl_param_rule* over) {
+  *over = *rule;
+  if (!d22 || !moqctl_param_rule_is_locfilter(rule)) return;
+  over->enc = MOQCTL_PENC_RANGELOC22;
+  over->ctx |= MOQCTL_PCTX_FETCH;
+}
+
 static int moqctl_param_take_body(
-    wired_span buf, usz* at, u32 ctx, moqctl_params* out, moqctl_param* p) {
+    wired_span     buf,
+    usz*           at,
+    u32            ctx,
+    int            d22,
+    moqctl_params* out,
+    moqctl_param*  p) {
   const moqctl_param_rule* rule = moqctl_param_rule_for(p->type);
-  if (!moqctl_param_admit(rule, ctx, out, p->type)) return MOQCTL_VIOLATION;
-  p->enc = rule->enc;
-  return moqctl_param_take_checked(buf, at, rule, p);
+  moqctl_param_rule        over = {0};
+  if (!rule) return MOQCTL_VIOLATION;
+  moqctl_param_rule_select(rule, d22, &over);
+  if (!moqctl_param_admit(&over, ctx, out, p->type)) return MOQCTL_VIOLATION;
+  p->enc = over.enc;
+  return moqctl_param_take_checked(buf, at, &over, p);
 }
 
 static int moqctl_param_take_one(
-    wired_span buf, usz* at, u32 ctx, u64 prev, moqctl_params* out) {
+    wired_span buf, usz* at, u32 ctx, int d22, u64 prev, moqctl_params* out) {
   moqctl_param p = {0};
   int          r = moqctl_param_take_delta(buf, at, prev, &p);
   if (r != MOQCTL_OK) return r;
-  r = moqctl_param_take_body(buf, at, ctx, out, &p);
+  r = moqctl_param_take_body(buf, at, ctx, d22, out, &p);
   if (r != MOQCTL_OK) return r;
   out->items[out->n] = p;
   out->n++;
@@ -876,35 +906,45 @@ static int moqctl_param_take_one(
 }
 
 static int moqctl_params_take_step(
-    wired_span buf, usz* at, u32 ctx, u64* prev, moqctl_params* out) {
+    wired_span buf, usz* at, u32 ctx, int d22, u64* prev, moqctl_params* out) {
   int r;
   if (out->n >= MOQCTL_MAX_PARAMS) return MOQCTL_VIOLATION;
-  r = moqctl_param_take_one(buf, at, ctx, *prev, out);
+  r = moqctl_param_take_one(buf, at, ctx, d22, *prev, out);
   if (r != MOQCTL_OK) return r;
   *prev = out->items[out->n - 1].type;
   return MOQCTL_OK;
 }
 
 static int moqctl_params_take_loop(
-    wired_span buf, usz* at, u32 ctx, u64 count, moqctl_params* out) {
+    wired_span buf, usz* at, u32 ctx, int d22, u64 count, moqctl_params* out) {
   u64 prev = 0;
   for (u64 i = 0; i < count; i++) {
-    int r = moqctl_params_take_step(buf, at, ctx, &prev, out);
+    int r = moqctl_params_take_step(buf, at, ctx, d22, &prev, out);
     if (r != MOQCTL_OK) return r;
   }
   return MOQCTL_OK;
 }
 
-int moqctl_params_take(wired_span buf, usz* off, u32 ctx, moqctl_params* out) {
+static int moqctl_params_take_any(
+    wired_span buf, usz* off, u32 ctx, int d22, moqctl_params* out) {
   usz at = *off;
   u64 count;
   int r;
   out->n = 0;
   if (!moqvi_take(buf, &at, &count)) return MOQCTL_INSUFFICIENT;
-  r = moqctl_params_take_loop(buf, &at, ctx, count, out);
+  r = moqctl_params_take_loop(buf, &at, ctx, d22, count, out);
   if (r != MOQCTL_OK) return r;
   *off = at;
   return MOQCTL_OK;
+}
+
+int moqctl_params_take(wired_span buf, usz* off, u32 ctx, moqctl_params* out) {
+  return moqctl_params_take_any(buf, off, ctx, 0, out);
+}
+
+int moqctl_params_take22(
+    wired_span buf, usz* off, u32 ctx, moqctl_params* out) {
+  return moqctl_params_take_any(buf, off, ctx, 1, out);
 }
 
 int moqctl_param_put_uint8(wired_mspan buf, usz* at, u64 v) {
@@ -948,11 +988,17 @@ static int moqctl_pp_raw(wired_mspan buf, usz* at, const moqctl_param* p) {
   return bytes_put(buf, at, p->bytes);
 }
 
+static int moqctl_pp_rangeloc22(
+    wired_mspan buf, usz* at, const moqctl_param* p) {
+  return moqctl_rangeloc22_put(buf, at, p->has_filter, &p->rl);
+}
+
 /* PENC_TOKEN re-emits the raw Token bytes the sender placed in p->bytes
  * (this subset only receives tokens; no Token-structure encoder). */
-static const moqctl_param_put_fn MOQCTL_PARAM_PUT_FNS[7] = {
-    moqctl_pp_uint8, moqctl_pp_varint,    moqctl_pp_location, moqctl_pp_bytes,
-    moqctl_pp_bytes, moqctl_pp_locfilter, moqctl_pp_raw};
+static const moqctl_param_put_fn MOQCTL_PARAM_PUT_FNS[8] = {
+    moqctl_pp_uint8, moqctl_pp_varint,    moqctl_pp_location,
+    moqctl_pp_bytes, moqctl_pp_bytes,     moqctl_pp_locfilter,
+    moqctl_pp_raw,   moqctl_pp_rangeloc22};
 
 static int moqctl_param_put_value(
     wired_mspan buf, usz* at, const moqctl_param* p) {

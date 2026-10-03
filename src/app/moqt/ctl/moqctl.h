@@ -142,6 +142,10 @@
 /** Bare Track Namespace (SS2.4.1, no Length prefix): moqctl_param.bytes
  * spans its encoding, which encode re-emits as is. */
 #define MOQCTL_PENC_NS 6
+/** draft-22 LOCATION_FILTER (SS9.20.9): no Length prefix, decoded by
+ * moqctl_rangeloc22_take into moqctl_param.rl/has_filter. Selected only by
+ * moqctl_params_take22, never by moqctl_params_take (d19). */
+#define MOQCTL_PENC_RANGELOC22 7
 
 /** AUTHORIZATION TOKEN Alias Types (SS10.2.2). Which fields follow the
  * Alias Type is fixed per code point: DELETE/USE_ALIAS carry only the
@@ -339,6 +343,8 @@ typedef struct {
   wired_span       bytes; /* PENC_BYTES, and PENC_TOKEN's raw Token bytes */
   moqctl_token     token; /* PENC_TOKEN */
   moqctl_locfilter lf;    /* PENC_LOCFILTER */
+  int              has_filter; /* PENC_RANGELOC22: 0 if Type was 0x00 */
+  moqctl_rangeloc  rl;         /* PENC_RANGELOC22 */
 } moqctl_param;
 
 /** A decoded/to-encode Message Parameter list. */
@@ -357,6 +363,12 @@ typedef struct {
 #define MOQCTL_PARAMS_KVFMT (-4)
 int moqctl_params_take(wired_span buf, usz* off, u32 ctx, moqctl_params* out);
 int moqctl_params_put(wired_mspan buf, usz* off, const moqctl_params* params);
+
+/** Same as moqctl_params_take, except LOCATION_FILTER (0x21) is decoded by
+ * draft-22's unprefixed codec (moqctl_rangeloc22_take, into
+ * moqctl_param.rl/has_filter) instead of draft-19's Length-prefixed one.
+ * Every other known Type keeps the same wire shape in both versions. */
+int moqctl_params_take22(wired_span buf, usz* off, u32 ctx, moqctl_params* out);
 
 /** First item of Type type in params, or 0 when absent (the draft
  * default then applies, e.g. SUBSCRIBER_PRIORITY 128, SS10.2.7). */
