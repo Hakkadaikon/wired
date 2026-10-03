@@ -186,6 +186,32 @@ static void test_moqtrun_upd_params_replace(void) {
   CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
 }
 
+/* draft-22 SS9.5/SS9.20.9: a REQUEST_UPDATE's LOCATION_FILTER replaces
+ * the subscription's; type 0x00 removes it. */
+static void test_moqtrun_upd_filter_d22(void) {
+  moqctl_params r                            = {0};
+  moqctl_ftn    f                            = mtup_setup();
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  r.items[0].type           = MOQCTL_PARAM_LOCATION_FILTER;
+  r.items[0].enc            = MOQCTL_PENC_RANGELOC22;
+  r.items[0].has_filter     = 1;
+  r.items[0].rl.sk          = MOQCTL_RSK_ABS;
+  r.items[0].rl.start_group = 5;
+  r.items[0].rl.ek          = MOQCTL_REK_OBJ;
+  r.items[0].rl.end_group   = 7;
+  r.items[0].rl.end_object  = 3;
+  r.n                       = 1;
+  mtup_update(SESS_B, MTRQ_S1, &r);
+  wired_moqtrun_sub* s = mtst_sub(SESS_A, SESS_B);
+  CHECK(s && s->start.group == 5 && s->has_end_group && s->end_group == 7);
+  CHECK(s && s->has_end_object && s->end_object == 3);
+  CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
+  r.items[0].has_filter = 0;
+  mtup_update(SESS_B, MTRQ_S1, &r);
+  CHECK(s && s->start.group == 0 && !s->has_end_group && !s->has_end_object);
+}
+
 /* An update outlives a withdrawn PUBLISH: the republish re-attaches the
  * updated state (only the subscriber changes it, 5.1). The publisher's
  * session ending ends the subscription instead (PUBLISH_DONE). */
@@ -451,6 +477,7 @@ void test_moqtrun_upd(void) {
   test_moqtrun_upd_forward_off_reliable();
   test_moqtrun_upd_forward_toggles();
   test_moqtrun_upd_params_replace();
+  test_moqtrun_upd_filter_d22();
   test_moqtrun_upd_survives_rejoin();
   test_moqtrun_upd_blob_forward();
   test_moqtrun_upd_bad_and_control();
