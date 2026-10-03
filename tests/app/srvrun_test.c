@@ -5029,6 +5029,19 @@ static int srvrun_seal_wt_busy_reset(
   return srvrun_seal_ctl(c, pl, pln, out);
 }
 
+/* The error code of the kept RESET_STREAM (srvrun_rst) naming stream id,
+ * or ~0 if none was sent -- reads the exact frames the server put on the
+ * wire, not a re-seal of a value the test chose. */
+static u64 sr_kept_reset_code(const srvrun_conn* c, u64 id) {
+  reset_stream_frame rs;
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++)
+    if (c->rst[i].pln &&
+        reset_stream_decode(c->rst[i].pl, c->rst[i].pln, &rs) &&
+        rs.stream_id == id)
+      return rs.error_code;
+  return ~0ULL;
+}
+
 /* Buffer-full rejection: fill every WIRED_WT_MAX_BUFFERED_STREAMS
  * slot of an UNESTABLISHED session directly via wired_wt_session_offer_stream
  * (the same buffering path test_srvrun_wt_uni_stream_offered_to_session
@@ -5071,6 +5084,8 @@ static void test_srvrun_wt_bidi_stream_buffer_full_sends_reset(void) {
   srvrun_offer_wt_streams(&cfg, &c);
   CHECK(c.l.wt_streams[0].offered == 0); /* never associated */
   CHECK(c.l.wt_streams[0].in_use == 0);  /* freed, not left claimed forever */
+  /* draft-ietf-webtrans-http3-16 9.5: an HTTP/3 error code, sent raw */
+  CHECK(sr_kept_reset_code(&c, 996) == WTERR_BUFFERED_STREAM_REJECTED);
   CHECK(
       srvrun_seal_wt_busy_reset(
           &c, 996, wired_wterrmap_to_http3(WTERR_BUFFERED_STREAM_REJECTED),
@@ -6484,6 +6499,8 @@ static void test_srvrun_connect_stream_reset_resets_owned_wt_bidi_stream(void) {
   srvrun_close_wt_on_stream_close(&cfg, &conns[0]);
   CHECK(conns[0].wt.state == WIRED_WT_CLOSED);
   CHECK(conns[0].l.wt_streams[0].in_use == 0); /* the stream slot is freed */
+  /* draft-ietf-webtrans-http3-16 6: WT_SESSION_GONE is protocol-level, raw */
+  CHECK(sr_kept_reset_code(&conns[0], 8) == WTERR_SESSION_GONE);
   CHECK(srvrun_seal_wt_busy_reset(&conns[0], 8, 0x52e4bbe1db93ULL, &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = reset_stream_decode(pl, pll, &rs);
