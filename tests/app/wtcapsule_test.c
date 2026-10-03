@@ -370,6 +370,121 @@ static void test_wtcapsule_value_varint_sole_only(void) {
   CHECK(wtcapsule_value_varint(wired_span_of(one, 0), &v) == 0);
 }
 
+/* draft-ietf-webtrans-http3-16 SS6: the WT_CLOSE_SESSION Application Error
+ * Message must be valid UTF-8 (RFC 3629). An empty message is vacuously
+ * valid. */
+static void test_wt_utf8_valid_empty(void) {
+  CHECK(wtcapsule_utf8_valid(wired_span_of(0, 0)) == 1);
+}
+
+static void test_wt_utf8_valid_ascii(void) {
+  static const u8 s[] = "hello, world";
+  CHECK(wtcapsule_utf8_valid(wired_span_of(s, sizeof s - 1)) == 1);
+}
+
+/* U+00E9 (e acute) as its canonical 2-byte encoding. */
+static void test_wt_utf8_valid_two_byte(void) {
+  static const u8 s[] = {0xC3, 0xA9};
+  CHECK(wtcapsule_utf8_valid(wired_span_of(s, sizeof s)) == 1);
+}
+
+/* U+3042 (hiragana A) as its canonical 3-byte encoding. */
+static void test_wt_utf8_valid_three_byte(void) {
+  static const u8 s[] = {0xE3, 0x81, 0x82};
+  CHECK(wtcapsule_utf8_valid(wired_span_of(s, sizeof s)) == 1);
+}
+
+/* U+1F600 (grinning face) as its canonical 4-byte encoding. */
+static void test_wt_utf8_valid_four_byte(void) {
+  static const u8 s[] = {0xF0, 0x9F, 0x98, 0x80};
+  CHECK(wtcapsule_utf8_valid(wired_span_of(s, sizeof s)) == 1);
+}
+
+/* A lead byte announcing a 2-byte sequence with no continuation byte
+ * following (truncated at the end of the message). */
+static void test_wt_utf8_invalid_truncated_sequence(void) {
+  static const u8 s[] = {0xC3};
+  CHECK(wtcapsule_utf8_valid(wired_span_of(s, sizeof s)) == 0);
+}
+
+/* A continuation byte (0x80-0xBF) with no lead byte before it. */
+static void test_wt_utf8_invalid_stray_continuation(void) {
+  static const u8 s[] = {0x80};
+  CHECK(wtcapsule_utf8_valid(wired_span_of(s, sizeof s)) == 0);
+}
+
+/* Overlong encoding: 0xC0 0x80 encodes NUL (U+0000) in 2 bytes instead of
+ * the canonical 1 -- RFC 3629 SS3 forbids this. */
+static void test_wt_utf8_invalid_overlong(void) {
+  static const u8 s[] = {0xC0, 0x80};
+  CHECK(wtcapsule_utf8_valid(wired_span_of(s, sizeof s)) == 0);
+}
+
+/* A lead byte of 0xF5 would start a sequence encoding past U+10FFFF
+ * (outside Unicode's range) -- RFC 3629 SS3. */
+static void test_wt_utf8_invalid_lead_byte_out_of_range(void) {
+  static const u8 s[] = {0xF5, 0x80, 0x80, 0x80};
+  CHECK(wtcapsule_utf8_valid(wired_span_of(s, sizeof s)) == 0);
+}
+
+/* 0xED 0xA0 0x80 encodes U+D800, a UTF-16 surrogate half -- never a valid
+ * UTF-8 scalar value (RFC 3629 SS3). */
+static void test_wt_utf8_invalid_surrogate(void) {
+  static const u8 s[] = {0xED, 0xA0, 0x80};
+  CHECK(wtcapsule_utf8_valid(wired_span_of(s, sizeof s)) == 0);
+}
+
+/* 0xFF is never a valid UTF-8 lead byte. */
+static void test_wt_utf8_invalid_lead_byte(void) {
+  static const u8 s[] = {0xFF};
+  CHECK(wtcapsule_utf8_valid(wired_span_of(s, sizeof s)) == 0);
+}
+
+/* draft-ietf-webtrans-http3-16 SS6: truncating to a cap at or past the
+ * message's own length is a no-op. */
+static void test_wt_utf8_truncate_len_no_truncation_needed(void) {
+  static const u8 s[] = "hello";
+  CHECK(wtcapsule_utf8_truncate_len(wired_span_of(s, 5), 5) == 5);
+  CHECK(wtcapsule_utf8_truncate_len(wired_span_of(s, 5), 100) == 5);
+}
+
+/* Pure ASCII: every byte is its own boundary, so the cap itself is exact. */
+static void test_wt_utf8_truncate_len_ascii_exact_cap(void) {
+  static const u8 s[] = "hello, world";
+  CHECK(wtcapsule_utf8_truncate_len(wired_span_of(s, sizeof s - 1), 5) == 5);
+}
+
+/* "e" + U+00E9 (0xC3 0xA9) straddling byte 2: a cap of 2 lands inside the
+ * 2-byte sequence, so the boundary backs off to 1 (before the sequence
+ * starts), never 2 (which would split it). */
+static void test_wt_utf8_truncate_len_backs_off_before_split_sequence(void) {
+  static const u8 s[] = {'e', 0xC3, 0xA9};
+  CHECK(wtcapsule_utf8_truncate_len(wired_span_of(s, sizeof s), 2) == 1);
+}
+
+/* Same string, cap of 3: the 2-byte sequence ends exactly at the cap, so
+ * the full cap is kept (no truncation within the sequence). */
+static void test_wt_utf8_truncate_len_keeps_sequence_ending_at_cap(void) {
+  static const u8 s[] = {'e', 0xC3, 0xA9};
+  CHECK(wtcapsule_utf8_truncate_len(wired_span_of(s, sizeof s), 3) == 3);
+}
+
+/* An invalid lead byte (0x80 / 0xFF) before the cap ends the prefix there
+ * instead of looping forever (seq_len 0 never advances the scan). */
+static void test_wt_utf8_truncate_len_stops_at_invalid_byte_before_cap(void) {
+  static const u8 a[] = {'a', 'b', 0x80, 'c', 'd', 'e'};
+  static const u8 b[] = {'a', 0xFF, 'c', 'd', 'e', 'f'};
+  CHECK(wtcapsule_utf8_truncate_len(wired_span_of(a, sizeof a), 4) == 2);
+  CHECK(wtcapsule_utf8_truncate_len(wired_span_of(b, sizeof b), 4) == 1);
+}
+
+/* An invalid byte past the cap is never reached: the prefix up to the cap is
+ * kept whole. */
+static void test_wt_utf8_truncate_len_ignores_invalid_byte_after_cap(void) {
+  static const u8 s[] = {'a', 'b', 'c', 'd', 0xFF, 0x80};
+  CHECK(wtcapsule_utf8_truncate_len(wired_span_of(s, sizeof s), 4) == 4);
+}
+
 void test_wtcapsule(void) {
   test_wtcapsule_close_roundtrip();
   test_wtcapsule_close_roundtrip_empty_message();
@@ -390,4 +505,21 @@ void test_wtcapsule(void) {
   test_wtcapsule_max_streams_decode_trailing_bytes_rejected();
   test_wtcapsule_max_streams_decoded_value_ignored_until_applied();
   test_wtcapsule_value_varint_sole_only();
+  test_wt_utf8_valid_empty();
+  test_wt_utf8_valid_ascii();
+  test_wt_utf8_valid_two_byte();
+  test_wt_utf8_valid_three_byte();
+  test_wt_utf8_valid_four_byte();
+  test_wt_utf8_invalid_truncated_sequence();
+  test_wt_utf8_invalid_stray_continuation();
+  test_wt_utf8_invalid_overlong();
+  test_wt_utf8_invalid_lead_byte_out_of_range();
+  test_wt_utf8_invalid_surrogate();
+  test_wt_utf8_invalid_lead_byte();
+  test_wt_utf8_truncate_len_no_truncation_needed();
+  test_wt_utf8_truncate_len_ascii_exact_cap();
+  test_wt_utf8_truncate_len_backs_off_before_split_sequence();
+  test_wt_utf8_truncate_len_keeps_sequence_ending_at_cap();
+  test_wt_utf8_truncate_len_stops_at_invalid_byte_before_cap();
+  test_wt_utf8_truncate_len_ignores_invalid_byte_after_cap();
 }
