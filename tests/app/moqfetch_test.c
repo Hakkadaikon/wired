@@ -264,6 +264,32 @@ static void test_moqfetch_stream_end_of_range(void) {
   CHECK(o[2].group == 3 && o[2].object == 7);
 }
 
+/* draft-22 SS11.4.1: End of Timed-Out Range 0x20C (wire 82 0C) carries
+ * Group and Object like the other markers; only a sequence that allows it
+ * (a draft-22 stream) takes it, draft-19's 11.4.4 rejects it. */
+static void test_moqfetch_eor_timed_out(void) {
+  static const u8 wire[] = {0x82, 0x0C, 0x03, 0x04};
+  moqfetch_seq    seq    = {0};
+  moqfetch_obj    o;
+  u8              out[8];
+  usz             off = 0, n = 0;
+  CHECK(
+      moqfetch_obj_take(wired_span_of(wire, sizeof wire), &off, &seq, &o) ==
+      MOQCTL_VIOLATION);
+  seq.eor_timed_out = 1;
+  CHECK(
+      moqfetch_obj_take(wired_span_of(wire, sizeof wire), &off, &seq, &o) ==
+      MOQCTL_OK);
+  CHECK(o.flags == MOQFETCH_EOR_TIMED_OUT && o.group == 3 && o.object == 4);
+  seq = (moqfetch_seq){0};
+  CHECK(!moqfetch_obj_put(wired_mspan_of(out, sizeof out), &n, &seq, &o));
+  seq.eor_timed_out = 1;
+  n                 = 0;
+  CHECK(moqfetch_obj_put(wired_mspan_of(out, sizeof out), &n, &seq, &o));
+  CHECK(n == sizeof wire);
+  for (usz i = 0; i < n; i++) CHECK(out[i] == wire[i]);
+}
+
 /* Runs one Object decode from a fresh (or given) sequence. */
 static int moqfetch_t_one(
     const u8* b, usz n, moqfetch_seq* seq, moqfetch_obj* o) {
@@ -932,6 +958,7 @@ void test_moqfetch(void) {
   test_moqfetch_obj_overflow();
   test_moqfetch_obj_truncated();
   test_moqfetch_obj_put_reject();
+  test_moqfetch_eor_timed_out();
   test_moqfetch_joining_vectors();
   test_moqfetch_params_mix();
   test_moqfetch_standalone_extremes();
