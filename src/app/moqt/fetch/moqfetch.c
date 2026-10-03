@@ -105,17 +105,15 @@ int moqfetch_fetch_encode(wired_mspan buf, usz* off, const moqfetch_fetch* m) {
  * of either wire parser. */
 
 /* 10.12.1: "End Location: the end Location, plus 1. A Location.Object value
- * of 0 means the entire group is requested." Object 0 -> whole end.group
- * (MOQCTL_REK_GROUP); otherwise the inclusive end is {end.group,
- * end.object - 1} (MOQCTL_REK_OBJ). */
+ * of 0 means the entire group is requested." The inclusive end
+ * (moqfetch_end19_incl) is a whole group (MOQCTL_REK_GROUP) when its Object
+ * is MOQFETCH_OBJ_GROUP_END, else {end_group, end_object} (MOQCTL_REK_OBJ). */
 static void moqfetch_req_range_from_end(moqctl_loc end, moqctl_rangeloc* r) {
-  r->end_group = end.group;
-  if (end.object == 0) {
-    r->ek = MOQCTL_REK_GROUP;
-    return;
-  }
-  r->ek         = MOQCTL_REK_OBJ;
-  r->end_object = end.object - 1;
+  moqctl_loc e  = moqfetch_end19_incl(end);
+  r->end_group  = e.group;
+  r->end_object = e.object;
+  r->ek =
+      e.object == MOQFETCH_OBJ_GROUP_END ? MOQCTL_REK_GROUP : MOQCTL_REK_OBJ;
 }
 
 static void moqfetch_req_standalone_from(
@@ -150,12 +148,10 @@ int moqfetch_req19_take(int ver, wired_span body, moqfetch_req* out) {
   return MOQCTL_OK;
 }
 
-/* Inverse of moqfetch_req_range_from_end: an inclusive {end_group,
- * end_object} range (OBJ) re-derives the "+1" wire End Location; a whole
- * end_group range (GROUP) re-derives Object 0. */
+/* Inverse of moqfetch_req_range_from_end. */
 static moqctl_loc moqfetch_req_end_to_loc(const moqctl_rangeloc* r) {
-  if (r->ek == MOQCTL_REK_GROUP) return moqctl_loc_of(r->end_group, 0);
-  return moqctl_loc_of(r->end_group, r->end_object + 1);
+  moqctl_loc e = moqctl_loc_of(r->end_group, r->end_object);
+  return moqfetch_end19_wire(moqfetch_req_end(r, e));
 }
 
 static void moqfetch_req_to_fetch(const moqfetch_req* m, moqfetch_fetch* f) {
@@ -285,6 +281,13 @@ moqctl_loc moqfetch_end19_incl(moqctl_loc wire) {
 
 moqctl_loc moqfetch_end19_wire(moqctl_loc incl) {
   return moqctl_loc_of(incl.group, incl.object + 1); /* GROUP_END + 1 = 0 */
+}
+
+moqctl_loc moqfetch_req_end(const moqctl_rangeloc* r, moqctl_loc largest) {
+  if (r->ek == MOQCTL_REK_UNBOUNDED) return largest;
+  if (r->ek == MOQCTL_REK_GROUP)
+    return moqctl_loc_of(r->end_group, MOQFETCH_OBJ_GROUP_END);
+  return moqctl_loc_of(r->end_group, r->end_object);
 }
 
 int moqfetch_ok19_encode(wired_mspan buf, usz* off, const moqfetch_ok* m) {
