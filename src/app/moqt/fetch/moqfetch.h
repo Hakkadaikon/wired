@@ -107,6 +107,11 @@ int moqfetch_ok_encode(wired_mspan buf, usz* off, const moqfetch_ok* m);
 moqctl_loc moqfetch_end19_incl(moqctl_loc wire);
 moqctl_loc moqfetch_end19_wire(moqctl_loc incl);
 
+/** The inclusive end of a FETCH range r, in the same model: a whole end
+ * group (MOQCTL_REK_GROUP) is Object MOQFETCH_OBJ_GROUP_END, an open end
+ * is largest (draft-22 SS9.20.9: an omitted FETCH end is Largest Object). */
+moqctl_loc moqfetch_req_end(const moqctl_rangeloc* r, moqctl_loc largest);
+
 /** FETCH_OK encode with m->end held inclusive, converted to the draft-19
  * wire form (moqfetch_end19_wire). moqfetch_ok_encode is the draft-22
  * form (wire == model); a draft-19 decode applies moqfetch_end19_incl to
