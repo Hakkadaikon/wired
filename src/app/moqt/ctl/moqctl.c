@@ -1,6 +1,9 @@
 #include "app/moqt/ctl/moqctl.h"
 
+#include "app/moqt/fetch/moqfetch.h"
 #include "app/moqt/kvp/moqkvp.h"
+#include "app/moqt/ns/moqns.h"
+#include "app/moqt/tstat/moqtstat.h"
 #include "app/moqt/vi/moqvi.h"
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
@@ -1423,16 +1426,11 @@ int moqctl_goaway_encode(wired_mspan buf, usz* off, const moqctl_goaway* m) {
 /* Known-but-not-implemented Message Type IDs (SS10 table). Table-driven
  * so type classification stays a lookup, not an if/else chain. */
 static const u64 MOQCTL_KNOWN_UNIMPL[] = {
-    0x2,  /* REQUEST_UPDATE */
-    0x16, /* FETCH */
-    0xD,  /* TRACK_STATUS */
-    0x6,  /* PUBLISH_NAMESPACE */
-    0x50, /* SUBSCRIBE_NAMESPACE */
-    0x51, /* SUBSCRIBE_TRACKS */
-    0x8,  /* NAMESPACE */
-    0xE,  /* NAMESPACE_DONE */
-    0xF,  /* PUBLISH_SKIPPED */
-    0x18, /* FETCH_OK */
+    MOQTSTAT_T_REQUEST_UPDATE,   MOQFETCH_T_FETCH,
+    MOQTSTAT_T_TRACK_STATUS,     MOQNS_T_PUBLISH_NAMESPACE,
+    MOQNS_T_SUBSCRIBE_NAMESPACE, MOQCTL_T_SUBSCRIBE_TRACKS,
+    MOQNS_T_NAMESPACE,           MOQNS_T_NAMESPACE_DONE,
+    MOQCTL_T_PUBLISH_SKIPPED,    MOQFETCH_T_FETCH_OK,
 };
 #define MOQCTL_KNOWN_UNIMPL_N \
   (sizeof MOQCTL_KNOWN_UNIMPL / sizeof MOQCTL_KNOWN_UNIMPL[0])

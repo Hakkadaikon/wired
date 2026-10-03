@@ -2344,10 +2344,10 @@ static const struct {
     {MOQCTL_T_GOAWAY, moqtrun_dispatch_goaway},
     /* draft SS10 known non-request messages this hub does not implement:
      * nothing carries a Request ID to answer, so they are skipped. */
-    {0x8, moqtrun_dispatch_skip},  /* NAMESPACE */
-    {0xE, moqtrun_dispatch_skip},  /* NAMESPACE_DONE */
-    {0xF, moqtrun_dispatch_skip},  /* PUBLISH_SKIPPED */
-    {0x18, moqtrun_dispatch_skip}, /* FETCH_OK */
+    {MOQNS_T_NAMESPACE, moqtrun_dispatch_skip},
+    {MOQNS_T_NAMESPACE_DONE, moqtrun_dispatch_skip},
+    {MOQCTL_T_PUBLISH_SKIPPED, moqtrun_dispatch_skip},
+    {MOQFETCH_T_FETCH_OK, moqtrun_dispatch_skip},
     {MOQCTL_T_PUBLISH_DONE, moqtrun_dispatch_skip},
 };
 #define MOQTRUN_CTL_TABLE_N \
@@ -2691,7 +2691,7 @@ static usz moqtrun_live_head(
     const wired_moqtrun_live* live, u64 group, usz frag_len, u8* head) {
   usz            off = 0;
   moqdata_subhdr h   = {0};
-  h.type             = 0x70;
+  h.type             = MOQDATA_MSG_TYPE;
   h.track_alias      = live->track.own_alias;
   h.group_id         = group;
   wired_mspan buf    = wired_mspan_of(head, MOQDATA_MSG_OVERHEAD);

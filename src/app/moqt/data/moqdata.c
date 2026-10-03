@@ -311,10 +311,6 @@ int moqdata_obj_put_status(
   return MOQDATA_OK;
 }
 
-#define MOQDATA_MSG_TYPE                        \
-  0x70ULL /* PROPERTIES off, mode 0b00, no eog, \
-              default priority, FIRST_OBJECT set */
-
 /* ===== one-message builder ===== */
 
 int moqdata_msg_build(wired_mspan buf, usz* off, const moqdata_msg* m) {
