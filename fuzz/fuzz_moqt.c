@@ -27,16 +27,16 @@ static void fuzz_ctl_body(u64 type, wired_span body) {
     moqctl_setup_take(body, &off, &m);
   } else if (type == MOQCTL_T_SUBSCRIBE) {
     moqctl_subscribe m;
-    moqctl_subscribe_take(body, &off, &m);
+    moqctl_subscribe_take(MOQVER_D19, body, &off, &m);
   } else if (type == MOQCTL_T_SUBSCRIBE_OK) {
     moqctl_subscribe_ok m;
-    moqctl_subscribe_ok_take(body, &off, &m);
+    moqctl_subscribe_ok_take(MOQVER_D19, body, &off, &m);
   } else if (type == MOQCTL_T_PUBLISH) {
     moqctl_publish m;
-    moqctl_publish_take(body, &off, &m);
+    moqctl_publish_take(MOQVER_D19, body, &off, &m);
   } else if (type == MOQCTL_T_REQUEST_OK) {
     moqctl_request_ok m;
-    moqctl_request_ok_take(body, &off, &m);
+    moqctl_request_ok_take(MOQVER_D19, body, &off, &m);
   } else if (type == MOQCTL_T_REQUEST_ERROR) {
     moqctl_request_error m;
     moqctl_request_error_take(body, &off, &m);
@@ -60,16 +60,16 @@ static void fuzz_ctl_body_more(u64 type, wired_span body) {
   moqctl_request_ok tok;
   moqtstat_update   up;
   switch (type) {
-    case MOQFETCH_T_FETCH: moqfetch_fetch_take(body, &fetch); break;
-    case MOQFETCH_T_FETCH_OK: moqfetch_ok_take(body, &fok); break;
-    case MOQNS_T_SUBSCRIBE_NAMESPACE: moqns_subscribe_take(body, &req); break;
-    case MOQNS_T_PUBLISH_NAMESPACE: moqns_publish_take(body, &req); break;
+    case MOQFETCH_T_FETCH: moqfetch_fetch_take(MOQVER_D19, body, &fetch); break;
+    case MOQFETCH_T_FETCH_OK: moqfetch_ok_take(MOQVER_D19, body, &fok); break;
+    case MOQNS_T_SUBSCRIBE_NAMESPACE: moqns_subscribe_take(MOQVER_D19, body, &req); break;
+    case MOQNS_T_PUBLISH_NAMESPACE: moqns_publish_take(MOQVER_D19, body, &req); break;
     case MOQNS_T_NAMESPACE:
     case MOQNS_T_NAMESPACE_DONE: moqns_suffix_take(body, &ns); break;
-    case MOQTSTAT_T_TRACK_STATUS: moqtstat_take(body, &ts); break;
-    case MOQCTL_T_REQUEST_OK: moqtstat_ok_take(body, &tok); break;
+    case MOQTSTAT_T_TRACK_STATUS: moqtstat_take(MOQVER_D19, body, &ts); break;
+    case MOQCTL_T_REQUEST_OK: moqtstat_ok_take(MOQVER_D19, body, &tok); break;
     case MOQTSTAT_T_REQUEST_UPDATE:
-      moqtstat_update_take(body, MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &up);
+      moqtstat_update_take(MOQVER_D19, body, MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &up);
       break;
   }
 }

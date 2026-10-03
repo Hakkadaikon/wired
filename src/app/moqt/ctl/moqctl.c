@@ -1008,18 +1008,9 @@ static int moqctl_params_take_any(
   return MOQCTL_OK;
 }
 
-int moqctl_params_takev(
+int moqctl_params_take(
     int ver, wired_span buf, usz* off, u32 ctx, moqctl_params* out) {
   return moqctl_params_take_any(buf, off, ctx, ver, out);
-}
-
-int moqctl_params_take(wired_span buf, usz* off, u32 ctx, moqctl_params* out) {
-  return moqctl_params_takev(MOQVER_D19, buf, off, ctx, out);
-}
-
-int moqctl_params_take22(
-    wired_span buf, usz* off, u32 ctx, moqctl_params* out) {
-  return moqctl_params_takev(MOQVER_D22, buf, off, ctx, out);
 }
 
 int moqctl_param_put_uint8(wired_mspan buf, usz* at, u64 v) {
@@ -1197,17 +1188,18 @@ int moqctl_setup_encode(wired_mspan buf, usz* off, const moqctl_setup* s) {
 /* ===== SUBSCRIBE (SS10.6) ===== */
 
 static int moqctl_subscribe_take_body(
-    wired_span buf, usz* at, moqctl_subscribe* out) {
+    int ver, wired_span buf, usz* at, moqctl_subscribe* out) {
   int r = moqctl_ftn_take(buf, at, &out->name);
   if (r != MOQCTL_OK) return r;
-  return moqctl_params_take(buf, at, MOQCTL_PCTX_SUBSCRIBE, &out->params);
+  return moqctl_params_take(ver, buf, at, MOQCTL_PCTX_SUBSCRIBE, &out->params);
 }
 
-int moqctl_subscribe_take(wired_span buf, usz* off, moqctl_subscribe* out) {
+int moqctl_subscribe_take(
+    int ver, wired_span buf, usz* off, moqctl_subscribe* out) {
   usz at = *off;
   int r;
   if (!moqvi_take(buf, &at, &out->request_id)) return MOQCTL_INSUFFICIENT;
-  r = moqctl_subscribe_take_body(buf, &at, out);
+  r = moqctl_subscribe_take_body(ver, buf, &at, out);
   if (r != MOQCTL_OK) return r;
   *off = at;
   return MOQCTL_OK;
@@ -1235,11 +1227,11 @@ static wired_span moqctl_residual(wired_span buf, usz at) {
 }
 
 int moqctl_subscribe_ok_take(
-    wired_span buf, usz* off, moqctl_subscribe_ok* out) {
+    int ver, wired_span buf, usz* off, moqctl_subscribe_ok* out) {
   usz at = *off;
   int r;
   if (!moqvi_take(buf, &at, &out->track_alias)) return MOQCTL_INSUFFICIENT;
-  r = moqctl_params_take(buf, &at, MOQCTL_PCTX_SUBSCRIBE_OK, &out->params);
+  r = moqctl_params_take(ver, buf, &at, MOQCTL_PCTX_SUBSCRIBE_OK, &out->params);
   if (r != MOQCTL_OK) return r;
   out->track_properties = moqctl_residual(buf, at);
   *off                  = buf.n;
@@ -1264,10 +1256,10 @@ int moqctl_subscribe_ok_encode(
 /* ===== PUBLISH (SS10.9) ===== */
 
 static int moqctl_publish_take_alias_params(
-    wired_span buf, usz* at, moqctl_publish* out) {
+    int ver, wired_span buf, usz* at, moqctl_publish* out) {
   int r;
   if (!moqvi_take(buf, at, &out->track_alias)) return MOQCTL_INSUFFICIENT;
-  r = moqctl_params_take(buf, at, MOQCTL_PCTX_PUBLISH, &out->params);
+  r = moqctl_params_take(ver, buf, at, MOQCTL_PCTX_PUBLISH, &out->params);
   if (r != MOQCTL_OK) return r;
   out->track_properties = moqctl_residual(buf, *at);
   return MOQCTL_OK;
@@ -1279,11 +1271,12 @@ static int moqctl_publish_take_id_name(
   return moqctl_ftn_take(buf, at, &out->name);
 }
 
-int moqctl_publish_take(wired_span buf, usz* off, moqctl_publish* out) {
+int moqctl_publish_take(
+    int ver, wired_span buf, usz* off, moqctl_publish* out) {
   usz at = *off;
   int r  = moqctl_publish_take_id_name(buf, &at, out);
   if (r != MOQCTL_OK) return r;
-  r = moqctl_publish_take_alias_params(buf, &at, out);
+  r = moqctl_publish_take_alias_params(ver, buf, &at, out);
   if (r != MOQCTL_OK) return r;
   *off = buf.n;
   return MOQCTL_OK;
@@ -1314,10 +1307,11 @@ int moqctl_publish_encode(wired_mspan buf, usz* off, const moqctl_publish* m) {
  * Parameters use the scope of whichever request REQUEST_OK answers, which
  * this codec does not track (session-layer concern), so it admits the
  * union of every OK's scope. */
-int moqctl_request_ok_take(wired_span buf, usz* off, moqctl_request_ok* out) {
+int moqctl_request_ok_take(
+    int ver, wired_span buf, usz* off, moqctl_request_ok* out) {
   usz at = *off;
-  int r =
-      moqctl_params_take(buf, &at, MOQCTL_PCTX_REQUEST_OK_ANY, &out->params);
+  int r  = moqctl_params_take(
+      ver, buf, &at, MOQCTL_PCTX_REQUEST_OK_ANY, &out->params);
   if (r != MOQCTL_OK) return r;
   out->track_properties = moqctl_residual(buf, at);
   *off                  = buf.n;

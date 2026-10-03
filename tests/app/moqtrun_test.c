@@ -493,7 +493,8 @@ static void test_moqtrun_subscribe_matching_publish_replies_ok(void) {
   CHECK(type == MOQCTL_T_SUBSCRIBE_OK);
   moqctl_subscribe_ok ok;
   usz                 body_off = 0;
-  CHECK(moqctl_subscribe_ok_take(body, &body_off, &ok) == MOQCTL_OK);
+  CHECK(
+      moqctl_subscribe_ok_take(MOQVER_D19, body, &body_off, &ok) == MOQCTL_OK);
   (void)ok; /* alias value itself is hub-assigned, not pinned */
 }
 
@@ -1030,7 +1031,7 @@ static void test_moqtrun_subscribe_ok_carries_no_timeout_param(void) {
       wired_span_of(c->payload, c->payload_len), &off, &type, &body);
   moqctl_subscribe_ok ok;
   usz                 body_off = 0;
-  moqctl_subscribe_ok_take(body, &body_off, &ok);
+  moqctl_subscribe_ok_take(MOQVER_D19, body, &body_off, &ok);
   CHECK(ok.params.n == 0);
 }
 
@@ -1431,7 +1432,7 @@ static void test_moqtrun_chat_and_audio_get_different_aliases(void) {
       &type1, &body1);
   moqctl_subscribe_ok chat_ok;
   usz                 chat_off = 0;
-  moqctl_subscribe_ok_take(body1, &chat_off, &chat_ok);
+  moqctl_subscribe_ok_take(MOQVER_D19, body1, &chat_off, &chat_ok);
 
   u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
   usz n = moqtrun_test_subscribe_audio_msg(buf);
@@ -1445,7 +1446,7 @@ static void test_moqtrun_chat_and_audio_get_different_aliases(void) {
       &type2, &body2);
   moqctl_subscribe_ok audio_ok;
   usz                 audio_off = 0;
-  moqctl_subscribe_ok_take(body2, &audio_off, &audio_ok);
+  moqctl_subscribe_ok_take(MOQVER_D19, body2, &audio_off, &audio_ok);
 
   CHECK(type1 == MOQCTL_T_SUBSCRIBE_OK);
   CHECK(type2 == MOQCTL_T_SUBSCRIBE_OK);
@@ -3620,7 +3621,8 @@ static void test_moqtrun_blob_subscribe_sends_once(void) {
   CHECK(moqtrun_test_last_reply(&body) == MOQCTL_T_SUBSCRIBE_OK);
   moqctl_subscribe_ok ok;
   usz                 body_off = 0;
-  CHECK(moqctl_subscribe_ok_take(body, &body_off, &ok) == MOQCTL_OK);
+  CHECK(
+      moqctl_subscribe_ok_take(MOQVER_D19, body, &body_off, &ok) == MOQCTL_OK);
   CHECK(ok.track_alias == 8);
   CHECK(moqtrun_test_count_kind(4) == 1);
   const moqtrun_test_call* sent = moqtrun_test_last_kind(4);
@@ -3813,7 +3815,7 @@ static void test_moqtrun_live_subscribe_sends_current_group(void) {
   CHECK(moqtrun_test_last_reply(&body) == MOQCTL_T_SUBSCRIBE_OK);
   moqctl_subscribe_ok ok;
   usz                 boff = 0;
-  CHECK(moqctl_subscribe_ok_take(body, &boff, &ok) == MOQCTL_OK);
+  CHECK(moqctl_subscribe_ok_take(MOQVER_D19, body, &boff, &ok) == MOQCTL_OK);
   CHECK(ok.track_alias == 8);
   CHECK(moqtrun_test_count_kind(8) == 1);
   u8  got[64];

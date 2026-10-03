@@ -127,7 +127,8 @@ static u64 mf_reply(u64* code, moqctl_loc* end) {
     if (c->kind != 12 || c->stream_id != mf_req_sid) continue;
     moqctl_peek_type(
         wired_span_of(c->payload, c->payload_len), &off, &type, &body);
-    if (type == MOQFETCH_T_FETCH_OK && moqfetch_ok_take(body, &ok) == MOQCTL_OK)
+    if (type == MOQFETCH_T_FETCH_OK &&
+        moqfetch_ok_take(MOQVER_D19, body, &ok) == MOQCTL_OK)
       *end = ok.end;
     if (type == MOQCTL_T_REQUEST_ERROR &&
         moqctl_request_error_take(body, &boff, &e) == MOQCTL_OK)
