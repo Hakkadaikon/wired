@@ -941,14 +941,16 @@ typedef struct {
   usz       n;
 } mqpt_row;
 
-static const u8 MQPT_VARINT[]  = {0x05};
-static const u8 MQPT_UINT8[]   = {0x01};
-static const u8 MQPT_TOKEN[]   = {0x02, 0x02, 0x07}; /* USE_ALIAS 7 */
-static const u8 MQPT_LOC[]     = {0x07, 0x03};
-static const u8 MQPT_RANGE[]   = {0x02, 0x00, 0x03}; /* SetID 0, Start 3 */
-static const u8 MQPT_PROPRNG[] = {0x03, 0x00, 0x02, 0x03};
-static const u8 MQPT_LOCFLT[]  = {0x01, 0x01};       /* Next Group Start */
-static const u8 MQPT_NS[]      = {0x01, 0x01, 0x61}; /* namespace ("a") */
+static const u8 MQPT_VARINT[]   = {0x05};
+static const u8 MQPT_UINT8[]    = {0x01};
+static const u8 MQPT_TOKEN[]    = {0x02, 0x02, 0x07}; /* USE_ALIAS 7 */
+static const u8 MQPT_LOC[]      = {0x07, 0x03};
+static const u8 MQPT_RANGE[]    = {0x02, 0x00, 0x03}; /* SetID 0, Start 3 */
+static const u8 MQPT_PROPRNG[]  = {0x03, 0x00, 0x02, 0x03};
+static const u8 MQPT_LOCFLT[]   = {0x01, 0x01};       /* Next Group Start */
+static const u8 MQPT_NS[]       = {0x01, 0x01, 0x61}; /* namespace ("a") */
+static const u8 MQPT_FILL[]     = {0x01, 0x00};       /* Length 1, 0 params */
+static const u8 MQPT_LOCFLT22[] = {0x05};             /* d22 Next Object */
 
 static const mqpt_row MQPT_REGISTRY[] = {
     {0x02, 0x7D009, MQPT_VARINT, 1},  {0x03, 0x7D555, MQPT_TOKEN, 3},
@@ -960,6 +962,7 @@ static const mqpt_row MQPT_REGISTRY[] = {
     {0x27, 0x5019, MQPT_RANGE, 3},    {0x28, 0x5019, MQPT_PROPRNG, 4},
     {0x29, 0x21000, MQPT_PROPRNG, 4}, {0x32, 0x5009, MQPT_VARINT, 1},
     {0x21, 0x5009, MQPT_LOCFLT, 2},   {0x34, 0x30000, MQPT_NS, 3},
+    {0x23, 0, MQPT_FILL, 2},          {0x35, 0, MQPT_UINT8, 1},
 };
 #define MQPT_REGISTRY_N (sizeof MQPT_REGISTRY / sizeof MQPT_REGISTRY[0])
 
@@ -988,6 +991,79 @@ static void mqpt_check_one(const mqpt_row* r, u32 bit) {
 static void test_moqctl_params_registry_scope(void) {
   for (usz i = 0; i < MQPT_REGISTRY_N; i++)
     for (u32 b = 0; b < 20; b++) mqpt_check_one(&MQPT_REGISTRY[i], 1u << b);
+}
+
+/* draft-18 SS10.2.x "MAY appear in" (no SUBSCRIBE_TRACKS inheritance,
+ * 0x25-0x29 / 0x23 / 0x35 unknown), plus GROUP_ORDER in PUBLISH for the
+ * PUBLISH a SUBSCRIBE_TRACKS generates (SS10.19 echoes it). */
+static const mqpt_row MQPT_REGISTRY18[] = {
+    {0x02, 0x7C009, MQPT_VARINT, 1}, {0x03, 0x7D555, MQPT_TOKEN, 3},
+    {0x04, 0x1, MQPT_VARINT, 1},     {0x06, 0x7C009, MQPT_VARINT, 1},
+    {0x08, 0x8000E, MQPT_VARINT, 1}, {0x09, 0x80086, MQPT_LOC, 2},
+    {0x0A, 0x10, MQPT_VARINT, 1},    {0x10, 0x500D, MQPT_UINT8, 1},
+    {0x20, 0xC019, MQPT_UINT8, 1},   {0x22, 0x1D, MQPT_UINT8, 1},
+    {0x25, 0, MQPT_RANGE, 3},        {0x26, 0, MQPT_RANGE, 3},
+    {0x27, 0, MQPT_RANGE, 3},        {0x28, 0, MQPT_PROPRNG, 4},
+    {0x29, 0, MQPT_PROPRNG, 4},      {0x32, 0x4009, MQPT_VARINT, 1},
+    {0x21, 0x4009, MQPT_LOCFLT, 2},  {0x34, 0x30000, MQPT_NS, 3},
+    {0x23, 0, MQPT_FILL, 2},         {0x35, 0, MQPT_UINT8, 1},
+};
+
+/* draft-22 SS9.20.x "MAY appear in" (an unqualified REQUEST_UPDATE is
+ * every kind, as in the draft-19 table); LOCATION_FILTER has no Length
+ * (SS9.20.9), FILL_PARAMETERS is Length + Number of Parameters +
+ * Parameters (SS9.20.15). */
+static const mqpt_row MQPT_REGISTRY22[] = {
+    {0x02, 0x7C005, MQPT_VARINT, 1},  {0x03, 0x7D555, MQPT_TOKEN, 3},
+    {0x04, 0x1, MQPT_VARINT, 1},      {0x06, 0x7C005, MQPT_VARINT, 1},
+    {0x08, 0x82A0E, MQPT_VARINT, 1},  {0x09, 0x80086, MQPT_LOC, 2},
+    {0x0A, 0x10, MQPT_VARINT, 1},     {0x10, 0x25005, MQPT_UINT8, 1},
+    {0x20, 0xC015, MQPT_UINT8, 1},    {0x22, 0x1015, MQPT_UINT8, 1},
+    {0x25, 0x5011, MQPT_RANGE, 3},    {0x26, 0x5011, MQPT_RANGE, 3},
+    {0x27, 0x5011, MQPT_RANGE, 3},    {0x28, 0x5011, MQPT_PROPRNG, 4},
+    {0x29, 0x21000, MQPT_PROPRNG, 4}, {0x32, 0x4001, MQPT_VARINT, 1},
+    {0x21, 0x4015, MQPT_LOCFLT22, 1}, {0x34, 0x30000, MQPT_NS, 3},
+    {0x23, 0x4001, MQPT_FILL, 2},     {0x35, 0x1051, MQPT_UINT8, 1},
+};
+
+static void mqpt_check_one_v(int ver, const mqpt_row* r, u32 bit) {
+  static moqctl_params out;
+  u8                   buf[16];
+  usz                  n    = mqpt_build(buf, sizeof buf, r);
+  usz                  roff = 0;
+  int got = moqctl_params_takev(ver, wired_span_of(buf, n), &roff, bit, &out);
+  CHECK(got == ((r->ctx & bit) ? MOQCTL_OK : MOQCTL_VIOLATION));
+  CHECK(got != MOQCTL_OK || (roff == n && out.items[0].type == r->type));
+}
+
+static void mqpt_check_table(int ver, const mqpt_row* rows, usz n) {
+  for (usz i = 0; i < n; i++)
+    for (u32 b = 0; b < 20; b++) mqpt_check_one_v(ver, &rows[i], 1u << b);
+}
+
+static void test_moqctl_params_registry_scope_per_draft(void) {
+  mqpt_check_table(MOQVER_D19, MQPT_REGISTRY, MQPT_REGISTRY_N);
+  mqpt_check_table(
+      MOQVER_D18, MQPT_REGISTRY18,
+      sizeof MQPT_REGISTRY18 / sizeof MQPT_REGISTRY18[0]);
+  mqpt_check_table(
+      MOQVER_D22, MQPT_REGISTRY22,
+      sizeof MQPT_REGISTRY22 / sizeof MQPT_REGISTRY22[0]);
+}
+
+/* draft-22 SS9.20.21: INCLUDE_PROPERTIES outside {0,1} is a
+ * PROTOCOL_VIOLATION. */
+static void test_moqctl_params_include_properties_range(void) {
+  static const u8      two[] = {0x02};
+  static moqctl_params out;
+  mqpt_row             r = {0x35, 0, two, 1};
+  u8                   buf[16];
+  usz                  n    = mqpt_build(buf, sizeof buf, &r);
+  usz                  roff = 0;
+  CHECK(
+      moqctl_params_takev(
+          MOQVER_D22, wired_span_of(buf, n), &roff, MOQCTL_PCTX_FETCH, &out) ==
+      MOQCTL_VIOLATION);
 }
 
 /* Decodes the one-parameter list {type, val} under ctx into *out. */
@@ -1845,6 +1921,8 @@ void test_moqctl(void) {
   test_moqctl_params_auth_token_malformed_kvfmt();
   test_moqctl_params_auth_token_scope_violation();
   test_moqctl_params_registry_scope();
+  test_moqctl_params_registry_scope_per_draft();
+  test_moqctl_params_include_properties_range();
   test_moqctl_params_location_filter_roundtrip();
   test_moqctl_params_location_filter_malformed();
   test_moqctl_params_namespace_prefix();
