@@ -159,6 +159,312 @@ int moqctl_locfilter_put(wired_mspan buf, usz* off, const moqctl_locfilter* f) {
   return 1;
 }
 
+/* ===== Version-neutral range model (moqctl_rangeloc) =====
+ * Mirrors tasks/fv/moqt/Moqt/Filter.lean's SK/EK/Rng field-for-field. */
+
+/* End Group Delta, resolved to an absolute end_group; overflow of
+ * start_group+delta past 2^64-1 -> VIOLATION (shared by d19 type 4 and
+ * d22 types 3/4). */
+static int moqctl_rangeloc_take_end_group(
+    wired_span buf, usz* at, u64 start_group, u64* end_group) {
+  u64 delta;
+  if (!moqvi_take(buf, at, &delta)) return MOQCTL_INSUFFICIENT;
+  return u64_add_ok(start_group, delta, end_group) ? MOQCTL_OK
+                                                   : MOQCTL_VIOLATION;
+}
+
+/* ----- draft-19 (SS5.1.2/SS10.2.9): type 0x1..0x4 -----
+ * One function per type, dispatched by a type-indexed table so no
+ * function carries more than its own type's branches (CCN). */
+
+static int moqctl_rangeloc19_next_group(moqctl_rangeloc* out) {
+  out->sk = MOQCTL_RSK_REL_GROUP; /* n = 0 */
+  out->ek = MOQCTL_REK_UNBOUNDED;
+  return MOQCTL_OK;
+}
+
+static int moqctl_rangeloc19_largest(moqctl_rangeloc* out) {
+  out->sk = MOQCTL_RSK_NEXT_OBJ;
+  out->ek = MOQCTL_REK_UNBOUNDED;
+  return MOQCTL_OK;
+}
+
+static int moqctl_rangeloc19_abs_start(
+    wired_span buf, usz* at, moqctl_rangeloc* out) {
+  out->sk = MOQCTL_RSK_ABS;
+  out->ek = MOQCTL_REK_UNBOUNDED;
+  if (!moqvi_take(buf, at, &out->start_group)) return MOQCTL_INSUFFICIENT;
+  if (!moqvi_take(buf, at, &out->start_object)) return MOQCTL_INSUFFICIENT;
+  return MOQCTL_OK;
+}
+
+static int moqctl_rangeloc19_abs_range(
+    wired_span buf, usz* at, moqctl_rangeloc* out) {
+  int r = moqctl_rangeloc19_abs_start(buf, at, out);
+  if (r != MOQCTL_OK) return r;
+  out->ek = MOQCTL_REK_GROUP;
+  return moqctl_rangeloc_take_end_group(
+      buf, at, out->start_group, &out->end_group);
+}
+
+typedef int (*moqctl_rangeloc19_fn)(wired_span, usz*, moqctl_rangeloc*);
+
+static int moqctl_rangeloc19_next_group_fn(
+    wired_span buf, usz* at, moqctl_rangeloc* out) {
+  (void)buf;
+  (void)at;
+  return moqctl_rangeloc19_next_group(out);
+}
+
+static int moqctl_rangeloc19_largest_fn(
+    wired_span buf, usz* at, moqctl_rangeloc* out) {
+  (void)buf;
+  (void)at;
+  return moqctl_rangeloc19_largest(out);
+}
+
+/* Index 0 unused (type 0 is not a valid d19 Filter Type); indices 1..4
+ * are MOQCTL_FILTER_NEXT_GROUP..MOQCTL_FILTER_ABS_RANGE. */
+static const moqctl_rangeloc19_fn MOQCTL_RANGELOC19_FNS[5] = {
+    0, moqctl_rangeloc19_next_group_fn, moqctl_rangeloc19_largest_fn,
+    moqctl_rangeloc19_abs_start, moqctl_rangeloc19_abs_range};
+#define MOQCTL_RANGELOC19_FNS_N \
+  (sizeof MOQCTL_RANGELOC19_FNS / sizeof(moqctl_rangeloc19_fn))
+
+static int moqctl_rangeloc19_body(
+    u64 type, wired_span buf, usz* at, moqctl_rangeloc* out) {
+  if (type == 0 || type >= MOQCTL_RANGELOC19_FNS_N) return MOQCTL_VIOLATION;
+  return MOQCTL_RANGELOC19_FNS[type](buf, at, out);
+}
+
+int moqctl_rangeloc19_take(wired_span buf, usz* off, moqctl_rangeloc* out) {
+  usz at = *off;
+  u64 type;
+  int r;
+  *out = (moqctl_rangeloc){0};
+  if (!moqvi_take(buf, &at, &type)) return MOQCTL_INSUFFICIENT;
+  r = moqctl_rangeloc19_body(type, buf, &at, out);
+  if (r != MOQCTL_OK) return r;
+  *off = at;
+  return MOQCTL_OK;
+}
+
+static u64 moqctl_rangeloc19_wire_type_abs(const moqctl_rangeloc* r) {
+  return r->ek == MOQCTL_REK_GROUP ? MOQCTL_FILTER_ABS_RANGE
+                                   : MOQCTL_FILTER_ABS_START;
+}
+
+static u64 moqctl_rangeloc19_wire_type(const moqctl_rangeloc* r) {
+  if (r->sk == MOQCTL_RSK_REL_GROUP) return MOQCTL_FILTER_NEXT_GROUP;
+  if (r->sk == MOQCTL_RSK_NEXT_OBJ) return MOQCTL_FILTER_LARGEST;
+  return moqctl_rangeloc19_wire_type_abs(r);
+}
+
+static int moqctl_rangeloc19_put_end(
+    wired_mspan buf, usz* at, const moqctl_rangeloc* r) {
+  if (r->ek != MOQCTL_REK_GROUP) return 1;
+  return moqvi_put(buf, at, r->end_group - r->start_group);
+}
+
+static int moqctl_rangeloc19_put_start(
+    wired_mspan buf, usz* at, const moqctl_rangeloc* r) {
+  if (!moqvi_put(buf, at, r->start_group)) return 0;
+  return moqvi_put(buf, at, r->start_object);
+}
+
+static int moqctl_rangeloc19_put_abs(
+    wired_mspan buf, usz* at, const moqctl_rangeloc* r) {
+  if (!moqctl_rangeloc19_put_start(buf, at, r)) return 0;
+  return moqctl_rangeloc19_put_end(buf, at, r);
+}
+
+static int moqctl_rangeloc19_put_fields(
+    wired_mspan buf, usz* at, const moqctl_rangeloc* r) {
+  if (r->sk != MOQCTL_RSK_ABS) return 1; /* no fields for this type */
+  return moqctl_rangeloc19_put_abs(buf, at, r);
+}
+
+int moqctl_rangeloc19_put(wired_mspan buf, usz* off, const moqctl_rangeloc* r) {
+  usz at = *off;
+  if (!moqvi_put(buf, &at, moqctl_rangeloc19_wire_type(r))) return 0;
+  if (!moqctl_rangeloc19_put_fields(buf, &at, r)) return 0;
+  *off = at;
+  return 1;
+}
+
+/* ----- draft-22 (SS9.20.9): type 0x00..0x05 -----
+ * Same one-function-per-type + table-dispatch shape as d19 above. */
+
+static int moqctl_rangeloc22_take_start(
+    wired_span buf, usz* at, moqctl_rangeloc* out) {
+  out->sk = MOQCTL_RSK_ABS;
+  if (!moqvi_take(buf, at, &out->start_group)) return MOQCTL_INSUFFICIENT;
+  return moqvi_take(buf, at, &out->start_object) ? MOQCTL_OK
+                                                 : MOQCTL_INSUFFICIENT;
+}
+
+static int moqctl_rangeloc22_abs_start_group_end(
+    wired_span buf, usz* at, moqctl_rangeloc* out) {
+  int r = moqctl_rangeloc22_take_start(buf, at, out);
+  if (r != MOQCTL_OK) return r;
+  out->ek = MOQCTL_REK_GROUP;
+  return moqctl_rangeloc_take_end_group(
+      buf, at, out->start_group, &out->end_group);
+}
+
+static int moqctl_rangeloc22_abs_range(
+    wired_span buf, usz* at, moqctl_rangeloc* out) {
+  int r = moqctl_rangeloc22_abs_start_group_end(buf, at, out);
+  if (r != MOQCTL_OK) return r;
+  out->ek = MOQCTL_REK_OBJ;
+  return moqvi_take(buf, at, &out->end_object) ? MOQCTL_OK
+                                               : MOQCTL_INSUFFICIENT;
+}
+
+static int moqctl_rangeloc22_relative_start(
+    wired_span buf, usz* at, moqctl_rangeloc* out) {
+  out->sk = MOQCTL_RSK_REL_GROUP;
+  out->ek = MOQCTL_REK_UNBOUNDED;
+  return moqvi_take(buf, at, &out->start_group) ? MOQCTL_OK
+                                                : MOQCTL_INSUFFICIENT;
+}
+
+static int moqctl_rangeloc22_abs_start(
+    wired_span buf, usz* at, moqctl_rangeloc* out) {
+  int r = moqctl_rangeloc22_take_start(buf, at, out);
+  if (r != MOQCTL_OK) return r;
+  out->ek = MOQCTL_REK_UNBOUNDED;
+  return MOQCTL_OK;
+}
+
+static int moqctl_rangeloc22_next_object_fn(
+    wired_span buf, usz* at, moqctl_rangeloc* out) {
+  (void)buf;
+  (void)at;
+  out->sk = MOQCTL_RSK_NEXT_OBJ;
+  out->ek = MOQCTL_REK_UNBOUNDED;
+  return MOQCTL_OK;
+}
+
+typedef int (*moqctl_rangeloc22_fn)(wired_span, usz*, moqctl_rangeloc*);
+
+/* Index 0 unused (type 0 is "no filter", handled before dispatch);
+ * indices 1..5 are Relative Start .. Next Object. */
+static const moqctl_rangeloc22_fn MOQCTL_RANGELOC22_FNS[6] = {
+    0,
+    moqctl_rangeloc22_relative_start,
+    moqctl_rangeloc22_abs_start,
+    moqctl_rangeloc22_abs_start_group_end,
+    moqctl_rangeloc22_abs_range,
+    moqctl_rangeloc22_next_object_fn};
+#define MOQCTL_RANGELOC22_FNS_N \
+  (sizeof MOQCTL_RANGELOC22_FNS / sizeof(moqctl_rangeloc22_fn))
+
+static int moqctl_rangeloc22_body(
+    u64 type, wired_span buf, usz* at, moqctl_rangeloc* out) {
+  if (type == 0 || type >= MOQCTL_RANGELOC22_FNS_N) return MOQCTL_VIOLATION;
+  return MOQCTL_RANGELOC22_FNS[type](buf, at, out);
+}
+
+/* type == 0x0 ("None") already consumed from *at; everything else goes
+ * through moqctl_rangeloc22_body. */
+static int moqctl_rangeloc22_take_rest(
+    u64 type, wired_span buf, usz* at, int* has_filter, moqctl_rangeloc* out) {
+  int r;
+  if (type == 0x0) {
+    *has_filter = 0;
+    return MOQCTL_OK;
+  }
+  r = moqctl_rangeloc22_body(type, buf, at, out);
+  if (r != MOQCTL_OK) return r;
+  *has_filter = 1;
+  return MOQCTL_OK;
+}
+
+int moqctl_rangeloc22_take(
+    wired_span buf, usz* off, int* has_filter, moqctl_rangeloc* out) {
+  usz at = *off;
+  u64 type;
+  int r;
+  *out = (moqctl_rangeloc){0};
+  if (!moqvi_take(buf, &at, &type)) return MOQCTL_INSUFFICIENT;
+  r = moqctl_rangeloc22_take_rest(type, buf, &at, has_filter, out);
+  if (r != MOQCTL_OK) return r;
+  *off = at;
+  return MOQCTL_OK;
+}
+
+static u64 moqctl_rangeloc22_wire_type_abs(const moqctl_rangeloc* r) {
+  if (r->ek == MOQCTL_REK_UNBOUNDED) return 0x2;
+  return r->ek == MOQCTL_REK_GROUP ? 0x3 : 0x4;
+}
+
+static u64 moqctl_rangeloc22_wire_type(const moqctl_rangeloc* r) {
+  if (r->sk == MOQCTL_RSK_REL_GROUP) return 0x1;
+  if (r->sk == MOQCTL_RSK_NEXT_OBJ) return 0x5;
+  return moqctl_rangeloc22_wire_type_abs(r);
+}
+
+static int moqctl_rangeloc22_put_end_object(
+    wired_mspan buf, usz* at, const moqctl_rangeloc* r) {
+  if (r->ek != MOQCTL_REK_OBJ) return 1;
+  return moqvi_put(buf, at, r->end_object);
+}
+
+static int moqctl_rangeloc22_put_end(
+    wired_mspan buf, usz* at, const moqctl_rangeloc* r) {
+  if (r->ek == MOQCTL_REK_UNBOUNDED) return 1;
+  if (!moqvi_put(buf, at, r->end_group - r->start_group)) return 0;
+  return moqctl_rangeloc22_put_end_object(buf, at, r);
+}
+
+static int moqctl_rangeloc22_put_abs(
+    wired_mspan buf, usz* at, const moqctl_rangeloc* r) {
+  if (!moqvi_put(buf, at, r->start_group)) return 0;
+  if (!moqvi_put(buf, at, r->start_object)) return 0;
+  return moqctl_rangeloc22_put_end(buf, at, r);
+}
+
+static int moqctl_rangeloc22_put_body(
+    wired_mspan buf, usz* at, const moqctl_rangeloc* r) {
+  if (r->sk == MOQCTL_RSK_REL_GROUP) return moqvi_put(buf, at, r->start_group);
+  if (r->sk == MOQCTL_RSK_ABS) return moqctl_rangeloc22_put_abs(buf, at, r);
+  return 1; /* NEXT_OBJ carries no fields */
+}
+
+static int moqctl_rangeloc22_put_none(wired_mspan buf, usz* off, usz at) {
+  if (!moqvi_put(buf, &at, 0x0)) return 0;
+  *off = at;
+  return 1;
+}
+
+static int moqctl_rangeloc22_put_present(
+    wired_mspan buf, usz* off, const moqctl_rangeloc* r) {
+  usz at = *off;
+  if (!moqvi_put(buf, &at, moqctl_rangeloc22_wire_type(r))) return 0;
+  if (!moqctl_rangeloc22_put_body(buf, &at, r)) return 0;
+  *off = at;
+  return 1;
+}
+
+int moqctl_rangeloc22_put(
+    wired_mspan buf, usz* off, int has_filter, const moqctl_rangeloc* r) {
+  if (!has_filter) return moqctl_rangeloc22_put_none(buf, off, *off);
+  return moqctl_rangeloc22_put_present(buf, off, r);
+}
+
+/* ----- Named violation predicates (Q-04a/Q-04b) ----- */
+
+int moqctl_rangeloc_q04a_violation(const moqctl_rangeloc* r) {
+  if (r->ek != MOQCTL_REK_OBJ) return 0;
+  if (r->end_group != r->start_group) return 0;
+  return r->end_object < r->start_object;
+}
+
+int moqctl_rangeloc_q04b_violation(const moqctl_rangeloc* r) {
+  return r->sk == MOQCTL_RSK_NEXT_OBJ;
+}
+
 /* ===== Track Namespace / Full Track Name (SS1.5) ===== */
 
 /* 1 if a varint was actually consumed (buf had room), 0 if truncated. */

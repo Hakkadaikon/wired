@@ -1303,6 +1303,399 @@ static void test_moqctl_locfilter_unknown_type_violation(void) {
       MOQCTL_VIOLATION);
 }
 
+/* ===== TEST: Version-neutral range model (moqctl_rangeloc) =====
+ * Mirrors tasks/fv/moqt/Moqt/Filter.lean's SK/EK/Rng field-for-field. */
+
+static void test_moqctl_rangeloc19_next_group(void) {
+  const u8        in[] = {0x1};
+  usz             off  = 0;
+  moqctl_rangeloc r;
+
+  CHECK(
+      moqctl_rangeloc19_take(wired_span_of(in, sizeof in), &off, &r) ==
+      MOQCTL_OK);
+  CHECK(r.sk == MOQCTL_RSK_REL_GROUP);
+  CHECK(r.start_group == 0); /* n = 0: d19 Next Group Start = relG 0 */
+  CHECK(r.ek == MOQCTL_REK_UNBOUNDED);
+  CHECK(off == 1);
+}
+
+static void test_moqctl_rangeloc19_largest_object(void) {
+  const u8        in[] = {0x2};
+  usz             off  = 0;
+  moqctl_rangeloc r;
+
+  CHECK(
+      moqctl_rangeloc19_take(wired_span_of(in, sizeof in), &off, &r) ==
+      MOQCTL_OK);
+  CHECK(r.sk == MOQCTL_RSK_NEXT_OBJ);
+  CHECK(r.ek == MOQCTL_REK_UNBOUNDED);
+}
+
+static void test_moqctl_rangeloc19_abs_start_roundtrip(void) {
+  u8              buf[32];
+  usz             off = 0;
+  moqctl_rangeloc in  = {0};
+  moqctl_rangeloc out;
+
+  in.sk           = MOQCTL_RSK_ABS;
+  in.start_group  = 7;
+  in.start_object = 9;
+  in.ek           = MOQCTL_REK_UNBOUNDED;
+
+  CHECK(moqctl_rangeloc19_put(wired_mspan_of(buf, sizeof buf), &off, &in));
+  {
+    usz roff = 0;
+    CHECK(
+        moqctl_rangeloc19_take(wired_span_of(buf, off), &roff, &out) ==
+        MOQCTL_OK);
+    CHECK(roff == off);
+  }
+  CHECK(out.sk == MOQCTL_RSK_ABS);
+  CHECK(out.start_group == 7);
+  CHECK(out.start_object == 9);
+  CHECK(out.ek == MOQCTL_REK_UNBOUNDED);
+}
+
+static void test_moqctl_rangeloc19_abs_range_egd_zero_roundtrip(void) {
+  u8              buf[32];
+  usz             off = 0;
+  moqctl_rangeloc in  = {0};
+  moqctl_rangeloc out;
+
+  in.sk           = MOQCTL_RSK_ABS;
+  in.start_group  = 3;
+  in.start_object = 0;
+  in.ek           = MOQCTL_REK_GROUP;
+  in.end_group    = 3; /* End Group Delta = 0 */
+
+  CHECK(moqctl_rangeloc19_put(wired_mspan_of(buf, sizeof buf), &off, &in));
+  {
+    usz roff = 0;
+    CHECK(
+        moqctl_rangeloc19_take(wired_span_of(buf, off), &roff, &out) ==
+        MOQCTL_OK);
+  }
+  CHECK(out.sk == MOQCTL_RSK_ABS);
+  CHECK(out.ek == MOQCTL_REK_GROUP);
+  CHECK(out.end_group == 3);
+}
+
+static void test_moqctl_rangeloc19_abs_range_egd_positive_roundtrip(void) {
+  u8              buf[32];
+  usz             off = 0;
+  moqctl_rangeloc in  = {0};
+  moqctl_rangeloc out;
+
+  in.sk           = MOQCTL_RSK_ABS;
+  in.start_group  = 3;
+  in.start_object = 0;
+  in.ek           = MOQCTL_REK_GROUP;
+  in.end_group    = 8; /* End Group Delta = 5 */
+
+  CHECK(moqctl_rangeloc19_put(wired_mspan_of(buf, sizeof buf), &off, &in));
+  {
+    usz roff = 0;
+    CHECK(
+        moqctl_rangeloc19_take(wired_span_of(buf, off), &roff, &out) ==
+        MOQCTL_OK);
+  }
+  CHECK(out.sk == MOQCTL_RSK_ABS);
+  CHECK(out.ek == MOQCTL_REK_GROUP);
+  CHECK(out.start_group == 3);
+  CHECK(out.end_group == 8);
+}
+
+static void test_moqctl_rangeloc19_egd_overflow_violation(void) {
+  u8              buf[24];
+  usz             off = 0;
+  moqctl_rangeloc out;
+
+  CHECK(moqvi_put(
+      wired_mspan_of(buf, sizeof buf), &off, MOQCTL_FILTER_ABS_RANGE));
+  CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 5));       /* Group */
+  CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 0));       /* Object */
+  CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, (u64)-1)); /* EGD */
+
+  {
+    usz roff = 0;
+    CHECK(
+        moqctl_rangeloc19_take(wired_span_of(buf, off), &roff, &out) ==
+        MOQCTL_VIOLATION);
+  }
+}
+
+static void test_moqctl_rangeloc22_none(void) {
+  const u8        in[]       = {0x00};
+  usz             off        = 0;
+  int             has_filter = -1;
+  moqctl_rangeloc out;
+
+  CHECK(
+      moqctl_rangeloc22_take(
+          wired_span_of(in, sizeof in), &off, &has_filter, &out) == MOQCTL_OK);
+  CHECK(has_filter == 0);
+  CHECK(out.sk == 0);
+  CHECK(out.start_group == 0);
+}
+
+static void test_moqctl_rangeloc22_relative_start_roundtrip(void) {
+  u8              buf[32];
+  usz             off        = 0;
+  int             has_filter = 0;
+  moqctl_rangeloc in         = {0};
+  moqctl_rangeloc out;
+
+  in.sk          = MOQCTL_RSK_REL_GROUP;
+  in.start_group = 4; /* N groups back from Largest.Group */
+  in.ek          = MOQCTL_REK_UNBOUNDED;
+
+  CHECK(moqctl_rangeloc22_put(wired_mspan_of(buf, sizeof buf), &off, 1, &in));
+  {
+    usz roff = 0;
+    CHECK(
+        moqctl_rangeloc22_take(
+            wired_span_of(buf, off), &roff, &has_filter, &out) == MOQCTL_OK);
+  }
+  CHECK(has_filter == 1);
+  CHECK(out.sk == MOQCTL_RSK_REL_GROUP);
+  CHECK(out.start_group == 4);
+  CHECK(out.ek == MOQCTL_REK_UNBOUNDED);
+}
+
+static void test_moqctl_rangeloc22_abs_start_roundtrip(void) {
+  u8              buf[32];
+  usz             off        = 0;
+  int             has_filter = 0;
+  moqctl_rangeloc in         = {0};
+  moqctl_rangeloc out;
+
+  in.sk           = MOQCTL_RSK_ABS;
+  in.start_group  = 7;
+  in.start_object = 9;
+  in.ek           = MOQCTL_REK_UNBOUNDED;
+
+  CHECK(moqctl_rangeloc22_put(wired_mspan_of(buf, sizeof buf), &off, 1, &in));
+  {
+    usz roff = 0;
+    CHECK(
+        moqctl_rangeloc22_take(
+            wired_span_of(buf, off), &roff, &has_filter, &out) == MOQCTL_OK);
+  }
+  CHECK(has_filter == 1);
+  CHECK(out.sk == MOQCTL_RSK_ABS);
+  CHECK(out.start_group == 7);
+  CHECK(out.start_object == 9);
+  CHECK(out.ek == MOQCTL_REK_UNBOUNDED);
+}
+
+static void test_moqctl_rangeloc22_abs_start_group_end_roundtrip(void) {
+  u8              buf[32];
+  usz             off        = 0;
+  int             has_filter = 0;
+  moqctl_rangeloc in         = {0};
+  moqctl_rangeloc out;
+
+  in.sk           = MOQCTL_RSK_ABS;
+  in.start_group  = 3;
+  in.start_object = 1;
+  in.ek           = MOQCTL_REK_GROUP;
+  in.end_group    = 8; /* End Group Delta = 5 */
+
+  CHECK(moqctl_rangeloc22_put(wired_mspan_of(buf, sizeof buf), &off, 1, &in));
+  {
+    usz roff = 0;
+    CHECK(
+        moqctl_rangeloc22_take(
+            wired_span_of(buf, off), &roff, &has_filter, &out) == MOQCTL_OK);
+  }
+  CHECK(has_filter == 1);
+  CHECK(out.sk == MOQCTL_RSK_ABS);
+  CHECK(out.ek == MOQCTL_REK_GROUP);
+  CHECK(out.start_group == 3);
+  CHECK(out.end_group == 8);
+}
+
+static void test_moqctl_rangeloc22_abs_range_roundtrip(void) {
+  u8              buf[32];
+  usz             off        = 0;
+  int             has_filter = 0;
+  moqctl_rangeloc in         = {0};
+  moqctl_rangeloc out;
+
+  in.sk           = MOQCTL_RSK_ABS;
+  in.start_group  = 3;
+  in.start_object = 1;
+  in.ek           = MOQCTL_REK_OBJ;
+  in.end_group    = 8; /* End Group Delta = 5 */
+  in.end_object   = 20;
+
+  CHECK(moqctl_rangeloc22_put(wired_mspan_of(buf, sizeof buf), &off, 1, &in));
+  {
+    usz roff = 0;
+    CHECK(
+        moqctl_rangeloc22_take(
+            wired_span_of(buf, off), &roff, &has_filter, &out) == MOQCTL_OK);
+  }
+  CHECK(has_filter == 1);
+  CHECK(out.sk == MOQCTL_RSK_ABS);
+  CHECK(out.ek == MOQCTL_REK_OBJ);
+  CHECK(out.start_group == 3);
+  CHECK(out.start_object == 1);
+  CHECK(out.end_group == 8);
+  CHECK(out.end_object == 20);
+}
+
+static void test_moqctl_rangeloc22_next_object_roundtrip(void) {
+  u8              buf[32];
+  usz             off        = 0;
+  int             has_filter = 0;
+  moqctl_rangeloc in         = {0};
+  moqctl_rangeloc out;
+
+  in.sk = MOQCTL_RSK_NEXT_OBJ;
+  in.ek = MOQCTL_REK_UNBOUNDED;
+
+  CHECK(moqctl_rangeloc22_put(wired_mspan_of(buf, sizeof buf), &off, 1, &in));
+  {
+    usz roff = 0;
+    CHECK(
+        moqctl_rangeloc22_take(
+            wired_span_of(buf, off), &roff, &has_filter, &out) == MOQCTL_OK);
+  }
+  CHECK(has_filter == 1);
+  CHECK(out.sk == MOQCTL_RSK_NEXT_OBJ);
+  CHECK(out.ek == MOQCTL_REK_UNBOUNDED);
+}
+
+/* type 0x03/0x04 End Group Delta pushing StartGroup+EGD past 2^64-1 ->
+ * VIOLATION. */
+static void test_moqctl_rangeloc22_egd_overflow_violation(void) {
+  u8              buf[24];
+  usz             off        = 0;
+  int             has_filter = 0;
+  moqctl_rangeloc out;
+
+  CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 0x3));     /* type */
+  CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 5));       /* SG */
+  CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 0));       /* SO */
+  CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, (u64)-1)); /* EGD */
+
+  {
+    usz roff = 0;
+    CHECK(
+        moqctl_rangeloc22_take(
+            wired_span_of(buf, off), &roff, &has_filter, &out) ==
+        MOQCTL_VIOLATION);
+  }
+}
+
+/* Location Filter Type >= 0x06 -> VIOLATION. */
+static void test_moqctl_rangeloc22_unknown_type_violation(void) {
+  const u8        in[]       = {0x06};
+  usz             off        = 0;
+  int             has_filter = 0;
+  moqctl_rangeloc out;
+
+  CHECK(
+      moqctl_rangeloc22_take(
+          wired_span_of(in, sizeof in), &off, &has_filter, &out) ==
+      MOQCTL_VIOLATION);
+}
+
+static void test_moqctl_rangeloc_q04a_predicate(void) {
+  moqctl_rangeloc violating   = {0};
+  moqctl_rangeloc not_range   = {0};
+  moqctl_rangeloc in_order    = {0};
+  moqctl_rangeloc group_delta = {0};
+
+  /* type 0x04 shape: ek==OBJ, EGD==0 (end_group==start_group),
+   * end_object < start_object -> violation. */
+  violating.sk           = MOQCTL_RSK_ABS;
+  violating.ek           = MOQCTL_REK_OBJ;
+  violating.start_group  = 3;
+  violating.start_object = 10;
+  violating.end_group    = 3;
+  violating.end_object   = 2;
+  CHECK(moqctl_rangeloc_q04a_violation(&violating));
+
+  /* ek != OBJ (type 0x03 shape, no end_object) -> never flagged. */
+  not_range.sk          = MOQCTL_RSK_ABS;
+  not_range.ek          = MOQCTL_REK_GROUP;
+  not_range.start_group = 3;
+  not_range.end_group   = 3;
+  CHECK(!moqctl_rangeloc_q04a_violation(&not_range));
+
+  /* end_object >= start_object -> not a violation. */
+  in_order.sk           = MOQCTL_RSK_ABS;
+  in_order.ek           = MOQCTL_REK_OBJ;
+  in_order.start_group  = 3;
+  in_order.start_object = 2;
+  in_order.end_group    = 3;
+  in_order.end_object   = 10;
+  CHECK(!moqctl_rangeloc_q04a_violation(&in_order));
+
+  /* EGD != 0 (end_group != start_group): Q-04a only applies within the
+   * same group. */
+  group_delta.sk           = MOQCTL_RSK_ABS;
+  group_delta.ek           = MOQCTL_REK_OBJ;
+  group_delta.start_group  = 3;
+  group_delta.start_object = 10;
+  group_delta.end_group    = 4;
+  group_delta.end_object   = 2;
+  CHECK(!moqctl_rangeloc_q04a_violation(&group_delta));
+}
+
+static void test_moqctl_rangeloc_q04b_predicate(void) {
+  moqctl_rangeloc next_obj = {0};
+  moqctl_rangeloc abs      = {0};
+
+  next_obj.sk = MOQCTL_RSK_NEXT_OBJ;
+  CHECK(moqctl_rangeloc_q04b_violation(&next_obj));
+
+  abs.sk = MOQCTL_RSK_ABS;
+  CHECK(!moqctl_rangeloc_q04b_violation(&abs));
+}
+
+/* X1 (cross_version): the same {group,object} AbsoluteStart decodes to a
+ * bit-identical moqctl_rangeloc from both d19 (type 0x3) and d22 (type
+ * 0x02). */
+static void test_moqctl_rangeloc_cross_version_abs_start(void) {
+  u8              buf19[32];
+  u8              buf22[32];
+  usz             off19 = 0, off22 = 0;
+  moqctl_rangeloc in = {0};
+  moqctl_rangeloc out19, out22;
+  int             has_filter = 0;
+
+  in.sk           = MOQCTL_RSK_ABS;
+  in.start_group  = 11;
+  in.start_object = 22;
+  in.ek           = MOQCTL_REK_UNBOUNDED;
+
+  CHECK(
+      moqctl_rangeloc19_put(wired_mspan_of(buf19, sizeof buf19), &off19, &in));
+  CHECK(moqctl_rangeloc22_put(
+      wired_mspan_of(buf22, sizeof buf22), &off22, 1, &in));
+  {
+    usz r19 = 0, r22 = 0;
+    CHECK(
+        moqctl_rangeloc19_take(wired_span_of(buf19, off19), &r19, &out19) ==
+        MOQCTL_OK);
+    CHECK(
+        moqctl_rangeloc22_take(
+            wired_span_of(buf22, off22), &r22, &has_filter, &out22) ==
+        MOQCTL_OK);
+  }
+  CHECK(has_filter == 1);
+  CHECK(out19.sk == out22.sk);
+  CHECK(out19.start_group == out22.start_group);
+  CHECK(out19.start_object == out22.start_object);
+  CHECK(out19.ek == out22.ek);
+  CHECK(out19.end_group == out22.end_group);
+  CHECK(out19.end_object == out22.end_object);
+}
+
 /* ===== TEST: grease / unknown error code normalization ===== */
 
 static void test_moqctl_grease_pattern(void) {
@@ -1422,6 +1815,23 @@ void test_moqctl(void) {
   test_moqctl_locfilter_abs_start_and_range_roundtrip();
   test_moqctl_locfilter_end_group_overflow_violation();
   test_moqctl_locfilter_unknown_type_violation();
+  test_moqctl_rangeloc19_next_group();
+  test_moqctl_rangeloc19_largest_object();
+  test_moqctl_rangeloc19_abs_start_roundtrip();
+  test_moqctl_rangeloc19_abs_range_egd_zero_roundtrip();
+  test_moqctl_rangeloc19_abs_range_egd_positive_roundtrip();
+  test_moqctl_rangeloc19_egd_overflow_violation();
+  test_moqctl_rangeloc22_none();
+  test_moqctl_rangeloc22_relative_start_roundtrip();
+  test_moqctl_rangeloc22_abs_start_roundtrip();
+  test_moqctl_rangeloc22_abs_start_group_end_roundtrip();
+  test_moqctl_rangeloc22_abs_range_roundtrip();
+  test_moqctl_rangeloc22_next_object_roundtrip();
+  test_moqctl_rangeloc22_egd_overflow_violation();
+  test_moqctl_rangeloc22_unknown_type_violation();
+  test_moqctl_rangeloc_q04a_predicate();
+  test_moqctl_rangeloc_q04b_predicate();
+  test_moqctl_rangeloc_cross_version_abs_start();
 
   test_moqctl_grease_pattern();
   test_moqctl_unknown_error_normalizes_to_internal();
