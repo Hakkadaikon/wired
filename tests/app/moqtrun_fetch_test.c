@@ -557,6 +557,26 @@ static void mf_set_ver(const wired_wt_session* s, int ver) {
       mtst_hub.peers[i].ver = ver;
 }
 
+/* draft-22 SS9.12: FETCH_OK's End Location is inclusive -- the Largest
+ * Object when the range reaches it, the requested end otherwise, and for
+ * a range ending at a whole group the last Object actually returned. */
+static void test_moqtrun_fetch_ok_end_inclusive_d22(void) {
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mf_obj(1, 0, 1);
+  mf_set_ver(SESS_B, MOQVER_D22);
+  mf_standalone(mf_loc(0, 0), mf_loc(5, 0));
+  CHECK(mf_loc_eq(mf_ok_end(), 1, 0));
+  mf_standalone(mf_loc(0, 0), mf_loc(0, 1));
+  CHECK(mf_loc_eq(mf_ok_end(), 0, 0));
+  mf_standalone(mf_loc(0, 0), mf_loc(0, 0));
+  CHECK(mf_loc_eq(mf_ok_end(), 0, 1));
+  mf_set_ver(SESS_B, MOQVER_D19);
+  mf_standalone(mf_loc(0, 0), mf_loc(0, 0));
+  CHECK(mf_loc_eq(mf_ok_end(), 0, 0));
+}
+
 /* draft-22 has no INVALID_JOINING_REQUEST_ID (SS12.3): the hub sends the
  * nearest code it defines, DOES_NOT_EXIST. */
 static void test_moqtrun_fetch_join_unknown_request_d22(void) {
@@ -657,6 +677,7 @@ void test_moqtrun_fetch(void) {
   test_moqtrun_fetch_join_invalid_range();
   test_moqtrun_fetch_join_unknown_request();
   test_moqtrun_fetch_join_unknown_request_d22();
+  test_moqtrun_fetch_ok_end_inclusive_d22();
   test_moqtrun_fetch_absolute_join();
   test_moqtrun_fetch_join_forward_off();
   test_moqtrun_fetch_rejoin_reresolves_start();

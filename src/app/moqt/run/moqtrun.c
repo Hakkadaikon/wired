@@ -1293,7 +1293,8 @@ static moqctl_loc moqtrun_end_excl(moqctl_loc e) {
 }
 
 /* A FETCH resolved against its track: the cache records to read, the
- * range [start, end), and the End Location FETCH_OK reports. */
+ * range [start, end), and the End Location FETCH_OK reports, inclusive
+ * (moqfetch_end19_incl; Object MOQFETCH_OBJ_GROUP_END = a whole group). */
 typedef struct {
   u64        tag;
   moqctl_loc start;
@@ -1459,16 +1460,60 @@ static int moqtrun_encode_fetch_ok(wired_mspan buf, usz* off, const void* m) {
   return moqfetch_ok_encode(buf, off, m);
 }
 
-/* FETCH_OK (10.13): not End Of Track, End Location end, no parameters or
- * Track Properties. */
+static int moqtrun_encode_fetch_ok19(wired_mspan buf, usz* off, const void* m) {
+  return moqfetch_ok19_encode(buf, off, m);
+}
+
+/* End Location on the wire: inclusive in draft-22 (SS9.12), last + 1 with
+ * Object 0 = whole group before (10.13). */
+static moqtrun_body_encode_fn moqtrun_fetch_ok_encoder(int ver) {
+  return (moqver_caps(ver) & MOQVER_CAP_FETCH_END_INCLUSIVE)
+             ? moqtrun_encode_fetch_ok
+             : moqtrun_encode_fetch_ok19;
+}
+
+/* FETCH_OK (10.13): not End Of Track, End Location end (inclusive), no
+ * parameters or Track Properties. */
 static void moqtrun_queue_fetch_ok(wired_moqtrun_peer* p, moqctl_loc end) {
   u8          msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqfetch_ok ok = {0};
   ok.end         = end;
   usz n          = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQFETCH_T_FETCH_OK,
-      moqtrun_encode_fetch_ok, &ok);
+      moqtrun_fetch_ok_encoder(p->ver), &ok);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
+}
+
+/* The Location of the last item r serves (its End Location when it serves
+ * none). ponytail: walks the cache once per FETCH_OK -- O(arena), like
+ * every moqcache lookup. */
+static moqctl_loc moqtrun_fetch_last(
+    const moqcache* c, const moqtrun_frange* r) {
+  moqctl_loc    last = r->ok_end;
+  moqcache_item it;
+  for (moqctl_loc cur = moqcache_skip(c, r->tag, r->start, r->end);
+       moqctl_loc_less(cur, r->end);
+       cur = moqcache_skip(c, r->tag, it.next, r->end)) {
+    moqcache_item_at(c, r->tag, cur, r->end, &it);
+    last = it.loc;
+  }
+  return last;
+}
+
+/* draft-22 has no "whole group" End Location: a range ending at a whole
+ * group that Largest did not cut reports the last Object it returns. */
+static int moqtrun_fetch_end_open22(
+    const wired_moqtrun_peer* p, const moqtrun_frange* r) {
+  return (moqver_caps(p->ver) & MOQVER_CAP_FETCH_END_INCLUSIVE) &&
+         r->ok_end.object == MOQFETCH_OBJ_GROUP_END;
+}
+
+static moqctl_loc moqtrun_fetch_ok_end(
+    const wired_moqt_hub*     hub,
+    const wired_moqtrun_peer* p,
+    const moqtrun_frange*     r) {
+  if (!moqtrun_fetch_end_open22(p, r)) return r->ok_end;
+  return moqtrun_fetch_last(&hub->cache, r);
 }
 
 /* Answers FETCH_OK and starts serving r from the cache. */
@@ -1490,7 +1535,7 @@ static void moqtrun_fetch_accept(
   f->end        = r->end;
   f->cursor     = moqcache_skip(&hub->cache, r->tag, r->start, r->end);
   f->last_ok_ms = hub->live.last_now_ms;
-  moqtrun_queue_fetch_ok(p, r->ok_end);
+  moqtrun_queue_fetch_ok(p, moqtrun_fetch_ok_end(hub, p, r));
   moqtrun_fetch_serve(hub, f);
 }
 
@@ -1502,16 +1547,16 @@ static int moqtrun_fetch_range_bad(
          !moqctl_loc_less(start, end);
 }
 
-/* 10.13: an End past the Largest Object is cut to {Largest.Group,
- * Largest.Object + 1}, and FETCH_OK says so. */
+/* 10.13: an End past the Largest Object is cut to the Largest Object,
+ * and FETCH_OK says so. */
 static void moqtrun_fetch_clamp(
     moqtrun_frange* r, const wired_moqtrun_track* t, moqctl_loc req_end) {
   moqctl_loc top = moqtrun_after(t->largest);
   r->end         = moqtrun_end_excl(req_end);
-  r->ok_end      = req_end;
+  r->ok_end      = moqfetch_end19_incl(req_end);
   if (!moqctl_loc_less(top, r->end)) return;
   r->end    = top;
-  r->ok_end = top;
+  r->ok_end = t->largest;
 }
 
 /* 10.12.1 Standalone Fetch of a peer-published track. */
@@ -1618,7 +1663,7 @@ static void moqtrun_fetch_joining(
   r.tag    = t->cache_tag;
   r.start  = moqctl_loc_of(group, 0);
   r.end    = moqtrun_after(s->jl);
-  r.ok_end = r.end;
+  r.ok_end = s->jl;
   moqtrun_fetch_accept(hub, p, m->request_id, &r);
 }
 
