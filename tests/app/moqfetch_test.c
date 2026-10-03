@@ -708,6 +708,212 @@ static void test_moqfetch_obj_more_rejects(void) {
   CHECK(moqfetch_t_one(od2, sizeof od2, &seq, &o) == MOQCTL_VIOLATION);
 }
 
+/* ===== moqfetch_req (version-neutral FETCH, ledger 3-7) ===== */
+
+static void moqfetch_t_req19_frame(
+    const moqfetch_fetch* src, moqfetch_req* out) {
+  u8  buf[128];
+  usz n = 0;
+  CHECK(moqfetch_fetch_encode(wired_mspan_of(buf, sizeof buf), &n, src));
+  CHECK(moqfetch_req19_take(wired_span_of(buf, n), out) == MOQCTL_OK);
+}
+
+/* d19 Standalone: End Location Object != 0 means "end, plus 1" (exclusive);
+ * {group=1,object=0} on the wire means "whole group 1" (inclusive). */
+static void test_moqfetch_req19_standalone_roundtrip(void) {
+  static const u8 nb[] = {'a'};
+  moqfetch_fetch  src  = {0};
+  moqfetch_req    m;
+  u8              out[128];
+  usz             n      = 0;
+  src.fetch_type         = MOQFETCH_STANDALONE;
+  src.track.ns.n         = 1;
+  src.track.ns.fields[0] = wired_span_of(nb, 1);
+  src.track.name         = wired_span_of(nb, 1);
+  src.start              = moqctl_loc_of(2, 3);
+  src.end                = moqctl_loc_of(5, 1); /* -> inclusive {5,0} */
+  moqfetch_t_req19_frame(&src, &m);
+  CHECK(!m.is_joining);
+  CHECK(m.range.sk == MOQCTL_RSK_ABS);
+  CHECK(m.range.start_group == 2 && m.range.start_object == 3);
+  CHECK(m.range.ek == MOQCTL_REK_OBJ);
+  CHECK(m.range.end_group == 5 && m.range.end_object == 0);
+  CHECK(moqfetch_req19_encode(wired_mspan_of(out, sizeof out), &n, &m));
+  {
+    u8  back[128];
+    usz bn = 0;
+    CHECK(moqfetch_fetch_encode(wired_mspan_of(back, sizeof back), &bn, &src));
+    CHECK(bn == n);
+    for (usz i = 0; i < n; i++) CHECK(out[i] == back[i]);
+  }
+
+  /* End Location Object == 0 -> whole group, inclusive end of that group
+   * (MOQCTL_REK_GROUP, no explicit end_object). */
+  src.end = moqctl_loc_of(7, 0);
+  moqfetch_t_req19_frame(&src, &m);
+  CHECK(m.range.ek == MOQCTL_REK_GROUP);
+  CHECK(m.range.end_group == 7);
+}
+
+static void moqfetch_t_req19_joining(
+    u64 fetch_type, u64 jreq, u64 jstart, moqfetch_req* out) {
+  moqfetch_fetch src     = {0};
+  src.fetch_type         = fetch_type;
+  src.joining_request_id = jreq;
+  src.joining_start      = jstart;
+  moqfetch_t_req19_frame(&src, out);
+}
+
+static void test_moqfetch_req19_relative_joining_roundtrip(void) {
+  moqfetch_req m;
+  u8           out[64];
+  usz          n = 0;
+  moqfetch_t_req19_joining(MOQFETCH_RELATIVE_JOINING, 3, 9, &m);
+  CHECK(m.is_joining);
+  CHECK(m.fetch_type == MOQFETCH_RELATIVE_JOINING);
+  CHECK(m.joining_request_id == 3 && m.joining_start == 9);
+  CHECK(moqfetch_req19_encode(wired_mspan_of(out, sizeof out), &n, &m));
+  {
+    moqfetch_req back;
+    CHECK(moqfetch_req19_take(wired_span_of(out, n), &back) == MOQCTL_OK);
+    CHECK(back.is_joining && back.joining_request_id == 3);
+    CHECK(back.joining_start == 9);
+  }
+}
+
+static void test_moqfetch_req19_absolute_joining_roundtrip(void) {
+  moqfetch_req m;
+  u8           out[64];
+  usz          n = 0;
+  moqfetch_t_req19_joining(MOQFETCH_ABSOLUTE_JOINING, 1, 42, &m);
+  CHECK(m.is_joining);
+  CHECK(m.fetch_type == MOQFETCH_ABSOLUTE_JOINING);
+  CHECK(m.joining_request_id == 1 && m.joining_start == 42);
+  CHECK(moqfetch_req19_encode(wired_mspan_of(out, sizeof out), &n, &m));
+  {
+    moqfetch_req back;
+    CHECK(moqfetch_req19_take(wired_span_of(out, n), &back) == MOQCTL_OK);
+    CHECK(back.fetch_type == MOQFETCH_ABSOLUTE_JOINING);
+    CHECK(back.joining_start == 42);
+  }
+}
+
+/* Builds a draft-22 FETCH body by hand: Request ID, NS (1 field "a"),
+ * Name ("b"), then either 0 Parameters or 1 (LOCATION_FILTER). */
+static usz moqfetch_t_req22_build(u8* b, int with_filter) {
+  usz n  = 0;
+  b[n++] = 0x00; /* Request ID */
+  b[n++] = 0x01; /* NS: 1 field */
+  b[n++] = 0x01;
+  b[n++] = 'a';
+  b[n++] = 0x01; /* Name len 1 */
+  b[n++] = 'b';
+  if (!with_filter) {
+    b[n++] = 0x00; /* Number of Parameters */
+    return n;
+  }
+  b[n++] = 0x01; /* Number of Parameters */
+  b[n++] = 0x21; /* Type Delta -> LOCATION_FILTER */
+  b[n++] = 0x02; /* Location Filter Type 0x02 Absolute Start */
+  b[n++] = 0x03; /* StartGroup */
+  b[n++] = 0x04; /* StartObject */
+  return n;
+}
+
+static void test_moqfetch_req22_with_filter_roundtrip(void) {
+  u8           body[32];
+  usz          n = moqfetch_t_req22_build(body, 1);
+  moqfetch_req m;
+  u8           out[32];
+  usz          on = 0;
+  CHECK(moqfetch_req22_take(wired_span_of(body, n), &m) == MOQCTL_OK);
+  CHECK(!m.is_joining);
+  CHECK(m.track.ns.n == 1 && m.track.ns.fields[0].p[0] == 'a');
+  CHECK(m.track.name.n == 1 && m.track.name.p[0] == 'b');
+  CHECK(m.range.sk == MOQCTL_RSK_ABS);
+  CHECK(m.range.start_group == 3 && m.range.start_object == 4);
+  CHECK(m.range.ek == MOQCTL_REK_UNBOUNDED);
+  CHECK(moqfetch_req22_encode(wired_mspan_of(out, sizeof out), &on, &m));
+  CHECK(on == n);
+  for (usz i = 0; i < n; i++) CHECK(out[i] == body[i]);
+}
+
+/* SS9.20.9: "If omitted from FETCH ..., the fetch ... is unfiltered" ->
+ * defaults to sk=ABS, start={0,0}, ek=UNBOUNDED (fetch everything), not a
+ * rejection. The encoder always re-derives an explicit LOCATION_FILTER (it
+ * cannot tell "omitted" from "explicit whole-track filter" apart once
+ * decoded, and a receiver does not need to): round trip is semantic, not
+ * byte-identical, for this absent-filter case. */
+static void test_moqfetch_req22_no_filter_defaults(void) {
+  u8           body[32];
+  usz          n = moqfetch_t_req22_build(body, 0);
+  moqfetch_req m, back;
+  u8           out[32];
+  usz          on = 0;
+  CHECK(moqfetch_req22_take(wired_span_of(body, n), &m) == MOQCTL_OK);
+  CHECK(m.range.sk == MOQCTL_RSK_ABS);
+  CHECK(m.range.start_group == 0 && m.range.start_object == 0);
+  CHECK(m.range.ek == MOQCTL_REK_UNBOUNDED);
+  CHECK(moqfetch_req22_encode(wired_mspan_of(out, sizeof out), &on, &m));
+  CHECK(moqfetch_req22_take(wired_span_of(out, on), &back) == MOQCTL_OK);
+  CHECK(back.range.sk == m.range.sk && back.range.ek == m.range.ek);
+  CHECK(back.range.start_group == m.range.start_group);
+  CHECK(back.range.start_object == m.range.start_object);
+  CHECK(back.track.ns.n == 1 && back.track.ns.fields[0].p[0] == 'a');
+  CHECK(back.track.name.n == 1 && back.track.name.p[0] == 'b');
+}
+
+/* A malformed Track Namespace (a zero-length field, SS2.4.1) inside a
+ * draft-22 FETCH body must reject with VIOLATION, not be silently
+ * swallowed. */
+static void test_moqfetch_req22_bad_ns_rejects(void) {
+  static const u8 bad_ns[] = {0x00, 0x01, 0x00};
+  moqfetch_req    m;
+  CHECK(
+      moqfetch_req22_take(wired_span_of(bad_ns, sizeof bad_ns), &m) ==
+      MOQCTL_VIOLATION);
+}
+
+/* X1 (cross_version): the same NS/Name + absolute {2,3}..{5,0} inclusive
+ * range decodes to the same moqctl_rangeloc shape from d19 Standalone and
+ * d22 Absolute-Start-Group-End. */
+static void test_moqfetch_req_cross_version_range(void) {
+  static const u8 nb[]  = {'a'};
+  moqfetch_fetch  src19 = {0};
+  moqfetch_req    m19, m22;
+  u8              body22[32];
+  usz             n22      = 0;
+  src19.fetch_type         = MOQFETCH_STANDALONE;
+  src19.track.ns.n         = 1;
+  src19.track.ns.fields[0] = wired_span_of(nb, 1);
+  src19.track.name         = wired_span_of(nb, 1);
+  src19.start              = moqctl_loc_of(2, 3);
+  src19.end                = moqctl_loc_of(5, 0); /* whole group 5 */
+  moqfetch_t_req19_frame(&src19, &m19);
+  CHECK(m19.range.ek == MOQCTL_REK_GROUP);
+  CHECK(m19.range.end_group == 5);
+
+  body22[n22++] = 0x00;
+  body22[n22++] = 0x01;
+  body22[n22++] = 0x01;
+  body22[n22++] = 'a';
+  body22[n22++] = 0x01;
+  body22[n22++] = 'b';
+  body22[n22++] = 0x01; /* 1 parameter */
+  body22[n22++] = 0x21; /* LOCATION_FILTER */
+  body22[n22++] = 0x03; /* type 0x03: Absolute Start, Group End */
+  body22[n22++] = 0x02; /* StartGroup */
+  body22[n22++] = 0x03; /* StartObject */
+  body22[n22++] = 0x03; /* EndGroupDelta = 3 -> end_group 2+3=5 */
+  CHECK(moqfetch_req22_take(wired_span_of(body22, n22), &m22) == MOQCTL_OK);
+
+  CHECK(m19.range.sk == m22.range.sk);
+  CHECK(m19.range.start_group == m22.range.start_group);
+  CHECK(m19.range.start_object == m22.range.start_object);
+  CHECK(m19.range.ek == m22.range.ek);
+  CHECK(m19.range.end_group == m22.range.end_group);
+}
+
 void test_moqfetch(void) {
   test_moqfetch_standalone_golden();
   test_moqfetch_joining_golden();
@@ -736,4 +942,11 @@ void test_moqfetch(void) {
   test_moqfetch_obj_roundtrip();
   test_moqfetch_obj_datagram_lsbs();
   test_moqfetch_obj_more_rejects();
+  test_moqfetch_req19_standalone_roundtrip();
+  test_moqfetch_req19_relative_joining_roundtrip();
+  test_moqfetch_req19_absolute_joining_roundtrip();
+  test_moqfetch_req22_with_filter_roundtrip();
+  test_moqfetch_req22_no_filter_defaults();
+  test_moqfetch_req22_bad_ns_rejects();
+  test_moqfetch_req_cross_version_range();
 }
