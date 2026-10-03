@@ -192,8 +192,8 @@ static void moqtrun_init_peer(
   p->ctl_asm.skip    = 0;
   p->req             = 0;
   p->goaway_deadline = (u64)-1;
-  p->goaway_flushed  = 0;
-  p->closing         = 0;
+  p->goaway_flushed_at = 0;
+  p->closing           = 0;
   for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
     p->tracks[t].in_use = 0;
   moqsess_init(&p->sess);
@@ -4783,21 +4783,40 @@ static u32 moqtrun_drain_close_code(
                                     : WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT;
 }
 
-/* Past the GOAWAY Timeout (3.6): first the flush -- PUBLISH_DONE
- * GOING_AWAY to every subscription p holds and its queued answers sent
- * (the tick's moqtrun_reqs_tick then FINs those streams) -- and on the
- * next tick the close (moqtrun_drain_close_code), so the flushed bytes
- * get a loop step to leave before the transport resets the streams. */
-static void moqtrun_drain_expire(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
-  if (p->goaway_flushed) {
-    moqtrun_peer_close(hub, p, moqtrun_drain_close_code(hub, p));
-    return;
-  }
+/* p flushed PUBLISH_DONE and is past the real-time grace that follows:
+ * only then may the close happen, so a loaded peer gets WIRED_MOQTRUN_
+ * GOAWAY_GRACE_MS of wall-clock time -- not merely the next tick,
+ * whenever that lands -- to read the flush before the session is gone. */
+static int moqtrun_drain_closeable(const wired_moqtrun_peer* p, u64 now_ms) {
+  return p->goaway_flushed_at &&
+         now_ms > p->goaway_flushed_at + WIRED_MOQTRUN_GOAWAY_GRACE_MS;
+}
+
+/* The flush step of moqtrun_drain_expire: PUBLISH_DONE GOING_AWAY to
+ * every subscription p holds, its queued answers sent (the tick's
+ * moqtrun_reqs_tick then FINs those streams), and the flush's own
+ * timestamp marked for moqtrun_drain_closeable to time the close from. */
+static void moqtrun_drain_flush(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 now_ms) {
   moqtrun_each_track(
       hub, moqtrun_track_done_peer, (usz)(p - hub->peers),
       MOQCTL_DONE_GOING_AWAY);
   moqtrun_flush_replies(&hub->io, p);
-  p->goaway_flushed = 1;
+  p->goaway_flushed_at = now_ms ? now_ms : 1; /* 0 means "not yet" */
+}
+
+/* Past the GOAWAY Timeout (3.6): moqtrun_drain_flush once, then close
+ * only once moqtrun_drain_closeable allows it (moqtrun_drain_close_code)
+ * -- never on the very next tick, so a loaded peer gets real wall-clock
+ * time to read the flush before the session is gone. */
+static void moqtrun_drain_expire(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 now_ms) {
+  if (!p->goaway_flushed_at) {
+    moqtrun_drain_flush(hub, p, now_ms);
+    return;
+  }
+  if (moqtrun_drain_closeable(p, now_ms))
+    moqtrun_peer_close(hub, p, moqtrun_drain_close_code(hub, p));
 }
 
 static int moqtrun_drain_due(const wired_moqtrun_peer* p, u64 now_ms) {
@@ -4814,7 +4833,7 @@ static void moqtrun_ctl_retry(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
 static void moqtrun_drain_tick(wired_moqt_hub* hub, u64 now_ms) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
     if (moqtrun_drain_due(&hub->peers[i], now_ms))
-      moqtrun_drain_expire(hub, &hub->peers[i]);
+      moqtrun_drain_expire(hub, &hub->peers[i], now_ms);
     moqtrun_ctl_retry(hub, &hub->peers[i]);
   }
 }
