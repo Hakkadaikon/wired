@@ -774,6 +774,11 @@ typedef struct {
    * peer_ctrl.settings_seen is 1 once the client's SETTINGS has actually
    * arrived, gating WebTransport CONNECT dispatch (srvrun.c) until it has. */
   h3_control peer_ctrl;
+  /** draft-ietf-webtrans-http3-16 SS5.5.1-5.5.3: the client SETTINGS'
+   * SETTINGS_WT_INITIAL_MAX_STREAMS_UNI, _BIDI and SETTINGS_WT_INITIAL_MAX_
+   * DATA, in that order (0 = absent, the draft's default), latched as the
+   * SETTINGS frame is walked (priority_ctrl.c). */
+  u64 peer_wt_initial[3];
   /** RFC 9218 7.1 / RFC 9114 8.1: the H3 connection error code of the most
    * recent rejected PRIORITY_UPDATE this step (H3_FRAME_UNEXPECTED /
    * H3_ID_ERROR), 0 when none was rejected. Mirrors datagram_violation's

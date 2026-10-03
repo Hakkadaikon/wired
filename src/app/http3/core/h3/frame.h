@@ -60,6 +60,14 @@
 /* RFC 9114 7.2.4.1 SETTINGS parameter. */
 #define H3_SETTINGS_MAX_FIELD_SECTION_SIZE 0x06
 
+/* draft-ietf-webtrans-http3-16 5.5.1/5.5.2/5.5.3: initial WT flow-control
+ * limits, the SETTINGS-carried alternative to a WT_MAX_STREAMS(uni),
+ * WT_MAX_STREAMS(bidi), or WT_MAX_DATA capsule on every session. Built by
+ * settings_build.c, read from the peer's SETTINGS by priority_ctrl.c. */
+#define H3_SETTINGS_WT_INITIAL_MAX_STREAMS_UNI 0x2b64
+#define H3_SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI 0x2b65
+#define H3_SETTINGS_WT_INITIAL_MAX_DATA 0x2b61
+
 /* 11 defined pairs this SDK ever builds (MAX_FIELD_SECTION_SIZE, QPACK's
  * two, ENABLE_CONNECT_PROTOCOL, H3_DATAGRAM, WebTransport session-negotiation
  * three, WebTransport flow-control three -- draft-ietf-webtrans-http3-15

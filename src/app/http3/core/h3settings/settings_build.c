@@ -24,14 +24,6 @@
  * three generations go out together. */
 #define H3_SETTINGS_WT_ENABLED 0x2c7cf000
 
-/* draft-ietf-webtrans-http3-15 5.5.1/5.5.2/5.5.3: initial WT flow-control
- * limits, the SETTINGS-carried alternative to sending a WT_MAX_STREAMS(uni),
- * WT_MAX_STREAMS(bidi), or WT_MAX_DATA capsule on every session
- * individually. */
-#define H3_SETTINGS_WT_INITIAL_MAX_STREAMS_UNI 0x2b64
-#define H3_SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI 0x2b65
-#define H3_SETTINGS_WT_INITIAL_MAX_DATA 0x2b61
-
 /* RFC 9220 3: append SETTINGS_ENABLE_CONNECT_PROTOCOL when requested. */
 static void append_connect_protocol(const h3settings_in* in, h3_settings* s) {
   if (!in->enable_connect_protocol) return;

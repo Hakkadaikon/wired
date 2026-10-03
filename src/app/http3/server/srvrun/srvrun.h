@@ -105,15 +105,16 @@ typedef void (*wired_wt_on_session_close)(void* app_ctx, wired_wt_session* s);
 typedef void (*wired_wt_on_session_draining)(
     void* app_ctx, wired_wt_session* s);
 
-/** draft-ietf-webtrans-http3-15 SS3.2 (WTH3-016/WTH3-018): the app's verdict
+/** draft-ietf-webtrans-http3-16 SS3.2 (WTH3-016/WTH3-018): the app's verdict
  * for one Extended CONNECT's :authority/:path, filled in by a registered
  * wired_wt_resource_check before the session is established.
  * status == 0 (the caller-zeroed default) means "resource recognized,
  * proceed to the normal Origin-check/session-establish path" -- a callback
  * that leaves every field at its zeroed default therefore accepts every
  * resource, matching the pre-callback behavior. A non-zero status short-
- * circuits establishment and is sent verbatim instead: 404 for "no
- * WebTransport server at this :authority/:path" (WTH3-016), or a 3xx to
+ * circuits establishment and is sent verbatim instead: 405 for "no
+ * WebTransport server at this :authority/:path" (WTH3-016 -- -15
+ * recommended 404, -16 changed the recommendation to 405), or a 3xx to
  * redirect (WTH3-018), in which case location/location_len name the
  * Location response header's value (ignored for any other status). */
 typedef struct {
@@ -358,11 +359,11 @@ typedef struct {
    * everything sent before that (the boot flight) is bound by the 3x
    * anti-amplification budget. */
   int force_retry;
-  /** draft-ietf-webtrans-http3-15 SS3.2: app-facing :authority/:path
+  /** draft-ietf-webtrans-http3-16 SS3.2: app-facing :authority/:path
    * resource lookup, 0 to disable (the default) -- with 0, every recognized
    * WebTransport Extended CONNECT proceeds straight to Origin verification/
    * session establishment, exactly the pre-callback behavior (WTH3-016's
-   * 404 and WTH3-018's 3xx are both opt-in through this callback). */
+   * 405 and WTH3-018's 3xx are both opt-in through this callback). */
   wired_wt_resource_check wt_resource_check;
   void* wt_resource_ctx; /**< opaque ctx passed to wt_resource_check */
   /** draft-ietf-webtrans-http3-15 4.4 (WTH3-040): app-facing WT stream-reset

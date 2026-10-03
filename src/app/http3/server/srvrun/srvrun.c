@@ -2245,17 +2245,17 @@ static void srvrun_wt_uni_slot_free(
   wired_srvloop_wt_uni_slot_release(&c->l, slot->stream_id);
 }
 
-/* draft-ietf-webtrans-http3-15 4.3/8.2: a buffered-stream-capacity rejection
+/* draft-ietf-webtrans-http3-16 9.5: a buffered-stream-capacity rejection
  * (wired_wt_session_offer_stream returned 0, i.e. WIRED_WT_MAX_BUFFERED_
  * STREAMS is full on an unestablished session) is the caller's own contract
  * to enforce (session.h's offer_stream doc): reset the stream with
- * WT_BUFFERED_STREAM_REJECTED, mapped through wired_wterrmap_to_http3 since
- * it is a WebTransport application error code, not an HTTP/3-level one. */
+ * WT_BUFFERED_STREAM_REJECTED, sent as its own raw HTTP/3 error code (IANA
+ * "HTTP/3 Error Code" registration) -- NOT mapped through
+ * wired_wterrmap_to_http3, which packs an application error code into the
+ * WT_APPLICATION_ERROR range; this code is protocol-level, not app-level. */
 static void srvrun_reject_wt_slot(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id) {
-  srvrun_send_wt_busy_reset(
-      cfg, c, stream_id,
-      wired_wterrmap_to_http3(WTERR_BUFFERED_STREAM_REJECTED));
+  srvrun_send_wt_busy_reset(cfg, c, stream_id, WTERR_BUFFERED_STREAM_REJECTED);
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: associate one newly-reassembled WT bidi
@@ -3225,13 +3225,6 @@ static int wt_connect_stream_slot(const srvrun_conn* c) {
   return srvrun_wt_slot_by_connect_id(c, c->l.closed_stream_id);
 }
 
-/* draft-ietf-webtrans-http3-15 8.2: WT_SESSION_GONE, mapped through the
- * HTTP/3-level error-code range (errmap.h), the application error code every
- * stream a closing session still owns is reset/stopped with below. */
-static u64 srvrun_wt_session_gone_code(void) {
-  return wired_wterrmap_to_http3(WTERR_SESSION_GONE);
-}
-
 /* draft-ietf-webtrans-http3-15 SS4.4: abort one still-`in_use` WT bidi
  * stream that session_slot owned with err_code (RESET_STREAM +
  * STOP_SENDING via srvrun_send_wt_busy_reset, which picks the frames the
@@ -3406,54 +3399,116 @@ static usz srvrun_wt_capsule_start(const srvrun_conn* c) {
 
 /* 1 iff type is a session flow-control capsule this server applies on
  * receive (SS5.6.2/SS5.6.4): WT_MAX_DATA and the two WT_MAX_STREAMS
- * directions. The blocked-hint capsules (WT_STREAMS_BLOCKED/WT_DATA_BLOCKED)
- * and every unknown type are skipped by the caller instead (RFC 9297 SS3.2:
- * "receivers MUST skip over an unknown capsule"). */
+ * directions. Every unknown type is skipped by the caller instead (RFC 9297
+ * SS3.2: "receivers MUST skip over an unknown capsule"); the blocked-hint
+ * capsules are handled separately by srvrun_wt_capsule_streams_blocked_type
+ * (draft-ietf-webtrans-http3-16 SS5.6.3 gives WT_STREAMS_BLOCKED a ceiling
+ * check despite applying no state). */
 static int srvrun_wt_capsule_flow_type(u64 type) {
   return type == WTCAPSULE_TYPE_MAX_DATA ||
          type == WTCAPSULE_TYPE_MAX_STREAMS_BIDI ||
          type == WTCAPSULE_TYPE_MAX_STREAMS_UNI;
 }
 
-/* Apply one decoded flow-control value to the session. The setters
- * themselves refuse a value below the current limit (session.c), which IS
- * the required behavior for a stale/lower capsule -- limits only ever
- * increase, so a lowering capsule is ignored, not an error. */
-static void srvrun_wt_capsule_raise(wired_wt_session* s, u64 type, u64 v) {
-  if (type == WTCAPSULE_TYPE_MAX_DATA) {
-    wired_wt_session_set_max_data(s, v);
-    return;
-  }
-  wired_wt_session_set_max_streams(
+/* 1 iff type is either direction of WT_STREAMS_BLOCKED
+ * (draft-ietf-webtrans-http3-16 SS5.6.3). */
+static int srvrun_wt_capsule_streams_blocked_type(u64 type) {
+  return type == WTCAPSULE_TYPE_STREAMS_BLOCKED_BIDI ||
+         type == WTCAPSULE_TYPE_STREAMS_BLOCKED_UNI;
+}
+
+/* Apply one decoded flow-control value to the session, 1 if the setter
+ * accepted it. A non-increasing value or one exceeding 2^60 (session.c) is
+ * a protocol violation the caller closes the session over with
+ * WT_FLOW_CONTROL_ERROR (draft-ietf-webtrans-http3-16 SS5.6.2/SS5.6.4). */
+static int srvrun_wt_capsule_raise(wired_wt_session* s, u64 type, u64 v) {
+  if (type == WTCAPSULE_TYPE_MAX_DATA)
+    return wired_wt_session_set_max_data(s, v);
+  return wired_wt_session_set_max_streams(
       s, type == WTCAPSULE_TYPE_MAX_STREAMS_BIDI, v);
 }
 
-/* One received capsule: apply a known flow-control type, skip anything else
- * (RFC 9297 SS3.2). Returns 0 only for a MALFORMED known type -- a body that
- * is not exactly one varint (RFC 9297 SS3.3) -- which the caller turns into
- * a session close. */
-/* draft-ietf-webtrans-http3-15 SS6: a received WT_CLOSE_SESSION terminates
- * the session on the spot (not skipped as unknown) -- the caller's close
- * resets the session's streams with WT_SESSION_GONE and frees the slot, so
- * a peer that sends the close but withholds the CONNECT stream's FIN
- * cannot keep the session alive. */
-static int srvrun_wt_capsule_flow(
-    wired_wt_session* s, u64 type, wired_span value) {
-  u64 v;
-  if (!srvrun_wt_capsule_flow_type(type)) return type != WTCAPSULE_TYPE_CLOSE;
-  if (!wtcapsule_value_varint(value, &v)) return 0;
-  srvrun_wt_capsule_raise(s, type, v);
-  return 1;
-}
-
-/* One CONNECT stream capsule pass: the env holding the app's draining
- * callback, the session the capsules belong to, and its slot's
- * wt_drain_rcvd latch. */
+/* One CONNECT stream capsule pass: the app env, the session, its
+ * wt_drain_rcvd latch, and the code a rejected pass closes the session with
+ * (WT_SESSION_GONE unless a capsule handler latched a more specific one). */
 typedef struct {
   const wired_srvrun_env* env;
   wired_wt_session*       s;
   int*                    drain_rcvd;
+  u64                     violation_code;
 } srvrun_wt_caprx;
+
+/* 1 iff value is a WT_CLOSE_SESSION body whose message both fits the
+ * WTCAPSULE_CLOSE_MESSAGE_MAX cap and is valid UTF-8 (draft-ietf-webtrans-
+ * http3-16 SS6). value.n < WTCAPSULE_CLOSE_CODE_LEN (too short for even the
+ * fixed 4-byte code) covers bodywin's own "oversized capsule, handed over
+ * empty" case too (body_window.h's bodywin_capq_oversized): a well-formed
+ * CLOSE body is never shorter than its code, so either way this is the
+ * same length violation. */
+static int srvrun_wt_close_body_ok(wired_span value) {
+  usz msg_n;
+  if (value.n < WTCAPSULE_CLOSE_CODE_LEN) return 0;
+  msg_n = value.n - WTCAPSULE_CLOSE_CODE_LEN;
+  if (msg_n > WTCAPSULE_CLOSE_MESSAGE_MAX) return 0;
+  return wtcapsule_utf8_valid(
+      wired_span_of(value.p + WTCAPSULE_CLOSE_CODE_LEN, msg_n));
+}
+
+/* draft-ietf-webtrans-http3-16 SS6: a WT_CLOSE_SESSION always ends the
+ * session (0); an invalid body (too long or not UTF-8) additionally latches
+ * H3_MESSAGE_ERROR so the caller resets the CONNECT stream with it. */
+static int srvrun_wt_capsule_close(srvrun_wt_caprx* x, wired_span value) {
+  if (!srvrun_wt_close_body_ok(value)) x->violation_code = H3_MESSAGE_ERROR;
+  return 0;
+}
+
+/* WT_STREAMS_BLOCKED: 1 if value is a well-formed varint within the 2^60
+ * ceiling, else 0 with x->violation_code set to WT_FLOW_CONTROL_ERROR
+ * (draft-ietf-webtrans-http3-16 SS5.6.3). A malformed body (not one whole
+ * varint) is the pre-existing "malformed capsule" case and keeps the
+ * caller's WT_SESSION_GONE default instead. */
+static int srvrun_wt_capsule_streams_blocked(
+    srvrun_wt_caprx* x, wired_span value) {
+  u64 v;
+  if (!wtcapsule_value_varint(value, &v)) return 0;
+  if (wtsession_streams_blocked_ok(v)) return 1;
+  x->violation_code = WTERR_FLOW_CONTROL_ERROR;
+  return 0;
+}
+
+/* WT_MAX_DATA/WT_MAX_STREAMS: 1 if value is a well-formed varint the setter
+ * accepted, else 0. x->violation_code is set to WT_FLOW_CONTROL_ERROR only
+ * when the body parsed but the setter rejected the value (non-increasing,
+ * or -- WT_MAX_STREAMS only -- over the 2^60 ceiling, session.c) -- a
+ * malformed body keeps the caller's WT_SESSION_GONE default, matching the
+ * pre-existing malformed-capsule case. */
+static int srvrun_wt_capsule_flow_raise(
+    srvrun_wt_caprx* x, u64 type, wired_span value) {
+  u64 v;
+  if (!wtcapsule_value_varint(value, &v)) return 0;
+  if (srvrun_wt_capsule_raise(x->s, type, v)) return 1;
+  x->violation_code = WTERR_FLOW_CONTROL_ERROR;
+  return 0;
+}
+
+/* The non-CLOSE half of srvrun_wt_capsule_flow: a flow-control setter type,
+ * a WT_STREAMS_BLOCKED ceiling check, or skip (RFC 9297 SS3.2). */
+static int srvrun_wt_capsule_flow_or_skip(
+    srvrun_wt_caprx* x, u64 type, wired_span value) {
+  if (srvrun_wt_capsule_streams_blocked_type(type))
+    return srvrun_wt_capsule_streams_blocked(x, value);
+  if (!srvrun_wt_capsule_flow_type(type)) return 1;
+  return srvrun_wt_capsule_flow_raise(x, type, value);
+}
+
+/* One received capsule. draft-ietf-webtrans-http3-16 SS6: a
+ * WT_CLOSE_SESSION ends the session on the spot (srvrun_wt_capsule_close),
+ * so a peer withholding the CONNECT stream's FIN cannot keep it alive. */
+static int srvrun_wt_capsule_flow(
+    srvrun_wt_caprx* x, u64 type, wired_span value) {
+  if (type == WTCAPSULE_TYPE_CLOSE) return srvrun_wt_capsule_close(x, value);
+  return srvrun_wt_capsule_flow_or_skip(x, type, value);
+}
 
 static void srvrun_wt_drain_notify(const srvrun_wt_caprx* x) {
   if (x->env->wt_on_session_draining)
@@ -3474,7 +3529,7 @@ static int srvrun_wt_capsule_drain(const srvrun_wt_caprx* x, wired_span value) {
 static int srvrun_wt_capsule_apply(void* ctx, u64 type, wired_span value) {
   srvrun_wt_caprx* x = ctx;
   if (type == WTCAPSULE_TYPE_DRAIN) return srvrun_wt_capsule_drain(x, value);
-  return srvrun_wt_capsule_flow(x->s, type, value);
+  return srvrun_wt_capsule_flow(x, type, value);
 }
 
 /* A capsule pass leaves the session healthy only while the stream is still
@@ -3487,34 +3542,66 @@ static int srvrun_wt_rx_ok(int st) {
  * the request HEADERS still in front (wt_capsule_rx_at), then apply every
  * whole capsule (bodywin_capsules). Returns 1 while the session stays
  * healthy, 0 on a malformed capsule (bad body, or the stream FINing
- * mid-capsule, RFC 9297 SS3.3) or a WT_CLOSE_SESSION. */
+ * mid-capsule, RFC 9297 SS3.3), a flow-control violation, or a
+ * WT_CLOSE_SESSION -- out->violation_code then says which code to use. */
 static int srvrun_wt_rx_walk(
     const srvrun_cfg*          cfg,
     srvrun_conn*               c,
     int                        sidx,
-    wired_srvloop_stream_slot* slot) {
-  srvrun_wt_caprx x = {
-      cfg->env, srvrun_wt_slot(c, sidx), &c->wt_drain_rcvd[sidx]};
+    wired_srvloop_stream_slot* slot,
+    srvrun_wt_caprx*           out) {
   if (c->wt_capsule_rx_at[sidx])
     bodywin_consume(&slot->body, slot->req_buf, c->wt_capsule_rx_at[sidx]);
   c->wt_capsule_rx_at[sidx] = 0;
+  out->env                  = cfg->env;
+  out->s                    = srvrun_wt_slot(c, sidx);
+  out->drain_rcvd           = &c->wt_drain_rcvd[sidx];
   /* A clean FIN (BODYWIN_DONE) is left to srvrun_close_wt_on_stream_close. */
   return srvrun_wt_rx_ok(bodywin_capsules(
       &slot->body, slot->req_buf, &c->wt_capq[sidx], srvrun_wt_capsule_apply,
-      &x));
+      out));
 }
 
-/* draft-ietf-webtrans-http3-15 SS5.1/SS5.6/SS8: apply the peer's session
- * flow-control capsules (WT_MAX_DATA / WT_MAX_STREAMS) arriving on session
- * slot sidx's CONNECT stream; a malformed capsule closes the session. */
+/* RESET_STREAM + STOP_SENDING carrying code on session slot sidx's own
+ * CONNECT stream, final size every byte already sent on it (RFC 9000 4.5:
+ * wt_connect_sent_len), kept until ACKed. The session itself is untouched. */
+static void srvrun_reset_connect_stream_code(
+    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, u64 code) {
+  u8                 pl[48];
+  wired_obuf         plb = obuf_of(pl, sizeof pl);
+  u64                id  = srvrun_wt_slot(c, sidx)->connect_stream_id;
+  reset_stream_frame rs  = {id, code, c->wt_connect_sent_len[sidx]};
+  usz                rn  = reset_stream_encode(pl, sizeof pl, &rs);
+  usz                sn  = srvrun_wt_abort_stop(id, code, &plb, rn);
+  srvrun_send_kept(cfg, c, pl, rn + sn, "WT CONNECT stream reset\n");
+}
+
+/* draft-ietf-webtrans-http3-16 SS6: a rejected capsule pass ends the
+ * session. An invalid WT_CLOSE_SESSION body also resets the CONNECT stream
+ * with H3_MESSAGE_ERROR, and the session's other streams get WT_SESSION_GONE;
+ * every other violation resets the owned streams with its own code. */
+static void srvrun_wt_rx_fail(
+    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, u64 code) {
+  if (code == H3_MESSAGE_ERROR) {
+    srvrun_reset_connect_stream_code(cfg, c, sidx, code);
+    code = WTERR_SESSION_GONE;
+  }
+  srvrun_close_wt_session_slot(cfg, c, sidx, code);
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.1/SS5.6/SS9.5: apply the peer's session
+ * flow-control capsules (WT_MAX_DATA / WT_MAX_STREAMS / WT_STREAMS_BLOCKED)
+ * arriving on session slot sidx's CONNECT stream; a malformed capsule or a
+ * flow-control violation closes the session with the appropriate code. */
 static void srvrun_wt_rx_capsules_one(
     const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
   wired_srvloop_stream_slot* slot = srvrun_wt_rx_slot(c, sidx);
+  srvrun_wt_caprx            x    = {0, 0, 0, WTERR_SESSION_GONE};
   if (!slot) return;
-  if (srvrun_wt_rx_walk(cfg, c, sidx, slot))
+  if (srvrun_wt_rx_walk(cfg, c, sidx, slot, &x))
     srvrun_grant_body_credit(cfg, c, slot);
   else
-    srvrun_close_wt_session_slot(cfg, c, sidx, srvrun_wt_session_gone_code());
+    srvrun_wt_rx_fail(cfg, c, sidx, x.violation_code);
 }
 
 /* Per-step receive pass over every session slot, same fan-out shape as
@@ -3530,7 +3617,7 @@ static void srvrun_close_wt_on_stream_close(
   if (sidx >= 0) {
     srvrun_log_close(
         "wt session closed by peer (CONNECT stream)", wired_span_of(0, 0));
-    srvrun_close_wt_session_slot(cfg, c, sidx, srvrun_wt_session_gone_code());
+    srvrun_close_wt_session_slot(cfg, c, sidx, WTERR_SESSION_GONE);
   }
   c->l.closed_stream_seen = 0;
 }
@@ -3545,24 +3632,9 @@ static void srvrun_close_wt_on_stream_close(
  * WTCAPSULE_CLOSE_MESSAGE_MAX -- or out overflow) still closes the
  * session: a peer that never received the capsule finds out via the CONNECT
  * stream's own FIN/reset either way, and leaving the session open forever on
- * a local encode failure would be worse. */
-/* draft-ietf-webtrans-http3-15 6: a session also ends when its CONNECT
- * stream is "closed [...] abruptly" -- the fallback when WT_CLOSE_SESSION
- * cannot be staged (no free send slot). RESET_STREAM + STOP_SENDING with
- * WT_SESSION_GONE, its final size every byte already sent on the stream
- * (RFC 9000 4.5: wt_connect_sent_len), kept until ACKed. */
-static void srvrun_reset_connect_stream(
-    const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
-  u8                 pl[48];
-  wired_obuf         plb  = obuf_of(pl, sizeof pl);
-  u64                id   = srvrun_wt_slot(c, sidx)->connect_stream_id;
-  u64                code = srvrun_wt_session_gone_code();
-  reset_stream_frame rs   = {id, code, c->wt_connect_sent_len[sidx]};
-  usz                rn   = reset_stream_encode(pl, sizeof pl, &rs);
-  usz                sn   = srvrun_wt_abort_stop(id, code, &plb, rn);
-  srvrun_send_kept(cfg, c, pl, rn + sn, "WT CONNECT stream reset\n");
-}
-
+ * a local encode failure would be worse; the CONNECT stream is then reset
+ * with WT_SESSION_GONE instead (draft-ietf-webtrans-http3-16 6: closing it
+ * abruptly also ends the session). */
 static void srvrun_send_wt_close(
     const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
   /* +4: WT_CLOSE_SESSION's fixed 32-bit Application Error Code field
@@ -3576,8 +3648,8 @@ static void srvrun_send_wt_close(
           &bob, c->wt_close_code[sidx],
           wired_span_of(c->wt_close_msg[sidx], c->wt_close_msg_len[sidx])) ||
       !srvrun_send_wt_capsule(c, sidx, wired_span_of(body, bob.len), 1))
-    srvrun_reset_connect_stream(cfg, c, sidx);
-  srvrun_close_wt_session_slot(cfg, c, sidx, srvrun_wt_session_gone_code());
+    srvrun_reset_connect_stream_code(cfg, c, sidx, WTERR_SESSION_GONE);
+  srvrun_close_wt_session_slot(cfg, c, sidx, WTERR_SESSION_GONE);
 }
 
 static void srvrun_drain_wt_close_one(
@@ -5149,10 +5221,13 @@ int wired_server_broadcast_datagram_ring(wired_span data) {
  * WTCAPSULE_CLOSE_MESSAGE_MAX (wired_wtcapsule_encode_close's own limit,
  * wtcapsule.h) -- a longer message is truncated rather than rejected, same
  * ponytail policy as this file's other fixed-capacity copies (e.g. wt_path).
- */
+ * draft-ietf-webtrans-http3-16 SS6 (new MUST): the truncation point is the
+ * last whole UTF-8 character boundary at or before the cap
+ * (wtcapsule_utf8_truncate_len), not a raw byte count -- a byte cut mid
+ * multi-byte sequence would hand the peer an invalid UTF-8 message. */
 static void srvrun_wt_close_record_message(
     srvrun_conn* c, int sidx, wired_span message) {
-  usz n = u64_min(message.n, WTCAPSULE_CLOSE_MESSAGE_MAX);
+  usz n = wtcapsule_utf8_truncate_len(message, WTCAPSULE_CLOSE_MESSAGE_MAX);
   bytes_memcpy(c->wt_close_msg[sidx], message.p, n);
   c->wt_close_msg_len[sidx] = n;
 }
@@ -6076,6 +6151,21 @@ static void srvrun_wt_notify(
       wired_span_of(c->wt_path[sidx], c->wt_path_len[sidx]), protocol);
 }
 
+/* draft-ietf-webtrans-http3-16 SS5.5.1-5.5.3: seed a new session's limits
+ * from the client's SETTINGS_WT_INITIAL_* (the "previously received" baseline
+ * for SS5.6.2/5.6.4). The SETTINGS are final by now: SS3.1 holds every
+ * CONNECT until they arrive (srvrun_wt_settings_ready) and RFC 9114 7.2.4
+ * allows only one. SS5.1: flow control is enabled when both sides sent a
+ * non-zero one; this server always does (control_settings.c), so the peer
+ * decides. A stream value past 2^60 is clamped to it (SS5.6.2's ceiling). */
+static void srvrun_wt_seed_limits(const srvrun_conn* c, wired_wt_session* s) {
+  const u64* v    = c->l.peer_wt_initial;
+  s->flow_control = (v[0] | v[1] | v[2]) != 0;
+  wired_wt_session_set_max_streams(s, 0, u64_min(v[0], WTSESSION_STREAMS_MAX));
+  wired_wt_session_set_max_streams(s, 1, u64_min(v[1], WTSESSION_STREAMS_MAX));
+  wired_wt_session_set_max_data(s, v[2]);
+}
+
 /* Establish a WebTransport session for this Extended CONNECT (draft-ietf-
  * webtrans-http3-15 SS3.2/SS4) in the first free session slot: the session id
  * is the CONNECT stream's own id. The 200 carries a wt-protocol header when
@@ -6099,6 +6189,7 @@ static void srvrun_start_wt(
   f = (qpack_field){
       wired_span_of(name, sizeof name), wired_span_of(p.sfv, p.sfv_len)};
   wired_wt_session_init(srvrun_wt_slot(c, sidx), c->l.req_stream_id);
+  srvrun_wt_seed_limits(c, srvrun_wt_slot(c, sidx));
   wired_wt_session_establish(srvrun_wt_slot(c, sidx));
   (*srvrun_wt_active_slot(c, sidx)) = 1;
   c->wt_sess_window_count++;

@@ -5049,13 +5049,11 @@ static u64 sr_kept_reset_code(const srvrun_conn* c, u64 id) {
  * a reassembled WT bidi slot is offered. wired_wt_session_offer_stream then
  * returns 0 (session.c's stream_free_slot finds nothing), so
  * srvrun_offer_wt_slot must reject the stream on the wire with
- * WT_BUFFERED_STREAM_REJECTED (0x3994bd84) mapped through
- * wired_wterrmap_to_http3 (draft-ietf-webtrans-http3-15 8.2) -- NOT the
- * H3_REQUEST_REJECTED the busy-reset path carries, since this is an
- * application-level WT error code, not an HTTP/3-level one. The expected
- * wire value (0x52e4df8fc205) is hand-derived: first=0x52e4a40fa8db,
- * n=0x3994bd84 (966049156), h = first + n + floor(n/0x1e) = first +
- * 966049156 + 34501755 = 0x52e4df8fc205. */
+ * WT_BUFFERED_STREAM_REJECTED (0x3994bd84) sent as its own raw HTTP/3 error
+ * code (draft-ietf-webtrans-http3-16 9.5) -- NOT mapped through
+ * wired_wterrmap_to_http3 (that range is for WebTransport application error
+ * codes; this one is protocol-level), and NOT the H3_REQUEST_REJECTED the
+ * busy-reset path otherwise carries. */
 static void test_srvrun_wt_bidi_stream_buffer_full_sends_reset(void) {
   struct lp_fix      f;
   wired_obuf         ob;
@@ -5088,20 +5086,19 @@ static void test_srvrun_wt_bidi_stream_buffer_full_sends_reset(void) {
   CHECK(sr_kept_reset_code(&c, 996) == WTERR_BUFFERED_STREAM_REJECTED);
   CHECK(
       srvrun_seal_wt_busy_reset(
-          &c, 996, wired_wterrmap_to_http3(WTERR_BUFFERED_STREAM_REJECTED),
-          &pktb) == 1);
+          &c, 996, WTERR_BUFFERED_STREAM_REJECTED, &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = reset_stream_decode(pl, pll, &rs);
   CHECK(rn != 0);
   CHECK(rs.stream_id == 996);
-  CHECK(rs.error_code == 0x52e4df8fc205ULL);
+  CHECK(rs.error_code == WTERR_BUFFERED_STREAM_REJECTED);
   /* Standard RESET_STREAM (0x04, RFC 9000 19.4), final size 0 -- this
    * stream never carried any application bytes. */
   CHECK(rs.final_size == 0);
   sn = stop_sending_decode(pl + rn, pll - rn, &ss);
   CHECK(sn != 0);
   CHECK(ss.stream_id == 996);
-  CHECK(ss.error_code == 0x52e4df8fc205ULL);
+  CHECK(ss.error_code == WTERR_BUFFERED_STREAM_REJECTED);
   CHECK(rn + sn == pll);
 }
 
@@ -5725,13 +5722,14 @@ static void test_srvrun_wt_connect_origin_malformed_403(void) {
   CHECK(conns[0].resp[0].sess.active == 1); /* the 403 was still armed */
 }
 
-/* draft-ietf-webtrans-http3-15 SS3.2 (WTH3-016): "the HTTP/3 server can
+/* draft-ietf-webtrans-http3-16 SS3.2 (WTH3-016): "the HTTP/3 server can
  * check if it has a WebTransport server associated with the specified
  * :authority and :path values. If it does not, it SHOULD reply with status
- * code 404." A registered wt_resource_check that returns status=404 for
- * every :authority/:path short-circuits establishment: no session, the app
- * handler is never reached, and the 404 response is armed. */
-static void sr_wt_resource_check_404(
+ * code 405." (-15 recommended 404; -16 changed the recommendation to 405.)
+ * A registered wt_resource_check that returns status=405 for every
+ * :authority/:path short-circuits establishment: no session, the app
+ * handler is never reached, and the 405 response is armed. */
+static void sr_wt_resource_check_405(
     void*                       ctx,
     wired_span                  authority,
     wired_span                  path,
@@ -5739,10 +5737,10 @@ static void sr_wt_resource_check_404(
   (void)ctx;
   (void)authority;
   (void)path;
-  out->status = 404;
+  out->status = 405;
 }
 
-static void test_srvrun_wt_resource_check_404_no_session(void) {
+static void test_srvrun_wt_resource_check_405_no_session(void) {
   struct lp_fix f;
   conntable     table[WIRED_CONNTABLE_CAP];
   srvrun_conn*  conns = sr_test_conns();
@@ -5758,7 +5756,7 @@ static void test_srvrun_wt_resource_check_404_no_session(void) {
         .fd                = -1,
         .handler           = sr_wt_handler,
         .env               = &g_srvrun_env,
-        .wt_resource_check = sr_wt_resource_check_404,
+        .wt_resource_check = sr_wt_resource_check_405,
         0};
     srvrun_state    st  = {table, conns};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
@@ -5767,7 +5765,7 @@ static void test_srvrun_wt_resource_check_404_no_session(void) {
   CHECK(g_sr_wt_handler_calls == 0);
   CHECK(conns[0].wt_active == 0);
   CHECK(conns[0].wt.state != WIRED_WT_ESTABLISHED);
-  CHECK(conns[0].resp[0].sess.active == 1); /* the 404 was still armed */
+  CHECK(conns[0].resp[0].sess.active == 1); /* the 405 was still armed */
 }
 
 /* REGRESSION: a wt_resource_check that leaves *out at its caller-zeroed
@@ -6456,14 +6454,13 @@ static void test_srvrun_connect_stream_reset_closes_wt_session(void) {
   CHECK(conns[0].l.closed_stream_seen == 0); /* consumed every step */
 }
 
-/* draft-ietf-webtrans-http3-15 SS4.4/8.2 (WTH3-065): a session's own CONNECT
+/* draft-ietf-webtrans-http3-16 SS6/SS9.5 (WTH3-065): a session's own CONNECT
  * stream closing must reset every WT bidi stream that session owns with
- * WT_SESSION_GONE (0x170d7b68), RESET_STREAM + STOP_SENDING, mapped
- * through wired_wterrmap_to_http3 -- the expected wire value (0x52e4bbe1db93)
- * is hand-derived: first=0x52e4a40fa8db, n=0x170d7b68 (388605800),
- * h = first + n + floor(n/0x1e) = first + 388605800 + 12953526 =
- * 0x52e4bbe1db93. The reset stream's slot is also freed (in_use == 0) so a
- * later reused stream id is never mistaken for the dead one. */
+ * WT_SESSION_GONE (0x170d7b68), RESET_STREAM + STOP_SENDING, sent as its own
+ * raw HTTP/3 error code -- NOT mapped through wired_wterrmap_to_http3, since
+ * -16 clarifies this is a protocol-level code, not a WebTransport
+ * application error code. The reset stream's slot is also freed (in_use ==
+ * 0) so a later reused stream id is never mistaken for the dead one. */
 static void test_srvrun_connect_stream_reset_resets_owned_wt_bidi_stream(void) {
   struct lp_fix      f;
   conntable          table[WIRED_CONNTABLE_CAP];
@@ -6501,16 +6498,17 @@ static void test_srvrun_connect_stream_reset_resets_owned_wt_bidi_stream(void) {
   CHECK(conns[0].l.wt_streams[0].in_use == 0); /* the stream slot is freed */
   /* draft-ietf-webtrans-http3-16 6: WT_SESSION_GONE is protocol-level, raw */
   CHECK(sr_kept_reset_code(&conns[0], 8) == WTERR_SESSION_GONE);
-  CHECK(srvrun_seal_wt_busy_reset(&conns[0], 8, 0x52e4bbe1db93ULL, &pktb) == 1);
+  CHECK(
+      srvrun_seal_wt_busy_reset(&conns[0], 8, WTERR_SESSION_GONE, &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = reset_stream_decode(pl, pll, &rs);
   CHECK(rn != 0);
   CHECK(rs.stream_id == 8);
-  CHECK(rs.error_code == 0x52e4bbe1db93ULL);
+  CHECK(rs.error_code == WTERR_SESSION_GONE);
   sn = stop_sending_decode(pl + rn, pll - rn, &ss);
   CHECK(sn != 0);
   CHECK(ss.stream_id == 8);
-  CHECK(ss.error_code == 0x52e4bbe1db93ULL);
+  CHECK(ss.error_code == WTERR_SESSION_GONE);
 }
 
 /* Mirrors the bidi test above for a WT uni stream: closing the session it was
@@ -16221,10 +16219,43 @@ static void test_srvrun_wt_rx_max_streams_capsules_raise_limits(void) {
   CHECK(wired_wt_session_stream_open_allowed(&c->wt, 0) == 1);
 }
 
-/* V-0505 (SS5.1, WTH3-053): a flow-control capsule carrying a LOWER value
- * than the current limit is ignored (limits only ever increase, mirroring
- * RFC 9000 4.1) -- the session keeps the higher limit and stays open. */
-static void test_srvrun_wt_ignores_stale_flow_control_capsules(void) {
+/* draft-ietf-webtrans-http3-16 SS5.6.2/SS5.6.4 (was V-0505/WTH3-053 under
+ * -15): a flow-control capsule carrying a value that does NOT increase the
+ * current limit (lower, or merely equal) is now a protocol violation --
+ * -15 only rejected a strict decrease and silently ignored it; -16 widens
+ * the rejection to "does not increase" and the caller must close the
+ * session with WT_FLOW_CONTROL_ERROR instead of ignoring it. A bidi WT
+ * stream this session owns is reset with that same raw code, proving which
+ * error the close used (sr_kept_reset_code), not just that something
+ * closed. */
+static void test_srvrun_wt_nonincreasing_flow_control_capsule_closes_session(
+    void) {
+  struct lp_fix f;
+  wired_obuf    ob  = {0};
+  srvrun_cfg    cfg = sr_wt_send_cfg();
+  u8            obuf[1024], capbuf[64];
+  wired_obuf    capb = obuf_of(capbuf, sizeof capbuf);
+  srvrun_conn*  c;
+  ob                                 = (wired_obuf){obuf, sizeof obuf, 0};
+  c                                  = sr_wtsend_fixture(&f, &ob);
+  c->wt_capsule_rx_at[0]             = 0;
+  c->l.wt_streams[0].in_use          = 1;
+  c->l.wt_streams[0].stream_id       = 996;
+  c->l.wt_streams[0].wt_session_slot = 0;
+  CHECK(wtcapsule_encode_max_data(&capb, 100) == 1);
+  CHECK(wtcapsule_encode_max_data(&capb, 100) == 1); /* non-increasing */
+  sr_h3data(&capb, 0);
+  CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.max_data == 100);
+  CHECK(c->wt.state == WIRED_WT_CLOSED);
+  CHECK(c->wt_active == 0);
+  CHECK(sr_kept_reset_code(c, 996) == WTERR_FLOW_CONTROL_ERROR);
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.6.2: a WT_MAX_STREAMS value exceeding
+ * 2^60 is a protocol violation, closed with WT_FLOW_CONTROL_ERROR. */
+static void test_srvrun_wt_max_streams_over_ceiling_closes_session(void) {
   struct lp_fix f;
   wired_obuf    ob  = {0};
   srvrun_cfg    cfg = sr_wt_send_cfg();
@@ -16234,16 +16265,55 @@ static void test_srvrun_wt_ignores_stale_flow_control_capsules(void) {
   ob                     = (wired_obuf){obuf, sizeof obuf, 0};
   c                      = sr_wtsend_fixture(&f, &ob);
   c->wt_capsule_rx_at[0] = 0;
-  CHECK(wtcapsule_encode_max_data(&capb, 100) == 1);
-  CHECK(wtcapsule_encode_max_data(&capb, 2) == 1); /* stale: lower */
-  CHECK(wtcapsule_encode_max_streams(&capb, 0, 4) == 1);
-  CHECK(wtcapsule_encode_max_streams(&capb, 0, 1) == 1); /* stale: lower */
+  CHECK(wtcapsule_encode_max_streams(&capb, 1, (1ULL << 60) + 1) == 1);
   sr_h3data(&capb, 0);
   CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
   srvrun_wt_rx_capsules(&cfg, c);
-  CHECK(c->wt.max_data == 100);
-  CHECK(c->wt.max_streams_uni == 4);
-  CHECK(c->wt.state == WIRED_WT_ESTABLISHED); /* stale is NOT an error */
+  CHECK(c->wt.max_streams_bidi == 0); /* the over-ceiling value never applied */
+  CHECK(c->wt.state == WIRED_WT_CLOSED);
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.6.3 (new MUST): a WT_STREAMS_BLOCKED
+ * value exceeding 2^60 closes the session with WT_FLOW_CONTROL_ERROR, even
+ * though WT_STREAMS_BLOCKED applies no state (it is a one-shot hint). */
+static void test_srvrun_wt_streams_blocked_over_ceiling_closes_session(void) {
+  struct lp_fix f;
+  wired_obuf    ob  = {0};
+  srvrun_cfg    cfg = sr_wt_send_cfg();
+  u8            obuf[1024], capbuf[64];
+  wired_obuf    capb = obuf_of(capbuf, sizeof capbuf);
+  srvrun_conn*  c;
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt_capsule_rx_at[0] = 0;
+  CHECK(wtcapsule_encode_streams_blocked(&capb, 1, (1ULL << 60) + 1) == 1);
+  sr_h3data(&capb, 0);
+  CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.state == WIRED_WT_CLOSED);
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.6.3: a WT_STREAMS_BLOCKED value within
+ * the ceiling is accepted as a no-op -- the session stays open and no
+ * session state changes (it carries no limit to apply, just a hint), and a
+ * known flow-control capsule right after it still applies normally. */
+static void test_srvrun_wt_streams_blocked_within_ceiling_is_noop(void) {
+  struct lp_fix f;
+  wired_obuf    ob  = {0};
+  srvrun_cfg    cfg = sr_wt_send_cfg();
+  u8            obuf[1024], capbuf[64];
+  wired_obuf    capb = obuf_of(capbuf, sizeof capbuf);
+  srvrun_conn*  c;
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt_capsule_rx_at[0] = 0;
+  CHECK(wtcapsule_encode_streams_blocked(&capb, 1, 5) == 1);
+  CHECK(wtcapsule_encode_max_data(&capb, 42) == 1);
+  sr_h3data(&capb, 0);
+  CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.max_data == 42);
+  CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
 }
 
 /* RFC 9297 SS3.2: an unknown capsule type is skipped, and a known
@@ -16382,7 +16452,7 @@ static void test_srvrun_connect_stream_slot_kept_until_session_close(void) {
   CHECK(i8 >= 0);
   srvrun_resp_release_stream(c, 8);
   CHECK(c->l.streams[i8].in_use == 0); /* non-session stream: released */
-  srvrun_close_wt_session_slot(&cfg, c, 0, srvrun_wt_session_gone_code());
+  srvrun_close_wt_session_slot(&cfg, c, 0, WTERR_SESSION_GONE);
   CHECK(slot->in_use == 0); /* released with the session */
 }
 
@@ -16459,6 +16529,51 @@ static void test_srvrun_wt_close_session_latches_pending(void) {
   CHECK(c->wt_close_code[0] == 0x2a);
   CHECK(c->wt_close_msg_len[0] == 3);
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED); /* not closed yet, just queued */
+}
+
+/* draft-ietf-webtrans-http3-16 SS6 (new MUST): a message longer than
+ * WTCAPSULE_CLOSE_MESSAGE_MAX is truncated at the last whole UTF-8
+ * character boundary at or before the cap, never splitting a multi-byte
+ * sequence -- built so the cap (1024) lands exactly 1 byte inside the
+ * final 2-byte sequence, proving the truncation backs off by 1 extra byte
+ * rather than cutting it in half. */
+static void test_srvrun_wt_close_session_truncates_at_utf8_boundary(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  static u8     msg[WTCAPSULE_CLOSE_MESSAGE_MAX + 1];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  for (usz i = 0; i < WTCAPSULE_CLOSE_MESSAGE_MAX - 1; i++) msg[i] = 'a';
+  msg[WTCAPSULE_CLOSE_MESSAGE_MAX - 1] = 0xC3; /* lead of a 2-byte sequence */
+  msg[WTCAPSULE_CLOSE_MESSAGE_MAX]     = 0xA9; /* its continuation byte */
+  CHECK(
+      wired_server_wt_close_session(
+          &c->wt, 0x2a, wired_span_of(msg, sizeof msg)) == 1);
+  /* the 2-byte sequence starts at index 1023 (0-based) and would end at
+   * 1025, past the 1024 cap -- truncation backs off to 1023, not 1024. */
+  CHECK(c->wt_close_msg_len[0] == WTCAPSULE_CLOSE_MESSAGE_MAX - 1);
+  CHECK(c->wt_close_msg[0][WTCAPSULE_CLOSE_MESSAGE_MAX - 2] == 'a');
+}
+
+/* An app-supplied message over the cap with an invalid byte (0xFF) before
+ * the cap must truncate at that byte, not hang the server: the boundary
+ * scan stops at a byte that starts no UTF-8 sequence. */
+static void test_srvrun_wt_close_session_truncates_at_invalid_byte(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  static u8     msg[WTCAPSULE_CLOSE_MESSAGE_MAX + 8];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  for (usz i = 0; i < sizeof msg; i++) msg[i] = 'a';
+  msg[10] = 0xFF;
+  CHECK(
+      wired_server_wt_close_session(
+          &c->wt, 0x2a, wired_span_of(msg, sizeof msg)) == 1);
+  CHECK(c->wt_close_msg_len[0] == 10);
 }
 
 /* CLOSE FLUSHES ON A POLL TICK ALONE: an app that calls
@@ -19161,8 +19276,7 @@ static void test_srvrun_wt_session_creation_rate_limited(void) {
     sr_set_req(&conns[0], 1, 1, sid);
     srvrun_start_resp(&ctx, 0);
     CHECK(conns[0].wt_active == 1);
-    srvrun_close_wt_session_slot(
-        &cfg, &conns[0], 0, srvrun_wt_session_gone_code());
+    srvrun_close_wt_session_slot(&cfg, &conns[0], 0, WTERR_SESSION_GONE);
     conns[0].resp[0].in_use = 0;
   }
   sr_set_req(&conns[0], 1, 1, sid);
@@ -19937,6 +20051,77 @@ static void test_srvrun_wt_close_after_long_capsule_run(void) {
   CHECK(!sr_sl_has_slot(c, 0));
 }
 
+/* draft-ietf-webtrans-http3-16 SS6 (new MUST): a WT_CLOSE_SESSION message
+ * exceeding WTCAPSULE_CLOSE_MESSAGE_MAX bytes resets the CONNECT stream
+ * with H3_MESSAGE_ERROR, and the session ends in that same pass (a CONNECT
+ * stream closed abruptly ends the session). */
+static void test_srvrun_wt_close_message_too_long_resets_and_closes(void) {
+  static u8    caps[4096];
+  static u8    msg[WTCAPSULE_CLOSE_MESSAGE_MAX + 1];
+  wired_obuf   cb   = obuf_of(caps, sizeof caps);
+  srvrun_conn* c    = sr_sl_fixture();
+  usz          hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  for (usz i = 0; i < sizeof msg; i++) msg[i] = 'a';
+  /* Build the body directly (wired_wtcapsule_encode_close itself rejects an
+   * over-cap message, matching this draft's own limit) -- the TEST must
+   * exercise the wire-level violation a non-conforming peer could still
+   * send, not the SDK's own encoder. */
+  {
+    u8 body[4 + sizeof msg];
+    be_put_be32(body, 7);
+    for (usz i = 0; i < sizeof msg; i++) body[4 + i] = msg[i];
+    CHECK(
+        capsule_encode(
+            &cb, WTCAPSULE_TYPE_CLOSE, wired_span_of(body, sizeof body)) == 1);
+  }
+  sr_h3data(&cb, 0);
+  CHECK(sr_cap_send(c, hlen, caps, cb.len) == cb.len);
+  CHECK(g_sl_closes == 1);
+  CHECK(c->wt_active == 0);
+  CHECK(sr_kept_reset_code(c, c->l.req_stream_id) == H3_MESSAGE_ERROR);
+}
+
+/* draft-ietf-webtrans-http3-16 SS6: a WT_CLOSE_SESSION message that is not
+ * valid UTF-8 likewise resets the CONNECT stream with H3_MESSAGE_ERROR and
+ * ends the session in the same pass. */
+static void test_srvrun_wt_close_message_invalid_utf8_resets_and_closes(void) {
+  static u8       caps[1024];
+  static const u8 bad_msg[] = {0xC3}; /* truncated 2-byte lead, invalid */
+  wired_obuf      cb        = obuf_of(caps, sizeof caps);
+  srvrun_conn*    c         = sr_sl_fixture();
+  usz             hlen      = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  u8              body[4 + sizeof bad_msg];
+  be_put_be32(body, 7);
+  body[4] = bad_msg[0];
+  CHECK(
+      capsule_encode(
+          &cb, WTCAPSULE_TYPE_CLOSE, wired_span_of(body, sizeof body)) == 1);
+  sr_h3data(&cb, 0);
+  CHECK(sr_cap_send(c, hlen, caps, cb.len) == cb.len);
+  CHECK(g_sl_closes == 1);
+  CHECK(c->wt_active == 0);
+  CHECK(sr_kept_reset_code(c, c->l.req_stream_id) == H3_MESSAGE_ERROR);
+}
+
+/* draft-ietf-webtrans-http3-16 SS6: a WT_CLOSE_SESSION message of EXACTLY
+ * WTCAPSULE_CLOSE_MESSAGE_MAX bytes is the boundary -- still valid, closes
+ * the session normally (not a length violation). */
+static void test_srvrun_wt_close_message_at_max_len_closes_session(void) {
+  static u8    caps[4096];
+  static u8    msg[WTCAPSULE_CLOSE_MESSAGE_MAX];
+  wired_obuf   cb   = obuf_of(caps, sizeof caps);
+  srvrun_conn* c    = sr_sl_fixture();
+  usz          hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  for (usz i = 0; i < sizeof msg; i++) msg[i] = 'a';
+  CHECK(
+      wired_wtcapsule_encode_close(&cb, 7, wired_span_of(msg, sizeof msg)) ==
+      1);
+  sr_h3data(&cb, 0);
+  CHECK(sr_cap_send(c, hlen, caps, cb.len) == cb.len);
+  CHECK(g_sl_closes == 1);
+  CHECK(c->wt_active == 0);
+}
+
 /* Capsules several windows long are applied in order (the last WT_MAX_DATA
  * wins) and the stream credit grows past the first windows. */
 static void test_srvrun_wt_capsules_applied_in_order_across_windows(void) {
@@ -20090,7 +20275,7 @@ static void test_srvrun_wt_drain_session_closed_refused(void) {
   wired_obuf    ob  = obuf_of(obuf, sizeof obuf);
   srvrun_cfg    cfg = sr_wt_send_cfg();
   srvrun_conn*  c   = sr_wtsend_fixture(&f, &ob);
-  srvrun_close_wt_session_slot(&cfg, c, 0, srvrun_wt_session_gone_code());
+  srvrun_close_wt_session_slot(&cfg, c, 0, WTERR_SESSION_GONE);
   CHECK(wired_server_wt_drain_session(&c->wt) == 0);
 }
 
@@ -20244,6 +20429,151 @@ static void sr_sl_send_settings(srvrun_conn* c) {
   stream_frame    sf  = {2, 0, sizeof ctrl, ctrl, 0};
   CHECK(appdata_stream_frame(&sf, &sob) == 1);
   sr_sl_step(c, pl, sob.len);
+}
+
+/* The client's control stream carrying a SETTINGS frame that advertises
+ * SETTINGS_WT_INITIAL_MAX_STREAMS_UNI/_BIDI/MAX_DATA (draft-ietf-webtrans-
+ * http3-16 SS5.5.1-5.5.3). */
+static void sr_sl_send_wt_initial_settings(
+    srvrun_conn* c, u64 uni, u64 bidi, u64 data) {
+  u8           sp[64], ctrl[80], pl[128];
+  usz          n   = 0;
+  wired_obuf   fob = obuf_of(ctrl + 1, sizeof ctrl - 1);
+  wired_obuf   sob = obuf_of(pl, sizeof pl);
+  stream_frame sf;
+  n += varint_encode(sp + n, H3_SETTINGS_WT_INITIAL_MAX_STREAMS_UNI);
+  n += varint_encode(sp + n, uni);
+  n += varint_encode(sp + n, H3_SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI);
+  n += varint_encode(sp + n, bidi);
+  n += varint_encode(sp + n, H3_SETTINGS_WT_INITIAL_MAX_DATA);
+  n += varint_encode(sp + n, data);
+  ctrl[0] = 0x00; /* control stream type */
+  CHECK(h3_frame_put(&fob, H3_FRAME_SETTINGS, wired_span_of(sp, n)) != 0);
+  sf = (stream_frame){2, 0, 1 + fob.len, ctrl, 0};
+  CHECK(appdata_stream_frame(&sf, &sob) == 1);
+  sr_sl_step(c, pl, sob.len);
+}
+
+/* A session established after the client's SETTINGS advertised the WT
+ * initial limits; returns the CONNECT HEADERS length (capsules start there). */
+static usz sr_sl_wt_with_initial(srvrun_conn* c, u64 uni, u64 bidi, u64 data) {
+  usz hlen;
+  c->l.peer_ctrl.settings_seen = 0;
+  sr_sl_send_wt_initial_settings(c, uni, bidi, data);
+  hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  CHECK(c->wt_active == 1);
+  return hlen;
+}
+
+/* Send one WT_MAX_STREAMS (uni) or WT_MAX_DATA capsule on the CONNECT stream
+ * (data != 0 selects WT_MAX_DATA). */
+static void sr_sl_flow_capsule(srvrun_conn* c, usz hlen, int data, u64 v) {
+  static u8  caps[64];
+  wired_obuf cb = obuf_of(caps, sizeof caps);
+  if (data)
+    CHECK(wtcapsule_encode_max_data(&cb, v) == 1);
+  else
+    CHECK(wtcapsule_encode_max_streams(&cb, 0, v) == 1);
+  sr_h3data(&cb, 0);
+  CHECK(sr_cap_send(c, hlen, caps, cb.len) == cb.len);
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.5.1/SS5.6.2: the client's
+ * SETTINGS_WT_INITIAL_MAX_STREAMS_UNI=3 is the "previously received"
+ * Maximum Streams, so a WT_MAX_STREAMS(uni) of 3 does not increase it and
+ * closes the session. The server may open 3 uni streams without a capsule. */
+static void test_srvrun_wt_initial_max_streams_from_settings(void) {
+  srvrun_conn* c    = sr_sl_fixture();
+  usz          hlen = sr_sl_wt_with_initial(c, 3, 0, 0);
+  CHECK(c->wt.max_streams_uni == 3);
+  for (int i = 0; i < 3; i++) {
+    CHECK(wired_wt_session_stream_open_allowed(&c->wt, 0) == 1);
+    wired_wt_session_note_stream_opened(&c->wt, 0);
+  }
+  CHECK(wired_wt_session_stream_open_allowed(&c->wt, 0) == 0);
+  sr_sl_flow_capsule(c, hlen, 0, 3);
+  CHECK(c->wt_active == 0);
+  CHECK(g_sl_closes == 1);
+}
+
+/* Same baseline, a WT_MAX_STREAMS(uni) of 4 increases it: accepted. */
+static void test_srvrun_wt_initial_max_streams_raised_by_capsule(void) {
+  srvrun_conn* c    = sr_sl_fixture();
+  usz          hlen = sr_sl_wt_with_initial(c, 3, 0, 0);
+  sr_sl_flow_capsule(c, hlen, 0, 4);
+  CHECK(c->wt_active == 1);
+  CHECK(c->wt.max_streams_uni == 4);
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.5.3/SS5.6.4: SETTINGS_WT_INITIAL_MAX_DATA
+ * =100 is the baseline -- WT_MAX_DATA 100 closes, 101 is accepted. */
+static void test_srvrun_wt_initial_max_data_from_settings(void) {
+  srvrun_conn* c    = sr_sl_fixture();
+  usz          hlen = sr_sl_wt_with_initial(c, 0, 0, 100);
+  CHECK(c->wt.max_data == 100);
+  sr_sl_flow_capsule(c, hlen, 1, 100);
+  CHECK(c->wt_active == 0);
+  c    = sr_sl_fixture();
+  hlen = sr_sl_wt_with_initial(c, 0, 0, 100);
+  sr_sl_flow_capsule(c, hlen, 1, 101);
+  CHECK(c->wt_active == 1);
+  CHECK(c->wt.max_data == 101);
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.1/SS5.5.1: the client advertises bidi
+ * and data limits but no uni limit, so flow control is enabled and the uni
+ * limit is 0: the server cannot open a uni stream (refused, session
+ * untouched) until a WT_MAX_STREAMS(uni) of 1 raises it. */
+static void test_srvrun_wt_flow_control_mixed_uni_blocked_until_capsule(void) {
+  srvrun_conn* c    = sr_sl_fixture();
+  usz          hlen = sr_sl_wt_with_initial(c, 0, 2, 100);
+  CHECK(c->wt.flow_control == 1);
+  CHECK(wired_wt_session_stream_open_allowed(&c->wt, 0) == 0);
+  CHECK(wired_wt_session_stream_open_allowed(&c->wt, 1) == 1);
+  sr_sl_flow_capsule(c, hlen, 0, 1);
+  CHECK(c->wt_active == 1);
+  CHECK(wired_wt_session_stream_open_allowed(&c->wt, 0) == 1);
+}
+
+/* The public open path under enabled flow control with a 0 uni limit:
+ * wired_server_wt_open_uni reports blocked (-1, no slot claimed, session
+ * open) and succeeds once the limit is raised -- the caller retries. */
+static void test_srvrun_wt_open_uni_blocked_by_zero_limit_then_opens(void) {
+  struct lp_fix   f;
+  wired_obuf      ob = {0};
+  u8              obuf[1024];
+  static const u8 pay[] = {0x54, 0x04, 'h', 'i'};
+  srvrun_conn*    c;
+  ob                 = (wired_obuf){obuf, sizeof obuf, 0};
+  c                  = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control = 1;
+  CHECK(wired_wt_session_set_max_data(&c->wt, 100) == 1);
+  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == -1);
+  CHECK(c->wtsend[0].in_use == 0);
+  CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(wired_wt_session_set_max_streams(&c->wt, 0, 1) == 1);
+  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.6.2: a peer initial stream limit past
+ * 2^60 is clamped to 2^60, never treated as unlimited. */
+static void test_srvrun_wt_initial_max_streams_clamped(void) {
+  srvrun_conn* c = sr_sl_fixture();
+  sr_sl_wt_with_initial(c, (1ULL << 60) + 5, 0, 0);
+  CHECK(c->wt.max_streams_uni == (1ULL << 60));
+}
+
+/* Absent settings (default 0): the baseline stays 0 and no stream/data limit
+ * applies until a capsule arrives (this SDK's opt-in flow control). */
+static void test_srvrun_wt_initial_limits_absent_stay_zero(void) {
+  srvrun_conn* c = sr_sl_fixture();
+  sr_sl_wt_with_initial(c, 0, 0, 0);
+  CHECK(c->wt.max_streams_uni == 0);
+  CHECK(c->wt.max_streams_bidi == 0);
+  CHECK(c->wt.max_data == 0);
+  CHECK(c->wt.flow_control == 0);
+  CHECK(wired_wt_session_stream_open_allowed(&c->wt, 0) == 1);
+  CHECK(wired_wt_session_data_send_allowed(&c->wt, 1000) == 1);
 }
 
 /* The fixture with the client's SETTINGS not yet seen. */
@@ -20946,7 +21276,7 @@ void test_srvrun(void) {
   test_srvrun_wt_connect_missing_scheme_no_session();
   test_srvrun_wt_connect_missing_path_no_session();
   test_srvrun_wt_connect_missing_authority_no_session();
-  test_srvrun_wt_resource_check_404_no_session();
+  test_srvrun_wt_resource_check_405_no_session();
   test_srvrun_wt_resource_check_accept_establishes_session();
   test_srvrun_wt_resource_check_redirect_3xx_with_location();
   test_srvrun_wt_status_excludes_capsule_forbidden_headers();
@@ -21036,7 +21366,10 @@ void test_srvrun(void) {
   test_srvrun_wt_stream_send_at_max_data_resumes_after_raise();
   test_srvrun_wt_session_sharing_enables_flow_control();
   test_srvrun_wt_rx_max_streams_capsules_raise_limits();
-  test_srvrun_wt_ignores_stale_flow_control_capsules();
+  test_srvrun_wt_nonincreasing_flow_control_capsule_closes_session();
+  test_srvrun_wt_max_streams_over_ceiling_closes_session();
+  test_srvrun_wt_streams_blocked_over_ceiling_closes_session();
+  test_srvrun_wt_streams_blocked_within_ceiling_is_noop();
   test_srvrun_wt_rx_unknown_capsule_skipped();
   test_srvrun_wt_rx_malformed_flow_capsule_closes_session();
   test_srvrun_wt_rx_truncated_capsule_at_fin_closes_session();
@@ -21046,6 +21379,8 @@ void test_srvrun(void) {
   test_srvrun_send_wt_drain_seals_capsule_on_connect_stream();
   test_srvrun_send_wt_drain_all_skips_inactive_slot();
   test_srvrun_wt_close_session_latches_pending();
+  test_srvrun_wt_close_session_truncates_at_utf8_boundary();
+  test_srvrun_wt_close_session_truncates_at_invalid_byte();
   test_srvrun_wt_close_flushes_on_poll_tick_alone();
   test_srvrun_wt_close_session_unknown_session_refused();
   test_srvrun_send_wt_close_seals_capsule_with_fin();
@@ -21155,6 +21490,9 @@ void test_srvrun(void) {
   test_srvrun_on_body_skips_connect();
   test_srvrun_on_body_past_initial_max_data();
   test_srvrun_wt_close_after_long_capsule_run();
+  test_srvrun_wt_close_message_too_long_resets_and_closes();
+  test_srvrun_wt_close_message_invalid_utf8_resets_and_closes();
+  test_srvrun_wt_close_message_at_max_len_closes_session();
   test_srvrun_wt_capsules_applied_in_order_across_windows();
   test_srvrun_wt_unknown_capsule_past_window_skipped();
   test_srvrun_wt_capsule_split_per_byte();
@@ -21175,6 +21513,13 @@ void test_srvrun(void) {
   test_srvrun_retransmitted_request_not_redispatched();
   test_srvrun_wt_connect_stream_with_session_not_redispatched();
   test_srvrun_wt_connect_before_client_settings_held();
+  test_srvrun_wt_initial_max_streams_from_settings();
+  test_srvrun_wt_initial_max_streams_raised_by_capsule();
+  test_srvrun_wt_initial_max_data_from_settings();
+  test_srvrun_wt_initial_limits_absent_stay_zero();
+  test_srvrun_wt_flow_control_mixed_uni_blocked_until_capsule();
+  test_srvrun_wt_open_uni_blocked_by_zero_limit_then_opens();
+  test_srvrun_wt_initial_max_streams_clamped();
   test_srvrun_wt_two_held_connects_each_processed_once();
   test_srvrun_wt_held_connect_retransmitted_one_session();
   test_srvrun_wt_held_connect_rejected_after_settings();

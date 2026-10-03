@@ -173,12 +173,30 @@ static void test_flow_control_max_streams_decreasing_rejected(void) {
   CHECK(wired_wt_session_stream_open_allowed(&s, 1) == 0);
 }
 
-/* Re-sending the same WT_MAX_STREAMS value is not a decrease -- accepted. */
-static void test_flow_control_max_streams_equal_value_accepted(void) {
+/* draft-ietf-webtrans-http3-16 SS5.6.2: re-sending the same WT_MAX_STREAMS
+ * value is a non-increase, rejected like a decrease (-15 only rejected a
+ * strict decrease; -16 widened this to "does not increase"). */
+static void test_flow_control_max_streams_equal_value_rejected(void) {
   wired_wt_session s;
   wired_wt_session_init(&s, 4);
   CHECK(wired_wt_session_set_max_streams(&s, 1, 5) == 1);
-  CHECK(wired_wt_session_set_max_streams(&s, 1, 5) == 1);
+  CHECK(wired_wt_session_set_max_streams(&s, 1, 5) == 0);
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.6.2: a WT_MAX_STREAMS value exactly at
+ * 2^60 is the allowed ceiling -- accepted. */
+static void test_flow_control_max_streams_at_ceiling_accepted(void) {
+  wired_wt_session s;
+  wired_wt_session_init(&s, 4);
+  CHECK(wired_wt_session_set_max_streams(&s, 1, 1ULL << 60) == 1);
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.6.2: a WT_MAX_STREAMS value exceeding
+ * 2^60 is a protocol violation (caller closes with WT_FLOW_CONTROL_ERROR). */
+static void test_flow_control_max_streams_over_ceiling_rejected(void) {
+  wired_wt_session s;
+  wired_wt_session_init(&s, 4);
+  CHECK(wired_wt_session_set_max_streams(&s, 1, (1ULL << 60) + 1) == 0);
 }
 
 /* WT_MAX_DATA enforcement: exactly at the limit is allowed, one byte over is
@@ -206,6 +224,64 @@ static void test_flow_control_max_data_decreasing_rejected(void) {
   CHECK(wired_wt_session_data_send_allowed(&s, 1001) == 0);
 }
 
+/* draft-ietf-webtrans-http3-16 SS5.6.4: re-sending the same WT_MAX_DATA
+ * value is a non-increase, rejected like a decrease. */
+static void test_flow_control_max_data_equal_value_rejected(void) {
+  wired_wt_session s;
+  wired_wt_session_init(&s, 4);
+  CHECK(wired_wt_session_set_max_data(&s, 1000) == 1);
+  CHECK(wired_wt_session_set_max_data(&s, 1000) == 0);
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.6.4: unlike WT_MAX_STREAMS, WT_MAX_DATA
+ * carries NO 2^60 ceiling in -16 -- a value past it is still accepted as
+ * long as it increases the limit (its only range constraint stays the
+ * varint range, enforced at decode, not here). */
+static void test_flow_control_max_data_past_streams_ceiling_accepted(void) {
+  wired_wt_session s;
+  wired_wt_session_init(&s, 4);
+  CHECK(wired_wt_session_set_max_data(&s, (1ULL << 60) + 1) == 1);
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.6.3: WT_STREAMS_BLOCKED carries no
+ * monotonicity requirement (it is just a hint, not cumulative state), but
+ * -16 newly requires the same 2^60 ceiling as WT_MAX_STREAMS. */
+static void test_streams_blocked_ceiling(void) {
+  CHECK(wtsession_streams_blocked_ok(1ULL << 60) == 1);
+  CHECK(wtsession_streams_blocked_ok((1ULL << 60) + 1) == 0);
+  CHECK(wtsession_streams_blocked_ok(0) == 1);
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.6.2/SS5.6.4: before any capsule the
+ * "previously received" value is the SETTINGS initial limit, default 0. A
+ * first capsule of 0 does not increase it (rejected); 1 does (accepted). */
+static void test_flow_control_first_capsule_vs_initial_zero(void) {
+  wired_wt_session s;
+  wired_wt_session_init(&s, 4);
+  CHECK(wired_wt_session_set_max_streams(&s, 1, 0) == 0);
+  CHECK(wired_wt_session_set_max_streams(&s, 0, 0) == 0);
+  CHECK(wired_wt_session_set_max_data(&s, 0) == 0);
+  CHECK(wired_wt_session_set_max_streams(&s, 1, 1) == 1);
+  CHECK(wired_wt_session_set_max_streams(&s, 0, 1) == 1);
+  CHECK(wired_wt_session_set_max_data(&s, 1) == 1);
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.1: with flow control enabled a limit of
+ * 0 blocks (0 means 0); without it, 0 means none received (unlimited). */
+static void test_flow_control_enabled_zero_limit_blocks(void) {
+  wired_wt_session s;
+  wired_wt_session_init(&s, 4);
+  CHECK(wired_wt_session_stream_open_allowed(&s, 0) == 1);
+  CHECK(wired_wt_session_data_send_allowed(&s, 1) == 1);
+  s.flow_control = 1;
+  CHECK(wired_wt_session_stream_open_allowed(&s, 0) == 0);
+  CHECK(wired_wt_session_stream_open_allowed(&s, 1) == 0);
+  CHECK(wired_wt_session_data_send_allowed(&s, 0) == 1);
+  CHECK(wired_wt_session_data_send_allowed(&s, 1) == 0);
+  CHECK(wired_wt_session_set_max_streams(&s, 0, 1) == 1);
+  CHECK(wired_wt_session_stream_open_allowed(&s, 0) == 1);
+}
+
 void test_wt_session(void) {
   test_stream_buffered_then_established();
   test_datagram_buffered_then_established();
@@ -220,7 +296,14 @@ void test_wt_session(void) {
   test_flow_control_max_streams_bidi_enforced();
   test_flow_control_max_streams_uni_enforced();
   test_flow_control_max_streams_decreasing_rejected();
-  test_flow_control_max_streams_equal_value_accepted();
+  test_flow_control_max_streams_equal_value_rejected();
+  test_flow_control_max_streams_at_ceiling_accepted();
+  test_flow_control_max_streams_over_ceiling_rejected();
   test_flow_control_max_data_enforced();
   test_flow_control_max_data_decreasing_rejected();
+  test_flow_control_max_data_equal_value_rejected();
+  test_flow_control_max_data_past_streams_ceiling_accepted();
+  test_streams_blocked_ceiling();
+  test_flow_control_first_capsule_vs_initial_zero();
+  test_flow_control_enabled_zero_limit_blocks();
 }

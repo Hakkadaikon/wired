@@ -21,21 +21,22 @@ u64 wired_wterrmap_to_http3(u32 n);
  * wired_wterrmap_to_http3 never triggers this rejection). */
 int wired_wterrmap_from_http3(u64 h, u32* n_out);
 
-/* draft-ietf-webtrans-http3-15 8.2: named WebTransport application error
- * codes, each an input n to wired_wterrmap_to_http3 above. Defined here
- * (rather than at each event site) because most do not yet have a live
- * trigger in this SDK -- their prerequisite feature is not yet implemented:
+/* draft-ietf-webtrans-http3-16 9.5/6: named WebTransport-defined HTTP/3
+ * error codes. All five below are registered in the IANA "HTTP/3 Error
+ * Code" registry (SS9.5) and are protocol-level codes sent RAW on the wire,
+ * never through wired_wterrmap_to_http3 -- that function is only for
+ * WebTransport APPLICATION error codes (arbitrary u32 values an app chooses),
+ * which is a disjoint concern. Defined here (rather than at each event site)
+ * because most do not yet have a live trigger in this SDK:
  *
  * - WT_BUFFERED_STREAM_REJECTED: reset a stream that arrived before session
  *   establishment and found the pre-establishment buffer full (session/
  *   session.h wired_wt_session_offer_stream documents this on its 0 return).
- *   Dormant: nothing calls offer_stream from a real receive path yet.
+ *   Live: srvrun.c's srvrun_reject_wt_slot.
  * - WT_SESSION_GONE: a stream/datagram referenced an already-closed session,
- *   or signals the endpoint stopped reading the CONNECT stream. Dormant:
- *   no caller inspects session state to raise this yet.
+ *   or signals the endpoint stopped reading the CONNECT stream. Live:
+ *   srvrun.c's srvrun_close_wt_session_slot callers.
  * - WT_FLOW_CONTROL_ERROR: a WebTransport-level flow-control violation.
- *   Dormant: the flow-control capsules that would detect this are out of
- *   scope.
  * - WT_ALPN_ERROR: application-protocol negotiation over WebTransport
  *   failed. Dormant: WT-Available-Protocols/WT-Protocol negotiation is out
  *   of scope.

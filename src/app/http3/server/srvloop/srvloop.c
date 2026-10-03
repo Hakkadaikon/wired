@@ -177,6 +177,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->ctrl.open      = 0;
   l->ctrl.stream_id = 0;
   h3_control_init(&l->peer_ctrl);
+  l->peer_wt_initial[0] = l->peer_wt_initial[1] = l->peer_wt_initial[2] = 0;
   return 1;
 }
 
