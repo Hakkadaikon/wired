@@ -39,6 +39,11 @@
  * (draft-ietf-webtrans-http3-15 SS4.2). */
 #define WTCAPSULE_CLOSE_MESSAGE_MAX 1024
 
+/** WT_CLOSE_SESSION's fixed Application Error Code field length, in bytes
+ * -- the message starts right after it within the capsule's decoded value
+ * (draft-ietf-webtrans-http3-16 SS6). */
+#define WTCAPSULE_CLOSE_CODE_LEN 4
+
 /** WT_MAX_STREAMS capsule type, bidirectional variant
  * (draft-ietf-webtrans-http3-15 SS5.6.2). */
 #define WTCAPSULE_TYPE_MAX_STREAMS_BIDI 0x190B4D3FULL
@@ -46,6 +51,14 @@
 /** WT_MAX_STREAMS capsule type, unidirectional variant
  * (draft-ietf-webtrans-http3-15 SS5.6.2). */
 #define WTCAPSULE_TYPE_MAX_STREAMS_UNI 0x190B4D40ULL
+
+/** WT_STREAMS_BLOCKED capsule type, bidirectional variant
+ * (draft-ietf-webtrans-http3-16 SS5.6.3). */
+#define WTCAPSULE_TYPE_STREAMS_BLOCKED_BIDI 0x190B4D43ULL
+
+/** WT_STREAMS_BLOCKED capsule type, unidirectional variant
+ * (draft-ietf-webtrans-http3-16 SS5.6.3). */
+#define WTCAPSULE_TYPE_STREAMS_BLOCKED_UNI 0x190B4D44ULL
 
 /** WT_MAX_DATA capsule type (draft-ietf-webtrans-http3-15 SS5.6.4). */
 #define WTCAPSULE_TYPE_MAX_DATA 0x190B4D3DULL
@@ -207,5 +220,28 @@ int wtcapsule_encode_data_blocked(wired_obuf* out, u64 max_data);
  * @return 1 on success, 0 otherwise
  */
 int wtcapsule_decode_data_blocked(wired_span data, usz* at, u64* max_data);
+
+/** 1 iff msg is structurally valid UTF-8 (RFC 3629): every byte either
+ * starts a correctly-shaped 1/2/3/4-byte sequence (lead byte in range, no
+ * overlong/surrogate/out-of-Unicode-range lead patterns) whose continuation
+ * bytes are all 0x80-0xBF, or is itself out of range. Used to validate the
+ * WT_CLOSE_SESSION Application Error Message
+ * (draft-ietf-webtrans-http3-16 SS6).
+ * @param msg the candidate UTF-8 bytes
+ * @return 1 if valid, 0 otherwise
+ */
+int wtcapsule_utf8_valid(wired_span msg);
+
+/** The largest prefix length of msg, <= cap, that ends on a whole UTF-8
+ * character boundary -- for truncating a UTF-8 string to a byte cap
+ * without splitting a multi-byte sequence (draft-ietf-webtrans-http3-16
+ * SS6: the WT_CLOSE_SESSION sender's own MUST). Walks msg from the start,
+ * stopping before any sequence that would cross cap or at the first byte
+ * that starts no sequence (an invalid lead byte).
+ * @param msg the UTF-8 bytes to truncate
+ * @param cap the byte limit (msg.n itself if no truncation is needed)
+ * @return the truncated length, <= cap and <= msg.n
+ */
+usz wtcapsule_utf8_truncate_len(wired_span msg, usz cap);
 
 #endif
