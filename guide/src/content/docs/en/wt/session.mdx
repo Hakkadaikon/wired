@@ -14,7 +14,7 @@ A session starts with an Extended CONNECT request. The server can reject the
 ## How it works
 
 - `wt_resource_check` runs before a session exists. Leave `out` untouched to
-  accept, or set `out->status` (here `404`) to send that status instead.
+  accept, or set `out->status` (here `405`) to send that status instead.
   Rejected requests never reach `wt_on_session`.
 - `opt.wt_protocols` is the space-separated list of subprotocols the server
   supports. The one the client also offered arrives as `protocol` in

@@ -27,7 +27,7 @@ static void on_resource(
     wired_wt_resource_decision* out) {
   (void)ctx;
   (void)authority;
-  if (is(path, "/forbidden")) out->status = 404;
+  if (is(path, "/forbidden")) out->status = 405;
 }
 
 static void on_session(
