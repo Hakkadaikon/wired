@@ -47,6 +47,8 @@
 #define MOQVER_CAP_MULTI_SUB_PER_TRACK (1u << 12)
 /** Namespace prefix matching (draft-22). */
 #define MOQVER_CAP_NS_PREFIX_MATCH (1u << 13)
+/** End of Timed-Out Range fetch marker 0x20C (draft-22). */
+#define MOQVER_CAP_EOR_TIMED_OUT (1u << 14)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a
