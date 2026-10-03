@@ -26,8 +26,8 @@ typedef struct {
   moqctl_params params;
 } moqns_req;
 
-int moqns_subscribe_take(wired_span body, moqns_req* out);
-int moqns_publish_take(wired_span body, moqns_req* out);
+int moqns_subscribe_take(int ver, wired_span body, moqns_req* out);
+int moqns_publish_take(int ver, wired_span body, moqns_req* out);
 int moqns_req_encode(wired_mspan buf, usz* off, const moqns_req* m);
 
 /** NAMESPACE / NAMESPACE_DONE: the body is a Track Namespace Suffix.

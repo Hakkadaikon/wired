@@ -103,7 +103,8 @@ static const moqctl_subscribe_ok* mtst_last_ok(void) {
       MOQCTL_OK)
     return 0;
   if (type != MOQCTL_T_SUBSCRIBE_OK) return 0;
-  if (moqctl_subscribe_ok_take(body, &boff, &ok) != MOQCTL_OK) return 0;
+  if (moqctl_subscribe_ok_take(MOQVER_D19, body, &boff, &ok) != MOQCTL_OK)
+    return 0;
   return &ok;
 }
 
@@ -828,7 +829,233 @@ static void test_moqtrun_req_needs_reply_op(void) {
   CHECK(g_n_calls == 1); /* SETUP only */
 }
 
+/* ===================== per-draft parameter scopes ===================== */
+
+/* Control-stream replies (io kind 3) the hub sent to s. */
+static usz mtver_replies(wired_wt_session* s) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++)
+    n += g_calls[i].kind == 3 && g_calls[i].s == s;
+  return n;
+}
+
+/* A (draft ver) PUBLISHes alice with params; 1 iff the hub answered. */
+static int mtver_publish_answered(int ver, const moqctl_params* params) {
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca                                     = mtst_join(SESS_A);
+  moqtrun_find_by_wt(&mtst_hub, SESS_A)->ver = ver;
+  mtst_publish_p(SESS_A, ca, &f, 1, params);
+  return mtver_replies(SESS_A) == 1;
+}
+
+/* B (draft ver) SUBSCRIBEs to A's alice with params; 1 iff answered. */
+static int mtver_subscribe_answered(int ver, const moqctl_params* params) {
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = ver;
+  mtst_subscribe_p(SESS_B, cb, &f, 2, params);
+  return mtver_replies(SESS_B) == 1;
+}
+
+static moqctl_params mtver_params_vi(u64 type, u64 v) {
+  moqctl_params p = {0};
+  p.items[0].type = type;
+  p.items[0].enc  = MOQCTL_PENC_VARINT;
+  p.items[0].vi   = v;
+  p.n             = 1;
+  return p;
+}
+
+/* draft-22 SS9.20.21: INCLUDE_PROPERTIES is a SUBSCRIBE parameter only
+ * in draft-22. */
+static void test_moqtrun_sub_params_include_properties_d22(void) {
+  moqctl_params p = mtst_params_u8(MOQCTL_PARAM_INCLUDE_PROPERTIES, 1);
+  CHECK(mtver_subscribe_answered(MOQVER_D22, &p));
+  CHECK(!mtver_subscribe_answered(MOQVER_D19, &p));
+}
+
+/* draft-22 SS9.20.4 moved OBJECT_DELIVERY_TIMEOUT into PUBLISH. */
+static void test_moqtrun_pub_params_delivery_timeout_d22(void) {
+  moqctl_params p = mtver_params_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 100);
+  CHECK(mtver_publish_answered(MOQVER_D22, &p));
+  CHECK(!mtver_publish_answered(MOQVER_D19, &p));
+}
+
+/* draft-18 PUBLISH takes GROUP_ORDER (a SUBSCRIBE_TRACKS-generated
+ * PUBLISH echoes it); draft-19 SS10.2.8 does not list PUBLISH. */
+static void test_moqtrun_pub_params_group_order_d18(void) {
+  moqctl_params p = mtst_params_u8(MOQCTL_PARAM_GROUP_ORDER, 1);
+  CHECK(mtver_publish_answered(MOQVER_D18, &p));
+  CHECK(!mtver_publish_answered(MOQVER_D19, &p));
+}
+
+/* draft-18 has no range filters (0x25-0x29): an unknown parameter. */
+static void test_moqtrun_sub_params_range_filter_d18(void) {
+  static const u8 rng[] = {0x00, 0x03}; /* SetID 0, Start 3 */
+  moqctl_params   p     = {0};
+  p.items[0].type       = MOQCTL_PARAM_SUBGROUP_FILTER;
+  p.items[0].enc        = MOQCTL_PENC_BYTES;
+  p.items[0].bytes      = wired_span_of(rng, sizeof rng);
+  p.n                   = 1;
+  CHECK(!mtver_subscribe_answered(MOQVER_D18, &p));
+  CHECK(mtver_subscribe_answered(MOQVER_D19, &p));
+}
+
+/* ===================== draft-22 LOCATION_FILTER ===================== */
+
+/* A draft-22 LOCATION_FILTER parameter (SS9.20.9); has 0 is type 0x00. */
+static moqctl_params mt22_filter(int has, moqctl_rangeloc rl) {
+  moqctl_params p       = {0};
+  p.items[0].type       = MOQCTL_PARAM_LOCATION_FILTER;
+  p.items[0].enc        = MOQCTL_PENC_RANGELOC22;
+  p.items[0].has_filter = has;
+  p.items[0].rl         = rl;
+  p.n                   = 1;
+  return p;
+}
+
+static moqctl_rangeloc mt22_rl(
+    moqctl_rsk sk, u64 sg, u64 so, moqctl_rek ek, u64 eg, u64 eo) {
+  moqctl_rangeloc r = {sk, sg, so, ek, eg, eo};
+  return r;
+}
+
+/* A publishes alice up to Largest {6,3}; B (draft-22) SUBSCRIBEs with p.
+ * B's subscription, 0 when refused. */
+static wired_moqtrun_sub* mt22_subscribe(const moqctl_params* p) {
+  u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  usz n = mtst_stream(6, 4, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 1);
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  mtst_subscribe_p(SESS_B, cb, &f, 2, p);
+  return mtst_sub(SESS_A, SESS_B);
+}
+
+static int mt22_start_is(const moqctl_params* p, u64 g, u64 o) {
+  wired_moqtrun_sub* s = mt22_subscribe(p);
+  return s && s->start.group == g && s->start.object == o;
+}
+
+/* Starts (SS9.20.9): 0x00 none is unfiltered from {0,0}; 0x01 Relative
+ * Start n is {Largest.G + 1 - n, 0} floored at 0; 0x05 Next Object is
+ * {Largest.G, Largest.O + 1}; 0x02 Absolute Start is the given Location.
+ * All are open-ended. */
+static void test_moqtrun_sub_filter22_starts(void) {
+  moqctl_rangeloc z    = {0};
+  moqctl_params   none = mt22_filter(0, z);
+  moqctl_params   rel0 = mt22_filter(
+      1, mt22_rl(MOQCTL_RSK_REL_GROUP, 0, 0, MOQCTL_REK_UNBOUNDED, 0, 0));
+  moqctl_params rel1 = mt22_filter(
+      1, mt22_rl(MOQCTL_RSK_REL_GROUP, 1, 0, MOQCTL_REK_UNBOUNDED, 0, 0));
+  moqctl_params rel9 = mt22_filter(
+      1, mt22_rl(MOQCTL_RSK_REL_GROUP, 9, 0, MOQCTL_REK_UNBOUNDED, 0, 0));
+  moqctl_params next = mt22_filter(
+      1, mt22_rl(MOQCTL_RSK_NEXT_OBJ, 0, 0, MOQCTL_REK_UNBOUNDED, 0, 0));
+  moqctl_params abs =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 2, 1, MOQCTL_REK_UNBOUNDED, 0, 0));
+  CHECK(mt22_start_is(&none, 0, 0));
+  CHECK(mt22_start_is(&rel0, 7, 0));
+  CHECK(mt22_start_is(&rel1, 6, 0));
+  CHECK(mt22_start_is(&rel9, 0, 0));
+  CHECK(mt22_start_is(&next, 6, 4));
+  CHECK(mt22_start_is(&abs, 2, 1));
+  CHECK(mt22_subscribe(&abs)->has_end_group == 0);
+}
+
+/* Ends (SS9.20.9): 0x03 ends at the last Object of a Group, 0x04 at an
+ * explicit Object, both inclusive. */
+static void test_moqtrun_sub_filter22_ends(void) {
+  moqctl_params grp =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 2, 1, MOQCTL_REK_GROUP, 4, 0));
+  moqctl_params obj =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 2, 1, MOQCTL_REK_OBJ, 4, 5));
+  wired_moqtrun_sub* s = mt22_subscribe(&grp);
+  CHECK(s && s->has_end_group && s->end_group == 4 && !s->has_end_object);
+  s = mt22_subscribe(&obj);
+  CHECK(s && s->start.group == 2 && s->start.object == 1);
+  CHECK(s && s->has_end_group && s->end_group == 4);
+  CHECK(s && s->has_end_object && s->end_object == 5);
+}
+
+/* Code of the last REQUEST_ERROR B got on its control stream; ~0 if the
+ * last reply is something else. */
+static u64 mt22_last_error(void) {
+  const moqtrun_test_call* c   = moqtrun_test_last_kind(3);
+  usz                      off = 0, boff = 0;
+  u64                      type;
+  wired_span               body;
+  moqctl_request_error     e;
+  if (!c || c->s != SESS_B) return ~(u64)0;
+  if (moqctl_peek_type(
+          wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
+          MOQCTL_OK ||
+      type != MOQCTL_T_REQUEST_ERROR)
+    return ~(u64)0;
+  if (moqctl_request_error_take(body, &boff, &e) != MOQCTL_OK) return ~(u64)0;
+  return e.error_code;
+}
+
+/* 0x04 with End Group Delta 0 and End Object before Start Object can
+ * never be satisfied: REQUEST_ERROR INVALID_RANGE, no subscription. */
+static void test_moqtrun_sub_filter22_inverted(void) {
+  moqctl_params inv =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 3, 5, MOQCTL_REK_OBJ, 3, 2));
+  CHECK(mt22_subscribe(&inv) == 0);
+  CHECK(mt22_last_error() == MOQCTL_ERR_INVALID_RANGE);
+}
+
+/* The end only gates delivery (SS3.3.1: a subscription does not end at
+ * its filter's end): a Group past the end Group, and a datagram past the
+ * End Object, are not sent, and the subscription stays. */
+static void test_moqtrun_sub_filter22_end_gates(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params obj =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_OBJ, 6, 2));
+  moqctl_params dg4 =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_OBJ, 0, 4));
+  moqctl_params dg5 =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_OBJ, 0, 5));
+  wired_moqtrun_sub* s = mt22_subscribe(&obj);
+  moqtrun_test_reset();
+  usz n = mtst_stream(7, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 1);
+  CHECK(moqtrun_test_count_kind(4) + moqtrun_test_count_kind(5) == 0);
+  CHECK(s && s->active);
+  n = mtst_stream(6, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1009, wired_span_of(buf, n), 1);
+  CHECK(moqtrun_test_count_kind(4) + moqtrun_test_count_kind(5) == 1);
+  mt22_subscribe(&dg4);
+  moqtrun_test_reset();
+  wired_moqt_on_datagram(
+      &mtst_hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+  CHECK(moqtrun_test_count_kind(9) == 0);
+  mt22_subscribe(&dg5);
+  moqtrun_test_reset();
+  wired_moqt_on_datagram(
+      &mtst_hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+  CHECK(moqtrun_test_count_kind(9) == 1);
+}
+
 void test_moqtrun_sub(void) {
+  test_moqtrun_sub_filter22_starts();
+  test_moqtrun_sub_filter22_ends();
+  test_moqtrun_sub_filter22_inverted();
+  test_moqtrun_sub_filter22_end_gates();
+  test_moqtrun_sub_params_include_properties_d22();
+  test_moqtrun_pub_params_delivery_timeout_d22();
+  test_moqtrun_pub_params_group_order_d18();
+  test_moqtrun_sub_params_range_filter_d18();
   test_moqtrun_sub_ns_must_match();
   test_moqtrun_sub_ns_max_fields();
   test_moqtrun_sub_same_name_other_ns_coexist();

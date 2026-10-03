@@ -23,7 +23,8 @@
 
 /** REQUEST_ERROR code for a Joining Fetch naming no subscription of the
  * session (10.12.2; registry 15.11.2). */
-#define MOQFETCH_ERR_INVALID_JOINING_REQUEST_ID 0x32ULL
+#define MOQFETCH_ERR_INVALID_JOINING_REQUEST_ID \
+  MOQCTL_ERR_INVALID_JOINING_REQUEST_ID
 
 /** Fetch Type (10.12 Table 6); any other value is a VIOLATION. */
 #define MOQFETCH_STANDALONE 0x1ULL
@@ -46,7 +47,7 @@ typedef struct {
   moqctl_params params;
 } moqfetch_fetch;
 
-int moqfetch_fetch_take(wired_span body, moqfetch_fetch* out);
+int moqfetch_fetch_take(int ver, wired_span body, moqfetch_fetch* out);
 int moqfetch_fetch_encode(wired_mspan buf, usz* off, const moqfetch_fetch* m);
 
 /** Version-neutral FETCH request, an upper set of draft-19's Standalone +
@@ -74,7 +75,7 @@ typedef struct {
  * (End Location's "+1, Object 0 = whole group" quirk resolved here); a
  * Joining Fetch leaves range zeroed. Same return contract as
  * moqfetch_fetch_take. */
-int moqfetch_req19_take(wired_span body, moqfetch_req* out);
+int moqfetch_req19_take(int ver, wired_span body, moqfetch_req* out);
 int moqfetch_req19_encode(wired_mspan buf, usz* off, const moqfetch_req* m);
 
 /** Decodes a draft-22 FETCH body (SS "FETCH"): Request ID, Track Namespace,
@@ -94,8 +95,28 @@ typedef struct {
   wired_span    track_properties;
 } moqfetch_ok;
 
-int moqfetch_ok_take(wired_span body, moqfetch_ok* out);
+int moqfetch_ok_take(int ver, wired_span body, moqfetch_ok* out);
 int moqfetch_ok_encode(wired_mspan buf, usz* off, const moqfetch_ok* m);
+
+/** Inclusive End Object meaning "through the last Object of the group" --
+ * draft-19's End Location Object 0 (10.13) in the inclusive model. */
+#define MOQFETCH_OBJ_GROUP_END (~0ULL)
+
+/** draft-19 End Location (last Object + 1, Object 0 = whole group) to the
+ * inclusive model and back (draft-22 SS9.12 is inclusive on the wire). */
+moqctl_loc moqfetch_end19_incl(moqctl_loc wire);
+moqctl_loc moqfetch_end19_wire(moqctl_loc incl);
+
+/** The inclusive end of a FETCH range r, in the same model: a whole end
+ * group (MOQCTL_REK_GROUP) is Object MOQFETCH_OBJ_GROUP_END, an open end
+ * is largest (draft-22 SS9.20.9: an omitted FETCH end is Largest Object). */
+moqctl_loc moqfetch_req_end(const moqctl_rangeloc* r, moqctl_loc largest);
+
+/** FETCH_OK encode with m->end held inclusive, converted to the draft-19
+ * wire form (moqfetch_end19_wire). moqfetch_ok_encode is the draft-22
+ * form (wire == model); a draft-19 decode applies moqfetch_end19_incl to
+ * moqfetch_ok_take's end. */
+int moqfetch_ok19_encode(wired_mspan buf, usz* off, const moqfetch_ok* m);
 
 /** FETCH_HEADER (11.4.4 Figure 26): Type 0x5 then Request ID. A Type
  * other than 0x5 is a VIOLATION. */
@@ -111,12 +132,18 @@ int moqfetch_hdr_put(wired_mspan buf, usz* off, u64 request_id);
 #define MOQFETCH_F_DATAGRAM 0x40ULL
 #define MOQFETCH_EOR_NONEXISTENT 0x8CULL
 #define MOQFETCH_EOR_UNKNOWN 0x10CULL
+/** draft-22 SS11.4.1 End of Timed-Out Range; accepted only when
+ * moqfetch_seq.eor_timed_out is set. */
+#define MOQFETCH_EOR_TIMED_OUT 0x20CULL
 
 /** The "prior Object" state threaded through one fetch stream. Zero it,
  * then set descending when the FETCH's GROUP_ORDER is Descending (0x2):
- * Group ID Deltas run the other way (11.4.4.1). */
+ * Group ID Deltas run the other way (11.4.4.1); set eor_timed_out on a
+ * stream of a session whose draft has MOQVER_CAP_EOR_TIMED_OUT, so the
+ * 0x20C marker is an End of Range rather than a VIOLATION. */
 typedef struct {
   int descending;
+  int eor_timed_out;
   int have_loc;
   int have_subgroup;
   int have_priority;

@@ -1,6 +1,10 @@
 #include "app/moqt/ctl/moqctl.h"
 
+#include "app/moqt/fetch/moqfetch.h"
 #include "app/moqt/kvp/moqkvp.h"
+#include "app/moqt/ns/moqns.h"
+#include "app/moqt/tstat/moqtstat.h"
+#include "app/moqt/ver/moqver.h"
 #include "app/moqt/vi/moqvi.h"
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
@@ -46,6 +50,58 @@ static const u64 MOQCTL_KNOWN_DONE[] = {
 u64 moqctl_known_publish_done(u64 code) {
   if (moqctl_u64_in(MOQCTL_KNOWN_DONE, MOQCTL_KNOWN_DONE_N, code)) return code;
   return MOQCTL_DONE_INTERNAL_ERROR;
+}
+
+/* Send-side code rows: code exists in a draft whose caps include cap;
+ * elsewhere alt, that draft's nearest defined code, is sent. */
+typedef struct {
+  u64 code;
+  u32 cap;
+  u64 alt;
+} moqctl_code_row;
+
+static const moqctl_code_row MOQCTL_ERR_ROWS[] = {
+    /* 19/22 allow several subscriptions per Track (19 SS5.1): no
+     * specific code is left. */
+    {MOQCTL_ERR_DUPLICATE_SUBSCRIPTION, MOQVER_CAP_DUP_SUBSCRIPTION,
+     MOQCTL_ERR_INTERNAL_ERROR},
+    /* 18 has no filter aggregation: filters too costly to aggregate is an
+     * excess of load. */
+    {MOQCTL_ERR_CONFLICTING_FILTERS, MOQVER_CAP_RANGE_FILTERS,
+     MOQCTL_ERR_EXCESSIVE_LOAD},
+    /* 18 SS5.1.2: an unsatisfiable filter is INVALID_RANGE. */
+    {MOQCTL_ERR_INVALID_FILTER, MOQVER_CAP_RANGE_FILTERS,
+     MOQCTL_ERR_INVALID_RANGE},
+};
+
+static const moqctl_code_row MOQCTL_DONE_ROWS[] = {
+    /* 22 SS3.3.1: a subscription no longer ends at its filter's end; the
+     * remaining "publisher is done" status is TRACK_ENDED. */
+    {MOQCTL_DONE_SUBSCRIPTION_ENDED, MOQVER_CAP_SUBSCRIPTION_ENDED,
+     MOQCTL_DONE_TRACK_ENDED},
+};
+
+static u64 moqctl_code_row_pick(const moqctl_code_row* r, int ver) {
+  return (moqver_caps(ver) & r->cap) ? r->code : r->alt;
+}
+
+static u64 moqctl_code_for(
+    const moqctl_code_row* rows, usz n, int ver, u64 code) {
+  for (usz i = 0; i < n; i++)
+    if (rows[i].code == code) return moqctl_code_row_pick(&rows[i], ver);
+  return code;
+}
+
+u64 moqctl_request_error_for(int ver, u64 code) {
+  return moqctl_code_for(
+      MOQCTL_ERR_ROWS, sizeof MOQCTL_ERR_ROWS / sizeof MOQCTL_ERR_ROWS[0], ver,
+      code);
+}
+
+u64 moqctl_publish_done_for(int ver, u64 code) {
+  return moqctl_code_for(
+      MOQCTL_DONE_ROWS, sizeof MOQCTL_DONE_ROWS / sizeof MOQCTL_DONE_ROWS[0],
+      ver, code);
 }
 
 /* ===== Location (SS1.4.2) ===== */
@@ -159,8 +215,7 @@ int moqctl_locfilter_put(wired_mspan buf, usz* off, const moqctl_locfilter* f) {
   return 1;
 }
 
-/* ===== Version-neutral range model (moqctl_rangeloc) =====
- * Mirrors tasks/fv/moqt/Moqt/Filter.lean's SK/EK/Rng field-for-field. */
+/* ===== Version-neutral range model (moqctl_rangeloc) ===== */
 
 /* End Group Delta, resolved to an absolute end_group; overflow of
  * start_group+delta past 2^64-1 -> VIOLATION (shared by d19 type 4 and
@@ -453,18 +508,6 @@ int moqctl_rangeloc22_put(
   return moqctl_rangeloc22_put_present(buf, off, r);
 }
 
-/* ----- Named violation predicates (Q-04a/Q-04b) ----- */
-
-int moqctl_rangeloc_q04a_violation(const moqctl_rangeloc* r) {
-  if (r->ek != MOQCTL_REK_OBJ) return 0;
-  if (r->end_group != r->start_group) return 0;
-  return r->end_object < r->start_object;
-}
-
-int moqctl_rangeloc_q04b_violation(const moqctl_rangeloc* r) {
-  return r->sk == MOQCTL_RSK_NEXT_OBJ;
-}
-
 /* ===== Track Namespace / Full Track Name (SS1.5) ===== */
 
 /* 1 if a varint was actually consumed (buf had room), 0 if truncated. */
@@ -652,44 +695,52 @@ int moqctl_reason_put(wired_mspan buf, usz* off, moqctl_reason reason) {
 
 /* ===== Message Parameters (SS10.2) ===== */
 
-/* Registry (SS10.2.x): per known Type, its encoding and the MOQCTL_PCTX_*
- * set it may appear in. Table-driven to keep dispatch a single lookup
- * instead of an if/else chain per type. */
+/* Registry (SS10.2.x): per known Type, its encoding and, per draft
+ * (indexed by MOQVER_*), the MOQCTL_PCTX_* set it may appear in -- 0 where
+ * the draft does not define the Type, which then decodes like an unknown
+ * one. Table-driven to keep dispatch a single lookup instead of an if/else
+ * chain per type. */
 typedef struct {
   u64 type;
   int enc;
-  u32 ctx;
+  u32 ctx[MOQVER_COUNT];
   u8  lo, hi; /* allowed uint8 values; other encodings leave u8v 0 */
   u8  repeat; /* the Type MAY appear more than once (SS5.1.3) */
 } moqctl_param_rule;
 
-/* ctx sets: draft-ietf-moq-transport-19 10.2.2-10.2.18 "MAY appear in",
- * plus SUBSCRIBE_TRACKS for every SUBSCRIBE parameter (10.19.1). An
- * unqualified "REQUEST_UPDATE" covers every REQUEST_UPDATE kind. RENDEZVOUS
- * and FILL timeouts state no encoding; varint is assumed. Range filters
- * (5.1.3) are kept as their raw Length-prefixed bytes. */
+/* ctx sets, {draft-22, draft-19, draft-18}: each draft's "MAY appear in"
+ * (22 SS9.20.x, 19 SS10.2.x, 18 SS10.2.x). draft-19 adds SUBSCRIBE_TRACKS
+ * for every SUBSCRIBE parameter (19 SS10.19.1); draft-18 PUBLISH also takes
+ * GROUP_ORDER, which a SUBSCRIBE_TRACKS-generated PUBLISH echoes. An
+ * unqualified "REQUEST_UPDATE" covers every REQUEST_UPDATE kind.
+ * RENDEZVOUS and FILL timeouts state no encoding; varint is assumed. Range
+ * filters (5.1.3) and FILL_PARAMETERS (22 SS9.20.15: Number of Parameters
+ * + Parameters) are kept as their raw Length-prefixed bytes. */
+/* clang-format off */
 static const moqctl_param_rule MOQCTL_PARAM_RULES[] = {
-    {MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, MOQCTL_PENC_VARINT, 0x7D009, 0, 0,
-     0},
-    {MOQCTL_PARAM_AUTHORIZATION_TOKEN, MOQCTL_PENC_TOKEN, 0x7D555, 0, 0, 0},
-    {MOQCTL_PARAM_RENDEZVOUS_TIMEOUT, MOQCTL_PENC_VARINT, 0x1001, 0, 0, 0},
-    {MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, MOQCTL_PENC_VARINT, 0x7D009, 0, 0,
-     0},
-    {MOQCTL_PARAM_EXPIRES, MOQCTL_PENC_VARINT, 0x82A0E, 0, 0, 0},
-    {MOQCTL_PARAM_LARGEST_OBJECT, MOQCTL_PENC_LOCATION, 0x80086, 0, 0, 0},
-    {MOQCTL_PARAM_FILL_TIMEOUT, MOQCTL_PENC_VARINT, 0x10, 0, 0, 0},
-    {MOQCTL_PARAM_FORWARD, MOQCTL_PENC_UINT8, 0x500D, 0, 1, 0},
-    {MOQCTL_PARAM_SUBSCRIBER_PRIORITY, MOQCTL_PENC_UINT8, 0xD019, 0, 255, 0},
-    {MOQCTL_PARAM_LOCATION_FILTER, MOQCTL_PENC_LOCFILTER, 0x5009, 0, 0, 0},
-    {MOQCTL_PARAM_GROUP_ORDER, MOQCTL_PENC_UINT8, 0x1011, 1, 2, 0},
-    {MOQCTL_PARAM_SUBGROUP_FILTER, MOQCTL_PENC_BYTES, 0x5019, 0, 0, 1},
-    {MOQCTL_PARAM_OBJECTID_FILTER, MOQCTL_PENC_BYTES, 0x5019, 0, 0, 1},
-    {MOQCTL_PARAM_PRIORITY_FILTER, MOQCTL_PENC_BYTES, 0x5019, 0, 0, 1},
-    {MOQCTL_PARAM_OBJECT_PROPERTY_FILTER, MOQCTL_PENC_BYTES, 0x5019, 0, 0, 1},
-    {MOQCTL_PARAM_TRACK_PROPERTY_FILTER, MOQCTL_PENC_BYTES, 0x21000, 0, 0, 1},
-    {MOQCTL_PARAM_NEW_GROUP_REQUEST, MOQCTL_PENC_VARINT, 0x5009, 0, 0, 0},
-    {MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX, MOQCTL_PENC_NS, 0x30000, 0, 0, 0},
+    /* type, enc, ctx {d22, d19, d18}, lo, hi, repeat */
+    {MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT,   MOQCTL_PENC_VARINT,    {0x7C005, 0x7D009, 0x7C009}, 0, 0,   0},
+    {MOQCTL_PARAM_AUTHORIZATION_TOKEN,       MOQCTL_PENC_TOKEN,     {0x7D555, 0x7D555, 0x7D555}, 0, 0,   0},
+    {MOQCTL_PARAM_RENDEZVOUS_TIMEOUT,        MOQCTL_PENC_VARINT,    {0x1,     0x1001,  0x1},     0, 0,   0},
+    {MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, MOQCTL_PENC_VARINT,    {0x7C005, 0x7D009, 0x7C009}, 0, 0,   0},
+    {MOQCTL_PARAM_EXPIRES,                   MOQCTL_PENC_VARINT,    {0x82A0E, 0x82A0E, 0x8000E}, 0, 0,   0},
+    {MOQCTL_PARAM_LARGEST_OBJECT,            MOQCTL_PENC_LOCATION,  {0x80086, 0x80086, 0x80086}, 0, 0,   0},
+    {MOQCTL_PARAM_FILL_TIMEOUT,              MOQCTL_PENC_VARINT,    {0x10,    0x10,    0x10},    0, 0,   0},
+    {MOQCTL_PARAM_FORWARD,                   MOQCTL_PENC_UINT8,     {0x25005, 0x500D,  0x500D},  0, 1,   0},
+    {MOQCTL_PARAM_SUBSCRIBER_PRIORITY,       MOQCTL_PENC_UINT8,     {0xC015,  0xD019,  0xC019},  0, 255, 0},
+    {MOQCTL_PARAM_LOCATION_FILTER,           MOQCTL_PENC_LOCFILTER, {0x4015,  0x5009,  0x4009},  0, 0,   0},
+    {MOQCTL_PARAM_GROUP_ORDER,               MOQCTL_PENC_UINT8,     {0x1015,  0x1011,  0x1D},    1, 2,   0},
+    {MOQCTL_PARAM_FILL_PARAMETERS,           MOQCTL_PENC_BYTES,     {0x4001,  0,       0},       0, 0,   0},
+    {MOQCTL_PARAM_SUBGROUP_FILTER,           MOQCTL_PENC_BYTES,     {0x5011,  0x5019,  0},       0, 0,   1},
+    {MOQCTL_PARAM_OBJECTID_FILTER,           MOQCTL_PENC_BYTES,     {0x5011,  0x5019,  0},       0, 0,   1},
+    {MOQCTL_PARAM_PRIORITY_FILTER,           MOQCTL_PENC_BYTES,     {0x5011,  0x5019,  0},       0, 0,   1},
+    {MOQCTL_PARAM_OBJECT_PROPERTY_FILTER,    MOQCTL_PENC_BYTES,     {0x5011,  0x5019,  0},       0, 0,   1},
+    {MOQCTL_PARAM_TRACK_PROPERTY_FILTER,     MOQCTL_PENC_BYTES,     {0x21000, 0x21000, 0},       0, 0,   1},
+    {MOQCTL_PARAM_NEW_GROUP_REQUEST,         MOQCTL_PENC_VARINT,    {0x4001,  0x5009,  0x4009},  0, 0,   0},
+    {MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX,    MOQCTL_PENC_NS,        {0x30000, 0x30000, 0x30000}, 0, 0,   0},
+    {MOQCTL_PARAM_INCLUDE_PROPERTIES,        MOQCTL_PENC_UINT8,     {0x1051,  0,       0},       0, 1,   0},
 };
+/* clang-format on */
 #define MOQCTL_PARAM_RULE_N \
   (sizeof MOQCTL_PARAM_RULES / sizeof MOQCTL_PARAM_RULES[0])
 
@@ -699,8 +750,9 @@ static const moqctl_param_rule* moqctl_param_rule_for(u64 type) {
   return 0;
 }
 
-static int moqctl_param_allowed_in(const moqctl_param_rule* rule, u32 ctx) {
-  return (rule->ctx & ctx) != 0;
+static int moqctl_param_allowed_in(
+    const moqctl_param_rule* rule, int ver, u32 ctx) {
+  return (rule->ctx[ver] & ctx) != 0;
 }
 
 int moqctl_param_take_uint8(wired_span buf, usz* at, u64* out) {
@@ -789,9 +841,14 @@ static int moqctl_locfilter_exact(wired_span v, moqctl_locfilter* f) {
   return a == v.n ? MOQCTL_OK : MOQCTL_VIOLATION;
 }
 
+/* Also into the version-neutral p->rl (has_filter 1), the one form the
+ * hub resolves for every draft. */
 static int moqctl_pv_locfilter(wired_span buf, usz* at, moqctl_param* p) {
+  usz a = 0;
   int r = moqctl_pv_bytes(buf, at, p);
   if (r != MOQCTL_OK) return r;
+  p->has_filter = 1;
+  moqctl_rangeloc19_take(p->bytes, &a, &p->rl);
   return moqctl_locfilter_exact(p->bytes, &p->lf);
 }
 
@@ -847,11 +904,15 @@ static int moqctl_param_fresh(
 }
 
 /* Unknown Type is always a VIOLATION per SS10.2 (no skip mechanism
- * exists); so is a known one outside ctx or repeated. */
+ * exists); so is a known one outside ver's ctx or repeated. */
 static int moqctl_param_admit(
-    const moqctl_param_rule* rule, u32 ctx, const moqctl_params* out, u64 t) {
-  if (!rule) return 0;
-  return moqctl_param_allowed_in(rule, ctx) && moqctl_param_fresh(rule, out, t);
+    const moqctl_param_rule* rule,
+    int                      ver,
+    u32                      ctx,
+    const moqctl_params*     out,
+    u64                      t) {
+  return moqctl_param_allowed_in(rule, ver, ctx) &&
+         moqctl_param_fresh(rule, out, t);
 }
 
 static int moqctl_param_take_delta(
@@ -861,44 +922,42 @@ static int moqctl_param_take_delta(
   return u64_add_ok(prev, delta, &p->type) ? MOQCTL_OK : MOQCTL_VIOLATION;
 }
 
-/* d22's LOCATION_FILTER is the only Type whose wire shape AND scope differ
- * from d19's (SS9.20.9 vs SS5.1.2): d22 additionally allows it in FETCH
- * (d19's FETCH carries its range inline, never as this parameter). Every
- * other rule is version-blind. */
-static int moqctl_param_rule_is_locfilter(const moqctl_param_rule* rule) {
-  return rule && rule->type == MOQCTL_PARAM_LOCATION_FILTER;
+/* d22's LOCATION_FILTER is the only Type whose wire shape differs from
+ * d19's (SS9.20.9, no Length, vs SS5.1.2); scopes live in the table. */
+static int moqctl_param_typed_filter(const moqctl_param_rule* rule, int ver) {
+  return rule->type == MOQCTL_PARAM_LOCATION_FILTER &&
+         (moqver_caps(ver) & MOQVER_CAP_LOCFILTER_TYPED);
 }
 
 static void moqctl_param_rule_select(
-    const moqctl_param_rule* rule, int d22, moqctl_param_rule* over) {
+    const moqctl_param_rule* rule, int ver, moqctl_param_rule* over) {
   *over = *rule;
-  if (!d22 || !moqctl_param_rule_is_locfilter(rule)) return;
-  over->enc = MOQCTL_PENC_RANGELOC22;
-  over->ctx |= MOQCTL_PCTX_FETCH;
+  if (moqctl_param_typed_filter(rule, ver)) over->enc = MOQCTL_PENC_RANGELOC22;
 }
 
 static int moqctl_param_take_body(
     wired_span     buf,
     usz*           at,
     u32            ctx,
-    int            d22,
+    int            ver,
     moqctl_params* out,
     moqctl_param*  p) {
   const moqctl_param_rule* rule = moqctl_param_rule_for(p->type);
   moqctl_param_rule        over = {0};
   if (!rule) return MOQCTL_VIOLATION;
-  moqctl_param_rule_select(rule, d22, &over);
-  if (!moqctl_param_admit(&over, ctx, out, p->type)) return MOQCTL_VIOLATION;
+  moqctl_param_rule_select(rule, ver, &over);
+  if (!moqctl_param_admit(&over, ver, ctx, out, p->type))
+    return MOQCTL_VIOLATION;
   p->enc = over.enc;
   return moqctl_param_take_checked(buf, at, &over, p);
 }
 
 static int moqctl_param_take_one(
-    wired_span buf, usz* at, u32 ctx, int d22, u64 prev, moqctl_params* out) {
+    wired_span buf, usz* at, u32 ctx, int ver, u64 prev, moqctl_params* out) {
   moqctl_param p = {0};
   int          r = moqctl_param_take_delta(buf, at, prev, &p);
   if (r != MOQCTL_OK) return r;
-  r = moqctl_param_take_body(buf, at, ctx, d22, out, &p);
+  r = moqctl_param_take_body(buf, at, ctx, ver, out, &p);
   if (r != MOQCTL_OK) return r;
   out->items[out->n] = p;
   out->n++;
@@ -906,45 +965,36 @@ static int moqctl_param_take_one(
 }
 
 static int moqctl_params_take_step(
-    wired_span buf, usz* at, u32 ctx, int d22, u64* prev, moqctl_params* out) {
+    wired_span buf, usz* at, u32 ctx, int ver, u64* prev, moqctl_params* out) {
   int r;
   if (out->n >= MOQCTL_MAX_PARAMS) return MOQCTL_VIOLATION;
-  r = moqctl_param_take_one(buf, at, ctx, d22, *prev, out);
+  r = moqctl_param_take_one(buf, at, ctx, ver, *prev, out);
   if (r != MOQCTL_OK) return r;
   *prev = out->items[out->n - 1].type;
   return MOQCTL_OK;
 }
 
 static int moqctl_params_take_loop(
-    wired_span buf, usz* at, u32 ctx, int d22, u64 count, moqctl_params* out) {
+    wired_span buf, usz* at, u32 ctx, int ver, u64 count, moqctl_params* out) {
   u64 prev = 0;
   for (u64 i = 0; i < count; i++) {
-    int r = moqctl_params_take_step(buf, at, ctx, d22, &prev, out);
+    int r = moqctl_params_take_step(buf, at, ctx, ver, &prev, out);
     if (r != MOQCTL_OK) return r;
   }
   return MOQCTL_OK;
 }
 
-static int moqctl_params_take_any(
-    wired_span buf, usz* off, u32 ctx, int d22, moqctl_params* out) {
+int moqctl_params_take(
+    int ver, wired_span buf, usz* off, u32 ctx, moqctl_params* out) {
   usz at = *off;
   u64 count;
   int r;
   out->n = 0;
   if (!moqvi_take(buf, &at, &count)) return MOQCTL_INSUFFICIENT;
-  r = moqctl_params_take_loop(buf, &at, ctx, d22, count, out);
+  r = moqctl_params_take_loop(buf, &at, ctx, ver, count, out);
   if (r != MOQCTL_OK) return r;
   *off = at;
   return MOQCTL_OK;
-}
-
-int moqctl_params_take(wired_span buf, usz* off, u32 ctx, moqctl_params* out) {
-  return moqctl_params_take_any(buf, off, ctx, 0, out);
-}
-
-int moqctl_params_take22(
-    wired_span buf, usz* off, u32 ctx, moqctl_params* out) {
-  return moqctl_params_take_any(buf, off, ctx, 1, out);
 }
 
 int moqctl_param_put_uint8(wired_mspan buf, usz* at, u64 v) {
@@ -1122,17 +1172,18 @@ int moqctl_setup_encode(wired_mspan buf, usz* off, const moqctl_setup* s) {
 /* ===== SUBSCRIBE (SS10.6) ===== */
 
 static int moqctl_subscribe_take_body(
-    wired_span buf, usz* at, moqctl_subscribe* out) {
+    int ver, wired_span buf, usz* at, moqctl_subscribe* out) {
   int r = moqctl_ftn_take(buf, at, &out->name);
   if (r != MOQCTL_OK) return r;
-  return moqctl_params_take(buf, at, MOQCTL_PCTX_SUBSCRIBE, &out->params);
+  return moqctl_params_take(ver, buf, at, MOQCTL_PCTX_SUBSCRIBE, &out->params);
 }
 
-int moqctl_subscribe_take(wired_span buf, usz* off, moqctl_subscribe* out) {
+int moqctl_subscribe_take(
+    int ver, wired_span buf, usz* off, moqctl_subscribe* out) {
   usz at = *off;
   int r;
   if (!moqvi_take(buf, &at, &out->request_id)) return MOQCTL_INSUFFICIENT;
-  r = moqctl_subscribe_take_body(buf, &at, out);
+  r = moqctl_subscribe_take_body(ver, buf, &at, out);
   if (r != MOQCTL_OK) return r;
   *off = at;
   return MOQCTL_OK;
@@ -1160,11 +1211,11 @@ static wired_span moqctl_residual(wired_span buf, usz at) {
 }
 
 int moqctl_subscribe_ok_take(
-    wired_span buf, usz* off, moqctl_subscribe_ok* out) {
+    int ver, wired_span buf, usz* off, moqctl_subscribe_ok* out) {
   usz at = *off;
   int r;
   if (!moqvi_take(buf, &at, &out->track_alias)) return MOQCTL_INSUFFICIENT;
-  r = moqctl_params_take(buf, &at, MOQCTL_PCTX_SUBSCRIBE_OK, &out->params);
+  r = moqctl_params_take(ver, buf, &at, MOQCTL_PCTX_SUBSCRIBE_OK, &out->params);
   if (r != MOQCTL_OK) return r;
   out->track_properties = moqctl_residual(buf, at);
   *off                  = buf.n;
@@ -1189,10 +1240,10 @@ int moqctl_subscribe_ok_encode(
 /* ===== PUBLISH (SS10.9) ===== */
 
 static int moqctl_publish_take_alias_params(
-    wired_span buf, usz* at, moqctl_publish* out) {
+    int ver, wired_span buf, usz* at, moqctl_publish* out) {
   int r;
   if (!moqvi_take(buf, at, &out->track_alias)) return MOQCTL_INSUFFICIENT;
-  r = moqctl_params_take(buf, at, MOQCTL_PCTX_PUBLISH, &out->params);
+  r = moqctl_params_take(ver, buf, at, MOQCTL_PCTX_PUBLISH, &out->params);
   if (r != MOQCTL_OK) return r;
   out->track_properties = moqctl_residual(buf, *at);
   return MOQCTL_OK;
@@ -1204,11 +1255,12 @@ static int moqctl_publish_take_id_name(
   return moqctl_ftn_take(buf, at, &out->name);
 }
 
-int moqctl_publish_take(wired_span buf, usz* off, moqctl_publish* out) {
+int moqctl_publish_take(
+    int ver, wired_span buf, usz* off, moqctl_publish* out) {
   usz at = *off;
   int r  = moqctl_publish_take_id_name(buf, &at, out);
   if (r != MOQCTL_OK) return r;
-  r = moqctl_publish_take_alias_params(buf, &at, out);
+  r = moqctl_publish_take_alias_params(ver, buf, &at, out);
   if (r != MOQCTL_OK) return r;
   *off = buf.n;
   return MOQCTL_OK;
@@ -1239,10 +1291,11 @@ int moqctl_publish_encode(wired_mspan buf, usz* off, const moqctl_publish* m) {
  * Parameters use the scope of whichever request REQUEST_OK answers, which
  * this codec does not track (session-layer concern), so it admits the
  * union of every OK's scope. */
-int moqctl_request_ok_take(wired_span buf, usz* off, moqctl_request_ok* out) {
+int moqctl_request_ok_take(
+    int ver, wired_span buf, usz* off, moqctl_request_ok* out) {
   usz at = *off;
-  int r =
-      moqctl_params_take(buf, &at, MOQCTL_PCTX_REQUEST_OK_ANY, &out->params);
+  int r  = moqctl_params_take(
+      ver, buf, &at, MOQCTL_PCTX_REQUEST_OK_ANY, &out->params);
   if (r != MOQCTL_OK) return r;
   out->track_properties = moqctl_residual(buf, at);
   *off                  = buf.n;
@@ -1418,21 +1471,30 @@ int moqctl_goaway_encode(wired_mspan buf, usz* off, const moqctl_goaway* m) {
   return 1;
 }
 
+int moqctl_goaway18_take(wired_span buf, usz* off, moqctl_goaway* out) {
+  usz at = *off;
+  int r  = moqctl_goaway_take(buf, &at, out);
+  if (r != MOQCTL_OK) return r;
+  if (!moqvi_take(buf, &at, &out->request_id)) return MOQCTL_INSUFFICIENT;
+  *off = at;
+  return MOQCTL_OK;
+}
+
+int moqctl_goaway18_encode(wired_mspan buf, usz* off, const moqctl_goaway* m) {
+  if (!moqctl_goaway_encode(buf, off, m)) return 0;
+  return moqvi_put(buf, off, m->request_id);
+}
+
 /* ===== Common envelope (SS10) ===== */
 
 /* Known-but-not-implemented Message Type IDs (SS10 table). Table-driven
  * so type classification stays a lookup, not an if/else chain. */
 static const u64 MOQCTL_KNOWN_UNIMPL[] = {
-    0x2,  /* REQUEST_UPDATE */
-    0x16, /* FETCH */
-    0xD,  /* TRACK_STATUS */
-    0x6,  /* PUBLISH_NAMESPACE */
-    0x50, /* SUBSCRIBE_NAMESPACE */
-    0x51, /* SUBSCRIBE_TRACKS */
-    0x8,  /* NAMESPACE */
-    0xE,  /* NAMESPACE_DONE */
-    0xF,  /* PUBLISH_SKIPPED */
-    0x18, /* FETCH_OK */
+    MOQTSTAT_T_REQUEST_UPDATE,   MOQFETCH_T_FETCH,
+    MOQTSTAT_T_TRACK_STATUS,     MOQNS_T_PUBLISH_NAMESPACE,
+    MOQNS_T_SUBSCRIBE_NAMESPACE, MOQCTL_T_SUBSCRIBE_TRACKS,
+    MOQNS_T_NAMESPACE,           MOQNS_T_NAMESPACE_DONE,
+    MOQCTL_T_PUBLISH_SKIPPED,    MOQFETCH_T_FETCH_OK,
 };
 #define MOQCTL_KNOWN_UNIMPL_N \
   (sizeof MOQCTL_KNOWN_UNIMPL / sizeof MOQCTL_KNOWN_UNIMPL[0])
@@ -1451,6 +1513,48 @@ static int moqctl_classify_type(u64 type) {
   if (moqctl_u64_in(MOQCTL_KNOWN_UNIMPL, MOQCTL_KNOWN_UNIMPL_N, type))
     return MOQCTL_KNOWN_UNIMPLEMENTED;
   return MOQCTL_UNKNOWN_TYPE;
+}
+
+/* Types the draft-19 table above does not know: one row per wire Type,
+ * defined in a draft whose caps include cap, with the Type it stands for
+ * and its classification. Send side always uses the draft-19 Types
+ * (REQUEST_OK is sent as 0x7). */
+typedef struct {
+  u32 cap;
+  u64 wire;
+  u64 type;
+  int peek;
+} moqctl_type_row;
+
+static const moqctl_type_row MOQCTL_TYPE_ROWS[] = {
+    /* draft-18 SS10 table vs SS10.5: 0x1E is PUBLISH_OK = REQUEST_OK. */
+    {MOQVER_CAP_PUBLISH_OK_ALIAS, MOQCTL_T_PUBLISH_OK18, MOQCTL_T_REQUEST_OK,
+     MOQCTL_OK},
+    /* draft-22 SS9.10 PUBLISH_STATE_NOTIFY. */
+    {MOQVER_CAP_PUBLISH_STATE_NOTIFY, MOQCTL_T_PUBLISH_STATE_NOTIFY,
+     MOQCTL_T_PUBLISH_STATE_NOTIFY, MOQCTL_KNOWN_UNIMPLEMENTED},
+};
+#define MOQCTL_TYPE_ROWS_N \
+  (sizeof MOQCTL_TYPE_ROWS / sizeof MOQCTL_TYPE_ROWS[0])
+
+static int moqctl_type_row_is(const moqctl_type_row* r, int ver, u64 wire) {
+  return r->wire == wire && (moqver_caps(ver) & r->cap);
+}
+
+static const moqctl_type_row* moqctl_type_row_for(int ver, u64 wire) {
+  for (usz i = 0; i < MOQCTL_TYPE_ROWS_N; i++)
+    if (moqctl_type_row_is(&MOQCTL_TYPE_ROWS[i], ver, wire))
+      return &MOQCTL_TYPE_ROWS[i];
+  return 0;
+}
+
+int moqctl_type_ver(int ver, int peek, u64* type) {
+  const moqctl_type_row* r;
+  if (peek != MOQCTL_UNKNOWN_TYPE) return peek;
+  r = moqctl_type_row_for(ver, *type);
+  if (!r) return peek;
+  *type = r->type;
+  return r->peek;
 }
 
 int moqctl_peek_header(wired_span buf, usz* at, u64* type, u16* len) {

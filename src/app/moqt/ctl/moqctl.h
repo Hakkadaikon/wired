@@ -1,6 +1,7 @@
 #ifndef MOQCTL_H
 #define MOQCTL_H
 
+#include "app/moqt/ver/moqver.h"
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
@@ -35,6 +36,11 @@
 #define MOQCTL_T_PUBLISH 0x1DULL
 #define MOQCTL_T_PUBLISH_SKIPPED 0xFULL
 #define MOQCTL_T_SUBSCRIBE_TRACKS 0x51ULL
+/** draft-18 SS10 table's PUBLISH_OK row (a REQUEST_OK alias per its
+ * SS10.5); reserved in draft-19/22. */
+#define MOQCTL_T_PUBLISH_OK18 0x1EULL
+/** draft-22 SS9.10; unknown in draft-18/19. */
+#define MOQCTL_T_PUBLISH_STATE_NOTIFY 0x22ULL
 
 /** moqctl_peek_type results (in addition to MOQCTL_OK). */
 #define MOQCTL_UNKNOWN_TYPE (-2)
@@ -60,12 +66,19 @@
 #define MOQCTL_ERR_INVALID_FILTER 0x36ULL
 #define MOQCTL_ERR_REDIRECT 0x34ULL
 #define MOQCTL_ERR_PREFIX_OVERLAP 0x30ULL
+/** Codes that exist in only some drafts (moqctl_request_error_for). */
+#define MOQCTL_ERR_EXCESSIVE_LOAD 0x9ULL
+#define MOQCTL_ERR_DUPLICATE_SUBSCRIPTION 0x19ULL     /* draft-18 only */
+#define MOQCTL_ERR_INVALID_JOINING_REQUEST_ID 0x32ULL /* draft-18/19 */
+#define MOQCTL_ERR_CONFLICTING_FILTERS 0x35ULL        /* not draft-18 */
 
 /** PUBLISH_DONE status codes actually used by this subset (SS17.4). */
 #define MOQCTL_DONE_INTERNAL_ERROR 0x0ULL
 #define MOQCTL_DONE_TRACK_ENDED 0x2ULL
 #define MOQCTL_DONE_GOING_AWAY 0x4ULL
 #define MOQCTL_DONE_UPDATE_FAILED 0x8ULL
+/** Not in draft-22 (moqctl_publish_done_for). */
+#define MOQCTL_DONE_SUBSCRIPTION_ENDED 0x3ULL
 
 /** Session-level termination codes referenced by this codec (SS17.1). */
 #define MOQCTL_CLOSE_INVALID_AUTHORITY 0x19ULL
@@ -96,6 +109,9 @@
 #define MOQCTL_PARAM_TRACK_PROPERTY_FILTER 0x29ULL
 #define MOQCTL_PARAM_NEW_GROUP_REQUEST 0x32ULL
 #define MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX 0x34ULL
+/** draft-22 only (SS9.20.15, SS9.20.21). */
+#define MOQCTL_PARAM_FILL_PARAMETERS 0x23ULL
+#define MOQCTL_PARAM_INCLUDE_PROPERTIES 0x35ULL
 
 /** Message contexts a Message Parameter may appear in, one bit each
  * (draft-ietf-moq-transport-19 10.2.x "MAY appear in"). REQUEST_OK and
@@ -137,14 +153,15 @@
  * moqctl_param.token; an undecodable Token is MOQCTL_PARAMS_KVFMT. */
 #define MOQCTL_PENC_TOKEN 4
 /** Length-prefixed Location Filter (SS5.1.2), decoded into
- * moqctl_param.lf; one not exactly its Length is a VIOLATION. */
+ * moqctl_param.lf and, version-neutral, into moqctl_param.rl/has_filter;
+ * one not exactly its Length is a VIOLATION. */
 #define MOQCTL_PENC_LOCFILTER 5
 /** Bare Track Namespace (SS2.4.1, no Length prefix): moqctl_param.bytes
  * spans its encoding, which encode re-emits as is. */
 #define MOQCTL_PENC_NS 6
 /** draft-22 LOCATION_FILTER (SS9.20.9): no Length prefix, decoded by
  * moqctl_rangeloc22_take into moqctl_param.rl/has_filter. Selected only by
- * moqctl_params_take22, never by moqctl_params_take (d19). */
+ * moqctl_params_take under draft-22 only. */
 #define MOQCTL_PENC_RANGELOC22 7
 
 /** AUTHORIZATION TOKEN Alias Types (SS10.2.2). Which fields follow the
@@ -168,6 +185,12 @@ int moqctl_is_grease(u64 v);
  * decoded error/status code through this before acting on it. */
 u64 moqctl_known_request_error(u64 code);
 u64 moqctl_known_publish_done(u64 code);
+
+/** Send-side code for draft ver (MOQVER_*): a REQUEST_ERROR / PUBLISH_DONE
+ * code that ver does not define becomes ver's nearest defined code; any
+ * other code is returned as is. Receive side stays tolerant (above). */
+u64 moqctl_request_error_for(int ver, u64 code);
+u64 moqctl_publish_done_for(int ver, u64 code);
 
 /** draft-ietf-moq-transport-19 SS1.4.2 Location: two consecutive varints. */
 typedef struct {
@@ -199,11 +222,10 @@ typedef struct {
 int moqctl_locfilter_take(wired_span buf, usz* off, moqctl_locfilter* out);
 int moqctl_locfilter_put(wired_mspan buf, usz* off, const moqctl_locfilter* f);
 
-/** Version-neutral range model mirroring tasks/fv/moqt/Moqt/Filter.lean's
- * SK/EK/Rng field-for-field. Start kind: REL_GROUP is "N groups back from
- * Largest.Group" (draft-19 type 0x1 is always REL_GROUP with n=0; draft-22
- * type 0x01 carries n explicitly); NEXT_OBJ is Largest.Object+1 in
- * Largest.Group; ABS is an explicit {start_group,start_object}. */
+/** Version-neutral LOCATION_FILTER range model. Start kind: REL_GROUP is "N
+ * groups back from Largest.Group" (draft-19 type 0x1 is always REL_GROUP with
+ * n=0; draft-22 type 0x01 carries n explicitly); NEXT_OBJ is Largest.Object+1
+ * in Largest.Group; ABS is an explicit {start_group,start_object}. */
 typedef enum {
   MOQCTL_RSK_REL_GROUP,
   MOQCTL_RSK_NEXT_OBJ,
@@ -243,25 +265,14 @@ int moqctl_rangeloc19_take(wired_span buf, usz* off, moqctl_rangeloc* out);
 int moqctl_rangeloc19_put(wired_mspan buf, usz* off, const moqctl_rangeloc* r);
 
 /** draft-22 LOCATION_FILTER value codec (SS9.20.9). *has_filter is set to 0
- * and *out zeroed when Location Filter Type is 0x00 (None); this mirrors
- * Filter.lean's dec22 : P (Option Rng) vs dec19 : P Rng asymmetry.
+ * and *out zeroed when Location Filter Type is 0x00 (None) -- draft-19
+ * has no such "present but empty" form.
  * Returns MOQCTL_OK / INSUFFICIENT / VIOLATION (unknown type >= 0x06, or
  * End Group Delta overflowing 2^64-1). */
 int moqctl_rangeloc22_take(
     wired_span buf, usz* off, int* has_filter, moqctl_rangeloc* out);
 int moqctl_rangeloc22_put(
     wired_mspan buf, usz* off, int has_filter, const moqctl_rangeloc* r);
-
-/** Q-04a: AbsoluteRange with End Group Delta == 0 (end_group ==
- * start_group) and end_object < start_object -> REQUEST_ERROR
- * INVALID_RANGE. Only draft-22 type 0x04 (MOQCTL_REK_OBJ) carries an
- * end_object at all. */
-int moqctl_rangeloc_q04a_violation(const moqctl_rangeloc* r);
-
-/** Q-04b: a filter resolving to Next Object (sk == MOQCTL_RSK_NEXT_OBJ) is
- * always beyond Largest at fetch time, so a FETCH against it can never
- * return anything -> REQUEST_ERROR INVALID_RANGE. */
-int moqctl_rangeloc_q04b_violation(const moqctl_rangeloc* r);
 
 /** draft-ietf-moq-transport-19 SS1.5 Track Namespace: up to
  * MOQCTL_MAX_NS_FIELDS fields, each a byte-string view into the
@@ -343,8 +354,8 @@ typedef struct {
   wired_span       bytes; /* PENC_BYTES, and PENC_TOKEN's raw Token bytes */
   moqctl_token     token; /* PENC_TOKEN */
   moqctl_locfilter lf;    /* PENC_LOCFILTER */
-  int              has_filter; /* PENC_RANGELOC22: 0 if Type was 0x00 */
-  moqctl_rangeloc  rl;         /* PENC_RANGELOC22 */
+  int              has_filter; /* PENC_LOCFILTER/RANGELOC22: 0 for 0x00 */
+  moqctl_rangeloc  rl;         /* PENC_LOCFILTER/RANGELOC22 */
 } moqctl_param;
 
 /** A decoded/to-encode Message Parameter list. */
@@ -361,14 +372,14 @@ typedef struct {
  * KEY_VALUE_FORMATTING_ERROR rather than PROTOCOL_VIOLATION -- see
  * moqctl_params_take's return contract below). */
 #define MOQCTL_PARAMS_KVFMT (-4)
-int moqctl_params_take(wired_span buf, usz* off, u32 ctx, moqctl_params* out);
+/** ver (MOQVER_*, a valid id) picks the draft's parameter table: each
+ * Type's allowed contexts, whether it exists at all, and, under draft-22,
+ * LOCATION_FILTER's unprefixed encoding (moqctl_rangeloc22_take, into
+ * moqctl_param.rl/has_filter). Every message take below that carries
+ * Parameters takes the same ver. */
+int moqctl_params_take(
+    int ver, wired_span buf, usz* off, u32 ctx, moqctl_params* out);
 int moqctl_params_put(wired_mspan buf, usz* off, const moqctl_params* params);
-
-/** Same as moqctl_params_take, except LOCATION_FILTER (0x21) is decoded by
- * draft-22's unprefixed codec (moqctl_rangeloc22_take, into
- * moqctl_param.rl/has_filter) instead of draft-19's Length-prefixed one.
- * Every other known Type keeps the same wire shape in both versions. */
-int moqctl_params_take22(wired_span buf, usz* off, u32 ctx, moqctl_params* out);
 
 /** First item of Type type in params, or 0 when absent (the draft
  * default then applies, e.g. SUBSCRIBER_PRIORITY 128, SS10.2.7). */
@@ -397,7 +408,8 @@ typedef struct {
   moqctl_params params;
 } moqctl_subscribe;
 
-int moqctl_subscribe_take(wired_span buf, usz* off, moqctl_subscribe* out);
+int moqctl_subscribe_take(
+    int ver, wired_span buf, usz* off, moqctl_subscribe* out);
 int moqctl_subscribe_encode(
     wired_mspan buf, usz* off, const moqctl_subscribe* m);
 
@@ -411,7 +423,7 @@ typedef struct {
 } moqctl_subscribe_ok;
 
 int moqctl_subscribe_ok_take(
-    wired_span buf, usz* off, moqctl_subscribe_ok* out);
+    int ver, wired_span buf, usz* off, moqctl_subscribe_ok* out);
 int moqctl_subscribe_ok_encode(
     wired_mspan buf, usz* off, const moqctl_subscribe_ok* m);
 
@@ -424,7 +436,7 @@ typedef struct {
   wired_span    track_properties;
 } moqctl_publish;
 
-int moqctl_publish_take(wired_span buf, usz* off, moqctl_publish* out);
+int moqctl_publish_take(int ver, wired_span buf, usz* off, moqctl_publish* out);
 int moqctl_publish_encode(wired_mspan buf, usz* off, const moqctl_publish* m);
 
 /** draft-ietf-moq-transport-19 SS10.5 REQUEST_OK. Parameters are
@@ -438,7 +450,8 @@ typedef struct {
   wired_span    track_properties;
 } moqctl_request_ok;
 
-int moqctl_request_ok_take(wired_span buf, usz* off, moqctl_request_ok* out);
+int moqctl_request_ok_take(
+    int ver, wired_span buf, usz* off, moqctl_request_ok* out);
 int moqctl_request_ok_encode(
     wired_mspan buf, usz* off, const moqctl_request_ok* m);
 
@@ -482,10 +495,19 @@ int moqctl_publish_done_encode(
 typedef struct {
   wired_span new_session_uri;
   u64        timeout;
+  /** draft-18 control-stream GOAWAY only (moqctl_goaway18_*): the smallest
+   * peer Request ID not (or maybe not) processed. */
+  u64 request_id;
 } moqctl_goaway;
 
 int moqctl_goaway_take(wired_span buf, usz* off, moqctl_goaway* out);
 int moqctl_goaway_encode(wired_mspan buf, usz* off, const moqctl_goaway* m);
+
+/** draft-18 SS10.4 GOAWAY on the control stream: the fields above plus a
+ * trailing Request ID. A GOAWAY on a request stream has none in any draft
+ * and uses moqctl_goaway_take/_encode. */
+int moqctl_goaway18_take(wired_span buf, usz* off, moqctl_goaway* out);
+int moqctl_goaway18_encode(wired_mspan buf, usz* off, const moqctl_goaway* m);
 
 /** Common envelope: reads Type (vi64) + Length (16-bit BE) at *off,
  * without consuming past MOQCTL_OK's Type+Length header. On
@@ -501,6 +523,12 @@ int moqctl_goaway_encode(wired_mspan buf, usz* off, const moqctl_goaway* m);
  * past the whole message, exactly like MOQCTL_OK, so the caller can
  * answer or skip it and go on with the next one. */
 int moqctl_peek_type(wired_span buf, usz* off, u64* type_out, wired_span* body);
+
+/** Re-classifies a moqctl_peek_type result for draft ver (MOQVER_*): a
+ * Type unknown to the draft-19 table that ver does define gets ver's
+ * classification, and *type is rewritten to the Type it stands for
+ * (draft-18 0x1E -> REQUEST_OK). Every other peek passes through. */
+int moqctl_type_ver(int ver, int peek, u64* type);
 
 /** Reads only Type + Length at *at (no body check): MOQCTL_OK advances *at
  * past them; on MOQCTL_INSUFFICIENT *len is unset and *at may have moved. */

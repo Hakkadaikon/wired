@@ -35,7 +35,7 @@ static void test_moqns_subscribe_golden(void) {
   u8        out[MOQCTL_MAX_MSG_LEN];
   usz       n = 0;
   CHECK(body.n == G_MOQT_CTL_SUBSCRIBE_NAMESPACE_BASIC_MSG_LEN);
-  if (moqns_subscribe_take(body, &m) != MOQCTL_OK) {
+  if (moqns_subscribe_take(MOQVER_D19, body, &m) != MOQCTL_OK) {
     CHECK(0);
     return;
   }
@@ -55,7 +55,7 @@ static void test_moqns_publish_golden(void) {
   moqns_req m;
   u8        out[MOQCTL_MAX_MSG_LEN];
   usz       n = 0;
-  if (moqns_publish_take(body, &m) != MOQCTL_OK) {
+  if (moqns_publish_take(MOQVER_D19, body, &m) != MOQCTL_OK) {
     CHECK(0);
     return;
   }
@@ -101,11 +101,14 @@ static void test_moqns_length_mismatch(void) {
   moqns_req m;
   moqctl_ns ns;
   for (usz cut = 0; cut < n; cut++)
-    CHECK(moqns_publish_take(wired_span_of(b, cut), &m) == MOQCTL_VIOLATION);
+    CHECK(
+        moqns_publish_take(MOQVER_D19, wired_span_of(b, cut), &m) ==
+        MOQCTL_VIOLATION);
   for (usz i = 0; i < n; i++) extra[i] = b[i];
   extra[n] = 0;
   CHECK(
-      moqns_publish_take(wired_span_of(extra, n + 1), &m) == MOQCTL_VIOLATION);
+      moqns_publish_take(MOQVER_D19, wired_span_of(extra, n + 1), &m) ==
+      MOQCTL_VIOLATION);
   CHECK(moqns_suffix_take(wired_span_of(b, 0), &ns) == MOQCTL_VIOLATION);
   CHECK(
       moqns_suffix_take(
@@ -164,12 +167,15 @@ static void test_moqns_param_scope(void) {
                             0x03, 0x02, 0x03, 0x00};
   moqns_req       m;
   CHECK(
-      moqns_subscribe_take(wired_span_of(fwd, sizeof fwd), &m) ==
+      moqns_subscribe_take(MOQVER_D19, wired_span_of(fwd, sizeof fwd), &m) ==
       MOQCTL_VIOLATION);
   CHECK(
-      moqns_subscribe_take(wired_span_of(auth, sizeof auth), &m) == MOQCTL_OK);
+      moqns_subscribe_take(MOQVER_D19, wired_span_of(auth, sizeof auth), &m) ==
+      MOQCTL_OK);
   CHECK(m.params.n == 1);
-  CHECK(moqns_publish_take(wired_span_of(auth, sizeof auth), &m) == MOQCTL_OK);
+  CHECK(
+      moqns_publish_take(MOQVER_D19, wired_span_of(auth, sizeof auth), &m) ==
+      MOQCTL_OK);
 }
 
 /* 1.4.1 MOQT varint size boundaries on Request ID: 127 | 128 (1 -> 2
@@ -182,7 +188,7 @@ static void moqns_t_rid(u64 rid, usz want_len) {
   m.request_id = rid;
   CHECK(moqns_req_encode(wired_mspan_of(out, sizeof out), &n, &m));
   CHECK(n == want_len + 2);
-  CHECK(moqns_publish_take(wired_span_of(out, n), &d) == MOQCTL_OK);
+  CHECK(moqns_publish_take(MOQVER_D19, wired_span_of(out, n), &d) == MOQCTL_OK);
   CHECK(d.request_id == rid);
 }
 

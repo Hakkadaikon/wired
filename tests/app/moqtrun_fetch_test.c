@@ -127,7 +127,8 @@ static u64 mf_reply(u64* code, moqctl_loc* end) {
     if (c->kind != 12 || c->stream_id != mf_req_sid) continue;
     moqctl_peek_type(
         wired_span_of(c->payload, c->payload_len), &off, &type, &body);
-    if (type == MOQFETCH_T_FETCH_OK && moqfetch_ok_take(body, &ok) == MOQCTL_OK)
+    if (type == MOQFETCH_T_FETCH_OK &&
+        moqfetch_ok_take(MOQVER_D19, body, &ok) == MOQCTL_OK)
       *end = ok.end;
     if (type == MOQCTL_T_REQUEST_ERROR &&
         moqctl_request_error_take(body, &boff, &e) == MOQCTL_OK)
@@ -550,6 +551,97 @@ static void test_moqtrun_fetch_join_unknown_request(void) {
   CHECK(mf_error() == MOQFETCH_ERR_INVALID_JOINING_REQUEST_ID);
 }
 
+/* draft-22 FETCH (SS9.11) body without Parameters: no LOCATION_FILTER. */
+static int mf_enc_fetch22_bare(wired_mspan buf, usz* off, const void* v) {
+  const moqfetch_req* m = v;
+  if (!moqvi_put(buf, off, m->request_id)) return 0;
+  if (!moqctl_ns_put(buf, off, &m->track.ns)) return 0;
+  if (!moqctl_name_put(buf, off, m->track.name)) return 0;
+  return moqvi_put(buf, off, 0);
+}
+
+static int mf_enc_fetch22(wired_mspan buf, usz* off, const void* m) {
+  return moqfetch_req22_encode(buf, off, m);
+}
+
+/* B (draft-22) FETCHes alice on a fresh request stream with LOCATION_FILTER
+ * rl, or with no Parameters at all when rl is 0. */
+static void mf_fetch22(const moqctl_rangeloc* rl) {
+  static moqfetch_req m;
+  u8                  buf[MTST_MSG_MAX];
+  usz                 n;
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  mf_req_sid   = mf_req_sid < MF_REQ ? MF_REQ : mf_req_sid + 4;
+  m.request_id = mf_req_sid;
+  m.track      = mf_track();
+  m.params.n   = 0;
+  if (rl) m.range = *rl;
+  n = moqtrun_envelope_put(
+      wired_mspan_of(buf, sizeof buf), MOQFETCH_T_FETCH,
+      rl ? mf_enc_fetch22 : mf_enc_fetch22_bare, &m);
+  CHECK(n != 0);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_B, mf_req_sid, wired_span_of(buf, n), 0);
+}
+
+static moqctl_rangeloc mf_rl(
+    moqctl_rsk sk, u64 sg, u64 so, moqctl_rek ek, u64 eg, u64 eo) {
+  moqctl_rangeloc r = {sk, sg, so, ek, eg, eo};
+  return r;
+}
+
+/* draft-22 SS9.11/SS9.12: a FETCH is decoded in the draft-22 layout and
+ * answered with an inclusive End Location -- the Largest Object when the
+ * range reaches it (no filter: the whole track), the explicit End Object,
+ * and for a range ending at a whole group the last Object returned. */
+static void test_moqtrun_fetch_d22_served(void) {
+  moqctl_rangeloc group0 = mf_rl(MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_GROUP, 0, 0);
+  moqctl_rangeloc obj00  = mf_rl(MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_OBJ, 0, 0);
+  moqctl_rangeloc cur =
+      mf_rl(MOQCTL_RSK_REL_GROUP, 1, 0, MOQCTL_REK_UNBOUNDED, 0, 0);
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mf_obj(1, 0, 1);
+  mf_fetch22(0);
+  CHECK(mf_loc_eq(mf_ok_end(), 1, 0));
+  CHECK(mf_read() && mf_n == 3);
+  CHECK(mf_is_obj(0, 0, 0, 1) && mf_is_obj(2, 1, 0, 1));
+  CHECK(mtst_hub.fetches[0].seq.eor_timed_out == 1);
+  mf_fetch22(&group0);
+  CHECK(mf_loc_eq(mf_ok_end(), 0, 1));
+  CHECK(mf_read() && mf_n == 2);
+  mf_fetch22(&obj00);
+  CHECK(mf_loc_eq(mf_ok_end(), 0, 0));
+  CHECK(mf_read() && mf_n == 1);
+  mf_fetch22(&cur);
+  CHECK(mf_loc_eq(mf_ok_end(), 1, 0));
+  CHECK(mf_read() && mf_n == 1 && mf_is_obj(0, 1, 0, 1));
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D19;
+  mf_standalone(mf_loc(0, 0), mf_loc(0, 0));
+  CHECK(mf_loc_eq(mf_ok_end(), 0, 0));
+}
+
+/* INVALID_RANGE (draft-22 SS9.20.9, SS9.11): a Next Object start is always
+ * past Largest (nothing to fetch), a start past Largest, and an Absolute
+ * Range whose End Object precedes its Start Object in the same group. */
+static void test_moqtrun_fetch_d22_invalid_range(void) {
+  moqctl_rangeloc next =
+      mf_rl(MOQCTL_RSK_NEXT_OBJ, 0, 0, MOQCTL_REK_UNBOUNDED, 0, 0);
+  moqctl_rangeloc past =
+      mf_rl(MOQCTL_RSK_ABS, 5, 0, MOQCTL_REK_UNBOUNDED, 0, 0);
+  moqctl_rangeloc inverted = mf_rl(MOQCTL_RSK_ABS, 0, 1, MOQCTL_REK_OBJ, 0, 0);
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mf_fetch22(&next);
+  CHECK(mf_error() == MOQCTL_ERR_INVALID_RANGE);
+  mf_fetch22(&past);
+  CHECK(mf_error() == MOQCTL_ERR_INVALID_RANGE);
+  mf_fetch22(&inverted);
+  CHECK(mf_error() == MOQCTL_ERR_INVALID_RANGE);
+}
+
 /* An absolute Joining Start n starts at {n,0} and ends at the
  * Joining Location. */
 static void test_moqtrun_fetch_absolute_join(void) {
@@ -638,6 +730,8 @@ void test_moqtrun_fetch(void) {
   test_moqtrun_fetch_relative_join_clamped();
   test_moqtrun_fetch_join_invalid_range();
   test_moqtrun_fetch_join_unknown_request();
+  test_moqtrun_fetch_d22_served();
+  test_moqtrun_fetch_d22_invalid_range();
   test_moqtrun_fetch_absolute_join();
   test_moqtrun_fetch_join_forward_off();
   test_moqtrun_fetch_rejoin_reresolves_start();

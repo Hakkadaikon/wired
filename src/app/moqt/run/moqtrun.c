@@ -22,9 +22,10 @@
 #define MOQTRUN_RESET_GOING_AWAY 0x4
 #define MOQTRUN_RESET_EXCESSIVE_LOAD 0x9
 
-/* draft-ietf-moq-transport-19 10.11 PUBLISH_DONE Stream Count when the
- * exact number is not known. */
+/* PUBLISH_DONE Stream Count when the exact number is not known: 2^62-1
+ * in draft-18/19 (SS10.11), 2^64-1 in draft-22 (SS9.9). */
 #define MOQTRUN_DONE_STREAMS_UNKNOWN (((u64)1 << 62) - 1)
+#define MOQTRUN_DONE_STREAMS_UNKNOWN64 (~(u64)0)
 
 /* ===================== peer table ===================== */
 
@@ -183,6 +184,7 @@ static void moqtrun_init_peer(
   p->wt              = s;
   p->ver             = ver;
   p->request_id_next = 1; /* hub is the server: odd, 1-origin (draft SS10.2) */
+  p->peer_rid_next   = 0; /* client Request IDs: even, 0-origin */
   p->join_seq        = hub->join_seq_next++;
   p->sub_names_n     = 0;
   p->sub_names_at    = 0;
@@ -362,7 +364,7 @@ static int moqtrun_encode_request_error(
 static void moqtrun_send_request_error(wired_moqtrun_peer* p, u64 code) {
   u8                   msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqctl_request_error e = {0};
-  e.error_code           = code;
+  e.error_code           = moqctl_request_error_for(p->ver, code);
   usz n                  = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_ERROR,
       moqtrun_encode_request_error, &e);
@@ -790,7 +792,7 @@ static void moqtrun_handle_publish(
   usz            off = 0;
   moqctl_publish m;
   u8             ns_buf[WIRED_MOQTRUN_MAX_NS];
-  if (moqctl_publish_take(body, &off, &m) != MOQCTL_OK) return;
+  if (moqctl_publish_take(p->ver, body, &off, &m) != MOQCTL_OK) return;
   moqtrun_key          k = moqtrun_key_of(&m.name, ns_buf);
   wired_moqtrun_track* t = moqtrun_publish_slot(hub, p, peer_idx, k);
   if (!t) {
@@ -892,56 +894,66 @@ static u8 moqtrun_forward_off(const moqctl_param* p) {
   return p && p->u8v == 0;
 }
 
-/* Filter Start Location per type (9.3.1), indexed by MOQCTL_FILTER_*:
- * Largest-relative ones resolve against t's Largest now, {0, 0} when
- * nothing was published; Absolute ones take the given start. */
-typedef moqctl_loc (*moqtrun_start_fn)(const moqctl_loc*, moqctl_loc);
-
-static moqctl_loc moqtrun_start_given(const moqctl_loc* top, moqctl_loc start) {
-  (void)top;
-  return start;
-}
-
-static moqctl_loc moqtrun_start_next_group(
-    const moqctl_loc* top, moqctl_loc start) {
-  moqctl_loc l = {0, 0};
-  (void)start;
-  if (top) l.group = top->group + 1;
-  return l;
-}
-
-static moqctl_loc moqtrun_start_largest(
-    const moqctl_loc* top, moqctl_loc start) {
-  moqctl_loc l = {0, 0};
-  (void)start;
-  if (!top) return l;
-  l = *top;
-  l.object++;
-  return l;
-}
-
 /* t's Largest Location, 0 when t (0: no track) published nothing. */
 static const moqctl_loc* moqtrun_track_top(const wired_moqtrun_track* t) {
   return t && t->has_largest ? &t->largest : 0;
 }
 
-static const moqtrun_start_fn MOQTRUN_START_FNS[5] = {
-    moqtrun_start_given, moqtrun_start_next_group, moqtrun_start_largest,
-    moqtrun_start_given, moqtrun_start_given};
+/* A filter's Start Location (19 SS5.1.2, 22 SS9.20.9) against top, the
+ * Largest Object (0: nothing published), indexed by moqctl_rsk. */
+typedef moqctl_loc (*moqtrun_start_fn)(
+    const moqctl_loc*, const moqctl_rangeloc*);
 
-/* LOCATION_FILTER f (0: unfiltered, start {0, 0}) resolved onto s. The
- * decoder admits only types 1-4 (moqctl_locfilter_take). */
+/* {Largest.Group + 1 - n, 0}, floored at group 0; n 0 is draft-19's Next
+ * Group Start. */
+static moqctl_loc moqtrun_start_rel(
+    const moqctl_loc* top, const moqctl_rangeloc* f) {
+  u64 next = top ? top->group + 1 : 0;
+  return moqctl_loc_of(next - u64_min(f->start_group, next), 0);
+}
+
+/* Next Object (draft-19's Largest Object filter): {Largest.Group,
+ * Largest.Object + 1}, {0, 0} when nothing was published. */
+static moqctl_loc moqtrun_start_next(
+    const moqctl_loc* top, const moqctl_rangeloc* f) {
+  (void)f;
+  return top ? moqctl_loc_of(top->group, top->object + 1) : moqctl_loc_of(0, 0);
+}
+
+static moqctl_loc moqtrun_start_abs(
+    const moqctl_loc* top, const moqctl_rangeloc* f) {
+  (void)top;
+  return moqctl_loc_of(f->start_group, f->start_object);
+}
+
+static const moqtrun_start_fn MOQTRUN_START_FNS[] = {
+    moqtrun_start_rel, moqtrun_start_next, moqtrun_start_abs};
+
+/* s's start/end from its filter (unfiltered: everything from {0, 0}),
+ * resolved against t now -- at SUBSCRIBE, update and re-attach alike. */
+static void moqtrun_sub_resolve(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
+  s->start          = moqctl_loc_of(0, 0);
+  s->has_end_group  = 0;
+  s->has_end_object = 0;
+  if (!s->has_filter) return;
+  s->start = MOQTRUN_START_FNS[s->filter.sk](moqtrun_track_top(t), &s->filter);
+  s->has_end_group  = s->filter.ek != MOQCTL_REK_UNBOUNDED;
+  s->has_end_object = s->filter.ek == MOQCTL_REK_OBJ;
+  s->end_group      = s->filter.end_group;
+  s->end_object     = s->filter.end_object;
+}
+
+static int moqtrun_param_has_filter(const moqctl_param* f) {
+  return f && f->has_filter;
+}
+
+/* LOCATION_FILTER f (0, or draft-22 type 0x00: unfiltered) onto s. */
 static void moqtrun_sub_filter(
     wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* f) {
-  moqctl_loc zero  = {0, 0};
-  s->start         = zero;
-  s->has_end_group = 0;
-  s->filter_type   = 0;
-  if (!f) return;
-  s->filter_type = (u8)f->lf.type;
-  s->start = MOQTRUN_START_FNS[f->lf.type](moqtrun_track_top(t), f->lf.start);
-  s->has_end_group = f->lf.type == MOQCTL_FILTER_ABS_RANGE;
-  s->end_group     = s->start.group + f->lf.end_group_delta;
+  s->has_filter = (u8)moqtrun_param_has_filter(f);
+  if (s->has_filter) s->filter = f->rl;
+  moqtrun_sub_resolve(s, t);
 }
 
 /* Priority and group order are recorded only; delivery is not reordered
@@ -992,18 +1004,31 @@ static int moqtrun_sub_wants_group(const wired_moqtrun_sub* s, u64 g) {
   return g >= s->start.group && !(s->has_end_group && g > s->end_group);
 }
 
+/* 1 iff l is past an explicit End Object (draft-22 0x04) in its Group. */
+static int moqtrun_sub_past_end_object(
+    const wired_moqtrun_sub* s, moqctl_loc l) {
+  return s->has_end_object && l.group == s->end_group &&
+         l.object > s->end_object;
+}
+
 /* Forward AND Location Filter (5.1.5) for a stream of Group g.
  * ponytail: Group-granular -- Objects of the start Group below the start
- * Object still pass (a relay round is whole Objects, never re-framed);
- * cut rounds at the start Object if a filter ever starts mid-Group on a
- * many-Object stream. */
+ * Object, and of the end Group past a draft-22 End Object, still pass (a
+ * relay round is whole Objects, never re-framed); cut rounds at those
+ * Objects if a filter ever starts or ends mid-Group on a many-Object
+ * stream. */
 static int moqtrun_sub_gets(const wired_moqtrun_sub* s, u64 g) {
   return moqtrun_sub_forwards(s) && moqtrun_sub_wants_group(s, g);
 }
 
-/* moqtrun_sub_gets for one Object at l (a datagram). */
+/* moqtrun_sub_gets for one Object at l (a datagram): also not before the
+ * start Object nor past an End Object. */
+static int moqtrun_sub_in_objects(const wired_moqtrun_sub* s, moqctl_loc l) {
+  return !moqctl_loc_less(l, s->start) && !moqtrun_sub_past_end_object(s, l);
+}
+
 static int moqtrun_sub_gets_loc(const wired_moqtrun_sub* s, moqctl_loc l) {
-  return moqtrun_sub_gets(s, l.group) && !moqctl_loc_less(l, s->start);
+  return moqtrun_sub_gets(s, l.group) && moqtrun_sub_in_objects(s, l);
 }
 
 /* draft 8: an Object whose first byte reached the hub age_ms ago is past
@@ -1018,7 +1043,7 @@ static int moqtrun_sub_late(const wired_moqtrun_sub* s, u64 age_ms) {
  * Objects. An absolute filter keeps the subscriber's own Locations. */
 static void moqtrun_sub_reresolve(
     wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
-  s->start  = MOQTRUN_START_FNS[s->filter_type](moqtrun_track_top(t), s->start);
+  moqtrun_sub_resolve(s, t);
   s->jl     = t->largest;
   s->has_jl = (u8)t->has_largest;
 }
@@ -1249,6 +1274,39 @@ static int moqtrun_subscribe_refused(
   return !hub->authorize_subscribe(hub->authorize_ctx, &m->name, t);
 }
 
+/* Not a REQUEST_ERROR code: the request is accepted. */
+#define MOQTRUN_REQ_ACCEPT (~(u64)0)
+
+/* draft-22 0x04 whose End Object precedes its Start Object in the same
+ * Group: no Object can pass (SS9.20.9; INVALID_RANGE, SS12.3). */
+static int moqtrun_filter_inverted(const moqctl_rangeloc* f) {
+  return f->ek == MOQCTL_REK_OBJ &&
+         moqctl_loc_less(
+             moqctl_loc_of(f->end_group, f->end_object),
+             moqctl_loc_of(f->start_group, f->start_object));
+}
+
+static int moqtrun_params_inverted(const moqctl_params* params) {
+  const moqctl_param* f =
+      moqctl_params_find(params, MOQCTL_PARAM_LOCATION_FILTER);
+  return moqtrun_param_has_filter(f) && moqtrun_filter_inverted(&f->rl);
+}
+
+/* REQUEST_ERROR code a SUBSCRIBE's or REQUEST_UPDATE's parameters call
+ * for: a non-zero SUBGROUP_DELIVERY_TIMEOUT, an unsatisfiable filter. */
+static u64 moqtrun_params_refusal(const moqctl_params* params) {
+  if (moqtrun_has_timeout_param(params)) return MOQCTL_ERR_NOT_SUPPORTED;
+  return moqtrun_params_inverted(params) ? MOQCTL_ERR_INVALID_RANGE
+                                         : MOQTRUN_REQ_ACCEPT;
+}
+
+static u64 moqtrun_subscribe_refusal(
+    const wired_moqt_hub* hub, const moqctl_subscribe* m) {
+  u64 code = moqtrun_params_refusal(&m->params);
+  if (code != MOQTRUN_REQ_ACCEPT) return code;
+  return moqtrun_subscribe_refused(hub, m, &code) ? code : MOQTRUN_REQ_ACCEPT;
+}
+
 /* draft SS10.6 SUBSCRIBE: reject a non-zero SUBGROUP_DELIVERY_TIMEOUT
  * (moqtrun_param_is_nonzero_timeout) and unauthorized subscribers, else
  * delegate matching + response to moqtrun_route_subscribe. */
@@ -1257,12 +1315,8 @@ static void moqtrun_subscribe_checked(
     wired_moqtrun_peer*     p,
     usz                     peer_idx,
     const moqctl_subscribe* m) {
-  u64 code;
-  if (moqtrun_has_timeout_param(&m->params)) {
-    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
-    return;
-  }
-  if (moqtrun_subscribe_refused(hub, m, &code)) {
+  u64 code = moqtrun_subscribe_refusal(hub, m);
+  if (code != MOQTRUN_REQ_ACCEPT) {
     moqtrun_send_request_error(p, code);
     return;
   }
@@ -1273,7 +1327,7 @@ static void moqtrun_handle_subscribe(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   usz              off = 0;
   moqctl_subscribe m;
-  if (moqctl_subscribe_take(body, &off, &m) != MOQCTL_OK) return;
+  if (moqctl_subscribe_take(p->ver, body, &off, &m) != MOQCTL_OK) return;
   moqtrun_subscribe_checked(hub, p, peer_idx, &m);
 }
 
@@ -1284,14 +1338,17 @@ static moqctl_loc moqtrun_after(moqctl_loc l) {
   return moqctl_loc_of(l.group, l.object + 1);
 }
 
-/* End Location "last Object + 1", Object 0 meaning the whole End Group
- * (10.12.1), as an exclusive bound. */
-static moqctl_loc moqtrun_end_excl(moqctl_loc e) {
+/* An inclusive end (moqfetch_req_end; Object MOQFETCH_OBJ_GROUP_END = the
+ * whole group) as an exclusive bound: the draft-19 End Location "last
+ * Object + 1", whose Object 0 means the whole group (10.12.1). */
+static moqctl_loc moqtrun_end_excl(moqctl_loc incl) {
+  moqctl_loc e = moqfetch_end19_wire(incl);
   return e.object ? e : moqctl_loc_of(e.group + 1, 0);
 }
 
 /* A FETCH resolved against its track: the cache records to read, the
- * range [start, end), and the End Location FETCH_OK reports. */
+ * range [start, end), and the End Location FETCH_OK reports, inclusive
+ * (moqfetch_req_end; Object MOQFETCH_OBJ_GROUP_END = a whole group). */
 typedef struct {
   u64        tag;
   moqctl_loc start;
@@ -1457,16 +1514,60 @@ static int moqtrun_encode_fetch_ok(wired_mspan buf, usz* off, const void* m) {
   return moqfetch_ok_encode(buf, off, m);
 }
 
-/* FETCH_OK (10.13): not End Of Track, End Location end, no parameters or
- * Track Properties. */
+static int moqtrun_encode_fetch_ok19(wired_mspan buf, usz* off, const void* m) {
+  return moqfetch_ok19_encode(buf, off, m);
+}
+
+/* End Location on the wire: inclusive in draft-22 (SS9.12), last + 1 with
+ * Object 0 = whole group before (10.13). */
+static moqtrun_body_encode_fn moqtrun_fetch_ok_encoder(int ver) {
+  return (moqver_caps(ver) & MOQVER_CAP_FETCH_END_INCLUSIVE)
+             ? moqtrun_encode_fetch_ok
+             : moqtrun_encode_fetch_ok19;
+}
+
+/* FETCH_OK (10.13): not End Of Track, End Location end (inclusive), no
+ * parameters or Track Properties. */
 static void moqtrun_queue_fetch_ok(wired_moqtrun_peer* p, moqctl_loc end) {
   u8          msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqfetch_ok ok = {0};
   ok.end         = end;
   usz n          = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQFETCH_T_FETCH_OK,
-      moqtrun_encode_fetch_ok, &ok);
+      moqtrun_fetch_ok_encoder(p->ver), &ok);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
+}
+
+/* The Location of the last item r serves (its End Location when it serves
+ * none). ponytail: walks the cache once per FETCH_OK -- O(arena), like
+ * every moqcache lookup. */
+static moqctl_loc moqtrun_fetch_last(
+    const moqcache* c, const moqtrun_frange* r) {
+  moqctl_loc    last = r->ok_end;
+  moqcache_item it;
+  for (moqctl_loc cur = moqcache_skip(c, r->tag, r->start, r->end);
+       moqctl_loc_less(cur, r->end);
+       cur = moqcache_skip(c, r->tag, it.next, r->end)) {
+    moqcache_item_at(c, r->tag, cur, r->end, &it);
+    last = it.loc;
+  }
+  return last;
+}
+
+/* draft-22 has no "whole group" End Location: a range ending at a whole
+ * group that Largest did not cut reports the last Object it returns. */
+static int moqtrun_fetch_end_open22(
+    const wired_moqtrun_peer* p, const moqtrun_frange* r) {
+  return (moqver_caps(p->ver) & MOQVER_CAP_FETCH_END_INCLUSIVE) &&
+         r->ok_end.object == MOQFETCH_OBJ_GROUP_END;
+}
+
+static moqctl_loc moqtrun_fetch_ok_end(
+    const wired_moqt_hub*     hub,
+    const wired_moqtrun_peer* p,
+    const moqtrun_frange*     r) {
+  if (!moqtrun_fetch_end_open22(p, r)) return r->ok_end;
+  return moqtrun_fetch_last(&hub->cache, r);
 }
 
 /* Answers FETCH_OK and starts serving r from the cache. */
@@ -1488,7 +1589,9 @@ static void moqtrun_fetch_accept(
   f->end        = r->end;
   f->cursor     = moqcache_skip(&hub->cache, r->tag, r->start, r->end);
   f->last_ok_ms = hub->live.last_now_ms;
-  moqtrun_queue_fetch_ok(p, r->ok_end);
+  f->seq.eor_timed_out =
+      (moqver_caps(p->ver) & MOQVER_CAP_EOR_TIMED_OUT) != 0; /* 22 SS11.4.1 */
+  moqtrun_queue_fetch_ok(p, moqtrun_fetch_ok_end(hub, p, r));
   moqtrun_fetch_serve(hub, f);
 }
 
@@ -1500,21 +1603,39 @@ static int moqtrun_fetch_range_bad(
          !moqctl_loc_less(start, end);
 }
 
-/* 10.13: an End past the Largest Object is cut to {Largest.Group,
- * Largest.Object + 1}, and FETCH_OK says so. */
+/* 10.13: an End (inclusive) past the Largest Object is cut to the Largest
+ * Object, and FETCH_OK says so. */
 static void moqtrun_fetch_clamp(
-    moqtrun_frange* r, const wired_moqtrun_track* t, moqctl_loc req_end) {
+    moqtrun_frange* r, const wired_moqtrun_track* t, moqctl_loc end) {
   moqctl_loc top = moqtrun_after(t->largest);
-  r->end         = moqtrun_end_excl(req_end);
-  r->ok_end      = req_end;
+  r->end         = moqtrun_end_excl(end);
+  r->ok_end      = end;
   if (!moqctl_loc_less(top, r->end)) return;
   r->end    = top;
-  r->ok_end = top;
+  r->ok_end = t->largest;
 }
 
-/* 10.12.1 Standalone Fetch of a peer-published track. */
+/* rl resolved against t into r; 0 when the range is INVALID_RANGE
+ * (10.12.3). */
+static int moqtrun_fetch_resolve(
+    const wired_moqtrun_track* t,
+    const moqctl_rangeloc*     rl,
+    moqtrun_frange*            r) {
+  moqctl_loc start, end;
+  if (rl->sk == MOQCTL_RSK_NEXT_OBJ) return 0; /* always past Largest */
+  start = MOQTRUN_START_FNS[rl->sk](moqtrun_track_top(t), rl);
+  end   = moqfetch_req_end(rl, t->largest);
+  if (moqtrun_fetch_range_bad(t, start, moqtrun_end_excl(end))) return 0;
+  r->tag   = t->cache_tag;
+  r->start = start;
+  moqtrun_fetch_clamp(r, t, end);
+  return 1;
+}
+
+/* A Standalone Fetch (draft-19 10.12.1; every draft-22 FETCH) of a
+ * peer-published track. */
 static void moqtrun_fetch_standalone(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqfetch_fetch* m) {
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqfetch_req* m) {
   u8                   ns_buf[WIRED_MOQTRUN_MAX_NS];
   moqtrun_frange       r;
   wired_moqtrun_track* t =
@@ -1523,13 +1644,10 @@ static void moqtrun_fetch_standalone(
     moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
     return;
   }
-  if (moqtrun_fetch_range_bad(t, m->start, moqtrun_end_excl(m->end))) {
+  if (!moqtrun_fetch_resolve(t, &m->range, &r)) {
     moqtrun_send_request_error(p, MOQCTL_ERR_INVALID_RANGE);
     return;
   }
-  r.tag   = t->cache_tag;
-  r.start = m->start;
-  moqtrun_fetch_clamp(&r, t, m->end);
   moqtrun_fetch_accept(hub, p, m->request_id, &r);
 }
 
@@ -1582,7 +1700,7 @@ static wired_moqtrun_sub* moqtrun_sub_by_rid(
 /* 10.12.2.1 Start group: Joining Location.Group - Joining Start (never
  * below 0) for a Relative, Joining Start itself for an Absolute Joining
  * Fetch. */
-static u64 moqtrun_join_group(const moqfetch_fetch* m, moqctl_loc jl) {
+static u64 moqtrun_join_group(const moqfetch_req* m, moqctl_loc jl) {
   if (m->fetch_type == MOQFETCH_ABSOLUTE_JOINING) return m->joining_start;
   return jl.group - u64_min(m->joining_start, jl.group);
 }
@@ -1596,10 +1714,10 @@ static int moqtrun_join_bad(const wired_moqtrun_sub* s, u64 group) {
 /* 10.12.2 Joining Fetch: ends at the subscription's Joining Location so
  * FETCH and SUBSCRIBE meet with no gap or overlap. */
 static void moqtrun_fetch_joining(
-    wired_moqt_hub*       hub,
-    wired_moqtrun_peer*   p,
-    usz                   peer_idx,
-    const moqfetch_fetch* m) {
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    usz                 peer_idx,
+    const moqfetch_req* m) {
   wired_moqtrun_track* t = 0;
   wired_moqtrun_sub*   s =
       moqtrun_sub_by_rid(hub, peer_idx, m->joining_request_id, &t);
@@ -1616,17 +1734,26 @@ static void moqtrun_fetch_joining(
   r.tag    = t->cache_tag;
   r.start  = moqctl_loc_of(group, 0);
   r.end    = moqtrun_after(s->jl);
-  r.ok_end = r.end;
+  r.ok_end = s->jl;
   moqtrun_fetch_accept(hub, p, m->request_id, &r);
+}
+
+/* The FETCH body in p's draft: draft-22's (SS9.11) or the draft-18/19
+ * one (10.12), both into moqfetch_req. */
+static int moqtrun_fetch_take(
+    const wired_moqtrun_peer* p, wired_span body, moqfetch_req* m) {
+  if (moqver_caps(p->ver) & MOQVER_CAP_FETCH_BODY_V22)
+    return moqfetch_req22_take(body, m);
+  return moqfetch_req19_take(p->ver, body, m);
 }
 
 /* draft 10.12 FETCH. ponytail: groups always go in ascending order
  * (GROUP_ORDER is not consulted, 10.2.8). */
 static void moqtrun_handle_fetch(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
-  moqfetch_fetch m;
-  if (moqfetch_fetch_take(body, &m) != MOQCTL_OK) return;
-  if (m.fetch_type == MOQFETCH_STANDALONE) {
+  moqfetch_req m;
+  if (moqtrun_fetch_take(p, body, &m) != MOQCTL_OK) return;
+  if (!m.is_joining) {
     moqtrun_fetch_standalone(hub, p, &m);
     return;
   }
@@ -1638,9 +1765,6 @@ static void moqtrun_fetches_drop(wired_moqt_hub* hub, wired_wt_session* s) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
     if (hub->fetches[i].wt == s) hub->fetches[i].in_use = 0;
 }
-
-/* Not a REQUEST_ERROR code: the request is accepted. */
-#define MOQTRUN_REQ_ACCEPT (~(u64)0)
 
 /* ===================== TRACK_STATUS (draft 10.14) ===================== */
 
@@ -1672,7 +1796,7 @@ static u64 moqtrun_tstat_verdict(
 static void moqtrun_tstat_answer(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body) {
   moqctl_subscribe m;
-  if (moqtstat_take(body, &m) != MOQCTL_OK) return;
+  if (moqtstat_take(p->ver, body, &m) != MOQCTL_OK) return;
   wired_moqtrun_track* t    = moqtrun_tstat_track(hub, &m.name);
   u64                  code = moqtrun_tstat_verdict(hub, &m, t);
   if (code != MOQTRUN_REQ_ACCEPT) {
@@ -1832,14 +1956,15 @@ static int moqtrun_upd_apply(
   return 0;
 }
 
-/* A non-zero SUBGROUP_DELIVERY_TIMEOUT is refused as on SUBSCRIBE. */
+/* Parameters are refused as on SUBSCRIBE (moqtrun_params_refusal). */
 static u64 moqtrun_upd_checked(
     wired_moqt_hub*            hub,
     wired_moqtrun_peer*        p,
     wired_moqtrun_sub*         s,
     const wired_moqtrun_track* t,
     const moqctl_params*       params) {
-  if (moqtrun_has_timeout_param(params)) return MOQCTL_ERR_NOT_SUPPORTED;
+  u64 code = moqtrun_params_refusal(params);
+  if (code != MOQTRUN_REQ_ACCEPT) return code;
   return moqtrun_upd_apply(hub, p, s, t, params) ? MOQTRUN_REQ_ACCEPT
                                                  : MOQCTL_ERR_INTERNAL_ERROR;
 }
@@ -1920,7 +2045,7 @@ static void moqtrun_handle_update(
     moqtrun_upd_close_ns(p->req);
     return;
   }
-  if (moqtstat_update_take(body, MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &m) !=
+  if (moqtstat_update_take(p->ver, body, MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &m) !=
       MOQCTL_OK) {
     moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
     return;
@@ -2038,7 +2163,7 @@ static u64 moqtrun_disc_sub_check(
 
 typedef u64 (*moqtrun_disc_check_fn)(
     const wired_moqt_hub*, const wired_moqtrun_req*);
-typedef int (*moqtrun_disc_take_fn)(wired_span, moqns_req*);
+typedef int (*moqtrun_disc_take_fn)(int, wired_span, moqns_req*);
 
 /* Copies ns into q; 0 when it exceeds WIRED_MOQTRUN_MAX_NS (refused, never
  * truncated). */
@@ -2096,7 +2221,7 @@ static void moqtrun_handle_disc(
     moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
     return;
   }
-  if (take(body, &m) != MOQCTL_OK) return;
+  if (take(p->ver, body, &m) != MOQCTL_OK) return;
   moqtrun_disc_answer(p, moqtrun_disc_verdict(hub, p->req, &m, check));
 }
 
@@ -2292,15 +2417,41 @@ static void moqtrun_dispatch_not_supported(
   moqtrun_handle_not_supported(p);
 }
 
+typedef int (*moqtrun_goaway_take_fn)(wired_span, usz*, moqctl_goaway*);
+
+/* draft-18 SS10.4: a control-stream GOAWAY ends with a Request ID. */
+static moqtrun_goaway_take_fn moqtrun_goaway_decoder(int ver) {
+  return (moqver_caps(ver) & MOQVER_CAP_GOAWAY_REQID) ? moqctl_goaway18_take
+                                                      : moqctl_goaway_take;
+}
+
 /* draft-ietf-moq-transport-19 10.4: a GOAWAY on the control stream must
- * be well formed, carry no New Session URI (the hub is the server), and
- * be the session's first. */
-static int moqtrun_goaway_bad(moqsess* sess, wired_span body) {
-  usz           off = 0;
-  moqctl_goaway g;
-  if (moqctl_goaway_take(body, &off, &g) != MOQCTL_OK || g.new_session_uri.n)
+ * be well formed in p's draft, carry no New Session URI (the hub is the
+ * server), and be the session's first. */
+static int moqtrun_goaway_bad(
+    wired_moqtrun_peer* p, wired_span body, moqctl_goaway* g) {
+  usz off = 0;
+  if (moqtrun_goaway_decoder(p->ver)(body, &off, g) != MOQCTL_OK ||
+      g->new_session_uri.n)
     return 1;
-  return moqsess_step(sess, MOQSESS_EV_RECV_GOAWAY) != MOQSESS_CLOSE_NONE;
+  return moqsess_step(&p->sess, MOQSESS_EV_RECV_GOAWAY) != MOQSESS_CLOSE_NONE;
+}
+
+/* draft-18 SS10.4: the Request ID names one of the hub's own Request IDs,
+ * which are odd (server); the wrong parity is INVALID_REQUEST_ID. */
+static int moqtrun_goaway_rid_bad(
+    const wired_moqtrun_peer* p, const moqctl_goaway* g) {
+  return (moqver_caps(p->ver) & MOQVER_CAP_GOAWAY_REQID) &&
+         !(g->request_id & 1);
+}
+
+/* Session close code a control-stream GOAWAY calls for; 0 for none. */
+static u32 moqtrun_goaway_close(wired_moqtrun_peer* p, wired_span body) {
+  moqctl_goaway g = {0};
+  if (moqtrun_goaway_bad(p, body, &g))
+    return WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
+  return moqtrun_goaway_rid_bad(p, &g) ? WIRED_MOQTRUN_CLOSE_INVALID_REQUEST_ID
+                                       : 0;
 }
 
 /* A GOAWAY on a request stream asks to migrate that one request; the
@@ -2311,8 +2462,8 @@ static void moqtrun_dispatch_goaway(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   (void)peer_idx;
   if (p->req) return;
-  if (moqtrun_goaway_bad(&p->sess, body))
-    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  u32 code = moqtrun_goaway_close(p, body);
+  if (code) moqtrun_close_with(hub, p, code);
 }
 
 /* A message with no request to refuse: consumed by its Length, no reply. */
@@ -2344,10 +2495,10 @@ static const struct {
     {MOQCTL_T_GOAWAY, moqtrun_dispatch_goaway},
     /* draft SS10 known non-request messages this hub does not implement:
      * nothing carries a Request ID to answer, so they are skipped. */
-    {0x8, moqtrun_dispatch_skip},  /* NAMESPACE */
-    {0xE, moqtrun_dispatch_skip},  /* NAMESPACE_DONE */
-    {0xF, moqtrun_dispatch_skip},  /* PUBLISH_SKIPPED */
-    {0x18, moqtrun_dispatch_skip}, /* FETCH_OK */
+    {MOQNS_T_NAMESPACE, moqtrun_dispatch_skip},
+    {MOQNS_T_NAMESPACE_DONE, moqtrun_dispatch_skip},
+    {MOQCTL_T_PUBLISH_SKIPPED, moqtrun_dispatch_skip},
+    {MOQFETCH_T_FETCH_OK, moqtrun_dispatch_skip},
     {MOQCTL_T_PUBLISH_DONE, moqtrun_dispatch_skip},
 };
 #define MOQTRUN_CTL_TABLE_N \
@@ -2505,8 +2656,30 @@ static moqtrun_ctl_fn moqtrun_late_route(
   return fn;
 }
 
+/* A request message (a First type or REQUEST_UPDATE, draft 10.1) starts
+ * with the Request ID it consumes. */
+static int moqtrun_rid_counts(int peek, u64 type) {
+  return moqtrun_peek_known(peek) &&
+         (moqtrun_req_is_first(type) || type == MOQTSTAT_T_REQUEST_UPDATE);
+}
+
+/* Keeps p->peer_rid_next past every Request ID p has sent (draft-18
+ * SS10.4 GOAWAY Request ID). */
+static void moqtrun_rid_note(
+    wired_moqtrun_peer* p, int peek, u64 type, wired_span body) {
+  usz off  = 0;
+  u64 rid  = 0;
+  u64 next = ~(u64)0; /* rid + 2 saturates: u64_add_ok keeps it on overflow */
+  if (!moqtrun_rid_counts(peek, type)) return;
+  if (!moqvi_take(body, &off, &rid)) return; /* no ID read: nothing moves */
+  u64_add_ok(rid, 2, &next);
+  p->peer_rid_next = u64_max(p->peer_rid_next, next);
+}
+
 static moqtrun_ctl_fn moqtrun_msg_route(
     wired_moqtrun_peer* p, int peek, u64 type, wired_span body) {
+  peek = moqctl_type_ver(p->ver, peek, &type);
+  moqtrun_rid_note(p, peek, type, body);
   if (p->req && moqtrun_peek_known(peek))
     return moqtrun_late_route(p, type, moqtrun_req_route(p->req, type, body));
   return moqtrun_late_route(p, type, moqtrun_ctl_route(peek, type));
@@ -2691,7 +2864,7 @@ static usz moqtrun_live_head(
     const wired_moqtrun_live* live, u64 group, usz frag_len, u8* head) {
   usz            off = 0;
   moqdata_subhdr h   = {0};
-  h.type             = 0x70;
+  h.type             = MOQDATA_MSG_TYPE;
   h.track_alias      = live->track.own_alias;
   h.group_id         = group;
   wired_mspan buf    = wired_mspan_of(head, MOQDATA_MSG_OVERHEAD);
@@ -4625,6 +4798,12 @@ static void moqtrun_sub_stop(
   s->active = 0;
 }
 
+static u64 moqtrun_done_streams_unknown(int ver) {
+  return (moqver_caps(ver) & MOQVER_CAP_STREAMCOUNT_U64)
+             ? MOQTRUN_DONE_STREAMS_UNKNOWN64
+             : MOQTRUN_DONE_STREAMS_UNKNOWN;
+}
+
 /* Ends subscription s of peer p, carried by request stream q: PUBLISH_DONE
  * status is q's last message, then the hub FINs it (3.3.2) once sent, and
  * a rejoining publisher does not revive it. */
@@ -4637,8 +4816,8 @@ static void moqtrun_sub_done(
     u64                  status) {
   u8                  msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqctl_publish_done d = {0};
-  d.status_code         = status;
-  d.stream_count        = MOQTRUN_DONE_STREAMS_UNKNOWN;
+  d.status_code         = moqctl_publish_done_for(p->ver, status);
+  d.stream_count        = moqtrun_done_streams_unknown(p->ver);
   usz n                 = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH_DONE,
       moqtrun_encode_publish_done, &d);
@@ -4677,6 +4856,16 @@ static int moqtrun_encode_goaway(wired_mspan buf, usz* off, const void* m) {
   return moqctl_goaway_encode(buf, off, m);
 }
 
+static int moqtrun_encode_goaway18(wired_mspan buf, usz* off, const void* m) {
+  return moqctl_goaway18_encode(buf, off, m);
+}
+
+/* draft-18 SS10.4: a control-stream GOAWAY ends with a Request ID. */
+static moqtrun_body_encode_fn moqtrun_goaway_encoder(int ver) {
+  return (moqver_caps(ver) & MOQVER_CAP_GOAWAY_REQID) ? moqtrun_encode_goaway18
+                                                      : moqtrun_encode_goaway;
+}
+
 /* A session still owed a GOAWAY. */
 static int moqtrun_goaway_due(const wired_moqtrun_peer* p) {
   return p->in_use && !p->sess.goaway_sent && !p->closing;
@@ -4687,10 +4876,17 @@ static u64 moqtrun_goaway_deadline(const wired_moqt_hub* hub, u64 timeout_ms) {
   return timeout_ms ? hub->live.last_now_ms + timeout_ms : (u64)-1;
 }
 
-/* GOAWAY msg on p's control stream (10.4), noted in its session state. */
+/* GOAWAY g in p's draft on p's control stream (10.4), noted in its
+ * session state. draft-18's Request ID is the smallest one p has not
+ * sent yet: the hub handles each request as it arrives. */
 static void moqtrun_goaway_one(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span msg, u64 deadline) {
-  moqtrun_queue_reply(p, msg);
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, moqctl_goaway g, u64 deadline) {
+  u8 msg[WIRED_MOQTRUN_GOAWAY_URI_MAX + 32];
+  g.request_id = p->peer_rid_next;
+  usz n        = moqtrun_envelope_put(
+      wired_mspan_of(msg, sizeof msg), MOQCTL_T_GOAWAY,
+      moqtrun_goaway_encoder(p->ver), &g);
+  moqtrun_queue_reply(p, wired_span_of(msg, n));
   moqtrun_flush_replies(&hub->io, p);
   moqsess_step(&p->sess, MOQSESS_EV_SEND_GOAWAY);
   p->goaway_deadline = deadline;
@@ -4702,31 +4898,26 @@ static int moqtrun_goaway_target(
   return moqtrun_goaway_due(p) && (!s || p->wt == s);
 }
 
-/* Sends msg to p if it is a target; 1 when sent. */
+/* Sends g to p if it is a target; 1 when sent. */
 static int moqtrun_goaway_try(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
     const wired_wt_session* s,
-    wired_span              msg,
+    moqctl_goaway           g,
     u64                     deadline) {
   if (!moqtrun_goaway_target(p, s)) return 0;
-  moqtrun_goaway_one(hub, p, msg, deadline);
+  moqtrun_goaway_one(hub, p, g, deadline);
   return 1;
 }
 
 /* Sends GOAWAY to s, or to every session when s is 0; the count sent. */
 static int moqtrun_goaway_send(
     wired_moqt_hub* hub, wired_wt_session* s, wired_span uri, u64 timeout_ms) {
-  u8            msg[WIRED_MOQTRUN_GOAWAY_URI_MAX + 32];
-  moqctl_goaway g = {uri, timeout_ms};
-  usz           n = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQCTL_T_GOAWAY, moqtrun_encode_goaway,
-      &g);
-  u64 deadline = moqtrun_goaway_deadline(hub, timeout_ms);
-  int sent     = 0;
+  moqctl_goaway g        = {uri, timeout_ms, 0};
+  u64           deadline = moqtrun_goaway_deadline(hub, timeout_ms);
+  int           sent     = 0;
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
-    sent += moqtrun_goaway_try(
-        hub, &hub->peers[i], s, wired_span_of(msg, n), deadline);
+    sent += moqtrun_goaway_try(hub, &hub->peers[i], s, g, deadline);
   return sent;
 }
 

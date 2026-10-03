@@ -152,6 +152,9 @@ typedef struct {
 /** draft-ietf-moq-transport-19 3.5 NO_ERROR session code. */
 #define WIRED_MOQTRUN_CLOSE_NO_ERROR 0x0
 
+/** draft-ietf-moq-transport-18/19 3.5 INVALID_REQUEST_ID session code. */
+#define WIRED_MOQTRUN_CLOSE_INVALID_REQUEST_ID 0x4
+
 /** draft-ietf-moq-transport-19 3.5 GOAWAY_TIMEOUT session code. */
 #define WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT 0x10
 
@@ -182,6 +185,9 @@ typedef struct {
   moqctl_loc start;
   /** Last Group to deliver (AbsoluteRange), valid when has_end_group. */
   u64 end_group;
+  /** Last Object of end_group to deliver (draft-22 Absolute Range, 0x04),
+   * valid when has_end_object; otherwise the whole end Group passes. */
+  u64 end_object;
   /** SUBSCRIBER_PRIORITY (10.2.7), valid when has_priority. */
   u8 priority;
   u8 has_priority;
@@ -191,14 +197,16 @@ typedef struct {
   u8 forward_off;
   u8 has_delivery_timeout;
   u8 has_end_group;
+  u8 has_end_object;
   /** Joining Location (draft-ietf-moq-transport-19 5.1): the Largest
    * Object SUBSCRIBE_OK carried, valid when has_jl -- where a Joining
    * Fetch ends (10.12.2.1). */
   moqctl_loc jl;
   u8         has_jl;
-  /** LOCATION_FILTER type (MOQCTL_FILTER_*), 0 when unfiltered: what a
-   * re-attach re-resolves start against. */
-  u8 filter_type;
+  /** The LOCATION_FILTER as sent (version-neutral), valid when
+   * has_filter: what a re-attach re-resolves start/end from. */
+  moqctl_rangeloc filter;
+  u8              has_filter;
   /** Hub blob track only: 1 once the blob went out to this subscription,
    * so a FORWARD 1 -> 0 -> 1 update never sends it twice. */
   u8 blob_sent;
@@ -512,6 +520,9 @@ typedef struct {
   int     ver;
   moqsess sess;
   u64     request_id_next; /* next Request ID this hub sends */
+  /** One past the largest Request ID the peer has sent (+2, 0 for none):
+   * a draft-18 GOAWAY's Request ID (SS10.4). */
+  u64 peer_rid_next;
   /** Registration order (wired_moqt_init-relative, never reused): a
    * higher value is a newer session. Decides which of two sessions
    * PUBLISHing the same name owns it (moqtrun_supersede_name). */
