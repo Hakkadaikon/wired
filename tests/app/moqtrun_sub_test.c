@@ -103,7 +103,8 @@ static const moqctl_subscribe_ok* mtst_last_ok(void) {
       MOQCTL_OK)
     return 0;
   if (type != MOQCTL_T_SUBSCRIBE_OK) return 0;
-  if (moqctl_subscribe_ok_take(body, &boff, &ok) != MOQCTL_OK) return 0;
+  if (moqctl_subscribe_ok_take(MOQVER_D19, body, &boff, &ok) != MOQCTL_OK)
+    return 0;
   return &ok;
 }
 
@@ -828,7 +829,87 @@ static void test_moqtrun_req_needs_reply_op(void) {
   CHECK(g_n_calls == 1); /* SETUP only */
 }
 
+/* ===================== per-draft parameter scopes ===================== */
+
+/* Control-stream replies (io kind 3) the hub sent to s. */
+static usz mtver_replies(wired_wt_session* s) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++)
+    n += g_calls[i].kind == 3 && g_calls[i].s == s;
+  return n;
+}
+
+/* A (draft ver) PUBLISHes alice with params; 1 iff the hub answered. */
+static int mtver_publish_answered(int ver, const moqctl_params* params) {
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca                                     = mtst_join(SESS_A);
+  moqtrun_find_by_wt(&mtst_hub, SESS_A)->ver = ver;
+  mtst_publish_p(SESS_A, ca, &f, 1, params);
+  return mtver_replies(SESS_A) == 1;
+}
+
+/* B (draft ver) SUBSCRIBEs to A's alice with params; 1 iff answered. */
+static int mtver_subscribe_answered(int ver, const moqctl_params* params) {
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = ver;
+  mtst_subscribe_p(SESS_B, cb, &f, 2, params);
+  return mtver_replies(SESS_B) == 1;
+}
+
+static moqctl_params mtver_params_vi(u64 type, u64 v) {
+  moqctl_params p = {0};
+  p.items[0].type = type;
+  p.items[0].enc  = MOQCTL_PENC_VARINT;
+  p.items[0].vi   = v;
+  p.n             = 1;
+  return p;
+}
+
+/* draft-22 SS9.20.21: INCLUDE_PROPERTIES is a SUBSCRIBE parameter only
+ * in draft-22. */
+static void test_moqtrun_sub_params_include_properties_d22(void) {
+  moqctl_params p = mtst_params_u8(MOQCTL_PARAM_INCLUDE_PROPERTIES, 1);
+  CHECK(mtver_subscribe_answered(MOQVER_D22, &p));
+  CHECK(!mtver_subscribe_answered(MOQVER_D19, &p));
+}
+
+/* draft-22 SS9.20.4 moved OBJECT_DELIVERY_TIMEOUT into PUBLISH. */
+static void test_moqtrun_pub_params_delivery_timeout_d22(void) {
+  moqctl_params p = mtver_params_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 100);
+  CHECK(mtver_publish_answered(MOQVER_D22, &p));
+  CHECK(!mtver_publish_answered(MOQVER_D19, &p));
+}
+
+/* draft-18 PUBLISH takes GROUP_ORDER (a SUBSCRIBE_TRACKS-generated
+ * PUBLISH echoes it); draft-19 SS10.2.8 does not list PUBLISH. */
+static void test_moqtrun_pub_params_group_order_d18(void) {
+  moqctl_params p = mtst_params_u8(MOQCTL_PARAM_GROUP_ORDER, 1);
+  CHECK(mtver_publish_answered(MOQVER_D18, &p));
+  CHECK(!mtver_publish_answered(MOQVER_D19, &p));
+}
+
+/* draft-18 has no range filters (0x25-0x29): an unknown parameter. */
+static void test_moqtrun_sub_params_range_filter_d18(void) {
+  static const u8 rng[] = {0x00, 0x03}; /* SetID 0, Start 3 */
+  moqctl_params   p     = {0};
+  p.items[0].type       = MOQCTL_PARAM_SUBGROUP_FILTER;
+  p.items[0].enc        = MOQCTL_PENC_BYTES;
+  p.items[0].bytes      = wired_span_of(rng, sizeof rng);
+  p.n                   = 1;
+  CHECK(!mtver_subscribe_answered(MOQVER_D18, &p));
+  CHECK(mtver_subscribe_answered(MOQVER_D19, &p));
+}
+
 void test_moqtrun_sub(void) {
+  test_moqtrun_sub_params_include_properties_d22();
+  test_moqtrun_pub_params_delivery_timeout_d22();
+  test_moqtrun_pub_params_group_order_d18();
+  test_moqtrun_sub_params_range_filter_d18();
   test_moqtrun_sub_ns_must_match();
   test_moqtrun_sub_ns_max_fields();
   test_moqtrun_sub_same_name_other_ns_coexist();
