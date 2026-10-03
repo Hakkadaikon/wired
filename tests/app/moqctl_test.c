@@ -300,7 +300,7 @@ static void test_moqctl_subscribe_roundtrip(void) {
           &off, &type, &body) == MOQCTL_OK);
   {
     usz boff = 0;
-    CHECK(moqctl_subscribe_take(body, &boff, &m) == MOQCTL_OK);
+    CHECK(moqctl_subscribe_take(MOQVER_D19, body, &boff, &m) == MOQCTL_OK);
     CHECK(boff == body.n);
   }
   CHECK(m.request_id == 0);
@@ -338,7 +338,7 @@ static void test_moqctl_subscribe_ok_roundtrip(void) {
           &off, &type, &body) == MOQCTL_OK);
   {
     usz boff = 0;
-    CHECK(moqctl_subscribe_ok_take(body, &boff, &m) == MOQCTL_OK);
+    CHECK(moqctl_subscribe_ok_take(MOQVER_D19, body, &boff, &m) == MOQCTL_OK);
   }
   CHECK(m.track_alias == 1);
   CHECK(m.params.n == 0);
@@ -369,7 +369,7 @@ static void test_moqctl_publish_roundtrip(void) {
           &off, &type, &body) == MOQCTL_OK);
   {
     usz boff = 0;
-    CHECK(moqctl_publish_take(body, &boff, &m) == MOQCTL_OK);
+    CHECK(moqctl_publish_take(MOQVER_D19, body, &boff, &m) == MOQCTL_OK);
   }
   CHECK(m.request_id == 0);
   CHECK(m.name.ns.n == 2);
@@ -402,7 +402,7 @@ static void test_moqctl_request_ok_roundtrip(void) {
           &off, &type, &body) == MOQCTL_OK);
   {
     usz boff = 0;
-    CHECK(moqctl_request_ok_take(body, &boff, &m) == MOQCTL_OK);
+    CHECK(moqctl_request_ok_take(MOQVER_D19, body, &boff, &m) == MOQCTL_OK);
   }
   CHECK(m.params.n == 0);
   CHECK(m.track_properties.n == 0);
@@ -752,8 +752,8 @@ static void test_moqctl_params_forward_roundtrip(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE, &out) ==
-        MOQCTL_OK);
+            MOQVER_D19, wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE,
+            &out) == MOQCTL_OK);
   }
   CHECK(out.n == 1);
   CHECK(out.items[0].type == MOQCTL_PARAM_FORWARD);
@@ -777,8 +777,8 @@ static void test_moqctl_params_type_overflow_violation(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE, &out) ==
-        MOQCTL_VIOLATION);
+            MOQVER_D19, wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE,
+            &out) == MOQCTL_VIOLATION);
   }
 }
 
@@ -795,8 +795,8 @@ static void test_moqctl_params_unknown_type_violation(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE, &out) ==
-        MOQCTL_VIOLATION);
+            MOQVER_D19, wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE,
+            &out) == MOQCTL_VIOLATION);
   }
 }
 
@@ -819,8 +819,8 @@ static void test_moqctl_params_duplicate_type_violation(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE, &out) ==
-        MOQCTL_VIOLATION);
+            MOQVER_D19, wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE,
+            &out) == MOQCTL_VIOLATION);
   }
 }
 
@@ -839,8 +839,8 @@ static void test_moqctl_params_scope_violation(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE_OK, &out) ==
-        MOQCTL_VIOLATION);
+            MOQVER_D19, wired_span_of(buf, off), &roff,
+            MOQCTL_PCTX_SUBSCRIBE_OK, &out) == MOQCTL_VIOLATION);
   }
 }
 
@@ -859,8 +859,8 @@ static void test_moqctl_params_delivery_timeout_decode(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE, &out) ==
-        MOQCTL_OK);
+            MOQVER_D19, wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE,
+            &out) == MOQCTL_OK);
   }
   CHECK(out.n == 1);
   CHECK(out.items[0].vi == 0);
@@ -889,8 +889,8 @@ static void test_moqctl_params_auth_token_use_value_decode(void) {
   usz             roff = 0;
   CHECK(
       moqctl_params_take(
-          wired_span_of(buf, n), &roff, MOQCTL_PCTX_SUBSCRIBE, &out) ==
-      MOQCTL_OK);
+          MOQVER_D19, wired_span_of(buf, n), &roff, MOQCTL_PCTX_SUBSCRIBE,
+          &out) == MOQCTL_OK);
   CHECK(out.n == 1);
   CHECK(out.items[0].type == MOQCTL_PARAM_AUTHORIZATION_TOKEN);
   CHECK(out.items[0].enc == MOQCTL_PENC_TOKEN);
@@ -912,8 +912,8 @@ static void test_moqctl_params_auth_token_alias_shapes_decode(void) {
   usz             roff = 0;
   CHECK(
       moqctl_params_take(
-          wired_span_of(buf, n), &roff, MOQCTL_PCTX_PUBLISH, &out) ==
-      MOQCTL_OK);
+          MOQVER_D19, wired_span_of(buf, n), &roff, MOQCTL_PCTX_PUBLISH,
+          &out) == MOQCTL_OK);
   CHECK(out.items[0].token.alias_type == MOQCTL_TOKEN_REGISTER);
   CHECK(out.items[0].token.alias == 7);
   CHECK(out.items[0].token.token_type == 1);
@@ -922,8 +922,8 @@ static void test_moqctl_params_auth_token_alias_shapes_decode(void) {
   roff = 0;
   CHECK(
       moqctl_params_take(
-          wired_span_of(buf, n), &roff, MOQCTL_PCTX_SUBSCRIBE, &out) ==
-      MOQCTL_OK);
+          MOQVER_D19, wired_span_of(buf, n), &roff, MOQCTL_PCTX_SUBSCRIBE,
+          &out) == MOQCTL_OK);
   CHECK(out.items[0].token.alias_type == MOQCTL_TOKEN_USE_ALIAS);
   CHECK(out.items[0].token.alias == 7);
 }
@@ -944,8 +944,8 @@ static void test_moqctl_params_auth_token_malformed_kvfmt(void) {
     usz roff = 0;
     CHECK(
         moqctl_params_take(
-            wired_span_of(buf, n), &roff, MOQCTL_PCTX_SUBSCRIBE, &out) ==
-        MOQCTL_PARAMS_KVFMT);
+            MOQVER_D19, wired_span_of(buf, n), &roff, MOQCTL_PCTX_SUBSCRIBE,
+            &out) == MOQCTL_PARAMS_KVFMT);
   }
 }
 
@@ -959,8 +959,8 @@ static void test_moqctl_params_auth_token_scope_violation(void) {
   usz             roff = 0;
   CHECK(
       moqctl_params_take(
-          wired_span_of(buf, n), &roff, MOQCTL_PCTX_SUBSCRIBE_OK, &out) ==
-      MOQCTL_VIOLATION);
+          MOQVER_D19, wired_span_of(buf, n), &roff, MOQCTL_PCTX_SUBSCRIBE_OK,
+          &out) == MOQCTL_VIOLATION);
 }
 
 /* draft-ietf-moq-transport-19 10.2.x / 15.7 Table 13: each Message
@@ -1017,7 +1017,8 @@ static void mqpt_check_one(const mqpt_row* r, u32 bit) {
   u8                   buf[16];
   usz                  n    = mqpt_build(buf, sizeof buf, r);
   usz                  roff = 0;
-  int got = moqctl_params_take(wired_span_of(buf, n), &roff, bit, &out);
+  int                  got =
+      moqctl_params_take(MOQVER_D19, wired_span_of(buf, n), &roff, bit, &out);
   CHECK(got == ((r->ctx & bit) ? MOQCTL_OK : MOQCTL_VIOLATION));
   CHECK(got != MOQCTL_OK || (roff == n && out.items[0].type == r->type));
 }
@@ -1065,7 +1066,7 @@ static void mqpt_check_one_v(int ver, const mqpt_row* r, u32 bit) {
   u8                   buf[16];
   usz                  n    = mqpt_build(buf, sizeof buf, r);
   usz                  roff = 0;
-  int got = moqctl_params_takev(ver, wired_span_of(buf, n), &roff, bit, &out);
+  int got = moqctl_params_take(ver, wired_span_of(buf, n), &roff, bit, &out);
   CHECK(got == ((r->ctx & bit) ? MOQCTL_OK : MOQCTL_VIOLATION));
   CHECK(got != MOQCTL_OK || (roff == n && out.items[0].type == r->type));
 }
@@ -1095,7 +1096,7 @@ static void test_moqctl_params_include_properties_range(void) {
   usz                  n    = mqpt_build(buf, sizeof buf, &r);
   usz                  roff = 0;
   CHECK(
-      moqctl_params_takev(
+      moqctl_params_take(
           MOQVER_D22, wired_span_of(buf, n), &roff, MOQCTL_PCTX_FETCH, &out) ==
       MOQCTL_VIOLATION);
 }
@@ -1107,7 +1108,8 @@ static int mqpt_take(
   u8       buf[32];
   usz      len  = mqpt_build(buf, sizeof buf, &r);
   usz      roff = 0;
-  return moqctl_params_take(wired_span_of(buf, len), &roff, ctx, out);
+  return moqctl_params_take(
+      MOQVER_D19, wired_span_of(buf, len), &roff, ctx, out);
 }
 
 /* LOCATION_FILTER (10.2.9) is a Length-prefixed Location Filter (5.1.2):
@@ -1203,7 +1205,8 @@ static int mqpt_twice(const mqpt_row* r, u32 ctx, moqctl_params* out) {
   buf[0]   = 2; /* count */
   CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 0));
   for (usz i = 0; i < r->n; i++) buf[off + i] = r->val[i];
-  return moqctl_params_take(wired_span_of(buf, off + r->n), &roff, ctx, out);
+  return moqctl_params_take(
+      MOQVER_D19, wired_span_of(buf, off + r->n), &roff, ctx, out);
 }
 
 /* Range Filters MAY repeat (5.1.3); any other Type repeated is a
@@ -1231,17 +1234,19 @@ static void test_moqctl_request_ok_params_scope(void) {
   static moqctl_request_ok m;
   usz                      off = 0;
   CHECK(
-      moqctl_request_ok_take(wired_span_of(prio, sizeof prio), &off, &m) ==
-      MOQCTL_OK);
+      moqctl_request_ok_take(
+          MOQVER_D19, wired_span_of(prio, sizeof prio), &off, &m) == MOQCTL_OK);
   CHECK(m.params.n == 1 && m.params.items[0].u8v == 7);
   off = 0;
   CHECK(
-      moqctl_request_ok_take(wired_span_of(large, sizeof large), &off, &m) ==
+      moqctl_request_ok_take(
+          MOQVER_D19, wired_span_of(large, sizeof large), &off, &m) ==
       MOQCTL_OK);
   CHECK(m.params.items[0].loc.group == 7 && m.params.items[0].loc.object == 3);
   off = 0;
   CHECK(
-      moqctl_request_ok_take(wired_span_of(order, sizeof order), &off, &m) ==
+      moqctl_request_ok_take(
+          MOQVER_D19, wired_span_of(order, sizeof order), &off, &m) ==
       MOQCTL_VIOLATION);
 }
 
@@ -1282,7 +1287,7 @@ static void test_moqctl_golden_subscribe_params(void) {
   wired_span              body = mqpt_golden_body(
       g_moqt_ctl_subscribe_params, G_MOQT_CTL_SUBSCRIBE_PARAMS_LEN);
   usz boff = 0;
-  CHECK(moqctl_subscribe_take(body, &boff, &m) == MOQCTL_OK);
+  CHECK(moqctl_subscribe_take(MOQVER_D19, body, &boff, &m) == MOQCTL_OK);
   CHECK(m.params.n == 4);
   CHECK(moqctl_params_find(&m.params, MOQCTL_PARAM_FORWARD)->u8v == 1);
   CHECK(
@@ -1303,7 +1308,7 @@ static void test_moqctl_golden_subscribe_ok_params(void) {
   wired_span                 body = mqpt_golden_body(
       g_moqt_ctl_subscribe_ok_params, G_MOQT_CTL_SUBSCRIBE_OK_PARAMS_LEN);
   usz boff = 0;
-  CHECK(moqctl_subscribe_ok_take(body, &boff, &m) == MOQCTL_OK);
+  CHECK(moqctl_subscribe_ok_take(MOQVER_D19, body, &boff, &m) == MOQCTL_OK);
   CHECK(moqctl_params_find(&m.params, MOQCTL_PARAM_EXPIRES)->vi == 100);
   CHECK(
       moqctl_params_find(&m.params, MOQCTL_PARAM_LARGEST_OBJECT)->loc.object ==
@@ -1320,7 +1325,7 @@ static void test_moqctl_golden_request_ok_params(void) {
   wired_span               body = mqpt_golden_body(
       g_moqt_ctl_request_ok_params, G_MOQT_CTL_REQUEST_OK_PARAMS_LEN);
   usz boff = 0;
-  CHECK(moqctl_request_ok_take(body, &boff, &m) == MOQCTL_OK);
+  CHECK(moqctl_request_ok_take(MOQVER_D19, body, &boff, &m) == MOQCTL_OK);
   CHECK(moqctl_params_find(&m.params, MOQCTL_PARAM_FORWARD)->u8v == 0);
   CHECK(
       moqctl_params_find(&m.params, MOQCTL_PARAM_SUBSCRIBER_PRIORITY)->u8v ==

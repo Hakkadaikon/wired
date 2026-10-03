@@ -54,7 +54,8 @@ static const moqctl_param* mtup_ok_largest(u64 sid) {
   wired_span               body;
   usz                      off = 0;
   if (mtup_reply(sid, &body) != MOQCTL_T_REQUEST_OK) return 0;
-  if (moqctl_request_ok_take(body, &off, &ok) != MOQCTL_OK) return 0;
+  if (moqctl_request_ok_take(MOQVER_D19, body, &off, &ok) != MOQCTL_OK)
+    return 0;
   return moqctl_params_find(&ok.params, MOQCTL_PARAM_LARGEST_OBJECT);
 }
 

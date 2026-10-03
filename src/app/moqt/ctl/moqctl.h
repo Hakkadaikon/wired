@@ -1,6 +1,7 @@
 #ifndef MOQCTL_H
 #define MOQCTL_H
 
+#include "app/moqt/ver/moqver.h"
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
@@ -159,7 +160,7 @@
 #define MOQCTL_PENC_NS 6
 /** draft-22 LOCATION_FILTER (SS9.20.9): no Length prefix, decoded by
  * moqctl_rangeloc22_take into moqctl_param.rl/has_filter. Selected only by
- * moqctl_params_take22, never by moqctl_params_take (d19). */
+ * moqctl_params_take under draft-22 only. */
 #define MOQCTL_PENC_RANGELOC22 7
 
 /** AUTHORIZATION TOKEN Alias Types (SS10.2.2). Which fields follow the
@@ -382,20 +383,14 @@ typedef struct {
  * KEY_VALUE_FORMATTING_ERROR rather than PROTOCOL_VIOLATION -- see
  * moqctl_params_take's return contract below). */
 #define MOQCTL_PARAMS_KVFMT (-4)
-int moqctl_params_take(wired_span buf, usz* off, u32 ctx, moqctl_params* out);
-int moqctl_params_put(wired_mspan buf, usz* off, const moqctl_params* params);
-
-/** moqctl_params_take for draft ver (MOQVER_*, a valid id): each Type's
- * allowed contexts, and whether it exists at all, follow that draft's
- * parameter table. Under draft-22 LOCATION_FILTER (0x21) is decoded by the
- * unprefixed codec (moqctl_rangeloc22_take, into moqctl_param.rl/
- * has_filter) instead of draft-19's Length-prefixed one. */
-int moqctl_params_takev(
+/** ver (MOQVER_*, a valid id) picks the draft's parameter table: each
+ * Type's allowed contexts, whether it exists at all, and, under draft-22,
+ * LOCATION_FILTER's unprefixed encoding (moqctl_rangeloc22_take, into
+ * moqctl_param.rl/has_filter). Every message take below that carries
+ * Parameters takes the same ver. */
+int moqctl_params_take(
     int ver, wired_span buf, usz* off, u32 ctx, moqctl_params* out);
-
-/** moqctl_params_takev(MOQVER_D22, ...); moqctl_params_take is the
- * draft-19 form. */
-int moqctl_params_take22(wired_span buf, usz* off, u32 ctx, moqctl_params* out);
+int moqctl_params_put(wired_mspan buf, usz* off, const moqctl_params* params);
 
 /** First item of Type type in params, or 0 when absent (the draft
  * default then applies, e.g. SUBSCRIBER_PRIORITY 128, SS10.2.7). */
@@ -424,7 +419,8 @@ typedef struct {
   moqctl_params params;
 } moqctl_subscribe;
 
-int moqctl_subscribe_take(wired_span buf, usz* off, moqctl_subscribe* out);
+int moqctl_subscribe_take(
+    int ver, wired_span buf, usz* off, moqctl_subscribe* out);
 int moqctl_subscribe_encode(
     wired_mspan buf, usz* off, const moqctl_subscribe* m);
 
@@ -438,7 +434,7 @@ typedef struct {
 } moqctl_subscribe_ok;
 
 int moqctl_subscribe_ok_take(
-    wired_span buf, usz* off, moqctl_subscribe_ok* out);
+    int ver, wired_span buf, usz* off, moqctl_subscribe_ok* out);
 int moqctl_subscribe_ok_encode(
     wired_mspan buf, usz* off, const moqctl_subscribe_ok* m);
 
@@ -451,7 +447,7 @@ typedef struct {
   wired_span    track_properties;
 } moqctl_publish;
 
-int moqctl_publish_take(wired_span buf, usz* off, moqctl_publish* out);
+int moqctl_publish_take(int ver, wired_span buf, usz* off, moqctl_publish* out);
 int moqctl_publish_encode(wired_mspan buf, usz* off, const moqctl_publish* m);
 
 /** draft-ietf-moq-transport-19 SS10.5 REQUEST_OK. Parameters are
@@ -465,7 +461,8 @@ typedef struct {
   wired_span    track_properties;
 } moqctl_request_ok;
 
-int moqctl_request_ok_take(wired_span buf, usz* off, moqctl_request_ok* out);
+int moqctl_request_ok_take(
+    int ver, wired_span buf, usz* off, moqctl_request_ok* out);
 int moqctl_request_ok_encode(
     wired_mspan buf, usz* off, const moqctl_request_ok* m);
 

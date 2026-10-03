@@ -47,7 +47,7 @@ typedef struct {
   moqctl_params params;
 } moqfetch_fetch;
 
-int moqfetch_fetch_take(wired_span body, moqfetch_fetch* out);
+int moqfetch_fetch_take(int ver, wired_span body, moqfetch_fetch* out);
 int moqfetch_fetch_encode(wired_mspan buf, usz* off, const moqfetch_fetch* m);
 
 /** Version-neutral FETCH request, an upper set of draft-19's Standalone +
@@ -75,7 +75,7 @@ typedef struct {
  * (End Location's "+1, Object 0 = whole group" quirk resolved here); a
  * Joining Fetch leaves range zeroed. Same return contract as
  * moqfetch_fetch_take. */
-int moqfetch_req19_take(wired_span body, moqfetch_req* out);
+int moqfetch_req19_take(int ver, wired_span body, moqfetch_req* out);
 int moqfetch_req19_encode(wired_mspan buf, usz* off, const moqfetch_req* m);
 
 /** Decodes a draft-22 FETCH body (SS "FETCH"): Request ID, Track Namespace,
@@ -95,7 +95,7 @@ typedef struct {
   wired_span    track_properties;
 } moqfetch_ok;
 
-int moqfetch_ok_take(wired_span body, moqfetch_ok* out);
+int moqfetch_ok_take(int ver, wired_span body, moqfetch_ok* out);
 int moqfetch_ok_encode(wired_mspan buf, usz* off, const moqfetch_ok* m);
 
 /** Inclusive End Object meaning "through the last Object of the group" --
@@ -107,10 +107,10 @@ int moqfetch_ok_encode(wired_mspan buf, usz* off, const moqfetch_ok* m);
 moqctl_loc moqfetch_end19_incl(moqctl_loc wire);
 moqctl_loc moqfetch_end19_wire(moqctl_loc incl);
 
-/** FETCH_OK with end held inclusive: the draft-19 wire form converted on
- * the way in and out. moqfetch_ok_take/_encode are the draft-22 form
- * (wire == model). */
-int moqfetch_ok19_take(wired_span body, moqfetch_ok* out);
+/** FETCH_OK encode with m->end held inclusive, converted to the draft-19
+ * wire form (moqfetch_end19_wire). moqfetch_ok_encode is the draft-22
+ * form (wire == model); a draft-19 decode applies moqfetch_end19_incl to
+ * moqfetch_ok_take's end. */
 int moqfetch_ok19_encode(wired_mspan buf, usz* off, const moqfetch_ok* m);
 
 /** FETCH_HEADER (11.4.4 Figure 26): Type 0x5 then Request ID. A Type

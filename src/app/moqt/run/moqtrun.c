@@ -792,7 +792,7 @@ static void moqtrun_handle_publish(
   usz            off = 0;
   moqctl_publish m;
   u8             ns_buf[WIRED_MOQTRUN_MAX_NS];
-  if (moqctl_publish_take(body, &off, &m) != MOQCTL_OK) return;
+  if (moqctl_publish_take(p->ver, body, &off, &m) != MOQCTL_OK) return;
   moqtrun_key          k = moqtrun_key_of(&m.name, ns_buf);
   wired_moqtrun_track* t = moqtrun_publish_slot(hub, p, peer_idx, k);
   if (!t) {
@@ -1275,7 +1275,7 @@ static void moqtrun_handle_subscribe(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   usz              off = 0;
   moqctl_subscribe m;
-  if (moqctl_subscribe_take(body, &off, &m) != MOQCTL_OK) return;
+  if (moqctl_subscribe_take(p->ver, body, &off, &m) != MOQCTL_OK) return;
   moqtrun_subscribe_checked(hub, p, peer_idx, &m);
 }
 
@@ -1674,7 +1674,7 @@ static void moqtrun_fetch_joining(
 static void moqtrun_handle_fetch(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   moqfetch_fetch m;
-  if (moqfetch_fetch_take(body, &m) != MOQCTL_OK) return;
+  if (moqfetch_fetch_take(p->ver, body, &m) != MOQCTL_OK) return;
   if (m.fetch_type == MOQFETCH_STANDALONE) {
     moqtrun_fetch_standalone(hub, p, &m);
     return;
@@ -1721,7 +1721,7 @@ static u64 moqtrun_tstat_verdict(
 static void moqtrun_tstat_answer(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body) {
   moqctl_subscribe m;
-  if (moqtstat_take(body, &m) != MOQCTL_OK) return;
+  if (moqtstat_take(p->ver, body, &m) != MOQCTL_OK) return;
   wired_moqtrun_track* t    = moqtrun_tstat_track(hub, &m.name);
   u64                  code = moqtrun_tstat_verdict(hub, &m, t);
   if (code != MOQTRUN_REQ_ACCEPT) {
@@ -1969,7 +1969,7 @@ static void moqtrun_handle_update(
     moqtrun_upd_close_ns(p->req);
     return;
   }
-  if (moqtstat_update_take(body, MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &m) !=
+  if (moqtstat_update_take(p->ver, body, MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &m) !=
       MOQCTL_OK) {
     moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
     return;
@@ -2087,7 +2087,7 @@ static u64 moqtrun_disc_sub_check(
 
 typedef u64 (*moqtrun_disc_check_fn)(
     const wired_moqt_hub*, const wired_moqtrun_req*);
-typedef int (*moqtrun_disc_take_fn)(wired_span, moqns_req*);
+typedef int (*moqtrun_disc_take_fn)(int, wired_span, moqns_req*);
 
 /* Copies ns into q; 0 when it exceeds WIRED_MOQTRUN_MAX_NS (refused, never
  * truncated). */
@@ -2145,7 +2145,7 @@ static void moqtrun_handle_disc(
     moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
     return;
   }
-  if (take(body, &m) != MOQCTL_OK) return;
+  if (take(p->ver, body, &m) != MOQCTL_OK) return;
   moqtrun_disc_answer(p, moqtrun_disc_verdict(hub, p->req, &m, check));
 }
 

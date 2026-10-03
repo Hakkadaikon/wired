@@ -9,19 +9,19 @@ static int moqns_req_take_head(wired_span body, usz* at, moqns_req* out) {
   return moqctl_ns_take(body, at, &out->ns);
 }
 
-static int moqns_req_take(wired_span body, u32 ctx, moqns_req* out) {
+static int moqns_req_take(int ver, wired_span body, u32 ctx, moqns_req* out) {
   usz at = 0;
   int r  = moqns_req_take_head(body, &at, out);
-  if (r == MOQCTL_OK) r = moqctl_params_take(body, &at, ctx, &out->params);
+  if (r == MOQCTL_OK) r = moqctl_params_take(ver, body, &at, ctx, &out->params);
   return moqctl_body_end(r, at, body);
 }
 
-int moqns_subscribe_take(wired_span body, moqns_req* out) {
-  return moqns_req_take(body, MOQCTL_PCTX_SUBSCRIBE_NAMESPACE, out);
+int moqns_subscribe_take(int ver, wired_span body, moqns_req* out) {
+  return moqns_req_take(ver, body, MOQCTL_PCTX_SUBSCRIBE_NAMESPACE, out);
 }
 
-int moqns_publish_take(wired_span body, moqns_req* out) {
-  return moqns_req_take(body, MOQCTL_PCTX_PUBLISH_NAMESPACE, out);
+int moqns_publish_take(int ver, wired_span body, moqns_req* out) {
+  return moqns_req_take(ver, body, MOQCTL_PCTX_PUBLISH_NAMESPACE, out);
 }
 
 int moqns_req_encode(wired_mspan buf, usz* off, const moqns_req* m) {

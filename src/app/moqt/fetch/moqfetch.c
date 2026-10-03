@@ -54,11 +54,11 @@ static int moqfetch_take_head(wired_span b, usz* at, moqfetch_fetch* m) {
   return MOQFETCH_VARIANT_TAKE[moqfetch_variant(m->fetch_type)](b, at, m);
 }
 
-int moqfetch_fetch_take(wired_span body, moqfetch_fetch* out) {
+int moqfetch_fetch_take(int ver, wired_span body, moqfetch_fetch* out) {
   usz at = 0;
   int r  = moqfetch_take_head(body, &at, out);
   if (r == MOQCTL_OK)
-    r = moqctl_params_take(body, &at, MOQCTL_PCTX_FETCH, &out->params);
+    r = moqctl_params_take(ver, body, &at, MOQCTL_PCTX_FETCH, &out->params);
   return moqctl_body_end(r, at, body);
 }
 
@@ -141,9 +141,9 @@ static void moqfetch_req_from_fetch(
   moqfetch_req_standalone_from(f, out);
 }
 
-int moqfetch_req19_take(wired_span body, moqfetch_req* out) {
+int moqfetch_req19_take(int ver, wired_span body, moqfetch_req* out) {
   moqfetch_fetch f;
-  int            r = moqfetch_fetch_take(body, &f);
+  int            r = moqfetch_fetch_take(ver, body, &f);
   if (r != MOQCTL_OK) return r;
   *out = (moqfetch_req){0};
   moqfetch_req_from_fetch(&f, out);
@@ -179,7 +179,7 @@ int moqfetch_req19_encode(wired_mspan buf, usz* off, const moqfetch_req* m) {
 }
 
 /* draft-22 FETCH body: Request ID, Track Namespace, Track Name, Parameters
- * (moqctl_params_take22 so LOCATION_FILTER decodes per SS9.20.9, not d19's
+ * (draft-22 parameters, so LOCATION_FILTER decodes per SS9.20.9, not d19's
  * Length-prefixed SS5.1.2 shape). */
 static int moqfetch_req22_take_head(wired_span b, usz* at, moqfetch_req* m) {
   int r;
@@ -211,7 +211,8 @@ int moqfetch_req22_take(wired_span body, moqfetch_req* out) {
   usz at = 0;
   int r  = moqfetch_req22_take_head(body, &at, out);
   if (r == MOQCTL_OK)
-    r = moqctl_params_take22(body, &at, MOQCTL_PCTX_FETCH, &out->params);
+    r = moqctl_params_take(
+        MOQVER_D22, body, &at, MOQCTL_PCTX_FETCH, &out->params);
   r = moqctl_body_end(r, at, body);
   if (r != MOQCTL_OK) return r;
   out->is_joining = 0;
@@ -258,11 +259,11 @@ static int moqfetch_ok_take_head(wired_span b, usz* at, moqfetch_ok* m) {
   return moqctl_loc_take(b, at, &m->end);
 }
 
-int moqfetch_ok_take(wired_span body, moqfetch_ok* out) {
+int moqfetch_ok_take(int ver, wired_span body, moqfetch_ok* out) {
   usz at = 0;
   int r  = moqfetch_ok_take_head(body, &at, out);
   if (r == MOQCTL_OK)
-    r = moqctl_params_take(body, &at, MOQCTL_PCTX_FETCH_OK, &out->params);
+    r = moqctl_params_take(ver, body, &at, MOQCTL_PCTX_FETCH_OK, &out->params);
   out->track_properties = wired_span_of(body.p + at, body.n - at);
   return moqctl_body_end(r, body.n, body);
 }
@@ -284,12 +285,6 @@ moqctl_loc moqfetch_end19_incl(moqctl_loc wire) {
 
 moqctl_loc moqfetch_end19_wire(moqctl_loc incl) {
   return moqctl_loc_of(incl.group, incl.object + 1); /* GROUP_END + 1 = 0 */
-}
-
-int moqfetch_ok19_take(wired_span body, moqfetch_ok* out) {
-  int r    = moqfetch_ok_take(body, out);
-  out->end = moqfetch_end19_incl(out->end);
-  return r;
 }
 
 int moqfetch_ok19_encode(wired_mspan buf, usz* off, const moqfetch_ok* m) {
