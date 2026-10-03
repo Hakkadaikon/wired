@@ -224,6 +224,18 @@ static void test_moqtrun_goaway_request_id_d18(void) {
   CHECK(mtdr_goaway_on(mtdr_ctl(SESS_B), &g));
 }
 
+/* The largest Request ID a varint can carry still leaves a watermark at
+ * or past it: the "+ 2" saturates instead of wrapping to 0. */
+static void test_moqtrun_goaway_request_id_saturates(void) {
+  moqctl_goaway g;
+  moqctl_ftn    f                            = mtrq_setup();
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D18;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, ~(u64)1, 0);
+  wired_moqt_goaway(&mtst_hub, mtst_z(""), 500);
+  CHECK(mtdr_goaway_by(mtdr_ctl(SESS_B), moqctl_goaway18_take, &g));
+  CHECK(g.request_id == ~(u64)0);
+}
+
 /* A draft-18 peer's control-stream GOAWAY must carry its Request ID: one
  * without is malformed (PROTOCOL_VIOLATION), one with it is recorded. */
 static void test_moqtrun_peer_goaway_d18(void) {
@@ -238,6 +250,18 @@ static void test_moqtrun_peer_goaway_d18(void) {
   mtrq_raw(SESS_B, mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY, bare, sizeof bare);
   CHECK(mtdr_closes(SESS_B, &code) == 1);
   CHECK(code == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
+/* draft-18 SS10.4: the Request ID names one of the hub's own (odd, server)
+ * Request IDs; an even one closes with INVALID_REQUEST_ID. */
+static void test_moqtrun_peer_goaway_d18_parity(void) {
+  static const u8 even[] = {0x00, 0x00, 0x02};
+  u64             code   = 0;
+  mtrq_setup();
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D18;
+  mtrq_raw(SESS_B, mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY, even, sizeof even);
+  CHECK(mtdr_closes(SESS_B, &code) == 1);
+  CHECK(code == WIRED_MOQTRUN_CLOSE_INVALID_REQUEST_ID);
 }
 
 /* A URI past WIRED_MOQTRUN_GOAWAY_URI_MAX is refused whole. */
@@ -550,6 +574,8 @@ void test_moqtrun_drain(void) {
   test_moqtrun_goaway_once_per_session();
   test_moqtrun_goaway_request_id_d18();
   test_moqtrun_peer_goaway_d18();
+  test_moqtrun_goaway_request_id_saturates();
+  test_moqtrun_peer_goaway_d18_parity();
   test_moqtrun_goaway_uri_too_long();
   test_moqtrun_goaway_late_rejected();
   test_moqtrun_drain_one_session();

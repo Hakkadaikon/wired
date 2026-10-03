@@ -2350,13 +2350,30 @@ static moqtrun_goaway_take_fn moqtrun_goaway_decoder(int ver) {
 /* draft-ietf-moq-transport-19 10.4: a GOAWAY on the control stream must
  * be well formed in p's draft, carry no New Session URI (the hub is the
  * server), and be the session's first. */
-static int moqtrun_goaway_bad(wired_moqtrun_peer* p, wired_span body) {
-  usz           off = 0;
-  moqctl_goaway g;
-  if (moqtrun_goaway_decoder(p->ver)(body, &off, &g) != MOQCTL_OK ||
-      g.new_session_uri.n)
+static int moqtrun_goaway_bad(
+    wired_moqtrun_peer* p, wired_span body, moqctl_goaway* g) {
+  usz off = 0;
+  if (moqtrun_goaway_decoder(p->ver)(body, &off, g) != MOQCTL_OK ||
+      g->new_session_uri.n)
     return 1;
   return moqsess_step(&p->sess, MOQSESS_EV_RECV_GOAWAY) != MOQSESS_CLOSE_NONE;
+}
+
+/* draft-18 SS10.4: the Request ID names one of the hub's own Request IDs,
+ * which are odd (server); the wrong parity is INVALID_REQUEST_ID. */
+static int moqtrun_goaway_rid_bad(
+    const wired_moqtrun_peer* p, const moqctl_goaway* g) {
+  return (moqver_caps(p->ver) & MOQVER_CAP_GOAWAY_REQID) &&
+         !(g->request_id & 1);
+}
+
+/* Session close code a control-stream GOAWAY calls for; 0 for none. */
+static u32 moqtrun_goaway_close(wired_moqtrun_peer* p, wired_span body) {
+  moqctl_goaway g = {0};
+  if (moqtrun_goaway_bad(p, body, &g))
+    return WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
+  return moqtrun_goaway_rid_bad(p, &g) ? WIRED_MOQTRUN_CLOSE_INVALID_REQUEST_ID
+                                       : 0;
 }
 
 /* A GOAWAY on a request stream asks to migrate that one request; the
@@ -2367,8 +2384,8 @@ static void moqtrun_dispatch_goaway(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   (void)peer_idx;
   if (p->req) return;
-  if (moqtrun_goaway_bad(p, body))
-    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  u32 code = moqtrun_goaway_close(p, body);
+  if (code) moqtrun_close_with(hub, p, code);
 }
 
 /* A message with no request to refuse: consumed by its Length, no reply. */
@@ -2572,11 +2589,12 @@ static int moqtrun_rid_counts(int peek, u64 type) {
  * SS10.4 GOAWAY Request ID). */
 static void moqtrun_rid_note(
     wired_moqtrun_peer* p, int peek, u64 type, wired_span body) {
-  usz off = 0;
-  u64 rid;
+  usz off  = 0;
+  u64 rid  = 0;
+  u64 next = ~(u64)0; /* rid + 2 saturates: u64_add_ok keeps it on overflow */
   if (!moqtrun_rid_counts(peek, type)) return;
-  if (moqvi_take(body, &off, &rid))
-    p->peer_rid_next = u64_max(p->peer_rid_next, rid + 2);
+  if (moqvi_take(body, &off, &rid)) u64_add_ok(rid, 2, &next);
+  p->peer_rid_next = u64_max(p->peer_rid_next, next);
 }
 
 static moqtrun_ctl_fn moqtrun_msg_route(
