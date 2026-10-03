@@ -278,6 +278,26 @@ int moqfetch_ok_encode(wired_mspan buf, usz* off, const moqfetch_ok* m) {
   return bytes_put(buf, off, m->track_properties);
 }
 
+moqctl_loc moqfetch_end19_incl(moqctl_loc wire) {
+  return moqctl_loc_of(wire.group, wire.object - 1); /* 0 - 1 = GROUP_END */
+}
+
+moqctl_loc moqfetch_end19_wire(moqctl_loc incl) {
+  return moqctl_loc_of(incl.group, incl.object + 1); /* GROUP_END + 1 = 0 */
+}
+
+int moqfetch_ok19_take(wired_span body, moqfetch_ok* out) {
+  int r    = moqfetch_ok_take(body, out);
+  out->end = moqfetch_end19_incl(out->end);
+  return r;
+}
+
+int moqfetch_ok19_encode(wired_mspan buf, usz* off, const moqfetch_ok* m) {
+  moqfetch_ok w = *m;
+  w.end         = moqfetch_end19_wire(m->end);
+  return moqfetch_ok_encode(buf, off, &w);
+}
+
 /* ===== FETCH_HEADER (11.4.4 Figure 26) ===== */
 
 static int moqfetch_hdr_type(wired_span buf, usz* at) {
