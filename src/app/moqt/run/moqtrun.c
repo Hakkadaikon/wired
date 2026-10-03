@@ -1286,15 +1286,17 @@ static moqctl_loc moqtrun_after(moqctl_loc l) {
   return moqctl_loc_of(l.group, l.object + 1);
 }
 
-/* End Location "last Object + 1", Object 0 meaning the whole End Group
- * (10.12.1), as an exclusive bound. */
-static moqctl_loc moqtrun_end_excl(moqctl_loc e) {
+/* An inclusive end (moqfetch_req_end; Object MOQFETCH_OBJ_GROUP_END = the
+ * whole group) as an exclusive bound: the draft-19 End Location "last
+ * Object + 1", whose Object 0 means the whole group (10.12.1). */
+static moqctl_loc moqtrun_end_excl(moqctl_loc incl) {
+  moqctl_loc e = moqfetch_end19_wire(incl);
   return e.object ? e : moqctl_loc_of(e.group + 1, 0);
 }
 
 /* A FETCH resolved against its track: the cache records to read, the
  * range [start, end), and the End Location FETCH_OK reports, inclusive
- * (moqfetch_end19_incl; Object MOQFETCH_OBJ_GROUP_END = a whole group). */
+ * (moqfetch_req_end; Object MOQFETCH_OBJ_GROUP_END = a whole group). */
 typedef struct {
   u64        tag;
   moqctl_loc start;
@@ -1549,21 +1551,68 @@ static int moqtrun_fetch_range_bad(
          !moqctl_loc_less(start, end);
 }
 
-/* 10.13: an End past the Largest Object is cut to the Largest Object,
- * and FETCH_OK says so. */
+/* 10.13: an End (inclusive) past the Largest Object is cut to the Largest
+ * Object, and FETCH_OK says so. */
 static void moqtrun_fetch_clamp(
-    moqtrun_frange* r, const wired_moqtrun_track* t, moqctl_loc req_end) {
+    moqtrun_frange* r, const wired_moqtrun_track* t, moqctl_loc end) {
   moqctl_loc top = moqtrun_after(t->largest);
-  r->end         = moqtrun_end_excl(req_end);
-  r->ok_end      = moqfetch_end19_incl(req_end);
+  r->end         = moqtrun_end_excl(end);
+  r->ok_end      = end;
   if (!moqctl_loc_less(top, r->end)) return;
   r->end    = top;
   r->ok_end = t->largest;
 }
 
-/* 10.12.1 Standalone Fetch of a peer-published track. */
+typedef int (*moqtrun_fetch_start_fn)(
+    const wired_moqtrun_track*, const moqctl_rangeloc*, moqctl_loc*);
+
+/* draft-22 SS9.20.9 0x01: start_group groups back from the Next Group,
+ * {Largest.Group + 1 - n, 0}, floored at group 0. */
+static int moqtrun_fetch_start_rel(
+    const wired_moqtrun_track* t, const moqctl_rangeloc* rl, moqctl_loc* s) {
+  u64 next = t->largest.group + 1;
+  *s       = moqctl_loc_of(next - u64_min(rl->start_group, next), 0);
+  return 1;
+}
+
+/* Next Object is always past Largest: nothing to fetch (INVALID_RANGE). */
+static int moqtrun_fetch_start_next(
+    const wired_moqtrun_track* t, const moqctl_rangeloc* rl, moqctl_loc* s) {
+  (void)t, (void)rl, (void)s;
+  return 0;
+}
+
+static int moqtrun_fetch_start_abs(
+    const wired_moqtrun_track* t, const moqctl_rangeloc* rl, moqctl_loc* s) {
+  (void)t;
+  *s = moqctl_loc_of(rl->start_group, rl->start_object);
+  return 1;
+}
+
+/* Indexed by moqctl_rsk. */
+static const moqtrun_fetch_start_fn MOQTRUN_FETCH_START[] = {
+    moqtrun_fetch_start_rel, moqtrun_fetch_start_next, moqtrun_fetch_start_abs};
+
+/* rl resolved against t into r; 0 when the range is INVALID_RANGE
+ * (10.12.3). */
+static int moqtrun_fetch_resolve(
+    const wired_moqtrun_track* t,
+    const moqctl_rangeloc*     rl,
+    moqtrun_frange*            r) {
+  moqctl_loc start, end;
+  if (!MOQTRUN_FETCH_START[rl->sk](t, rl, &start)) return 0;
+  end = moqfetch_req_end(rl, t->largest);
+  if (moqtrun_fetch_range_bad(t, start, moqtrun_end_excl(end))) return 0;
+  r->tag   = t->cache_tag;
+  r->start = start;
+  moqtrun_fetch_clamp(r, t, end);
+  return 1;
+}
+
+/* A Standalone Fetch (draft-19 10.12.1; every draft-22 FETCH) of a
+ * peer-published track. */
 static void moqtrun_fetch_standalone(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqfetch_fetch* m) {
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqfetch_req* m) {
   u8                   ns_buf[WIRED_MOQTRUN_MAX_NS];
   moqtrun_frange       r;
   wired_moqtrun_track* t =
@@ -1572,13 +1621,10 @@ static void moqtrun_fetch_standalone(
     moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
     return;
   }
-  if (moqtrun_fetch_range_bad(t, m->start, moqtrun_end_excl(m->end))) {
+  if (!moqtrun_fetch_resolve(t, &m->range, &r)) {
     moqtrun_send_request_error(p, MOQCTL_ERR_INVALID_RANGE);
     return;
   }
-  r.tag   = t->cache_tag;
-  r.start = m->start;
-  moqtrun_fetch_clamp(&r, t, m->end);
   moqtrun_fetch_accept(hub, p, m->request_id, &r);
 }
 
@@ -1631,7 +1677,7 @@ static wired_moqtrun_sub* moqtrun_sub_by_rid(
 /* 10.12.2.1 Start group: Joining Location.Group - Joining Start (never
  * below 0) for a Relative, Joining Start itself for an Absolute Joining
  * Fetch. */
-static u64 moqtrun_join_group(const moqfetch_fetch* m, moqctl_loc jl) {
+static u64 moqtrun_join_group(const moqfetch_req* m, moqctl_loc jl) {
   if (m->fetch_type == MOQFETCH_ABSOLUTE_JOINING) return m->joining_start;
   return jl.group - u64_min(m->joining_start, jl.group);
 }
@@ -1645,10 +1691,10 @@ static int moqtrun_join_bad(const wired_moqtrun_sub* s, u64 group) {
 /* 10.12.2 Joining Fetch: ends at the subscription's Joining Location so
  * FETCH and SUBSCRIBE meet with no gap or overlap. */
 static void moqtrun_fetch_joining(
-    wired_moqt_hub*       hub,
-    wired_moqtrun_peer*   p,
-    usz                   peer_idx,
-    const moqfetch_fetch* m) {
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    usz                 peer_idx,
+    const moqfetch_req* m) {
   wired_moqtrun_track* t = 0;
   wired_moqtrun_sub*   s =
       moqtrun_sub_by_rid(hub, peer_idx, m->joining_request_id, &t);
@@ -1669,13 +1715,22 @@ static void moqtrun_fetch_joining(
   moqtrun_fetch_accept(hub, p, m->request_id, &r);
 }
 
+/* The FETCH body in p's draft: draft-22's (SS9.11) or the draft-18/19
+ * one (10.12), both into moqfetch_req. */
+static int moqtrun_fetch_take(
+    const wired_moqtrun_peer* p, wired_span body, moqfetch_req* m) {
+  if (moqver_caps(p->ver) & MOQVER_CAP_FETCH_BODY_V22)
+    return moqfetch_req22_take(body, m);
+  return moqfetch_req19_take(p->ver, body, m);
+}
+
 /* draft 10.12 FETCH. ponytail: groups always go in ascending order
  * (GROUP_ORDER is not consulted, 10.2.8). */
 static void moqtrun_handle_fetch(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
-  moqfetch_fetch m;
-  if (moqfetch_fetch_take(p->ver, body, &m) != MOQCTL_OK) return;
-  if (m.fetch_type == MOQFETCH_STANDALONE) {
+  moqfetch_req m;
+  if (moqtrun_fetch_take(p, body, &m) != MOQCTL_OK) return;
+  if (!m.is_joining) {
     moqtrun_fetch_standalone(hub, p, &m);
     return;
   }
