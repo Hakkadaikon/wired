@@ -47,6 +47,19 @@ Supported test cases: `handshake`, `transfer`,
 environment, serves `GET` requests from `/www/<endpoint>/` and saves
 transfer results under `/downloads/<endpoint>/`.
 
+## MoQT relay mode
+
+A third image runs `examples/moqt_interop/wired_server` as a draft-19
+MoQT relay (WebTransport only, subprotocol `moqt-19`) for
+[moq-interop-runner](https://github.com/englishm/moq-interop-runner):
+
+```sh
+CONNTABLE_CAP=64 just gen-ninja && ninja examples/moqt_interop/wired_server
+docker build -t ghcr.io/hakkadaikon/wired-moqt-interop:latest -f interop/Dockerfile.moqt .
+# in the runner (wired is registered in implementations.json):
+make interop-relay RELAY=wired
+```
+
 ## Limitations
 
 - Response bodies larger than 16KB are served from a shared large-body pool
