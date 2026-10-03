@@ -49,6 +49,43 @@ typedef struct {
 int moqfetch_fetch_take(wired_span body, moqfetch_fetch* out);
 int moqfetch_fetch_encode(wired_mspan buf, usz* off, const moqfetch_fetch* m);
 
+/** Version-neutral FETCH request, an upper set of draft-19's Standalone +
+ * Joining split and draft-22's single Track Namespace/Name + LOCATION_FILTER
+ * parameter form. is_joining is only ever set by a d19 Relative/Absolute
+ * Joining Fetch (draft-22 has no Joining Fetch); track/range are then
+ * unused -- the publisher resolves the range from the joined subscription,
+ * which this layer does not have. fetch_type keeps d19's own Fetch Type
+ * (needed to tell a Relative Joining's relative joining_start from an
+ * Absolute Joining's absolute one, SS10.12.2.1); it is always
+ * MOQFETCH_STANDALONE for a draft-22 request. */
+typedef struct {
+  u64             request_id;
+  u64             fetch_type; /* MOQFETCH_STANDALONE/RELATIVE/ABSOLUTE */
+  int             is_joining;
+  u64             joining_request_id; /* valid iff is_joining */
+  u64             joining_start;      /* valid iff is_joining */
+  moqctl_ftn      track;              /* valid iff !is_joining */
+  moqctl_rangeloc range;              /* valid iff !is_joining */
+  moqctl_params   params;
+} moqfetch_req;
+
+/** Decodes a draft-19 FETCH body (10.12) into the version-neutral model.
+ * A Standalone Fetch's Start/End Location pair is normalized into range
+ * (End Location's "+1, Object 0 = whole group" quirk resolved here); a
+ * Joining Fetch leaves range zeroed. Same return contract as
+ * moqfetch_fetch_take. */
+int moqfetch_req19_take(wired_span body, moqfetch_req* out);
+int moqfetch_req19_encode(wired_mspan buf, usz* off, const moqfetch_req* m);
+
+/** Decodes a draft-22 FETCH body (SS "FETCH"): Request ID, Track Namespace,
+ * Track Name, then Parameters. is_joining is always 0. range is the
+ * LOCATION_FILTER parameter (0x21) if present, else "fetch everything"
+ * (sk=ABS, start_group=0, start_object=0, ek=UNBOUNDED) per SS9.20.9's "If
+ * omitted from FETCH ..., the fetch ... is unfiltered". Same return
+ * contract as moqfetch_fetch_take. */
+int moqfetch_req22_take(wired_span body, moqfetch_req* out);
+int moqfetch_req22_encode(wired_mspan buf, usz* off, const moqfetch_req* m);
+
 /** FETCH_OK (10.13 Figure 16). track_properties is the rest of the body. */
 typedef struct {
   u64           end_of_track;

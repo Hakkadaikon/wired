@@ -99,6 +99,157 @@ int moqfetch_fetch_encode(wired_mspan buf, usz* off, const moqfetch_fetch* m) {
   return moqctl_params_put(buf, off, &m->params);
 }
 
+/* ===== moqfetch_req: version-neutral FETCH (ledger 3-7) =====
+ * A thin translation layer over moqfetch_fetch (d19 wire) / moqctl_rangeloc
+ * (d19 Standalone Start/End <-> d22 LOCATION_FILTER), not a reimplementation
+ * of either wire parser. */
+
+/* 10.12.1: "End Location: the end Location, plus 1. A Location.Object value
+ * of 0 means the entire group is requested." Object 0 -> whole end.group
+ * (MOQCTL_REK_GROUP); otherwise the inclusive end is {end.group,
+ * end.object - 1} (MOQCTL_REK_OBJ). */
+static void moqfetch_req_range_from_end(moqctl_loc end, moqctl_rangeloc* r) {
+  r->end_group = end.group;
+  if (end.object == 0) {
+    r->ek = MOQCTL_REK_GROUP;
+    return;
+  }
+  r->ek         = MOQCTL_REK_OBJ;
+  r->end_object = end.object - 1;
+}
+
+static void moqfetch_req_standalone_from(
+    const moqfetch_fetch* f, moqfetch_req* out) {
+  out->track              = f->track;
+  out->range.sk           = MOQCTL_RSK_ABS;
+  out->range.start_group  = f->start.group;
+  out->range.start_object = f->start.object;
+  moqfetch_req_range_from_end(f->end, &out->range);
+}
+
+static void moqfetch_req_from_fetch(
+    const moqfetch_fetch* f, moqfetch_req* out) {
+  out->request_id = f->request_id;
+  out->fetch_type = f->fetch_type;
+  out->params     = f->params;
+  out->is_joining = f->fetch_type != MOQFETCH_STANDALONE;
+  if (out->is_joining) {
+    out->joining_request_id = f->joining_request_id;
+    out->joining_start      = f->joining_start;
+    return;
+  }
+  moqfetch_req_standalone_from(f, out);
+}
+
+int moqfetch_req19_take(wired_span body, moqfetch_req* out) {
+  moqfetch_fetch f;
+  int            r = moqfetch_fetch_take(body, &f);
+  if (r != MOQCTL_OK) return r;
+  *out = (moqfetch_req){0};
+  moqfetch_req_from_fetch(&f, out);
+  return MOQCTL_OK;
+}
+
+/* Inverse of moqfetch_req_range_from_end: an inclusive {end_group,
+ * end_object} range (OBJ) re-derives the "+1" wire End Location; a whole
+ * end_group range (GROUP) re-derives Object 0. */
+static moqctl_loc moqfetch_req_end_to_loc(const moqctl_rangeloc* r) {
+  if (r->ek == MOQCTL_REK_GROUP) return moqctl_loc_of(r->end_group, 0);
+  return moqctl_loc_of(r->end_group, r->end_object + 1);
+}
+
+static void moqfetch_req_to_fetch(const moqfetch_req* m, moqfetch_fetch* f) {
+  f->request_id = m->request_id;
+  f->fetch_type = m->fetch_type;
+  f->params     = m->params;
+  if (m->is_joining) {
+    f->joining_request_id = m->joining_request_id;
+    f->joining_start      = m->joining_start;
+    return;
+  }
+  f->track = m->track;
+  f->start = moqctl_loc_of(m->range.start_group, m->range.start_object);
+  f->end   = moqfetch_req_end_to_loc(&m->range);
+}
+
+int moqfetch_req19_encode(wired_mspan buf, usz* off, const moqfetch_req* m) {
+  moqfetch_fetch f = {0};
+  moqfetch_req_to_fetch(m, &f);
+  return moqfetch_fetch_encode(buf, off, &f);
+}
+
+/* draft-22 FETCH body: Request ID, Track Namespace, Track Name, Parameters
+ * (moqctl_params_take22 so LOCATION_FILTER decodes per SS9.20.9, not d19's
+ * Length-prefixed SS5.1.2 shape). */
+static int moqfetch_req22_take_head(wired_span b, usz* at, moqfetch_req* m) {
+  int r;
+  if (!moqvi_take(b, at, &m->request_id)) return MOQCTL_INSUFFICIENT;
+  r = moqctl_ns_take(b, at, &m->track.ns);
+  if (r != MOQCTL_OK) return r;
+  return moqctl_name_take(b, at, &m->track.name);
+}
+
+/* SS9.20.9: "If omitted from FETCH ..., the fetch ... is unfiltered" ->
+ * the whole track (sk=ABS, start {0,0}, ek=UNBOUNDED), not a rejection. */
+static void moqfetch_req22_range_default(moqctl_rangeloc* r) {
+  *r    = (moqctl_rangeloc){0};
+  r->sk = MOQCTL_RSK_ABS;
+  r->ek = MOQCTL_REK_UNBOUNDED;
+}
+
+static void moqfetch_req22_range_from_params(moqfetch_req* m) {
+  const moqctl_param* p =
+      moqctl_params_find(&m->params, MOQCTL_PARAM_LOCATION_FILTER);
+  if (!p || !p->has_filter) {
+    moqfetch_req22_range_default(&m->range);
+    return;
+  }
+  m->range = p->rl;
+}
+
+int moqfetch_req22_take(wired_span body, moqfetch_req* out) {
+  usz at = 0;
+  int r  = moqfetch_req22_take_head(body, &at, out);
+  if (r == MOQCTL_OK)
+    r = moqctl_params_take22(body, &at, MOQCTL_PCTX_FETCH, &out->params);
+  r = moqctl_body_end(r, at, body);
+  if (r != MOQCTL_OK) return r;
+  out->is_joining = 0;
+  out->fetch_type = MOQFETCH_STANDALONE;
+  moqfetch_req22_range_from_params(out);
+  return MOQCTL_OK;
+}
+
+/* Re-derives the LOCATION_FILTER parameter from m->range (always present
+ * on encode: the "fetch everything" default and an explicit filter use the
+ * same moqctl_rangeloc22_put(has_filter=1, ...) shape as any other
+ * absolute-start/open-ended filter -- a receiver cannot tell them apart on
+ * the wire, nor needs to). */
+static void moqfetch_req22_put_filter(moqfetch_req* m) {
+  moqctl_param* p;
+  if (moqctl_params_find(&m->params, MOQCTL_PARAM_LOCATION_FILTER)) return;
+  p             = &m->params.items[m->params.n];
+  p->type       = MOQCTL_PARAM_LOCATION_FILTER;
+  p->enc        = MOQCTL_PENC_RANGELOC22;
+  p->has_filter = 1;
+  p->rl         = m->range;
+  m->params.n++;
+}
+
+static int moqfetch_req22_put_head(
+    wired_mspan buf, usz* off, const moqfetch_req* m) {
+  if (!moqvi_put(buf, off, m->request_id)) return 0;
+  return moqctl_ns_put(buf, off, &m->track.ns);
+}
+
+int moqfetch_req22_encode(wired_mspan buf, usz* off, const moqfetch_req* m) {
+  moqfetch_req tmp = *m;
+  moqfetch_req22_put_filter(&tmp);
+  if (!moqfetch_req22_put_head(buf, off, &tmp)) return 0;
+  if (!moqctl_name_put(buf, off, tmp.track.name)) return 0;
+  return moqctl_params_put(buf, off, &tmp.params);
+}
+
 /* ===== FETCH_OK (10.13 Figure 16) ===== */
 
 static int moqfetch_ok_take_head(wired_span b, usz* at, moqfetch_ok* m) {
