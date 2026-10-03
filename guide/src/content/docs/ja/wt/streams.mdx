@@ -6,7 +6,7 @@ sidebar:
 ---
 import Example from '../../../../components/Example.astro';
 
-ストリームは信頼性があり、順序も保証されます。
+ストリームで送ったデータは、欠けることなく、送った順序どおりに届きます。
 このページのサーバーは、新しいセッションごとに自分で開いたストリームで挨拶を送り、クライアントが開いた双方向ストリームはエコーします。
 
 <Example id="wt-streams" />
@@ -16,7 +16,7 @@ import Example from '../../../../components/Example.astro';
 - `wired_server_wt_open_uni(s, payload)` は、サーバーからクライアントへのストリームを開き、`payload` を送って閉じます。
   ペイロードの先頭には、セッションを示す WebTransport のストリームシグナルが必要です。
   `wired_wtwire_signal_put` が、`s->connect_stream_id` からこれを書きます。
-- `wt_on_stream_data` は、クライアントのストリームのバイト列を渡します。
+- `wt_on_stream_data` は、クライアントのストリームに届いたバイト列を渡します。
   クライアントが書き込みを終えると、`fin` が 1 になります。
   この例は `fin` を待ち、メッセージ全体が 1 つのチャンクで届いたと仮定します。
   小さなメッセージなら、この仮定は成り立ちます。

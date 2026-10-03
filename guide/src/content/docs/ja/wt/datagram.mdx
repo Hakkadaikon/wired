@@ -6,7 +6,7 @@ sidebar:
 ---
 import Example from '../../../../components/Example.astro';
 
-WebTransport のセッションでは、データグラムをやり取りできます。
+WebTransport（ブラウザーとサーバーが HTTP/3 の上で双方向にやり取りするための API）のセッションでは、データグラムをやり取りできます。
 データグラムは小さなメッセージで、順序の保証も再送もありません。
 このページのサーバーは、受け取ったデータグラムを送り元のクライアントへそのまま返します。
 
@@ -16,7 +16,7 @@ WebTransport のセッションでは、データグラムをやり取りでき�
 
 - `wired_server_run_opt` は、`wired_server_run` にコールバックを加えたものです。
   `opt.incoming_cpu = -1`（「無効」を表す既定値）を設定してから、必要な WebTransport のフックを登録します。
-- `id.max_datagram_frame_size = 65535` は、QUIC DATAGRAM に対応していることを告知します。
+- `id.max_datagram_frame_size = 65535` は、QUIC DATAGRAM（再送しないメッセージを運ぶ QUIC の拡張）に対応していることを告知します。
   WebTransport のクライアントは、これがないサーバーとは接続しません。
   サーバーがデータグラムを一度も送らない場合でも同じです。
 - `wt_on_session` は、受け入れたセッションごとに 1 回、その `:path` を引数に呼ばれます。

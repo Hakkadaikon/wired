@@ -22,8 +22,8 @@ import Example from '../../../../components/Example.astro';
   これは、近いうちに終えるよう求める要求です。
   セッションは開いたままなので、2 つ目のデータグラムも届きます。
   送るのはセッションごとに 1 回までです。
-- webtransport-go v0.13 には、drain を扱う API がありません。
-  未知のカプセルとして読み飛ばすため、クライアントの出力には何も現れません。
+- クライアント側の webtransport-go v0.13 には、drain を扱う API がありません。
+  未知のカプセル（WebTransport の制御用メッセージ）として読み飛ばすため、クライアントの出力には何も現れません。
 - `wired_server_wt_close_session(s, 4001, reason)` は、そのコードと理由を載せた `WT_CLOSE_SESSION` を送り、セッションを終えます。
   送信はその場では行わずキューに積み、理由の文字列はコピーします。
   クライアントには、同じコードと理由を持つ `*webtransport.SessionError` として届きます。

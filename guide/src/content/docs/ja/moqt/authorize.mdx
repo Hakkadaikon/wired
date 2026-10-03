@@ -6,28 +6,28 @@ sidebar:
 ---
 import Example from '../../../../components/Example.astro';
 
-デフォルトでは、ハブはすべての SUBSCRIBE を許可します。
-`wired_moqt_hub.authorize_subscribe` を設定すると、ハブはリレーになります。
-自分のトラックとピアのトラックを問わず、他の処理より前にすべてのリクエストを
-検査します。
+デフォルトでは、ハブはすべての SUBSCRIBE（購読のリクエスト）を許可します。
+`wired_moqt_hub.authorize_subscribe` を設定すると、ハブはリレーになり、
+自分のトラックとピア（接続相手）のトラックを問わず、他のどの処理よりも前に
+すべてのリクエストを検査します。
 
 <Example id="moqt-authorize" />
 
 ## 仕組み
 
 - `hub.authorize_subscribe = authorize` でフックを登録します。
-  `authorize_ctx` は、その第一引数として渡される不透明な値です。
-  0（`wired_moqt_init` のデフォルト）のままなら、ハブは誰にでも開いています。
-- フックには、要求された Full Track Name と、提示された AUTHORIZATION TOKEN
-  パラメータ（リクエストが何も持たなければ 0）が渡されます。
-  実際のトークン方式（CAT、Privacy Pass）を検証するのは、デプロイする側の責務です。
+  `authorize_ctx` はフックの第一引数としてそのまま渡される値で、SDK は中身を解釈しません。
+  0（`wired_moqt_init` のデフォルト）のままなら、ハブは誰にでも開かれたままです。
+- フックには、要求された Full Track Name（名前空間と名前の組）と、提示された
+  AUTHORIZATION TOKEN パラメータ（リクエストが何も持たなければ 0）が渡されます。
+  実際のトークン方式（CAT、Privacy Pass）を検証するのは、デプロイする側の仕事です。
   SDK はバイト列を運び、フックを呼ぶだけです。
-- draft-ietf-moq-transport-19 SS13.3 により、すべての SUBSCRIBE は、
+- draft-ietf-moq-transport-19 の 13.3 節のとおり、すべての SUBSCRIBE は、
   トラックの照合より前にこの検査を通ります。
-  ポリシーが拒否した名前には、その名前のトラックが一つも存在しない場合でも
+  ポリシーが拒否した名前には、その名前のトラックが 1 つも存在しない場合でも
   REQUEST_ERROR UNAUTHORIZED が返ります。
-  このページの `secret` はどこにも公開されていません。
-  拒否は、トラックが存在しないことの副作用ではなく、ポリシーそのものによるものです。
+  このページの `secret` はどこにも公開されていないので、この拒否は、
+  トラックが存在しないことの副作用ではなく、ポリシーそのものによるものです。
 - ポリシーが許可した名前は、前のページまでと同じ経路を進みます。
   ハブ自身のトラック（およびピアのトラック）と照合され、SUBSCRIBE_OK が返り、
   いつもの配信が始まります。

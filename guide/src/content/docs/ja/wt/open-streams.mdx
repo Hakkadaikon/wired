@@ -1,15 +1,15 @@
 ---
-title: サーバーが開いたストリームを開いたままにする
-description: uni ストリームを閉じずに開き、あとからラウンドを追加して、最後に自分で終える。
+title: サーバーが開いたストリームを閉じずに保つ
+description: 単方向（uni）ストリームを閉じずに開き、あとからラウンドを追加して、最後に自分で終える。
 sidebar:
   order: 6
 ---
 import Example from '../../../../components/Example.astro';
 
 [ストリーム](../streams/) のページの `wired_server_wt_open_uni` は、
-ペイロード全体を送ってすぐに FIN で閉じます。
-`wired_server_wt_open_uni_stream` は同じ種類のストリームを開きますが、閉じずに残します。
-アプリは、あとから `wired_server_wt_stream_send` でラウンドを追加し、
+ペイロード全体を送り、すぐに FIN（ストリームの終わりを示す印）で閉じます。
+`wired_server_wt_open_uni_stream` は同じ種類の単方向（uni）ストリームを開きますが、閉じずに残します。
+アプリは、あとから `wired_server_wt_stream_send` でラウンド（1 回分の送信）を追加し、
 FIN を送るラウンドも自分で決められます。
 
 <Example id="wt-open-streams" />

@@ -6,8 +6,9 @@ sidebar:
 ---
 import Example from '../../../../components/Example.astro';
 
-MoQT（draft-ietf-moq-transport-19）のサーバーは、WebTransport のコールバックの上に置いた `wired_moqt_hub` です。
-このページではハブだけを動かし、接続したクライアントがサーバーの SETUP を受け取ります。
+MoQT（Media over QUIC Transport、draft-ietf-moq-transport-19）は、映像や音声などのメディアを QUIC の上で運ぶためのプロトコルです。
+そのサーバーは、WebTransport のコールバックの上に置いた `wired_moqt_hub` です。
+このページではハブだけを動かし、接続したクライアントがサーバーの SETUP（セッションを始める最初のメッセージ）を受け取ります。
 
 <Example id="moqt-hub" />
 
@@ -16,11 +17,11 @@ MoQT（draft-ietf-moq-transport-19）のサーバーは、WebTransport のコー
 - `wired_moqt_init(&hub, io)` がハブを初期化します。
   `io` は、ハブが使う WebTransport の送信関数の表です。
   `wired_server_wt_stream_send` はそのまま渡せます。
-  ストリームを開く 2 つの呼び出しには先頭にストリームシグナルが必要なので、`with_signal` が `wired_wtwire_signal_put` でそれを付けます。
+  ストリームを開く 2 つの呼び出しには、先頭にストリームシグナル（目印のバイト列）が必要なので、`with_signal` が `wired_wtwire_signal_put` でそれを付けます。
 - ハブの `wired_moqt_on_session`、`_on_stream_data`、`_on_datagram`、`_on_session_close` は、それぞれ `&hub` をコンテキストにして `wired_srvrun_opt` にそのまま設定します。
   サーバーを動かすのは `wired_server_run_opt` です。
 - セッションが開くと、ハブは双方向の制御ストリームを開き、その上で SETUP（type `0x2f00`）を送ります。
   クライアントはこのストリームで SETUP を読み、同じストリームでリクエストを送ります。
-- identity の `max_datagram_frame_size` を設定すると QUIC DATAGRAM が有効になります。
+- サーバーの識別情報で `max_datagram_frame_size` を設定すると、QUIC DATAGRAM（再送しないメッセージを運ぶ QUIC の拡張）が有効になります。
   WebTransport のクライアントはこれを必要とします。
 - `moqtrun.h` は `wired.h` に含まれないので、別にインクルードします。

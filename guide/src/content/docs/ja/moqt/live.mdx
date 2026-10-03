@@ -6,10 +6,10 @@ sidebar:
 ---
 import Example from '../../../../components/Example.astro';
 
-クロックに合わせて配信するトラックです。
+このページで扱うのは、クロックに合わせて配信するトラックです。
 `wired_moqt_publish_live` は、フラグメント化された MP4 の各フラグメントを、
-連続する Group に変換します。
-`group_ms` ごとに 1 つずつ、サーバーのクロックがその Group に入った瞬間、
+連続する Group（MoQT の配信単位）に変換します。
+Group は `group_ms` ごとに 1 つ進み、サーバーのクロックがその Group の区間に入った瞬間、
 すべての購読者へ送られます。
 
 <Example id="moqt-live" />
@@ -18,9 +18,8 @@ import Example from '../../../../components/Example.astro';
 
 - `mp4frag_scan` は、フラグメント化された MP4 のトップレベルボックス
   （ISO/IEC 14496-12）を走査し、init セグメント（`ftyp`+`moov`）と、
-  `moof`+`mdat` の各フラグメントへのビューの一覧に分けます。
-  サンプルテーブルは解析しません。
-  公開に必要な境界だけを読みます。
+  `moof`+`mdat` の各フラグメントへのビュー（コピーではなく、元のバイト列を指す参照）の一覧に分けます。
+  サンプルテーブルは解析せず、公開に必要な境界だけを読みます。
   `movie-live.mp4`（`main.c` の隣に置かれており、`gen_movie.py` で再生成できます）は、
   小さな合成ファイルです。
   ボックス構造は本物ですが、メディアのバイト列はダミーです。
@@ -46,7 +45,7 @@ import Example from '../../../../components/Example.astro';
   フラグメント（`body`）の手前に置きます。
   アダプタ側は、WebTransport の signal の後ろでこの両方を連結し、
   自前の領域へ書き込みます。
-  この領域は、SDK がそのストリームをもう `wired_server_wt_stream_inflight`
-  ではないと報告するまで、書き換えてはいけません。
-  このページが小さなリングを持っているのはこのためです。
+  この領域は、`wired_server_wt_stream_inflight` がそのストリームを送信中ではないと
+  報告するようになるまで、書き換えてはいけません。
+  このページがスロットの小さなリングを持っているのはこのためです。
   `examples/moqt_chat` のサーバーが、より大きな規模で使っているのと同じ仕組みです。
