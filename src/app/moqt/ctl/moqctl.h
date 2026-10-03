@@ -65,12 +65,19 @@
 #define MOQCTL_ERR_INVALID_FILTER 0x36ULL
 #define MOQCTL_ERR_REDIRECT 0x34ULL
 #define MOQCTL_ERR_PREFIX_OVERLAP 0x30ULL
+/** Codes that exist in only some drafts (moqctl_request_error_for). */
+#define MOQCTL_ERR_EXCESSIVE_LOAD 0x9ULL
+#define MOQCTL_ERR_DUPLICATE_SUBSCRIPTION 0x19ULL     /* draft-18 only */
+#define MOQCTL_ERR_INVALID_JOINING_REQUEST_ID 0x32ULL /* not draft-22 */
+#define MOQCTL_ERR_CONFLICTING_FILTERS 0x35ULL        /* not draft-18 */
 
 /** PUBLISH_DONE status codes actually used by this subset (SS17.4). */
 #define MOQCTL_DONE_INTERNAL_ERROR 0x0ULL
 #define MOQCTL_DONE_TRACK_ENDED 0x2ULL
 #define MOQCTL_DONE_GOING_AWAY 0x4ULL
 #define MOQCTL_DONE_UPDATE_FAILED 0x8ULL
+/** Not in draft-22 (moqctl_publish_done_for). */
+#define MOQCTL_DONE_SUBSCRIPTION_ENDED 0x3ULL
 
 /** Session-level termination codes referenced by this codec (SS17.1). */
 #define MOQCTL_CLOSE_INVALID_AUTHORITY 0x19ULL
@@ -176,6 +183,12 @@ int moqctl_is_grease(u64 v);
  * decoded error/status code through this before acting on it. */
 u64 moqctl_known_request_error(u64 code);
 u64 moqctl_known_publish_done(u64 code);
+
+/** Send-side code for draft ver (MOQVER_*): a REQUEST_ERROR / PUBLISH_DONE
+ * code that ver does not define becomes ver's nearest defined code; any
+ * other code is returned as is. Receive side stays tolerant (above). */
+u64 moqctl_request_error_for(int ver, u64 code);
+u64 moqctl_publish_done_for(int ver, u64 code);
 
 /** draft-ietf-moq-transport-19 SS1.4.2 Location: two consecutive varints. */
 typedef struct {

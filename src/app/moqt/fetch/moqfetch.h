@@ -23,7 +23,8 @@
 
 /** REQUEST_ERROR code for a Joining Fetch naming no subscription of the
  * session (10.12.2; registry 15.11.2). */
-#define MOQFETCH_ERR_INVALID_JOINING_REQUEST_ID 0x32ULL
+#define MOQFETCH_ERR_INVALID_JOINING_REQUEST_ID \
+  MOQCTL_ERR_INVALID_JOINING_REQUEST_ID
 
 /** Fetch Type (10.12 Table 6); any other value is a VIOLATION. */
 #define MOQFETCH_STANDALONE 0x1ULL

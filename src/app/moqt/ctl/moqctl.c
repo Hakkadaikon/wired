@@ -52,6 +52,62 @@ u64 moqctl_known_publish_done(u64 code) {
   return MOQCTL_DONE_INTERNAL_ERROR;
 }
 
+/* Send-side code rows: per code, the code to send under {draft-22,
+ * draft-19, draft-18} -- itself where that draft defines it. */
+typedef struct {
+  u64 code;
+  u64 alt[MOQVER_COUNT];
+} moqctl_code_row;
+
+/* clang-format off */
+static const moqctl_code_row MOQCTL_ERR_ROWS[] = {
+    /* 19/22 drop DUPLICATE_SUBSCRIPTION (several subscriptions per Track,
+     * 19 SS5.1): no specific code is left. */
+    {MOQCTL_ERR_DUPLICATE_SUBSCRIPTION,
+     {MOQCTL_ERR_INTERNAL_ERROR, MOQCTL_ERR_INTERNAL_ERROR,
+      MOQCTL_ERR_DUPLICATE_SUBSCRIPTION}},
+    /* 22 has no Joining FETCH (SS12.3): the named request does not exist. */
+    {MOQCTL_ERR_INVALID_JOINING_REQUEST_ID,
+     {MOQCTL_ERR_DOES_NOT_EXIST, MOQCTL_ERR_INVALID_JOINING_REQUEST_ID,
+      MOQCTL_ERR_INVALID_JOINING_REQUEST_ID}},
+    /* 18: filters too costly to aggregate is an excess of load. */
+    {MOQCTL_ERR_CONFLICTING_FILTERS,
+     {MOQCTL_ERR_CONFLICTING_FILTERS, MOQCTL_ERR_CONFLICTING_FILTERS,
+      MOQCTL_ERR_EXCESSIVE_LOAD}},
+    /* 18 SS5.1.2: an unsatisfiable filter is INVALID_RANGE. */
+    {MOQCTL_ERR_INVALID_FILTER,
+     {MOQCTL_ERR_INVALID_FILTER, MOQCTL_ERR_INVALID_FILTER,
+      MOQCTL_ERR_INVALID_RANGE}},
+};
+
+static const moqctl_code_row MOQCTL_DONE_ROWS[] = {
+    /* 22 SS3.3.1: a subscription no longer ends at its filter's end; the
+     * remaining "publisher is done" status is TRACK_ENDED. */
+    {MOQCTL_DONE_SUBSCRIPTION_ENDED,
+     {MOQCTL_DONE_TRACK_ENDED, MOQCTL_DONE_SUBSCRIPTION_ENDED,
+      MOQCTL_DONE_SUBSCRIPTION_ENDED}},
+};
+/* clang-format on */
+
+static u64 moqctl_code_for(
+    const moqctl_code_row* rows, usz n, int ver, u64 code) {
+  for (usz i = 0; i < n; i++)
+    if (rows[i].code == code) return rows[i].alt[ver];
+  return code;
+}
+
+u64 moqctl_request_error_for(int ver, u64 code) {
+  return moqctl_code_for(
+      MOQCTL_ERR_ROWS, sizeof MOQCTL_ERR_ROWS / sizeof MOQCTL_ERR_ROWS[0], ver,
+      code);
+}
+
+u64 moqctl_publish_done_for(int ver, u64 code) {
+  return moqctl_code_for(
+      MOQCTL_DONE_ROWS, sizeof MOQCTL_DONE_ROWS / sizeof MOQCTL_DONE_ROWS[0],
+      ver, code);
+}
+
 /* ===== Location (SS1.4.2) ===== */
 
 int moqctl_loc_less(moqctl_loc a, moqctl_loc b) {

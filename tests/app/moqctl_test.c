@@ -1843,6 +1843,53 @@ static void test_moqctl_unknown_error_normalizes_to_internal(void) {
       MOQCTL_DONE_UPDATE_FAILED);
 }
 
+/* Send side: a REQUEST_ERROR code the session's draft does not define is
+ * replaced by that draft's nearest one; a defined code is kept. */
+static void test_moqctl_request_error_for_draft(void) {
+  CHECK(
+      moqctl_request_error_for(MOQVER_D18, MOQCTL_ERR_INVALID_FILTER) ==
+      MOQCTL_ERR_INVALID_RANGE);
+  CHECK(
+      moqctl_request_error_for(MOQVER_D18, MOQCTL_ERR_CONFLICTING_FILTERS) ==
+      MOQCTL_ERR_EXCESSIVE_LOAD);
+  CHECK(
+      moqctl_request_error_for(
+          MOQVER_D22, MOQCTL_ERR_INVALID_JOINING_REQUEST_ID) ==
+      MOQCTL_ERR_DOES_NOT_EXIST);
+  CHECK(
+      moqctl_request_error_for(MOQVER_D19, MOQCTL_ERR_DUPLICATE_SUBSCRIPTION) ==
+      MOQCTL_ERR_INTERNAL_ERROR);
+  CHECK(
+      moqctl_request_error_for(MOQVER_D22, MOQCTL_ERR_DUPLICATE_SUBSCRIPTION) ==
+      MOQCTL_ERR_INTERNAL_ERROR);
+  CHECK(
+      moqctl_request_error_for(MOQVER_D18, MOQCTL_ERR_DUPLICATE_SUBSCRIPTION) ==
+      MOQCTL_ERR_DUPLICATE_SUBSCRIPTION);
+  CHECK(
+      moqctl_request_error_for(MOQVER_D19, MOQCTL_ERR_INVALID_FILTER) ==
+      MOQCTL_ERR_INVALID_FILTER);
+  CHECK(
+      moqctl_request_error_for(
+          MOQVER_D19, MOQCTL_ERR_INVALID_JOINING_REQUEST_ID) ==
+      MOQCTL_ERR_INVALID_JOINING_REQUEST_ID);
+  CHECK(
+      moqctl_request_error_for(MOQVER_D22, MOQCTL_ERR_NOT_SUPPORTED) ==
+      MOQCTL_ERR_NOT_SUPPORTED);
+}
+
+/* draft-22 SS12.4 drops SUBSCRIPTION_ENDED (0x3). */
+static void test_moqctl_publish_done_for_draft(void) {
+  CHECK(
+      moqctl_publish_done_for(MOQVER_D22, MOQCTL_DONE_SUBSCRIPTION_ENDED) ==
+      MOQCTL_DONE_TRACK_ENDED);
+  CHECK(
+      moqctl_publish_done_for(MOQVER_D19, MOQCTL_DONE_SUBSCRIPTION_ENDED) ==
+      MOQCTL_DONE_SUBSCRIPTION_ENDED);
+  CHECK(
+      moqctl_publish_done_for(MOQVER_D22, MOQCTL_DONE_GOING_AWAY) ==
+      MOQCTL_DONE_GOING_AWAY);
+}
+
 /* ===== TEST: REQUEST_ERROR Redirect only with REDIRECT code ===== */
 
 static void test_moqctl_request_error_redirect_roundtrip(void) {
@@ -1962,6 +2009,8 @@ void test_moqctl(void) {
 
   test_moqctl_grease_pattern();
   test_moqctl_unknown_error_normalizes_to_internal();
+  test_moqctl_request_error_for_draft();
+  test_moqctl_publish_done_for_draft();
 
   test_moqctl_request_error_redirect_roundtrip();
 }
