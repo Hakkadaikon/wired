@@ -38,6 +38,7 @@ void wired_wt_session_init(wired_wt_session* s, u64 connect_stream_id) {
   s->opened_streams_bidi = 0;
   s->opened_streams_uni  = 0;
   s->max_data            = 0;
+  s->flow_control        = 0;
   s->sent_data           = 0;
 }
 
@@ -117,20 +118,37 @@ static u64 stream_opened_get(const wired_wt_session* s, int bidi) {
   return bidi ? s->opened_streams_bidi : s->opened_streams_uni;
 }
 
-int wired_wt_session_set_max_streams(
-    wired_wt_session* s, int bidi, u64 max_streams) {
-  if (max_streams < stream_limit_get(s, bidi)) return 0;
+int wtsession_streams_blocked_ok(u64 v) { return v <= WTSESSION_STREAMS_MAX; }
+
+/* draft-ietf-webtrans-http3-16 SS5.6.2: 1 iff max_streams stays within the
+ * 2^60 ceiling and increases the Maximum Streams "previously received". The
+ * baseline before any capsule is the peer's SETTINGS_WT_INITIAL_MAX_STREAMS_*
+ * (SS5.5.1/5.5.2), default 0; this server does not read the peer's setting,
+ * so the stored 0 is that default and a first capsule of 0 is rejected. */
+static int stream_limit_increase_ok(
+    const wired_wt_session* s, int bidi, u64 max_streams) {
+  return wtsession_streams_blocked_ok(max_streams) &&
+         max_streams > stream_limit_get(s, bidi);
+}
+
+static void stream_limit_set(wired_wt_session* s, int bidi, u64 max_streams) {
   if (bidi)
     s->max_streams_bidi = max_streams;
   else
     s->max_streams_uni = max_streams;
+}
+
+int wired_wt_session_set_max_streams(
+    wired_wt_session* s, int bidi, u64 max_streams) {
+  if (!stream_limit_increase_ok(s, bidi, max_streams)) return 0;
+  stream_limit_set(s, bidi, max_streams);
   return 1;
 }
 
 int wired_wt_session_stream_open_allowed(const wired_wt_session* s, int bidi) {
   u64 limit  = stream_limit_get(s, bidi);
   u64 opened = stream_opened_get(s, bidi);
-  return limit == 0 || opened < limit;
+  return (!s->flow_control && limit == 0) || opened < limit;
 }
 
 void wired_wt_session_note_stream_opened(wired_wt_session* s, int bidi) {
@@ -140,14 +158,19 @@ void wired_wt_session_note_stream_opened(wired_wt_session* s, int bidi) {
     s->opened_streams_uni += 1;
 }
 
+/* draft-ietf-webtrans-http3-16 SS5.6.4: a value that does not increase the
+ * Maximum Data previously received is rejected (no 2^60 ceiling here). Same
+ * baseline as WT_MAX_STREAMS: SETTINGS_WT_INITIAL_MAX_DATA (SS5.5.3),
+ * default 0, which is the stored 0 this server starts from. */
 int wired_wt_session_set_max_data(wired_wt_session* s, u64 max_data) {
-  if (max_data < s->max_data) return 0;
+  if (max_data <= s->max_data) return 0;
   s->max_data = max_data;
   return 1;
 }
 
 int wired_wt_session_data_send_allowed(const wired_wt_session* s, usz len) {
-  return s->max_data == 0 || s->sent_data + len <= s->max_data;
+  return (!s->flow_control && s->max_data == 0) ||
+         s->sent_data + len <= s->max_data;
 }
 
 void wired_wt_session_note_data_sent(wired_wt_session* s, usz len) {

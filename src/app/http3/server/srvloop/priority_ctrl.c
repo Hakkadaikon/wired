@@ -102,6 +102,35 @@ static void ctrl_note_frame(wired_srvloop* l, int is_settings) {
   h3_control_frame(&l->peer_ctrl, is_settings);
 }
 
+/* draft-ietf-webtrans-http3-16 SS5.5.1-5.5.3: the SETTINGS identifiers
+ * latched into l->peer_wt_initial[], index for index. */
+static const u64 ctrl_wt_initial_ids[3] = {
+    H3_SETTINGS_WT_INITIAL_MAX_STREAMS_UNI,
+    H3_SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI, H3_SETTINGS_WT_INITIAL_MAX_DATA};
+
+static void ctrl_wt_initial_set(wired_srvloop* l, u64 id, u64 v) {
+  for (usz i = 0; i < 3; i++)
+    if (ctrl_wt_initial_ids[i] == id) l->peer_wt_initial[i] = v;
+}
+
+/* RFC 9114 7.2.4: walk a SETTINGS payload's (Identifier, Value) pairs and
+ * latch the WebTransport initial limits; other identifiers are ignored. */
+static void ctrl_latch_settings(wired_srvloop* l, const h3_frame* f) {
+  wired_span p   = wired_span_of(f->payload, (usz)f->payload_len);
+  usz        off = 0;
+  u64        id, v;
+  while (varint_take(p, &off, &id) && varint_take(p, &off, &v))
+    ctrl_wt_initial_set(l, id, v);
+}
+
+/* One generic control-stream frame: SETTINGS-ordering state, plus the
+ * SETTINGS values themselves when it is the SETTINGS frame. */
+static void ctrl_note_generic(wired_srvloop* l, const h3_frame* f) {
+  int is_settings = f->type == H3_FRAME_SETTINGS;
+  ctrl_note_frame(l, is_settings);
+  if (is_settings) ctrl_latch_settings(l, f);
+}
+
 /* Decode the H3 frame at l->ctrl.buf[l->ctrl.parsed..len) and act on it if it
  * is a PRIORITY_UPDATE (either variant); any other frame type is walked past
  * unexamined. Either way, its type also latches SETTINGS-ordering state
@@ -117,7 +146,7 @@ static usz ctrl_walk_one(wired_srvloop* l, wired_span avail) {
     return n;
   }
   n = h3_frame_get(avail, &gf);
-  if (n) ctrl_note_frame(l, gf.type == H3_FRAME_SETTINGS);
+  if (n) ctrl_note_generic(l, &gf);
   return n;
 }
 

@@ -859,7 +859,11 @@ static int wt_stop_frame(u64 type, wired_span frame, stop_sending_frame* out) {
  * stream id belongs to a WT session -- the caller (srvrun.c) resolves that
  * and decides whether/how to map the code through wired_wterrmap_from_http3.
  * Only the last one seen this step survives if more than one arrives, same
- * convention as closed_stream_id. */
+ * convention as closed_stream_id.
+ * ponytail: single latch per step -- an earlier reset in the same step is
+ * not delivered to the app and its slot is not freed. peer_reset_count
+ * still counts every frame, so rapid-reset detection (RFC 9114 10.5) is
+ * unaffected. Upgrade to a small fixed queue if apps need every reset. */
 static void gather_one_wt_reset(wired_srvloop* l, u64 type, wired_span frame) {
   reset_stream_frame rs;
   stop_sending_frame ss;
