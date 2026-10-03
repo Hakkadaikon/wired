@@ -16,6 +16,7 @@
 #include "app/moqt/ns/moqns.c"
 #include "app/moqt/sess/moqsess.c"
 #include "app/moqt/tstat/moqtstat.c"
+#include "app/moqt/ver/moqver.c"
 #include "app/moqt/vi/moqvi.c"
 
 /* Decode one control message body by its envelope type (SS10). */
