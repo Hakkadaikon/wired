@@ -195,6 +195,70 @@ typedef struct {
 int moqctl_locfilter_take(wired_span buf, usz* off, moqctl_locfilter* out);
 int moqctl_locfilter_put(wired_mspan buf, usz* off, const moqctl_locfilter* f);
 
+/** Version-neutral range model mirroring tasks/fv/moqt/Moqt/Filter.lean's
+ * SK/EK/Rng field-for-field. Start kind: REL_GROUP is "N groups back from
+ * Largest.Group" (draft-19 type 0x1 is always REL_GROUP with n=0; draft-22
+ * type 0x01 carries n explicitly); NEXT_OBJ is Largest.Object+1 in
+ * Largest.Group; ABS is an explicit {start_group,start_object}. */
+typedef enum {
+  MOQCTL_RSK_REL_GROUP,
+  MOQCTL_RSK_NEXT_OBJ,
+  MOQCTL_RSK_ABS
+} moqctl_rsk;
+
+/** End kind: UNBOUNDED (open-ended), GROUP (ends at the last Object of
+ * end_group, no explicit end object), OBJ (ends at {end_group,end_object}
+ * inclusive). */
+typedef enum {
+  MOQCTL_REK_UNBOUNDED,
+  MOQCTL_REK_GROUP,
+  MOQCTL_REK_OBJ
+} moqctl_rek;
+
+/** Version-neutral LOCATION_FILTER range. start_group doubles as the
+ * relative "N groups back" count when sk == REL_GROUP (there is no
+ * Largest.Group at decode time to resolve it against), and as the
+ * absolute start group when sk == ABS. end_group is always absolute: the
+ * draft-22 End Group Delta is resolved against start_group at decode time
+ * and re-derived as a delta at encode time. */
+typedef struct {
+  moqctl_rsk sk;
+  u64        start_group;
+  u64        start_object;
+  moqctl_rek ek;
+  u64        end_group;
+  u64        end_object;
+} moqctl_rangeloc;
+
+/** draft-19 LOCATION_FILTER value codec (SS5.1.2/SS10.2.9). Always decodes/
+ * encodes a present filter -- draft-19 has no "present but empty" wire
+ * form at this layer; absence is the caller's param-presence check.
+ * Returns MOQCTL_OK / INSUFFICIENT / VIOLATION (unknown type, or
+ * AbsoluteRange End Group overflowing 2^64-1). */
+int moqctl_rangeloc19_take(wired_span buf, usz* off, moqctl_rangeloc* out);
+int moqctl_rangeloc19_put(wired_mspan buf, usz* off, const moqctl_rangeloc* r);
+
+/** draft-22 LOCATION_FILTER value codec (SS9.20.9). *has_filter is set to 0
+ * and *out zeroed when Location Filter Type is 0x00 (None); this mirrors
+ * Filter.lean's dec22 : P (Option Rng) vs dec19 : P Rng asymmetry.
+ * Returns MOQCTL_OK / INSUFFICIENT / VIOLATION (unknown type >= 0x06, or
+ * End Group Delta overflowing 2^64-1). */
+int moqctl_rangeloc22_take(
+    wired_span buf, usz* off, int* has_filter, moqctl_rangeloc* out);
+int moqctl_rangeloc22_put(
+    wired_mspan buf, usz* off, int has_filter, const moqctl_rangeloc* r);
+
+/** Q-04a: AbsoluteRange with End Group Delta == 0 (end_group ==
+ * start_group) and end_object < start_object -> REQUEST_ERROR
+ * INVALID_RANGE. Only draft-22 type 0x04 (MOQCTL_REK_OBJ) carries an
+ * end_object at all. */
+int moqctl_rangeloc_q04a_violation(const moqctl_rangeloc* r);
+
+/** Q-04b: a filter resolving to Next Object (sk == MOQCTL_RSK_NEXT_OBJ) is
+ * always beyond Largest at fetch time, so a FETCH against it can never
+ * return anything -> REQUEST_ERROR INVALID_RANGE. */
+int moqctl_rangeloc_q04b_violation(const moqctl_rangeloc* r);
+
 /** draft-ietf-moq-transport-19 SS1.5 Track Namespace: up to
  * MOQCTL_MAX_NS_FIELDS fields, each a byte-string view into the
  * decode input (or caller-owned storage on encode). */
