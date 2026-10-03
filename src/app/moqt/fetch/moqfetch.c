@@ -485,15 +485,17 @@ static void moqfetch_note_obj(moqfetch_seq* s, const moqfetch_obj* o) {
   s->priority      = o->priority;
 }
 
-static int moqfetch_is_eor(u64 flags) {
+/* 0x20C only where the stream's draft has it (draft-22 SS11.4.1). */
+static int moqfetch_is_eor(u64 flags, const moqfetch_seq* s) {
+  if (flags == MOQFETCH_EOR_TIMED_OUT) return s->eor_timed_out;
   return flags == MOQFETCH_EOR_NONEXISTENT || flags == MOQFETCH_EOR_UNKNOWN;
 }
 
-/* 11.4.4: < 128 is a flag set (kind 0), 0x8C / 0x10C an End of Range
- * (kind 1); "Any other value is a PROTOCOL_VIOLATION" (-1). */
-static int moqfetch_kind(u64 flags) {
+/* 11.4.4: < 128 is a flag set (kind 0), 0x8C / 0x10C (/ 0x20C) an End of
+ * Range (kind 1); "Any other value is a PROTOCOL_VIOLATION" (-1). */
+static int moqfetch_kind(u64 flags, const moqfetch_seq* s) {
   if (flags < 0x80) return 0;
-  return moqfetch_is_eor(flags) ? 1 : -1;
+  return moqfetch_is_eor(flags, s) ? 1 : -1;
 }
 
 typedef struct {
@@ -531,7 +533,7 @@ static int moqfetch_obj_take_at(
     wired_span b, usz* at, moqfetch_seq* s, moqfetch_obj* o) {
   u64 flags;
   if (!moqvi_take(b, at, &flags)) return MOQCTL_INSUFFICIENT;
-  int kind = moqfetch_kind(flags);
+  int kind = moqfetch_kind(flags, s);
   if (kind < 0) return MOQCTL_VIOLATION;
   moqfetch_obj_clear(o, flags);
   return moqfetch_run(&MOQFETCH_KIND_OPS[kind], b, at, s, o);
@@ -652,7 +654,7 @@ static int moqfetch_put_all(
 
 int moqfetch_obj_put(
     wired_mspan buf, usz* off, moqfetch_seq* seq, const moqfetch_obj* o) {
-  int kind = moqfetch_kind(o->flags);
+  int kind = moqfetch_kind(o->flags, seq);
   if (kind < 0) return 0;
   if (!moqfetch_put_all(&MOQFETCH_PUT_BY_KIND[kind], buf, off, seq, o))
     return 0;

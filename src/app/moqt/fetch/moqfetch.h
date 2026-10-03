@@ -112,12 +112,18 @@ int moqfetch_hdr_put(wired_mspan buf, usz* off, u64 request_id);
 #define MOQFETCH_F_DATAGRAM 0x40ULL
 #define MOQFETCH_EOR_NONEXISTENT 0x8CULL
 #define MOQFETCH_EOR_UNKNOWN 0x10CULL
+/** draft-22 SS11.4.1 End of Timed-Out Range; accepted only when
+ * moqfetch_seq.eor_timed_out is set. */
+#define MOQFETCH_EOR_TIMED_OUT 0x20CULL
 
 /** The "prior Object" state threaded through one fetch stream. Zero it,
  * then set descending when the FETCH's GROUP_ORDER is Descending (0x2):
- * Group ID Deltas run the other way (11.4.4.1). */
+ * Group ID Deltas run the other way (11.4.4.1); set eor_timed_out on a
+ * stream of a session whose draft has MOQVER_CAP_EOR_TIMED_OUT, so the
+ * 0x20C marker is an End of Range rather than a VIOLATION. */
 typedef struct {
   int descending;
+  int eor_timed_out;
   int have_loc;
   int have_subgroup;
   int have_priority;
