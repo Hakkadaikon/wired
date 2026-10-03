@@ -507,8 +507,11 @@ typedef struct {
   int               in_use;
   wired_wt_session* wt;
   u64               control_stream_id;
-  moqsess           sess;
-  u64               request_id_next; /* next Request ID this hub sends */
+  /** Negotiated MOQT draft (MOQVER_*), decided from the WT subprotocol
+   * token in wired_moqt_on_session and fixed for the session's life. */
+  int     ver;
+  moqsess sess;
+  u64     request_id_next; /* next Request ID this hub sends */
   /** Registration order (wired_moqt_init-relative, never reused): a
    * higher value is a newer session. Decides which of two sessions
    * PUBLISHing the same name owns it (moqtrun_supersede_name). */

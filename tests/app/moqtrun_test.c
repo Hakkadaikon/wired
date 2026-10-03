@@ -2,6 +2,7 @@
 
 #include "app/moqt/ctl/moqctl.h"
 #include "app/moqt/data/moqdata.h"
+#include "app/moqt/ver/moqver.h"
 #include "common/bytes/util/ct.h"
 #include "moqt_golden.h"
 #include "test.h"
@@ -332,6 +333,40 @@ static void test_moqtrun_on_session_twice_is_idempotent(void) {
   wired_moqt_on_session(&hub, SESS_A, wired_span_of(0, 0), wired_span_of(0, 0));
 
   CHECK(moqtrun_test_count_kind(1) == 1);
+}
+
+static wired_span moqtrun_test_proto(const char* s) {
+  return wired_span_of((const u8*)s, wired_cstr_len(s));
+}
+
+/* The WT subprotocol token decides the peer's stored MOQT draft: a listed
+ * token maps to its draft, an empty or unknown token falls back to
+ * draft-19 (moqver.h's documented conservative default). */
+static void test_moqtrun_on_session_stores_negotiated_ver(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-18"));
+  CHECK(hub.peers[0].ver == MOQVER_D18);
+
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-22"));
+  CHECK(hub.peers[0].ver == MOQVER_D22);
+
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(&hub, SESS_A, wired_span_of(0, 0), wired_span_of(0, 0));
+  CHECK(hub.peers[0].ver == MOQVER_D19);
+
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("bogus"));
+  CHECK(hub.peers[0].ver == MOQVER_D19);
 }
 
 /* ===================== 2. PUBLISH / SUBSCRIBE ===================== */
@@ -5076,6 +5111,7 @@ void test_moqtrun(void) {
   test_moqtrun_payload_hash_detects_tail_past_truncation();
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
+  test_moqtrun_on_session_stores_negotiated_ver();
   test_moqtrun_publish_replies_request_ok();
   test_moqtrun_subscribe_matching_publish_replies_ok();
   test_moqtrun_subscribe_without_publish_replies_error();
