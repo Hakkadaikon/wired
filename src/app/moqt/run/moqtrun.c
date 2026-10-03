@@ -2650,7 +2650,8 @@ static void moqtrun_rid_note(
   u64 rid  = 0;
   u64 next = ~(u64)0; /* rid + 2 saturates: u64_add_ok keeps it on overflow */
   if (!moqtrun_rid_counts(peek, type)) return;
-  if (moqvi_take(body, &off, &rid)) u64_add_ok(rid, 2, &next);
+  if (!moqvi_take(body, &off, &rid)) return; /* no ID read: nothing moves */
+  u64_add_ok(rid, 2, &next);
   p->peer_rid_next = u64_max(p->peer_rid_next, next);
 }
 
