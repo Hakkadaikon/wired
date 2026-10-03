@@ -894,56 +894,66 @@ static u8 moqtrun_forward_off(const moqctl_param* p) {
   return p && p->u8v == 0;
 }
 
-/* Filter Start Location per type (9.3.1), indexed by MOQCTL_FILTER_*:
- * Largest-relative ones resolve against t's Largest now, {0, 0} when
- * nothing was published; Absolute ones take the given start. */
-typedef moqctl_loc (*moqtrun_start_fn)(const moqctl_loc*, moqctl_loc);
-
-static moqctl_loc moqtrun_start_given(const moqctl_loc* top, moqctl_loc start) {
-  (void)top;
-  return start;
-}
-
-static moqctl_loc moqtrun_start_next_group(
-    const moqctl_loc* top, moqctl_loc start) {
-  moqctl_loc l = {0, 0};
-  (void)start;
-  if (top) l.group = top->group + 1;
-  return l;
-}
-
-static moqctl_loc moqtrun_start_largest(
-    const moqctl_loc* top, moqctl_loc start) {
-  moqctl_loc l = {0, 0};
-  (void)start;
-  if (!top) return l;
-  l = *top;
-  l.object++;
-  return l;
-}
-
 /* t's Largest Location, 0 when t (0: no track) published nothing. */
 static const moqctl_loc* moqtrun_track_top(const wired_moqtrun_track* t) {
   return t && t->has_largest ? &t->largest : 0;
 }
 
-static const moqtrun_start_fn MOQTRUN_START_FNS[5] = {
-    moqtrun_start_given, moqtrun_start_next_group, moqtrun_start_largest,
-    moqtrun_start_given, moqtrun_start_given};
+/* A filter's Start Location (19 SS5.1.2, 22 SS9.20.9) against top, the
+ * Largest Object (0: nothing published), indexed by moqctl_rsk. */
+typedef moqctl_loc (*moqtrun_start_fn)(
+    const moqctl_loc*, const moqctl_rangeloc*);
 
-/* LOCATION_FILTER f (0: unfiltered, start {0, 0}) resolved onto s. The
- * decoder admits only types 1-4 (moqctl_locfilter_take). */
+/* {Largest.Group + 1 - n, 0}, floored at group 0; n 0 is draft-19's Next
+ * Group Start. */
+static moqctl_loc moqtrun_start_rel(
+    const moqctl_loc* top, const moqctl_rangeloc* f) {
+  u64 next = top ? top->group + 1 : 0;
+  return moqctl_loc_of(next - u64_min(f->start_group, next), 0);
+}
+
+/* Next Object (draft-19's Largest Object filter): {Largest.Group,
+ * Largest.Object + 1}, {0, 0} when nothing was published. */
+static moqctl_loc moqtrun_start_next(
+    const moqctl_loc* top, const moqctl_rangeloc* f) {
+  (void)f;
+  return top ? moqctl_loc_of(top->group, top->object + 1) : moqctl_loc_of(0, 0);
+}
+
+static moqctl_loc moqtrun_start_abs(
+    const moqctl_loc* top, const moqctl_rangeloc* f) {
+  (void)top;
+  return moqctl_loc_of(f->start_group, f->start_object);
+}
+
+static const moqtrun_start_fn MOQTRUN_START_FNS[] = {
+    moqtrun_start_rel, moqtrun_start_next, moqtrun_start_abs};
+
+/* s's start/end from its filter (unfiltered: everything from {0, 0}),
+ * resolved against t now -- at SUBSCRIBE, update and re-attach alike. */
+static void moqtrun_sub_resolve(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
+  s->start          = moqctl_loc_of(0, 0);
+  s->has_end_group  = 0;
+  s->has_end_object = 0;
+  if (!s->has_filter) return;
+  s->start = MOQTRUN_START_FNS[s->filter.sk](moqtrun_track_top(t), &s->filter);
+  s->has_end_group  = s->filter.ek != MOQCTL_REK_UNBOUNDED;
+  s->has_end_object = s->filter.ek == MOQCTL_REK_OBJ;
+  s->end_group      = s->filter.end_group;
+  s->end_object     = s->filter.end_object;
+}
+
+static int moqtrun_param_has_filter(const moqctl_param* f) {
+  return f && f->has_filter;
+}
+
+/* LOCATION_FILTER f (0, or draft-22 type 0x00: unfiltered) onto s. */
 static void moqtrun_sub_filter(
     wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* f) {
-  moqctl_loc zero  = {0, 0};
-  s->start         = zero;
-  s->has_end_group = 0;
-  s->filter_type   = 0;
-  if (!f) return;
-  s->filter_type = (u8)f->lf.type;
-  s->start = MOQTRUN_START_FNS[f->lf.type](moqtrun_track_top(t), f->lf.start);
-  s->has_end_group = f->lf.type == MOQCTL_FILTER_ABS_RANGE;
-  s->end_group     = s->start.group + f->lf.end_group_delta;
+  s->has_filter = (u8)moqtrun_param_has_filter(f);
+  if (s->has_filter) s->filter = f->rl;
+  moqtrun_sub_resolve(s, t);
 }
 
 /* Priority and group order are recorded only; delivery is not reordered
@@ -994,18 +1004,31 @@ static int moqtrun_sub_wants_group(const wired_moqtrun_sub* s, u64 g) {
   return g >= s->start.group && !(s->has_end_group && g > s->end_group);
 }
 
+/* 1 iff l is past an explicit End Object (draft-22 0x04) in its Group. */
+static int moqtrun_sub_past_end_object(
+    const wired_moqtrun_sub* s, moqctl_loc l) {
+  return s->has_end_object && l.group == s->end_group &&
+         l.object > s->end_object;
+}
+
 /* Forward AND Location Filter (5.1.5) for a stream of Group g.
  * ponytail: Group-granular -- Objects of the start Group below the start
- * Object still pass (a relay round is whole Objects, never re-framed);
- * cut rounds at the start Object if a filter ever starts mid-Group on a
- * many-Object stream. */
+ * Object, and of the end Group past a draft-22 End Object, still pass (a
+ * relay round is whole Objects, never re-framed); cut rounds at those
+ * Objects if a filter ever starts or ends mid-Group on a many-Object
+ * stream. */
 static int moqtrun_sub_gets(const wired_moqtrun_sub* s, u64 g) {
   return moqtrun_sub_forwards(s) && moqtrun_sub_wants_group(s, g);
 }
 
-/* moqtrun_sub_gets for one Object at l (a datagram). */
+/* moqtrun_sub_gets for one Object at l (a datagram): also not before the
+ * start Object nor past an End Object. */
+static int moqtrun_sub_in_objects(const wired_moqtrun_sub* s, moqctl_loc l) {
+  return !moqctl_loc_less(l, s->start) && !moqtrun_sub_past_end_object(s, l);
+}
+
 static int moqtrun_sub_gets_loc(const wired_moqtrun_sub* s, moqctl_loc l) {
-  return moqtrun_sub_gets(s, l.group) && !moqctl_loc_less(l, s->start);
+  return moqtrun_sub_gets(s, l.group) && moqtrun_sub_in_objects(s, l);
 }
 
 /* draft 8: an Object whose first byte reached the hub age_ms ago is past
@@ -1020,7 +1043,7 @@ static int moqtrun_sub_late(const wired_moqtrun_sub* s, u64 age_ms) {
  * Objects. An absolute filter keeps the subscriber's own Locations. */
 static void moqtrun_sub_reresolve(
     wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
-  s->start  = MOQTRUN_START_FNS[s->filter_type](moqtrun_track_top(t), s->start);
+  moqtrun_sub_resolve(s, t);
   s->jl     = t->largest;
   s->has_jl = (u8)t->has_largest;
 }
@@ -1251,6 +1274,39 @@ static int moqtrun_subscribe_refused(
   return !hub->authorize_subscribe(hub->authorize_ctx, &m->name, t);
 }
 
+/* Not a REQUEST_ERROR code: the request is accepted. */
+#define MOQTRUN_REQ_ACCEPT (~(u64)0)
+
+/* draft-22 0x04 whose End Object precedes its Start Object in the same
+ * Group: no Object can pass (SS9.20.9; INVALID_RANGE, SS12.3). */
+static int moqtrun_filter_inverted(const moqctl_rangeloc* f) {
+  return f->ek == MOQCTL_REK_OBJ &&
+         moqctl_loc_less(
+             moqctl_loc_of(f->end_group, f->end_object),
+             moqctl_loc_of(f->start_group, f->start_object));
+}
+
+static int moqtrun_params_inverted(const moqctl_params* params) {
+  const moqctl_param* f =
+      moqctl_params_find(params, MOQCTL_PARAM_LOCATION_FILTER);
+  return moqtrun_param_has_filter(f) && moqtrun_filter_inverted(&f->rl);
+}
+
+/* REQUEST_ERROR code a SUBSCRIBE's or REQUEST_UPDATE's parameters call
+ * for: a non-zero SUBGROUP_DELIVERY_TIMEOUT, an unsatisfiable filter. */
+static u64 moqtrun_params_refusal(const moqctl_params* params) {
+  if (moqtrun_has_timeout_param(params)) return MOQCTL_ERR_NOT_SUPPORTED;
+  return moqtrun_params_inverted(params) ? MOQCTL_ERR_INVALID_RANGE
+                                         : MOQTRUN_REQ_ACCEPT;
+}
+
+static u64 moqtrun_subscribe_refusal(
+    const wired_moqt_hub* hub, const moqctl_subscribe* m) {
+  u64 code = moqtrun_params_refusal(&m->params);
+  if (code != MOQTRUN_REQ_ACCEPT) return code;
+  return moqtrun_subscribe_refused(hub, m, &code) ? code : MOQTRUN_REQ_ACCEPT;
+}
+
 /* draft SS10.6 SUBSCRIBE: reject a non-zero SUBGROUP_DELIVERY_TIMEOUT
  * (moqtrun_param_is_nonzero_timeout) and unauthorized subscribers, else
  * delegate matching + response to moqtrun_route_subscribe. */
@@ -1259,12 +1315,8 @@ static void moqtrun_subscribe_checked(
     wired_moqtrun_peer*     p,
     usz                     peer_idx,
     const moqctl_subscribe* m) {
-  u64 code;
-  if (moqtrun_has_timeout_param(&m->params)) {
-    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
-    return;
-  }
-  if (moqtrun_subscribe_refused(hub, m, &code)) {
+  u64 code = moqtrun_subscribe_refusal(hub, m);
+  if (code != MOQTRUN_REQ_ACCEPT) {
     moqtrun_send_request_error(p, code);
     return;
   }
@@ -1563,36 +1615,6 @@ static void moqtrun_fetch_clamp(
   r->ok_end = t->largest;
 }
 
-typedef int (*moqtrun_fetch_start_fn)(
-    const wired_moqtrun_track*, const moqctl_rangeloc*, moqctl_loc*);
-
-/* draft-22 SS9.20.9 0x01: start_group groups back from the Next Group,
- * {Largest.Group + 1 - n, 0}, floored at group 0. */
-static int moqtrun_fetch_start_rel(
-    const wired_moqtrun_track* t, const moqctl_rangeloc* rl, moqctl_loc* s) {
-  u64 next = t->largest.group + 1;
-  *s       = moqctl_loc_of(next - u64_min(rl->start_group, next), 0);
-  return 1;
-}
-
-/* Next Object is always past Largest: nothing to fetch (INVALID_RANGE). */
-static int moqtrun_fetch_start_next(
-    const wired_moqtrun_track* t, const moqctl_rangeloc* rl, moqctl_loc* s) {
-  (void)t, (void)rl, (void)s;
-  return 0;
-}
-
-static int moqtrun_fetch_start_abs(
-    const wired_moqtrun_track* t, const moqctl_rangeloc* rl, moqctl_loc* s) {
-  (void)t;
-  *s = moqctl_loc_of(rl->start_group, rl->start_object);
-  return 1;
-}
-
-/* Indexed by moqctl_rsk. */
-static const moqtrun_fetch_start_fn MOQTRUN_FETCH_START[] = {
-    moqtrun_fetch_start_rel, moqtrun_fetch_start_next, moqtrun_fetch_start_abs};
-
 /* rl resolved against t into r; 0 when the range is INVALID_RANGE
  * (10.12.3). */
 static int moqtrun_fetch_resolve(
@@ -1600,8 +1622,9 @@ static int moqtrun_fetch_resolve(
     const moqctl_rangeloc*     rl,
     moqtrun_frange*            r) {
   moqctl_loc start, end;
-  if (!MOQTRUN_FETCH_START[rl->sk](t, rl, &start)) return 0;
-  end = moqfetch_req_end(rl, t->largest);
+  if (rl->sk == MOQCTL_RSK_NEXT_OBJ) return 0; /* always past Largest */
+  start = MOQTRUN_START_FNS[rl->sk](moqtrun_track_top(t), rl);
+  end   = moqfetch_req_end(rl, t->largest);
   if (moqtrun_fetch_range_bad(t, start, moqtrun_end_excl(end))) return 0;
   r->tag   = t->cache_tag;
   r->start = start;
@@ -1742,9 +1765,6 @@ static void moqtrun_fetches_drop(wired_moqt_hub* hub, wired_wt_session* s) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
     if (hub->fetches[i].wt == s) hub->fetches[i].in_use = 0;
 }
-
-/* Not a REQUEST_ERROR code: the request is accepted. */
-#define MOQTRUN_REQ_ACCEPT (~(u64)0)
 
 /* ===================== TRACK_STATUS (draft 10.14) ===================== */
 
@@ -1936,14 +1956,15 @@ static int moqtrun_upd_apply(
   return 0;
 }
 
-/* A non-zero SUBGROUP_DELIVERY_TIMEOUT is refused as on SUBSCRIBE. */
+/* Parameters are refused as on SUBSCRIBE (moqtrun_params_refusal). */
 static u64 moqtrun_upd_checked(
     wired_moqt_hub*            hub,
     wired_moqtrun_peer*        p,
     wired_moqtrun_sub*         s,
     const wired_moqtrun_track* t,
     const moqctl_params*       params) {
-  if (moqtrun_has_timeout_param(params)) return MOQCTL_ERR_NOT_SUPPORTED;
+  u64 code = moqtrun_params_refusal(params);
+  if (code != MOQTRUN_REQ_ACCEPT) return code;
   return moqtrun_upd_apply(hub, p, s, t, params) ? MOQTRUN_REQ_ACCEPT
                                                  : MOQCTL_ERR_INTERNAL_ERROR;
 }
