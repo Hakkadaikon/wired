@@ -431,6 +431,15 @@ typedef struct {
  * ponytail: room-sized; raise when clients fetch in parallel. */
 #define WIRED_MOQTRUN_MAX_FETCHES 8
 
+/** Minimum wall-clock milliseconds (wired_moqt_tick's own clock) between
+ * a drained session's PUBLISH_DONE flush and its GOAWAY_TIMEOUT close
+ * (3.6/10.11): long enough for a peer under load to read the flushed
+ * PUBLISH_DONE and its relay streams' resets before the session itself
+ * is gone, so it never races GOAWAY_TIMEOUT against those deliveries.
+ * ponytail: fixed grace, not an ack wait; raise if a slow peer is still
+ * seen losing the race. */
+#define WIRED_MOQTRUN_GOAWAY_GRACE_MS 1000
+
 /** One FETCH response being served from the hub cache: Objects of the
  * track incarnation cache_tag in [cursor, end) go out on one uni stream
  * (FETCH_HEADER, then fetch Objects, 11.4.4), one item per stream round
@@ -553,9 +562,12 @@ typedef struct {
   /** Clock (wired_moqt_tick) past which a session sent GOAWAY
    * (sess.goaway_sent) is closed with GOAWAY_TIMEOUT; (u64)-1 for none. */
   u64 goaway_deadline;
-  /** 1 once the deadline passed and PUBLISH_DONE went to every
-   * subscription: the next tick closes the session. */
-  u8 goaway_flushed;
+  /** wired_moqt_tick clock at which PUBLISH_DONE went to every
+   * subscription; 0 before that happens. The close itself waits until
+   * WIRED_MOQTRUN_GOAWAY_GRACE_MS past this, not merely the next tick:
+   * a flush and a close on back-to-back ticks give a loaded peer no real
+   * time to read the flushed bytes before its session is torn down. */
+  u64 goaway_flushed_at;
   /** 1 once the hub asked the transport to close the session: nothing
    * more is sent on it. */
   u8 closing;

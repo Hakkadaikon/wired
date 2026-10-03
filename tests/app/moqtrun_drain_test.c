@@ -357,8 +357,12 @@ static void test_moqtrun_upd_failed_resets_first(void) {
 
 /* Past the Timeout, the hub flushes first -- PUBLISH_DONE GOING_AWAY to
  * every subscription the session holds, its stream FINed -- and closes
- * with GOAWAY_TIMEOUT on the next tick; not before the deadline. The
- * clock is the tick's. */
+ * with GOAWAY_TIMEOUT only after WIRED_MOQTRUN_GOAWAY_GRACE_MS more have
+ * passed since the flush, never on the very next tick: a peer under load
+ * needs real wall-clock time to read the flushed bytes before its session
+ * is torn down (a fixed guide sample hit this as a flaky CI failure when
+ * the close landed before the client had read the reset relay stream).
+ * The clock is the tick's. */
 static void test_moqtrun_goaway_timeout_flush_then_close(void) {
   moqctl_ftn f     = mtrq_setup();
   u64        count = 0, code = 0;
@@ -381,14 +385,20 @@ static void test_moqtrun_goaway_timeout_flush_then_close(void) {
   CHECK(mtrq_fin_on(MTRQ_S1) == 1);
   CHECK(mtst_sub(SESS_A, SESS_B) == 0);
   CHECK(mtdr_closes(SESS_B, &code) == 0);
+  /* Still within the grace window: no close yet, no matter how many ticks
+   * land (a slow peer gets the same grace a fast one does). */
   wired_moqt_tick(&mtst_hub, 1501);
+  CHECK(mtdr_closes(SESS_B, &code) == 0);
+  wired_moqt_tick(&mtst_hub, 1500 + WIRED_MOQTRUN_GOAWAY_GRACE_MS);
+  CHECK(mtdr_closes(SESS_B, &code) == 0);
+  wired_moqt_tick(&mtst_hub, 1500 + WIRED_MOQTRUN_GOAWAY_GRACE_MS + 1);
   CHECK(mtdr_closes(SESS_B, &code) == 1); /* its request stream is open */
   CHECK(code == WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT);
   CHECK(mtdr_closes(SESS_A, &code) == 1); /* it publishes a track */
   CHECK(code == WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT);
   CHECK(mtdr_closes(SESS_C, &code) == 1); /* nothing open */
   CHECK(code == WIRED_MOQTRUN_CLOSE_NO_ERROR);
-  wired_moqt_tick(&mtst_hub, 1502);
+  wired_moqt_tick(&mtst_hub, 1500 + WIRED_MOQTRUN_GOAWAY_GRACE_MS + 2);
   CHECK(mtdr_closes(SESS_B, &code) == 1); /* closed once */
 }
 
