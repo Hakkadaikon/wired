@@ -69,7 +69,7 @@
 /** Codes that exist in only some drafts (moqctl_request_error_for). */
 #define MOQCTL_ERR_EXCESSIVE_LOAD 0x9ULL
 #define MOQCTL_ERR_DUPLICATE_SUBSCRIPTION 0x19ULL     /* draft-18 only */
-#define MOQCTL_ERR_INVALID_JOINING_REQUEST_ID 0x32ULL /* not draft-22 */
+#define MOQCTL_ERR_INVALID_JOINING_REQUEST_ID 0x32ULL /* draft-18/19 */
 #define MOQCTL_ERR_CONFLICTING_FILTERS 0x35ULL        /* not draft-18 */
 
 /** PUBLISH_DONE status codes actually used by this subset (SS17.4). */

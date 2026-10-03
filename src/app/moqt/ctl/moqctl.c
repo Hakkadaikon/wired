@@ -65,9 +65,6 @@ static const moqctl_code_row MOQCTL_ERR_ROWS[] = {
      * specific code is left. */
     {MOQCTL_ERR_DUPLICATE_SUBSCRIPTION, MOQVER_CAP_DUP_SUBSCRIPTION,
      MOQCTL_ERR_INTERNAL_ERROR},
-    /* 22 has no Joining FETCH (SS12.3): the named request does not exist. */
-    {MOQCTL_ERR_INVALID_JOINING_REQUEST_ID, MOQVER_CAP_JOINING_FETCH,
-     MOQCTL_ERR_DOES_NOT_EXIST},
     /* 18 has no filter aggregation: filters too costly to aggregate is an
      * excess of load. */
     {MOQCTL_ERR_CONFLICTING_FILTERS, MOQVER_CAP_RANGE_FILTERS,
