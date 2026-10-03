@@ -22,9 +22,10 @@
 #define MOQTRUN_RESET_GOING_AWAY 0x4
 #define MOQTRUN_RESET_EXCESSIVE_LOAD 0x9
 
-/* draft-ietf-moq-transport-19 10.11 PUBLISH_DONE Stream Count when the
- * exact number is not known. */
+/* PUBLISH_DONE Stream Count when the exact number is not known: 2^62-1
+ * in draft-18/19 (SS10.11), 2^64-1 in draft-22 (SS9.9). */
 #define MOQTRUN_DONE_STREAMS_UNKNOWN (((u64)1 << 62) - 1)
+#define MOQTRUN_DONE_STREAMS_UNKNOWN64 (~(u64)0)
 
 /* ===================== peer table ===================== */
 
@@ -4655,6 +4656,12 @@ static void moqtrun_sub_stop(
   s->active = 0;
 }
 
+static u64 moqtrun_done_streams_unknown(int ver) {
+  return (moqver_caps(ver) & MOQVER_CAP_STREAMCOUNT_U64)
+             ? MOQTRUN_DONE_STREAMS_UNKNOWN64
+             : MOQTRUN_DONE_STREAMS_UNKNOWN;
+}
+
 /* Ends subscription s of peer p, carried by request stream q: PUBLISH_DONE
  * status is q's last message, then the hub FINs it (3.3.2) once sent, and
  * a rejoining publisher does not revive it. */
@@ -4668,7 +4675,7 @@ static void moqtrun_sub_done(
   u8                  msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqctl_publish_done d = {0};
   d.status_code         = moqctl_publish_done_for(p->ver, status);
-  d.stream_count        = MOQTRUN_DONE_STREAMS_UNKNOWN;
+  d.stream_count        = moqtrun_done_streams_unknown(p->ver);
   usz n                 = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH_DONE,
       moqtrun_encode_publish_done, &d);

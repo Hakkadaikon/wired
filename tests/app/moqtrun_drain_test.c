@@ -332,6 +332,18 @@ static void test_moqtrun_done_track_ended(void) {
   CHECK(mtst_sub(SESS_A, SESS_C) != 0);
 }
 
+/* draft-22 SS9.9: the "unknown" Stream Count is 2^64-1 (a 9-byte
+ * vi64); draft-18/19 keep 2^62-1 (test_moqtrun_done_track_ended). */
+static void test_moqtrun_done_stream_count_d22(void) {
+  moqctl_ftn f                               = mtrq_setup();
+  u64        count                           = 0;
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_TRACK_ENDED);
+  CHECK(count == ~(u64)0);
+}
+
 /* Id of the last keep-open relay stream opened to s (io kind 5). */
 static u64 mtdr_uni_sid(wired_wt_session* s) {
   for (usz i = g_n_calls; i > 0; i--)
@@ -534,6 +546,7 @@ void test_moqtrun_drain(void) {
   test_moqtrun_goaway_no_timeout();
   test_moqtrun_closed_is_frozen();
   test_moqtrun_done_track_ended();
+  test_moqtrun_done_stream_count_d22();
   test_moqtrun_goaway_once_per_session();
   test_moqtrun_goaway_request_id_d18();
   test_moqtrun_peer_goaway_d18();
