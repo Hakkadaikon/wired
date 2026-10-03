@@ -159,22 +159,35 @@ static usz mtdr_sent(u64 sid, u64 type) {
   return n;
 }
 
-/* The GOAWAY last sent on sid, decoded into *g; 0 if none. */
-static int mtdr_goaway_on(u64 sid, moqctl_goaway* g) {
+/* Body of the GOAWAY last sent on sid; 0 if none. */
+static int mtdr_goaway_body(u64 sid, wired_span* body) {
   for (usz i = g_n_calls; i > 0; i--) {
     const moqtrun_test_call* c   = &g_calls[i - 1];
-    usz                      off = 0, boff = 0;
+    usz                      off = 0;
     u64                      type;
-    wired_span               body;
     if (c->kind != 3 || c->stream_id != sid) continue;
     if (moqctl_peek_type(
-            wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
+            wired_span_of(c->payload, c->payload_len), &off, &type, body) !=
             MOQCTL_OK ||
         type != MOQCTL_T_GOAWAY)
       continue;
-    return moqctl_goaway_take(body, &boff, g) == MOQCTL_OK;
+    return 1;
   }
   return 0;
+}
+
+/* The GOAWAY last sent on sid, decoded whole into *g by take; 0 if none
+ * or if take leaves bytes over. */
+static int mtdr_goaway_by(
+    u64 sid, int (*take)(wired_span, usz*, moqctl_goaway*), moqctl_goaway* g) {
+  wired_span body;
+  usz        boff = 0;
+  if (!mtdr_goaway_body(sid, &body)) return 0;
+  return take(body, &boff, g) == MOQCTL_OK && boff == body.n;
+}
+
+static int mtdr_goaway_on(u64 sid, moqctl_goaway* g) {
+  return mtdr_goaway_by(sid, moqctl_goaway_take, g);
 }
 
 /* Exactly one GOAWAY per open session, on its control stream, carrying
@@ -189,6 +202,42 @@ static void test_moqtrun_goaway_once_per_session(void) {
   CHECK(g.timeout == 500 && g.new_session_uri.n == 11);
   CHECK(wired_moqt_goaway(&mtst_hub, mtst_z(""), 0) == 0);
   CHECK(mtdr_sent(mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY) == 1);
+}
+
+/* draft-18 SS10.4: the GOAWAY to a draft-18 session carries the smallest
+ * peer Request ID not processed (0 at a server that processed none); a
+ * draft-19 session's carries none. */
+static void test_moqtrun_goaway_request_id_d18(void) {
+  moqctl_goaway g;
+  moqctl_ftn    f                            = mtrq_setup();
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D18;
+  mtst_join(SESS_C);
+  moqtrun_find_by_wt(&mtst_hub, SESS_C)->ver = MOQVER_D18;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  CHECK(wired_moqt_goaway(&mtst_hub, mtst_z(""), 500) == 3);
+  CHECK(mtdr_goaway_by(mtdr_ctl(SESS_B), moqctl_goaway18_take, &g));
+  CHECK(g.timeout == 500 && g.request_id == 4);
+  CHECK(mtdr_goaway_by(mtdr_ctl(SESS_C), moqctl_goaway18_take, &g));
+  CHECK(g.request_id == 0);
+  mtrq_setup();
+  CHECK(wired_moqt_goaway(&mtst_hub, mtst_z(""), 500) == 2);
+  CHECK(mtdr_goaway_on(mtdr_ctl(SESS_B), &g));
+}
+
+/* A draft-18 peer's control-stream GOAWAY must carry its Request ID: one
+ * without is malformed (PROTOCOL_VIOLATION), one with it is recorded. */
+static void test_moqtrun_peer_goaway_d18(void) {
+  static const u8 bare[] = {0x00, 0x00};
+  static const u8 rid[]  = {0x00, 0x00, 0x01};
+  u64             code   = 0;
+  mtrq_setup();
+  moqtrun_find_by_wt(&mtst_hub, SESS_A)->ver = MOQVER_D18;
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D18;
+  mtrq_raw(SESS_A, mtdr_ctl(SESS_A), MOQCTL_T_GOAWAY, rid, sizeof rid);
+  CHECK(mtdr_closes(SESS_A, &code) == 0);
+  mtrq_raw(SESS_B, mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY, bare, sizeof bare);
+  CHECK(mtdr_closes(SESS_B, &code) == 1);
+  CHECK(code == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
 
 /* A URI past WIRED_MOQTRUN_GOAWAY_URI_MAX is refused whole. */
@@ -486,6 +535,8 @@ void test_moqtrun_drain(void) {
   test_moqtrun_closed_is_frozen();
   test_moqtrun_done_track_ended();
   test_moqtrun_goaway_once_per_session();
+  test_moqtrun_goaway_request_id_d18();
+  test_moqtrun_peer_goaway_d18();
   test_moqtrun_goaway_uri_too_long();
   test_moqtrun_goaway_late_rejected();
   test_moqtrun_drain_one_session();

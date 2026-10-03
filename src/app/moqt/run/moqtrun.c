@@ -183,6 +183,7 @@ static void moqtrun_init_peer(
   p->wt              = s;
   p->ver             = ver;
   p->request_id_next = 1; /* hub is the server: odd, 1-origin (draft SS10.2) */
+  p->peer_rid_next   = 0; /* client Request IDs: even, 0-origin */
   p->join_seq        = hub->join_seq_next++;
   p->sub_names_n     = 0;
   p->sub_names_at    = 0;
@@ -2292,15 +2293,24 @@ static void moqtrun_dispatch_not_supported(
   moqtrun_handle_not_supported(p);
 }
 
+typedef int (*moqtrun_goaway_take_fn)(wired_span, usz*, moqctl_goaway*);
+
+/* draft-18 SS10.4: a control-stream GOAWAY ends with a Request ID. */
+static moqtrun_goaway_take_fn moqtrun_goaway_decoder(int ver) {
+  return (moqver_caps(ver) & MOQVER_CAP_GOAWAY_REQID) ? moqctl_goaway18_take
+                                                      : moqctl_goaway_take;
+}
+
 /* draft-ietf-moq-transport-19 10.4: a GOAWAY on the control stream must
- * be well formed, carry no New Session URI (the hub is the server), and
- * be the session's first. */
-static int moqtrun_goaway_bad(moqsess* sess, wired_span body) {
+ * be well formed in p's draft, carry no New Session URI (the hub is the
+ * server), and be the session's first. */
+static int moqtrun_goaway_bad(wired_moqtrun_peer* p, wired_span body) {
   usz           off = 0;
   moqctl_goaway g;
-  if (moqctl_goaway_take(body, &off, &g) != MOQCTL_OK || g.new_session_uri.n)
+  if (moqtrun_goaway_decoder(p->ver)(body, &off, &g) != MOQCTL_OK ||
+      g.new_session_uri.n)
     return 1;
-  return moqsess_step(sess, MOQSESS_EV_RECV_GOAWAY) != MOQSESS_CLOSE_NONE;
+  return moqsess_step(&p->sess, MOQSESS_EV_RECV_GOAWAY) != MOQSESS_CLOSE_NONE;
 }
 
 /* A GOAWAY on a request stream asks to migrate that one request; the
@@ -2311,7 +2321,7 @@ static void moqtrun_dispatch_goaway(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   (void)peer_idx;
   if (p->req) return;
-  if (moqtrun_goaway_bad(&p->sess, body))
+  if (moqtrun_goaway_bad(p, body))
     moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
 
@@ -2505,9 +2515,28 @@ static moqtrun_ctl_fn moqtrun_late_route(
   return fn;
 }
 
+/* A request message (a First type or REQUEST_UPDATE, draft 10.1) starts
+ * with the Request ID it consumes. */
+static int moqtrun_rid_counts(int peek, u64 type) {
+  return moqtrun_peek_known(peek) &&
+         (moqtrun_req_is_first(type) || type == MOQTSTAT_T_REQUEST_UPDATE);
+}
+
+/* Keeps p->peer_rid_next past every Request ID p has sent (draft-18
+ * SS10.4 GOAWAY Request ID). */
+static void moqtrun_rid_note(
+    wired_moqtrun_peer* p, int peek, u64 type, wired_span body) {
+  usz off = 0;
+  u64 rid;
+  if (!moqtrun_rid_counts(peek, type)) return;
+  if (moqvi_take(body, &off, &rid))
+    p->peer_rid_next = u64_max(p->peer_rid_next, rid + 2);
+}
+
 static moqtrun_ctl_fn moqtrun_msg_route(
     wired_moqtrun_peer* p, int peek, u64 type, wired_span body) {
   peek = moqctl_type_ver(p->ver, peek, &type);
+  moqtrun_rid_note(p, peek, type, body);
   if (p->req && moqtrun_peek_known(peek))
     return moqtrun_late_route(p, type, moqtrun_req_route(p->req, type, body));
   return moqtrun_late_route(p, type, moqtrun_ctl_route(peek, type));
@@ -4678,6 +4707,16 @@ static int moqtrun_encode_goaway(wired_mspan buf, usz* off, const void* m) {
   return moqctl_goaway_encode(buf, off, m);
 }
 
+static int moqtrun_encode_goaway18(wired_mspan buf, usz* off, const void* m) {
+  return moqctl_goaway18_encode(buf, off, m);
+}
+
+/* draft-18 SS10.4: a control-stream GOAWAY ends with a Request ID. */
+static moqtrun_body_encode_fn moqtrun_goaway_encoder(int ver) {
+  return (moqver_caps(ver) & MOQVER_CAP_GOAWAY_REQID) ? moqtrun_encode_goaway18
+                                                      : moqtrun_encode_goaway;
+}
+
 /* A session still owed a GOAWAY. */
 static int moqtrun_goaway_due(const wired_moqtrun_peer* p) {
   return p->in_use && !p->sess.goaway_sent && !p->closing;
@@ -4688,10 +4727,17 @@ static u64 moqtrun_goaway_deadline(const wired_moqt_hub* hub, u64 timeout_ms) {
   return timeout_ms ? hub->live.last_now_ms + timeout_ms : (u64)-1;
 }
 
-/* GOAWAY msg on p's control stream (10.4), noted in its session state. */
+/* GOAWAY g in p's draft on p's control stream (10.4), noted in its
+ * session state. draft-18's Request ID is the smallest one p has not
+ * sent yet: the hub handles each request as it arrives. */
 static void moqtrun_goaway_one(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span msg, u64 deadline) {
-  moqtrun_queue_reply(p, msg);
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, moqctl_goaway g, u64 deadline) {
+  u8 msg[WIRED_MOQTRUN_GOAWAY_URI_MAX + 32];
+  g.request_id = p->peer_rid_next;
+  usz n        = moqtrun_envelope_put(
+      wired_mspan_of(msg, sizeof msg), MOQCTL_T_GOAWAY,
+      moqtrun_goaway_encoder(p->ver), &g);
+  moqtrun_queue_reply(p, wired_span_of(msg, n));
   moqtrun_flush_replies(&hub->io, p);
   moqsess_step(&p->sess, MOQSESS_EV_SEND_GOAWAY);
   p->goaway_deadline = deadline;
@@ -4703,31 +4749,26 @@ static int moqtrun_goaway_target(
   return moqtrun_goaway_due(p) && (!s || p->wt == s);
 }
 
-/* Sends msg to p if it is a target; 1 when sent. */
+/* Sends g to p if it is a target; 1 when sent. */
 static int moqtrun_goaway_try(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
     const wired_wt_session* s,
-    wired_span              msg,
+    moqctl_goaway           g,
     u64                     deadline) {
   if (!moqtrun_goaway_target(p, s)) return 0;
-  moqtrun_goaway_one(hub, p, msg, deadline);
+  moqtrun_goaway_one(hub, p, g, deadline);
   return 1;
 }
 
 /* Sends GOAWAY to s, or to every session when s is 0; the count sent. */
 static int moqtrun_goaway_send(
     wired_moqt_hub* hub, wired_wt_session* s, wired_span uri, u64 timeout_ms) {
-  u8            msg[WIRED_MOQTRUN_GOAWAY_URI_MAX + 32];
-  moqctl_goaway g = {uri, timeout_ms};
-  usz           n = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQCTL_T_GOAWAY, moqtrun_encode_goaway,
-      &g);
-  u64 deadline = moqtrun_goaway_deadline(hub, timeout_ms);
-  int sent     = 0;
+  moqctl_goaway g        = {uri, timeout_ms, 0};
+  u64           deadline = moqtrun_goaway_deadline(hub, timeout_ms);
+  int           sent     = 0;
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
-    sent += moqtrun_goaway_try(
-        hub, &hub->peers[i], s, wired_span_of(msg, n), deadline);
+    sent += moqtrun_goaway_try(hub, &hub->peers[i], s, g, deadline);
   return sent;
 }
 
