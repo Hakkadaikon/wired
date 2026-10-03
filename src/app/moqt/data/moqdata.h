@@ -26,6 +26,9 @@
 #define MOQDATA_TYPE_SETUP 0x2F00ULL
 #define MOQDATA_TYPE_FETCH_HEADER 0x05ULL
 #define MOQDATA_TYPE_PADDING 0x132B3E28ULL
+/** SUBGROUP_HEADER Type this SDK sends: PROPERTIES off, mode 0b00, no
+ * end-of-group, default priority, FIRST_OBJECT set. */
+#define MOQDATA_MSG_TYPE 0x70ULL
 
 /** Classify a unidirectional stream by its leading Stream Type varint
  * (3.4). Returns one of the MOQDATA_STREAM_* values above; *off is
