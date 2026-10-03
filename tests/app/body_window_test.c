@@ -123,7 +123,7 @@ static void test_bodywin_fin_inside_header_is_error(void) {
   static u8 buf[BODYWIN_CAP];
   bodywin   w = {0};
   bw_rec    r = {0};
-  u8        s[8];
+  u8        s[303]; /* bw_frame always writes the full plen payload too */
   usz       n = 0;
   bw_frame(s, &n, 0x00, 300, 'z');
   bw_land(&w, buf, s, 0, 2, 1);
