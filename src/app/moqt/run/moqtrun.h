@@ -512,6 +512,9 @@ typedef struct {
   int     ver;
   moqsess sess;
   u64     request_id_next; /* next Request ID this hub sends */
+  /** One past the largest Request ID the peer has sent (+2, 0 for none):
+   * a draft-18 GOAWAY's Request ID (SS10.4). */
+  u64 peer_rid_next;
   /** Registration order (wired_moqt_init-relative, never reused): a
    * higher value is a newer session. Decides which of two sessions
    * PUBLISHing the same name owns it (moqtrun_supersede_name). */

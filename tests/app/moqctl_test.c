@@ -511,6 +511,40 @@ static void test_moqctl_goaway_roundtrip(void) {
   for (usz i = 0; i < out_len; i++) CHECK(out[i] == g_moqt_ctl_goaway_empty[i]);
 }
 
+/* draft-18 SS10.4: a control-stream GOAWAY ends with [Request ID]:
+ * empty URI, Timeout 5, Request ID 4 is 00 05 04, and round-trips. */
+static void test_moqctl_goaway18_request_id(void) {
+  static const u8 wire[] = {0x00, 0x05, 0x04};
+  moqctl_goaway   m      = {0};
+  u8              out[8];
+  usz             off = 0, n = 0;
+  CHECK(
+      moqctl_goaway18_take(wired_span_of(wire, sizeof wire), &off, &m) ==
+      MOQCTL_OK);
+  CHECK(off == sizeof wire);
+  CHECK(m.new_session_uri.n == 0 && m.timeout == 5 && m.request_id == 4);
+  CHECK(moqctl_goaway18_encode(wired_mspan_of(out, sizeof out), &n, &m));
+  CHECK(n == sizeof wire);
+  for (usz i = 0; i < n; i++) CHECK(out[i] == wire[i]);
+}
+
+/* A draft-19 body (no Request ID) is cut short for draft-18, and the
+ * draft-19 decoder stops before a draft-18 Request ID. */
+static void test_moqctl_goaway18_vs_19_shape(void) {
+  static const u8 d19[] = {0x00, 0x05};
+  static const u8 d18[] = {0x00, 0x05, 0x04};
+  moqctl_goaway   m;
+  usz             off = 0;
+  CHECK(
+      moqctl_goaway18_take(wired_span_of(d19, sizeof d19), &off, &m) ==
+      MOQCTL_INSUFFICIENT);
+  off = 0;
+  CHECK(
+      moqctl_goaway_take(wired_span_of(d18, sizeof d18), &off, &m) ==
+      MOQCTL_OK);
+  CHECK(off == 2);
+}
+
 /* ===== TEST: GOAWAY New Session URI 8192 boundary ===== */
 
 static void test_moqctl_goaway_uri_boundary(void) {
@@ -1946,6 +1980,8 @@ void test_moqctl(void) {
   test_moqctl_request_error_roundtrip();
   test_moqctl_publish_done_roundtrip();
   test_moqctl_goaway_roundtrip();
+  test_moqctl_goaway18_request_id();
+  test_moqctl_goaway18_vs_19_shape();
 
   test_moqctl_goaway_uri_boundary();
   test_moqctl_reason_boundary();

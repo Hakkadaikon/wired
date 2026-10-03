@@ -1494,6 +1494,20 @@ int moqctl_goaway_encode(wired_mspan buf, usz* off, const moqctl_goaway* m) {
   return 1;
 }
 
+int moqctl_goaway18_take(wired_span buf, usz* off, moqctl_goaway* out) {
+  usz at = *off;
+  int r  = moqctl_goaway_take(buf, &at, out);
+  if (r != MOQCTL_OK) return r;
+  if (!moqvi_take(buf, &at, &out->request_id)) return MOQCTL_INSUFFICIENT;
+  *off = at;
+  return MOQCTL_OK;
+}
+
+int moqctl_goaway18_encode(wired_mspan buf, usz* off, const moqctl_goaway* m) {
+  if (!moqctl_goaway_encode(buf, off, m)) return 0;
+  return moqvi_put(buf, off, m->request_id);
+}
+
 /* ===== Common envelope (SS10) ===== */
 
 /* Known-but-not-implemented Message Type IDs (SS10 table). Table-driven

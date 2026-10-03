@@ -509,10 +509,19 @@ int moqctl_publish_done_encode(
 typedef struct {
   wired_span new_session_uri;
   u64        timeout;
+  /** draft-18 control-stream GOAWAY only (moqctl_goaway18_*): the smallest
+   * peer Request ID not (or maybe not) processed. */
+  u64 request_id;
 } moqctl_goaway;
 
 int moqctl_goaway_take(wired_span buf, usz* off, moqctl_goaway* out);
 int moqctl_goaway_encode(wired_mspan buf, usz* off, const moqctl_goaway* m);
+
+/** draft-18 SS10.4 GOAWAY on the control stream: the fields above plus a
+ * trailing Request ID. A GOAWAY on a request stream has none in any draft
+ * and uses moqctl_goaway_take/_encode. */
+int moqctl_goaway18_take(wired_span buf, usz* off, moqctl_goaway* out);
+int moqctl_goaway18_encode(wired_mspan buf, usz* off, const moqctl_goaway* m);
 
 /** Common envelope: reads Type (vi64) + Length (16-bit BE) at *off,
  * without consuming past MOQCTL_OK's Type+Length header. On
