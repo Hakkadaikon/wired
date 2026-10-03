@@ -152,6 +152,9 @@ typedef struct {
 /** draft-ietf-moq-transport-19 3.5 NO_ERROR session code. */
 #define WIRED_MOQTRUN_CLOSE_NO_ERROR 0x0
 
+/** draft-ietf-moq-transport-18/19 3.5 INVALID_REQUEST_ID session code. */
+#define WIRED_MOQTRUN_CLOSE_INVALID_REQUEST_ID 0x4
+
 /** draft-ietf-moq-transport-19 3.5 GOAWAY_TIMEOUT session code. */
 #define WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT 0x10
 
