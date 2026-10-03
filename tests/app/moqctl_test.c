@@ -1892,10 +1892,6 @@ static void test_moqctl_request_error_for_draft(void) {
       moqctl_request_error_for(MOQVER_D18, MOQCTL_ERR_CONFLICTING_FILTERS) ==
       MOQCTL_ERR_EXCESSIVE_LOAD);
   CHECK(
-      moqctl_request_error_for(
-          MOQVER_D22, MOQCTL_ERR_INVALID_JOINING_REQUEST_ID) ==
-      MOQCTL_ERR_DOES_NOT_EXIST);
-  CHECK(
       moqctl_request_error_for(MOQVER_D19, MOQCTL_ERR_DUPLICATE_SUBSCRIPTION) ==
       MOQCTL_ERR_INTERNAL_ERROR);
   CHECK(
@@ -1907,10 +1903,6 @@ static void test_moqctl_request_error_for_draft(void) {
   CHECK(
       moqctl_request_error_for(MOQVER_D19, MOQCTL_ERR_INVALID_FILTER) ==
       MOQCTL_ERR_INVALID_FILTER);
-  CHECK(
-      moqctl_request_error_for(
-          MOQVER_D19, MOQCTL_ERR_INVALID_JOINING_REQUEST_ID) ==
-      MOQCTL_ERR_INVALID_JOINING_REQUEST_ID);
   CHECK(
       moqctl_request_error_for(MOQVER_D22, MOQCTL_ERR_NOT_SUPPORTED) ==
       MOQCTL_ERR_NOT_SUPPORTED);

@@ -25,8 +25,6 @@
 #define MOQVER_CAP_DUP_SUBSCRIPTION (1u << 1)
 /** FIN cancels a namespace subscription (draft-18). */
 #define MOQVER_CAP_FIN_CANCEL_NS (1u << 2)
-/** Joining FETCH (draft-18, 19). */
-#define MOQVER_CAP_JOINING_FETCH (1u << 3)
 /** LOCATION_FILTER with an explicit type (draft-22). */
 #define MOQVER_CAP_LOCFILTER_TYPED (1u << 4)
 /** draft-22 FETCH body layout. */
@@ -43,8 +41,6 @@
 #define MOQVER_CAP_RANGE_FILTERS (1u << 10)
 /** MAX_REQUEST_UPDATES credit (draft-19, 22). */
 #define MOQVER_CAP_MAX_REQUEST_UPDATES (1u << 11)
-/** Several subscriptions per track (draft-19, 22). */
-#define MOQVER_CAP_MULTI_SUB_PER_TRACK (1u << 12)
 /** Namespace prefix matching (draft-22). */
 #define MOQVER_CAP_NS_PREFIX_MATCH (1u << 13)
 /** End of Timed-Out Range fetch marker 0x20C (draft-22). */
