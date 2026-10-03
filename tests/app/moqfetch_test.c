@@ -712,8 +712,8 @@ static void test_moqfetch_obj_more_rejects(void) {
 
 static void moqfetch_t_req19_frame(
     const moqfetch_fetch* src, moqfetch_req* out) {
-  u8  buf[128];
-  usz n = 0;
+  static u8 buf[128]; /* out's spans view it after return */
+  usz       n = 0;
   CHECK(moqfetch_fetch_encode(wired_mspan_of(buf, sizeof buf), &n, src));
   CHECK(moqfetch_req19_take(wired_span_of(buf, n), out) == MOQCTL_OK);
 }
