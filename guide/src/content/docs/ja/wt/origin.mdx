@@ -6,20 +6,21 @@ sidebar:
 ---
 import Example from '../../../../components/Example.astro';
 
-ブラウザーは、WebTransport の Extended CONNECT のたびに、そのページの Origin を送ってきます。
+ブラウザーは、WebTransport の Extended CONNECT（セッションを開くための CONNECT リクエスト）のたびに、そのページの Origin を送ってきます。
 このサーバーは 1 つの Origin だけを許可し、それ以外はセッションを確立する前に `403` で拒否します。
 
 <Example id="wt-origin" />
 
 ## 仕組み
 
-- `opt.wt_origin_check` は、`wt_resource_check`（登録していればその結果）が受理した後、セッションを確立する前に呼ばれます。
+- `opt.wt_origin_check` は、`wt_resource_check`（登録している場合）が受理した後、セッションを確立する前に呼ばれます。
   `0` を返すと、セッションを作らずに `403` を返します。
   既定値（`0`、未設定）では、形式の正しい Origin をすべて受理します。
-- `origin` は、CONNECT の `Origin` ヘッダーをビューとして渡したもので、呼び出しのあいだだけ有効です。
-  明示的に空の `Origin: ` を送った CONNECT は、このコールバックに届く前に、SDK 自身が `403` を返します。
-  このコールバックに届くのは、`Origin` ヘッダーをまったく送らなかった CONNECT だけで、そのときは空の span になります。
-- `authority`（CONNECT の `:authority`）も渡されるので、仮想ホストごとに判定を変えることもできます。
+- `origin` は、CONNECT の `Origin` ヘッダーをビュー（コピーではなく元のバッファーへの参照）として渡したもので、呼び出しのあいだだけ有効です。
+  明示的に空の `Origin: ` を送った CONNECT は、このコールバックに届きません。
+  `wt_origin_check` が動く前に、SDK 自身が `403` を返します。
+  空の span としてこのコールバックに届くのは、`Origin` ヘッダーをまったく送らなかった CONNECT だけです。
+- `authority`（CONNECT の `:authority`、リクエスト先のホスト名）も渡されるので、仮想ホストごとに判定を変えることもできます。
   このページでは使っていません。
 - 以下の 2 回の呼び出しは、どちらも同じ `/chat` というパスを指定しています。
   違うのは Origin ヘッダーだけです。

@@ -7,9 +7,9 @@ sidebar:
 import Example from '../../../../components/Example.astro';
 
 購読者は、トラック名を前もって知っている必要はありません。
-名前空間のプレフィックスを監視すれば、その下にどの名前空間があるかを、パブリッシャーの出入りに合わせてハブが知らせます。
+名前空間のプレフィックス（名前空間の先頭部分）を監視すれば、その下にどの名前空間があるかを、パブリッシャーの出入りに合わせてハブが知らせます。
 このページでは、プレフィックス `guide` を監視する 1 つのウォッチャーと、4 つの名前空間の公開を動かします。
-公開のうち 1 つはウォッチャーより前、2 つは後に行われ、残る 1 つはサーバーのポリシーが拒否します。
+公開のうち 1 つはウォッチャーの開始より前、2 つは後に行われ、残る 1 つはサーバーのポリシーに拒否されます。
 最後に、パブリッシャーの 1 つが退出します。
 
 <Example id="moqt-discovery" />
@@ -24,7 +24,8 @@ import Example from '../../../../components/Example.astro';
   REQUEST_OK の後、ハブはプレフィックスの下で公開済みの名前空間ごとに NAMESPACE（10.16）を 1 つ送ります（初期集合で、ここでは `lobby`）。
   その後も、一致する名前空間が公開されるたびに NAMESPACE を送ります。
   どの NAMESPACE も、プレフィックスより後ろのフィールドであるサフィックスだけを運びます。
-- `hub.authorize_namespace` は、すべての PUBLISH_NAMESPACE と SUBSCRIBE_NAMESPACE を、名前空間と提示された AUTHORIZATION TOKEN とともに受け取ります（どちらのメッセージかは `msg_type` でわかります）。
+- `hub.authorize_namespace` は、すべての PUBLISH_NAMESPACE と SUBSCRIBE_NAMESPACE を、名前空間と提示された AUTHORIZATION TOKEN とともに受け取ります。
+  どちらのメッセージかは `msg_type` でわかります。
   このサンプルは、最後のフィールドが `secret` の名前空間を拒否します。
   パブリッシャーには REQUEST_ERROR UNAUTHORIZED（1）が返り、ウォッチャーにはその名前空間が知らされません。
 - room-a がセッションを閉じると、`wired_moqt_on_session_close` がそのセッションの公開した名前空間をすべて取り下げます。

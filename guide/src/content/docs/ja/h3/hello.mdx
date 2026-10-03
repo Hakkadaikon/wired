@@ -14,7 +14,7 @@ HTTP/3 サーバーは、リクエストハンドラーとサーバーの識別�
 ## 仕組み
 
 - `wired_server_run(port, &id, h, obs)` は UDP ポート上で QUIC、TLS 1.3、HTTP/3 を動かし、リクエストごとにハンドラーを 1 回呼びます。
-- `wired_srvboot_id` はサーバーの識別情報で、X25519 の鍵ペア、証明書署名用のシード、コネクション ID、ServerHello.random を持ちます。
+- `wired_srvboot_id` はサーバーの識別情報で、X25519（TLS 1.3 の鍵交換アルゴリズム）の鍵ペア、証明書署名用のシード、コネクション ID、ServerHello.random（TLS ハンドシェイクで使う乱数）を持ちます。
   このデモでは固定のバイト列から作り、公開鍵は `wired_x25519_base` で計算します。
 - ハンドラーは `body_out` にボディを書き、`*content_type` を設定して 1 を返します。
   0 を返すと、ボディのない 200 が送られます。

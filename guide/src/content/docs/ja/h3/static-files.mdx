@@ -6,7 +6,7 @@ sidebar:
 ---
 import Example from '../../../../components/Example.astro';
 
-`wired_staticfile_resolve` は、リクエストパスをドキュメントルート下のファイルパスに変換し、パストラバーサルを拒否します。
+`wired_staticfile_resolve` は、リクエストパスをドキュメントルート下のファイルパスに変換し、パストラバーサル（`..` を使ってドキュメントルートの外へ抜け出す攻撃）を拒否します。
 `wired_mimetype_for_path` は、その拡張子から Content-Type を選びます。
 このページのサーバーは、この例のディレクトリに置いた 2 つのファイルを配信し、それ以外のパスには 404 を返します。
 
@@ -18,7 +18,7 @@ import Example from '../../../../components/Example.astro';
   リクエストパスを現在のディレクトリ下に解決し、`..` を含むセグメントを拒否します。
 - `wired_mimetype_for_path(resolved)` は、解決済みパスの拡張子を読みます
   （`.txt` は `text/plain`、`.html` は `text/html`）。
-  この呼び出しは最初のラウンドで一度だけ行い、`wired_h3reqdrive` 自身の content-type フィールドと同じ扱いにします。
+  この呼び出しは最初のラウンド（ハンドラーが呼ばれる 1 回分の処理）で一度だけ行い、`wired_h3reqdrive` 自身の content-type フィールドと同じ扱いにします。
 - `wired_fio_open` / `wired_fio_size` / `wired_fio_pread` / `wired_fio_close` は、
   `x->body->cap` 単位でファイルをチャンク読みします。
   `word_list` の例が、1 ラウンドより大きいドキュメントルートで使っているのと同じ読み方です。

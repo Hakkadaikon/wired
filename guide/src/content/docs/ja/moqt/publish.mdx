@@ -6,8 +6,8 @@ sidebar:
 ---
 import Example from '../../../../components/Example.astro';
 
-ハブは自分のトラックを公開できます。
-このページでは `hello` をトラック `greeting` として公開し、クライアントが SUBSCRIBE して受け取ります。
+ハブは自分のトラック（購読の単位になる、名前付きのデータの流れ）を公開できます。
+このページでは `hello` をトラック `greeting` として公開し、クライアントが SUBSCRIBE で購読して受け取ります。
 
 <Example id="moqt-publish" />
 
@@ -15,8 +15,8 @@ import Example from '../../../../components/Example.astro';
 
 - `wired_moqt_publish_blob(&hub, name, alias, blob, wire)` は、起動時に一度だけ `blob` をフレーム化して `wire` に書きます。
   `wire` の大きさは `MOQDATA_BLOB_WIRE_CAP(n)` で決めます。
-  `wire` はハブより長く生存している必要があります。
-- このトラックを指定した SUBSCRIBE には、その Track Alias を載せた SUBSCRIBE_OK が返ります。
+  `wire` は、ハブより長く生きている必要があります。
+- このトラックを指定した SUBSCRIBE には、その Track Alias（トラックを指す数値の別名）を載せた SUBSCRIBE_OK が返ります。
   続いて、フレーム化したバイト列が io 表の `send_uni` を通じ、新しい単方向ストリームでそのピアに送られます。
 - ストリームの中身は、SUBGROUP_HEADER（Track Alias、Group 0）と、それに続く Object（ID 0、ペイロード `hello`）です。
   ハブが照合するのは Track Name だけで、名前空間は照合しません。

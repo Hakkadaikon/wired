@@ -1,13 +1,13 @@
 ---
 title: 証明書の読み込み
-description: PEM の証明書と鍵を読み、サーバーの識別情報として読み込む。
+description: PEM の証明書と鍵を読み取り、サーバーの識別情報として読み込む。
 sidebar:
   order: 3
 ---
 import Example from '../../../../components/Example.astro';
 
 実際の証明書を使うサーバーは、`cert.pem` と `key.pem` の組から証明書を読みます。
-このページでは、この組を一段ずつデコードしたあと、1 回の呼び出しでまとめて読み込みます。
+このページでは、この組を順を追ってデコードしたあと、1 回の呼び出しでまとめて読み込みます。
 使う組は `localhost` 向けの自己署名のデモ用です。
 
 <Example id="tls-certificates" />
@@ -15,8 +15,8 @@ import Example from '../../../../components/Example.astro';
 ## 仕組み
 
 - `wired_fio_read(path, buf)` はファイル全体を、呼び出し側が所有するバッファに読み込みます。
-- `wired_pem_next(text, &at, &label, &der)` は次の PEM ブロックを DER にデコードし、`at` を進めます。
-  ループで呼ぶと、fullchain のファイルを先頭から順にたどれます。
+- `wired_pem_next(text, &at, &label, &der)` は、次の PEM ブロック（`-----BEGIN ...-----` で囲まれたテキスト形式のかたまり）を DER（バイナリ形式）にデコードし、`at` を進めます。
+  ループで呼ぶと、fullchain（複数の証明書を連結した）ファイルを先頭から順にたどれます。
 - `wired_eckey_p256_priv(der, priv)` は SEC1 または PKCS#8 の DER から P-256 の秘密鍵を取り出します。
 - `wired_certreload_load(cert, key, &store, &id)` は上の処理をすべて行い、`id.chain`、`id.chain_count`、`id.cert_seed` が `store` を指すようにします。
-  `id` を使っているあいだは `store` を生かしておきます。
+  `id` を使っているあいだは `store` を有効なまま保持します。

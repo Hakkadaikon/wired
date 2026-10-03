@@ -1,13 +1,13 @@
 ---
 title: パスによる振り分け
-description: 一つのハンドラーで、パスごとに異なるボディを返す。
+description: 1 つのハンドラーで、パスごとに異なるボディを返す。
 sidebar:
   order: 2
 ---
 import Example from '../../../../components/Example.astro';
 
 wired にルーターはありません。
-ハンドラーがリクエストの `:path` を読み、応答を決めます。
+ハンドラーがリクエストの `:path`（HTTP/3 でパスを運ぶヘッダー）を読み、応答を決めます。
 このページのサーバーは `/` と `/about` に応答し、それ以外のパスには本物の 404 を返します。
 
 <Example id="h3-routing" />
@@ -15,8 +15,8 @@ wired にルーターはありません。
 ## 仕組み
 
 - `x->req->path` と `x->req->path_len` がリクエストの `:path` を保持します。
-  NUL 終端ではないので、1 バイトずつ比較します。
-- このハンドラーは（`wired_srvrun_handler.http` の形で）`wired_http_exchange*` を受け取ります。
+  末尾に文字列の終わりを示す NUL が付いていないので、1 バイトずつ比較します。
+- このハンドラーは、`wired_srvrun_handler.http` の形で `wired_http_exchange*` を受け取ります。
   そのため、常に 200 を返す 7 引数のハンドラーと違い、`x->status` でステータスコードを選べます。
 - `x->status` を設定せずに 0 を返すと、ボディのない 200 が送られます。
   返す前に `x->status = 404` を設定すれば、その 404 が送られます。

@@ -6,8 +6,9 @@ sidebar:
 ---
 import Example from '../../../../components/Example.astro';
 
-QUIC のロングヘッダーは、どれも同じ不変のフィールド（タイプ、バージョン、二つのコネクション ID）から始まります。
-このページでは Initial のヘッダーをエンコードし、それをデコードし直します。
+ロングヘッダーは、QUIC が接続を確立するまでのパケットに使うヘッダー形式です。
+どのロングヘッダーも、同じ不変のフィールド（タイプ、バージョン、2 つのコネクション ID）から始まります。
+このページでは Initial（接続の最初に送るパケット種別）のヘッダーをエンコードし、それをデコードし直します。
 
 <Example id="quic-header" />
 
@@ -15,7 +16,7 @@ QUIC のロングヘッダーは、どれも同じ不変のフィールド（タ
 
 - `wired_header` はヘッダーのフィールドを保持します。
   `long_type` には `WIRED_LP_INITIAL`、`WIRED_LP_0RTT`、`WIRED_LP_HANDSHAKE`、`WIRED_LP_RETRY` のいずれかを入れます。
-- `wired_header_build_long(buf, cap, &h)` は先頭バイト、バージョン、長さ付きの DCID と SCID を書き込み、書いたバイト数を返します。
+- `wired_header_build_long(buf, cap, &h)` は先頭バイト、バージョン、長さ付きの DCID と SCID（宛先と送信元のコネクション ID）を書き込み、書いたバイト数を返します。
   バッファーに収まらないときは 0 を返します。
 - `wired_header_parse(buf, n, &h)` はそれらを読み戻し、消費したバイト数を返します。
   入力が途中で切れているか不正なときは 0 を返します。

@@ -1,6 +1,6 @@
 ---
 title: UDP ソケット
-description: SDK のシステムコール水準の UDP API で、二つのソケットのあいだにデータグラムを一つ送る。
+description: SDK のシステムコール水準の UDP API で、2 つのソケットのあいだでデータグラムを 1 つ送る。
 sidebar:
   order: 2
 ---
@@ -8,17 +8,17 @@ import Example from '../../../../components/Example.astro';
 
 QUIC は UDP の上で動きます。
 wired は libc を介さず、カーネルと直接やり取りします。
-このページでは 127.0.0.1 に二つのソケットをバインドし、一方からもう一方へ `hello` を送ります。
+このページでは 127.0.0.1 に 2 つのソケットをバインドし、一方からもう一方へ `hello` を送ります。
 
 <Example id="quic-udp" />
 
 ## 仕組み
 
 - `wired_udp_addr(&sa, port, octets)` はアドレスを作ります。
-  どのソケットもデュアルスタックなので、IPv4 のオクテットは IPv4 射影 IPv6 アドレスになります。
+  どのソケットも IPv4 と IPv6 の両方を扱うデュアルスタックなので、IPv4 のオクテットは IPv4 射影 IPv6 アドレス（IPv6 の形式で表した IPv4 アドレス）になります。
 - `wired_udp_socket` はソケットを開き、`wired_udp_bind` はそれをバインドします。
-  どちらも失敗すると負の errno を返します。
-- `wired_udp_send(fd, &dst, span)` はデータグラムを一つ送ります。
-  `wired_udp_recvfrom(fd, buf, &src)` はデータグラムを一つ受け取り、送信元のアドレスを書き込みます。
-- `sockaddr.port_be` はネットワークバイトオーダーなので、表示する前にバイト順を入れ替えます。
+  どちらも失敗すると負の errno（エラー番号を負にした値）を返します。
+- `wired_udp_send(fd, &dst, span)` はデータグラムを 1 つ送ります。
+  `wired_udp_recvfrom(fd, buf, &src)` はデータグラムを 1 つ受け取り、送信元のアドレスを書き込みます。
+- `sockaddr.port_be` はネットワークバイトオーダー（上位バイトが先に並ぶ順序）なので、表示する前にバイト順を入れ替えます。
 - `wired_udp_close` はソケットを解放します。
