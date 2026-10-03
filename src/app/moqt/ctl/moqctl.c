@@ -4,6 +4,7 @@
 #include "app/moqt/kvp/moqkvp.h"
 #include "app/moqt/ns/moqns.h"
 #include "app/moqt/tstat/moqtstat.h"
+#include "app/moqt/ver/moqver.h"
 #include "app/moqt/vi/moqvi.h"
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
@@ -1449,6 +1450,46 @@ static int moqctl_classify_type(u64 type) {
   if (moqctl_u64_in(MOQCTL_KNOWN_UNIMPL, MOQCTL_KNOWN_UNIMPL_N, type))
     return MOQCTL_KNOWN_UNIMPLEMENTED;
   return MOQCTL_UNKNOWN_TYPE;
+}
+
+/* Per-draft Types the draft-19 table above does not know: one row per
+ * (draft, wire Type), with the Type it stands for and its classification.
+ * Send side always uses the draft-19 Types (REQUEST_OK is sent as 0x7). */
+typedef struct {
+  int ver;
+  u64 wire;
+  u64 type;
+  int peek;
+} moqctl_type_row;
+
+static const moqctl_type_row MOQCTL_TYPE_ROWS[] = {
+    /* draft-18 SS10 table vs SS10.5: 0x1E is PUBLISH_OK = REQUEST_OK. */
+    {MOQVER_D18, MOQCTL_T_PUBLISH_OK18, MOQCTL_T_REQUEST_OK, MOQCTL_OK},
+    /* draft-22 SS9.10 PUBLISH_STATE_NOTIFY. */
+    {MOQVER_D22, MOQCTL_T_PUBLISH_STATE_NOTIFY, MOQCTL_T_PUBLISH_STATE_NOTIFY,
+     MOQCTL_KNOWN_UNIMPLEMENTED},
+};
+#define MOQCTL_TYPE_ROWS_N \
+  (sizeof MOQCTL_TYPE_ROWS / sizeof MOQCTL_TYPE_ROWS[0])
+
+static int moqctl_type_row_is(const moqctl_type_row* r, int ver, u64 wire) {
+  return r->ver == ver && r->wire == wire;
+}
+
+static const moqctl_type_row* moqctl_type_row_for(int ver, u64 wire) {
+  for (usz i = 0; i < MOQCTL_TYPE_ROWS_N; i++)
+    if (moqctl_type_row_is(&MOQCTL_TYPE_ROWS[i], ver, wire))
+      return &MOQCTL_TYPE_ROWS[i];
+  return 0;
+}
+
+int moqctl_type_ver(int ver, int peek, u64* type) {
+  const moqctl_type_row* r;
+  if (peek != MOQCTL_UNKNOWN_TYPE) return peek;
+  r = moqctl_type_row_for(ver, *type);
+  if (!r) return peek;
+  *type = r->type;
+  return r->peek;
 }
 
 int moqctl_peek_header(wired_span buf, usz* at, u64* type, u16* len) {

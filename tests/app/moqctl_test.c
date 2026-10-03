@@ -1,5 +1,6 @@
 #include "app/moqt/ctl/moqctl.h"
 
+#include "app/moqt/ver/moqver.h"
 #include "moqt_golden.h"
 #include "test.h"
 
@@ -87,6 +88,51 @@ static void test_moqctl_peek_type_known_unimplemented(void) {
   CHECK(
       moqctl_peek_type(wired_span_of(in, sizeof in), &off, &type, &body) ==
       MOQCTL_KNOWN_UNIMPLEMENTED);
+}
+
+/* draft-18 SS10's table lists 0x1E as PUBLISH_OK while its SS10.5 makes
+ * PUBLISH_OK a REQUEST_OK alias: only a draft-18 session reads 0x1E as
+ * REQUEST_OK; draft-19/22 keep it reserved (unknown). */
+static void test_moqctl_type_ver_publish_ok_alias(void) {
+  u64 t = 0x1E;
+  CHECK(moqctl_type_ver(MOQVER_D18, MOQCTL_UNKNOWN_TYPE, &t) == MOQCTL_OK);
+  CHECK(t == MOQCTL_T_REQUEST_OK);
+  t = 0x1E;
+  CHECK(
+      moqctl_type_ver(MOQVER_D19, MOQCTL_UNKNOWN_TYPE, &t) ==
+      MOQCTL_UNKNOWN_TYPE);
+  CHECK(
+      moqctl_type_ver(MOQVER_D22, MOQCTL_UNKNOWN_TYPE, &t) ==
+      MOQCTL_UNKNOWN_TYPE);
+  CHECK(t == 0x1E);
+}
+
+/* draft-22 SS9.10 PUBLISH_STATE_NOTIFY (0x22) is a known type only for a
+ * draft-22 session. */
+static void test_moqctl_type_ver_publish_state_notify(void) {
+  u64 t = MOQCTL_T_PUBLISH_STATE_NOTIFY;
+  CHECK(
+      moqctl_type_ver(MOQVER_D22, MOQCTL_UNKNOWN_TYPE, &t) ==
+      MOQCTL_KNOWN_UNIMPLEMENTED);
+  CHECK(t == MOQCTL_T_PUBLISH_STATE_NOTIFY);
+  CHECK(
+      moqctl_type_ver(MOQVER_D19, MOQCTL_UNKNOWN_TYPE, &t) ==
+      MOQCTL_UNKNOWN_TYPE);
+  CHECK(
+      moqctl_type_ver(MOQVER_D18, MOQCTL_UNKNOWN_TYPE, &t) ==
+      MOQCTL_UNKNOWN_TYPE);
+}
+
+/* Any other classification (and any other Type) passes through as is. */
+static void test_moqctl_type_ver_passthrough(void) {
+  u64 t = MOQCTL_T_REQUEST_OK;
+  CHECK(moqctl_type_ver(MOQVER_D18, MOQCTL_OK, &t) == MOQCTL_OK);
+  CHECK(t == MOQCTL_T_REQUEST_OK);
+  t = 0x99;
+  CHECK(
+      moqctl_type_ver(MOQVER_D22, MOQCTL_UNKNOWN_TYPE, &t) ==
+      MOQCTL_UNKNOWN_TYPE);
+  CHECK(t == 0x99);
 }
 
 /* A complete unknown or known-but-unimplemented message is still framed
@@ -1760,6 +1806,9 @@ void test_moqctl(void) {
   test_moqctl_peek_type_truncated();
   test_moqctl_peek_type_unknown();
   test_moqctl_peek_type_known_unimplemented();
+  test_moqctl_type_ver_publish_ok_alias();
+  test_moqctl_type_ver_publish_state_notify();
+  test_moqctl_type_ver_passthrough();
   test_moqctl_peek_type_unknown_skips_whole_message();
   test_moqctl_peek_type_unimplemented_skips_whole_message();
   test_moqctl_peek_type_fetch_ok_is_known();

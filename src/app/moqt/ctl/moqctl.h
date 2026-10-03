@@ -35,6 +35,11 @@
 #define MOQCTL_T_PUBLISH 0x1DULL
 #define MOQCTL_T_PUBLISH_SKIPPED 0xFULL
 #define MOQCTL_T_SUBSCRIBE_TRACKS 0x51ULL
+/** draft-18 SS10 table's PUBLISH_OK row (a REQUEST_OK alias per its
+ * SS10.5); reserved in draft-19/22. */
+#define MOQCTL_T_PUBLISH_OK18 0x1EULL
+/** draft-22 SS9.10; unknown in draft-18/19. */
+#define MOQCTL_T_PUBLISH_STATE_NOTIFY 0x22ULL
 
 /** moqctl_peek_type results (in addition to MOQCTL_OK). */
 #define MOQCTL_UNKNOWN_TYPE (-2)
@@ -501,6 +506,12 @@ int moqctl_goaway_encode(wired_mspan buf, usz* off, const moqctl_goaway* m);
  * past the whole message, exactly like MOQCTL_OK, so the caller can
  * answer or skip it and go on with the next one. */
 int moqctl_peek_type(wired_span buf, usz* off, u64* type_out, wired_span* body);
+
+/** Re-classifies a moqctl_peek_type result for draft ver (MOQVER_*): a
+ * Type unknown to the draft-19 table that ver does define gets ver's
+ * classification, and *type is rewritten to the Type it stands for
+ * (draft-18 0x1E -> REQUEST_OK). Every other peek passes through. */
+int moqctl_type_ver(int ver, int peek, u64* type);
 
 /** Reads only Type + Length at *at (no body check): MOQCTL_OK advances *at
  * past them; on MOQCTL_INSUFFICIENT *len is unset and *at may have moved. */
