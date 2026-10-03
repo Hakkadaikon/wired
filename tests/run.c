@@ -561,6 +561,7 @@
 #include "app/moqt/tstat/moqtstat.c"
 #include "app/moqt/fetch/moqfetch.c"
 #include "app/moqt/cache/moqcache.c"
+#include "app/moqt/ver/moqver.c"
 #include "common/varint_test.c"
 #include "transport/header_test.c"
 #include "transport/dcidresolve_test.c"
@@ -1086,6 +1087,7 @@
 #include "app/moqtstat_test.c"
 #include "app/moqfetch_test.c"
 #include "app/moqcache_test.c"
+#include "app/moqver_test.c"
 // clang-format on
 
 int main(void) {
@@ -1641,6 +1643,7 @@ int main(void) {
   test_moqtstat();
   test_moqfetch();
   test_moqcache();
+  test_moqver();
   test_ed25519_field();
   test_v2ku_appendix();
   test_h3prio();
