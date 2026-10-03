@@ -47,12 +47,14 @@ static wired_moqt_hub g_hub;
 
 /* Any datagram is the operator's "drain now" trigger in this demo (a real
  * server would call this on SIGTERM or before a deploy). Every session
- * gets GOAWAY pointing at the new URI, with 1000 ms to leave. */
+ * gets GOAWAY pointing at the new URI, with 300 ms to leave (short so the
+ * page's client stays well inside its own deadline; the hub still waits
+ * WIRED_MOQTRUN_GOAWAY_GRACE_MS past that before it actually closes). */
 static void on_datagram(void* ctx, wired_wt_session* s, wired_span data) {
   (void)s;
   (void)data;
   static const char uri[] = "https://relay2.example/moqt";
-  wired_moqt_goaway((wired_moqt_hub*)ctx, wired_span_of((const u8*)uri, sizeof uri - 1), 1000);
+  wired_moqt_goaway((wired_moqt_hub*)ctx, wired_span_of((const u8*)uri, sizeof uri - 1), 300);
   wired_log_str("GOAWAY sent\n");
 }
 

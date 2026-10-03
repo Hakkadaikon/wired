@@ -9,7 +9,7 @@ subscriber: SUBSCRIBE video priority=200 -> SUBSCRIBE_OK
 subscriber: SUBSCRIBE audio priority=10 -> SUBSCRIBE_OK
 subscriber: video group 0 "keyframe"
 subscriber: audio group 0 "frame"
-subscriber: GOAWAY new_uri=https://relay2.example/moqt timeout=1000ms
+subscriber: GOAWAY new_uri=https://relay2.example/moqt timeout=300ms
 subscriber: new SUBSCRIBE -> REQUEST_ERROR error_code=6
 subscriber: video relay stream reset error_code=0x4
 subscriber: video PUBLISH_DONE status=4
