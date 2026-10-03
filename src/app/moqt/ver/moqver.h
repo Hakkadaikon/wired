@@ -49,6 +49,10 @@
 #define MOQVER_CAP_NS_PREFIX_MATCH (1u << 13)
 /** End of Timed-Out Range fetch marker 0x20C (draft-22). */
 #define MOQVER_CAP_EOR_TIMED_OUT (1u << 14)
+/** 0x1E is PUBLISH_OK, a REQUEST_OK alias (draft-18 SS10 table). */
+#define MOQVER_CAP_PUBLISH_OK_ALIAS (1u << 15)
+/** PUBLISH_DONE SUBSCRIPTION_ENDED status exists (draft-18, 19). */
+#define MOQVER_CAP_SUBSCRIPTION_ENDED (1u << 16)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a
