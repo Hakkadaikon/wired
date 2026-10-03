@@ -979,8 +979,8 @@ static int moqctl_params_take_loop(
   return MOQCTL_OK;
 }
 
-static int moqctl_params_take_any(
-    wired_span buf, usz* off, u32 ctx, int ver, moqctl_params* out) {
+int moqctl_params_take(
+    int ver, wired_span buf, usz* off, u32 ctx, moqctl_params* out) {
   usz at = *off;
   u64 count;
   int r;
@@ -990,11 +990,6 @@ static int moqctl_params_take_any(
   if (r != MOQCTL_OK) return r;
   *off = at;
   return MOQCTL_OK;
-}
-
-int moqctl_params_take(
-    int ver, wired_span buf, usz* off, u32 ctx, moqctl_params* out) {
-  return moqctl_params_take_any(buf, off, ctx, ver, out);
 }
 
 int moqctl_param_put_uint8(wired_mspan buf, usz* at, u64 v) {
