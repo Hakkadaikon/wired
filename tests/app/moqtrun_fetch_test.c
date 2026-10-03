@@ -622,18 +622,23 @@ static void test_moqtrun_fetch_d22_served(void) {
   CHECK(mf_loc_eq(mf_ok_end(), 0, 0));
 }
 
-/* A Next Object start is always past Largest (nothing to fetch) and a
- * start past Largest is INVALID_RANGE, as for draft-19. */
+/* INVALID_RANGE (draft-22 SS9.20.9, SS9.11): a Next Object start is always
+ * past Largest (nothing to fetch), a start past Largest, and an Absolute
+ * Range whose End Object precedes its Start Object in the same group. */
 static void test_moqtrun_fetch_d22_invalid_range(void) {
   moqctl_rangeloc next =
       mf_rl(MOQCTL_RSK_NEXT_OBJ, 0, 0, MOQCTL_REK_UNBOUNDED, 0, 0);
   moqctl_rangeloc past =
       mf_rl(MOQCTL_RSK_ABS, 5, 0, MOQCTL_REK_UNBOUNDED, 0, 0);
+  moqctl_rangeloc inverted = mf_rl(MOQCTL_RSK_ABS, 0, 1, MOQCTL_REK_OBJ, 0, 0);
   mf_init(sizeof mf_arena);
   mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
   mf_fetch22(&next);
   CHECK(mf_error() == MOQCTL_ERR_INVALID_RANGE);
   mf_fetch22(&past);
+  CHECK(mf_error() == MOQCTL_ERR_INVALID_RANGE);
+  mf_fetch22(&inverted);
   CHECK(mf_error() == MOQCTL_ERR_INVALID_RANGE);
 }
 

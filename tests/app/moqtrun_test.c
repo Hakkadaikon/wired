@@ -1492,12 +1492,11 @@ static void test_moqtrun_chat_object_relays_only_to_chat_subscriber(void) {
   CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
 }
 
-/* C3 (S3 chat-loss investigation, tasks/moqt-voice-stability-plan.md):
- * the field's 4-client room means one chat Object commonly has THREE
- * subscribers (every other participant), a fan-out no existing test
- * exercised (the pre-existing tests here all use one or two SESS_*). A
- * real 1%-loss run showed a chat message missing from every one of its
- * receivers simultaneously (e.g. msg:user3:10 absent for user1, user2, AND
+/* Chat-loss investigation: the field's 4-client room means one chat Object
+ * commonly has THREE subscribers (every other participant), a fan-out no
+ * existing test exercised (the pre-existing tests here all use one or two
+ * SESS_*). A real 1%-loss run showed a chat message missing from every one of
+ * its receivers simultaneously (e.g. msg:user3:10 absent for user1, user2, AND
  * user4 alike) -- this pins that moqtrun's own fan-out logic (
  * moqtrun_relay_object's for-loop over track->subs[]) reaches all three
  * unconditionally, ruling out a hub-side "stops after N subscribers" bug

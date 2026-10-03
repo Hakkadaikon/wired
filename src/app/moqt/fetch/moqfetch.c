@@ -99,7 +99,7 @@ int moqfetch_fetch_encode(wired_mspan buf, usz* off, const moqfetch_fetch* m) {
   return moqctl_params_put(buf, off, &m->params);
 }
 
-/* ===== moqfetch_req: version-neutral FETCH (ledger 3-7) =====
+/* ===== moqfetch_req: version-neutral FETCH (19 SS10.12, 22 SS9.11) =====
  * A thin translation layer over moqfetch_fetch (d19 wire) / moqctl_rangeloc
  * (d19 Standalone Start/End <-> d22 LOCATION_FILTER), not a reimplementation
  * of either wire parser. */

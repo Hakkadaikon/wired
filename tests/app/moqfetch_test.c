@@ -778,7 +778,7 @@ static void test_moqfetch_obj_more_rejects(void) {
   CHECK(moqfetch_t_one(od2, sizeof od2, &seq, &o) == MOQCTL_VIOLATION);
 }
 
-/* ===== moqfetch_req (version-neutral FETCH, ledger 3-7) ===== */
+/* ===== moqfetch_req (version-neutral FETCH, 19 SS10.12, 22 SS9.11) ===== */
 
 static void moqfetch_t_req19_frame(
     const moqfetch_fetch* src, moqfetch_req* out) {
@@ -949,7 +949,7 @@ static void test_moqfetch_req22_bad_ns_rejects(void) {
       MOQCTL_VIOLATION);
 }
 
-/* X1 (cross_version): the same NS/Name + absolute {2,3}..{5,0} inclusive
+/* Cross-version: the same NS/Name + absolute {2,3}..{5,0} inclusive
  * range decodes to the same moqctl_rangeloc shape from d19 Standalone and
  * d22 Absolute-Start-Group-End. */
 static void test_moqfetch_req_cross_version_range(void) {
