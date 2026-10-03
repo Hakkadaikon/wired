@@ -1464,8 +1464,7 @@ static void test_moqctl_locfilter_unknown_type_violation(void) {
       MOQCTL_VIOLATION);
 }
 
-/* ===== TEST: Version-neutral range model (moqctl_rangeloc) =====
- * Mirrors tasks/fv/moqt/Moqt/Filter.lean's SK/EK/Rng field-for-field. */
+/* ===== TEST: Version-neutral range model (moqctl_rangeloc) ===== */
 
 static void test_moqctl_rangeloc19_next_group(void) {
   const u8        in[] = {0x1};
@@ -1764,61 +1763,7 @@ static void test_moqctl_rangeloc22_unknown_type_violation(void) {
       MOQCTL_VIOLATION);
 }
 
-static void test_moqctl_rangeloc_q04a_predicate(void) {
-  moqctl_rangeloc violating   = {0};
-  moqctl_rangeloc not_range   = {0};
-  moqctl_rangeloc in_order    = {0};
-  moqctl_rangeloc group_delta = {0};
-
-  /* type 0x04 shape: ek==OBJ, EGD==0 (end_group==start_group),
-   * end_object < start_object -> violation. */
-  violating.sk           = MOQCTL_RSK_ABS;
-  violating.ek           = MOQCTL_REK_OBJ;
-  violating.start_group  = 3;
-  violating.start_object = 10;
-  violating.end_group    = 3;
-  violating.end_object   = 2;
-  CHECK(moqctl_rangeloc_q04a_violation(&violating));
-
-  /* ek != OBJ (type 0x03 shape, no end_object) -> never flagged. */
-  not_range.sk          = MOQCTL_RSK_ABS;
-  not_range.ek          = MOQCTL_REK_GROUP;
-  not_range.start_group = 3;
-  not_range.end_group   = 3;
-  CHECK(!moqctl_rangeloc_q04a_violation(&not_range));
-
-  /* end_object >= start_object -> not a violation. */
-  in_order.sk           = MOQCTL_RSK_ABS;
-  in_order.ek           = MOQCTL_REK_OBJ;
-  in_order.start_group  = 3;
-  in_order.start_object = 2;
-  in_order.end_group    = 3;
-  in_order.end_object   = 10;
-  CHECK(!moqctl_rangeloc_q04a_violation(&in_order));
-
-  /* EGD != 0 (end_group != start_group): Q-04a only applies within the
-   * same group. */
-  group_delta.sk           = MOQCTL_RSK_ABS;
-  group_delta.ek           = MOQCTL_REK_OBJ;
-  group_delta.start_group  = 3;
-  group_delta.start_object = 10;
-  group_delta.end_group    = 4;
-  group_delta.end_object   = 2;
-  CHECK(!moqctl_rangeloc_q04a_violation(&group_delta));
-}
-
-static void test_moqctl_rangeloc_q04b_predicate(void) {
-  moqctl_rangeloc next_obj = {0};
-  moqctl_rangeloc abs      = {0};
-
-  next_obj.sk = MOQCTL_RSK_NEXT_OBJ;
-  CHECK(moqctl_rangeloc_q04b_violation(&next_obj));
-
-  abs.sk = MOQCTL_RSK_ABS;
-  CHECK(!moqctl_rangeloc_q04b_violation(&abs));
-}
-
-/* X1 (cross_version): the same {group,object} AbsoluteStart decodes to a
+/* Cross-version: the same {group,object} AbsoluteStart decodes to a
  * bit-identical moqctl_rangeloc from both d19 (type 0x3) and d22 (type
  * 0x02). */
 static void test_moqctl_rangeloc_cross_version_abs_start(void) {
@@ -2036,8 +1981,6 @@ void test_moqctl(void) {
   test_moqctl_rangeloc22_next_object_roundtrip();
   test_moqctl_rangeloc22_egd_overflow_violation();
   test_moqctl_rangeloc22_unknown_type_violation();
-  test_moqctl_rangeloc_q04a_predicate();
-  test_moqctl_rangeloc_q04b_predicate();
   test_moqctl_rangeloc_cross_version_abs_start();
 
   test_moqctl_grease_pattern();

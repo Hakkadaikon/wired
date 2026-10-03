@@ -215,8 +215,7 @@ int moqctl_locfilter_put(wired_mspan buf, usz* off, const moqctl_locfilter* f) {
   return 1;
 }
 
-/* ===== Version-neutral range model (moqctl_rangeloc) =====
- * Mirrors tasks/fv/moqt/Moqt/Filter.lean's SK/EK/Rng field-for-field. */
+/* ===== Version-neutral range model (moqctl_rangeloc) ===== */
 
 /* End Group Delta, resolved to an absolute end_group; overflow of
  * start_group+delta past 2^64-1 -> VIOLATION (shared by d19 type 4 and
@@ -507,18 +506,6 @@ int moqctl_rangeloc22_put(
     wired_mspan buf, usz* off, int has_filter, const moqctl_rangeloc* r) {
   if (!has_filter) return moqctl_rangeloc22_put_none(buf, off, *off);
   return moqctl_rangeloc22_put_present(buf, off, r);
-}
-
-/* ----- Named violation predicates (Q-04a/Q-04b) ----- */
-
-int moqctl_rangeloc_q04a_violation(const moqctl_rangeloc* r) {
-  if (r->ek != MOQCTL_REK_OBJ) return 0;
-  if (r->end_group != r->start_group) return 0;
-  return r->end_object < r->start_object;
-}
-
-int moqctl_rangeloc_q04b_violation(const moqctl_rangeloc* r) {
-  return r->sk == MOQCTL_RSK_NEXT_OBJ;
 }
 
 /* ===== Track Namespace / Full Track Name (SS1.5) ===== */
