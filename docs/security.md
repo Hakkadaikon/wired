@@ -274,10 +274,11 @@ adversarial input) without exercising that guard as a failure lever
   `test_srvrun_wt_session_sharing_enables_flow_control`, `test_srvrun_
   wt_rx_max_data_capsule_via_dispatch_unblocks_send`. Unknown capsules are
   skipped (RFC 9297 3.2), a malformed/truncated body closes the session
-  (3.3), and a stale (lowering) flow-control value is ignored — `test_
-  srvrun_wt_rx_unknown_capsule_via_dispatch_skipped`, `test_srvrun_wt_rx_
-  truncated_capsule_via_dispatch_closes_session`, `test_srvrun_wt_ignores_
-  stale_flow_control_capsules`.
+  (3.3), and a flow-control value that does not increase the limit closes
+  the session with WT_FLOW_CONTROL_ERROR (draft-ietf-webtrans-http3-16
+  5.6.2/5.6.4) — `test_srvrun_wt_rx_unknown_capsule_via_dispatch_skipped`,
+  `test_srvrun_wt_rx_truncated_capsule_via_dispatch_closes_session`,
+  `test_srvrun_wt_nonincreasing_flow_control_capsule_closes_session`.
 - `WT_CLOSE_SESSION` ends the session; WebTransport session creation is
   rate-limited server-wide per window; usage counters (sessions/streams/
   datagrams) are exposed — `test_srvrun_wt_close_session_capsule_received`,

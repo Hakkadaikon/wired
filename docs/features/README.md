@@ -26,7 +26,7 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 1426/1427 requirements demonstrated (99.9%) — 1191 directly tested,
+**Total: 1432/1433 requirements demonstrated (99.9%) — 1197 directly tested,
 235 indirect, 1 untested.**
 
 ## QUIC core
@@ -94,7 +94,7 @@ independent implementation) are tracked separately: see
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [draft-ietf-webtrans-http3-15](draft-webtrans-http3.md) | 68/68 | 54 | 14 | 0 |
+| [draft-ietf-webtrans-http3-16](draft-webtrans-http3.md) | 74/74 | 60 | 14 | 0 |
 | [RFC 9220 — Extended CONNECT](rfc9220.md) | 11/11 | 10 | 1 | 0 |
 | [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 23/23 | 17 | 6 | 0 |
 

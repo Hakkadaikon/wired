@@ -1,9 +1,9 @@
-[Docs](../README.md) › [Features](README.md) › draft-ietf-webtrans-http3-15
+[Docs](../README.md) › [Features](README.md) › draft-ietf-webtrans-http3-16
 
-# draft-ietf-webtrans-http3-15 — WebTransport over HTTP/3
+# draft-ietf-webtrans-http3-16 — WebTransport over HTTP/3
 
 EARS requirement ledger extracted from the spec text
-(`tasks/specs/draft-ietf-webtrans-http3-15.txt`, not in git), server side.
+(`tasks/specs/draft-ietf-webtrans-http3-16.txt`, not in git), server side.
 Each requirement carries the test that demonstrates it; an unchecked box
 with no test line is an open gap. Status as of 2026-10.
 
@@ -13,13 +13,12 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 54/68 tested, 14 indirect, 0 untested.**
+**Coverage: 60/74 tested, 14 indirect, 0 untested.**
 
 ## §3.1 Establishing a WebTransport-Capable HTTP/3 Connection
 
 - [x] WTH3-001 (§3.1) The server shall signal support for WebTransport over
-  HTTP/3 by sending a SETTINGS_WT_ENABLED setting with a value greater
-  than 0.
+  HTTP/3 by sending a SETTINGS_WT_ENABLED setting with the value 1.
   - test: `tests/app/h3settings_control_settings_test.c` —
     `test_h3settings_control_settings_advertises_wt`
   - test: `tests/app/h3settings_build_test.c` —
@@ -132,13 +131,13 @@ Legend:
     `test_srvrun_wt_connect_origin_ok_establishes`
 - [x] WTH3-016 (§3.2) Where the HTTP/3 server has no WebTransport server
   associated with the specified `:authority` and `:path` values, the
-  server should reply with status code 404.
+  server should reply with status code 405.
   - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_wt_resource_check_404_no_session`
+    `test_srvrun_wt_resource_check_405_no_session`
   - evidence: the app registers a `wired_wt_resource_check` callback
     (`srvrun_wt_resource_decide`) consulted on every Extended CONNECT before
     a session is established; a callback that reports "not found" builds a
-    bare 404 response and never reaches the app handler.
+    bare 405 response and never reaches the app handler.
 - [x] WTH3-017 (§3.2) From the server's perspective, a WebTransport
   session is established once it sends a 2xx response.
   - test: `tests/app/wt_session_test.c` —
@@ -466,11 +465,12 @@ Legend:
   - test: `tests/app/wtcapsule_test.c` —
     `test_wtcapsule_max_streams_decoded_value_ignored_until_applied`
   - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_wt_ignores_stale_flow_control_capsules`
+    `test_srvrun_wt_nonincreasing_flow_control_capsule_closes_session`
   - evidence: the CONNECT-stream receive path now decodes and applies
     WT_MAX_DATA/WT_MAX_STREAMS (WTH3-056/060); a session that never
     received one keeps allowing streams/data unconditionally, and a capsule
-    lowering a limit is ignored.
+    that does not increase a limit closes the session with
+    WT_FLOW_CONTROL_ERROR (WTH3-069/071).
   - gap: the server applies a peer's flow-control capsules whether or not
     SETTINGS_WT_INITIAL_* enabled flow control, so the "ignore when not
     enabled" branch itself is never taken.
@@ -531,6 +531,28 @@ Legend:
   - test: `tests/app/wtcapsule_test.c` —
     `test_wtcapsule_streams_blocked_roundtrip`
   - gap: codec exists and is tested; no send-site triggers it yet.
+- [x] WTH3-069 (§5.6.2) If a received WT_MAX_STREAMS value does not
+  increase the session's current stream limit for that direction (the
+  same value or a decrease) or exceeds 2^60, then the server shall close
+  the WebTransport session with a WT_FLOW_CONTROL_ERROR error code.
+  - test: `tests/app/wt_session_test.c` —
+    `test_flow_control_max_streams_equal_value_rejected`
+  - test: `tests/app/wt_session_test.c` —
+    `test_flow_control_max_streams_decreasing_rejected`
+  - test: `tests/app/wt_session_test.c` —
+    `test_flow_control_max_streams_over_ceiling_rejected`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_nonincreasing_flow_control_capsule_closes_session`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_max_streams_over_ceiling_closes_session`
+- [x] WTH3-070 (§5.6.3) If a received WT_STREAMS_BLOCKED value exceeds
+  2^60, then the server shall close the WebTransport session with a
+  WT_FLOW_CONTROL_ERROR error code.
+  - test: `tests/app/wt_session_test.c` — `test_streams_blocked_ceiling`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_streams_blocked_over_ceiling_closes_session`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_streams_blocked_within_ceiling_is_noop`
 
 ## §5.4 Data Limits
 
@@ -566,6 +588,16 @@ Legend:
     `test_wtcapsule_no_per_stream_flow_control_capsule`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_max_stream_data_wire_shape`
+- [x] WTH3-071 (§5.6.4) If a received WT_MAX_DATA value does not increase
+  the session's current data limit (the same value or a decrease), then
+  the server shall close the WebTransport session with a
+  WT_FLOW_CONTROL_ERROR error code.
+  - test: `tests/app/wt_session_test.c` —
+    `test_flow_control_max_data_equal_value_rejected`
+  - test: `tests/app/wt_session_test.c` —
+    `test_flow_control_max_data_decreasing_rejected`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_nonincreasing_flow_control_capsule_closes_session`
 
 ## §6 Session Termination
 
@@ -578,8 +610,9 @@ Legend:
 - [x] WTH3-065 (§6) Upon learning that a session has been terminated, the
   endpoint shall reset the send side and abort reading on the receive
   side of all streams associated with the session using the
-  WT_SESSION_GONE error code, and shall not send any new datagrams or
-  open any new streams.
+  WT_SESSION_GONE error code -- a protocol-level HTTP/3 error code, sent
+  raw and never mapped into the WebTransport application error code
+  range -- and shall not send any new datagrams or open any new streams.
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_connect_stream_reset_resets_owned_wt_bidi_stream`
   - test: `tests/app/srvrun_test.c` —
@@ -629,6 +662,38 @@ Legend:
     `test_srvrun_connect_stream_reset_closes_wt_session`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_other_stream_reset_does_not_close_wt_session`
+- [x] WTH3-072 (§6) If a received WT_CLOSE_SESSION capsule's Application
+  Error Message exceeds 1024 bytes or is not valid UTF-8, then the
+  server shall reset the CONNECT stream with error code H3_MESSAGE_ERROR
+  (leaving the session itself untouched -- a well-formed WT_CLOSE_SESSION
+  still terminates the session per WTH3-064).
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_close_message_too_long_resets_and_closes`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_close_message_invalid_utf8_resets_and_closes`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_close_message_at_max_len_closes_session`
+  - test: `tests/app/wtcapsule_test.c` — `test_wt_utf8_valid_ascii`
+  - test: `tests/app/wtcapsule_test.c` —
+    `test_wt_utf8_invalid_truncated_sequence`
+- [x] WTH3-073 (§6) When truncating an application-provided
+  WT_CLOSE_SESSION Application Error Message to the 1024-byte cap, the
+  server shall truncate at the last whole UTF-8 character boundary at or
+  before the cap, never splitting a multi-byte sequence.
+  - test: `tests/app/wtcapsule_test.c` —
+    `test_wt_utf8_truncate_len_backs_off_before_split_sequence`
+  - test: `tests/app/wtcapsule_test.c` —
+    `test_wt_utf8_truncate_len_keeps_sequence_ending_at_cap`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_close_session_truncates_at_utf8_boundary`
+- [x] WTH3-074 (§9.5) WT_BUFFERED_STREAM_REJECTED and WT_SESSION_GONE are
+  HTTP/3-level error codes registered in the IANA "HTTP/3 Error Code"
+  registry, and the server shall send them as their own raw value, never
+  mapped into the WebTransport application error code range.
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_bidi_stream_buffer_full_sends_reset`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_connect_stream_reset_resets_owned_wt_bidi_stream`
 
 ## Out of scope
 
