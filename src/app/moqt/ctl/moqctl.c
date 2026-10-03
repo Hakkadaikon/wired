@@ -841,9 +841,14 @@ static int moqctl_locfilter_exact(wired_span v, moqctl_locfilter* f) {
   return a == v.n ? MOQCTL_OK : MOQCTL_VIOLATION;
 }
 
+/* Also into the version-neutral p->rl (has_filter 1), the one form the
+ * hub resolves for every draft. */
 static int moqctl_pv_locfilter(wired_span buf, usz* at, moqctl_param* p) {
+  usz a = 0;
   int r = moqctl_pv_bytes(buf, at, p);
   if (r != MOQCTL_OK) return r;
+  p->has_filter = 1;
+  moqctl_rangeloc19_take(p->bytes, &a, &p->rl);
   return moqctl_locfilter_exact(p->bytes, &p->lf);
 }
 

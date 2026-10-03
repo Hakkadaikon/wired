@@ -153,7 +153,8 @@
  * moqctl_param.token; an undecodable Token is MOQCTL_PARAMS_KVFMT. */
 #define MOQCTL_PENC_TOKEN 4
 /** Length-prefixed Location Filter (SS5.1.2), decoded into
- * moqctl_param.lf; one not exactly its Length is a VIOLATION. */
+ * moqctl_param.lf and, version-neutral, into moqctl_param.rl/has_filter;
+ * one not exactly its Length is a VIOLATION. */
 #define MOQCTL_PENC_LOCFILTER 5
 /** Bare Track Namespace (SS2.4.1, no Length prefix): moqctl_param.bytes
  * spans its encoding, which encode re-emits as is. */
@@ -353,8 +354,8 @@ typedef struct {
   wired_span       bytes; /* PENC_BYTES, and PENC_TOKEN's raw Token bytes */
   moqctl_token     token; /* PENC_TOKEN */
   moqctl_locfilter lf;    /* PENC_LOCFILTER */
-  int              has_filter; /* PENC_RANGELOC22: 0 if Type was 0x00 */
-  moqctl_rangeloc  rl;         /* PENC_RANGELOC22 */
+  int              has_filter; /* PENC_LOCFILTER/RANGELOC22: 0 for 0x00 */
+  moqctl_rangeloc  rl;         /* PENC_LOCFILTER/RANGELOC22 */
 } moqctl_param;
 
 /** A decoded/to-encode Message Parameter list. */
