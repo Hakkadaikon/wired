@@ -52,47 +52,46 @@ u64 moqctl_known_publish_done(u64 code) {
   return MOQCTL_DONE_INTERNAL_ERROR;
 }
 
-/* Send-side code rows: per code, the code to send under {draft-22,
- * draft-19, draft-18} -- itself where that draft defines it. */
+/* Send-side code rows: code exists in a draft whose caps include cap;
+ * elsewhere alt, that draft's nearest defined code, is sent. */
 typedef struct {
   u64 code;
-  u64 alt[MOQVER_COUNT];
+  u32 cap;
+  u64 alt;
 } moqctl_code_row;
 
-/* clang-format off */
 static const moqctl_code_row MOQCTL_ERR_ROWS[] = {
-    /* 19/22 drop DUPLICATE_SUBSCRIPTION (several subscriptions per Track,
-     * 19 SS5.1): no specific code is left. */
-    {MOQCTL_ERR_DUPLICATE_SUBSCRIPTION,
-     {MOQCTL_ERR_INTERNAL_ERROR, MOQCTL_ERR_INTERNAL_ERROR,
-      MOQCTL_ERR_DUPLICATE_SUBSCRIPTION}},
+    /* 19/22 allow several subscriptions per Track (19 SS5.1): no
+     * specific code is left. */
+    {MOQCTL_ERR_DUPLICATE_SUBSCRIPTION, MOQVER_CAP_DUP_SUBSCRIPTION,
+     MOQCTL_ERR_INTERNAL_ERROR},
     /* 22 has no Joining FETCH (SS12.3): the named request does not exist. */
-    {MOQCTL_ERR_INVALID_JOINING_REQUEST_ID,
-     {MOQCTL_ERR_DOES_NOT_EXIST, MOQCTL_ERR_INVALID_JOINING_REQUEST_ID,
-      MOQCTL_ERR_INVALID_JOINING_REQUEST_ID}},
-    /* 18: filters too costly to aggregate is an excess of load. */
-    {MOQCTL_ERR_CONFLICTING_FILTERS,
-     {MOQCTL_ERR_CONFLICTING_FILTERS, MOQCTL_ERR_CONFLICTING_FILTERS,
-      MOQCTL_ERR_EXCESSIVE_LOAD}},
+    {MOQCTL_ERR_INVALID_JOINING_REQUEST_ID, MOQVER_CAP_JOINING_FETCH,
+     MOQCTL_ERR_DOES_NOT_EXIST},
+    /* 18 has no filter aggregation: filters too costly to aggregate is an
+     * excess of load. */
+    {MOQCTL_ERR_CONFLICTING_FILTERS, MOQVER_CAP_RANGE_FILTERS,
+     MOQCTL_ERR_EXCESSIVE_LOAD},
     /* 18 SS5.1.2: an unsatisfiable filter is INVALID_RANGE. */
-    {MOQCTL_ERR_INVALID_FILTER,
-     {MOQCTL_ERR_INVALID_FILTER, MOQCTL_ERR_INVALID_FILTER,
-      MOQCTL_ERR_INVALID_RANGE}},
+    {MOQCTL_ERR_INVALID_FILTER, MOQVER_CAP_RANGE_FILTERS,
+     MOQCTL_ERR_INVALID_RANGE},
 };
 
 static const moqctl_code_row MOQCTL_DONE_ROWS[] = {
     /* 22 SS3.3.1: a subscription no longer ends at its filter's end; the
      * remaining "publisher is done" status is TRACK_ENDED. */
-    {MOQCTL_DONE_SUBSCRIPTION_ENDED,
-     {MOQCTL_DONE_TRACK_ENDED, MOQCTL_DONE_SUBSCRIPTION_ENDED,
-      MOQCTL_DONE_SUBSCRIPTION_ENDED}},
+    {MOQCTL_DONE_SUBSCRIPTION_ENDED, MOQVER_CAP_SUBSCRIPTION_ENDED,
+     MOQCTL_DONE_TRACK_ENDED},
 };
-/* clang-format on */
+
+static u64 moqctl_code_row_pick(const moqctl_code_row* r, int ver) {
+  return (moqver_caps(ver) & r->cap) ? r->code : r->alt;
+}
 
 static u64 moqctl_code_for(
     const moqctl_code_row* rows, usz n, int ver, u64 code) {
   for (usz i = 0; i < n; i++)
-    if (rows[i].code == code) return rows[i].alt[ver];
+    if (rows[i].code == code) return moqctl_code_row_pick(&rows[i], ver);
   return code;
 }
 
@@ -1538,11 +1537,12 @@ static int moqctl_classify_type(u64 type) {
   return MOQCTL_UNKNOWN_TYPE;
 }
 
-/* Per-draft Types the draft-19 table above does not know: one row per
- * (draft, wire Type), with the Type it stands for and its classification.
- * Send side always uses the draft-19 Types (REQUEST_OK is sent as 0x7). */
+/* Types the draft-19 table above does not know: one row per wire Type,
+ * defined in a draft whose caps include cap, with the Type it stands for
+ * and its classification. Send side always uses the draft-19 Types
+ * (REQUEST_OK is sent as 0x7). */
 typedef struct {
-  int ver;
+  u32 cap;
   u64 wire;
   u64 type;
   int peek;
@@ -1550,16 +1550,17 @@ typedef struct {
 
 static const moqctl_type_row MOQCTL_TYPE_ROWS[] = {
     /* draft-18 SS10 table vs SS10.5: 0x1E is PUBLISH_OK = REQUEST_OK. */
-    {MOQVER_D18, MOQCTL_T_PUBLISH_OK18, MOQCTL_T_REQUEST_OK, MOQCTL_OK},
+    {MOQVER_CAP_PUBLISH_OK_ALIAS, MOQCTL_T_PUBLISH_OK18, MOQCTL_T_REQUEST_OK,
+     MOQCTL_OK},
     /* draft-22 SS9.10 PUBLISH_STATE_NOTIFY. */
-    {MOQVER_D22, MOQCTL_T_PUBLISH_STATE_NOTIFY, MOQCTL_T_PUBLISH_STATE_NOTIFY,
-     MOQCTL_KNOWN_UNIMPLEMENTED},
+    {MOQVER_CAP_PUBLISH_STATE_NOTIFY, MOQCTL_T_PUBLISH_STATE_NOTIFY,
+     MOQCTL_T_PUBLISH_STATE_NOTIFY, MOQCTL_KNOWN_UNIMPLEMENTED},
 };
 #define MOQCTL_TYPE_ROWS_N \
   (sizeof MOQCTL_TYPE_ROWS / sizeof MOQCTL_TYPE_ROWS[0])
 
 static int moqctl_type_row_is(const moqctl_type_row* r, int ver, u64 wire) {
-  return r->ver == ver && r->wire == wire;
+  return r->wire == wire && (moqver_caps(ver) & r->cap);
 }
 
 static const moqctl_type_row* moqctl_type_row_for(int ver, u64 wire) {

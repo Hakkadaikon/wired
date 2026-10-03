@@ -1535,6 +1535,8 @@ static void moqtrun_fetch_accept(
   f->end        = r->end;
   f->cursor     = moqcache_skip(&hub->cache, r->tag, r->start, r->end);
   f->last_ok_ms = hub->live.last_now_ms;
+  f->seq.eor_timed_out =
+      (moqver_caps(p->ver) & MOQVER_CAP_EOR_TIMED_OUT) != 0; /* 22 SS11.4.1 */
   moqtrun_queue_fetch_ok(p, moqtrun_fetch_ok_end(hub, p, r));
   moqtrun_fetch_serve(hub, f);
 }
