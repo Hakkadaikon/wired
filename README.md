@@ -127,11 +127,15 @@ for a single process, `--workers N` for forked workers on one port,
 
 ## Interop results
 
-Published interop matrices against other implementations:
+Interop matrices against other implementations. "wired runs" are this
+project's own runs of each runner with wired added; "official" is the
+upstream runner's public results.
 
-- QUIC: https://quic-interop-runner-wired.vercel.app/quic
-- WebTransport: https://quic-interop-runner-wired.vercel.app/webtransport
-- MoQT (relay role): https://moq-interop-runner-wired.vercel.app
+| Protocol | wired runs | Official |
+|---|---|---|
+| QUIC | https://quic-interop-runner-wired.vercel.app/quic | https://interop.seemann.io/quic |
+| WebTransport | https://quic-interop-runner-wired.vercel.app/webtransport | https://interop.seemann.io/webtransport |
+| MoQT (relay role) | https://moq-interop-runner-wired.vercel.app | https://englishm.github.io/moq-interop-runner/ |
 
 ## Documentation
 
