@@ -6,6 +6,7 @@
 #include "app/moqt/fetch/moqfetch.h"
 #include "app/moqt/ns/moqns.h"
 #include "app/moqt/tstat/moqtstat.h"
+#include "app/moqt/ver/moqver.h"
 #include "app/moqt/vi/moqvi.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/util/num.h"
@@ -177,9 +178,10 @@ static u64 moqtrun_send_setup(wired_moqt_io* io, wired_wt_session* s, u8* buf) {
  * stream_send, per srvrun.h), so armed_idx starts at 0 and every reply
  * queued afterward goes to the OTHER slot (moqtrun_queue_reply's doc). */
 static void moqtrun_init_peer(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_wt_session* s) {
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_wt_session* s, int ver) {
   p->in_use          = 1;
   p->wt              = s;
+  p->ver             = ver;
   p->request_id_next = 1; /* hub is the server: odd, 1-origin (draft SS10.2) */
   p->join_seq        = hub->join_seq_next++;
   p->sub_names_n     = 0;
@@ -201,11 +203,18 @@ static void moqtrun_init_peer(
   moqsess_step(&p->sess, MOQSESS_EV_SENT_SETUP);
 }
 
+/* moqver_find's -1 (a token the table does not list) falls back to
+ * draft-19, the same conservative default as an empty token. */
+static int moqtrun_negotiated_ver(wired_span protocol) {
+  int ver = moqver_find(protocol);
+  return ver < 0 ? MOQVER_D19 : ver;
+}
+
 void wired_moqt_on_session(
     void* app_ctx, wired_wt_session* s, wired_span path, wired_span protocol) {
   (void)path;
-  (void)protocol;
   wired_moqt_hub* hub = (wired_moqt_hub*)app_ctx;
+  int             ver = moqtrun_negotiated_ver(protocol);
   /* srvrun's wt_on_session doc promises "fires once after [the 2xx] is
    * built", but a duplicate Extended CONNECT can still reach the app layer
    * (e.g. a retried/speculative one) -- draft 3.3 permits only one control
@@ -217,7 +226,7 @@ void wired_moqt_on_session(
   if (moqtrun_find_by_wt(hub, s)) return;
   wired_moqtrun_peer* p = moqtrun_alloc(hub);
   if (!p) return;
-  moqtrun_init_peer(hub, p, s);
+  moqtrun_init_peer(hub, p, s, ver);
 }
 
 /* ===================== control-message handlers ===================== */
