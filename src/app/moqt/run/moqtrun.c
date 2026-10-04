@@ -1179,9 +1179,17 @@ static void moqtrun_queue_subscribe_ok(
   moqtrun_req_mark_live(p);
 }
 
-/* Records slot (peer_idx, a fresh alias) against track and replies
- * SUBSCRIBE_OK with that alias. */
+static void moqtrun_fill_on_subscribe(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_peer*      p,
+    wired_moqtrun_track*     track,
+    const wired_moqtrun_sub* sub,
+    const moqctl_params*     params);
+
+/* Records slot (peer_idx, a fresh alias) against track, replies
+ * SUBSCRIBE_OK with that alias and opens any requested fill. */
 static void moqtrun_accept_subscribe(
+    wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
     wired_moqtrun_track*    track,
     wired_moqtrun_sub*      slot,
@@ -1189,6 +1197,7 @@ static void moqtrun_accept_subscribe(
     const moqctl_subscribe* m) {
   moqtrun_sub_open(slot, track, peer_idx, moqtrun_next_alias(track), m);
   moqtrun_queue_subscribe_ok(p, track, slot->track_alias);
+  moqtrun_fill_on_subscribe(hub, p, track, slot, &m->params);
 }
 
 /* A peer's first SUBSCRIBE for the hub's blob: one io.send_uni with the
@@ -1263,6 +1272,7 @@ static void moqtrun_subscribe_blob(
  * (moqtrun_sub_held_reply), anyone else gets a fresh slot, or
  * DOES_NOT_EXIST once the table is full. */
 static void moqtrun_subscribe_peer_track(
+    wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
     wired_moqtrun_track*    track,
     usz                     peer_idx,
@@ -1275,7 +1285,7 @@ static void moqtrun_subscribe_peer_track(
     moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
     return;
   }
-  moqtrun_accept_subscribe(p, track, slot, peer_idx, m);
+  moqtrun_accept_subscribe(hub, p, track, slot, peer_idx, m);
   moqtrun_note_sub_name(p, k, slot);
 }
 
@@ -1293,7 +1303,7 @@ static void moqtrun_route_peer_subscribe(
     moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
     return;
   }
-  moqtrun_subscribe_peer_track(p, track, peer_idx, k, m);
+  moqtrun_subscribe_peer_track(hub, p, track, peer_idx, k, m);
 }
 
 static void moqtrun_subscribe_live(
@@ -1662,25 +1672,37 @@ static moqctl_loc moqtrun_fetch_ok_end(
   return moqtrun_fetch_last(&hub->cache, r);
 }
 
+/* Claims a fetch slot serving r to wt under request_id, its cursor on
+ * the first cached item; 0 when the table is full. */
+static wired_moqtrun_fetch* moqtrun_fetch_begin(
+    wired_moqt_hub*       hub,
+    wired_wt_session*     wt,
+    u64                   request_id,
+    const moqtrun_frange* r) {
+  wired_moqtrun_fetch* f = moqtrun_fetch_slot(hub);
+  if (!f) return 0;
+  bytes_memset(f, 0, sizeof *f);
+  f->in_use     = 1;
+  f->wt         = wt;
+  f->request_id = request_id;
+  f->cache_tag  = r->tag;
+  f->end        = r->end;
+  f->cursor     = moqcache_skip(&hub->cache, r->tag, r->start, r->end);
+  f->last_ok_ms = hub->live.last_now_ms;
+  return f;
+}
+
 /* Answers FETCH_OK and starts serving r from the cache. */
 static void moqtrun_fetch_accept(
     wired_moqt_hub*       hub,
     wired_moqtrun_peer*   p,
     u64                   request_id,
     const moqtrun_frange* r) {
-  wired_moqtrun_fetch* f = moqtrun_fetch_slot(hub);
+  wired_moqtrun_fetch* f = moqtrun_fetch_begin(hub, p->wt, request_id, r);
   if (!f) {
     moqtrun_send_request_error(p, MOQCTL_ERR_INTERNAL_ERROR);
     return;
   }
-  bytes_memset(f, 0, sizeof *f);
-  f->in_use     = 1;
-  f->wt         = p->wt;
-  f->request_id = request_id;
-  f->cache_tag  = r->tag;
-  f->end        = r->end;
-  f->cursor     = moqcache_skip(&hub->cache, r->tag, r->start, r->end);
-  f->last_ok_ms = hub->live.last_now_ms;
   f->seq.eor_timed_out =
       (moqver_caps(p->ver) & MOQVER_CAP_EOR_TIMED_OUT) != 0; /* 22 SS11.4.1 */
   moqtrun_queue_fetch_ok(p, moqtrun_fetch_ok_end(hub, p, r));
@@ -1741,6 +1763,61 @@ static void moqtrun_fetch_standalone(
     return;
   }
   moqtrun_fetch_accept(hub, p, m->request_id, &r);
+}
+
+/* ============ fill fetch streams (draft-22 SS9.20.15) ============ */
+
+/* The fill's LOCATION_FILTER as a FETCH range: no filter fills
+ * everything up to the Largest Object (SS9.20.9). */
+static moqctl_rangeloc moqtrun_fill_rl(const moqfetch_fill* fill) {
+  moqctl_rangeloc all = {MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_UNBOUNDED, 0, 0};
+  return fill->has_filter ? fill->range : all;
+}
+
+/* Opens one fill fetch stream over track's cached range for the
+ * subscription owning sub; rid is the FETCH_HEADER's Request ID (the
+ * SUBSCRIBE's or REQUEST_UPDATE's that carried FILL_PARAMETERS). A range
+ * starting past the Largest Object -- or an empty track -- opens
+ * nothing; an end past it is cut to it. */
+static void moqtrun_fill_open(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_track*     track,
+    wired_moqtrun_peer*      p,
+    const wired_moqtrun_sub* sub,
+    u64                      rid,
+    const moqfetch_fill*     fill) {
+  moqtrun_frange  r;
+  moqctl_rangeloc rl = moqtrun_fill_rl(fill);
+  if (!moqtrun_fetch_resolve(track, &rl, &r)) return;
+  wired_moqtrun_fetch* f = moqtrun_fetch_begin(hub, p->wt, rid, &r);
+  if (!f) return;
+  f->is_fill           = 1;
+  f->owner_rid         = sub->request_id;
+  f->seq.eor_timed_out = 1; /* fills exist on draft-22 only (SS11.4.1) */
+  moqtrun_fetch_serve(hub, f);
+}
+
+/* A FILL_PARAMETERS parameter asks for a fill only while the
+ * subscription forwards (SS9.20.15; FORWARD 0 holds everything). */
+static int moqtrun_fill_requested(
+    const moqctl_param* fp, const wired_moqtrun_sub* sub) {
+  return fp != 0 && !sub->forward_off;
+}
+
+/* FILL_PARAMETERS on an accepted SUBSCRIBE: decode its value and open
+ * the fill under the SUBSCRIBE's own Request ID. */
+static void moqtrun_fill_on_subscribe(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_peer*      p,
+    wired_moqtrun_track*     track,
+    const wired_moqtrun_sub* sub,
+    const moqctl_params*     params) {
+  const moqctl_param* fp =
+      moqctl_params_find(params, MOQCTL_PARAM_FILL_PARAMETERS);
+  moqfetch_fill fill;
+  if (!moqtrun_fill_requested(fp, sub)) return;
+  if (moqfetch_fill_take(fp->bytes, &fill) != MOQCTL_OK) return;
+  moqtrun_fill_open(hub, track, p, sub, sub->request_id, &fill);
 }
 
 static int moqtrun_sub_has_rid(const wired_moqtrun_sub* s, usz idx, u64 rid) {
