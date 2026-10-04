@@ -66,6 +66,7 @@ static const wired_moqt_io g_io = {
     wired_server_wt_close_session,
     wired_server_wt_stream_reply_open,
     wired_server_wt_stream_priority,
+    wired_server_wt_stream_stop,
 };
 
 static wired_moqt_hub g_hub;
