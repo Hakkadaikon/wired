@@ -2799,8 +2799,45 @@ static int moqtrun_upd_is_pub(const wired_moqtrun_peer* p) {
          (moqver_caps(p->ver) & MOQVER_CAP_UPDATE_ON_PUBLISH);
 }
 
+/* draft-ietf-moq-transport-19 10.9: the sender of a FETCH may REQUEST_UPDATE
+ * it (e.g. SUBSCRIBER_PRIORITY, 10.2.5). */
+static int moqtrun_upd_is_fetch(const wired_moqtrun_peer* p) {
+  return p->req && p->req->kind == MOQFETCH_T_FETCH;
+}
+
+/* draft-ietf-moq-transport-19 10.9: the sender of a PUBLISH_NAMESPACE or
+ * SUBSCRIBE_NAMESPACE may REQUEST_UPDATE it (10.9.1 Updating Namespace
+ * Subscriptions covers the latter's TRACK_NAMESPACE_PREFIX). */
+static int moqtrun_upd_is_ns(const wired_moqtrun_peer* p) {
+  return p->req && moqtrun_kind_is_ns(p->req->kind);
+}
+
+/* moqtrun_upd_allowed's non-subscription half, split out to keep each
+ * predicate's branch budget small. */
+static int moqtrun_upd_is_other(const wired_moqtrun_peer* p) {
+  return moqtrun_upd_is_pub(p) || moqtrun_upd_is_fetch(p) ||
+         moqtrun_upd_is_ns(p);
+}
+
 static int moqtrun_upd_allowed(const wired_moqtrun_peer* p) {
-  return moqtrun_upd_is_sub(p) || moqtrun_upd_is_pub(p);
+  return moqtrun_upd_is_sub(p) || moqtrun_upd_is_other(p);
+}
+
+/* moqtrun_upd_ctx's namespace half: SUBSCRIBE_NAMESPACE vs
+ * PUBLISH_NAMESPACE each have their own ctx bit (10.2.x). */
+static u32 moqtrun_upd_ns_ctx(const wired_moqtrun_req* q) {
+  return q->kind == MOQNS_T_SUBSCRIBE_NAMESPACE
+             ? MOQCTL_PCTX_UPDATE_SUBSCRIBE_NAMESPACE
+             : MOQCTL_PCTX_UPDATE_PUBLISH_NAMESPACE;
+}
+
+/* The MOQCTL_PCTX_UPDATE_* bit a decode must check the update's parameters
+ * against, by the request kind riding the stream (10.2.x "MAY appear in"
+ * is split the same way). */
+static u32 moqtrun_upd_ctx(const wired_moqtrun_peer* p) {
+  if (moqtrun_upd_is_fetch(p)) return MOQCTL_PCTX_UPDATE_FETCH;
+  if (moqtrun_upd_is_ns(p)) return moqtrun_upd_ns_ctx(p->req);
+  return MOQCTL_PCTX_UPDATE_SUBSCRIPTION;
 }
 
 /* draft-22 9.8 on a PUBLISH stream: the parameters are vetted as a
@@ -2817,16 +2854,72 @@ static void moqtrun_update_pub(
   moqtrun_queue_request_ok(p, 0);
 }
 
+/* MALFORMED_AUTH_TOKEN iff params carries an AUTHORIZATION_TOKEN using an
+ * alias (moqtrun_subscribe_refused's twin): this hub's token cache is 0
+ * bytes (SS10.3.1.3), the only admitted FETCH-update parameter with a
+ * refusal this hub models. */
+static u64 moqtrun_fetch_upd_refusal(const moqctl_params* params) {
+  return moqtrun_token_uses_alias(moqtrun_auth_token_of(params))
+             ? MOQCTL_ERR_MALFORMED_AUTH_TOKEN
+             : MOQTRUN_REQ_ACCEPT;
+}
+
+/* A REQUEST_UPDATE of a FETCH (10.9, e.g. SUBSCRIBER_PRIORITY 10.2.5):
+ * the hub models no other FETCH-serving state the admitted parameters
+ * would move, so an acceptable update is REQUEST_OK and nothing else.
+ * "When a REQUEST_UPDATE fails for a FETCH, the publisher MUST reset the
+ * FETCH data stream" (10.9.1) -- moqtrun_fetches_cancel resets it and
+ * frees the hub's own fetch-serving slot. */
+static void moqtrun_update_fetch(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_params* params) {
+  u64 code = moqtrun_fetch_upd_refusal(params);
+  if (code != MOQTRUN_REQ_ACCEPT) {
+    moqtrun_send_request_error(p, code);
+    moqtrun_fetches_cancel(hub, p->wt, p->req->request_id);
+    return;
+  }
+  moqtrun_queue_request_ok(p, 0);
+}
+
+static void moqtrun_update_ns(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_req*   q,
+    const moqctl_params* params);
+
+/* moqtrun_update_route_other's FETCH-or-namespace half. 1 iff routed. */
+static int moqtrun_update_route_fetch_ns(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_params* params) {
+  if (moqtrun_upd_is_fetch(p)) {
+    moqtrun_update_fetch(hub, p, params);
+    return 1;
+  }
+  if (moqtrun_upd_is_ns(p)) {
+    moqtrun_update_ns(hub, p, p->req, params);
+    return 1;
+  }
+  return 0;
+}
+
+/* moqtrun_update_route's non-subscription request kinds (everything but
+ * the common-case SUBSCRIBE, kept separate to stay within one function's
+ * branch budget). 1 iff p's request matched one and was routed. */
+static int moqtrun_update_route_other(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_params* params) {
+  if (moqtrun_upd_is_pub(p)) {
+    moqtrun_update_pub(hub, p, params);
+    return 1;
+  }
+  return moqtrun_update_route_fetch_ns(hub, p, params);
+}
+
 static void moqtrun_update_route(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  p,
     usz                  peer_idx,
     const moqctl_params* params,
     u64                  rid) {
-  if (moqtrun_upd_is_pub(p)) {
-    moqtrun_update_pub(hub, p, params);
-    return;
-  }
+  if (moqtrun_update_route_other(hub, p, params)) return;
   moqtrun_update_sub(hub, p, peer_idx, params, rid);
 }
 
@@ -2852,17 +2945,17 @@ static int moqtrun_upd_refused(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   return 0;
 }
 
-/* A REQUEST_UPDATE of a SUBSCRIBE (or, on draft-22, of the sender's own
- * PUBLISH), on its stream (its own Request ID is a fresh one, 10.1: the
- * stream names the request). On the control stream, or for another
- * request type, NOT_SUPPORTED. A malformed one (e.g. a parameter
- * outside the update's scope) closes the session. */
+/* A REQUEST_UPDATE of the request riding its stream (its own Request ID
+ * is a fresh one, 10.1: the stream names the request) -- a SUBSCRIBE, a
+ * FETCH, a PUBLISH_NAMESPACE/SUBSCRIBE_NAMESPACE, or (draft-22) the
+ * sender's own PUBLISH. On the control stream, or for TRACK_STATUS,
+ * NOT_SUPPORTED. A malformed one (e.g. a parameter outside the update's
+ * scope for that request kind) closes the session. */
 static void moqtrun_handle_update(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   moqtstat_update m;
   if (moqtrun_upd_refused(hub, p)) return;
-  if (moqtstat_update_take(p->ver, body, MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &m) !=
-      MOQCTL_OK) {
+  if (moqtstat_update_take(p->ver, body, moqtrun_upd_ctx(p), &m) != MOQCTL_OK) {
     moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
     return;
   }
@@ -2936,12 +3029,16 @@ static int moqtrun_disc_same(
 typedef int (*moqtrun_disc_rel_fn)(
     const wired_moqtrun_req*, const wired_moqtrun_req*);
 
+/* r itself never counts as a clash against q (an update re-checking an
+ * already-live q would otherwise always "overlap" its own unchanged
+ * namespace -- moqtrun_disc_pub_check/sub_check are shared by creation,
+ * where q is not live yet, and update, where it already is). */
 static int moqtrun_disc_rel(
     const wired_moqtrun_req* r,
     const wired_moqtrun_req* q,
     u64                      kind,
     moqtrun_disc_rel_fn      rel) {
-  return moqtrun_disc_is(r, kind) && rel(r, q);
+  return r != q && moqtrun_disc_is(r, kind) && rel(r, q);
 }
 
 /* 1 iff a live request of kind relates to q by rel. */
@@ -2989,6 +3086,74 @@ static int moqtrun_disc_record(wired_moqtrun_req* q, const moqctl_ns* ns) {
   int fits = moqctl_ns_put(wired_mspan_of(q->ns, WIRED_MOQTRUN_MAX_NS), &n, ns);
   q->ns_len = n;
   return fits;
+}
+
+/* Writes pfx's namespace into q (replacing its current one), 0 if it
+ * fails to decode or does not fit. */
+static int moqtrun_upd_ns_write(wired_moqtrun_req* q, const moqctl_param* pfx) {
+  moqctl_ns ns;
+  usz       at = 0;
+  if (moqctl_ns_take(pfx->bytes, &at, &ns) != MOQCTL_OK) return 0;
+  return moqtrun_disc_record(q, &ns);
+}
+
+/* draft-ietf-moq-transport-19 10.9.1 Updating Namespace Subscriptions: a
+ * SUBSCRIBE_NAMESPACE's REQUEST_UPDATE may carry a new
+ * TRACK_NAMESPACE_PREFIX; the same overlap restriction as a fresh
+ * SUBSCRIBE_NAMESPACE applies (moqtrun_disc_sub_check), checked against
+ * the CANDIDATE prefix before it replaces the live one -- a refused
+ * update leaves the request's existing prefix (and announcements)
+ * untouched. */
+static u64 moqtrun_upd_ns_prefix(
+    wired_moqt_hub* hub, wired_moqtrun_req* q, const moqctl_param* pfx) {
+  wired_moqtrun_req before = *q;
+  if (!moqtrun_upd_ns_write(q, pfx)) return MOQCTL_ERR_INTERNAL_ERROR;
+  u64 code = moqtrun_disc_sub_check(hub, q);
+  if (code == MOQTRUN_REQ_ACCEPT) return code;
+  q->ns_len = before.ns_len;
+  bytes_memcpy(q->ns, before.ns, before.ns_len);
+  return code;
+}
+
+/* MALFORMED_AUTH_TOKEN iff params carries an AUTHORIZATION_TOKEN using
+ * an alias (moqtrun_disc_auth_refused's twin, this hub's token cache
+ * being 0 bytes, SS10.3.1.3) -- the one parameter either namespace
+ * kind's update scope admits besides TRACK_NAMESPACE_PREFIX (10.2.2). */
+static u64 moqtrun_upd_ns_token_refusal(const moqctl_params* params) {
+  return moqtrun_token_uses_alias(moqtrun_auth_token_of(params))
+             ? MOQCTL_ERR_MALFORMED_AUTH_TOKEN
+             : MOQTRUN_REQ_ACCEPT;
+}
+
+static u64 moqtrun_upd_ns_verdict(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_req*   q,
+    const moqctl_params* params,
+    const moqctl_param*  pfx) {
+  u64 code = moqtrun_upd_ns_token_refusal(params);
+  if (code != MOQTRUN_REQ_ACCEPT) return code;
+  return pfx ? moqtrun_upd_ns_prefix(hub, q, pfx) : MOQTRUN_REQ_ACCEPT;
+}
+
+/* A REQUEST_UPDATE of a PUBLISH_NAMESPACE or SUBSCRIBE_NAMESPACE: the
+ * latter may carry TRACK_NAMESPACE_PREFIX; omitted, its prefix is
+ * unchanged (10.9.1: "If omitted ... the value for the parameter is
+ * unchanged"). A refusal closes the bidi stream (10.9.1), like the
+ * namespace's own creation would. */
+static void moqtrun_update_ns(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_req*   q,
+    const moqctl_params* params) {
+  const moqctl_param* pfx =
+      moqctl_params_find(params, MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX);
+  u64 code = moqtrun_upd_ns_verdict(hub, q, params, pfx);
+  if (code != MOQTRUN_REQ_ACCEPT) {
+    moqtrun_send_request_error(p, code);
+    moqtrun_upd_close_ns(q);
+    return;
+  }
+  moqtrun_queue_request_ok(p, 0);
 }
 
 /* 10.15 / 10.18: the receiver MUST verify the request is authorized
