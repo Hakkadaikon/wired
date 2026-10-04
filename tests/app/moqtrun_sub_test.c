@@ -893,6 +893,16 @@ static void test_moqtrun_pub_params_group_order_d18(void) {
   CHECK(!mtver_publish_answered(MOQVER_D19, &p));
 }
 
+/* draft-22 9.3: the publisher's initial Subscription parameters ride
+ * PUBLISH itself; FORWARD is in PUBLISH's scope on every draft (its
+ * draft-19/18 home being PUBLISH too, with PUBLISH_OK on top). */
+static void test_moqtrun_pub_params_forward_all_drafts(void) {
+  moqctl_params p = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  CHECK(mtver_publish_answered(MOQVER_D18, &p));
+  CHECK(mtver_publish_answered(MOQVER_D19, &p));
+  CHECK(mtver_publish_answered(MOQVER_D22, &p));
+}
+
 /* draft-18 has no range filters (0x25-0x29): an unknown parameter. */
 static void test_moqtrun_sub_params_range_filter_d18(void) {
   static const u8 rng[] = {0x00, 0x03}; /* SetID 0, Start 3 */
@@ -1055,6 +1065,7 @@ void test_moqtrun_sub(void) {
   test_moqtrun_sub_params_include_properties_d22();
   test_moqtrun_pub_params_delivery_timeout_d22();
   test_moqtrun_pub_params_group_order_d18();
+  test_moqtrun_pub_params_forward_all_drafts();
   test_moqtrun_sub_params_range_filter_d18();
   test_moqtrun_sub_ns_must_match();
   test_moqtrun_sub_ns_max_fields();
