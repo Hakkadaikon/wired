@@ -858,6 +858,12 @@ typedef struct {
   u64 cache_tag_next;
   /** FETCH responses in progress, all sessions. */
   wired_moqtrun_fetch fetches[WIRED_MOQTRUN_MAX_FETCHES];
+  /** Fill fetch streams accepted while every serving slot above was
+   * busy (draft-22 SS9.20.15: a fill is held, never silently dropped).
+   * An entry keeps the resolved range in cursor/end with nothing open
+   * and moves into fetches[] the moment a serving slot frees; its only
+   * other exit is the owning subscription's cancel. */
+  wired_moqtrun_fetch fetch_waits[WIRED_MOQTRUN_MAX_FETCHES];
   /** Namespace authorizer (draft-ietf-moq-transport-19 10.15, 10.18); 0
    * (the wired_moqt_init default) grants every PUBLISH_NAMESPACE and
    * SUBSCRIBE_NAMESPACE, like authorize_subscribe. */

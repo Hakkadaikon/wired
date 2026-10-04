@@ -66,11 +66,16 @@ static void moqtrun_frag_pool_clear(wired_moqt_hub* hub) {
   for (usz i = 0; i < WIRED_MOQTRUN_FRAG_POOL; i++) hub->frag_owner[i] = 0;
 }
 
-static void moqtrun_fetches_clear(wired_moqt_hub* hub) {
+static void moqtrun_fetch_arr_clear(wired_moqtrun_fetch* arr) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
-    hub->fetches[i].in_use = 0;
-    hub->fetches[i].wt     = 0;
+    arr[i].in_use = 0;
+    arr[i].wt     = 0;
   }
+}
+
+static void moqtrun_fetches_clear(wired_moqt_hub* hub) {
+  moqtrun_fetch_arr_clear(hub->fetches);
+  moqtrun_fetch_arr_clear(hub->fetch_waits);
 }
 
 void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
@@ -1462,10 +1467,14 @@ static int moqtrun_fetch_live(const wired_moqtrun_fetch* f) {
   return f->in_use;
 }
 
-static wired_moqtrun_fetch* moqtrun_fetch_slot(wired_moqt_hub* hub) {
+static wired_moqtrun_fetch* moqtrun_fetch_arr_slot(wired_moqtrun_fetch* arr) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (!moqtrun_fetch_live(&hub->fetches[i])) return &hub->fetches[i];
+    if (!moqtrun_fetch_live(&arr[i])) return &arr[i];
   return 0;
+}
+
+static wired_moqtrun_fetch* moqtrun_fetch_slot(wired_moqt_hub* hub) {
+  return moqtrun_fetch_arr_slot(hub->fetches);
 }
 
 static int moqtrun_fetch_done(const wired_moqtrun_fetch* f) {
@@ -1641,12 +1650,20 @@ static int moqtrun_fill_held_of(
          f->owner_rid == rid;
 }
 
-/* 1 iff subscription {s, rid} still has a fill waiting for a stream. */
+static int moqtrun_fill_held_in(
+    const wired_moqtrun_fetch* arr, const wired_wt_session* s, u64 rid) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+    if (moqtrun_fill_held_of(&arr[i], s, rid)) return 1;
+  return 0;
+}
+
+/* 1 iff subscription {s, rid} still has a fill waiting for a stream --
+ * refused its uni stream (fetches) or still waiting for a serving slot
+ * (fetch_waits). */
 static int moqtrun_fill_held_for(
     const wired_moqt_hub* hub, const wired_wt_session* s, u64 rid) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (moqtrun_fill_held_of(&hub->fetches[i], s, rid)) return 1;
-  return 0;
+  return moqtrun_fill_held_in(hub->fetches, s, rid) ||
+         moqtrun_fill_held_in(hub->fetch_waits, s, rid);
 }
 
 /* Refused for longer than WIRED_MOQTREL_STALL_MS: a peer that stopped
@@ -1696,10 +1713,16 @@ static void moqtrun_fill_upstream_gone_one(
   if (f->opened) moqtrun_fetch_stop_code(hub, f, MOQTRUN_RESET_INTERNAL_ERROR);
 }
 
-static void moqtrun_fills_upstream_gone(wired_moqt_hub* hub, u64 tag) {
+static void moqtrun_fills_tag_gone(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* arr, u64 tag) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (moqtrun_fill_of_tag(&hub->fetches[i], tag))
-      moqtrun_fill_upstream_gone_one(hub, &hub->fetches[i]);
+    if (moqtrun_fill_of_tag(&arr[i], tag))
+      moqtrun_fill_upstream_gone_one(hub, &arr[i]);
+}
+
+static void moqtrun_fills_upstream_gone(wired_moqt_hub* hub, u64 tag) {
+  moqtrun_fills_tag_gone(hub, hub->fetches, tag);
+  moqtrun_fills_tag_gone(hub, hub->fetch_waits, tag);
 }
 
 /* 1 iff f is served by the tick pass of direction descending. */
@@ -1707,11 +1730,15 @@ static int moqtrun_fetch_in_pass(const wired_moqtrun_fetch* f, int descending) {
   return moqtrun_fetch_live(f) && f->descending == descending;
 }
 
+static void moqtrun_fill_waits_tick(wired_moqt_hub* hub, int descending);
+
 /* One serving pass over the fetch table, descending fills only when
  * descending -- ascending backlog goes out before the live rounds of
  * the same tick, a descending one after them (SS9.20.15: catch-up
- * precedes live only while it serves the Objects right behind it). */
+ * precedes live only while it serves the Objects right behind it).
+ * Waiting fills move into freed slots first, so they serve this pass. */
 static void moqtrun_fetches_tick(wired_moqt_hub* hub, int descending) {
+  moqtrun_fill_waits_tick(hub, descending);
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
     if (moqtrun_fetch_in_pass(&hub->fetches[i], descending))
       moqtrun_fetch_tick_one(hub, &hub->fetches[i]);
@@ -1729,12 +1756,22 @@ static int moqtrun_fetch_is_req(
   return moqtrun_fetch_owned(f, s) && moqtrun_fetch_under(f, rid);
 }
 
-/* The FETCH request rid of s was cancelled (3.3.3): its fetch stops. */
+static void moqtrun_fetch_arr_cancel(
+    wired_moqt_hub*         hub,
+    wired_moqtrun_fetch*    arr,
+    const wired_wt_session* s,
+    u64                     rid) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+    if (moqtrun_fetch_is_req(&arr[i], s, rid)) moqtrun_fetch_stop(hub, &arr[i]);
+}
+
+/* The FETCH request rid of s was cancelled (3.3.3): its fetch stops,
+ * and a fill of rid still waiting for a serving slot is dropped without
+ * ever opening (the cancel is a held fill's only other exit). */
 static void moqtrun_fetches_cancel(
     wired_moqt_hub* hub, const wired_wt_session* s, u64 rid) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (moqtrun_fetch_is_req(&hub->fetches[i], s, rid))
-      moqtrun_fetch_stop(hub, &hub->fetches[i]);
+  moqtrun_fetch_arr_cancel(hub, hub->fetches, s, rid);
+  moqtrun_fetch_arr_cancel(hub, hub->fetch_waits, s, rid);
 }
 
 static int moqtrun_fetch_on_stream(
@@ -1922,20 +1959,67 @@ static void moqtrun_fetch_descend(
   f->end    = w.end;
 }
 
-/* f marked as sub's fill under its own FETCH_HEADER Request ID: fills
- * exist on draft-22 only, so 0x20C is legal on the stream (SS11.4.1),
- * and a Descending GROUP_ORDER rewinds it to the range's top group. */
-static void moqtrun_fill_mark(
+/* f marked as the fill of the subscription owner_rid, serving under its
+ * own FETCH_HEADER Request ID: fills exist on draft-22 only, so 0x20C is
+ * legal on the stream (SS11.4.1), and a Descending GROUP_ORDER rewinds
+ * it to the range's top group. */
+static void moqtrun_fill_flag(
     wired_moqt_hub*       hub,
     wired_moqtrun_fetch*  f,
-    wired_moqtrun_sub*    sub,
-    const moqfetch_fill*  fill,
+    u64                   owner_rid,
+    int                   descending,
     const moqtrun_frange* r) {
   f->is_fill           = 1;
-  f->owner_rid         = sub->request_id;
+  f->owner_rid         = owner_rid;
   f->seq.eor_timed_out = 1;
-  sub->stream_count++; /* PUBLISH_DONE counts fills too (10.10) */
-  if (fill->descending) moqtrun_fetch_descend(hub, f, r);
+  if (descending) moqtrun_fetch_descend(hub, f, r);
+}
+
+/* Holds a fill the full fetch table cannot serve yet (SS9.20.15: held
+ * unopened, never silently dropped -- the exits are a freed slot and
+ * the owner's cancel). Counted into the Stream Count now: PUBLISH_DONE
+ * waits for it, so the count is right by the time it goes out.
+ * ponytail: both tables full still drops the fill; widen fetch_waits if
+ * a real room ever queues past WIRED_MOQTRUN_MAX_FETCHES held fills. */
+static void moqtrun_fill_wait_put(
+    wired_moqt_hub*       hub,
+    wired_wt_session*     wt,
+    u64                   rid,
+    wired_moqtrun_sub*    sub,
+    const moqtrun_frange* r,
+    int                   descending) {
+  wired_moqtrun_fetch* w = moqtrun_fetch_arr_slot(hub->fetch_waits);
+  if (!w) return;
+  bytes_memset(w, 0, sizeof *w);
+  w->in_use     = 1;
+  w->is_fill    = 1;
+  w->wt         = wt;
+  w->request_id = rid;
+  w->owner_rid  = sub->request_id;
+  w->cache_tag  = r->tag;
+  w->cursor     = r->start;
+  w->end        = r->end;
+  w->descending = descending;
+  sub->stream_count++;
+}
+
+/* A waiting fill whose serving slot came free: taken over by fetches[]
+ * and the normal open/serve path -- or open-to-reset, for one whose
+ * upstream left while it waited -- continues from there. */
+static void moqtrun_fill_wait_convert(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* w) {
+  moqtrun_frange       r = {w->cache_tag, w->cursor, w->end, {0, 0}};
+  wired_moqtrun_fetch* f = moqtrun_fetch_begin(hub, w->wt, w->request_id, &r);
+  if (!f) return;
+  moqtrun_fill_flag(hub, f, w->owner_rid, w->descending, &r);
+  f->failed = w->failed;
+  w->in_use = 0;
+}
+
+static void moqtrun_fill_waits_tick(wired_moqt_hub* hub, int descending) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+    if (moqtrun_fetch_in_pass(&hub->fetch_waits[i], descending))
+      moqtrun_fill_wait_convert(hub, &hub->fetch_waits[i]);
 }
 
 /* The fill's LOCATION_FILTER as a FETCH range: no filter fills
@@ -1961,8 +2045,12 @@ static void moqtrun_fill_open(
   moqctl_rangeloc rl = moqtrun_fill_rl(fill);
   if (!moqtrun_fetch_resolve(track, &rl, &r)) return;
   wired_moqtrun_fetch* f = moqtrun_fetch_begin(hub, p->wt, rid, &r);
-  if (!f) return;
-  moqtrun_fill_mark(hub, f, sub, fill, &r);
+  if (!f) {
+    moqtrun_fill_wait_put(hub, p->wt, rid, sub, &r, fill->descending);
+    return;
+  }
+  sub->stream_count++; /* PUBLISH_DONE counts fills too (10.10) */
+  moqtrun_fill_flag(hub, f, sub->request_id, fill->descending, &r);
   moqtrun_fetch_serve(hub, f);
 }
 
@@ -2146,10 +2234,16 @@ static void moqtrun_handle_fetch(
   moqtrun_fetch_route(hub, p, peer_idx, &m);
 }
 
+static void moqtrun_fetch_arr_drop(
+    wired_moqtrun_fetch* arr, const wired_wt_session* s) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+    if (arr[i].wt == s) arr[i].in_use = 0;
+}
+
 /* A closed session's fetches end: nothing more is sent for them. */
 static void moqtrun_fetches_drop(wired_moqt_hub* hub, wired_wt_session* s) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (hub->fetches[i].wt == s) hub->fetches[i].in_use = 0;
+  moqtrun_fetch_arr_drop(hub->fetches, s);
+  moqtrun_fetch_arr_drop(hub->fetch_waits, s);
 }
 
 /* ===================== TRACK_STATUS (draft 10.14) ===================== */

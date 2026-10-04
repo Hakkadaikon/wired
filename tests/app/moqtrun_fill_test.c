@@ -581,6 +581,73 @@ static void test_moqtrun_fill_done_waits_for_held(void) {
   CHECK(mtrq_fin_on(MTRQ_S1) == 1);
 }
 
+/* Fills every fetch-serving slot with a parked plain FETCH (opened, its
+ * one round refused); their stream ids come back through mfill_sid. */
+static void mfill_occupy_slots(void) {
+  g_stream_send_ok_n = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+    mf_standalone(mf_loc(0, 0), mf_loc(0, 1));
+}
+
+/* A fill accepted while every fetch-serving slot is busy is held -- no
+ * stream, no reset, no REQUEST_ERROR -- and opens the moment a slot
+ * frees, joining the normal serve-to-FIN path (SS9.20.15). */
+static void test_moqtrun_fill_slot_full_held(void) {
+  moqfetch_fill fill = {0};
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mfill_occupy_slots();
+  moqctl_params sub = mfill_params(&fill, 0);
+  u64           rid = mfill_subscribe_req(&sub);
+  CHECK(mfill_opens() == WIRED_MOQTRUN_MAX_FETCHES); /* held: no 9th open */
+  CHECK(moqtrun_test_count_kind(7) == 0);            /* and no reset */
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, mfill_sid(0), 0, 0);
+  g_stream_send_ok_n = -1;
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mf_read());
+  CHECK(mf_hdr_rid == rid);
+  CHECK(mf_n == 1 && mf_is_obj(0, 0, 0, 1));
+  CHECK(mf_fin);
+}
+
+/* Cancelling the subscription while its fill waits for a slot drops the
+ * fill without ever opening a stream (3.3.3). */
+static void test_moqtrun_fill_slot_full_cancel_drops(void) {
+  moqfetch_fill fill = {0};
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mfill_occupy_slots();
+  moqctl_params sub = mfill_params(&fill, 0);
+  mfill_subscribe_req(&sub);
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, MTRQ_S1, 0, 0); /* cancel */
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, mfill_sid(0), 0, 0);
+  g_stream_send_ok_n = -1;
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mfill_opens() == WIRED_MOQTRUN_MAX_FETCHES); /* never opened */
+}
+
+/* PUBLISH_DONE waits for a slot-starved fill exactly like for one the
+ * transport refused: the upstream leaving meanwhile makes the fill open
+ * -- once a slot frees -- only to reset INTERNAL_ERROR, and the owed
+ * PUBLISH_DONE then goes out counting it. */
+static void test_moqtrun_fill_slot_full_done_waits(void) {
+  moqfetch_fill fill = {0};
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mfill_occupy_slots();
+  moqctl_params sub = mfill_params(&fill, 0);
+  mfill_subscribe_req(&sub);
+  wired_moqt_on_session_close(&mtst_hub, SESS_A); /* upstream gone */
+  CHECK(mfill_done_count(MTRQ_S1) == ~(u64)0);    /* deferred */
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+    wired_moqt_on_stream_reset(&mtst_hub, SESS_B, mfill_sid(i), 0, 0);
+  g_stream_send_ok_n = -1;
+  wired_moqt_tick(&mtst_hub, 1); /* opens only to signal the failure */
+  CHECK(mfill_reset_code(mf_data_sid()) == MOQTRUN_RESET_INTERNAL_ERROR);
+  wired_moqt_tick(&mtst_hub, 2);
+  CHECK(mfill_done_count(MTRQ_S1) == 1);
+}
+
 /* The index of the first accepted data round on sid, or ~0. */
 static usz mfill_send_idx(u64 sid) {
   for (usz i = 0; i < g_n_calls; i++)
@@ -695,6 +762,9 @@ void test_moqtrun_fill(void) {
   test_moqtrun_fill_blocked_upstream_gone();
   test_moqtrun_fill_counts_in_done();
   test_moqtrun_fill_done_waits_for_held();
+  test_moqtrun_fill_slot_full_held();
+  test_moqtrun_fill_slot_full_cancel_drops();
+  test_moqtrun_fill_slot_full_done_waits();
   test_moqtrun_fill_ascending_sends_first();
   test_moqtrun_fill_descending_sends_last();
   test_moqtrun_fill_blocked_never_starves_live();
