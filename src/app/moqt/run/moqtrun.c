@@ -2596,6 +2596,20 @@ static void moqtrun_dispatch_setup(
   moqtrun_setup_accept(p, &m);
 }
 
+/* draft-22 9.10: PUBLISH_STATE_NOTIFY rides a subscription's request
+ * stream and only from its publisher -- the follow-on gate
+ * (moqtrun_req_pub_follow) already admits it there, unanswered. Anywhere
+ * else (the control stream lands here with no request; a subscriber's or
+ * another request's stream never reaches this handler) the session
+ * closes with PROTOCOL_VIOLATION. */
+static void moqtrun_dispatch_pub_notify(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  (void)peer_idx;
+  (void)body;
+  if (p->req) return;
+  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
 /* A message with no request to refuse: consumed by its Length, no reply. */
 static void moqtrun_dispatch_skip(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
@@ -2624,6 +2638,7 @@ static const struct {
     {MOQTSTAT_T_TRACK_STATUS, moqtrun_handle_tstat},
     {MOQTSTAT_T_REQUEST_UPDATE, moqtrun_handle_update},
     {MOQCTL_T_GOAWAY, moqtrun_dispatch_goaway},
+    {MOQCTL_T_PUBLISH_STATE_NOTIFY, moqtrun_dispatch_pub_notify},
     /* draft SS10 known non-request messages this hub does not implement:
      * nothing carries a Request ID to answer, so they are skipped. */
     {MOQNS_T_NAMESPACE, moqtrun_dispatch_skip},
@@ -2714,11 +2729,17 @@ static int moqtrun_req_update_ok(u64 kind, u64 type) {
   return type == MOQTSTAT_T_REQUEST_UPDATE && kind != MOQTSTAT_T_TRACK_STATUS;
 }
 
-/* draft 10.11/10.20: a PUBLISH's sender ends or reports gaps on its own
- * stream with PUBLISH_DONE / PUBLISH_SKIPPED. */
+/* draft 10.11/10.20 and draft-22 9.10: messages only a PUBLISH's sender
+ * may follow its request with on its own stream. PUBLISH_STATE_NOTIFY
+ * reaches here on a draft-22 session alone -- the other drafts' peek
+ * already closed on it as an unknown type. */
+static int moqtrun_req_pub_follow(u64 type) {
+  return type == MOQCTL_T_PUBLISH_DONE || type == MOQCTL_T_PUBLISH_SKIPPED ||
+         type == MOQCTL_T_PUBLISH_STATE_NOTIFY;
+}
+
 static int moqtrun_req_done_ok(u64 kind, u64 type) {
-  return kind == MOQCTL_T_PUBLISH &&
-         (type == MOQCTL_T_PUBLISH_DONE || type == MOQCTL_T_PUBLISH_SKIPPED);
+  return kind == MOQCTL_T_PUBLISH && moqtrun_req_pub_follow(type);
 }
 
 /* draft 10.4: GOAWAY may appear on a request stream, but only once. */
