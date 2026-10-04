@@ -111,9 +111,47 @@ static void test_moqtrun_fill_open_end_is_largest(void) {
   CHECK(mf_fin);
 }
 
+/* B SUBSCRIBEs to alice on request stream MTRQ_S1 (draft-22) with params
+ * (0 = none); returns the SUBSCRIBE's Request ID. */
+static u64 mfill_subscribe_req(const moqctl_params* params) {
+  moqctl_ftn f                               = mf_track();
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  mfill_rid += 2;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, mfill_rid, params);
+  return mfill_rid;
+}
+
+/* REQUEST_UPDATE carrying FILL_PARAMETERS on MTRQ_S1; returns its own
+ * fresh Request ID (mtst_rid). */
+static u64 mfill_update(const moqfetch_fill* fill, const moqctl_params* base) {
+  moqctl_params p = mfill_params(fill, base);
+  mtup_update(SESS_B, MTRQ_S1, &p);
+  return mtst_rid;
+}
+
+/* A REQUEST_UPDATE without FILL_PARAMETERS opens no fill; one carrying
+ * it opens a fill whose FETCH_HEADER has the REQUEST_UPDATE's Request ID,
+ * and an earlier fill keeps running beside it (draft-22 9.8, 9.20.15). */
+static void test_moqtrun_fill_update_opens(void) {
+  moqfetch_fill fill  = {0};
+  moqctl_params plain = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 7);
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mfill_subscribe_req(0);
+  mtup_update(SESS_B, MTRQ_S1, &plain);
+  CHECK(mfill_opens() == 0);
+  u64 rid = mfill_update(&fill, 0);
+  CHECK(mfill_opens() == 1);
+  CHECK(mf_read());
+  CHECK(mf_hdr_rid == rid);
+  CHECK(mf_n == 1 && mf_is_obj(0, 0, 0, 1));
+  CHECK(mf_fin);
+}
+
 void test_moqtrun_fill(void) {
   test_moqtrun_fill_subscribe_opens();
   test_moqtrun_fill_end_clipped_to_largest();
   test_moqtrun_fill_empty_or_future_range();
   test_moqtrun_fill_open_end_is_largest();
+  test_moqtrun_fill_update_opens();
 }
