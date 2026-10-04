@@ -440,6 +440,54 @@ static void test_moqtrun_fill_cancel_resets_all(void) {
   CHECK(mf_no_fetch());
 }
 
+/* The reset code the hub sent on stream sid (rides the recorder's fin
+ * field), or -1 when sid was never reset. */
+static int mfill_reset_code(u64 sid) {
+  for (usz i = 0; i < g_n_calls; i++)
+    if (g_calls[i].kind == 7 && g_calls[i].stream_id == sid)
+      return g_calls[i].fin;
+  return -1;
+}
+
+/* A subscriber that stops reading an OPEN fill past the stall limit gets
+ * it reset with DELIVERY_TIMEOUT -- the draft names this situation and
+ * this code -- while the subscription itself stays Established. */
+static void test_moqtrun_fill_stall_delivery_timeout(void) {
+  moqfetch_fill fill = {0};
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  g_stream_send_ok_n = 0; /* opened, rounds never accepted */
+  moqctl_params sub  = mfill_params(&fill, 0);
+  mfill_subscribe_req(&sub);
+  CHECK(!mf_no_fetch());
+  wired_moqt_tick(&mtst_hub, WIRED_MOQTREL_STALL_MS + 1);
+  CHECK(mfill_reset_code(mfill_sid(0)) == MOQTRUN_RESET_DELIVERY_TIMEOUT);
+  CHECK(mf_no_fetch());
+  CHECK(mtst_sub(SESS_A, SESS_B) != 0);
+}
+
+/* A fill the transport will not grant a uni stream for is held unopened
+ * -- silently, past any stall limit, with no reset and no REQUEST_ERROR
+ * -- and opens the moment credit arrives, joining the normal path. */
+static void test_moqtrun_fill_blocked_open_held(void) {
+  moqfetch_fill fill = {0};
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  g_open_uni_fail_n = 100; /* no uni-stream credit for a while */
+  moqctl_params sub = mfill_params(&fill, 0);
+  mfill_subscribe_req(&sub);
+  CHECK(!mf_no_fetch()); /* held, not dropped */
+  wired_moqt_tick(&mtst_hub, WIRED_MOQTREL_STALL_MS + 1);
+  CHECK(!mf_no_fetch());                  /* still held: no give-up */
+  CHECK(moqtrun_test_count_kind(7) == 0); /* and no reset sent */
+  g_open_uni_fail_n = 0;                  /* credit arrives */
+  wired_moqt_tick(&mtst_hub, WIRED_MOQTREL_STALL_MS + 2);
+  CHECK(mfill_read());
+  CHECK(mf_n == 1 && mf_is_obj(0, 0, 0, 1));
+  CHECK(mf_fin);
+  CHECK(mf_no_fetch());
+}
+
 void test_moqtrun_fill(void) {
   test_moqtrun_fill_subscribe_opens();
   test_moqtrun_fill_end_clipped_to_largest();
@@ -458,4 +506,6 @@ void test_moqtrun_fill(void) {
   test_moqtrun_fill_update_overlap_dup();
   test_moqtrun_fill_stop_sending_leaves_sub();
   test_moqtrun_fill_cancel_resets_all();
+  test_moqtrun_fill_stall_delivery_timeout();
+  test_moqtrun_fill_blocked_open_held();
 }

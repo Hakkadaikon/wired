@@ -1606,26 +1606,45 @@ static void moqtrun_fetch_serve(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   if (moqtrun_fetch_open(hub, f)) moqtrun_fetch_pump(hub, f);
 }
 
-/* Ends f early: its data stream is reset (3.3.4 CANCELLED) and the slot
- * freed. */
-static void moqtrun_fetch_stop(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
-  if (f->opened)
-    hub->io.stream_reset(f->wt, f->stream_id, MOQTRUN_RESET_CANCELLED);
+/* Ends f early: its data stream is reset with code and the slot freed. */
+static void moqtrun_fetch_stop_code(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f, u32 code) {
+  if (f->opened) hub->io.stream_reset(f->wt, f->stream_id, code);
   f->in_use = 0;
 }
 
-/* Refused (or never opened) for longer than WIRED_MOQTREL_STALL_MS: a
- * peer that stopped reading, so the slot is not held forever. */
+/* Cancelled by its requester (3.3.4 CANCELLED). */
+static void moqtrun_fetch_stop(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+  moqtrun_fetch_stop_code(hub, f, MOQTRUN_RESET_CANCELLED);
+}
+
+/* A fill held unopened (the transport refused the uni stream): kept
+ * silently -- no reset, no give-up -- until credit arrives or its
+ * subscription is cancelled (SS9.20.15). */
+static int moqtrun_fetch_blocked(const wired_moqtrun_fetch* f) {
+  return f->is_fill && !f->opened;
+}
+
+/* Refused for longer than WIRED_MOQTREL_STALL_MS: a peer that stopped
+ * reading, so the slot is not held forever. */
 static int moqtrun_fetch_stalled(
     const wired_moqt_hub* hub, const wired_moqtrun_fetch* f) {
-  return f->in_use &&
+  return f->in_use && !moqtrun_fetch_blocked(f) &&
          hub->live.last_now_ms - f->last_ok_ms > WIRED_MOQTREL_STALL_MS;
+}
+
+/* The stall names its cause: a subscriber that stopped reading its fill
+ * is DELIVERY_TIMEOUT (draft-22 names this exact case); an unread FETCH
+ * answer stays CANCELLED. */
+static u32 moqtrun_fetch_stall_code(const wired_moqtrun_fetch* f) {
+  return f->is_fill ? MOQTRUN_RESET_DELIVERY_TIMEOUT : MOQTRUN_RESET_CANCELLED;
 }
 
 static void moqtrun_fetch_tick_one(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   moqtrun_fetch_serve(hub, f);
-  if (moqtrun_fetch_stalled(hub, f)) moqtrun_fetch_stop(hub, f);
+  if (moqtrun_fetch_stalled(hub, f))
+    moqtrun_fetch_stop_code(hub, f, moqtrun_fetch_stall_code(f));
 }
 
 static void moqtrun_fetches_tick(wired_moqt_hub* hub) {
