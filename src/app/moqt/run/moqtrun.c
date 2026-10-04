@@ -3630,7 +3630,10 @@ void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
 
 /* Records slot for peer_idx, replies SUBSCRIBE_OK with the live track's
  * own alias, and sends the Group current at the last tick at once (its
- * fragment starts with a keyframe). */
+ * fragment starts with a keyframe). The subscription's Location Filter
+ * start still gates that send (moqtrun_live_due, 5.1.4): a start behind
+ * the live edge is effectively clamped to the current Group, a future
+ * start keeps the attach silent until the clock reaches it. */
 static void moqtrun_live_attach(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
