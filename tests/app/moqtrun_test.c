@@ -500,6 +500,69 @@ static void test_moqtrun_second_ctl_stream_violates(void) {
   }
 }
 
+/* Drives SESS_A (token tok) to the point of one client uni control
+ * stream carrying SETUP with the given Setup Options; returns the hub. */
+static void mtctl_session_with_setup(
+    wired_moqt_hub* hub, const char* tok, const u8* opts, usz opts_len) {
+  u8  msg[48];
+  usz n = mtctl_uni_ctl(msg, opts, opts_len);
+  moqtrun_test_reset();
+  wired_moqt_init(hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto(tok));
+  wired_moqt_on_stream_data(hub, SESS_A, 2, mtctl_span(msg, n), 0);
+}
+
+/* draft-19 10.4: PATH (0x1) MUST NOT be used over WebTransport -- the
+ * session closes INVALID_PATH (0x8), nothing stored, not Established. */
+static void test_moqtrun_setup_path_closes_invalid_path(void) {
+  wired_moqt_hub  hub;
+  static const u8 path_opt[] = {0x01, 0x02, '/', 'x'};
+  mtctl_session_with_setup(&hub, "moqt-19", path_opt, sizeof path_opt);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(11);
+  CHECK(moqtrun_test_count_kind(11) == 1);
+  CHECK(c && c->stream_id == WIRED_MOQTRUN_CLOSE_INVALID_PATH);
+  CHECK(!moqsess_established(&hub.peers[0].sess));
+  CHECK(hub.peers[0].setup_recv == 0);
+}
+
+/* draft-19 10.4: AUTHORITY (0x5) likewise -- INVALID_AUTHORITY (0x19). */
+static void test_moqtrun_setup_authority_closes_invalid_authority(void) {
+  wired_moqt_hub  hub;
+  static const u8 auth_opt[] = {0x05, 0x01, 'h'};
+  mtctl_session_with_setup(&hub, "moqt-19", auth_opt, sizeof auth_opt);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(11);
+  CHECK(moqtrun_test_count_kind(11) == 1);
+  CHECK(c && c->stream_id == WIRED_MOQTRUN_CLOSE_INVALID_AUTHORITY);
+  CHECK(!moqsess_established(&hub.peers[0].sess));
+}
+
+/* draft-19 10.4: unknown Setup Options are ignored, and a duplicate of
+ * the same unknown option is accepted (KVP Type Delta 0). */
+static void test_moqtrun_setup_unknown_options_ignored(void) {
+  wired_moqt_hub hub;
+  /* unknown raw option 0x21 "z", its duplicate (delta 0), then
+   * MOQT_IMPLEMENTATION "w" (0x21 -> 0x21 -> 0x7 would go backwards, so
+   * impl first: 0x7, then delta 0x1A to 0x21, then delta 0 dup). */
+  static const u8 opts[] = {0x07, 0x01, 'w', 0x1A, 0x01, 'z', 0x00, 0x01, 'z'};
+  mtctl_session_with_setup(&hub, "moqt-19", opts, sizeof opts);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(moqsess_established(&hub.peers[0].sess));
+  CHECK(hub.peers[0].peer_has_impl == 1);
+  CHECK(hub.peers[0].peer_impl[0] == 'w');
+}
+
+/* A SETUP body that does not decode (a KVP cut short by the message
+ * Length) closes with PROTOCOL_VIOLATION. */
+static void test_moqtrun_setup_malformed_closes(void) {
+  wired_moqt_hub  hub;
+  static const u8 cut[] = {0x07, 0x05, 'w'}; /* raw len 5, 1 byte present */
+  mtctl_session_with_setup(&hub, "moqt-19", cut, sizeof cut);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(11);
+  CHECK(moqtrun_test_count_kind(11) == 1);
+  CHECK(c && c->stream_id == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
 /* ===================== 2. PUBLISH / SUBSCRIBE ===================== */
 
 /* PUBLISH is accepted and answered with REQUEST_OK on the control
@@ -5288,6 +5351,10 @@ void test_moqtrun(void) {
   test_moqtrun_client_uni_ctl_accepted_empty_token();
   test_moqtrun_client_bidi_setup_accepted();
   test_moqtrun_second_ctl_stream_violates();
+  test_moqtrun_setup_path_closes_invalid_path();
+  test_moqtrun_setup_authority_closes_invalid_authority();
+  test_moqtrun_setup_unknown_options_ignored();
+  test_moqtrun_setup_malformed_closes();
   test_moqtrun_publish_replies_request_ok();
   test_moqtrun_subscribe_matching_publish_replies_ok();
   test_moqtrun_subscribe_without_publish_replies_error();
