@@ -196,12 +196,12 @@ static usz mf_gather(u8* buf) {
   return len;
 }
 
-/* Decodes B's last fetch stream into mf_items; 0 on a decode error. */
-static int mf_read(void) {
-  static u8    buf[4096];
-  usz          len = mf_gather(buf), off = 0;
-  moqfetch_seq seq = {0};
-  mf_n             = 0;
+/* Decodes B's last fetch stream into mf_items under seq's rules; 0 on a
+ * decode error. */
+static int mf_read_seq(moqfetch_seq seq) {
+  static u8 buf[4096];
+  usz       len = mf_gather(buf), off = 0;
+  mf_n = 0;
   if (moqfetch_hdr_take(wired_span_of(buf, len), &off, &mf_hdr_rid) !=
       MOQCTL_OK)
     return 0;
@@ -218,6 +218,8 @@ static int mf_read(void) {
   }
   return 1;
 }
+
+static int mf_read(void) { return mf_read_seq((moqfetch_seq){0}); }
 
 static int mf_is_obj(usz i, u64 g, u64 o, usz n) {
   return i < mf_n && mf_items[i].flags < 0x80 && mf_items[i].group == g &&

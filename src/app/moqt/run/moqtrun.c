@@ -1499,16 +1499,22 @@ static int moqtrun_fetch_new_group(const moqfetch_seq* s, u64 group) {
   return !s->have_loc || s->group != group;
 }
 
+/* A miss on a fill is End of Timed-Out Range (the hub could not keep the
+ * backlog, SS11.4.1); on a plain FETCH it stays End of Unknown Range. */
+static u64 moqtrun_fetch_eor(const wired_moqtrun_fetch* f) {
+  return f->is_fill ? MOQFETCH_EOR_TIMED_OUT : MOQFETCH_EOR_UNKNOWN;
+}
+
 /* A cache item as a fetch Object (11.4.4.1): Object ID Delta and
  * Publisher Priority always present (the cache keeps no priority, so the
  * 12.4 default 128), Group ID Delta when the group changes, Subgroup ID
- * zero. An unknown range is End of Unknown Range (11.4.4.2). */
+ * zero. An unknown range is an End of Range marker, eor (11.4.4.2). */
 static void moqtrun_fetch_obj_of(
-    moqfetch_obj* o, const moqcache_item* it, const moqfetch_seq* s) {
+    moqfetch_obj* o, const moqcache_item* it, const moqfetch_seq* s, u64 eor) {
   bytes_memset(o, 0, sizeof *o);
   o->group  = it->loc.group;
   o->object = it->loc.object;
-  o->flags  = MOQFETCH_EOR_UNKNOWN;
+  o->flags  = eor;
   if (it->unknown) return;
   o->flags = MOQFETCH_F_OBJECT | MOQFETCH_F_PRIORITY |
              (moqtrun_fetch_new_group(s, it->loc.group) ? MOQFETCH_F_GROUP : 0);
@@ -1526,7 +1532,7 @@ static int moqtrun_fetch_send_one(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   moqfetch_seq  seq = f->seq;
   usz           n   = 0;
   moqcache_item_at(&hub->cache, f->cache_tag, f->cursor, f->end, &it);
-  moqtrun_fetch_obj_of(&o, &it, &seq);
+  moqtrun_fetch_obj_of(&o, &it, &seq, moqtrun_fetch_eor(f));
   moqfetch_obj_put(
       wired_mspan_of(hub->relay_scratch, sizeof hub->relay_scratch), &n, &seq,
       &o);
