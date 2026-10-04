@@ -542,7 +542,68 @@ static void test_moqtrun_notify_elsewhere_closes_d22(void) {
   CHECK(mtrq_closes() == 1);
 }
 
+/* ========= publisher authorization (draft-22 16.3, every draft) ======== */
+
+/* One AUTHORIZATION TOKEN parameter whose raw Token bytes are tok. */
+static moqctl_params mtpa_token(const u8* tok, usz n) {
+  moqctl_params p  = {0};
+  p.items[0].type  = MOQCTL_PARAM_AUTHORIZATION_TOKEN;
+  p.items[0].enc   = MOQCTL_PENC_TOKEN;
+  p.items[0].bytes = wired_span_of(tok, n);
+  p.n              = 1;
+  return p;
+}
+
+/* With an authorizer installed every PUBLISH is shown to it (Full Track
+ * Name + USE_VALUE token, or 0): a refusal is REQUEST_ERROR UNAUTHORIZED
+ * and no track is claimed; an acceptance claims the track as before.
+ * The MUST is the same on every draft (draft-22 16.3 merely names it),
+ * so there is no version gate to observe. */
+static void test_moqtrun_publish_requires_authorization(void) {
+  static const u8  tok[]  = {0x03, 0x01, 'o', 'k'};
+  static const int vers[] = {MOQVER_D18, MOQVER_D19, MOQVER_D22};
+  moqctl_ftn       f      = mtst_ftn("chat", "room1", "alice");
+  int              calls  = 0;
+  for (usz v = 0; v < 3; v++) {
+    mtst_init();
+    mtst_hub.authorize_publish                 = mtauth_authorize;
+    mtst_hub.authorize_pub_ctx                 = &calls;
+    u64 ca                                     = mtst_join(SESS_A);
+    u64 cb                                     = mtst_join(SESS_B);
+    moqtrun_find_by_wt(&mtst_hub, SESS_A)->ver = vers[v];
+    mtauth_allow                               = 0;
+    mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+    CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_UNAUTHORIZED);
+    mtst_subscribe(SESS_B, cb, &f);
+    CHECK(mtsub_last_reply_type() == MOQCTL_T_REQUEST_ERROR);
+    mtauth_allow    = 1;
+    moqctl_params p = mtpa_token(tok, sizeof tok);
+    mtst_publish_p(SESS_A, ca, &f, 1, &p);
+    CHECK(mtauth_seen_name_len == 5); /* "alice" */
+    CHECK(mtauth_seen_type == 1 && mtauth_seen_value_len == 2);
+    mtst_subscribe(SESS_B, cb, &f);
+    CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  }
+  CHECK(calls == 6);
+}
+
+/* The hub holds no token cache (it never advertises
+ * MAX_AUTH_TOKEN_CACHE_SIZE), so an Alias-based Token on PUBLISH is
+ * refused MALFORMED_AUTH_TOKEN like SUBSCRIBE's, even on an open hub. */
+static void test_moqtrun_publish_alias_token_rejected(void) {
+  static const u8 reg[] = {0x01, 0x07, 0x01, 'x'};
+  moqctl_ftn      f     = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  mtst_join(SESS_A);
+  moqctl_params p = mtpa_token(reg, sizeof reg);
+  mtst_publish_p(SESS_A, MTRQ_S1, &f, 1, &p);
+  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_MALFORMED_AUTH_TOKEN);
+  CHECK(mtst_hub.peers[0].tracks[0].in_use == 0);
+}
+
 void test_moqtrun_upd(void) {
+  test_moqtrun_publish_requires_authorization();
+  test_moqtrun_publish_alias_token_rejected();
   test_moqtrun_notify_on_publish_stream_d22();
   test_moqtrun_notify_elsewhere_closes_d22();
   test_moqtrun_sub_duplicate_refused_d18();
