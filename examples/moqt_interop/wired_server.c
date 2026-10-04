@@ -1,8 +1,9 @@
-/* moq-interop-runner relay endpoint (draft-ietf-moq-transport-19).
+/* moq-interop-runner relay endpoint (draft-ietf-moq-transport-18/19/22).
  * libc-free, x86_64-linux, driven by the single SDK header <wired.h>.
  *
  * A bare wired_moqt_ hub relay (app/moqt/run/moqtrun.h): every namespace is
- * accepted, the WebTransport CONNECT negotiates subprotocol "moqt-19", and
+ * accepted, the WebTransport CONNECT negotiates one of "moqt-18"/"moqt-19"/
+ * "moqt-22" (whichever the client offers, via wired_moqt_wt_protocols), and
  * this file only adapts wired_server_wt_* into the hub's wired_moqt_io
  * table (signal prefix on the stream-opening entries, see
  * examples/moqt_chat/wired_server.c for the full rationale).
@@ -10,6 +11,7 @@
 
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim */
 #include "app/moqt/run/moqtrun.h"
+#include "app/moqt/ver/moqver.h"
 #include "app/webtransport/wtwire/wtwire.h"
 #include "wired.h"
 
@@ -145,8 +147,11 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
 
   if (!wired_srvdriver_parse(argc, argv, &opt))
     wired_die("bad CLI flags (single-process only)\n");
+  static char wt_protocols[32];
+  wired_moqt_wt_protocols(wt_protocols, sizeof wt_protocols);
+
   opt.run.incoming_cpu            = -1;
-  opt.run.wt_protocols            = "moqt-19";
+  opt.run.wt_protocols            = wt_protocols;
   opt.run.wt_on_session           = wired_moqt_on_session;
   opt.run.wt_session_ctx          = &g_hub;
   opt.run.wt_on_stream_data       = wired_moqt_on_stream_data;
