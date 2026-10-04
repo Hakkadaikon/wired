@@ -8,9 +8,9 @@ frames to every other connected participant, using the `app/moqt/run` hub
 
 ## What this demonstrates
 
-Unlike `examples/webtransport_chat` (which broadcasts raw QUIC DATAGRAMs and
-leaves the message framing entirely to the frontend), this sample speaks
-MOQT on the wire. Each participant (one of the fixed ids `user1`..`user4`:
+Unlike a plain WebTransport DATAGRAM-broadcast chat (raw QUIC DATAGRAMs,
+message framing left entirely to the frontend — the guide's browser chapter
+builds one), this sample speaks MOQT on the wire. Each participant (one of the fixed ids `user1`..`user4`:
 an id's index is its Track Alias) PUBLISHes up to three tracks under the
 namespace `wired/moqt_chat` — `<id>` for chat, `<id>/audio` for voice and
 `<id>/screen` for a screen share. There is a single fixed room.
@@ -209,8 +209,7 @@ network path, not the noise-suppression worklet's own CPU cost.
   framing and the audio track's publish/subscribe), `src/lib/*Pipeline.ts` +
   `jitterBuffer.ts`/`playbackSink.ts`/`audioContextGate.ts` (mic capture ->
   Opus encode -> MOQT Object, and the receive-side jitter/decode/playback
-  path, ported from `examples/webtransport_chat`), `src/app/page.tsx` +
+  path), `src/app/page.tsx` +
   `src/stores/moqtChatStore.ts` + `src/hooks/useMoqtChat.ts` (UI).
-- `e2e/` — the multi-client load-test harness (ported from
-  `examples/webtransport_chat/e2e`).
+- `e2e/` — the multi-client load-test harness.
 - `testvectors/moqt_golden.json` — the shared C/TypeScript golden vectors.

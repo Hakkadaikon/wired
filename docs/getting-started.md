@@ -64,16 +64,15 @@ docker run --rm ymuski/curl-http3 \
 ```
 
 **Checkpoint** — you have a working HTTP/3 server. The other samples run the
-same way; see [examples/](../examples/) for all five: an HTTP/3 message-log /
-static-file server ([word_list](../examples/word_list/)), a WebTransport
-building-blocks demo ([webtransport_echo](../examples/webtransport_echo/)),
-a browser chat over WebTransport DATAGRAMs
-([webtransport_chat](../examples/webtransport_chat/)), a
+same way; see [examples/](../examples/): an HTTP/3 message-log /
+static-file server ([word_list](../examples/word_list/)), a
 [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)
 WebTransport server endpoint
 ([webtransport_interop](../examples/webtransport_interop/)), and a MOQT
 (draft-ietf-moq-transport-19) chat-plus-voice-call room over WebTransport
-([moqt_chat](../examples/moqt_chat/)).
+([moqt_chat](../examples/moqt_chat/)). For guided, runnable WebTransport
+walkthroughs, see the
+[interactive guide](https://hakkadaikon.github.io/wired/guide).
 
 These four recipes (`setup`, `build`, `test`, `run`) are all this page
 needs; the full recipe list lives in
@@ -205,8 +204,8 @@ opt.run.wt_on_stream_data = my_stream_cb;     /* reassembled WT stream bytes */
 
 Extended CONNECT establishes the session in the SDK; your callback receives
 the `wired_wt_session*` it belongs to. `wired_server_broadcast_datagram(data)`
-fans one DATAGRAM out to every active session — the whole chat relay in
-`examples/webtransport_chat` is that one call.
+fans one DATAGRAM out to every active session — a whole chat relay is that
+one call (the guide's browser-chat chapter builds it).
 
 ### Certificates
 
