@@ -1328,3 +1328,9 @@ from the coverage denominator above:
   operational/deployment guidance, not a wire behavior this ledger tests.
 - (SS15) IANA Considerations — registry administration, not implementation
   behavior.
+- REDIRECT as an actual relay behavior (sending it to move a requester to
+  another URI/target, or reacting to one from an upstream) — this is a
+  single hub with no upstream relay or sibling instance to redirect to or
+  from, the same reasoning as the Session Migration entry above. The
+  Redirect structure's wire format is still covered (MOQT-084 through
+  MOQT-088).

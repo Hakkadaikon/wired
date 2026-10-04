@@ -1235,14 +1235,14 @@ static void test_moqtrun_ctl_publish_ok_alias_d18_only(void) {
   mtasm_check_closed(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
 
-/* draft-22 SS9.10: PUBLISH_STATE_NOTIFY is known (not a close) only on a
- * draft-22 session. */
+/* draft-22 SS9.10: PUBLISH_STATE_NOTIFY belongs on a subscription's own
+ * request stream, from its publisher (that path is pinned in
+ * moqtrun_upd_test.c) -- on the control stream even a draft-22 session
+ * closes with PROTOCOL_VIOLATION. draft-19 closes on it one layer
+ * earlier, as an unknown type (moqctl_test pins the peek split). */
 static void test_moqtrun_ctl_publish_state_notify_d22_only(void) {
-  u64 types[4];
   mtasm_feed_typed("moqt-22", (u8)MOQCTL_T_PUBLISH_STATE_NOTIFY);
-  CHECK(moqtrun_test_count_kind(11) == 0);
-  CHECK(mtasm_reply_types(types, 4) == 2);
-  CHECK(types[1] == MOQCTL_T_SUBSCRIBE_OK);
+  mtasm_check_closed(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
   mtasm_feed_typed("moqt-19", (u8)MOQCTL_T_PUBLISH_STATE_NOTIFY);
   mtasm_check_closed(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
