@@ -21,7 +21,7 @@ is actually inside of, and the cert's own SHA-256 hash
   a bare IP rejects the cert (its SAN would carry only `dNSName=localhost`).
 - `id.now_secs` anchors the cert's validity window; `0` keeps the SDK's
   fixed 2020-2030 window, deterministic for this page. A real deployment
-  passes `wired_clock_epoch_secs()` instead (see `webtransport_chat`).
+  passes `wired_clock_epoch_secs()` instead (see `examples/moqt_chat`).
 - `log_cert_fingerprint` builds the exact certificate `wired_server_init`
   would serve, hashes it with `wired_sha256`, and logs it the same way a
   browser's `serverCertificateHashes` entry is computed -- the client page

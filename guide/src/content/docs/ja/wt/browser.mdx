@@ -21,7 +21,7 @@ DNS 名も CA（認証局）も使わず、IP リテラル（IP アドレスの�
   （SAN には `dNSName=localhost` しか含まれないため）。
 - `id.now_secs` は、証明書の有効期間の基準になります。
   `0` を渡すと SDK の固定された 2020〜2030 年の有効期間になり、このページでは毎回同じ（決定的な）出力になります。
-  実運用では、代わりに `wired_clock_epoch_secs()` を渡します（`webtransport_chat` を参照）。
+  実運用では、代わりに `wired_clock_epoch_secs()` を渡します（`examples/moqt_chat` を参照）。
 - `log_cert_fingerprint` は、`wired_server_init` が提示する証明書そのものを組み立て、
   `wired_sha256` でハッシュを取り、ブラウザーの `serverCertificateHashes` と同じ方法でログに出します。
   クライアント側のページは、実際に受信したバイト列に対して同じハッシュ計算をしており、両者の行は一致します。
