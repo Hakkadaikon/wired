@@ -4,12 +4,14 @@
 #include "app/moqt/data/moqdata.h"
 #include "app/moqt/dgram/moqdg.h"
 #include "app/moqt/fetch/moqfetch.h"
+#include "app/moqt/kvp/moqkvp.h"
 #include "app/moqt/ns/moqns.h"
 #include "app/moqt/tstat/moqtstat.h"
 #include "app/moqt/ver/moqver.h"
 #include "app/moqt/vi/moqvi.h"
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/util/ct.h"
 #include "common/bytes/util/num.h"
 
 /* draft-ietf-moq-transport-19 hub relay. See moqtrun.h for the
@@ -164,24 +166,27 @@ static i64 moqtrun_ctl_open_io(
   return legacy ? io->open_bidi_stream(s, b) : io->open_uni_stream(s, b);
 }
 
-/* draft 3.3: the hub's control stream, its own SETUP as first bytes (no
- * Setup Options -- this subset negotiates nothing on the wire). The
- * draft-19 binding is a keep-open UNI stream whose leading Stream Type
- * varint (0x2F00, 3.4) IS the SETUP message's own Type field -- the two
- * are the same varint, not two (compare FETCH_HEADER 11.4.4: one Type
- * varint serves both the stream-type table and the message layout); a
- * legacy session keeps the pre-d17 single bidi the browser clients
- * read, which carries no stream-type varint at all. The io open ops
- * prefix the WebTransport stream signal (draft-ietf-webtrans-http3-15
- * 4.2) -- this layer stays session-opaque, testable without the
- * QUIC/TLS stack. A refused open leaves ctl_opened 0: moqtrun_ctl_retry
- * tries again on a later tick, and nothing (GOAWAY included) is sent
- * until SETUP went out. SETUP rides send_bufs[0], the armed slot (an
- * open holds the same view/ACK contract as stream_send, srvrun.h). */
+/* draft 3.3: the hub's control stream, its own SETUP as first bytes
+ * (Setup Options: the hub's MAX_FILTER_RANGES / MAX_REQUEST_UPDATES
+ * limits, 10.4). The draft-19 binding is a keep-open UNI stream whose
+ * leading Stream Type varint (0x2F00, 3.4) IS the SETUP message's own
+ * Type field -- the two are the same varint, not two (compare
+ * FETCH_HEADER 11.4.4: one Type varint serves both the stream-type
+ * table and the message layout); a legacy session keeps the pre-d17
+ * single bidi the browser clients read, which carries no stream-type
+ * varint at all. The io open ops prefix the WebTransport stream signal
+ * (draft-ietf-webtrans-http3-15 4.2) -- this layer stays session-opaque,
+ * testable without the QUIC/TLS stack. A refused open leaves ctl_opened
+ * 0: moqtrun_ctl_retry tries again on a later tick, and nothing (GOAWAY
+ * included) is sent until SETUP went out. SETUP rides send_bufs[0], the
+ * armed slot (an open holds the same view/ACK contract as stream_send,
+ * srvrun.h). */
 static void moqtrun_ctl_open(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   wired_mspan buf = wired_mspan_of(p->send_bufs[0], WIRED_MOQTRUN_CTL_SEND_BUF);
-  moqctl_setup setup = {0};
-  usz          off =
+  moqctl_setup setup        = {0};
+  setup.max_filter_ranges   = WIRED_MOQTRUN_MAX_FILTER_RANGES;
+  setup.max_request_updates = WIRED_MOQTRUN_MAX_REQ_UPDATES;
+  usz off =
       moqtrun_envelope_put(buf, MOQCTL_T_SETUP, moqtrun_encode_setup, &setup);
   i64 sid = moqtrun_ctl_open_io(
       &hub->io, p->wt, p->legacy, wired_span_of(buf.p, off));
@@ -276,20 +281,6 @@ void wired_moqt_on_session(
 }
 
 /* ===================== control-message handlers ===================== */
-
-/* draft-ietf-moq-transport-19 8: a SUBGROUP_DELIVERY_TIMEOUT timer runs
- * until the transport reports "all data committed", which this hub's io
- * table cannot see, so a non-zero one is refused. OBJECT_DELIVERY_TIMEOUT
- * is applied (moqtrun_sub_late). */
-static int moqtrun_param_is_nonzero_timeout(const moqctl_param* item) {
-  return item->type == MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT && item->vi != 0;
-}
-
-static int moqtrun_has_timeout_param(const moqctl_params* params) {
-  for (usz i = 0; i < params->n; i++)
-    if (moqtrun_param_is_nonzero_timeout(&params->items[i])) return 1;
-  return 0;
-}
 
 static void moqtrun_buf_append(u8* buf, usz* len, usz cap, wired_span msg) {
   if (*len + msg.n > cap) return;
@@ -389,7 +380,11 @@ static int moqtrun_req_send(
   return q->opened;
 }
 
-/* moqtrun_flush_replies for a request stream's own queue. */
+/* moqtrun_flush_replies for a request stream's own queue. A successful
+ * flush answers every REQUEST_UPDATE coalesced into it at once (draft-19
+ * 10.4: "each REQUEST_OK or REQUEST_ERROR response restores one
+ * credit"), so the outstanding count resets to 0 rather than ticking
+ * down per message. */
 static void moqtrun_req_flush(
     wired_moqt_io* io, wired_wt_session* s, wired_moqtrun_req* q) {
   int pending_idx = q->armed_idx ^ 1;
@@ -399,6 +394,7 @@ static void moqtrun_req_flush(
   if (moqtrun_req_send(io, s, q, b) <= 0) return;
   q->send_lens[q->armed_idx] = 0;
   q->armed_idx               = pending_idx;
+  q->pending_updates         = 0;
 }
 
 /* Flushes the queue of the stream p is handling. */
@@ -840,6 +836,25 @@ static wired_moqtrun_track* moqtrun_publish_slot(
 static int moqtrun_publish_refused(
     const wired_moqt_hub* hub, const moqctl_publish* m, u64* code);
 
+static u64 moqtrun_prop_sgt_of(const moqkvp* kv, u64 prior) {
+  return kv->type == MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT && !kv->is_raw
+             ? kv->num
+             : prior;
+}
+
+/* The SUBGROUP_DELIVERY_TIMEOUT Track Property (12.6, Type 0x06) of a
+ * PUBLISH's Track Properties (KVPs to the end of the body, SS1.6); 0
+ * when absent, unknown properties skipped, a malformed pair ends the
+ * scan with what was read. */
+static u64 moqtrun_track_prop_sgt(wired_span props) {
+  usz    off  = 0;
+  u64    prev = 0, out = 0;
+  moqkvp kv;
+  while (off < props.n && moqkvp_take(props, &off, &prev, &kv) == MOQKVP_OK)
+    out = moqtrun_prop_sgt_of(&kv, out);
+  return out;
+}
+
 /* A vetted PUBLISH: claim a track into a free (or matching-name) slot
  * and reply REQUEST_OK; a third distinct track name (no free slot), or a
  * name a newer session already owns (moqtrun_publish_slot), gets
@@ -864,7 +879,8 @@ static void moqtrun_publish_checked(
   moqtrun_supersede_name(hub, peer_idx, k);
   moqtrun_track_claim(hub, t, k, m->track_alias);
   moqtrun_track_seed_largest(t, &m->params);
-  t->request_id = m->request_id;
+  t->request_id          = m->request_id;
+  t->subgroup_timeout_ms = moqtrun_track_prop_sgt(m->track_properties);
   moqtrun_reattach_subs(hub, t, peer_idx, k);
   moqtrun_queue_request_ok(p, 0);
   moqtrun_req_mark_live(p);
@@ -1046,6 +1062,126 @@ static void moqtrun_sub_scalars(
   s->has_delivery_timeout = dt != 0;
 }
 
+/* ===== Range Filters (draft-19 10.2.10-10.2.14) ===== */
+
+static int moqtrun_ptype_is_rngf(u64 t) {
+  return t >= MOQCTL_PARAM_SUBGROUP_FILTER &&
+         t <= MOQCTL_PARAM_TRACK_PROPERTY_FILTER;
+}
+
+/* Decodes item's Range Filter value into *f; 0 when item is not a
+ * Range Filter parameter. An undecodable value is surfaced as
+ * f->invalid: the message layer answers INVALID_FILTER. */
+static int moqtrun_rngf_of(const moqctl_param* it, moqctl_rangefilter* f) {
+  if (!moqtrun_ptype_is_rngf(it->type)) return 0;
+  if (moqctl_rangefilter_take(it->type, it->bytes, f) != MOQCTL_OK)
+    f->invalid = 1;
+  return 1;
+}
+
+/* Flattens f's Ranges into s->rngf rows (capacity was vetted by
+ * moqtrun_rngf_refusal / moqtrun_rngf_over before apply). */
+static void moqtrun_rngf_add(
+    wired_moqtrun_sub* s, u64 ptype, const moqctl_rangefilter* f) {
+  for (usz i = 0; i < f->n && s->rngf_n < WIRED_MOQTRUN_MAX_FILTER_RANGES;
+       i++) {
+    wired_moqtrun_rngrow* r = &s->rngf[s->rngf_n++];
+    r->ptype                = ptype;
+    r->set_id               = (u8)f->set_id;
+    r->has_prop             = (u8)f->has_prop;
+    r->prop_type            = f->prop_type;
+    r->start                = f->r[i].start;
+    r->end                  = f->r[i].end;
+    r->has_end              = (u8)f->r[i].has_end;
+  }
+}
+
+static void moqtrun_rngf_add_item(
+    wired_moqtrun_sub* s, const moqctl_param* it) {
+  moqctl_rangefilter f;
+  if (!moqtrun_rngf_of(it, &f)) return;
+  moqtrun_rngf_add(s, it->type, &f);
+}
+
+/* SUBSCRIBE: the message is the subscription's whole Range Filter set. */
+static void moqtrun_sub_rngf_set(
+    wired_moqtrun_sub* s, const moqctl_params* params) {
+  s->rngf_n = 0;
+  for (usz i = 0; i < params->n; i++)
+    moqtrun_rngf_add_item(s, &params->items[i]);
+}
+
+static int moqtrun_rngf_msg_has(const moqctl_params* params, u64 ptype) {
+  for (usz i = 0; i < params->n; i++)
+    if (params->items[i].type == ptype) return 1;
+  return 0;
+}
+
+/* Drops s's rows of every filter type the update mentions (10.2.10: a
+ * non-zero Length replaces that entire filter parameter, a zero Length
+ * removes it; an omitted type stays). */
+static void moqtrun_rngf_drop_mentioned(
+    wired_moqtrun_sub* s, const moqctl_params* params) {
+  usz w = 0;
+  for (usz i = 0; i < s->rngf_n; i++)
+    if (!moqtrun_rngf_msg_has(params, s->rngf[i].ptype))
+      s->rngf[w++] = s->rngf[i];
+  s->rngf_n = (u8)w;
+}
+
+/* REQUEST_UPDATE: replace/remove the mentioned types, keep the rest. */
+static void moqtrun_sub_rngf_update(
+    wired_moqtrun_sub* s, const moqctl_params* params) {
+  moqtrun_rngf_drop_mentioned(s, params);
+  for (usz i = 0; i < params->n; i++)
+    moqtrun_rngf_add_item(s, &params->items[i]);
+}
+
+static int moqtrun_row_in(const wired_moqtrun_rngrow* r, u64 v) {
+  return v >= r->start && (!r->has_end || v <= r->end);
+}
+
+static int moqtrun_row_oid_of_set(const wired_moqtrun_rngrow* r, u8 set) {
+  return r->set_id == set && r->ptype == MOQCTL_PARAM_OBJECTID_FILTER;
+}
+
+/* OBJECTID rows of one set OR together; a set without any (or with only
+ * filter types the delivery gates cannot see) passes. have/hit are 0/1
+ * flags combined bitwise to keep the loop body branch-free. */
+static int moqtrun_set_oid_pass(const wired_moqtrun_sub* s, u8 set, u64 oid) {
+  int have = 0, hit = 0;
+  for (usz i = 0; i < s->rngf_n; i++) {
+    int in = moqtrun_row_oid_of_set(&s->rngf[i], set);
+    have |= in;
+    hit |= in & moqtrun_row_in(&s->rngf[i], oid);
+  }
+  return hit | !have;
+}
+
+/* SetIDs OR together (10.2.10): the Object passes when any set's
+ * evaluable params all admit it; no rows at all is unfiltered. */
+static int moqtrun_sub_rngf_pass(const wired_moqtrun_sub* s, u64 oid) {
+  int pass = !s->rngf_n; /* no rows: unfiltered */
+  for (usz i = 0; i < s->rngf_n; i++)
+    pass |= moqtrun_set_oid_pass(s, s->rngf[i].set_id, oid);
+  return pass;
+}
+
+/* min over the non-zero of {publisher's Track Property, subscriber's
+ * parameter} (draft-19 8); 0 = neither set a timeout. */
+static u64 moqtrun_timeout_min(u64 pub_ms, u64 sub_ms) {
+  if (!pub_ms) return sub_ms;
+  if (!sub_ms) return pub_ms;
+  return u64_min(pub_ms, sub_ms);
+}
+
+static u64 moqtrun_sub_sgt(
+    const wired_moqtrun_track* t, const moqctl_subscribe* m) {
+  return moqtrun_timeout_min(
+      t->subgroup_timeout_ms, moqtrun_param_vi(moqtrun_sub_param(
+                                  m, MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT)));
+}
+
 /* Opens slot s on t for peer_idx under alias, its state taken from
  * SUBSCRIBE m. */
 static void moqtrun_sub_open(
@@ -1063,6 +1199,8 @@ static void moqtrun_sub_open(
   s->jl           = t->largest;
   s->has_jl       = (u8)t->has_largest;
   moqtrun_sub_scalars(s, m);
+  s->subgroup_timeout = moqtrun_sub_sgt(t, m);
+  moqtrun_sub_rngf_set(s, &m->params);
   moqtrun_sub_filter(s, t, moqtrun_sub_param(m, MOQCTL_PARAM_LOCATION_FILTER));
 }
 
@@ -1101,13 +1239,20 @@ static int moqtrun_sub_in_objects(const wired_moqtrun_sub* s, moqctl_loc l) {
 }
 
 static int moqtrun_sub_gets_loc(const wired_moqtrun_sub* s, moqctl_loc l) {
-  return moqtrun_sub_gets(s, l.group) && moqtrun_sub_in_objects(s, l);
+  return moqtrun_sub_gets(s, l.group) && moqtrun_sub_in_objects(s, l) &&
+         moqtrun_sub_rngf_pass(s, l.object);
+}
+
+static int moqtrun_late_by(u64 timeout_ms, u64 age_ms) {
+  return timeout_ms != 0 && age_ms > timeout_ms;
 }
 
 /* draft 8: an Object whose first byte reached the hub age_ms ago is past
- * s's OBJECT_DELIVERY_TIMEOUT (0: none). */
+ * s's OBJECT_DELIVERY_TIMEOUT or its effective SUBGROUP_DELIVERY_TIMEOUT
+ * (0: none). */
 static int moqtrun_sub_late(const wired_moqtrun_sub* s, u64 age_ms) {
-  return s->delivery_timeout != 0 && age_ms > s->delivery_timeout;
+  return moqtrun_late_by(s->delivery_timeout, age_ms) ||
+         moqtrun_late_by(s->subgroup_timeout, age_ms);
 }
 
 /* A re-attached subscription meets a new incarnation: a Largest-relative
@@ -1354,6 +1499,22 @@ static int moqtrun_token_uses_alias(const moqctl_token* t) {
   return t && t->alias_type != MOQCTL_TOKEN_USE_VALUE;
 }
 
+static int moqtrun_ns_field_eq(wired_span f, const char* z, usz n) {
+  return f.n == n && !ct_diffn(f.p, (const u8*)z, n);
+}
+
+/* draft-19 2.4.2/2.4.3 reserved namespaces: a first Track Namespace
+ * field of exactly "." MUST be rejected DOES_NOT_EXIST; ".session"
+ * names session-level tracks, and this hub defines none, so every
+ * request for one is unrecognized and DOES_NOT_EXIST too. Any other
+ * "."-led field is an unrecognized reserved namespace and passes to
+ * the application (this hub's normal handling). */
+static int moqtrun_ns_reserved(const moqctl_ns* ns) {
+  if (!ns->n) return 0;
+  return moqtrun_ns_field_eq(ns->fields[0], ".", 1) ||
+         moqtrun_ns_field_eq(ns->fields[0], ".session", 8);
+}
+
 /* draft SS13.3: "Relays will verify the token to ensure that the request
  * is authorized." Every SUBSCRIBE passes here before any track matching
  * (own blob/live tracks and peer tracks alike). 1 + *code when refused. */
@@ -1371,7 +1532,7 @@ static int moqtrun_subscribe_refused(
  * draft): a relay verifies the publisher may claim the PUBLISH's Full
  * Track Name. Every PUBLISH passes here before any slot is claimed,
  * moqtrun_subscribe_refused's twin. 1 + *code when refused. */
-static int moqtrun_publish_refused(
+static int moqtrun_publish_auth_refused(
     const wired_moqt_hub* hub, const moqctl_publish* m, u64* code) {
   const moqctl_token* t = moqtrun_auth_token_of(&m->params);
   *code                 = MOQCTL_ERR_MALFORMED_AUTH_TOKEN;
@@ -1379,6 +1540,15 @@ static int moqtrun_publish_refused(
   *code = MOQCTL_ERR_UNAUTHORIZED;
   if (!hub->authorize_publish) return 0;
   return !hub->authorize_publish(hub->authorize_pub_ctx, &m->name, t);
+}
+
+/* Reserved namespaces first (2.4.2/2.4.3: never published under), then
+ * authorization. */
+static int moqtrun_publish_refused(
+    const wired_moqt_hub* hub, const moqctl_publish* m, u64* code) {
+  *code = MOQCTL_ERR_DOES_NOT_EXIST;
+  if (moqtrun_ns_reserved(&m->name.ns)) return 1;
+  return moqtrun_publish_auth_refused(hub, m, code);
 }
 
 /* Not a REQUEST_ERROR code: the request is accepted. */
@@ -1399,19 +1569,93 @@ static int moqtrun_params_inverted(const moqctl_params* params) {
   return moqtrun_param_has_filter(f) && moqtrun_filter_inverted(&f->rl);
 }
 
+static int moqtrun_rngf_dup_pair(
+    const moqctl_rangefilter* a, const moqctl_rangefilter* b) {
+  return a->set_id == b->set_id && a->prop_type == b->prop_type;
+}
+
+static int moqtrun_rngf_dup_j(
+    const moqctl_params*      params,
+    usz                       j,
+    u64                       type,
+    const moqctl_rangefilter* fi) {
+  moqctl_rangefilter fj;
+  if (params->items[j].type != type) return 0;
+  moqtrun_rngf_of(&params->items[j], &fj);
+  return moqtrun_rngf_dup_pair(fi, &fj);
+}
+
+/* A repeated (Type, SetID, Property Type) identity earlier in the same
+ * message (10.2.10: INVALID_FILTER). */
+static int moqtrun_rngf_dup_before(
+    const moqctl_params* params, usz i, const moqctl_rangefilter* fi) {
+  for (usz j = 0; j < i; j++)
+    if (moqtrun_rngf_dup_j(params, j, params->items[i].type, fi)) return 1;
+  return 0;
+}
+
+typedef struct {
+  usz count; /* total Ranges across the message's Range Filters */
+  int bad;   /* malformed value or repeated identity */
+} moqtrun_rngf_scan;
+
+static void moqtrun_rngf_scan_one(
+    const moqctl_params* params, usz i, moqtrun_rngf_scan* s) {
+  moqctl_rangefilter f;
+  if (!moqtrun_rngf_of(&params->items[i], &f)) return;
+  s->count += f.n;
+  s->bad |= f.invalid | moqtrun_rngf_dup_before(params, i, &f);
+}
+
+static moqtrun_rngf_scan moqtrun_rngf_scan_msg(const moqctl_params* params) {
+  moqtrun_rngf_scan s = {0, 0};
+  for (usz i = 0; i < params->n; i++) moqtrun_rngf_scan_one(params, i, &s);
+  return s;
+}
+
+/* INVALID_FILTER (10.2.10/10.4) for a malformed Range Filter value, a
+ * repeated (Type, SetID, Property Type) identity, or more Ranges than
+ * the hub's advertised MAX_FILTER_RANGES; ACCEPT otherwise. */
+static u64 moqtrun_rngf_refusal(const moqctl_params* params) {
+  moqtrun_rngf_scan s = moqtrun_rngf_scan_msg(params);
+  if (s.bad || s.count > WIRED_MOQTRUN_MAX_FILTER_RANGES)
+    return MOQCTL_ERR_INVALID_FILTER;
+  return MOQTRUN_REQ_ACCEPT;
+}
+
+/* Rows s would hold after the update: kept types plus the message's
+ * (10.4: MAX_FILTER_RANGES bounds the concurrent total). */
+static int moqtrun_rngf_over(
+    const wired_moqtrun_sub* s, const moqctl_params* params) {
+  usz kept = 0;
+  for (usz i = 0; i < s->rngf_n; i++)
+    kept += !moqtrun_rngf_msg_has(params, s->rngf[i].ptype);
+  return kept + moqtrun_rngf_scan_msg(params).count >
+         WIRED_MOQTRUN_MAX_FILTER_RANGES;
+}
+
 /* REQUEST_ERROR code a SUBSCRIBE's or REQUEST_UPDATE's parameters call
- * for: a non-zero SUBGROUP_DELIVERY_TIMEOUT, an unsatisfiable filter. */
+ * for: a bad Range Filter, an unsatisfiable Location Filter. */
 static u64 moqtrun_params_refusal(const moqctl_params* params) {
-  if (moqtrun_has_timeout_param(params)) return MOQCTL_ERR_NOT_SUPPORTED;
+  u64 code = moqtrun_rngf_refusal(params);
+  if (code != MOQTRUN_REQ_ACCEPT) return code;
   return moqtrun_params_inverted(params) ? MOQCTL_ERR_INVALID_RANGE
                                          : MOQTRUN_REQ_ACCEPT;
 }
 
-static u64 moqtrun_subscribe_refusal(
+static u64 moqtrun_subscribe_refusal_tail(
     const wired_moqt_hub* hub, const moqctl_subscribe* m) {
   u64 code = moqtrun_params_refusal(&m->params);
   if (code != MOQTRUN_REQ_ACCEPT) return code;
   return moqtrun_subscribe_refused(hub, m, &code) ? code : MOQTRUN_REQ_ACCEPT;
+}
+
+/* Reserved namespaces first (2.4.2/2.4.3), then parameters and
+ * authorization. */
+static u64 moqtrun_subscribe_refusal(
+    const wired_moqt_hub* hub, const moqctl_subscribe* m) {
+  if (moqtrun_ns_reserved(&m->name.ns)) return MOQCTL_ERR_DOES_NOT_EXIST;
+  return moqtrun_subscribe_refusal_tail(hub, m);
 }
 
 /* draft SS10.6 SUBSCRIBE: reject a non-zero SUBGROUP_DELIVERY_TIMEOUT
@@ -1868,12 +2112,23 @@ static wired_moqtrun_fetch* moqtrun_fetch_begin(
   return f;
 }
 
-/* Answers FETCH_OK and starts serving r from the cache. */
+static void moqtrun_fetch_descend(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqtrun_frange* r);
+
+/* GROUP_ORDER 0x2 (10.2.8): the fetch's groups go out newest first. */
+static int moqtrun_fetch_order_desc(const moqctl_params* params) {
+  const moqctl_param* g = moqctl_params_find(params, MOQCTL_PARAM_GROUP_ORDER);
+  return g != 0 && g->u8v == 0x2;
+}
+
+/* Answers FETCH_OK and starts serving r from the cache, by descending
+ * Group when the FETCH asked for it. */
 static void moqtrun_fetch_accept(
     wired_moqt_hub*       hub,
     wired_moqtrun_peer*   p,
     u64                   request_id,
-    const moqtrun_frange* r) {
+    const moqtrun_frange* r,
+    int                   descending) {
   wired_moqtrun_fetch* f = moqtrun_fetch_begin(hub, p->wt, request_id, r);
   if (!f) {
     moqtrun_send_request_error(p, MOQCTL_ERR_INTERNAL_ERROR);
@@ -1881,6 +2136,7 @@ static void moqtrun_fetch_accept(
   }
   f->seq.eor_timed_out =
       (moqver_caps(p->ver) & MOQVER_CAP_EOR_TIMED_OUT) != 0; /* 22 SS11.4.1 */
+  if (descending) moqtrun_fetch_descend(hub, f, r);
   moqtrun_queue_fetch_ok(p, moqtrun_fetch_ok_end(hub, p, r));
   moqtrun_fetch_serve(hub, f);
 }
@@ -1938,7 +2194,8 @@ static void moqtrun_fetch_standalone(
     moqtrun_send_request_error(p, MOQCTL_ERR_INVALID_RANGE);
     return;
   }
-  moqtrun_fetch_accept(hub, p, m->request_id, &r);
+  moqtrun_fetch_accept(
+      hub, p, m->request_id, &r, moqtrun_fetch_order_desc(&m->params));
 }
 
 /* ============ fill fetch streams (draft-22 SS9.20.15) ============ */
@@ -2191,7 +2448,8 @@ static void moqtrun_fetch_joining(
   r.start  = moqctl_loc_of(group, 0);
   r.end    = moqtrun_after(s->jl);
   r.ok_end = s->jl;
-  moqtrun_fetch_accept(hub, p, m->request_id, &r);
+  moqtrun_fetch_accept(
+      hub, p, m->request_id, &r, moqtrun_fetch_order_desc(&m->params));
 }
 
 /* The FETCH body in p's draft: draft-22's (SS9.11) or the draft-18/19
@@ -2225,12 +2483,19 @@ static void moqtrun_fetch_route(
   moqtrun_fetch_joining(hub, p, peer_idx, m);
 }
 
-/* draft 10.12 FETCH. ponytail: groups always go in ascending order
- * (GROUP_ORDER is not consulted, 10.2.8). */
+/* draft 10.12 FETCH. A body that fails to decode is a malformed control
+ * message: the session closes, like a malformed REQUEST_UPDATE. */
 static void moqtrun_handle_fetch(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   moqfetch_req m;
-  if (moqtrun_fetch_take(p, body, &m) != MOQCTL_OK) return;
+  if (moqtrun_fetch_take(p, body, &m) != MOQCTL_OK) {
+    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    return;
+  }
+  if (moqtrun_rngf_refusal(&m.params) != MOQTRUN_REQ_ACCEPT) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_INVALID_FILTER);
+    return;
+  }
   moqtrun_fetch_route(hub, p, peer_idx, &m);
 }
 
@@ -2366,6 +2631,14 @@ static void moqtrun_upd_filter(
   moqtrun_sub_filter(s, t, p);
 }
 
+/* The update's SUBGROUP_DELIVERY_TIMEOUT re-mins against the publisher's
+ * Track Property (t 0 while the publisher is away: no property side). */
+static void moqtrun_upd_sgt(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* p) {
+  s->subgroup_timeout =
+      moqtrun_timeout_min(t ? t->subgroup_timeout_ms : 0, p->vi);
+}
+
 /* Parameters in the update's scope this hub keeps no state for. */
 static void moqtrun_upd_ignore(
     wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* p) {
@@ -2381,6 +2654,7 @@ static const struct {
     {MOQCTL_PARAM_FORWARD, moqtrun_upd_forward},
     {MOQCTL_PARAM_SUBSCRIBER_PRIORITY, moqtrun_upd_priority},
     {MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, moqtrun_upd_timeout},
+    {MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, moqtrun_upd_sgt},
     {MOQCTL_PARAM_LOCATION_FILTER, moqtrun_upd_filter},
 };
 
@@ -2416,6 +2690,7 @@ static void moqtrun_upd_params(
     wired_moqtrun_sub*         s,
     const wired_moqtrun_track* t,
     const moqctl_params*       params) {
+  moqtrun_sub_rngf_update(s, params);
   for (usz i = 0; i < params->n; i++)
     moqtrun_upd_lookup(params->items[i].type)(s, t, &params->items[i]);
 }
@@ -2450,7 +2725,8 @@ static u64 moqtrun_upd_checked(
 }
 
 /* The REQUEST_ERROR code for the update, or MOQTRUN_REQ_ACCEPT once it is
- * applied. */
+ * applied. The concurrent Range Filter total is vetted first (10.4):
+ * refused before anything is applied. */
 static u64 moqtrun_upd_verdict(
     wired_moqt_hub*            hub,
     wired_moqtrun_peer*        p,
@@ -2458,6 +2734,7 @@ static u64 moqtrun_upd_verdict(
     const wired_moqtrun_track* t,
     const moqctl_params*       params) {
   if (!s) return MOQCTL_ERR_DOES_NOT_EXIST;
+  if (moqtrun_rngf_over(s, params)) return MOQCTL_ERR_INVALID_FILTER;
   return moqtrun_upd_checked(hub, p, s, t, params);
 }
 
@@ -2522,8 +2799,45 @@ static int moqtrun_upd_is_pub(const wired_moqtrun_peer* p) {
          (moqver_caps(p->ver) & MOQVER_CAP_UPDATE_ON_PUBLISH);
 }
 
+/* draft-ietf-moq-transport-19 10.9: the sender of a FETCH may REQUEST_UPDATE
+ * it (e.g. SUBSCRIBER_PRIORITY, 10.2.5). */
+static int moqtrun_upd_is_fetch(const wired_moqtrun_peer* p) {
+  return p->req && p->req->kind == MOQFETCH_T_FETCH;
+}
+
+/* draft-ietf-moq-transport-19 10.9: the sender of a PUBLISH_NAMESPACE or
+ * SUBSCRIBE_NAMESPACE may REQUEST_UPDATE it (10.9.1 Updating Namespace
+ * Subscriptions covers the latter's TRACK_NAMESPACE_PREFIX). */
+static int moqtrun_upd_is_ns(const wired_moqtrun_peer* p) {
+  return p->req && moqtrun_kind_is_ns(p->req->kind);
+}
+
+/* moqtrun_upd_allowed's non-subscription half, split out to keep each
+ * predicate's branch budget small. */
+static int moqtrun_upd_is_other(const wired_moqtrun_peer* p) {
+  return moqtrun_upd_is_pub(p) || moqtrun_upd_is_fetch(p) ||
+         moqtrun_upd_is_ns(p);
+}
+
 static int moqtrun_upd_allowed(const wired_moqtrun_peer* p) {
-  return moqtrun_upd_is_sub(p) || moqtrun_upd_is_pub(p);
+  return moqtrun_upd_is_sub(p) || moqtrun_upd_is_other(p);
+}
+
+/* moqtrun_upd_ctx's namespace half: SUBSCRIBE_NAMESPACE vs
+ * PUBLISH_NAMESPACE each have their own ctx bit (10.2.x). */
+static u32 moqtrun_upd_ns_ctx(const wired_moqtrun_req* q) {
+  return q->kind == MOQNS_T_SUBSCRIBE_NAMESPACE
+             ? MOQCTL_PCTX_UPDATE_SUBSCRIBE_NAMESPACE
+             : MOQCTL_PCTX_UPDATE_PUBLISH_NAMESPACE;
+}
+
+/* The MOQCTL_PCTX_UPDATE_* bit a decode must check the update's parameters
+ * against, by the request kind riding the stream (10.2.x "MAY appear in"
+ * is split the same way). */
+static u32 moqtrun_upd_ctx(const wired_moqtrun_peer* p) {
+  if (moqtrun_upd_is_fetch(p)) return MOQCTL_PCTX_UPDATE_FETCH;
+  if (moqtrun_upd_is_ns(p)) return moqtrun_upd_ns_ctx(p->req);
+  return MOQCTL_PCTX_UPDATE_SUBSCRIPTION;
 }
 
 /* draft-22 9.8 on a PUBLISH stream: the parameters are vetted as a
@@ -2540,37 +2854,112 @@ static void moqtrun_update_pub(
   moqtrun_queue_request_ok(p, 0);
 }
 
+/* MALFORMED_AUTH_TOKEN iff params carries an AUTHORIZATION_TOKEN using an
+ * alias (moqtrun_subscribe_refused's twin): this hub's token cache is 0
+ * bytes (SS10.3.1.3), the only admitted FETCH-update parameter with a
+ * refusal this hub models. */
+static u64 moqtrun_fetch_upd_refusal(const moqctl_params* params) {
+  return moqtrun_token_uses_alias(moqtrun_auth_token_of(params))
+             ? MOQCTL_ERR_MALFORMED_AUTH_TOKEN
+             : MOQTRUN_REQ_ACCEPT;
+}
+
+/* A REQUEST_UPDATE of a FETCH (10.9, e.g. SUBSCRIBER_PRIORITY 10.2.5):
+ * the hub models no other FETCH-serving state the admitted parameters
+ * would move, so an acceptable update is REQUEST_OK and nothing else.
+ * "When a REQUEST_UPDATE fails for a FETCH, the publisher MUST reset the
+ * FETCH data stream" (10.9.1) -- moqtrun_fetches_cancel resets it and
+ * frees the hub's own fetch-serving slot. */
+static void moqtrun_update_fetch(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_params* params) {
+  u64 code = moqtrun_fetch_upd_refusal(params);
+  if (code != MOQTRUN_REQ_ACCEPT) {
+    moqtrun_send_request_error(p, code);
+    moqtrun_fetches_cancel(hub, p->wt, p->req->request_id);
+    return;
+  }
+  moqtrun_queue_request_ok(p, 0);
+}
+
+static void moqtrun_update_ns(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_req*   q,
+    const moqctl_params* params);
+
+/* moqtrun_update_route_other's FETCH-or-namespace half. 1 iff routed. */
+static int moqtrun_update_route_fetch_ns(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_params* params) {
+  if (moqtrun_upd_is_fetch(p)) {
+    moqtrun_update_fetch(hub, p, params);
+    return 1;
+  }
+  if (moqtrun_upd_is_ns(p)) {
+    moqtrun_update_ns(hub, p, p->req, params);
+    return 1;
+  }
+  return 0;
+}
+
+/* moqtrun_update_route's non-subscription request kinds (everything but
+ * the common-case SUBSCRIBE, kept separate to stay within one function's
+ * branch budget). 1 iff p's request matched one and was routed. */
+static int moqtrun_update_route_other(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_params* params) {
+  if (moqtrun_upd_is_pub(p)) {
+    moqtrun_update_pub(hub, p, params);
+    return 1;
+  }
+  return moqtrun_update_route_fetch_ns(hub, p, params);
+}
+
 static void moqtrun_update_route(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  p,
     usz                  peer_idx,
     const moqctl_params* params,
     u64                  rid) {
-  if (moqtrun_upd_is_pub(p)) {
-    moqtrun_update_pub(hub, p, params);
-    return;
-  }
+  if (moqtrun_update_route_other(hub, p, params)) return;
   moqtrun_update_sub(hub, p, peer_idx, params, rid);
 }
 
-/* A REQUEST_UPDATE of a SUBSCRIBE (or, on draft-22, of the sender's own
- * PUBLISH), on its stream (its own Request ID is a fresh one, 10.1: the
- * stream names the request). On the control stream, or for another
- * request type, NOT_SUPPORTED. A malformed one (e.g. a parameter
- * outside the update's scope) closes the session. */
-static void moqtrun_handle_update(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
-  moqtstat_update m;
+/* draft-ietf-moq-transport-19 10.4/10.9: a request stream already
+ * holding MAX_REQUEST_UPDATES outstanding (received, not yet answered by
+ * a flushed reply) REQUEST_UPDATEs closes the session on one more. */
+static int moqtrun_upd_over_credit(const wired_moqtrun_req* q) {
+  return q->pending_updates >= WIRED_MOQTRUN_MAX_REQ_UPDATES;
+}
+
+/* Rejects (and signals) a REQUEST_UPDATE that must not reach decode: not
+ * an allowed request kind, or its stream is already over credit. */
+static int moqtrun_upd_refused(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   if (!moqtrun_upd_allowed(p)) {
     moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
     moqtrun_upd_close_ns(p->req);
-    return;
+    return 1;
   }
-  if (moqtstat_update_take(p->ver, body, MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &m) !=
-      MOQCTL_OK) {
+  if (moqtrun_upd_over_credit(p->req)) {
+    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES);
+    return 1;
+  }
+  return 0;
+}
+
+/* A REQUEST_UPDATE of the request riding its stream (its own Request ID
+ * is a fresh one, 10.1: the stream names the request) -- a SUBSCRIBE, a
+ * FETCH, a PUBLISH_NAMESPACE/SUBSCRIBE_NAMESPACE, or (draft-22) the
+ * sender's own PUBLISH. On the control stream, or for TRACK_STATUS,
+ * NOT_SUPPORTED. A malformed one (e.g. a parameter outside the update's
+ * scope for that request kind) closes the session. */
+static void moqtrun_handle_update(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  moqtstat_update m;
+  if (moqtrun_upd_refused(hub, p)) return;
+  if (moqtstat_update_take(p->ver, body, moqtrun_upd_ctx(p), &m) != MOQCTL_OK) {
     moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
     return;
   }
+  p->req->pending_updates++;
   moqtrun_update_route(hub, p, peer_idx, &m.params, m.request_id);
 }
 
@@ -2640,12 +3029,16 @@ static int moqtrun_disc_same(
 typedef int (*moqtrun_disc_rel_fn)(
     const wired_moqtrun_req*, const wired_moqtrun_req*);
 
+/* r itself never counts as a clash against q (an update re-checking an
+ * already-live q would otherwise always "overlap" its own unchanged
+ * namespace -- moqtrun_disc_pub_check/sub_check are shared by creation,
+ * where q is not live yet, and update, where it already is). */
 static int moqtrun_disc_rel(
     const wired_moqtrun_req* r,
     const wired_moqtrun_req* q,
     u64                      kind,
     moqtrun_disc_rel_fn      rel) {
-  return moqtrun_disc_is(r, kind) && rel(r, q);
+  return r != q && moqtrun_disc_is(r, kind) && rel(r, q);
 }
 
 /* 1 iff a live request of kind relates to q by rel. */
@@ -2695,9 +3088,77 @@ static int moqtrun_disc_record(wired_moqtrun_req* q, const moqctl_ns* ns) {
   return fits;
 }
 
+/* Writes pfx's namespace into q (replacing its current one), 0 if it
+ * fails to decode or does not fit. */
+static int moqtrun_upd_ns_write(wired_moqtrun_req* q, const moqctl_param* pfx) {
+  moqctl_ns ns;
+  usz       at = 0;
+  if (moqctl_ns_take(pfx->bytes, &at, &ns) != MOQCTL_OK) return 0;
+  return moqtrun_disc_record(q, &ns);
+}
+
+/* draft-ietf-moq-transport-19 10.9.1 Updating Namespace Subscriptions: a
+ * SUBSCRIBE_NAMESPACE's REQUEST_UPDATE may carry a new
+ * TRACK_NAMESPACE_PREFIX; the same overlap restriction as a fresh
+ * SUBSCRIBE_NAMESPACE applies (moqtrun_disc_sub_check), checked against
+ * the CANDIDATE prefix before it replaces the live one -- a refused
+ * update leaves the request's existing prefix (and announcements)
+ * untouched. */
+static u64 moqtrun_upd_ns_prefix(
+    wired_moqt_hub* hub, wired_moqtrun_req* q, const moqctl_param* pfx) {
+  wired_moqtrun_req before = *q;
+  if (!moqtrun_upd_ns_write(q, pfx)) return MOQCTL_ERR_INTERNAL_ERROR;
+  u64 code = moqtrun_disc_sub_check(hub, q);
+  if (code == MOQTRUN_REQ_ACCEPT) return code;
+  q->ns_len = before.ns_len;
+  bytes_memcpy(q->ns, before.ns, before.ns_len);
+  return code;
+}
+
+/* MALFORMED_AUTH_TOKEN iff params carries an AUTHORIZATION_TOKEN using
+ * an alias (moqtrun_disc_auth_refused's twin, this hub's token cache
+ * being 0 bytes, SS10.3.1.3) -- the one parameter either namespace
+ * kind's update scope admits besides TRACK_NAMESPACE_PREFIX (10.2.2). */
+static u64 moqtrun_upd_ns_token_refusal(const moqctl_params* params) {
+  return moqtrun_token_uses_alias(moqtrun_auth_token_of(params))
+             ? MOQCTL_ERR_MALFORMED_AUTH_TOKEN
+             : MOQTRUN_REQ_ACCEPT;
+}
+
+static u64 moqtrun_upd_ns_verdict(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_req*   q,
+    const moqctl_params* params,
+    const moqctl_param*  pfx) {
+  u64 code = moqtrun_upd_ns_token_refusal(params);
+  if (code != MOQTRUN_REQ_ACCEPT) return code;
+  return pfx ? moqtrun_upd_ns_prefix(hub, q, pfx) : MOQTRUN_REQ_ACCEPT;
+}
+
+/* A REQUEST_UPDATE of a PUBLISH_NAMESPACE or SUBSCRIBE_NAMESPACE: the
+ * latter may carry TRACK_NAMESPACE_PREFIX; omitted, its prefix is
+ * unchanged (10.9.1: "If omitted ... the value for the parameter is
+ * unchanged"). A refusal closes the bidi stream (10.9.1), like the
+ * namespace's own creation would. */
+static void moqtrun_update_ns(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_req*   q,
+    const moqctl_params* params) {
+  const moqctl_param* pfx =
+      moqctl_params_find(params, MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX);
+  u64 code = moqtrun_upd_ns_verdict(hub, q, params, pfx);
+  if (code != MOQTRUN_REQ_ACCEPT) {
+    moqtrun_send_request_error(p, code);
+    moqtrun_upd_close_ns(q);
+    return;
+  }
+  moqtrun_queue_request_ok(p, 0);
+}
+
 /* 10.15 / 10.18: the receiver MUST verify the request is authorized
  * (moqtrun_subscribe_refused's twin). 1 + *code when refused. */
-static int moqtrun_disc_refused(
+static int moqtrun_disc_auth_refused(
     const wired_moqt_hub* hub, u64 type, const moqns_req* m, u64* code) {
   const moqctl_token* t = moqtrun_auth_token_of(&m->params);
   *code                 = MOQCTL_ERR_MALFORMED_AUTH_TOKEN;
@@ -2705,6 +3166,15 @@ static int moqtrun_disc_refused(
   *code = MOQCTL_ERR_UNAUTHORIZED;
   if (!hub->authorize_namespace) return 0;
   return !hub->authorize_namespace(hub->authorize_ns_ctx, type, &m->ns, t);
+}
+
+/* Reserved namespaces first (2.4.2/2.4.3; a prefix leading with one is
+ * just as reserved), then authorization. */
+static int moqtrun_disc_refused(
+    const wired_moqt_hub* hub, u64 type, const moqns_req* m, u64* code) {
+  *code = MOQCTL_ERR_DOES_NOT_EXIST;
+  if (moqtrun_ns_reserved(&m->ns)) return 1;
+  return moqtrun_disc_auth_refused(hub, type, m, code);
 }
 
 static u64 moqtrun_disc_verdict(
@@ -3567,7 +4037,10 @@ void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
 
 /* Records slot for peer_idx, replies SUBSCRIBE_OK with the live track's
  * own alias, and sends the Group current at the last tick at once (its
- * fragment starts with a keyframe). */
+ * fragment starts with a keyframe). The subscription's Location Filter
+ * start still gates that send (moqtrun_live_due, 5.1.4): a start behind
+ * the live edge is effectively clamped to the current Group, a future
+ * start keeps the attach silent until the clock reaches it. */
 static void moqtrun_live_attach(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
@@ -5180,27 +5653,28 @@ static int moqtrun_req_stream_ok(const wired_moqt_hub* hub, u64 stream_id) {
 
 static wired_moqtrun_req* moqtrun_req_open(
     wired_moqtrun_req* q, wired_wt_session* s, u64 stream_id) {
-  q->in_use       = 1;
-  q->wt           = s;
-  q->stream_id    = stream_id;
-  q->kind         = 0;
-  q->request_id   = MOQTRUN_RID_NONE;
-  q->opened       = 0;
-  q->in.n         = 0;
-  q->in.at        = 0;
-  q->in.skip      = 0;
-  q->send_lens[0] = 0;
-  q->send_lens[1] = 0;
-  q->armed_idx    = 0;
-  q->goaway       = 0;
-  q->live         = 0;
-  q->fin_in       = 0;
-  q->fin_out      = 0;
-  q->done_pending = 0;
-  q->done_status  = 0;
-  q->done_count   = 0;
-  q->ns_len       = 0;
-  q->ns_seen      = 0;
+  q->in_use          = 1;
+  q->wt              = s;
+  q->stream_id       = stream_id;
+  q->kind            = 0;
+  q->request_id      = MOQTRUN_RID_NONE;
+  q->opened          = 0;
+  q->in.n            = 0;
+  q->in.at           = 0;
+  q->in.skip         = 0;
+  q->send_lens[0]    = 0;
+  q->send_lens[1]    = 0;
+  q->armed_idx       = 0;
+  q->goaway          = 0;
+  q->live            = 0;
+  q->fin_in          = 0;
+  q->fin_out         = 0;
+  q->done_pending    = 0;
+  q->done_status     = 0;
+  q->done_count      = 0;
+  q->ns_len          = 0;
+  q->ns_seen         = 0;
+  q->pending_updates = 0;
   return q;
 }
 

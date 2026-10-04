@@ -471,6 +471,36 @@ static void test_moqtrun_sub_largest_own_tracks(void) {
   CHECK(l && l->loc.group == 2 && l->loc.object == 0);
 }
 
+/* A late live subscriber's Location Filter start gates the attach send
+ * (5.1.4): a start behind the live edge is clamped to the current Group
+ * (no stale replay), a future start holds the attach silent until the
+ * clock reaches it -- Groups before the start are never sent. */
+static void test_moqtrun_sub_live_attach_filter_start(void) {
+  moqctl_params past = mtst_params_filter(MOQCTL_FILTER_ABS_START);
+  moqctl_params fut  = mtst_params_filter(MOQCTL_FILTER_ABS_START);
+  moqctl_ftn    f    = mtst_ftn("chat", "room1", "movie");
+  u8            got[64];
+  usz           n;
+  fut.items[0].lf.start = moqctl_loc_of(4, 0);
+  mtst_init();
+  moqtrun_test_publish_live(&mtst_hub);
+  wired_moqt_tick(&mtst_hub, 1000 + 2 * 2000); /* Group 2 */
+  u64 cb = mtst_join(SESS_B);
+  u64 cc = mtst_join(SESS_C);
+  moqtrun_test_reset();
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &past); /* start {0,0}: behind */
+  CHECK(moqtrun_test_count_kind(8) == 1);
+  CHECK(moqtrun_test_live_group(moqtrun_test_last_kind(8), got, &n) == 2);
+  mtst_subscribe_p(SESS_C, cc, &f, 2, &fut);       /* start {4,0}: ahead */
+  CHECK(moqtrun_test_count_kind(8) == 1);          /* nothing for C yet */
+  wired_moqt_tick(&mtst_hub, 1000 + 3 * 2000 + 1); /* Group 3: still held */
+  CHECK(moqtrun_test_count_kind(8) == 2);          /* B's Group 3 only */
+  CHECK(moqtrun_test_last_kind(8)->s == SESS_B);
+  wired_moqt_tick(&mtst_hub, 1000 + 4 * 2000 + 1); /* Group 4: C joins in */
+  CHECK(moqtrun_test_count_kind(8) == 4);
+  CHECK(moqtrun_test_live_group(moqtrun_test_last_kind(8), got, &n) == 4);
+}
+
 /* ===================== per-request bidi streams ===================== */
 
 /* draft-ietf-moq-transport-19 3.3: a request is the first message of a
@@ -1097,6 +1127,258 @@ static void test_moqtrun_sub_filter22_end_gates(void) {
   CHECK(moqtrun_test_count_kind(9) == 1);
 }
 
+/* ===================== reserved namespaces ===================== */
+
+/* draft-19 2.4.2/2.4.3: a Track Namespace whose first field is exactly
+ * "." MUST be rejected DOES_NOT_EXIST; one whose first field is
+ * ".session" names a session-level track, all of which are unrecognized
+ * by this hub, so DOES_NOT_EXIST too -- on PUBLISH and SUBSCRIBE alike. */
+static void test_moqtrun_reserved_ns_rejected(void) {
+  mtst_init();
+  u64        ca   = mtst_join(SESS_A);
+  u64        cb   = mtst_join(SESS_B);
+  moqctl_ftn dot  = mtst_ftn(".", "room1", "alice");
+  moqctl_ftn sess = mtst_ftn(".session", "x", "alice");
+  mtst_publish(SESS_A, ca, &dot, 1);
+  CHECK(mtrq_err_on(ca) == MOQCTL_ERR_DOES_NOT_EXIST);
+  mtst_publish(SESS_A, ca, &sess, 1);
+  CHECK(mtrq_err_on(ca) == MOQCTL_ERR_DOES_NOT_EXIST);
+  mtst_subscribe(SESS_B, cb, &dot);
+  CHECK(mtrq_err_on(cb) == MOQCTL_ERR_DOES_NOT_EXIST);
+  mtst_subscribe(SESS_B, cb, &sess);
+  CHECK(mtrq_err_on(cb) == MOQCTL_ERR_DOES_NOT_EXIST);
+}
+
+/* 2.4.2: any OTHER "."-led first field is an unrecognized reserved
+ * namespace and MUST pass to the application -- this hub, which serves
+ * it like any other namespace. */
+static void test_moqtrun_other_dot_ns_served(void) {
+  mtst_init();
+  u64        ca = mtst_join(SESS_A);
+  u64        cb = mtst_join(SESS_B);
+  moqctl_ftn f  = mtst_ftn(".x", "room1", "alice");
+  mtst_publish(SESS_A, ca, &f, 1);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_REQUEST_OK);
+  mtst_subscribe(SESS_B, cb, &f);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+}
+
+/* ===== Range Filters (draft-19 10.2.10-10.2.14) ===== */
+
+static moqctl_rangefilter mtst_rngf1(u8 set, u64 start, u64 end, int has_end) {
+  moqctl_rangefilter f = {0};
+  f.set_id             = set;
+  f.n                  = 1;
+  f.r[0].start         = start;
+  f.r[0].end           = end;
+  f.r[0].has_end       = has_end;
+  return f;
+}
+
+/* params->items[params->n++] = one Range Filter parameter of type with
+ * value f (static ring storage survives the send). */
+static void mtst_rngf_param(
+    moqctl_params* params, u64 type, const moqctl_rangefilter* f) {
+  static u8     bufs[8][64];
+  static usz    bi;
+  u8*           b = bufs[bi++ & 7];
+  usz           n = 0;
+  moqctl_param* it;
+  CHECK(moqctl_rangefilter_put(wired_mspan_of(b, 64), &n, type, f));
+  it        = &params->items[params->n++];
+  *it       = (moqctl_param){0};
+  it->type  = type;
+  it->enc   = MOQCTL_PENC_BYTES;
+  it->bytes = wired_span_of(b, n);
+}
+
+/* OBJECTID_FILTER gates each Object at the per-Object (datagram) gate:
+ * {0,5} reaches only the subscriber whose ranges admit Object 5. Stream
+ * relays stay group-granular and pass (the Location Filter precedent). */
+static void test_moqtrun_sub_objectid_filter_gates_datagram(void) {
+  moqctl_params      lo = {0}, hi = {0};
+  moqctl_rangefilter f0 = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter f5 = mtst_rngf1(0, 5, 9, 1);
+  moqctl_ftn         f  = mtst_ftn("chat", "room1", "alice");
+  mtst_rngf_param(&lo, MOQCTL_PARAM_OBJECTID_FILTER, &f0);
+  mtst_rngf_param(&hi, MOQCTL_PARAM_OBJECTID_FILTER, &f5);
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  u64 cc = mtst_join(SESS_C);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &lo);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  mtst_subscribe_p(SESS_C, cc, &f, 2, &hi);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  moqtrun_test_reset();
+  wired_moqt_on_datagram(
+      &mtst_hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+  CHECK(moqtrun_test_count_kind(9) == 1);
+  CHECK(moqtrun_test_last_kind(9)->s == SESS_C);
+  CHECK(moqtrun_test_relay_alice_chat(&mtst_hub) == 2); /* streams pass */
+}
+
+/* SetIDs OR together (10.2.10): a failing set 0 plus a passing set 1
+ * still delivers. */
+static void test_moqtrun_sub_rngf_sets_or(void) {
+  moqctl_params      p  = {0};
+  moqctl_rangefilter f0 = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter f1 = mtst_rngf1(1, 5, 0, 0); /* 5.. open */
+  moqctl_ftn         f  = mtst_ftn("chat", "room1", "alice");
+  mtst_rngf_param(&p, MOQCTL_PARAM_OBJECTID_FILTER, &f0);
+  mtst_rngf_param(&p, MOQCTL_PARAM_OBJECTID_FILTER, &f1);
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &p);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  moqtrun_test_reset();
+  wired_moqt_on_datagram(
+      &mtst_hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+  CHECK(moqtrun_test_count_kind(9) == 1);
+}
+
+/* A repeated (Type, SetID) identity in one message is INVALID_FILTER;
+ * distinct SetIDs are legal (10.2.10). */
+static void test_moqtrun_sub_rngf_dup_identity(void) {
+  moqctl_params      dup = {0}, ok = {0};
+  moqctl_rangefilter f0 = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter f1 = mtst_rngf1(1, 0, 4, 1);
+  moqctl_ftn         f  = mtst_ftn("chat", "room1", "alice");
+  mtst_rngf_param(&dup, MOQCTL_PARAM_SUBGROUP_FILTER, &f0);
+  mtst_rngf_param(&dup, MOQCTL_PARAM_SUBGROUP_FILTER, &f0);
+  mtst_rngf_param(&ok, MOQCTL_PARAM_SUBGROUP_FILTER, &f0);
+  mtst_rngf_param(&ok, MOQCTL_PARAM_SUBGROUP_FILTER, &f1);
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &dup);
+  CHECK(mtrq_err_on(cb) == MOQCTL_ERR_INVALID_FILTER);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &ok);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+}
+
+/* The advertised MAX_FILTER_RANGES caps the total Ranges across all
+ * Range Filter parameters of one request (10.4). */
+static void test_moqtrun_sub_rngf_limit(void) {
+  moqctl_params      over = {0}, fit = {0};
+  moqctl_rangefilter four = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter one  = mtst_rngf1(1, 9, 9, 1);
+  moqctl_ftn         f    = mtst_ftn("chat", "room1", "alice");
+  four.n                  = 4;
+  for (usz i = 1; i < 4; i++) {
+    four.r[i].start   = 10 * i;
+    four.r[i].end     = 10 * i + 1;
+    four.r[i].has_end = 1;
+  }
+  mtst_rngf_param(&over, MOQCTL_PARAM_SUBGROUP_FILTER, &one);
+  mtst_rngf_param(&over, MOQCTL_PARAM_OBJECTID_FILTER, &four);
+  mtst_rngf_param(&fit, MOQCTL_PARAM_OBJECTID_FILTER, &four);
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &over); /* 4 + 1 > 4 */
+  CHECK(mtrq_err_on(cb) == MOQCTL_ERR_INVALID_FILTER);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &fit);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+}
+
+/* ============ SUBGROUP_DELIVERY_TIMEOUT (draft-19 8, 10.2.6) ============ */
+
+static moqctl_params mtst_params_vi(u64 type, u64 v) {
+  moqctl_params p = {0};
+  p.items[0].type = type;
+  p.items[0].enc  = MOQCTL_PENC_VARINT;
+  p.items[0].vi   = v;
+  p.n             = 1;
+  return p;
+}
+
+/* PUBLISH carrying Track Properties (KVPs to the end of the body). */
+static void mtst_publish_props(
+    wired_wt_session* s,
+    u64               ctrl,
+    const moqctl_ftn* f,
+    u64               alias,
+    wired_span        props) {
+  static moqctl_publish m;
+  m.request_id       = mtst_rid += 2;
+  m.name             = *f;
+  m.track_alias      = alias;
+  m.params           = (moqctl_params){0};
+  m.track_properties = props;
+  mtst_send(s, ctrl, MOQCTL_T_PUBLISH, mtst_enc_publish, &m);
+}
+
+/* The effective subgroup timeout is min(publisher Track Property,
+ * subscriber parameter) when both are non-zero, the non-zero one when
+ * only one is set, and 0 (none) otherwise (draft-19 8). */
+static void test_moqtrun_sub_subgroup_timeout_min(void) {
+  static const u8 props[] = {0x06, 0x03}; /* Property 0x06, varint 3 */
+  moqctl_params p5 = mtst_params_vi(MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 5);
+  moqctl_ftn    f  = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  u64 cc = mtst_join(SESS_C);
+  mtst_publish_props(SESS_A, ca, &f, 1, wired_span_of(props, sizeof props));
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &p5);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(mtst_sub(SESS_A, SESS_B)->subgroup_timeout == 3); /* min(3, 5) */
+  mtst_subscribe(SESS_C, cc, &f);
+  CHECK(mtst_sub(SESS_A, SESS_C)->subgroup_timeout == 3); /* publisher's */
+  mtst_init();
+  ca = mtst_join(SESS_A);
+  cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1); /* no Track Properties */
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &p5);
+  CHECK(mtst_sub(SESS_A, SESS_B)->subgroup_timeout == 5); /* subscriber's */
+  mtst_subscribe(SESS_C, mtst_join(SESS_C), &f);
+  CHECK(mtst_sub(SESS_A, SESS_C)->subgroup_timeout == 0); /* none */
+}
+
+/* REQUEST_UPDATE carrying SUBGROUP_DELIVERY_TIMEOUT re-mins against the
+ * publisher's Track Property (draft-19 10.2.6). */
+static void test_moqtrun_sub_subgroup_timeout_update(void) {
+  static const u8 props[] = {0x06, 0x03};
+  static const u8 upd2[]  = {0x02, 0x01, 0x06, 0x02}; /* rid 2: timeout 2 */
+  static const u8 upd9[]  = {0x06, 0x01, 0x06, 0x09}; /* rid 6: timeout 9 */
+  moqctl_ftn      f       = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish_props(SESS_A, ca, &f, 1, wired_span_of(props, sizeof props));
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  CHECK(mtst_sub(SESS_A, SESS_B)->subgroup_timeout == 3);
+  mtrq_raw(SESS_B, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd2, sizeof upd2);
+  CHECK(mtst_sub(SESS_A, SESS_B)->subgroup_timeout == 2); /* min(3, 2) */
+  mtrq_raw(SESS_B, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd9, sizeof upd9);
+  CHECK(mtst_sub(SESS_A, SESS_B)->subgroup_timeout == 3); /* min(3, 9) */
+}
+
+/* The effective subgroup timeout bounds delivery age like the object
+ * timeout: a live Group older than it is not sent at attach (draft-19
+ * 8: for datagrams and this hub's age model the smaller timeout acts
+ * as OBJECT_DELIVERY_TIMEOUT). */
+static void test_moqtrun_sub_subgroup_timeout_gates_delivery(void) {
+  moqctl_params p = mtst_params_vi(MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 400);
+  moqctl_ftn    f = mtst_ftn("chat", "room1", "movie");
+  mtst_init();
+  moqtrun_test_publish_live(&mtst_hub);
+  wired_moqt_tick(&mtst_hub, 1000 + 2500); /* Group 1, age 500ms */
+  u64 cb = mtst_join(SESS_B);
+  moqtrun_test_reset();
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &p);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(moqtrun_test_count_kind(8) == 0); /* 500 > 400: held */
+}
+
 void test_moqtrun_sub(void) {
   test_moqtrun_sub_filter22_starts();
   test_moqtrun_sub_filter22_ends();
@@ -1108,6 +1390,15 @@ void test_moqtrun_sub(void) {
   test_moqtrun_pub_params_forward_all_drafts();
   test_moqtrun_sub_params_range_filter_d18();
   test_moqtrun_sub_ns_must_match();
+  test_moqtrun_reserved_ns_rejected();
+  test_moqtrun_other_dot_ns_served();
+  test_moqtrun_sub_objectid_filter_gates_datagram();
+  test_moqtrun_sub_rngf_sets_or();
+  test_moqtrun_sub_rngf_dup_identity();
+  test_moqtrun_sub_rngf_limit();
+  test_moqtrun_sub_subgroup_timeout_min();
+  test_moqtrun_sub_subgroup_timeout_update();
+  test_moqtrun_sub_subgroup_timeout_gates_delivery();
   test_moqtrun_sub_ns_max_fields();
   test_moqtrun_sub_same_name_other_ns_coexist();
   test_moqtrun_sub_ns_over_cap_refused();
@@ -1121,6 +1412,7 @@ void test_moqtrun_sub(void) {
   test_moqtrun_sub_largest_from_datagram();
   test_moqtrun_sub_republish_resets_largest();
   test_moqtrun_sub_largest_own_tracks();
+  test_moqtrun_sub_live_attach_filter_start();
   test_moqtrun_req_subscribe_answered_on_its_stream();
   test_moqtrun_req_two_streams_answered_apart();
   test_moqtrun_req_update_answered_on_same_stream();

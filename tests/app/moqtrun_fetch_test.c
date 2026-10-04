@@ -241,7 +241,90 @@ static int mf_loc_eq(moqctl_loc a, u64 g, u64 o) {
   return a.group == g && a.object == o;
 }
 
+/* mf_standalone with a GROUP_ORDER parameter (10.2.8). */
+static void mf_standalone_order(moqctl_loc start, moqctl_loc end, u64 order) {
+  static moqfetch_fetch m;
+  m.fetch_type           = MOQFETCH_STANDALONE;
+  m.track                = mf_track();
+  m.start                = start;
+  m.end                  = end;
+  m.params               = (moqctl_params){0};
+  m.params.n             = 1;
+  m.params.items[0].type = MOQCTL_PARAM_GROUP_ORDER;
+  m.params.items[0].enc  = MOQCTL_PENC_UINT8;
+  m.params.items[0].u8v  = order;
+  mf_send_fetch(&m);
+}
+
 /* ===================== standalone FETCH ===================== */
+
+/* GROUP_ORDER 0x2 (10.2.8): the fetch serves groups newest first,
+ * Objects within a group still ascending (11.4.4.1). */
+static void test_moqtrun_fetch_descending_group_order(void) {
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mf_obj(1, 0, 1);
+  mf_standalone_order(mf_loc(0, 0), mf_loc(1, 0), 0x2);
+  {
+    moqfetch_seq seq = {0};
+    seq.descending   = 1;
+    CHECK(mf_read_seq(seq));
+  }
+  CHECK(mf_n == 3);
+  CHECK(mf_is_obj(0, 1, 0, 1));
+  CHECK(mf_is_obj(1, 0, 0, 1) && mf_is_obj(2, 0, 1, 1));
+  CHECK(mf_fin);
+}
+
+/* GROUP_ORDER 0x1 keeps the ascending default. */
+static void test_moqtrun_fetch_ascending_group_order(void) {
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(1, 0, 1);
+  mf_standalone_order(mf_loc(0, 0), mf_loc(1, 0), 0x1);
+  CHECK(mf_read());
+  CHECK(mf_n == 2);
+  CHECK(mf_is_obj(0, 0, 0, 1) && mf_is_obj(1, 1, 0, 1));
+  CHECK(mf_fin);
+}
+
+/* A FETCH body that fails to decode (unknown Fetch Type) is malformed:
+ * the session closes with PROTOCOL_VIOLATION, like a malformed
+ * REQUEST_UPDATE (10.12). */
+static void test_moqtrun_fetch_malformed_closes(void) {
+  /* Type 0x16 + Length 2 + body {Request ID 0, Fetch Type 0x09} */
+  static const u8 bad[] = {0x16, 0x00, 0x02, 0x00, 0x09};
+  mf_init(sizeof mf_arena);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_B, MF_REQ, wired_span_of(bad, sizeof bad), 0);
+  CHECK(mtrq_closes() == 1);
+}
+
+/* FETCH Range Filters are vetted like SUBSCRIBE's: a total past the
+ * advertised MAX_FILTER_RANGES is INVALID_FILTER (10.2.10, 10.4). */
+static void test_moqtrun_fetch_rngf_limit(void) {
+  static moqfetch_fetch m;
+  moqctl_rangefilter    four = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter    one  = mtst_rngf1(1, 9, 9, 1);
+  four.n                     = 4;
+  for (usz i = 1; i < 4; i++) {
+    four.r[i].start   = 10 * i;
+    four.r[i].end     = 10 * i + 1;
+    four.r[i].has_end = 1;
+  }
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 2);
+  m            = (moqfetch_fetch){0};
+  m.fetch_type = MOQFETCH_STANDALONE;
+  m.track      = mf_track();
+  m.start      = mf_loc(0, 0);
+  m.end        = mf_loc(0, 1);
+  mtst_rngf_param(&m.params, MOQCTL_PARAM_SUBGROUP_FILTER, &one);
+  mtst_rngf_param(&m.params, MOQCTL_PARAM_OBJECTID_FILTER, &four);
+  mf_send_fetch(&m);
+  CHECK(mf_error() == MOQCTL_ERR_INVALID_FILTER);
+}
 
 /* Nothing published -> INVALID_RANGE (10.12.3). */
 static void test_moqtrun_fetch_nothing_published(void) {
@@ -739,6 +822,10 @@ void test_moqtrun_fetch(void) {
   test_moqtrun_fetch_cache_default_off();
   test_moqtrun_fetch_cache_released_on_leave();
   test_moqtrun_fetch_cache_released_on_republish();
+  test_moqtrun_fetch_rngf_limit();
+  test_moqtrun_fetch_descending_group_order();
+  test_moqtrun_fetch_ascending_group_order();
+  test_moqtrun_fetch_malformed_closes();
   test_moqtrun_fetch_nothing_published();
   test_moqtrun_fetch_range_against_largest();
   test_moqtrun_fetch_end_before_start();

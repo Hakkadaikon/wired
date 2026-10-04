@@ -335,6 +335,33 @@ static void test_moqtrun_on_session_sends_setup(void) {
   CHECK(type == MOQCTL_T_SETUP);
 }
 
+/* The hub's SETUP advertises its filter-range and request-update limits
+ * (draft-19 10.4: the defaults 0 would forbid Range Filters and leave
+ * REQUEST_UPDATE unbounded). */
+static void test_moqtrun_setup_advertises_limits(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+
+  wired_moqt_on_session(&hub, SESS_A, wired_span_of(0, 0), wired_span_of(0, 0));
+
+  const moqtrun_test_call* c   = moqtrun_test_last_kind(1);
+  usz                      off = 0;
+  u64                      type;
+  wired_span               body;
+  moqctl_setup             s;
+  CHECK(
+      moqctl_peek_type(
+          wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
+      MOQCTL_OK);
+  {
+    usz boff = 0;
+    CHECK(moqctl_setup_take(body, &boff, &s) == MOQCTL_OK);
+  }
+  CHECK(s.max_filter_ranges == WIRED_MOQTRUN_MAX_FILTER_RANGES);
+  CHECK(s.max_request_updates == WIRED_MOQTRUN_MAX_REQ_UPDATES);
+}
+
 /* A second control stream for an already-tracked WT session is a no-op
  * here, not a second SETUP. srvrun's wt_on_session doc says "fires once",
  * but nothing upstream stops a duplicate/retried Extended CONNECT from
@@ -1433,10 +1460,11 @@ static void test_moqtrun_object_relay_two_subscribers_two_objects(void) {
 
 /* ===================== 4. loss-free hub defenses ===================== */
 
-/* A SUBSCRIBE carrying a non-zero SUBGROUP_DELIVERY_TIMEOUT is rejected
- * with REQUEST_ERROR NOT_SUPPORTED, never SUBSCRIBE_OK (draft 8: its timer
- * needs the transport's "all data committed", which the hub cannot see). */
-static void test_moqtrun_subscribe_nonzero_timeout_rejected(void) {
+/* A SUBSCRIBE carrying a non-zero SUBGROUP_DELIVERY_TIMEOUT is accepted
+ * and the value recorded as the subscription's effective subgroup
+ * timeout (draft 8; the min() with the publisher's Track Property and
+ * the delivery gating live in moqtrun_sub_test.c). */
+static void test_moqtrun_subscribe_nonzero_timeout_accepted(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
   wired_moqt_init(&hub, moqtrun_test_io());
@@ -1474,11 +1502,8 @@ static void test_moqtrun_subscribe_nonzero_timeout_rejected(void) {
       moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
       MOQCTL_OK);
-  CHECK(type == MOQCTL_T_REQUEST_ERROR);
-  moqctl_request_error e;
-  usz                  body_off = 0;
-  CHECK(moqctl_request_error_take(body, &body_off, &e) == MOQCTL_OK);
-  CHECK(e.error_code == MOQCTL_ERR_NOT_SUPPORTED);
+  CHECK(type == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(hub.peers[0].tracks[0].subs[0].subgroup_timeout == 5);
 }
 
 /* The hub's own SUBSCRIBE_OK never carries a delivery-timeout
@@ -5623,6 +5648,7 @@ void test_moqtrun(void) {
   test_moqtrun_recording_overflow_counts_and_does_not_crash();
   test_moqtrun_payload_hash_detects_tail_past_truncation();
   test_moqtrun_on_session_sends_setup();
+  test_moqtrun_setup_advertises_limits();
   test_moqtrun_on_session_twice_is_idempotent();
   test_moqtrun_on_session_stores_negotiated_ver();
   test_moqtrun_setup_on_hub_bidi_accepted();
@@ -5662,7 +5688,7 @@ void test_moqtrun(void) {
   test_moqtrun_object_relay_to_subscriber();
   test_moqtrun_object_relay_preserves_bytes();
   test_moqtrun_object_relay_two_subscribers_two_objects();
-  test_moqtrun_subscribe_nonzero_timeout_rejected();
+  test_moqtrun_subscribe_nonzero_timeout_accepted();
   test_moqtrun_subscribe_ok_carries_no_timeout_param();
   test_moqtrun_subscribe_requires_authorization();
   test_moqtrun_subscribe_alias_token_rejected();
