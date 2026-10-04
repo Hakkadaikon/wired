@@ -12,28 +12,30 @@ even libc.**
 
 ## Quick start
 
-Three commands to a running HTTP/3 server. (`just` is a command runner —
-think `make` without the Makefile quirks. The first command installs
-everything else.)
+Two commands to a built SDK. (`just` is a command runner — think `make`
+without the Makefile quirks. The first command installs everything else.)
 
 ```sh
 just setup           # one-time: installs the toolchain (via Nix)
 just build           # format + compile + lint
-
-cd examples/word_list
-just run             # serves HTTP/3 on 0.0.0.0:4433
 ```
 
-Test it from any machine that can reach UDP port 4433 — the Docker image
-saves you from needing an HTTP/3-capable curl locally:
+From here, the [interactive guide](https://hakkadaikon.github.io/wired/guide)
+takes you to a running HTTP/3 server step by step. Once one is up, test it
+from any machine that can reach UDP port 4433 — the Docker image saves you
+from needing an HTTP/3-capable curl locally:
 
 ```sh
 docker run --rm ymuski/curl-http3 \
     curl --http3-only --insecure -v https://<host>:4433/
 ```
 
-That's it. [Getting Started](docs/getting-started.md) walks through the same
-thing step by step and takes you from here to a server of your own.
+That's it. The [API reference](https://hakkadaikon.github.io/wired/) covers
+the full public surface, and the
+[moqt_chat live demo](https://hakkadaikon.github.io/wired/moqt_chat) shows
+the SDK driven from a browser.
+[Getting Started](docs/getting-started.md) walks the same path in prose and
+takes you from here to a server of your own.
 
 ## What is this for?
 
@@ -120,7 +122,7 @@ for a single process, `--workers N` for forked workers on one port,
 |---|---|
 | [word_list](examples/word_list/) | HTTP/3 message log (POST/GET) or static-file server; all four I/O drivers; CA-certificate drop-in |
 | [webtransport_chat](examples/webtransport_chat/) | Browser chat: live WebTransport sessions, DATAGRAM broadcast to every client, framework-free JS frontend |
-| [moqt_chat](examples/moqt_chat/) | Browser chat + voice call room over Media over QUIC Transport: PUBLISH/SUBSCRIBE track relay, Opus voice frames, single fixed room |
+| [moqt_chat](examples/moqt_chat/) ([live demo](https://hakkadaikon.github.io/wired/moqt_chat)) | Browser chat + voice call room over Media over QUIC Transport: PUBLISH/SUBSCRIBE track relay, Opus voice frames, single fixed room |
 | [webtransport_echo](examples/webtransport_echo/) | The WebTransport building blocks (session lifecycle, capsules, error mapping) driven in isolation |
 | [webtransport_interop](examples/webtransport_interop/) | The [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner) WebTransport server endpoint: file transfer over streams and DATAGRAMs against real client implementations |
 | [moqt_interop](examples/moqt_interop/) | The [moq-interop-runner](https://github.com/englishm/moq-interop-runner) relay: a draft-19 MoQT relay over WebTransport tested against real client implementations |
