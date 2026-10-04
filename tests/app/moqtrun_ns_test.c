@@ -154,6 +154,21 @@ static void test_moqtrun_ns_empty_prefix(void) {
   CHECK(mtns_is(SESS_C, MTRQ_S1, "OK|NS:|"));
 }
 
+/* draft-19 2.4.2/2.4.3: a namespace (or prefix) whose first field is
+ * exactly "." or ".session" is rejected DOES_NOT_EXIST on
+ * PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE alike. */
+static void test_moqtrun_ns_reserved_rejected(void) {
+  mtns_init();
+  mtns_pub(SESS_A, MTRQ_S1, "./x");
+  CHECK(mtns_is(SESS_A, MTRQ_S1, "ERR:10|"));
+  mtns_pub(SESS_A, MTRQ_S2, ".session/x");
+  CHECK(mtns_is(SESS_A, MTRQ_S2, "ERR:10|"));
+  mtns_sub(SESS_B, MTRQ_S1, ".");
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "ERR:10|"));
+  mtns_sub(SESS_B, MTRQ_S2, ".session");
+  CHECK(mtns_is(SESS_B, MTRQ_S2, "ERR:10|"));
+}
+
 /* 10.18: later matching publications are pushed as NAMESPACE, a
  * withdrawal (request cancelled, 6.2) as NAMESPACE_DONE. */
 static void test_moqtrun_ns_live_join_and_cancel(void) {
@@ -431,6 +446,7 @@ void test_moqtrun_ns(void) {
   test_moqtrun_ns_fin_half_closes_d19_d22();
   test_moqtrun_req_fin_keeps_subscribe_d18();
   test_moqtrun_ns_publish_accepted();
+  test_moqtrun_ns_reserved_rejected();
   test_moqtrun_ns_initial_set();
   test_moqtrun_ns_empty_prefix();
   test_moqtrun_ns_live_join_and_cancel();

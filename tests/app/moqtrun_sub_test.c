@@ -1097,6 +1097,42 @@ static void test_moqtrun_sub_filter22_end_gates(void) {
   CHECK(moqtrun_test_count_kind(9) == 1);
 }
 
+/* ===================== reserved namespaces ===================== */
+
+/* draft-19 2.4.2/2.4.3: a Track Namespace whose first field is exactly
+ * "." MUST be rejected DOES_NOT_EXIST; one whose first field is
+ * ".session" names a session-level track, all of which are unrecognized
+ * by this hub, so DOES_NOT_EXIST too -- on PUBLISH and SUBSCRIBE alike. */
+static void test_moqtrun_reserved_ns_rejected(void) {
+  mtst_init();
+  u64        ca   = mtst_join(SESS_A);
+  u64        cb   = mtst_join(SESS_B);
+  moqctl_ftn dot  = mtst_ftn(".", "room1", "alice");
+  moqctl_ftn sess = mtst_ftn(".session", "x", "alice");
+  mtst_publish(SESS_A, ca, &dot, 1);
+  CHECK(mtrq_err_on(ca) == MOQCTL_ERR_DOES_NOT_EXIST);
+  mtst_publish(SESS_A, ca, &sess, 1);
+  CHECK(mtrq_err_on(ca) == MOQCTL_ERR_DOES_NOT_EXIST);
+  mtst_subscribe(SESS_B, cb, &dot);
+  CHECK(mtrq_err_on(cb) == MOQCTL_ERR_DOES_NOT_EXIST);
+  mtst_subscribe(SESS_B, cb, &sess);
+  CHECK(mtrq_err_on(cb) == MOQCTL_ERR_DOES_NOT_EXIST);
+}
+
+/* 2.4.2: any OTHER "."-led first field is an unrecognized reserved
+ * namespace and MUST pass to the application -- this hub, which serves
+ * it like any other namespace. */
+static void test_moqtrun_other_dot_ns_served(void) {
+  mtst_init();
+  u64        ca = mtst_join(SESS_A);
+  u64        cb = mtst_join(SESS_B);
+  moqctl_ftn f  = mtst_ftn(".x", "room1", "alice");
+  mtst_publish(SESS_A, ca, &f, 1);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_REQUEST_OK);
+  mtst_subscribe(SESS_B, cb, &f);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+}
+
 void test_moqtrun_sub(void) {
   test_moqtrun_sub_filter22_starts();
   test_moqtrun_sub_filter22_ends();
@@ -1108,6 +1144,8 @@ void test_moqtrun_sub(void) {
   test_moqtrun_pub_params_forward_all_drafts();
   test_moqtrun_sub_params_range_filter_d18();
   test_moqtrun_sub_ns_must_match();
+  test_moqtrun_reserved_ns_rejected();
+  test_moqtrun_other_dot_ns_served();
   test_moqtrun_sub_ns_max_fields();
   test_moqtrun_sub_same_name_other_ns_coexist();
   test_moqtrun_sub_ns_over_cap_refused();
