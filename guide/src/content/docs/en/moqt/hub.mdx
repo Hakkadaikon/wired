@@ -6,9 +6,12 @@ sidebar:
 ---
 import Example from '../../../../components/Example.astro';
 
-A MoQT (draft-ietf-moq-transport-19) server is a `wired_moqt_hub` sitting on
-the WebTransport callbacks. This page shows the hub alone: a client connects
-and receives the server's SETUP.
+A MoQT server is a `wired_moqt_hub` sitting on the WebTransport callbacks. It
+negotiates whichever of draft-ietf-moq-transport-18/19/22 the peer offers via
+the WT subprotocol (`moqt-18`/`moqt-19`/`moqt-22`); the rest of this guide
+cites draft-19 section numbers, since the two most-used sections (control
+stream, SETUP) are byte-identical across all three drafts. This page shows
+the hub alone: a client connects and receives the server's SETUP.
 
 <Example id="moqt-hub" />
 
@@ -21,9 +24,11 @@ and receives the server's SETUP.
 - The hub's `wired_moqt_on_session`, `_on_stream_data`, `_on_datagram` and
   `_on_session_close` go straight into `wired_srvrun_opt`, each with
   `&hub` as its context. `wired_server_run_opt` runs the server.
-- When a session opens, the hub opens a bidirectional control stream and
-  sends SETUP (type `0x2f00`) on it. The client reads it there and sends its
-  requests on that same stream.
+- When a session opens, the hub opens a unidirectional control stream and
+  sends SETUP (type `0x2f00`) on it. The client reads it there and opens its
+  own unidirectional stream for requests (a client that only speaks the
+  older bidirectional control stream still works: the hub falls back to
+  that shape when it is the one the peer used).
 - `max_datagram_frame_size` in the identity enables QUIC DATAGRAM, which
   WebTransport clients require. `moqtrun.h` is not part of `wired.h`;
   include it on its own.
