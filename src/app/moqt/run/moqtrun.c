@@ -4743,6 +4743,31 @@ static void moqtrun_req_check_open(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
 
+static void moqtrun_req_cancel(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_req* q);
+
+/* draft-18 6.1 names exactly these two as cancellable by FIN. */
+static int moqtrun_req_fin_kind(u64 kind) {
+  return kind == MOQNS_T_SUBSCRIBE_NAMESPACE ||
+         kind == MOQCTL_T_SUBSCRIBE_TRACKS;
+}
+
+/* draft-18 6.1: a FIN cancels a live SUBSCRIBE_NAMESPACE or
+ * SUBSCRIBE_TRACKS; draft-19 3.3.2 made every FIN a plain half-close. */
+static int moqtrun_req_fin_cancels(
+    const wired_moqtrun_peer* p, const wired_moqtrun_req* q) {
+  return (moqver_caps(p->ver) & MOQVER_CAP_FIN_CANCEL_NS) && q->live &&
+         moqtrun_req_fin_kind(q->kind);
+}
+
+/* Records the peer's FIN; on drafts where it is a cancellation the
+ * request is cancelled as a RESET_STREAM would (moqtrun_req_cancel). */
+static void moqtrun_req_note_fin(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_req* q, int fin) {
+  q->fin_in |= fin;
+  if (fin && moqtrun_req_fin_cancels(p, q)) moqtrun_req_cancel(hub, p, q);
+}
+
 static void moqtrun_dispatch_req_stream(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
@@ -4755,7 +4780,7 @@ static void moqtrun_dispatch_req_stream(
   moqtrun_dispatch_ctl_stream(hub, p, (usz)(p - hub->peers), data);
   moqtrun_req_check_open(hub, p);
   p->req = 0;
-  q->fin_in |= fin;
+  moqtrun_req_note_fin(hub, p, q, fin);
   moqtrun_reqs_tick(hub);
 }
 
