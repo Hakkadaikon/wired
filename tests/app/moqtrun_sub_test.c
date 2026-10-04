@@ -504,6 +504,29 @@ static u64 mtrq_type_on(int kind, u64 sid) {
   return 0;
 }
 
+/* REQUEST_ERROR's error_code from the last stream_send on sid, whichever
+ * io kind carried it (control or request stream); ~0 if the last reply
+ * there is not a REQUEST_ERROR. */
+static u64 mtrq_err_on(u64 sid) {
+  for (usz i = g_n_calls; i > 0; i--) {
+    if (g_calls[i - 1].kind != 3 && g_calls[i - 1].kind != 12) continue;
+    if (g_calls[i - 1].stream_id != sid) continue;
+    usz                      off = 0, boff = 0;
+    u64                      type;
+    wired_span               body;
+    moqctl_request_error     e;
+    const moqtrun_test_call* c = &g_calls[i - 1];
+    if (moqctl_peek_type(
+            wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
+            MOQCTL_OK ||
+        type != MOQCTL_T_REQUEST_ERROR)
+      return ~(u64)0;
+    if (moqctl_request_error_take(body, &boff, &e) != MOQCTL_OK) return ~(u64)0;
+    return e.error_code;
+  }
+  return ~(u64)0;
+}
+
 static usz mtrq_closes(void) {
   usz n = 0;
   for (usz i = 0; i < g_n_calls; i++)
@@ -789,6 +812,23 @@ static void test_moqtrun_req_pool_full_resets(void) {
   CHECK(moqtrun_test_last_kind(7) && moqtrun_test_last_kind(7)->s == late);
   CHECK(mtrq_reset_code(MTRQ_S1) == 0x9);
   CHECK(mtrq_closes() == 0);
+}
+
+/* draft-18 10.4: once the hub sends GOAWAY, every new request with a
+ * Request ID at or past the watermark it carried (the peer's own next
+ * Request ID at that moment) is refused GOING_AWAY; one already pending
+ * is unaffected. draft-19/22 have no watermark field, so refusal there
+ * is version-generic (moqtrun_is_late) and covered by
+ * test_moqtrun_req_second_goaway_closes et al. */
+static void test_moqtrun_req_goaway_watermark_d18(void) {
+  moqctl_ftn f                               = mtrq_setup();
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D18;
+  mtst_subscribe(SESS_B, MTRQ_S1, &f); /* rid N: before GOAWAY, OK */
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_SUBSCRIBE_OK);
+  wired_moqt_goaway(&mtst_hub, wired_span_of(0, 0), 0); /* watermark = N+2 */
+  mtst_subscribe(SESS_B, MTRQ_S2, &f); /* rid N+2: at the watermark */
+  CHECK(mtrq_err_on(MTRQ_S2) == MOQCTL_ERR_GOING_AWAY);
+  CHECK(mtst_sub(SESS_A, SESS_B) != 0); /* the earlier subscription lives */
 }
 
 /* draft 10.4: a second GOAWAY on one request stream is a
@@ -1093,6 +1133,7 @@ void test_moqtrun_sub(void) {
   test_moqtrun_req_finished_do_not_exhaust();
   test_moqtrun_req_per_session_cap();
   test_moqtrun_req_pool_full_resets();
+  test_moqtrun_req_goaway_watermark_d18();
   test_moqtrun_req_second_goaway_closes();
   test_moqtrun_req_reset_unanswered();
   test_moqtrun_req_needs_reply_op();
