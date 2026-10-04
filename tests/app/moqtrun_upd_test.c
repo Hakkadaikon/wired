@@ -636,8 +636,9 @@ static void test_moqtrun_publish_alias_token_rejected(void) {
  * here too. draft-19 keeps NOT_SUPPORTED. */
 static void test_moqtrun_upd_on_publish_stream(void) {
   static const u8 upd[] = {0x04, 0x00}; /* Request ID 4, no parameters */
-  moqctl_params   t     = mtup_vi(MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 9);
-  moqctl_ftn      f     = mtst_ftn("chat", "room1", "alice");
+  moqctl_params   t     = mt22_filter(
+      1, mt22_rl(MOQCTL_RSK_ABS, 5, 5, MOQCTL_REK_OBJ, 5, 1)); /* inverted */
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
   mtst_init();
   mtst_join(SESS_A);
   moqtrun_find_by_wt(&mtst_hub, SESS_A)->ver = MOQVER_D22;
@@ -646,7 +647,7 @@ static void test_moqtrun_upd_on_publish_stream(void) {
   CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
   CHECK(mtst_hub.peers[0].tracks[0].in_use == 1);
   mtup_update(SESS_A, MTRQ_S1, &t);
-  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_NOT_SUPPORTED);
+  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_INVALID_RANGE);
   CHECK(mtst_hub.peers[0].tracks[0].in_use == 1);
   mtst_init();
   mtst_join(SESS_A);

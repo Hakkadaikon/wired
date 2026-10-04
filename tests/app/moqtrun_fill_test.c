@@ -744,8 +744,9 @@ static void test_moqtrun_fill_blocked_never_starves_live(void) {
  * count of the old fill leaks into the new subscription. */
 static void test_moqtrun_fill_survives_done_and_slot_reuse(void) {
   moqfetch_fill fill = {0};
-  moqctl_params bad  = mtup_vi(MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 9);
-  moqctl_ftn    f    = mf_track();
+  moqctl_params bad  = mt22_filter(
+      1, mt22_rl(MOQCTL_RSK_ABS, 5, 5, MOQCTL_REK_OBJ, 5, 1)); /* inverted */
+  moqctl_ftn f = mf_track();
   mf_init(sizeof mf_arena);
   mf_obj(0, 0, 1);
   g_stream_send_ok_n = 0; /* the fill parks mid-range, opened */

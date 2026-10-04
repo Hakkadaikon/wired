@@ -449,10 +449,12 @@ static void test_moqtrun_done_resets_streams_first(void) {
 /* A failed update resets the subscription's open stream before its
  * PUBLISH_DONE UPDATE_FAILED too. */
 static void test_moqtrun_upd_failed_resets_first(void) {
-  moqctl_params p = mtup_vi(MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 9);
-  moqctl_ftn    f = mtrq_setup();
-  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
-  int           code = -1;
+  moqctl_params p = mt22_filter(
+      1, mt22_rl(MOQCTL_RSK_ABS, 5, 5, MOQCTL_REK_OBJ, 5, 1)); /* inverted */
+  moqctl_ftn f = mtrq_setup();
+  u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  int        code                            = -1;
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   usz n = mtst_stream(3, 1, 1, buf);
   wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
@@ -541,12 +543,14 @@ static void test_moqtrun_closed_is_frozen(void) {
 /* A failed update of a subscription also ends it: REQUEST_ERROR, then
  * PUBLISH_DONE UPDATE_FAILED, then FIN; no more Objects reach it. */
 static void test_moqtrun_upd_failed_ends_subscription(void) {
-  moqctl_params p     = mtup_vi(MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 9);
-  moqctl_ftn    f     = mtrq_setup();
-  u64           count = 0;
+  moqctl_params p = mt22_filter(
+      1, mt22_rl(MOQCTL_RSK_ABS, 5, 5, MOQCTL_REK_OBJ, 5, 1)); /* inverted */
+  moqctl_ftn f                               = mtrq_setup();
+  u64        count                           = 0;
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   mtup_update(SESS_B, MTRQ_S1, &p);
-  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_NOT_SUPPORTED);
+  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_INVALID_RANGE);
   CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_UPDATE_FAILED);
   CHECK(mtrq_fin_on(MTRQ_S1) == 1);
   CHECK(mtst_sub(SESS_A, SESS_B) == 0);
