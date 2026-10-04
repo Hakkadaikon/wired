@@ -340,8 +340,8 @@ int wired_srvthreads_run(
   return 1;
 }
 
-/* --- --cores a,b,c parsing (examples/webtransport_chat and
- * examples/word_list each reimplemented this; pulled into the SDK) -------
+/* --- --cores a,b,c parsing (example servers each reimplemented this;
+ * pulled into the SDK) -------
  * Same "one digit accumulate, -1 signals not-a-digit" shape as cliargs.c's
  * cli_digit_step, kept local since a core list is a srvthreads-only
  * concept. */
@@ -360,8 +360,7 @@ static int srvthreads_cores_digit(int acc, char c) {
 /* Consume base-10 digits from s[*off..) up to ',' or NUL, folding them into
  * *acc via srvthreads_cores_digit. Returns the digit count consumed; *acc
  * is only meaningful when the count is nonzero and no non-digit was seen
- * (caller's job to check, same shape as webtransport_chat's
- * consume_digits/cores_parse_one). */
+ * (caller's job to check). */
 static usz srvthreads_cores_consume(const char* s, usz* off, int* acc) {
   usz digits = 0;
   *acc       = 0;

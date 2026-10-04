@@ -1,7 +1,7 @@
 // Receive-side voice pipeline: decoded MOQT voice Object -> jitter buffer ->
 // playback-order drain -> AudioDecoder -> caller-supplied playback queue.
 //
-// Unlike webtransport_chat's own (datagram bytes decoded here, sender key
+// Unlike a datagram voice pipeline (datagram bytes decoded here, sender key
 // hex-derived from embedded senderId bytes), the caller has already decoded
 // the MOQT Object into a VoiceObjectPayload and resolved its sender: the
 // MOQT Track Alias identifies the publisher (moqtVoiceClient.ts), so
