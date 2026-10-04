@@ -494,6 +494,14 @@ typedef struct {
   int          opened;
   u64          stream_id;
   moqfetch_seq seq;
+  /** 1 when this fetch is a fill of a subscription (draft-22 SS9.20.15):
+   * it was opened by the hub, not requested by a FETCH. */
+  int is_fill;
+  /** Fill only: the owning subscription's Request ID -- with wt it is the
+   * owner key. A fill outlives its subscription's PUBLISH_DONE until its
+   * own FIN, so no pointer or index into a reusable subscription slot is
+   * ever held. */
+  u64 owner_rid;
   /** Clock (wired_moqt_tick) of the last accepted round: a fetch refused
    * for longer than WIRED_MOQTREL_STALL_MS is given up. */
   u64 last_ok_ms;
