@@ -613,6 +613,18 @@
    "fields": {
     "new_session_uri": "",
     "timeout": "0"
+   },
+   "versions": {
+    "18": {
+     "msg_len": 3,
+     "hex": "100003000004",
+     "fields": {
+      "new_session_uri": "",
+      "timeout": "0",
+      "request_id": "4"
+     },
+     "note": "draft-18 control-stream GOAWAY only: trailing [Request ID] (10.4)"
+    }
    }
   },
   {
@@ -659,6 +671,51 @@
       "value": "2"
      }
     ]
+   },
+   "versions": {
+    "22": {
+     "msg_len": 31,
+     "hex": "03001f0002046368617405726f6f6d3105616c696365041001104001030500030102",
+     "fields": {
+      "request_id": "0",
+      "track_namespace": [
+       "chat",
+       "room1"
+      ],
+      "track_name": "alice",
+      "number_of_parameters": "4",
+      "parameters": [
+       {
+        "delta": "16",
+        "type": "0x10",
+        "name": "FORWARD",
+        "value": "1"
+       },
+       {
+        "delta": "16",
+        "type": "0x20",
+        "name": "SUBSCRIBER_PRIORITY",
+        "value": "64"
+       },
+       {
+        "delta": "1",
+        "type": "0x21",
+        "name": "LOCATION_FILTER",
+        "filter_type": "3",
+        "start_group": "5",
+        "start_object": "0",
+        "end_group_delta": "3"
+       },
+       {
+        "delta": "1",
+        "type": "0x22",
+        "name": "GROUP_ORDER",
+        "value": "2"
+       }
+      ]
+     },
+     "note": "draft-22 LOCATION_FILTER 0x21: no outer Length, explicit Filter Type 0x03 (Absolute Start, Group End); same logical range as the draft-19 variant above (9.20.9)"
+    }
    }
   },
   {
@@ -736,7 +793,33 @@
     ],
     "number_of_parameters": "0"
    },
-   "note": "End Location {1,0}: Object 0 = the whole of Group 0 (10.12.1)"
+   "note": "End Location {1,0}: Object 0 = the whole of Group 1 (10.12.1)",
+   "versions": {
+    "22": {
+     "msg_len": 12,
+     "hex": "16000c000101610162012103000001",
+     "fields": {
+      "request_id": "0",
+      "track_namespace": [
+       "a"
+      ],
+      "track_name": "b",
+      "number_of_parameters": "1",
+      "parameters": [
+       {
+        "delta": "33",
+        "type": "0x21",
+        "name": "LOCATION_FILTER",
+        "filter_type": "3",
+        "start_group": "0",
+        "start_object": "0",
+        "end_group_delta": "1"
+       }
+      ]
+     },
+     "note": "draft-22 FETCH body: no Fetch Type / Locations, range moved into LOCATION_FILTER type 0x03 start={0,0} end_group_delta=1 (End Group 1, whole group) == the draft-19 End Location {1,0} above"
+    }
+   }
   },
   {
    "name": "fetch_relative_joining",
