@@ -199,6 +199,10 @@ static void moqtrun_init_peer(
   p->peer_ctl_stream_id = 0;
   p->setup_recv         = 0;
   p->rx_sid             = 0;
+  p->rx                 = 0;
+  p->peer_ctl_asm.n     = 0;
+  p->peer_ctl_asm.at    = 0;
+  p->peer_ctl_asm.skip  = 0;
   p->peer_impl_len      = 0;
   p->peer_has_impl      = 0;
   p->goaway_deadline    = (u64)-1;
@@ -292,9 +296,12 @@ static void moqtrun_req_mark_live(wired_moqtrun_peer* p) {
   if (p->req) p->req->live = 1;
 }
 
-/* The reassembly of the stream p is handling. */
+/* The reassembly of the stream p is handling: a request stream's own,
+ * else the control stream moqtrun_ctl_rx selected (ctl_asm when no
+ * control dispatch is running). */
 static wired_moqtrun_ctl_asm* moqtrun_cur_asm(wired_moqtrun_peer* p) {
-  return p->req ? &p->req->in : &p->ctl_asm;
+  if (p->req) return &p->req->in;
+  return p->rx ? p->rx : &p->ctl_asm;
 }
 
 /* Sends every reply queued in p's pending slot, in one stream_send call.
@@ -4330,6 +4337,42 @@ static void moqtrun_dispatch_fresh_stream(
   moqtrun_relay_start(hub, track, p->wt, stream_id, data, whole_end);
 }
 
+/* Dispatches data as control-stream bytes arriving on sid: the hub's
+ * own (legacy bidi) stream reassembles in ctl_asm, a distinct client
+ * control stream in peer_ctl_asm -- before acceptance both can carry
+ * bytes in the same session, so they never share a reassembly. */
+static void moqtrun_ctl_rx(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 sid, wired_span data) {
+  p->rx_sid = sid;
+  p->rx     = sid == p->control_stream_id ? &p->ctl_asm : &p->peer_ctl_asm;
+  moqtrun_dispatch_ctl_stream(hub, p, (usz)(p - hub->peers), data);
+  p->rx = 0;
+}
+
+/* draft-19 3.3: the first client control stream wins; a second one
+ * closes the session. On adoption the delivery's remaining bytes
+ * dispatch as control messages (the SETUP itself first). */
+static void moqtrun_ctl_adopt_rx(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 sid, wired_span data) {
+  if (p->peer_ctl_set) {
+    moqtrun_second_ctl(hub, p);
+    return;
+  }
+  p->peer_ctl_set       = 1;
+  p->peer_ctl_stream_id = sid;
+  moqtrun_ctl_rx(hub, p, sid, data);
+}
+
+/* draft-19 3.4: a fresh uni whose Stream Type is 0x2F00 is the client's
+ * control stream (its SETUP follows the type varint); 1 when consumed. */
+static int moqtrun_fresh_uni_ctl(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 sid, wired_span data) {
+  usz at = 0;
+  if (moqdata_classify(data, &at) != MOQDATA_STREAM_CONTROL) return 0;
+  moqtrun_ctl_adopt_rx(hub, p, sid, wired_span_of(data.p + at, data.n - at));
+  return 1;
+}
+
 /* draft 3.4/11.4.2: relay a data stream's bytes verbatim to the
  * subscribers of the track its Track Alias names. A stream_id already in
  * the relay map (an earlier call on this same publisher stream) forwards
@@ -4349,6 +4392,7 @@ static void moqtrun_dispatch_data_stream(
     moqtrun_relay_continue(hub, track, relay, data, fin);
     return;
   }
+  if (moqtrun_fresh_uni_ctl(hub, p, stream_id, data)) return;
   moqtrun_dispatch_fresh_stream(hub, p, stream_id, data, fin);
 }
 
@@ -4533,6 +4577,16 @@ static void moqtrun_dispatch_req_stream(
   moqtrun_reqs_tick(hub);
 }
 
+/* draft-19 3.3 leniency: a fresh client bidi whose first varint is
+ * SETUP's Type is the client control stream, not a request stream. */
+static int moqtrun_bidi_is_setup(
+    wired_moqt_hub* hub, wired_wt_session* s, u64 sid, wired_span data) {
+  usz at = 0;
+  u64 t  = 0;
+  if (moqtrun_req_find(hub, s, sid)) return 0;
+  return moqvi_take(data, &at, &t) && t == MOQCTL_T_SETUP;
+}
+
 /* With request streams on, a peer-opened bidi stream is never Object data
  * (draft 3.3: Objects travel on unidirectional streams only). */
 static void moqtrun_dispatch_other(
@@ -4541,14 +4595,26 @@ static void moqtrun_dispatch_other(
     u64                 stream_id,
     wired_span          data,
     int                 fin) {
-  if (moqtrun_req_stream_ok(hub, stream_id)) {
-    moqtrun_dispatch_req_stream(hub, p, stream_id, data, fin);
+  if (!moqtrun_req_stream_ok(hub, stream_id)) {
+    moqtrun_dispatch_data_stream(hub, p, stream_id, data, fin);
     return;
   }
-  moqtrun_dispatch_data_stream(hub, p, stream_id, data, fin);
+  if (moqtrun_bidi_is_setup(hub, p->wt, stream_id, data)) {
+    moqtrun_ctl_adopt_rx(hub, p, stream_id, data);
+    return;
+  }
+  moqtrun_dispatch_req_stream(hub, p, stream_id, data, fin);
 }
 
 /* ===================== public entry points ===================== */
+
+/* sid carries control bytes: the hub's own control stream (the legacy
+ * bidi the client writes back on) or the accepted client control
+ * stream. */
+static int moqtrun_rx_on_ctl(const wired_moqtrun_peer* p, u64 sid) {
+  return sid == p->control_stream_id ||
+         (p->peer_ctl_set && sid == p->peer_ctl_stream_id);
+}
 
 void wired_moqt_on_stream_data(
     void*             app_ctx,
@@ -4559,10 +4625,8 @@ void wired_moqt_on_stream_data(
   wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
   wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
   if (!p) return;
-  if (stream_id == p->control_stream_id) {
-    usz peer_idx = (usz)(p - hub->peers);
-    p->rx_sid    = stream_id;
-    moqtrun_dispatch_ctl_stream(hub, p, peer_idx, data);
+  if (moqtrun_rx_on_ctl(p, stream_id)) {
+    moqtrun_ctl_rx(hub, p, stream_id, data);
     return;
   }
   moqtrun_dispatch_other(hub, p, stream_id, data, fin);
