@@ -44,15 +44,16 @@ static usz io_send_budget(wired_wt_session* s) {
   return s->max_data > s->sent_data ? s->max_data - s->sent_data : 0;
 }
 
-/* The hub opens its control stream (SETUP) through open_bidi_stream, but
- * draft-ietf-moq-transport-19 3.3 makes it a keep-open UNIdirectional
- * stream; moq-net peers never see a bidi SETUP and stall their announces.
- * ponytail: mapped here, not in moqtrun.c, because examples/moqt_chat's
- * frontend still reads SETUP from a bidi stream; move to the hub once that
- * client follows 3.3. send_uni2 is 0: it serves only
+static i64 io_open_bidi_stream(wired_wt_session* s, wired_span p) {
+  return open_signalled(wired_server_wt_open_bidi_stream, s, p);
+}
+
+/* Sessions negotiating a moqt-NN subprotocol get the draft-19 3.3 uni
+ * control-stream pair from the hub itself; the bidi entry only serves a
+ * session without a token. send_uni2 is 0: it serves only
  * wired_moqt_publish_live, unused here. */
 static const wired_moqt_io g_io = {
-    io_open_uni_stream,
+    io_open_bidi_stream,
     wired_server_wt_stream_send,
     io_send_uni,
     io_open_uni_stream,
