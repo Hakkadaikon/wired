@@ -397,6 +397,49 @@ static void test_moqtrun_fill_update_overlap_dup(void) {
   CHECK(mfill_live_count() == 1); /* (0,1) went live once, (0,0) never */
 }
 
+/* The i-th fetch stream id opened toward B (open order). */
+static u64 mfill_sid(usz which) {
+  usz seen = 0;
+  for (usz i = 0; i < g_n_calls; i++)
+    if (mf_opens(&g_calls[i]) && seen++ == which) return g_calls[i].stream_id;
+  return ~(u64)0;
+}
+
+/* STOP_SENDING on a fill stream ends that fill alone: its slot frees,
+ * the subscription stays Established and keeps delivering (draft-22
+ * 3.3.4 scopes the cancel to the one data stream). */
+static void test_moqtrun_fill_stop_sending_leaves_sub(void) {
+  moqfetch_fill fill = {0};
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  g_stream_send_ok_n = 0; /* the fill parks mid-range */
+  moqctl_params sub  = mfill_params(&fill, 0);
+  mfill_subscribe_req(&sub);
+  CHECK(!mf_no_fetch());
+  g_stream_send_ok_n = -1;
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, mfill_sid(0), 0, 0);
+  CHECK(mf_no_fetch());
+  mf_obj(0, 1, 1); /* still relayed live */
+  CHECK(mf_relayed(0, 1));
+}
+
+/* Cancelling the subscription (its request stream reset, 3.3.3) resets
+ * every fill it owns -- the SUBSCRIBE's and a REQUEST_UPDATE's alike --
+ * and frees their slots. */
+static void test_moqtrun_fill_cancel_resets_all(void) {
+  moqfetch_fill fill = {0};
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  g_stream_send_ok_n = 0; /* both fills park mid-range */
+  moqctl_params sub  = mfill_params(&fill, 0);
+  mfill_subscribe_req(&sub);
+  mfill_update(&fill, 0);
+  CHECK(mfill_opens() == 2);
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, MTRQ_S1, 0, 0);
+  CHECK(mf_reset_sent(mfill_sid(0)) && mf_reset_sent(mfill_sid(1)));
+  CHECK(mf_no_fetch());
+}
+
 void test_moqtrun_fill(void) {
   test_moqtrun_fill_subscribe_opens();
   test_moqtrun_fill_end_clipped_to_largest();
@@ -413,4 +456,6 @@ void test_moqtrun_fill(void) {
   test_moqtrun_fill_descending_skips_gap();
   test_moqtrun_fill_next_object_no_gap();
   test_moqtrun_fill_update_overlap_dup();
+  test_moqtrun_fill_stop_sending_leaves_sub();
+  test_moqtrun_fill_cancel_resets_all();
 }
