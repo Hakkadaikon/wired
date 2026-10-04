@@ -1905,12 +1905,23 @@ static wired_moqtrun_fetch* moqtrun_fetch_begin(
   return f;
 }
 
-/* Answers FETCH_OK and starts serving r from the cache. */
+static void moqtrun_fetch_descend(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqtrun_frange* r);
+
+/* GROUP_ORDER 0x2 (10.2.8): the fetch's groups go out newest first. */
+static int moqtrun_fetch_order_desc(const moqctl_params* params) {
+  const moqctl_param* g = moqctl_params_find(params, MOQCTL_PARAM_GROUP_ORDER);
+  return g != 0 && g->u8v == 0x2;
+}
+
+/* Answers FETCH_OK and starts serving r from the cache, by descending
+ * Group when the FETCH asked for it. */
 static void moqtrun_fetch_accept(
     wired_moqt_hub*       hub,
     wired_moqtrun_peer*   p,
     u64                   request_id,
-    const moqtrun_frange* r) {
+    const moqtrun_frange* r,
+    int                   descending) {
   wired_moqtrun_fetch* f = moqtrun_fetch_begin(hub, p->wt, request_id, r);
   if (!f) {
     moqtrun_send_request_error(p, MOQCTL_ERR_INTERNAL_ERROR);
@@ -1918,6 +1929,7 @@ static void moqtrun_fetch_accept(
   }
   f->seq.eor_timed_out =
       (moqver_caps(p->ver) & MOQVER_CAP_EOR_TIMED_OUT) != 0; /* 22 SS11.4.1 */
+  if (descending) moqtrun_fetch_descend(hub, f, r);
   moqtrun_queue_fetch_ok(p, moqtrun_fetch_ok_end(hub, p, r));
   moqtrun_fetch_serve(hub, f);
 }
@@ -1975,7 +1987,8 @@ static void moqtrun_fetch_standalone(
     moqtrun_send_request_error(p, MOQCTL_ERR_INVALID_RANGE);
     return;
   }
-  moqtrun_fetch_accept(hub, p, m->request_id, &r);
+  moqtrun_fetch_accept(
+      hub, p, m->request_id, &r, moqtrun_fetch_order_desc(&m->params));
 }
 
 /* ============ fill fetch streams (draft-22 SS9.20.15) ============ */
@@ -2228,7 +2241,8 @@ static void moqtrun_fetch_joining(
   r.start  = moqctl_loc_of(group, 0);
   r.end    = moqtrun_after(s->jl);
   r.ok_end = s->jl;
-  moqtrun_fetch_accept(hub, p, m->request_id, &r);
+  moqtrun_fetch_accept(
+      hub, p, m->request_id, &r, moqtrun_fetch_order_desc(&m->params));
 }
 
 /* The FETCH body in p's draft: draft-22's (SS9.11) or the draft-18/19
@@ -2262,12 +2276,15 @@ static void moqtrun_fetch_route(
   moqtrun_fetch_joining(hub, p, peer_idx, m);
 }
 
-/* draft 10.12 FETCH. ponytail: groups always go in ascending order
- * (GROUP_ORDER is not consulted, 10.2.8). */
+/* draft 10.12 FETCH. A body that fails to decode is a malformed control
+ * message: the session closes, like a malformed REQUEST_UPDATE. */
 static void moqtrun_handle_fetch(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   moqfetch_req m;
-  if (moqtrun_fetch_take(p, body, &m) != MOQCTL_OK) return;
+  if (moqtrun_fetch_take(p, body, &m) != MOQCTL_OK) {
+    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    return;
+  }
   moqtrun_fetch_route(hub, p, peer_idx, &m);
 }
 
