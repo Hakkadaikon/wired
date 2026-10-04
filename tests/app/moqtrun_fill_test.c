@@ -171,6 +171,67 @@ static void test_moqtrun_fill_forward_gates(void) {
   CHECK(mf_hdr_rid == rid);
 }
 
+/* Two fills run at once: a SUBSCRIBE fill still draining and an update
+ * fill opened beside it, each under its own Request ID; both drain to
+ * FIN with no reset. */
+static void test_moqtrun_fill_two_at_once(void) {
+  moqfetch_fill fill = {0};
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(1, 0, 1);
+  g_stream_send_ok_n = 0; /* streams open, rounds refused */
+  moqctl_params sub  = mfill_params(&fill, 0);
+  mfill_subscribe_req(&sub);
+  CHECK(mfill_opens() == 1);
+  mfill_update(&fill, 0);
+  CHECK(mfill_opens() == 2);
+  CHECK(!mf_no_fetch());
+  g_stream_send_ok_n = -1;
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mf_no_fetch());
+  CHECK(moqtrun_test_count_kind(7) == 0);
+}
+
+/* C's Object {g, o} of n bytes on a fresh one-shot stream (the
+ * re-publishing session's twin of mf_obj). */
+static void mfill_obj_c(u64 g, u64 o, usz n) {
+  u8             buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  u8             pl[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz            off = 0;
+  moqdata_subhdr h   = {0};
+  h.type             = 0x30;
+  h.track_alias      = MF_ALIAS;
+  h.group_id         = g;
+  moqdata_subhdr_put(wired_mspan_of(buf, sizeof buf), &off, &h);
+  for (usz i = 0; i < n; i++) pl[i] = (u8)(16 * g + o);
+  moqdata_obj_put(
+      wired_mspan_of(buf, sizeof buf), &off, o, wired_span_of(pl, n));
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_C, 3002, wired_span_of(buf, off), 1);
+}
+
+/* A subscription revived by a new PUBLISH (no SUBSCRIBE round) is
+ * filled only through REQUEST_UPDATE; the FETCH_HEADER carries that
+ * update's Request ID. */
+static void test_moqtrun_fill_publish_started_sub(void) {
+  moqfetch_fill fill = {0};
+  moqctl_ftn    f    = mf_track();
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mfill_subscribe_req(0);
+  mtst_publish(SESS_C, mtst_join(SESS_C), &f, MF_ALIAS); /* supersedes A */
+  moqtrun_test_reset();
+  mfill_obj_c(0, 0, 2);
+  CHECK(mtst_sub(SESS_C, SESS_B) != 0); /* re-attached by the PUBLISH */
+  usz before = mfill_opens();
+  u64 rid    = mfill_update(&fill, 0);
+  CHECK(mfill_opens() == before + 1);
+  CHECK(mf_read());
+  CHECK(mf_hdr_rid == rid);
+  CHECK(mf_n == 1 && mf_is_obj(0, 0, 0, 2));
+  CHECK(mf_fin);
+}
+
 void test_moqtrun_fill(void) {
   test_moqtrun_fill_subscribe_opens();
   test_moqtrun_fill_end_clipped_to_largest();
@@ -178,4 +239,6 @@ void test_moqtrun_fill(void) {
   test_moqtrun_fill_open_end_is_largest();
   test_moqtrun_fill_update_opens();
   test_moqtrun_fill_forward_gates();
+  test_moqtrun_fill_two_at_once();
+  test_moqtrun_fill_publish_started_sub();
 }
