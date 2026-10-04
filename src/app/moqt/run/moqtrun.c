@@ -1839,17 +1839,35 @@ static int moqtrun_fetch_take(
   return moqfetch_req19_take(p->ver, body, m);
 }
 
+static void moqtrun_close_with(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code);
+
+/* The decoded FETCH m routed by kind. draft-22 dropped the Joining Fetch
+ * (SS9.11 names one Fetch shape only), so a session on the draft-22 body
+ * presenting the Joining structure closes with PROTOCOL_VIOLATION. */
+static void moqtrun_fetch_route(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    usz                 peer_idx,
+    const moqfetch_req* m) {
+  if (!m->is_joining) {
+    moqtrun_fetch_standalone(hub, p, m);
+    return;
+  }
+  if (moqver_caps(p->ver) & MOQVER_CAP_FETCH_BODY_V22) {
+    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    return;
+  }
+  moqtrun_fetch_joining(hub, p, peer_idx, m);
+}
+
 /* draft 10.12 FETCH. ponytail: groups always go in ascending order
  * (GROUP_ORDER is not consulted, 10.2.8). */
 static void moqtrun_handle_fetch(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   moqfetch_req m;
   if (moqtrun_fetch_take(p, body, &m) != MOQCTL_OK) return;
-  if (!m.is_joining) {
-    moqtrun_fetch_standalone(hub, p, &m);
-    return;
-  }
-  moqtrun_fetch_joining(hub, p, peer_idx, &m);
+  moqtrun_fetch_route(hub, p, peer_idx, &m);
 }
 
 /* A closed session's fetches end: nothing more is sent for them. */
