@@ -128,6 +128,13 @@ typedef struct {
    * older positional initializers stay valid; a table built without it (0)
    * leaves every stream at the transport's default urgency. */
   int (*stream_priority)(wired_wt_session* s, u64 stream_id, u8 urgency);
+  /** wired_server_wt_stream_stop-shaped: asks the peer to stop sending
+   * on a PEER-initiated stream (one STOP_SENDING carrying error_code)
+   * -- the receive-side counterpart of stream_reset, used for an
+   * inbound data stream the hub cannot route. Kept last so older
+   * positional initializers stay valid; a table built without it (0)
+   * leaves the unwanted stream to drain unread. */
+  int (*stream_stop)(wired_wt_session* s, u64 stream_id, u32 error_code);
 } wired_moqt_io;
 
 /** RFC 9218 urgency of a subscriber stream from its subscription's

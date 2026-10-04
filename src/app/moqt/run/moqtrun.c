@@ -4857,15 +4857,59 @@ static wired_moqtrun_track* moqtrun_resolve_fresh_stream_track(
   return moqtrun_decode_fresh_subgroup(hub, p, data, whole_end, fin);
 }
 
-/* A publisher stream seen for the first time: resolve its track from the
- * SUBGROUP_HEADER, then either relay it whole as one-shot streams (its FIN
- * arrived with the data -- nothing more will follow, so a torn tail has no
- * continuation either and rides along harmlessly) or start a keep-open
- * relay entry for the rounds still to come (moqtrun_relay_start, which
- * holds the tail back as the first fragment). Padding streams, other
- * classifications, and unknown Track Aliases are discarded:
- * classification-level session closes are the sess layer's job. */
-static void moqtrun_dispatch_fresh_stream(
+/* 1 iff t is this peer's track claimed by the PUBLISH of Request ID
+ * rid. */
+static int moqtrun_track_pub_rid(const wired_moqtrun_track* t, u64 rid) {
+  return t->in_use && t->request_id == rid;
+}
+
+/* 1 iff rid names the PUBLISH behind one of p's own tracks -- the only
+ * requests this hub holds upstream (it sends no SUBSCRIBE or
+ * REQUEST_UPDATE of its own toward a publisher). */
+static int moqtrun_peer_pub_rid(const wired_moqtrun_peer* p, u64 rid) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; i++)
+    if (moqtrun_track_pub_rid(&p->tracks[i], rid)) return 1;
+  return 0;
+}
+
+/* 1 iff data's FETCH_HEADER Request ID routes to a request this hub
+ * knows upstream of p; a torn header routes nowhere. */
+static int moqtrun_inbound_fetch_routed(
+    const wired_moqtrun_peer* p, wired_span data) {
+  usz at  = 0;
+  u64 rid = 0;
+  if (moqfetch_hdr_take(data, &at, &rid) != MOQCTL_OK) return 0;
+  return moqtrun_peer_pub_rid(p, rid);
+}
+
+/* STOP_SENDING code on a peer-initiated stream the hub turns away. */
+static void moqtrun_stream_stop(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 sid, u32 code) {
+  if (hub->io.stream_stop) hub->io.stream_stop(p->wt, sid, code);
+}
+
+/* A fresh uni classifying as a fetch data stream (FETCH_HEADER, 11.4.4)
+ * is routed by its Request ID: one naming the PUBLISH behind a track of
+ * this peer is accepted against it (the hub requested no fetch or fill
+ * upstream, so the stream's Objects themselves are dropped); any other
+ * is asked to stop with CANCELLED. The session never closes over an
+ * unroutable fetch stream. 1 when consumed. */
+static int moqtrun_fresh_fetch_stream(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 sid, wired_span data) {
+  usz at = 0;
+  if (moqdata_classify(data, &at) != MOQDATA_STREAM_FETCH) return 0;
+  if (!moqtrun_inbound_fetch_routed(p, data))
+    moqtrun_stream_stop(hub, p, sid, MOQTRUN_RESET_CANCELLED);
+  return 1;
+}
+
+/* A fresh SUBGROUP stream: either relayed whole as one-shot streams
+ * (its FIN arrived with the data -- nothing more will follow, so a torn
+ * tail has no continuation either and rides along harmlessly) or a
+ * keep-open relay entry starts for the rounds still to come
+ * (moqtrun_relay_start, which holds the tail back as the first
+ * fragment). */
+static void moqtrun_fresh_subgroup_relay(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
     u64                 stream_id,
@@ -4880,6 +4924,21 @@ static void moqtrun_dispatch_fresh_stream(
     return;
   }
   moqtrun_relay_start(hub, track, p->wt, stream_id, data, whole_end);
+}
+
+/* A publisher stream seen for the first time: an inbound fetch stream
+ * routes by its Request ID, a SUBGROUP stream resolves its track from
+ * the header and relays. Padding streams, other classifications, and
+ * unknown Track Aliases are discarded: classification-level session
+ * closes are the sess layer's job. */
+static void moqtrun_dispatch_fresh_stream(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin) {
+  if (moqtrun_fresh_fetch_stream(hub, p, stream_id, data)) return;
+  moqtrun_fresh_subgroup_relay(hub, p, stream_id, data, fin);
 }
 
 /* sid is the hub's own, opened control stream (the legacy bidi the
