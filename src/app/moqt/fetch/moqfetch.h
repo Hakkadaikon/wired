@@ -87,6 +87,30 @@ int moqfetch_req19_encode(wired_mspan buf, usz* off, const moqfetch_req* m);
 int moqfetch_req22_take(wired_span body, moqfetch_req* out);
 int moqfetch_req22_encode(wired_mspan buf, usz* off, const moqfetch_req* m);
 
+/** draft-22 SS9.20.15 FILL_PARAMETERS value (Number of Parameters +
+ * Parameters, the FETCH parameter scope), decoded into the fields a fill
+ * fetch stream needs: the range (LOCATION_FILTER, SS9.20.9 -- type 0x00 or
+ * an absent parameter both mean "no filter"), the Group Order
+ * (GROUP_ORDER 0x2 = Descending) and FILL_TIMEOUT as a varint of
+ * milliseconds. */
+typedef struct {
+  int             has_filter;
+  moqctl_rangeloc range; /* valid iff has_filter */
+  int             descending;
+  int             has_timeout;
+  u64             timeout_ms;
+} moqfetch_fill;
+
+/** Decodes a FILL_PARAMETERS value (a zero-length one is "no
+ * parameters"). The Parameters must fill value exactly; same return
+ * contract as moqfetch_fetch_take. */
+int moqfetch_fill_take(wired_span value, moqfetch_fill* out);
+
+/** Encodes f as a FILL_PARAMETERS value; a fill without a filter sends
+ * LOCATION_FILTER type 0x00 (SS9.20.9 None), never an empty list.
+ * Returns 1 ok, 0 if buf is too small (*off may then have advanced). */
+int moqfetch_fill_put(wired_mspan buf, usz* off, const moqfetch_fill* f);
+
 /** FETCH_OK (10.13 Figure 16). track_properties is the rest of the body. */
 typedef struct {
   u64           end_of_track;

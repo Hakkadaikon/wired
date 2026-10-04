@@ -707,6 +707,22 @@ int wired_server_wt_stream_hold(wired_wt_session* s, u64 stream_id, int hold);
 int wired_server_wt_stream_reset(
     wired_wt_session* s, u64 stream_id, u32 error_code);
 
+/** Asks the peer to stop sending on a PEER-initiated stream: queues one
+ * STOP_SENDING (RFC 9000 19.5) carrying error_code mapped into HTTP/3's
+ * WebTransport range, kept for resending until ACKed like a reset
+ * (RFC 9000 13.3). The receive-side counterpart of
+ * wired_server_wt_stream_reset: a client uni stream has no server send
+ * part to reset, and a RESET_STREAM arriving for what the client sees
+ * as its send-only stream is connection-fatal at the client
+ * (RFC 9000 19.4).
+ * @param s the session whose connection carries the stream
+ * @param stream_id the peer-initiated stream to stop
+ * @param error_code the WebTransport application error code to report
+ * @return 1 queued, 0 when s resolves to no live connection or the
+ *   latch is full (nothing changed; retry on a later step) */
+int wired_server_wt_stream_stop(
+    wired_wt_session* s, u64 stream_id, u32 error_code);
+
 /** 1 while a send slot on s's connection still holds stream_id -- its
  * bytes not yet fully acknowledged, or the stream still open for
  * appends -- and 0 once the slot was reaped or stream_id never named a

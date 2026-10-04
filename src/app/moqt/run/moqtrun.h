@@ -128,6 +128,13 @@ typedef struct {
    * older positional initializers stay valid; a table built without it (0)
    * leaves every stream at the transport's default urgency. */
   int (*stream_priority)(wired_wt_session* s, u64 stream_id, u8 urgency);
+  /** wired_server_wt_stream_stop-shaped: asks the peer to stop sending
+   * on a PEER-initiated stream (one STOP_SENDING carrying error_code)
+   * -- the receive-side counterpart of stream_reset, used for an
+   * inbound data stream the hub cannot route. Kept last so older
+   * positional initializers stay valid; a table built without it (0)
+   * leaves the unwanted stream to drain unread. */
+  int (*stream_stop)(wired_wt_session* s, u64 stream_id, u32 error_code);
 } wired_moqt_io;
 
 /** RFC 9218 urgency of a subscriber stream from its subscription's
@@ -233,6 +240,9 @@ typedef struct {
   /** Hub blob track only: 1 once the blob went out to this subscription,
    * so a FORWARD 1 -> 0 -> 1 update never sends it twice. */
   u8 blob_sent;
+  /** Streams the hub opened for this subscription (relay, blob, live and
+   * fetch streams alike): PUBLISH_DONE's Stream Count (draft 10.10). */
+  u64 stream_count;
 } wired_moqtrun_sub;
 
 /** Fixed capacity for a saved SUBGROUP_HEADER (draft SS11.4.2: Type +
@@ -444,6 +454,12 @@ typedef struct {
   /** 1 once the hub's side ended (FIN, or a reset). The slot is freed when
    * both sides have ended. */
   int fin_out;
+  /** 1 while this subscription's PUBLISH_DONE waits for a held fill (no
+   * stream may open after it); done_status / done_count are the message
+   * to send once the fill's stream is granted. */
+  int done_pending;
+  u64 done_status;
+  u64 done_count;
   /** PUBLISH_NAMESPACE: the Track Namespace; SUBSCRIBE_NAMESPACE: the
    * Track Namespace Prefix (draft-ietf-moq-transport-19 10.15/10.18),
    * encoded as on the wire (count + Length-prefixed fields). */
@@ -491,6 +507,23 @@ typedef struct {
   int          opened;
   u64          stream_id;
   moqfetch_seq seq;
+  /** 1 when this fetch is a fill of a subscription (draft-22 SS9.20.15):
+   * it was opened by the hub, not requested by a FETCH. */
+  int is_fill;
+  /** Fill only: the owning subscription's Request ID -- with wt it is the
+   * owner key. A fill outlives its subscription's PUBLISH_DONE until its
+   * own FIN, so no pointer or index into a reusable subscription slot is
+   * ever held. */
+  u64 owner_rid;
+  /** Fill only: 1 once the upstream publisher left. An open fill was
+   * reset at once; a held one opens later only to reset (failure is
+   * signalled by open-then-reset, draft-22 3.3.4). */
+  int failed;
+  /** 1 when Group Order is Descending (11.4.4.1): [cursor, end) is then
+   * one group's window, stepped down a group at a time until lo's. */
+  int descending;
+  /** Descending only: the first Location of the whole range. */
+  moqctl_loc lo;
   /** Clock (wired_moqt_tick) of the last accepted round: a fetch refused
    * for longer than WIRED_MOQTREL_STALL_MS is given up. */
   u64 last_ok_ms;
@@ -832,6 +865,12 @@ typedef struct {
   u64 cache_tag_next;
   /** FETCH responses in progress, all sessions. */
   wired_moqtrun_fetch fetches[WIRED_MOQTRUN_MAX_FETCHES];
+  /** Fill fetch streams accepted while every serving slot above was
+   * busy (draft-22 SS9.20.15: a fill is held, never silently dropped).
+   * An entry keeps the resolved range in cursor/end with nothing open
+   * and moves into fetches[] the moment a serving slot frees; its only
+   * other exit is the owning subscription's cancel. */
+  wired_moqtrun_fetch fetch_waits[WIRED_MOQTRUN_MAX_FETCHES];
   /** Namespace authorizer (draft-ietf-moq-transport-19 10.15, 10.18); 0
    * (the wired_moqt_init default) grants every PUBLISH_NAMESPACE and
    * SUBSCRIBE_NAMESPACE, like authorize_subscribe. */

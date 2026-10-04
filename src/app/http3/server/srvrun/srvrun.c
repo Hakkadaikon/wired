@@ -561,6 +561,12 @@ typedef struct {
   u64 wt_stream_reset_id[SRVRUN_WT_RESET_LATCH];
   u32 wt_stream_reset_app_code[SRVRUN_WT_RESET_LATCH];
   u64 wt_stream_reset_final[SRVRUN_WT_RESET_LATCH];
+  /** 1 when the entry is a wired_server_wt_stream_stop ask instead: the
+   * drain builds one STOP_SENDING (RFC 9000 19.5) for the PEER-initiated
+   * stream rather than a RESET_STREAM -- a client uni has no server send
+   * part to reset, and a RESET_STREAM for it would be connection-fatal
+   * at the client. */
+  u8  wt_stream_reset_stop[SRVRUN_WT_RESET_LATCH];
   usz wt_stream_reset_n;
   /** Client-bidi stream ids whose server send part already ran to its end
    * (reply FIN ACKed and slot reaped, or a reset already sent) -- consulted
@@ -3668,21 +3674,25 @@ static void srvrun_drain_wt_close_pending(
     srvrun_drain_wt_close_one(cfg, c, i);
 }
 
-/* Seal latch entry i's standard RESET_STREAM (RFC 9000 19.4) into out as
- * its own 1-RTT packet: the app code mapped into HTTP/3's WebTransport
- * range (draft-ietf-webtrans-http3-15 SS4.4/8.2) plus the final size
- * captured at latch time -- NOT looked up now (srvrun_wt_abort_reset's
- * live lookup would read 0, the send slot was already freed at latch
- * time), and no STOP_SENDING (the latch targets server-initiated uni
- * streams; see the wt_stream_reset_* latch fields' own doc). */
+/* Seal latch entry i into out as its own 1-RTT packet: a standard
+ * RESET_STREAM (RFC 9000 19.4) with the app code mapped into HTTP/3's
+ * WebTransport range (draft-ietf-webtrans-http3-15 SS4.4/8.2) plus the
+ * final size captured at latch time -- NOT looked up now
+ * (srvrun_wt_abort_reset's live lookup would read 0, the send slot was
+ * already freed at latch time) -- or, for a wired_server_wt_stream_stop
+ * entry, one STOP_SENDING (RFC 9000 19.5) for the peer-initiated stream
+ * (see the wt_stream_reset_* latch fields' own doc). */
 static int srvrun_seal_wt_stream_reset(srvrun_conn* c, usz i, wired_obuf* out) {
-  u8                 pl[32];
+  u8  pl[32];
+  usz n;
+  u64 code = wired_wterrmap_to_http3(c->wt_stream_reset_app_code[i]);
   reset_stream_frame rs = {
-      c->wt_stream_reset_id[i],
-      wired_wterrmap_to_http3(c->wt_stream_reset_app_code[i]),
-      c->wt_stream_reset_final[i]};
+      c->wt_stream_reset_id[i], code, c->wt_stream_reset_final[i]};
+  stop_sending_frame ss = {c->wt_stream_reset_id[i], code};
+  n = c->wt_stream_reset_stop[i] ? stop_sending_encode(pl, sizeof pl, &ss)
+                                 : reset_stream_encode(pl, sizeof pl, &rs);
   /* RFC 9000 13.3: kept and resent verbatim until ACKed */
-  return srvrun_seal_kept(c, pl, reset_stream_encode(pl, sizeof pl, &rs), out);
+  return srvrun_seal_kept(c, pl, n, out);
 }
 
 /* Seal and send latch entry i's RESET_STREAM as its own 1-RTT packet. */
@@ -5108,7 +5118,21 @@ int wired_server_wt_stream_reset(
   c->wt_stream_reset_id[i]       = stream_id;
   c->wt_stream_reset_app_code[i] = error_code;
   c->wt_stream_reset_final[i]    = srvrun_wtsend_final_size(c, stream_id);
+  c->wt_stream_reset_stop[i]     = 0;
   srvrun_wtsend_release(c, stream_id);
+  return 1;
+}
+
+int wired_server_wt_stream_stop(
+    wired_wt_session* s, u64 stream_id, u32 error_code) {
+  srvrun_conn* c = srvrun_session_conn(s);
+  usz          i;
+  if (!c || c->wt_stream_reset_n >= SRVRUN_WT_RESET_LATCH) return 0;
+  i                              = c->wt_stream_reset_n++;
+  c->wt_stream_reset_id[i]       = stream_id;
+  c->wt_stream_reset_app_code[i] = error_code;
+  c->wt_stream_reset_final[i]    = 0;
+  c->wt_stream_reset_stop[i]     = 1;
   return 1;
 }
 

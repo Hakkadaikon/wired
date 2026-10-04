@@ -15718,6 +15718,49 @@ static void test_srvrun_wt_stream_reset_two_latched_both_drain(void) {
   wired_udp_close(sfd);
 }
 
+/* stream_stop latches like a reset but drains as one STOP_SENDING for
+ * the PEER-initiated stream (RFC 9000 19.5: the only abort frame a
+ * server may send for a client uni), carrying the app error code mapped
+ * into HTTP/3's WebTransport range -- and no RESET_STREAM, which the
+ * client would treat as connection-fatal on its send-only stream. */
+static void test_srvrun_wt_stream_stop_sends_stop_sending(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  sockaddr      srv;
+  i64           sfd, cfd;
+  srvrun_conn*  c;
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  ob      = (wired_obuf){obuf, sizeof obuf, 0};
+  c       = sr_wtsend_fixture(&f, &ob);
+  c->peer = srv;
+  CHECK(wired_server_wt_stream_stop(&c->wt, 2, 0x44) == 1);
+  CHECK(c->wt_stream_reset_n == 1);
+  {
+    srvrun_cfg cfg = {
+        cfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_drain_wt_stream_reset(&cfg, c);
+  }
+  CHECK(c->wt_stream_reset_n == 0);
+  {
+    u8                 pkt[1500];
+    const u8*          pl;
+    usz                pll;
+    sockaddr           from;
+    stop_sending_frame ss;
+    i64 r = wired_udp_recvfrom(sfd, wired_mspan_of(pkt, sizeof pkt), &from);
+    CHECK(r > 0);
+    CHECK(client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1);
+    usz n = stop_sending_decode(pl, pll, &ss);
+    CHECK(n != 0 && n == pll); /* one STOP_SENDING, nothing follows */
+    CHECK(ss.stream_id == 2);
+    CHECK(ss.error_code == wired_wterrmap_to_http3(0x44));
+  }
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
 /* A FULL reset latch refuses the call AND leaves the stream's send slot
  * untouched: releasing the slot without latching would abandon delivery
  * with no wire notification ever queued -- the peer would wait on that
@@ -16076,8 +16119,9 @@ static void test_srvrun_wt_rx_truncated_capsule_via_dispatch_closes_session(
   i = wired_srvloop_slot_for(&c->l, 4);
   CHECK(i >= 0);
   slot = &c->l.streams[i];
-  bodywin_land( /* the FIN, at the truncated capsule's end */
-      &slot->body, slot->req_buf, hdr_end + capb.len, wired_span_of(0, 0), 1);
+  bodywin_land(/* the FIN, at the truncated capsule's end */
+               &slot->body, slot->req_buf, hdr_end + capb.len,
+               wired_span_of(0, 0), 1);
   srvrun_wt_rx_capsules(&cfg, c);
   CHECK(c->wt.state == WIRED_WT_CLOSED);
   CHECK(c->wt_active == 0);
@@ -21352,6 +21396,7 @@ void test_srvrun(void) {
   test_srvrun_wt_stream_open_variants_mark_append();
   test_srvrun_wt_stream_reset_sends_reset_and_frees_slot();
   test_srvrun_wt_stream_reset_two_latched_both_drain();
+  test_srvrun_wt_stream_stop_sends_stop_sending();
   test_srvrun_wt_stream_reset_latch_full_keeps_slot();
   test_srvrun_wt_open_uni_within_max_streams_succeeds();
   test_srvrun_wt_open_uni_exceeding_max_streams_refused();
