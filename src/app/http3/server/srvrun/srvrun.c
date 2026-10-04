@@ -2188,14 +2188,45 @@ static int srvrun_wt_slot_by_connect_id(const srvrun_conn* c, u64 stream_id) {
   return -1;
 }
 
-/* The first currently-inactive session slot, or -1 if every slot holds an
- * open session (SRVRUN_MAX_WT_SESSIONS reached) -- the accept-path capacity
- * check (accept below the limit, reject at it) and the reuse point once a
- * slot frees. */
-static int srvrun_wt_free_slot(const srvrun_conn* c) {
+/* draft-ietf-webtrans-http3-16 SS5.1: 1 iff this connection has flow control
+ * enabled -- both endpoints sent a non-zero SETTINGS_WT_INITIAL_*; this
+ * server always does (control_settings.c), so the client's own SETTINGS
+ * (latched connection-wide in peer_wt_initial, priority_ctrl.c) decide.
+ * Every session on one connection shares this: SS5.1 names it per
+ * connection ("allows a WebTransport session to share an underlying
+ * transport connection with other WebTransport sessions"), and the client's
+ * SETTINGS are sent once, so there is nothing session-specific to read
+ * before the session itself exists (srvrun_wt_seed_limits applies the SAME
+ * three values to every slot's own wired_wt_session.flow_control). */
+static int srvrun_wt_conn_flow_control(const srvrun_conn* c) {
+  const u64* v = c->l.peer_wt_initial;
+  return (v[0] | v[1] | v[2]) != 0;
+}
+
+/* The first currently-inactive session slot among all SRVRUN_MAX_WT_SESSIONS,
+ * or -1 if every one holds an open session. */
+static int srvrun_wt_free_slot_any(const srvrun_conn* c) {
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
     if (!srvrun_wt_is_active(c, i)) return i;
   return -1;
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.1: 1 iff flow control is disabled on this
+ * connection AND a session is already active -- at most one WebTransport
+ * session is ever allowed without it, so a second is never a free slot
+ * regardless of SRVRUN_MAX_WT_SESSIONS. */
+static int srvrun_wt_single_session_full(const srvrun_conn* c) {
+  return !srvrun_wt_conn_flow_control(c) && c->wt_active;
+}
+
+/* The first currently-inactive session slot, or -1 if every slot holds an
+ * open session (SRVRUN_MAX_WT_SESSIONS reached), or -- SS5.1 -- flow
+ * control is disabled on this connection and a session is already active.
+ * The accept-path capacity check (accept below the limit, reject at it) and
+ * the reuse point once a slot frees. */
+static int srvrun_wt_free_slot(const srvrun_conn* c) {
+  if (srvrun_wt_single_session_full(c)) return -1;
+  return srvrun_wt_free_slot_any(c);
 }
 
 /* Active WT sessions (both slots) across every connection of env. */
@@ -3423,6 +3454,13 @@ static int srvrun_wt_capsule_streams_blocked_type(u64 type) {
          type == WTCAPSULE_TYPE_STREAMS_BLOCKED_UNI;
 }
 
+/* 1 iff type is governed by session-level flow control at all (SS5.6): the
+ * two WT_MAX_STREAMS/WT_STREAMS_BLOCKED directions, or WT_MAX_DATA. */
+static int srvrun_wt_capsule_is_flow_control(u64 type) {
+  return srvrun_wt_capsule_flow_type(type) ||
+         srvrun_wt_capsule_streams_blocked_type(type);
+}
+
 /* Apply one decoded flow-control value to the session, 1 if the setter
  * accepted it. A non-increasing value or one exceeding 2^60 (session.c) is
  * a protocol violation the caller closes the session over with
@@ -3532,8 +3570,21 @@ static int srvrun_wt_capsule_drain(const srvrun_wt_caprx* x, wired_span value) {
   return 1;
 }
 
+/* draft-ietf-webtrans-http3-16 SS5.1 (MUST): "if flow control is not
+ * enabled, an endpoint MUST ignore receipt of any flow control capsules" --
+ * the peer might not have received our SETTINGS yet, or packets might have
+ * been reordered. 1 iff type is exactly such a capsule on a session that
+ * never negotiated flow control (session.c's own flow_control, set from the
+ * peer's SETTINGS_WT_INITIAL_* at session creation, srvrun_wt_seed_limits) --
+ * the caller then drops it unapplied, same as an unknown type (RFC 9297
+ * SS3.2's "skip"). */
+static int srvrun_wt_capsule_ignored(const srvrun_wt_caprx* x, u64 type) {
+  return !x->s->flow_control && srvrun_wt_capsule_is_flow_control(type);
+}
+
 static int srvrun_wt_capsule_apply(void* ctx, u64 type, wired_span value) {
   srvrun_wt_caprx* x = ctx;
+  if (srvrun_wt_capsule_ignored(x, type)) return 1;
   if (type == WTCAPSULE_TYPE_DRAIN) return srvrun_wt_capsule_drain(x, value);
   return srvrun_wt_capsule_flow(x, type, value);
 }
@@ -4646,6 +4697,41 @@ static int wt_open_flow_ok(
   return sidx >= 0 && wt_flow_allows_open(s, bidi, payload);
 }
 
+/* 1 iff a WT_STREAMS_BLOCKED notification is owed: sidx names a real slot
+ * AND the session-level stream-count limit (not the data limit, not the
+ * peer's QUIC-level uni-stream grant) is what refused the open. */
+static int srvrun_wt_streams_blocked_owed(
+    int sidx, const wired_wt_session* s, int bidi) {
+  return sidx >= 0 && !wired_wt_session_stream_open_allowed(s, bidi);
+}
+
+/* The current WT_MAX_STREAMS limit for the given direction, straight off
+ * the session's own public field (session.h) -- shares the bidi ? ... : ...
+ * choice so srvrun_wt_notify_streams_blocked's own branch count stays at
+ * the CCN gate. */
+static u64 srvrun_wt_stream_limit(const wired_wt_session* s, int bidi) {
+  return bidi ? s->max_streams_bidi : s->max_streams_uni;
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.3/SS5.6.3 (WTH3-059): the WT_STREAMS_
+ * BLOCKED capsule a server-initiated open sends when refused specifically by
+ * the session-level stream-count limit -- not by the data limit or the
+ * peer's QUIC-level uni-stream grant, which this is never sent for (RFC
+ * 9000's own STREAMS_BLOCKED, srvrun_notify_uni_blocked, already covers
+ * that case). srvrun_send_wt_capsule's own best-effort return is not
+ * checked -- a lost hint costs nothing the peer's own retry does not
+ * already recover from (unlike a flow-control-raising capsule, this is
+ * advisory, SS5.3). */
+static void srvrun_wt_notify_streams_blocked(
+    srvrun_conn* c, int sidx, const wired_wt_session* s, int bidi) {
+  u8         body[16];
+  wired_obuf bob = obuf_of(body, sizeof body);
+  u64        lim = srvrun_wt_stream_limit(s, bidi);
+  if (!srvrun_wt_streams_blocked_owed(sidx, s, bidi)) return;
+  if (!wtcapsule_encode_streams_blocked(&bob, bidi, lim)) return;
+  srvrun_send_wt_capsule(c, sidx, wired_span_of(body, bob.len), 0);
+}
+
 /* 1 iff c's own server-initiated uni-stream grant (peer_uni_stream_limit)
  * admits one more open; latches uni_blocked_seen on refusal so the next
  * srvrun_pump_sess pass sends a STREAMS_BLOCKED(uni) (srvrun_notify_uni_
@@ -4674,7 +4760,10 @@ static i64 srvrun_wt_open_uni_common(
   srvrun_conn*   c    = srvrun_session_conn(s);
   int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
-  if (!srvrun_wt_uni_open_ok(c, sidx, s, payload)) return -1;
+  if (!srvrun_wt_uni_open_ok(c, sidx, s, payload)) {
+    srvrun_wt_notify_streams_blocked(c, sidx, s, 0);
+    return -1;
+  }
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_uni);
   if (!w) return -1;
   w->append_open     = keep_open;
@@ -4717,7 +4806,10 @@ static i64 srvrun_wt_open_bidi_common(
   int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
   u64            id;
-  if (!wt_open_flow_ok(sidx, s, 1, payload)) return -1;
+  if (!wt_open_flow_ok(sidx, s, 1, payload)) {
+    srvrun_wt_notify_streams_blocked(c, sidx, s, 1);
+    return -1;
+  }
   w = srvrun_wtsend_claim(
       c, c->s.sdrv.peer_initial_max_stream_data_bidi_remote);
   if (!w) return -1;

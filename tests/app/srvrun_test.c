@@ -6558,6 +6558,8 @@ static void test_srvrun_connect_stream_reset_leaves_other_sessions_streams(
   ob             = (wired_obuf){obuf, sizeof obuf, 0};
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
+  /* SS5.1: flow control enabled, so the second session below is allowed. */
+  conns[0].l.peer_wt_initial[0] = 1;
   sr_set_req(&conns[0], 1, 1, 4);
   {
     srvrun_state    st  = {table, conns};
@@ -8512,6 +8514,8 @@ static void test_srvrun_wt_accept_second_session_below_limit(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
+  /* SS5.1: flow control enabled, so a second session is allowed at all. */
+  conns[0].l.peer_wt_initial[0] = 1;
   sr_set_req(&conns[0], 1, 1, 4);
   {
     srvrun_cfg cfg = {
@@ -8542,6 +8546,61 @@ static void test_srvrun_wt_accept_second_session_below_limit(void) {
   CHECK(conns[0].resp[0].sess.active == 1); /* the second 2xx was armed */
 }
 
+/* draft-ietf-webtrans-http3-16 SS5.1 (MUST): "if flow control is not
+ * enabled, clients MUST NOT attempt to establish more than one simultaneous
+ * WebTransport session. A server that receives more than one session on an
+ * underlying transport connection when flow control is not enabled MUST
+ * reset the excessive CONNECT streams with a H3_REQUEST_REJECTED status."
+ * Same shape as test_srvrun_wt_accept_second_session_below_limit above
+ * (per-connection slot 1 is physically free, SRVRUN_MAX_WT_SESSIONS not yet
+ * reached) EXCEPT the client's SETTINGS never advertised a nonzero
+ * SETTINGS_WT_INITIAL_* (sr_make_confirmed_conn's own default), so flow
+ * control stays disabled and the second CONNECT is rejected anyway -- the
+ * physically-free slot alone is not enough once flow control is off. */
+static void test_srvrun_second_wt_connect_rejected_when_flow_control_disabled(
+    void) {
+  struct lp_fix f;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_conn*  conns = sr_test_conns();
+  wired_obuf    ob;
+  u8            obuf[1024];
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  CHECK(
+      (conns[0].l.peer_wt_initial[0] | conns[0].l.peer_wt_initial[1] |
+       conns[0].l.peer_wt_initial[2]) == 0); /* flow control disabled */
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 1);
+  CHECK(srvrun_wt_free_slot(&conns[0]) == -1); /* the SS5.1 single-session cap,
+                                                   not a full slot table */
+  conns[0].resp[0].in_use = 0;
+  sr_set_req(&conns[0], 1, 1, 8); /* second Extended CONNECT, different id */
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt1_active == 0);          /* rejected, no second session */
+  CHECK(conns[0].resp[0].sess.active == 1); /* the 429 was armed */
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED); /* first untouched */
+  CHECK(conns[0].wt.connect_stream_id == 4);
+  CHECK(
+      sr_kept_reset_code(&conns[0], 8) ==
+      H3_REQUEST_REJECTED); /* the excessive CONNECT stream was reset */
+}
+
 /* MULTI-SESSION BOUNDARY: once SRVRUN_MAX_WT_SESSIONS sessions are open, a
  * further Extended CONNECT is rejected with 429 exactly as the single-
  * session path always was, and no new slot is created. */
@@ -8555,6 +8614,8 @@ static void test_srvrun_wt_reject_at_session_limit(void) {
   g_sr_wt_handler_calls = 0;
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
+  /* SS5.1: flow control enabled, so the second session below is allowed. */
+  conns[0].l.peer_wt_initial[0] = 1;
   sr_set_req(&conns[0], 1, 1, 4);
   {
     srvrun_cfg cfg = {
@@ -8730,6 +8791,8 @@ static void test_srvrun_wt_distinct_paths_coexist(void) {
   ob                       = (wired_obuf){obuf, sizeof obuf, 0};
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
+  /* SS5.1: flow control enabled, so the second session below is allowed. */
+  conns[0].l.peer_wt_initial[0] = 1;
   sr_set_req(&conns[0], 1, 1, 4);
   conns[0].l.req.path     = path_a;
   conns[0].l.req.path_len = sizeof path_a - 1;
@@ -8840,6 +8903,8 @@ static void test_srvrun_wt_close_one_session_leaves_others_untouched(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
+  /* SS5.1: flow control enabled, so the second session below is allowed. */
+  conns[0].l.peer_wt_initial[0] = 1;
   sr_set_req(&conns[0], 1, 1, 4);
   {
     srvrun_cfg cfg = {
@@ -8903,6 +8968,8 @@ static void test_srvrun_wt_close_frees_slot_for_new_accept(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
+  /* SS5.1: flow control enabled, so the second session below is allowed. */
+  conns[0].l.peer_wt_initial[0] = 1;
   sr_set_req(&conns[0], 1, 1, 4);
   {
     srvrun_cfg cfg = {
@@ -8959,6 +9026,8 @@ static void test_srvrun_wt_free_slot_closes_all_open_sessions(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
+  /* SS5.1: flow control enabled, so the second session below is allowed. */
+  conns[0].l.peer_wt_initial[0] = 1;
   sr_set_req(&conns[0], 1, 1, 4);
   {
     srvrun_cfg cfg = {
@@ -9003,6 +9072,8 @@ static void test_srvrun_wt_connect_stream_close_closes_only_that_session(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
+  /* SS5.1: flow control enabled, so the second session below is allowed. */
+  conns[0].l.peer_wt_initial[0] = 1;
   sr_set_req(&conns[0], 1, 1, 4);
   {
     srvrun_cfg cfg = {
@@ -9048,6 +9119,8 @@ static void test_srvrun_wt_all_slots_cycle_through_open_and_close(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
+  /* SS5.1: flow control enabled, so the second session below is allowed. */
+  conns[0].l.peer_wt_initial[0] = 1;
   sr_set_req(&conns[0], 1, 1, 4);
   {
     srvrun_cfg cfg = {
@@ -9102,6 +9175,9 @@ static void test_srvrun_wt_all_slots_cycle_through_open_and_close(void) {
 static void test_srvrun_wt_limit_one_matches_legacy_behavior(void) {
   srvrun_conn c = {0};
   c.wt_active   = 1;
+  /* SS5.1: flow control enabled, so a still-free second slot is reachable
+   * at all (srvrun_wt_single_session_full's own gate, 6-9). */
+  c.l.peer_wt_initial[0] = 1;
   wired_wt_session_init(&c.wt, 4);
   wired_wt_session_establish(&c.wt);
   CHECK(srvrun_wt_free_slot(&c) == 1); /* the still-free second slot */
@@ -14868,6 +14944,9 @@ static void test_srvrun_wt_on_session_two_sessions_each_path(void) {
   g_srn_wt_sess_calls = 0;
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
+  /* SS5.1: flow control enabled, so a second session on this connection is
+   * allowed at all (srvrun_wt_single_session_full's own gate). */
+  conns[0].l.peer_wt_initial[0] = 1;
   sr_set_req(&conns[0], 1, 1, 4);
   srn_wt_start(table, conns, 0, srn_wt_on_session);
   CHECK(g_srn_wt_sess_calls == 1);
@@ -15824,11 +15903,14 @@ static void test_srvrun_wt_open_uni_within_max_streams_succeeds(void) {
 }
 
 /* MAX_STREAMS EXCEEDED (W-07/WTH3-058): with max_streams_uni already at its
- * limit (1 opened, 1 allowed), the next open is refused (-1) and consumes no
- * send slot -- and NOTHING else happens, including on the NEXT step
- * (sr_step_once_no_input): the session stays established and the session's
- * own streams are left alone (no RESET_STREAM/STOP_SENDING), because the
- * sender's job is to wait for a WT_MAX_STREAMS raise, not to close (SS5.3). */
+ * limit (1 opened, 1 allowed), the next open is refused (-1) and claims no
+ * send slot of its OWN (it never becomes a stream) -- the only slot the
+ * refusal claims is the CONNECT stream's own capsule sender, to carry the
+ * WT_STREAMS_BLOCKED hint 6-10 now sends (srvrun_wt_notify_streams_blocked).
+ * Beyond that, NOTHING else happens on the NEXT step (sr_step_once_no_
+ * input): the session stays established and the session's own streams are
+ * left alone (no RESET_STREAM/STOP_SENDING), because the sender's job is to
+ * wait for a WT_MAX_STREAMS raise, not to close (SS5.3). */
 static void test_srvrun_wt_open_uni_exceeding_max_streams_refused(void) {
   struct lp_fix   f;
   wired_obuf      ob = {0};
@@ -15844,7 +15926,7 @@ static void test_srvrun_wt_open_uni_exceeding_max_streams_refused(void) {
   c->l.wt_streams[0].wt_session_slot = 0;
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == -1);
-  CHECK(c->wtsend[1].in_use == 0); /* second slot never claimed */
+  CHECK(srvrun_wtsend_find(c, 4) != 0); /* the WT_STREAMS_BLOCKED hint, 6-10 */
   sr_step_once_no_input(c);
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
   CHECK(c->wt_active == 1);
@@ -15853,7 +15935,8 @@ static void test_srvrun_wt_open_uni_exceeding_max_streams_refused(void) {
 
 /* MAX_STREAMS EXCEEDED, BIDI (W-07/WTH3-058): same gate, the bidi direction
  * (wired_server_wt_open_bidi, bidi=1 checked against max_streams_bidi) --
- * and the same refuse-without-closing contract as the uni test above. */
+ * and the same refuse-without-closing contract as the uni test above
+ * (beyond the WT_STREAMS_BLOCKED hint on the CONNECT stream, 6-10). */
 static void test_srvrun_wt_open_bidi_exceeding_max_streams_refused(void) {
   struct lp_fix   f;
   wired_obuf      ob = {0};
@@ -15870,7 +15953,7 @@ static void test_srvrun_wt_open_bidi_exceeding_max_streams_refused(void) {
   CHECK(wired_server_wt_open_bidi(&c->wt, wired_span_of(pay, sizeof pay)) == 1);
   CHECK(
       wired_server_wt_open_bidi(&c->wt, wired_span_of(pay, sizeof pay)) == -1);
-  CHECK(c->wtsend[1].in_use == 0); /* second slot never claimed */
+  CHECK(srvrun_wtsend_find(c, 4) != 0); /* the WT_STREAMS_BLOCKED hint, 6-10 */
   sr_step_once_no_input(c);
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
   CHECK(c->wt_active == 1);
@@ -16017,8 +16100,13 @@ static void test_srvrun_wt_rx_max_data_capsule_via_dispatch_unblocks_send(
   static const u8 pay[] = {0x54, 0x04, 'h', 'i'};
   srvrun_conn*    c;
   usz             hdr_end, first;
-  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
-  c                      = sr_wtsend_fixture(&f, &ob);
+  ob                 = (wired_obuf){obuf, sizeof obuf, 0};
+  c                  = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control = 1; /* SS5.1: enabled, so the capsule below applies */
+  /* A permissive uni stream-count ceiling: the point of this test is the
+   * data-limit capsule, not the stream-count dimension, and enabling
+   * flow_control above retires the "0 means unlimited" shortcut for it. */
+  CHECK(wired_wt_session_set_max_streams(&c->wt, 0, 1) == 1);
   hdr_end                = sr_wtcap_dispatch_headers_stub(c);
   c->wt_capsule_rx_at[0] = hdr_end;
   CHECK(wtcapsule_encode_max_data(&capb, 2) == 1);
@@ -16052,6 +16140,7 @@ static void test_srvrun_wt_rx_max_streams_capsule_via_dispatch_raises_limit(
   usz           hdr_end;
   ob                     = (wired_obuf){obuf, sizeof obuf, 0};
   c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control     = 1; /* SS5.1: enabled, so the capsule below applies */
   hdr_end                = sr_wtcap_dispatch_headers_stub(c);
   c->wt_capsule_rx_at[0] = hdr_end;
   /* Give the session a real (non-"unlimited") bidi ceiling of 1, already hit
@@ -16083,6 +16172,7 @@ static void test_srvrun_wt_rx_unknown_capsule_via_dispatch_skipped(void) {
   usz             hdr_end;
   ob                     = (wired_obuf){obuf, sizeof obuf, 0};
   c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control     = 1; /* SS5.1: enabled, so the capsule below applies */
   hdr_end                = sr_wtcap_dispatch_headers_stub(c);
   c->wt_capsule_rx_at[0] = hdr_end;
   CHECK(capsule_encode(&capb, 0x5c, wired_span_of(stuff, sizeof stuff)) == 1);
@@ -16152,6 +16242,7 @@ static void test_srvrun_wt_rx_max_data_capsule_via_on_step_raises_max_data(
   usz             flen, slen;
   ob                     = (wired_obuf){obuf, sizeof obuf, 0};
   c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control     = 1; /* SS5.1: enabled, so the capsule below applies */
   c->wt_capsule_rx_at[0] = 0; /* nothing landed yet on stream 4 */
   CHECK(c->wt.max_data == 0);
   CHECK(wtcapsule_encode_max_data(&capb, 9) == 1);
@@ -16191,6 +16282,7 @@ static void test_srvrun_wt_stream_send_at_max_data_resumes_after_raise(void) {
       wired_server_wt_open_uni_stream(&c->wt, wired_span_of(pay, sizeof pay)) ==
       11);
   CHECK(wired_wt_session_set_max_data(&c->wt, sizeof pay) == 1);
+  c->wt.flow_control = 1; /* SS5.1: enabled, so the capsule below applies */
   CHECK(wired_server_wt_stream_send(&c->wt, 11, rspan, 0) == -1);
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
   CHECK(wtcapsule_encode_max_data(&capb, 1000) == 1);
@@ -16219,8 +16311,13 @@ static void test_srvrun_wt_session_sharing_enables_flow_control(void) {
   static const u8 pay[] = {0x54, 0x04, 'h', 'i'};
   srvrun_conn*    c;
   usz             first;
-  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
-  c                      = sr_wtsend_fixture(&f, &ob);
+  ob                 = (wired_obuf){obuf, sizeof obuf, 0};
+  c                  = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control = 1; /* SS5.1: enabled, so the capsule below applies */
+  /* A permissive uni stream-count ceiling: the point of this test is the
+   * data-limit capsule, not the stream-count dimension, and enabling
+   * flow_control above retires the "0 means unlimited" shortcut for it. */
+  CHECK(wired_wt_session_set_max_streams(&c->wt, 0, 1) == 1);
   c->wt_capsule_rx_at[0] = 0;
   CHECK(wtcapsule_encode_max_data(&capb, 2) == 1);
   sr_h3data(&capb, 0);
@@ -16251,6 +16348,7 @@ static void test_srvrun_wt_rx_max_streams_capsules_raise_limits(void) {
   srvrun_conn*  c;
   ob                     = (wired_obuf){obuf, sizeof obuf, 0};
   c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control     = 1; /* SS5.1: enabled, so the capsule below applies */
   c->wt_capsule_rx_at[0] = 0;
   CHECK(wtcapsule_encode_max_streams(&capb, 1, 5) == 1);
   CHECK(wtcapsule_encode_max_streams(&capb, 0, 3) == 1);
@@ -16280,9 +16378,10 @@ static void test_srvrun_wt_nonincreasing_flow_control_capsule_closes_session(
   u8            obuf[1024], capbuf[64];
   wired_obuf    capb = obuf_of(capbuf, sizeof capbuf);
   srvrun_conn*  c;
-  ob                                 = (wired_obuf){obuf, sizeof obuf, 0};
-  c                                  = sr_wtsend_fixture(&f, &ob);
-  c->wt_capsule_rx_at[0]             = 0;
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control     = 1; /* SS5.1: enabled, so the capsule below applies */
+  c->wt_capsule_rx_at[0] = 0;
   c->l.wt_streams[0].in_use          = 1;
   c->l.wt_streams[0].stream_id       = 996;
   c->l.wt_streams[0].wt_session_slot = 0;
@@ -16308,6 +16407,7 @@ static void test_srvrun_wt_max_streams_over_ceiling_closes_session(void) {
   srvrun_conn*  c;
   ob                     = (wired_obuf){obuf, sizeof obuf, 0};
   c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control     = 1; /* SS5.1: enabled, so the capsule below applies */
   c->wt_capsule_rx_at[0] = 0;
   CHECK(wtcapsule_encode_max_streams(&capb, 1, (1ULL << 60) + 1) == 1);
   sr_h3data(&capb, 0);
@@ -16329,6 +16429,7 @@ static void test_srvrun_wt_streams_blocked_over_ceiling_closes_session(void) {
   srvrun_conn*  c;
   ob                     = (wired_obuf){obuf, sizeof obuf, 0};
   c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control     = 1; /* SS5.1: enabled, so the capsule below applies */
   c->wt_capsule_rx_at[0] = 0;
   CHECK(wtcapsule_encode_streams_blocked(&capb, 1, (1ULL << 60) + 1) == 1);
   sr_h3data(&capb, 0);
@@ -16350,6 +16451,7 @@ static void test_srvrun_wt_streams_blocked_within_ceiling_is_noop(void) {
   srvrun_conn*  c;
   ob                     = (wired_obuf){obuf, sizeof obuf, 0};
   c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control     = 1; /* SS5.1: enabled, so the capsule below applies */
   c->wt_capsule_rx_at[0] = 0;
   CHECK(wtcapsule_encode_streams_blocked(&capb, 1, 5) == 1);
   CHECK(wtcapsule_encode_max_data(&capb, 42) == 1);
@@ -16357,6 +16459,75 @@ static void test_srvrun_wt_streams_blocked_within_ceiling_is_noop(void) {
   CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
   srvrun_wt_rx_capsules(&cfg, c);
   CHECK(c->wt.max_data == 42);
+  CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.1 (MUST): "if flow control is not
+ * enabled, an endpoint MUST ignore receipt of any flow control capsules."
+ * flow_control defaults to 0 (sr_wtsend_fixture never seeds a client
+ * SETTINGS), so a WT_MAX_DATA capsule arriving on this session is dropped
+ * without applying -- max_data stays 0 and the session stays open. */
+static void test_srvrun_wt_max_data_capsule_ignored_when_flow_control_disabled(
+    void) {
+  struct lp_fix f;
+  wired_obuf    ob  = {0};
+  srvrun_cfg    cfg = sr_wt_send_cfg();
+  u8            obuf[1024], capbuf[64];
+  wired_obuf    capb = obuf_of(capbuf, sizeof capbuf);
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  CHECK(c->wt.flow_control == 0);
+  c->wt_capsule_rx_at[0] = 0;
+  CHECK(wtcapsule_encode_max_data(&capb, 1000) == 1);
+  sr_h3data(&capb, 0);
+  CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.max_data == 0);
+  CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
+}
+
+/* Same MUST, for WT_MAX_STREAMS: ignored when flow control is disabled, the
+ * stored limit stays 0. */
+static void
+test_srvrun_wt_max_streams_capsule_ignored_when_flow_control_disabled(void) {
+  struct lp_fix f;
+  wired_obuf    ob  = {0};
+  srvrun_cfg    cfg = sr_wt_send_cfg();
+  u8            obuf[1024], capbuf[64];
+  wired_obuf    capb = obuf_of(capbuf, sizeof capbuf);
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  CHECK(c->wt.flow_control == 0);
+  c->wt_capsule_rx_at[0] = 0;
+  CHECK(wtcapsule_encode_max_streams(&capb, 1, 5) == 1);
+  sr_h3data(&capb, 0);
+  CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
+  srvrun_wt_rx_capsules(&cfg, c);
+  CHECK(c->wt.max_streams_bidi == 0);
+  CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
+}
+
+/* Same MUST, for WT_STREAMS_BLOCKED: ignored outright when flow control is
+ * disabled, so even a value past the 2^60 ceiling does not close the
+ * session (the ceiling check itself never runs). */
+static void test_srvrun_wt_streams_blocked_ignored_when_flow_control_disabled(
+    void) {
+  struct lp_fix f;
+  wired_obuf    ob  = {0};
+  srvrun_cfg    cfg = sr_wt_send_cfg();
+  u8            obuf[1024], capbuf[64];
+  wired_obuf    capb = obuf_of(capbuf, sizeof capbuf);
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  CHECK(c->wt.flow_control == 0);
+  c->wt_capsule_rx_at[0] = 0;
+  CHECK(wtcapsule_encode_streams_blocked(&capb, 1, (1ULL << 60) + 1) == 1);
+  sr_h3data(&capb, 0);
+  CHECK(sr_wtcap_feed(c, 0, wired_span_of(capbuf, capb.len)) != 0);
+  srvrun_wt_rx_capsules(&cfg, c);
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
 }
 
@@ -16372,6 +16543,7 @@ static void test_srvrun_wt_rx_unknown_capsule_skipped(void) {
   srvrun_conn*    c;
   ob                     = (wired_obuf){obuf, sizeof obuf, 0};
   c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control     = 1; /* SS5.1: enabled, so the capsule below applies */
   c->wt_capsule_rx_at[0] = 0;
   CHECK(capsule_encode(&capb, 0x5c, wired_span_of(stuff, sizeof stuff)) == 1);
   CHECK(wtcapsule_encode_max_data(&capb, 7) == 1);
@@ -16383,7 +16555,8 @@ static void test_srvrun_wt_rx_unknown_capsule_skipped(void) {
 }
 
 /* RFC 9297 SS3.3: a known flow-control capsule whose body is NOT exactly one
- * varint is malformed -- the session is closed cleanly. */
+ * varint is malformed -- the session is closed cleanly (flow control
+ * enabled; SS5.1 would otherwise have this capsule ignored outright). */
 static void test_srvrun_wt_rx_malformed_flow_capsule_closes_session(void) {
   struct lp_fix   f;
   wired_obuf      ob  = {0};
@@ -16394,6 +16567,7 @@ static void test_srvrun_wt_rx_malformed_flow_capsule_closes_session(void) {
   srvrun_conn*    c;
   ob                     = (wired_obuf){obuf, sizeof obuf, 0};
   c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control     = 1;
   c->wt_capsule_rx_at[0] = 0;
   CHECK(
       capsule_encode(
@@ -16441,6 +16615,7 @@ static void test_srvrun_wt_rx_partial_capsule_waits_for_more(void) {
   srvrun_conn*  c;
   ob                     = (wired_obuf){obuf, sizeof obuf, 0};
   c                      = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control     = 1; /* SS5.1: enabled, so the capsule below applies */
   c->wt_capsule_rx_at[0] = 0;
   CHECK(wtcapsule_encode_max_data(&capb, 1000) == 1);
   sr_h3data(&capb, 0);
@@ -20170,10 +20345,15 @@ static void test_srvrun_wt_close_message_at_max_len_closes_session(void) {
  * wins) and the stream credit grows past the first windows. */
 static void test_srvrun_wt_capsules_applied_in_order_across_windows(void) {
   static u8    caps[8192];
-  wired_obuf   cb   = obuf_of(caps, sizeof caps);
-  srvrun_conn* c    = sr_sl_fixture();
-  usz          hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
-  u64          v    = sr_cap_run(&cb, 3 * SR_REQ_BUF_CAP);
+  wired_obuf   cb = obuf_of(caps, sizeof caps);
+  srvrun_conn* c  = sr_sl_fixture();
+  usz          hlen;
+  /* SS5.1: flow control must be enabled (via a nonzero SETTINGS_WT_INITIAL_*)
+   * for the WT_MAX_DATA capsules below to apply at all; uni is chosen so the
+   * data baseline stays 0, matching sr_cap_run's own 1, 2, ... sequence. */
+  c->l.peer_wt_initial[0] = 1;
+  hlen                    = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  u64 v                   = sr_cap_run(&cb, 3 * SR_REQ_BUF_CAP);
   sr_h3data(&cb, 0);
   CHECK(sr_cap_send(c, hlen, caps, cb.len) == cb.len);
   CHECK(c->wt.max_data == v);
@@ -20201,9 +20381,13 @@ static void test_srvrun_wt_unknown_capsule_past_window_skipped(void) {
 /* A capsule header split across packets is applied once whole. */
 static void test_srvrun_wt_capsule_split_per_byte(void) {
   u8           caps[32];
-  wired_obuf   cb   = obuf_of(caps, sizeof caps);
-  srvrun_conn* c    = sr_sl_fixture();
-  usz          hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  wired_obuf   cb = obuf_of(caps, sizeof caps);
+  srvrun_conn* c  = sr_sl_fixture();
+  usz          hlen;
+  /* SS5.1: flow control must be enabled for the WT_MAX_DATA capsule below to
+   * apply; uni is chosen so the data baseline stays 0. */
+  c->l.peer_wt_initial[0] = 1;
+  hlen                    = sr_sl_send_headers(c, 0, "CONNECT", 0);
   CHECK(wtcapsule_encode_max_data(&cb, 1000) == 1);
   sr_h3data(&cb, 0);
   for (usz i = 0; i + 1 < cb.len; i++) {
@@ -20218,10 +20402,14 @@ static void test_srvrun_wt_capsule_split_per_byte(void) {
  * the capsule after it still applies. */
 static void test_srvrun_wt_drain_after_long_capsule_run(void) {
   static u8    caps[4096];
-  wired_obuf   cb   = obuf_of(caps, sizeof caps);
-  srvrun_conn* c    = sr_sl_fixture();
-  usz          hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
-  u64          v    = sr_cap_run(&cb, 3000);
+  wired_obuf   cb = obuf_of(caps, sizeof caps);
+  srvrun_conn* c  = sr_sl_fixture();
+  usz          hlen;
+  /* SS5.1: flow control must be enabled for the WT_MAX_DATA capsule below to
+   * apply; uni is chosen so the data baseline stays 0. */
+  c->l.peer_wt_initial[0] = 1;
+  hlen                    = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  u64 v                   = sr_cap_run(&cb, 3000);
   CHECK(wtcapsule_encode_drain(&cb) == 1);
   CHECK(wtcapsule_encode_max_data(&cb, v + 1000) == 1);
   sr_h3data(&cb, 0);
@@ -20580,8 +20768,10 @@ static void test_srvrun_wt_flow_control_mixed_uni_blocked_until_capsule(void) {
 }
 
 /* The public open path under enabled flow control with a 0 uni limit:
- * wired_server_wt_open_uni reports blocked (-1, no slot claimed, session
- * open) and succeeds once the limit is raised -- the caller retries. */
+ * wired_server_wt_open_uni reports blocked (-1, no stream slot claimed,
+ * session open) and succeeds once the limit is raised -- the caller
+ * retries. The refusal DOES claim the CONNECT stream's own capsule sender,
+ * to carry the WT_STREAMS_BLOCKED hint 6-10 sends. */
 static void test_srvrun_wt_open_uni_blocked_by_zero_limit_then_opens(void) {
   struct lp_fix   f;
   wired_obuf      ob = {0};
@@ -20593,10 +20783,118 @@ static void test_srvrun_wt_open_uni_blocked_by_zero_limit_then_opens(void) {
   c->wt.flow_control = 1;
   CHECK(wired_wt_session_set_max_data(&c->wt, 100) == 1);
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == -1);
-  CHECK(c->wtsend[0].in_use == 0);
+  CHECK(srvrun_wtsend_find(c, 4) != 0); /* the WT_STREAMS_BLOCKED hint, 6-10 */
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
   CHECK(wired_wt_session_set_max_streams(&c->wt, 0, 1) == 1);
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
+}
+
+/* Decode the WT_STREAMS_BLOCKED capsule DATA-framed on w's CONNECT-stream
+ * ring buffer (RFC 9297 3.2) and confirm its direction and value, the
+ * round-trip twin of the hand-computed-bytes style test_srvrun_send_wt_
+ * close_seals_capsule_with_fin above uses (recomputing the varint-length
+ * encoding by hand is exactly what rfc-and-verification-layers.md warns
+ * against for a multi-byte varint type like 0x190B4D44). */
+static void sr_check_streams_blocked_sent(
+    const srvrun_wtsend* w, int bidi, u64 want_limit) {
+  h3_frame f;
+  u64      got_limit;
+  usz      n  = h3_frame_get(wired_span_of(w->roundbuf, w->sess.q.len), &f);
+  usz      at = 0;
+  CHECK(n != 0 && f.type == H3_FRAME_DATA);
+  CHECK(
+      wtcapsule_decode_streams_blocked(
+          wired_span_of(f.payload, f.payload_len), &at, bidi, &got_limit) == 1);
+  CHECK(got_limit == want_limit);
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.3/SS5.6.3 (6-10): a server-initiated uni
+ * open refused by the session-level stream-count limit (not the data limit,
+ * not the peer's QUIC-level uni grant) sends WT_STREAMS_BLOCKED(uni, the
+ * current limit) on the CONNECT stream, in addition to returning -1. */
+static void test_srvrun_wt_open_uni_blocked_sends_streams_blocked(void) {
+  struct lp_fix   f;
+  wired_obuf      ob = {0};
+  u8              obuf[1024];
+  static const u8 pay[] = {0x54, 0x04, 'h', 'i'};
+  srvrun_conn*    c;
+  srvrun_wtsend*  w;
+  ob                 = (wired_obuf){obuf, sizeof obuf, 0};
+  c                  = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control = 1; /* limit 0 now means 0, not unlimited */
+  CHECK(
+      wired_server_wt_open_uni_stream(&c->wt, wired_span_of(pay, sizeof pay)) ==
+      -1);
+  w = srvrun_wtsend_find(c, 4); /* the fixture's own CONNECT stream id */
+  CHECK(w != 0);
+  sr_check_streams_blocked_sent(w, 0, 0);
+}
+
+/* Same MUST, bidi direction: WT_STREAMS_BLOCKED(bidi, limit) is sent when a
+ * server-initiated bidi open is refused by the bidi stream-count limit. */
+static void test_srvrun_wt_open_bidi_blocked_sends_streams_blocked(void) {
+  struct lp_fix   f;
+  wired_obuf      ob = {0};
+  u8              obuf[1024];
+  static const u8 pay[] = {0x54, 0x04, 'h', 'i'};
+  srvrun_conn*    c;
+  srvrun_wtsend*  w;
+  ob                 = (wired_obuf){obuf, sizeof obuf, 0};
+  c                  = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control = 1;
+  CHECK(
+      wired_server_wt_open_bidi_stream(
+          &c->wt, wired_span_of(pay, sizeof pay)) == -1);
+  w = srvrun_wtsend_find(c, 4);
+  CHECK(w != 0);
+  sr_check_streams_blocked_sent(w, 1, 0);
+}
+
+/* NEGATIVE: a server-initiated open refused by the DATA limit alone (the
+ * stream-count limit is already open) does NOT send WT_STREAMS_BLOCKED --
+ * that capsule names a stream-count ceiling, not a data one, and there is
+ * no WT_DATA_BLOCKED send path to confuse it with (out of scope, 6-10's own
+ * brief: the brief only covers WT_STREAMS_BLOCKED). */
+static void test_srvrun_wt_open_uni_blocked_by_data_limit_sends_nothing(void) {
+  struct lp_fix   f;
+  wired_obuf      ob = {0};
+  u8              obuf[1024];
+  static const u8 pay[] = {0x54, 0x04, 'h', 'i'};
+  srvrun_conn*    c;
+  ob                 = (wired_obuf){obuf, sizeof obuf, 0};
+  c                  = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control = 1;
+  CHECK(wired_wt_session_set_max_streams(&c->wt, 0, 1) == 1); /* uni: open */
+  CHECK(wired_wt_session_set_max_data(&c->wt, 1) == 1);       /* too small */
+  CHECK(
+      wired_server_wt_open_uni_stream(&c->wt, wired_span_of(pay, sizeof pay)) ==
+      -1);
+  CHECK(srvrun_wtsend_find(c, 4) == 0); /* nothing staged on the CONNECT id */
+}
+
+/* NEGATIVE: a server-initiated uni open refused by the peer's QUIC-level
+ * uni-stream grant (RFC 9000 4.6, srvrun_wt_uni_grant_ok) -- not the WT
+ * session's own stream-count limit -- sends no WT_STREAMS_BLOCKED either;
+ * that case already has its own QUIC-level STREAMS_BLOCKED signal
+ * (srvrun_notify_uni_blocked, uni_blocked_seen). */
+static void test_srvrun_wt_open_uni_blocked_by_quic_grant_sends_no_wt_capsule(
+    void) {
+  struct lp_fix   f;
+  wired_obuf      ob = {0};
+  u8              obuf[1024];
+  static const u8 pay[] = {0x54, 0x04, 'h', 'i'};
+  srvrun_conn*    c;
+  ob                 = (wired_obuf){obuf, sizeof obuf, 0};
+  c                  = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control = 1;
+  CHECK(wired_wt_session_set_max_streams(&c->wt, 0, 1000) == 1); /* wide open */
+  CHECK(wired_wt_session_set_max_data(&c->wt, 1000) == 1); /* wide open too */
+  c->s.sdrv.peer_initial_max_streams_uni = 0; /* no QUIC uni grant at all */
+  CHECK(
+      wired_server_wt_open_uni_stream(&c->wt, wired_span_of(pay, sizeof pay)) ==
+      -1);
+  CHECK(srvrun_wtsend_find(c, 4) == 0); /* no WT capsule staged */
+  CHECK(c->uni_blocked_seen == 1); /* the QUIC-level signal latched instead */
 }
 
 /* draft-ietf-webtrans-http3-16 SS5.6.2: a peer initial stream limit past
@@ -20653,17 +20951,20 @@ static void test_srvrun_wt_connect_before_client_settings_held(void) {
   CHECK(g_sr_wt_handler_calls == 0);
 }
 
-/* Two CONNECTs held before SETTINGS are each processed exactly once. */
+/* Two CONNECTs held before SETTINGS are each processed exactly once (SS5.1:
+ * flow control enabled via a nonzero SETTINGS_WT_INITIAL_*, so a second
+ * session on this connection is allowed at all). */
 static void test_srvrun_wt_two_held_connects_each_processed_once(void) {
   srvrun_conn* c    = sr_sl_fixture_no_settings();
   u64          base = sr_sl_sessions();
   sr_sl_send_headers(c, 0, "CONNECT", 0);
   sr_sl_send_headers(c, 4, "CONNECT", 0);
   CHECK(c->resp[0].in_use == 0);
-  sr_sl_send_settings(c);
+  sr_sl_send_wt_initial_settings(c, 1, 0, 0);
   CHECK(sr_sl_sessions() == base + 2);
   CHECK(c->wt_held_mask == 0);
-  sr_sl_send_settings(c); /* a later step re-processes nothing */
+  sr_sl_send_wt_initial_settings(
+      c, 1, 0, 0); /* a later step re-processes nothing */
   CHECK(sr_sl_sessions() == base + 2);
 }
 
@@ -21034,6 +21335,7 @@ void test_srvrun(void) {
   test_srvrun_broadcast_datagram_flushes_on_poll_tick_alone();
   test_srvrun_wt_full_session_lifecycle_on_wire();
   test_srvrun_wt_accept_second_session_below_limit();
+  test_srvrun_second_wt_connect_rejected_when_flow_control_disabled();
   test_srvrun_wt_reject_at_session_limit();
   test_srvrun_wt_accept_records_path();
   test_srvrun_wt_distinct_paths_coexist();
@@ -21415,6 +21717,9 @@ void test_srvrun(void) {
   test_srvrun_wt_max_streams_over_ceiling_closes_session();
   test_srvrun_wt_streams_blocked_over_ceiling_closes_session();
   test_srvrun_wt_streams_blocked_within_ceiling_is_noop();
+  test_srvrun_wt_max_data_capsule_ignored_when_flow_control_disabled();
+  test_srvrun_wt_max_streams_capsule_ignored_when_flow_control_disabled();
+  test_srvrun_wt_streams_blocked_ignored_when_flow_control_disabled();
   test_srvrun_wt_rx_unknown_capsule_skipped();
   test_srvrun_wt_rx_malformed_flow_capsule_closes_session();
   test_srvrun_wt_rx_truncated_capsule_at_fin_closes_session();
@@ -21564,6 +21869,10 @@ void test_srvrun(void) {
   test_srvrun_wt_initial_limits_absent_stay_zero();
   test_srvrun_wt_flow_control_mixed_uni_blocked_until_capsule();
   test_srvrun_wt_open_uni_blocked_by_zero_limit_then_opens();
+  test_srvrun_wt_open_uni_blocked_sends_streams_blocked();
+  test_srvrun_wt_open_bidi_blocked_sends_streams_blocked();
+  test_srvrun_wt_open_uni_blocked_by_data_limit_sends_nothing();
+  test_srvrun_wt_open_uni_blocked_by_quic_grant_sends_no_wt_capsule();
   test_srvrun_wt_initial_max_streams_clamped();
   test_srvrun_wt_two_held_connects_each_processed_once();
   test_srvrun_wt_held_connect_retransmitted_one_session();
