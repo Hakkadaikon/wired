@@ -1459,10 +1459,11 @@ static void test_moqtrun_object_relay_two_subscribers_two_objects(void) {
 
 /* ===================== 4. loss-free hub defenses ===================== */
 
-/* A SUBSCRIBE carrying a non-zero SUBGROUP_DELIVERY_TIMEOUT is rejected
- * with REQUEST_ERROR NOT_SUPPORTED, never SUBSCRIBE_OK (draft 8: its timer
- * needs the transport's "all data committed", which the hub cannot see). */
-static void test_moqtrun_subscribe_nonzero_timeout_rejected(void) {
+/* A SUBSCRIBE carrying a non-zero SUBGROUP_DELIVERY_TIMEOUT is accepted
+ * and the value recorded as the subscription's effective subgroup
+ * timeout (draft 8; the min() with the publisher's Track Property and
+ * the delivery gating live in moqtrun_sub_test.c). */
+static void test_moqtrun_subscribe_nonzero_timeout_accepted(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
   wired_moqt_init(&hub, moqtrun_test_io());
@@ -1500,11 +1501,8 @@ static void test_moqtrun_subscribe_nonzero_timeout_rejected(void) {
       moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
       MOQCTL_OK);
-  CHECK(type == MOQCTL_T_REQUEST_ERROR);
-  moqctl_request_error e;
-  usz                  body_off = 0;
-  CHECK(moqctl_request_error_take(body, &body_off, &e) == MOQCTL_OK);
-  CHECK(e.error_code == MOQCTL_ERR_NOT_SUPPORTED);
+  CHECK(type == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(hub.peers[0].tracks[0].subs[0].subgroup_timeout == 5);
 }
 
 /* The hub's own SUBSCRIBE_OK never carries a delivery-timeout
@@ -5689,7 +5687,7 @@ void test_moqtrun(void) {
   test_moqtrun_object_relay_to_subscriber();
   test_moqtrun_object_relay_preserves_bytes();
   test_moqtrun_object_relay_two_subscribers_two_objects();
-  test_moqtrun_subscribe_nonzero_timeout_rejected();
+  test_moqtrun_subscribe_nonzero_timeout_accepted();
   test_moqtrun_subscribe_ok_carries_no_timeout_param();
   test_moqtrun_subscribe_requires_authorization();
   test_moqtrun_subscribe_alias_token_rejected();

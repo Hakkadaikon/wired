@@ -1163,6 +1163,96 @@ static void test_moqtrun_other_dot_ns_served(void) {
   CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
 }
 
+/* ============ SUBGROUP_DELIVERY_TIMEOUT (draft-19 8, 10.2.6) ============ */
+
+static moqctl_params mtst_params_vi(u64 type, u64 v) {
+  moqctl_params p = {0};
+  p.items[0].type = type;
+  p.items[0].enc  = MOQCTL_PENC_VARINT;
+  p.items[0].vi   = v;
+  p.n             = 1;
+  return p;
+}
+
+/* PUBLISH carrying Track Properties (KVPs to the end of the body). */
+static void mtst_publish_props(
+    wired_wt_session* s,
+    u64               ctrl,
+    const moqctl_ftn* f,
+    u64               alias,
+    wired_span        props) {
+  static moqctl_publish m;
+  m.request_id       = mtst_rid += 2;
+  m.name             = *f;
+  m.track_alias      = alias;
+  m.params           = (moqctl_params){0};
+  m.track_properties = props;
+  mtst_send(s, ctrl, MOQCTL_T_PUBLISH, mtst_enc_publish, &m);
+}
+
+/* The effective subgroup timeout is min(publisher Track Property,
+ * subscriber parameter) when both are non-zero, the non-zero one when
+ * only one is set, and 0 (none) otherwise (draft-19 8). */
+static void test_moqtrun_sub_subgroup_timeout_min(void) {
+  static const u8 props[] = {0x06, 0x03}; /* Property 0x06, varint 3 */
+  moqctl_params p5 = mtst_params_vi(MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 5);
+  moqctl_ftn    f  = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  u64 cc = mtst_join(SESS_C);
+  mtst_publish_props(SESS_A, ca, &f, 1, wired_span_of(props, sizeof props));
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &p5);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(mtst_sub(SESS_A, SESS_B)->subgroup_timeout == 3); /* min(3, 5) */
+  mtst_subscribe(SESS_C, cc, &f);
+  CHECK(mtst_sub(SESS_A, SESS_C)->subgroup_timeout == 3); /* publisher's */
+  mtst_init();
+  ca = mtst_join(SESS_A);
+  cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1); /* no Track Properties */
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &p5);
+  CHECK(mtst_sub(SESS_A, SESS_B)->subgroup_timeout == 5); /* subscriber's */
+  mtst_subscribe(SESS_C, mtst_join(SESS_C), &f);
+  CHECK(mtst_sub(SESS_A, SESS_C)->subgroup_timeout == 0); /* none */
+}
+
+/* REQUEST_UPDATE carrying SUBGROUP_DELIVERY_TIMEOUT re-mins against the
+ * publisher's Track Property (draft-19 10.2.6). */
+static void test_moqtrun_sub_subgroup_timeout_update(void) {
+  static const u8 props[] = {0x06, 0x03};
+  static const u8 upd2[]  = {0x02, 0x01, 0x06, 0x02}; /* rid 2: timeout 2 */
+  static const u8 upd9[]  = {0x06, 0x01, 0x06, 0x09}; /* rid 6: timeout 9 */
+  moqctl_ftn      f       = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish_props(SESS_A, ca, &f, 1, wired_span_of(props, sizeof props));
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  CHECK(mtst_sub(SESS_A, SESS_B)->subgroup_timeout == 3);
+  mtrq_raw(SESS_B, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd2, sizeof upd2);
+  CHECK(mtst_sub(SESS_A, SESS_B)->subgroup_timeout == 2); /* min(3, 2) */
+  mtrq_raw(SESS_B, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd9, sizeof upd9);
+  CHECK(mtst_sub(SESS_A, SESS_B)->subgroup_timeout == 3); /* min(3, 9) */
+}
+
+/* The effective subgroup timeout bounds delivery age like the object
+ * timeout: a live Group older than it is not sent at attach (draft-19
+ * 8: for datagrams and this hub's age model the smaller timeout acts
+ * as OBJECT_DELIVERY_TIMEOUT). */
+static void test_moqtrun_sub_subgroup_timeout_gates_delivery(void) {
+  moqctl_params p = mtst_params_vi(MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 400);
+  moqctl_ftn    f = mtst_ftn("chat", "room1", "movie");
+  mtst_init();
+  moqtrun_test_publish_live(&mtst_hub);
+  wired_moqt_tick(&mtst_hub, 1000 + 2500); /* Group 1, age 500ms */
+  u64 cb = mtst_join(SESS_B);
+  moqtrun_test_reset();
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &p);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(moqtrun_test_count_kind(8) == 0); /* 500 > 400: held */
+}
+
 void test_moqtrun_sub(void) {
   test_moqtrun_sub_filter22_starts();
   test_moqtrun_sub_filter22_ends();
@@ -1176,6 +1266,9 @@ void test_moqtrun_sub(void) {
   test_moqtrun_sub_ns_must_match();
   test_moqtrun_reserved_ns_rejected();
   test_moqtrun_other_dot_ns_served();
+  test_moqtrun_sub_subgroup_timeout_min();
+  test_moqtrun_sub_subgroup_timeout_update();
+  test_moqtrun_sub_subgroup_timeout_gates_delivery();
   test_moqtrun_sub_ns_max_fields();
   test_moqtrun_sub_same_name_other_ns_coexist();
   test_moqtrun_sub_ns_over_cap_refused();
