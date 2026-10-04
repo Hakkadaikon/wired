@@ -233,6 +233,9 @@ typedef struct {
   /** Hub blob track only: 1 once the blob went out to this subscription,
    * so a FORWARD 1 -> 0 -> 1 update never sends it twice. */
   u8 blob_sent;
+  /** Streams the hub opened for this subscription (relay, blob, live and
+   * fetch streams alike): PUBLISH_DONE's Stream Count (draft 10.10). */
+  u64 stream_count;
 } wired_moqtrun_sub;
 
 /** Fixed capacity for a saved SUBGROUP_HEADER (draft SS11.4.2: Type +
