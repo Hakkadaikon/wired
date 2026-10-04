@@ -696,6 +696,14 @@ typedef struct {
   wired_moqt_authorize_fn authorize_subscribe;
   /** Opaque first argument handed to authorize_subscribe. */
   void* authorize_ctx;
+  /** Publisher authorizer (draft-22 16.3 "Preventing Impersonation": a
+   * relay MUST verify the publisher may claim the PUBLISH's Full Track
+   * Name -- the same MUST in every draft this SDK speaks); 0 (the
+   * wired_moqt_init default) grants every PUBLISH, like
+   * authorize_subscribe. */
+  wired_moqt_authorize_fn authorize_publish;
+  /** Opaque first argument handed to authorize_publish. */
+  void* authorize_pub_ctx;
   /** The hub's own static track (wired_moqt_publish_blob): in_use once a
    * blob is published, name/own_alias as given there, subs[] recording
    * which peers have already been sent it (relays[] unused). */

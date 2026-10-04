@@ -439,6 +439,32 @@ static void test_moqtrun_timeout_torn_object(void) {
   }
 }
 
+/* Reliable relay (ring-backed), same shape as the lossy one above: a
+ * later Object torn across two deliveries is timed from its first byte
+ * (hub->live.last_now_ms at the earlier tick), not from when it finally
+ * finishes appending to the ring -- draft 8's "reached the hub" moment,
+ * not the ring's own bookkeeping moment. */
+static void test_moqtrun_timeout_ring_torn_object(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  u8            buf2[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params p = mtup_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 100);
+  moqctl_ftn    f = mtrq_setup();
+  mtst_hub.reliable_alias_limit = 100;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &p);
+  wired_moqt_tick(&mtst_hub, 0);
+  usz n = mtst_stream(1, 1, 1, buf); /* header + Object 0, opens the ring */
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  u64 sid = moqtrun_test_last_kind(5)->stream_id;
+  usz n2  = mtst_stream(1, 1, 0, buf2); /* Object 1 alone, header-less */
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, 2001, wired_span_of(buf2, n2 - 1), 0);
+  wired_moqt_tick(&mtst_hub, 150); /* Object 1's first byte is now stale */
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, 2001, wired_span_of(buf2 + n2 - 1, 1), 0);
+  CHECK(mtrq_reset_code(sid) == 0x2);
+  CHECK(mtst_hub.stat_timeout_reset == 1);
+}
+
 /* The hub's live track: a Group older than the timeout at send time is
  * not opened; the next one, still fresh, is. */
 static void test_moqtrun_timeout_live(void) {
@@ -467,7 +493,176 @@ static void test_moqtrun_timeout_datagram(void) {
   CHECK(moqtrun_test_count_kind(9) == 1);
 }
 
+/* ============ duplicate SUBSCRIBE per draft (draft-18 6.3) ============ */
+
+/* draft-18: at most one subscription per Track and role -- the same
+ * peer's second SUBSCRIBE is refused DUPLICATE_SUBSCRIPTION (0x19) and
+ * the first keeps relaying; another peer still gets its own slot. */
+static void test_moqtrun_sub_duplicate_refused_d18(void) {
+  moqctl_ftn f                               = mtrq_setup();
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D18;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_SUBSCRIBE_OK);
+  mtst_subscribe_p(SESS_B, MTRQ_S2, &f, 4, 0);
+  CHECK(mtup_err_code(MTRQ_S2) == MOQCTL_ERR_DUPLICATE_SUBSCRIPTION);
+  CHECK(mtst_sub(SESS_A, SESS_B) != 0);
+  CHECK(moqtrun_test_relay_alice_chat(&mtst_hub) == 1);
+  u64 cc                                     = mtst_join(SESS_C);
+  moqtrun_find_by_wt(&mtst_hub, SESS_C)->ver = MOQVER_D18;
+  mtst_subscribe(SESS_C, cc, &f);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+}
+
+/* draft-19 and draft-22 keep the idempotent SUBSCRIBE_OK re-answer
+ * (draft-19 allows several subscriptions per Track; the hub re-answers
+ * instead of eating a second slot). */
+static void test_moqtrun_sub_duplicate_reanswered_d19_d22(void) {
+  static const int vers[] = {MOQVER_D19, MOQVER_D22};
+  for (usz v = 0; v < 2; v++) {
+    moqctl_ftn f                               = mtrq_setup();
+    moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = vers[v];
+    mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+    mtst_subscribe_p(SESS_B, MTRQ_S2, &f, 4, 0);
+    CHECK(mtup_reply(MTRQ_S2, &(wired_span){0, 0}) == MOQCTL_T_SUBSCRIBE_OK);
+    CHECK(moqtrun_test_relay_alice_chat(&mtst_hub) == 1);
+  }
+}
+
+/* ========== PUBLISH_STATE_NOTIFY receive (draft-22 9.10) ========== */
+
+/* On the PUBLISH's own request stream it is a unilateral notice from the
+ * publisher: no REQUEST_OK/ERROR back, no close, the stream stays. */
+static void test_moqtrun_notify_on_publish_stream_d22(void) {
+  static const u8 body[] = {0x02, 0x00}; /* Request ID 2, no parameters */
+  moqctl_ftn      f      = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  mtst_join(SESS_A);
+  moqtrun_find_by_wt(&mtst_hub, SESS_A)->ver = MOQVER_D22;
+  mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_OK);
+  moqtrun_test_reset();
+  mtrq_raw(SESS_A, MTRQ_S1, MOQCTL_T_PUBLISH_STATE_NOTIFY, body, sizeof body);
+  CHECK(g_n_calls == 0); /* no reply, no close, no reset */
+  CHECK(mtrq_used() == 1);
+}
+
+/* From the subscriber side (a SUBSCRIBE stream), on the control stream,
+ * or opening a fresh request stream, the session closes with
+ * PROTOCOL_VIOLATION (draft-22 9.10: sent only by the publisher on a
+ * subscription's stream). */
+static void test_moqtrun_notify_elsewhere_closes_d22(void) {
+  static const u8 body[]                     = {0x02, 0x00};
+  moqctl_ftn      f                          = mtrq_setup();
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_PUBLISH_STATE_NOTIFY, body, sizeof body);
+  CHECK(mtrq_closes() == 1);
+  mtrq_setup();
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  u64 cb = moqtrun_find_by_wt(&mtst_hub, SESS_B)->control_stream_id;
+  mtrq_raw(SESS_B, cb, MOQCTL_T_PUBLISH_STATE_NOTIFY, body, sizeof body);
+  CHECK(mtrq_closes() == 1);
+  mtrq_setup();
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_PUBLISH_STATE_NOTIFY, body, sizeof body);
+  CHECK(mtrq_closes() == 1);
+}
+
+/* ========= publisher authorization (draft-22 16.3, every draft) ======== */
+
+/* One AUTHORIZATION TOKEN parameter whose raw Token bytes are tok. */
+static moqctl_params mtpa_token(const u8* tok, usz n) {
+  moqctl_params p  = {0};
+  p.items[0].type  = MOQCTL_PARAM_AUTHORIZATION_TOKEN;
+  p.items[0].enc   = MOQCTL_PENC_TOKEN;
+  p.items[0].bytes = wired_span_of(tok, n);
+  p.n              = 1;
+  return p;
+}
+
+/* With an authorizer installed every PUBLISH is shown to it (Full Track
+ * Name + USE_VALUE token, or 0): a refusal is REQUEST_ERROR UNAUTHORIZED
+ * and no track is claimed; an acceptance claims the track as before.
+ * The MUST is the same on every draft (draft-22 16.3 merely names it),
+ * so there is no version gate to observe. */
+static void test_moqtrun_publish_requires_authorization(void) {
+  static const u8  tok[]  = {0x03, 0x01, 'o', 'k'};
+  static const int vers[] = {MOQVER_D18, MOQVER_D19, MOQVER_D22};
+  moqctl_ftn       f      = mtst_ftn("chat", "room1", "alice");
+  int              calls  = 0;
+  for (usz v = 0; v < 3; v++) {
+    mtst_init();
+    mtst_hub.authorize_publish                 = mtauth_authorize;
+    mtst_hub.authorize_pub_ctx                 = &calls;
+    u64 ca                                     = mtst_join(SESS_A);
+    u64 cb                                     = mtst_join(SESS_B);
+    moqtrun_find_by_wt(&mtst_hub, SESS_A)->ver = vers[v];
+    mtauth_allow                               = 0;
+    mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+    CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_UNAUTHORIZED);
+    mtst_subscribe(SESS_B, cb, &f);
+    CHECK(mtsub_last_reply_type() == MOQCTL_T_REQUEST_ERROR);
+    mtauth_allow    = 1;
+    moqctl_params p = mtpa_token(tok, sizeof tok);
+    mtst_publish_p(SESS_A, ca, &f, 1, &p);
+    CHECK(mtauth_seen_name_len == 5); /* "alice" */
+    CHECK(mtauth_seen_type == 1 && mtauth_seen_value_len == 2);
+    mtst_subscribe(SESS_B, cb, &f);
+    CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  }
+  CHECK(calls == 6);
+}
+
+/* The hub holds no token cache (it never advertises
+ * MAX_AUTH_TOKEN_CACHE_SIZE), so an Alias-based Token on PUBLISH is
+ * refused MALFORMED_AUTH_TOKEN like SUBSCRIBE's, even on an open hub. */
+static void test_moqtrun_publish_alias_token_rejected(void) {
+  static const u8 reg[] = {0x01, 0x07, 0x01, 'x'};
+  moqctl_ftn      f     = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  mtst_join(SESS_A);
+  moqctl_params p = mtpa_token(reg, sizeof reg);
+  mtst_publish_p(SESS_A, MTRQ_S1, &f, 1, &p);
+  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_MALFORMED_AUTH_TOKEN);
+  CHECK(mtst_hub.peers[0].tracks[0].in_use == 0);
+}
+
+/* ======= REQUEST_UPDATE on a PUBLISH stream (draft-22 9.8) ======= */
+
+/* draft-22 lets the requester update its own PUBLISH: the parameters
+ * are vetted like a subscription's and the update is REQUEST_OK (the
+ * hub models no publisher-side state they would move), the track
+ * untouched; a parameter the hub refuses on subscriptions is refused
+ * here too. draft-19 keeps NOT_SUPPORTED. */
+static void test_moqtrun_upd_on_publish_stream(void) {
+  static const u8 upd[] = {0x04, 0x00}; /* Request ID 4, no parameters */
+  moqctl_params   t     = mtup_vi(MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 9);
+  moqctl_ftn      f     = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  mtst_join(SESS_A);
+  moqtrun_find_by_wt(&mtst_hub, SESS_A)->ver = MOQVER_D22;
+  mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+  mtrq_raw(SESS_A, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd, sizeof upd);
+  CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
+  CHECK(mtst_hub.peers[0].tracks[0].in_use == 1);
+  mtup_update(SESS_A, MTRQ_S1, &t);
+  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_NOT_SUPPORTED);
+  CHECK(mtst_hub.peers[0].tracks[0].in_use == 1);
+  mtst_init();
+  mtst_join(SESS_A);
+  mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+  mtrq_raw(SESS_A, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd, sizeof upd);
+  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_NOT_SUPPORTED);
+}
+
 void test_moqtrun_upd(void) {
+  test_moqtrun_upd_on_publish_stream();
+  test_moqtrun_publish_requires_authorization();
+  test_moqtrun_publish_alias_token_rejected();
+  test_moqtrun_notify_on_publish_stream_d22();
+  test_moqtrun_notify_elsewhere_closes_d22();
+  test_moqtrun_sub_duplicate_refused_d18();
+  test_moqtrun_sub_duplicate_reanswered_d19_d22();
   test_moqtrun_tstat_ok_largest();
   test_moqtrun_tstat_ok_empty();
   test_moqtrun_tstat_unknown_and_blob();
@@ -487,6 +682,7 @@ void test_moqtrun_upd(void) {
   test_moqtrun_timeout_zero();
   test_moqtrun_timeout_by_update();
   test_moqtrun_timeout_torn_object();
+  test_moqtrun_timeout_ring_torn_object();
   test_moqtrun_timeout_live();
   test_moqtrun_timeout_datagram();
 }
