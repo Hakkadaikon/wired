@@ -581,6 +581,96 @@ static void test_moqtrun_fill_done_waits_for_held(void) {
   CHECK(mtrq_fin_on(MTRQ_S1) == 1);
 }
 
+/* The index of the first accepted data round on sid, or ~0. */
+static usz mfill_send_idx(u64 sid) {
+  for (usz i = 0; i < g_n_calls; i++)
+    if (g_calls[i].kind == 3 && g_calls[i].stream_id == sid &&
+        !g_calls[i].refused)
+      return i;
+  return ~(usz)0;
+}
+
+/* B's long-lived relay stream (SUBGROUP_HEADER opening round). */
+static u64 mfill_relay_sid(void) {
+  for (usz i = 0; i < g_n_calls; i++)
+    if (g_calls[i].s == SESS_B && g_calls[i].kind == 5 &&
+        g_calls[i].payload_len && g_calls[i].payload[0] == 0x30)
+      return g_calls[i].stream_id;
+  return ~(u64)0;
+}
+
+/* A continues its keep-open stream sid with Object {g, o} of n bytes. */
+static void mfill_obj_more(u64 sid, u64 g, u64 o, usz n) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  u8  pl[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz off = 0;
+  for (usz i = 0; i < n; i++) pl[i] = (u8)(16 * g + o);
+  moqdata_obj_put(
+      wired_mspan_of(buf, sizeof buf), &off, o, wired_span_of(pl, n));
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(buf, off), 0);
+}
+
+/* One parked fill round and one parked (ring-held) live round for the
+ * same subscriber, both released by the next tick: descending decides
+ * who goes first. Returns the publisher's keep-open stream id. */
+static void mfill_sched_fixture(int descending, u64* fill_sid, u64* live_sid) {
+  moqfetch_fill fill = {0};
+  fill.descending    = (u8)descending;
+  mf_init(sizeof mf_arena);
+  mtst_hub.reliable_alias_limit = 100; /* alice's alias 1: ring-backed */
+  mf_obj(0, 0, 1);
+  g_stream_send_ok_n = 0; /* opens pass, data rounds park */
+  moqctl_params sub  = mfill_params(&fill, 0);
+  mfill_subscribe_req(&sub);
+  u64 pub_sid = mf_obj_on(1, 0, 1, 0); /* keep-open: ring relay to B */
+  mfill_obj_more(pub_sid, 1, 1, 1);    /* refused round, held in the ring */
+  *fill_sid          = mfill_sid(0);
+  *live_sid          = mfill_relay_sid();
+  g_stream_send_ok_n = -1;
+  wired_moqt_tick(&mtst_hub, 5);
+}
+
+/* An ascending fill with Objects ready goes out before the same
+ * subscription's pending live round (draft-22 9.20.15: the backlog is
+ * what the subscriber is still catching up on). */
+static void test_moqtrun_fill_ascending_sends_first(void) {
+  u64 fill_sid, live_sid;
+  mfill_sched_fixture(0, &fill_sid, &live_sid);
+  CHECK(mfill_send_idx(fill_sid) != ~(usz)0);
+  CHECK(mfill_send_idx(live_sid) != ~(usz)0);
+  CHECK(mfill_send_idx(fill_sid) < mfill_send_idx(live_sid));
+}
+
+/* A descending fill yields: the live round goes out first (the
+ * subscriber wants the newest edge before the deep backlog). */
+static void test_moqtrun_fill_descending_sends_last(void) {
+  u64 fill_sid, live_sid;
+  mfill_sched_fixture(1, &fill_sid, &live_sid);
+  CHECK(mfill_send_idx(fill_sid) != ~(usz)0);
+  CHECK(mfill_send_idx(live_sid) != ~(usz)0);
+  CHECK(mfill_send_idx(live_sid) < mfill_send_idx(fill_sid));
+}
+
+/* A fill that cannot even open never starves the live side: the held
+ * fill stays silent and the ring-held live round still goes out. */
+static void test_moqtrun_fill_blocked_never_starves_live(void) {
+  moqfetch_fill fill = {0};
+  mf_init(sizeof mf_arena);
+  mtst_hub.reliable_alias_limit = 100;
+  mf_obj(0, 0, 1);
+  mfill_subscribe_req(0);
+  u64 pub_sid       = mf_obj_on(1, 0, 1, 0); /* relay to B opens first */
+  u64 live_sid      = mfill_relay_sid();
+  g_open_uni_fail_n = 100; /* from here only the fill's open is refused */
+  mfill_update(&fill, 0);  /* the fill is held unopened */
+  g_stream_send_ok_n = 0;
+  mfill_obj_more(pub_sid, 1, 1, 1);
+  g_stream_send_ok_n = -1;
+  wired_moqt_tick(&mtst_hub, 5);
+  CHECK(mfill_send_idx(live_sid) != ~(usz)0); /* live went out */
+  CHECK(!mf_no_fetch());                      /* the fill is still held */
+}
+
 void test_moqtrun_fill(void) {
   test_moqtrun_fill_subscribe_opens();
   test_moqtrun_fill_end_clipped_to_largest();
@@ -605,4 +695,7 @@ void test_moqtrun_fill(void) {
   test_moqtrun_fill_blocked_upstream_gone();
   test_moqtrun_fill_counts_in_done();
   test_moqtrun_fill_done_waits_for_held();
+  test_moqtrun_fill_ascending_sends_first();
+  test_moqtrun_fill_descending_sends_last();
+  test_moqtrun_fill_blocked_never_starves_live();
 }

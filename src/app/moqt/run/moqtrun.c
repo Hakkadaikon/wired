@@ -1702,9 +1702,18 @@ static void moqtrun_fills_upstream_gone(wired_moqt_hub* hub, u64 tag) {
       moqtrun_fill_upstream_gone_one(hub, &hub->fetches[i]);
 }
 
-static void moqtrun_fetches_tick(wired_moqt_hub* hub) {
+/* 1 iff f is served by the tick pass of direction descending. */
+static int moqtrun_fetch_in_pass(const wired_moqtrun_fetch* f, int descending) {
+  return moqtrun_fetch_live(f) && f->descending == descending;
+}
+
+/* One serving pass over the fetch table, descending fills only when
+ * descending -- ascending backlog goes out before the live rounds of
+ * the same tick, a descending one after them (SS9.20.15: catch-up
+ * precedes live only while it serves the Objects right behind it). */
+static void moqtrun_fetches_tick(wired_moqt_hub* hub, int descending) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (moqtrun_fetch_live(&hub->fetches[i]))
+    if (moqtrun_fetch_in_pass(&hub->fetches[i], descending))
       moqtrun_fetch_tick_one(hub, &hub->fetches[i]);
 }
 
@@ -3442,17 +3451,24 @@ static void moqtrun_reqs_tick(wired_moqt_hub* hub);
 
 static void moqtrun_drain_tick(wired_moqt_hub* hub, u64 now_ms);
 
-void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
-  hub->live.last_now_ms = now_ms;
-  moqtrun_rel_tick_all(hub, now_ms);
-  moqtrun_drain_tick(hub, now_ms);
-  moqtrun_reqs_tick(hub);
-  moqtrun_fetches_tick(hub);
+/* The hub's own live track: the Group current at now_ms to every
+ * subscriber behind it. */
+static void moqtrun_live_tick(wired_moqt_hub* hub, u64 now_ms) {
   if (!hub->live.track.in_use) return;
   u64 g = moqtrun_live_group_at(&hub->live, now_ms);
   moqtrun_track_note(&hub->live.track, g, 0);
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
     moqtrun_live_serve_sub(hub, i, g);
+}
+
+void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
+  hub->live.last_now_ms = now_ms;
+  moqtrun_fetches_tick(hub, 0); /* ascending backlog before live rounds */
+  moqtrun_rel_tick_all(hub, now_ms);
+  moqtrun_drain_tick(hub, now_ms);
+  moqtrun_reqs_tick(hub);
+  moqtrun_live_tick(hub, now_ms);
+  moqtrun_fetches_tick(hub, 1); /* a descending fill waits for them */
 }
 
 /* Records slot for peer_idx, replies SUBSCRIBE_OK with the live track's
