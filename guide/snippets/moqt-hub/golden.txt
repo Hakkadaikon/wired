@@ -2,4 +2,4 @@ $ ./moqt-hub --port 4433
 conn closed by peer (CONNECTION_CLOSE)
 $ go run . https://127.0.0.1:4433
 status 200
-recv SETUP type=0x2f00 options=0 bytes
+recv SETUP type=0x2f00 options=4 bytes

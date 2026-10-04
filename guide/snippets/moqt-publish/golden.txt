@@ -2,7 +2,7 @@ $ ./moqt-publish --port 4433
 conn closed by peer (CONNECTION_CLOSE)
 $ go run . https://127.0.0.1:4433
 status 200
-recv SETUP type=0x2f00 options=0 bytes
+recv SETUP type=0x2f00 options=4 bytes
 send SUBSCRIBE guide/greeting
 recv SUBSCRIBE_OK track_alias=1
 recv object track_alias=1 group=0 id=0 payload="hello"
