@@ -695,6 +695,57 @@ static void test_moqtrun_goaway_waits_for_ctl_open(void) {
   CHECK(type == MOQCTL_T_GOAWAY);
 }
 
+/* The last close recorded for s names code. */
+static void mtctl_check_closed(wired_wt_session* s, u32 code) {
+  const moqtrun_test_call* c = moqtrun_test_last_kind(11);
+  CHECK(moqtrun_test_count_kind(11) == 1);
+  CHECK(c && c->s == s && c->stream_id == code);
+}
+
+/* draft-19 3.3: control streams stay open for the session's life -- a
+ * FIN on the hub's legacy bidi or on the accepted client control
+ * stream closes the session with PROTOCOL_VIOLATION. */
+static void test_moqtrun_ctl_fin_violates(void) {
+  wired_moqt_hub hub;
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(&hub, SESS_A, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl = moqtrun_test_last_kind(1)->stream_id;
+  wired_moqt_on_stream_data(&hub, SESS_A, ctrl, wired_span_of(0, 0), 1);
+  mtctl_check_closed(SESS_A, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+
+  u8  msg[16];
+  usz n = mtctl_uni_ctl(msg, 0, 0);
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+  wired_moqt_on_stream_data(&hub, SESS_A, 2, mtctl_span(msg, n), 1);
+  mtctl_check_closed(SESS_A, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
+/* A RESET_STREAM / STOP_SENDING on either control stream likewise. */
+static void test_moqtrun_ctl_reset_violates(void) {
+  wired_moqt_hub hub;
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(&hub, SESS_A, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl = moqtrun_test_last_kind(1)->stream_id;
+  wired_moqt_on_stream_reset(&hub, SESS_A, ctrl, 0, 0);
+  mtctl_check_closed(SESS_A, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+
+  u8  msg[16];
+  usz n = mtctl_uni_ctl(msg, 0, 0);
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+  wired_moqt_on_stream_data(&hub, SESS_A, 2, mtctl_span(msg, n), 0);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  wired_moqt_on_stream_reset(&hub, SESS_A, 2, 0, 0);
+  mtctl_check_closed(SESS_A, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
 /* ===================== 2. PUBLISH / SUBSCRIBE ===================== */
 
 /* PUBLISH is accepted and answered with REQUEST_OK on the control
@@ -5502,6 +5553,8 @@ void test_moqtrun(void) {
   test_moqtrun_refused_uni_ctl_open_retries();
   test_moqtrun_refused_bidi_ctl_open_retries();
   test_moqtrun_goaway_waits_for_ctl_open();
+  test_moqtrun_ctl_fin_violates();
+  test_moqtrun_ctl_reset_violates();
   test_moqtrun_publish_replies_request_ok();
   test_moqtrun_subscribe_matching_publish_replies_ok();
   test_moqtrun_subscribe_without_publish_replies_error();
