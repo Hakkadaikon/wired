@@ -502,6 +502,10 @@ typedef struct {
    * own FIN, so no pointer or index into a reusable subscription slot is
    * ever held. */
   u64 owner_rid;
+  /** Fill only: 1 once the upstream publisher left. An open fill was
+   * reset at once; a held one opens later only to reset (failure is
+   * signalled by open-then-reset, draft-22 3.3.4). */
+  int failed;
   /** 1 when Group Order is Descending (11.4.4.1): [cursor, end) is then
    * one group's window, stepped down a group at a time until lo's. */
   int descending;

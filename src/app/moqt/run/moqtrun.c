@@ -1640,11 +1640,42 @@ static u32 moqtrun_fetch_stall_code(const wired_moqtrun_fetch* f) {
   return f->is_fill ? MOQTRUN_RESET_DELIVERY_TIMEOUT : MOQTRUN_RESET_CANCELLED;
 }
 
+/* 1 when f failed (its upstream left): an open stream is reset with
+ * INTERNAL_ERROR now, a held fill the moment the transport grants one
+ * -- opened only to signal the failure (3.3.4). */
+static int moqtrun_fetch_fail_due(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+  if (!f->failed) return 0;
+  if (moqtrun_fetch_open(hub, f))
+    moqtrun_fetch_stop_code(hub, f, MOQTRUN_RESET_INTERNAL_ERROR);
+  return 1;
+}
+
 static void moqtrun_fetch_tick_one(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+  if (moqtrun_fetch_fail_due(hub, f)) return;
   moqtrun_fetch_serve(hub, f);
   if (moqtrun_fetch_stalled(hub, f))
     moqtrun_fetch_stop_code(hub, f, moqtrun_fetch_stall_code(f));
+}
+
+/* 1 iff f is a live fill serving track incarnation tag. */
+static int moqtrun_fill_of_tag(const wired_moqtrun_fetch* f, u64 tag) {
+  return f->in_use && f->is_fill && f->cache_tag == tag;
+}
+
+/* The upstream publisher of tag left: a fill is a live continuation of
+ * its subscription, so it cannot go on (unlike a FETCH of what remains
+ * cached). Open fills reset INTERNAL_ERROR now, held ones when opened. */
+static void moqtrun_fill_upstream_gone_one(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+  f->failed = 1;
+  if (f->opened) moqtrun_fetch_stop_code(hub, f, MOQTRUN_RESET_INTERNAL_ERROR);
+}
+
+static void moqtrun_fills_upstream_gone(wired_moqt_hub* hub, u64 tag) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+    if (moqtrun_fill_of_tag(&hub->fetches[i], tag))
+      moqtrun_fill_upstream_gone_one(hub, &hub->fetches[i]);
 }
 
 static void moqtrun_fetches_tick(wired_moqt_hub* hub) {
@@ -5373,8 +5404,10 @@ void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s) {
    * subscriber streams they record (moqtrun_track_reset_stale_relays). */
   moqtrun_peer_drop_rings(hub, p);
   moqtrun_peer_frags_release(p);
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
+    moqtrun_fills_upstream_gone(hub, p->tracks[t].cache_tag);
     moqtrun_track_cache_drop(hub, &p->tracks[t]);
+  }
   p->in_use = 0;
   moqtrun_reqs_tick(hub); /* its namespaces are withdrawn (10.18) */
 }
