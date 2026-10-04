@@ -369,6 +369,38 @@ static void test_moqtrun_on_session_stores_negotiated_ver(void) {
   CHECK(hub.peers[0].ver == MOQVER_D19);
 }
 
+/* ============ 1b. control-stream pair (draft-19 3.3 / 10.4) ============ */
+
+/* Raw client SETUP envelope: Type 0x2F00 (draft-19 1.4.1 varint: 2-byte,
+ * AF 00) + 16-bit Length + Setup Options bytes. */
+static usz mtctl_setup_msg(u8* buf, const u8* opts, usz opts_len) {
+  buf[0] = 0xAF;
+  buf[1] = 0x00;
+  buf[2] = (u8)(opts_len >> 8);
+  buf[3] = (u8)opts_len;
+  for (usz i = 0; i < opts_len; i++) buf[4 + i] = opts[i];
+  return 4 + opts_len;
+}
+
+/* draft-19 3.3 leniency: a SETUP written back on the hub's legacy bidi
+ * control stream is the client's SETUP -- no REQUEST_ERROR goes back, no
+ * close, and the session establishes. */
+static void test_moqtrun_setup_on_hub_bidi_accepted(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(&hub, SESS_A, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl = moqtrun_test_last_kind(1)->stream_id;
+  u8  msg[8];
+  usz n = mtctl_setup_msg(msg, 0, 0);
+
+  wired_moqt_on_stream_data(&hub, SESS_A, ctrl, wired_span_of(msg, n), 0);
+
+  CHECK(moqtrun_test_count_kind(3) == 0);  /* no reply sent back */
+  CHECK(moqtrun_test_count_kind(11) == 0); /* no close */
+  CHECK(moqsess_established(&hub.peers[0].sess));
+}
+
 /* ===================== 2. PUBLISH / SUBSCRIBE ===================== */
 
 /* PUBLISH is accepted and answered with REQUEST_OK on the control
@@ -5152,6 +5184,7 @@ void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
   test_moqtrun_on_session_stores_negotiated_ver();
+  test_moqtrun_setup_on_hub_bidi_accepted();
   test_moqtrun_publish_replies_request_ok();
   test_moqtrun_subscribe_matching_publish_replies_ok();
   test_moqtrun_subscribe_without_publish_replies_error();
