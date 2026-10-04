@@ -301,6 +301,31 @@ static void test_moqtrun_fetch_malformed_closes(void) {
   CHECK(mtrq_closes() == 1);
 }
 
+/* FETCH Range Filters are vetted like SUBSCRIBE's: a total past the
+ * advertised MAX_FILTER_RANGES is INVALID_FILTER (10.2.10, 10.4). */
+static void test_moqtrun_fetch_rngf_limit(void) {
+  static moqfetch_fetch m;
+  moqctl_rangefilter    four = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter    one  = mtst_rngf1(1, 9, 9, 1);
+  four.n                     = 4;
+  for (usz i = 1; i < 4; i++) {
+    four.r[i].start   = 10 * i;
+    four.r[i].end     = 10 * i + 1;
+    four.r[i].has_end = 1;
+  }
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 2);
+  m            = (moqfetch_fetch){0};
+  m.fetch_type = MOQFETCH_STANDALONE;
+  m.track      = mf_track();
+  m.start      = mf_loc(0, 0);
+  m.end        = mf_loc(0, 1);
+  mtst_rngf_param(&m.params, MOQCTL_PARAM_SUBGROUP_FILTER, &one);
+  mtst_rngf_param(&m.params, MOQCTL_PARAM_OBJECTID_FILTER, &four);
+  mf_send_fetch(&m);
+  CHECK(mf_error() == MOQCTL_ERR_INVALID_FILTER);
+}
+
 /* Nothing published -> INVALID_RANGE (10.12.3). */
 static void test_moqtrun_fetch_nothing_published(void) {
   mf_init(sizeof mf_arena);
@@ -794,6 +819,7 @@ void test_moqtrun_fetch(void) {
   test_moqtrun_fetch_cache_default_off();
   test_moqtrun_fetch_cache_released_on_leave();
   test_moqtrun_fetch_cache_released_on_republish();
+  test_moqtrun_fetch_rngf_limit();
   test_moqtrun_fetch_descending_group_order();
   test_moqtrun_fetch_ascending_group_order();
   test_moqtrun_fetch_malformed_closes();
