@@ -335,6 +335,33 @@ static void test_moqtrun_on_session_sends_setup(void) {
   CHECK(type == MOQCTL_T_SETUP);
 }
 
+/* The hub's SETUP advertises its filter-range and request-update limits
+ * (draft-19 10.4: the defaults 0 would forbid Range Filters and leave
+ * REQUEST_UPDATE unbounded). */
+static void test_moqtrun_setup_advertises_limits(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+
+  wired_moqt_on_session(&hub, SESS_A, wired_span_of(0, 0), wired_span_of(0, 0));
+
+  const moqtrun_test_call* c   = moqtrun_test_last_kind(1);
+  usz                      off = 0;
+  u64                      type;
+  wired_span               body;
+  moqctl_setup             s;
+  CHECK(
+      moqctl_peek_type(
+          wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
+      MOQCTL_OK);
+  {
+    usz boff = 0;
+    CHECK(moqctl_setup_take(body, &boff, &s) == MOQCTL_OK);
+  }
+  CHECK(s.max_filter_ranges == WIRED_MOQTRUN_MAX_FILTER_RANGES);
+  CHECK(s.max_request_updates == WIRED_MOQTRUN_MAX_REQ_UPDATES);
+}
+
 /* A second control stream for an already-tracked WT session is a no-op
  * here, not a second SETUP. srvrun's wt_on_session doc says "fires once",
  * but nothing upstream stops a duplicate/retried Extended CONNECT from
@@ -5622,6 +5649,7 @@ void test_moqtrun(void) {
   test_moqtrun_recording_overflow_counts_and_does_not_crash();
   test_moqtrun_payload_hash_detects_tail_past_truncation();
   test_moqtrun_on_session_sends_setup();
+  test_moqtrun_setup_advertises_limits();
   test_moqtrun_on_session_twice_is_idempotent();
   test_moqtrun_on_session_stores_negotiated_ver();
   test_moqtrun_setup_on_hub_bidi_accepted();

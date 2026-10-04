@@ -164,8 +164,9 @@ static i64 moqtrun_ctl_open_io(
   return legacy ? io->open_bidi_stream(s, b) : io->open_uni_stream(s, b);
 }
 
-/* draft 3.3: the hub's control stream, its own SETUP as first bytes (no
- * Setup Options -- this subset negotiates nothing on the wire). The
+/* draft 3.3: the hub's control stream, its own SETUP as first bytes
+ * (Setup Options: the hub's MAX_FILTER_RANGES / MAX_REQUEST_UPDATES
+ * limits, 10.4). The
  * draft-19 binding is a keep-open UNI stream, Stream Type 0x2F00 ahead
  * of the SETUP (3.4); a legacy session keeps the pre-d17 single bidi
  * the browser clients read. The io open ops prefix the WebTransport
@@ -177,8 +178,10 @@ static i64 moqtrun_ctl_open_io(
  * contract as stream_send, srvrun.h). */
 static void moqtrun_ctl_open(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   wired_mspan buf = wired_mspan_of(p->send_bufs[0], WIRED_MOQTRUN_CTL_SEND_BUF);
-  moqctl_setup setup = {0};
-  usz          off   = 0;
+  moqctl_setup setup        = {0};
+  usz          off          = 0;
+  setup.max_filter_ranges   = WIRED_MOQTRUN_MAX_FILTER_RANGES;
+  setup.max_request_updates = WIRED_MOQTRUN_MAX_REQ_UPDATES;
   if (!p->legacy) moqvi_put(buf, &off, MOQDATA_TYPE_SETUP);
   off += moqtrun_envelope_put(
       wired_mspan_of(buf.p + off, buf.n - off), MOQCTL_T_SETUP,
