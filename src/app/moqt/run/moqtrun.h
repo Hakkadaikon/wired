@@ -171,6 +171,16 @@ typedef struct {
  * ponytail: informational only; widen if an operator needs more. */
 #define WIRED_MOQTRUN_IMPL_MAX 64
 
+/** Per-peer buffer for request/Object stream deliveries arriving before
+ * SETUP completes both directions (draft-19 3.3): a byte log of (stream
+ * id, length, fin, bytes) records replayed in arrival order once the
+ * session establishes. The pre-SETUP window is ~1 RTT, so bursts are
+ * tiny; a request delivery that does not fit is reset EXCESSIVE_LOAD at
+ * arrival, an Object delivery is dropped.
+ * ponytail: flat per-peer log; raise if real clients race SETUP with
+ * more data. */
+#define WIRED_MOQTRUN_HOLD_BUF 2048
+
 /** Longest New Session URI wired_moqt_goaway sends (draft 10.4 allows
  * 8192): a URL, sized so the GOAWAY fits one control-stream reply round
  * (WIRED_MOQTRUN_CTL_SEND_BUF). */
@@ -560,6 +570,10 @@ typedef struct {
   u8  peer_impl[WIRED_MOQTRUN_IMPL_MAX];
   usz peer_impl_len;
   u8  peer_has_impl;
+  /** Pre-establishment deliveries held for replay (WIRED_MOQTRUN_
+   * HOLD_BUF's own doc). */
+  u8  hold[WIRED_MOQTRUN_HOLD_BUF];
+  usz hold_len;
   /** Negotiated MOQT draft (MOQVER_*), decided from the WT subprotocol
    * token in wired_moqt_on_session and fixed for the session's life. */
   int     ver;

@@ -746,6 +746,82 @@ static void test_moqtrun_ctl_reset_violates(void) {
   mtctl_check_closed(SESS_A, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
 
+/* draft-19 3.3: on a token session, request streams arriving before
+ * SETUP completed both directions are buffered, not processed (no
+ * reply, no reset) -- and processed once the client SETUP lands. */
+static void test_moqtrun_token_requests_held_until_established(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 0,
+      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+  CHECK(moqtrun_test_count_kind(12) == 0); /* no reply yet */
+  CHECK(moqtrun_test_count_kind(7) == 0);  /* and no reset */
+  CHECK(moqtrun_test_count_kind(11) == 0);
+
+  u8  msg[16];
+  usz n = mtctl_uni_ctl(msg, 0, 0);
+  wired_moqt_on_stream_data(&hub, SESS_A, 2, mtctl_span(msg, n), 0);
+  CHECK(moqtrun_test_count_kind(12) == 1); /* processed after SETUP */
+}
+
+/* Object streams arriving before establishment are buffered too and
+ * processed after: the held PUBLISH then the held SUBGROUP stream both
+ * land once the client SETUP does. */
+static void test_moqtrun_token_object_stream_held_until_established(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 0,
+      wired_span_of(g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN), 0);
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 6,
+      wired_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      1);
+  CHECK(hub.peers[0].tracks[0].in_use == 0); /* nothing processed */
+
+  u8  msg[16];
+  usz n = mtctl_uni_ctl(msg, 0, 0);
+  wired_moqt_on_stream_data(&hub, SESS_A, 2, mtctl_span(msg, n), 0);
+  CHECK(hub.peers[0].tracks[0].in_use == 1);      /* PUBLISH landed */
+  CHECK(hub.peers[0].tracks[0].has_largest == 1); /* Object landed */
+}
+
+/* A request stream the hold buffer cannot take is reset EXCESSIVE_LOAD
+ * at arrival -- before establishment, never after. */
+static void test_moqtrun_token_unbufferable_request_reset(void) {
+  static u8 junk[WIRED_MOQTRUN_HOLD_BUF];
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+
+  junk[0] = 0x01; /* no Stream Type decodes from it as 0x2F00 */
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 6, wired_span_of(junk, sizeof junk - 32), 0);
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 0,
+      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+
+  CHECK(moqtrun_test_count_kind(7) == 1);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(7);
+  CHECK(c && c->stream_id == 0);
+  CHECK(c && c->fin == 0x9); /* EXCESSIVE_LOAD rides the fin field */
+}
+
 /* ===================== 2. PUBLISH / SUBSCRIBE ===================== */
 
 /* PUBLISH is accepted and answered with REQUEST_OK on the control
@@ -5555,6 +5631,9 @@ void test_moqtrun(void) {
   test_moqtrun_goaway_waits_for_ctl_open();
   test_moqtrun_ctl_fin_violates();
   test_moqtrun_ctl_reset_violates();
+  test_moqtrun_token_requests_held_until_established();
+  test_moqtrun_token_object_stream_held_until_established();
+  test_moqtrun_token_unbufferable_request_reset();
   test_moqtrun_publish_replies_request_ok();
   test_moqtrun_subscribe_matching_publish_replies_ok();
   test_moqtrun_subscribe_without_publish_replies_error();

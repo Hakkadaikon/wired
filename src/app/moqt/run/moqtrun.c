@@ -8,6 +8,7 @@
 #include "app/moqt/tstat/moqtstat.h"
 #include "app/moqt/ver/moqver.h"
 #include "app/moqt/vi/moqvi.h"
+#include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/util/num.h"
 
@@ -227,6 +228,7 @@ static void moqtrun_init_peer(
   p->peer_ctl_asm.skip  = 0;
   p->peer_impl_len      = 0;
   p->peer_has_impl      = 0;
+  p->hold_len           = 0;
   p->goaway_deadline    = (u64)-1;
   p->goaway_flushed_at  = 0;
   p->closing            = 0;
@@ -4438,6 +4440,112 @@ static int moqtrun_fresh_uni_ctl(
   return 1;
 }
 
+/* ============== pre-establishment hold (draft-19 3.3) ============== */
+
+/* Streams are held while SETUP is incomplete: a token session until
+ * both directions are done; a legacy session only until the hub's own
+ * SETUP went out (its browser clients never send one back, and their
+ * requests must flow regardless). */
+static int moqtrun_hold_gate(const wired_moqtrun_peer* p) {
+  return p->legacy ? !p->ctl_opened : !moqsess_established(&p->sess);
+}
+
+/* One held record: 8-byte stream id + 2-byte length + 1-byte fin. */
+#define MOQTRUN_HOLD_HDR 11
+
+static usz moqtrun_hold_rec_len(const wired_moqtrun_peer* p, usz at) {
+  return (((usz)p->hold[at + 8] << 8) | p->hold[at + 9]) + MOQTRUN_HOLD_HDR;
+}
+
+/* An earlier delivery of sid is already held: later ones follow it into
+ * the log whatever their bytes look like (mid-stream bytes must never
+ * be re-classified). */
+static int moqtrun_hold_has(const wired_moqtrun_peer* p, u64 sid) {
+  for (usz at = 0; at < p->hold_len; at += moqtrun_hold_rec_len(p, at))
+    if (be_get_be64(p->hold + at) == sid) return 1;
+  return 0;
+}
+
+static void moqtrun_hold_put(
+    wired_moqtrun_peer* p, u64 sid, wired_span data, int fin) {
+  u8* at = p->hold + p->hold_len;
+  be_put_be64(at, sid);
+  at[8]  = (u8)(data.n >> 8);
+  at[9]  = (u8)data.n;
+  at[10] = (u8)(fin != 0);
+  bytes_memcpy(at + MOQTRUN_HOLD_HDR, data.p, data.n);
+  p->hold_len += MOQTRUN_HOLD_HDR + data.n;
+}
+
+/* Holds one delivery for replay. One that does not fit is lost: a
+ * request stream is reset EXCESSIVE_LOAD now -- before establishment,
+ * never after (3.3.4) -- while an Object stream is silently dropped
+ * (only its own pre-SETUP bytes are lost). */
+static void moqtrun_hold_push(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 sid,
+    wired_span          data,
+    int                 fin) {
+  if (p->hold_len + MOQTRUN_HOLD_HDR + data.n <= sizeof p->hold) {
+    moqtrun_hold_put(p, sid, data, fin);
+    return;
+  }
+  if ((sid & 3) == 0)
+    hub->io.stream_reset(p->wt, sid, MOQTRUN_RESET_EXCESSIVE_LOAD);
+}
+
+static void moqtrun_dispatch_other(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin);
+
+static usz moqtrun_hold_replay_one(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz at) {
+  usz n = moqtrun_hold_rec_len(p, at) - MOQTRUN_HOLD_HDR;
+  moqtrun_dispatch_other(
+      hub, p, be_get_be64(p->hold + at),
+      wired_span_of(p->hold + at + MOQTRUN_HOLD_HDR, n), p->hold[at + 10]);
+  return MOQTRUN_HOLD_HDR + n;
+}
+
+static int moqtrun_hold_ready(const wired_moqtrun_peer* p) {
+  return p->in_use && p->hold_len != 0 && !moqtrun_hold_gate(p);
+}
+
+static int moqtrun_hold_more(const wired_moqtrun_peer* p, usz at, usz n) {
+  return at < n && !p->closing;
+}
+
+/* Replays every held delivery in arrival order once the gate lifts.
+ * hold_len drops to 0 first, so a replayed record can never re-hold;
+ * the records replay straight out of the log (nothing appends while
+ * the gate is open). A session closing mid-replay drops the rest. */
+static void moqtrun_hold_replay(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  usz at = 0;
+  usz n  = p->hold_len;
+  if (!moqtrun_hold_ready(p)) return;
+  p->hold_len = 0;
+  while (moqtrun_hold_more(p, at, n)) at += moqtrun_hold_replay_one(hub, p, at);
+}
+
+/* The control/hold/data decision for a FRESH uni delivery. */
+static void moqtrun_dispatch_uni_fresh(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin) {
+  if (moqtrun_fresh_uni_ctl(hub, p, stream_id, data, fin)) return;
+  if (moqtrun_hold_gate(p)) {
+    moqtrun_hold_push(hub, p, stream_id, data, fin);
+    return;
+  }
+  moqtrun_dispatch_fresh_stream(hub, p, stream_id, data, fin);
+}
+
 /* draft 3.4/11.4.2: relay a data stream's bytes verbatim to the
  * subscribers of the track its Track Alias names. A stream_id already in
  * the relay map (an earlier call on this same publisher stream) forwards
@@ -4457,8 +4565,11 @@ static void moqtrun_dispatch_data_stream(
     moqtrun_relay_continue(hub, track, relay, data, fin);
     return;
   }
-  if (moqtrun_fresh_uni_ctl(hub, p, stream_id, data, fin)) return;
-  moqtrun_dispatch_fresh_stream(hub, p, stream_id, data, fin);
+  if (moqtrun_hold_has(p, stream_id)) {
+    moqtrun_hold_push(hub, p, stream_id, data, fin);
+    return;
+  }
+  moqtrun_dispatch_uni_fresh(hub, p, stream_id, data, fin);
 }
 
 /* ===================== request-stream slots ===================== */
@@ -4652,6 +4763,24 @@ static int moqtrun_bidi_is_setup(
   return moqvi_take(data, &at, &t) && t == MOQCTL_T_SETUP;
 }
 
+/* The control/hold/request decision for a FRESH bidi delivery. */
+static void moqtrun_dispatch_bidi_fresh(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin) {
+  if (moqtrun_bidi_is_setup(hub, p->wt, stream_id, data)) {
+    moqtrun_ctl_adopt_rx(hub, p, stream_id, data, fin);
+    return;
+  }
+  if (moqtrun_hold_gate(p)) {
+    moqtrun_hold_push(hub, p, stream_id, data, fin);
+    return;
+  }
+  moqtrun_dispatch_req_stream(hub, p, stream_id, data, fin);
+}
+
 /* With request streams on, a peer-opened bidi stream is never Object data
  * (draft 3.3: Objects travel on unidirectional streams only). */
 static void moqtrun_dispatch_other(
@@ -4664,11 +4793,11 @@ static void moqtrun_dispatch_other(
     moqtrun_dispatch_data_stream(hub, p, stream_id, data, fin);
     return;
   }
-  if (moqtrun_bidi_is_setup(hub, p->wt, stream_id, data)) {
-    moqtrun_ctl_adopt_rx(hub, p, stream_id, data, fin);
+  if (moqtrun_hold_has(p, stream_id)) {
+    moqtrun_hold_push(hub, p, stream_id, data, fin);
     return;
   }
-  moqtrun_dispatch_req_stream(hub, p, stream_id, data, fin);
+  moqtrun_dispatch_bidi_fresh(hub, p, stream_id, data, fin);
 }
 
 /* ===================== public entry points ===================== */
@@ -4689,11 +4818,11 @@ void wired_moqt_on_stream_data(
   wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
   wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
   if (!p) return;
-  if (moqtrun_rx_on_ctl(p, stream_id)) {
+  if (moqtrun_rx_on_ctl(p, stream_id))
     moqtrun_ctl_rx(hub, p, stream_id, data, fin);
-    return;
-  }
-  moqtrun_dispatch_other(hub, p, stream_id, data, fin);
+  else
+    moqtrun_dispatch_other(hub, p, stream_id, data, fin);
+  moqtrun_hold_replay(hub, p);
 }
 
 /* ===================== OBJECT_DATAGRAM relay (draft 11.3) ============= */
@@ -5265,6 +5394,7 @@ static void moqtrun_drain_tick(wired_moqt_hub* hub, u64 now_ms) {
     if (moqtrun_drain_due(&hub->peers[i], now_ms))
       moqtrun_drain_expire(hub, &hub->peers[i], now_ms);
     moqtrun_ctl_retry(hub, &hub->peers[i]);
+    moqtrun_hold_replay(hub, &hub->peers[i]);
   }
 }
 
