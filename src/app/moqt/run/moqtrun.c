@@ -1639,9 +1639,16 @@ static int moqtrun_fetch_owned(
   return f->in_use && f->wt == s;
 }
 
+/* 1 iff f answers request rid, or is a fill owned by subscription rid
+ * (a REQUEST_UPDATE's fill carries its own request_id but dies with the
+ * subscription, SS9.20.15). */
+static int moqtrun_fetch_under(const wired_moqtrun_fetch* f, u64 rid) {
+  return f->request_id == rid || (f->is_fill && f->owner_rid == rid);
+}
+
 static int moqtrun_fetch_is_req(
     const wired_moqtrun_fetch* f, const wired_wt_session* s, u64 rid) {
-  return moqtrun_fetch_owned(f, s) && f->request_id == rid;
+  return moqtrun_fetch_owned(f, s) && moqtrun_fetch_under(f, rid);
 }
 
 /* The FETCH request rid of s was cancelled (3.3.3): its fetch stops. */
