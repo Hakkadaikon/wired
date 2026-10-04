@@ -1804,20 +1804,50 @@ static int moqtrun_fill_requested(
   return fp != 0 && !sub->forward_off;
 }
 
-/* FILL_PARAMETERS on an accepted SUBSCRIBE: decode its value and open
- * the fill under the SUBSCRIBE's own Request ID. */
+/* Decodes fp's FILL_PARAMETERS value and opens the fill under rid;
+ * nothing without the parameter, on a FORWARD-0 subscription, or on a
+ * malformed value. */
+static void moqtrun_fill_from_param(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_peer*      p,
+    wired_moqtrun_track*     track,
+    const wired_moqtrun_sub* sub,
+    u64                      rid,
+    const moqctl_param*      fp) {
+  moqfetch_fill fill;
+  if (!moqtrun_fill_requested(fp, sub)) return;
+  if (moqfetch_fill_take(fp->bytes, &fill) != MOQCTL_OK) return;
+  moqtrun_fill_open(hub, track, p, sub, rid, &fill);
+}
+
+/* FILL_PARAMETERS on an accepted SUBSCRIBE: the fill rides the
+ * SUBSCRIBE's own Request ID. */
 static void moqtrun_fill_on_subscribe(
     wired_moqt_hub*          hub,
     wired_moqtrun_peer*      p,
     wired_moqtrun_track*     track,
     const wired_moqtrun_sub* sub,
     const moqctl_params*     params) {
-  const moqctl_param* fp =
-      moqctl_params_find(params, MOQCTL_PARAM_FILL_PARAMETERS);
-  moqfetch_fill fill;
-  if (!moqtrun_fill_requested(fp, sub)) return;
-  if (moqfetch_fill_take(fp->bytes, &fill) != MOQCTL_OK) return;
-  moqtrun_fill_open(hub, track, p, sub, sub->request_id, &fill);
+  moqtrun_fill_from_param(
+      hub, p, track, sub, sub->request_id,
+      moqctl_params_find(params, MOQCTL_PARAM_FILL_PARAMETERS));
+}
+
+/* FILL_PARAMETERS on an applied REQUEST_UPDATE: the new fill's
+ * FETCH_HEADER carries the update's own Request ID (draft-22 9.8), an
+ * earlier fill keeps running beside it. Only a live track is filled --
+ * state kept for a gone publisher has no cache to read. */
+static void moqtrun_fill_on_update(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_peer*      p,
+    wired_moqtrun_track*     track,
+    const wired_moqtrun_sub* sub,
+    const moqctl_params*     params,
+    u64                      rid) {
+  if (!track) return;
+  moqtrun_fill_from_param(
+      hub, p, track, sub, rid,
+      moqctl_params_find(params, MOQCTL_PARAM_FILL_PARAMETERS));
 }
 
 static int moqtrun_sub_has_rid(const wired_moqtrun_sub* s, usz idx, u64 rid) {
@@ -2188,7 +2218,8 @@ static void moqtrun_update_sub(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  p,
     usz                  idx,
-    const moqctl_params* params) {
+    const moqctl_params* params,
+    u64                  rid) {
   wired_moqtrun_track* t    = 0;
   wired_moqtrun_sub*   s    = moqtrun_upd_target(hub, p, idx, &t);
   u64                  code = moqtrun_upd_verdict(hub, p, s, t, params);
@@ -2199,6 +2230,7 @@ static void moqtrun_update_sub(
   }
   moqtrun_upd_remember(p, s);
   moqtrun_queue_request_ok(p, t);
+  moqtrun_fill_on_update(hub, p, t, s, params, rid);
 }
 
 static int moqtrun_kind_is_ns(u64 kind) {
@@ -2249,12 +2281,13 @@ static void moqtrun_update_route(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  p,
     usz                  peer_idx,
-    const moqctl_params* params) {
+    const moqctl_params* params,
+    u64                  rid) {
   if (moqtrun_upd_is_pub(p)) {
     moqtrun_update_pub(hub, p, params);
     return;
   }
-  moqtrun_update_sub(hub, p, peer_idx, params);
+  moqtrun_update_sub(hub, p, peer_idx, params, rid);
 }
 
 /* A REQUEST_UPDATE of a SUBSCRIBE (or, on draft-22, of the sender's own
@@ -2275,7 +2308,7 @@ static void moqtrun_handle_update(
     moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
     return;
   }
-  moqtrun_update_route(hub, p, peer_idx, &m.params);
+  moqtrun_update_route(hub, p, peer_idx, &m.params, m.request_id);
 }
 
 /* ===================== namespace discovery ===================== */
