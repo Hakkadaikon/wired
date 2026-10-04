@@ -1100,10 +1100,20 @@ static void moqctl_setup_apply_path_authority(
   }
 }
 
-/* Any option type not one of the three tracked here (including
+/* MAX_FILTER_RANGES / MAX_REQUEST_UPDATES (SS10.4): even option types,
+ * their value one varint (kv->num). */
+static void moqctl_setup_apply_limits(moqctl_setup* out, const moqkvp* kv) {
+  if (kv->type == MOQCTL_OPT_MAX_FILTER_RANGES)
+    out->max_filter_ranges = kv->num;
+  if (kv->type == MOQCTL_OPT_MAX_REQUEST_UPDATES)
+    out->max_request_updates = kv->num;
+}
+
+/* Any option type not one of the five tracked here (including
  * greased/reserved ones) is ignored per SS10.4. */
 static void moqctl_setup_apply_kvp(moqctl_setup* out, const moqkvp* kv) {
   moqctl_setup_apply_path_authority(out, kv);
+  moqctl_setup_apply_limits(out, kv);
   if (kv->type == MOQCTL_OPT_MOQT_IMPLEMENTATION) {
     out->has_implementation = 1;
     out->implementation     = kv->raw;
@@ -1157,14 +1167,38 @@ static int moqctl_setup_put_path_authority(
       buf, at, prev, MOQCTL_OPT_AUTHORITY, s->has_authority, s->authority);
 }
 
+/* An even (varint-valued) option; 0, the draft default, stays off the
+ * wire. */
+static int moqctl_setup_put_num(
+    wired_mspan buf, usz* at, u64* prev, u64 type, u64 v) {
+  moqkvp kv;
+  if (!v) return 1;
+  kv.type   = type;
+  kv.is_raw = 0;
+  kv.num    = v;
+  return moqkvp_put(buf, at, prev, &kv);
+}
+
+/* Ascending option order per moqkvp_put's Delta contract: 0x06, 0x07,
+ * 0x08. */
+static int moqctl_setup_put_tail(
+    wired_mspan buf, usz* at, u64* prev, const moqctl_setup* s) {
+  if (!moqctl_setup_put_num(
+          buf, at, prev, MOQCTL_OPT_MAX_FILTER_RANGES, s->max_filter_ranges))
+    return 0;
+  if (!moqctl_setup_put_opt(
+          buf, at, prev, MOQCTL_OPT_MOQT_IMPLEMENTATION, s->has_implementation,
+          s->implementation))
+    return 0;
+  return moqctl_setup_put_num(
+      buf, at, prev, MOQCTL_OPT_MAX_REQUEST_UPDATES, s->max_request_updates);
+}
+
 int moqctl_setup_encode(wired_mspan buf, usz* off, const moqctl_setup* s) {
   usz at   = *off;
   u64 prev = 0;
   if (!moqctl_setup_put_path_authority(buf, &at, &prev, s)) return 0;
-  if (!moqctl_setup_put_opt(
-          buf, &at, &prev, MOQCTL_OPT_MOQT_IMPLEMENTATION,
-          s->has_implementation, s->implementation))
-    return 0;
+  if (!moqctl_setup_put_tail(buf, &at, &prev, s)) return 0;
   *off = at;
   return 1;
 }
