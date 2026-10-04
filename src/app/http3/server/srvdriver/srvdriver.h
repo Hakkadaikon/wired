@@ -11,9 +11,8 @@
  * Selects and runs one of this SDK's four server drivers (single-process,
  * multi-process fork, AF_XDP, multi-thread fan-out) from `--workers`/
  * `--ifindex`/`--cores`/`--pin-core` command-line flags, the exact same
- * exclusive-combination rules examples/word_list's driver_select hand-rolled
- * (webtransport_chat has an independent, narrower reimplementation of the
- * same idea). Only the CLI-driven decision of WHICH driver to run and its
+ * exclusive-combination rules examples/word_list's driver_select
+ * hand-rolled. Only the CLI-driven decision of WHICH driver to run and its
  * dispatch are here; each driver's own knobs (wired_srvworkers_opt,
  * wired_srvxdp_cfg, wired_srvthreads_opt) are unchanged and still directly
  * usable by a caller that wants to build one by hand instead of parsing argv.
