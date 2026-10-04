@@ -701,7 +701,48 @@ static void test_moqtrun_upd_rngf_replace_remove(void) {
   CHECK(mtst_sub(SESS_A, SESS_B) == 0); /* failed update ends it (10.9.1) */
 }
 
+static usz mtup_close_count(u32 code) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++)
+    n += g_calls[i].kind == 11 && g_calls[i].stream_id == code;
+  return n;
+}
+
+/* A request stream already holding MAX_REQUEST_UPDATES unanswered
+ * REQUEST_UPDATEs closes the session with TOO_MANY_REQUEST_UPDATES
+ * (draft-19 10.4). */
+static void test_moqtrun_upd_credit_too_many(void) {
+  moqctl_params p1 = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
+  moqctl_ftn    f  = mtup_setup();
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  g_stream_send_ok_n = 0; /* answers coalesce: nothing flushes */
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQ_UPDATES; i++)
+    mtup_update(SESS_B, MTRQ_S1, &p1);
+  CHECK(mtup_close_count(0x1B) == 0);
+  mtup_update(SESS_B, MTRQ_S1, &p1); /* one past the limit */
+  CHECK(mtup_close_count(0x1B) == 1);
+  g_stream_send_ok_n = -1;
+}
+
+/* One flushed response round restores every coalesced credit (the
+ * REQUEST_OKs went out together). */
+static void test_moqtrun_upd_credit_restored_by_flush(void) {
+  moqctl_params p1 = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
+  moqctl_ftn    f  = mtup_setup();
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  g_stream_send_ok_n = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQ_UPDATES; i++)
+    mtup_update(SESS_B, MTRQ_S1, &p1);
+  g_stream_send_ok_n = -1;       /* transport drains */
+  wired_moqt_tick(&mtst_hub, 1); /* flush: coalesced answers out */
+  mtup_update(SESS_B, MTRQ_S1, &p1);
+  CHECK(mtup_close_count(0x1B) == 0);
+  CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
+}
+
 void test_moqtrun_upd(void) {
+  test_moqtrun_upd_credit_too_many();
+  test_moqtrun_upd_credit_restored_by_flush();
   test_moqtrun_upd_rngf_replace_remove();
   test_moqtrun_upd_on_publish_stream();
   test_moqtrun_publish_requires_authorization();

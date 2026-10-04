@@ -380,7 +380,11 @@ static int moqtrun_req_send(
   return q->opened;
 }
 
-/* moqtrun_flush_replies for a request stream's own queue. */
+/* moqtrun_flush_replies for a request stream's own queue. A successful
+ * flush answers every REQUEST_UPDATE coalesced into it at once (draft-19
+ * 10.4: "each REQUEST_OK or REQUEST_ERROR response restores one
+ * credit"), so the outstanding count resets to 0 rather than ticking
+ * down per message. */
 static void moqtrun_req_flush(
     wired_moqt_io* io, wired_wt_session* s, wired_moqtrun_req* q) {
   int pending_idx = q->armed_idx ^ 1;
@@ -390,6 +394,7 @@ static void moqtrun_req_flush(
   if (moqtrun_req_send(io, s, q, b) <= 0) return;
   q->send_lens[q->armed_idx] = 0;
   q->armed_idx               = pending_idx;
+  q->pending_updates         = 0;
 }
 
 /* Flushes the queue of the stream p is handling. */
@@ -2825,6 +2830,28 @@ static void moqtrun_update_route(
   moqtrun_update_sub(hub, p, peer_idx, params, rid);
 }
 
+/* draft-ietf-moq-transport-19 10.4/10.9: a request stream already
+ * holding MAX_REQUEST_UPDATES outstanding (received, not yet answered by
+ * a flushed reply) REQUEST_UPDATEs closes the session on one more. */
+static int moqtrun_upd_over_credit(const wired_moqtrun_req* q) {
+  return q->pending_updates >= WIRED_MOQTRUN_MAX_REQ_UPDATES;
+}
+
+/* Rejects (and signals) a REQUEST_UPDATE that must not reach decode: not
+ * an allowed request kind, or its stream is already over credit. */
+static int moqtrun_upd_refused(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  if (!moqtrun_upd_allowed(p)) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
+    moqtrun_upd_close_ns(p->req);
+    return 1;
+  }
+  if (moqtrun_upd_over_credit(p->req)) {
+    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES);
+    return 1;
+  }
+  return 0;
+}
+
 /* A REQUEST_UPDATE of a SUBSCRIBE (or, on draft-22, of the sender's own
  * PUBLISH), on its stream (its own Request ID is a fresh one, 10.1: the
  * stream names the request). On the control stream, or for another
@@ -2833,16 +2860,13 @@ static void moqtrun_update_route(
 static void moqtrun_handle_update(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   moqtstat_update m;
-  if (!moqtrun_upd_allowed(p)) {
-    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
-    moqtrun_upd_close_ns(p->req);
-    return;
-  }
+  if (moqtrun_upd_refused(hub, p)) return;
   if (moqtstat_update_take(p->ver, body, MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &m) !=
       MOQCTL_OK) {
     moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
     return;
   }
+  p->req->pending_updates++;
   moqtrun_update_route(hub, p, peer_idx, &m.params, m.request_id);
 }
 
@@ -5460,27 +5484,28 @@ static int moqtrun_req_stream_ok(const wired_moqt_hub* hub, u64 stream_id) {
 
 static wired_moqtrun_req* moqtrun_req_open(
     wired_moqtrun_req* q, wired_wt_session* s, u64 stream_id) {
-  q->in_use       = 1;
-  q->wt           = s;
-  q->stream_id    = stream_id;
-  q->kind         = 0;
-  q->request_id   = MOQTRUN_RID_NONE;
-  q->opened       = 0;
-  q->in.n         = 0;
-  q->in.at        = 0;
-  q->in.skip      = 0;
-  q->send_lens[0] = 0;
-  q->send_lens[1] = 0;
-  q->armed_idx    = 0;
-  q->goaway       = 0;
-  q->live         = 0;
-  q->fin_in       = 0;
-  q->fin_out      = 0;
-  q->done_pending = 0;
-  q->done_status  = 0;
-  q->done_count   = 0;
-  q->ns_len       = 0;
-  q->ns_seen      = 0;
+  q->in_use          = 1;
+  q->wt              = s;
+  q->stream_id       = stream_id;
+  q->kind            = 0;
+  q->request_id      = MOQTRUN_RID_NONE;
+  q->opened          = 0;
+  q->in.n            = 0;
+  q->in.at           = 0;
+  q->in.skip         = 0;
+  q->send_lens[0]    = 0;
+  q->send_lens[1]    = 0;
+  q->armed_idx       = 0;
+  q->goaway          = 0;
+  q->live            = 0;
+  q->fin_in          = 0;
+  q->fin_out         = 0;
+  q->done_pending    = 0;
+  q->done_status     = 0;
+  q->done_count      = 0;
+  q->ns_len          = 0;
+  q->ns_seen         = 0;
+  q->pending_updates = 0;
   return q;
 }
 
