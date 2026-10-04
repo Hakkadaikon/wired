@@ -561,6 +561,26 @@ static void test_moqtrun_fill_counts_in_done(void) {
   CHECK(mfill_done_count(MTRQ_S1) == 2);
 }
 
+/* PUBLISH_DONE waits while a fill is still held unopened: a stream may
+ * never open after it. It goes out -- held fills included in its Stream
+ * Count -- once the transport grants the stream. */
+static void test_moqtrun_fill_done_waits_for_held(void) {
+  moqfetch_fill fill = {0};
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  g_open_uni_fail_n = 100;
+  moqctl_params sub = mfill_params(&fill, 0);
+  mfill_subscribe_req(&sub); /* the fill is held unopened */
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  CHECK(mfill_done_count(MTRQ_S1) == ~(u64)0); /* deferred */
+  CHECK(mtrq_fin_on(MTRQ_S1) == 0);
+  g_open_uni_fail_n = 0;
+  wired_moqt_tick(&mtst_hub, 1); /* opens (and resets: upstream gone) */
+  wired_moqt_tick(&mtst_hub, 2); /* flushes the owed PUBLISH_DONE */
+  CHECK(mfill_done_count(MTRQ_S1) == 1);
+  CHECK(mtrq_fin_on(MTRQ_S1) == 1);
+}
+
 void test_moqtrun_fill(void) {
   test_moqtrun_fill_subscribe_opens();
   test_moqtrun_fill_end_clipped_to_largest();
@@ -584,4 +604,5 @@ void test_moqtrun_fill(void) {
   test_moqtrun_fill_upstream_gone_resets();
   test_moqtrun_fill_blocked_upstream_gone();
   test_moqtrun_fill_counts_in_done();
+  test_moqtrun_fill_done_waits_for_held();
 }
