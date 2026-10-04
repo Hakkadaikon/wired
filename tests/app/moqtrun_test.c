@@ -73,6 +73,9 @@ static wired_wt_session* g_send_dg_reject_sess;
 /* When >0, the next N open_uni_stream calls are recorded but return -1
  * (refused) -- no uni-stream credit on the subscriber's connection. */
 static int g_open_uni_fail_n;
+/* When >0, the next N open_bidi_stream calls are recorded but return -1
+ * (refused) -- the bidi twin of g_open_uni_fail_n. */
+static int g_open_bidi_fail_n;
 /* When >= 0, only that many more stream_send calls are accepted; every
  * later one is refused until it is set back to -1 (unlimited). */
 static int g_stream_send_ok_n;
@@ -91,6 +94,7 @@ static void moqtrun_test_reset(void) {
   g_send_uni2_reject_sess   = 0;
   g_send_dg_reject_sess     = 0;
   g_open_uni_fail_n         = 0;
+  g_open_bidi_fail_n        = 0;
   g_stream_send_ok_n        = -1;
 }
 
@@ -128,6 +132,10 @@ static i64 moqtrun_test_open_bidi_stream(
     wired_wt_session* s, wired_span payload) {
   i64 sid = g_next_stream_id++;
   moqtrun_test_record(1, s, (u64)sid, 0, payload);
+  if (g_open_bidi_fail_n > 0) {
+    g_open_bidi_fail_n--;
+    return -1;
+  }
   return sid;
 }
 
@@ -467,7 +475,8 @@ static void test_moqtrun_client_bidi_setup_accepted(void) {
   CHECK(moqtrun_test_count_kind(11) == 0);
   CHECK(moqtrun_test_count_kind(12) == 0); /* no reply opened on it */
   CHECK(moqtrun_test_count_kind(7) == 0);  /* no reset */
-  CHECK(moqtrun_test_count_kind(1) == 1);  /* hub's SETUP went out once */
+  CHECK(moqtrun_test_count_kind(1) == 0);  /* no bidi: token session */
+  CHECK(moqtrun_test_count_kind(5) == 1);  /* hub's SETUP went out once */
   CHECK(moqsess_established(&hub.peers[0].sess));
 }
 
@@ -561,6 +570,98 @@ static void test_moqtrun_setup_malformed_closes(void) {
   const moqtrun_test_call* c = moqtrun_test_last_kind(11);
   CHECK(moqtrun_test_count_kind(11) == 1);
   CHECK(c && c->stream_id == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
+/* draft-19 3.3: a negotiated moqt-NN token makes the hub open its OWN
+ * UNI control stream -- first bytes Stream Type 0x2F00, then its SETUP
+ * -- and no bidi at all. */
+static void test_moqtrun_token_session_opens_uni_ctl(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+
+  CHECK(moqtrun_test_count_kind(1) == 0); /* no bidi */
+  CHECK(moqtrun_test_count_kind(5) == 1); /* one keep-open uni */
+  const moqtrun_test_call* c = moqtrun_test_last_kind(5);
+  CHECK(c && c->payload_len >= 2);
+  if (!c || c->payload_len < 2) return;
+  CHECK(c->payload[0] == 0xAF); /* Stream Type 0x2F00 (1.4.1 varint) */
+  CHECK(c->payload[1] == 0x00);
+  usz        off = 2;
+  u64        type;
+  wired_span body;
+  CHECK(
+      moqctl_peek_type(
+          wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
+      MOQCTL_OK);
+  CHECK(type == MOQCTL_T_SETUP);
+  CHECK(hub.peers[0].control_stream_id == c->stream_id);
+}
+
+/* Empty token: the pre-d17 single bidi stays (the browser cannot
+ * negotiate a WT subprotocol) and no uni 0x2F00 ever opens, even as
+ * ticks pass. */
+static void test_moqtrun_empty_token_keeps_bidi_ctl(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+
+  wired_moqt_on_session(&hub, SESS_A, wired_span_of(0, 0), wired_span_of(0, 0));
+  wired_moqt_tick(&hub, 1000);
+  wired_moqt_tick(&hub, 2000);
+
+  CHECK(moqtrun_test_count_kind(1) == 1);
+  CHECK(moqtrun_test_count_kind(5) == 0);
+}
+
+/* A refused uni control-stream open (the peer advertised no uni-stream
+ * credit yet, draft-ietf-webtrans-http3-16 5.1/5.5) is retried on a
+ * later tick: exactly one SETUP ends up out, and no third open follows
+ * once one succeeded. */
+static void test_moqtrun_refused_uni_ctl_open_retries(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  g_open_uni_fail_n = 1;
+
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+  CHECK(moqtrun_test_count_kind(5) == 1); /* attempted, refused */
+
+  wired_moqt_tick(&hub, 1);
+  CHECK(moqtrun_test_count_kind(5) == 2); /* retried, accepted */
+  if (moqtrun_test_count_kind(5))
+    CHECK(
+        hub.peers[0].control_stream_id == moqtrun_test_last_kind(5)->stream_id);
+
+  wired_moqt_tick(&hub, 2);
+  CHECK(moqtrun_test_count_kind(5) == 2); /* opened: no more attempts */
+}
+
+/* The bidi twin (legacy session): a refused open is retried, and until
+ * it succeeds the failed open is NOT recorded as stream id 0 -- bytes
+ * arriving on the client's bidi stream 0 go to the request-stream path
+ * (answered via stream_reply_open), never read as hub control bytes. */
+static void test_moqtrun_refused_bidi_ctl_open_retries(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  g_open_bidi_fail_n = 1;
+
+  wired_moqt_on_session(&hub, SESS_A, wired_span_of(0, 0), wired_span_of(0, 0));
+  CHECK(moqtrun_test_count_kind(1) == 1); /* attempted, refused */
+
+  wired_moqt_tick(&hub, 1);
+  CHECK(moqtrun_test_count_kind(1) == 2); /* retried, accepted */
+
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 0,
+      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+  CHECK(moqtrun_test_count_kind(12) == 1); /* request stream, not ctl */
 }
 
 /* ===================== 2. PUBLISH / SUBSCRIBE ===================== */
@@ -811,13 +912,23 @@ static u64            mtasm_ctrl_b;
 static u8             mtasm_buf[MTASM_BUF];
 
 /* A publishes alice; B joins with WT subprotocol tok ("" = draft-19)
- * (control stream mtasm_ctrl_b). */
+ * (control stream mtasm_ctrl_b). A non-empty token is a draft-19 3.3
+ * uni-pair session: B's control messages ride B's OWN uni control
+ * stream (established here), while an empty token keeps B writing back
+ * on the hub's bidi. */
 static void mtasm_setup_ver(const char* tok) {
   moqtrun_test_reset();
   wired_moqt_init(&mtasm_hub, moqtrun_test_io());
   moqtrun_test_publish_alice(&mtasm_hub);
   wired_moqt_on_session(
       &mtasm_hub, SESS_B, wired_span_of(0, 0), moqtrun_test_proto(tok));
+  if (tok[0]) {
+    u8  msg[16];
+    usz n = mtctl_uni_ctl(msg, 0, 0);
+    wired_moqt_on_stream_data(&mtasm_hub, SESS_B, 2, mtctl_span(msg, n), 0);
+    mtasm_ctrl_b = 2;
+    return;
+  }
   mtasm_ctrl_b = moqtrun_test_last_kind(1)->stream_id;
 }
 
@@ -5355,6 +5466,10 @@ void test_moqtrun(void) {
   test_moqtrun_setup_authority_closes_invalid_authority();
   test_moqtrun_setup_unknown_options_ignored();
   test_moqtrun_setup_malformed_closes();
+  test_moqtrun_token_session_opens_uni_ctl();
+  test_moqtrun_empty_token_keeps_bidi_ctl();
+  test_moqtrun_refused_uni_ctl_open_retries();
+  test_moqtrun_refused_bidi_ctl_open_retries();
   test_moqtrun_publish_replies_request_ok();
   test_moqtrun_subscribe_matching_publish_replies_ok();
   test_moqtrun_subscribe_without_publish_replies_error();

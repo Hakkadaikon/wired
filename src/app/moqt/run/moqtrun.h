@@ -527,8 +527,16 @@ typedef struct {
 typedef struct {
   int               in_use;
   wired_wt_session* wt;
-  /** The HUB's own control stream (the one its SETUP went out on). */
+  /** The HUB's own control stream (the one its SETUP went out on),
+   * valid only while ctl_opened. */
   u64 control_stream_id;
+  /** 1 while the control-stream binding is the pre-d17 single bidi: the
+   * WT token was empty (a browser cannot negotiate a subprotocol) or
+   * unlisted. 0 = draft-19 3.3 uni pair. */
+  u8 legacy;
+  /** 1 once the hub's control stream opened (SETUP went out with it). A
+   * refused open retries on a later tick; nothing else is sent before. */
+  u8 ctl_opened;
   /** The CLIENT's incoming control stream (draft-19 3.3), valid while
    * peer_ctl_set: the first of a client uni starting 0x2F00, a
    * client-opened bidi starting with SETUP, or a SETUP written back on
