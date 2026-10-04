@@ -148,10 +148,34 @@ static void test_moqtrun_fill_update_opens(void) {
   CHECK(mf_fin);
 }
 
+/* FORWARD gates every fill request: FILL_PARAMETERS on a FORWARD-0
+ * SUBSCRIBE opens nothing, a plain FORWARD-1 resume does not revive it,
+ * an update going 1 -> 0 with FILL_PARAMETERS opens nothing, and only
+ * 0 -> 1 together with FILL_PARAMETERS opens the fill. */
+static void test_moqtrun_fill_forward_gates(void) {
+  moqfetch_fill fill = {0};
+  moqctl_params p0   = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  moqctl_params p1   = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  moqctl_params sub = mfill_params(&fill, &p0);
+  mfill_subscribe_req(&sub);
+  CHECK(mfill_opens() == 0);
+  mtup_update(SESS_B, MTRQ_S1, &p1); /* plain resume */
+  CHECK(mfill_opens() == 0);
+  mfill_update(&fill, &p0); /* 1 -> 0 with a fill */
+  CHECK(mfill_opens() == 0);
+  u64 rid = mfill_update(&fill, &p1); /* 0 -> 1 with a fill */
+  CHECK(mfill_opens() == 1);
+  CHECK(mf_read());
+  CHECK(mf_hdr_rid == rid);
+}
+
 void test_moqtrun_fill(void) {
   test_moqtrun_fill_subscribe_opens();
   test_moqtrun_fill_end_clipped_to_largest();
   test_moqtrun_fill_empty_or_future_range();
   test_moqtrun_fill_open_end_is_largest();
   test_moqtrun_fill_update_opens();
+  test_moqtrun_fill_forward_gates();
 }
