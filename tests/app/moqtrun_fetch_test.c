@@ -622,6 +622,9 @@ static void test_moqtrun_fetch_d22_served(void) {
   moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D19;
   mf_standalone(mf_loc(0, 0), mf_loc(0, 0));
   CHECK(mf_loc_eq(mf_ok_end(), 0, 0));
+  /* 11.4.4: draft-19 has no End of Timed-Out Range, so 0x20C on its
+   * fetch stream is a VIOLATION, not an End of Range. */
+  CHECK(mtst_hub.fetches[0].seq.eor_timed_out == 0);
 }
 
 /* INVALID_RANGE (draft-22 SS9.20.9, SS9.11): a Next Object start is always
