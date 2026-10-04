@@ -467,7 +467,44 @@ static void test_moqtrun_timeout_datagram(void) {
   CHECK(moqtrun_test_count_kind(9) == 1);
 }
 
+/* ============ duplicate SUBSCRIBE per draft (draft-18 6.3) ============ */
+
+/* draft-18: at most one subscription per Track and role -- the same
+ * peer's second SUBSCRIBE is refused DUPLICATE_SUBSCRIPTION (0x19) and
+ * the first keeps relaying; another peer still gets its own slot. */
+static void test_moqtrun_sub_duplicate_refused_d18(void) {
+  moqctl_ftn f                               = mtrq_setup();
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D18;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_SUBSCRIBE_OK);
+  mtst_subscribe_p(SESS_B, MTRQ_S2, &f, 4, 0);
+  CHECK(mtup_err_code(MTRQ_S2) == MOQCTL_ERR_DUPLICATE_SUBSCRIPTION);
+  CHECK(mtst_sub(SESS_A, SESS_B) != 0);
+  CHECK(moqtrun_test_relay_alice_chat(&mtst_hub) == 1);
+  u64 cc                                     = mtst_join(SESS_C);
+  moqtrun_find_by_wt(&mtst_hub, SESS_C)->ver = MOQVER_D18;
+  mtst_subscribe(SESS_C, cc, &f);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+}
+
+/* draft-19 and draft-22 keep the idempotent SUBSCRIBE_OK re-answer
+ * (draft-19 allows several subscriptions per Track; the hub re-answers
+ * instead of eating a second slot). */
+static void test_moqtrun_sub_duplicate_reanswered_d19_d22(void) {
+  static const int vers[] = {MOQVER_D19, MOQVER_D22};
+  for (usz v = 0; v < 2; v++) {
+    moqctl_ftn f                               = mtrq_setup();
+    moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = vers[v];
+    mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+    mtst_subscribe_p(SESS_B, MTRQ_S2, &f, 4, 0);
+    CHECK(mtup_reply(MTRQ_S2, &(wired_span){0, 0}) == MOQCTL_T_SUBSCRIBE_OK);
+    CHECK(moqtrun_test_relay_alice_chat(&mtst_hub) == 1);
+  }
+}
+
 void test_moqtrun_upd(void) {
+  test_moqtrun_sub_duplicate_refused_d18();
+  test_moqtrun_sub_duplicate_reanswered_d19_d22();
   test_moqtrun_tstat_ok_largest();
   test_moqtrun_tstat_ok_empty();
   test_moqtrun_tstat_unknown_and_blob();
