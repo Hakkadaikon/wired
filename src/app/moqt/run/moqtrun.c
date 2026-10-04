@@ -10,6 +10,7 @@
 #include "app/moqt/vi/moqvi.h"
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/util/ct.h"
 #include "common/bytes/util/num.h"
 
 /* draft-ietf-moq-transport-19 hub relay. See moqtrun.h for the
@@ -1357,6 +1358,22 @@ static int moqtrun_token_uses_alias(const moqctl_token* t) {
   return t && t->alias_type != MOQCTL_TOKEN_USE_VALUE;
 }
 
+static int moqtrun_ns_field_eq(wired_span f, const char* z, usz n) {
+  return f.n == n && !ct_diffn(f.p, (const u8*)z, n);
+}
+
+/* draft-19 2.4.2/2.4.3 reserved namespaces: a first Track Namespace
+ * field of exactly "." MUST be rejected DOES_NOT_EXIST; ".session"
+ * names session-level tracks, and this hub defines none, so every
+ * request for one is unrecognized and DOES_NOT_EXIST too. Any other
+ * "."-led field is an unrecognized reserved namespace and passes to
+ * the application (this hub's normal handling). */
+static int moqtrun_ns_reserved(const moqctl_ns* ns) {
+  if (!ns->n) return 0;
+  return moqtrun_ns_field_eq(ns->fields[0], ".", 1) ||
+         moqtrun_ns_field_eq(ns->fields[0], ".session", 8);
+}
+
 /* draft SS13.3: "Relays will verify the token to ensure that the request
  * is authorized." Every SUBSCRIBE passes here before any track matching
  * (own blob/live tracks and peer tracks alike). 1 + *code when refused. */
@@ -1374,7 +1391,7 @@ static int moqtrun_subscribe_refused(
  * draft): a relay verifies the publisher may claim the PUBLISH's Full
  * Track Name. Every PUBLISH passes here before any slot is claimed,
  * moqtrun_subscribe_refused's twin. 1 + *code when refused. */
-static int moqtrun_publish_refused(
+static int moqtrun_publish_auth_refused(
     const wired_moqt_hub* hub, const moqctl_publish* m, u64* code) {
   const moqctl_token* t = moqtrun_auth_token_of(&m->params);
   *code                 = MOQCTL_ERR_MALFORMED_AUTH_TOKEN;
@@ -1382,6 +1399,15 @@ static int moqtrun_publish_refused(
   *code = MOQCTL_ERR_UNAUTHORIZED;
   if (!hub->authorize_publish) return 0;
   return !hub->authorize_publish(hub->authorize_pub_ctx, &m->name, t);
+}
+
+/* Reserved namespaces first (2.4.2/2.4.3: never published under), then
+ * authorization. */
+static int moqtrun_publish_refused(
+    const wired_moqt_hub* hub, const moqctl_publish* m, u64* code) {
+  *code = MOQCTL_ERR_DOES_NOT_EXIST;
+  if (moqtrun_ns_reserved(&m->name.ns)) return 1;
+  return moqtrun_publish_auth_refused(hub, m, code);
 }
 
 /* Not a REQUEST_ERROR code: the request is accepted. */
@@ -1410,11 +1436,19 @@ static u64 moqtrun_params_refusal(const moqctl_params* params) {
                                          : MOQTRUN_REQ_ACCEPT;
 }
 
-static u64 moqtrun_subscribe_refusal(
+static u64 moqtrun_subscribe_refusal_tail(
     const wired_moqt_hub* hub, const moqctl_subscribe* m) {
   u64 code = moqtrun_params_refusal(&m->params);
   if (code != MOQTRUN_REQ_ACCEPT) return code;
   return moqtrun_subscribe_refused(hub, m, &code) ? code : MOQTRUN_REQ_ACCEPT;
+}
+
+/* Reserved namespaces first (2.4.2/2.4.3), then parameters and
+ * authorization. */
+static u64 moqtrun_subscribe_refusal(
+    const wired_moqt_hub* hub, const moqctl_subscribe* m) {
+  if (moqtrun_ns_reserved(&m->name.ns)) return MOQCTL_ERR_DOES_NOT_EXIST;
+  return moqtrun_subscribe_refusal_tail(hub, m);
 }
 
 /* draft SS10.6 SUBSCRIBE: reject a non-zero SUBGROUP_DELIVERY_TIMEOUT
@@ -2700,7 +2734,7 @@ static int moqtrun_disc_record(wired_moqtrun_req* q, const moqctl_ns* ns) {
 
 /* 10.15 / 10.18: the receiver MUST verify the request is authorized
  * (moqtrun_subscribe_refused's twin). 1 + *code when refused. */
-static int moqtrun_disc_refused(
+static int moqtrun_disc_auth_refused(
     const wired_moqt_hub* hub, u64 type, const moqns_req* m, u64* code) {
   const moqctl_token* t = moqtrun_auth_token_of(&m->params);
   *code                 = MOQCTL_ERR_MALFORMED_AUTH_TOKEN;
@@ -2708,6 +2742,15 @@ static int moqtrun_disc_refused(
   *code = MOQCTL_ERR_UNAUTHORIZED;
   if (!hub->authorize_namespace) return 0;
   return !hub->authorize_namespace(hub->authorize_ns_ctx, type, &m->ns, t);
+}
+
+/* Reserved namespaces first (2.4.2/2.4.3; a prefix leading with one is
+ * just as reserved), then authorization. */
+static int moqtrun_disc_refused(
+    const wired_moqt_hub* hub, u64 type, const moqns_req* m, u64* code) {
+  *code = MOQCTL_ERR_DOES_NOT_EXIST;
+  if (moqtrun_ns_reserved(&m->ns)) return 1;
+  return moqtrun_disc_auth_refused(hub, type, m, code);
 }
 
 static u64 moqtrun_disc_verdict(
