@@ -240,6 +240,15 @@ static int mfill_read(void) {
   return mf_read_seq(seq);
 }
 
+/* mfill_read of a Group Order Descending stream (Group ID Deltas run the
+ * other way, 11.4.4.1). */
+static int mfill_read_desc(void) {
+  moqfetch_seq seq  = {0};
+  seq.eor_timed_out = 1;
+  seq.descending    = 1;
+  return mf_read_seq(seq);
+}
+
 /* Item i is an End of Timed-Out Range ending at {g, o}. */
 static int mfill_is_tmo(usz i, u64 g, u64 o) {
   return i < mf_n && mf_items[i].flags == MOQFETCH_EOR_TIMED_OUT &&
@@ -307,6 +316,39 @@ static void test_moqtrun_fill_eviction_under_cursor(void) {
   CHECK(mf_fin);
 }
 
+/* A Group Order Descending fill sends groups from the range's end to its
+ * start, Objects within a group still ascending, and FINs only after the
+ * whole range (SS9.20.15, 11.4.4.1). */
+static void test_moqtrun_fill_descending(void) {
+  moqfetch_fill fill = {0};
+  fill.descending    = 1;
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mf_obj(1, 0, 1);
+  mfill_subscribe(&fill, 0);
+  CHECK(mfill_read_desc());
+  CHECK(mf_n == 3);
+  CHECK(mf_is_obj(0, 1, 0, 1));
+  CHECK(mf_is_obj(1, 0, 0, 1) && mf_is_obj(2, 0, 1, 1));
+  CHECK(mf_fin);
+}
+
+/* A descending fill walks past a Group that never existed without
+ * emitting anything for it, and the real last Object carries FIN. */
+static void test_moqtrun_fill_descending_skips_gap(void) {
+  moqfetch_fill fill = {0};
+  fill.descending    = 1;
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(2, 0, 1); /* group 1 never published */
+  mfill_subscribe(&fill, 0);
+  CHECK(mfill_read_desc());
+  CHECK(mf_n == 2);
+  CHECK(mf_is_obj(0, 2, 0, 1) && mf_is_obj(1, 0, 0, 1));
+  CHECK(mf_fin);
+}
+
 void test_moqtrun_fill(void) {
   test_moqtrun_fill_subscribe_opens();
   test_moqtrun_fill_end_clipped_to_largest();
@@ -319,4 +361,6 @@ void test_moqtrun_fill(void) {
   test_moqtrun_fill_miss_is_timed_out_now();
   test_moqtrun_fill_evicted_run_collapsed();
   test_moqtrun_fill_eviction_under_cursor();
+  test_moqtrun_fill_descending();
+  test_moqtrun_fill_descending_skips_gap();
 }

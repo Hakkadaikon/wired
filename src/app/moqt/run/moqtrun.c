@@ -1523,12 +1523,59 @@ static void moqtrun_fetch_obj_of(
   o->payload      = it->payload;
 }
 
+/* One serving window: the whole range of an ascending fetch, a single
+ * group's slice of a Group Order Descending fill. */
+typedef struct {
+  moqctl_loc cursor;
+  moqctl_loc end;
+} moqtrun_fwin;
+
+static int moqtrun_fwin_drained(const moqtrun_fwin* w) {
+  return !moqctl_loc_less(w->cursor, w->end);
+}
+
+/* The Group a window's exclusive end lies in. */
+static u64 moqtrun_fwin_group(const moqtrun_fwin* w) {
+  return w->end.object ? w->end.group : w->end.group - 1;
+}
+
+/* w moved one group down (11.4.4.1 Descending), clipped to lo. */
+static void moqtrun_fwin_down(
+    const wired_moqt_hub* hub, u64 tag, moqctl_loc lo, moqtrun_fwin* w) {
+  u64        g    = moqtrun_fwin_group(w) - 1;
+  moqctl_loc from = g == lo.group ? lo : moqctl_loc_of(g, 0);
+  w->end          = moqctl_loc_of(g + 1, 0);
+  w->cursor       = moqcache_skip(&hub->cache, tag, from, w->end);
+}
+
+/* 1 while a drained descending window still has lower groups to serve. */
+static int moqtrun_fwin_more(
+    const wired_moqtrun_fetch* f, const moqtrun_fwin* w) {
+  return f->descending && moqtrun_fwin_drained(w) &&
+         moqtrun_fwin_group(w) != f->lo.group;
+}
+
+/* f's serving state once the item ending at from is out: the cursor
+ * skipped within the window, a descending fill stepped down past any
+ * group with nothing to serve. Drained = the fetch is over (FIN). */
+static void moqtrun_fetch_after(
+    const wired_moqt_hub*      hub,
+    const wired_moqtrun_fetch* f,
+    moqctl_loc                 from,
+    moqtrun_fwin*              w) {
+  w->end    = f->end;
+  w->cursor = moqcache_skip(&hub->cache, f->cache_tag, from, w->end);
+  while (moqtrun_fwin_more(f, w))
+    moqtrun_fwin_down(hub, f->cache_tag, f->lo, w);
+}
+
 /* Sends the item at f's cursor (FIN on the last); 0 when the transport
  * refused it -- the cursor stays and the item is looked up afresh on the
  * next try. relay_scratch is free here (its doc). */
 static int moqtrun_fetch_send_one(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   moqcache_item it;
   moqfetch_obj  o;
+  moqtrun_fwin  w;
   moqfetch_seq  seq = f->seq;
   usz           n   = 0;
   moqcache_item_at(&hub->cache, f->cache_tag, f->cursor, f->end, &it);
@@ -1536,13 +1583,14 @@ static int moqtrun_fetch_send_one(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   moqfetch_obj_put(
       wired_mspan_of(hub->relay_scratch, sizeof hub->relay_scratch), &n, &seq,
       &o);
-  moqctl_loc next = moqcache_skip(&hub->cache, f->cache_tag, it.next, f->end);
-  int        fin  = !moqctl_loc_less(next, f->end);
+  moqtrun_fetch_after(hub, f, it.next, &w);
+  int fin = moqtrun_fwin_drained(&w);
   if (hub->io.stream_send(
           f->wt, f->stream_id, wired_span_of(hub->relay_scratch, n), fin) <= 0)
     return 0;
   f->seq        = seq;
-  f->cursor     = next;
+  f->cursor     = w.cursor;
+  f->end        = w.end;
   f->in_use     = !fin;
   f->last_ok_ms = hub->live.last_now_ms;
   return 1;
@@ -1773,6 +1821,37 @@ static void moqtrun_fetch_standalone(
 
 /* ============ fill fetch streams (draft-22 SS9.20.15) ============ */
 
+/* Rewinds f to serve r by descending Group (Objects within a group stay
+ * ascending, 11.4.4.1): its window becomes the top group's slice of r,
+ * stepped down past groups with nothing to serve. */
+static void moqtrun_fetch_descend(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqtrun_frange* r) {
+  moqtrun_fwin w    = {r->start, r->end};
+  u64          g    = moqtrun_fwin_group(&w);
+  f->descending     = 1;
+  f->seq.descending = 1;
+  f->lo             = r->start;
+  moqtrun_fetch_after(
+      hub, f, g == r->start.group ? r->start : moqctl_loc_of(g, 0), &w);
+  f->cursor = w.cursor;
+  f->end    = w.end;
+}
+
+/* f marked as sub's fill under its own FETCH_HEADER Request ID: fills
+ * exist on draft-22 only, so 0x20C is legal on the stream (SS11.4.1),
+ * and a Descending GROUP_ORDER rewinds it to the range's top group. */
+static void moqtrun_fill_mark(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_fetch*     f,
+    const wired_moqtrun_sub* sub,
+    const moqfetch_fill*     fill,
+    const moqtrun_frange*    r) {
+  f->is_fill           = 1;
+  f->owner_rid         = sub->request_id;
+  f->seq.eor_timed_out = 1;
+  if (fill->descending) moqtrun_fetch_descend(hub, f, r);
+}
+
 /* The fill's LOCATION_FILTER as a FETCH range: no filter fills
  * everything up to the Largest Object (SS9.20.9). */
 static moqctl_rangeloc moqtrun_fill_rl(const moqfetch_fill* fill) {
@@ -1797,9 +1876,7 @@ static void moqtrun_fill_open(
   if (!moqtrun_fetch_resolve(track, &rl, &r)) return;
   wired_moqtrun_fetch* f = moqtrun_fetch_begin(hub, p->wt, rid, &r);
   if (!f) return;
-  f->is_fill           = 1;
-  f->owner_rid         = sub->request_id;
-  f->seq.eor_timed_out = 1; /* fills exist on draft-22 only (SS11.4.1) */
+  moqtrun_fill_mark(hub, f, sub, fill, &r);
   moqtrun_fetch_serve(hub, f);
 }
 
