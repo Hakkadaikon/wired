@@ -65,9 +65,8 @@ int wired_srvthreads_run(
     const wired_srvthreads_opt* opt);
 
 /** Parse a comma-separated core list ("2,3,4,5") into opt->cores[] and
- * opt->n_cores, e.g. for a --cores CLI flag (examples/webtransport_chat and
- * examples/word_list each reimplemented this parser separately; this is the
- * shared version).
+ * opt->n_cores, e.g. for a --cores CLI flag (example servers each
+ * reimplemented this parser separately; this is the shared version).
  *
  * The empty string is rejected rather than accepted as "0 cores": an empty
  * --cores value is always a caller mistake (the thread-fan-out driver is

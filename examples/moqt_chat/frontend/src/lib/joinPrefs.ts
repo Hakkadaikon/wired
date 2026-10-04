@@ -2,9 +2,8 @@
 // across visits. localStorage only ever holds this one key; corrupted or
 // missing data reads back as null so the form falls back to its defaults.
 //
-// Unlike webtransport_chat's joinPrefs, there is no room field (moqt_chat is
-// a single fixed room, moqt-plan.md decision 3) and no mic-off field until
-// voice ships (M5).
+// There is no room field (moqt_chat is a single fixed room, moqt-plan.md
+// decision 3) and no mic-off field until voice ships (M5).
 
 const KEY = "moqt-chat.join";
 

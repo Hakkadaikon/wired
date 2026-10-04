@@ -2,8 +2,8 @@
 // getUserMedia -> MediaStreamTrackProcessor -> AudioEncoder are all injected
 // so tests can supply fakes instead of real browser APIs.
 //
-// Unlike webtransport_chat's own (datagram-based, senderId embedded in each
-// frame's wire bytes), this pipeline hands the caller raw Opus bytes only:
+// Unlike a datagram-based pipeline (senderId embedded in each frame's wire
+// bytes), this pipeline hands the caller raw Opus bytes only:
 // the MOQT Track Alias already identifies the sender on the wire
 // (moqtVoiceWire.ts), and sequencing/MOQT Object framing is
 // MoqtVoiceClient's job, not this pipeline's.

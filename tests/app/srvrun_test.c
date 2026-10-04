@@ -9386,7 +9386,7 @@ static void test_srvrun_broadcast_datagram_reaches_two_real_clients(void) {
 
 /* RECEIVE-ONLY PEER: a broadcast DATAGRAM queued for a connection that never
  * itself receives anything (a WebTransport client that only listens, e.g.
- * every tab but the sender in webtransport_chat) must still reach it --
+ * every browser tab but the sender in a broadcast chat) must still reach it --
  * srvrun_sess_on_step's own srvrun_pump_datagram call never runs for such a
  * peer, so only the poll-timeout tick (srvrun_fire_ptos, via
  * srvrun_any_waiting -> srvrun_has_outbound seeing dg_pending) can flush it.

@@ -14,7 +14,7 @@ const clientCount = Number(arg("clients", "3"));
 const messagesPerClient = Number(arg("messages", "5"));
 const sendIntervalMs = Number(arg("interval-ms", "800"));
 // 15s, not a smaller "should be enough" guess: matches the value empirically
-// tuned for webtransport_chat (tasks/webtransport-chat-scaling/findings.md)
+// tuned for browser chat load (tasks/webtransport-chat-scaling/findings.md)
 // -- a shorter settle window reports false loss on the last few messages of
 // a run because they were still in flight/rendering when grading ran.
 const settleMs = Number(arg("settle-ms", "15000"));

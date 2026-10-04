@@ -312,7 +312,7 @@ static int origin_allowed(void* ctx, wired_span origin, wired_span authority) {
   }
 }
 
-/* --- Plain HTTP/3 app: identical shape to examples/webtransport_echo ---- */
+/* --- Plain HTTP/3 app: identical shape to examples/word_list ------------ */
 
 static int app_on_request(
     void*                       ctx,
@@ -340,7 +340,7 @@ static int app_on_request(
 }
 
 /* Fixed, deterministic server identity for wired_server_run_opt (same recipe
- * as webtransport_chat/word_list: a demo needs no key rotation). */
+ * as word_list: a demo needs no key rotation). */
 static const u8 SERVER_SCID[6] = {'M', 'O', 'Q', 'C', 'H', 'T'};
 
 typedef struct {
@@ -374,7 +374,7 @@ static void server_identity(
   id->now_secs                = now_secs;
 }
 
-/* --- Startup cert fingerprint log (same recipe as webtransport_chat) ---- */
+/* --- Startup cert fingerprint log --------------------------------------- */
 
 static usz hex_fingerprint(const u8 digest[32], char* out) {
   usz n = 0;

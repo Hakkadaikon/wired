@@ -1,6 +1,4 @@
 /build/
-/examples/webtransport_chat/cert.pem
-/examples/webtransport_chat/key.pem
 /build.ninja
 /.ninja_log
 /.ninja_deps
@@ -22,7 +20,7 @@
 tasks/
 /docs/sdk/
 
-# locally generated demo TLS material (examples/webtransport_chat)
+# locally generated demo TLS material
 examples/*/public/cert.pem
 examples/*/public/key.pem
 

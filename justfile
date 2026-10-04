@@ -7,7 +7,7 @@ warnflags := "-Wall -Wextra -Werror -O2"
 # WIRED_CONNTABLE_CAP, #ifndef-guarded there so this -D overrides it). Every
 # per-connection slot -- wired_srvloop, respstore, etc -- is a fixed-size
 # array sized off this, so raising it grows the binary's BSS accordingly
-# (~1.9MiB/conn). Default 4 matches the moqt_chat/webtransport_chat samples'
+# (~1.9MiB/conn). Default 4 matches the moqt_chat sample's
 # own fixed candidate-participant pool (CANDIDATE_PARTICIPANT_IDS, 4 ids) --
 # raise it for a deployment that needs more concurrent connections. Override
 # per invocation with `just --set conntable_cap 256 build`, or via the

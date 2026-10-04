@@ -100,7 +100,7 @@ QPACK splits the encoder and decoder instructions onto separate streams and sync
 
 HTTP/3 carries requests and responses, but an application that wants raw bidirectional streams and datagrams between a browser and a server needs one more layer.
 WebTransport overlays such a session on top of an HTTP/3 connection: an Extended CONNECT request establishes the session, and the streams and DATAGRAMs bound to it become the application's transport.
-This SDK implements the server side — the session state machine, the WebTransport capsules, and the error-code mapping under `src/app/webtransport/` — and `examples/webtransport_chat` drives a live session from a real browser.
+This SDK implements the server side — the session state machine, the WebTransport capsules, and the error-code mapping under `src/app/webtransport/` — and the [guide's browser chapter](https://hakkadaikon.github.io/wired/guide) drives a live session from a real browser.
 
 | Spec | Title | Link | Why |
 |------|------------|--------|-----------|
