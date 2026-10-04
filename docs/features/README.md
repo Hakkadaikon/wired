@@ -102,7 +102,9 @@ independent implementation) are tracked separately: see
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
+| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 206/208 | 197 | 9 | 2 |
 | [draft-ietf-moq-transport-19](draft-moq-transport.md) | 198/199 | 188 | 10 | 1 |
+| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 197/203 | 187 | 10 | 6 |
 
 ## IP/UDP foundations
 
