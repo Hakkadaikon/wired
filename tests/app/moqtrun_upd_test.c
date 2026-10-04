@@ -656,7 +656,53 @@ static void test_moqtrun_upd_on_publish_stream(void) {
   CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_NOT_SUPPORTED);
 }
 
+/* REQUEST_UPDATE replaces a mentioned Range Filter type whole, a
+ * zero-length value removes it, an omitted type stays; an update
+ * pushing the concurrent total past MAX_FILTER_RANGES is
+ * INVALID_FILTER and changes nothing (10.2.10). */
+static void test_moqtrun_upd_rngf_replace_remove(void) {
+  moqctl_params      sub = {0}, rep = {0}, del = {0}, four_p = {0}, over = {0};
+  moqctl_rangefilter lo   = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter hi   = mtst_rngf1(0, 5, 9, 1);
+  moqctl_rangefilter none = {0};
+  moqctl_rangefilter four = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter one  = mtst_rngf1(1, 9, 9, 1);
+  none.remove             = 1;
+  four.n                  = 4;
+  for (usz i = 1; i < 4; i++) {
+    four.r[i].start   = 10 * i;
+    four.r[i].end     = 10 * i + 1;
+    four.r[i].has_end = 1;
+  }
+  mtst_rngf_param(&sub, MOQCTL_PARAM_OBJECTID_FILTER, &lo);
+  mtst_rngf_param(&rep, MOQCTL_PARAM_OBJECTID_FILTER, &hi);
+  mtst_rngf_param(&del, MOQCTL_PARAM_OBJECTID_FILTER, &none);
+  mtst_rngf_param(&four_p, MOQCTL_PARAM_SUBGROUP_FILTER, &four);
+  mtst_rngf_param(&over, MOQCTL_PARAM_OBJECTID_FILTER, &one);
+  moqctl_ftn f = mtup_setup();
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &sub);
+  moqtrun_test_reset();
+  wired_moqt_on_datagram(
+      &mtst_hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+  CHECK(moqtrun_test_count_kind(9) == 0); /* 5 outside [0,4] */
+  mtup_update(SESS_B, MTRQ_S1, &rep);
+  moqtrun_test_reset();
+  wired_moqt_on_datagram(
+      &mtst_hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+  CHECK(moqtrun_test_count_kind(9) == 1); /* replaced by [5,9] */
+  mtup_update(SESS_B, MTRQ_S1, &del);
+  CHECK(mtst_sub(SESS_A, SESS_B)->rngf_n == 0); /* removed */
+  mtup_update(SESS_B, MTRQ_S1, &four_p);
+  CHECK(mtst_sub(SESS_A, SESS_B)->rngf_n == 4);
+  mtup_update(SESS_B, MTRQ_S1, &over); /* 4 kept + 1 new > 4 */
+  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_INVALID_FILTER);
+  CHECK(mtst_sub(SESS_A, SESS_B) == 0); /* failed update ends it (10.9.1) */
+}
+
 void test_moqtrun_upd(void) {
+  test_moqtrun_upd_rngf_replace_remove();
   test_moqtrun_upd_on_publish_stream();
   test_moqtrun_publish_requires_authorization();
   test_moqtrun_publish_alias_token_rejected();

@@ -1163,6 +1163,132 @@ static void test_moqtrun_other_dot_ns_served(void) {
   CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
 }
 
+/* ===== Range Filters (draft-19 10.2.10-10.2.14) ===== */
+
+static moqctl_rangefilter mtst_rngf1(u8 set, u64 start, u64 end, int has_end) {
+  moqctl_rangefilter f = {0};
+  f.set_id             = set;
+  f.n                  = 1;
+  f.r[0].start         = start;
+  f.r[0].end           = end;
+  f.r[0].has_end       = has_end;
+  return f;
+}
+
+/* params->items[params->n++] = one Range Filter parameter of type with
+ * value f (static ring storage survives the send). */
+static void mtst_rngf_param(
+    moqctl_params* params, u64 type, const moqctl_rangefilter* f) {
+  static u8     bufs[8][64];
+  static usz    bi;
+  u8*           b = bufs[bi++ & 7];
+  usz           n = 0;
+  moqctl_param* it;
+  CHECK(moqctl_rangefilter_put(wired_mspan_of(b, 64), &n, type, f));
+  it        = &params->items[params->n++];
+  *it       = (moqctl_param){0};
+  it->type  = type;
+  it->enc   = MOQCTL_PENC_BYTES;
+  it->bytes = wired_span_of(b, n);
+}
+
+/* OBJECTID_FILTER gates each Object at the per-Object (datagram) gate:
+ * {0,5} reaches only the subscriber whose ranges admit Object 5. Stream
+ * relays stay group-granular and pass (the Location Filter precedent). */
+static void test_moqtrun_sub_objectid_filter_gates_datagram(void) {
+  moqctl_params      lo = {0}, hi = {0};
+  moqctl_rangefilter f0 = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter f5 = mtst_rngf1(0, 5, 9, 1);
+  moqctl_ftn         f  = mtst_ftn("chat", "room1", "alice");
+  mtst_rngf_param(&lo, MOQCTL_PARAM_OBJECTID_FILTER, &f0);
+  mtst_rngf_param(&hi, MOQCTL_PARAM_OBJECTID_FILTER, &f5);
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  u64 cc = mtst_join(SESS_C);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &lo);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  mtst_subscribe_p(SESS_C, cc, &f, 2, &hi);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  moqtrun_test_reset();
+  wired_moqt_on_datagram(
+      &mtst_hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+  CHECK(moqtrun_test_count_kind(9) == 1);
+  CHECK(moqtrun_test_last_kind(9)->s == SESS_C);
+  CHECK(moqtrun_test_relay_alice_chat(&mtst_hub) == 2); /* streams pass */
+}
+
+/* SetIDs OR together (10.2.10): a failing set 0 plus a passing set 1
+ * still delivers. */
+static void test_moqtrun_sub_rngf_sets_or(void) {
+  moqctl_params      p  = {0};
+  moqctl_rangefilter f0 = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter f1 = mtst_rngf1(1, 5, 0, 0); /* 5.. open */
+  moqctl_ftn         f  = mtst_ftn("chat", "room1", "alice");
+  mtst_rngf_param(&p, MOQCTL_PARAM_OBJECTID_FILTER, &f0);
+  mtst_rngf_param(&p, MOQCTL_PARAM_OBJECTID_FILTER, &f1);
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &p);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  moqtrun_test_reset();
+  wired_moqt_on_datagram(
+      &mtst_hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+  CHECK(moqtrun_test_count_kind(9) == 1);
+}
+
+/* A repeated (Type, SetID) identity in one message is INVALID_FILTER;
+ * distinct SetIDs are legal (10.2.10). */
+static void test_moqtrun_sub_rngf_dup_identity(void) {
+  moqctl_params      dup = {0}, ok = {0};
+  moqctl_rangefilter f0 = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter f1 = mtst_rngf1(1, 0, 4, 1);
+  moqctl_ftn         f  = mtst_ftn("chat", "room1", "alice");
+  mtst_rngf_param(&dup, MOQCTL_PARAM_SUBGROUP_FILTER, &f0);
+  mtst_rngf_param(&dup, MOQCTL_PARAM_SUBGROUP_FILTER, &f0);
+  mtst_rngf_param(&ok, MOQCTL_PARAM_SUBGROUP_FILTER, &f0);
+  mtst_rngf_param(&ok, MOQCTL_PARAM_SUBGROUP_FILTER, &f1);
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &dup);
+  CHECK(mtrq_err_on(cb) == MOQCTL_ERR_INVALID_FILTER);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &ok);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+}
+
+/* The advertised MAX_FILTER_RANGES caps the total Ranges across all
+ * Range Filter parameters of one request (10.4). */
+static void test_moqtrun_sub_rngf_limit(void) {
+  moqctl_params      over = {0}, fit = {0};
+  moqctl_rangefilter four = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter one  = mtst_rngf1(1, 9, 9, 1);
+  moqctl_ftn         f    = mtst_ftn("chat", "room1", "alice");
+  four.n                  = 4;
+  for (usz i = 1; i < 4; i++) {
+    four.r[i].start   = 10 * i;
+    four.r[i].end     = 10 * i + 1;
+    four.r[i].has_end = 1;
+  }
+  mtst_rngf_param(&over, MOQCTL_PARAM_SUBGROUP_FILTER, &one);
+  mtst_rngf_param(&over, MOQCTL_PARAM_OBJECTID_FILTER, &four);
+  mtst_rngf_param(&fit, MOQCTL_PARAM_OBJECTID_FILTER, &four);
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &over); /* 4 + 1 > 4 */
+  CHECK(mtrq_err_on(cb) == MOQCTL_ERR_INVALID_FILTER);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &fit);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+}
+
 /* ============ SUBGROUP_DELIVERY_TIMEOUT (draft-19 8, 10.2.6) ============ */
 
 static moqctl_params mtst_params_vi(u64 type, u64 v) {
@@ -1266,6 +1392,10 @@ void test_moqtrun_sub(void) {
   test_moqtrun_sub_ns_must_match();
   test_moqtrun_reserved_ns_rejected();
   test_moqtrun_other_dot_ns_served();
+  test_moqtrun_sub_objectid_filter_gates_datagram();
+  test_moqtrun_sub_rngf_sets_or();
+  test_moqtrun_sub_rngf_dup_identity();
+  test_moqtrun_sub_rngf_limit();
   test_moqtrun_sub_subgroup_timeout_min();
   test_moqtrun_sub_subgroup_timeout_update();
   test_moqtrun_sub_subgroup_timeout_gates_delivery();
