@@ -224,6 +224,13 @@ typedef struct {
   /** OBJECT_DELIVERY_TIMEOUT (10.2.4) in ms, 0 when absent or none: an
    * Object reaching the hub longer ago is not sent (draft 8). */
   u64 delivery_timeout;
+  /** Effective SUBGROUP_DELIVERY_TIMEOUT (10.2.6) in ms: min of the
+   * publisher's Track Property and the subscriber's parameter over
+   * their non-zero values, 0 when neither set. Applied as a second age
+   * bound beside delivery_timeout (draft 8; the hub's io cannot see
+   * "all data committed", so the age model stands in for the
+   * post-FIN timer). */
+  u64 subgroup_timeout;
   /** Location Filter Start (9.3.1), resolved at SUBSCRIBE time; {0, 0}
    * when unfiltered. */
   moqctl_loc start;
@@ -572,6 +579,10 @@ typedef struct {
   int        has_largest;
   /** Request ID of the PUBLISH that claimed this slot. */
   u64 request_id;
+  /** The PUBLISH's SUBGROUP_DELIVERY_TIMEOUT Track Property (12.6) in
+   * ms, 0 when absent: min()ed into each subscription's effective
+   * timeout (wired_moqtrun_sub.subgroup_timeout). */
+  u64 subgroup_timeout_ms;
   /** This incarnation's records in the hub cache (wired_moqt_hub.cache),
    * fresh on every PUBLISH, so a later track in the same slot never
    * reads the old one's Objects. */
