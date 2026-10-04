@@ -664,6 +664,37 @@ static void test_moqtrun_refused_bidi_ctl_open_retries(void) {
   CHECK(moqtrun_test_count_kind(12) == 1); /* request stream, not ctl */
 }
 
+/* draft-19 3.6/10.4: GOAWAY rides only the hub's own control stream and
+ * never precedes SETUP. Queued while the control-stream open is still
+ * refused, it goes out on a later tick, on the hub's uni stream, after
+ * the open that carried SETUP. */
+static void test_moqtrun_goaway_waits_for_ctl_open(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  g_open_uni_fail_n = 1;
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+
+  wired_moqt_goaway(&hub, wired_span_of(0, 0), 0);
+  CHECK(moqtrun_test_count_kind(3) == 0); /* nothing before SETUP */
+
+  wired_moqt_tick(&hub, 1); /* open retried: SETUP out */
+  wired_moqt_tick(&hub, 2); /* queued GOAWAY flushed */
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(3);
+  CHECK(c && c->stream_id == hub.peers[0].control_stream_id);
+  if (!c) return;
+  usz        off = 0;
+  u64        type;
+  wired_span body;
+  CHECK(
+      moqctl_peek_type(
+          wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
+      MOQCTL_OK);
+  CHECK(type == MOQCTL_T_GOAWAY);
+}
+
 /* ===================== 2. PUBLISH / SUBSCRIBE ===================== */
 
 /* PUBLISH is accepted and answered with REQUEST_OK on the control
@@ -5470,6 +5501,7 @@ void test_moqtrun(void) {
   test_moqtrun_empty_token_keeps_bidi_ctl();
   test_moqtrun_refused_uni_ctl_open_retries();
   test_moqtrun_refused_bidi_ctl_open_retries();
+  test_moqtrun_goaway_waits_for_ctl_open();
   test_moqtrun_publish_replies_request_ok();
   test_moqtrun_subscribe_matching_publish_replies_ok();
   test_moqtrun_subscribe_without_publish_replies_error();
