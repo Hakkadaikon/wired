@@ -173,6 +173,20 @@ typedef struct {
  * SETUP carried AUTHORITY over WebTransport, 10.4). */
 #define WIRED_MOQTRUN_CLOSE_INVALID_AUTHORITY 0x19
 
+/** MAX_FILTER_RANGES the hub advertises in its SETUP (draft-19 10.4):
+ * Ranges accepted concurrently across one subscription's or fetch's Range
+ * filter parameters (10.2.10-10.2.14); a request past it is answered
+ * REQUEST_ERROR INVALID_FILTER. Matches the per-subscription range
+ * storage (wired_moqtrun_sub).
+ * ponytail: room-sized; raise with the storage if clients filter finer. */
+#define WIRED_MOQTRUN_MAX_FILTER_RANGES 4
+
+/** MAX_REQUEST_UPDATES the hub advertises in its SETUP (draft-19 10.4):
+ * outstanding REQUEST_UPDATEs it accepts per request stream before
+ * closing with TOO_MANY_REQUEST_UPDATES. One more than fits a reply
+ * buffer's coalesced answers (WIRED_MOQTRUN_REQ_SEND_BUF's sizing). */
+#define WIRED_MOQTRUN_MAX_REQ_UPDATES 4
+
 /** Longest MOQT_IMPLEMENTATION value (10.4) copied from the client's
  * SETUP; longer values are kept truncated.
  * ponytail: informational only; widen if an operator needs more. */
