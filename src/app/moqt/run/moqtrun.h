@@ -212,6 +212,19 @@ typedef struct {
  * so a short grace for its subscriptions to wind down. */
 #define WIRED_MOQTRUN_DRAIN_TIMEOUT_MS 5000
 
+/** One flattened Range Filter Range (draft-19 10.2.10-10.2.14): the
+ * (ptype, set_id[, prop_type]) triple names the parameter it came from;
+ * a parameter with k Ranges takes k rows. */
+typedef struct {
+  u64 ptype;     /**< MOQCTL_PARAM_*_FILTER (0x25-0x29) */
+  u64 prop_type; /**< 0x28/0x29 only, valid iff has_prop */
+  u64 start;     /**< inclusive */
+  u64 end;       /**< inclusive, valid iff has_end */
+  u8  set_id;
+  u8  has_prop;
+  u8  has_end;
+} wired_moqtrun_rngrow;
+
 /** One subscriber recorded against the hub's track: which session, and the
  * Track Alias this hub assigned it (hub-local per subscriber, draft SS10.7
  * moqsub scope). */
@@ -258,6 +271,16 @@ typedef struct {
    * has_filter: what a re-attach re-resolves start/end from. */
   moqctl_rangeloc filter;
   u8              has_filter;
+  /** Range Filter rows (10.2.10-10.2.14), one Range per row; capacity
+   * is the advertised MAX_FILTER_RANGES. OBJECTID_FILTER rows gate each
+   * Object at the per-Object (datagram) gate.
+   * ponytail: subgroup/priority/property filter rows are validated and
+   * stored but pass at delivery -- the group-granular stream gates
+   * never see those fields (the Location Filter's granularity note);
+   * evaluate them if the hub ever reads subgroup ids or properties at
+   * delivery. */
+  wired_moqtrun_rngrow rngf[WIRED_MOQTRUN_MAX_FILTER_RANGES];
+  u8                   rngf_n;
   /** Hub blob track only: 1 once the blob went out to this subscription,
    * so a FORWARD 1 -> 0 -> 1 update never sends it twice. */
   u8 blob_sent;

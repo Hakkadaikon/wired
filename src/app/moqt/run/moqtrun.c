@@ -1057,6 +1057,111 @@ static void moqtrun_sub_scalars(
   s->has_delivery_timeout = dt != 0;
 }
 
+/* ===== Range Filters (draft-19 10.2.10-10.2.14) ===== */
+
+static int moqtrun_ptype_is_rngf(u64 t) {
+  return t >= MOQCTL_PARAM_SUBGROUP_FILTER &&
+         t <= MOQCTL_PARAM_TRACK_PROPERTY_FILTER;
+}
+
+/* Decodes item's Range Filter value into *f; 0 when item is not a
+ * Range Filter parameter. An undecodable value is surfaced as
+ * f->invalid: the message layer answers INVALID_FILTER. */
+static int moqtrun_rngf_of(const moqctl_param* it, moqctl_rangefilter* f) {
+  if (!moqtrun_ptype_is_rngf(it->type)) return 0;
+  if (moqctl_rangefilter_take(it->type, it->bytes, f) != MOQCTL_OK)
+    f->invalid = 1;
+  return 1;
+}
+
+/* Flattens f's Ranges into s->rngf rows (capacity was vetted by
+ * moqtrun_rngf_refusal / moqtrun_rngf_over before apply). */
+static void moqtrun_rngf_add(
+    wired_moqtrun_sub* s, u64 ptype, const moqctl_rangefilter* f) {
+  for (usz i = 0; i < f->n && s->rngf_n < WIRED_MOQTRUN_MAX_FILTER_RANGES;
+       i++) {
+    wired_moqtrun_rngrow* r = &s->rngf[s->rngf_n++];
+    r->ptype                = ptype;
+    r->set_id               = (u8)f->set_id;
+    r->has_prop             = (u8)f->has_prop;
+    r->prop_type            = f->prop_type;
+    r->start                = f->r[i].start;
+    r->end                  = f->r[i].end;
+    r->has_end              = (u8)f->r[i].has_end;
+  }
+}
+
+static void moqtrun_rngf_add_item(
+    wired_moqtrun_sub* s, const moqctl_param* it) {
+  moqctl_rangefilter f;
+  if (!moqtrun_rngf_of(it, &f)) return;
+  moqtrun_rngf_add(s, it->type, &f);
+}
+
+/* SUBSCRIBE: the message is the subscription's whole Range Filter set. */
+static void moqtrun_sub_rngf_set(
+    wired_moqtrun_sub* s, const moqctl_params* params) {
+  s->rngf_n = 0;
+  for (usz i = 0; i < params->n; i++)
+    moqtrun_rngf_add_item(s, &params->items[i]);
+}
+
+static int moqtrun_rngf_msg_has(const moqctl_params* params, u64 ptype) {
+  for (usz i = 0; i < params->n; i++)
+    if (params->items[i].type == ptype) return 1;
+  return 0;
+}
+
+/* Drops s's rows of every filter type the update mentions (10.2.10: a
+ * non-zero Length replaces that entire filter parameter, a zero Length
+ * removes it; an omitted type stays). */
+static void moqtrun_rngf_drop_mentioned(
+    wired_moqtrun_sub* s, const moqctl_params* params) {
+  usz w = 0;
+  for (usz i = 0; i < s->rngf_n; i++)
+    if (!moqtrun_rngf_msg_has(params, s->rngf[i].ptype))
+      s->rngf[w++] = s->rngf[i];
+  s->rngf_n = (u8)w;
+}
+
+/* REQUEST_UPDATE: replace/remove the mentioned types, keep the rest. */
+static void moqtrun_sub_rngf_update(
+    wired_moqtrun_sub* s, const moqctl_params* params) {
+  moqtrun_rngf_drop_mentioned(s, params);
+  for (usz i = 0; i < params->n; i++)
+    moqtrun_rngf_add_item(s, &params->items[i]);
+}
+
+static int moqtrun_row_in(const wired_moqtrun_rngrow* r, u64 v) {
+  return v >= r->start && (!r->has_end || v <= r->end);
+}
+
+static int moqtrun_row_oid_of_set(const wired_moqtrun_rngrow* r, u8 set) {
+  return r->set_id == set && r->ptype == MOQCTL_PARAM_OBJECTID_FILTER;
+}
+
+/* OBJECTID rows of one set OR together; a set without any (or with only
+ * filter types the delivery gates cannot see) passes. have/hit are 0/1
+ * flags combined bitwise to keep the loop body branch-free. */
+static int moqtrun_set_oid_pass(const wired_moqtrun_sub* s, u8 set, u64 oid) {
+  int have = 0, hit = 0;
+  for (usz i = 0; i < s->rngf_n; i++) {
+    int in = moqtrun_row_oid_of_set(&s->rngf[i], set);
+    have |= in;
+    hit |= in & moqtrun_row_in(&s->rngf[i], oid);
+  }
+  return hit | !have;
+}
+
+/* SetIDs OR together (10.2.10): the Object passes when any set's
+ * evaluable params all admit it; no rows at all is unfiltered. */
+static int moqtrun_sub_rngf_pass(const wired_moqtrun_sub* s, u64 oid) {
+  int pass = !s->rngf_n; /* no rows: unfiltered */
+  for (usz i = 0; i < s->rngf_n; i++)
+    pass |= moqtrun_set_oid_pass(s, s->rngf[i].set_id, oid);
+  return pass;
+}
+
 /* min over the non-zero of {publisher's Track Property, subscriber's
  * parameter} (draft-19 8); 0 = neither set a timeout. */
 static u64 moqtrun_timeout_min(u64 pub_ms, u64 sub_ms) {
@@ -1090,6 +1195,7 @@ static void moqtrun_sub_open(
   s->has_jl       = (u8)t->has_largest;
   moqtrun_sub_scalars(s, m);
   s->subgroup_timeout = moqtrun_sub_sgt(t, m);
+  moqtrun_sub_rngf_set(s, &m->params);
   moqtrun_sub_filter(s, t, moqtrun_sub_param(m, MOQCTL_PARAM_LOCATION_FILTER));
 }
 
@@ -1128,7 +1234,8 @@ static int moqtrun_sub_in_objects(const wired_moqtrun_sub* s, moqctl_loc l) {
 }
 
 static int moqtrun_sub_gets_loc(const wired_moqtrun_sub* s, moqctl_loc l) {
-  return moqtrun_sub_gets(s, l.group) && moqtrun_sub_in_objects(s, l);
+  return moqtrun_sub_gets(s, l.group) && moqtrun_sub_in_objects(s, l) &&
+         moqtrun_sub_rngf_pass(s, l.object);
 }
 
 static int moqtrun_late_by(u64 timeout_ms, u64 age_ms) {
@@ -1457,9 +1564,76 @@ static int moqtrun_params_inverted(const moqctl_params* params) {
   return moqtrun_param_has_filter(f) && moqtrun_filter_inverted(&f->rl);
 }
 
+static int moqtrun_rngf_dup_pair(
+    const moqctl_rangefilter* a, const moqctl_rangefilter* b) {
+  return a->set_id == b->set_id && a->prop_type == b->prop_type;
+}
+
+static int moqtrun_rngf_dup_j(
+    const moqctl_params*      params,
+    usz                       j,
+    u64                       type,
+    const moqctl_rangefilter* fi) {
+  moqctl_rangefilter fj;
+  if (params->items[j].type != type) return 0;
+  moqtrun_rngf_of(&params->items[j], &fj);
+  return moqtrun_rngf_dup_pair(fi, &fj);
+}
+
+/* A repeated (Type, SetID, Property Type) identity earlier in the same
+ * message (10.2.10: INVALID_FILTER). */
+static int moqtrun_rngf_dup_before(
+    const moqctl_params* params, usz i, const moqctl_rangefilter* fi) {
+  for (usz j = 0; j < i; j++)
+    if (moqtrun_rngf_dup_j(params, j, params->items[i].type, fi)) return 1;
+  return 0;
+}
+
+typedef struct {
+  usz count; /* total Ranges across the message's Range Filters */
+  int bad;   /* malformed value or repeated identity */
+} moqtrun_rngf_scan;
+
+static void moqtrun_rngf_scan_one(
+    const moqctl_params* params, usz i, moqtrun_rngf_scan* s) {
+  moqctl_rangefilter f;
+  if (!moqtrun_rngf_of(&params->items[i], &f)) return;
+  s->count += f.n;
+  s->bad |= f.invalid | moqtrun_rngf_dup_before(params, i, &f);
+}
+
+static moqtrun_rngf_scan moqtrun_rngf_scan_msg(const moqctl_params* params) {
+  moqtrun_rngf_scan s = {0, 0};
+  for (usz i = 0; i < params->n; i++) moqtrun_rngf_scan_one(params, i, &s);
+  return s;
+}
+
+/* INVALID_FILTER (10.2.10/10.4) for a malformed Range Filter value, a
+ * repeated (Type, SetID, Property Type) identity, or more Ranges than
+ * the hub's advertised MAX_FILTER_RANGES; ACCEPT otherwise. */
+static u64 moqtrun_rngf_refusal(const moqctl_params* params) {
+  moqtrun_rngf_scan s = moqtrun_rngf_scan_msg(params);
+  if (s.bad || s.count > WIRED_MOQTRUN_MAX_FILTER_RANGES)
+    return MOQCTL_ERR_INVALID_FILTER;
+  return MOQTRUN_REQ_ACCEPT;
+}
+
+/* Rows s would hold after the update: kept types plus the message's
+ * (10.4: MAX_FILTER_RANGES bounds the concurrent total). */
+static int moqtrun_rngf_over(
+    const wired_moqtrun_sub* s, const moqctl_params* params) {
+  usz kept = 0;
+  for (usz i = 0; i < s->rngf_n; i++)
+    kept += !moqtrun_rngf_msg_has(params, s->rngf[i].ptype);
+  return kept + moqtrun_rngf_scan_msg(params).count >
+         WIRED_MOQTRUN_MAX_FILTER_RANGES;
+}
+
 /* REQUEST_ERROR code a SUBSCRIBE's or REQUEST_UPDATE's parameters call
- * for: an unsatisfiable filter. */
+ * for: a bad Range Filter, an unsatisfiable Location Filter. */
 static u64 moqtrun_params_refusal(const moqctl_params* params) {
+  u64 code = moqtrun_rngf_refusal(params);
+  if (code != MOQTRUN_REQ_ACCEPT) return code;
   return moqtrun_params_inverted(params) ? MOQCTL_ERR_INVALID_RANGE
                                          : MOQTRUN_REQ_ACCEPT;
 }
@@ -2313,6 +2487,10 @@ static void moqtrun_handle_fetch(
     moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
     return;
   }
+  if (moqtrun_rngf_refusal(&m.params) != MOQTRUN_REQ_ACCEPT) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_INVALID_FILTER);
+    return;
+  }
   moqtrun_fetch_route(hub, p, peer_idx, &m);
 }
 
@@ -2507,6 +2685,7 @@ static void moqtrun_upd_params(
     wired_moqtrun_sub*         s,
     const wired_moqtrun_track* t,
     const moqctl_params*       params) {
+  moqtrun_sub_rngf_update(s, params);
   for (usz i = 0; i < params->n; i++)
     moqtrun_upd_lookup(params->items[i].type)(s, t, &params->items[i]);
 }
@@ -2541,7 +2720,8 @@ static u64 moqtrun_upd_checked(
 }
 
 /* The REQUEST_ERROR code for the update, or MOQTRUN_REQ_ACCEPT once it is
- * applied. */
+ * applied. The concurrent Range Filter total is vetted first (10.4):
+ * refused before anything is applied. */
 static u64 moqtrun_upd_verdict(
     wired_moqt_hub*            hub,
     wired_moqtrun_peer*        p,
@@ -2549,6 +2729,7 @@ static u64 moqtrun_upd_verdict(
     const wired_moqtrun_track* t,
     const moqctl_params*       params) {
   if (!s) return MOQCTL_ERR_DOES_NOT_EXIST;
+  if (moqtrun_rngf_over(s, params)) return MOQCTL_ERR_INVALID_FILTER;
   return moqtrun_upd_checked(hub, p, s, t, params);
 }
 
