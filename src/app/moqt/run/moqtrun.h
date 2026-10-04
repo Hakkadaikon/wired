@@ -173,6 +173,11 @@ typedef struct {
  * SETUP carried AUTHORITY over WebTransport, 10.4). */
 #define WIRED_MOQTRUN_CLOSE_INVALID_AUTHORITY 0x19
 
+/** draft-ietf-moq-transport-19 3.5/10.9 TOO_MANY_REQUEST_UPDATES session
+ * code: a request stream already holding MAX_REQUEST_UPDATES outstanding
+ * REQUEST_UPDATEs received one more. */
+#define WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES 0x1B
+
 /** MAX_FILTER_RANGES the hub advertises in its SETUP (draft-19 10.4):
  * Ranges accepted concurrently across one subscription's or fetch's Range
  * filter parameters (10.2.10-10.2.14); a request past it is answered
@@ -488,6 +493,12 @@ typedef struct {
   u8                    send_bufs[2][WIRED_MOQTRUN_REQ_SEND_BUF];
   usz                   send_lens[2];
   int                   armed_idx;
+  /** REQUEST_UPDATEs received but not yet answered by a flushed reply
+   * (draft-19 10.9/10.4 MAX_REQUEST_UPDATES): one more than the setup
+   * limit closes the session. A flush answers every update coalesced
+   * in the queue at once, so it resets this to 0 rather than
+   * decrementing one at a time. */
+  u64 pending_updates;
   /** 1 once a GOAWAY arrived on the stream (draft 10.4: at most one). */
   int goaway;
   /** 1 once the request established a subscription or track: it stays
