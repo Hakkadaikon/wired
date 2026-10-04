@@ -178,6 +178,50 @@ static void test_moqns_param_scope(void) {
       MOQCTL_OK);
 }
 
+/* draft-ietf-moq-transport-19 10.19.1: SUBSCRIBE_TRACKS admits every
+ * Subscription parameter -- FORWARD included, unlike SUBSCRIBE_NAMESPACE's
+ * scope above -- and round-trips through the shared moqns_req codec. */
+static void test_moqns_subscribe_tracks_param_scope(void) {
+  static const u8 fwd[] = {0x01, 0x01, 0x01, 'a', 0x01, 0x10, 0x01};
+  moqns_req       m;
+  u8              out[32];
+  usz             n = 0;
+  CHECK(
+      moqns_subscribe_tracks_take(
+          MOQVER_D19, wired_span_of(fwd, sizeof fwd), &m) == MOQCTL_OK);
+  CHECK(m.request_id == 1);
+  CHECK(m.ns.n == 1 && m.ns.fields[0].n == 1 && m.ns.fields[0].p[0] == 'a');
+  CHECK(m.params.n == 1);
+  CHECK(moqns_req_encode(wired_mspan_of(out, sizeof out), &n, &m));
+  moqns_t_same(out, n, wired_span_of(fwd, sizeof fwd));
+}
+
+/* 10.20 PUBLISH_SKIPPED: Track Namespace Suffix then Track Name,
+ * round-tripped through moqns_pub_skipped_take/encode. */
+static void test_moqns_pub_skipped_roundtrip(void) {
+  static const u8   wire[] = {0x01, 0x01, 'r', 0x05, 'a', 'l', 'i', 'c', 'e'};
+  moqns_pub_skipped m;
+  u8                out[32];
+  usz               n = 0;
+  CHECK(
+      moqns_pub_skipped_take(wired_span_of(wire, sizeof wire), &m) ==
+      MOQCTL_OK);
+  CHECK(m.ns.n == 1 && m.ns.fields[0].n == 1 && m.ns.fields[0].p[0] == 'r');
+  CHECK(m.name.n == 5 && m.name.p[0] == 'a');
+  CHECK(moqns_pub_skipped_encode(wired_mspan_of(out, sizeof out), &n, &m));
+  moqns_t_same(out, n, wired_span_of(wire, sizeof wire));
+}
+
+/* A Track Name cut short after a well-formed Suffix is a Length
+ * mismatch, not a hang. */
+static void test_moqns_pub_skipped_rejects(void) {
+  static const u8   cut[] = {0x00, 0x05, 'a', 'l'};
+  moqns_pub_skipped m;
+  CHECK(
+      moqns_pub_skipped_take(wired_span_of(cut, sizeof cut), &m) ==
+      MOQCTL_VIOLATION);
+}
+
 /* 1.4.1 MOQT varint size boundaries on Request ID: 127 | 128 (1 -> 2
  * bytes) and 16383 | 16384 (2 -> 3 bytes) round trip with minimal size. */
 static void moqns_t_rid(u64 rid, usz want_len) {
@@ -301,6 +345,9 @@ void test_moqns(void) {
   test_moqns_field_rules();
   test_moqns_total_bound();
   test_moqns_param_scope();
+  test_moqns_subscribe_tracks_param_scope();
+  test_moqns_pub_skipped_roundtrip();
+  test_moqns_pub_skipped_rejects();
   test_moqns_varint_boundaries();
   test_moqns_encode_no_room();
   test_moqns_tuple_roundtrip();

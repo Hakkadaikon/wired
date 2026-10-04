@@ -24,6 +24,10 @@ int moqns_publish_take(int ver, wired_span body, moqns_req* out) {
   return moqns_req_take(ver, body, MOQCTL_PCTX_PUBLISH_NAMESPACE, out);
 }
 
+int moqns_subscribe_tracks_take(int ver, wired_span body, moqns_req* out) {
+  return moqns_req_take(ver, body, MOQCTL_PCTX_SUBSCRIBE_TRACKS, out);
+}
+
 int moqns_req_encode(wired_mspan buf, usz* off, const moqns_req* m) {
   if (!moqvi_put(buf, off, m->request_id)) return 0;
   if (!moqctl_ns_put(buf, off, &m->ns)) return 0;
@@ -35,4 +39,18 @@ int moqns_req_encode(wired_mspan buf, usz* off, const moqns_req* m) {
 int moqns_suffix_take(wired_span body, moqctl_ns* out) {
   usz at = 0;
   return moqctl_body_end(moqctl_ns_take(body, &at, out), at, body);
+}
+
+/* 10.20: Track Namespace Suffix then Track Name. */
+int moqns_pub_skipped_take(wired_span body, moqns_pub_skipped* out) {
+  usz at = 0;
+  int r  = moqctl_ns_take(body, &at, &out->ns);
+  if (r == MOQCTL_OK) r = moqctl_name_take(body, &at, &out->name);
+  return moqctl_body_end(r, at, body);
+}
+
+int moqns_pub_skipped_encode(
+    wired_mspan buf, usz* off, const moqns_pub_skipped* m) {
+  if (!moqctl_ns_put(buf, off, &m->ns)) return 0;
+  return moqctl_name_put(buf, off, m->name);
 }
