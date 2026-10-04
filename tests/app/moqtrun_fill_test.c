@@ -488,6 +488,46 @@ static void test_moqtrun_fill_blocked_open_held(void) {
   CHECK(mf_no_fetch());
 }
 
+/* The upstream publisher leaving mid-fill resets every open fill of its
+ * track with INTERNAL_ERROR: a fill is a live continuation of its
+ * subscription, not a cacheable FETCH, so it cannot go on. */
+static void test_moqtrun_fill_upstream_gone_resets(void) {
+  moqfetch_fill fill = {0};
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  g_stream_send_ok_n = 0; /* the fill parks mid-range, opened */
+  moqctl_params sub  = mfill_params(&fill, 0);
+  mfill_subscribe_req(&sub);
+  CHECK(!mf_no_fetch());
+  g_stream_send_ok_n = -1;
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  CHECK(mfill_reset_code(mfill_sid(0)) == MOQTRUN_RESET_INTERNAL_ERROR);
+  CHECK(mf_no_fetch());
+}
+
+/* A held (unopened) fill whose upstream left cannot signal yet: it stays
+ * silent until the transport grants the stream, then opens it only to
+ * reset INTERNAL_ERROR -- failure is signalled by open-then-reset. */
+static void test_moqtrun_fill_blocked_upstream_gone(void) {
+  moqfetch_fill fill = {0};
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  g_open_uni_fail_n = 100;
+  moqctl_params sub = mfill_params(&fill, 0);
+  mfill_subscribe_req(&sub);
+  CHECK(!mf_no_fetch());
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  CHECK(!mf_no_fetch()); /* held: no stream, so no reset yet */
+  CHECK(moqtrun_test_count_kind(7) == 0);
+  g_open_uni_fail_n = 0;
+  wired_moqt_tick(&mtst_hub, 1);
+  u64 sid = mf_data_sid(); /* opened only to signal the failure */
+  CHECK(mfill_reset_code(sid) == MOQTRUN_RESET_INTERNAL_ERROR);
+  for (usz i = 0; i < g_n_calls; i++) /* header only, no Objects */
+    CHECK(!(g_calls[i].kind == 3 && g_calls[i].stream_id == sid));
+  CHECK(mf_no_fetch());
+}
+
 void test_moqtrun_fill(void) {
   test_moqtrun_fill_subscribe_opens();
   test_moqtrun_fill_end_clipped_to_largest();
@@ -508,4 +548,6 @@ void test_moqtrun_fill(void) {
   test_moqtrun_fill_cancel_resets_all();
   test_moqtrun_fill_stall_delivery_timeout();
   test_moqtrun_fill_blocked_open_held();
+  test_moqtrun_fill_upstream_gone_resets();
+  test_moqtrun_fill_blocked_upstream_gone();
 }
