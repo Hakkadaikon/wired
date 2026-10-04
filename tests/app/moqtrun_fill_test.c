@@ -528,6 +528,39 @@ static void test_moqtrun_fill_blocked_upstream_gone(void) {
   CHECK(mf_no_fetch());
 }
 
+/* Stream Count of the last PUBLISH_DONE sent on sid; ~0 when none was
+ * sent (a round may carry several messages). */
+static u64 mfill_done_count(u64 sid) {
+  for (usz i = g_n_calls; i > 0; i--) {
+    const moqtrun_test_call* c   = &g_calls[i - 1];
+    usz                      off = 0, boff = 0;
+    u64                      type;
+    wired_span               body;
+    moqctl_publish_done      d;
+    if ((c->kind != 3 && c->kind != 12) || c->stream_id != sid) continue;
+    while (moqctl_peek_type(
+               wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
+           MOQCTL_OK)
+      if (type == MOQCTL_T_PUBLISH_DONE &&
+          moqctl_publish_done_take(body, &boff, &d) == MOQCTL_OK)
+        return d.stream_count;
+  }
+  return ~(u64)0;
+}
+
+/* PUBLISH_DONE's Stream Count covers the subscription's relay streams
+ * AND its fill streams on the same counter (draft 10.10, 9.20.15). */
+static void test_moqtrun_fill_counts_in_done(void) {
+  moqfetch_fill fill = {0};
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  moqctl_params sub = mfill_params(&fill, 0);
+  mfill_subscribe_req(&sub); /* one fill stream, served to FIN */
+  mf_obj(1, 0, 1);           /* one live relay stream */
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  CHECK(mfill_done_count(MTRQ_S1) == 2);
+}
+
 void test_moqtrun_fill(void) {
   test_moqtrun_fill_subscribe_opens();
   test_moqtrun_fill_end_clipped_to_largest();
@@ -550,4 +583,5 @@ void test_moqtrun_fill(void) {
   test_moqtrun_fill_blocked_open_held();
   test_moqtrun_fill_upstream_gone_resets();
   test_moqtrun_fill_blocked_upstream_gone();
+  test_moqtrun_fill_counts_in_done();
 }
