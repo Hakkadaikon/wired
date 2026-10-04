@@ -60,9 +60,10 @@
 #define LIVE_RING 3
 #define LIVE_FRAG_MAX (1u << 20)
 #define BIG_SIG_MAX 9
-#define BIG_SLOTS                                                          \
-  (WIRED_CONNTABLE_CAP < WIRED_MOQTRUN_MAX_SESSIONS ? WIRED_CONNTABLE_CAP \
-                                                    : WIRED_MOQTRUN_MAX_SESSIONS)
+#define BIG_SLOTS                                   \
+  (WIRED_CONNTABLE_CAP < WIRED_MOQTRUN_MAX_SESSIONS \
+       ? WIRED_CONNTABLE_CAP                        \
+       : WIRED_MOQTRUN_MAX_SESSIONS)
 typedef struct {
   u64 stream_id;
   int used;
@@ -115,7 +116,8 @@ static i64 moqt_io_open_bidi_stream(wired_wt_session* s, wired_span payload) {
   usz sig = wired_wtwire_signal_put(buf, sizeof buf, 1, s->connect_stream_id);
   if (sig == 0 || payload.n > sizeof buf - sig) return -1;
   for (usz i = 0; i < payload.n; i++) buf[sig + i] = payload.p[i];
-  return wired_server_wt_open_bidi_stream(s, wired_span_of(buf, sig + payload.n));
+  return wired_server_wt_open_bidi_stream(
+      s, wired_span_of(buf, sig + payload.n));
 }
 
 /* The live_session owned by s, claimed on its first live send; 0 when
@@ -131,7 +133,8 @@ static live_session* live_session_for(wired_wt_session* s) {
 /* A slot is reusable when it was never armed, or when its recorded stream
  * is no longer in flight (its view was released -- live_session's doc). */
 static int live_slot_free(const live_session* ls, const live_slot* slot) {
-  return !slot->used || !wired_server_wt_stream_inflight(ls->s, slot->stream_id);
+  return !slot->used ||
+         !wired_server_wt_stream_inflight(ls->s, slot->stream_id);
 }
 
 static live_slot* live_slot_claim(live_session* ls) {
@@ -148,8 +151,8 @@ static i64 moqt_io_send_uni2(
   live_session* ls   = live_session_for(s);
   live_slot*    slot = ls ? live_slot_claim(ls) : 0;
   if (!slot || head.n + body.n > sizeof slot->buf - BIG_SIG_MAX) return -1;
-  usz sig = wired_wtwire_signal_put(
-      slot->buf, BIG_SIG_MAX, 0, s->connect_stream_id);
+  usz sig =
+      wired_wtwire_signal_put(slot->buf, BIG_SIG_MAX, 0, s->connect_stream_id);
   if (sig == 0) return -1;
   bytes_memcpy(slot->buf + sig, head.p, head.n);
   bytes_memcpy(slot->buf + sig + head.n, body.p, body.n);
@@ -256,6 +259,8 @@ static const wired_moqt_io g_moqt_io = {
     wired_server_wt_stream_reply_open,
     /* stream_priority: the io shape matches srvrun.h exactly. */
     wired_server_wt_stream_priority,
+    /* stream_stop: the io shape matches srvrun.h exactly. */
+    wired_server_wt_stream_stop,
 };
 
 static wired_moqt_hub g_hub;
@@ -318,7 +323,7 @@ static int app_on_request(
     void*                       ctx,
     const wired_h3reqdrive_req* req,
     u64                         offset,
-    wired_obuf*                  body_out,
+    wired_obuf*                 body_out,
     const char**                content_type,
     int*                        more,
     u64*                        total_size) {
@@ -388,12 +393,12 @@ static usz hex_fingerprint(const u8 digest[32], char* out) {
 
 static void log_cert_fingerprint(const wired_srvboot_id* id) {
   static wired_server  s;
-  wired_server_init_in in = {id->priv,    id->pub,         id->cert_seed,
-                             id->chain,   id->chain_count, id->san_ipv4,
-                             id->now_secs, 0};
-  u8                   digest[32];
-  char                 line[32 + 32 * 3 + 2];
-  usz                  n = 0;
+  wired_server_init_in in = {
+      id->priv,        id->pub,      id->cert_seed, id->chain,
+      id->chain_count, id->san_ipv4, id->now_secs,  0};
+  u8   digest[32];
+  char line[32 + 32 * 3 + 2];
+  usz  n = 0;
 
   wired_server_init(&s, &in);
   if (s.sdrv.cert_count == 0) wired_die("cert build failed\n");
@@ -421,7 +426,7 @@ static void log_relay_stats(const char* label) {
   char line[1024]; /* label (<=17) + 24 field labels (~290 chars) + 24
                       u64s at 20 digits (480) + newline/NUL = ~790 worst
                       case; 1024 keeps headroom */
-  usz  n = 0;
+  usz n = 0;
   append_cstr(line, &n, label);
   append_cstr(line, &n, "sent=");
   n += dec_u64(line + n, hub->stat_relay_sent);
@@ -505,8 +510,7 @@ static void goaway_on_shutdown(wired_moqt_hub* hub) {
   if (sent || !*wired_srvrun_shutdown_word()) return;
   sent = 1;
   wired_moqt_goaway(
-      hub,
-      wired_span_of((const u8*)g_goaway_uri, wired_cstr_len(g_goaway_uri)),
+      hub, wired_span_of((const u8*)g_goaway_uri, wired_cstr_len(g_goaway_uri)),
       GOAWAY_TIMEOUT_MS);
   wired_log_str("moqt: shutdown requested, GOAWAY sent\n");
 }
@@ -557,11 +561,11 @@ static int cc_algo_of(const char* name) {
 
 __attribute__((force_align_arg_pointer, used)) int wired_main(
     int argc, char** argv) {
-  wired_srvboot_id     id = {0};
-  server_keys          keys;
-  wired_srvdriver_opt  opt;
-  int                  have_san_ipv4;
-  u64                  now_secs = wired_clock_epoch_secs();
+  wired_srvboot_id    id = {0};
+  server_keys         keys;
+  wired_srvdriver_opt opt;
+  int                 have_san_ipv4;
+  u64                 now_secs = wired_clock_epoch_secs();
   /* Round down to the start of the UTC day: the cert (and thus the SHA-256
    * fingerprint the frontend's auto-rejoin pins via serverCertificateHashes)
    * is the only thing that changes across a same-day restart otherwise.
@@ -569,8 +573,8 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
    * ever moves now_secs earlier within the same day; a restart after UTC
    * midnight still needs a manual rejoin with the new hash. */
   now_secs -= now_secs % 86400;
-  wired_srvrun_handler h        = {.cb = app_on_request};
-  wired_srvrun_obs     obs      = {
+  wired_srvrun_handler h   = {.cb = app_on_request};
+  wired_srvrun_obs     obs = {
       wired_cliargs_str(argc, argv, "--qlog", 0),
       wired_cliargs_str(argc, argv, "--keylog", 0), 0, 0,
       cc_algo_of(wired_cliargs_str(argc, argv, "--cc", "cubic"))};
@@ -604,13 +608,13 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
     wired_die(
         "bad CLI flags (moqt_chat is single-process only: do not pass "
         "--workers/--cores/--ifindex)\n");
-  opt.run.incoming_cpu      = -1;
-  opt.run.wt_on_session     = on_session;
-  opt.run.wt_session_ctx    = &g_hub;
-  opt.run.wt_on_stream_data = wired_moqt_on_stream_data;
+  opt.run.incoming_cpu       = -1;
+  opt.run.wt_on_session      = on_session;
+  opt.run.wt_session_ctx     = &g_hub;
+  opt.run.wt_on_stream_data  = wired_moqt_on_stream_data;
   opt.run.wt_stream_data_ctx = &g_hub;
-  opt.run.wt_on_datagram    = wired_moqt_on_datagram;
-  opt.run.wt_datagram_ctx   = &g_hub;
+  opt.run.wt_on_datagram     = wired_moqt_on_datagram;
+  opt.run.wt_datagram_ctx    = &g_hub;
   /* A reset request stream cancels its request (subscription/track). */
   opt.run.wt_on_stream_reset  = wired_moqt_on_stream_reset;
   opt.run.wt_stream_reset_ctx = &g_hub;
@@ -623,8 +627,8 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   /* A peer's WT_DRAIN_SESSION drains its MOQT session (GOAWAY). */
   opt.run.wt_on_session_draining  = wired_moqt_on_session_draining;
   opt.run.wt_session_draining_ctx = &g_hub;
-  opt.run.on_step              = on_step;
-  opt.run.on_step_ctx          = &g_hub;
+  opt.run.on_step                 = on_step;
+  opt.run.on_step_ctx             = &g_hub;
   opt.run.wt_origin_ctx =
       (void*)wired_envp_get(argc, argv, "WIRED_ALLOWED_ORIGINS");
   if (opt.run.wt_origin_ctx) opt.run.wt_origin_check = origin_allowed;

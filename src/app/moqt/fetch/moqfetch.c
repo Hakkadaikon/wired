@@ -263,6 +263,82 @@ int moqfetch_req22_encode(wired_mspan buf, usz* off, const moqfetch_req* m) {
   return moqctl_params_put(buf, off, &tmp.params);
 }
 
+/* ===== FILL_PARAMETERS value (draft-22 SS9.20.15) ===== */
+
+/* The Parameters must fill the value exactly (its Length already framed
+ * it). */
+static int moqfetch_fill_params(wired_span v, moqctl_params* p) {
+  usz at = 0;
+  int r  = moqctl_params_take(MOQVER_D22, v, &at, MOQCTL_PCTX_FETCH, p);
+  if (r != MOQCTL_OK) return r;
+  return at == v.n ? MOQCTL_OK : MOQCTL_VIOLATION;
+}
+
+/* LOCATION_FILTER type 0x00 decodes as has_filter 0 (SS9.20.9 None); an
+ * absent parameter reads the same. */
+static void moqfetch_fill_filter_of(const moqctl_params* p, moqfetch_fill* o) {
+  const moqctl_param* lf = moqctl_params_find(p, MOQCTL_PARAM_LOCATION_FILTER);
+  if (!lf || !lf->has_filter) return;
+  o->has_filter = 1;
+  o->range      = lf->rl;
+}
+
+static int moqfetch_fill_desc_of(const moqctl_params* p) {
+  const moqctl_param* go = moqctl_params_find(p, MOQCTL_PARAM_GROUP_ORDER);
+  return go != 0 && go->u8v == 2;
+}
+
+static void moqfetch_fill_tmo_of(const moqctl_params* p, moqfetch_fill* o) {
+  const moqctl_param* to = moqctl_params_find(p, MOQCTL_PARAM_FILL_TIMEOUT);
+  o->has_timeout         = to != 0;
+  if (to) o->timeout_ms = to->vi;
+}
+
+int moqfetch_fill_take(wired_span value, moqfetch_fill* out) {
+  moqctl_params p;
+  p.n = 0; /* a zero-length value is "no parameters" */
+  bytes_memset(out, 0, sizeof *out);
+  if (value.n != 0) {
+    int r = moqfetch_fill_params(value, &p);
+    if (r != MOQCTL_OK) return r;
+  }
+  moqfetch_fill_filter_of(&p, out);
+  out->descending = moqfetch_fill_desc_of(&p);
+  moqfetch_fill_tmo_of(&p, out);
+  return MOQCTL_OK;
+}
+
+/* Items in ascending Type order (moqctl_params_put encodes deltas):
+ * FILL_TIMEOUT 0x0A, LOCATION_FILTER 0x21 (always present -- a fill
+ * without a filter sends type 0x00), GROUP_ORDER 0x22. */
+static usz moqfetch_fill_items(const moqfetch_fill* f, moqctl_params* p) {
+  usz n = 0;
+  if (f->has_timeout) {
+    p->items[n].type = MOQCTL_PARAM_FILL_TIMEOUT;
+    p->items[n].enc  = MOQCTL_PENC_VARINT;
+    p->items[n].vi   = f->timeout_ms;
+    n++;
+  }
+  p->items[n].type       = MOQCTL_PARAM_LOCATION_FILTER;
+  p->items[n].enc        = MOQCTL_PENC_RANGELOC22;
+  p->items[n].has_filter = f->has_filter;
+  p->items[n].rl         = f->range;
+  n++;
+  if (f->descending) {
+    p->items[n].type = MOQCTL_PARAM_GROUP_ORDER;
+    p->items[n].enc  = MOQCTL_PENC_UINT8;
+    p->items[n].u8v  = 2;
+    n++;
+  }
+  return n;
+}
+
+int moqfetch_fill_put(wired_mspan buf, usz* off, const moqfetch_fill* f) {
+  moqctl_params p = {0};
+  p.n             = moqfetch_fill_items(f, &p);
+  return moqctl_params_put(buf, off, &p);
+}
+
 /* ===== FETCH_OK (10.13 Figure 16) ===== */
 
 static int moqfetch_ok_take_head(wired_span b, usz* at, moqfetch_ok* m) {

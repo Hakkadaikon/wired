@@ -361,7 +361,7 @@ static void test_moqtrun_done_track_ended(void) {
   mtst_subscribe(SESS_C, mtdr_ctl(SESS_C), &f);
   wired_moqt_on_session_close(&mtst_hub, SESS_A);
   CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_TRACK_ENDED);
-  CHECK(count == MOQTRUN_DONE_STREAMS_UNKNOWN);
+  CHECK(count == 0); /* no stream was opened for this subscription */
   CHECK(mtrq_fin_on(MTRQ_S1) == 1);
   CHECK(mtdr_sent(mtdr_ctl(SESS_C), MOQCTL_T_PUBLISH_DONE) == 0);
   mtst_publish(SESS_A, mtst_join(SESS_A), &f, 1);
@@ -369,16 +369,27 @@ static void test_moqtrun_done_track_ended(void) {
   CHECK(mtst_sub(SESS_A, SESS_C) != 0);
 }
 
-/* draft-22 SS9.9: the "unknown" Stream Count is 2^64-1 (a 9-byte
- * vi64); draft-18/19 keep 2^62-1 (test_moqtrun_done_track_ended). */
-static void test_moqtrun_done_stream_count_d22(void) {
-  moqctl_ftn f                               = mtrq_setup();
-  u64        count                           = 0;
-  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
-  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
-  wired_moqt_on_session_close(&mtst_hub, SESS_A);
-  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_TRACK_ENDED);
-  CHECK(count == ~(u64)0);
+/* The Stream Count is the real number of streams the hub opened for the
+ * subscription (draft 10.10): here one keep-open relay stream and one
+ * one-shot relay stream, on draft-19 and draft-22 alike. */
+static void test_moqtrun_done_stream_count_real(void) {
+  static const int vers[] = {MOQVER_D19, MOQVER_D22};
+  for (usz v = 0; v < 2; v++) {
+    u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
+    moqctl_ftn f                               = mtrq_setup();
+    u64        count                           = 0;
+    moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = vers[v];
+    mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+    usz n = mtst_stream(1, 1, 1, buf);
+    wired_moqt_on_stream_data(
+        &mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+    n = mtst_stream(2, 1, 1, buf);
+    wired_moqt_on_stream_data(
+        &mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 1);
+    wired_moqt_on_session_close(&mtst_hub, SESS_A);
+    CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_TRACK_ENDED);
+    CHECK(count == 2);
+  }
 }
 
 /* Id of the last keep-open relay stream opened to s (io kind 5). */
@@ -583,7 +594,7 @@ void test_moqtrun_drain(void) {
   test_moqtrun_goaway_no_timeout();
   test_moqtrun_closed_is_frozen();
   test_moqtrun_done_track_ended();
-  test_moqtrun_done_stream_count_d22();
+  test_moqtrun_done_stream_count_real();
   test_moqtrun_goaway_once_per_session();
   test_moqtrun_goaway_request_id_d18();
   test_moqtrun_peer_goaway_d18();

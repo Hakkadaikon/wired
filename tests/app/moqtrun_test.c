@@ -264,6 +264,14 @@ static int moqtrun_test_stream_reply_open(
   return 1;
 }
 
+/* wired_server_wt_stream_stop-shaped: records the STOP_SENDING ask (the
+ * error code rides the recorder's fin field, like stream_reset). */
+static int moqtrun_test_stream_stop(
+    wired_wt_session* s, u64 stream_id, u32 error_code) {
+  moqtrun_test_record(13, s, stream_id, (int)error_code, wired_span_of(0, 0));
+  return 1;
+}
+
 static wired_moqt_io moqtrun_test_io(void) {
   wired_moqt_io io;
   io.open_bidi_stream  = moqtrun_test_open_bidi_stream;
@@ -279,6 +287,7 @@ static wired_moqt_io moqtrun_test_io(void) {
   io.close_session     = moqtrun_test_close_session;
   io.stream_reply_open = moqtrun_test_stream_reply_open;
   io.stream_priority   = 0; /* default: off, like a table without */
+  io.stream_stop       = moqtrun_test_stream_stop;
   return io;
 }
 

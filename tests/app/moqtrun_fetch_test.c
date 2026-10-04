@@ -196,12 +196,12 @@ static usz mf_gather(u8* buf) {
   return len;
 }
 
-/* Decodes B's last fetch stream into mf_items; 0 on a decode error. */
-static int mf_read(void) {
-  static u8    buf[4096];
-  usz          len = mf_gather(buf), off = 0;
-  moqfetch_seq seq = {0};
-  mf_n             = 0;
+/* Decodes B's last fetch stream into mf_items under seq's rules; 0 on a
+ * decode error. */
+static int mf_read_seq(moqfetch_seq seq) {
+  static u8 buf[4096];
+  usz       len = mf_gather(buf), off = 0;
+  mf_n = 0;
   if (moqfetch_hdr_take(wired_span_of(buf, len), &off, &mf_hdr_rid) !=
       MOQCTL_OK)
     return 0;
@@ -218,6 +218,8 @@ static int mf_read(void) {
   }
   return 1;
 }
+
+static int mf_read(void) { return mf_read_seq((moqfetch_seq){0}); }
 
 static int mf_is_obj(usz i, u64 g, u64 o, usz n) {
   return i < mf_n && mf_items[i].flags < 0x80 && mf_items[i].group == g &&
@@ -666,6 +668,28 @@ static void test_moqtrun_fetch_join_forward_off(void) {
   CHECK(mf_error() == MOQCTL_ERR_INVALID_RANGE);
 }
 
+/* draft-22 dropped the Joining Fetch (SS9.11 has no Fetch Type): a
+ * draft-22 session presenting the Joining structure is a protocol
+ * violation, and the session closes. The draft-22 wire body cannot even
+ * encode one, so the routed request is built directly. */
+static void test_moqtrun_fetch_d22_joining_violation(void) {
+  static moqfetch_req m;
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  u64                 rid = mf_subscribe(0);
+  wired_moqtrun_peer* p   = moqtrun_find_by_wt(&mtst_hub, SESS_B);
+  p->ver                  = MOQVER_D22;
+  m.request_id            = MF_REQ + 100;
+  m.fetch_type            = MOQFETCH_RELATIVE_JOINING;
+  m.is_joining            = 1;
+  m.joining_request_id    = rid;
+  moqtrun_fetch_route(&mtst_hub, p, mtst_idx(SESS_B), &m);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(11);
+  CHECK(c != 0);
+  CHECK(c && c->s == SESS_B);
+  CHECK(c && c->stream_id == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
 /* ===================== publisher rejoin ===================== */
 
 /* A rejoined publisher re-attaches B's Largest Object subscription; its
@@ -734,6 +758,7 @@ void test_moqtrun_fetch(void) {
   test_moqtrun_fetch_d22_invalid_range();
   test_moqtrun_fetch_absolute_join();
   test_moqtrun_fetch_join_forward_off();
+  test_moqtrun_fetch_d22_joining_violation();
   test_moqtrun_fetch_rejoin_reresolves_start();
   test_moqtrun_fetch_no_replay_before_start();
 }
