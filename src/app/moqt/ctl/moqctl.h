@@ -276,6 +276,46 @@ int moqctl_rangeloc22_take(
 int moqctl_rangeloc22_put(
     wired_mspan buf, usz* off, int has_filter, const moqctl_rangeloc* r);
 
+/** Ranges one decoded Range Filter value holds (SS10.2.10-10.2.14); a
+ * value with more marks the filter invalid -- the receiver's advertised
+ * MAX_FILTER_RANGES (SS10.4) is at most this. */
+#define MOQCTL_MAX_RANGES 4
+
+/** One inclusive Range of a Range Filter (SS10.2.10): [start, end], or
+ * [start, inf) when the final End was omitted. */
+typedef struct {
+  u64 start;
+  u64 end; /* valid iff has_end */
+  int has_end;
+} moqctl_range;
+
+/** A decoded Range Filter parameter value (SS10.2.10-10.2.14): SetID,
+ * the 0x28/0x29 Property Type, and the delta-resolved Ranges. remove
+ * marks a zero-length value (the REQUEST_UPDATE delete); invalid marks
+ * a delta summing past 2^64-1 or more than MOQCTL_MAX_RANGES Ranges --
+ * both call for REQUEST_ERROR INVALID_FILTER at the message layer, not
+ * a session close, so they decode OK and flag instead. */
+typedef struct {
+  u64          set_id;
+  int          has_prop;
+  u64          prop_type; /* valid iff has_prop */
+  int          remove;
+  int          invalid;
+  usz          n;
+  moqctl_range r[MOQCTL_MAX_RANGES];
+} moqctl_rangefilter;
+
+/** Decodes a Range Filter parameter's value bytes (exactly its Length).
+ * ptype (MOQCTL_PARAM_*_FILTER) selects the Property Type prefix. OK or
+ * MOQCTL_PARAMS_KVFMT (truncated structure). */
+int moqctl_rangefilter_take(
+    u64 ptype, wired_span value, moqctl_rangefilter* out);
+
+/** Encodes f as a Range Filter value (no parameter Type/Length around
+ * it). 1 ok, 0 when buf runs out. */
+int moqctl_rangefilter_put(
+    wired_mspan buf, usz* off, u64 ptype, const moqctl_rangefilter* f);
+
 /** draft-ietf-moq-transport-19 SS1.5 Track Namespace: up to
  * MOQCTL_MAX_NS_FIELDS fields, each a byte-string view into the
  * decode input (or caller-owned storage on encode). */

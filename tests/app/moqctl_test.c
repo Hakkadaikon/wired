@@ -1433,6 +1433,76 @@ static void test_moqctl_setup_limit_options_default_zero(void) {
   CHECK(s.max_request_updates == 0);
 }
 
+/* ===== TEST: Range Filter values (10.2.10-10.2.14) ===== */
+
+/* The draft's own delta example: ranges 3-5 and 10-15 (Start 3, End 2,
+ * Start 5, End 5) under SetID 1; the encode mirrors it byte for byte. */
+static void test_moqctl_rangefilter_value_roundtrip(void) {
+  static const u8    v[] = {0x01, 0x03, 0x02, 0x05, 0x05};
+  moqctl_rangefilter f;
+  u8                 out[32];
+  usz                off = 0;
+  CHECK(
+      moqctl_rangefilter_take(
+          MOQCTL_PARAM_SUBGROUP_FILTER, wired_span_of(v, sizeof v), &f) ==
+      MOQCTL_OK);
+  CHECK(!f.remove && !f.invalid && f.set_id == 1 && f.n == 2);
+  CHECK(f.r[0].start == 3 && f.r[0].has_end && f.r[0].end == 5);
+  CHECK(f.r[1].start == 10 && f.r[1].has_end && f.r[1].end == 15);
+  CHECK(moqctl_rangefilter_put(
+      wired_mspan_of(out, sizeof out), &off, MOQCTL_PARAM_SUBGROUP_FILTER, &f));
+  CHECK(off == sizeof v);
+  for (usz i = 0; i < off; i++) CHECK(out[i] == v[i]);
+}
+
+/* An omitted final End is open-ended; 0x28/0x29 carry a Property Type;
+ * a zero-length value is the REQUEST_UPDATE delete. */
+static void test_moqctl_rangefilter_open_end_prop_and_remove(void) {
+  static const u8    open_v[] = {0x00, 0x07};
+  static const u8    prop_v[] = {0x02, 0x02, 0x01, 0x01};
+  moqctl_rangefilter f;
+  CHECK(
+      moqctl_rangefilter_take(
+          MOQCTL_PARAM_OBJECTID_FILTER, wired_span_of(open_v, 2), &f) ==
+      MOQCTL_OK);
+  CHECK(f.n == 1 && f.r[0].start == 7 && !f.r[0].has_end);
+  CHECK(
+      moqctl_rangefilter_take(
+          MOQCTL_PARAM_OBJECT_PROPERTY_FILTER, wired_span_of(prop_v, 4), &f) ==
+      MOQCTL_OK);
+  CHECK(f.has_prop && f.prop_type == 2 && f.n == 1);
+  CHECK(f.r[0].start == 1 && f.r[0].has_end && f.r[0].end == 2);
+  CHECK(
+      moqctl_rangefilter_take(
+          MOQCTL_PARAM_OBJECTID_FILTER, wired_span_of(open_v, 0), &f) ==
+      MOQCTL_OK);
+  CHECK(f.remove && f.n == 0);
+}
+
+/* Delta accumulation past 2^64-1 marks the filter invalid (the hub
+ * answers REQUEST_ERROR INVALID_FILTER); a truncated structure is a
+ * formatting error. */
+static void test_moqctl_rangefilter_overflow_and_truncated(void) {
+  u8                 v[64];
+  usz                off = 0;
+  moqctl_rangefilter f;
+  v[off++] = 0x00;
+  for (usz i = 0; i < 5; i++) { /* five max varints: 5*(2^62-1) wraps */
+    v[off] = 0xFF;
+    for (usz k = 1; k < 8; k++) v[off + k] = 0xFF;
+    off += 8;
+  }
+  CHECK(
+      moqctl_rangefilter_take(
+          MOQCTL_PARAM_OBJECTID_FILTER, wired_span_of(v, off), &f) ==
+      MOQCTL_OK);
+  CHECK(f.invalid);
+  CHECK(
+      moqctl_rangefilter_take(
+          MOQCTL_PARAM_TRACK_PROPERTY_FILTER, wired_span_of(v, 1), &f) ==
+      MOQCTL_PARAMS_KVFMT); /* SetID alone: Property Type missing */
+}
+
 /* ===== TEST: Location Filter ===== */
 
 static void test_moqctl_locfilter_next_group_and_largest(void) {
@@ -2011,6 +2081,9 @@ void test_moqctl(void) {
   test_moqctl_setup_limit_options_roundtrip();
   test_moqctl_setup_limit_options_default_zero();
 
+  test_moqctl_rangefilter_value_roundtrip();
+  test_moqctl_rangefilter_open_end_prop_and_remove();
+  test_moqctl_rangefilter_overflow_and_truncated();
   test_moqctl_locfilter_next_group_and_largest();
   test_moqctl_locfilter_abs_start_and_range_roundtrip();
   test_moqctl_locfilter_end_group_overflow_violation();
