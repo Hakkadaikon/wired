@@ -738,6 +738,45 @@ static void test_moqtrun_fill_blocked_never_starves_live(void) {
   CHECK(!mf_no_fetch());                      /* the fill is still held */
 }
 
+/* s delivers a fetch data stream (FETCH_HEADER naming rid) on a fresh
+ * client uni stream sid. */
+static void mfill_inbound_fetch(wired_wt_session* s, u64 sid, u64 rid) {
+  u8  buf[32];
+  usz n = 0;
+  CHECK(moqfetch_hdr_put(wired_mspan_of(buf, sizeof buf), &n, rid));
+  wired_moqt_on_stream_data(&mtst_hub, s, sid, wired_span_of(buf, n), 0);
+}
+
+/* An inbound fetch stream naming the Request ID of the peer's own
+ * PUBLISH is accepted against that track: no STOP_SENDING, no reset,
+ * and the session stays open (draft-22 11.4.4 routing by Request ID). */
+static void test_moqtrun_fill_inbound_fetch_known_rid(void) {
+  mf_init(sizeof mf_arena);
+  u64 pub_rid = mtst_rid; /* A's PUBLISH claimed its track with it */
+  moqtrun_test_reset();
+  mfill_inbound_fetch(SESS_A, 4002, pub_rid);
+  CHECK(moqtrun_test_count_kind(13) == 0);
+  CHECK(moqtrun_test_count_kind(7) == 0);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(moqtrun_find_by_wt(&mtst_hub, SESS_A) != 0);
+}
+
+/* Any other Request ID -- unroutable, or from a peer that PUBLISHed
+ * nothing -- is answered STOP_SENDING on that one stream; the session
+ * is never closed over it. */
+static void test_moqtrun_fill_inbound_fetch_unknown_rid(void) {
+  mf_init(sizeof mf_arena);
+  moqtrun_test_reset();
+  mfill_inbound_fetch(SESS_A, 4002, 9999);
+  CHECK(moqtrun_test_count_kind(13) == 1);
+  CHECK(moqtrun_test_last_kind(13)->stream_id == 4002);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  mfill_inbound_fetch(SESS_B, 4006, 9999); /* B published nothing */
+  CHECK(moqtrun_test_count_kind(13) == 2);
+  CHECK(moqtrun_find_by_wt(&mtst_hub, SESS_A) != 0);
+  CHECK(moqtrun_find_by_wt(&mtst_hub, SESS_B) != 0);
+}
+
 void test_moqtrun_fill(void) {
   test_moqtrun_fill_subscribe_opens();
   test_moqtrun_fill_end_clipped_to_largest();
@@ -768,4 +807,6 @@ void test_moqtrun_fill(void) {
   test_moqtrun_fill_ascending_sends_first();
   test_moqtrun_fill_descending_sends_last();
   test_moqtrun_fill_blocked_never_starves_live();
+  test_moqtrun_fill_inbound_fetch_known_rid();
+  test_moqtrun_fill_inbound_fetch_unknown_rid();
 }
