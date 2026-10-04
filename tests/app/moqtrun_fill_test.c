@@ -738,6 +738,33 @@ static void test_moqtrun_fill_blocked_never_starves_live(void) {
   CHECK(!mf_no_fetch());                      /* the fill is still held */
 }
 
+/* The fill's Range Filter is its own: it never merges with, narrows or
+ * widens the subscription's LOCATION_FILTER -- each is parsed and
+ * counted in its own scope (draft-22 SS9.20.15 with SS9.20.9), so one
+ * request may carry both with different ranges. */
+static void test_moqtrun_fill_filter_separate_from_subscription(void) {
+  moqfetch_fill fill = {0};
+  moqctl_params base =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 1, 0, MOQCTL_REK_UNBOUNDED, 0, 0));
+  fill.has_filter      = 1;
+  fill.range.sk        = MOQCTL_RSK_ABS;
+  fill.range.ek        = MOQCTL_REK_GROUP;
+  fill.range.end_group = 0; /* the fill wants group 0 only */
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mf_obj(1, 0, 1);
+  moqctl_params sub = mfill_params(&fill, &base);
+  mfill_subscribe_req(&sub);
+  CHECK(mfill_read());
+  CHECK(mf_n == 2 && mf_is_obj(0, 0, 0, 1) && mf_is_obj(1, 0, 1, 1));
+  CHECK(mf_fin);
+  mf_obj(0, 2, 1); /* below the subscription's own start: held back */
+  CHECK(!mf_relayed(0, 2));
+  mf_obj(1, 1, 1); /* inside it: relayed live */
+  CHECK(mf_relayed(1, 1));
+}
+
 /* s delivers a fetch data stream (FETCH_HEADER naming rid) on a fresh
  * client uni stream sid. */
 static void mfill_inbound_fetch(wired_wt_session* s, u64 sid, u64 rid) {
@@ -807,6 +834,7 @@ void test_moqtrun_fill(void) {
   test_moqtrun_fill_ascending_sends_first();
   test_moqtrun_fill_descending_sends_last();
   test_moqtrun_fill_blocked_never_starves_live();
+  test_moqtrun_fill_filter_separate_from_subscription();
   test_moqtrun_fill_inbound_fetch_known_rid();
   test_moqtrun_fill_inbound_fetch_unknown_rid();
 }
