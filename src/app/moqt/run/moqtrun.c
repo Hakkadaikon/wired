@@ -23,11 +23,6 @@
 #define MOQTRUN_RESET_GOING_AWAY 0x4
 #define MOQTRUN_RESET_EXCESSIVE_LOAD 0x9
 
-/* PUBLISH_DONE Stream Count when the exact number is not known: 2^62-1
- * in draft-18/19 (SS10.11), 2^64-1 in draft-22 (SS9.9). */
-#define MOQTRUN_DONE_STREAMS_UNKNOWN (((u64)1 << 62) - 1)
-#define MOQTRUN_DONE_STREAMS_UNKNOWN64 (~(u64)0)
-
 /* ===================== peer table ===================== */
 
 static int moqtrun_peer_matches_wt(
@@ -1054,13 +1049,14 @@ static void moqtrun_sub_open(
     usz                        peer_idx,
     u64                        alias,
     const moqctl_subscribe*    m) {
-  s->session_idx = peer_idx;
-  s->track_alias = alias;
-  s->active      = 1;
-  s->request_id  = m->request_id;
-  s->blob_sent   = 0;
-  s->jl          = t->largest;
-  s->has_jl      = (u8)t->has_largest;
+  s->session_idx  = peer_idx;
+  s->track_alias  = alias;
+  s->active       = 1;
+  s->request_id   = m->request_id;
+  s->blob_sent    = 0;
+  s->stream_count = 0;
+  s->jl           = t->largest;
+  s->has_jl       = (u8)t->has_largest;
   moqtrun_sub_scalars(s, m);
   moqtrun_sub_filter(s, t, moqtrun_sub_param(m, MOQCTL_PARAM_LOCATION_FILTER));
 }
@@ -1208,6 +1204,7 @@ static int moqtrun_blob_deliver(
   if (!moqtrun_sub_forwards(slot)) return 1;
   slot->blob_sent = hub->io.send_uni(p->wt, hub->blob_wire) >= 0;
   hub->stat_open_drop += !slot->blob_sent;
+  slot->stream_count += slot->blob_sent;
   return slot->blob_sent;
 }
 
@@ -3135,6 +3132,7 @@ static void moqtrun_live_send_one(wired_moqt_hub* hub, usz i, u64 g) {
   usz                 hn = moqtrun_live_head(live, g, frag.n, head);
   if (!moqtrun_live_due(hub, dst, i, g)) return;
   if (hub->io.send_uni2(dst->wt, wired_span_of(head, hn), frag) < 0) return;
+  live->track.subs[i].stream_count++;
   hub->stat_live_drop += moqtrun_live_gap(live, i, g);
   live->sent_group[i] = g;
   live->sent_any[i]   = 1;
@@ -3246,7 +3244,7 @@ static void moqtrun_prio_set(
  * FIN'd in a single io.send_uni call -- the whole-message-in-one-call path
  * (a publisher stream whose data AND fin arrived together). */
 static void moqtrun_relay_to_one(
-    wired_moqt_hub* hub, const wired_moqtrun_sub* sub, wired_span wire) {
+    wired_moqt_hub* hub, wired_moqtrun_sub* sub, wired_span wire) {
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
   if (!dst->in_use) return;
   /* A refused one-shot open loses this subscriber's whole message (chat's
@@ -3255,6 +3253,7 @@ static void moqtrun_relay_to_one(
    * never silent, but this call site used to discard the return. */
   i64 sid = hub->io.send_uni(dst->wt, wire);
   hub->stat_open_drop += sid < 0;
+  sub->stream_count += sid >= 0;
   moqtrun_prio_set(hub, dst->wt, sid, sub, wire);
 }
 
@@ -4249,6 +4248,7 @@ static void moqtrun_relay_open_one(
     return;
   }
   moqtrun_prio_set(hub, dst->wt, sid, sub, wire);
+  sub->stream_count++;
   relay->sub_stream_id[i]   = (u64)sid;
   relay->sub_stream_set[i]  = 1;
   relay->sub_busy_streak[i] = 0;
@@ -5280,12 +5280,6 @@ static void moqtrun_sub_stop(
   s->active = 0;
 }
 
-static u64 moqtrun_done_streams_unknown(int ver) {
-  return (moqver_caps(ver) & MOQVER_CAP_STREAMCOUNT_U64)
-             ? MOQTRUN_DONE_STREAMS_UNKNOWN64
-             : MOQTRUN_DONE_STREAMS_UNKNOWN;
-}
-
 /* Ends subscription s of peer p, carried by request stream q: PUBLISH_DONE
  * status is q's last message, then the hub FINs it (3.3.2) once sent, and
  * a rejoining publisher does not revive it. */
@@ -5299,7 +5293,7 @@ static void moqtrun_sub_done(
   u8                  msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqctl_publish_done d = {0};
   d.status_code         = moqctl_publish_done_for(p->ver, status);
-  d.stream_count        = moqtrun_done_streams_unknown(p->ver);
+  d.stream_count        = s->stream_count;
   usz n                 = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH_DONE,
       moqtrun_encode_publish_done, &d);
