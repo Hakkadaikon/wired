@@ -4,6 +4,7 @@
 #include "app/moqt/data/moqdata.h"
 #include "app/moqt/dgram/moqdg.h"
 #include "app/moqt/fetch/moqfetch.h"
+#include "app/moqt/kvp/moqkvp.h"
 #include "app/moqt/ns/moqns.h"
 #include "app/moqt/tstat/moqtstat.h"
 #include "app/moqt/ver/moqver.h"
@@ -280,20 +281,6 @@ void wired_moqt_on_session(
 }
 
 /* ===================== control-message handlers ===================== */
-
-/* draft-ietf-moq-transport-19 8: a SUBGROUP_DELIVERY_TIMEOUT timer runs
- * until the transport reports "all data committed", which this hub's io
- * table cannot see, so a non-zero one is refused. OBJECT_DELIVERY_TIMEOUT
- * is applied (moqtrun_sub_late). */
-static int moqtrun_param_is_nonzero_timeout(const moqctl_param* item) {
-  return item->type == MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT && item->vi != 0;
-}
-
-static int moqtrun_has_timeout_param(const moqctl_params* params) {
-  for (usz i = 0; i < params->n; i++)
-    if (moqtrun_param_is_nonzero_timeout(&params->items[i])) return 1;
-  return 0;
-}
 
 static void moqtrun_buf_append(u8* buf, usz* len, usz cap, wired_span msg) {
   if (*len + msg.n > cap) return;
@@ -844,6 +831,25 @@ static wired_moqtrun_track* moqtrun_publish_slot(
 static int moqtrun_publish_refused(
     const wired_moqt_hub* hub, const moqctl_publish* m, u64* code);
 
+static u64 moqtrun_prop_sgt_of(const moqkvp* kv, u64 prior) {
+  return kv->type == MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT && !kv->is_raw
+             ? kv->num
+             : prior;
+}
+
+/* The SUBGROUP_DELIVERY_TIMEOUT Track Property (12.6, Type 0x06) of a
+ * PUBLISH's Track Properties (KVPs to the end of the body, SS1.6); 0
+ * when absent, unknown properties skipped, a malformed pair ends the
+ * scan with what was read. */
+static u64 moqtrun_track_prop_sgt(wired_span props) {
+  usz    off  = 0;
+  u64    prev = 0, out = 0;
+  moqkvp kv;
+  while (off < props.n && moqkvp_take(props, &off, &prev, &kv) == MOQKVP_OK)
+    out = moqtrun_prop_sgt_of(&kv, out);
+  return out;
+}
+
 /* A vetted PUBLISH: claim a track into a free (or matching-name) slot
  * and reply REQUEST_OK; a third distinct track name (no free slot), or a
  * name a newer session already owns (moqtrun_publish_slot), gets
@@ -868,7 +874,8 @@ static void moqtrun_publish_checked(
   moqtrun_supersede_name(hub, peer_idx, k);
   moqtrun_track_claim(hub, t, k, m->track_alias);
   moqtrun_track_seed_largest(t, &m->params);
-  t->request_id = m->request_id;
+  t->request_id          = m->request_id;
+  t->subgroup_timeout_ms = moqtrun_track_prop_sgt(m->track_properties);
   moqtrun_reattach_subs(hub, t, peer_idx, k);
   moqtrun_queue_request_ok(p, 0);
   moqtrun_req_mark_live(p);
@@ -1050,6 +1057,21 @@ static void moqtrun_sub_scalars(
   s->has_delivery_timeout = dt != 0;
 }
 
+/* min over the non-zero of {publisher's Track Property, subscriber's
+ * parameter} (draft-19 8); 0 = neither set a timeout. */
+static u64 moqtrun_timeout_min(u64 pub_ms, u64 sub_ms) {
+  if (!pub_ms) return sub_ms;
+  if (!sub_ms) return pub_ms;
+  return u64_min(pub_ms, sub_ms);
+}
+
+static u64 moqtrun_sub_sgt(
+    const wired_moqtrun_track* t, const moqctl_subscribe* m) {
+  return moqtrun_timeout_min(
+      t->subgroup_timeout_ms, moqtrun_param_vi(moqtrun_sub_param(
+                                  m, MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT)));
+}
+
 /* Opens slot s on t for peer_idx under alias, its state taken from
  * SUBSCRIBE m. */
 static void moqtrun_sub_open(
@@ -1067,6 +1089,7 @@ static void moqtrun_sub_open(
   s->jl           = t->largest;
   s->has_jl       = (u8)t->has_largest;
   moqtrun_sub_scalars(s, m);
+  s->subgroup_timeout = moqtrun_sub_sgt(t, m);
   moqtrun_sub_filter(s, t, moqtrun_sub_param(m, MOQCTL_PARAM_LOCATION_FILTER));
 }
 
@@ -1108,10 +1131,16 @@ static int moqtrun_sub_gets_loc(const wired_moqtrun_sub* s, moqctl_loc l) {
   return moqtrun_sub_gets(s, l.group) && moqtrun_sub_in_objects(s, l);
 }
 
+static int moqtrun_late_by(u64 timeout_ms, u64 age_ms) {
+  return timeout_ms != 0 && age_ms > timeout_ms;
+}
+
 /* draft 8: an Object whose first byte reached the hub age_ms ago is past
- * s's OBJECT_DELIVERY_TIMEOUT (0: none). */
+ * s's OBJECT_DELIVERY_TIMEOUT or its effective SUBGROUP_DELIVERY_TIMEOUT
+ * (0: none). */
 static int moqtrun_sub_late(const wired_moqtrun_sub* s, u64 age_ms) {
-  return s->delivery_timeout != 0 && age_ms > s->delivery_timeout;
+  return moqtrun_late_by(s->delivery_timeout, age_ms) ||
+         moqtrun_late_by(s->subgroup_timeout, age_ms);
 }
 
 /* A re-attached subscription meets a new incarnation: a Largest-relative
@@ -1429,9 +1458,8 @@ static int moqtrun_params_inverted(const moqctl_params* params) {
 }
 
 /* REQUEST_ERROR code a SUBSCRIBE's or REQUEST_UPDATE's parameters call
- * for: a non-zero SUBGROUP_DELIVERY_TIMEOUT, an unsatisfiable filter. */
+ * for: an unsatisfiable filter. */
 static u64 moqtrun_params_refusal(const moqctl_params* params) {
-  if (moqtrun_has_timeout_param(params)) return MOQCTL_ERR_NOT_SUPPORTED;
   return moqtrun_params_inverted(params) ? MOQCTL_ERR_INVALID_RANGE
                                          : MOQTRUN_REQ_ACCEPT;
 }
@@ -2420,6 +2448,14 @@ static void moqtrun_upd_filter(
   moqtrun_sub_filter(s, t, p);
 }
 
+/* The update's SUBGROUP_DELIVERY_TIMEOUT re-mins against the publisher's
+ * Track Property (t 0 while the publisher is away: no property side). */
+static void moqtrun_upd_sgt(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* p) {
+  s->subgroup_timeout =
+      moqtrun_timeout_min(t ? t->subgroup_timeout_ms : 0, p->vi);
+}
+
 /* Parameters in the update's scope this hub keeps no state for. */
 static void moqtrun_upd_ignore(
     wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* p) {
@@ -2435,6 +2471,7 @@ static const struct {
     {MOQCTL_PARAM_FORWARD, moqtrun_upd_forward},
     {MOQCTL_PARAM_SUBSCRIBER_PRIORITY, moqtrun_upd_priority},
     {MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, moqtrun_upd_timeout},
+    {MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, moqtrun_upd_sgt},
     {MOQCTL_PARAM_LOCATION_FILTER, moqtrun_upd_filter},
 };
 
