@@ -1391,6 +1391,48 @@ static void test_moqctl_setup_path_option_decode(void) {
   CHECK(s.path.p[0] == '/');
 }
 
+/* MAX_FILTER_RANGES (0x06) / MAX_REQUEST_UPDATES (0x08) decode (draft-19
+ * 10.4): even option types, value a single varint. Absent options leave
+ * the draft default 0; an encode of the decoded struct round-trips. */
+static void test_moqctl_setup_limit_options_roundtrip(void) {
+  u8           buf[16];
+  usz          off = 0;
+  moqctl_setup s;
+
+  CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 0x06));
+  CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 5));
+  CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 0x02)); /* ->0x08 */
+  CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 3));
+
+  {
+    usz soff = 0;
+    CHECK(moqctl_setup_take(wired_span_of(buf, off), &soff, &s) == MOQCTL_OK);
+  }
+  CHECK(s.max_filter_ranges == 5);
+  CHECK(s.max_request_updates == 3);
+
+  {
+    u8           out[16];
+    usz          eoff = 0;
+    moqctl_setup back;
+    usz          boff = 0;
+    CHECK(moqctl_setup_encode(wired_mspan_of(out, sizeof out), &eoff, &s));
+    CHECK(
+        moqctl_setup_take(wired_span_of(out, eoff), &boff, &back) == MOQCTL_OK);
+    CHECK(back.max_filter_ranges == 5);
+    CHECK(back.max_request_updates == 3);
+  }
+}
+
+/* Absent limit options decode to the draft default 0 for both. */
+static void test_moqctl_setup_limit_options_default_zero(void) {
+  moqctl_setup s;
+  usz          soff = 0;
+  CHECK(moqctl_setup_take(wired_span_of(0, 0), &soff, &s) == MOQCTL_OK);
+  CHECK(s.max_filter_ranges == 0);
+  CHECK(s.max_request_updates == 0);
+}
+
 /* ===== TEST: Location Filter ===== */
 
 static void test_moqctl_locfilter_next_group_and_largest(void) {
@@ -1966,6 +2008,8 @@ void test_moqctl(void) {
 
   test_moqctl_setup_unknown_option_ignored();
   test_moqctl_setup_path_option_decode();
+  test_moqctl_setup_limit_options_roundtrip();
+  test_moqctl_setup_limit_options_default_zero();
 
   test_moqctl_locfilter_next_group_and_largest();
   test_moqctl_locfilter_abs_start_and_range_roundtrip();

@@ -88,7 +88,9 @@
 /** Setup Option types (SS10.1.1). */
 #define MOQCTL_OPT_PATH 0x1ULL
 #define MOQCTL_OPT_AUTHORITY 0x5ULL
+#define MOQCTL_OPT_MAX_FILTER_RANGES 0x6ULL
 #define MOQCTL_OPT_MOQT_IMPLEMENTATION 0x7ULL
+#define MOQCTL_OPT_MAX_REQUEST_UPDATES 0x8ULL
 
 /** Message Parameter types (draft-ietf-moq-transport-19 15.7 Table 13). */
 #define MOQCTL_PARAM_AUTHORIZATION_TOKEN 0x03ULL
@@ -405,6 +407,14 @@ typedef struct {
   wired_span authority;
   int        has_implementation;
   wired_span implementation;
+  /** MAX_FILTER_RANGES (SS10.4): Ranges the sender accepts concurrently
+   * across one request's Range filter parameters; the draft default 0
+   * means none. 0 is never encoded (it IS the default). */
+  u64 max_filter_ranges;
+  /** MAX_REQUEST_UPDATES (SS10.4): outstanding REQUEST_UPDATEs the
+   * sender accepts per request stream; the draft default 0 means no
+   * limit. 0 is never encoded. */
+  u64 max_request_updates;
 } moqctl_setup;
 
 int moqctl_setup_take(wired_span buf, usz* off, moqctl_setup* out);
