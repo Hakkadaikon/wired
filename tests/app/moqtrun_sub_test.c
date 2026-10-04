@@ -471,6 +471,36 @@ static void test_moqtrun_sub_largest_own_tracks(void) {
   CHECK(l && l->loc.group == 2 && l->loc.object == 0);
 }
 
+/* A late live subscriber's Location Filter start gates the attach send
+ * (5.1.4): a start behind the live edge is clamped to the current Group
+ * (no stale replay), a future start holds the attach silent until the
+ * clock reaches it -- Groups before the start are never sent. */
+static void test_moqtrun_sub_live_attach_filter_start(void) {
+  moqctl_params past = mtst_params_filter(MOQCTL_FILTER_ABS_START);
+  moqctl_params fut  = mtst_params_filter(MOQCTL_FILTER_ABS_START);
+  moqctl_ftn    f    = mtst_ftn("chat", "room1", "movie");
+  u8            got[64];
+  usz           n;
+  fut.items[0].lf.start = moqctl_loc_of(4, 0);
+  mtst_init();
+  moqtrun_test_publish_live(&mtst_hub);
+  wired_moqt_tick(&mtst_hub, 1000 + 2 * 2000); /* Group 2 */
+  u64 cb = mtst_join(SESS_B);
+  u64 cc = mtst_join(SESS_C);
+  moqtrun_test_reset();
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &past); /* start {0,0}: behind */
+  CHECK(moqtrun_test_count_kind(8) == 1);
+  CHECK(moqtrun_test_live_group(moqtrun_test_last_kind(8), got, &n) == 2);
+  mtst_subscribe_p(SESS_C, cc, &f, 2, &fut);       /* start {4,0}: ahead */
+  CHECK(moqtrun_test_count_kind(8) == 1);          /* nothing for C yet */
+  wired_moqt_tick(&mtst_hub, 1000 + 3 * 2000 + 1); /* Group 3: still held */
+  CHECK(moqtrun_test_count_kind(8) == 2);          /* B's Group 3 only */
+  CHECK(moqtrun_test_last_kind(8)->s == SESS_B);
+  wired_moqt_tick(&mtst_hub, 1000 + 4 * 2000 + 1); /* Group 4: C joins in */
+  CHECK(moqtrun_test_count_kind(8) == 4);
+  CHECK(moqtrun_test_live_group(moqtrun_test_last_kind(8), got, &n) == 4);
+}
+
 /* ===================== per-request bidi streams ===================== */
 
 /* draft-ietf-moq-transport-19 3.3: a request is the first message of a
@@ -1159,6 +1189,7 @@ void test_moqtrun_sub(void) {
   test_moqtrun_sub_largest_from_datagram();
   test_moqtrun_sub_republish_resets_largest();
   test_moqtrun_sub_largest_own_tracks();
+  test_moqtrun_sub_live_attach_filter_start();
   test_moqtrun_req_subscribe_answered_on_its_stream();
   test_moqtrun_req_two_streams_answered_apart();
   test_moqtrun_req_update_answered_on_same_stream();
