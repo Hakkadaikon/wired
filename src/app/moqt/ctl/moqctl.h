@@ -326,7 +326,16 @@ int moqctl_param_put_uint8(wired_mspan buf, usz* at, u64 v);
 int moqctl_ftn_eq(const moqctl_ftn* a, const moqctl_ftn* b);
 
 /** draft-ietf-moq-transport-19 SS1.4.4 Reason Phrase: Length + UTF-8 bytes,
- * length capped at MOQCTL_MAX_REASON_LEN. */
+ * length capped at MOQCTL_MAX_REASON_LEN.
+ *
+ * Design constraint (draft-22's "Logging of Untrusted String Fields",
+ * carried into every draft as sender-controlled text): this field and
+ * MOQT_IMPLEMENTATION (MOQCTL_OPT_MOQT_IMPLEMENTATION) are untrusted bytes.
+ * Neither is logged or rendered anywhere in this hub today, so there is no
+ * sanitize-before-log call to add yet -- but the first call site that logs
+ * or displays either one MUST sanitize it first (e.g. escape bytes outside
+ * printable ASCII) to avoid log/terminal-escape injection, through one
+ * shared sanitizer, not a copy per call site. */
 typedef wired_span moqctl_reason;
 
 int moqctl_reason_take(wired_span buf, usz* off, moqctl_reason* out);
