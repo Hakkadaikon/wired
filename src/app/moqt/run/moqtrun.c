@@ -1228,13 +1228,56 @@ static int moqtrun_sub_past_end_object(
 }
 
 /* Forward AND Location Filter (5.1.5) for a stream of Group g.
- * ponytail: Group-granular -- Objects of the start Group below the start
- * Object, and of the end Group past a draft-22 End Object, still pass (a
- * relay round is whole Objects, never re-framed); cut rounds at those
- * Objects if a filter ever starts or ends mid-Group on a many-Object
- * stream. */
+ * ponytail: Group-granular on the START side only -- Objects of the start
+ * Group below the start Object still pass whole (cutting the FRONT of a
+ * round means re-framing past the SUBGROUP_HEADER, not just shortening the
+ * tail, so it needs its own design); cut rounds at those Objects if a
+ * filter ever starts mid-Group on a many-Object stream. The END side (a
+ * draft-22 End Object mid-round) is already cut by moqtrun_wire_cutoff. */
 static int moqtrun_sub_gets(const wired_moqtrun_sub* s, u64 g) {
   return moqtrun_sub_forwards(s) && moqtrun_sub_wants_group(s, g);
+}
+
+/* 1 iff sub's End Object could fall somewhere inside Group group's wire
+ * at all -- the moqtrun_wire_cutoff guard, split out to keep its own
+ * branch count at the CCN gate. */
+static int moqtrun_end_object_in_group(const wired_moqtrun_sub* s, u64 group) {
+  return s->has_end_object && group == s->end_group;
+}
+
+/* moqtrun_wire_cutoff's decode walk, once its guard already confirmed s has
+ * an End Object in this Group -- split out to keep moqtrun_wire_cutoff's
+ * own branch count at the CCN gate. */
+static usz moqtrun_cutoff_scan(
+    const wired_moqtrun_sub* s,
+    wired_span               wire,
+    usz                      off0,
+    moqdata_objseq           seq0) {
+  usz         off = off0, cut = off0;
+  moqdata_obj obj;
+  while (moqdata_obj_take(wire, &off, &seq0, &obj) == MOQDATA_OK) {
+    if (obj.object_id > s->end_object) return cut;
+    cut = off;
+  }
+  return cut;
+}
+
+/* Byte offset in wire right after the last Object sub may still receive
+ * this round: wire.n when sub has no End Object in Group g, or when none
+ * of wire's Objects (decoded from off0/seq0, e.g. right after a
+ * SUBGROUP_HEADER, or a header-less continuation's saved seq) crosses it.
+ * draft-22 0x04's End Object is inclusive and Object-granular (SS3.3.1:
+ * "a publisher MUST NOT send objects from outside the requested range"),
+ * so a round carrying several Objects of the same Group is cut right
+ * after the End Object, never re-framed past it. */
+static usz moqtrun_wire_cutoff(
+    const wired_moqtrun_sub* s,
+    wired_span               wire,
+    usz                      off0,
+    moqdata_objseq           seq0,
+    u64                      group) {
+  if (!moqtrun_end_object_in_group(s, group)) return wire.n;
+  return moqtrun_cutoff_scan(s, wire, off0, seq0);
 }
 
 /* moqtrun_sub_gets for one Object at l (a datagram): also not before the
@@ -4473,6 +4516,21 @@ static void moqtrun_relay_to_one(
 static void moqtrun_subgroup_scan(
     wired_span wire, wired_moqtrun_track* t, moqdata_objseq* seq, u64* group);
 
+/* wire cut to sub's End Object (moqtrun_wire_cutoff), re-reading wire's own
+ * SUBGROUP_HEADER for the Object decode's starting point and seq -- wire
+ * always starts with one here (moqtrun_relay_object's caller only reaches
+ * this for a fresh stream). A header that fails to decode is passed whole;
+ * moqtrun_subgroup_scan already did (and acted on) the real decode. */
+static wired_span moqtrun_hdr_cutoff(
+    const wired_moqtrun_sub* s, wired_span wire, u64 group) {
+  usz            off = 0;
+  moqdata_subhdr hdr;
+  if (moqdata_subhdr_take(wire, &off, &hdr) != MOQDATA_OK) return wire;
+  moqdata_objseq seq = moqdata_objseq_of(hdr.type);
+  usz            cut = moqtrun_wire_cutoff(s, wire, off, seq, group);
+  return wired_span_of(wire.p, cut);
+}
+
 static void moqtrun_relay_object(
     wired_moqt_hub* hub, wired_moqtrun_track* track, wired_span wire) {
   moqdata_objseq seq;
@@ -4480,7 +4538,9 @@ static void moqtrun_relay_object(
   moqtrun_subgroup_scan(wire, 0, &seq, &group);
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
     if (moqtrun_sub_gets(&track->subs[i], group))
-      moqtrun_relay_to_one(hub, &track->subs[i], wire);
+      moqtrun_relay_to_one(
+          hub, &track->subs[i],
+          moqtrun_hdr_cutoff(&track->subs[i], wire, group));
 }
 
 /* --- relay map: one entry per in-flight publisher stream (moqtrun.h's
@@ -4696,19 +4756,42 @@ static int moqtrun_relay_expire(
   return 1;
 }
 
+/* wire cut to sub's End Object for relay's sub slot i (moqtrun_wire_
+ * cutoff, decoding from seq0 -- the chaining state right before this
+ * round). A cut that drops any bytes marks i expired on relay (10.9.1: no
+ * further round reaches a subscriber past its End Object) so later
+ * rounds skip it via moqtrun_relay_skips, and forces fin: this IS sub's
+ * last delivery, whole.n or not. */
+static wired_span moqtrun_relay_end_cut(
+    wired_moqtrun_relay*     relay,
+    usz                      i,
+    wired_span               wire,
+    moqdata_objseq           seq0,
+    const wired_moqtrun_sub* sub,
+    int*                     fin) {
+  usz cut = moqtrun_wire_cutoff(sub, wire, 0, seq0, relay->group_id);
+  if (cut == wire.n) return wire;
+  relay->sub_expired |= moqtrun_sub_bit(i);
+  *fin = 1;
+  return wired_span_of(wire.p, cut);
+}
+
 /* One subscriber's share of a relayed round whose oldest Object arrived
- * at born_ms. */
+ * at born_ms, cut to sub's End Object (moqtrun_relay_end_cut) when wire's
+ * Objects cross it. */
 static void moqtrun_relay_append_one(
     wired_moqt_hub*      hub,
     wired_moqtrun_sub*   sub,
     wired_moqtrun_relay* relay,
     usz                  i,
     wired_span           wire,
+    moqdata_objseq       seq0,
     int                  fin,
     u64                  born_ms) {
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
   if (moqtrun_relay_skips(dst, relay, i)) return;
   if (moqtrun_relay_expire(hub, sub, dst, relay, i, born_ms)) return;
+  wire = moqtrun_relay_end_cut(relay, i, wire, seq0, sub, &fin);
   moqtrun_relay_deliver_one(hub, sub, dst, relay, i, wire, fin);
 }
 
@@ -4717,12 +4800,13 @@ static void moqtrun_relay_append_all(
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     wired_span           wire,
+    moqdata_objseq       seq0,
     int                  fin,
     u64                  born_ms) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
     if (moqtrun_sub_gets(&track->subs[i], relay->group_id))
       moqtrun_relay_append_one(
-          hub, &track->subs[i], relay, i, wire, fin, born_ms);
+          hub, &track->subs[i], relay, i, wire, seq0, fin, born_ms);
 }
 
 static int moqtrun_frag_slot_free(const wired_moqt_hub* hub, usz i) {
@@ -4836,13 +4920,17 @@ static u64 moqtrun_tail_born(usz off, u64 now, u64 born) {
  * dropped round must never end mid-Object. Decoding continues the
  * stream's own Object sequence (relay->seq, set from its SUBGROUP_HEADER
  * by moqtrun_relay_start), so each Object's ID counts toward the track's
- * Largest. */
+ * Largest. *seq0_out receives the chaining state as it was BEFORE this
+ * round's decode (relay->seq is advanced in place past it) -- a caller
+ * cutting the returned span to one subscriber's End Object re-decodes
+ * from this same starting point (moqtrun_wire_cutoff). */
 static wired_span moqtrun_relay_normalize(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     wired_span           data,
-    u64*                 born_ms) {
+    u64*                 born_ms,
+    moqdata_objseq*      seq0_out) {
   u64 now   = hub->live.last_now_ms;
   usz total = relay->frag_len + data.n;
   usz off   = 0;
@@ -4851,6 +4939,7 @@ static wired_span moqtrun_relay_normalize(
     bytes_memcpy(
         hub->relay_scratch, hub->frag_pool[relay->frag_idx], relay->frag_len);
   bytes_memcpy(hub->relay_scratch + relay->frag_len, data.p, data.n);
+  *seq0_out = relay->seq;
   moqtrun_decode_object_loop(
       hub, wired_span_of(hub->relay_scratch, total), &off, &relay->seq,
       relay->group_id, track);
@@ -5373,10 +5462,11 @@ static void moqtrun_relay_continue_lossy(
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     wired_span           whole,
+    moqdata_objseq       seq0,
     int                  fin,
     u64                  born_ms) {
   if (moqtrun_relay_round_due(whole, fin))
-    moqtrun_relay_append_all(hub, track, relay, whole, fin, born_ms);
+    moqtrun_relay_append_all(hub, track, relay, whole, seq0, fin, born_ms);
   if (fin) relay->in_use = 0;
 }
 
@@ -5387,19 +5477,23 @@ static void moqtrun_relay_continue_lossy(
  * round; a fragment still held at FIN time is a torn tail with no
  * continuation coming -- dropped). A ring-backed relay (rel_idx >= 0)
  * takes the reliable path instead: its bytes are retried, not dropped,
- * and its entry lives until every cursor is delivered or given up. */
+ * and its entry lives until every cursor is delivered or given up.
+ * ponytail: the ring path does not cut at a draft-22 End Object mid-round
+ * (seq0 unused there) -- it still gates by Group only, same as before;
+ * cut it too if a reliable track's subscribers start using End Object. */
 static void moqtrun_relay_forward(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     wired_span           whole,
+    moqdata_objseq       seq0,
     int                  fin,
     u64                  born_ms) {
   if (relay->rel_idx >= 0) {
     moqtrun_rel_continue(hub, track, relay, whole, fin, born_ms);
     return;
   }
-  moqtrun_relay_continue_lossy(hub, track, relay, whole, fin, born_ms);
+  moqtrun_relay_continue_lossy(hub, track, relay, whole, seq0, fin, born_ms);
 }
 
 /* A poisoned relay only absorbs its publisher's bytes, so they never get
@@ -5433,20 +5527,43 @@ static void moqtrun_relay_continue(
     moqtrun_relay_sink(relay, fin);
     return;
   }
-  u64        born_ms;
-  wired_span whole = moqtrun_relay_normalize(hub, track, relay, wire, &born_ms);
+  u64            born_ms;
+  moqdata_objseq seq0;
+  wired_span     whole =
+      moqtrun_relay_normalize(hub, track, relay, wire, &born_ms, &seq0);
   /* Objects completed before the dropped tail are sound: deliver them,
    * then end the subscriber streams (moqtrun_relay_end_poisoned). */
-  moqtrun_relay_forward(hub, track, relay, whole, fin, born_ms);
+  moqtrun_relay_forward(hub, track, relay, whole, seq0, fin, born_ms);
   moqtrun_relay_end_poisoned(hub, track, relay, fin);
 }
 
-/* Opens sub slot i's relay stream carrying wire as its first round and
- * records the id for later rounds. An open failure (no free send slot on
- * that connection) leaves the slot unset: a lossy relay late-opens it on
- * a later round (moqtrun_relay_late_open), a ring-backed one retries on
- * the next drain while the ring still holds the stream's start
- * (moqtrun_rel_late_attach_all), else it gets nothing. */
+/* Opened stream sid on relay's sub slot i reached an End Object mid-open
+ * (moqtrun_relay_open_one's cut shorter than its own wire): nothing more
+ * will ever be sent on it, so it is FIN'd right away and i marked expired
+ * (moqtrun_relay_skips) so no later round reopens or appends to it. */
+static void moqtrun_relay_open_end_hit(
+    wired_moqt_hub*      hub,
+    wired_wt_session*    wt,
+    u64                  sid,
+    wired_moqtrun_relay* relay,
+    usz                  i,
+    usz                  cut_n,
+    usz                  wire_n) {
+  if (cut_n == wire_n) return;
+  hub->io.stream_fin(wt, sid);
+  relay->sub_expired |= moqtrun_sub_bit(i);
+}
+
+/* Opens sub slot i's relay stream carrying wire, cut to sub's End Object
+ * (moqtrun_hdr_cutoff) when wire still starts with its SUBGROUP_HEADER --
+ * a late-open's wire is header-only (relay->hdr_len, no Objects) and the
+ * cutoff passes it through unchanged. A cut that dropped bytes FINs the
+ * stream right away (moqtrun_relay_open_end_hit): no further round will
+ * ever reach it. Records the id for later rounds. An open failure (no
+ * free send slot on that connection) leaves the slot unset: a lossy relay
+ * late-opens it on a later round (moqtrun_relay_late_open), a ring-backed
+ * one retries on the next drain while the ring still holds the stream's
+ * start (moqtrun_rel_late_attach_all), else it gets nothing. */
 static void moqtrun_relay_open_one(
     wired_moqt_hub*      hub,
     wired_moqtrun_sub*   sub,
@@ -5455,16 +5572,19 @@ static void moqtrun_relay_open_one(
     wired_span           wire) {
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
   if (!dst->in_use) return;
-  i64 sid = hub->io.open_uni_stream(dst->wt, wire);
+  wired_span cut_wire = moqtrun_hdr_cutoff(sub, wire, relay->group_id);
+  i64        sid      = hub->io.open_uni_stream(dst->wt, cut_wire);
   if (sid < 0) {
     hub->stat_open_drop++;
     return;
   }
-  moqtrun_prio_set(hub, dst->wt, sid, sub, wire);
+  moqtrun_prio_set(hub, dst->wt, sid, sub, cut_wire);
   sub->stream_count++;
   relay->sub_stream_id[i]   = (u64)sid;
   relay->sub_stream_set[i]  = 1;
   relay->sub_busy_streak[i] = 0;
+  moqtrun_relay_open_end_hit(
+      hub, dst->wt, (u64)sid, relay, i, cut_wire.n, wire.n);
 }
 
 static void moqtrun_relay_open_all(

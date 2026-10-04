@@ -1127,6 +1127,120 @@ static void test_moqtrun_sub_filter22_end_gates(void) {
   CHECK(moqtrun_test_count_kind(9) == 1);
 }
 
+/* Number of whole Objects in a SUBGROUP_HEADER + Objects wire (ponytail:
+ * test-only re-decode, mirrors moqtrun_decode_object_loop without the
+ * track/cache side effects). */
+static usz mt22_obj_count(wired_span wire) {
+  usz            off = 0;
+  moqdata_subhdr hdr;
+  if (moqdata_subhdr_take(wire, &off, &hdr) != MOQDATA_OK) return 0;
+  moqdata_objseq seq = moqdata_objseq_of(hdr.type);
+  usz            n   = 0;
+  moqdata_obj    obj;
+  while (moqdata_obj_take(wire, &off, &seq, &obj) == MOQDATA_OK) n++;
+  return n;
+}
+
+/* draft-22 0x04 (Absolute Range) End Object is an Object-granular bound
+ * (SS3.3.1/SS9.20.9: "a publisher MUST NOT send objects from outside the
+ * requested range"), but a single relay round can carry several Objects
+ * of the SAME Group. A subscriber whose End Object falls strictly inside
+ * one round's Objects must receive only the Objects up to and including
+ * it -- never the Objects past it, no matter how they arrived (fresh
+ * one-shot stream, fresh keep-open stream, or a later append on an
+ * already-open relay). */
+static void test_moqtrun_sub_filter22_end_object_mid_round_oneshot(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params end1 =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_OBJ, 6, 1));
+  mt22_subscribe(&end1);
+  moqtrun_test_reset();
+  usz n = mtst_stream(6, 3, 1, buf); /* Objects 0, 1, 2 in one wire */
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 1);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(4); /* send_uni */
+  CHECK(c != 0);
+  CHECK(mt22_obj_count(wired_span_of(c->payload, c->payload_len)) == 2);
+}
+
+/* Same bound, but the stream stays open (fin 0): the fresh-open path
+ * (moqtrun_relay_open_all / open_uni_stream) must cut at the same Object. */
+static void test_moqtrun_sub_filter22_end_object_mid_round_keepopen(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params end1 =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_OBJ, 6, 1));
+  mt22_subscribe(&end1);
+  moqtrun_test_reset();
+  usz n = mtst_stream(6, 3, 1, buf); /* Objects 0, 1, 2 in one wire */
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(5); /* open_uni_stream */
+  CHECK(c != 0);
+  CHECK(mt22_obj_count(wired_span_of(c->payload, c->payload_len)) == 2);
+}
+
+/* Same bound again, but the Objects arrive as a LATER append on an
+ * already-open relay stream (moqtrun_relay_append_all / stream_send):
+ * round 1 opens with Object 0 alone, round 2 carries Objects 1 and 2
+ * header-less -- the cut must land after Object 1 (the End Object). */
+static void test_moqtrun_sub_filter22_end_object_mid_round_append(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params end1 =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_OBJ, 6, 1));
+  mt22_subscribe(&end1);
+  moqtrun_test_reset();
+  usz n = mtst_stream(6, 1, 1, buf); /* Object 0, header, stream stays open */
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  CHECK(moqtrun_test_last_kind(5) != 0); /* fresh open carried Object 0 */
+  moqtrun_test_reset();
+  n = mtst_stream(6, 2, 0, buf); /* header-less continuation: Objects 1, 2 */
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 1);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(3); /* stream_send */
+  CHECK(c != 0);
+  usz            off = 0;
+  moqdata_objseq seq = {0};
+  moqdata_obj    obj;
+  usz            got = 0;
+  while (moqdata_obj_take(
+             wired_span_of(c->payload, c->payload_len), &off, &seq, &obj) ==
+         MOQDATA_OK)
+    got++;
+  CHECK(got == 1);    /* Object 1 only, Object 2 (past End Object) withheld */
+  CHECK(c->fin == 1); /* the cut round closes sub's stream right there */
+}
+
+/* Two subscribers, two different End Objects, same round: each gets cut
+ * at ITS OWN bound (moqtrun_wire_cutoff is evaluated per sub), not at
+ * whichever is tightest or loosest. */
+static void test_moqtrun_sub_filter22_end_object_per_sub(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_ftn    f = mtst_ftn("chat", "room1", "alice");
+  moqctl_params end0 =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_OBJ, 6, 0));
+  moqctl_params end2 =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_OBJ, 6, 2));
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  u64 cc = mtst_join(SESS_C);
+  mtst_publish(SESS_A, ca, &f, 1);
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  moqtrun_find_by_wt(&mtst_hub, SESS_C)->ver = MOQVER_D22;
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &end0);
+  mtst_subscribe_p(SESS_C, cc, &f, 4, &end2);
+  moqtrun_test_reset();
+  usz n = mtst_stream(6, 3, 1, buf); /* Objects 0, 1, 2 in one wire */
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 1);
+  const moqtrun_test_call* cB = 0;
+  const moqtrun_test_call* cC = 0;
+  for (usz i = g_n_calls; i > 0; i--) {
+    if (g_calls[i - 1].kind != 4) continue; /* send_uni */
+    if (!cB && g_calls[i - 1].s == SESS_B) cB = &g_calls[i - 1];
+    if (!cC && g_calls[i - 1].s == SESS_C) cC = &g_calls[i - 1];
+  }
+  CHECK(cB != 0 && cC != 0);
+  CHECK(mt22_obj_count(wired_span_of(cB->payload, cB->payload_len)) == 1);
+  CHECK(mt22_obj_count(wired_span_of(cC->payload, cC->payload_len)) == 3);
+}
+
 /* ===================== reserved namespaces ===================== */
 
 /* draft-19 2.4.2/2.4.3: a Track Namespace whose first field is exactly
@@ -1384,6 +1498,10 @@ void test_moqtrun_sub(void) {
   test_moqtrun_sub_filter22_ends();
   test_moqtrun_sub_filter22_inverted();
   test_moqtrun_sub_filter22_end_gates();
+  test_moqtrun_sub_filter22_end_object_mid_round_oneshot();
+  test_moqtrun_sub_filter22_end_object_mid_round_keepopen();
+  test_moqtrun_sub_filter22_end_object_mid_round_append();
+  test_moqtrun_sub_filter22_end_object_per_sub();
   test_moqtrun_sub_params_include_properties_d22();
   test_moqtrun_pub_params_delivery_timeout_d22();
   test_moqtrun_pub_params_group_order_d18();
