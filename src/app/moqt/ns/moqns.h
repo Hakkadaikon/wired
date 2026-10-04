@@ -28,10 +28,28 @@ typedef struct {
 
 int moqns_subscribe_take(int ver, wired_span body, moqns_req* out);
 int moqns_publish_take(int ver, wired_span body, moqns_req* out);
+/** SUBSCRIBE_TRACKS (10.19): same body layout (Request ID, Track Namespace
+ * Prefix, Parameters) as SUBSCRIBE_NAMESPACE, decoded against its own
+ * MOQCTL_PCTX_SUBSCRIBE_TRACKS parameter scope. */
+int moqns_subscribe_tracks_take(int ver, wired_span body, moqns_req* out);
 int moqns_req_encode(wired_mspan buf, usz* off, const moqns_req* m);
 
 /** NAMESPACE / NAMESPACE_DONE: the body is a Track Namespace Suffix.
  * Encode with moqctl_ns_put. */
 int moqns_suffix_take(wired_span body, moqctl_ns* out);
+
+/** draft-ietf-moq-transport-19 10.20 PUBLISH_SKIPPED: a SUBSCRIBE_TRACKS
+ * response-stream message naming one Track the publisher will not PUBLISH
+ * for -- ns is the Track Namespace Suffix (past the SUBSCRIBE_TRACKS's
+ * Track Namespace Prefix, like NAMESPACE/NAMESPACE_DONE), name the Track
+ * Name. */
+typedef struct {
+  moqctl_ns  ns;
+  wired_span name;
+} moqns_pub_skipped;
+
+int moqns_pub_skipped_take(wired_span body, moqns_pub_skipped* out);
+int moqns_pub_skipped_encode(
+    wired_mspan buf, usz* off, const moqns_pub_skipped* m);
 
 #endif
