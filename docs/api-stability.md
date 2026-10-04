@@ -137,8 +137,10 @@ care.
 
 ## MOQT is not on this map
 
-`src/app/moqt/` (eleven modules: `cache`, `ctl`, `data`, `dgram`, `fetch`,
-`kvp`, `ns`, `run`, `sess`, `tstat`, `vi`) implements MOQT (draft-ietf-moq-transport-19) but its headers are not
+`src/app/moqt/` (twelve modules: `cache`, `ctl`, `data`, `dgram`, `fetch`,
+`kvp`, `ns`, `run`, `sess`, `tstat`, `ver`, `vi`) implements MOQT — a session
+negotiates whichever of draft-ietf-moq-transport-18/19/22 the peer's WT
+subprotocol offers (`moqt-18`/`moqt-19`/`moqt-22`) — but its headers are not
 included by `src/wired.h`, so none of it appears in either table above —
 `wired_moqt_init` and friends (`run/moqtrun.h`) are deliberately outside the
 one-include surface this document maps. This is a design choice, not an
@@ -157,6 +159,14 @@ Minor additions to `run/moqtrun.h` in this round, all zero = old behavior:
 | `wired_moqt_on_stream_reset` | Tell the hub a peer reset one of its streams, which cancels the request or FETCH that stream carried. |
 | `wired_moqt_hub.authorize_namespace`, `authorize_ns_ctx`, `wired_moqt_authorize_ns_fn` | Optional authorizer for PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE; 0 grants all. |
 | `wired_moqt_io.close_session`, `stream_reply_open`, `stream_priority` | io-table ops appended at the end, shaped as `wired_server_wt_close_session`, `wired_server_wt_stream_reply_open` and `wired_server_wt_stream_priority`. A 0 op keeps the old behavior (no close, no per-request streams, default urgency). |
+
+Multi-draft negotiation (`src/app/moqt/ver/moqver.h`) follows the same
+additive rule: `wired_moqt_wt_protocols` writes the server's offered
+subprotocol list for `wired_srvrun_opt.wt_protocols`; an application that
+does not call it (or passes a single fixed `"moqt-19"` string, as before)
+keeps negotiating draft-19 only, unchanged from prior behavior. A session
+whose peer sends no WT subprotocol likewise falls back to the draft-19
+control-stream behavior that predates multi-draft support.
 
 ---
 

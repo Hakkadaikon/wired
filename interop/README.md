@@ -49,8 +49,9 @@ transfer results under `/downloads/<endpoint>/`.
 
 ## MoQT relay mode
 
-A third image runs `examples/moqt_interop/wired_server` as a draft-19
-MoQT relay (WebTransport only, subprotocol `moqt-19`) for
+A third image runs `examples/moqt_interop/wired_server` as a MoQT relay
+(WebTransport only, negotiates whichever of draft-18/19/22 the peer offers
+via subprotocol `moqt-18`/`moqt-19`/`moqt-22`) for
 [moq-interop-runner](https://github.com/englishm/moq-interop-runner):
 
 ```sh
