@@ -1180,11 +1180,11 @@ static void moqtrun_queue_subscribe_ok(
 }
 
 static void moqtrun_fill_on_subscribe(
-    wired_moqt_hub*          hub,
-    wired_moqtrun_peer*      p,
-    wired_moqtrun_track*     track,
-    const wired_moqtrun_sub* sub,
-    const moqctl_params*     params);
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_track* track,
+    wired_moqtrun_sub*   sub,
+    const moqctl_params* params);
 
 /* Records slot (peer_idx, a fresh alias) against track, replies
  * SUBSCRIBE_OK with that alias and opens any requested fill. */
@@ -1898,14 +1898,15 @@ static void moqtrun_fetch_descend(
  * exist on draft-22 only, so 0x20C is legal on the stream (SS11.4.1),
  * and a Descending GROUP_ORDER rewinds it to the range's top group. */
 static void moqtrun_fill_mark(
-    wired_moqt_hub*          hub,
-    wired_moqtrun_fetch*     f,
-    const wired_moqtrun_sub* sub,
-    const moqfetch_fill*     fill,
-    const moqtrun_frange*    r) {
+    wired_moqt_hub*       hub,
+    wired_moqtrun_fetch*  f,
+    wired_moqtrun_sub*    sub,
+    const moqfetch_fill*  fill,
+    const moqtrun_frange* r) {
   f->is_fill           = 1;
   f->owner_rid         = sub->request_id;
   f->seq.eor_timed_out = 1;
+  sub->stream_count++; /* PUBLISH_DONE counts fills too (10.10) */
   if (fill->descending) moqtrun_fetch_descend(hub, f, r);
 }
 
@@ -1922,12 +1923,12 @@ static moqctl_rangeloc moqtrun_fill_rl(const moqfetch_fill* fill) {
  * starting past the Largest Object -- or an empty track -- opens
  * nothing; an end past it is cut to it. */
 static void moqtrun_fill_open(
-    wired_moqt_hub*          hub,
-    wired_moqtrun_track*     track,
-    wired_moqtrun_peer*      p,
-    const wired_moqtrun_sub* sub,
-    u64                      rid,
-    const moqfetch_fill*     fill) {
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_sub*   sub,
+    u64                  rid,
+    const moqfetch_fill* fill) {
   moqtrun_frange  r;
   moqctl_rangeloc rl = moqtrun_fill_rl(fill);
   if (!moqtrun_fetch_resolve(track, &rl, &r)) return;
@@ -1948,12 +1949,12 @@ static int moqtrun_fill_requested(
  * nothing without the parameter, on a FORWARD-0 subscription, or on a
  * malformed value. */
 static void moqtrun_fill_from_param(
-    wired_moqt_hub*          hub,
-    wired_moqtrun_peer*      p,
-    wired_moqtrun_track*     track,
-    const wired_moqtrun_sub* sub,
-    u64                      rid,
-    const moqctl_param*      fp) {
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_track* track,
+    wired_moqtrun_sub*   sub,
+    u64                  rid,
+    const moqctl_param*  fp) {
   moqfetch_fill fill;
   if (!moqtrun_fill_requested(fp, sub)) return;
   if (moqfetch_fill_take(fp->bytes, &fill) != MOQCTL_OK) return;
@@ -1963,11 +1964,11 @@ static void moqtrun_fill_from_param(
 /* FILL_PARAMETERS on an accepted SUBSCRIBE: the fill rides the
  * SUBSCRIBE's own Request ID. */
 static void moqtrun_fill_on_subscribe(
-    wired_moqt_hub*          hub,
-    wired_moqtrun_peer*      p,
-    wired_moqtrun_track*     track,
-    const wired_moqtrun_sub* sub,
-    const moqctl_params*     params) {
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_track* track,
+    wired_moqtrun_sub*   sub,
+    const moqctl_params* params) {
   moqtrun_fill_from_param(
       hub, p, track, sub, sub->request_id,
       moqctl_params_find(params, MOQCTL_PARAM_FILL_PARAMETERS));
@@ -1978,12 +1979,12 @@ static void moqtrun_fill_on_subscribe(
  * earlier fill keeps running beside it. Only a live track is filled --
  * state kept for a gone publisher has no cache to read. */
 static void moqtrun_fill_on_update(
-    wired_moqt_hub*          hub,
-    wired_moqtrun_peer*      p,
-    wired_moqtrun_track*     track,
-    const wired_moqtrun_sub* sub,
-    const moqctl_params*     params,
-    u64                      rid) {
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_track* track,
+    wired_moqtrun_sub*   sub,
+    const moqctl_params* params,
+    u64                  rid) {
   if (!track) return;
   moqtrun_fill_from_param(
       hub, p, track, sub, rid,
