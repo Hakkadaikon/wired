@@ -117,12 +117,6 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "    examples/word_list/wired_server.c $dbgsrcs"
     echo "  extra = -DWIRED_DEBUG"
     echo
-    echo "build examples/webtransport_echo/wired_server: cc_freestanding_bin \$"
-    echo "    examples/webtransport_echo/wired_server.c build/libwired.a"
-    echo
-    echo "build examples/webtransport_chat/wired_server: cc_freestanding_bin \$"
-    echo "    examples/webtransport_chat/wired_server.c build/libwired.a"
-    echo
     echo "build examples/webtransport_interop/wired_server: cc_freestanding_bin \$"
     echo "    examples/webtransport_interop/wired_server.c build/libwired.a"
     echo
