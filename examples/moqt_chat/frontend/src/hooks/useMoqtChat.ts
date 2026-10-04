@@ -5,8 +5,8 @@
 // the client/pipeline instances themselves live in refs here, never in
 // component state.
 //
-// Voice wiring mirrors webtransport_chat's useVoiceChat.ts (same jitter
-// buffer -> AudioDecoder -> audioGate -> playbackSink pipeline), adapted to
+// Voice wiring keeps the datagram voice chat's jitter
+// buffer -> AudioDecoder -> audioGate -> playbackSink pipeline, adapted to
 // MOQT Objects instead of WebTransport DATAGRAMs: sendOpusFrame/
 // handleIncomingStream replace sendDatagram/handleDatagram, and the
 // participant id itself is the sender key (no senderId bytes to hex-encode).
@@ -71,8 +71,8 @@ const ANALYSER_FFT_SIZE = 1024;
 
 // voiceReceivePipeline hands the decoder raw Opus payloads; the real
 // AudioDecoder wants EncodedAudioChunk, so wrap each payload here with a
-// running timestamp (one 20 ms Opus frame per chunk) -- same shape as
-// webtransport_chat's useVoiceChat.ts.
+// running timestamp (one 20 ms Opus frame per chunk) -- same shape as the
+// datagram voice chat's decoder wrapper.
 const OPUS_FRAME_US = 20_000;
 class OpusChunkDecoder {
   private dec: AudioDecoder;

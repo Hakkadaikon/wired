@@ -109,9 +109,8 @@ static void test_srvthreads_env_at_strides_by_env_size(void) {
   srvthreads_free_envs(base, 2);
 }
 
-/* TEST LIST for wired_srvthreads_parse_cores (examples/webtransport_chat and
- * examples/word_list each reimplement this comma-list parser today; this
- * pulls it into the SDK):
+/* TEST LIST for wired_srvthreads_parse_cores (example servers each
+ * reimplemented this comma-list parser; this pulls it into the SDK):
  * 1. single core "0" -> ok, n_cores=1, cores[0]=0
  * 2. multi core "2,3,4,5" -> ok, n_cores=4, cores=[2,3,4,5]
  * 3. empty string "" -> fail (no fields at all is malformed, not "0 cores")

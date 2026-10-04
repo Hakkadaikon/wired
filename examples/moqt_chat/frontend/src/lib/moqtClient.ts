@@ -127,7 +127,7 @@ export function participantForTrackAlias(trackAlias: bigint): string | undefined
   return CANDIDATE_PARTICIPANT_IDS[Number(trackAlias)];
 }
 
-// --- certificate fingerprint pinning (same recipe as webtransport_chat) ---
+// --- certificate fingerprint pinning --------------------------------------
 
 export interface WebTransportConnectOptions {
   serverCertificateHashes?: { algorithm: "sha-256"; value: ArrayBuffer }[];
@@ -135,8 +135,7 @@ export interface WebTransportConnectOptions {
 
 /** Parses colon/whitespace-tolerant SHA-256 hex fingerprints into the
  * WebTransport constructor's serverCertificateHashes option. Empty input
- * means "no pinning" (browser falls back to the WebPKI CA check), matching
- * webtransport_chat's fallback behavior. */
+ * means "no pinning" (browser falls back to the WebPKI CA check). */
 export function certHashesToWebTransportOptions(
   hexList: string[],
 ): WebTransportConnectOptions {

@@ -18,8 +18,6 @@ jobs:
       matrix:
         example:
           - word_list
-          - webtransport_echo
-          - webtransport_chat
           - webtransport_interop
           - moqt_chat
     steps:

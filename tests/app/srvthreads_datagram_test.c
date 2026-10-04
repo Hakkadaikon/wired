@@ -101,7 +101,7 @@ static void sdt_make_id(
 }
 
 /* draft-ietf-webtrans-http3-15 SS4: relay every received DATAGRAM to every
- * active WT session -- byte-identical to examples/webtransport_chat's
+ * active WT session -- byte-identical to a broadcast chat's
  * wt_on_datagram_cb, the exact callback the bug report exercises. */
 static void sdt_on_datagram_cb(void* ctx, wired_wt_session* s, wired_span d) {
   (void)ctx;
