@@ -525,6 +525,37 @@ typedef struct {
    * reused while any live subscription holds its bit, so its namespace
    * stays readable for the NAMESPACE_DONE still owed. */
   u64 ns_seen;
+  /** SUBSCRIBE_TRACKS only (10.19-10.20): per hub track slot (flat index
+   * session*WIRED_MOQTRUN_MAX_TRACKS_PER_PEER+track), the cache_tag of the
+   * track incarnation this SUBSCRIBE_TRACKS already tried a PUBLISH or
+   * PUBLISH_SKIPPED for -- 0 means "never tried". Compared against the
+   * live track's wired_moqtrun_track.cache_tag (never 0 once claimed), so
+   * a slot reused by a newer PUBLISH reads as untried again without a
+   * separate generation field. */
+  u64 attempted_tag
+      [WIRED_MOQTRUN_MAX_SESSIONS * WIRED_MOQTRUN_MAX_TRACKS_PER_PEER];
+  /** A hub-opened PUBLISH request slot only (10.9, sent as a result of
+   * SUBSCRIBE_TRACKS): the request_id of the SUBSCRIBE_TRACKS that caused
+   * this PUBLISH -- fill-design's owner_rid pattern (a request_id, never a
+   * pointer/index into that slot), so this PUBLISH stream stays valid and
+   * self-contained even if the SUBSCRIBE_TRACKS slot is cancelled or
+   * reused first. 0 for a PUBLISH not opened this way (every other
+   * request slot, and a client-opened PUBLISH). */
+  u64 pub_origin_rid;
+  /** A hub-opened PUBLISH request slot only: the wired_moqtrun_track.
+   * cache_tag of the track incarnation this PUBLISH announced -- the
+   * fill-design owner_rid/cache_tag pattern (moqtrun_fills_upstream_gone's
+   * own doc), so a track's retirement can find and reset every PUBLISH
+   * stream it opened without this slot holding a pointer/index into the
+   * track. 0 for a PUBLISH not opened this way. */
+  u64 pub_track_tag;
+  /** SUBSCRIBE_TRACKS only (10.19.1): FORWARD and GROUP_ORDER as received,
+   * copied into every PUBLISH this SUBSCRIBE_TRACKS generates --
+   * forward_zero 1 iff FORWARD was present and 0 (else PUBLISH omits it);
+   * group_order the raw Parameter value, 0 for absent (publisher's
+   * default, PUBLISH omits it too). */
+  u8 forward_zero;
+  u8 group_order;
 } wired_moqtrun_req;
 
 /** Fixed capacity: FETCH responses (draft-ietf-moq-transport-19 10.12.3)
