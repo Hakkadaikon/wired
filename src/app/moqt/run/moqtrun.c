@@ -4380,39 +4380,61 @@ static int moqtrun_rx_is_own_ctl(const wired_moqtrun_peer* p, u64 sid) {
   return p->ctl_opened && sid == p->control_stream_id;
 }
 
+/* draft-19 3.3: control streams stay open for the session's life -- a
+ * transport-level end (FIN, RESET_STREAM, STOP_SENDING) of either one
+ * closes the session with PROTOCOL_VIOLATION. */
+static void moqtrun_ctl_gone(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  moqsess_step(&p->sess, MOQSESS_EV_CTRL_CLOSED);
+  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
 /* Dispatches data as control-stream bytes arriving on sid: the hub's
  * own (legacy bidi) stream reassembles in ctl_asm, a distinct client
  * control stream in peer_ctl_asm -- before acceptance both can carry
  * bytes in the same session, so they never share a reassembly. */
 static void moqtrun_ctl_rx(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 sid, wired_span data) {
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 sid,
+    wired_span          data,
+    int                 fin) {
   p->rx_sid = sid;
   p->rx     = moqtrun_rx_is_own_ctl(p, sid) ? &p->ctl_asm : &p->peer_ctl_asm;
   moqtrun_dispatch_ctl_stream(hub, p, (usz)(p - hub->peers), data);
   p->rx = 0;
+  if (fin) moqtrun_ctl_gone(hub, p);
 }
 
 /* draft-19 3.3: the first client control stream wins; a second one
  * closes the session. On adoption the delivery's remaining bytes
  * dispatch as control messages (the SETUP itself first). */
 static void moqtrun_ctl_adopt_rx(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 sid, wired_span data) {
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 sid,
+    wired_span          data,
+    int                 fin) {
   if (p->peer_ctl_set) {
     moqtrun_second_ctl(hub, p);
     return;
   }
   p->peer_ctl_set       = 1;
   p->peer_ctl_stream_id = sid;
-  moqtrun_ctl_rx(hub, p, sid, data);
+  moqtrun_ctl_rx(hub, p, sid, data, fin);
 }
 
 /* draft-19 3.4: a fresh uni whose Stream Type is 0x2F00 is the client's
  * control stream (its SETUP follows the type varint); 1 when consumed. */
 static int moqtrun_fresh_uni_ctl(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 sid, wired_span data) {
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 sid,
+    wired_span          data,
+    int                 fin) {
   usz at = 0;
   if (moqdata_classify(data, &at) != MOQDATA_STREAM_CONTROL) return 0;
-  moqtrun_ctl_adopt_rx(hub, p, sid, wired_span_of(data.p + at, data.n - at));
+  moqtrun_ctl_adopt_rx(
+      hub, p, sid, wired_span_of(data.p + at, data.n - at), fin);
   return 1;
 }
 
@@ -4435,7 +4457,7 @@ static void moqtrun_dispatch_data_stream(
     moqtrun_relay_continue(hub, track, relay, data, fin);
     return;
   }
-  if (moqtrun_fresh_uni_ctl(hub, p, stream_id, data)) return;
+  if (moqtrun_fresh_uni_ctl(hub, p, stream_id, data, fin)) return;
   moqtrun_dispatch_fresh_stream(hub, p, stream_id, data, fin);
 }
 
@@ -4643,7 +4665,7 @@ static void moqtrun_dispatch_other(
     return;
   }
   if (moqtrun_bidi_is_setup(hub, p->wt, stream_id, data)) {
-    moqtrun_ctl_adopt_rx(hub, p, stream_id, data);
+    moqtrun_ctl_adopt_rx(hub, p, stream_id, data, fin);
     return;
   }
   moqtrun_dispatch_req_stream(hub, p, stream_id, data, fin);
@@ -4668,7 +4690,7 @@ void wired_moqt_on_stream_data(
   wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
   if (!p) return;
   if (moqtrun_rx_on_ctl(p, stream_id)) {
-    moqtrun_ctl_rx(hub, p, stream_id, data);
+    moqtrun_ctl_rx(hub, p, stream_id, data, fin);
     return;
   }
   moqtrun_dispatch_other(hub, p, stream_id, data, fin);
@@ -4904,6 +4926,24 @@ static void moqtrun_stream_frag_release(wired_moqtrun_peer* p, u64 stream_id) {
   if (r) moqtrun_frag_release_unless_poisoned(r);
 }
 
+/* A reset control stream kills the session (draft-19 3.3); a reset
+ * request stream cancels its request; a reset publisher stream frees
+ * its held fragment. */
+static void moqtrun_reset_dispatch(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_moqtrun_req*  q,
+    u64                 stream_id) {
+  if (moqtrun_rx_on_ctl(p, stream_id)) {
+    moqtrun_ctl_gone(hub, p);
+    return;
+  }
+  if (q)
+    moqtrun_req_cancel(hub, p, q);
+  else
+    moqtrun_stream_frag_release(p, stream_id);
+}
+
 void wired_moqt_on_stream_reset(
     void*             app_ctx,
     wired_wt_session* s,
@@ -4917,10 +4957,7 @@ void wired_moqt_on_stream_reset(
   (void)app_error_code;
   if (!p) return;
   moqtrun_fetches_stream_gone(hub, s, stream_id);
-  if (q)
-    moqtrun_req_cancel(hub, p, q);
-  else
-    moqtrun_stream_frag_release(p, stream_id);
+  moqtrun_reset_dispatch(hub, p, q, stream_id);
   moqtrun_reqs_tick(hub);
 }
 
