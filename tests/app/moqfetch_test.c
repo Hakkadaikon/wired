@@ -1014,6 +1014,88 @@ static void test_moqfetch_req_cross_version_range(void) {
   CHECK(m19.range.end_group == m22.range.end_group);
 }
 
+/* draft-22 SS9.20.15: the FILL_PARAMETERS value (Number of Parameters +
+ * Parameters, FETCH scope) round-trips through the fill codec. */
+static void test_moqfetch_fill_roundtrip(void) {
+  moqfetch_fill f = {0}, back;
+  u8            out[64], out2[64];
+  usz           n = 0, n2 = 0;
+  f.has_filter         = 1;
+  f.range.sk           = MOQCTL_RSK_ABS;
+  f.range.start_group  = 3;
+  f.range.start_object = 4;
+  f.range.ek           = MOQCTL_REK_GROUP;
+  f.range.end_group    = 7;
+  f.descending         = 1;
+  f.has_timeout        = 1;
+  f.timeout_ms         = 5000;
+  CHECK(moqfetch_fill_put(wired_mspan_of(out, sizeof out), &n, &f));
+  CHECK(moqfetch_fill_take(wired_span_of(out, n), &back) == MOQCTL_OK);
+  CHECK(back.has_filter == 1 && back.range.sk == MOQCTL_RSK_ABS);
+  CHECK(back.range.start_group == 3 && back.range.start_object == 4);
+  CHECK(back.range.ek == MOQCTL_REK_GROUP && back.range.end_group == 7);
+  CHECK(back.descending == 1);
+  CHECK(back.has_timeout == 1 && back.timeout_ms == 5000);
+  CHECK(moqfetch_fill_put(wired_mspan_of(out2, sizeof out2), &n2, &back));
+  CHECK(n2 == n);
+  for (usz i = 0; i < n; i++) CHECK(out2[i] == out[i]);
+}
+
+/* SS9.20.9 inside FILL_PARAMETERS: an unfiltered fill is SENT as
+ * LOCATION_FILTER type 0x00; on receive, type 0x00 and a zero-length
+ * value (no parameters at all) both read as "no filter". */
+static void test_moqfetch_fill_no_filter(void) {
+  moqfetch_fill f = {0}, back;
+  u8            out[16];
+  usz           n = 0;
+  CHECK(moqfetch_fill_put(wired_mspan_of(out, sizeof out), &n, &f));
+  CHECK(n == 3); /* 1 parameter: LOCATION_FILTER, type 0x00 (None) */
+  CHECK(out[0] == 0x01 && out[1] == 0x21 && out[2] == 0x00);
+  CHECK(moqfetch_fill_take(wired_span_of(out, n), &back) == MOQCTL_OK);
+  CHECK(back.has_filter == 0 && back.has_timeout == 0 && !back.descending);
+  CHECK(moqfetch_fill_take(wired_span_of(out, 0), &back) == MOQCTL_OK);
+  CHECK(back.has_filter == 0 && back.has_timeout == 0 && !back.descending);
+}
+
+/* FILL_TIMEOUT is read as a varint of milliseconds (SS9.20.16). */
+static void test_moqfetch_fill_timeout_varint(void) {
+  static const u8 v[] = {0x01, 0x0A, 0x93, 0x88}; /* 1 param, 5000 ms */
+  moqfetch_fill   f;
+  CHECK(moqfetch_fill_take(wired_span_of(v, sizeof v), &f) == MOQCTL_OK);
+  CHECK(f.has_timeout == 1 && f.timeout_ms == 5000);
+  CHECK(f.has_filter == 0);
+}
+
+/* A value whose Parameters do not fill it exactly, or whose inner list is
+ * malformed, rejects. */
+static void test_moqfetch_fill_rejects(void) {
+  static const u8 tail[] = {0x00, 0xFF}; /* 0 params + stray byte */
+  static const u8 torn[] = {0x01, 0x0A}; /* timeout missing value */
+  moqfetch_fill   f;
+  CHECK(moqfetch_fill_take(wired_span_of(tail, sizeof tail), &f) != MOQCTL_OK);
+  CHECK(moqfetch_fill_take(wired_span_of(torn, sizeof torn), &f) != MOQCTL_OK);
+}
+
+/* FILL_PARAMETERS may appear in SUBSCRIBE and REQUEST_UPDATE (for a
+ * subscription) only (SS9.20.15): in a PUBLISH_OK-shaped context the
+ * existing parameter scope check rejects it, so it is never read as a
+ * fill request there. */
+static void test_moqfetch_fill_ctx_scope(void) {
+  static const u8 list[] = {0x01, 0x23, 0x01, 0x00}; /* FILL_PARAMETERS {0} */
+  moqctl_params   p;
+  usz             at = 0;
+  CHECK(
+      moqctl_params_take(
+          MOQVER_D22, wired_span_of(list, sizeof list), &at,
+          MOQCTL_PCTX_SUBSCRIBE, &p) == MOQCTL_OK);
+  CHECK(p.n == 1 && p.items[0].type == MOQCTL_PARAM_FILL_PARAMETERS);
+  at = 0;
+  CHECK(
+      moqctl_params_take(
+          MOQVER_D22, wired_span_of(list, sizeof list), &at,
+          MOQCTL_PCTX_REQUEST_OK_ANY, &p) != MOQCTL_OK);
+}
+
 void test_moqfetch(void) {
   test_moqfetch_standalone_golden();
   test_moqfetch_joining_golden();
@@ -1053,4 +1135,9 @@ void test_moqfetch(void) {
   test_moqfetch_req22_encode_with_larger_typed_param();
   test_moqfetch_req22_bad_ns_rejects();
   test_moqfetch_req_cross_version_range();
+  test_moqfetch_fill_roundtrip();
+  test_moqfetch_fill_no_filter();
+  test_moqfetch_fill_timeout_varint();
+  test_moqfetch_fill_rejects();
+  test_moqfetch_fill_ctx_scope();
 }
