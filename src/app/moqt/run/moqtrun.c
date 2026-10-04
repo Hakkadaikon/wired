@@ -156,20 +156,36 @@ static int moqtrun_encode_setup(wired_mspan buf, usz* off, const void* m) {
   return moqctl_setup_encode(buf, off, m);
 }
 
-/* draft 3.3: the control stream's first message is the endpoint's own
- * SETUP, no Setup Options (this subset negotiates nothing on the wire).
- * io->open_bidi_stream is responsible for prefixing the WebTransport
- * stream signal (draft-ietf-webtrans-http3-15 4.2) ahead of these bytes --
- * this layer stays session-opaque (wired_wt_session is never dereferenced
- * here, only passed through) so it stays testable without the QUIC/TLS
- * stack; see moqtrun.h's io table doc. */
-static u64 moqtrun_send_setup(wired_moqt_io* io, wired_wt_session* s, u8* buf) {
+static i64 moqtrun_ctl_open_io(
+    wired_moqt_io* io, wired_wt_session* s, int legacy, wired_span b) {
+  return legacy ? io->open_bidi_stream(s, b) : io->open_uni_stream(s, b);
+}
+
+/* draft 3.3: the hub's control stream, its own SETUP as first bytes (no
+ * Setup Options -- this subset negotiates nothing on the wire). The
+ * draft-19 binding is a keep-open UNI stream, Stream Type 0x2F00 ahead
+ * of the SETUP (3.4); a legacy session keeps the pre-d17 single bidi
+ * the browser clients read. The io open ops prefix the WebTransport
+ * stream signal (draft-ietf-webtrans-http3-15 4.2) -- this layer stays
+ * session-opaque, testable without the QUIC/TLS stack. A refused open
+ * leaves ctl_opened 0: moqtrun_ctl_retry tries again on a later tick,
+ * and nothing (GOAWAY included) is sent until SETUP went out. SETUP
+ * rides send_bufs[0], the armed slot (an open holds the same view/ACK
+ * contract as stream_send, srvrun.h). */
+static void moqtrun_ctl_open(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  wired_mspan buf = wired_mspan_of(p->send_bufs[0], WIRED_MOQTRUN_CTL_SEND_BUF);
   moqctl_setup setup = {0};
-  usz          n     = moqtrun_envelope_put(
-      wired_mspan_of(buf, WIRED_MOQTRUN_CTL_SEND_BUF), MOQCTL_T_SETUP,
+  usz          off   = 0;
+  if (!p->legacy) moqvi_put(buf, &off, MOQDATA_TYPE_SETUP);
+  off += moqtrun_envelope_put(
+      wired_mspan_of(buf.p + off, buf.n - off), MOQCTL_T_SETUP,
       moqtrun_encode_setup, &setup);
-  i64 sid = io->open_bidi_stream(s, wired_span_of(buf, n));
-  return sid < 0 ? 0 : (u64)sid;
+  i64 sid = moqtrun_ctl_open_io(
+      &hub->io, p->wt, p->legacy, wired_span_of(buf.p, off));
+  if (sid < 0) return;
+  p->control_stream_id = (u64)sid;
+  p->ctl_opened        = 1;
+  moqsess_step(&p->sess, MOQSESS_EV_SENT_SETUP);
 }
 
 /* Initializes a freshly allocated peer slot for s and sends its SETUP,
@@ -179,10 +195,16 @@ static u64 moqtrun_send_setup(wired_moqt_io* io, wired_wt_session* s, u8* buf) {
  * stream_send, per srvrun.h), so armed_idx starts at 0 and every reply
  * queued afterward goes to the OTHER slot (moqtrun_queue_reply's doc). */
 static void moqtrun_init_peer(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_wt_session* s, int ver) {
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_wt_session*   s,
+    int                 ver,
+    int                 legacy) {
   p->in_use          = 1;
   p->wt              = s;
   p->ver             = ver;
+  p->legacy          = (u8)legacy;
+  p->ctl_opened      = 0;
   p->request_id_next = 1; /* hub is the server: odd, 1-origin (draft SS10.2) */
   p->peer_rid_next   = 0; /* client Request IDs: even, 0-origin */
   p->join_seq        = hub->join_seq_next++;
@@ -211,8 +233,8 @@ static void moqtrun_init_peer(
   for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
     p->tracks[t].in_use = 0;
   moqsess_init(&p->sess);
-  p->control_stream_id = moqtrun_send_setup(&hub->io, s, p->send_bufs[0]);
-  moqsess_step(&p->sess, MOQSESS_EV_SENT_SETUP);
+  p->control_stream_id = 0;
+  moqtrun_ctl_open(hub, p);
 }
 
 /* moqver_find's -1 (a token the table does not list) falls back to
@@ -220,6 +242,14 @@ static void moqtrun_init_peer(
 static int moqtrun_negotiated_ver(wired_span protocol) {
   int ver = moqver_find(protocol);
   return ver < 0 ? MOQVER_D19 : ver;
+}
+
+/* draft-19 3.3 binding choice: only a negotiated moqt-NN token selects
+ * the uni control-stream pair; an empty token (a browser cannot
+ * negotiate a WT subprotocol) or an unlisted one -- no moqt-NN
+ * agreement with the peer -- keeps the pre-d17 single bidi. */
+static int moqtrun_legacy_token(wired_span protocol) {
+  return protocol.n == 0 || moqver_find(protocol) < 0;
 }
 
 void wired_moqt_on_session(
@@ -238,7 +268,7 @@ void wired_moqt_on_session(
   if (moqtrun_find_by_wt(hub, s)) return;
   wired_moqtrun_peer* p = moqtrun_alloc(hub);
   if (!p) return;
-  moqtrun_init_peer(hub, p, s, ver);
+  moqtrun_init_peer(hub, p, s, ver, moqtrun_legacy_token(protocol));
 }
 
 /* ===================== control-message handlers ===================== */
@@ -325,9 +355,16 @@ static wired_moqtrun_ctl_asm* moqtrun_cur_asm(wired_moqtrun_peer* p) {
  * flush retries it, growing with that dispatch's own new replies appended
  * after it. A dispatch that queued nothing (send_lens[pending]==0) sends
  * nothing -- wired_server_wt_stream_send never accepts an empty payload. */
+/* Nothing to flush, or nothing may flush yet: the hub's control stream
+ * has not opened (its SETUP must be the stream's first bytes, so no
+ * reply -- GOAWAY included -- may precede it). */
+static int moqtrun_flush_idle(const wired_moqtrun_peer* p, int pending_idx) {
+  return !p->ctl_opened || p->send_lens[pending_idx] == 0;
+}
+
 static void moqtrun_flush_replies(wired_moqt_io* io, wired_moqtrun_peer* p) {
   int pending_idx = p->armed_idx ^ 1;
-  if (p->send_lens[pending_idx] == 0) return;
+  if (moqtrun_flush_idle(p, pending_idx)) return;
   int r = io->stream_send(
       p->wt, p->control_stream_id,
       wired_span_of(p->send_bufs[pending_idx], p->send_lens[pending_idx]), 0);
@@ -4337,6 +4374,12 @@ static void moqtrun_dispatch_fresh_stream(
   moqtrun_relay_start(hub, track, p->wt, stream_id, data, whole_end);
 }
 
+/* sid is the hub's own, opened control stream (the legacy bidi the
+ * client writes back on; a failed open never aliases a client id). */
+static int moqtrun_rx_is_own_ctl(const wired_moqtrun_peer* p, u64 sid) {
+  return p->ctl_opened && sid == p->control_stream_id;
+}
+
 /* Dispatches data as control-stream bytes arriving on sid: the hub's
  * own (legacy bidi) stream reassembles in ctl_asm, a distinct client
  * control stream in peer_ctl_asm -- before acceptance both can carry
@@ -4344,7 +4387,7 @@ static void moqtrun_dispatch_fresh_stream(
 static void moqtrun_ctl_rx(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 sid, wired_span data) {
   p->rx_sid = sid;
-  p->rx     = sid == p->control_stream_id ? &p->ctl_asm : &p->peer_ctl_asm;
+  p->rx     = moqtrun_rx_is_own_ctl(p, sid) ? &p->ctl_asm : &p->peer_ctl_asm;
   moqtrun_dispatch_ctl_stream(hub, p, (usz)(p - hub->peers), data);
   p->rx = 0;
 }
@@ -4608,11 +4651,10 @@ static void moqtrun_dispatch_other(
 
 /* ===================== public entry points ===================== */
 
-/* sid carries control bytes: the hub's own control stream (the legacy
- * bidi the client writes back on) or the accepted client control
- * stream. */
+/* sid carries control bytes: the hub's own control stream or the
+ * accepted client control stream. */
 static int moqtrun_rx_on_ctl(const wired_moqtrun_peer* p, u64 sid) {
-  return sid == p->control_stream_id ||
+  return moqtrun_rx_is_own_ctl(p, sid) ||
          (p->peer_ctl_set && sid == p->peer_ctl_stream_id);
 }
 
@@ -5164,11 +5206,21 @@ static int moqtrun_drain_due(const wired_moqtrun_peer* p, u64 now_ms) {
   return p->in_use && !p->closing && now_ms >= p->goaway_deadline;
 }
 
-/* Control-stream replies refused earlier (moqtrun_flush_replies) are
- * retried on the clock too, not only when the peer sends again: a GOAWAY
- * must go out even to a silent peer. */
+/* A control stream whose open was refused is re-opened; after that,
+ * replies refused earlier (moqtrun_flush_replies) are retried. */
+static void moqtrun_ctl_step(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  if (!p->ctl_opened) {
+    moqtrun_ctl_open(hub, p);
+    return;
+  }
+  moqtrun_flush_replies(&hub->io, p);
+}
+
+/* Control-stream opens and replies refused earlier are retried on the
+ * clock too, not only when the peer sends again: SETUP and GOAWAY must
+ * go out even to a silent peer. */
 static void moqtrun_ctl_retry(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
-  if (p->in_use && !p->closing) moqtrun_flush_replies(&hub->io, p);
+  if (p->in_use && !p->closing) moqtrun_ctl_step(hub, p);
 }
 
 static void moqtrun_drain_tick(wired_moqt_hub* hub, u64 now_ms) {
