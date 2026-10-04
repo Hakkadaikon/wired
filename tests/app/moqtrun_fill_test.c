@@ -349,6 +349,54 @@ static void test_moqtrun_fill_descending_skips_gap(void) {
   CHECK(mf_fin);
 }
 
+/* One-shot subgroup relay rounds toward B (SUBGROUP_HEADER mode 0x30,
+ * the only header the publisher fixtures write). */
+static usz mfill_live_count(void) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++)
+    n += g_calls[i].s == SESS_B && g_calls[i].kind == 4 &&
+         g_calls[i].payload_len && g_calls[i].payload[0] == 0x30;
+  return n;
+}
+
+/* A Next Object subscription with an open-ended fill: the fill carries
+ * everything up to the Largest Object at SUBSCRIBE time and FINs, the
+ * live subscription starts right after it -- each Location exactly once
+ * (SS9.20.15 with SS9.20.9's Next Object). */
+static void test_moqtrun_fill_next_object_no_gap(void) {
+  moqfetch_fill fill = {0};
+  moqctl_params lo   = mtst_params_filter(MOQCTL_FILTER_LARGEST);
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mfill_subscribe(&fill, &lo);
+  CHECK(mfill_read());
+  CHECK(mf_n == 2 && mf_is_obj(0, 0, 0, 1) && mf_is_obj(1, 0, 1, 1));
+  CHECK(mf_fin);
+  CHECK(mfill_live_count() == 0); /* nothing replayed onto the live side */
+  mf_obj(0, 2, 1);
+  CHECK(mf_relayed(0, 2));
+  CHECK(mfill_live_count() == 1);
+}
+
+/* A REQUEST_UPDATE fill overlapping Locations the live subscription
+ * already delivered duplicates them only inside the overlap: the fill
+ * serves its whole range, the live side sent each Object once. */
+static void test_moqtrun_fill_update_overlap_dup(void) {
+  moqfetch_fill fill = {0};
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mfill_subscribe_req(0);
+  mf_obj(0, 1, 1); /* delivered live to B */
+  CHECK(mf_relayed(0, 1));
+  u64 rid = mfill_update(&fill, 0);
+  CHECK(mfill_read());
+  CHECK(mf_hdr_rid == rid);
+  CHECK(mf_n == 2 && mf_is_obj(0, 0, 0, 1) && mf_is_obj(1, 0, 1, 1));
+  CHECK(mf_fin);
+  CHECK(mfill_live_count() == 1); /* (0,1) went live once, (0,0) never */
+}
+
 void test_moqtrun_fill(void) {
   test_moqtrun_fill_subscribe_opens();
   test_moqtrun_fill_end_clipped_to_largest();
@@ -363,4 +411,6 @@ void test_moqtrun_fill(void) {
   test_moqtrun_fill_eviction_under_cursor();
   test_moqtrun_fill_descending();
   test_moqtrun_fill_descending_skips_gap();
+  test_moqtrun_fill_next_object_no_gap();
+  test_moqtrun_fill_update_overlap_dup();
 }
