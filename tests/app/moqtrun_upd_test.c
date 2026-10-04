@@ -636,8 +636,9 @@ static void test_moqtrun_publish_alias_token_rejected(void) {
  * here too. draft-19 keeps NOT_SUPPORTED. */
 static void test_moqtrun_upd_on_publish_stream(void) {
   static const u8 upd[] = {0x04, 0x00}; /* Request ID 4, no parameters */
-  moqctl_params   t     = mtup_vi(MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 9);
-  moqctl_ftn      f     = mtst_ftn("chat", "room1", "alice");
+  moqctl_params   t     = mt22_filter(
+      1, mt22_rl(MOQCTL_RSK_ABS, 5, 5, MOQCTL_REK_OBJ, 5, 1)); /* inverted */
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
   mtst_init();
   mtst_join(SESS_A);
   moqtrun_find_by_wt(&mtst_hub, SESS_A)->ver = MOQVER_D22;
@@ -646,7 +647,7 @@ static void test_moqtrun_upd_on_publish_stream(void) {
   CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
   CHECK(mtst_hub.peers[0].tracks[0].in_use == 1);
   mtup_update(SESS_A, MTRQ_S1, &t);
-  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_NOT_SUPPORTED);
+  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_INVALID_RANGE);
   CHECK(mtst_hub.peers[0].tracks[0].in_use == 1);
   mtst_init();
   mtst_join(SESS_A);
@@ -655,7 +656,189 @@ static void test_moqtrun_upd_on_publish_stream(void) {
   CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_NOT_SUPPORTED);
 }
 
+/* REQUEST_UPDATE replaces a mentioned Range Filter type whole, a
+ * zero-length value removes it, an omitted type stays; an update
+ * pushing the concurrent total past MAX_FILTER_RANGES is
+ * INVALID_FILTER and changes nothing (10.2.10). */
+static void test_moqtrun_upd_rngf_replace_remove(void) {
+  moqctl_params      sub = {0}, rep = {0}, del = {0}, four_p = {0}, over = {0};
+  moqctl_rangefilter lo   = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter hi   = mtst_rngf1(0, 5, 9, 1);
+  moqctl_rangefilter none = {0};
+  moqctl_rangefilter four = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter one  = mtst_rngf1(1, 9, 9, 1);
+  none.remove             = 1;
+  four.n                  = 4;
+  for (usz i = 1; i < 4; i++) {
+    four.r[i].start   = 10 * i;
+    four.r[i].end     = 10 * i + 1;
+    four.r[i].has_end = 1;
+  }
+  mtst_rngf_param(&sub, MOQCTL_PARAM_OBJECTID_FILTER, &lo);
+  mtst_rngf_param(&rep, MOQCTL_PARAM_OBJECTID_FILTER, &hi);
+  mtst_rngf_param(&del, MOQCTL_PARAM_OBJECTID_FILTER, &none);
+  mtst_rngf_param(&four_p, MOQCTL_PARAM_SUBGROUP_FILTER, &four);
+  mtst_rngf_param(&over, MOQCTL_PARAM_OBJECTID_FILTER, &one);
+  moqctl_ftn f = mtup_setup();
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &sub);
+  moqtrun_test_reset();
+  wired_moqt_on_datagram(
+      &mtst_hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+  CHECK(moqtrun_test_count_kind(9) == 0); /* 5 outside [0,4] */
+  mtup_update(SESS_B, MTRQ_S1, &rep);
+  moqtrun_test_reset();
+  wired_moqt_on_datagram(
+      &mtst_hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+  CHECK(moqtrun_test_count_kind(9) == 1); /* replaced by [5,9] */
+  mtup_update(SESS_B, MTRQ_S1, &del);
+  CHECK(mtst_sub(SESS_A, SESS_B)->rngf_n == 0); /* removed */
+  mtup_update(SESS_B, MTRQ_S1, &four_p);
+  CHECK(mtst_sub(SESS_A, SESS_B)->rngf_n == 4);
+  mtup_update(SESS_B, MTRQ_S1, &over); /* 4 kept + 1 new > 4 */
+  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_INVALID_FILTER);
+  CHECK(mtst_sub(SESS_A, SESS_B) == 0); /* failed update ends it (10.9.1) */
+}
+
+static usz mtup_close_count(u32 code) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++)
+    n += g_calls[i].kind == 11 && g_calls[i].stream_id == code;
+  return n;
+}
+
+/* A request stream already holding MAX_REQUEST_UPDATES unanswered
+ * REQUEST_UPDATEs closes the session with TOO_MANY_REQUEST_UPDATES
+ * (draft-19 10.4). */
+static void test_moqtrun_upd_credit_too_many(void) {
+  moqctl_params p1 = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
+  moqctl_ftn    f  = mtup_setup();
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  g_stream_send_ok_n = 0; /* answers coalesce: nothing flushes */
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQ_UPDATES; i++)
+    mtup_update(SESS_B, MTRQ_S1, &p1);
+  CHECK(mtup_close_count(0x1B) == 0);
+  mtup_update(SESS_B, MTRQ_S1, &p1); /* one past the limit */
+  CHECK(mtup_close_count(0x1B) == 1);
+  g_stream_send_ok_n = -1;
+}
+
+/* One flushed response round restores every coalesced credit (the
+ * REQUEST_OKs went out together). */
+static void test_moqtrun_upd_credit_restored_by_flush(void) {
+  moqctl_params p1 = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
+  moqctl_ftn    f  = mtup_setup();
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  g_stream_send_ok_n = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQ_UPDATES; i++)
+    mtup_update(SESS_B, MTRQ_S1, &p1);
+  g_stream_send_ok_n = -1;       /* transport drains */
+  wired_moqt_tick(&mtst_hub, 1); /* flush: coalesced answers out */
+  mtup_update(SESS_B, MTRQ_S1, &p1);
+  CHECK(mtup_close_count(0x1B) == 0);
+  CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
+}
+
+/* ========= REQUEST_UPDATE on a FETCH stream (draft-19 10.9) ========= */
+
+static moqctl_params mtup_subpri(u8 v) {
+  return mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, v);
+}
+
+/* A FETCH's sender may REQUEST_UPDATE it (10.9); an admitted parameter
+ * (SUBSCRIBER_PRIORITY, 10.2.5) is REQUEST_OK, not NOT_SUPPORTED. The
+ * fetch is kept stuck (mf_stuck_fetch's g_stream_send_ok_n trick) so it
+ * is still a live request when the update arrives. */
+static void test_moqtrun_upd_on_fetch_stream(void) {
+  mf_stuck_fetch();
+  moqtrun_test_reset();
+  moqctl_params p = mtup_subpri(200);
+  mtup_update(SESS_B, mf_req_sid, &p);
+  CHECK(mtup_reply(mf_req_sid, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
+  g_stream_send_ok_n = -1;
+}
+
+/* A FETCH update this hub refuses (an alias AUTHORIZATION_TOKEN: the hub
+ * has no token cache, SS10.3.1.3) answers REQUEST_ERROR and resets the
+ * FETCH's own data stream (10.9.1 "the publisher MUST reset the FETCH
+ * data stream"), not the session. */
+static void test_moqtrun_upd_on_fetch_stream_refused(void) {
+  static const u8 alias_tok[] = {0x01, 0x07, 0x01, 'x'};
+  u64             data_sid    = mf_stuck_fetch();
+  u64             fetch_sid   = mf_req_sid;
+  moqtrun_test_reset();
+  moqctl_params p = mtpa_token(alias_tok, sizeof alias_tok);
+  mtup_update(SESS_B, fetch_sid, &p);
+  CHECK(mtup_err_code(fetch_sid) == MOQCTL_ERR_MALFORMED_AUTH_TOKEN);
+  const moqtrun_test_call* r = moqtrun_test_last_kind(7);
+  CHECK(r && r->stream_id == data_sid);
+  CHECK(mf_no_fetch());
+  g_stream_send_ok_n = -1;
+}
+
+/* ===== REQUEST_UPDATE on a namespace stream (draft-19 10.9.1) ===== */
+
+static u8 mtup_ns_buf[256];
+
+/* A TRACK_NAMESPACE_PREFIX param encoding "a/b/..." (mtns_ns's own
+ * "/"-split syntax). */
+static moqctl_params mtup_ns_param(const char* z) {
+  moqctl_params p   = {0};
+  moqctl_ns     pfx = mtns_ns(z);
+  usz           n   = 0;
+  p.items[0].type   = MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX;
+  p.items[0].enc    = MOQCTL_PENC_NS;
+  CHECK(
+      moqctl_ns_put(wired_mspan_of(mtup_ns_buf, sizeof mtup_ns_buf), &n, &pfx));
+  p.items[0].bytes = wired_span_of(mtup_ns_buf, n);
+  p.n              = 1;
+  return p;
+}
+
+/* A SUBSCRIBE_NAMESPACE's sender may REQUEST_UPDATE its
+ * TRACK_NAMESPACE_PREFIX; an accepted one is REQUEST_OK and the live
+ * request's prefix actually changes -- a namespace that did not match
+ * the old prefix but matches the new one is announced after the update,
+ * not before (10.9.1, 10.18). */
+static void test_moqtrun_upd_ns_prefix_changes(void) {
+  mtns_init();
+  mtns_sub(SESS_B, MTRQ_S1, "chat");
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|"));
+  mtns_pub(SESS_A, MTRQ_S2, "video/x");
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|")); /* "video/x" not under "chat" */
+  moqctl_params p = mtup_ns_param("video");
+  mtup_update(SESS_B, MTRQ_S1, &p);
+  /* the update's own REQUEST_OK is immediately followed, same dispatch,
+   * by the newly-matching NAMESPACE push -- the ordered log proves both
+   * happened, where mtup_reply (last reply only) would see only the
+   * push. */
+  CHECK(mtns_is(
+      SESS_B, MTRQ_S1, "OK|OK|NS:x|")); /* update OK, now under "video" */
+}
+
+/* An update whose new prefix overlaps another live SUBSCRIBE_NAMESPACE in
+ * the same session is PREFIX_OVERLAP (10.9.1's restriction, 10.18); the
+ * refusal closes the bidi stream (10.9.1) and leaves the old prefix (and
+ * its announcements) untouched. */
+static void test_moqtrun_upd_ns_prefix_overlap_refused(void) {
+  mtns_init();
+  mtns_sub(SESS_B, MTRQ_S1, "chat");
+  mtns_sub(SESS_B, MTRQ_S2, "video");
+  moqctl_params p = mtup_ns_param("chat"); /* clashes with MTRQ_S1's own */
+  mtup_update(SESS_B, MTRQ_S2, &p);
+  CHECK(mtup_err_code(MTRQ_S2) == MOQCTL_ERR_PREFIX_OVERLAP);
+  CHECK(mtrq_fin_on(MTRQ_S2) == 1); /* 10.9.1: refusal closes the stream */
+}
+
 void test_moqtrun_upd(void) {
+  test_moqtrun_upd_credit_too_many();
+  test_moqtrun_upd_credit_restored_by_flush();
+  test_moqtrun_upd_on_fetch_stream();
+  test_moqtrun_upd_on_fetch_stream_refused();
+  test_moqtrun_upd_ns_prefix_changes();
+  test_moqtrun_upd_ns_prefix_overlap_refused();
+  test_moqtrun_upd_rngf_replace_remove();
   test_moqtrun_upd_on_publish_stream();
   test_moqtrun_publish_requires_authorization();
   test_moqtrun_publish_alias_token_rejected();

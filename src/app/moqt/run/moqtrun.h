@@ -173,6 +173,25 @@ typedef struct {
  * SETUP carried AUTHORITY over WebTransport, 10.4). */
 #define WIRED_MOQTRUN_CLOSE_INVALID_AUTHORITY 0x19
 
+/** draft-ietf-moq-transport-19 3.5/10.9 TOO_MANY_REQUEST_UPDATES session
+ * code: a request stream already holding MAX_REQUEST_UPDATES outstanding
+ * REQUEST_UPDATEs received one more. */
+#define WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES 0x1B
+
+/** MAX_FILTER_RANGES the hub advertises in its SETUP (draft-19 10.4):
+ * Ranges accepted concurrently across one subscription's or fetch's Range
+ * filter parameters (10.2.10-10.2.14); a request past it is answered
+ * REQUEST_ERROR INVALID_FILTER. Matches the per-subscription range
+ * storage (wired_moqtrun_sub).
+ * ponytail: room-sized; raise with the storage if clients filter finer. */
+#define WIRED_MOQTRUN_MAX_FILTER_RANGES 4
+
+/** MAX_REQUEST_UPDATES the hub advertises in its SETUP (draft-19 10.4):
+ * outstanding REQUEST_UPDATEs it accepts per request stream before
+ * closing with TOO_MANY_REQUEST_UPDATES. One more than fits a reply
+ * buffer's coalesced answers (WIRED_MOQTRUN_REQ_SEND_BUF's sizing). */
+#define WIRED_MOQTRUN_MAX_REQ_UPDATES 4
+
 /** Longest MOQT_IMPLEMENTATION value (10.4) copied from the client's
  * SETUP; longer values are kept truncated.
  * ponytail: informational only; widen if an operator needs more. */
@@ -198,6 +217,19 @@ typedef struct {
  * so a short grace for its subscriptions to wind down. */
 #define WIRED_MOQTRUN_DRAIN_TIMEOUT_MS 5000
 
+/** One flattened Range Filter Range (draft-19 10.2.10-10.2.14): the
+ * (ptype, set_id[, prop_type]) triple names the parameter it came from;
+ * a parameter with k Ranges takes k rows. */
+typedef struct {
+  u64 ptype;     /**< MOQCTL_PARAM_*_FILTER (0x25-0x29) */
+  u64 prop_type; /**< 0x28/0x29 only, valid iff has_prop */
+  u64 start;     /**< inclusive */
+  u64 end;       /**< inclusive, valid iff has_end */
+  u8  set_id;
+  u8  has_prop;
+  u8  has_end;
+} wired_moqtrun_rngrow;
+
 /** One subscriber recorded against the hub's track: which session, and the
  * Track Alias this hub assigned it (hub-local per subscriber, draft SS10.7
  * moqsub scope). */
@@ -210,6 +242,13 @@ typedef struct {
   /** OBJECT_DELIVERY_TIMEOUT (10.2.4) in ms, 0 when absent or none: an
    * Object reaching the hub longer ago is not sent (draft 8). */
   u64 delivery_timeout;
+  /** Effective SUBGROUP_DELIVERY_TIMEOUT (10.2.6) in ms: min of the
+   * publisher's Track Property and the subscriber's parameter over
+   * their non-zero values, 0 when neither set. Applied as a second age
+   * bound beside delivery_timeout (draft 8; the hub's io cannot see
+   * "all data committed", so the age model stands in for the
+   * post-FIN timer). */
+  u64 subgroup_timeout;
   /** Location Filter Start (9.3.1), resolved at SUBSCRIBE time; {0, 0}
    * when unfiltered. */
   moqctl_loc start;
@@ -237,6 +276,16 @@ typedef struct {
    * has_filter: what a re-attach re-resolves start/end from. */
   moqctl_rangeloc filter;
   u8              has_filter;
+  /** Range Filter rows (10.2.10-10.2.14), one Range per row; capacity
+   * is the advertised MAX_FILTER_RANGES. OBJECTID_FILTER rows gate each
+   * Object at the per-Object (datagram) gate.
+   * ponytail: subgroup/priority/property filter rows are validated and
+   * stored but pass at delivery -- the group-granular stream gates
+   * never see those fields (the Location Filter's granularity note);
+   * evaluate them if the hub ever reads subgroup ids or properties at
+   * delivery. */
+  wired_moqtrun_rngrow rngf[WIRED_MOQTRUN_MAX_FILTER_RANGES];
+  u8                   rngf_n;
   /** Hub blob track only: 1 once the blob went out to this subscription,
    * so a FORWARD 1 -> 0 -> 1 update never sends it twice. */
   u8 blob_sent;
@@ -444,6 +493,12 @@ typedef struct {
   u8                    send_bufs[2][WIRED_MOQTRUN_REQ_SEND_BUF];
   usz                   send_lens[2];
   int                   armed_idx;
+  /** REQUEST_UPDATEs received but not yet answered by a flushed reply
+   * (draft-19 10.9/10.4 MAX_REQUEST_UPDATES): one more than the setup
+   * limit closes the session. A flush answers every update coalesced
+   * in the queue at once, so it resets this to 0 rather than
+   * decrementing one at a time. */
+  u64 pending_updates;
   /** 1 once a GOAWAY arrived on the stream (draft 10.4: at most one). */
   int goaway;
   /** 1 once the request established a subscription or track: it stays
@@ -558,6 +613,10 @@ typedef struct {
   int        has_largest;
   /** Request ID of the PUBLISH that claimed this slot. */
   u64 request_id;
+  /** The PUBLISH's SUBGROUP_DELIVERY_TIMEOUT Track Property (12.6) in
+   * ms, 0 when absent: min()ed into each subscription's effective
+   * timeout (wired_moqtrun_sub.subgroup_timeout). */
+  u64 subgroup_timeout_ms;
   /** This incarnation's records in the hub cache (wired_moqt_hub.cache),
    * fresh on every PUBLISH, so a later track in the same slot never
    * reads the old one's Objects. */

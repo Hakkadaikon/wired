@@ -508,6 +508,151 @@ int moqctl_rangeloc22_put(
   return moqctl_rangeloc22_put_present(buf, off, r);
 }
 
+/* ===== Range Filter values (SS10.2.10-10.2.14) ===== */
+
+static int moqctl_rngf_has_prop(u64 ptype) {
+  return ptype == MOQCTL_PARAM_OBJECT_PROPERTY_FILTER ||
+         ptype == MOQCTL_PARAM_TRACK_PROPERTY_FILTER;
+}
+
+static int moqctl_rngf_take_prop(
+    u64 ptype, wired_span v, usz* at, moqctl_rangefilter* out) {
+  if (!moqctl_rngf_has_prop(ptype)) return MOQCTL_OK;
+  out->has_prop = 1;
+  return moqvi_take(v, at, &out->prop_type) ? MOQCTL_OK : MOQCTL_PARAMS_KVFMT;
+}
+
+/* SetID is one byte (SS10.2.10), then the 0x28/0x29 Property Type. */
+static int moqctl_rngf_take_head(
+    u64 ptype, wired_span v, usz* at, moqctl_rangefilter* out) {
+  if (*at >= v.n) return MOQCTL_PARAMS_KVFMT;
+  out->set_id = v.p[(*at)++];
+  return moqctl_rngf_take_prop(ptype, v, at, out);
+}
+
+/* 0 when the filter is already at capacity or the Start delta sums past
+ * 2^64-1: invalid is set and parsing stops (INVALID_FILTER at the
+ * message layer, SS10.2.10). */
+static int moqctl_rngf_start(moqctl_rangefilter* f, u64 prev_end, u64 delta) {
+  if (f->n >= MOQCTL_MAX_RANGES ||
+      !u64_add_ok(prev_end, delta, &f->r[f->n].start)) {
+    f->invalid = 1;
+    return 0;
+  }
+  return 1;
+}
+
+static int moqctl_rngf_end_value(
+    wired_span v, usz* at, moqctl_rangefilter* f, u64* prev_end) {
+  u64           delta;
+  moqctl_range* r = &f->r[f->n];
+  if (!moqvi_take(v, at, &delta)) return MOQCTL_PARAMS_KVFMT;
+  if (!u64_add_ok(r->start, delta, &r->end)) f->invalid = 1;
+  r->has_end = 1;
+  *prev_end  = r->end;
+  f->n++;
+  return MOQCTL_OK;
+}
+
+/* The final End may be omitted: that range is open-ended. */
+static int moqctl_rngf_take_end(
+    wired_span v, usz* at, moqctl_rangefilter* f, u64* prev_end) {
+  moqctl_range* r = &f->r[f->n];
+  if (*at == v.n) {
+    r->has_end = 0;
+    *prev_end  = r->start;
+    f->n++;
+    return MOQCTL_OK;
+  }
+  return moqctl_rngf_end_value(v, at, f, prev_end);
+}
+
+static int moqctl_rngf_take_range(
+    wired_span v, usz* at, moqctl_rangefilter* f, u64* prev_end) {
+  u64 delta;
+  if (!moqvi_take(v, at, &delta)) return MOQCTL_PARAMS_KVFMT;
+  if (!moqctl_rngf_start(f, *prev_end, delta)) return MOQCTL_OK;
+  return moqctl_rngf_take_end(v, at, f, prev_end);
+}
+
+static int moqctl_rngf_more(wired_span v, usz at, const moqctl_rangefilter* f) {
+  return at < v.n && !f->invalid;
+}
+
+static int moqctl_rngf_take_ranges(
+    wired_span v, usz* at, moqctl_rangefilter* f) {
+  u64 prev_end = 0;
+  while (moqctl_rngf_more(v, *at, f)) {
+    int r = moqctl_rngf_take_range(v, at, f, &prev_end);
+    if (r != MOQCTL_OK) return r;
+  }
+  return MOQCTL_OK;
+}
+
+int moqctl_rangefilter_take(
+    u64 ptype, wired_span value, moqctl_rangefilter* out) {
+  usz at = 0;
+  int r;
+  *out = (moqctl_rangefilter){0};
+  if (value.n == 0) {
+    out->remove = 1;
+    return MOQCTL_OK;
+  }
+  r = moqctl_rngf_take_head(ptype, value, &at, out);
+  if (r != MOQCTL_OK) return r;
+  return moqctl_rngf_take_ranges(value, &at, out);
+}
+
+static int moqctl_rngf_put_prop(
+    wired_mspan buf, usz* at, u64 ptype, const moqctl_rangefilter* f) {
+  if (!moqctl_rngf_has_prop(ptype)) return 1;
+  return moqvi_put(buf, at, f->prop_type);
+}
+
+static int moqctl_rngf_put_head(
+    wired_mspan buf, usz* at, u64 ptype, const moqctl_rangefilter* f) {
+  if (*at >= buf.n) return 0;
+  buf.p[(*at)++] = (u8)f->set_id;
+  return moqctl_rngf_put_prop(buf, at, ptype, f);
+}
+
+static int moqctl_rngf_put_end(
+    wired_mspan buf, usz* at, const moqctl_range* r, u64* prev_end) {
+  *prev_end = r->start;
+  if (!r->has_end) return 1;
+  *prev_end = r->end;
+  return moqvi_put(buf, at, r->end - r->start);
+}
+
+static int moqctl_rngf_put_range(
+    wired_mspan buf, usz* at, const moqctl_range* r, u64* prev_end) {
+  if (!moqvi_put(buf, at, r->start - *prev_end)) return 0;
+  return moqctl_rngf_put_end(buf, at, r, prev_end);
+}
+
+static int moqctl_rngf_put_ranges(
+    wired_mspan buf, usz* at, const moqctl_rangefilter* f) {
+  u64 prev_end = 0;
+  for (usz i = 0; i < f->n; i++)
+    if (!moqctl_rngf_put_range(buf, at, &f->r[i], &prev_end)) return 0;
+  return 1;
+}
+
+static int moqctl_rngf_put_body(
+    wired_mspan buf, usz* at, u64 ptype, const moqctl_rangefilter* f) {
+  return moqctl_rngf_put_head(buf, at, ptype, f) &&
+         moqctl_rngf_put_ranges(buf, at, f);
+}
+
+int moqctl_rangefilter_put(
+    wired_mspan buf, usz* off, u64 ptype, const moqctl_rangefilter* f) {
+  usz at = *off;
+  if (f->remove) return 1; /* zero-length value */
+  if (!moqctl_rngf_put_body(buf, &at, ptype, f)) return 0;
+  *off = at;
+  return 1;
+}
+
 /* ===== Track Namespace / Full Track Name (SS1.5) ===== */
 
 /* 1 if a varint was actually consumed (buf had room), 0 if truncated. */
@@ -1100,10 +1245,20 @@ static void moqctl_setup_apply_path_authority(
   }
 }
 
-/* Any option type not one of the three tracked here (including
+/* MAX_FILTER_RANGES / MAX_REQUEST_UPDATES (SS10.4): even option types,
+ * their value one varint (kv->num). */
+static void moqctl_setup_apply_limits(moqctl_setup* out, const moqkvp* kv) {
+  if (kv->type == MOQCTL_OPT_MAX_FILTER_RANGES)
+    out->max_filter_ranges = kv->num;
+  if (kv->type == MOQCTL_OPT_MAX_REQUEST_UPDATES)
+    out->max_request_updates = kv->num;
+}
+
+/* Any option type not one of the five tracked here (including
  * greased/reserved ones) is ignored per SS10.4. */
 static void moqctl_setup_apply_kvp(moqctl_setup* out, const moqkvp* kv) {
   moqctl_setup_apply_path_authority(out, kv);
+  moqctl_setup_apply_limits(out, kv);
   if (kv->type == MOQCTL_OPT_MOQT_IMPLEMENTATION) {
     out->has_implementation = 1;
     out->implementation     = kv->raw;
@@ -1157,14 +1312,38 @@ static int moqctl_setup_put_path_authority(
       buf, at, prev, MOQCTL_OPT_AUTHORITY, s->has_authority, s->authority);
 }
 
+/* An even (varint-valued) option; 0, the draft default, stays off the
+ * wire. */
+static int moqctl_setup_put_num(
+    wired_mspan buf, usz* at, u64* prev, u64 type, u64 v) {
+  moqkvp kv;
+  if (!v) return 1;
+  kv.type   = type;
+  kv.is_raw = 0;
+  kv.num    = v;
+  return moqkvp_put(buf, at, prev, &kv);
+}
+
+/* Ascending option order per moqkvp_put's Delta contract: 0x06, 0x07,
+ * 0x08. */
+static int moqctl_setup_put_tail(
+    wired_mspan buf, usz* at, u64* prev, const moqctl_setup* s) {
+  if (!moqctl_setup_put_num(
+          buf, at, prev, MOQCTL_OPT_MAX_FILTER_RANGES, s->max_filter_ranges))
+    return 0;
+  if (!moqctl_setup_put_opt(
+          buf, at, prev, MOQCTL_OPT_MOQT_IMPLEMENTATION, s->has_implementation,
+          s->implementation))
+    return 0;
+  return moqctl_setup_put_num(
+      buf, at, prev, MOQCTL_OPT_MAX_REQUEST_UPDATES, s->max_request_updates);
+}
+
 int moqctl_setup_encode(wired_mspan buf, usz* off, const moqctl_setup* s) {
   usz at   = *off;
   u64 prev = 0;
   if (!moqctl_setup_put_path_authority(buf, &at, &prev, s)) return 0;
-  if (!moqctl_setup_put_opt(
-          buf, &at, &prev, MOQCTL_OPT_MOQT_IMPLEMENTATION,
-          s->has_implementation, s->implementation))
-    return 0;
+  if (!moqctl_setup_put_tail(buf, &at, &prev, s)) return 0;
   *off = at;
   return 1;
 }
