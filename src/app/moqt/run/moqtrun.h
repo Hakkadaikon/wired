@@ -540,6 +540,13 @@ typedef struct {
   /** Stream id the current control dispatch is reading (transient, the
    * ctl twin of req below). */
   u64 rx_sid;
+  /** Reassembly of the stream being read as control bytes: ctl_asm for
+   * the hub's own (legacy bidi) stream, peer_ctl_asm for a distinct
+   * client control stream -- the two can interleave before acceptance. */
+  wired_moqtrun_ctl_asm* rx;
+  /** Client-control-stream bytes carried over to the next delivery (the
+   * peer_ctl_stream_id twin of ctl_asm below). */
+  wired_moqtrun_ctl_asm peer_ctl_asm;
   /** The client SETUP's MOQT_IMPLEMENTATION (10.4), copied -- the
    * decoded view dangles after the dispatch. */
   u8  peer_impl[WIRED_MOQTRUN_IMPL_MAX];
