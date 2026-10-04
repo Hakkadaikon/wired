@@ -158,6 +158,29 @@ typedef struct {
 /** draft-ietf-moq-transport-19 3.5 GOAWAY_TIMEOUT session code. */
 #define WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT 0x10
 
+/** draft-ietf-moq-transport-19 3.5 INVALID_PATH session code (a SETUP
+ * carried PATH over WebTransport, 10.4). */
+#define WIRED_MOQTRUN_CLOSE_INVALID_PATH 0x8
+
+/** draft-ietf-moq-transport-19 3.5 INVALID_AUTHORITY session code (a
+ * SETUP carried AUTHORITY over WebTransport, 10.4). */
+#define WIRED_MOQTRUN_CLOSE_INVALID_AUTHORITY 0x19
+
+/** Longest MOQT_IMPLEMENTATION value (10.4) copied from the client's
+ * SETUP; longer values are kept truncated.
+ * ponytail: informational only; widen if an operator needs more. */
+#define WIRED_MOQTRUN_IMPL_MAX 64
+
+/** Per-peer buffer for request/Object stream deliveries arriving before
+ * SETUP completes both directions (draft-19 3.3): a byte log of (stream
+ * id, length, fin, bytes) records replayed in arrival order once the
+ * session establishes. The pre-SETUP window is ~1 RTT, so bursts are
+ * tiny; a request delivery that does not fit is reset EXCESSIVE_LOAD at
+ * arrival, an Object delivery is dropped.
+ * ponytail: flat per-peer log; raise if real clients race SETUP with
+ * more data. */
+#define WIRED_MOQTRUN_HOLD_BUF 2048
+
 /** Longest New Session URI wired_moqt_goaway sends (draft 10.4 allows
  * 8192): a URL, sized so the GOAWAY fits one control-stream reply round
  * (WIRED_MOQTRUN_CTL_SEND_BUF). */
@@ -514,7 +537,43 @@ typedef struct {
 typedef struct {
   int               in_use;
   wired_wt_session* wt;
-  u64               control_stream_id;
+  /** The HUB's own control stream (the one its SETUP went out on),
+   * valid only while ctl_opened. */
+  u64 control_stream_id;
+  /** 1 while the control-stream binding is the pre-d17 single bidi: the
+   * WT token was empty (a browser cannot negotiate a subprotocol) or
+   * unlisted. 0 = draft-19 3.3 uni pair. */
+  u8 legacy;
+  /** 1 once the hub's control stream opened (SETUP went out with it). A
+   * refused open retries on a later tick; nothing else is sent before. */
+  u8 ctl_opened;
+  /** The CLIENT's incoming control stream (draft-19 3.3), valid while
+   * peer_ctl_set: the first of a client uni starting 0x2F00, a
+   * client-opened bidi starting with SETUP, or a SETUP written back on
+   * the hub's legacy bidi. A second one closes the session. */
+  u64 peer_ctl_stream_id;
+  u8  peer_ctl_set;
+  /** 1 once the client's SETUP was accepted (a 2nd SETUP violates). */
+  u8 setup_recv;
+  /** Stream id the current control dispatch is reading (transient, the
+   * ctl twin of req below). */
+  u64 rx_sid;
+  /** Reassembly of the stream being read as control bytes: ctl_asm for
+   * the hub's own (legacy bidi) stream, peer_ctl_asm for a distinct
+   * client control stream -- the two can interleave before acceptance. */
+  wired_moqtrun_ctl_asm* rx;
+  /** Client-control-stream bytes carried over to the next delivery (the
+   * peer_ctl_stream_id twin of ctl_asm below). */
+  wired_moqtrun_ctl_asm peer_ctl_asm;
+  /** The client SETUP's MOQT_IMPLEMENTATION (10.4), copied -- the
+   * decoded view dangles after the dispatch. */
+  u8  peer_impl[WIRED_MOQTRUN_IMPL_MAX];
+  usz peer_impl_len;
+  u8  peer_has_impl;
+  /** Pre-establishment deliveries held for replay (WIRED_MOQTRUN_
+   * HOLD_BUF's own doc). */
+  u8  hold[WIRED_MOQTRUN_HOLD_BUF];
+  usz hold_len;
   /** Negotiated MOQT draft (MOQVER_*), decided from the WT subprotocol
    * token in wired_moqt_on_session and fixed for the session's life. */
   int     ver;

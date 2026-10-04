@@ -73,6 +73,9 @@ static wired_wt_session* g_send_dg_reject_sess;
 /* When >0, the next N open_uni_stream calls are recorded but return -1
  * (refused) -- no uni-stream credit on the subscriber's connection. */
 static int g_open_uni_fail_n;
+/* When >0, the next N open_bidi_stream calls are recorded but return -1
+ * (refused) -- the bidi twin of g_open_uni_fail_n. */
+static int g_open_bidi_fail_n;
 /* When >= 0, only that many more stream_send calls are accepted; every
  * later one is refused until it is set back to -1 (unlimited). */
 static int g_stream_send_ok_n;
@@ -91,6 +94,7 @@ static void moqtrun_test_reset(void) {
   g_send_uni2_reject_sess   = 0;
   g_send_dg_reject_sess     = 0;
   g_open_uni_fail_n         = 0;
+  g_open_bidi_fail_n        = 0;
   g_stream_send_ok_n        = -1;
 }
 
@@ -128,6 +132,10 @@ static i64 moqtrun_test_open_bidi_stream(
     wired_wt_session* s, wired_span payload) {
   i64 sid = g_next_stream_id++;
   moqtrun_test_record(1, s, (u64)sid, 0, payload);
+  if (g_open_bidi_fail_n > 0) {
+    g_open_bidi_fail_n--;
+    return -1;
+  }
   return sid;
 }
 
@@ -367,6 +375,451 @@ static void test_moqtrun_on_session_stores_negotiated_ver(void) {
   wired_moqt_on_session(
       &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("bogus"));
   CHECK(hub.peers[0].ver == MOQVER_D19);
+}
+
+/* ============ 1b. control-stream pair (draft-19 3.3 / 10.4) ============ */
+
+/* Raw client SETUP envelope: Type 0x2F00 (draft-19 1.4.1 varint: 2-byte,
+ * AF 00) + 16-bit Length + Setup Options bytes. */
+static usz mtctl_setup_msg(u8* buf, const u8* opts, usz opts_len) {
+  buf[0] = 0xAF;
+  buf[1] = 0x00;
+  buf[2] = (u8)(opts_len >> 8);
+  buf[3] = (u8)opts_len;
+  for (usz i = 0; i < opts_len; i++) buf[4 + i] = opts[i];
+  return 4 + opts_len;
+}
+
+/* draft-19 3.3 leniency: a SETUP written back on the hub's legacy bidi
+ * control stream is the client's SETUP -- no REQUEST_ERROR goes back, no
+ * close, and the session establishes. */
+static void test_moqtrun_setup_on_hub_bidi_accepted(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(&hub, SESS_A, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl = moqtrun_test_last_kind(1)->stream_id;
+  u8  msg[8];
+  usz n = mtctl_setup_msg(msg, 0, 0);
+
+  wired_moqt_on_stream_data(&hub, SESS_A, ctrl, wired_span_of(msg, n), 0);
+
+  CHECK(moqtrun_test_count_kind(3) == 0);  /* no reply sent back */
+  CHECK(moqtrun_test_count_kind(11) == 0); /* no close */
+  CHECK(moqsess_established(&hub.peers[0].sess));
+}
+
+/* Client uni control stream (draft-19 3.4 Stream Type 0x2F00, then the
+ * SETUP message) carrying one Setup Option list. */
+static usz mtctl_uni_ctl(u8* buf, const u8* opts, usz opts_len) {
+  buf[0] = 0xAF; /* Stream Type 0x2F00 (1.4.1 varint) */
+  buf[1] = 0x00;
+  return 2 + mtctl_setup_msg(buf + 2, opts, opts_len);
+}
+
+static wired_span mtctl_span(const u8* p, usz n) { return wired_span_of(p, n); }
+
+/* draft-19 3.3: a client uni stream of type 0x2F00 is the client's
+ * control stream, not discarded -- SETUP decoded, MOQT_IMPLEMENTATION
+ * copied onto the peer, session Established. */
+static void test_moqtrun_client_uni_ctl_accepted(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+  /* Setup Options: MOQT_IMPLEMENTATION (7, raw) = "w" */
+  static const u8 impl_opt[] = {0x07, 0x01, 'w'};
+  u8              msg[16];
+  usz             n = mtctl_uni_ctl(msg, impl_opt, sizeof impl_opt);
+
+  wired_moqt_on_stream_data(&hub, SESS_A, 2, mtctl_span(msg, n), 0);
+
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(moqsess_established(&hub.peers[0].sess));
+  CHECK(hub.peers[0].peer_has_impl == 1);
+  CHECK(hub.peers[0].peer_impl_len == 1);
+  CHECK(hub.peers[0].peer_impl[0] == 'w');
+}
+
+/* The same client uni control stream is accepted on an empty-token
+ * (legacy bidi) session too -- the receive side is mode-lenient. */
+static void test_moqtrun_client_uni_ctl_accepted_empty_token(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(&hub, SESS_A, wired_span_of(0, 0), wired_span_of(0, 0));
+  u8  msg[16];
+  usz n = mtctl_uni_ctl(msg, 0, 0);
+
+  wired_moqt_on_stream_data(&hub, SESS_A, 2, mtctl_span(msg, n), 0);
+
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(moqsess_established(&hub.peers[0].sess));
+}
+
+/* draft-19 3.3 leniency: a client-opened bidi whose first message is
+ * SETUP is the client control stream -- no request slot, no REQUEST_ERROR
+ * or reset back, no SETUP echoed, and the session establishes. */
+static void test_moqtrun_client_bidi_setup_accepted(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+  u8  msg[8];
+  usz n = mtctl_setup_msg(msg, 0, 0);
+
+  wired_moqt_on_stream_data(&hub, SESS_A, 0, mtctl_span(msg, n), 0);
+
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(moqtrun_test_count_kind(12) == 0); /* no reply opened on it */
+  CHECK(moqtrun_test_count_kind(7) == 0);  /* no reset */
+  CHECK(moqtrun_test_count_kind(1) == 0);  /* no bidi: token session */
+  CHECK(moqtrun_test_count_kind(5) == 1);  /* hub's SETUP went out once */
+  CHECK(moqsess_established(&hub.peers[0].sess));
+}
+
+/* draft-19 3.3: after one client control stream is accepted, another one
+ * -- a 2nd uni 0x2F00, a 2nd SETUP on the accepted stream, or a
+ * SETUP-first bidi -- closes with PROTOCOL_VIOLATION. The first never
+ * does. */
+static void test_moqtrun_second_ctl_stream_violates(void) {
+  u8  uni[16];
+  usz un = mtctl_uni_ctl(uni, 0, 0);
+  u8  setup[8];
+  usz sn = mtctl_setup_msg(setup, 0, 0);
+  for (int kind = 0; kind < 3; kind++) {
+    moqtrun_test_reset();
+    wired_moqt_hub hub;
+    wired_moqt_init(&hub, moqtrun_test_io());
+    wired_moqt_on_session(
+        &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+    wired_moqt_on_stream_data(&hub, SESS_A, 2, mtctl_span(uni, un), 0);
+    CHECK(moqtrun_test_count_kind(11) == 0); /* the first is accepted */
+    if (kind == 0)                           /* a 2nd uni 0x2F00 */
+      wired_moqt_on_stream_data(&hub, SESS_A, 6, mtctl_span(uni, un), 0);
+    if (kind == 1) /* a 2nd SETUP on the accepted stream */
+      wired_moqt_on_stream_data(&hub, SESS_A, 2, mtctl_span(setup, sn), 0);
+    if (kind == 2) /* a SETUP-first bidi after the uni */
+      wired_moqt_on_stream_data(&hub, SESS_A, 0, mtctl_span(setup, sn), 0);
+    CHECK(moqtrun_test_count_kind(11) == 1);
+    const moqtrun_test_call* c = moqtrun_test_last_kind(11);
+    CHECK(c && c->stream_id == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  }
+}
+
+/* Drives SESS_A (token tok) to the point of one client uni control
+ * stream carrying SETUP with the given Setup Options; returns the hub. */
+static void mtctl_session_with_setup(
+    wired_moqt_hub* hub, const char* tok, const u8* opts, usz opts_len) {
+  u8  msg[48];
+  usz n = mtctl_uni_ctl(msg, opts, opts_len);
+  moqtrun_test_reset();
+  wired_moqt_init(hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto(tok));
+  wired_moqt_on_stream_data(hub, SESS_A, 2, mtctl_span(msg, n), 0);
+}
+
+/* draft-19 10.4: PATH (0x1) MUST NOT be used over WebTransport -- the
+ * session closes INVALID_PATH (0x8), nothing stored, not Established. */
+static void test_moqtrun_setup_path_closes_invalid_path(void) {
+  wired_moqt_hub  hub;
+  static const u8 path_opt[] = {0x01, 0x02, '/', 'x'};
+  mtctl_session_with_setup(&hub, "moqt-19", path_opt, sizeof path_opt);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(11);
+  CHECK(moqtrun_test_count_kind(11) == 1);
+  CHECK(c && c->stream_id == WIRED_MOQTRUN_CLOSE_INVALID_PATH);
+  CHECK(!moqsess_established(&hub.peers[0].sess));
+  CHECK(hub.peers[0].setup_recv == 0);
+}
+
+/* draft-19 10.4: AUTHORITY (0x5) likewise -- INVALID_AUTHORITY (0x19). */
+static void test_moqtrun_setup_authority_closes_invalid_authority(void) {
+  wired_moqt_hub  hub;
+  static const u8 auth_opt[] = {0x05, 0x01, 'h'};
+  mtctl_session_with_setup(&hub, "moqt-19", auth_opt, sizeof auth_opt);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(11);
+  CHECK(moqtrun_test_count_kind(11) == 1);
+  CHECK(c && c->stream_id == WIRED_MOQTRUN_CLOSE_INVALID_AUTHORITY);
+  CHECK(!moqsess_established(&hub.peers[0].sess));
+}
+
+/* draft-19 10.4: unknown Setup Options are ignored, and a duplicate of
+ * the same unknown option is accepted (KVP Type Delta 0). */
+static void test_moqtrun_setup_unknown_options_ignored(void) {
+  wired_moqt_hub hub;
+  /* unknown raw option 0x21 "z", its duplicate (delta 0), then
+   * MOQT_IMPLEMENTATION "w" (0x21 -> 0x21 -> 0x7 would go backwards, so
+   * impl first: 0x7, then delta 0x1A to 0x21, then delta 0 dup). */
+  static const u8 opts[] = {0x07, 0x01, 'w', 0x1A, 0x01, 'z', 0x00, 0x01, 'z'};
+  mtctl_session_with_setup(&hub, "moqt-19", opts, sizeof opts);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(moqsess_established(&hub.peers[0].sess));
+  CHECK(hub.peers[0].peer_has_impl == 1);
+  CHECK(hub.peers[0].peer_impl[0] == 'w');
+}
+
+/* A SETUP body that does not decode (a KVP cut short by the message
+ * Length) closes with PROTOCOL_VIOLATION. */
+static void test_moqtrun_setup_malformed_closes(void) {
+  wired_moqt_hub  hub;
+  static const u8 cut[] = {0x07, 0x05, 'w'}; /* raw len 5, 1 byte present */
+  mtctl_session_with_setup(&hub, "moqt-19", cut, sizeof cut);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(11);
+  CHECK(moqtrun_test_count_kind(11) == 1);
+  CHECK(c && c->stream_id == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
+/* draft-19 3.3: a negotiated moqt-NN token makes the hub open its OWN
+ * UNI control stream -- first bytes Stream Type 0x2F00, then its SETUP
+ * -- and no bidi at all. */
+static void test_moqtrun_token_session_opens_uni_ctl(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+
+  CHECK(moqtrun_test_count_kind(1) == 0); /* no bidi */
+  CHECK(moqtrun_test_count_kind(5) == 1); /* one keep-open uni */
+  const moqtrun_test_call* c = moqtrun_test_last_kind(5);
+  CHECK(c && c->payload_len >= 2);
+  if (!c || c->payload_len < 2) return;
+  CHECK(c->payload[0] == 0xAF); /* Stream Type 0x2F00 (1.4.1 varint) */
+  CHECK(c->payload[1] == 0x00);
+  usz        off = 2;
+  u64        type;
+  wired_span body;
+  CHECK(
+      moqctl_peek_type(
+          wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
+      MOQCTL_OK);
+  CHECK(type == MOQCTL_T_SETUP);
+  CHECK(hub.peers[0].control_stream_id == c->stream_id);
+}
+
+/* Empty token: the pre-d17 single bidi stays (the browser cannot
+ * negotiate a WT subprotocol) and no uni 0x2F00 ever opens, even as
+ * ticks pass. */
+static void test_moqtrun_empty_token_keeps_bidi_ctl(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+
+  wired_moqt_on_session(&hub, SESS_A, wired_span_of(0, 0), wired_span_of(0, 0));
+  wired_moqt_tick(&hub, 1000);
+  wired_moqt_tick(&hub, 2000);
+
+  CHECK(moqtrun_test_count_kind(1) == 1);
+  CHECK(moqtrun_test_count_kind(5) == 0);
+}
+
+/* A refused uni control-stream open (the peer advertised no uni-stream
+ * credit yet, draft-ietf-webtrans-http3-16 5.1/5.5) is retried on a
+ * later tick: exactly one SETUP ends up out, and no third open follows
+ * once one succeeded. */
+static void test_moqtrun_refused_uni_ctl_open_retries(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  g_open_uni_fail_n = 1;
+
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+  CHECK(moqtrun_test_count_kind(5) == 1); /* attempted, refused */
+
+  wired_moqt_tick(&hub, 1);
+  CHECK(moqtrun_test_count_kind(5) == 2); /* retried, accepted */
+  if (moqtrun_test_count_kind(5))
+    CHECK(
+        hub.peers[0].control_stream_id == moqtrun_test_last_kind(5)->stream_id);
+
+  wired_moqt_tick(&hub, 2);
+  CHECK(moqtrun_test_count_kind(5) == 2); /* opened: no more attempts */
+}
+
+/* The bidi twin (legacy session): a refused open is retried, and until
+ * it succeeds the failed open is NOT recorded as stream id 0 -- bytes
+ * arriving on the client's bidi stream 0 go to the request-stream path
+ * (answered via stream_reply_open), never read as hub control bytes. */
+static void test_moqtrun_refused_bidi_ctl_open_retries(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  g_open_bidi_fail_n = 1;
+
+  wired_moqt_on_session(&hub, SESS_A, wired_span_of(0, 0), wired_span_of(0, 0));
+  CHECK(moqtrun_test_count_kind(1) == 1); /* attempted, refused */
+
+  wired_moqt_tick(&hub, 1);
+  CHECK(moqtrun_test_count_kind(1) == 2); /* retried, accepted */
+
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 0,
+      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+  CHECK(moqtrun_test_count_kind(12) == 1); /* request stream, not ctl */
+}
+
+/* draft-19 3.6/10.4: GOAWAY rides only the hub's own control stream and
+ * never precedes SETUP. Queued while the control-stream open is still
+ * refused, it goes out on a later tick, on the hub's uni stream, after
+ * the open that carried SETUP. */
+static void test_moqtrun_goaway_waits_for_ctl_open(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  g_open_uni_fail_n = 1;
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+
+  wired_moqt_goaway(&hub, wired_span_of(0, 0), 0);
+  CHECK(moqtrun_test_count_kind(3) == 0); /* nothing before SETUP */
+
+  wired_moqt_tick(&hub, 1); /* open retried: SETUP out */
+  wired_moqt_tick(&hub, 2); /* queued GOAWAY flushed */
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(3);
+  CHECK(c && c->stream_id == hub.peers[0].control_stream_id);
+  if (!c) return;
+  usz        off = 0;
+  u64        type;
+  wired_span body;
+  CHECK(
+      moqctl_peek_type(
+          wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
+      MOQCTL_OK);
+  CHECK(type == MOQCTL_T_GOAWAY);
+}
+
+/* The last close recorded for s names code. */
+static void mtctl_check_closed(wired_wt_session* s, u32 code) {
+  const moqtrun_test_call* c = moqtrun_test_last_kind(11);
+  CHECK(moqtrun_test_count_kind(11) == 1);
+  CHECK(c && c->s == s && c->stream_id == code);
+}
+
+/* draft-19 3.3: control streams stay open for the session's life -- a
+ * FIN on the hub's legacy bidi or on the accepted client control
+ * stream closes the session with PROTOCOL_VIOLATION. */
+static void test_moqtrun_ctl_fin_violates(void) {
+  wired_moqt_hub hub;
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(&hub, SESS_A, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl = moqtrun_test_last_kind(1)->stream_id;
+  wired_moqt_on_stream_data(&hub, SESS_A, ctrl, wired_span_of(0, 0), 1);
+  mtctl_check_closed(SESS_A, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+
+  u8  msg[16];
+  usz n = mtctl_uni_ctl(msg, 0, 0);
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+  wired_moqt_on_stream_data(&hub, SESS_A, 2, mtctl_span(msg, n), 1);
+  mtctl_check_closed(SESS_A, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
+/* A RESET_STREAM / STOP_SENDING on either control stream likewise. */
+static void test_moqtrun_ctl_reset_violates(void) {
+  wired_moqt_hub hub;
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(&hub, SESS_A, wired_span_of(0, 0), wired_span_of(0, 0));
+  u64 ctrl = moqtrun_test_last_kind(1)->stream_id;
+  wired_moqt_on_stream_reset(&hub, SESS_A, ctrl, 0, 0);
+  mtctl_check_closed(SESS_A, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+
+  u8  msg[16];
+  usz n = mtctl_uni_ctl(msg, 0, 0);
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+  wired_moqt_on_stream_data(&hub, SESS_A, 2, mtctl_span(msg, n), 0);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  wired_moqt_on_stream_reset(&hub, SESS_A, 2, 0, 0);
+  mtctl_check_closed(SESS_A, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
+/* draft-19 3.3: on a token session, request streams arriving before
+ * SETUP completed both directions are buffered, not processed (no
+ * reply, no reset) -- and processed once the client SETUP lands. */
+static void test_moqtrun_token_requests_held_until_established(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 0,
+      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+  CHECK(moqtrun_test_count_kind(12) == 0); /* no reply yet */
+  CHECK(moqtrun_test_count_kind(7) == 0);  /* and no reset */
+  CHECK(moqtrun_test_count_kind(11) == 0);
+
+  u8  msg[16];
+  usz n = mtctl_uni_ctl(msg, 0, 0);
+  wired_moqt_on_stream_data(&hub, SESS_A, 2, mtctl_span(msg, n), 0);
+  CHECK(moqtrun_test_count_kind(12) == 1); /* processed after SETUP */
+}
+
+/* Object streams arriving before establishment are buffered too and
+ * processed after: the held PUBLISH then the held SUBGROUP stream both
+ * land once the client SETUP does. */
+static void test_moqtrun_token_object_stream_held_until_established(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 0,
+      wired_span_of(g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN), 0);
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 6,
+      wired_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      1);
+  CHECK(hub.peers[0].tracks[0].in_use == 0); /* nothing processed */
+
+  u8  msg[16];
+  usz n = mtctl_uni_ctl(msg, 0, 0);
+  wired_moqt_on_stream_data(&hub, SESS_A, 2, mtctl_span(msg, n), 0);
+  CHECK(hub.peers[0].tracks[0].in_use == 1);      /* PUBLISH landed */
+  CHECK(hub.peers[0].tracks[0].has_largest == 1); /* Object landed */
+}
+
+/* A request stream the hold buffer cannot take is reset EXCESSIVE_LOAD
+ * at arrival -- before establishment, never after. */
+static void test_moqtrun_token_unbufferable_request_reset(void) {
+  static u8 junk[WIRED_MOQTRUN_HOLD_BUF];
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-19"));
+
+  junk[0] = 0x01; /* no Stream Type decodes from it as 0x2F00 */
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 6, wired_span_of(junk, sizeof junk - 32), 0);
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 0,
+      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+
+  CHECK(moqtrun_test_count_kind(7) == 1);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(7);
+  CHECK(c && c->stream_id == 0);
+  CHECK(c && c->fin == 0x9); /* EXCESSIVE_LOAD rides the fin field */
 }
 
 /* ===================== 2. PUBLISH / SUBSCRIBE ===================== */
@@ -617,13 +1070,23 @@ static u64            mtasm_ctrl_b;
 static u8             mtasm_buf[MTASM_BUF];
 
 /* A publishes alice; B joins with WT subprotocol tok ("" = draft-19)
- * (control stream mtasm_ctrl_b). */
+ * (control stream mtasm_ctrl_b). A non-empty token is a draft-19 3.3
+ * uni-pair session: B's control messages ride B's OWN uni control
+ * stream (established here), while an empty token keeps B writing back
+ * on the hub's bidi. */
 static void mtasm_setup_ver(const char* tok) {
   moqtrun_test_reset();
   wired_moqt_init(&mtasm_hub, moqtrun_test_io());
   moqtrun_test_publish_alice(&mtasm_hub);
   wired_moqt_on_session(
       &mtasm_hub, SESS_B, wired_span_of(0, 0), moqtrun_test_proto(tok));
+  if (tok[0]) {
+    u8  msg[16];
+    usz n = mtctl_uni_ctl(msg, 0, 0);
+    wired_moqt_on_stream_data(&mtasm_hub, SESS_B, 2, mtctl_span(msg, n), 0);
+    mtasm_ctrl_b = 2;
+    return;
+  }
   mtasm_ctrl_b = moqtrun_test_last_kind(1)->stream_id;
 }
 
@@ -5152,6 +5615,25 @@ void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
   test_moqtrun_on_session_stores_negotiated_ver();
+  test_moqtrun_setup_on_hub_bidi_accepted();
+  test_moqtrun_client_uni_ctl_accepted();
+  test_moqtrun_client_uni_ctl_accepted_empty_token();
+  test_moqtrun_client_bidi_setup_accepted();
+  test_moqtrun_second_ctl_stream_violates();
+  test_moqtrun_setup_path_closes_invalid_path();
+  test_moqtrun_setup_authority_closes_invalid_authority();
+  test_moqtrun_setup_unknown_options_ignored();
+  test_moqtrun_setup_malformed_closes();
+  test_moqtrun_token_session_opens_uni_ctl();
+  test_moqtrun_empty_token_keeps_bidi_ctl();
+  test_moqtrun_refused_uni_ctl_open_retries();
+  test_moqtrun_refused_bidi_ctl_open_retries();
+  test_moqtrun_goaway_waits_for_ctl_open();
+  test_moqtrun_ctl_fin_violates();
+  test_moqtrun_ctl_reset_violates();
+  test_moqtrun_token_requests_held_until_established();
+  test_moqtrun_token_object_stream_held_until_established();
+  test_moqtrun_token_unbufferable_request_reset();
   test_moqtrun_publish_replies_request_ok();
   test_moqtrun_subscribe_matching_publish_replies_ok();
   test_moqtrun_subscribe_without_publish_replies_error();
