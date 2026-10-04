@@ -1,5 +1,5 @@
-# moq-interop-runner relay image for wired (draft-ietf-moq-transport-19,
-# WebTransport, subprotocol moqt-19).
+# moq-interop-runner relay image for wired (draft-ietf-moq-transport
+# 18/19/22, WebTransport, subprotocol moqt-18/moqt-19/moqt-22).
 #
 # The freestanding binary is built OUTSIDE this Dockerfile (it needs the
 # repo's pinned clang/ninja toolchain):
