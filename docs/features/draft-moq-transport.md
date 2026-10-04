@@ -442,11 +442,13 @@ Legend:
   subset does not set delivery timeouts).
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_subscribe_ok_carries_no_timeout_param`
-- [x] MOQT-070 If a SUBSCRIBE carries a non-zero SUBGROUP_DELIVERY_TIMEOUT
-  parameter, then the hub shall reject it with REQUEST_ERROR NOT_SUPPORTED;
-  a non-zero OBJECT_DELIVERY_TIMEOUT is accepted and applied (MOQT-195).
+- [x] MOQT-070 Where a SUBSCRIBE carries a non-zero SUBGROUP_DELIVERY_TIMEOUT
+  parameter, the hub shall accept it and record it as the subscription's
+  effective subgroup timeout, min()ed against the publisher's Track
+  Property (10-4); a non-zero OBJECT_DELIVERY_TIMEOUT is likewise accepted
+  and applied (MOQT-195).
   - test: `tests/app/moqtrun_test.c` —
-    `test_moqtrun_subscribe_nonzero_timeout_rejected`
+    `test_moqtrun_subscribe_nonzero_timeout_accepted`
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_timeout_accepted`
 
 ## SS10.2.17 FORWARD Parameter
