@@ -418,12 +418,11 @@ static void test_moqtrun_setup_on_hub_bidi_accepted(void) {
   CHECK(moqsess_established(&hub.peers[0].sess));
 }
 
-/* Client uni control stream (draft-19 3.4 Stream Type 0x2F00, then the
- * SETUP message) carrying one Setup Option list. */
+/* Client uni control stream (draft-19 3.4): the Stream Type varint IS
+ * the SETUP message's own Type field (0x2F00), not a separate one --
+ * same one-varint-does-both shape as FETCH_HEADER (11.4.4). */
 static usz mtctl_uni_ctl(u8* buf, const u8* opts, usz opts_len) {
-  buf[0] = 0xAF; /* Stream Type 0x2F00 (1.4.1 varint) */
-  buf[1] = 0x00;
-  return 2 + mtctl_setup_msg(buf + 2, opts, opts_len);
+  return mtctl_setup_msg(buf, opts, opts_len);
 }
 
 static wired_span mtctl_span(const u8* p, usz n) { return wired_span_of(p, n); }
@@ -599,7 +598,9 @@ static void test_moqtrun_token_session_opens_uni_ctl(void) {
   if (!c || c->payload_len < 2) return;
   CHECK(c->payload[0] == 0xAF); /* Stream Type 0x2F00 (1.4.1 varint) */
   CHECK(c->payload[1] == 0x00);
-  usz        off = 2;
+  /* The same two bytes are also the SETUP message's own Type field --
+   * one varint serves both (compare FETCH_HEADER 11.4.4). */
+  usz        off = 0;
   u64        type;
   wired_span body;
   CHECK(

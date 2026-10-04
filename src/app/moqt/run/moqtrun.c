@@ -166,23 +166,23 @@ static i64 moqtrun_ctl_open_io(
 
 /* draft 3.3: the hub's control stream, its own SETUP as first bytes (no
  * Setup Options -- this subset negotiates nothing on the wire). The
- * draft-19 binding is a keep-open UNI stream, Stream Type 0x2F00 ahead
- * of the SETUP (3.4); a legacy session keeps the pre-d17 single bidi
- * the browser clients read. The io open ops prefix the WebTransport
- * stream signal (draft-ietf-webtrans-http3-15 4.2) -- this layer stays
- * session-opaque, testable without the QUIC/TLS stack. A refused open
- * leaves ctl_opened 0: moqtrun_ctl_retry tries again on a later tick,
- * and nothing (GOAWAY included) is sent until SETUP went out. SETUP
- * rides send_bufs[0], the armed slot (an open holds the same view/ACK
- * contract as stream_send, srvrun.h). */
+ * draft-19 binding is a keep-open UNI stream whose leading Stream Type
+ * varint (0x2F00, 3.4) IS the SETUP message's own Type field -- the two
+ * are the same varint, not two (compare FETCH_HEADER 11.4.4: one Type
+ * varint serves both the stream-type table and the message layout); a
+ * legacy session keeps the pre-d17 single bidi the browser clients
+ * read, which carries no stream-type varint at all. The io open ops
+ * prefix the WebTransport stream signal (draft-ietf-webtrans-http3-15
+ * 4.2) -- this layer stays session-opaque, testable without the
+ * QUIC/TLS stack. A refused open leaves ctl_opened 0: moqtrun_ctl_retry
+ * tries again on a later tick, and nothing (GOAWAY included) is sent
+ * until SETUP went out. SETUP rides send_bufs[0], the armed slot (an
+ * open holds the same view/ACK contract as stream_send, srvrun.h). */
 static void moqtrun_ctl_open(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   wired_mspan buf = wired_mspan_of(p->send_bufs[0], WIRED_MOQTRUN_CTL_SEND_BUF);
   moqctl_setup setup = {0};
-  usz          off   = 0;
-  if (!p->legacy) moqvi_put(buf, &off, MOQDATA_TYPE_SETUP);
-  off += moqtrun_envelope_put(
-      wired_mspan_of(buf.p + off, buf.n - off), MOQCTL_T_SETUP,
-      moqtrun_encode_setup, &setup);
+  usz          off =
+      moqtrun_envelope_put(buf, MOQCTL_T_SETUP, moqtrun_encode_setup, &setup);
   i64 sid = moqtrun_ctl_open_io(
       &hub->io, p->wt, p->legacy, wired_span_of(buf.p, off));
   if (sid < 0) return;
@@ -4990,8 +4990,13 @@ static void moqtrun_ctl_adopt_rx(
   moqtrun_ctl_rx(hub, p, sid, data, fin);
 }
 
-/* draft-19 3.4: a fresh uni whose Stream Type is 0x2F00 is the client's
- * control stream (its SETUP follows the type varint); 1 when consumed. */
+/* draft-19 3.4/10.1: a fresh uni whose Stream Type is 0x2F00 is the
+ * client's control stream. The Stream Type varint and the SETUP
+ * message's own Type field are the SAME varint (compare FETCH_HEADER
+ * 11.4.4, which is read the same way by moqfetch_hdr_take on the
+ * unconsumed data) -- it is not repeated, so the classifying read must
+ * not be consumed before the SETUP decode gets to see it. 1 when
+ * consumed. */
 static int moqtrun_fresh_uni_ctl(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
@@ -5000,8 +5005,7 @@ static int moqtrun_fresh_uni_ctl(
     int                 fin) {
   usz at = 0;
   if (moqdata_classify(data, &at) != MOQDATA_STREAM_CONTROL) return 0;
-  moqtrun_ctl_adopt_rx(
-      hub, p, sid, wired_span_of(data.p + at, data.n - at), fin);
+  moqtrun_ctl_adopt_rx(hub, p, sid, data, fin);
   return 1;
 }
 
