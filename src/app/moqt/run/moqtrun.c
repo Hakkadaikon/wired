@@ -89,6 +89,8 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   hub->join_seq_next         = 0;
   hub->authorize_subscribe   = 0;
   hub->authorize_ctx         = 0;
+  hub->authorize_publish     = 0;
+  hub->authorize_pub_ctx     = 0;
   hub->authorize_namespace   = 0;
   hub->authorize_ns_ctx      = 0;
   hub->stat_frag_drop        = 0;
@@ -835,29 +837,47 @@ static wired_moqtrun_track* moqtrun_publish_slot(
   return moqtrun_track_alloc_slot(p, k);
 }
 
-/* draft SS10.9 PUBLISH: accept a track into a free (or matching-name) slot
+static int moqtrun_publish_refused(
+    const wired_moqt_hub* hub, const moqctl_publish* m, u64* code);
+
+/* A vetted PUBLISH: claim a track into a free (or matching-name) slot
  * and reply REQUEST_OK; a third distinct track name (no free slot), or a
  * name a newer session already owns (moqtrun_publish_slot), gets
  * REQUEST_ERROR instead of silently overwriting an existing track. */
-static void moqtrun_handle_publish(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
-  usz            off = 0;
-  moqctl_publish m;
-  u8             ns_buf[WIRED_MOQTRUN_MAX_NS];
-  if (moqctl_publish_take(p->ver, body, &off, &m) != MOQCTL_OK) return;
-  moqtrun_key          k = moqtrun_key_of(&m.name, ns_buf);
+static void moqtrun_publish_checked(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    usz                   peer_idx,
+    const moqctl_publish* m) {
+  u8  ns_buf[WIRED_MOQTRUN_MAX_NS];
+  u64 code;
+  if (moqtrun_publish_refused(hub, m, &code)) {
+    moqtrun_send_request_error(p, code);
+    return;
+  }
+  moqtrun_key          k = moqtrun_key_of(&m->name, ns_buf);
   wired_moqtrun_track* t = moqtrun_publish_slot(hub, p, peer_idx, k);
   if (!t) {
     moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
     return;
   }
   moqtrun_supersede_name(hub, peer_idx, k);
-  moqtrun_track_claim(hub, t, k, m.track_alias);
-  moqtrun_track_seed_largest(t, &m.params);
-  t->request_id = m.request_id;
+  moqtrun_track_claim(hub, t, k, m->track_alias);
+  moqtrun_track_seed_largest(t, &m->params);
+  t->request_id = m->request_id;
   moqtrun_reattach_subs(hub, t, peer_idx, k);
   moqtrun_queue_request_ok(p, 0);
   moqtrun_req_mark_live(p);
+}
+
+/* draft SS10.9 PUBLISH: decode, then authorize and claim
+ * (moqtrun_publish_checked). */
+static void moqtrun_handle_publish(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  usz            off = 0;
+  moqctl_publish m;
+  if (moqctl_publish_take(p->ver, body, &off, &m) != MOQCTL_OK) return;
+  moqtrun_publish_checked(hub, p, peer_idx, &m);
 }
 
 /* p's matching track slot if p is a connected peer, else 0 -- guards the
@@ -1333,6 +1353,20 @@ static int moqtrun_subscribe_refused(
   *code = MOQCTL_ERR_UNAUTHORIZED;
   if (!hub->authorize_subscribe) return 0;
   return !hub->authorize_subscribe(hub->authorize_ctx, &m->name, t);
+}
+
+/* draft-22 16.3 "Preventing Impersonation" (the same MUST in every
+ * draft): a relay verifies the publisher may claim the PUBLISH's Full
+ * Track Name. Every PUBLISH passes here before any slot is claimed,
+ * moqtrun_subscribe_refused's twin. 1 + *code when refused. */
+static int moqtrun_publish_refused(
+    const wired_moqt_hub* hub, const moqctl_publish* m, u64* code) {
+  const moqctl_token* t = moqtrun_auth_token_of(&m->params);
+  *code                 = MOQCTL_ERR_MALFORMED_AUTH_TOKEN;
+  if (moqtrun_token_uses_alias(t)) return 1;
+  *code = MOQCTL_ERR_UNAUTHORIZED;
+  if (!hub->authorize_publish) return 0;
+  return !hub->authorize_publish(hub->authorize_pub_ctx, &m->name, t);
 }
 
 /* Not a REQUEST_ERROR code: the request is accepted. */
