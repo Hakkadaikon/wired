@@ -195,9 +195,15 @@ static void moqtrun_init_peer(
   p->ctl_asm.at      = 0;
   p->ctl_asm.skip    = 0;
   p->req             = 0;
-  p->goaway_deadline = (u64)-1;
-  p->goaway_flushed_at = 0;
-  p->closing           = 0;
+  p->peer_ctl_set    = 0;
+  p->peer_ctl_stream_id = 0;
+  p->setup_recv         = 0;
+  p->rx_sid             = 0;
+  p->peer_impl_len      = 0;
+  p->peer_has_impl      = 0;
+  p->goaway_deadline    = (u64)-1;
+  p->goaway_flushed_at  = 0;
+  p->closing            = 0;
   for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
     p->tracks[t].in_use = 0;
   moqsess_init(&p->sess);
@@ -2466,6 +2472,75 @@ static void moqtrun_dispatch_goaway(
   if (code) moqtrun_close_with(hub, p, code);
 }
 
+/* draft-19 3.3: one control stream per peer -- a 2nd one (or a 2nd
+ * SETUP) closes the session with PROTOCOL_VIOLATION. */
+static void moqtrun_second_ctl(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  moqsess_step(&p->sess, MOQSESS_EV_SECOND_CTRL);
+  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
+/* A SETUP after one was already accepted, or on a stream other than the
+ * accepted client control stream. */
+static int moqtrun_setup_second(const wired_moqtrun_peer* p) {
+  return p->setup_recv ||
+         (p->peer_ctl_set && p->peer_ctl_stream_id != p->rx_sid);
+}
+
+/* draft-19 10.4: PATH and AUTHORITY MUST NOT be used over WebTransport;
+ * each names its own 3.5 close code. */
+static u32 moqtrun_setup_opt_bad(const moqctl_setup* m) {
+  if (m->has_path) return WIRED_MOQTRUN_CLOSE_INVALID_PATH;
+  return m->has_authority ? WIRED_MOQTRUN_CLOSE_INVALID_AUTHORITY : 0;
+}
+
+/* Close code a client SETUP body calls for; 0 = accept (*m decoded). */
+static u32 moqtrun_setup_take_code(wired_span body, moqctl_setup* m) {
+  usz off = 0;
+  if (moqctl_setup_take(body, &off, m) != MOQCTL_OK)
+    return WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
+  return moqtrun_setup_opt_bad(m);
+}
+
+static void moqtrun_impl_copy(wired_moqtrun_peer* p, const moqctl_setup* m) {
+  usz n = (usz)u64_min(m->implementation.n, WIRED_MOQTRUN_IMPL_MAX);
+  if (!m->has_implementation) return;
+  bytes_memcpy(p->peer_impl, m->implementation.p, n);
+  p->peer_impl_len = n;
+  p->peer_has_impl = 1;
+}
+
+/* Records the accepted client SETUP: the stream it rode becomes the
+ * client control stream, its MOQT_IMPLEMENTATION is copied, and the
+ * session machine advances (3.3: Established once both sides' SETUP are
+ * done). */
+static void moqtrun_setup_accept(wired_moqtrun_peer* p, const moqctl_setup* m) {
+  p->peer_ctl_set       = 1;
+  p->peer_ctl_stream_id = p->rx_sid;
+  p->setup_recv         = 1;
+  moqtrun_impl_copy(p, m);
+  moqsess_step(&p->sess, MOQSESS_EV_RECV_SETUP);
+}
+
+/* draft-19 3.3/10.4: the client's SETUP, on whichever stream 3.3's
+ * leniency lets it arrive. Never reached via a request stream --
+ * moqtrun_req_allowed rejects SETUP there first. */
+static void moqtrun_dispatch_setup(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  moqctl_setup m;
+  u32          code;
+  (void)peer_idx;
+  if (moqtrun_setup_second(p)) {
+    moqtrun_second_ctl(hub, p);
+    return;
+  }
+  code = moqtrun_setup_take_code(body, &m);
+  if (code) {
+    moqtrun_close_with(hub, p, code);
+    return;
+  }
+  moqtrun_setup_accept(p, &m);
+}
+
 /* A message with no request to refuse: consumed by its Length, no reply. */
 static void moqtrun_dispatch_skip(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
@@ -2485,6 +2560,7 @@ static const struct {
   u64            type;
   moqtrun_ctl_fn fn;
 } moqtrun_ctl_table[] = {
+    {MOQCTL_T_SETUP, moqtrun_dispatch_setup},
     {MOQCTL_T_PUBLISH, moqtrun_dispatch_publish},
     {MOQCTL_T_SUBSCRIBE, moqtrun_dispatch_subscribe},
     {MOQFETCH_T_FETCH, moqtrun_dispatch_fetch},
@@ -4485,6 +4561,7 @@ void wired_moqt_on_stream_data(
   if (!p) return;
   if (stream_id == p->control_stream_id) {
     usz peer_idx = (usz)(p - hub->peers);
+    p->rx_sid    = stream_id;
     moqtrun_dispatch_ctl_stream(hub, p, peer_idx, data);
     return;
   }
