@@ -35,8 +35,6 @@
 #define MOQVER_CAP_PUBLISH_STATE_NOTIFY (1u << 7)
 /** FETCH End Location is inclusive (draft-22). */
 #define MOQVER_CAP_FETCH_END_INCLUSIVE (1u << 8)
-/** PUBLISH_DONE Stream Count spans 64 bits (draft-22). */
-#define MOQVER_CAP_STREAMCOUNT_U64 (1u << 9)
 /** Range filters (draft-19, 22). */
 #define MOQVER_CAP_RANGE_FILTERS (1u << 10)
 /** MAX_REQUEST_UPDATES credit (draft-19, 22). */
