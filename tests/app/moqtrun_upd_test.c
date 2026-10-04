@@ -740,9 +740,104 @@ static void test_moqtrun_upd_credit_restored_by_flush(void) {
   CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
 }
 
+/* ========= REQUEST_UPDATE on a FETCH stream (draft-19 10.9) ========= */
+
+static moqctl_params mtup_subpri(u8 v) {
+  return mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, v);
+}
+
+/* A FETCH's sender may REQUEST_UPDATE it (10.9); an admitted parameter
+ * (SUBSCRIBER_PRIORITY, 10.2.5) is REQUEST_OK, not NOT_SUPPORTED. The
+ * fetch is kept stuck (mf_stuck_fetch's g_stream_send_ok_n trick) so it
+ * is still a live request when the update arrives. */
+static void test_moqtrun_upd_on_fetch_stream(void) {
+  mf_stuck_fetch();
+  moqtrun_test_reset();
+  moqctl_params p = mtup_subpri(200);
+  mtup_update(SESS_B, mf_req_sid, &p);
+  CHECK(mtup_reply(mf_req_sid, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
+  g_stream_send_ok_n = -1;
+}
+
+/* A FETCH update this hub refuses (an alias AUTHORIZATION_TOKEN: the hub
+ * has no token cache, SS10.3.1.3) answers REQUEST_ERROR and resets the
+ * FETCH's own data stream (10.9.1 "the publisher MUST reset the FETCH
+ * data stream"), not the session. */
+static void test_moqtrun_upd_on_fetch_stream_refused(void) {
+  static const u8 alias_tok[] = {0x01, 0x07, 0x01, 'x'};
+  u64             data_sid    = mf_stuck_fetch();
+  u64             fetch_sid   = mf_req_sid;
+  moqtrun_test_reset();
+  moqctl_params p = mtpa_token(alias_tok, sizeof alias_tok);
+  mtup_update(SESS_B, fetch_sid, &p);
+  CHECK(mtup_err_code(fetch_sid) == MOQCTL_ERR_MALFORMED_AUTH_TOKEN);
+  const moqtrun_test_call* r = moqtrun_test_last_kind(7);
+  CHECK(r && r->stream_id == data_sid);
+  CHECK(mf_no_fetch());
+  g_stream_send_ok_n = -1;
+}
+
+/* ===== REQUEST_UPDATE on a namespace stream (draft-19 10.9.1) ===== */
+
+static u8 mtup_ns_buf[256];
+
+/* A TRACK_NAMESPACE_PREFIX param encoding "a/b/..." (mtns_ns's own
+ * "/"-split syntax). */
+static moqctl_params mtup_ns_param(const char* z) {
+  moqctl_params p   = {0};
+  moqctl_ns     pfx = mtns_ns(z);
+  usz           n   = 0;
+  p.items[0].type   = MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX;
+  p.items[0].enc    = MOQCTL_PENC_NS;
+  CHECK(
+      moqctl_ns_put(wired_mspan_of(mtup_ns_buf, sizeof mtup_ns_buf), &n, &pfx));
+  p.items[0].bytes = wired_span_of(mtup_ns_buf, n);
+  p.n              = 1;
+  return p;
+}
+
+/* A SUBSCRIBE_NAMESPACE's sender may REQUEST_UPDATE its
+ * TRACK_NAMESPACE_PREFIX; an accepted one is REQUEST_OK and the live
+ * request's prefix actually changes -- a namespace that did not match
+ * the old prefix but matches the new one is announced after the update,
+ * not before (10.9.1, 10.18). */
+static void test_moqtrun_upd_ns_prefix_changes(void) {
+  mtns_init();
+  mtns_sub(SESS_B, MTRQ_S1, "chat");
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|"));
+  mtns_pub(SESS_A, MTRQ_S2, "video/x");
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|")); /* "video/x" not under "chat" */
+  moqctl_params p = mtup_ns_param("video");
+  mtup_update(SESS_B, MTRQ_S1, &p);
+  /* the update's own REQUEST_OK is immediately followed, same dispatch,
+   * by the newly-matching NAMESPACE push -- the ordered log proves both
+   * happened, where mtup_reply (last reply only) would see only the
+   * push. */
+  CHECK(mtns_is(
+      SESS_B, MTRQ_S1, "OK|OK|NS:x|")); /* update OK, now under "video" */
+}
+
+/* An update whose new prefix overlaps another live SUBSCRIBE_NAMESPACE in
+ * the same session is PREFIX_OVERLAP (10.9.1's restriction, 10.18); the
+ * refusal closes the bidi stream (10.9.1) and leaves the old prefix (and
+ * its announcements) untouched. */
+static void test_moqtrun_upd_ns_prefix_overlap_refused(void) {
+  mtns_init();
+  mtns_sub(SESS_B, MTRQ_S1, "chat");
+  mtns_sub(SESS_B, MTRQ_S2, "video");
+  moqctl_params p = mtup_ns_param("chat"); /* clashes with MTRQ_S1's own */
+  mtup_update(SESS_B, MTRQ_S2, &p);
+  CHECK(mtup_err_code(MTRQ_S2) == MOQCTL_ERR_PREFIX_OVERLAP);
+  CHECK(mtrq_fin_on(MTRQ_S2) == 1); /* 10.9.1: refusal closes the stream */
+}
+
 void test_moqtrun_upd(void) {
   test_moqtrun_upd_credit_too_many();
   test_moqtrun_upd_credit_restored_by_flush();
+  test_moqtrun_upd_on_fetch_stream();
+  test_moqtrun_upd_on_fetch_stream_refused();
+  test_moqtrun_upd_ns_prefix_changes();
+  test_moqtrun_upd_ns_prefix_overlap_refused();
   test_moqtrun_upd_rngf_replace_remove();
   test_moqtrun_upd_on_publish_stream();
   test_moqtrun_publish_requires_authorization();
