@@ -1211,9 +1211,26 @@ static void moqtrun_blob_send_first(
   moqtrun_queue_subscribe_ok(p, &hub->blob_track, slot->track_alias);
 }
 
-/* SUBSCRIBE for the hub's own blob track: a peer already holding a
- * subscription is answered SUBSCRIBE_OK again (its copy is on the way or
- * delivered -- never sent twice), anyone else gets the blob now. */
+/* A SUBSCRIBE for a track this peer already subscribes: draft-18 6.3
+ * allows one subscription per Track and role, so it is refused with
+ * DUPLICATE_SUBSCRIPTION; draft-19/22 allow several, and the hub
+ * re-answers SUBSCRIBE_OK with the held alias instead of eating another
+ * slot (the client resends SUBSCRIBE until a chunk arrives). 1 when held
+ * was answered either way, 0 when there is nothing held. */
+static int moqtrun_sub_held_reply(
+    wired_moqtrun_peer*        p,
+    const wired_moqtrun_track* t,
+    const wired_moqtrun_sub*   held) {
+  if (!held) return 0;
+  if (moqver_caps(p->ver) & MOQVER_CAP_DUP_SUBSCRIPTION)
+    moqtrun_send_request_error(p, MOQCTL_ERR_DUPLICATE_SUBSCRIPTION);
+  else
+    moqtrun_queue_subscribe_ok(p, t, held->track_alias);
+  return 1;
+}
+
+/* SUBSCRIBE for the hub's own blob track: a held subscription is
+ * re-answered (moqtrun_sub_held_reply), anyone else gets the blob now. */
 static void moqtrun_subscribe_blob(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
@@ -1221,18 +1238,13 @@ static void moqtrun_subscribe_blob(
     const moqctl_subscribe* m) {
   wired_moqtrun_sub* held =
       moqtrun_track_sub_of_peer(&hub->blob_track, peer_idx);
-  if (held) {
-    moqtrun_queue_subscribe_ok(p, &hub->blob_track, held->track_alias);
-    return;
-  }
+  if (moqtrun_sub_held_reply(p, &hub->blob_track, held)) return;
   moqtrun_blob_send_first(hub, p, peer_idx, m);
 }
 
-/* SUBSCRIBE on a found peer track: a peer already holding a subscription
- * is answered SUBSCRIBE_OK again with the alias it holds (the client
- * resends SUBSCRIBE until a chunk arrives, and an idle track never sends
- * one -- each resend must not consume another slot), anyone else gets a
- * fresh slot, or DOES_NOT_EXIST once the table is full. */
+/* SUBSCRIBE on a found peer track: a held subscription is re-answered
+ * (moqtrun_sub_held_reply), anyone else gets a fresh slot, or
+ * DOES_NOT_EXIST once the table is full. */
 static void moqtrun_subscribe_peer_track(
     wired_moqtrun_peer*     p,
     wired_moqtrun_track*    track,
@@ -1240,10 +1252,7 @@ static void moqtrun_subscribe_peer_track(
     moqtrun_key             k,
     const moqctl_subscribe* m) {
   wired_moqtrun_sub* held = moqtrun_track_sub_of_peer(track, peer_idx);
-  if (held) {
-    moqtrun_queue_subscribe_ok(p, track, held->track_alias);
-    return;
-  }
+  if (moqtrun_sub_held_reply(p, track, held)) return;
   wired_moqtrun_sub* slot = moqtrun_sub_slot(track);
   if (!slot) {
     moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
@@ -3086,8 +3095,8 @@ static void moqtrun_live_attach(
         hub, i, moqtrun_live_group_at(&hub->live, hub->live.last_now_ms));
 }
 
-/* SUBSCRIBE for the live track: a peer already holding a subscription is
- * answered SUBSCRIBE_OK again (nothing re-sent), anyone else is attached
+/* SUBSCRIBE for the live track: a held subscription is re-answered
+ * (moqtrun_sub_held_reply, nothing re-sent), anyone else is attached
  * and served the current Group. */
 static void moqtrun_subscribe_live(
     wired_moqt_hub*         hub,
@@ -3096,10 +3105,7 @@ static void moqtrun_subscribe_live(
     const moqctl_subscribe* m) {
   wired_moqtrun_track* t    = &hub->live.track;
   wired_moqtrun_sub*   held = moqtrun_track_sub_of_peer(t, peer_idx);
-  if (held) {
-    moqtrun_queue_subscribe_ok(p, t, held->track_alias);
-    return;
-  }
+  if (moqtrun_sub_held_reply(p, t, held)) return;
   wired_moqtrun_sub* slot = moqtrun_sub_slot(t);
   if (!slot) {
     moqtrun_send_request_error(p, MOQCTL_ERR_INTERNAL_ERROR);
