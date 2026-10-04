@@ -2128,14 +2128,52 @@ static int moqtrun_upd_is_sub(const wired_moqtrun_peer* p) {
   return p->req && p->req->kind == MOQCTL_T_SUBSCRIBE;
 }
 
-/* A REQUEST_UPDATE of a SUBSCRIBE, on its stream (its own Request ID is a
- * fresh one, 10.1: the stream names the request). On the control stream,
- * or for another request type, NOT_SUPPORTED. A malformed one (e.g. a
- * parameter outside the update's scope) closes the session. */
+/* draft-22 9.8 lets the requester also update its own PUBLISH; the
+ * earlier drafts keep REQUEST_UPDATE to subscriptions. */
+static int moqtrun_upd_is_pub(const wired_moqtrun_peer* p) {
+  return p->req && p->req->kind == MOQCTL_T_PUBLISH &&
+         (moqver_caps(p->ver) & MOQVER_CAP_UPDATE_ON_PUBLISH);
+}
+
+static int moqtrun_upd_allowed(const wired_moqtrun_peer* p) {
+  return moqtrun_upd_is_sub(p) || moqtrun_upd_is_pub(p);
+}
+
+/* draft-22 9.8 on a PUBLISH stream: the parameters are vetted as a
+ * subscription's would be; the hub models no publisher-side state they
+ * would move, so an acceptable update is REQUEST_OK and nothing else. */
+static void moqtrun_update_pub(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_params* params) {
+  u64 code = moqtrun_params_refusal(params);
+  (void)hub;
+  if (code != MOQTRUN_REQ_ACCEPT) {
+    moqtrun_send_request_error(p, code);
+    return;
+  }
+  moqtrun_queue_request_ok(p, 0);
+}
+
+static void moqtrun_update_route(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    usz                  peer_idx,
+    const moqctl_params* params) {
+  if (moqtrun_upd_is_pub(p)) {
+    moqtrun_update_pub(hub, p, params);
+    return;
+  }
+  moqtrun_update_sub(hub, p, peer_idx, params);
+}
+
+/* A REQUEST_UPDATE of a SUBSCRIBE (or, on draft-22, of the sender's own
+ * PUBLISH), on its stream (its own Request ID is a fresh one, 10.1: the
+ * stream names the request). On the control stream, or for another
+ * request type, NOT_SUPPORTED. A malformed one (e.g. a parameter
+ * outside the update's scope) closes the session. */
 static void moqtrun_handle_update(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   moqtstat_update m;
-  if (!moqtrun_upd_is_sub(p)) {
+  if (!moqtrun_upd_allowed(p)) {
     moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
     moqtrun_upd_close_ns(p->req);
     return;
@@ -2145,7 +2183,7 @@ static void moqtrun_handle_update(
     moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
     return;
   }
-  moqtrun_update_sub(hub, p, peer_idx, &m.params);
+  moqtrun_update_route(hub, p, peer_idx, &m.params);
 }
 
 /* ===================== namespace discovery ===================== */

@@ -49,6 +49,8 @@
 #define MOQVER_CAP_PUBLISH_OK_ALIAS (1u << 15)
 /** PUBLISH_DONE SUBSCRIPTION_ENDED status exists (draft-18, 19). */
 #define MOQVER_CAP_SUBSCRIPTION_ENDED (1u << 16)
+/** REQUEST_UPDATE may follow the sender's own PUBLISH (draft-22 9.8). */
+#define MOQVER_CAP_UPDATE_ON_PUBLISH (1u << 17)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a

@@ -601,7 +601,36 @@ static void test_moqtrun_publish_alias_token_rejected(void) {
   CHECK(mtst_hub.peers[0].tracks[0].in_use == 0);
 }
 
+/* ======= REQUEST_UPDATE on a PUBLISH stream (draft-22 9.8) ======= */
+
+/* draft-22 lets the requester update its own PUBLISH: the parameters
+ * are vetted like a subscription's and the update is REQUEST_OK (the
+ * hub models no publisher-side state they would move), the track
+ * untouched; a parameter the hub refuses on subscriptions is refused
+ * here too. draft-19 keeps NOT_SUPPORTED. */
+static void test_moqtrun_upd_on_publish_stream(void) {
+  static const u8 upd[] = {0x04, 0x00}; /* Request ID 4, no parameters */
+  moqctl_params   t     = mtup_vi(MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 9);
+  moqctl_ftn      f     = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  mtst_join(SESS_A);
+  moqtrun_find_by_wt(&mtst_hub, SESS_A)->ver = MOQVER_D22;
+  mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+  mtrq_raw(SESS_A, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd, sizeof upd);
+  CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
+  CHECK(mtst_hub.peers[0].tracks[0].in_use == 1);
+  mtup_update(SESS_A, MTRQ_S1, &t);
+  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_NOT_SUPPORTED);
+  CHECK(mtst_hub.peers[0].tracks[0].in_use == 1);
+  mtst_init();
+  mtst_join(SESS_A);
+  mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+  mtrq_raw(SESS_A, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd, sizeof upd);
+  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_NOT_SUPPORTED);
+}
+
 void test_moqtrun_upd(void) {
+  test_moqtrun_upd_on_publish_stream();
   test_moqtrun_publish_requires_authorization();
   test_moqtrun_publish_alias_token_rejected();
   test_moqtrun_notify_on_publish_stream_d22();
