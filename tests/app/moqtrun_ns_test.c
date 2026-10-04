@@ -368,7 +368,68 @@ static void test_moqtrun_ns_backpressure(void) {
       "OK|NS:x1aaaaaa|NS:x2aaaaaa|DONE:x1aaaaaa|NS:x3aaaaaa|NS:x4aaaaaa|"));
 }
 
+/* ============ request-stream FIN per draft (draft-18 6.1) ============ */
+
+/* SUBSCRIBE_NAMESPACE for z encoded whole into buf. */
+static usz mtns_sub_bytes(const char* z, u8* buf) {
+  static moqns_req m;
+  m.request_id = mtst_rid += 2;
+  m.ns         = mtns_ns(z);
+  m.params.n   = 0;
+  return moqtrun_envelope_put(
+      wired_mspan_of(buf, MTST_MSG_MAX), MOQNS_T_SUBSCRIBE_NAMESPACE, mtns_enc,
+      &m);
+}
+
+/* draft-18 6.1: a FIN cancels a SUBSCRIBE_NAMESPACE -- no NAMESPACE is
+ * pushed afterwards and the slot is freed; an early FIN riding the
+ * request's own delivery cancels the same way. */
+static void test_moqtrun_ns_fin_cancels_d18(void) {
+  u8 buf[MTST_MSG_MAX];
+  mtns_init();
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D18;
+  mtns_sub(SESS_B, MTRQ_S1, "chat");
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|"));
+  wired_moqt_on_stream_data(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(0, 0), 1);
+  mtns_pub(SESS_A, MTRQ_S1, "chat/room1");
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|"));
+  CHECK(mtrq_used() == 1); /* A's PUBLISH_NAMESPACE only */
+  usz n = mtns_sub_bytes("chat", buf);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_B, MTRQ_S2, wired_span_of(buf, n), 1);
+  mtns_pub(SESS_A, MTRQ_S2, "chat/room2");
+  CHECK(mtns_is(SESS_B, MTRQ_S2, "OK|"));
+}
+
+/* draft-19 3.3.2 / draft-22: the same FIN is a plain half-close -- the
+ * namespace subscription lives on and still receives NAMESPACE. */
+static void test_moqtrun_ns_fin_half_closes_d19_d22(void) {
+  static const int vers[] = {MOQVER_D19, MOQVER_D22};
+  for (usz v = 0; v < 2; v++) {
+    mtns_init();
+    moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = vers[v];
+    mtns_sub(SESS_B, MTRQ_S1, "chat");
+    wired_moqt_on_stream_data(
+        &mtst_hub, SESS_B, MTRQ_S1, wired_span_of(0, 0), 1);
+    mtns_pub(SESS_A, MTRQ_S1, "chat/room1");
+    CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|"));
+  }
+}
+
+/* draft-18 6.1 names only SUBSCRIBE_NAMESPACE and SUBSCRIBE_TRACKS: a
+ * FIN on a plain SUBSCRIBE's stream stays a half-close even there. */
+static void test_moqtrun_req_fin_keeps_subscribe_d18(void) {
+  moqctl_ftn f                               = mtrq_setup();
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D18;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(0, 0), 1);
+  CHECK(mtst_sub(SESS_A, SESS_B) != 0);
+}
+
 void test_moqtrun_ns(void) {
+  test_moqtrun_ns_fin_cancels_d18();
+  test_moqtrun_ns_fin_half_closes_d19_d22();
+  test_moqtrun_req_fin_keeps_subscribe_d18();
   test_moqtrun_ns_publish_accepted();
   test_moqtrun_ns_initial_set();
   test_moqtrun_ns_empty_prefix();
