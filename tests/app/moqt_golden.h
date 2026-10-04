@@ -1,6 +1,8 @@
 /* Generated from examples/moqt_chat/testvectors/moqt_golden.json.
  * Do not edit by hand: edit the JSON, then regenerate
- * (python3 scripts/gen_moqt_golden.py). Draft: draft-ietf-moq-transport-19. */
+ * (python3 scripts/gen_moqt_golden.py). Baseline draft:
+ * draft-ietf-moq-transport-19; entries with a 'versions' key also emit
+ * _D18/_D22 variants. */
 #ifndef MOQT_GOLDEN_H
 #define MOQT_GOLDEN_H
 
@@ -235,6 +237,10 @@ static const u8 g_moqt_ctl_goaway_empty[] = {0x10, 0x00, 0x02, 0x00, 0x00};
 #define G_MOQT_CTL_GOAWAY_EMPTY_LEN 5
 #define G_MOQT_CTL_GOAWAY_EMPTY_TYPE 0x10ULL
 #define G_MOQT_CTL_GOAWAY_EMPTY_MSG_LEN 2
+static const u8 g_moqt_ctl_goaway_empty_d18[] = {0x10, 0x00, 0x03,
+                                                 0x00, 0x00, 0x04};
+#define G_MOQT_CTL_GOAWAY_EMPTY_D18_LEN 6
+#define G_MOQT_CTL_GOAWAY_EMPTY_D18_MSG_LEN 3
 static const u8 g_moqt_ctl_subscribe_params[] = {
     0x03, 0x00, 0x20, 0x00, 0x02, 0x04, 0x63, 0x68, 0x61, 0x74, 0x05, 0x72,
     0x6f, 0x6f, 0x6d, 0x31, 0x05, 0x61, 0x6c, 0x69, 0x63, 0x65, 0x04, 0x10,
@@ -242,6 +248,12 @@ static const u8 g_moqt_ctl_subscribe_params[] = {
 #define G_MOQT_CTL_SUBSCRIBE_PARAMS_LEN 35
 #define G_MOQT_CTL_SUBSCRIBE_PARAMS_TYPE 0x3ULL
 #define G_MOQT_CTL_SUBSCRIBE_PARAMS_MSG_LEN 32
+static const u8 g_moqt_ctl_subscribe_params_d22[] = {
+    0x03, 0x00, 0x1f, 0x00, 0x02, 0x04, 0x63, 0x68, 0x61, 0x74, 0x05, 0x72,
+    0x6f, 0x6f, 0x6d, 0x31, 0x05, 0x61, 0x6c, 0x69, 0x63, 0x65, 0x04, 0x10,
+    0x01, 0x10, 0x40, 0x01, 0x03, 0x05, 0x00, 0x03, 0x01, 0x02};
+#define G_MOQT_CTL_SUBSCRIBE_PARAMS_D22_LEN 34
+#define G_MOQT_CTL_SUBSCRIBE_PARAMS_D22_MSG_LEN 31
 static const u8 g_moqt_ctl_subscribe_ok_params[] = {
     0x04, 0x00, 0x07, 0x01, 0x02, 0x08, 0x64, 0x01, 0x07, 0x03};
 #define G_MOQT_CTL_SUBSCRIBE_OK_PARAMS_LEN 10
@@ -258,6 +270,11 @@ static const u8 g_moqt_ctl_fetch_standalone[] = {0x16, 0x00, 0x0c, 0x00, 0x01,
 #define G_MOQT_CTL_FETCH_STANDALONE_LEN 15
 #define G_MOQT_CTL_FETCH_STANDALONE_TYPE 0x16ULL
 #define G_MOQT_CTL_FETCH_STANDALONE_MSG_LEN 12
+static const u8 g_moqt_ctl_fetch_standalone_d22[] = {
+    0x16, 0x00, 0x0c, 0x00, 0x01, 0x01, 0x61, 0x01,
+    0x62, 0x01, 0x21, 0x03, 0x00, 0x00, 0x01};
+#define G_MOQT_CTL_FETCH_STANDALONE_D22_LEN 15
+#define G_MOQT_CTL_FETCH_STANDALONE_D22_MSG_LEN 12
 static const u8 g_moqt_ctl_fetch_relative_joining[] = {0x16, 0x00, 0x05, 0x02,
                                                        0x02, 0x00, 0x01, 0x00};
 #define G_MOQT_CTL_FETCH_RELATIVE_JOINING_LEN 8

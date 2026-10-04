@@ -7,7 +7,9 @@ def cname(s): return ''.join(c if c.isalnum() else '_' for c in s)
 out = []
 out.append("/* Generated from examples/moqt_chat/testvectors/moqt_golden.json.")
 out.append(" * Do not edit by hand: edit the JSON, then regenerate")
-out.append(" * (python3 scripts/gen_moqt_golden.py). Draft: %s. */" % d['meta']['draft'])
+out.append(" * (python3 scripts/gen_moqt_golden.py). Baseline draft: %s;"
+           " entries with a 'versions' key also emit _D18/_D22 variants. */"
+           % d['meta']['draft'])
 out.append("#ifndef MOQT_GOLDEN_H")
 out.append("#define MOQT_GOLDEN_H")
 compact = []
@@ -50,6 +52,13 @@ for group in ['varint', 'kvp', 'ctl', 'data', 'name']:
             up = cname(v['name']).upper()
             out.append("#define G_MOQT_CTL_%s_TYPE 0x%xULL" % (up, int(v['type'], 0) if isinstance(v['type'], str) else v['type']))
             out.append("#define G_MOQT_CTL_%s_MSG_LEN %d" % (up, v['msg_len']))
+            # Per-draft wire variants (versions: {"18": {...}, "22": {...}}):
+            # bytes that differ by draft get their own array + LEN/MSG_LEN,
+            # suffixed _Dnn. Drafts with no entry share the array above.
+            for ver, vv in sorted(v.get('versions', {}).items()):
+                vn = "%s_d%s" % (n, ver)
+                emit_bytes(vn, vv['hex'])
+                out.append("#define G_MOQT_CTL_%s_D%s_MSG_LEN %d" % (up, ver, vv['msg_len']))
 out.append("")
 out.append("#endif /* MOQT_GOLDEN_H */")
 outpath = sys.argv[1] if len(sys.argv) > 1 else 'tests/app/moqt_golden.h'
