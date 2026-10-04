@@ -769,6 +769,10 @@ static void moqtrun_track_return_rings(
     moqtrun_relay_return_ring(hub, &t->relays[r]);
 }
 
+/* SUBSCRIBE_TRACKS's own section: resets every hub-opened PUBLISH stream
+ * for the track incarnation tag (T-07/T-08), defined there. */
+static void moqtrun_subtracks_track_gone(wired_moqt_hub* hub, u64 tag);
+
 /* Frees a superseded track: its subscribers' still-open relay streams are
  * reset (moqtrun_track_reset_stale_relays' own doc), its rings go back to
  * the pool (holds released), and the slot stops matching any name or Track
@@ -779,6 +783,7 @@ static void moqtrun_track_retire(wired_moqt_hub* hub, wired_moqtrun_track* t) {
   moqtrun_track_cache_drop(hub, t);
   moqtrun_track_return_rings(hub, t);
   moqtrun_track_clear_relays(t);
+  moqtrun_subtracks_track_gone(hub, t->cache_tag);
   t->in_use = 0;
 }
 
@@ -2978,12 +2983,16 @@ static int moqtrun_disc_is(const wired_moqtrun_req* q, u64 kind) {
   return q->in_use && q->live && q->kind == kind;
 }
 
-/* The fields of an encoded namespace, past its count. */
-static wired_span moqtrun_disc_fields(const wired_moqtrun_req* q, u64* count) {
-  usz        at  = 0;
-  wired_span enc = wired_span_of(q->ns, q->ns_len);
+/* The fields of an encoded namespace (count + Length-prefixed fields),
+ * past its count. */
+static wired_span moqtrun_disc_fields_of(wired_span enc, u64* count) {
+  usz at = 0;
   moqvi_take(enc, &at, count);
-  return wired_span_of(q->ns + at, q->ns_len - at);
+  return wired_span_of(enc.p + at, enc.n - at);
+}
+
+static wired_span moqtrun_disc_fields(const wired_moqtrun_req* q, u64* count) {
+  return moqtrun_disc_fields_of(wired_span_of(q->ns, q->ns_len), count);
 }
 
 /* Fields are Length-prefixed, so a byte prefix of the encoded fields is a
@@ -3382,6 +3391,337 @@ static void moqtrun_handle_not_supported(wired_moqtrun_peer* p) {
   moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
 }
 
+/* ===== SUBSCRIBE_TRACKS / PUBLISH / PUBLISH_SKIPPED (10.19-10.20) =====
+ *
+ * The subscriber side of 9.3's "subscribing to namespaces": a
+ * SUBSCRIBE_TRACKS request stream carries a Track Namespace Prefix like
+ * SUBSCRIBE_NAMESPACE's (moqtrun_disc_* above), but matching tracks get a
+ * hub-opened PUBLISH bidi stream addressed to the SUBSCRIBE_TRACKS's own
+ * session (or a PUBLISH_SKIPPED on the SUBSCRIBE_TRACKS's own stream)
+ * instead of a NAMESPACE push -- 1751/1768. PREFIX_OVERLAP is checked the
+ * same way, scoped to kind MOQCTL_T_SUBSCRIBE_TRACKS alone
+ * (moqtrun_disc_is), which is 3899's "independent overlap spaces" for
+ * free. */
+
+static u64 moqtrun_subtracks_check(
+    const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
+  int clash =
+      moqtrun_disc_any(hub, q, MOQCTL_T_SUBSCRIBE_TRACKS, moqtrun_disc_overlap);
+  return clash ? MOQCTL_ERR_PREFIX_OVERLAP : MOQTRUN_REQ_ACCEPT;
+}
+
+/* 10.19.1: FORWARD 0 is recorded to reflect as FORWARD 0 on every
+ * generated PUBLISH; 1 or omitted stays omitted (T-12, the draft's "or
+ * indicate that value by omitting the parameter"). GROUP_ORDER is
+ * recorded as given, 0 (absent) staying omitted too. */
+static void moqtrun_subtracks_note_params(
+    wired_moqtrun_req* q, const moqctl_params* params) {
+  const moqctl_param* f = moqctl_params_find(params, MOQCTL_PARAM_FORWARD);
+  const moqctl_param* g = moqctl_params_find(params, MOQCTL_PARAM_GROUP_ORDER);
+  q->forward_zero       = (u8)(f && f->u8v == 0);
+  q->group_order        = g ? (u8)g->u8v : 0;
+}
+
+/* Body of moqtrun_dispatch_subscribe_tracks once p->req and the decode are
+ * known good, split out to keep the caller's own branch count at the gate. */
+static void moqtrun_subtracks_admit(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqns_req* m) {
+  u64 code = moqtrun_disc_verdict(hub, p->req, m, moqtrun_subtracks_check);
+  if (code == MOQTRUN_REQ_ACCEPT)
+    moqtrun_subtracks_note_params(p->req, &m->params);
+  moqtrun_disc_answer(p, code);
+}
+
+static void moqtrun_dispatch_subscribe_tracks(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  moqns_req m;
+  (void)peer_idx;
+  if (!p->req) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
+    return;
+  }
+  if (moqns_subscribe_tracks_take(p->ver, body, &m) != MOQCTL_OK) return;
+  moqtrun_subtracks_admit(hub, p, &m);
+}
+
+/* Flat hub-wide track slot index (wired_moqtrun_req.attempted_tag's own
+ * doc): stable across a track's whole life in one peer slot, used only to
+ * index that fixed-size array, never stored as a pointer/index into the
+ * track itself. */
+static usz moqtrun_subtracks_slot(usz peer_idx, usz track_idx) {
+  return peer_idx * WIRED_MOQTRUN_MAX_TRACKS_PER_PEER + track_idx;
+}
+
+/* 1 iff st (a live SUBSCRIBE_TRACKS) already tried a PUBLISH or
+ * PUBLISH_SKIPPED for this track's CURRENT incarnation (design's cache_tag
+ * generation guard: a slot reused by a newer PUBLISH is untried again). */
+static int moqtrun_subtracks_tried(
+    const wired_moqtrun_req* st, const wired_moqtrun_track* t, usz slot) {
+  return st->attempted_tag[slot] == t->cache_tag;
+}
+
+static void moqtrun_subtracks_mark_tried(
+    wired_moqtrun_req* st, const wired_moqtrun_track* t, usz slot) {
+  st->attempted_tag[slot] = t->cache_tag;
+}
+
+/* 10.19: matches the Track Namespace Prefix (moqtrun_disc_starts, the same
+ * byte-prefix-of-fields test SUBSCRIBE_NAMESPACE uses) and excludes tracks
+ * published BY the subscriber itself (1753: "excluding tracks published by
+ * the subscriber"). */
+static int moqtrun_subtracks_matches(
+    const wired_moqtrun_req*   st,
+    const wired_moqtrun_track* t,
+    usz                        pub_idx,
+    usz                        st_peer_idx) {
+  u64        n_pre, n_all;
+  wired_span pre, all;
+  if (pub_idx == st_peer_idx) return 0;
+  pre = moqtrun_disc_fields(st, &n_pre);
+  all = moqtrun_disc_fields_of(wired_span_of(t->ns, t->ns_len), &n_all);
+  return moqtrun_disc_starts(pre, all);
+}
+
+static int moqtrun_subtracks_candidate(
+    const wired_moqtrun_req*   st,
+    const wired_moqtrun_track* t,
+    usz                        pub_idx,
+    usz                        st_peer_idx,
+    usz                        slot) {
+  if (!t->in_use || moqtrun_subtracks_tried(st, t, slot)) return 0;
+  return moqtrun_subtracks_matches(st, t, pub_idx, st_peer_idx);
+}
+
+/* T-12: the Parameters this SUBSCRIBE_TRACKS recorded (moqtrun_subtracks_
+ * note_params), reflected into one generated PUBLISH. */
+static moqctl_params moqtrun_subtracks_publish_params(
+    const wired_moqtrun_req* st) {
+  moqctl_params out = {0};
+  if (st->forward_zero) {
+    out.items[out.n].type = MOQCTL_PARAM_FORWARD;
+    out.items[out.n].enc  = MOQCTL_PENC_UINT8;
+    out.items[out.n].u8v  = 0;
+    out.n++;
+  }
+  if (st->group_order) {
+    out.items[out.n].type = MOQCTL_PARAM_GROUP_ORDER;
+    out.items[out.n].enc  = MOQCTL_PENC_UINT8;
+    out.items[out.n].u8v  = st->group_order;
+    out.n++;
+  }
+  return out;
+}
+
+/* Request-stream slot pool, defined in its own section below. */
+static wired_moqtrun_req* moqtrun_req_free_slot(wired_moqt_hub* hub);
+static wired_moqtrun_req* moqtrun_req_open(
+    wired_moqtrun_req* q, wired_wt_session* s, u64 stream_id);
+
+/* Claims a free hub-wide request slot for a hub-opened PUBLISH, addressed
+ * to st_peer's session (the SUBSCRIBE_TRACKS's own receiver per 10.9/1751)
+ * and owned by st's request_id (moqtrun.h's pub_origin_rid doc). Never the
+ * per-session WIRED_MOQTRUN_MAX_REQS_PER_SESSION cap, which bounds
+ * CLIENT-opened request streams only. */
+static wired_moqtrun_req* moqtrun_subtracks_claim_slot(
+    wired_moqt_hub* hub, wired_moqtrun_peer* st_peer, u64 st_rid) {
+  wired_moqtrun_req* q = moqtrun_req_free_slot(hub);
+  if (!q) return 0;
+  moqtrun_req_open(q, st_peer->wt, 0);
+  q->pub_origin_rid = st_rid;
+  q->request_id     = st_peer->request_id_next;
+  st_peer->request_id_next += 2;
+  return q;
+}
+
+static int moqtrun_subtracks_encode_pub(
+    wired_mspan buf, usz* off, const void* m) {
+  return moqctl_publish_encode(buf, off, m);
+}
+
+/* Opens a fresh PUBLISH bidi stream on st_peer's session for t, naming q's
+ * request_id and t->own_alias (10.9); 1 sent, 0 when the transport has no
+ * bidi stream (or equivalent resource) to open -- the caller falls back
+ * to PUBLISH_SKIPPED (1767-1771: "no available bidirectional streams or
+ * any other reason"). */
+static int moqtrun_subtracks_open_pub(
+    wired_moqt_hub*            hub,
+    wired_moqtrun_peer*        st_peer,
+    wired_moqtrun_req*         q,
+    const wired_moqtrun_track* t,
+    const wired_moqtrun_req*   st) {
+  u8
+                 msg[WIRED_MOQTRUN_CTL_HDR_MAX + WIRED_MOQTRUN_MAX_NS +
+                     WIRED_MOQTRUN_MAX_NAME + 32];
+  moqctl_publish m   = {0};
+  usz            off = 0;
+  i64            sid;
+  usz            n;
+  m.request_id  = q->request_id;
+  m.track_alias = t->own_alias;
+  m.params      = moqtrun_subtracks_publish_params(st);
+  moqctl_ns_take(wired_span_of(t->ns, t->ns_len), &off, &m.name.ns);
+  m.name.name = wired_span_of(t->name, t->name_len);
+  n           = moqtrun_envelope_put(
+      wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH,
+      moqtrun_subtracks_encode_pub, &m);
+  sid = hub->io.open_bidi_stream(st_peer->wt, wired_span_of(msg, n));
+  if (sid < 0) return 0;
+  q->stream_id     = (u64)sid;
+  q->opened        = 1;
+  q->kind          = MOQCTL_T_PUBLISH;
+  q->pub_track_tag = t->cache_tag;
+  return 1;
+}
+
+/* 10.20: Track Namespace Suffix (past st's own Prefix, like
+ * moqtrun_disc_push's NAMESPACE) then Track Name, queued on st's own
+ * stream -- no new stream, per the draft's own wording ("sends ... on the
+ * SUBSCRIBE_TRACKS response stream"). */
+static int moqtrun_subtracks_encode_skip(
+    wired_mspan buf, usz* off, const void* m) {
+  return moqns_pub_skipped_encode(buf, off, m);
+}
+
+/* t's namespace fields past st's own Prefix (10.20's "Track Namespace
+ * Suffix"), decoded straight into a moqctl_ns by re-counting the
+ * remainder -- the suffix byte layout (Length-prefixed fields, no count
+ * of its own here) is identical to a bare Track Namespace's own fields,
+ * so moqctl_ns_take's Length-prefixed-field reader applies unchanged once
+ * fed just the suffix's field count. */
+static void moqtrun_subtracks_ns_suffix(
+    const wired_moqtrun_req* st, const wired_moqtrun_track* t, moqctl_ns* out) {
+  u8         buf[WIRED_MOQTRUN_MAX_NS + 9];
+  u64        pre_n, all_n;
+  usz        put = 0, take = 0;
+  wired_span pre = moqtrun_disc_fields(st, &pre_n);
+  wired_span all =
+      moqtrun_disc_fields_of(wired_span_of(t->ns, t->ns_len), &all_n);
+  wired_span suf = wired_span_of(all.p + pre.n, all.n - pre.n);
+  moqvi_put(wired_mspan_of(buf, sizeof buf), &put, all_n - pre_n);
+  bytes_memcpy(buf + put, suf.p, suf.n);
+  moqctl_ns_take(wired_span_of(buf, put + suf.n), &take, out);
+}
+
+static void moqtrun_subtracks_send_skipped(
+    wired_moqtrun_req* st, const wired_moqtrun_track* t) {
+  moqns_pub_skipped m;
+  u8
+      msg[WIRED_MOQTRUN_CTL_HDR_MAX + WIRED_MOQTRUN_MAX_NS +
+          WIRED_MOQTRUN_MAX_NAME];
+  usz n;
+  moqtrun_subtracks_ns_suffix(st, t, &m.ns);
+  m.name = wired_span_of(t->name, t->name_len);
+  n      = moqtrun_envelope_put(
+      wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH_SKIPPED,
+      moqtrun_subtracks_encode_skip, &m);
+  moqtrun_req_queue(st, wired_span_of(msg, n));
+}
+
+/* 1 iff q is non-0 and names a successfully opened PUBLISH. */
+static int moqtrun_subtracks_opened(
+    wired_moqt_hub*            hub,
+    wired_moqtrun_peer*        st_peer,
+    wired_moqtrun_req*         q,
+    const wired_moqtrun_track* t,
+    const wired_moqtrun_req*   st) {
+  if (!q) return 0;
+  return moqtrun_subtracks_open_pub(hub, st_peer, q, t, st);
+}
+
+/* 1 iff q names a successfully opened PUBLISH; releases a claimed-but-
+ * unopened slot before reporting failure, so the caller's only remaining
+ * branch is "sent or not". */
+static int moqtrun_subtracks_try_open(
+    wired_moqt_hub*            hub,
+    wired_moqtrun_peer*        st_peer,
+    wired_moqtrun_req*         q,
+    const wired_moqtrun_track* t,
+    const wired_moqtrun_req*   st) {
+  if (moqtrun_subtracks_opened(hub, st_peer, q, t, st)) return 1;
+  if (q) q->in_use = 0;
+  return 0;
+}
+
+/* One candidate (st, t) pair: PUBLISH if a bidi stream opens, else
+ * PUBLISH_SKIPPED (the resource-exhaustion choice settled in design.md
+ * section 5) -- and mark the attempt either way (exactly once). */
+static void moqtrun_subtracks_attempt(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  st_peer,
+    wired_moqtrun_req*   st,
+    wired_moqtrun_track* t,
+    usz                  slot) {
+  wired_moqtrun_req* q =
+      moqtrun_subtracks_claim_slot(hub, st_peer, st->request_id);
+  if (!moqtrun_subtracks_try_open(hub, st_peer, q, t, st))
+    moqtrun_subtracks_send_skipped(st, t);
+  moqtrun_subtracks_mark_tried(st, t, slot);
+}
+
+/* One (SUBSCRIBE_TRACKS, track) pair at hub->reqs[i]: attempts it when it
+ * is both a live SUBSCRIBE_TRACKS and a fresh candidate, else a no-op --
+ * split out so the scanning loop above carries no branches of its own. */
+static void moqtrun_subtracks_sync_one(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_req*   st,
+    wired_moqtrun_track* t,
+    usz                  pub_idx,
+    usz                  slot) {
+  wired_moqtrun_peer* sp;
+  usz                 st_idx;
+  if (!moqtrun_disc_is(st, MOQCTL_T_SUBSCRIBE_TRACKS)) return;
+  sp     = moqtrun_find_by_wt(hub, st->wt);
+  st_idx = (usz)(sp - hub->peers);
+  if (moqtrun_subtracks_candidate(st, t, pub_idx, st_idx, slot))
+    moqtrun_subtracks_attempt(hub, sp, st, t, slot);
+}
+
+/* Every live SUBSCRIBE_TRACKS against every in-use track of peer pub_idx:
+ * a hub-wide O(sessions*tracks*reqs) scan, the same shape as
+ * moqtrun_disc_sync's (ponytail: fine at this hub's fixed small
+ * capacities). */
+static void moqtrun_subtracks_sync_track(
+    wired_moqt_hub* hub, usz pub_idx, usz track_idx) {
+  wired_moqtrun_track* t    = &hub->peers[pub_idx].tracks[track_idx];
+  usz                  slot = moqtrun_subtracks_slot(pub_idx, track_idx);
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+    moqtrun_subtracks_sync_one(hub, &hub->reqs[i], t, pub_idx, slot);
+}
+
+static void moqtrun_subtracks_sync_peer(wired_moqt_hub* hub, usz pub_idx) {
+  for (usz ti = 0; ti < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; ti++)
+    moqtrun_subtracks_sync_track(hub, pub_idx, ti);
+}
+
+static void moqtrun_subtracks_sync(wired_moqt_hub* hub) {
+  for (usz pi = 0; pi < WIRED_MOQTRUN_MAX_SESSIONS; pi++)
+    if (hub->peers[pi].in_use) moqtrun_subtracks_sync_peer(hub, pi);
+}
+
+/* A track's retirement (unpublish / slot reuse, T-07/T-08): every PUBLISH
+ * stream this hub opened for it is reset, dangling-free, the same
+ * fill-design pattern moqtrun_fills_upstream_gone uses for fetch fills.
+ * Already-answered (q->live, REQUEST_OK) slots are reset too -- the
+ * SUBSCRIBE_TRACKS-established subscription cannot outlive the track that
+ * no longer exists, unlike a SUBSCRIBE_TRACKS cancel (T-10), which leaves
+ * them alone. */
+static int moqtrun_subtracks_pub_of_tag(const wired_moqtrun_req* q, u64 tag) {
+  return q->in_use && q->pub_origin_rid && q->pub_track_tag == tag;
+}
+
+static void moqtrun_subtracks_pub_reset(
+    wired_moqt_hub* hub, wired_moqtrun_req* q) {
+  if (q->opened)
+    hub->io.stream_reset(q->wt, q->stream_id, MOQTRUN_RESET_INTERNAL_ERROR);
+  q->in_use = 0;
+}
+
+static void moqtrun_subtracks_track_gone(wired_moqt_hub* hub, u64 tag) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+    if (moqtrun_subtracks_pub_of_tag(&hub->reqs[i], tag))
+      moqtrun_subtracks_pub_reset(hub, &hub->reqs[i]);
+}
+
 typedef void (*moqtrun_ctl_fn)(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
 
@@ -3550,11 +3890,12 @@ static void moqtrun_dispatch_skip(
 }
 
 /* First-type table (draft table in ctl.h's peek_type doc): only PUBLISH,
- * SUBSCRIBE, FETCH, TRACK_STATUS, PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE
- * (and REQUEST_UPDATE of a SUBSCRIBE) are implemented; every other First type
- * this hub can see on a fresh request stream gets NOT_SUPPORTED. GOAWAY is not
- * a First type but may legally appear mid-stream, so it is routed the same
- * table for request-stream dispatch below. */
+ * SUBSCRIBE, FETCH, TRACK_STATUS, PUBLISH_NAMESPACE, SUBSCRIBE_NAMESPACE and
+ * SUBSCRIBE_TRACKS (and REQUEST_UPDATE of a SUBSCRIBE) are implemented;
+ * every other First type this hub can see on a fresh request stream gets
+ * NOT_SUPPORTED. GOAWAY is not a First type but may legally appear
+ * mid-stream, so it is routed the same table for request-stream dispatch
+ * below. */
 static const struct {
   u64            type;
   moqtrun_ctl_fn fn;
@@ -3565,6 +3906,7 @@ static const struct {
     {MOQFETCH_T_FETCH, moqtrun_dispatch_fetch},
     {MOQNS_T_PUBLISH_NAMESPACE, moqtrun_dispatch_publish_ns},
     {MOQNS_T_SUBSCRIBE_NAMESPACE, moqtrun_dispatch_subscribe_ns},
+    {MOQCTL_T_SUBSCRIBE_TRACKS, moqtrun_dispatch_subscribe_tracks},
     {MOQTSTAT_T_TRACK_STATUS, moqtrun_handle_tstat},
     {MOQTSTAT_T_REQUEST_UPDATE, moqtrun_handle_update},
     {MOQCTL_T_GOAWAY, moqtrun_dispatch_goaway},
@@ -5675,6 +6017,11 @@ static wired_moqtrun_req* moqtrun_req_open(
   q->ns_len          = 0;
   q->ns_seen         = 0;
   q->pending_updates = 0;
+  bytes_memset(q->attempted_tag, 0, sizeof q->attempted_tag);
+  q->pub_origin_rid = 0;
+  q->pub_track_tag  = 0;
+  q->forward_zero   = 0;
+  q->group_order    = 0;
   return q;
 }
 
@@ -5760,11 +6107,23 @@ static void moqtrun_req_settle(wired_moqt_io* io, wired_moqtrun_req* q) {
   q->in_use = !moqtrun_req_both_ended(q);
 }
 
-/* Pushes owed namespace changes, then settles every request stream. */
+/* A hub-opened PUBLISH request slot (SUBSCRIBE_TRACKS's own doc) settles
+ * by its own rule (moqtrun_pubst_recv's doc): REQUEST_OK/REQUEST_ERROR,
+ * never moqtrun_req_settle's client-request completion/FIN logic, whose
+ * "answered without establishing" reading of kind+!live would otherwise
+ * misfire while this slot is simply awaiting its one reply. */
+static int moqtrun_reqs_tick_settles(const wired_moqtrun_req* q) {
+  return q->in_use && !q->pub_origin_rid;
+}
+
+/* Pushes owed namespace changes, syncs SUBSCRIBE_TRACKS against every
+ * published track, then settles every client-request stream. */
 static void moqtrun_reqs_tick(wired_moqt_hub* hub) {
   moqtrun_disc_sync(hub);
+  moqtrun_subtracks_sync(hub);
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
-    if (hub->reqs[i].in_use) moqtrun_req_settle(&hub->io, &hub->reqs[i]);
+    if (moqtrun_reqs_tick_settles(&hub->reqs[i]))
+      moqtrun_req_settle(&hub->io, &hub->reqs[i]);
 }
 
 /* 1 iff q's first message is still incomplete but its Type is already
@@ -5852,9 +6211,63 @@ static void moqtrun_dispatch_bidi_fresh(
   moqtrun_dispatch_req_stream(hub, p, stream_id, data, fin);
 }
 
+/* draft 10.9: REQUEST_OK (empty params for a PUBLISH_OK) or REQUEST_ERROR,
+ * the first and only message the SUBSCRIBE_TRACKS-generated PUBLISH's
+ * receiver sends back. Reassembled through q->in exactly like a client
+ * request's reply (moqtrun_asm_push/pop) since a real transport may
+ * deliver it split; anything else is ignored. REQUEST_OK marks the slot
+ * live (the subscription this PUBLISH established -- stays open, continuing
+ * past a later SUBSCRIBE_TRACKS cancel per 1784-1787/T-10); REQUEST_ERROR
+ * frees it at once (nothing to continue). */
+/* 1 iff type/body is a well-formed REQUEST_ERROR. */
+static int moqtrun_pubst_is_error(u64 type, wired_span body) {
+  usz                  off = 0;
+  moqctl_request_error e;
+  if (type != MOQCTL_T_REQUEST_ERROR) return 0;
+  return moqctl_request_error_take(body, &off, &e) == MOQCTL_OK;
+}
+
+static void moqtrun_pubst_route(
+    wired_moqtrun_req* q, u64 type, wired_span body) {
+  if (type == MOQCTL_T_REQUEST_OK) q->live = 1;
+  if (moqtrun_pubst_is_error(type, body)) q->in_use = 0;
+}
+
+static void moqtrun_pubst_recv(wired_moqtrun_req* q, wired_span data) {
+  u64        type = 0;
+  wired_span body = {0, 0};
+  moqtrun_asm_push(&q->in, &data);
+  if (moqtrun_asm_pop(&q->in, &type, &body) == MOQCTL_OK)
+    moqtrun_pubst_route(q, type, body);
+}
+
+/* A hub-opened PUBLISH request slot (SUBSCRIBE_TRACKS's own doc): routed
+ * here instead of moqtrun_req_stream_ok's client-bidi parity test, which
+ * would otherwise misclassify it (a hub-opened stream_id has no fixed
+ * parity in this layer's own test stubs). */
+static wired_moqtrun_req* moqtrun_pubst_slot(
+    wired_moqt_hub* hub, wired_wt_session* s, u64 stream_id) {
+  wired_moqtrun_req* q = moqtrun_req_find(hub, s, stream_id);
+  return q && q->pub_origin_rid ? q : 0;
+}
+
+/* 1 iff stream_id is a hub-opened PUBLISH slot (handled, pq's own doc). */
+static int moqtrun_dispatch_pubst(
+    wired_moqt_hub*   hub,
+    wired_wt_session* s,
+    u64               stream_id,
+    wired_span        data,
+    int               fin) {
+  wired_moqtrun_req* pq = moqtrun_pubst_slot(hub, s, stream_id);
+  if (!pq) return 0;
+  moqtrun_pubst_recv(pq, data);
+  pq->fin_in |= fin;
+  return 1;
+}
+
 /* With request streams on, a peer-opened bidi stream is never Object data
  * (draft 3.3: Objects travel on unidirectional streams only). */
-static void moqtrun_dispatch_other(
+static void moqtrun_dispatch_client_bidi(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
     u64                 stream_id,
@@ -5869,6 +6282,19 @@ static void moqtrun_dispatch_other(
     return;
   }
   moqtrun_dispatch_bidi_fresh(hub, p, stream_id, data, fin);
+}
+
+/* A hub-opened PUBLISH slot's stream_id is routed to its own reply parser
+ * (moqtrun_dispatch_pubst) before the client-bidi classification below,
+ * which would otherwise misread it (moqtrun_pubst_slot's own doc). */
+static void moqtrun_dispatch_other(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin) {
+  if (moqtrun_dispatch_pubst(hub, p->wt, stream_id, data, fin)) return;
+  moqtrun_dispatch_client_bidi(hub, p, stream_id, data, fin);
 }
 
 /* ===================== public entry points ===================== */

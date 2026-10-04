@@ -1080,6 +1080,7 @@
 #include "app/moqtrun_sub_test.c"
 #include "app/moqtrun_fetch_test.c"
 #include "app/moqtrun_ns_test.c"
+#include "app/moqtrun_subtracks_test.c"
 #include "app/moqtrun_upd_test.c"
 #include "app/moqtrun_fill_test.c"
 #include "app/moqtrun_drain_test.c"
@@ -1638,6 +1639,7 @@ int main(void) {
   test_moqtrun_fetch();
   test_moqtrun_fill();
   test_moqtrun_ns();
+  test_moqtrun_subtracks();
   test_moqtrun_upd();
   test_moqtrun_drain();
   test_moqtrel();
