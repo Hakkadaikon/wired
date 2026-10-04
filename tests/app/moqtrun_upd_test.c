@@ -502,7 +502,49 @@ static void test_moqtrun_sub_duplicate_reanswered_d19_d22(void) {
   }
 }
 
+/* ========== PUBLISH_STATE_NOTIFY receive (draft-22 9.10) ========== */
+
+/* On the PUBLISH's own request stream it is a unilateral notice from the
+ * publisher: no REQUEST_OK/ERROR back, no close, the stream stays. */
+static void test_moqtrun_notify_on_publish_stream_d22(void) {
+  static const u8 body[] = {0x02, 0x00}; /* Request ID 2, no parameters */
+  moqctl_ftn      f      = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  mtst_join(SESS_A);
+  moqtrun_find_by_wt(&mtst_hub, SESS_A)->ver = MOQVER_D22;
+  mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_OK);
+  moqtrun_test_reset();
+  mtrq_raw(SESS_A, MTRQ_S1, MOQCTL_T_PUBLISH_STATE_NOTIFY, body, sizeof body);
+  CHECK(g_n_calls == 0); /* no reply, no close, no reset */
+  CHECK(mtrq_used() == 1);
+}
+
+/* From the subscriber side (a SUBSCRIBE stream), on the control stream,
+ * or opening a fresh request stream, the session closes with
+ * PROTOCOL_VIOLATION (draft-22 9.10: sent only by the publisher on a
+ * subscription's stream). */
+static void test_moqtrun_notify_elsewhere_closes_d22(void) {
+  static const u8 body[]                     = {0x02, 0x00};
+  moqctl_ftn      f                          = mtrq_setup();
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_PUBLISH_STATE_NOTIFY, body, sizeof body);
+  CHECK(mtrq_closes() == 1);
+  mtrq_setup();
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  u64 cb = moqtrun_find_by_wt(&mtst_hub, SESS_B)->control_stream_id;
+  mtrq_raw(SESS_B, cb, MOQCTL_T_PUBLISH_STATE_NOTIFY, body, sizeof body);
+  CHECK(mtrq_closes() == 1);
+  mtrq_setup();
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_PUBLISH_STATE_NOTIFY, body, sizeof body);
+  CHECK(mtrq_closes() == 1);
+}
+
 void test_moqtrun_upd(void) {
+  test_moqtrun_notify_on_publish_stream_d22();
+  test_moqtrun_notify_elsewhere_closes_d22();
   test_moqtrun_sub_duplicate_refused_d18();
   test_moqtrun_sub_duplicate_reanswered_d19_d22();
   test_moqtrun_tstat_ok_largest();
