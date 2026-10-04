@@ -447,6 +447,12 @@ typedef struct {
   /** 1 once the hub's side ended (FIN, or a reset). The slot is freed when
    * both sides have ended. */
   int fin_out;
+  /** 1 while this subscription's PUBLISH_DONE waits for a held fill (no
+   * stream may open after it); done_status / done_count are the message
+   * to send once the fill's stream is granted. */
+  int done_pending;
+  u64 done_status;
+  u64 done_count;
   /** PUBLISH_NAMESPACE: the Track Namespace; SUBSCRIBE_NAMESPACE: the
    * Track Namespace Prefix (draft-ietf-moq-transport-19 10.15/10.18),
    * encoded as on the wire (count + Length-prefixed fields). */

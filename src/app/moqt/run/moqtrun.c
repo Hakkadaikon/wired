@@ -1480,6 +1480,9 @@ static i64 moqtrun_fetch_open_io(
                                : hub->io.open_uni_stream(f->wt, hdr);
 }
 
+static void moqtrun_fill_opened(
+    wired_moqt_hub* hub, const wired_moqtrun_fetch* f);
+
 /* 1 once f's stream is open; a refused open retries on the next tick. */
 static int moqtrun_fetch_open(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   u8  hdr[16]; /* Type 0x5 + a Request ID varint */
@@ -1492,6 +1495,7 @@ static int moqtrun_fetch_open(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   f->opened     = 1;
   f->last_ok_ms = hub->live.last_now_ms;
   f->in_use     = !moqtrun_fetch_done(f);
+  moqtrun_fill_opened(hub, f);
   return 1;
 }
 
@@ -1625,6 +1629,26 @@ static int moqtrun_fetch_blocked(const wired_moqtrun_fetch* f) {
   return f->is_fill && !f->opened;
 }
 
+static int moqtrun_fetch_owned(
+    const wired_moqtrun_fetch* f, const wired_wt_session* s) {
+  return f->in_use && f->wt == s;
+}
+
+/* 1 iff f is a held fill of subscription {s, rid}. */
+static int moqtrun_fill_held_of(
+    const wired_moqtrun_fetch* f, const wired_wt_session* s, u64 rid) {
+  return moqtrun_fetch_owned(f, s) && moqtrun_fetch_blocked(f) &&
+         f->owner_rid == rid;
+}
+
+/* 1 iff subscription {s, rid} still has a fill waiting for a stream. */
+static int moqtrun_fill_held_for(
+    const wired_moqt_hub* hub, const wired_wt_session* s, u64 rid) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+    if (moqtrun_fill_held_of(&hub->fetches[i], s, rid)) return 1;
+  return 0;
+}
+
 /* Refused for longer than WIRED_MOQTREL_STALL_MS: a peer that stopped
  * reading, so the slot is not held forever. */
 static int moqtrun_fetch_stalled(
@@ -1682,11 +1706,6 @@ static void moqtrun_fetches_tick(wired_moqt_hub* hub) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
     if (moqtrun_fetch_live(&hub->fetches[i]))
       moqtrun_fetch_tick_one(hub, &hub->fetches[i]);
-}
-
-static int moqtrun_fetch_owned(
-    const wired_moqtrun_fetch* f, const wired_wt_session* s) {
-  return f->in_use && f->wt == s;
 }
 
 /* 1 iff f answers request rid, or is a fill owned by subscription rid
@@ -5004,6 +5023,9 @@ static wired_moqtrun_req* moqtrun_req_open(
   q->live         = 0;
   q->fin_in       = 0;
   q->fin_out      = 0;
+  q->done_pending = 0;
+  q->done_status  = 0;
+  q->done_count   = 0;
   q->ns_len       = 0;
   q->ns_seen      = 0;
   return q;
@@ -5551,9 +5573,27 @@ static void moqtrun_sub_stop(
   s->active = 0;
 }
 
+/* Queues PUBLISH_DONE(status, count) as q's last message and FINs it
+ * (3.3.2). */
+static void moqtrun_done_emit(
+    wired_moqtrun_peer* p, wired_moqtrun_req* q, u64 status, u64 count) {
+  u8                  msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
+  moqctl_publish_done d = {0};
+  d.status_code         = moqctl_publish_done_for(p->ver, status);
+  d.stream_count        = count;
+  usz n                 = moqtrun_envelope_put(
+      wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH_DONE,
+      moqtrun_encode_publish_done, &d);
+  moqtrun_req_queue(q, wired_span_of(msg, n));
+  q->live = 0;
+}
+
 /* Ends subscription s of peer p, carried by request stream q: PUBLISH_DONE
  * status is q's last message, then the hub FINs it (3.3.2) once sent, and
- * a rejoining publisher does not revive it. */
+ * a rejoining publisher does not revive it. While a fill of s is still
+ * held unopened the message waits -- no stream may open after
+ * PUBLISH_DONE -- and goes out when that fill gets its stream
+ * (moqtrun_fill_opened); a cancel drops the held fill and the wait. */
 static void moqtrun_sub_done(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  p,
@@ -5561,17 +5601,46 @@ static void moqtrun_sub_done(
     wired_moqtrun_track* t,
     wired_moqtrun_sub*   s,
     u64                  status) {
-  u8                  msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
-  moqctl_publish_done d = {0};
-  d.status_code         = moqctl_publish_done_for(p->ver, status);
-  d.stream_count        = s->stream_count;
-  usz n                 = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH_DONE,
-      moqtrun_encode_publish_done, &d);
+  u64 count = s->stream_count;
+  u64 rid   = s->request_id;
   moqtrun_sub_stop(hub, t, s, moqtrun_done_reset_code(status));
-  moqtrun_req_queue(q, wired_span_of(msg, n));
-  q->live = 0;
-  moqtrun_sub_names_forget(p, s->request_id);
+  moqtrun_sub_names_forget(p, rid);
+  if (!moqtrun_fill_held_for(hub, p->wt, rid)) {
+    moqtrun_done_emit(p, q, status, count);
+    return;
+  }
+  q->done_pending = 1;
+  q->done_status  = status;
+  q->done_count   = count;
+}
+
+/* 1 iff q owes a deferred PUBLISH_DONE and f was its subscription's
+ * last fill still waiting for a stream. */
+static int moqtrun_done_due(
+    const wired_moqt_hub*      hub,
+    const wired_moqtrun_fetch* f,
+    const wired_moqtrun_req*   q) {
+  return q && q->done_pending &&
+         !moqtrun_fill_held_for(hub, f->wt, f->owner_rid);
+}
+
+/* The request stream carrying f's owning subscription, else 0. */
+static wired_moqtrun_req* moqtrun_fill_owner_req(
+    wired_moqt_hub* hub, const wired_moqtrun_fetch* f) {
+  wired_moqtrun_peer* p = moqtrun_find_by_wt(hub, f->wt);
+  return p ? moqtrun_sub_req(hub, p, f->owner_rid) : 0;
+}
+
+/* A fill's stream was granted: the PUBLISH_DONE deferred while it was
+ * held goes out once no held fill of its subscription remains. */
+static void moqtrun_fill_opened(
+    wired_moqt_hub* hub, const wired_moqtrun_fetch* f) {
+  if (!f->is_fill) return;
+  wired_moqtrun_req* q = moqtrun_fill_owner_req(hub, f);
+  if (!moqtrun_done_due(hub, f, q)) return;
+  moqtrun_done_emit(
+      moqtrun_find_by_wt(hub, f->wt), q, q->done_status, q->done_count);
+  q->done_pending = 0;
 }
 
 /* PUBLISH_DONE status to sub slot si of t, when it is held on a request
