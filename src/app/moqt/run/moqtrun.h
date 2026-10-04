@@ -502,6 +502,11 @@ typedef struct {
    * own FIN, so no pointer or index into a reusable subscription slot is
    * ever held. */
   u64 owner_rid;
+  /** 1 when Group Order is Descending (11.4.4.1): [cursor, end) is then
+   * one group's window, stepped down a group at a time until lo's. */
+  int descending;
+  /** Descending only: the first Location of the whole range. */
+  moqctl_loc lo;
   /** Clock (wired_moqt_tick) of the last accepted round: a fetch refused
    * for longer than WIRED_MOQTREL_STALL_MS is given up. */
   u64 last_ok_ms;
