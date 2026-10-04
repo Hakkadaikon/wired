@@ -24,7 +24,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 188/199 tested, 10 indirect, 1 untested.**
+**Coverage: 189/199 tested, 9 indirect, 1 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -181,13 +181,17 @@ Legend:
 
 ## SS3.3 Session Initialization
 
-- [~] MOQT-029 The server shall open one unidirectional control stream and send
+- [x] MOQT-029 The server shall open one unidirectional control stream and send
   SETUP as its first message.
-  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_on_session_sends_setup`
-  - evidence: SETUP is the first message, but the hub opens the earlier
-    drafts' single bidirectional control stream, which the browser client
-    uses; the draft-19 unidirectional control-stream pair is not
-    implemented (see Not implemented).
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_token_session_opens_uni_ctl`
+  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_client_uni_ctl_accepted`
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_refused_uni_ctl_open_retries`
+  - note: a session whose WT token is empty (browser clients cannot
+    negotiate a subprotocol) keeps the earlier drafts' single
+    bidirectional control stream
+    (`test_moqtrun_empty_token_keeps_bidi_ctl`).
 - [x] MOQT-030 Once both endpoints have sent and received SETUP, the session
   shall be Established.
   - test: `tests/app/moqsess_test.c` — `test_moqsess_establish`
@@ -1249,10 +1253,6 @@ Legend:
 In scope for a draft-19 relay, but not implemented yet. A peer that needs
 one of these gets NOT_SUPPORTED (or, where noted, a different behavior):
 
-- (SS3.3) The draft-19 unidirectional control-stream pair (SETUP on a uni
-  stream of type 0x2F00). The hub uses one bidirectional control stream, as
-  earlier drafts and the browser client do, so a strict draft-19 peer that
-  opens uni control streams cannot set up a session.
 - (SS3.2.1, SS3.2.2) Reserved-namespace and `.session` rejection
   (MOQT-028).
 - (SS10.19) SUBSCRIBE_TRACKS — answered NOT_SUPPORTED.
