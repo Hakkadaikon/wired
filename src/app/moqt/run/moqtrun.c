@@ -3596,7 +3596,15 @@ static void moqtrun_relay_save_frag(
 }
 
 /* Arrival of the first byte a delivery's whole Objects start with: the
- * held fragment's, else now. */
+ * held fragment's, else now.
+ *
+ * ponytail: decode is atomic per Object (moqdata_obj_take reads header and
+ * payload together), so this hub has no observable moment between "an
+ * Object's header finished" and "its payload started" -- only "this
+ * Object's leading byte arrived". draft-19's "first payload byte" and
+ * draft-22's "last header byte" start points collapse to that same moment
+ * here; add per-Object header/payload split tracking if a version gate
+ * between them is ever needed. */
 static u64 moqtrun_relay_born(const wired_moqtrun_relay* r, u64 now) {
   return r->frag_len ? r->frag_ms : now;
 }
@@ -3670,18 +3678,18 @@ static moqtrel_buf* moqtrun_rel_acquire(wired_moqt_hub* hub) {
 /* Ring append, counting the by-design-impossible refusal: the hold
  * watermark keeps free space ahead of the publisher's window, so a full
  * ring is an invariant violation to record (stat_rel_overflow, the
- * reliable twin of stat_frag_drop), not a loss to handle. */
+ * reliable twin of stat_frag_drop), not a loss to handle. born_ms is the
+ * round's oldest unflushed byte's arrival (moqtrun_relay_normalize's twin
+ * for the lossy path, draft 8's "reached the hub" moment), not necessarily
+ * now: a torn Object waits in the relay's fragment first. */
 static void moqtrun_rel_take(
-    wired_moqt_hub* hub, moqtrel_buf* rb, wired_span whole) {
+    wired_moqt_hub* hub, moqtrel_buf* rb, wired_span whole, u64 born_ms) {
   if (whole.n == 0) return;
   if (!moqtrel_append(rb, whole)) {
     hub->stat_rel_overflow++;
     return;
   }
-  /* ponytail: arrival = when the whole Object was appended, not its
-   * first byte (a torn Object waits in the relay's fragment first); pass
-   * the fragment's frag_ms here if a reliable timeout must be exact. */
-  moqtrel_mark(rb, hub->live.last_now_ms);
+  moqtrel_mark(rb, born_ms);
   hub->stat_rel_in_bytes += whole.n;
 }
 
@@ -3706,7 +3714,7 @@ static void moqtrun_rel_bind(
   rb->pub        = pub_wt;
   rb->pub_stream = pub_stream_id;
   rb->bound_ms   = hub->live.last_now_ms;
-  moqtrun_rel_take(hub, rb, head);
+  moqtrun_rel_take(hub, rb, head, hub->live.last_now_ms);
   relay->rel_idx = (i32)(rb - hub->rel_pool);
   hub->stat_rel_rings++;
 }
@@ -4100,9 +4108,10 @@ static void moqtrun_rel_continue(
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     wired_span           whole,
-    int                  fin) {
+    int                  fin,
+    u64                  born_ms) {
   moqtrel_buf* rb = &hub->rel_pool[relay->rel_idx];
-  moqtrun_rel_take(hub, rb, whole);
+  moqtrun_rel_take(hub, rb, whole, born_ms);
   if (fin) {
     rb->fin_seen = 1;
     hub->stat_rel_fin_in++;
@@ -4175,7 +4184,7 @@ static void moqtrun_relay_forward(
     int                  fin,
     u64                  born_ms) {
   if (relay->rel_idx >= 0) {
-    moqtrun_rel_continue(hub, track, relay, whole, fin);
+    moqtrun_rel_continue(hub, track, relay, whole, fin, born_ms);
     return;
   }
   moqtrun_relay_continue_lossy(hub, track, relay, whole, fin, born_ms);

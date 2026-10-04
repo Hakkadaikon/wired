@@ -439,6 +439,32 @@ static void test_moqtrun_timeout_torn_object(void) {
   }
 }
 
+/* Reliable relay (ring-backed), same shape as the lossy one above: a
+ * later Object torn across two deliveries is timed from its first byte
+ * (hub->live.last_now_ms at the earlier tick), not from when it finally
+ * finishes appending to the ring -- draft 8's "reached the hub" moment,
+ * not the ring's own bookkeeping moment. */
+static void test_moqtrun_timeout_ring_torn_object(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  u8            buf2[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params p = mtup_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 100);
+  moqctl_ftn    f = mtrq_setup();
+  mtst_hub.reliable_alias_limit = 100;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &p);
+  wired_moqt_tick(&mtst_hub, 0);
+  usz n = mtst_stream(1, 1, 1, buf); /* header + Object 0, opens the ring */
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  u64 sid = moqtrun_test_last_kind(5)->stream_id;
+  usz n2  = mtst_stream(1, 1, 0, buf2); /* Object 1 alone, header-less */
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, 2001, wired_span_of(buf2, n2 - 1), 0);
+  wired_moqt_tick(&mtst_hub, 150); /* Object 1's first byte is now stale */
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, 2001, wired_span_of(buf2 + n2 - 1, 1), 0);
+  CHECK(mtrq_reset_code(sid) == 0x2);
+  CHECK(mtst_hub.stat_timeout_reset == 1);
+}
+
 /* The hub's live track: a Group older than the timeout at send time is
  * not opened; the next one, still fresh, is. */
 static void test_moqtrun_timeout_live(void) {
@@ -656,6 +682,7 @@ void test_moqtrun_upd(void) {
   test_moqtrun_timeout_zero();
   test_moqtrun_timeout_by_update();
   test_moqtrun_timeout_torn_object();
+  test_moqtrun_timeout_ring_torn_object();
   test_moqtrun_timeout_live();
   test_moqtrun_timeout_datagram();
 }
