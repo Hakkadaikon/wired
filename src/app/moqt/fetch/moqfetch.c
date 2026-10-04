@@ -222,10 +222,26 @@ int moqfetch_req22_take(wired_span body, moqfetch_req* out) {
  * same moqctl_rangeloc22_put(has_filter=1, ...) shape as any other
  * absolute-start/open-ended filter -- a receiver cannot tell them apart on
  * the wire, nor needs to). */
+static usz moqfetch_req22_filter_slot(const moqctl_params* params) {
+  usz i;
+  for (i = 0; i < params->n; i++) {
+    if (params->items[i].type >= MOQCTL_PARAM_LOCATION_FILTER) break;
+  }
+  return i;
+}
+
+/* moqctl_params_put writes items[] in order under a strict-ascending-type
+ * check (it does not sort), so the synthesized filter must be inserted at
+ * the position that keeps type order, not appended after possibly-larger
+ * existing types (e.g. GROUP_ORDER 0x22 > LOCATION_FILTER 0x21). */
 static void moqfetch_req22_put_filter(moqfetch_req* m) {
   moqctl_param* p;
+  usz           slot, j;
   if (moqctl_params_find(&m->params, MOQCTL_PARAM_LOCATION_FILTER)) return;
-  p             = &m->params.items[m->params.n];
+  slot = moqfetch_req22_filter_slot(&m->params);
+  for (j = m->params.n; j > slot; j--)
+    m->params.items[j] = m->params.items[j - 1];
+  p             = &m->params.items[slot];
   p->type       = MOQCTL_PARAM_LOCATION_FILTER;
   p->enc        = MOQCTL_PENC_RANGELOC22;
   p->has_filter = 1;

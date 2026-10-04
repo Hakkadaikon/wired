@@ -938,6 +938,31 @@ static void test_moqfetch_req22_no_filter_defaults(void) {
   CHECK(back.track.name.n == 1 && back.track.name.p[0] == 'b');
 }
 
+/* The synthesized LOCATION_FILTER must slot in at its type position, not
+ * append after a larger-typed existing parameter (GROUP_ORDER 0x22 >
+ * LOCATION_FILTER 0x21): moqctl_params_put enforces strict ascending type
+ * order and does not sort. */
+static void test_moqfetch_req22_encode_with_larger_typed_param(void) {
+  u8           body[32];
+  usz          n = moqfetch_t_req22_build(body, 0);
+  moqfetch_req m, back;
+  u8           out[32];
+  usz          on = 0;
+  n -= 1; /* drop the "0 Parameters" byte the no-filter builder appends */
+  body[n++] = 0x01; /* Number of Parameters */
+  body[n++] = 0x22; /* Type Delta -> GROUP_ORDER */
+  body[n++] = 0x02; /* Descending */
+  CHECK(moqfetch_req22_take(wired_span_of(body, n), &m) == MOQCTL_OK);
+  CHECK(m.params.n == 1 && m.params.items[0].type == MOQCTL_PARAM_GROUP_ORDER);
+  CHECK(moqfetch_req22_encode(wired_mspan_of(out, sizeof out), &on, &m));
+  CHECK(on > 0);
+  CHECK(moqfetch_req22_take(wired_span_of(out, on), &back) == MOQCTL_OK);
+  CHECK(back.params.n == 2);
+  CHECK(back.params.items[0].type == MOQCTL_PARAM_LOCATION_FILTER);
+  CHECK(back.params.items[1].type == MOQCTL_PARAM_GROUP_ORDER);
+  CHECK(back.params.items[1].u8v == 2);
+}
+
 /* A malformed Track Namespace (a zero-length field, SS2.4.1) inside a
  * draft-22 FETCH body must reject with VIOLATION, not be silently
  * swallowed. */
@@ -1025,6 +1050,7 @@ void test_moqfetch(void) {
   test_moqfetch_req19_absolute_joining_roundtrip();
   test_moqfetch_req22_with_filter_roundtrip();
   test_moqfetch_req22_no_filter_defaults();
+  test_moqfetch_req22_encode_with_larger_typed_param();
   test_moqfetch_req22_bad_ns_rejects();
   test_moqfetch_req_cross_version_range();
 }
