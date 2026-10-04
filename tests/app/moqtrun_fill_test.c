@@ -232,6 +232,81 @@ static void test_moqtrun_fill_publish_started_sub(void) {
   CHECK(mf_fin);
 }
 
+/* Reads B's last fetch stream as a fill stream (fills exist on draft-22
+ * only, so 0x20C End of Timed-Out Range is legal on it, SS11.4.1). */
+static int mfill_read(void) {
+  moqfetch_seq seq  = {0};
+  seq.eor_timed_out = 1;
+  return mf_read_seq(seq);
+}
+
+/* Item i is an End of Timed-Out Range ending at {g, o}. */
+static int mfill_is_tmo(usz i, u64 g, u64 o) {
+  return i < mf_n && mf_items[i].flags == MOQFETCH_EOR_TIMED_OUT &&
+         mf_items[i].group == g && mf_items[i].object == o;
+}
+
+/* A Location the cache cannot serve is reported at once as End of
+ * Timed-Out Range (0x20C): the hub keeps no upstream FETCH, so it never
+ * waits, whatever FILL_TIMEOUT says (SS9.20.15). */
+static void test_moqtrun_fill_miss_is_timed_out_now(void) {
+  moqfetch_fill fill = {0};
+  fill.has_timeout   = 1;
+  fill.timeout_ms    = 5000;
+  mf_init(0); /* no cache: the whole range is a miss */
+  mf_obj(0, 0, 1);
+  mfill_subscribe(&fill, 0);
+  CHECK(mfill_read());
+  CHECK(mf_n == 1 && mfill_is_tmo(0, 0, 0));
+  CHECK(mf_fin);
+  mf_init(0);
+  mf_obj(0, 0, 1);
+  fill.timeout_ms = 0;
+  mfill_subscribe(&fill, 0);
+  CHECK(mfill_read());
+  CHECK(mf_n == 1 && mfill_is_tmo(0, 0, 0));
+  CHECK(mf_fin);
+}
+
+/* A run of evicted Locations is one 0x20C naming the run's end, the
+ * remaining Objects follow and the fill still FINs only after the whole
+ * range (SS11.4.1, SS9.20.15). */
+static void test_moqtrun_fill_evicted_run_collapsed(void) {
+  moqfetch_fill fill = {0};
+  mf_init(2 * (MOQCACHE_HDR + 1));
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mf_obj(1, 0, 1); /* evicts group 0 */
+  mf_obj(1, 1, 1);
+  mfill_subscribe(&fill, 0);
+  CHECK(mfill_read());
+  CHECK(mf_n == 3);
+  CHECK(mfill_is_tmo(0, 0, MOQCACHE_OBJ_ID_MAX));
+  CHECK(mf_is_obj(1, 1, 0, 1) && mf_is_obj(2, 1, 1, 1));
+  CHECK(mf_fin);
+}
+
+/* An eviction while the fill is underway (cursor parked on a refused
+ * round) turns the pending Location into 0x20C, never stale bytes, and
+ * the fill continues to FIN. */
+static void test_moqtrun_fill_eviction_under_cursor(void) {
+  moqfetch_fill fill = {0};
+  mf_init(4 * (MOQCACHE_HDR + 1));
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mf_obj(1, 0, 1);
+  mf_obj(1, 1, 1);
+  g_stream_send_ok_n = 1;
+  mfill_subscribe(&fill, 0);
+  mf_obj(2, 0, 1); /* evicts group 0 */
+  g_stream_send_ok_n = -1;
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mfill_read());
+  CHECK(mf_is_obj(0, 0, 0, 1));
+  CHECK(mfill_is_tmo(1, 0, MOQCACHE_OBJ_ID_MAX));
+  CHECK(mf_fin);
+}
+
 void test_moqtrun_fill(void) {
   test_moqtrun_fill_subscribe_opens();
   test_moqtrun_fill_end_clipped_to_largest();
@@ -241,4 +316,7 @@ void test_moqtrun_fill(void) {
   test_moqtrun_fill_forward_gates();
   test_moqtrun_fill_two_at_once();
   test_moqtrun_fill_publish_started_sub();
+  test_moqtrun_fill_miss_is_timed_out_now();
+  test_moqtrun_fill_evicted_run_collapsed();
+  test_moqtrun_fill_eviction_under_cursor();
 }
