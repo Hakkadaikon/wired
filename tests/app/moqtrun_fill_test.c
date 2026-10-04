@@ -738,6 +738,34 @@ static void test_moqtrun_fill_blocked_never_starves_live(void) {
   CHECK(!mf_no_fetch());                      /* the fill is still held */
 }
 
+/* A fill still open when its subscription ends with PUBLISH_DONE keeps
+ * serving to FIN (already counted in the Stream Count), and another
+ * subscriber reusing the freed slot sees none of it: no reset and no
+ * count of the old fill leaks into the new subscription. */
+static void test_moqtrun_fill_survives_done_and_slot_reuse(void) {
+  moqfetch_fill fill = {0};
+  moqctl_params bad  = mtup_vi(MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 9);
+  moqctl_ftn    f    = mf_track();
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  g_stream_send_ok_n = 0; /* the fill parks mid-range, opened */
+  moqctl_params sub  = mfill_params(&fill, 0);
+  mfill_subscribe_req(&sub);
+  u64 fill_sid       = mfill_sid(0);
+  g_stream_send_ok_n = -1;
+  mtup_update(SESS_B, MTRQ_S1, &bad);    /* fails: the subscription ends */
+  CHECK(mfill_done_count(MTRQ_S1) == 1); /* counted, no deferral: open */
+  u64 cc = mtst_join(SESS_C);
+  mtst_subscribe(SESS_C, cc, &f); /* reuses the freed sub slot */
+  wired_moqt_tick(&mtst_hub, 1);  /* the old fill still runs... */
+  CHECK(mf_read());
+  CHECK(mf_n == 1 && mf_is_obj(0, 0, 0, 1));
+  CHECK(mf_fin);                           /* ...to its own FIN */
+  CHECK(mfill_reset_code(fill_sid) == -1); /* never reset */
+  wired_moqtrun_sub* c = mtst_sub(SESS_A, SESS_C);
+  CHECK(c != 0 && c->stream_count == 0); /* nothing leaked into it */
+}
+
 /* The fill's Range Filter is its own: it never merges with, narrows or
  * widens the subscription's LOCATION_FILTER -- each is parsed and
  * counted in its own scope (draft-22 SS9.20.15 with SS9.20.9), so one
@@ -834,6 +862,7 @@ void test_moqtrun_fill(void) {
   test_moqtrun_fill_ascending_sends_first();
   test_moqtrun_fill_descending_sends_last();
   test_moqtrun_fill_blocked_never_starves_live();
+  test_moqtrun_fill_survives_done_and_slot_reuse();
   test_moqtrun_fill_filter_separate_from_subscription();
   test_moqtrun_fill_inbound_fetch_known_rid();
   test_moqtrun_fill_inbound_fetch_unknown_rid();
