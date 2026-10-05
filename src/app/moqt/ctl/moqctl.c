@@ -987,6 +987,25 @@ static int moqctl_locfilter_exact(wired_span v, moqctl_locfilter* f) {
   return a == v.n ? MOQCTL_OK : MOQCTL_VIOLATION;
 }
 
+/* moxygen's LargestGroup (Filter Type 250, vi64 80 fa; non-spec, its
+ * interop client's default SUBSCRIBE): accepted as Largest Object, the
+ * nearest live-edge filter, rather than closing the session. */
+#define MOQCTL_FILTER_MOXYGEN_LARGEST_GROUP 250ULL
+
+static int moqctl_locfilter_is_quirk(wired_span v) {
+  usz a = 0;
+  u64 t = 0;
+  return moqvi_take(v, &a, &t) && a == v.n &&
+         t == MOQCTL_FILTER_MOXYGEN_LARGEST_GROUP;
+}
+
+static void moqctl_locfilter_set_largest(moqctl_param* p) {
+  p->lf      = (moqctl_locfilter){0};
+  p->lf.type = MOQCTL_FILTER_LARGEST;
+  p->rl      = (moqctl_rangeloc){0};
+  moqctl_rangeloc19_largest(&p->rl);
+}
+
 /* Also into the version-neutral p->rl (has_filter 1), the one form the
  * hub resolves for every draft. */
 static int moqctl_pv_locfilter(wired_span buf, usz* at, moqctl_param* p) {
@@ -994,6 +1013,10 @@ static int moqctl_pv_locfilter(wired_span buf, usz* at, moqctl_param* p) {
   int r = moqctl_pv_bytes(buf, at, p);
   if (r != MOQCTL_OK) return r;
   p->has_filter = 1;
+  if (moqctl_locfilter_is_quirk(p->bytes)) {
+    moqctl_locfilter_set_largest(p);
+    return MOQCTL_OK;
+  }
   moqctl_rangeloc19_take(p->bytes, &a, &p->rl);
   return moqctl_locfilter_exact(p->bytes, &p->lf);
 }

@@ -1580,6 +1580,26 @@ static void test_moqctl_locfilter_unknown_type_violation(void) {
       MOQCTL_VIOLATION);
 }
 
+/* moxygen's interop client SUBSCRIBE (captured, moqt-18): its Subscription
+ * Filter carries Filter Type 250 (vi64 80 fa), moxygen's non-spec
+ * LargestGroup. The hub treats it as Largest Object instead of closing the
+ * session with PROTOCOL_VIOLATION. */
+static void test_moqctl_subscribe_d18_moxygen_largest_group(void) {
+  static const u8 body[] = {
+      0x00, 0x01, 0x10, 'm', 'o', 'q', '-',  'i',  'n',  't',  'e',  'r', 'o',
+      'p',  '-',  't',  'e', 's', 't', 0x0d, 'i',  'n',  't',  'e',  'r', 'o',
+      'p',  '-',  't',  'r', 'a', 'c', 'k',  0x01, 0x21, 0x02, 0x80, 0xfa};
+  usz              off = 0;
+  moqctl_subscribe m;
+
+  CHECK(
+      moqctl_subscribe_take(
+          MOQVER_D18, wired_span_of(body, sizeof body), &off, &m) == MOQCTL_OK);
+  CHECK(m.params.n == 1 && m.params.items[0].has_filter);
+  CHECK(m.params.items[0].rl.sk == MOQCTL_RSK_NEXT_OBJ);
+  CHECK(m.params.items[0].lf.type == MOQCTL_FILTER_LARGEST);
+}
+
 /* ===== TEST: Version-neutral range model (moqctl_rangeloc) ===== */
 
 static void test_moqctl_rangeloc19_next_group(void) {
@@ -2088,6 +2108,7 @@ void test_moqctl(void) {
   test_moqctl_locfilter_abs_start_and_range_roundtrip();
   test_moqctl_locfilter_end_group_overflow_violation();
   test_moqctl_locfilter_unknown_type_violation();
+  test_moqctl_subscribe_d18_moxygen_largest_group();
   test_moqctl_rangeloc19_next_group();
   test_moqctl_rangeloc19_largest_object();
   test_moqctl_rangeloc19_abs_start_roundtrip();
