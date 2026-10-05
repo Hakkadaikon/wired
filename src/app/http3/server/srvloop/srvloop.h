@@ -358,24 +358,31 @@ typedef struct {
  * reassemble. Separate table from wt_streams[] (bidi): a uni stream's
  * directionality is structurally different (no response half), even though
  * its post-type-byte bytes are raw application data just like a WT bidi
- * stream's post-signal bytes. Same 6-not-4 sizing as WIRED_SRVLOOP_MAX_WT_
- * STREAMS, for the same reason (5 concurrent runner transfers). */
-#define WIRED_SRVLOOP_MAX_WT_UNI_STREAMS 6
+ * stream's post-signal bytes. Sized to the whole advertised uni limit
+ * (wired_srvloop_uni_stream_limit, 9): an HTTP/3 client spends 3 of it on
+ * its control/QPACK streams and gets 6 WT data streams (5 concurrent runner
+ * transfers), but a raw-QUIC client (draft-ietf-moq-transport-19 3.3, one
+ * uni stream per MoQT subgroup) has no plumbing and may hold all 9 open as
+ * data streams at once -- with only 6 slots the last 3 would be ACKed yet
+ * land nowhere (RawQuic plan K3). Cost: 3 more WIRED_SRVLOOP_WT_BUF_CAP
+ * windows per connection. */
+#define WIRED_SRVLOOP_MAX_WT_UNI_STREAMS 9
 
 /** RFC 9000 4.6: the client-initiated UNI stream limit the server initially
  * advertises, sized to what its receive side actually backs -- the same
- * lockstep rule wired_srvloop_stream_limit applies to bidi. A client's
- * fixed HTTP/3 plumbing (control + QPACK encoder + decoder) holds three uni
- * streams open for the connection's whole life; every other uni stream a
- * client opens is WebTransport data reassembled in the wt_uni_streams[]
- * slot table. Advertising more than 3 + slots invites the documented
+ * lockstep rule wired_srvloop_stream_limit applies to bidi. An HTTP/3
+ * client's fixed plumbing (control + QPACK encoder + decoder) holds three of
+ * these uni streams for the connection's whole life, a raw-QUIC client none;
+ * every other uni stream is application data reassembled in the
+ * wt_uni_streams[] slot table, which therefore backs the whole limit.
+ * Advertising more than the slots invites the documented
  * full-table failure (see WIRED_SRVLOOP_MAX_STREAMS's doc): a loss-delayed
  * burst of legitimate streams lands frames in no slot while their packets
  * still ACK, so the peer never retransmits and the messages are gone for
  * good. The limit grows by one per released slot (srvrun.c's uni re-grant),
  * exactly like bidi. */
 static inline u64 wired_srvloop_uni_stream_limit(void) {
-  return 3 + WIRED_SRVLOOP_MAX_WT_UNI_STREAMS;
+  return WIRED_SRVLOOP_MAX_WT_UNI_STREAMS;
 }
 
 /** One WebTransport uni stream's cross-datagram reassembly state (draft-ietf-

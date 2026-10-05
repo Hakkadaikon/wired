@@ -71,17 +71,8 @@ wired_moqt_io moqrawio_io(const moqrawio_backend* be) {
   };
 }
 
-/* ponytail: placeholder until S9 lands wired_server_session_is_raw in
- * srvrun.c (declared in srvrun.h, not yet defined): every session is WT,
- * exactly the examples' pre-raw behavior. S9 replaces this with the srvrun
- * function. */
-static int moqrawio_srv_is_raw(wired_wt_session* s) {
-  (void)s;
-  return 0;
-}
-
 static const moqrawio_backend g_moqrawio_srv = {
-    moqrawio_srv_is_raw,
+    wired_server_session_is_raw,
     wired_server_wt_open_bidi_stream,
     wired_server_wt_open_uni,
     wired_server_wt_open_uni_stream,

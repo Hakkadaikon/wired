@@ -779,6 +779,10 @@ int wired_server_wt_send_datagram_to(wired_wt_session* s, wired_span payload);
  * send_datagram_to; a second call before the first drains overwrites the
  * pending one (last-writer-wins, same policy as this SDK's other single-slot
  * WT queues). Callable only from inside the server's own loop (a callback).
+ * On a raw-QUIC session (wired_server_session_is_raw) the close is instead
+ * the connection's application CONNECTION_CLOSE (0x1d, RFC 9000 19.19)
+ * carrying app_error_code verbatim and at most 48 bytes of message
+ * (draft-ietf-moq-transport-19 3.5, -22 6.6).
  * @param s the session to close
  * @param app_error_code the WebTransport application error code to report
  * @param message UTF-8 reason, message.n <= WTCAPSULE_CLOSE_MESSAGE_MAX
@@ -796,7 +800,8 @@ int wired_server_wt_close_session(
  * own loop (a callback).
  * @param s the session to drain
  * @return 1 queued (or already drained), 0 when s resolves to no live
- *   connection (e.g. the session already closed) */
+ *   connection (e.g. the session already closed) or is a raw-QUIC session,
+ *   which has no transport-level drain (draft-ietf-moq-transport-19 3.6) */
 int wired_server_wt_drain_session(wired_wt_session* s);
 
 /** 1 when s is the implicit session of a raw-QUIC application connection

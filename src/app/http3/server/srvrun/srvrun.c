@@ -20,6 +20,7 @@
 #include "app/http3/server/srvpoll/srvpoll.h"
 #include "app/http3/server/srvwire/wire.h"
 #include "app/http3/server/srvxdp/srvxdp.h"
+#include "app/rawquic/rawq.h"
 #include "app/webtransport/capsule/wtcapsule/wtcapsule.h"
 #include "app/webtransport/errmap/errmap/errmap.h"
 #include "app/webtransport/session/session/session.h"
@@ -883,6 +884,14 @@ typedef struct {
    * probe deadline (srvrun_rst_retry_slot) until acknowledged. */
   srvrun_rst rst[SRVRUN_RST_RETX];
 } srvrun_conn;
+
+/* RFC 7301 3.2 / draft-ietf-moq-transport-19 3.1: 1 iff c negotiated a
+ * raw-QUIC application ALPN (wired_srvboot_id.raw_alpns) -- the one bit
+ * every native-QUIC binding transform below keys on (rawq_*). */
+static int srvrun_conn_is_raw(const srvrun_conn* c) {
+  return c->s.sdrv.alpn == SALPN_RAW;
+}
+
 _Static_assert(
     WIRED_SRVLOOP_MAX_STREAMS <= 64, "wt_held_mask holds one bit per slot");
 
@@ -1158,6 +1167,10 @@ struct wired_srvrun_env {
    * max_resets_per_window above. */
   wired_wt_on_session_draining wt_on_session_draining;
   void*                        wt_session_draining_ctx;
+  /* wired_srvrun_opt.raw_on_session and its ctx, held here for the same
+   * reason (srvrun_raw_notify). */
+  wired_rawq_on_session raw_on_session;
+  void*                 raw_session_ctx;
 };
 
 /* The one process-wide instance wired_server_run/wired_server_run_opt drive
@@ -2344,6 +2357,19 @@ static void srvrun_wt_uni_slot_free(
   wired_srvloop_wt_uni_slot_release(&c->l, slot->stream_id);
 }
 
+/* draft-ietf-moq-transport-19 3.3.4 / -22 12.5: MoQT's EXCESSIVE_LOAD
+ * stream error code, what a raw-QUIC connection resets a client stream it
+ * cannot take with (srvrun_refuse_code). */
+#define SRVRUN_RAW_REFUSE_CODE 0x9
+
+/* The code a refused client stream is reset with: the HTTP/3 code h3 on
+ * WebTransport; on raw QUIC there is no HTTP/3 error space, so the MoQT
+ * code goes on the wire verbatim (rawq_reset_code_out). */
+static u64 srvrun_refuse_code(const srvrun_conn* c, u64 h3) {
+  return srvrun_conn_is_raw(c) ? rawq_reset_code_out(1, SRVRUN_RAW_REFUSE_CODE)
+                               : h3;
+}
+
 /* draft-ietf-webtrans-http3-16 9.5: a buffered-stream-capacity rejection
  * (wired_wt_session_offer_stream returned 0, i.e. WIRED_WT_MAX_BUFFERED_
  * STREAMS is full on an unestablished session) is the caller's own contract
@@ -2354,7 +2380,8 @@ static void srvrun_wt_uni_slot_free(
  * WT_APPLICATION_ERROR range; this code is protocol-level, not app-level. */
 static void srvrun_reject_wt_slot(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id) {
-  srvrun_send_wt_busy_reset(cfg, c, stream_id, WTERR_BUFFERED_STREAM_REJECTED);
+  srvrun_send_wt_busy_reset(
+      cfg, c, stream_id, srvrun_refuse_code(c, WTERR_BUFFERED_STREAM_REJECTED));
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: associate one newly-reassembled WT bidi
@@ -2680,6 +2707,25 @@ static void srvrun_deliver_rx_datagram(
       cfg, c, connect_id, wired_span_of(dg->buf + prefix, dg->len - prefix));
 }
 
+/* draft-ietf-moq-transport-19 11.3 / -22 11.2: on raw QUIC the whole
+ * DATAGRAM payload is one MoQT Object for the connection's one session --
+ * no RFC 9297 quarter-stream-id to parse (rawq_dgram_prefix_len 0). */
+static void srvrun_deliver_raw_datagram(
+    const srvrun_cfg*                cfg,
+    srvrun_conn*                     c,
+    const wired_srvloop_rx_datagram* dg) {
+  if (c->wt_active)
+    srvrun_deliver_to_known_session(
+        cfg, &c->wt, wired_span_of(dg->buf, dg->len));
+}
+
+typedef void (*srvrun_rx_dg_fn)(
+    const srvrun_cfg*, srvrun_conn*, const wired_srvloop_rx_datagram*);
+
+/* Indexed by srvrun_conn_is_raw: WebTransport (qsid-prefixed), raw. */
+static const srvrun_rx_dg_fn srvrun_rx_dg_by_raw[2] = {
+    srvrun_deliver_rx_datagram, srvrun_deliver_raw_datagram};
+
 /* RFC 9221 5 (Phase 7b Slice 2): drain every DATAGRAM this step's
  * gather_rx_datagrams (dispatch.c) queued into c->l.rx_datagrams, delivering
  * each to the app callback (srvrun_deliver_rx_datagram) in arrival order, then
@@ -2688,7 +2734,7 @@ static void srvrun_deliver_rx_datagram(
  * whether this step itself added anything. */
 static void srvrun_drain_rx_datagrams(const srvrun_cfg* cfg, srvrun_conn* c) {
   for (usz i = 0; i < c->l.rx_datagram_n; i++)
-    srvrun_deliver_rx_datagram(cfg, c, &c->l.rx_datagrams[i]);
+    srvrun_rx_dg_by_raw[srvrun_conn_is_raw(c)](cfg, c, &c->l.rx_datagrams[i]);
   c->l.rx_datagram_n = 0;
 }
 
@@ -3778,11 +3824,36 @@ static void srvrun_send_wt_close(
   srvrun_close_wt_session_slot(cfg, c, sidx, WTERR_SESSION_GONE);
 }
 
+/* Reason-phrase room in srvrun_send_app_close's 64-byte frame (close_pl):
+ * 64 - type (1) - Error Code varint (<= 8) - Reason Phrase Length (1, the
+ * reason is < 64) = 54, rounded down (RFC 9000 19.19). */
+#define SRVRUN_RAW_CLOSE_REASON_MAX 48
+
+/* draft-ietf-moq-transport-19 3.5 / -22 6.6: a raw-QUIC session is closed
+ * by closing the connection -- an application CONNECTION_CLOSE (0x1d) whose
+ * Error Code is the MoQT code itself, the message (cut at a UTF-8 boundary)
+ * as Reason Phrase. srvrun_send_app_close enters the closing state and
+ * fires wt_on_session_close once in this same step (TLA+ CloseLive). */
+static void srvrun_raw_close(const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
+  wired_span m =
+      wired_span_of(c->wt_close_msg[sidx], c->wt_close_msg_len[sidx]);
+  usz n = wtcapsule_utf8_truncate_len(m, SRVRUN_RAW_CLOSE_REASON_MAX);
+  srvrun_send_app_close(cfg, c, c->wt_close_code[sidx], wired_span_of(m.p, n));
+}
+
+typedef void (*srvrun_sess_close_fn)(const srvrun_cfg*, srvrun_conn*, int);
+
+/* Indexed by srvrun_conn_is_raw: WT_CLOSE_SESSION capsule, CONNECTION_CLOSE
+ * (TLA+ RawCloseShape). */
+static const srvrun_sess_close_fn srvrun_sess_close_by_raw[2] = {
+    srvrun_send_wt_close, srvrun_raw_close};
+
 static void srvrun_drain_wt_close_one(
     const srvrun_cfg* cfg, srvrun_conn* c, int i) {
   if (!c->wt_close_pending[i]) return;
   c->wt_close_pending[i] = 0;
-  if (srvrun_wt_is_active(c, i)) srvrun_send_wt_close(cfg, c, i);
+  if (srvrun_wt_is_active(c, i))
+    srvrun_sess_close_by_raw[srvrun_conn_is_raw(c)](cfg, c, i);
 }
 
 /* Drain every session slot's pending wired_server_wt_close_session
@@ -3805,7 +3876,8 @@ static void srvrun_drain_wt_close_pending(
 static int srvrun_seal_wt_stream_reset(srvrun_conn* c, usz i, wired_obuf* out) {
   u8  pl[32];
   usz n;
-  u64 code = wired_wterrmap_to_http3(c->wt_stream_reset_app_code[i]);
+  u64 code = rawq_reset_code_out(
+      srvrun_conn_is_raw(c), c->wt_stream_reset_app_code[i]);
   reset_stream_frame rs = {
       c->wt_stream_reset_id[i], code, c->wt_stream_reset_final[i]};
   stop_sending_frame ss = {c->wt_stream_reset_id[i], code};
@@ -3902,7 +3974,8 @@ static int wt_reset_session_slot(srvrun_conn* c) {
 static void srvrun_deliver_wt_reset(
     const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
   u32 app_code = 0;
-  int mapped   = wired_wterrmap_from_http3(c->l.wt_reset_error_code, &app_code);
+  int mapped   = rawq_reset_code_in(
+      srvrun_conn_is_raw(c), c->l.wt_reset_error_code, &app_code);
   if (!cfg->wt_on_stream_reset) return;
   cfg->wt_on_stream_reset(
       cfg->wt_stream_reset_ctx, srvrun_wt_slot(c, sidx),
@@ -4079,7 +4152,8 @@ static void srvrun_ku_note_rotation(srvrun_conn* c, u64 now_ms) {
  * a reset with no application error (draft-ietf-webtrans-http3-15 4.4). */
 static void srvrun_refuse_wt_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
   for (usz i = 0; i < c->l.wt_refused_n; i++)
-    srvrun_send_wt_busy_reset(cfg, c, c->l.wt_refused[i], H3_REQUEST_REJECTED);
+    srvrun_send_wt_busy_reset(
+        cfg, c, c->l.wt_refused[i], srvrun_refuse_code(c, H3_REQUEST_REJECTED));
   c->wt_bidi_credit_owed += c->l.wt_refused_n;
   c->l.wt_refused_n = 0;
 }
@@ -4100,6 +4174,37 @@ static void srvrun_grant_wt_streams(
       ctx, c, srvrun_stream_limit_base(ctx), c->wt_bidi_credit_owed);
   c->wt_bidi_credit_owed = 0;
   srvrun_grant_wt_uni(ctx->cfg, c);
+}
+
+/* draft-ietf-moq-transport-19 3.1.5 / -22 6.2.2: 1 iff c is a raw-QUIC
+ * connection whose handshake is confirmed and whose implicit session does
+ * not exist yet (it ends only with the connection: srvrun_raw_close enters
+ * the closing state, which no longer steps). */
+static int srvrun_raw_start_due(const srvrun_conn* c) {
+  return srvrun_conn_is_raw(c) && !c->wt_active &&
+         wired_server_is_confirmed(&c->s);
+}
+
+static void srvrun_raw_notify(const srvrun_cfg* cfg, srvrun_conn* c) {
+  wired_srvrun_env* e = cfg->env;
+  if (e->raw_on_session)
+    e->raw_on_session(e->raw_session_ctx, &c->wt, c->s.sdrv.alpn_tok);
+}
+
+/* Native QUIC has no Extended CONNECT: the connection itself is the session
+ * (-19 3.1.5). Slot 0 is established at the first step after confirmation,
+ * BEFORE this step's stream offer/delivery (TLA+ MoqtRawConn D3,
+ * SessBeforeData): a SETUP coalesced with the client Finished is delivered
+ * in the same step. Its id is the never-on-the-wire RAWQ_NO_CONNECT_ID and
+ * flow_control stays 0 (wired_wt_session_init): only RFC 9000's own credit
+ * applies, there are no WT_MAX_* capsules. */
+static void srvrun_raw_start(const srvrun_cfg* cfg, srvrun_conn* c) {
+  if (!srvrun_raw_start_due(c)) return;
+  wired_wt_session_init(&c->wt, RAWQ_NO_CONNECT_ID);
+  wired_wt_session_establish(&c->wt);
+  c->wt_active = 1;
+  cfg->env->wt_usage.sessions++;
+  srvrun_raw_notify(cfg, c);
 }
 
 /* A later datagram on a live slot: one real-wire step, send any sealed
@@ -4124,6 +4229,7 @@ static void srvrun_on_step_live(
                        * onto a slice, or srvrun_flush_deferred_ack
                        * sends it at step end. */
   produced = wired_srvloop_step(&conn, dg, &ob);
+  srvrun_raw_start(ctx->cfg, c);
   if (c->l.h3.settings_sent) srvrun_open_qenc_stream(c);
   srvrun_ku_note_rotation(c, ctx->now_ms);
   srvrun_note_recv(ctx, &mark, c, dg.n);
@@ -4631,9 +4737,10 @@ static srvrun_wtsend* srvrun_wtsend_claim(srvrun_conn* c, u64 credit) {
 /* RFC 9000 2.1: allocate the next server-initiated stream id. Called only
  * after a send slot has been claimed, so a failed open never burns an id. */
 static u64 srvrun_next_uni_id(srvrun_conn* c) {
-  /* id 3 = H3 control stream, id 7 = QPACK encoder stream (srvrun_open_qenc_
-   * stream, opened once outside this counter) -- WT uni streams start at 11. */
-  return 11 + 4 * c->wt_uni_opened++;
+  /* HTTP/3: id 3 = H3 control stream, id 7 = QPACK encoder stream
+   * (srvrun_open_qenc_stream, opened once outside this counter) -- WT uni
+   * streams start at 11. Raw QUIC has neither, so they start at 3. */
+  return rawq_uni_first_id(srvrun_conn_is_raw(c)) + 4 * c->wt_uni_opened++;
 }
 
 /* RFC 9204 4.2: this connection's fixed QPACK encoder stream id -- the
@@ -4644,8 +4751,8 @@ static u64 srvrun_next_uni_id(srvrun_conn* c) {
  * streams -- the highest runtime MAX_STREAMS(uni) raise, or the
  * ClientHello's initial_max_streams_uni before any raise. Counts every uni
  * stream this server opened, H3 plumbing included (wt_uni_opened's id
- * arithmetic starts past the control + QPACK encoder streams: those two
- * always count, srvrun_uni_open_allowed's own +2). */
+ * arithmetic starts past the control + QPACK encoder streams on HTTP/3:
+ * those two always count, srvrun_uni_plumbing). */
 static u64 srvrun_peer_uni_limit(const srvrun_conn* c) {
   return c->peer_uni_stream_limit ? c->peer_uni_stream_limit
                                   : c->s.sdrv.peer_initial_max_streams_uni;
@@ -4661,13 +4768,20 @@ static void srvrun_apply_uni_limit_update(srvrun_conn* c) {
     c->peer_uni_stream_limit = c->l.max_streams_uni_seen;
 }
 
+/* Server uni streams opened outside wt_uni_opened: HTTP/3's control (3) and
+ * QPACK encoder (7) -- the ids below the first application id -- and none
+ * on raw QUIC (rawq_uni_first_id: 11 vs 3, RFC 9000 2.1 steps of 4). */
+static u64 srvrun_uni_plumbing(const srvrun_conn* c) {
+  return (rawq_uni_first_id(srvrun_conn_is_raw(c)) - RAWQ_UNI_FIRST_RAW) / 4;
+}
+
 /* 1 iff the peer's uni-stream limit admits one more server-initiated open:
- * wt_uni_opened counts opens past the two fixed plumbing streams this server
- * always opens -- the H3 control stream (id 3) and the QPACK encoder stream
- * (id 7, srvrun_open_qenc_stream) -- which together consumed the first two
- * grants. */
+ * wt_uni_opened counts opens past the plumbing streams (srvrun_uni_plumbing)
+ * -- on HTTP/3 the control stream (id 3) and the QPACK encoder stream (id 7,
+ * srvrun_open_qenc_stream), which together consumed the first two grants. */
 static int srvrun_uni_open_allowed(const srvrun_conn* c) {
-  return maxstreams_can_open(c->wt_uni_opened + 2, srvrun_peer_uni_limit(c));
+  return maxstreams_can_open(
+      c->wt_uni_opened + srvrun_uni_plumbing(c), srvrun_peer_uni_limit(c));
 }
 
 static u64 srvrun_next_bidi_id(srvrun_conn* c) {
@@ -5257,10 +5371,12 @@ static u64 srvrun_wtsend_final_size(srvrun_conn* c, u64 stream_id) {
 }
 
 /* Server-initiated streams of stream_id's direction this server opened so
- * far, counted in id / 4 units (RFC 9000 2.1): uni counts the two plumbing
- * streams (ids 3 and 7) ahead of wt_uni_opened, srvrun_next_uni_id. */
+ * far, counted in id / 4 units (RFC 9000 2.1): uni counts the plumbing
+ * streams (HTTP/3 ids 3 and 7, none on raw QUIC) ahead of wt_uni_opened,
+ * srvrun_next_uni_id. */
 static u64 srvrun_server_opened(const srvrun_conn* c, u64 stream_id) {
-  return (stream_id & 2) ? c->wt_uni_opened + 2 : c->wt_bidi_opened;
+  return (stream_id & 2) ? c->wt_uni_opened + srvrun_uni_plumbing(c)
+                         : c->wt_bidi_opened;
 }
 
 /* 1 iff stream_id's send part ran to its end once its (live) send slot is
@@ -5349,13 +5465,20 @@ static int srvrun_wt_datagram_request_type_ok(const wired_wt_session* s) {
   return wt_session_send_side_open(s);
 }
 
+/* RFC 9297 2.1: an HTTP/3 connection sends no DATAGRAM before its own
+ * SETTINGS; a raw-QUIC one has no SETTINGS (RFC 9221 alone applies, the
+ * peer's max_datagram_frame_size is checked at send time). */
+static int srvrun_dg_send_ready(const srvrun_conn* c) {
+  return c->l.h3.settings_sent || srvrun_conn_is_raw(c);
+}
+
 /* slot names a live connection whose own SETTINGS have been sent (RFC 9297
  * 2.1's ordering rule, same gate as srvrun_queue_datagram), AND s passes
  * the RFC 9297 2 / 9297-001 request-type gate above (which also folds in
  * 9297-007's send-side-open check, ESTABLISHED or DRAINING only). */
 static int srvrun_dgring_target_ok(
     const wired_srvrun_env* env, int slot, const wired_wt_session* s) {
-  return slot >= 0 && env->conns[slot].l.h3.settings_sent &&
+  return slot >= 0 && srvrun_dg_send_ready(&env->conns[slot]) &&
          srvrun_wt_datagram_request_type_ok(s);
 }
 
@@ -5365,13 +5488,28 @@ static srvrun_dgring_entry* srvrun_dgring_tail(wired_srvrun_env* env) {
   return &env->dgring[(env->dgring_head + env->dgring_n) % SRVRUN_DGRING_CAP];
 }
 
-/* Fill e with the RFC 9297 2.1 quarter-stream-id prefix (connect_id / 4,
- * wtwire_qsid_put) followed by the payload copy. 0 when the prefixed
+/* The DATAGRAM prefix for one session (rawq_dgram_prefix_len): the RFC 9297
+ * 2.1 quarter-stream-id (connect_id / 4, wtwire_qsid_put) on WebTransport,
+ * nothing on raw QUIC (draft-ietf-moq-transport-19 11.3). Its length, 0
+ * for none. */
+static usz srvrun_dg_prefix_put(u8* buf, usz cap, int raw, u64 connect_id) {
+  if (!rawq_dgram_prefix_len(raw, connect_id)) return 0;
+  return wtwire_qsid_put(buf, cap, connect_id);
+}
+
+/* Fill e with the session's prefix (srvrun_dg_prefix_put) followed by the
+ * payload copy. 0 when the prefix cannot be encoded or the prefixed
  * payload does not fit a ring slot. */
 static int srvrun_dgring_fill(
-    srvrun_dgring_entry* e, int conn_slot, u64 connect_id, wired_span payload) {
-  usz qn = wtwire_qsid_put(e->buf, sizeof e->buf, connect_id);
-  if (!qn || payload.n > sizeof e->buf - qn) return 0;
+    srvrun_dgring_entry* e,
+    int                  conn_slot,
+    int                  raw,
+    u64                  connect_id,
+    wired_span           payload) {
+  usz qn = srvrun_dg_prefix_put(e->buf, sizeof e->buf, raw, connect_id);
+  if (qn != rawq_dgram_prefix_len(raw, connect_id) ||
+      payload.n > sizeof e->buf - qn)
+    return 0;
   bytes_memcpy(e->buf + qn, payload.p, payload.n);
   e->len       = qn + payload.n;
   e->conn_slot = conn_slot;
@@ -5380,9 +5518,10 @@ static int srvrun_dgring_fill(
 
 static int srvrun_dgring_push(
     wired_srvrun_env* env, int slot, u64 connect_id, wired_span payload) {
-  srvrun_dgring_entry* e = srvrun_dgring_tail(env);
+  srvrun_dgring_entry* e   = srvrun_dgring_tail(env);
+  int                  raw = srvrun_conn_is_raw(&env->conns[slot]);
   if (!e) return 0;
-  if (!srvrun_dgring_fill(e, slot, connect_id, payload)) return 0;
+  if (!srvrun_dgring_fill(e, slot, raw, connect_id, payload)) return 0;
   env->dgring_n++;
   return 1;
 }
@@ -5455,7 +5594,8 @@ static void srvrun_wt_close_record_message(
 int wired_server_wt_drain_session(wired_wt_session* s) {
   srvrun_conn* c    = srvrun_session_conn(s);
   int          sidx = wt_session_slot_or_absent(c, s);
-  if (sidx < 0) return 0;
+  /* draft-ietf-moq-transport-19 3.6: raw QUIC has no WT_DRAIN_SESSION */
+  if (sidx < 0 || srvrun_conn_is_raw(c)) return 0;
   c->wt_drain_pending[sidx] = 1;
   return 1;
 }
@@ -5477,6 +5617,11 @@ int wired_server_wt_occupancy(wired_wt_occupancy* out) {
       (usz)WIRED_CONNTABLE_CAP *
       (WIRED_SRVLOOP_MAX_WT_STREAMS + WIRED_SRVLOOP_MAX_WT_UNI_STREAMS);
   return 1;
+}
+
+int wired_server_session_is_raw(wired_wt_session* s) {
+  srvrun_conn* c = srvrun_session_conn(s);
+  return c && srvrun_conn_is_raw(c);
 }
 
 int wired_server_wt_close_session(
@@ -10461,6 +10606,8 @@ int wired_srvrun_serve_env(
   if (cfg.fd < 0) return 0;
   env->wt_on_session_draining  = opt->wt_on_session_draining;
   env->wt_session_draining_ctx = opt->wt_session_draining_ctx;
+  env->raw_on_session          = opt->raw_on_session;
+  env->raw_session_ctx         = opt->raw_session_ctx;
   srvrun_pref_listen(&cfg, id, opt);
   wired_certcache_prime(&env->certcache, id);
   srvrun_install_signals(&cfg, opt);
