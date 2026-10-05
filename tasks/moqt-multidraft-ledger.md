@@ -355,6 +355,19 @@ MoQT draft-19 以降は webtrans-http3-16 を参照している。ワイヤ値�
 10. **J ドキュメントと guide**: 8 章。
 11. **K 対向試験**: 7-6。draft の対象外以外の理由で落ちたケースは調査して直し、台帳に原因、修正コミット、ログの所在を記録する。
 
+## 12. interop 全 PASS とレビューで判明した追加項目(2026-10-05 追加、ゴール: 台帳全完了 + CI green + docs 整合 + moq-interop-runner 全 PASS(クライアント起因を除く))
+
+- [ ] 12-1 rendezvous(RENDEZVOUS_TIMEOUT、d18/19 §10.2.6、d22 §9.20.6)。設計・TLA+ 済み(`tasks/loopeng/moqt/Rendezvous/`、MC_main 332,392 distinct states で安全性+活性 OK、MC_bug が `moqtrun_req_answered` の `kind && !live` による held SUBSCRIBE の無応答クローズを再現)。実装中。
+- [ ] 12-2 publisher の PUBLISH_DONE を各購読者へ転送(購読者の版で encode、Stream Count は hub が購読者へ開いた本数)。現状は受信した PUBLISH_DONE を読み捨て。interop `publish-track-subscribe`/`moq-test-*` が依存。実装中。
+- [ ] 12-3 PUBLISH_NAMESPACE を出した publisher への上流 SUBSCRIBE(d18/19 §9.4、d22 §7.4: relay MUST send SUBSCRIBE upstream、上流確立後に SUBSCRIBE_OK)。interop `announce-subscribe`(aiomoqt, stitcher)/`subscribe-before-announce`(stitcher) が依存。12-1 の hold 表に接続する。
+- [ ] 12-4 Track Alias の不一致疑い: relay は publisher の alias のまま SUBGROUP/DATAGRAM を素通しし、SUBSCRIBE_OK では購読者ごとに別 alias を通知している疑い(5-4 作業中に発見)。調査・修正中。
+- [ ] 12-5 MAX_REQUEST_UPDATES の credit 検査が版ゲートされていない(d18 には無い制限で 0x1B close される、`moqtrun.c` の credit 検査)。docs 監査で発見。
+- [ ] 12-6 REQUEST_UPDATE で自分の PUBLISH を更新する経路が d18/d19 で拒否される(`moqtrun_upd_is_pub` が d22 のみ許可)が、d18/d19 §10.9 は PUBLISH を更新可能な要求に含む疑い。SUBSCRIBE_TRACKS の更新も NOT_SUPPORTED。仕様を再確認して修正。
+- [ ] 12-7 hub 発 PUBLISH は版非依存の `moqctl_publish_encode` で encode、受信側 `moqctl_publish_take` は版引数あり。d18/d22 ピアへのワイヤが正しいか固定テストで確認。
+- [ ] 12-8 古いコメント/ログの修正: `moqtrun.h:15`、`moqtrun.h:791-796`、`moqfetch.h:7`、`moqns.h:7`、`moqtstat.h:7`、`moqdata.h:8`、`moqdg.h:9`、`moqctl.h:49`、`moqtrun.c` の「non-zero SUBGROUP_DELIVERY_TIMEOUT を拒否」コメント、`moqver.c:7`(選好順の記述が実装と不一致)、`examples/moqt_chat/wired_server.c:331` のログ。
+- [ ] 12-9 MoQT 以外の features 台帳の古いテスト参照: `docs/features/rfc8446.md:270,329`(`test_sdrv_psk_ticket_open_fails_falls_back`)、`rfc9220.md:87`(`test_h3cancel_request`)、`rfc9368.md:63`(`test_verselect_pick`)。
+- [ ] 12-10 moq-interop-runner をローカルで全クライアントと対向させ、全 PASS(クライアント起因を除く)を `logs_*` 付きで記録。ベースライン計測中。
+
 ## 対象外
 
 - draft-14〜17 への対応。制御ストリームの形と varint が違う別時代で、先行実装でも adapter が必要になっている。
