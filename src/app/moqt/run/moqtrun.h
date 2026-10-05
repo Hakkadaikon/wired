@@ -508,6 +508,10 @@ typedef struct {
   /** 1 once the request established a subscription or track: it stays
    * open until cancelled or the session ends. */
   int live;
+  /** 1 while this SUBSCRIBE is held for a publisher (hub->rdv): owed an
+   * answer, so moqtrun_req_answered must not read kind && !live as
+   * complete and FIN it (draft-19 3.3.2: no FIN before the response). */
+  u8 rdv_held;
   /** 1 once the peer's side ended (FIN). */
   int fin_in;
   /** 1 once the hub's side ended (FIN, or a reset). The slot is freed when
@@ -564,6 +568,55 @@ typedef struct {
   u8 forward_zero;
   u8 group_order;
 } wired_moqtrun_req;
+
+/** Fixed capacity: SUBSCRIBEs held for a publisher (RENDEZVOUS_TIMEOUT,
+ * draft-18/19 10.2.6, draft-22 9.20.6), hub-wide. Each hold already pins
+ * one request-stream slot (WIRED_MOQTRUN_MAX_REQS = 64), so 16 lets a
+ * quarter of the pool wait at once -- interop clients hold one (moq-test-*,
+ * rendezvous-timeout) or two (two subscribers of one track). Past it, or
+ * past WIRED_MOQTRUN_RDV_PER_SESSION, the SUBSCRIBE is refused
+ * EXCESSIVE_LOAD at once, never dropped. Each slot ~1.3 KB of BSS.
+ * ponytail: room-sized; raise with WIRED_MOQTRUN_MAX_REQS. */
+#define WIRED_MOQTRUN_MAX_RDV 16
+
+/** Holds one session may own, so one session cannot take the whole table
+ * (the WIRED_MOQTRUN_MAX_REQS_PER_SESSION pattern). */
+#define WIRED_MOQTRUN_RDV_PER_SESSION (WIRED_MOQTRUN_MAX_RDV / 4)
+
+/** Longest hold, ms: the relay MAY use a shorter timeout (10.2.6). Twice
+ * the largest window a known interop client asks for (moq-rs moq-test:
+ * 5000 ms; rendezvous-timeout: 500 ms), and short enough that an idle
+ * subscriber cannot pin a request slot for longer than a page reload. */
+#define WIRED_MOQTRUN_RDV_MAX_MS 10000
+
+/** Retry Interval (ms + 1, draft-18 10.6: 1 = immediately) sent with the
+ * EXCESSIVE_LOAD refusal of a hold that did not fit. */
+#define WIRED_MOQTRUN_RDV_RETRY 1001
+
+/** One SUBSCRIBE held for a publisher. Owner key is (wt, stream_id) --
+ * never a pointer/index into hub->reqs[]: the request slot is looked up
+ * again at resolve/expiry, so a stream already gone simply ends the
+ * hold. */
+typedef struct {
+  int               in_use;
+  wired_wt_session* wt;
+  /** The SUBSCRIBE's request stream. */
+  u64 stream_id;
+  /** wired_moqt_tick clock at which the hold answers TIMEOUT. */
+  u64 deadline_ms;
+  /** The Full Track Name as the hub keys tracks (WIRED_MOQTRUN_MAX_NS /
+   * _MAX_NAME: a longer name is never held -- no PUBLISH can claim it). */
+  u8  ns[WIRED_MOQTRUN_MAX_NS];
+  usz ns_len;
+  u8  name[WIRED_MOQTRUN_MAX_NAME];
+  usz name_len;
+  /** The SUBSCRIBE body as received, re-decoded in the session's own
+   * draft when the hold resolves (the decoded views dangle after the
+   * dispatch). WIRED_MOQTRUN_CTL_MSG_MAX bounds every body this hub
+   * accepts, so it always fits. */
+  u8  body[WIRED_MOQTRUN_CTL_MSG_MAX];
+  usz body_len;
+} wired_moqtrun_rdv;
 
 /** Fixed capacity: FETCH responses (draft-ietf-moq-transport-19 10.12.3)
  * being served at once, hub-wide. A FETCH past it is answered
@@ -999,6 +1052,9 @@ typedef struct {
    * and moves into fetches[] the moment a serving slot frees; its only
    * other exit is the owning subscription's cancel. */
   wired_moqtrun_fetch fetch_waits[WIRED_MOQTRUN_MAX_FETCHES];
+  /** SUBSCRIBEs held for a publisher (RENDEZVOUS_TIMEOUT, draft-19
+   * 10.2.6), all sessions. */
+  wired_moqtrun_rdv rdv[WIRED_MOQTRUN_MAX_RDV];
   /** Namespace authorizer (draft-ietf-moq-transport-19 10.15, 10.18); 0
    * (the wired_moqt_init default) grants every PUBLISH_NAMESPACE and
    * SUBSCRIBE_NAMESPACE, like authorize_subscribe. */
