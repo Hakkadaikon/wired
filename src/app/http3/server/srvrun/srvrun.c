@@ -6526,6 +6526,15 @@ static void srvrun_wt_notify(
       wired_span_of(c->wt_path[sidx], c->wt_path_len[sidx]), protocol);
 }
 
+/* Interop deviation from SS5.5.1/5.5.2 (proxygen clients -- moxygen, moqx --
+ * send SETTINGS_WT_INITIAL_MAX_DATA alone and never a WT_MAX_STREAMS
+ * capsule, so the spec default of 0 would block this server's own SETUP
+ * stream forever): a peer that declared only a data limit gets the stream
+ * ceiling. Returns the value OR-ed into both stream limits. */
+static u64 srvrun_wt_streams_seed_cap(const u64* v) {
+  return (u64)(v[2] != 0 && v[0] == 0 && v[1] == 0) * WTSESSION_STREAMS_MAX;
+}
+
 /* draft-ietf-webtrans-http3-16 SS5.5.1-5.5.3: seed a new session's limits
  * from the client's SETTINGS_WT_INITIAL_* (the "previously received" baseline
  * for SS5.6.2/5.6.4). The SETTINGS are final by now: SS3.1 holds every
@@ -6535,9 +6544,12 @@ static void srvrun_wt_notify(
  * decides. A stream value past 2^60 is clamped to it (SS5.6.2's ceiling). */
 static void srvrun_wt_seed_limits(const srvrun_conn* c, wired_wt_session* s) {
   const u64* v    = c->l.peer_wt_initial;
+  u64        cap  = srvrun_wt_streams_seed_cap(v);
   s->flow_control = (v[0] | v[1] | v[2]) != 0;
-  wired_wt_session_set_max_streams(s, 0, u64_min(v[0], WTSESSION_STREAMS_MAX));
-  wired_wt_session_set_max_streams(s, 1, u64_min(v[1], WTSESSION_STREAMS_MAX));
+  wired_wt_session_set_max_streams(
+      s, 0, u64_min(v[0] | cap, WTSESSION_STREAMS_MAX));
+  wired_wt_session_set_max_streams(
+      s, 1, u64_min(v[1] | cap, WTSESSION_STREAMS_MAX));
   wired_wt_session_set_max_data(s, v[2]);
 }
 
