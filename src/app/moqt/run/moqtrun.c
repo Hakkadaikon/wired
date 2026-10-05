@@ -25,6 +25,10 @@
 #define MOQTRUN_RESET_GOING_AWAY 0x4
 #define MOQTRUN_RESET_EXCESSIVE_LOAD 0x9
 
+/* REQUEST_ERROR TIMEOUT: 0x2 in draft-18 15.10.2, draft-19 15.11.2 and
+ * draft-22 16.11.2 alike (no per-draft mapping row). */
+#define MOQTRUN_ERR_TIMEOUT 0x2ULL
+
 /* ===================== peer table ===================== */
 
 static int moqtrun_peer_matches_wt(
@@ -62,6 +66,10 @@ static void moqtrun_peer_clear_relays(wired_moqtrun_peer* p) {
 
 static void moqtrun_reqs_clear(wired_moqt_hub* hub) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) hub->reqs[i].in_use = 0;
+}
+
+static void moqtrun_rdv_clear(wired_moqt_hub* hub) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) hub->rdv[i].in_use = 0;
 }
 
 static void moqtrun_frag_pool_clear(wired_moqt_hub* hub) {
@@ -124,6 +132,7 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   hub->stat_rel_early_return = 0;
   for (usz i = 0; i < WIRED_MOQTREL_POOL; i++) moqtrel_reset(&hub->rel_pool[i]);
   moqtrun_reqs_clear(hub);
+  moqtrun_rdv_clear(hub);
   moqtrun_frag_pool_clear(hub);
   moqcache_init(&hub->cache, 0, 0);
   hub->cache_tag_next = 0;
@@ -422,14 +431,22 @@ static int moqtrun_encode_request_error(
   return moqctl_request_error_encode(buf, off, m);
 }
 
-static void moqtrun_send_request_error(wired_moqtrun_peer* p, u64 code) {
+/* REQUEST_ERROR code with Retry Interval retry (draft-18 10.6: 0 = not
+ * retryable, else ms + 1). */
+static void moqtrun_send_request_error_ri(
+    wired_moqtrun_peer* p, u64 code, u64 retry) {
   u8                   msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqctl_request_error e = {0};
   e.error_code           = moqctl_request_error_for(p->ver, code);
+  e.retry_interval       = retry;
   usz n                  = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_ERROR,
       moqtrun_encode_request_error, &e);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
+}
+
+static void moqtrun_send_request_error(wired_moqtrun_peer* p, u64 code) {
+  moqtrun_send_request_error_ri(p, code, 0);
 }
 
 /* Full Track Name as this hub keys peer tracks (draft 1.5): the encoded
@@ -876,6 +893,11 @@ static u64 moqtrun_track_prop_sgt(wired_span props) {
   return out;
 }
 
+/* Forward-declared: the rendezvous block below (moqtrun_rdv_resolve's own
+ * doc) answers every SUBSCRIBE held for k now that t claims it. */
+static void moqtrun_rdv_resolve(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, moqtrun_key k);
+
 /* A vetted PUBLISH: claim a track into a free (or matching-name) slot
  * and reply REQUEST_OK; a third distinct track name (no free slot), or a
  * name a newer session already owns (moqtrun_publish_slot), gets
@@ -905,6 +927,7 @@ static void moqtrun_publish_checked(
   t->up_streams          = 0;
   t->pubdone_pending     = 0;
   moqtrun_reattach_subs(hub, t, peer_idx, k);
+  moqtrun_rdv_resolve(hub, t, k);
   moqtrun_queue_request_ok(p, 0);
   moqtrun_req_mark_live(p);
 }
@@ -1664,18 +1687,270 @@ static void moqtrun_subscribe_peer_track(
   moqtrun_accept_subscribe(hub, p, track, slot, peer_idx, m, k);
 }
 
+/* ===== Rendezvous (RENDEZVOUS_TIMEOUT: draft-18/19 10.2.6, 22 9.20.6) =====
+ * A SUBSCRIBE for a track nobody publishes, carrying a non-zero
+ * RENDEZVOUS_TIMEOUT, is held in hub->rdv instead of refused. It ends in
+ * exactly one answer (18/19 5.1, 22 3.1): SUBSCRIBE_OK once a PUBLISH
+ * claims the track (moqtrun_rdv_resolve, 18/19 9.5 / 22 7.6 "MUST proceed
+ * with the SUBSCRIBE"), REQUEST_ERROR TIMEOUT at the deadline
+ * (moqtrun_rdv_tick), or none when cancelled (reset, session gone). */
+
+static wired_moqtrun_req* moqtrun_req_find(
+    wired_moqt_hub* hub, const wired_wt_session* s, u64 stream_id);
+
+/* RENDEZVOUS_TIMEOUT in ms; absent reads 0, its default (10.2.6). */
+static u64 moqtrun_rdv_rt(const moqctl_subscribe* m) {
+  return moqtrun_param_vi(
+      moqtrun_sub_param(m, MOQCTL_PARAM_RENDEZVOUS_TIMEOUT));
+}
+
+/* 1 iff a SUBSCRIBE with no publisher is held, not refused at once: a
+ * non-zero timeout (0 MUST get DOES_NOT_EXIST now), a request stream to
+ * answer on later (the single-bidi control stream's REQUEST_ERROR names
+ * no stream -- 10.2.6 lets a relay use a shorter timeout, here none), and
+ * a Full Track Name a PUBLISH could ever claim. */
+static int moqtrun_rdv_holdable(
+    const wired_moqtrun_peer* p, const moqctl_subscribe* m, moqtrun_key k) {
+  return p->req && moqtrun_rdv_rt(m) && !moqtrun_key_oversized(k);
+}
+
+static wired_moqtrun_rdv* moqtrun_rdv_free_slot(wired_moqt_hub* hub) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+    if (!hub->rdv[i].in_use) return &hub->rdv[i];
+  return 0;
+}
+
+static int moqtrun_rdv_owned(
+    const wired_moqtrun_rdv* r, const wired_wt_session* s) {
+  return r->in_use && r->wt == s;
+}
+
+static usz moqtrun_rdv_count(
+    const wired_moqt_hub* hub, const wired_wt_session* s) {
+  usz n = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+    n += (usz)moqtrun_rdv_owned(&hub->rdv[i], s);
+  return n;
+}
+
+/* A free slot for s, unless s holds its share or the table is full. */
+static wired_moqtrun_rdv* moqtrun_rdv_admit(
+    wired_moqt_hub* hub, const wired_wt_session* s) {
+  return moqtrun_rdv_count(hub, s) < WIRED_MOQTRUN_RDV_PER_SESSION
+             ? moqtrun_rdv_free_slot(hub)
+             : 0;
+}
+
+/* Fills r from p's request; the deadline is clamped to
+ * WIRED_MOQTRUN_RDV_MAX_MS (10.2.6: the relay MAY use a shorter one). */
+static void moqtrun_rdv_store(
+    wired_moqt_hub*           hub,
+    wired_moqtrun_rdv*        r,
+    const wired_moqtrun_peer* p,
+    moqtrun_key               k,
+    wired_span                body,
+    u64                       rt) {
+  r->in_use    = 1;
+  r->wt        = p->wt;
+  r->stream_id = p->req->stream_id;
+  r->deadline_ms =
+      hub->live.last_now_ms + u64_min(rt, WIRED_MOQTRUN_RDV_MAX_MS);
+  r->ns_len   = k.ns.n;
+  r->name_len = k.name.n;
+  r->body_len = body.n;
+  bytes_memcpy(r->ns, k.ns.p, k.ns.n);
+  bytes_memcpy(r->name, k.name.p, k.name.n);
+  bytes_memcpy(r->body, body.p, body.n);
+}
+
+/* Holds the SUBSCRIBE, sending nothing yet; with no slot left it is
+ * refused EXCESSIVE_LOAD with a Retry Interval at once (10.6), never
+ * dropped silently. */
+static void moqtrun_rdv_hold(
+    wired_moqt_hub*         hub,
+    wired_moqtrun_peer*     p,
+    const moqctl_subscribe* m,
+    moqtrun_key             k,
+    wired_span              body) {
+  wired_moqtrun_rdv* r = moqtrun_rdv_admit(hub, p->wt);
+  if (!r) {
+    moqtrun_send_request_error_ri(
+        p, MOQCTL_ERR_EXCESSIVE_LOAD, WIRED_MOQTRUN_RDV_RETRY);
+    return;
+  }
+  moqtrun_rdv_store(hub, r, p, k, body, moqtrun_rdv_rt(m));
+  p->req->rdv_held = 1;
+}
+
+/* A SUBSCRIBE whose track has no publisher: held (moqtrun_rdv_holdable),
+ * else DOES_NOT_EXIST at once (10.2.6: 0 or absent MUST). */
+static void moqtrun_rdv_miss(
+    wired_moqt_hub*         hub,
+    wired_moqtrun_peer*     p,
+    const moqctl_subscribe* m,
+    moqtrun_key             k,
+    wired_span              body) {
+  if (!moqtrun_rdv_holdable(p, m, k)) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
+    return;
+  }
+  moqtrun_rdv_hold(hub, p, m, k, body);
+}
+
+/* 1 iff r holds a SUBSCRIBE for exactly k (draft 1.5 Full Track Name). */
+static int moqtrun_rdv_matches(const wired_moqtrun_rdv* r, moqtrun_key k) {
+  return r->in_use && moqtrun_ns_eq(r->ns, r->ns_len, k.ns) &&
+         moqtrun_ns_eq(r->name, r->name_len, k.name);
+}
+
+static int moqtrun_rdv_peer_open(const wired_moqtrun_peer* sp) {
+  return sp && !sp->closing;
+}
+
+/* r's request slot (*sp its session), else 0: the session or the stream
+ * is gone, or the hub is closing the session (nothing more goes to it). */
+static wired_moqtrun_req* moqtrun_rdv_target(
+    wired_moqt_hub* hub, const wired_moqtrun_rdv* r, wired_moqtrun_peer** sp) {
+  *sp = moqtrun_find_by_wt(hub, r->wt);
+  return moqtrun_rdv_peer_open(*sp) ? moqtrun_req_find(hub, r->wt, r->stream_id)
+                                    : 0;
+}
+
+/* One way a hold is answered: on sp, whose sp->req is the held stream. */
+typedef void (*moqtrun_rdv_fn)(
+    wired_moqt_hub*,
+    wired_moqtrun_peer*,
+    const wired_moqtrun_rdv*,
+    wired_moqtrun_track*);
+
+/* Ends hold r: answered by fn on its own stream, or -- the target gone
+ * (TLA+ Cancel) -- silently. The slot frees either way, before fn runs,
+ * so the answer is the hold's one and only (AtMostOneAnswer). */
+static void moqtrun_rdv_answer(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_rdv*   r,
+    moqtrun_rdv_fn       fn,
+    wired_moqtrun_track* t) {
+  wired_moqtrun_peer* sp;
+  wired_moqtrun_req*  q = moqtrun_rdv_target(hub, r, &sp);
+  r->in_use             = 0;
+  if (!q) return;
+  wired_moqtrun_req* saved = sp->req;
+  sp->req                  = q;
+  q->rdv_held              = 0;
+  fn(hub, sp, r, t);
+  sp->req = saved;
+}
+
+/* The held SUBSCRIBE, re-decoded in its session's draft, goes the normal
+ * found-track way (moqtrun_subscribe_peer_track: SUBSCRIBE_OK, or the
+ * held-subscription re-answer, or DOES_NOT_EXIST once subs[] is full). */
+static void moqtrun_rdv_do_resolve(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_peer*      sp,
+    const wired_moqtrun_rdv* r,
+    wired_moqtrun_track*     t) {
+  u8               ns_buf[WIRED_MOQTRUN_MAX_NS];
+  usz              off = 0;
+  moqctl_subscribe m;
+  wired_span       body = wired_span_of(r->body, r->body_len);
+  if (moqctl_subscribe_take(sp->ver, body, &off, &m) != MOQCTL_OK) {
+    moqtrun_send_request_error(sp, MOQCTL_ERR_INTERNAL_ERROR);
+    return;
+  }
+  moqtrun_subscribe_peer_track(
+      hub, sp, t, (usz)(sp - hub->peers), moqtrun_key_of(&m.name, ns_buf), &m);
+}
+
+/* 10.2.6: no publisher within the timeout -- REQUEST_ERROR TIMEOUT (22:
+ * SUBSCRIBE_ERROR, the same message). */
+static void moqtrun_rdv_do_expire(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_peer*      sp,
+    const wired_moqtrun_rdv* r,
+    wired_moqtrun_track*     t) {
+  (void)hub;
+  (void)r;
+  (void)t;
+  moqtrun_send_request_error(sp, MOQTRUN_ERR_TIMEOUT);
+}
+
+/* t now claims k: every SUBSCRIBE held for k proceeds (18/19 9.5, 22 7.6).
+ * Called before the PUBLISH_OK and before the SUBSCRIBE_TRACKS sync, which
+ * then skips a session already subscribed (moqtrun_subtracks_attempt).
+ * Reusable by any later resolve point (an upstream SUBSCRIBE_OK). */
+static void moqtrun_rdv_resolve(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, moqtrun_key k) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+    if (moqtrun_rdv_matches(&hub->rdv[i], k))
+      moqtrun_rdv_answer(hub, &hub->rdv[i], moqtrun_rdv_do_resolve, t);
+}
+
+/* Past its deadline, or its target gone (swept without an answer). */
+static int moqtrun_rdv_due(
+    wired_moqt_hub* hub, const wired_moqtrun_rdv* r, u64 now_ms) {
+  wired_moqtrun_peer* sp;
+  return r->in_use &&
+         (now_ms >= r->deadline_ms || !moqtrun_rdv_target(hub, r, &sp));
+}
+
+/* wired_moqt_tick's expiry pass; the tick's moqtrun_reqs_tick then sends
+ * each TIMEOUT and FINs its stream. */
+static void moqtrun_rdv_tick(wired_moqt_hub* hub, u64 now_ms) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+    if (moqtrun_rdv_due(hub, &hub->rdv[i], now_ms))
+      moqtrun_rdv_answer(hub, &hub->rdv[i], moqtrun_rdv_do_expire, 0);
+}
+
+static int moqtrun_rdv_on_stream(
+    const wired_moqtrun_rdv* r, const wired_wt_session* s, u64 stream_id) {
+  return moqtrun_rdv_owned(r, s) && r->stream_id == stream_id;
+}
+
+/* A cancelled request stream's hold goes, unanswered (3.3.3). */
+static void moqtrun_rdv_drop_stream(
+    wired_moqt_hub* hub, const wired_wt_session* s, u64 stream_id) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+    if (moqtrun_rdv_on_stream(&hub->rdv[i], s, stream_id))
+      hub->rdv[i].in_use = 0;
+}
+
+/* A closed session's holds go at once: a new session may reuse its handle
+ * and stream ids, and must not be answered for them. */
+static void moqtrun_rdv_drop_wt(
+    wired_moqt_hub* hub, const wired_wt_session* s) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+    if (moqtrun_rdv_owned(&hub->rdv[i], s)) hub->rdv[i].in_use = 0;
+}
+
+static int moqtrun_rdv_held_here(const wired_moqtrun_peer* p) {
+  return p->req && p->req->rdv_held;
+}
+
+/* A REQUEST_UPDATE on a held SUBSCRIBE (draft-19 10.9: exactly one answer
+ * each, and the first on the stream reads as the SUBSCRIBE's): the hold is
+ * answered TIMEOUT first -- the shorter timeout 10.2.6 allows. */
+static void moqtrun_rdv_settle_early(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  if (!moqtrun_rdv_held_here(p)) return;
+  moqtrun_send_request_error(p, MOQTRUN_ERR_TIMEOUT);
+  p->req->rdv_held = 0;
+  moqtrun_rdv_drop_stream(hub, p->wt, p->req->stream_id);
+}
+
 /* draft SS10.6 SUBSCRIBE for a peer-published track: find it and reply
  * SUBSCRIBE_OK with an assigned Track Alias, else DOES_NOT_EXIST. */
 static void moqtrun_route_peer_subscribe(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
     usz                     peer_idx,
-    const moqctl_subscribe* m) {
+    const moqctl_subscribe* m,
+    wired_span              body) {
   u8                   ns_buf[WIRED_MOQTRUN_MAX_NS];
   moqtrun_key          k     = moqtrun_key_of(&m->name, ns_buf);
   wired_moqtrun_track* track = moqtrun_find_published_track(hub, k);
   if (!track) {
-    moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
+    moqtrun_rdv_miss(hub, p, m, k, body);
     return;
   }
   moqtrun_subscribe_peer_track(hub, p, track, peer_idx, k, m);
@@ -1695,7 +1970,8 @@ static void moqtrun_route_subscribe(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
     usz                     peer_idx,
-    const moqctl_subscribe* m) {
+    const moqctl_subscribe* m,
+    wired_span              body) {
   if (moqtrun_track_name_matches(&hub->blob_track, m->name.name)) {
     moqtrun_subscribe_blob(hub, p, peer_idx, m);
     return;
@@ -1704,7 +1980,7 @@ static void moqtrun_route_subscribe(
     moqtrun_subscribe_live(hub, p, peer_idx, m);
     return;
   }
-  moqtrun_route_peer_subscribe(hub, p, peer_idx, m);
+  moqtrun_route_peer_subscribe(hub, p, peer_idx, m, body);
 }
 
 /* First AUTHORIZATION TOKEN parameter (draft SS10.2.2) of a message, or
@@ -1891,14 +2167,15 @@ static void moqtrun_subscribe_checked(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
     usz                     peer_idx,
-    const moqctl_subscribe* m) {
+    const moqctl_subscribe* m,
+    wired_span              body) {
   if (moqtrun_fill_malformed(hub, p, &m->params)) return;
   u64 code = moqtrun_subscribe_refusal(hub, m);
   if (code != MOQTRUN_REQ_ACCEPT) {
     moqtrun_send_request_error(p, code);
     return;
   }
-  moqtrun_route_subscribe(hub, p, peer_idx, m);
+  moqtrun_route_subscribe(hub, p, peer_idx, m, body);
 }
 
 static void moqtrun_handle_subscribe(
@@ -1908,7 +2185,7 @@ static void moqtrun_handle_subscribe(
   if (!moqtrun_take_or_close(
           hub, p, moqctl_subscribe_take(p->ver, body, &off, &m)))
     return;
-  moqtrun_subscribe_checked(hub, p, peer_idx, &m);
+  moqtrun_subscribe_checked(hub, p, peer_idx, &m, body);
 }
 
 /* ===================== FETCH (draft 10.12, 10.13, 11.4.4) =============== */
@@ -3065,6 +3342,7 @@ static void moqtrun_update_sub(
     usz                  idx,
     const moqctl_params* params,
     u64                  rid) {
+  moqtrun_rdv_settle_early(hub, p);
   wired_moqtrun_track* t    = 0;
   wired_moqtrun_sub*   s    = moqtrun_upd_target(hub, p, idx, &t);
   u64                  code = moqtrun_upd_verdict(hub, p, s, t, params);
@@ -3953,16 +4231,29 @@ static int moqtrun_subtracks_try_open(
 /* One candidate (st, t) pair: PUBLISH if a bidi stream opens, else
  * PUBLISH_SKIPPED (the resource-exhaustion choice settled in design.md
  * section 5) -- and mark the attempt either way (exactly once). */
+static void moqtrun_subtracks_offer(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  st_peer,
+    wired_moqtrun_req*   st,
+    wired_moqtrun_track* t) {
+  wired_moqtrun_req* q =
+      moqtrun_subtracks_claim_slot(hub, st_peer, st->request_id);
+  if (!moqtrun_subtracks_try_open(hub, st_peer, q, t, st))
+    moqtrun_subtracks_send_skipped(st, t);
+}
+
+/* A session already subscribed to t (a held SUBSCRIBE that t's PUBLISH
+ * resolved, moqtrun_rdv_resolve) is marked tried with nothing sent:
+ * 18/19 9.5, 22 7.6 "MUST NOT also forward the PUBLISH to that
+ * subscriber". */
 static void moqtrun_subtracks_attempt(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  st_peer,
     wired_moqtrun_req*   st,
     wired_moqtrun_track* t,
     usz                  slot) {
-  wired_moqtrun_req* q =
-      moqtrun_subtracks_claim_slot(hub, st_peer, st->request_id);
-  if (!moqtrun_subtracks_try_open(hub, st_peer, q, t, st))
-    moqtrun_subtracks_send_skipped(st, t);
+  if (!moqtrun_track_sub_of_peer(t, (usz)(st_peer - hub->peers)))
+    moqtrun_subtracks_offer(hub, st_peer, st, t);
   moqtrun_subtracks_mark_tried(st, t, slot);
 }
 
@@ -4688,6 +4979,7 @@ void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
   moqtrun_rel_tick_all(hub, now_ms);
   moqtrun_drain_tick(hub, now_ms);
   moqtrun_pubdone_sweep(hub);
+  moqtrun_rdv_tick(hub, now_ms);
   moqtrun_reqs_tick(hub);
   moqtrun_live_tick(hub, now_ms);
   moqtrun_fetches_tick(hub, 1); /* a descending fill waits for them */
@@ -6478,6 +6770,7 @@ static wired_moqtrun_req* moqtrun_req_open(
   q->armed_idx       = 0;
   q->goaway          = 0;
   q->live            = 0;
+  q->rdv_held        = 0;
   q->fin_in          = 0;
   q->fin_out         = 0;
   q->done_pending    = 0;
@@ -6534,7 +6827,7 @@ static wired_moqtrun_req* moqtrun_req_for(
 
 /* Answered without establishing anything: the request is complete. */
 static int moqtrun_req_answered(const wired_moqtrun_req* q) {
-  return q->kind && !q->live;
+  return q->kind && !q->live && !q->rdv_held;
 }
 
 /* The peer ended its side before sending a whole request. */
@@ -7059,6 +7352,7 @@ void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s) {
   moqtrun_peer_tracks_ended(hub, p);
   moqtrun_drop_peer_subs(hub, (usz)(p - hub->peers), MOQTRUN_RID_ANY);
   moqtrun_reqs_drop(hub, s);
+  moqtrun_rdv_drop_wt(hub, s);
   moqtrun_fetches_drop(hub, s);
   /* The leaver's own rings return now (moqtrun_rel_drop_ring's doc); its
    * relay entries stay untouched so a later re-claim can still reset the
@@ -7107,6 +7401,7 @@ static void moqtrun_req_cancel(
   moqtrun_sub_names_forget(p, q->request_id);
   moqtrun_peer_unpublish(hub, p, q->request_id);
   moqtrun_fetches_cancel(hub, p->wt, q->request_id);
+  moqtrun_rdv_drop_stream(hub, p->wt, q->stream_id);
   if (!q->fin_out)
     hub->io.stream_reset(p->wt, q->stream_id, MOQTRUN_RESET_CANCELLED);
   q->in_use = 0;
