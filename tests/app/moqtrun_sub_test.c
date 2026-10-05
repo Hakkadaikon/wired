@@ -984,12 +984,17 @@ static void test_moqtrun_pub_params_delivery_timeout_d22(void) {
   CHECK(!mtver_publish_answered(MOQVER_D19, &p));
 }
 
-/* draft-18 PUBLISH takes GROUP_ORDER (a SUBSCRIBE_TRACKS-generated
- * PUBLISH echoes it); draft-19 SS10.2.8 does not list PUBLISH. */
-static void test_moqtrun_pub_params_group_order_d18(void) {
+/* draft-19 PUBLISH takes GROUP_ORDER: a SUBSCRIBE_TRACKS-generated
+ * PUBLISH "will include the GROUP_ORDER parameter" (19 SS10.19.1, ruling
+ * Q18-02 over SS10.2.8's list), as draft-22 SS9.8 lists it outright.
+ * draft-18 SS10.2.8 allows it only in SUBSCRIBE, PUBLISH_OK or FETCH and
+ * its SS10.19 echoes FORWARD alone, so a draft-18 PUBLISH carrying it is a
+ * violation. */
+static void test_moqtrun_pub_params_group_order_d19(void) {
   moqctl_params p = mtst_params_u8(MOQCTL_PARAM_GROUP_ORDER, 1);
-  CHECK(mtver_publish_answered(MOQVER_D18, &p));
-  CHECK(!mtver_publish_answered(MOQVER_D19, &p));
+  CHECK(!mtver_publish_answered(MOQVER_D18, &p));
+  CHECK(mtver_publish_answered(MOQVER_D19, &p));
+  CHECK(mtver_publish_answered(MOQVER_D22, &p));
 }
 
 /* draft-22 9.3: the publisher's initial Subscription parameters ride
@@ -1580,7 +1585,7 @@ void test_moqtrun_sub(void) {
   test_moqtrun_sub_filter22_end_object_per_sub();
   test_moqtrun_sub_params_include_properties_d22();
   test_moqtrun_pub_params_delivery_timeout_d22();
-  test_moqtrun_pub_params_group_order_d18();
+  test_moqtrun_pub_params_group_order_d19();
   test_moqtrun_pub_params_forward_all_drafts();
   test_moqtrun_sub_params_range_filter_d18();
   test_moqtrun_req_goaway_watermark_d18();

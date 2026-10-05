@@ -5,7 +5,10 @@
 
 /* @file
  * The one table backing moqver_find/moqver_caps/wired_moqt_wt_protocols: row
- * order is server preference order (also the subprotocol offer order). */
+ * order is the order of the server's subprotocol list. It is not a
+ * preference: srvrun_wt_select picks the first member of the CLIENT's
+ * wt-available-protocols offer that the list contains
+ * (draft-ietf-webtrans-http3 3.4), so the client's order decides. */
 
 typedef struct {
   int         ver;
@@ -19,7 +22,7 @@ static const moqver_row moqver_table[MOQVER_COUNT] = {
          MOQVER_CAP_FILL_FETCH | MOQVER_CAP_PUBLISH_STATE_NOTIFY |
          MOQVER_CAP_FETCH_END_INCLUSIVE | MOQVER_CAP_RANGE_FILTERS |
          MOQVER_CAP_MAX_REQUEST_UPDATES | MOQVER_CAP_NS_PREFIX_MATCH |
-         MOQVER_CAP_EOR_TIMED_OUT | MOQVER_CAP_UPDATE_ON_PUBLISH},
+         MOQVER_CAP_EOR_TIMED_OUT},
     {MOQVER_D19, "moqt-19",
      MOQVER_CAP_RANGE_FILTERS | MOQVER_CAP_MAX_REQUEST_UPDATES |
          MOQVER_CAP_SUBSCRIPTION_ENDED},

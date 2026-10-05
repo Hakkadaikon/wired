@@ -855,8 +855,9 @@ typedef struct {
 
 /* ctx sets, {draft-22, draft-19, draft-18}: each draft's "MAY appear in"
  * (22 SS9.20.x, 19 SS10.2.x, 18 SS10.2.x). draft-19 adds SUBSCRIBE_TRACKS
- * for every SUBSCRIBE parameter (19 SS10.19.1); draft-18 PUBLISH also takes
- * GROUP_ORDER, which a SUBSCRIBE_TRACKS-generated PUBLISH echoes. An
+ * for every SUBSCRIBE parameter (19 SS10.19.1); draft-19 PUBLISH also takes
+ * GROUP_ORDER, which a SUBSCRIBE_TRACKS-generated PUBLISH echoes (19
+ * SS10.19.1 "will include the GROUP_ORDER parameter"). An
  * unqualified "REQUEST_UPDATE" covers every REQUEST_UPDATE kind.
  * RENDEZVOUS and FILL timeouts state no encoding; varint is assumed. Range
  * filters (5.1.3) and FILL_PARAMETERS (22 SS9.20.15: Number of Parameters
@@ -874,7 +875,7 @@ static const moqctl_param_rule MOQCTL_PARAM_RULES[] = {
     {MOQCTL_PARAM_FORWARD,                   MOQCTL_PENC_UINT8,     {0x25005, 0x500D,  0x500D},  0, 1,   0},
     {MOQCTL_PARAM_SUBSCRIBER_PRIORITY,       MOQCTL_PENC_UINT8,     {0xC015,  0xD019,  0xC019},  0, 255, 0},
     {MOQCTL_PARAM_LOCATION_FILTER,           MOQCTL_PENC_LOCFILTER, {0x4015,  0x5009,  0x4009},  0, 0,   0},
-    {MOQCTL_PARAM_GROUP_ORDER,               MOQCTL_PENC_UINT8,     {0x1015,  0x1011,  0x1D},    1, 2,   0},
+    {MOQCTL_PARAM_GROUP_ORDER,               MOQCTL_PENC_UINT8,     {0x1015,  0x1015,  0x19},    1, 2,   0},
     {MOQCTL_PARAM_FILL_PARAMETERS,           MOQCTL_PENC_BYTES,     {0x4001,  0,       0},       0, 0,   0},
     {MOQCTL_PARAM_SUBGROUP_FILTER,           MOQCTL_PENC_BYTES,     {0x5011,  0x5019,  0},       0, 0,   1},
     {MOQCTL_PARAM_OBJECTID_FILTER,           MOQCTL_PENC_BYTES,     {0x5011,  0x5019,  0},       0, 0,   1},

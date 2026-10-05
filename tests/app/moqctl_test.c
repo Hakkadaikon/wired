@@ -991,7 +991,7 @@ static const mqpt_row MQPT_REGISTRY[] = {
     {0x04, 0x1001, MQPT_VARINT, 1},   {0x06, 0x7D009, MQPT_VARINT, 1},
     {0x08, 0x82A0E, MQPT_VARINT, 1},  {0x09, 0x80086, MQPT_LOC, 2},
     {0x0A, 0x10, MQPT_VARINT, 1},     {0x10, 0x500D, MQPT_UINT8, 1},
-    {0x20, 0xD019, MQPT_UINT8, 1},    {0x22, 0x1011, MQPT_UINT8, 1},
+    {0x20, 0xD019, MQPT_UINT8, 1},    {0x22, 0x1015, MQPT_UINT8, 1},
     {0x25, 0x5019, MQPT_RANGE, 3},    {0x26, 0x5019, MQPT_RANGE, 3},
     {0x27, 0x5019, MQPT_RANGE, 3},    {0x28, 0x5019, MQPT_PROPRNG, 4},
     {0x29, 0x21000, MQPT_PROPRNG, 4}, {0x32, 0x5009, MQPT_VARINT, 1},
@@ -1029,14 +1029,14 @@ static void test_moqctl_params_registry_scope(void) {
 }
 
 /* draft-18 SS10.2.x "MAY appear in" (no SUBSCRIBE_TRACKS inheritance,
- * 0x25-0x29 / 0x23 / 0x35 unknown), plus GROUP_ORDER in PUBLISH for the
- * PUBLISH a SUBSCRIBE_TRACKS generates (SS10.19 echoes it). */
+ * 0x25-0x29 / 0x23 / 0x35 unknown); GROUP_ORDER is SUBSCRIBE, PUBLISH_OK
+ * or FETCH only (SS10.2.8 -- draft-18 SS10.19 echoes FORWARD alone). */
 static const mqpt_row MQPT_REGISTRY18[] = {
     {0x02, 0x7C009, MQPT_VARINT, 1}, {0x03, 0x7D555, MQPT_TOKEN, 3},
     {0x04, 0x1, MQPT_VARINT, 1},     {0x06, 0x7C009, MQPT_VARINT, 1},
     {0x08, 0x8000E, MQPT_VARINT, 1}, {0x09, 0x80086, MQPT_LOC, 2},
     {0x0A, 0x10, MQPT_VARINT, 1},    {0x10, 0x500D, MQPT_UINT8, 1},
-    {0x20, 0xC019, MQPT_UINT8, 1},   {0x22, 0x1D, MQPT_UINT8, 1},
+    {0x20, 0xC019, MQPT_UINT8, 1},   {0x22, 0x19, MQPT_UINT8, 1},
     {0x25, 0, MQPT_RANGE, 3},        {0x26, 0, MQPT_RANGE, 3},
     {0x27, 0, MQPT_RANGE, 3},        {0x28, 0, MQPT_PROPRNG, 4},
     {0x29, 0, MQPT_PROPRNG, 4},      {0x32, 0x4009, MQPT_VARINT, 1},

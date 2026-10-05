@@ -46,7 +46,8 @@
 #define MOQCTL_UNKNOWN_TYPE (-2)
 #define MOQCTL_KNOWN_UNIMPLEMENTED (-3)
 
-/* Wire limits (draft-ietf-moq-transport-19). */
+/* Wire limits (draft-ietf-moq-transport-18/19/22: the same in all three;
+ * draft-19 sections). */
 #define MOQCTL_MAX_MSG_LEN 0xFFFF  /* SS10: 2^16-1 */
 #define MOQCTL_MAX_REASON_LEN 1024 /* SS1.4.4 */
 #define MOQCTL_MAX_URI_LEN 8192    /* SS10.3 GOAWAY */

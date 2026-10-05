@@ -1844,9 +1844,10 @@ static u64 moqtrun_subscribe_refusal(
   return moqtrun_subscribe_refusal_tail(hub, m);
 }
 
-/* draft SS10.6 SUBSCRIBE: reject a non-zero SUBGROUP_DELIVERY_TIMEOUT
- * (moqtrun_param_is_nonzero_timeout) and unauthorized subscribers, else
- * delegate matching + response to moqtrun_route_subscribe. */
+/* draft SS10.6 SUBSCRIBE: refuse it per moqtrun_subscribe_refusal
+ * (reserved namespace, bad Range/Location Filter, alias token or
+ * unauthorized subscriber -- any SUBGROUP_DELIVERY_TIMEOUT is accepted,
+ * 10.2.3), else delegate matching + response to moqtrun_route_subscribe. */
 static void moqtrun_subscribe_checked(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
@@ -2978,11 +2979,11 @@ static int moqtrun_upd_is_sub(const wired_moqtrun_peer* p) {
   return p->req && p->req->kind == MOQCTL_T_SUBSCRIBE;
 }
 
-/* draft-22 9.8 lets the requester also update its own PUBLISH; the
- * earlier drafts keep REQUEST_UPDATE to subscriptions. */
+/* draft-18/19 10.9, draft-22 9.5: "The sender of a request (SUBSCRIBE,
+ * PUBLISH, FETCH, ...) can later send a REQUEST_UPDATE" -- every draft
+ * lets a publisher update its own PUBLISH. */
 static int moqtrun_upd_is_pub(const wired_moqtrun_peer* p) {
-  return p->req && p->req->kind == MOQCTL_T_PUBLISH &&
-         (moqver_caps(p->ver) & MOQVER_CAP_UPDATE_ON_PUBLISH);
+  return p->req && p->req->kind == MOQCTL_T_PUBLISH;
 }
 
 /* draft-ietf-moq-transport-19 10.9: the sender of a FETCH may REQUEST_UPDATE
@@ -3026,9 +3027,9 @@ static u32 moqtrun_upd_ctx(const wired_moqtrun_peer* p) {
   return MOQCTL_PCTX_UPDATE_SUBSCRIPTION;
 }
 
-/* draft-22 9.8 on a PUBLISH stream: the parameters are vetted as a
- * subscription's would be; the hub models no publisher-side state they
- * would move, so an acceptable update is REQUEST_OK and nothing else. */
+/* A publisher's update of its own PUBLISH (10.9): the parameters are vetted as
+ * a subscription's would be; the hub models no publisher-side state they would
+ * move, so an acceptable update is REQUEST_OK and nothing else. */
 static void moqtrun_update_pub(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_params* params) {
   u64 code = moqtrun_params_refusal(params);
@@ -3109,11 +3110,14 @@ static void moqtrun_update_route(
   moqtrun_update_sub(hub, p, peer_idx, params, rid);
 }
 
-/* draft-ietf-moq-transport-19 10.4/10.9: a request stream already
- * holding MAX_REQUEST_UPDATES outstanding (received, not yet answered by
- * a flushed reply) REQUEST_UPDATEs closes the session on one more. */
-static int moqtrun_upd_over_credit(const wired_moqtrun_req* q) {
-  return q->pending_updates >= WIRED_MOQTRUN_MAX_REQ_UPDATES;
+/* draft-ietf-moq-transport-19 10.3.1.7, draft-22 9.1.7: a request stream
+ * already holding MAX_REQUEST_UPDATES outstanding (received, not yet
+ * answered by a flushed reply) REQUEST_UPDATEs closes the session on one
+ * more. draft-18 has no such limit (nor advertises one, moqtrun_setup_limits).
+ */
+static int moqtrun_upd_over_credit(const wired_moqtrun_peer* p) {
+  return (moqver_caps(p->ver) & MOQVER_CAP_MAX_REQUEST_UPDATES) &&
+         p->req->pending_updates >= WIRED_MOQTRUN_MAX_REQ_UPDATES;
 }
 
 /* Rejects (and signals) a REQUEST_UPDATE that must not reach decode: not
@@ -3124,7 +3128,7 @@ static int moqtrun_upd_refused(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
     moqtrun_upd_close_ns(p->req);
     return 1;
   }
-  if (moqtrun_upd_over_credit(p->req)) {
+  if (moqtrun_upd_over_credit(p)) {
     moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES);
     return 1;
   }
@@ -3133,8 +3137,8 @@ static int moqtrun_upd_refused(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
 
 /* A REQUEST_UPDATE of the request riding its stream (its own Request ID
  * is a fresh one, 10.1: the stream names the request) -- a SUBSCRIBE, a
- * FETCH, a PUBLISH_NAMESPACE/SUBSCRIBE_NAMESPACE, or (draft-22) the
- * sender's own PUBLISH. On the control stream, or for TRACK_STATUS,
+ * FETCH, a PUBLISH_NAMESPACE/SUBSCRIBE_NAMESPACE, or the sender's own
+ * PUBLISH. On the control stream, or for TRACK_STATUS,
  * NOT_SUPPORTED. A malformed one (e.g. a parameter outside the update's
  * scope for that request kind) closes the session. */
 static void moqtrun_handle_update(

@@ -328,9 +328,10 @@ static int app_on_request(
     int*                        more,
     u64*                        total_size) {
   static const u8 body[] =
-      "moqt_chat: connect via WebTransport (subprotocol moqt-19) to join "
-      "the chat room. Each participant PUBLISHes one track and SUBSCRIBEs "
-      "to every other participant's track (draft-ietf-moq-transport-19).\n";
+      "moqt_chat: connect via WebTransport (no subprotocol is negotiated; "
+      "the session runs draft-ietf-moq-transport-19) to join the chat "
+      "room. Each participant PUBLISHes one track and SUBSCRIBEs to every "
+      "other participant's track.\n";
   usz i;
   (void)ctx;
   (void)req;

@@ -26,8 +26,8 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 1862/1868 requirements demonstrated (99.7%) — 1609 directly tested,
-253 indirect, 6 untested.**
+**Total: 1863/1870 requirements demonstrated (99.6%) — 1610 directly tested,
+253 indirect, 7 untested.**
 
 ## QUIC core
 
@@ -54,7 +54,7 @@ independent implementation) are tracked separately: see
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 8446 — TLS 1.3](rfc8446.md) | 105/105 | 86 | 19 | 0 |
+| [RFC 8446 — TLS 1.3](rfc8446.md) | 104/105 | 85 | 19 | 1 |
 | [RFC 5280 — X.509 / PKI](rfc5280.md) | 44/44 | 35 | 9 | 0 |
 | [RFC 5480 — EC public keys in certificates](rfc5480.md) | 20/20 | 17 | 3 | 0 |
 | [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 10/10 | 8 | 2 | 0 |
@@ -102,8 +102,8 @@ independent implementation) are tracked separately: see
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 213/214 | 204 | 9 | 1 |
-| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 208/208 | 199 | 9 | 0 |
+| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 214/215 | 205 | 9 | 1 |
+| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 209/209 | 200 | 9 | 0 |
 | [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 207/212 | 197 | 10 | 5 |
 
 ## IP/UDP foundations
