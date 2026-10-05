@@ -232,7 +232,7 @@ MoQT draft-19 以降は webtrans-http3-16 を参照している。ワイヤ値�
 - [x] 7-3 golden vector を `{版, メッセージ, バイト列}` の表にし、全版をループで検査する。**完了(2026-10-05、commit `e4be35ab`)。** JSONに`versions`キー方式で版差分を追加(大多数のエントリはバイト列が版非依存なので無変更)。版差分3件: GOAWAY(d18のみRequest ID付加)、SUBSCRIBE_TRACKS(d22のLOCATION_FILTERエンコーディング差)、FETCH(d22の本体構造差)。`tests/app/moqt_multidraft_golden_test.c`新設、1テスト関数でMOQVER_D18/D19/D22をループして検査。三点ゲート+フルunity build全green(自分で再検証済み)。副産物: `fetch_standalone`の既存ノートの誤記(「whole of Group 0」→正しくは「whole of Group 1」)を修正。
   - `examples/moqt_chat/testvectors/moqt_golden.json` と `scripts/gen_moqt_golden.py` を版対応にする。
 - [ ] 7-4 既存の moqt テスト(542 関数)のうち、セッションのシナリオ系を全版で回す。
-- [ ] 7-5 fuzz: `fuzz_moqt` に版の選択バイトを足し、版ごとの codec を通す。dg、cache、run が未収録という既存の穴も記録する。
+- [x] 7-5 fuzz: `fuzz_moqt` に版の選択バイトを足し、版ごとの codec を通す。dg、cache、run が未収録という既存の穴も記録する。**完了(2026-10-05)。** 先頭1バイト `%MOQVER_COUNT` で版選択、version引数/capビット(GOAWAY_REQID, FETCH_BODY_V22, EOR_TIMED_OUT)で moqtrun と同じ codec を選ぶ。旧ハーネスが `MOQCTL_KNOWN_UNIMPLEMENTED` で打ち切っていたため FETCH/NAMESPACE/TRACK_STATUS/REQUEST_UPDATE 本体が未到達だった穴も解消。moqdg(decode→encode→decode の round-trip trap)、moqcache(append/release/skip 走査、カーソル非前進で trap)を新規収録。run は codec でないため対象外(ハーネス冒頭コメントに明記)。既存 corpus 992 件に版バイト 0x01(d19)を前置、手書き seed 3 件追加。`just fuzz-smoke` rc=0、120s+60s で約490万 exec・クラッシュ無し、corpus coverage 521→862 edges。
 - [x] 7-6 interop: moq-interop-runner の `implementations.json` で、wired の `draft_versions` を `["draft-18","draft-19","draft-22"]` に広げる。
   - commit `a93b3f1b`(moq-interop-runner fork)、push済み。
   - `interop-wired.yml` を手動実行(run 37222986434、2026-10-04)、`make interop-relay RELAY=wired` で14クライアントと対向(draft-18 10本、draft-19 1本、draft-22 1本の at-target/ahead組み合わせ)。
