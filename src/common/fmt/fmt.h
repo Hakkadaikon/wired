@@ -1,6 +1,7 @@
 #ifndef WIRED_FMT_H
 #define WIRED_FMT_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
 /**
@@ -51,6 +52,18 @@ usz wired_vsnprintf(char* out, usz cap, const char* fmt, wired_va_list ap);
  * @return the would-be length, excluding the NUL
  */
 usz wired_snprintf(char* out, usz cap, const char* fmt, ...);
+
+/**
+ * Append formatted text to b at b->len, like snprintf into the free space.
+ *
+ * At most cap - len - 1 bytes are appended (vsnprintf's NUL needs the last
+ * byte; it is not counted in len), so output that does not fit is cut.
+ *
+ * @param b   buffer to append to (e.g. an HTTP response body)
+ * @param fmt printf format string
+ * @return bytes appended (b->len advanced by the same amount)
+ */
+usz wired_obuf_printf(wired_obuf* b, const char* fmt, ...);
 
 /**
  * Format and write to a file descriptor via write(2).

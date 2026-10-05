@@ -119,6 +119,7 @@
 #include "common/platform/clock/mono.c"
 #include "common/platform/debug/debug.c"
 #include "common/fmt/fmt.c"
+#include "common/bytes/text/text.c"
 #include "common/platform/fio/fio.c"
 #include "common/platform/qlog/qlog.c"
 #include "common/platform/qlog/qlogevent.c"
@@ -521,6 +522,7 @@
 #include "app/http3/server/sendsess/sendsess.c"
 #include "app/http3/server/srvloop/srvloop.c"
 #include "app/http3/server/srvboot/srvboot.c"
+#include "app/http3/server/srvboot/srvdemo.c"
 #include "app/http3/server/certcache/certcache.c"
 #include "app/http3/server/sigterm/sigterm.c"
 #include "app/http3/server/certreload/certreload.c"
@@ -796,6 +798,7 @@
 #include "common/clock_test.c"
 #include "common/debug_test.c"
 #include "common/fmt_test.c"
+#include "common/text_test.c"
 #include "common/thread_test.c"
 #include "common/rng_test.c"
 #include "common/cidgen_test.c"
@@ -1047,6 +1050,7 @@
 #include "app/srvloop_priupdate_test.c"
 #include "app/srvboot_version_test.c"
 #include "app/srvboot_pnshort_test.c"
+#include "app/srvboot_demo_test.c"
 #include "app/certcache_test.c"
 #include "app/priupdate_test.c"
 #include "app/sendq_test.c"
@@ -1366,6 +1370,7 @@ int main(void) {
   test_clock();
   test_debug();
   test_fmt();
+  test_text();
   test_thread();
   test_cidgen();
   test_challenge();
@@ -1649,6 +1654,8 @@ int main(void) {
   test_srvloop_priupdate();
   test_srvboot_version();
   test_srvboot_pnshort();
+  test_srvboot_demo();
+  test_srvboot_cert_sha256();
   test_certcache();
   test_priupdate();
   test_sendq();

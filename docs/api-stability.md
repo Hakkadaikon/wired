@@ -59,6 +59,12 @@ Call these without needing to know the QUIC/TLS state machine underneath.
 | `wired_header_parse`, `wired_header_build_long` | Parse/build the invariant part of a QUIC packet header. Pure codec: given bytes in, bytes or fields out. |
 | `wired_log_str`, `wired_log_ts`, `wired_fmt_u64`, `WIRED_LOG` | Optional tracing output. Stateless, side-effect-only (stderr), safe to call anywhere. |
 | `wired_snprintf`, `wired_vsnprintf`, `wired_dprintf` | libc-free printf-compatible formatter (%d %i %u %x %X %p %s %c %% %f, flags, width, precision, length modifiers). Pure formatting; `wired_dprintf` only calls write(2). Deviations from C99 are listed in `common/fmt/fmt.h`. |
+| `wired_obuf_printf` | printf-append into a `wired_obuf` at `len` (e.g. an HTTP response body); at most `cap - len - 1` bytes, returns the bytes appended. |
+| `wired_span_eq`, `wired_span_eq_cstr`, `wired_span_cstr`, `wired_span_to_cstr`, `WIRED_SPAN_ARG` (`common/bytes/text/text.h`) | Byte-view helpers: compare two views / a view with a C string (not constant-time), view of a C string, copy a view out NUL-terminated (truncating), and `"%.*s"` arguments for a view. |
+| `wired_hex_encode`, `wired_dump_hex`, `wired_dump_text` (`common/bytes/text/text.h`) | Lowercase hex of a view into a buffer, or straight to an fd; write a view's bytes to an fd as text. |
+| `wired_h3req_path` | The request's `:path` as one `wired_span`. |
+| `wired_srvboot_demo`, `wired_srvboot_demo_keys` (`srvboot/srvdemo.h`) | Fixed, deterministic demo identity (counting-pattern keys, self-signed certificate) for samples and tests. Never for production. |
+| `wired_srvboot_cert_sha256`, `wired_srvboot_log_fingerprint` (`srvboot/srvdemo.h`) | SHA-256 of the leaf certificate an identity presents (the browser `serverCertificateHashes` value), raw or logged colon-separated. Not reentrant (process-wide scratch server). |
 
 These are grouped as stable because each is either a single top-level
 operation (the run/driver functions) or a pure function with no cross-call
