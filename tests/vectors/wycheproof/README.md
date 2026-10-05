@@ -52,7 +52,7 @@ that every `invalid` case with that flag is rejected. A failing case prints
 
 | What | Reason |
 |---|---|
-| AES-192-GCM groups in `aes_gcm_test.json` | AES-192 not implemented (TLS 1.3 / QUIC use AES-128 and AES-256 only) |
+| AES-192-GCM `valid` cases in `aes_gcm_test.json` | AES-192 not implemented (TLS 1.3 / QUIC use AES-128 and AES-256 only); its `invalid` cases count as rejected by construction (see `docs/security/wycheproof-vectors.md`) |
 | AES-GCM / ChaCha20-Poly1305 `valid` cases with a nonce other than 96 bits or a tag other than 128 bits | wired's AEAD API takes a 96-bit nonce and a 128-bit tag only (all TLS 1.3 / QUIC uses: RFC 8446 5.3, RFC 5116, RFC 9001 5.3); such `invalid` cases count as rejected |
 | RSA groups whose public exponent is not 65537 | `rsa_pkcs1_verify` / `rsa_pss_verify` accept e = 65537 only, by design |
 | Other RSA-PSS parameter sets, RSA-OAEP, other ECDSA curves, HMAC/HKDF with other hashes, plain SHA-2 files | not in the requested file list, or not implemented |

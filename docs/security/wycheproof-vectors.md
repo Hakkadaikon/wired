@@ -29,6 +29,43 @@ its outcome is logged (`wyc <file> tcId <n> acceptable: accepted|rejected`).
 
 Failed tcIds and flags: **none**.
 
+## What "invalid rejected" does and does not prove
+
+Rejecting an `invalid` case is the correct behaviour: Wycheproof marks a case
+`invalid` when a correct implementation must refuse it (a modified tag, a
+malleable or mis-encoded signature, broken RSA padding, an HKDF length beyond
+255 x HashLen), and accepting it would be a forgery or a spec violation. Two
+limits apply to the counts above.
+
+### 1. Only the outcome is checked, not the reason
+
+A case counts as rejected when wired returns failure. The test does not check
+*which* check refused it: a case built to hit, say, an ECDSA range check also
+passes if verification fails later for another reason (digest mismatch). This
+is Wycheproof's own pass criterion, but it does not prove that every
+individual check exists. HMAC has no verify API in wired, so its 108 rejections
+are the test's constant-time compare of wired's computed (truncated) MAC
+against the forged tag.
+
+### 2. Some invalid inputs cannot be expressed through wired's API
+
+These cases never reach a wired function; the test counts them as rejected
+because the API's types make the input impossible to pass:
+
+| Primitive | Cases | Why not expressible | Flags |
+|---|---:|---|---|
+| AES-GCM | 29 | AES-192 key (not implemented) | ModifiedTag (27), ZeroLengthIv (2) |
+| AES-GCM | 4 | zero-length IV (API takes a 96-bit nonce) | ZeroLengthIv |
+| ChaCha20-Poly1305 | 9 | nonce of 0/64/88/104/112/128/160/192/256 bits (API takes 96 bits) | InvalidNonceSize |
+| Ed25519 | 12 | signature not 64 bytes (`ed25519_verify` takes a fixed 64-byte signature) | TruncatedSignature, CompressedSignature, SignatureWithGarbage |
+
+Implementation-verified rejections are therefore AES-GCM 54 of 87,
+ChaCha20-Poly1305 60 of 69, Ed25519 51 of 63, and all of the rest (ECDSA
+through wired's DER decoder `ecdsasig_decode` and verify, RSA through
+`rsa_pkcs1_verify` / `rsa_pss_verify`, HKDF through `hkdf_expand`). Likewise
+`test_wyc_aesgcm_invalid_ModifiedTag_rejected` exercises 54 of its 81 cases;
+the other 27 are the AES-192 ones.
+
 Skips: AES-GCM — AES-192 groups and `valid` cases with a non-96-bit nonce
 (wired's AEAD API is 96-bit nonce / 128-bit tag only); RSA PKCS#1 — `valid`
 cases with e = 3 (2048_sha256: 2, 2048_sha512: 1, 3072_sha256: 1,
@@ -47,7 +84,7 @@ ModifiedTag and ShortMac get a test named after the flag when they appear on
 
 | Test | invalid cases | rejected |
 |---|---:|---:|
-| `test_wyc_aesgcm_invalid_ModifiedTag_rejected` | 81 | 81 |
+| `test_wyc_aesgcm_invalid_ModifiedTag_rejected` | 81 | 81 (54 through wired, 27 AES-192 by construction) |
 | `test_wyc_chacha20poly1305_invalid_ModifiedTag_rejected` | 60 | 60 |
 | `test_wyc_hmac_invalid_ModifiedTag_rejected` | 108 | 108 |
 
