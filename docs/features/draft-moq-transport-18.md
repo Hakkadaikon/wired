@@ -1598,9 +1598,11 @@ from the coverage denominator above:
   namespace (MQ18-195), but each Track still has one publisher;
   aggregation/deduplication across publishers of a Track is not
   implemented.
-- (SS10.2.5, SS10.2.6, SS10.2.14, SS10.2.16) FILL_TIMEOUT,
-  RENDEZVOUS_TIMEOUT, EXPIRES and NEW_GROUP_REQUEST — decoded by the
-  registry, not acted on.
+- (SS10.2.5, SS10.2.14, SS10.2.16) FILL_TIMEOUT, EXPIRES and
+  NEW_GROUP_REQUEST — decoded by the registry, not acted on. (SS10.2.6)
+  RENDEZVOUS_TIMEOUT is acted on since 12-1 (ff1c0df): a SUBSCRIBE for a
+  track with no publisher is held until one arrives or the timeout
+  (capped at 1.5 s) answers TIMEOUT, see tests/app/moqtrun_rdv_test.c.
 - (SS10.3.1.3, SS10.3.1.4, SS10.3.1.6) MAX_AUTH_TOKEN_CACHE_SIZE,
   AUTHORIZATION TOKEN as a Setup Option, and MAX_FILTER_RANGES Setup
   Option (the last does not exist in draft-18 at all, see above) — not

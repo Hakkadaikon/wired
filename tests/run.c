@@ -1023,6 +1023,8 @@
 #include "crypto/ecdsa_diff_test.c"
 #include "crypto/bssl_ecdsa_test.c"
 #include "crypto/bssl_hmac_test.c"
+#include "crypto/wyc_rsa_pkcs1_test.c"
+#include "crypto/wyc_rsa_pss_test.c"
 #include "crypto/p256cert_test.c"
 #include "crypto/cvecdsa_test.c"
 #include "tls/eebuild_test.c"
@@ -1611,6 +1613,8 @@ int main(void) {
   test_ecdsa_diff();
   test_bssl_ecdsa();
   test_bssl_hmac();
+  test_wyc_rsa_pkcs1();
+  test_wyc_rsa_pss();
   test_p256cert();
   test_cvecdsa();
   test_eebuild();
