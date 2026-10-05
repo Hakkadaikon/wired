@@ -71,8 +71,8 @@ static void log_append_span(char* line, usz cap, usz* at, wired_span span) {
  */
 static void access_log(
     const app_config* cfg,
-    wired_span         method,
-    wired_span         path,
+    wired_span        method,
+    wired_span        path,
     u64               status,
     u64               nbytes) {
   char line[512];
@@ -110,7 +110,7 @@ static void reqpath_copy(char* reqpath, usz cap, wired_span path) {
 static u64 serve_static_round(
     const char* resolved,
     u64         offset,
-    wired_obuf*  body_out,
+    wired_obuf* body_out,
     int*        more,
     u64*        total_size) {
   ssz fd = wired_fio_open(resolved);
@@ -139,9 +139,9 @@ static u64 serve_static_round(
  * across repeated calls at increasing offset (see wired_srvloop_handler). */
 static u64 serve_static(
     const app_config* cfg,
-    wired_span         path,
+    wired_span        path,
     u64               offset,
-    wired_obuf*        body_out,
+    wired_obuf*       body_out,
     const char**      content_type,
     int*              more,
     u64*              total_size) {
@@ -158,7 +158,8 @@ static u64 serve_static(
 /* History-demo mode (--root absent): RFC 9110 9.3.1 (GET) returns the log;
  * 9.3.3 (POST) appends and echoes. Always returns 200 (matches the wire
  * :status, which srvloop always sends as 200). */
-static u64 serve_history(const wired_h3reqdrive_req* req, wired_obuf* body_out) {
+static u64 serve_history(
+    const wired_h3reqdrive_req* req, wired_obuf* body_out) {
   if (req->method_len == 4 && req->method[0] == 'P') {
     history_append(req->body, req->body_len);
     copy_capped(body_out, wired_span_of(req->body, req->body_len));
@@ -176,16 +177,16 @@ static int app_on_request(
     void*                       ctx,
     const wired_h3reqdrive_req* req,
     u64                         offset,
-    wired_obuf*                  body_out,
+    wired_obuf*                 body_out,
     const char**                content_type,
     int*                        more,
     u64*                        total_size) {
   const app_config* cfg    = (const app_config*)ctx;
-  wired_span         method = wired_span_of(req->method, req->method_len);
-  wired_span         path   = wired_span_of(req->path, req->path_len);
+  wired_span        method = wired_span_of(req->method, req->method_len);
+  wired_span        path   = wired_span_of(req->path, req->path_len);
   u64               status = cfg->root ? serve_static(
-                               cfg, path, offset, body_out, content_type, more,
-                               total_size)
+                                             cfg, path, offset, body_out, content_type, more,
+                                             total_size)
                                        : serve_history(req, body_out);
   if (offset == 0) access_log(cfg, method, path, status, body_out->len);
   return 1;
@@ -204,16 +205,16 @@ static int selfcheck_history_ok(const wired_obuf* ob, const u8* out) {
 /* Self-check (ponytail: the only non-trivial app logic is the store/echo). */
 static void app_selfcheck(void) {
   u8                   out[64];
-  wired_obuf            ob           = {out, sizeof out, 0};
+  wired_obuf           ob           = {out, sizeof out, 0};
   app_config           cfg          = {0};
   const char*          content_type = 0;
   int                  more         = 0;
   u64                  total_size   = 0;
   wired_h3reqdrive_req post         = {
-              .method     = (const u8*)"POST",
-              .method_len = 4,
-              .body       = (const u8*)"hi",
-              .body_len   = 2};
+      .method     = (const u8*)"POST",
+      .method_len = 4,
+      .body       = (const u8*)"hi",
+      .body_len   = 2};
   wired_h3reqdrive_req get = {.method = (const u8*)"GET", .method_len = 3};
   g_history_len            = 0;
   app_on_request(&cfg, &post, 0, &ob, &content_type, &more, &total_size);
@@ -226,37 +227,9 @@ static void app_selfcheck(void) {
 /* Fixed, deterministic server identity for wired_srvdriver_run: X25519
  * handshake key pair, the ECDSA P-256 signing scalar (cert_seed), the server
  * SCID, and a fixed ServerHello random. A demo needs no rotation. */
-static const u8 SERVER_SCID[6] = {'C', 'L', 'I', 'S', 'C', 'I'};
-
-/* The demo server's fixed key material buffers, owned by the caller
- * (wired_main) so they outlive wired_srvdriver_run. */
-typedef struct {
-  u8 priv[32];
-  u8 pub[32];
-  u8 seed[32];
-  u8 rnd[32];
-} server_keys;
-
-static void server_identity(wired_srvboot_id* id, server_keys* k) {
-  for (usz i = 0; i < 32; i++) {
-    k->priv[i] = (u8)(0x40 + i);
-    k->seed[i] = (u8)(0x80 + i);
-    k->rnd[i]  = (u8)(0xa0 + i);
-  }
-  wired_x25519_base(k->pub, k->priv);
-  id->priv        = k->priv;
-  id->pub         = k->pub;
-  id->cert_seed   = k->seed;
-  id->scid        = SERVER_SCID;
-  id->scid_len    = sizeof SERVER_SCID;
-  id->random      = k->rnd;
-  id->chain       = 0; /* self-signed; see README.md for an external chain */
-  id->chain_count = 0;
-  id->max_data    = 0;
-  id->max_streams_bidi        = 0;
+static void server_identity(wired_srvboot_id* id, wired_srvboot_demo_keys* k) {
+  wired_srvboot_demo(id, k, 0x40, "CLISCI");
   id->max_datagram_frame_size = 65535;
-  id->san_ipv4                = 0;
-  id->now_secs                = 0;
   /* RFC 8446 4.6.1: the same fixed key append_ticket_frame (respond.c)
    * already seals NewSessionTickets under -- resumption is symmetric, so
    * opening a presented ticket needs no separate key. */
@@ -325,11 +298,11 @@ static void app_pref_addr(wired_srvboot_id* id, int argc, char** argv) {
 /* The real entry point, called from _start (see wired.h's WIRED_MAIN block)
  * with argc/argv recovered from the kernel stack. */
 int wired_main(int argc, char** argv) {
-  wired_srvboot_id     id = {0};
-  server_keys          keys;
-  app_config           cfg = {0};
-  wired_srvrun_handler h   = {.cb = app_on_request, .ctx = &cfg};
-  wired_srvrun_obs     obs;
+  wired_srvboot_id        id = {0};
+  wired_srvboot_demo_keys keys;
+  app_config              cfg = {0};
+  wired_srvrun_handler    h   = {.cb = app_on_request, .ctx = &cfg};
+  wired_srvrun_obs        obs;
   app_selfcheck();
   load_config(&cfg, argc, argv);
   server_identity(&id, &keys);
