@@ -8625,6 +8625,28 @@ static void test_srvrun_second_wt_connect_rejected_when_flow_control_disabled(
       H3_REQUEST_REJECTED); /* the excessive CONNECT stream was reset */
 }
 
+/* Interop (moxygen/moqx, proxygen): the client's SETTINGS carry only
+ * SETTINGS_WT_INITIAL_MAX_DATA (real bytes: 2b61 = 0xffffffff, no
+ * 2b64/2b65) and it never sends a WT_MAX_STREAMS capsule. draft-ietf-webtrans-
+ * http3-16 SS5.5.1 would leave the server's uni limit at 0, so its SETUP
+ * stream blocks forever; a MAX_DATA-only peer is granted the stream ceiling.
+ * A peer that sent a stream limit keeps exactly that limit. */
+static void test_srvrun_wt_seed_limits_max_data_only_grants_streams(void) {
+  srvrun_conn*     c = sr_test_conns();
+  wired_wt_session s;
+  wired_wt_session_init(&s, 0);
+  c->l.peer_wt_initial[2] = 0xffffffffULL;
+  srvrun_wt_seed_limits(c, &s);
+  CHECK(s.max_streams_uni == WTSESSION_STREAMS_MAX);
+  CHECK(s.max_streams_bidi == WTSESSION_STREAMS_MAX);
+  wired_wt_session_init(&s, 0);
+  c->l.peer_wt_initial[0] = 3;
+  srvrun_wt_seed_limits(c, &s);
+  CHECK(s.max_streams_uni == 3);
+  CHECK(s.max_streams_bidi == 0);
+  c->l.peer_wt_initial[0] = c->l.peer_wt_initial[2] = 0;
+}
+
 /* MULTI-SESSION BOUNDARY: once SRVRUN_MAX_WT_SESSIONS sessions are open, a
  * further Extended CONNECT is rejected with 429 exactly as the single-
  * session path always was, and no new slot is created. */
@@ -21369,6 +21391,7 @@ void test_srvrun(void) {
   test_srvrun_wt_full_session_lifecycle_on_wire();
   test_srvrun_wt_accept_second_session_below_limit();
   test_srvrun_second_wt_connect_rejected_when_flow_control_disabled();
+  test_srvrun_wt_seed_limits_max_data_only_grants_streams();
   test_srvrun_wt_reject_at_session_limit();
   test_srvrun_wt_accept_records_path();
   test_srvrun_wt_distinct_paths_coexist();
