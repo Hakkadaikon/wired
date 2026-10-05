@@ -372,7 +372,14 @@ MoQT draft-19 以降は webtrans-http3-16 を参照している。ワイヤ値�
   - 完了: 各 .h の版記述を 18/19/22 に、authorize hook の呼び出し範囲(SUBSCRIBE/TRACK_STATUS/PUBLISH)、`moqtrun_subscribe_checked` コメント、moqver の「選好順」(実際は srvrun_wt_select がクライアントの offer 順で選ぶ)、moqt_chat の案内文(サブプロトコル交渉なし=draft-19)を修正。`just docs` 通過。
 - [x] 12-9 MoQT 以外の features 台帳の古いテスト参照: `docs/features/rfc8446.md:270,329`(`test_sdrv_psk_ticket_open_fails_falls_back`)、`rfc9220.md:87`(`test_h3cancel_request`)、`rfc9368.md:63`(`test_verselect_pick`)。
   - 完了: rfc9368/rfc9220/rfc8446-044 は現存テストへ付け替え。8446-053(未知 PSK は無視して full handshake)は E.6 を優先して decrypt_error で abort する意図的逸脱のため `[ ]` + gap に変更(README 集計更新)。
-- [ ] 12-10 moq-interop-runner をローカルで全クライアントと対向させ、全 PASS(クライアント起因を除く)を `logs_*` 付きで記録。ベースライン計測中。
+- [ ] 12-10 moq-interop-runner で全クライアントと対向させ、全 PASS(クライアント起因を除く)を `logs_*` 付きで記録。
+  - ベースライン(2026-10-05、HEAD 7c7d2e3、ローカル。サンドボックスは IPv6 無効のため ptrace シムで AF_INET6→AF_INET 変換、CI run 37250572657 と同一の合否集合を再現): 3/14 PASS(moq-dev-js、moq5、moq-dev-rs)。wired 側の穴(解消できるケース数順): raw QUIC 無し(imquic/moqlivemock は https URL でも raw QUIC を使う、moqtopus/xquic-draft-18 は moqt:// 登録が必要)→13章 / H3 要求ストリームで HEADERS 前の GREASE フレームで CONNECT が止まる(moxygen/moqx 12件)→12-20 / RENDEZVOUS_TIMEOUT→12-1 / 上流 SUBSCRIBE→12-3 / WT_CLOSE_SESSION 後に CONNECT ストリームを閉じない(moq-playa 6件)→12-21 / PUBLISH_DONE 転送→12-2(済)。クライアント起因: moq5 は `not ok` でも exit 0、moq-dev-js は code 16 を pass 扱い、moq-dev-rs/stitcher の SKIP は API 制約。詳細 `tasks/loopeng/moqt/interop/baseline-2026-10-05.md`。
+- [ ] 12-20 H3 要求ストリームの先頭に予約(GREASE)フレームがあると HEADERS を待ち続け CONNECT に応答しない(RFC 9114 §7.2.8/§9: 未知・予約フレームは無視 MUST)。`dispatch.c` の `acc_headers_frame_len`/`peek_decode_request`。moxygen/moqx 12 ケース。
+- [ ] 12-21 クライアントの WT_CLOSE_SESSION/FIN 受信後、サーバ側の CONNECT ストリームを FIN/RESET しない(webtrans-http3 §6、WTH3-067 は送信側のみ)。`srvrun_wt_connect_sender_drop`。moq-playa 6 ケース。
+- [ ] 12-22 (13-2 TLA+ D2) CONNECTION_CLOSE 送信後に closing 状態が無い(RFC 9000 §10.2): 以後もパケットをアプリへ配送し、on_session_close は 30s idle まで来ない。`srvrun_send_app_close`/`srvrun_send_transport_close`。
+- [ ] 12-23 (13-2 TLA+ D1) WT フロー制御有効時、ストリームの継続配送が `slot->wt_session_slot` でなく「最初の active セッション」へ行き、セッション入れ替わりで別セッションへ誤配送しうる。
+- [ ] 12-24 UDP ソケットが AF_INET6 デュアルスタックのみで IPv4 フォールバックが無い(IPv6 無効環境で listen 失敗、ユニットテストの既知 11 件の失敗もこれが原因)。
+- [ ] 12-25 `--keylog` が CLIENT_HANDSHAKE_TRAFFIC_SECRET しか出さず、キャプチャを復号できない(デバッグ用、NSS keylog 形式の全シークレットを出す)。
 
 - [ ] 12-17 (12-6 で発見) d19/d22「上記 2 ケース以外の REQUEST_UPDATE を受けたら PROTOCOL_VIOLATION で close」(MUST)。TRACK_STATUS ストリーム・制御ストリーム上の REQUEST_UPDATE に hub は NOT_SUPPORTED を返している。
 - [ ] 12-18 (12-6 で発見) hub が開いた PUBLISH ストリーム上で購読者が送った REQUEST_UPDATE を `moqtrun_pubst_route` が黙って捨てる(「ちょうど 1 つ応答」違反)。
@@ -387,7 +394,7 @@ MoQT draft-19 以降は webtrans-http3-16 を参照している。ワイヤ値�
 
 - [x] 13-0 計画: `tasks/loopeng/moqt/RawQuic/plan.md`(版ごとの仕様 R1-R17、runner 連携、アーキテクチャ、TLA+ 対象、並列分割、TDD リスト、リスク K1-K14)。
 - [x] 13-1 インタフェース凍結(S0a)**完了(2026-10-05)。** `salpn_raw.h`/`rawq.h`/`moqraw.h`/`moqrawio.h` 新設(宣言のみ)、`SALPN_RAW`、`wired_srvboot_id.raw_alpns`、`wired_srvrun_opt.raw_on_session/raw_session_ctx`、`wired_server_session_is_raw`。plan §4.2 からの差分 5 件と各宣言の担当ステップは `tasks/loopeng/moqt/RawQuic/INTERFACES.md`。: `salpn_raw.h`/`rawq.h`/`moqraw.h`/`moqrawio.h` と srvrun.h/srvboot.h の追加宣言。名前は plan §4.2、着手前に再 grep。
-- [ ] 13-2 TLA+ `MoqtRawConn`(S0b/S5): 接続→raw セッション生成・配送・クローズ・スロット再利用。安全性 SessBeforeData/CloseOnce/CloseIffSession/NoGhost/NoH3OnRaw/RawCloseShape/PathRule、活性 2、ミューテーション 4 件で反例確認、reviewer 合格。
+- [~] 13-2 TLA+ `MoqtRawConn`(**モデル・検査完了 2026-10-05**: `tasks/loopeng/moqt/MoqtRawConn/`、MC_base 1,223,929 distinct で安全性 11+活性 2 無違反、必須ミューテーション 4 件全て反例、TRACE.md でテスト T-E11〜E14 追加。現行コードの不一致 D1/D2 → 12-22/12-23。残: reviewer)(S0b/S5): 接続→raw セッション生成・配送・クローズ・スロット再利用。安全性 SessBeforeData/CloseOnce/CloseIffSession/NoGhost/NoH3OnRaw/RawCloseShape/PathRule、活性 2、ミューテーション 4 件で反例確認、reviewer 合格。
 - [ ] 13-3 ALPN 選択(S1+S6+S8): `SALPN_RAW`、`wired_srvboot_id.raw_alpns`、クライアント選好順で h3/hq/moqt-NN を混在選択、EE と ticket に選択トークン、raw ALPN では 0-RTT 拒否(d18 §3.3.1 / d22 §6.3.1 の relay MAY)。固定バイト T-A4。
 - [ ] 13-4 raw 束縛ヘルパ(S2): `app/rawquic/rawq_*`(ストリーム経路、reset コードの無変換/WT 写像、datagram 前置なし、uni 初番 3)。T-B1〜B4。
 - [ ] 13-5 srvloop の raw 経路(S7): raw ALPN 接続ではクライアントの全 bidi/uni を sig_len 0 で WT スロットへ、h3 要求/QPACK 経路に入れない。T-E3。
