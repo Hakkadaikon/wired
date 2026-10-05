@@ -281,9 +281,10 @@ static int moqfetch_fill_params(wired_span v, moqctl_params* p) {
 }
 
 /* LOCATION_FILTER type 0x00 decodes as has_filter 0 (SS9.20.9 None); an
- * absent parameter reads the same. */
+ * absent one defers to the subscription's filter (SS3.4: inherit). */
 static void moqfetch_fill_filter_of(const moqctl_params* p, moqfetch_fill* o) {
   const moqctl_param* lf = moqctl_params_find(p, MOQCTL_PARAM_LOCATION_FILTER);
+  o->inherit             = lf == 0;
   if (!lf || !lf->has_filter) return;
   o->has_filter = 1;
   o->range      = lf->rl;
@@ -304,11 +305,11 @@ int moqfetch_fill_take(wired_span value, moqfetch_fill* out) {
   moqctl_params p;
   p.n = 0; /* a zero-length value is "no parameters" */
   bytes_memset(out, 0, sizeof *out);
-  if (value.n != 0) {
+  if (value.n != 0) { /* zero-length: the whole track (Q-02) */
     int r = moqfetch_fill_params(value, &p);
     if (r != MOQCTL_OK) return r;
+    moqfetch_fill_filter_of(&p, out);
   }
-  moqfetch_fill_filter_of(&p, out);
   out->descending = moqfetch_fill_desc_of(&p);
   moqfetch_fill_tmo_of(&p, out);
   return MOQCTL_OK;

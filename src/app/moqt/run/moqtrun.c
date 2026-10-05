@@ -784,13 +784,18 @@ static void moqtrun_track_return_rings(
  * for the track incarnation tag (T-07/T-08), defined there. */
 static void moqtrun_subtracks_track_gone(wired_moqt_hub* hub, u64 tag);
 
+/* Fill fetch streams' own section: resets every fill of tag (Q-08). */
+static void moqtrun_fills_upstream_gone(wired_moqt_hub* hub, u64 tag);
+
 /* Frees a superseded track: its subscribers' still-open relay streams are
- * reset (moqtrun_track_reset_stale_relays' own doc), its rings go back to
+ * reset (moqtrun_track_reset_stale_relays' own doc), its fills reset
+ * INTERNAL_ERROR as upstream failures (ruling Q-08), its rings go back to
  * the pool (holds released), and the slot stops matching any name or Track
  * Alias, so the lingering session's stray Objects are dropped instead of
  * relayed. */
 static void moqtrun_track_retire(wired_moqt_hub* hub, wired_moqtrun_track* t) {
   moqtrun_track_reset_stale_relays(hub, t);
+  moqtrun_fills_upstream_gone(hub, t->cache_tag);
   moqtrun_track_cache_drop(hub, t);
   moqtrun_track_return_rings(hub, t);
   moqtrun_track_clear_relays(t);
@@ -1538,19 +1543,37 @@ static void moqtrun_fill_on_subscribe(
     wired_moqtrun_sub*   sub,
     const moqctl_params* params);
 
+static int moqtrun_fill_room(
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_track* track,
+    const wired_moqtrun_sub*   sub,
+    const moqctl_params*       params);
+
+static int moqtrun_fill_malformed(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_params* params);
+
 /* Records slot (peer_idx, its session's alias for track) against track,
- * replies SUBSCRIBE_OK with that alias and opens any requested fill. */
+ * replies SUBSCRIBE_OK with that alias, opens any requested fill and
+ * notes name k for re-attach. A fill no table can hold refuses the
+ * SUBSCRIBE first (draft-22 SS3.4.1: no fill accepted, then lost). */
 static void moqtrun_accept_subscribe(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
     wired_moqtrun_track*    track,
     wired_moqtrun_sub*      slot,
     usz                     peer_idx,
-    const moqctl_subscribe* m) {
+    const moqctl_subscribe* m,
+    moqtrun_key             k) {
   moqtrun_sub_open(
       slot, track, peer_idx, moqtrun_session_alias(hub, peer_idx, track), m);
+  if (!moqtrun_fill_room(hub, track, slot, &m->params)) {
+    slot->active = 0;
+    moqtrun_send_request_error(p, MOQCTL_ERR_INTERNAL_ERROR);
+    return;
+  }
   moqtrun_queue_subscribe_ok(p, track, slot->track_alias);
   moqtrun_fill_on_subscribe(hub, p, track, slot, &m->params);
+  moqtrun_note_sub_name(p, k, slot);
 }
 
 /* A peer's first SUBSCRIBE for the hub's blob: one io.send_uni with the
@@ -1638,8 +1661,7 @@ static void moqtrun_subscribe_peer_track(
     moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
     return;
   }
-  moqtrun_accept_subscribe(hub, p, track, slot, peer_idx, m);
-  moqtrun_note_sub_name(p, k, slot);
+  moqtrun_accept_subscribe(hub, p, track, slot, peer_idx, m, k);
 }
 
 /* draft SS10.6 SUBSCRIBE for a peer-published track: find it and reply
@@ -1870,6 +1892,7 @@ static void moqtrun_subscribe_checked(
     wired_moqtrun_peer*     p,
     usz                     peer_idx,
     const moqctl_subscribe* m) {
+  if (moqtrun_fill_malformed(hub, p, &m->params)) return;
   u64 code = moqtrun_subscribe_refusal(hub, m);
   if (code != MOQTRUN_REQ_ACCEPT) {
     moqtrun_send_request_error(p, code);
@@ -2441,9 +2464,11 @@ static void moqtrun_fill_flag(
 /* Holds a fill the full fetch table cannot serve yet (SS9.20.15: held
  * unopened, never silently dropped -- the exits are a freed slot and
  * the owner's cancel). Counted into the Stream Count now: PUBLISH_DONE
- * waits for it, so the count is right by the time it goes out.
- * ponytail: both tables full still drops the fill; widen fetch_waits if
- * a real room ever queues past WIRED_MOQTRUN_MAX_FETCHES held fills. */
+ * waits for it, so the count is right by the time it goes out. Both
+ * tables full never reaches here: moqtrun_fill_room refused the request
+ * before its reply (SS3.4.1), so the guard below is only defensive.
+ * ponytail: a full room refuses past 2*WIRED_MOQTRUN_MAX_FETCHES held
+ * fills; widen fetch_waits if real rooms hit REQUEST_ERROR there. */
 static void moqtrun_fill_wait_put(
     wired_moqt_hub*       hub,
     wired_wt_session*     wt,
@@ -2485,48 +2510,109 @@ static void moqtrun_fill_waits_tick(wired_moqt_hub* hub, int descending) {
       moqtrun_fill_wait_convert(hub, &hub->fetch_waits[i]);
 }
 
-/* The fill's LOCATION_FILTER as a FETCH range: no filter fills
- * everything up to the Largest Object (SS9.20.9). */
-static moqctl_rangeloc moqtrun_fill_rl(const moqfetch_fill* fill) {
+/* A filter as a FETCH range: no filter fills everything up to the
+ * Largest Object (SS9.20.9). */
+static moqctl_rangeloc moqtrun_fill_rl_of(int has, const moqctl_rangeloc* rl) {
   moqctl_rangeloc all = {MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_UNBOUNDED, 0, 0};
-  return fill->has_filter ? fill->range : all;
+  return has ? *rl : all;
 }
 
-/* Opens one fill fetch stream over track's cached range for the
+/* The fill range (SS3.4): the LOCATION_FILTER inside FILL_PARAMETERS,
+ * or the subscription's own Location filter when it is omitted. */
+static moqctl_rangeloc moqtrun_fill_rl(
+    const moqfetch_fill* fill, const wired_moqtrun_sub* sub) {
+  if (fill->inherit) return moqtrun_fill_rl_of(sub->has_filter, &sub->filter);
+  return moqtrun_fill_rl_of(fill->has_filter, &fill->range);
+}
+
+/* Opens one fill fetch stream over the resolved range r for the
  * subscription owning sub; rid is the FETCH_HEADER's Request ID (the
- * SUBSCRIBE's or REQUEST_UPDATE's that carried FILL_PARAMETERS). A range
- * starting past the Largest Object -- or an empty track -- opens
- * nothing; an end past it is cut to it. */
+ * SUBSCRIBE's or REQUEST_UPDATE's that carried FILL_PARAMETERS). */
 static void moqtrun_fill_open(
-    wired_moqt_hub*      hub,
-    wired_moqtrun_track* track,
-    wired_moqtrun_peer*  p,
-    wired_moqtrun_sub*   sub,
-    u64                  rid,
-    const moqfetch_fill* fill) {
-  moqtrun_frange  r;
-  moqctl_rangeloc rl = moqtrun_fill_rl(fill);
-  if (!moqtrun_fetch_resolve(track, &rl, &r)) return;
-  wired_moqtrun_fetch* f = moqtrun_fetch_begin(hub, p->wt, rid, &r);
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    wired_moqtrun_sub*    sub,
+    u64                   rid,
+    int                   descending,
+    const moqtrun_frange* r) {
+  wired_moqtrun_fetch* f = moqtrun_fetch_begin(hub, p->wt, rid, r);
   if (!f) {
-    moqtrun_fill_wait_put(hub, p->wt, rid, sub, &r, fill->descending);
+    moqtrun_fill_wait_put(hub, p->wt, rid, sub, r, descending);
     return;
   }
   sub->stream_count++; /* PUBLISH_DONE counts fills too (10.10) */
-  moqtrun_fill_flag(hub, f, sub->request_id, fill->descending, &r);
+  moqtrun_fill_flag(hub, f, sub->request_id, descending, r);
   moqtrun_fetch_serve(hub, f);
 }
 
 /* A FILL_PARAMETERS parameter asks for a fill only while the
- * subscription forwards (SS9.20.15; FORWARD 0 holds everything). */
+ * subscription forwards (SS9.20.15; FORWARD 0 holds everything), and
+ * only of a live track -- state kept for a gone publisher has no cache. */
 static int moqtrun_fill_requested(
-    const moqctl_param* fp, const wired_moqtrun_sub* sub) {
-  return fp != 0 && !sub->forward_off;
+    const moqctl_param*        fp,
+    const wired_moqtrun_sub*   sub,
+    const wired_moqtrun_track* track) {
+  return fp != 0 && !sub->forward_off && track != 0;
 }
 
-/* Decodes fp's FILL_PARAMETERS value and opens the fill under rid;
- * nothing without the parameter, on a FORWARD-0 subscription, or on a
- * malformed value. */
+/* 1 iff fp asks sub for a fill stream that opens: requested, decoded
+ * into *fill, and its range (*r) not empty -- a range starting past the
+ * Largest Object, or an empty track, opens nothing; an end past it is
+ * cut to it (SS3.4). */
+static int moqtrun_fill_due(
+    const wired_moqtrun_track* track,
+    const wired_moqtrun_sub*   sub,
+    const moqctl_param*        fp,
+    moqfetch_fill*             fill,
+    moqtrun_frange*            r) {
+  moqctl_rangeloc rl;
+  if (!moqtrun_fill_requested(fp, sub, track)) return 0;
+  if (moqfetch_fill_take(fp->bytes, fill) != MOQCTL_OK) return 0;
+  rl = moqtrun_fill_rl(fill, sub);
+  return moqtrun_fetch_resolve(track, &rl, r);
+}
+
+/* 1 unless params' fill is due and both fetches[] and fetch_waits[] are
+ * full. SS3.4.1 lets no accepted fill go unopened and unreset, so this
+ * is decided before the SUBSCRIBE_OK/REQUEST_OK: such a request is
+ * refused REQUEST_ERROR instead. */
+static int moqtrun_fill_room(
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_track* track,
+    const wired_moqtrun_sub*   sub,
+    const moqctl_params*       params) {
+  moqfetch_fill       fill;
+  moqtrun_frange      r;
+  const moqctl_param* fp =
+      moqctl_params_find(params, MOQCTL_PARAM_FILL_PARAMETERS);
+  return !moqtrun_fill_due(track, sub, fp, &fill, &r) ||
+         moqtrun_fetch_arr_slot(hub->fetches) ||
+         moqtrun_fetch_arr_slot(hub->fetch_waits);
+}
+
+/* 1 iff params carries a FILL_PARAMETERS whose value does not decode. */
+static int moqtrun_fill_bad(const moqctl_params* params) {
+  const moqctl_param* fp =
+      moqctl_params_find(params, MOQCTL_PARAM_FILL_PARAMETERS);
+  moqfetch_fill fill;
+  return fp != 0 && moqfetch_fill_take(fp->bytes, &fill) != MOQCTL_OK;
+}
+
+static void moqtrun_close_with(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code);
+
+/* A malformed FILL_PARAMETERS (an unknown or truncated inner Parameter)
+ * closes the session with PROTOCOL_VIOLATION (SS9.20.15 with SS9.20),
+ * checked before the SUBSCRIBE or REQUEST_UPDATE is answered. 1 when
+ * closed. */
+static int moqtrun_fill_malformed(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_params* params) {
+  if (!moqtrun_fill_bad(params)) return 0;
+  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  return 1;
+}
+
+/* Opens fp's fill under rid when it is due (moqtrun_fill_due). */
 static void moqtrun_fill_from_param(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  p,
@@ -2534,10 +2620,10 @@ static void moqtrun_fill_from_param(
     wired_moqtrun_sub*   sub,
     u64                  rid,
     const moqctl_param*  fp) {
-  moqfetch_fill fill;
-  if (!moqtrun_fill_requested(fp, sub)) return;
-  if (moqfetch_fill_take(fp->bytes, &fill) != MOQCTL_OK) return;
-  moqtrun_fill_open(hub, track, p, sub, rid, &fill);
+  moqfetch_fill  fill;
+  moqtrun_frange r;
+  if (!moqtrun_fill_due(track, sub, fp, &fill, &r)) return;
+  moqtrun_fill_open(hub, p, sub, rid, fill.descending, &r);
 }
 
 /* FILL_PARAMETERS on an accepted SUBSCRIBE: the fill rides the
@@ -2555,8 +2641,8 @@ static void moqtrun_fill_on_subscribe(
 
 /* FILL_PARAMETERS on an applied REQUEST_UPDATE: the new fill's
  * FETCH_HEADER carries the update's own Request ID (draft-22 9.8), an
- * earlier fill keeps running beside it. Only a live track is filled --
- * state kept for a gone publisher has no cache to read. */
+ * earlier fill keeps running beside it. Only a live track is filled
+ * (moqtrun_fill_requested). */
 static void moqtrun_fill_on_update(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  p,
@@ -2564,7 +2650,6 @@ static void moqtrun_fill_on_update(
     wired_moqtrun_sub*   sub,
     const moqctl_params* params,
     u64                  rid) {
-  if (!track) return;
   moqtrun_fill_from_param(
       hub, p, track, sub, rid,
       moqctl_params_find(params, MOQCTL_PARAM_FILL_PARAMETERS));
@@ -2901,8 +2986,23 @@ static void moqtrun_upd_params(
     moqtrun_upd_lookup(params->items[i].type)(s, t, &params->items[i]);
 }
 
-/* All or nothing: a refused blob send restores the whole subscription as
- * it was and fails the update. */
+/* 1 iff the applied update s can stand: its fill has room (decided
+ * before REQUEST_OK, moqtrun_fill_room) and a FORWARD 0 -> 1 blob send
+ * is accepted. */
+static int moqtrun_upd_fits(
+    wired_moqt_hub*            hub,
+    wired_moqtrun_peer*        p,
+    wired_moqtrun_sub*         s,
+    const wired_moqtrun_track* t,
+    const moqctl_params*       params,
+    u8                         was_off) {
+  if (!moqtrun_fill_room(hub, t, s, params)) return 0;
+  if (!moqtrun_upd_turned_on(was_off, s, t)) return 1;
+  return moqtrun_upd_forward_on(hub, p, s, t);
+}
+
+/* All or nothing: a fill without room or a refused blob send restores
+ * the whole subscription as it was and fails the update. */
 static int moqtrun_upd_apply(
     wired_moqt_hub*            hub,
     wired_moqtrun_peer*        p,
@@ -2911,8 +3011,7 @@ static int moqtrun_upd_apply(
     const moqctl_params*       params) {
   wired_moqtrun_sub before = *s;
   moqtrun_upd_params(s, t, params);
-  if (!moqtrun_upd_turned_on(before.forward_off, s, t)) return 1;
-  if (moqtrun_upd_forward_on(hub, p, s, t)) return 1;
+  if (moqtrun_upd_fits(hub, p, s, t, params, before.forward_off)) return 1;
   *s = before;
   return 0;
 }
@@ -3125,6 +3224,7 @@ static void moqtrun_update_route(
     usz                  peer_idx,
     const moqctl_params* params,
     u64                  rid) {
+  if (moqtrun_fill_malformed(hub, p, params)) return;
   if (moqtrun_update_route_other(hub, p, params)) return;
   moqtrun_update_sub(hub, p, peer_idx, params, rid);
 }
