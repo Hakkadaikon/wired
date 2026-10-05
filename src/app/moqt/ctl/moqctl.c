@@ -1499,12 +1499,21 @@ static int moqctl_redirect_take_uri(
   return moqctl_bytes_take(buf, at, uri_len, &r->connect_uri);
 }
 
+/* d22 SS9.4.1: the Redirect target is a Full Track Name (SS2.4.1 bound). */
+static int moqctl_redirect_take_target(
+    wired_span buf, usz* at, moqctl_redirect* r) {
+  moqctl_ftn f;
+  int        rr = moqctl_ftn_take(buf, at, &f);
+  if (rr != MOQCTL_OK) return rr;
+  r->track_namespace = f.ns;
+  r->track_name      = f.name;
+  return MOQCTL_OK;
+}
+
 static int moqctl_redirect_take(wired_span buf, usz* at, moqctl_redirect* r) {
   int rr = moqctl_redirect_take_uri(buf, at, r);
   if (rr != MOQCTL_OK) return rr;
-  rr = moqctl_ns_take_at(buf, at, &r->track_namespace);
-  if (rr != MOQCTL_OK) return rr;
-  return moqctl_name_take(buf, at, &r->track_name);
+  return moqctl_redirect_take_target(buf, at, r);
 }
 
 static int moqctl_request_error_take_redirect(

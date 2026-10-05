@@ -41,11 +41,14 @@ int moqns_suffix_take(wired_span body, moqctl_ns* out) {
   return moqctl_body_end(moqctl_ns_take(body, &at, out), at, body);
 }
 
-/* 10.20: Track Namespace Suffix then Track Name. */
+/* 10.20: Track Namespace Suffix then Track Name -- same layout as a Full
+ * Track Name, and suffix + name can only undercount it, so the d22 SS2.4.1
+ * 4096-byte bound applies. */
 int moqns_pub_skipped_take(wired_span body, moqns_pub_skipped* out) {
-  usz at = 0;
-  int r  = moqctl_ns_take(body, &at, &out->ns);
-  if (r == MOQCTL_OK) r = moqctl_name_take(body, &at, &out->name);
+  usz        at = 0;
+  moqctl_ftn f;
+  int        r = moqctl_ftn_take(body, &at, &f);
+  if (r == MOQCTL_OK) *out = (moqns_pub_skipped){f.ns, f.name};
   return moqctl_body_end(r, at, body);
 }
 
