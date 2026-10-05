@@ -4,13 +4,14 @@
 #include "app/moqt/ctl/moqctl.h"
 
 /** @file
- * draft-ietf-moq-transport-19 namespace messages: SUBSCRIBE_NAMESPACE
- * (10.18), PUBLISH_NAMESPACE (10.15), NAMESPACE (10.16) and NAMESPACE_DONE
- * (10.17). Every take decodes one whole Message Body (the bytes
- * moqctl_peek_type framed) and returns MOQCTL_OK, MOQCTL_VIOLATION
- * (malformed, or a Length mismatch -- see moqctl_body_end) or
- * MOQCTL_PARAMS_KVFMT. Encoders write the Body only and return 1 ok, 0 if
- * buf is too small.
+ * draft-ietf-moq-transport-18/19/22 namespace messages (draft-19
+ * sections; draft-22 9.14-9.18): SUBSCRIBE_NAMESPACE (10.18),
+ * PUBLISH_NAMESPACE (10.15), NAMESPACE (10.16) and NAMESPACE_DONE (10.17).
+ * Takes with a ver argument check parameters against that draft. Every take
+ * decodes one whole Message Body (the bytes moqctl_peek_type framed) and
+ * returns MOQCTL_OK, MOQCTL_VIOLATION (malformed, or a Length mismatch -- see
+ * moqctl_body_end) or MOQCTL_PARAMS_KVFMT. Encoders write the Body only and
+ * return 1 ok, 0 if buf is too small.
  */
 
 #define MOQNS_T_PUBLISH_NAMESPACE 0x6ULL

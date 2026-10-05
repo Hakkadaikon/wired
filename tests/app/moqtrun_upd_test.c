@@ -628,13 +628,13 @@ static void test_moqtrun_publish_alias_token_rejected(void) {
   CHECK(mtst_hub.peers[0].tracks[0].in_use == 0);
 }
 
-/* ======= REQUEST_UPDATE on a PUBLISH stream (draft-22 9.8) ======= */
+/* ======= REQUEST_UPDATE on a PUBLISH stream (draft-22 9.5) ======= */
 
-/* draft-22 lets the requester update its own PUBLISH: the parameters
- * are vetted like a subscription's and the update is REQUEST_OK (the
- * hub models no publisher-side state they would move), the track
- * untouched; a parameter the hub refuses on subscriptions is refused
- * here too. draft-19 keeps NOT_SUPPORTED. */
+/* The requester may update its own PUBLISH: the parameters are vetted
+ * like a subscription's and the update is REQUEST_OK (the hub models no
+ * publisher-side state they would move), the track untouched; a parameter
+ * the hub refuses on subscriptions is refused here too. Every draft
+ * allows it (moqtrun_vgate_test.c). */
 static void test_moqtrun_upd_on_publish_stream(void) {
   static const u8 upd[] = {0x04, 0x00}; /* Request ID 4, no parameters */
   moqctl_params   t     = mt22_filter(
@@ -650,11 +650,6 @@ static void test_moqtrun_upd_on_publish_stream(void) {
   mtup_update(SESS_A, MTRQ_S1, &t);
   CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_INVALID_RANGE);
   CHECK(mtst_hub.peers[0].tracks[0].in_use == 1);
-  mtst_init();
-  mtst_join(SESS_A);
-  mtst_publish(SESS_A, MTRQ_S1, &f, 1);
-  mtrq_raw(SESS_A, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd, sizeof upd);
-  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_NOT_SUPPORTED);
 }
 
 /* REQUEST_UPDATE replaces a mentioned Range Filter type whole, a
@@ -711,7 +706,7 @@ static usz mtup_close_count(u32 code) {
 
 /* A request stream already holding MAX_REQUEST_UPDATES unanswered
  * REQUEST_UPDATEs closes the session with TOO_MANY_REQUEST_UPDATES
- * (draft-19 10.4). */
+ * (draft-19 10.3.1.7, draft-22 9.1.7; draft-18 has no such limit). */
 static void test_moqtrun_upd_credit_too_many(void) {
   moqctl_params p1 = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
   moqctl_ftn    f  = mtup_setup();
@@ -834,7 +829,6 @@ static void test_moqtrun_upd_ns_prefix_overlap_refused(void) {
 
 /* Version-invariant scenarios: every supported draft (ledger 7-4). */
 static void mtall_upd(void) {
-  test_moqtrun_upd_credit_too_many();
   test_moqtrun_upd_credit_restored_by_flush();
   test_moqtrun_upd_ns_prefix_changes();
   test_moqtrun_upd_ns_prefix_overlap_refused();
@@ -883,4 +877,6 @@ void test_moqtrun_upd(void) {
   moqtrun_test_allver(mtall_upd);
   moqtrun_test_vers(0, MOQVER_CAP_FETCH_BODY_V22, mtall_upd_fetch19);
   moqtrun_test_vers(MOQVER_CAP_RANGE_FILTERS, 0, mtall_upd_rngf);
+  moqtrun_test_vers(
+      MOQVER_CAP_MAX_REQUEST_UPDATES, 0, test_moqtrun_upd_credit_too_many);
 }

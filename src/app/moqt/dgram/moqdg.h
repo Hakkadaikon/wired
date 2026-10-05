@@ -6,10 +6,11 @@
 #include "common/platform/sys/syscall.h"
 
 /** @file
- * draft-ietf-moq-transport-19 datagram plane: OBJECT_DATAGRAM codec
- * (11.3.1). One datagram carries exactly one Object; the stream plane
- * (SUBGROUP_HEADER, 11.4) lives in moqdata. Return codes are the shared
- * MOQDATA_OK / MOQDATA_INSUFFICIENT / MOQDATA_VIOLATION.
+ * draft-ietf-moq-transport-18/19/22 datagram plane: OBJECT_DATAGRAM codec
+ * (18/19 11.3.1, 22 11.2.1; byte-identical in all three, no version). One
+ * datagram carries exactly one Object; the stream plane (SUBGROUP_HEADER, 11.4)
+ * lives in moqdata. Return codes are the shared MOQDATA_OK /
+ * MOQDATA_INSUFFICIENT / MOQDATA_VIOLATION.
  */
 
 /** OBJECT_DATAGRAM Type (11.3.1): 0b00X0XXXX, i.e. 0x00..0x0F and

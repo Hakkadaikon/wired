@@ -5,10 +5,12 @@
 #include "common/platform/sys/syscall.h"
 
 /** @file
- * draft-ietf-moq-transport-19 data-plane: unidirectional stream
- * classification (3.4), SUBGROUP_HEADER (11.4.2) and Object framing
- * (11.4.2 / 4237-4466). Fetch/control/padding streams are only classified
- * here; their bodies are decoded by moqctl (control) and other modules.
+ * draft-ietf-moq-transport-18/19/22 data-plane (draft-19 sections; the
+ * wire is byte-identical in all three, so nothing here takes a version):
+ * unidirectional stream classification (3.4), SUBGROUP_HEADER (11.4.2,
+ * draft-22 11.3.1) and Object framing (11.4.2 / 4237-4466).
+ * Fetch/control/padding streams are only classified here; their bodies are
+ * decoded by moqctl (control) and other modules.
  */
 
 #define MOQDATA_OK 1

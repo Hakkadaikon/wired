@@ -4,10 +4,11 @@
 #include "app/moqt/ctl/moqctl.h"
 
 /** @file
- * draft-ietf-moq-transport-19 FETCH: the FETCH (10.12) and FETCH_OK
- * (10.13) control messages, and the fetch data stream (11.4.4): the
- * FETCH_HEADER and the fetch Objects with their Serialization Flags,
- * including the End of Range markers (11.4.4.2).
+ * draft-ietf-moq-transport-18/19/22 FETCH: the FETCH (19 10.12, 22 9.11)
+ * and FETCH_OK (19 10.13, 22 9.12) control messages, and the fetch data
+ * stream (19 11.4.4, 22 11.4): the FETCH_HEADER and the fetch Objects
+ * with their Serialization Flags, including the End of Range markers
+ * (19 11.4.4.2). Takes with a ver argument decode that draft's layout.
  *
  * Message takes decode one whole Message Body (the bytes moqctl_peek_type
  * framed) and return MOQCTL_OK, MOQCTL_VIOLATION (malformed, or a Length

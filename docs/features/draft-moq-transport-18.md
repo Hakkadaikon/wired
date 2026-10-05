@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 204/214 tested, 9 indirect, 1 untested.**
+**Coverage: 205/215 tested, 9 indirect, 1 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -545,12 +545,15 @@ Legend:
 - [x] MQ18-073a The implementation shall accept GROUP_ORDER (0x22) in
   PUBLISH_OK on a draft-18 session, unlike draft-19 (and later) where
   PUBLISH_OK does not allow GROUP_ORDER and SUBSCRIBE_TRACKS does instead.
+  - test: `tests/app/moqctl_test.c` —
+    `test_moqctl_params_registry_scope_per_draft`
   - test: `tests/app/moqtrun_sub_test.c` —
-    `test_moqtrun_pub_params_group_order_d18`
+    `test_moqtrun_pub_params_group_order_d19`
   - note: ruling Q18-02 (follow §10.19.1's per-request-type rule over the
-    allowed-set table's apparent contradiction): a PUBLISH resulting from
-    SUBSCRIBE_TRACKS still includes GROUP_ORDER on a draft-18 session. See
-    `draft18-vs-19-diff.md` §13-2.
+    allowed-set table's apparent contradiction) applies from draft-19 on:
+    draft-18 §10.19 has no §10.19.1 and echoes only FORWARD, and §10.2.8
+    lists SUBSCRIBE, PUBLISH_OK and FETCH only, so a draft-18 PUBLISH with
+    GROUP_ORDER is a protocol violation (ledger 12-7).
 - [x] MQ18-073b The implementation shall reject EXPIRES (0x08) in
   SUBSCRIBE_NAMESPACE_OK, SUBSCRIBE_TRACKS_OK or PUBLISH_NAMESPACE_OK on a
   draft-18 session with a protocol violation, unlike draft-19 (and later)
@@ -1462,6 +1465,11 @@ Legend:
     `test_moqtrun_upd_ns_prefix_overlap_refused`
   - note: ledger 10-5. Exercised on draft-19 sessions; the hub path is
     version-independent.
+- [x] MQ18-204a (SS10.9) A REQUEST_UPDATE of the sender's own PUBLISH ("The
+  sender of a request (SUBSCRIBE, PUBLISH, FETCH, ...) can later send a
+  REQUEST_UPDATE") shall be answered REQUEST_OK, the track kept.
+  - test: `tests/app/moqtrun_vgate_test.c` — `test_moqtrun_vgate_update_kinds`
+  - note: ledger 12-6 (was draft-22 only before).
 - [x] MQ18-205 (SS10.12) A FETCH with GROUP_ORDER Descending shall be served
   newest group first (Objects within a group still ascending), and a FETCH whose
   body fails to decode shall close the session with PROTOCOL_VIOLATION.
@@ -1491,9 +1499,9 @@ through MQ18-206).
 - (SS10.11) PUBLISH_DONE for a subscription made on the legacy control
   stream: there is no request stream to carry it, so none is sent and the
   subscription is kept for a publisher rejoin.
-- (SS10.9) REQUEST_UPDATE of a SUBSCRIBE_TRACKS, or of the sender's own
-  PUBLISH — NOT_SUPPORTED on a draft-18 session (the hub accepts a PUBLISH
-  update only on draft-22 sessions).
+- (SS10.9) REQUEST_UPDATE of a SUBSCRIBE_TRACKS — answered REQUEST_ERROR
+  NOT_SUPPORTED (the request stays established; SS10.9 lets the receiver
+  refuse an update). `test_moqtrun_vgate_update_kinds`.
 - (SS5.1.4) A late subscriber's live delivery starts at its Location
   Filter's start Group (MQ18-206), but a start Object inside that Group is
   not trimmed from a Subgroup stream; only the reliable replay honours the
@@ -1533,11 +1541,11 @@ from the coverage denominator above:
 - (SS10.9) MAX_REQUEST_UPDATES credit limit and TOO_MANY_REQUEST_UPDATES —
   **new in draft-19** (`draft18-vs-19-diff.md` §6-7); draft-18 has no
   REQUEST_UPDATE flow-control mechanism, so Q18-06 (credit recovery count
-  for coalesced updates) does not apply to this draft. Known gap: the hub's
-  credit check is not version-gated, so a draft-18 peer that leaves more
-  than 4 REQUEST_UPDATEs unanswered on one request stream is closed with
-  0x1B (TOO_MANY_REQUEST_UPDATES in draft-19), a limit draft-18 never
-  advertised.
+  for coalesced updates) does not apply to this draft. The hub's credit
+  check is gated on `MOQVER_CAP_MAX_REQUEST_UPDATES`: a draft-18 peer with
+  more than 4 unanswered REQUEST_UPDATEs on one request stream is not
+  closed and every update is still answered (ledger 12-5,
+  `tests/app/moqtrun_vgate_test.c` — `test_moqtrun_vgate_update_credit`).
 - (SS10.9) Publisher-side REQUEST_UPDATE carrying a Range Filter (Q18-07) —
   moot, since Range Filters do not exist in draft-18.
 - (SS7, SS7.1--7.3) The Priorities scheduling algorithm across

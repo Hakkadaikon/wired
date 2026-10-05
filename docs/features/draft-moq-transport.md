@@ -30,7 +30,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 199/208 tested, 9 indirect, 0 untested.**
+**Coverage: 200/209 tested, 9 indirect, 0 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -1311,6 +1311,11 @@ Legend:
   - test: `tests/app/moqtrun_upd_test.c` —
     `test_moqtrun_upd_ns_prefix_overlap_refused`
   - note: ledger 10-5.
+- [x] MOQT-203a (SS10.9) A REQUEST_UPDATE of the sender's own PUBLISH ("The
+  sender of a request (SUBSCRIBE, PUBLISH, FETCH, ...) can later send a
+  REQUEST_UPDATE") shall be answered REQUEST_OK, the track kept.
+  - test: `tests/app/moqtrun_vgate_test.c` — `test_moqtrun_vgate_update_kinds`
+  - note: ledger 12-6 (was draft-22 only before).
 - [x] MOQT-204 (SS10.2.8, SS10.12) A FETCH with GROUP_ORDER Descending shall be
   served newest group first (Objects within a group still ascending), and a
   FETCH whose body fails to decode shall close the session with
@@ -1341,7 +1346,8 @@ Legend:
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_credit_too_many`
   - test: `tests/app/moqtrun_upd_test.c` —
     `test_moqtrun_upd_credit_restored_by_flush`
-  - note: ledger 10-10.
+  - test: `tests/app/moqtrun_vgate_test.c` — `test_moqtrun_vgate_update_credit`
+  - note: ledger 10-10; gated on `MOQVER_CAP_MAX_REQUEST_UPDATES` (12-5).
 - [x] MOQT-208 (SS5.1.3, SS10.2.10-10.2.14) Range Filter parameters shall be
   decoded with delta resolution and validated: an undecodable value, a repeated
   (Type, SetID) in one message, or a total Range count beyond the advertised
@@ -1378,9 +1384,9 @@ MOQT-200 through MOQT-208).
 - (SS10.11) PUBLISH_DONE for a subscription made on the legacy control
   stream: there is no request stream to carry it, so none is sent and the
   subscription is kept for a publisher rejoin.
-- (SS10.9) REQUEST_UPDATE of a SUBSCRIBE_TRACKS, or of the sender's own
-  PUBLISH — NOT_SUPPORTED on a draft-19 session (the hub accepts a PUBLISH
-  update only on draft-22 sessions).
+- (SS10.9) REQUEST_UPDATE of a SUBSCRIBE_TRACKS — answered REQUEST_ERROR
+  NOT_SUPPORTED (the request stays established; SS10.9 lets the receiver
+  refuse an update). `test_moqtrun_vgate_update_kinds`.
 - (SS5.1.4) A late subscriber's live delivery starts at its Location
   Filter's start Group (MOQT-205), but a start Object inside that Group is
   not trimmed from a Subgroup stream; only the reliable replay honours the

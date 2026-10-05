@@ -12,13 +12,16 @@
 #include "common/platform/sys/syscall.h"
 
 /** @file
- * draft-ietf-moq-transport-19 hub relay: the app-facing layer wiring the
- * other MOQT domains (vi/kvp/ctl/data/dgram/sess/fetch/ns/tstat/cache) onto
- * the WT application API (app/http3/server/srvrun). One hub is a central
- * server: clients PUBLISH tracks under namespaces of their choosing,
- * SUBSCRIBE / FETCH / TRACK_STATUS by full track name, and discover each
- * other through PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE. All state lives in
- * this one struct, so a hub serves a single process.
+ * draft-ietf-moq-transport-18/19/22 hub relay (section numbers are
+ * draft-19's unless a draft is named; each peer's negotiated draft, its
+ * moqver.h capability bits, picks the per-draft behavior): the
+ * app-facing layer wiring the other MOQT domains
+ * (vi/kvp/ctl/data/dgram/sess/fetch/ns/tstat/cache) onto the WT application API
+ * (app/http3/server/srvrun). One hub is a central server: clients PUBLISH
+ * tracks under namespaces of their choosing, SUBSCRIBE / FETCH / TRACK_STATUS
+ * by full track name, and discover each other through PUBLISH_NAMESPACE /
+ * SUBSCRIBE_NAMESPACE. All state lives in this one struct, so a hub serves a
+ * single process.
  *
  * The actual WT sends (open/append/reset) are routed through a caller-
  * supplied wired_moqt_io table rather than calling wired_server_wt_* here
@@ -810,12 +813,14 @@ typedef struct {
   int sent_any[WIRED_MOQTRUN_MAX_SUBS];   /**< 0 until the first send */
 } wired_moqtrun_live;
 
-/** draft-ietf-moq-transport-19 SS13.3 subscriber authorization hook: the
- * hub calls it once per SUBSCRIBE with the requested Full Track Name and
- * the presented AUTHORIZATION TOKEN (Alias Type USE_VALUE; 0 when the
- * message carried none). Return non-zero to grant, 0 to answer
- * REQUEST_ERROR UNAUTHORIZED. The token scheme (CAT / Privacy Pass) is the
- * deployment's to verify -- this SDK carries the bytes, not the policy. */
+/** draft-ietf-moq-transport-19 SS13.3 authorization hook: as
+ * authorize_subscribe the hub calls it once per SUBSCRIBE and per
+ * TRACK_STATUS naming a known track, as authorize_publish once per
+ * PUBLISH, each with the Full Track Name and the presented AUTHORIZATION
+ * TOKEN (Alias Type USE_VALUE; 0 when the message carried none). Return
+ * non-zero to grant, 0 to answer REQUEST_ERROR UNAUTHORIZED. The token scheme
+ * (CAT / Privacy Pass) is the deployment's to verify -- this SDK carries the
+ * bytes, not the policy. */
 typedef int (*wired_moqt_authorize_fn)(
     void* ctx, const moqctl_ftn* name, const moqctl_token* token);
 

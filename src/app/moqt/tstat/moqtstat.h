@@ -4,9 +4,10 @@
 #include "app/moqt/ctl/moqctl.h"
 
 /** @file
- * draft-ietf-moq-transport-19 TRACK_STATUS (10.14), its TRACK_STATUS_OK
- * response (a REQUEST_OK, 10.5) and REQUEST_UPDATE (10.9). Every take
- * decodes one whole Message Body (the bytes moqctl_peek_type framed) and
+ * draft-ietf-moq-transport-18/19/22 TRACK_STATUS (19 10.14, 22 9.13),
+ * its TRACK_STATUS_OK response (a REQUEST_OK, 19 10.5, 22 9.3) and
+ * REQUEST_UPDATE (19 10.9, 22 9.5); takes check parameters against ver. Every
+ * take decodes one whole Message Body (the bytes moqctl_peek_type framed) and
  * returns MOQCTL_OK, MOQCTL_VIOLATION (malformed, or a Length mismatch --
  * see moqctl_body_end) or MOQCTL_PARAMS_KVFMT.
  */

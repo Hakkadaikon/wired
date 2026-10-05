@@ -645,8 +645,10 @@ Legend:
   - test: `tests/app/moqsess_test.c` — `test_moqsub_publish_establish`
   - test: `tests/app/moqtrun_upd_test.c` —
     `test_moqtrun_notify_on_publish_stream_d22`
-  - note: `MOQVER_CAP_UPDATE_ON_PUBLISH` gates REQUEST_UPDATE acceptance on
-    a PUBLISH stream for d22; see ledger 4-7, commit `041b9ef4`.
+  - test: `tests/app/moqtrun_vgate_test.c` — `test_moqtrun_vgate_update_kinds`
+  - note: REQUEST_UPDATE on the sender's own PUBLISH stream is accepted on
+    every draft (18/19 SS10.9 and 22 SS9.5 list PUBLISH alike); the former
+    draft-22-only cap bit was removed (ledger 12-6).
 - [x] MQ22-096 A publisher may start sending Objects on a PUBLISH-initiated
   subscription before receiving PUBLISH_OK.
   - test: `tests/app/moqsess_test.c` — `test_moqsub_object_before_publish_ok`
@@ -1542,8 +1544,9 @@ draft-18 and draft-19.
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_credit_too_many`
   - test: `tests/app/moqtrun_upd_test.c` —
     `test_moqtrun_upd_credit_restored_by_flush`
-  - note: ledger 10-10. Exercised on draft-19 sessions; the hub path is
-    version-independent.
+  - test: `tests/app/moqtrun_vgate_test.c` — `test_moqtrun_vgate_update_credit`
+  - note: ledger 10-10; gated on `MOQVER_CAP_MAX_REQUEST_UPDATES`, which
+    draft-19 and draft-22 hold and draft-18 lacks (12-5).
 - [x] MQ22-201 (SS3.3.2, SS8.6) Range Filter parameters shall be decoded with
   delta resolution and validated: an undecodable value, a repeated (Type, SetID)
   in one message, or a total Range count beyond the advertised MAX_FILTER_RANGES
