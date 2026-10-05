@@ -1967,12 +1967,9 @@ static void test_moqtrun_subscribe_audio_track_replies_ok(void) {
   CHECK(type == MOQCTL_T_SUBSCRIBE_OK);
 }
 
-/* The same subscriber SUBSCRIBEing chat then audio gets a valid
- * SUBSCRIBE_OK from each track's OWN alias sequence (each track allocates
- * aliases independently starting from 0, so both replies legitimately
- * name alias 0 here -- the two tracks are still routed correctly since
- * relay keys on the publisher's Track Alias, not the hub's per-subscriber
- * one; see moqtClient.ts's own comment on why it never reads this value). */
+/* The same subscriber SUBSCRIBEing chat then audio gets a SUBSCRIBE_OK
+ * from each, naming two different aliases: two Tracks MUST NOT share one
+ * within a session (draft-22 3.1.3, DUPLICATE_TRACK_ALIAS). */
 static void test_moqtrun_chat_and_audio_get_different_aliases(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
@@ -2013,11 +2010,7 @@ static void test_moqtrun_chat_and_audio_get_different_aliases(void) {
 
   CHECK(type1 == MOQCTL_T_SUBSCRIBE_OK);
   CHECK(type2 == MOQCTL_T_SUBSCRIBE_OK);
-  /* Both tracks allocate aliases independently from 0, so this hub's
-   * per-subscriber alias legitimately collides across tracks -- routing
-   * still works because relay keys on the PUBLISHER's own Track Alias
-   * (own_alias), never on this value (see moqtClient.ts's comment). */
-  CHECK(chat_ok.track_alias == audio_ok.track_alias);
+  CHECK(chat_ok.track_alias != audio_ok.track_alias);
 }
 
 /* An Object on the chat track's data stream (Track Alias 1, the golden

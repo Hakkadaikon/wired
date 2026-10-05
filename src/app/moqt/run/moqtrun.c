@@ -936,17 +936,142 @@ static wired_moqtrun_sub* moqtrun_sub_slot(wired_moqtrun_track* track) {
   return 0;
 }
 
-static u64 moqtrun_alias_floor(const wired_moqtrun_track* track, usz i) {
-  return track->subs[i].active ? track->subs[i].track_alias + 1 : 0;
+/* --- Track Alias per subscriber session (draft-22 3.1.3, draft-19 11.1):
+ * on each subscriber's session the HUB is the publisher, so it picks the
+ * alias SUBSCRIBE_OK / its own PUBLISH names, and two Tracks MUST NOT
+ * share one within that session -- yet every publisher picks its own,
+ * so two publishers' tracks can carry the same number. The hub prefers
+ * the publisher's own alias (relayed bytes then pass verbatim), else the
+ * lowest free one, and re-spells each relayed SUBGROUP_HEADER /
+ * OBJECT_DATAGRAM to its destination's alias (moqtrun_alias_splice). --- */
+
+/* 1 iff s is session pi's Established subscription under alias a. */
+static int moqtrun_sub_holds_alias(const wired_moqtrun_sub* s, usz pi, u64 a) {
+  return s->active && s->session_idx == pi && s->track_alias == a;
 }
 
-static u64 moqtrun_next_alias(const wired_moqtrun_track* track) {
-  u64 max_seen = 0;
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
-    u64 floor = moqtrun_alias_floor(track, i);
-    if (floor > max_seen) max_seen = floor;
-  }
-  return max_seen;
+static int moqtrun_subs_hold_alias(
+    const wired_moqtrun_track* x, usz pi, u64 a) {
+  for (usz s = 0; s < WIRED_MOQTRUN_MAX_SUBS; s++)
+    if (moqtrun_sub_holds_alias(&x->subs[s], pi, a)) return 1;
+  return 0;
+}
+
+/* 1 iff x, a live track other than t, gives session pi alias a. */
+static int moqtrun_track_alias_clash(
+    const wired_moqtrun_track* x, const wired_moqtrun_track* t, usz pi, u64 a) {
+  return x != t && x->in_use && moqtrun_subs_hold_alias(x, pi, a);
+}
+
+static int moqtrun_peer_tracks_clash(
+    const wired_moqtrun_peer* q, const wired_moqtrun_track* t, usz pi, u64 a) {
+  for (usz k = 0; k < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; k++)
+    if (moqtrun_track_alias_clash(&q->tracks[k], t, pi, a)) return 1;
+  return 0;
+}
+
+static int moqtrun_peer_clash(
+    const wired_moqtrun_peer* q, const wired_moqtrun_track* t, usz pi, u64 a) {
+  return q->in_use && moqtrun_peer_tracks_clash(q, t, pi, a);
+}
+
+static int moqtrun_peers_clash(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t, usz pi, u64 a) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
+    if (moqtrun_peer_clash(&hub->peers[i], t, pi, a)) return 1;
+  return 0;
+}
+
+/* The hub's own blob/live track x: its framed bytes always carry
+ * own_alias, so that alias is reserved in every session. */
+static int moqtrun_own_alias_clash(
+    const wired_moqtrun_track* x, const wired_moqtrun_track* t, u64 a) {
+  return x != t && x->in_use && x->own_alias == a;
+}
+
+static int moqtrun_own_clash(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t, u64 a) {
+  return moqtrun_own_alias_clash(&hub->blob_track, t, a) ||
+         moqtrun_own_alias_clash(&hub->live.track, t, a);
+}
+
+static moqtrun_key moqtrun_track_key(const wired_moqtrun_track* t) {
+  moqtrun_key k;
+  k.ns   = wired_span_of(t->ns, t->ns_len);
+  k.name = wired_span_of(t->name, t->name_len);
+  return k;
+}
+
+/* Ring entry i of p: a subscription to another Track than t under alias
+ * a, which p's client may still believe Established (a REPUBLISH
+ * re-attaches it under that alias, moqtrun_reattach_one_sub). A
+ * forgotten (cancelled) entry's name is over-long and never counts. */
+static int moqtrun_sub_state_clash(
+    const wired_moqtrun_peer* p, usz i, const wired_moqtrun_track* t, u64 a) {
+  return p->sub_state[i].track_alias == a &&
+         p->sub_name_lens[i] <= WIRED_MOQTRUN_MAX_NAME &&
+         !moqtrun_sub_name_eq(p, i, moqtrun_track_key(t));
+}
+
+static int moqtrun_ring_clash(
+    const wired_moqtrun_peer* p, const wired_moqtrun_track* t, u64 a) {
+  for (usz i = 0; i < p->sub_names_n; i++)
+    if (moqtrun_sub_state_clash(p, i, t, a)) return 1;
+  return 0;
+}
+
+/* 1 iff q is a PUBLISH this hub opened on session wt. */
+static int moqtrun_req_is_pub_on(
+    const wired_moqtrun_req* q, const wired_wt_session* wt) {
+  return q->in_use && q->pub_origin_rid && q->wt == wt;
+}
+
+static int moqtrun_req_alias_clash(
+    const wired_moqtrun_req*   q,
+    const wired_wt_session*    wt,
+    const wired_moqtrun_track* t,
+    u64                        a) {
+  return moqtrun_req_is_pub_on(q, wt) && q->pub_track_tag != t->cache_tag &&
+         q->pub_alias == a;
+}
+
+static int moqtrun_reqs_clash(
+    const wired_moqt_hub*      hub,
+    const wired_wt_session*    wt,
+    const wired_moqtrun_track* t,
+    u64                        a) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+    if (moqtrun_req_alias_clash(&hub->reqs[i], wt, t, a)) return 1;
+  return 0;
+}
+
+/* Session pi already names another Track than t by a: a subscription,
+ * a hub track's reserved alias, a remembered subscription, or a PUBLISH
+ * the hub opened there. */
+static int moqtrun_alias_live(
+    const wired_moqt_hub* hub, usz pi, const wired_moqtrun_track* t, u64 a) {
+  return moqtrun_peers_clash(hub, t, pi, a) || moqtrun_own_clash(hub, t, a);
+}
+
+static int moqtrun_alias_kept(
+    const wired_moqt_hub* hub, usz pi, const wired_moqtrun_track* t, u64 a) {
+  const wired_moqtrun_peer* p = &hub->peers[pi];
+  return moqtrun_ring_clash(p, t, a) || moqtrun_reqs_clash(hub, p->wt, t, a);
+}
+
+static int moqtrun_alias_taken(
+    const wired_moqt_hub* hub, usz pi, const wired_moqtrun_track* t, u64 a) {
+  return moqtrun_alias_live(hub, pi, t, a) || moqtrun_alias_kept(hub, pi, t, a);
+}
+
+/* The Track Alias session pi knows t by: t's own (publisher-chosen) alias
+ * unless another Track holds it there, else the lowest free one. */
+static u64 moqtrun_session_alias(
+    const wired_moqt_hub* hub, usz pi, const wired_moqtrun_track* t) {
+  u64 a = 0;
+  if (!moqtrun_alias_taken(hub, pi, t, t->own_alias)) return t->own_alias;
+  while (moqtrun_alias_taken(hub, pi, t, a)) a++;
+  return a;
 }
 
 /* 1 if sub is an Established subscription held by peer index idx. */
@@ -1326,17 +1451,17 @@ static void moqtrun_sub_reresolve(
 
 /* Re-attaches peer i to track with the state it SUBSCRIBEd to k with
  * (Forward State, Request ID, parameters: only the subscriber changes
- * them, draft 5.1) under a fresh alias. */
+ * them, draft 5.1) under the alias its SUBSCRIBE_OK named -- the one its
+ * client still holds (draft-22 3.1.3; moqtrun_session_alias kept it
+ * reserved). */
 static void moqtrun_reattach_one_sub(
     wired_moqt_hub* hub, wired_moqtrun_track* track, usz i, moqtrun_key k) {
   wired_moqtrun_sub* slot = moqtrun_sub_slot(track);
   if (!slot) return;
-  const wired_moqtrun_peer* p     = &hub->peers[i];
-  u64                       alias = moqtrun_next_alias(track);
-  *slot                           = p->sub_state[moqtrun_sub_name_find(p, k)];
-  slot->session_idx               = i;
-  slot->track_alias               = alias;
-  slot->active                    = 1;
+  const wired_moqtrun_peer* p = &hub->peers[i];
+  *slot                       = p->sub_state[moqtrun_sub_name_find(p, k)];
+  slot->session_idx           = i;
+  slot->active                = 1;
   moqtrun_sub_reresolve(slot, track);
 }
 
@@ -1345,8 +1470,8 @@ static void moqtrun_reattach_one_sub(
  * subscriber's client still believes its original subscription stands
  * (that belief, standing while the hub-side subscription had died with
  * the publisher's previous incarnation, is exactly the played-into-
- * silence bug this repairs). The relayed bytes carry the publisher's own
- * SUBGROUP_HEADER alias, which the client maps statically, so no
+ * silence bug this repairs). The relayed bytes are re-spelled to the
+ * alias the client already holds (moqtrun_alias_splice), so no
  * client-visible state needs renegotiating. */
 static void moqtrun_reattach_subs(
     wired_moqt_hub*      hub,
@@ -1394,8 +1519,8 @@ static void moqtrun_fill_on_subscribe(
     wired_moqtrun_sub*   sub,
     const moqctl_params* params);
 
-/* Records slot (peer_idx, a fresh alias) against track, replies
- * SUBSCRIBE_OK with that alias and opens any requested fill. */
+/* Records slot (peer_idx, its session's alias for track) against track,
+ * replies SUBSCRIBE_OK with that alias and opens any requested fill. */
 static void moqtrun_accept_subscribe(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
@@ -1403,7 +1528,8 @@ static void moqtrun_accept_subscribe(
     wired_moqtrun_sub*      slot,
     usz                     peer_idx,
     const moqctl_subscribe* m) {
-  moqtrun_sub_open(slot, track, peer_idx, moqtrun_next_alias(track), m);
+  moqtrun_sub_open(
+      slot, track, peer_idx, moqtrun_session_alias(hub, peer_idx, track), m);
   moqtrun_queue_subscribe_ok(p, track, slot->track_alias);
   moqtrun_fill_on_subscribe(hub, p, track, slot, &m->params);
 }
@@ -3592,8 +3718,9 @@ static int moqtrun_subtracks_encode_pub(
 }
 
 /* Opens a fresh PUBLISH bidi stream on st_peer's session for t, naming q's
- * request_id and t->own_alias (10.9); 1 sent, 0 when the transport has no
- * bidi stream (or equivalent resource) to open -- the caller falls back
+ * request_id and st_peer's session alias for t (10.9; draft-22 3.1.3,
+ * moqtrun_session_alias), kept on q as pub_alias; 1 sent, 0 when the transport
+ * has no bidi stream (or equivalent resource) to open -- the caller falls back
  * to PUBLISH_SKIPPED (1767-1771: "no available bidirectional streams or
  * any other reason"). */
 static int moqtrun_subtracks_open_pub(
@@ -3610,7 +3737,7 @@ static int moqtrun_subtracks_open_pub(
   i64            sid;
   usz            n;
   m.request_id  = q->request_id;
-  m.track_alias = t->own_alias;
+  m.track_alias = moqtrun_session_alias(hub, (usz)(st_peer - hub->peers), t);
   m.params      = moqtrun_subtracks_publish_params(st);
   moqctl_ns_take(wired_span_of(t->ns, t->ns_len), &off, &m.name.ns);
   m.name.name = wired_span_of(t->name, t->name_len);
@@ -3623,6 +3750,7 @@ static int moqtrun_subtracks_open_pub(
   q->opened        = 1;
   q->kind          = MOQCTL_T_PUBLISH;
   q->pub_track_tag = t->cache_tag;
+  q->pub_alias     = m.track_alias;
   return 1;
 }
 
@@ -4541,6 +4669,44 @@ static wired_span moqtrun_hdr_cutoff(
   return wired_span_of(wire.p, cut);
 }
 
+/* Offsets of wire's Track Alias -- the vi64 right after the Type in a
+ * SUBGROUP_HEADER (draft-22 11.3.1) and an OBJECT_DATAGRAM (11.2.1)
+ * alike -- and its value; 0 when either does not decode. */
+static int moqtrun_alias_spot(wired_span wire, usz* at, usz* end, u64* cur) {
+  usz off = 0;
+  u64 type;
+  if (!moqvi_take(wire, &off, &type)) return 0;
+  *at = off;
+  if (!moqvi_take(wire, &off, cur)) return 0;
+  *end = off;
+  return 1;
+}
+
+/* 1 iff wire names another alias than a and a re-spelled copy fits
+ * hub->alias_scratch. */
+static int moqtrun_alias_respell(
+    const wired_moqt_hub* hub, wired_span wire, u64 a, usz* at, usz* end) {
+  u64 cur = a;
+  return moqtrun_alias_spot(wire, at, end, &cur) && cur != a &&
+         wire.n + 8 <= sizeof hub->alias_scratch;
+}
+
+/* wire as its destination must see it: carrying a, the alias that
+ * session's SUBSCRIBE_OK named (draft-22 3.1.3). wire itself when it
+ * already does (the common case: moqtrun_session_alias prefers the
+ * publisher's own), else a copy staged in hub->alias_scratch, valid
+ * until the next call. Only a stream head or a datagram is passed here
+ * -- never a header-less continuation round. */
+static wired_span moqtrun_alias_splice(
+    wired_moqt_hub* hub, wired_span wire, u64 a) {
+  usz at = 0, end = 0;
+  if (!moqtrun_alias_respell(hub, wire, a, &at, &end)) return wire;
+  bytes_memcpy(hub->alias_scratch, wire.p, at);
+  usz n = at + moqvi_encode(hub->alias_scratch + at, a);
+  bytes_memcpy(hub->alias_scratch + n, wire.p + end, wire.n - end);
+  return wired_span_of(hub->alias_scratch, n + wire.n - end);
+}
+
 static void moqtrun_relay_object(
     wired_moqt_hub* hub, wired_moqtrun_track* track, wired_span wire) {
   moqdata_objseq seq;
@@ -4550,7 +4716,9 @@ static void moqtrun_relay_object(
     if (moqtrun_sub_gets(&track->subs[i], group))
       moqtrun_relay_to_one(
           hub, &track->subs[i],
-          moqtrun_hdr_cutoff(&track->subs[i], wire, group));
+          moqtrun_alias_splice(
+              hub, moqtrun_hdr_cutoff(&track->subs[i], wire, group),
+              track->subs[i].track_alias));
 }
 
 /* --- relay map: one entry per in-flight publisher stream (moqtrun.h's
@@ -5583,12 +5751,13 @@ static void moqtrun_relay_open_one(
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
   if (!dst->in_use) return;
   wired_span cut_wire = moqtrun_hdr_cutoff(sub, wire, relay->group_id);
-  i64        sid      = hub->io.open_uni_stream(dst->wt, cut_wire);
+  wired_span out      = moqtrun_alias_splice(hub, cut_wire, sub->track_alias);
+  i64        sid      = hub->io.open_uni_stream(dst->wt, out);
   if (sid < 0) {
     hub->stat_open_drop++;
     return;
   }
-  moqtrun_prio_set(hub, dst->wt, sid, sub, cut_wire);
+  moqtrun_prio_set(hub, dst->wt, sid, sub, out);
   sub->stream_count++;
   relay->sub_stream_id[i]   = (u64)sid;
   relay->sub_stream_set[i]  = 1;
@@ -6150,6 +6319,7 @@ static wired_moqtrun_req* moqtrun_req_open(
   bytes_memset(q->attempted_tag, 0, sizeof q->attempted_tag);
   q->pub_origin_rid = 0;
   q->pub_track_tag  = 0;
+  q->pub_alias      = 0;
   q->forward_zero   = 0;
   q->group_order    = 0;
   return q;
@@ -6476,15 +6646,17 @@ static wired_moqtrun_track* moqtrun_dg_track(
   return t;
 }
 
-/* One subscriber's copy: the SAME bytes, unmodified (the relay never
- * re-encodes). An accepted queue counts on stat_dg_sent, a refusal on
+/* One subscriber's copy: the same bytes, only the Track Alias re-spelled
+ * to the subscriber's own (moqtrun_alias_splice; usually a no-op). An
+ * accepted queue counts on stat_dg_sent, a refusal on
  * stat_dg_drop -- and that copy is simply gone (no retransmission, no
  * busy streak: the next audio frame arrives in ~20ms anyway). */
 static void moqtrun_dg_to_one(
     wired_moqt_hub* hub, const wired_moqtrun_sub* sub, wired_span data) {
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
   if (!dst->in_use) return;
-  if (hub->io.send_datagram(dst->wt, data) == 1)
+  wired_span out = moqtrun_alias_splice(hub, data, sub->track_alias);
+  if (hub->io.send_datagram(dst->wt, out) == 1)
     hub->stat_dg_sent++;
   else
     hub->stat_dg_drop++;
