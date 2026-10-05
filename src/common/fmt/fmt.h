@@ -22,8 +22,12 @@
 
 /** Variadic argument list (compiler builtin, not ISA specific). */
 typedef __builtin_va_list wired_va_list;
+
+/** Begin reading variadic arguments after `last`. */
 #define wired_va_start(ap, last) __builtin_va_start(ap, last)
+/** Fetch the next variadic argument as `type`. */
 #define wired_va_arg(ap, type) __builtin_va_arg(ap, type)
+/** End variadic argument reading. */
 #define wired_va_end(ap) __builtin_va_end(ap)
 
 /**

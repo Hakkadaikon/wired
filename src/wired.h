@@ -23,6 +23,7 @@
 #include "app/webtransport/wtwire/wtwire.h"
 #include "common/arch/arch.h"
 #include "common/bytes/util/bytes.h"
+#include "common/fmt/fmt.h"
 #include "common/platform/cliargs/cliargs.h"
 #include "common/platform/clock/clock.h"
 #include "common/platform/debug/debug.h"

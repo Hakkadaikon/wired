@@ -17,5 +17,5 @@ the digest is the "abc" test vector from FIPS 180 and RFC 6234.
   `SHA256_DIGEST` (32) byte buffer in one call.
 - It is not part of `wired.h`; include
   `crypto/symmetric/hash/hash/sha256.h` explicitly.
-- `log_hex` is a local helper: there is no `printf`, so the program turns
-  each byte into two hex digits and writes them with `wired_log_str`.
+- `wired_dprintf(2, "%02x", byte)` writes each byte as two hex digits;
+  `wired.h` has a libc-free printf (`wired_snprintf`, `wired_dprintf`).

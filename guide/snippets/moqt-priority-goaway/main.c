@@ -37,9 +37,7 @@ static i64 open_uni_stream(wired_wt_session* s, wired_span msg) {
  * the mapping visible; the scheduling itself is wired_server_wt_stream_
  * priority's job (lower urgency is sent first). */
 static int stream_priority(wired_wt_session* s, u64 stream_id, u8 urgency) {
-  char line[] = "subscriber stream urgency=?\n";
-  line[sizeof line - 3] = (char)('0' + urgency);
-  wired_log_str(line);
+  wired_dprintf(2, "subscriber stream urgency=%u\n", urgency);
   return wired_server_wt_stream_priority(s, stream_id, urgency);
 }
 

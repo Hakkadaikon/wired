@@ -81,11 +81,8 @@ static void access_log(
   log_append_span(line, sizeof line - 1, &at, method);
   line[at++] = ' ';
   log_append_span(line, sizeof line - 40, &at, path);
-  line[at++] = ' ';
-  wired_fmt_u64(line, &at, &(wired_fmt_u64_in){status, 1});
-  line[at++] = ' ';
-  wired_fmt_u64(line, &at, &(wired_fmt_u64_in){nbytes, 1});
-  line[at++] = '\n';
+  at += wired_snprintf(
+      line + at, sizeof line - at, " %llu %llu\n", status, nbytes);
   wired_fio_append(cfg->access_log, wired_span_of((const u8*)line, at));
 }
 

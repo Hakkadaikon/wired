@@ -68,16 +68,9 @@ static const char KEY_B[] =
     "w8PZFh/MAbdvWZyLt83DpR0nh4KjlZ0y0w==\n"
     "-----END EC PRIVATE KEY-----\n";
 
-/* There is no printf: print bytes as lowercase hex by hand (same helper as
- * the tls-sha256 page). */
+/* Log n bytes as lowercase hex. */
 static void log_hex(const u8* p, usz n) {
-  static const char digits[] = "0123456789abcdef";
-  char              s[3]     = {0};
-  for (usz i = 0; i < n; i++) {
-    s[0] = digits[p[i] >> 4];
-    s[1] = digits[p[i] & 15];
-    wired_log_str(s);
-  }
+  for (usz i = 0; i < n; i++) wired_dprintf(2, "%02x", p[i]);
 }
 
 static int fp_eq(const u8* a, const u8* b) {

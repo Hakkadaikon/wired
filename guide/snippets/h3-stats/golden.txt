@@ -4,4 +4,4 @@ $ probe h3req 127.0.0.1:4433 GET /stats
 status 200
 content-type: application/json
 
-{"occupancy":{"sessions":0,"sessions_cap":4,"peer_streams":0,"peer_streams_cap":120},"usage":{"sessions":0,"streams":0,"datagrams":0}}
+{"occupancy":{"sessions":0,"sessions_cap":4,"peer_streams":0,"peer_streams_cap":132},"usage":{"sessions":0,"streams":0,"datagrams":0}}

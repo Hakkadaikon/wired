@@ -9,16 +9,9 @@
 static u64 g_total; /* bytes accumulated for the body in progress */
 static int g_active; /* 1 while a body is being accumulated */
 
-/* Log "<prefix><v>\n" -- there is no printf. */
+/* Log "<prefix><v>\n". */
 static void log_u64(const char* prefix, u64 v) {
-  char             s[21];
-  usz              at = 0;
-  wired_fmt_u64_in in = {v, 1};
-  wired_log_str(prefix);
-  wired_fmt_u64(s, &at, &in);
-  s[at] = 0;
-  wired_log_str(s);
-  wired_log_str("\n");
+  wired_dprintf(2, "%s%llu\n", prefix, v);
 }
 
 /* Streams the request body in (wired_srvloop_on_body's sequencing): one
