@@ -245,17 +245,17 @@ static void test_moqtrun_goaway_request_id_saturates(void) {
   CHECK(g.request_id == ~(u64)0);
 }
 
-/* A request whose Request ID cannot be read moves no watermark: the
- * GOAWAY still names the one after the last readable ID. */
+/* A request whose body cannot be decoded closes the session
+ * PROTOCOL_VIOLATION (draft-18 10.2, ledger 12-13): no GOAWAY follows. */
 static void test_moqtrun_goaway_request_id_ignores_malformed(void) {
   moqctl_goaway g;
   moqctl_ftn    f                            = mtrq_setup();
   moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D18;
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   mtrq_raw(SESS_B, MTRQ_S2, MOQCTL_T_SUBSCRIBE, 0, 0);
+  CHECK(mtrq_closes() == 1);
   wired_moqt_goaway(&mtst_hub, mtst_z(""), 500);
-  CHECK(mtdr_goaway_by(mtdr_ctl(SESS_B), moqctl_goaway18_take, &g));
-  CHECK(g.request_id == 4);
+  CHECK(!mtdr_goaway_by(mtdr_ctl(SESS_B), moqctl_goaway18_take, &g));
 }
 
 /* A draft-18 peer's control-stream GOAWAY must carry its Request ID: one

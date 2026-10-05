@@ -246,6 +246,7 @@ static void moqtrun_init_peer(
   p->peer_impl_len      = 0;
   p->peer_has_impl      = 0;
   p->hold_len           = 0;
+  p->pre_n              = 0;
   p->goaway_deadline    = (u64)-1;
   p->goaway_flushed_at  = 0;
   p->closing            = 0;
@@ -903,13 +904,29 @@ static void moqtrun_publish_checked(
   moqtrun_req_mark_live(p);
 }
 
+static void moqtrun_close_with(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code);
+
+/* draft-19 10.2 (draft-18 10.2, draft-22 9.20): a request body that fails
+ * to decode -- a Message Parameter the session's draft does not define
+ * among the causes -- closes the session PROTOCOL_VIOLATION, as FETCH and
+ * REQUEST_UPDATE do (ledger 12-13). 1 when r is MOQCTL_OK. */
+static int moqtrun_take_or_close(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, int r) {
+  if (r == MOQCTL_OK) return 1;
+  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  return 0;
+}
+
 /* draft SS10.9 PUBLISH: decode, then authorize and claim
  * (moqtrun_publish_checked). */
 static void moqtrun_handle_publish(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   usz            off = 0;
   moqctl_publish m;
-  if (moqctl_publish_take(p->ver, body, &off, &m) != MOQCTL_OK) return;
+  if (!moqtrun_take_or_close(
+          hub, p, moqctl_publish_take(p->ver, body, &off, &m)))
+    return;
   moqtrun_publish_checked(hub, p, peer_idx, &m);
 }
 
@@ -1865,7 +1882,9 @@ static void moqtrun_handle_subscribe(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   usz              off = 0;
   moqctl_subscribe m;
-  if (moqctl_subscribe_take(p->ver, body, &off, &m) != MOQCTL_OK) return;
+  if (!moqtrun_take_or_close(
+          hub, p, moqctl_subscribe_take(p->ver, body, &off, &m)))
+    return;
   moqtrun_subscribe_checked(hub, p, peer_idx, &m);
 }
 
@@ -2728,7 +2747,7 @@ static u64 moqtrun_tstat_verdict(
 static void moqtrun_tstat_answer(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body) {
   moqctl_subscribe m;
-  if (moqtstat_take(p->ver, body, &m) != MOQCTL_OK) return;
+  if (!moqtrun_take_or_close(hub, p, moqtstat_take(p->ver, body, &m))) return;
   wired_moqtrun_track* t    = moqtrun_tstat_track(hub, &m.name);
   u64                  code = moqtrun_tstat_verdict(hub, &m, t);
   if (code != MOQTRUN_REQ_ACCEPT) {
@@ -3406,7 +3425,7 @@ static void moqtrun_handle_disc(
     moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
     return;
   }
-  if (take(p->ver, body, &m) != MOQCTL_OK) return;
+  if (!moqtrun_take_or_close(hub, p, take(p->ver, body, &m))) return;
   moqtrun_disc_answer(p, moqtrun_disc_verdict(hub, p->req, &m, check));
 }
 
@@ -3625,7 +3644,9 @@ static void moqtrun_dispatch_subscribe_tracks(
     moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
     return;
   }
-  if (moqns_subscribe_tracks_take(p->ver, body, &m) != MOQCTL_OK) return;
+  if (!moqtrun_take_or_close(
+          hub, p, moqns_subscribe_tracks_take(p->ver, body, &m)))
+    return;
   moqtrun_subtracks_admit(hub, p, &m);
 }
 
@@ -6119,6 +6140,32 @@ static void moqtrun_ctl_adopt_rx(
   moqtrun_ctl_rx(hub, p, sid, data, fin);
 }
 
+/* 1 iff data is non-empty and ends inside its first varint. */
+static int moqtrun_vi_cut(wired_span data) {
+  u64 v;
+  return data.n != 0 && moqvi_decode(data.p, data.n, &v) == 0;
+}
+
+static int moqtrun_pre_short(
+    const wired_moqtrun_peer* p, wired_span data, int fin) {
+  return p->pre_n == 0 && !fin && moqtrun_vi_cut(data);
+}
+
+/* RFC 9000 2.2: a fresh stream's first delivery may end inside its first
+ * varint (SETUP's Type AF 00 cut after 0xAF). Classified as is, the
+ * control stream is missed for good (ledger 12-12, TLC MoqtVerCtl F-A1),
+ * so the bytes wait in p->pre until the varint is whole
+ * (moqtrun_pre_feed). One pending stream per peer; a second, or one
+ * ending in FIN, takes the unsplit path. 1 when kept. */
+static int moqtrun_pre_stash(
+    wired_moqtrun_peer* p, u64 sid, wired_span data, int fin) {
+  if (!moqtrun_pre_short(p, data, fin)) return 0;
+  bytes_memcpy(p->pre, data.p, data.n);
+  p->pre_n   = (u8)data.n;
+  p->pre_sid = sid;
+  return 1;
+}
+
 /* draft-19 3.4/10.1: a fresh uni whose Stream Type is 0x2F00 is the
  * client's control stream. The Stream Type varint and the SETUP
  * message's own Type field are the SAME varint (compare FETCH_HEADER
@@ -6133,6 +6180,7 @@ static int moqtrun_fresh_uni_ctl(
     wired_span          data,
     int                 fin) {
   usz at = 0;
+  if (moqtrun_pre_stash(p, sid, data, fin)) return 1;
   if (moqdata_classify(data, &at) != MOQDATA_STREAM_CONTROL) return 0;
   moqtrun_ctl_adopt_rx(hub, p, sid, data, fin);
   return 1;
@@ -6200,10 +6248,17 @@ static void moqtrun_dispatch_other(
     wired_span          data,
     int                 fin);
 
+static void moqtrun_dispatch_held(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin);
+
 static usz moqtrun_hold_replay_one(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz at) {
   usz n = moqtrun_hold_rec_len(p, at) - MOQTRUN_HOLD_HDR;
-  moqtrun_dispatch_other(
+  moqtrun_dispatch_held(
       hub, p, be_get_be64(p->hold + at),
       wired_span_of(p->hold + at + MOQTRUN_HOLD_HDR, n), p->hold[at + 10]);
   return MOQTRUN_HOLD_HDR + n;
@@ -6500,12 +6555,36 @@ static void moqtrun_dispatch_req_stream(
 
 /* draft-19 3.3 leniency: a fresh client bidi whose first varint is
  * SETUP's Type is the client control stream, not a request stream. */
-static int moqtrun_bidi_is_setup(
-    wired_moqt_hub* hub, wired_wt_session* s, u64 sid, wired_span data) {
+static int moqtrun_bidi_is_setup(wired_span data) {
   usz at = 0;
   u64 t  = 0;
-  if (moqtrun_req_find(hub, s, sid)) return 0;
   return moqvi_take(data, &at, &t) && t == MOQCTL_T_SETUP;
+}
+
+static int moqtrun_bidi_adopt(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 sid,
+    wired_span          data,
+    int                 fin) {
+  if (!moqtrun_bidi_is_setup(data)) return 0;
+  moqtrun_ctl_adopt_rx(hub, p, sid, data, fin);
+  return 1;
+}
+
+/* A fresh client bidi's first delivery: kept while it ends inside its
+ * first varint (moqtrun_pre_stash), adopted when that varint is SETUP's
+ * Type. 1 when consumed; 0 for an existing request stream or any other
+ * Type. */
+static int moqtrun_bidi_ctl(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 sid,
+    wired_span          data,
+    int                 fin) {
+  if (moqtrun_req_find(hub, p->wt, sid)) return 0;
+  return moqtrun_pre_stash(p, sid, data, fin) ||
+         moqtrun_bidi_adopt(hub, p, sid, data, fin);
 }
 
 /* The control/hold/request decision for a FRESH bidi delivery. */
@@ -6515,10 +6594,7 @@ static void moqtrun_dispatch_bidi_fresh(
     u64                 stream_id,
     wired_span          data,
     int                 fin) {
-  if (moqtrun_bidi_is_setup(hub, p->wt, stream_id, data)) {
-    moqtrun_ctl_adopt_rx(hub, p, stream_id, data, fin);
-    return;
-  }
+  if (moqtrun_bidi_ctl(hub, p, stream_id, data, fin)) return;
   if (moqtrun_hold_gate(p)) {
     moqtrun_hold_push(hub, p, stream_id, data, fin);
     return;
@@ -6621,6 +6697,77 @@ static int moqtrun_rx_on_ctl(const wired_moqtrun_peer* p, u64 sid) {
          (p->peer_ctl_set && sid == p->peer_ctl_stream_id);
 }
 
+static void moqtrun_rx_route(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin) {
+  if (moqtrun_rx_on_ctl(p, stream_id))
+    moqtrun_ctl_rx(hub, p, stream_id, data, fin);
+  else
+    moqtrun_dispatch_other(hub, p, stream_id, data, fin);
+}
+
+static int moqtrun_pre_is(const wired_moqtrun_peer* p, u64 sid) {
+  return p->pre_n != 0 && p->pre_sid == sid;
+}
+
+/* data's bytes past the first skip, routed like any later delivery (an
+ * empty, FIN-less remainder is nothing to route). */
+static void moqtrun_pre_rest(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 sid,
+    wired_span          data,
+    usz                 skip,
+    int                 fin) {
+  if (skip == data.n && !fin) return;
+  moqtrun_rx_route(
+      hub, p, sid, wired_span_of(data.p + skip, data.n - skip), fin);
+}
+
+/* The next delivery of the stream moqtrun_pre_stash kept: the kept bytes
+ * plus data's head complete the first varint, which then dispatches as
+ * the stream's first delivery (classified whole), and data's rest
+ * follows. Still short: kept again (or, with FIN, dropped -- a stream
+ * cut inside its Type is no stream at all). */
+static void moqtrun_pre_feed(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 sid,
+    wired_span          data,
+    int                 fin) {
+  u8  v[sizeof p->pre];
+  u64 t;
+  usz had = p->pre_n;
+  usz k   = (usz)u64_min(sizeof v - had, data.n);
+  bytes_memcpy(v, p->pre, had);
+  bytes_memcpy(v + had, data.p, k);
+  usz used = moqvi_decode(v, had + k, &t);
+  p->pre_n = 0;
+  if (!used) {
+    moqtrun_pre_stash(p, sid, wired_span_of(v, had + k), fin);
+    return;
+  }
+  moqtrun_dispatch_other(hub, p, sid, wired_span_of(v, used), 0);
+  moqtrun_pre_rest(hub, p, sid, data, used - had, fin);
+}
+
+/* A held delivery replayed: a stream whose first varint replay left
+ * kept (moqtrun_pre_stash) continues through moqtrun_pre_feed. */
+static void moqtrun_dispatch_held(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin) {
+  if (moqtrun_pre_is(p, stream_id))
+    moqtrun_pre_feed(hub, p, stream_id, data, fin);
+  else
+    moqtrun_dispatch_other(hub, p, stream_id, data, fin);
+}
+
 void wired_moqt_on_stream_data(
     void*             app_ctx,
     wired_wt_session* s,
@@ -6630,10 +6777,10 @@ void wired_moqt_on_stream_data(
   wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
   wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
   if (!p) return;
-  if (moqtrun_rx_on_ctl(p, stream_id))
-    moqtrun_ctl_rx(hub, p, stream_id, data, fin);
+  if (moqtrun_pre_is(p, stream_id))
+    moqtrun_pre_feed(hub, p, stream_id, data, fin);
   else
-    moqtrun_dispatch_other(hub, p, stream_id, data, fin);
+    moqtrun_rx_route(hub, p, stream_id, data, fin);
   moqtrun_hold_replay(hub, p);
   moqtrun_pubdone_sweep(hub);
 }

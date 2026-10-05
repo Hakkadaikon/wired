@@ -722,6 +722,12 @@ typedef struct {
    * HOLD_BUF's own doc). */
   u8  hold[WIRED_MOQTRUN_HOLD_BUF];
   usz hold_len;
+  /** A fresh stream's first delivery that ended inside its first varint
+   * (RFC 9000 2.2), kept until the varint is whole so the stream is
+   * classified once (ledger 12-12). pre_n 0 = none pending. */
+  u64 pre_sid;
+  u8  pre[9];
+  u8  pre_n;
   /** Negotiated MOQT draft (MOQVER_*), decided from the WT subprotocol
    * token in wired_moqt_on_session and fixed for the session's life. */
   int     ver;
