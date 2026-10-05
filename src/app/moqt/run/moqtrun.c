@@ -72,6 +72,10 @@ static void moqtrun_rdv_clear(wired_moqt_hub* hub) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) hub->rdv[i].in_use = 0;
 }
 
+static void moqtrun_up_clear(wired_moqt_hub* hub) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++) hub->ups[i].in_use = 0;
+}
+
 static void moqtrun_frag_pool_clear(wired_moqt_hub* hub) {
   for (usz i = 0; i < WIRED_MOQTRUN_FRAG_POOL; i++) hub->frag_owner[i] = 0;
 }
@@ -133,6 +137,7 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   for (usz i = 0; i < WIRED_MOQTREL_POOL; i++) moqtrel_reset(&hub->rel_pool[i]);
   moqtrun_reqs_clear(hub);
   moqtrun_rdv_clear(hub);
+  moqtrun_up_clear(hub);
   moqtrun_frag_pool_clear(hub);
   moqcache_init(&hub->cache, 0, 0);
   hub->cache_tag_next = 0;
@@ -898,6 +903,26 @@ static u64 moqtrun_track_prop_sgt(wired_span props) {
 static void moqtrun_rdv_resolve(
     wired_moqt_hub* hub, wired_moqtrun_track* t, moqtrun_key k);
 
+/* Opens a track incarnation on slot t for k under the publisher's Track
+ * Alias: its Largest seeded from params' LARGEST_OBJECT (10.2.16), its
+ * SUBGROUP_DELIVERY_TIMEOUT from props (12.6), rid the request (a
+ * PUBLISH's, or the hub's own upstream SUBSCRIBE's) that claims it. */
+static void moqtrun_track_open(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* t,
+    moqtrun_key          k,
+    u64                  alias,
+    const moqctl_params* params,
+    wired_span           props,
+    u64                  rid) {
+  moqtrun_track_claim(hub, t, k, alias);
+  moqtrun_track_seed_largest(t, params);
+  t->request_id          = rid;
+  t->subgroup_timeout_ms = moqtrun_track_prop_sgt(props);
+  t->up_streams          = 0;
+  t->pubdone_pending     = 0;
+}
+
 /* A vetted PUBLISH: claim a track into a free (or matching-name) slot
  * and reply REQUEST_OK; a third distinct track name (no free slot), or a
  * name a newer session already owns (moqtrun_publish_slot), gets
@@ -920,12 +945,9 @@ static void moqtrun_publish_checked(
     return;
   }
   moqtrun_supersede_name(hub, peer_idx, k);
-  moqtrun_track_claim(hub, t, k, m->track_alias);
-  moqtrun_track_seed_largest(t, &m->params);
-  t->request_id          = m->request_id;
-  t->subgroup_timeout_ms = moqtrun_track_prop_sgt(m->track_properties);
-  t->up_streams          = 0;
-  t->pubdone_pending     = 0;
+  moqtrun_track_open(
+      hub, t, k, m->track_alias, &m->params, m->track_properties,
+      m->request_id);
   moqtrun_reattach_subs(hub, t, peer_idx, k);
   moqtrun_rdv_resolve(hub, t, k);
   moqtrun_queue_request_ok(p, 0);
@@ -1704,14 +1726,34 @@ static u64 moqtrun_rdv_rt(const moqctl_subscribe* m) {
       moqtrun_sub_param(m, MOQCTL_PARAM_RENDEZVOUS_TIMEOUT));
 }
 
-/* 1 iff a SUBSCRIBE with no publisher is held, not refused at once: a
- * non-zero timeout (0 MUST get DOES_NOT_EXIST now), a request stream to
- * answer on later (the single-bidi control stream's REQUEST_ERROR names
- * no stream -- 10.2.6 lets a relay use a shorter timeout, here none), and
- * a Full Track Name a PUBLISH could ever claim. */
+/* Upstream SUBSCRIBE block (its own section near the end): the live
+ * PUBLISH_NAMESPACE of a session other than s covering k, else 0. */
+static wired_moqtrun_req* moqtrun_up_announcer(
+    wired_moqt_hub* hub, const wired_wt_session* s, moqtrun_key k);
+
+/* Worth waiting for: a non-zero timeout (0 MUST get DOES_NOT_EXIST now
+ * unless a publisher announced the namespace -- 18/19 9.5, 22 7.6: the
+ * SUBSCRIBE then goes upstream, answered once that one is). */
+static int moqtrun_rdv_wanted(
+    wired_moqt_hub*           hub,
+    const wired_moqtrun_peer* p,
+    const moqctl_subscribe*   m,
+    moqtrun_key               k) {
+  return moqtrun_rdv_rt(m) || moqtrun_up_announcer(hub, p->wt, k) != 0;
+}
+
+/* 1 iff a SUBSCRIBE with no publisher is held, not refused at once: worth
+ * waiting for (moqtrun_rdv_wanted), a request stream to answer on later
+ * (the single-bidi control stream's REQUEST_ERROR names no stream --
+ * 10.2.6 lets a relay use a shorter timeout, here none), and a Full Track
+ * Name a PUBLISH could ever claim. */
 static int moqtrun_rdv_holdable(
-    const wired_moqtrun_peer* p, const moqctl_subscribe* m, moqtrun_key k) {
-  return p->req && moqtrun_rdv_rt(m) && !moqtrun_key_oversized(k);
+    wired_moqt_hub*           hub,
+    const wired_moqtrun_peer* p,
+    const moqctl_subscribe*   m,
+    moqtrun_key               k) {
+  return p->req && !moqtrun_key_oversized(k) &&
+         moqtrun_rdv_wanted(hub, p, m, k);
 }
 
 static wired_moqtrun_rdv* moqtrun_rdv_free_slot(wired_moqt_hub* hub) {
@@ -1741,8 +1783,14 @@ static wired_moqtrun_rdv* moqtrun_rdv_admit(
              : 0;
 }
 
-/* Fills r from p's request; the deadline is clamped to
- * WIRED_MOQTRUN_RDV_MAX_MS (10.2.6: the relay MAY use a shorter one). */
+/* The deadline, clamped to WIRED_MOQTRUN_RDV_MAX_MS (10.2.6: the relay
+ * MAY use a shorter one); none for an upstream-only hold (rt 0). */
+static u64 moqtrun_rdv_deadline(const wired_moqt_hub* hub, u64 rt) {
+  return rt ? hub->live.last_now_ms + u64_min(rt, WIRED_MOQTRUN_RDV_MAX_MS)
+            : ~(u64)0;
+}
+
+/* Fills r from p's request. */
 static void moqtrun_rdv_store(
     wired_moqt_hub*           hub,
     wired_moqtrun_rdv*        r,
@@ -1750,14 +1798,14 @@ static void moqtrun_rdv_store(
     moqtrun_key               k,
     wired_span                body,
     u64                       rt) {
-  r->in_use    = 1;
-  r->wt        = p->wt;
-  r->stream_id = p->req->stream_id;
-  r->deadline_ms =
-      hub->live.last_now_ms + u64_min(rt, WIRED_MOQTRUN_RDV_MAX_MS);
-  r->ns_len   = k.ns.n;
-  r->name_len = k.name.n;
-  r->body_len = body.n;
+  r->in_use      = 1;
+  r->wt          = p->wt;
+  r->stream_id   = p->req->stream_id;
+  r->deadline_ms = moqtrun_rdv_deadline(hub, rt);
+  r->up_only     = rt == 0;
+  r->ns_len      = k.ns.n;
+  r->name_len    = k.name.n;
+  r->body_len    = body.n;
   bytes_memcpy(r->ns, k.ns.p, k.ns.n);
   bytes_memcpy(r->name, k.name.p, k.name.n);
   bytes_memcpy(r->body, body.p, body.n);
@@ -1790,7 +1838,7 @@ static void moqtrun_rdv_miss(
     const moqctl_subscribe* m,
     moqtrun_key             k,
     wired_span              body) {
-  if (!moqtrun_rdv_holdable(p, m, k)) {
+  if (!moqtrun_rdv_holdable(hub, p, m, k)) {
     moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
     return;
   }
@@ -1816,12 +1864,14 @@ static wired_moqtrun_req* moqtrun_rdv_target(
                                     : 0;
 }
 
-/* One way a hold is answered: on sp, whose sp->req is the held stream. */
+/* One way a hold is answered: on sp, whose sp->req is the held stream
+ * (t the track it resolves to, or code the refusal). */
 typedef void (*moqtrun_rdv_fn)(
     wired_moqt_hub*,
     wired_moqtrun_peer*,
     const wired_moqtrun_rdv*,
-    wired_moqtrun_track*);
+    wired_moqtrun_track*,
+    u64);
 
 /* Ends hold r: answered by fn on its own stream, or -- the target gone
  * (TLA+ Cancel) -- silently. The slot frees either way, before fn runs,
@@ -1830,7 +1880,8 @@ static void moqtrun_rdv_answer(
     wired_moqt_hub*      hub,
     wired_moqtrun_rdv*   r,
     moqtrun_rdv_fn       fn,
-    wired_moqtrun_track* t) {
+    wired_moqtrun_track* t,
+    u64                  code) {
   wired_moqtrun_peer* sp;
   wired_moqtrun_req*  q = moqtrun_rdv_target(hub, r, &sp);
   r->in_use             = 0;
@@ -1838,7 +1889,7 @@ static void moqtrun_rdv_answer(
   wired_moqtrun_req* saved = sp->req;
   sp->req                  = q;
   q->rdv_held              = 0;
-  fn(hub, sp, r, t);
+  fn(hub, sp, r, t, code);
   sp->req = saved;
 }
 
@@ -1849,11 +1900,13 @@ static void moqtrun_rdv_do_resolve(
     wired_moqt_hub*          hub,
     wired_moqtrun_peer*      sp,
     const wired_moqtrun_rdv* r,
-    wired_moqtrun_track*     t) {
+    wired_moqtrun_track*     t,
+    u64                      code) {
   u8               ns_buf[WIRED_MOQTRUN_MAX_NS];
   usz              off = 0;
   moqctl_subscribe m;
   wired_span       body = wired_span_of(r->body, r->body_len);
+  (void)code;
   if (moqctl_subscribe_take(sp->ver, body, &off, &m) != MOQCTL_OK) {
     moqtrun_send_request_error(sp, MOQCTL_ERR_INTERNAL_ERROR);
     return;
@@ -1862,17 +1915,19 @@ static void moqtrun_rdv_do_resolve(
       hub, sp, t, (usz)(sp - hub->peers), moqtrun_key_of(&m.name, ns_buf), &m);
 }
 
-/* 10.2.6: no publisher within the timeout -- REQUEST_ERROR TIMEOUT (22:
- * SUBSCRIBE_ERROR, the same message). */
-static void moqtrun_rdv_do_expire(
+/* REQUEST_ERROR code (22: SUBSCRIBE_ERROR, the same message): TIMEOUT
+ * when no publisher came within the timeout (10.2.6), or the upstream's
+ * refusal (moqtrun_up_refuse_waiters). */
+static void moqtrun_rdv_do_refuse(
     wired_moqt_hub*          hub,
     wired_moqtrun_peer*      sp,
     const wired_moqtrun_rdv* r,
-    wired_moqtrun_track*     t) {
+    wired_moqtrun_track*     t,
+    u64                      code) {
   (void)hub;
   (void)r;
   (void)t;
-  moqtrun_send_request_error(sp, MOQTRUN_ERR_TIMEOUT);
+  moqtrun_send_request_error(sp, code);
 }
 
 /* t now claims k: every SUBSCRIBE held for k proceeds (18/19 9.5, 22 7.6).
@@ -1883,7 +1938,7 @@ static void moqtrun_rdv_resolve(
     wired_moqt_hub* hub, wired_moqtrun_track* t, moqtrun_key k) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
     if (moqtrun_rdv_matches(&hub->rdv[i], k))
-      moqtrun_rdv_answer(hub, &hub->rdv[i], moqtrun_rdv_do_resolve, t);
+      moqtrun_rdv_answer(hub, &hub->rdv[i], moqtrun_rdv_do_resolve, t, 0);
 }
 
 /* Past its deadline, or its target gone (swept without an answer). */
@@ -1899,7 +1954,8 @@ static int moqtrun_rdv_due(
 static void moqtrun_rdv_tick(wired_moqt_hub* hub, u64 now_ms) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
     if (moqtrun_rdv_due(hub, &hub->rdv[i], now_ms))
-      moqtrun_rdv_answer(hub, &hub->rdv[i], moqtrun_rdv_do_expire, 0);
+      moqtrun_rdv_answer(
+          hub, &hub->rdv[i], moqtrun_rdv_do_refuse, 0, MOQTRUN_ERR_TIMEOUT);
 }
 
 static int moqtrun_rdv_on_stream(
@@ -6441,9 +6497,9 @@ static int moqtrun_track_pub_rid(const wired_moqtrun_track* t, u64 rid) {
   return t->in_use && t->request_id == rid;
 }
 
-/* 1 iff rid names the PUBLISH behind one of p's own tracks -- the only
- * requests this hub holds upstream (it sends no SUBSCRIBE or
- * REQUEST_UPDATE of its own toward a publisher). */
+/* 1 iff rid names the request behind one of p's own tracks: p's PUBLISH,
+ * or the hub's own upstream SUBSCRIBE whose SUBSCRIBE_OK claimed it
+ * (moqtrun_up_claim) -- the only requests this hub holds upstream. */
 static int moqtrun_peer_pub_rid(const wired_moqtrun_peer* p, u64 rid) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; i++)
     if (moqtrun_track_pub_rid(&p->tracks[i], rid)) return 1;
@@ -6923,11 +6979,16 @@ static void moqtrun_reqs_tick_one(wired_moqt_io* io, wired_moqtrun_req* q) {
   moqtrun_req_settle(io, q);
 }
 
+/* Upstream SUBSCRIBE block (its own section near the end). */
+static void moqtrun_up_sync(wired_moqt_hub* hub);
+
 /* Pushes owed namespace changes, syncs SUBSCRIBE_TRACKS against every
- * published track, then settles every client-request stream. */
+ * published track and upstream SUBSCRIBEs against their waiters, then
+ * settles every client-request stream. */
 static void moqtrun_reqs_tick(wired_moqt_hub* hub) {
   moqtrun_disc_sync(hub);
   moqtrun_subtracks_sync(hub);
+  moqtrun_up_sync(hub);
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
     moqtrun_reqs_tick_one(&hub->io, &hub->reqs[i]);
 }
@@ -7236,9 +7297,15 @@ static void moqtrun_dispatch_client_bidi(
   moqtrun_dispatch_bidi_fresh(hub, p, stream_id, data, fin);
 }
 
-/* A hub-opened PUBLISH slot's stream_id is routed to its own reply parser
- * (moqtrun_dispatch_pubst) before the client-bidi classification below,
- * which would otherwise misread it (moqtrun_pubst_slot's own doc). */
+/* Upstream SUBSCRIBE block: 1 iff stream_id is the hub's own upstream
+ * SUBSCRIBE stream on p (its replies handled). */
+static int moqtrun_up_rx(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 stream_id, wired_span data);
+
+/* A hub-opened PUBLISH or SUBSCRIBE stream is routed to its own reply
+ * parser (moqtrun_dispatch_pubst, moqtrun_up_rx) before the client-bidi
+ * classification below, which would otherwise misread it
+ * (moqtrun_pubst_slot's own doc). */
 static void moqtrun_dispatch_other(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
@@ -7246,6 +7313,7 @@ static void moqtrun_dispatch_other(
     wired_span          data,
     int                 fin) {
   if (moqtrun_dispatch_pubst(hub, p, stream_id, data, fin)) return;
+  if (moqtrun_up_rx(hub, p, stream_id, data)) return;
   moqtrun_dispatch_client_bidi(hub, p, stream_id, data, fin);
 }
 
@@ -7883,21 +7951,31 @@ static wired_moqtrun_track* moqtrun_pubdone_req_track(wired_moqtrun_peer* p) {
   return p->req ? moqtrun_pubdone_track_of(p, p->req->request_id) : 0;
 }
 
-/* The publisher's PUBLISH_DONE on its PUBLISH stream (the request route
- * admits it there only): arm the wait, and send at once when nothing is
- * outstanding. On the control stream it names no PUBLISH: ignored. */
-static void moqtrun_dispatch_pub_done(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
-  usz                  off = 0;
-  moqctl_publish_done  d;
-  wired_moqtrun_track* t = moqtrun_pubdone_req_track(p);
-  (void)peer_idx;
-  if (!t || moqctl_publish_done_take(body, &off, &d) != MOQCTL_OK) return;
+/* The publisher's PUBLISH_DONE body for its track t: arm the wait, and
+ * send at once when nothing is outstanding. */
+static void moqtrun_pubdone_arm(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_track* t,
+    wired_span           body) {
+  usz                 off = 0;
+  moqctl_publish_done d;
+  if (moqctl_publish_done_take(body, &off, &d) != MOQCTL_OK) return;
   t->pubdone_pending  = 1;
   t->pubdone_status   = d.status_code;
   t->pubdone_streams  = d.stream_count;
   t->pubdone_deadline = hub->live.last_now_ms + WIRED_MOQTRUN_PUBDONE_WAIT_MS;
   moqtrun_pubdone_try(hub, p, t);
+}
+
+/* The publisher's PUBLISH_DONE on its PUBLISH stream (the request route
+ * admits it there only); on the control stream it names no PUBLISH:
+ * ignored. */
+static void moqtrun_dispatch_pub_done(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  wired_moqtrun_track* t = moqtrun_pubdone_req_track(p);
+  (void)peer_idx;
+  if (t) moqtrun_pubdone_arm(hub, p, t, body);
 }
 
 /* ===================== drain (draft 3.6, 10.4) ===================== */
@@ -8108,4 +8186,408 @@ void wired_moqt_on_session_draining(void* app_ctx, wired_wt_session* s) {
   moqtrun_goaway_send(
       (wired_moqt_hub*)app_ctx, s, wired_span_of(0, 0),
       WIRED_MOQTRUN_DRAIN_TIMEOUT_MS);
+}
+
+/* ======= upstream SUBSCRIBE (draft-18/19 9.4-9.5, draft-22 7.4/7.6) =======
+ * A SUBSCRIBE that misses every PUBLISHed track but whose namespace a
+ * session announced (PUBLISH_NAMESPACE, prefix match) waits in hub->rdv
+ * while the hub, as a subscriber, sends its own SUBSCRIBE to that
+ * publisher on a request stream it opens (hub->ups). Its SUBSCRIBE_OK
+ * claims a track slot on the publisher exactly as a PUBLISH would, and
+ * every waiter resolves through moqtrun_rdv_resolve -- so no downstream
+ * SUBSCRIBE_OK precedes the Established upstream subscription (9.4 MUST),
+ * and the relay, alias, PUBLISH_DONE and session-close paths all apply
+ * unchanged. One upstream subscription per Full Track Name serves every
+ * downstream subscriber (9.4 MAY aggregate). moqtrun_up_sync, at the end
+ * of every dispatch and tick, is the one decision point (UpstreamSub.tla
+ * Sweep): it cancels an upstream nobody wants any more and sends one for
+ * a waiter that has none.
+ * ponytail: one announcer per name (9.5 says "each publisher"; the hub
+ * keys one track per name); a publisher's RESET of the hub's stream is
+ * left to the session's end. */
+
+static moqtrun_key moqtrun_up_key(const wired_moqtrun_up* u) {
+  moqtrun_key k;
+  k.ns   = wired_span_of(u->ns, u->ns_len);
+  k.name = wired_span_of(u->name, u->name_len);
+  return k;
+}
+
+static moqtrun_key moqtrun_up_rdv_key(const wired_moqtrun_rdv* r) {
+  moqtrun_key k;
+  k.ns   = wired_span_of(r->ns, r->ns_len);
+  k.name = wired_span_of(r->name, r->name_len);
+  return k;
+}
+
+/* 1 iff q is a live PUBLISH_NAMESPACE of a session other than s whose
+ * namespace is a field prefix of k's (9.5 Namespace Prefix Matching; a
+ * session's own announcement never serves its own SUBSCRIBE). */
+static int moqtrun_up_covers(
+    const wired_moqtrun_req* q, const wired_wt_session* s, moqtrun_key k) {
+  u64 n;
+  return moqtrun_disc_is(q, MOQNS_T_PUBLISH_NAMESPACE) && q->wt != s &&
+         moqtrun_disc_starts(
+             moqtrun_disc_fields(q, &n), moqtrun_disc_fields_of(k.ns, &n));
+}
+
+static wired_moqtrun_req* moqtrun_up_announcer(
+    wired_moqt_hub* hub, const wired_wt_session* s, moqtrun_key k) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+    if (moqtrun_up_covers(&hub->reqs[i], s, k)) return &hub->reqs[i];
+  return 0;
+}
+
+static int moqtrun_up_matches(const wired_moqtrun_up* u, moqtrun_key k) {
+  return u->in_use && moqtrun_ns_eq(u->ns, u->ns_len, k.ns) &&
+         moqtrun_ns_eq(u->name, u->name_len, k.name);
+}
+
+static wired_moqtrun_up* moqtrun_up_of_key(wired_moqt_hub* hub, moqtrun_key k) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++)
+    if (moqtrun_up_matches(&hub->ups[i], k)) return &hub->ups[i];
+  return 0;
+}
+
+static wired_moqtrun_up* moqtrun_up_free_slot(wired_moqt_hub* hub) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++)
+    if (!hub->ups[i].in_use) return &hub->ups[i];
+  return 0;
+}
+
+static int moqtrun_up_on_stream(
+    const wired_moqtrun_up* u, const wired_wt_session* s, u64 sid) {
+  return u->in_use && u->wt == s && u->stream_id == sid;
+}
+
+static wired_moqtrun_up* moqtrun_up_of_stream(
+    wired_moqt_hub* hub, const wired_wt_session* s, u64 sid) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++)
+    if (moqtrun_up_on_stream(&hub->ups[i], s, sid)) return &hub->ups[i];
+  return 0;
+}
+
+/* t is the live incarnation SUBSCRIBE_OK claimed (tag 0: none yet). */
+static int moqtrun_up_is_track(const wired_moqtrun_track* t, u64 tag) {
+  return tag && t->in_use && t->cache_tag == tag;
+}
+
+static wired_moqtrun_track* moqtrun_up_track(
+    wired_moqtrun_peer* pp, const wired_moqtrun_up* u) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; i++)
+    if (moqtrun_up_is_track(&pp->tracks[i], u->track_tag))
+      return &pp->tracks[i];
+  return 0;
+}
+
+/* ----- sending the SUBSCRIBE ----- */
+
+static int moqtrun_up_encode_sub(wired_mspan buf, usz* off, const void* m) {
+  return moqctl_subscribe_encode(buf, off, m);
+}
+
+static void moqtrun_up_store(
+    wired_moqtrun_up* u, wired_wt_session* s, u64 sid, u64 rid, moqtrun_key k) {
+  u->in_use     = 1;
+  u->wt         = s;
+  u->stream_id  = sid;
+  u->request_id = rid;
+  u->track_tag  = 0;
+  u->done       = 0;
+  u->ns_len     = k.ns.n;
+  u->name_len   = k.name.n;
+  u->in.n       = 0;
+  u->in.at      = 0;
+  u->in.skip    = 0;
+  bytes_memcpy(u->ns, k.ns.p, k.ns.n);
+  bytes_memcpy(u->name, k.name.p, k.name.n);
+}
+
+/* SUBSCRIBE for k on a fresh request stream to pp (the hub's next odd
+ * Request ID, draft-18 10.1). No parameters: FORWARD defaults to 1 (9.5
+ * "MUST use Forward=1 when subscribing upstream" for a Forward=1
+ * subscriber) and no filter is unfiltered; each downstream filter is
+ * applied by the relay gates. The QUIC stream limit is the only request
+ * limit (draft-18 removed MAX_REQUEST_ID): no stream, no SUBSCRIBE. */
+static int moqtrun_up_send(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    moqtrun_key         k) {
+  u8
+                   msg[WIRED_MOQTRUN_CTL_HDR_MAX + WIRED_MOQTRUN_MAX_NS +
+                       WIRED_MOQTRUN_MAX_NAME + 16];
+  moqctl_subscribe m   = {0};
+  usz              off = 0;
+  usz              n;
+  i64              sid;
+  m.request_id = pp->request_id_next;
+  m.name.name  = k.name;
+  moqctl_ns_take(k.ns, &off, &m.name.ns);
+  n = moqtrun_envelope_put(
+      wired_mspan_of(msg, sizeof msg), MOQCTL_T_SUBSCRIBE,
+      moqtrun_up_encode_sub, &m);
+  sid = hub->io.open_bidi_stream(pp->wt, wired_span_of(msg, n));
+  if (sid < 0) return 0;
+  pp->request_id_next += 2;
+  moqtrun_up_store(u, pp->wt, (u64)sid, m.request_id, k);
+  return 1;
+}
+
+/* 1 when an upstream SUBSCRIBE for k went to a's session. */
+static int moqtrun_up_open(
+    wired_moqt_hub* hub, const wired_moqtrun_req* a, moqtrun_key k) {
+  wired_moqtrun_up* u = a ? moqtrun_up_free_slot(hub) : 0;
+  if (!u) return 0;
+  return moqtrun_up_send(hub, moqtrun_find_by_wt(hub, a->wt), u, k);
+}
+
+/* ----- the waiters ----- */
+
+/* Every SUBSCRIBE waiting for k is answered REQUEST_ERROR code. */
+static void moqtrun_up_refuse_waiters(
+    wired_moqt_hub* hub, moqtrun_key k, u64 code) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+    if (moqtrun_rdv_matches(&hub->rdv[i], k))
+      moqtrun_rdv_answer(hub, &hub->rdv[i], moqtrun_rdv_do_refuse, 0, code);
+}
+
+static int moqtrun_up_waiters(wired_moqt_hub* hub, moqtrun_key k) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+    if (moqtrun_rdv_matches(&hub->rdv[i], k)) return 1;
+  return 0;
+}
+
+/* A waiter no upstream can serve: with no announcer left DOES_NOT_EXIST
+ * (10.2.6's answer for no publisher), with no stream to open toward it
+ * EXCESSIVE_LOAD. A rendezvous hold keeps waiting for its deadline. */
+static void moqtrun_up_unserved(
+    wired_moqt_hub* hub, wired_moqtrun_rdv* r, const wired_moqtrun_req* a) {
+  if (!r->up_only) return;
+  moqtrun_rdv_answer(
+      hub, r, moqtrun_rdv_do_refuse, 0,
+      a ? MOQCTL_ERR_EXCESSIVE_LOAD : MOQCTL_ERR_DOES_NOT_EXIST);
+}
+
+/* 1 iff r waits with no upstream SUBSCRIBE for its track. */
+static int moqtrun_up_needs(wired_moqt_hub* hub, const wired_moqtrun_rdv* r) {
+  return r->in_use && !moqtrun_up_of_key(hub, moqtrun_up_rdv_key(r));
+}
+
+static void moqtrun_up_wait_one(wired_moqt_hub* hub, wired_moqtrun_rdv* r) {
+  moqtrun_key        k = moqtrun_up_rdv_key(r);
+  wired_moqtrun_req* a;
+  if (!moqtrun_up_needs(hub, r)) return;
+  a = moqtrun_up_announcer(hub, r->wt, k);
+  if (!moqtrun_up_open(hub, a, k)) moqtrun_up_unserved(hub, r, a);
+}
+
+/* ----- ending an upstream subscription ----- */
+
+/* Cancels the hub's request (draft-19 3.3.3, draft-22 6.4.2.3:
+ * RESET_STREAM and STOP_SENDING). */
+static void moqtrun_up_reset(
+    wired_moqt_hub* hub, wired_moqtrun_peer* pp, const wired_moqtrun_up* u) {
+  hub->io.stream_reset(u->wt, u->stream_id, MOQTRUN_RESET_CANCELLED);
+  moqtrun_stream_stop(hub, pp, u->stream_id, MOQTRUN_RESET_CANCELLED);
+}
+
+/* Nobody downstream left: the request is cancelled and its track (if
+ * Established) retired, so no Object is relayed to no one (NoLeak). */
+static void moqtrun_up_cancel(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  pp,
+    wired_moqtrun_up*    u,
+    wired_moqtrun_track* t) {
+  moqtrun_up_reset(hub, pp, u);
+  if (t) moqtrun_track_retire(hub, t);
+  u->in_use = 0;
+}
+
+/* The track ended (PUBLISH_DONE relayed: the hub's side FINs) or was
+ * taken over (a PUBLISH of the same name: cancelled). */
+static void moqtrun_up_end(
+    wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u) {
+  if (u->done)
+    hub->io.stream_fin(u->wt, u->stream_id);
+  else
+    moqtrun_up_reset(hub, pp, u);
+  u->in_use = 0;
+}
+
+static int moqtrun_up_any_sub(const wired_moqtrun_track* t) {
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
+    if (t->subs[si].active) return 1;
+  return 0;
+}
+
+/* Someone downstream still wants u: a waiter, or a subscription on its
+ * track. */
+static int moqtrun_up_wanted(
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_up*    u,
+    const wired_moqtrun_track* t) {
+  return moqtrun_up_waiters(hub, moqtrun_up_key(u)) ||
+         (t && moqtrun_up_any_sub(t));
+}
+
+static int moqtrun_up_gone(
+    const wired_moqtrun_up* u, const wired_moqtrun_track* t) {
+  return u->track_tag && !t;
+}
+
+static void moqtrun_up_settle(
+    wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u) {
+  wired_moqtrun_track* t = moqtrun_up_track(pp, u);
+  if (moqtrun_up_gone(u, t)) {
+    moqtrun_up_end(hub, pp, u);
+    return;
+  }
+  if (!moqtrun_up_wanted(hub, u, t)) moqtrun_up_cancel(hub, pp, u, t);
+}
+
+/* A publisher session gone or closing takes u with it, no io
+ * (NoLeakOnClose); its track already ended for every subscriber. */
+static void moqtrun_up_sweep_one(wired_moqt_hub* hub, wired_moqtrun_up* u) {
+  wired_moqtrun_peer* pp;
+  if (!u->in_use) return;
+  pp = moqtrun_find_by_wt(hub, u->wt);
+  if (!moqtrun_rdv_peer_open(pp)) {
+    u->in_use = 0;
+    return;
+  }
+  moqtrun_up_settle(hub, pp, u);
+}
+
+static void moqtrun_up_sync(wired_moqt_hub* hub) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++)
+    moqtrun_up_sweep_one(hub, &hub->ups[i]);
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+    moqtrun_up_wait_one(hub, &hub->rdv[i]);
+}
+
+/* ----- the publisher's replies on the hub's stream ----- */
+
+/* SUBSCRIBE_OK: the track is claimed on pp under the publisher's Track
+ * Alias, as a PUBLISH would claim it, then every waiter proceeds. No
+ * slot (the publisher's WIRED_MOQTRUN_MAX_TRACKS_PER_PEER are taken):
+ * the waiters are refused EXCESSIVE_LOAD and the request cancelled. */
+static void moqtrun_up_claim(
+    wired_moqt_hub*            hub,
+    wired_moqtrun_peer*        pp,
+    wired_moqtrun_up*          u,
+    const moqctl_subscribe_ok* m) {
+  usz                  pi = (usz)(pp - hub->peers);
+  moqtrun_key          k  = moqtrun_up_key(u);
+  wired_moqtrun_track* t  = moqtrun_publish_slot(hub, pp, pi, k);
+  if (!t) {
+    moqtrun_up_refuse_waiters(hub, k, MOQCTL_ERR_EXCESSIVE_LOAD);
+    moqtrun_up_cancel(hub, pp, u, 0);
+    return;
+  }
+  moqtrun_track_open(
+      hub, t, k, m->track_alias, &m->params, m->track_properties,
+      u->request_id);
+  u->track_tag = t->cache_tag;
+  moqtrun_reattach_subs(hub, t, pi, k);
+  moqtrun_rdv_resolve(hub, t, k);
+}
+
+/* A reply that fails to decode closes the session PROTOCOL_VIOLATION
+ * (moqtrun_take_or_close); a second SUBSCRIBE_OK is ignored. */
+static void moqtrun_up_on_ok(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    wired_span          body) {
+  usz                 off = 0;
+  moqctl_subscribe_ok m;
+  if (u->track_tag) return;
+  if (!moqtrun_take_or_close(
+          hub, pp, moqctl_subscribe_ok_take(pp->ver, body, &off, &m)))
+    return;
+  moqtrun_up_claim(hub, pp, u, &m);
+}
+
+/* REQUEST_ERROR: each waiter gets the publisher's code, re-spelled for
+ * its own draft (moqtrun_send_request_error); the request is complete,
+ * so the hub's side FINs (draft-19 3.3.2). */
+static void moqtrun_up_on_error(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    wired_span          body) {
+  usz                  off = 0;
+  moqctl_request_error e;
+  if (u->track_tag) return;
+  if (!moqtrun_take_or_close(
+          hub, pp, moqctl_request_error_take(body, &off, &e)))
+    return;
+  moqtrun_up_refuse_waiters(hub, moqtrun_up_key(u), e.error_code);
+  hub->io.stream_fin(u->wt, u->stream_id);
+  u->in_use = 0;
+}
+
+/* PUBLISH_DONE: relayed like a PUBLISHer's (moqtrun_pubdone_arm, each
+ * subscription's own Stream Count); the track's retirement then ends
+ * the hub's side (moqtrun_up_end). */
+static void moqtrun_up_on_done(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    wired_span          body) {
+  wired_moqtrun_track* t = moqtrun_up_track(pp, u);
+  if (!t) return;
+  u->done = 1;
+  moqtrun_pubdone_arm(hub, pp, t, body);
+}
+
+typedef void (*moqtrun_up_fn)(
+    wired_moqt_hub*, wired_moqtrun_peer*, wired_moqtrun_up*, wired_span);
+
+/* What a publisher sends on a SUBSCRIBE's stream (draft-19 10.7, 10.8,
+ * 10.11); anything else is ignored. */
+static const struct {
+  u64           type;
+  moqtrun_up_fn fn;
+} MOQTRUN_UP_ROUTES[] = {
+    {MOQCTL_T_SUBSCRIBE_OK, moqtrun_up_on_ok},
+    {MOQCTL_T_REQUEST_ERROR, moqtrun_up_on_error},
+    {MOQCTL_T_PUBLISH_DONE, moqtrun_up_on_done},
+};
+
+static void moqtrun_up_route(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    u64                 type,
+    wired_span          body) {
+  for (usz i = 0; i < sizeof MOQTRUN_UP_ROUTES / sizeof MOQTRUN_UP_ROUTES[0];
+       i++)
+    if (MOQTRUN_UP_ROUTES[i].type == type)
+      MOQTRUN_UP_ROUTES[i].fn(hub, pp, u, body);
+}
+
+static void moqtrun_up_drain(
+    wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u) {
+  u64        type = 0;
+  wired_span body = {0, 0};
+  while (u->in_use && moqtrun_asm_pop(&u->in, &type, &body) == MOQCTL_OK)
+    moqtrun_up_route(hub, pp, u, type, body);
+}
+
+/* The waiters' answers go out, and their streams settle, in the same
+ * dispatch (moqtrun_reqs_tick). A FIN from the publisher ends nothing
+ * (draft-19 3.3.2). */
+static int moqtrun_up_rx(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data) {
+  wired_moqtrun_up* u = moqtrun_up_of_stream(hub, p->wt, stream_id);
+  if (!u) return 0;
+  moqtrun_asm_push(&u->in, &data);
+  moqtrun_up_drain(hub, p, u);
+  moqtrun_reqs_tick(hub);
+  return 1;
 }

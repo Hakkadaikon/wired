@@ -618,7 +618,47 @@ typedef struct {
    * accepts, so it always fits. */
   u8  body[WIRED_MOQTRUN_CTL_MSG_MAX];
   usz body_len;
+  /** 1 when the SUBSCRIBE carried no RENDEZVOUS_TIMEOUT and is held only
+   * for its upstream SUBSCRIBE to a namespace publisher (draft-18/19 9.5,
+   * draft-22 7.6): no deadline, and no announcer left answers it
+   * REQUEST_ERROR at once. */
+  u8 up_only;
 } wired_moqtrun_rdv;
+
+/** Fixed capacity: upstream SUBSCRIBEs the hub holds toward namespace
+ * publishers (draft-18/19 9.5, draft-22 7.6), hub-wide, one per Full Track
+ * Name (aggregation, 9.4). Every pending one has a waiter in hub->rdv, so
+ * WIRED_MOQTRUN_MAX_RDV of them covers every hold going upstream at once;
+ * an Established one lives as long as its track, at most one of each
+ * publisher's WIRED_MOQTRUN_MAX_TRACKS_PER_PEER slots. Past it a waiter
+ * with no deadline is refused EXCESSIVE_LOAD. ~1.3 KB of BSS each.
+ * ponytail: room-sized; raise with WIRED_MOQTRUN_MAX_RDV. */
+#define WIRED_MOQTRUN_MAX_UP WIRED_MOQTRUN_MAX_RDV
+
+/** One SUBSCRIBE the hub sent upstream on its own request stream. Keyed
+ * by (wt, stream_id); the track it feeds is found again by track_tag
+ * (wired_moqtrun_track.cache_tag), never held as a pointer. */
+typedef struct {
+  int in_use;
+  /** The publisher's session. */
+  wired_wt_session* wt;
+  /** The hub-opened request stream the SUBSCRIBE went out on. */
+  u64 stream_id;
+  /** The hub's Request ID on wt (odd, draft-18 10.1). */
+  u64 request_id;
+  /** cache_tag of the track SUBSCRIBE_OK claimed; 0 while pending. */
+  u64 track_tag;
+  /** 1 once the publisher's PUBLISH_DONE arrived: the hub's side ends
+   * with a FIN, not a cancel, when the track retires. */
+  u8 done;
+  /** The Full Track Name, keyed as the hub keys tracks. */
+  u8  ns[WIRED_MOQTRUN_MAX_NS];
+  usz ns_len;
+  u8  name[WIRED_MOQTRUN_MAX_NAME];
+  usz name_len;
+  /** Reassembly of the publisher's replies on stream_id. */
+  wired_moqtrun_ctl_asm in;
+} wired_moqtrun_up;
 
 /** Fixed capacity: FETCH responses (draft-ietf-moq-transport-19 10.12.3)
  * being served at once, hub-wide. A FETCH past it is answered
@@ -1057,6 +1097,9 @@ typedef struct {
   /** SUBSCRIBEs held for a publisher (RENDEZVOUS_TIMEOUT, draft-19
    * 10.2.6), all sessions. */
   wired_moqtrun_rdv rdv[WIRED_MOQTRUN_MAX_RDV];
+  /** SUBSCRIBEs the hub sent upstream to namespace publishers (draft-19
+   * 9.5), all sessions. */
+  wired_moqtrun_up ups[WIRED_MOQTRUN_MAX_UP];
   /** Namespace authorizer (draft-ietf-moq-transport-19 10.15, 10.18); 0
    * (the wired_moqt_init default) grants every PUBLISH_NAMESPACE and
    * SUBSCRIBE_NAMESPACE, like authorize_subscribe. */

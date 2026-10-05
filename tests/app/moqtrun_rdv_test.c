@@ -383,14 +383,16 @@ static void test_moqtrun_rdv_s14_twice_one_session(void) {
   CHECK(mrdv_alias(SESS_B, MRDV_S1) == mrdv_alias(SESS_B, MRDV_S2));
 }
 
-/* S15: a PUBLISH_NAMESPACE alone resolves nothing yet (the upstream
- * SUBSCRIBE of 9.5 is a later step): the hold still times out. */
+/* S15: a PUBLISH_NAMESPACE sends the hold upstream (9.5,
+ * moqtrun_upsub_test.c); a publisher that never answers leaves it to
+ * time out, and the upstream SUBSCRIBE nobody waits for is cancelled. */
 static void test_moqtrun_rdv_s15_namespace_only(void) {
   mrdv_init();
   mrdv_hold(SESS_B, MRDV_S1, 500);
   mtns_pub(SESS_A, MRDV_S1, "chat/room1");
   wired_moqt_tick(&mtst_hub, 500);
   CHECK(mrdv_is(SESS_B, MRDV_S1, "E2|FIN|"));
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++) CHECK(!mtst_hub.ups[i].in_use);
 }
 
 /* S16 (10.4/9.2: GOAWAY does not impact subscription state): a hold

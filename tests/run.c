@@ -1100,6 +1100,7 @@
 #include "app/moqtrun_fillfix_test.c"
 #include "app/moqtrun_rdv_test.c"
 #include "app/moqraw_test.c"
+#include "app/moqtrun_upsub_test.c"
 #include "app/moqtrel_test.c"
 #include "app/moqns_test.c"
 #include "app/moqtstat_test.c"
@@ -1672,6 +1673,7 @@ int main(void) {
   test_moqtrun_ctlfix();
   test_moqtrun_fillfix();
   test_moqtrun_rdv();
+  test_moqtrun_upsub();
   test_moqtrel();
   test_moqns();
   test_moqtstat();
