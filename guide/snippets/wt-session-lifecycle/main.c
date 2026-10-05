@@ -55,23 +55,10 @@ static void on_session_close(void* ctx, wired_wt_session* s) {
 
 int wired_main(int argc, char** argv) {
   /* The same fixed demo identity as the HTTP/3 hello page. */
-  static u8       priv[32], pub[32], seed[32], rnd[32];
-  static const u8 scid[] = "guide-wt";
-  for (usz i = 0; i < 32; i++) {
-    priv[i] = (u8)(0x50 + i);
-    seed[i] = (u8)(0x90 + i);
-    rnd[i]  = (u8)(0xb0 + i);
-  }
-  wired_x25519_base(pub, priv);
-  wired_srvboot_id id = {
-      .priv                    = priv,
-      .pub                     = pub,
-      .cert_seed               = seed,
-      .random                  = rnd,
-      .scid                    = scid,
-      .scid_len                = sizeof scid - 1, /* without the NUL */
-      .max_datagram_frame_size = 65535, /* WebTransport requires DATAGRAM */
-  };
+  static wired_srvboot_demo_keys keys;
+  wired_srvboot_id               id;
+  wired_srvboot_demo(&id, &keys, 0x50, "guide-wt");
+  id.max_datagram_frame_size = 65535; /* WebTransport requires DATAGRAM */
 
   wired_srvrun_opt opt = {
       .incoming_cpu        = -1,

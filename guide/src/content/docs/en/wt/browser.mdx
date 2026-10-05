@@ -22,9 +22,10 @@ is actually inside of, and the cert's own SHA-256 hash
 - `id.now_secs` anchors the cert's validity window; `0` keeps the SDK's
   fixed 2020-2030 window, deterministic for this page. A real deployment
   passes `wired_clock_epoch_secs()` instead (see `examples/moqt_chat`).
-- `log_cert_fingerprint` builds the exact certificate `wired_server_init`
-  would serve, hashes it with `wired_sha256`, and logs it the same way a
-  browser's `serverCertificateHashes` entry is computed -- the client page
+- `wired_srvboot_log_fingerprint(2, &id)` builds the exact certificate the
+  server will present, hashes it with SHA-256, and logs it the same way a
+  browser's `serverCertificateHashes` entry is computed
+  (`wired_srvboot_cert_sha256` returns the raw 32 bytes instead) -- the client page
   does the identical hash over the bytes it actually received, and both
   lines match.
 - With no `wt_resource_check` registered, the Extended CONNECT to `/chat`

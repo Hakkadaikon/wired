@@ -18,8 +18,8 @@ MoQT（Media over QUIC Transport）は、映像や音声などのメディアを
 
 - `wired_moqt_init(&hub, io)` がハブを初期化します。
   `io` は、ハブが使う WebTransport の送信関数の表です。
-  `wired_server_wt_stream_send` はそのまま渡せます。
-  ストリームを開く 2 つの呼び出しには、先頭にストリームシグナル（目印のバイト列）が必要なので、`with_signal` が `wired_wtwire_signal_put` でそれを付けます。
+  `wired_moqraw_io()`（`app/moqt/qraw/moqrawio.h`）が SDK 既製の表を返します。
+  この表は、ハブが開くストリームの先頭にストリームシグナル（目印のバイト列）を付け、raw QUIC 上の MoQT セッションにも対応します。
 - ハブの `wired_moqt_on_session`、`_on_stream_data`、`_on_datagram`、`_on_session_close` は、それぞれ `&hub` をコンテキストにして `wired_srvrun_opt` にそのまま設定します。
   サーバーを動かすのは `wired_server_run_opt` です。
 - セッションが開くと、ハブは制御ストリームを開き、その上で SETUP（type `0x2f00`）を送ります。

@@ -9,6 +9,7 @@ const allowed = new Set([
   'app/moqt/run/moqtrun.h',
   'app/moqt/data/moqdata.h',
   'app/moqt/dgram/moqdg.h',
+  'app/moqt/qraw/moqrawio.h',
   'crypto/symmetric/hash/hash/sha256.h',
   'app/media/mp4frag/mp4frag.h',
   'common/platform/clock/mono.h',
