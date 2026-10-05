@@ -1086,6 +1086,7 @@
 #include "app/moqtrun_drain_test.c"
 #include "app/moqtrun_xver_test.c"
 #include "app/moqtrun_alias_test.c"
+#include "app/moqtrun_done_test.c"
 #include "app/moqtrel_test.c"
 #include "app/moqns_test.c"
 #include "app/moqtstat_test.c"
@@ -1648,6 +1649,7 @@ int main(void) {
   test_moqtrun_drain();
   test_moqtrun_xver();
   test_moqtrun_alias();
+  test_moqtrun_done();
   test_moqtrel();
   test_moqns();
   test_moqtstat();
