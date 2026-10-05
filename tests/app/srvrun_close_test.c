@@ -308,7 +308,29 @@ static void test_srvrun_close_sweep_reaps_closing(void) {
   CHECK(g_sl_closes == 1);
 }
 
+/* 12-31 / RFC 9000 19.4, 3.5: a client bidi stream the hub already reset
+ * (no server send slot ever existed) is in Reset Sent; the session-close
+ * sweep (WT_SESSION_GONE) builds no second RESET_STREAM for it, and a
+ * repeated app reset latches nothing -- the first code stays the only one. */
+static void test_srvrun_close_no_second_reset_after_app_reset(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  u8            pl[48];
+  wired_obuf    plb = obuf_of(pl, sizeof pl);
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 4, 0x42) == 1);
+  CHECK(c->wt_stream_reset_n == 1);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 4, 0x43) == 1);
+  CHECK(c->wt_stream_reset_n == 1);
+  CHECK(c->wt_stream_reset_app_code[0] == 0x42);
+  CHECK(srvrun_wt_abort_reset(c, 4, WTERR_SESSION_GONE, &plb, 0) == 0);
+}
+
 void test_srvrun_close(void) {
+  test_srvrun_close_no_second_reset_after_app_reset();
   test_srvrun_close_peer_capsule_fins_connect();
   test_srvrun_close_peer_fin_fins_connect();
   test_srvrun_close_peer_capsule_and_fin_one_fin();

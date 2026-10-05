@@ -15910,7 +15910,7 @@ static void test_srvrun_wt_stream_reset_latch_full_keeps_slot(void) {
           &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
       11);
   for (usz i = 0; i < SRVRUN_WT_RESET_LATCH; i++)
-    CHECK(wired_server_wt_stream_reset(&c->wt, 1000 + i, 0x42) == 1);
+    CHECK(wired_server_wt_stream_reset(&c->wt, 1003 + 4 * i, 0x42) == 1);
   CHECK(wired_server_wt_stream_reset(&c->wt, 11, 0x42) == 0);
   CHECK(c->wtsend[0].in_use == 1); /* slot NOT released on refusal */
   CHECK(c->wt_stream_reset_n == SRVRUN_WT_RESET_LATCH);
