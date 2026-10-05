@@ -23,6 +23,33 @@ static moqctl_ftn mtst_ftn(const char* ns0, const char* ns1, const char* name) {
   return f;
 }
 
+/* The MOQT draft session s negotiated: hub output to s is decoded with it. */
+static int mtst_ver(wired_wt_session* s) {
+  return moqtrun_find_by_wt(&mtst_hub, s)->ver;
+}
+
+/* Re-encodes a draft-19 LOCATION_FILTER item (PENC_LOCFILTER, lf) as
+ * draft-22's typed form (SS9.20.9, PENC_RANGELOC22, rl): the same range,
+ * via the draft-19 wire bytes and the version-neutral rangeloc model. */
+static void mtst_filter_to_d22(moqctl_param* it) {
+  u8  b[64];
+  usz n = 0, off = 0;
+  CHECK(moqctl_locfilter_put(wired_mspan_of(b, sizeof b), &n, &it->lf));
+  CHECK(
+      moqctl_rangeloc19_take(wired_span_of(b, n), &off, &it->rl) == MOQCTL_OK);
+  it->enc        = MOQCTL_PENC_RANGELOC22;
+  it->has_filter = 1;
+}
+
+/* params as session s's draft spells them: only LOCATION_FILTER's wire
+ * shape differs (MOQVER_CAP_LOCFILTER_TYPED). */
+static void mtst_params_for(wired_wt_session* s, moqctl_params* p) {
+  if (!(moqver_caps(mtst_ver(s)) & MOQVER_CAP_LOCFILTER_TYPED)) return;
+  for (usz i = 0; i < p->n; i++)
+    if (p->items[i].enc == MOQCTL_PENC_LOCFILTER)
+      mtst_filter_to_d22(&p->items[i]);
+}
+
 static int mtst_enc_publish(wired_mspan buf, usz* off, const void* m) {
   return moqctl_publish_encode(buf, off, m);
 }
@@ -55,6 +82,7 @@ static void mtst_publish_p(
   m.track_alias = alias;
   m.params.n    = 0;
   if (params) m.params = *params;
+  mtst_params_for(s, &m.params);
   mtst_send(s, ctrl, MOQCTL_T_PUBLISH, mtst_enc_publish, &m);
 }
 
@@ -74,6 +102,7 @@ static void mtst_subscribe_p(
   m.name       = *f;
   m.params.n   = 0;
   if (params) m.params = *params;
+  mtst_params_for(s, &m.params);
   mtst_send(s, ctrl, MOQCTL_T_SUBSCRIBE, mtst_enc_subscribe, &m);
 }
 
@@ -103,7 +132,7 @@ static const moqctl_subscribe_ok* mtst_last_ok(void) {
       MOQCTL_OK)
     return 0;
   if (type != MOQCTL_T_SUBSCRIBE_OK) return 0;
-  if (moqctl_subscribe_ok_take(MOQVER_D19, body, &boff, &ok) != MOQCTL_OK)
+  if (moqctl_subscribe_ok_take(mtst_ver(c->s), body, &boff, &ok) != MOQCTL_OK)
     return 0;
   return &ok;
 }
@@ -384,7 +413,7 @@ static void test_moqtrun_sub_ok_largest(void) {
   wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 0);
   n = mtst_stream(4, 2, 0, buf);
   wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 0);
-  mtst_subscribe(SESS_B, cb, &f);
+  mtst_subscribe(SESS_C, mtst_join(SESS_C), &f); /* fresh: d18 refuses a dup */
   const moqctl_param* l = mtst_largest();
   CHECK(l != 0);
   CHECK(l && l->loc.group == 4 && l->loc.object == 2);
@@ -447,7 +476,7 @@ static void test_moqtrun_sub_republish_resets_largest(void) {
   lp.items[0].loc.object = 1;
   lp.n                   = 1;
   mtst_publish_p(SESS_A, ca, &f, 1, &lp);
-  mtst_subscribe(SESS_B, cb, &f);
+  mtst_subscribe(SESS_C, mtst_join(SESS_C), &f); /* fresh: d18 refuses a dup */
   const moqctl_param* l = mtst_largest();
   CHECK(l && l->loc.group == 7 && l->loc.object == 1);
 }
@@ -1493,7 +1522,8 @@ static void test_moqtrun_sub_subgroup_timeout_gates_delivery(void) {
   CHECK(moqtrun_test_count_kind(8) == 0); /* 500 > 400: held */
 }
 
-void test_moqtrun_sub(void) {
+/* Version-invariant scenarios: every supported draft (ledger 7-4). */
+static void mtall_sub(void) {
   test_moqtrun_sub_filter22_starts();
   test_moqtrun_sub_filter22_ends();
   test_moqtrun_sub_filter22_inverted();
@@ -1501,19 +1531,9 @@ void test_moqtrun_sub(void) {
   test_moqtrun_sub_filter22_end_object_mid_round_oneshot();
   test_moqtrun_sub_filter22_end_object_mid_round_keepopen();
   test_moqtrun_sub_filter22_end_object_mid_round_append();
-  test_moqtrun_sub_filter22_end_object_per_sub();
-  test_moqtrun_sub_params_include_properties_d22();
-  test_moqtrun_pub_params_delivery_timeout_d22();
-  test_moqtrun_pub_params_group_order_d18();
-  test_moqtrun_pub_params_forward_all_drafts();
-  test_moqtrun_sub_params_range_filter_d18();
   test_moqtrun_sub_ns_must_match();
   test_moqtrun_reserved_ns_rejected();
   test_moqtrun_other_dot_ns_served();
-  test_moqtrun_sub_objectid_filter_gates_datagram();
-  test_moqtrun_sub_rngf_sets_or();
-  test_moqtrun_sub_rngf_dup_identity();
-  test_moqtrun_sub_rngf_limit();
   test_moqtrun_sub_subgroup_timeout_min();
   test_moqtrun_sub_subgroup_timeout_update();
   test_moqtrun_sub_subgroup_timeout_gates_delivery();
@@ -1543,8 +1563,27 @@ void test_moqtrun_sub(void) {
   test_moqtrun_req_finished_do_not_exhaust();
   test_moqtrun_req_per_session_cap();
   test_moqtrun_req_pool_full_resets();
-  test_moqtrun_req_goaway_watermark_d18();
   test_moqtrun_req_second_goaway_closes();
   test_moqtrun_req_reset_unanswered();
   test_moqtrun_req_needs_reply_op();
+}
+
+/* Range Filter scenarios (SS10.2.10-10.2.14): drafts that define them. */
+static void mtall_sub_rngf(void) {
+  test_moqtrun_sub_objectid_filter_gates_datagram();
+  test_moqtrun_sub_rngf_sets_or();
+  test_moqtrun_sub_rngf_dup_identity();
+  test_moqtrun_sub_rngf_limit();
+}
+
+void test_moqtrun_sub(void) {
+  test_moqtrun_sub_filter22_end_object_per_sub();
+  test_moqtrun_sub_params_include_properties_d22();
+  test_moqtrun_pub_params_delivery_timeout_d22();
+  test_moqtrun_pub_params_group_order_d18();
+  test_moqtrun_pub_params_forward_all_drafts();
+  test_moqtrun_sub_params_range_filter_d18();
+  test_moqtrun_req_goaway_watermark_d18();
+  moqtrun_test_allver(mtall_sub);
+  moqtrun_test_vers(MOQVER_CAP_RANGE_FILTERS, 0, mtall_sub_rngf);
 }

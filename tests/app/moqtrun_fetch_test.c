@@ -128,7 +128,7 @@ static u64 mf_reply(u64* code, moqctl_loc* end) {
     moqctl_peek_type(
         wired_span_of(c->payload, c->payload_len), &off, &type, &body);
     if (type == MOQFETCH_T_FETCH_OK &&
-        moqfetch_ok_take(MOQVER_D19, body, &ok) == MOQCTL_OK)
+        moqfetch_ok_take(mtst_ver(c->s), body, &ok) == MOQCTL_OK)
       *end = ok.end;
     if (type == MOQCTL_T_REQUEST_ERROR &&
         moqctl_request_error_take(body, &boff, &e) == MOQCTL_OK)
@@ -817,12 +817,18 @@ static void test_moqtrun_fetch_no_replay_before_start(void) {
   CHECK(moqtrun_test_last_kind(5)->s == SESS_C);
 }
 
-void test_moqtrun_fetch(void) {
+/* Version-invariant scenarios: every supported draft (ledger 7-4). */
+static void mtall_fetch(void) {
   test_moqtrun_fetch_cache_attach();
   test_moqtrun_fetch_cache_default_off();
   test_moqtrun_fetch_cache_released_on_leave();
   test_moqtrun_fetch_cache_released_on_republish();
-  test_moqtrun_fetch_rngf_limit();
+  test_moqtrun_fetch_d22_invalid_range();
+}
+
+/* Scenarios that send the draft-18/19 FETCH body (mf_send_fetch) and
+ * expect its exclusive End: every draft without the draft-22 layout. */
+static void mtall_fetch19(void) {
   test_moqtrun_fetch_descending_group_order();
   test_moqtrun_fetch_ascending_group_order();
   test_moqtrun_fetch_malformed_closes();
@@ -844,11 +850,20 @@ void test_moqtrun_fetch(void) {
   test_moqtrun_fetch_relative_join_clamped();
   test_moqtrun_fetch_join_invalid_range();
   test_moqtrun_fetch_join_unknown_request();
-  test_moqtrun_fetch_d22_served();
-  test_moqtrun_fetch_d22_invalid_range();
   test_moqtrun_fetch_absolute_join();
   test_moqtrun_fetch_join_forward_off();
-  test_moqtrun_fetch_d22_joining_violation();
   test_moqtrun_fetch_rejoin_reresolves_start();
   test_moqtrun_fetch_no_replay_before_start();
+}
+
+/* Range Filters on a draft-18/19-layout FETCH: draft-19 only. */
+static void mtall_fetch_rngf(void) { test_moqtrun_fetch_rngf_limit(); }
+
+void test_moqtrun_fetch(void) {
+  test_moqtrun_fetch_d22_served();
+  test_moqtrun_fetch_d22_joining_violation();
+  moqtrun_test_allver(mtall_fetch);
+  moqtrun_test_vers(0, MOQVER_CAP_FETCH_BODY_V22, mtall_fetch19);
+  moqtrun_test_vers(
+      MOQVER_CAP_RANGE_FILTERS, MOQVER_CAP_FETCH_BODY_V22, mtall_fetch_rngf);
 }

@@ -28,6 +28,7 @@ static void mtup_update(
   static moqtstat_update m;
   m.request_id = mtst_rid += 2;
   m.params     = *params;
+  mtst_params_for(s, &m.params);
   mtst_send(s, sid, MOQTSTAT_T_REQUEST_UPDATE, mtup_enc_update, &m);
 }
 
@@ -54,7 +55,7 @@ static const moqctl_param* mtup_ok_largest(u64 sid) {
   wired_span               body;
   usz                      off = 0;
   if (mtup_reply(sid, &body) != MOQCTL_T_REQUEST_OK) return 0;
-  if (moqctl_request_ok_take(MOQVER_D19, body, &off, &ok) != MOQCTL_OK)
+  if (moqctl_request_ok_take(g_moqtrun_test_ver, body, &off, &ok) != MOQCTL_OK)
     return 0;
   return moqctl_params_find(&ok.params, MOQCTL_PARAM_LARGEST_OBJECT);
 }
@@ -831,21 +832,13 @@ static void test_moqtrun_upd_ns_prefix_overlap_refused(void) {
   CHECK(mtrq_fin_on(MTRQ_S2) == 1); /* 10.9.1: refusal closes the stream */
 }
 
-void test_moqtrun_upd(void) {
+/* Version-invariant scenarios: every supported draft (ledger 7-4). */
+static void mtall_upd(void) {
   test_moqtrun_upd_credit_too_many();
   test_moqtrun_upd_credit_restored_by_flush();
-  test_moqtrun_upd_on_fetch_stream();
-  test_moqtrun_upd_on_fetch_stream_refused();
   test_moqtrun_upd_ns_prefix_changes();
   test_moqtrun_upd_ns_prefix_overlap_refused();
-  test_moqtrun_upd_rngf_replace_remove();
-  test_moqtrun_upd_on_publish_stream();
-  test_moqtrun_publish_requires_authorization();
   test_moqtrun_publish_alias_token_rejected();
-  test_moqtrun_notify_on_publish_stream_d22();
-  test_moqtrun_notify_elsewhere_closes_d22();
-  test_moqtrun_sub_duplicate_refused_d18();
-  test_moqtrun_sub_duplicate_reanswered_d19_d22();
   test_moqtrun_tstat_ok_largest();
   test_moqtrun_tstat_ok_empty();
   test_moqtrun_tstat_unknown_and_blob();
@@ -855,7 +848,6 @@ void test_moqtrun_upd(void) {
   test_moqtrun_upd_forward_off_reliable();
   test_moqtrun_upd_forward_toggles();
   test_moqtrun_upd_params_replace();
-  test_moqtrun_upd_filter_d22();
   test_moqtrun_upd_survives_rejoin();
   test_moqtrun_upd_blob_forward();
   test_moqtrun_upd_bad_and_control();
@@ -868,4 +860,27 @@ void test_moqtrun_upd(void) {
   test_moqtrun_timeout_ring_torn_object();
   test_moqtrun_timeout_live();
   test_moqtrun_timeout_datagram();
+}
+
+/* Updates on a draft-18/19-layout FETCH (mf_stuck_fetch): every draft
+ * without the draft-22 FETCH body. */
+static void mtall_upd_fetch19(void) {
+  test_moqtrun_upd_on_fetch_stream();
+  test_moqtrun_upd_on_fetch_stream_refused();
+}
+
+/* Range Filter updates (SS10.2.10-10.2.14): drafts that define them. */
+static void mtall_upd_rngf(void) { test_moqtrun_upd_rngf_replace_remove(); }
+
+void test_moqtrun_upd(void) {
+  test_moqtrun_upd_on_publish_stream();
+  test_moqtrun_publish_requires_authorization();
+  test_moqtrun_notify_on_publish_stream_d22();
+  test_moqtrun_notify_elsewhere_closes_d22();
+  test_moqtrun_sub_duplicate_refused_d18();
+  test_moqtrun_sub_duplicate_reanswered_d19_d22();
+  test_moqtrun_upd_filter_d22();
+  moqtrun_test_allver(mtall_upd);
+  moqtrun_test_vers(0, MOQVER_CAP_FETCH_BODY_V22, mtall_upd_fetch19);
+  moqtrun_test_vers(MOQVER_CAP_RANGE_FILTERS, 0, mtall_upd_rngf);
 }
