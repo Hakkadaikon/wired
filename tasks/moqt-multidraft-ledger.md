@@ -225,7 +225,7 @@ MoQT draft-19 以降は webtrans-http3-16 を参照している。ワイヤ値�
 
 ## 7. 検証の三層
 
-- [ ] 7-1 TLA+: 次の 3 つをモデル検査する。
+- [x] 7-1 TLA+: 次の 3 つをモデル検査する。**完了(2026-10-05)。** `tasks/loopeng/moqt/{MoqtVerCtl,MoqtFillLife,MoqtXRelay}/`(各 EXTRACT.md/RESULT.md/counterexample.feature)。基本構成は全て無違反(VerCtl 32,041 / FillLife 18,751 / XRelay 最大 357,336 distinct states)、変異モデルは全て検出。反例から実装の不一致 4 件+裁定の前提誤り 1 件を発見 → 12-12〜12-16。
   - 版交渉と制御ストリームの組(1-1)
   - 22 の fill fetch のライフサイクル(4-6 を実装する場合)
   - 版をまたぐ relay の購読と FETCH の対応(5-2)
@@ -368,6 +368,12 @@ MoQT draft-19 以降は webtrans-http3-16 を参照している。ワイヤ値�
 - [ ] 12-8 古いコメント/ログの修正: `moqtrun.h:15`、`moqtrun.h:791-796`、`moqfetch.h:7`、`moqns.h:7`、`moqtstat.h:7`、`moqdata.h:8`、`moqdg.h:9`、`moqctl.h:49`、`moqtrun.c` の「non-zero SUBGROUP_DELIVERY_TIMEOUT を拒否」コメント、`moqver.c:7`(選好順の記述が実装と不一致)、`examples/moqt_chat/wired_server.c:331` のログ。
 - [ ] 12-9 MoQT 以外の features 台帳の古いテスト参照: `docs/features/rfc8446.md:270,329`(`test_sdrv_psk_ticket_open_fails_falls_back`)、`rfc9220.md:87`(`test_h3cancel_request`)、`rfc9368.md:63`(`test_verselect_pick`)。
 - [ ] 12-10 moq-interop-runner をローカルで全クライアントと対向させ、全 PASS(クライアント起因を除く)を `logs_*` 付きで記録。ベースライン計測中。
+
+- [ ] 12-12 (7-1 F-A1) 制御ストリームの最初の配送が SETUP の 2 バイト型の 1 バイト目(0xAF)だけだと、hold に入って二度と再生されずセッションが確立しない(`moqtrun_fresh_uni_ctl`/`moqtrun_hold_has`、bidi 側 `moqtrun_bidi_is_setup` も同型)。RFC 9000 §2.2 で分割は合法。修正案「完全な varint を待ってから分類」は TLC `MC_splitfix` で検証済み。
+- [ ] 12-13 (7-1 F-C1) 送信者の版に無いパラメータ付きの SUBSCRIBE(d19 の FILL_PARAMETERS、d18 の Range Filter 等)を黙って捨て、無応答でストリームが宙づり。d18/19/22 とも PROTOCOL_VIOLATION で close(d19 §10.2)。同型: PUBLISH、TRACK_STATUS、PUBLISH_NAMESPACE/SUBSCRIBE_NAMESPACE、SUBSCRIBE_TRACKS。FETCH/REQUEST_UPDATE は正しく close 済み(手本)。
+- [ ] 12-14 (7-1 F-B1) FILL_PARAMETERS に LOCATION_FILTER が無い場合、d22 §3.4 は購読の Location filter を使うが、hub は track 全体を fill(`moqfetch_fill_filter_of` が「無し」を 0x00 と同一視)。
+- [ ] 12-15 (7-1 F-B2) 不正な FILL_PARAMETERS を黙って無視(SUBSCRIBE_OK 送信後に `moqtrun_fill_from_param` が return)。d22 §9.20.15/§9.20 は PROTOCOL_VIOLATION close。
+- [ ] 12-16 (7-1 F-B3) fill 表満杯時、受理済み(SUBSCRIBE_OK/REQUEST_OK 送信済み)の fill を開かずリセットもしない(d22 §3.4.1 違反)。4-6 の 2026-10-04 裁定は「受付時点で拒否」という誤った前提に立っていたので見直す。あわせて track retire 時に fill が INTERNAL_ERROR reset でなく timed-out marker+FIN で終わる件(Q-08)も確認。
 
 ## 13. raw QUIC 上の MoQT(2026-10-05 ユーザー指示で追加)
 
