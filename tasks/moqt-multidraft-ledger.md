@@ -217,8 +217,8 @@ MoQT draft-19 以降は webtrans-http3-16 を参照している。ワイヤ値�
 
 - [x] 7-2 Lean: LOCATION_FILTER の 2 系統のデコーダ、FETCH 本体の 2 系統、End Location の正規化について、内部モデルへの写像の一致と round-trip を証明する。**完了(2026-10-04)**: `tasks/fv/moqt/Moqt/{Filter,RangeV,Fetch22,CheckV22}.lean`。68定理、`sorry`/`native_decide`無し、axiom監査クリーン。
   - 証明中に見つかった実装バグ D1(d22 FETCH encode が GROUP_ORDER 等の大きい type のパラメータと共存する LOCATION_FILTER を挿入できず encode 失敗)を修正・テスト追加・commit `5e25a554`。
-  - D2(d22 take 経路に Full Track Name ≤4096 の複合検査が無い、d19 は有り)は未修正、別途対応が要る。
-  - D3(d19 req encode が UNBOUNDED 範囲で壊れたワイヤを出す可能性、現状呼び出し元はテストのみ)は未修正、呼び出し元が増えたら対応。
+  - D2(d22 take 経路に Full Track Name ≤4096 の複合検査が無い、d19 は有り)**修正済み(2026-10-05)**: `moqfetch_req22_take_head` を既存 `moqctl_ftn_take` 経由に変更。SUBSCRIBE/PUBLISH は版共通で既に検査済み。テスト `test_moqctl_limits_req22_ftn_boundary`(4096 受理/4097 拒否)。
+  - D3(d19 req encode が UNBOUNDED 範囲で壊れたワイヤを出す)**修正済み(2026-10-05)**: draft-19 §10.12.1 Standalone は絶対 Start + 有界 End のみ表現可能なので、UNBOUNDED 終端/非ABS 開始は `moqfetch_req19_unrepresentable` で encode を拒否(0 返却)。テスト `test_moqctl_limits_req19_unrepresentable`。
 
 ## 7. 検証の三層
 

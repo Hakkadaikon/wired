@@ -1091,6 +1091,7 @@
 #include "app/moqcache_test.c"
 #include "app/moqver_test.c"
 #include "app/moqt_multidraft_golden_test.c"
+#include "app/moqctl_limits_test.c"
 // clang-format on
 
 int main(void) {
@@ -1650,6 +1651,7 @@ int main(void) {
   test_moqcache();
   test_moqver();
   test_moqt_multidraft_golden();
+  test_moqctl_limits();
   test_ed25519_field();
   test_v2ku_appendix();
   test_h3prio();

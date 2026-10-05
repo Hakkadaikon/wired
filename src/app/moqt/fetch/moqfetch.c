@@ -168,8 +168,17 @@ static void moqfetch_req_to_fetch(const moqfetch_req* m, moqfetch_fetch* f) {
   f->end   = moqfetch_req_end_to_loc(&m->range);
 }
 
+/* 10.12.1: a d19 Standalone Fetch has an absolute Start and a bounded End
+ * Location ("plus 1", Object 0 = whole group); an open end or a relative
+ * start has no d19 wire form, so it is refused rather than mis-encoded. */
+static int moqfetch_req19_unrepresentable(const moqfetch_req* m) {
+  return !m->is_joining &&
+         (m->range.ek == MOQCTL_REK_UNBOUNDED || m->range.sk != MOQCTL_RSK_ABS);
+}
+
 int moqfetch_req19_encode(wired_mspan buf, usz* off, const moqfetch_req* m) {
   moqfetch_fetch f = {0};
+  if (moqfetch_req19_unrepresentable(m)) return 0;
   moqfetch_req_to_fetch(m, &f);
   return moqfetch_fetch_encode(buf, off, &f);
 }
@@ -178,11 +187,8 @@ int moqfetch_req19_encode(wired_mspan buf, usz* off, const moqfetch_req* m) {
  * (draft-22 parameters, so LOCATION_FILTER decodes per SS9.20.9, not d19's
  * Length-prefixed SS5.1.2 shape). */
 static int moqfetch_req22_take_head(wired_span b, usz* at, moqfetch_req* m) {
-  int r;
   if (!moqvi_take(b, at, &m->request_id)) return MOQCTL_INSUFFICIENT;
-  r = moqctl_ns_take(b, at, &m->track.ns);
-  if (r != MOQCTL_OK) return r;
-  return moqctl_name_take(b, at, &m->track.name);
+  return moqctl_ftn_take(b, at, &m->track); /* SS2.4.1 FTN <= 4096 */
 }
 
 /* SS9.20.9: "If omitted from FETCH ..., the fetch ... is unfiltered" ->
