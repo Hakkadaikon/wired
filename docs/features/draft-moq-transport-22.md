@@ -1696,8 +1696,11 @@ from the coverage denominator above:
   implemented.
 - (SS9.20.5, SS9.20.6, SS9.20.16, SS9.20.19) FILL_TIMEOUT's own
   acted-on budget (only its presence gates the Timed-Out marker, see
-  MQ22-142), RENDEZVOUS_TIMEOUT, EXPIRES and NEW_GROUP_REQUEST — decoded
-  by the registry, not otherwise acted on.
+  MQ22-142), EXPIRES and NEW_GROUP_REQUEST — decoded by the registry,
+  not otherwise acted on. (SS9.20.6)
+  RENDEZVOUS_TIMEOUT is acted on since 12-1 (ff1c0df): a SUBSCRIBE for a
+  track with no publisher is held until one arrives or the timeout
+  (capped at 1.5 s) answers TIMEOUT, see tests/app/moqtrun_rdv_test.c.
 - (SS9.1.3, SS9.1.4, SS8.9) MAX_AUTH_TOKEN_CACHE_SIZE and AUTHORIZATION
   TOKEN as a Setup Option — not advertised; the hub keeps no token cache,
   so Alias-based tokens are refused (MQ22-183). (MAX_FILTER_RANGES and

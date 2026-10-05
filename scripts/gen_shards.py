@@ -43,6 +43,8 @@ OVERRIDES = {
     "ecdsa_p384_verify": "crypto/asymmetric/ecc/p384",
     "bssl_ecdsa": "crypto/asymmetric/ecc/p256",
     "bssl_hmac": "crypto/symmetric/hash/hash",
+    "wyc_rsa_pkcs1": "crypto/asymmetric/rsa",
+    "wyc_rsa_pss": "crypto/asymmetric/rsa",
     "p384chain": "crypto/pki/trust/castore",
     "versdowngrade": "transport/version/versmgr",
     "sigmask": "app/http3/server/sigterm",

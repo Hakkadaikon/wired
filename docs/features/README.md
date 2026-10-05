@@ -116,5 +116,8 @@ independent implementation) are tracked separately: see
 
 ---
 
+**Known gaps across all specs:** [Known Limitations](known-limitations.md) — every
+deliberate limitation, deviation and capacity limit in one place.
+
 **Next:** [Interop Results](../interop.md) — cross-implementation
 compatibility runs. ([all docs](../README.md))
