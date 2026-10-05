@@ -52,6 +52,10 @@ static void test_udp_socket_dualstack(void) {
   u64 len    = sizeof(v6only);
   i64 fd     = wired_udp_socket();
   if (fd < 0) return;
+  if (udp_family != WIRED_AF_INET6) { /* IPv6-less host: AF_INET fallback */
+    wired_udp_close(fd);
+    return;
+  }
   CHECK(
       syscall6(
           UDPT_SYS_GETSOCKOPT, fd, WIRED_IPPROTO_IPV6, WIRED_IPV6_V6ONLY,

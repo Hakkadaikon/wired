@@ -5,6 +5,7 @@
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3/stream_type.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
+#include "app/http3/request/h3reqdrive/request_parse.h"
 #include "app/http3/server/h3srv/peer.h"
 #include "app/http3/server/h3srv/respond.h"
 #include "app/http3/server/hq09/hq09.h"
@@ -169,13 +170,12 @@ static int gather_request(
 
 /* RFC 9000 2.2: the request is complete once FIN closed the stream and it has
  * not already been decoded/answered (curl FINs the request's last STREAM). */
-/* Bytes of the complete HTTP/3 HEADERS frame at the head of acc, or 0 when
- * none is fully buffered yet (or the first frame is not HEADERS). */
+/* Bytes of acc up to the end of its leading HTTP/3 HEADERS frame, past any
+ * unknown/reserved (GREASE) frames ahead of it (RFC 9114 7.2.8 / 9: ignored
+ * on request streams too), or 0 when no complete HEADERS is buffered yet or
+ * a frame that must be rejected (e.g. DATA, 4.1) precedes it. */
 static usz acc_headers_frame_len(const wired_srvloop_reqacc* acc) {
-  h3_frame f;
-  usz      n = h3_frame_get(wired_span_of(acc->buf, *acc->len), &f);
-  if (n == 0) return 0;
-  return f.type == H3_FRAME_HEADERS ? n : 0;
+  return wired_h3reqdrive_headers_end(wired_span_of(acc->buf, *acc->len));
 }
 
 /* Constant-shape 7-octet compare (the CONNECT method token). */
@@ -1379,16 +1379,14 @@ static int route_body_on(const wired_srvloop_dispatch_ctx* ctx) {
   return ctx->l->on_body && ctx->s->sdrv.alpn != SALPN_HQ;
 }
 
-/* Bytes of the HEADERS frame whole inside slot's contiguous window prefix,
- * 0 when there is none yet -- or the slot was already answered on the
- * buffered path. */
+/* Bytes up to the end of the leading HEADERS frame (past any GREASE ahead of
+ * it, RFC 9114 7.2.8) whole inside slot's contiguous window prefix, 0 when
+ * there is none yet -- or the slot was already answered on the buffered
+ * path. */
 static usz route_body_head_len(const wired_srvloop_stream_slot* slot) {
-  h3_frame f = {0};
-  usz      n;
   if (slot->req_done) return 0;
-  n = h3_frame_get(
-      wired_span_of(slot->req_buf, bodywin_frontier(&slot->body)), &f);
-  return f.type == H3_FRAME_HEADERS ? n : 0;
+  return wired_h3reqdrive_headers_end(
+      wired_span_of(slot->req_buf, bodywin_frontier(&slot->body)));
 }
 
 /* RFC 9114 4.1: decode slot's leading n-byte HEADERS frame alone into

@@ -11,6 +11,14 @@
 int wired_h3reqdrive_request_sections(
     wired_span stream_data, wired_span* fs, wired_h3reqdrive_req* r);
 
+/* RFC 9114 4.1 / 7.2.8 / 9: walk raw request-stream bytes h3 (no STREAM
+ * framing) past any leading unknown/reserved (GREASE) frames to the end of
+ * the leading HEADERS frame. Returns that byte offset, or 0 when no complete
+ * HEADERS is buffered yet (a partial frame waits for more bytes) or a frame
+ * that must be rejected (DATA, PUSH_PROMISE, HTTP/2-only types) precedes
+ * it. */
+usz wired_h3reqdrive_headers_end(wired_span h3);
+
 /* RFC 9114 4.1: view the trailer section's field-section payload (the HEADERS
  * frame immediately following the body's last DATA frame, or immediately
  * after the leading HEADERS if there is no body) into *trailer_fs.

@@ -4,26 +4,32 @@
 #include "app/http3/core/h3/frame_permit.h"
 #include "transport/packet/frame/frame/frame.h"
 
-/* RFC 9114 7.2.5/7.2.8 (9114-067/9114-073): the frame at off decoded to f is
- * one this endpoint must never accept at all -- PUSH_PROMISE (this SDK is
- * server-only and never sends one) or an HTTP/2-only reserved type. Split out
- * of find_headers's loop so the reject latch (r->frame_unexpected) stays a
- * single extra branch there. */
-static int find_headers_frame_ok(const h3_frame* f, wired_h3reqdrive_req* r) {
-  if (h3_frame_recv_ok(f->type)) return 1;
-  r->frame_unexpected = 1;
+/* RFC 9114 4.1 / 7.2.5 / 7.2.8 (9114-067/9114-073): 1 if a frame of type t
+ * is acceptable while walking to the leading HEADERS. DATA there is an
+ * invalid frame sequence (4.1); PUSH_PROMISE (this SDK is server-only) and
+ * the HTTP/2-only reserved types are never acceptable at all. */
+static int find_headers_type_ok(u64 t) {
+  return t != H3_FRAME_DATA && h3_frame_recv_ok(t);
+}
+
+/* Latch *unexpected (H3_FRAME_UNEXPECTED) for a frame f that must be
+ * rejected before HEADERS. Split out of find_headers's loop so the reject
+ * latch stays a single extra branch there. */
+static int find_headers_frame_ok(const h3_frame* f, int* unexpected) {
+  if (find_headers_type_ok(f->type)) return 1;
+  *unexpected = 1;
   return 0;
 }
 
 /* One find_headers step: decode the frame at *off into *f and advance *off
  * past it. Returns 1 to keep walking (a skipped frame this endpoint accepts),
  * 0 to stop -- either HEADERS was reached, the stream ran out, or the frame
- * must be rejected (r->frame_unexpected set by find_headers_frame_ok). */
+ * must be rejected (*unexpected set by find_headers_frame_ok). */
 static int find_headers_step(
-    wired_span h3, usz* off, h3_frame* f, wired_h3reqdrive_req* r) {
+    wired_span h3, usz* off, h3_frame* f, int* unexpected) {
   usz used = h3_frame_get(wired_span_of(h3.p + *off, h3.n - *off), f);
   if (!used) return 0;
-  if (!find_headers_frame_ok(f, r)) return 0;
+  if (!find_headers_frame_ok(f, unexpected)) return 0;
   *off += used;
   return f->type != H3_FRAME_HEADERS;
 }
@@ -32,17 +38,24 @@ static int find_headers_step(
  * unknown/reserved frame (e.g. the GREASE frame curl/quiche send), until the
  * HEADERS frame is found; view its field-section payload in place. Returns 1
  * if a HEADERS frame is reached, 0 if the stream ends, is truncated, or
- * carries a frame type this endpoint must reject (r->frame_unexpected set). */
+ * carries a frame type this endpoint must reject (*unexpected set). */
 static int find_headers(
-    wired_span h3, wired_span* fs, usz* end, wired_h3reqdrive_req* r) {
+    wired_span h3, wired_span* fs, usz* end, int* unexpected) {
   h3_frame f   = {0};
   usz      off = 0;
-  while (find_headers_step(h3, &off, &f, r)) {
+  while (find_headers_step(h3, &off, &f, unexpected)) {
   }
   if (f.type != H3_FRAME_HEADERS) return 0;
   *fs  = wired_span_of(f.payload, (usz)f.payload_len);
   *end = off;
   return 1;
+}
+
+usz wired_h3reqdrive_headers_end(wired_span h3) {
+  wired_span fs;
+  usz        end        = 0;
+  int        unexpected = 0;
+  return find_headers(h3, &fs, &end, &unexpected) ? end : 0;
 }
 
 /* Decode the frame at cur->off; on a DATA frame view its body into r and
@@ -81,7 +94,7 @@ int wired_h3reqdrive_request_sections(
   wired_span   h3;
   if (!frame_get_stream(stream_data.p, stream_data.n, &f)) return 0;
   h3 = wired_span_of(f.data, (usz)f.length);
-  if (!find_headers(h3, fs, &end, r)) return 0;
+  if (!find_headers(h3, fs, &end, &r->frame_unexpected)) return 0;
   return find_body(h3, end, r);
 }
 
@@ -139,19 +152,13 @@ static int trailer_headers_at(wired_span h3, usz off, wired_span* trailer_fs) {
 
 int wired_h3reqdrive_request_trailer(
     wired_span stream_data, wired_span* trailer_fs) {
-  stream_frame         f;
-  wired_span           h3, fs;
-  usz                  end     = 0;
-  wired_h3reqdrive_req discard = {0}; /* trailer lookup runs after the
-                                       * leading HEADERS was already
-                                       * accepted once by the caller's own
-                                       * wired_h3reqdrive_request_sections
-                                       * call -- this walk repeats it only
-                                       * to find the trailer's offset, so
-                                       * find_headers' reject latch has
-                                       * nowhere useful to report to here. */
+  stream_frame f;
+  wired_span   h3;
+  usz          end;
   if (!frame_get_stream(stream_data.p, stream_data.n, &f)) return 0;
-  h3 = wired_span_of(f.data, (usz)f.length);
-  if (!find_headers(h3, &fs, &end, &discard)) return 0;
+  h3  = wired_span_of(f.data, (usz)f.length);
+  end = wired_h3reqdrive_headers_end(h3); /* the caller already latched any
+                                           * reject via request_sections */
+  if (!end) return 0;
   return trailer_headers_at(h3, body_end_off(h3, end), trailer_fs);
 }

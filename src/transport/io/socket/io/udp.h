@@ -46,9 +46,26 @@ static inline u32 wired_udp_addr4_be(const sockaddr* sa) {
 }
 
 /** Create a dual-stack UDP socket: AF_INET6 with IPV6_V6ONLY disabled, so
- * IPv4 peers arrive as v4-mapped addresses on the same fd.
+ * IPv4 peers arrive as v4-mapped addresses on the same fd. On a host without
+ * IPv6 (EAFNOSUPPORT) it opens an AF_INET socket instead; every wrapper here
+ * then converts addresses at the syscall boundary, so callers keep using the
+ * v4-mapped sockaddr form either way.
  * @return the fd, or a negative errno on failure. */
 i64 wired_udp_socket(void);
+
+/** Internal: lay sa out for a socket of family (WIRED_AF_INET6 copies it,
+ * WIRED_AF_INET packs its v4-mapped address as a kernel sockaddr_in). A raw
+ * kernel sockaddr_in in sa (e.g. read back by getsockname) is accepted too.
+ * @param sa the v4-mapped (or native IPv6) address
+ * @param family the socket's address family
+ * @param out receives the kernel-ready address
+ * @return the address length to hand the kernel */
+u32 udp_kaddr_out(const sockaddr* sa, u16 family, sockaddr* out);
+
+/** Internal: rewrite a kernel-written AF_INET sockaddr_in in sa as the
+ * v4-mapped form; any other family is left untouched.
+ * @param sa the address the kernel filled */
+void udp_kaddr_in(sockaddr* sa);
 
 /** Bind fd to sa. Ownership of fd stays with the caller; wired_udp_bind
  * neither closes it on failure nor takes it over on success.

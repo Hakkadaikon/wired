@@ -593,6 +593,7 @@
 #include "transport/udp_test.c"
 #include "transport/udp_recvmmsg_test.c"
 #include "transport/udp_recvfrom_test.c"
+#include "transport/udpfam_test.c"
 #include "transport/udp_gso_test.c"
 #include "transport/retransmit_test.c"
 #include "transport/ack_test.c"
@@ -671,6 +672,7 @@
 #include "app/h3dgram_test.c"
 #include "app/h3frame_test.c"
 #include "app/h3grease_test.c"
+#include "app/h3reqgrease_test.c"
 #include "app/h3stream_type_test.c"
 #include "app/headercase_test.c"
 #include "app/h3method_test.c"
@@ -1138,6 +1140,7 @@ int main(void) {
   test_flow();
   test_udp();
   test_udp_recvfrom();
+  test_udpfam();
   test_udp_gso();
   test_udp_recvmmsg();
   test_rtx();
@@ -1216,6 +1219,7 @@ int main(void) {
   test_h3dgram();
   test_h3frame();
   test_h3grease();
+  test_h3reqgrease();
   test_h3stream_type();
   test_headercase();
   test_h3method();

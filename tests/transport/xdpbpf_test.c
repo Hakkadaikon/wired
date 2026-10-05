@@ -270,15 +270,22 @@ static void test_xdpbpf_prog_has_no_backward_branch(void) {
   }
 }
 
+/* Verifier log for the accept test. A successful load with log_level 1
+ * writes the whole per-instruction trace, and the kernel fails the load
+ * with ENOSPC when it does not fit -- 256 bytes did not; 64 KiB holds this
+ * program's trace with room to spare. Static: too large for the stack. */
+#define XBT_ACCEPT_LOG_CAP 65536
+static u8 xbt_accept_log[XBT_ACCEPT_LOG_CAP];
+
 /* The golden program (map_fd, port=4433) loads and the verifier accepts it,
  * proving the instruction encoding is correct. */
 static void test_xdpbpf_prog_load_accepts_golden(i64 map_fd) {
   u64 prog[XDPBPF_PROG_LEN];
-  u8  log[256];
   i64 prog_fd;
   xdpbpf_prog_build(prog, (i32)map_fd, 4433);
-  prog_fd =
-      xdpbpf_prog_load(prog, XDPBPF_PROG_LEN, wired_mspan_of(log, sizeof log));
+  prog_fd = xdpbpf_prog_load(
+      prog, XDPBPF_PROG_LEN,
+      wired_mspan_of(xbt_accept_log, sizeof xbt_accept_log));
   CHECK(prog_fd >= 0);
   xbt_close_if_open(prog_fd);
 }
