@@ -1504,8 +1504,26 @@ draft-18 and draft-19.
   applied like a SUBSCRIBE's and answered there (ledger 12-11, 12-18).
   FORWARD and GROUP_ORDER, the SUBSCRIBE_TRACKS parameters SS9.8 admits on a
   PUBLISH, are echoed as given, FORWARD 1 included (SS3.6.2 "explicitly
-  communicated", ledger 12-19).
+  communicated", ledger 12-19). The SUBSCRIBE_TRACKS's object Range Filters,
+  which SS9.8 keeps out of the PUBLISH, start that subscription anyway
+  (SS3.6.1 "Objects published in the resulting Subscriptions can be filtered
+  by any Range Filter"), and a SUBSCRIBE_TRACKS whose Range Filters are
+  malformed, repeated or past MAX_FILTER_RANGES is refused INVALID_FILTER
+  (SS3.3.2, ledger 12-26). A failed update ends it with PUBLISH_DONE
+  UPDATE_FAILED and the hub then FINs the PUBLISH stream (SS9.5.1, SS9.9,
+  ledger 12-27); a second REQUEST_OK or REQUEST_ERROR closes the session with
+  PROTOCOL_VIOLATION (SS3.1, ledger 12-28).
   - test: `tests/app/moqtrun_misc_test.c` — `test_moqtrun_misc_pub_ok_relays`
+  - test: `tests/app/moqtrun_misc_test.c` —
+    `test_moqtrun_misc_subtracks_rngf_gates`
+  - test: `tests/app/moqtrun_misc_test.c` —
+    `test_moqtrun_misc_subtracks_rngf_limit`
+  - test: `tests/app/moqtrun_misc_test.c` —
+    `test_moqtrun_misc_pub_update_failed_fins`
+  - test: `tests/app/moqtrun_misc_test.c` —
+    `test_moqtrun_misc_pub_second_ok_closes`
+  - test: `tests/app/moqtrun_misc_test.c` —
+    `test_moqtrun_misc_pub_error_after_ok_closes`
   - test: `tests/app/moqtrun_misc_test.c` —
     `test_moqtrun_misc_pub_forward0_then_update`
   - test: `tests/app/moqtrun_misc_test.c` —
