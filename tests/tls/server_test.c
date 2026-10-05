@@ -463,8 +463,9 @@ static void test_server_no_keylog_path_writes_nothing(void) {
   }
 }
 
-/* A keylog path set before the flight: a verified Finished appends one
- * CLIENT_HANDSHAKE_TRAFFIC_SECRET line keyed by ClientHello.random. */
+/* A keylog path set before the flight: a verified Finished appends the key
+ * log, led by CLIENT_HANDSHAKE_TRAFFIC_SECRET keyed by ClientHello.random
+ * (the full label set is pinned in tests/tls/keylog_test.c). */
 static void test_server_keylog_path_writes_line(void) {
   struct srv_fix f;
   u8             payload[256];
@@ -477,7 +478,7 @@ static void test_server_keylog_path_writes_line(void) {
   srvt_keylog_unlink();
   CHECK(wired_server_feed(&f.s, payload, plen) == 1);
   {
-    u8  out[512] = {0};
+    u8  out[1024] = {0}; /* all five lines, ~800 bytes */
     ssz n = wired_fio_read(srvt_keylog_path, wired_mspan_of(out, sizeof out));
     const char label[] = "CLIENT_HANDSHAKE_TRAFFIC_SECRET";
     usz        label_n = sizeof(label) - 1;

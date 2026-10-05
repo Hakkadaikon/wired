@@ -167,14 +167,13 @@ void tls_handshake_keys_suite(
   protection_keys_suite(ts, suite, in->version, out);
 }
 
-void tls_early_keys(
-    const u8      psk[HKDF_PRK],
-    const u8*     client_hello,
-    usz           client_hello_len,
-    initial_keys* out) {
+void tls_early_traffic_secret(
+    const u8  psk[HKDF_PRK],
+    const u8* client_hello,
+    usz       client_hello_len,
+    u8        out[HKDF_PRK]) {
   u8 zero[HKDF_PRK] = {0};
   u8 early[HKDF_PRK];
-  u8 ts[HKDF_PRK];
   /* Early Secret = HKDF-Extract(0, PSK). */
   hkdf_extract(
       wired_span_of(zero, HKDF_PRK), wired_span_of(psk, HKDF_PRK), early);
@@ -183,8 +182,17 @@ void tls_early_keys(
     derive_secret_in in = derive_in(
         early, (ascii_label){"c e traffic", 11},
         wired_span_of(client_hello, client_hello_len));
-    tls_derive_secret(&in, ts);
+    tls_derive_secret(&in, out);
   }
+}
+
+void tls_early_keys(
+    const u8      psk[HKDF_PRK],
+    const u8*     client_hello,
+    usz           client_hello_len,
+    initial_keys* out) {
+  u8 ts[HKDF_PRK];
+  tls_early_traffic_secret(psk, client_hello, client_hello_len, ts);
   /* RFC 9368 2.3: 0-RTT is only ever sent under the client's original
    * version, before any compatible switch -- always the v1 labels here. */
   protection_keys(ts, VERSION_1, out);

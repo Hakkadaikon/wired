@@ -236,7 +236,11 @@ updated in place; connections already past their handshake are undisturbed.
 - `qlog_path` — RFC 9002-shaped `packet_sent`/`packet_received` events,
   JSON-SEQ framed.
 - `keylog_path` — NSS key log (`SSLKEYLOGFILE` format), for decrypting a
-  capture in Wireshark.
+  capture in Wireshark. Once the client Finished verifies, the server
+  appends `CLIENT_HANDSHAKE_TRAFFIC_SECRET`,
+  `SERVER_HANDSHAKE_TRAFFIC_SECRET`, `CLIENT_TRAFFIC_SECRET_0`,
+  `SERVER_TRAFFIC_SECRET_0` and `EXPORTER_SECRET` (preceded by
+  `CLIENT_EARLY_TRAFFIC_SECRET` when 0-RTT was accepted).
 - `cc_algo` — congestion-control algorithm: `0` = the build's default
   (CUBIC unless the build overrides `-DWIRED_CC_ALGO_DEFAULT`), `1` = CUBIC,
   `2` = BBR. A build wanting NewReno as its default sets

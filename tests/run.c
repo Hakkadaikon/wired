@@ -1020,6 +1020,7 @@
 #include "transport/crecv_collect_test.c"
 #include "transport/crecv_message_test.c"
 #include "tls/server_test.c"
+#include "tls/keylog_test.c"
 #include "app/h3srv_test.c"
 #include "app/h3srv_priupdate_test.c"
 #include "app/srvwire_test.c"
@@ -1598,6 +1599,7 @@ int main(void) {
   test_crecv_collect();
   test_crecv_message();
   test_server();
+  test_tls_keylog();
   test_h3srv();
   test_h3srv_priupdate();
   test_srvwire();

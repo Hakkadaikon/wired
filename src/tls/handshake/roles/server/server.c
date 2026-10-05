@@ -201,33 +201,73 @@ int wired_server_build_flight(
   return 1;
 }
 
-/* NSS Key Log Format (SSLKEYLOGFILE): a verified client Finished is the point
- * the client handshake traffic secret is known-good, the earliest safe moment
- * to log it (logging an unverified secret would leak a value never proven to
- * match the peer). No-op when no keylog path is set. */
-static void srv_log_c_hs_traffic(const wired_server* s, const u8* c_traffic) {
-  if (!s->keylog_path) return;
-  wired_keylog_append(
-      s->keylog_path, "CLIENT_HANDSHAKE_TRAFFIC_SECRET", s->client_random,
-      wired_span_of(c_traffic, HKDF_PRK));
-}
-
 /* RFC 8446 4.4.4: verify the client Finished against the client handshake
- * traffic secret and the transcript hash through the server Finished. */
-static int srv_verify_finished(wired_server* s, const u8* msg, usz len) {
+ * traffic secret (written to c_traffic for the key log) and the transcript
+ * hash through the server Finished. */
+static int srv_verify_finished(
+    wired_server* s, const u8* msg, usz len, u8 c_traffic[HKDF_PRK]) {
   const u8*        hs;
-  u8               c_traffic[HKDF_PRK], th[SHA256_DIGEST];
+  u8               th[SHA256_DIGEST];
   derive_secret_in dsi;
-  int              ok;
   if (!sdrv_handshake_secret(&s->sdrv, &hs)) return 0;
   dsi.secret   = hs;
   dsi.label    = wired_span_of((const u8*)"c hs traffic", 12);
   dsi.messages = wired_span_of(s->tr, s->tr_through_sh);
   tls_derive_secret(&dsi, c_traffic);
   wired_sha256(s->tr, s->tr_through_flight, th);
-  ok = srvfin_verify_client_finished(wired_span_of(msg, len), c_traffic, th);
-  if (ok) srv_log_c_hs_traffic(s, c_traffic);
-  return ok;
+  return srvfin_verify_client_finished(wired_span_of(msg, len), c_traffic, th);
+}
+
+/* NSS Key Log Format (SSLKEYLOGFILE, draft-ietf-tls-keylogfile 3/4): one
+ * "<LABEL> <client_random> <secret>" line per secret. */
+static void srv_keylog_line(
+    const wired_server* s, const char* label, const u8* secret) {
+  wired_keylog_append(
+      s->keylog_path, label, s->client_random, wired_span_of(secret, HKDF_PRK));
+}
+
+/* RFC 8446 4.4.1: with 0-RTT accepted there was no HRR, so the transcript
+ * opens with the ClientHello; its length is the 24-bit handshake header. */
+static usz srv_ch_len(const wired_server* s) {
+  return HS_HEADER + ((usz)s->tr[1] << 16 | (usz)s->tr[2] << 8 | s->tr[3]);
+}
+
+/* RFC 8446 7.1: client_early_traffic_secret, only when 0-RTT was accepted
+ * (the PSK and ClientHello it is derived over are both retained). */
+static void srv_keylog_early(const wired_server* s) {
+  u8 secret[HKDF_PRK];
+  if (!s->sdrv.early_data_accepted) return;
+  tls_early_traffic_secret(s->sdrv.psk_secret, s->tr, srv_ch_len(s), secret);
+  srv_keylog_line(s, "CLIENT_EARLY_TRAFFIC_SECRET", secret);
+}
+
+/* RFC 8446 7.1: secrets the confirmed key schedule retains, by label. */
+static const struct {
+  const char* label;
+  int (*get)(const keysched*, const u8**);
+} srv_keylog_sched[] = {
+    {"CLIENT_TRAFFIC_SECRET_0", keysched_client_ap_secret},
+    {"SERVER_TRAFFIC_SECRET_0", keysched_server_ap_secret},
+    {"EXPORTER_SECRET", keysched_exporter_secret},
+};
+
+static void srv_keylog_master(const wired_server* s) {
+  const u8* secret;
+  for (usz i = 0; i < sizeof srv_keylog_sched / sizeof *srv_keylog_sched; i++)
+    if (srv_keylog_sched[i].get(&s->sched, &secret))
+      srv_keylog_line(s, srv_keylog_sched[i].label, secret);
+}
+
+/* A verified client Finished is the earliest point every secret is
+ * known-good (logging an unverified one would leak a value never proven to
+ * match the peer), so the whole log is written at confirmation. No-op when
+ * no keylog path is set (opt-in). */
+static void srv_keylog(const wired_server* s, const u8* c_hs_traffic) {
+  if (!s->keylog_path) return;
+  srv_keylog_early(s);
+  srv_keylog_line(s, "CLIENT_HANDSHAKE_TRAFFIC_SECRET", c_hs_traffic);
+  srv_keylog_line(s, "SERVER_HANDSHAKE_TRAFFIC_SECRET", s->sdrv.s_hs_traffic);
+  srv_keylog_master(s);
 }
 
 /* RFC 8446 7.1: on a verified client Finished, complete the handshake. The
@@ -267,8 +307,10 @@ static void srv_seed_kuswitch(wired_server* s) {
   s->ku_seeded = recv_ok && send_ok;
 }
 
-static int srv_complete(wired_server* s, const u8* msg, usz len) {
+static int srv_complete(
+    wired_server* s, const u8* msg, usz len, const u8* c_hs_traffic) {
   if (!srvfin_complete(&s->fin, s->tr, s->tr_through_flight)) return 0;
+  srv_keylog(s, c_hs_traffic);
   /* RFC 8446 4.6.1/7.1: resumption_master_secret needs the transcript
    * through the verified client Finished, not just through the server's
    * own Finished -- fold it in now that it has actually verified. */
@@ -284,14 +326,15 @@ static int srv_complete(wired_server* s, const u8* msg, usz len) {
 /* Process the reassembled client Finished: verify, then complete only on a
  * match. The forged path returns 0 having promoted nothing. */
 static int srv_on_finished(wired_server* s, const u8* msg, usz len) {
+  u8 c_traffic[HKDF_PRK];
   if (s->phase != WIRED_SERVER_HS_FLIGHT_SENT) return 0;
-  if (!srv_verify_finished(s, msg, len)) return 0;
+  if (!srv_verify_finished(s, msg, len, c_traffic)) return 0;
   /* RFC 8446 7.1: fold exactly the verified Finished, whose body the
    * verify above pinned to TLS_VERIFY_DATA bytes -- the reassembled prefix
    * may run past it (bytes another packet smeared into the stream), and
    * folding the excess mints a resumption_master_secret no client can
    * match: every ticket from such a connection then fails its binder. */
-  return srv_complete(s, msg, HS_HEADER + TLS_VERIFY_DATA);
+  return srv_complete(s, msg, HS_HEADER + TLS_VERIFY_DATA, c_traffic);
 }
 
 int wired_server_feed(wired_server* s, const u8* crypto_payload, usz len) {
