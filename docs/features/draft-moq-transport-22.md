@@ -1669,10 +1669,13 @@ from the coverage denominator above:
   this loss-free single-hub subset does not implement general
   malformed-track detection beyond the two decode-time violations it does
   check (unknown Object Status, Object ID overflow).
-- (SS6.1, SS6.2) Raw-QUIC transport, the `moqt` URI scheme, fragment
-  identifiers, and MOQT URI dereferencing, host resolution via SVCB/HTTPS
-  RR — this SDK runs MOQT over WebTransport only; native-QUIC session
-  establishment is not implemented.
+- (SS6.1, SS6.2) The `moqt` URI scheme, fragment identifiers, MOQT URI
+  dereferencing and host resolution via SVCB/HTTPS RR — client-side
+  concerns of a server-only hub. Native-QUIC sessions themselves (SS6.2.2:
+  ALPN `moqt-22`, PATH/AUTHORITY Setup Options, CONNECTION_CLOSE
+  termination) are implemented (`wired_moqt_on_session_raw`,
+  `tests/app/moqtrun_raw_test.c`), verified in-process only until a pinned
+  real-peer trace exists.
 - (SS6.6.1, SS7.2, SS7.3) Session Migration and graceful relay switchover
   beyond the GOAWAY mechanics covered above — this is a single hub with
   no upstream relay to switch to.

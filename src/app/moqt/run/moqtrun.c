@@ -188,8 +188,9 @@ static i64 moqtrun_ctl_open_io(
  * FETCH_HEADER 11.4.4: one Type varint serves both the stream-type
  * table and the message layout); a legacy session keeps the pre-d17
  * single bidi the browser clients read, which carries no stream-type
- * varint at all. The io open ops prefix the WebTransport stream signal
- * (draft-ietf-webtrans-http3-15 4.2) -- this layer stays session-opaque,
+ * varint at all. On a WT session the io open ops prefix the WebTransport
+ * stream signal (draft-ietf-webtrans-http3-15 4.2); on raw QUIC the stream
+ * starts with SETUP itself (-22 6.3) -- this layer stays session-opaque,
  * testable without the QUIC/TLS stack. A refused open leaves ctl_opened
  * 0: moqtrun_ctl_retry tries again on a later tick, and nothing (GOAWAY
  * included) is sent until SETUP went out. SETUP rides send_bufs[0], the
@@ -231,11 +232,13 @@ static void moqtrun_init_peer(
     wired_moqtrun_peer* p,
     wired_wt_session*   s,
     int                 ver,
-    int                 legacy) {
+    int                 legacy,
+    int                 raw) {
   p->in_use          = 1;
   p->wt              = s;
   p->ver             = ver;
   p->legacy          = (u8)legacy;
+  p->raw             = (u8)raw;
   p->ctl_opened      = 0;
   p->request_id_next = 1; /* hub is the server: odd, 1-origin (draft SS10.2) */
   p->peer_rid_next   = 0; /* client Request IDs: even, 0-origin */
@@ -302,7 +305,31 @@ void wired_moqt_on_session(
   if (moqtrun_find_by_wt(hub, s)) return;
   wired_moqtrun_peer* p = moqtrun_alloc(hub);
   if (!p) return;
-  moqtrun_init_peer(hub, p, s, ver, moqtrun_legacy_token(protocol));
+  moqtrun_init_peer(hub, p, s, ver, moqtrun_legacy_token(protocol), 0);
+}
+
+/* Review F4 (MoqtRawConn): a raw session the hub cannot track is closed
+ * at once, INTERNAL_ERROR (-22 6.6), not left for the idle sweep. */
+static void moqtrun_refuse_session(wired_moqt_hub* hub, wired_wt_session* s) {
+  if (!hub->io.close_session) return;
+  hub->io.close_session(
+      s, WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR, wired_span_of(0, 0));
+}
+
+/* draft-ietf-moq-transport-22 6.2 (-18/-19 3.1): on native QUIC the ALPN
+ * moqt-NN is the version negotiation, and the control streams are the
+ * uni pair exactly as on WT with a negotiated token (6.3/6.4) -- so never
+ * legacy. Same duplicate guard as wired_moqt_on_session. */
+void wired_moqt_on_session_raw(
+    void* app_ctx, wired_wt_session* s, wired_span alpn) {
+  wired_moqt_hub* hub = (wired_moqt_hub*)app_ctx;
+  if (moqtrun_find_by_wt(hub, s)) return;
+  wired_moqtrun_peer* p = moqtrun_alloc(hub);
+  if (!p) {
+    moqtrun_refuse_session(hub, s);
+    return;
+  }
+  moqtrun_init_peer(hub, p, s, moqtrun_negotiated_ver(alpn), 0, 1);
 }
 
 /* ===================== control-message handlers ===================== */
@@ -2179,15 +2206,21 @@ static u64 moqtrun_rngf_refusal(const moqctl_params* params) {
   return MOQTRUN_REQ_ACCEPT;
 }
 
-/* Rows s would hold after the update: kept types plus the message's
- * (10.4: MAX_FILTER_RANGES bounds the concurrent total). */
-static int moqtrun_rngf_over(
-    const wired_moqtrun_sub* s, const moqctl_params* params) {
+/* Rows n rows would hold after params replace the types it mentions:
+ * kept types plus the message's (10.4: MAX_FILTER_RANGES bounds the
+ * concurrent total). */
+static int moqtrun_rngf_rows_over(
+    const wired_moqtrun_rngrow* rows, usz n, const moqctl_params* params) {
   usz kept = 0;
-  for (usz i = 0; i < s->rngf_n; i++)
-    kept += !moqtrun_rngf_msg_has(params, s->rngf[i].ptype);
+  for (usz i = 0; i < n; i++)
+    kept += !moqtrun_rngf_msg_has(params, rows[i].ptype);
   return kept + moqtrun_rngf_scan_msg(params).count >
          WIRED_MOQTRUN_MAX_FILTER_RANGES;
+}
+
+static int moqtrun_rngf_over(
+    const wired_moqtrun_sub* s, const moqctl_params* params) {
+  return moqtrun_rngf_rows_over(s->rngf, s->rngf_n, params);
 }
 
 /* REQUEST_ERROR code a SUBSCRIBE's or REQUEST_UPDATE's parameters call
@@ -4540,19 +4573,27 @@ static int moqtrun_setup_second(const wired_moqtrun_peer* p) {
          (p->peer_ctl_set && p->peer_ctl_stream_id != p->rx_sid);
 }
 
-/* draft-19 10.4: PATH and AUTHORITY MUST NOT be used over WebTransport;
- * each names its own 3.5 close code. */
-static u32 moqtrun_setup_opt_bad(const moqctl_setup* m) {
-  if (m->has_path) return WIRED_MOQTRUN_CLOSE_INVALID_PATH;
-  return m->has_authority ? WIRED_MOQTRUN_CLOSE_INVALID_AUTHORITY : 0;
+/* PATH/AUTHORITY (-18/-19 10.3.1.1-2, -22 9.1.1-2): over WebTransport
+ * either one is a close (INVALID_PATH / INVALID_AUTHORITY); on raw QUIC a
+ * well-formed value is accepted unless hub->raw_policy refuses it, a
+ * malformed one closes MALFORMED_PATH / MALFORMED_AUTHORITY. */
+static u32 moqtrun_setup_opt_bad(
+    const wired_moqt_hub*     hub,
+    const wired_moqtrun_peer* p,
+    const moqctl_setup*       m) {
+  return moqraw_setup_verdict(p->raw, m, &hub->raw_policy);
 }
 
 /* Close code a client SETUP body calls for; 0 = accept (*m decoded). */
-static u32 moqtrun_setup_take_code(wired_span body, moqctl_setup* m) {
+static u32 moqtrun_setup_take_code(
+    const wired_moqt_hub*     hub,
+    const wired_moqtrun_peer* p,
+    wired_span                body,
+    moqctl_setup*             m) {
   usz off = 0;
   if (moqctl_setup_take(body, &off, m) != MOQCTL_OK)
     return WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
-  return moqtrun_setup_opt_bad(m);
+  return moqtrun_setup_opt_bad(hub, p, m);
 }
 
 static void moqtrun_impl_copy(wired_moqtrun_peer* p, const moqctl_setup* m) {
@@ -4587,7 +4628,7 @@ static void moqtrun_dispatch_setup(
     moqtrun_second_ctl(hub, p);
     return;
   }
-  code = moqtrun_setup_take_code(body, &m);
+  code = moqtrun_setup_take_code(hub, p, body, &m);
   if (code) {
     moqtrun_close_with(hub, p, code);
     return;
@@ -7152,9 +7193,11 @@ static void moqtrun_dispatch_bidi_fresh(
  * client request (moqtrun_asm_push/pop) since a real transport may deliver
  * it split; anything else is ignored. REQUEST_OK marks the slot live and
  * opens the subscription (it stays open, continuing past a later
- * SUBSCRIBE_TRACKS cancel per 1784-1787/T-10); REQUEST_ERROR frees the
- * slot at once (nothing to continue); either after the first closes the
- * session (moqtrun_pubst_repeat). */
+ * SUBSCRIBE_TRACKS cancel per 1784-1787/T-10); REQUEST_ERROR completes
+ * the request: the settle FINs the hub's side (12-29, d19 3.3.2 / d22
+ * 6.4.2.2 "the requester SHOULD then send a FIN on its direction"; d18
+ * 3.3.2) and frees the slot once the peer's side has ended too; either
+ * after the first closes the session (moqtrun_pubst_repeat). */
 typedef void (*moqtrun_pubst_fn)(
     wired_moqt_hub*, wired_moqtrun_peer*, wired_moqtrun_req*, wired_span);
 
@@ -7229,16 +7272,49 @@ static int moqtrun_pubst_repeat(
   return 1;
 }
 
-/* 12-11: the first REQUEST_OK establishes the subscription. */
+/* 12-30, d19 5.1.3: filter parameters "MAY appear multiple times in a
+ * ... PUBLISH_OK"; a repeated (Type, SetID, Property Type), or more Ranges
+ * than MAX_FILTER_RANGES for the subscription (the SUBSCRIBE_TRACKS's rows
+ * the PUBLISH_OK does not replace, plus its own), "MUST reject this with
+ * REQUEST_ERROR with error code INVALID_FILTER". 1 when params pass. */
+static int moqtrun_pubst_filters_ok(
+    const wired_moqtrun_req* q, const moqctl_params* params) {
+  if (moqtrun_rngf_rows_over(q->rngf, q->rngf_n, params)) return 0;
+  return moqtrun_rngf_refusal(params) == MOQTRUN_REQ_ACCEPT;
+}
+
+/* 1 when the PUBLISH_OK body may open the subscription. Otherwise it was
+ * answered on p->req (q): a body that does not decode for p's draft
+ * closes the session PROTOCOL_VIOLATION, as a malformed request does
+ * (12-13; d22 9.3 admits only EXPIRES in a PUBLISH_OK, "Subscription
+ * parameters appear in REQUEST_UPDATE, not PUBLISH_OK" #1790), refused
+ * filters get REQUEST_ERROR INVALID_FILTER (moqtrun_pubst_filters_ok). */
+static int moqtrun_pubst_ok_valid(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body) {
+  moqctl_request_ok ok  = {0};
+  usz               off = 0;
+  int               r   = moqctl_request_ok_take(p->ver, body, &off, &ok);
+  if (!moqtrun_take_or_close(hub, p, r)) return 0;
+  if (moqtrun_pubst_filters_ok(p->req, &ok.params)) return 1;
+  moqtrun_send_request_error(p, MOQCTL_ERR_INVALID_FILTER);
+  return 0;
+}
+
+/* 12-11: the first REQUEST_OK establishes the subscription, unless it is
+ * refused (12-30); a refused q stays not live, so the settle that follows
+ * FINs it (moqtrun_pubst_recv). */
 static void moqtrun_pubst_ok(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
     wired_moqtrun_req*  q,
     wired_span          body) {
+  wired_moqtrun_req* saved = p->req;
   if (moqtrun_pubst_repeat(hub, p, q)) return;
   q->pub_answered = 1;
-  q->live         = 1;
-  moqtrun_pubst_attach(hub, p, q, body);
+  p->req          = q;
+  q->live         = moqtrun_pubst_ok_valid(hub, p, body);
+  p->req          = saved;
+  if (q->live) moqtrun_pubst_attach(hub, p, q, body);
 }
 
 static void moqtrun_pubst_error(
@@ -7249,7 +7325,7 @@ static void moqtrun_pubst_error(
   usz                  off = 0;
   moqctl_request_error e;
   if (moqtrun_pubst_repeat(hub, p, q)) return;
-  if (moqctl_request_error_take(body, &off, &e) == MOQCTL_OK) q->in_use = 0;
+  q->pub_answered = moqctl_request_error_take(body, &off, &e) == MOQCTL_OK;
 }
 
 /* 12-18: the subscriber's REQUEST_UPDATE is a subscription update
@@ -8069,14 +8145,24 @@ static u64 moqtrun_goaway_deadline(const wired_moqt_hub* hub, u64 timeout_ms) {
   return timeout_ms ? hub->live.last_now_ms + timeout_ms : (u64)-1;
 }
 
+/* The New Session URI for p: empty on raw QUIC. The app's one URI names
+ * the WT locator, and -22 9.2 (-18/-19 10.4) says it "SHOULD use the same
+ * scheme as the current URI"; a zero-length URI means "reuse the current
+ * URI", valid on every transport (plan open question 5). */
+static wired_span moqtrun_goaway_uri(
+    const wired_moqtrun_peer* p, wired_span uri) {
+  return p->raw ? wired_span_of(0, 0) : uri;
+}
+
 /* GOAWAY g in p's draft on p's control stream (10.4), noted in its
  * session state. draft-18's Request ID is the smallest one p has not
  * sent yet: the hub handles each request as it arrives. */
 static void moqtrun_goaway_one(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, moqctl_goaway g, u64 deadline) {
   u8 msg[WIRED_MOQTRUN_GOAWAY_URI_MAX + 32];
-  g.request_id = p->peer_rid_next;
-  usz n        = moqtrun_envelope_put(
+  g.request_id      = p->peer_rid_next;
+  g.new_session_uri = moqtrun_goaway_uri(p, g.new_session_uri);
+  usz n             = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_GOAWAY,
       moqtrun_goaway_encoder(p->ver), &g);
   moqtrun_queue_reply(p, wired_span_of(msg, n));

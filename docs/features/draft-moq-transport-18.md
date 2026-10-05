@@ -1565,10 +1565,12 @@ from the coverage denominator above:
   — this loss-free single-hub subset does not implement general
   malformed-track detection beyond the two decode-time violations it does
   check (unknown Object Status, Object ID overflow).
-- (SS3.1, SS3.1.1-3.1.6) Raw-QUIC transport, the `moqt` URI scheme,
-  fragment identifiers, and MOQT URI dereferencing — this SDK runs MOQT
-  over WebTransport only; native-QUIC session establishment is not
-  implemented.
+- (SS3.1, SS3.1.1-3.1.6) The `moqt` URI scheme, fragment identifiers, and
+  MOQT URI dereferencing — client-side concerns of a server-only hub.
+  Native-QUIC sessions themselves (SS3.1.4: ALPN `moqt-18`, PATH/AUTHORITY
+  Setup Options, CONNECTION_CLOSE termination) are implemented
+  (`wired_moqt_on_session_raw`, `tests/app/moqtrun_raw_test.c`), verified
+  in-process only until a pinned real-peer trace exists.
 - (SS3.6, SS9.4.1, SS9.5.1) Session Migration and graceful relay
   switchover beyond the GOAWAY mechanics covered above — this is a single
   hub with no upstream relay to switch to.

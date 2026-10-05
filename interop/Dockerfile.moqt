@@ -1,5 +1,9 @@
 # moq-interop-runner relay image for wired (draft-ietf-moq-transport
-# 18/19/22, WebTransport, subprotocol moqt-18/moqt-19/moqt-22).
+# 18/19/22). One port serves WebTransport (ALPN h3, subprotocol
+# moqt-18/moqt-19/moqt-22) and raw QUIC (ALPN moqt-22/moqt-19/moqt-18).
+# The runner's `wired-quic` entry (moqt://) is its adapter
+# adapters/wired/Dockerfile.relay.quic, a plain re-tag of this image (FROM
+# ghcr.io/hakkadaikon/wired-moqt-interop:latest); `wired` uses https://.
 #
 # The freestanding binary is built OUTSIDE this Dockerfile (it needs the
 # repo's pinned clang/ninja toolchain):

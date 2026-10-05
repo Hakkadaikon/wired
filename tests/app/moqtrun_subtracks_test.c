@@ -315,7 +315,8 @@ static void test_subtracks_liveness_eventually_attempted(void) {
 }
 
 /* A REQUEST_ERROR reply to the hub-opened PUBLISH frees its slot
- * (pubState "err" of design.md's state machine): no dangling slot left. */
+ * (pubState "err" of design.md's state machine): no dangling slot left
+ * once the subscriber's side has ended (the hub FINs its own, 12-29). */
 static void test_subtracks_publish_error_frees_slot(void) {
   moqctl_ftn     f = mtst_ftn("chat", "room1", "alice");
   moqctl_publish got[4];
@@ -328,6 +329,8 @@ static void test_subtracks_publish_error_frees_slot(void) {
   i64 sid    = mtst_pub_stream_id(0);
   usz before = mtrq_used();
   mtst_pub_err(SESS_B, (u64)sid, MOQCTL_ERR_UNINTERESTED);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_B, (u64)sid, wired_span_of(0, 0), 1);
   CHECK(mtrq_used() < before);
 }
 
