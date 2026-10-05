@@ -1,15 +1,6 @@
 #define WIRED_MAIN
 #include "wired.h"
 
-/* label is a view into the PEM text, not NUL-terminated. */
-static void log_span(wired_span s) {
-  char c[2] = {0};
-  for (usz i = 0; i < s.n; i++) {
-    c[0] = (char)s.p[i];
-    wired_log_str(c);
-  }
-}
-
 static int fail(const char* msg) {
   wired_log_str(msg);
   return 1;
@@ -29,13 +20,13 @@ int wired_main(int argc, char** argv) {
   /* Walk every PEM block of cert.pem, decoding each to DER. */
   wired_span pem = read_file(argv[1], text, sizeof text);
   if (pem.n == 0) return fail("cannot read cert.pem\n");
-  usz        at  = 0;
+  usz        at = 0;
   wired_span label;
   wired_obuf out = {der, sizeof der, 0};
   for (usz start = 0; wired_pem_next(pem, &at, &label, &out); start = out.len) {
-    wired_log_str("block ");
-    log_span(label);
-    wired_dprintf(2, " len=%llu\n", (u64)(out.len - start));
+    wired_dprintf(
+        2, "block %.*s len=%llu\n", WIRED_SPAN_ARG(label),
+        (u64)(out.len - start));
   }
 
   /* key.pem holds one block: the P-256 private key (SEC1 or PKCS#8). */

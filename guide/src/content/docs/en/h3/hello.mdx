@@ -16,8 +16,10 @@ answers every request with `hello`.
 - `wired_server_run(port, &id, h, obs)` runs QUIC, TLS 1.3 and HTTP/3 on a
   UDP port and calls your handler once per request.
 - `wired_srvboot_id` is the server identity: X25519 key pair, certificate
-  signing seed, connection id and ServerHello.random. The demo derives it
-  from fixed bytes; `wired_x25519_base` computes the public key.
+  signing seed, connection id and ServerHello.random.
+  `wired_srvboot_demo(&id, &keys, 0x50, "guide-h3")` fills it with fixed
+  demo bytes (a self-signed certificate; never use it in production).
+  `keys` holds the key material `id` points at, so it is `static`.
 - The handler writes the body into `body_out`, sets `*content_type`, and
   returns 1. Returning 0 sends a body-less 200.
 - `wired_cliargs_int` reads `--port` from the command line.

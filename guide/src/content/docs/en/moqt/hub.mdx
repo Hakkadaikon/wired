@@ -18,9 +18,10 @@ the hub alone: a client connects and receives the server's SETUP.
 ## How it works
 
 - `wired_moqt_init(&hub, io)` sets up the hub. `io` is the table of
-  WebTransport sends the hub uses. `wired_server_wt_stream_send` fits as is;
-  the two calls that open a stream need the stream signal in front, so
-  `with_signal` adds it with `wired_wtwire_signal_put`.
+  WebTransport sends the hub uses; `wired_moqraw_io()` (from
+  `app/moqt/qraw/moqrawio.h`) returns the SDK's ready-made table, which
+  puts the stream signal in front of every stream the hub opens and serves
+  raw-QUIC MoQT sessions too.
 - The hub's `wired_moqt_on_session`, `_on_stream_data`, `_on_datagram` and
   `_on_session_close` go straight into `wired_srvrun_opt`, each with
   `&hub` as its context. `wired_server_run_opt` runs the server.
