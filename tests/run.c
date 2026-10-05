@@ -563,6 +563,8 @@
 #include "app/moqt/fetch/moqfetch.c"
 #include "app/moqt/cache/moqcache.c"
 #include "app/moqt/ver/moqver.c"
+#include "app/moqt/qraw/moqraw.c"
+#include "app/moqt/qraw/moqrawio.c"
 #include "common/varint_test.c"
 #include "transport/header_test.c"
 #include "transport/dcidresolve_test.c"
@@ -1093,6 +1095,7 @@
 #include "app/moqtrun_ctlfix_test.c"
 #include "app/moqtrun_fillfix_test.c"
 #include "app/moqtrun_rdv_test.c"
+#include "app/moqraw_test.c"
 #include "app/moqtrel_test.c"
 #include "app/moqns_test.c"
 #include "app/moqtstat_test.c"
@@ -1657,6 +1660,7 @@ int main(void) {
   test_moqtrun_xver();
   test_moqtrun_alias();
   test_moqtrun_done();
+  test_moqraw();
   test_moqtrun_vgate();
   test_moqtrun_ctlfix();
   test_moqtrun_fillfix();

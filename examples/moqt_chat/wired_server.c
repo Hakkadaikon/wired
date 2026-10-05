@@ -6,35 +6,27 @@
  * participant id) and SUBSCRIBEs to the others; the wired_moqt_ hub
  * (app/moqt/run/moqtrun.h) does the session/subscribe state machines and
  * the relay logic. This file only wires the WT session/stream callbacks to
- * that hub and adapts wired_server_wt_* into the hub's wired_moqt_io table.
+ * that hub and hands it the SDK's wired_moqraw_io table (plus send_uni2).
  * Single-process driver only -- the hub keeps its peer table in one
  * process's memory (see moqtrun.h's fixed-capacity peer/sub tables), so
  * --workers/--cores multi-process drivers would each run an isolated,
  * non-communicating hub instance. */
 
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim */
+#include "app/moqt/qraw/moqrawio.h"
 #include "app/moqt/run/moqtrun.h"
 #include "app/webtransport/wtwire/wtwire.h"
 #include "common/platform/clock/mono.h"
 #include "transport/recovery/congestion/cc/cc.h"
 #include "wired.h"
 
-/* --- wired_moqt_io: thin wrappers around wired_server_wt_* --------------
+/* --- wired_moqt_io --------------------------------------------------------
  *
- * moqtrun.c (app/moqt/run) never dereferences wired_wt_session -- it stays
- * session-opaque so it's testable without the QUIC/TLS stack (see
- * moqtrun.h). Prefixing the WebTransport stream signal (draft-ietf-
- * webtrans-http3-15 4.2: varint 0x41/0x54 + the session's CONNECT stream
- * id) therefore belongs here, the one place with a real wired_wt_session*
- * to read connect_stream_id from -- srvrun.h documents this as the
- * open_bidi_stream/open_uni_stream caller's responsibility. */
-
-/* Signal prefix (<=9B) + one bidi control reply. Only the bidi control
- * path below still stages on the stack at this size; the uni open paths
- * go through g_open_buf (below), sized for a full relay round. Safe
- * because wired_server_wt_* COPY any payload that fits their own per-slot
- * staging (srvrun.h), so nothing here must outlive its call. */
-#define MOQT_SIG_BUF 2048
+ * The hub's io table is the SDK's transport mux wired_moqraw_io
+ * (app/moqt/qraw/moqrawio.h): it prefixes the WebTransport stream signal
+ * (draft-ietf-webtrans-http3-15 4.2) on the stream-opening ops and maps the
+ * rest straight to wired_server_wt_*. This file adds only send_uni2, whose
+ * live fragments need per-session staging (live_session below). */
 
 /* Track aliases below this limit get the reliable relay; the rest stay
  * lossy. The chat tracks use aliases 0..3 -- one per entry of the
@@ -75,21 +67,6 @@ typedef struct {
 } live_session;
 static live_session g_live[BIG_SLOTS];
 
-/* Signal prefix + one relay round for the uni open paths
- * (moqt_io_send_uni / moqt_io_open_uni_stream), capped at
- * SRVRUN_WTSEND_BUF (65536, srvrun.c): wired_server_wt_open_uni /
- * wired_server_wt_open_uni_stream copy a payload up to that size into
- * their own per-slot staging DURING the call, so nothing here outlives
- * it. A larger payload would be held as a view of this reused buffer, so
- * it is refused instead: only a round of a full receive window
- * (WIRED_SRVLOOP_WT_BUF_CAP, 49152) plus a near-limit held fragment
- * (WIRED_MOQTRUN_RELAY_FRAG_MAX, 16384) plus the signal prefix (9) and
- * header (WIRED_MOQTRUN_RELAY_HDR_MAX, 40) can reach it. Single thread,
- * synchronous callbacks, no re-entry -- one static buffer (not 64KB of
- * stack) serves every open. */
-#define MOQT_OPEN_BUF 65536
-static u8 g_open_buf[MOQT_OPEN_BUF];
-
 /* Decimal/string/hex line-building helpers (also used by the shutdown
  * relay-stats log below). */
 static usz dec_u64(char* out, u64 v) {
@@ -109,15 +86,6 @@ static void append_cstr(char* line, usz* n, const char* s) {
 
 static char hex_nibble(u8 v) {
   return (char)(v < 10 ? '0' + v : 'a' + (v - 10));
-}
-
-static i64 moqt_io_open_bidi_stream(wired_wt_session* s, wired_span payload) {
-  u8  buf[MOQT_SIG_BUF];
-  usz sig = wired_wtwire_signal_put(buf, sizeof buf, 1, s->connect_stream_id);
-  if (sig == 0 || payload.n > sizeof buf - sig) return -1;
-  for (usz i = 0; i < payload.n; i++) buf[sig + i] = payload.p[i];
-  return wired_server_wt_open_bidi_stream(
-      s, wired_span_of(buf, sig + payload.n));
 }
 
 /* The live_session owned by s, claimed on its first live send; 0 when
@@ -174,21 +142,6 @@ static void live_session_release(wired_wt_session* s) {
     }
 }
 
-/* One-shot open+send+FIN (wired_server_wt_open_uni-shaped): used for a
- * relayed Object, which always completes in its stream's only round -- see
- * moqtrun.h's send_uni doc for why this must not go through
- * open_uni_stream + a bare stream_send(fin=1) instead. A payload past
- * g_open_buf's relay-round staging is refused; live fragments go through
- * send_uni2's staging ring instead. */
-static i64 moqt_io_send_uni(wired_wt_session* s, wired_span payload) {
-  usz sig = wired_wtwire_signal_put(
-      g_open_buf, sizeof g_open_buf, 0, s->connect_stream_id);
-  if (sig == 0 || payload.n > sizeof g_open_buf - sig) return -1;
-  bytes_memcpy(g_open_buf + sig, payload.p, payload.n);
-  return wired_server_wt_open_uni(
-      s, wired_span_of(g_open_buf, sig + payload.n));
-}
-
 /* Live/closed session counts for the relay-stats line: incremented and
  * decremented by the wrappers below, read by log_relay_stats. */
 static u64 g_sessions_live;
@@ -210,58 +163,6 @@ static void on_session_close(void* ctx, wired_wt_session* s) {
   live_session_release(s);
   wired_moqt_on_session_close(ctx, s);
 }
-
-/* wired_server_wt_open_uni_stream-shaped: opens WITHOUT FIN and keeps the
- * stream open for further stream_send rounds -- used to start a
- * subscriber's keep-open relay stream (moqtrun.h's open_uni_stream doc).
- * Appends need no wrapper at all: the SDK copies each accepted round into
- * the stream's own send-slot staging and pipelines it behind unACKed
- * rounds (srvrun.h), so the io table points straight at
- * wired_server_wt_stream_send / wired_server_wt_stream_fin. */
-static i64 moqt_io_open_uni_stream(wired_wt_session* s, wired_span payload) {
-  usz sig = wired_wtwire_signal_put(
-      g_open_buf, sizeof g_open_buf, 0, s->connect_stream_id);
-  if (sig == 0 || payload.n > sizeof g_open_buf - sig) return -1;
-  bytes_memcpy(g_open_buf + sig, payload.p, payload.n);
-  return wired_server_wt_open_uni_stream(
-      s, wired_span_of(g_open_buf, sig + payload.n));
-}
-
-/* wired_moqt_io.send_budget-shaped: remaining session-level send credit
- * in bytes. sent_data is charged when a send is staged (session.h), so
- * max_data - sent_data already excludes staged-but-unsent bytes; a peer
- * that never announced WT_MAX_DATA (max_data == 0) has no limit. */
-static usz moqt_io_send_budget(wired_wt_session* s) {
-  if (s->max_data == 0) return (usz)-1;
-  return s->max_data > s->sent_data ? s->max_data - s->sent_data : 0;
-}
-
-static const wired_moqt_io g_moqt_io = {
-    moqt_io_open_bidi_stream,
-    wired_server_wt_stream_send,
-    moqt_io_send_uni,
-    moqt_io_open_uni_stream,
-    wired_server_wt_stream_fin,
-    wired_server_wt_stream_reset,
-    moqt_io_send_uni2,
-    /* send_datagram needs no wrapper: unlike the stream entries there is
-     * no WebTransport signal prefix to add (the SDK applies the RFC 9297
-     * quarter-stream-id itself), so the io shape matches exactly. */
-    wired_server_wt_send_datagram_to,
-    /* stream_hold needs no wrapper either: it toggles retransmission
-     * shedding on an already-open stream, so there is no signal prefix
-     * to add and the io shape matches srvrun.h exactly. */
-    wired_server_wt_stream_hold,
-    moqt_io_send_budget,
-    /* close_session: the io shape matches srvrun.h exactly. */
-    wired_server_wt_close_session,
-    /* stream_reply_open: the io shape matches srvrun.h exactly. */
-    wired_server_wt_stream_reply_open,
-    /* stream_priority: the io shape matches srvrun.h exactly. */
-    wired_server_wt_stream_priority,
-    /* stream_stop: the io shape matches srvrun.h exactly. */
-    wired_server_wt_stream_stop,
-};
 
 static wired_moqt_hub g_hub;
 
@@ -600,7 +501,9 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   if (!g_goaway_uri) g_goaway_uri = "";
   if (wired_cstr_len(g_goaway_uri) > WIRED_MOQTRUN_GOAWAY_URI_MAX)
     wired_die("WIRED_GOAWAY_URI: longer than 512 bytes\n");
-  wired_moqt_init(&g_hub, g_moqt_io);
+  wired_moqt_io io = wired_moqraw_io();
+  io.send_uni2     = moqt_io_send_uni2;
+  wired_moqt_init(&g_hub, io);
   g_hub.reliable_alias_limit = CHAT_ALIAS_LIMIT;
   wired_moqt_cache_attach(&g_hub, g_cache_arena, sizeof g_cache_arena);
   g_hub.authorize_namespace = authorize_room_ns;
