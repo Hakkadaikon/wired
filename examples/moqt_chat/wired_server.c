@@ -67,27 +67,6 @@ typedef struct {
 } live_session;
 static live_session g_live[BIG_SLOTS];
 
-/* Decimal/string/hex line-building helpers (also used by the shutdown
- * relay-stats log below). */
-static usz dec_u64(char* out, u64 v) {
-  char tmp[20];
-  usz  n = 0;
-  do {
-    tmp[n++] = (char)('0' + (v % 10));
-    v /= 10;
-  } while (v);
-  for (usz i = 0; i < n; i++) out[i] = tmp[n - 1 - i];
-  return n;
-}
-
-static void append_cstr(char* line, usz* n, const char* s) {
-  for (usz i = 0; s[i]; i++) line[(*n)++] = s[i];
-}
-
-static char hex_nibble(u8 v) {
-  return (char)(v < 10 ? '0' + v : 'a' + (v - 10));
-}
-
 /* The live_session owned by s, claimed on its first live send; 0 when
  * every one is taken. */
 static live_session* live_session_for(wired_wt_session* s) {
@@ -283,37 +262,22 @@ static void server_identity(
 
 /* --- Startup cert fingerprint log --------------------------------------- */
 
-static usz hex_fingerprint(const u8 digest[32], char* out) {
-  usz n = 0;
-  for (usz i = 0; i < 32; i++) {
-    if (i != 0) out[n++] = ':';
-    out[n++] = hex_nibble((u8)(digest[i] >> 4));
-    out[n++] = hex_nibble((u8)(digest[i] & 0xf));
-  }
-  return n;
-}
-
 static void log_cert_fingerprint(const wired_srvboot_id* id) {
   static wired_server  s;
   wired_server_init_in in = {
       id->priv,        id->pub,      id->cert_seed, id->chain,
       id->chain_count, id->san_ipv4, id->now_secs,  0};
   u8   digest[32];
-  char line[32 + 32 * 3 + 2];
+  char hex[32 * 3];
   usz  n = 0;
 
   wired_server_init(&s, &in);
   if (s.sdrv.cert_count == 0) wired_die("cert build failed\n");
   wired_sha256(s.sdrv.certs[0].p, s.sdrv.certs[0].n, digest);
 
-  {
-    static const char prefix[] = "cert sha-256 fingerprint: ";
-    for (; prefix[n] != 0; n++) line[n] = prefix[n];
-  }
-  n += hex_fingerprint(digest, line + n);
-  line[n++] = '\n';
-  line[n]   = 0;
-  wired_log_str(line);
+  for (usz i = 0; i < 32; i++)
+    n += wired_snprintf(hex + n, sizeof hex - n, "%s%02x", i ? ":" : "", digest[i]);
+  wired_dprintf(2, "cert sha-256 fingerprint: %s\n", hex);
 }
 
 /* --- Relay-stats log ---------------------------------------------------- */
@@ -328,58 +292,35 @@ static void log_relay_stats(const char* label) {
   char line[1024]; /* label (<=17) + 24 field labels (~290 chars) + 24
                       u64s at 20 digits (480) + newline/NUL = ~790 worst
                       case; 1024 keeps headroom */
-  usz n = 0;
-  append_cstr(line, &n, label);
-  append_cstr(line, &n, "sent=");
-  n += dec_u64(line + n, hub->stat_relay_sent);
-  append_cstr(line, &n, " dropped=");
-  n += dec_u64(line + n, hub->stat_relay_drop);
-  append_cstr(line, &n, " frag_dropped=");
-  n += dec_u64(line + n, hub->stat_frag_drop);
-  append_cstr(line, &n, " open_dropped=");
-  n += dec_u64(line + n, hub->stat_open_drop);
-  append_cstr(line, &n, " reset=");
-  n += dec_u64(line + n, hub->stat_relay_reset);
-  append_cstr(line, &n, " relay_full=");
-  n += dec_u64(line + n, hub->stat_relay_full);
-  append_cstr(line, &n, " live_sent=");
-  n += dec_u64(line + n, hub->stat_live_sent);
-  append_cstr(line, &n, " live_dropped=");
-  n += dec_u64(line + n, hub->stat_live_drop);
-  append_cstr(line, &n, " dg_sent=");
-  n += dec_u64(line + n, hub->stat_dg_sent);
-  append_cstr(line, &n, " dg_dropped=");
-  n += dec_u64(line + n, hub->stat_dg_drop);
-  append_cstr(line, &n, " dg_bad=");
-  n += dec_u64(line + n, hub->stat_dg_bad);
-  append_cstr(line, &n, " rel_stall=");
-  n += dec_u64(line + n, hub->stat_rel_stall);
-  append_cstr(line, &n, " rel_overflow=");
-  n += dec_u64(line + n, hub->stat_rel_overflow);
-  append_cstr(line, &n, " sessions=");
-  n += dec_u64(line + n, g_sessions_live);
-  append_cstr(line, &n, " closed=");
-  n += dec_u64(line + n, g_sessions_closed);
-  append_cstr(line, &n, " rel_wait=");
-  n += dec_u64(line + n, hub->stat_rel_wait);
-  append_cstr(line, &n, " rel_sent=");
-  n += dec_u64(line + n, hub->stat_rel_sent);
-  append_cstr(line, &n, " rel_refused=");
-  n += dec_u64(line + n, hub->stat_rel_refused);
-  append_cstr(line, &n, " rel_rings=");
-  n += dec_u64(line + n, hub->stat_rel_rings);
-  append_cstr(line, &n, " rel_in=");
-  n += dec_u64(line + n, hub->stat_rel_in_bytes);
-  append_cstr(line, &n, " rel_fin_in=");
-  n += dec_u64(line + n, hub->stat_rel_fin_in);
-  append_cstr(line, &n, " rel_fin_out=");
-  n += dec_u64(line + n, hub->stat_rel_fin_out);
-  append_cstr(line, &n, " rel_hold=");
-  n += dec_u64(line + n, hub->stat_rel_hold);
-  append_cstr(line, &n, " rel_early=");
-  n += dec_u64(line + n, hub->stat_rel_early_return);
-  line[n++] = '\n';
-  line[n]   = 0;
+  wired_snprintf(
+      line,
+      sizeof line,
+      "%ssent=%llu dropped=%llu frag_dropped=%llu open_dropped=%llu reset=%llu relay_full=%llu live_sent=%llu live_dropped=%llu dg_sent=%llu dg_dropped=%llu dg_bad=%llu rel_stall=%llu rel_overflow=%llu sessions=%llu closed=%llu rel_wait=%llu rel_sent=%llu rel_refused=%llu rel_rings=%llu rel_in=%llu rel_fin_in=%llu rel_fin_out=%llu rel_hold=%llu rel_early=%llu\n",
+      label,
+      (u64)hub->stat_relay_sent,
+      (u64)hub->stat_relay_drop,
+      (u64)hub->stat_frag_drop,
+      (u64)hub->stat_open_drop,
+      (u64)hub->stat_relay_reset,
+      (u64)hub->stat_relay_full,
+      (u64)hub->stat_live_sent,
+      (u64)hub->stat_live_drop,
+      (u64)hub->stat_dg_sent,
+      (u64)hub->stat_dg_drop,
+      (u64)hub->stat_dg_bad,
+      (u64)hub->stat_rel_stall,
+      (u64)hub->stat_rel_overflow,
+      (u64)g_sessions_live,
+      (u64)g_sessions_closed,
+      (u64)hub->stat_rel_wait,
+      (u64)hub->stat_rel_sent,
+      (u64)hub->stat_rel_refused,
+      (u64)hub->stat_rel_rings,
+      (u64)hub->stat_rel_in_bytes,
+      (u64)hub->stat_rel_fin_in,
+      (u64)hub->stat_rel_fin_out,
+      (u64)hub->stat_rel_hold,
+      (u64)hub->stat_rel_early_return);
   wired_log_str(line);
 }
 

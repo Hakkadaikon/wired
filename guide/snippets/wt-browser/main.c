@@ -9,21 +9,6 @@
  * window, so this demo stays deterministic without a real clock. */
 static const u8 SAN_IPV4[4] = {127, 0, 0, 1};
 
-static char hex_nibble(u8 v) {
-  return (char)(v < 10 ? '0' + v : 'a' + (v - 10));
-}
-
-/* digest[0..32) -> "xx:xx:...:xx" into out, which must hold 32*3 bytes. */
-static usz hex_fingerprint(const u8 digest[32], char* out) {
-  usz n = 0;
-  for (usz i = 0; i < 32; i++) {
-    if (i != 0) out[n++] = ':';
-    out[n++] = hex_nibble((u8)(digest[i] >> 4));
-    out[n++] = hex_nibble((u8)(digest[i] & 0xf));
-  }
-  return n;
-}
-
 /* SHA-256 the exact certificate DER this identity serves (built the same
  * way srvboot builds it for every connection) and log it as the colon-hex
  * fingerprint a browser pins via serverCertificateHashes. */
@@ -33,20 +18,13 @@ static void log_cert_fingerprint(const wired_srvboot_id* id) {
                              id->chain,   id->chain_count, id->san_ipv4,
                              id->now_secs, 0};
   u8                   digest[32];
-  char                 line[32 + 32 * 3 + 2];
-  usz                  n = 0;
 
   wired_server_init(&s, &in);
   wired_sha256(s.sdrv.certs[0].p, s.sdrv.certs[0].n, digest);
 
-  {
-    static const char prefix[] = "cert sha-256 fingerprint: ";
-    for (; prefix[n] != 0; n++) line[n] = prefix[n];
-  }
-  n += hex_fingerprint(digest, line + n);
-  line[n++] = '\n';
-  line[n]   = 0;
-  wired_log_str(line);
+  wired_dprintf(2, "cert sha-256 fingerprint: ");
+  for (usz i = 0; i < 32; i++) wired_dprintf(2, i ? ":%02x" : "%02x", digest[i]);
+  wired_dprintf(2, "\n");
 }
 
 int wired_main(int argc, char** argv) {

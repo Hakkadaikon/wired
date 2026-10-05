@@ -21,4 +21,4 @@ again.
   fit).
 - `wired_header_parse(buf, n, &h)` reads them back and returns the bytes
   consumed (0 on truncated or malformed input).
-- `wired_fmt_u64` formats a decimal; the hex helper is local to the example.
+- `wired_dprintf` formats decimals (`%llu`) and hex bytes (`%02x`) to stderr.

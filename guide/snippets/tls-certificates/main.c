@@ -1,14 +1,6 @@
 #define WIRED_MAIN
 #include "wired.h"
 
-static void log_u64(u64 v) {
-  char             s[21] = {0};
-  usz              at    = 0;
-  wired_fmt_u64_in in    = {v, 1};
-  wired_fmt_u64(s, &at, &in);
-  wired_log_str(s);
-}
-
 /* label is a view into the PEM text, not NUL-terminated. */
 static void log_span(wired_span s) {
   char c[2] = {0};
@@ -43,9 +35,7 @@ int wired_main(int argc, char** argv) {
   for (usz start = 0; wired_pem_next(pem, &at, &label, &out); start = out.len) {
     wired_log_str("block ");
     log_span(label);
-    wired_log_str(" len=");
-    log_u64(out.len - start);
-    wired_log_str("\n");
+    wired_dprintf(2, " len=%llu\n", (u64)(out.len - start));
   }
 
   /* key.pem holds one block: the P-256 private key (SEC1 or PKCS#8). */
@@ -64,8 +54,6 @@ int wired_main(int argc, char** argv) {
   wired_srvboot_id              id = {0};
   if (!wired_certreload_load(argv[1], argv[2], &store, &id))
     return fail("load failed\n");
-  wired_log_str("load ok: ");
-  log_u64(id.chain_count);
-  wired_log_str(" certificate(s)\n");
+  wired_dprintf(2, "load ok: %llu certificate(s)\n", (u64)id.chain_count);
   return 0;
 }

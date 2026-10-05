@@ -1,25 +1,9 @@
 #define WIRED_MAIN
 #include "wired.h"
 
-/* Log v in decimal (there is no printf). */
-static void log_u64(u64 v) {
-  char             s[21];
-  usz              at = 0;
-  wired_fmt_u64_in in = {v, 1};
-  wired_fmt_u64(s, &at, &in);
-  s[at] = 0;
-  wired_log_str(s);
-}
-
 /* Log n bytes as lowercase hex. */
 static void log_hex(const u8* p, usz n) {
-  char s[2 * 64 + 1];
-  for (usz i = 0; i < n; i++) {
-    s[2 * i]     = "0123456789abcdef"[p[i] >> 4];
-    s[2 * i + 1] = "0123456789abcdef"[p[i] & 15];
-  }
-  s[2 * n] = 0;
-  wired_log_str(s);
+  for (usz i = 0; i < n; i++) wired_dprintf(2, "%02x", p[i]);
 }
 
 int wired_main(int argc, char** argv) {
@@ -43,9 +27,7 @@ int wired_main(int argc, char** argv) {
       (u8)(out.version >> 24), (u8)(out.version >> 16), (u8)(out.version >> 8),
       (u8)out.version};
 
-  wired_log_str("built ");
-  log_u64(n);
-  wired_log_str(" bytes: ");
+  wired_dprintf(2, "built %llu bytes: ", (u64)n);
   log_hex(wire, n);
   wired_log_str(out.form == WIRED_FORM_LONG ? "\nform=long" : "\nform=short");
   wired_log_str(" type=");

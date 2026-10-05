@@ -426,7 +426,7 @@ MoQT draft-19 以降は webtrans-http3-16 を参照している。ワイヤ値�
 ## 14. printf 互換の出力関数(2026-10-05 ユーザー指示で追加、他の全項目完了後に着手)
 
 - [x] 14-1 **完了(2026-10-05)** `src/common/fmt/fmt.{c,h}`: `wired_snprintf`/`wired_vsnprintf`/`wired_dprintf`/`wired_va_*`。%d %i %u %x %X %p %s %c %% %f、hh h l ll z、フラグ・幅・精度・`*`。逸脱(fmt.h に記載): %p の NULL は 0x0、%f は 2^64 以上で整数部飽和・精度上限 40、dprintf は 511 バイト超を切り捨て。テスト `tests/common/fmt_test.c`(手書きベクタ+ホスト snprintf との差分比較)。SDK に printf 互換関数を追加する(libc 非依存)。対応: 10進(%d/%i/%u、長さ修飾子)、16進(%x/%X)、小数(%f 系)、アドレス(%p)、文字列(%s、英語 ASCII)、文字(%c)、%%、可変引数。幅・精度・0埋め・左寄せの基本フラグ。
-- [ ] 14-2 guide のサンプル、examples、デバッグ出力など、文字列を組み立てて出力している箇所をすべて 14-1 に置き換える。
+- [x] 14-2 **完了(2026-10-05)**: examples(moqt_chat の統計行・証明書指紋、word_list のアクセスログ)と guide スニペット 9 本を `wired_snprintf`/`wired_dprintf` に置換、`wired.h` から fmt.h を公開。残置: debug.c の `wired_fmt_u64` 等(Stable API)、keylog のストリーム hex、wire encoder、HTTP 本文に数値を書く h3-stats/h3-post-body。 guide のサンプル、examples、デバッグ出力など、文字列を組み立てて出力している箇所をすべて 14-1 に置き換える。
 
 ## 対象外
 

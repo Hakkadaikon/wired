@@ -1,16 +1,6 @@
 #define WIRED_MAIN
 #include "wired.h"
 
-/* Log v in decimal (there is no printf). */
-static void log_u64(u64 v) {
-  char             s[21];
-  usz              at = 0;
-  wired_fmt_u64_in in = {v, 1};
-  wired_fmt_u64(s, &at, &in);
-  s[at] = 0;
-  wired_log_str(s);
-}
-
 int wired_main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -32,13 +22,9 @@ int wired_main(int argc, char** argv) {
 
   u16 port =
       (u16)((from.port_be >> 8) | (from.port_be << 8)); /* to host order */
-  wired_log_str("recv ");
-  log_u64((u64)n);
-  wired_log_str(" bytes: ");
-  wired_log_str((const char*)buf);
-  wired_log_str(" from ");
-  log_u64(port);
-  wired_log_str("\n");
+  wired_dprintf(
+      2, "recv %llu bytes: %s from %llu\n", (u64)n, (const char*)buf,
+      (u64)port);
 
   wired_udp_close(sa);
   wired_udp_close(sb);

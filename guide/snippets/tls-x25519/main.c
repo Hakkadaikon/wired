@@ -1,17 +1,11 @@
 #define WIRED_MAIN
 #include "wired.h"
 
-/* There is no printf: print bytes as lowercase hex by hand. */
+/* Print label and n bytes as lowercase hex, then a newline. */
 static void log_hex(const char* label, const u8* p, usz n) {
-  static const char digits[] = "0123456789abcdef";
-  char              s[3]     = {0};
-  wired_log_str(label);
-  for (usz i = 0; i < n; i++) {
-    s[0] = digits[p[i] >> 4];
-    s[1] = digits[p[i] & 15];
-    wired_log_str(s);
-  }
-  wired_log_str("\n");
+  wired_dprintf(2, "%s", label);
+  for (usz i = 0; i < n; i++) wired_dprintf(2, "%02x", p[i]);
+  wired_dprintf(2, "\n");
 }
 
 /* The private keys from RFC 7748 6.1. */
