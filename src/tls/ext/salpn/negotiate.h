@@ -23,7 +23,9 @@ int salpn_select_hq(const u8* alpn_ext_data, usz len);
 typedef enum {
   SALPN_NONE = 0, /**< neither h3 nor hq-interop was offered */
   SALPN_H3,
-  SALPN_HQ
+  SALPN_HQ,
+  /** a configured raw-QUIC application id (salpn_raw_pick), e.g. moqt-19 */
+  SALPN_RAW
 } salpn_choice;
 
 /* RFC 7301 3.1/3.2: pick a protocol from the client's ProtocolNameList

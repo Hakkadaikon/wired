@@ -4781,8 +4781,8 @@ static void test_srvrun_polling_pto_tick(void) {
  * the srvrun_cfg they build. Both must produce busy_poll=0, proving
  * wired_server_run's internal default_opt wrapper is wired correctly. */
 static void test_srvrun_opt_zeroed_matches_plain_default(void) {
-  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   CHECK(opt.busy_poll == 0);
   CHECK(opt.so_busy_poll_us == 0);
   CHECK(opt.so_prefer_busy_poll == 0);
@@ -4800,8 +4800,8 @@ static void test_srvrun_opt_zeroed_matches_plain_default(void) {
  * covers so_prefer_busy_poll/so_busy_poll_budget/incoming_cpu at their
  * disabled defaults (0/0/-1) in the same call. */
 static void test_srvrun_so_busy_poll_zero_still_binds(void) {
-  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0,
-                          0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0,  0, 0};
+  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0,
+                          0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0,  0, 0, 0};
   i64              fd  = srvrun_listen(4492, &opt);
   CHECK(fd >= 0);
   wired_udp_close(fd);

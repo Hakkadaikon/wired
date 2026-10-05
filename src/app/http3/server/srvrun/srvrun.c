@@ -10350,6 +10350,6 @@ int wired_server_run(
     wired_srvrun_obs     obs) {
   static const wired_srvrun_opt default_opt = {0, 0,  0, 0, 0, 0, 0, 0, -1, 0,
                                                0, -1, 0, 0, 0, 0, 0, 0, 0,  0,
-                                               0, 0,  0, 0, 0, 0, 0, 0};
+                                               0, 0,  0, 0, 0, 0, 0, 0, 0,  0};
   return wired_server_run_opt(port, id, h, obs, &default_opt);
 }

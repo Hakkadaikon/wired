@@ -105,6 +105,20 @@ typedef void (*wired_wt_on_session_close)(void* app_ctx, wired_wt_session* s);
 typedef void (*wired_wt_on_session_draining)(
     void* app_ctx, wired_wt_session* s);
 
+/** draft-ietf-moq-transport-19 3.1.5 / -22 6.2.2 (native QUIC): app-facing
+ * notification that a raw-QUIC application connection (its ALPN one of
+ * wired_srvboot_id.raw_alpns) got its implicit session. The session is
+ * created when the handshake is confirmed and is reported before any of
+ * its stream bytes are delivered; it then flows through the same
+ * wt_on_stream_data/wt_on_datagram/wt_on_stream_reset/wt_on_session_close
+ * callbacks as a WebTransport session (wired_server_session_is_raw tells
+ * them apart). alpn is a view into the static raw_alpns configuration.
+ * @param app_ctx opaque context registered alongside this callback
+ * @param s the connection's implicit session
+ * @param alpn the negotiated ALPN protocol id, e.g. "moqt-19" */
+typedef void (*wired_rawq_on_session)(
+    void* app_ctx, wired_wt_session* s, wired_span alpn);
+
 /** draft-ietf-webtrans-http3-16 SS3.2 (WTH3-016/WTH3-018): the app's verdict
  * for one Extended CONNECT's :authority/:path, filled in by a registered
  * wired_wt_resource_check before the session is established.
@@ -402,6 +416,12 @@ typedef struct {
    * consumes the capsule silently). See wired_wt_on_session_draining. */
   wired_wt_on_session_draining wt_on_session_draining;
   void* wt_session_draining_ctx; /**< opaque ctx passed to it */
+  /** Raw-QUIC implicit-session notification, 0 to disable (the default).
+   * See wired_rawq_on_session. Only fires for connections whose ALPN came
+   * from wired_srvboot_id.raw_alpns. */
+  wired_rawq_on_session raw_on_session;
+  /** opaque ctx passed to raw_on_session */
+  void* raw_session_ctx;
 } wired_srvrun_opt;
 
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must
@@ -778,6 +798,18 @@ int wired_server_wt_close_session(
  * @return 1 queued (or already drained), 0 when s resolves to no live
  *   connection (e.g. the session already closed) */
 int wired_server_wt_drain_session(wired_wt_session* s);
+
+/** 1 when s is the implicit session of a raw-QUIC application connection
+ * (wired_rawq_on_session), 0 for a WebTransport session or when s resolves
+ * to no live connection. On a raw session the wired_server_wt_* send API
+ * applies the native-QUIC binding: no stream signal or datagram
+ * quarter-stream-id, reset codes sent verbatim, and close as a
+ * CONNECTION_CLOSE 0x1d carrying the code (draft-ietf-moq-transport-19
+ * 3.5, -22 6.6; RFC 9000 19.19). Callable only from inside the server's
+ * own loop (a callback).
+ * @param s the session to ask about
+ * @return 1 raw QUIC, 0 otherwise */
+int wired_server_session_is_raw(wired_wt_session* s);
 
 /** Current WebTransport occupancy of the server loop the caller runs in,
  * against the compile-time capacities -- for an app exposing stats. A

@@ -386,7 +386,7 @@ MoQT draft-19 以降は webtrans-http3-16 を参照している。ワイヤ値�
 ## 13. raw QUIC 上の MoQT(2026-10-05 ユーザー指示で追加)
 
 - [x] 13-0 計画: `tasks/loopeng/moqt/RawQuic/plan.md`(版ごとの仕様 R1-R17、runner 連携、アーキテクチャ、TLA+ 対象、並列分割、TDD リスト、リスク K1-K14)。
-- [ ] 13-1 インタフェース凍結(S0a): `salpn_raw.h`/`rawq.h`/`moqraw.h`/`moqrawio.h` と srvrun.h/srvboot.h の追加宣言。名前は plan §4.2、着手前に再 grep。
+- [x] 13-1 インタフェース凍結(S0a)**完了(2026-10-05)。** `salpn_raw.h`/`rawq.h`/`moqraw.h`/`moqrawio.h` 新設(宣言のみ)、`SALPN_RAW`、`wired_srvboot_id.raw_alpns`、`wired_srvrun_opt.raw_on_session/raw_session_ctx`、`wired_server_session_is_raw`。plan §4.2 からの差分 5 件と各宣言の担当ステップは `tasks/loopeng/moqt/RawQuic/INTERFACES.md`。: `salpn_raw.h`/`rawq.h`/`moqraw.h`/`moqrawio.h` と srvrun.h/srvboot.h の追加宣言。名前は plan §4.2、着手前に再 grep。
 - [ ] 13-2 TLA+ `MoqtRawConn`(S0b/S5): 接続→raw セッション生成・配送・クローズ・スロット再利用。安全性 SessBeforeData/CloseOnce/CloseIffSession/NoGhost/NoH3OnRaw/RawCloseShape/PathRule、活性 2、ミューテーション 4 件で反例確認、reviewer 合格。
 - [ ] 13-3 ALPN 選択(S1+S6+S8): `SALPN_RAW`、`wired_srvboot_id.raw_alpns`、クライアント選好順で h3/hq/moqt-NN を混在選択、EE と ticket に選択トークン、raw ALPN では 0-RTT 拒否(d18 §3.3.1 / d22 §6.3.1 の relay MAY)。固定バイト T-A4。
 - [ ] 13-4 raw 束縛ヘルパ(S2): `app/rawquic/rawq_*`(ストリーム経路、reset コードの無変換/WT 写像、datagram 前置なし、uni 初番 3)。T-B1〜B4。
