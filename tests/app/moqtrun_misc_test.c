@@ -174,10 +174,103 @@ static void test_moqtrun_misc_pub_error_after_ok_closes(void) {
   CHECK(mtrq_closes() == 1);
 }
 
+/* B's REQUEST_OK on the PUBLISH stream sid carrying params sp; 1 when
+ * that body decodes under the session's draft (the codec's own per-draft
+ * parameter scope, moqctl_request_ok_take). */
+static int mtmi_pub_ok_p(u64 sid, const moqctl_params* sp) {
+  u8                       msg[96];
+  usz                      off = 0, boff = 0;
+  u64                      type;
+  wired_span               body;
+  static moqctl_request_ok ok, back;
+  ok.params = *sp;
+  usz n     = moqtrun_envelope_put(
+      wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
+      (moqtrun_body_encode_fn)moqctl_request_ok_encode, &ok);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_B, sid, wired_span_of(msg, n), 0);
+  if (moqctl_peek_type(wired_span_of(msg, n), &off, &type, &body) != MOQCTL_OK)
+    return 0;
+  return moqctl_request_ok_take(g_moqtrun_test_ver, body, &boff, &back) ==
+         MOQCTL_OK;
+}
+
+/* A refused PUBLISH_OK on sid: where the draft lets PUBLISH_OK carry
+ * filters (d19 5.1.3), REQUEST_ERROR INVALID_FILTER on the PUBLISH stream,
+ * which the hub then FINs; where it does not (d22 9.3: PUBLISH_OK admits
+ * EXPIRES only, "Subscription parameters appear in REQUEST_UPDATE, not
+ * PUBLISH_OK"), the body is malformed and the session closes
+ * PROTOCOL_VIOLATION (12-13). Either way no subscription opens. */
+static void mtmi_pub_ok_refused(u64 sid, int decodes) {
+  CHECK(g_moqtrun_test_ver != MOQVER_D19 || decodes);
+  if (decodes) {
+    CHECK(mtrq_err_on(sid) == MOQCTL_ERR_INVALID_FILTER);
+    CHECK(mtrq_fin_on(sid) == 1);
+    CHECK(mtrq_closes() == 0);
+  }
+  if (!decodes) CHECK(mtrq_closes() == 1);
+  CHECK(mtmi_dg_to_b() == 0);
+}
+
+/* 12-30, d19 5.1.3: filter parameters "MAY appear multiple times in a
+ * ... PUBLISH_OK ... If the same combination of Parameter Type, SetID,
+ * and Property Type ... repeat in any message, an endpoint MUST reject
+ * this with REQUEST_ERROR with error code INVALID_FILTER". */
+static void test_moqtrun_misc_pub_ok_bad_filter(void) {
+  moqctl_params      bad = {0}, none = {0};
+  moqctl_rangefilter f0 = mtst_rngf1(0, 0, 4, 1);
+  mtst_rngf_param(&bad, MOQCTL_PARAM_OBJECTID_FILTER, &f0);
+  mtst_rngf_param(&bad, MOQCTL_PARAM_OBJECTID_FILTER, &f0); /* dup id */
+  mtmi_subtracks_p(&none);
+  i64 sid = mtst_pub_stream_id(0);
+  CHECK(sid >= 0);
+  mtmi_pub_ok_refused((u64)sid, mtmi_pub_ok_p((u64)sid, &bad));
+}
+
+/* 12-30, d19 5.1.3 "Range Filters ... limits the total number of Ranges
+ * allowed in all Range Filter parameters for a given subscription ... If
+ * this limit is exceeded, an endpoint MUST reject this with REQUEST_ERROR
+ * with error code INVALID_FILTER": SUBSCRIBE_TRACKS's one Range plus a
+ * PUBLISH_OK's MAX_FILTER_RANGES more of another type is one too many. */
+static void test_moqtrun_misc_pub_ok_filter_over(void) {
+  moqctl_params      sp = {0}, over = {0};
+  moqctl_rangefilter one = mtst_rngf1(1, 9, 9, 1);
+  moqctl_rangefilter all = mtst_rngf1(0, 0, 1, 1);
+  all.n                  = WIRED_MOQTRUN_MAX_FILTER_RANGES;
+  for (usz i = 1; i < all.n; i++) {
+    all.r[i].start   = 10 * i;
+    all.r[i].end     = 10 * i + 1;
+    all.r[i].has_end = 1;
+  }
+  mtst_rngf_param(&sp, MOQCTL_PARAM_SUBGROUP_FILTER, &one);
+  mtst_rngf_param(&over, MOQCTL_PARAM_OBJECTID_FILTER, &all);
+  mtmi_subtracks_p(&sp);
+  i64 sid = mtst_pub_stream_id(0);
+  CHECK(sid >= 0);
+  mtmi_pub_ok_refused((u64)sid, mtmi_pub_ok_p((u64)sid, &over));
+}
+
+/* 12-30: within the limit the same PUBLISH_OK filter is applied (d19
+ * 10.19.1 / 5.1.3), so the hub's check does not refuse a good one. */
+static void test_moqtrun_misc_pub_ok_filter_ok(void) {
+  moqctl_params      lo = {0}, none = {0};
+  moqctl_rangefilter f0 = mtst_rngf1(0, 0, 4, 1);
+  mtst_rngf_param(&lo, MOQCTL_PARAM_OBJECTID_FILTER, &f0);
+  mtmi_subtracks_p(&none);
+  i64 sid = mtst_pub_stream_id(0);
+  CHECK(sid >= 0);
+  if (!mtmi_pub_ok_p((u64)sid, &lo)) return; /* d22: not a PUBLISH_OK param */
+  CHECK(mtrq_closes() == 0);
+  CHECK(mtrq_err_on((u64)sid) == ~(u64)0);
+  CHECK(mtmi_dg_to_b() == 0); /* Object 5 is outside {0..4} */
+}
+
 static void mtrf_misc(void) {
   test_moqtrun_misc_subtracks_rngf_gates();
   test_moqtrun_misc_subtracks_rngf_limit();
   test_moqtrun_misc_pub_update_failed_fins();
+  test_moqtrun_misc_pub_ok_bad_filter();
+  test_moqtrun_misc_pub_ok_filter_over();
+  test_moqtrun_misc_pub_ok_filter_ok();
 }
 
 /* 12-11, d18/d19 10.19 + 10.10, d22 3.6/9.8: the PUBLISH_OK (REQUEST_OK)
@@ -226,7 +319,27 @@ static void test_moqtrun_misc_pub_update_before_ok(void) {
   CHECK(mtrq_closes() == 0);
 }
 
+/* 12-29, d19 3.3.2 / d22 6.4.2.2: "An endpoint SHOULD send a FIN promptly
+ * after a message when it has nothing further to send on that direction"
+ * and, once the responder is done, "the requester SHOULD then send a FIN
+ * on its direction" (d18 3.3.2: a rejection is "a REQUEST_ERROR and FIN
+ * the stream") -- a REQUEST_ERROR to the hub's PUBLISH completes the
+ * request, so the hub FINs its side, and the slot frees once the peer's
+ * side has ended too. */
+static void test_moqtrun_misc_pub_error_fins(void) {
+  moqctl_publish pub;
+  u64            sid = mtmi_setup(0, &pub);
+  moqtrun_test_reset();
+  mtst_pub_err(SESS_B, sid, MOQCTL_ERR_UNINTERESTED);
+  CHECK(mtrq_fin_on(sid) == 1);
+  CHECK(mtrq_closes() == 0);
+  CHECK(mtst_pub_is_open(sid) == 1);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_B, sid, wired_span_of(0, 0), 1);
+  CHECK(mtst_pub_is_open(sid) == 0);
+}
+
 static void mtall_misc(void) {
+  test_moqtrun_misc_pub_error_fins();
   test_moqtrun_misc_pub_ok_relays();
   test_moqtrun_misc_pub_forward0_then_update();
   test_moqtrun_misc_pub_update_before_ok();

@@ -2,10 +2,15 @@
  * libc-free, x86_64-linux, driven by the single SDK header <wired.h>.
  *
  * A bare wired_moqt_ hub relay (app/moqt/run/moqtrun.h): every namespace is
- * accepted, the WebTransport CONNECT negotiates one of "moqt-18"/"moqt-19"/
- * "moqt-22" (whichever the client offers, via wired_moqt_wt_protocols), and
- * the hub's io table is the SDK's transport mux wired_moqraw_io
- * (app/moqt/qraw/moqrawio.h), which adds the WT stream signal itself.
+ * accepted. One UDP port serves both MoQT transports (draft-ietf-moq-
+ * transport-22 6.1.2 / -19 3.1.3 / -18 3.1.2): a client that offers ALPN h3
+ * gets WebTransport, whose CONNECT negotiates one of "moqt-18"/"moqt-19"/
+ * "moqt-22" (via wired_moqt_wt_protocols); a client that offers one of those
+ * same ids as its TLS ALPN gets raw (native) QUIC, reported through
+ * wired_moqt_on_session_raw. The client's ALPN preference order decides.
+ * The hub's io table is the SDK's transport mux wired_moqraw_io
+ * (app/moqt/qraw/moqrawio.h), which adds the WT stream signal only on WT.
+ * --no-raw (debug) serves WebTransport only.
  * Single-process only: the hub keeps its peer table in this process. */
 
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim */
@@ -92,6 +97,8 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
     wired_die("bad CLI flags (single-process only)\n");
   static char wt_protocols[32];
   wired_moqt_wt_protocols(wt_protocols, sizeof wt_protocols);
+  /* RFC 7301 3.2: the same static list doubles as the raw-QUIC ALPN set. */
+  if (!wired_cliargs_flag(argc, argv, "--no-raw")) id.raw_alpns = wt_protocols;
 
   opt.run.incoming_cpu            = -1;
   opt.run.wt_protocols            = wt_protocols;
@@ -107,6 +114,8 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   opt.run.wt_session_close_ctx    = &g_hub;
   opt.run.wt_on_session_draining  = wired_moqt_on_session_draining;
   opt.run.wt_session_draining_ctx = &g_hub;
+  opt.run.raw_on_session          = wired_moqt_on_session_raw;
+  opt.run.raw_session_ctx         = &g_hub;
   opt.run.on_step                 = on_step;
   opt.run.on_step_ctx             = &g_hub;
 

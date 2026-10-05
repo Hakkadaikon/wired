@@ -18,7 +18,7 @@
 //   default (2 participants): sharer + viewer, asserts frames arrive with
 //     plausible dimensions.
 //   --load (4 participants): all four share simultaneously + one chat
-//     message, to observe whether WIRED_SRVLOOP_MAX_WT_UNI_STREAMS=6
+//     message, to observe whether WIRED_SRVLOOP_MAX_WT_UNI_STREAMS=9
 //     (chat+audio+screen per participant = up to 3 long-lived uni streams
 //     each, 12 total across 4 participants) holds up. This does not fix
 //     the constant if insufficient -- see task-9-brief.md's 対象外 section

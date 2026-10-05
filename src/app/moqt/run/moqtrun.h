@@ -6,6 +6,7 @@
 #include "app/moqt/ctl/moqctl.h"
 #include "app/moqt/data/moqdata.h"
 #include "app/moqt/fetch/moqfetch.h"
+#include "app/moqt/qraw/moqraw.h"
 #include "app/moqt/run/moqtrel.h"
 #include "app/moqt/sess/moqsess.h"
 #include "common/bytes/span/span.h"
@@ -38,11 +39,13 @@
  * track per session slot (every other connected session, at most). */
 #define WIRED_MOQTRUN_MAX_SUBS (WIRED_MOQTRUN_MAX_SESSIONS - 1)
 
-/** The WT send/reset operations this layer needs, as a function-pointer
+/** The send/reset operations this layer needs, as a function-pointer
  * table so it never links wired_server_wt_* directly (kept testable without
- * the QUIC/TLS stack). A production caller fills this with thin wrappers
- * around the wired_server_wt_* functions declared in srvrun.h; a test
- * harness fills it with recording stubs. */
+ * the QUIC/TLS stack). The table is transport-neutral: the backend decides
+ * the wire form, e.g. wired_moqraw_io (app/moqt/qraw/moqrawio.h) prefixes
+ * the WebTransport stream signal only for WT sessions and closes a raw-QUIC
+ * session with CONNECTION_CLOSE. A test harness fills it with recording
+ * stubs. */
 typedef struct {
   /** wired_server_wt_open_bidi_stream-shaped: opens a stream without FIN,
    * returns the allocated id or negative on failure -- the control stream
@@ -111,8 +114,10 @@ typedef struct {
    * relay drains as fast as its per-round refusals allow -- the pre-
    * send_budget behavior, unchanged. */
   usz (*send_budget)(wired_wt_session* s);
-  /** wired_server_wt_close_session-shaped: closes s's WebTransport session
-   * with a draft-ietf-moq-transport-19 SS3.5 termination code and reason.
+  /** wired_server_wt_close_session-shaped: closes s (WT_CLOSE_SESSION on
+   * WebTransport, CONNECTION_CLOSE on raw QUIC) with a MoQT session
+   * termination code (draft-ietf-moq-transport-19 SS3.5, -22 6.6) and
+   * reason; the hub only ever passes WIRED_MOQTRUN_CLOSE_* codes.
    * Kept last so older positional initializers stay valid; a table built
    * without it (0) never closes a session -- a control message that
    * requires a close is skipped by its Length instead. */
@@ -175,6 +180,15 @@ typedef struct {
 /** draft-ietf-moq-transport-19 3.5 INVALID_AUTHORITY session code (a
  * SETUP carried AUTHORITY over WebTransport, 10.4). */
 #define WIRED_MOQTRUN_CLOSE_INVALID_AUTHORITY 0x19
+
+/** draft-ietf-moq-transport-19 3.5 / -22 12.2 MALFORMED_PATH session code
+ * (a raw-QUIC SETUP's PATH is not path-abempty [?query], 10.3.1.2). */
+#define WIRED_MOQTRUN_CLOSE_MALFORMED_PATH 0x9
+
+/** draft-ietf-moq-transport-19 3.5 / -22 12.2 MALFORMED_AUTHORITY session
+ * code (a raw-QUIC SETUP's AUTHORITY is no RFC 3986 authority,
+ * 10.3.1.1). */
+#define WIRED_MOQTRUN_CLOSE_MALFORMED_AUTHORITY 0x1A
 
 /** draft-ietf-moq-transport-19 3.5/10.9 TOO_MANY_REQUEST_UPDATES session
  * code: a request stream already holding MAX_REQUEST_UPDATES outstanding
@@ -795,6 +809,10 @@ typedef struct {
    * WT token was empty (a browser cannot negotiate a subprotocol) or
    * unlisted. 0 = draft-19 3.3 uni pair. */
   u8 legacy;
+  /** 1 for a raw-QUIC session (wired_moqt_on_session_raw), 0 for
+   * WebTransport: decides how PATH/AUTHORITY Setup Options are judged
+   * (moqraw_setup_verdict) and that GOAWAY carries no new URI. */
+  u8 raw;
   /** 1 once the hub's control stream opened (SETUP went out with it). A
    * refused open retries on a later tick; nothing else is sent before. */
   u8 ctl_opened;
@@ -1118,6 +1136,12 @@ typedef struct {
    * outlived the subscription's OBJECT_DELIVERY_TIMEOUT (draft 8).
    * Diagnostic only. */
   u64 stat_timeout_reset;
+  /** Raw-QUIC PATH/AUTHORITY policy (draft-ietf-moq-transport-22
+   * 9.1.1-2): zero (the wired_moqt_init default) accepts every
+   * well-formed value; set its hooks after wired_moqt_init to refuse
+   * some with INVALID_PATH / INVALID_AUTHORITY. Unused for WebTransport
+   * sessions, where either option is itself a close. */
+  moqraw_policy raw_policy;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
@@ -1141,6 +1165,22 @@ int wired_moqt_cache_attach(wired_moqt_hub* hub, u8* arena, usz size);
  * fixed, not negotiated). */
 void wired_moqt_on_session(
     void* app_ctx, wired_wt_session* s, wired_span path, wired_span protocol);
+
+/** wired_rawq_on_session-shaped (srvrun's opt.raw_on_session): registers
+ * a raw-QUIC connection's implicit session s. The MOQT draft comes from
+ * the ALPN token (moqt-NN, the same moqver table as the WT subprotocol;
+ * an unlisted one falls back to draft-19), and the control streams are
+ * the uni pair, as on a WT session with a negotiated token (-22 6.3/6.4).
+ * The client's PATH/AUTHORITY Setup Options are then judged by
+ * hub->raw_policy (moqraw_setup_verdict), and a GOAWAY to s carries an
+ * empty New Session URI (reuse the current one, -22 9.2). With no free
+ * peer slot s is closed INTERNAL_ERROR through io.close_session. app_ctx
+ * must be the wired_moqt_hub*.
+ * @param app_ctx the wired_moqt_hub*
+ * @param s the connection's implicit session
+ * @param alpn the negotiated ALPN protocol id, e.g. "moqt-22" */
+void wired_moqt_on_session_raw(
+    void* app_ctx, wired_wt_session* s, wired_span alpn);
 
 /** wired_wt_on_stream_data-shaped: dispatches one chunk of a control,
  * request or data stream to the hub's session/subscribe state machines and

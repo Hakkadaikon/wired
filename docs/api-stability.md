@@ -169,11 +169,19 @@ keeps negotiating draft-19 only, unchanged from prior behavior. A session
 whose peer sends no WT subprotocol likewise falls back to the draft-19
 control-stream behavior that predates multi-draft support.
 
-Raw-QUIC MoQT (`src/app/moqt/qraw/`) adds one application-facing name:
+Raw-QUIC MoQT (draft-ietf-moq-transport-22 6.2.2, -18/-19 3.1.4-5) adds
+these application-facing names, all zero/unset = old behavior (WebTransport
+only):
 
 | Name | Role |
 |---|---|
+| `wired_srvboot_id.raw_alpns` | Space-separated raw application ALPNs (e.g. `"moqt-22 moqt-19 moqt-18"`) the server may select beside `h3`/`hq-interop`, in the client's preference order; 0 = off. |
+| `wired_srvrun_opt.raw_on_session`, `raw_session_ctx`, `wired_rawq_on_session` | Called once per raw-ALPN connection when the handshake is confirmed, with its implicit session and the negotiated ALPN, before any of its stream bytes; the session then flows through the same `wt_on_*` callbacks. Appended last, 0 = no raw sessions reported. |
+| `wired_server_session_is_raw` | 1 for a raw-QUIC implicit session, 0 for a WebTransport session. On a raw session, `wired_server_wt_close_session` sends CONNECTION_CLOSE (0x1d) with the code, resets carry the code unmapped, and datagrams carry no quarter-stream-id. |
 | `wired_moqraw_io` (`qraw/moqrawio.h`) | A ready-made `wired_moqt_io` over `wired_server_wt_*` for `wired_moqt_init`. It adds the WebTransport stream signal to the stream-opening ops of WT sessions only (a raw-QUIC session's streams carry none). `send_uni2` is 0; an application that needs it sets its own. |
+| `wired_moqt_on_session_raw` (`run/moqtrun.h`) | Shaped as `wired_rawq_on_session` (pass it as `raw_on_session` with the hub as `raw_session_ctx`): the ALPN `moqt-NN` picks the draft, the control streams are the uni pair, PATH/AUTHORITY Setup Options are accepted when well-formed (MALFORMED_PATH 0x9 / MALFORMED_AUTHORITY 0x1A otherwise), a GOAWAY carries an empty New Session URI, and a full hub closes the session INTERNAL_ERROR. |
+| `wired_moqt_hub.raw_policy` (a `moqraw_policy`) | Optional `accept_path` / `accept_authority` hooks for raw sessions' well-formed PATH/AUTHORITY; a refusal closes INVALID_PATH (0x8) / INVALID_AUTHORITY (0x19). Zero (the `wired_moqt_init` default) accepts every well-formed value. |
+| `WIRED_MOQTRUN_CLOSE_MALFORMED_PATH`, `WIRED_MOQTRUN_CLOSE_MALFORMED_AUTHORITY` | The 0x9 / 0x1A session termination codes above. |
 
 ---
 
