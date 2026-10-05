@@ -76,6 +76,10 @@ typedef struct {
  * Joining Fetch leaves range zeroed. Same return contract as
  * moqfetch_fetch_take. */
 int moqfetch_req19_take(int ver, wired_span body, moqfetch_req* out);
+
+/** Encodes m as a draft-19 FETCH body. Returns 0 (nothing written) for a
+ * Standalone range d19 cannot carry (ek UNBOUNDED or sk not ABS), else 0
+ * only if buf is too small. */
 int moqfetch_req19_encode(wired_mspan buf, usz* off, const moqfetch_req* m);
 
 /** Decodes a draft-22 FETCH body (SS "FETCH"): Request ID, Track Namespace,
