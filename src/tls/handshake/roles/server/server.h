@@ -154,8 +154,10 @@ void wired_server_set_limits(
 void wired_server_set_reset_token(wired_server* s, const u8 token[16]);
 
 /** Set the NSS key log file path (SSLKEYLOGFILE format); 0 disables (the
- * default). When set, wired_server_feed appends a CLIENT_HANDSHAKE_TRAFFIC_
- * SECRET line once the client Finished verifies.
+ * default). When set, wired_server_feed appends, once the client Finished
+ * verifies, CLIENT_EARLY_TRAFFIC_SECRET (only if 0-RTT was accepted),
+ * CLIENT_/SERVER_HANDSHAKE_TRAFFIC_SECRET, CLIENT_/SERVER_TRAFFIC_SECRET_0
+ * and EXPORTER_SECRET lines (RFC 8446 7.1 secrets).
  * @param s the orchestrator to configure
  * @param path NUL-terminated key log file path, or 0 to disable */
 void wired_server_set_keylog_path(wired_server* s, const char* path);
