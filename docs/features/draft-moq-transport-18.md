@@ -1450,8 +1450,18 @@ Legend:
   The PUBLISH_OK (REQUEST_OK) reply opens the subscriber's subscription under
   the PUBLISH's Track Alias, starting from the PUBLISH's parameters (FORWARD 0
   holds Objects back); the subscriber's REQUEST_UPDATE on that stream is
-  applied like a SUBSCRIBE's and answered there (ledger 12-11, 12-18).
+  applied like a SUBSCRIBE's and answered there (ledger 12-11, 12-18). A
+  failed update ends it with PUBLISH_DONE UPDATE_FAILED and the hub then FINs
+  the PUBLISH stream (SS10.11 "A sender SHOULD send FIN on the subscription's
+  bidi stream immediately after sending PUBLISH_DONE", ledger 12-27); a second
+  REQUEST_OK (PUBLISH_OK) or REQUEST_ERROR closes the session with
+  PROTOCOL_VIOLATION (SS5.1 "SHOULD close the session with a protocol error",
+  ledger 12-28).
   - test: `tests/app/moqtrun_misc_test.c` — `test_moqtrun_misc_pub_ok_relays`
+  - test: `tests/app/moqtrun_misc_test.c` —
+    `test_moqtrun_misc_pub_second_ok_closes`
+  - test: `tests/app/moqtrun_misc_test.c` —
+    `test_moqtrun_misc_pub_error_after_ok_closes`
   - test: `tests/app/moqtrun_misc_test.c` —
     `test_moqtrun_misc_pub_forward0_then_update`
   - test: `tests/app/moqtrun_misc_test.c` —

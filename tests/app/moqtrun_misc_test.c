@@ -45,6 +45,141 @@ static void mtmi_object(u64 g, u64 sid) {
   wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(buf, n), 1);
 }
 
+/* B's SUBSCRIBE_TRACKS "chat" carrying sp, after A published
+ * chat/room1/alice (alias 1). */
+static void mtmi_subtracks_p(const moqctl_params* sp) {
+  static moqns_req m;
+  moqctl_ftn       f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  moqtrun_test_reset();
+  m.request_id = mtst_rid += 2;
+  m.ns         = mtns_ns("chat");
+  m.params     = *sp;
+  mtst_send(SESS_B, MTRQ_S1, MOQCTL_T_SUBSCRIBE_TRACKS, mtst_enc_subtracks, &m);
+}
+
+/* The hub's PUBLISH stream to B after mtmi_subtracks_p, accepted with
+ * REQUEST_OK; ~0 when none opened. */
+static u64 mtmi_accepted(void) {
+  moqctl_publish pub;
+  i64            sid = mtst_pub_stream_id(0);
+  CHECK(mtst_pub_opens(SESS_B, &pub, 1) == 1);
+  if (sid < 0) return ~(u64)0;
+  mtst_pub_ok(SESS_B, (u64)sid);
+  return (u64)sid;
+}
+
+/* Datagrams relayed to B for A's MOQTRUN_TEST_DG_CHAT (Object 5). */
+static usz mtmi_dg_to_b(void) {
+  usz n = 0;
+  moqtrun_test_reset();
+  wired_moqt_on_datagram(
+      &mtst_hub, SESS_A,
+      wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
+  for (usz i = 0; i < g_n_calls; i++)
+    n += g_calls[i].kind == 9 && g_calls[i].s == SESS_B;
+  return n;
+}
+
+/* 12-26, d22 3.6.1 "Objects published in the resulting Subscriptions can
+ * be filtered by any Range Filter" and 3.6.2 "These parameters are used by
+ * the publisher as the initial Subscription parameters" (d19 10.19.1
+ * "copied over as the default Subscription parameters"): an
+ * OBJECTID_FILTER on SUBSCRIBE_TRACKS gates the resulting subscription
+ * though the PUBLISH cannot carry it (d22 9.8). {0..4} drops Object 5,
+ * {5..9} passes it. */
+static void test_moqtrun_misc_subtracks_rngf_gates(void) {
+  moqctl_params      lo = {0}, hi = {0};
+  moqctl_rangefilter f0 = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter f5 = mtst_rngf1(0, 5, 9, 1);
+  mtst_rngf_param(&lo, MOQCTL_PARAM_OBJECTID_FILTER, &f0);
+  mtst_rngf_param(&hi, MOQCTL_PARAM_OBJECTID_FILTER, &f5);
+  mtmi_subtracks_p(&lo);
+  mtmi_accepted();
+  CHECK(mtmi_dg_to_b() == 0);
+  mtmi_subtracks_p(&hi);
+  mtmi_accepted();
+  CHECK(mtmi_dg_to_b() == 1);
+}
+
+/* 12-26, d22 3.3.2 / d19 5.1.3: "If this limit is exceeded, an endpoint
+ * MUST reject this with REQUEST_ERROR with error code INVALID_FILTER" --
+ * SUBSCRIBE_TRACKS included; no PUBLISH follows. */
+static void test_moqtrun_misc_subtracks_rngf_limit(void) {
+  moqctl_params      over = {0};
+  moqctl_rangefilter four = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter one  = mtst_rngf1(1, 9, 9, 1);
+  moqctl_publish     pub;
+  four.n = 4;
+  for (usz i = 1; i < 4; i++) {
+    four.r[i].start   = 10 * i;
+    four.r[i].end     = 10 * i + 1;
+    four.r[i].has_end = 1;
+  }
+  mtst_rngf_param(&over, MOQCTL_PARAM_SUBGROUP_FILTER, &one);
+  mtst_rngf_param(&over, MOQCTL_PARAM_OBJECTID_FILTER, &four);
+  mtmi_subtracks_p(&over);
+  CHECK(mtrq_err_on(MTRQ_S1) == MOQCTL_ERR_INVALID_FILTER);
+  CHECK(mtst_pub_opens(SESS_B, &pub, 1) == 0);
+}
+
+/* 12-27, d19 10.9.1 / d22 9.5.1: a failed update "MUST also terminate the
+ * subscription by sending a PUBLISH_DONE with error code UPDATE_FAILED",
+ * and "A publisher sends a PUBLISH_DONE message as the final message
+ * before closing the subscription's bidi stream" (d19 10.11, d22 9.9; d18
+ * 10.11 "A sender SHOULD send FIN on the subscription's bidi stream
+ * immediately after sending PUBLISH_DONE") -- the hub FINs the PUBLISH
+ * stream. 12-28: a
+ * REQUEST_OK after that is a second response and closes the session
+ * instead of reopening the subscription. */
+static void test_moqtrun_misc_pub_update_failed_fins(void) {
+  moqctl_params      bad = {0}, none = {0};
+  moqctl_rangefilter f0 = mtst_rngf1(0, 0, 4, 1);
+  mtst_rngf_param(&bad, MOQCTL_PARAM_OBJECTID_FILTER, &f0);
+  mtst_rngf_param(&bad, MOQCTL_PARAM_OBJECTID_FILTER, &f0); /* dup id */
+  mtmi_subtracks_p(&none);
+  u64 sid = mtmi_accepted();
+  mtup_update(SESS_B, sid, &bad);
+  CHECK(mtup_err_code(sid) == MOQCTL_ERR_INVALID_FILTER);
+  CHECK(mtrq_fin_on(sid) == 1);
+  mtst_pub_ok(SESS_B, sid);
+  CHECK(mtrq_closes() == 1);
+  CHECK(mtmi_dg_to_b() == 0);
+}
+
+/* 12-28, d18/d19 5.1 / d22 3.1 (Subscriptions): "A subscriber
+ * MUST send exactly one PUBLISH_OK ... or REQUEST_ERROR in response to a
+ * PUBLISH. The peer SHOULD close the session with a protocol error if it
+ * receives more than one." -- the same sentence in all three drafts, so
+ * no version gate. */
+static void test_moqtrun_misc_pub_second_ok_closes(void) {
+  moqctl_publish pub;
+  u64            sid = mtmi_setup(0, &pub);
+  mtst_pub_ok(SESS_B, sid);
+  CHECK(mtrq_closes() == 0);
+  mtst_pub_ok(SESS_B, sid);
+  CHECK(mtrq_closes() == 1);
+}
+
+/* 12-28: a REQUEST_ERROR after the REQUEST_OK is the same "more than
+ * one". */
+static void test_moqtrun_misc_pub_error_after_ok_closes(void) {
+  moqctl_publish pub;
+  u64            sid = mtmi_setup(0, &pub);
+  mtst_pub_ok(SESS_B, sid);
+  mtst_pub_err(SESS_B, sid, MOQCTL_ERR_INTERNAL_ERROR);
+  CHECK(mtrq_closes() == 1);
+}
+
+static void mtrf_misc(void) {
+  test_moqtrun_misc_subtracks_rngf_gates();
+  test_moqtrun_misc_subtracks_rngf_limit();
+  test_moqtrun_misc_pub_update_failed_fins();
+}
+
 /* 12-11, d18/d19 10.19 + 10.10, d22 3.6/9.8: the PUBLISH_OK (REQUEST_OK)
  * of a SUBSCRIBE_TRACKS-generated PUBLISH establishes a subscription, so
  * the track's Objects reach the subscriber under the PUBLISH's alias. */
@@ -95,6 +230,8 @@ static void mtall_misc(void) {
   test_moqtrun_misc_pub_ok_relays();
   test_moqtrun_misc_pub_forward0_then_update();
   test_moqtrun_misc_pub_update_before_ok();
+  test_moqtrun_misc_pub_second_ok_closes();
+  test_moqtrun_misc_pub_error_after_ok_closes();
 }
 
 /* 12-17, d19 10.9 / d22 9.5: "An endpoint that receives a REQUEST_UPDATE
@@ -202,4 +339,5 @@ void test_moqtrun_misc(void) {
   moqtrun_test_allver(mtall_misc);
   test_moqtrun_misc_stray_update();
   test_moqtrun_misc_d22_publish_params();
+  moqtrun_test_vers(MOQVER_CAP_RANGE_FILTERS, 0, mtrf_misc);
 }

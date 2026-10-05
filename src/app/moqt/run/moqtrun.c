@@ -1288,13 +1288,12 @@ static int moqtrun_rngf_of(const moqctl_param* it, moqctl_rangefilter* f) {
   return 1;
 }
 
-/* Flattens f's Ranges into s->rngf rows (capacity was vetted by
+/* Flattens f's Ranges into rows[*n..] (capacity was vetted by
  * moqtrun_rngf_refusal / moqtrun_rngf_over before apply). */
-static void moqtrun_rngf_add(
-    wired_moqtrun_sub* s, u64 ptype, const moqctl_rangefilter* f) {
-  for (usz i = 0; i < f->n && s->rngf_n < WIRED_MOQTRUN_MAX_FILTER_RANGES;
-       i++) {
-    wired_moqtrun_rngrow* r = &s->rngf[s->rngf_n++];
+static void moqtrun_rngf_rows_add(
+    wired_moqtrun_rngrow* rows, u8* n, u64 ptype, const moqctl_rangefilter* f) {
+  for (usz i = 0; i < f->n && *n < WIRED_MOQTRUN_MAX_FILTER_RANGES; i++) {
+    wired_moqtrun_rngrow* r = &rows[(*n)++];
     r->ptype                = ptype;
     r->set_id               = (u8)f->set_id;
     r->has_prop             = (u8)f->has_prop;
@@ -1309,7 +1308,7 @@ static void moqtrun_rngf_add_item(
     wired_moqtrun_sub* s, const moqctl_param* it) {
   moqctl_rangefilter f;
   if (!moqtrun_rngf_of(it, &f)) return;
-  moqtrun_rngf_add(s, it->type, &f);
+  moqtrun_rngf_rows_add(s->rngf, &s->rngf_n, it->type, &f);
 }
 
 /* SUBSCRIBE: the message is the subscription's whole Range Filter set. */
@@ -4077,11 +4076,46 @@ static u64 moqtrun_subtracks_check(
   return clash ? MOQCTL_ERR_PREFIX_OVERLAP : MOQTRUN_REQ_ACCEPT;
 }
 
+/* One object Range Filter of a SUBSCRIBE_TRACKS kept for the resulting
+ * subscriptions (draft-22 3.6.1 "Objects published in the resulting
+ * Subscriptions can be filtered by any Range Filter"). TRACK_PROPERTY_FILTER
+ * selects tracks, not Objects (3.3.2), so it stays out. */
+static void moqtrun_subtracks_rngf_item(
+    wired_moqtrun_req* q, const moqctl_param* it) {
+  moqctl_rangefilter f;
+  if (it->type == MOQCTL_PARAM_TRACK_PROPERTY_FILTER ||
+      !moqtrun_rngf_of(it, &f))
+    return;
+  moqtrun_rngf_rows_add(q->rngf, &q->rngf_n, it->type, &f);
+}
+
+/* draft-22 3.6.2 "These parameters are used by the publisher as the
+ * initial Subscription parameters" (draft-19 10.19.1 "copied over as the
+ * default Subscription parameters"): kept on q, as 9.8 lets no Range
+ * Filter into the PUBLISH. */
+static void moqtrun_subtracks_note_rngf(
+    wired_moqtrun_req* q, const moqctl_params* params) {
+  q->rngf_n = 0;
+  for (usz i = 0; i < params->n; i++)
+    moqtrun_subtracks_rngf_item(q, &params->items[i]);
+}
+
+/* draft-22 3.3.2 / draft-19 5.1.3: a malformed or repeated Range Filter, or
+ * more Ranges than MAX_FILTER_RANGES, "MUST reject this with REQUEST_ERROR
+ * with error code INVALID_FILTER" -- SUBSCRIBE_TRACKS too. */
+static u64 moqtrun_subtracks_verdict(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqns_req* m) {
+  u64 code = moqtrun_rngf_refusal(&m->params);
+  if (code != MOQTRUN_REQ_ACCEPT) return code;
+  return moqtrun_disc_verdict(hub, p->req, m, moqtrun_subtracks_check);
+}
+
 /* FORWARD and GROUP_ORDER are recorded as given, to be echoed on every
  * generated PUBLISH: d18/d19 10.19(.1) "will set the FORWARD parameter to
  * 0 ... to 1, or indicate that value by omitting"; draft-22 3.6.2 "explicitly
  * communicated in the PUBLISH" -- so a present FORWARD 1 is spelled out on
- * every draft. Absent ones stay omitted (0 for GROUP_ORDER). */
+ * every draft. Absent ones stay omitted (0 for GROUP_ORDER). The object
+ * Range Filters are kept too (moqtrun_subtracks_note_rngf). */
 static void moqtrun_subtracks_note_params(
     wired_moqtrun_req* q, const moqctl_params* params) {
   const moqctl_param* f = moqctl_params_find(params, MOQCTL_PARAM_FORWARD);
@@ -4089,13 +4123,14 @@ static void moqtrun_subtracks_note_params(
   q->has_forward        = f != 0;
   q->forward            = moqtrun_param_u8(f);
   q->group_order        = moqtrun_param_u8(g);
+  moqtrun_subtracks_note_rngf(q, params);
 }
 
 /* Body of moqtrun_dispatch_subscribe_tracks once p->req and the decode are
  * known good, split out to keep the caller's own branch count at the gate. */
 static void moqtrun_subtracks_admit(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqns_req* m) {
-  u64 code = moqtrun_disc_verdict(hub, p->req, m, moqtrun_subtracks_check);
+  u64 code = moqtrun_subtracks_verdict(hub, p, m);
   if (code == MOQTRUN_REQ_ACCEPT)
     moqtrun_subtracks_note_params(p->req, &m->params);
   moqtrun_disc_answer(p, code);
@@ -4249,6 +4284,8 @@ static int moqtrun_subtracks_open_pub(
   q->has_forward   = st->has_forward;
   q->forward       = st->forward;
   q->group_order   = st->group_order;
+  q->rngf_n        = st->rngf_n;
+  bytes_memcpy(q->rngf, st->rngf, sizeof q->rngf);
   return 1;
 }
 
@@ -6879,6 +6916,8 @@ static wired_moqtrun_req* moqtrun_req_open(
   q->has_forward    = 0;
   q->forward        = 0;
   q->group_order    = 0;
+  q->rngf_n         = 0;
+  q->pub_answered   = 0;
   return q;
 }
 
@@ -6964,15 +7003,22 @@ static void moqtrun_req_settle(wired_moqt_io* io, wired_moqtrun_req* q) {
   q->in_use = !moqtrun_req_both_ended(q);
 }
 
-/* A hub-opened PUBLISH request slot (SUBSCRIBE_TRACKS's own doc) settles
- * by its own rule (moqtrun_pubst_recv's doc): REQUEST_OK/REQUEST_ERROR,
- * never moqtrun_req_settle's client-request completion/FIN logic, whose
- * "answered without establishing" reading of kind+!live would otherwise
- * misfire while this slot is simply awaiting its one reply -- it only
- * retries its queued update answers. */
+/* A hub-opened PUBLISH slot still awaiting its one REQUEST_OK/REQUEST_ERROR
+ * (moqtrun_pubst_recv's doc). */
+static int moqtrun_pubst_awaiting(const wired_moqtrun_req* q) {
+  return q->pub_origin_rid && !q->pub_answered;
+}
+
+/* A hub-opened PUBLISH slot awaiting its reply only flushes: settling's
+ * "answered without establishing" reading of kind+!live would FIN it
+ * early. Once answered it settles like any request (12-27): live while the
+ * subscription stands, FINed right after its PUBLISH_DONE (d18 10.11 "A
+ * sender SHOULD send FIN on the subscription's bidi stream immediately
+ * after sending PUBLISH_DONE"; d19 10.11 / d22 9.9 "the final message
+ * before closing the subscription's bidi stream"). */
 static void moqtrun_reqs_tick_one(wired_moqt_io* io, wired_moqtrun_req* q) {
   if (!q->in_use) return;
-  if (q->pub_origin_rid) {
+  if (moqtrun_pubst_awaiting(q)) {
     moqtrun_req_flush(io, q->wt, q);
     return;
   }
@@ -7107,7 +7153,8 @@ static void moqtrun_dispatch_bidi_fresh(
  * it split; anything else is ignored. REQUEST_OK marks the slot live and
  * opens the subscription (it stays open, continuing past a later
  * SUBSCRIBE_TRACKS cancel per 1784-1787/T-10); REQUEST_ERROR frees the
- * slot at once (nothing to continue). */
+ * slot at once (nothing to continue); either after the first closes the
+ * session (moqtrun_pubst_repeat). */
 typedef void (*moqtrun_pubst_fn)(
     wired_moqt_hub*, wired_moqtrun_peer*, wired_moqtrun_req*, wired_span);
 
@@ -7128,8 +7175,10 @@ static wired_moqtrun_track* moqtrun_pubst_track(wired_moqt_hub* hub, u64 tag) {
 /* Opens s as p's subscription to t under the PUBLISH q named (alias and
  * Request ID): its initial parameters are the PUBLISH's (d19 10.19.1
  * "copied over as the default Subscription parameters", d22 3.6.2 "initial
- * Subscription parameters"), then any the PUBLISH_OK carries (d18/d19
- * 10.2.x admit FORWARD, priority, filters there), applied as an update. */
+ * Subscription parameters"), plus the SUBSCRIBE_TRACKS's object Range
+ * Filters the PUBLISH cannot carry (12-26, d22 3.6.1/9.8), then any the
+ * PUBLISH_OK carries (d18/d19 10.2.x admit FORWARD, priority, filters
+ * there), applied as an update. */
 static void moqtrun_pubst_open_sub(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  p,
@@ -7143,6 +7192,8 @@ static void moqtrun_pubst_open_sub(
   m.request_id          = q->request_id;
   m.params              = moqtrun_subtracks_publish_params(q);
   moqtrun_sub_open(s, t, (usz)(p - hub->peers), q->pub_alias, &m);
+  s->rngf_n = q->rngf_n;
+  bytes_memcpy(s->rngf, q->rngf, sizeof s->rngf);
   if (moqctl_request_ok_take(p->ver, body, &off, &ok) == MOQCTL_OK)
     moqtrun_upd_params(s, t, &ok.params);
 }
@@ -7163,15 +7214,30 @@ static void moqtrun_pubst_attach(
   moqtrun_pubst_open_sub(hub, p, q, t, s, body);
 }
 
-/* 12-11: the first REQUEST_OK establishes the subscription (later ones are
- * ignored). */
+/* 12-28, d18/d19 5.1 / d22 3.1: "A subscriber MUST send exactly one
+ * PUBLISH_OK ... or REQUEST_ERROR in response to a PUBLISH. The peer
+ * SHOULD close the session with a protocol error if it receives more than
+ * one." -- the same sentence in all three drafts. 1 when q was already
+ * answered and the session is closed (q's own reassembly drained). */
+static int moqtrun_pubst_repeat(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_req* q) {
+  wired_moqtrun_req* saved = p->req;
+  if (!q->pub_answered) return 0;
+  p->req = q;
+  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  p->req = saved;
+  return 1;
+}
+
+/* 12-11: the first REQUEST_OK establishes the subscription. */
 static void moqtrun_pubst_ok(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
     wired_moqtrun_req*  q,
     wired_span          body) {
-  if (q->live) return;
-  q->live = 1;
+  if (moqtrun_pubst_repeat(hub, p, q)) return;
+  q->pub_answered = 1;
+  q->live         = 1;
   moqtrun_pubst_attach(hub, p, q, body);
 }
 
@@ -7182,8 +7248,7 @@ static void moqtrun_pubst_error(
     wired_span          body) {
   usz                  off = 0;
   moqctl_request_error e;
-  (void)hub;
-  (void)p;
+  if (moqtrun_pubst_repeat(hub, p, q)) return;
   if (moqctl_request_error_take(body, &off, &e) == MOQCTL_OK) q->in_use = 0;
 }
 
@@ -7251,7 +7316,7 @@ static void moqtrun_pubst_recv(
   moqtrun_asm_push(&q->in, &data);
   while (moqtrun_pubst_next(p, q, &type, &body))
     moqtrun_pubst_lookup(type)(hub, p, q, body);
-  moqtrun_req_flush(&hub->io, q->wt, q);
+  moqtrun_reqs_tick_one(&hub->io, q);
 }
 
 /* A hub-opened PUBLISH request slot (SUBSCRIBE_TRACKS's own doc): routed
@@ -7273,8 +7338,8 @@ static int moqtrun_dispatch_pubst(
     int                 fin) {
   wired_moqtrun_req* pq = moqtrun_pubst_slot(hub, p->wt, stream_id);
   if (!pq) return 0;
-  moqtrun_pubst_recv(hub, p, pq, data);
   pq->fin_in |= fin;
+  moqtrun_pubst_recv(hub, p, pq, data);
   return 1;
 }
 

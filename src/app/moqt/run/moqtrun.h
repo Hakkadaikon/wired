@@ -569,6 +569,14 @@ typedef struct {
   u8 has_forward;
   u8 forward;
   u8 group_order;
+  /** SUBSCRIBE_TRACKS and the PUBLISH slots it opens: the object Range
+   * Filter rows it carried (draft-22 3.6.1, draft-19 10.19.1), the
+   * resulting subscription's initial rows; never in the PUBLISH (22 9.8). */
+  wired_moqtrun_rngrow rngf[WIRED_MOQTRUN_MAX_FILTER_RANGES];
+  u8                   rngf_n;
+  /** A hub-opened PUBLISH slot only: 1 once its one REQUEST_OK arrived
+   * (18/19 5.1, 22 3.1: a second response closes the session). */
+  u8 pub_answered;
 } wired_moqtrun_req;
 
 /** Fixed capacity: SUBSCRIBEs held for a publisher (RENDEZVOUS_TIMEOUT,
