@@ -6,6 +6,7 @@ static ticket tf_sample_ticket(void) {
   t.issued_at     = 1000000ULL;
   t.lifetime_secs = 7200;
   t.age_add       = 0xAAAAAAAAu;
+  t.alpn          = 0;
   return t;
 }
 

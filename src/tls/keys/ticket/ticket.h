@@ -14,7 +14,7 @@
 /* Sealed-ticket framing: nonce || ciphertext || tag. */
 #define TICKET_NONCE_LEN 12
 #define TICKET_TAG_LEN 16
-#define TICKET_PLAIN_LEN (TICKET_SECRET_LEN + 8 + 4 + 4)
+#define TICKET_PLAIN_LEN (TICKET_SECRET_LEN + 8 + 4 + 4 + 1)
 #define TICKET_SEALED_LEN (TICKET_NONCE_LEN + TICKET_PLAIN_LEN + TICKET_TAG_LEN)
 
 /** One resumption ticket's plaintext contents (RFC 8446 4.6.1). */
@@ -23,6 +23,10 @@ typedef struct {
   u64 issued_at;                 /**< server clock at issuance */
   u32 lifetime_secs;             /**< ticket_lifetime (RFC 8446 4.6.1) */
   u32 age_add; /**< ticket_age_add (RFC 8446 4.6.1), random per ticket */
+  /** RFC 8446 4.2.10: the issuing connection's negotiated ALPN (a
+   * salpn_choice), so 0-RTT is only accepted under the same protocol;
+   * 0 = not recorded. */
+  u8 alpn;
 } ticket;
 
 /* Seal a ticket under the server's fixed key: out receives

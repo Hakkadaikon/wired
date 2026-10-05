@@ -420,6 +420,7 @@
 #include "tls/handshake/roles/srvfin/hsdone.c"
 #include "tls/ext/salpn/ch_ext.c"
 #include "tls/ext/salpn/negotiate.c"
+#include "tls/ext/salpn/salpn_raw.c"
 #include "tls/ext/salpn/sni_extract.c"
 #include "tls/ext/stp/server_tp.c"
 #include "tls/ext/stp/parse_tp.c"
@@ -922,6 +923,7 @@
 #include "tls/ch_ext_test.c"
 #include "tls/chguard_test.c"
 #include "tls/negotiate_test.c"
+#include "tls/salpn_raw_test.c"
 #include "tls/sni_extract_test.c"
 #include "tls/server_tp_test.c"
 #include "app/h3settings_control_open_test.c"
@@ -1474,6 +1476,7 @@ int main(void) {
   test_negotiate_follows_client_order();
   test_negotiate_selects_hq_when_only_offered();
   test_negotiate_none_when_neither_offered();
+  test_salpn_raw();
   test_sni_extract_from_clienthello();
   test_sni_extract_truncated();
   test_sni_extract_wrong_name_type();

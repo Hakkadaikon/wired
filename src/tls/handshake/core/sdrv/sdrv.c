@@ -12,6 +12,7 @@
 #include "crypto/symmetric/hash/hash/sha256.h"
 #include "tls/ext/salpn/ch_ext.h"
 #include "tls/ext/salpn/negotiate.h"
+#include "tls/ext/salpn/salpn_raw.h"
 #include "tls/ext/salpn/sni_check.h"
 #include "tls/ext/stp/parse_tp.h"
 #include "tls/ext/tlsext/preshared.h"
@@ -102,11 +103,17 @@ static void sdrv_copy_ticket_key(sdrv* s, const u8* ticket_key) {
     s->ticket_key[i] = ticket_key ? ticket_key[i] : 0;
 }
 
+void sdrv_set_raw_alpns(sdrv* s, const char* raw_alpns) {
+  s->raw_alpns = raw_alpns;
+}
+
 void sdrv_init(sdrv* s, const sdrv_init_in* in) {
   s->limits                       = (stp_limits){0};
   s->sreset_token_set             = 0;
   s->peer_max_datagram_frame_size = 0;
   s->alpn                         = SALPN_NONE;
+  s->alpn_tok                     = wired_span_of(0, 0);
+  s->raw_alpns                    = 0;
   s->cipher_suite                 = TLS_AES_128_GCM_SHA256;
   s->group                        = GROUP_X25519;
   sdrv_copy32(s->server_priv, in->server_priv_x25519);
@@ -417,18 +424,19 @@ static int take_client_sid(sdrv* s, const u8* ch_msg, usz ch_len) {
 }
 
 /* RFC 7301 3.1/3.2: negotiate ALPN from the ClientHello's ALPN extension
- * (0x0010), preferring h3 over hq-interop (salpn_negotiate). Absent or
- * malformed ALPN extension negotiates SALPN_NONE the same as an
- * extension present but offering neither -- both fail the handshake at the
- * caller (sdrv_recv_client_hello returning that outcome is not itself
- * a parse failure; the caller checks s->alpn before building a flight). */
+ * (0x0010) in the client's preference order across h3, hq-interop and the
+ * configured raw ids (salpn_raw_pick). Absent or malformed ALPN extension
+ * negotiates SALPN_NONE the same as an extension present but offering
+ * nothing this server speaks -- not itself a ClientHello parse failure;
+ * the flight build refuses it with no_application_protocol. */
 static void sdrv_negotiate_alpn(sdrv* s, const u8* ch_msg, usz ch_len) {
   wired_span ext;
-  s->alpn = SALPN_NONE;
+  s->alpn     = SALPN_NONE;
+  s->alpn_tok = wired_span_of(0, 0);
   if (!salpn_find_extension(
           wired_span_of(ch_msg, ch_len), SALPN_EXT_TYPE, &ext))
     return;
-  s->alpn = salpn_negotiate(ext.p, ext.n);
+  s->alpn = salpn_raw_pick(ext.p, ext.n, s->raw_alpns, &s->alpn_tok);
 }
 
 /* RFC 6066 3: check the ClientHello's server_name against this driver's own
@@ -512,7 +520,6 @@ static void sdrv_ch_take_optional(sdrv* s, const u8* ch_msg, usz ch_len) {
   take_peer_tp_int(
       ch_msg, ch_len, TP_INITIAL_MAX_STREAMS_UNI,
       &s->peer_initial_max_streams_uni);
-  sdrv_negotiate_alpn(s, ch_msg, ch_len);
   sdrv_check_sni(s, ch_msg, ch_len);
   transcript_add(&s->tr, ch_msg, ch_len);
 }
@@ -634,6 +641,19 @@ static void sdrv_take_early_keys(sdrv* s, const u8* ch_msg, usz ch_len) {
   s->early_data_accepted = 1;
 }
 
+/* RFC 8446 4.2.10: the ticket's recorded ALPN (0 = not recorded) is the
+ * one negotiated now. */
+static int sdrv_ticket_alpn_matches(const sdrv* s, const ticket* t) {
+  return t->alpn == SALPN_NONE || t->alpn == s->alpn;
+}
+
+/* 0-RTT may be accepted under this ALPN: never on a raw-QUIC id (REQ-H,
+ * draft-ietf-moq-transport-18 3.3.1 / -22 6.3.1 let a relay refuse it),
+ * and only with a ticket issued under the same ALPN (RFC 8446 4.2.10). */
+static int sdrv_early_alpn_ok(const sdrv* s, const ticket* t) {
+  return s->alpn != SALPN_RAW && sdrv_ticket_alpn_matches(s, t);
+}
+
 /* A ticket that opened AND whose binder verified: record psk_accepted/
  * psk_secret and derive 0-RTT keys when the ClientHello asked for them and
  * the ticket is not a replay. */
@@ -648,7 +668,8 @@ static void sdrv_psk_accept_opened(
    * -- the actual PSK (see sdrv_psk_from_ticket_secret's doc), not the raw
    * ticket-stored resumption_master_secret. */
   sdrv_psk_from_ticket_secret(t->secret, s->psk_secret);
-  if (sdrv_early_data_wanted(ch_msg, ch_len, t, off))
+  if (sdrv_early_alpn_ok(s, t) &&
+      sdrv_early_data_wanted(ch_msg, ch_len, t, off))
     sdrv_take_early_keys(s, ch_msg, ch_len);
 }
 
@@ -668,7 +689,7 @@ static int sdrv_psk_try_offer(
     usz                     ch_len,
     wired_span              psk_ext,
     const tlsext_psk_offer* off) {
-  ticket t  = {{0}, 0, 0, 0};
+  ticket t  = {{0}, 0, 0, 0, 0};
   int    ok = sdrv_psk_open_ticket(s, off, &t);
   ok &= sdrv_psk_binder_ok(&t, ch_msg, psk_ext, off); /* always evaluated */
   if (!ok) {
@@ -1037,6 +1058,7 @@ static int sdrv_ch_require_scheme_offered(
 /* Negotiated, key_share taken, and PSK/scheme both settled -- the rest of
  * sdrv_recv_client_hello (split out to keep its CCN low). */
 static int sdrv_ch_after_required(sdrv* s, const u8* ch_msg, usz ch_len) {
+  sdrv_negotiate_alpn(s, ch_msg, ch_len); /* the 0-RTT gate reads it */
   if (!sdrv_ch_take_psk(s, ch_msg, ch_len)) return 0;
   if (!sdrv_ch_require_scheme_offered(s, ch_msg, ch_len)) return 0;
   sdrv_ch_take_optional(s, ch_msg, ch_len);
