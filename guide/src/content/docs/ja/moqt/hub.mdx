@@ -22,8 +22,13 @@ MoQT（Media over QUIC Transport）は、映像や音声などのメディアを
   ストリームを開く 2 つの呼び出しには、先頭にストリームシグナル（目印のバイト列）が必要なので、`with_signal` が `wired_wtwire_signal_put` でそれを付けます。
 - ハブの `wired_moqt_on_session`、`_on_stream_data`、`_on_datagram`、`_on_session_close` は、それぞれ `&hub` をコンテキストにして `wired_srvrun_opt` にそのまま設定します。
   サーバーを動かすのは `wired_server_run_opt` です。
-- セッションが開くと、ハブは単方向の制御ストリームを開き、その上で SETUP（type `0x2f00`）を送ります。
-  クライアントはこのストリームで SETUP を読み、リクエスト用に自分の単方向ストリームを開きます（古い双方向の制御ストリームしか話せないクライアントでも、相手がその形式を使っていればハブ側がそちらに合わせるので問題なく動きます）。
+- セッションが開くと、ハブは制御ストリームを開き、その上で SETUP（type `0x2f00`）を送ります。
+  このストリームの形は WebTransport のサブプロトコルで決まります。
+  `moqt-NN` を交渉したセッションでは、ハブが単方向の制御ストリームを開き、クライアントも自分の単方向の制御ストリームを開きます。
+  交渉しなかったセッションは、draft-19 を従来の双方向の制御ストリーム 1 本の上で話します。
+  このページのサーバーは `opt.wt_protocols` を設定していないので、そのクライアントは（サブプロトコルを提示できないブラウザと同じく）双方向の形になり、`AcceptStream` で SETUP を読みます。
+- クライアントに版を選ばせるには、`wired_moqt_wt_protocols(buf, sizeof buf)` が書き出すハブの一覧（`moqt-22 moqt-19 moqt-18`）を `opt.wt_protocols` に設定します。
+  `examples/moqt_interop` がこの使い方をしています。
 - サーバーの識別情報で `max_datagram_frame_size` を設定すると、QUIC DATAGRAM（再送しないメッセージを運ぶ QUIC の拡張）が有効になります。
   WebTransport のクライアントはこれを必要とします。
 - `moqtrun.h` は `wired.h` に含まれないので、別にインクルードします。

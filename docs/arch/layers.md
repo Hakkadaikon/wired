@@ -121,9 +121,11 @@ session that carries its own bidirectional streams and datagrams, giving a
 browser something closer to a raw QUIC connection without leaving HTTP/3's
 negotiation and multiplexing behind. MoQT (`src/app/moqt/`) is a publish/
 subscribe media protocol layered on top of that WebTransport session: a
-SETUP/SUBSCRIBE/PUBLISH subset lets one endpoint push track objects to
-another over the session's streams, which is what live audio/video and chat
-payloads need instead of HTTP/3's request/response shape.
+relay-role subset (SETUP, SUBSCRIBE, PUBLISH, FETCH, namespace discovery)
+lets one endpoint push track objects to another over the session's streams,
+which is what live audio/video and chat payloads need instead of HTTP/3's
+request/response shape. The draft (18, 19 or 22) is chosen per session from
+the WebTransport subprotocol (`app/moqt/ver/`).
 
 ---
 

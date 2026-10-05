@@ -68,9 +68,11 @@ same way; see [examples/](../examples/): an HTTP/3 message-log /
 static-file server ([word_list](../examples/word_list/)), a
 [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)
 WebTransport server endpoint
-([webtransport_interop](../examples/webtransport_interop/)), and a MOQT
+([webtransport_interop](../examples/webtransport_interop/)), a MOQT
 (draft-ietf-moq-transport-19) chat-plus-voice-call room over WebTransport
-([moqt_chat](../examples/moqt_chat/)). For guided, runnable WebTransport
+([moqt_chat](../examples/moqt_chat/)), and a MOQT relay that negotiates
+draft-18/19/22 per session for moq-interop-runner
+([moqt_interop](../examples/moqt_interop/)). For guided, runnable WebTransport
 walkthroughs, see the
 [interactive guide](https://hakkadaikon.github.io/wired/guide).
 

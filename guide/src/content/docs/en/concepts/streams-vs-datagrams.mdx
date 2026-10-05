@@ -41,7 +41,8 @@ A subscriber bounds that with the OBJECT_DELIVERY_TIMEOUT parameter (draft
 10.2.4) on SUBSCRIBE or REQUEST_UPDATE: when an Object's first byte reached
 the hub longer ago than the timeout, the hub resets that subscriber's stream
 with DELIVERY_TIMEOUT instead of sending it late (draft 8). A non-zero
-SUBGROUP_DELIVERY_TIMEOUT is answered REQUEST_ERROR NOT_SUPPORTED.
+SUBGROUP_DELIVERY_TIMEOUT works the same way; when the publisher also set
+one as a Track Property, the smaller of the two applies.
 
 ## Which one to choose
 

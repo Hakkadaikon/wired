@@ -26,8 +26,8 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 1432/1433 requirements demonstrated (99.9%) — 1197 directly tested,
-235 indirect, 1 untested.**
+**Total: 1862/1868 requirements demonstrated (99.7%) — 1609 directly tested,
+253 indirect, 6 untested.**
 
 ## QUIC core
 
@@ -102,9 +102,9 @@ independent implementation) are tracked separately: see
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 206/208 | 197 | 9 | 2 |
-| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 198/199 | 188 | 10 | 1 |
-| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 197/203 | 187 | 10 | 6 |
+| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 213/214 | 204 | 9 | 1 |
+| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 208/208 | 199 | 9 | 0 |
+| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 207/212 | 197 | 10 | 5 |
 
 ## IP/UDP foundations
 

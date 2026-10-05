@@ -1,6 +1,6 @@
 ---
 title: Current limits
-description: The fixed capacities wired is built with, and the parts of draft-ietf-moq-transport-19 it does not implement.
+description: The fixed capacities wired is built with, and the parts of draft-ietf-moq-transport (18, 19 and 22) it does not implement.
 sidebar:
   order: 5
 ---
@@ -57,20 +57,31 @@ round is streamed ([Streaming a large body](../../h3/streaming/)).
 | Track Name | 64 bytes | `WIRED_MOQTRUN_MAX_NAME` |
 | Encoded Track Namespace | 128 bytes | `WIRED_MOQTRUN_MAX_NS` |
 | GOAWAY New Session URI | 512 bytes | `WIRED_MOQTRUN_GOAWAY_URI_MAX` |
+| Range Filter Ranges per request (advertised MAX_FILTER_RANGES) | 4 | `WIRED_MOQTRUN_MAX_FILTER_RANGES` |
+| Unanswered REQUEST_UPDATEs per request (advertised MAX_REQUEST_UPDATES) | 4 | `WIRED_MOQTRUN_MAX_REQ_UPDATES` |
 | FETCH cache | the arena the app passes | `wired_moqt_cache_attach` |
 
-## draft-ietf-moq-transport-19 parts not implemented
+## draft-ietf-moq-transport parts not implemented
 
-- The hub opens one bidirectional control stream per session and sends
-  SETUP (0x2F00) on it; the draft's pair of unidirectional control streams
-  (one opened by each endpoint, 3.3) is not implemented.
-- SUBSCRIBE_TRACKS is answered REQUEST_ERROR NOT_SUPPORTED.
-- A subscription made on the control stream gets no PUBLISH_DONE, since that
-  stream has no Request ID to name it by; subscriptions on their own request
-  streams do.
-- REQUEST_UPDATE is served only on a SUBSCRIBE's request stream; for any
-  other request it is answered NOT_SUPPORTED.
-- A non-zero SUBGROUP_DELIVERY_TIMEOUT is answered NOT_SUPPORTED.
+The hub speaks draft-18, draft-19 or draft-22, chosen per session from the
+WebTransport subprotocol the client offers (`moqt-18`/`moqt-19`/`moqt-22`).
+The list below applies to all three unless a draft is named.
+
+- A session that negotiates no subprotocol (a browser's `WebTransport`
+  cannot offer one) speaks draft-19 over the older single bidirectional
+  control stream; the unidirectional control-stream pair (3.3), draft-18
+  and draft-22 need a `moqt-NN` subprotocol.
+- A subscription made on that bidirectional control stream gets no
+  PUBLISH_DONE, since the stream has no Request ID to name it by;
+  subscriptions on their own request streams do.
+- REQUEST_UPDATE of a SUBSCRIBE_TRACKS is answered NOT_SUPPORTED, and so is
+  REQUEST_UPDATE of the sender's own PUBLISH except on a draft-22 session.
+- Range Filters (draft-19 and draft-22 only) are validated and counted
+  against MAX_FILTER_RANGES, but only OBJECTID_FILTER filters delivery, and
+  only for Objects sent as datagrams; the other filter types pass.
+- A late subscriber's live delivery starts at its Location Filter's start
+  Group, but a start Object inside that Group is not trimmed from a Subgroup
+  stream.
 - The DEFAULT_PUBLISHER_PRIORITY Track Property is not read; an Object
   without an explicit Publisher Priority counts as 128.
 - The hub's own tracks (`wired_moqt_publish_blob`, `wired_moqt_publish_live`)

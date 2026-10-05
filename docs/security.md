@@ -31,7 +31,7 @@ it. This is a description of what the code checks — not a threat model.
 feature does not exist here (revocation checking, client certificates,
 ECH, DSA, ...): adding such a feature re-opens its rows.
 
-`docs/security/vuln-ledger.md` is an 837-row ledger built from CVE
+`docs/security/vuln-ledger.md` is an 838-row ledger built from CVE
 databases, peer-implementation security advisories, and RFC "Security
 Considerations" sections, each row mapped to the `wired` code path it does
 or does not apply to, one table row each. A row closes (`done`) only with
@@ -39,9 +39,9 @@ a verdict (`fixed` / `already-safe` / `n/a`) plus a real test function name,
 or for `n/a` rows a one-line reason the class does not apply (no heap, no
 hash table, no network client). `python3 scripts/vulnaudit/ledger_check.py
 docs/security/vuln-ledger.md` machine-checks the row grammar and prints
-per-section counts: QUIC transport 233, TLS 1.3 185, symmetric crypto 31,
+per-section counts: QUIC transport 233, TLS 1.3 186, symmetric crypto 31,
 signatures & key agreement 108, X.509/DER/PKI 131, HTTP/3+QPACK+Datagrams
-68, WebTransport 21, MoQT 21, IP/UDP/AF_XDP 3, media (mp4frag) 25,
+68, WebTransport 21, MoQT 22, IP/UDP/AF_XDP 3, media (mp4frag) 25,
 samples/dependencies 10 — all closed.
 
 Many rows close `n/a` because the attacked mechanism does not exist here (no
@@ -264,8 +264,10 @@ adversarial input) without exercising that guard as a failure lever
 
 ## MOQT
 
-- `src/app/moqt/` (`ctl`/`data`/`kvp`/`run`/`sess`/`vi`) implements MoQT
-  (draft-ietf-moq-transport-19) over the WebTransport session and inherits
+- `src/app/moqt/` (`cache`/`ctl`/`data`/`dgram`/`fetch`/`kvp`/`ns`/`run`/
+  `sess`/`tstat`/`ver`/`vi`) implements MoQT (draft-ietf-moq-transport-18,
+  -19 or -22, chosen per session from the WT subprotocol; section numbers
+  below cite draft-19) over the WebTransport session and inherits
   its TLS 1.3 confidentiality/integrity and endpoint authentication — no
   separate MoQT-layer crypto exists.
 - CONNECT-stream capsule decode/apply is wired so a pooled WebTransport
@@ -334,10 +336,11 @@ adversarial input) without exercising that guard as a failure lever
   provides the wire format and the hook, not the policy.
 
 **Known limits:** the authorization hook is opt-in — the sample hub ships
-with `authorize_subscribe == 0`, fully open by default; PUBLISH is not
-gated — SUBSCRIBE and TRACK_STATUS go through `authorize_subscribe`, and
-PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE through the separate, also opt-in
-`authorize_namespace`; a duplicate `AUTHORIZATION_TOKEN` in one message is
+with `authorize_subscribe == 0`, fully open by default — SUBSCRIBE and
+TRACK_STATUS go through `authorize_subscribe`, PUBLISH through the separate,
+also opt-in `authorize_publish` (draft-22 16.3.4 "Preventing Impersonation",
+`test_moqtrun_publish_requires_authorization`), and PUBLISH_NAMESPACE /
+SUBSCRIBE_NAMESPACE through the likewise opt-in `authorize_namespace`; a duplicate `AUTHORIZATION_TOKEN` in one message is
 rejected as a generic duplicate-parameter VIOLATION rather than honoring the
 spec's "MAY be repeated" allowance; `WT_DRAIN_SESSION` is advisory only —
 the SDK notifies the app but does not close the session itself; `Origin`

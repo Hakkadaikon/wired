@@ -5,14 +5,20 @@
 EARS requirement ledger extracted from the spec text
 (`tasks/specs/draft-ietf-moq-transport-19.txt`, not in git), for this SDK's
 MOQT subset: a single central hub relay over WebTransport implementing
-SETUP, GOAWAY, PUBLISH, SUBSCRIBE (with Location Filters, FORWARD, priority
-and OBJECT_DELIVERY_TIMEOUT), REQUEST_UPDATE of a SUBSCRIBE, TRACK_STATUS,
-FETCH (standalone and joining, served from a whole-group cache),
-PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE, PUBLISH_DONE, and Object delivery
-on Subgroup streams and Object Datagrams. Each requirement carries the test
-that demonstrates it; an unchecked box with no test line is an open gap.
-What is still missing is listed under [Not implemented](#not-implemented).
-Status as of 2026-10.
+SETUP, GOAWAY, PUBLISH, SUBSCRIBE (with Location and Range Filters,
+FORWARD, priority and both delivery timeouts), REQUEST_UPDATE of a
+SUBSCRIBE, FETCH or namespace request, TRACK_STATUS, FETCH (standalone and
+joining, served from a whole-group cache), PUBLISH_NAMESPACE /
+SUBSCRIBE_NAMESPACE, SUBSCRIBE_TRACKS (hub-initiated PUBLISH or
+PUBLISH_SKIPPED), PUBLISH_DONE, and Object delivery on Subgroup streams and
+Object Datagrams. The hub negotiates draft-18, draft-19 or draft-22 per
+session from the WebTransport subprotocol (`moqt-18`/`moqt-19`/`moqt-22`;
+no subprotocol means draft-19); this file is the draft-19 ledger, and
+[draft-18](draft-moq-transport-18.md) and
+[draft-22](draft-moq-transport-22.md) have their own. Each requirement
+carries the test that demonstrates it; an unchecked box with no test line
+is an open gap. What is still missing is listed under
+[Not implemented](#not-implemented). Status as of 2026-10.
 
 The hub keeps every session, track and cache in one process's memory: run
 it single-process (no `--workers`, `--cores` or AF_XDP fan-out), as
@@ -24,7 +30,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 189/199 tested, 9 indirect, 1 untested.**
+**Coverage: 199/208 tested, 9 indirect, 0 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -173,11 +179,15 @@ Legend:
 
 ## SS3.2.1 Reserved Namespaces / SS3.2.2 Session-Level Tracks
 
-- [ ] MOQT-028 If a request references a Track Namespace whose first field is a
+- [x] MOQT-028 If a request references a Track Namespace whose first field is a
   single period, then the implementation shall reject it with DOES_NOT_EXIST.
-  - gap: clients now choose their own namespaces (PUBLISH, SUBSCRIBE,
-    PUBLISH_NAMESPACE, SUBSCRIBE_NAMESPACE match the full Track Namespace),
-    but reserved-namespace and `.session` rejection are not implemented.
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_reserved_ns_rejected`
+  - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_reserved_rejected`
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_other_dot_ns_served`
+  - note: `moqtrun_ns_reserved` (ledger 10-1) rejects a first field of
+    exactly `.` or `.session` with DOES_NOT_EXIST on PUBLISH, SUBSCRIBE,
+    PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE; any other `.`-led field is
+    served like an ordinary namespace. The check is version-independent.
 
 ## SS3.3 Session Initialization
 
@@ -361,7 +371,7 @@ Legend:
   TRACK_STATUS, PUBLISH_NAMESPACE, SUBSCRIBE_NAMESPACE, SUBSCRIBE_TRACKS)
   from a wholly unknown one, so the caller can dispatch it, or reply
   NOT_SUPPORTED, instead of closing the session. The hub now answers all of
-  these except SUBSCRIBE_TRACKS.
+  these, SUBSCRIBE_TRACKS included (MOQT-200).
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_peek_type_known_unimplemented`
   - test: `tests/app/moqtrun_test.c` —
@@ -446,10 +456,12 @@ Legend:
   parameter, the hub shall accept it and record it as the subscription's
   effective subgroup timeout, min()ed against the publisher's Track
   Property (10-4); a non-zero OBJECT_DELIVERY_TIMEOUT is likewise accepted
-  and applied (MOQT-195).
+  and applied (MOQT-189).
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_subscribe_nonzero_timeout_accepted`
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_timeout_accepted`
+  - test: `tests/app/moqtrun_sub_test.c` —
+    `test_moqtrun_sub_subgroup_timeout_min`
 
 ## SS10.2.17 FORWARD Parameter
 
@@ -1250,32 +1262,129 @@ Legend:
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_dg_unknown_alias_counts_bad`
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_dg_malformed_counts_bad`
 
+## Hub features completed in the multi-draft round (ledger ch. 10)
+
+- [x] MOQT-200 (SS10.19) The hub shall answer a SUBSCRIBE_TRACKS with exactly
+  one REQUEST_OK on its request stream, and shall refuse one whose Track
+  Namespace Prefix overlaps an established SUBSCRIBE_TRACKS of the same session
+  with PREFIX_OVERLAP.
+  - test: `tests/app/moqtrun_subtracks_test.c` — `test_subtracks_ok_once`
+  - test: `tests/app/moqtrun_subtracks_test.c` — `test_subtracks_prefix_overlap`
+  - test: `tests/app/moqns_test.c` — `test_moqns_subscribe_tracks_param_scope`
+- [x] MOQT-201 (SS10.19) For every track matching an established
+  SUBSCRIBE_TRACKS prefix and not published by the subscriber itself, the hub
+  shall open one PUBLISH on a new bidirectional stream naming that track,
+  carrying the SUBSCRIBE_TRACKS's FORWARD value; cancelling the SUBSCRIBE_TRACKS
+  stops new PUBLISHes but leaves established ones, a track that vanishes before
+  the reply resets its PUBLISH stream, and a REQUEST_ERROR reply frees the slot.
+  - test: `tests/app/moqtrun_subtracks_test.c` —
+    `test_subtracks_publish_match_excludes_self`
+  - test: `tests/app/moqtrun_subtracks_test.c` —
+    `test_subtracks_forward_zero_reflected`
+  - test: `tests/app/moqtrun_subtracks_test.c` —
+    `test_subtracks_cancel_keeps_established`
+  - test: `tests/app/moqtrun_subtracks_test.c` —
+    `test_subtracks_track_vanishes_resets_publish`
+  - test: `tests/app/moqtrun_subtracks_test.c` —
+    `test_subtracks_publish_error_frees_slot`
+  - test: `tests/app/moqtrun_subtracks_test.c` —
+    `test_subtracks_liveness_eventually_attempted`
+  - note: ledger 10-2 (E-2): the hub-initiated PUBLISH path; TLA+-checked design
+    in `tasks/loopeng/moqt/MoqtHubPublish/` (not in git).
+- [x] MOQT-202 (SS10.20) Where the hub cannot open a bidirectional stream for
+  such a PUBLISH, it shall send PUBLISH_SKIPPED (Track Namespace Suffix, Track
+  Name) on the SUBSCRIBE_TRACKS request stream instead, and shall not later send
+  a PUBLISH for the same track incarnation.
+  - test: `tests/app/moqtrun_subtracks_test.c` —
+    `test_subtracks_skip_then_no_publish`
+  - test: `tests/app/moqns_test.c` — `test_moqns_pub_skipped_roundtrip`
+  - test: `tests/app/moqns_test.c` — `test_moqns_pub_skipped_rejects`
+- [x] MOQT-203 (SS10.9, SS10.9.2) A REQUEST_UPDATE of a FETCH, PUBLISH_NAMESPACE
+  or SUBSCRIBE_NAMESPACE on its request stream shall be served: an accepted
+  update is acknowledged (a new SUBSCRIBE_NAMESPACE prefix takes effect for
+  later announcements); a refused FETCH update resets the FETCH data stream, and
+  a refused namespace update (e.g. PREFIX_OVERLAP) closes the request stream and
+  leaves the old prefix in place.
+  - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_on_fetch_stream`
+  - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_on_fetch_stream_refused`
+  - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_ns_prefix_changes`
+  - test: `tests/app/moqtrun_upd_test.c` —
+    `test_moqtrun_upd_ns_prefix_overlap_refused`
+  - note: ledger 10-5.
+- [x] MOQT-204 (SS10.2.8, SS10.12) A FETCH with GROUP_ORDER Descending shall be
+  served newest group first (Objects within a group still ascending), and a
+  FETCH whose body fails to decode shall close the session with
+  PROTOCOL_VIOLATION.
+  - test: `tests/app/moqtrun_fetch_test.c` —
+    `test_moqtrun_fetch_descending_group_order`
+  - test: `tests/app/moqtrun_fetch_test.c` — `test_moqtrun_fetch_malformed_closes`
+  - note: ledger 10-6.
+- [x] MOQT-205 (SS5.1.4) A late subscriber attached to a live track shall start
+  at its Location Filter's start Group: a start behind the live edge is clamped
+  to the current Group, and a future start holds delivery until that Group.
+  - test: `tests/app/moqtrun_sub_test.c` —
+    `test_moqtrun_sub_live_attach_filter_start`
+  - note: ledger 10-7. Group-granular: a start Object inside the first Group is
+    not trimmed on a Subgroup stream (see Not implemented).
+- [x] MOQT-206 (SS10.3.1.6, SS10.3.1.7) The hub's SETUP shall advertise
+  MAX_FILTER_RANGES and MAX_REQUEST_UPDATES (both 4,
+  `WIRED_MOQTRUN_MAX_FILTER_RANGES` / `WIRED_MOQTRUN_MAX_REQ_UPDATES`), and
+  shall decode the peer's; an absent option keeps the draft default 0.
+  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_setup_advertises_limits`
+  - test: `tests/app/moqctl_test.c` — `test_moqctl_setup_limit_options_roundtrip`
+  - test: `tests/app/moqctl_test.c` — `test_moqctl_setup_limit_options_default_zero`
+  - note: ledger 10-11.
+- [x] MOQT-207 (SS10.3.1.7, SS10.9) A request stream already holding
+  MAX_REQUEST_UPDATES unanswered REQUEST_UPDATEs shall close the session with
+  TOO_MANY_REQUEST_UPDATES on one more; a flushed response round restores the
+  credit of every coalesced update.
+  - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_credit_too_many`
+  - test: `tests/app/moqtrun_upd_test.c` —
+    `test_moqtrun_upd_credit_restored_by_flush`
+  - note: ledger 10-10.
+- [x] MOQT-208 (SS5.1.3, SS10.2.10-10.2.14) Range Filter parameters shall be
+  decoded with delta resolution and validated: an undecodable value, a repeated
+  (Type, SetID) in one message, or a total Range count beyond the advertised
+  MAX_FILTER_RANGES (SUBSCRIBE, FETCH or REQUEST_UPDATE) is INVALID_FILTER; a
+  REQUEST_UPDATE replaces a mentioned filter type whole and a zero-length value
+  removes it; SetIDs OR together, and OBJECTID_FILTER gates each
+  datagram-forwarded Object.
+  - test: `tests/app/moqctl_test.c` — `test_moqctl_rangefilter_value_roundtrip`
+  - test: `tests/app/moqctl_test.c` —
+    `test_moqctl_rangefilter_open_end_prop_and_remove`
+  - test: `tests/app/moqctl_test.c` —
+    `test_moqctl_rangefilter_overflow_and_truncated`
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_rngf_dup_identity`
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_rngf_limit`
+  - test: `tests/app/moqtrun_fetch_test.c` — `test_moqtrun_fetch_rngf_limit`
+  - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_rngf_replace_remove`
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_rngf_sets_or`
+  - test: `tests/app/moqtrun_sub_test.c` —
+    `test_moqtrun_sub_objectid_filter_gates_datagram`
+  - note: ledger 10-9. Only OBJECTID_FILTER gates delivery, and only at the
+    per-Object (datagram) gate; the other filter types are validated and stored
+    but pass (see Out of scope).
+
 ## Not implemented
 
 In scope for a draft-19 relay, but not implemented yet. A peer that needs
-one of these gets NOT_SUPPORTED (or, where noted, a different behavior):
+one of these gets NOT_SUPPORTED (or, where noted, a different behavior).
+Reserved namespaces, SUBSCRIBE_TRACKS, PUBLISH_SKIPPED, non-zero
+SUBGROUP_DELIVERY_TIMEOUT, FETCH GROUP_ORDER, REQUEST_UPDATE of FETCH and
+namespace requests, MAX_REQUEST_UPDATES and Range Filter validation were
+listed here until ledger ch. 10 implemented them (MOQT-028, MOQT-070,
+MOQT-200 through MOQT-208).
 
-- (SS3.2.1, SS3.2.2) Reserved-namespace and `.session` rejection
-  (MOQT-028).
-- (SS10.19) SUBSCRIBE_TRACKS — answered NOT_SUPPORTED.
 - (SS10.11) PUBLISH_DONE for a subscription made on the legacy control
   stream: there is no request stream to carry it, so none is sent and the
-  subscription is kept for a publisher rejoin. PUBLISH_DONE always
-  carries the "unknown" Stream Count (MOQT-103).
-- (SS10.2.3) A non-zero SUBGROUP_DELIVERY_TIMEOUT — NOT_SUPPORTED
-  (MOQT-070). OBJECT_DELIVERY_TIMEOUT is applied (MOQT-189).
-- (SS8) The publisher's own Track Property delivery timeout is not combined
-  with the subscriber's (the min() of the two); only the subscriber's
-  value is applied.
-- (SS10.9) REQUEST_UPDATE of a PUBLISH, a FETCH, or a namespace request —
-  NOT_SUPPORTED. A failed namespace update should close its request
-  stream; that close is not implemented.
-- (SS10.12) FETCH GROUP_ORDER: objects are always returned in ascending
-  group order. A malformed FETCH is dropped instead of closing the session.
-- (SS5.1.4) A live attachment of a late subscriber starts at object 0 of
-  the current group; only the reliable replay honours the Location
-  Filter's start object (MOQT-108).
-- (SS10.20) PUBLISH_SKIPPED is skipped on receipt and never sent.
+  subscription is kept for a publisher rejoin.
+- (SS10.9) REQUEST_UPDATE of a SUBSCRIBE_TRACKS, or of the sender's own
+  PUBLISH — NOT_SUPPORTED on a draft-19 session (the hub accepts a PUBLISH
+  update only on draft-22 sessions).
+- (SS5.1.4) A late subscriber's live delivery starts at its Location
+  Filter's start Group (MOQT-205), but a start Object inside that Group is
+  not trimmed from a Subgroup stream; only the reliable replay honours the
+  start Object.
 
 ## Out of scope
 
@@ -1299,11 +1408,12 @@ from the coverage denominator above:
 - (SS3.6, SS9.4.1, SS9.5.1) Session Migration and graceful relay
   switchover beyond the GOAWAY mechanics covered above — this is a single
   hub with no upstream relay to switch to.
-- (SS5.1.3, SS5.1.4) Acting on Range Filters (SUBGROUP_FILTER,
-  OBJECTID_FILTER, PRIORITY_FILTER, OBJECT_PROPERTY_FILTER,
-  TRACK_PROPERTY_FILTER) and the MAX_FILTER_RANGES Setup Option — the
-  parameter registry decodes and scope-checks them (MOQT-178), but the hub
-  does not filter on them.
+- (SS5.1.3, SS5.1.4) Acting on SUBGROUP_FILTER, PRIORITY_FILTER,
+  OBJECT_PROPERTY_FILTER and TRACK_PROPERTY_FILTER at delivery, and on
+  OBJECTID_FILTER for stream-forwarded Objects — these are decoded,
+  validated, counted against MAX_FILTER_RANGES and updated (MOQT-208), but
+  the group-granular stream gates never see the fields they filter on, so
+  they pass. OBJECTID_FILTER does gate datagram-forwarded Objects.
 - (SS7, SS7.1--7.3) The Priorities scheduling algorithm across
   subscriptions and Publisher Priority — only Subscriber Priority is
   applied, as WebTransport stream urgency (MOQT-185).
@@ -1314,10 +1424,10 @@ from the coverage denominator above:
 - (SS10.2.5, SS10.2.6, SS10.2.14, SS10.2.16) FILL_TIMEOUT,
   RENDEZVOUS_TIMEOUT, EXPIRES and NEW_GROUP_REQUEST — decoded by the
   registry, not acted on.
-- (SS10.3.1.3, SS10.3.1.4, SS10.3.1.6, SS10.3.1.7) MAX_AUTH_TOKEN_CACHE_SIZE,
-  AUTHORIZATION TOKEN as a Setup Option, MAX_FILTER_RANGES, and
-  MAX_REQUEST_UPDATES Setup Options — not advertised; the hub keeps no
-  token cache, so Alias-based tokens are refused (MOQT-188).
+- (SS10.3.1.3, SS10.3.1.4) MAX_AUTH_TOKEN_CACHE_SIZE and AUTHORIZATION
+  TOKEN as a Setup Option — not advertised; the hub keeps no token cache,
+  so Alias-based tokens are refused (MOQT-188). (MAX_FILTER_RANGES and
+  MAX_REQUEST_UPDATES are advertised, MOQT-206.)
 - (SS11.5.2) Padding Datagrams — not sent.
 - (SS12, SS12.1--12.9) MOQT Properties (MAX_CACHE_DURATION,
   DEFAULT_PUBLISHER_PRIORITY, DEFAULT_PUBLISHER_GROUP_ORDER, DYNAMIC_GROUPS,
@@ -1330,6 +1440,17 @@ from the coverage denominator above:
   operational/deployment guidance, not a wire behavior this ledger tests.
 - (SS15) IANA Considerations — registry administration, not implementation
   behavior.
+- Per-version scope (ledger 4-4): this hub negotiates draft-18, -19 and -22
+  per session (`moqver.c`); this ledger covers draft-19. Range Filters,
+  MAX_FILTER_RANGES and MAX_REQUEST_UPDATES (MOQT-206 to MOQT-208) do not
+  exist in draft-18, so on a draft-18 session a Range Filter parameter is
+  refused as a protocol violation and the two Setup Options are ignored by
+  the peer; they behave as on draft-19 on a draft-22 session. SUBSCRIBE_TRACKS
+  admits every Subscription parameter on draft-19 and draft-22 sessions, but
+  only AUTHORIZATION TOKEN and FORWARD on draft-18 ones
+  (`MOQCTL_PARAM_RULES` in `moqctl.c`). See
+  [draft-18](draft-moq-transport-18.md) and
+  [draft-22](draft-moq-transport-22.md) for those drafts' own lists.
 - REDIRECT as an actual relay behavior (sending it to move a requester to
   another URI/target, or reacting to one from an upstream) — this is a
   single hub with no upstream relay or sibling instance to redirect to or
