@@ -41,10 +41,8 @@ typedef struct {
 
 /** The transport-mux wired_moqt_io over backend be. Ops behave per
  * transport as follows (be->is_raw decides):
- * - open_bidi_stream: WT prefixes the bidi signal; raw returns -1 with no
- *   backend call (a raw session is never legacy, so the hub never asks).
- * - send_uni / open_uni_stream: WT prefixes the uni signal; raw sends the
- *   payload byte for byte.
+ * - open_bidi_stream / send_uni / open_uni_stream: WT prefixes the
+ *   bidi/uni signal; raw sends the payload byte for byte.
  * - send_budget: WT returns the WT_MAX_DATA remainder (max_data -
  *   sent_data, 0 once exceeded, (usz)-1 when the peer set no limit); raw
  *   returns (usz)-1 (QUIC MAX_DATA is enforced by srvrun's own send

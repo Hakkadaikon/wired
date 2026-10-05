@@ -26,9 +26,9 @@ static i64 moqrawio_open(
   return open(s, wired_span_of(g_moqrawio_buf, sig + p.n));
 }
 
-/* A raw session is never legacy, so the hub never asks (moqrawio.h). */
+/* The hub's own request streams (upstream SUBSCRIBE, PUBLISH) open on raw
+ * sessions too, with no signal (moqrawio_sig). */
 static i64 moqrawio_open_bidi(wired_wt_session* s, wired_span p) {
-  if (g_moqrawio_be->is_raw(s)) return -1;
   return moqrawio_open(g_moqrawio_be->open_bidi_stream, 1, s, p);
 }
 

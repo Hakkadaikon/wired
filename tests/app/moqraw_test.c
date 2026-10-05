@@ -169,13 +169,16 @@ static void test_moqrawio_prefix(void) {
   CHECK(io.stream_stop == wired_server_wt_stream_stop);
 }
 
-/* T-D2: raw never opens a bidi stream. */
+/* T-D2: raw opens a bidi stream too (the hub's upstream SUBSCRIBE and
+ * PUBLISH, draft-18 10.1) carrying the payload with no WT signal. */
 static void test_moqrawio_bidi_raw(void) {
-  wired_moqt_io io = moqrawio_io(&mqrw_be);
-  mqrw_is_raw      = 1;
-  mqrw_calls       = 0;
-  CHECK(io.open_bidi_stream(&mqrw_sess, wired_span_of(0, 0)) == -1);
-  CHECK(mqrw_calls == 0);
+  static const u8 pl[] = {0xaa, 0xbb};
+  wired_moqt_io   io   = moqrawio_io(&mqrw_be);
+  mqrw_is_raw          = 1;
+  mqrw_calls           = 0;
+  CHECK(io.open_bidi_stream(&mqrw_sess, wired_span_of(pl, 2)) == 7);
+  CHECK(mqrw_calls == 1);
+  CHECK(mqrw_last_is(pl, 2));
 }
 
 /* T-D3: WT_MAX_DATA remainder on WT, unlimited on raw. */
