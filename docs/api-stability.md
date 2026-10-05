@@ -169,6 +169,12 @@ keeps negotiating draft-19 only, unchanged from prior behavior. A session
 whose peer sends no WT subprotocol likewise falls back to the draft-19
 control-stream behavior that predates multi-draft support.
 
+Raw-QUIC MoQT (`src/app/moqt/qraw/`) adds one application-facing name:
+
+| Name | Role |
+|---|---|
+| `wired_moqraw_io` (`qraw/moqrawio.h`) | A ready-made `wired_moqt_io` over `wired_server_wt_*` for `wired_moqt_init`. It adds the WebTransport stream signal to the stream-opening ops of WT sessions only (a raw-QUIC session's streams carry none). `send_uni2` is 0; an application that needs it sets its own. |
+
 ---
 
 **Next:** [API reference](https://hakkadaikon.github.io/wired/) — full

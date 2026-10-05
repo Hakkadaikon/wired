@@ -4,72 +4,15 @@
  * A bare wired_moqt_ hub relay (app/moqt/run/moqtrun.h): every namespace is
  * accepted, the WebTransport CONNECT negotiates one of "moqt-18"/"moqt-19"/
  * "moqt-22" (whichever the client offers, via wired_moqt_wt_protocols), and
- * this file only adapts wired_server_wt_* into the hub's wired_moqt_io
- * table (signal prefix on the stream-opening entries, see
- * examples/moqt_chat/wired_server.c for the full rationale).
+ * the hub's io table is the SDK's transport mux wired_moqraw_io
+ * (app/moqt/qraw/moqrawio.h), which adds the WT stream signal itself.
  * Single-process only: the hub keeps its peer table in this process. */
 
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim */
+#include "app/moqt/qraw/moqrawio.h"
 #include "app/moqt/run/moqtrun.h"
 #include "app/moqt/ver/moqver.h"
-#include "app/webtransport/wtwire/wtwire.h"
 #include "wired.h"
-
-/* Signal prefix + one relay round; the SDK copies the payload during the
- * call (srvrun.h), so one static buffer serves every open. */
-static u8 g_open_buf[65536];
-
-typedef i64 (*wt_open_fn)(wired_wt_session* s, wired_span payload);
-
-/* Prefixes the WebTransport stream signal (draft-ietf-webtrans-http3-15
- * 4.2) and hands the stream to open. */
-static i64 open_signalled(
-    wt_open_fn open, wired_wt_session* s, wired_span payload) {
-  usz sig = wired_wtwire_signal_put(
-      g_open_buf, sizeof g_open_buf, 0, s->connect_stream_id);
-  if (sig == 0 || payload.n > sizeof g_open_buf - sig) return -1;
-  bytes_memcpy(g_open_buf + sig, payload.p, payload.n);
-  return open(s, wired_span_of(g_open_buf, sig + payload.n));
-}
-
-static i64 io_send_uni(wired_wt_session* s, wired_span p) {
-  return open_signalled(wired_server_wt_open_uni, s, p);
-}
-
-static i64 io_open_uni_stream(wired_wt_session* s, wired_span p) {
-  return open_signalled(wired_server_wt_open_uni_stream, s, p);
-}
-
-/* Remaining WT_MAX_DATA credit; a peer that never sent one has no limit. */
-static usz io_send_budget(wired_wt_session* s) {
-  if (s->max_data == 0) return (usz)-1;
-  return s->max_data > s->sent_data ? s->max_data - s->sent_data : 0;
-}
-
-static i64 io_open_bidi_stream(wired_wt_session* s, wired_span p) {
-  return open_signalled(wired_server_wt_open_bidi_stream, s, p);
-}
-
-/* Sessions negotiating a moqt-NN subprotocol get the draft-19 3.3 uni
- * control-stream pair from the hub itself; the bidi entry only serves a
- * session without a token. send_uni2 is 0: it serves only
- * wired_moqt_publish_live, unused here. */
-static const wired_moqt_io g_io = {
-    io_open_bidi_stream,
-    wired_server_wt_stream_send,
-    io_send_uni,
-    io_open_uni_stream,
-    wired_server_wt_stream_fin,
-    wired_server_wt_stream_reset,
-    0,
-    wired_server_wt_send_datagram_to,
-    wired_server_wt_stream_hold,
-    io_send_budget,
-    wired_server_wt_close_session,
-    wired_server_wt_stream_reply_open,
-    wired_server_wt_stream_priority,
-    wired_server_wt_stream_stop,
-};
 
 static wired_moqt_hub g_hub;
 
@@ -142,7 +85,7 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   server_identity(&id, &keys);
   wired_certreload_load_or_selfsigned(
       obs.cert_path, obs.key_path, &cert_store, &id);
-  wired_moqt_init(&g_hub, g_io);
+  wired_moqt_init(&g_hub, wired_moqraw_io());
   wired_moqt_cache_attach(&g_hub, g_cache_arena, sizeof g_cache_arena);
 
   if (!wired_srvdriver_parse(argc, argv, &opt))
