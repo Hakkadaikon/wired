@@ -48,6 +48,9 @@
 #define MOQVER_CAP_PUBLISH_OK_ALIAS (1u << 15)
 /** PUBLISH_DONE SUBSCRIPTION_ENDED status exists (draft-18, 19). */
 #define MOQVER_CAP_SUBSCRIPTION_ENDED (1u << 16)
+/** A REQUEST_UPDATE outside the updatable requests closes the session
+ * (draft-19 10.9, draft-22 9.5; draft-18 10.9 has no such rule). */
+#define MOQVER_CAP_UPDATE_STRAY_CLOSE (1u << 17)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a
