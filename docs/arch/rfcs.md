@@ -104,7 +104,7 @@ This SDK implements the server side — the session state machine, the WebTransp
 
 | Spec | Title | Link | Why |
 |------|------------|--------|-----------|
-| draft-ietf-webtrans-http3 | WebTransport over HTTP/3 | https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3 | The body of the protocol: the session state machine, the WebTransport stream signals, the session-close capsules, and the application error-code mapping; implemented against draft-15. |
+| draft-ietf-webtrans-http3 | WebTransport over HTTP/3 | https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3 | The body of the protocol: the session state machine, the WebTransport stream signals, the session-close capsules, and the application error-code mapping; implemented against draft-16 (the version MoQT draft-19 and later reference). |
 | RFC 9220 | Bootstrapping WebSockets with HTTP/3 | https://www.rfc-editor.org/rfc/rfc9220 | Brings Extended CONNECT into HTTP/3; the `:protocol` pseudo-header and SETTINGS_ENABLE_CONNECT_PROTOCOL that session establishment rides on. |
 | RFC 9297 | HTTP Datagrams and the Capsule Protocol | https://www.rfc-editor.org/rfc/rfc9297 | Binds DATAGRAMs to a request stream via SETTINGS_H3_DATAGRAM and defines the generic capsule envelope the WebTransport capsules are layered on. |
 
@@ -114,15 +114,21 @@ WebTransport gives an application raw streams and datagrams, but a
 publish/subscribe media protocol still needs its own session setup and
 object model on top of that session. MoQT defines the control messages that
 negotiate a session and a subscription, and the object model that a
-publisher pushes track data with. This SDK implements a subset — SETUP,
-SUBSCRIBE, and PUBLISH, with the SUBGROUP_HEADER data-plane shape — under
-`src/app/moqt/` (six modules: `ctl`, `run`, `sess`, `data`, `kvp`, `vi`), and
-`examples/moqt_chat` drives it as a live audio/video/chat hub over
-WebTransport.
+publisher pushes track data with. This SDK implements the relay (hub) role
+of three drafts — draft-18, draft-19 and draft-22, chosen per session from
+the WebTransport subprotocol the peer offers (`moqt-18`/`moqt-19`/`moqt-22`;
+no subprotocol falls back to draft-19) — under `src/app/moqt/` (twelve
+modules: `cache`, `ctl`, `data`, `dgram`, `fetch`, `kvp`, `ns`, `run`,
+`sess`, `tstat`, `ver`, `vi`). `examples/moqt_chat` drives it as a live
+audio/video/chat hub over WebTransport (draft-19, since a browser cannot pick
+a WT subprotocol), and `examples/moqt_interop` offers all three drafts to the
+moq-interop-runner clients.
 
 | Spec | Title | Link | Why |
 |------|------------|--------|-----------|
-| draft-ietf-moq-transport-19 | Media over QUIC Transport | https://datatracker.ietf.org/doc/draft-ietf-moq-transport/19/ | The control-message and object-delivery body for publish/subscribe media over a WebTransport (or raw QUIC) session; implemented as a SETUP/SUBSCRIBE/PUBLISH subset with the SUBGROUP_HEADER data plane. |
+| draft-ietf-moq-transport-18 | Media over QUIC Transport | https://datatracker.ietf.org/doc/draft-ietf-moq-transport/18/ | Negotiated via the `moqt-18` WT subprotocol. Same SETUP bytes and data plane as draft-19; differs in GOAWAY's Request ID, FIN-as-cancel on namespace requests, and the allowed parameter sets. |
+| draft-ietf-moq-transport-19 | Media over QUIC Transport | https://datatracker.ietf.org/doc/draft-ietf-moq-transport/19/ | The control-message and object-delivery body for publish/subscribe media over a WebTransport session; negotiated via `moqt-19`, and the default when the peer offers no subprotocol. Hub-role subset: SETUP, SUBSCRIBE, PUBLISH, FETCH, namespace discovery, with the SUBGROUP_HEADER and OBJECT_DATAGRAM data plane. |
+| draft-ietf-moq-transport-22 | Media over QUIC Transport | https://datatracker.ietf.org/doc/draft-ietf-moq-transport/22/ | Negotiated via `moqt-22`. Adds typed Location Filters, the draft-22 FETCH body, fill FETCH, an inclusive FETCH End Location, and End of Timed-Out Range. |
 
 ## Lower-layer protocols
 

@@ -6,13 +6,15 @@ Per-requirement test coverage now lives as one EARS-notation ledger file per
 specification, so an unchecked box with no test reference IS the visible
 list of what still needs testing:
 
-- **[Features](features/README.md)** — 42 specs (RFCs, FIPS, NIST SPs, one
-  draft), each broken into checkbox requirements with a grep-verified test
-  reference (file + function) or an honest gap. **854/1246 requirements
-  tested (69%), 155 indirect, 237 untested** — see the per-category tables
-  there. MOQT (`src/app/moqt/`, draft-ietf-moq-transport-19) has 169 test
-  functions across its six modules (`tests/app/moq{ctl,data,kvp,sess,vi}_test.c`,
-  `moqtrun_test.c`), plus golden vectors in `tests/app/moqt_golden.h`.
+- **[Features](features/README.md)** — 45 specs (RFCs, FIPS, NIST SPs, and
+  four drafts), each broken into checkbox requirements with a grep-verified
+  test reference (file + function) or an honest gap. **1609/1868
+  requirements tested (86%), 253 indirect, 6 untested** — see the
+  per-category tables there. MOQT (`src/app/moqt/`, twelve modules) has one
+  ledger per negotiated draft (draft-ietf-moq-transport-18, -19 and -22) and
+  668 test functions in `tests/app/moq*_test.c`, plus golden vectors for all
+  three drafts in `tests/app/moqt_golden.h` /
+  `tests/app/moqt_multidraft_golden_test.c`.
 - **[Interop Results](interop.md)** — cross-implementation runs against
   quic-go and webtransport-go via
   [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner).

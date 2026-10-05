@@ -1,7 +1,11 @@
 # MOQT chat sample
 
 A chat + voice call room over Media over QUIC Transport
-(draft-ietf-moq-transport-19): a libc-free WebTransport server
+(draft-ietf-moq-transport-19 — the hub can also negotiate draft-18 and
+draft-22, but a browser's `WebTransport` cannot pick a WT subprotocol, so
+this sample's sessions take the hub's no-subprotocol default, draft-19; see
+[`moqt_interop`](../moqt_interop/) for the multi-draft relay): a libc-free
+WebTransport server
 (`wired_server.c`) relays each participant's chat messages and Opus voice
 frames to every other connected participant, using the `app/moqt/run` hub
 (`src/app/moqt/run/moqtrun.h`) wired onto real UDP.

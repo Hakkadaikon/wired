@@ -1,6 +1,6 @@
 ---
 title: 現在の上限
-description: wired がビルド時に決める固定の容量と、draft-ietf-moq-transport-19 のうち実装していない部分。
+description: wired がビルド時に決める固定の容量と、draft-ietf-moq-transport（18、19、22）のうち実装していない部分。
 sidebar:
   order: 5
 ---
@@ -53,18 +53,26 @@ wired が内部に持つ表（コネクションやストリームの管理表�
 | Track Name | 64 バイト | `WIRED_MOQTRUN_MAX_NAME` |
 | エンコード済みの Track Namespace | 128 バイト | `WIRED_MOQTRUN_MAX_NS` |
 | GOAWAY の New Session URI | 512 バイト | `WIRED_MOQTRUN_GOAWAY_URI_MAX` |
+| 1 つのリクエストの Range Filter の Range 数（広告する MAX_FILTER_RANGES） | 4 | `WIRED_MOQTRUN_MAX_FILTER_RANGES` |
+| 1 つのリクエストの未応答の REQUEST_UPDATE（広告する MAX_REQUEST_UPDATES） | 4 | `WIRED_MOQTRUN_MAX_REQ_UPDATES` |
 | FETCH 用のキャッシュ | アプリが渡すアリーナの大きさ | `wired_moqt_cache_attach` |
 
-## draft-ietf-moq-transport-19 のうち実装していない部分
+## draft-ietf-moq-transport のうち実装していない部分
 
-- ハブはセッションごとに双方向の制御ストリームを 1 本開き、その上で SETUP（0x2F00）を送ります。
-  draft の、両端がそれぞれ 1 本ずつ開く単方向の制御ストリームの組（3.3）は実装していません。
-- SUBSCRIBE_TRACKS には REQUEST_ERROR NOT_SUPPORTED で答えます。
-- 制御ストリームで行った購読には、PUBLISH_DONE が送られません。
+ハブは、クライアントが提示する WebTransport のサブプロトコル（`moqt-18`/`moqt-19`/`moqt-22`）に応じて、セッションごとに draft-18、draft-19、draft-22 のいずれかを話します。
+以下は、版を明記したもの以外、3 つの版すべてに当てはまります。
+
+- サブプロトコルを交渉しないセッション（ブラウザの `WebTransport` はサブプロトコルを提示できません）は、draft-19 を、従来の双方向の制御ストリーム 1 本の上で話します。
+  単方向の制御ストリームの組（3.3）と draft-18、draft-22 を使うには、`moqt-NN` のサブプロトコルが必要です。
+- その双方向の制御ストリームで行った購読には、PUBLISH_DONE が送られません。
   制御ストリームには、その購読を指す Request ID がないためです。
   それぞれのリクエストストリームで行った購読には送られます。
-- REQUEST_UPDATE を受け付けるのは SUBSCRIBE のリクエストストリームだけで、それ以外のリクエストには NOT_SUPPORTED で答えます。
-- 0 でない SUBGROUP_DELIVERY_TIMEOUT には NOT_SUPPORTED で答えます。
+- SUBSCRIBE_TRACKS への REQUEST_UPDATE には NOT_SUPPORTED で答えます。
+  送信者自身の PUBLISH への REQUEST_UPDATE も、draft-22 のセッション以外では NOT_SUPPORTED で答えます。
+- Range Filter（draft-19 と draft-22 のみ）は、検査して MAX_FILTER_RANGES に数えますが、配信を絞るのは OBJECTID_FILTER だけで、それもデータグラムで送る Object に限ります。
+  ほかの種類のフィルタは素通しです。
+- 後から来た購読者への live の配信は、Location Filter の開始 Group から始まります。
+  ただし、その Group の途中の開始 Object より前の Object は、Subgroup ストリームからは取り除きません。
 - Track Property の DEFAULT_PUBLISHER_PRIORITY は読みません。
   Publisher Priority を明示していない Object は 128 として扱います。
 - ハブ自身の Track（`wired_moqt_publish_blob`、`wired_moqt_publish_live`）は名前空間を持たず、SUBSCRIBE とは Track Name だけで照合します。

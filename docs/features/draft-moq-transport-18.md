@@ -6,10 +6,13 @@ EARS requirement ledger extracted from the spec text
 (`tasks/specs/draft-ietf-moq-transport-18.txt`, not in git), for this SDK's
 MOQT subset: a single central hub relay over WebTransport implementing
 SETUP, GOAWAY, PUBLISH, SUBSCRIBE (with Location Filters, FORWARD, priority
-and OBJECT_DELIVERY_TIMEOUT), REQUEST_UPDATE of a SUBSCRIBE, TRACK_STATUS,
-FETCH (standalone and joining, served from a whole-group cache),
-PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE, PUBLISH_DONE, and Object delivery
-on Subgroup streams and Object Datagrams. The data plane is byte-identical
+and both delivery timeouts), REQUEST_UPDATE of a SUBSCRIBE, FETCH or
+namespace request, TRACK_STATUS, FETCH (standalone and joining, served from
+a whole-group cache), PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE,
+SUBSCRIBE_TRACKS (hub-initiated PUBLISH or PUBLISH_BLOCKED), PUBLISH_DONE,
+and Object delivery on Subgroup streams and Object Datagrams. A session
+speaks draft-18 when the peer negotiates the `moqt-18` WebTransport
+subprotocol. The data plane is byte-identical
 to draft-19; this file lists only requirements that exist in draft-18 (some
 absent from, or worded differently than, draft-19 — see each item's note).
 Requirements shared verbatim with draft-19 reuse that ledger's wording and
@@ -28,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 197/208 tested, 9 indirect, 2 untested.**
+**Coverage: 204/214 tested, 9 indirect, 1 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -182,12 +185,15 @@ Legend:
 
 ## SS3.2.1 Reserved Namespaces / SS3.2.2 Session-Level Tracks
 
-- [ ] MQ18-028 If a request references a Track Namespace whose first field is a
+- [x] MQ18-028 If a request references a Track Namespace whose first field is a
   single period, then the implementation shall reject it with DOES_NOT_EXIST.
-  - gap: clients now choose their own namespaces (PUBLISH, SUBSCRIBE,
-    PUBLISH_NAMESPACE, SUBSCRIBE_NAMESPACE match the full Track Namespace),
-    but reserved-namespace and `.session` rejection are not implemented
-    (version-independent gap, same as draft-19's MOQT-028).
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_reserved_ns_rejected`
+  - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_reserved_rejected`
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_other_dot_ns_served`
+  - note: `moqtrun_ns_reserved` (ledger 10-1) rejects a first field of
+    exactly `.` or `.session` with DOES_NOT_EXIST on PUBLISH, SUBSCRIBE,
+    PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE; any other `.`-led field is
+    served like an ordinary namespace. The check is version-independent.
 
 ## SS3.3 Session Initialization
 
@@ -421,7 +427,7 @@ Legend:
   TRACK_STATUS, PUBLISH_NAMESPACE, SUBSCRIBE_NAMESPACE, SUBSCRIBE_TRACKS)
   from a wholly unknown one, so the caller can dispatch it, or reply
   NOT_SUPPORTED, instead of closing the session. The hub now answers all of
-  these except SUBSCRIBE_TRACKS.
+  these, SUBSCRIBE_TRACKS included (MQ18-201).
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_peek_type_known_unimplemented`
   - test: `tests/app/moqtrun_test.c` —
@@ -516,9 +522,11 @@ Legend:
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_subscribe_nonzero_timeout_accepted`
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_timeout_accepted`
+  - test: `tests/app/moqtrun_sub_test.c` —
+    `test_moqtrun_sub_subgroup_timeout_min`
   - note: this reflects the current implementation (ledger 10-4), which
-    corrects the earlier NOT_SUPPORTED-rejection behavior the draft-19
-    ledger's wording still describes as of this writing.
+    replaced the earlier NOT_SUPPORTED rejection (the draft-19 ledger's
+    MOQT-070 says the same).
 
 ## SS10.2.17 FORWARD Parameter
 
@@ -562,6 +570,9 @@ Legend:
   - note: draft-18 does not register MAX_FILTER_RANGES (0x06) or
     MAX_REQUEST_UPDATES (0x08), new in draft-19; a draft-18 session receiving
     either is covered by this same "ignore unknown" rule — see Out of scope.
+    The hub's own SETUP leaves both options off for a draft-18 peer
+    (`moqtrun_setup_limits`, ledger 4-4):
+    `test_moqtrun_xver_setup_d18_omits_d19_options`.
 - [x] MQ18-076 Senders shall not repeat the same Setup Option Type in a message
   unless the option explicitly allows multiple instances.
   - test: `tests/app/moqctl_test.c` — `test_moqctl_setup_roundtrip`
@@ -1396,28 +1407,97 @@ Legend:
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_dg_unknown_alias_counts_bad`
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_dg_malformed_counts_bad`
 
+## Hub features completed in the multi-draft round (ledger ch. 10)
+
+- [x] MQ18-201 (SS10.19) The hub shall answer a SUBSCRIBE_TRACKS with exactly
+  one REQUEST_OK on its request stream, and shall refuse one whose Track
+  Namespace Prefix overlaps an established SUBSCRIBE_TRACKS of the same session
+  with PREFIX_OVERLAP.
+  - test: `tests/app/moqtrun_subtracks_test.c` — `test_subtracks_ok_once`
+  - test: `tests/app/moqtrun_subtracks_test.c` — `test_subtracks_prefix_overlap`
+  - test: `tests/app/moqns_test.c` — `test_moqns_subscribe_tracks_param_scope`
+  - note: draft-18 admits only AUTHORIZATION TOKEN and FORWARD in
+    SUBSCRIBE_TRACKS (see MQ18-037a and the parameter table). Exercised on
+    draft-19 sessions; the hub path is version-independent.
+- [x] MQ18-202 (SS10.19) For every track matching an established
+  SUBSCRIBE_TRACKS prefix and not published by the subscriber itself, the hub
+  shall open one PUBLISH on a new bidirectional stream naming that track,
+  carrying the SUBSCRIBE_TRACKS's FORWARD value; cancelling the SUBSCRIBE_TRACKS
+  stops new PUBLISHes but leaves established ones, a track that vanishes before
+  the reply resets its PUBLISH stream, and a REQUEST_ERROR reply frees the slot.
+  - test: `tests/app/moqtrun_subtracks_test.c` —
+    `test_subtracks_publish_match_excludes_self`
+  - test: `tests/app/moqtrun_subtracks_test.c` —
+    `test_subtracks_forward_zero_reflected`
+  - test: `tests/app/moqtrun_subtracks_test.c` —
+    `test_subtracks_cancel_keeps_established`
+  - test: `tests/app/moqtrun_subtracks_test.c` —
+    `test_subtracks_track_vanishes_resets_publish`
+  - test: `tests/app/moqtrun_subtracks_test.c` —
+    `test_subtracks_publish_error_frees_slot`
+  - test: `tests/app/moqtrun_subtracks_test.c` —
+    `test_subtracks_liveness_eventually_attempted`
+  - note: ledger 10-2 (E-2): the hub-initiated PUBLISH path; TLA+-checked design
+    in `tasks/loopeng/moqt/MoqtHubPublish/` (not in git). Exercised on draft-19
+    sessions; the hub path is version-independent.
+- [x] MQ18-203 (SS10.20) Where the hub cannot open a bidirectional stream for
+  such a PUBLISH, it shall send PUBLISH_SKIPPED (draft-18: PUBLISH_BLOCKED)
+  (Track Namespace Suffix, Track Name) on the SUBSCRIBE_TRACKS request stream
+  instead, and shall not later send a PUBLISH for the same track incarnation.
+  - test: `tests/app/moqtrun_subtracks_test.c` —
+    `test_subtracks_skip_then_no_publish`
+  - test: `tests/app/moqns_test.c` — `test_moqns_pub_skipped_roundtrip`
+  - test: `tests/app/moqns_test.c` — `test_moqns_pub_skipped_rejects`
+  - note: Exercised on draft-19 sessions; the hub path is version-independent.
+- [x] MQ18-204 (SS10.9, SS10.9.2) A REQUEST_UPDATE of a FETCH, PUBLISH_NAMESPACE
+  or SUBSCRIBE_NAMESPACE on its request stream shall be served: an accepted
+  update is acknowledged (a new SUBSCRIBE_NAMESPACE prefix takes effect for
+  later announcements); a refused FETCH update resets the FETCH data stream, and
+  a refused namespace update (e.g. PREFIX_OVERLAP) closes the request stream and
+  leaves the old prefix in place.
+  - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_on_fetch_stream`
+  - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_on_fetch_stream_refused`
+  - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_ns_prefix_changes`
+  - test: `tests/app/moqtrun_upd_test.c` —
+    `test_moqtrun_upd_ns_prefix_overlap_refused`
+  - note: ledger 10-5. Exercised on draft-19 sessions; the hub path is
+    version-independent.
+- [x] MQ18-205 (SS10.12) A FETCH with GROUP_ORDER Descending shall be served
+  newest group first (Objects within a group still ascending), and a FETCH whose
+  body fails to decode shall close the session with PROTOCOL_VIOLATION.
+  - test: `tests/app/moqtrun_fetch_test.c` —
+    `test_moqtrun_fetch_descending_group_order`
+  - test: `tests/app/moqtrun_fetch_test.c` — `test_moqtrun_fetch_malformed_closes`
+  - note: ledger 10-6. Exercised on draft-19 sessions; the hub path is
+    version-independent.
+- [x] MQ18-206 (SS5.1.4) A late subscriber attached to a live track shall start
+  at its Location Filter's start Group: a start behind the live edge is clamped
+  to the current Group, and a future start holds delivery until that Group.
+  - test: `tests/app/moqtrun_sub_test.c` —
+    `test_moqtrun_sub_live_attach_filter_start`
+  - note: ledger 10-7. Group-granular: a start Object inside the first Group is
+    not trimmed on a Subgroup stream (see Not implemented). Exercised on
+    draft-19 sessions; the hub path is version-independent.
+
 ## Not implemented
 
 In scope for a draft-18 relay, but not implemented yet. A peer that needs
-one of these gets NOT_SUPPORTED (or, where noted, a different behavior):
+one of these gets NOT_SUPPORTED (or, where noted, a different behavior).
+Reserved namespaces, SUBSCRIBE_TRACKS, PUBLISH_SKIPPED (PUBLISH_BLOCKED),
+FETCH GROUP_ORDER and REQUEST_UPDATE of FETCH and namespace requests were
+listed here until ledger ch. 10 implemented them (MQ18-028, MQ18-201
+through MQ18-206).
 
-- (SS3.2.1, SS3.2.2) Reserved-namespace and `.session` rejection
-  (MQ18-028).
-- (SS10.19) SUBSCRIBE_TRACKS — answered NOT_SUPPORTED.
 - (SS10.11) PUBLISH_DONE for a subscription made on the legacy control
   stream: there is no request stream to carry it, so none is sent and the
-  subscription is kept for a publisher rejoin. PUBLISH_DONE always
-  carries the "unknown" Stream Count (MQ18-104).
-- (SS10.9) REQUEST_UPDATE of a PUBLISH, a FETCH, or a namespace request —
-  NOT_SUPPORTED. A failed namespace update should close its request
-  stream; that close is not implemented.
-- (SS10.12) FETCH GROUP_ORDER: objects are always returned in ascending
-  group order. A malformed FETCH is dropped instead of closing the session.
-- (SS5.1.4) A live attachment of a late subscriber starts at object 0 of
-  the current group; only the reliable replay honours the Location
-  Filter's start object (MQ18-109).
-- (SS10.20) PUBLISH_SKIPPED (PUBLISH_BLOCKED in draft-18's naming) is
-  skipped on receipt and never sent.
+  subscription is kept for a publisher rejoin.
+- (SS10.9) REQUEST_UPDATE of a SUBSCRIBE_TRACKS, or of the sender's own
+  PUBLISH — NOT_SUPPORTED on a draft-18 session (the hub accepts a PUBLISH
+  update only on draft-22 sessions).
+- (SS5.1.4) A late subscriber's live delivery starts at its Location
+  Filter's start Group (MQ18-206), but a start Object inside that Group is
+  not trimmed from a Subgroup stream; only the reliable replay honours the
+  start Object.
 - (SS11.2.1.2) The datagram delivery-timeout Object Property rejection
   (MQ18-118a, ruling Q18-05) has no implemented check or test yet.
 
@@ -1453,7 +1533,11 @@ from the coverage denominator above:
 - (SS10.9) MAX_REQUEST_UPDATES credit limit and TOO_MANY_REQUEST_UPDATES —
   **new in draft-19** (`draft18-vs-19-diff.md` §6-7); draft-18 has no
   REQUEST_UPDATE flow-control mechanism, so Q18-06 (credit recovery count
-  for coalesced updates) does not apply to this draft.
+  for coalesced updates) does not apply to this draft. Known gap: the hub's
+  credit check is not version-gated, so a draft-18 peer that leaves more
+  than 4 REQUEST_UPDATEs unanswered on one request stream is closed with
+  0x1B (TOO_MANY_REQUEST_UPDATES in draft-19), a limit draft-18 never
+  advertised.
 - (SS10.9) Publisher-side REQUEST_UPDATE carrying a Range Filter (Q18-07) —
   moot, since Range Filters do not exist in draft-18.
 - (SS7, SS7.1--7.3) The Priorities scheduling algorithm across
@@ -1483,6 +1567,15 @@ from the coverage denominator above:
   operational/deployment guidance, not a wire behavior this ledger tests.
 - (SS15) IANA Considerations — registry administration, not implementation
   behavior.
+- Per-version scope (ledger 4-4): this hub negotiates draft-18, -19 and -22
+  per session (`moqver.c`); the Range Filter, MAX_FILTER_RANGES and
+  MAX_REQUEST_UPDATES entries above are out of scope for draft-18 only —
+  on draft-19 and draft-22 sessions the hub validates Range Filters and
+  enforces the request-update credit (see MOQT-206 to MOQT-208 and MQ22-199
+  to MQ22-201). SUBSCRIBE_TRACKS itself is served on every version
+  (MQ18-201); only its parameter set differs: AUTHORIZATION TOKEN and
+  FORWARD on draft-18, every Subscription parameter on draft-19 and
+  draft-22 (`MOQCTL_PARAM_RULES` in `moqctl.c`).
 - REDIRECT as an actual relay behavior (sending it to move a requester to
   another URI/target, or reacting to one from an upstream) — this is a
   single hub with no upstream relay or sibling instance to redirect to or

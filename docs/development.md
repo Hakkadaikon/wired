@@ -44,8 +44,8 @@ tooling kept out of the shipped binary.
 
 - **app** — HTTP/3 & application: http3 (core · request · server), qpack
   (qpack · qpackdyn), datagram (datagram · dgdeliver), webtransport
-  (capsule · errmap · session · wtwire), moqt (ctl · data · kvp · run ·
-  sess · vi)
+  (capsule · errmap · session · wtwire), moqt (cache · ctl · data · dgram ·
+  fetch · kvp · ns · run · sess · tstat · ver · vi)
 - **transport** — QUIC transport: conn (cid · lifecycle · loop · pnspace),
   packet (build · frame · header · protect), stream (data · flow), recovery
   (congestion · detect · rtx · stats), version (version · versmgr ·

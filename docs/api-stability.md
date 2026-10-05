@@ -158,7 +158,8 @@ Minor additions to `run/moqtrun.h` in this round, all zero = old behavior:
 | `wired_moqt_on_session_draining` | Shaped as `wired_srvrun_opt.wt_on_session_draining`: a peer's WT_DRAIN_SESSION starts the GOAWAY sequence for that session. |
 | `wired_moqt_on_stream_reset` | Tell the hub a peer reset one of its streams, which cancels the request or FETCH that stream carried. |
 | `wired_moqt_hub.authorize_namespace`, `authorize_ns_ctx`, `wired_moqt_authorize_ns_fn` | Optional authorizer for PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE; 0 grants all. |
-| `wired_moqt_io.close_session`, `stream_reply_open`, `stream_priority` | io-table ops appended at the end, shaped as `wired_server_wt_close_session`, `wired_server_wt_stream_reply_open` and `wired_server_wt_stream_priority`. A 0 op keeps the old behavior (no close, no per-request streams, default urgency). |
+| `wired_moqt_hub.authorize_publish`, `authorize_pub_ctx` | Optional authorizer for PUBLISH (a `wired_moqt_authorize_fn`, shown the Full Track Name and token): a relay's impersonation check, the same MUST in every draft; 0 grants all. |
+| `wired_moqt_io.close_session`, `stream_reply_open`, `stream_priority`, `stream_stop` | io-table ops appended at the end, shaped as `wired_server_wt_close_session`, `wired_server_wt_stream_reply_open`, `wired_server_wt_stream_priority` and `wired_server_wt_stream_stop`. A 0 op keeps the old behavior (no close, no per-request streams, default urgency, an unroutable inbound data stream left to drain unread). |
 
 Multi-draft negotiation (`src/app/moqt/ver/moqver.h`) follows the same
 additive rule: `wired_moqt_wt_protocols` writes the server's offered

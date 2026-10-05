@@ -24,11 +24,17 @@ the hub alone: a client connects and receives the server's SETUP.
 - The hub's `wired_moqt_on_session`, `_on_stream_data`, `_on_datagram` and
   `_on_session_close` go straight into `wired_srvrun_opt`, each with
   `&hub` as its context. `wired_server_run_opt` runs the server.
-- When a session opens, the hub opens a unidirectional control stream and
-  sends SETUP (type `0x2f00`) on it. The client reads it there and opens its
-  own unidirectional stream for requests (a client that only speaks the
-  older bidirectional control stream still works: the hub falls back to
-  that shape when it is the one the peer used).
+- When a session opens, the hub opens its control stream and sends SETUP
+  (type `0x2f00`) on it. Which shape that stream takes follows the WT
+  subprotocol: with a negotiated `moqt-NN` the hub opens a unidirectional
+  control stream and the client opens its own; with none, the session
+  speaks draft-19 over the older single bidirectional control stream. This
+  page's server leaves `opt.wt_protocols` unset, so its client (like any
+  browser, which cannot offer a subprotocol) takes the bidirectional shape
+  and reads SETUP with `AcceptStream`.
+- To let clients pick a draft, fill `opt.wt_protocols` from
+  `wired_moqt_wt_protocols(buf, sizeof buf)`, which writes the hub's list
+  (`moqt-22 moqt-19 moqt-18`); `examples/moqt_interop` does this.
 - `max_datagram_frame_size` in the identity enables QUIC DATAGRAM, which
   WebTransport clients require. `moqtrun.h` is not part of `wired.h`;
   include it on its own.

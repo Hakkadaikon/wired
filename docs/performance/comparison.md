@@ -44,7 +44,7 @@ untagged) [^pq-img].
 | ECN | Partial — ECT(0) sent, ACK ECN counts validated per RFC 9000 13.4.2 and fed to congestion control (unit-tested); no third-party E2E verdict (peer limitation) [^w-interop] | ✅ on by default [^qg-ecn] | — (sending ECN not supported) [^qc-ecn] | ✅ (validation state machine) [^ng-ecn] | ✅ (ACK_ECN + counters) [^pq-ecn] |
 | Connection migration (server-side path validation) | Partial — implemented; E2E unverdictable (tooling/peer limitations) [^w-interop] | ✅ [^qg-mig] | ✅ [^qc-mig] | ✅ [^ng-mig] | ✅ [^pq-mig] |
 | QUIC v2 (RFC 9369) | Partial — implemented + unit-proven; no third-party E2E (peer limitation) [^w-interop] | ✅ [^qg-readme] | — (v1 only) [^qc-v2] | ✅ [^ng-readme] | ✅ [^pq-v2] |
-| MOQT | ✅ draft-ietf-moq-transport-19, server/relay role over WebTransport; the `moqt-19` WT subprotocol name is an application-layer convention used by the example, not a value the SDK core negotiates [^w-moqt] | — [^qg-nomoqt] | — [^qc-nomoqt] | — [^ng-nomoqt] | — (only a `moqt-16` header string in a test) [^pq-nomoqt] |
+| MOQT | ✅ draft-ietf-moq-transport-18/19/22, server/relay role over WebTransport; the draft is chosen per session from the WT subprotocol (`moqt-18`/`moqt-19`/`moqt-22`, offered via `wired_moqt_wt_protocols`), draft-19 when none is negotiated [^w-moqt] | — [^qg-nomoqt] | — [^qc-nomoqt] | — [^ng-nomoqt] | — (only a `moqt-16` header string in a test) [^pq-nomoqt] |
 
 For MOQT specifically, the third-party landscape (surveyed 2026-08-04):
 imquic supports draft versions 16–19; moxygen 14/15/16/18; libquicr and
@@ -256,8 +256,9 @@ per-implementation application layer, which breaks the equal-conditions
 premise. Functional WebTransport interop results against webtransport-go are
 in [Interop Results](../interop.md).
 
-**MOQT (interop):** wired speaks draft-ietf-moq-transport-19; the only other
-implementation surveyed that speaks draft-19 is imquic [^moqt-survey]. A live
+**MOQT (interop):** at the 2026-08-04 survey wired spoke
+draft-ietf-moq-transport-19, and the only other implementation surveyed that
+speaks draft-19 is imquic [^moqt-survey]. A live
 session between imquic 0.0.2 (`1f4cbf8`, WebTransport, subprotocol `moqt-19`)
 and the wired MOQT server demonstrated certificate acceptance, SETUP
 negotiation, SUBSCRIBE → SUBSCRIBE_OK, PUBLISH acceptance (the publisher
@@ -266,7 +267,11 @@ against an independent implementation. Object delivery through the relay to
 an imquic subscriber (data plane) did **not** complete and is unverified; 2
 of 7 sessions also ended in a `Protocol Violation` close. No speed comparison
 is published for MOQT. This section is carried forward unchanged from the
-2026-08-04 survey; it was not re-run for this update.
+2026-08-04 survey; it was not re-run for this update. (At that time wired
+spoke draft-19 only; it now also negotiates draft-18 and draft-22 per
+session, and `examples/moqt_interop` is run as a relay against the
+[moq-interop-runner](https://github.com/englishm/moq-interop-runner)
+clients — see [`interop/README.md`](../../interop/README.md).)
 
 ## Environment
 
@@ -511,17 +516,17 @@ cert.pem --key key.pem` (single-process) or `--ifindex <n> --ip <server-ip>
     `chacha20` PASS vs quic-go; `ecn`, `v2`, `connectionmigration` are
     implemented but carry no third-party verdict (peer/tooling limitations,
     detailed there).
-[^w-moqt]: `src/app/moqt/` (`ctl/moqctl.h`, `run/moqtrun.c`,
-    `sess/moqsess.c`, `data/moqdata.c`, `kvp/moqkvp.c`, `vi/moqvi.c`;
-    six modules total) + `examples/moqt_chat`
-    (draft-ietf-moq-transport-19, hub/relay role; SETUP/SUBSCRIBE/PUBLISH
-    subset, SUBGROUP_HEADER data plane). The literal string `moqt-19` as a
-    WT subprotocol name appears only in the example
-    (`examples/moqt_chat/wired_server.c`), not in `src/` — the SDK core
-    negotiates WebTransport's Extended CONNECT generically and does not
-    itself assert a subprotocol value. Interop evidence: 2026-08-04 imquic
-    session (see the MOQT section above). MOQT headers are not yet part of
-    the public `wired.h` API surface.
+[^w-moqt]: `src/app/moqt/` (twelve modules: `cache`, `ctl`, `data`,
+    `dgram`, `fetch`, `kvp`, `ns`, `run`, `sess`, `tstat`, `ver`, `vi`) +
+    `examples/moqt_chat` (draft-19 only: a browser cannot pick a WT
+    subprotocol) and `examples/moqt_interop` (draft-18/19/22). Hub/relay
+    role; SETUP/SUBSCRIBE/PUBLISH/FETCH/namespace subset, SUBGROUP_HEADER
+    and OBJECT_DATAGRAM data plane. The version table is
+    `src/app/moqt/ver/moqver.c`: `wired_moqt_wt_protocols` writes the
+    `moqt-NN` list for `wired_srvrun_opt.wt_protocols`, and a session with
+    no (or an unlisted) subprotocol falls back to draft-19. Interop
+    evidence: 2026-08-04 imquic session (see the MOQT section above).
+    MOQT headers are not yet part of the public `wired.h` API surface.
 [^qg-readme]: <https://github.com/quic-go/quic-go/blob/v0.61.0/README.md>
     (features list: HTTP/3 incl. RFC 9297, RFC 9221, RFC 9369; pure-Go TLS;
     WebTransport via the companion module webtransport-go).

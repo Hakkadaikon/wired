@@ -36,7 +36,7 @@ Group ごとにストリームを 1 本使う配置（[MoQT へのメディア�
 信頼性のあるストリームは、もう役に立たなくなった Object を後から届けることがあります。
 購読者は、SUBSCRIBE か REQUEST_UPDATE に OBJECT_DELIVERY_TIMEOUT パラメーター（draft 10.2.4）を付けて、これを抑えられます。
 Object の最初のバイトがハブに届いてからタイムアウトより長く経っていれば、ハブはそれを遅れて送る代わりに、その購読者のストリームを DELIVERY_TIMEOUT でリセットします（draft 8）。
-0 でない SUBGROUP_DELIVERY_TIMEOUT には、REQUEST_ERROR NOT_SUPPORTED で答えます。
+0 でない SUBGROUP_DELIVERY_TIMEOUT も同じように働きます。発行者も Track Property で設定していれば、2 つのうち小さいほうを使います。
 
 ## どちらを選ぶか
 
