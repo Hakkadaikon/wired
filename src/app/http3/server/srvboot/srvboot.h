@@ -74,6 +74,14 @@ typedef struct {
   const u8* pref_v6;      /**< 16 bytes; required when pref_v4 is set */
   u16       pref_v4_port; /**< port of pref_v4 */
   u16       pref_v6_port; /**< port of pref_v6 */
+  /** RFC 7301 3.2 / draft-ietf-moq-transport-22 6.1.2: raw-QUIC application
+   * ALPN ids this server also selects, space-separated in no particular
+   * order (e.g. "moqt-22 moqt-19 moqt-18"), or 0 to select only h3 and
+   * hq-interop (the default). The client's preference order decides
+   * between these and h3, so one port serves WebTransport and native QUIC.
+   * Must name neither h3 nor hq-interop. A static string: the negotiated
+   * id is kept as a view into it for the connection's lifetime. */
+  const char* raw_alpns;
 } wired_srvboot_id;
 
 /** RFC 9000 17.2: 1 if dg is a long-header Initial datagram (a Handshake or
