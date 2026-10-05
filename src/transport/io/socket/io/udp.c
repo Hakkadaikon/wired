@@ -48,7 +48,47 @@ void wired_udp_addr(sockaddr* sa, u16 port, const u8 octets[4]) {
 /* IPV6_V6ONLY setsockopt name (Linux uapi in6.h). */
 #define WIRED_IPV6_V6ONLY 26
 
-i64 wired_udp_socket(void) {
+/* EAFNOSUPPORT (Linux uapi errno-base.h): the kernel has no IPv6 at all
+ * (booted with ipv6.disable=1), so no AF_INET6 socket can be created. */
+#define WIRED_EAFNOSUPPORT 97
+
+/* Family of every socket this process opens: AF_INET6 dual-stack, or
+ * AF_INET once AF_INET6 proved unsupported. IPv6 support is a host-wide
+ * fact, so one latch serves every fd. */
+static u16 udp_family = WIRED_AF_INET6;
+
+/* Kernel struct sockaddr_in size (uapi in.h): family, port, 4-byte address,
+ * 8 bytes of zero padding. */
+#define WIRED_SOCKADDR_IN_LEN 16
+
+void udp_kaddr_in(sockaddr* sa) {
+  u8 a4[4];
+  if (sa->family != WIRED_AF_INET) return;
+  bytes_memcpy(a4, (const u8*)sa + 4, 4);
+  wired_udp_addr(sa, hton16(sa->port_be), a4);
+}
+
+/* Re-lay k's v4-mapped IPv4 address in place as a kernel sockaddr_in in its
+ * leading 16 bytes: the address sits where sin6_flowinfo is. */
+static void udp_kaddr_pack4(sockaddr* k) {
+  u8  a4[4];
+  u8* b = (u8*)k;
+  bytes_memcpy(a4, k->addr + 12, 4);
+  bytes_memset(b + 4, 0, sizeof(*k) - 4);
+  k->family = WIRED_AF_INET;
+  bytes_memcpy(b + 4, a4, 4);
+}
+
+u32 udp_kaddr_out(const sockaddr* sa, u16 family, sockaddr* out) {
+  *out = *sa;
+  udp_kaddr_in(out); /* a raw kernel sockaddr_in (getsockname) as well */
+  if (family == WIRED_AF_INET6) return sizeof(*out);
+  udp_kaddr_pack4(out);
+  return WIRED_SOCKADDR_IN_LEN;
+}
+
+/* Open the dual-stack AF_INET6 socket (negative errno on failure). */
+static i64 udp_socket_v6(void) {
   int v6only = 0;
   i64 fd     = wired_arch_socket(WIRED_AF_INET6, WIRED_SOCK_DGRAM, 0);
   if (fd < 0) return fd;
@@ -60,12 +100,23 @@ i64 wired_udp_socket(void) {
   return fd;
 }
 
+i64 wired_udp_socket(void) {
+  i64 fd = udp_socket_v6();
+  if (fd != -WIRED_EAFNOSUPPORT) return fd;
+  udp_family = WIRED_AF_INET;
+  return wired_arch_socket(WIRED_AF_INET, WIRED_SOCK_DGRAM, 0);
+}
+
 i64 wired_udp_bind(i64 fd, const sockaddr* sa) {
-  return wired_arch_bind(fd, sa, sizeof(*sa));
+  sockaddr k;
+  u32      n = udp_kaddr_out(sa, udp_family, &k);
+  return wired_arch_bind(fd, &k, n);
 }
 
 i64 wired_udp_send(i64 fd, const sockaddr* sa, wired_span buf) {
-  return wired_arch_sendto(fd, buf.p, buf.n, 0, sa, sizeof(*sa));
+  sockaddr k;
+  u32      n = udp_kaddr_out(sa, udp_family, &k);
+  return wired_arch_sendto(fd, buf.p, buf.n, 0, &k, n);
 }
 
 i64 wired_udp_recv(i64 fd, wired_mspan buf) {
@@ -76,7 +127,9 @@ i64 wired_udp_recvfrom(i64 fd, wired_mspan buf, sockaddr* src) {
   /* addrlen is in/out: pass the buffer size, kernel writes the actual length.
    */
   u32 addrlen = sizeof(*src);
-  return wired_arch_recvfrom(fd, buf.p, buf.n, 0, src, &addrlen);
+  i64 r       = wired_arch_recvfrom(fd, buf.p, buf.n, 0, src, &addrlen);
+  udp_kaddr_in(src); /* an AF_INET fd's source, back to v4-mapped */
+  return r;
 }
 
 i64 wired_udp_close(i64 fd) { return wired_arch_close(fd); }
@@ -160,12 +213,13 @@ i64 wired_udp_recvtos_enable(i64 fd) {
 
 i64 wired_udp_send_gso(
     i64 fd, const sockaddr* sa, wired_span buf, u16 segsize) {
-  u8     cmsg[WIRED_GSO_CMSG_SPACE];
-  iovec  iov = {buf.p, buf.n};
-  msghdr msg = {0};
+  u8       cmsg[WIRED_GSO_CMSG_SPACE];
+  iovec    iov = {buf.p, buf.n};
+  msghdr   msg = {0};
+  sockaddr k;
   wired_udp_gso_cmsg_build(cmsg, segsize);
-  msg.msg_name       = sa;
-  msg.msg_namelen    = sizeof(*sa);
+  msg.msg_name       = &k;
+  msg.msg_namelen    = udp_kaddr_out(sa, udp_family, &k);
   msg.msg_iov        = &iov;
   msg.msg_iovlen     = 1;
   msg.msg_control    = cmsg;
@@ -303,9 +357,13 @@ static void recvmmsg_fill_all(
     recvmmsg_fill_slot(&slots[i], &iovs[i], &bufs[i], cmsgbufs[i]);
 }
 
-/* Copy the kernel-filled length back into each received slot. */
+/* Copy the kernel-filled length back into each received slot, and turn an
+ * AF_INET fd's source address back into the v4-mapped form. */
 static void recvmmsg_read_lens(mmsg_buf* bufs, const mmsghdr* slots, i64 r) {
-  for (i64 i = 0; i < r; i++) bufs[i].len = slots[i].msg_len;
+  for (i64 i = 0; i < r; i++) {
+    bufs[i].len = slots[i].msg_len;
+    udp_kaddr_in(&bufs[i].src);
+  }
 }
 
 /* MSG_CTRUNC (linux/socket.h): the kernel truncated the ancillary (cmsg)

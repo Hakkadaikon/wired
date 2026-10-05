@@ -30,6 +30,8 @@ OVERRIDES = {
     "h3control": "app/http3/core/h3",
     "h3frame": "app/http3/core/h3",
     "h3grease": "app/http3/core/h3",
+    "h3reqgrease": "app/http3/server/srvloop",
+    "udpfam": "transport/io/socket/io",
     "h3stream_type": "app/http3/core/h3",
     "h3method": "app/http3/core/h3",
     "rsachain": "crypto/pki/trust/castore",
