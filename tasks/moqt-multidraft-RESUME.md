@@ -7,7 +7,7 @@ closed: いいえ(進行中)。次のセッションはこのファイルから�
 moq-interop-runner fork の `interop-wired.yml` を起動済み: run 37329222499
 (https://github.com/Hakkadaikon/moq-interop-runner/actions/runs/37329222499)。WebTransport(`wired`)→ raw QUIC
 (`wired-quic`)の順に回り、両方の結果は artifact `interop-results`、Vercel レポートは後に走る wired-quic 分のみ。
-次のセッションはこの run の結果の解析から始める(下の「次にやること」1・2 は完了、3 から)。
+**結果: WebTransport 9/14 PASS(前回 3/14)、raw QUIC 3/14 PASS**(内訳は台帳 12-10)。次のセッションはこの run の artifact `interop-results` の解析から始める(raw 専用クライアント全滅の原因と moqx/moxygen が最優先)(下の「次にやること」1・2 は完了、3 から)。
 
 ## ゴール(ユーザー指示、/goal)
 
