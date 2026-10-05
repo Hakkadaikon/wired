@@ -3371,15 +3371,25 @@ static void moqtrun_upd_close_ns(wired_moqtrun_req* q) {
   q->ns_seen = 0;
 }
 
+/* q is a client-opened PUBLISH (its sender's own request). */
+static int moqtrun_upd_allowed_pub(const wired_moqtrun_req* q) {
+  return q && q->kind == MOQCTL_T_PUBLISH && !q->pub_origin_rid;
+}
+
+/* A SUBSCRIBE, or a PUBLISH the hub opened (SUBSCRIBE_TRACKS): d18/d19
+ * 10.9, d22 9.5 "A subscriber can also send REQUEST_UPDATE to modify
+ * parameters of a subscription established with PUBLISH" -- updated like a
+ * SUBSCRIBE's (moqtrun_pubst_update). */
 static int moqtrun_upd_is_sub(const wired_moqtrun_peer* p) {
-  return p->req && p->req->kind == MOQCTL_T_SUBSCRIBE;
+  return p->req &&
+         (p->req->kind == MOQCTL_T_SUBSCRIBE || p->req->pub_origin_rid);
 }
 
 /* draft-18/19 10.9, draft-22 9.5: "The sender of a request (SUBSCRIBE,
  * PUBLISH, FETCH, ...) can later send a REQUEST_UPDATE" -- every draft
  * lets a publisher update its own PUBLISH. */
 static int moqtrun_upd_is_pub(const wired_moqtrun_peer* p) {
-  return p->req && p->req->kind == MOQCTL_T_PUBLISH;
+  return moqtrun_upd_allowed_pub(p->req);
 }
 
 /* draft-ietf-moq-transport-19 10.9: the sender of a FETCH may REQUEST_UPDATE
@@ -3517,12 +3527,31 @@ static int moqtrun_upd_over_credit(const wired_moqtrun_peer* p) {
          p->req->pending_updates >= WIRED_MOQTRUN_MAX_REQ_UPDATES;
 }
 
+/* d19 10.9 / d22 9.5: "An endpoint that receives a REQUEST_UPDATE other
+ * than in the two cases above MUST close the session with a
+ * PROTOCOL_VIOLATION" -- on the control stream it updates no request (a
+ * TRACK_STATUS stream already closes in moqtrun_req_update_ok). d18 10.9
+ * has no such sentence. */
+static int moqtrun_upd_stray(const wired_moqtrun_peer* p) {
+  return !p->req && (moqver_caps(p->ver) & MOQVER_CAP_UPDATE_STRAY_CLOSE);
+}
+
+/* A REQUEST_UPDATE of a kind the hub does not update: closed when stray,
+ * else (a SUBSCRIBE_TRACKS, or d18's control stream) NOT_SUPPORTED. */
+static void moqtrun_upd_refuse(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  if (moqtrun_upd_stray(p)) {
+    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    return;
+  }
+  moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
+  moqtrun_upd_close_ns(p->req);
+}
+
 /* Rejects (and signals) a REQUEST_UPDATE that must not reach decode: not
  * an allowed request kind, or its stream is already over credit. */
 static int moqtrun_upd_refused(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   if (!moqtrun_upd_allowed(p)) {
-    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
-    moqtrun_upd_close_ns(p->req);
+    moqtrun_upd_refuse(hub, p);
     return 1;
   }
   if (moqtrun_upd_over_credit(p)) {
@@ -3534,9 +3563,9 @@ static int moqtrun_upd_refused(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
 
 /* A REQUEST_UPDATE of the request riding its stream (its own Request ID
  * is a fresh one, 10.1: the stream names the request) -- a SUBSCRIBE, a
- * FETCH, a PUBLISH_NAMESPACE/SUBSCRIBE_NAMESPACE, or the sender's own
- * PUBLISH. On the control stream, or for TRACK_STATUS,
- * NOT_SUPPORTED. A malformed one (e.g. a parameter outside the update's
+ * FETCH, a PUBLISH_NAMESPACE/SUBSCRIBE_NAMESPACE, the sender's own
+ * PUBLISH, or a PUBLISH the hub opened to it. Elsewhere see
+ * moqtrun_upd_refuse. A malformed one (e.g. a parameter outside the update's
  * scope for that request kind) closes the session. */
 static void moqtrun_handle_update(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
@@ -3992,16 +4021,18 @@ static u64 moqtrun_subtracks_check(
   return clash ? MOQCTL_ERR_PREFIX_OVERLAP : MOQTRUN_REQ_ACCEPT;
 }
 
-/* 10.19.1: FORWARD 0 is recorded to reflect as FORWARD 0 on every
- * generated PUBLISH; 1 or omitted stays omitted (T-12, the draft's "or
- * indicate that value by omitting the parameter"). GROUP_ORDER is
- * recorded as given, 0 (absent) staying omitted too. */
+/* FORWARD and GROUP_ORDER are recorded as given, to be echoed on every
+ * generated PUBLISH: d18/d19 10.19(.1) "will set the FORWARD parameter to
+ * 0 ... to 1, or indicate that value by omitting"; draft-22 3.6.2 "explicitly
+ * communicated in the PUBLISH" -- so a present FORWARD 1 is spelled out on
+ * every draft. Absent ones stay omitted (0 for GROUP_ORDER). */
 static void moqtrun_subtracks_note_params(
     wired_moqtrun_req* q, const moqctl_params* params) {
   const moqctl_param* f = moqctl_params_find(params, MOQCTL_PARAM_FORWARD);
   const moqctl_param* g = moqctl_params_find(params, MOQCTL_PARAM_GROUP_ORDER);
-  q->forward_zero       = (u8)(f && f->u8v == 0);
-  q->group_order        = g ? (u8)g->u8v : 0;
+  q->has_forward        = f != 0;
+  q->forward            = moqtrun_param_u8(f);
+  q->group_order        = moqtrun_param_u8(g);
 }
 
 /* Body of moqtrun_dispatch_subscribe_tracks once p->req and the decode are
@@ -4076,23 +4107,26 @@ static int moqtrun_subtracks_candidate(
   return moqtrun_subtracks_matches(st, t, pub_idx, st_peer_idx);
 }
 
+/* Appends one uint8 Parameter to out. */
+static void moqtrun_subtracks_u8_add(moqctl_params* out, u64 type, u8 v) {
+  out->items[out->n].type = type;
+  out->items[out->n].enc  = MOQCTL_PENC_UINT8;
+  out->items[out->n].u8v  = v;
+  out->n++;
+}
+
 /* T-12: the Parameters this SUBSCRIBE_TRACKS recorded (moqtrun_subtracks_
- * note_params), reflected into one generated PUBLISH. */
+ * note_params), reflected into one generated PUBLISH. Of what d22 9.18
+ * admits on SUBSCRIBE_TRACKS, 9.8 lets only FORWARD and GROUP_ORDER into a
+ * PUBLISH (AUTHORIZATION_TOKEN "MUST NOT be copied", 9.20.2), so these two
+ * are the whole "explicitly communicated" set (3.6.2). */
 static moqctl_params moqtrun_subtracks_publish_params(
     const wired_moqtrun_req* st) {
   moqctl_params out = {0};
-  if (st->forward_zero) {
-    out.items[out.n].type = MOQCTL_PARAM_FORWARD;
-    out.items[out.n].enc  = MOQCTL_PENC_UINT8;
-    out.items[out.n].u8v  = 0;
-    out.n++;
-  }
-  if (st->group_order) {
-    out.items[out.n].type = MOQCTL_PARAM_GROUP_ORDER;
-    out.items[out.n].enc  = MOQCTL_PENC_UINT8;
-    out.items[out.n].u8v  = st->group_order;
-    out.n++;
-  }
+  if (st->has_forward)
+    moqtrun_subtracks_u8_add(&out, MOQCTL_PARAM_FORWARD, st->forward);
+  if (st->group_order)
+    moqtrun_subtracks_u8_add(&out, MOQCTL_PARAM_GROUP_ORDER, st->group_order);
   return out;
 }
 
@@ -4156,6 +4190,9 @@ static int moqtrun_subtracks_open_pub(
   q->kind          = MOQCTL_T_PUBLISH;
   q->pub_track_tag = t->cache_tag;
   q->pub_alias     = m.track_alias;
+  q->has_forward   = st->has_forward;
+  q->forward       = st->forward;
+  q->group_order   = st->group_order;
   return 1;
 }
 
@@ -6783,7 +6820,8 @@ static wired_moqtrun_req* moqtrun_req_open(
   q->pub_origin_rid = 0;
   q->pub_track_tag  = 0;
   q->pub_alias      = 0;
-  q->forward_zero   = 0;
+  q->has_forward    = 0;
+  q->forward        = 0;
   q->group_order    = 0;
   return q;
 }
@@ -6874,9 +6912,15 @@ static void moqtrun_req_settle(wired_moqt_io* io, wired_moqtrun_req* q) {
  * by its own rule (moqtrun_pubst_recv's doc): REQUEST_OK/REQUEST_ERROR,
  * never moqtrun_req_settle's client-request completion/FIN logic, whose
  * "answered without establishing" reading of kind+!live would otherwise
- * misfire while this slot is simply awaiting its one reply. */
-static int moqtrun_reqs_tick_settles(const wired_moqtrun_req* q) {
-  return q->in_use && !q->pub_origin_rid;
+ * misfire while this slot is simply awaiting its one reply -- it only
+ * retries its queued update answers. */
+static void moqtrun_reqs_tick_one(wired_moqt_io* io, wired_moqtrun_req* q) {
+  if (!q->in_use) return;
+  if (q->pub_origin_rid) {
+    moqtrun_req_flush(io, q->wt, q);
+    return;
+  }
+  moqtrun_req_settle(io, q);
 }
 
 /* Pushes owed namespace changes, syncs SUBSCRIBE_TRACKS against every
@@ -6885,8 +6929,7 @@ static void moqtrun_reqs_tick(wired_moqt_hub* hub) {
   moqtrun_disc_sync(hub);
   moqtrun_subtracks_sync(hub);
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
-    if (moqtrun_reqs_tick_settles(&hub->reqs[i]))
-      moqtrun_req_settle(&hub->io, &hub->reqs[i]);
+    moqtrun_reqs_tick_one(&hub->io, &hub->reqs[i]);
 }
 
 /* 1 iff q's first message is still incomplete but its Type is already
@@ -6995,34 +7038,159 @@ static void moqtrun_dispatch_bidi_fresh(
   moqtrun_dispatch_req_stream(hub, p, stream_id, data, fin);
 }
 
-/* draft 10.9: REQUEST_OK (empty params for a PUBLISH_OK) or REQUEST_ERROR,
- * the first and only message the SUBSCRIBE_TRACKS-generated PUBLISH's
- * receiver sends back. Reassembled through q->in exactly like a client
- * request's reply (moqtrun_asm_push/pop) since a real transport may
- * deliver it split; anything else is ignored. REQUEST_OK marks the slot
- * live (the subscription this PUBLISH established -- stays open, continuing
- * past a later SUBSCRIBE_TRACKS cancel per 1784-1787/T-10); REQUEST_ERROR
- * frees it at once (nothing to continue). */
-/* 1 iff type/body is a well-formed REQUEST_ERROR. */
-static int moqtrun_pubst_is_error(u64 type, wired_span body) {
+/* draft 10.9: what the SUBSCRIBE_TRACKS-generated PUBLISH's receiver sends
+ * back on its stream -- REQUEST_OK (PUBLISH_OK; d18's 0x1E alias via
+ * moqctl_type_ver) or REQUEST_ERROR first, then REQUEST_UPDATEs of the
+ * subscription it established. Reassembled through q->in exactly like a
+ * client request (moqtrun_asm_push/pop) since a real transport may deliver
+ * it split; anything else is ignored. REQUEST_OK marks the slot live and
+ * opens the subscription (it stays open, continuing past a later
+ * SUBSCRIBE_TRACKS cancel per 1784-1787/T-10); REQUEST_ERROR frees the
+ * slot at once (nothing to continue). */
+typedef void (*moqtrun_pubst_fn)(
+    wired_moqt_hub*, wired_moqtrun_peer*, wired_moqtrun_req*, wired_span);
+
+static int moqtrun_pubst_track_is(const wired_moqtrun_track* t, u64 tag) {
+  return t->in_use && t->cache_tag == tag;
+}
+
+/* The live incarnation of the track whose cache_tag is tag, else 0. */
+static wired_moqtrun_track* moqtrun_pubst_track(wired_moqt_hub* hub, u64 tag) {
+  usz per = WIRED_MOQTRUN_MAX_TRACKS_PER_PEER;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS * per; i++) {
+    wired_moqtrun_track* t = &hub->peers[i / per].tracks[i % per];
+    if (moqtrun_pubst_track_is(t, tag)) return t;
+  }
+  return 0;
+}
+
+/* Opens s as p's subscription to t under the PUBLISH q named (alias and
+ * Request ID): its initial parameters are the PUBLISH's (d19 10.19.1
+ * "copied over as the default Subscription parameters", d22 3.6.2 "initial
+ * Subscription parameters"), then any the PUBLISH_OK carries (d18/d19
+ * 10.2.x admit FORWARD, priority, filters there), applied as an update. */
+static void moqtrun_pubst_open_sub(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_req*   q,
+    wired_moqtrun_track* t,
+    wired_moqtrun_sub*   s,
+    wired_span           body) {
+  moqctl_subscribe  m   = {0};
+  moqctl_request_ok ok  = {0};
+  usz               off = 0;
+  m.request_id          = q->request_id;
+  m.params              = moqtrun_subtracks_publish_params(q);
+  moqtrun_sub_open(s, t, (usz)(p - hub->peers), q->pub_alias, &m);
+  if (moqctl_request_ok_take(p->ver, body, &off, &ok) == MOQCTL_OK)
+    moqtrun_upd_params(s, t, &ok.params);
+}
+
+/* With its track gone or its subs[] full there is nothing to deliver on,
+ * so the PUBLISH stream is reset like a retired track's. */
+static void moqtrun_pubst_attach(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_moqtrun_req*  q,
+    wired_span          body) {
+  wired_moqtrun_track* t = moqtrun_pubst_track(hub, q->pub_track_tag);
+  wired_moqtrun_sub*   s = t ? moqtrun_sub_slot(t) : 0;
+  if (!s) {
+    moqtrun_subtracks_pub_reset(hub, q);
+    return;
+  }
+  moqtrun_pubst_open_sub(hub, p, q, t, s, body);
+}
+
+/* 12-11: the first REQUEST_OK establishes the subscription (later ones are
+ * ignored). */
+static void moqtrun_pubst_ok(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_moqtrun_req*  q,
+    wired_span          body) {
+  if (q->live) return;
+  q->live = 1;
+  moqtrun_pubst_attach(hub, p, q, body);
+}
+
+static void moqtrun_pubst_error(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_moqtrun_req*  q,
+    wired_span          body) {
   usz                  off = 0;
   moqctl_request_error e;
-  if (type != MOQCTL_T_REQUEST_ERROR) return 0;
-  return moqctl_request_error_take(body, &off, &e) == MOQCTL_OK;
+  (void)hub;
+  (void)p;
+  if (moqctl_request_error_take(body, &off, &e) == MOQCTL_OK) q->in_use = 0;
 }
 
-static void moqtrun_pubst_route(
-    wired_moqtrun_req* q, u64 type, wired_span body) {
-  if (type == MOQCTL_T_REQUEST_OK) q->live = 1;
-  if (moqtrun_pubst_is_error(type, body)) q->in_use = 0;
+/* 12-18: the subscriber's REQUEST_UPDATE is a subscription update
+ * (moqtrun_upd_is_sub), answered with exactly one REQUEST_OK/REQUEST_ERROR
+ * on this stream (10.9) by the same handler a SUBSCRIBE's update uses. */
+static void moqtrun_pubst_update(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_moqtrun_req*  q,
+    wired_span          body) {
+  wired_moqtrun_req* saved = p->req;
+  p->req                   = q;
+  moqtrun_handle_update(hub, p, (usz)(p - hub->peers), body);
+  p->req = saved;
 }
 
-static void moqtrun_pubst_recv(wired_moqtrun_req* q, wired_span data) {
+static void moqtrun_pubst_ignore(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_moqtrun_req*  q,
+    wired_span          body) {
+  (void)hub;
+  (void)p;
+  (void)q;
+  (void)body;
+}
+
+static const struct {
+  u64              type;
+  moqtrun_pubst_fn fn;
+} moqtrun_pubst_table[] = {
+    {MOQCTL_T_REQUEST_OK, moqtrun_pubst_ok},
+    {MOQCTL_T_REQUEST_ERROR, moqtrun_pubst_error},
+    {MOQTSTAT_T_REQUEST_UPDATE, moqtrun_pubst_update},
+};
+
+static moqtrun_pubst_fn moqtrun_pubst_lookup(u64 type) {
+  for (usz i = 0;
+       i < sizeof moqtrun_pubst_table / sizeof moqtrun_pubst_table[0]; i++)
+    if (moqtrun_pubst_table[i].type == type) return moqtrun_pubst_table[i].fn;
+  return moqtrun_pubst_ignore;
+}
+
+/* Next complete message on q (Type mapped for p's draft), 0 once none is
+ * left or the slot was freed. */
+static int moqtrun_pubst_next(
+    const wired_moqtrun_peer* p,
+    wired_moqtrun_req*        q,
+    u64*                      type,
+    wired_span*               body) {
+  int r = q->in_use ? moqtrun_asm_pop(&q->in, type, body) : MOQCTL_INSUFFICIENT;
+  if (r == MOQCTL_INSUFFICIENT) return 0;
+  moqctl_type_ver(p->ver, r, type);
+  return 1;
+}
+
+static void moqtrun_pubst_recv(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_moqtrun_req*  q,
+    wired_span          data) {
   u64        type = 0;
   wired_span body = {0, 0};
   moqtrun_asm_push(&q->in, &data);
-  if (moqtrun_asm_pop(&q->in, &type, &body) == MOQCTL_OK)
-    moqtrun_pubst_route(q, type, body);
+  while (moqtrun_pubst_next(p, q, &type, &body))
+    moqtrun_pubst_lookup(type)(hub, p, q, body);
+  moqtrun_req_flush(&hub->io, q->wt, q);
 }
 
 /* A hub-opened PUBLISH request slot (SUBSCRIBE_TRACKS's own doc): routed
@@ -7037,14 +7205,14 @@ static wired_moqtrun_req* moqtrun_pubst_slot(
 
 /* 1 iff stream_id is a hub-opened PUBLISH slot (handled, pq's own doc). */
 static int moqtrun_dispatch_pubst(
-    wired_moqt_hub*   hub,
-    wired_wt_session* s,
-    u64               stream_id,
-    wired_span        data,
-    int               fin) {
-  wired_moqtrun_req* pq = moqtrun_pubst_slot(hub, s, stream_id);
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin) {
+  wired_moqtrun_req* pq = moqtrun_pubst_slot(hub, p->wt, stream_id);
   if (!pq) return 0;
-  moqtrun_pubst_recv(pq, data);
+  moqtrun_pubst_recv(hub, p, pq, data);
   pq->fin_in |= fin;
   return 1;
 }
@@ -7077,7 +7245,7 @@ static void moqtrun_dispatch_other(
     u64                 stream_id,
     wired_span          data,
     int                 fin) {
-  if (moqtrun_dispatch_pubst(hub, p->wt, stream_id, data, fin)) return;
+  if (moqtrun_dispatch_pubst(hub, p, stream_id, data, fin)) return;
   moqtrun_dispatch_client_bidi(hub, p, stream_id, data, fin);
 }
 

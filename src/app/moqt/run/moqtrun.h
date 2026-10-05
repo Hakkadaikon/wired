@@ -560,12 +560,14 @@ typedef struct {
   /** A hub-opened PUBLISH request slot only: the Track Alias it named
    * (moqtrun_session_alias), reserved in that session for that track. */
   u64 pub_alias;
-  /** SUBSCRIBE_TRACKS only (10.19.1): FORWARD and GROUP_ORDER as received,
-   * copied into every PUBLISH this SUBSCRIBE_TRACKS generates --
-   * forward_zero 1 iff FORWARD was present and 0 (else PUBLISH omits it);
-   * group_order the raw Parameter value, 0 for absent (publisher's
-   * default, PUBLISH omits it too). */
-  u8 forward_zero;
+  /** SUBSCRIBE_TRACKS (10.19.1, draft-22 3.6.2): FORWARD and GROUP_ORDER
+   * as received, copied into every PUBLISH it generates and into that
+   * PUBLISH's own slot, whose subscription starts from them --
+   * has_forward 1 iff FORWARD was present (forward its value, else the
+   * PUBLISH omits it); group_order the raw Parameter value, 0 for absent
+   * (publisher's default, PUBLISH omits it too). */
+  u8 has_forward;
+  u8 forward;
   u8 group_order;
 } wired_moqtrun_req;
 

@@ -646,9 +646,12 @@ Legend:
   - test: `tests/app/moqtrun_upd_test.c` —
     `test_moqtrun_notify_on_publish_stream_d22`
   - test: `tests/app/moqtrun_vgate_test.c` — `test_moqtrun_vgate_update_kinds`
+  - test: `tests/app/moqtrun_misc_test.c` — `test_moqtrun_misc_stray_update`
   - note: REQUEST_UPDATE on the sender's own PUBLISH stream is accepted on
     every draft (18/19 SS10.9 and 22 SS9.5 list PUBLISH alike); the former
-    draft-22-only cap bit was removed (ledger 12-6).
+    draft-22-only cap bit was removed (ledger 12-6). One outside SS9.5's two
+    cases (control stream, TRACK_STATUS stream) closes the session with
+    PROTOCOL_VIOLATION (ledger 12-17, `MOQVER_CAP_UPDATE_STRAY_CLOSE`).
 - [x] MQ22-096 A publisher may start sending Objects on a PUBLISH-initiated
   subscription before receiving PUBLISH_OK.
   - test: `tests/app/moqsess_test.c` — `test_moqsub_object_before_publish_ok`
@@ -1476,6 +1479,20 @@ draft-18 and draft-19.
   SUBSCRIBE_TRACKS's FORWARD value; cancelling the SUBSCRIBE_TRACKS stops new
   PUBLISHes but leaves established ones, a track that vanishes before the reply
   resets its PUBLISH stream, and a REQUEST_ERROR reply frees the slot.
+  The PUBLISH_OK (REQUEST_OK) reply opens the subscriber's subscription under
+  the PUBLISH's Track Alias, starting from the PUBLISH's parameters (FORWARD 0
+  holds Objects back); the subscriber's REQUEST_UPDATE on that stream is
+  applied like a SUBSCRIBE's and answered there (ledger 12-11, 12-18).
+  FORWARD and GROUP_ORDER, the SUBSCRIBE_TRACKS parameters SS9.8 admits on a
+  PUBLISH, are echoed as given, FORWARD 1 included (SS3.6.2 "explicitly
+  communicated", ledger 12-19).
+  - test: `tests/app/moqtrun_misc_test.c` — `test_moqtrun_misc_pub_ok_relays`
+  - test: `tests/app/moqtrun_misc_test.c` —
+    `test_moqtrun_misc_pub_forward0_then_update`
+  - test: `tests/app/moqtrun_misc_test.c` —
+    `test_moqtrun_misc_pub_update_before_ok`
+  - test: `tests/app/moqtrun_misc_test.c` —
+    `test_moqtrun_misc_d22_publish_params`
   - test: `tests/app/moqtrun_subtracks_test.c` —
     `test_subtracks_publish_match_excludes_self`
   - test: `tests/app/moqtrun_subtracks_test.c` —

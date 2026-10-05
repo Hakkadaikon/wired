@@ -41,7 +41,7 @@ static void test_moqver_caps_d19(void) {
   CHECK(
       moqver_caps(MOQVER_D19) ==
       (MOQVER_CAP_RANGE_FILTERS | MOQVER_CAP_MAX_REQUEST_UPDATES |
-       MOQVER_CAP_SUBSCRIPTION_ENDED));
+       MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_UPDATE_STRAY_CLOSE));
 }
 
 static void test_moqver_caps_d22(void) {
@@ -51,7 +51,7 @@ static void test_moqver_caps_d22(void) {
        MOQVER_CAP_FILL_FETCH | MOQVER_CAP_PUBLISH_STATE_NOTIFY |
        MOQVER_CAP_FETCH_END_INCLUSIVE | MOQVER_CAP_RANGE_FILTERS |
        MOQVER_CAP_MAX_REQUEST_UPDATES | MOQVER_CAP_NS_PREFIX_MATCH |
-       MOQVER_CAP_EOR_TIMED_OUT));
+       MOQVER_CAP_EOR_TIMED_OUT | MOQVER_CAP_UPDATE_STRAY_CLOSE));
 }
 
 static void test_moqver_offer(void) {

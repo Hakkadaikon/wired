@@ -308,13 +308,12 @@ static void test_moqtrun_upd_forward_off_reliable(void) {
   CHECK(mtrq_reset_code(sid) == 0x1);
 }
 
+/* A parameter outside the update's scope closes the session. (An update
+ * on the control stream: tests/app/moqtrun_misc_test.c, per draft.) */
 static void test_moqtrun_upd_bad_and_control(void) {
-  moqctl_params g  = mtst_params_u8(MOQCTL_PARAM_GROUP_ORDER, 1);
-  moqctl_ftn    f  = mtup_setup();
-  u64           cb = moqtrun_find_by_wt(&mtst_hub, SESS_B)->control_stream_id;
+  moqctl_params g = mtst_params_u8(MOQCTL_PARAM_GROUP_ORDER, 1);
+  moqctl_ftn    f = mtup_setup();
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
-  mtup_update(SESS_B, cb, &g);
-  CHECK(mtrq_type_on(3, cb) == MOQCTL_T_REQUEST_ERROR);
   mtup_update(SESS_B, MTRQ_S1, &g);
   CHECK(mtrq_closes() == 1);
 }

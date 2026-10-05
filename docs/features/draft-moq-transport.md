@@ -1277,6 +1277,15 @@ Legend:
   carrying the SUBSCRIBE_TRACKS's FORWARD value; cancelling the SUBSCRIBE_TRACKS
   stops new PUBLISHes but leaves established ones, a track that vanishes before
   the reply resets its PUBLISH stream, and a REQUEST_ERROR reply frees the slot.
+  The PUBLISH_OK (REQUEST_OK) reply opens the subscriber's subscription under
+  the PUBLISH's Track Alias, starting from the PUBLISH's parameters (FORWARD 0
+  holds Objects back); the subscriber's REQUEST_UPDATE on that stream is
+  applied like a SUBSCRIBE's and answered there (ledger 12-11, 12-18).
+  - test: `tests/app/moqtrun_misc_test.c` — `test_moqtrun_misc_pub_ok_relays`
+  - test: `tests/app/moqtrun_misc_test.c` —
+    `test_moqtrun_misc_pub_forward0_then_update`
+  - test: `tests/app/moqtrun_misc_test.c` —
+    `test_moqtrun_misc_pub_update_before_ok`
   - test: `tests/app/moqtrun_subtracks_test.c` —
     `test_subtracks_publish_match_excludes_self`
   - test: `tests/app/moqtrun_subtracks_test.c` —
@@ -1313,9 +1322,14 @@ Legend:
   - note: ledger 10-5.
 - [x] MOQT-203a (SS10.9) A REQUEST_UPDATE of the sender's own PUBLISH ("The
   sender of a request (SUBSCRIBE, PUBLISH, FETCH, ...) can later send a
-  REQUEST_UPDATE") shall be answered REQUEST_OK, the track kept.
+  REQUEST_UPDATE") shall be answered REQUEST_OK, the track kept. A
+  REQUEST_UPDATE outside the updatable requests (on the control stream, or a
+  TRACK_STATUS stream) shall close the session with PROTOCOL_VIOLATION
+  ("other than in the two cases above MUST close the session").
   - test: `tests/app/moqtrun_vgate_test.c` — `test_moqtrun_vgate_update_kinds`
-  - note: ledger 12-6 (was draft-22 only before).
+  - test: `tests/app/moqtrun_misc_test.c` — `test_moqtrun_misc_stray_update`
+  - note: ledger 12-6 (was draft-22 only before); 12-17, gated on
+    `MOQVER_CAP_UPDATE_STRAY_CLOSE`.
 - [x] MOQT-204 (SS10.2.8, SS10.12) A FETCH with GROUP_ORDER Descending shall be
   served newest group first (Objects within a group still ascending), and a
   FETCH whose body fails to decode shall close the session with
