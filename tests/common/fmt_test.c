@@ -1,5 +1,7 @@
 #include "common/fmt/fmt.h"
 
+#include <string.h>
+
 #include "test.h"
 
 static int fmt_t_eq(const char* a, const char* b) {
@@ -141,7 +143,23 @@ static void test_fmt_dprintf(void) {
   CHECK(wired_dprintf(1, "fmt-test %d %s\n", 7, "ok") == 14);
 }
 
+/* wired_obuf_printf appends at len; boundary: exact fit, truncation keeps
+ * len < cap, a full buffer appends nothing. */
+static void test_fmt_obuf(void) {
+  u8         raw[12];
+  wired_obuf b = obuf_of(raw, sizeof raw);
+  CHECK(wired_obuf_printf(&b, "{\"n\":%llu", (unsigned long long)42) == 7);
+  CHECK(wired_obuf_printf(&b, "}") == 1 && b.len == 8);
+  CHECK(memcmp(raw, "{\"n\":42}", 8) == 0);
+  CHECK(wired_obuf_printf(&b, "abcdef") == 3 && b.len == 11);
+  CHECK(memcmp(raw + 8, "abc", 3) == 0);
+  CHECK(wired_obuf_printf(&b, "x") == 0 && b.len == 11);
+  b.len = b.cap;
+  CHECK(wired_obuf_printf(&b, "x") == 0 && b.len == b.cap);
+}
+
 void test_fmt(void) {
+  test_fmt_obuf();
   test_fmt_int();
   test_fmt_flags();
   test_fmt_str();

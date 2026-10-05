@@ -426,6 +426,18 @@ usz wired_snprintf(char* out, usz cap, const char* fmt, ...) {
   return n;
 }
 
+usz wired_obuf_printf(wired_obuf* b, const char* fmt, ...) {
+  usz           room = b->cap - b->len;
+  wired_va_list ap;
+  if (room == 0) return 0;
+  wired_va_start(ap, fmt);
+  usz n = wired_vsnprintf((char*)b->p + b->len, room, fmt, ap);
+  wired_va_end(ap);
+  n = n < room ? n : room - 1;
+  b->len += n;
+  return n;
+}
+
 static i64 fmt_write_all(i64 fd, const char* buf, usz n) {
   usz done = 0;
   while (done < n) {

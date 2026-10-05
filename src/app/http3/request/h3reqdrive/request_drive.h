@@ -131,6 +131,15 @@ typedef struct {
   usz                  hdr_count; /**< entries used in hdrs */
 } wired_h3reqdrive_req;
 
+/**
+ * The request's :path as one view (path, path_len).
+ * @param r decoded request
+ * @return view of the path; valid as long as r is
+ */
+static inline wired_span wired_h3req_path(const wired_h3reqdrive_req* r) {
+  return wired_span_of(r->path, r->path_len);
+}
+
 /** RFC 9114 4.2: find a regular request header by name. Field names are
  * lowercase on the wire, so the match is exact (case-sensitive). cookie
  * returns the crumbs joined with "; " (RFC 9114 4.2.1); other duplicates

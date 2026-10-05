@@ -1320,7 +1320,17 @@ static void test_reqdrive_req_header_dynamic_copied(void) {
   CHECK(v.p >= scratch && v.p < scratch + sizeof scratch);
 }
 
+/* wired_h3req_path is the :path pair as one view. */
+static void test_h3req_path_view(void) {
+  static wired_h3reqdrive_req r;
+  r.path       = (const u8*)"/about?x";
+  r.path_len   = 6;
+  wired_span p = wired_h3req_path(&r);
+  CHECK(p.p == r.path && p.n == 6);
+}
+
 void test_h3reqdrive(void) {
+  test_h3req_path_view();
   test_reqdrive_req_header_lookup();
   test_reqdrive_req_header_cap();
   test_reqdrive_req_header_chrome();

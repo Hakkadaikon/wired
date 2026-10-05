@@ -1,0 +1,64 @@
+#include "common/bytes/text/text.h"
+
+#include "common/arch/sysops.h"
+#include "common/bytes/util/bytes.h"
+#include "common/bytes/util/num.h"
+
+/* Length of the common prefix of a[0..n) and b[0..n). */
+static usz text_common(const u8* a, const u8* b, usz n) {
+  usz i = 0;
+  while (i < n && a[i] == b[i]) i++;
+  return i;
+}
+
+int wired_span_eq(wired_span a, wired_span b) {
+  return a.n == b.n && text_common(a.p, b.p, a.n) == a.n;
+}
+
+int wired_span_eq_cstr(wired_span s, const char* lit) {
+  usz n = wired_cstr_len(lit);
+  return s.n == n && text_common(s.p, (const u8*)lit, n) == n;
+}
+
+usz wired_span_to_cstr(char* out, usz cap, wired_span s) {
+  if (cap == 0) return 0;
+  usz n = (usz)u64_min(s.n, cap - 1);
+  for (usz i = 0; i < n; i++) out[i] = (char)s.p[i];
+  out[n] = 0;
+  return n;
+}
+
+usz wired_hex_encode(char* out, usz cap, wired_span s) {
+  static const char digits[] = "0123456789abcdef";
+  if (cap == 0) return 0;
+  usz n = (usz)u64_min(s.n, (cap - 1) / 2);
+  for (usz i = 0; i < n; i++) {
+    out[2 * i]     = digits[s.p[i] >> 4];
+    out[2 * i + 1] = digits[s.p[i] & 15];
+  }
+  out[2 * n] = 0;
+  return 2 * n;
+}
+
+/* Bytes hexed per write: 2 * TEXT_HEX_CHUNK + 1 characters of stack. */
+#define TEXT_HEX_CHUNK 128
+
+static void text_write_all(i64 fd, const u8* p, usz n) {
+  usz done = 0;
+  while (done < n) {
+    i64 r = wired_arch_write(fd, p + done, (i64)(n - done));
+    if (r <= 0) return;
+    done += (usz)r;
+  }
+}
+
+void wired_dump_hex(i64 fd, wired_span s) {
+  char line[2 * TEXT_HEX_CHUNK + 1];
+  for (usz at = 0; at < s.n; at += TEXT_HEX_CHUNK) {
+    usz n = (usz)u64_min(s.n - at, TEXT_HEX_CHUNK);
+    usz w = wired_hex_encode(line, sizeof line, wired_span_of(s.p + at, n));
+    text_write_all(fd, (const u8*)line, w);
+  }
+}
+
+void wired_dump_text(i64 fd, wired_span s) { text_write_all(fd, s.p, s.n); }
