@@ -366,16 +366,35 @@ Legend:
   sending SUBSCRIBE_OK in response to a downstream SUBSCRIBE.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_subscribe_matching_publish_replies_ok`
+  - test: `tests/app/moqtrun_upsub_test.c` —
+    `test_moqtrun_upsub_ok_after_upstream`
 - [x] MQ18-052 If a relay receives a SUBSCRIBE for a Track no publisher has
-  PUBLISHed, then the implementation shall reply with REQUEST_ERROR
-  DOES_NOT_EXIST.
+  PUBLISHed, then the implementation shall send a SUBSCRIBE upstream to a
+  session (other than the subscriber's) that PUBLISH_NAMESPACEd the Track's
+  namespace or a prefix of it (SS9.5), now or -- for a held SUBSCRIBE --
+  when the PUBLISH_NAMESPACE arrives, and answer SUBSCRIBE_OK once that
+  upstream subscription is Established or REQUEST_ERROR with the upstream's
+  code; with no such publisher (and no RENDEZVOUS_TIMEOUT) it shall reply
+  REQUEST_ERROR DOES_NOT_EXIST.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_subscribe_without_publish_replies_error`
+  - test: `tests/app/moqtrun_upsub_test.c` —
+    `test_moqtrun_upsub_ok_after_upstream`,
+    `test_moqtrun_upsub_error_relayed`,
+    `test_moqtrun_upsub_hold_then_announce`,
+    `test_moqtrun_upsub_own_namespace`, `test_moqtrun_upsub_prefix`,
+    `test_moqtrun_upsub_cross_draft`
+  - note: one upstream SUBSCRIBE per Full Track Name, to the first matching
+    announcer (SS9.5 says each matching publisher; the hub keys one track
+    per name). An upstream subscription nobody downstream wants any more
+    is cancelled (`test_moqtrun_upsub_last_cancel_cancels_upstream`).
 - [~] MQ18-053 A relay may aggregate authorized subscriptions for a given Track
   when multiple subscribers request it, forwarding a single upstream Object to
   every matching downstream subscriber.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_object_relays_to_all_three_subscribers`
+  - test: `tests/app/moqtrun_upsub_test.c` —
+    `test_moqtrun_upsub_two_share_one`
 
 ## SS10 Control Messages: common envelope
 
