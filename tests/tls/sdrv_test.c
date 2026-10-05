@@ -13,6 +13,7 @@
 #include "crypto/pki/trust/castore/pathvalidate.h"
 #include "realchain_golden.h"
 #include "test.h"
+#include "tls/ext/salpn/ch_ext.h"
 #include "tls/ext/stp/parse_tp.h"
 #include "tls/ext/tlsext/earlydata.h"
 #include "tls/ext/tlsext/preshared.h"
@@ -1507,7 +1508,7 @@ typedef struct {
 
 static void sdrv_psk_fixture_init(sdrv_psk_fixture* f) {
   u8     cli_priv[32];
-  ticket t = {{0}, 0, 7200, 0};
+  ticket t = {{0}, 0, 7200, 0, 0};
   /* RFC 8446 4.2.11.1: issued "now" and the PSK offer's ticket_age claims 0ms
    * elapsed (set where the offer is built) -- freshness holds trivially so
    * these fixtures exercise 0-RTT accept/reject on their own axis, not on
@@ -2173,6 +2174,122 @@ static void test_sdrv_pref_addr_tp(void) {
   for (usz i = 0; i < 16; i++) CHECK(val.p[31 + i] == tok[i]);
 }
 
+/* Raw-QUIC MoQT ALPN through the driver (plan S6, RFC 7301 3.1/3.2):
+ * rewrite the ClientHello's only ALPN entry, "h3", to the same-length raw
+ * id "m9" in place (the length fields stay valid). */
+static void sdrv_test_alpn_to_m9(u8* ch, usz ch_len) {
+  wired_span ext = {0, 0};
+  CHECK(salpn_find_extension(wired_span_of(ch, ch_len), SALPN_EXT_TYPE, &ext));
+  ch[(usz)(ext.p - ch) + 3] = 'm';
+  ch[(usz)(ext.p - ch) + 4] = '9';
+}
+
+/* Re-seal f's ticket recording alpn (a salpn_choice) as its issuing
+ * connection's ALPN (RFC 8446 4.2.10). */
+static void sdrv_psk_fixture_reseal(sdrv_psk_fixture* f, u8 alpn) {
+  ticket t    = {{0}, 0, 7200, 0, alpn};
+  t.issued_at = wired_clock_epoch_secs();
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++) t.secret[i] = f->secret[i];
+  ticket_seal(&t, f->ticket_key, f->sealed);
+}
+
+static void sdrv_test_srv_keys(u8* srv_priv, u8* srv_pub, u8* cert_priv) {
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_priv[i] = (u8)(0x80 + i);
+  }
+  wired_x25519_base(srv_pub, srv_priv);
+}
+
+/* A configured raw id the client offers is selected, its token is a view
+ * into the configured list, and the EncryptedExtensions echo it (RFC 7301
+ * 3.1: ext 0x0010, ext len 5, list len 3, name len 2, "m9"). */
+static void test_sdrv_raw_alpn_selected(void) {
+  static const char list[]  = "moqt-19 m9";
+  static const u8   want[9] = {0x00, 0x10, 0x00, 0x05, 0x00,
+                               0x03, 0x02, 0x6d, 0x39};
+  sdrv_psk_fixture  f;
+  sdrv              s;
+  u8                srv_priv[32], srv_pub[32], cert_priv[32];
+  u8                sh[256], flight[2048];
+  wired_obuf        sh_ob = obuf_of(sh, sizeof(sh));
+  wired_obuf        fl_ob = obuf_of(flight, sizeof(flight));
+  sdrv_flight_out   fo    = {&sh_ob, &fl_ob};
+  sdrv_psk_fixture_init(&f);
+  sdrv_test_alpn_to_m9(f.ch, f.ch_len);
+  sdrv_test_srv_keys(srv_priv, srv_pub, cert_priv);
+  {
+    sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
+    sdrv_init(&s, &in);
+    sdrv_set_raw_alpns(&s, list);
+  }
+  CHECK(sdrv_recv_client_hello(&s, f.ch, f.ch_len));
+  CHECK(s.alpn == SALPN_RAW);
+  CHECK(s.alpn_tok.p == (const u8*)list + 8 && s.alpn_tok.n == 2);
+  CHECK(sdrv_build_server_flight(&s, f.srv_random, &fo));
+  for (usz i = 0; i < sizeof want; i++) CHECK(flight[4 + 2 + i] == want[i]);
+}
+
+/* RFC 7301 3.2 / RFC 9001 8.1: nothing the client offers is spoken -- the
+ * flight is refused with no_application_protocol (alert 120 -> 0x178). */
+static void test_sdrv_no_alpn_match_is_0x178(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32];
+  u8               sh[256], flight[2048];
+  wired_obuf       sh_ob = obuf_of(sh, sizeof(sh));
+  wired_obuf       fl_ob = obuf_of(flight, sizeof(flight));
+  sdrv_flight_out  fo    = {&sh_ob, &fl_ob};
+  sdrv_psk_fixture_init(&f);
+  sdrv_test_alpn_to_m9(f.ch, f.ch_len);
+  sdrv_test_srv_keys(srv_priv, srv_pub, cert_priv);
+  {
+    sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
+    sdrv_init(&s, &in);
+  }
+  CHECK(sdrv_recv_client_hello(&s, f.ch, f.ch_len));
+  CHECK(s.alpn == SALPN_NONE);
+  CHECK(!sdrv_build_server_flight(&s, f.srv_random, &fo));
+  CHECK(sdrv_last_error(&s) == 0x178);
+}
+
+/* A 0-RTT ClientHello (ticket stamped ticket_alpn; ALPN rewritten to the
+ * raw "m9" when raw) against a server selecting raw id "m9". The PSK is
+ * always accepted; returns whether early data was. */
+static int sdrv_test_0rtt_alpn(u8 ticket_alpn, int raw) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32], ch2[700];
+  usz              ch2_len, psk_ext_off;
+  sdrv_psk_fixture_init(&f);
+  sdrv_psk_fixture_reseal(&f, ticket_alpn);
+  if (raw) sdrv_test_alpn_to_m9(f.ch, f.ch_len);
+  sdrv_test_srv_keys(srv_priv, srv_pub, cert_priv);
+  ch2_len = sdrv_test_0rtt_ch(&f, ch2, sizeof(ch2), &psk_ext_off);
+  CHECK(ch2_len != 0);
+  {
+    sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f.ticket_key};
+    sdrv_init(&s, &in);
+    sdrv_set_raw_alpns(&s, "m9");
+  }
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
+  CHECK(s.psk_accepted == 1);
+  return s.early_data_accepted;
+}
+
+/* REQ-H (draft-ietf-moq-transport-18 3.3.1 / -22 6.3.1: a relay MAY refuse
+ * 0-RTT): early data is never accepted on a raw ALPN, while resumption
+ * itself still is. RFC 8446 4.2.10: a ticket issued on another ALPN never
+ * carries 0-RTT; a matching or unrecorded (0) one keeps it. */
+static void test_sdrv_0rtt_alpn_gate(void) {
+  CHECK(sdrv_test_0rtt_alpn(SALPN_RAW, 1) == 0);
+  CHECK(sdrv_test_0rtt_alpn(SALPN_NONE, 1) == 0);
+  CHECK(sdrv_test_0rtt_alpn(SALPN_RAW, 0) == 0);
+  CHECK(sdrv_test_0rtt_alpn(SALPN_HQ, 0) == 0);
+  CHECK(sdrv_test_0rtt_alpn(SALPN_H3, 0) == 1);
+  CHECK(sdrv_test_0rtt_alpn(SALPN_NONE, 0) == 1);
+}
+
 void test_sdrv(void) {
   test_sdrv_keyshare_walk_rejects_overclaimed_exts_len();
   test_sdrv_tp_walk_rejects_overclaimed_exts_len();
@@ -2224,6 +2341,9 @@ void test_sdrv(void) {
   test_sdrv_psk_without_early_data_no_0rtt();
   test_sdrv_no_ticket_key_disables_0rtt();
   test_sdrv_early_data_replay_rejected();
+  test_sdrv_raw_alpn_selected();
+  test_sdrv_no_alpn_match_is_0x178();
+  test_sdrv_0rtt_alpn_gate();
   test_sdrv_sni_absent();
   test_sdrv_sni_match();
   test_sdrv_sni_mismatch();

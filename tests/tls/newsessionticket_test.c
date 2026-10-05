@@ -10,6 +10,7 @@ static ticket nst_sample_ticket(void) {
   t.issued_at     = 1720000000ULL;
   t.lifetime_secs = 7200;
   t.age_add       = 0; /* overwritten by tls_new_session_ticket_encode */
+  t.alpn          = 0;
   return t;
 }
 

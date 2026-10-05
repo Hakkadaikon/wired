@@ -144,21 +144,26 @@ typedef struct {
    * streams THIS endpoint may open toward the peer before a MAX_STREAMS
    * raise; 0 = absent (the RFC's default: open none until the peer grants).
    */
-  u64          peer_initial_max_streams_uni;
-  salpn_choice alpn; /**< RFC 7301 3.1/3.2: this server's negotiated
-                      * ALPN protocol (h3 preferred, hq-interop
-                      * fallback), from the ClientHello's ALPN
-                      * extension. SALPN_NONE if the client
-                      * offered neither -- the caller (server.c) must
-                      * fail the handshake rather than proceed. */
-  u16 cipher_suite;  /**< RFC 8446 B.4 / RFC 9001 9.3: this server's
-                      * negotiated TLS 1.3 cipher suite (AES_128_GCM_
-                      * SHA256 preferred, CHACHA20_POLY1305_SHA256
-                      * fallback), set by sdrv_recv_client_hello.
-                      * Governs ServerHello.cipher_suite and the
-                      * Handshake/1-RTT key derivation and packet
-                      * protection; Initial packet protection (RFC 9001
-                      * 5.2) is unaffected and stays AES-128-GCM. */
+  u64 peer_initial_max_streams_uni;
+  /** RFC 7301 3.1/3.2: this server's negotiated ALPN protocol -- the
+   * first entry of the client's list that is h3, hq-interop or one of
+   * raw_alpns (salpn_raw_pick). SALPN_NONE if nothing matched: the flight
+   * is then refused with no_application_protocol (0x178). */
+  salpn_choice alpn;
+  /** The raw protocol id when alpn is SALPN_RAW (e.g. "moqt-19"): a view
+   * into raw_alpns, so it lives as long as that configuration. Empty
+   * otherwise. The server layer reads it to tell raw from h3. */
+  wired_span alpn_tok;
+  /** Configured raw-QUIC ids (sdrv_set_raw_alpns), or 0 for none. */
+  const char* raw_alpns;
+  u16         cipher_suite; /**< RFC 8446 B.4 / RFC 9001 9.3: this server's
+                             * negotiated TLS 1.3 cipher suite (AES_128_GCM_
+                             * SHA256 preferred, CHACHA20_POLY1305_SHA256
+                             * fallback), set by sdrv_recv_client_hello.
+                             * Governs ServerHello.cipher_suite and the
+                             * Handshake/1-RTT key derivation and packet
+                             * protection; Initial packet protection (RFC 9001
+                             * 5.2) is unaffected and stays AES-128-GCM. */
   /** RFC 9001 8.2: the CRYPTO_ERROR (0x0100 | TLS alert) recorded when
    * sdrv_recv_client_hello rejects the ClientHello -- currently only
    * set to missing_extension (RFC 8446 B.2: alert 109 = 0x6d, so 0x016d)
@@ -244,6 +249,14 @@ typedef struct {
  * @param s driver state
  * @param p the addresses, CID and token to advertise. */
 void sdrv_set_preferred_address(sdrv* s, const sdrv_pref_addr* p);
+
+/** RFC 7301 3.2: also select the raw-QUIC application ids in raw_alpns
+ * (see wired_srvboot_id.raw_alpns's doc; 0, the sdrv_init default, selects
+ * only h3 and hq-interop). Call after sdrv_init, before the ClientHello.
+ * raw_alpns must outlive the connection: alpn_tok views into it.
+ * @param s driver state
+ * @param raw_alpns space-separated protocol ids, or 0 */
+void sdrv_set_raw_alpns(sdrv* s, const char* raw_alpns);
 
 /** Inputs to sdrv_init.
  *

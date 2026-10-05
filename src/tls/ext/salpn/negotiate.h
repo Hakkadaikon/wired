@@ -1,6 +1,7 @@
 #ifndef SALPN_NEGOTIATE_H
 #define SALPN_NEGOTIATE_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
 /* RFC 7301: server-side ALPN. The client offers a ProtocolNameList in its
@@ -43,5 +44,20 @@ salpn_choice salpn_negotiate(const u8* alpn_ext_data, usz len);
  * 0 if cap is too small or choice is SALPN_NONE (nothing to build --
  * the caller must not have reached here with an unresolved negotiation). */
 int salpn_build_response(salpn_choice choice, u8* out, usz cap, usz* out_len);
+
+/** The protocol id bytes a negotiation outcome names: "h3", "hq-interop",
+ * tok for SALPN_RAW (the salpn_raw_pick token), or an empty span for
+ * SALPN_NONE (nothing negotiated).
+ * @param choice the negotiation outcome
+ * @param tok the raw token, used only for SALPN_RAW
+ * @return a view of the protocol id (static, or tok itself) */
+wired_span salpn_choice_name(salpn_choice choice, wired_span tok);
+
+/** RFC 7301 3.1: append the EncryptedExtensions ALPN extension selecting
+ * name (ext_type 0x0010, ext_data_len, list_len, name_len, name) to out.
+ * @param name the selected protocol id, 1..255 bytes
+ * @param out receives the extension; len advances on success
+ * @return 1 built; 0 if name is empty or over 255 bytes, or out is short */
+int salpn_build_response_tok(wired_span name, wired_obuf* out);
 
 #endif

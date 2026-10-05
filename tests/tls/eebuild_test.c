@@ -7,6 +7,11 @@
 
 static void test_eebuild_early_data_accepted(void);
 
+/* The protocol id a fixed (non-raw) negotiation outcome names. */
+static wired_span eebuild_test_name(salpn_choice c) {
+  return salpn_choice_name(c, wired_span_of(0, 0));
+}
+
 /* RFC 8446 4.3.1 / RFC 7301 / RFC 9001 8.1-8.2: EncryptedExtensions carries
  * BOTH the negotiated ALPN ("h3") and quic_transport_parameters (0x39). Both
  * extensions and the message/block framing must read back. */
@@ -20,7 +25,7 @@ void test_eebuild(void) {
   wired_obuf ob = obuf_of(out, sizeof(out));
 
   CHECK(eebuild_encrypted_extensions(
-      SALPN_H3, wired_span_of(tp, sizeof(tp)), 0, &ob));
+      eebuild_test_name(SALPN_H3), wired_span_of(tp, sizeof(tp)), 0, &ob));
 
   /* handshake header: type 0x08, length consistent with ob.len. */
   CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
@@ -44,7 +49,7 @@ void test_eebuild(void) {
   /* a tight cap (one byte short) must be refused. */
   ob = obuf_of(out, ob.len - 1);
   CHECK(!eebuild_encrypted_extensions(
-      SALPN_H3, wired_span_of(tp, sizeof(tp)), 0, &ob));
+      eebuild_test_name(SALPN_H3), wired_span_of(tp, sizeof(tp)), 0, &ob));
 
   test_eebuild_early_data_accepted();
 }
@@ -62,9 +67,9 @@ static void test_eebuild_early_data_accepted(void) {
   wired_obuf ob_noed = obuf_of(out_no_ed, sizeof(out_no_ed));
 
   CHECK(eebuild_encrypted_extensions(
-      SALPN_H3, wired_span_of(tp, sizeof(tp)), 1, &ob));
+      eebuild_test_name(SALPN_H3), wired_span_of(tp, sizeof(tp)), 1, &ob));
   CHECK(eebuild_encrypted_extensions(
-      SALPN_H3, wired_span_of(tp, sizeof(tp)), 0, &ob_noed));
+      eebuild_test_name(SALPN_H3), wired_span_of(tp, sizeof(tp)), 0, &ob_noed));
   CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
   CHECK(
       hs_parse(wired_span_of(out_no_ed, ob_noed.len), &type, &body_len_no_ed) ==
@@ -88,7 +93,7 @@ void test_eebuild_selects_hq(void) {
   wired_obuf ob = obuf_of(out, sizeof(out));
 
   CHECK(eebuild_encrypted_extensions(
-      SALPN_HQ, wired_span_of(tp, sizeof(tp)), 0, &ob));
+      eebuild_test_name(SALPN_HQ), wired_span_of(tp, sizeof(tp)), 0, &ob));
   CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
   body = out + 4;
   CHECK(((usz)body[2] << 8 | body[3]) == SALPN_EXT_TYPE);
@@ -103,5 +108,5 @@ void test_eebuild_rejects_no_negotiation(void) {
   u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof(out));
   CHECK(!eebuild_encrypted_extensions(
-      SALPN_NONE, wired_span_of(tp, sizeof(tp)), 0, &ob));
+      eebuild_test_name(SALPN_NONE), wired_span_of(tp, sizeof(tp)), 0, &ob));
 }

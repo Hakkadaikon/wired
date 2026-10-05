@@ -81,6 +81,7 @@ static int srvboot_init(
                              id->chain,    id->chain_count, id->san_ipv4,
                              id->now_secs, id->ticket_key};
   wired_server_init(conn->s, &in);
+  sdrv_set_raw_alpns(&conn->s->sdrv, id->raw_alpns); /* RFC 7301 3.2 */
   wired_server_set_limits(
       conn->s, id->max_data, wired_srvloop_stream_limit(id->max_streams_bidi),
       wired_srvloop_uni_stream_limit(), id->max_datagram_frame_size);

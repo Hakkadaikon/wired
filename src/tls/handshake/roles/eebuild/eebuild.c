@@ -6,18 +6,14 @@
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/tpext.h"
 
-/* Body = extensions<2> wrapping the ALPN extension (9 bytes for "h3", 17 for
- * "hq-interop" -- 6-byte ALPN header + 1-byte name_len + up to 10-byte name),
- * the quic_transport_parameters extension, and the early_data extension
- * (4 bytes, RFC 8446 4.2.10) when accepted. Header(4) + ext_list_len(2)
- * precede the ALPN ext, the 0x39 extension's 4-byte header + tp_len, and
- * early_data's 4 bytes. Sized for the larger (hq-interop) case so both fit.
- */
-#define EEBUILD_ALPN_LEN 17
+/* Body = extensions<2> wrapping the ALPN extension (6-byte header +
+ * name_len(1) + the alpn_len-byte name), the quic_transport_parameters
+ * extension (4-byte header + tp_len), and the early_data extension (4
+ * bytes, RFC 8446 4.2.10) when accepted, after the 4-byte message header. */
 #define EEBUILD_EARLY_DATA_LEN 4
-static int eebuild_fits(usz tp_len, usz cap) {
+static int eebuild_fits(usz alpn_len, usz tp_len, usz cap) {
   return tp_len <= 0xFFFF &&
-         4 + 2 + EEBUILD_ALPN_LEN + 4 + tp_len + EEBUILD_EARLY_DATA_LEN <= cap;
+         4 + 2 + 7 + alpn_len + 4 + tp_len + EEBUILD_EARLY_DATA_LEN <= cap;
 }
 
 /* RFC 8446 4.2.10: append the empty early_data extension at out->p+off when
@@ -30,17 +26,18 @@ static usz eebuild_early_data(u8* out, usz cap, int early_data) {
 }
 
 int eebuild_encrypted_extensions(
-    salpn_choice alpn,
-    wired_span   transport_params,
-    int          early_data,
-    wired_obuf*  out) {
+    wired_span  alpn,
+    wired_span  transport_params,
+    int         early_data,
+    wired_obuf* out) {
   usz        off, alpn_len, ext, ed;
   wired_obuf eob;
-  if (!eebuild_fits(transport_params.n, out->cap)) return 0;
+  if (!eebuild_fits(alpn.n, transport_params.n, out->cap)) return 0;
   off = hs_begin(out->p, out->cap, HS_ENCRYPTED_EXT);
-  if (!salpn_build_response(
-          alpn, out->p + off + 2, out->cap - off - 2, &alpn_len))
-    return 0; /* SALPN_NONE or too small -- either way, nothing built */
+  eob = obuf_of(out->p + off + 2, out->cap - off - 2);
+  if (!salpn_build_response_tok(alpn, &eob))
+    return 0; /* nothing negotiated or too small -- nothing built */
+  alpn_len = eob.len;
   eob = obuf_of(out->p + off + 2 + alpn_len, out->cap - off - 2 - alpn_len);
   ext = tpext_encode(&eob, transport_params);
   ed  = eebuild_early_data(

@@ -104,11 +104,35 @@ static int build_alpn_ext(
   return 1;
 }
 
+static const u8 salpn_h3_name[2]  = {0x68, 0x33};
+static const u8 salpn_hq_name[10] = {0x68, 0x71, 0x2d, 0x69, 0x6e,
+                                     0x74, 0x65, 0x72, 0x6f, 0x70};
+
+wired_span salpn_choice_name(salpn_choice choice, wired_span tok) {
+  wired_span names[] = {{0, 0}, {salpn_h3_name, 2}, {salpn_hq_name, 10}, tok};
+  return (usz)choice < 4 ? names[choice] : wired_span_of(0, 0);
+}
+
+/* A ProtocolName is 1..255 bytes (RFC 7301 3.1: opaque <1..2^8-1>). */
+static int salpn_name_fits(wired_span name) {
+  return name.n != 0 && name.n <= 0xff;
+}
+
+int salpn_build_response_tok(wired_span name, wired_obuf* out) {
+  usz n = 0;
+  if (!salpn_name_fits(name)) return 0;
+  if (!build_alpn_ext(
+          name.p, (u8)name.n, out->p + out->len, out->cap - out->len, &n))
+    return 0;
+  out->len += n;
+  return 1;
+}
+
 int salpn_build_response(salpn_choice choice, u8* out, usz cap, usz* out_len) {
-  static const u8 h3[2]  = {0x68, 0x33};
-  static const u8 hq[10] = {0x68, 0x71, 0x2d, 0x69, 0x6e,
-                            0x74, 0x65, 0x72, 0x6f, 0x70};
-  if (choice == SALPN_H3) return build_alpn_ext(h3, 2, out, cap, out_len);
-  if (choice == SALPN_HQ) return build_alpn_ext(hq, 10, out, cap, out_len);
-  return 0;
+  wired_obuf ob = obuf_of(out, cap);
+  if (!salpn_build_response_tok(
+          salpn_choice_name(choice, wired_span_of(0, 0)), &ob))
+    return 0;
+  *out_len = ob.len;
+  return 1;
 }

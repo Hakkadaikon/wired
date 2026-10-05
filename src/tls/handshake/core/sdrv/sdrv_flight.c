@@ -1,4 +1,5 @@
 #include "common/bytes/util/bytes.h"
+#include "common/diag/error/error.h"
 #include "crypto/asymmetric/ecc/cvecdsa/cvecdsa.h"
 #include "tls/ext/stp/server_tp.h"
 #include "tls/ext/tparam/tparam.h"
@@ -153,13 +154,27 @@ static int emit_ee_tp(sdrv* s, wired_obuf* tob) {
          emit_ee_version_info(s, tob) && emit_ee_pref_addr(s, tob);
 }
 
+/* RFC 7301 3.2 / RFC 9001 8.1: no offered protocol is spoken -- refuse
+ * with no_application_protocol (alert 120, QUIC 0x178). */
+static int sdrv_alpn_settled(sdrv* s) {
+  if (s->alpn != SALPN_NONE) return 1;
+  s->last_error = err_crypto(120);
+  return 0;
+}
+
+/* ALPN negotiated and the transport parameters built into tob. */
+static int emit_ee_ready(sdrv* s, wired_obuf* tob) {
+  return sdrv_alpn_settled(s) && emit_ee_tp(s, tob);
+}
+
 static int emit_ee(sdrv* s, wired_obuf* flight) {
   u8         tp[256], msg[1024];
   wired_obuf tob = obuf_of(tp, sizeof(tp));
   wired_obuf mob = obuf_of(msg, sizeof(msg));
-  if (!emit_ee_tp(s, &tob)) return 0;
+  if (!emit_ee_ready(s, &tob)) return 0;
   if (!eebuild_encrypted_extensions(
-          s->alpn, wired_span_of(tp, tob.len), s->early_data_accepted, &mob))
+          salpn_choice_name(s->alpn, s->alpn_tok), wired_span_of(tp, tob.len),
+          s->early_data_accepted, &mob))
     return 0;
   return emit_msg(s, wired_span_of(msg, mob.len), flight);
 }
