@@ -181,11 +181,21 @@ static i64 moqtrun_ctl_open_io(
  * included) is sent until SETUP went out. SETUP rides send_bufs[0], the
  * armed slot (an open holds the same view/ACK contract as stream_send,
  * srvrun.h). */
+/* MAX_FILTER_RANGES (0x06) / MAX_REQUEST_UPDATES (0x08) exist from
+ * draft-19 10.4 on; draft-18 10.3.1 has neither, so a draft-18 SETUP
+ * leaves them 0 -- moqctl_setup_put_num keeps a 0 option off the wire. */
+static void moqtrun_setup_limits(moqctl_setup* s, int ver) {
+  u32 caps = moqver_caps(ver);
+  if (caps & MOQVER_CAP_RANGE_FILTERS)
+    s->max_filter_ranges = WIRED_MOQTRUN_MAX_FILTER_RANGES;
+  if (caps & MOQVER_CAP_MAX_REQUEST_UPDATES)
+    s->max_request_updates = WIRED_MOQTRUN_MAX_REQ_UPDATES;
+}
+
 static void moqtrun_ctl_open(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   wired_mspan buf = wired_mspan_of(p->send_bufs[0], WIRED_MOQTRUN_CTL_SEND_BUF);
-  moqctl_setup setup        = {0};
-  setup.max_filter_ranges   = WIRED_MOQTRUN_MAX_FILTER_RANGES;
-  setup.max_request_updates = WIRED_MOQTRUN_MAX_REQ_UPDATES;
+  moqctl_setup setup = {0};
+  moqtrun_setup_limits(&setup, p->ver);
   usz off =
       moqtrun_envelope_put(buf, MOQCTL_T_SETUP, moqtrun_encode_setup, &setup);
   i64 sid = moqtrun_ctl_open_io(
