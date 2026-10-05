@@ -377,7 +377,20 @@ MoQT draft-19 以降は webtrans-http3-16 を参照している。ワイヤ値�
 
 ## 13. raw QUIC 上の MoQT(2026-10-05 ユーザー指示で追加)
 
-- [ ] 13-0 計画: `moqt://`(ALPN `moqt-NN`)で MoQT を話す。版ごとの仕様、runner 連携、アーキテクチャ、TLA+ 対象、並列実装分割、TDD リストを `tasks/loopeng/moqt/RawQuic/plan.md` にまとめる(作業中)。13-1 以降は計画完了時に展開する。
+- [x] 13-0 計画: `tasks/loopeng/moqt/RawQuic/plan.md`(版ごとの仕様 R1-R17、runner 連携、アーキテクチャ、TLA+ 対象、並列分割、TDD リスト、リスク K1-K14)。
+- [ ] 13-1 インタフェース凍結(S0a): `salpn_raw.h`/`rawq.h`/`moqraw.h`/`moqrawio.h` と srvrun.h/srvboot.h の追加宣言。名前は plan §4.2、着手前に再 grep。
+- [ ] 13-2 TLA+ `MoqtRawConn`(S0b/S5): 接続→raw セッション生成・配送・クローズ・スロット再利用。安全性 SessBeforeData/CloseOnce/CloseIffSession/NoGhost/NoH3OnRaw/RawCloseShape/PathRule、活性 2、ミューテーション 4 件で反例確認、reviewer 合格。
+- [ ] 13-3 ALPN 選択(S1+S6+S8): `SALPN_RAW`、`wired_srvboot_id.raw_alpns`、クライアント選好順で h3/hq/moqt-NN を混在選択、EE と ticket に選択トークン、raw ALPN では 0-RTT 拒否(d18 §3.3.1 / d22 §6.3.1 の relay MAY)。固定バイト T-A4。
+- [ ] 13-4 raw 束縛ヘルパ(S2): `app/rawquic/rawq_*`(ストリーム経路、reset コードの無変換/WT 写像、datagram 前置なし、uni 初番 3)。T-B1〜B4。
+- [ ] 13-5 srvloop の raw 経路(S7): raw ALPN 接続ではクライアントの全 bidi/uni を sig_len 0 で WT スロットへ、h3 要求/QPACK 経路に入れない。T-E3。
+- [ ] 13-6 srvrun の暗黙セッション(S9): 確認時に生成し `raw_on_session`、H3 制御/QPACK を開かない、uni id 3 起点、datagram に qsid なし、reset コード無変換、クローズは CONNECTION_CLOSE 0x1d(MoQT コード)、on_session_close はちょうど 1 回。T-E1〜E10(E5/E6/E7 は固定バイト)。
+- [ ] 13-7 MoQT raw ポリシー(S3): PATH(0x01)/AUTHORITY(0x05) を raw では受理、不正形式は MALFORMED_PATH 0x9 / MALFORMED_AUTHORITY 0x1A、フック拒否は 0x8/0x19、WT は従来どおり 0x8/0x19(d18 §10.3.1.1-2、d19 §10.3.1.1-2、d22 §9.1.1-2)。T-C1〜C5。
+- [ ] 13-8 io 多重化(S4): `wired_moqraw_io()`、WT セッションだけ signal 前置、moqt_interop/moqt_chat の `open_signalled` 重複を除去。T-D1〜D4。
+- [ ] 13-9 hub(S10、他エージェントの moqtrun.c 作業のマージ後): `wired_moqt_on_session_raw`、peer.raw、`moqtrun_setup_opt_bad` を moqraw へ委譲、`hub.raw_policy`。T-F1〜F4。
+- [ ] 13-10 example/interop(S11): moqt_interop が同一ポートで h3 と moqt-22/19/18 を受ける、run_endpoint_moqt.sh の `MOQT_TRANSPORT`、runner fork に `wired-quic`(`moqt://relay:4443`、同一イメージの再タグ)を追加し `wired` の notes から "WebTransport only" を外す。
+- [ ] 13-11 検証: in-process raw ループバック T-L1、実ピア固定トレース T-L2(xquic-draft-18 と moqtopus の SETUP/ALPN を golden 化)、runner 行列 T-L3(moqtopus/xquic-draft-18/mlmtest/quic-zig/moq5/aiomoqt → wired-quic、`results/<ts>/` ログ付き)。T-L2 が揃うまでワイヤに出る項目は `[~]` のまま。
+- [ ] 13-12 配線・文書・ゲート(S12): run.c 配線、`docs/api-stability.md`(新 `wired_*`)、features ページの transport 行、moqtrun.h の WT 前提コメント、`just docs`/`just fuzz-smoke`/三点ゲート/`just test`、valgrind 1 回。
+- 対象外(再登録条件つき): raw 上の 0-RTT 受理(条件: 0-RTT を要求する対向が現れたとき)、トランスポート別の GOAWAY URI(条件: 混在環境で https:// 前提の WT クライアントへ移行先を出す必要が出たとき)、wired 側 raw MoQT クライアント(条件: relay 以外の role を runner に登録するとき)、`moq-00`(draft-14 以前)の ALPN。
 
 ## 14. printf 互換の出力関数(2026-10-05 ユーザー指示で追加、他の全項目完了後に着手)
 
