@@ -3,6 +3,12 @@ closed: いいえ(進行中)。次のセッションはこのファイルから�
 
 # 再開メモ — 2026-10-05 15:00 UTC 時点(クラウドセッション2本目の終了時)
 
+**最新(15:00)**: S10(13-9)と S11(13-10)は取り込み済み(d9feaf0、main にも push)。ghcr の relay イメージ更新済み。
+moq-interop-runner fork の `interop-wired.yml` を起動済み: run 37329222499
+(https://github.com/Hakkadaikon/moq-interop-runner/actions/runs/37329222499)。WebTransport(`wired`)→ raw QUIC
+(`wired-quic`)の順に回り、両方の結果は artifact `interop-results`、Vercel レポートは後に走る wired-quic 分のみ。
+次のセッションはこの run の結果の解析から始める(下の「次にやること」1・2 は完了、3 から)。
+
 ## ゴール(ユーザー指示、/goal)
 
 「台帳の全てのチェックが通り、CI が通り、guide や feature などドキュメントも全て修正し、テストが全て通り、
