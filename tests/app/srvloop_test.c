@@ -160,6 +160,9 @@ static void lp_drive_to_flight(struct lp_fix* f) {
           &f->s, wired_span_of(g_cli_scid, 6), wired_span_of(g_cli_scid, 6)) ==
       1);
   CHECK(wired_srvloop_init(&f->l, g_cli_scid, 6) == 1);
+  /* srvrun wipes the slot ({0}) before init; a stack fixture must too. */
+  f->l.spare_cid_len   = 0;
+  f->l.spare_cid_in_tp = 0;
   CHECK(wired_server_recv_initial(&f->s, f->ch, f->ch_len) == 1);
   CHECK(wired_server_build_flight(&f->s, f->srv_random, &fo) == 1);
   f->sh_len     = sh_ob.len;

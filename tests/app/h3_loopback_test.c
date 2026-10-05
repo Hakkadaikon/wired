@@ -93,6 +93,8 @@ static void lb_drive_to_flight(struct lb_fix* f) {
       wired_server_set_cids(
           &f->s, wired_span_of(g_scid, 6), wired_span_of(g_scid, 6)) == 1);
   CHECK(wired_srvloop_init(&f->l, g_scid, 6) == 1);
+  f->l.spare_cid_len   = 0; /* srvrun wipes the slot before init */
+  f->l.spare_cid_in_tp = 0;
   CHECK(wired_server_recv_initial(&f->s, f->ch, f->ch_len) == 1);
   CHECK(wired_server_build_flight(&f->s, f->srv_random, &fo) == 1);
   f->sh_len     = sh_ob.len;

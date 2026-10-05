@@ -1114,6 +1114,7 @@
 #include "app/moqtrun_rdv_test.c"
 #include "app/moqraw_test.c"
 #include "app/moqtrun_raw_test.c"
+#include "app/moqtrun_rawpeer_test.c"
 #include "app/moqtrun_upsub_test.c"
 #include "app/moqtrel_test.c"
 #include "app/moqns_test.c"
@@ -1697,6 +1698,7 @@ int main(void) {
   test_moqtrun_vgate();
   test_moqtrun_misc();
   test_moqtrun_raw();
+  test_moqtrun_rawpeer();
   test_moqtrun_ctlfix();
   test_moqtrun_fillfix();
   test_moqtrun_rdv();
