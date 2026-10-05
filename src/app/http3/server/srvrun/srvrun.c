@@ -407,8 +407,21 @@ typedef struct {
   u8            scid[WIRED_MAX_CID_LEN];
   int           goaway_sent; /**< 1 once graceful-shutdown GOAWAY sent */
   u64           last_ms;     /**< monotonic ms of the last routed datagram */
-  srvrun_resp   resp[SRVRUN_RESP_SLOTS]; /**< in-flight responses, one per
-                                             answered request stream */
+  /** RFC 9000 10.2.1: 1 once this server sent a CONNECTION_CLOSE -- the
+   * closing state (srvrun_close_send). No app delivery and no send but the
+   * same close frame again until the slot is reaped at closing_until_ms. */
+  int closing;
+  /** RFC 9000 10.2: three times the PTO after the close went out. */
+  u64 closing_until_ms;
+  /** Packets received while closing; the close frame is resent on the
+   * 1st, 2nd, 4th, 8th, ... one (RFC 9000 10.2.1 rate limit). */
+  u64 closing_rx;
+  /** The CONNECTION_CLOSE frame sent, kept to resend it unchanged. 64:
+   * the payload buffer every close seal already builds into. */
+  u8          close_pl[64];
+  usz         close_pln;
+  srvrun_resp resp[SRVRUN_RESP_SLOTS]; /**< in-flight responses, one per
+                                           answered request stream */
   cc cc; /**< congestion window gating every resp[]'s pump */
   /** RFC 9000 13.4.2 ECN validation for this connection's ACK feedback:
    * every packet leaves ECT(0)-marked (wired_udp_ect0_enable on the listen
@@ -1347,7 +1360,7 @@ static void srvrun_tx(
     wired_udp_send(fd, sa, pkt);
 }
 
-static void srvrun_send(
+static void srvrun_send_now(
     const srvrun_cfg*  cfg,
     const srvrun_conn* c,
     wired_span         pkt,
@@ -1360,6 +1373,16 @@ static void srvrun_send(
     g_srvrun_send_count++;
     g_srvrun_tx_max_len = (usz)u64_max(g_srvrun_tx_max_len, pkt.n);
   }
+}
+
+/* srvrun_send_now, except on a closing connection: RFC 9000 10.2.1 lets it
+ * send nothing but its CONNECTION_CLOSE again (srvrun_close_resend). */
+static void srvrun_send(
+    const srvrun_cfg*  cfg,
+    const srvrun_conn* c,
+    wired_span         pkt,
+    const char*        what) {
+  if (!c->closing) srvrun_send_now(cfg, c, pkt, what);
 }
 
 /* One unconditional line per connection-ending event (the "conn refused:
@@ -1461,13 +1484,20 @@ static void srvrun_stage_put(
  * packets can leave the wire AFTER a direct srvrun_send issued later in the
  * same pump pass (e.g. DATA_BLOCKED) -- plain datagram reordering, which
  * any QUIC peer already tolerates (RFC 9000 12.3). */
+/* 1 iff pkt skips the GSO stage for srvrun_send: AF_XDP, an empty packet,
+ * or a closing connection (srvrun_send's own gate drops it). */
+static int srvrun_stage_bypass(
+    const srvrun_cfg* cfg, const srvrun_conn* c, wired_span pkt) {
+  return cfg->xdp || pkt.n == 0 || c->closing;
+}
+
 static void srvrun_send_staged(
     const srvrun_cfg*  cfg,
     const srvrun_conn* c,
     wired_span         pkt,
     const char*        what) {
   (void)what;
-  if (cfg->xdp || pkt.n == 0) {
+  if (srvrun_stage_bypass(cfg, c, pkt)) {
     srvrun_send(cfg, c, pkt, what);
     return;
   }
@@ -2012,20 +2042,16 @@ static usz srvrun_app_close_payload(
   return frame_put_conn_close(plb->p, plb->cap, &cc);
 }
 
-/* Seal the CONNECTION_CLOSE above into out as its own 1-RTT packet. Returns
- * 1 with out->len set, 0 if the payload or the seal failed. */
-static int srvrun_seal_app_close(
-    srvrun_conn* c, u64 error_code, wired_span reason, wired_obuf* out) {
-  u8                    pl[64];
-  wired_obuf            plb = obuf_of(pl, sizeof pl);
-  wired_srvloop_send_in sin;
-  usz pln = srvrun_app_close_payload(error_code, reason, &plb);
-  if (!pln) return 0;
-  sin = (wired_srvloop_send_in){
+/* Seal the CONNECTION_CLOSE frame pl into out as its own 1-RTT packet under
+ * the next packet number. Returns 1 with out->len set, 0 if the seal
+ * failed. */
+static int srvrun_seal_close_pl(
+    srvrun_conn* c, wired_span pl, wired_obuf* out) {
+  wired_srvloop_send_in sin = {
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
       c->l.tx_pn++,
       -1,
-      wired_span_of(pl, pln),
+      pl,
       0,
       0,
       0,
@@ -2033,16 +2059,55 @@ static int srvrun_seal_app_close(
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
-/* Seal and send an application-level CONNECTION_CLOSE as its own 1-RTT
- * packet (e.g. srvrun_close_on_bad_qsid's RFC 9297 2.1 H3_DATAGRAM_ERROR). */
-static void srvrun_send_app_close(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, wired_span reason) {
+static void srvrun_close_all_wt(const srvrun_cfg* cfg, srvrun_conn* c);
+
+/* RFC 9000 10.2.1: send the kept close frame (close_pl) again as a fresh
+ * 1-RTT packet -- the one send the closing state still allows, so it goes
+ * around srvrun_send's closing gate. */
+static void srvrun_close_resend(const srvrun_cfg* cfg, srvrun_conn* c) {
   u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof out);
-  if (!srvrun_seal_app_close(c, error_code, reason, &ob)) return;
-  srvrun_log_close("conn closed by server (app): ", reason);
-  srvrun_send(
-      cfg, c, wired_span_of(out, ob.len), "app CONNECTION_CLOSE sent\n");
+  if (!srvrun_seal_close_pl(c, wired_span_of(c->close_pl, c->close_pln), &ob))
+    return;
+  srvrun_send_now(
+      cfg, c, wired_span_of(out, ob.len), "CONNECTION_CLOSE sent\n");
+}
+
+/* 1 iff a close frame of pln bytes may go out: it was built, and none went
+ * out before (one CONNECTION_CLOSE per connection -- a later violation or
+ * shutdown must not put a second, different code on the wire). */
+static int srvrun_close_allowed(const srvrun_conn* c, usz pln) {
+  return !c->closing && pln != 0;
+}
+
+/* RFC 9000 10.2 / 10.2.1: send the CONNECTION_CLOSE frame pl and enter the
+ * closing state in the same step -- every WT session ends now
+ * (srvrun_close_all_wt: wt_on_session_close once, then inactive), no
+ * further app delivery or send happens, and the slot is reaped three PTOs
+ * later (srvrun_close_reap_due). Returns 0, sending nothing, when the
+ * connection is already closing or pl is empty. */
+static int srvrun_close_send(
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_span pl) {
+  if (!srvrun_close_allowed(c, pl.n)) return 0;
+  bytes_memcpy(c->close_pl, pl.p, pl.n);
+  c->close_pln = pl.n;
+  srvrun_close_resend(cfg, c);
+  c->closing          = 1;
+  c->closing_until_ms = c->l.now_ms + 3 * srvrun_pto_deadline_ms(c, 0);
+  srvrun_close_all_wt(cfg, c);
+  return 1;
+}
+
+/* Send an application-level CONNECTION_CLOSE as its own 1-RTT packet (e.g.
+ * srvrun_close_on_bad_qsid's RFC 9297 2.1 H3_DATAGRAM_ERROR) and enter the
+ * closing state (srvrun_close_send). */
+static void srvrun_send_app_close(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, wired_span reason) {
+  u8         pl[64];
+  wired_obuf plb = obuf_of(pl, sizeof pl);
+  usz        pln = srvrun_app_close_payload(error_code, reason, &plb);
+  if (srvrun_close_send(cfg, c, wired_span_of(pl, pln)))
+    srvrun_log_close("conn closed by server (app): ", reason);
 }
 
 /* RFC 9110 10.1.1: build a bare "100 Continue" HEADERS frame (no DATA, RFC
@@ -2050,7 +2115,7 @@ static void srvrun_send_app_close(
  * stream -- an interim response, so unlike the final response it is not
  * ACK-tracked by wired_sendsess: losing it costs nothing (RFC 9110 10.1.1
  * lets a client proceed after its own timeout regardless), matching
- * srvrun_seal_app_close's own fire-and-forget idiom for single-packet sends.
+ * srvrun_seal_close_pl's own fire-and-forget idiom for single-packet sends.
  * *h3_len receives the HEADERS frame's own byte length (the request stream's
  * new base offset the final response must continue from). Returns 1 with
  * plb->len set, 0 on overflow. */
@@ -2105,7 +2170,7 @@ static usz srvrun_send_continue(
 
 /* RFC 9000 10.2.3: a transport-level CONNECTION_CLOSE (type 0x1c, is_app=0)
  * carrying a standard RFC 9000 20.1 error code -- the sibling of
- * srvrun_seal_app_close for a violation the transport itself detects (e.g.
+ * srvrun_app_close_payload for a violation the transport itself detects (e.g.
  * RFC 9221 3's PROTOCOL_VIOLATION), rather than an HTTP/3/WebTransport
  * application error. frame_type 0 (unknown/unspecified) matches
  * wired_srvboot_refusal's own transport-close payload. */
@@ -2115,37 +2180,16 @@ static usz srvrun_transport_close_payload(
   return frame_put_conn_close(plb->p, plb->cap, &cc);
 }
 
-/* Seal the CONNECTION_CLOSE above into out as its own 1-RTT packet. Returns
- * 1 with out->len set, 0 if the payload or the seal failed. */
-static int srvrun_seal_transport_close(
-    srvrun_conn* c, u64 error_code, wired_span reason, wired_obuf* out) {
-  u8                    pl[64];
-  wired_obuf            plb = obuf_of(pl, sizeof pl);
-  wired_srvloop_send_in sin;
-  usz pln = srvrun_transport_close_payload(error_code, reason, &plb);
-  if (!pln) return 0;
-  sin = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
-      c->l.tx_pn++,
-      -1,
-      wired_span_of(pl, pln),
-      0,
-      0,
-      0,
-      0};
-  return wired_srvloop_send_onertt(&c->s, &sin, out);
-}
-
-/* Seal and send a transport-level CONNECTION_CLOSE as its own 1-RTT packet
- * (RFC 9000 20.1 error code, e.g. ERR_PROTOCOL_VIOLATION). */
+/* Send a transport-level CONNECTION_CLOSE as its own 1-RTT packet (RFC 9000
+ * 20.1 error code, e.g. ERR_PROTOCOL_VIOLATION) and enter the closing state
+ * (srvrun_close_send). */
 static void srvrun_send_transport_close(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, wired_span reason) {
-  u8         out[128];
-  wired_obuf ob = obuf_of(out, sizeof out);
-  if (!srvrun_seal_transport_close(c, error_code, reason, &ob)) return;
-  srvrun_log_close("conn closed by server (transport): ", reason);
-  srvrun_send(
-      cfg, c, wired_span_of(out, ob.len), "transport CONNECTION_CLOSE sent\n");
+  u8         pl[64];
+  wired_obuf plb = obuf_of(pl, sizeof pl);
+  usz        pln = srvrun_transport_close_payload(error_code, reason, &plb);
+  if (srvrun_close_send(cfg, c, wired_span_of(pl, pln)))
+    srvrun_log_close("conn closed by server (transport): ", reason);
 }
 
 /* Index-based view over the two physical slots (wt/wt_active, wt1/wt1_active)
@@ -2262,6 +2306,24 @@ static int srvrun_wt_slot_for_new_stream(const srvrun_conn* c) {
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
     if (srvrun_wt_is_active(c, i)) return i;
   return -1;
+}
+
+/* 1 iff a stream offered (offered) to session slot owner may still deliver
+ * there: that session is still open. A closed session's own streams were
+ * reset and freed with it (srvrun_close_wt_session_slot), and a closing
+ * connection has no open session left (srvrun_close_send). */
+static int srvrun_wt_owner_live(const srvrun_conn* c, int offered, int owner) {
+  return offered && srvrun_wt_is_active(c, owner);
+}
+
+/* The session slot a WT stream delivers to: the one it was offered to
+ * (wt_session_slot, recorded at offer time), never a fresh first-active
+ * lookup -- once that slot closes and an Extended CONNECT reuses it, a
+ * recompute would hand one session's bytes to another (TLA+ MoqtRawConn D1,
+ * wtroute DeliverToOwner). -1 when nothing may be delivered. */
+static int srvrun_wt_stream_owner(
+    const srvrun_conn* c, int offered, int owner) {
+  return srvrun_wt_owner_live(c, offered, owner) ? owner : -1;
 }
 
 /* Free a WT bidi slot whose stream has ended, owing the peer one stream of
@@ -2453,7 +2515,7 @@ static void srvrun_offer_and_deliver_wt_slot(
   int sidx;
   if (wt_slot_needs_offer(slot)) srvrun_offer_wt_slot(cfg, c, slot);
   if (!slot->in_use) return;
-  sidx = srvrun_wt_slot_for_new_stream(c);
+  sidx = srvrun_wt_stream_owner(c, slot->offered, slot->wt_session_slot);
   srvrun_deliver_wt_stream_delta(
       cfg, c, sidx, slot->stream_id, slot->buf, &slot->win, slot->fin,
       slot->fin_off, &slot->delivered_len, &slot->fin_delivered);
@@ -2679,7 +2741,7 @@ static void srvrun_offer_and_deliver_wt_uni_slot(
   int sidx;
   if (wt_uni_slot_needs_offer(slot)) srvrun_offer_wt_uni_slot(cfg, c, slot);
   if (!slot->in_use) return;
-  sidx = srvrun_wt_slot_for_new_stream(c);
+  sidx = srvrun_wt_stream_owner(c, slot->offered, slot->wt_session_slot);
   srvrun_deliver_wt_stream_delta(
       cfg, c, sidx, slot->stream_id, slot->buf, &slot->win, slot->fin,
       slot->fin_off, &slot->delivered_len, &slot->fin_delivered);
@@ -3305,6 +3367,7 @@ static void srvrun_reset_wt_uni_if_owned(
 static int srvrun_send_wt_capsule(
     srvrun_conn* c, int sidx, wired_span capsule_bytes, u8 fin);
 static void srvrun_wt_connect_sender_drop(srvrun_conn* c, int sidx);
+static void srvrun_wt_connect_fin(srvrun_conn* c, int sidx);
 
 /* draft-ietf-webtrans-http3-15 SS4.4/8.2: a session closing must not leave
  * any of ITS OWN WT bidi/uni streams open -- reset every one with err_code.
@@ -3636,12 +3699,17 @@ static void srvrun_reset_connect_stream_code(
 /* draft-ietf-webtrans-http3-16 SS6: a rejected capsule pass ends the
  * session. An invalid WT_CLOSE_SESSION body also resets the CONNECT stream
  * with H3_MESSAGE_ERROR, and the session's other streams get WT_SESSION_GONE;
- * every other violation resets the owned streams with its own code. */
+ * every other end (the peer's WT_CLOSE_SESSION, a flow-control violation, a
+ * malformed capsule) resets the owned streams with its own code and closes
+ * this server's side of the CONNECT stream with a FIN (srvrun_wt_connect_fin:
+ * the recipient MUST close or reset it in response). */
 static void srvrun_wt_rx_fail(
     const srvrun_cfg* cfg, srvrun_conn* c, int sidx, u64 code) {
   if (code == H3_MESSAGE_ERROR) {
     srvrun_reset_connect_stream_code(cfg, c, sidx, code);
     code = WTERR_SESSION_GONE;
+  } else {
+    srvrun_wt_connect_fin(c, sidx);
   }
   srvrun_close_wt_session_slot(cfg, c, sidx, code);
 }
@@ -3674,6 +3742,7 @@ static void srvrun_close_wt_on_stream_close(
   if (sidx >= 0) {
     srvrun_log_close(
         "wt session closed by peer (CONNECT stream)", wired_span_of(0, 0));
+    srvrun_wt_connect_fin(c, sidx); /* draft-ietf-webtrans-http3-16 SS6 */
     srvrun_close_wt_session_slot(cfg, c, sidx, WTERR_SESSION_GONE);
   }
   c->l.closed_stream_seen = 0;
@@ -3963,23 +4032,15 @@ static u32 srvrun_reset_limit(const srvrun_cfg* cfg) {
   return v ? v : SRVRUN_MAX_RESETS_PER_WINDOW;
 }
 
-/* Seal the RFC 9114 8.1 H3_EXCESSIVE_LOAD application CONNECTION_CLOSE the
- * rapid-reset limit sends; split from the send so a test can decode the
- * exact packet production sends. */
-static int srvrun_seal_reset_flood_close(srvrun_conn* c, wired_obuf* out) {
-  static const u8 reason[] = "stream reset rate exceeded";
-  return srvrun_seal_app_close(
-      c, H3_EXCESSIVE_LOAD, wired_span_of(reason, sizeof reason - 1), out);
-}
-
 /* RFC 9114 10.5 (V-0438): 1 if this window's RESET_STREAM/STOP_SENDING
- * count passed the limit and the connection was closed over it. */
+ * count passed the limit and the connection was closed over it with the
+ * RFC 9114 8.1 H3_EXCESSIVE_LOAD application CONNECTION_CLOSE (the frame
+ * sent stays in c->close_pl for a test to decode). */
 static int srvrun_close_on_reset_flood(const srvrun_cfg* cfg, srvrun_conn* c) {
-  u8         out[128];
-  wired_obuf ob = obuf_of(out, sizeof out);
+  static const u8 reason[] = "stream reset rate exceeded";
   if (c->l.peer_reset_count <= srvrun_reset_limit(cfg)) return 0;
-  if (srvrun_seal_reset_flood_close(c, &ob))
-    srvrun_send(cfg, c, wired_span_of(out, ob.len), "reset flood close sent\n");
+  srvrun_send_app_close(
+      cfg, c, H3_EXCESSIVE_LOAD, wired_span_of(reason, sizeof reason - 1));
   return 1;
 }
 
@@ -4047,7 +4108,7 @@ static void srvrun_grant_wt_streams(
  * mid-stream WT_STREAM signal), in which case the connection closes itself
  * instead (srvrun_close_on_step_violation), or the step observed a peer
  * CONNECTION_CLOSE (srvrun_send_step_reply's own gate). */
-static void srvrun_on_step(
+static void srvrun_on_step_live(
     const srvrun_step_ctx* ctx, srvrun_conn* c, wired_mspan dg) {
   u8                 out[1500];
   wired_obuf         ob   = obuf_of(out, sizeof out);
@@ -4081,6 +4142,26 @@ static void srvrun_on_step(
   srvrun_grant_wt_streams(ctx, c);
   if (srvrun_close_on_step_violation(ctx->cfg, c)) return;
   srvrun_send_step_reply(ctx->cfg, c, produced, wired_span_of(out, ob.len));
+}
+
+/* RFC 9000 10.2.1: a packet for a closing connection is not processed (no
+ * frame reaches srvloop or the app); the close frame answers it again on
+ * the 1st, 2nd, 4th, 8th, ... such packet -- the rate limit the RFC asks
+ * for, so a peer that keeps sending cannot make the server amplify. */
+static void srvrun_closing_rx(const srvrun_cfg* cfg, srvrun_conn* c) {
+  u64 n = ++c->closing_rx;
+  if ((n & (n - 1)) == 0) srvrun_close_resend(cfg, c);
+}
+
+/* One received datagram on a live slot: the closing state answers it
+ * (srvrun_closing_rx), every other connection steps (srvrun_on_step_live). */
+static void srvrun_on_step(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, wired_mspan dg) {
+  if (c->closing) {
+    srvrun_closing_rx(ctx->cfg, c);
+    return;
+  }
+  srvrun_on_step_live(ctx, c, dg);
 }
 
 /* RFC 9114 6.2.1: first server unidirectional (control) stream id, same value
@@ -4791,10 +4872,11 @@ i64 wired_server_wt_open_uni_stream(wired_wt_session* s, wired_span payload) {
  * unreceivable, same fixed-capacity drop policy as every other WT slot table
  * here. */
 static void srvrun_wt_preclaim_bidi_recv(
-    srvrun_conn* c, wired_wt_session* s, u64 id) {
+    srvrun_conn* c, wired_wt_session* s, int sidx, u64 id) {
   int i = wired_srvloop_wt_slot_claim_local(&c->l, id);
   if (i < 0) return;
-  c->l.wt_streams[i].offered = 1;
+  c->l.wt_streams[i].offered         = 1;
+  c->l.wt_streams[i].wt_session_slot = sidx; /* its owner, D1 */
   wired_wt_session_offer_stream(s, id);
 }
 
@@ -4818,7 +4900,7 @@ static i64 srvrun_wt_open_bidi_common(
   wired_wt_session_note_stream_opened(s, 1);
   wired_wt_session_note_data_sent(s, payload.n);
   id = srvrun_next_bidi_id(c);
-  srvrun_wt_preclaim_bidi_recv(c, s, id);
+  srvrun_wt_preclaim_bidi_recv(c, s, sidx, id);
   return srvrun_wtsend_arm_id(c, w, id, payload);
 }
 
@@ -5001,14 +5083,22 @@ static int srvrun_send_wt_capsule(
   return 1;
 }
 
-/* A session ending without its own WT_CLOSE_SESSION (peer closed, reset)
- * abandons whatever its still-open CONNECT-stream send slot holds; a slot
- * already carrying the closing FIN (append_open 0) stays until it is ACKed
- * and reaped. */
+/* 1 iff w is a CONNECT-stream send slot still open for more bytes and not
+ * yet asked for its FIN -- the one state a FIN may be requested in, and the
+ * one a teardown may drop. */
+static int srvrun_wt_connect_finable(const srvrun_wtsend* w) {
+  return srvrun_wtsend_open_slot(w) && !srvrun_wtsend_closing(w);
+}
+
+/* A session ending without its own WT_CLOSE_SESSION (connection teardown, a
+ * CONNECT stream this server reset) abandons whatever its still-open
+ * CONNECT-stream send slot holds; a slot already carrying or awaiting the
+ * closing FIN (append_open 0, or srvrun_wt_connect_fin's bare FIN) stays
+ * until it is ACKed and reaped. */
 static void srvrun_wt_connect_sender_drop(srvrun_conn* c, int sidx) {
   srvrun_wtsend* w =
       srvrun_wtsend_find(c, srvrun_wt_slot(c, sidx)->connect_stream_id);
-  if (srvrun_wtsend_open_slot(w)) w->in_use = 0;
+  if (srvrun_wt_connect_finable(w)) w->in_use = 0;
 }
 
 /* 1 iff this rejected append was a live round refused only because the
@@ -5073,6 +5163,20 @@ static void srvrun_wtsend_request_fin(const srvrun_conn* c, srvrun_wtsend* w) {
     srvrun_wtsend_start_fin_now(c, w);
   else
     w->fin_requested = 1;
+}
+
+/* draft-ietf-webtrans-http3-16 SS6: the peer ended session slot sidx (its
+ * WT_CLOSE_SESSION, or its FIN on the CONNECT stream, which equals a close
+ * with code 0) -- "the recipient MUST either close or reset the stream in
+ * response", so this server closes its own side with a FIN at the
+ * stream's current end (wt_connect_sent_len, behind any capsule still in
+ * flight: srvrun_wtsend_request_fin defers it until that round is done).
+ * A client that waits for the stream to end (transport.closed) settles on
+ * it. A CONNECT stream this server already FINs (its own WT_CLOSE_SESSION
+ * round) gets nothing more. */
+static void srvrun_wt_connect_fin(srvrun_conn* c, int sidx) {
+  srvrun_wtsend* w = srvrun_wt_connect_sender(c, sidx);
+  if (srvrun_wt_connect_finable(w)) srvrun_wtsend_request_fin(c, w);
 }
 
 int wired_server_wt_stream_fin(wired_wt_session* s, u64 stream_id) {
@@ -5729,6 +5833,9 @@ static void srvrun_free_slot(const srvrun_cfg* cfg, srvrun_state* st, int i) {
   /* srvrun_hrr_pending reads boot_ini_len on !up slots -- a stale length
    * here would keep the boot PTO probing a dead slot. */
   c->boot_ini_len = 0;
+  /* The closing state ends with the slot (srvrun_close_reap_due must not
+   * fire again for a slot already reaped). */
+  c->closing = 0;
 }
 
 /* Advertised max_idle_timeout in ms — keep in sync with the value
@@ -5756,8 +5863,15 @@ static int srvrun_boot_overdue(const srvrun_conn* c, u64 now_ms) {
   return now_ms - c->boot_claim_ms >= SRVRUN_BOOT_DEADLINE_MS;
 }
 
+/* RFC 9000 10.2: 1 once a closing connection's closing period (three PTOs
+ * from its CONNECTION_CLOSE, srvrun_close_send) is over. */
+static int srvrun_close_reap_due(const srvrun_conn* c, u64 now_ms) {
+  return c->closing && now_ms >= c->closing_until_ms;
+}
+
 static int srvrun_reap_due(const srvrun_conn* c, u64 now_ms) {
-  return srvrun_idle_due(c, now_ms) || srvrun_boot_overdue(c, now_ms);
+  return srvrun_idle_due(c, now_ms) || srvrun_boot_overdue(c, now_ms) ||
+         srvrun_close_reap_due(c, now_ms);
 }
 
 /* RFC 9000 10.1 / 21.6: silently discard every connection idle past the
@@ -8530,6 +8644,7 @@ static void srvrun_flush_deferred_ack(
 
 static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
+  if (c->closing) return; /* RFC 9000 10.2.1: no response, pump, or ACK */
   srvrun_feed_acks(ctx, ctx->cfg, c);
   srvrun_acct_resync(c);
   cc_bbr_tick(&c->cc, c->acct_inflight, ctx->now_ms);
@@ -8935,12 +9050,28 @@ static void srvrun_boot_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_boot_pto_resend(ctx, c, fired);
 }
 
+/* RFC 9000 10.2 / 10.2.1: a closing slot does no tick work (no probe,
+ * resend, or datagram -- only its CONNECTION_CLOSE may go out, and only in
+ * answer to a packet) and is reaped once its closing period is over, its
+ * scid remembered so the peer's stragglers draw no stateless reset. 1 iff
+ * the slot is closing. */
+static int srvrun_closing_tick(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  if (!c->closing) return 0;
+  if (srvrun_close_reap_due(c, ctx->now_ms)) {
+    srvrun_note_ghost(ctx, c);
+    srvrun_free_slot(ctx->cfg, ctx->st, slot);
+  }
+  return 1;
+}
+
 /* One slot's tick work on a poll timeout: post-confirm PTO probe/teardown,
  * boot-stage PTO probe/teardown (mutually exclusive -- srvrun_sess_waiting
  * requires c->up with no in-flight send session possible before confirm, and
  * srvrun_boot_pto_waiting requires !confirmed), then flush any queued
  * broadcast DATAGRAM -- split out so the loop below stays flat. */
 static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot) {
+  if (srvrun_closing_tick(ctx, slot)) return;
   srvrun_pto_slot(ctx, slot);
   srvrun_boot_pto_slot(ctx, slot);
   srvrun_grant_retry_slot(ctx, slot);
@@ -9149,19 +9280,28 @@ static int srvrun_rebind_due(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
   return srvrun_path_changed(ctx, c);
 }
 
+/* Consume the latched PATH_CHALLENGE: 1 iff one is to be answered -- not on
+ * a closing connection, which sends only its CONNECTION_CLOSE (RFC 9000
+ * 10.2.1). */
+static int srvrun_path_challenge_take(srvrun_conn* c) {
+  int due                     = c->l.path_challenge_rx_seen && !c->closing;
+  c->l.path_challenge_rx_seen = 0;
+  return due;
+}
+
 /* RFC 9000 8.2.2: a peer PATH_CHALLENGE latched by dispatch this step MUST
  * be answered with a PATH_RESPONSE sent on the path it arrived on, expanded
  * to 1200 bytes exactly like a challenge (8.2.1) -- a client validating its
  * migration probe (e.g. onto the preferred address) gives up the new path
  * without this and falls back, stranding whatever the server keeps sending
  * there (observed live: ngtcp2 'ignore packet from unknown path' while the
- * missing response tail PTO-looped into the abandoned path). */
+ * missing response tail PTO-looped into the abandoned path). Consumes the
+ * latch; a closing connection answers nothing (RFC 9000 10.2.1). */
 static void srvrun_answer_path_challenge(
     const srvrun_step_ctx* ctx, srvrun_conn* c) {
   u8         out[MIN_INITIAL_DATAGRAM];
   wired_obuf ob = obuf_of(out, sizeof out);
-  if (!c->l.path_challenge_rx_seen) return;
-  c->l.path_challenge_rx_seen = 0;
+  if (!srvrun_path_challenge_take(c)) return;
   if (!srvrun_seal_path_frame(
           c, FRAME_PATH_RESPONSE, c->l.path_challenge_rx_data, &ob))
     return;
@@ -9975,10 +10115,11 @@ static int srvrun_wt_waiting(const srvrun_conn* c) {
   return c->up && srvrun_wt_app_pending(c);
 }
 
-/* srvrun_rst_pending or srvrun_wt_waiting: the two latch-style waits,
- * grouped so srvrun_slot_waiting's own || count stays flat. */
+/* srvrun_rst_pending, srvrun_wt_waiting, or a closing connection waiting
+ * for its reap (srvrun_closing_tick): the latch-style waits, grouped so
+ * srvrun_slot_waiting's own || count stays flat. */
 static int srvrun_latch_waiting(const srvrun_conn* c) {
-  return srvrun_rst_pending(c) || srvrun_wt_waiting(c);
+  return srvrun_rst_pending(c) || srvrun_wt_waiting(c) || c->closing;
 }
 
 static int srvrun_slot_waiting(const srvrun_conn* c) {

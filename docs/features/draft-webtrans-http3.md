@@ -650,6 +650,20 @@ Legend:
     a WT_CLOSE_SESSION terminates the session at once, so trailing data is
     never read; resetting it with H3_MESSAGE_ERROR specifically is not
     implemented.
+  - test: `tests/app/srvrun_close_test.c` —
+    `test_srvrun_close_peer_capsule_fins_connect`
+  - test: `tests/app/srvrun_close_test.c` —
+    `test_srvrun_close_peer_fin_fins_connect`
+  - test: `tests/app/srvrun_close_test.c` —
+    `test_srvrun_close_peer_capsule_and_fin_one_fin`
+  - test: `tests/app/srvrun_close_test.c` —
+    `test_srvrun_close_bad_capsule_resets_no_fin`
+  - evidence: the recipient side ("the recipient MUST either close or
+    reset the stream in response"): after the peer's WT_CLOSE_SESSION or
+    its FIN on the CONNECT stream, `srvrun_wt_connect_fin` closes this
+    server's side with a FIN at the stream's current end, once (an invalid
+    close body resets the stream instead, WTH3-072). Loopback-tested only;
+    the moq-playa interop case (`transport.closed`) has not been re-run.
   - evidence: capsules travel inside HTTP/3 DATA frames on the CONNECT
     stream (RFC 9297 3.2, see 9297-024 in [rfc9297.md](rfc9297.md)). The
     sending side was checked against webtransport-go; the receiving side

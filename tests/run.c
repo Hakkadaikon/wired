@@ -1032,6 +1032,7 @@
 #include "app/sendsess_test.c"
 #include "app/srvrun_test.c"
 #include "app/srvrun_pin_test.c"
+#include "app/srvrun_close_test.c"
 #include "app/sigmask_test.c"
 #include "app/certreload_test.c"
 #include "tls/client_wire_test.c"
@@ -1605,6 +1606,7 @@ int main(void) {
   test_sendsess();
   test_srvrun();
   test_srvrun_pin();
+  test_srvrun_close();
   test_sigmask();
   test_certreload();
   test_client_wire();
