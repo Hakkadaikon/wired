@@ -48,13 +48,6 @@ static int g_mode;
 
 /* --- small pure helpers -------------------------------------------------- */
 
-/* NUL-terminated string equality. */
-static int str_eq(const char* a, const char* b) {
-  usz i = 0;
-  while (a[i] && a[i] == b[i]) i++;
-  return a[i] == b[i];
-}
-
 static usz cstr_len_opt(const char* s) { return s ? wired_cstr_len(s) : 0; }
 
 /* First index of c in s, or -1. */
@@ -62,16 +55,6 @@ static ssz span_find(wired_span s, u8 c) {
   for (usz i = 0; i < s.n; i++)
     if (s.p[i] == c) return (ssz)i;
   return -1;
-}
-
-static int bytes_same(const u8* a, const u8* b, usz n) {
-  for (usz i = 0; i < n; i++)
-    if (a[i] != b[i]) return 0;
-  return 1;
-}
-
-static int span_eq(wired_span a, wired_span b) {
-  return a.n == b.n && bytes_same(a.p, b.p, a.n);
 }
 
 /* Append s to dst at *at (always NUL-terminated, capped at cap-1). */
@@ -521,7 +504,7 @@ static void send_gets_bidi(wired_wt_session* s) {
  * ever queues more than DG_WINDOW packets. */
 #define DG_WINDOW 8
 
-static wired_wt_session* g_dg_sess; /* the one DG_SEND session per run */
+static wired_wt_session* g_dg_sess;     /* the one DG_SEND session per run */
 static usz               g_dg_req_next; /* next file index not yet requested */
 static u8                g_dg_done[FILES_MAX];
 
@@ -539,7 +522,7 @@ static void send_gets_dg(wired_wt_session* s) {
 
 static ssz dg_file_index(wired_span name) {
   for (usz i = 0; i < g_nfiles; i++)
-    if (span_eq(g_files[i], name)) return (ssz)i;
+    if (wired_span_eq(g_files[i], name)) return (ssz)i;
   return -1;
 }
 
@@ -570,7 +553,8 @@ static const send_fn SENDS[MODE_COUNT] = {
 };
 
 static void session_send_gets(wired_wt_session* s, wired_span path) {
-  if (SENDS[g_mode] && span_eq(endpoint_of(path), g_endpoint)) SENDS[g_mode](s);
+  if (SENDS[g_mode] && wired_span_eq(endpoint_of(path), g_endpoint))
+    SENDS[g_mode](s);
 }
 
 static void on_session(
@@ -642,38 +626,9 @@ static int app_on_request(
 
 /* --- server identity + startup ------------------------------------------- */
 
-/* Fixed, deterministic fallback identity (same recipe as the sibling
- * examples); the interop runner always supplies a real /certs pair, loaded
- * over this via wired_certreload_load_or_selfsigned. */
-static const u8 SERVER_SCID[6] = {'W', 'T', 'I', 'N', 'O', 'P'};
-
-typedef struct {
-  u8 priv[32];
-  u8 pub[32];
-  u8 seed[32];
-  u8 rnd[32];
-} server_keys;
-
-static void server_identity(wired_srvboot_id* id, server_keys* k) {
-  for (usz i = 0; i < 32; i++) {
-    k->priv[i] = (u8)(0x60 + i);
-    k->seed[i] = (u8)(0xa0 + i);
-    k->rnd[i]  = (u8)(0xc0 + i);
-  }
-  wired_x25519_base(k->pub, k->priv);
-  id->priv                    = k->priv;
-  id->pub                     = k->pub;
-  id->cert_seed               = k->seed;
-  id->scid                    = SERVER_SCID;
-  id->scid_len                = sizeof SERVER_SCID;
-  id->random                  = k->rnd;
-  id->chain                   = 0;
-  id->chain_count             = 0;
-  id->max_data                = 0;
-  id->max_streams_bidi        = 0;
+static void server_identity(wired_srvboot_id* id, wired_srvboot_demo_keys* k) {
+  wired_srvboot_demo(id, k, 0x60, "WTINOP");
   id->max_datagram_frame_size = 65535; /* required for DATAGRAM delivery */
-  id->san_ipv4                = 0;
-  id->now_secs                = 0;
 }
 
 /* The certificate store backs id's views for the whole run. */
@@ -681,7 +636,8 @@ static wired_certreload_store cert_store;
 
 static int mode_lookup(const char* tc) {
   for (usz i = 0; i < sizeof MODES / sizeof MODES[0]; i++)
-    if (str_eq(tc, MODES[i].name)) return MODES[i].mode;
+    if (wired_span_eq_cstr(wired_span_cstr(tc), MODES[i].name))
+      return MODES[i].mode;
   return -1;
 }
 
@@ -689,14 +645,14 @@ static int mode_lookup(const char* tc) {
 static int mode_of(const char* tc) { return tc ? mode_lookup(tc) : -1; }
 
 __attribute__((force_align_arg_pointer)) int wired_main(int argc, char** argv) {
-  wired_srvboot_id id = {0};
-  server_keys      keys;
-  u16              port = (u16)wired_cliargs_int(argc, argv, "--port", 443);
-  const char*      cert_path = wired_cliargs_str(argc, argv, "--cert", 0);
-  const char*      key_path = wired_cliargs_str(argc, argv, "--key", "key.pem");
-  wired_srvrun_handler h    = {.cb = app_on_request};
-  wired_srvrun_opt     opt  = {0};
-  wired_srvrun_obs     obs  = {
+  wired_srvboot_id        id = {0};
+  wired_srvboot_demo_keys keys;
+  u16         port         = (u16)wired_cliargs_int(argc, argv, "--port", 443);
+  const char* cert_path    = wired_cliargs_str(argc, argv, "--cert", 0);
+  const char* key_path     = wired_cliargs_str(argc, argv, "--key", "key.pem");
+  wired_srvrun_handler h   = {.cb = app_on_request};
+  wired_srvrun_opt     opt = {0};
+  wired_srvrun_obs     obs = {
       wired_cliargs_str(argc, argv, "--qlog-file", 0),
       wired_cliargs_str(argc, argv, "--keylog-file", 0), cert_path, key_path,
       0};

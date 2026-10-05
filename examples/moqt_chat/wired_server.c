@@ -157,17 +157,6 @@ static u8 g_cache_arena[MOQT_CACHE_BYTES];
 static const char* const ROOM_NS[] = {"wired", "moqt_chat"};
 #define ROOM_NS_N (sizeof ROOM_NS / sizeof ROOM_NS[0])
 
-static int mem_eq(const u8* a, const u8* b, usz n) {
-  for (usz i = 0; i < n; i++)
-    if (a[i] != b[i]) return 0;
-  return 1;
-}
-
-static int span_eq_cstr(wired_span s, const char* c) {
-  usz n = wired_cstr_len(c);
-  return s.n == n && mem_eq(s.p, (const u8*)c, n);
-}
-
 /* wired_moqt_authorize_ns_fn: grants a namespace under ROOM_NS only. */
 static int authorize_room_ns(
     void* ctx, u64 msg_type, const moqctl_ns* ns, const moqctl_token* token) {
@@ -176,7 +165,7 @@ static int authorize_room_ns(
   (void)token;
   if (ns->n < ROOM_NS_N) return 0;
   for (usz i = 0; i < ROOM_NS_N; i++)
-    if (!span_eq_cstr(ns->fields[i], ROOM_NS[i])) return 0;
+    if (!wired_span_eq_cstr(ns->fields[i], ROOM_NS[i])) return 0;
   return 1;
 }
 
@@ -189,8 +178,8 @@ static int origin_allowed(void* ctx, wired_span origin, wired_span authority) {
   (void)authority;
   for (usz start = 0, i = 0;; i++) {
     if (list[i] != ',' && list[i] != 0) continue;
-    if (i - start == origin.n &&
-        mem_eq((const u8*)list + start, origin.p, origin.n))
+    if (wired_span_eq(
+            wired_span_of((const u8*)list + start, i - start), origin))
       return 1;
     if (list[i] == 0) return 0;
     start = i + 1;
@@ -227,57 +216,17 @@ static int app_on_request(
 
 /* Fixed, deterministic server identity for wired_server_run_opt (same recipe
  * as word_list: a demo needs no key rotation). */
-static const u8 SERVER_SCID[6] = {'M', 'O', 'Q', 'C', 'H', 'T'};
-
 typedef struct {
-  u8 priv[32];
-  u8 pub[32];
-  u8 seed[32];
-  u8 rnd[32];
-  u8 san_ipv4[4];
+  wired_srvboot_demo_keys demo;
+  u8                      san_ipv4[4];
 } server_keys;
 
 static void server_identity(
     wired_srvboot_id* id, server_keys* k, int have_san_ipv4, u64 now_secs) {
-  for (usz i = 0; i < 32; i++) {
-    k->priv[i] = (u8)(0x50 + i);
-    k->seed[i] = (u8)(0x90 + i);
-    k->rnd[i]  = (u8)(0xb0 + i);
-  }
-  wired_x25519_base(k->pub, k->priv);
-  id->priv                    = k->priv;
-  id->pub                     = k->pub;
-  id->cert_seed               = k->seed;
-  id->scid                    = SERVER_SCID;
-  id->scid_len                = sizeof SERVER_SCID;
-  id->random                  = k->rnd;
-  id->chain                   = 0; /* self-signed */
-  id->chain_count             = 0;
-  id->max_data                = 0;
-  id->max_streams_bidi        = 0;
+  wired_srvboot_demo(id, &k->demo, 0x50, "MOQCHT");
   id->max_datagram_frame_size = 65535;
   id->san_ipv4                = have_san_ipv4 ? k->san_ipv4 : 0;
   id->now_secs                = now_secs;
-}
-
-/* --- Startup cert fingerprint log --------------------------------------- */
-
-static void log_cert_fingerprint(const wired_srvboot_id* id) {
-  static wired_server  s;
-  wired_server_init_in in = {
-      id->priv,        id->pub,      id->cert_seed, id->chain,
-      id->chain_count, id->san_ipv4, id->now_secs,  0};
-  u8   digest[32];
-  char hex[32 * 3];
-  usz  n = 0;
-
-  wired_server_init(&s, &in);
-  if (s.sdrv.cert_count == 0) wired_die("cert build failed\n");
-  wired_sha256(s.sdrv.certs[0].p, s.sdrv.certs[0].n, digest);
-
-  for (usz i = 0; i < 32; i++)
-    n += wired_snprintf(hex + n, sizeof hex - n, "%s%02x", i ? ":" : "", digest[i]);
-  wired_dprintf(2, "cert sha-256 fingerprint: %s\n", hex);
 }
 
 /* --- Relay-stats log ---------------------------------------------------- */
@@ -293,34 +242,24 @@ static void log_relay_stats(const char* label) {
                       u64s at 20 digits (480) + newline/NUL = ~790 worst
                       case; 1024 keeps headroom */
   wired_snprintf(
-      line,
-      sizeof line,
-      "%ssent=%llu dropped=%llu frag_dropped=%llu open_dropped=%llu reset=%llu relay_full=%llu live_sent=%llu live_dropped=%llu dg_sent=%llu dg_dropped=%llu dg_bad=%llu rel_stall=%llu rel_overflow=%llu sessions=%llu closed=%llu rel_wait=%llu rel_sent=%llu rel_refused=%llu rel_rings=%llu rel_in=%llu rel_fin_in=%llu rel_fin_out=%llu rel_hold=%llu rel_early=%llu\n",
-      label,
-      (u64)hub->stat_relay_sent,
-      (u64)hub->stat_relay_drop,
-      (u64)hub->stat_frag_drop,
-      (u64)hub->stat_open_drop,
-      (u64)hub->stat_relay_reset,
-      (u64)hub->stat_relay_full,
-      (u64)hub->stat_live_sent,
-      (u64)hub->stat_live_drop,
-      (u64)hub->stat_dg_sent,
-      (u64)hub->stat_dg_drop,
-      (u64)hub->stat_dg_bad,
-      (u64)hub->stat_rel_stall,
-      (u64)hub->stat_rel_overflow,
-      (u64)g_sessions_live,
-      (u64)g_sessions_closed,
-      (u64)hub->stat_rel_wait,
-      (u64)hub->stat_rel_sent,
-      (u64)hub->stat_rel_refused,
-      (u64)hub->stat_rel_rings,
-      (u64)hub->stat_rel_in_bytes,
-      (u64)hub->stat_rel_fin_in,
-      (u64)hub->stat_rel_fin_out,
-      (u64)hub->stat_rel_hold,
-      (u64)hub->stat_rel_early_return);
+      line, sizeof line,
+      "%ssent=%llu dropped=%llu frag_dropped=%llu open_dropped=%llu reset=%llu "
+      "relay_full=%llu live_sent=%llu live_dropped=%llu dg_sent=%llu "
+      "dg_dropped=%llu dg_bad=%llu rel_stall=%llu rel_overflow=%llu "
+      "sessions=%llu closed=%llu rel_wait=%llu rel_sent=%llu rel_refused=%llu "
+      "rel_rings=%llu rel_in=%llu rel_fin_in=%llu rel_fin_out=%llu "
+      "rel_hold=%llu rel_early=%llu\n",
+      label, (u64)hub->stat_relay_sent, (u64)hub->stat_relay_drop,
+      (u64)hub->stat_frag_drop, (u64)hub->stat_open_drop,
+      (u64)hub->stat_relay_reset, (u64)hub->stat_relay_full,
+      (u64)hub->stat_live_sent, (u64)hub->stat_live_drop,
+      (u64)hub->stat_dg_sent, (u64)hub->stat_dg_drop, (u64)hub->stat_dg_bad,
+      (u64)hub->stat_rel_stall, (u64)hub->stat_rel_overflow,
+      (u64)g_sessions_live, (u64)g_sessions_closed, (u64)hub->stat_rel_wait,
+      (u64)hub->stat_rel_sent, (u64)hub->stat_rel_refused,
+      (u64)hub->stat_rel_rings, (u64)hub->stat_rel_in_bytes,
+      (u64)hub->stat_rel_fin_in, (u64)hub->stat_rel_fin_out,
+      (u64)hub->stat_rel_hold, (u64)hub->stat_rel_early_return);
   wired_log_str(line);
 }
 
@@ -434,7 +373,7 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
       argc, argv, "--key", wired_envp_get(argc, argv, "WIRED_KEY"));
   wired_certreload_load_or_selfsigned(
       obs.cert_path, obs.key_path, &cert_store, &id);
-  log_cert_fingerprint(&id);
+  if (!wired_srvboot_log_fingerprint(2, &id)) wired_die("cert build failed\n");
 
   g_goaway_uri = wired_cliargs_str(
       argc, argv, "--goaway-uri",

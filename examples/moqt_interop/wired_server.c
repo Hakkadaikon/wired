@@ -47,29 +47,9 @@ static int app_on_request(
   return 1;
 }
 
-static const u8 SERVER_SCID[6] = {'M', 'O', 'Q', 'I', 'O', 'P'};
-
-typedef struct {
-  u8 priv[32];
-  u8 pub[32];
-  u8 seed[32];
-  u8 rnd[32];
-} server_keys;
-
 /* Fixed demo identity; --cert/--key replace the self-signed certificate. */
-static void server_identity(wired_srvboot_id* id, server_keys* k) {
-  for (usz i = 0; i < 32; i++) {
-    k->priv[i] = (u8)(0x50 + i);
-    k->seed[i] = (u8)(0x90 + i);
-    k->rnd[i]  = (u8)(0xb0 + i);
-  }
-  wired_x25519_base(k->pub, k->priv);
-  id->priv                    = k->priv;
-  id->pub                     = k->pub;
-  id->cert_seed               = k->seed;
-  id->scid                    = SERVER_SCID;
-  id->scid_len                = sizeof SERVER_SCID;
-  id->random                  = k->rnd;
+static void server_identity(wired_srvboot_id* id, wired_srvboot_demo_keys* k) {
+  wired_srvboot_demo(id, k, 0x50, "MOQIOP");
   id->max_datagram_frame_size = 65535;
   id->now_secs                = wired_clock_epoch_secs();
 }
@@ -78,7 +58,7 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
     int argc, char** argv) {
   static wired_certreload_store cert_store;
   wired_srvboot_id              id = {0};
-  server_keys                   keys;
+  wired_srvboot_demo_keys       keys;
   wired_srvdriver_opt           opt;
   wired_srvrun_handler          h   = {.cb = app_on_request};
   wired_srvrun_obs              obs = {
