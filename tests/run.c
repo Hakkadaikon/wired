@@ -538,6 +538,7 @@
 #include "app/webtransport/session/session/session.c"
 #include "app/webtransport/exporter/exporter.c"
 #include "app/webtransport/errmap/errmap/errmap.c"
+#include "app/rawquic/rawq.c"
 #include "app/webtransport/capsule/wtcapsule/wtcapsule.c"
 #include "app/webtransport/wtwire/wtwire.c"
 #include "tls/ext/salpn/idna.c"
@@ -1046,6 +1047,7 @@
 #include "transport/stats_test.c"
 #include "app/wt_session_test.c"
 #include "app/wterrmap_test.c"
+#include "app/rawq_test.c"
 #include "app/wtcapsule_test.c"
 #include "app/wtwire_test.c"
 #include "app/srvworkers_migration_test.c"
@@ -1615,6 +1617,7 @@ int main(void) {
   test_srvbigbuf();
   test_wt_session();
   test_wterrmap();
+  test_rawq();
   test_wtcapsule();
   test_wtwire();
   test_srvworkers_migration();

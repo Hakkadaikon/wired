@@ -56,7 +56,11 @@ typedef struct {
  * ALSO present in the same payload. The two request/handshake paths are kept
  * separate: a Handshake payload never reaches HTTP/3, a 1-RTT request never
  * re-enters the handshake. Returns 1 if a frame was handled, 0 otherwise. On
- * a completed request *in->got_request is set and *in->req filled. */
+ * a completed request *in->got_request is set and *in->req filled. On a
+ * raw-QUIC connection (ctx->l != 0, s->sdrv.alpn == SALPN_RAW) every client
+ * bidi/uni STREAM frame lands in wt_streams[]/wt_uni_streams[] with no
+ * signal (sig_len/type_len 0, rawq_route) and never reaches the request,
+ * control, or QPACK paths. */
 int wired_srvloop_dispatch(
     const wired_srvloop_dispatch_ctx* ctx, const wired_srvloop_dispatch_in* in);
 
