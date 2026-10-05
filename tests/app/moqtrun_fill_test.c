@@ -833,7 +833,8 @@ static void test_moqtrun_fill_inbound_fetch_unknown_rid(void) {
   CHECK(moqtrun_find_by_wt(&mtst_hub, SESS_B) != 0);
 }
 
-void test_moqtrun_fill(void) {
+/* Version-invariant scenarios: every supported draft (ledger 7-4). */
+static void mtall_fill(void) {
   test_moqtrun_fill_subscribe_opens();
   test_moqtrun_fill_end_clipped_to_largest();
   test_moqtrun_fill_empty_or_future_range();
@@ -857,9 +858,6 @@ void test_moqtrun_fill(void) {
   test_moqtrun_fill_blocked_upstream_gone();
   test_moqtrun_fill_counts_in_done();
   test_moqtrun_fill_done_waits_for_held();
-  test_moqtrun_fill_slot_full_held();
-  test_moqtrun_fill_slot_full_cancel_drops();
-  test_moqtrun_fill_slot_full_done_waits();
   test_moqtrun_fill_ascending_sends_first();
   test_moqtrun_fill_descending_sends_last();
   test_moqtrun_fill_blocked_never_starves_live();
@@ -867,4 +865,17 @@ void test_moqtrun_fill(void) {
   test_moqtrun_fill_filter_separate_from_subscription();
   test_moqtrun_fill_inbound_fetch_known_rid();
   test_moqtrun_fill_inbound_fetch_unknown_rid();
+}
+
+/* Fills that first occupy every slot with draft-18/19-layout FETCHes
+ * (mf_standalone): every draft without the draft-22 FETCH body. */
+static void mtall_fill_fetch19(void) {
+  test_moqtrun_fill_slot_full_held();
+  test_moqtrun_fill_slot_full_cancel_drops();
+  test_moqtrun_fill_slot_full_done_waits();
+}
+
+void test_moqtrun_fill(void) {
+  moqtrun_test_allver(mtall_fill);
+  moqtrun_test_vers(0, MOQVER_CAP_FETCH_BODY_V22, mtall_fill_fetch19);
 }

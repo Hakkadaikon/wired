@@ -110,6 +110,11 @@ static u64 mtdr_ctl(wired_wt_session* s) {
   return moqtrun_find_by_wt(&mtst_hub, s)->control_stream_id;
 }
 
+/* The harness draft's control-stream GOAWAY carries a Request ID. */
+static int mtdr_reqid(void) {
+  return (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_GOAWAY_REQID) != 0;
+}
+
 /* How many times the hub closed s; *last is the last close's code. */
 static usz mtdr_closes(wired_wt_session* s, u64* last) {
   usz n = 0;
@@ -124,12 +129,14 @@ static usz mtdr_closes(wired_wt_session* s, u64* last) {
 /* The first GOAWAY on the control stream is recorded and the session
  * stays; a second is a PROTOCOL_VIOLATION. */
 static void test_moqtrun_peer_goaway_twice(void) {
-  static const u8 away[] = {0x00, 0x00}; /* no URI, Timeout 0 */
+  /* no URI, Timeout 0; draft-18 adds its Request ID (1) */
+  static const u8 away[] = {0x00, 0x00, 0x01};
+  usz             n      = mtdr_reqid() ? 3 : 2;
   u64             code   = 0;
   mtrq_setup();
-  mtrq_raw(SESS_B, mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY, away, sizeof away);
+  mtrq_raw(SESS_B, mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY, away, n);
   CHECK(mtdr_closes(SESS_B, &code) == 0);
-  mtrq_raw(SESS_B, mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY, away, sizeof away);
+  mtrq_raw(SESS_B, mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY, away, n);
   CHECK(mtdr_closes(SESS_B, &code) == 1);
   CHECK(code == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
@@ -186,8 +193,10 @@ static int mtdr_goaway_by(
   return take(body, &boff, g) == MOQCTL_OK && boff == body.n;
 }
 
+/* ... decoded as the harness draft spells it (MOQVER_CAP_GOAWAY_REQID). */
 static int mtdr_goaway_on(u64 sid, moqctl_goaway* g) {
-  return mtdr_goaway_by(sid, moqctl_goaway_take, g);
+  return mtdr_goaway_by(
+      sid, mtdr_reqid() ? moqctl_goaway18_take : moqctl_goaway_take, g);
 }
 
 /* Exactly one GOAWAY per open session, on its control stream, carrying
@@ -591,23 +600,16 @@ static void test_moqtrun_goaway_retried_on_tick(void) {
   CHECK(moqtrun_test_last_kind(3)->refused == 0);
 }
 
-void test_moqtrun_drain(void) {
+/* Version-invariant scenarios: every supported draft (ledger 7-4). */
+static void mtall_drain(void) {
   test_moqtrun_done_resets_streams_first();
-  test_moqtrun_upd_failed_resets_first();
   test_moqtrun_goaway_retried_on_tick();
-  test_moqtrun_upd_failed_ends_subscription();
   test_moqtrun_upd_failed_closes_ns();
   test_moqtrun_goaway_timeout_flush_then_close();
   test_moqtrun_goaway_no_timeout();
   test_moqtrun_closed_is_frozen();
   test_moqtrun_done_track_ended();
-  test_moqtrun_done_stream_count_real();
   test_moqtrun_goaway_once_per_session();
-  test_moqtrun_goaway_request_id_d18();
-  test_moqtrun_peer_goaway_d18();
-  test_moqtrun_goaway_request_id_saturates();
-  test_moqtrun_goaway_request_id_ignores_malformed();
-  test_moqtrun_peer_goaway_d18_parity();
   test_moqtrun_goaway_uri_too_long();
   test_moqtrun_goaway_late_rejected();
   test_moqtrun_drain_one_session();
@@ -617,4 +619,16 @@ void test_moqtrun_drain(void) {
   test_moqtrun_prio_one_shot();
   test_moqtrun_prio_update_applies();
   test_moqtrun_prio_op_absent();
+}
+
+void test_moqtrun_drain(void) {
+  test_moqtrun_upd_failed_resets_first();
+  test_moqtrun_upd_failed_ends_subscription();
+  test_moqtrun_done_stream_count_real();
+  test_moqtrun_goaway_request_id_d18();
+  test_moqtrun_peer_goaway_d18();
+  test_moqtrun_goaway_request_id_saturates();
+  test_moqtrun_goaway_request_id_ignores_malformed();
+  test_moqtrun_peer_goaway_d18_parity();
+  moqtrun_test_allver(mtall_drain);
 }

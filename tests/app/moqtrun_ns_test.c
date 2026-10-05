@@ -441,10 +441,8 @@ static void test_moqtrun_req_fin_keeps_subscribe_d18(void) {
   CHECK(mtst_sub(SESS_A, SESS_B) != 0);
 }
 
-void test_moqtrun_ns(void) {
-  test_moqtrun_ns_fin_cancels_d18();
-  test_moqtrun_ns_fin_half_closes_d19_d22();
-  test_moqtrun_req_fin_keeps_subscribe_d18();
+/* Version-invariant scenarios: every supported draft (ledger 7-4). */
+static void mtall_ns(void) {
   test_moqtrun_ns_publish_accepted();
   test_moqtrun_ns_reserved_rejected();
   test_moqtrun_ns_initial_set();
@@ -460,4 +458,11 @@ void test_moqtrun_ns(void) {
   test_moqtrun_ns_oversized_refused();
   test_moqtrun_ns_per_session_cap();
   test_moqtrun_ns_backpressure();
+}
+
+void test_moqtrun_ns(void) {
+  test_moqtrun_ns_fin_cancels_d18();
+  test_moqtrun_ns_fin_half_closes_d19_d22();
+  test_moqtrun_req_fin_keeps_subscribe_d18();
+  moqtrun_test_allver(mtall_ns);
 }

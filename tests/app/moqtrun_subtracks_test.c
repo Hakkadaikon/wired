@@ -130,7 +130,7 @@ static usz mtst_pub_opens(wired_wt_session* s, moqctl_publish* out, usz cap) {
         type != MOQCTL_T_PUBLISH)
       continue;
     off = 0;
-    if (moqctl_publish_take(MOQVER_D19, body, &off, &out[n]) == MOQCTL_OK) n++;
+    if (moqctl_publish_take(mtst_ver(s), body, &off, &out[n]) == MOQCTL_OK) n++;
   }
   return n;
 }
@@ -347,7 +347,8 @@ static void test_subtracks_forward_zero_reflected(void) {
   CHECK(fwd != 0 && fwd->u8v == 0);
 }
 
-void test_moqtrun_subtracks(void) {
+/* Version-invariant scenarios: every supported draft (ledger 7-4). */
+static void mtall_subtracks(void) {
   test_subtracks_ok_once();
   test_subtracks_prefix_overlap();
   test_subtracks_publish_match_excludes_self();
@@ -358,3 +359,5 @@ void test_moqtrun_subtracks(void) {
   test_subtracks_publish_error_frees_slot();
   test_subtracks_forward_zero_reflected();
 }
+
+void test_moqtrun_subtracks(void) { moqtrun_test_allver(mtall_subtracks); }
