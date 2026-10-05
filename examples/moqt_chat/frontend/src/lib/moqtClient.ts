@@ -108,16 +108,14 @@ export function candidateParticipantIds(localId: string): string[] {
   return CANDIDATE_PARTICIPANT_IDS.filter((id) => id !== localId);
 }
 
-// moqtrun.c relays a publisher's SUBGROUP bytes unmodified: the
-// Track Alias a subscriber sees on the wire is the PUBLISHER's own alias,
-// not the alias the hub assigned that subscriber in its own SUBSCRIBE_OK
-// (draft SS10.7/SS11.1 -- Track Alias is scoped per session, so a
-// publisher and each of its subscribers can legitimately disagree on the
-// number). Using the hub's per-subscriber SUBSCRIBE_OK alias to resolve an
-// incoming Object's sender is therefore wrong; every client in this fixed
-// room instead PUBLISHes under a deterministic alias derived from its own
-// candidate-list index, and resolves an incoming Object's sender from that
-// same fixed table rather than from SUBSCRIBE_OK.
+// Track Alias is scoped per session (draft-22 3.1.3): the hub tells each
+// subscriber, in SUBSCRIBE_OK, the alias its relayed Objects will carry.
+// It keeps the publisher's own alias whenever that number is free in the
+// subscriber's session and rewrites it only on a clash. Every client in
+// this fixed room PUBLISHes under a deterministic alias derived from its
+// own candidate-list index, so the numbers never clash, the hub passes
+// them through unchanged, and an incoming Object's sender resolves from
+// that same fixed table.
 export function ownTrackAlias(localId: string): bigint {
   const idx = CANDIDATE_PARTICIPANT_IDS.indexOf(localId);
   return BigInt(idx < 0 ? 0 : idx);

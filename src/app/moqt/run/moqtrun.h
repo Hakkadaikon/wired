@@ -231,8 +231,9 @@ typedef struct {
 } wired_moqtrun_rngrow;
 
 /** One subscriber recorded against the hub's track: which session, and the
- * Track Alias this hub assigned it (hub-local per subscriber, draft SS10.7
- * moqsub scope). */
+ * Track Alias its SUBSCRIBE_OK named -- the alias every SUBGROUP_HEADER and
+ * OBJECT_DATAGRAM relayed to that session carries (draft-22 3.1.3: unique
+ * per Track within the session; moqtrun_session_alias). */
 typedef struct {
   usz session_idx;
   u64 track_alias;
@@ -549,6 +550,9 @@ typedef struct {
    * stream it opened without this slot holding a pointer/index into the
    * track. 0 for a PUBLISH not opened this way. */
   u64 pub_track_tag;
+  /** A hub-opened PUBLISH request slot only: the Track Alias it named
+   * (moqtrun_session_alias), reserved in that session for that track. */
+  u64 pub_alias;
   /** SUBSCRIBE_TRACKS only (10.19.1): FORWARD and GROUP_ORDER as received,
    * copied into every PUBLISH this SUBSCRIBE_TRACKS generates --
    * forward_zero 1 iff FORWARD was present and 0 (else PUBLISH omits it);
@@ -854,6 +858,11 @@ typedef struct {
    * the transport copies each accepted round, so nothing outlives the
    * call. */
   u8 relay_scratch[WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP];
+  /** Scratch for moqtrun_alias_splice: one relayed stream head or
+   * datagram (at most a relay_scratch round) re-spelled with its
+   * destination's Track Alias, which may take up to 8 more bytes. Used
+   * per io call only (the transport copies each accepted round). */
+  u8 alias_scratch[WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP + 8];
   /** Cumulative undelivered tails dropped because they exceeded
    * WIRED_MOQTRUN_RELAY_FRAG_MAX (each degrades to a torn frame on that one
    * stream -- moqtrun_relay_save_frag). Diagnostic only, never reset. */
