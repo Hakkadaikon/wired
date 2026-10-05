@@ -583,6 +583,9 @@
 #include "crypto/gcmx86_test.c"
 #include "crypto/gcm256_test.c"
 #include "crypto/chacha20_test.c"
+#include "crypto/bssl_aes128gcm_test.c"
+#include "crypto/bssl_aes256gcm_test.c"
+#include "crypto/bssl_chacha20poly1305_test.c"
 #include "crypto/poly1305_test.c"
 #include "crypto/aead_test.c"
 #include "tls/initial_test.c"
@@ -658,6 +661,8 @@
 #include "tls/early_test.c"
 #include "transport/ecn_test.c"
 #include "crypto/ed25519_test.c"
+#include "crypto/bssl_ed25519_test.c"
+#include "crypto/bssl_x25519_test.c"
 #include "tls/encext_check_test.c"
 #include "app/errclass_test.c"
 #include "app/fieldline_test.c"
@@ -1016,6 +1021,8 @@
 #include "crypto/ecdsasig_der_int_test.c"
 #include "crypto/ecdsasig_sig_value_test.c"
 #include "crypto/ecdsa_diff_test.c"
+#include "crypto/bssl_ecdsa_test.c"
+#include "crypto/bssl_hmac_test.c"
 #include "crypto/p256cert_test.c"
 #include "crypto/cvecdsa_test.c"
 #include "tls/eebuild_test.c"
@@ -1135,6 +1142,9 @@ int main(void) {
   test_gcmx86();
   test_gcm256();
   test_chacha20();
+  test_bssl_aes128gcm();
+  test_bssl_aes256gcm();
+  test_bssl_chacha20poly1305();
   test_poly1305();
   test_aead();
   test_initial();
@@ -1209,6 +1219,8 @@ int main(void) {
   test_early();
   test_ecn();
   test_ed25519();
+  test_bssl_ed25519();
+  test_bssl_x25519();
   test_encext_check();
   test_errclass();
   test_fieldline();
@@ -1596,6 +1608,8 @@ int main(void) {
   test_ecdsasig_der_int();
   test_ecdsasig_sig_value();
   test_ecdsa_diff();
+  test_bssl_ecdsa();
+  test_bssl_hmac();
   test_p256cert();
   test_cvecdsa();
   test_eebuild();
