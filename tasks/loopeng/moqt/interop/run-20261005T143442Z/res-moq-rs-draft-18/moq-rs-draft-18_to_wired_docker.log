@@ -1,0 +1,256 @@
+rm -rf mlog/
+mkdir -p mlog/relay mlog/client
+Running interop tests...
+  Relay:  ghcr.io/hakkadaikon/wired-moqt-interop:latest
+  Client: ghcr.io/englishm/moq-interop-runner-moq-test-client-draft-18:latest
+  URL:    https://relay:4443
+time="2026-10-05T14:36:02Z" level=warning msg="The \"PORT\" variable is not set. Defaulting to a blank string."
+time="2026-10-05T14:36:02Z" level=warning msg="The \"PORT\" variable is not set. Defaulting to a blank string."
+time="2026-10-05T14:36:02Z" level=warning msg="The \"PORT\" variable is not set. Defaulting to a blank string."
+time="2026-10-05T14:36:02Z" level=warning msg="The \"HEX\" variable is not set. Defaulting to a blank string."
+time="2026-10-05T14:36:02Z" level=warning msg="The \"HEX\" variable is not set. Defaulting to a blank string."
+ Container runner-copy-test-client-1 Recreate 
+ Container runner-copy-test-client-1 Recreated 
+Attaching to relay-1, test-client-1
+ Container runner-copy-relay-1 Starting 
+relay-1  | cert.pem: 1 cert
+ Container runner-copy-relay-1 Started 
+ Container runner-copy-relay-1 Waiting 
+ Container runner-copy-relay-1 Healthy 
+ Container runner-copy-test-client-1 Starting 
+ Container runner-copy-test-client-1 Started 
+test-client-1  | TAP version 14
+test-client-1  | # moq-test-client v0.1.12
+test-client-1  | # Relay: https://relay:4443/
+test-client-1  | 1..18
+test-client-1  | [2m2026-10-05T14:36:08.679807Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:37746 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:08.697459Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m SETUP exchange completed successfully
+test-client-1  | ok 1 - setup-only
+test-client-1  |   ---
+test-client-1  |   duration_ms: 23
+test-client-1  |   connection_id: 3ca2e5f072ddff313e0c69a53467de81
+relay-1        | wt session closed by peer (CONNECT stream)
+test-client-1  |   ...
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | [2m2026-10-05T14:36:08.702988Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:34828 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:08.711456Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m Sending PUBLISH_NAMESPACE for: moq-test/interop
+test-client-1  | [2m2026-10-05T14:36:10.713612Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m PUBLISH_NAMESPACE succeeded (REQUEST_OK received, waiting for subscribers)
+test-client-1  | ok 2 - publish-namespace-only
+test-client-1  |   ---
+test-client-1  |   duration_ms: 2015
+test-client-1  |   connection_id: 9fb049eee1384d0820ef42b26cbbe119
+test-client-1  |   ...
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | [2m2026-10-05T14:36:10.720980Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:53417 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:10.731639Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m Subscribing to non-existent track: nonexistent/namespace/test-track
+test-client-1  | [2m2026-10-05T14:36:10.733034Z[0m [33m WARN[0m [2mmoq_transport::serve::error[0m[2m:[0m [9c27e012-af5a-4b31-8150-758bf1994cbd] Not found:  at moq-transport/src/session/subscriber.rs:1653
+test-client-1  | [2m2026-10-05T14:36:10.733564Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m Got expected 'not found' error: not found: Track not found [error:9c27e012-af5a-4b31-8150-758bf1994cbd]
+test-client-1  | ok 3 - subscribe-error
+test-client-1  |   ---
+test-client-1  |   duration_ms: 18
+relay-1        | wt session closed by peer (CONNECT stream)
+test-client-1  |   connection_id: 63bf9d5813b24315153acff6b31ba871
+test-client-1  |   ...
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | [2m2026-10-05T14:36:10.739749Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:59487 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:10.759501Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:37462 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:10.770558Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m Publisher sending PUBLISH_NAMESPACE: moq-test/interop
+test-client-1  | [2m2026-10-05T14:36:10.770756Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m Subscriber subscribing to track: moq-test/interop/test-track
+test-client-1  | [2m2026-10-05T14:36:13.772809Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m Test timeout reached - subscription routing may still be in progress
+relay-1        | wt session closed by peer (CONNECT stream)
+test-client-1  | ok 4 - publish-namespace-subscribe
+test-client-1  |   ---
+test-client-1  |   duration_ms: 3039
+test-client-1  |   publisher_connection_id: f6f575d3f25a88512076419697cfdeb6
+test-client-1  |   subscriber_connection_id: 836e0a5fe5f8e35e7547091ed618650b
+test-client-1  |   ...
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | [2m2026-10-05T14:36:13.778136Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:50685 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:13.787047Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m Subscriber subscribing BEFORE PUBLISH_NAMESPACE: moq-test/interop/test-track
+test-client-1  | [2m2026-10-05T14:36:13.790012Z[0m [33m WARN[0m [2mmoq_transport::serve::error[0m[2m:[0m [48162044-e86f-4dfe-9139-190ad990f4ab] Not found:  at moq-transport/src/session/subscriber.rs:1653
+relay-1        | wt session closed by peer (CONNECT stream)
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | [2m2026-10-05T14:36:14.292806Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:33824 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:14.303639Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m Publisher sending PUBLISH_NAMESPACE (after subscriber): moq-test/interop
+test-client-1  | [2m2026-10-05T14:36:17.307116Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m Publisher PUBLISH_NAMESPACE timeout (expected)
+test-client-1  | [2m2026-10-05T14:36:17.307237Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m Subscriber got error: not found: Track not found [error:48162044-e86f-4dfe-9139-190ad990f4ab] (may be expected)
+test-client-1  | ok 5 - subscribe-before-publish-namespace
+test-client-1  |   ---
+test-client-1  |   duration_ms: 3533
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  |   subscriber_connection_id: 9fd44d1940154645e2dbaec6bbefafc7
+test-client-1  |   publisher_connection_id: d04acd4362d96bf06dc7c1704c5f54c6
+test-client-1  |   ...
+test-client-1  | [2m2026-10-05T14:36:17.312676Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:40246 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:17.322932Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m Sending PUBLISH_NAMESPACE: moq-test/interop
+test-client-1  | [2m2026-10-05T14:36:19.325428Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m PUBLISH_NAMESPACE active; sending PUBLISH_NAMESPACE_DONE
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | [2m2026-10-05T14:36:19.427123Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m PUBLISH_NAMESPACE_DONE sent successfully
+test-client-1  | ok 6 - publish-namespace-done
+test-client-1  |   ---
+test-client-1  |   duration_ms: 2119
+test-client-1  |   connection_id: 7808770be69332e5f732399c91c9080d
+test-client-1  |   ...
+test-client-1  | [2m2026-10-05T14:36:19.431318Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:60764 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:19.439767Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m Publisher sending direct PUBLISH [3mnamespace[0m[2m=[0m/moq-test/publish [3mtrack[0m[2m=[0m"published-track"
+test-client-1  | [2m2026-10-05T14:36:19.440439Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m PUBLISH accepted [3mnamespace[0m[2m=[0m/moq-test/publish [3mtrack[0m[2m=[0m"published-track"
+test-client-1  | [2m2026-10-05T14:36:19.441274Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m PUBLISH completed [3mnamespace[0m[2m=[0m/moq-test/publish [3mtrack[0m[2m=[0m"published-track"
+test-client-1  | ok 7 - publish-track-only
+test-client-1  |   ---
+test-client-1  |   duration_ms: 13
+test-client-1  |   connection_id: 12ff21683ba08d43d97498268ee6f471
+test-client-1  |   ...
+relay-1        | wt session closed by peer (CONNECT stream)
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | [2m2026-10-05T14:36:19.445260Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:33536 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:19.457425Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:34211 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:19.468752Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m Publisher sending direct PUBLISH before subscriber subscribes [3mnamespace[0m[2m=[0m/moq-test/publish [3mtrack[0m[2m=[0m"published-track"
+test-client-1  | [2m2026-10-05T14:36:19.469564Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m PUBLISH accepted; starting subscriber [3mnamespace[0m[2m=[0m/moq-test/publish [3mtrack[0m[2m=[0m"published-track"
+test-client-1  | [2m2026-10-05T14:36:19.574269Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m Subscriber received direct PUBLISH track [3mnamespace[0m[2m=[0m/moq-test/publish [3mtrack[0m[2m=[0m"published-track"
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | ok 8 - publish-track-subscribe
+test-client-1  |   ---
+relay-1        | wt session closed by peer (CONNECT stream)
+test-client-1  |   duration_ms: 133
+test-client-1  |   publisher_connection_id: abca238f95651073e13d66a81fa42343
+test-client-1  |   subscriber_connection_id: ccce44428e808cf7bdc5f1b65d9ade4c
+test-client-1  |   ...
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | [2m2026-10-05T14:36:19.580471Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:34700 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:19.589293Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m Subscribing with RENDEZVOUS_TIMEOUT to a track with no publisher [3mtimeout_ms[0m[2m=[0m500
+test-client-1  | [2m2026-10-05T14:36:20.104795Z[0m [32m INFO[0m [2mmoq_test_client::scenarios[0m[2m:[0m Received expected REQUEST_ERROR TIMEOUT
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | ok 9 - rendezvous-timeout
+test-client-1  |   ---
+test-client-1  |   duration_ms: 528
+test-client-1  |   connection_id: 882e885d97db13f0e7ccbc71f1cc7203
+test-client-1  |   ...
+test-client-1  | [2m2026-10-05T14:36:20.111695Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:37252 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:20.326862Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:49423 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:20.338097Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH accepted and subscription bound; generating objects [3mobjects[0m[2m=[0m15 [3mstreams[0m[2m=[0m3
+test-client-1  | [2m2026-10-05T14:36:20.387787Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH completed
+test-client-1  | [2m2026-10-05T14:36:20.390373Z[0m [32m INFO[0m [2mmoq_test_client[0m[2m:[0m moq-test passed: objects 15/15, eog 0/0, streams 3, publish_done status=2 stream_count=3 reason=ReasonPhrase("")
+test-client-1  | ok 10 - moq-test-subgroup-per-group
+test-client-1  |   ---
+test-client-1  |   duration_ms: 283
+test-client-1  |   subscriber_connection_id: 610d89ba783a07ef6b97d6f49b9fdc8b
+test-client-1  |   publisher_connection_id: 3cd535ff899ed1e0c83efa3702fe3fe2
+test-client-1  |   ...
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | [2m2026-10-05T14:36:20.395533Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:45177 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:20.610922Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:60440 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:20.622867Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH accepted and subscription bound; generating objects [3mobjects[0m[2m=[0m15 [3mstreams[0m[2m=[0m3
+test-client-1  | [2m2026-10-05T14:36:20.691523Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH completed
+test-client-1  | [2m2026-10-05T14:36:20.692424Z[0m [32m INFO[0m [2mmoq_test_client[0m[2m:[0m moq-test passed: objects 15/15, eog 3/3, streams 3, publish_done status=2 stream_count=3 reason=ReasonPhrase("")
+test-client-1  | ok 11 - moq-test-subgroup-per-group-eog
+relay-1        | wt session closed by peer (CONNECT stream)
+test-client-1  |   ---
+test-client-1  |   duration_ms: 300
+relay-1        | wt session closed by peer (CONNECT stream)
+test-client-1  |   subscriber_connection_id: 0b210c53b9ebe0d9a26b5e88473c3524
+test-client-1  |   publisher_connection_id: ae63bceee7a3af98a9dcb400f0f8cdd8
+test-client-1  |   ...
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | [2m2026-10-05T14:36:20.698096Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:33590 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:20.913677Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:40769 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:20.926730Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH accepted and subscription bound; generating objects [3mobjects[0m[2m=[0m8 [3mstreams[0m[2m=[0m8
+test-client-1  | [2m2026-10-05T14:36:20.956336Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH completed
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | [2m2026-10-05T14:36:20.959339Z[0m [32m INFO[0m [2mmoq_test_client[0m[2m:[0m moq-test passed: objects 8/8, eog 0/0, streams 8, publish_done status=2 stream_count=8 reason=ReasonPhrase("")
+test-client-1  | ok 12 - moq-test-subgroup-per-object
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  |   ---
+test-client-1  |   duration_ms: 265
+test-client-1  |   subscriber_connection_id: c278bd0caa47362171ae52c3a3a554de
+test-client-1  |   publisher_connection_id: 1b2ffd09516d7ddfa77b80d50f7bc89f
+test-client-1  |   ...
+test-client-1  | [2m2026-10-05T14:36:20.964907Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:34984 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:21.180885Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:45742 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:21.194569Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH accepted and subscription bound; generating objects [3mobjects[0m[2m=[0m18 [3mstreams[0m[2m=[0m6
+test-client-1  | [2m2026-10-05T14:36:21.269519Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH completed
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | [2m2026-10-05T14:36:21.272206Z[0m [32m INFO[0m [2mmoq_test_client[0m[2m:[0m moq-test passed: objects 18/18, eog 3/3, streams 6, publish_done status=2 stream_count=6 reason=ReasonPhrase("")
+test-client-1  | ok 13 - moq-test-two-subgroups-eog
+test-client-1  |   ---
+test-client-1  |   duration_ms: 311
+test-client-1  |   subscriber_connection_id: e859de416b4bdf66115ca756c8b7c180
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  |   publisher_connection_id: a0b6702cc68b5a6c4c35658902dd28eb
+test-client-1  |   ...
+test-client-1  | [2m2026-10-05T14:36:21.286155Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:39762 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:21.500894Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:33740 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:21.510751Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH accepted and subscription bound; generating objects [3mobjects[0m[2m=[0m15 [3mstreams[0m[2m=[0m0
+test-client-1  | [2m2026-10-05T14:36:21.836979Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH completed
+test-client-1  | [2m2026-10-05T14:36:21.838752Z[0m [32m INFO[0m [2mmoq_test_client[0m[2m:[0m moq-test passed: objects 15/15, eog 0/0, streams 0, publish_done status=2 stream_count=0 reason=ReasonPhrase("")
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | ok 14 - moq-test-datagram
+test-client-1  |   ---
+test-client-1  |   duration_ms: 556
+test-client-1  |   subscriber_connection_id: 52f1c798d73bcc5dd55db76ca512df0a
+test-client-1  |   publisher_connection_id: 53606e230aa2d2c0f79e0f8a865f9cc7
+test-client-1  |   ...
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | [2m2026-10-05T14:36:21.844708Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:49538 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:22.062677Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:55008 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:22.072651Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH accepted and subscription bound; generating objects [3mobjects[0m[2m=[0m15 [3mstreams[0m[2m=[0m0
+test-client-1  | [2m2026-10-05T14:36:22.465103Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH completed
+test-client-1  | [2m2026-10-05T14:36:22.466506Z[0m [32m INFO[0m [2mmoq_test_client[0m[2m:[0m moq-test passed: objects 15/15, eog 3/3, streams 0, publish_done status=2 stream_count=0 reason=ReasonPhrase("")
+test-client-1  | ok 15 - moq-test-datagram-eog
+test-client-1  |   ---
+test-client-1  |   duration_ms: 627
+test-client-1  |   subscriber_connection_id: 3cb39c5949a18669b00047bd1d2eb93e
+test-client-1  |   publisher_connection_id: 1fdad8c476c17d4a33075cee82d41f50
+test-client-1  |   ...
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | [2m2026-10-05T14:36:22.473825Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:58323 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:22.689352Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:45192 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:22.702866Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH accepted and subscription bound; generating objects [3mobjects[0m[2m=[0m15 [3mstreams[0m[2m=[0m3
+test-client-1  | [2m2026-10-05T14:36:22.765144Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH completed
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | ok 16 - moq-test-extensions
+test-client-1  |   ---
+test-client-1  |   duration_ms: 312
+test-client-1  | [2m2026-10-05T14:36:22.780685Z[0m [32m INFO[0m [2mmoq_test_client[0m[2m:[0m moq-test passed: objects 15/15, eog 3/3, streams 3, publish_done status=2 stream_count=3 reason=ReasonPhrase("")
+test-client-1  |   subscriber_connection_id: 9f9040b59ff1b619e2edb5b7aee4c4ae
+test-client-1  |   publisher_connection_id: 2244b9b45e7421542418a8b0f7adb5c0
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  |   ...
+test-client-1  | [2m2026-10-05T14:36:22.786321Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:49708 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:23.002212Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:52338 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:23.012634Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH accepted and subscription bound; generating objects [3mobjects[0m[2m=[0m9 [3mstreams[0m[2m=[0m3
+test-client-1  | [2m2026-10-05T14:36:23.044047Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH completed
+test-client-1  | [2m2026-10-05T14:36:23.045756Z[0m [32m INFO[0m [2mmoq_test_client[0m[2m:[0m moq-test passed: objects 9/9, eog 0/0, streams 3, publish_done status=2 stream_count=3 reason=ReasonPhrase("")
+test-client-1  | ok 17 - moq-test-increments
+test-client-1  |   ---
+test-client-1  |   duration_ms: 264
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  |   subscriber_connection_id: 5876106604c8a065a364992fbb4eb83c
+test-client-1  |   publisher_connection_id: 0d03314e965ff4404befd379a6981cba
+test-client-1  |   ...
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | [2m2026-10-05T14:36:23.051286Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:41651 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:23.268782Z[0m [32m INFO[0m [2mmoq_native_ietf::quic[0m[2m:[0m UDP socket bound [3mbind[0m[2m=[0m[::]:0 [3mlocal[0m[2m=[0m[::ffff:0.0.0.0]:59623 [3mdual_stack[0m[2m=[0mtrue
+test-client-1  | [2m2026-10-05T14:36:23.280247Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH accepted and subscription bound; generating objects [3mobjects[0m[2m=[0m6 [3mstreams[0m[2m=[0m2
+test-client-1  | [2m2026-10-05T14:36:23.301860Z[0m [32m INFO[0m [2mmoq_test_client::moqtest[0m[2m:[0m PUBLISH completed
+test-client-1  | [2m2026-10-05T14:36:23.303567Z[0m [32m INFO[0m [2mmoq_test_client[0m[2m:[0m moq-test passed: objects 0/0, eog 0/0, streams 0, publish_done status=2 stream_count=0 reason=ReasonPhrase("")
+test-client-1  | ok 18 - moq-test-forward-zero
+test-client-1  |   ---
+test-client-1  |   duration_ms: 256
+test-client-1  |   subscriber_connection_id: 759786834d6ee761f54d364ade861c6c
+test-client-1  |   publisher_connection_id: 381d1a26db503bd3e2390af5f14415e9
+test-client-1  |   ...
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+[Ktest-client-1 exited with code 0
+ Compose Stopping Aborting on container exit...
+ Container runner-copy-test-client-1 Stopping 
+ Container runner-copy-test-client-1 Stopped 
+ Container runner-copy-relay-1 Stopping 
+relay-1        | conn closed by server (app): 
+ Container runner-copy-relay-1 Stopped 
+[Krelay-1 exited with code 0
+
+Test results in mlog/

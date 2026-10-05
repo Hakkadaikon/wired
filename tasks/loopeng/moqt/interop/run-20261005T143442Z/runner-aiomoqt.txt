@@ -1,0 +1,34 @@
+╔═══════════════════════════════════════════════════════════════╗
+║              MoQT Interop Tests                             ║
+╚═══════════════════════════════════════════════════════════════╝
+
+Target version: draft-18
+Results: /tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/runner-copy/results/2026-10-05_143520
+
+Clients: aiomoqt
+Relays: wired
+
+── Test Plan ──
+
+  aiomoqt → wired: draft-18 (at-target)
+    docker  ghcr.io/hakkadaikon/wired-moqt-interop:latest
+
+Runs planned: 1
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Test: aiomoqt → wired
+Version: draft-18 | Mode: docker
+Target: ghcr.io/hakkadaikon/wired-moqt-interop:latest
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✓ PASSED
+
+═══════════════════════════════════════════════════════════════
+                        TEST SUMMARY
+═══════════════════════════════════════════════════════════════
+
+Total:   1
+Passed:  1
+Failed:  0
+
+Results saved to: /tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/runner-copy/results/2026-10-05_143520
+Summary JSON: /tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/runner-copy/results/2026-10-05_143520/summary.json

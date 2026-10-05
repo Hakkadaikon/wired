@@ -1,0 +1,74 @@
+Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts -Djavax.net.ssl.trustStoreType=JKS -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=41627 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|api.anthropic.com|api-staging.anthropic.com|api-pr-preview.anthropic.com|mcp-proxy.anthropic.com|mcp-proxy-staging.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.org|index.crates.io|proxy.golang.org|host.docker.internal|10.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*|192.168.*|100.64.0.0/10|*.svc.cluster.local|*.svc.cluster.local -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
+TLC2 Version 2026.10.04.025638 (rev: 1813307)
+Running breadth-first search Model-Checking with fp 2 and seed -6075713666065453927 with 1 worker on 4 cores with 3042MB heap and 64MB offheap memory [pid: 4910] (Linux 6.18.44-fc-v70 amd64, Ubuntu 21.0.11 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/user/wired/tasks/loopeng/moqt/MoqtVerCtl/MC_misconfig.tla
+Parsing file /home/user/wired/tasks/loopeng/moqt/MoqtVerCtl/MoqtVerCtl.tla
+Parsing file /tmp/tlc-17757927514958198143/_TLCTrace.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-17757927514958198143/Naturals.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-17757927514958198143/Sequences.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-17757927514958198143/FiniteSets.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-17757927514958198143/TLC.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-17757927514958198143/TLCExt.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-17757927514958198143/Integers.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module MoqtVerCtl
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module MC_misconfig
+Linting of module MoqtVerCtl
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module MC_misconfig
+Starting... (2026-10-05 12:52:59)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-05 12:53:00.
+Error: Invariant VersionAgree is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ phase = (p1 :> "idle")
+/\ hver = (p1 :> "none")
+/\ peerCtl = (p1 :> FALSE)
+/\ legacy = (p1 :> FALSE)
+/\ reqQ = (p1 :> <<>>)
+/\ cver = (p1 :> "none")
+/\ setupRecv = (p1 :> FALSE)
+/\ reqDone = (p1 :> FALSE)
+/\ reqEarly = (p1 :> FALSE)
+/\ ctlQ = (p1 :> <<>>)
+/\ token = (p1 :> "none")
+/\ offer = (p1 :> <<>>)
+/\ first = (p1 :> "none")
+/\ sent = (p1 :> {})
+/\ hubCtl = (p1 :> "none")
+/\ held = (p1 :> {})
+/\ asm = (p1 :> <<>>)
+/\ nSetup = (p1 :> 0)
+
+State 2: <Connect(p1) line 111, col 3 to line 124, col 42 of module MoqtVerCtl>
+/\ phase = (p1 :> "up")
+/\ hver = (p1 :> "19")
+/\ peerCtl = (p1 :> FALSE)
+/\ legacy = (p1 :> TRUE)
+/\ reqQ = (p1 :> <<"Q">>)
+/\ cver = (p1 :> "17")
+/\ setupRecv = (p1 :> FALSE)
+/\ reqDone = (p1 :> FALSE)
+/\ reqEarly = (p1 :> FALSE)
+/\ ctlQ = (p1 :> <<"S", "M">>)
+/\ token = (p1 :> "17")
+/\ offer = (p1 :> <<"17">>)
+/\ first = (p1 :> "none")
+/\ sent = (p1 :> {})
+/\ hubCtl = (p1 :> "none")
+/\ held = (p1 :> {})
+/\ asm = (p1 :> <<>>)
+/\ nSetup = (p1 :> 0)
+
+3 states generated, 3 distinct states found, 1 states left on queue.
+The depth of the complete state graph search is 2.
+Finished in 01s at (2026-10-05 12:53:00)
+Trace exploration spec path: ./MC_misconfig_TTrace_1791204779.tla

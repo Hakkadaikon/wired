@@ -1,0 +1,44 @@
+Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts -Djavax.net.ssl.trustStoreType=JKS -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=41627 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|api.anthropic.com|api-staging.anthropic.com|api-pr-preview.anthropic.com|mcp-proxy.anthropic.com|mcp-proxy-staging.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.org|index.crates.io|proxy.golang.org|host.docker.internal|10.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*|192.168.*|100.64.0.0/10|*.svc.cluster.local|*.svc.cluster.local -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
+TLC2 Version 2026.10.04.025638 (rev: 1813307)
+Running breadth-first search Model-Checking with fp 28 and seed -6502992180864887170 with 1 worker on 4 cores with 3042MB heap and 64MB offheap memory [pid: 26894] (Linux 6.18.44-fc-v70 amd64, Ubuntu 21.0.11 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/user/wired/tasks/loopeng/moqt/MoqtXRelay/MC_p19_a18_b22.tla
+Parsing file /home/user/wired/tasks/loopeng/moqt/MoqtXRelay/MoqtXRelay.tla
+Parsing file /tmp/tlc-2740015247581426408/_TLCTrace.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-2740015247581426408/Naturals.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-2740015247581426408/FiniteSets.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-2740015247581426408/TLC.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-2740015247581426408/Sequences.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-2740015247581426408/TLCExt.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-2740015247581426408/Integers.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module MoqtXRelay
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module MC_p19_a18_b22
+Linting of module MoqtXRelay
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module MC_p19_a18_b22
+Starting... (2026-10-05 12:47:21)
+Implied-temporal checking--satisfiability problem has 4 branches.
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-05 12:47:22.
+Checking 4 branches of temporal properties for the current state space with 51044 total distinct states at (2026-10-05 12:47:25)
+Finished checking temporal properties in 00s at 2026-10-05 12:47:25
+Progress(6) at 2026-10-05 12:47:25: 29,584 states generated (29,584 s/min), 12,773 distinct states found (12,773 ds/min), 9,411 states left on queue.
+Progress(12) at 2026-10-05 12:48:21: 793,393 states generated, 273,252 distinct states found, 0 states left on queue.
+Checking 4 branches of temporal properties for the complete state space with 1093008 total distinct states at (2026-10-05 12:48:21)
+Finished checking temporal properties in 12s at 2026-10-05 12:48:34
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 7.7E-9
+  based on the actual fingerprints:  val = 6.9E-9
+793393 states generated, 273252 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 12.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 13 and the 95th percentile is 3).
+Finished in 01min 13s at (2026-10-05 12:48:34)

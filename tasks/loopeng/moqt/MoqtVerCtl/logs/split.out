@@ -1,0 +1,181 @@
+Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts -Djavax.net.ssl.trustStoreType=JKS -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=41627 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|api.anthropic.com|api-staging.anthropic.com|api-pr-preview.anthropic.com|mcp-proxy.anthropic.com|mcp-proxy-staging.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.org|index.crates.io|proxy.golang.org|host.docker.internal|10.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*|192.168.*|100.64.0.0/10|*.svc.cluster.local|*.svc.cluster.local -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
+TLC2 Version 2026.10.04.025638 (rev: 1813307)
+Running breadth-first search Model-Checking with fp 66 and seed 1847805975420406863 with 1 worker on 4 cores with 3042MB heap and 64MB offheap memory [pid: 4818] (Linux 6.18.44-fc-v70 amd64, Ubuntu 21.0.11 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/user/wired/tasks/loopeng/moqt/MoqtVerCtl/MC_split.tla
+Parsing file /home/user/wired/tasks/loopeng/moqt/MoqtVerCtl/MoqtVerCtl.tla
+Parsing file /tmp/tlc-14009908250498627304/_TLCTrace.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-14009908250498627304/Naturals.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-14009908250498627304/Sequences.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-14009908250498627304/FiniteSets.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-14009908250498627304/TLC.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-14009908250498627304/TLCExt.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-14009908250498627304/Integers.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module MoqtVerCtl
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module MC_split
+Linting of module MoqtVerCtl
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module MC_split
+Starting... (2026-10-05 12:52:56)
+Implied-temporal checking--satisfiability problem has 2 branches.
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-05 12:52:57.
+Progress(7) at 2026-10-05 12:52:57: 139 states generated, 61 distinct states found, 0 states left on queue.
+Checking 2 branches of temporal properties for the complete state space with 122 total distinct states at (2026-10-05 12:52:57)
+Error: Temporal properties EventuallyEstablished and RequestAnswered were violated.
+
+Error: The following behavior constitutes a counter-example:
+
+State 1: <Initial predicate>
+/\ phase = (p1 :> "idle")
+/\ hver = (p1 :> "none")
+/\ peerCtl = (p1 :> FALSE)
+/\ legacy = (p1 :> FALSE)
+/\ reqQ = (p1 :> <<>>)
+/\ cver = (p1 :> "none")
+/\ setupRecv = (p1 :> FALSE)
+/\ reqDone = (p1 :> FALSE)
+/\ reqEarly = (p1 :> FALSE)
+/\ ctlQ = (p1 :> <<>>)
+/\ token = (p1 :> "none")
+/\ offer = (p1 :> <<>>)
+/\ first = (p1 :> "none")
+/\ sent = (p1 :> {})
+/\ hubCtl = (p1 :> "none")
+/\ held = (p1 :> {})
+/\ asm = (p1 :> <<>>)
+/\ nSetup = (p1 :> 0)
+
+State 2: <Connect(p1) line 111, col 3 to line 124, col 42 of module MoqtVerCtl>
+/\ phase = (p1 :> "up")
+/\ hver = (p1 :> "22")
+/\ peerCtl = (p1 :> FALSE)
+/\ legacy = (p1 :> FALSE)
+/\ reqQ = (p1 :> <<"Q">>)
+/\ cver = (p1 :> "22")
+/\ setupRecv = (p1 :> FALSE)
+/\ reqDone = (p1 :> FALSE)
+/\ reqEarly = (p1 :> FALSE)
+/\ ctlQ = (p1 :> <<"H", "R", "M">>)
+/\ token = (p1 :> "22")
+/\ offer = (p1 :> <<"22">>)
+/\ first = (p1 :> "none")
+/\ sent = (p1 :> {})
+/\ hubCtl = (p1 :> "none")
+/\ held = (p1 :> {})
+/\ asm = (p1 :> <<>>)
+/\ nSetup = (p1 :> 0)
+
+State 3: <DeliverReq(p1) line 192, col 3 to line 201, col 52 of module MoqtVerCtl>
+/\ phase = (p1 :> "up")
+/\ hver = (p1 :> "22")
+/\ peerCtl = (p1 :> FALSE)
+/\ legacy = (p1 :> FALSE)
+/\ reqQ = (p1 :> <<>>)
+/\ cver = (p1 :> "22")
+/\ setupRecv = (p1 :> FALSE)
+/\ reqDone = (p1 :> FALSE)
+/\ reqEarly = (p1 :> FALSE)
+/\ ctlQ = (p1 :> <<"H", "R", "M">>)
+/\ token = (p1 :> "22")
+/\ offer = (p1 :> <<"22">>)
+/\ first = (p1 :> "none")
+/\ sent = (p1 :> {})
+/\ hubCtl = (p1 :> "none")
+/\ held = (p1 :> {"cq"})
+/\ asm = (p1 :> <<>>)
+/\ nSetup = (p1 :> 0)
+
+State 4: <HubOpenCtl(p1) line 129, col 3 to line 134, col 75 of module MoqtVerCtl>
+/\ phase = (p1 :> "up")
+/\ hver = (p1 :> "22")
+/\ peerCtl = (p1 :> FALSE)
+/\ legacy = (p1 :> FALSE)
+/\ reqQ = (p1 :> <<>>)
+/\ cver = (p1 :> "22")
+/\ setupRecv = (p1 :> FALSE)
+/\ reqDone = (p1 :> FALSE)
+/\ reqEarly = (p1 :> FALSE)
+/\ ctlQ = (p1 :> <<"H", "R", "M">>)
+/\ token = (p1 :> "22")
+/\ offer = (p1 :> <<"22">>)
+/\ first = (p1 :> "none")
+/\ sent = (p1 :> {"22"})
+/\ hubCtl = (p1 :> "uni")
+/\ held = (p1 :> {"cq"})
+/\ asm = (p1 :> <<>>)
+/\ nSetup = (p1 :> 0)
+
+State 5: <DeliverCtl(p1) line 165, col 3 to line 182, col 33 of module MoqtVerCtl>
+/\ phase = (p1 :> "up")
+/\ hver = (p1 :> "22")
+/\ peerCtl = (p1 :> FALSE)
+/\ legacy = (p1 :> FALSE)
+/\ reqQ = (p1 :> <<>>)
+/\ cver = (p1 :> "22")
+/\ setupRecv = (p1 :> FALSE)
+/\ reqDone = (p1 :> FALSE)
+/\ reqEarly = (p1 :> FALSE)
+/\ ctlQ = (p1 :> <<"R", "M">>)
+/\ token = (p1 :> "22")
+/\ offer = (p1 :> <<"22">>)
+/\ first = (p1 :> "none")
+/\ sent = (p1 :> {"22"})
+/\ hubCtl = (p1 :> "uni")
+/\ held = (p1 :> {"cu", "cq"})
+/\ asm = (p1 :> <<>>)
+/\ nSetup = (p1 :> 0)
+
+State 6: <DeliverCtl(p1) line 165, col 3 to line 182, col 33 of module MoqtVerCtl>
+/\ phase = (p1 :> "up")
+/\ hver = (p1 :> "22")
+/\ peerCtl = (p1 :> FALSE)
+/\ legacy = (p1 :> FALSE)
+/\ reqQ = (p1 :> <<>>)
+/\ cver = (p1 :> "22")
+/\ setupRecv = (p1 :> FALSE)
+/\ reqDone = (p1 :> FALSE)
+/\ reqEarly = (p1 :> FALSE)
+/\ ctlQ = (p1 :> <<"M">>)
+/\ token = (p1 :> "22")
+/\ offer = (p1 :> <<"22">>)
+/\ first = (p1 :> "none")
+/\ sent = (p1 :> {"22"})
+/\ hubCtl = (p1 :> "uni")
+/\ held = (p1 :> {"cu", "cq"})
+/\ asm = (p1 :> <<>>)
+/\ nSetup = (p1 :> 0)
+
+State 7: <DeliverCtl(p1) line 165, col 3 to line 182, col 33 of module MoqtVerCtl>
+/\ phase = (p1 :> "up")
+/\ hver = (p1 :> "22")
+/\ peerCtl = (p1 :> FALSE)
+/\ legacy = (p1 :> FALSE)
+/\ reqQ = (p1 :> <<>>)
+/\ cver = (p1 :> "22")
+/\ setupRecv = (p1 :> FALSE)
+/\ reqDone = (p1 :> FALSE)
+/\ reqEarly = (p1 :> FALSE)
+/\ ctlQ = (p1 :> <<>>)
+/\ token = (p1 :> "22")
+/\ offer = (p1 :> <<"22">>)
+/\ first = (p1 :> "none")
+/\ sent = (p1 :> {"22"})
+/\ hubCtl = (p1 :> "uni")
+/\ held = (p1 :> {"cu", "cq"})
+/\ asm = (p1 :> <<>>)
+/\ nSetup = (p1 :> 0)
+
+State 8: Stuttering
+Finished checking temporal properties in 00s at 2026-10-05 12:52:57
+139 states generated, 61 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 7.
+Finished in 01s at (2026-10-05 12:52:57)
+Trace exploration spec path: ./MC_split_TTrace_1791204775.tla

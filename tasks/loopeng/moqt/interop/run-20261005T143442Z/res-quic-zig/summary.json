@@ -1,0 +1,16 @@
+{
+  "runs": [
+    {
+      "client": "quic-zig",
+      "relay": "wired",
+      "version": "draft-18",
+      "classification": "at",
+      "mode": "docker",
+      "target": "ghcr.io/hakkadaikon/wired-moqt-interop:latest",
+      "status": "pass",
+      "exit_code": 0
+    }
+  ],
+  "target_version": "draft-18",
+  "timestamp": "2026-10-05T14:35:43Z"
+}
