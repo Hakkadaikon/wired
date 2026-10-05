@@ -86,4 +86,6 @@ The list below applies to all three unless a draft is named.
   without an explicit Publisher Priority counts as 128.
 - The hub's own tracks (`wired_moqt_publish_blob`, `wired_moqt_publish_live`)
   have no namespace and match a SUBSCRIBE by Track Name only.
-- MoQT runs over WebTransport only, not directly over QUIC.
+- MoQT also runs directly over QUIC (ALPN `moqt-22`/`moqt-19`/`moqt-18`,
+  set with `wired_srvboot_id.raw_alpns` and `raw_on_session`), but that
+  path is so far checked only in-process and against a few interop clients.
