@@ -5432,6 +5432,11 @@ int wired_server_wt_stream_reset(
   c->wt_stream_reset_final[i]    = srvrun_wtsend_final_size(c, stream_id);
   c->wt_stream_reset_stop[i]     = 0;
   srvrun_wtsend_release(c, stream_id);
+  /* Recorded even with no send slot (a client bidi never replied on): this
+   * RESET_STREAM ends the send part, so the session-close sweep and any
+   * repeated reset must not send a second one with another code (RFC 9000
+   * 19.4, 3.5; draft-ietf-webtrans-http3-16 6). */
+  srvrun_wt_send_done_mark(c, stream_id);
   return 1;
 }
 
