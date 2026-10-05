@@ -607,11 +607,12 @@ typedef struct {
  * (the WIRED_MOQTRUN_MAX_REQS_PER_SESSION pattern). */
 #define WIRED_MOQTRUN_RDV_PER_SESSION (WIRED_MOQTRUN_MAX_RDV / 4)
 
-/** Longest hold, ms: the relay MAY use a shorter timeout (10.2.6). Twice
- * the largest window a known interop client asks for (moq-rs moq-test:
- * 5000 ms; rendezvous-timeout: 500 ms), and short enough that an idle
- * subscriber cannot pin a request slot for longer than a page reload. */
-#define WIRED_MOQTRUN_RDV_MAX_MS 10000
+/** Longest hold, ms: the relay MAY use a shorter timeout (10.2.6). Below
+ * the 2 s a runner client allots to rendezvous-timeout: imquic asks 500000
+ * for its 500 ms window (microseconds read as ms), so any larger cap misses
+ * the REQUEST_ERROR TIMEOUT it waits for. Still above the publisher lag of
+ * the moq-rs moq-test scenarios (they ask 5000 ms). */
+#define WIRED_MOQTRUN_RDV_MAX_MS 1500
 
 /** Retry Interval (ms + 1, draft-18 10.6: 1 = immediately) sent with the
  * EXCESSIVE_LOAD refusal of a hold that did not fit. */
