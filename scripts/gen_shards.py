@@ -26,6 +26,9 @@ K = 8  # fixed: >8 cores gain nothing (largest domain shard is the limit)
 # test stem -> production group dir (as it appears in run.c includes).
 OVERRIDES = {
     "gcm256": "crypto/symmetric/aead/gcm",
+    "bssl_aes128gcm": "crypto/symmetric/aead/gcm",
+    "bssl_aes256gcm": "crypto/symmetric/aead/gcm",
+    "bssl_chacha20poly1305": "crypto/symmetric/aead/chacha",
     "packet2": "transport/packet/header/packet",
     "h3control": "app/http3/core/h3",
     "h3frame": "app/http3/core/h3",
@@ -38,12 +41,16 @@ OVERRIDES = {
     "p256field_n": "crypto/asymmetric/ecc/p256",
     "ecdsa_diff": "crypto/asymmetric/ecc/p256",
     "ecdsa_p384_verify": "crypto/asymmetric/ecc/p384",
+    "bssl_ecdsa": "crypto/asymmetric/ecc/p256",
+    "bssl_hmac": "crypto/symmetric/hash/hash",
     "p384chain": "crypto/pki/trust/castore",
     "versdowngrade": "transport/version/versmgr",
     "sigmask": "app/http3/server/sigterm",
     "wt_session": "app/webtransport/session/session",
     "wterrmap": "app/webtransport/errmap/errmap",
     "v2ku_appendix": "tls/keys/keyupdate",
+    "bssl_ed25519": "crypto/asymmetric/ecc/ed25519",
+    "bssl_x25519": "tls/handshake/core/tls",
 }
 
 # Tests that share static helpers (or a production-static counter) across
