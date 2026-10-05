@@ -1,4 +1,5 @@
 #include "app/moqt/fetch/moqfetch.h"
+#include "app/moqt/ns/moqns.h"
 #include "app/moqt/vi/moqvi.h"
 #include "test.h"
 
@@ -60,7 +61,56 @@ static void test_moqctl_limits_req19_unrepresentable(void) {
   CHECK(back.range.ek == MOQCTL_REK_GROUP && back.range.end_group == 5);
 }
 
+/* One ns_len-byte namespace field and a name_len-byte Track Name, both
+ * views into one shared filler buffer. */
+static u8 moqlim_t_fill[MOQCTL_MAX_FTN_LEN];
+
+static void moqlim_t_ftn(
+    moqctl_ns* ns, wired_span* name, usz ns_len, usz name_len) {
+  *ns           = (moqctl_ns){0};
+  ns->n         = 1;
+  ns->fields[0] = wired_span_of(moqlim_t_fill, ns_len);
+  *name         = wired_span_of(moqlim_t_fill, name_len);
+}
+
+static int moqlim_t_redirect(usz ns_len, usz name_len) {
+  static u8            buf[MOQCTL_MAX_FTN_LEN + 64];
+  moqctl_request_error m = {0}, out;
+  usz                  n = 0, off = 0;
+  m.error_code   = MOQCTL_ERR_REDIRECT;
+  m.has_redirect = 1;
+  moqlim_t_ftn(
+      &m.redirect.track_namespace, &m.redirect.track_name, ns_len, name_len);
+  CHECK(moqctl_request_error_encode(wired_mspan_of(buf, sizeof buf), &n, &m));
+  return moqctl_request_error_take(wired_span_of(buf, n), &off, &out);
+}
+
+/* d22 SS9.4.1: the Redirect target (Track Namespace + Track Name) is a
+ * Full Track Name, so SS2.4.1's 4096-byte bound applies. */
+static void test_moqctl_limits_redirect_ftn_boundary(void) {
+  CHECK(moqlim_t_redirect(4000, 96) == MOQCTL_OK);
+  CHECK(moqlim_t_redirect(4000, 97) == MOQCTL_VIOLATION);
+}
+
+static int moqlim_t_skipped(usz ns_len, usz name_len) {
+  static u8         buf[MOQCTL_MAX_FTN_LEN + 64];
+  moqns_pub_skipped m, out;
+  usz               n = 0;
+  moqlim_t_ftn(&m.ns, &m.name, ns_len, name_len);
+  CHECK(moqns_pub_skipped_encode(wired_mspan_of(buf, sizeof buf), &n, &m));
+  return moqns_pub_skipped_take(wired_span_of(buf, n), &out);
+}
+
+/* d22 SS9.19: Suffix + Track Name is a lower bound on the Full Track Name
+ * (the prefix only adds bytes), so > 4096 already violates SS2.4.1. */
+static void test_moqctl_limits_pub_skipped_ftn_boundary(void) {
+  CHECK(moqlim_t_skipped(4000, 96) == MOQCTL_OK);
+  CHECK(moqlim_t_skipped(4000, 97) == MOQCTL_VIOLATION);
+}
+
 void test_moqctl_limits(void) {
   test_moqctl_limits_req22_ftn_boundary();
   test_moqctl_limits_req19_unrepresentable();
+  test_moqctl_limits_redirect_ftn_boundary();
+  test_moqctl_limits_pub_skipped_ftn_boundary();
 }
