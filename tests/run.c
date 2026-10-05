@@ -118,6 +118,7 @@
 #include "common/platform/clock/clock.c"
 #include "common/platform/clock/mono.c"
 #include "common/platform/debug/debug.c"
+#include "common/fmt/fmt.c"
 #include "common/platform/fio/fio.c"
 #include "common/platform/qlog/qlog.c"
 #include "common/platform/qlog/qlogevent.c"
@@ -789,6 +790,7 @@
 #include "transport/udptransport_test.c"
 #include "common/clock_test.c"
 #include "common/debug_test.c"
+#include "common/fmt_test.c"
 #include "common/thread_test.c"
 #include "common/rng_test.c"
 #include "common/cidgen_test.c"
@@ -1341,6 +1343,7 @@ int main(void) {
   test_rng();
   test_clock();
   test_debug();
+  test_fmt();
   test_thread();
   test_cidgen();
   test_challenge();

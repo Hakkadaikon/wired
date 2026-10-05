@@ -58,6 +58,7 @@ Call these without needing to know the QUIC/TLS state machine underneath.
 | `wired_fio_open`, `wired_fio_size`, `wired_fio_pread`, `wired_fio_close` | Chunked file access: open read-only, stat the size, read at an offset, close — how the examples stream a large static file without loading it whole. Plain fd discipline, no protocol state. |
 | `wired_header_parse`, `wired_header_build_long` | Parse/build the invariant part of a QUIC packet header. Pure codec: given bytes in, bytes or fields out. |
 | `wired_log_str`, `wired_log_ts`, `wired_fmt_u64`, `WIRED_LOG` | Optional tracing output. Stateless, side-effect-only (stderr), safe to call anywhere. |
+| `wired_snprintf`, `wired_vsnprintf`, `wired_dprintf` | libc-free printf-compatible formatter (%d %i %u %x %X %p %s %c %% %f, flags, width, precision, length modifiers). Pure formatting; `wired_dprintf` only calls write(2). Deviations from C99 are listed in `common/fmt/fmt.h`. |
 
 These are grouped as stable because each is either a single top-level
 operation (the run/driver functions) or a pure function with no cross-call
