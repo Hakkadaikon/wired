@@ -368,6 +368,15 @@ MoQT draft-19 以降は webtrans-http3-16 を参照している。ワイヤ値�
 - [ ] 12-9 MoQT 以外の features 台帳の古いテスト参照: `docs/features/rfc8446.md:270,329`(`test_sdrv_psk_ticket_open_fails_falls_back`)、`rfc9220.md:87`(`test_h3cancel_request`)、`rfc9368.md:63`(`test_verselect_pick`)。
 - [ ] 12-10 moq-interop-runner をローカルで全クライアントと対向させ、全 PASS(クライアント起因を除く)を `logs_*` 付きで記録。ベースライン計測中。
 
+## 13. raw QUIC 上の MoQT(2026-10-05 ユーザー指示で追加)
+
+- [ ] 13-0 計画: `moqt://`(ALPN `moqt-NN`)で MoQT を話す。版ごとの仕様、runner 連携、アーキテクチャ、TLA+ 対象、並列実装分割、TDD リストを `tasks/loopeng/moqt/RawQuic/plan.md` にまとめる(作業中)。13-1 以降は計画完了時に展開する。
+
+## 14. printf 互換の出力関数(2026-10-05 ユーザー指示で追加、他の全項目完了後に着手)
+
+- [ ] 14-1 SDK に printf 互換関数を追加する(libc 非依存)。対応: 10進(%d/%i/%u、長さ修飾子)、16進(%x/%X)、小数(%f 系)、アドレス(%p)、文字列(%s、英語 ASCII)、文字(%c)、%%、可変引数。幅・精度・0埋め・左寄せの基本フラグ。
+- [ ] 14-2 guide のサンプル、examples、デバッグ出力など、文字列を組み立てて出力している箇所をすべて 14-1 に置き換える。
+
 ## 対象外
 
 - draft-14〜17 への対応。制御ストリームの形と varint が違う別時代で、先行実装でも adapter が必要になっている。
