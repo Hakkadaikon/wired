@@ -95,10 +95,14 @@ int moqfetch_req22_encode(wired_mspan buf, usz* off, const moqfetch_req* m);
 /** draft-22 SS9.20.15 FILL_PARAMETERS value (Number of Parameters +
  * Parameters, the FETCH parameter scope), decoded into the fields a fill
  * fetch stream needs: the range (LOCATION_FILTER, SS9.20.9 -- type 0x00 or
- * an absent parameter both mean "no filter"), the Group Order
+ * a zero-length value mean "no filter", ruling Q-02; an absent parameter
+ * in a non-empty value sets inherit, SS3.4), the Group Order
  * (GROUP_ORDER 0x2 = Descending) and FILL_TIMEOUT as a varint of
  * milliseconds. */
 typedef struct {
+  /** 1 iff the value carries parameters but no LOCATION_FILTER: the fill
+   * range is the subscription's own Location filter (draft-22 SS3.4). */
+  int             inherit;
   int             has_filter;
   moqctl_rangeloc range; /* valid iff has_filter */
   int             descending;

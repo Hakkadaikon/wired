@@ -1089,6 +1089,7 @@
 #include "app/moqtrun_done_test.c"
 #include "app/moqtrun_vgate_test.c"
 #include "app/moqtrun_ctlfix_test.c"
+#include "app/moqtrun_fillfix_test.c"
 #include "app/moqtrel_test.c"
 #include "app/moqns_test.c"
 #include "app/moqtstat_test.c"
@@ -1654,6 +1655,7 @@ int main(void) {
   test_moqtrun_done();
   test_moqtrun_vgate();
   test_moqtrun_ctlfix();
+  test_moqtrun_fillfix();
   test_moqtrel();
   test_moqns();
   test_moqtstat();
