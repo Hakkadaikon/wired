@@ -577,6 +577,14 @@ typedef struct {
  * seen losing the race. */
 #define WIRED_MOQTRUN_GOAWAY_GRACE_MS 1000
 
+/** How long a publisher's PUBLISH_DONE may wait for the streams its
+ * Stream Count names but the hub has not seen relayed to their end
+ * (draft-ietf-moq-transport-19 10.11: PUBLISH_DONE may precede
+ * late-opening streams). Bounds a count the hub never reaches, e.g.
+ * 2^62-1 ("unknown"); past it the subscribers' PUBLISH_DONE goes out
+ * with the streams still open reset. */
+#define WIRED_MOQTRUN_PUBDONE_WAIT_MS 2000
+
 /** One FETCH response being served from the hub cache: Objects of the
  * track incarnation cache_tag in [cursor, end) go out on one uni stream
  * (FETCH_HEADER, then fetch Objects, 11.4.4), one item per stream round
@@ -656,6 +664,16 @@ typedef struct {
    * fresh on every PUBLISH, so a later track in the same slot never
    * reads the old one's Objects. */
   u64 cache_tag;
+  /** SUBGROUP streams the PUBLISH's publisher opened on this
+   * incarnation: what its PUBLISH_DONE Stream Count is checked against. */
+  u64 up_streams;
+  /** The publisher's PUBLISH_DONE (draft-19 10.11) awaiting relay: its
+   * Status Code and Stream Count, and the moqt clock past which it goes
+   * out regardless (WIRED_MOQTRUN_PUBDONE_WAIT_MS). */
+  u64 pubdone_status;
+  u64 pubdone_streams;
+  u64 pubdone_deadline;
+  u8  pubdone_pending;
 } wired_moqtrun_track;
 
 /** One connected participant's hub-side state: its WT session, its own

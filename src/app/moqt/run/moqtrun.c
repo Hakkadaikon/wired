@@ -896,6 +896,8 @@ static void moqtrun_publish_checked(
   moqtrun_track_seed_largest(t, &m->params);
   t->request_id          = m->request_id;
   t->subgroup_timeout_ms = moqtrun_track_prop_sgt(m->track_properties);
+  t->up_streams          = 0;
+  t->pubdone_pending     = 0;
   moqtrun_reattach_subs(hub, t, peer_idx, k);
   moqtrun_queue_request_ok(p, 0);
   moqtrun_req_mark_live(p);
@@ -4070,6 +4072,13 @@ static void moqtrun_dispatch_skip(
   (void)body;
 }
 
+/* PUBLISH_DONE relay (its own section below, draft 10.11). */
+static void moqtrun_dispatch_pub_done(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
+static void moqtrun_pubdone_sweep(wired_moqt_hub* hub);
+static void moqtrun_pubdone_flush(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 rid);
+
 /* First-type table (draft table in ctl.h's peek_type doc): only PUBLISH,
  * SUBSCRIBE, FETCH, TRACK_STATUS, PUBLISH_NAMESPACE, SUBSCRIBE_NAMESPACE and
  * SUBSCRIBE_TRACKS (and REQUEST_UPDATE of a SUBSCRIBE) are implemented;
@@ -4098,7 +4107,7 @@ static const struct {
     {MOQNS_T_NAMESPACE_DONE, moqtrun_dispatch_skip},
     {MOQCTL_T_PUBLISH_SKIPPED, moqtrun_dispatch_skip},
     {MOQFETCH_T_FETCH_OK, moqtrun_dispatch_skip},
-    {MOQCTL_T_PUBLISH_DONE, moqtrun_dispatch_skip},
+    {MOQCTL_T_PUBLISH_DONE, moqtrun_dispatch_pub_done},
 };
 #define MOQTRUN_CTL_TABLE_N \
   (sizeof(moqtrun_ctl_table) / sizeof(moqtrun_ctl_table[0]))
@@ -4553,6 +4562,7 @@ void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
   moqtrun_fetches_tick(hub, 0); /* ascending backlog before live rounds */
   moqtrun_rel_tick_all(hub, now_ms);
   moqtrun_drain_tick(hub, now_ms);
+  moqtrun_pubdone_sweep(hub);
   moqtrun_reqs_tick(hub);
   moqtrun_live_tick(hub, now_ms);
   moqtrun_fetches_tick(hub, 1); /* a descending fill waits for them */
@@ -6033,6 +6043,7 @@ static void moqtrun_fresh_subgroup_relay(
   wired_moqtrun_track* track =
       moqtrun_resolve_fresh_stream_track(hub, p, data, &whole_end, fin);
   if (!track) return;
+  track->up_streams++; /* checked against PUBLISH_DONE's Stream Count */
   if (fin) {
     moqtrun_relay_object(hub, track, data);
     return;
@@ -6620,6 +6631,7 @@ void wired_moqt_on_stream_data(
   else
     moqtrun_dispatch_other(hub, p, stream_id, data, fin);
   moqtrun_hold_replay(hub, p);
+  moqtrun_pubdone_sweep(hub);
 }
 
 /* ===================== OBJECT_DATAGRAM relay (draft 11.3) ============= */
@@ -6839,6 +6851,7 @@ static void moqtrun_peer_unpublish(
  * caller's moqtrun_reqs_tick sends the NAMESPACE_DONEs owed. */
 static void moqtrun_req_cancel(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_req* q) {
+  moqtrun_pubdone_flush(hub, p, q->request_id);
   moqtrun_drop_peer_subs(hub, (usz)(p - hub->peers), q->request_id);
   moqtrun_sub_names_forget(p, q->request_id);
   moqtrun_peer_unpublish(hub, p, q->request_id);
@@ -7028,9 +7041,11 @@ static void moqtrun_sub_done_slot(
   if (q) moqtrun_sub_done(hub, p, q, t, s, status);
 }
 
+static u64 moqtrun_pubdone_status(const wired_moqtrun_track* t);
+
 static void moqtrun_track_ended(wired_moqt_hub* hub, wired_moqtrun_track* t) {
   for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
-    moqtrun_sub_done_slot(hub, t, si, MOQCTL_DONE_TRACK_ENDED);
+    moqtrun_sub_done_slot(hub, t, si, moqtrun_pubdone_status(t));
 }
 
 /* A publisher's session is ending: every subscription to its tracks ends
@@ -7039,6 +7054,136 @@ static void moqtrun_peer_tracks_ended(
     wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
     if (p->tracks[t].in_use) moqtrun_track_ended(hub, &p->tracks[t]);
+}
+
+/* ============ publisher's PUBLISH_DONE relayed (draft 10.11) ============
+ * draft-ietf-moq-transport-18/19 10.11, draft-22 9.9. The publisher's
+ * PUBLISH_DONE ends its PUBLISH; each subscriber of the track gets its own
+ * PUBLISH_DONE: the publisher's Status Code, spelled for the subscriber's
+ * draft (moqtrun_done_emit), and as Stream Count the streams the HUB
+ * opened toward that subscriber (wired_moqtrun_sub.stream_count) -- the
+ * number it can count. The hub is itself a sender bound by "MUST NOT send
+ * PUBLISH_DONE until it has closed all streams it will ever open", and
+ * the publisher's message may arrive before its late-opening streams, so
+ * it waits until the hub saw as many upstream streams as the publisher
+ * counted and none is still being relayed; WIRED_MOQTRUN_PUBDONE_WAIT_MS
+ * bounds the wait. Then the track is retired and the hub's side of the
+ * PUBLISH stream ends (3.3.2). A session close or stream reset meanwhile
+ * sends it at once (moqtrun_track_ended, moqtrun_pubdone_flush). */
+
+/* The status a track's subscribers get when it ends now: the publisher's
+ * own PUBLISH_DONE status when one is waiting, else TRACK_ENDED. */
+static u64 moqtrun_pubdone_status(const wired_moqtrun_track* t) {
+  return t->pubdone_pending ? t->pubdone_status : MOQCTL_DONE_TRACK_ENDED;
+}
+
+/* p's track claimed by its PUBLISH of Request ID rid, else 0. */
+static wired_moqtrun_track* moqtrun_pubdone_track_of(
+    wired_moqtrun_peer* p, u64 rid) {
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    if (moqtrun_track_is_req(&p->tracks[t], rid)) return &p->tracks[t];
+  return 0;
+}
+
+static int moqtrun_pubdone_relaying(const wired_moqtrun_track* t) {
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
+    if (t->relays[r].in_use) return 1;
+  return 0;
+}
+
+/* Every stream the publisher counted reached the hub and was relayed to
+ * its end. */
+static int moqtrun_pubdone_caught_up(const wired_moqtrun_track* t) {
+  return t->up_streams >= t->pubdone_streams && !moqtrun_pubdone_relaying(t);
+}
+
+static int moqtrun_pubdone_armed(const wired_moqtrun_track* t) {
+  return t->in_use && t->pubdone_pending;
+}
+
+static int moqtrun_pubdone_ready(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t) {
+  return moqtrun_pubdone_armed(t) &&
+         (moqtrun_pubdone_caught_up(t) ||
+          hub->live.last_now_ms >= t->pubdone_deadline);
+}
+
+static int moqtrun_pubdone_req_is(
+    const wired_moqtrun_req* q, const wired_moqtrun_peer* p, u64 rid) {
+  return moqtrun_req_owned(q, p->wt) && q->kind == MOQCTL_T_PUBLISH &&
+         q->request_id == rid;
+}
+
+/* p's PUBLISH rid is complete: the hub's side ends once flushed. */
+static void moqtrun_pubdone_req_end(
+    wired_moqt_hub* hub, const wired_moqtrun_peer* p, u64 rid) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+    if (moqtrun_pubdone_req_is(&hub->reqs[i], p, rid)) hub->reqs[i].live = 0;
+}
+
+/* PUBLISH_DONE to every subscriber of p's track t (streams still open
+ * reset first, moqtrun_sub_done), then t is retired. */
+static void moqtrun_pubdone_finish(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t) {
+  moqtrun_track_ended(hub, t);
+  moqtrun_pubdone_req_end(hub, p, t->request_id);
+  t->pubdone_pending = 0;
+  moqtrun_track_retire(hub, t);
+}
+
+/* 1 when t's waiting PUBLISH_DONE went out. */
+static int moqtrun_pubdone_try(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t) {
+  if (!moqtrun_pubdone_ready(hub, t)) return 0;
+  moqtrun_pubdone_finish(hub, p, t);
+  return 1;
+}
+
+static int moqtrun_pubdone_peer(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  int n = 0;
+  if (!p->in_use) return 0;
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    n += moqtrun_pubdone_try(hub, p, &p->tracks[t]);
+  return n;
+}
+
+/* Sends every waiting PUBLISH_DONE now due; the request streams are
+ * settled only when one went out. */
+static void moqtrun_pubdone_sweep(wired_moqt_hub* hub) {
+  int n = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
+    n += moqtrun_pubdone_peer(hub, &hub->peers[i]);
+  if (n) moqtrun_reqs_tick(hub);
+}
+
+/* p's PUBLISH rid is cancelled: a PUBLISH_DONE still waiting goes out
+ * now. */
+static void moqtrun_pubdone_flush(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 rid) {
+  wired_moqtrun_track* t = moqtrun_pubdone_track_of(p, rid);
+  if (t && t->pubdone_pending) moqtrun_pubdone_finish(hub, p, t);
+}
+
+/* The track of the PUBLISH whose stream p is handling, else 0. */
+static wired_moqtrun_track* moqtrun_pubdone_req_track(wired_moqtrun_peer* p) {
+  return p->req ? moqtrun_pubdone_track_of(p, p->req->request_id) : 0;
+}
+
+/* The publisher's PUBLISH_DONE on its PUBLISH stream (the request route
+ * admits it there only): arm the wait, and send at once when nothing is
+ * outstanding. On the control stream it names no PUBLISH: ignored. */
+static void moqtrun_dispatch_pub_done(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  usz                  off = 0;
+  moqctl_publish_done  d;
+  wired_moqtrun_track* t = moqtrun_pubdone_req_track(p);
+  (void)peer_idx;
+  if (!t || moqctl_publish_done_take(body, &off, &d) != MOQCTL_OK) return;
+  t->pubdone_pending  = 1;
+  t->pubdone_status   = d.status_code;
+  t->pubdone_streams  = d.stream_count;
+  t->pubdone_deadline = hub->live.last_now_ms + WIRED_MOQTRUN_PUBDONE_WAIT_MS;
+  moqtrun_pubdone_try(hub, p, t);
 }
 
 /* ===================== drain (draft 3.6, 10.4) ===================== */
