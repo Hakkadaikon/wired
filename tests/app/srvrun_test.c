@@ -110,6 +110,29 @@ static void sr_make_confirmed_conn(
     c->resp[i].stream_credit = c->s.sdrv.peer_initial_max_data;
 }
 
+/* The packet srvrun_send_app_close puts on the wire: the RFC 9000 10.2.3
+ * application CONNECTION_CLOSE (srvrun_app_close_payload) sealed as its own
+ * 1-RTT packet (srvrun_seal_close_pl). 1 with out->len set, 0 on failure. */
+static int sr_seal_app_close(
+    srvrun_conn* c, u64 error_code, wired_span reason, wired_obuf* out) {
+  u8         pl[64];
+  wired_obuf plb = obuf_of(pl, sizeof pl);
+  usz        pln = srvrun_app_close_payload(error_code, reason, &plb);
+  if (!pln) return 0;
+  return srvrun_seal_close_pl(c, wired_span_of(pl, pln), out);
+}
+
+/* sr_seal_app_close's transport-level twin: what srvrun_send_transport_close
+ * puts on the wire (srvrun_transport_close_payload, sealed). */
+static int sr_seal_transport_close(
+    srvrun_conn* c, u64 error_code, wired_span reason, wired_obuf* out) {
+  u8         pl[64];
+  wired_obuf plb = obuf_of(pl, sizeof pl);
+  usz        pln = srvrun_transport_close_payload(error_code, reason, &plb);
+  if (!pln) return 0;
+  return srvrun_seal_close_pl(c, wired_span_of(pl, pln), out);
+}
+
 /* Find the H3 GOAWAY frame's id in a 1-RTT payload carrying a STREAM frame on
  * the control stream (id 3). Returns 1 and sets *id if found. */
 static int sr_find_goaway_id(const u8* pl, usz pll, u64* id) {
@@ -315,8 +338,7 @@ static void test_srvrun_close_drained_seals_h3_no_error(void) {
   c  = (srvrun_conn){0};
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  CHECK(
-      srvrun_seal_app_close(&c, H3_NO_ERROR, wired_span_of(0, 0), &pktb) == 1);
+  CHECK(sr_seal_app_close(&c, H3_NO_ERROR, wired_span_of(0, 0), &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = frame_get_conn_close(pl, pll, &ccf);
   CHECK(rn != 0 && rn == pll);
@@ -6249,8 +6271,8 @@ static void test_srvrun_seal_app_close_is_application_level(void) {
   ob                      = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   CHECK(
-      srvrun_seal_app_close(
-          &c, H3_FRAME_ERROR, wired_span_of(reason, 14), &pktb) == 1);
+      sr_seal_app_close(&c, H3_FRAME_ERROR, wired_span_of(reason, 14), &pktb) ==
+      1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = frame_get_conn_close(pl, pll, &ccf);
   CHECK(rn != 0 && rn == pll);
@@ -6280,7 +6302,7 @@ static void test_srvrun_seal_app_close_empty_reason(void) {
   ob                 = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   CHECK(
-      srvrun_seal_app_close(
+      sr_seal_app_close(
           &c, H3_FRAME_ERROR, wired_span_of((const u8*)"", 0), &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = frame_get_conn_close(pl, pll, &ccf);
@@ -7687,7 +7709,7 @@ static void test_srvrun_rx_datagram_oversized_qsid_closes_conn(void) {
   srvrun_conn      c      = {0};
   ob                      = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  CHECK(srvrun_seal_app_close(
+  CHECK(sr_seal_app_close(
       &c, H3_DATAGRAM_ERROR, wired_span_of(reason, 36), &pktb));
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = frame_get_conn_close(pl, pll, &ccf);
@@ -7839,7 +7861,7 @@ static void test_srvrun_seal_transport_close_is_transport_level(void) {
   srvrun_conn      c      = {0};
   ob                      = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  CHECK(srvrun_seal_transport_close(
+  CHECK(sr_seal_transport_close(
       &c, ERR_PROTOCOL_VIOLATION, wired_span_of(reason, 18), &pktb));
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = frame_get_conn_close(pl, pll, &ccf);
@@ -8046,12 +8068,13 @@ static void test_srvrun_wt_stream_data_delivers_delta_only(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   wired_wt_session_init(&c.wt, 4);
-  c.wt_active                     = 1;
-  c.l.wt_streams[0].in_use        = 1;
-  c.l.wt_streams[0].stream_id     = 8;
-  c.l.wt_streams[0].offered       = 1; /* already offered a prior step */
-  c.l.wt_streams[0].buf[0]        = 'h';
-  c.l.wt_streams[0].buf[1]        = 'i';
+  c.wt_active                       = 1;
+  c.l.wt_streams[0].in_use          = 1;
+  c.l.wt_streams[0].stream_id       = 8;
+  c.l.wt_streams[0].offered         = 1; /* already offered a prior step */
+  c.l.wt_streams[0].wt_session_slot = 0;
+  c.l.wt_streams[0].buf[0]          = 'h';
+  c.l.wt_streams[0].buf[1]          = 'i';
   c.l.wt_streams[0].delivered_len = 2; /* those 2 bytes were delivered before */
   c.l.wt_streams[0].buf[2]        = '!';
   sr_wt_slot_set_frontier(
@@ -8109,12 +8132,13 @@ static void test_srvrun_wt_stream_data_fin_only_delivered(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   wired_wt_session_init(&c.wt, 4);
-  c.wt_active                 = 1;
-  c.l.wt_streams[0].in_use    = 1;
-  c.l.wt_streams[0].stream_id = 8;
-  c.l.wt_streams[0].offered   = 1;
-  c.l.wt_streams[0].fin       = 1; /* fin_off left 0: the stream is empty */
-  g_srsd_calls                = 0;
+  c.wt_active                       = 1;
+  c.l.wt_streams[0].in_use          = 1;
+  c.l.wt_streams[0].stream_id       = 8;
+  c.l.wt_streams[0].offered         = 1;
+  c.l.wt_streams[0].wt_session_slot = 0;
+  c.l.wt_streams[0].fin = 1; /* fin_off left 0: the stream is empty */
+  g_srsd_calls          = 0;
   srvrun_offer_wt_streams(&cfg, &c);
   CHECK(g_srsd_calls == 1);
   CHECK(g_srsd_last_len == 0);
@@ -14273,13 +14297,14 @@ static void test_srvrun_uni_slot_release_grants_one_more_stream(void) {
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.l.wt_uni_streams[0].in_use        = 1;
-  c.l.wt_uni_streams[0].stream_id     = 2;
-  c.l.wt_uni_streams[0].offered       = 1;
-  c.l.wt_uni_streams[0].fin           = 1;
-  c.l.wt_uni_streams[0].fin_off       = 0;
-  c.l.wt_uni_streams[0].delivered_len = 0;
-  c.l.wt_uni_streams[0].fin_delivered = 1;
+  c.l.wt_uni_streams[0].in_use          = 1;
+  c.l.wt_uni_streams[0].stream_id       = 2;
+  c.l.wt_uni_streams[0].offered         = 1;
+  c.l.wt_uni_streams[0].wt_session_slot = 0;
+  c.l.wt_uni_streams[0].fin             = 1;
+  c.l.wt_uni_streams[0].fin_off         = 0;
+  c.l.wt_uni_streams[0].delivered_len   = 0;
+  c.l.wt_uni_streams[0].fin_delivered   = 1;
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
@@ -14307,19 +14332,21 @@ static void test_srvrun_uni_stream_limit_never_decreases(void) {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    c.l.wt_uni_streams[0].in_use        = 1;
-    c.l.wt_uni_streams[0].stream_id     = 2;
-    c.l.wt_uni_streams[0].offered       = 1;
-    c.l.wt_uni_streams[0].fin           = 1;
-    c.l.wt_uni_streams[0].fin_delivered = 1;
+    c.l.wt_uni_streams[0].in_use          = 1;
+    c.l.wt_uni_streams[0].stream_id       = 2;
+    c.l.wt_uni_streams[0].offered         = 1;
+    c.l.wt_uni_streams[0].wt_session_slot = 0;
+    c.l.wt_uni_streams[0].fin             = 1;
+    c.l.wt_uni_streams[0].fin_delivered   = 1;
     srvrun_offer_wt_uni_streams(&cfg, &c);
     CHECK(
         c.uni_stream_limit_advertised == wired_srvloop_uni_stream_limit() + 1);
-    c.l.wt_uni_streams[1].in_use        = 1;
-    c.l.wt_uni_streams[1].stream_id     = 6;
-    c.l.wt_uni_streams[1].offered       = 1;
-    c.l.wt_uni_streams[1].fin           = 1;
-    c.l.wt_uni_streams[1].fin_delivered = 1;
+    c.l.wt_uni_streams[1].in_use          = 1;
+    c.l.wt_uni_streams[1].stream_id       = 6;
+    c.l.wt_uni_streams[1].offered         = 1;
+    c.l.wt_uni_streams[1].wt_session_slot = 0;
+    c.l.wt_uni_streams[1].fin             = 1;
+    c.l.wt_uni_streams[1].fin_delivered   = 1;
     srvrun_offer_wt_uni_streams(&cfg, &c);
     CHECK(
         c.uni_stream_limit_advertised == wired_srvloop_uni_stream_limit() + 2);
@@ -14363,12 +14390,13 @@ static void test_srvrun_reaped_slot_bytes_stay_in_max_data_base(void) {
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.l.wt_uni_streams[0].in_use        = 1;
-  c.l.wt_uni_streams[0].stream_id     = 2;
-  c.l.wt_uni_streams[0].offered       = 1;
-  c.l.wt_uni_streams[0].fin           = 1;
-  c.l.wt_uni_streams[0].delivered_len = 700;
-  c.l.wt_uni_streams[0].fin_delivered = 1;
+  c.l.wt_uni_streams[0].in_use          = 1;
+  c.l.wt_uni_streams[0].stream_id       = 2;
+  c.l.wt_uni_streams[0].offered         = 1;
+  c.l.wt_uni_streams[0].wt_session_slot = 0;
+  c.l.wt_uni_streams[0].fin             = 1;
+  c.l.wt_uni_streams[0].delivered_len   = 700;
+  c.l.wt_uni_streams[0].fin_delivered   = 1;
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
@@ -18164,11 +18192,12 @@ static void test_srvrun_wt_slot_released_after_fin_and_reclaimed(void) {
   c  = sr_wtsend_fixture(&f, &ob);
   /* fill every slot with a finished, fully-delivered stream. */
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
-    c->l.wt_streams[i].in_use    = 1;
-    c->l.wt_streams[i].stream_id = 4 + 4 * (u64)i;
-    c->l.wt_streams[i].offered   = 1;
-    c->l.wt_streams[i].fin       = 1;
-    c->l.wt_streams[i].fin_off   = 0; /* empty stream, FIN at offset 0 */
+    c->l.wt_streams[i].in_use          = 1;
+    c->l.wt_streams[i].stream_id       = 4 + 4 * (u64)i;
+    c->l.wt_streams[i].offered         = 1;
+    c->l.wt_streams[i].wt_session_slot = 0;
+    c->l.wt_streams[i].fin             = 1;
+    c->l.wt_streams[i].fin_off         = 0; /* empty stream, FIN at offset 0 */
   }
   {
     srvrun_cfg cfg = {
@@ -18276,9 +18305,10 @@ static void test_srvrun_wt_bidi_reap_grants_one_more_stream(void) {
   srvrun_conn*    c    = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
   u64             base = srvrun_stream_limit_base(&ctx);
   for (usz i = 0; i < 2; i++) {
-    c->l.wt_streams[i].in_use    = 1;
-    c->l.wt_streams[i].stream_id = 4 + 4 * (u64)i;
-    c->l.wt_streams[i].offered   = 1;
+    c->l.wt_streams[i].in_use          = 1;
+    c->l.wt_streams[i].stream_id       = 4 + 4 * (u64)i;
+    c->l.wt_streams[i].offered         = 1;
+    c->l.wt_streams[i].wt_session_slot = 0;
   }
   c->l.wt_streams[0].fin           = 1; /* empty stream, FIN at offset 0 */
   c->l.wt_streams[0].fin_delivered = 1;
@@ -18298,12 +18328,13 @@ static void test_srvrun_wt_server_bidi_reap_grants_nothing(void) {
   srvrun_cfg      cfg;
   srvrun_state    st;
   srvrun_step_ctx ctx;
-  srvrun_conn*    c                = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
-  c->l.wt_streams[0].in_use        = 1;
-  c->l.wt_streams[0].stream_id     = 1;
-  c->l.wt_streams[0].offered       = 1;
-  c->l.wt_streams[0].fin           = 1;
-  c->l.wt_streams[0].fin_delivered = 1;
+  srvrun_conn*    c            = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  c->l.wt_streams[0].in_use    = 1;
+  c->l.wt_streams[0].stream_id = 1;
+  c->l.wt_streams[0].offered   = 1;
+  c->l.wt_streams[0].wt_session_slot = 0;
+  c->l.wt_streams[0].fin             = 1;
+  c->l.wt_streams[0].fin_delivered   = 1;
   srvrun_test_reset_send_count();
   srvrun_offer_wt_streams(&cfg, c);
   srvrun_grant_wt_streams(&ctx, c);
@@ -19084,7 +19115,9 @@ static void test_srvrun_reset_flood_over_threshold_closes_excessive_load(void) {
   sr_reset_burst_step(&f, &c, &ctx, 4, 1);
   CHECK(c.l.peer_reset_count == SRVRUN_MAX_RESETS_PER_WINDOW + 1);
   CHECK(srvrun_test_send_count() == 1);
-  CHECK(srvrun_seal_reset_flood_close(&c, &pktb));
+  CHECK(c.closing == 1);
+  CHECK(
+      srvrun_seal_close_pl(&c, wired_span_of(c.close_pl, c.close_pln), &pktb));
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = frame_get_conn_close(pl, pll, &ccf);
   CHECK(rn != 0 && rn == pll);
