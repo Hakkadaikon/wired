@@ -1,0 +1,93 @@
+rm -rf mlog/
+mkdir -p mlog/relay mlog/client
+Running interop tests...
+  Relay:  ghcr.io/hakkadaikon/wired-moqt-interop:latest
+  Client: ghcr.io/gmarzot/aiomoqt:latest
+  URL:    https://relay:4443
+time="2026-10-05T14:35:20Z" level=warning msg="The \"PORT\" variable is not set. Defaulting to a blank string."
+time="2026-10-05T14:35:20Z" level=warning msg="The \"PORT\" variable is not set. Defaulting to a blank string."
+time="2026-10-05T14:35:20Z" level=warning msg="The \"PORT\" variable is not set. Defaulting to a blank string."
+time="2026-10-05T14:35:20Z" level=warning msg="The \"HEX\" variable is not set. Defaulting to a blank string."
+time="2026-10-05T14:35:20Z" level=warning msg="The \"HEX\" variable is not set. Defaulting to a blank string."
+ Container runner-copy-test-client-1 Recreate 
+ Container runner-copy-test-client-1 Recreated 
+Attaching to relay-1, test-client-1
+ Container runner-copy-relay-1 Starting 
+ Container runner-copy-relay-1 Started 
+relay-1  | cert.pem: 1 cert
+ Container runner-copy-relay-1 Waiting 
+ Container runner-copy-relay-1 Healthy 
+ Container runner-copy-test-client-1 Starting 
+ Container runner-copy-test-client-1 Started 
+test-client-1  |   [PASS] setup-only: SERVER_SETUP received with compatible version
+test-client-1  |   [PASS] announce-only: PUBLISH_NAMESPACE_OK received
+test-client-1  |   [PASS] publish-namespace-done: PUBLISH_NAMESPACE_OK received, announce stream reset
+test-client-1  |   [PASS] subscribe-error: Error received (expected): code=16
+test-client-1  |   [PASS] announce-subscribe: SUBSCRIBE_OK received — relay routed subscription
+test-client-1  |   [PASS] subscribe-before-announce: Error received (valid: relay didn't buffer): code=16
+test-client-1  | TAP version 14
+test-client-1  | # date: 2026-10-05T14:35:27Z
+test-client-1  | # ended: 2026-10-05T14:35:38Z
+test-client-1  | # target: https://relay:4443
+test-client-1  | # version: aiomoqt/0.11.1
+test-client-1  | # note: preference probe pinned draft-18
+test-client-1  | 1..6
+test-client-1  | ok 1 - setup-only
+test-client-1  |   ---
+test-client-1  |   duration_ms: 8.1
+test-client-1  |   connection_id: unknown
+test-client-1  |   message: SERVER_SETUP received with compatible version
+test-client-1  |   ...
+test-client-1  | ok 2 - announce-only
+test-client-1  |   ---
+test-client-1  |   duration_ms: 8.3
+test-client-1  |   connection_id: unknown
+test-client-1  |   message: PUBLISH_NAMESPACE_OK received
+test-client-1  |   ...
+test-client-1  | ok 3 - publish-namespace-done
+test-client-1  |   ---
+test-client-1  |   duration_ms: 108.9
+test-client-1  |   connection_id: unknown
+test-client-1  |   message: PUBLISH_NAMESPACE_OK received, announce stream reset
+test-client-1  |   ...
+test-client-1  | ok 4 - subscribe-error
+test-client-1  |   ---
+test-client-1  |   duration_ms: 9.4
+test-client-1  |   connection_id: unknown
+test-client-1  |   message: Error received (expected): code=16
+test-client-1  |   expected: SUBSCRIBE_ERROR code=TRACK_DOES_NOT_EXIST
+test-client-1  |   ...
+test-client-1  | ok 5 - announce-subscribe
+test-client-1  |   ---
+test-client-1  |   duration_ms: 19.1
+test-client-1  |   publisher_connection_id: unknown
+test-client-1  |   subscriber_connection_id: unknown
+test-client-1  |   message: SUBSCRIBE_OK received — relay routed subscription
+test-client-1  |   ...
+test-client-1  | ok 6 - subscribe-before-announce
+test-client-1  |   ---
+test-client-1  |   duration_ms: 521.4
+test-client-1  |   publisher_connection_id: unknown
+test-client-1  |   subscriber_connection_id: unknown
+test-client-1  |   message: Error received (valid: relay didn't buffer): code=16
+test-client-1  |   ...
+[Ktest-client-1 exited with code 0
+ Compose Stopping Aborting on container exit...
+ Container runner-copy-test-client-1 Stopping 
+ Container runner-copy-test-client-1 Stopped 
+ Container runner-copy-relay-1 Stopping 
+relay-1        | conn closed by server (app): 
+relay-1        | conn closed by server (app): 
+relay-1        | conn closed by server (app): 
+relay-1        | conn closed by server (app): 
+relay-1        | conn closed by server (app): 
+relay-1        | conn closed by server (app): 
+relay-1        | conn closed by server (app): 
+relay-1        | conn closed by server (app): 
+relay-1        | conn closed by server (app): 
+relay-1        | conn closed by server (app): 
+relay-1        | conn closed by server (app): 
+ Container runner-copy-relay-1 Stopped 
+[Krelay-1 exited with code 0
+
+Test results in mlog/

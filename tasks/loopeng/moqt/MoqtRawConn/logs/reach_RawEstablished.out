@@ -1,0 +1,121 @@
+Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts -Djavax.net.ssl.trustStoreType=JKS -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=41627 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|api.anthropic.com|api-staging.anthropic.com|api-pr-preview.anthropic.com|mcp-proxy.anthropic.com|mcp-proxy-staging.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.org|index.crates.io|proxy.golang.org|host.docker.internal|10.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*|192.168.*|100.64.0.0/10|*.svc.cluster.local|*.svc.cluster.local -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
+TLC2 Version 2026.10.04.025638 (rev: 1813307)
+Warning: Please run the Java VM, which executes TLC with a throughput optimized garbage collector, by passing the "-XX:+UseParallelGC" property.
+(Use the -nowarning option to disable this warning.)
+Running breadth-first search Model-Checking with fp 60 and seed -1228004339933005329 with 1 worker on 4 cores with 3422MB heap and 64MB offheap memory [pid: 17313] (Linux 6.18.44-fc-v70 amd64, Ubuntu 21.0.11 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/user/wired/tasks/loopeng/moqt/MoqtRawConn/MC_reach.tla
+Parsing file /home/user/wired/tasks/loopeng/moqt/MoqtRawConn/MoqtRawConn.tla
+Parsing file /tmp/tlc-8005999151442605493/_TLCTrace.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-8005999151442605493/Naturals.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-8005999151442605493/Sequences.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-8005999151442605493/FiniteSets.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-8005999151442605493/TLC.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-8005999151442605493/TLCExt.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-8005999151442605493/Integers.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module MoqtRawConn
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module MC_reach
+Linting of module MoqtRawConn
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module MC_reach
+Starting... (2026-10-05 13:15:41)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-05 13:15:42.
+Error: Invariant ReachRawEstablished is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ wire = (c1 :> {} @@ c2 :> {})
+/\ conn = (c1 :> "idle" @@ c2 :> "idle")
+/\ pend = (c1 :> 0 @@ c2 :> 0)
+/\ alpn = (c1 :> "-" @@ c2 :> "-")
+/\ ccCount = (c1 :> 0 @@ c2 :> 0)
+/\ slot = None
+/\ setupLog = {}
+/\ ccAt = (c1 :> 999 @@ c2 :> 999)
+/\ hubErr = (c1 :> 999 @@ c2 :> 999)
+/\ hub = (c1 :> "none" @@ c2 :> "none")
+/\ sent = (c1 :> 0 @@ c2 :> 0)
+/\ latch = (c1 :> 999 @@ c2 :> 999)
+/\ opt = (c1 :> "NONE" @@ c2 :> "NONE")
+/\ sessActive = FALSE
+/\ appEv = <<>>
+
+State 2: <ClientHello(c1) line 144, col 3 to line 157, col 33 of module MoqtRawConn>
+/\ wire = (c1 :> {} @@ c2 :> {})
+/\ conn = (c1 :> "hs" @@ c2 :> "idle")
+/\ pend = (c1 :> 0 @@ c2 :> 0)
+/\ alpn = (c1 :> "moqt-18" @@ c2 :> "-")
+/\ ccCount = (c1 :> 0 @@ c2 :> 0)
+/\ slot = c1
+/\ setupLog = {}
+/\ ccAt = (c1 :> 999 @@ c2 :> 999)
+/\ hubErr = (c1 :> 999 @@ c2 :> 999)
+/\ hub = (c1 :> "none" @@ c2 :> "none")
+/\ sent = (c1 :> 0 @@ c2 :> 0)
+/\ latch = (c1 :> 999 @@ c2 :> 999)
+/\ opt = (c1 :> "NONE" @@ c2 :> "NONE")
+/\ sessActive = FALSE
+/\ appEv = <<>>
+
+State 3: <Confirm(c1) line 168, col 3 to line 175, col 27 of module MoqtRawConn>
+/\ wire = (c1 :> {} @@ c2 :> {})
+/\ conn = (c1 :> "confirmed" @@ c2 :> "idle")
+/\ pend = (c1 :> 0 @@ c2 :> 0)
+/\ alpn = (c1 :> "moqt-18" @@ c2 :> "-")
+/\ ccCount = (c1 :> 0 @@ c2 :> 0)
+/\ slot = c1
+/\ setupLog = {}
+/\ ccAt = (c1 :> 999 @@ c2 :> 999)
+/\ hubErr = (c1 :> 999 @@ c2 :> 999)
+/\ hub = (c1 :> "setup_wait" @@ c2 :> "none")
+/\ sent = (c1 :> 0 @@ c2 :> 0)
+/\ latch = (c1 :> 999 @@ c2 :> 999)
+/\ opt = (c1 :> "NONE" @@ c2 :> "NONE")
+/\ sessActive = TRUE
+/\ appEv = <<<<"session", c1>>>>
+
+State 4: <PeerStream(c1) line 197, col 3 to line 202, col 48 of module MoqtRawConn>
+/\ wire = (c1 :> {} @@ c2 :> {})
+/\ conn = (c1 :> "confirmed" @@ c2 :> "idle")
+/\ pend = (c1 :> 1 @@ c2 :> 0)
+/\ alpn = (c1 :> "moqt-18" @@ c2 :> "-")
+/\ ccCount = (c1 :> 0 @@ c2 :> 0)
+/\ slot = c1
+/\ setupLog = {}
+/\ ccAt = (c1 :> 999 @@ c2 :> 999)
+/\ hubErr = (c1 :> 999 @@ c2 :> 999)
+/\ hub = (c1 :> "setup_wait" @@ c2 :> "none")
+/\ sent = (c1 :> 1 @@ c2 :> 0)
+/\ latch = (c1 :> 999 @@ c2 :> 999)
+/\ opt = (c1 :> "NONE" @@ c2 :> "NONE")
+/\ sessActive = TRUE
+/\ appEv = <<<<"session", c1>>>>
+
+State 5: <Deliver(c1) line 207, col 3 to line 221, col 79 of module MoqtRawConn>
+/\ wire = (c1 :> {} @@ c2 :> {})
+/\ conn = (c1 :> "confirmed" @@ c2 :> "idle")
+/\ pend = (c1 :> 0 @@ c2 :> 0)
+/\ alpn = (c1 :> "moqt-18" @@ c2 :> "-")
+/\ ccCount = (c1 :> 0 @@ c2 :> 0)
+/\ slot = c1
+/\ setupLog = {<<"raw", "NONE", 0>>}
+/\ ccAt = (c1 :> 999 @@ c2 :> 999)
+/\ hubErr = (c1 :> 999 @@ c2 :> 999)
+/\ hub = (c1 :> "established" @@ c2 :> "none")
+/\ sent = (c1 :> 1 @@ c2 :> 0)
+/\ latch = (c1 :> 999 @@ c2 :> 999)
+/\ opt = (c1 :> "NONE" @@ c2 :> "NONE")
+/\ sessActive = TRUE
+/\ appEv = <<<<"session", c1>>, <<"data", c1>>>>
+
+400 states generated, 373 distinct states found, 285 states left on queue.
+The depth of the complete state graph search is 5.
+Finished in 02s at (2026-10-05 13:15:42)
+Trace exploration spec path: ./MC_reach_TTrace_1791206140.tla

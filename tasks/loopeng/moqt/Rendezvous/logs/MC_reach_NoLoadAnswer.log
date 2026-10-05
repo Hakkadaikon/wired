@@ -1,0 +1,101 @@
+Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts -Djavax.net.ssl.trustStoreType=JKS -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=41627 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|api.anthropic.com|api-staging.anthropic.com|api-pr-preview.anthropic.com|mcp-proxy.anthropic.com|mcp-proxy-staging.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.org|index.crates.io|proxy.golang.org|host.docker.internal|10.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*|192.168.*|100.64.0.0/10|*.svc.cluster.local|*.svc.cluster.local -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
+TLC2 Version 2026.10.04.025638 (rev: 1813307)
+Running breadth-first search Model-Checking with fp 71 and seed -4541900579454564411 with 1 worker on 4 cores with 3042MB heap and 64MB offheap memory [pid: 10166] (Linux 6.18.44-fc-v70 amd64, Ubuntu 21.0.11 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/user/wired/tasks/loopeng/moqt/Rendezvous/Rendezvous.tla
+Parsing file /tmp/tlc-14362157815893684042/Integers.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Parsing file /tmp/tlc-14362157815893684042/FiniteSets.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-14362157815893684042/_TLCTrace.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-14362157815893684042/Naturals.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-14362157815893684042/Sequences.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-14362157815893684042/TLC.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-14362157815893684042/TLCExt.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Semantic processing of module Naturals
+Semantic processing of module Integers
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module Rendezvous
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module Rendezvous
+Starting... (2026-10-05 12:37:52)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-05 12:37:53.
+Error: Invariant NoLoadAnswer is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ phase = (s1 :> "idle" @@ s2 :> "idle")
+/\ cancelled = (s1 :> FALSE @@ s2 :> FALSE)
+/\ now = 0
+/\ dl = (s1 :> -1 @@ s2 :> -1)
+/\ code = (s1 :> "none" @@ s2 :> "none")
+/\ rt = (s1 :> 0 @@ s2 :> 0)
+/\ ansAt = (s1 :> -1 @@ s2 :> -1)
+/\ nOk = (s1 :> 0 @@ s2 :> 0)
+/\ fin = (s1 :> FALSE @@ s2 :> FALSE)
+/\ pub = (p1 :> "none" @@ p2 :> "none")
+/\ up = (s1 :> "none" @@ s2 :> "none")
+/\ nErr = (s1 :> 0 @@ s2 :> 0)
+
+State 2: <Send(s1,1) line 104, col 5 to line 107, col 77 of module Rendezvous>
+/\ phase = (s1 :> "sent" @@ s2 :> "idle")
+/\ cancelled = (s1 :> FALSE @@ s2 :> FALSE)
+/\ now = 0
+/\ dl = (s1 :> -1 @@ s2 :> -1)
+/\ code = (s1 :> "none" @@ s2 :> "none")
+/\ rt = (s1 :> 1 @@ s2 :> 0)
+/\ ansAt = (s1 :> -1 @@ s2 :> -1)
+/\ nOk = (s1 :> 0 @@ s2 :> 0)
+/\ fin = (s1 :> FALSE @@ s2 :> FALSE)
+/\ pub = (p1 :> "none" @@ p2 :> "none")
+/\ up = (s1 :> "none" @@ s2 :> "none")
+/\ nErr = (s1 :> 0 @@ s2 :> 0)
+
+State 3: <Send(s2,1) line 104, col 5 to line 107, col 77 of module Rendezvous>
+/\ phase = (s1 :> "sent" @@ s2 :> "sent")
+/\ cancelled = (s1 :> FALSE @@ s2 :> FALSE)
+/\ now = 0
+/\ dl = (s1 :> -1 @@ s2 :> -1)
+/\ code = (s1 :> "none" @@ s2 :> "none")
+/\ rt = (s1 :> 1 @@ s2 :> 1)
+/\ ansAt = (s1 :> -1 @@ s2 :> -1)
+/\ nOk = (s1 :> 0 @@ s2 :> 0)
+/\ fin = (s1 :> FALSE @@ s2 :> FALSE)
+/\ pub = (p1 :> "none" @@ p2 :> "none")
+/\ up = (s1 :> "none" @@ s2 :> "none")
+/\ nErr = (s1 :> 0 @@ s2 :> 0)
+
+State 4: <Process(s1) line 134, col 5 to line 165, col 49 of module Rendezvous>
+/\ phase = (s1 :> "held" @@ s2 :> "sent")
+/\ cancelled = (s1 :> FALSE @@ s2 :> FALSE)
+/\ now = 0
+/\ dl = (s1 :> 1 @@ s2 :> -1)
+/\ code = (s1 :> "none" @@ s2 :> "none")
+/\ rt = (s1 :> 1 @@ s2 :> 1)
+/\ ansAt = (s1 :> -1 @@ s2 :> -1)
+/\ nOk = (s1 :> 0 @@ s2 :> 0)
+/\ fin = (s1 :> FALSE @@ s2 :> FALSE)
+/\ pub = (p1 :> "none" @@ p2 :> "none")
+/\ up = (s1 :> "none" @@ s2 :> "none")
+/\ nErr = (s1 :> 0 @@ s2 :> 0)
+
+State 5: <Process(s2) line 134, col 5 to line 165, col 49 of module Rendezvous>
+/\ phase = (s1 :> "held" @@ s2 :> "err")
+/\ cancelled = (s1 :> FALSE @@ s2 :> FALSE)
+/\ now = 0
+/\ dl = (s1 :> 1 @@ s2 :> -1)
+/\ code = (s1 :> "none" @@ s2 :> "LOAD")
+/\ rt = (s1 :> 1 @@ s2 :> 1)
+/\ ansAt = (s1 :> -1 @@ s2 :> 0)
+/\ nOk = (s1 :> 0 @@ s2 :> 0)
+/\ fin = (s1 :> FALSE @@ s2 :> FALSE)
+/\ pub = (p1 :> "none" @@ p2 :> "none")
+/\ up = (s1 :> "none" @@ s2 :> "none")
+/\ nErr = (s1 :> 0 @@ s2 :> 1)
+
+1908 states generated, 901 distinct states found, 696 states left on queue.
+The depth of the complete state graph search is 5.
+Finished in 02s at (2026-10-05 12:37:53)
+Trace exploration spec path: ./Rendezvous_TTrace_1791203871.tla

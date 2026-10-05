@@ -1,0 +1,141 @@
+Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts -Djavax.net.ssl.trustStoreType=JKS -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=41627 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|api.anthropic.com|api-staging.anthropic.com|api-pr-preview.anthropic.com|mcp-proxy.anthropic.com|mcp-proxy-staging.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.org|index.crates.io|proxy.golang.org|host.docker.internal|10.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*|192.168.*|100.64.0.0/10|*.svc.cluster.local|*.svc.cluster.local -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
+TLC2 Version 2026.10.04.025638 (rev: 1813307)
+Warning: Please run the Java VM, which executes TLC with a throughput optimized garbage collector, by passing the "-XX:+UseParallelGC" property.
+(Use the -nowarning option to disable this warning.)
+Running breadth-first search Model-Checking with fp 65 and seed -8766347897162613319 with 1 worker on 4 cores with 3422MB heap and 64MB offheap memory [pid: 4645] (Linux 6.18.44-fc-v70 amd64, Ubuntu 21.0.11 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/user/wired/.claude/worktrees/agent-ab23b884372868fe7/tasks/loopeng/moqt/UpstreamSub/UpstreamSub.tla
+Parsing file /tmp/tlc-17876773717653015134/Integers.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Parsing file /tmp/tlc-17876773717653015134/FiniteSets.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-17876773717653015134/_TLCTrace.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-17876773717653015134/Naturals.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-17876773717653015134/Sequences.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-17876773717653015134/TLC.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-17876773717653015134/TLCExt.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Semantic processing of module Naturals
+Semantic processing of module Integers
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module UpstreamSub
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module UpstreamSub
+Starting... (2026-10-05 13:51:31)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-05 13:51:31.
+Error: Invariant NoStaleAnswer is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ pub = "none"
+/\ inflight = {}
+/\ dirty = FALSE
+/\ gen = 0
+/\ pubs = 0
+/\ ans = (s1 :> 0 @@ s2 :> 0)
+/\ upSt = "none"
+/\ okEst = (s1 :> FALSE @@ s2 :> FALSE)
+/\ ph = (s1 :> "idle" @@ s2 :> "idle")
+/\ act = (s1 :> FALSE @@ s2 :> FALSE)
+
+State 2: <PubNs line 114, col 5 to line 117, col 61 of module UpstreamSub>
+/\ pub = "ns"
+/\ inflight = {}
+/\ dirty = TRUE
+/\ gen = 0
+/\ pubs = 1
+/\ ans = (s1 :> 0 @@ s2 :> 0)
+/\ upSt = "none"
+/\ okEst = (s1 :> FALSE @@ s2 :> FALSE)
+/\ ph = (s1 :> "idle" @@ s2 :> "idle")
+/\ act = (s1 :> FALSE @@ s2 :> FALSE)
+
+State 3: <Sweep line 180, col 5 to line 192, col 42 of module UpstreamSub>
+/\ pub = "ns"
+/\ inflight = {}
+/\ dirty = FALSE
+/\ gen = 0
+/\ pubs = 1
+/\ ans = (s1 :> 0 @@ s2 :> 0)
+/\ upSt = "none"
+/\ okEst = (s1 :> FALSE @@ s2 :> FALSE)
+/\ ph = (s1 :> "idle" @@ s2 :> "idle")
+/\ act = (s1 :> FALSE @@ s2 :> FALSE)
+
+State 4: <Sub(s1) line 90, col 5 to line 101, col 51 of module UpstreamSub>
+/\ pub = "ns"
+/\ inflight = {}
+/\ dirty = TRUE
+/\ gen = 0
+/\ pubs = 1
+/\ ans = (s1 :> 0 @@ s2 :> 0)
+/\ upSt = "none"
+/\ okEst = (s1 :> FALSE @@ s2 :> FALSE)
+/\ ph = (s1 :> "wait" @@ s2 :> "idle")
+/\ act = (s1 :> FALSE @@ s2 :> FALSE)
+
+State 5: <Sweep line 180, col 5 to line 192, col 42 of module UpstreamSub>
+/\ pub = "ns"
+/\ inflight = {1}
+/\ dirty = FALSE
+/\ gen = 1
+/\ pubs = 1
+/\ ans = (s1 :> 0 @@ s2 :> 0)
+/\ upSt = "pending"
+/\ okEst = (s1 :> FALSE @@ s2 :> FALSE)
+/\ ph = (s1 :> "wait" @@ s2 :> "idle")
+/\ act = (s1 :> FALSE @@ s2 :> FALSE)
+
+State 6: <Cancel(s1) line 106, col 5 to line 110, col 63 of module UpstreamSub>
+/\ pub = "ns"
+/\ inflight = {1}
+/\ dirty = TRUE
+/\ gen = 1
+/\ pubs = 1
+/\ ans = (s1 :> 0 @@ s2 :> 0)
+/\ upSt = "pending"
+/\ okEst = (s1 :> FALSE @@ s2 :> FALSE)
+/\ ph = (s1 :> "gone" @@ s2 :> "idle")
+/\ act = (s1 :> FALSE @@ s2 :> FALSE)
+
+State 7: <Sweep line 180, col 5 to line 192, col 42 of module UpstreamSub>
+/\ pub = "ns"
+/\ inflight = {1}
+/\ dirty = FALSE
+/\ gen = 1
+/\ pubs = 1
+/\ ans = (s1 :> 0 @@ s2 :> 0)
+/\ upSt = "none"
+/\ okEst = (s1 :> FALSE @@ s2 :> FALSE)
+/\ ph = (s1 :> "gone" @@ s2 :> "idle")
+/\ act = (s1 :> FALSE @@ s2 :> FALSE)
+
+State 8: <Sub(s2) line 90, col 5 to line 101, col 51 of module UpstreamSub>
+/\ pub = "ns"
+/\ inflight = {1}
+/\ dirty = TRUE
+/\ gen = 1
+/\ pubs = 1
+/\ ans = (s1 :> 0 @@ s2 :> 0)
+/\ upSt = "none"
+/\ okEst = (s1 :> FALSE @@ s2 :> FALSE)
+/\ ph = (s1 :> "gone" @@ s2 :> "wait")
+/\ act = (s1 :> FALSE @@ s2 :> FALSE)
+
+State 9: <Sweep line 180, col 5 to line 192, col 42 of module UpstreamSub>
+/\ pub = "ns"
+/\ inflight = {1, 2}
+/\ dirty = FALSE
+/\ gen = 2
+/\ pubs = 1
+/\ ans = (s1 :> 0 @@ s2 :> 0)
+/\ upSt = "pending"
+/\ okEst = (s1 :> FALSE @@ s2 :> FALSE)
+/\ ph = (s1 :> "gone" @@ s2 :> "wait")
+/\ act = (s1 :> FALSE @@ s2 :> FALSE)
+
+98 states generated, 84 distinct states found, 27 states left on queue.
+The depth of the complete state graph search is 9.
+Finished in 01s at (2026-10-05 13:51:31)
+Trace exploration spec path: ./UpstreamSub_TTrace_1791208290.tla

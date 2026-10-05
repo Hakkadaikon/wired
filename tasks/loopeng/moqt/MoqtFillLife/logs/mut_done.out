@@ -1,0 +1,96 @@
+Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts -Djavax.net.ssl.trustStoreType=JKS -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=41627 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|api.anthropic.com|api-staging.anthropic.com|api-pr-preview.anthropic.com|mcp-proxy.anthropic.com|mcp-proxy-staging.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.org|index.crates.io|proxy.golang.org|host.docker.internal|10.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*|192.168.*|100.64.0.0/10|*.svc.cluster.local|*.svc.cluster.local -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
+TLC2 Version 2026.10.04.025638 (rev: 1813307)
+Running breadth-first search Model-Checking with fp 110 and seed -2485624012169561565 with 1 worker on 4 cores with 3042MB heap and 64MB offheap memory [pid: 24114] (Linux 6.18.44-fc-v70 amd64, Ubuntu 21.0.11 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/user/wired/tasks/loopeng/moqt/MoqtFillLife/MC_mut_done.tla
+Parsing file /home/user/wired/tasks/loopeng/moqt/MoqtFillLife/MoqtFillLife.tla
+Parsing file /tmp/tlc-16479784716145394234/_TLCTrace.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-16479784716145394234/Naturals.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-16479784716145394234/FiniteSets.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-16479784716145394234/TLC.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-16479784716145394234/Sequences.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-16479784716145394234/TLCExt.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-16479784716145394234/Integers.tla (jar:file:/tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module MoqtFillLife
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module MC_mut_done
+Linting of module MoqtFillLife
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module MC_mut_done
+Starting... (2026-10-05 12:46:17)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-10-05 12:46:17.
+Error: Invariant DoneCountExact is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ sflt = (s1 :> "none")
+/\ doneCnt = (s1 :> 0)
+/\ reqs = {}
+/\ doneSent = (s1 :> FALSE)
+/\ sub = (s1 :> "idle")
+/\ failed = FALSE
+/\ nUpd = (s1 :> 0)
+/\ fwd = (s1 :> 1)
+/\ closed = FALSE
+
+State 2: <Subscribe(s1) line 131, col 3 to line 138, col 58 of module MoqtFillLife>
+/\ sflt = (s1 :> "none")
+/\ doneCnt = (s1 :> 0)
+/\ reqs = { [ ff |-> "abs0",
+    n |-> 0,
+    paused |-> FALSE,
+    st |-> "held",
+    owner |-> s1,
+    spec |-> <<0, 2>>,
+    impl |-> <<0, 2>> ] }
+/\ doneSent = (s1 :> FALSE)
+/\ sub = (s1 :> "live")
+/\ failed = FALSE
+/\ nUpd = (s1 :> 0)
+/\ fwd = (s1 :> 1)
+/\ closed = FALSE
+
+State 3: <UpstreamGone line 198, col 3 to line 203, col 61 of module MoqtFillLife>
+/\ sflt = (s1 :> "none")
+/\ doneCnt = (s1 :> 0)
+/\ reqs = { [ ff |-> "abs0",
+    n |-> 0,
+    paused |-> FALSE,
+    st |-> "held",
+    owner |-> s1,
+    spec |-> <<0, 2>>,
+    impl |-> <<0, 2>> ] }
+/\ doneSent = (s1 :> FALSE)
+/\ sub = (s1 :> "ended")
+/\ failed = TRUE
+/\ nUpd = (s1 :> 0)
+/\ fwd = (s1 :> 1)
+/\ closed = FALSE
+
+State 4: <MutEmitDone(s1) line 7, col 3 to line 11, col 61 of module MC_mut_done>
+/\ sflt = (s1 :> "none")
+/\ doneCnt = (s1 :> 0)
+/\ reqs = { [ ff |-> "abs0",
+    n |-> 0,
+    paused |-> FALSE,
+    st |-> "held",
+    owner |-> s1,
+    spec |-> <<0, 2>>,
+    impl |-> <<0, 2>> ] }
+/\ doneSent = (s1 :> TRUE)
+/\ sub = (s1 :> "ended")
+/\ failed = TRUE
+/\ nUpd = (s1 :> 0)
+/\ fwd = (s1 :> 1)
+/\ closed = FALSE
+
+35 states generated, 33 distinct states found, 19 states left on queue.
+The depth of the complete state graph search is 4.
+Finished in 00s at (2026-10-05 12:46:18)
+Trace exploration spec path: ./MC_mut_done_TTrace_1791204377.tla

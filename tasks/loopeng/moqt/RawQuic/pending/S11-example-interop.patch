@@ -1,0 +1,101 @@
+diff --git a/examples/moqt_chat/e2e/run-screenshare-check.mjs b/examples/moqt_chat/e2e/run-screenshare-check.mjs
+index 6df7abd..23c3a9b 100644
+--- a/examples/moqt_chat/e2e/run-screenshare-check.mjs
++++ b/examples/moqt_chat/e2e/run-screenshare-check.mjs
+@@ -18,7 +18,7 @@
+ //   default (2 participants): sharer + viewer, asserts frames arrive with
+ //     plausible dimensions.
+ //   --load (4 participants): all four share simultaneously + one chat
+-//     message, to observe whether WIRED_SRVLOOP_MAX_WT_UNI_STREAMS=6
++//     message, to observe whether WIRED_SRVLOOP_MAX_WT_UNI_STREAMS=9
+ //     (chat+audio+screen per participant = up to 3 long-lived uni streams
+ //     each, 12 total across 4 participants) holds up. This does not fix
+ //     the constant if insufficient -- see task-9-brief.md's 対象外 section
+diff --git a/examples/moqt_interop/wired_server.c b/examples/moqt_interop/wired_server.c
+index 0d0e4a3..4cb0728 100644
+--- a/examples/moqt_interop/wired_server.c
++++ b/examples/moqt_interop/wired_server.c
+@@ -2,10 +2,15 @@
+  * libc-free, x86_64-linux, driven by the single SDK header <wired.h>.
+  *
+  * A bare wired_moqt_ hub relay (app/moqt/run/moqtrun.h): every namespace is
+- * accepted, the WebTransport CONNECT negotiates one of "moqt-18"/"moqt-19"/
+- * "moqt-22" (whichever the client offers, via wired_moqt_wt_protocols), and
+- * the hub's io table is the SDK's transport mux wired_moqraw_io
+- * (app/moqt/qraw/moqrawio.h), which adds the WT stream signal itself.
++ * accepted. One UDP port serves both MoQT transports (draft-ietf-moq-
++ * transport-22 6.1.2 / -19 3.1.3 / -18 3.1.2): a client that offers ALPN h3
++ * gets WebTransport, whose CONNECT negotiates one of "moqt-18"/"moqt-19"/
++ * "moqt-22" (via wired_moqt_wt_protocols); a client that offers one of those
++ * same ids as its TLS ALPN gets raw (native) QUIC, reported through
++ * wired_moqt_on_session_raw. The client's ALPN preference order decides.
++ * The hub's io table is the SDK's transport mux wired_moqraw_io
++ * (app/moqt/qraw/moqrawio.h), which adds the WT stream signal only on WT.
++ * --no-raw (debug) serves WebTransport only.
+  * Single-process only: the hub keeps its peer table in this process. */
+ 
+ #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim */
+@@ -92,6 +97,8 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
+     wired_die("bad CLI flags (single-process only)\n");
+   static char wt_protocols[32];
+   wired_moqt_wt_protocols(wt_protocols, sizeof wt_protocols);
++  /* RFC 7301 3.2: the same static list doubles as the raw-QUIC ALPN set. */
++  if (!wired_cliargs_flag(argc, argv, "--no-raw")) id.raw_alpns = wt_protocols;
+ 
+   opt.run.incoming_cpu            = -1;
+   opt.run.wt_protocols            = wt_protocols;
+@@ -107,6 +114,8 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
+   opt.run.wt_session_close_ctx    = &g_hub;
+   opt.run.wt_on_session_draining  = wired_moqt_on_session_draining;
+   opt.run.wt_session_draining_ctx = &g_hub;
++  opt.run.raw_on_session          = wired_moqt_on_session_raw;
++  opt.run.raw_session_ctx         = &g_hub;
+   opt.run.on_step                 = on_step;
+   opt.run.on_step_ctx             = &g_hub;
+ 
+diff --git a/interop/Dockerfile.moqt b/interop/Dockerfile.moqt
+index 088ea7f..7327d26 100644
+--- a/interop/Dockerfile.moqt
++++ b/interop/Dockerfile.moqt
+@@ -1,5 +1,9 @@
+ # moq-interop-runner relay image for wired (draft-ietf-moq-transport
+-# 18/19/22, WebTransport, subprotocol moqt-18/moqt-19/moqt-22).
++# 18/19/22). One port serves WebTransport (ALPN h3, subprotocol
++# moqt-18/moqt-19/moqt-22) and raw QUIC (ALPN moqt-22/moqt-19/moqt-18).
++# The runner's `wired-quic` entry (moqt://) is its adapter
++# adapters/wired/Dockerfile.relay.quic, a plain re-tag of this image (FROM
++# ghcr.io/hakkadaikon/wired-moqt-interop:latest); `wired` uses https://.
+ #
+ # The freestanding binary is built OUTSIDE this Dockerfile (it needs the
+ # repo's pinned clang/ninja toolchain):
+diff --git a/interop/run_endpoint_moqt.sh b/interop/run_endpoint_moqt.sh
+index a1aa836..a55f161 100755
+--- a/interop/run_endpoint_moqt.sh
++++ b/interop/run_endpoint_moqt.sh
+@@ -1,7 +1,25 @@
+ #!/bin/sh
+ # moq-interop-runner relay entrypoint: the runner mounts /certs (cert.pem +
+ # priv.key) and sets MOQT_PORT (default 4443).
++#
++# One UDP port serves both MoQT transports: ALPN h3 (WebTransport, the
++# runner's https:// relay URL) and ALPN moqt-22/moqt-19/moqt-18 (raw QUIC,
++# moqt://). The runner registers this same image twice (`wired` and
++# `wired-quic`) only because it keys the relay URL on the image name.
++#
++# MOQT_TRANSPORT (debug, default `both`): `wt` serves WebTransport only
++# (--no-raw). `quic` is not supported: h3 cannot be switched off, so a
++# raw-QUIC-only run is just a moqt:// client against the default.
++case "${MOQT_TRANSPORT:-both}" in
++  both | quic) set -- ;;
++  wt) set -- --no-raw ;;
++  *)
++    echo "run_endpoint_moqt.sh: MOQT_TRANSPORT must be both|wt|quic" >&2
++    exit 2
++    ;;
++esac
+ exec /wired/wired_server \
+   --port "${MOQT_PORT:-4443}" \
+   --cert /certs/cert.pem \
+-  --key /certs/priv.key
++  --key /certs/priv.key \
++  "$@"

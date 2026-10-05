@@ -1,0 +1,114 @@
+rm -rf mlog/
+mkdir -p mlog/relay mlog/client
+Running interop tests...
+  Relay:  ghcr.io/hakkadaikon/wired-moqt-interop:latest
+  Client: ghcr.io/englishm/moq-interop-runner-moq-dev-js-client:latest
+  URL:    https://relay:4443
+time="2026-10-05T14:34:48Z" level=warning msg="The \"PORT\" variable is not set. Defaulting to a blank string."
+time="2026-10-05T14:34:48Z" level=warning msg="The \"PORT\" variable is not set. Defaulting to a blank string."
+time="2026-10-05T14:34:48Z" level=warning msg="The \"PORT\" variable is not set. Defaulting to a blank string."
+time="2026-10-05T14:34:48Z" level=warning msg="The \"HEX\" variable is not set. Defaulting to a blank string."
+time="2026-10-05T14:34:48Z" level=warning msg="The \"HEX\" variable is not set. Defaulting to a blank string."
+ Network runner-copy_default Creating 
+ Network runner-copy_default Created 
+ Container runner-copy-relay-1 Creating 
+ Container runner-copy-relay-1 Created 
+ Container runner-copy-test-client-1 Creating 
+ Container runner-copy-test-client-1 Created 
+Attaching to relay-1, test-client-1
+ Container runner-copy-relay-1 Starting 
+relay-1  | cert.pem: 1 cert
+ Container runner-copy-relay-1 Started 
+ Container runner-copy-relay-1 Waiting 
+ Container runner-copy-relay-1 Healthy 
+ Container runner-copy-test-client-1 Starting 
+ Container runner-copy-test-client-1 Started 
+test-client-1  | TAP version 14
+test-client-1  | # moq-dev-js-client v0.1.0
+test-client-1  | # Relay: https://relay:4443
+test-client-1  | 1..6
+test-client-1  | https://relay:4443/ connected via WebTransport
+test-client-1  | https://relay:4443/ negotiated ALPN: moqt-18
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | ok 1 - setup-only
+test-client-1  |   ---
+test-client-1  |   duration_ms: 292
+test-client-1  |   ...
+test-client-1  | https://relay:4443/ connected via WebTransport
+test-client-1  | https://relay:4443/ negotiated ALPN: moqt-18
+test-client-1  | announce failed: broadcast=moq-test/interop error=session error: connection error: closed
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | ok 2 - announce-only
+test-client-1  |   ---
+test-client-1  |   duration_ms: 620
+test-client-1  |   ...
+test-client-1  | https://relay:4443/ connected via WebTransport
+test-client-1  | https://relay:4443/ negotiated ALPN: moqt-18
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | ok 3 - publish-namespace-done
+test-client-1  |   ---
+test-client-1  |   duration_ms: 818
+test-client-1  |   ...
+test-client-1  | https://relay:4443/ connected via WebTransport
+test-client-1  | https://relay:4443/ negotiated ALPN: moqt-18
+test-client-1  | subscribe start: id=0 broadcast=nonexistent/namespace track=test-track
+test-client-1  | subscribe written: id=0 broadcast=nonexistent/namespace track=test-track
+test-client-1  | subscribe error: id=0 broadcast=nonexistent/namespace track=test-track error=SUBSCRIBE error: code=16 reason=
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | ok 4 - subscribe-error
+test-client-1  |   ---
+test-client-1  |   duration_ms: 126
+test-client-1  |   ...
+test-client-1  | https://relay:4443/ connected via WebTransport
+test-client-1  | https://relay:4443/ negotiated ALPN: moqt-18
+test-client-1  | https://relay:4443/ connected via WebTransport
+test-client-1  | https://relay:4443/ negotiated ALPN: moqt-18
+test-client-1  | subscribe start: id=0 broadcast=moq-test/interop track=test-track
+test-client-1  | subscribe written: id=0 broadcast=moq-test/interop track=test-track
+test-client-1  | publish ok: broadcast=moq-test/interop track=test-track
+test-client-1  | announce failed: broadcast=moq-test/interop error=session error: webtransport error: closed: code=3 reason=
+test-client-1  | publish error: broadcast=moq-test/interop track=test-track error=session error: webtransport error: closed: code=3 reason=
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | error reading setup stream 55 |     // Adds more data to the buffer, returning true if more data was added.
+test-client-1  | 56 |     async #fill() {
+test-client-1  | 57 |         if (!this.#reader) {
+test-client-1  | 58 |             return false;
+test-client-1  | 59 |         }
+test-client-1  | 60 |         const result = await this.#reader.read();
+test-client-1  |                                                ^
+test-client-1  | error: session error: webtransport error: closed: code=3 reason=
+test-client-1  |  code: "GenericFailure"
+test-client-1  | 
+test-client-1  |       at async #fill (/app/node_modules/@moq/net/stream.js:60:43)
+test-client-1  |       at async done (/app/node_modules/@moq/net/stream.js:207:29)
+test-client-1  |       at async #runGoAway (/app/node_modules/@moq/net/ietf/connection.js:218:53)
+test-client-1  | 
+test-client-1  | subscribe error: id=0 broadcast=moq-test/interop track=test-track error=SUBSCRIBE error: code=16 reason=
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | ok 5 - announce-subscribe
+test-client-1  |   ---
+test-client-1  |   duration_ms: 551
+test-client-1  |   ...
+test-client-1  | https://relay:4443/ connected via WebTransport
+test-client-1  | https://relay:4443/ negotiated ALPN: moqt-18
+test-client-1  | subscribe start: id=0 broadcast=moq-test/interop track=test-track
+test-client-1  | subscribe written: id=0 broadcast=moq-test/interop track=test-track
+test-client-1  | subscribe error: id=0 broadcast=moq-test/interop track=test-track error=SUBSCRIBE error: code=16 reason=
+test-client-1  | https://relay:4443/ connected via WebTransport
+test-client-1  | https://relay:4443/ negotiated ALPN: moqt-18
+test-client-1  | announce failed: broadcast=moq-test/interop error=session error: connection error: closed
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+relay-1        | conn closed by peer (CONNECTION_CLOSE)
+test-client-1  | ok 6 - subscribe-before-announce
+test-client-1  |   ---
+test-client-1  |   duration_ms: 737
+test-client-1  |   ...
+[Ktest-client-1 exited with code 0
+ Compose Stopping Aborting on container exit...
+ Container runner-copy-test-client-1 Stopping 
+ Container runner-copy-test-client-1 Stopped 
+ Container runner-copy-relay-1 Stopping 
+ Container runner-copy-relay-1 Stopped 
+[Krelay-1 exited with code 0
+
+Test results in mlog/

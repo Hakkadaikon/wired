@@ -1,0 +1,22 @@
+╔═══════════════════════════════════════════════════════════════╗
+║              MoQT Interop Tests                             ║
+╚═══════════════════════════════════════════════════════════════╝
+
+Target version: draft-18
+Results: /tmp/claude-0/-home-user-wired/2f4ecbb4-d8f2-51f5-9c16-42483b5a4d9f/scratchpad/runner-copy/results/2026-10-05_143628
+
+Clients: moxygen
+Relays: wired
+
+── Test Plan ──
+
+  moxygen → wired: draft-18 (at-target)
+    docker  ghcr.io/hakkadaikon/wired-moqt-interop:latest
+
+Runs planned: 1
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Test: moxygen → wired
+Version: draft-18 | Mode: docker
+Target: ghcr.io/hakkadaikon/wired-moqt-interop:latest
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
