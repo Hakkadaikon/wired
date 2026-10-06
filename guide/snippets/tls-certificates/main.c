@@ -6,19 +6,12 @@ static int fail(const char* msg) {
   return 1;
 }
 
-/* Read a whole file into buf; returns its contents as a span (n = 0 on
- * error). */
-static wired_span read_file(const char* path, u8* buf, usz cap) {
-  ssz n = wired_fio_read(path, wired_mspan_of(buf, cap));
-  return wired_span_of(buf, n < 0 ? 0 : (usz)n);
-}
-
 int wired_main(int argc, char** argv) {
   static u8 text[8192], der[4096];
   if (argc < 3) return fail("usage: tls-certificates cert.pem key.pem\n");
 
   /* Walk every PEM block of cert.pem, decoding each to DER. */
-  wired_span pem = read_file(argv[1], text, sizeof text);
+  wired_span pem = wired_fio_read_span(argv[1], wired_mspan_of(text, sizeof text));
   if (pem.n == 0) return fail("cannot read cert.pem\n");
   usz        at = 0;
   wired_span label;
@@ -31,7 +24,7 @@ int wired_main(int argc, char** argv) {
 
   /* key.pem holds one block: the P-256 private key (SEC1 or PKCS#8). */
   u8 priv[32];
-  pem     = read_file(argv[2], text, sizeof text);
+  pem     = wired_fio_read_span(argv[2], wired_mspan_of(text, sizeof text));
   at      = 0;
   out.len = 0;
   if (!wired_pem_next(pem, &at, &label, &out) ||

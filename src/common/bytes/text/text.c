@@ -20,6 +20,12 @@ int wired_span_eq_cstr(wired_span s, const char* lit) {
   return s.n == n && text_common(s.p, (const u8*)lit, n) == n;
 }
 
+ssz wired_span_find(wired_span s, u8 c) {
+  for (usz i = 0; i < s.n; i++)
+    if (s.p[i] == c) return (ssz)i;
+  return -1;
+}
+
 usz wired_span_to_cstr(char* out, usz cap, wired_span s) {
   if (cap == 0) return 0;
   usz n = (usz)u64_min(s.n, cap - 1);

@@ -29,7 +29,15 @@ pnpm build / test:dist.
 Note: snippets/examples are outside fmt-check's scope; this commit ran the
 pinned clang-format over the touched ones, so some diffs are line rewraps.
 
-## Left (not done, by priority)
+## Done (second round, 2026-10-06)
+
+- `wired_fio_read_span` replaced `read_file` (tls-certificates).
+- `wired_http_add_field` replaced `set_header` (h3-status-headers).
+- `wired_http_reply_text` replaced `reply` (h3-routing, h3-status-headers)
+  and `not_found` (h3-static-files).
+- `wired_span_find` replaced `span_find` (examples/webtransport_interop).
+
+## Left (not done, by priority) — items 1-3 and span_find above are done
 
 1. `read_file` (tls-certificates): wired_fio_read -> span. Candidate:
    `wired_fio_read_span(path, buf, cap)` returning a `wired_span` (n=0 on

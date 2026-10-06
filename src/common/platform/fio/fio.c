@@ -108,3 +108,8 @@ i64 wired_fio_write_new(const char* path, wired_span data) {
   wired_arch_close(fd);
   return put < 0 ? (i64)put : 0;
 }
+
+wired_span wired_fio_read_span(const char* path, wired_mspan buf) {
+  ssz n = wired_fio_read(path, buf);
+  return wired_span_of(buf.p, n < 0 ? 0 : (usz)n);
+}

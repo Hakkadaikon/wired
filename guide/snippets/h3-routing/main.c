@@ -1,12 +1,6 @@
 #define WIRED_MAIN
 #include "wired.h"
 
-static int reply(wired_http_exchange* x, const char* text) {
-  wired_obuf_printf(x->body, "%s", text);
-  x->content_type = "text/plain";
-  return 1;
-}
-
 /* Pick the response by :path; an unknown path answers a real 404
  * (wired_http_handler can choose the status, unlike the 7-argument
  * handler, which always sends 200). */
@@ -14,8 +8,8 @@ static int on_request(void* ctx, wired_http_exchange* x) {
   (void)ctx;
   wired_span path = wired_h3req_path(x->req);
   wired_dprintf(2, "request %.*s\n", WIRED_SPAN_ARG(path));
-  if (wired_span_eq_cstr(path, "/")) return reply(x, "home");
-  if (wired_span_eq_cstr(path, "/about")) return reply(x, "about");
+  if (wired_span_eq_cstr(path, "/")) return wired_http_reply_text(x, 0, "home");
+  if (wired_span_eq_cstr(path, "/about")) return wired_http_reply_text(x, 0, "about");
   x->status = 404;
   return 0;
 }

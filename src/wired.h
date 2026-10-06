@@ -17,6 +17,7 @@
 #include "app/http3/server/srvloop/respond.h"
 #include "app/http3/server/srvloop/send.h"
 #include "app/http3/server/srvloop/srvloop.h"
+#include "app/http3/server/srvrun/httpx.h"
 #include "app/http3/server/srvrun/srvrun.h"
 #include "app/http3/server/staticfile/staticfile.h"
 #include "app/webtransport/capsule/wtcapsule/wtcapsule.h"

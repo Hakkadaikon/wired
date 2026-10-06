@@ -63,6 +63,9 @@ Call these without needing to know the QUIC/TLS state machine underneath.
 | `wired_span_eq`, `wired_span_eq_cstr`, `wired_span_cstr`, `wired_span_to_cstr`, `WIRED_SPAN_ARG` (`common/bytes/text/text.h`) | Byte-view helpers: compare two views / a view with a C string (not constant-time), view of a C string, copy a view out NUL-terminated (truncating), and `"%.*s"` arguments for a view. |
 | `wired_hex_encode`, `wired_dump_hex`, `wired_dump_text` (`common/bytes/text/text.h`) | Lowercase hex of a view into a buffer, or straight to an fd; write a view's bytes to an fd as text. |
 | `wired_h3req_path` | The request's `:path` as one `wired_span`. |
+| `wired_http_reply_text`, `wired_http_add_field` (`srvrun/httpx.h`) | Fill a `wired_http_exchange`: status + text/plain + body text in one call; append a response header field from two C strings (0 when the field table is full). |
+| `wired_fio_read_span` | `wired_fio_read` returning the contents as a `wired_span` (n = 0 on error). |
+| `wired_span_find` | Index of the first given byte in a view, -1 if absent. |
 | `wired_srvboot_demo`, `wired_srvboot_demo_keys` (`srvboot/srvdemo.h`) | Fixed, deterministic demo identity (counting-pattern keys, self-signed certificate) for samples and tests. Never for production. |
 | `wired_srvboot_cert_sha256`, `wired_srvboot_log_fingerprint` (`srvboot/srvdemo.h`) | SHA-256 of the leaf certificate an identity presents (the browser `serverCertificateHashes` value), raw or logged colon-separated. Not reentrant (process-wide scratch server). |
 
