@@ -42,6 +42,14 @@ int wired_span_eq_cstr(wired_span s, const char* lit);
 int wired_span_eq(wired_span a, wired_span b);
 
 /**
+ * Index of the first byte c in s.
+ * @param s view to search
+ * @param c byte to find
+ * @return its index, or -1 if s does not contain c
+ */
+ssz wired_span_find(wired_span s, u8 c);
+
+/**
  * Copy s into out as a NUL-terminated string, truncated to cap - 1 bytes.
  * @param out destination (untouched when cap is 0)
  * @param cap capacity of out including the NUL

@@ -93,7 +93,18 @@ static void test_text_span_cstr(void) {
   CHECK(wired_span_cstr("").n == 0);
 }
 
+/* First match index; -1 when absent or empty. */
+static void test_text_span_find(void) {
+  wired_span s = wired_span_cstr("a/b/c");
+  CHECK(wired_span_find(s, '/') == 1);
+  CHECK(wired_span_find(s, 'a') == 0);
+  CHECK(wired_span_find(s, 'c') == 4);
+  CHECK(wired_span_find(s, 'x') == -1);
+  CHECK(wired_span_find(wired_span_of(s.p, 0), 'a') == -1);
+}
+
 void test_text(void) {
+  test_text_span_find();
   test_text_span_cstr();
   test_text_span_arg();
   test_text_span_eq_cstr();

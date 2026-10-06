@@ -30,6 +30,14 @@
 ssz wired_fio_read(const char* path, wired_mspan buf);
 
 /**
+ * wired_fio_read returning the bytes read as a view into buf.
+ * @param path NUL-terminated file path
+ * @param buf  destination; the file must fit
+ * @return view of the contents; n = 0 on any error (missing, too large)
+ */
+wired_span wired_fio_read_span(const char* path, wired_mspan buf);
+
+/**
  * Append data to the file at path, creating it (mode 0600) if it does not
  * exist. Opens with openat(AT_FDCWD, path, O_WRONLY|O_CREAT|O_APPEND, 0600),
  * writes the whole span, and closes the descriptor. Intended for streaming

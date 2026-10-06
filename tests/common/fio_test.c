@@ -244,7 +244,23 @@ static void test_fio_mkdir_missing_parent(void) {
   CHECK(wired_fio_mkdir("build/fio_test_nodir.tmp/sub") < 0);
 }
 
+/* wired_fio_read_span: the bytes read as a view; n = 0 on any error. */
+static void test_fio_read_span(void) {
+  u8 data[3] = {'a', 'b', 'c'};
+  u8 out[8];
+  fiot_make(data, 3);
+  wired_span s =
+      wired_fio_read_span(fiot_path, wired_mspan_of(out, sizeof out));
+  CHECK(s.p == out && s.n == 3 && out[2] == 'c');
+  s = wired_fio_read_span(fiot_path, wired_mspan_of(out, 2));
+  CHECK(s.n == 0);
+  fiot_unlink();
+  s = wired_fio_read_span(fiot_path, wired_mspan_of(out, sizeof out));
+  CHECK(s.n == 0);
+}
+
 void test_fio(void) {
+  test_fio_read_span();
   test_fio_roundtrip();
   test_fio_missing();
   test_fio_exact_fit();

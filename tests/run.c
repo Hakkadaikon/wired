@@ -530,6 +530,7 @@
 #include "app/http3/server/srvinbox/srvinbox.c"
 #include "app/http3/core/h3prio/h3prio.c"
 #include "app/http3/server/srvrun/srvrun.c"
+#include "app/http3/server/srvrun/httpx.c"
 #include "app/http3/server/staticfile/staticfile.c"
 #include "app/media/mp4frag/mp4frag.c"
 #include "app/http3/server/mimetype/mimetype.c"
@@ -1056,6 +1057,7 @@
 #include "app/sendq_test.c"
 #include "app/sendsess_test.c"
 #include "app/srvrun_test.c"
+#include "app/srvrun_httpx_test.c"
 #include "app/srvrun_pin_test.c"
 #include "app/srvrun_close_test.c"
 #include "app/srvrun_raw_test.c"
@@ -1655,6 +1657,7 @@ int main(void) {
   test_srvboot_version();
   test_srvboot_pnshort();
   test_srvboot_demo();
+  test_srvrun_httpx();
   test_srvboot_cert_sha256();
   test_certcache();
   test_priupdate();

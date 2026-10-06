@@ -50,13 +50,6 @@ static int g_mode;
 
 static usz cstr_len_opt(const char* s) { return s ? wired_cstr_len(s) : 0; }
 
-/* First index of c in s, or -1. */
-static ssz span_find(wired_span s, u8 c) {
-  for (usz i = 0; i < s.n; i++)
-    if (s.p[i] == c) return (ssz)i;
-  return -1;
-}
-
 /* Append s to dst at *at (always NUL-terminated, capped at cap-1). */
 static usz cat_str(char* dst, usz cap, usz at, const char* s) {
   usz i;
@@ -83,7 +76,7 @@ static wired_span strip_slash(wired_span p) {
  * dropped or file lookups build /www/<endpoint>/<file>/<file>. */
 static wired_span endpoint_of(wired_span path) {
   wired_span p     = strip_slash(path);
-  ssz        slash = span_find(p, '/');
+  ssz        slash = wired_span_find(p, '/');
   if (slash < 0) return p;
   return wired_span_of(p.p, (usz)slash);
 }
@@ -108,7 +101,7 @@ static u8  g_get_sig[FILES_MAX][GET_SIG_CAP + GETLINE_CAP];
 static usz g_get_sig_len[FILES_MAX];
 
 static void requests_add(wired_span tok) {
-  ssz slash = span_find(tok, '/');
+  ssz slash = wired_span_find(tok, '/');
   if (slash < 0 || g_nfiles >= FILES_MAX) return;
   g_endpoint = wired_span_of(tok.p, (usz)slash);
   g_files[g_nfiles++] =
@@ -416,7 +409,7 @@ static void feed_push_head(
   ssz nl;
   usz skip;
   head_append(e, d);
-  nl = span_find(wired_span_of(e->head, e->head_len), '\n');
+  nl = wired_span_find(wired_span_of(e->head, e->head_len), '\n');
   if (nl < 0) {
     if (fin) e->state = ST_FREE; /* FIN before any newline: drop */
     return;

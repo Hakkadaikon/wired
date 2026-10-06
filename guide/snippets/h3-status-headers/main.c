@@ -1,18 +1,6 @@
 #define WIRED_MAIN
 #include "wired.h"
 
-static void set_header(
-    wired_http_field* f, const char* name, const char* value) {
-  *f = (wired_http_field){wired_span_cstr(name), wired_span_cstr(value)};
-}
-
-static int reply(wired_http_exchange* x, u16 status, const char* body) {
-  x->status       = status;
-  x->content_type = "text/plain";
-  wired_obuf_printf(x->body, "%s", body);
-  return 1;
-}
-
 /* 1 if the request carries either the Bearer token or the session cookie
  * a prior /login round would have handed out. */
 static int authorized(const wired_h3reqdrive_req* req) {
@@ -32,19 +20,17 @@ static int on_request(void* ctx, wired_http_exchange* x) {
   wired_span path = wired_h3req_path(x->req);
   if (wired_span_eq_cstr(path, "/redirect")) {
     x->status = 302;
-    set_header(&x->fields[0], "location", "/target");
-    x->field_count = 1;
+    wired_http_add_field(x, "location", "/target");
     return 0;
   }
   if (wired_span_eq_cstr(path, "/login")) {
-    set_header(&x->fields[0], "set-cookie", "session=granted");
-    x->field_count = 1;
-    return reply(x, 200, "logged in");
+    wired_http_add_field(x, "set-cookie", "session=granted");
+    return wired_http_reply_text(x, 200, "logged in");
   }
   if (wired_span_eq_cstr(path, "/secret"))
-    return authorized(x->req) ? reply(x, 200, "top secret")
-                              : reply(x, 401, "unauthorized");
-  return reply(x, 404, "not found");
+    return authorized(x->req) ? wired_http_reply_text(x, 200, "top secret")
+                              : wired_http_reply_text(x, 401, "unauthorized");
+  return wired_http_reply_text(x, 404, "not found");
 }
 
 int wired_main(int argc, char** argv) {
