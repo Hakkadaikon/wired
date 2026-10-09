@@ -1,14 +1,43 @@
 # MOQT chat sample
 
 A chat + voice call room over Media over QUIC Transport
-(draft-ietf-moq-transport-19 — the hub can also negotiate draft-18 and
-draft-22, but a browser's `WebTransport` cannot pick a WT subprotocol, so
-this sample's sessions take the hub's no-subprotocol default, draft-19; see
+(draft-ietf-moq-transport-22, with a draft-19 fallback; see
 [`moqt_interop`](../moqt_interop/) for the multi-draft relay): a libc-free
 WebTransport server
 (`wired_server.c`) relays each participant's chat messages and Opus voice
 frames to every other connected participant, using the `app/moqt/run` hub
 (`src/app/moqt/run/moqtrun.h`) wired onto real UDP.
+
+## Draft versions: 22 first, 19 as the fallback
+
+The server offers the hub's full WebTransport subprotocol list
+(`wired_moqt_wt_protocols`: `moqt-22 moqt-19 moqt-18`) via
+`opt.run.wt_protocols`. The browser client offers `protocols: ["moqt-22"]`
+to `new WebTransport(...)`, and which draft the session runs depends on
+whether the browser honours it:
+
+- **Draft-22** (`wt.protocol === "moqt-22"`): the server opens a
+  unidirectional control stream that starts with SETUP (stream type
+  0x2F00, draft-22 9.1; session initialization 6.3) and later carries
+  GOAWAY (9.2); the client opens its own unidirectional control stream and
+  sends its SETUP. Requests stay one per client-opened bidirectional
+  stream (6.4.2). Draft-22 removed the Joining FETCH, so history is a
+  SUBSCRIBE carrying FILL_PARAMETERS (0x23) whose inner LOCATION_FILTER is
+  RelativeStart N, with N = the old joining start + 1 (3.4 Fill Semantics,
+  3.5 Joining an Ongoing Track). The fill arrives on a server
+  unidirectional stream whose FETCH_HEADER (11.4.1) names the SUBSCRIBE's
+  Request ID. The live filter that was "Largest Object" is LOCATION_FILTER
+  NextObject (0x05, 9.20.9).
+- **Draft-19 fallback** (no application-protocol negotiation): exactly the
+  previous behavior. The hub's single bidirectional control stream carries
+  SETUP (draft-19 10.3) and GOAWAY (10.4), and history is a Relative
+  Joining FETCH (10.12.2).
+
+Chromium exposes `WebTransportOptions.protocols` / `wt.protocol` only with
+`--enable-experimental-web-platform-features` (as of Chromium 141). Without
+that flag `protocols` is ignored and the session silently takes the
+draft-19 path. Section numbers below cite draft-22, followed by the
+draft-19 number where the fallback differs ("draft-22 X; draft-19 Y").
 
 ## What this demonstrates
 
@@ -19,23 +48,27 @@ an id's index is its Track Alias) PUBLISHes up to three tracks under the
 namespace `wired/moqt_chat` — `<id>` for chat, `<id>/audio` for voice and
 `<id>/screen` for a screen share. There is a single fixed room.
 
-- **Requests on their own streams** (draft 3.3): every PUBLISH, SUBSCRIBE,
+- **Requests on their own streams** (draft-22 6.4.2; draft-19 3.3): every PUBLISH, SUBSCRIBE,
   FETCH, PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE opens its own
   bidirectional stream with an even Request ID, and its answer comes back
-  on that stream. Cancelling a request resets its stream. The hub's own
-  control stream carries SETUP and, when the hub is shutting down, GOAWAY.
-- **Namespace discovery** (draft 6.1-6.2): once its tracks are PUBLISHed, a
+  on that stream. Cancelling a request resets its stream. The control
+  stream carries SETUP and, when the hub is shutting down, GOAWAY: the
+  server's unidirectional control stream on draft-22, the hub's single
+  bidirectional control stream on the draft-19 fallback.
+- **Namespace discovery** (draft-22 4.1-4.2; draft-19 6.1-6.2): once its tracks are PUBLISHed, a
   client announces `wired/moqt_chat/<id>` and watches the `wired/moqt_chat`
   prefix. NAMESPACE for a peer puts it on the roster and subscribes its chat
   and audio; NAMESPACE_DONE takes it off and cancels those subscriptions. A
   screen share additionally announces `wired/moqt_chat/<id>/screen` while it
   runs. Nothing is polled.
-- **History and late join** (draft 10.12.2): a peer's chat track is
-  subscribed from the Largest Object together with a Relative Joining FETCH
-  of the 64 Groups before it, so a joiner sees recent messages. Every
-  screen-share keyframe starts a new Group, and a late viewer's Joining
-  FETCH (Joining Start 0) hands it the current Group from its keyframe, so
-  the first frame decodes at once.
+- **History and late join** (draft-22 3.4-3.5; draft-19 10.12.2): a peer's
+  chat track is subscribed from the Next Object (draft-19: Largest Object)
+  and the 64 Groups before it are filled in, so a joiner sees recent
+  messages: on draft-22 by FILL_PARAMETERS on the SUBSCRIBE, on the
+  draft-19 fallback by a Relative Joining FETCH. Every screen-share
+  keyframe starts a new Group, and a late viewer's fill (RelativeStart 1;
+  draft-19: Joining Start 0) hands it the current Group from its keyframe,
+  so the first frame decodes at once.
 - **Objects**: a chat message's text is one Object in a Group of its own; an
   attachment is a Group of its own whose Objects are 15 KiB chunks (the hub
   holds at most 16384 bytes of one Object, `WIRED_MOQTRUN_RELAY_FRAG_MAX`).
@@ -106,12 +139,22 @@ process's memory, so it is single-process only: do not pass
   request stream is reset EXCESSIVE_LOAD. A full 4-user room keeps up to 15
   live per session (3 PUBLISH + 2 PUBLISH_NAMESPACE + SUBSCRIBE_NAMESPACE +
   9 SUBSCRIBEs), which is why the client sends history FETCHes one at a
-  time and the id pool stays at four.
+  time on draft-19 (a draft-22 fill rides its SUBSCRIBE's request and needs
+  no slot of its own) and the id pool stays at four.
+- **Fill capacity (draft-22)**: fills share one hub-wide table of 8 serving
+  slots plus 8 waiting (`WIRED_MOQTRUN_MAX_FETCHES`, together with
+  draft-19 FETCHes). When both are full the hub refuses the whole
+  history SUBSCRIBE with REQUEST_ERROR INTERNAL_ERROR (draft-22 3.4.1: an
+  accepted fill must get a fill fetch stream, so the hub decides before
+  answering); the client then retries
+  that SUBSCRIBE once without FILL_PARAMETERS, so the peer is followed live
+  without history -- the same result as a refused Joining FETCH on
+  draft-19.
 
 ### Graceful restart
 
 On SIGTERM (`docker compose stop`, `kill <pid>`) the hub stops accepting
-connections and sends every MOQT session GOAWAY (draft 3.6 / 10.4) with a
+connections and sends every MOQT session GOAWAY (draft-22 6.6.1 / 9.2; draft-19 3.6 / 10.4) with a
 2 s timeout and the `WIRED_GOAWAY_URI`; it exits after the SDK's ~5 s drain.
 The browser reconnects as soon as the GOAWAY (or a WebTransport drain)
 arrives — to the new URI when one was given — and the fresh session
@@ -197,6 +240,22 @@ verification is manual (see above). See `e2e/run.sh` and
 RNNoise off; the e2e harness uses it so its transport gates measure the
 network path, not the noise-suppression worklet's own CPU cost.
 
+### Exercising draft-22 in a real browser
+
+The e2e scenarios drive the UI only and do not choose a draft: a stock
+Chrome for Testing takes the draft-19 fallback. To exercise draft-22, run
+the browser with `--enable-experimental-web-platform-features` (for a
+manual check, start Chrome/Chromium with that flag against
+`just serve-frontend`; the session then negotiates `moqt-22`, visible as
+`wt.protocol` in the browser and as `MoqtChatClient.draft === 22`, which
+the page does not display: inspect the client in devtools). A browser that
+offers `protocols` but has no `wt.protocol` attribute is detected by the
+hub's first control stream (a unidirectional SETUP means draft-22). The harness
+launches Chrome from fixed `args` lists in its `puppeteer.launch` calls
+(`e2e/run-scenario.mjs`, `e2e/lib/stabilityClient.mjs`, ...) and has no
+option for extra Chrome arguments; adding that flag to those lists is
+needed to run the scenarios on draft-22.
+
 ## Layout
 
 - `wired_server.c` — the MOQT hub server: wires WebTransport session/stream
@@ -208,7 +267,7 @@ network path, not the noise-suppression worklet's own CPU cost.
   `up-bg` build and run (see "Build and run (server)" above).
 - `frontend/` — the Next.js + React browser client:
   `src/lib/moqtWire.ts`/`moqtClient.ts` (wire codec; session, request
-  streams, discovery, FETCH, GOAWAY), `moqtScreenWire.ts`/`moqtScreenClient.ts`
+  streams, discovery, history fill / FETCH, GOAWAY; draft-22 and draft-19), `moqtScreenWire.ts`/`moqtScreenClient.ts`
   (screen share), `moqtVoiceWire.ts`/`moqtVoiceClient.ts` (voice Object
   framing and the audio track's publish/subscribe), `src/lib/*Pipeline.ts` +
   `jitterBuffer.ts`/`playbackSink.ts`/`audioContextGate.ts` (mic capture ->

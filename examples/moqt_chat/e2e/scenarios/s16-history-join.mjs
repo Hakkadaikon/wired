@@ -1,7 +1,8 @@
 // S16 history-join: chat history reaches a late joiner. user1 joins alone
 // and sends a few messages; user2 joins afterwards and must show all of
 // them without user1 sending anything more -- its subscription to user1's
-// chat track carries a Joining FETCH (draft-ietf-moq-transport-19 10.12.2)
+// chat track fills history (draft-ietf-moq-transport-22: SUBSCRIBE with
+// FILL_PARAMETERS, 3.4-3.5; draft-19 fallback: Joining FETCH, 10.12.2)
 // served from the hub's object cache. Then user2 leaves and rejoins on a
 // fresh page: the history is fetched again, each message exactly once.
 //

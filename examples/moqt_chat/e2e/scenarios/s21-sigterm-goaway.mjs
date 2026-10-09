@@ -1,6 +1,6 @@
 // S21 sigterm-goaway: a hub restart by SIGTERM is announced, not just
 // suffered. On SIGTERM the hub sends every session MOQT GOAWAY
-// (draft-ietf-moq-transport-19 3.6 / 10.4, wired_server.c
+// (draft-ietf-moq-transport-22 6.6.1 / 9.2; draft-19 3.6 / 10.4, wired_server.c
 // goaway_on_shutdown) and drains; the browser reconnects as soon as the
 // GOAWAY lands (useMoqtChat.ts handleGoaway) instead of waiting for the
 // connection to die, then retries through the auto-rejoin back-off until

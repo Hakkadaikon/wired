@@ -1,4 +1,9 @@
-// MOQT wire codec (draft-ietf-moq-transport-19).
+// MOQT wire codec: draft-ietf-moq-transport-22, plus the draft-19 forms the
+// legacy (no WebTransport subprotocol) session still speaks. Only a few
+// wire forms differ between the two -- LOCATION_FILTER's encoding,
+// FILL_PARAMETERS and the End of Timed-Out Range marker -- so those
+// functions take a `draft` argument (default 19, the legacy form); every
+// other message is byte-identical in both drafts.
 //
 // BigInt is used throughout for wire integers: MOQT varints and several
 // message fields (e.g. Stream Count) can exceed Number.MAX_SAFE_INTEGER
@@ -15,8 +20,12 @@ function fail(message: string): never {
   throw new MoqtDecodeError(message);
 }
 
+/** The draft a session speaks: 22 when the WebTransport subprotocol
+ * "moqt-22" was negotiated, else the draft-19 legacy session. */
+export type MoqtDraft = 19 | 22;
+
 // ---------------------------------------------------------------------
-// draft-ietf-moq-transport-19 1.4.1: Variable-Length Integers
+// draft-ietf-moq-transport-22 8.1 (draft-19 1.4.1): Variable-Length Integers
 // ---------------------------------------------------------------------
 
 const VARINT_LEN_BY_PREFIX = ((): Uint8Array => {
@@ -90,7 +99,7 @@ export function encodeVarint(value: bigint, minLen = 1): Uint8Array {
 }
 
 // ---------------------------------------------------------------------
-// draft-ietf-moq-transport-19 1.4.3: Key-Value-Pair Structure
+// draft-ietf-moq-transport-22 8.3 (draft-19 1.4.3): Key-Value-Pair Structure
 // ---------------------------------------------------------------------
 
 const KVP_VALUE_MAX_LEN = 65535n;
@@ -195,8 +204,8 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 // ---------------------------------------------------------------------
-// draft-ietf-moq-transport-19 3.1.1: Track Naming (Track Namespace / Full
-// Track Name)
+// draft-ietf-moq-transport-22 8.7-8.8 (draft-19 1.5): Track Namespace /
+// Full Track Name
 // ---------------------------------------------------------------------
 
 const NAMESPACE_MAX_FIELDS = 32;
@@ -295,7 +304,7 @@ export function bytesToUtf8(bytes: Uint8Array): string {
 }
 
 // ---------------------------------------------------------------------
-// draft-ietf-moq-transport-19 10: Control Messages
+// draft-ietf-moq-transport-22 9 (draft-19 10): Control Messages
 // ---------------------------------------------------------------------
 
 
@@ -327,10 +336,13 @@ function encodeKvpList(pairs: KeyValuePair[]): Uint8Array {
   return concatBytes(parts);
 }
 
-// --- Message Parameters (10.2) ----------------------------------------------
+// --- Message Parameters (d22 9.20, d19 10.2) --------------------------------
 //
-// Not Key-Value-Pairs: each Type fixes its value encoding (10.2.x), Types
-// ascend (Type Delta), and an unknown Type is a PROTOCOL_VIOLATION.
+// Not Key-Value-Pairs: each Type fixes its value encoding (9.20.x), Types
+// ascend (Type Delta), and an unknown Type is a PROTOCOL_VIOLATION. The
+// tables differ by draft: d22 adds FILL_PARAMETERS (0x23, Length-prefixed)
+// and INCLUDE_PROPERTIES (0x35, uint8), and its LOCATION_FILTER (0x21)
+// carries no Length (see encodeLocationFilter22).
 
 export interface Location {
   group: bigint;
@@ -340,16 +352,76 @@ export interface Location {
 export interface MessageParam {
   type: bigint;
   /** uint8 / varint -> bigint; LARGEST_OBJECT -> Location; Length-prefixed
-   * (and TRACK_NAMESPACE_PREFIX's raw namespace) -> bytes. */
+   * (and TRACK_NAMESPACE_PREFIX's raw namespace) -> bytes. LOCATION_FILTER
+   * is bytes in both drafts: the filter (Type + fields) without any Length
+   * -- d19 adds the Length on the wire, d22 does not. */
   value: bigint | Location | Uint8Array;
 }
 
 export const PARAM_LARGEST_OBJECT = 0x09n;
 export const PARAM_LOCATION_FILTER = 0x21n;
+export const PARAM_FILL_PARAMETERS = 0x23n;
 const PARAM_TRACK_NAMESPACE_PREFIX = 0x34n;
-const PARAM_UINT8 = new Set([0x10n, 0x20n, 0x22n]);
+const PARAM_UINT8: Record<MoqtDraft, Set<bigint>> = {
+  19: new Set([0x10n, 0x20n, 0x22n]),
+  22: new Set([0x10n, 0x20n, 0x22n, 0x35n]),
+};
 const PARAM_VARINT = new Set([0x02n, 0x04n, 0x06n, 0x08n, 0x0an, 0x32n]);
-const PARAM_BYTES = new Set([0x03n, 0x21n, 0x25n, 0x26n, 0x27n, 0x28n, 0x29n]);
+const PARAM_BYTES: Record<MoqtDraft, Set<bigint>> = {
+  19: new Set([0x03n, 0x21n, 0x25n, 0x26n, 0x27n, 0x28n, 0x29n]),
+  22: new Set([0x03n, 0x23n, 0x25n, 0x26n, 0x27n, 0x28n, 0x29n]),
+};
+
+/** A draft-22 Location Filter (9.20.9): Type 0x00 None, 0x01 Relative
+ * Start {StartGroup}, 0x02 Absolute Start {StartGroup, StartObject}, 0x03
+ * Absolute Start + Group End {.., EndGroupDelta}, 0x04 Absolute Range
+ * {.., EndGroupDelta, EndObject}, 0x05 Next Object. */
+export interface LocationFilter22 {
+  type: bigint;
+  fields: bigint[];
+}
+
+// Number of vi64 fields each Location Filter Type carries (9.20.9).
+const LOCATION_FILTER_FIELDS = [0, 1, 2, 3, 4, 0];
+
+function locationFilterFieldCount(type: bigint): number {
+  if (type >= BigInt(LOCATION_FILTER_FIELDS.length)) {
+    fail(`PROTOCOL_VIOLATION: unknown Location Filter Type 0x${type.toString(16)}`);
+  }
+  return LOCATION_FILTER_FIELDS[Number(type)];
+}
+
+/** The draft-22 LOCATION_FILTER value: Type, then its fields; no Length. */
+export function encodeLocationFilter22(f: LocationFilter22): Uint8Array {
+  if (f.fields.length !== locationFilterFieldCount(f.type)) {
+    fail(`Location Filter Type 0x${f.type.toString(16)} takes ${locationFilterFieldCount(f.type)} fields`);
+  }
+  return concatBytes([f.type, ...f.fields].map((v) => encodeVarint(v)));
+}
+
+/** Decodes a draft-22 LOCATION_FILTER value at offset; its Type alone says
+ * where it ends. */
+export function decodeLocationFilter22(
+  bytes: Uint8Array,
+  offset: number,
+): { filter: LocationFilter22; len: number } {
+  const type = decodeVarint(bytes, offset);
+  let pos = offset + type.len;
+  const fields: bigint[] = [];
+  for (let i = locationFilterFieldCount(type.value); i > 0; i--) {
+    const v = decodeVarint(bytes, pos);
+    fields.push(v.value);
+    pos += v.len;
+  }
+  return { filter: { type: type.value, fields }, len: pos - offset };
+}
+
+/** The FILL_PARAMETERS value (d22 9.20.15): the fill fetch stream's own
+ * parameter list (Number of Parameters + Type-delta Parameters, a scope of
+ * its own). encodeParams adds the outer Length when it is sent as 0x23. */
+export function encodeFillParameters(params: MessageParam[]): Uint8Array {
+  return encodeParams(params, 22);
+}
 
 function decodeLocation(bytes: Uint8Array, offset: number): { value: Location; len: number } {
   const group = decodeVarint(bytes, offset);
@@ -361,14 +433,19 @@ function decodeParamValue(
   type: bigint,
   bytes: Uint8Array,
   pos: number,
+  draft: MoqtDraft,
 ): { value: MessageParam["value"]; len: number } {
-  if (PARAM_UINT8.has(type)) {
+  if (PARAM_UINT8[draft].has(type)) {
     if (pos >= bytes.length) fail("truncated uint8 parameter");
     return { value: BigInt(bytes[pos]), len: 1 };
   }
   if (PARAM_VARINT.has(type)) return decodeVarint(bytes, pos);
   if (type === PARAM_LARGEST_OBJECT) return decodeLocation(bytes, pos);
-  if (PARAM_BYTES.has(type)) return decodeLenPrefixedBytes(bytes, pos, "parameter");
+  if (PARAM_BYTES[draft].has(type)) return decodeLenPrefixedBytes(bytes, pos, "parameter");
+  if (type === PARAM_LOCATION_FILTER) {
+    const { len } = decodeLocationFilter22(bytes, pos);
+    return { value: bytes.slice(pos, pos + len), len };
+  }
   if (type === PARAM_TRACK_NAMESPACE_PREFIX) {
     const { len } = decodeNamespace(bytes, pos);
     return { value: bytes.slice(pos, pos + len), len };
@@ -376,10 +453,11 @@ function decodeParamValue(
   fail(`PROTOCOL_VIOLATION: unknown parameter type 0x${type.toString(16)}`);
 }
 
-function encodeParamValue(p: MessageParam): Uint8Array {
-  if (PARAM_UINT8.has(p.type)) return Uint8Array.of(Number(p.value));
+function encodeParamValue(p: MessageParam, draft: MoqtDraft): Uint8Array {
+  if (PARAM_UINT8[draft].has(p.type)) return Uint8Array.of(Number(p.value));
   if (p.value instanceof Uint8Array) {
     if (p.type === PARAM_TRACK_NAMESPACE_PREFIX) return p.value;
+    if (draft === 22 && p.type === PARAM_LOCATION_FILTER) return p.value;
     return concatBytes([encodeVarint(BigInt(p.value.length)), p.value]);
   }
   if (typeof p.value === "bigint") return encodeVarint(p.value);
@@ -387,7 +465,11 @@ function encodeParamValue(p: MessageParam): Uint8Array {
 }
 
 /** Decode `Number of Parameters` and the parameters that follow it. */
-export function decodeParams(bytes: Uint8Array, offset: number): { params: MessageParam[]; len: number } {
+export function decodeParams(
+  bytes: Uint8Array,
+  offset: number,
+  draft: MoqtDraft = 19,
+): { params: MessageParam[]; len: number } {
   const count = decodeVarint(bytes, offset);
   let pos = offset + count.len;
   let type = 0n;
@@ -396,7 +478,7 @@ export function decodeParams(bytes: Uint8Array, offset: number): { params: Messa
     const delta = decodeVarint(bytes, pos);
     type += delta.value;
     if (type > U64_MAX) fail("PROTOCOL_VIOLATION: parameter type overflow");
-    const value = decodeParamValue(type, bytes, pos + delta.len);
+    const value = decodeParamValue(type, bytes, pos + delta.len, draft);
     params.push({ type, value: value.value });
     pos += delta.len + value.len;
   }
@@ -404,18 +486,18 @@ export function decodeParams(bytes: Uint8Array, offset: number): { params: Messa
 }
 
 /** Encode `Number of Parameters` plus the parameters (ascending Type). */
-export function encodeParams(params: MessageParam[]): Uint8Array {
+export function encodeParams(params: MessageParam[], draft: MoqtDraft = 19): Uint8Array {
   const parts = [encodeVarint(BigInt(params.length))];
   let prev = 0n;
   for (const p of params) {
-    parts.push(encodeVarint(p.type - prev), encodeParamValue(p));
+    parts.push(encodeVarint(p.type - prev), encodeParamValue(p, draft));
     prev = p.type;
   }
   return concatBytes(parts);
 }
 
-/** SUBSCRIBE_OK's LARGEST_OBJECT (10.2.16): the subscription's Joining
- * Location, absent while nothing has been published. */
+/** SUBSCRIBE_OK's LARGEST_OBJECT (d22 9.20.17, d19 10.2.16): the largest
+ * Location published so far, absent while nothing has been. */
 export function largestObjectOf(params: MessageParam[]): Location | undefined {
   const p = params.find((x) => x.type === PARAM_LARGEST_OBJECT);
   return p ? (p.value as Location) : undefined;
@@ -452,7 +534,7 @@ export function encodeControlFrame(type: bigint, body: Uint8Array): Uint8Array {
   return concatBytes([encodeVarint(type), header, body]);
 }
 
-// --- SETUP (0x2F00) ---------------------------------------------------
+// --- SETUP (0x2F00; d22 9.1, d19 10.3) ---------------------------------------------------
 
 export interface SetupMessage {
   setupOptions: KeyValuePair[];
@@ -466,7 +548,7 @@ export function encodeSetup(msg: SetupMessage): Uint8Array {
   return encodeKvpList(msg.setupOptions);
 }
 
-// --- SUBSCRIBE (0x3) ----------------------------------------------------
+// --- SUBSCRIBE (0x3; d22 9.6, d19 10.7) ----------------------------------------------------
 
 export interface SubscribeMessage {
   requestId: bigint;
@@ -475,7 +557,7 @@ export interface SubscribeMessage {
   parameters: MessageParam[];
 }
 
-export function decodeSubscribe(body: Uint8Array): SubscribeMessage {
+export function decodeSubscribe(body: Uint8Array, draft: MoqtDraft = 19): SubscribeMessage {
   const requestId = decodeVarint(body, 0);
   let pos = requestId.len;
   const ns = decodeNamespace(body, pos);
@@ -486,21 +568,21 @@ export function decodeSubscribe(body: Uint8Array): SubscribeMessage {
     requestId: requestId.value,
     trackNamespace: ns.fields,
     trackName: name.value,
-    parameters: decodeParams(body, pos).params,
+    parameters: decodeParams(body, pos, draft).params,
   };
 }
 
-export function encodeSubscribe(msg: SubscribeMessage): Uint8Array {
+export function encodeSubscribe(msg: SubscribeMessage, draft: MoqtDraft = 19): Uint8Array {
   return concatBytes([
     encodeVarint(msg.requestId),
     encodeNamespace(msg.trackNamespace),
     encodeVarint(BigInt(msg.trackName.length)),
     msg.trackName,
-    encodeParams(msg.parameters),
+    encodeParams(msg.parameters, draft),
   ]);
 }
 
-// --- SUBSCRIBE_OK (0x4) --------------------------------------------------
+// --- SUBSCRIBE_OK (0x4; d22 9.7, d19 10.8) --------------------------------------------------
 
 export interface SubscribeOkMessage {
   trackAlias: bigint;
@@ -508,9 +590,9 @@ export interface SubscribeOkMessage {
   trackProperties: KeyValuePair[];
 }
 
-export function decodeSubscribeOk(body: Uint8Array): SubscribeOkMessage {
+export function decodeSubscribeOk(body: Uint8Array, draft: MoqtDraft = 19): SubscribeOkMessage {
   const trackAlias = decodeVarint(body, 0);
-  const params = decodeParams(body, trackAlias.len);
+  const params = decodeParams(body, trackAlias.len, draft);
   const trackProperties = decodeKvpSpan(body, trackAlias.len + params.len, body.length);
   return { trackAlias: trackAlias.value, parameters: params.params, trackProperties };
 }
@@ -523,7 +605,7 @@ export function encodeSubscribeOk(msg: SubscribeOkMessage): Uint8Array {
   ]);
 }
 
-// --- PUBLISH (0x1D) -------------------------------------------------------
+// --- PUBLISH (0x1D; d22 9.8, d19 10.10) -------------------------------------------------------
 
 export interface PublishMessage {
   requestId: bigint;
@@ -568,7 +650,7 @@ export function encodePublish(msg: PublishMessage): Uint8Array {
   ]);
 }
 
-// --- REQUEST_OK (0x7) ------------------------------------------------------
+// --- REQUEST_OK (0x7; d22 9.3, d19 10.5) ------------------------------------------------------
 
 export interface RequestOkMessage {
   parameters: MessageParam[];
@@ -585,10 +667,13 @@ export function encodeRequestOk(msg: RequestOkMessage): Uint8Array {
   return concatBytes([encodeParams(msg.parameters), encodeKvpList(msg.trackProperties)]);
 }
 
-// --- FETCH (0x16) / FETCH_OK (0x18) ---------------------------------------
+// --- FETCH (0x16) / FETCH_OK (0x18), draft-19 legacy only -----------------
 
-/** Joining Fetch (10.12.2): Fetch Type 0x2 Relative, 0x3 Absolute. The
- * Standalone form (0x1) is not sent by this client. */
+/** draft-19 Joining Fetch (10.12.2): Fetch Type 0x2 Relative, 0x3 Absolute.
+ * The Standalone form (0x1) is not sent by this client. draft-22 removed
+ * Joining Fetch (sending one closes the session); a d22 session asks for
+ * history with SUBSCRIBE's FILL_PARAMETERS instead (d22 3.4), which has no
+ * FETCH_OK either. */
 export interface JoiningFetchMessage {
   requestId: bigint;
   fetchType: 2n | 3n;
@@ -609,7 +694,9 @@ export function encodeFetch(msg: JoiningFetchMessage): Uint8Array {
 
 export interface FetchOkMessage {
   endOfTrack: boolean;
-  /** One past the last Object (Object 0 = the whole End group). */
+  /** draft-19: one past the last Object (Object 0 = the whole End group).
+   * (draft-22 9.12 makes it inclusive; this client decodes FETCH_OK only on
+   * a draft-19 session.) */
   endLocation: Location;
   parameters: MessageParam[];
   trackProperties: KeyValuePair[];
@@ -631,7 +718,8 @@ export function decodeFetchOk(body: Uint8Array): FetchOkMessage {
 // / NAMESPACE_DONE (0xE) ------------------------------------------------------
 
 /** PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE share one body layout
- * (10.15, 10.18): Request ID, Track Namespace (or Prefix), parameters. */
+ * (d22 9.14, 9.15; d19 10.15, 10.18): Request ID, Track Namespace (or
+ * Prefix), parameters. */
 export interface NamespaceRequestMessage {
   requestId: bigint;
   namespace: Uint8Array[];
@@ -646,13 +734,13 @@ export function encodeNamespaceRequest(msg: NamespaceRequestMessage): Uint8Array
   ]);
 }
 
-/** NAMESPACE / NAMESPACE_DONE body (10.16, 10.17): the Track Namespace
- * Suffix, the fields after the subscribed prefix. */
+/** NAMESPACE / NAMESPACE_DONE body (d22 9.16, 9.17; d19 10.16, 10.17):
+ * the Track Namespace Suffix, the fields after the subscribed prefix. */
 export function decodeNamespaceSuffix(body: Uint8Array): Uint8Array[] {
   return decodeNamespace(body, 0).fields;
 }
 
-// --- REQUEST_ERROR (0x5) ---------------------------------------------------
+// --- REQUEST_ERROR (0x5; d22 9.4, d19 10.6) ---------------------------------------------------
 
 export interface RequestErrorMessage {
   errorCode: bigint;
@@ -682,7 +770,7 @@ export function encodeRequestError(msg: RequestErrorMessage): Uint8Array {
   ]);
 }
 
-// --- PUBLISH_DONE (0xB) -----------------------------------------------------
+// --- PUBLISH_DONE (0xB; d22 9.9, d19 10.11) -----------------------------------------------------
 
 export interface PublishDoneMessage {
   statusCode: bigint;
@@ -712,7 +800,7 @@ export function encodePublishDone(msg: PublishDoneMessage): Uint8Array {
   ]);
 }
 
-// --- GOAWAY (0x10) -----------------------------------------------------------
+// --- GOAWAY (0x10; d22 9.2, d19 10.4) -----------------------------------------------------------
 
 export interface GoawayMessage {
   newSessionUri: Uint8Array;
@@ -734,8 +822,8 @@ export function encodeGoaway(msg: GoawayMessage): Uint8Array {
 }
 
 // ---------------------------------------------------------------------
-// draft-ietf-moq-transport-19 4/11.4.2: Unidirectional Streams, Subgroups,
-// Objects
+// draft-ietf-moq-transport-22 6.4.1/11.3.1 (draft-19 3.4/11.4.2):
+// Unidirectional Streams, Subgroups, Objects
 // ---------------------------------------------------------------------
 
 const STREAM_TYPE_FETCH_HEADER = 0x05n;
@@ -830,7 +918,7 @@ export function decodeSubgroupHeader(
 }
 
 // ---------------------------------------------------------------------
-// draft-ietf-moq-transport-19 11.3.1: OBJECT_DATAGRAM
+// draft-ietf-moq-transport-22 11.2.1 (draft-19 11.3.1): OBJECT_DATAGRAM
 // ---------------------------------------------------------------------
 
 const DGRAM_PROPERTIES = 0x01n;
@@ -839,7 +927,7 @@ const DGRAM_ZERO_OBJECT_ID = 0x04n;
 const DGRAM_DEFAULT_PRIORITY = 0x08n;
 const DGRAM_STATUS = 0x20n;
 
-/** OBJECT_DATAGRAM Type form 0b00X0XXXX (11.3.1): only the low nibble and
+/** OBJECT_DATAGRAM Type form 0b00X0XXXX (11.2.1): only the low nibble and
  * the STATUS bit may be set -- Type is a varint, so a value >= 0x100 is
  * invalid whatever its low byte -- and STATUS + END_OF_GROUP together are
  * explicitly invalid. Mirrors moqdg_type_valid on the hub side. */
@@ -974,7 +1062,7 @@ export interface SubgroupObject {
 
 /**
  * Decode one Subgroup Object. `prevObjectId` / `isFirst` drive the Object ID
- * Delta accumulation (draft-ietf-moq-transport-19 11.4.2): the first object's
+ * Delta accumulation (draft-ietf-moq-transport-22 11.3.1): the first object's
  * ID is the delta itself, later ones are prevId + delta + 1.
  */
 export function decodeSubgroupObject(
@@ -1015,8 +1103,9 @@ export function decodeSubgroupObject(
 }
 
 // ---------------------------------------------------------------------
-// draft-ietf-moq-transport-19 11.4.4: FETCH data stream (FETCH_HEADER +
-// fetch Objects)
+// draft-ietf-moq-transport-22 11.4.1 (draft-19 11.4.4): FETCH data stream
+// (FETCH_HEADER + fetch Objects). A draft-22 fill fetch stream (3.4) has
+// the same shape; its FETCH_HEADER names the SUBSCRIBE's Request ID.
 // ---------------------------------------------------------------------
 
 export function decodeFetchHeader(bytes: Uint8Array, offset = 0): { requestId: bigint; len: number } {
@@ -1027,7 +1116,7 @@ export function decodeFetchHeader(bytes: Uint8Array, offset = 0): { requestId: b
 }
 
 /** What a later fetch Object may inherit from the ones before it
- * (11.4.4.1). An End of Range sets group/object but not subgroup/priority. */
+ * (11.4.1.1). An End of Range sets group/object but not subgroup/priority. */
 export interface FetchSeq {
   group?: bigint;
   object?: bigint;
@@ -1042,8 +1131,9 @@ export interface FetchObject {
   object: bigint;
   priority?: number;
   payload: Uint8Array;
-  /** Set on an End of Range marker (11.4.4.2) instead of an Object. */
-  endOfRange?: "non_existent" | "unknown";
+  /** Set on an End of Range marker (11.4.1.2) instead of an Object;
+   * "timed_out" (0x20C) exists only on a draft-22 session. */
+  endOfRange?: "non_existent" | "unknown" | "timed_out";
 }
 
 const FETCH_GROUP = 0x08n;
@@ -1053,6 +1143,19 @@ const FETCH_PROPERTIES = 0x20n;
 const FETCH_DATAGRAM = 0x40n;
 const FETCH_EOR_NONE = 0x8cn;
 const FETCH_EOR_UNKNOWN = 0x10cn;
+const FETCH_EOR_TIMED_OUT = 0x20cn; // draft-22 only
+
+const FETCH_EOR: Record<MoqtDraft, Map<bigint, NonNullable<FetchObject["endOfRange"]>>> = {
+  19: new Map([
+    [FETCH_EOR_NONE, "non_existent"],
+    [FETCH_EOR_UNKNOWN, "unknown"],
+  ]),
+  22: new Map([
+    [FETCH_EOR_NONE, "non_existent"],
+    [FETCH_EOR_UNKNOWN, "unknown"],
+    [FETCH_EOR_TIMED_OUT, "timed_out"],
+  ]),
+};
 
 function inherited<T>(v: T | undefined, what: string): T {
   if (v === undefined) fail(`PROTOCOL_VIOLATION: fetch Object references a prior ${what}`);
@@ -1063,11 +1166,13 @@ function inherited<T>(v: T | undefined, what: string): T {
  * only on success. Throws MoqtDecodeError when the bytes run out mid-item
  * (a stream reader waits for more) or on a PROTOCOL_VIOLATION. Groups are
  * taken as ascending (the hub's only order). An End of Range carries the
- * range end's absolute Group and Object, like a first Object. */
+ * range end's absolute Group and Object, like a first Object; 0x20C (End of
+ * Timed-Out Range) is one only on a draft-22 session. */
 export function decodeFetchObject(
   bytes: Uint8Array,
   offset: number,
   seq: FetchSeq,
+  draft: MoqtDraft = 19,
 ): { object: FetchObject; len: number } {
   const flags = decodeVarint(bytes, offset);
   let pos = offset + flags.len;
@@ -1077,11 +1182,11 @@ export function decodeFetchObject(
     return v.value;
   };
   const f = flags.value;
-  if (f === FETCH_EOR_NONE || f === FETCH_EOR_UNKNOWN) {
+  const endOfRange = FETCH_EOR[draft].get(f);
+  if (endOfRange) {
     const group = take();
     const object = take();
     Object.assign(seq, { group, object });
-    const endOfRange = f === FETCH_EOR_NONE ? "non_existent" : "unknown";
     return { object: { group, object, payload: new Uint8Array(0), endOfRange }, len: pos - offset };
   }
   if (f >= 128n) fail(`PROTOCOL_VIOLATION: fetch Serialization Flags 0x${f.toString(16)}`);

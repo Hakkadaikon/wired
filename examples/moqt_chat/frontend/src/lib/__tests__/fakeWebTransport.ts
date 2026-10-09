@@ -3,7 +3,11 @@
 // (resolveReady/rejectClosed/...), the incoming-bidi reader serves one fake
 // control stream so connect() can complete, every client-opened bidi
 // stream is a FakeRequestStream recorded in `requests`, and the
-// incoming-uni reader parks forever. Not a .test file, so vitest does not
+// incoming-uni reader parks forever. `protocol` is the negotiated
+// WebTransport subprotocol (undefined: none, the draft-19 legacy session);
+// with "moqt-22" a test pushes `serverControl` as the hub's draft-22 uni
+// control stream (startD22Control) and every client-opened uni stream's
+// writes land in `uniStreams`. Not a .test file, so vitest does not
 // collect it.
 
 import { concatBytes, decodeControlFrame, encodeControlFrame, encodeRequestOk } from "../moqtWire";
@@ -12,7 +16,7 @@ type WriterLike = { write: () => Promise<void>; close: () => Promise<void> };
 
 /** One stream's hub-to-client half: yields whatever a test push()es (the
  * hub's replies), parking between pushes; end() / a cancel finish it. */
-class FakeControlReplies {
+export class FakeControlReplies {
   #queue: Uint8Array[] = [];
   #wake: (() => void) | undefined;
   #ended = false;
@@ -66,7 +70,7 @@ export const MSG_SUBSCRIBE_NAMESPACE = 0x50n;
 
 export const requestOk = () => encodeControlFrame(0x7n, encodeRequestOk({ parameters: [], trackProperties: [] }));
 
-/** A client-opened bidi request stream (draft-ietf-moq-transport-19 3.3):
+/** A client-opened bidi request stream (draft-ietf-moq-transport-22 6.4.2; d19 3.3):
  * records what the client wrote and whether it FINed or reset its side;
  * `replies` is the hub's half. */
 export class FakeRequestStream {
@@ -163,18 +167,21 @@ function fakeUniStream(wire: Uint8Array) {
   };
 }
 
+type UniStreamLike = { getReader: FakeControlReplies["getReader"] };
+
 /** Incoming uni streams: readable.getReader().read() yields whatever a test
- * push()es, one fake stream per push, parking between pushes. */
+ * push()es, one fake stream per push, parking between pushes; pushStream()
+ * hands over a long-lived stream (the draft-22 control stream) as is. */
 class FakeIncomingUniStreams {
-  #queue: Uint8Array[] = [];
+  #queue: UniStreamLike[] = [];
   #wake: (() => void) | undefined;
 
   getReader() {
     return {
       read: async () => {
         for (;;) {
-          const wire = this.#queue.shift();
-          if (wire) return { value: fakeUniStream(wire), done: false };
+          const stream = this.#queue.shift();
+          if (stream) return { value: stream, done: false };
           await new Promise<void>((resolve) => {
             this.#wake = resolve;
           });
@@ -184,10 +191,20 @@ class FakeIncomingUniStreams {
   }
 
   push(wire: Uint8Array): void {
-    this.#queue.push(wire);
+    this.pushStream(fakeUniStream(wire) as UniStreamLike);
+  }
+
+  pushStream(stream: UniStreamLike): void {
+    this.#queue.push(stream);
     this.#wake?.();
     this.#wake = undefined;
   }
+}
+
+/** A client-opened uni stream: what the client wrote, and whether it FINed. */
+export interface FakeUniWrite {
+  written: Uint8Array[];
+  closed: boolean;
 }
 
 export class FakeWebTransport {
@@ -211,12 +228,57 @@ export class FakeWebTransport {
   resolveClosed!: (info?: unknown) => void;
   rejectClosed!: (err: unknown) => void;
 
+  /** WebTransport.protocol: the negotiated subprotocol, or undefined when
+   * none was (a browser without `protocols` support -> draft-19 legacy). */
+  protocol: string | undefined = undefined;
+  /** The options the client passed to the WebTransport constructor (set by
+   * a test's stub). */
+  options: { protocols?: string[] } | undefined;
+  /** How many times the client read incomingBidirectionalStreams. */
+  bidiReads = 0;
+  /** The hub's draft-22 uni control stream (SETUP, then GOAWAY ...):
+   * push() an encoded control frame. */
+  readonly serverControl = new FakeControlReplies();
+
+  /** false: the hub opens no bidi control stream (a draft-22 session) --
+   * a read of incomingBidirectionalStreams then parks forever. */
+  bidiControl = true;
+
+  /** Set once the client cancels its incomingBidirectionalStreams reader
+   * (a parked read then ends with done). */
+  bidiCancelled = false;
+  #unparkBidi: (() => void) | undefined;
+
   incomingBidirectionalStreams = {
     getReader: () => ({
-      read: async () => ({ value: fakeControlStream(this.controlReplies), done: false }),
+      read: async () => {
+        this.bidiReads += 1;
+        if (!this.bidiControl) {
+          await new Promise<void>((res) => {
+            this.#unparkBidi = res;
+          });
+          return { value: undefined, done: true };
+        }
+        return { value: fakeControlStream(this.controlReplies), done: false };
+      },
+      cancel: async () => {
+        this.bidiCancelled = true;
+        this.#unparkBidi?.();
+      },
       releaseLock: () => {},
     }),
   };
+
+  /** Negotiates moqt-22 (or reports `protocol` as given; null leaves it
+   * undefined, a browser without the attribute) and opens the hub's uni control stream,
+   * whose first bytes are its SETUP (Type 0x2F00, empty options); no bidi
+   * control stream comes. */
+  startD22Control(protocol: string | null = "moqt-22"): void {
+    this.protocol = protocol ?? undefined;
+    this.bidiControl = false;
+    this.serverControl.push(Uint8Array.of(0xaf, 0x00, 0x00, 0x00));
+    this.incomingUnidirectionalStreams.pushStream(this.serverControl);
+  }
 
   constructor() {
     this.ready = new Promise<void>((res, rej) => {
@@ -237,9 +299,24 @@ export class FakeWebTransport {
     this.closeCalls += 1;
   }
 
-  createUnidirectionalStream = async () => ({
-    getWriter: (): WriterLike => ({ write: async () => {}, close: async () => {} }),
-  });
+  /** Every uni stream the client opened, in order, with its writes. */
+  readonly uniStreams: FakeUniWrite[] = [];
+
+  createUnidirectionalStream = async () => {
+    const rec: FakeUniWrite = { written: [], closed: false };
+    this.uniStreams.push(rec);
+    return {
+      getWriter: () => ({
+        write: async (chunk: Uint8Array) => {
+          rec.written.push(chunk);
+        },
+        close: async () => {
+          rec.closed = true;
+        },
+        releaseLock: () => {},
+      }),
+    };
+  };
 
   /** Every bidi request stream the client opened, in order. */
   readonly requests: FakeRequestStream[] = [];

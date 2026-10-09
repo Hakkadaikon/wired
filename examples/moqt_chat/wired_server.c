@@ -1,6 +1,13 @@
-/* Real-UDP MOQT chat server (draft-ietf-moq-transport-19 minimal subset).
- * libc-free, x86_64-linux, direct syscalls, driven by the single SDK header
- * <wired.h>.
+/* Real-UDP MOQT chat server (draft-ietf-moq-transport-22 minimal subset,
+ * draft-19 fallback). libc-free, x86_64-linux, direct syscalls, driven by
+ * the single SDK header <wired.h>.
+ *
+ * The draft is the WebTransport subprotocol (draft-22 6.2.1): the server
+ * offers the hub's list (wired_moqt_wt_protocols: moqt-22 moqt-19
+ * moqt-18), so a browser that offers "moqt-22" gets a draft-22 session
+ * (one uni control stream per side, 6.3); a browser that offers no
+ * subprotocol still gets the draft-19 legacy session (one server-opened
+ * bidi control stream), with no branch here.
  *
  * Each connected client PUBLISHes exactly one fixed-namespace track (name =
  * participant id) and SUBSCRIBEs to the others; the wired_moqt_ hub
@@ -145,7 +152,8 @@ static void on_session_close(void* ctx, wired_wt_session* s) {
 
 static wired_moqt_hub g_hub;
 
-/* Object cache for FETCH (draft-ietf-moq-transport-19 10.12.3): chat
+/* Object cache for history (draft-ietf-moq-transport-22 3.4 fill fetch
+ * streams; draft-19 10.12.3 Joining FETCH on the legacy session): chat
  * history and a video late-joiner's keyframe group are served from it. One
  * arena for every track, oldest whole group evicted first (moqcache.h), so
  * a busy screen share pushes chat history out first. */
@@ -153,7 +161,7 @@ static wired_moqt_hub g_hub;
 static u8 g_cache_arena[MOQT_CACHE_BYTES];
 
 /* The room's Track Namespace prefix: every namespace a peer announces or
- * watches must sit under it (draft-ietf-moq-transport-19 10.15/10.18). */
+ * watches must sit under it (draft-ietf-moq-transport-22 9.14/9.15). */
 static const char* const ROOM_NS[] = {"wired", "moqt_chat"};
 #define ROOM_NS_N (sizeof ROOM_NS / sizeof ROOM_NS[0])
 
@@ -197,10 +205,11 @@ static int app_on_request(
     int*                        more,
     u64*                        total_size) {
   static const u8 body[] =
-      "moqt_chat: connect via WebTransport (no subprotocol is negotiated; "
-      "the session runs draft-ietf-moq-transport-19) to join the chat "
-      "room. Each participant PUBLISHes one track and SUBSCRIBEs to every "
-      "other participant's track.\n";
+      "moqt_chat: connect via WebTransport to join the chat room. Offer "
+      "the subprotocol moqt-22 for a draft-ietf-moq-transport-22 session; "
+      "with no subprotocol negotiated the session runs "
+      "draft-ietf-moq-transport-19. Each participant PUBLISHes one track "
+      "and SUBSCRIBEs to every other participant's track.\n";
   (void)ctx;
   (void)req;
   (void)offset;
@@ -272,7 +281,7 @@ static int relay_stats_moved(void) {
   return moved;
 }
 
-/* Graceful restart (draft-ietf-moq-transport-19 3.6 / 10.4): on SIGTERM
+/* Graceful restart (draft-ietf-moq-transport-22 6.6.1 / 9.2): on SIGTERM
  * the SDK stops accepting connections and drains for about 5 s
  * (srvrun.c SRVRUN_DRAIN_TICKS) before it closes what is left. Within that
  * window every MOQT session is sent GOAWAY -- New Session URI from
@@ -382,6 +391,12 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
     wired_die(
         "bad CLI flags (moqt_chat is single-process only: do not pass "
         "--workers/--cores/--ifindex)\n");
+  /* draft-22 6.2.1: the WebTransport subprotocols offered ("moqt-22
+   * moqt-19 moqt-18"); none negotiated = the draft-19 legacy session. */
+  static char wt_protocols[32];
+  if (!wired_moqt_wt_protocols(wt_protocols, sizeof wt_protocols))
+    wired_die("wt_protocols buffer too small\n");
+  opt.run.wt_protocols       = wt_protocols;
   opt.run.incoming_cpu       = -1;
   opt.run.wt_on_session      = on_session;
   opt.run.wt_session_ctx     = &g_hub;
