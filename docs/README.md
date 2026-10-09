@@ -24,6 +24,9 @@
   unit vectors to real-client interop, checkbox by checkbox.
 - [Features](features/README.md) — per-spec EARS requirement ledgers (43
   RFCs/FIPS/SPs/drafts), each requirement mapped to its test or its gap.
+- [MoQT track switching](features/moqt-track-switching.md) — the
+  experimental, moqtail-compatible SWITCH_FROM / SSTS extension for
+  draft-22 hub sessions (opt-in).
 - [Interop Results](interop.md) — cross-implementation runs against
   quic-go and webtransport-go.
 - [Comparison](performance/comparison.md) — features and measured speed versus other

@@ -148,8 +148,9 @@ care.
 
 ## MOQT is not on this map
 
-`src/app/moqt/` (twelve modules: `cache`, `ctl`, `data`, `dgram`, `fetch`,
-`kvp`, `ns`, `run`, `sess`, `tstat`, `ver`, `vi`) implements MOQT — a session
+`src/app/moqt/` (fourteen modules: `cache`, `ctl`, `data`, `dgram`,
+`fetch`, `kvp`, `ns`, `qraw`, `run`, `sess`, `ssts`, `tstat`, `ver`, `vi`)
+implements MOQT — a session
 negotiates whichever of draft-ietf-moq-transport-18/19/22 the peer's WT
 subprotocol offers (`moqt-18`/`moqt-19`/`moqt-22`) — but its headers are not
 included by `src/wired.h`, so none of it appears in either table above —
@@ -197,6 +198,29 @@ only):
 | `wired_moqt_on_session_raw` (`run/moqtrun.h`) | Shaped as `wired_rawq_on_session` (pass it as `raw_on_session` with the hub as `raw_session_ctx`): the ALPN `moqt-NN` picks the draft, the control streams are the uni pair, PATH/AUTHORITY Setup Options are accepted when well-formed (MALFORMED_PATH 0x9 / MALFORMED_AUTHORITY 0x1A otherwise), a GOAWAY carries an empty New Session URI, and a full hub closes the session INTERNAL_ERROR. |
 | `wired_moqt_hub.raw_policy` (a `moqraw_policy`) | Optional `accept_path` / `accept_authority` hooks for raw sessions' well-formed PATH/AUTHORITY; a refusal closes INVALID_PATH (0x8) / INVALID_AUTHORITY (0x19). Zero (the `wired_moqt_init` default) accepts every well-formed value. |
 | `WIRED_MOQTRUN_CLOSE_MALFORMED_PATH`, `WIRED_MOQTRUN_CLOSE_MALFORMED_AUTHORITY` | The 0x9 / 0x1A session termination codes above. |
+
+### Experimental: track switching (moqtail-compatible, draft-22 only)
+
+**Experimental** means stronger warnings than the low-level tier: the
+names, defaults and wire behavior may change or be removed in any commit,
+without a version bump or a deprecation period. These names implement
+an extension that is not in draft-ietf-moq-transport-22. It uses moqtail's
+code points, and has been verified in-process only, with no third-party
+interop yet. Everything defaults to off: a hub that does not set these fields behaves exactly as
+before, and parameters 0x24 / 0x41 still close a session with
+PROTOCOL_VIOLATION. Overview:
+[MoQT track switching](features/moqt-track-switching.md).
+
+| Name | Role |
+|---|---|
+| `wired_moqt_hub.switch_track` (`run/moqtrun.h`) | 1 enables SWITCH_FROM (0x24) on draft-22 sessions; 0 (the `wired_moqt_init` default) keeps it a PROTOCOL_VIOLATION close. |
+| `wired_moqt_hub.ssts_algs`, `ssts_alg_n` (`run/moqtrun.h`) | A caller-owned list of SSTS algorithm IDs the hub advertises in its draft-22 SETUP (option 0x09, at most `MOQCTL_SSTS_MAX_ALGS` = 4 sent). `ssts_alg_n` 0 (the default) disables SSTS. The list must outlive the hub. |
+| `wired_moqt_hub.ssts_cap_kbps` (`run/moqtrun.h`) | The budget for the default algorithm (0) in kbps. 0 means uncapped. There is no bandwidth estimator. |
+| `WIRED_MOQTSW_SOFT_WAIT_MS` (`run/moqtswitch.h`) | Soft SWITCH_FROM give-up time (4000 ms). |
+| `WIRED_MOQTRUN_SSTS_SETS` (`run/moqtss.h`) | Switching sets per subscriber session (8). An assignment beyond it is refused INTERNAL_ERROR. |
+| `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` (`run/moqtrun.h`) | Not new, but raised from 3 to 4 so that a peer can publish a low-rate variant. This is a capacity change that grows the peer table. |
+| `MOQCTL_PARAM_SWITCH_FROM` (0x24), `MOQCTL_PARAM_SWITCHING_SET_ASSIGNMENT` (0x41), `MOQCTL_OPT_SSTS_ALGORITHMS` (0x09), `MOQCTL_SWITCH_HARD` / `_SOFT`, `MOQCTL_ERR_INVALID_SWITCH` (0x32), `MOQCTL_ERR_UNSUPPORTED_EXTENSION` (0x33), `MOQCTL_DONE_SWITCHED` (0x3), `MOQCTL_SSTS_ALG_DEFAULT` / `_BACKPRESSURE`, `MOQCTL_SSTS_MAX_ALGS`, `moqctl_switchfrom`, `moqctl_ssa` (`ctl/moqctl.h`) | Codec constants and value structs. They are SDK-internal (`moqctl_*`) but are listed here because an application that builds its own client needs the code points. |
+| `moqssts_*` / `MOQSSTS_*` (`ssts/moqssts.h`) | Pure SSTS algorithms (default 0, backpressure 0xff01). SDK-internal, with no stability promise. |
 
 ---
 

@@ -106,6 +106,15 @@ independent implementation) are tracked separately: see
 | [draft-ietf-moq-transport-19](draft-moq-transport.md) | 209/209 | 200 | 9 | 0 |
 | [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 207/212 | 197 | 10 | 5 |
 
+Experimental, not counted above:
+[MoQT track switching](moqt-track-switching.md) is an opt-in,
+moqtail-compatible extension (SWITCH_FROM 0x24, SWITCHING_SET_ASSIGNMENT
+0x41, SSTS_ALGORITHMS 0x09) for draft-22 sessions only. It has been tested
+in-process only, with no third-party interop yet. Its items are in the
+draft-22 ledger's
+[Experimental extensions](draft-moq-transport-22.md#experimental-extensions-moqtail-compatible-track-switching)
+section.
+
 ## IP/UDP foundations
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
