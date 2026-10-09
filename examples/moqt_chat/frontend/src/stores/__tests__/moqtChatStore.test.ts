@@ -128,9 +128,36 @@ describe("moqtChatStore", () => {
     useMoqtChatStore.getState().setNickname("user2", "Bob");
     expect(useMoqtChatStore.getState().nicknames).toEqual({ user1: "Alice", user2: "Bob" });
   });
+  it("removeScreenTile forgets that tile's variant", () => {
+    const s = useMoqtChatStore.getState();
+    s.addScreenTile("user2");
+    s.setScreenTileVariant("user2", "lo");
+    s.setScreenTileVariant("user3", "hi");
+    s.removeScreenTile("user2");
+    expect(useMoqtChatStore.getState().screenTileVariants).toEqual({ user3: "hi" });
+  });
+
+  it("F1: a peer that leaves and rejoins starts with no stale quality or variant", () => {
+    const s = useMoqtChatStore.getState();
+    s.addPeer("user2");
+    s.setScreenTileQuality("user2", "low");
+    s.setScreenTileVariant("user2", "lo");
+    s.setScreenTileQuality("user3", "high");
+    s.removePeer("user2");
+    s.addPeer("user2");
+    const after = useMoqtChatStore.getState();
+    expect(after.screenTileQuality).toEqual({ user3: "high" });
+    expect(after.screenTileVariants).toEqual({});
+  });
+
 });
 
 describe("resolveDisplayName", () => {
+  // Many store tests live here too: each starts from the initial state.
+  beforeEach(() => {
+    useMoqtChatStore.setState(useMoqtChatStore.getInitialState());
+  });
+
   it("returns the nickname when one is known", () => {
     expect(resolveDisplayName("user1", { user1: "Alice" })).toBe("Alice");
   });
@@ -328,5 +355,39 @@ describe("resolveDisplayName", () => {
     expect(useMoqtChatStore.getState().localSpeaking).toBe(true);
     useMoqtChatStore.getState().setLocalSpeaking(false);
     expect(useMoqtChatStore.getState().localSpeaking).toBe(false);
+  });
+
+  it("track switching: per-tile received variant and chosen quality, plus the session's switching flag", () => {
+    const s = useMoqtChatStore.getState();
+    expect(s.screenSwitching).toBe(false);
+    expect(s.screenTileVariants).toEqual({});
+    expect(s.screenTileQuality).toEqual({});
+    s.setScreenSwitching(true);
+    s.setScreenTileVariant("user2", "lo");
+    s.setScreenTileQuality("user2", "high");
+    const after = useMoqtChatStore.getState();
+    expect(after.screenSwitching).toBe(true);
+    expect(after.screenTileVariants).toEqual({ user2: "lo" });
+    expect(after.screenTileQuality).toEqual({ user2: "high" });
+  });
+
+  it("an unchanged variant does not produce a new state object (set on every keyframe)", () => {
+    const s = useMoqtChatStore.getState();
+    s.setScreenTileVariant("user2", "hi");
+    const before = useMoqtChatStore.getState().screenTileVariants;
+    s.setScreenTileVariant("user2", "hi");
+    expect(useMoqtChatStore.getState().screenTileVariants).toBe(before);
+  });
+
+  it("clearScreenTiles also forgets the variants, qualities and the switching flag (a new session)", () => {
+    const s = useMoqtChatStore.getState();
+    s.setScreenSwitching(true);
+    s.setScreenTileVariant("user2", "lo");
+    s.setScreenTileQuality("user2", "low");
+    s.clearScreenTiles();
+    const after = useMoqtChatStore.getState();
+    expect(after.screenSwitching).toBe(false);
+    expect(after.screenTileVariants).toEqual({});
+    expect(after.screenTileQuality).toEqual({});
   });
 });

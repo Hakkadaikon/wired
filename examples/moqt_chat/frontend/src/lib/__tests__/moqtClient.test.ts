@@ -1231,11 +1231,12 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
     expect(client.draft).toBe(22);
   });
 
-  it("opens its own uni control stream with SETUP (af 00 00 00) and keeps it open", async () => {
+  it("opens its own uni control stream with SETUP and keeps it open", async () => {
     const { fake, statuses } = await connected22();
 
     expect(statuses).toEqual(["connecting", "connected"]);
-    expect(bytesToHex(concatBytes(fake.uniStreams[0].written))).toBe("af000000");
+    // SETUP's only option: SSTS_ALGORITHMS [0xff01, 0] (moqtClientSwitch.test.ts).
+    expect(bytesToHex(concatBytes(fake.uniStreams[0].written))).toBe("af0000060904c0ff0100");
     expect(fake.uniStreams[0].closed).toBe(false);
   });
 
@@ -1487,7 +1488,7 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
     await flush();
 
     expect(client.draft).toBe(22);
-    expect(bytesToHex(concatBytes(fake.uniStreams[0].written))).toBe("af000000");
+    expect(bytesToHex(concatBytes(fake.uniStreams[0].written))).toBe("af0000060904c0ff0100");
     // The losing d19 wait on incomingBidirectionalStreams is cancelled, not
     // left parked to swallow a later hub-opened bidi stream.
     expect(fake.bidiCancelled).toBe(true);

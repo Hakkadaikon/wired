@@ -433,6 +433,20 @@ input {
   gap: 0.75em;
 }
 
+.screen-tile__variant {
+  font-weight: bold;
+  letter-spacing: 0.05em;
+}
+
+.screen-tile__quality {
+  padding: 0.1em 0;
+  border: 0;
+  border-bottom: 1px solid var(--gray);
+  background: transparent;
+  color: inherit;
+  font-size: 0.8em;
+}
+
 .screen-tile__bar .sign--small {
   margin-left: auto;
   padding: 0.2em 0.6em;

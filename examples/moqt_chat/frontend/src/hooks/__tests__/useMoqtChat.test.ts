@@ -8,6 +8,8 @@ import {
   connectChatThenVoice,
   handleGoaway,
   handleRoomNamespace,
+  noteScreenTileVariant,
+  settleScreenTileQuality,
   handleSessionStatus,
   micPipelineIsConfigSupported,
   micTracksFrom,
@@ -284,9 +286,15 @@ describe("handleRoomNamespace", () => {
     return {
       store: { addPeer: vi.fn(), removePeer: vi.fn() },
       voice: { subscribeToAudioTrack: vi.fn(async () => {}) },
-      screen: { subscribeToScreenTrack: vi.fn(async () => {}) },
+      screen: { subscribeToScreenTrack: vi.fn(async () => {}), forgetParticipant: vi.fn() },
     };
   }
+
+  it("a withdrawn peer namespace also drops its screen state (quality, gate, hold)", () => {
+    const d = deps();
+    handleRoomNamespace(["user2"], false, d);
+    expect(d.screen.forgetParticipant).toHaveBeenCalledWith("user2");
+  });
 
   it("a peer's namespace adds it and subscribes its audio", () => {
     const d = deps();
@@ -900,3 +908,37 @@ describe("sampleLocalLevel", () => {
   });
 });
 
+
+describe("noteScreenTileVariant (N1)", () => {
+  const store = () => ({ setScreenTileVariant: vi.fn() });
+
+  it("labels the tile on a keyframe when track switching is on", () => {
+    const st = store();
+    noteScreenTileVariant(st, true, "user2", true, "lo");
+    expect(st.setScreenTileVariant).toHaveBeenCalledWith("user2", "lo");
+  });
+
+  it("shows no badge on d19 / without the extension, and not on deltas", () => {
+    const st = store();
+    noteScreenTileVariant(st, false, "user2", true, "hi");
+    noteScreenTileVariant(st, true, "user2", false, "hi");
+    expect(st.setScreenTileVariant).not.toHaveBeenCalled();
+  });
+});
+
+describe("settleScreenTileQuality (N3)", () => {
+  const state = (peers: string[]) => ({ peers, setScreenTileQuality: vi.fn() });
+
+  it("writes the client's settled quality for the latest call of a present peer", () => {
+    const st = state(["user2"]);
+    settleScreenTileQuality(st, "user2", "low", true);
+    expect(st.setScreenTileQuality).toHaveBeenCalledWith("user2", "low");
+  });
+
+  it("skips a peer that left meanwhile, and a superseded call", () => {
+    const st = state(["user3"]);
+    settleScreenTileQuality(st, "user2", "low", true);
+    settleScreenTileQuality(state(["user2"]), "user2", "low", false);
+    expect(st.setScreenTileQuality).not.toHaveBeenCalled();
+  });
+});

@@ -37,6 +37,7 @@ import {
   decodeGoaway,
   decodeFetchObject,
   decodeNamespaceSuffix,
+  decodeSetup,
   decodeSubgroupHeader,
   decodeSubgroupObject,
   decodeSubscribeOk,
@@ -48,6 +49,7 @@ import {
   encodeNamespaceRequest,
   encodePublish,
   encodeSetup,
+  encodeSstsAlgorithms,
   encodeSubscribe,
   encodeVarint,
   hexToBytes,
@@ -58,6 +60,10 @@ import {
   PARAM_FILL_PARAMETERS,
   PARAM_LOCATION_FILTER,
   readToEof,
+  SETUP_OPTION_SSTS_ALGORITHMS,
+  SSTS_ALGORITHM_BACKPRESSURE,
+  SSTS_ALGORITHM_DEFAULT,
+  sstsAlgorithmsOf,
   utf8ToBytes,
   type FetchObject,
   type FetchSeq,
@@ -137,6 +143,17 @@ function fillParam(joiningStart: bigint): MessageParam {
  * fill; d19 Largest Object (the Joining FETCH follows separately). */
 function historyParams(draft: MoqtDraft, joiningStart: bigint): MessageParam[] {
   return draft === 22 ? [NEXT_OBJECT_FILTER, fillParam(joiningStart)] : [LARGEST_OBJECT_FILTER];
+}
+
+// The SSTS algorithms this client takes part in, most preferred first
+// (tasks/moqt-trackswitch-plan.md 1): backpressure, then the default
+// weighted-bandwidth one. Advertised in our own d22 SETUP; the negotiated
+// algorithm is the first of these the hub's SETUP also lists.
+export const CLIENT_SSTS_ALGORITHMS = [SSTS_ALGORITHM_BACKPRESSURE, SSTS_ALGORITHM_DEFAULT];
+
+/** Sorts parameters by ascending Type, as encodeParams' Type deltas need. */
+function byType(params: MessageParam[]): MessageParam[] {
+  return [...params].sort((a, b) => (a.type < b.type ? -1 : a.type > b.type ? 1 : 0));
 }
 
 // Chat history a joiner asks for: the last CHAT_HISTORY_GROUPS Groups of
@@ -356,6 +373,18 @@ export interface MoqtChatCallbacks {
   // reuse the current one) or the WebTransport session draining (uri "").
   // Fires at most once per session; the caller reconnects.
   onGoaway?(uri: string): void;
+  // The hub's draft-22 SETUP arrived: the SSTS_ALGORITHMS it advertised
+  // ([] without the option -- an extension-less hub). Never fires on d19.
+  onHubSetup?(sstsAlgorithms: bigint[]): void;
+}
+
+/** subscribeTrack's extra options. `params`: experimental extension
+ * parameters (SWITCH_FROM, SWITCHING_SET_ASSIGNMENT) -- sent only on a
+ * draft-22 session whose hub advertised SSTS_ALGORITHMS (trackSwitching),
+ * silently left out otherwise, since anywhere else they are unknown
+ * parameters and close the session. */
+export interface SubscribeOptions {
+  params?: MessageParam[];
 }
 
 /** A subscription's history: the joiningStart Groups before the Largest
@@ -520,6 +549,13 @@ export class MoqtChatClient {
   #fetches = new Map<bigint, JoiningFetch>();
   // The current session's draft (wt.protocol after ready).
   #draft: MoqtDraft = 19;
+  // The hub's d22 SETUP's SSTS_ALGORITHMS: undefined until it arrives or
+  // when it carries no such option (the extension is off on that hub).
+  #hubSsts: bigint[] | undefined;
+  // A protocol-less session's hub SETUP read while #awaitHubControl's race
+  // was still open: onHubSetup waits until the race says d22 (a d19 winner
+  // drops it), so it never reports a session as d22 too early.
+  #hubSetupDeferred = false;
   // Set while a session without a `protocol` attribute waits to see which
   // control stream the hub opens (#awaitHubControl): the d22 uni SETUP
   // resolves it.
@@ -571,6 +607,8 @@ export class MoqtChatClient {
       this.#fetchTurn = Promise.resolve();
       const protocol = (wt as { protocol?: string }).protocol;
       this.#draft = protocol === MOQT_WT_PROTOCOL_22 ? 22 : 19;
+      this.#hubSsts = undefined;
+      this.#hubSetupDeferred = false;
       this.#onHubSetup22 = undefined;
       this.#controlWriter = undefined;
       // Both readers end by rejecting once the session closes.
@@ -616,6 +654,30 @@ export class MoqtChatClient {
    * negotiated, else 19 (the legacy session). */
   get draft(): MoqtDraft {
     return this.#draft;
+  }
+
+  /** The SSTS algorithm ids the hub's d22 SETUP advertised ([] when none
+   * did, or on a d19 session). */
+  get sstsAlgorithms(): bigint[] {
+    return this.#draft === 22 ? [...(this.#hubSsts ?? [])] : [];
+  }
+
+  /** Whether the experimental track switching extension is on for this
+   * session: draft-22 and the hub's SETUP carried SSTS_ALGORITHMS -- with
+   * any list, even an empty one or ids this client does not know. That
+   * alone gates SWITCH_FROM and the screen share's low-quality variant;
+   * SSTS (SWITCHING_SET_ASSIGNMENT) additionally needs a negotiated
+   * sstsAlgorithm. False until the hub's SETUP is in (normally right after
+   * connect; onHubSetup reports it). */
+  get trackSwitching(): boolean {
+    return this.#draft === 22 && this.#hubSsts !== undefined;
+  }
+
+  /** The negotiated SSTS algorithm: the first of CLIENT_SSTS_ALGORITHMS the
+   * hub also advertised, undefined when there is none. */
+  get sstsAlgorithm(): bigint | undefined {
+    const hub = this.sstsAlgorithms;
+    return CLIENT_SSTS_ALGORITHMS.find((id) => hub.includes(id));
   }
 
   /** Sends this client's nickname self-announce once, over the same Object
@@ -723,7 +785,7 @@ export class MoqtChatClient {
     this.#bidiCtlReader = undefined;
     reader.releaseLock();
     if (done || !stream) throw new Error("hub did not open a control stream");
-    void readControlFrames(stream.readable.getReader(), this.#onControlFrame(wt));
+    void readControlFrames(stream.readable.getReader(), this.#onControlFrame(wt, false));
   }
 
   // A browser that sent WT-Available-Protocols but has no `protocol`
@@ -738,23 +800,32 @@ export class MoqtChatClient {
     bidi.catch(() => {}); // a loser's later rejection is no unhandled one
     const winner = await Promise.race([bidi, uniSetup]);
     this.#onHubSetup22 = undefined;
-    if (winner === "d19") return;
+    const deferred = this.#hubSetupDeferred;
+    this.#hubSetupDeferred = false;
+    if (winner === "d19") {
+      this.#hubSsts = undefined; // a stray uni SETUP lost the race: not ours
+      return;
+    }
     // Stop the losing wait so no later hub-opened bidi stream is taken
     // for a control stream (its read ends done; bidi's rejection is caught).
     void this.#bidiCtlReader?.cancel().catch(() => {});
     this.#draft = 22;
+    if (deferred) this.#callbacks.onHubSetup?.(this.sstsAlgorithms);
     await this.#openControlStream22(wt);
   }
 
   // d22 6.3: our own control stream -- a uni stream whose first bytes are
-  // SETUP (9.1; no Setup Options) -- kept open for the session's lifetime.
+  // SETUP (9.1) -- kept open for the session's lifetime. Its one Setup
+  // Option is SSTS_ALGORITHMS (an odd Type: a hub without the extension
+  // ignores it like any unknown option, d22 9.1).
   // The hub holds our requests until both SETUPs are exchanged, so connect
   // goes on without waiting for the hub's (#readServerControl reads it).
   async #openControlStream22(wt: WebTransport): Promise<void> {
     const stream = await wt.createUnidirectionalStream();
     const writer = stream.getWriter();
     this.#controlWriter = writer;
-    await writer.write(encodeControlFrame(MSG_TYPE_SETUP, encodeSetup({ setupOptions: [] })));
+    const ssts = { type: SETUP_OPTION_SSTS_ALGORITHMS, raw: encodeSstsAlgorithms(CLIENT_SSTS_ALGORITHMS) };
+    await writer.write(encodeControlFrame(MSG_TYPE_SETUP, encodeSetup({ setupOptions: [ssts] })));
   }
 
   // d22: the hub's control stream (6.4.1 stream type 0x2F00): its SETUP,
@@ -762,11 +833,17 @@ export class MoqtChatClient {
   async #readServerControl(first: Uint8Array, reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
     const wt = this.#wt;
     if (!wt) return;
-    await readControlFrames(reader, this.#onControlFrame(wt), first);
+    await readControlFrames(reader, this.#onControlFrame(wt, true), first);
   }
 
-  #onControlFrame(wt: WebTransport): (r: Reply) => void {
+  // d22: whether this is the hub's uni control stream (d22 6.4.1), whose
+  // SETUP is read even before #awaitHubControl has settled #draft.
+  #onControlFrame(wt: WebTransport, d22: boolean): (r: Reply) => void {
     return ({ type, body }) => {
+      if (type === MSG_TYPE_SETUP) {
+        if (d22) this.#onHubSetup(wt, body);
+        return;
+      }
       if (type !== MSG_TYPE_GOAWAY) return;
       let uri = "";
       try {
@@ -776,6 +853,24 @@ export class MoqtChatClient {
       }
       this.#goAway(wt, uri);
     };
+  }
+
+  // The hub's d22 SETUP (9.1): only its SSTS_ALGORITHMS is acted on. The
+  // d19 bidi control stream's SETUP never gets here, and a stray uni
+  // stream's after d19 won the race is ignored: neither d22 nor deciding.
+  #onHubSetup(wt: WebTransport, body: Uint8Array): void {
+    if (this.#wt !== wt) return;
+    if (this.#draft !== 22 && !this.#onHubSetup22) return;
+    try {
+      this.#hubSsts = sstsAlgorithmsOf(decodeSetup(body).setupOptions);
+    } catch {
+      this.#hubSsts = undefined; // a malformed SETUP advertises nothing
+    }
+    if (this.#onHubSetup22) {
+      this.#hubSetupDeferred = true; // reported once #awaitHubControl says d22
+      return;
+    }
+    this.#callbacks.onHubSetup?.(this.sstsAlgorithms);
   }
 
   #goneAway?: WebTransport;
@@ -877,10 +972,16 @@ export class MoqtChatClient {
    * 10.12.2). Resolves false when the label was already in flight or
    * established (nothing sent, history untouched), else true once the
    * SUBSCRIBE is answered. */
-  async subscribeTrack(trackName: Uint8Array, label: string, history?: JoiningFetch): Promise<boolean> {
+  async subscribeTrack(
+    trackName: Uint8Array,
+    label: string,
+    history?: JoiningFetch,
+    opts: SubscribeOptions = {},
+  ): Promise<boolean> {
     if (this.#subs.has(label)) return false;
     const draft = this.#draft;
     const fill = history !== undefined && draft === 22;
+    const extra = this.trackSwitching ? (opts.params ?? []) : [];
     // d22: the fill's Request ID, registered before the SUBSCRIBE goes out
     // (its fill stream may beat SUBSCRIBE_OK).
     let fillId: bigint | undefined;
@@ -890,7 +991,10 @@ export class MoqtChatClient {
           fillId = requestId;
           this.#fetches.set(requestId, history!);
         }
-        return encodeSubscribe({ requestId, trackNamespace: ROOM_NAMESPACE, trackName, parameters }, draft);
+        return encodeSubscribe(
+          { requestId, trackNamespace: ROOM_NAMESPACE, trackName, parameters: byType([...parameters, ...extra]) },
+          draft,
+        );
       });
     // No history will come (refused, failed, or nothing published so no
     // fill stream opens, d22 3.4): end it once, unless its fill already
@@ -929,11 +1033,54 @@ export class MoqtChatClient {
       noHistory();
       return true;
     }
+    // The label was given up (unsubscribe / forgetSubscription) or taken by
+    // a newer SUBSCRIBE while this answer was in flight: it is not ours to
+    // mark, and nobody wants the subscription any more.
+    if (this.#subs.get(label) !== pending) {
+      req?.cancel();
+      noHistory();
+      return true;
+    }
     this.#subscribed.add(label);
     if (!largest || !history) noHistory();
     else if (draft === 19) void this.#joiningFetch(req!.requestId, history);
     // else d22: the fill stream's end ends the history (#readFetchStream).
     return true;
+  }
+
+  /** The Request ID of the SUBSCRIBE under `label` (what a SWITCH_FROM
+   * names), undefined when none is in flight or established. */
+  async subscriptionRequestId(label: string): Promise<bigint | undefined> {
+    return (await this.#subs.get(label))?.requestId;
+  }
+
+  /** Forgets the subscription under `label` without cancelling it: the hub
+   * ends it itself (a SWITCH_FROM's old subscription, finished with
+   * PUBLISH_DONE). Our side of its request stream is FINed (d22 6.4.2.2),
+   * not reset -- a reset would cut the Soft switch's tail. */
+  forgetSubscription(label: string): void {
+    const pending = this.#subs.get(label);
+    if (!pending) return;
+    this.#subs.delete(label);
+    this.#subscribed.delete(label);
+    void pending.then((req) => req?.close());
+  }
+
+  /** Cancels the subscription under `label` (d22 6.4.2.3: a reset), ending
+   * any history still waiting on it; the label may be subscribed again. */
+  unsubscribe(label: string): void {
+    const pending = this.#subs.get(label);
+    if (!pending) return;
+    this.#subs.delete(label);
+    this.#subscribed.delete(label);
+    this.#cancelSub(pending);
+  }
+
+  #cancelSub(pending: Promise<Request | undefined>): void {
+    void pending.then((req) => {
+      req?.cancel();
+      if (req && this.#draft === 22) this.#endFetch(req.requestId);
+    });
   }
 
   // d19: FETCH requests go out one at a time, each once the previous one is
@@ -1031,10 +1178,7 @@ export class MoqtChatClient {
       if (label !== peer && !label.startsWith(`${peer}/`)) continue;
       this.#subs.delete(label);
       this.#subscribed.delete(label);
-      void pending.then((req) => {
-        req?.cancel();
-        if (req && this.#draft === 22) this.#endFetch(req.requestId);
-      });
+      this.#cancelSub(pending);
     }
   }
 

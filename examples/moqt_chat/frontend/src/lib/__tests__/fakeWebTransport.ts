@@ -10,7 +10,23 @@
 // writes land in `uniStreams`. Not a .test file, so vitest does not
 // collect it.
 
-import { concatBytes, decodeControlFrame, encodeControlFrame, encodeRequestOk } from "../moqtWire";
+import {
+  concatBytes,
+  decodeControlFrame,
+  encodeControlFrame,
+  encodeRequestOk,
+  encodeSetup,
+  encodeSstsAlgorithms,
+  SETUP_OPTION_SSTS_ALGORITHMS,
+} from "../moqtWire";
+
+/** A hub SETUP body (startD22Control's setupBody) advertising the
+ * SSTS_ALGORITHMS `algs`; undefined: no such option (an extension-less hub). */
+export function hubSetupBody(algs?: bigint[]): Uint8Array {
+  return encodeSetup({
+    setupOptions: algs ? [{ type: SETUP_OPTION_SSTS_ALGORITHMS, raw: encodeSstsAlgorithms(algs) }] : [],
+  });
+}
 
 type WriterLike = { write: () => Promise<void>; close: () => Promise<void> };
 
@@ -271,12 +287,13 @@ export class FakeWebTransport {
 
   /** Negotiates moqt-22 (or reports `protocol` as given; null leaves it
    * undefined, a browser without the attribute) and opens the hub's uni control stream,
-   * whose first bytes are its SETUP (Type 0x2F00, empty options); no bidi
-   * control stream comes. */
-  startD22Control(protocol: string | null = "moqt-22"): void {
+   * whose first bytes are its SETUP (Type 0x2F00, empty options unless
+   * `setupBody` gives the encoded Setup Options); no bidi control stream
+   * comes. */
+  startD22Control(protocol: string | null = "moqt-22", setupBody: Uint8Array = new Uint8Array(0)): void {
     this.protocol = protocol ?? undefined;
     this.bidiControl = false;
-    this.serverControl.push(Uint8Array.of(0xaf, 0x00, 0x00, 0x00));
+    this.serverControl.push(encodeControlFrame(0x2f00n, setupBody));
     this.incomingUnidirectionalStreams.pushStream(this.serverControl);
   }
 
