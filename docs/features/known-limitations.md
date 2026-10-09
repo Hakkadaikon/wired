@@ -180,6 +180,19 @@ general relay network.
 - **MAX_REQUEST_UPDATES credit gated by version** — a draft-18 peer is never
   closed for too many REQUEST_UPDATEs (the limit does not exist in d18). Not a
   gap, recorded for completeness. Source: L12-5.
+- **Late joiner gets the publisher's SUBGROUP_HEADER verbatim** — a
+  subscriber that joins a relayed subgroup stream mid-way
+  (`moqtrun_relay_late_open` / `moqtrun_rel_late_attach`) is sent the saved
+  header bytes unchanged, then the following Objects. When the publisher set
+  FIRST_OBJECT (0x40; draft-22 §2.2 makes it a MUST for an Original
+  Publisher opening a subgroup, and the guide samples and moqt_chat do so),
+  the late joiner's stream claims to start at the subgroup's first Object
+  although it starts later. The bit asserts that the stream's first Object
+  is the first one ever published in the subgroup (draft-22 §2.2, §11.3.1),
+  so a relay forwarding from mid-subgroup should send the header with the
+  bit cleared. Impact: a strict subscriber may misread the first Object ID of a
+  late-joined stream. Source: guide review 2026-10-09,
+  `src/app/moqt/run/moqtrun.c` `moqtrun_relay_save_hdr`.
 - **Range Filters do not exist in draft-18** — the hub closes a d18 session
   that sends one (unknown parameter type). Source: ledger:draft-moq-transport-18.md.
 

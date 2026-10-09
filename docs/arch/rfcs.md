@@ -120,8 +120,9 @@ the WebTransport subprotocol the peer offers (`moqt-18`/`moqt-19`/`moqt-22`;
 no subprotocol falls back to draft-19) — under `src/app/moqt/` (twelve
 modules: `cache`, `ctl`, `data`, `dgram`, `fetch`, `kvp`, `ns`, `run`,
 `sess`, `tstat`, `ver`, `vi`). `examples/moqt_chat` drives it as a live
-audio/video/chat hub over WebTransport (draft-19, since a browser cannot pick
-a WT subprotocol), and `examples/moqt_interop` offers all three drafts to the
+audio/video/chat hub over WebTransport (draft-22 when the browser can offer
+the `moqt-22` WT subprotocol through WebTransport `protocols`, draft-19
+otherwise), the guide's MoQT samples run draft-22, and `examples/moqt_interop` offers all three drafts to the
 moq-interop-runner clients.
 
 | Spec | Title | Link | Why |

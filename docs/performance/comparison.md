@@ -518,8 +518,8 @@ cert.pem --key key.pem` (single-process) or `--ifindex <n> --ip <server-ip>
     detailed there).
 [^w-moqt]: `src/app/moqt/` (twelve modules: `cache`, `ctl`, `data`,
     `dgram`, `fetch`, `kvp`, `ns`, `run`, `sess`, `tstat`, `ver`, `vi`) +
-    `examples/moqt_chat` (draft-19 only: a browser cannot pick a WT
-    subprotocol) and `examples/moqt_interop` (draft-18/19/22). Hub/relay
+    `examples/moqt_chat` (draft-22 when the browser offers `moqt-22`
+    through WebTransport `protocols`, draft-19 fallback otherwise) and `examples/moqt_interop` (draft-18/19/22). Hub/relay
     role; SETUP/SUBSCRIBE/PUBLISH/FETCH/namespace subset, SUBGROUP_HEADER
     and OBJECT_DATAGRAM data plane. The version table is
     `src/app/moqt/ver/moqver.c`: `wired_moqt_wt_protocols` writes the
