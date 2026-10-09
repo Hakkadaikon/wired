@@ -22,7 +22,7 @@ static void on_datagram(void* ctx, wired_wt_session* s, wired_span data) {
   usz       off = 0;
   moqdg_obj o   = {0};
   o.track_alias = 2;
-  o.payload     = wired_span_of((const u8*)"ping-obj", 8);
+  o.payload     = wired_span_cstr("ping-obj");
   if (moqdg_put(wired_mspan_of(dg, sizeof dg), &off, &o) == MOQDATA_OK)
     wired_server_wt_send_datagram_to(s, wired_span_of(dg, off));
 

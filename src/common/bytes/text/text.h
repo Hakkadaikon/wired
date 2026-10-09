@@ -82,4 +82,41 @@ void wired_dump_hex(i64 fd, wired_span s);
  */
 void wired_dump_text(i64 fd, wired_span s);
 
+/**
+ * Whether two NUL-terminated strings are equal.
+ * @param a first string
+ * @param b second string
+ * @return 1 if equal, 0 otherwise
+ */
+int wired_cstr_eq(const char* a, const char* b);
+
+/**
+ * Append s to the C string in dst at offset at, keeping dst NUL-terminated
+ * and cutting at cap - 1 bytes.
+ * @param dst destination buffer (cap bytes; untouched when cap is 0)
+ * @param cap capacity of dst including the NUL
+ * @param at  current length of the string in dst; at >= cap appends
+ *            nothing and returns at
+ * @param s   bytes to append (wired_span_cstr for a C string)
+ * @return the new length
+ */
+usz wired_cstr_append(char* dst, usz cap, usz at, wired_span s);
+
+/**
+ * s without one leading byte c, or s itself when it does not start with c
+ * (e.g. a request path without its leading '/').
+ * @param s view
+ * @param c byte to drop
+ * @return the possibly shortened view
+ */
+wired_span wired_span_strip_lead(wired_span s, u8 c);
+
+/**
+ * Append the bytes of s to b at b->len, cut at b->cap (no NUL is written).
+ * @param b buffer to append to
+ * @param s bytes to append
+ * @return bytes appended
+ */
+usz wired_obuf_put(wired_obuf* b, wired_span s);
+
 #endif

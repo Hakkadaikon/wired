@@ -43,7 +43,7 @@ static void on_stream_data(
   }
   wired_dprintf(
       2, "inflight %d\n", wired_server_wt_stream_inflight(s, (u64)g_uni) != 0);
-  wired_server_wt_stream_reply(s, stream_id, wired_span_of((const u8*)"ok", 2));
+  wired_server_wt_stream_reply(s, stream_id, wired_span_cstr("ok"));
 }
 
 int wired_main(int argc, char** argv) {

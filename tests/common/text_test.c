@@ -103,7 +103,54 @@ static void test_text_span_find(void) {
   CHECK(wired_span_find(wired_span_of(s.p, 0), 'a') == -1);
 }
 
+static void test_text_cstr_eq(void) {
+  CHECK(wired_cstr_eq("cubic", "cubic") && wired_cstr_eq("", ""));
+  CHECK(!wired_cstr_eq("cubic", "cub") && !wired_cstr_eq("cub", "cubic"));
+  CHECK(!wired_cstr_eq("bbr", "bbx"));
+}
+
+/* Boundary: fits, cut at cap - 1, already full, cap 0. */
+static void test_text_cstr_append(void) {
+  char out[8];
+  usz  at = wired_cstr_append(out, sizeof out, 0, wired_span_cstr("GET"));
+  CHECK(at == 3 && strcmp(out, "GET") == 0);
+  at = wired_cstr_append(out, sizeof out, at, wired_span_cstr(" /index"));
+  CHECK(at == 7 && strcmp(out, "GET /in") == 0);
+  CHECK(wired_cstr_append(out, sizeof out, at, wired_span_cstr("x")) == 7);
+  CHECK(strcmp(out, "GET /in") == 0);
+  out[0] = 'q';
+  CHECK(
+      wired_cstr_append(out, 0, 0, wired_span_cstr("x")) == 0 && out[0] == 'q');
+  /* at past the end: no write, no unsigned wrap. */
+  out[7] = 'z';
+  CHECK(
+      wired_cstr_append(out, 7, 7, wired_span_cstr("x")) == 7 && out[7] == 'z');
+  CHECK(wired_cstr_append(out, 4, 9, wired_span_cstr("x")) == 9);
+}
+
+static void test_text_span_strip_lead(void) {
+  wired_span s = wired_span_strip_lead(wired_span_cstr("/a/b"), '/');
+  CHECK(s.n == 3 && s.p[0] == 'a');
+  CHECK(wired_span_strip_lead(wired_span_cstr("a"), '/').n == 1);
+  CHECK(wired_span_strip_lead(wired_span_cstr(""), '/').n == 0);
+  CHECK(wired_span_strip_lead(wired_span_cstr("//"), '/').n == 1);
+}
+
+/* Appends at len, cut at cap, no NUL. */
+static void test_text_obuf_put(void) {
+  u8         raw[6] = {0};
+  wired_obuf b      = obuf_of(raw, sizeof raw);
+  CHECK(wired_obuf_put(&b, wired_span_cstr("abcd")) == 4 && b.len == 4);
+  CHECK(wired_obuf_put(&b, wired_span_cstr("efg")) == 2 && b.len == 6);
+  CHECK(memcmp(raw, "abcdef", 6) == 0);
+  CHECK(wired_obuf_put(&b, wired_span_cstr("h")) == 0 && b.len == 6);
+}
+
 void test_text(void) {
+  test_text_cstr_eq();
+  test_text_cstr_append();
+  test_text_span_strip_lead();
+  test_text_obuf_put();
   test_text_span_find();
   test_text_span_cstr();
   test_text_span_arg();

@@ -68,3 +68,27 @@ void wired_dump_hex(i64 fd, wired_span s) {
 }
 
 void wired_dump_text(i64 fd, wired_span s) { text_write_all(fd, s.p, s.n); }
+
+int wired_cstr_eq(const char* a, const char* b) {
+  return wired_span_eq_cstr(wired_span_cstr(a), b);
+}
+
+usz wired_cstr_append(char* dst, usz cap, usz at, wired_span s) {
+  if (at >= cap) return at; /* full (or cap 0): nothing fits, not even NUL */
+  usz n = (usz)u64_min(s.n, cap - 1 - at);
+  for (usz i = 0; i < n; i++) dst[at + i] = (char)s.p[i];
+  dst[at + n] = 0;
+  return at + n;
+}
+
+wired_span wired_span_strip_lead(wired_span s, u8 c) {
+  usz k = s.n > 0 && s.p[0] == c;
+  return wired_span_of(s.p + k, s.n - k);
+}
+
+usz wired_obuf_put(wired_obuf* b, wired_span s) {
+  usz n = (usz)u64_min(s.n, b->cap - b->len);
+  for (usz i = 0; i < n; i++) b->p[b->len + i] = s.p[i];
+  b->len += n;
+  return n;
+}
