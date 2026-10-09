@@ -353,10 +353,18 @@ static void test_moqtrun_ns_per_session_cap(void) {
   CHECK(mtrq_used() == WIRED_MOQTRUN_MAX_REQS_PER_SESSION);
   CHECK(mtrq_reset_code(MTRQ_ID(WIRED_MOQTRUN_MAX_REQS_PER_SESSION)) == 0x9);
   mtns_sub(SESS_B, MTRQ_S1, "");
-  CHECK(mtns_is(
-      SESS_B, MTRQ_S1,
-      "OK|NS:na|NS:nb|NS:nc|NS:nd|NS:ne|NS:nf|NS:ng|NS:nh|NS:ni|NS:nj|NS:nk|"
-      "NS:nl|NS:nm|NS:nn|NS:no|NS:np|"));
+  /* "OK|NS:na|NS:nb|..." for each namespace that took a slot */
+  static char want[3 + WIRED_MOQTRUN_MAX_REQS_PER_SESSION * 6 + 1];
+  usz         w = 3;
+  bytes_memcpy(want, "OK|", 3);
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS_PER_SESSION; i++) {
+    bytes_memcpy(want + w, "NS:n", 4);
+    want[w + 4] = (char)('a' + i);
+    want[w + 5] = '|';
+    w += 6;
+  }
+  want[w] = 0;
+  CHECK(mtns_is(SESS_B, MTRQ_S1, want));
 }
 
 /* A push that does not fit the subscriber's queue waits for a later round

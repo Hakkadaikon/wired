@@ -8,6 +8,7 @@
 #include "app/moqt/fetch/moqfetch.h"
 #include "app/moqt/qraw/moqraw.h"
 #include "app/moqt/run/moqtrel.h"
+#include "app/moqt/run/moqtss.h"
 #include "app/moqt/sess/moqsess.h"
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -310,6 +311,33 @@ typedef struct {
   /** Streams the hub opened for this subscription (relay, blob, live and
    * fetch streams alike): PUBLISH_DONE's Stream Count (draft 10.10). */
   u64 stream_count;
+  /* SSTS (moqtssts_run.c) */
+  /** Group of verdict bit 0: bit k of ssts_known / ssts_fwd is the
+   * recorded verdict for Group ssts_base + k (moqtss_sub_pass). */
+  u64 ssts_base;
+  /** Bit k: a final SSTS decision for Group ssts_base + k was stamped. */
+  u16 ssts_known;
+  /** Bit k: that decision picked this subscription's track. */
+  u16 ssts_fwd;
+  /** 1 while the subscription is a member of a switching set: only
+   * Groups decided for it are forwarded. */
+  u8 ssts_on;
+  /* SWITCH_FROM (moqtswitch.c) */
+  /** MOQTSW_ROLE_*: NONE, OLD (switched away from, its end pending) or
+   * NEW (activated by a switch, starts at sw_g). */
+  u8 sw_role;
+  /** OLD only: 0 Hard, 1 Soft. */
+  u8 sw_mode;
+  /** OLD only: 1 when the switch asked for Publish Done (flag 0x80). */
+  u8 sw_done;
+  /** The switch boundary G: OLD ends at G-1, NEW starts at {G, 0}. */
+  u64 sw_g;
+  /** OLD only: the activating subscription's Request ID. */
+  u64 sw_peer_rid;
+  /** OLD Soft only: clock (wired_moqt_tick) past which OLD gives up on
+   * its track reaching G-1 -- WIRED_MOQTSW_SOFT_WAIT_MS of wall clock from
+   * the switch; the give-up happens only while nothing of OLD is open. */
+  u64 sw_deadline;
 } wired_moqtrun_sub;
 
 /** Fixed capacity for a saved SUBGROUP_HEADER (draft SS11.4.2: Type +
@@ -433,13 +461,15 @@ typedef struct {
 #define WIRED_MOQTRUN_MAX_NS 128
 
 /** Fixed capacity: tracks one peer can PUBLISH at once (chat + audio +
- * screen). */
-#define WIRED_MOQTRUN_MAX_TRACKS_PER_PEER 3
+ * screen + the screen's low-rate SSTS variant, screen-lo). Each track
+ * slot is ~13 KB (31 subs + 4 relays), so 3 -> 4 grows the peer table by
+ * ~32 slots of that; SUB_NAMES and CTL_SEND_BUF scale with it below. */
+#define WIRED_MOQTRUN_MAX_TRACKS_PER_PEER 4
 
 /** Fixed capacity: Track Names one peer remembers having SUBSCRIBEd to
  * (wired_moqtrun_peer.sub_names). The chat app subscribes to every track
  * of every other candidate participant, and the sample room has four
- * candidate ids, so a peer can hold 3 others * 3 tracks = 9 names; 12
+ * candidate ids, so a peer can hold 3 others * 4 tracks = 12 names; 16
  * leaves room without a rejoined publisher's oldest name being evicted. */
 #define WIRED_MOQTRUN_SUB_NAMES (WIRED_MOQTRUN_MAX_TRACKS_PER_PEER * 4)
 
@@ -471,9 +501,12 @@ typedef struct {
  * 3.3) tracked at once, hub-wide. A request stream past it is reset with
  * EXCESSIVE_LOAD; a completed request frees its slot once both sides have
  * ended. Each slot is ~1.9 KB of BSS.
- * ponytail: room-sized; raise when clients move every request onto its
- * own stream. */
-#define WIRED_MOQTRUN_MAX_REQS 64
+ * Sized for a full moqt_chat room with track switching on (draft-22, one
+ * request per stream): each of 4 peers holds 4 PUBLISH + 3 namespace
+ * requests + 3x4 SUBSCRIBEs = 19 streams (76 hub-wide), so 96 keeps the
+ * per-session quarter (24) above 19 with headroom for a fill or FETCH.
+ * ponytail: room-sized; raise when rooms grow. */
+#define WIRED_MOQTRUN_MAX_REQS 96
 
 /** Request streams one session may hold at once, so one session cannot
  * take the whole pool: a fair quarter of it. Past it a new request stream
@@ -546,7 +579,7 @@ typedef struct {
    * gone out with no NAMESPACE_DONE after it (10.18). reqs[i] is not
    * reused while any live subscription holds its bit, so its namespace
    * stays readable for the NAMESPACE_DONE still owed. */
-  u64 ns_seen;
+  u64 ns_seen[(WIRED_MOQTRUN_MAX_REQS + 63) / 64];
   /** SUBSCRIBE_TRACKS only (10.19-10.20): per hub track slot (flat index
    * session*WIRED_MOQTRUN_MAX_TRACKS_PER_PEER+track), the cache_tag of the
    * track incarnation this SUBSCRIBE_TRACKS already tried a PUBLISH or
@@ -595,8 +628,8 @@ typedef struct {
 
 /** Fixed capacity: SUBSCRIBEs held for a publisher (RENDEZVOUS_TIMEOUT,
  * draft-18/19 10.2.6, draft-22 9.20.6), hub-wide. Each hold already pins
- * one request-stream slot (WIRED_MOQTRUN_MAX_REQS = 64), so 16 lets a
- * quarter of the pool wait at once -- interop clients hold one (moq-test-*,
+ * one request-stream slot (WIRED_MOQTRUN_MAX_REQS = 96), so 16 lets a
+ * sixth of the pool wait at once -- interop clients hold one (moq-test-*,
  * rendezvous-timeout) or two (two subscribers of one track). Past it, or
  * past WIRED_MOQTRUN_RDV_PER_SESSION, the SUBSCRIBE is refused
  * EXCESSIVE_LOAD at once, never dropped. Each slot ~1.3 KB of BSS.
@@ -920,6 +953,10 @@ typedef struct {
   /** 1 once the hub asked the transport to close the session: nothing
    * more is sent on it. */
   u8 closing;
+  /* SSTS (moqtssts_run.c) */
+  /** This session's negotiated SSTS algorithms, switching sets and group
+   * decisions (reset with the slot). */
+  moqtss_sess ssts;
 } wired_moqtrun_peer;
 
 /** The hub's own clock-paced live track (wired_moqt_publish_live): Group
@@ -1143,6 +1180,30 @@ typedef struct {
    * some with INVALID_PATH / INVALID_AUTHORITY. Unused for WebTransport
    * sessions, where either option is itself a close. */
   moqraw_policy raw_policy;
+  /* SSTS (moqtssts_run.c) */
+  /** SSTS algorithm ids this hub runs (moqtail --ssts-algorithms), in
+   * the order its draft-22 SETUP advertises them (option 0x09; at most
+   * MOQCTL_SSTS_MAX_ALGS are sent); ids moqssts does not implement are
+   * never negotiated. A caller-owned view; ssts_alg_n 0 (the
+   * wired_moqt_init default) turns SSTS off: no option is sent and a
+   * SUBSCRIBE / REQUEST_UPDATE carrying SWITCHING_SET_ASSIGNMENT closes
+   * the session PROTOCOL_VIOLATION (an unknown parameter, draft-22 9.20).
+   * With SSTS on, an assignment the session cannot take is refused
+   * REQUEST_ERROR UNSUPPORTED_EXTENSION (0x33). */
+  const u64* ssts_algs;
+  usz        ssts_alg_n;
+  /** Default algorithm (0) budget cap in kbps; 0 = uncapped. The hub has
+   * no bandwidth estimate, so this cap is the whole budget
+   * (moqssts_budget_kbps(0, cap)). */
+  u64 ssts_cap_kbps;
+  /* SWITCH_FROM (moqtswitch.c) */
+  /** 1 turns on SWITCH_FROM (0x24) on draft-22 sessions; 0 (the
+   * wired_moqt_init default) keeps the parameter a PROTOCOL_VIOLATION
+   * close, as before the extension. */
+  u8 switch_track;
+  /** Switches whose old subscription may still be waiting to end (a hint
+   * moqtsw_step recounts; 0 skips its walk). */
+  u32 sw_live;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
