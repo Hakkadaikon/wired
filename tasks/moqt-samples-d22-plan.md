@@ -1,3 +1,5 @@
+closed (2026-10-09), successor: none (commits 45c637e, 6365599, 9fb08e4, dd951fb)
+
 # guide サンプルと moqt_chat を draft-22 基準へ — 計画 (2026-10-09)
 
 ユーザー指示: guide サンプルと moqt_chat を最新 draft (22) 基準で動作させる。徹底計画 → TDD 実装
@@ -33,43 +35,43 @@ moqt_chat 方針(ユーザー選択): **22 優先 + 19 フォールバック**(p
 ## 1. 作業項目
 
 ### G. guide サンプル(8 本)
-- [ ] G-1 `guide/moqtclient/moqtclient.go`: d22 セッション確立ヘルパー
+- [x] G-1 `guide/moqtclient/moqtclient.go`: d22 セッション確立ヘルパー
   (`ApplicationProtocols: moqt-22`、クライアント uni SETUP 送信、サーバー uni SETUP 受信)、
   `Request()`(bidi 要求)、d22 FETCH 本体、`Fill` 用 SUBSCRIBE(FILL_PARAMETERS)、
   NextObject フィルタ、inclusive FETCH_OK、0x20C、節番号を d22 に。JoiningFetch 削除。
-- [ ] G-2 各 `main.c` に `opt.wt_protocols = "moqt-22"`(delivery も含め全 8 本)、コメントの節番号を d22 に。
-- [ ] G-3 各 `client.go` を d22 形に(SUBSCRIBE は制御ストリームでなく bidi 要求、GOAWAY は uni 制御から、
+- [x] G-2 各 `main.c` に `opt.wt_protocols = "moqt-22"`(delivery も含め全 8 本)、コメントの節番号を d22 に。
+- [x] G-3 各 `client.go` を d22 形に(SUBSCRIBE は制御ストリームでなく bidi 要求、GOAWAY は uni 制御から、
   data の AcceptUniStream より先に制御 uni を取る)。
-- [ ] G-4 golden: hub/publish/authorize/live/discovery/delivery/priority-goaway は不変の見込み、
+- [x] G-4 golden: hub/publish/authorize/live/discovery/delivery/priority-goaway は不変の見込み、
   fetch は joining → fill で変わる(先に期待 golden を書いて Red → 実装で Green)。
-- [ ] G-5 guide-verify 36/36、snippet-lint、pnpm test。
+- [x] G-5 guide-verify 36/36、snippet-lint、pnpm test。
 
 ### C. moqt_chat
-- [ ] C-1 サーバー `wired_server.c`: `opt.run.wt_protocols` に `wired_moqt_wt_protocols()`
+- [x] C-1 サーバー `wired_server.c`: `opt.run.wt_protocols` に `wired_moqt_wt_protocols()`
   (22/19/18 受理、無交渉ブラウザは legacy d19 のまま)、HTTP 本文と節コメント更新。
-- [ ] C-2 `moqtWire.ts`: 版引数で LOCATION_FILTER を 19/22 両形で encode/decode、FILL_PARAMETERS 0x23
+- [x] C-2 `moqtWire.ts`: 版引数で LOCATION_FILTER を 19/22 両形で encode/decode、FILL_PARAMETERS 0x23
   encode、d22 FETCH 本体(使わないなら不要)、0x20C を d22 で受理、節番号は d22 基準 + d19 注記。
-- [ ] C-3 `moqtClient.ts`: `protocols: ["moqt-22"]` を申し出、`wt.protocol === "moqt-22"` なら d22:
+- [x] C-3 `moqtClient.ts`: `protocols: ["moqt-22"]` を申し出、`wt.protocol === "moqt-22"` なら d22:
   クライアント uni SETUP、サーバー uni 制御(0x2F00)から GOAWAY、履歴は SUBSCRIBE+fill
   (N = joiningStart+1、fill の RID = SUBSCRIBE RID)。それ以外は現行 d19 経路をそのまま。
-- [ ] C-4 `moqtScreenClient.ts`(joiningStart 0 → fill N=1)、`page.tsx` 表記。
-- [ ] C-5 テスト(TDD、先に Red): fakeWebTransport に `protocol` と uni 制御ストリーム/クライアント uni 記録、
+- [x] C-4 `moqtScreenClient.ts`(joiningStart 0 → fill N=1)、`page.tsx` 表記。
+- [x] C-5 テスト(TDD、先に Red): fakeWebTransport に `protocol` と uni 制御ストリーム/クライアント uni 記録、
   moqtClient.test.ts に d22 系(SETUP 送信、uni GOAWAY、fill SUBSCRIBE バイト、fill ストリーム受信)、
   d19 系は現行テストを維持。moqtWireRequests/moqtWire テストに d22 ベクタ。
-- [ ] C-6 `testvectors/moqt_golden.json` に d22 ベクタ(NextObject、FILL_PARAMETERS 付き SUBSCRIBE、
+- [x] C-6 `testvectors/moqt_golden.json` に d22 ベクタ(NextObject、FILL_PARAMETERS 付き SUBSCRIBE、
   EOR 0x20C)。ベクタはサーバー codec(C)で検証する C テストを追加し、`scripts/gen_moqt_golden.py`
   → `tests/app/moqt_golden.h` 再生成、`just golden-check`。
-- [ ] C-7 実ブラウザ確認: Playwright Chromium 141 + 実験フラグで moqt_chat サーバーに接続し
+- [x] C-7 実ブラウザ確認: Playwright Chromium 141 + 実験フラグで moqt_chat サーバーに接続し
   protocol=moqt-22 と chat の送受信・履歴(fill)を確認。不可能ならその理由を記録。
 
 ### D. ドキュメント
-- [ ] D-1 guide en/ja: moqt/{hub,authorize,delivery,discovery,fetch,priority-goaway,publish,live}.mdx、
+- [x] D-1 guide en/ja: moqt/{hub,authorize,delivery,discovery,fetch,priority-goaway,publish,live}.mdx、
   concepts/{limits,media-mapping,streams-vs-datagrams}.mdx(節番号 d22、制御ストリーム形、fill)。
-- [ ] D-2 docs: api-stability.md、arch/rfcs.md、performance/comparison.md、getting-started.md、
+- [x] D-2 docs: api-stability.md、arch/rfcs.md、performance/comparison.md、getting-started.md、
   features/draft-moq-transport.md・-22.md、moqt_chat README、e2e シナリオのコメント。
 
 ### R. レビュー
-- [ ] R-1 別 subagent(quic-reviewer + 汎用)でレビュー → 修正、最大 3 回。
+- [x] R-1 別 subagent(quic-reviewer + 汎用)でレビュー → 修正、最大 3 回。
 
 ## 2. 並列化
 - 実装は G と C を別 coder で並列(ファイル重複なし)。ninja は G のみ使用、C はサーバーを clang 直呼びで検証。
@@ -110,3 +112,16 @@ guide-verify 36/36、guide pnpm test、frontend vitest + lint、実ブラウザ�
 
 これ以上は増やさない: 残りの作業(run.c・golden.h・git)は共有資源で直列、W-G 内の 8 snippet は共通の moqtclient.go に
 依存するため分割すると同じ基盤を二重に作ることになる。
+
+## 5. 結果(2026-10-09)
+
+- G: guide 8 サンプルを moqt-22 化(45c637e)。guide-verify 36/36、golden 変更は moqt-fetch のみ(joining→fill)。
+  レビュー 3 回(R1 FAIL 3 should-fix → R2 FAIL 1 → R3 FAIL 1: publisher の FIRST_OBJECT、上限到達のため
+  コーディネーターが修正し guide-verify で確認)。
+- C: moqt_chat 22 優先 + 19 フォールバック(9fb08e4)。vitest 610/610。レビュー 2 回(R1 FAIL 2 → R2 PASS、
+  nit 3 件はコーディネーターが TDD で修正)。実ブラウザ(Chromium 141): フラグ有り d22 / 無し d19 とも
+  チャット送受信と履歴(d22 は fill)PASS(scratchpad/we/final)。
+- C-6: d22 ベクタ 3 件をサーバー codec で往復照合(6365599)。
+- D: docs/guide 本文/README/e2e コメント(45c637e, dd951fb)。known-limitations に relay の FIRST_OBJECT
+  未クリア(src、範囲外)を記録。
+- 未実施: 既存 e2e スイート(puppeteer)への実験フラグ追加(ハーネスに引数指定の仕組みがない)。
