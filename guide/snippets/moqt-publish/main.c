@@ -20,8 +20,8 @@ int wired_main(int argc, char** argv) {
    * once into wire and sends it to every peer that SUBSCRIBEs. */
   static u8 wire[MOQDATA_BLOB_WIRE_CAP(5)];
   wired_moqt_publish_blob(
-      &g_hub, wired_span_of((const u8*)"greeting", 8), 1,
-      wired_span_of((const u8*)"hello", 5), wired_mspan_of(wire, sizeof wire));
+      &g_hub, wired_span_cstr("greeting"), 1,
+      wired_span_cstr("hello"), wired_mspan_of(wire, sizeof wire));
 
   /* The hub owns every WebTransport session: it sends SETUP when one opens,
    * answers the control messages that arrive, and forgets it on close. */

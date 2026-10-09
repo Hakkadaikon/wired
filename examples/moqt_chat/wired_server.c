@@ -201,16 +201,14 @@ static int app_on_request(
       "the session runs draft-ietf-moq-transport-19) to join the chat "
       "room. Each participant PUBLISHes one track and SUBSCRIBEs to every "
       "other participant's track.\n";
-  usz i;
   (void)ctx;
   (void)req;
   (void)offset;
   (void)more;
   (void)total_size;
   *content_type = "text/plain";
-  for (i = 0; i < sizeof body - 1 && i < body_out->cap; i++)
-    body_out->p[i] = body[i];
-  body_out->len = i;
+  body_out->len = 0;
+  wired_obuf_put(body_out, wired_span_of(body, sizeof body - 1));
   return 1;
 }
 
@@ -292,8 +290,7 @@ static void goaway_on_shutdown(wired_moqt_hub* hub) {
   if (sent || !*wired_srvrun_shutdown_word()) return;
   sent = 1;
   wired_moqt_goaway(
-      hub, wired_span_of((const u8*)g_goaway_uri, wired_cstr_len(g_goaway_uri)),
-      GOAWAY_TIMEOUT_MS);
+      hub, wired_span_cstr(g_goaway_uri), GOAWAY_TIMEOUT_MS);
   wired_log_str("moqt: shutdown requested, GOAWAY sent\n");
 }
 
@@ -322,20 +319,13 @@ static void load_san_ipv4(int argc, char** argv, u8 san_ipv4[4], int* have_it) {
  * NewReno is not selectable here -- CC_ALGO_NEWRENO == 0 is also "unset" in
  * that field (srvrun.h), so a runtime "--cc newreno" would be silently
  * indistinguishable from the default and is refused instead. */
-static int cliarg_streq(const char* a, const char* b) {
-  usz i = 0;
-  for (; a[i] == b[i]; i++)
-    if (a[i] == 0) return 1;
-  return 0;
-}
-
 static int cc_algo_of(const char* name) {
   static const struct {
     const char* name;
     int         algo;
   } table[] = {{"cubic", CC_ALGO_CUBIC}, {"bbr", CC_ALGO_BBR}};
   for (usz i = 0; i < sizeof table / sizeof table[0]; i++)
-    if (cliarg_streq(name, table[i].name)) return table[i].algo;
+    if (wired_cstr_eq(name, table[i].name)) return table[i].algo;
   wired_die(
       "--cc: expected cubic or bbr (NewReno is not selectable via --cc)\n");
   return 0;

@@ -1,3 +1,5 @@
+closed (2026-10-09), successor: none
+
 # SDK helper extraction — handoff (2026-10-05)
 
 Goal (user): pull the boilerplate that is not the point of each sample
@@ -37,24 +39,17 @@ pinned clang-format over the touched ones, so some diffs are line rewraps.
   and `not_found` (h3-static-files).
 - `wired_span_find` replaced `span_find` (examples/webtransport_interop).
 
-## Left (not done, by priority) — items 1-3 and span_find above are done
+## Done (third round, 2026-10-09) — handoff closed
 
-1. `read_file` (tls-certificates): wired_fio_read -> span. Candidate:
-   `wired_fio_read_span(path, buf, cap)` returning a `wired_span` (n=0 on
-   error) in common/platform/fio.
-2. `set_header` (h3-status-headers): candidate `wired_http_field_of(name,
-   value)` from two C strings.
-3. `reply` (h3-routing, h3-status-headers): status + text/plain + body is
-   repeated; candidate `wired_http_reply_text(x, status, text)`.
-4. examples/webtransport_interop: `cstr_len_opt`, `span_find`, `cat_str`,
-   `cat_span`, `strip_slash`, `token_end` are generic text helpers that
-   belong in text.h (`wired_span_find`, a cursor append); the rest
-   (sessions, streams, downloads) is that example's own logic.
-5. examples/moqt_chat `log_append_span`, word_list request parsing: same
-   pattern, review after 4.
-6. Snippet comments "A fixed demo identity: X25519 key share, ..." could be
-   shortened now that wired_srvboot_demo documents it.
+- SDK: `wired_cstr_eq`, `wired_cstr_append` (no-op when at >= cap),
+  `wired_span_strip_lead`, `wired_obuf_put`, with tests.
+- webtransport_interop: `cat_str`, `cat_span`, `strip_slash` removed.
+- word_list: `copy_capped`, `log_append_span`, `reqpath_copy` removed.
+- moqt_chat: `cliarg_streq` removed; a hand copy loop -> `wired_obuf_put`.
+- Snippets: hand-counted `wired_span_of((const u8*)"lit", N)` ->
+  `wired_span_cstr`; the long "fixed demo identity" comments shortened.
 
-Kept on purpose (main line, not boilerplate): moqt-live `send_uni2` slot
-ring, wt-session-lifecycle `find`, ops-cert-reload `report_cert`, every
-authorize/on_* callback.
+Kept on purpose: `cstr_len_opt` (NULL-safe length, one call) and
+`token_end` in webtransport_interop (a span_find form is longer),
+`history_*` in word_list and `origin_allowed` in moqt_chat (app logic).
+Nothing is left open from this handoff.

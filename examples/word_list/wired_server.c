@@ -39,14 +39,6 @@ static void history_append(const u8* body, usz n) {
   for (i = 0; history_room(i, n); i++) g_history[g_history_len++] = body[i];
 }
 
-/* Copy up to out->cap bytes of src into out, setting out->len to the count
- * copied. */
-static void copy_capped(wired_obuf* out, wired_span src) {
-  usz i;
-  for (i = 0; i < src.n && i < out->cap; i++) out->p[i] = src.p[i];
-  out->len = i;
-}
-
 /* Application/driver configuration, resolved once at startup from argv and
  * handed to app_on_request as its opaque ctx. --root selects static file
  * mode; absent, the demo history mode runs unchanged (back-compat). driver
@@ -60,12 +52,6 @@ typedef struct {
   wired_srvdriver_opt driver;     /**< resolved driver selection + knobs */
 } app_config;
 
-/* Append span's bytes to line at *at, stopping at cap. */
-static void log_append_span(char* line, usz cap, usz* at, wired_span span) {
-  usz i;
-  for (i = 0; i < span.n && *at < cap; i++) line[(*at)++] = (char)span.p[i];
-}
-
 /* One line per request: "METHOD PATH STATUS BYTES\n" (ponytail: fixed
  * single-line format, no log levels/rotation -- add if an operator needs it).
  */
@@ -78,9 +64,9 @@ static void access_log(
   char line[512];
   usz  at = 0;
   if (!cfg->access_log) return;
-  log_append_span(line, sizeof line - 1, &at, method);
+  at         = wired_cstr_append(line, sizeof line, at, method);
   line[at++] = ' ';
-  log_append_span(line, sizeof line - 40, &at, path);
+  at         = wired_cstr_append(line, sizeof line - 39, at, path);
   at += wired_snprintf(
       line + at, sizeof line - at, " %llu %llu\n", status, nbytes);
   wired_fio_append(cfg->access_log, wired_span_of((const u8*)line, at));
@@ -88,15 +74,9 @@ static void access_log(
 
 /* Write the 404 body and return its status code. */
 static u64 not_found(wired_obuf* body_out) {
-  copy_capped(body_out, wired_span_of((const u8*)"404 Not Found\n", 14));
+  body_out->len = 0;
+  wired_obuf_put(body_out, wired_span_cstr("404 Not Found\n"));
   return 404;
-}
-
-/* NUL-terminate path into reqpath (cap-1 bytes max). */
-static void reqpath_copy(char* reqpath, usz cap, wired_span path) {
-  usz i;
-  for (i = 0; i < path.n && i < cap - 1; i++) reqpath[i] = (char)path.p[i];
-  reqpath[i] = 0;
 }
 
 /* Read one round of resolved's bytes starting at offset into body_out,
@@ -147,7 +127,7 @@ static u64 serve_static(
     u64*              total_size) {
   char resolved[512];
   char reqpath[400];
-  reqpath_copy(reqpath, sizeof reqpath, path);
+  wired_span_to_cstr(reqpath, sizeof reqpath, path);
   if (!wired_staticfile_resolve(
           cfg->root, reqpath, cfg->index, resolved, sizeof resolved))
     return not_found(body_out);
@@ -162,10 +142,12 @@ static u64 serve_history(
     const wired_h3reqdrive_req* req, wired_obuf* body_out) {
   if (req->method_len == 4 && req->method[0] == 'P') {
     history_append(req->body, req->body_len);
-    copy_capped(body_out, wired_span_of(req->body, req->body_len));
+    body_out->len = 0;
+    wired_obuf_put(body_out, wired_span_of(req->body, req->body_len));
     return 200;
   }
-  copy_capped(body_out, wired_span_of(g_history, g_history_len));
+  body_out->len = 0;
+  wired_obuf_put(body_out, wired_span_of(g_history, g_history_len));
   return 200;
 }
 

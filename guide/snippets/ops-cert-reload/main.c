@@ -99,9 +99,9 @@ static void deploy_cert_b(void) {
   if (g_deployed) return;
   g_deployed = 1;
   wired_fio_write_new(
-      "live-cert.pem", wired_span_of((const u8*)CERT_B, sizeof CERT_B - 1));
+      "live-cert.pem", wired_span_cstr(CERT_B));
   wired_fio_write_new(
-      "live-key.pem", wired_span_of((const u8*)KEY_B, sizeof KEY_B - 1));
+      "live-key.pem", wired_span_cstr(KEY_B));
 }
 
 static void on_step(void* ctx, u64 now_ms) {
@@ -111,18 +111,16 @@ static void on_step(void* ctx, u64 now_ms) {
 }
 
 int wired_main(int argc, char** argv) {
-  /* A fixed demo identity: X25519 key share, certificate signing seed,
-   * connection id and ServerHello.random. live-cert.pem/live-key.pem (seeded
-   * from CERT_A/KEY_A below, just above wired_main) hold the first
-   * certificate. */
+  /* Fixed demo identity; live-cert.pem/live-key.pem (seeded from
+   * CERT_A/KEY_A above) replace its self-signed certificate. */
   static wired_srvboot_demo_keys keys;
   wired_srvboot_id               id;
   wired_srvboot_demo(&id, &keys, 0x50, "guide-cr");
 
   wired_fio_write_new(
-      "live-cert.pem", wired_span_of((const u8*)CERT_A, sizeof CERT_A - 1));
+      "live-cert.pem", wired_span_cstr(CERT_A));
   wired_fio_write_new(
-      "live-key.pem", wired_span_of((const u8*)KEY_A, sizeof KEY_A - 1));
+      "live-key.pem", wired_span_cstr(KEY_A));
   static wired_certreload_store store;
   wired_certreload_load_or_selfsigned(
       "live-cert.pem", "live-key.pem", &store, &id);

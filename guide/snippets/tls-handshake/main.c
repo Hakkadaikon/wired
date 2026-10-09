@@ -21,8 +21,7 @@ static int on_request(
 }
 
 int wired_main(int argc, char** argv) {
-  /* A fixed demo identity: X25519 key share, certificate signing seed,
-   * connection id and ServerHello.random. The certificate is self-signed. */
+  /* Fixed demo identity (self-signed certificate; never for production). */
   static wired_srvboot_demo_keys keys;
   wired_srvboot_id               id;
   wired_srvboot_demo(&id, &keys, 0x50, "guide-tl");

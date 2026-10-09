@@ -34,8 +34,8 @@ int wired_main(int argc, char** argv) {
    * whether it exists. */
   static u8 public_wire[MOQDATA_BLOB_WIRE_CAP(2)];
   wired_moqt_publish_blob(
-      &g_hub, wired_span_of((const u8*)"public", 6), 1,
-      wired_span_of((const u8*)"ok", 2),
+      &g_hub, wired_span_cstr("public"), 1,
+      wired_span_cstr("ok"),
       wired_mspan_of(public_wire, sizeof public_wire));
 
   /* The hub owns every WebTransport session: it sends SETUP when one opens,

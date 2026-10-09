@@ -76,7 +76,7 @@ static void publish_live_once(void) {
   if (g_live_published) return;
   g_live_published = 1;
   wired_moqt_publish_live(
-      &g_hub, wired_span_of((const u8*)"movie", 5), 2, g_layout.frags,
+      &g_hub, wired_span_cstr("movie"), 2, g_layout.frags,
       g_layout.n_frags, 300, clock_mono_ms());
 }
 
@@ -113,7 +113,7 @@ int wired_main(int argc, char** argv) {
    * subscriber on its own stream (wired_moqt_publish_blob). */
   static u8 init_wire[MOQDATA_BLOB_WIRE_CAP(64)];
   wired_moqt_publish_blob(
-      &g_hub, wired_span_of((const u8*)"movie/init", 10), 1, g_layout.init,
+      &g_hub, wired_span_cstr("movie/init"), 1, g_layout.init,
       wired_mspan_of(init_wire, sizeof init_wire));
 
   /* "movie" (Track Alias 2): Group g carries fragment g mod n_frags,
