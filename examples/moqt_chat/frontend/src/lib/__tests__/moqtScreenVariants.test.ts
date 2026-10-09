@@ -137,6 +137,33 @@ describe("screenGroupGateAccept", () => {
     ]);
   });
 
+  it("a live keyframe of the bound Group from the other variant takes over a gate a fill bound", () => {
+    const gate: ScreenGroupGate = {};
+    expect(screenGroupGateAccept(gate, 0x0dn, "lo", true, false)).toBe(true); // lo fill binds 0x0d
+    expect(screenGroupGateAccept(gate, 0x0dn, "lo", false, false)).toBe(true);
+    expect(screenGroupGateAccept(gate, 0x0dn, "hi", false, true)).toBe(false); // a live delta cannot
+    expect(screenGroupGateAccept(gate, 0x0dn, "hi", true, true)).toBe(true); // the hub's live member
+    expect(screenGroupGateAccept(gate, 0x0dn, "lo", false, false)).toBe(false); // the fill's rest: dropped
+    expect(screenGroupGateAccept(gate, 0x0dn, "hi", false, true)).toBe(true);
+  });
+
+  it("a fill keyframe never takes over: neither a fill-bound nor a live-bound Group", () => {
+    const fillBound: ScreenGroupGate = {};
+    screenGroupGateAccept(fillBound, 5n, "hi", true, false);
+    expect(screenGroupGateAccept(fillBound, 5n, "lo", true, false)).toBe(false);
+    const liveBound: ScreenGroupGate = {};
+    screenGroupGateAccept(liveBound, 5n, "hi", true, true);
+    expect(screenGroupGateAccept(liveBound, 5n, "lo", true, true)).toBe(false); // live duplicate: as before
+    expect(screenGroupGateAccept(liveBound, 5n, "lo", true, false)).toBe(false);
+  });
+
+  it("live data of the fill's own variant confirms it: the other variant can no longer take over", () => {
+    const gate: ScreenGroupGate = {};
+    screenGroupGateAccept(gate, 5n, "lo", true, false);
+    expect(screenGroupGateAccept(gate, 5n, "lo", false, true)).toBe(true);
+    expect(screenGroupGateAccept(gate, 5n, "hi", true, true)).toBe(false);
+  });
+
   it("F2: a late keyframe of any older Group (G-1, G-2, ...) never moves the gate back", () => {
     const gate: ScreenGroupGate = {};
     screenGroupGateAccept(gate, 9n, "hi", true);
@@ -462,6 +489,22 @@ describe("MoqtScreenClient per-tile quality", () => {
   });
 });
 
+/** One fill (fetch) stream: FETCH_HEADER(rid) + one fetch Object of `group`. */
+function fillStream(rid: bigint, group: bigint, c: ScreenChunk): Uint8Array {
+  const body = encodeScreenObjectMessage(c);
+  // flags 0x1c: Group, Object and Priority present; subgroup 0
+  return concatBytes([
+    encodeVarint(0x5n),
+    encodeVarint(rid),
+    encodeVarint(0x1cn),
+    encodeVarint(group),
+    encodeVarint(0n),
+    Uint8Array.of(0),
+    encodeVarint(BigInt(body.length)),
+    body,
+  ]);
+}
+
 // A minimal chat stand-in for send-side cases the fake WebTransport cannot
 // stage (a write that never settles, a refused lo PUBLISH).
 function minimalChat(opts: { loPublishOk?: boolean } = {}) {
@@ -677,6 +720,50 @@ describe("review round 1: receive side", () => {
     chat.unsubscribe("user2/screen-lo");
     screen.forgetParticipant("user2");
   };
+
+  it("real-browser repro: High -> Auto, the lo fill at 0x0d, then live hi 0x0d renders without waiting for 0x0e", async () => {
+    const { fake, screen, got, sub } = await pair();
+    for (const r of fake.requestsOf(MSG_SUBSCRIBE)) r.replies.push(subscribeOk());
+    await sub;
+    await flush();
+    const toHigh = screen.setScreenQuality("user2", "high");
+    await flush();
+    fake.requestsOf(MSG_SUBSCRIBE)[2].replies.push(subscribeOk());
+    await toHigh;
+    const hiAlias = screenVariantAlias("user2", "hi");
+    fake.incomingUnidirectionalStreams.push(screenStream(hiAlias, 0x0cn, chunk(1, true))); // playing hi 0x0c
+    await flush();
+
+    const toAuto = screen.setScreenQuality("user2", "auto");
+    await flush();
+    const [hiSub, loSub] = fake.requestsOf(MSG_SUBSCRIBE).slice(3);
+    const largest = (group: bigint) =>
+      encodeControlFrame(
+        0x4n,
+        encodeSubscribeOk({ trackAlias: 9n, parameters: [{ type: 0x09n, value: { group, object: 0n } }], trackProperties: [] }),
+      );
+    hiSub.replies.push(largest(0x0cn));
+    loSub.replies.push(largest(0x0dn));
+    await toAuto;
+    await flush();
+    const rid = (r: typeof hiSub) => decodeVarint(r.request.body, 0).value;
+    fake.incomingUnidirectionalStreams.push(fillStream(rid(hiSub), 0x0cn, chunk(2, true))); // hi fill: still 0x0c
+    await flush();
+    fake.incomingUnidirectionalStreams.push(fillStream(rid(loSub), 0x0dn, chunk(3, true))); // lo fill: 0x0d
+    await flush();
+    fake.incomingUnidirectionalStreams.push(screenStream(hiAlias, 0x0dn, chunk(4, true))); // the hub's live 0x0d
+    await flush();
+    fake.incomingUnidirectionalStreams.push(screenStream(hiAlias, 0x0dn, chunk(5, false)));
+    await flush();
+
+    const after = got.slice(got.findIndex((g) => g.seq === 2));
+    expect(after.map((g) => [g.seq, g.variant])).toEqual([
+      [2, "hi"],
+      [3, "lo"],
+      [4, "hi"], // 0x0d rendered from the live member, not waiting for 0x0e
+      [5, "hi"],
+    ]);
+  });
 
   it("S1 (round 3): a stale change never cancels a rejoined peer's fresh subscriptions", async () => {
     const { fake, screen, chat, got, sub } = await pair();
