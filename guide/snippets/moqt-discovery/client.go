@@ -4,50 +4,23 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/quic-go/quic-go"
-	"github.com/quic-go/webtransport-go"
-
 	"wired-guide/moqtclient"
 )
 
-// dial opens one WebTransport session to the hub (one MoQT peer); the
-// QUIC connection is returned so the caller can close it, which is how a
-// peer leaves.
-func dial(ctx context.Context, url string) (*webtransport.Session, *quic.Conn) {
-	var conn *quic.Conn
-	d := webtransport.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		QUICConfig:      &quic.Config{EnableDatagrams: true, EnableStreamResetPartialDelivery: true},
-		DialAddr: func(ctx context.Context, addr string, t *tls.Config, c *quic.Config) (*quic.Conn, error) {
-			var err error
-			conn, err = quic.DialAddrEarly(ctx, addr, t, c)
-			return conn, err
-		},
-	}
-	_, s, err := d.Dial(ctx, url+"/moqt", http.Header{})
-	moqtclient.Check(err)
-	return s, conn
-}
-
-// request opens a fresh bidi request stream (draft-ietf-moq-transport-19
-// SS3.3), sends one request on it and prints the hub's first answer:
-// REQUEST_OK (0x7) or REQUEST_ERROR (0x5) with its error code. The
-// stream is left alone: resetting it would cancel the request (SS3.3.3).
-func request(ctx context.Context, s *webtransport.Session, who string, typ byte, id byte, name string) *bufio.Reader {
-	st, err := s.OpenStreamSync(ctx)
-	moqtclient.Check(err)
+// request sends one request on a fresh bidi request stream
+// (draft-ietf-moq-transport-22 SS6.4.2) and prints the hub's first
+// answer: REQUEST_OK (0x7) or REQUEST_ERROR (0x5) with its error code.
+// The stream is left alone: resetting it would cancel the request.
+func request(ctx context.Context, s *moqtclient.Session, who string, typ byte, id byte, name string) *bufio.Reader {
 	label := map[byte]string{0x6: "PUBLISH_NAMESPACE", 0x50: "SUBSCRIBE_NAMESPACE"}[typ]
 	// Request ID, Track Namespace (or Prefix), no parameters.
-	moqtclient.WriteMsg(st, typ, append(append([]byte{id}, moqtclient.Namespace(strings.Split(name, "/")...)...), 0))
-	r := bufio.NewReader(st)
+	_, r := s.Request(ctx, typ, append(append([]byte{id}, moqtclient.Namespace(strings.Split(name, "/")...)...), 0))
 	switch t, body := moqtclient.ReadMsg(r); t {
 	case 0x7:
 		fmt.Printf("%s: %s %s -> REQUEST_OK\n", who, label, name)
@@ -60,11 +33,12 @@ func request(ctx context.Context, s *webtransport.Session, who string, typ byte,
 	return r
 }
 
-// publish opens a publisher session that announces name (Request ID 0).
-func publish(ctx context.Context, who, name string) (*webtransport.Session, *quic.Conn) {
-	s, conn := dial(ctx, os.Args[1])
+// publish opens a publisher session (one MoQT peer; closing its QUIC
+// connection is how it leaves) that announces name (Request ID 0).
+func publish(ctx context.Context, who, name string) *moqtclient.Session {
+	s := moqtclient.Dial(ctx, os.Args[1]+"/moqt")
 	request(ctx, s, who, 0x6, 0, name)
-	return s, conn
+	return s
 }
 
 // watch reads the next push on the SUBSCRIBE_NAMESPACE stream and prints
@@ -83,24 +57,24 @@ func main() {
 	defer cancel()
 
 	// A namespace already published before anyone watches.
-	_, lobby := publish(ctx, "lobby", "guide/lobby")
-	defer lobby.CloseWithError(0, "")
+	lobby := publish(ctx, "lobby", "guide/lobby")
+	defer lobby.Conn.CloseWithError(0, "")
 
 	// The watcher subscribes to the prefix "guide". After REQUEST_OK the
 	// hub sends one NAMESPACE per namespace already published under it:
 	// the initial set.
-	w, wConn := dial(ctx, os.Args[1])
-	defer wConn.CloseWithError(0, "")
+	w := moqtclient.Dial(ctx, os.Args[1]+"/moqt")
+	defer w.Conn.CloseWithError(0, "")
 	watcher := request(ctx, w, "watcher", 0x50, 0, "guide")
 	watch(watcher)
 
 	// Two publishers join. Each waits for its own REQUEST_OK, and the
 	// watcher then reads the NAMESPACE the hub pushed for it, so every
 	// step is ordered by messages on the wire, never by a sleep.
-	_, roomA := publish(ctx, "room-a", "guide/room-a")
+	roomA := publish(ctx, "room-a", "guide/room-a")
 	watch(watcher)
-	roomB, roomBConn := publish(ctx, "room-b", "guide/room-b")
-	defer roomBConn.CloseWithError(0, "")
+	roomB := publish(ctx, "room-b", "guide/room-b")
+	defer roomB.Conn.CloseWithError(0, "")
 	watch(watcher)
 
 	// The server's authorize_namespace hook refuses "secret": the
@@ -110,7 +84,7 @@ func main() {
 
 	// room-a leaves: closing its session withdraws its namespace, and the
 	// hub pushes NAMESPACE_DONE to the watcher.
-	moqtclient.Check(roomA.CloseWithError(0, ""))
+	moqtclient.Check(roomA.Conn.CloseWithError(0, ""))
 	fmt.Println("room-a: session closed")
 	watch(watcher)
 }

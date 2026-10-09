@@ -3,7 +3,7 @@
 #include "app/moqt/run/moqtrun.h"
 #include "wired.h"
 
-/* draft-ietf-moq-transport-19 10.15 / 10.18: the hub asks this hook before
+/* draft-ietf-moq-transport-22 9.14 / 9.15: the hub asks this hook before
  * it accepts a PUBLISH_NAMESPACE or SUBSCRIBE_NAMESPACE. This sample's
  * policy refuses any namespace ending in "secret" (a real deployment
  * would verify the token too; this demo ignores it). */
@@ -30,7 +30,7 @@ int wired_main(int argc, char** argv) {
   id.max_datagram_frame_size = 65535;
 
   /* PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE arrive on the client's own
-   * bidi streams (draft-ietf-moq-transport-19 3.3) and stay open: the hub
+   * bidi streams (draft-ietf-moq-transport-22 6.4.2) and stay open: the hub
    * answers on them through stream_reply_open, and later pushes NAMESPACE /
    * NAMESPACE_DONE onto the subscriber's stream with stream_send. */
   wired_moqt_io io = wired_moqraw_io();
@@ -39,9 +39,10 @@ int wired_main(int argc, char** argv) {
 
   /* on_session_close withdraws every namespace a leaving session
    * published (NAMESPACE_DONE to its watchers); the tick retries a push
-   * the transport refused. */
+   * the transport refused. "moqt-22" selects draft-22 (see the hub page). */
   wired_srvrun_opt opt = {
       .incoming_cpu         = -1,
+      .wt_protocols         = "moqt-22",
       .on_step              = on_step,
       .on_step_ctx          = &g_hub,
       .wt_on_session        = wired_moqt_on_session,

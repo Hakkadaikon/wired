@@ -2,14 +2,13 @@ $ ./moqt-fetch --port 4433
 conn closed by peer (CONNECTION_CLOSE)
 conn closed by peer (CONNECTION_CLOSE)
 $ go run . https://127.0.0.1:4433
-subscribe (request 0): joining location 5/0
+subscribe (request 0): largest object 5/0
+fill (request 0): 3/0 "frame-3"
+fill (request 0): 4/0 "frame-4"
+fill (request 0): 5/0 "frame-5"
 standalone fetch (request 2): FETCH_OK end 2/0
 standalone fetch (request 2): end of unknown range up to 1/4611686018427387903
 standalone fetch (request 2): 2/0 "frame-2"
-joining fetch (request 4): FETCH_OK end 5/1
-joining fetch (request 4): 3/0 "frame-3"
-joining fetch (request 4): 4/0 "frame-4"
-joining fetch (request 4): 5/0 "frame-5"
 subscription: 6/0 "frame-6"
 subscription: 7/0 "frame-7"
-join point: fetch ends at 5/0, live starts at 6/0, seamless=true
+join point: fill ends at 5/0, live starts at 6/0, seamless=true

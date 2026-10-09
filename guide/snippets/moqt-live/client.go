@@ -3,45 +3,24 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"net/http"
 	"os"
 	"time"
 
-	"github.com/quic-go/quic-go"
-	"github.com/quic-go/webtransport-go"
 	"wired-guide/moqtclient"
 )
 
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	var conn *quic.Conn // kept so main can close it before exiting
-	d := webtransport.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		QUICConfig:      &quic.Config{EnableDatagrams: true, EnableStreamResetPartialDelivery: true},
-		DialAddr: func(ctx context.Context, addr string, t *tls.Config, q *quic.Config) (*quic.Conn, error) {
-			c, err := quic.DialAddrEarly(ctx, addr, t, q)
-			conn = c
-			return c, err
-		},
-	}
-	_, s, err := d.Dial(ctx, os.Args[1]+"/moqt", http.Header{})
-	moqtclient.Check(err)
-	defer conn.CloseWithError(0, "")
+	// "moqt-22" session: SETUP exchanged on the two uni control streams.
+	s := moqtclient.Dial(ctx, os.Args[1]+"/moqt")
+	defer s.Conn.CloseWithError(0, "")
 
-	// The server opens the control stream and sends SETUP on it.
-	ctl, err := s.AcceptStream(ctx)
-	moqtclient.Check(err)
-	r := bufio.NewReader(ctl)
-	moqtclient.ReadMsg(r) // SETUP
-
-	// movie/init first (its SUBSCRIBE_OK and one-shot blob stream arrive
-	// before movie's, since both are sent and processed on the same
-	// ordered control stream).
-	moqtclient.Subscribe(ctl, 0, "movie/init")
-	if reply := moqtclient.ReadSubscribeReply(r); !reply.Ok {
+	// movie/init first: its SUBSCRIBE_OK, then its one-shot blob stream,
+	// both read before movie is subscribed, so the next uni stream is
+	// movie's.
+	if reply, _ := s.Subscribe(ctx, 0, "movie/init"); !reply.Ok {
 		fmt.Println("movie/init REQUEST_ERROR", reply.ErrCode)
 		return
 	}
@@ -52,8 +31,7 @@ func main() {
 
 	// movie: SUBSCRIBE_OK, then the current Group at once, then one more
 	// Group every ~300ms as the server's clock advances.
-	moqtclient.Subscribe(ctl, 1, "movie")
-	if reply := moqtclient.ReadSubscribeReply(r); !reply.Ok {
+	if reply, _ := s.Subscribe(ctx, 2, "movie"); !reply.Ok {
 		fmt.Println("movie REQUEST_ERROR", reply.ErrCode)
 		return
 	}

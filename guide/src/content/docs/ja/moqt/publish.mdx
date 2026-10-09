@@ -16,7 +16,8 @@ import Example from '../../../../components/Example.astro';
 - `wired_moqt_publish_blob(&hub, name, alias, blob, wire)` は、起動時に一度だけ `blob` をフレーム化して `wire` に書きます。
   `wire` の大きさは `MOQDATA_BLOB_WIRE_CAP(n)` で決めます。
   `wire` は、ハブより長く生きている必要があります。
-- このトラックを指定した SUBSCRIBE には、その Track Alias（トラックを指す数値の別名）を載せた SUBSCRIBE_OK が返ります。
+- SUBSCRIBE は、クライアントが開く専用の双方向リクエストストリーム（draft-ietf-moq-transport-22 の 6.4.2）に載って届き、その上で応答されます。
+  このトラックを指定した SUBSCRIBE には、その Track Alias（トラックを指す数値の別名）を載せた SUBSCRIBE_OK（9.7）が返ります。
   続いて、フレーム化したバイト列が io 表の `send_uni` を通じ、新しい単方向ストリームでそのピアに送られます。
 - ストリームの中身は、SUBGROUP_HEADER（Track Alias、Group 0）と、それに続く Object（ID 0、ペイロード `hello`）です。
   ハブが照合するのは Track Name だけで、名前空間は照合しません。

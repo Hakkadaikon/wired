@@ -22,10 +22,10 @@ import Example from '../../../../components/Example.astro';
   AUTHORIZATION TOKEN パラメータ（リクエストが何も持たなければ 0）が渡されます。
   実際のトークン方式（CAT、Privacy Pass）を検証するのは、デプロイする側の仕事です。
   SDK はバイト列を運び、フックを呼ぶだけです。
-- draft-ietf-moq-transport-19 の 13.3 節のとおり、すべての SUBSCRIBE は、
+- draft-ietf-moq-transport-22 の 15.3 節のとおり、すべての SUBSCRIBE は、
   トラックの照合より前にこの検査を通ります。
   ポリシーが拒否した名前には、その名前のトラックが 1 つも存在しない場合でも
-  REQUEST_ERROR UNAUTHORIZED が返ります。
+  REQUEST_ERROR（9.4）UNAUTHORIZED が返ります。
   このページの `secret` はどこにも公開されていないので、この拒否は、
   トラックが存在しないことの副作用ではなく、ポリシーそのものによるものです。
 - ポリシーが許可した名前は、前のページまでと同じ経路を進みます。

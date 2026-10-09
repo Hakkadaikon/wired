@@ -54,9 +54,12 @@ func main() {
 	defer cancel()
 	// Keep the QUIC connection so main can close it before exiting.
 	var conn *quic.Conn
+	// Offering the WebTransport subprotocol "moqt-22" selects
+	// draft-ietf-moq-transport-22 (SS6.2.1).
 	d := webtransport.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		QUICConfig:      &quic.Config{EnableDatagrams: true, EnableStreamResetPartialDelivery: true},
+		TLSClientConfig:      &tls.Config{InsecureSkipVerify: true},
+		QUICConfig:           &quic.Config{EnableDatagrams: true, EnableStreamResetPartialDelivery: true},
+		ApplicationProtocols: []string{"moqt-22"},
 		DialAddr: func(ctx context.Context, addr string, t *tls.Config, c *quic.Config) (*quic.Conn, error) {
 			var err error
 			conn, err = quic.DialAddrEarly(ctx, addr, t, c)
@@ -66,11 +69,22 @@ func main() {
 	rsp, s, err := d.Dial(ctx, os.Args[1]+"/moqt", http.Header{})
 	check(err)
 	fmt.Println("status", rsp.StatusCode)
+	if p := s.SessionState().ApplicationProtocol; p != "moqt-22" {
+		log.Fatalf("server picked subprotocol %q", p)
+	}
 
-	// The server opens the control stream and sends SETUP on it.
-	ctl, err := s.AcceptStream(ctx)
+	// Each side opens one uni control stream that starts with SETUP
+	// (SS6.3). Ours: Type 0x2F00 (also the stream type), Length 0, no
+	// Setup Options. It stays open for the whole session.
+	ctl, err := s.OpenUniStreamSync(ctx)
 	check(err)
-	typ, body := readMsg(bufio.NewReader(ctl))
+	_, err = ctl.Write([]byte{0xAF, 0x00, 0, 0})
+	check(err)
+
+	// The server's control stream, and the SETUP on it.
+	srv, err := s.AcceptUniStream(ctx)
+	check(err)
+	typ, body := readMsg(bufio.NewReader(srv))
 	fmt.Printf("recv SETUP type=%#x options=%d bytes\n", typ, len(body))
 	check(conn.CloseWithError(0, ""))
 }

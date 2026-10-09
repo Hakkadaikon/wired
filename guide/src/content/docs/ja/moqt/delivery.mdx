@@ -15,9 +15,9 @@ MoQT の Object（MoQT がデータを運ぶ単位）は、保証の異なる 2 
 
 ## 仕組み
 
-- `moqdg_put` は、OBJECT_DATAGRAM（draft-ietf-moq-transport-19 11.3.1）を直接エンコードします。
+- `moqdg_put` は、OBJECT_DATAGRAM（draft-ietf-moq-transport-22 11.2.1）を直接エンコードします。
   `wired_server_wt_send_datagram_to` は、それを QUIC DATAGRAM としてキューに積むだけで、ストリームも再送も関与しません。
-- `moqdata_blob_build` は、blob を 1 つの SUBGROUP_HEADER と、それに続く最大 `MOQDATA_BLOB_CHUNK`（16384）バイトずつの Object へフレーム化します（draft-ietf-moq-transport-19 11.4.2）。
+- `moqdata_blob_build` は、blob を 1 つの SUBGROUP_HEADER と、それに続く最大 `MOQDATA_BLOB_CHUNK`（16384）バイトずつの Object へフレーム化します（draft-ietf-moq-transport-22 11.3.1）。
   このページの blob は 20000 バイトなので、16384 バイトと残り 3616 バイトの、2 つの Object になります。
   `wired_server_wt_open_uni` は、フレーム化したストリーム全体を FIN まで含めて、信頼性のある形で送ります。
 - クライアントの `go run` の出力には、両方が現れます。

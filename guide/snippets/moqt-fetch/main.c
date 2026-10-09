@@ -24,9 +24,9 @@ int wired_main(int argc, char** argv) {
   id.max_datagram_frame_size = 65535;
 
   /* Requests arrive on the client's own bidi streams (draft-ietf-moq-
-   * transport-19 3.3): stream_reply_open answers on them. A FETCH answer
-   * uses open_uni_stream + stream_send rounds, and stream_reset when a
-   * fetch is cancelled. */
+   * transport-22 6.4.2): stream_reply_open answers on them. A FETCH
+   * answer, and the fill a SUBSCRIBE asks for (3.4), use open_uni_stream
+   * + stream_send rounds, and stream_reset when one is cancelled. */
   wired_moqt_io io = wired_moqraw_io();
   wired_moqt_init(&g_hub, io);
 
@@ -35,9 +35,10 @@ int wired_main(int argc, char** argv) {
   wired_moqt_cache_attach(&g_hub, g_arena, sizeof g_arena);
 
   /* The tick retries a FETCH round the transport refused (and gives up
-   * on one that stays refused). */
+   * on one that stays refused). "moqt-22" selects draft-22. */
   wired_srvrun_opt opt = {
       .incoming_cpu         = -1,
+      .wt_protocols         = "moqt-22",
       .on_step              = on_step,
       .on_step_ctx          = &g_hub,
       .wt_on_session        = wired_moqt_on_session,

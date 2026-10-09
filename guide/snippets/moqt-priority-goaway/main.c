@@ -45,13 +45,15 @@ int wired_main(int argc, char** argv) {
 
   /* stream_priority turns the subscription's priority into stream
    * urgency; stream_reset and close_session are what the drain uses to
-   * end subscriptions and sessions once the GOAWAY Timeout passes. */
+   * end subscriptions and sessions once the GOAWAY Timeout passes. GOAWAY
+   * itself goes out on the hub's uni control stream ("moqt-22", 9.2). */
   wired_moqt_io io   = wired_moqraw_io();
   io.stream_priority = stream_priority;
   wired_moqt_init(&g_hub, io);
 
   wired_srvrun_opt opt = {
       .incoming_cpu         = -1,
+      .wt_protocols         = "moqt-22",
       .on_step              = on_step,
       .on_step_ctx          = &g_hub,
       .wt_on_session        = wired_moqt_on_session,

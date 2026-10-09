@@ -9,40 +9,56 @@ import Example from '../../../../components/Example.astro';
 A subscriber that joins late only sees Objects published after it joined.
 To catch up, it asks for the earlier ones with FETCH, which the hub answers
 from an Object cache. This page attaches a small cache, has a publisher send
-Groups 0 to 5, and lets a late viewer subscribe, fetch the past, and join
-its live subscription seamlessly.
+Groups 0 to 5, and lets a late viewer subscribe, fill in the past, and join
+its live subscription seamlessly. It also runs a standalone FETCH.
 
 <Example id="moqt-fetch" />
 
 ## How it works
 
+- The sample negotiates draft-ietf-moq-transport-22 through the
+  WebTransport subprotocol `moqt-22` (the server sets `opt.wt_protocols`).
+  Each side opens a unidirectional control stream and sends SETUP (9.1),
+  and the hub serves requests only after both SETUPs have arrived.
 - `wired_moqt_cache_attach` gives the hub an arena for FETCH
-  (draft-ietf-moq-transport-19 10.12): every whole Object a client PUBLISHes
+  (draft-ietf-moq-transport-22 9.11): every whole Object a client PUBLISHes
   is copied into it. Each Object costs `MOQCACHE_HDR` bytes on top of its
   payload, so this arena holds exactly 4 of the 7-byte `frame-N` Objects.
   Publishing 6 Groups evicts the oldest whole Groups, 0 and 1.
 - The hub's own blob and live tracks are not cached: only tracks a client
   PUBLISHes are, so the Go client opens two sessions, a publisher and a
   viewer. Each request (PUBLISH, SUBSCRIBE, FETCH) goes on a fresh bidi
-  stream the client opens, and the hub answers on that stream through
-  `stream_reply_open`.
-- The viewer SUBSCRIBEs with the Largest Object filter: only Objects after
-  the current Largest arrive live. SUBSCRIBE_OK reports that Largest
-  (`LARGEST_OBJECT`, 5/0), which becomes the subscription's Joining
-  Location.
-- A standalone FETCH of Groups 0 to 2 gets FETCH_OK on its request stream
-  and the Objects on a new uni stream (FETCH_HEADER, then fetch Objects).
-  The evicted Groups 0 and 1 come back as one End of Unknown Range up to
-  1/4611686018427387903 (the largest Object ID, meaning "the rest of
-  Group 1"), then Group 2 from the cache.
-- A Relative Joining FETCH names the subscription's Request ID and a count
-  of Groups (2): it covers Group 5 - 2 = 3 up to the Joining Location, so
-  FETCH_OK's End Location is 5/1, one past the last Object it sends. The
-  first live Object is 6/0, so the fetch and the subscription meet with no
-  gap and no duplicate.
+  stream the client opens (6.4.2), and the hub answers on that stream
+  through `stream_reply_open`.
+- The viewer SUBSCRIBEs with the LOCATION_FILTER parameter (9.20.9) set to
+  Next Object (type 0x05, called Largest Object in draft-19): only Objects
+  after the current Largest arrive live. SUBSCRIBE_OK reports that Largest
+  (`LARGEST_OBJECT`, 9.20.17, 5/0).
+- To catch up, the same SUBSCRIBE carries FILL_PARAMETERS (0x23, 9.20.15)
+  whose inner LOCATION_FILTER is Relative Start N (type 0x01, here N = 3):
+  the last N Groups, the current one included, starting at
+  `{Largest.Group + 1 - N, 0}` (9.20.9; 3.4, 3.5). draft-22 has no
+  Joining FETCH: the fill rides on the subscription. The hub sends it on a
+  server-opened unidirectional stream whose FETCH_HEADER (11.4.1) carries
+  the SUBSCRIBE's own Request ID, and there is no FETCH_OK. Here it delivers
+  Groups 3 to 5 (`fill (request 0): 3/0` through `5/0`). The first live
+  Object is 6/0, so the fill and the subscription meet with no gap and no
+  duplicate.
+- A standalone FETCH of Groups 0 to 2 has the body Request ID, Track
+  Namespace, Track Name, Parameters; the range is the LOCATION_FILTER
+  parameter of type 0x03 (Absolute Start, Group End: start 0/0, End Group
+  Delta 2), with no Fetch Type field. FETCH_OK (9.12) comes on its request
+  stream, with End Location 2/0 (`FETCH_OK end 2/0`). The End Location is
+  inclusive in draft-22; in draft-19 it was one past the last Object. The
+  Objects arrive on a new uni stream (FETCH_HEADER, then fetch Objects).
+  The evicted Groups 0 and 1 come back as one End of Unknown Range (0x10C)
+  up to 1/4611686018427387903 (2^62−1, the hub's stand-in for "the rest
+  of Group 1"; draft-22 Object IDs can go up to 2^64−1), then Group 2
+  from the cache. draft-22 also defines 0x20C, End of Timed-Out Range,
+  besides 0x8C and 0x10C.
 - The `open_uni_stream`, `stream_send` and `stream_reset` io entries carry
-  the fetch stream: it stays open across rounds, and the hub's tick
-  (`wired_moqt_tick` from `on_step`) retries a round the transport
+  the fetch and fill streams: they stay open across rounds, and the hub's
+  tick (`wired_moqt_tick` from `on_step`) retries a round the transport
   refused.
 - Before the viewer joins, the publisher checks that the hub has taken in
   Group 5, using FETCH itself: a standalone FETCH of Group 5 is answered

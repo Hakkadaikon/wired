@@ -4,15 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"time"
-
-	"github.com/quic-go/quic-go"
-	"github.com/quic-go/webtransport-go"
 
 	"wired-guide/moqtclient"
 )
@@ -20,19 +15,10 @@ import (
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	var conn *quic.Conn // kept so main can close it before exiting
-	d := webtransport.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		QUICConfig:      &quic.Config{EnableDatagrams: true, EnableStreamResetPartialDelivery: true},
-		DialAddr: func(ctx context.Context, addr string, t *tls.Config, c *quic.Config) (*quic.Conn, error) {
-			var err error
-			conn, err = quic.DialAddrEarly(ctx, addr, t, c)
-			return conn, err
-		},
-	}
-	rsp, s, err := d.Dial(ctx, os.Args[1]+"/deliver", http.Header{})
-	moqtclient.Check(err)
-	fmt.Println("status", rsp.StatusCode)
+	// A "moqt-22" WebTransport session; this server runs no hub, so no
+	// SETUP or request follows -- only the data plane.
+	s, conn, status := moqtclient.DialWT(ctx, os.Args[1]+"/deliver")
+	fmt.Println("status", status)
 
 	// A "go" datagram tells the server to send one of each delivery mode.
 	moqtclient.Check(s.SendDatagram([]byte("go")))
@@ -42,7 +28,7 @@ func main() {
 	dg, err := s.ReceiveDatagram(ctx)
 	moqtclient.Check(err)
 	dr := bufio.NewReader(bytes.NewReader(dg))
-	moqtclient.Varint(dr) // Type 0x00: every field present on the wire
+	moqtclient.Varint(dr) // Type 0x00: Object ID and priority present, no properties, payload
 	alias := moqtclient.Varint(dr)
 	group := moqtclient.Varint(dr)
 	objID := moqtclient.Varint(dr)

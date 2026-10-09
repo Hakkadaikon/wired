@@ -18,33 +18,37 @@ subscriptions, and closes the session when the grace runs out.
 ## How it works
 
 - SUBSCRIBE carries the SUBSCRIBER_PRIORITY parameter (0..255, lower is
-  more important, 128 when absent — draft-ietf-moq-transport-19 7.1).
-  The stream itself carries the Publisher Priority in its
+  more important, 128 when absent — draft-ietf-moq-transport-22 9.20.7,
+  5.1.1). The stream itself carries the Publisher Priority in its
   SUBGROUP_HEADER. When the hub opens a subscriber's relay stream it
   maps the pair to one RFC 9218 urgency (0..7, lower first):
   `4 + (subscriber >> 7) * 2 + (publisher >> 7)`, so the subscriber's
   half picks the pair 4/5 or 6/7 and the publisher's half the one within
-  it (7.2 orders by subscriber priority, then publisher priority).
+  it (5.1.2 orders by subscriber priority, then publisher priority).
   Control and request streams keep the transport default 3 and so go
-  first, as 7.2 recommends.
+  first, as 5.1.2 recommends.
 - The mapped value reaches the transport through the hub's
   `stream_priority` io op, here `wired_server_wt_stream_priority`
   wrapped in a logger: audio (priority 10) gets urgency 5, video
   (priority 200) gets urgency 7, so under pressure the server sends
   audio bytes before video bytes. The log shows the mapping; the
   scheduling itself is the transport's job.
-- `wired_moqt_goaway(hub, new_uri, timeout_ms)` sends GOAWAY (10.4)
-  with the New Session URI on every session's control stream. This demo
+- `wired_moqt_goaway(hub, new_uri, timeout_ms)` sends GOAWAY (9.2)
+  with the New Session URI on every session's control stream, which in the
+  `moqt-22` sessions of this sample is the server's unidirectional one
+  (6.6.1 describes the migration). This demo
   triggers it with any datagram; a real server calls it on SIGTERM or
   before a deploy. The URI may be up to `WIRED_MOQTRUN_GOAWAY_URI_MAX`
   (512) bytes.
 - After GOAWAY every new request on that session is answered
   REQUEST_ERROR with error code GOING_AWAY (0x6): the client is expected
-  to take its next request to `new_uri`.
+  to take its next request to `new_uri`. A client SHOULD NOT start new
+  requests after GOAWAY (9.2); this sample sends one SUBSCRIBE on purpose
+  to show the GOING_AWAY answer.
 - The subscriptions already granted keep flowing until the timeout. The
   hub's tick (`wired_moqt_tick` from `on_step`) enforces it: once
   `timeout_ms` passes, each subscription's relay streams are reset and
-  the subscription ends with PUBLISH_DONE (10.11) status GOING_AWAY (0x4)
+  the subscription ends with PUBLISH_DONE (9.9) status GOING_AWAY (0x4)
   on its request stream.
 - This client keeps its request streams open past the deadline, so on
   the next tick the hub closes the session with the GOAWAY_TIMEOUT

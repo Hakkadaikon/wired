@@ -22,9 +22,9 @@ runs.
   AUTHORIZATION TOKEN parameter (0 when the request carried none) --
   verifying a real token scheme (CAT, Privacy Pass) is the deployment's
   job; the SDK only carries the bytes and calls the hook.
-- draft-ietf-moq-transport-19 SS13.3: every SUBSCRIBE passes the check
+- draft-ietf-moq-transport-22 15.3: every SUBSCRIBE passes the check
   before any track matching. A name the policy refuses answers
-  REQUEST_ERROR UNAUTHORIZED even if no track by that name exists at all --
+  REQUEST_ERROR (9.4) UNAUTHORIZED even if no track by that name exists at all --
   this page's `secret` is never published anywhere, so the refusal is
   entirely the policy's, not a side effect of a missing track.
 - A name the policy grants proceeds exactly as the previous pages: matched

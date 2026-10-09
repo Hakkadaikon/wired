@@ -11,8 +11,8 @@ static u8 g_blob[BLOB_LEN];
 static u8 g_wire[MOQDATA_BLOB_WIRE_CAP(BLOB_LEN)];
 
 /* Any datagram from the client is just a "go ahead" trigger (content
- * unchecked): send one lossy OBJECT_DATAGRAM (draft-ietf-moq-transport-19
- * 11.3.1), then one reliable Object stream (11.4.2) whose blob exceeds the
+ * unchecked): send one lossy OBJECT_DATAGRAM (draft-ietf-moq-transport-22
+ * 11.2.1), then one reliable Object stream (11.3.1) whose blob exceeds the
  * 16 KiB per-Object cap and so arrives chunked into two Objects. */
 static void on_datagram(void* ctx, wired_wt_session* s, wired_span data) {
   (void)ctx;
@@ -41,8 +41,11 @@ int wired_main(int argc, char** argv) {
 
   for (usz i = 0; i < BLOB_LEN; i++) g_blob[i] = (u8)('a' + i % 26);
 
+  /* No hub here, so no SETUP or requests: the "moqt-22" subprotocol only
+   * says the session speaks draft-22's data plane. */
   wired_srvrun_opt opt = {0};
   opt.incoming_cpu     = -1;
+  opt.wt_protocols     = "moqt-22";
   opt.wt_on_datagram   = on_datagram;
 
   u16 port                 = (u16)wired_cliargs_int(argc, argv, "--port", 4433);

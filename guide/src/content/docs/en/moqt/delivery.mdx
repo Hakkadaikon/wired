@@ -15,12 +15,12 @@ bounded by the connection's own datagram size) and a bigger one as a stream
 
 ## How it works
 
-- `moqdg_put` encodes one OBJECT_DATAGRAM (draft-ietf-moq-transport-19
-  11.3.1) directly; `wired_server_wt_send_datagram_to` queues it as a QUIC
+- `moqdg_put` encodes one OBJECT_DATAGRAM (draft-ietf-moq-transport-22
+  11.2.1) directly; `wired_server_wt_send_datagram_to` queues it as a QUIC
   DATAGRAM, no stream and no retransmission involved.
 - `moqdata_blob_build` frames a blob as one SUBGROUP_HEADER followed by
   Objects of at most `MOQDATA_BLOB_CHUNK` (16384) bytes each
-  (draft-ietf-moq-transport-19 11.4.2). This page's blob is 20000 bytes, so
+  (draft-ietf-moq-transport-22 11.3.1). This page's blob is 20000 bytes, so
   it comes out as two Objects: 16384 bytes, then the remaining 3616.
   `wired_server_wt_open_uni` then sends the whole framed stream reliably,
   FIN included.
