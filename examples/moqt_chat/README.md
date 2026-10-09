@@ -46,7 +46,10 @@ message framing left entirely to the frontend — the guide's browser chapter
 builds one), this sample speaks MOQT on the wire. Each participant (one of the fixed ids `user1`..`user4`:
 an id's index is its Track Alias) PUBLISHes up to three tracks under the
 namespace `wired/moqt_chat` — `<id>` for chat, `<id>/audio` for voice and
-`<id>/screen` for a screen share. There is a single fixed room.
+`<id>/screen` for a screen share — plus a fourth, `<id>/screen-lo`, when
+the hub offers track switching (see
+[Track switching](#track-switching-screen-share-hilo-variants)). There is
+a single fixed room.
 
 - **Requests on their own streams** (draft-22 6.4.2; draft-19 3.3): every PUBLISH, SUBSCRIBE,
   FETCH, PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE opens its own
@@ -86,6 +89,56 @@ independently in C (`src/app/moqt/vi`/`kvp`/`ctl`/`data`) and TypeScript
 (`frontend/src/lib/moqtWire.ts`), both pinned against the same golden vectors
 (`testvectors/moqt_golden.json`) so the two implementations are checked
 against a shared, audited reference rather than only against each other.
+
+## Track switching (screen share hi/lo variants)
+
+**Experimental, draft-22 only.** This uses the hub's moqtail-compatible
+SWITCH_FROM (0x24) / SSTS (SWITCHING_SET_ASSIGNMENT 0x41, Setup Option
+SSTS_ALGORITHMS 0x09) extension. None of these code points is in
+draft-22. See
+[MoQT track switching](../../docs/features/moqt-track-switching.md) for
+the wire format and the hub's rules, and
+[Known Limitations](../../docs/features/known-limitations.md#moqt-track-switching-experimental)
+for the gaps.
+
+- **Two variants, shared Group numbers.** A sharer publishes the capture as
+  `<id>/screen` (hi) and also as `<id>/screen-lo` (lo: at most 640 px wide,
+  350 kbps, `screenSharePipeline.ts`). Both are cut from the same captured
+  frames with one keyframe decision, so Group g of hi and Group g of lo
+  start on the same frame. Track Aliases: hi is 10..13 and lo is 14..17
+  (participant index + 10 / + 14, `moqtScreenClient.ts`).
+- **Auto (the default).** A watcher subscribes to both variants as one
+  switching set (Set ID = the sharer's participant index, thresholds hi
+  2000 kbps / lo 400 kbps, Weight 1, Activate 2). The hub then forwards one
+  of them per Group, chosen by the negotiated algorithm. The client prefers
+  backpressure (0xff01) and falls back to default (0). If neither is
+  negotiated, Auto subscribes to hi alone. Both variants feed
+  the participant's one decoder. A Group gate drops the other variant's
+  copy of a Group and a switched-away variant's tail.
+- **High / Low.** The per-tile selector subscribes to one variant only.
+  Moving between High and Low is one SUBSCRIBE carrying SWITCH_FROM
+  {Soft, Publish Done} of the current subscription. The hub ends the old
+  one at the Group boundary with PUBLISH_DONE 0x3, and the tile changes
+  only once that SUBSCRIBE is accepted. Moving to or from Auto cancels and
+  re-subscribes.
+- **HI / LO badge.** Each remote screen tile shows which variant it is
+  currently decoding, so a switch can be observed.
+- **What the server must enable.** The hub advertises nothing until the
+  server turns the extension on: SWITCH_FROM (`wired_moqt_hub.switch_track
+  = 1`) and an SSTS algorithm list (`ssts_algs` / `ssts_alg_n`, plus
+  `ssts_cap_kbps` for the default algorithm's budget), all set after
+  `wired_moqt_init`. The client enables variants only when the hub's
+  draft-22 SETUP carries SSTS_ALGORITHMS. `wired_server.c` turns both on
+  with `switch_track = 1` and `ssts_algs = {0xff01 (backpressure), 0
+  (default)}`, leaving `ssts_cap_kbps` at 0 (no cap).
+- **One more track per peer.** `screen-lo` is a fourth PUBLISH per
+  participant, which is why `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` went from 3
+  to 4. If the hub refuses the lo PUBLISH, the sharer does not run the lo
+  encoder.
+- **Draft-19 fallback unchanged.** On draft-19, or against a hub without
+  the extension, the client behaves as before: it publishes and subscribes
+  `<id>/screen` (hi) only. There is no switching set and no Group gate, and
+  the quality selector and HI/LO badge are not shown.
 
 ## Build and run (server)
 
@@ -134,13 +187,18 @@ process's memory, so it is single-process only: do not pass
   cached at all, so a joiner's history skips it.
 - **Namespaces**: only namespaces under `wired/moqt_chat` may be announced
   or watched; anything else is refused UNAUTHORIZED.
-- **Request-stream budget**: the hub tracks at most 16 open request streams
-  per session and 64 hub-wide (`WIRED_MOQTRUN_MAX_REQS`); past that a new
+- **Request-stream budget**: the hub tracks at most 24 open request streams
+  per session and 96 hub-wide (`WIRED_MOQTRUN_MAX_REQS`); past that a new
   request stream is reset EXCESSIVE_LOAD. A full 4-user room keeps up to 15
   live per session (3 PUBLISH + 2 PUBLISH_NAMESPACE + SUBSCRIBE_NAMESPACE +
   9 SUBSCRIBEs), which is why the client sends history FETCHes one at a
   time on draft-19 (a draft-22 fill rides its SUBSCRIBE's request and needs
   no slot of its own) and the id pool stays at four.
+  With track switching on (draft-22 and a hub that advertises 0x09), the
+  worst case grows: 4 PUBLISH + 2 PUBLISH_NAMESPACE + SUBSCRIBE_NAMESPACE +
+  12 SUBSCRIBEs (`screen` and `screen-lo` for each of 3 sharing peers in
+  Auto) = 19 per session, 76 hub-wide, so the hub's pool was raised to 96
+  (`WIRED_MOQTRUN_MAX_REQS`), a per-session budget of 24.
 - **Fill capacity (draft-22)**: fills share one hub-wide table of 8 serving
   slots plus 8 waiting (`WIRED_MOQTRUN_MAX_FETCHES`, together with
   draft-19 FETCHes). When both are full the hub refuses the whole
@@ -268,7 +326,7 @@ needed to run the scenarios on draft-22.
 - `frontend/` — the Next.js + React browser client:
   `src/lib/moqtWire.ts`/`moqtClient.ts` (wire codec; session, request
   streams, discovery, history fill / FETCH, GOAWAY; draft-22 and draft-19), `moqtScreenWire.ts`/`moqtScreenClient.ts`
-  (screen share), `moqtVoiceWire.ts`/`moqtVoiceClient.ts` (voice Object
+  (screen share, its hi/lo variants and track switching), `moqtVoiceWire.ts`/`moqtVoiceClient.ts` (voice Object
   framing and the audio track's publish/subscribe), `src/lib/*Pipeline.ts` +
   `jitterBuffer.ts`/`playbackSink.ts`/`audioContextGate.ts` (mic capture ->
   Opus encode -> MOQT Object, and the receive-side jitter/decode/playback

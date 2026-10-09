@@ -386,6 +386,15 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   g_hub.reliable_alias_limit = CHAT_ALIAS_LIMIT;
   wired_moqt_cache_attach(&g_hub, g_cache_arena, sizeof g_cache_arena);
   g_hub.authorize_namespace = authorize_room_ns;
+  /* Experimental moqtail-compatible track switching (draft-22 only):
+   * SWITCH_FROM for the screen-quality selector, and SSTS so the hub
+   * forwards one screen variant (hi or lo) per group. Backpressure first,
+   * the default allocation as the fallback. */
+  static const u64 chat_ssts_algs[] = {
+      MOQCTL_SSTS_ALG_BACKPRESSURE, MOQCTL_SSTS_ALG_DEFAULT};
+  g_hub.switch_track = 1;
+  g_hub.ssts_algs    = chat_ssts_algs;
+  g_hub.ssts_alg_n   = sizeof chat_ssts_algs / sizeof chat_ssts_algs[0];
 
   if (!wired_srvdriver_parse(argc, argv, &opt))
     wired_die(
