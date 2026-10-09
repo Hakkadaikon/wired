@@ -745,7 +745,7 @@ export default function Home() {
           <p className="masthead__id">
             Media over QUIC Transport
             <br />
-            draft-ietf-moq-transport-19
+            draft-ietf-moq-transport-22 (draft-19 fallback)
           </p>
         )}
       </header>

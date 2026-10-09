@@ -17,6 +17,7 @@ import {
   MSG_PUBLISH_NAMESPACE,
   MSG_SUBSCRIBE,
   MSG_SUBSCRIBE_NAMESPACE,
+  FakeControlReplies,
 } from "./fakeWebTransport";
 import {
   concatBytes,
@@ -26,6 +27,7 @@ import {
   decodeSubgroupObject,
   decodeSubscribe,
   decodeVarint,
+  bytesToHex,
   bytesToUtf8,
   encodeControlFrame,
   encodeGoaway,
@@ -312,8 +314,8 @@ describe("MoqtChatClient transport close detection", () => {
   });
 });
 
-// draft-ietf-moq-transport-19 3.3: every request rides its own bidi stream
-// and its answer comes back on that stream.
+// draft-ietf-moq-transport-19 3.3 (draft-19 legacy session): every request
+// rides its own bidi stream and its answer comes back on that stream.
 describe("MoqtChatClient request streams", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -485,7 +487,7 @@ describe("MoqtChatClient request streams", () => {
   });
 });
 
-// draft-ietf-moq-transport-19 6.1-6.2: who is in the room comes from
+// draft-ietf-moq-transport-19 6.1-6.2 (draft-19 legacy session): who is in the room comes from
 // PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE, not from polling SUBSCRIBE.
 describe("MoqtChatClient namespace discovery", () => {
   afterEach(() => {
@@ -1089,7 +1091,7 @@ describe("certHashesToWebTransportOptions", () => {
   });
 });
 
-// draft-ietf-moq-transport-19 3.6 / 10.4: GOAWAY on the hub's control
+// draft-ietf-moq-transport-19 3.6 / 10.4 (draft-19 legacy session): GOAWAY on the hub's control
 // stream, or the WebTransport session draining, tells the client to move.
 describe("MoqtChatClient going away", () => {
   afterEach(() => {
@@ -1155,5 +1157,371 @@ describe("MoqtChatClient going away", () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(goaways).toEqual([]);
+  });
+});
+
+// draft-ietf-moq-transport-22, negotiated as the WebTransport subprotocol
+// "moqt-22": each side opens its own uni control stream starting with SETUP
+// (6.3), GOAWAY (9.2) arrives on the hub's, and a chat history is a
+// SUBSCRIBE whose FILL_PARAMETERS (9.20.15) opens a fill fetch stream (3.4)
+// -- no Joining FETCH. Without the subprotocol (protocol undefined) every
+// test above runs the draft-19 legacy session unchanged.
+describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  const flush = () => vi.advanceTimersByTimeAsync(0);
+
+  async function connected22(callbacks: Partial<MoqtChatCallbacks> = {}, negotiate = true) {
+    vi.useFakeTimers();
+    const fake = new FakeWebTransport();
+    vi.stubGlobal("WebTransport", function (_url: string, options: { protocols?: string[] }) {
+      fake.options = options;
+      return fake;
+    });
+    const goaways: string[] = [];
+    const statuses: string[] = [];
+    const client = new MoqtChatClient("user1", {
+      onStatusChange: (s) => statuses.push(s),
+      onMessage: () => {},
+      onGoaway: (uri) => goaways.push(uri),
+      ...callbacks,
+    });
+    const ready = client.connect("https://hub.example/", []);
+    if (negotiate) fake.startD22Control();
+    fake.resolveReady();
+    await ready;
+    await flush();
+    return { fake, client, goaways, statuses };
+  }
+
+  const subscribeOk = (largest?: { group: bigint; object: bigint }) =>
+    encodeControlFrame(
+      0x4n,
+      encodeSubscribeOk({
+        trackAlias: 9n,
+        parameters: largest ? [{ type: 0x09n, value: largest }] : [],
+        trackProperties: [],
+      }),
+    );
+  const goaway = (uri: string) =>
+    encodeControlFrame(0x10n, encodeGoaway({ newSessionUri: utf8ToBytes(uri), timeout: 2000n }));
+  const requestError = (errorCode: bigint) =>
+    encodeControlFrame(0x5n, encodeRequestError({ errorCode, retryInterval: 0n, errorReason: new Uint8Array(0) }));
+  // The SUBSCRIBE's parameters as raw bytes: everything after the track name.
+  const subscribeParamsHex = (body: Uint8Array) => {
+    const rid = decodeVarint(body, 0);
+    const ns = decodeNamespace(body, rid.len);
+    const nameLen = decodeVarint(body, rid.len + ns.len);
+    return bytesToHex(body.slice(rid.len + ns.len + nameLen.len + Number(nameLen.value)));
+  };
+  const history = (joiningStart: bigint, got: string[] = [], done = vi.fn()) => ({
+    joiningStart,
+    onObject: (o: { group: bigint; object: bigint; payload: Uint8Array }) =>
+      got.push(`${o.group}/${o.object}:${bytesToUtf8(o.payload)}`),
+    onDone: done,
+  });
+
+  it("offers the moqt-22 WebTransport subprotocol", async () => {
+    const { fake, client } = await connected22();
+
+    expect(fake.options?.protocols).toEqual(["moqt-22"]);
+    expect(client.draft).toBe(22);
+  });
+
+  it("opens its own uni control stream with SETUP (af 00 00 00) and keeps it open", async () => {
+    const { fake, statuses } = await connected22();
+
+    expect(statuses).toEqual(["connecting", "connected"]);
+    expect(bytesToHex(concatBytes(fake.uniStreams[0].written))).toBe("af000000");
+    expect(fake.uniStreams[0].closed).toBe(false);
+  });
+
+  it("does not wait for a bidi control stream", async () => {
+    const { fake } = await connected22();
+
+    expect(fake.bidiReads).toBe(0);
+  });
+
+  it("a GOAWAY on the hub's uni control stream reports its New Session URI, once", async () => {
+    const { fake, goaways } = await connected22();
+
+    fake.serverControl.push(goaway("https://next.example/"));
+    fake.serverControl.push(goaway("https://other.example/"));
+    await flush();
+
+    expect(goaways).toEqual(["https://next.example/"]);
+  });
+
+  it("history: SUBSCRIBE asks for Next Object plus a fill of Relative Start joiningStart+1; no FETCH", async () => {
+    const { fake, client } = await connected22();
+
+    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", history(16n));
+    await flush();
+    const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+    // 2 params: LOCATION_FILTER (0x21) Next Object 05, FILL_PARAMETERS (delta
+    // 2 -> 0x23) Length 4 { 1 param: LOCATION_FILTER Relative Start 17 }.
+    expect(subscribeParamsHex(s.request.body)).toBe("022105020401210111");
+    s.replies.push(subscribeOk({ group: 3n, object: 0n }));
+    await sub;
+    await flush();
+
+    expect(fake.requestsOf(MSG_FETCH)).toHaveLength(0);
+  });
+
+  it("history: joiningStart 0 (the screen share's current Group) is Relative Start 1", async () => {
+    const { fake, client } = await connected22();
+
+    void client.subscribeTrack(utf8ToBytes("user2/screen"), "user2/screen", history(0n));
+    await flush();
+
+    expect(subscribeParamsHex(fake.requestsOf(MSG_SUBSCRIBE)[0].request.body)).toBe("022105020401210101");
+  });
+
+  it("a peer's chat track asks for CHAT_HISTORY_GROUPS (64) Groups: Relative Start 65", async () => {
+    const { fake, client } = await connected22();
+
+    await client.announce();
+    await flush();
+    fake.requestsOf(MSG_SUBSCRIBE_NAMESPACE)[0].replies.push(
+      encodeControlFrame(0x8n, encodeNamespace([utf8ToBytes("user2")])),
+    );
+    await flush();
+
+    expect(subscribeParamsHex(fake.requestsOf(MSG_SUBSCRIBE)[0].request.body)).toBe("022105020401210141");
+  });
+
+  it("history: the fill stream (FETCH_HEADER with the SUBSCRIBE's Request ID) feeds onObject, then onDone", async () => {
+    const { fake, client } = await connected22();
+    const got: string[] = [];
+    const done = vi.fn();
+
+    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", history(16n, got, done));
+    await flush();
+    const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+    s.replies.push(subscribeOk({ group: 5n, object: 1n }));
+    await sub;
+    const rid = decodeSubscribe(s.request.body, 22).requestId;
+    fake.incomingUnidirectionalStreams.push(
+      concatBytes([hexToBytes("05"), encodeVarint(rid), hexToBytes("1c050080026869010178")]),
+    );
+    await flush();
+
+    expect(got).toEqual(["5/0:hi", "5/1:x"]);
+    expect(done).toHaveBeenCalledOnce();
+    expect(fake.requestsOf(MSG_FETCH)).toHaveLength(0);
+  });
+
+  it("history: a fill stream that beats SUBSCRIBE_OK is still delivered, and onDone fires once", async () => {
+    const { fake, client } = await connected22();
+    const got: string[] = [];
+    const done = vi.fn();
+
+    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", history(16n, got, done));
+    await flush();
+    const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+    const rid = decodeSubscribe(s.request.body, 22).requestId;
+    fake.incomingUnidirectionalStreams.push(
+      concatBytes([hexToBytes("05"), encodeVarint(rid), hexToBytes("1c050080026869")]),
+    );
+    await flush();
+    s.replies.push(subscribeOk({ group: 5n, object: 0n }));
+    await sub;
+    await flush();
+
+    expect(got).toEqual(["5/0:hi"]);
+    expect(done).toHaveBeenCalledOnce();
+  });
+
+  it("history: a fill's End of Timed-Out Range (0x20C) is skipped, the Objects after it delivered", async () => {
+    const { fake, client } = await connected22();
+    const got: string[] = [];
+    const done = vi.fn();
+
+    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", history(16n, got, done));
+    await flush();
+    const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+    s.replies.push(subscribeOk({ group: 5n, object: 0n }));
+    await sub;
+    const rid = decodeSubscribe(s.request.body, 22).requestId;
+    // 0x20C through G4/O9, then G5/O0 "hi" (flags 0x1c: Group Delta 0 after
+    // the marker's Group 4 -> 5, Object 0, priority 0x80; 11.4.1.2).
+    fake.incomingUnidirectionalStreams.push(
+      concatBytes([hexToBytes("05"), encodeVarint(rid), hexToBytes("820c04091c000080026869")]),
+    );
+    await flush();
+
+    expect(got).toEqual(["5/0:hi"]);
+    expect(done).toHaveBeenCalledOnce();
+  });
+
+  it("history: no Largest Object means no fill stream: onDone fires right away", async () => {
+    const { fake, client } = await connected22();
+    const done = vi.fn();
+
+    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", history(16n, [], done));
+    await flush();
+    fake.requestsOf(MSG_SUBSCRIBE)[0].replies.push(subscribeOk());
+    await sub;
+
+    expect(done).toHaveBeenCalledOnce();
+  });
+
+  it("history: a refused SUBSCRIBE (DOES_NOT_EXIST) ends the history once, with no retry", async () => {
+    const { fake, client } = await connected22();
+    const done = vi.fn();
+
+    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", history(16n, [], done));
+    await flush();
+    fake.requestsOf(MSG_SUBSCRIBE)[0].replies.push(requestError(0x10n));
+    await sub;
+    await flush();
+
+    expect(done).toHaveBeenCalledOnce();
+    expect(client.isSubscribed("user2")).toBe(false);
+    expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(1);
+  });
+
+  it("history: an INTERNAL_ERROR (the hub's fill table is full) retries once live-only, history ended", async () => {
+    const { fake, client } = await connected22();
+    const done = vi.fn();
+
+    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", history(16n, [], done));
+    await flush();
+    const [first] = fake.requestsOf(MSG_SUBSCRIBE);
+    first.replies.push(requestError(0x0n));
+    await flush();
+    const subs = fake.requestsOf(MSG_SUBSCRIBE);
+    expect(subs).toHaveLength(2);
+    expect(first.closed).toBe(true);
+    // Same track, LOCATION_FILTER Next Object only: no FILL_PARAMETERS.
+    expect(bytesToUtf8(decodeSubscribe(subs[1].request.body, 22).trackName)).toBe("user2");
+    expect(subscribeParamsHex(subs[1].request.body)).toBe("012105");
+    expect(done).toHaveBeenCalledOnce();
+    subs[1].replies.push(subscribeOk({ group: 3n, object: 0n }));
+    expect(await sub).toBe(true);
+
+    expect(client.isSubscribed("user2")).toBe(true);
+    expect(done).toHaveBeenCalledOnce();
+    expect(fake.requestsOf(MSG_FETCH)).toHaveLength(0);
+  });
+
+  it("history: a peer leaving before its fill stream opens ends the history once", async () => {
+    const { fake, client } = await connected22();
+    await client.announce();
+    await flush();
+    const [watch] = fake.requestsOf(MSG_SUBSCRIBE_NAMESPACE);
+    const got: string[] = [];
+    const done = vi.fn();
+
+    const sub = client.subscribeTrack(utf8ToBytes("user2/screen"), "user2/screen", history(0n, got, done));
+    await flush();
+    const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+    s.replies.push(subscribeOk({ group: 5n, object: 0n }));
+    await sub;
+    await flush();
+    expect(done).not.toHaveBeenCalled();
+    watch.replies.push(encodeControlFrame(0xen, encodeNamespace([utf8ToBytes("user2")])));
+    await flush();
+
+    expect(s.cancelled).toBe(true);
+    expect(done).toHaveBeenCalledOnce();
+    // A late fill stream for the cancelled SUBSCRIBE is no longer ours.
+    const rid = decodeSubscribe(s.request.body, 22).requestId;
+    fake.incomingUnidirectionalStreams.push(
+      concatBytes([hexToBytes("05"), encodeVarint(rid), hexToBytes("1c050080026869")]),
+    );
+    await flush();
+    expect(got).toEqual([]);
+    expect(done).toHaveBeenCalledOnce();
+  });
+
+  it("history: a peer leaving while its fill stream is open stops delivering it", async () => {
+    const { fake, client } = await connected22();
+    await client.announce();
+    await flush();
+    const [watch] = fake.requestsOf(MSG_SUBSCRIBE_NAMESPACE);
+    const got: string[] = [];
+    const done = vi.fn();
+
+    const sub = client.subscribeTrack(utf8ToBytes("user2/screen"), "user2/screen", history(0n, got, done));
+    await flush();
+    const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+    s.replies.push(subscribeOk({ group: 5n, object: 0n }));
+    await sub;
+    const rid = decodeSubscribe(s.request.body, 22).requestId;
+    const fill = new FakeControlReplies();
+    fill.push(concatBytes([hexToBytes("05"), encodeVarint(rid), hexToBytes("1c050080026869")]));
+    fake.incomingUnidirectionalStreams.pushStream(fill);
+    await flush();
+    expect(got).toHaveLength(1);
+
+    watch.replies.push(encodeControlFrame(0xen, encodeNamespace([utf8ToBytes("user2")])));
+    await flush();
+    expect(done).toHaveBeenCalledOnce();
+    // Bytes still in flight after the cancel are not delivered.
+    fill.push(hexToBytes("010178"));
+    await flush();
+    expect(got).toHaveLength(1);
+    expect(done).toHaveBeenCalledOnce();
+  });
+
+  it("no protocol attribute, but the hub's uni SETUP arrives: switches to draft-22", async () => {
+    vi.useFakeTimers();
+    const fake = new FakeWebTransport();
+    vi.stubGlobal("WebTransport", function () {
+      return fake;
+    });
+    const goaways: string[] = [];
+    const client = new MoqtChatClient("user1", {
+      onStatusChange: () => {},
+      onMessage: () => {},
+      onGoaway: (uri) => goaways.push(uri),
+    });
+    const ready = client.connect("https://hub.example/", []);
+    fake.startD22Control(null);
+    fake.resolveReady();
+    await ready;
+    await flush();
+
+    expect(client.draft).toBe(22);
+    expect(bytesToHex(concatBytes(fake.uniStreams[0].written))).toBe("af000000");
+    // The losing d19 wait on incomingBidirectionalStreams is cancelled, not
+    // left parked to swallow a later hub-opened bidi stream.
+    expect(fake.bidiCancelled).toBe(true);
+    fake.serverControl.push(goaway("https://next.example/"));
+    await flush();
+    expect(goaways).toEqual(["https://next.example/"]);
+  });
+
+  it("an empty protocol (the flag on, nothing negotiated) is the draft-19 session", async () => {
+    vi.useFakeTimers();
+    const fake = new FakeWebTransport();
+    vi.stubGlobal("WebTransport", function () {
+      return fake;
+    });
+    const client = new MoqtChatClient("user1", { onStatusChange: () => {}, onMessage: () => {} });
+    const ready = client.connect("https://hub.example/", []);
+    fake.protocol = "";
+    fake.resolveReady();
+    await ready;
+
+    expect(client.draft).toBe(19);
+    expect(fake.bidiReads).toBe(1);
+    expect(fake.uniStreams).toHaveLength(0);
+  });
+
+  it("without the subprotocol it falls back to draft-19: bidi control stream, no uni SETUP", async () => {
+    const { fake, client, goaways } = await connected22({}, false);
+
+    expect(fake.options?.protocols).toEqual(["moqt-22"]);
+    expect(client.draft).toBe(19);
+    expect(fake.bidiReads).toBe(1);
+    expect(fake.uniStreams).toHaveLength(0);
+    fake.controlReplies.push(goaway(""));
+    await flush();
+    expect(goaways).toEqual([""]);
   });
 });

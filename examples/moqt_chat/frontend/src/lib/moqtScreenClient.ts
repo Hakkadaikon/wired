@@ -2,8 +2,10 @@
 // over the same MOQT session moqtClient.ts's MoqtChatClient already manages.
 // Like moqtVoiceClient.ts, frames are appended to a long-lived uni stream
 // rather than one stream per frame, but every keyframe starts a new Group
-// on a fresh stream, so a late joiner's Joining FETCH of the current Group
-// begins at a keyframe (draft-ietf-moq-transport-19 10.12.2). Each
+// on a fresh stream, so a late joiner's history of the current Group --
+// a fill of Relative Start 1 (draft-ietf-moq-transport-22 3.4, 9.20.9), or
+// on the draft-19 legacy session a Joining FETCH with Joining Start 0
+// (d19 10.12.2) -- begins at a keyframe. Each
 // Object carries one video chunk (moqtScreenWire.ts); the caller
 // (Task 7's screen-share pipeline) is responsible for chunking a frame and
 // reassembling it on receive (screenFrameReassemblerPush).
@@ -92,7 +94,8 @@ export class MoqtScreenClient {
   // The <id>/screen namespace while this client shares (discovery's
   // "a share started" signal); cancelled by close().
   #announcement: { cancel(): void } | undefined;
-  // Peers whose Joining FETCH is still running: their live chunks wait here
+  // Peers whose history fetch (d22 fill / d19 Joining FETCH) is still
+  // running: their live chunks wait here
   // so the decoder sees the keyframe Group's start first.
   #joining = new Map<string, ScreenChunk[]>();
 
@@ -114,9 +117,10 @@ export class MoqtScreenClient {
   }
 
   /** SUBSCRIBEs to participantId's "<id>/screen" track starting at the
-   * Largest Object, plus a Relative Joining FETCH of the current Group
-   * (Joining Start 0): every Group opens with a keyframe, so a late joiner
-   * decodes from there instead of waiting for the next one. */
+   * Next Object, plus a history of the current Group (joiningStart 0: a d22
+   * fill of Relative Start 1, or a d19 Relative Joining FETCH with Joining
+   * Start 0): every Group opens with a keyframe, so a late joiner decodes
+   * from there instead of waiting for the next one. */
   async subscribeToScreenTrack(participantId: string): Promise<void> {
     this.#joining.set(participantId, []);
     const deliver = (chunk: ScreenChunk) => this.#callbacks.onScreenChunk(participantId, chunk);

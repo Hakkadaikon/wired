@@ -1,5 +1,5 @@
 // S18 discovery: room membership follows namespace discovery
-// (draft-ietf-moq-transport-19 6.1-6.2), not polling. user1 joins alone;
+// (draft-ietf-moq-transport-22 4.1-4.2; draft-19 6.1-6.2), not polling. user1 joins alone;
 // user2 joins and both rosters show the other within roster-max-ms
 // (NAMESPACE); user2 leaves and user1's roster drops it within the same
 // bound (NAMESPACE_DONE once the hub sees the session end). Nobody sends

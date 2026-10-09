@@ -1,9 +1,10 @@
 // S17 video-join-keyframe: a late viewer decodes a running screen share
 // at once instead of waiting for the next keyframe. user1 shares (a fake
 // screen, 10 fps, a keyframe -- and with it a new Group -- every 2 s);
-// user2 joins mid-Group. Its screen subscription carries a Relative
-// Joining FETCH with Joining Start 0 (draft-ietf-moq-transport-19
-// 10.12.2), which hands it the current Group from its keyframe, so the
+// user2 joins mid-Group. Its screen subscription carries a fill
+// (draft-ietf-moq-transport-22 3.4-3.5: FILL_PARAMETERS, RelativeStart 1;
+// draft-19 fallback 10.12.2: Relative Joining FETCH, Joining Start 0),
+// which hands it the current Group from its keyframe, so the
 // first frame decodes well before the next keyframe would arrive.
 //
 //   just e2e-stability s17-video-join-keyframe
