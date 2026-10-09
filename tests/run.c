@@ -562,6 +562,8 @@
 #include "app/moqt/dgram/moqdg.c"
 #include "app/moqt/sess/moqsess.c"
 #include "app/moqt/run/moqtrun.c"
+#include "app/moqt/run/moqtswitch.c"
+#include "app/moqt/run/moqtssts_run.c"
 #include "app/moqt/run/moqtrel.c"
 #include "app/moqt/ns/moqns.c"
 #include "app/moqt/tstat/moqtstat.c"
@@ -1133,6 +1135,9 @@
 #include "app/moqtrun_rawpeer_test.c"
 #include "app/moqssts_test.c"
 #include "app/moqtrun_upsub_test.c"
+#include "app/moqctl_switch_test.c"
+#include "app/moqtrun_switch_test.c"
+#include "app/moqtrun_ssts_test.c"
 #include "app/moqtrel_test.c"
 #include "app/moqns_test.c"
 #include "app/moqtstat_test.c"
@@ -1736,6 +1741,9 @@ int main(void) {
   test_moqtrun_fillfix();
   test_moqtrun_rdv();
   test_moqtrun_upsub();
+  test_moqctl_switch();
+  test_moqtrun_switch();
+  test_moqtrun_ssts();
   test_moqtrel();
   test_moqns();
   test_moqtstat();

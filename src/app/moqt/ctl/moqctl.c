@@ -861,7 +861,9 @@ typedef struct {
  * unqualified "REQUEST_UPDATE" covers every REQUEST_UPDATE kind.
  * RENDEZVOUS and FILL timeouts state no encoding; varint is assumed. Range
  * filters (5.1.3) and FILL_PARAMETERS (22 SS9.20.15: Number of Parameters
- * + Parameters) are kept as their raw Length-prefixed bytes. */
+ * + Parameters) are kept as their raw Length-prefixed bytes. SWITCH_FROM
+ * and SWITCHING_SET_ASSIGNMENT are moqtail's experimental track-switching
+ * extensions: draft-22 SUBSCRIBE + REQUEST_UPDATE (subscription) only. */
 /* clang-format off */
 static const moqctl_param_rule MOQCTL_PARAM_RULES[] = {
     /* type, enc, ctx {d22, d19, d18}, lo, hi, repeat */
@@ -885,6 +887,8 @@ static const moqctl_param_rule MOQCTL_PARAM_RULES[] = {
     {MOQCTL_PARAM_NEW_GROUP_REQUEST,         MOQCTL_PENC_VARINT,    {0x4001,  0x5009,  0x4009},  0, 0,   0},
     {MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX,    MOQCTL_PENC_NS,        {0x30000, 0x30000, 0x30000}, 0, 0,   0},
     {MOQCTL_PARAM_INCLUDE_PROPERTIES,        MOQCTL_PENC_UINT8,     {0x1051,  0,       0},       0, 1,   0},
+    {MOQCTL_PARAM_SWITCH_FROM,               MOQCTL_PENC_SWITCHFROM, {0x4001, 0,       0},       0, 0,   0},
+    {MOQCTL_PARAM_SWITCHING_SET_ASSIGNMENT,  MOQCTL_PENC_SSA,       {0x4001,  0,       0},       0, 0,   0},
 };
 /* clang-format on */
 #define MOQCTL_PARAM_RULE_N \
@@ -1034,10 +1038,79 @@ static int moqctl_pv_rangeloc22(wired_span buf, usz* at, moqctl_param* p) {
   return moqctl_rangeloc22_take(buf, at, &p->has_filter, &p->rl);
 }
 
-static const moqctl_param_value_fn MOQCTL_PARAM_VALUE_FNS[8] = {
-    moqctl_pv_uint8, moqctl_pv_varint,    moqctl_pv_location,
-    moqctl_pv_bytes, moqctl_pv_token,     moqctl_pv_locfilter,
-    moqctl_pv_ns,    moqctl_pv_rangeloc22};
+/* ----- SWITCH_FROM (moqtail): RequestID, Mode, Flags ----- */
+
+static int moqctl_sw_take_mode(wired_span v, usz* at, moqctl_switchfrom* s) {
+  u64 mode;
+  if (!moqvi_take(v, at, &mode) || mode > MOQCTL_SWITCH_SOFT)
+    return MOQCTL_VIOLATION;
+  s->mode = (u8)mode;
+  return MOQCTL_OK;
+}
+
+/* Flags is the last byte: exactly one left, only bit 0x80 may be set. */
+static int moqctl_sw_take_flags(wired_span v, usz at, moqctl_switchfrom* s) {
+  if (v.n - at != 1) return MOQCTL_VIOLATION;
+  if (v.p[at] & 0x7f) return MOQCTL_VIOLATION;
+  s->publish_done = (u8)(v.p[at] >> 7);
+  return MOQCTL_OK;
+}
+
+static int moqctl_sw_take(wired_span v, moqctl_switchfrom* s) {
+  usz at = 0;
+  if (!moqvi_take(v, &at, &s->request_id)) return MOQCTL_VIOLATION;
+  if (moqctl_sw_take_mode(v, &at, s) != MOQCTL_OK) return MOQCTL_VIOLATION;
+  return moqctl_sw_take_flags(v, at, s);
+}
+
+static int moqctl_pv_switchfrom(wired_span buf, usz* at, moqctl_param* p) {
+  int r = moqctl_pv_bytes(buf, at, p);
+  if (r != MOQCTL_OK) return r;
+  return moqctl_sw_take(p->bytes, &p->sw);
+}
+
+/* ----- SWITCHING_SET_ASSIGNMENT (moqtail): five varints + [Rank] ----- */
+
+#define MOQCTL_SSA_VIS 5
+
+static int moqctl_ssa_take_vis(wired_span v, usz* at, moqctl_ssa* s) {
+  u64* f[MOQCTL_SSA_VIS] = {
+      &s->set_id, &s->algorithm_id, &s->threshold_kbps, &s->weight,
+      &s->activate};
+  for (usz i = 0; i < MOQCTL_SSA_VIS; i++)
+    if (!moqvi_take(v, at, f[i])) return MOQCTL_VIOLATION;
+  return MOQCTL_OK;
+}
+
+static int moqctl_ssa_weight_ok(u64 w) { return w >= 1 && w <= 10; }
+
+/* Rank is optional: nothing left, or exactly one byte. */
+static int moqctl_ssa_take_rank(wired_span v, usz at, moqctl_ssa* s) {
+  if (at == v.n) return MOQCTL_OK;
+  if (v.n - at != 1) return MOQCTL_VIOLATION;
+  s->rank     = v.p[at];
+  s->has_rank = 1;
+  return MOQCTL_OK;
+}
+
+static int moqctl_ssa_take(wired_span v, moqctl_ssa* s) {
+  usz at = 0;
+  if (moqctl_ssa_take_vis(v, &at, s) != MOQCTL_OK) return MOQCTL_VIOLATION;
+  if (!moqctl_ssa_weight_ok(s->weight)) return MOQCTL_VIOLATION;
+  return moqctl_ssa_take_rank(v, at, s);
+}
+
+static int moqctl_pv_ssa(wired_span buf, usz* at, moqctl_param* p) {
+  int r = moqctl_pv_bytes(buf, at, p);
+  if (r != MOQCTL_OK) return r;
+  return moqctl_ssa_take(p->bytes, &p->ssa);
+}
+
+static const moqctl_param_value_fn MOQCTL_PARAM_VALUE_FNS[10] = {
+    moqctl_pv_uint8, moqctl_pv_varint,     moqctl_pv_location,
+    moqctl_pv_bytes, moqctl_pv_token,      moqctl_pv_locfilter,
+    moqctl_pv_ns,    moqctl_pv_rangeloc22, moqctl_pv_switchfrom,
+    moqctl_pv_ssa};
 
 static int moqctl_param_take_value(
     wired_span buf, usz* at, int enc, moqctl_param* p) {
@@ -1212,12 +1285,68 @@ static int moqctl_pp_rangeloc22(
   return moqctl_rangeloc22_put(buf, at, p->has_filter, &p->rl);
 }
 
+/* Length + the n value bytes already built in tmp. */
+static int moqctl_pp_lenpref(wired_mspan buf, usz* at, const u8* tmp, usz n) {
+  if (!moqvi_put(buf, at, n)) return 0;
+  return bytes_put(buf, at, wired_span_of(tmp, n));
+}
+
+/* SWITCH_FROM value: two varints (9 bytes each at most) + Flags. */
+#define MOQCTL_SW_VAL_MAX 19
+
+static int moqctl_sw_put_val(
+    wired_mspan b, usz* at, const moqctl_switchfrom* s) {
+  if (!moqvi_put(b, at, s->request_id)) return 0;
+  if (!moqvi_put(b, at, s->mode)) return 0;
+  return moqctl_param_put_uint8(b, at, (u64)(s->publish_done != 0) << 7);
+}
+
+static int moqctl_pp_switchfrom(
+    wired_mspan buf, usz* at, const moqctl_param* p) {
+  u8  tmp[MOQCTL_SW_VAL_MAX];
+  usz n = 0;
+  if (p->sw.mode > MOQCTL_SWITCH_SOFT) return 0; /* never send a bad Mode */
+  if (!moqctl_sw_put_val(wired_mspan_of(tmp, sizeof tmp), &n, &p->sw)) return 0;
+  return moqctl_pp_lenpref(buf, at, tmp, n);
+}
+
+/* SWITCHING_SET_ASSIGNMENT value: five varints + the optional Rank. */
+#define MOQCTL_SSA_VAL_MAX (MOQCTL_SSA_VIS * 9 + 1)
+
+static int moqctl_ssa_put_vis(wired_mspan b, usz* at, const moqctl_ssa* s) {
+  const u64 f[MOQCTL_SSA_VIS] = {
+      s->set_id, s->algorithm_id, s->threshold_kbps, s->weight, s->activate};
+  for (usz i = 0; i < MOQCTL_SSA_VIS; i++)
+    if (!moqvi_put(b, at, f[i])) return 0;
+  return 1;
+}
+
+static int moqctl_ssa_put_rank(wired_mspan b, usz* at, const moqctl_ssa* s) {
+  if (!s->has_rank) return 1;
+  return moqctl_param_put_uint8(b, at, s->rank);
+}
+
+static int moqctl_ssa_put_val(wired_mspan b, usz* at, const moqctl_ssa* s) {
+  if (!moqctl_ssa_put_vis(b, at, s)) return 0;
+  return moqctl_ssa_put_rank(b, at, s);
+}
+
+static int moqctl_pp_ssa(wired_mspan buf, usz* at, const moqctl_param* p) {
+  u8  tmp[MOQCTL_SSA_VAL_MAX];
+  usz n = 0;
+  if (!moqctl_ssa_weight_ok(p->ssa.weight)) return 0; /* never send it */
+  if (!moqctl_ssa_put_val(wired_mspan_of(tmp, sizeof tmp), &n, &p->ssa))
+    return 0;
+  return moqctl_pp_lenpref(buf, at, tmp, n);
+}
+
 /* PENC_TOKEN re-emits the raw Token bytes the sender placed in p->bytes
  * (this subset only receives tokens; no Token-structure encoder). */
-static const moqctl_param_put_fn MOQCTL_PARAM_PUT_FNS[8] = {
-    moqctl_pp_uint8, moqctl_pp_varint,    moqctl_pp_location,
-    moqctl_pp_bytes, moqctl_pp_bytes,     moqctl_pp_locfilter,
-    moqctl_pp_raw,   moqctl_pp_rangeloc22};
+static const moqctl_param_put_fn MOQCTL_PARAM_PUT_FNS[10] = {
+    moqctl_pp_uint8, moqctl_pp_varint,     moqctl_pp_location,
+    moqctl_pp_bytes, moqctl_pp_bytes,      moqctl_pp_locfilter,
+    moqctl_pp_raw,   moqctl_pp_rangeloc22, moqctl_pp_switchfrom,
+    moqctl_pp_ssa};
 
 static int moqctl_param_put_value(
     wired_mspan buf, usz* at, const moqctl_param* p) {
@@ -1278,11 +1407,52 @@ static void moqctl_setup_apply_limits(moqctl_setup* out, const moqkvp* kv) {
     out->max_request_updates = kv->num;
 }
 
-/* Any option type not one of the five tracked here (including
+/* SSTS_ALGORITHMS (moqtail): concatenated varints, no count. Two passes
+ * over the list: the ids this SDK knows first, then the unknown ones while
+ * room is left, so a peer listing many ids with 0xff01 last still
+ * negotiates it. */
+static int moqctl_ssts_known(u64 alg) {
+  return alg == MOQCTL_SSTS_ALG_DEFAULT || alg == MOQCTL_SSTS_ALG_BACKPRESSURE;
+}
+
+static void moqctl_ssts_keep(moqctl_setup* out, u64 alg, int known) {
+  if (moqctl_ssts_known(alg) != known) return;
+  if (out->ssts_alg_n >= MOQCTL_SSTS_MAX_ALGS) return;
+  out->ssts_algs[out->ssts_alg_n++] = alg;
+}
+
+/* 1 when v is a whole number of varints, 0 when it ends mid-varint. */
+static int moqctl_ssts_take_list(wired_span v, moqctl_setup* out, int known) {
+  usz at = 0;
+  u64 alg;
+  while (at < v.n) {
+    if (!moqvi_take(v, &at, &alg)) return 0;
+    moqctl_ssts_keep(out, alg, known);
+  }
+  return 1;
+}
+
+/* DEVIATION from draft-22 SS1.4 (and 18/19 SS1.4.3): a Key-Value-Pair
+ * whose value cannot be parsed MUST close the session with
+ * KEY_VALUE_FORMATTING_ERROR. A malformed SSTS_ALGORITHMS list is instead
+ * ignored like an unknown option (has_ssts 0) -- deliberately lenient,
+ * since 0x09 is an unregistered experimental option a non-moqtail peer
+ * may use differently; the extension is then just not offered. A repeat
+ * replaces the earlier one. */
+static void moqctl_setup_apply_ssts(moqctl_setup* out, const moqkvp* kv) {
+  if (kv->type != MOQCTL_OPT_SSTS_ALGORITHMS) return;
+  out->ssts_alg_n = 0;
+  out->has_ssts   = (u8)moqctl_ssts_take_list(kv->raw, out, 1);
+  moqctl_ssts_take_list(kv->raw, out, 0);
+  out->ssts_alg_n = (u8)(out->ssts_alg_n * out->has_ssts);
+}
+
+/* Any option type not one of the six tracked here (including
  * greased/reserved ones) is ignored per SS10.4. */
 static void moqctl_setup_apply_kvp(moqctl_setup* out, const moqkvp* kv) {
   moqctl_setup_apply_path_authority(out, kv);
   moqctl_setup_apply_limits(out, kv);
+  moqctl_setup_apply_ssts(out, kv);
   if (kv->type == MOQCTL_OPT_MOQT_IMPLEMENTATION) {
     out->has_implementation = 1;
     out->implementation     = kv->raw;
@@ -1363,11 +1533,39 @@ static int moqctl_setup_put_tail(
       buf, at, prev, MOQCTL_OPT_MAX_REQUEST_UPDATES, s->max_request_updates);
 }
 
+static usz moqctl_ssts_count(const moqctl_setup* s) {
+  return (usz)u64_min(s->ssts_alg_n, MOQCTL_SSTS_MAX_ALGS);
+}
+
+static int moqctl_ssts_put_list(wired_mspan b, usz* at, const moqctl_setup* s) {
+  usz n = moqctl_ssts_count(s);
+  for (usz i = 0; i < n; i++)
+    if (!moqvi_put(b, at, s->ssts_algs[i])) return 0;
+  return 1;
+}
+
+/* SSTS_ALGORITHMS (0x09) follows MAX_REQUEST_UPDATES (0x08). */
+static int moqctl_setup_put_ssts(
+    wired_mspan buf, usz* at, u64* prev, const moqctl_setup* s) {
+  u8  tmp[MOQCTL_SSTS_MAX_ALGS * 9]; /* moqvi: 9 bytes at most */
+  usz n = 0;
+  if (!s->has_ssts) return 1;
+  if (!moqctl_ssts_put_list(wired_mspan_of(tmp, sizeof tmp), &n, s)) return 0;
+  return moqctl_setup_put_opt(
+      buf, at, prev, MOQCTL_OPT_SSTS_ALGORITHMS, 1, wired_span_of(tmp, n));
+}
+
+static int moqctl_setup_put_rest(
+    wired_mspan buf, usz* at, u64* prev, const moqctl_setup* s) {
+  if (!moqctl_setup_put_tail(buf, at, prev, s)) return 0;
+  return moqctl_setup_put_ssts(buf, at, prev, s);
+}
+
 int moqctl_setup_encode(wired_mspan buf, usz* off, const moqctl_setup* s) {
   usz at   = *off;
   u64 prev = 0;
   if (!moqctl_setup_put_path_authority(buf, &at, &prev, s)) return 0;
-  if (!moqctl_setup_put_tail(buf, &at, &prev, s)) return 0;
+  if (!moqctl_setup_put_rest(buf, &at, &prev, s)) return 0;
   *off = at;
   return 1;
 }

@@ -72,6 +72,15 @@
 #define MOQCTL_ERR_DUPLICATE_SUBSCRIPTION 0x19ULL     /* draft-18 only */
 #define MOQCTL_ERR_INVALID_JOINING_REQUEST_ID 0x32ULL /* draft-18/19 */
 #define MOQCTL_ERR_CONFLICTING_FILTERS 0x35ULL        /* not draft-18 */
+/** moqtail-compatible INVALID_SWITCH (a bad SWITCH_FROM): 0x32 is
+ * unassigned in draft-22 but is INVALID_JOINING_REQUEST_ID in draft-18/19,
+ * so its meaning is per draft and it is sent only on a draft-22 session
+ * that accepted a SWITCH_FROM. */
+#define MOQCTL_ERR_INVALID_SWITCH 0x32ULL
+/** UNSUPPORTED_EXTENSION: a standard code in draft-18/19/22 (22 SS12.3
+ * Table 20; 18/19 SS10.6); SSTS also uses it for an un-negotiated
+ * algorithm or a track already in another switching set. */
+#define MOQCTL_ERR_UNSUPPORTED_EXTENSION 0x33ULL
 
 /** PUBLISH_DONE status codes actually used by this subset (SS17.4). */
 #define MOQCTL_DONE_INTERNAL_ERROR 0x0ULL
@@ -80,6 +89,12 @@
 #define MOQCTL_DONE_UPDATE_FAILED 0x8ULL
 /** Not in draft-22 (moqctl_publish_done_for). */
 #define MOQCTL_DONE_SUBSCRIPTION_ENDED 0x3ULL
+/** draft-22 only, moqtail-compatible: "switched away from" (SWITCH_FROM
+ * with Publish Done). Same wire value as draft-18/19 SUBSCRIPTION_ENDED,
+ * which moqctl_publish_done_for maps to TRACK_ENDED on draft-22, so the
+ * sender writes this code directly and never passes it through
+ * moqctl_publish_done_for. */
+#define MOQCTL_DONE_SWITCHED 0x3ULL
 
 /** Session-level termination codes referenced by this codec (SS17.1). */
 #define MOQCTL_CLOSE_INVALID_AUTHORITY 0x19ULL
@@ -92,6 +107,18 @@
 #define MOQCTL_OPT_MAX_FILTER_RANGES 0x6ULL
 #define MOQCTL_OPT_MOQT_IMPLEMENTATION 0x7ULL
 #define MOQCTL_OPT_MAX_REQUEST_UPDATES 0x8ULL
+/** moqtail-compatible SSTS_ALGORITHMS (experimental, odd: Length + the
+ * concatenated varint algorithm ids, no count). */
+#define MOQCTL_OPT_SSTS_ALGORITHMS 0x9ULL
+
+/** SSTS algorithm ids (moqtail): 0 bandwidth-weighted default, 0xff01
+ * active-stream-depth backpressure. */
+#define MOQCTL_SSTS_ALG_DEFAULT 0x0ULL
+#define MOQCTL_SSTS_ALG_BACKPRESSURE 0xff01ULL
+/** Algorithm ids one decoded SSTS_ALGORITHMS option keeps. Known ids
+ * (MOQCTL_SSTS_ALG_*) are kept first, then unknown ones in wire order
+ * while room is left; the rest are parsed and dropped. */
+#define MOQCTL_SSTS_MAX_ALGS 4
 
 /** Message Parameter types (draft-ietf-moq-transport-19 15.7 Table 13). */
 #define MOQCTL_PARAM_AUTHORIZATION_TOKEN 0x03ULL
@@ -115,6 +142,14 @@
 /** draft-22 only (SS9.20.15, SS9.20.21). */
 #define MOQCTL_PARAM_FILL_PARAMETERS 0x23ULL
 #define MOQCTL_PARAM_INCLUDE_PROPERTIES 0x35ULL
+/** moqtail-compatible track-switching extensions: draft-22 only, in
+ * SUBSCRIBE and REQUEST_UPDATE (subscription); unknown in draft-18/19. */
+#define MOQCTL_PARAM_SWITCH_FROM 0x24ULL
+#define MOQCTL_PARAM_SWITCHING_SET_ASSIGNMENT 0x41ULL
+
+/** SWITCH_FROM Mode values; any other Mode is a VIOLATION. */
+#define MOQCTL_SWITCH_HARD 0
+#define MOQCTL_SWITCH_SOFT 1
 
 /** Message contexts a Message Parameter may appear in, one bit each
  * (draft-ietf-moq-transport-19 10.2.x "MAY appear in"). REQUEST_OK and
@@ -166,6 +201,14 @@
  * moqctl_rangeloc22_take into moqctl_param.rl/has_filter. Selected only by
  * moqctl_params_take under draft-22 only. */
 #define MOQCTL_PENC_RANGELOC22 7
+/** Length-prefixed SWITCH_FROM value into moqctl_param.sw; a value not
+ * exactly RequestID + Mode + Flags, a Mode other than Hard/Soft or a Flags
+ * bit other than 0x80 is a VIOLATION. */
+#define MOQCTL_PENC_SWITCHFROM 8
+/** Length-prefixed SWITCHING_SET_ASSIGNMENT value into moqctl_param.ssa;
+ * a truncated value, Weight outside 1..10 or bytes after the optional Rank
+ * is a VIOLATION. */
+#define MOQCTL_PENC_SSA 9
 
 /** AUTHORIZATION TOKEN Alias Types (SS10.2.2). Which fields follow the
  * Alias Type is fixed per code point: DELETE/USE_ALIAS carry only the
@@ -395,19 +438,43 @@ typedef struct {
   wired_span value;      /* REGISTER / USE_VALUE */
 } moqctl_token;
 
+/** SWITCH_FROM value (moqtail): activate this subscription and stop the
+ * one with request_id. Encode fails (0) when mode is not Hard/Soft. */
+typedef struct {
+  u64 request_id;
+  /** MOQCTL_SWITCH_HARD / MOQCTL_SWITCH_SOFT. */
+  u8 mode;
+  /** Flags bit 0x80: end the old subscription with PUBLISH_DONE. */
+  u8 publish_done;
+} moqctl_switchfrom;
+
+/** SWITCHING_SET_ASSIGNMENT value (moqtail SSTS): puts the subscription
+ * into switching set set_id. Encode fails (0) when weight is not 1..10. */
+typedef struct {
+  u64 set_id;
+  u64 algorithm_id; /* MOQCTL_SSTS_ALG_* */
+  u64 threshold_kbps;
+  u64 weight; /* 1..10 */
+  u64 activate;
+  u8  rank;     /* valid iff has_rank; 0 otherwise */
+  u8  has_rank; /* Rank is optional on the wire */
+} moqctl_ssa;
+
 /** draft-ietf-moq-transport-19 SS10.2 Message Parameter: Type Delta +
  * Value. Decoded absolute type + encoding-tagged value. */
 typedef struct {
-  u64              type;
-  int              enc;   /* MOQCTL_PENC_* */
-  u64              u8v;   /* PENC_UINT8 */
-  u64              vi;    /* PENC_VARINT */
-  moqctl_loc       loc;   /* PENC_LOCATION */
-  wired_span       bytes; /* PENC_BYTES, and PENC_TOKEN's raw Token bytes */
-  moqctl_token     token; /* PENC_TOKEN */
-  moqctl_locfilter lf;    /* PENC_LOCFILTER */
-  int              has_filter; /* PENC_LOCFILTER/RANGELOC22: 0 for 0x00 */
-  moqctl_rangeloc  rl;         /* PENC_LOCFILTER/RANGELOC22 */
+  u64               type;
+  int               enc;   /* MOQCTL_PENC_* */
+  u64               u8v;   /* PENC_UINT8 */
+  u64               vi;    /* PENC_VARINT */
+  moqctl_loc        loc;   /* PENC_LOCATION */
+  wired_span        bytes; /* PENC_BYTES, and PENC_TOKEN's raw Token bytes */
+  moqctl_token      token; /* PENC_TOKEN */
+  moqctl_locfilter  lf;    /* PENC_LOCFILTER */
+  int               has_filter; /* PENC_LOCFILTER/RANGELOC22: 0 for 0x00 */
+  moqctl_rangeloc   rl;         /* PENC_LOCFILTER/RANGELOC22 */
+  moqctl_switchfrom sw;         /* PENC_SWITCHFROM */
+  moqctl_ssa        ssa;        /* PENC_SSA */
 } moqctl_param;
 
 /** A decoded/to-encode Message Parameter list. */
@@ -456,6 +523,15 @@ typedef struct {
    * sender accepts per request stream; the draft default 0 means no
    * limit. 0 is never encoded. */
   u64 max_request_updates;
+  /** SSTS_ALGORITHMS (experimental, moqtail): has_ssts when the option was
+   * present and well-formed (a malformed list is ignored like an unknown
+   * option). ssts_algs holds the known ids (MOQCTL_SSTS_ALG_*) in wire
+   * order, then unknown ids in wire order, MOQCTL_SSTS_MAX_ALGS at most,
+   * so a re-encode may reorder or drop ids. Present with ssts_alg_n 0 is
+   * an empty list, encoded as such. */
+  u64 ssts_algs[MOQCTL_SSTS_MAX_ALGS];
+  u8  ssts_alg_n;
+  u8  has_ssts;
 } moqctl_setup;
 
 int moqctl_setup_take(wired_span buf, usz* off, moqctl_setup* out);
