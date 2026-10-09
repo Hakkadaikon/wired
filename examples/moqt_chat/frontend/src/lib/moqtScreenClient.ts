@@ -118,6 +118,8 @@ function screenTrackName(participantId: string, variant: ScreenVariant = "hi"): 
 export interface ScreenGroupGate {
   group?: bigint;
   variant?: ScreenVariant;
+  /** The binding came from a history fill, not yet confirmed live. */
+  byFill?: boolean;
 }
 
 /** Whether a chunk of Group `group` from `variant` may reach the decoder.
@@ -127,18 +129,36 @@ export interface ScreenGroupGate {
  * older Group however late it arrives (a Soft switch's old track, a slow
  * stream), and a newer Group not opened by its keyframe. A publisher that
  * restarts its count (a new session) is followed through a fresh gate:
- * subscribeToScreenTrack resets it when the share is announced again. */
+ * subscribeToScreenTrack resets it when the share is announced again.
+ *
+ * `live` false = a history fill. Fills are per subscription and SSTS does
+ * not gate them, so a fill may bind a Group to the variant the hub is NOT
+ * forwarding live for it (Auto: lo's fill one Group ahead of hi's). A gate
+ * a fill bound is therefore only provisional: the live keyframe of that
+ * Group from the other variant -- the member the hub actually chose --
+ * takes it over (the decoder reconfigures on a keyframe, so the switch
+ * mid-Group is safe). Live data of the bound variant confirms it. */
 export function screenGroupGateAccept(
   gate: ScreenGroupGate,
   group: bigint,
   variant: ScreenVariant,
   keyframe: boolean,
+  live = true,
 ): boolean {
   const fresh = gate.group === undefined || group > gate.group;
-  if (!fresh) return group === gate.group && variant === gate.variant;
-  if (!keyframe) return false;
+  if (!fresh) {
+    if (group !== gate.group) return false;
+    if (variant === gate.variant) {
+      if (live) gate.byFill = false;
+      return true;
+    }
+    if (!(gate.byFill && live && keyframe)) return false;
+  } else if (!keyframe) {
+    return false;
+  }
   gate.group = group;
   gate.variant = variant;
+  gate.byFill = !live;
   return true;
 }
 
@@ -147,6 +167,8 @@ interface ScreenItem {
   chunk: ScreenChunk;
   group: bigint;
   variant: ScreenVariant;
+  /** false: from a history fill (screenGroupGateAccept's `live`). */
+  live: boolean;
 }
 
 /** Live chunks held back while `pending` histories are still running. */
@@ -343,7 +365,7 @@ export class MoqtScreenClient {
         onObject: (o) => {
           try {
             const { chunk } = decodeScreenObjectMessage(o.payload);
-            this.#deliver(participantId, { chunk, group: o.group, variant });
+            this.#deliver(participantId, { chunk, group: o.group, variant, live: false });
           } catch {
             // a malformed fetched chunk is skipped, like a live one
           }
@@ -430,7 +452,7 @@ export class MoqtScreenClient {
   // through the participant's Group gate (track switching only).
   #deliver(participantId: string, item: ScreenItem): void {
     const gate = this.#gates.get(participantId);
-    if (gate && !screenGroupGateAccept(gate, item.group, item.variant, item.chunk.keyframe)) return;
+    if (gate && !screenGroupGateAccept(gate, item.group, item.variant, item.chunk.keyframe, item.live)) return;
     this.#callbacks.onScreenChunk(participantId, item.chunk, item.variant);
   }
 
@@ -523,7 +545,7 @@ export class MoqtScreenClient {
   ): Promise<void> {
     let buffered = firstChunk;
     const seq: ScreenObjectSeq = { prevObjectId: 0n, isFirst: true };
-    const onChunk = (chunk: ScreenChunk) => this.#emitLive(participant, { chunk, group, variant });
+    const onChunk = (chunk: ScreenChunk) => this.#emitLive(participant, { chunk, group, variant, live: true });
     try {
       for (;;) {
         buffered = drainScreenObjectStream(buffered, seq, onChunk);
