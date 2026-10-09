@@ -67,10 +67,12 @@ The hub speaks draft-18, draft-19 or draft-22, chosen per session from the
 WebTransport subprotocol the client offers (`moqt-18`/`moqt-19`/`moqt-22`).
 The list below applies to all three unless a draft is named.
 
-- A session that negotiates no subprotocol (a browser's `WebTransport`
-  cannot offer one) speaks draft-19 over the older single bidirectional
-  control stream; the unidirectional control-stream pair (3.3), draft-18
-  and draft-22 need a `moqt-NN` subprotocol.
+- A session that negotiates no subprotocol (a browser without WebTransport
+  `protocols` support, for one) speaks draft-19 over the older single
+  bidirectional control stream; the unidirectional control-stream pair
+  (draft-22 6.3), draft-18 and draft-22 need a `moqt-NN` subprotocol. The
+  guide's samples negotiate `moqt-22` and do not run on this path;
+  `examples/moqt_chat` uses it only as a fallback.
 - A subscription made on that bidirectional control stream gets no
   PUBLISH_DONE, since the stream has no Request ID to name it by;
   subscriptions on their own request streams do.

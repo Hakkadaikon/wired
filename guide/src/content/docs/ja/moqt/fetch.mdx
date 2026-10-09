@@ -9,28 +9,38 @@ import Example from '../../../../components/Example.astro';
 途中から参加した購読者は、参加後に公開された Object しか受け取れません。
 それより前の Object は FETCH で要求し、ハブは Object キャッシュから応答します。
 このページは小さなキャッシュを取り付け、パブリッシャーにグループ 0 から 5 を送らせます。
-遅れて参加した視聴者が購読し、過去の分を取得して、ライブの購読へ隙間なくつなぎます。
+遅れて参加した視聴者が購読し、過去の分を埋めて（fill）、ライブの購読へ隙間なくつなぎます。
+単独の FETCH も実行します。
 
 <Example id="moqt-fetch" />
 
 ## 仕組み
 
-- `wired_moqt_cache_attach` は、FETCH 用のアリーナ（キャッシュに使うメモリ領域）をハブに渡します（draft-ietf-moq-transport-19 10.12）。
+- このサンプルは、WebTransport サブプロトコル `moqt-22` で draft-ietf-moq-transport-22 をネゴシエートします（サーバーが `opt.wt_protocols` を設定します）。
+  両側が単方向の制御ストリームを開いて SETUP（9.1）を送り、ハブは両方の SETUP が揃ってからリクエストを処理します。
+- `wired_moqt_cache_attach` は、FETCH 用のアリーナ（キャッシュに使うメモリ領域）をハブに渡します（draft-ietf-moq-transport-22 9.11）。
   クライアントが PUBLISH したトラックの Object は、完全に届いたものがすべてここへコピーされます。
   Object 1 つあたり、ペイロードに加えて `MOQCACHE_HDR` バイトを使うので、このアリーナには 7 バイトの `frame-N` がちょうど 4 つ入ります。
   6 グループを公開すると、最も古いグループ 0 と 1 がグループ単位で追い出されます。
 - キャッシュされるのはクライアントが PUBLISH したトラックだけで、ハブ自身の blob やライブトラックは対象外です。
   そのため Go クライアントは、パブリッシャーと視聴者の 2 つのセッションを開きます。
-  PUBLISH、SUBSCRIBE、FETCH の各リクエストは、クライアントが開いた新しい双方向ストリームで送られ、ハブは `stream_reply_open` を通じて同じストリームで応答します。
-- 視聴者は Largest Object フィルターで SUBSCRIBE するので、現在の Largest より後の Object だけがライブで届きます。
-  SUBSCRIBE_OK はその Largest（`LARGEST_OBJECT`、5/0）を返し、これが購読の Joining Location になります。
-- グループ 0 から 2 を求める単独の FETCH は、リクエストストリームで FETCH_OK を受け取り、Object は新しい単方向ストリーム（FETCH_HEADER と、それに続く fetch Object）で受け取ります。
-  追い出されたグループ 0 と 1 は、1/4611686018427387903 までの 1 つの End of Unknown Range として返ります（最大の Object ID で、グループ 1 の残り全体を表します）。
+  PUBLISH、SUBSCRIBE、FETCH の各リクエストは、クライアントが開いた新しい双方向ストリーム（6.4.2）で送られ、ハブは `stream_reply_open` を通じて同じストリームで応答します。
+- 視聴者は LOCATION_FILTER パラメータ（9.20.9）を Next Object（type 0x05。draft-19 では Largest Object）にして SUBSCRIBE するので、現在の Largest より後の Object だけがライブで届きます。
+  SUBSCRIBE_OK はその Largest（`LARGEST_OBJECT`、9.20.17、5/0）を返します。
+- 過去の分を取り戻すため、同じ SUBSCRIBE に FILL_PARAMETERS（0x23、9.20.15）を載せます。
+  その内側の LOCATION_FILTER は Relative Start N（type 0x01、ここでは N = 3）で、現在のグループを含む直近 N グループを `{Largest.Group + 1 - N, 0}` から求めます（9.20.9。3.4、3.5）。
+  draft-22 に Joining FETCH はなく、fill は購読に相乗りします。
+  ハブはこれをサーバーが開いた単方向ストリームで送り、その FETCH_HEADER（11.4.1）には SUBSCRIBE 自身の Request ID が入り、FETCH_OK はありません。
+  ここではグループ 3 から 5 が届きます（`fill (request 0): 3/0` から `5/0`）。
+  最初のライブの Object は 6/0 なので、fill と購読は隙間も重複もなくつながります。
+- グループ 0 から 2 を求める単独の FETCH は、本体が Request ID、Track Namespace、Track Name、Parameters で、範囲は LOCATION_FILTER パラメータ（type 0x03 の Absolute Start, Group End。開始 0/0、End Group Delta 2）で指定し、Fetch Type フィールドはありません。
+  リクエストストリームで FETCH_OK（9.12）を受け取り、End Location は 2/0（`FETCH_OK end 2/0`）です。
+  End Location は draft-22 では範囲に含まれる最後の位置で、draft-19 では最後の Object の 1 つ先でした。
+  Object は新しい単方向ストリーム（FETCH_HEADER と、それに続く fetch Object）で受け取ります。
+  追い出されたグループ 0 と 1 は、1/4611686018427387903 までの 1 つの End of Unknown Range（0x10C）として返ります（2^62−1 で、ハブが「グループ 1 の残り全体」を表すのに使う値です。draft-22 の Object ID は 2^64−1 まで取り得ます）。
   その後に、キャッシュにあるグループ 2 が続きます。
-- 相対 Joining FETCH は、購読の Request ID とグループ数（2）を指定します。
-  範囲はグループ 5 - 2 = 3 から Joining Location までで、FETCH_OK の End Location は最後に送る Object の 1 つ先の 5/1 です。
-  最初のライブの Object は 6/0 なので、FETCH と購読は隙間も重複もなくつながります。
-- fetch ストリームは `open_uni_stream`、`stream_send`、`stream_reset` の io エントリで送られます。
+  draft-22 には 0x8C と 0x10C のほかに、0x20C（End of Timed-Out Range）もあります。
+- fetch ストリームと fill ストリームは `open_uni_stream`、`stream_send`、`stream_reset` の io エントリで送られます。
   このストリームは複数ラウンドにわたって開いたままで、トランスポートが拒否したラウンドは、`on_step` から呼ぶ `wired_moqt_tick` が再試行します。
 - 視聴者が参加する前に、パブリッシャーはグループ 5 がハブに取り込まれたことを FETCH で確かめます。
   グループ 5 を求める単独の FETCH は、それがトラックの Largest Object より先にある間は REQUEST_ERROR INVALID_RANGE で、ハブが取り込んだ後は FETCH_OK で応答されます。

@@ -8,10 +8,11 @@ import Example from '../../../../components/Example.astro';
 
 A MoQT server is a `wired_moqt_hub` sitting on the WebTransport callbacks. It
 negotiates whichever of draft-ietf-moq-transport-18/19/22 the peer offers via
-the WT subprotocol (`moqt-18`/`moqt-19`/`moqt-22`); the rest of this guide
-cites draft-19 section numbers, since the two most-used sections (control
-stream, SETUP) are byte-identical across all three drafts. This page shows
-the hub alone: a client connects and receives the server's SETUP.
+the WT subprotocol (`moqt-18`/`moqt-19`/`moqt-22`). Every MoQT sample server
+in this guide sets `opt.wt_protocols = "moqt-22"` and its Go client offers
+`moqt-22`, so the hub runs draft-22 and the section numbers cited in this
+guide are draft-22's. This page shows the hub alone: a client connects and
+receives the server's SETUP.
 
 <Example id="moqt-hub" />
 
@@ -26,13 +27,22 @@ the hub alone: a client connects and receives the server's SETUP.
   `_on_session_close` go straight into `wired_srvrun_opt`, each with
   `&hub` as its context. `wired_server_run_opt` runs the server.
 - When a session opens, the hub opens its control stream and sends SETUP
-  (type `0x2f00`) on it. Which shape that stream takes follows the WT
-  subprotocol: with a negotiated `moqt-NN` the hub opens a unidirectional
-  control stream and the client opens its own; with none, the session
-  speaks draft-19 over the older single bidirectional control stream. This
-  page's server leaves `opt.wt_protocols` unset, so its client (like any
-  browser, which cannot offer a subprotocol) takes the bidirectional shape
-  and reads SETUP with `AcceptStream`.
+  (type `0x2f00`, which also serves as the stream type;
+  draft-ietf-moq-transport-22 6.4.1, 9.1) on it. Which shape that stream takes
+  follows the WT subprotocol. This page's server sets
+  `opt.wt_protocols = "moqt-22"` and the client offers `moqt-22`
+  (webtransport-go `ApplicationProtocols`), so the hub opens a
+  unidirectional control stream and the client opens its own and sends its
+  SETUP (6.3). The hub serves requests only once both SETUPs are exchanged,
+  and each later request (e.g. SUBSCRIBE, PUBLISH, FETCH,
+  PUBLISH_NAMESPACE, SUBSCRIBE_NAMESPACE) goes on its own client-opened
+  bidirectional stream and is answered there (6.4.2). The client reads the
+  server's SETUP from the first incoming unidirectional stream
+  (`AcceptUniStream`).
+- A client that offers no subprotocol (a browser without WebTransport
+  `protocols` support) gets draft-19 over the older single bidirectional
+  control stream and would read SETUP with `AcceptStream`;
+  `examples/moqt_chat` uses that as its fallback.
 - To let clients pick a draft, fill `opt.wt_protocols` from
   `wired_moqt_wt_protocols(buf, sizeof buf)`, which writes the hub's list
   (`moqt-22 moqt-19 moqt-18`); `examples/moqt_interop` does this.

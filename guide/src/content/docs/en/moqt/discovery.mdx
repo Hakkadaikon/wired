@@ -16,14 +16,21 @@ after it, and one the server's policy refuses. Then one publisher leaves.
 
 ## How it works
 
-- Each request goes on a fresh bidi stream the client opens
-  (draft-ietf-moq-transport-19 3.3), and the hub answers on that stream
+- The sample negotiates draft-ietf-moq-transport-22 through the
+  WebTransport subprotocol `moqt-22` (the server sets
+  `opt.wt_protocols`). Each side opens its own unidirectional control
+  stream and sends SETUP (9.1) on it, and the hub serves requests only
+  after both SETUPs have arrived.
+- Each request then goes on a fresh bidi stream the client opens
+  (draft-ietf-moq-transport-22 6.4.2), and the hub answers on that stream
   through `stream_reply_open`. Both namespace requests stay in force after
-  their answer, until the stream is reset (3.3.3) or the session ends.
-- PUBLISH_NAMESPACE (10.15) announces a Track Namespace (`guide/lobby`,
+  their answer, until the stream is cancelled (6.4.2.3) or the session
+  ends. NAMESPACE and NAMESPACE_DONE are pushed on the SUBSCRIBE_NAMESPACE
+  stream itself.
+- PUBLISH_NAMESPACE (9.14, 4.1) announces a Track Namespace (`guide/lobby`,
   `guide/room-a`, ...), and the hub answers REQUEST_OK.
-- SUBSCRIBE_NAMESPACE (10.18) names a Track Namespace Prefix. After
-  REQUEST_OK the hub sends one NAMESPACE (10.16) for every namespace
+- SUBSCRIBE_NAMESPACE (9.15, 4.2) names a Track Namespace Prefix. After
+  REQUEST_OK the hub sends one NAMESPACE (9.16) for every namespace
   already published under the prefix (the initial set, here `lobby`),
   then one more each time a matching namespace is published. Each carries
   only the suffix: the fields after the prefix.
@@ -34,7 +41,7 @@ after it, and one the server's policy refuses. Then one publisher leaves.
   and the watcher is never told about it.
 - When room-a closes its session, `wired_moqt_on_session_close`
   withdraws every namespace it published, and the hub sends NAMESPACE_DONE
-  (10.17) to each watcher that was told about it.
+  (9.17) to each watcher that was told about it.
 - The client never sleeps to wait for the hub: each publisher waits for
   its own REQUEST_OK, and the watcher reads the NAMESPACE or
   NAMESPACE_DONE the hub pushes, so every step is ordered by messages on

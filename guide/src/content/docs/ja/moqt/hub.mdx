@@ -9,7 +9,7 @@ import Example from '../../../../components/Example.astro';
 MoQT（Media over QUIC Transport）は、映像や音声などのメディアを QUIC の上で運ぶためのプロトコルです。
 そのサーバーは、WebTransport のコールバックの上に置いた `wired_moqt_hub` です。
 接続時に相手が提示する WebTransport のサブプロトコル（`moqt-18`/`moqt-19`/`moqt-22`）に応じて、draft-ietf-moq-transport の 18/19/22 のいずれかを選んで話します。
-このガイドの説明では draft-19 の節番号を使いますが、よく使う節（制御ストリームや SETUP の仕組み）は 3 つの版でバイト単位まで同じなので、そのまま読み進められます。
+このガイドの MoQT サンプルのサーバーはすべて `opt.wt_protocols = "moqt-22"` を設定し、Go のクライアントも `moqt-22` を提示するので、ハブは draft-22 で動き、このガイドが引く節番号は draft-22 のものです。
 このページではハブだけを動かし、接続したクライアントがサーバーの SETUP（セッションを始める最初のメッセージ）を受け取ります。
 
 <Example id="moqt-hub" />
@@ -22,11 +22,13 @@ MoQT（Media over QUIC Transport）は、映像や音声などのメディアを
   この表は、ハブが開くストリームの先頭にストリームシグナル（目印のバイト列）を付け、raw QUIC 上の MoQT セッションにも対応します。
 - ハブの `wired_moqt_on_session`、`_on_stream_data`、`_on_datagram`、`_on_session_close` は、それぞれ `&hub` をコンテキストにして `wired_srvrun_opt` にそのまま設定します。
   サーバーを動かすのは `wired_server_run_opt` です。
-- セッションが開くと、ハブは制御ストリームを開き、その上で SETUP（type `0x2f00`）を送ります。
+- セッションが開くと、ハブは制御ストリームを開き、その上で SETUP（type `0x2f00`。ストリーム種別も兼ねます。draft-ietf-moq-transport-22 の 6.4.1、9.1）を送ります。
   このストリームの形は WebTransport のサブプロトコルで決まります。
-  `moqt-NN` を交渉したセッションでは、ハブが単方向の制御ストリームを開き、クライアントも自分の単方向の制御ストリームを開きます。
-  交渉しなかったセッションは、draft-19 を従来の双方向の制御ストリーム 1 本の上で話します。
-  このページのサーバーは `opt.wt_protocols` を設定していないので、そのクライアントは（サブプロトコルを提示できないブラウザと同じく）双方向の形になり、`AcceptStream` で SETUP を読みます。
+  このページのサーバーは `opt.wt_protocols = "moqt-22"` を設定し、クライアントも `moqt-22`（webtransport-go の `ApplicationProtocols`）を提示するので、ハブが単方向の制御ストリームを開き、クライアントも自分の単方向の制御ストリームを開いて自分の SETUP を送ります（6.3）。
+  ハブは両方の SETUP が揃ってから要求を処理し、以降の要求（SUBSCRIBE、PUBLISH、FETCH、PUBLISH_NAMESPACE、SUBSCRIBE_NAMESPACE など）は、1 つずつクライアントが開く専用の双方向ストリームに載せ、その上で応答されます（6.4.2）。
+  クライアントは、サーバーの SETUP を最初に届く単方向ストリーム（`AcceptUniStream`）から読みます。
+- サブプロトコルを提示しないクライアント（WebTransport の `protocols` に対応しないブラウザ）には、draft-19 を従来の双方向の制御ストリーム 1 本の上で話す形になり、SETUP は `AcceptStream` で読みます。
+  `examples/moqt_chat` は、これをフォールバックとして使っています。
 - クライアントに版を選ばせるには、`wired_moqt_wt_protocols(buf, sizeof buf)` が書き出すハブの一覧（`moqt-22 moqt-19 moqt-18`）を `opt.wt_protocols` に設定します。
   `examples/moqt_interop` がこの使い方をしています。
 - サーバーの識別情報で `max_datagram_frame_size` を設定すると、QUIC DATAGRAM（再送しないメッセージを運ぶ QUIC の拡張）が有効になります。

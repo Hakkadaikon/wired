@@ -5,7 +5,7 @@ sidebar:
   order: 2
 ---
 
-MoQT の Object（配送の単位となるひとまとまりのデータ）は、ストリーム（SUBGROUP ストリーム、draft-ietf-moq-transport-19 11.4.2）か、1 つの QUIC DATAGRAM（OBJECT_DATAGRAM、11.3.1）のどちらかで購読者に届きます。
+MoQT の Object（配送の単位となるひとまとまりのデータ）は、ストリーム（SUBGROUP ストリーム、draft-ietf-moq-transport-22 11.3.1）か、1 つの QUIC DATAGRAM（OBJECT_DATAGRAM、11.2.1）のどちらかで購読者に届きます。
 [データグラムとストリームの配送](../../moqt/delivery/) では両方を 1 つずつ送りました。
 このページでは、その違いがアプリにとって何を意味するかを説明します。
 
@@ -34,8 +34,8 @@ Group ごとにストリームを 1 本使う配置（[MoQT へのメディア�
 ## 配送のタイムアウト
 
 信頼性のあるストリームは、もう役に立たなくなった Object を後から届けることがあります。
-購読者は、SUBSCRIBE か REQUEST_UPDATE に OBJECT_DELIVERY_TIMEOUT パラメーター（draft 10.2.4）を付けて、これを抑えられます。
-Object の最初のバイトがハブに届いてからタイムアウトより長く経っていれば、ハブはそれを遅れて送る代わりに、その購読者のストリームを DELIVERY_TIMEOUT でリセットします（draft 8）。
+購読者は、SUBSCRIBE か REQUEST_UPDATE に OBJECT_DELIVERY_TIMEOUT パラメーター（draft 9.20.4）を付けて、これを抑えられます。
+Object の最初のバイトがハブに届いてからタイムアウトより長く経っていれば、ハブはそれを遅れて送る代わりに、その購読者のストリームを DELIVERY_TIMEOUT でリセットします（draft 5.2）。
 0 でない SUBGROUP_DELIVERY_TIMEOUT も同じように働きます。発行者も Track Property で設定していれば、2 つのうち小さいほうを使います。
 
 ## どちらを選ぶか

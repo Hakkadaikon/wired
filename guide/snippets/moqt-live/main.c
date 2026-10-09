@@ -117,12 +117,14 @@ int wired_main(int argc, char** argv) {
       wired_mspan_of(init_wire, sizeof init_wire));
 
   /* "movie" (Track Alias 2): Group g carries fragment g mod n_frags,
-   * advancing every 300ms (RFC-agnostic: draft-ietf-moq-transport-19
-   * 9.x's Group model) -- publish_live_once (above) defers the actual
+   * advancing every 300ms (draft-ietf-moq-transport-22 2.3's Group
+   * model) -- publish_live_once (above) defers the actual
    * wired_moqt_publish_live call to the first WebTransport session so
-   * Group 0 starts there, not at this still-booting instant. */
+   * Group 0 starts there, not at this still-booting instant. "moqt-22"
+   * selects draft-22, as on the hub page. */
   wired_srvrun_opt opt     = {0};
   opt.incoming_cpu         = -1;
+  opt.wt_protocols         = "moqt-22";
   opt.on_step              = on_step;
   opt.on_step_ctx          = &g_hub;
   opt.wt_on_session        = on_session;

@@ -3,7 +3,7 @@
 #include "app/moqt/run/moqtrun.h"
 #include "wired.h"
 
-/* draft-ietf-moq-transport-19 SS13.3 subscriber authorization: this
+/* draft-ietf-moq-transport-22 15.3 subscriber authorization: this
  * sample's policy grants "public" and refuses everything else (the token
  * carries CAT/Privacy Pass in a real deployment; this demo ignores it). */
 static int authorize(
@@ -38,10 +38,13 @@ int wired_main(int argc, char** argv) {
       wired_span_cstr("ok"),
       wired_mspan_of(public_wire, sizeof public_wire));
 
-  /* The hub owns every WebTransport session: it sends SETUP when one opens,
-   * answers the control messages that arrive, and forgets it on close. */
+  /* The hub owns every WebTransport session. A client that offers the
+   * subprotocol "moqt-22" gets draft-ietf-moq-transport-22: the hub sends
+   * SETUP on a uni control stream of its own (6.3), answers each request
+   * on the bidi stream it arrived on (6.4.2), and forgets it on close. */
   wired_srvrun_opt opt     = {0};
   opt.incoming_cpu         = -1;
+  opt.wt_protocols         = "moqt-22";
   opt.wt_on_session        = wired_moqt_on_session;
   opt.wt_session_ctx       = &g_hub;
   opt.wt_on_stream_data    = wired_moqt_on_stream_data;
