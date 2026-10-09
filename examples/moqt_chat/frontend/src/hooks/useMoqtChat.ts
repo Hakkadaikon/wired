@@ -18,7 +18,12 @@ import {
   type MoqtChatCallbacks,
 } from "@/lib/moqtClient";
 import { MoqtVoiceClient } from "@/lib/moqtVoiceClient";
-import { isScreenTrackAlias, MoqtScreenClient } from "@/lib/moqtScreenClient";
+import {
+  isScreenTrackAlias,
+  MoqtScreenClient,
+  type ScreenQuality,
+  type ScreenVariant,
+} from "@/lib/moqtScreenClient";
 import { startMicPipeline, type MicPipeline } from "@/lib/micPipeline";
 import { startNoiseSuppressor, type NoiseSuppressorHandle } from "@/lib/noiseSuppressor";
 import { startScreenSharePipeline, type ScreenSharePipeline } from "@/lib/screenSharePipeline";
@@ -26,7 +31,7 @@ import {
   createScreenReceivePipeline,
   type ScreenReceivePipeline,
 } from "@/lib/screenReceivePipeline";
-import { screenFrameReassemblerInit, screenFrameReassemblerPush } from "@/lib/moqtScreenWire";
+import { screenFrameReassemblerInit, screenFrameReassemblerPush, type ScreenChunk } from "@/lib/moqtScreenWire";
 import { screenTap } from "@/lib/screenTap";
 import { createStallDetector, SCREEN_STALL_MS, type StallDetector } from "@/lib/stallDetector";
 import { fitCanvasToFrame } from "@/lib/screenTileSize";
@@ -231,7 +236,7 @@ export function handleRoomNamespace(
   deps: {
     store: Pick<MoqtChatState, "addPeer" | "removePeer">;
     voice: { subscribeToAudioTrack(id: string): Promise<void> } | null;
-    screen: { subscribeToScreenTrack(id: string): Promise<void> } | null;
+    screen: { subscribeToScreenTrack(id: string): Promise<void>; forgetParticipant?(id: string): void } | null;
   },
 ): void {
   const [peer, sub] = suffix;
@@ -242,10 +247,37 @@ export function handleRoomNamespace(
   if (sub !== undefined) return;
   if (!active) {
     deps.store.removePeer(peer);
+    deps.screen?.forgetParticipant?.(peer);
     return;
   }
   deps.store.addPeer(peer);
   void deps.voice?.subscribeToAudioTrack(peer).catch(() => {});
+}
+
+// A remote tile's HI/LO badge: a keyframe is where a switch lands, so the
+// label follows keyframes -- only with track switching on (d19 and
+// extension-less sessions have one variant and show no badge).
+export function noteScreenTileVariant(
+  store: Pick<MoqtChatState, "setScreenTileVariant">,
+  switching: boolean,
+  participantId: string,
+  keyframe: boolean,
+  variant: ScreenVariant,
+): void {
+  if (switching && keyframe) store.setScreenTileVariant(participantId, variant);
+}
+
+// A finished setScreenQuality call writes what the screen client settled
+// on -- unless a newer choice for that tile superseded it (no flicker back)
+// or the peer left meanwhile (removePeer already cleared the entry).
+export function settleScreenTileQuality(
+  state: Pick<MoqtChatState, "peers" | "setScreenTileQuality">,
+  id: string,
+  settled: ScreenQuality,
+  latest: boolean,
+): void {
+  if (!latest || !state.peers.includes(id)) return;
+  state.setScreenTileQuality(id, settled);
 }
 
 // The capture-before-publish ordering pulled out of startScreenShare's own
@@ -501,10 +533,13 @@ export function useMoqtChat() {
   const clientRef = useRef<MoqtChatClient | null>(null);
   const voiceRef = useRef<MoqtVoiceClient | null>(null);
   const screenRef = useRef<MoqtScreenClient | null>(null);
-  // One frame reassembler per remote sender: moqtScreenWire.ts's
-  // reassembler is single-stream state (a `pending` frame keyed by seq), so
-  // sharing one across senders would corrupt whichever sender's frame
-  // wasn't currently being assembled the moment two people share at once.
+  // One frame reassembler per remote sender AND variant ("<id>/hi",
+  // "<id>/lo"): moqtScreenWire.ts's reassembler is single-stream state (a
+  // `pending` frame keyed by seq), so sharing one across senders would
+  // corrupt whichever sender's frame wasn't currently being assembled the
+  // moment two people share at once -- and each variant has its own seq
+  // count, so a switch must not splice one variant's chunks onto the
+  // other's pending frame. The decoder stays one per sender.
   const screenReassemblersRef = useRef<Map<string, ReturnType<typeof screenFrameReassemblerInit>>>(
     new Map(),
   );
@@ -871,6 +906,9 @@ export function useMoqtChat() {
         onUnknownDatagram: (datagram) => {
           voiceRef.current?.handleIncomingDatagram(datagram);
         },
+        // Track switching is known once the hub's SETUP is in: it shows
+        // the per-tile quality selector.
+        onHubSetup: () => store.setScreenSwitching(client.trackSwitching),
         onGoaway: (uri) =>
           handleGoaway(sessionArgsRef.current, uri, (next) => {
             const args = sessionArgsRef.current;
@@ -919,15 +957,16 @@ export function useMoqtChat() {
         // The send stream was reopened: the receiver's reassembler and
         // decoder can only resync on a keyframe.
         onStreamReset: () => screenShareRef.current?.requestKeyframe(),
-        onScreenChunk: (participantId, chunk) => {
+        onScreenChunk: (participantId, chunk, variant) => {
           try {
-            let reassembler = screenReassemblersRef.current.get(participantId);
+            const key = `${participantId}/${variant}`;
+            let reassembler = screenReassemblersRef.current.get(key);
             if (!reassembler) {
               reassembler = screenFrameReassemblerInit();
-              screenReassemblersRef.current.set(participantId, reassembler);
+              screenReassemblersRef.current.set(key, reassembler);
             }
             if (chunk.keyframe && chunk.idx === 0) {
-              screenKeyframeMetaRef.current.set(participantId, {
+              screenKeyframeMetaRef.current.set(key, {
                 width: chunk.width,
                 height: chunk.height,
                 codec: chunk.codec,
@@ -936,7 +975,9 @@ export function useMoqtChat() {
             const frameBytes = screenFrameReassemblerPush(reassembler, chunk);
             if (!frameBytes) return;
             useMoqtChatStore.getState().addScreenTile(participantId);
-            const meta = screenKeyframeMetaRef.current.get(participantId);
+            const switching = screenRef.current?.variantsEnabled ?? false;
+            noteScreenTileVariant(useMoqtChatStore.getState(), switching, participantId, chunk.keyframe, variant);
+            const meta = screenKeyframeMetaRef.current.get(key);
             screenReceiveRef.current?.handleFrame(participantId, {
               data: frameBytes,
               keyframe: chunk.keyframe,
@@ -1015,7 +1056,19 @@ export function useMoqtChat() {
               return stream;
             },
             VideoEncoderCtor: VideoEncoder as never,
-            sendVideoChunk: (chunk) => screen.sendVideoChunk(chunk),
+            sendVideoChunk: (chunk, group) => screen.sendVideoChunk(chunk, { group }),
+            // Track switching: a lo variant from the same frames, Groups
+            // drawn from the screen client's one counter so both align.
+            ...(screen.variantsEnabled
+              ? {
+                  sendLoVideoChunk: (chunk: ScreenChunk, group: bigint) =>
+                    screen.sendVideoChunk(chunk, { group, variant: "lo" }),
+                  allocateGroup: () => screen.allocateGroup(),
+                  // Only once the lo PUBLISH was accepted (publish runs
+                  // after capture starts, before the first frame).
+                  loActive: () => screen.loPublished,
+                }
+              : {}),
             onError: () => store.setScreenShareError("screen share permission was denied"),
             onEncodeError: () => store.setScreenShareError("screen share could not be encoded"),
           }),
@@ -1157,6 +1210,31 @@ export function useMoqtChat() {
     void ctx?.setSinkId?.(deviceId);
   }, []);
 
+  // A remote tile's quality selector (auto / high / low). The store shows
+  // the choice at once and settles on what the screen client actually holds
+  // (a refused SWITCH_FROM keeps the old one).
+  // Only the participant's LATEST choice settles the store: an earlier one
+  // finishing later must not flick the selector back.
+  const screenQualityCallRef = useRef<Map<string, number>>(new Map());
+  const setScreenQuality = useCallback(
+    (id: string, quality: ScreenQuality) => {
+      const screen = screenRef.current;
+      if (!screen) return;
+      const call = (screenQualityCallRef.current.get(id) ?? 0) + 1;
+      screenQualityCallRef.current.set(id, call);
+      store.setScreenTileQuality(id, quality);
+      void screen
+        .setScreenQuality(id, quality)
+        .catch(() => {})
+        .finally(() => {
+          if (screenRef.current !== screen) return;
+          const latest = screenQualityCallRef.current.get(id) === call;
+          settleScreenTileQuality(useMoqtChatStore.getState(), id, screen.screenQuality(id), latest);
+        });
+    },
+    [store],
+  );
+
   return {
     connect,
     sendMessage,
@@ -1167,5 +1245,6 @@ export function useMoqtChat() {
     stopScreenShare,
     registerScreenCanvas,
     setOutputDevice,
+    setScreenQuality,
   };
 }

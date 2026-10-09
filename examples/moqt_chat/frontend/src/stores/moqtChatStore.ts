@@ -14,6 +14,7 @@ import { create } from "zustand";
 import { noiseSuppressionDefault } from "@/lib/joinPrefs";
 import { SCREEN_TILE_DEFAULT_PX } from "@/lib/screenTileSize";
 import type { QualityLevel } from "@/lib/voiceQuality";
+import type { ScreenQuality, ScreenVariant } from "@/lib/moqtScreenClient";
 
 export type ConnectionState = "connecting" | "connected" | "disconnected";
 
@@ -46,6 +47,9 @@ export type MoqtChatState = {
   stalledScreenTiles: Record<string, boolean>; // per-sender "no frame for a while"; absent key renders as false
   screenTileWidth: number; // displayed width of every remote screen tile, px
   maximizedScreenTile: string | null; // remote tile shown fullscreen (or full-width without the API)
+  screenSwitching: boolean; // track switching on this session (d22 + hub SSTS): the quality selector shows
+  screenTileVariants: Record<string, ScreenVariant>; // per-sender variant last decoded (keyframe); absent = unknown
+  screenTileQuality: Record<string, ScreenQuality>; // per-sender chosen quality; absent key means "auto"
   masterVolume: number; // 0..1, applied on top of every peer's own volume
   peerVolumes: Record<string, number>; // per-sender volume, 0..1; absent key means 1 (unity)
   voiceQuality: Record<string, QualityLevel>; // per-sender quality; absent key renders as "none"
@@ -70,6 +74,9 @@ export type MoqtChatState = {
   setScreenTileStalled: (id: string, stalled: boolean) => void;
   setScreenTileWidth: (px: number) => void;
   setMaximizedScreenTile: (id: string | null) => void;
+  setScreenSwitching: (on: boolean) => void;
+  setScreenTileVariant: (id: string, variant: ScreenVariant) => void;
+  setScreenTileQuality: (id: string, quality: ScreenQuality) => void;
   setMasterVolume: (v: number) => void;
   setPeerVolume: (id: string, v: number) => void;
   setVoiceQuality: (id: string, level: QualityLevel) => void;
@@ -95,6 +102,9 @@ export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
   stalledScreenTiles: {},
   screenTileWidth: SCREEN_TILE_DEFAULT_PX,
   maximizedScreenTile: null,
+  screenSwitching: false,
+  screenTileVariants: {},
+  screenTileQuality: {},
   masterVolume: 1,
   peerVolumes: {},
   voiceQuality: {},
@@ -118,24 +128,53 @@ export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
     set((s) => ({ nicknames: { ...s.nicknames, [id]: nickname } })),
   addPeer: (id) =>
     set((s) => (s.peers.includes(id) ? s : { peers: [...s.peers, id] })),
-  removePeer: (id) => set((s) => ({ peers: s.peers.filter((p) => p !== id) })),
+  // A leaving peer's screen tile choice and label go with it: ids come from
+  // a 4-id pool, so a rejoin must not inherit them.
+  removePeer: (id) =>
+    set((s) => {
+      const screenTileQuality = { ...s.screenTileQuality };
+      const screenTileVariants = { ...s.screenTileVariants };
+      delete screenTileQuality[id];
+      delete screenTileVariants[id];
+      return { peers: s.peers.filter((p) => p !== id), screenTileQuality, screenTileVariants };
+    }),
   clearPeers: () => set({ peers: [], voiceQuality: {}, speaking: {} }),
   clearMessages: () => set({ messages: [] }),
   setScreenSharing: (screenSharing) => set({ screenSharing }),
   addScreenTile: (id) =>
     set((s) => (s.screenTiles.includes(id) ? s : { screenTiles: [...s.screenTiles, id] })),
   removeScreenTile: (id) =>
-    set((s) => ({
-      screenTiles: s.screenTiles.filter((t) => t !== id),
-      maximizedScreenTile: s.maximizedScreenTile === id ? null : s.maximizedScreenTile,
-    })),
+    set((s) => {
+      const screenTileVariants = { ...s.screenTileVariants };
+      delete screenTileVariants[id];
+      return {
+        screenTiles: s.screenTiles.filter((t) => t !== id),
+        maximizedScreenTile: s.maximizedScreenTile === id ? null : s.maximizedScreenTile,
+        screenTileVariants,
+      };
+    }),
   clearScreenTiles: () =>
-    set({ screenTiles: [], stalledScreenTiles: {}, maximizedScreenTile: null }),
+    set({
+      screenTiles: [],
+      stalledScreenTiles: {},
+      maximizedScreenTile: null,
+      screenSwitching: false,
+      screenTileVariants: {},
+      screenTileQuality: {},
+    }),
   setScreenShareError: (screenShareError) => set({ screenShareError }),
   // Polled every drain tick, so an unchanged flag must not produce a new
   // object (and a re-render) each time.
   setScreenTileWidth: (screenTileWidth) => set({ screenTileWidth }),
   setMaximizedScreenTile: (maximizedScreenTile) => set({ maximizedScreenTile }),
+  setScreenSwitching: (screenSwitching) => set({ screenSwitching }),
+  // Set on every decoded keyframe: an unchanged variant keeps the object.
+  setScreenTileVariant: (id, variant) =>
+    set((s) =>
+      s.screenTileVariants[id] === variant ? s : { screenTileVariants: { ...s.screenTileVariants, [id]: variant } },
+    ),
+  setScreenTileQuality: (id, quality) =>
+    set((s) => ({ screenTileQuality: { ...s.screenTileQuality, [id]: quality } })),
   setScreenTileStalled: (id, stalled) =>
     set((s) =>
       s.stalledScreenTiles[id] === stalled

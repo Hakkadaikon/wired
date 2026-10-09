@@ -7,6 +7,7 @@ import { clearJoinPrefs, loadJoinPrefs, saveJoinPrefs } from "@/lib/joinPrefs";
 import { CANDIDATE_PARTICIPANT_IDS, type ChatAttachment as WireChatAttachment } from "@/lib/moqtClient";
 import { resolveDisplayName, useMoqtChatStore, type ChatMessage } from "@/stores/moqtChatStore";
 import { canPickOutput } from "@/lib/outputMixer";
+import type { ScreenQuality } from "@/lib/moqtScreenClient";
 import { SCREEN_TILE_MAX_PX, SCREEN_TILE_MIN_PX, SCREEN_TILE_STEP_PX } from "@/lib/screenTileSize";
 import { validateAttachmentCandidate } from "@/lib/attachmentValidation";
 import { Wordmark } from "./wordmark";
@@ -80,10 +81,20 @@ function ScreenShareToggle({
   );
 }
 
+// A remote tile's quality choice (track switching only): "auto" lets the
+// hub switch between the sender's variants, high/low pin one.
+const SCREEN_QUALITIES: { value: ScreenQuality; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "high", label: "High" },
+  { value: "low", label: "Low" },
+];
+
 function ScreenTiles({
   registerScreenCanvas,
+  setScreenQuality,
 }: {
   registerScreenCanvas: (id: string, el: HTMLCanvasElement | null) => void;
+  setScreenQuality: (id: string, quality: ScreenQuality) => void;
 }) {
   const screenTiles = useMoqtChatStore((s) => s.screenTiles);
   const screenSharing = useMoqtChatStore((s) => s.screenSharing);
@@ -93,6 +104,9 @@ function ScreenTiles({
   const nicknames = useMoqtChatStore((s) => s.nicknames);
   const maximized = useMoqtChatStore((s) => s.maximizedScreenTile);
   const setMaximized = useMoqtChatStore((s) => s.setMaximizedScreenTile);
+  const switching = useMoqtChatStore((s) => s.screenSwitching);
+  const variants = useMoqtChatStore((s) => s.screenTileVariants);
+  const qualities = useMoqtChatStore((s) => s.screenTileQuality);
   // Esc (or the browser's own exit) leaves fullscreen without going
   // through the button, so follow the document's state, not the click.
   useEffect(() => {
@@ -144,6 +158,28 @@ function ScreenTiles({
             />
             <div className="screen-tile__bar">
               <span className="caption">{resolveDisplayName(id, nicknames)}</span>
+              {/* The variant being decoded (follows each keyframe), so a
+                  switch is observable: "HI" / "LO". */}
+              {switching && variants[id] && (
+                <span className="caption screen-tile__variant" data-testid={`screen-variant-${id}`}>
+                  {variants[id] === "lo" ? "LO" : "HI"}
+                </span>
+              )}
+              {switching && (
+                <select
+                  className="screen-tile__quality"
+                  data-testid={`screen-quality-${id}`}
+                  aria-label="Screen quality"
+                  value={qualities[id] ?? "auto"}
+                  onChange={(e) => setScreenQuality(id, e.target.value as ScreenQuality)}
+                >
+                  {SCREEN_QUALITIES.map((q) => (
+                    <option key={q.value} value={q.value}>
+                      {q.label}
+                    </option>
+                  ))}
+                </select>
+              )}
               {stalledScreenTiles[id] && (
                 <span className="caption" data-testid={`screen-stalled-${id}`}>
                   Stalled
@@ -672,6 +708,7 @@ export default function Home() {
     stopScreenShare,
     registerScreenCanvas,
     setOutputDevice,
+    setScreenQuality,
   } = useMoqtChat();
   const connectionState = useMoqtChatStore((s) => s.connectionState);
   const screenSharing = useMoqtChatStore((s) => s.screenSharing);
@@ -781,7 +818,7 @@ export default function Home() {
             </section>
           </aside>
           <section className="body">
-            <ScreenTiles registerScreenCanvas={registerScreenCanvas} />
+            <ScreenTiles registerScreenCanvas={registerScreenCanvas} setScreenQuality={setScreenQuality} />
             <MessageList />
             <Compose
               onSend={(text, attachments) => void sendMessage(text, attachments)}

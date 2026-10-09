@@ -369,7 +369,11 @@ const PARAM_UINT8: Record<MoqtDraft, Set<bigint>> = {
 const PARAM_VARINT = new Set([0x02n, 0x04n, 0x06n, 0x08n, 0x0an, 0x32n]);
 const PARAM_BYTES: Record<MoqtDraft, Set<bigint>> = {
   19: new Set([0x03n, 0x21n, 0x25n, 0x26n, 0x27n, 0x28n, 0x29n]),
-  22: new Set([0x03n, 0x23n, 0x25n, 0x26n, 0x27n, 0x28n, 0x29n]),
+  // 0x24 SWITCH_FROM / 0x41 SWITCHING_SET_ASSIGNMENT: the experimental
+  // track switching extension, draft-22 sessions only (see below). Accepted
+  // inbound whatever was negotiated (this client never receives them from
+  // the hub); sending is gated on MoqtChatClient.trackSwitching instead.
+  22: new Set([0x03n, 0x23n, 0x24n, 0x25n, 0x26n, 0x27n, 0x28n, 0x29n, 0x41n]),
 };
 
 /** A draft-22 Location Filter (9.20.9): Type 0x00 None, 0x01 Relative
@@ -441,7 +445,11 @@ function decodeParamValue(
   }
   if (PARAM_VARINT.has(type)) return decodeVarint(bytes, pos);
   if (type === PARAM_LARGEST_OBJECT) return decodeLocation(bytes, pos);
-  if (PARAM_BYTES[draft].has(type)) return decodeLenPrefixedBytes(bytes, pos, "parameter");
+  if (PARAM_BYTES[draft].has(type)) {
+    const v = decodeLenPrefixedBytes(bytes, pos, "parameter");
+    PARAM_VALUE_CHECK.get(type)?.(v.value);
+    return v;
+  }
   if (type === PARAM_LOCATION_FILTER) {
     const { len } = decodeLocationFilter22(bytes, pos);
     return { value: bytes.slice(pos, pos + len), len };
@@ -494,6 +502,167 @@ export function encodeParams(params: MessageParam[], draft: MoqtDraft = 19): Uin
     prev = p.type;
   }
   return concatBytes(parts);
+}
+
+// --- Track switching extension (draft-22 sessions only) -----------------------
+//
+// Experimental values shared with moqtail (tasks/moqt-trackswitch-plan.md 1);
+// draft-22 leaves 0x24, 0x41 (parameters) and 0x09 (Setup Option)
+// unassigned. A draft-19 session never carries them: there they stay unknown
+// parameters, i.e. a PROTOCOL_VIOLATION.
+
+/** SWITCH_FROM (SUBSCRIBE / REQUEST_UPDATE): activate this subscription and
+ * stop Request ID's. Value: Length + {RequestID vi, Mode vi, Flags u8}. */
+export const PARAM_SWITCH_FROM = 0x24n;
+/** SWITCHING_SET_ASSIGNMENT (SUBSCRIBE / REQUEST_UPDATE): put this
+ * subscription in a sender-side switching set. Value: Length + {SetID,
+ * AlgorithmID, ThresholdKbps, Weight 1..10, Activate (all vi), [Rank u8]}. */
+export const PARAM_SWITCHING_SET_ASSIGNMENT = 0x41n;
+/** SSTS_ALGORITHMS Setup Option (odd: Length + bytes): concatenated varint
+ * algorithm ids, no count. Negotiated = the intersection of both SETUPs. */
+export const SETUP_OPTION_SSTS_ALGORITHMS = 0x09n;
+export const SSTS_ALGORITHM_DEFAULT = 0n;
+export const SSTS_ALGORITHM_BACKPRESSURE = 0xff01n;
+/** Hard: reset the old subscription's streams when the new one's boundary
+ * Group opens. Soft: let the old one finish the Groups before it. */
+export const SWITCH_MODE_HARD = 0n;
+export const SWITCH_MODE_SOFT = 1n;
+const SWITCH_FLAG_PUBLISH_DONE = 0x80;
+const SSA_WEIGHT_MIN = 1n;
+const SSA_WEIGHT_MAX = 10n;
+
+export interface SwitchFrom {
+  requestId: bigint;
+  mode: bigint;
+  /** Flags bit 0x80: end the old subscription with PUBLISH_DONE. */
+  publishDone: boolean;
+}
+
+export interface SwitchingSetAssignment {
+  setId: bigint;
+  algorithmId: bigint;
+  thresholdKbps: bigint;
+  weight: bigint;
+  activate: bigint;
+  rank?: number;
+}
+
+/** Reads consecutive varints off `bytes` from `pos`, returning the values
+ * and the position after the last one. */
+function takeVarints(bytes: Uint8Array, pos: number, n: number): { values: bigint[]; pos: number } {
+  const values: bigint[] = [];
+  for (let i = 0; i < n; i++) {
+    const v = decodeVarint(bytes, pos);
+    values.push(v.value);
+    pos += v.len;
+  }
+  return { values, pos };
+}
+
+// `what` prefixes the error: "PROTOCOL_VIOLATION" when decoding received
+// bytes, "invalid" when refusing to encode a caller's value.
+type CheckKind = "PROTOCOL_VIOLATION" | "invalid";
+
+function checkSwitchMode(mode: bigint, what: CheckKind): void {
+  if (mode !== SWITCH_MODE_HARD && mode !== SWITCH_MODE_SOFT) {
+    fail(`${what}: SWITCH_FROM Mode ${mode}`);
+  }
+}
+
+/** The SWITCH_FROM value (without its Length; encodeParams adds it). */
+export function encodeSwitchFrom(s: SwitchFrom): Uint8Array {
+  checkSwitchMode(s.mode, "invalid");
+  return concatBytes([
+    encodeVarint(s.requestId),
+    encodeVarint(s.mode),
+    Uint8Array.of(s.publishDone ? SWITCH_FLAG_PUBLISH_DONE : 0),
+  ]);
+}
+
+/** Decodes a whole SWITCH_FROM value: an unknown Mode, a Flags bit other
+ * than 0x80, or a byte after Flags is a PROTOCOL_VIOLATION. */
+export function decodeSwitchFrom(bytes: Uint8Array): SwitchFrom {
+  const { values, pos } = takeVarints(bytes, 0, 2);
+  const [requestId, mode] = values;
+  checkSwitchMode(mode, "PROTOCOL_VIOLATION");
+  if (pos >= bytes.length) fail("truncated SWITCH_FROM: no Flags");
+  const flags = bytes[pos];
+  if ((flags & ~SWITCH_FLAG_PUBLISH_DONE) !== 0) fail(`PROTOCOL_VIOLATION: SWITCH_FROM Flags 0x${flags.toString(16)}`);
+  if (pos + 1 !== bytes.length) fail("PROTOCOL_VIOLATION: bytes after SWITCH_FROM Flags");
+  return { requestId, mode, publishDone: flags !== 0 };
+}
+
+function checkSsaWeight(weight: bigint, what: CheckKind): void {
+  if (weight < SSA_WEIGHT_MIN || weight > SSA_WEIGHT_MAX) {
+    fail(`${what}: SWITCHING_SET_ASSIGNMENT Weight ${weight} outside 1..10`);
+  }
+}
+
+/** The SWITCHING_SET_ASSIGNMENT value (without its Length). */
+export function encodeSwitchingSetAssignment(a: SwitchingSetAssignment): Uint8Array {
+  checkSsaWeight(a.weight, "invalid");
+  if (a.rank !== undefined && !(Number.isInteger(a.rank) && a.rank >= 0 && a.rank <= 255)) {
+    fail(`invalid: SWITCHING_SET_ASSIGNMENT Rank ${a.rank} is not a u8`);
+  }
+  const fields = [a.setId, a.algorithmId, a.thresholdKbps, a.weight, a.activate].map((v) => encodeVarint(v));
+  if (a.rank !== undefined) fields.push(Uint8Array.of(a.rank));
+  return concatBytes(fields);
+}
+
+/** Decodes a whole SWITCHING_SET_ASSIGNMENT value: Weight outside 1..10 or
+ * more than the one optional Rank byte after Activate is a
+ * PROTOCOL_VIOLATION. */
+export function decodeSwitchingSetAssignment(bytes: Uint8Array): SwitchingSetAssignment {
+  const { values, pos } = takeVarints(bytes, 0, 5);
+  const [setId, algorithmId, thresholdKbps, weight, activate] = values;
+  checkSsaWeight(weight, "PROTOCOL_VIOLATION");
+  const rest = bytes.length - pos;
+  if (rest > 1) fail("PROTOCOL_VIOLATION: bytes after SWITCHING_SET_ASSIGNMENT Rank");
+  const out: SwitchingSetAssignment = { setId, algorithmId, thresholdKbps, weight, activate };
+  if (rest === 1) out.rank = bytes[pos];
+  return out;
+}
+
+// Length-prefixed parameters whose value has a structure of its own: the
+// decoder validates it so a malformed one fails the whole message.
+const PARAM_VALUE_CHECK = new Map<bigint, (v: Uint8Array) => void>([
+  [PARAM_SWITCH_FROM, (v) => void decodeSwitchFrom(v)],
+  [PARAM_SWITCHING_SET_ASSIGNMENT, (v) => void decodeSwitchingSetAssignment(v)],
+]);
+
+export function switchFromParam(s: SwitchFrom): MessageParam {
+  return { type: PARAM_SWITCH_FROM, value: encodeSwitchFrom(s) };
+}
+
+export function switchingSetAssignmentParam(a: SwitchingSetAssignment): MessageParam {
+  return { type: PARAM_SWITCHING_SET_ASSIGNMENT, value: encodeSwitchingSetAssignment(a) };
+}
+
+/** The SSTS_ALGORITHMS option value: the ids as concatenated varints. */
+export function encodeSstsAlgorithms(ids: bigint[]): Uint8Array {
+  return concatBytes(ids.map((id) => encodeVarint(id)));
+}
+
+export function decodeSstsAlgorithms(raw: Uint8Array): bigint[] {
+  const ids: bigint[] = [];
+  for (let pos = 0; pos < raw.length; ) {
+    const v = decodeVarint(raw, pos);
+    ids.push(v.value);
+    pos += v.len;
+  }
+  return ids;
+}
+
+/** The SSTS_ALGORITHMS a SETUP advertised; undefined when it carries none
+ * (an extension-less peer) or the value does not decode. */
+export function sstsAlgorithmsOf(options: KeyValuePair[]): bigint[] | undefined {
+  const opt = options.find((o) => o.type === SETUP_OPTION_SSTS_ALGORITHMS);
+  if (!opt?.raw) return undefined;
+  try {
+    return decodeSstsAlgorithms(opt.raw);
+  } catch {
+    return undefined;
+  }
 }
 
 /** SUBSCRIBE_OK's LARGEST_OBJECT (d22 9.20.17, d19 10.2.16): the largest
