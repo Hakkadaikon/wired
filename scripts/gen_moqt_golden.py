@@ -43,6 +43,11 @@ for group in ['varint', 'kvp', 'ctl', 'data', 'name']:
             out.append("#define G_MOQT_%s_%s_OP %d" % (group.upper(), up, 0 if v['op'] in ('accept', 'decode') else 1))
             continue
         emit_bytes(n, v['hex'])
+        if group == 'data':
+            # Per-draft data variants (e.g. a fetch stream with a draft-22-only
+            # marker): bytes only, suffixed _Dnn.
+            for ver, vv in sorted(v.get('versions', {}).items()):
+                emit_bytes("%s_d%s" % (n, ver), vv['hex'])
         if group == 'varint':
             up = cname(v['name']).upper()
             out.append("#define G_MOQT_VARINT_%s_OP %d" % (up, {'decode': 0, 'encode': 1, 'reject': 2}[v['op']]))

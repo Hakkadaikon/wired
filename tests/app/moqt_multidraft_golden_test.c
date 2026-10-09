@@ -149,8 +149,92 @@ static void test_moqt_golden_fetch_multidraft(void) {
   for (int ver = 0; ver < MOQVER_COUNT; ver++) mqmd_fetch_one(ver);
 }
 
+/* Decodes a SUBSCRIBE golden body in draft ver and re-encodes it: the
+ * server codec must reproduce the vector byte for byte (the vector is the
+ * moqt_chat browser client's draft-22 wire, examples/moqt_chat). */
+static void mqmd_subscribe_roundtrip(
+    int ver, wired_span body, moqctl_subscribe* m) {
+  u8  out[128];
+  usz boff = 0, n = 0;
+  CHECK(moqctl_subscribe_take(ver, body, &boff, m) == MOQCTL_OK);
+  CHECK(boff == body.n);
+  CHECK(moqctl_subscribe_encode(wired_mspan_of(out, sizeof out), &n, m));
+  CHECK(n == body.n);
+  for (usz i = 0; i < n && i < body.n; i++) CHECK(out[i] == body.p[i]);
+}
+
+/* LOCATION_FILTER Next Object: draft-19 Largest Object (length-prefixed
+ * type 2) and draft-22 Next Object (0x05, no length) are the same start. */
+static void test_moqt_golden_next_object_multidraft(void) {
+  static moqctl_subscribe m19, m22;
+  const moqctl_param*     p;
+  mqmd_subscribe_roundtrip(
+      MOQVER_D19,
+      mqmd_body(
+          g_moqt_ctl_subscribe_next_object,
+          G_MOQT_CTL_SUBSCRIBE_NEXT_OBJECT_LEN, 0),
+      &m19);
+  mqmd_subscribe_roundtrip(
+      MOQVER_D22,
+      mqmd_body(
+          g_moqt_ctl_subscribe_next_object_d22,
+          G_MOQT_CTL_SUBSCRIBE_NEXT_OBJECT_D22_LEN, 0),
+      &m22);
+  p = moqctl_params_find(&m19.params, MOQCTL_PARAM_LOCATION_FILTER);
+  CHECK(p != 0 && p->rl.sk == MOQCTL_RSK_NEXT_OBJ);
+  p = moqctl_params_find(&m22.params, MOQCTL_PARAM_LOCATION_FILTER);
+  CHECK(p != 0 && p->rl.sk == MOQCTL_RSK_NEXT_OBJ);
+}
+
+/* draft-22 SS9.20.15 FILL_PARAMETERS on SUBSCRIBE: the chat client's
+ * history join, Next Object live plus a fill of Relative Start 65. */
+static void test_moqt_golden_subscribe_fill_d22(void) {
+  static moqctl_subscribe m;
+  const moqctl_param*     p;
+  moqfetch_fill           f = {0};
+  mqmd_subscribe_roundtrip(
+      MOQVER_D22,
+      mqmd_body(
+          g_moqt_ctl_subscribe_fill_d22, G_MOQT_CTL_SUBSCRIBE_FILL_D22_LEN, 0),
+      &m);
+  p = moqctl_params_find(&m.params, MOQCTL_PARAM_FILL_PARAMETERS);
+  CHECK(p != 0);
+  if (!p) return;
+  CHECK(moqfetch_fill_take(p->bytes, &f) == MOQCTL_OK);
+  CHECK(f.has_filter && !f.inherit);
+  CHECK(f.range.sk == MOQCTL_RSK_REL_GROUP && f.range.start_group == 65);
+}
+
+/* A fetch stream with the draft-22-only End of Timed-Out Range (0x20C):
+ * a draft-22 sequence takes every entry and ends on that marker at 4/2;
+ * a draft-19 sequence rejects the same marker. */
+static int mqmd_fetch_stream_last(int timed_out_ok, moqfetch_obj* last) {
+  wired_span in = wired_span_of(
+      g_moqt_data_fetch_stream_end_of_range_d22,
+      sizeof g_moqt_data_fetch_stream_end_of_range_d22);
+  usz          off  = 0;
+  u64          rid  = 99;
+  moqfetch_seq seq  = {0};
+  int          r    = MOQCTL_OK;
+  seq.eor_timed_out = timed_out_ok;
+  CHECK(moqfetch_hdr_take(in, &off, &rid) == MOQCTL_OK);
+  while (off < in.n && r == MOQCTL_OK)
+    r = moqfetch_obj_take(in, &off, &seq, last);
+  return r;
+}
+
+static void test_moqt_golden_fetch_timed_out_d22(void) {
+  moqfetch_obj o;
+  CHECK(mqmd_fetch_stream_last(1, &o) == MOQCTL_OK);
+  CHECK(o.flags == MOQFETCH_EOR_TIMED_OUT && o.group == 4 && o.object == 2);
+  CHECK(mqmd_fetch_stream_last(0, &o) == MOQCTL_VIOLATION);
+}
+
 void test_moqt_multidraft_golden(void) {
   test_moqt_golden_goaway_multidraft();
   test_moqt_golden_location_filter_multidraft();
   test_moqt_golden_fetch_multidraft();
+  test_moqt_golden_next_object_multidraft();
+  test_moqt_golden_subscribe_fill_d22();
+  test_moqt_golden_fetch_timed_out_d22();
 }
