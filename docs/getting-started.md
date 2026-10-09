@@ -69,7 +69,8 @@ static-file server ([word_list](../examples/word_list/)), a
 [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)
 WebTransport server endpoint
 ([webtransport_interop](../examples/webtransport_interop/)), a MOQT
-(draft-ietf-moq-transport-19) chat-plus-voice-call room over WebTransport
+(draft-ietf-moq-transport-22, with a draft-19 fallback for browsers that
+cannot offer a WebTransport subprotocol) chat-plus-voice-call room over WebTransport
 ([moqt_chat](../examples/moqt_chat/)), and a MOQT relay that negotiates
 draft-18/19/22 per session for moq-interop-runner
 ([moqt_interop](../examples/moqt_interop/)). For guided, runnable WebTransport

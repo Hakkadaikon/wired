@@ -178,7 +178,11 @@ subprotocol list for `wired_srvrun_opt.wt_protocols`; an application that
 does not call it (or passes a single fixed `"moqt-19"` string, as before)
 keeps negotiating draft-19 only, unchanged from prior behavior. A session
 whose peer sends no WT subprotocol likewise falls back to the draft-19
-control-stream behavior that predates multi-draft support.
+control-stream behavior that predates multi-draft support. The guide's
+MoQT samples set `wt_protocols = "moqt-22"` and their clients offer
+`moqt-22`; `examples/moqt_chat` offers the full list, so a browser that can
+offer `moqt-22` (WebTransport `protocols`) runs draft-22 and one that cannot
+falls back to draft-19.
 
 Raw-QUIC MoQT (draft-ietf-moq-transport-22 6.2.2, -18/-19 3.1.4-5) adds
 these application-facing names, all zero/unset = old behavior (WebTransport

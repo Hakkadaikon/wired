@@ -186,8 +186,9 @@ Legend:
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_client_uni_ctl_accepted`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_refused_uni_ctl_open_retries`
-  - note: a session whose WT token is empty (browser clients cannot
-    negotiate a subprotocol) keeps the earlier drafts' single
+  - note: a session whose WT token is empty (a client that offers no
+    subprotocol, e.g. a browser without WebTransport `protocols` support)
+    keeps the earlier drafts' single
     bidirectional control stream
     (`test_moqtrun_empty_token_keeps_bidi_ctl`).
 - [x] MQ22-030 Once both endpoints have sent and received SETUP, the session
