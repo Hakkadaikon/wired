@@ -570,6 +570,7 @@
 #include "app/moqt/ver/moqver.c"
 #include "app/moqt/qraw/moqraw.c"
 #include "app/moqt/qraw/moqrawio.c"
+#include "app/moqt/ssts/moqssts.c"
 #include "common/varint_test.c"
 #include "transport/header_test.c"
 #include "transport/dcidresolve_test.c"
@@ -1130,6 +1131,7 @@
 #include "app/moqraw_test.c"
 #include "app/moqtrun_raw_test.c"
 #include "app/moqtrun_rawpeer_test.c"
+#include "app/moqssts_test.c"
 #include "app/moqtrun_upsub_test.c"
 #include "app/moqtrel_test.c"
 #include "app/moqns_test.c"
@@ -1740,6 +1742,7 @@ int main(void) {
   test_moqfetch();
   test_moqcache();
   test_moqver();
+  test_moqssts();
   test_moqt_multidraft_golden();
   test_moqctl_limits();
   test_ed25519_field();
