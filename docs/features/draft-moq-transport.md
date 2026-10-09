@@ -953,7 +953,7 @@ Legend:
 - [x] MOQT-155 If a peer attempts to PUBLISH more distinct tracks than the
   implementation's per-peer capacity, then the implementation shall reply with
   REQUEST_ERROR rather than silently overwriting an existing track.
-  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_fourth_publish_gets_error`
+  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_fifth_publish_gets_error`
 - [x] MOQT-156 Re-PUBLISHing the same Track Name that already occupies a slot
   shall reuse that slot rather than consuming a new one.
   - test: `tests/app/moqtrun_test.c` —
@@ -1104,7 +1104,7 @@ Legend:
 - [x] MOQT-181 Each request opened on its own bidirectional stream shall be
   answered on that stream; a reset of the stream cancels the request
   (unsubscribe/unpublish), a FIN alone does not, and a session may hold at
-  most 16 open requests (more are reset with EXCESSIVE_LOAD).
+  most 24 open requests (more are reset with EXCESSIVE_LOAD).
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_req_subscribe_answered_on_its_stream`
   - test: `tests/app/moqtrun_sub_test.c` —

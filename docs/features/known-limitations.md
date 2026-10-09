@@ -12,7 +12,7 @@ is limited, who it affects, and where it is recorded. An entry marked
 "(unverified)" was taken from a hand-off note and not re-checked against the
 code when this page was written.
 
-Last reviewed: 2026-10-05
+Last reviewed: 2026-10-09
 
 Source shorthand: `L<n>` = `tasks/moqt-multidraft-ledger.md` item `<n>` (e.g.
 `L12-3` is item 12-3); `RESUME` = `tasks/moqt-multidraft-RESUME.md`;
@@ -22,6 +22,7 @@ quoted name if a line has moved).
 
 Contents: [MoQT relay (hub)](#moqt-relay-hub) |
 [MoQT versions and spec deviations](#moqt-versions-and-spec-deviations) |
+[MoQT track switching (experimental)](#moqt-track-switching-experimental) |
 [Raw-QUIC MoQT](#raw-quic-moqt) | [WebTransport](#webtransport) |
 [HTTP/3 and QPACK](#http3-and-qpack) | [QUIC transport](#quic-transport) |
 [TLS 1.3](#tls-13) | [Cryptography](#cryptography) |
@@ -195,6 +196,126 @@ general relay network.
   `src/app/moqt/run/moqtrun.c` `moqtrun_relay_save_hdr`.
 - **Range Filters do not exist in draft-18** — the hub closes a d18 session
   that sends one (unknown parameter type). Source: ledger:draft-moq-transport-18.md.
+
+## MoQT track switching (experimental)
+
+The moqtail-compatible SWITCH_FROM (0x24) / SSTS (0x41, Setup Option 0x09)
+extension ([overview](moqt-track-switching.md)) is opt-in through
+`wired_moqt_hub.switch_track` and `ssts_algs` / `ssts_alg_n`, and works on
+draft-22 sessions only. None of it is part of draft-22. Source shorthand:
+`PLAN` = `tasks/moqt-trackswitch-plan.md`.
+
+- **Loopback-tested only** — the codec is pinned to moqtail-rs unit-test
+  byte vectors, and the hub behaviour is tested in-process. No moqtail (or
+  other third-party) peer has been run against it. Source:
+  `ledger:draft-moq-transport-22.md` MQ22-X13.
+- **Two or more active sets pin backpressure to the lowest tier** —
+  algorithm 0xff01 sums stream depth over all of a session's active sets.
+  With one open stream each, two sets already read as depth 2
+  (`MOQSSTS_DOWNSHIFT_DEPTH`), so every set stays on its lowest member.
+  This is inherited from moqtail. Impact: a moqt_chat viewer watching two
+  or more sharers in Auto gets only the lo variants. Source:
+  `src/app/moqt/ssts/moqssts.h` (`moqssts_bp_decide` doc),
+  `test_moqssts_two_active_sets_are_pinned_to_the_lowest_tier`.
+- **Backpressure observes once per Group of the pacing set** — moqtail also
+  observes on a 100 ms tick. Here the session's tier machine moves only
+  when its pacing set (the lowest-slot active backpressure set) decides a
+  Group; other backpressure sets take the current tier, clamped to their
+  own ladder, without observing. An upshift therefore needs 5 clear Groups
+  of the pacing set (`MOQSSTS_UPSHIFT_GOP_STREAK`), about 5 GOPs (about
+  10 s with moqt_chat's 2 s keyframes). Depth counts a stream from its open until the
+  hub relays the publisher's FIN, not until the subscriber acknowledges it.
+  The timeout input is the session's hub-side stream resets (busy shed,
+  DELIVERY_TIMEOUT, reliable stall) on any of its streams, chat and audio
+  included, as moqtail counts any stream of the connection. It is counted
+  only while the session has a backpressure set, not moqtail's discard
+  timer. Source:
+  `src/app/moqt/run/moqtssts_run.c` header comment.
+- **The default algorithm (0) has a static budget** — there is no
+  bandwidth estimator. The budget is `wired_moqt_hub.ssts_cap_kbps`, and 0
+  means unlimited, which always picks the highest member. Source:
+  `moqtrun.h` (`ssts_cap_kbps`), `moqtssts_run.c`.
+- **SWITCHING_SET_ASSIGNMENT in PUBLISH_OK / REQUEST_OK is unsupported** —
+  moqtail accepts it there, but this hub accepts it in SUBSCRIBE and
+  REQUEST_UPDATE (subscription) only. Elsewhere it is not an allowed
+  parameter (a decode violation). Source: PLAN §0, `MOQCTL_PARAM_RULES` in
+  `src/app/moqt/ctl/moqctl.c`.
+- **Deliberate deviation: a malformed SSTS_ALGORITHMS option is ignored** —
+  the session continues as if the option were absent (no SSTS), instead of
+  closing with KEY_VALUE_FORMATTING_ERROR. Impact: a peer that expects
+  rejection. Source: `moqctl_setup_apply_ssts` in
+  `src/app/moqt/ctl/moqctl.c`, `test_mcsw_ssts_malformed`.
+- **A mid-Group joiner of a set waits for the next Group** — the decision
+  for a Group is made at its first arrival and is final. A member that
+  subscribes after that has no verdict for the current Group, so its first
+  forwarded Group is the next one. Fills and FETCH are not gated by SSTS.
+  Source: `moqtssts_run.h` (gate model), design SS-1.
+- **No switch prompt, GOP extension or latency budget** — these come from
+  the "Art of the Switch" talk but are not in moqtail's code either, so
+  they are out of scope. Source: PLAN §0.
+- **SWITCH_FROM and SSTS do not combine on one subscription** — a
+  SWITCH_FROM naming a member of a switching set is refused INVALID_SWITCH
+  (0x32). Use the set (sender-side) or explicit switches (receiver-side),
+  not both. Source: `moqtswitch.c`.
+- **SWITCH_FROM with FILL_PARAMETERS is refused** — INVALID_SWITCH (0x32).
+  A switched-to subscription starts at the boundary G and gets no history
+  fill. Source: `test_moqtrun_switch_fill_refused`.
+- **Hard mode cuts when Group G reaches the hub, not the subscriber** — the
+  old subscription ends once the new track's Largest Group is at least G
+  (by stream or datagram). If the hub cannot open the new Group-G stream
+  to the subscriber yet (no stream credit, or a backlog), the old in-flight
+  Groups are RESET first, so there is an explicit gap. The new Group G then
+  arrives through a late open and may lose its first Object. Source:
+  `src/app/moqt/run/moqtswitch.c`, `tasks/loopeng/moqt/TrackSwitch/design.md`
+  TS-4.
+- **A suspended subscription holds its slots** — without Publish Done
+  (flag 0x80), the switched-away subscription stays (FORWARD 0, request
+  stream open) so that it can be switched back. It keeps its subscriber
+  slot and request stream until the subscriber cancels it or the session
+  closes. Source: `moqtswitch.h` (`moqtsw_suspend`).
+- **Only request-stream subscriptions can join a switching set** — a
+  SWITCHING_SET_ASSIGNMENT on a control-stream SUBSCRIBE (one that can
+  silently re-attach when its publisher returns), or on a SUBSCRIBE to
+  the hub's own tracks, is refused UNSUPPORTED_EXTENSION (0x33). Draft-22
+  request-stream subscriptions end with PUBLISH_DONE when the publisher
+  goes away, so their set membership never outlives the track. Source:
+  `test_moqtrun_ssts_ctrl_subscribe_refused`.
+- **A member lagging more than 5 Groups is decided again** — decisions
+  are kept per set for its newest Group minus 5 (moqtail's window). A
+  member that delivers a Group older than that gets a fresh decision, so
+  such a late Group can come from both members. Source:
+  `test_moqtrun_ssts_lag_outside_window`.
+- **An idle pacing set freezes backpressure** — if the pacing set's
+  publisher keeps its track but stops sending Groups (a paused share), no
+  observation happens, so the session's other backpressure sets stay on
+  the current tier. Resets counted in the meantime are consumed at once
+  at the pacer's next Group, which can cause one extra downshift. Source:
+  `src/app/moqt/run/moqtssts_run.c` header comment.
+- **A cross-publisher switch can lose its boundary across a reconnect** —
+  if the old track's publisher reconnects while the switched-to track's
+  publisher (a different session) stays live, the new subscription is
+  released from its boundary before the old one re-attaches. A later
+  LOCATION_FILTER update on the new subscription is then no longer
+  clamped to G, so a few Groups could reach the subscriber from both
+  tracks. This needs a cross-publisher switch, a reconnect and a filter
+  update together. Source: `moqtsw_old_alive` in
+  `src/app/moqt/run/moqtswitch.c`.
+- **Busy-shed can downshift without network congestion** — the lossy
+  relay resets a subscriber stream after `WIRED_MOQTRUN_RESET_AFTER_BUSY`
+  (8) refused rounds, a threshold tuned for 20 ms voice, and every such
+  reset feeds backpressure. A 1080p screen share at about 3 Mbps on
+  loopback hit it in 2 of 3 browser runs, so Auto went to lo with no cap
+  in place. The hub also late-opens a shed Group again mid-way, spending
+  bandwidth on Objects the receiver cannot decode without the keyframe.
+  Source: `moqtrun_relay_shed_one` in `src/app/moqt/run/moqtrun.c`, W6
+  browser run (PLAN §4).
+- **Variants must share Group numbers** — the boundary rule assumes aligned
+  Group IDs across the variant tracks. The hub does not check this.
+- **Soft give-up is fixed** — `WIRED_MOQTSW_SOFT_WAIT_MS` (4000 ms, two
+  moqt_chat keyframe Groups) of wall-clock time after the switch. The hub
+  gives up only while nothing of the old subscription below G is still
+  live. Groups of the old subscription that arrive later are
+  dropped. Source: `moqtswitch.h:52`.
 
 ## Raw-QUIC MoQT
 
@@ -528,14 +649,18 @@ Fixed-size tables and buffers (BSS-sized; raise the constant and rebuild).
 | `WIRED_MOQTRUN_MAX_RELAYS` | 4 | `moqtrun.h:422` | stream not relayed, subscribers miss it |
 | `WIRED_MOQTRUN_MAX_NAME` | 64 | `moqtrun.h:427` | Track Name truncated |
 | `WIRED_MOQTRUN_MAX_NS` | 128 | `moqtrun.h:433` | namespace refused on PUBLISH |
-| `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` | 3 | `moqtrun.h:437` | PUBLISH refused |
-| `WIRED_MOQTRUN_MAX_REQS` / `_PER_SESSION` | 64 / 16 | `moqtrun.h:476,481` | request stream reset EXCESSIVE_LOAD |
+| `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` | 4 (3 before track switching) | `moqtrun.h:469` | PUBLISH refused |
+| `WIRED_MOQTRUN_MAX_REQS` / `_PER_SESSION` | 96 / 24 | `moqtrun.h:509,514` | request stream reset EXCESSIVE_LOAD |
 | `WIRED_MOQTRUN_MAX_RDV` / `_RDV_PER_SESSION` | 16 / 4 | `moqtrun.h:604,608` | SUBSCRIBE refused EXCESSIVE_LOAD |
 | `WIRED_MOQTRUN_RDV_MAX_MS` | 1500 | `moqtrun.h:615` | longer hold times out (deviation) |
 | `WIRED_MOQTRUN_MAX_UP` | 16 | `moqtrun.h:659` | upstream waiter refused EXCESSIVE_LOAD |
 | `WIRED_MOQTRUN_MAX_FETCHES` (+ fetch_waits) | 8 (+8) | `moqtrun.h:690` | REQUEST_ERROR INTERNAL_ERROR |
 | `WIRED_MOQTRUN_GOAWAY_GRACE_MS` | 1000 | `moqtrun.h:699` | fixed grace |
 | `WIRED_MOQTRUN_PUBDONE_WAIT_MS` | 2000 | `moqtrun.h:707` | remaining streams reset |
+| `WIRED_MOQTRUN_SSTS_SETS` | 8 | `moqtss.h:17` | SWITCHING_SET_ASSIGNMENT refused INTERNAL_ERROR |
+| `MOQSSTS_MAX_MEMBERS` | 4 | `moqssts.h:24` | members per switching set |
+| `MOQCTL_SSTS_MAX_ALGS` | 4 | `moqctl.h:121` | SSTS_ALGORITHMS ids kept/sent |
+| `WIRED_MOQTSW_SOFT_WAIT_MS` | 4000 | `moqtswitch.h:52` | Soft switch gives up on the old track |
 | `WIRED_MOQTREL_POOL` | 4 | `moqtrel.h:26` | further reliable tracks use the lossy path |
 | `WIRED_MOQTREL_CAP` | 3 x `WT_BUF_CAP` | `moqtrel.h:31` | ring size |
 | `WIRED_MOQTREL_STALL_MS` | 10000 | `moqtrel.h:38` | slow subscriber shed (reset) |

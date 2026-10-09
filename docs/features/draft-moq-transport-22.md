@@ -1133,7 +1133,7 @@ draft-18 and draft-19.
 - [x] MQ22-150 If a peer attempts to PUBLISH more distinct tracks than the
   implementation's per-peer capacity, then the implementation shall reply with
   REQUEST_ERROR rather than silently overwriting an existing track.
-  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_fourth_publish_gets_error`
+  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_fifth_publish_gets_error`
 - [x] MQ22-151 Re-PUBLISHing the same Track Name that already occupies a slot
   shall reuse that slot rather than consuming a new one.
   - test: `tests/app/moqtrun_test.c` —
@@ -1284,7 +1284,7 @@ draft-18 and draft-19.
 - [x] MQ22-176 Each request opened on its own bidirectional stream shall be
   answered on that stream; a reset of the stream cancels the request
   (unsubscribe/unpublish), a FIN alone does not, and a session may hold at
-  most 16 open requests (more are reset with EXCESSIVE_LOAD).
+  most 24 open requests (more are reset with EXCESSIVE_LOAD).
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_req_subscribe_answered_on_its_stream`
   - test: `tests/app/moqtrun_sub_test.c` —
@@ -1624,6 +1624,155 @@ draft-18 and draft-19.
     per-Object (datagram) gate; the other filter types are validated and stored
     but pass (see Out of scope). Exercised on draft-19 sessions; the hub path is
     version-independent.
+
+## Experimental extensions (moqtail-compatible track switching)
+
+These items are **not draft-22 requirements.** Draft-22 leaves every code
+point below unassigned. They describe an opt-in extension that uses
+moqtail's (`ee9753c`) values so that the two implementations can
+interoperate. They are left out of the Coverage line above and out of the
+totals in [the features index](README.md). Overview:
+[MoQT track switching](moqt-track-switching.md).
+
+All of it is restricted to draft-22 sessions, and only when the hub enables
+it (`wired_moqt_hub.switch_track`; `ssts_algs` / `ssts_alg_n`). Wire status:
+the codec is pinned to byte vectors copied from moqtail-rs unit tests, and
+the hub behaviour is tested in-process (loopback) only. **No run against
+moqtail or any other third-party implementation has happened yet.** Under
+the wire-format rule (`.claude/rules/rfc-and-verification-layers.md`), the
+hub items therefore stay at `[~]` until such a run exists, even though
+their tests pass.
+
+- [x] MQ22-X01 (0x24 SWITCH_FROM, codec) The codec shall decode and encode
+  SWITCH_FROM {Request ID, Mode 0 Hard / 1 Soft, Flags 0x80 Publish Done}
+  in SUBSCRIBE and REQUEST_UPDATE (subscription) on draft-22 only. Trailing
+  bytes, an unknown Mode or another Flags bit is a violation.
+  - test: `tests/app/moqctl_switch_test.c` —
+    `test_mcsw_switch_from_golden_encode` (`24 03 07 00 80`)
+  - test: `tests/app/moqctl_switch_test.c` —
+    `test_mcsw_switch_from_golden_decode`
+  - test: `tests/app/moqctl_switch_test.c` — `test_mcsw_switch_from_violations`
+  - test: `tests/app/moqctl_switch_test.c` — `test_mcsw_switch_from_scope`
+  - test: `tests/app/moqctl_switch_test.c` — `test_mcsw_moqtail_list`
+  - test: `tests/app/moqctl_switch_test.c` —
+    `test_mcsw_moqtail_switch_from_3byte`
+  - note: the golden and moqtail vectors are moqtail-rs unit-test bytes
+    (a static third-party pin, not a live peer).
+- [x] MQ22-X02 (0x41 SWITCHING_SET_ASSIGNMENT, codec) The codec shall
+  decode and encode {Set ID, Algorithm ID, Threshold kbps, Weight 1..10,
+  Activate, optional Rank} in SUBSCRIBE and REQUEST_UPDATE (subscription)
+  on draft-22 only.
+  - test: `tests/app/moqctl_switch_test.c` — `test_mcsw_ssa_norank`
+  - test: `tests/app/moqctl_switch_test.c` — `test_mcsw_ssa_violations`
+  - test: `tests/app/moqctl_switch_test.c` — `test_mcsw_ssa_scope`
+  - test: `tests/app/moqctl_switch_test.c` — `test_mcsw_moqtail_ssa`
+  - test: `tests/app/moqctl_switch_test.c` — `test_mcsw_moqtail_ssa_trailing`
+- [x] MQ22-X03 (0x09 SSTS_ALGORITHMS Setup Option, codec) The codec shall
+  decode and encode the option as concatenated algorithm-id varints, keeping
+  at most `MOQCTL_SSTS_MAX_ALGS` (4) with known IDs first. A malformed list
+  is ignored rather than closed (a deliberate deviation, see
+  [Known Limitations](known-limitations.md#moqt-track-switching-experimental)).
+  - test: `tests/app/moqctl_switch_test.c` — `test_mcsw_ssts_absent`,
+    `test_mcsw_ssts_two`, `test_mcsw_ssts_cap_keeps_known`,
+    `test_mcsw_ssts_malformed`
+- [x] MQ22-X04 (codes 0x32, 0x33, PUBLISH_DONE 0x3) The code points match
+  moqtail's. On draft-22, `moqctl_request_error_for` passes INVALID_SWITCH
+  0x32 and UNSUPPORTED_EXTENSION 0x33 through unchanged. PUBLISH_DONE
+  "switched" 0x3 must be written directly, because `moqctl_publish_done_for`
+  maps it to TRACK_ENDED on draft-22.
+  - test: `tests/app/moqctl_switch_test.c` — `test_mcsw_codes`
+  - note: 0x32 never reaches a draft-18/19 session, because on those drafts
+    0x24 is itself a PROTOCOL_VIOLATION (MQ22-X05).
+- [~] MQ22-X05 (opt-in gate) With `switch_track` 0 or `ssts_alg_n` 0, or on
+  a draft-18/19 session, a SUBSCRIBE carrying 0x24 or 0x41 shall close the
+  session PROTOCOL_VIOLATION, as before the extension.
+  - test: `tests/app/moqtrun_switch_test.c` — `test_moqtrun_switch_off_closes`
+  - test: `tests/app/moqtrun_switch_test.c` —
+    `test_moqtrun_switch_old_drafts_close`
+  - test: `tests/app/moqtrun_ssts_test.c` — `test_moqtrun_ssts_off_violates`
+  - test: `tests/app/moqtrun_ssts_test.c` —
+    `test_moqtrun_ssts_nonmember_and_d19`
+- [~] MQ22-X06 (SWITCH_FROM boundary and gating, TS-1/TS-2) G = max(Largest
+  of both tracks) + 1. The old subscription ends at G−1 and the new one
+  starts at {G, 0}, with no Group delivered twice and none skipped.
+  - test: `tests/app/moqtrun_switch_test.c` —
+    `test_moqtrun_switch_boundary_plus_one`,
+    `test_moqtrun_switch_boundary_b_ahead`,
+    `test_moqtrun_switch_soft_cut_at_boundary`,
+    `test_moqtrun_switch_no_group_twice`, `test_moqtrun_switch_soft_no_gap`,
+    `test_moqtrun_switch_reattach_keeps_bounds`,
+    `test_moqtrun_switch_filter_update_keeps_bounds`
+  - note: TLA+ `TrackSwitch.tla` (`tasks/loopeng/moqt/TrackSwitch/`, not in
+    git).
+- [~] MQ22-X07 (Soft / Hard, TS-3/TS-4) Soft drains the old subscription to
+  G−1 and gives up after `WIRED_MOQTSW_SOFT_WAIT_MS`. Hard resets the old
+  subscription's open streams CANCELLED once the new track's Group G (or
+  later) reaches the hub, or when the new one goes away.
+  - test: `tests/app/moqtrun_switch_test.c` —
+    `test_moqtrun_switch_soft_drains_old`,
+    `test_moqtrun_switch_soft_done_after_fin`,
+    `test_moqtrun_switch_soft_deadline_giveup`,
+    `test_moqtrun_switch_soft_g0_ends_now`,
+    `test_moqtrun_switch_hard_resets_old`,
+    `test_moqtrun_switch_hard_ends_on_b_boundary`,
+    `test_moqtrun_switch_hard_no_silent_gap`,
+    `test_moqtrun_switch_hard_b_gone_cuts_old`,
+    `test_moqtrun_switch_hard_datagram_b`
+- [~] MQ22-X08 (ending the old subscription, TS-5/TS-6) With Publish Done,
+  the old subscription gets exactly one PUBLISH_DONE 0x3, after its last
+  stream. Without it, the old subscription is suspended (streams reset,
+  FORWARD 0, request stream open, no PUBLISH_DONE), and a later SWITCH_FROM
+  can switch back to it.
+  - test: `tests/app/moqtrun_switch_test.c` —
+    `test_moqtrun_switch_no_flag_no_done`,
+    `test_moqtrun_switch_done_once_track_ended`,
+    `test_moqtrun_switch_hard_no_flag_suspends`,
+    `test_moqtrun_switch_back`, `test_moqtrun_switch_no_leak`
+- [~] MQ22-X09 (refusal, TS-9) A SWITCH_FROM with FORWARD, naming itself, a
+  missing or ended subscription, the same track, or a hub-owned track, or
+  carried on a PUBLISH's update or with FILL_PARAMETERS, is refused
+  REQUEST_ERROR 0x32 and nothing changes.
+  - test: `tests/app/moqtrun_switch_test.c` —
+    `test_moqtrun_switch_rejects_ended_old`,
+    `test_moqtrun_switch_hub_track_refused`,
+    `test_moqtrun_switch_publish_update_refused`,
+    `test_moqtrun_switch_fill_refused`,
+    `test_moqtrun_switch_ssts_member_refused`
+- [~] MQ22-X10 (SSTS negotiation and membership) The hub advertises 0x09
+  only on draft-22, and the negotiated algorithms are the intersection of
+  the two lists. An assignment naming an algorithm that was not negotiated,
+  or a track already in another set, is refused 0x33.
+  - test: `tests/app/moqtrun_ssts_test.c` — `test_moqtrun_ssts_setup_option`,
+    `test_moqtrun_ssts_negotiation`,
+    `test_moqtrun_ssts_refused_not_negotiated`,
+    `test_moqtrun_ssts_track_in_other_set`,
+    `test_moqtrun_ssts_cancel_removes_member`
+- [~] MQ22-X11 (SSTS per-Group decision, SS-1..SS-4) Each Group's member is
+  decided once, at the Group's first arrival, and that decision is final.
+  Exactly one member's Group is forwarded, whole, on streams and datagrams
+  alike.
+  - test: `tests/app/moqtrun_ssts_test.c` —
+    `test_moqtrun_ssts_one_member_per_group`,
+    `test_moqtrun_ssts_forward_after_decision`,
+    `test_moqtrun_ssts_whole_group`, `test_moqtrun_ssts_decision_final`,
+    `test_moqtrun_ssts_switches_at_group_boundary`,
+    `test_moqtrun_ssts_one_member_reliable`, `test_moqtrun_ssts_datagram`,
+    `test_moqtrun_ssts_inactive_set_forwards_nothing`
+  - note: TLA+ `SstsDecision.tla` (not in git).
+- [~] MQ22-X12 (SSTS algorithms 0 and 0xff01) The default weighted split
+  and the backpressure tier machine behave as moqtail's own tests
+  describe.
+  - test: `tests/app/moqssts_test.c` — `test_moqssts` (moqtail test cases
+    ported), e.g. `test_moqssts_rises_one_tier_per_five_clear_groups`,
+    `test_moqssts_falls_one_tier_at_the_downshift_depth`,
+    `test_moqssts_two_sets_of_the_same_rank_split_by_weight`
+  - test: `tests/app/moqtrun_ssts_test.c` — `test_moqtrun_ssts_bp_upshift`,
+    `test_moqtrun_ssts_bp_downshift`, `test_moqtrun_ssts_default_cap`
+- [ ] MQ22-X13 (interop) Third-party interop with moqtail (or any other
+  implementation of these code points). Not run.
+- Not implemented: SWITCHING_SET_ASSIGNMENT in PUBLISH_OK / REQUEST_OK
+  (moqtail allows it), and the talk's switch prompt, GOP extension and
+  latency budget, which are not in moqtail's code either.
 
 ## Not implemented
 
