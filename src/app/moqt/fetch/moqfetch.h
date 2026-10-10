@@ -19,7 +19,9 @@
  * advanced).
  */
 
+/** Control message type of FETCH (19 10.12). */
 #define MOQFETCH_T_FETCH 0x16ULL
+/** Control message type of FETCH_OK (19 10.13). */
 #define MOQFETCH_T_FETCH_OK 0x18ULL
 
 /** REQUEST_ERROR code for a Joining Fetch naming no subscription of the
@@ -29,7 +31,10 @@
 
 /** Fetch Type (10.12 Table 6); any other value is a VIOLATION. */
 #define MOQFETCH_STANDALONE 0x1ULL
+/** Joining Fetch whose Joining Start counts groups back from the joined
+ * subscription's Largest Group (10.12.2). */
 #define MOQFETCH_RELATIVE_JOINING 0x2ULL
+/** Joining Fetch whose Joining Start is an absolute Group ID (10.12.2). */
 #define MOQFETCH_ABSOLUTE_JOINING 0x3ULL
 
 /** FETCH (10.12.3 Figure 15). track/start/end are set for a Standalone
@@ -38,17 +43,40 @@
  * whole End Group); its ordering against Start is the publisher's check
  * (INVALID_RANGE), not a decode error. */
 typedef struct {
-  u64           request_id;
-  u64           fetch_type;
-  moqctl_ftn    track;
-  moqctl_loc    start;
-  moqctl_loc    end;
-  u64           joining_request_id;
-  u64           joining_start;
+  /** Request ID of this FETCH. */
+  u64 request_id;
+  /** Fetch Type: MOQFETCH_STANDALONE / _RELATIVE_JOINING /
+   * _ABSOLUTE_JOINING. */
+  u64 fetch_type;
+  /** Track Namespace + Track Name (Standalone only); views into the
+   * decoded body. */
+  moqctl_ftn track;
+  /** Start Location (Standalone only). */
+  moqctl_loc start;
+  /** End Location as on the wire: last Object + 1, Object 0 = whole End
+   * Group (Standalone only). */
+  moqctl_loc end;
+  /** Request ID of the subscription joined (Joining Fetches only). */
+  u64 joining_request_id;
+  /** Joining Start: groups back from the joined Largest Group (Relative)
+   * or an absolute Group ID (Absolute). */
+  u64 joining_start;
+  /** Message Parameters (FETCH scope). */
   moqctl_params params;
 } moqfetch_fetch;
 
+/** Decodes a FETCH body in draft ver's layout (standalone vs joining
+ * fields chosen by Fetch Type). Same return contract as the file note.
+ * @param ver MOQVER_* id of the session
+ * @param body one whole Message Body
+ * @param out decoded message; views point into body
+ * @return MOQCTL_OK, MOQCTL_VIOLATION or MOQCTL_PARAMS_KVFMT */
 int moqfetch_fetch_take(int ver, wired_span body, moqfetch_fetch* out);
+/** Encodes m as a FETCH body (no type/length framing) at *off.
+ * @param buf output buffer
+ * @param off write offset, advanced past the body
+ * @param m message to encode
+ * @return 1 ok, 0 if buf is too small */
 int moqfetch_fetch_encode(wired_mspan buf, usz* off, const moqfetch_fetch* m);
 
 /** Version-neutral FETCH request, an upper set of draft-19's Standalone +
@@ -61,14 +89,24 @@ int moqfetch_fetch_encode(wired_mspan buf, usz* off, const moqfetch_fetch* m);
  * Absolute Joining's absolute one, SS10.12.2.1); it is always
  * MOQFETCH_STANDALONE for a draft-22 request. */
 typedef struct {
-  u64             request_id;
-  u64             fetch_type; /* MOQFETCH_STANDALONE/RELATIVE/ABSOLUTE */
-  int             is_joining;
-  u64             joining_request_id; /* valid iff is_joining */
-  u64             joining_start;      /* valid iff is_joining */
-  moqctl_ftn      track;              /* valid iff !is_joining */
-  moqctl_rangeloc range;              /* valid iff !is_joining */
-  moqctl_params   params;
+  /** Request ID of this FETCH. */
+  u64 request_id;
+  /** MOQFETCH_STANDALONE / _RELATIVE_JOINING / _ABSOLUTE_JOINING. */
+  u64 fetch_type;
+  /** 1 for a draft-19 Relative/Absolute Joining Fetch. */
+  int is_joining;
+  /** Request ID of the joined subscription; valid iff is_joining. */
+  u64 joining_request_id;
+  /** Joining Start (relative or absolute per fetch_type); valid iff
+   * is_joining. */
+  u64 joining_start;
+  /** Track Namespace + Track Name (views into the decoded body); valid
+   * iff !is_joining. */
+  moqctl_ftn track;
+  /** Requested Location range; valid iff !is_joining. */
+  moqctl_rangeloc range;
+  /** Message Parameters (FETCH scope). */
+  moqctl_params params;
 } moqfetch_req;
 
 /** Decodes a draft-19 FETCH body (10.12) into the version-neutral model.
@@ -90,6 +128,12 @@ int moqfetch_req19_encode(wired_mspan buf, usz* off, const moqfetch_req* m);
  * omitted from FETCH ..., the fetch ... is unfiltered". Same return
  * contract as moqfetch_fetch_take. */
 int moqfetch_req22_take(wired_span body, moqfetch_req* out);
+/** Encodes m as a draft-22 FETCH body; range goes out as a LOCATION_FILTER
+ * parameter (SS9.20.9).
+ * @param buf output buffer
+ * @param off write offset, advanced past the body
+ * @param m request to encode (joining fields are not carried)
+ * @return 1 ok, 0 if buf is too small */
 int moqfetch_req22_encode(wired_mspan buf, usz* off, const moqfetch_req* m);
 
 /** draft-22 SS9.20.15 FILL_PARAMETERS value (Number of Parameters +
@@ -102,12 +146,17 @@ int moqfetch_req22_encode(wired_mspan buf, usz* off, const moqfetch_req* m);
 typedef struct {
   /** 1 iff the value carries parameters but no LOCATION_FILTER: the fill
    * range is the subscription's own Location filter (draft-22 SS3.4). */
-  int             inherit;
-  int             has_filter;
-  moqctl_rangeloc range; /* valid iff has_filter */
-  int             descending;
-  int             has_timeout;
-  u64             timeout_ms;
+  int inherit;
+  /** 1 iff a LOCATION_FILTER with a range (type != 0x00) was carried. */
+  int has_filter;
+  /** The fill range; valid iff has_filter. */
+  moqctl_rangeloc range;
+  /** 1 iff GROUP_ORDER is Descending (0x2). */
+  int descending;
+  /** 1 iff FILL_TIMEOUT was carried. */
+  int has_timeout;
+  /** FILL_TIMEOUT in milliseconds; valid iff has_timeout. */
+  u64 timeout_ms;
 } moqfetch_fill;
 
 /** Decodes a FILL_PARAMETERS value (a zero-length one is "no
@@ -122,13 +171,31 @@ int moqfetch_fill_put(wired_mspan buf, usz* off, const moqfetch_fill* f);
 
 /** FETCH_OK (10.13 Figure 16). track_properties is the rest of the body. */
 typedef struct {
-  u64           end_of_track;
-  moqctl_loc    end;
+  /** End Of Track byte: 1 when the track has ended and End Location is
+   * its final Object, else 0. */
+  u64 end_of_track;
+  /** End Location: draft-19 wire form (last Object + 1) from
+   * moqfetch_ok_take, inclusive in draft-22. */
+  moqctl_loc end;
+  /** Message Parameters (FETCH_OK scope). */
   moqctl_params params;
-  wired_span    track_properties;
+  /** Track Properties: the body bytes after Parameters (view into the
+   * decoded body). */
+  wired_span track_properties;
 } moqfetch_ok;
 
+/** Decodes a FETCH_OK body in draft ver's layout.
+ * @param ver MOQVER_* id of the session
+ * @param body one whole Message Body
+ * @param out decoded message; views point into body
+ * @return MOQCTL_OK, MOQCTL_VIOLATION or MOQCTL_PARAMS_KVFMT */
 int moqfetch_ok_take(int ver, wired_span body, moqfetch_ok* out);
+/** Encodes m as a FETCH_OK body with m->end written as is (draft-22
+ * inclusive form; moqfetch_ok19_encode for draft-19).
+ * @param buf output buffer
+ * @param off write offset, advanced past the body
+ * @param m message to encode
+ * @return 1 ok, 0 if buf is too small */
 int moqfetch_ok_encode(wired_mspan buf, usz* off, const moqfetch_ok* m);
 
 /** Inclusive End Object meaning "through the last Object of the group" --
@@ -138,6 +205,8 @@ int moqfetch_ok_encode(wired_mspan buf, usz* off, const moqfetch_ok* m);
 /** draft-19 End Location (last Object + 1, Object 0 = whole group) to the
  * inclusive model and back (draft-22 SS9.12 is inclusive on the wire). */
 moqctl_loc moqfetch_end19_incl(moqctl_loc wire);
+/** Inverse of moqfetch_end19_incl: inclusive end to the draft-19 wire
+ * End Location (MOQFETCH_OBJ_GROUP_END becomes Object 0). */
 moqctl_loc moqfetch_end19_wire(moqctl_loc incl);
 
 /** The inclusive end of a FETCH range r, in the same model: a whole end
@@ -154,16 +223,28 @@ int moqfetch_ok19_encode(wired_mspan buf, usz* off, const moqfetch_ok* m);
 /** FETCH_HEADER (11.4.4 Figure 26): Type 0x5 then Request ID. A Type
  * other than 0x5 is a VIOLATION. */
 int moqfetch_hdr_take(wired_span buf, usz* off, u64* request_id);
+/** Writes FETCH_HEADER (Type 0x5, Request ID) at *off.
+ * @param buf output buffer
+ * @param off write offset, advanced past the header
+ * @param request_id Request ID of the FETCH this stream answers
+ * @return 1 ok, 0 if buf is too small */
 int moqfetch_hdr_put(wired_mspan buf, usz* off, u64 request_id);
 
 /** Serialization Flags (11.4.4.1 Tables 8/9, 11.4.4 Table 7). */
 #define MOQFETCH_F_SUBGROUP_MASK 0x03ULL
+/** Object ID Delta present; absent means prior Object ID + 1. */
 #define MOQFETCH_F_OBJECT 0x04ULL
+/** Group ID Delta present; absent means the prior Object's group. */
 #define MOQFETCH_F_GROUP 0x08ULL
+/** Publisher Priority present; absent means the prior Object's. */
 #define MOQFETCH_F_PRIORITY 0x10ULL
+/** Object Properties (Length + KVPs) present. */
 #define MOQFETCH_F_PROPS 0x20ULL
+/** Datagram-preference Object: no Subgroup ID, subgroup bits ignored. */
 #define MOQFETCH_F_DATAGRAM 0x40ULL
+/** End of Non-Existent Range marker (11.4.4.2). */
 #define MOQFETCH_EOR_NONEXISTENT 0x8CULL
+/** End of Unknown Range marker (11.4.4.2). */
 #define MOQFETCH_EOR_UNKNOWN 0x10CULL
 /** draft-22 SS11.4.1 End of Timed-Out Range; accepted only when
  * moqfetch_seq.eor_timed_out is set. */
@@ -175,14 +256,23 @@ int moqfetch_hdr_put(wired_mspan buf, usz* off, u64 request_id);
  * stream of a session whose draft has MOQVER_CAP_EOR_TIMED_OUT, so the
  * 0x20C marker is an End of Range rather than a VIOLATION. */
 typedef struct {
+  /** 1 iff Group ID Deltas count downward (GROUP_ORDER Descending). */
   int descending;
+  /** 1 iff the 0x20C End of Timed-Out Range marker is accepted. */
   int eor_timed_out;
+  /** 1 once a prior Object or End of Range set group/object. */
   int have_loc;
+  /** 1 iff the last Object (not End of Range) carried a Subgroup ID. */
   int have_subgroup;
+  /** 1 once a prior Object set priority. */
   int have_priority;
+  /** Prior item's Group ID; valid iff have_loc. */
   u64 group;
+  /** Prior item's Object ID; valid iff have_loc. */
   u64 object;
+  /** Last Object's Subgroup ID; valid iff have_subgroup. */
   u64 subgroup;
+  /** Last Object's Publisher Priority; valid iff have_priority. */
   u64 priority;
 } moqfetch_seq;
 
@@ -192,14 +282,24 @@ typedef struct {
  * Location (inclusive), no subgroup/priority/properties and an empty
  * payload. has_subgroup is 0 for a Datagram-preference Object (0x40). */
 typedef struct {
-  u64        flags;
-  u64        group;
-  u64        object;
-  int        has_subgroup;
-  u64        subgroup;
-  u64        priority;
-  int        has_props;
-  wired_span props; /* Object Properties' KVP bytes (no Length) */
+  /** Serialization Flags (MOQFETCH_F_* bits, or MOQFETCH_EOR_*). */
+  u64 flags;
+  /** Absolute Group ID. */
+  u64 group;
+  /** Absolute Object ID. */
+  u64 object;
+  /** 1 iff the Object has a Subgroup ID (not Datagram-preference). */
+  int has_subgroup;
+  /** Subgroup ID; valid iff has_subgroup. */
+  u64 subgroup;
+  /** Publisher Priority (explicit or inherited from the prior Object). */
+  u64 priority;
+  /** 1 iff Object Properties were carried (MOQFETCH_F_PROPS). */
+  int has_props;
+  /** Object Properties' KVP bytes without the Length; view into the
+   * stream buffer. */
+  wired_span props;
+  /** Object payload; view into the stream buffer. */
   wired_span payload;
 } moqfetch_obj;
 

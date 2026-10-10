@@ -42,19 +42,28 @@ typedef enum {
 
 /** Close reasons a step can produce (0 = still open). */
 #define MOQSESS_CLOSE_NONE 0
+/** Close with PROTOCOL_VIOLATION: a control-stream or GOAWAY rule was
+ * broken (e.g. a second GOAWAY, a malformed control message). */
 #define MOQSESS_CLOSE_PROTOCOL_VIOLATION 1
+/** Close with INVALID_REQUEST_ID: wrong-parity or reused Request ID. */
 #define MOQSESS_CLOSE_INVALID_REQUEST_ID 2
+/** Close with GOAWAY_TIMEOUT: the peer did not close after GOAWAY. */
 #define MOQSESS_CLOSE_GOAWAY_TIMEOUT 3
+/** Clean close (NO_ERROR); no moqsess_step event produces it. */
 #define MOQSESS_CLOSE_NO_ERROR 4
 
 /** Session state including the GOAWAY-lifecycle flags (5.1: GOAWAY may be
  * sent/received at most once per direction; violations and shutdown
  * decisions read these). */
 typedef struct {
+  /** Establishment state. */
   moqsess_state state;
-  int           goaway_sent;
-  int           goaway_recv;
-  int           close_reason; /* MOQSESS_CLOSE_* once state==CLOSED */
+  /** 1 once this endpoint sent GOAWAY. */
+  int goaway_sent;
+  /** 1 once the peer's GOAWAY arrived; a second one is a violation. */
+  int goaway_recv;
+  /** MOQSESS_CLOSE_* once state == MOQSESS_CLOSED, else 0. */
+  int close_reason;
 } moqsess;
 
 /** Zero-initialize (equivalent to `= {0}`; provided for callers that build
@@ -99,6 +108,8 @@ typedef enum {
   MOQSUB_ROLE_PUBLISHER  = 1, /* sent/received PUBLISH first */
 } moqsub_role;
 
+/** Events moqsub_step applies, each sent or received on the request
+ * stream. */
 typedef enum {
   MOQSUB_EV_OPEN         = 0, /* SUBSCRIBE or PUBLISH sent/received */
   MOQSUB_EV_OK           = 1, /* SUBSCRIBE_OK / PUBLISH_OK (REQUEST_OK) */
@@ -113,21 +124,37 @@ typedef enum {
 /** Terminated reasons (informational; a subscription's own close does not
  * imply the session closes). 0 = not terminated. */
 #define MOQSUB_TERM_NONE 0
-#define MOQSUB_TERM_STOP_SENDING 1 /* cancel via STOP_SENDING */
-#define MOQSUB_TERM_PUBLISH_DONE 2 /* publisher finished normally */
-#define MOQSUB_TERM_ERROR 3        /* REQUEST_ERROR (reject or fault) */
-#define MOQSUB_TERM_EARLY_FIN 4    /* peer FIN'd before responding */
-#define MOQSUB_TERM_DUP_RESPONSE 5 /* a 2nd response: session fault */
+/** Cancelled via STOP_SENDING. */
+#define MOQSUB_TERM_STOP_SENDING 1
+/** Publisher finished normally (PUBLISH_DONE). */
+#define MOQSUB_TERM_PUBLISH_DONE 2
+/** REQUEST_ERROR (reject or fault). */
+#define MOQSUB_TERM_ERROR 3
+/** Peer FIN'd before responding (not set by moqsub_step). */
+#define MOQSUB_TERM_EARLY_FIN 4
+/** A second response arrived; moqsub_step flags session_fault instead
+ * and never sets this. */
+#define MOQSUB_TERM_DUP_RESPONSE 5
 
+/** One subscription's lifecycle state plus the flags moqsub_step keeps. */
 typedef struct {
+  /** Lifecycle state. */
   moqsub_state state;
-  moqsub_role  role;
-  int          responded; /* exactly-one-response gate: OK or ERROR seen */
-  int pending_ok;    /* publisher-initiated: OK deferred past PUBLISH_DONE */
-  int fin_req;       /* requester's direction closed (FIN) */
-  int fin_resp;      /* responder's direction closed (FIN) */
-  int term_reason;   /* MOQSUB_TERM_* once state==TERMINATED */
-  int session_fault; /* set on a duplicate-response violation */
+  /** Side whose First message opened the request stream. */
+  moqsub_role role;
+  /** Exactly-one-response gate: 1 once OK or ERROR was seen. */
+  int responded;
+  /** Publisher-initiated: 1 when PUBLISH_DONE came before any response,
+   * so a PUBLISH_OK is still owed. */
+  int pending_ok;
+  /** 1 once the requester's direction closed (FIN). */
+  int fin_req;
+  /** 1 once the responder's direction closed (FIN). */
+  int fin_resp;
+  /** MOQSUB_TERM_* once state == MOQSUB_TERMINATED, else 0. */
+  int term_reason;
+  /** 1 after a duplicate response: a session-level violation. */
+  int session_fault;
 } moqsub;
 
 /** Initialize a fresh subscription: role is fixed by which message (SUBSCRIBE
