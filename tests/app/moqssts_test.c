@@ -274,13 +274,26 @@ static void test_moqssts_every_active_set_moves_to_the_same_tier(void) {
   CHECK(moqssts_t_track(&s[1], out[1]) == 21);
 }
 
-static void test_moqssts_two_active_sets_are_pinned_to_the_lowest_tier(void) {
+/* Depth is the deepest active set, not the sum: two sharers holding one
+ * open stream each are uncongested and rise after 5 clear groups. */
+static void test_moqssts_two_active_sets_with_one_stream_each_rise(void) {
   moqssts_set s[]        = {moqssts_t_bpset(1, 1), moqssts_t_bpset(2, 1)};
   const u64   one_each[] = {1, 1};
   moqssts_bp  st;
   moqssts_bp_init(&st);
-  for (int g = 0; g < 30; g++)
-    CHECK(moqssts_t_bp_once(&st, s, 2, one_each, 0) == 10);
+  for (int g = 0; g < 5; g++) moqssts_t_bp_once(&st, s, 2, one_each, 0);
+  CHECK(moqssts_t_bp_once(&st, s, 2, one_each, 0) == 11);
+}
+
+/* One backed-up set (2 open streams) still drops the shared tier. */
+static void test_moqssts_one_deep_set_drops_every_set(void) {
+  moqssts_set s[]        = {moqssts_t_bpset(1, 1), moqssts_t_bpset(2, 1)};
+  const u64   one_each[] = {1, 1}, deep[] = {0, 2};
+  moqssts_bp  st;
+  moqssts_bp_init(&st);
+  for (int g = 0; g < 5; g++) moqssts_t_bp_once(&st, s, 2, one_each, 0);
+  CHECK(st.tier == 1);
+  CHECK(moqssts_t_bp_once(&st, s, 2, deep, 0) == 10);
 }
 
 static void test_moqssts_the_tier_is_capped_by_the_longest_ladder(void) {
@@ -323,12 +336,12 @@ static void test_moqssts_a_timeout_counts_as_depth_and_as_evidence(void) {
   CHECK(!moqssts_obs_make(1, 0).timed_out);
 }
 
-/* lib.rs active_stream_depth: only sets with a subscriber count. */
-static void test_moqssts_active_depth_counts_active_sets_only(void) {
+/* Only active sets count, and the deepest one is the depth. */
+static void test_moqssts_active_depth_is_the_deepest_active_set(void) {
   moqssts_set s[] = {
       moqssts_t_bpset(1, 1), moqssts_t_bpset(2, 0), moqssts_t_bpset(3, 1)};
   const u64 open[] = {2, 7, 3};
-  CHECK(moqssts_active_depth(s, 3, open) == 5);
+  CHECK(moqssts_active_depth(s, 3, open) == 3);
   CHECK(moqssts_active_depth(s, 0, open) == 0);
 }
 
@@ -487,12 +500,13 @@ void test_moqssts(void) {
   test_moqssts_never_drops_below_the_lowest_tier();
   test_moqssts_bp_an_inactive_set_forwards_nothing();
   test_moqssts_every_active_set_moves_to_the_same_tier();
-  test_moqssts_two_active_sets_are_pinned_to_the_lowest_tier();
+  test_moqssts_two_active_sets_with_one_stream_each_rise();
+  test_moqssts_one_deep_set_drops_every_set();
   test_moqssts_the_tier_is_capped_by_the_longest_ladder();
   test_moqssts_instances_do_not_share_state();
   test_moqssts_cooldown_brackets_the_settle_down_period();
   test_moqssts_a_timeout_counts_as_depth_and_as_evidence();
-  test_moqssts_active_depth_counts_active_sets_only();
+  test_moqssts_active_depth_is_the_deepest_active_set();
   test_moqssts_unknown_ids_are_rejected();
   test_moqssts_the_default_algorithm_is_always_available();
   test_moqssts_sets_past_the_cap_forward_nothing();

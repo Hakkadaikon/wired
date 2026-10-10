@@ -39,12 +39,15 @@ u64 moqssts_budget_kbps(u64 est_kbps, u64 cap_kbps) {
   return u64_min(moqssts_or_max(est_kbps), moqssts_or_max(cap_kbps));
 }
 
+/* moqtail sums the sets (lib.rs active_stream_depth), which pins two
+ * sharers with one stream each at DOWNSHIFT_DEPTH; the deepest set keeps
+ * the per-track meaning of the thresholds. */
 u64 moqssts_active_depth(const moqssts_set* sets, usz n, const u64* open) {
-  u64 sum = 0;
-  n       = moqssts_nsets(n);
+  u64 deepest = 0;
+  n           = moqssts_nsets(n);
   for (usz i = 0; i < n; i++)
-    sum += open[i] * (u64)moqssts_set_active(&sets[i]);
-  return sum;
+    deepest = u64_max(deepest, open[i] * (u64)moqssts_set_active(&sets[i]));
+  return deepest;
 }
 
 /* ===== default algorithm (allocate.rs) ===== */

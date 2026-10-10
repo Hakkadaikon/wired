@@ -35,10 +35,12 @@
  *   sub_stream_set): a stream counts from its open until the publisher's
  *   FIN is relayed (or it is shed / reset), not until the subscriber ACKs
  *   that FIN as moqtail's finish() does. One-shot streams (io.send_uni)
- *   never count. The timeouts input is every subscriber stream of the
- *   session the hub reset (busy shed, DELIVERY_TIMEOUT, reliable stall:
- *   moqtss_note_shed) while the session had a pacing set, since the pacing
- *   set's last decision -- in place of moqtail's discard-timeout resets.
+ *   never count. The observation takes the deepest set's count, not
+ *   moqtail's sum over sets (moqssts_active_depth). The timeouts input is every
+ * subscriber stream of the session the hub reset (busy shed, DELIVERY_TIMEOUT,
+ * reliable stall: moqtss_note_shed) while the session had a pacing set, since
+ * the pacing set's last decision -- in place of moqtail's discard-timeout
+ * resets.
  * - The default algorithm has no bandwidth estimate: its budget is
  *   wired_moqt_hub.ssts_cap_kbps, unlimited when 0.
  * - Membership is pruned lazily: a member whose subscription is no longer

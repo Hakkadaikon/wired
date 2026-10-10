@@ -685,6 +685,25 @@ static void test_moqtrun_ssts_bp_observes_once_per_group(void) {
   CHECK(mtss_opens(h, 4) == 1 && mtss_opens(l, 4) == 0);
 }
 
+/* Two sharers each holding one open subscriber stream (Group 0 never
+ * FINs) are uncongested -- depth is the deepest set, 1 -- so both sets
+ * rise together after the pacing set's 5th clear group. */
+static void test_moqtrun_ssts_two_sharers_rise(void) {
+  u64 h, l;
+  mtss_room();
+  mtss_second_set(&h, &l);
+  mtss_push(2, 0, 1, 0);
+  mtss_push(4, 0, 1, 0);
+  CHECK(mtss_opens(mtss_al, 0) == 1 && mtss_opens(l, 0) == 1);
+  for (u64 g = 1; g < 6; g++) {
+    mtss_group_both(g);
+    mtss_push(3, g, 1, 1);
+    mtss_push(4, g, 1, 1);
+  }
+  CHECK(mtss_got(5, 0));
+  CHECK(mtss_opens(h, 5) == 1 && mtss_opens(l, 5) == 0);
+}
+
 /* Mixed algorithms: set 7 runs backpressure (lowest tier: lo), set 8 the
  * default split with a 2000 kbps cap -- set 8 alone affords its 2000 kbps
  * top member; were set 7 counted in the default split, the halves (1000
@@ -982,6 +1001,7 @@ void test_moqtrun_ssts(void) {
   test_moqtrun_ssts_ctrl_subscribe_refused();
   test_moqtrun_ssts_late_group_decided_once();
   test_moqtrun_ssts_bp_observes_once_per_group();
+  test_moqtrun_ssts_two_sharers_rise();
   test_moqtrun_ssts_mixed_algorithms();
   test_moqtrun_ssts_full_set_refused();
   test_moqtrun_ssts_shed_needs_bp_set();

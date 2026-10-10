@@ -127,7 +127,8 @@ int moqssts_set_active(const moqssts_set* s);
  * neither signal yields ~0 (unconstrained). */
 u64 moqssts_budget_kbps(u64 est_kbps, u64 cap_kbps);
 
-/** Sum of open[i] over the ACTIVE sets[i] (open is parallel to sets). */
+/** Largest open[i] over the ACTIVE sets[i] (open is parallel to sets):
+ * the deepest backed-up track, not the sum over tracks. */
 u64 moqssts_active_depth(const moqssts_set* sets, usz n, const u64* open);
 
 /** Algorithm 0: stateless weighted strict-rank split of budget_kbps (clamped
@@ -148,10 +149,8 @@ int moqssts_bp_observe(moqssts_bp* st, moqssts_obs ob);
  * write out[i] = min(tier, n_members-1) for active sets, else MOQSSTS_NONE.
  * open is parallel to sets. Returns MOQSSTS_EV_* of the observation; an
  * MOQSSTS_EV_UPSHIFT at the top rung is then cancelled by the clamp.
- *
- * Known moqtail limitation: depth is summed over the active sets, so two or
- * more active sets (one open stream each) read as MOQSSTS_DOWNSHIFT_DEPTH and
- * stay pinned at the lowest tier. */
+ * Depth is moqssts_active_depth (deepest set), so several sharers with one
+ * stream each are uncongested. */
 int moqssts_bp_decide(
     moqssts_bp*        st,
     const moqssts_set* sets,
