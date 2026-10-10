@@ -178,3 +178,15 @@ int framewalk_next(framewalk* it, framewalk_item* out) {
   it->remaining -= len;
   return 1;
 }
+
+/* RFC 9000 13.2: 1 if any frame in pl is ack-eliciting (every frame except
+ * PADDING/ACK/CONNECTION_CLOSE). */
+int framewalk_ack_eliciting(wired_span pl) {
+  framewalk      it;
+  framewalk_item fr;
+  int            eliciting = 0;
+  framewalk_init(&it, pl.p, pl.n);
+  while (framewalk_next(&it, &fr))
+    eliciting |= frame_ack_eliciting(frame_classify(fr.type));
+  return eliciting;
+}

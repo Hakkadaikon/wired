@@ -341,8 +341,31 @@ static void test_connio_stop_sending_auto_reset(void) {
       cl.disp.reset_stream_error_code == 0x77);
 }
 
+/* RFC 9002 2: a packet carrying only ACK/PADDING is not ack-eliciting, so
+ * it is neither tracked as in flight nor arms the PTO; a PING-bearing one
+ * is and does. */
+static void test_connio_send_ack_eliciting_from_frames(void) {
+  const u8     dcid[8]     = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  const u8     ack_pad[20] = {0x02, 0x00, 0x00, 0x00, 0x00}; /* ACK + PADDING */
+  u8           ping_pad[20] = {0};
+  u8           pkt[256];
+  connio       io;
+  initial_keys k = {0};
+  ping_pad[0]    = FRAME_PING;
+  mk_connio(&io, 0, 0xc3, dcid, 8, 1u << 20);
+  io.loop.validated = 1;
+  keyset_install(&io.loop.keys, LEVEL_INITIAL, &k);
+  CHECK(send_at(&io, LEVEL_INITIAL, ack_pad, 20, pkt, sizeof pkt) != 0);
+  CHECK(sentpkt_count(&io.loop.sent) == 0);
+  CHECK(io.loop.pto_armed == 0);
+  CHECK(send_at(&io, LEVEL_INITIAL, ping_pad, 20, pkt, sizeof pkt) != 0);
+  CHECK(sentpkt_count(&io.loop.sent) == 1);
+  CHECK(io.loop.pto_armed == 1);
+}
+
 void test_connio(void) {
   test_connio_seal_open_roundtrip();
+  test_connio_send_ack_eliciting_from_frames();
   test_connio_gated_without_key();
   test_connio_per_space_pn();
   test_connio_pn_monotone();

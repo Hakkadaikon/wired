@@ -1,6 +1,7 @@
 #ifndef PIPELINE_FRAMEWALK_H
 #define PIPELINE_FRAMEWALK_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
 /** RFC 9000 12.4: walk a decrypted payload frame by frame. Each frame begins
@@ -28,5 +29,9 @@ typedef struct {
 /* Yield the next frame into *out. Returns 1 on success, 0 at end of input or
  * on a frame the walker cannot measure. */
 int framewalk_next(framewalk* it, framewalk_item* out);
+
+/** RFC 9000 13.2 / RFC 9002 2: 1 if any frame in the payload is
+ * ack-eliciting (anything but PADDING, ACK, CONNECTION_CLOSE). */
+int framewalk_ack_eliciting(wired_span pl);
 
 #endif

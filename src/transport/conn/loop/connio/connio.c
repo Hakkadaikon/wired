@@ -61,11 +61,11 @@ static int pn_space_ready(const connio* io, int level) {
  * connloop gate (level monotonicity, anti-amp, phase) admits the packet. */
 static int send_ready(
     connio* io, const connio_send_in* in, const initial_keys** keys) {
-  /* ponytail: ack-eliciting hard-set to 1; frames here always elicit (STREAM/
-   * PING). Classify frames[0] if a non-eliciting-only send is ever needed.
+  /* RFC 9002 2: ack-eliciting iff a sent frame is (not ACK/PADDING/CLOSE).
    * RFC 9000 12.3: gate with the SELECTED space's own next packet number. */
   connloop_send_in sin = {
-      in->level, 1, connio_tx_next(io, in->level), in->frames.n};
+      in->level, framewalk_ack_eliciting(in->frames),
+      connio_tx_next(io, in->level), in->frames.n};
   if (!pn_space_ready(io, in->level)) return 0;
   return connloop_on_send(&io->loop, &sin) &&
          keyset_for_level(&io->loop.keys, in->level, keys);

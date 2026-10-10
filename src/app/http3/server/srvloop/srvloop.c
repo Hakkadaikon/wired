@@ -937,18 +937,6 @@ static void srvloop_collect_acks(wired_srvloop* l, wired_span pl) {
       srvloop_take_ack(l, fr.start, fr.remaining);
 }
 
-/* RFC 9000 13.2: 1 if any frame in pl is ack-eliciting (every frame except
- * PADDING/ACK/CONNECTION_CLOSE). */
-static int srvloop_payload_ack_eliciting(wired_span pl) {
-  framewalk      it;
-  framewalk_item fr;
-  int            eliciting = 0;
-  framewalk_init(&it, pl.p, pl.n);
-  while (framewalk_next(&it, &fr))
-    eliciting |= frame_ack_eliciting(frame_classify(fr.type));
-  return eliciting;
-}
-
 /* RFC 9000 13.2.1/13.2.2: an ack-eliciting packet in this pn space records
  * pn into its receive window (dedup + reordering-tolerant) and raises the
  * pending count that decides whether/when an ACK is owed. A non-eliciting
@@ -961,7 +949,7 @@ static void srvloop_note_ack_owed(
     wired_span     pl,
     u64            pn,
     u64            now_ms) {
-  if (!srvloop_payload_ack_eliciting(pl)) return;
+  if (!framewalk_ack_eliciting(pl)) return;
   pnspaces_on_recv(recv, space, pn);
   ackpolicy_on_eliciting(policy, now_ms);
 }
