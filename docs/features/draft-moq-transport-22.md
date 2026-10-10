@@ -1592,8 +1592,16 @@ draft-18 and draft-19.
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_descending_group_order`
   - test: `tests/app/moqtrun_fetch_test.c` — `test_moqtrun_fetch_malformed_closes`
+  - test: `tests/app/moqtrun_fetch_test.c` —
+    `test_moqtrun_fetch_descending_unknown_groups`,
+    `test_moqtrun_fetch_descending_skips_missing_group`,
+    `test_moqtrun_fetch_descending_start_object`
   - note: ledger 10-6. Exercised on draft-19 sessions; the hub path is
-    version-independent.
+    version-independent. Gaps follow 3.2.2 read literally (first expected
+    {End.Group, 0}, last {Start.Group, 2^64-1}, a gap across groups is
+    several logical gaps): nonexistent groups stay unmarked, each group the
+    cache cannot vouch for gets its own End of Unknown Range (see
+    known-limitations.md).
 - [x] MQ22-198 (SS3.3.1) A late subscriber attached to a live track shall start
   at its Location Filter's start Group: a start behind the live edge is clamped
   to the current Group, and a future start holds delivery until that Group.
@@ -1814,11 +1822,6 @@ them (MQ22-028, MQ22-193 through MQ22-201). REQUEST_UPDATE of a
 SUBSCRIBE_TRACKS (prefix with per-type overlap, FORWARD; a failed one
 closes the bidi stream, 9.5.1) followed: `test_moqtrun_vgate_update_kinds`.
 
-- (SS9.11, SS3.2.2) The descending-order gap rules of §3.2.2 (first
-  expected object, last expected object, spanning skipped groups) are not
-  implemented for FETCH; a Descending FETCH is served newest group first
-  (MQ22-197), and fill fetch streams do implement a descending order
-  (MQ22-141).
 - (SS7.6, SS11.4.1.2) Relay-level FETCH gap/upstream-fetch behavior
   (MQ22-137) — moot until this hub forwards FETCH upstream to another
   relay.

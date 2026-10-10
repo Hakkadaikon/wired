@@ -2996,7 +2996,17 @@ static void moqtrun_fetch_standalone(
 
 /* Rewinds f to serve r by descending Group (Objects within a group stay
  * ascending, 11.4.4.1): its window becomes the top group's slice of r,
- * stepped down past groups with nothing to serve. */
+ * stepped down past groups with nothing to serve.
+ * Gaps, read literally (d22 3.2.2): the first expected Object is
+ * {End.Group, 0}, the last {Start.Group, 2^64-1}, and between items in
+ * different groups the gap is the tail of the first one's group, every
+ * skipped group, and the next group from Object 0 up to the item. An
+ * unmarked gap means nonexistent, which is what a skipped group or
+ * Object is here (moqcache_skip). A group the cache cannot vouch for is
+ * one End of Unknown Range per group ending at {g, max} (the window end):
+ * running from the previous item (11.4.1.2), it also covers that item's
+ * group tail, nonexistent but reported unknown. Start.Group's Objects
+ * below Start.Object fall in a gap too, outside the requested range. */
 static void moqtrun_fetch_descend(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqtrun_frange* r) {
   moqtrun_fwin w    = {r->start, r->end};

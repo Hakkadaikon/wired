@@ -69,10 +69,6 @@ general relay network.
   (no FETCH-of-FETCH); fills and Joining FETCH are served from its own cache
   only, and a d22 Joining FETCH is refused. Impact: MQ22-137 has no code path.
   Source: L4-13, L4-6, `ledger:draft-moq-transport-22.md` MQ22-137.
-- **Descending FETCH gap rules** — a
-  Descending FETCH is served newest group first, but d22's descending-order gap
-  rules (3.2.2) are not implemented. Source: `ledger:draft-moq-transport-22.md`
-  Not implemented (SS9.11, SS3.2.2).
 - **Object cache is arena-scanned** — eviction compacts the arena with one
   memmove pass and lookups scan linearly (O(arena) per call, also per
   FETCH_OK); groups are assumed to arrive in ascending order per track, so an
@@ -160,6 +156,15 @@ general relay network.
   `moqtrun.h:615`, L12-1.
 - **Range Filters do not exist in draft-18** — the hub closes a d18 session
   that sends one (unknown parameter type). Source: ledger:draft-moq-transport-18.md.
+- **Note (not a limitation): descending FETCH gaps** — d22 3.2.2 is read
+  literally: the first expected Object is {End.Group, 0}, the last
+  {Start.Group, 2^64-1}, and a gap between items of different groups is the
+  previous group's tail, every skipped group, and the next group up to the
+  item. The hub leaves nonexistent groups and Objects unmarked and marks each
+  group it cannot vouch for with its own End of Unknown Range ending at
+  {g, 2^64-1}, so that marker also calls the previous item's group tail
+  unknown (it is nonexistent). Source: `moqtrun_fetch_descend` in
+  `src/app/moqt/run/moqtrun.c`.
 
 ## MoQT track switching (experimental)
 

@@ -277,6 +277,60 @@ static void test_moqtrun_fetch_descending_group_order(void) {
   CHECK(mf_fin);
 }
 
+static int mf_read_desc(void) {
+  moqfetch_seq seq = {0};
+  seq.descending   = 1;
+  return mf_read_seq(seq);
+}
+
+/* Descending gaps (d22 3.2.2): evicted Groups 1 and 0 below the cached
+ * 3 and 2 are one End of Unknown Range per Group, each ending at {g, max}
+ * -- the range runs from the previous item, so it covers that Group
+ * whole -- and the last one reaches the last expected Location
+ * {Start.Group, max}. */
+static void test_moqtrun_fetch_descending_unknown_groups(void) {
+  mf_init(2 * (MOQCACHE_HDR + 1));
+  for (u64 g = 0; g < 4; g++) mf_obj(g, 0, 1);
+  mf_standalone_order(mf_loc(0, 0), mf_loc(3, 0), 0x2);
+  CHECK(mf_read_desc());
+  CHECK(mf_n == 4);
+  CHECK(mf_is_obj(0, 3, 0, 1) && mf_is_obj(1, 2, 0, 1));
+  CHECK(mf_is_unknown(2, 1, MOQCACHE_OBJ_ID_MAX));
+  CHECK(mf_is_unknown(3, 0, MOQCACHE_OBJ_ID_MAX));
+  CHECK(mf_fin);
+}
+
+/* A Group the cache knows does not exist (1, between cached 2 and 0)
+ * stays an unmarked gap: from {2,1} to {0,0} the gap is the tail of
+ * Group 2, all of Group 1 and nothing of Group 0 -- all nonexistent. */
+static void test_moqtrun_fetch_descending_skips_missing_group(void) {
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(2, 0, 1);
+  mf_obj(2, 1, 1);
+  mf_standalone_order(mf_loc(0, 0), mf_loc(2, 0), 0x2);
+  CHECK(mf_read_desc());
+  CHECK(mf_n == 3);
+  CHECK(mf_is_obj(0, 2, 0, 1) && mf_is_obj(1, 2, 1, 1));
+  CHECK(mf_is_obj(2, 0, 0, 1));
+  CHECK(mf_fin);
+}
+
+/* The Start Group is served from the Start Object: {0,0} is never sent,
+ * though the literal gap {0,0}..{0,1} reads as nonexistent -- it lies
+ * outside the requested range. */
+static void test_moqtrun_fetch_descending_start_object(void) {
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mf_obj(1, 0, 1);
+  mf_standalone_order(mf_loc(0, 1), mf_loc(1, 0), 0x2);
+  CHECK(mf_read_desc());
+  CHECK(mf_n == 2);
+  CHECK(mf_is_obj(0, 1, 0, 1) && mf_is_obj(1, 0, 1, 1));
+  CHECK(mf_fin);
+}
+
 /* GROUP_ORDER 0x1 keeps the ascending default. */
 static void test_moqtrun_fetch_ascending_group_order(void) {
   mf_init(sizeof mf_arena);
@@ -830,6 +884,9 @@ static void mtall_fetch(void) {
  * expect its exclusive End: every draft without the draft-22 layout. */
 static void mtall_fetch19(void) {
   test_moqtrun_fetch_descending_group_order();
+  test_moqtrun_fetch_descending_unknown_groups();
+  test_moqtrun_fetch_descending_skips_missing_group();
+  test_moqtrun_fetch_descending_start_object();
   test_moqtrun_fetch_ascending_group_order();
   test_moqtrun_fetch_malformed_closes();
   test_moqtrun_fetch_nothing_published();
