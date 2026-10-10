@@ -105,6 +105,36 @@ static void test_moqtrun_misc_subtracks_rngf_gates(void) {
   CHECK(mtmi_dg_to_b() == 1);
 }
 
+/* d22 3.3.2 / 9.20.14: a TRACK_PROPERTY_FILTER on SUBSCRIBE_TRACKS lets
+ * only tracks whose Track Property is in range be PUBLISHed: A's track
+ * has property 0x0E = 5, so {0..9} matches it and {10..20} does not. */
+static void test_moqtrun_misc_subtracks_track_prop_filter(void) {
+  static const u8    props[] = {0x0E, 0x05};
+  static moqns_req   m;
+  moqctl_ftn         f   = mtst_ftn("chat", "room1", "alice");
+  moqctl_rangefilter in  = mtst_rngf1(0, 0, 9, 1);
+  moqctl_rangefilter out = mtst_rngf1(0, 10, 20, 1);
+  moqctl_publish     pub;
+  moqctl_params      pin = {0}, pout = {0};
+  in.has_prop = out.has_prop = 1;
+  in.prop_type = out.prop_type = 0x0E;
+  mtst_rngf_param(&pin, MOQCTL_PARAM_TRACK_PROPERTY_FILTER, &in);
+  mtst_rngf_param(&pout, MOQCTL_PARAM_TRACK_PROPERTY_FILTER, &out);
+  for (int k = 0; k < 2; k++) {
+    mtst_init();
+    u64 ca = mtst_join(SESS_A);
+    mtst_join(SESS_B);
+    mtst_publish_props(SESS_A, ca, &f, 1, wired_span_of(props, sizeof props));
+    m.request_id = mtst_rid += 2;
+    m.ns         = mtns_ns("chat");
+    m.params     = k ? pout : pin;
+    mtst_send(
+        SESS_B, MTRQ_S1, MOQCTL_T_SUBSCRIBE_TRACKS, mtst_enc_subtracks, &m);
+    wired_moqt_tick(&mtst_hub, 0);
+    CHECK(mtst_pub_opens(SESS_B, &pub, 1) == (usz)(k == 0));
+  }
+}
+
 /* 12-26, d22 3.3.2 / d19 5.1.3: "If this limit is exceeded, an endpoint
  * MUST reject this with REQUEST_ERROR with error code INVALID_FILTER" --
  * SUBSCRIBE_TRACKS included; no PUBLISH follows. */
@@ -266,6 +296,7 @@ static void test_moqtrun_misc_pub_ok_filter_ok(void) {
 
 static void mtrf_misc(void) {
   test_moqtrun_misc_subtracks_rngf_gates();
+  test_moqtrun_misc_subtracks_track_prop_filter();
   test_moqtrun_misc_subtracks_rngf_limit();
   test_moqtrun_misc_pub_update_failed_fins();
   test_moqtrun_misc_pub_ok_bad_filter();

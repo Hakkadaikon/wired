@@ -919,8 +919,12 @@ static wired_moqtrun_track* moqtrun_publish_slot(
 static int moqtrun_publish_refused(
     const wired_moqt_hub* hub, const moqctl_publish* m, u64* code);
 
+static int moqtrun_prop_is_num(const moqkvp* kv, u64 type) {
+  return kv->type == type && !kv->is_raw;
+}
+
 static u64 moqtrun_prop_num_of(const moqkvp* kv, u64 type, u64 prior) {
-  return kv->type == type && !kv->is_raw ? kv->num : prior;
+  return moqtrun_prop_is_num(kv, type) ? kv->num : prior;
 }
 
 /* The varint Track Property type of a PUBLISH's Track Properties (KVPs
@@ -1450,19 +1454,21 @@ static int moqtrun_row_in(const wired_moqtrun_rngrow* r, u64 v) {
   return v >= r->start && (!r->has_end || v <= r->end);
 }
 
-static int moqtrun_row_oid_of_set(const wired_moqtrun_rngrow* r, u8 set) {
-  return r->set_id == set && r->ptype == MOQCTL_PARAM_OBJECTID_FILTER;
+static int moqtrun_row_dim_of_set(
+    const wired_moqtrun_rngrow* r, u8 set, u64 ptype) {
+  return r->set_id == set && r->ptype == ptype;
 }
 
-/* OBJECTID rows of one set OR together; a set without any (or with only
+/* The ptype rows of one set OR together; a set without any (or with only
  * filter types the delivery gates cannot see) passes. have/hit are 0/1
  * flags combined bitwise to keep the loop body branch-free. */
-static int moqtrun_set_oid_pass(const wired_moqtrun_sub* s, u8 set, u64 oid) {
+static int moqtrun_set_dim_pass(
+    const wired_moqtrun_sub* s, u8 set, u64 ptype, u64 v) {
   int have = 0, hit = 0;
   for (usz i = 0; i < s->rngf_n; i++) {
-    int in = moqtrun_row_oid_of_set(&s->rngf[i], set);
+    int in = moqtrun_row_dim_of_set(&s->rngf[i], set, ptype);
     have |= in;
-    hit |= in & moqtrun_row_in(&s->rngf[i], oid);
+    hit |= in & moqtrun_row_in(&s->rngf[i], v);
   }
   return hit | !have;
 }
@@ -1472,7 +1478,29 @@ static int moqtrun_set_oid_pass(const wired_moqtrun_sub* s, u8 set, u64 oid) {
 static int moqtrun_sub_rngf_pass(const wired_moqtrun_sub* s, u64 oid) {
   int pass = !s->rngf_n; /* no rows: unfiltered */
   for (usz i = 0; i < s->rngf_n; i++)
-    pass |= moqtrun_set_oid_pass(s, s->rngf[i].set_id, oid);
+    pass |= moqtrun_set_dim_pass(
+        s, s->rngf[i].set_id, MOQCTL_PARAM_OBJECTID_FILTER, oid);
+  return pass;
+}
+
+/* One set's SUBGROUP_FILTER and PRIORITY_FILTER (d22 9.20.10/9.20.12,
+ * AND'd within the set) for a stream of Subgroup sg, Publisher Priority
+ * prio. */
+static int moqtrun_set_stream_pass(
+    const wired_moqtrun_sub* s, u8 set, u64 sg, u64 prio) {
+  return moqtrun_set_dim_pass(s, set, MOQCTL_PARAM_SUBGROUP_FILTER, sg) &
+         moqtrun_set_dim_pass(s, set, MOQCTL_PARAM_PRIORITY_FILTER, prio);
+}
+
+/* The stream-level Range Filter gate, evaluated when a stream opens
+ * toward s: Subgroup ID and Publisher Priority are the stream header's.
+ * Object-level filters are not cut on streams (OBJECTID gates datagrams
+ * only), so a set with only those passes here. */
+static int moqtrun_sub_rngf_stream(
+    const wired_moqtrun_sub* s, u64 sg, u64 prio) {
+  int pass = !s->rngf_n;
+  for (usz i = 0; i < s->rngf_n; i++)
+    pass |= moqtrun_set_stream_pass(s, s->rngf[i].set_id, sg, prio);
   return pass;
 }
 
@@ -4318,17 +4346,93 @@ static u64 moqtrun_subtracks_check(
   return clash ? MOQCTL_ERR_PREFIX_OVERLAP : MOQTRUN_REQ_ACCEPT;
 }
 
-/* One object Range Filter of a SUBSCRIBE_TRACKS kept for the resulting
- * subscriptions (draft-22 3.6.1 "Objects published in the resulting
- * Subscriptions can be filtered by any Range Filter"). TRACK_PROPERTY_FILTER
- * selects tracks, not Objects (3.3.2), so it stays out. */
+/* One Range Filter of a SUBSCRIBE_TRACKS: TRACK_PROPERTY_FILTER selects
+ * its tracks (moqtrun_subtracks_tp_pass), the object filters are kept for
+ * the resulting subscriptions (draft-22 3.6.1 "Objects published in the
+ * resulting Subscriptions can be filtered by any Range Filter";
+ * moqtrun_rngf_copy_objects). */
 static void moqtrun_subtracks_rngf_item(
     wired_moqtrun_req* q, const moqctl_param* it) {
   moqctl_rangefilter f;
-  if (it->type == MOQCTL_PARAM_TRACK_PROPERTY_FILTER ||
-      !moqtrun_rngf_of(it, &f))
-    return;
+  if (!moqtrun_rngf_of(it, &f)) return;
   moqtrun_rngf_rows_add(q->rngf, &q->rngf_n, it->type, &f);
+}
+
+/* q (the PUBLISH a SUBSCRIBE_TRACKS opened) inherits st's object Range
+ * Filters; TRACK_PROPERTY_FILTER selects tracks, not Objects (3.3.2).
+ * ponytail: a set mixing a failing TRACK_PROPERTY_FILTER with object
+ * filters still admits Objects by the latter when another set admitted
+ * the track; keep per-set track verdicts if that matters. */
+static void moqtrun_rngf_copy_objects(
+    wired_moqtrun_req* q, const wired_moqtrun_req* st) {
+  q->rngf_n = 0;
+  for (usz i = 0; i < st->rngf_n; i++)
+    if (st->rngf[i].ptype != MOQCTL_PARAM_TRACK_PROPERTY_FILTER)
+      q->rngf[q->rngf_n++] = st->rngf[i];
+}
+
+static int moqtrun_kvp_next(wired_span props, usz* off, u64* prev, moqkvp* kv);
+
+/* 1 iff Track Property type of props is present (a varint value), its
+ * value in *v. */
+static int moqtrun_track_prop_has(wired_span props, u64 type, u64* v) {
+  usz    off  = 0;
+  u64    prev = 0;
+  int    has  = 0;
+  moqkvp kv;
+  while (moqtrun_kvp_next(props, &off, &prev, &kv)) {
+    has |= moqtrun_prop_is_num(&kv, type);
+    *v = moqtrun_prop_num_of(&kv, type, *v);
+  }
+  return has;
+}
+
+static int moqtrun_row_same_param(
+    const wired_moqtrun_rngrow* a, const wired_moqtrun_rngrow* b) {
+  return a->ptype == b->ptype && a->set_id == b->set_id &&
+         a->prop_type == b->prop_type;
+}
+
+/* r's TRACK_PROPERTY_FILTER parameter (its Ranges OR'd) admits props:
+ * the property must be present (3.3.2 "required Track Property types"). */
+static int moqtrun_tp_row_ok(
+    const wired_moqtrun_req*    st,
+    const wired_moqtrun_rngrow* r,
+    wired_span                  props) {
+  u64 v   = 0;
+  int hit = 0;
+  if (!moqtrun_track_prop_has(props, r->prop_type, &v)) return 0;
+  for (usz i = 0; i < st->rngf_n; i++)
+    hit |= moqtrun_row_same_param(&st->rngf[i], r) &
+           moqtrun_row_in(&st->rngf[i], v);
+  return hit;
+}
+
+static int moqtrun_row_tp_of_set(const wired_moqtrun_rngrow* r, u8 set) {
+  return moqtrun_row_dim_of_set(r, set, MOQCTL_PARAM_TRACK_PROPERTY_FILTER);
+}
+
+/* Every TRACK_PROPERTY_FILTER of one set admits props (AND'd, 3.3.2). */
+static int moqtrun_tp_set_pass(
+    const wired_moqtrun_req* st, u8 set, wired_span props) {
+  int ok = 1;
+  for (usz i = 0; i < st->rngf_n; i++)
+    ok &= !moqtrun_row_tp_of_set(&st->rngf[i], set) |
+          moqtrun_tp_row_ok(st, &st->rngf[i], props);
+  return ok;
+}
+
+/* draft-22 3.3.2 / 9.20.14: t is offered to SUBSCRIBE_TRACKS st only when
+ * some SetID's Track Property filters all admit its Track Properties (a
+ * set without any passes here). ponytail: properties longer than
+ * WIRED_MOQTRUN_TRACK_PROPS_MAX are not kept, so they read as absent. */
+static int moqtrun_subtracks_tp_pass(
+    const wired_moqtrun_req* st, const wired_moqtrun_track* t) {
+  wired_span props = wired_span_of(t->props, t->props_len);
+  int        pass  = !st->rngf_n;
+  for (usz i = 0; i < st->rngf_n; i++)
+    pass |= moqtrun_tp_set_pass(st, st->rngf[i].set_id, props);
+  return pass;
 }
 
 /* draft-22 3.6.2 "These parameters are used by the publisher as the
@@ -4427,7 +4531,7 @@ static int moqtrun_subtracks_matches(
   if (pub_idx == st_peer_idx) return 0;
   pre = moqtrun_disc_fields(st, &n_pre);
   all = moqtrun_disc_fields_of(wired_span_of(t->ns, t->ns_len), &n_all);
-  return moqtrun_disc_starts(pre, all);
+  return moqtrun_disc_starts(pre, all) && moqtrun_subtracks_tp_pass(st, t);
 }
 
 static int moqtrun_subtracks_candidate(
@@ -4526,8 +4630,7 @@ static int moqtrun_subtracks_open_pub(
   q->has_forward   = st->has_forward;
   q->forward       = st->forward;
   q->group_order   = st->group_order;
-  q->rngf_n        = st->rngf_n;
-  bytes_memcpy(q->rngf, st->rngf, sizeof q->rngf);
+  moqtrun_rngf_copy_objects(q, st);
   return 1;
 }
 
@@ -5518,14 +5621,55 @@ static wired_span moqtrun_alias_splice(
   return wired_span_of(hub->alias_scratch, n + wire.n - end);
 }
 
+static u8 moqtrun_stream_prio(const moqdata_subhdr* h, u8 dflt) {
+  return moqdata_type_default_priority(h->type) ? dflt : (u8)h->priority;
+}
+
+/* h's Subgroup ID; mode 0b01 names the stream's first Object ID (draft-22
+ * 11.3.1), decoded from wire at off. 0 when that Object does not decode. */
+static int moqtrun_stream_sgid(
+    wired_span wire, usz off, const moqdata_subhdr* h, u64* sg) {
+  moqdata_objseq seq = moqdata_objseq_of(h->type);
+  moqdata_obj    obj;
+  *sg = h->subgroup_id;
+  if (moqdata_type_sgid_mode(h->type) != 1) return 1;
+  if (moqdata_obj_take(wire, &off, &seq, &obj) != MOQDATA_OK) return 0;
+  *sg = obj.object_id;
+  return 1;
+}
+
+/* The Subgroup ID and Publisher Priority (dflt under DEFAULT_PRIORITY) of
+ * the SUBGROUP stream wire opens; 0 when they cannot be read. */
+static int moqtrun_stream_keys(wired_span wire, u8 dflt, u64* sg, u8* prio) {
+  usz            off = 0;
+  moqdata_subhdr h;
+  if (moqdata_subhdr_take(wire, &off, &h) != MOQDATA_OK) return 0;
+  *prio = moqtrun_stream_prio(&h, dflt);
+  return moqtrun_stream_sgid(wire, off, &h, sg);
+}
+
+/* moqtrun_sub_gets for a stream of Group g, Subgroup sg, Publisher
+ * Priority prio: also its stream-level Range Filters. */
+static int moqtrun_sub_gets_stream(
+    const wired_moqtrun_sub* s, u64 g, u64 sg, u8 prio) {
+  return moqtrun_sub_gets(s, g) && moqtrun_sub_rngf_stream(s, sg, prio);
+}
+
+static int moqtrun_sub_gets_relay(
+    const wired_moqtrun_sub* s, const wired_moqtrun_relay* r) {
+  return moqtrun_sub_gets_stream(s, r->group_id, r->subgroup_id, r->pub_prio);
+}
+
 static void moqtrun_relay_object(
     wired_moqt_hub* hub, wired_moqtrun_track* track, wired_span wire) {
   moqdata_objseq seq;
-  u64            group = 0;
+  u64            group = 0, sg = 0;
+  u8             prio = track->default_pub_prio;
   moqtrun_subgroup_scan(wire, 0, &seq, &group);
+  moqtrun_stream_keys(wire, track->default_pub_prio, &sg, &prio);
   moqtss_prime(hub, track, group); /* SSTS (moqtssts_run.c) */
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (moqtrun_sub_gets(&track->subs[i], group))
+    if (moqtrun_sub_gets_stream(&track->subs[i], group, sg, prio))
       moqtrun_relay_to_one(
           hub, &track->subs[i],
           moqtrun_alias_splice(
@@ -5849,7 +5993,7 @@ static void moqtrun_relay_append_all(
     int                  fin,
     u64                  born_ms) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (moqtrun_sub_gets(&track->subs[i], relay->group_id))
+    if (moqtrun_sub_gets_relay(&track->subs[i], relay))
       moqtrun_relay_append_one(
           hub, &track->subs[i], relay, i, wire, seq0, fin, born_ms);
 }
@@ -6255,7 +6399,7 @@ static int moqtrun_rel_give_up(
     const moqtrel_buf*         rb,
     usz                        i,
     u64                        now_ms) {
-  if (!moqtrun_sub_gets(&track->subs[i], relay->group_id))
+  if (!moqtrun_sub_gets_relay(&track->subs[i], relay))
     return MOQTRUN_RESET_CANCELLED;
   return moqtrun_rel_expiry(track, rb, i, now_ms);
 }
@@ -6640,7 +6784,7 @@ static void moqtrun_relay_open_all(
     wired_moqtrun_relay* relay,
     wired_span           wire) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (moqtrun_sub_gets(&track->subs[i], relay->group_id))
+    if (moqtrun_sub_gets_relay(&track->subs[i], relay))
       moqtrun_relay_open_one(hub, &track->subs[i], relay, i, wire);
 }
 
@@ -6656,29 +6800,20 @@ static void moqtrun_relay_save_hdr_raw(
   relay->hdr_len = off;
 }
 
-/* Subgroup ID mode 0b01 names the stream's first Object ID (draft-22
- * 11.3.1): it is kept from the first Object after the header for a late
- * open, whose stream starts at a later Object (moqtrun_relay_late_hdr).
- * 0 when that Object does not decode. ponytail: a first delivery torn
- * inside it saves no header, so late joiners of that stream are skipped;
- * resolve it on the next delivery if that matters. */
-static int moqtrun_relay_note_sgid(
-    wired_moqtrun_relay* relay, wired_span data, usz off, u64 type) {
-  moqdata_objseq seq = moqdata_objseq_of(type);
-  moqdata_obj    obj;
-  if (moqdata_type_sgid_mode(type) != 1) return 1;
-  if (moqdata_obj_take(data, &off, &seq, &obj) != MOQDATA_OK) return 0;
-  relay->subgroup_id = obj.object_id;
-  return 1;
-}
-
+/* The stream's Subgroup ID and Publisher Priority kept for late opens and
+ * the Range Filter gate (moqtrun_stream_keys). ponytail: a mode-0b01
+ * stream whose first delivery tore inside its first Object saves no
+ * header, so late joiners of that stream are skipped; resolve it on the
+ * next delivery if that matters. */
 static void moqtrun_relay_save_hdr(
     wired_moqtrun_relay* relay, wired_span data) {
   usz            off = 0;
   moqdata_subhdr hdr;
   relay->hdr_len = 0;
+  if (!moqtrun_stream_keys(
+          data, relay->default_pub_prio, &relay->subgroup_id, &relay->pub_prio))
+    return;
   if (moqdata_subhdr_take(data, &off, &hdr) != MOQDATA_OK) return;
-  if (!moqtrun_relay_note_sgid(relay, data, off, hdr.type)) return;
   moqtrun_relay_save_hdr_raw(relay, data, off);
 }
 
@@ -6717,6 +6852,8 @@ static void moqtrun_relay_start(
       wired_span_of(wire.p, whole_end));
   relay->sub_expired = 0;
   relay->sub_reframe = 0;
+  relay->subgroup_id = 0;
+  relay->pub_prio    = relay->default_pub_prio;
   moqtrun_relay_save_frag(
       hub, relay, wire.p + whole_end, wire.n - whole_end,
       hub->live.last_now_ms);

@@ -1390,6 +1390,48 @@ static void test_moqtrun_sub_rngf_sets_or(void) {
   CHECK(moqtrun_test_count_kind(9) == 1);
 }
 
+/* B and C subscribe alice with Range Filter parameters pb / pc. */
+static void mtst_rngf_two(const moqctl_params* pb, const moqctl_params* pc) {
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  u64 cc = mtst_join(SESS_C);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, pb);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+  mtst_subscribe_p(SESS_C, cc, &f, 2, pc);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+}
+
+/* d22 9.20.10 / 9.20.12: SUBGROUP_FILTER and PRIORITY_FILTER gate a
+ * stream when it opens toward the subscriber -- its Subgroup ID (0 here)
+ * and Publisher Priority (the track's default 128) are the stream's. */
+static void test_moqtrun_sub_rngf_gates_stream(void) {
+  moqctl_params      sb = {0}, sc = {0}, pb = {0}, pc = {0};
+  moqctl_rangefilter g0 = mtst_rngf1(0, 0, 0, 1);
+  moqctl_rangefilter g1 = mtst_rngf1(0, 1, 5, 1);
+  moqctl_rangefilter lo = mtst_rngf1(0, 0, 127, 1);
+  moqctl_rangefilter hi = mtst_rngf1(0, 128, 255, 1);
+  mtst_rngf_param(&sb, MOQCTL_PARAM_SUBGROUP_FILTER, &g0);
+  mtst_rngf_param(&sc, MOQCTL_PARAM_SUBGROUP_FILTER, &g1);
+  mtst_rngf_param(&pb, MOQCTL_PARAM_PRIORITY_FILTER, &lo);
+  mtst_rngf_param(&pc, MOQCTL_PARAM_PRIORITY_FILTER, &hi);
+  mtst_rngf_two(&sb, &sc);
+  CHECK(moqtrun_test_relay_alice_chat(&mtst_hub) == 1);
+  CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
+  mtst_rngf_two(&pb, &pc);
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, 999,
+      wired_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      0);
+  CHECK(moqtrun_test_count_kind(5) == 1);
+  CHECK(moqtrun_test_last_kind(5)->s == SESS_C);
+}
+
 /* A repeated (Type, SetID) identity in one message is INVALID_FILTER;
  * distinct SetIDs are legal (10.2.10). */
 static void test_moqtrun_sub_rngf_dup_identity(void) {
@@ -1619,6 +1661,7 @@ static void mtall_sub(void) {
 static void mtall_sub_rngf(void) {
   test_moqtrun_sub_objectid_filter_gates_datagram();
   test_moqtrun_sub_rngf_sets_or();
+  test_moqtrun_sub_rngf_gates_stream();
   test_moqtrun_sub_rngf_dup_identity();
   test_moqtrun_sub_rngf_limit();
 }

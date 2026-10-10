@@ -1846,13 +1846,15 @@ from the coverage denominator above:
 - (SS6.6.1, SS7.2, SS7.3) Session Migration and graceful relay switchover
   beyond the GOAWAY mechanics covered above — this is a single hub with
   no upstream relay to switch to.
-- (SS3.3.x, SS8.6) Acting on SUBGROUP_FILTER, PRIORITY_FILTER,
-  OBJECT_PROPERTY_FILTER and TRACK_PROPERTY_FILTER at plain SUBSCRIBE/FETCH
-  delivery, and on OBJECTID_FILTER for stream-forwarded Objects — these are
-  decoded, validated, counted against MAX_FILTER_RANGES and updated
-  (MQ22-201), but the group-granular stream gates never see the fields they
-  filter on, so they pass. OBJECTID_FILTER does gate datagram-forwarded
-  Objects; fill fetch range filtering is covered by MQ22-138 onward.
+- (SS3.3.x, SS8.6) Acting on OBJECT_PROPERTY_FILTER at delivery, and on
+  OBJECTID_FILTER for stream-forwarded Objects — these are decoded,
+  validated, counted against MAX_FILTER_RANGES and updated (MQ22-201), but
+  the stream gates do not cut single Objects out of a relayed stream, so
+  they pass. OBJECTID_FILTER does gate datagram-forwarded Objects;
+  SUBGROUP_FILTER and PRIORITY_FILTER gate a whole stream at its open
+  (`test_moqtrun_sub_rngf_gates_stream`), TRACK_PROPERTY_FILTER the tracks
+  a SUBSCRIBE_TRACKS is offered (`test_moqtrun_misc_subtracks_track_prop_filter`);
+  fill fetch range filtering is covered by MQ22-138 onward.
 - (SS5, SS5.1--5.2) The Priorities scheduling algorithm across
   subscriptions, Publisher Priority, and the fill-vs-subscription
   scheduling tie-break — only Subscriber Priority is applied, as

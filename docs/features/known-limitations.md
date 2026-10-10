@@ -85,11 +85,16 @@ general relay network.
 - **Discovery syncs are quadratic** — SUBSCRIBE_NAMESPACE catch-up is an
   O(reqs^2) scan per event and SUBSCRIBE_TRACKS sync is O(sessions x tracks x
   reqs); fine at the fixed capacities. Source: `moqtrun.c:4074`, `moqtrun.c:4446`.
-- **Subgroup / priority / property filter rows pass** — SUBGROUP_FILTER,
-  PRIORITY_FILTER, OBJECT_PROPERTY_FILTER and TRACK_PROPERTY_FILTER rows are
-  validated and stored but not evaluated at delivery (the Group-granular gates
-  never see those fields). OBJECTID_FILTER gates datagrams only. Source:
-  `moqtrun.h:300` (ponytail), `ledger:draft-moq-transport-22.md` Out of scope.
+- **Range Filters are stream- or track-granular** — SUBGROUP_FILTER and
+  PRIORITY_FILTER gate a whole stream when it opens toward the subscriber
+  (its header's Subgroup ID and Publisher Priority); TRACK_PROPERTY_FILTER
+  selects the tracks a SUBSCRIBE_TRACKS is offered (by Track Properties up
+  to 32 bytes, see SUBSCRIBE_OK below). OBJECTID_FILTER gates datagrams
+  only, and OBJECT_PROPERTY_FILTER is not evaluated: cutting single Objects
+  out of a relayed stream is not implemented. A set mixing a failing
+  TRACK_PROPERTY_FILTER with object filters still admits Objects by the
+  latter once another set admitted the track. Source: `moqtrun_sub_rngf_stream`,
+  `moqtrun_subtracks_tp_pass` in `src/app/moqt/run/moqtrun.c`.
 - **No Alias token cache** — the hub does not advertise
   MAX_AUTH_TOKEN_CACHE_SIZE, so its cache is 0 bytes: a REGISTER closes the
   session AUTH_TOKEN_CACHE_OVERFLOW and DELETE / USE_ALIAS close it
@@ -125,8 +130,8 @@ general relay network.
   and does not react to one; there is no upstream relay or sibling to move a
   requester to. Source: L4-12, ledgers.
 - **REQUEST_UPDATE of a SUBSCRIBE_TRACKS** — TRACK_NAMESPACE_PREFIX and
-  FORWARD apply to PUBLISHes generated afterwards; TRACK_PROPERTY_FILTER is
-  accepted but not evaluated (like on the SUBSCRIBE_TRACKS itself).
+  FORWARD apply to PUBLISHes generated afterwards; a TRACK_PROPERTY_FILTER
+  in the update is accepted but not applied (the request keeps its own).
 - **Malformed-Track detection is partial** — besides unknown Object Status and
   Object ID overflow at decode, the relay detects only an Object past the
   END_OF_TRACK Object or past its Group's latest END_OF_GROUP Object (by
