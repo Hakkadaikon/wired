@@ -389,15 +389,13 @@ static void test_mcsw_ssts_vector_ff00(void) {
   CHECK(mcsw_setup_reencode(&s, b, sizeof b));
 }
 
-/* A list ending mid-varint is a malformed option: ignored like an unknown
- * option (SETUP still decodes, has_ssts 0) -- the SSTS extension is simply
- * not offered, which is the safe fallback for an experimental option. */
+/* A list ending mid-varint is a malformed Key-Value-Pair value:
+ * MOQCTL_PARAMS_KVFMT, which closes KEY_VALUE_FORMATTING_ERROR (draft-22
+ * 1.4, 18/19 1.4.3). */
 static void test_mcsw_ssts_malformed(void) {
   static const u8 b[] = {0x09, 0x02, 0x00, 0x80}; /* 80: 2-byte, cut */
   moqctl_setup    s;
-  CHECK(mcsw_setup(b, sizeof b, &s) == MOQCTL_OK);
-  CHECK(s.has_ssts == 0);
-  CHECK(s.ssts_alg_n == 0);
+  CHECK(mcsw_setup(b, sizeof b, &s) == MOQCTL_PARAMS_KVFMT);
 }
 
 /* ===== Third-party (moqtail-rs) vectors ===== */

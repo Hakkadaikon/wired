@@ -4751,8 +4751,9 @@ static u32 moqtrun_setup_take_code(
     wired_span                body,
     moqctl_setup*             m) {
   usz off = 0;
-  if (moqctl_setup_take(body, &off, m) != MOQCTL_OK)
-    return WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
+  int r   = moqctl_setup_take(body, &off, m);
+  if (r == MOQCTL_PARAMS_KVFMT) return (u32)MOQCTL_CLOSE_KVFMT_ERROR;
+  if (r != MOQCTL_OK) return WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
   return moqtrun_setup_opt_bad(hub, p, m);
 }
 

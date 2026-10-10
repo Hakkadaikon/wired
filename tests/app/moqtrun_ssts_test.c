@@ -259,6 +259,30 @@ static void test_moqtrun_ssts_setup_option(void) {
   CHECK(!s.has_ssts);
 }
 
+static int mtss_enc_raw(wired_mspan buf, usz* off, const void* m) {
+  const wired_span* v = (const wired_span*)m;
+  if (buf.n - *off < v->n) return 0;
+  bytes_memcpy(buf.p + *off, v->p, v->n);
+  *off += v->n;
+  return 1;
+}
+
+/* A client SETUP whose SSTS_ALGORITHMS value ends mid-varint closes the
+ * session KEY_VALUE_FORMATTING_ERROR (draft-22 1.4, 18/19 1.4.3). */
+static void test_moqtrun_ssts_setup_malformed_closes(void) {
+  static const u8 opt[] = {0x09, 0x02, 0x00, 0x80}; /* 80: 2-byte, cut */
+  wired_span      v     = wired_span_of(opt, sizeof opt);
+  u8              buf[64];
+  mtss_init(mtss_algs_both, 2);
+  usz len = moqtrun_envelope_put(
+      wired_mspan_of(buf, sizeof buf), MOQCTL_T_SETUP, mtss_enc_raw, &v);
+  CHECK(len != 0);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_B, MTSS_SETUP_SID, wired_span_of(buf, len), 0);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(11);
+  CHECK(c && c->s == SESS_B && c->stream_id == MOQCTL_CLOSE_KVFMT_ERROR);
+}
+
 /* Negotiated = client's list intersected with the hub's; an absent or
  * empty client list, or a hub with SSTS off, negotiates nothing. */
 static void test_moqtrun_ssts_negotiation(void) {
@@ -919,6 +943,7 @@ static void test_moqtrun_ssts_known_limit_paused_pacer_freezes_tier(void) {
 
 void test_moqtrun_ssts(void) {
   test_moqtrun_ssts_setup_option();
+  test_moqtrun_ssts_setup_malformed_closes();
   test_moqtrun_ssts_negotiation();
   test_moqtrun_ssts_refused_not_negotiated();
   test_moqtrun_ssts_off_violates();

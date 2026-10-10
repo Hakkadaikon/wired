@@ -1432,31 +1432,28 @@ static int moqctl_ssts_take_list(wired_span v, moqctl_setup* out, int known) {
   return 1;
 }
 
-/* DEVIATION from draft-22 SS1.4 (and 18/19 SS1.4.3): a Key-Value-Pair
- * whose value cannot be parsed MUST close the session with
- * KEY_VALUE_FORMATTING_ERROR. A malformed SSTS_ALGORITHMS list is instead
- * ignored like an unknown option (has_ssts 0) -- deliberately lenient,
- * since 0x09 is an unregistered experimental option a non-moqtail peer
- * may use differently; the extension is then just not offered. A repeat
- * replaces the earlier one. */
-static void moqctl_setup_apply_ssts(moqctl_setup* out, const moqkvp* kv) {
-  if (kv->type != MOQCTL_OPT_SSTS_ALGORITHMS) return;
+/* draft-22 SS1.4 (18/19 SS1.4.3): a Key-Value-Pair whose value cannot be
+ * parsed closes the session KEY_VALUE_FORMATTING_ERROR, so a list ending
+ * mid-varint is MOQCTL_PARAMS_KVFMT. A repeat replaces the earlier one. */
+static int moqctl_setup_apply_ssts(moqctl_setup* out, const moqkvp* kv) {
+  if (kv->type != MOQCTL_OPT_SSTS_ALGORITHMS) return MOQCTL_OK;
   out->ssts_alg_n = 0;
-  out->has_ssts   = (u8)moqctl_ssts_take_list(kv->raw, out, 1);
+  if (!moqctl_ssts_take_list(kv->raw, out, 1)) return MOQCTL_PARAMS_KVFMT;
   moqctl_ssts_take_list(kv->raw, out, 0);
-  out->ssts_alg_n = (u8)(out->ssts_alg_n * out->has_ssts);
+  out->has_ssts = 1;
+  return MOQCTL_OK;
 }
 
 /* Any option type not one of the six tracked here (including
  * greased/reserved ones) is ignored per SS10.4. */
-static void moqctl_setup_apply_kvp(moqctl_setup* out, const moqkvp* kv) {
+static int moqctl_setup_apply_kvp(moqctl_setup* out, const moqkvp* kv) {
   moqctl_setup_apply_path_authority(out, kv);
   moqctl_setup_apply_limits(out, kv);
-  moqctl_setup_apply_ssts(out, kv);
   if (kv->type == MOQCTL_OPT_MOQT_IMPLEMENTATION) {
     out->has_implementation = 1;
     out->implementation     = kv->raw;
   }
+  return moqctl_setup_apply_ssts(out, kv);
 }
 
 static int moqctl_setup_take_one(
@@ -1464,8 +1461,7 @@ static int moqctl_setup_take_one(
   moqkvp kv;
   int    r = moqkvp_take(buf, at, prev, &kv);
   if (r != MOQKVP_OK) return MOQCTL_VIOLATION;
-  moqctl_setup_apply_kvp(out, &kv);
-  return MOQCTL_OK;
+  return moqctl_setup_apply_kvp(out, &kv);
 }
 
 static int moqctl_setup_take_loop(wired_span buf, usz* at, moqctl_setup* out) {

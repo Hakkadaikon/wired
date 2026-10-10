@@ -763,8 +763,9 @@ typedef struct {
 } moqctl_setup;
 
 /** Decodes a SETUP Message Body: every byte from *off to the end of buf
- * is the Setup Options list. MOQCTL_OK, or VIOLATION on a malformed
- * Key-Value-Pair. */
+ * is the Setup Options list. MOQCTL_OK, VIOLATION on a malformed
+ * Key-Value-Pair, or MOQCTL_PARAMS_KVFMT on an SSTS_ALGORITHMS value
+ * ending mid-varint (KEY_VALUE_FORMATTING_ERROR). */
 int moqctl_setup_take(wired_span buf, usz* off, moqctl_setup* out);
 /** Encodes s's present options as a SETUP Message Body, in ascending
  * option order; 1 ok, 0 when buf runs out. */

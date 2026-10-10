@@ -213,11 +213,6 @@ draft-22 sessions only. None of it is part of draft-22. Source shorthand:
   REQUEST_UPDATE (subscription) only. Elsewhere it is not an allowed
   parameter (a decode violation). Source: PLAN §0, `MOQCTL_PARAM_RULES` in
   `src/app/moqt/ctl/moqctl.c`.
-- **Deliberate deviation: a malformed SSTS_ALGORITHMS option is ignored** —
-  the session continues as if the option were absent (no SSTS), instead of
-  closing with KEY_VALUE_FORMATTING_ERROR. Impact: a peer that expects
-  rejection. Source: `moqctl_setup_apply_ssts` in
-  `src/app/moqt/ctl/moqctl.c`, `test_mcsw_ssts_malformed`.
 - **A mid-Group joiner of a set waits for the next Group** — the decision
   for a Group is made at its first arrival and is final. A member that
   subscribes after that has no verdict for the current Group, so its first

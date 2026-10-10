@@ -63,8 +63,7 @@ That is Type delta 0x24, Length 3, Request ID 7, Mode 0 (Hard) and Flags
 
 A value with trailing bytes, an unknown Mode, a Flags bit other than 0x80,
 or a Weight outside 1..10 is a decode violation. A malformed SSTS_ALGORITHMS
-option is ignored as if it were absent; see the deviation in Known
-Limitations.
+option closes the session with KEY_VALUE_FORMATTING_ERROR.
 
 0x32 is INVALID_JOINING_REQUEST_ID in draft-18/19, which is one reason the
 extension is restricted to draft-22. 0x33 UNSUPPORTED_EXTENSION is a
