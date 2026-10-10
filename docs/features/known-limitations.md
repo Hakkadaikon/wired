@@ -318,9 +318,9 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 
 ## WebTransport
 
-- **Control stream buffer truncates overflow** — the peer control stream's
-  reassembly buffer (`WIRED_SRVLOOP_CTRL_BUF_CAP`, 512) drops bytes past its
-  end. Source: `srvloop/priority_ctrl.c` (`ctrl_land`).
+- **Control stream backlog capped** — the peer control stream's unparsed
+  backlog must fit `WIRED_SRVLOOP_CTRL_BUF_CAP` (512); a larger frame or gap
+  closes with H3_EXCESSIVE_LOAD. Source: `srvloop/priority_ctrl.c`.
 - **Out-of-order gap ranges** — a WT stream tracks at most
   `WIRED_SRVLOOP_WT_MAX_RANGES` (8) disjoint gaps in one window; more are
   coalesced or dropped (not reachable at targeted sizes). Source:

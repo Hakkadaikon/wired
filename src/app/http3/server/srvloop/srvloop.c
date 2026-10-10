@@ -162,6 +162,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->wt_refused_n                   = 0;
   l->wt_refused_overflow            = 0;
   l->flow_control_violation         = 0;
+  l->ctrl_overflow                  = 0;
   l->ctrl_settings_len              = 0;
   pnspaces_recv_init(&l->ack_recv);
   ackpolicy_init(&l->app_ack_policy);
@@ -171,6 +172,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   wt_streams_reset(l);
   wt_uni_streams_reset(l);
   pending_priority_reset(l);
+  l->ctrl.base      = 0;
   l->ctrl.len       = 0;
   l->ctrl.parsed    = 0;
   l->ctrl.open      = 0;

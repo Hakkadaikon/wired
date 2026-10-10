@@ -196,10 +196,12 @@ typedef struct {
  * PRIORITY_UPDATE, ...) can be walked once fully buffered up to `parsed`.
  * Offset-indexed like wired_srvloop_stream_slot's req_buf: a frame spanning
  * more than one STREAM frame (curl splits SETTINGS from a later
- * PRIORITY_UPDATE) still lands contiguously.
- * ponytail: overflow past buf is truncated, same policy as req_buf. */
+ * PRIORITY_UPDATE) still lands contiguously. Walked frames are reclaimed
+ * (base moves past them), so only the unparsed backlog must fit; a chunk
+ * reaching past it latches wired_srvloop.ctrl_overflow. */
 typedef struct {
   u8  buf[WIRED_SRVLOOP_CTRL_BUF_CAP]; /**< offset-indexed control bytes */
+  u64 base;                            /**< post-type stream offset of buf[0] */
   usz len;       /**< highest offset+len written into buf */
   usz parsed;    /**< bytes already walked as complete HTTP/3 frames */
   u8  open;      /**< a 0x00-typed offset-0 uni frame claimed the stream */
@@ -861,6 +863,10 @@ typedef struct {
    * a connection error of type H3_FRAME_ERROR. dispatch.c only latches it;
    * the caller (srvrun.c) closes the connection and clears it. */
   int req_frame_error;
+  /** RFC 9114 6.2.1: 1 once the peer control stream's unparsed backlog no
+   * longer fit WIRED_SRVLOOP_CTRL_BUF_CAP (ctrl's doc). The caller
+   * (srvrun.c) closes with H3_EXCESSIVE_LOAD. */
+  int ctrl_overflow;
   /** RFC 9000 4.1: 1 once a request STREAM frame reached past its slot's
    * window (req_over) -- past the credit this server ever grants a request
    * stream, which never exceeds the window. The caller (srvrun.c) closes

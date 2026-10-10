@@ -334,6 +334,52 @@ static void test_srvloop_request_complete_after_reset_no_crash(void) {
   CHECK(l.streams[slot_b].req_len == 0);
 }
 
+/* RFC 9114 6.2.1 / RFC 9218 7.1: a long-lived control stream keeps
+ * carrying frames well past WIRED_SRVLOOP_CTRL_BUF_CAP in total -- parsed
+ * frames are reclaimed, so the last PRIORITY_UPDATE still applies. */
+static void test_srvloop_ctrl_stream_reclaims_parsed_bytes(void) {
+  wired_srvloop l;
+  u8            payload[64], frame[96];
+  usz           plen, flen, off;
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+  CHECK(wired_srvloop_slot_for(&l, 4) >= 0);
+  plen = priupdate_ctrl_payload(payload, sizeof payload, 4, 0, "u=5", 3);
+  flen = priupdate_stream_frame(
+      frame, sizeof frame, CTRL_STREAM_ID, 0, payload, plen, 0);
+  priupdate_dispatch(&l, frame, flen);
+  off = plen; /* the frames below carry no type byte */
+  while (off < 2 * WIRED_SRVLOOP_CTRL_BUF_CAP) {
+    const char* v = off + plen < 2 * WIRED_SRVLOOP_CTRL_BUF_CAP ? "u=5" : "u=1";
+    plen = priupdate_ctrl_payload(payload, sizeof payload, 4, 0, v, 3) - 1;
+    flen = priupdate_stream_frame(
+        frame, sizeof frame, CTRL_STREAM_ID, off, payload + 1, plen, 0);
+    priupdate_dispatch(&l, frame, flen);
+    off += plen;
+  }
+  CHECK(l.ctrl_overflow == 0);
+  CHECK(l.streams[wired_srvloop_slot_for(&l, 4)].priority.urgency == 1);
+}
+
+/* A control-stream backlog that cannot fit the buffer (one frame larger
+ * than it) is latched for the caller to close on, never silently dropped. */
+static void test_srvloop_ctrl_stream_overflow_latched(void) {
+  wired_srvloop l;
+  static u8     payload[WIRED_SRVLOOP_CTRL_BUF_CAP + 100];
+  static u8     frame[WIRED_SRVLOOP_CTRL_BUF_CAP + 200];
+  usz           flen;
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+  payload[0] = 0x00; /* control stream type */
+  payload[1] = 0x21; /* reserved frame type, declared length 1024 */
+  payload[2] = 0x44;
+  payload[3] = 0x00;
+  flen       = priupdate_stream_frame(
+      frame, sizeof frame, CTRL_STREAM_ID, 0, payload, sizeof payload, 0);
+  priupdate_dispatch(&l, frame, flen);
+  CHECK(l.ctrl_overflow == 1);
+}
+
 void test_srvloop_priupdate(void) {
   test_srvloop_priupdate_applies_to_open_stream();
   test_srvloop_priupdate_buffers_for_unopened_stream();
@@ -344,6 +390,8 @@ void test_srvloop_priupdate(void) {
   test_srvloop_ctrl_ignores_other_uni_stream_chunks();
   test_srvloop_ctrl_first_frame_not_settings_missing();
   test_srvloop_priority_of_open_stream();
+  test_srvloop_ctrl_stream_reclaims_parsed_bytes();
+  test_srvloop_ctrl_stream_overflow_latched();
   test_srvloop_priority_of_unopened_stream();
   test_srvloop_request_complete_after_reset_no_crash();
 }

@@ -4141,10 +4141,25 @@ static int srvrun_close_on_wt_signal_latched(
   return 1;
 }
 
-/* The two H3_FRAME_ERROR latches: the WT signal, a truncated request. */
+/* RFC 9114 6.2.1: the peer's control-stream backlog outgrew its buffer
+ * (wired_srvloop.ctrl_overflow) -- closing beats silently losing SETTINGS,
+ * GOAWAY or PRIORITY_UPDATE frames past it. */
+static int srvrun_close_on_ctrl_overflow(
+    const srvrun_cfg* cfg, srvrun_conn* c) {
+  static const u8 reason[] = "control stream backlog too large";
+  if (!c->l.ctrl_overflow) return 0;
+  c->l.ctrl_overflow = 0;
+  srvrun_send_app_close(
+      cfg, c, H3_EXCESSIVE_LOAD, wired_span_of(reason, sizeof reason - 1));
+  return 1;
+}
+
+/* The two H3_FRAME_ERROR latches (the WT signal, a truncated request), then
+ * the control-stream overflow. */
 static int srvrun_close_on_frame_error(const srvrun_cfg* cfg, srvrun_conn* c) {
   if (srvrun_close_on_wt_signal_latched(cfg, c)) return 1;
-  return srvrun_close_on_req_frame_error(cfg, c);
+  if (srvrun_close_on_req_frame_error(cfg, c)) return 1;
+  return srvrun_close_on_ctrl_overflow(cfg, c);
 }
 
 /* RFC 9000 4.6: a WT bidi refusal found the queue full -- the peer opened

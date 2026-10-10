@@ -18950,6 +18950,20 @@ static void test_srvrun_wt_window_overflow_closes_flow_control(void) {
   CHECK(is_app == 0);
 }
 
+/* A latched control-stream overflow closes with H3_EXCESSIVE_LOAD. */
+static void test_srvrun_ctrl_overflow_closes(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c      = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  int             is_app = 0;
+  c->l.ctrl_overflow     = 1;
+  CHECK(srvrun_close_on_step_violation(&cfg, c) == 1);
+  CHECK(sr_close_code(c, &is_app) == H3_EXCESSIVE_LOAD);
+  CHECK(is_app == 1);
+}
+
 /* ===================== WT session-close notification ===================== */
 
 static usz               g_wtclose_calls;
@@ -21941,6 +21955,7 @@ void test_srvrun(void) {
   test_srvrun_wt_reset_unrelated_stream_not_delivered();
   test_srvrun_wt_two_resets_one_step_both_delivered();
   test_srvrun_reset_queue_overflow_closes();
+  test_srvrun_ctrl_overflow_closes();
   test_srvrun_wt_window_overflow_closes_flow_control();
   test_srvrun_capsule_only_conn_regrows_max_data();
   test_srvrun_wt_refuse_overflow_closes();

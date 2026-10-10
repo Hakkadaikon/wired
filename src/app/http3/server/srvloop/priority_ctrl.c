@@ -63,14 +63,43 @@ static u64 ctrl_abs_off(const stream_frame* sf) {
  * called once ctrl_leading_type_is_control (for offset 0) or an established
  * control-stream frame (offset>0) has already confirmed this is the control
  * stream. Mirrors dispatch.c's own gather_one/bump_len shape for req_buf. */
-static void ctrl_land(wired_srvloop* l, const stream_frame* sf) {
-  usz skip = ctrl_skip_len(sf);
-  usz off  = (usz)ctrl_abs_off(sf);
-  if (off >= sizeof l->ctrl.buf) return;
-  bytes_put(
-      wired_mspan_of(l->ctrl.buf, sizeof l->ctrl.buf), &off,
-      wired_span_of(sf->data + skip, (usz)sf->length - skip));
+/* Trim the part of *d (at post-type offset *abs) already walked and
+ * reclaimed (below l->ctrl.base). 0 when nothing new remains. */
+static int ctrl_trim_stale(const wired_srvloop* l, u64* abs, wired_span* d) {
+  u64 drop = *abs < l->ctrl.base ? l->ctrl.base - *abs : 0;
+  if (drop >= d->n) return 0;
+  d->p += drop;
+  d->n -= (usz)drop;
+  *abs += drop;
+  return 1;
+}
+
+/* Write d at post-type offset abs into l->ctrl, raising the high-water
+ * mark; a chunk past the buffer latches ctrl_overflow (RFC 9114 6.2.1:
+ * never a silent truncation). */
+static void ctrl_store(wired_srvloop* l, u64 abs, wired_span d) {
+  usz off = (usz)(abs - l->ctrl.base);
+  if (!bytes_put(wired_mspan_of(l->ctrl.buf, sizeof l->ctrl.buf), &off, d)) {
+    l->ctrl_overflow = 1;
+    return;
+  }
   if (off > l->ctrl.len) l->ctrl.len = off;
+}
+
+static void ctrl_land(wired_srvloop* l, const stream_frame* sf) {
+  usz        skip = ctrl_skip_len(sf);
+  u64        abs  = ctrl_abs_off(sf);
+  wired_span d    = wired_span_of(sf->data + skip, (usz)sf->length - skip);
+  if (ctrl_trim_stale(l, &abs, &d)) ctrl_store(l, abs, d);
+}
+
+/* Reclaim the walked prefix: slide the unparsed backlog to buf[0]. */
+static void ctrl_compact(wired_srvloop* l) {
+  usz p = l->ctrl.parsed;
+  bytes_move_down(l->ctrl.buf, l->ctrl.buf + p, l->ctrl.len - p);
+  l->ctrl.base += p;
+  l->ctrl.len -= p;
+  l->ctrl.parsed = 0;
 }
 
 /* RFC 9218 7.1: apply f (already type-matched to PRIORITY_UPDATE) to its
@@ -200,6 +229,7 @@ int wired_srvloop_ctrl_gather(wired_srvloop* l, u64 type, wired_span frame) {
   if (!ctrl_frame_relevant(l, &sf)) return 0;
   ctrl_land(l, &sf);
   ctrl_walk(l);
+  ctrl_compact(l);
   return 1;
 }
 
