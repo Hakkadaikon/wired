@@ -178,14 +178,6 @@ draft-22 sessions only. None of it is part of draft-22. Source shorthand:
   byte vectors, and the hub behaviour is tested in-process. No moqtail (or
   other third-party) peer has been run against it. Source:
   `ledger:draft-moq-transport-22.md` MQ22-X13.
-- **Two or more active sets pin backpressure to the lowest tier** —
-  algorithm 0xff01 sums stream depth over all of a session's active sets.
-  With one open stream each, two sets already read as depth 2
-  (`MOQSSTS_DOWNSHIFT_DEPTH`), so every set stays on its lowest member.
-  This is inherited from moqtail. Impact: a moqt_chat viewer watching two
-  or more sharers in Auto gets only the lo variants. Source:
-  `src/app/moqt/ssts/moqssts.h` (`moqssts_bp_decide` doc),
-  `test_moqssts_two_active_sets_are_pinned_to_the_lowest_tier`.
 - **Backpressure observes once per Group of the pacing set** — moqtail also
   observes on a 100 ms tick. Here the session's tier machine moves only
   when its pacing set (the lowest-slot active backpressure set) decides a
