@@ -2046,6 +2046,23 @@ static void test_srvloop_wt_table_full_refuses_stream(void) {
   CHECK(f.l.got_request == 0);
 }
 
+/* RFC 9000 4.6: the refusal queue holds as many streams as the bidi limit
+ * ever allows outstanding, so one more in a step means the peer opened past
+ * MAX_STREAMS -- latched for a STREAM_LIMIT_ERROR close, never a silent drop
+ * that would leave the stream half-open. */
+static void test_srvloop_wt_refuse_overflow_latched(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    wired_srvloop_wt_refuse(&f.l, 4 * i);
+  CHECK(f.l.wt_refused_overflow == 0);
+  wired_srvloop_wt_refuse(&f.l, 4 * WIRED_SRVLOOP_MAX_STREAMS);
+  CHECK(f.l.wt_refused_n == WIRED_SRVLOOP_MAX_STREAMS);
+  CHECK(f.l.wt_refused_overflow == 1);
+}
+
 /* A retransmission of a refused stream's signal frame is not refused (nor
  * credited back) a second time. */
 static void test_srvloop_wt_refused_stream_retransmit_not_refused_twice(void) {
@@ -4825,6 +4842,7 @@ void test_srvloop(void) {
   test_srvloop_wt_signal_only_frame_then_data();
   test_srvloop_wt_stream_without_session_no_crash();
   test_srvloop_wt_table_full_refuses_stream();
+  test_srvloop_wt_refuse_overflow_latched();
   test_srvloop_wt_refused_stream_retransmit_not_refused_twice();
   test_srvloop_wt_released_stream_retransmit_not_refused();
   test_srvloop_wt_live_stream_retransmit_keeps_slot();

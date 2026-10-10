@@ -160,6 +160,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->req_frame_error                = 0;
   l->req_body_released              = 0;
   l->wt_refused_n                   = 0;
+  l->wt_refused_overflow            = 0;
   l->ctrl_settings_len              = 0;
   pnspaces_recv_init(&l->ack_recv);
   ackpolicy_init(&l->app_ack_policy);
@@ -547,11 +548,11 @@ int wired_srvloop_wt_slot_claim_local(wired_srvloop* l, u64 stream_id) {
 void wired_srvloop_wt_refuse(wired_srvloop* l, u64 stream_id) {
   if (wt_slot_is_stale(l, stream_id)) return;
   wt_closed_mark(l, stream_id);
-  /* ponytail: a full queue drops the refusal silently (the stream stays
-   * half-open and its credit is not returned); a connection would need 40
-   * unslotted streams in one step. Saturate and return the credit if seen. */
+  /* RFC 9000 4.6: full only for a peer past MAX_STREAMS (wt_refused) */
   if (l->wt_refused_n < WIRED_SRVLOOP_MAX_STREAMS)
     l->wt_refused[l->wt_refused_n++] = stream_id;
+  else
+    l->wt_refused_overflow = 1;
 }
 
 void wired_srvloop_wt_slot_release(wired_srvloop* l, u64 stream_id) {

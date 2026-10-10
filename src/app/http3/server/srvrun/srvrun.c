@@ -4121,16 +4121,34 @@ static int srvrun_close_on_frame_error(const srvrun_cfg* cfg, srvrun_conn* c) {
   return srvrun_close_on_req_frame_error(cfg, c);
 }
 
-/* The second half of srvrun_close_on_step_violation: the H3_FRAME_ERROR
- * latches, then the AEAD integrity limit (RFC 9001 6.6). */
-static int srvrun_close_on_step_violation_rest(
+/* RFC 9000 4.6: a WT bidi refusal found the queue full -- the peer opened
+ * past the MAX_STREAMS this server sent (wired_srvloop.wt_refused). */
+static int srvrun_close_on_refused_overflow(
     const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (srvrun_close_on_frame_error(cfg, c)) return 1;
+  static const u8 reason[] = "stream limit exceeded";
+  if (!c->l.wt_refused_overflow) return 0;
+  c->l.wt_refused_overflow = 0;
+  srvrun_send_transport_close(
+      cfg, c, ERR_STREAM_LIMIT_ERROR, wired_span_of(reason, sizeof reason - 1));
+  return 1;
+}
+
+/* The stream-limit overflow, then the AEAD integrity limit (RFC 9001 6.6). */
+static int srvrun_close_on_limits(const srvrun_cfg* cfg, srvrun_conn* c) {
+  if (srvrun_close_on_refused_overflow(cfg, c)) return 1;
   if (srvrun_aead_limit_reached(c)) {
     srvrun_close_on_aead_limit(cfg, c);
     return 1;
   }
   return 0;
+}
+
+/* The second half of srvrun_close_on_step_violation: the H3_FRAME_ERROR
+ * latches, then the limits (srvrun_close_on_limits). */
+static int srvrun_close_on_step_violation_rest(
+    const srvrun_cfg* cfg, srvrun_conn* c) {
+  if (srvrun_close_on_frame_error(cfg, c)) return 1;
+  return srvrun_close_on_limits(cfg, c);
 }
 
 /* RFC 9114 10.5 rapid reset: start a new fixed window (clearing the

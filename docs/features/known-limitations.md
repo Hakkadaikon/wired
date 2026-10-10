@@ -381,8 +381,6 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   and a request filling exactly one window with its FIN in a later empty frame
   is answered as "window stuck". Control stream buffer
   `WIRED_SRVLOOP_CTRL_BUF_CAP` 512. Source: `srvloop.h:141`, `dispatch.c:1340`.
-- **Refusal queue drops silently when full** — a full refusal queue drops the
-  refusal; the stream stays open. Source: `srvloop/srvloop.c:553`.
 - **Abort retransmit table is fixed-size** — `SRVRUN_RST_RETX` keeps one
   abort per trackable stream (92); more than that unACKed within one RTT
   would send the excess once without retransmission (RFC 9000 13.3).

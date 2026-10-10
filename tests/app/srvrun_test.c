@@ -18841,6 +18841,20 @@ static void test_srvrun_peer_stop_on_connect_stream_resets(void) {
   CHECK(sr_kept_reset_code(&conns[0], 4) == H3_REQUEST_CANCELLED);
 }
 
+/* A latched refusal-queue overflow (the peer opened past MAX_STREAMS)
+ * closes the connection with STREAM_LIMIT_ERROR (RFC 9000 4.6). */
+static void test_srvrun_wt_refuse_overflow_closes(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c        = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  c->l.wt_refused_overflow = 1;
+  CHECK(srvrun_close_on_step_violation(&cfg, c) == 1);
+  CHECK(c->closing == 1);
+  CHECK(c->l.wt_refused_overflow == 0);
+}
+
 /* ===================== WT session-close notification ===================== */
 
 static usz               g_wtclose_calls;
@@ -21829,6 +21843,7 @@ void test_srvrun(void) {
   test_srvrun_wt_reset_unrelated_stream_not_delivered();
   test_srvrun_wt_two_resets_one_step_both_delivered();
   test_srvrun_reset_queue_overflow_closes();
+  test_srvrun_wt_refuse_overflow_closes();
   test_srvrun_peer_stop_resets_response();
   test_srvrun_peer_reset_leaves_response();
   test_srvrun_peer_stop_on_connect_stream_resets();

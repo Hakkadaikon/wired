@@ -874,6 +874,10 @@ typedef struct {
   u64 wt_refused[WIRED_SRVLOOP_MAX_STREAMS];
   /** Count of queued ids in wt_refused. */
   usz wt_refused_n;
+  /** RFC 9000 4.6: 1 once a refusal found wt_refused full -- only a peer
+   * opening past MAX_STREAMS gets there (see wt_refused). The caller
+   * (srvrun.c) closes with STREAM_LIMIT_ERROR and clears it. */
+  int wt_refused_overflow;
   /** RFC 9114 6.2.1: bytes of control-stream type + SETTINGS actually sent
    * (respond.c's build_settings_frame), where a later control-stream append
    * such as GOAWAY must continue. Recorded, not recomputed: SETTINGS carries
