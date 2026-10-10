@@ -15,7 +15,10 @@
 /** Dense version ids: the table's row index, which is also the order of
  * the server's subprotocol list (the client's offer order decides). */
 #define MOQVER_D22 0
+/** draft-ietf-moq-transport-19 ("moqt-19"); also the row used when no
+ * subprotocol was negotiated. */
 #define MOQVER_D19 1
+/** draft-ietf-moq-transport-18 ("moqt-18"). */
 #define MOQVER_D18 2
 /** Number of supported drafts (rows in the table). */
 #define MOQVER_COUNT 3

@@ -37,7 +37,9 @@
  * an unknown range ending at a whole group names this Object. */
 #define MOQCACHE_OBJ_ID_MAX 0x3FFFFFFFFFFFFFFFULL
 
+/** A FETCH object cache over one caller-owned arena. */
 typedef struct {
+  /** Caller-provided storage; must outlive the cache. Not owned. */
   u8* arena;
   usz cap;  /**< arena bytes: the budget */
   usz used; /**< bytes of records held, from arena[0] */
@@ -48,9 +50,14 @@ typedef struct {
  * Unknown Range whose last Location is loc. next is the Location after
  * the item. */
 typedef struct {
-  int        unknown;
+  /** 1 for an End of Unknown Range, 0 for a cached Object. */
+  int unknown;
+  /** The Object's Location, or the unknown range's last Location. */
   moqctl_loc loc;
+  /** Object payload (view into the arena, valid until the next
+   * append/release); empty for an unknown range. */
   wired_span payload;
+  /** Location right after this item: where the next lookup starts. */
   moqctl_loc next;
 } moqcache_item;
 

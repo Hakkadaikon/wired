@@ -31,16 +31,22 @@
 /** One member: a subscription of the session, named by the Track Alias
  * the hub gave it on that session (unique per track, draft-22 3.1.3). */
 typedef struct {
+  /** Track Alias of the member subscription on this session. */
   u64 alias;
+  /** Throughput (kbit/s) the member's encoding needs to be eligible,
+   * from SWITCHING_SET_ASSIGNMENT. */
   u64 threshold_kbps;
 } moqtss_member;
 
 /** The final decision for one group of one set: the alias forwarded
  * (MOQTSS_PICK_NONE: nothing). Never recomputed while the entry lives. */
 typedef struct {
+  /** Group ID (the set's own numbering) this decision is for. */
   u64 group;
+  /** Track Alias forwarded for the group, or MOQTSS_PICK_NONE. */
   u64 pick;
-  u8  used;
+  /** 1 while the ring entry holds a decision; 0 is a free slot. */
+  u8 used;
 } moqtss_dec;
 
 /** One switching set (moqtail switching_set.rs). Set properties are
@@ -48,18 +54,28 @@ typedef struct {
  * numbers are the set's own (each publisher counts its groups), so each
  * set keeps its own decision ring and largest group. */
 typedef struct {
+  /** Switching set ID chosen by the subscriber in the assignment. */
   u64 set_id;
+  /** Selection algorithm (MOQCTL_SSTS_ALG_*) the set runs under. */
   u64 algorithm_id;
+  /** Share inside the rank tier, 1..10 (last assignment wins). */
   u64 weight;
+  /** Member count at which the set becomes active; 0 never activates. */
   u64 activate;
   /** Largest group decided for this set, valid when has_largest. */
-  u64           largest;
-  u8            has_largest;
-  u8            rank;
-  u8            n;
-  u8            in_use;
+  u64 largest;
+  /** 1 once largest holds a decided group. */
+  u8 has_largest;
+  /** Strict priority tier: rank 0 is served first. */
+  u8 rank;
+  /** Members in use: m[0..n). */
+  u8 n;
+  /** 1 while this slot holds a set; cleared when its last member leaves. */
+  u8 in_use;
+  /** Members, sorted ascending by threshold_kbps. */
   moqtss_member m[MOQSSTS_MAX_MEMBERS];
-  moqtss_dec    dec[WIRED_MOQTRUN_SSTS_RING];
+  /** Ring of recent per-group decisions (stale entries pruned). */
+  moqtss_dec dec[WIRED_MOQTRUN_SSTS_RING];
 } moqtss_set;
 
 /** One subscriber session's SSTS state (wired_moqtrun_peer.ssts). */
@@ -75,6 +91,7 @@ typedef struct {
   u64 timeouts;
   /** Backpressure tier state (one tier shared by the session's sets). */
   moqssts_bp bp;
+  /** Switching-set slots; a slot is live while its in_use is 1. */
   moqtss_set sets[WIRED_MOQTRUN_SSTS_SETS];
 } moqtss_sess;
 
