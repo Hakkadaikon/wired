@@ -682,8 +682,9 @@ typedef struct {
    * driving the loop (srvrun.c's srvrun_on_step) checks it after the step and
    * closes the connection. */
   int datagram_violation;
-  /** RFC 9000 19.4/19.5 (draft-ietf-webtrans-http3-15 SS4.4): the client bidi
-   * stream id a FIN, RESET_STREAM, or STOP_SENDING closed THIS step, valid
+  /** RFC 9000 19.4/19.8 (draft-ietf-webtrans-http3-15 SS4.4): the client bidi
+   * stream id a FIN or RESET_STREAM closed THIS step (a STOP_SENDING is
+   * queued in peer_resets instead -- it ends OUR half, not the peer's), valid
    * only when closed_stream_seen is set. Mirrors peer_closed's shape:
    * dispatch.c only records it, the caller (srvrun.c) decides what a closed
    * id means for whatever session it may belong to (e.g. a WebTransport

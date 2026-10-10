@@ -390,13 +390,11 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 - **Lost RESET_STREAM/STOP_SENDING may not be retransmitted** — `srvrun_rst_keep`: a full
   table or oversize payload is sent once but never retransmitted
   (RFC 9000 13.3). Source: `srvrun.c:1944`.
-- **Peer STOP_SENDING answered with FIN, not RESET_STREAM** — when the peer sends STOP_SENDING on a server response stream, srvrun
-  answers with FIN rather than RESET_STREAM, because dispatch latches a
-  stream-close without distinguishing FIN, RESET_STREAM and STOP_SENDING
-  (unverified end-to-end; from the hand-off brief). Impact: a client that sent
-  STOP_SENDING sees a clean end instead of an error code. Source:
-  `src/app/http3/server/srvloop/dispatch.c:929` (`is_close_shaped`),
-  `srvrun.c:3352`.
+- **STOP_SENDING before the response starts is not remembered** — a peer
+  STOP_SENDING is answered with RESET_STREAM (RFC 9000 3.5) only on a send
+  part that already exists (response slot, WT send slot, CONNECT stream); one
+  arriving while the request is still being read leaves the later response
+  to run normally. Source: `srvrun.c` (`srvrun_answer_peer_stops`).
 - **Graceful shutdown is tick-bounded** — GOAWAY then at most
   `SRVRUN_DRAIN_TICKS` (25) x 200 ms (about 5 s) before close; a SIGTERM before
   the handler is installed takes the default action (no GOAWAY). Source:

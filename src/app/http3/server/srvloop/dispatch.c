@@ -821,20 +821,6 @@ static int reset_stream_id(u64 type, wired_span frame, u64* stream_id_out) {
   return 1;
 }
 
-/* RFC 9000 19.5: extract the stream id STOP_SENDING (0x05) named, 0 if frame
- * is not a STOP_SENDING or fails to decode. STOP_SENDING is the peer telling
- * US to stop sending on stream_id — recorded the same as a RESET_STREAM
- * closing it, since either end of a bidi stream that will never carry more
- * data again is the observable "this stream is done" signal this loop
- * tracks. */
-static int stop_sending_id(u64 type, wired_span frame, u64* stream_id_out) {
-  stop_sending_frame f;
-  if (frame_classify(type) != FK_STOP_SENDING) return 0;
-  if (stop_sending_decode(frame.p, frame.n, &f) == 0) return 0;
-  *stream_id_out = f.stream_id;
-  return 1;
-}
-
 /* RFC 9000 19.4: 1 if frame is a RESET_STREAM, its stream_id/error_code
  * decoded into *out. Split out of gather_one_wt_reset to keep its own branch
  * count at the CCN gate. */
@@ -888,17 +874,17 @@ static int stream_fin_id(u64 type, wired_span frame, u64* stream_id_out) {
   return 1;
 }
 
-/* RFC 9000 19.4/19.5/19.8: the stream id `frame` (of `type`) closes, via
- * whichever of the three close-shaped decoders recognizes it; 0 if frame is
- * none of them. Split from gather_one_stream_close to keep its own branch
- * count at the CCN gate. */
+/* RFC 9000 19.4/19.8: the stream id `frame` (of `type`) closes -- the peer
+ * ending its own half with RESET_STREAM or FIN; 0 otherwise. STOP_SENDING
+ * is not one: it asks this server to reset its half (gather_one_wt_reset
+ * queues it, srvrun answers RFC 9000 3.5). Split from gather_one_stream_close
+ * to keep its own branch count at the CCN gate. */
 static int closed_frame_id(u64 type, wired_span frame, u64* stream_id_out) {
   if (reset_stream_id(type, frame, stream_id_out)) return 1;
-  if (stop_sending_id(type, frame, stream_id_out)) return 1;
   return stream_fin_id(type, frame, stream_id_out);
 }
 
-/* RFC 9000 19.4/19.5/19.8: if the walked frame at `frame` closes a stream
+/* RFC 9000 19.4/19.8: if the walked frame at `frame` closes a stream
  * (closed_frame_id), latch its id into l->closed_stream_id — a peer ending
  * its side of a bidi stream (e.g. the CONNECT stream of a WebTransport
  * session, draft-ietf-webtrans-http3-15 SS4.4) independent of the rest of the

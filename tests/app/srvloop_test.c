@@ -4719,7 +4719,10 @@ static void test_srvloop_reset_stream_count_exposed_per_window(void) {
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.peer_reset_count == 3);
   CHECK(f.l.closed_stream_seen == 1); /* the old latch still works... */
-  CHECK(f.l.closed_stream_id == 8);   /* ...and still keeps only the last */
+  /* ...keeps only the last close, and a STOP_SENDING is not one: it asks
+   * this server to stop sending (answered from peer_resets), it does not
+   * end the peer's half the way a RESET_STREAM or FIN does. */
+  CHECK(f.l.closed_stream_id == 12);
   slen = client_seal_onertt_pn(&f, 4, payload, off, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(

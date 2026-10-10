@@ -18748,6 +18748,80 @@ static void test_srvrun_reset_queue_overflow_closes(void) {
   CHECK(srvrun_reset_flooded(&cfg, c));
 }
 
+/* The final size of the kept RESET_STREAM naming stream id, ~0 if none. */
+static u64 sr_kept_reset_final(const srvrun_conn* c, u64 id) {
+  reset_stream_frame rs;
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++)
+    if (c->rst[i].pln &&
+        reset_stream_decode(c->rst[i].pl, c->rst[i].pln, &rs) &&
+        rs.stream_id == id)
+      return rs.final_size;
+  return ~0ULL;
+}
+
+/* RFC 9000 3.5: a peer STOP_SENDING on a response still being sent is
+ * answered with RESET_STREAM carrying the peer's own error code and the
+ * bytes already sent as Final Size (RFC 9000 4.5) -- not by running the
+ * response on to its FIN -- and the response slot is freed. */
+static void test_srvrun_peer_stop_resets_response(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c          = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  srvrun_resp*    r          = srvrun_resp_claim(c, 0);
+  r->sess.stream_base_offset = 100;
+  r->sess.q.cur              = 10;
+  c->l.peer_resets[0] = (wired_srvloop_reset){0, H3_REQUEST_CANCELLED, 1};
+  c->l.peer_reset_n   = 1;
+  srvrun_answer_peer_stops(&ctx, c);
+  CHECK(sr_kept_reset_code(c, 0) == H3_REQUEST_CANCELLED);
+  CHECK(sr_kept_reset_final(c, 0) == 110);
+  CHECK(srvrun_resp_find(c, 0) == 0);
+}
+
+/* A peer RESET_STREAM (it stopped SENDING, not reading) leaves the response
+ * running: nothing to answer, RFC 9000 3.5 only covers STOP_SENDING. */
+static void test_srvrun_peer_reset_leaves_response(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c   = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  c->l.peer_resets[0] = (wired_srvloop_reset){0, H3_REQUEST_CANCELLED, 0};
+  c->l.peer_reset_n   = 1;
+  srvrun_resp_claim(c, 0);
+  srvrun_answer_peer_stops(&ctx, c);
+  CHECK(sr_kept_reset_code(c, 0) == ~0ULL);
+  CHECK(srvrun_resp_find(c, 0) != 0);
+}
+
+/* RFC 9000 3.5 on a WT session's CONNECT stream: STOP_SENDING is answered
+ * with RESET_STREAM carrying the peer's code (not a FIN), and the session
+ * ends with it (draft-ietf-webtrans-http3-16 6). */
+static void test_srvrun_peer_stop_on_connect_stream_resets(void) {
+  struct lp_fix f;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_conn*  conns = sr_test_conns();
+  wired_obuf    ob;
+  u8            obuf[1024];
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_state    st  = {table, conns};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  ob                  = (wired_obuf){obuf, sizeof obuf, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  srvrun_start_resp(&ctx, 0);
+  conns[0].l.peer_resets[0] = (wired_srvloop_reset){4, H3_REQUEST_CANCELLED, 1};
+  conns[0].l.peer_reset_n   = 1;
+  srvrun_answer_peer_stops(&ctx, &conns[0]);
+  CHECK(conns[0].wt.state == WIRED_WT_CLOSED);
+  CHECK(sr_kept_reset_code(&conns[0], 4) == H3_REQUEST_CANCELLED);
+}
+
 /* ===================== WT session-close notification ===================== */
 
 static usz               g_wtclose_calls;
@@ -21736,6 +21810,9 @@ void test_srvrun(void) {
   test_srvrun_wt_reset_unrelated_stream_not_delivered();
   test_srvrun_wt_two_resets_one_step_both_delivered();
   test_srvrun_reset_queue_overflow_closes();
+  test_srvrun_peer_stop_resets_response();
+  test_srvrun_peer_reset_leaves_response();
+  test_srvrun_peer_stop_on_connect_stream_resets();
   test_srvrun_no_stream_close_leaves_wt_session();
   test_srvrun_idle_sweep_closes_wt_session();
   test_srvrun_idle_sweep_without_wt_unaffected();

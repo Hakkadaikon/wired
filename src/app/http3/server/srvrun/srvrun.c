@@ -4253,6 +4253,9 @@ static void srvrun_raw_start(const srvrun_cfg* cfg, srvrun_conn* c) {
   srvrun_raw_notify(cfg, c);
 }
 
+static void srvrun_answer_peer_stops(
+    const srvrun_step_ctx* ctx, srvrun_conn* c);
+
 /* A later datagram on a live slot: one real-wire step, send any sealed
  * reply — unless this step's own gathering found a connection-ending
  * violation (RFC 9221 3 DATAGRAM, or draft-ietf-webtrans-http3-15 4.3's
@@ -4288,6 +4291,7 @@ static void srvrun_on_step_live(
   srvrun_drain_rx_datagrams(ctx->cfg, c);
   srvrun_wt_rx_capsules(ctx->cfg, c);
   srvrun_close_wt_on_stream_close(ctx->cfg, c);
+  srvrun_answer_peer_stops(ctx, c);
   srvrun_deliver_wt_reset_if_owned(ctx->cfg, c);
   srvrun_flush_wt_drain(c);
   srvrun_drain_wt_close_pending(ctx->cfg, c);
@@ -8711,6 +8715,75 @@ static void srvrun_reap_resps(
   usz freed = 0;
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
     freed += srvrun_resp_reap(ctx, c, slot, &c->resp[i]);
+  srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
+}
+
+/* RFC 9000 3.5: answer a peer STOP_SENDING on response r with RESET_STREAM
+ * carrying the peer's own error code, Final Size the bytes already sent
+ * (RFC 9000 4.5), and free r -- no STREAM frame follows a RESET_STREAM
+ * (3.1). Returns 1: r's stream credit is owed back like a reaped one. */
+static usz srvrun_resp_stop(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_resp* r, u64 code) {
+  u8                 pl[32];
+  reset_stream_frame rs = {
+      r->stream_id, code, r->sess.stream_base_offset + r->sess.q.cur};
+  srvrun_send_kept(
+      ctx->cfg, c, pl, reset_stream_encode(pl, sizeof pl, &rs),
+      "response RESET sent\n");
+  srvrun_resp_release_stream(c, r->stream_id);
+  srvrun_resp_release_bigbuf(ctx->cfg->env, r);
+  r->in_use = 0;
+  return 1;
+}
+
+/* RFC 9000 3.5 on a WT stream this server sends on: RESET_STREAM with the
+ * peer's code at the bytes already sent, and stop sending. */
+static void srvrun_wtsend_stop(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 code) {
+  u8         pl[32];
+  wired_obuf plb = obuf_of(pl, sizeof pl);
+  if (!srvrun_wtsend_find(c, stream_id)) return;
+  srvrun_send_kept(
+      cfg, c, pl, srvrun_wt_abort_reset(c, stream_id, code, &plb, 0),
+      "WT stream RESET sent\n");
+  srvrun_wtsend_release(c, stream_id);
+}
+
+/* RFC 9000 3.5 on session slot sidx's CONNECT stream: reset it with the
+ * peer's code (not a FIN) -- the stream's end ends the session too
+ * (draft-ietf-webtrans-http3-16 6). */
+static void srvrun_connect_stop(
+    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, u64 code) {
+  srvrun_log_close(
+      "wt session closed by peer (STOP_SENDING)", wired_span_of(0, 0));
+  srvrun_reset_connect_stream_code(cfg, c, sidx, code);
+  srvrun_close_wt_session_slot(cfg, c, sidx, WTERR_SESSION_GONE);
+}
+
+/* Answer one peer STOP_SENDING on whichever send part its stream id names.
+ * Returns 1 when a response slot was freed. */
+static usz srvrun_answer_peer_stop(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, const wired_srvloop_reset* e) {
+  int          sidx = srvrun_wt_slot_by_connect_id(c, e->stream_id);
+  srvrun_resp* r;
+  if (sidx >= 0) {
+    srvrun_connect_stop(ctx->cfg, c, sidx, e->error_code);
+    return 0;
+  }
+  srvrun_wtsend_stop(ctx->cfg, c, e->stream_id, e->error_code);
+  r = srvrun_resp_find(c, e->stream_id);
+  return r ? srvrun_resp_stop(ctx, c, r, e->error_code) : 0;
+}
+
+/* RFC 9000 3.5: "An endpoint that receives a STOP_SENDING frame MUST send
+ * a RESET_STREAM frame if the stream is in the Ready or Send state" -- every
+ * STOP_SENDING queued this step (c->l.peer_resets) is answered. */
+static void srvrun_answer_peer_stops(
+    const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  usz n = srvrun_peer_resets_stored(c), freed = 0;
+  for (usz i = 0; i < n; i++)
+    if (c->l.peer_resets[i].is_stop)
+      freed += srvrun_answer_peer_stop(ctx, c, &c->l.peer_resets[i]);
   srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
 }
 
