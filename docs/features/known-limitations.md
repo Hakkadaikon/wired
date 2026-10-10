@@ -675,7 +675,7 @@ Fixed-size tables and buffers (BSS-sized; raise the constant and rebuild).
   MQ22-070a, MQ22-083a, MQ22-108b, MQ22-137, MQ22-137a, 8446-053. Source:
   `docs/features/README.md`, individual ledgers.
 - **BoringSSL oracle** — no failures; skipped: 179 ECDSA P-224/P-521/secp224k1,
-  15 HMAC MD5/SHA1/SHA224/SHA512, 7 AES-GCM non-96-bit nonces, the
+  12 HMAC MD5/SHA1/SHA224, 7 AES-GCM non-96-bit nonces, the
   1,000,000-iteration X25519 case. Source: `docs/security/boringssl-vectors.md`.
 - **Self-loopback is not interop** — features touching the wire stay `[~]`
   until pinned to an RFC vector or a real-peer trace.
