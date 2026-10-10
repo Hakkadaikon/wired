@@ -26,8 +26,8 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 1863/1870 requirements demonstrated (99.6%) — 1610 directly tested,
-253 indirect, 7 untested.**
+**Total: 1865/1872 requirements demonstrated (99.6%) — 1613 directly tested,
+252 indirect, 7 untested.**
 
 ## QUIC core
 
@@ -56,7 +56,7 @@ independent implementation) are tracked separately: see
 |---|---|---|---|---|
 | [RFC 8446 — TLS 1.3](rfc8446.md) | 104/105 | 85 | 19 | 1 |
 | [RFC 5280 — X.509 / PKI](rfc5280.md) | 44/44 | 35 | 9 | 0 |
-| [RFC 5480 — EC public keys in certificates](rfc5480.md) | 20/20 | 17 | 3 | 0 |
+| [RFC 5480 — EC public keys in certificates](rfc5480.md) | 21/21 | 18 | 3 | 0 |
 | [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 10/10 | 8 | 2 | 0 |
 | [RFC 8410 — Ed25519/X25519 algorithm identifiers](rfc8410.md) | 16/16 | 14 | 2 | 0 |
 | [RFC 6066 — TLS extensions (SNI)](rfc6066.md) | 13/13 | 10 | 3 | 0 |
@@ -76,7 +76,7 @@ independent implementation) are tracked separately: see
 | [RFC 6090 — EC arithmetic](rfc6090.md) | 22/22 | 20 | 2 | 0 |
 | [FIPS 197 — AES](fips197.md) | 14/14 | 9 | 5 | 0 |
 | [SP 800-38D — GCM](sp800-38d.md) | 20/20 | 14 | 6 | 0 |
-| [FIPS 186-4 — ECDSA / DSS](fips186-4.md) | 20/20 | 17 | 3 | 0 |
+| [FIPS 186-4 — ECDSA / DSS](fips186-4.md) | 21/21 | 19 | 2 | 0 |
 | [FIPS 180-4 — SHA-2](fips180-4.md) | 25/25 | 23 | 2 | 0 |
 | [FIPS 198-1 — HMAC](fips198-1.md) | 8/8 | 8 | 0 | 0 |
 

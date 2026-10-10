@@ -8,7 +8,7 @@ The list is the authoritative statement of those gaps for security review.
 | Feature absent | Ledger rows | Consequence for a deployment |
 |---|---|---|
 | Encrypted Client Hello (ECH, draft-ietf-tls-esni) | V-0238, V-0240 | the class cannot occur; adding the feature requires re-triaging these rows |
-| ECDSA P-521 signature scheme (only P-256 / P-384, RSA-PSS, Ed25519) | V-0247 | certificates signed with P-521 cannot be verified |
+| ECDSA P-521 TLS CertificateVerify scheme (only P-256, RSA-PSS, Ed25519; P-521 is verified in certificate chains only, since 2026-10-10) | V-0247 | a peer cannot sign CertificateVerify with `ecdsa_secp521r1_sha512`; P-521-signed certificate chains do verify |
 | Client certificate authentication (CertificateRequest / mutual TLS) | V-0268, V-0330, V-0377, V-0383, V-0378, V-0386 | peer authentication is server-only; client identity must come from the application layer |
 | Finite-field DHE groups (only X25519 / P-256 ECDHE) | V-0270 | the class cannot occur; adding the feature requires re-triaging these rows |
 | RSA-PSK / RSA key transport (RSA is verify-only) | V-0271, V-0274, V-0660, V-0696, V-0711, V-0739, V-0741 | the class cannot occur; adding the feature requires re-triaging these rows |

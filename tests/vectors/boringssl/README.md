@@ -42,7 +42,7 @@ case as `<file>:<first>-<last>`.
 
 | What | Reason |
 |---|---|
-| ECDSA P-224, P-521, secp224k1 cases in `ecdsa_verify_tests.txt` | curve not implemented in wired (only P-256 and P-384 verify) |
+| ECDSA P-224, secp224k1 cases in `ecdsa_verify_tests.txt` | curve not implemented in wired (only P-256, P-384 and P-521 verify) |
 | HMAC-MD5, HMAC-SHA1, HMAC-SHA224 in `hmac_tests.txt` | hash not implemented in wired |
 | HKDF | at the pinned commit `crypto/evp/test/evp_tests.txt` no longer carries HKDF vectors (they moved into `crypto/fipsmodule/hkdf/hkdf_test.cc`, C++ source, not a FileTest file); no allowed file has them |
 | SHA-2 (plain digests) | likewise moved out of `evp_tests.txt` into `crypto/digest/digest_test.cc`; SHA-256, SHA-384 and SHA-512 are still exercised through the HMAC vectors |
@@ -53,9 +53,9 @@ case as `<file>:<first>-<last>`.
 Impact of the skipped algorithms on QUIC / WebTransport / MoQT: none of them is
 needed by a TLS 1.3 handshake (cipher suites use SHA-256/SHA-384 for HKDF;
 MD5 and SHA-1 signatures are forbidden in TLS 1.3 handshakes; P-224 and
-secp224k1 are not TLS 1.3 groups or signature schemes; P-521 is optional).
-Certificate-chain verification is the exception: a chain signed with P-521
-or legacy RSA-SHA-1 cannot be verified by wired.
+secp224k1 are not TLS 1.3 groups or signature schemes).
+Certificate-chain verification is the exception: a chain signed with legacy
+RSA-SHA-1 cannot be verified by wired.
 
 Per-primitive counts and any remaining failures are summarized in
 `docs/security/boringssl-vectors.md`.

@@ -18,7 +18,8 @@ and skip reasons: `tests/vectors/boringssl/README.md`. Tests:
 | Ed25519 | 514 | 514 | 0 | 0 | keygen from seed, deterministic sign, verify |
 | ECDSA P-256 | 85 | 85 | 0 | 0 | verify; `Invalid` cases rejected |
 | ECDSA P-384 | 85 | 85 | 0 | 0 | verify; `Invalid` cases rejected |
-| ECDSA P-224 / P-521 / secp224k1 | 179 | 0 | 0 | 179 | curve not implemented |
+| ECDSA P-521 | 88 | 88 | 0 | 0 | verify (added 2026-10-10); `Invalid` cases rejected; the raw digest is passed and cut to 521 bits (one 71-byte digest exercises the cut) |
+| ECDSA P-224 / secp224k1 | 91 | 0 | 0 | 91 | curve not implemented |
 | HMAC-SHA256 | 5 | 5 | 0 | 0 | also a SHA-256 oracle |
 | HMAC-SHA384 | 3 | 3 | 0 | 0 | also a SHA-384 oracle |
 | HMAC-SHA512 | 3 | 3 | 0 | 0 | also a SHA-512 oracle (one key longer than the block) |
@@ -32,7 +33,9 @@ sure an all-pass is not vacuous, one expected value was flipped temporarily
 in each of the AES-128-GCM, Ed25519 and ECDSA P-256 (a valid case) vector
 sets; each produced exactly one failing case (`aes_128_gcm_tests.txt:4-9`,
 `ed25519_tests.txt:19-22`, `ecdsa_verify_tests.txt:649-654`), and the files
-were restored.
+were restored. For P-521 (2026-10-10) the verifier was instead mutated to
+accept whenever R is finite (dropping the `R.x mod n == r` check): 63 of
+the 88 P-521 cases failed, then the source was restored.
 
 ## Known gaps
 

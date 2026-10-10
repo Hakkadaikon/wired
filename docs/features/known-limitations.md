@@ -496,9 +496,11 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   IDN processing, SRV-ID/URI-ID matching (only DNS-ID dNSName). Source:
   `src/crypto/pki/encoding/x509/nameconstraints.c:337`, `ledger:rfc5280.md`,
   `ledger:rfc6125.md` Out of scope.
-- **Signature algorithms in chains** — chains signed with P-521 or legacy
-  RSA-SHA-1 cannot be verified. Source:
-  `tests/vectors/boringssl/README.md`.
+- **Signature algorithms in chains** — chains signed with legacy RSA-SHA-1
+  cannot be verified. P-521 issuers verify (ecdsa-with-SHA256/384/512), but
+  only with an uncompressed SPKI point; a compressed P-521 key is rejected.
+  Source: `tests/vectors/boringssl/README.md`,
+  `src/crypto/pki/encoding/x509/ec_pubkey.c`.
 
 ## Cryptography
 
@@ -509,10 +511,11 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   SHA-1 algorithms cannot be verified. Source:
   `docs/security/boringssl-vectors.md`, `tests/vectors/boringssl/README.md`,
   `ledger:fips180-4.md`, `ledger:rfc5869.md`, RESUME.
-- **Curves: P-256 and P-384 only** — **no P-224, P-521, secp224k1, P-192,
-  binary or Koblitz curves**; P-384 is verify-only (certificate chains), P-256
-  signs (deterministic RFC 6979, `ecdsa_secp256r1_sha256` only). 179 BoringSSL
-  ECDSA vectors skipped for this reason. Source: same as above,
+- **Curves: P-256, P-384 and P-521 only** — **no P-224, secp224k1, P-192,
+  binary or Koblitz curves**; P-384 and P-521 are verify-only (certificate
+  chains; P-521 is not a TLS CertificateVerify scheme here), P-256 signs
+  (deterministic RFC 6979, `ecdsa_secp256r1_sha256` only). 91 BoringSSL ECDSA
+  vectors skipped for this reason. Source: same as above,
   `ledger:rfc6979.md`, `ledger:rfc5480.md`.
 - **No X448 / Ed448 / Ed25519ctx / Ed25519ph**; X25519 and pure Ed25519 only;
   Ed25519 has no PKCS#8/OneAsymmetricKey parsing (raw 32-byte seed) and DER
@@ -641,7 +644,7 @@ Fixed-size tables and buffers (BSS-sized; raise the constant and rebuild).
 - **Ledger counts** — 7 requirements are `[ ]` (untested): MQ18-118a,
   MQ22-070a, MQ22-083a, MQ22-108b, MQ22-137, MQ22-137a, 8446-053. Source:
   `docs/features/README.md`, individual ledgers.
-- **BoringSSL oracle** — no failures; skipped: 179 ECDSA P-224/P-521/secp224k1,
+- **BoringSSL oracle** — no failures; skipped: 91 ECDSA P-224/secp224k1,
   12 HMAC MD5/SHA1/SHA224, 7 AES-GCM non-96-bit nonces, the
   1,000,000-iteration X25519 case. Source: `docs/security/boringssl-vectors.md`.
 - **Self-loopback is not interop** — features touching the wire stay `[~]`
