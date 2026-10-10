@@ -4,9 +4,9 @@
 #include "common/bytes/span/span.h"
 
 /* RFC 9001 5.3: per-suite AEAD seal/open for QUIC packet protection. The
- * 12-byte nonce is iv XOR pn (left-padded). AES suites (0x1301) use
- * AES-128-GCM, ChaCha suites (0x1303) use ChaCha20-Poly1305. key is 16
- * bytes for AES, 32 for ChaCha; iv is 12 bytes either way. */
+ * 12-byte nonce is iv XOR pn (left-padded). 0x1301 uses AES-128-GCM,
+ * 0x1302 AES-256-GCM, 0x1303 ChaCha20-Poly1305. key is 16 bytes for
+ * AES-128, 32 for AES-256 and ChaCha; iv is 12 bytes in every case. */
 
 /** Protection inputs shared by seal and open: the cipher suite, AEAD key/iv,
  * the packet number (for the nonce), and the header bytes used as AAD.

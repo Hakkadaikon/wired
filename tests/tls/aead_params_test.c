@@ -3,13 +3,15 @@
 static void test_aead_params_key_len(void) {
   CHECK(aead_key_len(TLS_AES_128_GCM_SHA256) == 16);
   CHECK(aead_key_len(TLS_CHACHA20_POLY1305_SHA256) == 32);
-  CHECK(aead_key_len(TLS_AES_256_GCM_SHA384) == 0);
+  CHECK(aead_key_len(TLS_AES_256_GCM_SHA384) == 32);
+  CHECK(aead_key_len(0x0000) == 0);
 }
 
 static void test_aead_params_tag_len(void) {
   CHECK(aead_tag_len(TLS_AES_128_GCM_SHA256) == 16);
   CHECK(aead_tag_len(TLS_CHACHA20_POLY1305_SHA256) == 16);
-  CHECK(aead_tag_len(TLS_AES_256_GCM_SHA384) == 0);
+  CHECK(aead_tag_len(TLS_AES_256_GCM_SHA384) == 16);
+  CHECK(aead_tag_len(0x0000) == 0);
 }
 
 static void test_aead_params_is_chacha(void) {

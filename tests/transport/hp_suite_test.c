@@ -22,6 +22,17 @@ void test_hp_suite(void) {
   hp_mask(&hp, sample, want_aes);
   for (usz i = 0; i < 5; i++) CHECK(mask[i] == want_aes[i]);
 
+  /* RFC 9001 5.4.3 AES-256 suite (0x1302): AES-256-ECB over the sample,
+   * key 00..1f, sample 10..1f -> openssl enc -aes-256-ecb block
+   * e9c3ef8ab23453e6f0749cd636e7a88e (first 5 bytes are the mask). */
+  {
+    u8 k256[32], want256[5];
+    for (usz i = 0; i < 32; i++) k256[i] = (u8)i;
+    hps_uhx("e9c3ef8ab2", want256, 5);
+    CHECK(hp_suite_mask(TLS_AES_256_GCM_SHA384, k256, sample, mask) == 1);
+    for (usz i = 0; i < 5; i++) CHECK(mask[i] == want256[i]);
+  }
+
   /* RFC 9001 5.4.4 ChaCha suite: A.5 vector. */
   u8 cha_key[32];
   hps_uhx(

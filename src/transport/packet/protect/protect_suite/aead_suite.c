@@ -2,6 +2,7 @@
 
 #include "crypto/symmetric/aead/chacha/aead.h"
 #include "crypto/symmetric/aead/gcm/gcm.h"
+#include "crypto/symmetric/aead/gcm/gcm256.h"
 #include "tls/handshake/core/tls/cipher.h"
 
 /* RFC 9001 5.3 nonce: iv with pn XORed into the low 8 bytes. */
@@ -27,18 +28,16 @@ static usz aead_gcm_seal(const aead_suite_io* io) {
   return gcm_seal(&g, io->in, io->out);
 }
 
+static usz aead_gcm256_seal(const aead_suite_io* io) {
+  aes256 a;
+  aes256_init(&a, io->key);
+  gcm256_ctx g = {&a, io->nonce, io->aad};
+  return gcm256_seal(&g, io->in, io->out);
+}
+
 static usz cha_seal(const aead_suite_io* io) {
   chapoly_ctx c = {io->key, io->nonce, io->aad};
   return chapoly_seal(&c, io->in, io->out);
-}
-
-usz aead_suite_seal(const aead_suite_op* op, wired_span pt, u8* out) {
-  u8 nonce[12];
-  suite_nonce(op->iv, op->pn, nonce);
-  aead_suite_io io = {op->key, nonce, op->aad, pt, out};
-  if (op->suite == TLS_AES_128_GCM_SHA256) return aead_gcm_seal(&io);
-  if (op->suite == TLS_CHACHA20_POLY1305_SHA256) return cha_seal(&io);
-  return 0;
 }
 
 /* io->in spans the ciphertext only; the 16-byte tag follows it in memory. */
@@ -51,6 +50,15 @@ static usz aead_gcm_open(const aead_suite_io* io) {
   return io->in.n;
 }
 
+static usz aead_gcm256_open(const aead_suite_io* io) {
+  aes256 a;
+  aes256_init(&a, io->key);
+  gcm256_ctx g = {&a, io->nonce, io->aad};
+  if (!gcm256_open(&g, wired_span_of(io->in.p, io->in.n + GCM_TAG), io->out))
+    return 0;
+  return io->in.n;
+}
+
 static usz cha_open(const aead_suite_io* io) {
   chapoly_ctx c = {io->key, io->nonce, io->aad};
   if (!chapoly_open(
@@ -59,11 +67,40 @@ static usz cha_open(const aead_suite_io* io) {
   return io->in.n;
 }
 
+/* RFC 8446 B.4 / RFC 9001 5.3: each suite's AEAD seal/open. */
+static const struct {
+  u16 suite;
+  usz (*seal)(const aead_suite_io* io);
+  usz (*open)(const aead_suite_io* io);
+} aead_suite_tab[] = {
+    {TLS_AES_128_GCM_SHA256, aead_gcm_seal, aead_gcm_open},
+    {TLS_AES_256_GCM_SHA384, aead_gcm256_seal, aead_gcm256_open},
+    {TLS_CHACHA20_POLY1305_SHA256, cha_seal, cha_open},
+};
+
+#define AEAD_SUITE_ROWS (sizeof aead_suite_tab / sizeof *aead_suite_tab)
+
+/* The table row for suite, or AEAD_SUITE_ROWS when unknown. */
+static usz aead_suite_row(u16 suite) {
+  usz i = 0;
+  while (i < AEAD_SUITE_ROWS && aead_suite_tab[i].suite != suite) i++;
+  return i;
+}
+
+usz aead_suite_seal(const aead_suite_op* op, wired_span pt, u8* out) {
+  u8  nonce[12];
+  usz r = aead_suite_row(op->suite);
+  if (r == AEAD_SUITE_ROWS) return 0;
+  suite_nonce(op->iv, op->pn, nonce);
+  aead_suite_io io = {op->key, nonce, op->aad, pt, out};
+  return aead_suite_tab[r].seal(&io);
+}
+
 usz aead_suite_open(const aead_suite_op* op, wired_span ct, u8* pt) {
-  u8 nonce[12];
+  u8  nonce[12];
+  usz r = aead_suite_row(op->suite);
+  if (r == AEAD_SUITE_ROWS) return 0;
   suite_nonce(op->iv, op->pn, nonce);
   aead_suite_io io = {op->key, nonce, op->aad, ct, pt};
-  if (op->suite == TLS_AES_128_GCM_SHA256) return aead_gcm_open(&io);
-  if (op->suite == TLS_CHACHA20_POLY1305_SHA256) return cha_open(&io);
-  return 0;
+  return aead_suite_tab[r].open(&io);
 }

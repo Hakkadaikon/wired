@@ -27,6 +27,21 @@ void test_aead_suite(void) {
   CHECK(aead_suite_open(&aes, wired_span_of(ct, 20), out) == 20);
   for (usz i = 0; i < 20; i++) CHECK(out[i] == pt[i]);
 
+  /* RFC 9001 5.3 AES-256 suite (0x1302): matches AES-256-GCM directly and
+   * round-trips. */
+  {
+    aead_suite_op a256 = {
+        TLS_AES_256_GCM_SHA384, key, iv, 2, wired_span_of(aad, 7)};
+    aes256 k256;
+    aes256_init(&k256, key);
+    gcm256_ctx g256 = {&k256, nonce, {aad, 7}};
+    gcm256_seal(&g256, wired_span_of(pt, 20), want);
+    CHECK(aead_suite_seal(&a256, wired_span_of(pt, 20), ct) == 36);
+    for (usz i = 0; i < 36; i++) CHECK(ct[i] == want[i]);
+    CHECK(aead_suite_open(&a256, wired_span_of(ct, 20), out) == 20);
+    for (usz i = 0; i < 20; i++) CHECK(out[i] == pt[i]);
+  }
+
   /* RFC 9001 5.3 ChaCha suite: seal -> open round-trips. */
   aead_suite_op cha = {
       TLS_CHACHA20_POLY1305_SHA256, key, iv, 5, wired_span_of(aad, 7)};
