@@ -1812,6 +1812,32 @@ static void test_sdrv_early_data_accepted_derives_keys(void) {
   for (usz i = 0; i < INITIAL_HP; i++) CHECK(got.hp[i] == want.hp[i]);
 }
 
+/* Ticket-key rotation: a ticket sealed under the previous key still opens
+ * when the server's current key has moved on (sdrv_set_ticket_key_prev). */
+static void test_sdrv_psk_previous_ticket_key_opens(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32];
+  u8               ch2[700], newer[TICKET_KEY_LEN];
+  usz              ch2_len, psk_ext_off;
+  sdrv_psk_fixture_init(&f);
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_priv[i] = (u8)(0x80 + i);
+    newer[i]     = (u8)(0x5a ^ i);
+  }
+  wired_x25519_base(srv_pub, srv_priv);
+  ch2_len = sdrv_test_0rtt_ch(&f, ch2, sizeof(ch2), &psk_ext_off);
+  CHECK(ch2_len != 0);
+  {
+    sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, newer};
+    sdrv_init(&s, &in);
+    sdrv_set_ticket_key_prev(&s, f.ticket_key);
+  }
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
+  CHECK(s.psk_accepted == 1);
+}
+
 /* pre_shared_key accepted but no early_data extension -- ordinary PSK
  * resumption without 0-RTT, early_data_accepted stays 0 and no keys are
  * available. */
@@ -2350,6 +2376,7 @@ void test_sdrv(void) {
   test_sdrv_psk_without_modes_rejected();
   test_sdrv_psk_not_last_rejected();
   test_sdrv_psk_unknown_identity_falls_back();
+  test_sdrv_psk_previous_ticket_key_opens();
   test_sdrv_psk_binder_mismatch_aborts();
   test_sdrv_psk_tampered_transcript_aborts();
   test_sdrv_early_data_accepted_derives_keys();

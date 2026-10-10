@@ -164,6 +164,10 @@ typedef struct {
    * never inspected). Set once at sdrv_init from
    * sdrv_init_in.ticket_key. */
   u8 ticket_key[TICKET_KEY_LEN];
+  /** The previous-generation ticket key (key rotation): a ticket that does
+   * not open under ticket_key is tried under this one. sdrv_init sets it
+   * to ticket_key; sdrv_set_ticket_key_prev overrides it. */
+  u8 ticket_key_prev[TICKET_KEY_LEN];
   /** The opened ticket's resumption secret; meaningful when psk_accepted. */
   u8 psk_secret[TICKET_SECRET_LEN];
   /** RFC 8446 4.2.10 / RFC 9001 4.6.1: the 0-RTT packet-protection keys,
@@ -333,6 +337,13 @@ int sdrv_set_cids_retried(
  * @param rscid the Retry's source connection id (at most 20 bytes)
  * @return 1 on success, 0 when rscid exceeds 20 bytes */
 int sdrv_set_retry_scid(sdrv* s, wired_span rscid);
+
+/** Key rotation: also open presented tickets under prev (TICKET_KEY_LEN
+ * bytes, copied), the previous generation of the ticket key. Call after
+ * sdrv_init, before sdrv_recv_client_hello.
+ * @param s driver state
+ * @param prev the previous ticket key */
+void sdrv_set_ticket_key_prev(sdrv* s, const u8* prev);
 
 /** RFC 8446 4.4.1: fold the ClientHello into the transcript and take the
  * client's x25519 key_share.

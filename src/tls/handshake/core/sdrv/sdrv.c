@@ -95,12 +95,21 @@ static void sdrv_copy_san_ipv4(sdrv* s, const u8* san_ipv4) {
   for (usz i = 0; i < 4; i++) s->san_ipv4[i] = san_ipv4 ? san_ipv4[i] : 0;
 }
 
-/* Copy in->ticket_key (TICKET_KEY_LEN bytes) into s and record whether
- * resumption is enabled, or zero it and disable when in->ticket_key is 0. */
+/* Copy a TICKET_KEY_LEN-byte key into dst, or zero dst when src is 0. */
+static void sdrv_copy_key(u8 dst[TICKET_KEY_LEN], const u8* src) {
+  for (usz i = 0; i < TICKET_KEY_LEN; i++) dst[i] = src ? src[i] : 0;
+}
+
+/* Copy ticket_key into s as both generations and record whether
+ * resumption is enabled (ticket_key set). */
 static void sdrv_copy_ticket_key(sdrv* s, const u8* ticket_key) {
   s->has_ticket_key = ticket_key != 0;
-  for (usz i = 0; i < TICKET_KEY_LEN; i++)
-    s->ticket_key[i] = ticket_key ? ticket_key[i] : 0;
+  sdrv_copy_key(s->ticket_key, ticket_key);
+  sdrv_copy_key(s->ticket_key_prev, ticket_key);
+}
+
+void sdrv_set_ticket_key_prev(sdrv* s, const u8* prev) {
+  sdrv_copy_key(s->ticket_key_prev, prev);
 }
 
 void sdrv_set_raw_alpns(sdrv* s, const char* raw_alpns) {
@@ -541,12 +550,13 @@ static wired_span sdrv_psk_truncate(
 }
 
 /* Open the presented ticket (off->identity, the sealed ticket bytes)
- * under s->ticket_key. Returns 1 and fills *t on success, 0 on any failure
- * (wrong key, malformed, tampered) -- *t is left as the caller set it. */
+ * under s->ticket_key, then s->ticket_key_prev. Returns 1 and fills *t on
+ * success, 0 on any failure (wrong key, malformed, tampered). */
 static int sdrv_psk_open_ticket(
     const sdrv* s, const tlsext_psk_offer* off, ticket* t) {
   wired_span sealed = wired_span_of(off->identity, off->id_len);
-  return ticket_open(sealed, s->ticket_key, t);
+  return ticket_open(sealed, s->ticket_key, t) ||
+         ticket_open(sealed, s->ticket_key_prev, t);
 }
 
 /* RFC 8446 4.6.1: "The PSK associated with the ticket is computed as...
