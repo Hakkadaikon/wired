@@ -49,10 +49,6 @@ general relay network.
   session, up to `WIRED_MOQTRUN_EARLY_BUF` = 2048 bytes) and relayed when the
   OK arrives; a second such stream, or one that outgrows the buffer, is
   dropped. Source: `moqtrun_early_stash` in `src/app/moqt/run/moqtrun.c`.
-- **Start-Object granularity (4-15)** — Location Filters are Group-granular on
-  the start side: Objects of the start Group below the start Object still pass
-  on a multi-Object stream. The End side is cut per Object (d22 End Object),
-  but only on the lossy path. Source: `moqtrun.c:1464` (ponytail), L4-15.
 - **Reliable ring path: no End Object cut, stream-granular start** — the
   ring-backed (reliable) relay gates by Group only: it does not cut at a
   draft-22 End Object mid-round, and a stream that began before a

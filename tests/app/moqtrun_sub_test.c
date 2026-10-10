@@ -1275,6 +1275,76 @@ static void test_moqtrun_sub_filter22_end_object_per_sub(void) {
   CHECK(mt22_obj_count(wired_span_of(cC->payload, cC->payload_len)) == 3);
 }
 
+/* Object IDs c's payload carries as a subscriber stream's bytes (after
+ * its SUBGROUP_HEADER when hdr, else read as the stream's first Objects
+ * after a header-only open): up to 4 in ids, the count returned. */
+static usz mt22_ids(const moqtrun_test_call* c, int hdr, u64* ids) {
+  wired_span     w   = wired_span_of(c->payload, c->payload_len);
+  usz            off = 0, n = 0;
+  moqdata_subhdr h = {0};
+  moqdata_obj    obj;
+  if (hdr && moqdata_subhdr_take(w, &off, &h) != MOQDATA_OK) return 0;
+  moqdata_objseq seq = moqdata_objseq_of(h.type);
+  while (n < 4 && moqdata_obj_take(w, &off, &seq, &obj) == MOQDATA_OK)
+    ids[n++] = obj.object_id;
+  return n;
+}
+
+/* Start Object {6,1} (SS3.3.1: "a publisher MUST NOT send objects from
+ * outside the requested range"): a one-shot stream carrying Objects 0..2
+ * of Group 6 reaches the subscriber as Objects 1 and 2 only, the first
+ * carrying its absolute ID (11.3.1: the first Object of a stream). */
+static void test_moqtrun_sub_filter22_start_object_oneshot(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  u64           ids[4];
+  moqctl_params s61 =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 6, 1, MOQCTL_REK_UNBOUNDED, 0, 0));
+  mt22_subscribe(&s61);
+  moqtrun_test_reset();
+  usz n = mtst_stream(6, 3, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 1);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(4); /* send_uni */
+  CHECK(c != 0 && mt22_ids(c, 1, ids) == 2);
+  CHECK(ids[0] == 1 && ids[1] == 2);
+}
+
+/* The same cut on a fresh keep-open stream's opening round. */
+static void test_moqtrun_sub_filter22_start_object_keepopen(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  u64           ids[4];
+  moqctl_params s61 =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 6, 1, MOQCTL_REK_UNBOUNDED, 0, 0));
+  mt22_subscribe(&s61);
+  moqtrun_test_reset();
+  usz n = mtst_stream(6, 3, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(5); /* open_uni */
+  CHECK(c != 0 && mt22_ids(c, 1, ids) == 2);
+  CHECK(ids[0] == 1 && ids[1] == 2);
+}
+
+/* Start Object {6,2} past the whole opening round (Object 0): the stream
+ * opens header-only, and the next round (Objects 1, 2) reaches it as
+ * Object 2 alone, carrying its absolute ID. */
+static void test_moqtrun_sub_filter22_start_object_append(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  u64           ids[4];
+  moqctl_params s62 =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 6, 2, MOQCTL_REK_UNBOUNDED, 0, 0));
+  mt22_subscribe(&s62);
+  moqtrun_test_reset();
+  usz n = mtst_stream(6, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(5); /* open_uni */
+  CHECK(c != 0 && mt22_ids(c, 1, ids) == 0);
+  moqtrun_test_reset();
+  n = mtst_stream(6, 2, 0, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  c = moqtrun_test_last_kind(3); /* stream_send */
+  CHECK(c != 0 && mt22_ids(c, 0, ids) == 1);
+  CHECK(ids[0] == 2);
+}
+
 /* ===================== reserved namespaces ===================== */
 
 /* draft-19 2.4.2/2.4.3: a Track Namespace whose first field is exactly
@@ -1618,6 +1688,9 @@ static void mtall_sub(void) {
   test_moqtrun_sub_filter22_end_object_mid_round_oneshot();
   test_moqtrun_sub_filter22_end_object_mid_round_keepopen();
   test_moqtrun_sub_filter22_end_object_mid_round_append();
+  test_moqtrun_sub_filter22_start_object_oneshot();
+  test_moqtrun_sub_filter22_start_object_keepopen();
+  test_moqtrun_sub_filter22_start_object_append();
   test_moqtrun_sub_ns_must_match();
   test_moqtrun_reserved_ns_rejected();
   test_moqtrun_other_dot_ns_served();

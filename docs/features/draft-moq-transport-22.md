@@ -1599,9 +1599,15 @@ draft-18 and draft-19.
   to the current Group, and a future start holds delivery until that Group.
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_live_attach_filter_start`
-  - note: ledger 10-7. Group-granular: a start Object inside the first Group is
-    not trimmed on a Subgroup stream (see Not implemented). Exercised on
-    draft-19 sessions; the hub path is version-independent.
+  - test: `tests/app/moqtrun_sub_test.c` —
+    `test_moqtrun_sub_filter22_start_object_oneshot`,
+    `test_moqtrun_sub_filter22_start_object_keepopen`,
+    `test_moqtrun_sub_filter22_start_object_append`
+  - note: ledger 10-7. A start Object inside the first Group is cut per
+    Object on the lossy relay path (the first Object sent re-framed with its
+    absolute ID); the reliable ring path is still stream-granular (see Not
+    implemented). Exercised on every draft; the hub path is
+    version-independent.
 - [x] MQ22-199 (SS9.1.6, SS9.1.7) The hub's SETUP shall advertise
   MAX_FILTER_RANGES and MAX_REQUEST_UPDATES (both 4,
   `WIRED_MOQTRUN_MAX_FILTER_RANGES` / `WIRED_MOQTRUN_MAX_REQ_UPDATES`), and
@@ -1808,10 +1814,9 @@ closes the bidi stream, 9.5.1) followed: `test_moqtrun_vgate_update_kinds`.
   implemented for FETCH; a Descending FETCH is served newest group first
   (MQ22-197), and fill fetch streams do implement a descending order
   (MQ22-141).
-- (SS3.3.1) A late subscriber's live delivery starts at its Location
-  Filter's start Group (MQ22-198), but a start Object inside that Group is
-  not trimmed from a Subgroup stream; only the reliable replay honours the
-  start Object.
+- (SS3.3.1) On the reliable (ring-backed) relay path a late subscriber's
+  replay is stream-granular and the End Object is not cut mid-round; the
+  lossy path cuts both per Object (MQ22-198).
 - (SS7.6, SS11.4.1.2) Relay-level FETCH gap/upstream-fetch behavior
   (MQ22-137) — moot until this hub forwards FETCH upstream to another
   relay.

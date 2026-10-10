@@ -1568,13 +1568,9 @@ static int moqtrun_sub_past_end_object(
          l.object > s->end_object;
 }
 
-/* Forward AND Location Filter (5.1.5) for a stream of Group g.
- * ponytail: Group-granular on the START side only -- Objects of the start
- * Group below the start Object still pass whole (cutting the FRONT of a
- * round means re-framing past the SUBGROUP_HEADER, not just shortening the
- * tail, so it needs its own design); cut rounds at those Objects if a
- * filter ever starts mid-Group on a many-Object stream. The END side (a
- * draft-22 End Object mid-round) is already cut by moqtrun_wire_cutoff. */
+/* Forward AND Location Filter (5.1.5) for a stream of Group g. Both
+ * ends are cut per Object inside the Group: the start Object by
+ * moqtrun_startobj_cut, a draft-22 End Object by moqtrun_wire_cutoff. */
 static int moqtrun_sub_gets(const wired_moqtrun_sub* s, u64 g) {
   return moqtrun_sub_forwards(s) && moqtrun_sub_wants_group(s, g);
 }
@@ -1619,6 +1615,35 @@ static usz moqtrun_wire_cutoff(
     u64                      group) {
   if (!moqtrun_end_object_in_group(s, group)) return wire.n;
   return moqtrun_cutoff_scan(s, wire, off0, seq0);
+}
+
+/* Offset of wire's first Object at or past s's start Object, decoding
+ * from off with *seq (left at that Object): Objects of the start Group
+ * below it are outside the Location Filter (d22 3.3.1: "a publisher MUST
+ * NOT send objects from outside the requested range"). */
+static usz moqtrun_startobj_scan(
+    const wired_moqtrun_sub* s, wired_span wire, usz off, moqdata_objseq* seq) {
+  usz            at = off;
+  moqdata_objseq q  = *seq;
+  moqdata_obj    obj;
+  while (moqdata_obj_take(wire, &at, &q, &obj) == MOQDATA_OK &&
+         obj.object_id < s->start.object) {
+    off  = at;
+    *seq = q;
+  }
+  return off;
+}
+
+/* moqtrun_startobj_scan for Objects of Group group; off itself outside
+ * s's start Group. */
+static usz moqtrun_startobj_cut(
+    const wired_moqtrun_sub* s,
+    wired_span               wire,
+    usz                      off,
+    moqdata_objseq*          seq,
+    u64                      group) {
+  if (group != s->start.group) return off;
+  return moqtrun_startobj_scan(s, wire, off, seq);
 }
 
 /* moqtrun_sub_gets for one Object at l (a datagram): also not before the
@@ -5660,6 +5685,81 @@ static int moqtrun_sub_gets_relay(
   return moqtrun_sub_gets_stream(s, r->group_id, r->subgroup_id, r->pub_prio);
 }
 
+/* wire (Objects, its first chained from seq) into out with that first
+ * Object's ID Delta rewritten to the absolute Object ID, as the first
+ * Object of a subscriber's stream is read (draft-22 11.3.1); the length
+ * written, 0 when nothing decodes. */
+static usz moqtrun_reframe_to(u8* out, wired_span wire, moqdata_objseq seq) {
+  usz         off = 0, dl = 0;
+  u64         delta;
+  moqdata_obj obj;
+  if (moqdata_obj_take(wire, &off, &seq, &obj) != MOQDATA_OK) return 0;
+  moqvi_take(wire, &dl, &delta);
+  usz n = moqvi_encode(out, obj.object_id);
+  bytes_memcpy(out + n, wire.p + dl, wire.n - dl);
+  return n + wire.n - dl;
+}
+
+/* h as the head of a stream that starts past its Subgroup's first Object:
+ * FIRST_OBJECT (0x40) cleared (draft-22 2.2 / 11.3.1), and a mode-0b01
+ * Subgroup ID, which names the publisher stream's first Object, spelled
+ * out as sg (mode 0b10). Written to out; its length. */
+static usz moqtrun_late_hdr_of(moqdata_subhdr h, u64 sg, u8* out) {
+  usz n = 0;
+  h.type &= ~0x40ULL;
+  if (moqdata_type_sgid_mode(h.type) == 1) {
+    h.type        = (h.type & ~0x06ULL) | 0x04ULL;
+    h.subgroup_id = sg;
+  }
+  moqdata_subhdr_put(wired_mspan_of(out, WIRED_MOQTRUN_RELAY_HDR_MAX), &n, &h);
+  return n;
+}
+
+/* wire (a SUBGROUP_HEADER, then Objects of Group group, Subgroup sg) as
+ * s may receive it: wire itself when no Object precedes s's start Object
+ * (moqtrun_startobj_cut), else re-framed in hub->relay_scratch -- a late
+ * head (moqtrun_late_hdr_of) and the rest, its first Object absolute
+ * (moqtrun_reframe_to). *bare is 1 when the cut left no Object. */
+static wired_span moqtrun_head_startobj_cut(
+    wired_moqt_hub*          hub,
+    const wired_moqtrun_sub* s,
+    wired_span               wire,
+    u64                      group,
+    u64                      sg,
+    int*                     bare) {
+  usz            off = 0;
+  moqdata_subhdr h;
+  *bare = 0;
+  if (moqdata_subhdr_take(wire, &off, &h) != MOQDATA_OK) return wire;
+  moqdata_objseq seq = moqdata_objseq_of(h.type);
+  usz            cut = moqtrun_startobj_cut(s, wire, off, &seq, group);
+  if (cut == off) return wire;
+  *bare = cut == wire.n;
+  usz n = moqtrun_late_hdr_of(h, sg, hub->relay_scratch);
+  n += moqtrun_reframe_to(
+      hub->relay_scratch + n, wired_span_of(wire.p + cut, wire.n - cut), seq);
+  return wired_span_of(hub->relay_scratch, n);
+}
+
+/* One-shot relay of a whole stream to s, cut to its Location Filter's
+ * start and End Objects; nothing at all when no Object is left. */
+static void moqtrun_relay_object_one(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_sub*   s,
+    wired_span           wire,
+    u64                  group,
+    u64                  sg) {
+  int        bare;
+  wired_span w = moqtrun_head_startobj_cut(hub, s, wire, group, sg, &bare);
+  if (bare) return;
+  moqtrun_relay_to_one(
+      hub, s,
+      moqtrun_alias_splice(
+          hub, moqtrun_hdr_cutoff(s, w, group), s->track_alias),
+      track->default_pub_prio);
+}
+
 static void moqtrun_relay_object(
     wired_moqt_hub* hub, wired_moqtrun_track* track, wired_span wire) {
   moqdata_objseq seq;
@@ -5670,12 +5770,7 @@ static void moqtrun_relay_object(
   moqtss_prime(hub, track, group); /* SSTS (moqtssts_run.c) */
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
     if (moqtrun_sub_gets_stream(&track->subs[i], group, sg, prio))
-      moqtrun_relay_to_one(
-          hub, &track->subs[i],
-          moqtrun_alias_splice(
-              hub, moqtrun_hdr_cutoff(&track->subs[i], wire, group),
-              track->subs[i].track_alias),
-          track->default_pub_prio);
+      moqtrun_relay_object_one(hub, track, &track->subs[i], wire, group, sg);
 }
 
 /* --- relay map: one entry per in-flight publisher stream (moqtrun.h's
@@ -5793,15 +5888,9 @@ static wired_span moqtrun_relay_reframe(
     usz                        i,
     wired_span                 wire,
     moqdata_objseq             seq0) {
-  usz         off = 0, dl = 0;
-  u64         delta;
-  moqdata_obj obj;
   if (!(relay->sub_reframe >> i & 1)) return wire;
-  if (moqdata_obj_take(wire, &off, &seq0, &obj) != MOQDATA_OK) return wire;
-  moqvi_take(wire, &dl, &delta);
-  usz n = moqvi_encode(hub->alias_scratch, obj.object_id);
-  bytes_memcpy(hub->alias_scratch + n, wire.p + dl, wire.n - dl);
-  return wired_span_of(hub->alias_scratch, n + wire.n - dl);
+  usz n = moqtrun_reframe_to(hub->alias_scratch, wire, seq0);
+  return n ? wired_span_of(hub->alias_scratch, n) : wire;
 }
 
 /* Forwards one round of publisher bytes to sub slot i's already-open relay
@@ -5862,15 +5951,9 @@ static void moqtrun_relay_open_one(
  * Subgroup's. Its first Object is re-framed when sent (sub_reframe). */
 static usz moqtrun_relay_late_hdr(const wired_moqtrun_relay* relay, u8* out) {
   moqdata_subhdr h;
-  usz            off = 0, n = 0;
+  usz            off = 0;
   moqdata_subhdr_take(wired_span_of(relay->hdr, relay->hdr_len), &off, &h);
-  h.type &= ~0x40ULL;
-  if (moqdata_type_sgid_mode(h.type) == 1) {
-    h.type        = (h.type & ~0x06ULL) | 0x04ULL;
-    h.subgroup_id = relay->subgroup_id;
-  }
-  moqdata_subhdr_put(wired_mspan_of(out, WIRED_MOQTRUN_RELAY_HDR_MAX), &n, &h);
-  return n;
+  return moqtrun_late_hdr_of(h, relay->subgroup_id, out);
 }
 
 static void moqtrun_relay_late_open(
@@ -5886,6 +5969,12 @@ static void moqtrun_relay_late_open(
   relay->sub_reframe |= (u32)(relay->sub_stream_set[i] != 0) << i;
 }
 
+/* 1 iff a round has nothing to send: every Object was cut before the
+ * subscriber's start Object and the stream goes on. */
+static int moqtrun_round_void(wired_span wire, int fin) {
+  return wire.n == 0 && !fin;
+}
+
 /* Forward to sub slot i's open stream, or -- for a subscriber whose
  * stream was never opened (it subscribed after the relay started) -- open
  * one now (moqtrun_relay_late_open). */
@@ -5899,7 +5988,8 @@ static void moqtrun_relay_deliver_one(
     moqdata_objseq       seq0,
     int                  fin) {
   if (relay->sub_stream_set[i]) {
-    moqtrun_relay_forward_one(hub, dst->wt, sub, relay, i, wire, seq0, fin);
+    if (!moqtrun_round_void(wire, fin))
+      moqtrun_relay_forward_one(hub, dst->wt, sub, relay, i, wire, seq0, fin);
     return;
   }
   moqtrun_relay_late_open(hub, sub, relay, i, fin);
@@ -5966,8 +6056,10 @@ static wired_span moqtrun_relay_end_cut(
 }
 
 /* One subscriber's share of a relayed round whose oldest Object arrived
- * at born_ms, cut to sub's End Object (moqtrun_relay_end_cut) when wire's
- * Objects cross it. */
+ * at born_ms, cut to sub's start Object (moqtrun_startobj_cut, a cut
+ * round starts at the stream's first Object sent: it follows a head-only
+ * open, so moqtrun_relay_reframe makes it absolute) and End Object
+ * (moqtrun_relay_end_cut) when wire's Objects cross them. */
 static void moqtrun_relay_append_one(
     wired_moqt_hub*      hub,
     wired_moqtrun_sub*   sub,
@@ -5980,7 +6072,9 @@ static void moqtrun_relay_append_one(
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
   if (moqtrun_relay_skips(dst, relay, i)) return;
   if (moqtrun_relay_expire(hub, sub, dst, relay, i, born_ms)) return;
-  wire = moqtrun_relay_end_cut(relay, i, wire, seq0, sub, &fin);
+  usz cut = moqtrun_startobj_cut(sub, wire, 0, &seq0, relay->group_id);
+  wire    = wired_span_of(wire.p + cut, wire.n - cut);
+  wire    = moqtrun_relay_end_cut(relay, i, wire, seq0, sub, &fin);
   moqtrun_relay_deliver_one(hub, sub, dst, relay, i, wire, seq0, fin);
 }
 
@@ -6778,6 +6872,22 @@ static void moqtrun_relay_open_one(
       hub, dst->wt, (u64)sid, relay, i, cut_wire.n, wire.n);
 }
 
+/* The opening round to sub slot i, cut to its start Object
+ * (moqtrun_head_startobj_cut): a cut that left no Object opens the stream
+ * head-only, its first Object re-framed later (sub_reframe). */
+static void moqtrun_relay_open_sub(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_sub*   sub,
+    wired_moqtrun_relay* relay,
+    usz                  i,
+    wired_span           wire) {
+  int        bare;
+  wired_span w = moqtrun_head_startobj_cut(
+      hub, sub, wire, relay->group_id, relay->subgroup_id, &bare);
+  moqtrun_relay_open_one(hub, sub, relay, i, w);
+  relay->sub_reframe |= (u32)(bare & relay->sub_stream_set[i]) << i;
+}
+
 static void moqtrun_relay_open_all(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
@@ -6785,7 +6895,7 @@ static void moqtrun_relay_open_all(
     wired_span           wire) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
     if (moqtrun_sub_gets_relay(&track->subs[i], relay))
-      moqtrun_relay_open_one(hub, &track->subs[i], relay, i, wire);
+      moqtrun_relay_open_sub(hub, &track->subs[i], relay, i, wire);
 }
 
 /* Saves the stream's SUBGROUP_HEADER bytes on relay for late-joining
