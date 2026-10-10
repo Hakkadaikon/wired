@@ -5621,7 +5621,9 @@ static void moqtrun_relay_open_one(
  * alone -- the current round's Objects are dropped for this late joiner
  * (voice is loss-tolerant; the next round appends normally, and the
  * header-only first chunk is a well-formed stream head for the client's
- * incremental decoder). */
+ * incremental decoder). The stream starts mid-subgroup, so FIRST_OBJECT
+ * (0x40) is cleared (draft-22 2.2 / 11.3.1): the Type is < 0x80
+ * (moqdata_type_valid), so its low byte is the varint's last byte. */
 static void moqtrun_relay_late_open(
     wired_moqt_hub*      hub,
     wired_moqtrun_sub*   sub,
@@ -5629,8 +5631,14 @@ static void moqtrun_relay_late_open(
     usz                  i,
     int                  fin) {
   if (moqtrun_late_open_skip(relay, fin)) return;
+  u8  hdr[WIRED_MOQTRUN_RELAY_HDR_MAX];
+  usz type_end = 0;
+  u64 type;
+  bytes_memcpy(hdr, relay->hdr, relay->hdr_len);
+  moqvi_take(wired_span_of(hdr, relay->hdr_len), &type_end, &type);
+  hdr[type_end - 1] &= (u8)~0x40;
   moqtrun_relay_open_one(
-      hub, sub, relay, i, wired_span_of(relay->hdr, relay->hdr_len));
+      hub, sub, relay, i, wired_span_of(hdr, relay->hdr_len));
 }
 
 /* Forward to sub slot i's open stream, or -- for a subscriber whose

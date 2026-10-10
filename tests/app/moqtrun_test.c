@@ -2899,7 +2899,8 @@ static void test_moqtrun_busy_streak_sheds_after_threshold(void) {
   CHECK(moqtrun_test_count_kind(3) == 0);
   const moqtrun_test_call* opened = moqtrun_test_last_kind(5);
   CHECK(opened->payload_len == relay->hdr_len);
-  for (usz i = 0; i < opened->payload_len; i++)
+  CHECK(opened->payload[0] == (relay->hdr[0] & ~0x40)); /* mid-subgroup */
+  for (usz i = 1; i < opened->payload_len; i++)
     CHECK(opened->payload[i] == relay->hdr[i]);
 
   /* And the round after that appends normally to the fresh stream. */
@@ -3191,10 +3192,11 @@ static void test_moqtrun_interleaved_chat_messages_close_independently(void) {
 /* A subscriber that joins AFTER the audio publisher's long-lived stream
  * already started (the real app's normal order: voice starts streaming the
  * moment a client connects, before any peer has subscribed) still gets a
- * relay stream -- opened late, carrying the saved SUBGROUP_HEADER alone,
- * with later rounds appending normally. Without the late open, the whole
- * call stayed silent for everyone who wasn't subscribed at the instant of
- * the very first Opus frame (observed as decodedFrameCounts=0 in e2e). */
+ * relay stream -- opened late, carrying the saved SUBGROUP_HEADER alone
+ * (FIRST_OBJECT cleared), with later rounds appending normally. Without the
+ * late open, the whole call stayed silent for everyone who wasn't subscribed at
+ * the instant of the very first Opus frame (observed as decodedFrameCounts=0 in
+ * e2e). */
 static void test_moqtrun_late_subscriber_gets_late_opened_stream(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
@@ -3238,8 +3240,11 @@ static void test_moqtrun_late_subscriber_gets_late_opened_stream(void) {
   CHECK(opened->s == SESS_B);
   CHECK(opened->payload_len > 0);
   CHECK(opened->payload_len < first_n); /* header alone, no Objects */
-  for (usz i = 0; i < opened->payload_len; i++)
-    CHECK(opened->payload[i] == first[i]); /* the stream's own header bytes */
+  /* The stream's own header bytes, FIRST_OBJECT (0x40) cleared: this
+   * stream starts mid-subgroup (draft-22 2.2 / 11.3.1). */
+  CHECK(opened->payload[0] == (first[0] & ~0x40));
+  for (usz i = 1; i < opened->payload_len; i++)
+    CHECK(opened->payload[i] == first[i]);
   u64 late_sid = opened->stream_id;
 
   /* The round after that appends to the late-opened stream normally. */
