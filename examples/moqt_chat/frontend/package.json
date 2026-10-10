@@ -9,8 +9,9 @@
 		"prebuild": "mkdir -p public/worklets && cp node_modules/@jitsi/rnnoise-wasm/dist/rnnoise-sync.js public/worklets/",
 		"build": "next build",
 		"start": "next start",
-		"lint": "eslint",
-		"test": "vitest run"
+		"test": "vitest run",
+		"check": "biome ci --error-on-warnings .",
+		"fix": "biome check --write ."
 	},
 	"dependencies": {
 		"@jitsi/rnnoise-wasm": "0.2.1",

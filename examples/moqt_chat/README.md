@@ -261,6 +261,26 @@ For local development with hot reload instead: `just dev-frontend` (plain
 HTTP at `:3000`, works for `localhost` since that origin is always a secure
 context regardless of scheme).
 
+### Format and lint the frontend
+
+The frontend's TypeScript is formatted and linted by
+[Biome](https://biomejs.dev/) (`frontend/biome.json`): Biome's
+recommended rule preset plus its Next.js, React and test domains, Biome's
+default formatter (tabs, double quotes, 80 columns), and import ordering.
+
+```sh
+just check-frontend   # format + lint + import order, no writes; fails on any error, warning or unformatted file
+just fix-frontend     # apply Biome's formatting and safe fixes in place
+just test-codec       # vitest unit tests
+```
+
+`check-frontend` is the gate: it runs `biome ci --error-on-warnings`, so a
+warning is a failure, not a note to clean up later. Inside `frontend/` the
+same commands are `pnpm check` / `pnpm fix` / `pnpm test`. A rule that does
+not fit one spot is silenced on that line only, with
+`// biome-ignore lint/<group>/<rule>: <reason>`; the config is not relaxed
+for it.
+
 ### Hosted on GitHub Pages
 
 This repo's [Docs workflow](../../.github/workflows/docs.yml) also publishes

@@ -58,6 +58,15 @@ serve-frontend: build-frontend
     print('https://0.0.0.0:8443/'); \
     srv.serve_forever()"
 
+# Biome over the frontend (format + lint + import order, no writes):
+# fails on any error, warning or unformatted file. Config: frontend/biome.json.
+check-frontend:
+    cd frontend && pnpm install --frozen-lockfile && pnpm check
+
+# Apply Biome's formatting and safe lint fixes to the frontend in place.
+fix-frontend:
+    cd frontend && pnpm install --frozen-lockfile && pnpm fix
+
 # TS codec unit tests (vitest) pinned to the shared golden vectors
 # (testvectors/moqt_golden.json).
 test-codec:
