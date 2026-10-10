@@ -494,8 +494,8 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   IDN processing, SRV-ID/URI-ID matching (only DNS-ID dNSName). Source:
   `src/crypto/pki/encoding/x509/nameconstraints.c:337`, `ledger:rfc5280.md`,
   `ledger:rfc6125.md` Out of scope.
-- **Signature algorithms in chains** — chains signed with P-521,
-  ECDSA-with-SHA-512 or legacy RSA-SHA-1 cannot be verified. Source:
+- **Signature algorithms in chains** — chains signed with P-521 or legacy
+  RSA-SHA-1 cannot be verified. Source:
   `tests/vectors/boringssl/README.md`.
 
 ## Cryptography
@@ -504,7 +504,7 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   SHA-224, SHA-512/224, SHA-512/256, MD5. HMAC-SHA256, HMAC-SHA384 and
   HMAC-SHA512 only: **no HMAC-SHA1, HMAC-SHA224, HMAC-MD5**; HKDF is SHA-256
   only in the TLS/QUIC profile. Impact: none for TLS 1.3 handshakes; certificate chains signed with
-  SHA-512-based or SHA-1 algorithms cannot be verified. Source:
+  SHA-1 algorithms cannot be verified. Source:
   `docs/security/boringssl-vectors.md`, `tests/vectors/boringssl/README.md`,
   `ledger:fips180-4.md`, `ledger:rfc5869.md`, RESUME.
 - **Curves: P-256 and P-384 only** — **no P-224, P-521, secp224k1, P-192,

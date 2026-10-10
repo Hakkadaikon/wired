@@ -54,8 +54,8 @@ Impact of the skipped algorithms on QUIC / WebTransport / MoQT: none of them is
 needed by a TLS 1.3 handshake (cipher suites use SHA-256/SHA-384 for HKDF;
 MD5 and SHA-1 signatures are forbidden in TLS 1.3 handshakes; P-224 and
 secp224k1 are not TLS 1.3 groups or signature schemes; P-521 is optional).
-Certificate-chain verification is the exception: a chain signed with P-521,
-ECDSA-with-SHA-512 or legacy RSA-SHA-1 cannot be verified by wired.
+Certificate-chain verification is the exception: a chain signed with P-521
+or legacy RSA-SHA-1 cannot be verified by wired.
 
 Per-primitive counts and any remaining failures are summarized in
 `docs/security/boringssl-vectors.md`.

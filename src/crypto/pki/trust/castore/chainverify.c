@@ -1,5 +1,6 @@
 #include "crypto/pki/trust/castore/chainverify.h"
 
+#include "common/bytes/util/num.h"
 #include "crypto/asymmetric/ecc/ecdsasig/sig_value.h"
 #include "crypto/asymmetric/ecc/p256/ecdsa_verify.h"
 #include "crypto/asymmetric/ecc/p384/ecdsa_verify.h"
@@ -96,12 +97,13 @@ static int chv_verify_p256(wired_span key, wired_span sig, const u8* hash) {
   return ecdsa_p256_verify(x, y, r, s, h32);
 }
 
-/* FIPS 186-4 6.4: left-zero-extend the digest into 48 bytes (a 48-byte digest
- * is copied whole), matching the P-384 order size. */
+/* FIPS 186-4 6.4: a digest wider than the P-384 order (SHA-512) uses its
+ * leftmost 48 bytes; a shorter one is left-zero-extended into 48 bytes. */
 static void chv_hash_to_scalar48(wired_span hash, u8 h48[48]) {
-  usz off = 48 - hash.n;
+  usz n   = (usz)u64_min(hash.n, 48);
+  usz off = 48 - n;
   for (usz i = 0; i < 48; i++) h48[i] = 0;
-  for (usz i = 0; i < hash.n; i++) h48[off + i] = hash.p[i];
+  for (usz i = 0; i < n; i++) h48[off + i] = hash.p[i];
 }
 
 static int chv_verify_p384(wired_span key, wired_span sig, wired_span hash) {

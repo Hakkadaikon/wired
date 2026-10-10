@@ -1,6 +1,7 @@
 #include "crypto/pki/trust/castore/chainverify.h"
 
 #include "castore_golden.h"
+#include "chv_sha512_golden.h"
 #include "test.h"
 
 static wired_span chv_leaf_span(void) {
@@ -50,7 +51,19 @@ static void test_sigalg_mismatch_fails(void) {
           wired_span_of(leaf, sizeof(leaf)), chv_root_span()) == 0);
 }
 
+/* RFC 5758 3.2 ecdsa-with-SHA512 (OpenSSL-signed): the 64-byte digest is cut
+ * to the group order's leftmost bytes (FIPS 186-4 6.4) on P-384 and P-256. */
+static void test_ecdsa_sha512_self_signed(void) {
+  wired_span c384 =
+      wired_span_of(chv_p384_sha512_der, sizeof(chv_p384_sha512_der));
+  wired_span c256 =
+      wired_span_of(chv_p256_sha512_der, sizeof(chv_p256_sha512_der));
+  CHECK(castore_verify_signed_by(c384, c384) == 1);
+  CHECK(castore_verify_signed_by(c256, c256) == 1);
+}
+
 void test_chainverify(void) {
+  test_ecdsa_sha512_self_signed();
   test_leaf_signed_by_root();
   test_root_self_signature();
   test_leaf_not_signed_by_leaf();
