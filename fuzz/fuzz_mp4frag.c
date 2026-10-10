@@ -12,8 +12,8 @@
 
 #include "app/media/mp4frag/mp4frag.c"
 
-int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   mp4frag_layout out;
-  mp4frag_scan(wired_span_of((const u8 *)data, (usz)size), &out);
+  mp4frag_scan(wired_span_of((const u8*)data, (usz)size), &out);
   return 0;
 }

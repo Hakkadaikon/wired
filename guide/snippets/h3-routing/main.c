@@ -9,7 +9,8 @@ static int on_request(void* ctx, wired_http_exchange* x) {
   wired_span path = wired_h3req_path(x->req);
   wired_dprintf(2, "request %.*s\n", WIRED_SPAN_ARG(path));
   if (wired_span_eq_cstr(path, "/")) return wired_http_reply_text(x, 0, "home");
-  if (wired_span_eq_cstr(path, "/about")) return wired_http_reply_text(x, 0, "about");
+  if (wired_span_eq_cstr(path, "/about"))
+    return wired_http_reply_text(x, 0, "about");
   x->status = 404;
   return 0;
 }

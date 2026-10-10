@@ -16,22 +16,12 @@
 #include <stdint.h>
 
 #include "common/platform/rng/rng.c"
+#include "crypto/asymmetric/ecc/ed25519/ed25519_field.c"
+#include "crypto/asymmetric/ecc/ed25519/ed25519_sign.c"
 #include "crypto/symmetric/aead/chacha/aead.c"
 #include "crypto/symmetric/aead/chacha/chacha20.c"
 #include "crypto/symmetric/aead/chacha/poly1305.c"
 #include "crypto/symmetric/hash/hash/sha512.c"
-#include "crypto/asymmetric/ecc/ed25519/ed25519_field.c"
-#include "crypto/asymmetric/ecc/ed25519/ed25519_sign.c"
-#include "tls/handshake/core/tls/alpn_match.c"
-#include "tls/handshake/core/tls/cert.c"
-#include "tls/handshake/core/tls/handshake.c"
-#include "tls/handshake/core/tls/sni.c"
-#include "tls/keys/ticket/ticket.c"
-#include "tls/handshake/core/tls/ext_keyshare.c"
-#include "tls/handshake/core/tls/hs_message.c"
-#include "tls/handshake/core/tls/msgassembly.c"
-#include "tls/handshake/core/tls/newsessionticket.c"
-#include "tls/handshake/core/tls/serverhello.c"
 #include "tls/ext/legacy/legacy_fields.c"
 #include "tls/ext/salpn/ch_ext.c"
 #include "tls/ext/salpn/negotiate.c"
@@ -39,9 +29,19 @@
 #include "tls/ext/tlsext/earlydata.c"
 #include "tls/ext/tlsext/preshared.c"
 #include "tls/ext/tlsext/pskmodes.c"
+#include "tls/handshake/core/tls/alpn_match.c"
+#include "tls/handshake/core/tls/cert.c"
+#include "tls/handshake/core/tls/ext_keyshare.c"
+#include "tls/handshake/core/tls/handshake.c"
+#include "tls/handshake/core/tls/hs_message.c"
+#include "tls/handshake/core/tls/msgassembly.c"
+#include "tls/handshake/core/tls/newsessionticket.c"
+#include "tls/handshake/core/tls/serverhello.c"
+#include "tls/handshake/core/tls/sni.c"
+#include "tls/keys/ticket/ticket.c"
 
 /* RFC 8446 4: message framing on the raw input. */
-static void fuzz_framing(const u8 *buf, usz n) {
+static void fuzz_framing(const u8* buf, usz n) {
   usz msg_len;
   hs_message_ready(buf, n, &msg_len);
   if (n >= 1) hs_message_type(buf);
@@ -70,7 +70,7 @@ static void fuzz_messages(wired_span msg) {
 /* The same bytes as ClientHello body / raw extension_data. */
 static void fuzz_ch_extensions(wired_span msg) {
   legacy_check_client_hello(msg.p, msg.n);
-  const u8 *sid;
+  const u8* sid;
   u8        sid_len;
   legacy_session_id(msg, &sid, &sid_len);
 
@@ -98,9 +98,9 @@ static void fuzz_ch_extensions(wired_span msg) {
   tlsext_early_data_nst_parse(msg.p, msg.n, &max_size);
 }
 
-int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-  const u8 *buf = (const u8 *)data;
-  usz       n   = (usz)size;
+int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  const u8*  buf = (const u8*)data;
+  usz        n   = (usz)size;
   wired_span msg = wired_span_of(buf, n);
 
   fuzz_framing(buf, n);

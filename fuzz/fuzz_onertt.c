@@ -13,6 +13,7 @@
 #include "app/datagram/datagram/datagram.c"
 #include "app/datagram/dgdeliver/dg_recv.c"
 #include "common/bytes/varint/varint.c"
+#include "crypto/kdf/hkdf/hkdf.c"
 #include "crypto/kdf/keys/keyset.c"
 #include "crypto/kdf/keys/promote.c"
 #include "crypto/symmetric/aead/aes/aes.c"
@@ -25,18 +26,18 @@
 #include "crypto/symmetric/hash/hash/sha256.c"
 #include "crypto/symmetric/hash/hash/sha384.c"
 #include "crypto/symmetric/hash/hash/sha512.c"
-#include "crypto/kdf/hkdf/hkdf.c"
 #include "tls/handshake/core/tls/aead_params.c"
 #include "tls/handshake/core/tls/cipher.c"
 #include "tls/keys/keyupdate/aeadintegrity.c"
 #include "transport/conn/cid/path/antiamp.c"
 #include "transport/conn/lifecycle/conn/pnspace.c"
-#include "transport/conn/pnspace/crypto_stream/crypto_rx.c"
 #include "transport/conn/loop/connio/connio.c"
 #include "transport/conn/loop/connloop/connloop.c"
 #include "transport/conn/loop/connrunner/level.c"
+#include "transport/conn/pnspace/crypto_stream/crypto_rx.c"
 #include "transport/conn/pnspace/pnspaces/spaces.c"
 #include "transport/io/udp/udploop/antiamp_gate.c"
+#include "transport/packet/build/vpn/vpn_open.c"
 #include "transport/packet/frame/frame/ack.c"
 #include "transport/packet/frame/frame/ack_range.c"
 #include "transport/packet/frame/frame/connctl.c"
@@ -51,15 +52,14 @@
 #include "transport/packet/frame/pipeline/framewalk.c"
 #include "transport/packet/frame/pipeline/rxpacket.c"
 #include "transport/packet/frame/pipeline/txpacket.c"
+#include "transport/packet/header/lhdr/lhdr_build.c"
+#include "transport/packet/header/lhdr/lhdr_parse.c"
 #include "transport/packet/header/packet/coalesce.c"
 #include "transport/packet/header/packet/header.c"
 #include "transport/packet/header/packet/inittoken.c"
 #include "transport/packet/header/packet/pnlen.c"
 #include "transport/packet/header/packet/pnum.c"
 #include "transport/packet/header/packet/ptype.c"
-#include "transport/packet/header/lhdr/lhdr_build.c"
-#include "transport/packet/header/lhdr/lhdr_parse.c"
-#include "transport/packet/build/vpn/vpn_open.c"
 #include "transport/packet/protect/hp/hp.c"
 #include "transport/packet/protect/hp/hp_chacha.c"
 #include "transport/packet/protect/hp/hpapply.c"
@@ -83,9 +83,9 @@
  * marked complete, address validated. No real TLS runs -- connio_recv's
  * AEAD open/frame-dispatch path runs the same whether the key material is
  * real or zeroed, and connio_test.c's arm_onertt proves that. */
-static void arm_onertt(connio *io, int is_server) {
+static void arm_onertt(connio* io, int is_server) {
   connio_init_in in = {is_server, 0x43, 1u << 20};
-  connio_init(io, wired_span_of((const u8 *)"\x01\x02\x03\x04", 4), &in);
+  connio_init(io, wired_span_of((const u8*)"\x01\x02\x03\x04", 4), &in);
 
   initial_keys k = {0};
   keyset_install(&io->loop.keys, LEVEL_INITIAL, &k);
@@ -108,7 +108,7 @@ static void arm_onertt(connio *io, int is_server) {
  * byte selects (RFC 9000 17.2/17.3), same mapping the real receive loop
  * uses. A packet whose first byte maps to no loop-handled level (0-RTT,
  * Retry) is simply skipped -- there is nothing post-handshake to fuzz there. */
-static void feed_one(connio *io, const u8 *data, usz len) {
+static void feed_one(connio* io, const u8* data, usz len) {
   static u8 scratch[SCRATCH_CAP];
   int       level;
   if (len == 0 || len > SCRATCH_CAP) return;
@@ -117,8 +117,8 @@ static void feed_one(connio *io, const u8 *data, usz len) {
   connio_recv(io, level, wired_mspan_of(scratch, len));
 }
 
-int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-  const u8 *buf = (const u8 *)data;
+int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  const u8* buf = (const u8*)data;
   usz       n   = (usz)size;
 
   connio io;

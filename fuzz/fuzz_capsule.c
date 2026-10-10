@@ -28,7 +28,8 @@ static void fuzz_capsules(wired_span in) {
   usz        at = 0;
   u64        type;
   wired_span value;
-  while (capsule_decode(in, &at, &type, &value)) {}
+  while (capsule_decode(in, &at, &type, &value)) {
+  }
   capsule_fin_truncated(in, at, 1);
 
   usz        wt = 0;
@@ -82,8 +83,8 @@ static void fuzz_qpack(wired_span in) {
   qdyn_enc_apply_capacity(in, &table, 4096, &err);
 }
 
-int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-  wired_span in = wired_span_of((const u8 *)data, (usz)size);
+int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  wired_span in = wired_span_of((const u8*)data, (usz)size);
   fuzz_capsules(in);
   fuzz_h3(in);
   fuzz_qpack(in);

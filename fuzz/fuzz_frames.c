@@ -13,6 +13,13 @@
 #include <stdint.h>
 
 #include "common/bytes/varint/varint.c"
+#include "tls/ext/stp/parse_tp.c"
+#include "tls/ext/tparam/tparam.c"
+#include "tls/ext/tparam/tpblob.c"
+#include "tls/ext/tparam/tpcheck.c"
+#include "tls/ext/tpverify/iscid.c"
+#include "tls/ext/tpverify/odcid.c"
+#include "tls/ext/tpverify/rscid.c"
 #include "transport/packet/frame/frame/ack.c"
 #include "transport/packet/frame/frame/ack_range.c"
 #include "transport/packet/frame/frame/connctl.c"
@@ -24,17 +31,10 @@
 #include "transport/packet/frame/frame/permit.c"
 #include "transport/packet/frame/frame/stream_bounds.c"
 #include "transport/packet/frame/frame/stream_ctl.c"
-#include "tls/ext/stp/parse_tp.c"
-#include "tls/ext/tparam/tparam.c"
-#include "tls/ext/tparam/tpblob.c"
-#include "tls/ext/tparam/tpcheck.c"
-#include "tls/ext/tpverify/iscid.c"
-#include "tls/ext/tpverify/odcid.c"
-#include "tls/ext/tpverify/rscid.c"
 
 /* Hand the same bytes to every frame decoder; each rejects a wrong type
  * varint in O(1), and the matching one parses for real. */
-static void fuzz_frame_decoders(const u8 *buf, usz n) {
+static void fuzz_frame_decoders(const u8* buf, usz n) {
   crypto_frame          cf;
   stream_frame          sf;
   conn_close_frame      cc;
@@ -73,7 +73,7 @@ static void fuzz_frame_decoders(const u8 *buf, usz n) {
 
 /* RFC 9000 12.4: classify the leading type varint and run the per-kind
  * predicates across every packet type. */
-static void fuzz_classify(const u8 *buf, usz n) {
+static void fuzz_classify(const u8* buf, usz n) {
   u64 type;
   if (!varint_decode(buf, n, &type)) return;
   frame_kind kind = frame_classify(type);
@@ -86,7 +86,7 @@ static void fuzz_classify(const u8 *buf, usz n) {
 }
 
 /* Reinterpret the same bytes as a transport-parameter TLV sequence. */
-static void fuzz_tparams(const u8 *data, usz n) {
+static void fuzz_tparams(const u8* data, usz n) {
   wired_span tp = wired_span_of(data, n);
 
   u64        id, value;
@@ -103,7 +103,7 @@ static void fuzz_tparams(const u8 *data, usz n) {
       TP_ORIGINAL_DESTINATION_CONNECTION_ID, TP_MAX_IDLE_TIMEOUT,
       TP_INITIAL_MAX_DATA, TP_INITIAL_SOURCE_CONNECTION_ID,
       TP_RETRY_SOURCE_CONNECTION_ID};
-  static const u8 cid[] = {0xc0, 0xff, 0xee, 0x00};
+  static const u8 cid[]    = {0xc0, 0xff, 0xee, 0x00};
   wired_span      cid_span = wired_span_of(cid, sizeof(cid));
   for (usz i = 0; i < sizeof(ids) / sizeof(ids[0]); i++) {
     u64        v;
@@ -118,8 +118,8 @@ static void fuzz_tparams(const u8 *data, usz n) {
   }
 }
 
-int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-  const u8 *buf = (const u8 *)data;
+int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  const u8* buf = (const u8*)data;
   usz       n   = (usz)size;
   if (n == 0) return 0;
 

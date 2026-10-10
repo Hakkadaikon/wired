@@ -11,7 +11,8 @@ int wired_main(int argc, char** argv) {
   if (argc < 3) return fail("usage: tls-certificates cert.pem key.pem\n");
 
   /* Walk every PEM block of cert.pem, decoding each to DER. */
-  wired_span pem = wired_fio_read_span(argv[1], wired_mspan_of(text, sizeof text));
+  wired_span pem =
+      wired_fio_read_span(argv[1], wired_mspan_of(text, sizeof text));
   if (pem.n == 0) return fail("cannot read cert.pem\n");
   usz        at = 0;
   wired_span label;

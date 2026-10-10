@@ -39,8 +39,7 @@ static void on_datagram(void* ctx, wired_wt_session* s, wired_span data) {
     wired_log_str("drain sent\n");
     return;
   }
-  wired_server_wt_close_session(
-      s, 4001, wired_span_cstr("demo done"));
+  wired_server_wt_close_session(s, 4001, wired_span_cstr("demo done"));
   wired_log_str("close sent\n");
 }
 

@@ -298,8 +298,7 @@ static void goaway_on_shutdown(wired_moqt_hub* hub) {
   static int sent;
   if (sent || !*wired_srvrun_shutdown_word()) return;
   sent = 1;
-  wired_moqt_goaway(
-      hub, wired_span_cstr(g_goaway_uri), GOAWAY_TIMEOUT_MS);
+  wired_moqt_goaway(hub, wired_span_cstr(g_goaway_uri), GOAWAY_TIMEOUT_MS);
   wired_log_str("moqt: shutdown requested, GOAWAY sent\n");
 }
 

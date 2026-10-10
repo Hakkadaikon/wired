@@ -97,10 +97,8 @@ static int g_deployed = 0;
 static void deploy_cert_b(void) {
   if (g_deployed) return;
   g_deployed = 1;
-  wired_fio_write_new(
-      "live-cert.pem", wired_span_cstr(CERT_B));
-  wired_fio_write_new(
-      "live-key.pem", wired_span_cstr(KEY_B));
+  wired_fio_write_new("live-cert.pem", wired_span_cstr(CERT_B));
+  wired_fio_write_new("live-key.pem", wired_span_cstr(KEY_B));
 }
 
 static void on_step(void* ctx, u64 now_ms) {
@@ -116,10 +114,8 @@ int wired_main(int argc, char** argv) {
   wired_srvboot_id               id;
   wired_srvboot_demo(&id, &keys, 0x50, "guide-cr");
 
-  wired_fio_write_new(
-      "live-cert.pem", wired_span_cstr(CERT_A));
-  wired_fio_write_new(
-      "live-key.pem", wired_span_cstr(KEY_A));
+  wired_fio_write_new("live-cert.pem", wired_span_cstr(CERT_A));
+  wired_fio_write_new("live-key.pem", wired_span_cstr(KEY_A));
   static wired_certreload_store store;
   wired_certreload_load_or_selfsigned(
       "live-cert.pem", "live-key.pem", &store, &id);

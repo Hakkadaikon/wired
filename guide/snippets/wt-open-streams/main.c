@@ -27,11 +27,9 @@ static void on_stream_data(
   (void)ctx;
   if (!fin) return;
   if (wired_span_eq_cstr(data, "more"))
-    wired_server_wt_stream_send(
-        s, (u64)g_uni, wired_span_cstr("chunk2 "), 0);
+    wired_server_wt_stream_send(s, (u64)g_uni, wired_span_cstr("chunk2 "), 0);
   else if (wired_span_eq_cstr(data, "bye"))
-    wired_server_wt_stream_send(
-        s, (u64)g_uni, wired_span_cstr("chunk3"), 1);
+    wired_server_wt_stream_send(s, (u64)g_uni, wired_span_cstr("chunk3"), 1);
   wired_server_wt_stream_reply(s, stream_id, wired_span_cstr("ok"));
 }
 

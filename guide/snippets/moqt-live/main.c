@@ -72,8 +72,8 @@ static void publish_live_once(void) {
   if (g_live_published) return;
   g_live_published = 1;
   wired_moqt_publish_live(
-      &g_hub, wired_span_cstr("movie"), 2, g_layout.frags,
-      g_layout.n_frags, 300, clock_mono_ms());
+      &g_hub, wired_span_cstr("movie"), 2, g_layout.frags, g_layout.n_frags,
+      300, clock_mono_ms());
 }
 
 static void on_session(

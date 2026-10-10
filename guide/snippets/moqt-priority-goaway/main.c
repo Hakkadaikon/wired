@@ -22,8 +22,7 @@ static void on_datagram(void* ctx, wired_wt_session* s, wired_span data) {
   (void)s;
   (void)data;
   static const char uri[] = "https://relay2.example/moqt";
-  wired_moqt_goaway(
-      (wired_moqt_hub*)ctx, wired_span_cstr(uri), 300);
+  wired_moqt_goaway((wired_moqt_hub*)ctx, wired_span_cstr(uri), 300);
   wired_log_str("GOAWAY sent\n");
 }
 

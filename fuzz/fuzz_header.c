@@ -11,8 +11,8 @@
 #include "transport/packet/header/packet/ptype.c"
 #include "transport/version/version/v2types.c"
 
-int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-  const u8 *buf = (const u8 *)data;
+int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  const u8* buf = (const u8*)data;
   usz       n   = (usz)size;
 
   if (n == 0) return 0;
@@ -39,7 +39,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   coalesce_iter it;
   coalesce_begin(&it, buf, n);
   coalesced pkt;
-  while (coalesce_next(&it, &pkt)) {}
+  while (coalesce_next(&it, &pkt)) {
+  }
 
   return 0;
 }
