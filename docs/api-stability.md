@@ -146,20 +146,24 @@ are reachable from `wired.h` because the app-facing layer is built out of
 them; the Low-level table above is the authoritative list of what needs
 care.
 
-## MOQT is not on this map
+## MOQT: reachable from `wired.h`, experimental tier
 
 `src/app/moqt/` (fourteen modules: `cache`, `ctl`, `data`, `dgram`,
 `fetch`, `kvp`, `ns`, `qraw`, `run`, `sess`, `ssts`, `tstat`, `ver`, `vi`)
 implements MOQT — a session
 negotiates whichever of draft-ietf-moq-transport-18/19/22 the peer's WT
-subprotocol offers (`moqt-18`/`moqt-19`/`moqt-22`) — but its headers are not
-included by `src/wired.h`, so none of it appears in either table above —
-`wired_moqt_init` and friends (`run/moqtrun.h`) are deliberately outside the
-one-include surface this document maps. This is a design choice, not an
-oversight: `examples/moqt_chat` includes `app/moqt/run/moqtrun.h` directly
-alongside `wired.h`, the same way any other MOQT application would. Treat
-`src/app/moqt/` headers with the same care as the Low-level table — read the
-header before calling.
+subprotocol offers (`moqt-18`/`moqt-19`/`moqt-22`). `src/wired.h` includes
+the application-facing MOQT headers (`run/moqtrun.h`, `qraw/moqrawio.h`,
+`data/moqdata.h`, `dgram/moqdg.h`, plus `media/mp4frag/mp4frag.h` and
+`platform/clock/mono.h` for live media), so `wired_moqt_init` and friends
+need no second include.
+
+The whole MOQT surface is **experimental**, not Stable: MoQ Transport is
+still an IETF draft, and the names, defaults and wire behavior follow it,
+so they may change in any commit without a deprecation period. That is why
+none of it appears in the Stable or Low-level tables above. Treat these
+headers with the same care as the Low-level table — read the header before
+calling.
 
 Minor additions to `run/moqtrun.h` in this round, all zero = old behavior:
 
