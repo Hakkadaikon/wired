@@ -9,7 +9,7 @@
 # `CONNTABLE_CAP=<n> just build` (or `just --set conntable_cap <n> build`
 # from the repo root) when deploying for more than 4 simultaneous users.
 build:
-    cd ../.. && just build && ninja examples/moqt_chat/wired_server
+    cd ../.. && just build && just ninja examples/moqt_chat/wired_server
 
 # Build (via docker-compose.yml's own `build:`) and run in the foreground;
 # Ctrl-C stops it. network_mode: host, so the container listens on the

@@ -242,7 +242,8 @@ Diagnose in this order; each step turns a guess into a fact:
   stall was server-side compute, not loss or the network. (`SSLKEYLOGFILE` for
   keys.)
 - **Stage timestamps pinpoint the gap.** Once it's "inside the server", build
-  with `-DQUIC_DEBUG` (each log line carries a CLOCK_REALTIME stamp) and read the
+  the `-DQUIC_DEBUG` variant (`cd examples/word_list && just build-debug`, i.e.
+  `just ninja examples/word_list/wired_server_debug`; each log line carries a CLOCK_REALTIME stamp) and read the
   *deltas* between pipeline boundaries (`Initial received` → `ClientHello
   received` → `flight built`). One run shows which two lines the time vanishes
   between — faster than suspecting one function at a time.
@@ -250,7 +251,8 @@ Diagnose in this order; each step turns a guess into a fact:
   `clock_gettime` loop in `$TMPDIR` over each primitive (x25519 / sha256 /
   fp_mul / fp_inv / ec_mul / sign) and read the ms. This is first-choice over a
   profiler: faster to write, and the libc-free core compiles fine under host
-  clang for measurement. It put 98% of signing on `fp_inv mod n` immediately,
+  clang for measurement (a throwaway `$TMPDIR` harness, not a repo build:
+  the repo's own targets still go through `just ninja`). It put 98% of signing on `fp_inv mod n` immediately,
   with no remote access.
 - **Stop at the dominant term.** After killing the big one, measure whether the
   next term shows up in the SLA before touching it. Here the field reducer took

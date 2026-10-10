@@ -7,13 +7,13 @@
 # Build the server against the SDK static library, after the SDK's own
 # fmt+ninja+lint gate. The static, freestanding binary needs no libc.
 build:
-    cd ../.. && just build && ninja examples/word_list/wired_server
+    cd ../.. && just build && just ninja examples/word_list/wired_server
 
 # Debug build: timestamped trace logging via -DQUIC_DEBUG. Compiles the SDK
 # from source so the flag reaches the in-SDK trace points (the release
 # library is built without it).
 build-debug:
-    cd ../.. && just gen-ninja && ninja examples/word_list/wired_server_debug
+    cd ../.. && just ninja examples/word_list/wired_server_debug
 
 # Build and run (binds 0.0.0.0:4433; Ctrl-C to stop).
 run: build
