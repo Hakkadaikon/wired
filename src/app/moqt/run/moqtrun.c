@@ -3616,14 +3616,18 @@ static void moqtrun_update_sub(
   moqtrun_update_sub_apply(hub, p, s, t, params, rid);
 }
 
+/* A namespace-scoped request: PUBLISH_NAMESPACE, SUBSCRIBE_NAMESPACE or
+ * SUBSCRIBE_TRACKS (draft-22 9.5 updates all three alike). */
 static int moqtrun_kind_is_ns(u64 kind) {
   return kind == MOQNS_T_PUBLISH_NAMESPACE ||
-         kind == MOQNS_T_SUBSCRIBE_NAMESPACE;
+         kind == MOQNS_T_SUBSCRIBE_NAMESPACE ||
+         kind == MOQCTL_T_SUBSCRIBE_TRACKS;
 }
 
-/* draft-ietf-moq-transport-19 10.9.1: a failed update of a namespace
- * request closes its bidi stream -- the request ends (a PUBLISH_NAMESPACE
- * is withdrawn, a SUBSCRIBE_NAMESPACE owes no NAMESPACE_DONE any more)
+/* draft-ietf-moq-transport-19 10.9.1 / draft-22 9.5.1: a failed update of
+ * a namespace request closes its bidi stream -- the request ends (a
+ * PUBLISH_NAMESPACE is withdrawn, a SUBSCRIBE_NAMESPACE owes no
+ * NAMESPACE_DONE any more, a SUBSCRIBE_TRACKS opens no more PUBLISHes)
  * and the hub FINs once its answer is out (3.3.2). */
 static void moqtrun_upd_close_ns(wired_moqtrun_req* q) {
   if (!q || !moqtrun_kind_is_ns(q->kind)) return;
@@ -3676,12 +3680,15 @@ static int moqtrun_upd_allowed(const wired_moqtrun_peer* p) {
   return moqtrun_upd_is_sub(p) || moqtrun_upd_is_other(p);
 }
 
-/* moqtrun_upd_ctx's namespace half: SUBSCRIBE_NAMESPACE vs
- * PUBLISH_NAMESPACE each have their own ctx bit (10.2.x). */
+/* moqtrun_upd_ctx's namespace half: SUBSCRIBE_NAMESPACE,
+ * SUBSCRIBE_TRACKS and PUBLISH_NAMESPACE each have their own ctx bit
+ * (draft-22 9.5). */
 static u32 moqtrun_upd_ns_ctx(const wired_moqtrun_req* q) {
-  return q->kind == MOQNS_T_SUBSCRIBE_NAMESPACE
-             ? MOQCTL_PCTX_UPDATE_SUBSCRIBE_NAMESPACE
-             : MOQCTL_PCTX_UPDATE_PUBLISH_NAMESPACE;
+  if (q->kind == MOQNS_T_SUBSCRIBE_NAMESPACE)
+    return MOQCTL_PCTX_UPDATE_SUBSCRIBE_NAMESPACE;
+  if (q->kind == MOQCTL_T_SUBSCRIBE_TRACKS)
+    return MOQCTL_PCTX_UPDATE_SUBSCRIBE_TRACKS;
+  return MOQCTL_PCTX_UPDATE_PUBLISH_NAMESPACE;
 }
 
 /* The MOQCTL_PCTX_UPDATE_* bit a decode must check the update's parameters
@@ -3782,7 +3789,7 @@ static int moqtrun_upd_stray(const wired_moqtrun_peer* p) {
 }
 
 /* A REQUEST_UPDATE of a kind the hub does not update: closed when stray,
- * else (a SUBSCRIBE_TRACKS, or d18's control stream) NOT_SUPPORTED. */
+ * else (d18's control stream) NOT_SUPPORTED. */
 static void moqtrun_upd_refuse(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   if (moqtrun_upd_stray(p)) {
     moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
@@ -3945,6 +3952,15 @@ static u64 moqtrun_disc_sub_check(
   return clash ? MOQCTL_ERR_PREFIX_OVERLAP : MOQTRUN_REQ_ACCEPT;
 }
 
+/* PREFIX_OVERLAP against the live requests of q's own kind: the overlap
+ * restriction applies per type (draft-22 9.5.2), SUBSCRIBE_NAMESPACE or
+ * SUBSCRIBE_TRACKS. */
+static u64 moqtrun_disc_kind_check(
+    const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
+  int clash = moqtrun_disc_any(hub, q, q->kind, moqtrun_disc_overlap);
+  return clash ? MOQCTL_ERR_PREFIX_OVERLAP : MOQTRUN_REQ_ACCEPT;
+}
+
 typedef u64 (*moqtrun_disc_check_fn)(
     const wired_moqt_hub*, const wired_moqtrun_req*);
 typedef int (*moqtrun_disc_take_fn)(int, wired_span, moqns_req*);
@@ -3978,7 +3994,7 @@ static u64 moqtrun_upd_ns_prefix(
     wired_moqt_hub* hub, wired_moqtrun_req* q, const moqctl_param* pfx) {
   wired_moqtrun_req before = *q;
   if (!moqtrun_upd_ns_write(q, pfx)) return MOQCTL_ERR_INTERNAL_ERROR;
-  u64 code = moqtrun_disc_sub_check(hub, q);
+  u64 code = moqtrun_disc_kind_check(hub, q);
   if (code == MOQTRUN_REQ_ACCEPT) return code;
   q->ns_len = before.ns_len;
   bytes_memcpy(q->ns, before.ns, before.ns_len);
@@ -3988,6 +4004,18 @@ static u64 moqtrun_upd_ns_prefix(
 static u64 moqtrun_upd_ns_verdict(
     wired_moqt_hub* hub, wired_moqtrun_req* q, const moqctl_param* pfx) {
   return pfx ? moqtrun_upd_ns_prefix(hub, q, pfx) : MOQTRUN_REQ_ACCEPT;
+}
+
+/* A SUBSCRIBE_TRACKS update's FORWARD (draft-22 9.5; the only namespace
+ * kind whose update scope admits it) is echoed on the PUBLISHes it
+ * generates from now on (moqtrun_subtracks_publish_params); omitted, it
+ * is unchanged. */
+static void moqtrun_upd_ns_forward(
+    wired_moqtrun_req* q, const moqctl_params* params) {
+  const moqctl_param* f = moqctl_params_find(params, MOQCTL_PARAM_FORWARD);
+  if (!f) return;
+  q->has_forward = 1;
+  q->forward     = moqtrun_param_u8(f);
 }
 
 /* A REQUEST_UPDATE of a PUBLISH_NAMESPACE or SUBSCRIBE_NAMESPACE: the
@@ -4008,6 +4036,7 @@ static void moqtrun_update_ns(
     moqtrun_upd_close_ns(q);
     return;
   }
+  moqtrun_upd_ns_forward(q, params);
   moqtrun_queue_request_ok(p, 0);
 }
 

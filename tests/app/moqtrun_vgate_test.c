@@ -77,24 +77,73 @@ static void mtvg_update_own_publish(void) {
   CHECK(mtst_hub.peers[0].tracks[0].in_use == 1);
 }
 
-/* 12-6: an update of a SUBSCRIBE_TRACKS is one of the allowed cases, so
- * it is answered (10.9: "MUST respond with exactly one REQUEST_OK or
- * REQUEST_ERROR") and never closes the session; this hub refuses it with
- * NOT_SUPPORTED on every draft and the request stays established. */
+/* 12-6: an update of a SUBSCRIBE_TRACKS is one of the allowed cases
+ * (draft-22 9.5): it is REQUEST_OK and the request stays established. */
 static void mtvg_update_subtracks(void) {
-  moqctl_params p1 = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
+  moqctl_params none = {0};
   mtst_init();
   mtst_join(SESS_B);
   mtst_subtracks(SESS_B, MTRQ_S1, "chat");
-  mtup_update(SESS_B, MTRQ_S1, &p1);
-  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_NOT_SUPPORTED);
+  mtup_update(SESS_B, MTRQ_S1, &none);
+  CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
   CHECK(mtrq_closes() == 0);
   CHECK(mtrq_used() == 1);
+}
+
+/* draft-22 9.5 admits FORWARD on a SUBSCRIBE_TRACKS update: recorded for
+ * the PUBLISHes the request generates from now on. */
+static void mtvg_update_subtracks_forward(void) {
+  moqctl_params p0 = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  mtst_init();
+  mtst_join(SESS_B);
+  mtst_subtracks(SESS_B, MTRQ_S1, "chat");
+  mtup_update(SESS_B, MTRQ_S1, &p0);
+  CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
+  CHECK(mtrq_closes() == 0);
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+    if (mtst_hub.reqs[i].in_use)
+      CHECK(mtst_hub.reqs[i].has_forward && mtst_hub.reqs[i].forward == 0);
+}
+
+/* draft-22 9.5.2: a SUBSCRIBE_TRACKS's new TRACK_NAMESPACE_PREFIX makes a
+ * track it did not match before match now. */
+static void mtvg_update_subtracks_prefix(void) {
+  moqctl_ftn     f = mtst_ftn("chat", "room1", "alice");
+  moqctl_publish got[2];
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_subtracks(SESS_B, MTRQ_S1, "video");
+  wired_moqt_tick(&mtst_hub, 0);
+  CHECK(mtst_pub_opens(SESS_B, got, 2) == 0);
+  moqctl_params p = mtup_ns_param("chat");
+  mtup_update(SESS_B, MTRQ_S1, &p);
+  wired_moqt_tick(&mtst_hub, 0);
+  CHECK(mtst_pub_opens(SESS_B, got, 2) == 1);
+}
+
+/* draft-22 9.5.1/9.5.2: a prefix overlapping another SUBSCRIBE_TRACKS of
+ * the session fails PREFIX_OVERLAP, and the failed update closes the bidi
+ * stream. */
+static void mtvg_update_subtracks_overlap(void) {
+  mtst_init();
+  mtst_join(SESS_B);
+  mtst_subtracks(SESS_B, MTRQ_S1, "chat");
+  mtst_subtracks(SESS_B, MTRQ_S2, "video");
+  moqctl_params p = mtup_ns_param("chat");
+  mtup_update(SESS_B, MTRQ_S2, &p);
+  CHECK(mtup_err_code(MTRQ_S2) == MOQCTL_ERR_PREFIX_OVERLAP);
+  CHECK(mtrq_fin_on(MTRQ_S2) == 1);
 }
 
 static void test_moqtrun_vgate_update_kinds(void) {
   moqtrun_test_vers(0, 0, mtvg_update_own_publish);
   moqtrun_test_vers(0, 0, mtvg_update_subtracks);
+  moqtrun_test_vers(
+      MOQVER_CAP_FETCH_BODY_V22, 0, mtvg_update_subtracks_forward);
+  moqtrun_test_vers(0, 0, mtvg_update_subtracks_prefix);
+  moqtrun_test_vers(0, 0, mtvg_update_subtracks_overlap);
 }
 
 /* A publishes chat/room1/alice; then B sends SUBSCRIBE_TRACKS "chat"

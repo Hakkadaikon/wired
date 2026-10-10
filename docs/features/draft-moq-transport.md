@@ -1438,9 +1438,6 @@ MOQT-200 through MOQT-208).
 - (SS10.11) PUBLISH_DONE for a subscription made on the legacy control
   stream: there is no request stream to carry it, so none is sent and the
   subscription is kept for a publisher rejoin.
-- (SS10.9) REQUEST_UPDATE of a SUBSCRIBE_TRACKS — answered REQUEST_ERROR
-  NOT_SUPPORTED (the request stays established; SS10.9 lets the receiver
-  refuse an update). `test_moqtrun_vgate_update_kinds`.
 - (SS5.1.4) A late subscriber's live delivery starts at its Location
   Filter's start Group (MOQT-205), but a start Object inside that Group is
   not trimmed from a Subgroup stream; only the reliable replay honours the

@@ -123,8 +123,9 @@ general relay network.
 - **PUBLISH_DONE on the legacy control stream** — a subscription made on the
   legacy (control-stream) path gets no PUBLISH_DONE (no request stream); it is
   kept for a publisher rejoin. Source: ledgers, Not implemented.
-- **REQUEST_UPDATE of a SUBSCRIBE_TRACKS** — answered REQUEST_ERROR
-  NOT_SUPPORTED (request stays established). Source: ledgers, Not implemented.
+- **REQUEST_UPDATE of a SUBSCRIBE_TRACKS** — TRACK_NAMESPACE_PREFIX and
+  FORWARD apply to PUBLISHes generated afterwards; TRACK_PROPERTY_FILTER is
+  accepted but not evaluated (like on the SUBSCRIBE_TRACKS itself).
 - **Malformed-Track detection is minimal** — only unknown Object Status and
   Object ID overflow are checked at decode; the general receiver-side catalog
   (priority mismatch across a Subgroup, differing finals, duplicate Objects

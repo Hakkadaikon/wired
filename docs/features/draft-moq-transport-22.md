@@ -1784,13 +1784,13 @@ one of these gets NOT_SUPPORTED (or, where noted, a different behavior).
 Reserved namespaces, SUBSCRIBE_TRACKS, PUBLISH_SKIPPED, FETCH GROUP_ORDER,
 REQUEST_UPDATE of FETCH and namespace requests, MAX_REQUEST_UPDATES and
 Range Filter validation were listed here until ledger ch. 10 implemented
-them (MQ22-028, MQ22-193 through MQ22-201).
+them (MQ22-028, MQ22-193 through MQ22-201). REQUEST_UPDATE of a
+SUBSCRIBE_TRACKS (prefix with per-type overlap, FORWARD; a failed one
+closes the bidi stream, 9.5.1) followed: `test_moqtrun_vgate_update_kinds`.
 
 - (SS9.9) PUBLISH_DONE for a subscription made on the legacy control
   stream: there is no request stream to carry it, so none is sent and the
   subscription is kept for a publisher rejoin.
-- (SS9.5) REQUEST_UPDATE of a SUBSCRIBE_TRACKS (PUBLISH carries
-  REQUEST_UPDATE support, see MQ22-095) — NOT_SUPPORTED.
 - (SS9.11, SS3.2.2) The descending-order gap rules of §3.2.2 (first
   expected object, last expected object, spanning skipped groups) are not
   implemented for FETCH; a Descending FETCH is served newest group first
