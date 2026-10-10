@@ -114,9 +114,12 @@ general relay network.
 - **FILL_TIMEOUT, EXPIRES, NEW_GROUP_REQUEST decoded, not acted on**;
   FILL_TIMEOUT's presence only gates the Timed-Out marker (d22). Source:
   ledgers, Out of scope. (RENDEZVOUS_TIMEOUT is acted on since L12-1.)
-- **Track Properties never forwarded in SUBSCRIBE_OK** — the tail is always
-  empty, so INCLUDE_PROPERTIES (0x35, d22 9.20.21) = 1 is decoded but has no
-  effect (= 0 is honored, MQ22-083a). Source: `moqtrun_queue_subscribe_ok`.
+- **Track Properties forwarded in SUBSCRIBE_OK only, up to 32 bytes** — the
+  publisher's Track Properties reach a subscriber's SUBSCRIBE_OK unless it
+  sent INCLUDE_PROPERTIES (0x35, d22 9.20.21) = 0, but a block longer than
+  `WIRED_MOQTRUN_TRACK_PROPS_MAX` (32) is forwarded empty, and TRACK_STATUS_OK,
+  FETCH_OK and SUBSCRIBE_TRACKS' PUBLISH carry none. Source:
+  `moqtrun_queue_subscribe_ok`.
 - **Padding Datagrams not sent**. Source: ledgers (SS11.5).
 - **No Session Migration / REDIRECT behavior** — the hub never sends REDIRECT
   and does not react to one; there is no upstream relay or sibling to move a

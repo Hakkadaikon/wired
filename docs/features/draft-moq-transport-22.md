@@ -579,8 +579,11 @@ Legend:
     `test_moqtrun_sub_include_properties_0_empty_tail`
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_params_include_properties_range`
-  - evidence: the hub never forwards Track Properties in SUBSCRIBE_OK, so
-    the tail is empty for INCLUDE_PROPERTIES=0 (and also for 1).
+  - evidence: with INCLUDE_PROPERTIES=1 (or omitted, the default) the
+    SUBSCRIBE_OK carries the publisher's Track Properties (up to
+    `WIRED_MOQTRUN_TRACK_PROPS_MAX` bytes).
+  - test: `tests/app/moqtrun_sub_test.c` —
+    `test_moqtrun_sub_include_properties_1_forwards`
 
 ## SS9.4 REQUEST_ERROR
 

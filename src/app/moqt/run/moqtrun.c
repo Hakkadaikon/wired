@@ -812,6 +812,7 @@ static void moqtrun_track_claim(
   t->has_largest      = 0; /* a new PUBLISH restarts the Largest */
   t->end_flags        = 0;
   t->malformed        = 0;
+  t->props_len        = 0;
   moqtrun_track_drop_rings(hub, t);
   moqtrun_track_clear_relays(t);
   moqtrun_record_track_key(t, k);
@@ -952,6 +953,14 @@ static void moqtrun_rdv_resolve(
  * SUBGROUP_DELIVERY_TIMEOUT (12.6) and DEFAULT_PUBLISHER_PRIORITY (12.4)
  * from props, rid the request (a
  * PUBLISH's, or the hub's own upstream SUBSCRIBE's) that claims it. */
+/* Keeps props for SUBSCRIBE_OK (WIRED_MOQTRUN_TRACK_PROPS_MAX's own doc:
+ * a larger block is kept as none). */
+static void moqtrun_track_keep_props(wired_moqtrun_track* t, wired_span props) {
+  if (props.n > WIRED_MOQTRUN_TRACK_PROPS_MAX) return;
+  bytes_memcpy(t->props, props.p, props.n);
+  t->props_len = (u8)props.n;
+}
+
 static void moqtrun_track_open(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* t,
@@ -968,6 +977,7 @@ static void moqtrun_track_open(
   t->default_pub_prio = moqtrun_track_prop_prio(props);
   t->up_streams       = 0;
   t->pubdone_pending  = 0;
+  moqtrun_track_keep_props(t, props);
 }
 
 /* A vetted PUBLISH: claim a track into a free (or matching-name) slot
@@ -1268,6 +1278,13 @@ static const moqctl_param* moqtrun_sub_param(
 
 static u8 moqtrun_param_u8(const moqctl_param* p) { return p ? (u8)p->u8v : 0; }
 
+/* INCLUDE_PROPERTIES=0 (draft-22 9.20.21; the default is 1). */
+static u8 moqtrun_sub_no_props(const moqctl_subscribe* m) {
+  const moqctl_param* ip =
+      moqtrun_sub_param(m, MOQCTL_PARAM_INCLUDE_PROPERTIES);
+  return ip && ip->u8v == 0;
+}
+
 static u64 moqtrun_param_vi(const moqctl_param* p) { return p ? p->vi : 0; }
 
 /* FORWARD omitted defaults to 1 (10.2.17). */
@@ -1488,6 +1505,7 @@ static void moqtrun_sub_open(
   s->request_id   = m->request_id;
   s->blob_sent    = 0;
   s->stream_count = 0;
+  s->no_props     = moqtrun_sub_no_props(m);
   moqtss_sub_reset(s); /* SSTS (moqtssts_run.c): in no set */
   moqtsw_sub_clear(s); /* SWITCH_FROM (moqtswitch.c): no switch */
   s->jl     = t->largest;
@@ -1661,13 +1679,17 @@ static void moqtrun_largest_param(
   if (top) params->items[0].loc = *top;
 }
 
-/* SUBSCRIBE_OK with alias; LARGEST_OBJECT once t has published Objects
- * (MUST, draft 10.2.16). */
+/* SUBSCRIBE_OK with s's alias; LARGEST_OBJECT once t has published
+ * Objects (MUST, draft 10.2.16); t's Track Properties unless s asked
+ * INCLUDE_PROPERTIES=0 (draft-22 9.20.21). */
 static void moqtrun_queue_subscribe_ok(
-    wired_moqtrun_peer* p, const wired_moqtrun_track* t, u64 alias) {
+    wired_moqtrun_peer*        p,
+    const wired_moqtrun_track* t,
+    const wired_moqtrun_sub*   s) {
   u8                  msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqctl_subscribe_ok ok = {0};
-  ok.track_alias         = alias;
+  ok.track_alias         = s->track_alias;
+  ok.track_properties = wired_span_of(t->props, s->no_props ? 0 : t->props_len);
   moqtrun_largest_param(&ok.params, t);
   usz n = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_SUBSCRIBE_OK,
@@ -1728,7 +1750,7 @@ static void moqtrun_accept_subscribe(
     moqtrun_send_request_error(p, code);
     return;
   }
-  moqtrun_queue_subscribe_ok(p, track, slot->track_alias);
+  moqtrun_queue_subscribe_ok(p, track, slot);
   /* SWITCH_FROM (moqtswitch.c) */
   moqtsw_begin(hub, moqtrun_sw_ops(), track, slot, &m->params);
   moqtrun_fill_on_subscribe(hub, p, track, slot, &m->params);
@@ -1769,7 +1791,7 @@ static void moqtrun_blob_send_first(
     moqtrun_send_request_error(p, MOQCTL_ERR_INTERNAL_ERROR);
     return;
   }
-  moqtrun_queue_subscribe_ok(p, &hub->blob_track, slot->track_alias);
+  moqtrun_queue_subscribe_ok(p, &hub->blob_track, slot);
 }
 
 /* A SUBSCRIBE for a track this peer already subscribes: draft-18 6.3
@@ -1786,7 +1808,7 @@ static int moqtrun_sub_held_reply(
   if (moqver_caps(p->ver) & MOQVER_CAP_DUP_SUBSCRIPTION)
     moqtrun_send_request_error(p, MOQCTL_ERR_DUPLICATE_SUBSCRIPTION);
   else
-    moqtrun_queue_subscribe_ok(p, t, held->track_alias);
+    moqtrun_queue_subscribe_ok(p, t, held);
   return 1;
 }
 
@@ -5364,7 +5386,7 @@ static void moqtrun_live_attach(
   moqtrun_sub_open(
       slot, &hub->live.track, peer_idx, hub->live.track.own_alias, m);
   hub->live.sent_any[i] = 0;
-  moqtrun_queue_subscribe_ok(p, &hub->live.track, slot->track_alias);
+  moqtrun_queue_subscribe_ok(p, &hub->live.track, slot);
   if (moqtrun_sub_forwards(slot))
     moqtrun_live_send_one(
         hub, i, moqtrun_live_group_at(&hub->live, hub->live.last_now_ms));

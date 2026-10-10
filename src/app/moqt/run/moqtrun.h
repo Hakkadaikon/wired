@@ -342,6 +342,9 @@ typedef struct {
   /** Hub blob track only: 1 once the blob went out to this subscription,
    * so a FORWARD 1 -> 0 -> 1 update never sends it twice. */
   u8 blob_sent;
+  /** 1 when the SUBSCRIBE sent INCLUDE_PROPERTIES=0: its SUBSCRIBE_OK
+   * carries empty Track Properties (draft-22 9.20.21). */
+  u8 no_props;
   /** Streams the hub opened for this subscription (relay, blob, live and
    * fetch streams alike): PUBLISH_DONE's Stream Count (draft 10.10). */
   u64 stream_count;
@@ -373,6 +376,13 @@ typedef struct {
    * the switch; the give-up happens only while nothing of OLD is open. */
   u64 sw_deadline;
 } wired_moqtrun_sub;
+
+/** Largest Track Properties block a track keeps to forward in SUBSCRIBE_OK:
+ * what still fits a WIRED_MOQTRUN_CTL_REPLY_MAX (64) envelope beside the
+ * Type/Length (3), the Track Alias (8) and a LARGEST_OBJECT parameter (19).
+ * ponytail: a larger block is forwarded empty; widen together with
+ * WIRED_MOQTRUN_CTL_REPLY_MAX if publishers send long properties. */
+#define WIRED_MOQTRUN_TRACK_PROPS_MAX 32
 
 /** Fixed capacity for a saved SUBGROUP_HEADER (draft SS11.4.2: Type +
  * Track Alias + Group ID + optional Subgroup ID varints + optional 1-byte
@@ -945,6 +955,13 @@ typedef struct {
   /** 1 once an Object past track_end or group_end arrived (draft-22 12.1
    * Malformed Track); the track then ends MALFORMED_TRACK. */
   u8 malformed;
+  /** Bytes of props in use: the claiming PUBLISH's (or upstream
+   * SUBSCRIBE_OK's) Track Properties, 0 when none or when they exceed
+   * WIRED_MOQTRUN_TRACK_PROPS_MAX. */
+  u8 props_len;
+  /** The Track Properties forwarded in SUBSCRIBE_OK (INCLUDE_PROPERTIES,
+   * draft-22 9.20.21). */
+  u8 props[WIRED_MOQTRUN_TRACK_PROPS_MAX];
 } wired_moqtrun_track;
 
 /** One connected participant's hub-side state: its WT session, its own
