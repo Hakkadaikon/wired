@@ -5691,6 +5691,30 @@ static void test_moqtrun_payload_hash_detects_tail_past_truncation(void) {
   moqtrun_test_reset();
 }
 
+/* A delivery handed a NULL app context (no hub) is ignored, never
+ * dereferenced. */
+static void test_moqtrun_stream_data_null_hub_is_noop(void) {
+  moqtrun_test_reset();
+  u8 b[1] = {0};
+  wired_moqt_on_stream_data(0, SESS_A, 0, wired_span_of(b, sizeof b), 0);
+  CHECK(g_n_calls == 0);
+}
+
+/* Re-attaching a name the peer never recorded claims no subscription:
+ * the "not found" index is one past sub_state, never read through. */
+static void test_moqtrun_reattach_unknown_name_claims_no_slot(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  wired_moqtrun_track* t = &hub.peers[0].tracks[0];
+  CHECK(t->in_use);
+  static const u8 nobody[] = {'n', 'o', 'b', 'o', 'd', 'y'};
+  moqtrun_reattach_one_sub(
+      &hub, t, 0, moqtrun_key_name(wired_span_of(nobody, sizeof nobody)));
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) CHECK(!t->subs[i].active);
+}
+
 /* Version-invariant scenarios: every supported draft (ledger 7-4). */
 static void mtall_main(void) {
   test_moqtrun_recording_overflow_counts_and_does_not_crash();
@@ -5861,5 +5885,7 @@ static void mtall_main(void) {
 
 void test_moqtrun(void) {
   test_moqtrun_on_session_stores_negotiated_ver();
+  test_moqtrun_stream_data_null_hub_is_noop();
+  test_moqtrun_reattach_unknown_name_claims_no_slot();
   moqtrun_test_allver(mtall_main);
 }

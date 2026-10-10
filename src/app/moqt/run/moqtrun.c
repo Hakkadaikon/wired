@@ -1572,12 +1572,14 @@ static void moqtrun_sub_reresolve(
  * reserved). */
 static void moqtrun_reattach_one_sub(
     wired_moqt_hub* hub, wired_moqtrun_track* track, usz i, moqtrun_key k) {
+  const wired_moqtrun_peer* p = &hub->peers[i];
+  usz                       n = moqtrun_sub_name_find(p, k);
+  if (n >= WIRED_MOQTRUN_SUB_NAMES) return;
   wired_moqtrun_sub* slot = moqtrun_sub_slot(track);
   if (!slot) return;
-  const wired_moqtrun_peer* p = &hub->peers[i];
-  *slot                       = p->sub_state[moqtrun_sub_name_find(p, k)];
-  slot->session_idx           = i;
-  slot->active                = 1;
+  *slot             = p->sub_state[n];
+  slot->session_idx = i;
+  slot->active      = 1;
   moqtrun_sub_reresolve(slot, track);
   /* SWITCH_FROM (moqtswitch.c): bounds, a pending end swept again */
   moqtsw_reattached(hub, slot);
@@ -7703,6 +7705,12 @@ static void moqtrun_dispatch_held(
     moqtrun_dispatch_other(hub, p, stream_id, data, fin);
 }
 
+/* s's peer in hub, 0 for an unknown session or a NULL hub. */
+static wired_moqtrun_peer* moqtrun_peer_of_ctx(
+    wired_moqt_hub* hub, wired_wt_session* s) {
+  return hub ? moqtrun_find_by_wt(hub, s) : 0;
+}
+
 void wired_moqt_on_stream_data(
     void*             app_ctx,
     wired_wt_session* s,
@@ -7710,7 +7718,7 @@ void wired_moqt_on_stream_data(
     wired_span        data,
     int               fin) {
   wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
-  wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
+  wired_moqtrun_peer* p   = moqtrun_peer_of_ctx(hub, s);
   if (!p) return;
   if (moqtrun_pre_is(p, stream_id))
     moqtrun_pre_feed(hub, p, stream_id, data, fin);
