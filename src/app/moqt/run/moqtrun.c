@@ -5555,18 +5555,22 @@ static int moqtrun_is_bare_fin(wired_span wire, int fin) {
  * relay stream (io.stream_reset -- error code 0, MOQT draft-19 defines no
  * standard code for a mid-subgroup abort) so the NEXT round re-opens a
  * fresh stream at the newest frame via moqtrun_relay_late_open, using the
- * relay's saved SUBGROUP_HEADER. A refused reset (the SDK's reset latch is
- * full this step) keeps everything as-is: the saturated streak retries the
- * shed on the next busy round. */
+ * relay's saved SUBGROUP_HEADER. A switching-set member (video) is not
+ * re-opened: its Objects past the cut cannot decode without the Group's
+ * start, so the rest of the Subgroup is skipped (sub_expired). A refused
+ * reset (the SDK's reset latch is full this step) keeps everything as-is:
+ * the saturated streak retries the shed on the next busy round. */
 static void moqtrun_relay_shed_one(
-    wired_moqt_hub*      hub,
-    wired_wt_session*    wt,
-    wired_moqtrun_relay* relay,
-    usz                  i) {
+    wired_moqt_hub*          hub,
+    wired_wt_session*        wt,
+    const wired_moqtrun_sub* sub,
+    wired_moqtrun_relay*     relay,
+    usz                      i) {
   if (relay->sub_busy_streak[i] < WIRED_MOQTRUN_RESET_AFTER_BUSY) return;
   if (hub->io.stream_reset(wt, relay->sub_stream_id[i], 0) != 1) return;
   relay->sub_stream_set[i]  = 0;
   relay->sub_busy_streak[i] = 0;
+  relay->sub_expired |= (u32)(moqtss_sub_in_set(sub) != 0) << i;
   hub->stat_relay_reset++;
   moqtss_note_shed(hub, wt); /* SSTS (moqtssts_run.c): congestion */
 }
@@ -5576,13 +5580,14 @@ static void moqtrun_relay_shed_one(
  * under the threshold), and shed the stream once the streak says the
  * fullness is sustained, not a transient burst. */
 static void moqtrun_relay_note_busy(
-    wired_moqt_hub*      hub,
-    wired_wt_session*    wt,
-    wired_moqtrun_relay* relay,
-    usz                  i) {
+    wired_moqt_hub*          hub,
+    wired_wt_session*        wt,
+    const wired_moqtrun_sub* sub,
+    wired_moqtrun_relay*     relay,
+    usz                      i) {
   hub->stat_relay_drop++;
   if (relay->sub_busy_streak[i] < 255) relay->sub_busy_streak[i]++;
-  moqtrun_relay_shed_one(hub, wt, relay, i);
+  moqtrun_relay_shed_one(hub, wt, sub, relay, i);
 }
 
 /* Forwards one round of publisher bytes to sub slot i's already-open relay
@@ -5595,12 +5600,13 @@ static void moqtrun_relay_note_busy(
  * entirely (moqtrun_relay_note_busy) -- delivering the newest frame beats
  * faithfully replaying a stale backlog. */
 static void moqtrun_relay_forward_one(
-    wired_moqt_hub*      hub,
-    wired_wt_session*    wt,
-    wired_moqtrun_relay* relay,
-    usz                  i,
-    wired_span           wire,
-    int                  fin) {
+    wired_moqt_hub*          hub,
+    wired_wt_session*        wt,
+    const wired_moqtrun_sub* sub,
+    wired_moqtrun_relay*     relay,
+    usz                      i,
+    wired_span               wire,
+    int                      fin) {
   if (moqtrun_is_bare_fin(wire, fin)) {
     hub->io.stream_fin(wt, relay->sub_stream_id[i]);
     return;
@@ -5610,7 +5616,7 @@ static void moqtrun_relay_forward_one(
     relay->sub_busy_streak[i] = 0;
     return;
   }
-  moqtrun_relay_note_busy(hub, wt, relay, i);
+  moqtrun_relay_note_busy(hub, wt, sub, relay, i);
 }
 
 /* 1 iff a late open would be pointless: the round at hand already ends the
@@ -5664,7 +5670,7 @@ static void moqtrun_relay_deliver_one(
     wired_span           wire,
     int                  fin) {
   if (relay->sub_stream_set[i]) {
-    moqtrun_relay_forward_one(hub, dst->wt, relay, i, wire, fin);
+    moqtrun_relay_forward_one(hub, dst->wt, sub, relay, i, wire, fin);
     return;
   }
   moqtrun_relay_late_open(hub, sub, relay, i, fin);

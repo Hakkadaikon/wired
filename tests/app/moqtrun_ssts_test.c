@@ -759,6 +759,21 @@ static void test_moqtrun_ssts_shed_downshifts(void) {
   CHECK(mtss_b()->timeouts == 0); /* consumed by the decision */
 }
 
+/* A set member's shed Group is not re-opened mid-way: Objects after the
+ * reset cannot decode without the Group's start, so the rest of Group 5
+ * is not sent; Group 6 goes on. */
+static void test_moqtrun_ssts_shed_no_reopen(void) {
+  mtss_room();
+  for (u64 g = 0; g < 5; g++) mtss_group_both(g);
+  u64 h5                    = mtss_push(1, 5, 1, 0);
+  g_stream_send_reject_sess = SESS_B;
+  for (int r = 0; r < WIRED_MOQTRUN_RESET_AFTER_BUSY; r++) mtss_more(h5, 1, 0);
+  g_stream_send_reject_sess = 0;
+  CHECK(mtst_hub.stat_relay_reset == 1);
+  mtss_more(h5, 1, 0);
+  CHECK(mtss_opens(mtss_ah, 5) == 1);
+}
+
 /* R2-S2: a session without a backpressure set keeps no reset count (no
  * stale evidence for a backpressure set joining later). */
 static void test_moqtrun_ssts_shed_needs_bp_set(void) {
@@ -975,6 +990,7 @@ void test_moqtrun_ssts(void) {
   test_moqtrun_ssts_known_limit_paused_pacer_freezes_tier();
   test_moqtrun_ssts_resubscribe_other_set();
   test_moqtrun_ssts_shed_downshifts();
+  test_moqtrun_ssts_shed_no_reopen();
   test_moqtrun_ssts_switch_party_refused();
   test_moqtrun_ssts_update_joins();
   test_moqtrun_ssts_hub_tracks_refused();

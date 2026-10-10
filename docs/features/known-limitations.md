@@ -255,9 +255,8 @@ draft-22 sessions only. None of it is part of draft-22. Source shorthand:
   (8) refused rounds, a threshold tuned for 20 ms voice, and every such
   reset feeds backpressure. A 1080p screen share at about 3 Mbps on
   loopback hit it in 2 of 3 browser runs, so Auto went to lo with no cap
-  in place. The hub also late-opens a shed Group again mid-way, spending
-  bandwidth on Objects the receiver cannot decode without the keyframe.
-  Source: `moqtrun_relay_shed_one` in `src/app/moqt/run/moqtrun.c`, W6
+  in place. A shed Group of a switching-set member is not re-opened
+  mid-way; a track outside any set (voice) still is. Source: `moqtrun_relay_shed_one` in `src/app/moqt/run/moqtrun.c`, W6
   browser run (PLAN §4).
 - **Variants must share Group numbers** — the boundary rule assumes aligned
   Group IDs across the variant tracks. The hub does not check this.
