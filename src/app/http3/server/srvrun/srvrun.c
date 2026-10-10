@@ -372,6 +372,14 @@ typedef struct {
    * never set, read as the default H3_URGENCY_DEFAULT
    * (srvrun_wtsend_urgency). */
   u8 urgency1;
+  /** The rest of the send class wired_server_wt_stream_schedule set
+   * (wired_wt_sched): fine breaks ties inside one urgency; a nonzero flow
+   * lets only its lowest (order, tie) ready slots of the class send. All 0
+   * when never set. */
+  u16 fine;
+  u64 flow;
+  u64 order;
+  u64 tie;
   /** The owning WT session's slot index for a stream opened/replied through
    * the wired_server_wt_* API, so that session's teardown can reset what it
    * owns (srvrun_reset_wt_sends_for_session); -1 for connection plumbing
@@ -4921,6 +4929,10 @@ static srvrun_wtsend* srvrun_wtsend_claim(srvrun_conn* c, u64 credit) {
                                            stale 1 from its prior stream */
     c->wtsend[i].fin_requested   = 0;
     c->wtsend[i].urgency1        = 0;
+    c->wtsend[i].fine            = 0;
+    c->wtsend[i].flow            = 0;
+    c->wtsend[i].order           = 0;
+    c->wtsend[i].tie             = 0;
     c->wtsend[i].wt_session_slot = -1;
     return &c->wtsend[i];
   }
@@ -5527,6 +5539,18 @@ int wired_server_wt_stream_priority(
   w = srvrun_wtsend_of(s, stream_id);
   if (!w) return -1;
   w->urgency1 = (u8)(urgency + 1);
+  return 1;
+}
+
+int wired_server_wt_stream_schedule(
+    wired_wt_session* s, u64 stream_id, const wired_wt_sched* k) {
+  srvrun_wtsend* w;
+  if (wired_server_wt_stream_priority(s, stream_id, k->urgency) < 0) return -1;
+  w        = srvrun_wtsend_of(s, stream_id);
+  w->fine  = k->fine;
+  w->flow  = k->flow;
+  w->order = k->order;
+  w->tie   = k->tie;
   return 1;
 }
 
@@ -7885,51 +7909,115 @@ static int srvrun_wtsend_ready(const srvrun_conn* c, const srvrun_wtsend* w) {
          srvrun_pump_gate_ok(c, &w->sess, w->stream_credit);
 }
 
-/* w's urgency when it could send a slice right now, else 0xff -- a stream
- * blocked by its own flow-control credit must not hold back less urgent
- * ones (RFC 9218 10: unused capacity goes to the next class). */
-static u8 srvrun_wtsend_ready_urgency(
-    const srvrun_conn* c, const srvrun_wtsend* w) {
-  return srvrun_wtsend_ready(c, w) ? srvrun_wtsend_urgency(w) : 0xff;
+/* w's class key: (urgency, fine) packed so lexicographic order is plain
+ * integer order. */
+static u32 srvrun_wtsend_key(const srvrun_wtsend* w) {
+  return (u32)srvrun_wtsend_urgency(w) << 16 | w->fine;
 }
 
-/* The most urgent class among the slots that can send this pass, 0xff when
- * none can (every slot is then visited, as before urgency existed, so the
- * blocked-path signals still fire). One O(slots) pass, no sort. */
-static u8 srvrun_wt_pass_urgency(const srvrun_conn* c) {
-  u8 m = 0xff;
+/* Above every real key (urgency <= 7): a slot that cannot send. */
+#define SRVRUN_WT_KEY_IDLE 0xffffffffu
+
+/* w's class key when it could send a slice right now, else the idle
+ * sentinel -- a stream blocked by its own flow-control credit must not
+ * hold back less urgent ones (RFC 9218 10: unused capacity goes to the
+ * next class). */
+static u32 srvrun_wtsend_ready_key(
+    const srvrun_conn* c, const srvrun_wtsend* w) {
+  return srvrun_wtsend_ready(c, w) ? srvrun_wtsend_key(w) : SRVRUN_WT_KEY_IDLE;
+}
+
+/* The best class among the slots that can send this pass, the idle
+ * sentinel when none can (every slot is then visited, as before classes
+ * existed, so the blocked-path signals still fire). One O(slots) pass, no
+ * sort. */
+static u32 srvrun_wt_pass_key(const srvrun_conn* c) {
+  u32 m = SRVRUN_WT_KEY_IDLE;
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
-    u8 u = srvrun_wtsend_ready_urgency(c, &c->wtsend[i]);
-    if (u < m) m = u;
+    u32 k = srvrun_wtsend_ready_key(c, &c->wtsend[i]);
+    if (k < m) m = k;
   }
   return m;
 }
 
-/* w takes part in this pass: it matches keep_open (append_open's own
- * value, not just "is it set right now" -- a slot mid-closing still counts
- * as the keep-open pass so its final slice/FIN is not pushed a whole extra
- * pass behind fresh one-shot arrivals) and is no less urgent than the
- * pass's class. A slot more urgent than the class cannot send this pass
- * anyway; visiting it only promotes a deferred FIN. */
-static int srvrun_wt_in_pass(const srvrun_wtsend* w, int keep_open, u8 urg) {
-  return (w->append_open != 0) == keep_open && srvrun_wtsend_urgency(w) <= urg;
+/* v and w share a flow and a class. */
+static int srvrun_wt_same_flow_class(
+    const srvrun_wtsend* v, const srvrun_wtsend* w) {
+  return v->flow == w->flow && srvrun_wtsend_key(v) == srvrun_wtsend_key(w);
 }
 
-/* One arrival-order pass over every wtsend slot in this pass's class. */
+/* v's (order, tie) is lexicographically below w's. */
+static int srvrun_wt_ranks_before(
+    const srvrun_wtsend* v, const srvrun_wtsend* w) {
+  return v->order < w->order || (v->order == w->order && v->tie < w->tie);
+}
+
+/* v, ready, goes before w inside their flow and class. */
+static int srvrun_wt_goes_before(
+    const srvrun_conn* c, const srvrun_wtsend* v, const srvrun_wtsend* w) {
+  return srvrun_wt_same_flow_class(v, w) && srvrun_wt_ranks_before(v, w) &&
+         srvrun_wtsend_ready(c, v);
+}
+
+/* Some ready slot of w's flow and class ranks before w
+ * (draft-ietf-moq-transport-22 7.2 rules 3-4: group order, then fill
+ * before subscription, then Subgroup ID). */
+static int srvrun_wt_flow_beaten(const srvrun_conn* c, const srvrun_wtsend* w) {
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
+    if (srvrun_wt_goes_before(c, &c->wtsend[i], w)) return 1;
+  return 0;
+}
+
+/* w may send this pass as far as its flow goes: flow 0 (control, request
+ * and plain streams) is never ordered against anything. */
+static int srvrun_wt_flow_ok(const srvrun_conn* c, const srvrun_wtsend* w) {
+  return !w->flow || !srvrun_wt_flow_beaten(c, w);
+}
+
+/* w takes part in this pass's class: no worse than the pass key (a slot
+ * better than it cannot send this pass anyway; visiting it only promotes
+ * a deferred FIN) and first in its flow. */
+static int srvrun_wt_in_class(
+    const srvrun_conn* c, const srvrun_wtsend* w, u32 key) {
+  return srvrun_wtsend_key(w) <= key && srvrun_wt_flow_ok(c, w);
+}
+
+/* The slots taking part in this pass, one bit per slot, fixed before any
+ * slot sends so each sends at most one slice per pass. */
+static u32 srvrun_wt_pass_mask(const srvrun_conn* c) {
+  u32 key  = srvrun_wt_pass_key(c);
+  u32 mask = 0;
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
+    mask |= (u32)srvrun_wt_in_class(c, &c->wtsend[i], key) << i;
+  return mask;
+}
+
+/* w takes part in this pass: it is in the pass's mask and matches
+ * keep_open (append_open's own value, not just "is it set right now" -- a
+ * slot mid-closing still counts as the keep-open pass so its final
+ * slice/FIN is not pushed a whole extra pass behind fresh one-shot
+ * arrivals). */
+static int srvrun_wt_in_pass(
+    const srvrun_wtsend* w, int keep_open, u32 mask, usz i) {
+  return (w->append_open != 0) == keep_open && (mask >> i & 1);
+}
+
+/* One arrival-order pass over every wtsend slot in this pass's mask. */
 static int srvrun_pump_wt_round_matching(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, int keep_open, u8 urg) {
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int keep_open, u32 mask) {
   int sent = 0;
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
-    if (srvrun_wt_in_pass(&c->wtsend[i], keep_open, urg))
+    if (srvrun_wt_in_pass(&c->wtsend[i], keep_open, mask, i))
       sent |= srvrun_pump_one_wt(ctx, c, &c->wtsend[i]);
   return sent;
 }
 
-/* The WT-send half of one round-robin pass. RFC 9218 2.1 urgency set by the
+/* The WT-send half of one round-robin pass. RFC 9218 2.1 urgency (plus the
+ * fine key and flow order of wired_server_wt_stream_schedule) set by the
  * app (wired_server_wt_stream_priority -- Extended CONNECT carries no
- * per-stream Priority of its own) picks the class: only the most urgent
- * streams that can send take part, so a lower-urgency stream waits until
- * the higher class has nothing it can send. Within a class, moqtrun's own
+ * per-stream Priority of its own) picks the class: only the best streams
+ * that can send take part (srvrun_wt_pass_mask), so a worse class waits
+ * until the better one has nothing it can send. Within a class, moqtrun's own
  * two stream shapes (moqtrun.h) give a further proxy: a long-lived
  * append_open relay stream carries one MOQT Object per round (audio, paced
  * ~50/s and loss-tolerant-but-latency-sensitive), while a one-shot stream
@@ -7943,9 +8031,9 @@ static int srvrun_pump_wt_round_matching(
  * host, so the pass-frequency side of the problem (pacing/poll cadence
  * under contention) remains open. */
 static int srvrun_pump_wt_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  u8  urg  = srvrun_wt_pass_urgency(c);
-  int sent = srvrun_pump_wt_round_matching(ctx, c, 1, urg);
-  return sent | srvrun_pump_wt_round_matching(ctx, c, 0, urg);
+  u32 mask = srvrun_wt_pass_mask(c);
+  int sent = srvrun_pump_wt_round_matching(ctx, c, 1, mask);
+  return sent | srvrun_pump_wt_round_matching(ctx, c, 0, mask);
 }
 
 /* resp[] slot i's current RFC 9218 priority, read from the receive-side

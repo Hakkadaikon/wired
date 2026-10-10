@@ -666,6 +666,38 @@ int wired_server_wt_stream_send(
 int wired_server_wt_stream_priority(
     wired_wt_session* s, u64 stream_id, u8 urgency);
 
+/** A server-sent stream's send class and its place inside a flow, set by
+ * wired_server_wt_stream_schedule (the MoQT hub's draft-ietf-moq-transport
+ * -22 7.2 order on top of the RFC 9218 urgency). */
+typedef struct {
+  /** RFC 9218 2.1 urgency, 0..7, lower first. */
+  u8 urgency;
+  /** Second class key inside one urgency, lower first (the MoQT hub packs
+   * Subscriber Priority << 8 | Publisher Priority). */
+  u16 fine;
+  /** Streams sharing a nonzero flow and class send in (order, tie) order,
+   * lowest first; 0 opts out (every stream of the class sends). */
+  u64 flow;
+  /** Rank inside the flow, compared before tie. */
+  u64 order;
+  /** Rank between equal orders inside the flow. */
+  u64 tie;
+} wired_wt_sched;
+
+/** Set a server-sent stream's full send class (see wired_wt_sched).
+ * Each pump pass sends from the best (urgency, fine) class among streams
+ * that can send right now, one slice per stream; inside a nonzero flow
+ * only the streams with the lowest (order, tie) among that flow's ready
+ * streams of the class take part. A stream that cannot send never holds
+ * back another. The setting lasts until the send slot is released.
+ * @param s the session whose connection carries the stream
+ * @param stream_id a stream holding an open send slot
+ * @param k the class; k->urgency must be 0..7
+ * @return 1 applied, negative when k->urgency is above 7, s resolves to no
+ *   live connection, or stream_id names no open send slot */
+int wired_server_wt_stream_schedule(
+    wired_wt_session* s, u64 stream_id, const wired_wt_sched* k);
+
 /** The connection's current delivery-rate estimate for s, in kbps:
  * BBR's bottleneck bandwidth once it has a sample, else cwnd / smoothed
  * RTT. It tracks what the congestion controller allows, so a sender that
