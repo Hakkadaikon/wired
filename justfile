@@ -3,15 +3,9 @@
 cc := "clang"
 # Shared warning/optimization base; the three flag sets below extend it.
 warnflags := "-Wall -Wextra -Werror -O2"
-# Max simultaneous connections one server process tracks (conntable.h's
-# WIRED_CONNTABLE_CAP, #ifndef-guarded there so this -D overrides it). Every
-# per-connection slot -- wired_srvloop, respstore, etc -- is a fixed-size
-# array sized off this, so raising it grows the binary's BSS accordingly
-# (~1.9MiB/conn). Default 4 matches the moqt_chat sample's
-# own fixed candidate-participant pool (CANDIDATE_PARTICIPANT_IDS, 4 ids) --
-# raise it for a deployment that needs more concurrent connections. Override
-# per invocation with `just --set conntable_cap 256 build`, or via the
-# CONNTABLE_CAP env var (`CONNTABLE_CAP=256 just build`).
+# Max simultaneous connections per server process (WIRED_CONNTABLE_CAP).
+# Each slot is a fixed array (~1.9MiB/conn of BSS); 4 matches moqt_chat's
+# participant pool. Override: `CONNTABLE_CAP=256 just build`.
 conntable_cap := env_var_or_default("CONNTABLE_CAP", "4")
 connflags := "-DWIRED_CONNTABLE_CAP=" + conntable_cap
 # freestanding: the product constraint -- every src file must compile with no
@@ -24,80 +18,62 @@ testflags := warnflags + " " + connflags + " -mbranches-within-32B-boundaries -I
 # fuzz: hosted with ASan+libFuzzer instrumentation.
 fuzzflags := warnflags + " -g -fsanitize=fuzzer,address -Isrc"
 
-# one-time bootstrap: install nix (Determinate Systems installer) when absent.
-# After it, `nix develop` provides clang/just/lizard/doxygen from flake.nix.
-# On a machine without just itself, run the curl line directly.
+# Re-exec the named recipe inside the pinned flake devShell when nix exists
+# and we are not already in it (tool versions must match CI's pin).
+in_nix := 'if [ -z "${IN_NIX_SHELL:-}" ] && command -v nix >/dev/null 2>&1; then exec nix develop -c just'
+# The C sources clang-format owns.
+csrcs := "$(find src tests examples fuzz guide/snippets -name node_modules -prune -o \\( -name '*.c' -o -name '*.h' \\) -print)"
+
+# After it, `nix develop` provides clang/just/lizard/doxygen (flake.nix).
+# One-time bootstrap: install nix when absent.
 setup:
     @command -v nix >/dev/null 2>&1 \
         && echo "nix already installed: $(nix --version)" \
         || curl -fsSL https://install.determinate.systems/nix | sh -s -- install
 
-# run any recipe inside the flake devShell — the pinned toolchain (latest
-# LLVM clang/clang-format/clang-tidy, the exact versions CI checks against).
-# e.g. `just nix fmt`, `just nix test`, `just nix build`. Host-installed
-# tools may be older and format/lint differently; when in doubt, go through
-# this instead of calling the recipe bare.
+# The pinned toolchain CI checks against, e.g. `just nix test`.
+# Run any recipe inside the flake devShell.
 nix +args:
     nix develop -c just {{args}}
 
-# full build: format, compile freestanding (ninja), then static analysis.
-# fmt normalizes sources, ninja proves libc independence per file, lint runs
-# the CERT C / bug-finding checks. Run as one pipeline so a normal
-# `just build` keeps sources tidy and surfaces lint findings.
-# Reroutes once into the flake devShell (like fmt/lint) so all three legs —
-# including ninja's clang — run the pinned toolchain in a single entry.
+# Runs in the devShell so all three legs use the pinned toolchain.
+# Full build: fmt + freestanding compile (ninja) + lint.
 build:
     #!/usr/bin/env sh
-    if [ -z "$IN_NIX_SHELL" ] && command -v nix >/dev/null 2>&1; then
-        exec nix develop -c just build
-    fi
-    just fmt ninja lint
+    {{in_nix}} build; fi
+    just fmt && just ninja && just lint
 
-# archive the compiled SDK objects into build/libwired.a (a ninja target;
-# sys.o is excluded there — its only symbol is the SDK's own _start stub,
-# and applications supply their own entry point).
+# sys.o is left out: applications supply their own _start.
+# Archive the SDK objects into build/libwired.a.
 lib: gen-ninja
     ninja build/libwired.a
 
-# regenerate build.ninja from the current source list. Covers every build
-# variant this repo has (freestanding per-object, hosted unity test, the 3
-# fuzz harnesses) in one file, each behind its own rule since different
-# flags mean incompatible .o ABIs -- see scripts/gen_ninja.sh.
+# Every build variant (freestanding objects, hosted tests, fuzz, examples,
+# guide) lives in one file; see scripts/gen_ninja.sh.
+# Regenerate build.ninja from the current source list.
 gen-ninja:
     CFLAGS="{{cflags}}" TESTFLAGS="{{testflags}}" FUZZFLAGS="{{fuzzflags}}" \
         CC="{{cc}}" sh scripts/gen_ninja.sh
 
-# compile every src/**/*.c freestanding to build/<path>.o (proves libc
-# independence; path-qualified objects keep the count check honest despite
-# shared basenames). Regenerates build.ninja first so new/removed sources are
-# picked up; ninja's default target is the freestanding set (see
-# scripts/gen_ninja.sh), so a bare `ninja` here never drags in the hosted
-# test/fuzz variants. Name targets to build just those, e.g.
-# `just ninja examples/word_list/wired_server` or `just ninja guide`.
+# No targets = every src/**/*.c freestanding into build/<path>.o (the libc
+# independence proof). Or name targets: examples/<name>/wired_server, guide,
+# build/src/<path>.o.
+# Compile freestanding (all of src/, or the named ninja targets).
 ninja *targets: gen-ninja
     ninja {{targets}}
 
-# run all tests (hosted, with assertions). fmt first so the unity build is
-# always compiled from formatted sources — run inside `nix develop` so the
-# pinned clang-format (the one CI checks against) is the one that formats.
-# ulimit -s raised: the unity TU inlines every test_* function into one
-# frame per top-level test_<domain>() (e.g. test_srvrun, ~190 siblings);
-# that frame has grown past the 8MB default ulimit (see valgrind recipe's
-# --max-stackframe comment below for the history).
+# The single-TU unity build CI gates on. The stack limit is raised because
+# test_srvrun's frame outgrew the 8MB default.
+# Run all tests (hosted, assertions on).
 test: fmt gen-ninja
     #!/usr/bin/env sh
     set -eu
     ulimit -s unlimited 2>/dev/null || ulimit -s 65536
     ninja build/quic_test && build/quic_test
 
-# fast dev-loop tests: run.c split into shard TUs compiled in parallel
-# (~4x faster than the 1-core single-TU `test`, more on small increments;
-# -O2 cost grows superlinearly with TU size, so splitting also cuts total
-# CPU, not just wall time). Same tests,
-# same "all tests passed" output — but shards cannot see static/typedef/
-# macro collisions ACROSS shard TUs, so the single-TU `test` stays the
-# authoritative gate (CI runs it on every push; run it locally when in
-# doubt about a name collision).
+# Shards cannot see static/typedef/macro collisions across shards, so
+# `test` stays the authoritative gate.
+# Same tests as `test`, ~4x faster (parallel shard TUs).
 test-fast: fmt gen-ninja
     #!/usr/bin/env sh
     set -eu
@@ -105,10 +81,8 @@ test-fast: fmt gen-ninja
     python3 scripts/gen_shards.py
     ninja build/quic_test_fast && build/quic_test_fast
 
-# line coverage of the hosted unity test (LLVM source-based coverage).
-# Separate binary from `test` -- instrumentation must never leak into the
-# gate build, so this recompiles tests/run.c on its own with
-# -fprofile-instr-generate -fcoverage-mapping rather than reusing quic_test.
+# Its own instrumented binary, so instrumentation never leaks into `test`.
+# Line coverage of the unity test (LLVM source-based).
 cov: fmt
     #!/usr/bin/env sh
     set -eu
@@ -122,17 +96,13 @@ cov: fmt
     llvm-cov report build/quic_test_cov -instr-profile=build/quic_test.profdata \
         -ignore-filename-regex='tests/'
 
-# cyclomatic complexity gate: CCN must be <= 3. Defaults to the whole of
-# src/ (the commit gate); pass files to measure only those while other
-# work is half-written, e.g. `just ccn src/app/moqt/run/moqtrun.c`.
+# Default is all of src/ (the gate); pass files to measure only those.
+# CCN <= 3 for every function (lizard).
 ccn *paths="src":
     lizard {{paths}} --CCN 3 -w
 
-# wiring integrity: every src/**/*.c must be #include'd once in tests/run.c
-# (the unity TU) and compile to exactly one path-qualified build/<path>.o.
-# A mismatch means a source is committed but never built or tested -- the
-# failure mode that once shipped 48 unwired files as a stale green. Run
-# after any wiring change; part of the pre-commit gate.
+# A mismatch means a source is committed but never built or tested.
+# Check every src/**/*.c is in tests/run.c once and builds one object.
 wire-check: ninja
     #!/usr/bin/env sh
     set -eu
@@ -151,143 +121,56 @@ wire-check: ninja
     [ -z "$gone" ] || { echo "WIRING MISMATCH: run.c includes deleted sources:"; echo "$gone"; exit 1; } >&2
     echo "wiring OK ($nsrc sources, sys.c excluded from the unity TU by design)"
 
-# run the unity test binary under valgrind. Freestanding code has no
-# implicit zeroing, and every nondeterministic hang so far was an
-# uninitialized read (e.g. the ec_mul accumulator); valgrind
-# --track-origins names the culprit in one run. Slow -- run after wiring a
-# new domain or on any "sometimes passes" symptom, not on every commit.
-# --max-stackframe: test_srvrun legitimately carries a ~8.5MB stack frame;
-# below this bound valgrind assumes a stack switch and floods tens of
-# thousands of false Invalid read/write reports (the 8MB default ulimit is
-# not the ceiling here -- `just test`/`test-fast` raise it, see above).
+# Names the uninitialized read behind a "sometimes passes" hang. Slow.
+# --max-stackframe covers test_srvrun's ~8.5MB frame.
+# Run the unity test binary under valgrind --track-origins.
 valgrind: gen-ninja
     ninja build/quic_test
     valgrind --error-exitcode=99 --track-origins=yes --max-stackframe=9000000 \
         --suppressions=tests/valgrind.supp ./build/quic_test
 
-# emit compile_commands.json for clangd/IDEs from the ninja graph
+# Emit compile_commands.json for clangd/IDEs.
 compdb: gen-ninja
     ninja -t compdb > compile_commands.json
 
-# build the libFuzzer harness for the invariant packet-header parser and
-# the coalesced-datagram splitter (hosted, ASan+libFuzzer; src/ untouched).
-fuzz-header: gen-ninja
-    ninja fuzz/fuzz_header
+# Each run seeds from and grows fuzz/corpus/<harness>/ (the Fuzz workflow
+# commits it).
+# Nightly sweep: every fuzz harness for secs seconds each.
+fuzz-ci secs="120": gen-ninja
+    #!/usr/bin/env sh
+    set -eu
+    for f in fuzz/fuzz_*.c; do t=${f%.c}; ninja "$t"
+        "./$t" -max_total_time={{secs}} -artifact_prefix=fuzz/ "fuzz/corpus/${t#fuzz/}"
+    done
 
-# build the libFuzzer harness for the QPACK dynamic-table Indexed Field Line
-# decoder (hosted, ASan+libFuzzer; src/ untouched).
-fuzz-qpack: gen-ninja
-    ninja fuzz/fuzz_qpack
+# Per-PR gate: every fuzz harness builds and survives one run.
+fuzz-smoke: gen-ninja
+    #!/usr/bin/env sh
+    set -eu
+    for f in fuzz/fuzz_*.c; do t=${f%.c}; ninja "$t"
+        "./$t" -runs=1 -artifact_prefix=fuzz/
+    done
 
-# build the libFuzzer harness for the X.509 certificate parser and the
-# TBSCertificate field extractor (hosted, ASan+libFuzzer; src/ untouched).
-fuzz-x509: gen-ninja
-    ninja fuzz/fuzz_x509
-
-# build the libFuzzer harness for post-handshake connection I/O (coalesced
-# datagrams through connio_recv's open+frame-dispatch path, keys pre-installed
-# so no real handshake runs; hosted, ASan+libFuzzer; src/ untouched).
-fuzz-onertt: gen-ninja
-    ninja fuzz/fuzz_onertt
-
-# build the libFuzzer harness for TLS 1.3 handshake-message parsing
-# (ServerHello/Certificate/CertificateVerify/NewSessionTicket) and the
-# ClientHello extension scanners (hosted, ASan+libFuzzer; src/ untouched).
-fuzz-tlsmsg: gen-ninja
-    ninja fuzz/fuzz_tlsmsg
-
-# build the libFuzzer harness for the QUIC frame decoders (RFC 9000 19)
-# and the transport-parameter parsers (hosted, ASan+libFuzzer; src/
-# untouched).
-fuzz-frames: gen-ninja
-    ninja fuzz/fuzz_frames
-
-# build the libFuzzer harness for the HTTP/WebTransport capsule codecs,
-# HTTP/3 frame + SETTINGS parsing, and the QPACK stream-instruction
-# decoders (hosted, ASan+libFuzzer; src/ untouched).
-fuzz-capsule: gen-ninja
-    ninja fuzz/fuzz_capsule
-
-# build the libFuzzer harness for the MoQT varint/KVP/control/data
-# codecs and the session state machine (hosted, ASan+libFuzzer; src/
-# untouched).
-fuzz-moqt: gen-ninja
-    ninja fuzz/fuzz_moqt
-
-# build the libFuzzer harness for the fragmented-MP4 top-level box
-# scanner (hosted, ASan+libFuzzer; src/ untouched).
-fuzz-mp4frag: gen-ninja
-    ninja fuzz/fuzz_mp4frag
-
-# run every fuzz harness for secs wall-clock seconds each (default 120), for
-# CI: a bounded regression sweep, not an open-ended fuzzing campaign. Exits
-# non-zero on any crash/leak (libFuzzer's own exit code). Each run reads
-# fuzz/corpus/<target>/ as seeds and writes any new coverage-increasing
-# input back into it (libFuzzer's own corpus-directory behavior) -- the
-# nightly Fuzz workflow commits whatever accumulates there, so each run
-# starts from the last run's discoveries instead of an empty corpus.
-fuzz-ci secs="120":
-    just fuzz-header && ./fuzz/fuzz_header -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_header
-    just fuzz-qpack && ./fuzz/fuzz_qpack -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_qpack
-    just fuzz-x509 && ./fuzz/fuzz_x509 -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_x509
-    just fuzz-onertt && ./fuzz/fuzz_onertt -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_onertt
-    just fuzz-tlsmsg && ./fuzz/fuzz_tlsmsg -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_tlsmsg
-    just fuzz-frames && ./fuzz/fuzz_frames -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_frames
-    just fuzz-capsule && ./fuzz/fuzz_capsule -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_capsule
-    just fuzz-moqt && ./fuzz/fuzz_moqt -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_moqt
-    just fuzz-mp4frag && ./fuzz/fuzz_mp4frag -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_mp4frag
-
-# per-PR gate: each harness builds and survives exactly 1 run (libFuzzer
-# -runs=1, no time budget) -- catches a broken/uncompilable harness or an
-# instant crash on every push, complementing fuzz-ci's nightly bounded
-# search (a real regression sweep needs minutes, not a per-commit gate).
-fuzz-smoke:
-    just fuzz-header && ./fuzz/fuzz_header -runs=1 -artifact_prefix=fuzz/
-    just fuzz-qpack && ./fuzz/fuzz_qpack -runs=1 -artifact_prefix=fuzz/
-    just fuzz-x509 && ./fuzz/fuzz_x509 -runs=1 -artifact_prefix=fuzz/
-    just fuzz-onertt && ./fuzz/fuzz_onertt -runs=1 -artifact_prefix=fuzz/
-    just fuzz-tlsmsg && ./fuzz/fuzz_tlsmsg -runs=1 -artifact_prefix=fuzz/
-    just fuzz-frames && ./fuzz/fuzz_frames -runs=1 -artifact_prefix=fuzz/
-    just fuzz-capsule && ./fuzz/fuzz_capsule -runs=1 -artifact_prefix=fuzz/
-    just fuzz-moqt && ./fuzz/fuzz_moqt -runs=1 -artifact_prefix=fuzz/
-    just fuzz-mp4frag && ./fuzz/fuzz_mp4frag -runs=1 -artifact_prefix=fuzz/
-
-# format all sources in place (clang-format, .clang-format config).
-# Reroutes itself through the flake devShell when run outside one: a host
-# clang-format of another version reflows differently and CI's fmt-check
-# rejects the result (2026-07-05: a host-18.x `just fmt` undid the pinned
-# layout across 8 files). Without nix it runs the host binary as a last
-# resort and says so.
+# Format the C sources in place with the pinned clang-format.
 fmt:
     #!/usr/bin/env sh
-    if [ -z "$IN_NIX_SHELL" ] && command -v nix >/dev/null 2>&1; then
-        exec nix develop -c just fmt
-    fi
-    if [ -z "$IN_NIX_SHELL" ]; then
+    {{in_nix}} fmt; fi
+    if [ -z "${IN_NIX_SHELL:-}" ]; then
         echo "warning: no nix; formatting with the host clang-format (may disagree with CI's pin)" >&2
     fi
-    clang-format -i $(find src tests examples fuzz guide/snippets \( -name node_modules -prune \) -o \( -name '*.c' -o -name '*.h' \) -print)
+    clang-format -i {{csrcs}}
 
-# verify formatting without writing (fails on diff); same devShell reroute
-# as fmt so the verdict matches CI's pinned clang-format.
+# Verify C formatting without writing (fails on diff).
 fmt-check:
     #!/usr/bin/env sh
-    if [ -z "$IN_NIX_SHELL" ] && command -v nix >/dev/null 2>&1; then
-        exec nix develop -c just fmt-check
-    fi
-    clang-format --dry-run --Werror $(find src tests examples fuzz guide/snippets \( -name node_modules -prune \) -o \( -name '*.c' -o -name '*.h' \) -print)
+    {{in_nix}} fmt-check; fi
+    clang-format --dry-run --Werror {{csrcs}}
 
-# verify tests/app/moqt_golden.h matches a fresh regeneration from
-# examples/moqt_chat/testvectors/moqt_golden.json (scripts/gen_moqt_golden.py),
-# formatted with the same pinned clang-format as `just fmt`. Non-zero on
-# drift. Same devShell reroute as fmt-check -- the regenerated file must be
-# formatted with the exact clang-format CI uses, or wrapping differs and
-# this reports false drift.
+# Regenerated from examples/moqt_chat/testvectors/moqt_golden.json.
+# Verify tests/app/moqt_golden.h has no drift.
 golden-check:
     #!/usr/bin/env sh
-    if [ -z "$IN_NIX_SHELL" ] && command -v nix >/dev/null 2>&1; then
-        exec nix develop -c just golden-check
-    fi
+    {{in_nix}} golden-check; fi
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     python3 scripts/gen_moqt_golden.py "$tmp/moqt_golden.h"
     clang-format -style=file:.clang-format -i "$tmp/moqt_golden.h"
@@ -301,29 +184,20 @@ golden-check:
 tidychecks := "-*,cert-*,bugprone-*,clang-analyzer-*,-bugprone-easily-swappable-parameters,-bugprone-reserved-identifier,-cert-dcl37-c,-cert-dcl51-cpp"
 tidyflags := "-target x86_64-unknown-linux-gnu -ffreestanding -nostdlib -fno-builtin -Isrc"
 
-# CERT C secure-coding checks only (JPCERT/SEI CERT C via clang-tidy cert-*).
-cert:
-    clang-tidy -checks='-*,cert-*,-cert-dcl37-c,-cert-dcl51-cpp' --warnings-as-errors='*' --quiet $(find src -name '*.c') -- {{tidyflags}}
-
-# static analysis: CERT C rules (see `cert`) plus bug finders. Includes cert.
+# Pinned clang-tidy, since findings differ across versions.
+# Static analysis (CERT C + bug finders); any warning fails.
 lint:
     #!/usr/bin/env sh
-    # same devShell reroute as fmt: clang-tidy findings differ across versions
-    if [ -z "$IN_NIX_SHELL" ] && command -v nix >/dev/null 2>&1; then
-        exec nix develop -c just lint
-    fi
+    {{in_nix}} lint; fi
     clang-tidy -checks='{{tidychecks}}' --warnings-as-errors='*' --quiet $(find src -name '*.c') -- {{tidyflags}}
 
-# build the guide's snippets (guide/snippets/<id>/main.c), run each one for
-# real, and compare its normalized output with the committed golden.txt.
-# No ids = all. Needs go + node 22 on PATH (the Go clients build here).
-guide-verify *ids: lib
-    ninja guide
+# No ids = all. Needs go + node 22 on PATH.
+# Build and run the guide snippets, compare with their golden.txt.
+guide-verify *ids: (ninja "guide")
     cd guide && node runner/run.ts {{ids}}
 
-# regenerate the public-API reference into docs/sdk. The input set is derived
-# from wired.h's transitive includes at run time, so it never drifts from the
-# real public API surface. Config lives in docs/Doxyfile.
+# Inputs are wired.h's transitive includes; config in docs/Doxyfile.
+# Regenerate the public-API reference into docs/sdk (doxygen).
 docs:
     rm -rf docs/sdk
     inputs="$(cd src && clang -I. -E -H wired.h 2>&1 >/dev/null \
@@ -331,5 +205,5 @@ docs:
     [ -n "$inputs" ] || { echo "docs: deriving INPUT from wired.h failed" >&2; exit 1; }; \
     ( cat docs/Doxyfile; printf 'INPUT = src/wired.h %s\n' "$inputs" ) | doxygen -
 
-# everything
+# ccn + test.
 check: ccn test

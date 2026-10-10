@@ -129,12 +129,13 @@ local run matches CI.
 | `cov` | Line coverage of the hosted unity test via LLVM source-based coverage, built as its own instrumented binary so instrumentation never leaks into the gate build. |
 | `ccn [files]` | Every function in `src/` must hold cyclomatic complexity ≤ 3 (lizard). Pass files to measure only those. |
 | `check` | `ccn` + `test`. |
-| `fmt` / `fmt-check` | clang-format in place / verify without writing. |
-| `lint` / `cert` | clang-tidy static analysis (CERT C secure-coding rules + bug finders / CERT C only). |
+| `golden-check` | Verify `tests/app/moqt_golden.h` matches a regeneration from the moqt_chat test vectors. |
+| `guide-verify [ids]` | Build and run the guide snippets and compare their output with each `golden.txt`. |
+| `fmt` / `fmt-check` | clang-format in place / verify without writing (`src`, `tests`, `examples`, `fuzz`, `guide/snippets`). |
+| `lint` | clang-tidy static analysis (CERT C secure-coding rules + bug finders); any warning fails. |
 | `wire-check` | Verify every `src/**/*.c` is `#include`'d exactly once in `tests/run.c` and compiles to exactly one `build/<path>.o` — catches sources committed but never wired into the build. |
 | `valgrind` | Run the unity test binary under `valgrind --track-origins=yes` to name the culprit of any nondeterministic hang (freestanding code has no implicit zeroing). |
-| `fuzz-header` / `fuzz-qpack` / `fuzz-x509` / `fuzz-onertt` | Build one libFuzzer+ASan harness (packet header, QPACK, X.509, post-handshake connection I/O). |
-| `fuzz-ci [secs]` | Run all four harnesses for `secs` seconds each (default 120). |
+| `fuzz-ci [secs]` | Run every `fuzz/fuzz_*.c` libFuzzer+ASan harness for `secs` seconds each (default 120), growing `fuzz/corpus/<harness>/`. One harness alone: `just ninja fuzz/fuzz_<name>`. |
 | `fuzz-smoke` | Per-PR gate: build and run each harness for exactly 1 run, catching a broken harness or an instant crash on every push. |
 | `docs` | Regenerate the doxygen API reference into `docs/sdk/` from `wired.h`'s transitive includes. |
 | `gen-ninja` / `compdb` | Regenerate `build.ninja` / emit `compile_commands.json` for clangd. |

@@ -103,8 +103,8 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo
     echo "# fuzz: each harness includes its target src/**.c directly (hosted,"
     echo "# ASan+libFuzzer instrumented), same reasoning as the unity build."
-    for name in header qpack x509 onertt tlsmsg frames capsule moqt mp4frag; do
-        echo "build fuzz/fuzz_$name: cc_fuzz_bin fuzz/fuzz_$name.c"
+    for f in fuzz/fuzz_*.c; do
+        echo "build ${f%.c}: cc_fuzz_bin $f"
     done
     echo
     echo "# the SDK archive and the example server built against it."
