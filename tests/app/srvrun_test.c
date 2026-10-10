@@ -15442,6 +15442,226 @@ static void test_srvrun_wt_priority_rejects_bad_args(void) {
   CHECK(wired_server_wt_stream_priority(&c->wt, 11, 7) == 1);
 }
 
+/* ===== MoQT-shaped send classes on the WT send pump =====
+ * (draft-ietf-moq-transport-22 7.2 on top of RFC 9218 2.1 urgency)
+ * Test list:
+ * - a worse class does not send while a better one is ready; fine breaks
+ *   the tie inside one urgency
+ * - a ready control stream (urgency 3) keeps urgency-4 data waiting
+ * - a blocked control stream does not hold back data
+ * - within one flow the fill (tie top bit 0) goes before the live stream
+ * - within one flow the lower group goes first; descending: the higher
+ * - flow order only applies inside one class
+ * - a blocked fill does not hold back its flow's live stream; a blocked
+ *   slot never sends
+ * - equal-class flows all send in the same pass; flow-0 streams bypass
+ *   the flow order
+ * - each eligible slot sends exactly one slice per pass
+ * - re-scheduling to a worse class demotes the slot
+ * - urgency 8 and an id with no send slot are refused */
+
+static void sr_sched(
+    srvrun_conn* c, u64 id, u8 urg, u16 fine, u64 flow, u64 order, u64 tie) {
+  wired_wt_sched k = {urg, fine, flow, order, tie};
+  CHECK(wired_server_wt_stream_schedule(&c->wt, id, &k) == 1);
+}
+
+static u64 sr_inflight(srvrun_conn* c, usz slot) {
+  return wired_sendsess_inflight(&c->wtsend[slot].sess);
+}
+
+#define SR_LIVE (1ULL << 63)
+
+static void test_srvrun_wt_sched_better_class_first(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_prio_fixture(&f, &ob);
+  sr_sched(c, 11, 4, 0x8080, 1, 0, SR_LIVE);
+  sr_sched(c, 15, 4, 0x0a80, 2, 0, SR_LIVE);
+  sr_prio_pump();
+  CHECK(sr_inflight(c, 1) == 2);
+  CHECK(sr_inflight(c, 0) == 0);
+}
+
+static void test_srvrun_wt_sched_control_before_data(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_prio_fixture(&f, &ob);
+  sr_sched(c, 11, 4, 0, 1, 0, 0); /* 15 stays at the default 3 */
+  sr_prio_pump();
+  CHECK(sr_inflight(c, 1) == 2);
+  CHECK(sr_inflight(c, 0) == 0);
+}
+
+static void test_srvrun_wt_sched_blocked_control_lets_data(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_prio_fixture(&f, &ob);
+  sr_sched(c, 11, 4, 0, 1, 0, 0);
+  c->wtsend[1].stream_credit = 0;
+  sr_prio_pump();
+  CHECK(sr_inflight(c, 0) == 2);
+  CHECK(sr_inflight(c, 1) == 0);
+}
+
+static void test_srvrun_wt_sched_fill_before_live(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_prio_fixture(&f, &ob);
+  sr_sched(c, 11, 4, 0x8080, 7, 3, SR_LIVE);
+  sr_sched(c, 15, 4, 0x8080, 7, 3, 0);
+  sr_prio_pump();
+  CHECK(sr_inflight(c, 1) == 2);
+  CHECK(sr_inflight(c, 0) == 0);
+}
+
+static void test_srvrun_wt_sched_group_order(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_prio_fixture(&f, &ob);
+  sr_sched(c, 11, 4, 0x8080, 7, 5, SR_LIVE);
+  sr_sched(c, 15, 4, 0x8080, 7, 4, SR_LIVE);
+  sr_prio_pump(); /* ascending: group 4 first */
+  CHECK(sr_inflight(c, 1) == 2);
+  CHECK(sr_inflight(c, 0) == 0);
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_prio_fixture(&f, &ob);
+  sr_sched(c, 11, 4, 0x8080, 7, ~5ULL, SR_LIVE);
+  sr_sched(c, 15, 4, 0x8080, 7, ~4ULL, SR_LIVE);
+  sr_prio_pump(); /* descending: group 5 first */
+  CHECK(sr_inflight(c, 0) == 2);
+  CHECK(sr_inflight(c, 1) == 0);
+}
+
+/* 15 leads its flow's order but sits in a worse class: it neither sends
+ * nor holds back 11, so the pass still sends. */
+static void test_srvrun_wt_sched_flow_order_inside_class(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_prio_fixture(&f, &ob);
+  sr_sched(c, 11, 4, 0x0101, 7, 9, SR_LIVE);
+  sr_sched(c, 15, 4, 0x0202, 7, 1, 0);
+  sr_prio_pump();
+  CHECK(sr_inflight(c, 0) == 2);
+  CHECK(sr_inflight(c, 1) == 0);
+}
+
+static void test_srvrun_wt_sched_blocked_fill_lets_live(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_prio_fixture(&f, &ob);
+  sr_sched(c, 11, 4, 0x8080, 7, 3, SR_LIVE);
+  sr_sched(c, 15, 4, 0x8080, 7, 3, 0);
+  c->wtsend[1].stream_credit = 0;
+  sr_prio_pump();
+  CHECK(sr_inflight(c, 0) == 2);
+  CHECK(sr_inflight(c, 1) == 0);
+}
+
+static void test_srvrun_wt_sched_equal_flows_share(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_prio_fixture(&f, &ob);
+  sr_sched(c, 11, 4, 0x8080, 7, 9, SR_LIVE);
+  sr_sched(c, 15, 4, 0x8080, 8, 1, 0);
+  sr_prio_pump();
+  CHECK(sr_inflight(c, 0) == 1);
+  CHECK(sr_inflight(c, 1) == 1);
+}
+
+/* Flow 0 opts out of the flow order even when order/tie differ. */
+static void test_srvrun_wt_sched_flow0_bypasses_order(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_prio_fixture(&f, &ob);
+  sr_sched(c, 11, 3, 0, 0, 9, SR_LIVE);
+  sr_sched(c, 15, 3, 0, 0, 1, 0);
+  sr_prio_pump();
+  CHECK(sr_inflight(c, 0) == 1);
+  CHECK(sr_inflight(c, 1) == 1);
+}
+
+/* One pass with room to spare: 15 and 19 send one slice each, 11 waits
+ * behind 15 in its flow. */
+static void test_srvrun_wt_sched_one_slice_per_pass(void) {
+  struct lp_fix   f;
+  wired_obuf      ob = {0};
+  u8              obuf[1024];
+  srvrun_conn*    c;
+  srvrun_cfg      cfg = sr_wt_send_cfg();
+  srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  ob                  = (wired_obuf){obuf, sizeof obuf, 0};
+  c                   = sr_prio_fixture(&f, &ob);
+  CHECK(
+      wired_server_wt_open_uni_stream(
+          &c->wt, wired_span_of(sr_prio_body, sizeof sr_prio_body)) == 19);
+  c->cc.cwnd = 1u << 20;
+  sr_sched(c, 11, 4, 0x8080, 7, 2, SR_LIVE);
+  sr_sched(c, 15, 4, 0x8080, 7, 1, SR_LIVE);
+  sr_sched(c, 19, 4, 0x8080, 8, 9, SR_LIVE);
+  CHECK(srvrun_pump_wt_round(&ctx, c) == 1);
+  CHECK(sr_inflight(c, 0) == 0);
+  CHECK(sr_inflight(c, 1) == 1);
+  CHECK(sr_inflight(c, 2) == 1);
+}
+
+static void test_srvrun_wt_sched_reschedule_demotes(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_prio_fixture(&f, &ob);
+  sr_sched(c, 11, 4, 0x0a80, 7, 0, SR_LIVE);
+  sr_sched(c, 15, 4, 0x8080, 8, 0, SR_LIVE);
+  sr_sched(c, 11, 4, 0xc880, 7, 0, SR_LIVE);
+  sr_prio_pump();
+  CHECK(sr_inflight(c, 1) == 2);
+  CHECK(sr_inflight(c, 0) == 0);
+}
+
+static void test_srvrun_wt_sched_rejects_bad_args(void) {
+  struct lp_fix  f;
+  wired_obuf     ob = {0};
+  u8             obuf[1024];
+  srvrun_conn*   c;
+  wired_wt_sched bad = {8, 0, 0, 0, 0};
+  wired_wt_sched ok  = {7, 0, 0, 0, 0};
+  ob                 = (wired_obuf){obuf, sizeof obuf, 0};
+  c                  = sr_prio_fixture(&f, &ob);
+  CHECK(wired_server_wt_stream_schedule(&c->wt, 11, &bad) < 0);
+  CHECK(wired_server_wt_stream_schedule(&c->wt, 19, &ok) < 0);
+  CHECK(wired_server_wt_stream_schedule(&c->wt, 11, &ok) == 1);
+}
+
 /* ===== delivery-rate estimate for the WT session (kbps) =====
  * Test list:
  * - no RTT sample yet: 0 (unknown)
@@ -22066,6 +22286,18 @@ void test_srvrun(void) {
   test_srvrun_wt_priority_equal_keeps_order();
   test_srvrun_wt_priority_blocked_urgent_does_not_starve();
   test_srvrun_wt_priority_rejects_bad_args();
+  test_srvrun_wt_sched_better_class_first();
+  test_srvrun_wt_sched_control_before_data();
+  test_srvrun_wt_sched_blocked_control_lets_data();
+  test_srvrun_wt_sched_fill_before_live();
+  test_srvrun_wt_sched_group_order();
+  test_srvrun_wt_sched_flow_order_inside_class();
+  test_srvrun_wt_sched_blocked_fill_lets_live();
+  test_srvrun_wt_sched_equal_flows_share();
+  test_srvrun_wt_sched_flow0_bypasses_order();
+  test_srvrun_wt_sched_one_slice_per_pass();
+  test_srvrun_wt_sched_reschedule_demotes();
+  test_srvrun_wt_sched_rejects_bad_args();
   test_srvrun_wt_est_kbps();
   test_srvrun_wt_open_uni_stream_appends_then_finishes();
   test_srvrun_wt_stream_send_queue_bound();
