@@ -403,6 +403,27 @@ static u64 mtdr_done_on(u64 sid, u64* count) {
   return ~(u64)0;
 }
 
+/* draft-22 removed SUBSCRIPTION_ENDED: Largest passing the Location
+ * Filter's End Group does not end the subscription -- no PUBLISH_DONE, no
+ * FIN, the subscription stays (a REQUEST_UPDATE may widen it, 22 9.5);
+ * the Group past End is just not delivered. */
+static void test_moqtrun_done_filter_end_keeps_sub(void) {
+  moqctl_params p =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_GROUP, 1, 0));
+  moqctl_ftn f     = mtrq_setup();
+  u64        count = 0;
+  u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &p);
+  CHECK(mtst_sub(SESS_A, SESS_B) != 0);
+  usz n = mtst_stream(2, 1, 1, buf); /* Group 2, past End Group 1 */
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 1);
+  CHECK(moqtrun_test_count_kind(4) == 0);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+  CHECK(!mtrq_fin_on(MTRQ_S1));
+  CHECK(mtst_sub(SESS_A, SESS_B) != 0);
+}
+
 /* The publisher's session ending ends its subscribers' subscriptions:
  * PUBLISH_DONE TRACK_ENDED, then FIN, and a rejoin does not revive them.
  * A subscription on the control stream has no stream to carry it and is
@@ -654,6 +675,7 @@ static void mtall_drain(void) {
   test_moqtrun_goaway_no_timeout();
   test_moqtrun_closed_is_frozen();
   test_moqtrun_done_track_ended();
+  test_moqtrun_done_filter_end_keeps_sub();
   test_moqtrun_goaway_once_per_session();
   test_moqtrun_goaway_uri_too_long();
   test_moqtrun_goaway_uri_spec_max();

@@ -141,9 +141,6 @@ general relay network.
   (priority mismatch across a Subgroup, differing finals, duplicate Objects
   with different payload, ...) is not implemented. Source: ledgers (SS2.4.2 /
   SS12.1).
-- **Per-Location-Filter end does not end the subscription** — d22 behaviour is
-  intended and implemented for every version, but MQ22-108b / 137a have no
-  dedicated test. Source: `ledger:draft-moq-transport-22.md`.
 - **Drained session grace is fixed** — `WIRED_MOQTRUN_GOAWAY_GRACE_MS` (1000 ms)
   between PUBLISH_DONE flush and GOAWAY_TIMEOUT close; not an ack wait. Source:
   `moqtrun.h:697`.

@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 198/212 tested, 10 indirect, 4 untested.**
+**Coverage: 200/212 tested, 10 indirect, 2 untested.**
 
 ## SS1.4.1 Variable-Length Integers (SS8.1)
 
@@ -805,14 +805,11 @@ Legend:
     acceptance of filters at/after the current Largest Object, matching
     this always-valid rule by construction (no code path raises
     INVALID_RANGE for a stale-but-structurally-valid filter).
-- [ ] MQ22-108b Reaching a Location Filter's end (Largest Object passes the
+- [x] MQ22-108b Reaching a Location Filter's end (Largest Object passes the
   filter's End) shall not terminate the subscription, unlike draft-19's
   PUBLISH_DONE SUBSCRIPTION_ENDED (removed in draft-22, see MQ22-102).
-  - gap: `moqtrun_sub_wants_group` already never terminates a subscription
-    on filter-end for ANY version (draft-19's SUBSCRIPTION_ENDED behavior
-    itself was never implemented, see ledger 4-8's "already compliant,
-    no-op" finding); no dedicated draft-22 test isolates this from the
-    shared gate, so it stays `[ ]` pending such a test.
+  - test: `tests/app/moqtrun_drain_test.c` —
+    `test_moqtrun_done_filter_end_keeps_sub`
 - [x] MQ22-108c A publisher may send LOCATION_FILTER in PUBLISH (setting the
   initial filter) and in PUBLISH_STATE_NOTIFY (reporting the filter now in
   effect), in addition to SUBSCRIBE and REQUEST_UPDATE, unlike draft-19
@@ -1022,10 +1019,11 @@ Legend:
     FETCH-of-FETCH); the "pause until confirmed" behavior this would
     replace was never implemented either (ledger 4-13's N/A finding), so
     there is no code path to exercise this rule against yet.
-- [ ] MQ22-137a Reaching a Location Filter's end on a FETCH shall not emit
+- [x] MQ22-137a Reaching a Location Filter's end on a FETCH shall not emit
   SUBSCRIPTION_ENDED (see MQ22-108b; duplicate cross-reference kept here
   because this is also a FETCH/relay-section rule in the diff catalog).
-  - gap: see MQ22-108b.
+  - test: `tests/app/moqtrun_drain_test.c` —
+    `test_moqtrun_done_filter_end_keeps_sub`
 
 ## Hub relay: fill fetch streams (FILL_PARAMETERS, draft-22 only, new in -20)
 
@@ -1800,8 +1798,7 @@ them (MQ22-028, MQ22-193 through MQ22-201).
 - (SS3.3.1) A late subscriber's live delivery starts at its Location
   Filter's start Group (MQ22-198), but a start Object inside that Group is
   not trimmed from a Subgroup stream; only the reliable replay honours the
-  start Object. MQ22-108b (filter-end does not terminate the subscription)
-  has no dedicated draft-22 test.
+  start Object.
 - (SS7.6, SS11.4.1.2) Relay-level FETCH gap/upstream-fetch behavior
   (MQ22-137) — moot until this hub forwards FETCH upstream to another
   relay.
