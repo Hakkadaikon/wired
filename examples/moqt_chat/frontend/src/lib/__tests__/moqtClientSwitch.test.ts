@@ -22,6 +22,7 @@ import {
 	FakeWebTransport,
 	hubSetupBody,
 	MSG_SUBSCRIBE,
+	must,
 	stubWebTransport,
 } from "./fakeWebTransport";
 
@@ -298,7 +299,7 @@ describe("MoqtChatClient extension parameters on SUBSCRIBE", () => {
 		expect(rid).toBe(decodeVarint(lo.request.body, 0).value);
 
 		const sf = switchFromParam({
-			requestId: rid!,
+			requestId: must(rid),
 			mode: SWITCH_MODE_SOFT,
 			publishDone: true,
 		});
@@ -311,7 +312,7 @@ describe("MoqtChatClient extension parameters on SUBSCRIBE", () => {
 		await flush();
 		const hi = fake.requestsOf(MSG_SUBSCRIBE)[1];
 		expect(subscribeParamsHex(hi.request.body)).toBe(
-			`012403${rid!.toString(16).padStart(2, "0")}0180`,
+			`012403${must(rid).toString(16).padStart(2, "0")}0180`,
 		);
 		hi.replies.push(subscribeOk());
 		await second;

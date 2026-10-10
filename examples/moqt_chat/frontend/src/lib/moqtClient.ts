@@ -483,7 +483,7 @@ function drainFetchObjects(
 ): Uint8Array {
 	let pos = 0;
 	for (;;) {
-		let item;
+		let item: ReturnType<typeof decodeFetchObject>;
 		try {
 			item = decodeFetchObject(buffered, pos, seq, draft);
 		} catch {
@@ -502,7 +502,7 @@ function drainControlFrames(
 ): Uint8Array {
 	let offset = 0;
 	for (;;) {
-		let decoded;
+		let decoded: ReturnType<typeof decodeControlFrame>;
 		try {
 			decoded = decodeControlFrame(buffered, offset);
 		} catch {
@@ -598,9 +598,6 @@ export class MoqtChatClient {
 	// The d19 wait for the hub's bidi control stream, cancelled when the
 	// hub's uni SETUP (d22) wins #awaitHubControl's race instead.
 	#bidiCtlReader?: ReadableStreamDefaultReader<WebTransportBidirectionalStream>;
-	// d22: our own control stream's writer, held open for the session's
-	// lifetime (closing a control stream closes the session, 6.3).
-	#controlWriter?: WritableStreamDefaultWriter<Uint8Array>;
 	#callbacks: MoqtChatCallbacks;
 
 	constructor(localId: string, callbacks: MoqtChatCallbacks) {
@@ -648,7 +645,6 @@ export class MoqtChatClient {
 			this.#hubSsts = undefined;
 			this.#hubSetupDeferred = false;
 			this.#onHubSetup22 = undefined;
-			this.#controlWriter = undefined;
 			// Both readers end by rejecting once the session closes.
 			this.#readIncomingUniStreams().catch(() => {});
 			this.#readIncomingDatagrams().catch(() => {});
@@ -878,7 +874,6 @@ export class MoqtChatClient {
 	async #openControlStream22(wt: WebTransport): Promise<void> {
 		const stream = await wt.createUnidirectionalStream();
 		const writer = stream.getWriter();
-		this.#controlWriter = writer;
 		const ssts = {
 			type: SETUP_OPTION_SSTS_ALGORITHMS,
 			raw: encodeSstsAlgorithms(CLIENT_SSTS_ALGORITHMS),
@@ -1055,9 +1050,9 @@ export class MoqtChatClient {
 		let fillId: bigint | undefined;
 		const send = (parameters: MessageParam[], withFill: boolean) =>
 			this.#request(MSG_TYPE_SUBSCRIBE, (requestId) => {
-				if (withFill) {
+				if (withFill && history) {
 					fillId = requestId;
-					this.#fetches.set(requestId, history!);
+					this.#fetches.set(requestId, history);
 				}
 				return encodeSubscribe(
 					{
@@ -1107,7 +1102,7 @@ export class MoqtChatClient {
 			req && reply?.type === MSG_TYPE_SUBSCRIBE_OK
 				? subscribeOkLargest(reply.body, draft)
 				: null;
-		if (largest === null) {
+		if (!req || largest === null) {
 			if (this.#subs.get(label) === pending) this.#subs.delete(label);
 			req?.close();
 			noHistory();
@@ -1123,7 +1118,7 @@ export class MoqtChatClient {
 		}
 		this.#subscribed.add(label);
 		if (!largest || !history) noHistory();
-		else if (draft === 19) void this.#joiningFetch(req!.requestId, history);
+		else if (draft === 19) void this.#joiningFetch(req.requestId, history);
 		// else d22: the fill stream's end ends the history (#readFetchStream).
 		return true;
 	}
@@ -1354,7 +1349,7 @@ export class MoqtChatClient {
 	}
 
 	#routeDatagram(bytes: Uint8Array): void {
-		let datagram;
+		let datagram: ReturnType<typeof decodeObjectDatagram>;
 		try {
 			datagram = decodeObjectDatagram(bytes);
 		} catch {
@@ -1394,8 +1389,8 @@ export class MoqtChatClient {
 			await this.#readServerControl(first, reader);
 			return;
 		}
-		let header;
-		let headerLen;
+		let header: SubgroupHeader;
+		let headerLen: number;
 		try {
 			const decoded = decodeSubgroupHeader(first);
 			header = decoded.header;
@@ -1428,8 +1423,8 @@ export class MoqtChatClient {
 		// nickname stream carries one Object; an attachment stream carries one
 		// per chunk, so walk them all. A torn trailing Object ends the walk --
 		// whatever decoded before it still counts.
-		let header;
-		let offset;
+		let header: SubgroupHeader;
+		let offset: number;
 		try {
 			const decoded = decodeSubgroupHeader(wire);
 			header = decoded.header;
@@ -1543,7 +1538,7 @@ export class MoqtChatClient {
 	}
 
 	#handleTextPartPayload(participant: string, payload: Uint8Array): void {
-		let parsed;
+		let parsed: ReturnType<typeof decodeTextPartMessage>;
 		try {
 			parsed = decodeTextPartMessage(payload);
 		} catch {
@@ -1583,7 +1578,7 @@ export class MoqtChatClient {
 		participant: string,
 		payload: Uint8Array,
 	): void {
-		let chunk;
+		let chunk: ReturnType<typeof decodeAttachmentChunkMessage>;
 		try {
 			chunk = decodeAttachmentChunkMessage(payload);
 		} catch {

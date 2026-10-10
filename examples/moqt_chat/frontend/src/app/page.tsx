@@ -419,8 +419,10 @@ function MessageAttachment({
 	return (
 		<figure className="message__attachment">
 			{mimeType.startsWith("video/") ? (
+				// biome-ignore lint/a11y/useMediaCaption: a peer's attached video file arrives as raw bytes with no caption track to offer
 				<video src={url} controls data-testid="message-video" />
 			) : (
+				// biome-ignore lint/performance/noImgElement: blob: URL in a static export; next/image cannot optimize it
 				<img src={url} data-testid="message-image" alt="" />
 			)}
 			<a className="caption" href={url} download={fileName}>
@@ -443,7 +445,9 @@ function Message({ m }: { m: ChatMessage }) {
 	useEffect(() => {
 		const urls = m.attachments?.map((a) => a.url) ?? [];
 		if (urls.length === 0) return;
-		return () => urls.forEach((url) => URL.revokeObjectURL(url));
+		return () => {
+			for (const url of urls) URL.revokeObjectURL(url);
+		};
 	}, [m.attachments]);
 	// DOM order is sender, time, text (the grid puts the time last): the e2e
 	// load harness matches "msg:<tag>:<seq>" in textContent, and a time
@@ -459,7 +463,7 @@ function Message({ m }: { m: ChatMessage }) {
 				<div className="message__attachments">
 					{m.attachments.map((a, i) => (
 						<MessageAttachment
-							key={i}
+							key={a.url}
 							mimeType={a.mimeType}
 							url={a.url}
 							index={i}
@@ -476,6 +480,7 @@ function MessageList() {
 	const messages = useMoqtChatStore((s) => s.messages);
 	const listRef = useRef<HTMLDivElement>(null);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: messages.length is the trigger -- re-scroll to the bottom whenever a message is appended
 	useEffect(() => {
 		const el = listRef.current;
 		if (el) el.scrollTop = el.scrollHeight;
@@ -528,6 +533,7 @@ function DraftChip({
 					}}
 				/>
 			) : (
+				// biome-ignore lint/performance/noImgElement: blob: URL in a static export; next/image cannot optimize it
 				<img src={previewUrl} alt={draft.fileName} />
 			)}
 			<button

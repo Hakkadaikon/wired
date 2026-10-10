@@ -39,6 +39,7 @@ import {
 	MoqtDecodeError,
 	utf8ToBytes,
 } from "../moqtWire";
+import { must } from "./fakeWebTransport";
 
 const goldenPath = path.resolve(
 	import.meta.dirname,
@@ -62,18 +63,20 @@ describe("varint", () => {
 	for (const v of vectors) {
 		if (v.op === "decode") {
 			it(`decode ${v.name}`, () => {
-				const { value, len } = decodeVarint(hexToBytes(v.hex!));
-				expect(value).toBe(BigInt(v.value!));
+				const { value, len } = decodeVarint(hexToBytes(must(v.hex)));
+				expect(value).toBe(BigInt(must(v.value)));
 				expect(len).toBe(v.len);
 			});
 		} else if (v.op === "encode") {
 			it(`encode ${v.name}`, () => {
-				const out = encodeVarint(BigInt(v.value!), v.pad_len ?? 1);
+				const out = encodeVarint(BigInt(must(v.value)), v.pad_len ?? 1);
 				expect(bytesToHex(out)).toBe(v.hex);
 			});
 		} else if (v.op === "reject") {
 			it(`reject ${v.name}`, () => {
-				expect(() => decodeVarint(hexToBytes(v.hex!))).toThrow(MoqtDecodeError);
+				expect(() => decodeVarint(hexToBytes(must(v.hex)))).toThrow(
+					MoqtDecodeError,
+				);
 			});
 		}
 	}
@@ -106,13 +109,13 @@ describe("kvp", () => {
 				const bytes = hexToBytes(v.hex);
 				let offset = 0;
 				let prevType = BigInt(v.start_type);
-				for (const expected of v.pairs!) {
+				for (const expected of must(v.pairs)) {
 					const { pair, len } = decodeKvp(bytes, offset, prevType);
 					expect(pair.type).toBe(prevType + BigInt(expected.delta));
 					if (expected.num !== undefined) {
 						expect(pair.num).toBe(BigInt(expected.num));
 					} else {
-						expect(bytesToHex(pair.raw!)).toBe(expected.raw_hex);
+						expect(bytesToHex(must(pair.raw))).toBe(expected.raw_hex);
 					}
 					offset += len;
 					prevType = pair.type;
@@ -122,12 +125,12 @@ describe("kvp", () => {
 			it(`encode ${v.name}`, () => {
 				const chunks: Uint8Array[] = [];
 				let prevType = BigInt(v.start_type);
-				for (const p of v.pairs!) {
+				for (const p of must(v.pairs)) {
 					const type = prevType + BigInt(p.delta);
 					const pair =
 						p.num !== undefined
 							? { type, num: BigInt(p.num) }
-							: { type, raw: hexToBytes(p.raw_hex!) };
+							: { type, raw: hexToBytes(must(p.raw_hex)) };
 					chunks.push(encodeKvp(pair, prevType));
 					prevType = type;
 				}
@@ -142,7 +145,7 @@ describe("kvp", () => {
 		} else if (v.op === "decode_varint") {
 			it(`decode_varint ${v.name}`, () => {
 				const { value, len } = decodeVarint(hexToBytes(v.hex));
-				expect(value).toBe(BigInt(v.value!));
+				expect(value).toBe(BigInt(must(v.value)));
 				expect(len).toBe(v.len);
 			});
 		}
@@ -170,7 +173,7 @@ describe("ctl", () => {
 	}
 
 	it("decode setup_impl", () => {
-		const v = byName.get("setup_impl")!;
+		const v = must(byName.get("setup_impl"));
 		const body = checkFraming(v);
 		const msg = decodeSetup(body);
 		// toEqual on an object containing both a BigInt and a Uint8Array
@@ -178,13 +181,13 @@ describe("ctl", () => {
 		// diff it prints shows no actual difference); compare fields directly.
 		expect(msg.setupOptions.length).toBe(1);
 		expect(msg.setupOptions[0].type).toBe(7n);
-		expect(bytesToHex(msg.setupOptions[0].raw!)).toBe(
+		expect(bytesToHex(must(msg.setupOptions[0].raw))).toBe(
 			bytesToHex(utf8ToBytes("wired/0")),
 		);
 	});
 
 	it("encode setup_impl", () => {
-		const v = byName.get("setup_impl")!;
+		const v = must(byName.get("setup_impl"));
 		const body = encodeSetup({
 			setupOptions: [{ type: 7n, raw: utf8ToBytes("wired/0") }],
 		});
@@ -193,7 +196,7 @@ describe("ctl", () => {
 	});
 
 	it("decode subscribe_basic", () => {
-		const v = byName.get("subscribe_basic")!;
+		const v = must(byName.get("subscribe_basic"));
 		const body = checkFraming(v);
 		const msg = decodeSubscribe(body);
 		expect(msg.requestId).toBe(0n);
@@ -203,7 +206,7 @@ describe("ctl", () => {
 	});
 
 	it("encode subscribe_basic", () => {
-		const v = byName.get("subscribe_basic")!;
+		const v = must(byName.get("subscribe_basic"));
 		const body = encodeSubscribe({
 			requestId: 0n,
 			trackNamespace: ["chat", "room1"].map(utf8ToBytes),
@@ -214,7 +217,7 @@ describe("ctl", () => {
 	});
 
 	it("decode subscribe_ok_basic", () => {
-		const v = byName.get("subscribe_ok_basic")!;
+		const v = must(byName.get("subscribe_ok_basic"));
 		const body = checkFraming(v);
 		const msg = decodeSubscribeOk(body);
 		expect(msg.trackAlias).toBe(1n);
@@ -223,7 +226,7 @@ describe("ctl", () => {
 	});
 
 	it("encode subscribe_ok_basic", () => {
-		const v = byName.get("subscribe_ok_basic")!;
+		const v = must(byName.get("subscribe_ok_basic"));
 		const body = encodeSubscribeOk({
 			trackAlias: 1n,
 			parameters: [],
@@ -233,7 +236,7 @@ describe("ctl", () => {
 	});
 
 	it("decode publish_basic", () => {
-		const v = byName.get("publish_basic")!;
+		const v = must(byName.get("publish_basic"));
 		const body = checkFraming(v);
 		const msg = decodePublish(body);
 		expect(msg.requestId).toBe(0n);
@@ -245,7 +248,7 @@ describe("ctl", () => {
 	});
 
 	it("encode publish_basic", () => {
-		const v = byName.get("publish_basic")!;
+		const v = must(byName.get("publish_basic"));
 		const body = encodePublish({
 			requestId: 0n,
 			trackNamespace: ["chat", "room1"].map(utf8ToBytes),
@@ -258,7 +261,7 @@ describe("ctl", () => {
 	});
 
 	it("decode request_ok_basic", () => {
-		const v = byName.get("request_ok_basic")!;
+		const v = must(byName.get("request_ok_basic"));
 		const body = checkFraming(v);
 		const msg = decodeRequestOk(body);
 		expect(msg.parameters).toEqual([]);
@@ -266,13 +269,13 @@ describe("ctl", () => {
 	});
 
 	it("encode request_ok_basic", () => {
-		const v = byName.get("request_ok_basic")!;
+		const v = must(byName.get("request_ok_basic"));
 		const body = encodeRequestOk({ parameters: [], trackProperties: [] });
 		expect(bytesToHex(encodeControlFrame(BigInt(v.type), body))).toBe(v.hex);
 	});
 
 	it("decode request_error_not_supported", () => {
-		const v = byName.get("request_error_not_supported")!;
+		const v = must(byName.get("request_error_not_supported"));
 		const body = checkFraming(v);
 		const msg = decodeRequestError(body);
 		expect(msg.errorCode).toBe(3n);
@@ -281,7 +284,7 @@ describe("ctl", () => {
 	});
 
 	it("encode request_error_not_supported", () => {
-		const v = byName.get("request_error_not_supported")!;
+		const v = must(byName.get("request_error_not_supported"));
 		const body = encodeRequestError({
 			errorCode: 3n,
 			retryInterval: 0n,
@@ -291,7 +294,7 @@ describe("ctl", () => {
 	});
 
 	it("decode publish_done_track_ended", () => {
-		const v = byName.get("publish_done_track_ended")!;
+		const v = must(byName.get("publish_done_track_ended"));
 		const body = checkFraming(v);
 		const msg = decodePublishDone(body);
 		expect(msg.statusCode).toBe(2n);
@@ -300,7 +303,7 @@ describe("ctl", () => {
 	});
 
 	it("encode publish_done_track_ended", () => {
-		const v = byName.get("publish_done_track_ended")!;
+		const v = must(byName.get("publish_done_track_ended"));
 		const body = encodePublishDone({
 			statusCode: 2n,
 			streamCount: 2n,
@@ -310,7 +313,7 @@ describe("ctl", () => {
 	});
 
 	it("decode goaway_empty", () => {
-		const v = byName.get("goaway_empty")!;
+		const v = must(byName.get("goaway_empty"));
 		const body = checkFraming(v);
 		const msg = decodeGoaway(body);
 		expect(bytesToUtf8(msg.newSessionUri)).toBe("");
@@ -318,7 +321,7 @@ describe("ctl", () => {
 	});
 
 	it("encode goaway_empty", () => {
-		const v = byName.get("goaway_empty")!;
+		const v = must(byName.get("goaway_empty"));
 		const body = encodeGoaway({ newSessionUri: utf8ToBytes(""), timeout: 0n });
 		expect(bytesToHex(encodeControlFrame(BigInt(v.type), body))).toBe(v.hex);
 	});
@@ -370,25 +373,29 @@ describe("data", () => {
 	for (const v of vectors) {
 		if (v.kind === "subgroup_stream") {
 			it(`decode ${v.name}`, () => {
-				const bytes = hexToBytes(v.hex!);
+				const bytes = hexToBytes(must(v.hex));
 				const { header, len: headerLen } = decodeSubgroupHeader(bytes);
-				expect(header.trackAlias).toBe(BigInt(v.header!.track_alias));
-				expect(header.groupId).toBe(BigInt(v.header!.group_id));
-				expect(header.subgroupId).toBe(BigInt(v.header!.subgroup_id));
-				expect(header.flags.subgroupIdMode).toBe(v.header!.subgroup_id_mode);
-				expect(header.flags.firstObject).toBe(v.header!.first_object);
-				expect(header.flags.endOfGroup).toBe(v.header!.end_of_group);
-				expect(header.flags.defaultPriority).toBe(v.header!.default_priority);
-				expect(header.flags.properties).toBe(v.header!.properties);
-				if (v.header!.publisher_priority !== undefined) {
+				expect(header.trackAlias).toBe(BigInt(must(v.header).track_alias));
+				expect(header.groupId).toBe(BigInt(must(v.header).group_id));
+				expect(header.subgroupId).toBe(BigInt(must(v.header).subgroup_id));
+				expect(header.flags.subgroupIdMode).toBe(
+					must(v.header).subgroup_id_mode,
+				);
+				expect(header.flags.firstObject).toBe(must(v.header).first_object);
+				expect(header.flags.endOfGroup).toBe(must(v.header).end_of_group);
+				expect(header.flags.defaultPriority).toBe(
+					must(v.header).default_priority,
+				);
+				expect(header.flags.properties).toBe(must(v.header).properties);
+				if (must(v.header).publisher_priority !== undefined) {
 					expect(header.publisherPriority).toBe(
-						Number(v.header!.publisher_priority),
+						Number(must(v.header).publisher_priority),
 					);
 				}
 
 				let pos = headerLen;
 				let prevObjectId = 0n;
-				v.objects!.forEach((expected, i) => {
+				must(v.objects).forEach((expected, i) => {
 					const { object, len } = decodeSubgroupObject(
 						bytes,
 						pos,
@@ -408,24 +415,24 @@ describe("data", () => {
 			});
 		} else if (v.kind === "subgroup_type" && v.op === "accept") {
 			it(`accept ${v.name}`, () => {
-				const flags = decodeSubgroupTypeFlags(BigInt(v.type!));
+				const flags = decodeSubgroupTypeFlags(BigInt(must(v.type)));
 				expect(flags).toEqual({
-					properties: v.fields!.properties,
-					subgroupIdMode: v.fields!.subgroup_id_mode,
-					endOfGroup: v.fields!.end_of_group,
-					defaultPriority: v.fields!.default_priority,
-					firstObject: v.fields!.first_object,
+					properties: must(v.fields).properties,
+					subgroupIdMode: must(v.fields).subgroup_id_mode,
+					endOfGroup: must(v.fields).end_of_group,
+					defaultPriority: must(v.fields).default_priority,
+					firstObject: must(v.fields).first_object,
 				});
 			});
 		} else if (v.kind === "subgroup_type" && v.op === "reject") {
 			it(`reject ${v.name}`, () => {
-				expect(() => decodeSubgroupTypeFlags(BigInt(v.type!))).toThrow(
+				expect(() => decodeSubgroupTypeFlags(BigInt(must(v.type)))).toThrow(
 					MoqtDecodeError,
 				);
 			});
 		} else if (v.kind === "stream_type") {
 			it(`classify ${v.name}`, () => {
-				expect(classifyStreamType(BigInt(v.value!))).toBe(v.classify);
+				expect(classifyStreamType(BigInt(must(v.value)))).toBe(v.classify);
 			});
 		}
 	}
@@ -478,7 +485,7 @@ describe("object_datagram", () => {
 
 	for (const v of vectors) {
 		if (v.op === "accept") {
-			const f = v.fields!;
+			const f = must(v.fields);
 			it(`decode ${v.name}`, () => {
 				const d = decodeObjectDatagram(hexToBytes(v.hex));
 				expect(d.type).toBe(BigInt(f.type));

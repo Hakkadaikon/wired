@@ -396,3 +396,9 @@ export function stubWebTransport(
 	}
 	vi.stubGlobal("WebTransport", WebTransport);
 }
+
+// Non-null assertion that fails the test loudly instead of the `!` operator.
+export function must<T>(v: T | null | undefined): T {
+	if (v == null) throw new Error("must: value is null or undefined");
+	return v;
+}

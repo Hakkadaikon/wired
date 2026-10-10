@@ -289,7 +289,7 @@ describe("isAttachmentChunkPayload / isTextPartPayload", () => {
 describe("splitAttachmentIntoChunks + attachmentReassemblerPush", () => {
 	it("reassembles all chunks fed in shuffled order, emitting exactly once", () => {
 		const data = new Uint8Array(MAX_ATTACHMENT_CHUNK_BYTES * 2 + 10);
-		data.forEach((_, i) => (data[i] = i % 256));
+		for (let i = 0; i < data.length; i++) data[i] = i % 256;
 		const chunks = splitAttachmentIntoChunks(11, 0, "video/mp4", data);
 		expect(chunks.length).toBe(3);
 

@@ -24,9 +24,12 @@ function fakeTrack(settings?: { width: number; height: number }): Track {
 		stop: vi.fn(),
 		listeners,
 		addEventListener: (type, cb) => {
-			(listeners[type] ??= []).push(cb);
+			listeners[type] ??= [];
+			listeners[type].push(cb);
 		},
-		fireEnded: () => listeners["ended"]?.forEach((cb) => cb()),
+		fireEnded: () => {
+			for (const cb of listeners.ended ?? []) cb();
+		},
 		...(settings ? { getSettings: () => settings } : {}),
 	};
 }

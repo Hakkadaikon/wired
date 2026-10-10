@@ -101,7 +101,7 @@ export function tryDecodeOneVoiceObject(
 	hasProperties: boolean,
 	seq: VoiceObjectSeq,
 ): { payload: VoiceObjectPayload | null; len: number } | null {
-	let decoded;
+	let decoded: ReturnType<typeof decodeSubgroupObject>;
 	try {
 		decoded = decodeSubgroupObject(
 			wire,

@@ -135,7 +135,7 @@ export class JitterBufferManager {
 	private senders = new Map<string, SenderState>();
 
 	constructor(
-		private myId: string,
+		myId: string,
 		private bufCap: number,
 	) {
 		this.usedOwn = new Set([myId]);
@@ -236,7 +236,6 @@ export class JitterBufferManager {
 	// Start a fresh session: new own ID (remembered alongside every prior
 	// one), every sender's buffer and playback cursor wiped.
 	reconnect(newOwnId: string): void {
-		this.myId = newOwnId;
 		this.usedOwn.add(newOwnId);
 		this.senders.clear();
 	}

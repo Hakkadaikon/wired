@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	FakeWebTransport,
+	must,
 	stubWebTransport,
 } from "@/lib/__tests__/fakeWebTransport";
 import { MoqtChatClient } from "@/lib/moqtClient";
@@ -191,7 +192,7 @@ describe("moqtChatCallbacks", () => {
 			setNickname,
 		});
 		callbacks.onMessage("user2", "hello", []);
-		callbacks.onNickname!("user2", "Alice");
+		must(callbacks.onNickname)("user2", "Alice");
 		expect(addPeer.mock.calls).toEqual([["user2"], ["user2"]]);
 		expect(addMessage.mock.calls[0][0]).toMatchObject({
 			senderId: "user2",
@@ -905,8 +906,7 @@ describe("micPipelineIsConfigSupported", () => {
 	});
 
 	it("is absent when the AudioEncoder global does not exist", () => {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		delete (globalThis as any).AudioEncoder;
+		delete (globalThis as { AudioEncoder?: unknown }).AudioEncoder;
 		expect(micPipelineIsConfigSupported()).toBeUndefined();
 	});
 

@@ -9,6 +9,7 @@ import {
 	startNoiseSuppressor,
 	stripEsmExport,
 } from "../noiseSuppressor";
+import { must } from "./fakeWebTransport";
 
 describe("createFrameAccumulator(480)", () => {
 	it("returns no frame after fewer than 480 samples", () => {
@@ -56,8 +57,8 @@ describe("createFrameAccumulator(480)", () => {
 		const block = new Float32Array(128).fill(0.5);
 		let frame: Float32Array | null = null;
 		for (let i = 0; i < 4; i++) frame = acc.push(block);
-		expect(frame![0]).toBe(0.5);
-		expect(frame![479]).toBe(0.5);
+		expect(must(frame)[0]).toBe(0.5);
+		expect(must(frame)[479]).toBe(0.5);
 	});
 });
 

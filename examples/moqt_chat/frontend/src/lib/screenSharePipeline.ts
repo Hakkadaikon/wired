@@ -332,7 +332,7 @@ export async function startScreenSharePipeline(
 		stop: () => {
 			pipeline.stopped = true;
 			track?.stop();
-			lanes.forEach((lane) => lane.encoder.close());
+			for (const lane of lanes) lane.encoder.close();
 		},
 		requestKeyframe: () => {
 			lastKeyframeAt = -Infinity;

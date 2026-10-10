@@ -41,9 +41,10 @@ export function createAudioContextGate(
 
 	const flush = () => {
 		if (!options.play) return;
-		while (pending.length > 0) {
-			const { senderKey, frame } = pending.shift()!;
-			options.play(senderKey, frame);
+		let next = pending.shift();
+		while (next) {
+			options.play(next.senderKey, next.frame);
+			next = pending.shift();
 		}
 	};
 
@@ -54,8 +55,9 @@ export function createAudioContextGate(
 		enqueue: (senderKey, frame) => {
 			pending.push({ senderKey, frame });
 			if (pending.length > MAX_PENDING) {
-				const dropped = pending.shift()!;
-				(dropped.frame as { close?: () => void } | undefined)?.close?.();
+				(
+					pending.shift()?.frame as { close?: () => void } | undefined
+				)?.close?.();
 			}
 			if (ctx.state === "running") flush();
 		},

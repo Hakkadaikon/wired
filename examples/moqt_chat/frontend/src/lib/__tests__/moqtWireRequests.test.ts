@@ -32,6 +32,7 @@ import {
 	newFetchSeq,
 	utf8ToBytes,
 } from "../moqtWire";
+import { must } from "./fakeWebTransport";
 
 const golden = JSON.parse(
 	readFileSync(
@@ -51,9 +52,9 @@ const ctl = new Map<
 	{ hex: string; type: string; versions?: Record<string, CtlVersion> }
 >(golden.ctl.map((v: { name: string }) => [v.name, v]));
 const body = (name: string) =>
-	decodeControlFrame(hexToBytes(ctl.get(name)!.hex)).frame.body;
+	decodeControlFrame(hexToBytes(must(ctl.get(name)).hex)).frame.body;
 const frame = (name: string, b: Uint8Array) =>
-	bytesToHex(encodeControlFrame(BigInt(ctl.get(name)!.type), b));
+	bytesToHex(encodeControlFrame(BigInt(must(ctl.get(name)).type), b));
 
 describe("message parameters (10.2)", () => {
 	it("encode subscribe_params: uint8, Length-prefixed filter, uint8 in ascending Type order", () => {
@@ -68,7 +69,9 @@ describe("message parameters (10.2)", () => {
 				{ type: 0x22n, value: 2n },
 			],
 		});
-		expect(frame("subscribe_params", b)).toBe(ctl.get("subscribe_params")!.hex);
+		expect(frame("subscribe_params", b)).toBe(
+			must(ctl.get("subscribe_params")).hex,
+		);
 	});
 
 	it("decode subscribe_ok_params: LARGEST_OBJECT is a Location, EXPIRES a varint", () => {
@@ -108,7 +111,7 @@ describe("FETCH (10.12) / FETCH_OK (10.13)", () => {
 			parameters: [],
 		});
 		expect(frame("fetch_relative_joining", b)).toBe(
-			ctl.get("fetch_relative_joining")!.hex,
+			must(ctl.get("fetch_relative_joining")).hex,
 		);
 	});
 
@@ -121,7 +124,7 @@ describe("FETCH (10.12) / FETCH_OK (10.13)", () => {
 			parameters: [{ type: 0x20n, value: 128n }],
 		});
 		expect(frame("fetch_absolute_joining", b)).toBe(
-			ctl.get("fetch_absolute_joining")!.hex,
+			must(ctl.get("fetch_absolute_joining")).hex,
 		);
 	});
 
@@ -140,7 +143,7 @@ describe("namespace discovery (10.15-10.18)", () => {
 			parameters: [],
 		});
 		expect(frame("subscribe_namespace_basic", b)).toBe(
-			ctl.get("subscribe_namespace_basic")!.hex,
+			must(ctl.get("subscribe_namespace_basic")).hex,
 		);
 	});
 
@@ -151,7 +154,7 @@ describe("namespace discovery (10.15-10.18)", () => {
 			parameters: [],
 		});
 		expect(frame("publish_namespace_basic", b)).toBe(
-			ctl.get("publish_namespace_basic")!.hex,
+			must(ctl.get("publish_namespace_basic")).hex,
 		);
 	});
 
@@ -273,7 +276,7 @@ describe("draft-22 LOCATION_FILTER (9.20.9)", () => {
 	for (const [name, type, fields, hex] of forms) {
 		it(`encode/decode 0x0${type} ${name}`, () => {
 			expect(bytesToHex(encodeLocationFilter22({ type, fields }))).toBe(hex);
-			const bytes = hexToBytes(hex + "ff"); // trailing byte: the filter's own length ends it
+			const bytes = hexToBytes(`${hex}ff`); // trailing byte: the filter's own length ends it
 			expect(decodeLocationFilter22(bytes, 0)).toEqual({
 				filter: { type, fields },
 				len: hex.length / 2,
@@ -324,7 +327,7 @@ describe("draft-22 LOCATION_FILTER (9.20.9)", () => {
 			22,
 		);
 		expect(frame("subscribe_params", b)).toBe(
-			ctl.get("subscribe_params")!.versions!["22"].hex,
+			must(must(ctl.get("subscribe_params")).versions)["22"].hex,
 		);
 	});
 });
@@ -340,11 +343,11 @@ describe("SUBSCRIBE for live-from-now (subscribe_next_object)", () => {
 	it("draft-19: LOCATION_FILTER Largest Object (Length 1, type 0x2)", () => {
 		expect(
 			frame("subscribe_next_object", encodeSubscribe(msg(Uint8Array.of(0x2)))),
-		).toBe(ctl.get("subscribe_next_object")!.hex);
+		).toBe(must(ctl.get("subscribe_next_object")).hex);
 	});
 
 	it("draft-22: LOCATION_FILTER Next Object (type 0x05, no Length)", () => {
-		const v = ctl.get("subscribe_next_object")!.versions!["22"];
+		const v = must(must(ctl.get("subscribe_next_object")).versions)["22"];
 		expect(
 			frame(
 				"subscribe_next_object",
@@ -370,7 +373,7 @@ describe("draft-22 FILL_PARAMETERS (9.20.15)", () => {
 	});
 
 	it("encode/decode subscribe_fill (draft-22 version): Next Object + fill of Relative Start 65", () => {
-		const v = ctl.get("subscribe_fill")!.versions!["22"];
+		const v = must(must(ctl.get("subscribe_fill")).versions)["22"];
 		const fill = encodeFillParameters([
 			{
 				type: 0x21n,
@@ -434,9 +437,11 @@ describe("End of Timed-Out Range 0x20C (11.4.1.2)", () => {
 	});
 
 	it("the golden fetch stream carries a draft-22 version with the marker", () => {
-		const v = (golden.data as FetchVector[]).find(
-			(x) => x.name === "fetch_stream_end_of_range",
-		)!;
+		const v = must(
+			(golden.data as FetchVector[]).find(
+				(x) => x.name === "fetch_stream_end_of_range",
+			),
+		);
 		expect(v.versions?.["22"].objects.map((o) => o.flags)).toContain("0x20c");
 	});
 });

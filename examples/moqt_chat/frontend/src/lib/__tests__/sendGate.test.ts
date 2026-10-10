@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSendGate } from "../sendGate";
+import { must } from "./fakeWebTransport";
 
 describe("createSendGate", () => {
 	it("sends immediately when nothing is in flight", async () => {
@@ -39,9 +40,9 @@ describe("createSendGate", () => {
 		await new Promise((r) => setTimeout(r, 0));
 		void gate(new Uint8Array([2]));
 		void gate(new Uint8Array([3])); // 2 gets coalesced away by 3
-		release!();
+		must<() => void>(release)();
 		await new Promise((r) => setTimeout(r, 0));
-		release!();
+		must<() => void>(release)();
 		await new Promise((r) => setTimeout(r, 0));
 		expect(seen).toEqual([1, 3]);
 	});
