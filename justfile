@@ -263,7 +263,7 @@ fmt:
     if [ -z "$IN_NIX_SHELL" ]; then
         echo "warning: no nix; formatting with the host clang-format (may disagree with CI's pin)" >&2
     fi
-    clang-format -i $(find src tests \( -name '*.c' -o -name '*.h' \))
+    clang-format -i $(find src tests examples fuzz guide/snippets \( -name node_modules -prune \) -o \( -name '*.c' -o -name '*.h' \) -print)
 
 # verify formatting without writing (fails on diff); same devShell reroute
 # as fmt so the verdict matches CI's pinned clang-format.
@@ -272,7 +272,7 @@ fmt-check:
     if [ -z "$IN_NIX_SHELL" ] && command -v nix >/dev/null 2>&1; then
         exec nix develop -c just fmt-check
     fi
-    clang-format --dry-run --Werror $(find src tests \( -name '*.c' -o -name '*.h' \))
+    clang-format --dry-run --Werror $(find src tests examples fuzz guide/snippets \( -name node_modules -prune \) -o \( -name '*.c' -o -name '*.h' \) -print)
 
 # verify tests/app/moqt_golden.h matches a fresh regeneration from
 # examples/moqt_chat/testvectors/moqt_golden.json (scripts/gen_moqt_golden.py),
