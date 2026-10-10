@@ -13,49 +13,66 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  MoqtChatClient,
-  type ChatAttachment as WireChatAttachment,
-  type MoqtChatCallbacks,
+	type AudioContextGate,
+	createAudioContextGate,
+} from "@/lib/audioContextGate";
+import { JitterBufferManager } from "@/lib/jitterBuffer";
+import { type MicPipeline, startMicPipeline } from "@/lib/micPipeline";
+import {
+	type MoqtChatCallbacks,
+	MoqtChatClient,
+	type ChatAttachment as WireChatAttachment,
 } from "@/lib/moqtClient";
+import {
+	isScreenTrackAlias,
+	MoqtScreenClient,
+	type ScreenQuality,
+	type ScreenVariant,
+} from "@/lib/moqtScreenClient";
+import {
+	type ScreenChunk,
+	screenFrameReassemblerInit,
+	screenFrameReassemblerPush,
+} from "@/lib/moqtScreenWire";
 import { MoqtVoiceClient } from "@/lib/moqtVoiceClient";
 import {
-  isScreenTrackAlias,
-  MoqtScreenClient,
-  type ScreenQuality,
-  type ScreenVariant,
-} from "@/lib/moqtScreenClient";
-import { startMicPipeline, type MicPipeline } from "@/lib/micPipeline";
-import { startNoiseSuppressor, type NoiseSuppressorHandle } from "@/lib/noiseSuppressor";
-import { startScreenSharePipeline, type ScreenSharePipeline } from "@/lib/screenSharePipeline";
+	type NoiseSuppressorHandle,
+	startNoiseSuppressor,
+} from "@/lib/noiseSuppressor";
+import { effectiveGain } from "@/lib/outputMixer";
+import { registerPageLifecycleCleanup } from "@/lib/pageLifecycle";
+import { createPlaybackSink, type PlaybackSink } from "@/lib/playbackSink";
 import {
-  createScreenReceivePipeline,
-  type ScreenReceivePipeline,
+	createScreenReceivePipeline,
+	type ScreenReceivePipeline,
 } from "@/lib/screenReceivePipeline";
-import { screenFrameReassemblerInit, screenFrameReassemblerPush, type ScreenChunk } from "@/lib/moqtScreenWire";
+import {
+	type ScreenSharePipeline,
+	startScreenSharePipeline,
+} from "@/lib/screenSharePipeline";
 import { screenTap } from "@/lib/screenTap";
-import { createStallDetector, SCREEN_STALL_MS, type StallDetector } from "@/lib/stallDetector";
 import { fitCanvasToFrame } from "@/lib/screenTileSize";
 import {
-  createVoiceReceivePipeline,
-  type VoiceReceivePipeline,
-} from "@/lib/voiceReceivePipeline";
-import { createAudioContextGate, type AudioContextGate } from "@/lib/audioContextGate";
-import { createPlaybackSink, type PlaybackSink } from "@/lib/playbackSink";
-import { effectiveGain } from "@/lib/outputMixer";
-import { JitterBufferManager } from "@/lib/jitterBuffer";
+	createStallDetector,
+	SCREEN_STALL_MS,
+	type StallDetector,
+} from "@/lib/stallDetector";
 import {
-  createQualityWindow,
-  isSpeaking,
-  qualityLevel,
-  rmsLevel,
-  type QualityWindow,
+	createQualityWindow,
+	isSpeaking,
+	type QualityWindow,
+	qualityLevel,
+	rmsLevel,
 } from "@/lib/voiceQuality";
-import type { VoiceTapEvent } from "@/lib/voiceTap";
-import { registerPageLifecycleCleanup } from "@/lib/pageLifecycle";
 import {
-  useMoqtChatStore,
-  type ConnectionState,
-  type MoqtChatState,
+	createVoiceReceivePipeline,
+	type VoiceReceivePipeline,
+} from "@/lib/voiceReceivePipeline";
+import type { VoiceTapEvent } from "@/lib/voiceTap";
+import {
+	type ConnectionState,
+	type MoqtChatState,
+	useMoqtChatStore,
 } from "@/stores/moqtChatStore";
 
 const JITTER_BUFFER_CAPACITY = 8;
@@ -80,37 +97,44 @@ const ANALYSER_FFT_SIZE = 1024;
 // datagram voice chat's decoder wrapper.
 const OPUS_FRAME_US = 20_000;
 class OpusChunkDecoder {
-  private dec: AudioDecoder;
-  private ts = 0;
-  constructor(init: { output: (frame: unknown) => void; error: (err: unknown) => void }) {
-    this.dec = new AudioDecoder(init as never);
-  }
-  configure(config: unknown) {
-    this.dec.configure(config as never);
-  }
-  decode(payload: Uint8Array) {
-    this.dec.decode(
-      new EncodedAudioChunk({
-        type: "key",
-        timestamp: this.ts,
-        data: payload as BufferSource,
-      }),
-    );
-    this.ts += OPUS_FRAME_US;
-  }
+	private dec: AudioDecoder;
+	private ts = 0;
+	constructor(init: {
+		output: (frame: unknown) => void;
+		error: (err: unknown) => void;
+	}) {
+		this.dec = new AudioDecoder(init as never);
+	}
+	configure(config: unknown) {
+		this.dec.configure(config as never);
+	}
+	decode(payload: Uint8Array) {
+		this.dec.decode(
+			new EncodedAudioChunk({
+				type: "key",
+				timestamp: this.ts,
+				data: payload as BufferSource,
+			}),
+		);
+		this.ts += OPUS_FRAME_US;
+	}
 }
 
 type ProcessorLike = {
-  readable: { getReader: () => { read: () => Promise<{ value: unknown; done: boolean }> } };
+	readable: {
+		getReader: () => { read: () => Promise<{ value: unknown; done: boolean }> };
+	};
 };
 
 function makeProcessor(track: unknown): ProcessorLike {
-  const Ctor = (
-    window as unknown as {
-      MediaStreamTrackProcessor: new (init: { track: unknown }) => ProcessorLike;
-    }
-  ).MediaStreamTrackProcessor;
-  return new Ctor({ track });
+	const Ctor = (
+		window as unknown as {
+			MediaStreamTrackProcessor: new (init: {
+				track: unknown;
+			}) => ProcessorLike;
+		}
+	).MediaStreamTrackProcessor;
+	return new Ctor({ track });
 }
 
 // Pure translation from MoqtChatClient's callbacks to store actions --
@@ -120,33 +144,38 @@ function makeProcessor(track: unknown): ProcessorLike {
 // carries only bytes/mimeType; the store's ChatAttachment additionally wants
 // a url the UI can render directly).
 function attachBlobUrls(attachments: WireChatAttachment[]) {
-  return attachments.map((a) => ({
-    ...a,
-    url: URL.createObjectURL(new Blob([a.bytes as BlobPart], { type: a.mimeType })),
-  }));
+	return attachments.map((a) => ({
+		...a,
+		url: URL.createObjectURL(
+			new Blob([a.bytes as BlobPart], { type: a.mimeType }),
+		),
+	}));
 }
 
 export function moqtChatCallbacks(
-  store: Pick<MoqtChatState, "setConnectionState" | "addPeer" | "addMessage" | "setNickname">,
+	store: Pick<
+		MoqtChatState,
+		"setConnectionState" | "addPeer" | "addMessage" | "setNickname"
+	>,
 ): Pick<MoqtChatCallbacks, "onStatusChange" | "onMessage" | "onNickname"> {
-  return {
-    onStatusChange: (status) => store.setConnectionState(status),
-    onMessage: (participantId, text, attachments, key) => {
-      store.addPeer(participantId);
-      store.addMessage({
-        senderId: participantId,
-        text,
-        at: Date.now(),
-        own: false,
-        attachments: attachBlobUrls(attachments),
-        key,
-      });
-    },
-    onNickname: (participantId, nickname) => {
-      store.addPeer(participantId);
-      store.setNickname(participantId, nickname);
-    },
-  };
+	return {
+		onStatusChange: (status) => store.setConnectionState(status),
+		onMessage: (participantId, text, attachments, key) => {
+			store.addPeer(participantId);
+			store.addMessage({
+				senderId: participantId,
+				text,
+				at: Date.now(),
+				own: false,
+				attachments: attachBlobUrls(attachments),
+				key,
+			});
+		},
+		onNickname: (participantId, nickname) => {
+			store.addPeer(participantId);
+			store.setNickname(participantId, nickname);
+		},
+	};
 }
 
 // The two-stage connect/startVoice sequencing pulled out of connect()'s own
@@ -171,58 +200,58 @@ export function moqtChatCallbacks(
 // it's testable without a real MoqtChatClient (same pattern as
 // connectChatThenVoice below).
 export async function sendChatMessage(
-  client: Pick<MoqtChatClient, "sendMessage"> | null,
-  store: Pick<MoqtChatState, "addMessage" | "setMessageSendError">,
-  senderId: string,
-  text: string,
-  attachments: WireChatAttachment[],
+	client: Pick<MoqtChatClient, "sendMessage"> | null,
+	store: Pick<MoqtChatState, "addMessage" | "setMessageSendError">,
+	senderId: string,
+	text: string,
+	attachments: WireChatAttachment[],
 ): Promise<void> {
-  if (!client) return;
-  try {
-    await client.sendMessage(text, attachments);
-    store.addMessage({
-      senderId,
-      text,
-      at: Date.now(),
-      own: true,
-      attachments: attachBlobUrls(attachments),
-    });
-  } catch {
-    store.setMessageSendError("message send failed");
-    store.addMessage({
-      senderId,
-      text,
-      at: Date.now(),
-      own: true,
-      failed: true,
-      attachments: attachBlobUrls(attachments),
-    });
-  }
+	if (!client) return;
+	try {
+		await client.sendMessage(text, attachments);
+		store.addMessage({
+			senderId,
+			text,
+			at: Date.now(),
+			own: true,
+			attachments: attachBlobUrls(attachments),
+		});
+	} catch {
+		store.setMessageSendError("message send failed");
+		store.addMessage({
+			senderId,
+			text,
+			at: Date.now(),
+			own: true,
+			failed: true,
+			attachments: attachBlobUrls(attachments),
+		});
+	}
 }
 
 export async function connectChatThenVoice(
-  connectChat: () => Promise<void>,
-  startVoice: () => Promise<void>,
-  onChatFailed: () => void,
-  onVoiceFailed: (err: unknown) => void,
-  // Joins the room's discovery (MoqtChatClient.announce) last: by then the
-  // chat and (when voice came up) audio tracks are PUBLISHed, so a peer
-  // reacting to our namespace finds them. Voice failing does not keep us
-  // out of the room.
-  announce: () => Promise<void> = async () => {},
+	connectChat: () => Promise<void>,
+	startVoice: () => Promise<void>,
+	onChatFailed: () => void,
+	onVoiceFailed: (err: unknown) => void,
+	// Joins the room's discovery (MoqtChatClient.announce) last: by then the
+	// chat and (when voice came up) audio tracks are PUBLISHed, so a peer
+	// reacting to our namespace finds them. Voice failing does not keep us
+	// out of the room.
+	announce: () => Promise<void> = async () => {},
 ): Promise<void> {
-  try {
-    await connectChat();
-  } catch {
-    onChatFailed();
-    return;
-  }
-  try {
-    await startVoice();
-  } catch (err) {
-    onVoiceFailed(err);
-  }
-  await announce().catch(() => {});
+	try {
+		await connectChat();
+	} catch {
+		onChatFailed();
+		return;
+	}
+	try {
+		await startVoice();
+	} catch (err) {
+		onVoiceFailed(err);
+	}
+	await announce().catch(() => {});
 }
 
 // Namespace discovery -> room state (MoqtChatClient's onNamespace): a peer's
@@ -231,53 +260,56 @@ export async function connectChatThenVoice(
 // share started: subscribe the screen track. A share's withdrawal needs
 // nothing here; the tile's stall detector already retires it.
 export function handleRoomNamespace(
-  suffix: string[],
-  active: boolean,
-  deps: {
-    store: Pick<MoqtChatState, "addPeer" | "removePeer">;
-    voice: { subscribeToAudioTrack(id: string): Promise<void> } | null;
-    screen: { subscribeToScreenTrack(id: string): Promise<void>; forgetParticipant?(id: string): void } | null;
-  },
+	suffix: string[],
+	active: boolean,
+	deps: {
+		store: Pick<MoqtChatState, "addPeer" | "removePeer">;
+		voice: { subscribeToAudioTrack(id: string): Promise<void> } | null;
+		screen: {
+			subscribeToScreenTrack(id: string): Promise<void>;
+			forgetParticipant?(id: string): void;
+		} | null;
+	},
 ): void {
-  const [peer, sub] = suffix;
-  if (sub === "screen") {
-    if (active) void deps.screen?.subscribeToScreenTrack(peer).catch(() => {});
-    return;
-  }
-  if (sub !== undefined) return;
-  if (!active) {
-    deps.store.removePeer(peer);
-    deps.screen?.forgetParticipant?.(peer);
-    return;
-  }
-  deps.store.addPeer(peer);
-  void deps.voice?.subscribeToAudioTrack(peer).catch(() => {});
+	const [peer, sub] = suffix;
+	if (sub === "screen") {
+		if (active) void deps.screen?.subscribeToScreenTrack(peer).catch(() => {});
+		return;
+	}
+	if (sub !== undefined) return;
+	if (!active) {
+		deps.store.removePeer(peer);
+		deps.screen?.forgetParticipant?.(peer);
+		return;
+	}
+	deps.store.addPeer(peer);
+	void deps.voice?.subscribeToAudioTrack(peer).catch(() => {});
 }
 
 // A remote tile's HI/LO badge: a keyframe is where a switch lands, so the
 // label follows keyframes -- only with track switching on (d19 and
 // extension-less sessions have one variant and show no badge).
 export function noteScreenTileVariant(
-  store: Pick<MoqtChatState, "setScreenTileVariant">,
-  switching: boolean,
-  participantId: string,
-  keyframe: boolean,
-  variant: ScreenVariant,
+	store: Pick<MoqtChatState, "setScreenTileVariant">,
+	switching: boolean,
+	participantId: string,
+	keyframe: boolean,
+	variant: ScreenVariant,
 ): void {
-  if (switching && keyframe) store.setScreenTileVariant(participantId, variant);
+	if (switching && keyframe) store.setScreenTileVariant(participantId, variant);
 }
 
 // A finished setScreenQuality call writes what the screen client settled
 // on -- unless a newer choice for that tile superseded it (no flicker back)
 // or the peer left meanwhile (removePeer already cleared the entry).
 export function settleScreenTileQuality(
-  state: Pick<MoqtChatState, "peers" | "setScreenTileQuality">,
-  id: string,
-  settled: ScreenQuality,
-  latest: boolean,
+	state: Pick<MoqtChatState, "peers" | "setScreenTileQuality">,
+	id: string,
+	settled: ScreenQuality,
+	latest: boolean,
 ): void {
-  if (!latest || !state.peers.includes(id)) return;
-  state.setScreenTileQuality(id, settled);
+	if (!latest || !state.peers.includes(id)) return;
+	state.setScreenTileQuality(id, settled);
 }
 
 // The capture-before-publish ordering pulled out of startScreenShare's own
@@ -290,12 +322,12 @@ export function settleScreenTileQuality(
 // denied, user cancelled the picker), publish is never called -- no track
 // gets PUBLISHed for a share that never started.
 export async function captureThenPublishScreen<T>(
-  startCapture: () => Promise<T>,
-  publish: () => Promise<void>,
+	startCapture: () => Promise<T>,
+	publish: () => Promise<void>,
 ): Promise<T> {
-  const pipeline = await startCapture();
-  await publish();
-  return pipeline;
+	const pipeline = await startCapture();
+	await publish();
+	return pipeline;
 }
 
 // getMicTracks for registerPageLifecycleCleanup: [] when no mic pipeline is
@@ -303,8 +335,10 @@ export async function captureThenPublishScreen<T>(
 // started pipeline's own tracks -- so beforeunload can actually stop the
 // device instead of a hardcoded empty list. Pure so it's testable without
 // rendering the hook.
-export function micTracksFrom(mic: { tracks: { stop: () => void }[] } | null): { stop: () => void }[] {
-  return mic?.tracks ?? [];
+export function micTracksFrom(
+	mic: { tracks: { stop: () => void }[] } | null,
+): { stop: () => void }[] {
+	return mic?.tracks ?? [];
 }
 
 // Local speaking sample: reads the AnalyserNode's current time-domain
@@ -313,11 +347,11 @@ export function micTracksFrom(mic: { tracks: { stop: () => void }[] } | null): {
 // remote levels (playbackSink.ts). Pure aside from the injected read, so
 // it's testable without a real AudioContext/AnalyserNode.
 export function sampleLocalLevel(
-  analyser: Pick<AnalyserNode, "getFloatTimeDomainData">,
-  scratch: Float32Array<ArrayBuffer>,
+	analyser: Pick<AnalyserNode, "getFloatTimeDomainData">,
+	scratch: Float32Array<ArrayBuffer>,
 ): number {
-  analyser.getFloatTimeDomainData(scratch);
-  return rmsLevel(scratch);
+	analyser.getFloatTimeDomainData(scratch);
+	return rmsLevel(scratch);
 }
 
 // Routes one voiceTap event (moqtVoiceClient/voiceReceivePipeline/
@@ -325,26 +359,30 @@ export function sampleLocalLevel(
 // "send" carries no sender key from the receiver's own perspective and is
 // ignored, same as any event missing src. Pure so it's testable without
 // installing globalThis.__wiredVoiceTap.
-export function applyVoiceTapEvent(window: QualityWindow, e: VoiceTapEvent): void {
-  if (!e.src) return;
-  if (e.dir === "recv") window.onFrame(e.src);
-  else if (e.dir === "drain") {
-    if (e.plc) window.onLost(e.src);
-    else if (e.depth !== undefined) window.onDepth(e.src, e.depth);
-  } else if (e.dir === "play" && e.lag !== undefined) window.onPlay(e.src, e.lag);
+export function applyVoiceTapEvent(
+	window: QualityWindow,
+	e: VoiceTapEvent,
+): void {
+	if (!e.src) return;
+	if (e.dir === "recv") window.onFrame(e.src);
+	else if (e.dir === "drain") {
+		if (e.plc) window.onLost(e.src);
+		else if (e.depth !== undefined) window.onDepth(e.src, e.depth);
+	} else if (e.dir === "play" && e.lag !== undefined)
+		window.onPlay(e.src, e.lag);
 }
 
 // Wraps a possibly-preexisting globalThis.__wiredVoiceTap (the e2e load
 // harness installs its own before navigation, voiceTap.ts's own doc) so
 // installing the quality feed never drops the harness's trace collection.
 export function chainVoiceTap(
-  window: QualityWindow,
-  previous: ((e: VoiceTapEvent) => void) | undefined,
+	window: QualityWindow,
+	previous: ((e: VoiceTapEvent) => void) | undefined,
 ): (e: VoiceTapEvent) => void {
-  return (e) => {
-    applyVoiceTapEvent(window, e);
-    previous?.(e);
-  };
+	return (e) => {
+		applyVoiceTapEvent(window, e);
+		previous?.(e);
+	};
 }
 
 // The current session's live resources -- everything a manual Rejoin
@@ -356,80 +394,85 @@ export function chainVoiceTap(
 // refs) so it's testable without rendering the hook -- same pattern as
 // registerPageLifecycleCleanup's own deps/target split.
 export type SessionRefs = {
-  drainTimer: { current: ReturnType<typeof setTimeout> | null };
-  qualityTimer: { current: ReturnType<typeof setInterval> | null };
-  speakingTimer: { current: ReturnType<typeof setInterval> | null };
-  // Whatever globalThis.__wiredVoiceTap held immediately before this session
-  // chained its own quality tap onto it (chainVoiceTap's own doc) -- restored
-  // verbatim on teardown so repeated connect/leave/rejoin cycles don't nest
-  // one more closure onto the global every time.
-  previousVoiceTap: { current: ((e: VoiceTapEvent) => void) | undefined };
-  mic: { current: { stop: () => void } | null };
-  voice: { current: { close: () => void } | null };
-  receivePipeline: { current: unknown };
-  knownSenders: { current: Set<string> };
-  screenShare: { current: { stop: () => void } | null };
-  screen: { current: { close: () => void } | null };
-  screenReceive: { current: unknown };
-  screenReassemblers: { current: Map<string, unknown> };
-  screenKeyframeMeta: { current: Map<string, unknown> };
-  screenStall: { current: Map<string, unknown> };
-  client: { current: { close: () => void } | null };
-  unregisterLifecycle: { current: (() => void) | null };
-  audioCtx: { current: { close: () => Promise<void> } | null };
+	drainTimer: { current: ReturnType<typeof setTimeout> | null };
+	qualityTimer: { current: ReturnType<typeof setInterval> | null };
+	speakingTimer: { current: ReturnType<typeof setInterval> | null };
+	// Whatever globalThis.__wiredVoiceTap held immediately before this session
+	// chained its own quality tap onto it (chainVoiceTap's own doc) -- restored
+	// verbatim on teardown so repeated connect/leave/rejoin cycles don't nest
+	// one more closure onto the global every time.
+	previousVoiceTap: { current: ((e: VoiceTapEvent) => void) | undefined };
+	mic: { current: { stop: () => void } | null };
+	voice: { current: { close: () => void } | null };
+	receivePipeline: { current: unknown };
+	knownSenders: { current: Set<string> };
+	screenShare: { current: { stop: () => void } | null };
+	screen: { current: { close: () => void } | null };
+	screenReceive: { current: unknown };
+	screenReassemblers: { current: Map<string, unknown> };
+	screenKeyframeMeta: { current: Map<string, unknown> };
+	screenStall: { current: Map<string, unknown> };
+	client: { current: { close: () => void } | null };
+	unregisterLifecycle: { current: (() => void) | null };
+	audioCtx: { current: { close: () => Promise<void> } | null };
 };
 
 export function teardownSession(
-  refs: SessionRefs,
-  store: Pick<MoqtChatState, "setScreenSharing" | "setScreenShareError" | "setScreenTileStalled">,
+	refs: SessionRefs,
+	store: Pick<
+		MoqtChatState,
+		"setScreenSharing" | "setScreenShareError" | "setScreenTileStalled"
+	>,
 ): void {
-  if (refs.drainTimer.current !== null) {
-    clearTimeout(refs.drainTimer.current);
-    refs.drainTimer.current = null;
-  }
-  if (refs.qualityTimer.current !== null) {
-    clearInterval(refs.qualityTimer.current);
-    refs.qualityTimer.current = null;
-    // Only restore if THIS session actually chained a tap on (guarded by
-    // the same startVoice step that starts qualityTimer) -- an unconditional
-    // overwrite here would stomp an e2e harness tap installed before a
-    // chat-only connect failure that never reached startVoice at all.
-    (globalThis as { __wiredVoiceTap?: unknown }).__wiredVoiceTap = refs.previousVoiceTap.current;
-    refs.previousVoiceTap.current = undefined;
-  }
-  if (refs.speakingTimer.current !== null) {
-    clearInterval(refs.speakingTimer.current);
-    refs.speakingTimer.current = null;
-  }
-  refs.mic.current?.stop();
-  refs.mic.current = null;
-  refs.voice.current?.close();
-  refs.voice.current = null;
-  refs.receivePipeline.current = null;
-  refs.knownSenders.current.clear();
-  try {
-    refs.screenShare.current?.stop();
-  } catch {
-    // torn down regardless; see stopScreenShare's own doc
-  }
-  refs.screenShare.current = null;
-  refs.screen.current?.close();
-  refs.screen.current = null;
-  refs.screenReceive.current = null;
-  refs.screenReassemblers.current.clear();
-  refs.screenKeyframeMeta.current.clear();
-  for (const id of refs.screenStall.current.keys()) store.setScreenTileStalled(id, false);
-  refs.screenStall.current.clear();
-  store.setScreenSharing(false);
-  store.setScreenShareError(null);
-  refs.client.current?.close();
-  refs.client.current = null;
-  refs.unregisterLifecycle.current?.();
-  refs.unregisterLifecycle.current = null;
-  // close() rejects on an already-closed context; swallow it since teardown
-  // is idempotent and there is nothing left to release either way.
-  refs.audioCtx.current?.close().catch(() => {});
-  refs.audioCtx.current = null;
+	if (refs.drainTimer.current !== null) {
+		clearTimeout(refs.drainTimer.current);
+		refs.drainTimer.current = null;
+	}
+	if (refs.qualityTimer.current !== null) {
+		clearInterval(refs.qualityTimer.current);
+		refs.qualityTimer.current = null;
+		// Only restore if THIS session actually chained a tap on (guarded by
+		// the same startVoice step that starts qualityTimer) -- an unconditional
+		// overwrite here would stomp an e2e harness tap installed before a
+		// chat-only connect failure that never reached startVoice at all.
+		(globalThis as { __wiredVoiceTap?: unknown }).__wiredVoiceTap =
+			refs.previousVoiceTap.current;
+		refs.previousVoiceTap.current = undefined;
+	}
+	if (refs.speakingTimer.current !== null) {
+		clearInterval(refs.speakingTimer.current);
+		refs.speakingTimer.current = null;
+	}
+	refs.mic.current?.stop();
+	refs.mic.current = null;
+	refs.voice.current?.close();
+	refs.voice.current = null;
+	refs.receivePipeline.current = null;
+	refs.knownSenders.current.clear();
+	try {
+		refs.screenShare.current?.stop();
+	} catch {
+		// torn down regardless; see stopScreenShare's own doc
+	}
+	refs.screenShare.current = null;
+	refs.screen.current?.close();
+	refs.screen.current = null;
+	refs.screenReceive.current = null;
+	refs.screenReassemblers.current.clear();
+	refs.screenKeyframeMeta.current.clear();
+	for (const id of refs.screenStall.current.keys())
+		store.setScreenTileStalled(id, false);
+	refs.screenStall.current.clear();
+	store.setScreenSharing(false);
+	store.setScreenShareError(null);
+	refs.client.current?.close();
+	refs.client.current = null;
+	refs.unregisterLifecycle.current?.();
+	refs.unregisterLifecycle.current = null;
+	// close() rejects on an already-closed context; swallow it since teardown
+	// is idempotent and there is nothing left to release either way.
+	refs.audioCtx.current?.close().catch(() => {});
+	refs.audioCtx.current = null;
 }
 
 // Edge-triggered gate for the own-tile auto-stop below: fires only the
@@ -438,19 +481,23 @@ export function teardownSession(
 // next successful startScreenShare -- so a capture stuck stalled for
 // minutes triggers stopScreenShare's cleanup exactly once, not on every
 // DRAIN_INTERVAL_MS tick.
-export function shouldAutoStopOwnScreen(key: string, isStalled: boolean, armed: boolean): boolean {
-  return key === OWN_SCREEN_KEY && isStalled && armed;
+export function shouldAutoStopOwnScreen(
+	key: string,
+	isStalled: boolean,
+	armed: boolean,
+): boolean {
+	return key === OWN_SCREEN_KEY && isStalled && armed;
 }
 
 // Drops only the own-tile stall detector (stopScreenShare's own doc) --
 // unlike teardownSession, a plain "Stop sharing" click must leave every
 // REMOTE sender's detector/flag alone.
 export function clearOwnScreenStall(
-  screenStall: Map<string, unknown>,
-  store: Pick<MoqtChatState, "setScreenTileStalled">,
+	screenStall: Map<string, unknown>,
+	store: Pick<MoqtChatState, "setScreenTileStalled">,
 ): void {
-  if (!screenStall.delete(OWN_SCREEN_KEY)) return;
-  store.setScreenTileStalled(OWN_SCREEN_KEY, false);
+	if (!screenStall.delete(OWN_SCREEN_KEY)) return;
+	store.setScreenTileStalled(OWN_SCREEN_KEY, false);
 }
 
 // Back-off schedule for the automatic rejoin after a transport-level
@@ -462,21 +509,23 @@ export function clearOwnScreenStall(
 // BASE_CONFIG. Environments without AudioEncoder (older browsers, tests)
 // omit the dep entirely rather than reference the missing global.
 export function micPipelineIsConfigSupported():
-  | ((config: unknown) => Promise<{ supported: boolean }>)
-  | undefined {
-  if (typeof AudioEncoder === "undefined") return undefined;
-  return async (config) => ({
-    supported: (await AudioEncoder.isConfigSupported(config as AudioEncoderConfig)).supported ?? false,
-  });
+	| ((config: unknown) => Promise<{ supported: boolean }>)
+	| undefined {
+	if (typeof AudioEncoder === "undefined") return undefined;
+	return async (config) => ({
+		supported:
+			(await AudioEncoder.isConfigSupported(config as AudioEncoderConfig))
+				.supported ?? false,
+	});
 }
 
 export function reconnectDelayMs(attempt: number): number | null {
-  return attempt >= 5 ? null : Math.min(10000, 1000 * 2 ** attempt);
+	return attempt >= 5 ? null : Math.min(10000, 1000 * 2 ** attempt);
 }
 
 export type ReconnectRefs = {
-  timer: { current: ReturnType<typeof setTimeout> | null };
-  attempt: { current: number };
+	timer: { current: ReturnType<typeof setTimeout> | null };
+	attempt: { current: number };
 };
 
 // Drives the auto-rejoin back-off from session status changes: reaching
@@ -485,23 +534,23 @@ export type ReconnectRefs = {
 // schedule is exhausted). Plain ref-shaped params, same testability pattern
 // as teardownSession above.
 export function handleSessionStatus(
-  refs: ReconnectRefs,
-  status: ConnectionState,
-  wantsSession: boolean,
-  reconnect: () => void,
+	refs: ReconnectRefs,
+	status: ConnectionState,
+	wantsSession: boolean,
+	reconnect: () => void,
 ): void {
-  if (status === "connected") {
-    refs.attempt.current = 0;
-    return;
-  }
-  if (status !== "disconnected" || !wantsSession) return;
-  const delay = reconnectDelayMs(refs.attempt.current);
-  if (delay === null) return;
-  refs.attempt.current += 1;
-  refs.timer.current = setTimeout(() => {
-    refs.timer.current = null;
-    reconnect();
-  }, delay);
+	if (status === "connected") {
+		refs.attempt.current = 0;
+		return;
+	}
+	if (status !== "disconnected" || !wantsSession) return;
+	const delay = reconnectDelayMs(refs.attempt.current);
+	if (delay === null) return;
+	refs.attempt.current += 1;
+	refs.timer.current = setTimeout(() => {
+		refs.timer.current = null;
+		reconnect();
+	}, delay);
 }
 
 // GOAWAY / session draining (MoqtChatClient's onGoaway): while the user
@@ -511,740 +560,858 @@ export function handleSessionStatus(
 // ponytail: break-before-make -- the old session is torn down before the
 // new one is up; keep both open if the gap ever matters.
 export function handleGoaway(
-  args: { url: string } | null,
-  newUri: string,
-  reconnect: (url: string) => void,
+	args: { url: string } | null,
+	newUri: string,
+	reconnect: (url: string) => void,
 ): void {
-  if (!args) return;
-  reconnect(newUri || args.url);
+	if (!args) return;
+	reconnect(newUri || args.url);
 }
 
 export function cancelReconnect(refs: ReconnectRefs): void {
-  if (refs.timer.current !== null) {
-    clearTimeout(refs.timer.current);
-    refs.timer.current = null;
-  }
+	if (refs.timer.current !== null) {
+		clearTimeout(refs.timer.current);
+		refs.timer.current = null;
+	}
 }
 
 export function useMoqtChat() {
-  const store = useMoqtChatStore();
-  const [micError, setMicError] = useState<string | null>(null);
+	const store = useMoqtChatStore();
+	const [micError, setMicError] = useState<string | null>(null);
 
-  const clientRef = useRef<MoqtChatClient | null>(null);
-  const voiceRef = useRef<MoqtVoiceClient | null>(null);
-  const screenRef = useRef<MoqtScreenClient | null>(null);
-  // One frame reassembler per remote sender AND variant ("<id>/hi",
-  // "<id>/lo"): moqtScreenWire.ts's reassembler is single-stream state (a
-  // `pending` frame keyed by seq), so sharing one across senders would
-  // corrupt whichever sender's frame wasn't currently being assembled the
-  // moment two people share at once -- and each variant has its own seq
-  // count, so a switch must not splice one variant's chunks onto the
-  // other's pending frame. The decoder stays one per sender.
-  const screenReassemblersRef = useRef<Map<string, ReturnType<typeof screenFrameReassemblerInit>>>(
-    new Map(),
-  );
-  // width/height/codec ride only on a keyframe's idx===0 chunk (wire
-  // format, moqtScreenWire.ts), but a frame reassembles on its LAST
-  // arriving chunk, whose own fields are undefined -- so the keyframe's
-  // metadata has to be remembered per-sender and reapplied at reassembly.
-  const screenKeyframeMetaRef = useRef<Map<string, { width?: number; height?: number; codec?: string }>>(
-    new Map(),
-  );
-  // One stall detector per remote sender, fed by onFrame below and polled
-  // from the drain loop's tick into the store's stalledScreenTiles.
-  const screenStallRef = useRef<Map<string, StallDetector>>(new Map());
-  // Arms the drain tick's own-stall auto-stop (shouldAutoStopOwnScreen):
-  // true while a fresh share is running, flipped false the instant the
-  // auto-stop fires so a capture stuck stalled for minutes only triggers
-  // stopScreenShare's cleanup once. Re-armed by the next startScreenShare.
-  const ownStallArmedRef = useRef(true);
-  // stopScreenShare's identity is created below (after this ref), so the
-  // drain tick calls through this indirection -- same shape as connectRef's
-  // own doc for why a ref, not a direct closure, is needed here.
-  const stopScreenShareRef = useRef<() => void>(() => {});
-  const screenReceiveRef = useRef<ScreenReceivePipeline | null>(null);
-  const screenShareRef = useRef<ScreenSharePipeline | null>(null);
-  const micRef = useRef<MicPipeline | null>(null);
-  // The RNNoise AudioWorklet graph, when the noiseSuppressor dep above
-  // actually ran (rnnoiseOn was true and it didn't throw) -- stopped
-  // alongside the mic in teardownCurrentSession so its AudioContext doesn't
-  // leak across a manual Rejoin.
-  const noiseSuppressorRef = useRef<NoiseSuppressorHandle | null>(null);
-  const receivePipelineRef = useRef<VoiceReceivePipeline | null>(null);
-  const jitterBufferRef = useRef<JitterBufferManager | null>(null);
-  // Per-peer voice quality: fed by chainVoiceTap (installed in startVoice)
-  // and snapshotted into the store every QUALITY_SNAPSHOT_INTERVAL_MS by
-  // qualityTimerRef, same shape as the drain loop's own timer ref.
-  const qualityWindowRef = useRef<QualityWindow>(createQualityWindow());
-  const qualityTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Local speaking indicator: an AnalyserNode on whichever stream the
-  // mic pipeline's encoder actually consumes (micPipeline.ts's onStream
-  // dep), sampled every SPEAKING_SNAPSHOT_INTERVAL_MS.
-  const localAnalyserRef = useRef<AnalyserNode | null>(null);
-  // The source node feeding localAnalyserRef, held only so teardown can
-  // disconnect it (it has no other use) -- otherwise the mic track's audio
-  // graph node outlives the AudioContext.close() a manual Rejoin implies.
-  const localSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const localScratchRef = useRef<Float32Array<ArrayBuffer>>(new Float32Array(ANALYSER_FFT_SIZE));
-  const speakingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const previousVoiceTapRef = useRef<((e: VoiceTapEvent) => void) | undefined>(undefined);
-  const audioGateRef = useRef<AudioContextGate | null>(null);
-  // The playback sink and the AudioContext it owns: page.tsx's volume
-  // sliders apply through sinkRef (see the store-subscription effect
-  // below), and its output-device select calls audioCtxRef's setSinkId.
-  const sinkRef = useRef<PlaybackSink | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const knownSendersRef = useRef<Set<string>>(new Set());
-  const localIdRef = useRef<string>("");
-  const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // registerPageLifecycleCleanup's own unregister, so teardownSession can
-  // remove the beforeunload handler instead of piling up a new one on
-  // every connect() (a manual Rejoin would otherwise leave the previous
-  // session's handler still attached).
-  const unregisterLifecycleRef = useRef<(() => void) | null>(null);
-  // Auto-rejoin state: the back-off timer/attempt pair handleSessionStatus
-  // drives, the last connect()'s arguments (non-null while the user wants
-  // the session, i.e. between connect() and leave()), and the latest
-  // connect() itself -- the timer outlives the render that scheduled it,
-  // and connect's identity changes with the store.
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reconnectAttemptRef = useRef(0);
-  const sessionArgsRef = useRef<
-    { url: string; localId: string; certHashesHex: string[]; nickname: string } | null
-  >(null);
-  const connectRef = useRef<
-    ((url: string, localId: string, certHashesHex: string[], nickname?: string) => Promise<void>) | null
-  >(null);
-  // One <canvas> per screen-share tile (remote senders keyed by participant
-  // id, own outgoing preview keyed by "own"). page.tsx registers/unregisters
-  // as tiles mount/unmount; the decode pipeline's onFrame draws into
-  // whichever canvas is currently registered for that sender, or drops the
-  // frame if the tile isn't mounted (e.g. between store update and render).
-  const screenCanvasRefs = useRef<Map<string, HTMLCanvasElement>>(new Map());
-  const registerScreenCanvas = useCallback((id: string, el: HTMLCanvasElement | null) => {
-    if (el) screenCanvasRefs.current.set(id, el);
-    else screenCanvasRefs.current.delete(id);
-  }, []);
+	const clientRef = useRef<MoqtChatClient | null>(null);
+	const voiceRef = useRef<MoqtVoiceClient | null>(null);
+	const screenRef = useRef<MoqtScreenClient | null>(null);
+	// One frame reassembler per remote sender AND variant ("<id>/hi",
+	// "<id>/lo"): moqtScreenWire.ts's reassembler is single-stream state (a
+	// `pending` frame keyed by seq), so sharing one across senders would
+	// corrupt whichever sender's frame wasn't currently being assembled the
+	// moment two people share at once -- and each variant has its own seq
+	// count, so a switch must not splice one variant's chunks onto the
+	// other's pending frame. The decoder stays one per sender.
+	const screenReassemblersRef = useRef<
+		Map<string, ReturnType<typeof screenFrameReassemblerInit>>
+	>(new Map());
+	// width/height/codec ride only on a keyframe's idx===0 chunk (wire
+	// format, moqtScreenWire.ts), but a frame reassembles on its LAST
+	// arriving chunk, whose own fields are undefined -- so the keyframe's
+	// metadata has to be remembered per-sender and reapplied at reassembly.
+	const screenKeyframeMetaRef = useRef<
+		Map<string, { width?: number; height?: number; codec?: string }>
+	>(new Map());
+	// One stall detector per remote sender, fed by onFrame below and polled
+	// from the drain loop's tick into the store's stalledScreenTiles.
+	const screenStallRef = useRef<Map<string, StallDetector>>(new Map());
+	// Arms the drain tick's own-stall auto-stop (shouldAutoStopOwnScreen):
+	// true while a fresh share is running, flipped false the instant the
+	// auto-stop fires so a capture stuck stalled for minutes only triggers
+	// stopScreenShare's cleanup once. Re-armed by the next startScreenShare.
+	const ownStallArmedRef = useRef(true);
+	// stopScreenShare's identity is created below (after this ref), so the
+	// drain tick calls through this indirection -- same shape as connectRef's
+	// own doc for why a ref, not a direct closure, is needed here.
+	const stopScreenShareRef = useRef<() => void>(() => {});
+	const screenReceiveRef = useRef<ScreenReceivePipeline | null>(null);
+	const screenShareRef = useRef<ScreenSharePipeline | null>(null);
+	const micRef = useRef<MicPipeline | null>(null);
+	// The RNNoise AudioWorklet graph, when the noiseSuppressor dep above
+	// actually ran (rnnoiseOn was true and it didn't throw) -- stopped
+	// alongside the mic in teardownCurrentSession so its AudioContext doesn't
+	// leak across a manual Rejoin.
+	const noiseSuppressorRef = useRef<NoiseSuppressorHandle | null>(null);
+	const receivePipelineRef = useRef<VoiceReceivePipeline | null>(null);
+	const jitterBufferRef = useRef<JitterBufferManager | null>(null);
+	// Per-peer voice quality: fed by chainVoiceTap (installed in startVoice)
+	// and snapshotted into the store every QUALITY_SNAPSHOT_INTERVAL_MS by
+	// qualityTimerRef, same shape as the drain loop's own timer ref.
+	const qualityWindowRef = useRef<QualityWindow>(createQualityWindow());
+	const qualityTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	// Local speaking indicator: an AnalyserNode on whichever stream the
+	// mic pipeline's encoder actually consumes (micPipeline.ts's onStream
+	// dep), sampled every SPEAKING_SNAPSHOT_INTERVAL_MS.
+	const localAnalyserRef = useRef<AnalyserNode | null>(null);
+	// The source node feeding localAnalyserRef, held only so teardown can
+	// disconnect it (it has no other use) -- otherwise the mic track's audio
+	// graph node outlives the AudioContext.close() a manual Rejoin implies.
+	const localSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+	const localScratchRef = useRef<Float32Array<ArrayBuffer>>(
+		new Float32Array(ANALYSER_FFT_SIZE),
+	);
+	const speakingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	const previousVoiceTapRef = useRef<((e: VoiceTapEvent) => void) | undefined>(
+		undefined,
+	);
+	const audioGateRef = useRef<AudioContextGate | null>(null);
+	// The playback sink and the AudioContext it owns: page.tsx's volume
+	// sliders apply through sinkRef (see the store-subscription effect
+	// below), and its output-device select calls audioCtxRef's setSinkId.
+	const sinkRef = useRef<PlaybackSink | null>(null);
+	const audioCtxRef = useRef<AudioContext | null>(null);
+	const knownSendersRef = useRef<Set<string>>(new Set());
+	const localIdRef = useRef<string>("");
+	const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	// registerPageLifecycleCleanup's own unregister, so teardownSession can
+	// remove the beforeunload handler instead of piling up a new one on
+	// every connect() (a manual Rejoin would otherwise leave the previous
+	// session's handler still attached).
+	const unregisterLifecycleRef = useRef<(() => void) | null>(null);
+	// Auto-rejoin state: the back-off timer/attempt pair handleSessionStatus
+	// drives, the last connect()'s arguments (non-null while the user wants
+	// the session, i.e. between connect() and leave()), and the latest
+	// connect() itself -- the timer outlives the render that scheduled it,
+	// and connect's identity changes with the store.
+	const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const reconnectAttemptRef = useRef(0);
+	const sessionArgsRef = useRef<{
+		url: string;
+		localId: string;
+		certHashesHex: string[];
+		nickname: string;
+	} | null>(null);
+	const connectRef = useRef<
+		| ((
+				url: string,
+				localId: string,
+				certHashesHex: string[],
+				nickname?: string,
+		  ) => Promise<void>)
+		| null
+	>(null);
+	// One <canvas> per screen-share tile (remote senders keyed by participant
+	// id, own outgoing preview keyed by "own"). page.tsx registers/unregisters
+	// as tiles mount/unmount; the decode pipeline's onFrame draws into
+	// whichever canvas is currently registered for that sender, or drops the
+	// frame if the tile isn't mounted (e.g. between store update and render).
+	const screenCanvasRefs = useRef<Map<string, HTMLCanvasElement>>(new Map());
+	const registerScreenCanvas = useCallback(
+		(id: string, el: HTMLCanvasElement | null) => {
+			if (el) screenCanvasRefs.current.set(id, el);
+			else screenCanvasRefs.current.delete(id);
+		},
+		[],
+	);
 
-  // Draws one decoded/captured frame into whichever tile canvas is
-  // currently registered for `key` ("own" for the local outgoing preview,
-  // a participant id for a remote sender) -- shared by the receive-side
-  // onFrame callback below and startScreenShare's own-preview draw, so both
-  // tiles use the identical draw-then-close contract. Every tile's backing
-  // store follows the frame's own size (screenTileSize.ts) so CSS can
-  // scale it without changing its aspect -- the own preview included, so
-  // a portrait share previews as portrait.
-  const drawScreenFrame = useCallback(
-    (
-      key: string,
-      frame: CanvasImageSource & {
-        close?: () => void;
-        displayWidth?: number;
-        displayHeight?: number;
-        codedWidth?: number;
-        codedHeight?: number;
-      },
-    ) => {
-      const canvas = screenCanvasRefs.current.get(key);
-      const ctx = canvas?.getContext("2d");
-      if (!ctx || !canvas) return;
-      fitCanvasToFrame(
-        canvas,
-        frame.displayWidth ?? frame.codedWidth,
-        frame.displayHeight ?? frame.codedHeight,
-      );
-      ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
-    },
-    [],
-  );
+	// Draws one decoded/captured frame into whichever tile canvas is
+	// currently registered for `key` ("own" for the local outgoing preview,
+	// a participant id for a remote sender) -- shared by the receive-side
+	// onFrame callback below and startScreenShare's own-preview draw, so both
+	// tiles use the identical draw-then-close contract. Every tile's backing
+	// store follows the frame's own size (screenTileSize.ts) so CSS can
+	// scale it without changing its aspect -- the own preview included, so
+	// a portrait share previews as portrait.
+	const drawScreenFrame = useCallback(
+		(
+			key: string,
+			frame: CanvasImageSource & {
+				close?: () => void;
+				displayWidth?: number;
+				displayHeight?: number;
+				codedWidth?: number;
+				codedHeight?: number;
+			},
+		) => {
+			const canvas = screenCanvasRefs.current.get(key);
+			const ctx = canvas?.getContext("2d");
+			if (!ctx || !canvas) return;
+			fitCanvasToFrame(
+				canvas,
+				frame.displayWidth ?? frame.codedWidth,
+				frame.displayHeight ?? frame.codedHeight,
+			);
+			ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+		},
+		[],
+	);
 
-  const startDrainLoop = useCallback(() => {
-    const tick = () => {
-      const pipeline = receivePipelineRef.current;
-      if (pipeline) {
-        for (const key of knownSendersRef.current) pipeline.drainAndDecode(key);
-      }
-      const now = performance.now();
-      for (const [key, d] of screenStallRef.current) {
-        const stalled = d.isStalled(now);
-        useMoqtChatStore.getState().setScreenTileStalled(key, stalled);
-        if (shouldAutoStopOwnScreen(key, stalled, ownStallArmedRef.current)) {
-          ownStallArmedRef.current = false;
-          useMoqtChatStore
-            .getState()
-            .setScreenShareError("画面共有が停止しました。もう一度共有ボタンを押してください");
-          stopScreenShareRef.current();
-        }
-      }
-      drainTimerRef.current = setTimeout(tick, DRAIN_INTERVAL_MS);
-    };
-    tick();
-  }, []);
+	const startDrainLoop = useCallback(() => {
+		const tick = () => {
+			const pipeline = receivePipelineRef.current;
+			if (pipeline) {
+				for (const key of knownSendersRef.current) pipeline.drainAndDecode(key);
+			}
+			const now = performance.now();
+			for (const [key, d] of screenStallRef.current) {
+				const stalled = d.isStalled(now);
+				useMoqtChatStore.getState().setScreenTileStalled(key, stalled);
+				if (shouldAutoStopOwnScreen(key, stalled, ownStallArmedRef.current)) {
+					ownStallArmedRef.current = false;
+					useMoqtChatStore
+						.getState()
+						.setScreenShareError(
+							"画面共有が停止しました。もう一度共有ボタンを押してください",
+						);
+					stopScreenShareRef.current();
+				}
+			}
+			drainTimerRef.current = setTimeout(tick, DRAIN_INTERVAL_MS);
+		};
+		tick();
+	}, []);
 
-  const teardownCurrentSession = useCallback(() => {
-    teardownSession(
-      {
-        drainTimer: drainTimerRef,
-        qualityTimer: qualityTimerRef,
-        speakingTimer: speakingTimerRef,
-        previousVoiceTap: previousVoiceTapRef,
-        mic: micRef,
-        voice: voiceRef,
-        receivePipeline: receivePipelineRef,
-        knownSenders: knownSendersRef,
-        screenShare: screenShareRef,
-        screen: screenRef,
-        screenReceive: screenReceiveRef,
-        screenReassemblers: screenReassemblersRef,
-        screenKeyframeMeta: screenKeyframeMetaRef,
-        screenStall: screenStallRef,
-        client: clientRef,
-        unregisterLifecycle: unregisterLifecycleRef,
-        audioCtx: audioCtxRef,
-      },
-      store,
-    );
-    sinkRef.current = null;
-    localSourceRef.current?.disconnect();
-    localSourceRef.current = null;
-    localAnalyserRef.current?.disconnect();
-    localAnalyserRef.current = null;
-    store.setLocalSpeaking(false);
-    noiseSuppressorRef.current?.stop();
-    noiseSuppressorRef.current = null;
-  }, [store]);
+	const teardownCurrentSession = useCallback(() => {
+		teardownSession(
+			{
+				drainTimer: drainTimerRef,
+				qualityTimer: qualityTimerRef,
+				speakingTimer: speakingTimerRef,
+				previousVoiceTap: previousVoiceTapRef,
+				mic: micRef,
+				voice: voiceRef,
+				receivePipeline: receivePipelineRef,
+				knownSenders: knownSendersRef,
+				screenShare: screenShareRef,
+				screen: screenRef,
+				screenReceive: screenReceiveRef,
+				screenReassemblers: screenReassemblersRef,
+				screenKeyframeMeta: screenKeyframeMetaRef,
+				screenStall: screenStallRef,
+				client: clientRef,
+				unregisterLifecycle: unregisterLifecycleRef,
+				audioCtx: audioCtxRef,
+			},
+			store,
+		);
+		sinkRef.current = null;
+		localSourceRef.current?.disconnect();
+		localSourceRef.current = null;
+		localAnalyserRef.current?.disconnect();
+		localAnalyserRef.current = null;
+		store.setLocalSpeaking(false);
+		noiseSuppressorRef.current?.stop();
+		noiseSuppressorRef.current = null;
+	}, [store]);
 
-  const startVoice = useCallback(
-    async (localId: string, chat: MoqtChatClient) => {
-      const audioCtx = new AudioContext();
-      audioCtxRef.current = audioCtx;
-      const sink = createPlaybackSink(audioCtx, {
-        // Remote speaking indicator: same window/threshold as the local side
-        // (voiceQuality.ts's onLevel), snapshotted by the same timer below.
-        onLevel: (senderKey, level) => qualityWindowRef.current.onLevel(senderKey, level),
-      });
-      sinkRef.current = sink;
-      // Pick up whatever the rail's sliders were already set to (e.g. a
-      // manual Rejoin after tuning volumes) -- the effect below only fires
-      // on a later slider change, not on sink creation itself.
-      const state = useMoqtChatStore.getState();
-      sink.setMasterGain(effectiveGain(state.masterVolume, 1));
-      for (const [id, v] of Object.entries(state.peerVolumes)) {
-        sink.setPeerGain(id, effectiveGain(v, 1));
-      }
-      const audioGate = createAudioContextGate(
-        () => audioCtx as unknown as { state: "suspended" | "running" | "closed"; resume: () => Promise<void> },
-        {
-          onResumeFailed: () => setMicError("audio playback permission was blocked by the browser"),
-          play: sink.play,
-        },
-      );
-      audioGateRef.current = audioGate;
-      await audioGate.resumeFromUserGesture();
+	const startVoice = useCallback(
+		async (localId: string, chat: MoqtChatClient) => {
+			const audioCtx = new AudioContext();
+			audioCtxRef.current = audioCtx;
+			const sink = createPlaybackSink(audioCtx, {
+				// Remote speaking indicator: same window/threshold as the local side
+				// (voiceQuality.ts's onLevel), snapshotted by the same timer below.
+				onLevel: (senderKey, level) =>
+					qualityWindowRef.current.onLevel(senderKey, level),
+			});
+			sinkRef.current = sink;
+			// Pick up whatever the rail's sliders were already set to (e.g. a
+			// manual Rejoin after tuning volumes) -- the effect below only fires
+			// on a later slider change, not on sink creation itself.
+			const state = useMoqtChatStore.getState();
+			sink.setMasterGain(effectiveGain(state.masterVolume, 1));
+			for (const [id, v] of Object.entries(state.peerVolumes)) {
+				sink.setPeerGain(id, effectiveGain(v, 1));
+			}
+			const audioGate = createAudioContextGate(
+				() =>
+					audioCtx as unknown as {
+						state: "suspended" | "running" | "closed";
+						resume: () => Promise<void>;
+					},
+				{
+					onResumeFailed: () =>
+						setMicError("audio playback permission was blocked by the browser"),
+					play: sink.play,
+				},
+			);
+			audioGateRef.current = audioGate;
+			await audioGate.resumeFromUserGesture();
 
-      jitterBufferRef.current = new JitterBufferManager(localId, JITTER_BUFFER_CAPACITY);
-      receivePipelineRef.current = createVoiceReceivePipeline({
-        jitterBuffer: jitterBufferRef.current,
-        AudioDecoderCtor: OpusChunkDecoder as never,
-        enqueuePlayback: (senderKey, frame) => audioGate.enqueue(senderKey, frame),
-      });
-      startDrainLoop();
+			jitterBufferRef.current = new JitterBufferManager(
+				localId,
+				JITTER_BUFFER_CAPACITY,
+			);
+			receivePipelineRef.current = createVoiceReceivePipeline({
+				jitterBuffer: jitterBufferRef.current,
+				AudioDecoderCtor: OpusChunkDecoder as never,
+				enqueuePlayback: (senderKey, frame) =>
+					audioGate.enqueue(senderKey, frame),
+			});
+			startDrainLoop();
 
-      // Feed the quality window from the same tap point the load harness
-      // uses, chained so an already-installed harness tap keeps working
-      // (chainVoiceTap's own doc), then snapshot it into the store once a
-      // second per the task brief. previousVoiceTapRef remembers exactly
-      // what was installed before THIS session's own chain, so teardown can
-      // restore it verbatim instead of nesting one more closure per
-      // connect/rejoin cycle.
-      const globalTap = globalThis as { __wiredVoiceTap?: (e: VoiceTapEvent) => void };
-      previousVoiceTapRef.current = globalTap.__wiredVoiceTap;
-      globalTap.__wiredVoiceTap = chainVoiceTap(qualityWindowRef.current, previousVoiceTapRef.current);
-      qualityTimerRef.current = setInterval(() => {
-        for (const key of knownSendersRef.current) {
-          const level = qualityLevel(qualityWindowRef.current.snapshot(key));
-          useMoqtChatStore.getState().setVoiceQuality(key, level);
-        }
-      }, QUALITY_SNAPSHOT_INTERVAL_MS);
+			// Feed the quality window from the same tap point the load harness
+			// uses, chained so an already-installed harness tap keeps working
+			// (chainVoiceTap's own doc), then snapshot it into the store once a
+			// second per the task brief. previousVoiceTapRef remembers exactly
+			// what was installed before THIS session's own chain, so teardown can
+			// restore it verbatim instead of nesting one more closure per
+			// connect/rejoin cycle.
+			const globalTap = globalThis as {
+				__wiredVoiceTap?: (e: VoiceTapEvent) => void;
+			};
+			previousVoiceTapRef.current = globalTap.__wiredVoiceTap;
+			globalTap.__wiredVoiceTap = chainVoiceTap(
+				qualityWindowRef.current,
+				previousVoiceTapRef.current,
+			);
+			qualityTimerRef.current = setInterval(() => {
+				for (const key of knownSendersRef.current) {
+					const level = qualityLevel(qualityWindowRef.current.snapshot(key));
+					useMoqtChatStore.getState().setVoiceQuality(key, level);
+				}
+			}, QUALITY_SNAPSHOT_INTERVAL_MS);
 
-      // Speaking indicator, both directions, on one 100ms timer: local reads
-      // the AnalyserNode micPipeline's onStream dep attaches below; remote
-      // reads the quality window's speaking flag (fed by the sink's onLevel
-      // above).
-      speakingTimerRef.current = setInterval(() => {
-        const analyser = localAnalyserRef.current;
-        if (analyser) {
-          const level = sampleLocalLevel(analyser, localScratchRef.current);
-          useMoqtChatStore.getState().setLocalSpeaking(isSpeaking(level));
-        }
-        for (const key of knownSendersRef.current) {
-          useMoqtChatStore.getState().setSpeaking(key, qualityWindowRef.current.snapshotSpeaking(key));
-        }
-      }, SPEAKING_SNAPSHOT_INTERVAL_MS);
+			// Speaking indicator, both directions, on one 100ms timer: local reads
+			// the AnalyserNode micPipeline's onStream dep attaches below; remote
+			// reads the quality window's speaking flag (fed by the sink's onLevel
+			// above).
+			speakingTimerRef.current = setInterval(() => {
+				const analyser = localAnalyserRef.current;
+				if (analyser) {
+					const level = sampleLocalLevel(analyser, localScratchRef.current);
+					useMoqtChatStore.getState().setLocalSpeaking(isSpeaking(level));
+				}
+				for (const key of knownSendersRef.current) {
+					useMoqtChatStore
+						.getState()
+						.setSpeaking(key, qualityWindowRef.current.snapshotSpeaking(key));
+				}
+			}, SPEAKING_SNAPSHOT_INTERVAL_MS);
 
-      const voice = new MoqtVoiceClient(chat, {
-        onOpusFrame: (participantId, payload) => {
-          knownSendersRef.current.add(participantId);
-          receivePipelineRef.current?.handleObjectPayload(payload, participantId);
-        },
-      });
-      voiceRef.current = voice;
-      await voice.publishAudioTrack();
-      // Peers' audio is subscribed as discovery reports them
-      // (handleRoomNamespace), once announce() runs after this.
+			const voice = new MoqtVoiceClient(chat, {
+				onOpusFrame: (participantId, payload) => {
+					knownSendersRef.current.add(participantId);
+					receivePipelineRef.current?.handleObjectPayload(
+						payload,
+						participantId,
+					);
+				},
+			});
+			voiceRef.current = voice;
+			await voice.publishAudioTrack();
+			// Peers' audio is subscribed as discovery reports them
+			// (handleRoomNamespace), once announce() runs after this.
 
-      startMicPipeline({
-        getUserMedia: (c) => navigator.mediaDevices.getUserMedia(c),
-        makeProcessor,
-        AudioEncoderCtor: AudioEncoder as never,
-        sendVoiceFrame: (bytes) => voice.sendOpusFrame(bytes),
-        isMuted: () => useMoqtChatStore.getState().muted,
-        isConfigSupported: micPipelineIsConfigSupported(),
-        rnnoiseOn: useMoqtChatStore.getState().noiseSuppressionEnabled,
-        noiseSuppressor: async (track) => {
-          // VAD consumption is a later task's job (brief); onVad is wired
-          // here only so the worklet has somewhere to post to.
-          const handle = await startNoiseSuppressor(
-            track as unknown as MediaStreamTrack,
-            () => {},
-            // Deployed under a subpath (GitHub Pages' /wired/moqt_chat/),
-            // and startNoiseSuppressor's own worklet/wasm fetches are the
-            // one place in this app that build a URL by hand instead of
-            // going through Next's own basePath-aware asset helpers --
-            // without this, both fetches 404 against the site root and
-            // noise suppression silently falls back to the browser's
-            // built-in NS on every real deployment (never caught by e2e,
-            // which always runs with NS off, see joinPrefs.ts).
-            process.env.NEXT_PUBLIC_BASE_PATH ?? "",
-          );
-          noiseSuppressorRef.current = handle;
-          return handle.outputTrack as unknown as { stop: () => void };
-        },
-        onError: () => setMicError("microphone permission was denied"),
-        onEncodeError: () => setMicError("microphone audio could not be encoded"),
-        onSendFailing: () =>
-          setMicError("voice isn't reaching other participants (connection trouble)"),
-        // Local half of the speaking indicator: attach an analyser to
-        // whichever track the encoder ends up consuming (the RNNoise output
-        // track when NS succeeded, the raw mic track otherwise --
-        // micPipeline.ts's own doc).
-        onStream: (track) => {
-          const analyser = audioCtx.createAnalyser();
-          analyser.fftSize = ANALYSER_FFT_SIZE;
-          const source = audioCtx.createMediaStreamSource(
-            new MediaStream([track as unknown as MediaStreamTrack]),
-          );
-          source.connect(analyser);
-          localSourceRef.current = source;
-          localAnalyserRef.current = analyser;
-        },
-      })
-        .then((mic) => {
-          micRef.current = mic;
-        })
-        .catch(() => {});
-    },
-    [startDrainLoop],
-  );
+			startMicPipeline({
+				getUserMedia: (c) => navigator.mediaDevices.getUserMedia(c),
+				makeProcessor,
+				AudioEncoderCtor: AudioEncoder as never,
+				sendVoiceFrame: (bytes) => voice.sendOpusFrame(bytes),
+				isMuted: () => useMoqtChatStore.getState().muted,
+				isConfigSupported: micPipelineIsConfigSupported(),
+				rnnoiseOn: useMoqtChatStore.getState().noiseSuppressionEnabled,
+				noiseSuppressor: async (track) => {
+					// VAD consumption is a later task's job (brief); onVad is wired
+					// here only so the worklet has somewhere to post to.
+					const handle = await startNoiseSuppressor(
+						track as unknown as MediaStreamTrack,
+						() => {},
+						// Deployed under a subpath (GitHub Pages' /wired/moqt_chat/),
+						// and startNoiseSuppressor's own worklet/wasm fetches are the
+						// one place in this app that build a URL by hand instead of
+						// going through Next's own basePath-aware asset helpers --
+						// without this, both fetches 404 against the site root and
+						// noise suppression silently falls back to the browser's
+						// built-in NS on every real deployment (never caught by e2e,
+						// which always runs with NS off, see joinPrefs.ts).
+						process.env.NEXT_PUBLIC_BASE_PATH ?? "",
+					);
+					noiseSuppressorRef.current = handle;
+					return handle.outputTrack as unknown as { stop: () => void };
+				},
+				onError: () => setMicError("microphone permission was denied"),
+				onEncodeError: () =>
+					setMicError("microphone audio could not be encoded"),
+				onSendFailing: () =>
+					setMicError(
+						"voice isn't reaching other participants (connection trouble)",
+					),
+				// Local half of the speaking indicator: attach an analyser to
+				// whichever track the encoder ends up consuming (the RNNoise output
+				// track when NS succeeded, the raw mic track otherwise --
+				// micPipeline.ts's own doc).
+				onStream: (track) => {
+					const analyser = audioCtx.createAnalyser();
+					analyser.fftSize = ANALYSER_FFT_SIZE;
+					const source = audioCtx.createMediaStreamSource(
+						new MediaStream([track as unknown as MediaStreamTrack]),
+					);
+					source.connect(analyser);
+					localSourceRef.current = source;
+					localAnalyserRef.current = analyser;
+				},
+			})
+				.then((mic) => {
+					micRef.current = mic;
+				})
+				.catch(() => {});
+		},
+		[startDrainLoop],
+	);
 
-  const connect = useCallback(
-    async (url: string, localId: string, certHashesHex: string[], nickname = "") => {
-      const reconnectRefs = { timer: reconnectTimerRef, attempt: reconnectAttemptRef };
-      // A manual Rejoin (connect() called while a previous session is
-      // still up) must not stack a second drain loop / retry timer / mic /
-      // lifecycle handler on top of the first -- tear the old session down
-      // before starting the new one. leave() itself calls the same
-      // teardown for the "give up on the room" path. It also cancels any
-      // pending automatic rejoin, and drops the session args across the
-      // teardown so the old session's own close cannot schedule one.
-      cancelReconnect(reconnectRefs);
-      sessionArgsRef.current = null;
-      teardownCurrentSession();
-      sessionArgsRef.current = { url, localId, certHashesHex, nickname };
-      localIdRef.current = localId;
-      setMicError(null);
-      store.clearPeers();
-      // Messages are kept: an automatic rejoin after a drop must not wipe
-      // the history the user was reading. leave() clears them (it is the
-      // "done with this room" path). Remote screen tiles are dropped --
-      // they belong to the previous session's senders, and a sender who is
-      // still sharing re-appears on its first decoded frame.
-      store.clearScreenTiles();
-      // Own nickname resolves locally right away rather than waiting on the
-      // self-announce round trip below (it never needs to travel the wire
-      // back to its own sender).
-      if (nickname) store.setNickname(localId, nickname);
+	const connect = useCallback(
+		async (
+			url: string,
+			localId: string,
+			certHashesHex: string[],
+			nickname = "",
+		) => {
+			const reconnectRefs = {
+				timer: reconnectTimerRef,
+				attempt: reconnectAttemptRef,
+			};
+			// A manual Rejoin (connect() called while a previous session is
+			// still up) must not stack a second drain loop / retry timer / mic /
+			// lifecycle handler on top of the first -- tear the old session down
+			// before starting the new one. leave() itself calls the same
+			// teardown for the "give up on the room" path. It also cancels any
+			// pending automatic rejoin, and drops the session args across the
+			// teardown so the old session's own close cannot schedule one.
+			cancelReconnect(reconnectRefs);
+			sessionArgsRef.current = null;
+			teardownCurrentSession();
+			sessionArgsRef.current = { url, localId, certHashesHex, nickname };
+			localIdRef.current = localId;
+			setMicError(null);
+			store.clearPeers();
+			// Messages are kept: an automatic rejoin after a drop must not wipe
+			// the history the user was reading. leave() clears them (it is the
+			// "done with this room" path). Remote screen tiles are dropped --
+			// they belong to the previous session's senders, and a sender who is
+			// still sharing re-appears on its first decoded frame.
+			store.clearScreenTiles();
+			// Own nickname resolves locally right away rather than waiting on the
+			// self-announce round trip below (it never needs to travel the wire
+			// back to its own sender).
+			if (nickname) store.setNickname(localId, nickname);
 
-      // Every status report for this session -- the client's own
-      // onStatusChange and a failed connect()'s rejection below -- funnels
-      // through here, so the store and the auto-rejoin back-off see one
-      // consistent stream. A torn-down session's late report is dropped.
-      const reportStatus = (status: ConnectionState) => {
-        if (clientRef.current !== client) return;
-        store.setConnectionState(status);
-        handleSessionStatus(reconnectRefs, status, sessionArgsRef.current !== null, () => {
-          const args = sessionArgsRef.current;
-          if (args) void connectRef.current?.(args.url, args.localId, args.certHashesHex, args.nickname);
-        });
-      };
-      const client: MoqtChatClient = new MoqtChatClient(localId, {
-        ...moqtChatCallbacks(store),
-        onStatusChange: reportStatus,
-        onUnknownUniStream: (header, firstChunkTail, reader) => {
-          // Screen alias range must be checked before the voice fallback
-          // below: MoqtVoiceClient cancels any stream whose alias it
-          // doesn't own, so a screen stream routed there first is eaten.
-          if (isScreenTrackAlias(header.trackAlias)) {
-            screenRef.current?.handleIncomingStream(header, firstChunkTail, reader);
-            return;
-          }
-          voiceRef.current?.handleIncomingStream(header, firstChunkTail, reader);
-        },
-        // Only voice sends OBJECT_DATAGRAMs (moqtVoiceClient.ts's
-        // sendOpusFrame); screen is stream-borne, so no alias dispatch is
-        // needed here yet.
-        onUnknownDatagram: (datagram) => {
-          voiceRef.current?.handleIncomingDatagram(datagram);
-        },
-        // Track switching is known once the hub's SETUP is in: it shows
-        // the per-tile quality selector.
-        onHubSetup: () => store.setScreenSwitching(client.trackSwitching),
-        onGoaway: (uri) =>
-          handleGoaway(sessionArgsRef.current, uri, (next) => {
-            const args = sessionArgsRef.current;
-            if (args) void connectRef.current?.(next, args.localId, args.certHashesHex, args.nickname);
-          }),
-        onNamespace: (suffix, active) =>
-          handleRoomNamespace(suffix, active, { store, voice: voiceRef.current, screen: screenRef.current }),
-      });
-      clientRef.current = client;
+			// Every status report for this session -- the client's own
+			// onStatusChange and a failed connect()'s rejection below -- funnels
+			// through here, so the store and the auto-rejoin back-off see one
+			// consistent stream. A torn-down session's late report is dropped.
+			const reportStatus = (status: ConnectionState) => {
+				if (clientRef.current !== client) return;
+				store.setConnectionState(status);
+				handleSessionStatus(
+					reconnectRefs,
+					status,
+					sessionArgsRef.current !== null,
+					() => {
+						const args = sessionArgsRef.current;
+						if (args)
+							void connectRef.current?.(
+								args.url,
+								args.localId,
+								args.certHashesHex,
+								args.nickname,
+							);
+					},
+				);
+			};
+			const client: MoqtChatClient = new MoqtChatClient(localId, {
+				...moqtChatCallbacks(store),
+				onStatusChange: reportStatus,
+				onUnknownUniStream: (header, firstChunkTail, reader) => {
+					// Screen alias range must be checked before the voice fallback
+					// below: MoqtVoiceClient cancels any stream whose alias it
+					// doesn't own, so a screen stream routed there first is eaten.
+					if (isScreenTrackAlias(header.trackAlias)) {
+						screenRef.current?.handleIncomingStream(
+							header,
+							firstChunkTail,
+							reader,
+						);
+						return;
+					}
+					voiceRef.current?.handleIncomingStream(
+						header,
+						firstChunkTail,
+						reader,
+					);
+				},
+				// Only voice sends OBJECT_DATAGRAMs (moqtVoiceClient.ts's
+				// sendOpusFrame); screen is stream-borne, so no alias dispatch is
+				// needed here yet.
+				onUnknownDatagram: (datagram) => {
+					voiceRef.current?.handleIncomingDatagram(datagram);
+				},
+				// Track switching is known once the hub's SETUP is in: it shows
+				// the per-tile quality selector.
+				onHubSetup: () => store.setScreenSwitching(client.trackSwitching),
+				onGoaway: (uri) =>
+					handleGoaway(sessionArgsRef.current, uri, (next) => {
+						const args = sessionArgsRef.current;
+						if (args)
+							void connectRef.current?.(
+								next,
+								args.localId,
+								args.certHashesHex,
+								args.nickname,
+							);
+					}),
+				onNamespace: (suffix, active) =>
+					handleRoomNamespace(suffix, active, {
+						store,
+						voice: voiceRef.current,
+						screen: screenRef.current,
+					}),
+			});
+			clientRef.current = client;
 
-      // Screen-share receive side. Wrapped so a decode-pipeline throw can
-      // never propagate into onUnknownUniStream's routing (which chat/voice
-      // streams also flow through) -- see startScreenShare's own doc for
-      // the send-side half of this isolation guarantee.
-      screenReceiveRef.current = createScreenReceivePipeline({
-        VideoDecoderCtor: VideoDecoder as never,
-        EncodedVideoChunkCtor: EncodedVideoChunk,
-        onFrame: (senderKey, frame) => {
-          const vf = frame as CanvasImageSource & {
-            close?: () => void;
-            codedWidth?: number;
-            codedHeight?: number;
-          };
-          try {
-            drawScreenFrame(senderKey, vf);
-            let stall = screenStallRef.current.get(senderKey);
-            if (!stall) {
-              stall = createStallDetector(SCREEN_STALL_MS);
-              screenStallRef.current.set(senderKey, stall);
-            }
-            stall.frame(performance.now());
-            screenTap({
-              senderId: senderKey,
-              width: vf.codedWidth ?? 0,
-              height: vf.codedHeight ?? 0,
-              t: performance.now(),
-            });
-          } finally {
-            vf.close?.();
-          }
-        },
-        onDecodeError: () =>
-          useMoqtChatStore.getState().setScreenShareError("a peer's screen share could not be decoded"),
-      });
-      screenRef.current = new MoqtScreenClient(client, {
-        // The send stream was reopened: the receiver's reassembler and
-        // decoder can only resync on a keyframe.
-        onStreamReset: () => screenShareRef.current?.requestKeyframe(),
-        onScreenChunk: (participantId, chunk, variant) => {
-          try {
-            const key = `${participantId}/${variant}`;
-            let reassembler = screenReassemblersRef.current.get(key);
-            if (!reassembler) {
-              reassembler = screenFrameReassemblerInit();
-              screenReassemblersRef.current.set(key, reassembler);
-            }
-            if (chunk.keyframe && chunk.idx === 0) {
-              screenKeyframeMetaRef.current.set(key, {
-                width: chunk.width,
-                height: chunk.height,
-                codec: chunk.codec,
-              });
-            }
-            const frameBytes = screenFrameReassemblerPush(reassembler, chunk);
-            if (!frameBytes) return;
-            useMoqtChatStore.getState().addScreenTile(participantId);
-            const switching = screenRef.current?.variantsEnabled ?? false;
-            noteScreenTileVariant(useMoqtChatStore.getState(), switching, participantId, chunk.keyframe, variant);
-            const meta = screenKeyframeMetaRef.current.get(key);
-            screenReceiveRef.current?.handleFrame(participantId, {
-              data: frameBytes,
-              keyframe: chunk.keyframe,
-              width: meta?.width,
-              height: meta?.height,
-              codec: meta?.codec,
-            });
-          } catch (err) {
-            // A malformed/incoming screen stream must never break chat or
-            // voice, which share this same onUnknownUniStream callback.
-            useMoqtChatStore
-              .getState()
-              .setScreenShareError(err instanceof Error ? err.message : "screen share receive failed");
-          }
-        },
-      });
+			// Screen-share receive side. Wrapped so a decode-pipeline throw can
+			// never propagate into onUnknownUniStream's routing (which chat/voice
+			// streams also flow through) -- see startScreenShare's own doc for
+			// the send-side half of this isolation guarantee.
+			screenReceiveRef.current = createScreenReceivePipeline({
+				VideoDecoderCtor: VideoDecoder as never,
+				EncodedVideoChunkCtor: EncodedVideoChunk,
+				onFrame: (senderKey, frame) => {
+					const vf = frame as CanvasImageSource & {
+						close?: () => void;
+						codedWidth?: number;
+						codedHeight?: number;
+					};
+					try {
+						drawScreenFrame(senderKey, vf);
+						let stall = screenStallRef.current.get(senderKey);
+						if (!stall) {
+							stall = createStallDetector(SCREEN_STALL_MS);
+							screenStallRef.current.set(senderKey, stall);
+						}
+						stall.frame(performance.now());
+						screenTap({
+							senderId: senderKey,
+							width: vf.codedWidth ?? 0,
+							height: vf.codedHeight ?? 0,
+							t: performance.now(),
+						});
+					} finally {
+						vf.close?.();
+					}
+				},
+				onDecodeError: () =>
+					useMoqtChatStore
+						.getState()
+						.setScreenShareError("a peer's screen share could not be decoded"),
+			});
+			screenRef.current = new MoqtScreenClient(client, {
+				// The send stream was reopened: the receiver's reassembler and
+				// decoder can only resync on a keyframe.
+				onStreamReset: () => screenShareRef.current?.requestKeyframe(),
+				onScreenChunk: (participantId, chunk, variant) => {
+					try {
+						const key = `${participantId}/${variant}`;
+						let reassembler = screenReassemblersRef.current.get(key);
+						if (!reassembler) {
+							reassembler = screenFrameReassemblerInit();
+							screenReassemblersRef.current.set(key, reassembler);
+						}
+						if (chunk.keyframe && chunk.idx === 0) {
+							screenKeyframeMetaRef.current.set(key, {
+								width: chunk.width,
+								height: chunk.height,
+								codec: chunk.codec,
+							});
+						}
+						const frameBytes = screenFrameReassemblerPush(reassembler, chunk);
+						if (!frameBytes) return;
+						useMoqtChatStore.getState().addScreenTile(participantId);
+						const switching = screenRef.current?.variantsEnabled ?? false;
+						noteScreenTileVariant(
+							useMoqtChatStore.getState(),
+							switching,
+							participantId,
+							chunk.keyframe,
+							variant,
+						);
+						const meta = screenKeyframeMetaRef.current.get(key);
+						screenReceiveRef.current?.handleFrame(participantId, {
+							data: frameBytes,
+							keyframe: chunk.keyframe,
+							width: meta?.width,
+							height: meta?.height,
+							codec: meta?.codec,
+						});
+					} catch (err) {
+						// A malformed/incoming screen stream must never break chat or
+						// voice, which share this same onUnknownUniStream callback.
+						useMoqtChatStore
+							.getState()
+							.setScreenShareError(
+								err instanceof Error
+									? err.message
+									: "screen share receive failed",
+							);
+					}
+				},
+			});
 
-      unregisterLifecycleRef.current = registerPageLifecycleCleanup({
-        closeTransport: () => client.close(),
-        getMicTracks: () => micTracksFrom(micRef.current),
-      });
+			unregisterLifecycleRef.current = registerPageLifecycleCleanup({
+				closeTransport: () => client.close(),
+				getMicTracks: () => micTracksFrom(micRef.current),
+			});
 
-      await connectChatThenVoice(
-        async () => {
-          await client.connect(url, certHashesHex);
-          // Best-effort, once per session: a failed send here must not
-          // fail the connection itself (chat/voice already work without a
-          // nickname -- see joinPrefs.ts's own doc on this being opt-in).
-          if (nickname) void client.sendNickname(nickname).catch(() => {});
-        },
-        () => startVoice(localId, client),
-        // Connection failed (e.g. cert hash mismatch): fall back to
-        // disconnected instead of leaving the join screen stuck on
-        // "Connecting..." forever. The client itself stays silent on this
-        // path, so this is the session's one "disconnected" -- and it
-        // schedules the automatic rejoin.
-        () => reportStatus("disconnected"),
-        (err) => setMicError(err instanceof Error ? err.message : "voice setup failed"),
-        () => client.announce(),
-      );
-    },
-    [store, startVoice, drawScreenFrame, teardownCurrentSession],
-  );
+			await connectChatThenVoice(
+				async () => {
+					await client.connect(url, certHashesHex);
+					// Best-effort, once per session: a failed send here must not
+					// fail the connection itself (chat/voice already work without a
+					// nickname -- see joinPrefs.ts's own doc on this being opt-in).
+					if (nickname) void client.sendNickname(nickname).catch(() => {});
+				},
+				() => startVoice(localId, client),
+				// Connection failed (e.g. cert hash mismatch): fall back to
+				// disconnected instead of leaving the join screen stuck on
+				// "Connecting..." forever. The client itself stays silent on this
+				// path, so this is the session's one "disconnected" -- and it
+				// schedules the automatic rejoin.
+				() => reportStatus("disconnected"),
+				(err) =>
+					setMicError(
+						err instanceof Error ? err.message : "voice setup failed",
+					),
+				() => client.announce(),
+			);
+		},
+		[store, startVoice, drawScreenFrame, teardownCurrentSession],
+	);
 
-  const sendMessage = useCallback(
-    (text: string, attachments: WireChatAttachment[]) =>
-      sendChatMessage(clientRef.current, store, localIdRef.current, text, attachments),
-    [store],
-  );
+	const sendMessage = useCallback(
+		(text: string, attachments: WireChatAttachment[]) =>
+			sendChatMessage(
+				clientRef.current,
+				store,
+				localIdRef.current,
+				text,
+				attachments,
+			),
+		[store],
+	);
 
-  const toggleMute = useCallback(() => {
-    store.setMuted(!store.muted);
-  }, [store]);
+	const toggleMute = useCallback(() => {
+		store.setMuted(!store.muted);
+	}, [store]);
 
-  // Screen-share start/stop, modeled on startVoice/mic's shape but kept
-  // fully independent: any failure here (getDisplayMedia rejection,
-  // encoder error, decode error, publish/send failure) is caught and
-  // surfaced ONLY through screenShareError, never through micError or the
-  // chat connection state -- a screen-share failure must never break or
-  // block chat/voice (task brief's isolation requirement). Verified by
-  // reading every await/callback below: each is inside its own try/catch
-  // or an error-only callback (onError/onEncodeError), and none of those
-  // paths touch clientRef, voiceRef, or store.setConnectionState.
-  const startScreenShare = useCallback(async () => {
-    const client = clientRef.current;
-    const screen = screenRef.current;
-    if (!client || !screen) return;
-    try {
-      let capturedTrack: MediaStreamTrack | undefined;
-      const pipeline = await captureThenPublishScreen(
-        () =>
-          startScreenSharePipeline({
-            getDisplayMedia: async (c) => {
-              const stream = await navigator.mediaDevices.getDisplayMedia(c);
-              capturedTrack = stream.getVideoTracks()[0];
-              return stream;
-            },
-            VideoEncoderCtor: VideoEncoder as never,
-            sendVideoChunk: (chunk, group) => screen.sendVideoChunk(chunk, { group }),
-            // Track switching: a lo variant from the same frames, Groups
-            // drawn from the screen client's one counter so both align.
-            ...(screen.variantsEnabled
-              ? {
-                  sendLoVideoChunk: (chunk: ScreenChunk, group: bigint) =>
-                    screen.sendVideoChunk(chunk, { group, variant: "lo" }),
-                  allocateGroup: () => screen.allocateGroup(),
-                  // Only once the lo PUBLISH was accepted (publish runs
-                  // after capture starts, before the first frame).
-                  loActive: () => screen.loPublished,
-                }
-              : {}),
-            onError: () => store.setScreenShareError("screen share permission was denied"),
-            onEncodeError: () => store.setScreenShareError("screen share could not be encoded"),
-          }),
-        () => screen.publishScreenTrack(),
-      );
-      screenShareRef.current = pipeline;
-      store.setScreenSharing(true);
-      store.setScreenShareError(null);
-      // Re-arm the own-stall auto-stop for this fresh share (see
-      // ownStallArmedRef's own doc) -- a previous share's stall must not
-      // suppress detection of a NEW stall in this one.
-      ownStallArmedRef.current = true;
-      store.addScreenTile("own");
+	// Screen-share start/stop, modeled on startVoice/mic's shape but kept
+	// fully independent: any failure here (getDisplayMedia rejection,
+	// encoder error, decode error, publish/send failure) is caught and
+	// surfaced ONLY through screenShareError, never through micError or the
+	// chat connection state -- a screen-share failure must never break or
+	// block chat/voice (task brief's isolation requirement). Verified by
+	// reading every await/callback below: each is inside its own try/catch
+	// or an error-only callback (onError/onEncodeError), and none of those
+	// paths touch clientRef, voiceRef, or store.setConnectionState.
+	const startScreenShare = useCallback(async () => {
+		const client = clientRef.current;
+		const screen = screenRef.current;
+		if (!client || !screen) return;
+		try {
+			let capturedTrack: MediaStreamTrack | undefined;
+			const pipeline = await captureThenPublishScreen(
+				() =>
+					startScreenSharePipeline({
+						getDisplayMedia: async (c) => {
+							const stream = await navigator.mediaDevices.getDisplayMedia(c);
+							capturedTrack = stream.getVideoTracks()[0];
+							return stream;
+						},
+						VideoEncoderCtor: VideoEncoder as never,
+						sendVideoChunk: (chunk, group) =>
+							screen.sendVideoChunk(chunk, { group }),
+						// Track switching: a lo variant from the same frames, Groups
+						// drawn from the screen client's one counter so both align.
+						...(screen.variantsEnabled
+							? {
+									sendLoVideoChunk: (chunk: ScreenChunk, group: bigint) =>
+										screen.sendVideoChunk(chunk, { group, variant: "lo" }),
+									allocateGroup: () => screen.allocateGroup(),
+									// Only once the lo PUBLISH was accepted (publish runs
+									// after capture starts, before the first frame).
+									loActive: () => screen.loPublished,
+								}
+							: {}),
+						onError: () =>
+							store.setScreenShareError("screen share permission was denied"),
+						onEncodeError: () =>
+							store.setScreenShareError("screen share could not be encoded"),
+					}),
+				() => screen.publishScreenTrack(),
+			);
+			screenShareRef.current = pipeline;
+			store.setScreenSharing(true);
+			store.setScreenShareError(null);
+			// Re-arm the own-stall auto-stop for this fresh share (see
+			// ownStallArmedRef's own doc) -- a previous share's stall must not
+			// suppress detection of a NEW stall in this one.
+			ownStallArmedRef.current = true;
+			store.addScreenTile("own");
 
-      // Pump captured frames into the pipeline the same way micPipeline's
-      // caller pumps audio frames -- read off a MediaStreamTrackProcessor
-      // until the pipeline is stopped or the track ends.
-      if (capturedTrack) {
-        const processor = makeProcessor(capturedTrack);
-        const reader = processor.readable.getReader();
-        void (async () => {
-          for (;;) {
-            const { value, done } = await reader.read();
-            if (done || pipeline.stopped) return;
-            if (value) {
-              // Draw the local preview BEFORE handing the frame to
-              // pushFrame, which closes it once encode() has copied what it
-              // needs -- drawing after would read a closed VideoFrame. A
-              // draw failure (e.g. a transient canvas error) must not kill
-              // the encode/send path -- the preview is cosmetic, the share
-              // itself is not.
-              try {
-                drawScreenFrame("own", value as CanvasImageSource & { close?: () => void });
-              } catch {
-                // preview draw is best-effort; the network path continues below
-              }
-              // Same stall tracking as the receive side (onFrame's own doc):
-              // getDisplayMedia's captured track can stop delivering frames
-              // without ever firing "ended" (Chromium's known screen-capture
-              // wedge). "own" shares screenStallRef/stalledScreenTiles with
-              // the remote senders -- the drain tick below already polls
-              // every key in the map generically.
-              let ownStall = screenStallRef.current.get(OWN_SCREEN_KEY);
-              if (!ownStall) {
-                ownStall = createStallDetector(SCREEN_STALL_MS);
-                screenStallRef.current.set(OWN_SCREEN_KEY, ownStall);
-              }
-              ownStall.frame(performance.now());
-              pipeline.pushFrame(value as { close?: () => void });
-            }
-          }
-        })().catch((err) => store.setScreenShareError(err instanceof Error ? err.message : "screen share capture failed"));
-      }
-    } catch (err) {
-      store.setScreenShareError(err instanceof Error ? err.message : "screen share failed to start");
-    }
-  }, [store, drawScreenFrame]);
+			// Pump captured frames into the pipeline the same way micPipeline's
+			// caller pumps audio frames -- read off a MediaStreamTrackProcessor
+			// until the pipeline is stopped or the track ends.
+			if (capturedTrack) {
+				const processor = makeProcessor(capturedTrack);
+				const reader = processor.readable.getReader();
+				void (async () => {
+					for (;;) {
+						const { value, done } = await reader.read();
+						if (done || pipeline.stopped) return;
+						if (value) {
+							// Draw the local preview BEFORE handing the frame to
+							// pushFrame, which closes it once encode() has copied what it
+							// needs -- drawing after would read a closed VideoFrame. A
+							// draw failure (e.g. a transient canvas error) must not kill
+							// the encode/send path -- the preview is cosmetic, the share
+							// itself is not.
+							try {
+								drawScreenFrame(
+									"own",
+									value as CanvasImageSource & { close?: () => void },
+								);
+							} catch {
+								// preview draw is best-effort; the network path continues below
+							}
+							// Same stall tracking as the receive side (onFrame's own doc):
+							// getDisplayMedia's captured track can stop delivering frames
+							// without ever firing "ended" (Chromium's known screen-capture
+							// wedge). "own" shares screenStallRef/stalledScreenTiles with
+							// the remote senders -- the drain tick below already polls
+							// every key in the map generically.
+							let ownStall = screenStallRef.current.get(OWN_SCREEN_KEY);
+							if (!ownStall) {
+								ownStall = createStallDetector(SCREEN_STALL_MS);
+								screenStallRef.current.set(OWN_SCREEN_KEY, ownStall);
+							}
+							ownStall.frame(performance.now());
+							pipeline.pushFrame(value as { close?: () => void });
+						}
+					}
+				})().catch((err) =>
+					store.setScreenShareError(
+						err instanceof Error ? err.message : "screen share capture failed",
+					),
+				);
+			}
+		} catch (err) {
+			store.setScreenShareError(
+				err instanceof Error ? err.message : "screen share failed to start",
+			);
+		}
+	}, [store, drawScreenFrame]);
 
-  const stopScreenShare = useCallback(() => {
-    try {
-      screenShareRef.current?.stop();
-    } catch {
-      // stop() failing is not actionable -- the pipeline is being torn down
-      // regardless, so surfacing an error here would only be noise.
-    }
-    screenShareRef.current = null;
-    // Drop the own-tile stall detector and clear its flag -- without this a
-    // stall raised right before "Stop sharing" would linger stale (and a
-    // fresh createStallDetector on the next startScreenShare would otherwise
-    // inherit nothing wrong, but the OLD flag would still read true until
-    // the next drain tick recomputes it from a detector that no longer
-    // exists here).
-    clearOwnScreenStall(screenStallRef.current, store);
-    // Also FIN the long-lived send stream (MoqtScreenClient.close(), same
-    // shape as teardownSession's voice.close()): without this, a later
-    // startScreenShare() reuses the OLD stream's writer (sendVideoChunk's
-    // #write only opens a new one when #writer is unset) and never sends a
-    // fresh SUBGROUP_HEADER. The hub clears its relay entry on every
-    // re-PUBLISH, so those un-headered bytes classify as neither a
-    // continuation nor a fresh stream and are silently dropped forever --
-    // every viewer, rejoined or not, stops receiving frames from the very
-    // moment sharing restarts.
-    screenRef.current?.close();
-    store.setScreenSharing(false);
-    store.removeScreenTile("own");
-  }, [store]);
+	const stopScreenShare = useCallback(() => {
+		try {
+			screenShareRef.current?.stop();
+		} catch {
+			// stop() failing is not actionable -- the pipeline is being torn down
+			// regardless, so surfacing an error here would only be noise.
+		}
+		screenShareRef.current = null;
+		// Drop the own-tile stall detector and clear its flag -- without this a
+		// stall raised right before "Stop sharing" would linger stale (and a
+		// fresh createStallDetector on the next startScreenShare would otherwise
+		// inherit nothing wrong, but the OLD flag would still read true until
+		// the next drain tick recomputes it from a detector that no longer
+		// exists here).
+		clearOwnScreenStall(screenStallRef.current, store);
+		// Also FIN the long-lived send stream (MoqtScreenClient.close(), same
+		// shape as teardownSession's voice.close()): without this, a later
+		// startScreenShare() reuses the OLD stream's writer (sendVideoChunk's
+		// #write only opens a new one when #writer is unset) and never sends a
+		// fresh SUBGROUP_HEADER. The hub clears its relay entry on every
+		// re-PUBLISH, so those un-headered bytes classify as neither a
+		// continuation nor a fresh stream and are silently dropped forever --
+		// every viewer, rejoined or not, stops receiving frames from the very
+		// moment sharing restarts.
+		screenRef.current?.close();
+		store.setScreenSharing(false);
+		store.removeScreenTile("own");
+	}, [store]);
 
-  // The drain tick's auto-stop (above) calls through this ref rather than
-  // stopScreenShare directly, since the tick is defined before
-  // stopScreenShare exists (same indirection as connectRef's own doc).
-  useEffect(() => {
-    stopScreenShareRef.current = stopScreenShare;
-  }, [stopScreenShare]);
+	// The drain tick's auto-stop (above) calls through this ref rather than
+	// stopScreenShare directly, since the tick is defined before
+	// stopScreenShare exists (same indirection as connectRef's own doc).
+	useEffect(() => {
+		stopScreenShareRef.current = stopScreenShare;
+	}, [stopScreenShare]);
 
-  // Keep the auto-rejoin timer retrying through the CURRENT connect() --
-  // connect's identity changes with the store, and a timer scheduled by an
-  // older render must not resurrect a stale closure's session.
-  useEffect(() => {
-    connectRef.current = connect;
-  }, [connect]);
+	// Keep the auto-rejoin timer retrying through the CURRENT connect() --
+	// connect's identity changes with the store, and a timer scheduled by an
+	// older render must not resurrect a stale closure's session.
+	useEffect(() => {
+		connectRef.current = connect;
+	}, [connect]);
 
-  // Apply the rail's master/per-peer volume controls to the live gain
-  // nodes: the peer GainNode carries that peer's own slider (clamped by
-  // outputMixer.ts's effectiveGain against unity), the master GainNode
-  // carries the master slider -- the two multiply acoustically once
-  // connected in series (playbackSink.ts), so neither setter folds the
-  // other's value in.
-  const masterVolume = store.masterVolume;
-  const peerVolumes = store.peerVolumes;
-  useEffect(() => {
-    const sink = sinkRef.current;
-    if (!sink) return;
-    sink.setMasterGain(effectiveGain(masterVolume, 1));
-    for (const [id, v] of Object.entries(peerVolumes)) {
-      sink.setPeerGain(id, effectiveGain(v, 1));
-    }
-  }, [masterVolume, peerVolumes]);
+	// Apply the rail's master/per-peer volume controls to the live gain
+	// nodes: the peer GainNode carries that peer's own slider (clamped by
+	// outputMixer.ts's effectiveGain against unity), the master GainNode
+	// carries the master slider -- the two multiply acoustically once
+	// connected in series (playbackSink.ts), so neither setter folds the
+	// other's value in.
+	const masterVolume = store.masterVolume;
+	const peerVolumes = store.peerVolumes;
+	useEffect(() => {
+		const sink = sinkRef.current;
+		if (!sink) return;
+		sink.setMasterGain(effectiveGain(masterVolume, 1));
+		for (const [id, v] of Object.entries(peerVolumes)) {
+			sink.setPeerGain(id, effectiveGain(v, 1));
+		}
+	}, [masterVolume, peerVolumes]);
 
-  const leave = useCallback(() => {
-    // The user no longer wants the session: cancel any pending automatic
-    // rejoin, and drop the args first so the teardown below cannot
-    // schedule a new one.
-    cancelReconnect({ timer: reconnectTimerRef, attempt: reconnectAttemptRef });
-    sessionArgsRef.current = null;
-    teardownCurrentSession();
-    setMicError(null);
-    store.setConnectionState("disconnected");
-    store.clearPeers();
-    store.clearMessages();
-  }, [teardownCurrentSession, store]);
+	const leave = useCallback(() => {
+		// The user no longer wants the session: cancel any pending automatic
+		// rejoin, and drop the args first so the teardown below cannot
+		// schedule a new one.
+		cancelReconnect({ timer: reconnectTimerRef, attempt: reconnectAttemptRef });
+		sessionArgsRef.current = null;
+		teardownCurrentSession();
+		setMicError(null);
+		store.setConnectionState("disconnected");
+		store.clearPeers();
+		store.clearMessages();
+	}, [teardownCurrentSession, store]);
 
-  // Routes voice output to a chosen audiooutput device (AudioContext.setSinkId,
-  // not yet in TS's DOM lib -- same as makeProcessor's MediaStreamTrackProcessor
-  // cast above). No-ops before startVoice has created a context, or in a
-  // browser without setSinkId (page.tsx's select isn't rendered there anyway,
-  // via outputMixer.ts's canPickOutput).
-  const setOutputDevice = useCallback((deviceId: string) => {
-    const ctx = audioCtxRef.current as unknown as { setSinkId?: (id: string) => Promise<void> } | null;
-    void ctx?.setSinkId?.(deviceId);
-  }, []);
+	// Routes voice output to a chosen audiooutput device (AudioContext.setSinkId,
+	// not yet in TS's DOM lib -- same as makeProcessor's MediaStreamTrackProcessor
+	// cast above). No-ops before startVoice has created a context, or in a
+	// browser without setSinkId (page.tsx's select isn't rendered there anyway,
+	// via outputMixer.ts's canPickOutput).
+	const setOutputDevice = useCallback((deviceId: string) => {
+		const ctx = audioCtxRef.current as unknown as {
+			setSinkId?: (id: string) => Promise<void>;
+		} | null;
+		void ctx?.setSinkId?.(deviceId);
+	}, []);
 
-  // A remote tile's quality selector (auto / high / low). The store shows
-  // the choice at once and settles on what the screen client actually holds
-  // (a refused SWITCH_FROM keeps the old one).
-  // Only the participant's LATEST choice settles the store: an earlier one
-  // finishing later must not flick the selector back.
-  const screenQualityCallRef = useRef<Map<string, number>>(new Map());
-  const setScreenQuality = useCallback(
-    (id: string, quality: ScreenQuality) => {
-      const screen = screenRef.current;
-      if (!screen) return;
-      const call = (screenQualityCallRef.current.get(id) ?? 0) + 1;
-      screenQualityCallRef.current.set(id, call);
-      store.setScreenTileQuality(id, quality);
-      void screen
-        .setScreenQuality(id, quality)
-        .catch(() => {})
-        .finally(() => {
-          if (screenRef.current !== screen) return;
-          const latest = screenQualityCallRef.current.get(id) === call;
-          settleScreenTileQuality(useMoqtChatStore.getState(), id, screen.screenQuality(id), latest);
-        });
-    },
-    [store],
-  );
+	// A remote tile's quality selector (auto / high / low). The store shows
+	// the choice at once and settles on what the screen client actually holds
+	// (a refused SWITCH_FROM keeps the old one).
+	// Only the participant's LATEST choice settles the store: an earlier one
+	// finishing later must not flick the selector back.
+	const screenQualityCallRef = useRef<Map<string, number>>(new Map());
+	const setScreenQuality = useCallback(
+		(id: string, quality: ScreenQuality) => {
+			const screen = screenRef.current;
+			if (!screen) return;
+			const call = (screenQualityCallRef.current.get(id) ?? 0) + 1;
+			screenQualityCallRef.current.set(id, call);
+			store.setScreenTileQuality(id, quality);
+			void screen
+				.setScreenQuality(id, quality)
+				.catch(() => {})
+				.finally(() => {
+					if (screenRef.current !== screen) return;
+					const latest = screenQualityCallRef.current.get(id) === call;
+					settleScreenTileQuality(
+						useMoqtChatStore.getState(),
+						id,
+						screen.screenQuality(id),
+						latest,
+					);
+				});
+		},
+		[store],
+	);
 
-  return {
-    connect,
-    sendMessage,
-    toggleMute,
-    leave,
-    micError,
-    startScreenShare,
-    stopScreenShare,
-    registerScreenCanvas,
-    setOutputDevice,
-    setScreenQuality,
-  };
+	return {
+		connect,
+		sendMessage,
+		toggleMute,
+		leave,
+		micError,
+		startScreenShare,
+		stopScreenShare,
+		registerScreenCanvas,
+		setOutputDevice,
+		setScreenQuality,
+	};
 }

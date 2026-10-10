@@ -5,12 +5,14 @@
 // Unset in normal use -- the optional push is the whole overhead.
 
 export type ScreenTapEvent = {
-  senderId: string;
-  width: number;
-  height: number;
-  t: number;
+	senderId: string;
+	width: number;
+	height: number;
+	t: number;
 };
 
 export function screenTap(e: ScreenTapEvent): void {
-  (globalThis as { __wiredScreenTap?: ScreenTapEvent[] }).__wiredScreenTap?.push(e);
+	(
+		globalThis as { __wiredScreenTap?: ScreenTapEvent[] }
+	).__wiredScreenTap?.push(e);
 }

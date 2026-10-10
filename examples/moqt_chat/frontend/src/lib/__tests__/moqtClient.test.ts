@@ -1,1163 +1,1335 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  buildChatObjectMessage,
-  buildNicknameObjectMessage,
-  classifyChatPayload,
-  MoqtChatClient,
-  parseChatObjectMessage,
-  parseNicknameFromChatText,
-  candidateParticipantIds,
-  certHashesToWebTransportOptions,
-  type MoqtChatCallbacks,
+	ATTACHMENT_CHUNK_MARKER,
+	buildAttachmentSubgroupHeader,
+	decodeAttachmentChunkMessage,
+	decodeTextPartMessage,
+	encodeAttachmentChunkMessage,
+	encodeTextPartMessage,
+	MAX_ATTACHMENT_CHUNK_BYTES,
+	splitAttachmentIntoChunks,
+} from "../moqtAttachmentWire";
+import {
+	buildChatObjectMessage,
+	buildNicknameObjectMessage,
+	candidateParticipantIds,
+	certHashesToWebTransportOptions,
+	classifyChatPayload,
+	type MoqtChatCallbacks,
+	MoqtChatClient,
+	parseChatObjectMessage,
+	parseNicknameFromChatText,
 } from "../moqtClient";
 import {
-  FakeWebTransport,
-  MSG_FETCH,
-  MSG_PUBLISH,
-  MSG_PUBLISH_NAMESPACE,
-  MSG_SUBSCRIBE,
-  MSG_SUBSCRIBE_NAMESPACE,
-  FakeControlReplies,
-} from "./fakeWebTransport";
-import {
-  concatBytes,
-  decodeNamespace,
-  decodePublish,
-  decodeSubgroupHeader,
-  decodeSubgroupObject,
-  decodeSubscribe,
-  decodeVarint,
-  bytesToHex,
-  bytesToUtf8,
-  encodeControlFrame,
-  encodeGoaway,
-  encodeNamespace,
-  hexToBytes,
-  encodeObjectDatagram,
-  encodeRequestError,
-  encodeSubscribeOk,
-  encodeVarint,
-  utf8ToBytes,
+	bytesToHex,
+	bytesToUtf8,
+	concatBytes,
+	decodeNamespace,
+	decodePublish,
+	decodeSubgroupHeader,
+	decodeSubgroupObject,
+	decodeSubscribe,
+	decodeVarint,
+	encodeControlFrame,
+	encodeGoaway,
+	encodeNamespace,
+	encodeObjectDatagram,
+	encodeRequestError,
+	encodeSubscribeOk,
+	encodeVarint,
+	hexToBytes,
+	utf8ToBytes,
 } from "../moqtWire";
 import {
-  buildAttachmentSubgroupHeader,
-  decodeAttachmentChunkMessage,
-  decodeTextPartMessage,
-  encodeAttachmentChunkMessage,
-  encodeTextPartMessage,
-  ATTACHMENT_CHUNK_MARKER,
-  MAX_ATTACHMENT_CHUNK_BYTES,
-  splitAttachmentIntoChunks,
-} from "../moqtAttachmentWire";
+	FakeControlReplies,
+	FakeWebTransport,
+	MSG_FETCH,
+	MSG_PUBLISH,
+	MSG_PUBLISH_NAMESPACE,
+	MSG_SUBSCRIBE,
+	MSG_SUBSCRIBE_NAMESPACE,
+	stubWebTransport,
+} from "./fakeWebTransport";
 
 // Wraps an already-encoded Object body (text-part or attachment-chunk) in
 // the SUBGROUP_HEADER + Object envelope a real uni stream carries, for
 // pushing into FakeWebTransport.incomingUnidirectionalStreams.
-function wireObject(trackAlias: bigint, groupId: bigint, body: Uint8Array): Uint8Array {
-  return concatBytes([
-    buildAttachmentSubgroupHeader(trackAlias, groupId),
-    encodeVarint(0n),
-    encodeVarint(BigInt(body.length)),
-    body,
-  ]);
+function wireObject(
+	trackAlias: bigint,
+	groupId: bigint,
+	body: Uint8Array,
+): Uint8Array {
+	return concatBytes([
+		buildAttachmentSubgroupHeader(trackAlias, groupId),
+		encodeVarint(0n),
+		encodeVarint(BigInt(body.length)),
+		body,
+	]);
 }
 
 describe("buildChatObjectMessage", () => {
-  it("round-trips through the moqtWire subgroup decoder", () => {
-    const wire = buildChatObjectMessage({
-      trackAlias: 7n,
-      groupId: 3n,
-      text: "hello moqt",
-    });
+	it("round-trips through the moqtWire subgroup decoder", () => {
+		const wire = buildChatObjectMessage({
+			trackAlias: 7n,
+			groupId: 3n,
+			text: "hello moqt",
+		});
 
-    const { header, len } = decodeSubgroupHeader(wire);
-    expect(header.trackAlias).toBe(7n);
-    expect(header.groupId).toBe(3n);
-    expect(header.flags.firstObject).toBe(true);
-    expect(header.flags.subgroupIdMode).toBe(0);
+		const { header, len } = decodeSubgroupHeader(wire);
+		expect(header.trackAlias).toBe(7n);
+		expect(header.groupId).toBe(3n);
+		expect(header.flags.firstObject).toBe(true);
+		expect(header.flags.subgroupIdMode).toBe(0);
 
-    const { object } = decodeSubgroupObject(wire, len, false, 0n, true);
-    expect(object.objectId).toBe(0n);
-    expect(bytesToUtf8(object.payload)).toBe("hello moqt");
-  });
+		const { object } = decodeSubgroupObject(wire, len, false, 0n, true);
+		expect(object.objectId).toBe(0n);
+		expect(bytesToUtf8(object.payload)).toBe("hello moqt");
+	});
 
-  it("produces exactly one message per call (fresh Group ID each send)", () => {
-    const a = buildChatObjectMessage({ trackAlias: 1n, groupId: 0n, text: "a" });
-    const b = buildChatObjectMessage({ trackAlias: 1n, groupId: 1n, text: "b" });
-    expect(a).not.toEqual(b);
-  });
+	it("produces exactly one message per call (fresh Group ID each send)", () => {
+		const a = buildChatObjectMessage({
+			trackAlias: 1n,
+			groupId: 0n,
+			text: "a",
+		});
+		const b = buildChatObjectMessage({
+			trackAlias: 1n,
+			groupId: 1n,
+			text: "b",
+		});
+		expect(a).not.toEqual(b);
+	});
 });
 
 describe("parseChatObjectMessage", () => {
-  it("recovers the text payload from a full SUBGROUP wire message", () => {
-    const wire = buildChatObjectMessage({
-      trackAlias: 42n,
-      groupId: 9n,
-      text: "round trip",
-    });
-    const parsed = parseChatObjectMessage(wire);
-    expect(parsed.trackAlias).toBe(42n);
-    expect(parsed.text).toBe("round trip");
-  });
+	it("recovers the text payload from a full SUBGROUP wire message", () => {
+		const wire = buildChatObjectMessage({
+			trackAlias: 42n,
+			groupId: 9n,
+			text: "round trip",
+		});
+		const parsed = parseChatObjectMessage(wire);
+		expect(parsed.trackAlias).toBe(42n);
+		expect(parsed.text).toBe("round trip");
+	});
 
-  it("throws MoqtDecodeError-shaped error on truncated input", () => {
-    expect(() => parseChatObjectMessage(new Uint8Array([0x70]))).toThrow();
-  });
+	it("throws MoqtDecodeError-shaped error on truncated input", () => {
+		expect(() => parseChatObjectMessage(new Uint8Array([0x70]))).toThrow();
+	});
 });
 
 describe("nickname self-announce message", () => {
-  it("round-trips a nickname through the same SUBGROUP wire framing as chat", () => {
-    const wire = buildNicknameObjectMessage({ trackAlias: 2n, groupId: 0n, nickname: "Alice" });
-    const parsed = parseChatObjectMessage(wire);
-    expect(parseNicknameFromChatText(parsed.text)).toBe("Alice");
-  });
+	it("round-trips a nickname through the same SUBGROUP wire framing as chat", () => {
+		const wire = buildNicknameObjectMessage({
+			trackAlias: 2n,
+			groupId: 0n,
+			nickname: "Alice",
+		});
+		const parsed = parseChatObjectMessage(wire);
+		expect(parseNicknameFromChatText(parsed.text)).toBe("Alice");
+	});
 
-  it("a normal chat message is never mistaken for a nickname announce", () => {
-    expect(parseNicknameFromChatText("hello everyone")).toBeUndefined();
-  });
+	it("a normal chat message is never mistaken for a nickname announce", () => {
+		expect(parseNicknameFromChatText("hello everyone")).toBeUndefined();
+	});
 
-  it("an empty nickname is not sent as an announce", () => {
-    expect(() => buildNicknameObjectMessage({ trackAlias: 2n, groupId: 0n, nickname: "" })).toThrow();
-  });
+	it("an empty nickname is not sent as an announce", () => {
+		expect(() =>
+			buildNicknameObjectMessage({ trackAlias: 2n, groupId: 0n, nickname: "" }),
+		).toThrow();
+	});
 });
 
 describe("classifyChatPayload", () => {
-  it("classifies plain UTF-8 chat text as text", () => {
-    expect(classifyChatPayload(utf8ToBytes("hello everyone"))).toBe("text");
-  });
+	it("classifies plain UTF-8 chat text as text", () => {
+		expect(classifyChatPayload(utf8ToBytes("hello everyone"))).toBe("text");
+	});
 
-  it("classifies a nickname-marker payload as nickname", () => {
-    expect(classifyChatPayload(utf8ToBytes("\u0000nick:Alice"))).toBe("nickname");
-  });
+	it("classifies a nickname-marker payload as nickname", () => {
+		expect(classifyChatPayload(utf8ToBytes("\u0000nick:Alice"))).toBe(
+			"nickname",
+		);
+	});
 
-  it("classifies an attachment-chunk-marker payload as attachment-chunk", () => {
-    const wire = encodeAttachmentChunkMessage({
-      messageId: 1,
-      attachmentIdx: 0,
-      seq: 0,
-      idx: 0,
-      count: 1,
-      mimeType: "image/png",
-      totalBytes: 3,
-      data: new Uint8Array([1, 2, 3]),
-    });
-    expect(classifyChatPayload(wire)).toBe("attachment-chunk");
-  });
+	it("classifies an attachment-chunk-marker payload as attachment-chunk", () => {
+		const wire = encodeAttachmentChunkMessage({
+			messageId: 1,
+			attachmentIdx: 0,
+			seq: 0,
+			idx: 0,
+			count: 1,
+			mimeType: "image/png",
+			totalBytes: 3,
+			data: new Uint8Array([1, 2, 3]),
+		});
+		expect(classifyChatPayload(wire)).toBe("attachment-chunk");
+	});
 
-  it("classifies a text-part-marker payload as attachment-text", () => {
-    const wire = encodeTextPartMessage(1, 2, "hello");
-    expect(classifyChatPayload(wire)).toBe("attachment-text");
-  });
+	it("classifies a text-part-marker payload as attachment-text", () => {
+		const wire = encodeTextPartMessage(1, 2, "hello");
+		expect(classifyChatPayload(wire)).toBe("attachment-text");
+	});
 
-  it("ATTACHMENT_CHUNK_MARKER (0xFD) never appears as a valid UTF-8 lead byte, so it cannot collide with text", () => {
-    // 0xFD is not a valid UTF-8 lead byte per RFC 3629 (max lead byte is 0xF4);
-    // any real chat text's first byte can therefore never equal the marker.
-    expect(ATTACHMENT_CHUNK_MARKER).toBe(0xfd);
-    const text = utf8ToBytes("some ordinary message");
-    expect(text[0]).not.toBe(ATTACHMENT_CHUNK_MARKER);
-  });
+	it("ATTACHMENT_CHUNK_MARKER (0xFD) never appears as a valid UTF-8 lead byte, so it cannot collide with text", () => {
+		// 0xFD is not a valid UTF-8 lead byte per RFC 3629 (max lead byte is 0xF4);
+		// any real chat text's first byte can therefore never equal the marker.
+		expect(ATTACHMENT_CHUNK_MARKER).toBe(0xfd);
+		const text = utf8ToBytes("some ordinary message");
+		expect(text[0]).not.toBe(ATTACHMENT_CHUNK_MARKER);
+	});
 
-  it("does not collide with the nickname marker (0x00)", () => {
-    expect(ATTACHMENT_CHUNK_MARKER).not.toBe(0x00);
-  });
+	it("does not collide with the nickname marker (0x00)", () => {
+		expect(ATTACHMENT_CHUNK_MARKER).not.toBe(0x00);
+	});
 });
 
 describe("candidateParticipantIds", () => {
-  it("excludes the local participant id from the fixed candidate pool", () => {
-    const ids = candidateParticipantIds("user2");
-    expect(ids).not.toContain("user2");
-    expect(ids.length).toBeGreaterThan(0);
-  });
+	it("excludes the local participant id from the fixed candidate pool", () => {
+		const ids = candidateParticipantIds("user2");
+		expect(ids).not.toContain("user2");
+		expect(ids.length).toBeGreaterThan(0);
+	});
 
-  it("is stable regardless of local id casing/whitespace", () => {
-    const ids = candidateParticipantIds("user1");
-    expect(new Set(ids).size).toBe(ids.length);
-  });
+	it("is stable regardless of local id casing/whitespace", () => {
+		const ids = candidateParticipantIds("user1");
+		expect(new Set(ids).size).toBe(ids.length);
+	});
 });
 
 // Drives MoqtChatClient's transport-close detection with a fake WebTransport
 // whose deferred closed promise the test settles by hand.
 describe("MoqtChatClient transport close detection", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
-  });
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.useRealTimers();
+	});
 
-  // Runs microtasks and 0ms timers so a just-settled closed promise's
-  // handlers fire before the assertions.
-  const flushAsync = () => vi.advanceTimersByTimeAsync(0);
+	// Runs microtasks and 0ms timers so a just-settled closed promise's
+	// handlers fire before the assertions.
+	const flushAsync = () => vi.advanceTimersByTimeAsync(0);
 
-  async function connectedClient() {
-    vi.useFakeTimers();
-    const fake = new FakeWebTransport();
-    vi.stubGlobal("WebTransport", function () {
-      return fake;
-    });
-    const statuses: string[] = [];
-    const client = new MoqtChatClient("user1", {
-      onStatusChange: (s) => statuses.push(s),
-      onMessage: () => {},
-    });
-    const connected = client.connect("https://hub.example/", []);
-    fake.resolveReady();
-    await connected;
-    const disconnects = () => statuses.filter((s) => s === "disconnected").length;
-    return { client, fake, statuses, disconnects };
-  }
+	async function connectedClient() {
+		vi.useFakeTimers();
+		const fake = new FakeWebTransport();
+		stubWebTransport(() => fake);
+		const statuses: string[] = [];
+		const client = new MoqtChatClient("user1", {
+			onStatusChange: (s) => statuses.push(s),
+			onMessage: () => {},
+		});
+		const connected = client.connect("https://hub.example/", []);
+		fake.resolveReady();
+		await connected;
+		const disconnects = () =>
+			statuses.filter((s) => s === "disconnected").length;
+		return { client, fake, statuses, disconnects };
+	}
 
-  it("a closed promise that rejects reports one disconnected", async () => {
-    const { fake, disconnects } = await connectedClient();
+	it("a closed promise that rejects reports one disconnected", async () => {
+		const { fake, disconnects } = await connectedClient();
 
-    fake.rejectClosed(new Error("hub died"));
-    await flushAsync();
+		fake.rejectClosed(new Error("hub died"));
+		await flushAsync();
 
-    expect(disconnects()).toBe(1);
-  });
+		expect(disconnects()).toBe(1);
+	});
 
-  it("a closed promise that resolves reports one disconnected", async () => {
-    const { fake, disconnects } = await connectedClient();
+	it("a closed promise that resolves reports one disconnected", async () => {
+		const { fake, disconnects } = await connectedClient();
 
-    fake.resolveClosed({ closeCode: 0 });
-    await flushAsync();
+		fake.resolveClosed({ closeCode: 0 });
+		await flushAsync();
 
-    expect(disconnects()).toBe(1);
-  });
+		expect(disconnects()).toBe(1);
+	});
 
-  it("the previous transport's late closed settling is ignored", async () => {
-    const { client, fake, disconnects } = await connectedClient();
-    const next = new FakeWebTransport();
-    vi.stubGlobal("WebTransport", function () {
-      return next;
-    });
-    const reconnected = client.connect("https://hub.example/", []);
-    next.resolveReady();
-    await reconnected;
+	it("the previous transport's late closed settling is ignored", async () => {
+		const { client, fake, disconnects } = await connectedClient();
+		const next = new FakeWebTransport();
+		stubWebTransport(() => next);
+		const reconnected = client.connect("https://hub.example/", []);
+		next.resolveReady();
+		await reconnected;
 
-    fake.resolveClosed({ closeCode: 0 });
-    await flushAsync();
+		fake.resolveClosed({ closeCode: 0 });
+		await flushAsync();
 
-    expect(disconnects()).toBe(0);
-  });
+		expect(disconnects()).toBe(0);
+	});
 
-  it("tearing down an already-dead session reports no second disconnected", async () => {
-    const { client, fake, disconnects } = await connectedClient();
+	it("tearing down an already-dead session reports no second disconnected", async () => {
+		const { client, fake, disconnects } = await connectedClient();
 
-    fake.rejectClosed(new Error("hub died"));
-    await flushAsync();
-    expect(disconnects()).toBe(1);
+		fake.rejectClosed(new Error("hub died"));
+		await flushAsync();
+		expect(disconnects()).toBe(1);
 
-    client.close();
-    await flushAsync();
+		client.close();
+		await flushAsync();
 
-    expect(disconnects()).toBe(1);
-  });
+		expect(disconnects()).toBe(1);
+	});
 
-  it("a failed connect leaves no unhandled rejection from the closed promise", async () => {
-    vi.useFakeTimers();
-    const fake = new FakeWebTransport();
-    vi.stubGlobal("WebTransport", function () {
-      return fake;
-    });
-    const statuses: string[] = [];
-    const client = new MoqtChatClient("user1", {
-      onStatusChange: (s) => statuses.push(s),
-      onMessage: () => {},
-    });
+	it("a failed connect leaves no unhandled rejection from the closed promise", async () => {
+		vi.useFakeTimers();
+		const fake = new FakeWebTransport();
+		stubWebTransport(() => fake);
+		const statuses: string[] = [];
+		const client = new MoqtChatClient("user1", {
+			onStatusChange: (s) => statuses.push(s),
+			onMessage: () => {},
+		});
 
-    const attempt = client.connect("https://hub.example/", []);
-    fake.rejectReady(new Error("hub down"));
-    fake.rejectClosed(new Error("hub down"));
+		const attempt = client.connect("https://hub.example/", []);
+		fake.rejectReady(new Error("hub down"));
+		fake.rejectClosed(new Error("hub down"));
 
-    await expect(attempt).rejects.toThrow("hub down");
-    await flushAsync();
-    // The client stays silent on this path (the caller's rejection handling
-    // reports the one "disconnected") -- and the closed rejection must not
-    // escape as an unhandled rejection, which would fail this run.
-    expect(statuses.filter((s) => s === "disconnected")).toHaveLength(0);
-  });
+		await expect(attempt).rejects.toThrow("hub down");
+		await flushAsync();
+		// The client stays silent on this path (the caller's rejection handling
+		// reports the one "disconnected") -- and the closed rejection must not
+		// escape as an unhandled rejection, which would fail this run.
+		expect(statuses.filter((s) => s === "disconnected")).toHaveLength(0);
+	});
 
-  it("incoming stream and datagram readers failing on close are no unhandled rejections", async () => {
-    vi.useFakeTimers();
-    const fake = new FakeWebTransport();
-    const failing = { getReader: () => ({ read: async () => Promise.reject(new Error("The session is closed.")) }) };
-    (fake as unknown as { incomingUnidirectionalStreams: unknown }).incomingUnidirectionalStreams = failing;
-    (fake.datagrams as unknown as { readable: unknown }).readable = failing;
-    vi.stubGlobal("WebTransport", function () {
-      return fake;
-    });
-    const client = new MoqtChatClient("user1", { onStatusChange: () => {}, onMessage: () => {} });
-    const ready = client.connect("https://hub.example/", []);
-    fake.resolveReady();
-    await ready;
-    await flushAsync();
-    client.close();
-  });
+	it("incoming stream and datagram readers failing on close are no unhandled rejections", async () => {
+		vi.useFakeTimers();
+		const fake = new FakeWebTransport();
+		const failing = {
+			getReader: () => ({
+				read: async () => Promise.reject(new Error("The session is closed.")),
+			}),
+		};
+		(
+			fake as unknown as { incomingUnidirectionalStreams: unknown }
+		).incomingUnidirectionalStreams = failing;
+		(fake.datagrams as unknown as { readable: unknown }).readable = failing;
+		stubWebTransport(() => fake);
+		const client = new MoqtChatClient("user1", {
+			onStatusChange: () => {},
+			onMessage: () => {},
+		});
+		const ready = client.connect("https://hub.example/", []);
+		fake.resolveReady();
+		await ready;
+		await flushAsync();
+		client.close();
+	});
 
-  it("close() on a transport the browser already closed does not throw", async () => {
-    const { client, fake, disconnects } = await connectedClient();
-    fake.close = () => {
-      throw new Error("The session is closed.");
-    };
+	it("close() on a transport the browser already closed does not throw", async () => {
+		const { client, fake, disconnects } = await connectedClient();
+		fake.close = () => {
+			throw new Error("The session is closed.");
+		};
 
-    expect(() => client.close()).not.toThrow();
-    expect(disconnects()).toBe(1);
-  });
+		expect(() => client.close()).not.toThrow();
+		expect(disconnects()).toBe(1);
+	});
 
-  it("close() reports disconnected once and its closed settling adds none", async () => {
-    const { client, fake, disconnects } = await connectedClient();
+	it("close() reports disconnected once and its closed settling adds none", async () => {
+		const { client, fake, disconnects } = await connectedClient();
 
-    client.close();
-    fake.resolveClosed({ closeCode: 0 });
-    await flushAsync();
+		client.close();
+		fake.resolveClosed({ closeCode: 0 });
+		await flushAsync();
 
-    expect(disconnects()).toBe(1);
-  });
+		expect(disconnects()).toBe(1);
+	});
 });
 
 // draft-ietf-moq-transport-19 3.3 (draft-19 legacy session): every request
 // rides its own bidi stream and its answer comes back on that stream.
 describe("MoqtChatClient request streams", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
-  });
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.useRealTimers();
+	});
 
-  const flush = () => vi.advanceTimersByTimeAsync(0);
+	const flush = () => vi.advanceTimersByTimeAsync(0);
 
-  async function connected(callbacks: Partial<MoqtChatCallbacks> = {}) {
-    vi.useFakeTimers();
-    const fake = new FakeWebTransport();
-    vi.stubGlobal("WebTransport", function () {
-      return fake;
-    });
-    const messages: string[] = [];
-    const client = new MoqtChatClient("user1", {
-      onStatusChange: () => {},
-      onMessage: (p, text) => messages.push(`${p}:${text}`),
-      ...callbacks,
-    });
-    const ready = client.connect("https://hub.example/", []);
-    fake.resolveReady();
-    await ready;
-    return { fake, client, messages };
-  }
+	async function connected(callbacks: Partial<MoqtChatCallbacks> = {}) {
+		vi.useFakeTimers();
+		const fake = new FakeWebTransport();
+		stubWebTransport(() => fake);
+		const messages: string[] = [];
+		const client = new MoqtChatClient("user1", {
+			onStatusChange: () => {},
+			onMessage: (p, text) => messages.push(`${p}:${text}`),
+			...callbacks,
+		});
+		const ready = client.connect("https://hub.example/", []);
+		fake.resolveReady();
+		await ready;
+		return { fake, client, messages };
+	}
 
-  const subscribeOk = (largest?: { group: bigint; object: bigint }) =>
-    encodeControlFrame(
-      0x4n,
-      encodeSubscribeOk({
-        trackAlias: 9n,
-        parameters: largest ? [{ type: 0x09n, value: largest }] : [],
-        trackProperties: [],
-      }),
-    );
-  const doesNotExist = () =>
-    encodeControlFrame(0x5n, encodeRequestError({ errorCode: 0x10n, retryInterval: 0n, errorReason: new Uint8Array(0) }));
-  const fetchOk = () => hexToBytes("18000400030100"); // not End of Track, End {3,1}, no params
+	const subscribeOk = (largest?: { group: bigint; object: bigint }) =>
+		encodeControlFrame(
+			0x4n,
+			encodeSubscribeOk({
+				trackAlias: 9n,
+				parameters: largest ? [{ type: 0x09n, value: largest }] : [],
+				trackProperties: [],
+			}),
+		);
+	const doesNotExist = () =>
+		encodeControlFrame(
+			0x5n,
+			encodeRequestError({
+				errorCode: 0x10n,
+				retryInterval: 0n,
+				errorReason: new Uint8Array(0),
+			}),
+		);
+	const fetchOk = () => hexToBytes("18000400030100"); // not End of Track, End {3,1}, no params
 
-  it("connect PUBLISHes the chat track on its own request stream with an even Request ID", async () => {
-    const { fake } = await connected();
+	it("connect PUBLISHes the chat track on its own request stream with an even Request ID", async () => {
+		const { fake } = await connected();
 
-    const [pub] = fake.requestsOf(MSG_PUBLISH);
-    const msg = decodePublish(pub.request.body);
-    expect(bytesToUtf8(msg.trackName)).toBe("user1");
-    expect(msg.requestId % 2n).toBe(0n);
-  });
+		const [pub] = fake.requestsOf(MSG_PUBLISH);
+		const msg = decodePublish(pub.request.body);
+		expect(bytesToUtf8(msg.trackName)).toBe("user1");
+		expect(msg.requestId % 2n).toBe(0n);
+	});
 
-  it("matches each answer to its request by stream, not by arrival order", async () => {
-    const { fake, client } = await connected();
+	it("matches each answer to its request by stream, not by arrival order", async () => {
+		const { fake, client } = await connected();
 
-    const a = client.subscribeTrack(utf8ToBytes("user2/screen"), "user2/screen");
-    const b = client.subscribeTrack(utf8ToBytes("user3/screen"), "user3/screen");
-    await flush();
-    const [sa, sb] = fake.requestsOf(MSG_SUBSCRIBE);
-    sb.replies.push(subscribeOk());
-    sa.replies.push(doesNotExist());
-    await Promise.all([a, b]);
+		const a = client.subscribeTrack(
+			utf8ToBytes("user2/screen"),
+			"user2/screen",
+		);
+		const b = client.subscribeTrack(
+			utf8ToBytes("user3/screen"),
+			"user3/screen",
+		);
+		await flush();
+		const [sa, sb] = fake.requestsOf(MSG_SUBSCRIBE);
+		sb.replies.push(subscribeOk());
+		sa.replies.push(doesNotExist());
+		await Promise.all([a, b]);
 
-    expect(client.isSubscribed("user2/screen")).toBe(false);
-    expect(client.isSubscribed("user3/screen")).toBe(true);
-    expect(sa.closed).toBe(true); // a refused request's stream is FINed
-    expect(new Set([decodeSubscribe(sa.request.body).requestId, decodeSubscribe(sb.request.body).requestId]).size).toBe(2);
-  });
+		expect(client.isSubscribed("user2/screen")).toBe(false);
+		expect(client.isSubscribed("user3/screen")).toBe(true);
+		expect(sa.closed).toBe(true); // a refused request's stream is FINed
+		expect(
+			new Set([
+				decodeSubscribe(sa.request.body).requestId,
+				decodeSubscribe(sb.request.body).requestId,
+			]).size,
+		).toBe(2);
+	});
 
-  it("a refused label can be subscribed again; an in-flight one is not sent twice", async () => {
-    const { fake, client } = await connected();
+	it("a refused label can be subscribed again; an in-flight one is not sent twice", async () => {
+		const { fake, client } = await connected();
 
-    const first = client.subscribeTrack(utf8ToBytes("user2"), "user2");
-    expect(await client.subscribeTrack(utf8ToBytes("user2"), "user2")).toBe(false);
-    await flush();
-    expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(1);
-    fake.requestsOf(MSG_SUBSCRIBE)[0].replies.push(doesNotExist());
-    await first;
+		const first = client.subscribeTrack(utf8ToBytes("user2"), "user2");
+		expect(await client.subscribeTrack(utf8ToBytes("user2"), "user2")).toBe(
+			false,
+		);
+		await flush();
+		expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(1);
+		fake.requestsOf(MSG_SUBSCRIBE)[0].replies.push(doesNotExist());
+		await first;
 
-    void client.subscribeTrack(utf8ToBytes("user2"), "user2");
-    await flush();
-    expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(2);
-  });
+		void client.subscribeTrack(utf8ToBytes("user2"), "user2");
+		await flush();
+		expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(2);
+	});
 
-  it("sends no SUBSCRIBE on a timer: membership comes from discovery", async () => {
-    const { fake } = await connected();
+	it("sends no SUBSCRIBE on a timer: membership comes from discovery", async () => {
+		const { fake } = await connected();
 
-    await vi.advanceTimersByTimeAsync(10_000);
+		await vi.advanceTimersByTimeAsync(10_000);
 
-    expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(0);
-  });
+		expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(0);
+	});
 
-  it("history: SUBSCRIBE asks for Largest Object, then a Relative Joining FETCH tied to it", async () => {
-    const { fake, client } = await connected();
-    const done = vi.fn();
+	it("history: SUBSCRIBE asks for Largest Object, then a Relative Joining FETCH tied to it", async () => {
+		const { fake, client } = await connected();
+		const done = vi.fn();
 
-    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", {
-      joiningStart: 16n,
-      onObject: () => {},
-      onDone: done,
-    });
-    await flush();
-    const [s] = fake.requestsOf(MSG_SUBSCRIBE);
-    const req = decodeSubscribe(s.request.body);
-    expect(req.parameters).toEqual([{ type: 0x21n, value: Uint8Array.of(0x2) }]);
-    s.replies.push(subscribeOk({ group: 3n, object: 0n }));
-    await sub;
-    await flush();
+		const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", {
+			joiningStart: 16n,
+			onObject: () => {},
+			onDone: done,
+		});
+		await flush();
+		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+		const req = decodeSubscribe(s.request.body);
+		expect(req.parameters).toEqual([
+			{ type: 0x21n, value: Uint8Array.of(0x2) },
+		]);
+		s.replies.push(subscribeOk({ group: 3n, object: 0n }));
+		await sub;
+		await flush();
 
-    const [f] = fake.requestsOf(MSG_FETCH);
-    // Fetch Type 0x2, Joining Request ID = the SUBSCRIBE's, Joining Start 16.
-    const body = f.request.body;
-    expect(decodeVarint(body, 1).value).toBe(2n);
-    expect(decodeVarint(body, 2).value).toBe(req.requestId);
-    expect(decodeVarint(body, 3).value).toBe(16n);
-    expect(f.closed).toBe(true);
-    expect(done).not.toHaveBeenCalled();
-  });
+		const [f] = fake.requestsOf(MSG_FETCH);
+		// Fetch Type 0x2, Joining Request ID = the SUBSCRIBE's, Joining Start 16.
+		const body = f.request.body;
+		expect(decodeVarint(body, 1).value).toBe(2n);
+		expect(decodeVarint(body, 2).value).toBe(req.requestId);
+		expect(decodeVarint(body, 3).value).toBe(16n);
+		expect(f.closed).toBe(true);
+		expect(done).not.toHaveBeenCalled();
+	});
 
-  it("history: one FETCH request at a time, so a join burst stays inside the hub's per-session request cap", async () => {
-    const { fake, client } = await connected();
-    const history = () => ({ joiningStart: 16n, onObject: () => {}, onDone: () => {} });
+	it("history: one FETCH request at a time, so a join burst stays inside the hub's per-session request cap", async () => {
+		const { fake, client } = await connected();
+		const history = () => ({
+			joiningStart: 16n,
+			onObject: () => {},
+			onDone: () => {},
+		});
 
-    const a = client.subscribeTrack(utf8ToBytes("user2"), "user2", history());
-    const b = client.subscribeTrack(utf8ToBytes("user3"), "user3", history());
-    await flush();
-    for (const s of fake.requestsOf(MSG_SUBSCRIBE)) s.replies.push(subscribeOk({ group: 1n, object: 0n }));
-    await Promise.all([a, b]);
-    await flush();
-    expect(fake.requestsOf(MSG_FETCH)).toHaveLength(1);
+		const a = client.subscribeTrack(utf8ToBytes("user2"), "user2", history());
+		const b = client.subscribeTrack(utf8ToBytes("user3"), "user3", history());
+		await flush();
+		for (const s of fake.requestsOf(MSG_SUBSCRIBE))
+			s.replies.push(subscribeOk({ group: 1n, object: 0n }));
+		await Promise.all([a, b]);
+		await flush();
+		expect(fake.requestsOf(MSG_FETCH)).toHaveLength(1);
 
-    fake.requestsOf(MSG_FETCH)[0].replies.push(fetchOk());
-    await flush();
-    expect(fake.requestsOf(MSG_FETCH)).toHaveLength(2);
-  });
+		fake.requestsOf(MSG_FETCH)[0].replies.push(fetchOk());
+		await flush();
+		expect(fake.requestsOf(MSG_FETCH)).toHaveLength(2);
+	});
 
-  it("history: no FETCH when SUBSCRIBE_OK carries no Largest Object", async () => {
-    const { fake, client } = await connected();
-    const done = vi.fn();
+	it("history: no FETCH when SUBSCRIBE_OK carries no Largest Object", async () => {
+		const { fake, client } = await connected();
+		const done = vi.fn();
 
-    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", { joiningStart: 16n, onObject: () => {}, onDone: done });
-    await flush();
-    fake.requestsOf(MSG_SUBSCRIBE)[0].replies.push(subscribeOk());
-    await sub;
+		const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", {
+			joiningStart: 16n,
+			onObject: () => {},
+			onDone: done,
+		});
+		await flush();
+		fake.requestsOf(MSG_SUBSCRIBE)[0].replies.push(subscribeOk());
+		await sub;
 
-    expect(fake.requestsOf(MSG_FETCH)).toHaveLength(0);
-    expect(done).toHaveBeenCalledOnce();
-  });
+		expect(fake.requestsOf(MSG_FETCH)).toHaveLength(0);
+		expect(done).toHaveBeenCalledOnce();
+	});
 
-  it("history: the FETCH_HEADER stream's Objects go to the subscription's onObject, then onDone", async () => {
-    const { fake, client } = await connected();
-    const got: string[] = [];
-    const done = vi.fn();
+	it("history: the FETCH_HEADER stream's Objects go to the subscription's onObject, then onDone", async () => {
+		const { fake, client } = await connected();
+		const got: string[] = [];
+		const done = vi.fn();
 
-    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", {
-      joiningStart: 16n,
-      onObject: (o) => got.push(`${o.group}/${o.object}:${bytesToUtf8(o.payload)}`),
-      onDone: done,
-    });
-    await flush();
-    fake.requestsOf(MSG_SUBSCRIBE)[0].replies.push(subscribeOk({ group: 5n, object: 1n }));
-    await sub;
-    await flush();
-    const [f] = fake.requestsOf(MSG_FETCH);
-    f.replies.push(fetchOk());
-    const rid = decodeVarint(f.request.body, 0).value;
-    // FETCH_HEADER(rid), then G5/O0 "hi" and G5/O1 "x" (fetch_stream_basic's Objects).
-    fake.incomingUnidirectionalStreams.push(concatBytes([hexToBytes("05"), encodeVarint(rid), hexToBytes("1c050080026869010178")]));
-    await flush();
+		const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", {
+			joiningStart: 16n,
+			onObject: (o) =>
+				got.push(`${o.group}/${o.object}:${bytesToUtf8(o.payload)}`),
+			onDone: done,
+		});
+		await flush();
+		fake
+			.requestsOf(MSG_SUBSCRIBE)[0]
+			.replies.push(subscribeOk({ group: 5n, object: 1n }));
+		await sub;
+		await flush();
+		const [f] = fake.requestsOf(MSG_FETCH);
+		f.replies.push(fetchOk());
+		const rid = decodeVarint(f.request.body, 0).value;
+		// FETCH_HEADER(rid), then G5/O0 "hi" and G5/O1 "x" (fetch_stream_basic's Objects).
+		fake.incomingUnidirectionalStreams.push(
+			concatBytes([
+				hexToBytes("05"),
+				encodeVarint(rid),
+				hexToBytes("1c050080026869010178"),
+			]),
+		);
+		await flush();
 
-    expect(got).toEqual(["5/0:hi", "5/1:x"]);
-    expect(done).toHaveBeenCalledOnce();
-  });
+		expect(got).toEqual(["5/0:hi", "5/1:x"]);
+		expect(done).toHaveBeenCalledOnce();
+	});
 });
 
 // draft-ietf-moq-transport-19 6.1-6.2 (draft-19 legacy session): who is in the room comes from
 // PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE, not from polling SUBSCRIBE.
 describe("MoqtChatClient namespace discovery", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
-  });
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.useRealTimers();
+	});
 
-  const flush = () => vi.advanceTimersByTimeAsync(0);
-  const ns = (type: bigint, ...fields: string[]) =>
-    encodeControlFrame(type, encodeNamespace(fields.map(utf8ToBytes)));
+	const flush = () => vi.advanceTimersByTimeAsync(0);
+	const ns = (type: bigint, ...fields: string[]) =>
+		encodeControlFrame(type, encodeNamespace(fields.map(utf8ToBytes)));
 
-  async function announced() {
-    vi.useFakeTimers();
-    const fake = new FakeWebTransport();
-    vi.stubGlobal("WebTransport", function () {
-      return fake;
-    });
-    const seen: string[] = [];
-    const client = new MoqtChatClient("user1", {
-      onStatusChange: () => {},
-      onMessage: () => {},
-      onNamespace: (suffix, active) => seen.push(`${active ? "+" : "-"}${suffix.join("/")}`),
-    });
-    const ready = client.connect("https://hub.example/", []);
-    fake.resolveReady();
-    await ready;
-    await client.announce();
-    await flush();
-    const [watch] = fake.requestsOf(MSG_SUBSCRIBE_NAMESPACE);
-    return { fake, client, seen, watch };
-  }
+	async function announced() {
+		vi.useFakeTimers();
+		const fake = new FakeWebTransport();
+		stubWebTransport(() => fake);
+		const seen: string[] = [];
+		const client = new MoqtChatClient("user1", {
+			onStatusChange: () => {},
+			onMessage: () => {},
+			onNamespace: (suffix, active) =>
+				seen.push(`${active ? "+" : "-"}${suffix.join("/")}`),
+		});
+		const ready = client.connect("https://hub.example/", []);
+		fake.resolveReady();
+		await ready;
+		await client.announce();
+		await flush();
+		const [watch] = fake.requestsOf(MSG_SUBSCRIBE_NAMESPACE);
+		return { fake, client, seen, watch };
+	}
 
-  it("announce publishes wired/moqt_chat/<id> and watches the wired/moqt_chat prefix", async () => {
-    const { fake, watch } = await announced();
+	it("announce publishes wired/moqt_chat/<id> and watches the wired/moqt_chat prefix", async () => {
+		const { fake, watch } = await announced();
 
-    const [pub] = fake.requestsOf(MSG_PUBLISH_NAMESPACE);
-    expect(decodeNamespace(pub.request.body, 1).fields.map(bytesToUtf8)).toEqual(["wired", "moqt_chat", "user1"]);
-    expect(decodeNamespace(watch.request.body, 1).fields.map(bytesToUtf8)).toEqual(["wired", "moqt_chat"]);
-  });
+		const [pub] = fake.requestsOf(MSG_PUBLISH_NAMESPACE);
+		expect(
+			decodeNamespace(pub.request.body, 1).fields.map(bytesToUtf8),
+		).toEqual(["wired", "moqt_chat", "user1"]);
+		expect(
+			decodeNamespace(watch.request.body, 1).fields.map(bytesToUtf8),
+		).toEqual(["wired", "moqt_chat"]);
+	});
 
-  it("a NAMESPACE for a peer reports it and subscribes its chat track with history", async () => {
-    const { fake, seen, watch } = await announced();
+	it("a NAMESPACE for a peer reports it and subscribes its chat track with history", async () => {
+		const { fake, seen, watch } = await announced();
 
-    watch.replies.push(ns(0x8n, "user2"));
-    await flush();
+		watch.replies.push(ns(0x8n, "user2"));
+		await flush();
 
-    expect(seen).toEqual(["+user2"]);
-    const [s] = fake.requestsOf(MSG_SUBSCRIBE);
-    expect(bytesToUtf8(decodeSubscribe(s.request.body).trackName)).toBe("user2");
-  });
+		expect(seen).toEqual(["+user2"]);
+		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+		expect(bytesToUtf8(decodeSubscribe(s.request.body).trackName)).toBe(
+			"user2",
+		);
+	});
 
-  it("its own namespace and an id outside the room's pool are ignored", async () => {
-    const { fake, seen, watch } = await announced();
+	it("its own namespace and an id outside the room's pool are ignored", async () => {
+		const { fake, seen, watch } = await announced();
 
-    watch.replies.push(ns(0x8n, "user1"));
-    watch.replies.push(ns(0x8n, "mallory"));
-    await flush();
+		watch.replies.push(ns(0x8n, "user1"));
+		watch.replies.push(ns(0x8n, "mallory"));
+		await flush();
 
-    expect(seen).toEqual([]);
-    expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(0);
-  });
+		expect(seen).toEqual([]);
+		expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(0);
+	});
 
-  it("a request the closing session can no longer open is dropped, not an unhandled rejection", async () => {
-    const { fake, client, watch } = await announced();
-    fake.createBidirectionalStream = async () => {
-      throw new Error("The session is closed.");
-    };
+	it("a request the closing session can no longer open is dropped, not an unhandled rejection", async () => {
+		const { fake, client, watch } = await announced();
+		fake.createBidirectionalStream = async () => {
+			throw new Error("The session is closed.");
+		};
 
-    watch.replies.push(ns(0x8n, "user2"));
-    await flush();
+		watch.replies.push(ns(0x8n, "user2"));
+		await flush();
 
-    expect(client.isSubscribed("user2")).toBe(false);
-    expect(await client.subscribeTrack(utf8ToBytes("user3"), "user3")).toBe(true);
-  });
+		expect(client.isSubscribed("user2")).toBe(false);
+		expect(await client.subscribeTrack(utf8ToBytes("user3"), "user3")).toBe(
+			true,
+		);
+	});
 
-  it("a deeper suffix (user2/screen) is reported but subscribes nothing itself", async () => {
-    const { fake, seen, watch } = await announced();
+	it("a deeper suffix (user2/screen) is reported but subscribes nothing itself", async () => {
+		const { fake, seen, watch } = await announced();
 
-    watch.replies.push(ns(0x8n, "user2", "screen"));
-    await flush();
+		watch.replies.push(ns(0x8n, "user2", "screen"));
+		await flush();
 
-    expect(seen).toEqual(["+user2/screen"]);
-    expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(0);
-  });
+		expect(seen).toEqual(["+user2/screen"]);
+		expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(0);
+	});
 
-  it("NAMESPACE_DONE cancels every request stream subscribed to that peer", async () => {
-    const { fake, client, seen, watch } = await announced();
-    watch.replies.push(ns(0x8n, "user2"));
-    await flush();
-    void client.subscribeTrack(utf8ToBytes("user2/audio"), "user2/audio");
-    void client.subscribeTrack(utf8ToBytes("user3/audio"), "user3/audio");
-    await flush();
+	it("NAMESPACE_DONE cancels every request stream subscribed to that peer", async () => {
+		const { fake, client, seen, watch } = await announced();
+		watch.replies.push(ns(0x8n, "user2"));
+		await flush();
+		void client.subscribeTrack(utf8ToBytes("user2/audio"), "user2/audio");
+		void client.subscribeTrack(utf8ToBytes("user3/audio"), "user3/audio");
+		await flush();
 
-    watch.replies.push(ns(0xen, "user2"));
-    await flush();
+		watch.replies.push(ns(0xen, "user2"));
+		await flush();
 
-    expect(seen).toEqual(["+user2", "-user2"]);
-    const [chat, audio2, audio3] = fake.requestsOf(MSG_SUBSCRIBE);
-    expect(chat.cancelled && audio2.cancelled).toBe(true);
-    expect(audio3.cancelled).toBe(false);
-  });
+		expect(seen).toEqual(["+user2", "-user2"]);
+		const [chat, audio2, audio3] = fake.requestsOf(MSG_SUBSCRIBE);
+		expect(chat.cancelled && audio2.cancelled).toBe(true);
+		expect(audio3.cancelled).toBe(false);
+	});
 
-  it("publishNamespace returns a handle whose cancel withdraws it (resets the stream)", async () => {
-    const { fake, client } = await announced();
+	it("publishNamespace returns a handle whose cancel withdraws it (resets the stream)", async () => {
+		const { fake, client } = await announced();
 
-    const handle = await client.publishNamespace(["user1", "screen"]);
-    handle?.cancel();
+		const handle = await client.publishNamespace(["user1", "screen"]);
+		handle?.cancel();
 
-    const pubs = fake.requestsOf(MSG_PUBLISH_NAMESPACE);
-    expect(decodeNamespace(pubs[1].request.body, 1).fields.map(bytesToUtf8)).toEqual([
-      "wired",
-      "moqt_chat",
-      "user1",
-      "screen",
-    ]);
-    expect(pubs[1].cancelled).toBe(true);
-  });
+		const pubs = fake.requestsOf(MSG_PUBLISH_NAMESPACE);
+		expect(
+			decodeNamespace(pubs[1].request.body, 1).fields.map(bytesToUtf8),
+		).toEqual(["wired", "moqt_chat", "user1", "screen"]);
+		expect(pubs[1].cancelled).toBe(true);
+	});
 });
 
 describe("MoqtChatClient incoming datagrams", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
-  });
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.useRealTimers();
+	});
 
-  async function connectedWithDatagrams() {
-    vi.useFakeTimers();
-    const fake = new FakeWebTransport();
-    vi.stubGlobal("WebTransport", function () {
-      return fake;
-    });
-    const aliases: bigint[] = [];
-    const client = new MoqtChatClient("user1", {
-      onStatusChange: () => {},
-      onMessage: () => {},
-      onUnknownDatagram: (datagram) => aliases.push(datagram.trackAlias),
-    });
-    const connected = client.connect("https://hub.example/", []);
-    fake.resolveReady();
-    await connected;
-    return { fake, aliases };
-  }
+	async function connectedWithDatagrams() {
+		vi.useFakeTimers();
+		const fake = new FakeWebTransport();
+		stubWebTransport(() => fake);
+		const aliases: bigint[] = [];
+		const client = new MoqtChatClient("user1", {
+			onStatusChange: () => {},
+			onMessage: () => {},
+			onUnknownDatagram: (datagram) => aliases.push(datagram.trackAlias),
+		});
+		const connected = client.connect("https://hub.example/", []);
+		fake.resolveReady();
+		await connected;
+		return { fake, aliases };
+	}
 
-  const dgram = (trackAlias: bigint) =>
-    encodeObjectDatagram({ type: 0x08n, trackAlias, groupId: 0n, objectId: 0n });
+	const dgram = (trackAlias: bigint) =>
+		encodeObjectDatagram({
+			type: 0x08n,
+			trackAlias,
+			groupId: 0n,
+			objectId: 0n,
+		});
 
-  it("routes a non-chat alias to onUnknownDatagram, decoded", async () => {
-    const { fake, aliases } = await connectedWithDatagrams();
+	it("routes a non-chat alias to onUnknownDatagram, decoded", async () => {
+		const { fake, aliases } = await connectedWithDatagrams();
 
-    fake.datagrams.push(dgram(4n));
-    fake.datagrams.push(dgram(5n));
-    await vi.advanceTimersByTimeAsync(0);
+		fake.datagrams.push(dgram(4n));
+		fake.datagrams.push(dgram(5n));
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(aliases).toEqual([4n, 5n]);
-  });
+		expect(aliases).toEqual([4n, 5n]);
+	});
 
-  it("drops a malformed datagram and keeps reading, and ignores a chat alias", async () => {
-    const { fake, aliases } = await connectedWithDatagrams();
+	it("drops a malformed datagram and keeps reading, and ignores a chat alias", async () => {
+		const { fake, aliases } = await connectedWithDatagrams();
 
-    fake.datagrams.push(new Uint8Array([0x22, 0x02, 0x00, 0x05, 0x04])); // invalid Type
-    fake.datagrams.push(dgram(0n)); // chat-range alias: not for this callback
-    fake.datagrams.push(dgram(7n));
-    await vi.advanceTimersByTimeAsync(0);
+		fake.datagrams.push(new Uint8Array([0x22, 0x02, 0x00, 0x05, 0x04])); // invalid Type
+		fake.datagrams.push(dgram(0n)); // chat-range alias: not for this callback
+		fake.datagrams.push(dgram(7n));
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(aliases).toEqual([7n]);
-  });
+		expect(aliases).toEqual([7n]);
+	});
 });
 
 describe("MoqtChatClient.sendMessage", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
-  });
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.useRealTimers();
+	});
 
-  async function connectedWithCapture() {
-    vi.useFakeTimers();
-    const fake = new FakeWebTransport();
-    vi.stubGlobal("WebTransport", function () {
-      return fake;
-    });
-    // One entry per opened uni stream, holding everything written to it.
-    const streams: Uint8Array[] = [];
-    fake.createUnidirectionalStream = (async () => {
-      const index = streams.push(new Uint8Array(0)) - 1;
-      return {
-        getWriter: () => ({
-          write: async (chunk: Uint8Array) => {
-            streams[index] = concatBytes([streams[index], chunk]);
-          },
-          close: async () => {},
-        }),
-      };
-    }) as typeof fake.createUnidirectionalStream;
-    const client = new MoqtChatClient("user1", { onStatusChange: () => {}, onMessage: () => {} });
-    const connected = client.connect("https://hub.example/", []);
-    fake.resolveReady();
-    await connected;
-    return { client, streams, written: streams };
-  }
+	async function connectedWithCapture() {
+		vi.useFakeTimers();
+		const fake = new FakeWebTransport();
+		stubWebTransport(() => fake);
+		// One entry per opened uni stream, holding everything written to it.
+		const streams: Uint8Array[] = [];
+		fake.createUnidirectionalStream = (async () => {
+			const index = streams.push(new Uint8Array(0)) - 1;
+			return {
+				getWriter: () => ({
+					write: async (chunk: Uint8Array) => {
+						streams[index] = concatBytes([streams[index], chunk]);
+					},
+					close: async () => {},
+				}),
+			};
+		}) as typeof fake.createUnidirectionalStream;
+		const client = new MoqtChatClient("user1", {
+			onStatusChange: () => {},
+			onMessage: () => {},
+		});
+		const connected = client.connect("https://hub.example/", []);
+		fake.resolveReady();
+		await connected;
+		return { client, streams, written: streams };
+	}
 
-  // Every Object payload on one SUBGROUP stream, in wire order.
-  function decodeObjects(wire: Uint8Array, headerLen: number, hasProperties: boolean): Uint8Array[] {
-    const payloads: Uint8Array[] = [];
-    let offset = headerLen;
-    let prevId = 0n;
-    while (offset < wire.length) {
-      const { object, len } = decodeSubgroupObject(wire, offset, hasProperties, prevId, payloads.length === 0);
-      payloads.push(object.payload);
-      prevId = object.objectId;
-      offset += len;
-    }
-    return payloads;
-  }
+	// Every Object payload on one SUBGROUP stream, in wire order.
+	function decodeObjects(
+		wire: Uint8Array,
+		headerLen: number,
+		hasProperties: boolean,
+	): Uint8Array[] {
+		const payloads: Uint8Array[] = [];
+		let offset = headerLen;
+		let prevId = 0n;
+		while (offset < wire.length) {
+			const { object, len } = decodeSubgroupObject(
+				wire,
+				offset,
+				hasProperties,
+				prevId,
+				payloads.length === 0,
+			);
+			payloads.push(object.payload);
+			prevId = object.objectId;
+			offset += len;
+		}
+		return payloads;
+	}
 
-  it("publishes the text part once, then one stream per attachment, in order", async () => {
-    const { client, streams } = await connectedWithCapture();
+	it("publishes the text part once, then one stream per attachment, in order", async () => {
+		const { client, streams } = await connectedWithCapture();
 
-    const dataA = new Uint8Array(MAX_ATTACHMENT_CHUNK_BYTES + 1000).map((_, i) => i % 256);
-    const dataB = new Uint8Array(10).map((_, i) => i);
-    await client.sendMessage("hello", [
-      { bytes: dataA, mimeType: "image/png" },
-      { bytes: dataB, mimeType: "video/mp4" },
-    ]);
+		const dataA = new Uint8Array(MAX_ATTACHMENT_CHUNK_BYTES + 1000).map(
+			(_, i) => i % 256,
+		);
+		const dataB = new Uint8Array(10).map((_, i) => i);
+		await client.sendMessage("hello", [
+			{ bytes: dataA, mimeType: "image/png" },
+			{ bytes: dataB, mimeType: "video/mp4" },
+		]);
 
-    const expectedChunksA = splitAttachmentIntoChunks(1, 0, "image/png", dataA);
-    const expectedChunksB = splitAttachmentIntoChunks(1, 1, "video/mp4", dataB);
-    expect(expectedChunksA.length).toBeGreaterThan(1); // the interesting case: several Objects on one stream
-    // 1 text-part stream + exactly one stream per attachment, however many chunks it holds.
-    expect(streams).toHaveLength(1 + 2);
+		const expectedChunksA = splitAttachmentIntoChunks(1, 0, "image/png", dataA);
+		const expectedChunksB = splitAttachmentIntoChunks(1, 1, "video/mp4", dataB);
+		expect(expectedChunksA.length).toBeGreaterThan(1); // the interesting case: several Objects on one stream
+		// 1 text-part stream + exactly one stream per attachment, however many chunks it holds.
+		expect(streams).toHaveLength(1 + 2);
 
-    const { header: h0, len: l0 } = decodeSubgroupHeader(streams[0]);
-    expect(h0.trackAlias).toBe(0n); // user1's own track alias
-    const { object: o0 } = decodeSubgroupObject(streams[0], l0, h0.flags.properties, 0n, true);
-    const textPart = decodeTextPartMessage(o0.payload);
-    const messageId = textPart.messageId; // seeded from crypto.getRandomValues, not fixed
-    expect(textPart.attachmentCount).toBe(2);
-    expect(textPart.text).toBe("hello");
+		const { header: h0, len: l0 } = decodeSubgroupHeader(streams[0]);
+		expect(h0.trackAlias).toBe(0n); // user1's own track alias
+		const { object: o0 } = decodeSubgroupObject(
+			streams[0],
+			l0,
+			h0.flags.properties,
+			0n,
+			true,
+		);
+		const textPart = decodeTextPartMessage(o0.payload);
+		const messageId = textPart.messageId; // seeded from crypto.getRandomValues, not fixed
+		expect(textPart.attachmentCount).toBe(2);
+		expect(textPart.text).toBe("hello");
 
-    let prevGroupId = h0.groupId;
-    for (const [attachmentIdx, expected] of [expectedChunksA, expectedChunksB].entries()) {
-      const wire = streams[1 + attachmentIdx];
-      const { header, len } = decodeSubgroupHeader(wire);
-      expect(header.groupId).toBeGreaterThan(prevGroupId);
-      prevGroupId = header.groupId;
-      const chunks = decodeObjects(wire, len, header.flags.properties).map(decodeAttachmentChunkMessage);
-      expect(chunks).toHaveLength(expected.length);
-      chunks.forEach((chunk, i) => {
-        expect(chunk.messageId).toBe(messageId);
-        expect(chunk.attachmentIdx).toBe(attachmentIdx);
-        expect(chunk.idx).toBe(i);
-        expect(chunk.data).toEqual(expected[i].data);
-      });
-    }
+		let prevGroupId = h0.groupId;
+		for (const [attachmentIdx, expected] of [
+			expectedChunksA,
+			expectedChunksB,
+		].entries()) {
+			const wire = streams[1 + attachmentIdx];
+			const { header, len } = decodeSubgroupHeader(wire);
+			expect(header.groupId).toBeGreaterThan(prevGroupId);
+			prevGroupId = header.groupId;
+			const chunks = decodeObjects(wire, len, header.flags.properties).map(
+				decodeAttachmentChunkMessage,
+			);
+			expect(chunks).toHaveLength(expected.length);
+			chunks.forEach((chunk, i) => {
+				expect(chunk.messageId).toBe(messageId);
+				expect(chunk.attachmentIdx).toBe(attachmentIdx);
+				expect(chunk.idx).toBe(i);
+				expect(chunk.data).toEqual(expected[i].data);
+			});
+		}
 
-    client.close();
-  });
+		client.close();
+	});
 
-  it("sends only the text part when there are no attachments", async () => {
-    const { client, written } = await connectedWithCapture();
+	it("sends only the text part when there are no attachments", async () => {
+		const { client, written } = await connectedWithCapture();
 
-    await client.sendMessage("just text", []);
+		await client.sendMessage("just text", []);
 
-    expect(written).toHaveLength(1);
-    const { header, len } = decodeSubgroupHeader(written[0]);
-    const { object } = decodeSubgroupObject(written[0], len, header.flags.properties, 0n, true);
-    const textPart = decodeTextPartMessage(object.payload);
-    expect(textPart.attachmentCount).toBe(0);
-    expect(textPart.text).toBe("just text");
+		expect(written).toHaveLength(1);
+		const { header, len } = decodeSubgroupHeader(written[0]);
+		const { object } = decodeSubgroupObject(
+			written[0],
+			len,
+			header.flags.properties,
+			0n,
+			true,
+		);
+		const textPart = decodeTextPartMessage(object.payload);
+		expect(textPart.attachmentCount).toBe(0);
+		expect(textPart.text).toBe("just text");
 
-    client.close();
-  });
+		client.close();
+	});
 
-  // C1 regression: a fixed #nextMessageId = 1 start meant a reloaded sender
-  // reused messageIds a previous session's session already used, so a
-  // receiver's still-pending (attachment-only) entry for that id could
-  // absorb a new, unrelated text-only send. The counter must start from a
-  // value seeded by crypto.getRandomValues, not a hardcoded 1.
-  it("C1: the first messageId sent is seeded from crypto.getRandomValues, not a hardcoded 1", async () => {
-    const getRandomValues = vi.fn((arr: Uint32Array) => {
-      arr[0] = 0xdeadbeef;
-      return arr;
-    });
-    vi.stubGlobal("crypto", { getRandomValues });
-    const { client, written } = await connectedWithCapture();
+	// C1 regression: a fixed #nextMessageId = 1 start meant a reloaded sender
+	// reused messageIds a previous session's session already used, so a
+	// receiver's still-pending (attachment-only) entry for that id could
+	// absorb a new, unrelated text-only send. The counter must start from a
+	// value seeded by crypto.getRandomValues, not a hardcoded 1.
+	it("C1: the first messageId sent is seeded from crypto.getRandomValues, not a hardcoded 1", async () => {
+		const getRandomValues = vi.fn((arr: Uint32Array) => {
+			arr[0] = 0xdeadbeef;
+			return arr;
+		});
+		vi.stubGlobal("crypto", { getRandomValues });
+		const { client, written } = await connectedWithCapture();
 
-    await client.sendMessage("hello", []);
+		await client.sendMessage("hello", []);
 
-    const { header, len } = decodeSubgroupHeader(written[0]);
-    const { object } = decodeSubgroupObject(written[0], len, header.flags.properties, 0n, true);
-    const textPart = decodeTextPartMessage(object.payload);
-    expect(textPart.messageId).toBe(0xdeadbeef);
-    expect(getRandomValues).toHaveBeenCalled();
+		const { header, len } = decodeSubgroupHeader(written[0]);
+		const { object } = decodeSubgroupObject(
+			written[0],
+			len,
+			header.flags.properties,
+			0n,
+			true,
+		);
+		const textPart = decodeTextPartMessage(object.payload);
+		expect(textPart.messageId).toBe(0xdeadbeef);
+		expect(getRandomValues).toHaveBeenCalled();
 
-    client.close();
-  });
+		client.close();
+	});
 });
 
 // Drives the receive-side message-aggregation state machine: a text part and
 // its attachments can arrive in either order, over separate uni streams, and
 // onMessage must fire exactly once per message once everything has arrived.
 describe("MoqtChatClient message aggregation", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
-  });
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.useRealTimers();
+	});
 
-  async function connectedListening() {
-    vi.useFakeTimers();
-    const fake = new FakeWebTransport();
-    vi.stubGlobal("WebTransport", function () {
-      return fake;
-    });
-    const messages: { participantId: string; text: string; attachments: { bytes: Uint8Array; mimeType: string }[] }[] = [];
-    const client = new MoqtChatClient("user1", {
-      onStatusChange: () => {},
-      onMessage: (participantId, text, attachments, key) => {
-        messages.push({ participantId, text, attachments });
-        if (key) keys.push(key);
-      },
-    });
-    const keys: string[] = [];
-    const connected = client.connect("https://hub.example/", []);
-    fake.resolveReady();
-    await connected;
-    return { fake, client, messages, keys };
-  }
+	async function connectedListening() {
+		vi.useFakeTimers();
+		const fake = new FakeWebTransport();
+		stubWebTransport(() => fake);
+		const messages: {
+			participantId: string;
+			text: string;
+			attachments: { bytes: Uint8Array; mimeType: string }[];
+		}[] = [];
+		const client = new MoqtChatClient("user1", {
+			onStatusChange: () => {},
+			onMessage: (participantId, text, attachments, key) => {
+				messages.push({ participantId, text, attachments });
+				if (key) keys.push(key);
+			},
+		});
+		const keys: string[] = [];
+		const connected = client.connect("https://hub.example/", []);
+		fake.resolveReady();
+		await connected;
+		return { fake, client, messages, keys };
+	}
 
-  // user2's track alias (CANDIDATE_PARTICIPANT_IDS index 1).
-  const SENDER_ALIAS = 1n;
+	// user2's track alias (CANDIDATE_PARTICIPANT_IDS index 1).
+	const SENDER_ALIAS = 1n;
 
-  function pushTextPart(fake: FakeWebTransport, messageId: number, attachmentCount: number, text: string, groupId = 0n) {
-    fake.incomingUnidirectionalStreams.push(
-      wireObject(SENDER_ALIAS, groupId, encodeTextPartMessage(messageId, attachmentCount, text)),
-    );
-  }
+	function pushTextPart(
+		fake: FakeWebTransport,
+		messageId: number,
+		attachmentCount: number,
+		text: string,
+		groupId = 0n,
+	) {
+		fake.incomingUnidirectionalStreams.push(
+			wireObject(
+				SENDER_ALIAS,
+				groupId,
+				encodeTextPartMessage(messageId, attachmentCount, text),
+			),
+		);
+	}
 
-  function pushChunk(fake: FakeWebTransport, chunk: ReturnType<typeof splitAttachmentIntoChunks>[number], groupId: bigint) {
-    fake.incomingUnidirectionalStreams.push(
-      wireObject(SENDER_ALIAS, groupId, encodeAttachmentChunkMessage(chunk)),
-    );
-  }
+	function pushChunk(
+		fake: FakeWebTransport,
+		chunk: ReturnType<typeof splitAttachmentIntoChunks>[number],
+		groupId: bigint,
+	) {
+		fake.incomingUnidirectionalStreams.push(
+			wireObject(SENDER_ALIAS, groupId, encodeAttachmentChunkMessage(chunk)),
+		);
+	}
 
-  function pushAttachment(fake: FakeWebTransport, messageId: number, attachmentIdx: number, mimeType: string, data: Uint8Array, groupIdStart = 1n) {
-    const chunks = splitAttachmentIntoChunks(messageId, attachmentIdx, mimeType, data);
-    chunks.forEach((chunk, i) => {
-      fake.incomingUnidirectionalStreams.push(
-        wireObject(SENDER_ALIAS, groupIdStart + BigInt(i), encodeAttachmentChunkMessage(chunk)),
-      );
-    });
-  }
+	function pushAttachment(
+		fake: FakeWebTransport,
+		messageId: number,
+		attachmentIdx: number,
+		mimeType: string,
+		data: Uint8Array,
+		groupIdStart = 1n,
+	) {
+		const chunks = splitAttachmentIntoChunks(
+			messageId,
+			attachmentIdx,
+			mimeType,
+			data,
+		);
+		chunks.forEach((chunk, i) => {
+			fake.incomingUnidirectionalStreams.push(
+				wireObject(
+					SENDER_ALIAS,
+					groupIdStart + BigInt(i),
+					encodeAttachmentChunkMessage(chunk),
+				),
+			);
+		});
+	}
 
-  // One attachment = one uni stream carrying every chunk as consecutive
-  // Objects (how sendMessage publishes it).
-  function pushAttachmentStream(fake: FakeWebTransport, messageId: number, attachmentIdx: number, mimeType: string, data: Uint8Array, groupId: bigint) {
-    const chunks = splitAttachmentIntoChunks(messageId, attachmentIdx, mimeType, data);
-    fake.incomingUnidirectionalStreams.push(
-      concatBytes([
-        buildAttachmentSubgroupHeader(SENDER_ALIAS, groupId),
-        ...chunks.map((chunk) => {
-          const body = encodeAttachmentChunkMessage(chunk);
-          return concatBytes([encodeVarint(0n), encodeVarint(BigInt(body.length)), body]);
-        }),
-      ]),
-    );
-  }
+	// One attachment = one uni stream carrying every chunk as consecutive
+	// Objects (how sendMessage publishes it).
+	function pushAttachmentStream(
+		fake: FakeWebTransport,
+		messageId: number,
+		attachmentIdx: number,
+		mimeType: string,
+		data: Uint8Array,
+		groupId: bigint,
+	) {
+		const chunks = splitAttachmentIntoChunks(
+			messageId,
+			attachmentIdx,
+			mimeType,
+			data,
+		);
+		fake.incomingUnidirectionalStreams.push(
+			concatBytes([
+				buildAttachmentSubgroupHeader(SENDER_ALIAS, groupId),
+				...chunks.map((chunk) => {
+					const body = encodeAttachmentChunkMessage(chunk);
+					return concatBytes([
+						encodeVarint(0n),
+						encodeVarint(BigInt(body.length)),
+						body,
+					]);
+				}),
+			]),
+		);
+	}
 
-  it("reassembles an attachment whose chunks arrive as Objects on a single stream", async () => {
-    const { fake, messages } = await connectedListening();
-    const data = new Uint8Array(1000).map((_, i) => (i * 7) & 0xff);
+	it("reassembles an attachment whose chunks arrive as Objects on a single stream", async () => {
+		const { fake, messages } = await connectedListening();
+		const data = new Uint8Array(1000).map((_, i) => (i * 7) & 0xff);
 
-    pushTextPart(fake, 3, 1, "one stream", 0n);
-    pushAttachmentStream(fake, 3, 0, "image/png", data, 1n);
-    await vi.advanceTimersByTimeAsync(0);
+		pushTextPart(fake, 3, 1, "one stream", 0n);
+		pushAttachmentStream(fake, 3, 0, "image/png", data, 1n);
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(messages).toHaveLength(1);
-    expect(messages[0].attachments).toEqual([{ bytes: data, mimeType: "image/png" }]);
-  });
+		expect(messages).toHaveLength(1);
+		expect(messages[0].attachments).toEqual([
+			{ bytes: data, mimeType: "image/png" },
+		]);
+	});
 
-  it("scenario 1: text then all attachments -> onMessage fires exactly once", async () => {
-    const { fake, messages } = await connectedListening();
+	it("scenario 1: text then all attachments -> onMessage fires exactly once", async () => {
+		const { fake, messages } = await connectedListening();
 
-    pushTextPart(fake, 1, 2, "hi", 0n);
-    pushAttachment(fake, 1, 0, "image/png", new Uint8Array([1, 2, 3]), 1n);
-    pushAttachment(fake, 1, 1, "video/mp4", new Uint8Array([4, 5, 6]), 10n);
-    await vi.advanceTimersByTimeAsync(0);
+		pushTextPart(fake, 1, 2, "hi", 0n);
+		pushAttachment(fake, 1, 0, "image/png", new Uint8Array([1, 2, 3]), 1n);
+		pushAttachment(fake, 1, 1, "video/mp4", new Uint8Array([4, 5, 6]), 10n);
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(messages).toHaveLength(1);
-    expect(messages[0].text).toBe("hi");
-    expect(messages[0].attachments).toHaveLength(2);
-    expect(messages[0].attachments[0]).toEqual({ bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png" });
-    expect(messages[0].attachments[1]).toEqual({ bytes: new Uint8Array([4, 5, 6]), mimeType: "video/mp4" });
-  });
+		expect(messages).toHaveLength(1);
+		expect(messages[0].text).toBe("hi");
+		expect(messages[0].attachments).toHaveLength(2);
+		expect(messages[0].attachments[0]).toEqual({
+			bytes: new Uint8Array([1, 2, 3]),
+			mimeType: "image/png",
+		});
+		expect(messages[0].attachments[1]).toEqual({
+			bytes: new Uint8Array([4, 5, 6]),
+			mimeType: "video/mp4",
+		});
+	});
 
-  it("scenario 2: attachments then text (count matches) -> onMessage fires exactly once", async () => {
-    const { fake, messages } = await connectedListening();
+	it("scenario 2: attachments then text (count matches) -> onMessage fires exactly once", async () => {
+		const { fake, messages } = await connectedListening();
 
-    pushAttachment(fake, 2, 0, "image/png", new Uint8Array([9]), 0n);
-    pushTextPart(fake, 2, 1, "after", 5n);
-    await vi.advanceTimersByTimeAsync(0);
+		pushAttachment(fake, 2, 0, "image/png", new Uint8Array([9]), 0n);
+		pushTextPart(fake, 2, 1, "after", 5n);
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(messages).toHaveLength(1);
-    expect(messages[0].text).toBe("after");
-    expect(messages[0].attachments).toEqual([{ bytes: new Uint8Array([9]), mimeType: "image/png" }]);
-  });
+		expect(messages).toHaveLength(1);
+		expect(messages[0].text).toBe("after");
+		expect(messages[0].attachments).toEqual([
+			{ bytes: new Uint8Array([9]), mimeType: "image/png" },
+		]);
+	});
 
-  it("scenario 3: a message missing one attachment past the timeout is discarded, not delivered", async () => {
-    const { fake, client, messages } = await connectedListening();
+	it("scenario 3: a message missing one attachment past the timeout is discarded, not delivered", async () => {
+		const { fake, client, messages } = await connectedListening();
 
-    pushTextPart(fake, 3, 2, "incomplete", 0n);
-    pushAttachment(fake, 3, 0, "image/png", new Uint8Array([1]), 1n);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(messages).toHaveLength(0);
+		pushTextPart(fake, 3, 2, "incomplete", 0n);
+		pushAttachment(fake, 3, 0, "image/png", new Uint8Array([1]), 1n);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(messages).toHaveLength(0);
 
-    vi.advanceTimersByTime(30_001);
-    // Push an unrelated later message to trigger the lazy sweep.
-    pushTextPart(fake, 999, 0, "trigger sweep", 100n);
-    await vi.advanceTimersByTimeAsync(0);
+		vi.advanceTimersByTime(30_001);
+		// Push an unrelated later message to trigger the lazy sweep.
+		pushTextPart(fake, 999, 0, "trigger sweep", 100n);
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(messages).toHaveLength(1); // only the sweep-trigger message, never #3
-    expect(messages[0].text).toBe("trigger sweep");
+		expect(messages).toHaveLength(1); // only the sweep-trigger message, never #3
+		expect(messages[0].text).toBe("trigger sweep");
 
-    // The stale #pendingMessages entry for messageId 3 must actually be
-    // gone (not merely unreachable): re-using messageId 3 now starts a
-    // fresh, independent, fully-satisfiable cycle rather than completing
-    // the old discarded one with a leftover attachment count/text.
-    pushTextPart(fake, 3, 1, "reused id", 200n);
-    pushAttachment(fake, 3, 0, "image/png", new Uint8Array([7]), 201n);
-    await vi.advanceTimersByTimeAsync(0);
+		// The stale #pendingMessages entry for messageId 3 must actually be
+		// gone (not merely unreachable): re-using messageId 3 now starts a
+		// fresh, independent, fully-satisfiable cycle rather than completing
+		// the old discarded one with a leftover attachment count/text.
+		pushTextPart(fake, 3, 1, "reused id", 200n);
+		pushAttachment(fake, 3, 0, "image/png", new Uint8Array([7]), 201n);
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(messages).toHaveLength(2);
-    expect(messages[1].text).toBe("reused id");
-    expect(messages[1].attachments).toEqual([{ bytes: new Uint8Array([7]), mimeType: "image/png" }]);
-    client.close();
-  });
+		expect(messages).toHaveLength(2);
+		expect(messages[1].text).toBe("reused id");
+		expect(messages[1].attachments).toEqual([
+			{ bytes: new Uint8Array([7]), mimeType: "image/png" },
+		]);
+		client.close();
+	});
 
-  it("scenario 4: messageId re-use starts an independent cycle, the first delivery's args untouched", async () => {
-    const { fake, messages } = await connectedListening();
+	it("scenario 4: messageId re-use starts an independent cycle, the first delivery's args untouched", async () => {
+		const { fake, messages } = await connectedListening();
 
-    pushTextPart(fake, 5, 0, "first", 0n);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(messages).toHaveLength(1);
-    const firstArgs = messages[0];
+		pushTextPart(fake, 5, 0, "first", 0n);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(messages).toHaveLength(1);
+		const firstArgs = messages[0];
 
-    pushTextPart(fake, 5, 0, "second", 1n);
-    await vi.advanceTimersByTimeAsync(0);
+		pushTextPart(fake, 5, 0, "second", 1n);
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(messages).toHaveLength(2);
-    expect(firstArgs.text).toBe("first"); // untouched by the second cycle
-    expect(messages[1].text).toBe("second");
-  });
+		expect(messages).toHaveLength(2);
+		expect(firstArgs.text).toBe("first"); // untouched by the second cycle
+		expect(messages[1].text).toBe("second");
+	});
 
-  it("names each delivered message <sender>:<messageId>, the same for a live and a fetched copy", async () => {
-    const { fake, keys } = await connectedListening();
+	it("names each delivered message <sender>:<messageId>, the same for a live and a fetched copy", async () => {
+		const { fake, keys } = await connectedListening();
 
-    pushTextPart(fake, 6, 0, "once", 0n);
-    pushTextPart(fake, 6, 0, "once", 0n);
-    await vi.advanceTimersByTimeAsync(0);
+		pushTextPart(fake, 6, 0, "once", 0n);
+		pushTextPart(fake, 6, 0, "once", 0n);
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(keys).toEqual(["user2:6", "user2:6"]);
-  });
+		expect(keys).toEqual(["user2:6", "user2:6"]);
+	});
 
-  it("scenario 5: a text-only message (no attachments) delivers immediately on text arrival", async () => {
-    const { fake, messages } = await connectedListening();
+	it("scenario 5: a text-only message (no attachments) delivers immediately on text arrival", async () => {
+		const { fake, messages } = await connectedListening();
 
-    pushTextPart(fake, 6, 0, "no attachments here", 0n);
-    await vi.advanceTimersByTimeAsync(0);
+		pushTextPart(fake, 6, 0, "no attachments here", 0n);
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(messages).toHaveLength(1);
-    expect(messages[0].text).toBe("no attachments here");
-    expect(messages[0].attachments).toEqual([]);
-  });
+		expect(messages).toHaveLength(1);
+		expect(messages[0].text).toBe("no attachments here");
+		expect(messages[0].attachments).toEqual([]);
+	});
 
-  // I1(a): a text-part claiming more than ATTACHMENT_MAX_COUNT (4)
-  // attachments is untrusted input from the wire and is dropped whole,
-  // never partially trusted.
-  // I1(a): a text-part claiming more than ATTACHMENT_MAX_COUNT (4)
-  // attachments is untrusted input and is dropped whole -- observable here
-  // as "never delivered", since ATTACHMENT_MAX_COUNT attachments (the most
-  // any sender can legitimately send) can never satisfy a bogus count of 5.
-  // I1(b2)'s test below closes the harder case (a legitimate attachmentCount
-  // being exceeded by chunk idx), which is what actually distinguishes "the
-  // guard rejected it" from "it's merely incomplete".
-  it("I1(a): a text-part with attachmentCount > 4 never delivers, even with 4 real attachments sent", async () => {
-    const { fake, messages } = await connectedListening();
+	// I1(a): a text-part claiming more than ATTACHMENT_MAX_COUNT (4)
+	// attachments is untrusted input from the wire and is dropped whole,
+	// never partially trusted.
+	// I1(a): a text-part claiming more than ATTACHMENT_MAX_COUNT (4)
+	// attachments is untrusted input and is dropped whole -- observable here
+	// as "never delivered", since ATTACHMENT_MAX_COUNT attachments (the most
+	// any sender can legitimately send) can never satisfy a bogus count of 5.
+	// I1(b2)'s test below closes the harder case (a legitimate attachmentCount
+	// being exceeded by chunk idx), which is what actually distinguishes "the
+	// guard rejected it" from "it's merely incomplete".
+	it("I1(a): a text-part with attachmentCount > 4 never delivers, even with 4 real attachments sent", async () => {
+		const { fake, messages } = await connectedListening();
 
-    pushTextPart(fake, 40, 5, "too many attachments", 0n);
-    pushAttachment(fake, 40, 0, "image/png", new Uint8Array([1]), 1n);
-    pushAttachment(fake, 40, 1, "image/png", new Uint8Array([2]), 2n);
-    pushAttachment(fake, 40, 2, "image/png", new Uint8Array([3]), 3n);
-    pushAttachment(fake, 40, 3, "image/png", new Uint8Array([4]), 4n);
-    await vi.advanceTimersByTimeAsync(0);
+		pushTextPart(fake, 40, 5, "too many attachments", 0n);
+		pushAttachment(fake, 40, 0, "image/png", new Uint8Array([1]), 1n);
+		pushAttachment(fake, 40, 1, "image/png", new Uint8Array([2]), 2n);
+		pushAttachment(fake, 40, 2, "image/png", new Uint8Array([3]), 3n);
+		pushAttachment(fake, 40, 3, "image/png", new Uint8Array([4]), 4n);
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(messages).toHaveLength(0);
-  });
+		expect(messages).toHaveLength(0);
+	});
 
-  it("I1(a): a text-part with attachmentCount === 4 (the boundary) is accepted", async () => {
-    const { fake, messages } = await connectedListening();
+	it("I1(a): a text-part with attachmentCount === 4 (the boundary) is accepted", async () => {
+		const { fake, messages } = await connectedListening();
 
-    pushTextPart(fake, 41, 4, "exactly four", 0n);
-    pushAttachment(fake, 41, 0, "image/png", new Uint8Array([1]), 1n);
-    pushAttachment(fake, 41, 1, "image/png", new Uint8Array([2]), 2n);
-    pushAttachment(fake, 41, 2, "image/png", new Uint8Array([3]), 3n);
-    pushAttachment(fake, 41, 3, "image/png", new Uint8Array([4]), 4n);
-    await vi.advanceTimersByTimeAsync(0);
+		pushTextPart(fake, 41, 4, "exactly four", 0n);
+		pushAttachment(fake, 41, 0, "image/png", new Uint8Array([1]), 1n);
+		pushAttachment(fake, 41, 1, "image/png", new Uint8Array([2]), 2n);
+		pushAttachment(fake, 41, 2, "image/png", new Uint8Array([3]), 3n);
+		pushAttachment(fake, 41, 3, "image/png", new Uint8Array([4]), 4n);
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(messages).toHaveLength(1);
-    expect(messages[0].attachments).toHaveLength(4);
-  });
+		expect(messages).toHaveLength(1);
+		expect(messages[0].attachments).toHaveLength(4);
+	});
 
-  // I1(b2): once the text part has fixed attachmentCount for a message, a
-  // later chunk claiming an attachmentIdx outside that count is untrusted
-  // (the sender's own text part says otherwise) and is dropped rather than
-  // silently growing the delivered attachment set past what was announced.
-  it("I1(b2): a chunk whose attachmentIdx >= the text part's own attachmentCount is dropped", async () => {
-    const { fake, messages } = await connectedListening();
+	// I1(b2): once the text part has fixed attachmentCount for a message, a
+	// later chunk claiming an attachmentIdx outside that count is untrusted
+	// (the sender's own text part says otherwise) and is dropped rather than
+	// silently growing the delivered attachment set past what was announced.
+	it("I1(b2): a chunk whose attachmentIdx >= the text part's own attachmentCount is dropped", async () => {
+		const { fake, messages } = await connectedListening();
 
-    pushTextPart(fake, 42, 1, "one attachment announced", 0n);
-    pushAttachment(fake, 42, 1, "image/png", new Uint8Array([9]), 1n); // idx 1, but count says 1 (valid indices: 0)
-    await vi.advanceTimersByTimeAsync(0);
+		pushTextPart(fake, 42, 1, "one attachment announced", 0n);
+		pushAttachment(fake, 42, 1, "image/png", new Uint8Array([9]), 1n); // idx 1, but count says 1 (valid indices: 0)
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(messages).toHaveLength(0); // never completes: the only chunk sent was dropped
-  });
+		expect(messages).toHaveLength(0); // never completes: the only chunk sent was dropped
+	});
 
-  it("scenario 6: an attachment chunk delayed past a timed-out message's discard starts fresh, no misdelivery", async () => {
-    const { fake, client, messages } = await connectedListening();
+	it("scenario 6: an attachment chunk delayed past a timed-out message's discard starts fresh, no misdelivery", async () => {
+		const { fake, client, messages } = await connectedListening();
 
-    pushTextPart(fake, 7, 1, "will time out", 0n);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(messages).toHaveLength(0);
+		pushTextPart(fake, 7, 1, "will time out", 0n);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(messages).toHaveLength(0);
 
-    vi.advanceTimersByTime(30_001);
-    // A late attachment-chunk arrival triggers the lazy sweep itself, then
-    // starts a brand-new (still-incomplete) cycle for the same messageId --
-    // it must NOT revive/deliver the old discarded text.
-    pushAttachment(fake, 7, 0, "image/png", new Uint8Array([1]), 100n);
-    await vi.advanceTimersByTimeAsync(0);
+		vi.advanceTimersByTime(30_001);
+		// A late attachment-chunk arrival triggers the lazy sweep itself, then
+		// starts a brand-new (still-incomplete) cycle for the same messageId --
+		// it must NOT revive/deliver the old discarded text.
+		pushAttachment(fake, 7, 0, "image/png", new Uint8Array([1]), 100n);
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(messages).toHaveLength(0);
-    client.close();
-  });
+		expect(messages).toHaveLength(0);
+		client.close();
+	});
 
-  // M1: #attachmentMimeTypes (messageId:attachmentIdx -> mimeType, recorded
-  // off an idx===0 chunk) must be swept in the same pass as #pendingMessages
-  // -- otherwise it has no timeout of its own and a message whose
-  // reassembly never completes leaks one entry per attachment forever. That
-  // leak is not independently observable through onMessage (#attachmentMimeTypes
-  // is a private field, and any later idx===0 chunk always overwrites
-  // whatever it holds anyway -- see moqtClient.ts's own M1 comment), so this
-  // is a regression test for the sweep trigger + reused-key completion path,
-  // not a leak detector: it pins that a timed-out message with a
-  // half-recorded attachment mimeType doesn't break a later, independent
-  // cycle reusing the same messageId+attachmentIdx key.
-  it("M1: a stale attachment mimeType is swept alongside its timed-out pending message", async () => {
-    const { fake, messages } = await connectedListening();
+	// M1: #attachmentMimeTypes (messageId:attachmentIdx -> mimeType, recorded
+	// off an idx===0 chunk) must be swept in the same pass as #pendingMessages
+	// -- otherwise it has no timeout of its own and a message whose
+	// reassembly never completes leaks one entry per attachment forever. That
+	// leak is not independently observable through onMessage (#attachmentMimeTypes
+	// is a private field, and any later idx===0 chunk always overwrites
+	// whatever it holds anyway -- see moqtClient.ts's own M1 comment), so this
+	// is a regression test for the sweep trigger + reused-key completion path,
+	// not a leak detector: it pins that a timed-out message with a
+	// half-recorded attachment mimeType doesn't break a later, independent
+	// cycle reusing the same messageId+attachmentIdx key.
+	it("M1: a stale attachment mimeType is swept alongside its timed-out pending message", async () => {
+		const { fake, messages } = await connectedListening();
 
-    pushTextPart(fake, 8, 1, "will time out", 0n);
-    const stale = splitAttachmentIntoChunks(8, 0, "image/png", new Uint8Array(MAX_ATTACHMENT_CHUNK_BYTES + 512));
-    pushChunk(fake, stale[0], 1n); // idx=0 only -- attachment (count=2) never completes
-    await vi.advanceTimersByTimeAsync(0);
-    expect(messages).toHaveLength(0);
+		pushTextPart(fake, 8, 1, "will time out", 0n);
+		const stale = splitAttachmentIntoChunks(
+			8,
+			0,
+			"image/png",
+			new Uint8Array(MAX_ATTACHMENT_CHUNK_BYTES + 512),
+		);
+		pushChunk(fake, stale[0], 1n); // idx=0 only -- attachment (count=2) never completes
+		await vi.advanceTimersByTimeAsync(0);
+		expect(messages).toHaveLength(0);
 
-    vi.advanceTimersByTime(30_001);
-    // Trigger the lazy sweep with an unrelated message.
-    pushTextPart(fake, 999, 0, "trigger sweep", 100n);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(messages).toHaveLength(1); // only the sweep trigger
+		vi.advanceTimersByTime(30_001);
+		// Trigger the lazy sweep with an unrelated message.
+		pushTextPart(fake, 999, 0, "trigger sweep", 100n);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(messages).toHaveLength(1); // only the sweep trigger
 
-    // messageId 8's key is reused for an independent cycle that completes
-    // in ONE idx===0 chunk (count=1, no metadata carried over). If the
-    // stale "image/png" mimeType had survived the sweep, this attachment
-    // would report it instead of the fresh "video/mp4" this chunk itself
-    // carries -- but since a fresh idx===0 chunk always sets its own
-    // mimeType (moqtClient.ts's own logic), this only distinguishes the two
-    // cases together with the entry actually being gone: assert via the
-    // reused key completing correctly end-to-end.
-    pushTextPart(fake, 8, 1, "reused id", 200n);
-    pushAttachment(fake, 8, 0, "video/mp4", new Uint8Array([1, 2, 3]), 201n);
-    await vi.advanceTimersByTimeAsync(0);
+		// messageId 8's key is reused for an independent cycle that completes
+		// in ONE idx===0 chunk (count=1, no metadata carried over). If the
+		// stale "image/png" mimeType had survived the sweep, this attachment
+		// would report it instead of the fresh "video/mp4" this chunk itself
+		// carries -- but since a fresh idx===0 chunk always sets its own
+		// mimeType (moqtClient.ts's own logic), this only distinguishes the two
+		// cases together with the entry actually being gone: assert via the
+		// reused key completing correctly end-to-end.
+		pushTextPart(fake, 8, 1, "reused id", 200n);
+		pushAttachment(fake, 8, 0, "video/mp4", new Uint8Array([1, 2, 3]), 201n);
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(messages).toHaveLength(2);
-    expect(messages[1].text).toBe("reused id");
-    expect(messages[1].attachments).toEqual([{ bytes: new Uint8Array([1, 2, 3]), mimeType: "video/mp4" }]);
-  });
+		expect(messages).toHaveLength(2);
+		expect(messages[1].text).toBe("reused id");
+		expect(messages[1].attachments).toEqual([
+			{ bytes: new Uint8Array([1, 2, 3]), mimeType: "video/mp4" },
+		]);
+	});
 });
 
 describe("certHashesToWebTransportOptions", () => {
-  it("returns no serverCertificateHashes option when no hashes given", () => {
-    const opts = certHashesToWebTransportOptions([]);
-    expect(opts.serverCertificateHashes).toBeUndefined();
-  });
+	it("returns no serverCertificateHashes option when no hashes given", () => {
+		const opts = certHashesToWebTransportOptions([]);
+		expect(opts.serverCertificateHashes).toBeUndefined();
+	});
 
-  it("parses colon-hex SHA-256 fingerprints into sha-256 entries", () => {
-    const hex = "aa".repeat(32);
-    const opts = certHashesToWebTransportOptions([hex]);
-    expect(opts.serverCertificateHashes).toHaveLength(1);
-    expect(opts.serverCertificateHashes?.[0].algorithm).toBe("sha-256");
-  });
+	it("parses colon-hex SHA-256 fingerprints into sha-256 entries", () => {
+		const hex = "aa".repeat(32);
+		const opts = certHashesToWebTransportOptions([hex]);
+		expect(opts.serverCertificateHashes).toHaveLength(1);
+		expect(opts.serverCertificateHashes?.[0].algorithm).toBe("sha-256");
+	});
 
-  it("rejects a fingerprint that is not 32 bytes", () => {
-    expect(() => certHashesToWebTransportOptions(["aabb"])).toThrow();
-  });
+	it("rejects a fingerprint that is not 32 bytes", () => {
+		expect(() => certHashesToWebTransportOptions(["aabb"])).toThrow();
+	});
 });
 
 // draft-ietf-moq-transport-19 3.6 / 10.4 (draft-19 legacy session): GOAWAY on the hub's control
 // stream, or the WebTransport session draining, tells the client to move.
 describe("MoqtChatClient going away", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
-  });
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.useRealTimers();
+	});
 
-  async function connected() {
-    vi.useFakeTimers();
-    const fake = new FakeWebTransport();
-    vi.stubGlobal("WebTransport", function () {
-      return fake;
-    });
-    const goaways: string[] = [];
-    const client = new MoqtChatClient("user1", {
-      onStatusChange: () => {},
-      onMessage: () => {},
-      onGoaway: (uri) => goaways.push(uri),
-    });
-    const ready = client.connect("https://hub.example/", []);
-    fake.resolveReady();
-    await ready;
-    return { fake, client, goaways };
-  }
+	async function connected() {
+		vi.useFakeTimers();
+		const fake = new FakeWebTransport();
+		stubWebTransport(() => fake);
+		const goaways: string[] = [];
+		const client = new MoqtChatClient("user1", {
+			onStatusChange: () => {},
+			onMessage: () => {},
+			onGoaway: (uri) => goaways.push(uri),
+		});
+		const ready = client.connect("https://hub.example/", []);
+		fake.resolveReady();
+		await ready;
+		return { fake, client, goaways };
+	}
 
-  const goaway = (uri: string) =>
-    encodeControlFrame(0x10n, encodeGoaway({ newSessionUri: utf8ToBytes(uri), timeout: 2000n }));
+	const goaway = (uri: string) =>
+		encodeControlFrame(
+			0x10n,
+			encodeGoaway({ newSessionUri: utf8ToBytes(uri), timeout: 2000n }),
+		);
 
-  it("a GOAWAY on the control stream reports its New Session URI, once per session", async () => {
-    const { fake, goaways } = await connected();
+	it("a GOAWAY on the control stream reports its New Session URI, once per session", async () => {
+		const { fake, goaways } = await connected();
 
-    fake.controlReplies.push(goaway("https://next.example/"));
-    fake.controlReplies.push(goaway("https://other.example/"));
-    await vi.advanceTimersByTimeAsync(0);
+		fake.controlReplies.push(goaway("https://next.example/"));
+		fake.controlReplies.push(goaway("https://other.example/"));
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(goaways).toEqual(["https://next.example/"]);
-  });
+		expect(goaways).toEqual(["https://next.example/"]);
+	});
 
-  it("the session draining reports a GOAWAY without a URI", async () => {
-    const { fake, goaways } = await connected();
+	it("the session draining reports a GOAWAY without a URI", async () => {
+		const { fake, goaways } = await connected();
 
-    fake.resolveDraining();
-    await vi.advanceTimersByTimeAsync(0);
+		fake.resolveDraining();
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(goaways).toEqual([""]);
-  });
+		expect(goaways).toEqual([""]);
+	});
 
-  it("draining rejected by the session closing is no GOAWAY and no unhandled rejection", async () => {
-    const { fake, goaways } = await connected();
+	it("draining rejected by the session closing is no GOAWAY and no unhandled rejection", async () => {
+		const { fake, goaways } = await connected();
 
-    fake.rejectDraining(new Error("The session is closed."));
-    await vi.advanceTimersByTimeAsync(0);
+		fake.rejectDraining(new Error("The session is closed."));
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(goaways).toEqual([]);
-  });
+		expect(goaways).toEqual([]);
+	});
 
-  it("a GOAWAY after close() is not reported", async () => {
-    const { fake, client, goaways } = await connected();
+	it("a GOAWAY after close() is not reported", async () => {
+		const { fake, client, goaways } = await connected();
 
-    client.close();
-    fake.controlReplies.push(goaway(""));
-    fake.resolveDraining();
-    await vi.advanceTimersByTimeAsync(0);
+		client.close();
+		fake.controlReplies.push(goaway(""));
+		fake.resolveDraining();
+		await vi.advanceTimersByTimeAsync(0);
 
-    expect(goaways).toEqual([]);
-  });
+		expect(goaways).toEqual([]);
+	});
 });
 
 // draft-ietf-moq-transport-22, negotiated as the WebTransport subprotocol
@@ -1167,362 +1339,458 @@ describe("MoqtChatClient going away", () => {
 // -- no Joining FETCH. Without the subprotocol (protocol undefined) every
 // test above runs the draft-19 legacy session unchanged.
 describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
-  });
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.useRealTimers();
+	});
 
-  const flush = () => vi.advanceTimersByTimeAsync(0);
+	const flush = () => vi.advanceTimersByTimeAsync(0);
 
-  async function connected22(callbacks: Partial<MoqtChatCallbacks> = {}, negotiate = true) {
-    vi.useFakeTimers();
-    const fake = new FakeWebTransport();
-    vi.stubGlobal("WebTransport", function (_url: string, options: { protocols?: string[] }) {
-      fake.options = options;
-      return fake;
-    });
-    const goaways: string[] = [];
-    const statuses: string[] = [];
-    const client = new MoqtChatClient("user1", {
-      onStatusChange: (s) => statuses.push(s),
-      onMessage: () => {},
-      onGoaway: (uri) => goaways.push(uri),
-      ...callbacks,
-    });
-    const ready = client.connect("https://hub.example/", []);
-    if (negotiate) fake.startD22Control();
-    fake.resolveReady();
-    await ready;
-    await flush();
-    return { fake, client, goaways, statuses };
-  }
+	async function connected22(
+		callbacks: Partial<MoqtChatCallbacks> = {},
+		negotiate = true,
+	) {
+		vi.useFakeTimers();
+		const fake = new FakeWebTransport();
+		stubWebTransport((_url, options) => {
+			fake.options = options;
+			return fake;
+		});
+		const goaways: string[] = [];
+		const statuses: string[] = [];
+		const client = new MoqtChatClient("user1", {
+			onStatusChange: (s) => statuses.push(s),
+			onMessage: () => {},
+			onGoaway: (uri) => goaways.push(uri),
+			...callbacks,
+		});
+		const ready = client.connect("https://hub.example/", []);
+		if (negotiate) fake.startD22Control();
+		fake.resolveReady();
+		await ready;
+		await flush();
+		return { fake, client, goaways, statuses };
+	}
 
-  const subscribeOk = (largest?: { group: bigint; object: bigint }) =>
-    encodeControlFrame(
-      0x4n,
-      encodeSubscribeOk({
-        trackAlias: 9n,
-        parameters: largest ? [{ type: 0x09n, value: largest }] : [],
-        trackProperties: [],
-      }),
-    );
-  const goaway = (uri: string) =>
-    encodeControlFrame(0x10n, encodeGoaway({ newSessionUri: utf8ToBytes(uri), timeout: 2000n }));
-  const requestError = (errorCode: bigint) =>
-    encodeControlFrame(0x5n, encodeRequestError({ errorCode, retryInterval: 0n, errorReason: new Uint8Array(0) }));
-  // The SUBSCRIBE's parameters as raw bytes: everything after the track name.
-  const subscribeParamsHex = (body: Uint8Array) => {
-    const rid = decodeVarint(body, 0);
-    const ns = decodeNamespace(body, rid.len);
-    const nameLen = decodeVarint(body, rid.len + ns.len);
-    return bytesToHex(body.slice(rid.len + ns.len + nameLen.len + Number(nameLen.value)));
-  };
-  const history = (joiningStart: bigint, got: string[] = [], done = vi.fn()) => ({
-    joiningStart,
-    onObject: (o: { group: bigint; object: bigint; payload: Uint8Array }) =>
-      got.push(`${o.group}/${o.object}:${bytesToUtf8(o.payload)}`),
-    onDone: done,
-  });
+	const subscribeOk = (largest?: { group: bigint; object: bigint }) =>
+		encodeControlFrame(
+			0x4n,
+			encodeSubscribeOk({
+				trackAlias: 9n,
+				parameters: largest ? [{ type: 0x09n, value: largest }] : [],
+				trackProperties: [],
+			}),
+		);
+	const goaway = (uri: string) =>
+		encodeControlFrame(
+			0x10n,
+			encodeGoaway({ newSessionUri: utf8ToBytes(uri), timeout: 2000n }),
+		);
+	const requestError = (errorCode: bigint) =>
+		encodeControlFrame(
+			0x5n,
+			encodeRequestError({
+				errorCode,
+				retryInterval: 0n,
+				errorReason: new Uint8Array(0),
+			}),
+		);
+	// The SUBSCRIBE's parameters as raw bytes: everything after the track name.
+	const subscribeParamsHex = (body: Uint8Array) => {
+		const rid = decodeVarint(body, 0);
+		const ns = decodeNamespace(body, rid.len);
+		const nameLen = decodeVarint(body, rid.len + ns.len);
+		return bytesToHex(
+			body.slice(rid.len + ns.len + nameLen.len + Number(nameLen.value)),
+		);
+	};
+	const history = (
+		joiningStart: bigint,
+		got: string[] = [],
+		done = vi.fn(),
+	) => ({
+		joiningStart,
+		onObject: (o: { group: bigint; object: bigint; payload: Uint8Array }) =>
+			got.push(`${o.group}/${o.object}:${bytesToUtf8(o.payload)}`),
+		onDone: done,
+	});
 
-  it("offers the moqt-22 WebTransport subprotocol", async () => {
-    const { fake, client } = await connected22();
+	it("offers the moqt-22 WebTransport subprotocol", async () => {
+		const { fake, client } = await connected22();
 
-    expect(fake.options?.protocols).toEqual(["moqt-22"]);
-    expect(client.draft).toBe(22);
-  });
+		expect(fake.options?.protocols).toEqual(["moqt-22"]);
+		expect(client.draft).toBe(22);
+	});
 
-  it("opens its own uni control stream with SETUP and keeps it open", async () => {
-    const { fake, statuses } = await connected22();
+	it("opens its own uni control stream with SETUP and keeps it open", async () => {
+		const { fake, statuses } = await connected22();
 
-    expect(statuses).toEqual(["connecting", "connected"]);
-    // SETUP's only option: SSTS_ALGORITHMS [0xff01, 0] (moqtClientSwitch.test.ts).
-    expect(bytesToHex(concatBytes(fake.uniStreams[0].written))).toBe("af0000060904c0ff0100");
-    expect(fake.uniStreams[0].closed).toBe(false);
-  });
+		expect(statuses).toEqual(["connecting", "connected"]);
+		// SETUP's only option: SSTS_ALGORITHMS [0xff01, 0] (moqtClientSwitch.test.ts).
+		expect(bytesToHex(concatBytes(fake.uniStreams[0].written))).toBe(
+			"af0000060904c0ff0100",
+		);
+		expect(fake.uniStreams[0].closed).toBe(false);
+	});
 
-  it("does not wait for a bidi control stream", async () => {
-    const { fake } = await connected22();
+	it("does not wait for a bidi control stream", async () => {
+		const { fake } = await connected22();
 
-    expect(fake.bidiReads).toBe(0);
-  });
+		expect(fake.bidiReads).toBe(0);
+	});
 
-  it("a GOAWAY on the hub's uni control stream reports its New Session URI, once", async () => {
-    const { fake, goaways } = await connected22();
+	it("a GOAWAY on the hub's uni control stream reports its New Session URI, once", async () => {
+		const { fake, goaways } = await connected22();
 
-    fake.serverControl.push(goaway("https://next.example/"));
-    fake.serverControl.push(goaway("https://other.example/"));
-    await flush();
+		fake.serverControl.push(goaway("https://next.example/"));
+		fake.serverControl.push(goaway("https://other.example/"));
+		await flush();
 
-    expect(goaways).toEqual(["https://next.example/"]);
-  });
+		expect(goaways).toEqual(["https://next.example/"]);
+	});
 
-  it("history: SUBSCRIBE asks for Next Object plus a fill of Relative Start joiningStart+1; no FETCH", async () => {
-    const { fake, client } = await connected22();
+	it("history: SUBSCRIBE asks for Next Object plus a fill of Relative Start joiningStart+1; no FETCH", async () => {
+		const { fake, client } = await connected22();
 
-    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", history(16n));
-    await flush();
-    const [s] = fake.requestsOf(MSG_SUBSCRIBE);
-    // 2 params: LOCATION_FILTER (0x21) Next Object 05, FILL_PARAMETERS (delta
-    // 2 -> 0x23) Length 4 { 1 param: LOCATION_FILTER Relative Start 17 }.
-    expect(subscribeParamsHex(s.request.body)).toBe("022105020401210111");
-    s.replies.push(subscribeOk({ group: 3n, object: 0n }));
-    await sub;
-    await flush();
+		const sub = client.subscribeTrack(
+			utf8ToBytes("user2"),
+			"user2",
+			history(16n),
+		);
+		await flush();
+		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+		// 2 params: LOCATION_FILTER (0x21) Next Object 05, FILL_PARAMETERS (delta
+		// 2 -> 0x23) Length 4 { 1 param: LOCATION_FILTER Relative Start 17 }.
+		expect(subscribeParamsHex(s.request.body)).toBe("022105020401210111");
+		s.replies.push(subscribeOk({ group: 3n, object: 0n }));
+		await sub;
+		await flush();
 
-    expect(fake.requestsOf(MSG_FETCH)).toHaveLength(0);
-  });
+		expect(fake.requestsOf(MSG_FETCH)).toHaveLength(0);
+	});
 
-  it("history: joiningStart 0 (the screen share's current Group) is Relative Start 1", async () => {
-    const { fake, client } = await connected22();
+	it("history: joiningStart 0 (the screen share's current Group) is Relative Start 1", async () => {
+		const { fake, client } = await connected22();
 
-    void client.subscribeTrack(utf8ToBytes("user2/screen"), "user2/screen", history(0n));
-    await flush();
+		void client.subscribeTrack(
+			utf8ToBytes("user2/screen"),
+			"user2/screen",
+			history(0n),
+		);
+		await flush();
 
-    expect(subscribeParamsHex(fake.requestsOf(MSG_SUBSCRIBE)[0].request.body)).toBe("022105020401210101");
-  });
+		expect(
+			subscribeParamsHex(fake.requestsOf(MSG_SUBSCRIBE)[0].request.body),
+		).toBe("022105020401210101");
+	});
 
-  it("a peer's chat track asks for CHAT_HISTORY_GROUPS (64) Groups: Relative Start 65", async () => {
-    const { fake, client } = await connected22();
+	it("a peer's chat track asks for CHAT_HISTORY_GROUPS (64) Groups: Relative Start 65", async () => {
+		const { fake, client } = await connected22();
 
-    await client.announce();
-    await flush();
-    fake.requestsOf(MSG_SUBSCRIBE_NAMESPACE)[0].replies.push(
-      encodeControlFrame(0x8n, encodeNamespace([utf8ToBytes("user2")])),
-    );
-    await flush();
+		await client.announce();
+		await flush();
+		fake
+			.requestsOf(MSG_SUBSCRIBE_NAMESPACE)[0]
+			.replies.push(
+				encodeControlFrame(0x8n, encodeNamespace([utf8ToBytes("user2")])),
+			);
+		await flush();
 
-    expect(subscribeParamsHex(fake.requestsOf(MSG_SUBSCRIBE)[0].request.body)).toBe("022105020401210141");
-  });
+		expect(
+			subscribeParamsHex(fake.requestsOf(MSG_SUBSCRIBE)[0].request.body),
+		).toBe("022105020401210141");
+	});
 
-  it("history: the fill stream (FETCH_HEADER with the SUBSCRIBE's Request ID) feeds onObject, then onDone", async () => {
-    const { fake, client } = await connected22();
-    const got: string[] = [];
-    const done = vi.fn();
+	it("history: the fill stream (FETCH_HEADER with the SUBSCRIBE's Request ID) feeds onObject, then onDone", async () => {
+		const { fake, client } = await connected22();
+		const got: string[] = [];
+		const done = vi.fn();
 
-    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", history(16n, got, done));
-    await flush();
-    const [s] = fake.requestsOf(MSG_SUBSCRIBE);
-    s.replies.push(subscribeOk({ group: 5n, object: 1n }));
-    await sub;
-    const rid = decodeSubscribe(s.request.body, 22).requestId;
-    fake.incomingUnidirectionalStreams.push(
-      concatBytes([hexToBytes("05"), encodeVarint(rid), hexToBytes("1c050080026869010178")]),
-    );
-    await flush();
+		const sub = client.subscribeTrack(
+			utf8ToBytes("user2"),
+			"user2",
+			history(16n, got, done),
+		);
+		await flush();
+		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+		s.replies.push(subscribeOk({ group: 5n, object: 1n }));
+		await sub;
+		const rid = decodeSubscribe(s.request.body, 22).requestId;
+		fake.incomingUnidirectionalStreams.push(
+			concatBytes([
+				hexToBytes("05"),
+				encodeVarint(rid),
+				hexToBytes("1c050080026869010178"),
+			]),
+		);
+		await flush();
 
-    expect(got).toEqual(["5/0:hi", "5/1:x"]);
-    expect(done).toHaveBeenCalledOnce();
-    expect(fake.requestsOf(MSG_FETCH)).toHaveLength(0);
-  });
+		expect(got).toEqual(["5/0:hi", "5/1:x"]);
+		expect(done).toHaveBeenCalledOnce();
+		expect(fake.requestsOf(MSG_FETCH)).toHaveLength(0);
+	});
 
-  it("history: a fill stream that beats SUBSCRIBE_OK is still delivered, and onDone fires once", async () => {
-    const { fake, client } = await connected22();
-    const got: string[] = [];
-    const done = vi.fn();
+	it("history: a fill stream that beats SUBSCRIBE_OK is still delivered, and onDone fires once", async () => {
+		const { fake, client } = await connected22();
+		const got: string[] = [];
+		const done = vi.fn();
 
-    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", history(16n, got, done));
-    await flush();
-    const [s] = fake.requestsOf(MSG_SUBSCRIBE);
-    const rid = decodeSubscribe(s.request.body, 22).requestId;
-    fake.incomingUnidirectionalStreams.push(
-      concatBytes([hexToBytes("05"), encodeVarint(rid), hexToBytes("1c050080026869")]),
-    );
-    await flush();
-    s.replies.push(subscribeOk({ group: 5n, object: 0n }));
-    await sub;
-    await flush();
+		const sub = client.subscribeTrack(
+			utf8ToBytes("user2"),
+			"user2",
+			history(16n, got, done),
+		);
+		await flush();
+		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+		const rid = decodeSubscribe(s.request.body, 22).requestId;
+		fake.incomingUnidirectionalStreams.push(
+			concatBytes([
+				hexToBytes("05"),
+				encodeVarint(rid),
+				hexToBytes("1c050080026869"),
+			]),
+		);
+		await flush();
+		s.replies.push(subscribeOk({ group: 5n, object: 0n }));
+		await sub;
+		await flush();
 
-    expect(got).toEqual(["5/0:hi"]);
-    expect(done).toHaveBeenCalledOnce();
-  });
+		expect(got).toEqual(["5/0:hi"]);
+		expect(done).toHaveBeenCalledOnce();
+	});
 
-  it("history: a fill's End of Timed-Out Range (0x20C) is skipped, the Objects after it delivered", async () => {
-    const { fake, client } = await connected22();
-    const got: string[] = [];
-    const done = vi.fn();
+	it("history: a fill's End of Timed-Out Range (0x20C) is skipped, the Objects after it delivered", async () => {
+		const { fake, client } = await connected22();
+		const got: string[] = [];
+		const done = vi.fn();
 
-    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", history(16n, got, done));
-    await flush();
-    const [s] = fake.requestsOf(MSG_SUBSCRIBE);
-    s.replies.push(subscribeOk({ group: 5n, object: 0n }));
-    await sub;
-    const rid = decodeSubscribe(s.request.body, 22).requestId;
-    // 0x20C through G4/O9, then G5/O0 "hi" (flags 0x1c: Group Delta 0 after
-    // the marker's Group 4 -> 5, Object 0, priority 0x80; 11.4.1.2).
-    fake.incomingUnidirectionalStreams.push(
-      concatBytes([hexToBytes("05"), encodeVarint(rid), hexToBytes("820c04091c000080026869")]),
-    );
-    await flush();
+		const sub = client.subscribeTrack(
+			utf8ToBytes("user2"),
+			"user2",
+			history(16n, got, done),
+		);
+		await flush();
+		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+		s.replies.push(subscribeOk({ group: 5n, object: 0n }));
+		await sub;
+		const rid = decodeSubscribe(s.request.body, 22).requestId;
+		// 0x20C through G4/O9, then G5/O0 "hi" (flags 0x1c: Group Delta 0 after
+		// the marker's Group 4 -> 5, Object 0, priority 0x80; 11.4.1.2).
+		fake.incomingUnidirectionalStreams.push(
+			concatBytes([
+				hexToBytes("05"),
+				encodeVarint(rid),
+				hexToBytes("820c04091c000080026869"),
+			]),
+		);
+		await flush();
 
-    expect(got).toEqual(["5/0:hi"]);
-    expect(done).toHaveBeenCalledOnce();
-  });
+		expect(got).toEqual(["5/0:hi"]);
+		expect(done).toHaveBeenCalledOnce();
+	});
 
-  it("history: no Largest Object means no fill stream: onDone fires right away", async () => {
-    const { fake, client } = await connected22();
-    const done = vi.fn();
+	it("history: no Largest Object means no fill stream: onDone fires right away", async () => {
+		const { fake, client } = await connected22();
+		const done = vi.fn();
 
-    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", history(16n, [], done));
-    await flush();
-    fake.requestsOf(MSG_SUBSCRIBE)[0].replies.push(subscribeOk());
-    await sub;
+		const sub = client.subscribeTrack(
+			utf8ToBytes("user2"),
+			"user2",
+			history(16n, [], done),
+		);
+		await flush();
+		fake.requestsOf(MSG_SUBSCRIBE)[0].replies.push(subscribeOk());
+		await sub;
 
-    expect(done).toHaveBeenCalledOnce();
-  });
+		expect(done).toHaveBeenCalledOnce();
+	});
 
-  it("history: a refused SUBSCRIBE (DOES_NOT_EXIST) ends the history once, with no retry", async () => {
-    const { fake, client } = await connected22();
-    const done = vi.fn();
+	it("history: a refused SUBSCRIBE (DOES_NOT_EXIST) ends the history once, with no retry", async () => {
+		const { fake, client } = await connected22();
+		const done = vi.fn();
 
-    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", history(16n, [], done));
-    await flush();
-    fake.requestsOf(MSG_SUBSCRIBE)[0].replies.push(requestError(0x10n));
-    await sub;
-    await flush();
+		const sub = client.subscribeTrack(
+			utf8ToBytes("user2"),
+			"user2",
+			history(16n, [], done),
+		);
+		await flush();
+		fake.requestsOf(MSG_SUBSCRIBE)[0].replies.push(requestError(0x10n));
+		await sub;
+		await flush();
 
-    expect(done).toHaveBeenCalledOnce();
-    expect(client.isSubscribed("user2")).toBe(false);
-    expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(1);
-  });
+		expect(done).toHaveBeenCalledOnce();
+		expect(client.isSubscribed("user2")).toBe(false);
+		expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(1);
+	});
 
-  it("history: an INTERNAL_ERROR (the hub's fill table is full) retries once live-only, history ended", async () => {
-    const { fake, client } = await connected22();
-    const done = vi.fn();
+	it("history: an INTERNAL_ERROR (the hub's fill table is full) retries once live-only, history ended", async () => {
+		const { fake, client } = await connected22();
+		const done = vi.fn();
 
-    const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", history(16n, [], done));
-    await flush();
-    const [first] = fake.requestsOf(MSG_SUBSCRIBE);
-    first.replies.push(requestError(0x0n));
-    await flush();
-    const subs = fake.requestsOf(MSG_SUBSCRIBE);
-    expect(subs).toHaveLength(2);
-    expect(first.closed).toBe(true);
-    // Same track, LOCATION_FILTER Next Object only: no FILL_PARAMETERS.
-    expect(bytesToUtf8(decodeSubscribe(subs[1].request.body, 22).trackName)).toBe("user2");
-    expect(subscribeParamsHex(subs[1].request.body)).toBe("012105");
-    expect(done).toHaveBeenCalledOnce();
-    subs[1].replies.push(subscribeOk({ group: 3n, object: 0n }));
-    expect(await sub).toBe(true);
+		const sub = client.subscribeTrack(
+			utf8ToBytes("user2"),
+			"user2",
+			history(16n, [], done),
+		);
+		await flush();
+		const [first] = fake.requestsOf(MSG_SUBSCRIBE);
+		first.replies.push(requestError(0x0n));
+		await flush();
+		const subs = fake.requestsOf(MSG_SUBSCRIBE);
+		expect(subs).toHaveLength(2);
+		expect(first.closed).toBe(true);
+		// Same track, LOCATION_FILTER Next Object only: no FILL_PARAMETERS.
+		expect(
+			bytesToUtf8(decodeSubscribe(subs[1].request.body, 22).trackName),
+		).toBe("user2");
+		expect(subscribeParamsHex(subs[1].request.body)).toBe("012105");
+		expect(done).toHaveBeenCalledOnce();
+		subs[1].replies.push(subscribeOk({ group: 3n, object: 0n }));
+		expect(await sub).toBe(true);
 
-    expect(client.isSubscribed("user2")).toBe(true);
-    expect(done).toHaveBeenCalledOnce();
-    expect(fake.requestsOf(MSG_FETCH)).toHaveLength(0);
-  });
+		expect(client.isSubscribed("user2")).toBe(true);
+		expect(done).toHaveBeenCalledOnce();
+		expect(fake.requestsOf(MSG_FETCH)).toHaveLength(0);
+	});
 
-  it("history: a peer leaving before its fill stream opens ends the history once", async () => {
-    const { fake, client } = await connected22();
-    await client.announce();
-    await flush();
-    const [watch] = fake.requestsOf(MSG_SUBSCRIBE_NAMESPACE);
-    const got: string[] = [];
-    const done = vi.fn();
+	it("history: a peer leaving before its fill stream opens ends the history once", async () => {
+		const { fake, client } = await connected22();
+		await client.announce();
+		await flush();
+		const [watch] = fake.requestsOf(MSG_SUBSCRIBE_NAMESPACE);
+		const got: string[] = [];
+		const done = vi.fn();
 
-    const sub = client.subscribeTrack(utf8ToBytes("user2/screen"), "user2/screen", history(0n, got, done));
-    await flush();
-    const [s] = fake.requestsOf(MSG_SUBSCRIBE);
-    s.replies.push(subscribeOk({ group: 5n, object: 0n }));
-    await sub;
-    await flush();
-    expect(done).not.toHaveBeenCalled();
-    watch.replies.push(encodeControlFrame(0xen, encodeNamespace([utf8ToBytes("user2")])));
-    await flush();
+		const sub = client.subscribeTrack(
+			utf8ToBytes("user2/screen"),
+			"user2/screen",
+			history(0n, got, done),
+		);
+		await flush();
+		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+		s.replies.push(subscribeOk({ group: 5n, object: 0n }));
+		await sub;
+		await flush();
+		expect(done).not.toHaveBeenCalled();
+		watch.replies.push(
+			encodeControlFrame(0xen, encodeNamespace([utf8ToBytes("user2")])),
+		);
+		await flush();
 
-    expect(s.cancelled).toBe(true);
-    expect(done).toHaveBeenCalledOnce();
-    // A late fill stream for the cancelled SUBSCRIBE is no longer ours.
-    const rid = decodeSubscribe(s.request.body, 22).requestId;
-    fake.incomingUnidirectionalStreams.push(
-      concatBytes([hexToBytes("05"), encodeVarint(rid), hexToBytes("1c050080026869")]),
-    );
-    await flush();
-    expect(got).toEqual([]);
-    expect(done).toHaveBeenCalledOnce();
-  });
+		expect(s.cancelled).toBe(true);
+		expect(done).toHaveBeenCalledOnce();
+		// A late fill stream for the cancelled SUBSCRIBE is no longer ours.
+		const rid = decodeSubscribe(s.request.body, 22).requestId;
+		fake.incomingUnidirectionalStreams.push(
+			concatBytes([
+				hexToBytes("05"),
+				encodeVarint(rid),
+				hexToBytes("1c050080026869"),
+			]),
+		);
+		await flush();
+		expect(got).toEqual([]);
+		expect(done).toHaveBeenCalledOnce();
+	});
 
-  it("history: a peer leaving while its fill stream is open stops delivering it", async () => {
-    const { fake, client } = await connected22();
-    await client.announce();
-    await flush();
-    const [watch] = fake.requestsOf(MSG_SUBSCRIBE_NAMESPACE);
-    const got: string[] = [];
-    const done = vi.fn();
+	it("history: a peer leaving while its fill stream is open stops delivering it", async () => {
+		const { fake, client } = await connected22();
+		await client.announce();
+		await flush();
+		const [watch] = fake.requestsOf(MSG_SUBSCRIBE_NAMESPACE);
+		const got: string[] = [];
+		const done = vi.fn();
 
-    const sub = client.subscribeTrack(utf8ToBytes("user2/screen"), "user2/screen", history(0n, got, done));
-    await flush();
-    const [s] = fake.requestsOf(MSG_SUBSCRIBE);
-    s.replies.push(subscribeOk({ group: 5n, object: 0n }));
-    await sub;
-    const rid = decodeSubscribe(s.request.body, 22).requestId;
-    const fill = new FakeControlReplies();
-    fill.push(concatBytes([hexToBytes("05"), encodeVarint(rid), hexToBytes("1c050080026869")]));
-    fake.incomingUnidirectionalStreams.pushStream(fill);
-    await flush();
-    expect(got).toHaveLength(1);
+		const sub = client.subscribeTrack(
+			utf8ToBytes("user2/screen"),
+			"user2/screen",
+			history(0n, got, done),
+		);
+		await flush();
+		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+		s.replies.push(subscribeOk({ group: 5n, object: 0n }));
+		await sub;
+		const rid = decodeSubscribe(s.request.body, 22).requestId;
+		const fill = new FakeControlReplies();
+		fill.push(
+			concatBytes([
+				hexToBytes("05"),
+				encodeVarint(rid),
+				hexToBytes("1c050080026869"),
+			]),
+		);
+		fake.incomingUnidirectionalStreams.pushStream(fill);
+		await flush();
+		expect(got).toHaveLength(1);
 
-    watch.replies.push(encodeControlFrame(0xen, encodeNamespace([utf8ToBytes("user2")])));
-    await flush();
-    expect(done).toHaveBeenCalledOnce();
-    // Bytes still in flight after the cancel are not delivered.
-    fill.push(hexToBytes("010178"));
-    await flush();
-    expect(got).toHaveLength(1);
-    expect(done).toHaveBeenCalledOnce();
-  });
+		watch.replies.push(
+			encodeControlFrame(0xen, encodeNamespace([utf8ToBytes("user2")])),
+		);
+		await flush();
+		expect(done).toHaveBeenCalledOnce();
+		// Bytes still in flight after the cancel are not delivered.
+		fill.push(hexToBytes("010178"));
+		await flush();
+		expect(got).toHaveLength(1);
+		expect(done).toHaveBeenCalledOnce();
+	});
 
-  it("no protocol attribute, but the hub's uni SETUP arrives: switches to draft-22", async () => {
-    vi.useFakeTimers();
-    const fake = new FakeWebTransport();
-    vi.stubGlobal("WebTransport", function () {
-      return fake;
-    });
-    const goaways: string[] = [];
-    const client = new MoqtChatClient("user1", {
-      onStatusChange: () => {},
-      onMessage: () => {},
-      onGoaway: (uri) => goaways.push(uri),
-    });
-    const ready = client.connect("https://hub.example/", []);
-    fake.startD22Control(null);
-    fake.resolveReady();
-    await ready;
-    await flush();
+	it("no protocol attribute, but the hub's uni SETUP arrives: switches to draft-22", async () => {
+		vi.useFakeTimers();
+		const fake = new FakeWebTransport();
+		stubWebTransport(() => fake);
+		const goaways: string[] = [];
+		const client = new MoqtChatClient("user1", {
+			onStatusChange: () => {},
+			onMessage: () => {},
+			onGoaway: (uri) => goaways.push(uri),
+		});
+		const ready = client.connect("https://hub.example/", []);
+		fake.startD22Control(null);
+		fake.resolveReady();
+		await ready;
+		await flush();
 
-    expect(client.draft).toBe(22);
-    expect(bytesToHex(concatBytes(fake.uniStreams[0].written))).toBe("af0000060904c0ff0100");
-    // The losing d19 wait on incomingBidirectionalStreams is cancelled, not
-    // left parked to swallow a later hub-opened bidi stream.
-    expect(fake.bidiCancelled).toBe(true);
-    fake.serverControl.push(goaway("https://next.example/"));
-    await flush();
-    expect(goaways).toEqual(["https://next.example/"]);
-  });
+		expect(client.draft).toBe(22);
+		expect(bytesToHex(concatBytes(fake.uniStreams[0].written))).toBe(
+			"af0000060904c0ff0100",
+		);
+		// The losing d19 wait on incomingBidirectionalStreams is cancelled, not
+		// left parked to swallow a later hub-opened bidi stream.
+		expect(fake.bidiCancelled).toBe(true);
+		fake.serverControl.push(goaway("https://next.example/"));
+		await flush();
+		expect(goaways).toEqual(["https://next.example/"]);
+	});
 
-  it("an empty protocol (the flag on, nothing negotiated) is the draft-19 session", async () => {
-    vi.useFakeTimers();
-    const fake = new FakeWebTransport();
-    vi.stubGlobal("WebTransport", function () {
-      return fake;
-    });
-    const client = new MoqtChatClient("user1", { onStatusChange: () => {}, onMessage: () => {} });
-    const ready = client.connect("https://hub.example/", []);
-    fake.protocol = "";
-    fake.resolveReady();
-    await ready;
+	it("an empty protocol (the flag on, nothing negotiated) is the draft-19 session", async () => {
+		vi.useFakeTimers();
+		const fake = new FakeWebTransport();
+		stubWebTransport(() => fake);
+		const client = new MoqtChatClient("user1", {
+			onStatusChange: () => {},
+			onMessage: () => {},
+		});
+		const ready = client.connect("https://hub.example/", []);
+		fake.protocol = "";
+		fake.resolveReady();
+		await ready;
 
-    expect(client.draft).toBe(19);
-    expect(fake.bidiReads).toBe(1);
-    expect(fake.uniStreams).toHaveLength(0);
-  });
+		expect(client.draft).toBe(19);
+		expect(fake.bidiReads).toBe(1);
+		expect(fake.uniStreams).toHaveLength(0);
+	});
 
-  it("without the subprotocol it falls back to draft-19: bidi control stream, no uni SETUP", async () => {
-    const { fake, client, goaways } = await connected22({}, false);
+	it("without the subprotocol it falls back to draft-19: bidi control stream, no uni SETUP", async () => {
+		const { fake, client, goaways } = await connected22({}, false);
 
-    expect(fake.options?.protocols).toEqual(["moqt-22"]);
-    expect(client.draft).toBe(19);
-    expect(fake.bidiReads).toBe(1);
-    expect(fake.uniStreams).toHaveLength(0);
-    fake.controlReplies.push(goaway(""));
-    await flush();
-    expect(goaways).toEqual([""]);
-  });
+		expect(fake.options?.protocols).toEqual(["moqt-22"]);
+		expect(client.draft).toBe(19);
+		expect(fake.bidiReads).toBe(1);
+		expect(fake.uniStreams).toHaveLength(0);
+		fake.controlReplies.push(goaway(""));
+		await flush();
+		expect(goaways).toEqual([""]);
+	});
 });

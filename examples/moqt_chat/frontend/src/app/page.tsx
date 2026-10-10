@@ -3,849 +3,977 @@
 import { useEffect, useRef, useState } from "react";
 import { useMoqtChat } from "@/hooks/useMoqtChat";
 import { useObjectUrl } from "@/hooks/useObjectUrl";
-import { clearJoinPrefs, loadJoinPrefs, saveJoinPrefs } from "@/lib/joinPrefs";
-import { CANDIDATE_PARTICIPANT_IDS, type ChatAttachment as WireChatAttachment } from "@/lib/moqtClient";
-import { resolveDisplayName, useMoqtChatStore, type ChatMessage } from "@/stores/moqtChatStore";
-import { canPickOutput } from "@/lib/outputMixer";
-import type { ScreenQuality } from "@/lib/moqtScreenClient";
-import { SCREEN_TILE_MAX_PX, SCREEN_TILE_MIN_PX, SCREEN_TILE_STEP_PX } from "@/lib/screenTileSize";
 import { validateAttachmentCandidate } from "@/lib/attachmentValidation";
+import { clearJoinPrefs, loadJoinPrefs, saveJoinPrefs } from "@/lib/joinPrefs";
+import {
+	CANDIDATE_PARTICIPANT_IDS,
+	type ChatAttachment as WireChatAttachment,
+} from "@/lib/moqtClient";
+import type { ScreenQuality } from "@/lib/moqtScreenClient";
+import { canPickOutput } from "@/lib/outputMixer";
+import {
+	SCREEN_TILE_MAX_PX,
+	SCREEN_TILE_MIN_PX,
+	SCREEN_TILE_STEP_PX,
+} from "@/lib/screenTileSize";
+import {
+	type ChatMessage,
+	resolveDisplayName,
+	useMoqtChatStore,
+} from "@/stores/moqtChatStore";
 import { Wordmark } from "./wordmark";
 
 const DEFAULT_URL = "https://localhost:4433/";
 const DEFAULT_PARTICIPANT_ID = CANDIDATE_PARTICIPANT_IDS[0];
 
 const STATUS_LABEL: Record<string, string> = {
-  connecting: "Connecting",
-  connected: "Connected",
-  disconnected: "Disconnected",
+	connecting: "Connecting",
+	connected: "Connected",
+	disconnected: "Disconnected",
 };
 
 function Status() {
-  const connectionState = useMoqtChatStore((s) => s.connectionState);
-  return (
-    <div className="status">
-      <span className="status__block" data-testid="status" data-status={connectionState} />
-      <span>{STATUS_LABEL[connectionState]}</span>
-    </div>
-  );
+	const connectionState = useMoqtChatStore((s) => s.connectionState);
+	return (
+		<div className="status">
+			<span
+				className="status__block"
+				data-testid="status"
+				data-status={connectionState}
+			/>
+			<span>{STATUS_LABEL[connectionState]}</span>
+		</div>
+	);
 }
 
 function MicToggle({ onToggleMute }: { onToggleMute: () => void }) {
-  const muted = useMoqtChatStore((s) => s.muted);
-  return (
-    <button
-      type="button"
-      className={muted ? "sign sign--outline" : "sign"}
-      data-testid="mic-toggle"
-      onClick={onToggleMute}
-    >
-      {muted ? "Mic off" : "Mic on"}
-    </button>
-  );
+	const muted = useMoqtChatStore((s) => s.muted);
+	return (
+		<button
+			type="button"
+			className={muted ? "sign sign--outline" : "sign"}
+			data-testid="mic-toggle"
+			onClick={onToggleMute}
+		>
+			{muted ? "Mic off" : "Mic on"}
+		</button>
+	);
 }
 
 function NoiseSuppressionToggle() {
-  const enabled = useMoqtChatStore((s) => s.noiseSuppressionEnabled);
-  const setNoiseSuppressionEnabled = useMoqtChatStore((s) => s.setNoiseSuppressionEnabled);
-  return (
-    <button
-      type="button"
-      className={enabled ? "sign" : "sign sign--outline"}
-      data-testid="ns-toggle"
-      onClick={() => setNoiseSuppressionEnabled(!enabled)}
-    >
-      {enabled ? "NS on" : "NS off"}
-    </button>
-  );
+	const enabled = useMoqtChatStore((s) => s.noiseSuppressionEnabled);
+	const setNoiseSuppressionEnabled = useMoqtChatStore(
+		(s) => s.setNoiseSuppressionEnabled,
+	);
+	return (
+		<button
+			type="button"
+			className={enabled ? "sign" : "sign sign--outline"}
+			data-testid="ns-toggle"
+			onClick={() => setNoiseSuppressionEnabled(!enabled)}
+		>
+			{enabled ? "NS on" : "NS off"}
+		</button>
+	);
 }
 
 function ScreenShareToggle({
-  sharing,
-  onStart,
-  onStop,
+	sharing,
+	onStart,
+	onStop,
 }: {
-  sharing: boolean;
-  onStart: () => void;
-  onStop: () => void;
+	sharing: boolean;
+	onStart: () => void;
+	onStop: () => void;
 }) {
-  return (
-    <button
-      type="button"
-      className={sharing ? "sign sign--outline" : "sign"}
-      data-testid="screen-toggle"
-      onClick={sharing ? onStop : onStart}
-    >
-      {sharing ? "Stop sharing" : "Share screen"}
-    </button>
-  );
+	return (
+		<button
+			type="button"
+			className={sharing ? "sign sign--outline" : "sign"}
+			data-testid="screen-toggle"
+			onClick={sharing ? onStop : onStart}
+		>
+			{sharing ? "Stop sharing" : "Share screen"}
+		</button>
+	);
 }
 
 // A remote tile's quality choice (track switching only): "auto" lets the
 // hub switch between the sender's variants, high/low pin one.
 const SCREEN_QUALITIES: { value: ScreenQuality; label: string }[] = [
-  { value: "auto", label: "Auto" },
-  { value: "high", label: "High" },
-  { value: "low", label: "Low" },
+	{ value: "auto", label: "Auto" },
+	{ value: "high", label: "High" },
+	{ value: "low", label: "Low" },
 ];
 
 function ScreenTiles({
-  registerScreenCanvas,
-  setScreenQuality,
+	registerScreenCanvas,
+	setScreenQuality,
 }: {
-  registerScreenCanvas: (id: string, el: HTMLCanvasElement | null) => void;
-  setScreenQuality: (id: string, quality: ScreenQuality) => void;
+	registerScreenCanvas: (id: string, el: HTMLCanvasElement | null) => void;
+	setScreenQuality: (id: string, quality: ScreenQuality) => void;
 }) {
-  const screenTiles = useMoqtChatStore((s) => s.screenTiles);
-  const screenSharing = useMoqtChatStore((s) => s.screenSharing);
-  const screenShareError = useMoqtChatStore((s) => s.screenShareError);
-  const stalledScreenTiles = useMoqtChatStore((s) => s.stalledScreenTiles);
-  const screenTileWidth = useMoqtChatStore((s) => s.screenTileWidth);
-  const nicknames = useMoqtChatStore((s) => s.nicknames);
-  const maximized = useMoqtChatStore((s) => s.maximizedScreenTile);
-  const setMaximized = useMoqtChatStore((s) => s.setMaximizedScreenTile);
-  const switching = useMoqtChatStore((s) => s.screenSwitching);
-  const variants = useMoqtChatStore((s) => s.screenTileVariants);
-  const qualities = useMoqtChatStore((s) => s.screenTileQuality);
-  // Esc (or the browser's own exit) leaves fullscreen without going
-  // through the button, so follow the document's state, not the click.
-  useEffect(() => {
-    const onChange = () => {
-      if (!document.fullscreenElement) setMaximized(null);
-    };
-    document.addEventListener("fullscreenchange", onChange);
-    return () => document.removeEventListener("fullscreenchange", onChange);
-  }, [setMaximized]);
-  const toggleMaximize = (id: string, canvas: HTMLCanvasElement | null) => {
-    if (maximized === id) {
-      if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
-      setMaximized(null);
-      return;
-    }
-    setMaximized(id);
-    // Without the Fullscreen API the .screen-tile--max class (full width)
-    // stands in.
-    if (canvas?.requestFullscreen) void canvas.requestFullscreen().catch(() => {});
-  };
-  if (screenTiles.length === 0 && !screenSharing) return null;
-  return (
-    <div className="screens" style={{ "--tile-w": `${screenTileWidth}px` } as React.CSSProperties}>
-      {screenSharing && (
-        <div className="screen-own-wrap">
-          <canvas
-            ref={(el) => registerScreenCanvas("own", el)}
-            className="screen-own"
-            data-testid="screen-tile-own"
-            width={160}
-            height={90}
-          />
-          {stalledScreenTiles.own && (
-            <span className="caption" data-testid="screen-stalled-own">
-              画面共有が停止しているようです。一度停止してから再度共有してください
-            </span>
-          )}
-        </div>
-      )}
-      {screenTiles
-        .filter((id) => id !== "own")
-        .map((id) => (
-          <div key={id} className={maximized === id ? "screen-tile screen-tile--max" : "screen-tile"}>
-            <canvas
-              ref={(el) => registerScreenCanvas(id, el)}
-              data-testid={`screen-tile-${id}`}
-              width={320}
-              height={180}
-            />
-            <div className="screen-tile__bar">
-              <span className="caption">{resolveDisplayName(id, nicknames)}</span>
-              {/* The variant being decoded (follows each keyframe), so a
+	const screenTiles = useMoqtChatStore((s) => s.screenTiles);
+	const screenSharing = useMoqtChatStore((s) => s.screenSharing);
+	const screenShareError = useMoqtChatStore((s) => s.screenShareError);
+	const stalledScreenTiles = useMoqtChatStore((s) => s.stalledScreenTiles);
+	const screenTileWidth = useMoqtChatStore((s) => s.screenTileWidth);
+	const nicknames = useMoqtChatStore((s) => s.nicknames);
+	const maximized = useMoqtChatStore((s) => s.maximizedScreenTile);
+	const setMaximized = useMoqtChatStore((s) => s.setMaximizedScreenTile);
+	const switching = useMoqtChatStore((s) => s.screenSwitching);
+	const variants = useMoqtChatStore((s) => s.screenTileVariants);
+	const qualities = useMoqtChatStore((s) => s.screenTileQuality);
+	// Esc (or the browser's own exit) leaves fullscreen without going
+	// through the button, so follow the document's state, not the click.
+	useEffect(() => {
+		const onChange = () => {
+			if (!document.fullscreenElement) setMaximized(null);
+		};
+		document.addEventListener("fullscreenchange", onChange);
+		return () => document.removeEventListener("fullscreenchange", onChange);
+	}, [setMaximized]);
+	const toggleMaximize = (id: string, canvas: HTMLCanvasElement | null) => {
+		if (maximized === id) {
+			if (document.fullscreenElement)
+				void document.exitFullscreen().catch(() => {});
+			setMaximized(null);
+			return;
+		}
+		setMaximized(id);
+		// Without the Fullscreen API the .screen-tile--max class (full width)
+		// stands in.
+		if (canvas?.requestFullscreen)
+			void canvas.requestFullscreen().catch(() => {});
+	};
+	if (screenTiles.length === 0 && !screenSharing) return null;
+	return (
+		<div
+			className="screens"
+			style={{ "--tile-w": `${screenTileWidth}px` } as React.CSSProperties}
+		>
+			{screenSharing && (
+				<div className="screen-own-wrap">
+					<canvas
+						ref={(el) => registerScreenCanvas("own", el)}
+						className="screen-own"
+						data-testid="screen-tile-own"
+						width={160}
+						height={90}
+					/>
+					{stalledScreenTiles.own && (
+						<span className="caption" data-testid="screen-stalled-own">
+							画面共有が停止しているようです。一度停止してから再度共有してください
+						</span>
+					)}
+				</div>
+			)}
+			{screenTiles
+				.filter((id) => id !== "own")
+				.map((id) => (
+					<div
+						key={id}
+						className={
+							maximized === id ? "screen-tile screen-tile--max" : "screen-tile"
+						}
+					>
+						<canvas
+							ref={(el) => registerScreenCanvas(id, el)}
+							data-testid={`screen-tile-${id}`}
+							width={320}
+							height={180}
+						/>
+						<div className="screen-tile__bar">
+							<span className="caption">
+								{resolveDisplayName(id, nicknames)}
+							</span>
+							{/* The variant being decoded (follows each keyframe), so a
                   switch is observable: "HI" / "LO". */}
-              {switching && variants[id] && (
-                <span className="caption screen-tile__variant" data-testid={`screen-variant-${id}`}>
-                  {variants[id] === "lo" ? "LO" : "HI"}
-                </span>
-              )}
-              {switching && (
-                <select
-                  className="screen-tile__quality"
-                  data-testid={`screen-quality-${id}`}
-                  aria-label="Screen quality"
-                  value={qualities[id] ?? "auto"}
-                  onChange={(e) => setScreenQuality(id, e.target.value as ScreenQuality)}
-                >
-                  {SCREEN_QUALITIES.map((q) => (
-                    <option key={q.value} value={q.value}>
-                      {q.label}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {stalledScreenTiles[id] && (
-                <span className="caption" data-testid={`screen-stalled-${id}`}>
-                  Stalled
-                </span>
-              )}
-              <button
-                type="button"
-                className="sign sign--outline sign--small"
-                data-testid={`screen-maximize-${id}`}
-                onClick={(e) =>
-                  toggleMaximize(id, e.currentTarget.closest(".screen-tile")?.querySelector("canvas") ?? null)
-                }
-              >
-                {maximized === id ? "Restore ↙" : "Maximize ↗"}
-              </button>
-            </div>
-          </div>
-        ))}
-      <Notice message={screenShareError} />
-    </div>
-  );
+							{switching && variants[id] && (
+								<span
+									className="caption screen-tile__variant"
+									data-testid={`screen-variant-${id}`}
+								>
+									{variants[id] === "lo" ? "LO" : "HI"}
+								</span>
+							)}
+							{switching && (
+								<select
+									className="screen-tile__quality"
+									data-testid={`screen-quality-${id}`}
+									aria-label="Screen quality"
+									value={qualities[id] ?? "auto"}
+									onChange={(e) =>
+										setScreenQuality(id, e.target.value as ScreenQuality)
+									}
+								>
+									{SCREEN_QUALITIES.map((q) => (
+										<option key={q.value} value={q.value}>
+											{q.label}
+										</option>
+									))}
+								</select>
+							)}
+							{stalledScreenTiles[id] && (
+								<span className="caption" data-testid={`screen-stalled-${id}`}>
+									Stalled
+								</span>
+							)}
+							<button
+								type="button"
+								className="sign sign--outline sign--small"
+								data-testid={`screen-maximize-${id}`}
+								onClick={(e) =>
+									toggleMaximize(
+										id,
+										e.currentTarget
+											.closest(".screen-tile")
+											?.querySelector("canvas") ?? null,
+									)
+								}
+							>
+								{maximized === id ? "Restore ↙" : "Maximize ↗"}
+							</button>
+						</div>
+					</div>
+				))}
+			<Notice message={screenShareError} />
+		</div>
+	);
 }
 
 /** Warning-sign panel: black panel, optional bold heading, light body. */
 function Notice({
-  title,
-  message,
-  children,
+	title,
+	message,
+	children,
 }: {
-  title?: string;
-  message: string | null;
-  children?: React.ReactNode;
+	title?: string;
+	message: string | null;
+	children?: React.ReactNode;
 }) {
-  if (!message) return null;
-  return (
-    <div className="notice" role="alert">
-      <p>
-        {title && <strong>{title}</strong>}
-        {message}
-      </p>
-      {children}
-    </div>
-  );
+	if (!message) return null;
+	return (
+		<div className="notice" role="alert">
+			<p>
+				{title && <strong>{title}</strong>}
+				{message}
+			</p>
+			{children}
+		</div>
+	);
 }
 
 function Peers() {
-  const peers = useMoqtChatStore((s) => s.peers);
-  const voiceQuality = useMoqtChatStore((s) => s.voiceQuality);
-  const speaking = useMoqtChatStore((s) => s.speaking);
-  const localSpeaking = useMoqtChatStore((s) => s.localSpeaking);
-  const nicknames = useMoqtChatStore((s) => s.nicknames);
-  return (
-    <section>
-      <h2>Room</h2>
-      <p className="caption">{peers.length + 1} in room</p>
-      <ul className="peers">
-        <li className="you">
-          You
-          <span
-            className="status__block"
-            data-testid="speaking-you"
-            data-speaking={localSpeaking || undefined}
-          />
-        </li>
-        {peers.map((p) => (
-          <li key={p}>
-            {resolveDisplayName(p, nicknames)}
-            <span
-              className="status__block"
-              data-testid={`quality-${p}`}
-              data-quality={voiceQuality[p] === "none" ? undefined : voiceQuality[p]}
-              data-speaking={speaking[p] || undefined}
-            />
-          </li>
-        ))}
-      </ul>
-      {peers.length === 0 && <p className="caption">Waiting for others…</p>}
-    </section>
-  );
+	const peers = useMoqtChatStore((s) => s.peers);
+	const voiceQuality = useMoqtChatStore((s) => s.voiceQuality);
+	const speaking = useMoqtChatStore((s) => s.speaking);
+	const localSpeaking = useMoqtChatStore((s) => s.localSpeaking);
+	const nicknames = useMoqtChatStore((s) => s.nicknames);
+	return (
+		<section>
+			<h2>Room</h2>
+			<p className="caption">{peers.length + 1} in room</p>
+			<ul className="peers">
+				<li className="you">
+					You
+					<span
+						className="status__block"
+						data-testid="speaking-you"
+						data-speaking={localSpeaking || undefined}
+					/>
+				</li>
+				{peers.map((p) => (
+					<li key={p}>
+						{resolveDisplayName(p, nicknames)}
+						<span
+							className="status__block"
+							data-testid={`quality-${p}`}
+							data-quality={
+								voiceQuality[p] === "none" ? undefined : voiceQuality[p]
+							}
+							data-speaking={speaking[p] || undefined}
+						/>
+					</li>
+				))}
+			</ul>
+			{peers.length === 0 && <p className="caption">Waiting for others…</p>}
+		</section>
+	);
 }
 
 function Volume() {
-  const peers = useMoqtChatStore((s) => s.peers);
-  const masterVolume = useMoqtChatStore((s) => s.masterVolume);
-  const peerVolumes = useMoqtChatStore((s) => s.peerVolumes);
-  const setMasterVolume = useMoqtChatStore((s) => s.setMasterVolume);
-  const setPeerVolume = useMoqtChatStore((s) => s.setPeerVolume);
-  const nicknames = useMoqtChatStore((s) => s.nicknames);
-  return (
-    <section>
-      <h2>Volume</h2>
-      <label className="volume">
-        <span className="volume__label">Master</span>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.01}
-          value={masterVolume}
-          data-testid="master-volume"
-          onChange={(e) => setMasterVolume(Number(e.target.value))}
-        />
-      </label>
-      {peers.map((p) => (
-        <label key={p} className="volume volume--peer">
-          <span className="volume__label">{resolveDisplayName(p, nicknames)}</span>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={peerVolumes[p] ?? 1}
-            data-testid={`peer-volume-${p}`}
-            onChange={(e) => setPeerVolume(p, Number(e.target.value))}
-          />
-        </label>
-      ))}
-    </section>
-  );
+	const peers = useMoqtChatStore((s) => s.peers);
+	const masterVolume = useMoqtChatStore((s) => s.masterVolume);
+	const peerVolumes = useMoqtChatStore((s) => s.peerVolumes);
+	const setMasterVolume = useMoqtChatStore((s) => s.setMasterVolume);
+	const setPeerVolume = useMoqtChatStore((s) => s.setPeerVolume);
+	const nicknames = useMoqtChatStore((s) => s.nicknames);
+	return (
+		<section>
+			<h2>Volume</h2>
+			<label className="volume">
+				<span className="volume__label">Master</span>
+				<input
+					type="range"
+					min={0}
+					max={1}
+					step={0.01}
+					value={masterVolume}
+					data-testid="master-volume"
+					onChange={(e) => setMasterVolume(Number(e.target.value))}
+				/>
+			</label>
+			{peers.map((p) => (
+				<label key={p} className="volume volume--peer">
+					<span className="volume__label">
+						{resolveDisplayName(p, nicknames)}
+					</span>
+					<input
+						type="range"
+						min={0}
+						max={1}
+						step={0.01}
+						value={peerVolumes[p] ?? 1}
+						data-testid={`peer-volume-${p}`}
+						onChange={(e) => setPeerVolume(p, Number(e.target.value))}
+					/>
+				</label>
+			))}
+		</section>
+	);
 }
 
 function ScreenTileWidth() {
-  const width = useMoqtChatStore((s) => s.screenTileWidth);
-  const setWidth = useMoqtChatStore((s) => s.setScreenTileWidth);
-  return (
-    <section>
-      <h2>Screens</h2>
-      <label className="volume">
-        <span className="volume__label">Tile width</span>
-        <input
-          type="range"
-          min={SCREEN_TILE_MIN_PX}
-          max={SCREEN_TILE_MAX_PX}
-          step={SCREEN_TILE_STEP_PX}
-          value={width}
-          data-testid="screen-tile-width"
-          onChange={(e) => setWidth(Number(e.target.value))}
-        />
-      </label>
-    </section>
-  );
+	const width = useMoqtChatStore((s) => s.screenTileWidth);
+	const setWidth = useMoqtChatStore((s) => s.setScreenTileWidth);
+	return (
+		<section>
+			<h2>Screens</h2>
+			<label className="volume">
+				<span className="volume__label">Tile width</span>
+				<input
+					type="range"
+					min={SCREEN_TILE_MIN_PX}
+					max={SCREEN_TILE_MAX_PX}
+					step={SCREEN_TILE_STEP_PX}
+					value={width}
+					data-testid="screen-tile-width"
+					onChange={(e) => setWidth(Number(e.target.value))}
+				/>
+			</label>
+		</section>
+	);
 }
 
 function OutputDevice({ onSelect }: { onSelect: (deviceId: string) => void }) {
-  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  useEffect(() => {
-    const AudioContextCtor = window.AudioContext as unknown as {
-      prototype: { setSinkId?: unknown };
-    };
-    if (!canPickOutput(AudioContextCtor.prototype)) return;
-    navigator.mediaDevices
-      .enumerateDevices()
-      .then((all) => setDevices(all.filter((d) => d.kind === "audiooutput")))
-      .catch(() => {});
-  }, []);
-  if (devices.length === 0) return null;
-  return (
-    <section>
-      <h2>Output</h2>
-      <select
-        data-testid="output-device"
-        onChange={(e) => onSelect(e.target.value)}
-        defaultValue=""
-      >
-        <option value="" disabled>
-          Default
-        </option>
-        {devices.map((d) => (
-          <option key={d.deviceId} value={d.deviceId}>
-            {d.label || d.deviceId}
-          </option>
-        ))}
-      </select>
-    </section>
-  );
+	const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+	useEffect(() => {
+		const AudioContextCtor = window.AudioContext as unknown as {
+			prototype: { setSinkId?: unknown };
+		};
+		if (!canPickOutput(AudioContextCtor.prototype)) return;
+		navigator.mediaDevices
+			.enumerateDevices()
+			.then((all) => setDevices(all.filter((d) => d.kind === "audiooutput")))
+			.catch(() => {});
+	}, []);
+	if (devices.length === 0) return null;
+	return (
+		<section>
+			<h2>Output</h2>
+			<select
+				data-testid="output-device"
+				onChange={(e) => onSelect(e.target.value)}
+				defaultValue=""
+			>
+				<option value="" disabled>
+					Default
+				</option>
+				{devices.map((d) => (
+					<option key={d.deviceId} value={d.deviceId}>
+						{d.label || d.deviceId}
+					</option>
+				))}
+			</select>
+		</section>
+	);
 }
 
 // One attachment inside a sent/received message. The Blob URL already lives
 // on the store's ChatAttachment (attachBlobUrls in useMoqtChat.ts creates it
 // once per message), so this only picks image vs. video by MIME type --
 // unlike DraftChip below, it does not own the URL's lifetime.
-function MessageAttachment({ mimeType, url, index }: { mimeType: string; url: string; index: number }) {
-  // The Blob URL holds the original bytes, so a download link on it saves
-  // the file at full size even though the preview is scaled by CSS.
-  const fileName = `attachment-${index + 1}.${mimeType.split("/")[1] ?? "bin"}`;
-  return (
-    <figure className="message__attachment">
-      {mimeType.startsWith("video/") ? (
-        <video src={url} controls data-testid="message-video" />
-      ) : (
-        <img src={url} data-testid="message-image" alt="" />
-      )}
-      <a className="caption" href={url} download={fileName}>
-        download
-      </a>
-    </figure>
-  );
+function MessageAttachment({
+	mimeType,
+	url,
+	index,
+}: {
+	mimeType: string;
+	url: string;
+	index: number;
+}) {
+	// The Blob URL holds the original bytes, so a download link on it saves
+	// the file at full size even though the preview is scaled by CSS.
+	const fileName = `attachment-${index + 1}.${mimeType.split("/")[1] ?? "bin"}`;
+	return (
+		<figure className="message__attachment">
+			{mimeType.startsWith("video/") ? (
+				<video src={url} controls data-testid="message-video" />
+			) : (
+				<img src={url} data-testid="message-image" alt="" />
+			)}
+			<a className="caption" href={url} download={fileName}>
+				download
+			</a>
+		</figure>
+	);
 }
 
 function Message({ m }: { m: ChatMessage }) {
-  const nicknames = useMoqtChatStore((s) => s.nicknames);
-  const time = new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  // The Blob URLs are created once (attachBlobUrls in useMoqtChat.ts) and
-  // belong to this message instance for its whole lifetime, so revoke them
-  // on unmount only -- capture the values the effect closed over, not a
-  // fresh read of m.
-  useEffect(() => {
-    const urls = m.attachments?.map((a) => a.url) ?? [];
-    if (urls.length === 0) return;
-    return () => urls.forEach((url) => URL.revokeObjectURL(url));
-  }, [m.attachments]);
-  // DOM order is sender, time, text (the grid puts the time last): the e2e
-  // load harness matches "msg:<tag>:<seq>" in textContent, and a time
-  // directly after the text would extend the digits.
-  return (
-    <div className="message" data-testid="message" data-sender={m.senderId}>
-      <span className={m.own ? "message__sender you" : "message__sender"}>
-        {m.own ? "You" : resolveDisplayName(m.senderId, nicknames)}
-      </span>
-      <span className="message__time caption">{time}</span>
-      {m.text && <span className="message__text">{m.text}</span>}
-      {m.attachments && m.attachments.length > 0 && (
-        <div className="message__attachments">
-          {m.attachments.map((a, i) => (
-            <MessageAttachment key={i} mimeType={a.mimeType} url={a.url} index={i} />
-          ))}
-        </div>
-      )}
-      {m.failed && <span className="message__failed caption">Not sent</span>}
-    </div>
-  );
+	const nicknames = useMoqtChatStore((s) => s.nicknames);
+	const time = new Date(m.at).toLocaleTimeString([], {
+		hour: "2-digit",
+		minute: "2-digit",
+	});
+	// The Blob URLs are created once (attachBlobUrls in useMoqtChat.ts) and
+	// belong to this message instance for its whole lifetime, so revoke them
+	// on unmount only -- capture the values the effect closed over, not a
+	// fresh read of m.
+	useEffect(() => {
+		const urls = m.attachments?.map((a) => a.url) ?? [];
+		if (urls.length === 0) return;
+		return () => urls.forEach((url) => URL.revokeObjectURL(url));
+	}, [m.attachments]);
+	// DOM order is sender, time, text (the grid puts the time last): the e2e
+	// load harness matches "msg:<tag>:<seq>" in textContent, and a time
+	// directly after the text would extend the digits.
+	return (
+		<div className="message" data-testid="message" data-sender={m.senderId}>
+			<span className={m.own ? "message__sender you" : "message__sender"}>
+				{m.own ? "You" : resolveDisplayName(m.senderId, nicknames)}
+			</span>
+			<span className="message__time caption">{time}</span>
+			{m.text && <span className="message__text">{m.text}</span>}
+			{m.attachments && m.attachments.length > 0 && (
+				<div className="message__attachments">
+					{m.attachments.map((a, i) => (
+						<MessageAttachment
+							key={i}
+							mimeType={a.mimeType}
+							url={a.url}
+							index={i}
+						/>
+					))}
+				</div>
+			)}
+			{m.failed && <span className="message__failed caption">Not sent</span>}
+		</div>
+	);
 }
 
 function MessageList() {
-  const messages = useMoqtChatStore((s) => s.messages);
-  const listRef = useRef<HTMLDivElement>(null);
+	const messages = useMoqtChatStore((s) => s.messages);
+	const listRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const el = listRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length]);
+	useEffect(() => {
+		const el = listRef.current;
+		if (el) el.scrollTop = el.scrollHeight;
+	}, [messages.length]);
 
-  return (
-    <div ref={listRef} className="messages" data-testid="messages">
-      {messages.length === 0 && <span className="caption">No messages yet</span>}
-      {messages.map((m) => (
-        <Message key={m.id} m={m} />
-      ))}
-    </div>
-  );
+	return (
+		<div ref={listRef} className="messages" data-testid="messages">
+			{messages.length === 0 && (
+				<span className="caption">No messages yet</span>
+			)}
+			{messages.map((m) => (
+				<Message key={m.id} m={m} />
+			))}
+		</div>
+	);
 }
 
-type Draft = { id: string; bytes: Uint8Array; mimeType: string; fileName: string };
+type Draft = {
+	id: string;
+	bytes: Uint8Array;
+	mimeType: string;
+	fileName: string;
+};
 
 let nextDraftId = 1;
 
 // One preview chip. Owns its Blob URL for the draft's whole lifetime via
 // useObjectUrl -- removing the item from draftAttachments unmounts this
 // component, which is what revokes the URL (no parent-managed URL map).
-function DraftChip({ draft, onRemove }: { draft: Draft; onRemove: () => void }) {
-  const previewUrl = useObjectUrl(draft.bytes, draft.mimeType);
-  return (
-    <div className="draft-chip">
-      {draft.mimeType.startsWith("video/") ? (
-        <video
-          src={previewUrl}
-          muted
-          preload="metadata"
-          // Safari/WebKit doesn't decode a frame for the poster just from
-          // preload="metadata"; nudging currentTime forces a decode so the
-          // chip shows a real thumbnail instead of a blank rectangle.
-          onLoadedMetadata={(e) => {
-            e.currentTarget.currentTime = 0.1;
-          }}
-        />
-      ) : (
-        <img src={previewUrl} alt={draft.fileName} />
-      )}
-      <button type="button" className="draft-chip__remove" data-testid="draft-remove" onClick={onRemove}>
-        ✕
-      </button>
-    </div>
-  );
+function DraftChip({
+	draft,
+	onRemove,
+}: {
+	draft: Draft;
+	onRemove: () => void;
+}) {
+	const previewUrl = useObjectUrl(draft.bytes, draft.mimeType);
+	return (
+		<div className="draft-chip">
+			{draft.mimeType.startsWith("video/") ? (
+				<video
+					src={previewUrl}
+					muted
+					preload="metadata"
+					// Safari/WebKit doesn't decode a frame for the poster just from
+					// preload="metadata"; nudging currentTime forces a decode so the
+					// chip shows a real thumbnail instead of a blank rectangle.
+					onLoadedMetadata={(e) => {
+						e.currentTarget.currentTime = 0.1;
+					}}
+				/>
+			) : (
+				<img src={previewUrl} alt={draft.fileName} />
+			)}
+			<button
+				type="button"
+				className="draft-chip__remove"
+				data-testid="draft-remove"
+				onClick={onRemove}
+			>
+				✕
+			</button>
+		</div>
+	);
 }
 
 function Compose({
-  onSend,
-  onAttachmentRejected,
-  disabled,
+	onSend,
+	onAttachmentRejected,
+	disabled,
 }: {
-  onSend: (text: string, attachments: WireChatAttachment[]) => void;
-  onAttachmentRejected: (reason: string) => void;
-  disabled: boolean;
+	onSend: (text: string, attachments: WireChatAttachment[]) => void;
+	onAttachmentRejected: (reason: string) => void;
+	disabled: boolean;
 }) {
-  const [draft, setDraft] = useState("");
-  const [draftAttachments, setDraftAttachments] = useState<Draft[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+	const [draft, setDraft] = useState("");
+	const [draftAttachments, setDraftAttachments] = useState<Draft[]>([]);
+	const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const tryAddFile = (file: File, bytes: Uint8Array, existingCount: number): Draft | null => {
-    const result = validateAttachmentCandidate({ byteLength: bytes.byteLength, mimeType: file.type }, existingCount);
-    if (!result.ok) {
-      onAttachmentRejected(
-        result.reason === "too-large"
-          ? "attachment too large (max 5MB)"
-          : result.reason === "too-many"
-            ? "too many attachments (max 4)"
-            : "unsupported attachment type",
-      );
-      return null;
-    }
-    return { id: String(nextDraftId++), bytes, mimeType: file.type, fileName: file.name };
-  };
+	const tryAddFile = (
+		file: File,
+		bytes: Uint8Array,
+		existingCount: number,
+	): Draft | null => {
+		const result = validateAttachmentCandidate(
+			{ byteLength: bytes.byteLength, mimeType: file.type },
+			existingCount,
+		);
+		if (!result.ok) {
+			onAttachmentRejected(
+				result.reason === "too-large"
+					? "attachment too large (max 5MB)"
+					: result.reason === "too-many"
+						? "too many attachments (max 4)"
+						: "unsupported attachment type",
+			);
+			return null;
+		}
+		return {
+			id: String(nextDraftId++),
+			bytes,
+			mimeType: file.type,
+			fileName: file.name,
+		};
+	};
 
-  const addFiles = async (files: File[]) => {
-    let count = draftAttachments.length;
-    const added: Draft[] = [];
-    for (const file of files) {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const item = tryAddFile(file, bytes, count);
-      if (!item) continue;
-      added.push(item);
-      count += 1;
-    }
-    if (added.length > 0) setDraftAttachments((prev) => [...prev, ...added]);
-  };
+	const addFiles = async (files: File[]) => {
+		let count = draftAttachments.length;
+		const added: Draft[] = [];
+		for (const file of files) {
+			const bytes = new Uint8Array(await file.arrayBuffer());
+			const item = tryAddFile(file, bytes, count);
+			if (!item) continue;
+			added.push(item);
+			count += 1;
+		}
+		if (added.length > 0) setDraftAttachments((prev) => [...prev, ...added]);
+	};
 
-  const pickFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    e.target.value = "";
-    if (files.length === 0) return;
-    await addFiles(files);
-  };
+	const pickFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+		const files = Array.from(e.target.files ?? []);
+		e.target.value = "";
+		if (files.length === 0) return;
+		await addFiles(files);
+	};
 
-  // Pasted images/videos are picked up the same way as a file-picker
-  // selection; plain-text paste (item.kind === "string") is left completely
-  // alone -- no preventDefault, so the browser's normal paste-into-input
-  // still happens. When a file WAS picked up, preventDefault stops the
-  // browser from also inserting the file's name/a raw data URL into the
-  // text input alongside the draft chip this creates.
-  const onPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    const files = Array.from(e.clipboardData.items)
-      .filter((item) => item.kind === "file" && (item.type.startsWith("image/") || item.type.startsWith("video/")))
-      .map((item) => item.getAsFile())
-      .filter((f): f is File => f !== null);
-    if (files.length === 0) return;
-    e.preventDefault();
-    void addFiles(files);
-  };
+	// Pasted images/videos are picked up the same way as a file-picker
+	// selection; plain-text paste (item.kind === "string") is left completely
+	// alone -- no preventDefault, so the browser's normal paste-into-input
+	// still happens. When a file WAS picked up, preventDefault stops the
+	// browser from also inserting the file's name/a raw data URL into the
+	// text input alongside the draft chip this creates.
+	const onPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+		const files = Array.from(e.clipboardData.items)
+			.filter(
+				(item) =>
+					item.kind === "file" &&
+					(item.type.startsWith("image/") || item.type.startsWith("video/")),
+			)
+			.map((item) => item.getAsFile())
+			.filter((f): f is File => f !== null);
+		if (files.length === 0) return;
+		e.preventDefault();
+		void addFiles(files);
+	};
 
-  const canSend = draft.trim().length > 0 || draftAttachments.length > 0;
-  const submit = () => {
-    if (!canSend) return;
-    onSend(
-      draft.trim(),
-      draftAttachments.map((d) => ({ bytes: d.bytes, mimeType: d.mimeType })),
-    );
-    setDraft("");
-    setDraftAttachments([]);
-  };
-  // Enter is handled on keydown rather than via a <form>: the e2e load
-  // harness dispatches a synthetic keydown, which never submits a form.
-  return (
-    <div className="compose" data-testid="chat-form">
-      {draftAttachments.length > 0 && (
-        <div className="draft-row">
-          {draftAttachments.map((d) => (
-            <DraftChip
-              key={d.id}
-              draft={d}
-              onRemove={() => setDraftAttachments((prev) => prev.filter((x) => x.id !== d.id))}
-            />
-          ))}
-        </div>
-      )}
-      <input
-        name="chat-message"
-        placeholder="Type a message"
-        value={draft}
-        disabled={disabled}
-        data-testid="text"
-        onChange={(e) => setDraft(e.target.value)}
-        onPaste={onPaste}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") submit();
-        }}
-      />
-      <input
-        type="file"
-        accept="image/*,video/*"
-        multiple
-        data-testid="attachment-file"
-        hidden
-        ref={fileInputRef}
-        onChange={(e) => void pickFiles(e)}
-      />
-      <button
-        type="button"
-        className="sign sign--outline"
-        disabled={disabled}
-        onClick={() => fileInputRef.current?.click()}
-      >
-        📎
-      </button>
-      <button type="button" className="sign" disabled={disabled || !canSend} onClick={submit}>
-        Send →
-      </button>
-    </div>
-  );
+	const canSend = draft.trim().length > 0 || draftAttachments.length > 0;
+	const submit = () => {
+		if (!canSend) return;
+		onSend(
+			draft.trim(),
+			draftAttachments.map((d) => ({ bytes: d.bytes, mimeType: d.mimeType })),
+		);
+		setDraft("");
+		setDraftAttachments([]);
+	};
+	// Enter is handled on keydown rather than via a <form>: the e2e load
+	// harness dispatches a synthetic keydown, which never submits a form.
+	return (
+		<div className="compose" data-testid="chat-form">
+			{draftAttachments.length > 0 && (
+				<div className="draft-row">
+					{draftAttachments.map((d) => (
+						<DraftChip
+							key={d.id}
+							draft={d}
+							onRemove={() =>
+								setDraftAttachments((prev) => prev.filter((x) => x.id !== d.id))
+							}
+						/>
+					))}
+				</div>
+			)}
+			<input
+				name="chat-message"
+				placeholder="Type a message"
+				value={draft}
+				disabled={disabled}
+				data-testid="text"
+				onChange={(e) => setDraft(e.target.value)}
+				onPaste={onPaste}
+				onKeyDown={(e) => {
+					if (e.key === "Enter") submit();
+				}}
+			/>
+			<input
+				type="file"
+				accept="image/*,video/*"
+				multiple
+				data-testid="attachment-file"
+				hidden
+				ref={fileInputRef}
+				onChange={(e) => void pickFiles(e)}
+			/>
+			<button
+				type="button"
+				className="sign sign--outline"
+				disabled={disabled}
+				onClick={() => fileInputRef.current?.click()}
+			>
+				📎
+			</button>
+			<button
+				type="button"
+				className="sign"
+				disabled={disabled || !canSend}
+				onClick={submit}
+			>
+				Send →
+			</button>
+		</div>
+	);
 }
 
 function JoinScreen({
-  url,
-  setUrl,
-  certHash,
-  setCertHash,
-  nickname,
-  setNickname,
-  participantId,
-  setParticipantId,
-  connecting,
-  onJoin,
-  onClearSaved,
+	url,
+	setUrl,
+	certHash,
+	setCertHash,
+	nickname,
+	setNickname,
+	participantId,
+	setParticipantId,
+	connecting,
+	onJoin,
+	onClearSaved,
 }: {
-  url: string;
-  setUrl: (v: string) => void;
-  certHash: string;
-  setCertHash: (v: string) => void;
-  nickname: string;
-  setNickname: (v: string) => void;
-  participantId: string;
-  setParticipantId: (v: string) => void;
-  connecting: boolean;
-  onJoin: () => void;
-  onClearSaved: () => void;
+	url: string;
+	setUrl: (v: string) => void;
+	certHash: string;
+	setCertHash: (v: string) => void;
+	nickname: string;
+	setNickname: (v: string) => void;
+	participantId: string;
+	setParticipantId: (v: string) => void;
+	connecting: boolean;
+	onJoin: () => void;
+	onClearSaved: () => void;
 }) {
-  return (
-    <div className="cover">
-      <div>
-        <h1>Join the room</h1>
-        <p className="cover__lede">
-          Voice, screen sharing and text over one MOQT session. Pick a participant
-          id and connect to the hub.
-        </p>
-      </div>
-      <form
-        className="form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!connecting) onJoin();
-        }}
-      >
-        <label className="field">
-          <span className="field__label">Server URL</span>
-          <input
-            placeholder={DEFAULT_URL}
-            value={url}
-            data-testid="url"
-            onChange={(e) => setUrl(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          <span className="field__label">Certificate hash (SHA-256)</span>
-          <input
-            placeholder="hex fingerprint"
-            value={certHash}
-            data-testid="certHash"
-            onChange={(e) => setCertHash(e.target.value)}
-          />
-          <span className="field__hint caption">
-            Copy it from the server&apos;s startup log. Leave empty for a CA-signed certificate.
-          </span>
-        </label>
-        <label className="field">
-          <span className="field__label">Nickname (optional)</span>
-          <input
-            placeholder="Shown instead of your participant id"
-            value={nickname}
-            data-testid="nickname"
-            onChange={(e) => setNickname(e.target.value)}
-          />
-        </label>
-        <div className="field">
-          <span className="field__label">Participant ID</span>
-          <div className="tiles" data-testid="author">
-            {CANDIDATE_PARTICIPANT_IDS.map((id) => (
-              <button
-                key={id}
-                type="button"
-                className="tile"
-                aria-pressed={id === participantId}
-                data-testid={`participant-${id}`}
-                onClick={() => setParticipantId(id)}
-              >
-                {id}
-              </button>
-            ))}
-          </div>
-        </div>
-        <button type="submit" className="sign sign--red" disabled={connecting} data-testid="connect">
-          {connecting ? "Connecting…" : "→ Join"}
-        </button>
-        <button type="button" className="link" onClick={onClearSaved}>
-          Clear saved info
-        </button>
-      </form>
-      <div className="cover__mark">
-        <Wordmark height="6em" />
-      </div>
-    </div>
-  );
+	return (
+		<div className="cover">
+			<div>
+				<h1>Join the room</h1>
+				<p className="cover__lede">
+					Voice, screen sharing and text over one MOQT session. Pick a
+					participant id and connect to the hub.
+				</p>
+			</div>
+			<form
+				className="form"
+				onSubmit={(e) => {
+					e.preventDefault();
+					if (!connecting) onJoin();
+				}}
+			>
+				<label className="field">
+					<span className="field__label">Server URL</span>
+					<input
+						placeholder={DEFAULT_URL}
+						value={url}
+						data-testid="url"
+						onChange={(e) => setUrl(e.target.value)}
+					/>
+				</label>
+				<label className="field">
+					<span className="field__label">Certificate hash (SHA-256)</span>
+					<input
+						placeholder="hex fingerprint"
+						value={certHash}
+						data-testid="certHash"
+						onChange={(e) => setCertHash(e.target.value)}
+					/>
+					<span className="field__hint caption">
+						Copy it from the server&apos;s startup log. Leave empty for a
+						CA-signed certificate.
+					</span>
+				</label>
+				<label className="field">
+					<span className="field__label">Nickname (optional)</span>
+					<input
+						placeholder="Shown instead of your participant id"
+						value={nickname}
+						data-testid="nickname"
+						onChange={(e) => setNickname(e.target.value)}
+					/>
+				</label>
+				<div className="field">
+					<span className="field__label">Participant ID</span>
+					<div className="tiles" data-testid="author">
+						{CANDIDATE_PARTICIPANT_IDS.map((id) => (
+							<button
+								key={id}
+								type="button"
+								className="tile"
+								aria-pressed={id === participantId}
+								data-testid={`participant-${id}`}
+								onClick={() => setParticipantId(id)}
+							>
+								{id}
+							</button>
+						))}
+					</div>
+				</div>
+				<button
+					type="submit"
+					className="sign sign--red"
+					disabled={connecting}
+					data-testid="connect"
+				>
+					{connecting ? "Connecting…" : "→ Join"}
+				</button>
+				<button type="button" className="link" onClick={onClearSaved}>
+					Clear saved info
+				</button>
+			</form>
+			<div className="cover__mark">
+				<Wordmark height="6em" />
+			</div>
+		</div>
+	);
 }
 
 export default function Home() {
-  const [url, setUrl] = useState(DEFAULT_URL);
-  const [certHash, setCertHash] = useState("");
-  const [nickname, setNickname] = useState("");
-  const [participantId, setParticipantId] = useState(DEFAULT_PARTICIPANT_ID);
-  const [joined, setJoined] = useState(false);
-  const {
-    connect,
-    sendMessage,
-    toggleMute,
-    leave,
-    micError,
-    startScreenShare,
-    stopScreenShare,
-    registerScreenCanvas,
-    setOutputDevice,
-    setScreenQuality,
-  } = useMoqtChat();
-  const connectionState = useMoqtChatStore((s) => s.connectionState);
-  const screenSharing = useMoqtChatStore((s) => s.screenSharing);
-  const screenShareError = useMoqtChatStore((s) => s.screenShareError);
-  const messageSendError = useMoqtChatStore((s) => s.messageSendError);
+	const [url, setUrl] = useState(DEFAULT_URL);
+	const [certHash, setCertHash] = useState("");
+	const [nickname, setNickname] = useState("");
+	const [participantId, setParticipantId] = useState(DEFAULT_PARTICIPANT_ID);
+	const [joined, setJoined] = useState(false);
+	const {
+		connect,
+		sendMessage,
+		toggleMute,
+		leave,
+		micError,
+		startScreenShare,
+		stopScreenShare,
+		registerScreenCanvas,
+		setOutputDevice,
+		setScreenQuality,
+	} = useMoqtChat();
+	const connectionState = useMoqtChatStore((s) => s.connectionState);
+	const screenSharing = useMoqtChatStore((s) => s.screenSharing);
+	const screenShareError = useMoqtChatStore((s) => s.screenShareError);
+	const messageSendError = useMoqtChatStore((s) => s.messageSendError);
 
-  // Switch to the chat screen once the connection is established.
-  useEffect(
-    () =>
-      useMoqtChatStore.subscribe((s) => {
-        if (s.connectionState === "connected") setJoined(true);
-      }),
-    [],
-  );
+	// Switch to the chat screen once the connection is established.
+	useEffect(
+		() =>
+			useMoqtChatStore.subscribe((s) => {
+				if (s.connectionState === "connected") setJoined(true);
+			}),
+		[],
+	);
 
-  // Restore the join form from the last visit. Deferred a tick, not in the
-  // initial state: the page is statically prerendered (no localStorage until
-  // hydration), and a synchronous setState inside the effect would both
-  // trip the react-hooks rule and risk a hydration mismatch.
-  useEffect(() => {
-    const t = window.setTimeout(() => {
-      const saved = loadJoinPrefs();
-      if (!saved) return;
-      setUrl(saved.url);
-      setCertHash(saved.certHash);
-      if (saved.name) setParticipantId(saved.name);
-      if (saved.nickname) setNickname(saved.nickname);
-    }, 0);
-    return () => window.clearTimeout(t);
-  }, []);
+	// Restore the join form from the last visit. Deferred a tick, not in the
+	// initial state: the page is statically prerendered (no localStorage until
+	// hydration), and a synchronous setState inside the effect would both
+	// trip the react-hooks rule and risk a hydration mismatch.
+	useEffect(() => {
+		const t = window.setTimeout(() => {
+			const saved = loadJoinPrefs();
+			if (!saved) return;
+			setUrl(saved.url);
+			setCertHash(saved.certHash);
+			if (saved.name) setParticipantId(saved.name);
+			if (saved.nickname) setNickname(saved.nickname);
+		}, 0);
+		return () => window.clearTimeout(t);
+	}, []);
 
-  const clearSaved = () => {
-    clearJoinPrefs();
-    setUrl(DEFAULT_URL);
-    setCertHash("");
-    setNickname("");
-    setParticipantId(DEFAULT_PARTICIPANT_ID);
-  };
+	const clearSaved = () => {
+		clearJoinPrefs();
+		setUrl(DEFAULT_URL);
+		setCertHash("");
+		setNickname("");
+		setParticipantId(DEFAULT_PARTICIPANT_ID);
+	};
 
-  const connecting = connectionState === "connecting";
-  const lost = joined && connectionState === "disconnected";
+	const connecting = connectionState === "connecting";
+	const lost = joined && connectionState === "disconnected";
 
-  return (
-    <main className={joined ? "page page--room" : "page"}>
-      <header className="masthead">
-        <div className="masthead__brand">
-          <Wordmark height="1.6em" />
-          <span className="masthead__stem">Chat</span>
-        </div>
-        {joined ? (
-          <div className="masthead__tools">
-            <MicToggle onToggleMute={toggleMute} />
-            <NoiseSuppressionToggle />
-            <ScreenShareToggle
-              sharing={screenSharing}
-              onStart={() => void startScreenShare()}
-              onStop={stopScreenShare}
-            />
-            <button
-              type="button"
-              className="sign sign--outline"
-              onClick={() => {
-                leave();
-                setJoined(false);
-              }}
-            >
-              ← Leave
-            </button>
-          </div>
-        ) : (
-          <p className="masthead__id">
-            Media over QUIC Transport
-            <br />
-            draft-ietf-moq-transport-22 (draft-19 fallback)
-          </p>
-        )}
-      </header>
-      <hr className="rule" />
+	return (
+		<main className={joined ? "page page--room" : "page"}>
+			<header className="masthead">
+				<div className="masthead__brand">
+					<Wordmark height="1.6em" />
+					<span className="masthead__stem">Chat</span>
+				</div>
+				{joined ? (
+					<div className="masthead__tools">
+						<MicToggle onToggleMute={toggleMute} />
+						<NoiseSuppressionToggle />
+						<ScreenShareToggle
+							sharing={screenSharing}
+							onStart={() => void startScreenShare()}
+							onStop={stopScreenShare}
+						/>
+						<button
+							type="button"
+							className="sign sign--outline"
+							onClick={() => {
+								leave();
+								setJoined(false);
+							}}
+						>
+							← Leave
+						</button>
+					</div>
+				) : (
+					<p className="masthead__id">
+						Media over QUIC Transport
+						<br />
+						draft-ietf-moq-transport-22 (draft-19 fallback)
+					</p>
+				)}
+			</header>
+			<hr className="rule" />
 
-      <Notice title="Connection lost" message={lost ? "The session to the hub was closed." : null}>
-        <button
-          type="button"
-          className="sign sign--outline"
-          onClick={() => void connect(url, participantId, certHash ? [certHash] : [], nickname)}
-        >
-          → Rejoin
-        </button>
-      </Notice>
-      <Notice message={micError} />
-      {/* Also shown inside ScreenTiles while a tile is on screen; repeated
+			<Notice
+				title="Connection lost"
+				message={lost ? "The session to the hub was closed." : null}
+			>
+				<button
+					type="button"
+					className="sign sign--outline"
+					onClick={() =>
+						void connect(
+							url,
+							participantId,
+							certHash ? [certHash] : [],
+							nickname,
+						)
+					}
+				>
+					→ Rejoin
+				</button>
+			</Notice>
+			<Notice message={micError} />
+			{/* Also shown inside ScreenTiles while a tile is on screen; repeated
           here so the message survives an auto-stop that removed the last
           tile (own's auto-stop clears screenSharing and its own tile,
           which can make ScreenTiles render nothing at all). */}
-      <Notice message={screenShareError} />
-      <Notice message={messageSendError} />
+			<Notice message={screenShareError} />
+			<Notice message={messageSendError} />
 
-      {joined ? (
-        <div className="room">
-          <aside className="rail">
-            <Peers />
-            <Volume />
-            <ScreenTileWidth />
-            <OutputDevice onSelect={setOutputDevice} />
-            <section>
-              <h2>Status</h2>
-              <Status />
-            </section>
-          </aside>
-          <section className="body">
-            <ScreenTiles registerScreenCanvas={registerScreenCanvas} setScreenQuality={setScreenQuality} />
-            <MessageList />
-            <Compose
-              onSend={(text, attachments) => void sendMessage(text, attachments)}
-              onAttachmentRejected={(reason) => useMoqtChatStore.getState().setMessageSendError(reason)}
-              disabled={connectionState !== "connected"}
-            />
-          </section>
-        </div>
-      ) : (
-        <JoinScreen
-          url={url}
-          setUrl={setUrl}
-          certHash={certHash}
-          setCertHash={setCertHash}
-          nickname={nickname}
-          setNickname={setNickname}
-          participantId={participantId}
-          setParticipantId={setParticipantId}
-          connecting={connecting}
-          onJoin={() => {
-            saveJoinPrefs({ url, certHash, name: participantId, nickname });
-            void connect(url, participantId, certHash ? [certHash] : [], nickname);
-          }}
-          onClearSaved={clearSaved}
-        />
-      )}
-      <footer className="folio">MOQT Chat · wired</footer>
-    </main>
-  );
+			{joined ? (
+				<div className="room">
+					<aside className="rail">
+						<Peers />
+						<Volume />
+						<ScreenTileWidth />
+						<OutputDevice onSelect={setOutputDevice} />
+						<section>
+							<h2>Status</h2>
+							<Status />
+						</section>
+					</aside>
+					<section className="body">
+						<ScreenTiles
+							registerScreenCanvas={registerScreenCanvas}
+							setScreenQuality={setScreenQuality}
+						/>
+						<MessageList />
+						<Compose
+							onSend={(text, attachments) =>
+								void sendMessage(text, attachments)
+							}
+							onAttachmentRejected={(reason) =>
+								useMoqtChatStore.getState().setMessageSendError(reason)
+							}
+							disabled={connectionState !== "connected"}
+						/>
+					</section>
+				</div>
+			) : (
+				<JoinScreen
+					url={url}
+					setUrl={setUrl}
+					certHash={certHash}
+					setCertHash={setCertHash}
+					nickname={nickname}
+					setNickname={setNickname}
+					participantId={participantId}
+					setParticipantId={setParticipantId}
+					connecting={connecting}
+					onJoin={() => {
+						saveJoinPrefs({ url, certHash, name: participantId, nickname });
+						void connect(
+							url,
+							participantId,
+							certHash ? [certHash] : [],
+							nickname,
+						);
+					}}
+					onClearSaved={clearSaved}
+				/>
+			)}
+			<footer className="folio">MOQT Chat · wired</footer>
+		</main>
+	);
 }

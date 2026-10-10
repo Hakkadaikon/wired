@@ -9,10 +9,10 @@ import type { NextConfig } from "next";
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 const nextConfig: NextConfig = {
-  // The app is fully client-side, so a static export (out/) is enough; the
-  // justfile's serve-frontend recipe serves it over TLS.
-  output: "export",
-  basePath,
+	// The app is fully client-side, so a static export (out/) is enough; the
+	// justfile's serve-frontend recipe serves it over TLS.
+	output: "export",
+	basePath,
 };
 
 export default nextConfig;

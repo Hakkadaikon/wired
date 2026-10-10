@@ -1,393 +1,449 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { resolveDisplayName, useMoqtChatStore } from "../moqtChatStore";
 
 describe("moqtChatStore", () => {
-  beforeEach(() => {
-    useMoqtChatStore.setState(useMoqtChatStore.getInitialState());
-  });
+	beforeEach(() => {
+		useMoqtChatStore.setState(useMoqtChatStore.getInitialState());
+	});
 
-  it("starts disconnected, unmuted, with no messages or peers", () => {
-    const s = useMoqtChatStore.getState();
-    expect(s.connectionState).toBe("disconnected");
-    expect(s.muted).toBe(false);
-    expect(s.messages).toEqual([]);
-    expect(s.peers).toEqual([]);
-    expect(s.nicknames).toEqual({});
-    expect(s.screenSharing).toBe(false);
-    expect(s.screenTiles).toEqual([]);
-    expect(s.screenShareError).toBeNull();
-    expect(s.masterVolume).toBe(1);
-    expect(s.peerVolumes).toEqual({});
-    expect(s.voiceQuality).toEqual({});
-  });
+	it("starts disconnected, unmuted, with no messages or peers", () => {
+		const s = useMoqtChatStore.getState();
+		expect(s.connectionState).toBe("disconnected");
+		expect(s.muted).toBe(false);
+		expect(s.messages).toEqual([]);
+		expect(s.peers).toEqual([]);
+		expect(s.nicknames).toEqual({});
+		expect(s.screenSharing).toBe(false);
+		expect(s.screenTiles).toEqual([]);
+		expect(s.screenShareError).toBeNull();
+		expect(s.masterVolume).toBe(1);
+		expect(s.peerVolumes).toEqual({});
+		expect(s.voiceQuality).toEqual({});
+	});
 
-  it("holds the remote screen tile width (320 px by default) and which tile is maximized", () => {
-    const s = useMoqtChatStore.getState();
-    expect(s.screenTileWidth).toBe(320);
-    expect(s.maximizedScreenTile).toBeNull();
-    s.setScreenTileWidth(640);
-    s.setMaximizedScreenTile("user2");
-    expect(useMoqtChatStore.getState().screenTileWidth).toBe(640);
-    expect(useMoqtChatStore.getState().maximizedScreenTile).toBe("user2");
-  });
+	it("holds the remote screen tile width (320 px by default) and which tile is maximized", () => {
+		const s = useMoqtChatStore.getState();
+		expect(s.screenTileWidth).toBe(320);
+		expect(s.maximizedScreenTile).toBeNull();
+		s.setScreenTileWidth(640);
+		s.setMaximizedScreenTile("user2");
+		expect(useMoqtChatStore.getState().screenTileWidth).toBe(640);
+		expect(useMoqtChatStore.getState().maximizedScreenTile).toBe("user2");
+	});
 
-  it("un-maximizes a tile when it is removed", () => {
-    const s = useMoqtChatStore.getState();
-    s.addScreenTile("user2");
-    s.setMaximizedScreenTile("user2");
-    s.removeScreenTile("user3");
-    expect(useMoqtChatStore.getState().maximizedScreenTile).toBe("user2");
-    s.removeScreenTile("user2");
-    expect(useMoqtChatStore.getState().maximizedScreenTile).toBeNull();
-  });
+	it("un-maximizes a tile when it is removed", () => {
+		const s = useMoqtChatStore.getState();
+		s.addScreenTile("user2");
+		s.setMaximizedScreenTile("user2");
+		s.removeScreenTile("user3");
+		expect(useMoqtChatStore.getState().maximizedScreenTile).toBe("user2");
+		s.removeScreenTile("user2");
+		expect(useMoqtChatStore.getState().maximizedScreenTile).toBeNull();
+	});
 
-  it("clearScreenTiles drops every tile, its stalled flag and the maximized one", () => {
-    const s = useMoqtChatStore.getState();
-    s.addScreenTile("user2");
-    s.addScreenTile("user3");
-    s.setScreenTileStalled("user2", true);
-    s.setMaximizedScreenTile("user3");
-    s.clearScreenTiles();
-    const after = useMoqtChatStore.getState();
-    expect(after.screenTiles).toEqual([]);
-    expect(after.stalledScreenTiles).toEqual({});
-    expect(after.maximizedScreenTile).toBeNull();
-  });
+	it("clearScreenTiles drops every tile, its stalled flag and the maximized one", () => {
+		const s = useMoqtChatStore.getState();
+		s.addScreenTile("user2");
+		s.addScreenTile("user3");
+		s.setScreenTileStalled("user2", true);
+		s.setMaximizedScreenTile("user3");
+		s.clearScreenTiles();
+		const after = useMoqtChatStore.getState();
+		expect(after.screenTiles).toEqual([]);
+		expect(after.stalledScreenTiles).toEqual({});
+		expect(after.maximizedScreenTile).toBeNull();
+	});
 
-  it("flags a screen tile as stalled and clears it again", () => {
-    const s = useMoqtChatStore.getState();
-    expect(s.stalledScreenTiles).toEqual({});
-    s.setScreenTileStalled("user2", true);
-    expect(useMoqtChatStore.getState().stalledScreenTiles).toEqual({ user2: true });
-    s.setScreenTileStalled("user2", false);
-    expect(useMoqtChatStore.getState().stalledScreenTiles).toEqual({ user2: false });
-  });
+	it("flags a screen tile as stalled and clears it again", () => {
+		const s = useMoqtChatStore.getState();
+		expect(s.stalledScreenTiles).toEqual({});
+		s.setScreenTileStalled("user2", true);
+		expect(useMoqtChatStore.getState().stalledScreenTiles).toEqual({
+			user2: true,
+		});
+		s.setScreenTileStalled("user2", false);
+		expect(useMoqtChatStore.getState().stalledScreenTiles).toEqual({
+			user2: false,
+		});
+	});
 
-  it("setScreenTileStalled leaves state untouched when the flag is unchanged", () => {
-    const s = useMoqtChatStore.getState();
-    s.setScreenTileStalled("user2", true);
-    const before = useMoqtChatStore.getState().stalledScreenTiles;
-    s.setScreenTileStalled("user2", true);
-    expect(useMoqtChatStore.getState().stalledScreenTiles).toBe(before);
-  });
+	it("setScreenTileStalled leaves state untouched when the flag is unchanged", () => {
+		const s = useMoqtChatStore.getState();
+		s.setScreenTileStalled("user2", true);
+		const before = useMoqtChatStore.getState().stalledScreenTiles;
+		s.setScreenTileStalled("user2", true);
+		expect(useMoqtChatStore.getState().stalledScreenTiles).toBe(before);
+	});
 
-  it("assigns monotonically increasing message ids and returns them", () => {
-    const id1 = useMoqtChatStore
-      .getState()
-      .addMessage({ senderId: "user1", text: "hi", at: 1, own: true });
-    const id2 = useMoqtChatStore
-      .getState()
-      .addMessage({ senderId: "user2", text: "yo", at: 2, own: false });
-    expect(id2).toBeGreaterThan(id1);
-    const ids = useMoqtChatStore.getState().messages.map((m) => m.id);
-    expect(ids).toEqual([id1, id2]);
-  });
+	it("assigns monotonically increasing message ids and returns them", () => {
+		const id1 = useMoqtChatStore
+			.getState()
+			.addMessage({ senderId: "user1", text: "hi", at: 1, own: true });
+		const id2 = useMoqtChatStore
+			.getState()
+			.addMessage({ senderId: "user2", text: "yo", at: 2, own: false });
+		expect(id2).toBeGreaterThan(id1);
+		const ids = useMoqtChatStore.getState().messages.map((m) => m.id);
+		expect(ids).toEqual([id1, id2]);
+	});
 
-  it("a message whose key is already in the log is not added twice (history refetched on rejoin)", () => {
-    const s = useMoqtChatStore.getState();
-    const id = s.addMessage({ senderId: "user2", text: "hi", at: 1, own: false, key: "user2:7" });
-    expect(s.addMessage({ senderId: "user2", text: "hi", at: 2, own: false, key: "user2:7" })).toBe(id);
-    s.addMessage({ senderId: "user2", text: "other", at: 3, own: false, key: "user2:8" });
-    expect(useMoqtChatStore.getState().messages.map((m) => m.text)).toEqual(["hi", "other"]);
-  });
+	it("a message whose key is already in the log is not added twice (history refetched on rejoin)", () => {
+		const s = useMoqtChatStore.getState();
+		const id = s.addMessage({
+			senderId: "user2",
+			text: "hi",
+			at: 1,
+			own: false,
+			key: "user2:7",
+		});
+		expect(
+			s.addMessage({
+				senderId: "user2",
+				text: "hi",
+				at: 2,
+				own: false,
+				key: "user2:7",
+			}),
+		).toBe(id);
+		s.addMessage({
+			senderId: "user2",
+			text: "other",
+			at: 3,
+			own: false,
+			key: "user2:8",
+		});
+		expect(useMoqtChatStore.getState().messages.map((m) => m.text)).toEqual([
+			"hi",
+			"other",
+		]);
+	});
 
-  it("appends a chat message preserving text, at, own, and failed", () => {
-    const id = useMoqtChatStore.getState().addMessage({
-      senderId: "user1",
-      text: "hi",
-      at: 1234,
-      own: true,
-      failed: true,
-    });
-    expect(useMoqtChatStore.getState().messages).toEqual([
-      { id, senderId: "user1", text: "hi", at: 1234, own: true, failed: true },
-    ]);
-  });
+	it("appends a chat message preserving text, at, own, and failed", () => {
+		const id = useMoqtChatStore.getState().addMessage({
+			senderId: "user1",
+			text: "hi",
+			at: 1234,
+			own: true,
+			failed: true,
+		});
+		expect(useMoqtChatStore.getState().messages).toEqual([
+			{ id, senderId: "user1", text: "hi", at: 1234, own: true, failed: true },
+		]);
+	});
 
-  it("removes a message by id, leaving others intact", () => {
-    const id1 = useMoqtChatStore
-      .getState()
-      .addMessage({ senderId: "user1", text: "a", at: 1, own: true });
-    const id2 = useMoqtChatStore
-      .getState()
-      .addMessage({ senderId: "user1", text: "b", at: 2, own: true });
-    useMoqtChatStore.getState().removeMessage(id1);
-    expect(useMoqtChatStore.getState().messages.map((m) => m.id)).toEqual([id2]);
-  });
+	it("removes a message by id, leaving others intact", () => {
+		const id1 = useMoqtChatStore
+			.getState()
+			.addMessage({ senderId: "user1", text: "a", at: 1, own: true });
+		const id2 = useMoqtChatStore
+			.getState()
+			.addMessage({ senderId: "user1", text: "b", at: 2, own: true });
+		useMoqtChatStore.getState().removeMessage(id1);
+		expect(useMoqtChatStore.getState().messages.map((m) => m.id)).toEqual([
+			id2,
+		]);
+	});
 
-  it("ignores removeMessage for an unknown id", () => {
-    const id = useMoqtChatStore
-      .getState()
-      .addMessage({ senderId: "user1", text: "a", at: 1, own: true });
-    useMoqtChatStore.getState().removeMessage(id + 999);
-    expect(useMoqtChatStore.getState().messages).toHaveLength(1);
-  });
+	it("ignores removeMessage for an unknown id", () => {
+		const id = useMoqtChatStore
+			.getState()
+			.addMessage({ senderId: "user1", text: "a", at: 1, own: true });
+		useMoqtChatStore.getState().removeMessage(id + 999);
+		expect(useMoqtChatStore.getState().messages).toHaveLength(1);
+	});
 
-  it("sets a participant's nickname without affecting others", () => {
-    useMoqtChatStore.getState().setNickname("user1", "Alice");
-    useMoqtChatStore.getState().setNickname("user2", "Bob");
-    expect(useMoqtChatStore.getState().nicknames).toEqual({ user1: "Alice", user2: "Bob" });
-  });
-  it("removeScreenTile forgets that tile's variant", () => {
-    const s = useMoqtChatStore.getState();
-    s.addScreenTile("user2");
-    s.setScreenTileVariant("user2", "lo");
-    s.setScreenTileVariant("user3", "hi");
-    s.removeScreenTile("user2");
-    expect(useMoqtChatStore.getState().screenTileVariants).toEqual({ user3: "hi" });
-  });
+	it("sets a participant's nickname without affecting others", () => {
+		useMoqtChatStore.getState().setNickname("user1", "Alice");
+		useMoqtChatStore.getState().setNickname("user2", "Bob");
+		expect(useMoqtChatStore.getState().nicknames).toEqual({
+			user1: "Alice",
+			user2: "Bob",
+		});
+	});
+	it("removeScreenTile forgets that tile's variant", () => {
+		const s = useMoqtChatStore.getState();
+		s.addScreenTile("user2");
+		s.setScreenTileVariant("user2", "lo");
+		s.setScreenTileVariant("user3", "hi");
+		s.removeScreenTile("user2");
+		expect(useMoqtChatStore.getState().screenTileVariants).toEqual({
+			user3: "hi",
+		});
+	});
 
-  it("F1: a peer that leaves and rejoins starts with no stale quality or variant", () => {
-    const s = useMoqtChatStore.getState();
-    s.addPeer("user2");
-    s.setScreenTileQuality("user2", "low");
-    s.setScreenTileVariant("user2", "lo");
-    s.setScreenTileQuality("user3", "high");
-    s.removePeer("user2");
-    s.addPeer("user2");
-    const after = useMoqtChatStore.getState();
-    expect(after.screenTileQuality).toEqual({ user3: "high" });
-    expect(after.screenTileVariants).toEqual({});
-  });
-
+	it("F1: a peer that leaves and rejoins starts with no stale quality or variant", () => {
+		const s = useMoqtChatStore.getState();
+		s.addPeer("user2");
+		s.setScreenTileQuality("user2", "low");
+		s.setScreenTileVariant("user2", "lo");
+		s.setScreenTileQuality("user3", "high");
+		s.removePeer("user2");
+		s.addPeer("user2");
+		const after = useMoqtChatStore.getState();
+		expect(after.screenTileQuality).toEqual({ user3: "high" });
+		expect(after.screenTileVariants).toEqual({});
+	});
 });
 
 describe("resolveDisplayName", () => {
-  // Many store tests live here too: each starts from the initial state.
-  beforeEach(() => {
-    useMoqtChatStore.setState(useMoqtChatStore.getInitialState());
-  });
+	// Many store tests live here too: each starts from the initial state.
+	beforeEach(() => {
+		useMoqtChatStore.setState(useMoqtChatStore.getInitialState());
+	});
 
-  it("returns the nickname when one is known", () => {
-    expect(resolveDisplayName("user1", { user1: "Alice" })).toBe("Alice");
-  });
+	it("returns the nickname when one is known", () => {
+		expect(resolveDisplayName("user1", { user1: "Alice" })).toBe("Alice");
+	});
 
-  it("falls back to the id when no nickname is known", () => {
-    expect(resolveDisplayName("user1", {})).toBe("user1");
-  });
+	it("falls back to the id when no nickname is known", () => {
+		expect(resolveDisplayName("user1", {})).toBe("user1");
+	});
 
-  it("falls back to the id when the nickname is an empty string", () => {
-    expect(resolveDisplayName("user1", { user1: "" })).toBe("user1");
-  });
+	it("falls back to the id when the nickname is an empty string", () => {
+		expect(resolveDisplayName("user1", { user1: "" })).toBe("user1");
+	});
 
-  it("adds peers uniquely (dedupes) in observation order", () => {
-    useMoqtChatStore.getState().addPeer("user2");
-    useMoqtChatStore.getState().addPeer("user3");
-    useMoqtChatStore.getState().addPeer("user2");
-    expect(useMoqtChatStore.getState().peers).toEqual(["user2", "user3"]);
-  });
+	it("adds peers uniquely (dedupes) in observation order", () => {
+		useMoqtChatStore.getState().addPeer("user2");
+		useMoqtChatStore.getState().addPeer("user3");
+		useMoqtChatStore.getState().addPeer("user2");
+		expect(useMoqtChatStore.getState().peers).toEqual(["user2", "user3"]);
+	});
 
-  it("removes a peer", () => {
-    useMoqtChatStore.getState().addPeer("user2");
-    useMoqtChatStore.getState().addPeer("user3");
-    useMoqtChatStore.getState().removePeer("user2");
-    expect(useMoqtChatStore.getState().peers).toEqual(["user3"]);
-    useMoqtChatStore.getState().removePeer("unknown"); // no-op
-    expect(useMoqtChatStore.getState().peers).toEqual(["user3"]);
-  });
+	it("removes a peer", () => {
+		useMoqtChatStore.getState().addPeer("user2");
+		useMoqtChatStore.getState().addPeer("user3");
+		useMoqtChatStore.getState().removePeer("user2");
+		expect(useMoqtChatStore.getState().peers).toEqual(["user3"]);
+		useMoqtChatStore.getState().removePeer("unknown"); // no-op
+		expect(useMoqtChatStore.getState().peers).toEqual(["user3"]);
+	});
 
-  it("clears peers", () => {
-    useMoqtChatStore.getState().addPeer("user2");
-    useMoqtChatStore.getState().clearPeers();
-    expect(useMoqtChatStore.getState().peers).toEqual([]);
-  });
+	it("clears peers", () => {
+		useMoqtChatStore.getState().addPeer("user2");
+		useMoqtChatStore.getState().clearPeers();
+		expect(useMoqtChatStore.getState().peers).toEqual([]);
+	});
 
-  it("clears messages", () => {
-    useMoqtChatStore
-      .getState()
-      .addMessage({ senderId: "user1", text: "hi", at: 1, own: true });
-    useMoqtChatStore.getState().clearMessages();
-    expect(useMoqtChatStore.getState().messages).toEqual([]);
-  });
+	it("clears messages", () => {
+		useMoqtChatStore
+			.getState()
+			.addMessage({ senderId: "user1", text: "hi", at: 1, own: true });
+		useMoqtChatStore.getState().clearMessages();
+		expect(useMoqtChatStore.getState().messages).toEqual([]);
+	});
 
-  it("toggles mute state", () => {
-    useMoqtChatStore.getState().setMuted(true);
-    expect(useMoqtChatStore.getState().muted).toBe(true);
-  });
+	it("toggles mute state", () => {
+		useMoqtChatStore.getState().setMuted(true);
+		expect(useMoqtChatStore.getState().muted).toBe(true);
+	});
 
-  it("updates connection state", () => {
-    useMoqtChatStore.getState().setConnectionState("connected");
-    expect(useMoqtChatStore.getState().connectionState).toBe("connected");
-  });
+	it("updates connection state", () => {
+		useMoqtChatStore.getState().setConnectionState("connected");
+		expect(useMoqtChatStore.getState().connectionState).toBe("connected");
+	});
 
-  it("toggles screen sharing state", () => {
-    useMoqtChatStore.getState().setScreenSharing(true);
-    expect(useMoqtChatStore.getState().screenSharing).toBe(true);
-  });
+	it("toggles screen sharing state", () => {
+		useMoqtChatStore.getState().setScreenSharing(true);
+		expect(useMoqtChatStore.getState().screenSharing).toBe(true);
+	});
 
-  it("sets and clears the message send error independently of other error state", () => {
-    useMoqtChatStore.getState().setMessageSendError("send failed");
-    expect(useMoqtChatStore.getState().messageSendError).toBe("send failed");
-    expect(useMoqtChatStore.getState().screenShareError).toBeNull();
-    useMoqtChatStore.getState().setMessageSendError(null);
-    expect(useMoqtChatStore.getState().messageSendError).toBeNull();
-  });
+	it("sets and clears the message send error independently of other error state", () => {
+		useMoqtChatStore.getState().setMessageSendError("send failed");
+		expect(useMoqtChatStore.getState().messageSendError).toBe("send failed");
+		expect(useMoqtChatStore.getState().screenShareError).toBeNull();
+		useMoqtChatStore.getState().setMessageSendError(null);
+		expect(useMoqtChatStore.getState().messageSendError).toBeNull();
+	});
 
-  it("appends a chat message with no attachments (plain text, regression check)", () => {
-    useMoqtChatStore.getState().clearMessages();
-    const id = useMoqtChatStore.getState().addMessage({
-      senderId: "user1",
-      text: "hello",
-      at: 1234,
-      own: true,
-      attachments: [],
-    });
-    const msg = useMoqtChatStore.getState().messages[0];
-    expect(msg.id).toBe(id);
-    expect(msg.senderId).toBe("user1");
-    expect(msg.text).toBe("hello");
-    expect(msg.at).toBe(1234);
-    expect(msg.own).toBe(true);
-    expect(msg.attachments).toEqual([]);
-  });
+	it("appends a chat message with no attachments (plain text, regression check)", () => {
+		useMoqtChatStore.getState().clearMessages();
+		const id = useMoqtChatStore.getState().addMessage({
+			senderId: "user1",
+			text: "hello",
+			at: 1234,
+			own: true,
+			attachments: [],
+		});
+		const msg = useMoqtChatStore.getState().messages[0];
+		expect(msg.id).toBe(id);
+		expect(msg.senderId).toBe("user1");
+		expect(msg.text).toBe("hello");
+		expect(msg.at).toBe(1234);
+		expect(msg.own).toBe(true);
+		expect(msg.attachments).toEqual([]);
+	});
 
-  it("appends a chat message with a single attachment", () => {
-    useMoqtChatStore.getState().clearMessages();
-    const attachment = { bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png", url: "blob:1" };
-    const id = useMoqtChatStore.getState().addMessage({
-      senderId: "user1",
-      text: "",
-      at: 1234,
-      own: true,
-      attachments: [attachment],
-    });
-    expect(useMoqtChatStore.getState().messages).toEqual([
-      { id, senderId: "user1", text: "", at: 1234, own: true, attachments: [attachment] },
-    ]);
-  });
+	it("appends a chat message with a single attachment", () => {
+		useMoqtChatStore.getState().clearMessages();
+		const attachment = {
+			bytes: new Uint8Array([1, 2, 3]),
+			mimeType: "image/png",
+			url: "blob:1",
+		};
+		const id = useMoqtChatStore.getState().addMessage({
+			senderId: "user1",
+			text: "",
+			at: 1234,
+			own: true,
+			attachments: [attachment],
+		});
+		expect(useMoqtChatStore.getState().messages).toEqual([
+			{
+				id,
+				senderId: "user1",
+				text: "",
+				at: 1234,
+				own: true,
+				attachments: [attachment],
+			},
+		]);
+	});
 
-  it("appends a chat message with four attachments", () => {
-    useMoqtChatStore.getState().clearMessages();
-    const attachments = Array.from({ length: 4 }, (_, i) => ({
-      bytes: new Uint8Array([i]),
-      mimeType: "image/png",
-      url: `blob:${i}`,
-    }));
-    useMoqtChatStore.getState().addMessage({
-      senderId: "user1",
-      text: "",
-      at: 1234,
-      own: true,
-      attachments,
-    });
-    expect(useMoqtChatStore.getState().messages[0].attachments).toEqual(attachments);
-    expect(useMoqtChatStore.getState().messages[0].attachments).toHaveLength(4);
-  });
+	it("appends a chat message with four attachments", () => {
+		useMoqtChatStore.getState().clearMessages();
+		const attachments = Array.from({ length: 4 }, (_, i) => ({
+			bytes: new Uint8Array([i]),
+			mimeType: "image/png",
+			url: `blob:${i}`,
+		}));
+		useMoqtChatStore.getState().addMessage({
+			senderId: "user1",
+			text: "",
+			at: 1234,
+			own: true,
+			attachments,
+		});
+		expect(useMoqtChatStore.getState().messages[0].attachments).toEqual(
+			attachments,
+		);
+		expect(useMoqtChatStore.getState().messages[0].attachments).toHaveLength(4);
+	});
 
-  it("adds screen tiles uniquely (dedupes) in observation order", () => {
-    useMoqtChatStore.getState().addScreenTile("user2");
-    useMoqtChatStore.getState().addScreenTile("user3");
-    useMoqtChatStore.getState().addScreenTile("user2");
-    expect(useMoqtChatStore.getState().screenTiles).toEqual(["user2", "user3"]);
-  });
+	it("adds screen tiles uniquely (dedupes) in observation order", () => {
+		useMoqtChatStore.getState().addScreenTile("user2");
+		useMoqtChatStore.getState().addScreenTile("user3");
+		useMoqtChatStore.getState().addScreenTile("user2");
+		expect(useMoqtChatStore.getState().screenTiles).toEqual(["user2", "user3"]);
+	});
 
-  it("removes a screen tile", () => {
-    useMoqtChatStore.getState().addScreenTile("user2");
-    useMoqtChatStore.getState().addScreenTile("user3");
-    useMoqtChatStore.getState().removeScreenTile("user2");
-    expect(useMoqtChatStore.getState().screenTiles).toEqual(["user3"]);
-    useMoqtChatStore.getState().removeScreenTile("unknown"); // no-op
-    expect(useMoqtChatStore.getState().screenTiles).toEqual(["user3"]);
-  });
+	it("removes a screen tile", () => {
+		useMoqtChatStore.getState().addScreenTile("user2");
+		useMoqtChatStore.getState().addScreenTile("user3");
+		useMoqtChatStore.getState().removeScreenTile("user2");
+		expect(useMoqtChatStore.getState().screenTiles).toEqual(["user3"]);
+		useMoqtChatStore.getState().removeScreenTile("unknown"); // no-op
+		expect(useMoqtChatStore.getState().screenTiles).toEqual(["user3"]);
+	});
 
-  it("sets and clears the screen-share error independently of other error state", () => {
-    useMoqtChatStore.getState().setScreenShareError("getDisplayMedia was denied");
-    expect(useMoqtChatStore.getState().screenShareError).toBe("getDisplayMedia was denied");
-    expect(useMoqtChatStore.getState().messageSendError).toBeNull();
-    useMoqtChatStore.getState().setScreenShareError(null);
-    expect(useMoqtChatStore.getState().screenShareError).toBeNull();
-  });
+	it("sets and clears the screen-share error independently of other error state", () => {
+		useMoqtChatStore
+			.getState()
+			.setScreenShareError("getDisplayMedia was denied");
+		expect(useMoqtChatStore.getState().screenShareError).toBe(
+			"getDisplayMedia was denied",
+		);
+		expect(useMoqtChatStore.getState().messageSendError).toBeNull();
+		useMoqtChatStore.getState().setScreenShareError(null);
+		expect(useMoqtChatStore.getState().screenShareError).toBeNull();
+	});
 
-  it("starts at full master volume with no per-peer overrides", () => {
-    expect(useMoqtChatStore.getState().masterVolume).toBe(1);
-    expect(useMoqtChatStore.getState().peerVolumes).toEqual({});
-  });
+	it("starts at full master volume with no per-peer overrides", () => {
+		expect(useMoqtChatStore.getState().masterVolume).toBe(1);
+		expect(useMoqtChatStore.getState().peerVolumes).toEqual({});
+	});
 
-  it("sets the master volume", () => {
-    useMoqtChatStore.getState().setMasterVolume(0.4);
-    expect(useMoqtChatStore.getState().masterVolume).toBe(0.4);
-  });
+	it("sets the master volume", () => {
+		useMoqtChatStore.getState().setMasterVolume(0.4);
+		expect(useMoqtChatStore.getState().masterVolume).toBe(0.4);
+	});
 
-  it("sets a peer's volume without affecting other peers", () => {
-    useMoqtChatStore.getState().setPeerVolume("user2", 0.3);
-    useMoqtChatStore.getState().setPeerVolume("user3", 0.7);
-    expect(useMoqtChatStore.getState().peerVolumes).toEqual({ user2: 0.3, user3: 0.7 });
-  });
+	it("sets a peer's volume without affecting other peers", () => {
+		useMoqtChatStore.getState().setPeerVolume("user2", 0.3);
+		useMoqtChatStore.getState().setPeerVolume("user3", 0.7);
+		expect(useMoqtChatStore.getState().peerVolumes).toEqual({
+			user2: 0.3,
+			user3: 0.7,
+		});
+	});
 
-  it("starts with no voice quality recorded", () => {
-    expect(useMoqtChatStore.getState().voiceQuality).toEqual({});
-  });
+	it("starts with no voice quality recorded", () => {
+		expect(useMoqtChatStore.getState().voiceQuality).toEqual({});
+	});
 
-  it("sets a peer's voice quality without affecting other peers", () => {
-    useMoqtChatStore.getState().setVoiceQuality("user2", "degraded");
-    useMoqtChatStore.getState().setVoiceQuality("user3", "good");
-    expect(useMoqtChatStore.getState().voiceQuality).toEqual({
-      user2: "degraded",
-      user3: "good",
-    });
-  });
+	it("sets a peer's voice quality without affecting other peers", () => {
+		useMoqtChatStore.getState().setVoiceQuality("user2", "degraded");
+		useMoqtChatStore.getState().setVoiceQuality("user3", "good");
+		expect(useMoqtChatStore.getState().voiceQuality).toEqual({
+			user2: "degraded",
+			user3: "good",
+		});
+	});
 
-  it("clears voice quality when peers are cleared", () => {
-    useMoqtChatStore.getState().setVoiceQuality("user2", "degraded");
-    useMoqtChatStore.getState().clearPeers();
-    expect(useMoqtChatStore.getState().voiceQuality).toEqual({});
-  });
+	it("clears voice quality when peers are cleared", () => {
+		useMoqtChatStore.getState().setVoiceQuality("user2", "degraded");
+		useMoqtChatStore.getState().clearPeers();
+		expect(useMoqtChatStore.getState().voiceQuality).toEqual({});
+	});
 
-  it("starts with no one speaking, local or remote", () => {
-    expect(useMoqtChatStore.getState().speaking).toEqual({});
-    expect(useMoqtChatStore.getState().localSpeaking).toBe(false);
-  });
+	it("starts with no one speaking, local or remote", () => {
+		expect(useMoqtChatStore.getState().speaking).toEqual({});
+		expect(useMoqtChatStore.getState().localSpeaking).toBe(false);
+	});
 
-  it("sets a peer's speaking state without affecting other peers", () => {
-    useMoqtChatStore.getState().setSpeaking("user2", true);
-    useMoqtChatStore.getState().setSpeaking("user3", false);
-    expect(useMoqtChatStore.getState().speaking).toEqual({ user2: true, user3: false });
-  });
+	it("sets a peer's speaking state without affecting other peers", () => {
+		useMoqtChatStore.getState().setSpeaking("user2", true);
+		useMoqtChatStore.getState().setSpeaking("user3", false);
+		expect(useMoqtChatStore.getState().speaking).toEqual({
+			user2: true,
+			user3: false,
+		});
+	});
 
-  it("clears speaking when peers are cleared", () => {
-    useMoqtChatStore.getState().setSpeaking("user2", true);
-    useMoqtChatStore.getState().clearPeers();
-    expect(useMoqtChatStore.getState().speaking).toEqual({});
-  });
+	it("clears speaking when peers are cleared", () => {
+		useMoqtChatStore.getState().setSpeaking("user2", true);
+		useMoqtChatStore.getState().clearPeers();
+		expect(useMoqtChatStore.getState().speaking).toEqual({});
+	});
 
-  it("sets local speaking state", () => {
-    useMoqtChatStore.getState().setLocalSpeaking(true);
-    expect(useMoqtChatStore.getState().localSpeaking).toBe(true);
-    useMoqtChatStore.getState().setLocalSpeaking(false);
-    expect(useMoqtChatStore.getState().localSpeaking).toBe(false);
-  });
+	it("sets local speaking state", () => {
+		useMoqtChatStore.getState().setLocalSpeaking(true);
+		expect(useMoqtChatStore.getState().localSpeaking).toBe(true);
+		useMoqtChatStore.getState().setLocalSpeaking(false);
+		expect(useMoqtChatStore.getState().localSpeaking).toBe(false);
+	});
 
-  it("track switching: per-tile received variant and chosen quality, plus the session's switching flag", () => {
-    const s = useMoqtChatStore.getState();
-    expect(s.screenSwitching).toBe(false);
-    expect(s.screenTileVariants).toEqual({});
-    expect(s.screenTileQuality).toEqual({});
-    s.setScreenSwitching(true);
-    s.setScreenTileVariant("user2", "lo");
-    s.setScreenTileQuality("user2", "high");
-    const after = useMoqtChatStore.getState();
-    expect(after.screenSwitching).toBe(true);
-    expect(after.screenTileVariants).toEqual({ user2: "lo" });
-    expect(after.screenTileQuality).toEqual({ user2: "high" });
-  });
+	it("track switching: per-tile received variant and chosen quality, plus the session's switching flag", () => {
+		const s = useMoqtChatStore.getState();
+		expect(s.screenSwitching).toBe(false);
+		expect(s.screenTileVariants).toEqual({});
+		expect(s.screenTileQuality).toEqual({});
+		s.setScreenSwitching(true);
+		s.setScreenTileVariant("user2", "lo");
+		s.setScreenTileQuality("user2", "high");
+		const after = useMoqtChatStore.getState();
+		expect(after.screenSwitching).toBe(true);
+		expect(after.screenTileVariants).toEqual({ user2: "lo" });
+		expect(after.screenTileQuality).toEqual({ user2: "high" });
+	});
 
-  it("an unchanged variant does not produce a new state object (set on every keyframe)", () => {
-    const s = useMoqtChatStore.getState();
-    s.setScreenTileVariant("user2", "hi");
-    const before = useMoqtChatStore.getState().screenTileVariants;
-    s.setScreenTileVariant("user2", "hi");
-    expect(useMoqtChatStore.getState().screenTileVariants).toBe(before);
-  });
+	it("an unchanged variant does not produce a new state object (set on every keyframe)", () => {
+		const s = useMoqtChatStore.getState();
+		s.setScreenTileVariant("user2", "hi");
+		const before = useMoqtChatStore.getState().screenTileVariants;
+		s.setScreenTileVariant("user2", "hi");
+		expect(useMoqtChatStore.getState().screenTileVariants).toBe(before);
+	});
 
-  it("clearScreenTiles also forgets the variants, qualities and the switching flag (a new session)", () => {
-    const s = useMoqtChatStore.getState();
-    s.setScreenSwitching(true);
-    s.setScreenTileVariant("user2", "lo");
-    s.setScreenTileQuality("user2", "low");
-    s.clearScreenTiles();
-    const after = useMoqtChatStore.getState();
-    expect(after.screenSwitching).toBe(false);
-    expect(after.screenTileVariants).toEqual({});
-    expect(after.screenTileQuality).toEqual({});
-  });
+	it("clearScreenTiles also forgets the variants, qualities and the switching flag (a new session)", () => {
+		const s = useMoqtChatStore.getState();
+		s.setScreenSwitching(true);
+		s.setScreenTileVariant("user2", "lo");
+		s.setScreenTileQuality("user2", "low");
+		s.clearScreenTiles();
+		const after = useMoqtChatStore.getState();
+		expect(after.screenSwitching).toBe(false);
+		expect(after.screenTileVariants).toEqual({});
+		expect(after.screenTileQuality).toEqual({});
+	});
 });

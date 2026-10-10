@@ -4,583 +4,584 @@
    on white; on a dark ground the mark is white and red survives only as a
    red panel carrying white text. */
 :root {
-  --red: #fc3d21;
-  --gray: #a19d94;
-  --gray-light: #e8e6e1;
-  --ink: #000;
-  --paper: #fff;
-  --mark: var(--red);
+	--red: #fc3d21;
+	--gray: #a19d94;
+	--gray-light: #e8e6e1;
+	--ink: #000;
+	--paper: #fff;
+	--mark: var(--red);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --gray-light: #3f3c38;
-    --ink: #fff;
-    --paper: #000;
-    --mark: #fff;
-    color-scheme: dark;
-  }
+	:root {
+		--gray-light: #3f3c38;
+		--ink: #fff;
+		--paper: #000;
+		--mark: #fff;
+		color-scheme: dark;
+	}
 }
 
 * {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
 }
 
 html,
 body {
-  height: 100%;
+	height: 100%;
 }
 
 body {
-  background: var(--paper);
-  color: var(--ink);
-  font-family: "Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif;
-  font-weight: 300;
-  line-height: 1.3;
-  letter-spacing: normal;
-  text-align: left;
-  -webkit-font-smoothing: antialiased;
+	background: var(--paper);
+	color: var(--ink);
+	font-family:
+		"Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif;
+	font-weight: 300;
+	line-height: 1.3;
+	letter-spacing: normal;
+	text-align: left;
+	-webkit-font-smoothing: antialiased;
 }
 
 button,
 input {
-  font: inherit;
-  color: inherit;
-  border-radius: 0;
+	font: inherit;
+	color: inherit;
+	border-radius: 0;
 }
 
 :focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 2px;
+	outline: 2px solid var(--ink);
+	outline-offset: 2px;
 }
 
 /* Page frame: masthead, hairline, body, folio. */
 .page {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  max-width: 64em;
-  min-height: 100dvh;
-  margin: 0 auto;
-  padding: 0 1.5em;
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	max-width: 64em;
+	min-height: 100dvh;
+	margin: 0 auto;
+	padding: 0 1.5em;
 }
 
 .page--room {
-  height: 100dvh;
+	height: 100dvh;
 }
 
 .masthead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1em 2em;
-  padding: 1.5em 0 0.75em;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: 1em 2em;
+	padding: 1.5em 0 0.75em;
 }
 
 .masthead__brand {
-  display: flex;
-  align-items: flex-end;
-  gap: 0.5em;
-  color: var(--mark);
+	display: flex;
+	align-items: flex-end;
+	gap: 0.5em;
+	color: var(--mark);
 }
 
 .masthead__stem {
-  font-size: 1.6em;
-  font-weight: 300;
-  line-height: 1;
-  color: var(--ink);
+	font-size: 1.6em;
+	font-weight: 300;
+	line-height: 1;
+	color: var(--ink);
 }
 
 .masthead__id {
-  font-size: 0.8em;
+	font-size: 0.8em;
 }
 
 .masthead__tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5em;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5em;
 }
 
 .rule {
-  border: 0;
-  border-top: 1px solid var(--ink);
+	border: 0;
+	border-top: 1px solid var(--ink);
 }
 
 .folio {
-  margin-top: auto;
-  padding: 1em 0;
-  font-size: 0.75em;
-  color: var(--gray);
-  text-align: right;
+	margin-top: auto;
+	padding: 1em 0;
+	font-size: 0.75em;
+	color: var(--gray);
+	text-align: right;
 }
 
 /* Signs: black panel with white text; red panel with white text; or a
    white panel with a black outline. Arrows are text, not icons. */
 .sign {
-  padding: 0.6em 1em;
-  border: 1px solid var(--ink);
-  background: var(--ink);
-  color: var(--paper);
-  font-weight: 700;
-  white-space: nowrap;
-  cursor: pointer;
+	padding: 0.6em 1em;
+	border: 1px solid var(--ink);
+	background: var(--ink);
+	color: var(--paper);
+	font-weight: 700;
+	white-space: nowrap;
+	cursor: pointer;
 }
 
 .sign:disabled {
-  opacity: 0.5;
-  cursor: default;
+	opacity: 0.5;
+	cursor: default;
 }
 
 .sign--red {
-  border-color: var(--red);
-  background: var(--red);
-  color: #fff;
+	border-color: var(--red);
+	background: var(--red);
+	color: #fff;
 }
 
 .sign--outline {
-  background: transparent;
-  color: var(--ink);
+	background: transparent;
+	color: var(--ink);
 }
 
 .link {
-  align-self: flex-start;
-  margin-top: 1em;
-  border: 0;
-  background: none;
-  text-decoration: underline;
-  cursor: pointer;
+	align-self: flex-start;
+	margin-top: 1em;
+	border: 0;
+	background: none;
+	text-decoration: underline;
+	cursor: pointer;
 }
 
 .caption {
-  font-size: 0.8em;
-  color: var(--gray);
+	font-size: 0.8em;
+	color: var(--gray);
 }
 
 /* Warning panel: bold heading, light body, outlined sign on the right. */
 .notice {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5em 1em;
-  margin-top: 0.75em;
-  padding: 0.75em 1em;
-  background: var(--ink);
-  color: var(--paper);
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5em 1em;
+	margin-top: 0.75em;
+	padding: 0.75em 1em;
+	background: var(--ink);
+	color: var(--paper);
 }
 
 .notice strong {
-  display: block;
+	display: block;
 }
 
 .notice .sign--outline {
-  border-color: var(--paper);
-  color: var(--paper);
+	border-color: var(--paper);
+	color: var(--paper);
 }
 
 /* Cover: heading column, form column, the mark in the space below. */
 .cover {
-  display: grid;
-  grid-template-columns: 1fr 2fr;
-  grid-template-rows: auto 1fr;
-  gap: 2em;
-  flex: 1;
-  padding: 2em 0;
+	display: grid;
+	grid-template-columns: 1fr 2fr;
+	grid-template-rows: auto 1fr;
+	gap: 2em;
+	flex: 1;
+	padding: 2em 0;
 }
 
 .cover h1 {
-  margin-bottom: 0.5em;
-  font-size: 1.5em;
-  font-weight: 700;
-  line-height: 1.2;
+	margin-bottom: 0.5em;
+	font-size: 1.5em;
+	font-weight: 700;
+	line-height: 1.2;
 }
 
 .cover__lede {
-  max-width: 22em;
+	max-width: 22em;
 }
 
 .cover__mark {
-  grid-column: 1 / -1;
-  align-self: end;
-  color: var(--mark);
+	grid-column: 1 / -1;
+	align-self: end;
+	color: var(--mark);
 }
 
 .form {
-  display: flex;
-  flex-direction: column;
+	display: flex;
+	flex-direction: column;
 }
 
 .field {
-  display: block;
-  padding: 0.75em 0;
-  border-bottom: 1px solid var(--gray-light);
+	display: block;
+	padding: 0.75em 0;
+	border-bottom: 1px solid var(--gray-light);
 }
 
 .field__label {
-  display: block;
-  margin-bottom: 0.35em;
-  font-size: 0.8em;
-  font-weight: 700;
+	display: block;
+	margin-bottom: 0.35em;
+	font-size: 0.8em;
+	font-weight: 700;
 }
 
 .field input {
-  width: 100%;
-  padding: 0.25em 0;
-  border: 0;
-  background: transparent;
+	width: 100%;
+	padding: 0.25em 0;
+	border: 0;
+	background: transparent;
 }
 
 .field__hint {
-  margin-top: 0.35em;
+	margin-top: 0.35em;
 }
 
 .tiles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5em;
-  margin-top: 0.35em;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5em;
+	margin-top: 0.35em;
 }
 
 .tile {
-  padding: 0.5em 0.9em;
-  border: 1px solid var(--ink);
-  background: var(--paper);
-  color: var(--ink);
-  font-weight: 700;
-  cursor: pointer;
+	padding: 0.5em 0.9em;
+	border: 1px solid var(--ink);
+	background: var(--paper);
+	color: var(--ink);
+	font-weight: 700;
+	cursor: pointer;
 }
 
 .tile[aria-pressed="true"] {
-  background: var(--ink);
-  color: var(--paper);
+	background: var(--ink);
+	color: var(--paper);
 }
 
 .form .sign--red {
-  align-self: flex-start;
-  margin-top: 1.5em;
+	align-self: flex-start;
+	margin-top: 1.5em;
 }
 
 /* Room: identification rail on the left, body on the right. */
 .room {
-  display: grid;
-  grid-template-columns: 14em 1fr;
-  gap: 2em;
-  flex: 1;
-  min-height: 0;
-  padding: 1em 0;
+	display: grid;
+	grid-template-columns: 14em 1fr;
+	gap: 2em;
+	flex: 1;
+	min-height: 0;
+	padding: 1em 0;
 }
 
 .rail h2,
 .body h2 {
-  margin-bottom: 0.25em;
-  font-size: 1em;
-  font-weight: 700;
+	margin-bottom: 0.25em;
+	font-size: 1em;
+	font-weight: 700;
 }
 
 .rail section + section {
-  margin-top: 1.5em;
+	margin-top: 1.5em;
 }
 
 .peers {
-  list-style: none;
+	list-style: none;
 }
 
 .peers li::before {
-  content: "\2192  ";
+	content: "\2192  ";
 }
 
 .you {
-  color: var(--mark);
+	color: var(--mark);
 }
 
 .status {
-  display: flex;
-  align-items: center;
-  gap: 0.5em;
-  margin-top: 0.25em;
+	display: flex;
+	align-items: center;
+	gap: 0.5em;
+	margin-top: 0.25em;
 }
 
 .status__block {
-  width: 1.2em;
-  height: 1.2em;
-  border: 1px solid var(--ink);
+	width: 1.2em;
+	height: 1.2em;
+	border: 1px solid var(--ink);
 }
 
 .status__block[data-status="connected"] {
-  border-color: var(--red);
-  background: var(--red);
+	border-color: var(--red);
+	background: var(--red);
 }
 
 .status__block[data-status="connecting"] {
-  border-color: var(--gray);
-  background: var(--gray);
+	border-color: var(--gray);
+	background: var(--gray);
 }
 
 .status__block[data-quality="good"] {
-  border-color: var(--red);
-  background: var(--red);
+	border-color: var(--red);
+	background: var(--red);
 }
 
 .status__block[data-quality="degraded"] {
-  border-color: var(--gray);
-  background: var(--gray);
+	border-color: var(--gray);
+	background: var(--gray);
 }
 
 .status__block[data-speaking="true"] {
-  outline: 2px solid var(--ink);
-  outline-offset: 1px;
+	outline: 2px solid var(--ink);
+	outline-offset: 1px;
 }
 
 .volume {
-  display: block;
-  margin-top: 0.5em;
+	display: block;
+	margin-top: 0.5em;
 }
 
 .volume--peer {
-  margin-top: 0.35em;
+	margin-top: 0.35em;
 }
 
 .volume__label {
-  display: block;
-  margin-bottom: 0.15em;
-  font-size: 0.8em;
-  color: var(--gray);
+	display: block;
+	margin-bottom: 0.15em;
+	font-size: 0.8em;
+	color: var(--gray);
 }
 
 .volume input[type="range"] {
-  width: 100%;
-  accent-color: var(--ink);
+	width: 100%;
+	accent-color: var(--ink);
 }
 
 .rail select {
-  width: 100%;
-  margin-top: 0.35em;
-  padding: 0.3em 0;
-  border: 0;
-  border-bottom: 1px solid var(--gray);
-  background: transparent;
-  color: inherit;
+	width: 100%;
+	margin-top: 0.35em;
+	padding: 0.3em 0;
+	border: 0;
+	border-bottom: 1px solid var(--gray);
+	background: transparent;
+	color: inherit;
 }
 
 .body {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
 }
 
 .live {
-  display: block;
-  width: 100%;
-  max-height: 40vh;
-  border-top: 1px solid var(--ink);
-  background: #000;
+	display: block;
+	width: 100%;
+	max-height: 40vh;
+	border-top: 1px solid var(--ink);
+	background: #000;
 }
 
 .screens {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5em;
-  padding: 0.5em 0;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5em;
+	padding: 0.5em 0;
 }
 
 .screens canvas {
-  display: block;
-  max-width: 100%;
-  background: #000;
+	display: block;
+	max-width: 100%;
+	background: #000;
 }
 
 /* Own preview: the backing store follows the captured frame's size (like
    a remote tile), the displayed width stays small. */
 .screen-own {
-  width: 160px;
-  height: auto;
+	width: 160px;
+	height: auto;
 }
 
 .screen-own-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25em;
+	display: flex;
+	flex-direction: column;
+	gap: 0.25em;
 }
 
 /* Remote tiles: the canvas backing store is the sender's own frame size
    (useMoqtChat.ts's drawScreenFrame), so a CSS width alone keeps the
    aspect. --tile-w comes from the rail's "Tile width" slider. */
 .screen-tile {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25em;
+	display: flex;
+	flex-direction: column;
+	gap: 0.25em;
 }
 
 .screen-tile canvas {
-  width: var(--tile-w, 320px);
-  height: auto;
+	width: var(--tile-w, 320px);
+	height: auto;
 }
 
 .screen-tile--max {
-  width: 100%;
+	width: 100%;
 }
 
 .screen-tile--max canvas {
-  width: 100%;
+	width: 100%;
 }
 
 .screen-tile__bar {
-  display: flex;
-  align-items: center;
-  gap: 0.75em;
+	display: flex;
+	align-items: center;
+	gap: 0.75em;
 }
 
 .screen-tile__variant {
-  font-weight: bold;
-  letter-spacing: 0.05em;
+	font-weight: bold;
+	letter-spacing: 0.05em;
 }
 
 .screen-tile__quality {
-  padding: 0.1em 0;
-  border: 0;
-  border-bottom: 1px solid var(--gray);
-  background: transparent;
-  color: inherit;
-  font-size: 0.8em;
+	padding: 0.1em 0;
+	border: 0;
+	border-bottom: 1px solid var(--gray);
+	background: transparent;
+	color: inherit;
+	font-size: 0.8em;
 }
 
 .screen-tile__bar .sign--small {
-  margin-left: auto;
-  padding: 0.2em 0.6em;
-  font-size: 0.75em;
+	margin-left: auto;
+	padding: 0.2em 0.6em;
+	font-size: 0.75em;
 }
 
 .messages {
-  flex: 1;
-  min-height: 0;
-  margin-top: 0.5em;
-  overflow-y: auto;
-  border-top: 1px solid var(--ink);
+	flex: 1;
+	min-height: 0;
+	margin-top: 0.5em;
+	overflow-y: auto;
+	border-top: 1px solid var(--ink);
 }
 
 .message {
-  display: grid;
-  grid-template-columns: 7em 1fr auto;
-  gap: 0.75em;
-  align-items: baseline;
-  padding: 0.5em 0;
-  border-bottom: 1px solid var(--gray-light);
+	display: grid;
+	grid-template-columns: 7em 1fr auto;
+	gap: 0.75em;
+	align-items: baseline;
+	padding: 0.5em 0;
+	border-bottom: 1px solid var(--gray-light);
 }
 
 .message__sender {
-  grid-area: 1 / 1;
-  font-weight: 700;
-  overflow-wrap: anywhere;
+	grid-area: 1 / 1;
+	font-weight: 700;
+	overflow-wrap: anywhere;
 }
 
 .message__time {
-  grid-area: 1 / 3;
+	grid-area: 1 / 3;
 }
 
 .message__text {
-  grid-area: 1 / 2;
-  overflow-wrap: anywhere;
+	grid-area: 1 / 2;
+	overflow-wrap: anywhere;
 }
 
 .message__attachments {
-  grid-area: 2 / 2;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5em;
-  align-items: flex-start;
+	grid-area: 2 / 2;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5em;
+	align-items: flex-start;
 }
 
 /* The cap lives on the figure (a third of the row, minus the two gaps) so
  * three sit side by side even when one is very wide; the media inside keeps
  * its aspect ratio via width: auto and letterboxes only when it hits the cap. */
 .message__attachment {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.25em;
-  max-width: calc((100% - 1em) / 3);
+	margin: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 0.25em;
+	max-width: calc((100% - 1em) / 3);
 }
 
 .message__attachment img,
 .message__attachment video {
-  height: 8em;
-  width: auto;
-  max-width: 100%;
-  object-fit: contain;
+	height: 8em;
+	width: auto;
+	max-width: 100%;
+	object-fit: contain;
 }
 
 .message__failed {
-  grid-area: 3 / 2;
-  color: var(--mark);
+	grid-area: 3 / 2;
+	color: var(--mark);
 }
 
 .messages > .caption {
-  display: block;
-  padding: 0.5em 0;
+	display: block;
+	padding: 0.5em 0;
 }
 
 .compose {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5em;
-  padding: 0.75em 0;
-  border-top: 1px solid var(--ink);
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5em;
+	padding: 0.75em 0;
+	border-top: 1px solid var(--ink);
 }
 
 .draft-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5em;
-  width: 100%;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5em;
+	width: 100%;
 }
 
 .draft-chip {
-  position: relative;
-  width: 4em;
-  height: 4em;
+	position: relative;
+	width: 4em;
+	height: 4em;
 }
 
 .draft-chip img,
 .draft-chip video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
 }
 
 .draft-chip__remove {
-  position: absolute;
-  top: -0.4em;
-  right: -0.4em;
-  border: 1px solid var(--ink);
-  background: var(--paper);
-  line-height: 1;
-  cursor: pointer;
+	position: absolute;
+	top: -0.4em;
+	right: -0.4em;
+	border: 1px solid var(--ink);
+	background: var(--paper);
+	line-height: 1;
+	cursor: pointer;
 }
 
 .compose input {
-  flex: 1;
-  min-width: 0;
-  padding: 0.4em 0;
-  border: 0;
-  border-bottom: 1px solid var(--gray);
-  background: transparent;
+	flex: 1;
+	min-width: 0;
+	padding: 0.4em 0;
+	border: 0;
+	border-bottom: 1px solid var(--gray);
+	background: transparent;
 }
 
 @media (max-width: 40em) {
-  .cover,
-  .room {
-    grid-template-columns: 1fr;
-  }
+	.cover,
+	.room {
+		grid-template-columns: 1fr;
+	}
 
-  .cover__mark {
-    display: none;
-  }
+	.cover__mark {
+		display: none;
+	}
 
-  .message {
-    grid-template-columns: 5em 1fr auto;
-  }
+	.message {
+		grid-template-columns: 5em 1fr auto;
+	}
 }

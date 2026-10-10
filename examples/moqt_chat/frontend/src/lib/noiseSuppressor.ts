@@ -10,25 +10,25 @@
 // RNNoise processes fixed 480-sample frames; the Web Audio render quantum
 // delivers 128-sample blocks, so blocks must be accumulated with carry-over.
 export type FrameAccumulator = {
-  push: (block: Float32Array) => Float32Array | null;
+	push: (block: Float32Array) => Float32Array | null;
 };
 
 export function createFrameAccumulator(frameSize: number): FrameAccumulator {
-  let buf = new Float32Array(0);
-  return {
-    push(block) {
-      const merged = new Float32Array(buf.length + block.length);
-      merged.set(buf);
-      merged.set(block, buf.length);
-      if (merged.length < frameSize) {
-        buf = merged;
-        return null;
-      }
-      const frame = merged.slice(0, frameSize);
-      buf = merged.slice(frameSize);
-      return frame;
-    },
-  };
+	let buf = new Float32Array(0);
+	return {
+		push(block) {
+			const merged = new Float32Array(buf.length + block.length);
+			merged.set(buf);
+			merged.set(block, buf.length);
+			if (merged.length < frameSize) {
+				buf = merged;
+				return null;
+			}
+			const frame = merged.slice(0, frameSize);
+			buf = merged.slice(frameSize);
+			return frame;
+		},
+	};
 }
 
 // -- PCM <-> wasm scaling -----------------------------------------------
@@ -36,51 +36,51 @@ export function createFrameAccumulator(frameSize: number): FrameAccumulator {
 // samples are [-1, 1]. NaN (e.g. from a denormal glitch) maps to silence
 // rather than corrupting the wasm heap.
 export function pcmToWasm(sample: number): number {
-  if (Number.isNaN(sample)) return 0;
-  const clamped = Math.max(-1, Math.min(1, sample));
-  return clamped * 32768;
+	if (Number.isNaN(sample)) return 0;
+	const clamped = Math.max(-1, Math.min(1, sample));
+	return clamped * 32768;
 }
 
 // -- VAD throttle ---------------------------------------------------------
 export type VadThrottle = {
-  shouldEmit: (nowMs: number) => boolean;
+	shouldEmit: (nowMs: number) => boolean;
 };
 
 export function createVadThrottle(intervalMs: number): VadThrottle {
-  let lastEmit: number | null = null;
-  return {
-    shouldEmit(nowMs) {
-      if (lastEmit !== null && nowMs - lastEmit < intervalMs) return false;
-      lastEmit = nowMs;
-      return true;
-    },
-  };
+	let lastEmit: number | null = null;
+	return {
+		shouldEmit(nowMs) {
+			if (lastEmit !== null && nowMs - lastEmit < intervalMs) return false;
+			lastEmit = nowMs;
+			return true;
+		},
+	};
 }
 
 // -- gUM constraints --------------------------------------------------
 export type AudioConstraints = {
-  echoCancellation: boolean;
-  noiseSuppression: boolean;
-  autoGainControl: boolean;
+	echoCancellation: boolean;
+	noiseSuppression: boolean;
+	autoGainControl: boolean;
 };
 
 // When RNNoise is enabled, the browser's own noiseSuppression is turned off
 // to avoid double-processing the signal.
 export function pickAudioConstraints(rnnoiseOn: boolean): AudioConstraints {
-  return {
-    echoCancellation: true,
-    noiseSuppression: !rnnoiseOn,
-    autoGainControl: true,
-  };
+	return {
+		echoCancellation: true,
+		noiseSuppression: !rnnoiseOn,
+		autoGainControl: true,
+	};
 }
 
 // -- worklet graph setup ------------------------------------------------
 
 export type NoiseSuppressorHandle = {
-  // The processed track to hand to micPipeline.ts in place of the raw mic
-  // track.
-  outputTrack: MediaStreamTrack;
-  stop: () => void;
+	// The processed track to hand to micPipeline.ts in place of the raw mic
+	// track.
+	outputTrack: MediaStreamTrack;
+	stop: () => void;
 };
 
 const WORKLET_URL = "/worklets/rnnoise-processor.js";
@@ -101,9 +101,9 @@ const RNNOISE_SYNC_URL = "/worklets/rnnoise-sync.js";
 // matching what `import.meta.url` would be in a same-origin, non-blob
 // context after scriptDirectory's own trailing-slash trim.
 export function stripEsmExport(source: string): string {
-  return source
-    .replace(/export\s+default\s+[^;]+;?\s*$/, "")
-    .replace(/import\.meta\.url/g, '""');
+	return source
+		.replace(/export\s+default\s+[^;]+;?\s*$/, "")
+		.replace(/import\.meta\.url/g, '""');
 }
 
 // A processor constructor throw (bad wasm eval, _rnnoise_create/_malloc
@@ -116,51 +116,56 @@ export function stripEsmExport(source: string): string {
 const READY_TIMEOUT_MS = 2000;
 
 function timeout(ms: number): Promise<"timeout"> {
-  return new Promise((resolve) => setTimeout(() => resolve("timeout"), ms));
+	return new Promise((resolve) => setTimeout(() => resolve("timeout"), ms));
 }
 
 // Minimal surface this module needs from AudioContext/AudioWorkletNode, so
 // tests can supply fakes (jsdom implements neither).
 export type MediaStreamSourceLike = {
-  connect: (node: AudioWorkletNodeLike) => AudioWorkletNodeLike;
-  disconnect: () => void;
+	connect: (node: AudioWorkletNodeLike) => AudioWorkletNodeLike;
+	disconnect: () => void;
 };
 export type MediaStreamDestinationLike = {
-  channelCount: number;
-  stream: { getAudioTracks: () => MediaStreamTrack[] };
+	channelCount: number;
+	stream: { getAudioTracks: () => MediaStreamTrack[] };
 };
 export type AudioContextLike = {
-  audioWorklet: { addModule: (url: string) => Promise<void> };
-  createMediaStreamSource: (stream: MediaStream) => MediaStreamSourceLike;
-  createMediaStreamDestination: () => MediaStreamDestinationLike;
-  close: () => Promise<void>;
+	audioWorklet: { addModule: (url: string) => Promise<void> };
+	createMediaStreamSource: (stream: MediaStream) => MediaStreamSourceLike;
+	createMediaStreamDestination: () => MediaStreamDestinationLike;
+	close: () => Promise<void>;
 };
 export type AudioWorkletNodeLike = {
-  port: { onmessage: ((ev: MessageEvent) => void) | null };
-  onprocessorerror: ((ev: unknown) => void) | null;
-  connect: (dest: unknown) => unknown;
-  disconnect: () => void;
+	port: { onmessage: ((ev: MessageEvent) => void) | null };
+	onprocessorerror: ((ev: unknown) => void) | null;
+	connect: (dest: unknown) => unknown;
+	disconnect: () => void;
 };
 
 export type NoiseSuppressorDeps = {
-  makeContext?: () => AudioContextLike;
-  makeNode?: (
-    ctx: AudioContextLike,
-    name: string,
-    options: { processorOptions: { wasmModuleSource: string } },
-  ) => AudioWorkletNodeLike;
-  fetchText?: (url: string) => Promise<string>;
-  makeMediaStream?: (track: MediaStreamTrack) => MediaStream;
+	makeContext?: () => AudioContextLike;
+	makeNode?: (
+		ctx: AudioContextLike,
+		name: string,
+		options: { processorOptions: { wasmModuleSource: string } },
+	) => AudioWorkletNodeLike;
+	fetchText?: (url: string) => Promise<string>;
+	makeMediaStream?: (track: MediaStreamTrack) => MediaStream;
 };
 
 function defaultDeps(): Required<NoiseSuppressorDeps> {
-  return {
-    makeContext: () => new AudioContext({ sampleRate: 48000 }) as unknown as AudioContextLike,
-    makeNode: (ctx, name, options) =>
-      new AudioWorkletNode(ctx as unknown as AudioContext, name, options) as unknown as AudioWorkletNodeLike,
-    fetchText: (url) => fetch(url).then((r) => r.text()),
-    makeMediaStream: (track) => new MediaStream([track]),
-  };
+	return {
+		makeContext: () =>
+			new AudioContext({ sampleRate: 48000 }) as unknown as AudioContextLike,
+		makeNode: (ctx, name, options) =>
+			new AudioWorkletNode(
+				ctx as unknown as AudioContext,
+				name,
+				options,
+			) as unknown as AudioWorkletNodeLike,
+		fetchText: (url) => fetch(url).then((r) => r.text()),
+		makeMediaStream: (track) => new MediaStream([track]),
+	};
 }
 
 // Sets up mic -> AudioWorkletNode("rnnoise-processor") -> destination and
@@ -170,57 +175,62 @@ function defaultDeps(): Required<NoiseSuppressorDeps> {
 // noiseSuppression (pickAudioConstraints(false)) and keep the call working,
 // per the brief.
 export async function startNoiseSuppressor(
-  micTrack: MediaStreamTrack,
-  onVad: (isSpeaking: boolean) => void,
-  basePath = "",
-  deps: NoiseSuppressorDeps = {},
+	micTrack: MediaStreamTrack,
+	onVad: (isSpeaking: boolean) => void,
+	basePath = "",
+	deps: NoiseSuppressorDeps = {},
 ): Promise<NoiseSuppressorHandle> {
-  const { makeContext, makeNode, fetchText, makeMediaStream } = { ...defaultDeps(), ...deps };
-  const ctx = makeContext();
-  const wasmModuleSource = await fetchText(`${basePath}${RNNOISE_SYNC_URL}`);
-  await ctx.audioWorklet.addModule(`${basePath}${WORKLET_URL}`);
+	const { makeContext, makeNode, fetchText, makeMediaStream } = {
+		...defaultDeps(),
+		...deps,
+	};
+	const ctx = makeContext();
+	const wasmModuleSource = await fetchText(`${basePath}${RNNOISE_SYNC_URL}`);
+	await ctx.audioWorklet.addModule(`${basePath}${WORKLET_URL}`);
 
-  const source = ctx.createMediaStreamSource(makeMediaStream(micTrack));
-  const node = makeNode(ctx, "rnnoise-processor", {
-    processorOptions: { wasmModuleSource: stripEsmExport(wasmModuleSource) },
-  });
+	const source = ctx.createMediaStreamSource(makeMediaStream(micTrack));
+	const node = makeNode(ctx, "rnnoise-processor", {
+		processorOptions: { wasmModuleSource: stripEsmExport(wasmModuleSource) },
+	});
 
-  const ready = new Promise<"ready" | "error">((resolve) => {
-    node.port.onmessage = (ev: MessageEvent<{ type: string; isSpeaking: boolean }>) => {
-      if (ev.data?.type === "ready") resolve("ready");
-      else if (ev.data?.type === "vad") onVad(ev.data.isSpeaking);
-    };
-    node.onprocessorerror = () => resolve("error");
-  });
-  const outcome = await Promise.race([ready, timeout(READY_TIMEOUT_MS)]);
-  if (outcome !== "ready") {
-    node.disconnect();
-    source.disconnect();
-    await ctx.close();
-    throw new Error(
-      outcome === "error"
-        ? "rnnoise-processor failed to initialize"
-        : "rnnoise-processor did not become ready in time",
-    );
-  }
+	const ready = new Promise<"ready" | "error">((resolve) => {
+		node.port.onmessage = (
+			ev: MessageEvent<{ type: string; isSpeaking: boolean }>,
+		) => {
+			if (ev.data?.type === "ready") resolve("ready");
+			else if (ev.data?.type === "vad") onVad(ev.data.isSpeaking);
+		};
+		node.onprocessorerror = () => resolve("error");
+	});
+	const outcome = await Promise.race([ready, timeout(READY_TIMEOUT_MS)]);
+	if (outcome !== "ready") {
+		node.disconnect();
+		source.disconnect();
+		await ctx.close();
+		throw new Error(
+			outcome === "error"
+				? "rnnoise-processor failed to initialize"
+				: "rnnoise-processor did not become ready in time",
+		);
+	}
 
-  const destination = ctx.createMediaStreamDestination();
-  // createMediaStreamDestination() defaults to 2 channels (stereo); the mic
-  // source and the encoder downstream (micPipeline.ts's BASE_CONFIG /
-  // VOIP_CONFIG, both numberOfChannels: 1) are mono, and AudioEncoder
-  // rejects a channel-count mismatch with "Input audio buffer is
-  // incompatible with codec parameters" (closing the encoder on the first
-  // frame). Force mono to match.
-  destination.channelCount = 1;
-  source.connect(node).connect(destination);
+	const destination = ctx.createMediaStreamDestination();
+	// createMediaStreamDestination() defaults to 2 channels (stereo); the mic
+	// source and the encoder downstream (micPipeline.ts's BASE_CONFIG /
+	// VOIP_CONFIG, both numberOfChannels: 1) are mono, and AudioEncoder
+	// rejects a channel-count mismatch with "Input audio buffer is
+	// incompatible with codec parameters" (closing the encoder on the first
+	// frame). Force mono to match.
+	destination.channelCount = 1;
+	source.connect(node).connect(destination);
 
-  return {
-    outputTrack: destination.stream.getAudioTracks()[0],
-    stop: () => {
-      node.port.onmessage = null;
-      node.disconnect();
-      source.disconnect();
-      void ctx.close();
-    },
-  };
+	return {
+		outputTrack: destination.stream.getAudioTracks()[0],
+		stop: () => {
+			node.port.onmessage = null;
+			node.disconnect();
+			source.disconnect();
+			void ctx.close();
+		},
+	};
 }

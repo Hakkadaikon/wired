@@ -13,13 +13,13 @@ export const SCREEN_TILE_DEFAULT_PX = 320;
  * no-op -- and a missing or zero dimension (a frame with no size yet)
  * never resizes. Call right before drawImage, in the same tick. */
 export function fitCanvasToFrame(
-  canvas: { width: number; height: number },
-  frameW: number | undefined,
-  frameH: number | undefined,
+	canvas: { width: number; height: number },
+	frameW: number | undefined,
+	frameH: number | undefined,
 ): boolean {
-  if (!frameW || !frameH) return false;
-  if (canvas.width === frameW && canvas.height === frameH) return false;
-  canvas.width = frameW;
-  canvas.height = frameH;
-  return true;
+	if (!frameW || !frameH) return false;
+	if (canvas.width === frameW && canvas.height === frameH) return false;
+	canvas.width = frameW;
+	canvas.height = frameH;
+	return true;
 }

@@ -7,16 +7,17 @@
 export const SCREEN_STALL_MS = 3000;
 
 export type StallDetector = {
-  frame: (now: number) => void;
-  isStalled: (now: number) => boolean;
+	frame: (now: number) => void;
+	isStalled: (now: number) => boolean;
 };
 
 export function createStallDetector(thresholdMs: number): StallDetector {
-  let lastFrameAt: number | undefined;
-  return {
-    frame: (now) => {
-      lastFrameAt = now;
-    },
-    isStalled: (now) => lastFrameAt !== undefined && now - lastFrameAt >= thresholdMs,
-  };
+	let lastFrameAt: number | undefined;
+	return {
+		frame: (now) => {
+			lastFrameAt = now;
+		},
+		isStalled: (now) =>
+			lastFrameAt !== undefined && now - lastFrameAt >= thresholdMs,
+	};
 }
