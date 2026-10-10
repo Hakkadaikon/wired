@@ -150,6 +150,16 @@ typedef struct {
    * older positional initializers stay valid; a table built without it
    * (0) leaves the budget to the cap alone. */
   u64 (*est_kbps)(wired_wt_session* s);
+  /** wired_server_wt_stream_schedule-shaped: sets the full send class of
+   * an Object stream the hub just opened (draft-ietf-moq-transport-22
+   * 7.2): urgency 4, fine Subscriber Priority << 8 | Publisher Priority,
+   * flow the subscription (a FETCH its own), order the Group ID (~Group ID
+   * when Descending), tie fill-before-live then Subgroup ID. Used instead
+   * of stream_priority when set. Kept last so older positional
+   * initializers stay valid; a table built without it (0) falls back to
+   * stream_priority. */
+  int (*stream_sched)(
+      wired_wt_session* s, u64 stream_id, const wired_wt_sched* k);
 } wired_moqt_io;
 
 /** RFC 9218 urgency of a subscriber stream from its subscription's

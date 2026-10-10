@@ -2476,6 +2476,79 @@ static void moqtrun_handle_subscribe(
   moqtrun_subscribe_checked(hub, p, peer_idx, &m, body);
 }
 
+/* ============ Object stream send classes (draft-22 7.2) ============ */
+
+/* draft-ietf-moq-transport-19 10.2.7: SUBSCRIBER_PRIORITY defaults to
+ * 128. */
+static u8 moqtrun_sub_prio(const wired_moqtrun_sub* s) {
+  return s->has_priority ? s->priority : 128;
+}
+
+/* Every Object stream's urgency: below the transport default 3 the
+ * control and request streams keep (7.2: they SHOULD go first). */
+#define MOQTRUN_OBJ_URGENCY 4
+/* A subscription-delivered stream's tie bit: its fill goes first in the
+ * same group (7.2 rule 4). */
+#define MOQTRUN_TIE_LIVE (1ULL << 63)
+/* GROUP_ORDER 0x2: Descending (10.2.8). */
+#define MOQTRUN_ORDER_DESC 2
+
+/* The flow of request rid on peer slot idx: a subscription and its fill
+ * share it, a FETCH has its own (Request IDs are unique per session).
+ * ponytail: Request IDs past 2^56 alias another; widen if one gets there. */
+static u64 moqtrun_flow_of(usz idx, u64 rid) {
+  return (u64)(idx + 1) << 56 | (rid & ((1ULL << 56) - 1));
+}
+
+/* Group g's rank inside its flow, lowest first (7.2 rule 3). */
+static u64 moqtrun_group_rank(int descending, u64 g) {
+  return descending ? ~g : g;
+}
+
+/* An Object stream's class: Subscriber, then Publisher Priority (7.2
+ * rules 1-2), then (order, tie) inside its flow. */
+static wired_wt_sched moqtrun_sched_of(
+    u8 sub_prio, u8 pub_prio, u64 flow, u64 order, u64 tie) {
+  wired_wt_sched k = {
+      MOQTRUN_OBJ_URGENCY, (u16)(sub_prio << 8 | pub_prio), flow, order, tie};
+  return k;
+}
+
+/* A subscription-delivered stream of s in Group group, Subgroup sg. */
+static wired_wt_sched moqtrun_sub_key(
+    const wired_moqtrun_sub* s, u8 pub_prio, u64 group, u64 sg) {
+  return moqtrun_sched_of(
+      moqtrun_sub_prio(s), pub_prio,
+      moqtrun_flow_of(s->session_idx, s->request_id),
+      moqtrun_group_rank(s->group_order == MOQTRUN_ORDER_DESC, group),
+      MOQTRUN_TIE_LIVE | sg);
+}
+
+/* A table without stream_sched: the coarse urgency alone. */
+static void moqtrun_sched_legacy(
+    wired_moqt_hub*       hub,
+    wired_wt_session*     wt,
+    u64                   sid,
+    const wired_wt_sched* k) {
+  if (!hub->io.stream_priority) return;
+  hub->io.stream_priority(
+      wt, sid, WIRED_MOQTRUN_URGENCY(k->fine >> 8, k->fine & 0xff));
+}
+
+/* Sets k on stream sid (nothing when the open failed, sid < 0). */
+static void moqtrun_sched_apply(
+    wired_moqt_hub*       hub,
+    wired_wt_session*     wt,
+    i64                   sid,
+    const wired_wt_sched* k) {
+  if (sid < 0) return;
+  if (hub->io.stream_sched) {
+    hub->io.stream_sched(wt, (u64)sid, k);
+    return;
+  }
+  moqtrun_sched_legacy(hub, wt, (u64)sid, k);
+}
+
 /* ===================== FETCH (draft 10.12, 10.13, 11.4.4) =============== */
 
 /* The Location right after l. */
@@ -2529,6 +2602,35 @@ static i64 moqtrun_fetch_open_io(
 
 static void moqtrun_fill_opened(
     wired_moqt_hub* hub, const wired_moqtrun_fetch* f);
+static wired_moqtrun_sub* moqtrun_hub_sub_by_rid(
+    wired_moqt_hub* hub, usz idx, u64 rid, wired_moqtrun_track** t);
+
+/* f's Subscriber Priority: a fill's subscription's, else the default.
+ * ponytail: a FETCH's own SUBSCRIBER_PRIORITY is not kept; store it on
+ * the fetch slot if FETCHes need ranking against each other. */
+static u8 moqtrun_fetch_sub_prio(
+    wired_moqt_hub* hub, const wired_moqtrun_fetch* f, usz idx) {
+  wired_moqtrun_track* t;
+  wired_moqtrun_sub*   s =
+      f->is_fill ? moqtrun_hub_sub_by_rid(hub, idx, f->owner_rid, &t) : 0;
+  return s ? moqtrun_sub_prio(s) : 128;
+}
+
+/* f's open stream class: a fill in its subscription's flow, a FETCH in
+ * its own, at the cursor's group, ahead of live streams of that group
+ * (tie 0); Publisher Priority the 128 its Objects carry
+ * (moqtrun_fetch_obj_of). */
+static void moqtrun_fetch_sched(
+    wired_moqt_hub* hub, const wired_moqtrun_fetch* f) {
+  wired_moqtrun_peer* p = moqtrun_find_by_wt(hub, f->wt);
+  if (!p) return;
+  usz            idx = (usz)(p - hub->peers);
+  u64            rid = f->is_fill ? f->owner_rid : f->request_id;
+  wired_wt_sched k   = moqtrun_sched_of(
+      moqtrun_fetch_sub_prio(hub, f, idx), 128, moqtrun_flow_of(idx, rid),
+      moqtrun_group_rank(f->descending, f->cursor.group), 0);
+  moqtrun_sched_apply(hub, f->wt, (i64)f->stream_id, &k);
+}
 
 /* 1 once f's stream is open; a refused open retries on the next tick. */
 static int moqtrun_fetch_open(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
@@ -2538,8 +2640,9 @@ static int moqtrun_fetch_open(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   moqfetch_hdr_put(wired_mspan_of(hdr, sizeof hdr), &n, f->request_id);
   i64 sid = moqtrun_fetch_open_io(hub, f, wired_span_of(hdr, n));
   if (sid < 0) return 0;
-  f->stream_id  = (u64)sid;
-  f->opened     = 1;
+  f->stream_id = (u64)sid;
+  f->opened    = 1;
+  moqtrun_fetch_sched(hub, f);
   f->last_ok_ms = hub->live.last_now_ms;
   f->in_use     = !moqtrun_fetch_done(f);
   moqtrun_fill_opened(hub, f);
@@ -3610,6 +3713,59 @@ static int moqtrun_ssts_settable(
   return moqtrun_ssts_peer_track(hub, t) && !(p->req && p->req->pub_origin_rid);
 }
 
+/* relay rl has an open stream for sub slot i. */
+static int moqtrun_relay_holds(const wired_moqtrun_relay* rl, usz i) {
+  return rl->in_use && rl->sub_stream_set[i];
+}
+
+/* Re-classes every keep-open relay stream of s (slot of t) on wt. */
+static void moqtrun_relays_resched(
+    wired_moqt_hub*            hub,
+    wired_wt_session*          wt,
+    const wired_moqtrun_track* t,
+    const wired_moqtrun_sub*   s) {
+  usz i = (usz)(s - t->subs);
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) {
+    const wired_moqtrun_relay* rl = &t->relays[r];
+    if (!moqtrun_relay_holds(rl, i)) continue;
+    wired_wt_sched k =
+        moqtrun_sub_key(s, rl->pub_prio, rl->group_id, rl->subgroup_id);
+    moqtrun_sched_apply(hub, wt, (i64)rl->sub_stream_id[i], &k);
+  }
+}
+
+static int moqtrun_fill_of(const wired_moqtrun_fetch* f, u64 rid) {
+  return f->is_fill && f->owner_rid == rid;
+}
+
+/* f is subscription {wt, rid}'s fill with its stream open. */
+static int moqtrun_fill_open_of(
+    const wired_moqtrun_fetch* f, const wired_wt_session* wt, u64 rid) {
+  return moqtrun_fetch_owned(f, wt) && f->opened && moqtrun_fill_of(f, rid);
+}
+
+/* Re-classes subscription {wt, rid}'s open fill streams. */
+static void moqtrun_fills_resched(
+    wired_moqt_hub* hub, const wired_wt_session* wt, u64 rid) {
+  for (usz j = 0; j < WIRED_MOQTRUN_MAX_FETCHES; j++)
+    if (moqtrun_fill_open_of(&hub->fetches[j], wt, rid))
+      moqtrun_fetch_sched(hub, &hub->fetches[j]);
+}
+
+/* An applied update re-classes the subscription's streams still open
+ * (7.1: a changed Subscriber Priority SHOULD reach objects not yet
+ * scheduled); later opens read the new value anyway. ponytail: one-shot
+ * streams the hub no longer tracks keep their old class until done. */
+static void moqtrun_upd_resched(
+    wired_moqt_hub*            hub,
+    wired_moqtrun_peer*        p,
+    const wired_moqtrun_sub*   s,
+    const wired_moqtrun_track* t) {
+  if (!t) return;
+  moqtrun_relays_resched(hub, p->wt, t, s);
+  moqtrun_fills_resched(hub, p->wt, s->request_id);
+}
+
 /* Parameters are refused as on SUBSCRIBE (moqtrun_params_refusal). */
 static u64 moqtrun_upd_checked(
     wired_moqt_hub*            hub,
@@ -3623,6 +3779,7 @@ static u64 moqtrun_upd_checked(
   if (code != MOQTRUN_REQ_ACCEPT) return code;
   if (!moqtrun_upd_apply(hub, p, s, t, params))
     return MOQCTL_ERR_INTERNAL_ERROR;
+  moqtrun_upd_resched(hub, p, s, t);
   moqtss_on_update(hub, s, params); /* SSTS: joins once applied */
   return MOQTRUN_REQ_ACCEPT;
 }
@@ -5552,12 +5709,6 @@ static void moqtrun_subscribe_live(
 
 /* ===================== data-stream (Object) relay ===================== */
 
-/* draft-ietf-moq-transport-19 10.2.7: SUBSCRIBER_PRIORITY defaults to
- * 128. */
-static u8 moqtrun_sub_prio(const wired_moqtrun_sub* s) {
-  return s->has_priority ? s->priority : 128;
-}
-
 /* The Publisher Priority of the SUBGROUP_HEADER head starts with: dflt
  * (the track's DEFAULT_PUBLISHER_PRIORITY, 12.4) when the DEFAULT_PRIORITY
  * bit omits it, or head does not decode. */
@@ -5568,8 +5719,9 @@ static u8 moqtrun_pub_prio(wired_span head, u8 dflt) {
   return moqdata_type_default_priority(h.type) ? dflt : (u8)h.priority;
 }
 
-/* Sets the urgency (WIRED_MOQTRUN_URGENCY) of subscriber stream sid just
- * opened for sub, head being its opening bytes. */
+/* Sets the class (moqtrun_sub_key) of subscriber stream sid just opened
+ * for sub, head being its opening SUBGROUP_HEADER; one that does not
+ * decode ranks as Group 0, Subgroup 0. */
 static void moqtrun_prio_set(
     wired_moqt_hub*          hub,
     wired_wt_session*        wt,
@@ -5577,11 +5729,12 @@ static void moqtrun_prio_set(
     const wired_moqtrun_sub* sub,
     wired_span               head,
     u8                       dflt) {
-  if (!hub->io.stream_priority || sid < 0) return;
-  hub->io.stream_priority(
-      wt, (u64)sid,
-      WIRED_MOQTRUN_URGENCY(
-          moqtrun_sub_prio(sub), moqtrun_pub_prio(head, dflt)));
+  usz            off = 0;
+  moqdata_subhdr h   = {0};
+  (void)moqdata_subhdr_take(head, &off, &h);
+  wired_wt_sched k = moqtrun_sub_key(
+      sub, moqtrun_pub_prio(head, dflt), h.group_id, h.subgroup_id);
+  moqtrun_sched_apply(hub, wt, sid, &k);
 }
 
 /* One-shot relay of wire to one subscriber: a fresh uni stream, sent and
