@@ -481,9 +481,9 @@ typedef struct {
  * draw at most one RESET_STREAM and one STOP_SENDING, so two per slot holds
  * a peer tearing down everything in one packet; more than that is a flood
  * (the caller closes with H3_EXCESSIVE_LOAD on overflow). */
-#define WIRED_SRVLOOP_RESET_Q                                      \
-  (2 * (WIRED_SRVLOOP_MAX_STREAMS + WIRED_SRVLOOP_MAX_WT_STREAMS + \
-        WIRED_SRVLOOP_MAX_WT_UNI_STREAMS))
+#define WIRED_SRVLOOP_RESET_Q                                           \
+  ((usz)2 * (WIRED_SRVLOOP_MAX_STREAMS + WIRED_SRVLOOP_MAX_WT_STREAMS + \
+             WIRED_SRVLOOP_MAX_WT_UNI_STREAMS))
 
 /** One peer RESET_STREAM (is_stop 0) or STOP_SENDING (is_stop 1). */
 typedef struct {

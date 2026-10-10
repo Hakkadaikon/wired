@@ -91,7 +91,8 @@ static void srvboot_init_server(
   keyring_key(id->ticket_key, now, 0, cur);
   keyring_key(id->ticket_key, now, 1, prev);
   in->ticket_key = cur;
-  wired_server_init(conn->s, in);
+  wired_server_init(conn->s, in); /* copies the key out of cur */
+  in->ticket_key = 0;             /* cur dies with this frame */
   sdrv_set_ticket_key_prev(&conn->s->sdrv, prev);
 }
 
