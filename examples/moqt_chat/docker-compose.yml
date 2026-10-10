@@ -1,4 +1,4 @@
-# Use `just up` / `just up-bg` / `just down` (justfile) rather than calling
+# Use `just up` (`just up -d` detached) / `just down` (justfile) rather than calling
 # docker compose directly: this file's `build:` only packages whatever
 # wired_server binary is already on disk into the scratch image, it does
 # NOT build the binary itself (that needs the repo's pinned clang/ninja

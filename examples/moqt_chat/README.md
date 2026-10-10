@@ -152,7 +152,7 @@ image holds nothing besides `wired_server`. Mount a PEM pair and point
 ```sh
 cd examples/moqt_chat
 just up       # builds, then runs in the foreground, Ctrl-C stops it
-just up-bg    # same, but detached; `docker compose logs -f` to follow it, `just down` to tear it down
+just up -d    # same, but detached; `docker compose logs -f` to follow it, `just down` to tear it down
 ```
 
 The container runs with `network_mode: host` (see `docker-compose.yml`), so
@@ -271,7 +271,7 @@ default formatter (tabs, double quotes, 80 columns), and import ordering.
 ```sh
 just check-frontend   # format + lint + import order, no writes; fails on any error, warning or unformatted file
 just fix-frontend     # apply Biome's formatting and safe fixes in place
-just test-codec       # vitest unit tests
+just test-frontend   # vitest unit tests
 ```
 
 `check-frontend` is the gate: it runs `biome ci --error-on-warnings`, so a
@@ -309,6 +309,16 @@ one scenario from `e2e/scenarios/`, among them `s16-history-join`,
 `s17-video-join-keyframe`, `s18-discovery`, `s19-origin-403`,
 `s20-attachment-1mb` and `s21-sigterm-goaway` for the behavior above.
 
+The per-change stability battery is `s2-chat-longevity`, `s1-voice-clean`,
+`s4-voice-outage-reconnect`, `s5b-server-restart` and `s3-voice-loss
+--loss-rate=0.01`; the nightly one adds `s6-voice-soak --talk-ms=1500000`
+and `s10-voice-chat-longevity`. Run each with `just e2e-stability <id>`.
+Other entry points run directly (`just build build-frontend` first where a
+local server is needed): `./e2e/run-voice.sh --clients=4` (4-client
+chat+voice load), `node e2e/run-prod-screenshare-check.mjs
+--server-url=... --cert-hash=...` (screen share against a real deployment;
+see its header) and `cd e2e && npm test` (the harness's own metrics math).
+
 Starts the server and frontend, drives up to `MAX_CLIENTS=4` headless-Chrome
 participants (the frontend's fixed candidate id list), has each send several
 chat messages, and grades the run for message loss and latency. This grades
@@ -341,8 +351,8 @@ needed to run the scenarios on draft-22.
   its `wired_moqt_io` send table (prefixing the WebTransport stream signal,
   draft-ietf-webtrans-http3-15 SS4.2), plus the Origin allow-list, the
   certificate paths, the object cache and GOAWAY on shutdown.
-- `Dockerfile` / `docker-compose.yml` — the `scratch` image `just up`/
-  `up-bg` build and run (see "Build and run (server)" above).
+- `Dockerfile` / `docker-compose.yml` — the `scratch` image `just up`
+  builds and runs (see "Build and run (server)" above).
 - `frontend/` — the Next.js + React browser client:
   `src/lib/moqtWire.ts`/`moqtClient.ts` (wire codec; session, request
   streams, discovery, history fill / FETCH, GOAWAY; draft-22 and draft-19), `moqtScreenWire.ts`/`moqtScreenClient.ts`

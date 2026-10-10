@@ -1,50 +1,35 @@
 # wired MOQT chat sample. libc-free, x86_64-linux only, single-process
-# driver only (the hub keeps its peer table in one process's memory -- see
-# src/app/moqt/run/moqtrun.h).
+# (the hub keeps its peer table in one process's memory).
 
-# Build the server against the SDK static library, after the SDK's own
-# fmt+ninja+lint gate. The static, freestanding binary needs no libc.
-# Concurrent-connection cap (default 4, one per CANDIDATE_PARTICIPANT_IDS
-# slot) is the root justfile's conntable_cap -- override per invocation with
-# `CONNTABLE_CAP=<n> just build` (or `just --set conntable_cap <n> build`
-# from the repo root) when deploying for more than 4 simultaneous users.
+# Connection cap defaults to 4 (one per participant id); raise it with
+# `CONNTABLE_CAP=<n> just build`.
+# Build the server after the SDK's own fmt+ninja+lint gate.
 build:
     cd ../.. && just build && just ninja examples/moqt_chat/wired_server
 
-# Build (via docker-compose.yml's own `build:`) and run in the foreground;
-# Ctrl-C stops it. network_mode: host, so the container listens on the
-# host's own 4433/udp directly (no NAT/port-forward -- QUIC's Path MTU
-# Discovery, IP_MTU_DISCOVER=IP_PMTUDISC_DO, was confirmed by hand to never
-# complete a handshake through Docker's default bridge + `-p` port mapping;
-# host networking sidesteps it). --build picks up a binary rebuilt since the
-# image was last built (docker compose up alone reuses a stale image
-# otherwise). Do not pass --workers/--cores/--ifindex: this hub is
-# single-process only.
-up: build
-    docker compose up --build
+# Host networking: QUIC PMTU discovery never completes through Docker's
+# bridge + port mapping. `just up -d` detaches (`docker compose logs -f`).
+# Build the image and run the server (docker compose up).
+up *flags: build
+    docker compose up --build {{flags}}
 
-# Same as `up`, but detached: returns immediately once the container is
-# running. `docker compose logs -f` to follow its cert-fingerprint/startup
-# output, `just down` to tear it down.
-up-bg: build
-    docker compose up --build -d
-
-# Stop and remove the container docker-compose.yml started.
+# Stop and remove the container.
 down:
     docker compose down
 
-# Production build of the moqt_chat frontend (frontend/, Next.js + pnpm,
-# output: "export" -> frontend/out/).
-build-frontend:
-    cd frontend && pnpm install --frozen-lockfile && pnpm build
+[private]
+_pnpm script:
+    cd frontend && pnpm install --frozen-lockfile && pnpm {{script}}
 
-# Run the moqt_chat frontend's dev server (http://localhost:3000/).
-dev-frontend:
-    cd frontend && pnpm install --frozen-lockfile && pnpm dev
+# Static export of the frontend into frontend/out/.
+build-frontend: (_pnpm "build")
 
-# Build the frontend's static output and serve it over TLS
-# (https://<host>:8443/). TLS because a non-localhost http:// page is not a
-# secure context and the browser disables the WebTransport API entirely.
+# Frontend dev server with hot reload (http://localhost:3000/).
+dev-frontend: (_pnpm "dev")
+
+# TLS because a non-localhost http:// page is not a secure context, and the
+# browser then disables WebTransport.
+# Build the frontend and serve frontend/out/ over TLS (https://<host>:8443/).
 serve-frontend: build-frontend
     [ -f cert.pem ] || openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
         -keyout key.pem -out cert.pem -days 365 -nodes -subj "/CN=localhost"
@@ -58,95 +43,37 @@ serve-frontend: build-frontend
     print('https://0.0.0.0:8443/'); \
     srv.serve_forever()"
 
-# Biome over the frontend (format + lint + import order, no writes):
-# fails on any error, warning or unformatted file. Config: frontend/biome.json.
-check-frontend:
-    cd frontend && pnpm install --frozen-lockfile && pnpm check
+# Biome format + lint + import order, no writes; any warning fails.
+check-frontend: (_pnpm "check")
 
-# Apply Biome's formatting and safe lint fixes to the frontend in place.
-fix-frontend:
-    cd frontend && pnpm install --frozen-lockfile && pnpm fix
+# Apply Biome's formatting and safe fixes in place.
+fix-frontend: (_pnpm "fix")
 
-# TS codec unit tests (vitest) pinned to the shared golden vectors
-# (testvectors/moqt_golden.json).
-test-codec:
-    cd frontend && pnpm install --frozen-lockfile && pnpm test
+# Frontend unit tests (vitest), pinned to testvectors/moqt_golden.json.
+test-frontend: (_pnpm "test")
 
-# One-time: install the e2e harness's node deps and puppeteer's own Chrome
-# for Testing build, then provision the shared libraries that build is
-# missing in a minimal container via `apt-get download` + `dpkg -x`
-# (user-local, no root, no system mutation), caching the resulting lib path
-# at e2e/.chrome-libs-profile.
+# Installs node deps, puppeteer's Chrome for Testing, and the shared libraries
+# a minimal container lacks (user-local, cached in e2e/.chrome-libs-profile).
+# One-time setup for the e2e harness.
 e2e-setup:
     cd e2e && npm install
     cd e2e && npx puppeteer browsers install chrome
     ./e2e/fetch-chrome-libs.sh
 
-# Unit tests for the load harness's own metrics math (loss rate, latency
-# percentiles) -- pure functions, no browser involved.
-e2e-test:
-    cd e2e && npm test
+# Up to 4 headless-Chrome clients graded for message loss and latency; starts
+# its own server and frontend. e.g. `just e2e-load --clients=4 --messages=10`.
+# Multi-client chat load test.
+e2e-load *ARGS: build build-frontend
+    ./e2e/run.sh {{ARGS}}
 
-# Chat+voice load test at the full 4-client room (the shape the voice
-# quality gates are defined against). Args forward to run-voice-load-test.mjs.
-e2e-voice *ARGS: build build-frontend
-    ./e2e/run-voice.sh --clients=4 {{ARGS}}
-
-# One stability scenario (e2e/scenarios/<id>.mjs): the runner owns the
-# server process so scenarios can kill/restart it mid-run. Evidence lands in
-# tasks/voice-stability/<id>/. e.g.: just e2e-stability s2-chat-longevity
+# The runner owns the server so a scenario can kill/restart it. Evidence
+# lands in tasks/voice-stability/<id>/. e.g. `just e2e-stability s1-voice-clean`.
+# Run one stability scenario (e2e/scenarios/<id>.mjs).
 e2e-stability SCENARIO *ARGS: build build-frontend
     ./e2e/run-stability.sh {{SCENARIO}} {{ARGS}}
 
-# Per-change stability battery (the master ledger's CI set): chat
-# longevity, clean voice, outage-reconnect, server restart, and 1% voice
-# loss. Stops at the first failing scenario; evidence lands per scenario
-# under tasks/voice-stability/<id>/.
-e2e-stability-ci: build build-frontend
-    ./e2e/run-stability.sh s2-chat-longevity
-    ./e2e/run-stability.sh s1-voice-clean
-    ./e2e/run-stability.sh s4-voice-outage-reconnect
-    ./e2e/run-stability.sh s5b-server-restart
-    ./e2e/run-stability.sh s3-voice-loss --loss-rate=0.01
-
-# Nightly battery: the CI set plus the endurance runs -- the 25-minute
-# 2-client voice soak (S6, flow-control wedge detector) and the 4-client
-# voice+chat longevity run (S10).
-e2e-stability-nightly: e2e-stability-ci
-    ./e2e/run-stability.sh s6-voice-soak --talk-ms=1500000
-    ./e2e/run-stability.sh s10-voice-chat-longevity
-
-# Screen-share check: 2 headless-Chrome participants, one shares a fake
-# getDisplayMedia canvas, the other's window.__wiredScreenTap (screenTap.ts)
-# is polled until decoded frames arrive with plausible dimensions -- the
-# independent-peer check for encode -> MOQT Objects -> reassemble -> decode.
-# Pass --load for the 4-participant simultaneous-share scenario that
-# exercises WIRED_SRVLOOP_MAX_WT_UNI_STREAMS. Run e2e-setup once first.
+# Two participants, one shares a fake screen, the other must decode frames;
+# --load runs 4 simultaneous sharers.
+# Screen-share check (encode -> MOQT -> reassemble -> decode).
 e2e-screen *ARGS: build build-frontend
     node e2e/run-screenshare-check.mjs {{ARGS}}
-
-# Screen-share check against a REAL running deployment: the production
-# frontend at https://hakkadaikon.github.io/wired/moqt_chat/ (a public
-# origin) talking to a REAL wired_server the operator already started
-# (its address/cert fingerprint are required args, not started/stopped by
-# this recipe). Unlike every other e2e-* recipe here, this one builds
-# NOTHING and needs no server-control -- it measures the actual thing
-# users hit. Get the two required values with:
-#   docker logs <container-name> | grep fingerprint
-# then:
-#   just e2e-prod-screen --server-url=https://<host>:4433/ --cert-hash=<sha-256>
-# See e2e/run-prod-screenshare-check.mjs's own doc for --extra-cycles /
-# --idle-ms / --real-screen and what each gate checks.
-e2e-prod-screen *ARGS:
-    node e2e/run-prod-screenshare-check.mjs {{ARGS}}
-
-# Multi-client chat load test: N headless-Chrome clients (each its own
-# BrowserContext), joining the hub's single fixed room, exchanging chat
-# messages, graded for message loss and latency. N is capped at 4 (the
-# frontend's fixed candidate participant id list -- see e2e/lib/loadTest.mjs
-# for why). Starts/stops its own server + static frontend; no manual
-# fingerprint copying. Run e2e-setup once first.
-# Args forward to run-load-test.mjs, e.g.:
-#   just e2e-load --clients=4 --messages=10 --max-loss-rate=0
-e2e-load *ARGS: build build-frontend
-    ./e2e/run.sh {{ARGS}}

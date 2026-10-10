@@ -1,8 +1,8 @@
 // Resolves the puppeteer-managed Chrome binary and its LD_LIBRARY_PATH. This
 // sandbox's Chrome for Testing download is missing several shared libs
 // (atk, cups, cairo, pango, alsa, ...) that ship on a desktop but not this
-// container; `just e2e-deps` (justfile) provisions them via `nix-shell -p`
-// once and this module just locates the resulting profile.
+// container; `just e2e-setup` (fetch-chrome-libs.sh) provisions them once
+// and this module just locates the resulting profile.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
