@@ -127,6 +127,150 @@ static void test_moqtrun_prio_op_absent(void) {
   CHECK(moqtrun_test_count_kind(13) == 0);
 }
 
+/* ===================== send classes (draft-22 7.2) =====================
+ * io.stream_sched, when set, replaces io.stream_priority. Test list:
+ * - keep-open and one-shot relay streams: urgency 4, fine = Subscriber <<
+ *   8 | Publisher Priority, order = Group ID, tie = live bit | Subgroup
+ *   ID; stream_priority is not called
+ * - each subscription is its own flow; one subscription's streams share it
+ * - Descending GROUP_ORDER: order = ~Group ID
+ * - REQUEST_UPDATE's SUBSCRIBER_PRIORITY re-classes the open keep-open
+ *   stream and later opens
+ * - a fill shares its subscription's flow, tie 0 (before the live
+ *   stream); a FETCH gets its own flow */
+
+typedef struct {
+  wired_wt_session* s;
+  u64               sid;
+  wired_wt_sched    k;
+} mtdr_sched_rec;
+
+static mtdr_sched_rec mtdr_sched_log[64];
+static usz            mtdr_sched_n;
+
+static int mtdr_sched(
+    wired_wt_session* s, u64 stream_id, const wired_wt_sched* k) {
+  if (mtdr_sched_n < sizeof mtdr_sched_log / sizeof mtdr_sched_log[0])
+    mtdr_sched_log[mtdr_sched_n++] = (mtdr_sched_rec){s, stream_id, *k};
+  return 1;
+}
+
+/* The last class set on one of s's streams; 0 if none. */
+static const mtdr_sched_rec* mtdr_sched_last(wired_wt_session* s) {
+  for (usz i = mtdr_sched_n; i > 0; i--)
+    if (mtdr_sched_log[i - 1].s == s) return &mtdr_sched_log[i - 1];
+  return 0;
+}
+
+static void mtdr_sched_on(void) {
+  mtdr_sched_n                = 0;
+  mtst_hub.io.stream_sched    = mtdr_sched;
+  mtst_hub.io.stream_priority = mtdr_prio;
+}
+
+#define MTDR_LIVE (1ULL << 63)
+
+static void test_moqtrun_sched_relay_keys(void) {
+  moqctl_params hi = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 10);
+  moqctl_ftn    f  = mtdr_prio_setup();
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  mtdr_sched_on();
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &hi);
+  usz n = mtst_stream(3, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  const mtdr_sched_rec* r = mtdr_sched_last(SESS_B);
+  CHECK(r && r->k.urgency == 4 && r->k.fine == 0x0a80);
+  CHECK(r && r->k.order == 3 && r->k.tie == MTDR_LIVE && r->k.flow != 0);
+  u64 flow = r ? r->k.flow : 0;
+  n        = mtdr_stream(4, 5, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 1);
+  r = mtdr_sched_last(SESS_B);
+  CHECK(r && r->k.fine == 0x0a05 && r->k.order == 4 && r->k.flow == flow);
+  CHECK(moqtrun_test_count_kind(13) == 0);
+}
+
+static void test_moqtrun_sched_flow_per_subscription(void) {
+  moqctl_ftn f = mtdr_prio_setup();
+  u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  mtdr_sched_on();
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  mtst_subscribe_p(SESS_C, MTRQ_S1, &f, 2, 0);
+  usz n = mtst_stream(3, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  const mtdr_sched_rec* b = mtdr_sched_last(SESS_B);
+  const mtdr_sched_rec* c = mtdr_sched_last(SESS_C);
+  CHECK(b && c && b->k.flow != c->k.flow);
+  CHECK(b && c && b->k.fine == 0x8080 && c->k.fine == 0x8080);
+}
+
+static void test_moqtrun_sched_descending(void) {
+  moqctl_params d = mtst_params_u8(MOQCTL_PARAM_GROUP_ORDER, 2);
+  moqctl_ftn    f = mtdr_prio_setup();
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  mtdr_sched_on();
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &d);
+  usz n = mtst_stream(3, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  const mtdr_sched_rec* r = mtdr_sched_last(SESS_B);
+  CHECK(r && r->k.order == ~3ULL);
+}
+
+static void test_moqtrun_sched_update_reclasses(void) {
+  moqctl_params p = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 250);
+  moqctl_ftn    f = mtdr_prio_setup();
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  mtdr_sched_on();
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  usz n = mtst_stream(3, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  const mtdr_sched_rec* r = mtdr_sched_last(SESS_B);
+  u64                   s = r ? r->sid : 0;
+  u64                   w = r ? r->k.flow : 0;
+  CHECK(r && r->k.fine == 0x8080);
+  mtup_update(SESS_B, MTRQ_S1, &p);
+  r = mtdr_sched_last(SESS_B);
+  CHECK(r && r->sid == s && r->k.fine == 0xfa80 && r->k.flow == w);
+  n = mtst_stream(4, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 0);
+  r = mtdr_sched_last(SESS_B);
+  CHECK(r && r->sid != s && r->k.fine == 0xfa80);
+}
+
+static void test_moqtrun_sched_fill_shares_flow(void) {
+  moqctl_params hi   = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 10);
+  moqfetch_fill fill = {0};
+  mf_init(sizeof mf_arena);
+  mtdr_sched_on();
+  mf_obj(0, 0, 1);
+  mf_obj(1, 0, 1);
+  mfill_subscribe(&fill, &hi);
+  const mtdr_sched_rec* r = mtdr_sched_last(SESS_B);
+  CHECK(r && r->k.urgency == 4 && r->k.fine == 0x0a80);
+  CHECK(r && r->k.order == 0 && r->k.tie == 0 && r->k.flow != 0);
+  u64 flow = r ? r->k.flow : 0;
+  mf_obj_on(2, 0, 1, 0);
+  r = mtdr_sched_last(SESS_B);
+  CHECK(r && r->k.flow == flow && r->k.tie == MTDR_LIVE);
+}
+
+/* A FETCH (draft-18/19 body) is its own flow, at the default priorities. */
+static void test_moqtrun_sched_fetch_own_flow(void) {
+  moqctl_ftn f = mf_track();
+  u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  mf_init(sizeof mf_arena);
+  mtdr_sched_on();
+  mf_obj(0, 0, 1);
+  mtst_subscribe_p(SESS_B, mf_ctrl_b, &f, 2, 0);
+  usz n = mtst_stream(3, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  const mtdr_sched_rec* r    = mtdr_sched_last(SESS_B);
+  u64                   flow = r ? r->k.flow : 0;
+  mf_standalone(mf_loc(0, 0), mf_loc(1, 0));
+  r = mtdr_sched_last(SESS_B);
+  CHECK(r && r->k.fine == 0x8080 && r->k.order == 0 && r->k.tie == 0);
+  CHECK(r && r->k.flow != 0 && r->k.flow != flow);
+}
+
 /* ===================== GOAWAY received (10.4) ===================== */
 
 static u64 mtdr_ctl(wired_wt_session* s) {
@@ -666,6 +810,11 @@ static void mtall_drain(void) {
   test_moqtrun_prio_track_default();
   test_moqtrun_prio_update_applies();
   test_moqtrun_prio_op_absent();
+  test_moqtrun_sched_relay_keys();
+  test_moqtrun_sched_flow_per_subscription();
+  test_moqtrun_sched_descending();
+  test_moqtrun_sched_update_reclasses();
+  test_moqtrun_sched_fill_shares_flow();
 }
 
 void test_moqtrun_drain(void) {
@@ -678,4 +827,6 @@ void test_moqtrun_drain(void) {
   test_moqtrun_goaway_request_id_ignores_malformed();
   test_moqtrun_peer_goaway_d18_parity();
   moqtrun_test_allver(mtall_drain);
+  moqtrun_test_vers(
+      0, MOQVER_CAP_FETCH_BODY_V22, test_moqtrun_sched_fetch_own_flow);
 }

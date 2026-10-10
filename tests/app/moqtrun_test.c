@@ -340,6 +340,7 @@ static wired_moqt_io moqtrun_test_io(void) {
   io.stream_priority   = 0; /* default: off, like a table without */
   io.stream_stop       = moqtrun_test_stream_stop;
   io.est_kbps          = 0; /* default: unknown, like a table without */
+  io.stream_sched      = 0; /* default: off, like a table without */
   return io;
 }
 
