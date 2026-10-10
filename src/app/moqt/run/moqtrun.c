@@ -527,19 +527,10 @@ static int moqtrun_key_oversized(moqtrun_key k) {
   return k.ns.n > WIRED_MOQTRUN_MAX_NS || k.name.n > WIRED_MOQTRUN_MAX_NAME;
 }
 
-/* Copies name into t->name (Track Name = participant id, or
- * "<participant id>/audio"), truncated to WIRED_MOQTRUN_MAX_NAME (room ids
- * are short; a real deployment would reject an oversized one instead --
- * ponytail: no such input in this subset's usage). */
-static void moqtrun_record_track_name(wired_moqtrun_track* t, wired_span name) {
-  usz n = name.n < WIRED_MOQTRUN_MAX_NAME ? name.n : WIRED_MOQTRUN_MAX_NAME;
-  bytes_memcpy(t->name, name.p, n);
-  t->name_len = n;
-}
-
-/* Records k on t; k.ns fits (callers refuse an oversized key first). */
+/* Records k on t; k fits (callers refuse an oversized key first). */
 static void moqtrun_record_track_key(wired_moqtrun_track* t, moqtrun_key k) {
-  moqtrun_record_track_name(t, k.name);
+  bytes_memcpy(t->name, k.name.p, k.name.n);
+  t->name_len = k.name.n;
   bytes_memcpy(t->ns, k.ns.p, k.ns.n);
   t->ns_len = k.ns.n;
 }
@@ -5156,6 +5147,7 @@ usz wired_moqt_publish_blob(
     u64             track_alias,
     wired_span      blob,
     wired_mspan     wire) {
+  if (moqtrun_key_oversized(moqtrun_key_name(name))) return 0;
   usz n = moqdata_blob_build(wire, track_alias, blob);
   if (n == 0) return 0;
   moqtrun_track_claim(
@@ -5194,7 +5186,9 @@ int wired_moqt_publish_live(
     usz               n_frags,
     u64               group_ms,
     u64               now_ms) {
-  if (moqtrun_live_args_bad(frags, n_frags, group_ms)) return 0;
+  if (moqtrun_live_args_bad(frags, n_frags, group_ms) ||
+      moqtrun_key_oversized(moqtrun_key_name(name)))
+    return 0;
   hub->live.track.in_use = 0; /* a re-publish forgets old subscribers */
   moqtrun_track_claim(
       hub, &hub->live.track, moqtrun_key_name(name), track_alias);

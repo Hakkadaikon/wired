@@ -112,8 +112,6 @@ general relay network.
   d19 ("first payload byte") and d22 ("last header byte") collapse to the same
   moment because Objects decode atomically. Source: `moqtrun.c:5676`, L4-11,
   `ledger:draft-moq-transport-22.md` MQ22-070a (`[ ]`).
-- **Track Name truncated at 64 bytes** — `moqtrun_record_track_name` truncates
-  to `WIRED_MOQTRUN_MAX_NAME` instead of rejecting. Source: `moqtrun.c:523`.
 - **Priorities scheduling** — only Subscriber Priority is applied (as
   WebTransport stream urgency); Publisher Priority scheduling, fill-vs-live
   tie-break and the across-subscriptions algorithm are not implemented. Source:
@@ -628,7 +626,7 @@ Fixed-size tables and buffers (BSS-sized; raise the constant and rebuild).
 | `WIRED_MOQTRUN_HOLD_BUF` | 2048 | `moqtrun.h:225` | pre-SETUP bytes: request reset EXCESSIVE_LOAD, Object dropped |
 | `WIRED_MOQTRUN_GOAWAY_URI_MAX` | 512 | `moqtrun.h:230` | `wired_moqt_goaway` returns -1 for a longer URI (spec allows 8192) |
 | `WIRED_MOQTRUN_MAX_RELAYS` | 4 | `moqtrun.h:422` | stream not relayed, subscribers miss it |
-| `WIRED_MOQTRUN_MAX_NAME` | 64 | `moqtrun.h:427` | Track Name truncated |
+| `WIRED_MOQTRUN_MAX_NAME` | 64 | `moqtrun.h:427` | Track Name refused (PUBLISH, hub-owned publish returns 0) |
 | `WIRED_MOQTRUN_MAX_NS` | 128 | `moqtrun.h:433` | namespace refused on PUBLISH |
 | `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` | 4 (3 before track switching) | `moqtrun.h:469` | PUBLISH refused |
 | `WIRED_MOQTRUN_MAX_REQS` / `_PER_SESSION` | 96 / 24 | `moqtrun.h:509,514` | request stream reset EXCESSIVE_LOAD |

@@ -1479,15 +1479,15 @@ void wired_moqt_on_session_draining(void* app_ctx, wired_wt_session* s);
  * track of the same name. Call once at boot, before any session; wire must
  * outlive the hub (the framed bytes are held as a view).
  * @param hub the hub
- * @param name Track Name subscribers ask for (copied, truncated to
- *   WIRED_MOQTRUN_MAX_NAME)
+ * @param name Track Name subscribers ask for (copied; at most
+ *   WIRED_MOQTRUN_MAX_NAME bytes)
  * @param track_alias Track Alias carried by the framed header and by every
  *   SUBSCRIBE_OK for this track
  * @param blob the bytes to publish (copied into wire's framing)
  * @param wire destination for the framed bytes; size it with
  *   MOQDATA_BLOB_WIRE_CAP(blob.n)
- * @return framed byte count, or 0 when blob is empty or wire is too small
- *   (hub state unchanged) */
+ * @return framed byte count, or 0 when blob is empty, wire is too small
+ *   or name is too long (hub state unchanged) */
 usz wired_moqt_publish_blob(
     wired_moqt_hub* hub,
     wired_span      name,
@@ -1509,8 +1509,8 @@ usz wired_moqt_publish_blob(
  * subscriber is never sent a stale Group. Call once at boot; a re-publish
  * resets the track and forgets its subscribers.
  * @param hub the hub
- * @param name Track Name subscribers ask for (copied, truncated to
- *   WIRED_MOQTRUN_MAX_NAME)
+ * @param name Track Name subscribers ask for (copied; at most
+ *   WIRED_MOQTRUN_MAX_NAME bytes)
  * @param track_alias Track Alias carried by every framed header and every
  *   SUBSCRIBE_OK for this track
  * @param frags per-Group fragment views (caller-owned, must outlive hub;
@@ -1519,8 +1519,8 @@ usz wired_moqt_publish_blob(
  * @param n_frags entries at frags
  * @param group_ms Group duration in milliseconds
  * @param now_ms current clock: Group 0 starts here
- * @return 1, or 0 when n_frags or group_ms is 0 or any fragment is empty
- *   (hub state unchanged) */
+ * @return 1, or 0 when n_frags or group_ms is 0, any fragment is empty or
+ *   name is too long (hub state unchanged) */
 int wired_moqt_publish_live(
     wired_moqt_hub*   hub,
     wired_span        name,

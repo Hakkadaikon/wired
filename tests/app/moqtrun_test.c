@@ -4343,6 +4343,23 @@ static void test_moqtrun_live_empty_fragment_rejected(void) {
   CHECK(moqtrun_test_count_kind(8) == 0);
 }
 
+/* A Track Name past WIRED_MOQTRUN_MAX_NAME is refused (0, no track),
+ * never truncated into a different name. */
+static void test_moqtrun_hub_track_name_oversized_refused(void) {
+  static u8      long_name[WIRED_MOQTRUN_MAX_NAME + 1];
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_span name = wired_span_of(long_name, sizeof long_name);
+  CHECK(
+      wired_moqt_publish_blob(
+          &hub, name, 8, wired_span_of(g_test_blob, 4),
+          wired_mspan_of(g_test_wire, sizeof g_test_wire)) == 0);
+  CHECK(!hub.blob_track.in_use);
+  g_live_frags[0] = wired_span_of(g_test_blob, 4);
+  CHECK(wired_moqt_publish_live(&hub, name, 8, g_live_frags, 1, 2000, 0) == 0);
+  CHECK(!hub.live.track.in_use);
+}
+
 /* SUBSCRIBE at t=1000+2500 (Group 1): SUBSCRIBE_OK alias 8 and one
  * immediate send of Group 1 = fragment 1. */
 static void test_moqtrun_live_subscribe_sends_current_group(void) {
@@ -5838,6 +5855,7 @@ static void mtall_main(void) {
   test_moqtrun_blob_close_then_reconnect_resends();
   test_moqtrun_blob_shadows_peer_track_of_same_name();
   test_moqtrun_live_publish_rejects_bad_args();
+  test_moqtrun_hub_track_name_oversized_refused();
   test_moqtrun_live_empty_fragment_rejected();
   test_moqtrun_live_subscribe_sends_current_group();
   test_moqtrun_live_tick_advances_groups();
