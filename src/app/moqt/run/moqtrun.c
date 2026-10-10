@@ -774,11 +774,16 @@ static void moqtrun_track_seed_largest(
   if (l) moqtrun_track_note(t, l->loc.group, l->loc.object);
 }
 
-/* A live track's incarnation ends: its cached Objects go (a slot never
- * claimed holds no tag worth trusting). */
+/* Fill fetch streams' own section: resets every fill of tag (Q-08). */
+static void moqtrun_fills_upstream_gone(wired_moqt_hub* hub, u64 tag);
+
+/* A live track's incarnation ends: its cached Objects go and its fills
+ * reset INTERNAL_ERROR (a slot never claimed holds no tag worth trusting). */
 static void moqtrun_track_cache_drop(
     wired_moqt_hub* hub, const wired_moqtrun_track* t) {
-  if (t->in_use) moqcache_release(&hub->cache, t->cache_tag);
+  if (!t->in_use) return;
+  moqtrun_fills_upstream_gone(hub, t->cache_tag);
+  moqcache_release(&hub->cache, t->cache_tag);
 }
 
 static void moqtrun_track_claim(
@@ -838,18 +843,14 @@ static void moqtrun_track_return_rings(
  * for the track incarnation tag (T-07/T-08), defined there. */
 static void moqtrun_subtracks_track_gone(wired_moqt_hub* hub, u64 tag);
 
-/* Fill fetch streams' own section: resets every fill of tag (Q-08). */
-static void moqtrun_fills_upstream_gone(wired_moqt_hub* hub, u64 tag);
-
 /* Frees a superseded track: its subscribers' still-open relay streams are
  * reset (moqtrun_track_reset_stale_relays' own doc), its fills reset
- * INTERNAL_ERROR as upstream failures (ruling Q-08), its rings go back to
- * the pool (holds released), and the slot stops matching any name or Track
- * Alias, so the lingering session's stray Objects are dropped instead of
- * relayed. */
+ * INTERNAL_ERROR as upstream failures (ruling Q-08, in
+ * moqtrun_track_cache_drop), its rings go back to the pool (holds
+ * released), and the slot stops matching any name or Track Alias, so the
+ * lingering session's stray Objects are dropped instead of relayed. */
 static void moqtrun_track_retire(wired_moqt_hub* hub, wired_moqtrun_track* t) {
   moqtrun_track_reset_stale_relays(hub, t);
-  moqtrun_fills_upstream_gone(hub, t->cache_tag);
   moqtrun_track_cache_drop(hub, t);
   moqtrun_track_return_rings(hub, t);
   moqtrun_track_clear_relays(t);
@@ -7966,10 +7967,8 @@ void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s) {
    * subscriber streams they record (moqtrun_track_reset_stale_relays). */
   moqtrun_peer_drop_rings(hub, p);
   moqtrun_peer_frags_release(p);
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
-    moqtrun_fills_upstream_gone(hub, p->tracks[t].cache_tag);
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
     moqtrun_track_cache_drop(hub, &p->tracks[t]);
-  }
   p->in_use = 0;
   moqtrun_reqs_tick(hub); /* its namespaces are withdrawn (10.18) */
 }

@@ -73,10 +73,6 @@ general relay network.
 - **Ring arrival marks absorb appends** — with all `WIRED_MOQTREL_MARKS` (8)
   taken, the newest mark absorbs further appends, so a delivery timeout can
   fire early by at most the time since that mark. Source: `moqtrel.h:134`.
-- **Fill fetch: track claim does not reset fills** — `moqtrun_track_claim`
-  resets orphaned relay streams but does not reset in-flight fill (FILL_PARAMETERS)
-  streams of the previous incarnation (unverified; from the hand-off brief).
-  Source: `moqtrun.c:783`, L4-6 / L12-16.
 - **Fill / FETCH capacity refusal** — fills beyond `fetches[]` + `fetch_waits[]`
   (8 + 8) are refused REQUEST_ERROR INTERNAL_ERROR before the OK is sent (the
   earlier silent drop was fixed in L12-16). Source: `moqtrun.c:2838`, L12-16.

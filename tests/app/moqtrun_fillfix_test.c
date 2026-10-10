@@ -214,6 +214,22 @@ static void test_moqtrun_fillfix_retire_resets(void) {
   CHECK(mf_no_fetch());
 }
 
+/* The publisher re-PUBLISHes the same track: the new incarnation resets
+ * the previous one's fills INTERNAL_ERROR as a retire does. */
+static void test_moqtrun_fillfix_reclaim_resets(void) {
+  moqfetch_fill fill = {0};
+  moqctl_ftn    f    = mf_track();
+  mffx_three_groups();
+  g_stream_send_ok_n = 0;
+  moqctl_params sub  = mfill_params(&fill, 0);
+  mfill_subscribe_req(&sub);
+  CHECK(!mf_no_fetch());
+  g_stream_send_ok_n = -1;
+  mtst_publish(SESS_A, mf_ctrl_a, &f, MF_ALIAS + 1);
+  CHECK(mfill_reset_code(mfill_sid(0)) == MOQTRUN_RESET_INTERNAL_ERROR);
+  CHECK(mf_no_fetch());
+}
+
 static void mtall_fillfix(void) {
   test_moqtrun_fillfix_omitted_next_object();
   test_moqtrun_fillfix_omitted_abs_start();
@@ -222,6 +238,7 @@ static void mtall_fillfix(void) {
   test_moqtrun_fillfix_malformed_subscribe();
   test_moqtrun_fillfix_malformed_update();
   test_moqtrun_fillfix_retire_resets();
+  test_moqtrun_fillfix_reclaim_resets();
 }
 
 /* Table-filling scenarios park draft-18/19-layout FETCHes (mf_standalone),
