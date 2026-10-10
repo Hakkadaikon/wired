@@ -149,10 +149,6 @@ general relay network.
 - **Per-Location-Filter end does not end the subscription** — d22 behaviour is
   intended and implemented for every version, but MQ22-108b / 137a have no
   dedicated test. Source: `ledger:draft-moq-transport-22.md`.
-- **Duplicate-filter check keys on type only** — the duplicate-parameter check
-  (`moqctl_param_dup`, `src/app/moqt/ctl/moqctl.c:524-535`) compares type, not
-  (type, SetID), so two Range Filters of one type with different SetIDs are
-  not distinguished. Source: ledger note at `tasks/moqt-multidraft-ledger.md:335`.
 - **Drained session grace is fixed** — `WIRED_MOQTRUN_GOAWAY_GRACE_MS` (1000 ms)
   between PUBLISH_DONE flush and GOAWAY_TIMEOUT close; not an ack wait. Source:
   `moqtrun.h:697`.
