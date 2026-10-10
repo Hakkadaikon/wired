@@ -187,6 +187,13 @@ typedef struct {
  * value is descriptive bookkeeping, not itself validated. */
 #define SRVRUN_WT_PATH_CAP 128
 
+/* RFC 9000 14.1/17.3.1: the largest CONNECTION_CLOSE frame that still seals
+ * into one minimum-size (1200-byte) datagram whatever the peer's CID length:
+ * 1200 - short header (byte0 1 + DCID <= 20 + 4-byte packet number) - AEAD
+ * tag (16) = 1159. */
+#define SRVRUN_CLOSE_PL_MAX \
+  (MIN_INITIAL_DATAGRAM - (5 + WIRED_MAX_CID_LEN) - GCM_TAG)
+
 /* RFC 9114 10.5.2: WebTransport (Extended CONNECT) sessions open across ALL
  * connections at once, on top of the per-connection SRVRUN_MAX_WT_SESSIONS.
  * One per connection slot on average -- half the structural ceiling of
@@ -824,9 +831,8 @@ typedef struct {
    * call wt_on_session_draining again; cleared when a session starts. */
   int wt_drain_rcvd[SRVRUN_MAX_WT_SESSIONS];
   u8  scid[WIRED_MAX_CID_LEN];
-  /** The CONNECTION_CLOSE frame sent, kept to resend it unchanged. 64:
-   * the payload buffer every close seal already builds into. */
-  u8 close_pl[64];
+  /** The CONNECTION_CLOSE frame sent, kept to resend it unchanged. */
+  u8 close_pl[SRVRUN_CLOSE_PL_MAX];
   /** Each active slot's own Extended CONNECT :path value, copied rather than
    * viewed since the decoded request's own storage does not outlive the step
    * that established the session. Meaningless while the corresponding slot is
@@ -2095,7 +2101,7 @@ static void srvrun_close_all_wt(const srvrun_cfg* cfg, srvrun_conn* c);
  * 1-RTT packet -- the one send the closing state still allows, so it goes
  * around srvrun_send's closing gate. */
 static void srvrun_close_resend(const srvrun_cfg* cfg, srvrun_conn* c) {
-  u8         out[128];
+  u8         out[MIN_INITIAL_DATAGRAM];
   wired_obuf ob = obuf_of(out, sizeof out);
   if (!srvrun_seal_close_pl(c, wired_span_of(c->close_pl, c->close_pln), &ob))
     return;
@@ -2133,7 +2139,7 @@ static int srvrun_close_send(
  * closing state (srvrun_close_send). */
 static void srvrun_send_app_close(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, wired_span reason) {
-  u8         pl[64];
+  u8         pl[SRVRUN_CLOSE_PL_MAX];
   wired_obuf plb = obuf_of(pl, sizeof pl);
   usz        pln = srvrun_app_close_payload(error_code, reason, &plb);
   if (srvrun_close_send(cfg, c, wired_span_of(pl, pln)))
@@ -2215,7 +2221,7 @@ static usz srvrun_transport_close_payload(
  * (srvrun_close_send). */
 static void srvrun_send_transport_close(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, wired_span reason) {
-  u8         pl[64];
+  u8         pl[SRVRUN_CLOSE_PL_MAX];
   wired_obuf plb = obuf_of(pl, sizeof pl);
   usz        pln = srvrun_transport_close_payload(error_code, reason, &plb);
   if (srvrun_close_send(cfg, c, wired_span_of(pl, pln)))
@@ -3841,10 +3847,13 @@ static void srvrun_send_wt_close(
   srvrun_close_wt_session_slot(cfg, c, sidx, WTERR_SESSION_GONE);
 }
 
-/* Reason-phrase room in srvrun_send_app_close's 64-byte frame (close_pl):
- * 64 - type (1) - Error Code varint (<= 8) - Reason Phrase Length (1, the
- * reason is < 64) = 54, rounded down (RFC 9000 19.19). */
-#define SRVRUN_RAW_CLOSE_REASON_MAX 48
+/* Reason-phrase room in a SRVRUN_CLOSE_PL_MAX close frame (RFC 9000 19.19):
+ * 1159 - type (1) - Error Code varint (<= 8) - Reason Phrase Length varint
+ * (2, the reason is < 16384) = 1148. */
+#define SRVRUN_RAW_CLOSE_REASON_MAX (SRVRUN_CLOSE_PL_MAX - 1 - 8 - 2)
+_Static_assert(
+    WTCAPSULE_CLOSE_MESSAGE_MAX <= SRVRUN_RAW_CLOSE_REASON_MAX,
+    "a kept WT close message fits the raw CONNECTION_CLOSE reason whole");
 
 /* draft-ietf-moq-transport-19 3.5 / -22 6.6: a raw-QUIC session is closed
  * by closing the connection -- an application CONNECTION_CLOSE (0x1d) whose

@@ -309,17 +309,20 @@ static void test_srvrun_raw_close_session_reason(void) {
   CHECK(srr_close_pl_is(c, want, sizeof want));
 }
 
-/* T-E5 boundary: a reason longer than the close frame's room is cut at
- * SRVRUN_RAW_CLOSE_REASON_MAX, the frame still goes out. */
+/* T-E5 boundary: the longest close message the session keeps
+ * (WTCAPSULE_CLOSE_MESSAGE_MAX) goes out whole as the Reason Phrase, in one
+ * minimum-size packet: type, code 1, 2-byte length varint 0x4400, 1024
+ * bytes. */
 static void test_srvrun_raw_close_long_reason(void) {
-  u8           r[200];
+  u8           r[WTCAPSULE_CLOSE_MESSAGE_MAX + 1];
   srvrun_conn* c = srr_raw_live();
   bytes_memset(r, 'x', sizeof r);
   wired_server_wt_close_session(&c->wt, 1, wired_span_of(r, sizeof r));
   srr_ping(c);
   CHECK(c->closing == 1);
-  CHECK(c->close_pln == 3 + SRVRUN_RAW_CLOSE_REASON_MAX);
-  CHECK(c->close_pl[2] == SRVRUN_RAW_CLOSE_REASON_MAX);
+  CHECK(c->close_pln == 4 + WTCAPSULE_CLOSE_MESSAGE_MAX);
+  CHECK(c->close_pl[2] == 0x44 && c->close_pl[3] == 0x00);
+  CHECK(c->close_pl[c->close_pln - 1] == 'x');
 }
 
 /* The kept control packet whose frames start with type t, or 0. */

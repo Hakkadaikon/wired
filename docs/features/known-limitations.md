@@ -332,9 +332,11 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 - **0-RTT refused on a raw ALPN** — a raw-QUIC connection is never admitted in
   0-RTT (d18 3.3.1 / d22 6.3.1 relay MAY). Re-open condition: a peer that
   demands 0-RTT. Source: L13-3, L13 "対象外".
-- **Close reasons cut to 48 bytes** — the hub's application CONNECTION_CLOSE
-  (0x1d) reason phrase is truncated (at a UTF-8 boundary) to
-  `SRVRUN_RAW_CLOSE_REASON_MAX` = 48. Source: `srvrun.c:3830`.
+- **Close reasons bounded by one minimum-size packet** — the hub's
+  application CONNECTION_CLOSE (0x1d) reason phrase is cut (at a UTF-8
+  boundary) to `SRVRUN_RAW_CLOSE_REASON_MAX` = 1148, what fits next to the
+  frame overhead in a 1200-byte datagram; every kept WT close message
+  (<= 1024 bytes) goes out whole. Source: `srvrun.c` (`SRVRUN_CLOSE_PL_MAX`).
 - **9 client uni streams on raw** — one uni stream per MoQT subgroup; the
   advertised uni limit is 9 and each backed slot costs one
   `WIRED_SRVLOOP_WT_BUF_CAP` window (`WIRED_SRVLOOP_MAX_WT_UNI_STREAMS` = 9). An
@@ -660,7 +662,7 @@ Fixed-size tables and buffers (BSS-sized; raise the constant and rebuild).
 | `ZERORTT_SEEN_CAP` | 4096 | `zerortt_seen.h:17` | oldest evicted |
 | `TICKETGUARD_CAP` | 64 | `ticketguard.h:17` | oldest evicted |
 | `WIRED_RECVMMSG_MAX` | 64 | `udp.c:325` | batch cap |
-| `SRVRUN_RAW_CLOSE_REASON_MAX` | 48 | `srvrun.c:3830` | reason cut |
+| `SRVRUN_RAW_CLOSE_REASON_MAX` | 1148 | `srvrun.c` | reason cut (unreachable: messages <= 1024) |
 
 ## Testing and verification gaps
 
