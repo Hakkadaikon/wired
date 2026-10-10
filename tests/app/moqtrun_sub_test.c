@@ -1278,8 +1278,7 @@ static void test_moqtrun_sub_filter22_end_object_per_sub(void) {
 /* Object IDs c's payload carries as a subscriber stream's bytes (after
  * its SUBGROUP_HEADER when hdr, else read as the stream's first Objects
  * after a header-only open): up to 4 in ids, the count returned. */
-static usz mt22_ids(const moqtrun_test_call* c, int hdr, u64* ids) {
-  wired_span     w   = wired_span_of(c->payload, c->payload_len);
+static usz mt22_ids_of(wired_span w, int hdr, u64* ids) {
   usz            off = 0, n = 0;
   moqdata_subhdr h = {0};
   moqdata_obj    obj;
@@ -1288,6 +1287,10 @@ static usz mt22_ids(const moqtrun_test_call* c, int hdr, u64* ids) {
   while (n < 4 && moqdata_obj_take(w, &off, &seq, &obj) == MOQDATA_OK)
     ids[n++] = obj.object_id;
   return n;
+}
+
+static usz mt22_ids(const moqtrun_test_call* c, int hdr, u64* ids) {
+  return mt22_ids_of(wired_span_of(c->payload, c->payload_len), hdr, ids);
 }
 
 /* Start Object {6,1} (SS3.3.1: "a publisher MUST NOT send objects from
@@ -1343,6 +1346,131 @@ static void test_moqtrun_sub_filter22_start_object_append(void) {
   c = moqtrun_test_last_kind(3); /* stream_send */
   CHECK(c != 0 && mt22_ids(c, 0, ids) == 1);
   CHECK(ids[0] == 2);
+}
+
+/* B's last opened stream reassembled: the open plus every accepted send
+ * into buf, *fin 1 once it was closed. Its length. */
+static usz mt22_b_stream(u8* buf, int* fin) {
+  usz len = 0;
+  u64 sid = ~(u64)0;
+  *fin    = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    const moqtrun_test_call* c = &g_calls[i];
+    if (c->s != SESS_B) continue;
+    if (c->kind == 5) sid = c->stream_id, len = 0, *fin = 0;
+    if (c->stream_id != sid) continue;
+    if ((c->kind == 5 || c->kind == 3) && !c->refused) {
+      for (usz k = 0; k < c->payload_len; k++) buf[len++] = c->payload[k];
+      *fin |= c->fin;
+    }
+    *fin |= c->kind == 6;
+  }
+  return len;
+}
+
+/* Object IDs B's last stream carried after its header; *fin as above. */
+static usz mt22_b_ids(u64* ids, int* fin) {
+  static u8 buf[1024];
+  usz       n = mt22_b_stream(buf, fin);
+  return mt22_ids_of(wired_span_of(buf, n), 1, ids);
+}
+
+/* Reliable (ring-backed) relay, End Object {6,1}: Objects 1 and 2 arrive
+ * after the opening round -- B's stream carries Objects 0 and 1, then
+ * its FIN (SS3.3.1). */
+static void test_moqtrun_sub_filter22_ring_end_object_append(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  u64           ids[4];
+  int           fin;
+  moqctl_params end1 =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_OBJ, 6, 1));
+  mt22_subscribe(&end1);
+  mtst_hub.reliable_alias_limit = 100;
+  moqtrun_test_reset();
+  usz n = mtst_stream(6, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  n = mtst_stream(6, 2, 0, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mt22_b_ids(ids, &fin) == 2 && ids[0] == 0 && ids[1] == 1);
+  CHECK(fin == 1);
+}
+
+/* The End Object inside the opening round: the ring sends nothing more
+ * on the stream the open already closed. */
+static void test_moqtrun_sub_filter22_ring_end_object_open(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  u64           ids[4];
+  int           fin;
+  moqctl_params end1 =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_OBJ, 6, 1));
+  mt22_subscribe(&end1);
+  mtst_hub.reliable_alias_limit = 100;
+  moqtrun_test_reset();
+  usz n = mtst_stream(6, 3, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  n = mtst_stream(6, 1, 0, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mt22_b_ids(ids, &fin) == 2 && ids[1] == 1);
+  CHECK(fin == 1);
+}
+
+/* Start Object {6,2} past the opening round: the ring sends Object 2
+ * alone, its ID absolute (11.3.1). */
+static void test_moqtrun_sub_filter22_ring_start_object(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  u64           ids[4];
+  int           fin;
+  moqctl_params s62 =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 6, 2, MOQCTL_REK_UNBOUNDED, 0, 0));
+  mt22_subscribe(&s62);
+  mtst_hub.reliable_alias_limit = 100;
+  moqtrun_test_reset();
+  usz n = mtst_stream(6, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  n = mtst_stream(6, 2, 0, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mt22_b_ids(ids, &fin) == 1 && ids[0] == 2);
+}
+
+/* B subscribes with p while a ring holds Group 7's stream (Objects 0..2)
+ * from its header; the Object IDs B's replay carries, *fin as above. */
+static usz mt22_ring_late(const moqctl_params* p, u64* ids, int* fin) {
+  u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_hub.reliable_alias_limit              = 100;
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  usz n                                      = mtst_stream(7, 3, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, p);
+  wired_moqt_tick(&mtst_hub, 1);
+  return mt22_b_ids(ids, fin);
+}
+
+/* Start Object {7,1}: the late replay starts at Object 1, its ID
+ * absolute. */
+static void test_moqtrun_sub_filter22_ring_late_replay_start(void) {
+  u64           ids[4];
+  int           fin;
+  moqctl_params s71 =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 7, 1, MOQCTL_REK_UNBOUNDED, 0, 0));
+  CHECK(mt22_ring_late(&s71, ids, &fin) == 2 && ids[0] == 1 && ids[1] == 2);
+}
+
+/* End Object {7,1}: the late replay stops after Object 1, then FINs. */
+static void test_moqtrun_sub_filter22_ring_late_replay_end(void) {
+  u64           ids[4];
+  int           fin;
+  moqctl_params e71 =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 7, 0, MOQCTL_REK_OBJ, 7, 1));
+  CHECK(mt22_ring_late(&e71, ids, &fin) == 2 && ids[0] == 0 && ids[1] == 1);
+  CHECK(fin == 1);
 }
 
 /* ===================== reserved namespaces ===================== */
@@ -1691,6 +1819,11 @@ static void mtall_sub(void) {
   test_moqtrun_sub_filter22_start_object_oneshot();
   test_moqtrun_sub_filter22_start_object_keepopen();
   test_moqtrun_sub_filter22_start_object_append();
+  test_moqtrun_sub_filter22_ring_end_object_append();
+  test_moqtrun_sub_filter22_ring_end_object_open();
+  test_moqtrun_sub_filter22_ring_start_object();
+  test_moqtrun_sub_filter22_ring_late_replay_start();
+  test_moqtrun_sub_filter22_ring_late_replay_end();
   test_moqtrun_sub_ns_must_match();
   test_moqtrun_reserved_ns_rejected();
   test_moqtrun_other_dot_ns_served();

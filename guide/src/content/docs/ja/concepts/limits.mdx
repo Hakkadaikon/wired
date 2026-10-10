@@ -72,8 +72,6 @@ wired が内部に持つ表（コネクションやストリームの管理表�
   送信者自身の PUBLISH への REQUEST_UPDATE も、draft-22 のセッション以外では NOT_SUPPORTED で答えます。
 - Range Filter（draft-19 と draft-22 のみ）は、検査して MAX_FILTER_RANGES に数えますが、配信を絞るのは OBJECTID_FILTER だけで、それもデータグラムで送る Object に限ります。
   ほかの種類のフィルタは素通しです。
-- 後から来た購読者への live の配信は、Location Filter の開始 Group から始まります。
-  ただし、その Group の途中の開始 Object より前の Object は、Subgroup ストリームからは取り除きません。
 - Track Property の DEFAULT_PUBLISHER_PRIORITY は読みません。
   Publisher Priority を明示していない Object は 128 として扱います。
 - ハブ自身の Track（`wired_moqt_publish_blob`、`wired_moqt_publish_live`）は名前空間を持たず、SUBSCRIBE とは Track Name だけで照合します。

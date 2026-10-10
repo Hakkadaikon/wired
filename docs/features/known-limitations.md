@@ -49,12 +49,13 @@ general relay network.
   session, up to `WIRED_MOQTRUN_EARLY_BUF` = 2048 bytes) and relayed when the
   OK arrives; a second such stream, or one that outgrows the buffer, is
   dropped. Source: `moqtrun_early_stash` in `src/app/moqt/run/moqtrun.c`.
-- **Reliable ring path: no End Object cut, stream-granular start** — the
-  ring-backed (reliable) relay gates by Group only: it does not cut at a
-  draft-22 End Object mid-round, and a stream that began before a
-  subscription's start is not sent to it even for later Objects (chat sends one
-  Object per stream so loses nothing). Source: `moqtrun.c:6260`, `moqtrun.c:5881`,
-  L4-15.
+- **Late replay from a reliable ring is bounded** — a subscriber that
+  arrives while a reliable ring holds a stream gets it replayed from its
+  first Object at or past the start Object only while the ring has not
+  wrapped or been reclaimed past the stream's header, and only once such an
+  Object has arrived. Otherwise that stream is not sent to it. Source:
+  `moqtrun_rel_replay_ok`, `moqtrun_rel_replay` (ponytail) in
+  `src/app/moqt/run/moqtrun.c`.
 - **Subscriber-less ring holds its publisher** — a ring no cursor has joined
   may hold the publisher up to `WIRED_MOQTREL_STALL_MS` (10000 ms). Source:
   `moqtrun.c:6155`.

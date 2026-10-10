@@ -700,9 +700,8 @@ Legend:
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_no_replay_before_start`
   - evidence: the Location Filter is evaluated when objects are replayed to
-    a late subscriber over the reliable relay; a live attachment still
-    starts at the current group's object 0 rather than the filter's start
-    object (see Not implemented).
+    a late subscriber over the reliable relay, and Objects of the start
+    Group below the start Object are cut on every relay path.
 
 ## SS14 Grease
 
@@ -1383,8 +1382,9 @@ Legend:
   to the current Group, and a future start holds delivery until that Group.
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_live_attach_filter_start`
-  - note: ledger 10-7. Group-granular: a start Object inside the first Group is
-    not trimmed on a Subgroup stream (see Not implemented).
+  - note: ledger 10-7. A start Object inside the first Group is cut per
+    Object on a Subgroup stream (`test_moqtrun_sub_filter22_start_object_*`,
+    `test_moqtrun_sub_filter22_ring_*`).
 - [x] MOQT-206 (SS10.3.1.6, SS10.3.1.7) The hub's SETUP shall advertise
   MAX_FILTER_RANGES and MAX_REQUEST_UPDATES (both 4,
   `WIRED_MOQTRUN_MAX_FILTER_RANGES` / `WIRED_MOQTRUN_MAX_REQ_UPDATES`), and
@@ -1435,10 +1435,7 @@ namespace requests, MAX_REQUEST_UPDATES and Range Filter validation were
 listed here until ledger ch. 10 implemented them (MOQT-028, MOQT-070,
 MOQT-200 through MOQT-208).
 
-- (SS5.1.4) A late subscriber's live delivery starts at its Location
-  Filter's start Group (MOQT-205), but a start Object inside that Group is
-  not trimmed from a Subgroup stream; only the reliable replay honours the
-  start Object.
+None.
 
 ## Out of scope
 

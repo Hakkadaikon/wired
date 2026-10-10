@@ -818,9 +818,8 @@ Legend:
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_no_replay_before_start`
   - evidence: the Location Filter is evaluated when objects are replayed to
-    a late subscriber over the reliable relay; a live attachment still
-    starts at the current group's object 0 rather than the filter's start
-    object (see Not implemented).
+    a late subscriber over the reliable relay, and Objects of the start
+    Group below the start Object are cut on every relay path.
 
 ## SS14 Grease
 
@@ -1525,8 +1524,9 @@ Legend:
   to the current Group, and a future start holds delivery until that Group.
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_live_attach_filter_start`
-  - note: ledger 10-7. Group-granular: a start Object inside the first Group is
-    not trimmed on a Subgroup stream (see Not implemented). Exercised on
+  - note: ledger 10-7. A start Object inside the first Group is cut per
+    Object on a Subgroup stream (`test_moqtrun_sub_filter22_start_object_*`,
+    `test_moqtrun_sub_filter22_ring_*`). Exercised on
     draft-19 sessions; the hub path is version-independent.
 
 ## Not implemented
@@ -1538,10 +1538,7 @@ FETCH GROUP_ORDER and REQUEST_UPDATE of FETCH and namespace requests were
 listed here until ledger ch. 10 implemented them (MQ18-028, MQ18-201
 through MQ18-206).
 
-- (SS5.1.4) A late subscriber's live delivery starts at its Location
-  Filter's start Group (MQ18-206), but a start Object inside that Group is
-  not trimmed from a Subgroup stream; only the reliable replay honours the
-  start Object.
+None.
 
 ## Out of scope
 

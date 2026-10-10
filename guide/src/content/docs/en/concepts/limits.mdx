@@ -81,9 +81,6 @@ The list below applies to all three unless a draft is named.
 - Range Filters (draft-19 and draft-22 only) are validated and counted
   against MAX_FILTER_RANGES, but only OBJECTID_FILTER filters delivery, and
   only for Objects sent as datagrams; the other filter types pass.
-- A late subscriber's live delivery starts at its Location Filter's start
-  Group, but a start Object inside that Group is not trimmed from a Subgroup
-  stream.
 - The DEFAULT_PUBLISHER_PRIORITY Track Property is not read; an Object
   without an explicit Publisher Priority counts as 128.
 - The hub's own tracks (`wired_moqt_publish_blob`, `wired_moqt_publish_live`)

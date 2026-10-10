@@ -6330,12 +6330,29 @@ static void moqtrun_rel_attach_sub(
     u64                        now_ms) {
   if (!moqtrun_sub_forwards(&track->subs[i]) || !relay->sub_stream_set[i])
     return;
-  rb->subs[i].active     = 1;
-  rb->subs[i].shed       = 0; /* a reused slot must not inherit these */
-  rb->subs[i].fin_done   = 0;
-  rb->subs[i].sent       = sent;
-  rb->subs[i].last_ok_ms = now_ms;
-  rb->head               = sent;
+  rb->subs[i].active       = 1;
+  rb->subs[i].shed         = 0; /* a reused slot must not inherit these */
+  rb->subs[i].fin_done     = 0;
+  rb->subs[i].sent         = sent;
+  rb->subs[i].last_ok_ms   = now_ms;
+  rb->subs[i].end          = 0;
+  rb->subs[i].lead_skip    = 0;
+  rb->subs[i].before_start = 0;
+  rb->head                 = sent;
+}
+
+/* Sub slot i's opening stream as a ring cursor at tail -- unless the open
+ * already ended it at its End Object (sub_expired). A head-only open cut
+ * before its start Object (sub_reframe) waits for that Object. */
+static void moqtrun_rel_attach_open(
+    moqtrel_buf*               rb,
+    const wired_moqtrun_track* track,
+    const wired_moqtrun_relay* relay,
+    usz                        i,
+    u64                        now_ms) {
+  if (relay->sub_expired >> i & 1) return;
+  moqtrun_rel_attach_sub(rb, track, relay, i, rb->tail, now_ms);
+  rb->subs[i].before_start = (int)(relay->sub_reframe >> i & 1);
 }
 
 /* After the opening moqtrun_relay_open_all: record each subscriber stream
@@ -6350,8 +6367,7 @@ static void moqtrun_rel_attach_subs(
   if (relay->rel_idx < 0) return;
   moqtrel_buf* rb = &hub->rel_pool[relay->rel_idx];
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    moqtrun_rel_attach_sub(
-        rb, track, relay, i, rb->tail, hub->live.last_now_ms);
+    moqtrun_rel_attach_open(rb, track, relay, i, hub->live.last_now_ms);
 }
 
 /* 1 while nothing past the SUBGROUP_HEADER was reclaimed (and a header
@@ -6374,23 +6390,119 @@ static int moqtrun_rel_late_wanted(
          !rb->subs[i].active;
 }
 
-/* A late subscriber on a ring that still holds the whole stream: open its
- * relay stream with the saved header and attach its cursor right after
- * it, so the normal drain sends every byte, then the FIN. An open failure
- * attaches nothing and retries on the next drain. */
-/* 1 iff replaying relay's stream from its header stays inside sub's
- * Location Filter (9.3.1): the stream starts at or after the
- * subscription start. A stream begun before it holds Objects up to the
- * Joining Location, which a Joining Fetch covers (10.12.2.1).
- * ponytail: stream-granular -- later Objects of such a stream are not
- * sent to sub either (one Object per stream, as chat sends, loses
- * nothing); slice the ring at an Object boundary if a reliable track
- * ever sends many Objects per stream. */
+/* 1 iff relay's stream may be replayed to sub from the ring: sub takes
+ * its Group, and the Objects past the saved header lie contiguous in
+ * the ring (it never wrapped), so they can be read for sub's start and
+ * End Objects (moqtrun_rel_replay).
+ * ponytail: a wrapped ring (its tail past WIRED_MOQTREL_CAP while still
+ * holding the header) is not replayed; read across the wrap if a late
+ * subscriber ever needs that. */
 static int moqtrun_rel_replay_ok(
-    const wired_moqtrun_sub* sub, const wired_moqtrun_relay* relay) {
-  moqctl_loc first = {relay->group_id, 0};
-  return !moqctl_loc_less(first, sub->start) &&
+    const wired_moqtrun_sub*   sub,
+    const wired_moqtrun_relay* relay,
+    const moqtrel_buf*         rb) {
+  return rb->tail <= WIRED_MOQTREL_CAP &&
          moqtrun_sub_wants_group(sub, relay->group_id);
+}
+
+/* Cursor c's next Object, at wire[off] chained from seq, goes out with its
+ * absolute Object ID (draft-22 11.3.1): the first Object of a stream
+ * that starts mid-Subgroup. Nothing when no Object is there. */
+static void moqtrun_rel_lead(
+    moqtrel_sub* c, wired_span wire, usz off, moqdata_objseq seq) {
+  usz         at = off, dl = off;
+  u64         delta;
+  moqdata_obj obj = {0};
+  moqdata_obj_take(wire, &at, &seq, &obj);
+  moqvi_take(wire, &dl, &delta);
+  c->lead_id   = obj.object_id;
+  c->lead_skip = (u32)(at != off) * (u32)(dl - off);
+}
+
+/* Cursor c's end once its subscriber's End Object falls inside wire, the
+ * Objects at absolute offset base chained from seq: nothing past it is
+ * sent (draft-22 3.3.1), and the lossy fallback skips slot i too. */
+static void moqtrun_rel_cut_end(
+    wired_moqtrun_relay*     relay,
+    moqtrel_sub*             c,
+    const wired_moqtrun_sub* sub,
+    usz                      i,
+    wired_span               wire,
+    moqdata_objseq           seq,
+    u64                      base) {
+  usz cut = moqtrun_wire_cutoff(sub, wire, 0, seq, relay->group_id);
+  if (c->end || cut == wire.n) return;
+  c->end = base + cut;
+  relay->sub_expired |= moqtrun_sub_bit(i);
+}
+
+/* The Object decode state right after relay's saved SUBGROUP_HEADER. */
+static moqdata_objseq moqtrun_relay_hdr_seq(const wired_moqtrun_relay* relay) {
+  usz off  = 0;
+  u64 type = 0;
+  moqvi_take(wired_span_of(relay->hdr, relay->hdr_len), &off, &type);
+  return moqdata_objseq_of(type);
+}
+
+/* Opens sub slot i's stream for a replay starting at body[off]: the
+ * saved header from the stream's first Object (off 0), else the late
+ * head (moqtrun_relay_late_hdr) of one that starts mid-Subgroup. */
+static void moqtrun_rel_replay_open(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_sub*   sub,
+    wired_moqtrun_relay* relay,
+    usz                  i,
+    usz                  off) {
+  u8  hdr[WIRED_MOQTRUN_RELAY_HDR_MAX];
+  usz n = relay->hdr_len;
+  bytes_memcpy(hdr, relay->hdr, n);
+  if (off) n = moqtrun_relay_late_hdr(relay, hdr);
+  moqtrun_relay_open_one(hub, sub, relay, i, wired_span_of(hdr, n));
+}
+
+/* A just-attached replay cursor c starting at body[off] (chained from
+ * seq; s0 is the state right after the header): its first Object
+ * re-framed when the stream starts mid-Subgroup, its End Object cut. */
+static void moqtrun_rel_replay_cuts(
+    wired_moqtrun_relay*     relay,
+    moqtrel_sub*             c,
+    const wired_moqtrun_sub* sub,
+    usz                      i,
+    wired_span               body,
+    usz                      off,
+    moqdata_objseq           seq,
+    moqdata_objseq           s0) {
+  if (!c->active) return;
+  if (off) moqtrun_rel_lead(c, body, off, seq);
+  moqtrun_rel_cut_end(relay, c, sub, i, body, s0, relay->hdr_len);
+}
+
+/* A late subscriber on a ring that still holds the whole stream: its
+ * stream replays the ring from its first Object at or past the start
+ * Object (moqtrun_startobj_cut; Objects before it are covered by a
+ * Joining Fetch, 10.12.2.1), ended at its End Object. With no such
+ * Object yet nothing opens, and the next drain looks again; an open
+ * failure attaches nothing and retries on the next drain too.
+ * ponytail: a ring reclaimed past its header meanwhile is not replayed
+ * (moqtrun_rel_holds_start); attach a waiting cursor if that loses
+ * Objects a late subscriber needs. */
+static void moqtrun_rel_replay(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay,
+    moqtrel_buf*         rb,
+    usz                  i,
+    u64                  now_ms) {
+  wired_moqtrun_sub* sub = &track->subs[i];
+  wired_span         body =
+      wired_span_of(rb->buf + relay->hdr_len, (usz)(rb->tail - relay->hdr_len));
+  moqdata_objseq s0  = moqtrun_relay_hdr_seq(relay);
+  moqdata_objseq seq = s0;
+  usz off = moqtrun_startobj_cut(sub, body, 0, &seq, relay->group_id);
+  if (off == body.n) return;
+  moqtrun_rel_replay_open(hub, sub, relay, i, off);
+  moqtrun_rel_attach_sub(rb, track, relay, i, relay->hdr_len + off, now_ms);
+  moqtrun_rel_replay_cuts(relay, &rb->subs[i], sub, i, body, off, seq, s0);
 }
 
 static void moqtrun_rel_late_attach(
@@ -6401,12 +6513,9 @@ static void moqtrun_rel_late_attach(
     usz                  i,
     u64                  now_ms) {
   if (!moqtrun_rel_late_wanted(track, relay, rb, i) ||
-      !moqtrun_rel_replay_ok(&track->subs[i], relay))
+      !moqtrun_rel_replay_ok(&track->subs[i], relay, rb))
     return;
-  moqtrun_relay_open_one(
-      hub, &track->subs[i], relay, i,
-      wired_span_of(relay->hdr, relay->hdr_len));
-  moqtrun_rel_attach_sub(rb, track, relay, i, relay->hdr_len, now_ms);
+  moqtrun_rel_replay(hub, track, relay, rb, i, now_ms);
 }
 
 /* Covers both ways a subscription turns active mid-stream (SUBSCRIBE, and
@@ -6498,7 +6607,14 @@ static int moqtrun_rel_give_up(
   return moqtrun_rel_expiry(track, rb, i, now_ms);
 }
 
-/* The publisher's FIN reached cursor i with no bytes pending: close its
+/* 1 iff cursor i's stream ends at absolute offset at: its End Object
+ * cut (moqtrun_rel_cut_end), or the publisher's FIN after the last byte. */
+static int moqtrun_rel_ends_at(const moqtrel_buf* rb, usz i, u64 at) {
+  return at == rb->subs[i].end || (rb->fin_seen && at == rb->tail);
+}
+
+/* The publisher's FIN (or the End Object) reached cursor i with no bytes
+ * pending: close its
  * stream via the byte-less stream_fin (the io contract forbids an empty
  * stream_send). A refusal retries next tick. */
 static void moqtrun_rel_try_fin(
@@ -6507,7 +6623,7 @@ static void moqtrun_rel_try_fin(
     wired_moqtrun_relay* relay,
     moqtrel_buf*         rb,
     usz                  i) {
-  if (!rb->fin_seen) return;
+  if (!moqtrun_rel_ends_at(rb, i, rb->subs[i].sent)) return;
   if (hub->io.stream_fin(wt, relay->sub_stream_id[i]) != 1) return;
   rb->subs[i].fin_done = 1;
   hub->stat_rel_fin_out++;
@@ -6516,7 +6632,7 @@ static void moqtrun_rel_try_fin(
 /* 1 when this round's last byte is the stream's last byte ever: the
  * send can carry the closing FIN itself. */
 static int moqtrun_rel_round_fins(const moqtrel_buf* rb, usz i, usz n) {
-  return rb->fin_seen && rb->subs[i].sent + n == rb->tail;
+  return moqtrun_rel_ends_at(rb, i, rb->subs[i].sent + n);
 }
 
 /* An accepted round: advance the cursor (restarting its stall clock) and
@@ -6557,6 +6673,14 @@ static int moqtrun_rel_budget_wait(
   return 1;
 }
 
+/* moqtrel_next_round for cursor i, stopped at its End Object cut. */
+static wired_span moqtrun_rel_next(const moqtrel_buf* rb, usz i) {
+  wired_span s   = moqtrel_next_round(rb, (u32)i);
+  u64        end = rb->subs[i].end;
+  if (end) s.n = (usz)u64_min(s.n, end - rb->subs[i].sent);
+  return s;
+}
+
 /* The send itself: the FIN rides the stream's last byte; an accepted
  * round advances the cursor, a refusal changes nothing. */
 static void moqtrun_rel_send_span(
@@ -6580,6 +6704,48 @@ static void moqtrun_rel_send_span(
  * whole while the session's credit cannot spare it, the FIN riding the
  * last one. A refusal or deferral changes nothing -- the same span
  * retries on a later tick (delayed, never dropped). */
+static void moqtrun_rel_send_ring(
+    wired_moqt_hub*      hub,
+    wired_wt_session*    wt,
+    wired_moqtrun_relay* relay,
+    moqtrel_buf*         rb,
+    usz                  i,
+    u64                  now_ms) {
+  wired_span span = moqtrun_rel_next(rb, i);
+  if (span.n == 0) { /* caught up: only the FIN can remain */
+    moqtrun_rel_try_fin(hub, wt, relay, rb, i);
+    return;
+  }
+  if (moqtrun_rel_budget_wait(hub, wt, span.n)) return;
+  moqtrun_rel_send_span(hub, wt, relay, rb, i, span, now_ms);
+}
+
+/* Cursor i's re-framed Object ID (lead_id) in place of the ID Delta at
+ * its cursor, as a round of its own; the Object's rest follows from the
+ * ring. A refusal changes nothing. */
+static void moqtrun_rel_send_lead(
+    wired_moqt_hub*      hub,
+    wired_wt_session*    wt,
+    wired_moqtrun_relay* relay,
+    moqtrel_buf*         rb,
+    usz                  i,
+    u64                  now_ms) {
+  u8           v[16];
+  moqtrel_sub* c = &rb->subs[i];
+  usz          n = moqvi_encode(v, c->lead_id);
+  if (hub->io.stream_send(
+          wt, relay->sub_stream_id[i], wired_span_of(v, n), 0) != 1) {
+    hub->stat_rel_refused++;
+    return;
+  }
+  hub->stat_rel_sent++;
+  moqtrel_note_sent(rb, (u32)i, c->lead_skip, now_ms);
+  c->lead_skip = 0;
+}
+
+/* One send round for cursor i: a pending re-framed Object ID first
+ * (moqtrun_rel_send_lead), then -- unless that was refused -- the ring's
+ * bytes (moqtrun_rel_send_ring). */
 static void moqtrun_rel_send_round(
     wired_moqt_hub*      hub,
     wired_wt_session*    wt,
@@ -6587,13 +6753,10 @@ static void moqtrun_rel_send_round(
     moqtrel_buf*         rb,
     usz                  i,
     u64                  now_ms) {
-  wired_span span = moqtrel_next_round(rb, (u32)i);
-  if (span.n == 0) { /* caught up: only the FIN can remain */
-    moqtrun_rel_try_fin(hub, wt, relay, rb, i);
-    return;
-  }
-  if (moqtrun_rel_budget_wait(hub, wt, span.n)) return;
-  moqtrun_rel_send_span(hub, wt, relay, rb, i, span, now_ms);
+  if (rb->subs[i].lead_skip)
+    moqtrun_rel_send_lead(hub, wt, relay, rb, i, now_ms);
+  if (!rb->subs[i].lead_skip)
+    moqtrun_rel_send_ring(hub, wt, relay, rb, i, now_ms);
 }
 
 /* Cursor i's whole drain turn: skip one with nothing to do or a vanished
@@ -6685,18 +6848,57 @@ static void moqtrun_rel_maybe_hold(wired_moqt_hub* hub, moqtrel_buf* rb) {
   hub->stat_rel_hold++;
 }
 
+/* Cursor c still before its start Object: past every Object of wire (at
+ * absolute offset base, chained from seq) that precedes it, the first
+ * one at or past it re-framed (moqtrun_rel_lead). */
+static void moqtrun_rel_cut_start(
+    moqtrel_sub*               c,
+    const wired_moqtrun_sub*   sub,
+    const wired_moqtrun_relay* relay,
+    wired_span                 wire,
+    moqdata_objseq             seq,
+    u64                        base) {
+  if (!c->before_start) return;
+  usz off         = moqtrun_startobj_cut(sub, wire, 0, &seq, relay->group_id);
+  c->sent         = base + off;
+  c->before_start = off == wire.n;
+  moqtrun_rel_lead(c, wire, off, seq);
+}
+
+/* A round appended at absolute offset base, its Objects chained from
+ * seq0: each open cursor's start and End Object cuts (draft-22 3.3.1). */
+static void moqtrun_rel_cut_all(
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay,
+    moqtrel_buf*         rb,
+    wired_span           whole,
+    moqdata_objseq       seq0,
+    u64                  base) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
+    if (moqtrun_rel_sub_open(rb, i)) {
+      moqtrun_rel_cut_start(
+          &rb->subs[i], &track->subs[i], relay, whole, seq0, base);
+      moqtrun_rel_cut_end(
+          relay, &rb->subs[i], &track->subs[i], i, whole, seq0, base);
+    }
+}
+
 /* A later delivery on a ring-backed relay: append the whole-Object bytes
- * (the Object-boundary rounding is shared with the lossy path), record
- * the publisher's FIN, drain this ring now, and decide the hold. */
+ * (the Object-boundary rounding is shared with the lossy path), cut them
+ * per cursor (moqtrun_rel_cut_all), record the publisher's FIN, drain
+ * this ring now, and decide the hold. */
 static void moqtrun_rel_continue(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     wired_span           whole,
+    moqdata_objseq       seq0,
     int                  fin,
     u64                  born_ms) {
-  moqtrel_buf* rb = &hub->rel_pool[relay->rel_idx];
+  moqtrel_buf* rb   = &hub->rel_pool[relay->rel_idx];
+  u64          base = rb->tail;
   moqtrun_rel_take(hub, rb, whole, born_ms);
+  moqtrun_rel_cut_all(track, relay, rb, whole, seq0, base);
   if (fin) {
     rb->fin_seen = 1;
     hub->stat_rel_fin_in++;
@@ -6761,10 +6963,8 @@ static void moqtrun_relay_continue_lossy(
  * round; a fragment still held at FIN time is a torn tail with no
  * continuation coming -- dropped). A ring-backed relay (rel_idx >= 0)
  * takes the reliable path instead: its bytes are retried, not dropped,
- * and its entry lives until every cursor is delivered or given up.
- * ponytail: the ring path does not cut at a draft-22 End Object mid-round
- * (seq0 unused there) -- it still gates by Group only, same as before;
- * cut it too if a reliable track's subscribers start using End Object. */
+ * and its entry lives until every cursor is delivered or given up; both
+ * cut each round at the subscriber's start and End Objects. */
 static void moqtrun_relay_forward(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
@@ -6774,7 +6974,7 @@ static void moqtrun_relay_forward(
     int                  fin,
     u64                  born_ms) {
   if (relay->rel_idx >= 0) {
-    moqtrun_rel_continue(hub, track, relay, whole, fin, born_ms);
+    moqtrun_rel_continue(hub, track, relay, whole, seq0, fin, born_ms);
     return;
   }
   moqtrun_relay_continue_lossy(hub, track, relay, whole, seq0, fin, born_ms);

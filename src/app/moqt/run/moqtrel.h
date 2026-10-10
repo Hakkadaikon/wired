@@ -68,6 +68,18 @@ typedef struct {
   int shed;
   /** 1 once the closing FIN for this subscriber was accepted. */
   int fin_done;
+  /** Absolute offset this subscriber's stream ends at (its End Object);
+   * 0 when only the publisher's FIN ends it. */
+  u64 end;
+  /** Absolute Object ID the Object at sent goes out with; valid iff
+   * lead_skip. */
+  u64 lead_id;
+  /** Bytes of the Object ID Delta at sent that lead_id replaces; 0 when
+   * nothing is re-framed. */
+  u32 lead_skip;
+  /** 1 while no Object at or past the subscriber's start Object arrived:
+   * each append moves sent past the Objects before it. */
+  int before_start;
 } moqtrel_sub;
 
 /** One reliable-relay ring: the publisher's relayed bytes plus every
