@@ -41,8 +41,9 @@
  * reliable stall: moqtss_note_shed) while the session had a pacing set, since
  * the pacing set's last decision -- in place of moqtail's discard-timeout
  * resets.
- * - The default algorithm has no bandwidth estimate: its budget is
- *   wired_moqt_hub.ssts_cap_kbps, unlimited when 0.
+ * - The default algorithm's budget is the stricter of the subscriber
+ *   connection's delivery-rate estimate (io.est_kbps, moqtail's bandwidth
+ *   estimate) and wired_moqt_hub.ssts_cap_kbps; unlimited when both are 0.
  * - Membership is pruned lazily: a member whose subscription is no longer
  *   active (unsubscribed, cancelled, PUBLISH_DONE, either session closed)
  *   leaves its set at the session's next decision or assignment; an
@@ -575,18 +576,22 @@ static void moqtss_bp_hold(const moqtss_sess* ss, moqtss_view* v) {
     v->out[j] = moqtss_hold_pick(ss->bp.tier, &v->sets[j]);
 }
 
-/* Runs alg over the view (budget: the cap alone, see the file note). The
- * pacing set's backpressure decision observes and consumes the session's
- * reset count; any other backpressure set holds the tier. */
+/* Session sidx's delivery-rate estimate (io.est_kbps), 0 when unknown. */
+static u64 moqtss_est(const wired_moqt_hub* hub, usz sidx) {
+  return hub->io.est_kbps ? hub->io.est_kbps(hub->peers[sidx].wt) : 0;
+}
+
+/* Runs alg over the view (default budget: the stricter of the session's
+ * estimate and the cap). The pacing set's backpressure decision observes
+ * and consumes the session's reset count; any other backpressure set
+ * holds the tier. */
 static void moqtss_view_run(
-    const wired_moqt_hub* hub,
-    moqtss_sess*          ss,
-    u64                   alg,
-    moqtss_view*          v,
-    int                   pace) {
+    const wired_moqt_hub* hub, usz sidx, u64 alg, moqtss_view* v, int pace) {
+  moqtss_sess* ss = (moqtss_sess*)&hub->peers[sidx].ssts;
   if (alg != MOQSSTS_ALG_BACKPRESSURE) {
     moqssts_default_decide(
-        moqssts_budget_kbps(0, hub->ssts_cap_kbps), v->sets, v->n, v->out);
+        moqssts_budget_kbps(moqtss_est(hub, sidx), hub->ssts_cap_kbps), v->sets,
+        v->n, v->out);
     return;
   }
   if (!pace) {
@@ -618,7 +623,7 @@ static u64 moqtss_decide(wired_moqt_hub* hub, usz sidx, usz k, u64 g) {
   moqtss_prune(hub, sidx);
   moqtss_view_of(hub, sidx, ss->sets[k].algorithm_id, &v);
   moqtss_view_run(
-      hub, ss, ss->sets[k].algorithm_id, &v, moqtss_pacer(ss) == (int)k);
+      hub, sidx, ss->sets[k].algorithm_id, &v, moqtss_pacer(ss) == (int)k);
   u64 pick = moqtss_view_pick(&v, k);
   moqtss_ring_record(&ss->sets[k], g, pick);
   return pick;

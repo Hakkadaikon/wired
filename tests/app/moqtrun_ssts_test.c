@@ -503,6 +503,35 @@ static void test_moqtrun_ssts_default_cap(void) {
   CHECK(mtss_got(1, 1));
 }
 
+/* Delivery-rate estimate the est_kbps stub reports for every session. */
+static u64 g_mtss_est;
+
+static u64 mtss_est_stub(wired_wt_session* s) {
+  (void)s;
+  return g_mtss_est;
+}
+
+/* The default split's budget follows the subscriber connection's estimate
+ * (io.est_kbps): 1000 kbps affords only lo, 3000 hi; a stricter cap still
+ * wins, and an unknown estimate (0) with no cap is unlimited. */
+static void test_moqtrun_ssts_default_follows_estimate(void) {
+  mtss_room_act(MOQSSTS_ALG_DEFAULT, 2);
+  mtst_hub.io.est_kbps = mtss_est_stub;
+  g_mtss_est           = 1000;
+  mtss_group_both(0);
+  CHECK(mtss_got(0, 1));
+  g_mtss_est = 3000;
+  mtss_group_both(1);
+  CHECK(mtss_got(1, 0));
+  mtst_hub.ssts_cap_kbps = 1000;
+  mtss_group_both(2);
+  CHECK(mtss_got(2, 1));
+  mtst_hub.ssts_cap_kbps = 0;
+  g_mtss_est             = 0;
+  mtss_group_both(3);
+  CHECK(mtss_got(3, 0));
+}
+
 /* A subscription outside every set is untouched by B's sets, and a
  * draft-19 session never negotiates SSTS (its subscriptions all flow). */
 static void test_moqtrun_ssts_nonmember_and_d19(void) {
@@ -993,6 +1022,7 @@ void test_moqtrun_ssts(void) {
   test_moqtrun_ssts_inactive_set_forwards_nothing();
   test_moqtrun_ssts_cancel_removes_member();
   test_moqtrun_ssts_default_cap();
+  test_moqtrun_ssts_default_follows_estimate();
   test_moqtrun_ssts_nonmember_and_d19();
   test_moqtrun_ssts_datagram();
   test_moqtrun_ssts_sets_number_groups_independently();

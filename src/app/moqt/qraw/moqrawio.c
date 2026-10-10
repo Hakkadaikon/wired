@@ -68,6 +68,7 @@ wired_moqt_io moqrawio_io(const moqrawio_backend* be) {
       .stream_reply_open = wired_server_wt_stream_reply_open,
       .stream_priority   = wired_server_wt_stream_priority,
       .stream_stop       = wired_server_wt_stream_stop,
+      .est_kbps          = wired_server_wt_est_kbps,
   };
 }
 

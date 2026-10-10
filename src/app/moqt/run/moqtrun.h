@@ -144,6 +144,12 @@ typedef struct {
    * positional initializers stay valid; a table built without it (0)
    * leaves the unwanted stream to drain unread. */
   int (*stream_stop)(wired_wt_session* s, u64 stream_id, u32 error_code);
+  /** wired_server_wt_est_kbps-shaped: the session's delivery-rate
+   * estimate in kbps, 0 when unknown -- the SSTS default split's budget
+   * (the stricter of it and wired_moqt_hub.ssts_cap_kbps). Kept last so
+   * older positional initializers stay valid; a table built without it
+   * (0) leaves the budget to the cap alone. */
+  u64 (*est_kbps)(wired_wt_session* s);
 } wired_moqt_io;
 
 /** RFC 9218 urgency of a subscriber stream from its subscription's
@@ -1378,9 +1384,9 @@ typedef struct {
   const u64* ssts_algs;
   /** Entries at ssts_algs; 0 turns SSTS off. */
   usz ssts_alg_n;
-  /** Default algorithm (0) budget cap in kbps; 0 = uncapped. The hub has
-   * no bandwidth estimate, so this cap is the whole budget
-   * (moqssts_budget_kbps(0, cap)). */
+  /** Default algorithm (0) budget cap in kbps; 0 = uncapped. The budget
+   * is the stricter of this cap and the subscriber connection's estimate
+   * (io.est_kbps; moqssts_budget_kbps(est, cap)). */
   u64 ssts_cap_kbps;
   /* SWITCH_FROM (moqtswitch.c) */
   /** 1 turns on SWITCH_FROM (0x24) on draft-22 sessions; 0 (the
