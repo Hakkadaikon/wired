@@ -1209,6 +1209,7 @@ static void route_land(wired_srvloop* l, const stream_frame* sf, u64* touched) {
   if (i == -2) return;
   if (i < 0) return;
   route_land_bytes(&l->streams[i], sf);
+  l->flow_control_violation |= l->streams[i].req_over; /* RFC 9000 4.1 */
   /* u64: the table holds up to WIRED_SRVLOOP_MAX_STREAMS (40) slots, so a
    * 32-bit mask loses (as undefined-behavior shifts) slots 32..39. */
   *touched |= (u64)1 << i;
@@ -1319,17 +1320,11 @@ static int route_window_stuck(const wired_srvloop_stream_slot* slot) {
   return bodywin_frontier(&slot->body) == BODYWIN_CAP && !slot->req_fin;
 }
 
-/* req_buf could not hold the request: data landed past it, or it stalled
- * full (route_window_stuck). */
-static int route_overflowed(const wired_srvloop_stream_slot* slot) {
-  return slot->req_over || route_window_stuck(slot);
-}
-
 /* 1 if slot i overflowed req_buf before its request was answered, on an h3
  * connection (an hq-interop request line has no status to answer with). */
 static int route_is_over(const wired_srvloop_dispatch_ctx* ctx, int i) {
   const wired_srvloop_stream_slot* slot = &ctx->l->streams[i];
-  return route_overflowed(slot) && !slot->req_done &&
+  return route_window_stuck(slot) && !slot->req_done &&
          ctx->s->sdrv.alpn != SALPN_HQ;
 }
 

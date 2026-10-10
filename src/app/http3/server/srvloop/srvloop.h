@@ -137,8 +137,8 @@ typedef struct {
   /* RFC 9000 2.2: this stream reassembled across datagrams. curl splits one
    * request's HEADERS and DATA into separate STREAM frames in separate 1-RTT
    * packets; each frame's data is written at its offset here and the request
-   * is decoded only once FIN arrives.
-   * ponytail: overflow past req_buf is truncated. */
+   * is decoded only once FIN arrives. A byte past the window
+   * is past the stream's credit (req_over, flow_control_violation). */
   u8  req_buf[BODYWIN_CAP]; /**< offset-indexed request stream bytes */
   usz req_len;              /**< highest offset+len written into req_buf */
   u8  req_fin;              /**< 1 once a request-stream FIN was seen */
@@ -160,9 +160,8 @@ typedef struct {
    * whatever the Priority request header field set (RFC 9218 5), unaffected
    * by this field. */
   h3_priority priority;
-  /** 1 once a STREAM frame reached past req_buf's end: the request no
-   * longer fits and is answered 431/413 (dispatch.c route_complete_over)
-   * instead of being decoded truncated. */
+  /** 1 once a STREAM frame reached past req_buf's window: past the stream's
+   * credit (RFC 9000 4.1), latched into flow_control_violation. */
   int req_over;
   /** RFC 9000 2.2/4.1: req_buf as a receive window -- which bytes arrived
    * (so only the contiguous prefix is ever read) and, once the request
@@ -308,9 +307,10 @@ typedef struct {
   wired_srvloop_wt_window win; /**< receive-window bookkeeping, see its doc */
   /** offset-indexed bytes past the signal varint, relative to win.base
    * (offset 0 of this buffer is win.base's own first application byte).
-   * ponytail: a write outside [win.base, win.base + cap) is dropped (either
-   * stale or past the granted window), same truncate-on-overflow policy
-   * family as wired_srvloop_stream_slot's req_buf. */
+   * A write below win.base is a stale duplicate and dropped; one past
+   * win.base + cap is past the stream's credit (never larger than the
+   * window), counted in win.dropped_bytes, and srvrun closes with
+   * FLOW_CONTROL_ERROR (RFC 9000 4.1). */
   u8  buf[WIRED_SRVLOOP_WT_BUF_CAP];
   u8  fin;     /**< 1 once this stream's FIN was seen */
   u64 fin_off; /**< the absolute offset FIN was seen at; valid only when fin
@@ -408,8 +408,8 @@ typedef struct {
   u8                      sig_pending;
   wired_srvloop_wt_window win; /**< receive-window bookkeeping, see its doc */
   /** offset-indexed bytes past the type varint, relative to win.base.
-   * ponytail: a write outside the granted window is dropped, same policy as
-   * wired_srvloop_wt_stream_slot's buf. */
+   * Out-of-window writes: same handling as wired_srvloop_wt_stream_slot's
+   * buf. */
   u8  buf[WIRED_SRVLOOP_WT_BUF_CAP];
   u8  fin;     /**< 1 once this stream's FIN was seen */
   u64 fin_off; /**< the absolute offset FIN was seen at; valid only when fin */
@@ -861,6 +861,11 @@ typedef struct {
    * a connection error of type H3_FRAME_ERROR. dispatch.c only latches it;
    * the caller (srvrun.c) closes the connection and clears it. */
   int req_frame_error;
+  /** RFC 9000 4.1: 1 once a request STREAM frame reached past its slot's
+   * window (req_over) -- past the credit this server ever grants a request
+   * stream, which never exceeds the window. The caller (srvrun.c) closes
+   * with FLOW_CONTROL_ERROR. */
+  int flow_control_violation;
   /** RFC 9000 4.1: streamed request-body bytes consumed (window base) on
    * every request slot released so far -- with the live slots' bases, the
    * request side of the connection-wide MAX_DATA ceiling (srvrun.c). */

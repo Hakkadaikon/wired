@@ -318,10 +318,9 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 
 ## WebTransport
 
-- **WT receive buffers drop or truncate overflow** — a write outside the
-  granted window of a WT bidi/uni slot is dropped; the `req_buf` / control
-  buffer overflow is truncated. Source: `srvloop.h:141`, `srvloop.h:201`,
-  `srvloop.h:311`, `srvloop.h:411`.
+- **Control stream buffer truncates overflow** — the peer control stream's
+  reassembly buffer (`WIRED_SRVLOOP_CTRL_BUF_CAP`, 512) drops bytes past its
+  end. Source: `srvloop/priority_ctrl.c` (`ctrl_land`).
 - **Out-of-order gap ranges** — a WT stream tracks at most
   `WIRED_SRVLOOP_WT_MAX_RANGES` (8) disjoint gaps in one window; more are
   coalesced or dropped (not reachable at targeted sizes). Source:
@@ -377,10 +376,11 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   4 MB BSS, multiplied by worker count under `--cores N`. Source:
   `srvrun.c:907`; handler body cap `WIRED_SRVLOOP_BODY_MAX` 1024. Source:
   `srvloop/respond.c:272`.
-- **Request buffer limited to `BODYWIN_CAP` (2048)** — overflow is truncated,
-  and a request filling exactly one window with its FIN in a later empty frame
-  is answered as "window stuck". Control stream buffer
-  `WIRED_SRVLOOP_CTRL_BUF_CAP` 512. Source: `srvloop.h:141`, `dispatch.c:1340`.
+- **Request buffer limited to `BODYWIN_CAP` (2048)** — a buffered request
+  that fills the window without FIN is answered 413/431, including one whose
+  FIN comes in a later empty frame ("window stuck"); a byte past the window is
+  past the stream credit and closes with FLOW_CONTROL_ERROR. Source:
+  `srvloop/dispatch.c` (`route_window_stuck`).
 - **Abort retransmit table is fixed-size** — `SRVRUN_RST_RETX` keeps one
   abort per trackable stream (92); more than that unACKed within one RTT
   would send the excess once without retransmission (RFC 9000 13.3).

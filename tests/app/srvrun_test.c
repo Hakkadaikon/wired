@@ -18805,6 +18805,15 @@ static void test_srvrun_reset_queue_overflow_closes(void) {
   CHECK(srvrun_reset_flooded(&cfg, c));
 }
 
+/* The transport error code of c's latched CONNECTION_CLOSE (~0 if none). */
+static u64 sr_close_code(const srvrun_conn* c, int* is_app) {
+  conn_close_frame ccf;
+  if (!c->closing) return ~0ULL;
+  if (!frame_get_conn_close(c->close_pl, c->close_pln, &ccf)) return ~0ULL;
+  *is_app = ccf.is_app;
+  return ccf.error_code;
+}
+
 /* The final size of the kept RESET_STREAM naming stream id, ~0 if none. */
 static u64 sr_kept_reset_final(const srvrun_conn* c, u64 id) {
   reset_stream_frame rs;
@@ -18922,6 +18931,23 @@ static void test_srvrun_capsule_only_conn_regrows_max_data(void) {
   slot->body.base = 5000; /* capsule bytes consumed so far */
   srvrun_grant_conn_credit(&cfg, &conns[0]);
   CHECK(conns[0].rx_max_data_advertised == 5000 + BODYWIN_CAP);
+}
+
+/* RFC 9000 4.1: bytes a WT stream slot dropped past its window were past
+ * the credit this server granted (never more than the window): the
+ * connection closes with FLOW_CONTROL_ERROR. */
+static void test_srvrun_wt_window_overflow_closes_flow_control(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c             = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  int             is_app        = 1;
+  c->l.wt_uni_streams[0].in_use = 1;
+  c->l.wt_uni_streams[0].win.dropped_bytes = 1;
+  CHECK(srvrun_close_on_step_violation(&cfg, c) == 1);
+  CHECK(sr_close_code(c, &is_app) == ERR_FLOW_CONTROL_ERROR);
+  CHECK(is_app == 0);
 }
 
 /* ===================== WT session-close notification ===================== */
@@ -20113,15 +20139,18 @@ static void test_srvrun_headers_at_req_buf_limit_served(void) {
   CHECK(g_sr_wt_handler_calls == 1);
 }
 
-/* RFC 6585 5: one byte more of HEADERS than req_buf holds earns 431, and
- * the app handler never sees the truncated request. */
-static void test_srvrun_headers_over_req_buf_gets_431(void) {
+/* RFC 9000 4.1: one byte of HEADERS past the request stream's credit (its
+ * req_buf window) is a FLOW_CONTROL_ERROR, and the app handler never sees
+ * the truncated request. */
+static void test_srvrun_headers_past_stream_credit_closes(void) {
   static u8    req[4096];
-  srvrun_conn* c = sr_sl_fixture();
+  srvrun_conn* c      = sr_sl_fixture();
+  int          is_app = 1;
   CHECK(sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP + 1, 0) != 0);
   sr_sl_send_stream(c, req, SR_REQ_BUF_CAP + 1, 1);
   CHECK(g_sr_wt_handler_calls == 0);
-  CHECK(sr_resp_is_status(&c->resp[0], 431));
+  CHECK(sr_close_code(c, &is_app) == ERR_FLOW_CONTROL_ERROR);
+  CHECK(is_app == 0);
 }
 
 /* HEADERS + DATA exactly filling req_buf: the whole body reaches the app. */
@@ -20135,16 +20164,16 @@ static void test_srvrun_body_at_req_buf_limit_served(void) {
   CHECK(c->l.req.body_len == blen);
 }
 
-/* RFC 9110 15.5.14: a body one byte past req_buf earns 413 -- answered as
- * soon as the overflow arrives, without waiting for a FIN a client blocked
- * on flow control might never send. */
-static void test_srvrun_body_over_req_buf_gets_413(void) {
+/* RFC 9000 4.1: a body byte past the request stream's credit is a
+ * FLOW_CONTROL_ERROR too, not a 413. */
+static void test_srvrun_body_past_stream_credit_closes(void) {
   static u8    req[4096];
-  srvrun_conn* c = sr_sl_fixture();
+  srvrun_conn* c      = sr_sl_fixture();
+  int          is_app = 1;
   CHECK(sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP + 1, 1) != 0);
   sr_sl_send_stream(c, req, SR_REQ_BUF_CAP + 1, 0);
   CHECK(g_sr_wt_handler_calls == 0);
-  CHECK(sr_resp_is_status(&c->resp[0], 413));
+  CHECK(sr_close_code(c, &is_app) == ERR_FLOW_CONTROL_ERROR);
 }
 
 /* A client honoring the request-stream credit (one window) stops at the
@@ -20404,7 +20433,7 @@ static void test_srvrun_early_413_also_stops_sending(void) {
   {
     u8           pl[200];
     wired_obuf   sob = obuf_of(pl, sizeof pl);
-    stream_frame sf  = {0, 2000, SR_REQ_BUF_CAP + 1 - 2000, req + 2000, 0};
+    stream_frame sf  = {0, 2000, SR_REQ_BUF_CAP - 2000, req + 2000, 0};
     CHECK(appdata_stream_frame(&sf, &sob) == 1);
     srvrun_test_reset_send_count();
     sr_sl_step(c, pl, sob.len);
@@ -21912,6 +21941,7 @@ void test_srvrun(void) {
   test_srvrun_wt_reset_unrelated_stream_not_delivered();
   test_srvrun_wt_two_resets_one_step_both_delivered();
   test_srvrun_reset_queue_overflow_closes();
+  test_srvrun_wt_window_overflow_closes_flow_control();
   test_srvrun_capsule_only_conn_regrows_max_data();
   test_srvrun_wt_refuse_overflow_closes();
   test_srvrun_peer_stop_resets_response();
@@ -22100,9 +22130,9 @@ void test_srvrun(void) {
   test_srvrun_get_with_fin_dispatched_once_then_released();
   test_srvrun_goaway_id_past_largest_accepted();
   test_srvrun_headers_at_req_buf_limit_served();
-  test_srvrun_headers_over_req_buf_gets_431();
+  test_srvrun_headers_past_stream_credit_closes();
   test_srvrun_body_at_req_buf_limit_served();
-  test_srvrun_body_over_req_buf_gets_413();
+  test_srvrun_body_past_stream_credit_closes();
   test_srvrun_full_window_body_gets_413();
   test_srvrun_full_window_headers_get_431();
   test_srvrun_wt_bidi_credit_raised_from_request_window();
