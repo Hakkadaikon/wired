@@ -26,7 +26,7 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@main
 
       - name: build
-        run: nix develop -c sh -c 'just gen-ninja && ninja examples/${{ matrix.example }}/wired_server'
+        run: nix develop -c just ninja examples/${{ matrix.example }}/wired_server
 
       - name: boot smoke test (starts, binds :4433, still alive after 2s)
         # webtransport_interop is a quic-interop-runner-only endpoint: it

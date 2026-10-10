@@ -26,7 +26,7 @@ comparisons, not replacements for the pinned-machine numbers in the doc).
 Local loopback run, condensed:
 
 ```sh
-ninja examples/word_list/wired_server
+just ninja examples/word_list/wired_server
 (cd bench/client && go build -o benchclient .)
 mkdir -p /tmp/docroot && head -c 1024 /dev/urandom > /tmp/docroot/1k.bin
 # cert.pem/key.pem: any ECDSA P-256 pair; the client skips verification

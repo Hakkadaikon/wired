@@ -6,7 +6,7 @@ Minimal scaffolding to run `wired` as a server endpoint under the
 ## Usage (on the runner host)
 
 ```sh
-CONNTABLE_CAP=64 just gen-ninja && ninja examples/word_list/wired_server
+CONNTABLE_CAP=64 just ninja examples/word_list/wired_server
 docker build -t wired-interop -f interop/Dockerfile .
 # add to the runner's implementations_quic.json:
 #   "wired": { "image": "wired-interop", "url": "...", "role": "server" }
@@ -33,7 +33,7 @@ A second image runs the WebTransport test suite
 against `examples/webtransport_interop/wired_server`:
 
 ```sh
-CONNTABLE_CAP=64 just gen-ninja && ninja examples/webtransport_interop/wired_server
+CONNTABLE_CAP=64 just ninja examples/webtransport_interop/wired_server
 docker build -t wired-interop-wt -f interop/Dockerfile.webtransport .
 # add to the runner's implementations_webtransport.json:
 #   "wired": { "image": "wired-interop-wt", "url": "...", "role": "server" }
@@ -55,7 +55,7 @@ via subprotocol `moqt-18`/`moqt-19`/`moqt-22`) for
 [moq-interop-runner](https://github.com/englishm/moq-interop-runner):
 
 ```sh
-CONNTABLE_CAP=64 just gen-ninja && ninja examples/moqt_interop/wired_server
+CONNTABLE_CAP=64 just ninja examples/moqt_interop/wired_server
 docker build -t ghcr.io/hakkadaikon/wired-moqt-interop:latest -f interop/Dockerfile.moqt .
 # in the runner (wired is registered in implementations.json):
 make interop-relay RELAY=wired

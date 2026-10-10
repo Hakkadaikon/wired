@@ -72,9 +72,10 @@ gen-ninja:
 # shared basenames). Regenerates build.ninja first so new/removed sources are
 # picked up; ninja's default target is the freestanding set (see
 # scripts/gen_ninja.sh), so a bare `ninja` here never drags in the hosted
-# test/fuzz variants.
-ninja: gen-ninja
-    ninja
+# test/fuzz variants. Name targets to build just those, e.g.
+# `just ninja examples/word_list/wired_server` or `just ninja guide`.
+ninja *targets: gen-ninja
+    ninja {{targets}}
 
 # run all tests (hosted, with assertions). fmt first so the unity build is
 # always compiled from formatted sources — run inside `nix develop` so the
@@ -121,9 +122,11 @@ cov: fmt
     llvm-cov report build/quic_test_cov -instr-profile=build/quic_test.profdata \
         -ignore-filename-regex='tests/'
 
-# cyclomatic complexity gate: CCN must be <= 3
-ccn:
-    lizard src --CCN 3 -w
+# cyclomatic complexity gate: CCN must be <= 3. Defaults to the whole of
+# src/ (the commit gate); pass files to measure only those while other
+# work is half-written, e.g. `just ccn src/app/moqt/run/moqtrun.c`.
+ccn *paths="src":
+    lizard {{paths}} --CCN 3 -w
 
 # wiring integrity: every src/**/*.c must be #include'd once in tests/run.c
 # (the unity TU) and compile to exactly one path-qualified build/<path>.o.

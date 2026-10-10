@@ -49,8 +49,7 @@ jobs:
         run: node --test bench/test/aggregate.test.mjs
       - name: Build wired server
         run: |
-          just gen-ninja
-          ninja examples/word_list/wired_server
+          just ninja examples/word_list/wired_server
       - name: Build bench client and quic-go server
         run: |
           (cd bench/client && go build -o benchclient .)
@@ -159,8 +158,7 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Build wired interop image
         run: |
-          just gen-ninja
-          ninja examples/word_list/wired_server
+          just ninja examples/word_list/wired_server
           docker build -t wired-interop -f interop/Dockerfile .
       - name: Set up interop runner
         run: bench/goodput-setup.sh "$HOME/quic-interop-runner"

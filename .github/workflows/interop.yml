@@ -39,7 +39,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tshark
 
       - name: build server binary
-        run: nix develop -c sh -c 'just gen-ninja && ninja examples/word_list/wired_server'
+        run: nix develop -c just ninja examples/word_list/wired_server
         env:
           # The interop runner's multiconnect cases open 50 connections --
           # quinn opens all 50 in PARALLEL -- and under handshakeloss/

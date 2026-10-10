@@ -8,7 +8,7 @@
 # The freestanding binary is built OUTSIDE this Dockerfile (it needs the
 # repo's pinned clang/ninja toolchain):
 #
-#   just gen-ninja && ninja examples/moqt_interop/wired_server
+#   just ninja examples/moqt_interop/wired_server
 #   docker build -t wired-moqt-interop -f interop/Dockerfile.moqt .
 #
 # busybox supplies the sh + grep the runner's compose healthcheck needs.

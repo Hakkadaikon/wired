@@ -46,7 +46,7 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@main
 
       - name: build the SDK and the snippets
-        run: nix develop -c sh -c 'just lib && ninja guide'
+        run: nix develop -c just ninja guide
 
       # Outside nix: the runner only needs go and node on PATH.
       - uses: actions/setup-go@v5

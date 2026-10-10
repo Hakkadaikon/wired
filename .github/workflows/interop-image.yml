@@ -27,12 +27,10 @@ jobs:
 
       - name: build server binaries
         run: |
-          nix develop -c sh -c '
-            CONNTABLE_CAP=64 just gen-ninja
-            ninja examples/word_list/wired_server
-            ninja examples/webtransport_interop/wired_server
-            ninja examples/moqt_interop/wired_server
-          '
+          CONNTABLE_CAP=64 nix develop -c just ninja \
+            examples/word_list/wired_server \
+            examples/webtransport_interop/wired_server \
+            examples/moqt_interop/wired_server
 
       - uses: docker/login-action@v3
         with:

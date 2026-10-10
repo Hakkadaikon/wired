@@ -1,6 +1,6 @@
 // Run every guide snippet for real and compare its normalized output with the
 // committed golden.txt. Usage: node runner/run.ts [--update] [id...]
-// Expects build/guide/<id> to exist (`ninja guide`); builds the Go clients.
+// Expects build/guide/<id> to exist (`just ninja guide`); builds the Go clients.
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -111,7 +111,7 @@ async function execute(id: string, run: Run): Promise<string> {
   const server = join(bin, id);
   // Run in the snippet's own directory so it can read files committed next to it.
   const dir = join(guide, 'snippets', id);
-  if (!existsSync(server)) throw new Error(`${server} missing: run \`ninja guide\` first`);
+  if (!existsSync(server)) throw new Error(`${server} missing: run \`just ninja guide\` first`);
   if (run.client === 'none') {
     const p = start(server, run.serverArgs ?? [], dir);
     const res = await within(p.out, 5000, id);
