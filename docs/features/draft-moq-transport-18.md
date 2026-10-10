@@ -1538,9 +1538,6 @@ FETCH GROUP_ORDER and REQUEST_UPDATE of FETCH and namespace requests were
 listed here until ledger ch. 10 implemented them (MQ18-028, MQ18-201
 through MQ18-206).
 
-- (SS10.11) PUBLISH_DONE for a subscription made on the legacy control
-  stream: there is no request stream to carry it, so none is sent and the
-  subscription is kept for a publisher rejoin.
 - (SS5.1.4) A late subscriber's live delivery starts at its Location
   Filter's start Group (MQ18-206), but a start Object inside that Group is
   not trimmed from a Subgroup stream; only the reliable replay honours the
@@ -1550,6 +1547,11 @@ through MQ18-206).
 
 Features and requirements this hub relay subset does not implement, excluded
 from the coverage denominator above:
+
+- (SS10.11) PUBLISH_DONE for a subscription made on the legacy control
+  stream, by design: PUBLISH_DONE carries no Request ID, so on a stream
+  shared by several subscriptions it cannot name the one that ended; the
+  subscription is kept and re-attached when the publisher rejoins.
 
 - (SS1.5, SS1.5.1) Rendering/parsing namespace and track names as
   human-readable strings — an operator/logging concern; this SDK compares

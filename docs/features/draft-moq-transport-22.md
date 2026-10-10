@@ -1803,9 +1803,6 @@ them (MQ22-028, MQ22-193 through MQ22-201). REQUEST_UPDATE of a
 SUBSCRIBE_TRACKS (prefix with per-type overlap, FORWARD; a failed one
 closes the bidi stream, 9.5.1) followed: `test_moqtrun_vgate_update_kinds`.
 
-- (SS9.9) PUBLISH_DONE for a subscription made on the legacy control
-  stream: there is no request stream to carry it, so none is sent and the
-  subscription is kept for a publisher rejoin.
 - (SS9.11, SS3.2.2) The descending-order gap rules of §3.2.2 (first
   expected object, last expected object, spanning skipped groups) are not
   implemented for FETCH; a Descending FETCH is served newest group first
@@ -1823,6 +1820,11 @@ closes the bidi stream, 9.5.1) followed: `test_moqtrun_vgate_update_kinds`.
 
 Features and requirements this hub relay subset does not implement, excluded
 from the coverage denominator above:
+
+- (SS9.9) PUBLISH_DONE for a subscription made on the legacy control
+  stream, by design: PUBLISH_DONE carries no Request ID, so on a stream
+  shared by several subscriptions it cannot name the one that ended; the
+  subscription is kept and re-attached when the publisher rejoins.
 
 - (SS1.5, SS1.5.1) Rendering/parsing namespace and track names as
   human-readable strings — an operator/logging concern; this SDK compares

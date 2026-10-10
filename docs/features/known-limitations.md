@@ -124,9 +124,6 @@ general relay network.
 - **No Session Migration / REDIRECT behavior** — the hub never sends REDIRECT
   and does not react to one; there is no upstream relay or sibling to move a
   requester to. Source: L4-12, ledgers.
-- **PUBLISH_DONE on the legacy control stream** — a subscription made on the
-  legacy (control-stream) path gets no PUBLISH_DONE (no request stream); it is
-  kept for a publisher rejoin. Source: ledgers, Not implemented.
 - **REQUEST_UPDATE of a SUBSCRIBE_TRACKS** — TRACK_NAMESPACE_PREFIX and
   FORWARD apply to PUBLISHes generated afterwards; TRACK_PROPERTY_FILTER is
   accepted but not evaluated (like on the SUBSCRIBE_TRACKS itself).
@@ -661,6 +658,13 @@ coverage denominator).
 - **Operator guidance** — load balancer CID routing, Alt-Svc, DSCP/QoS, NAT
   timeouts, key lifecycle, cross-protocol and privacy considerations
   (RFC 9312, 9308, MoQT security sections). Source: ledgers.
+- **PUBLISH_DONE on the legacy control stream** — a subscription made on the
+  shared control stream gets no PUBLISH_DONE. The message carries no Request
+  ID in draft-18/19/22 (it names its subscription by the request stream it
+  rides), so on a stream shared by several subscriptions it cannot say which
+  one ended; the hub instead keeps such a subscription and re-attaches it
+  silently when the publisher rejoins (`moqtrun_reattach_subs`). Source:
+  `moqctl_publish_done` in `src/app/moqt/ctl/moqctl.h`.
 - **MoQT URI / name rendering** — `moqt` URI scheme and dereferencing, SVCB;
   human-readable names (compared as raw bytes). Source: ledgers.
 - **E2E object encryption (SFRAME / Secure Objects)** — external mechanism.
