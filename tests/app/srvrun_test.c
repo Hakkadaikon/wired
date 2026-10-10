@@ -18893,6 +18893,37 @@ static void test_srvrun_wt_refuse_overflow_closes(void) {
   CHECK(c->l.wt_refused_overflow == 0);
 }
 
+/* RFC 9000 4.1: a connection carrying only capsules (an established WT
+ * session, no WT stream, no streamed body) still re-grows MAX_DATA as its
+ * CONNECT stream's capsule bytes are consumed -- to those bytes plus one
+ * window of slack, the same shape as a WT stream's own share. */
+static void test_srvrun_capsule_only_conn_regrows_max_data(void) {
+  struct lp_fix              f;
+  conntable                  table[WIRED_CONNTABLE_CAP];
+  srvrun_conn*               conns = sr_test_conns();
+  wired_obuf                 ob;
+  u8                         obuf[1024];
+  wired_srvloop_stream_slot* slot;
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_state    st  = {table, conns};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  ob                  = (wired_obuf){obuf, sizeof obuf, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  srvrun_start_resp(&ctx, 0);
+  conns[0].l.streams[0].in_use    = 1; /* the CONNECT stream's slot */
+  conns[0].l.streams[0].stream_id = 4;
+  slot                            = srvrun_wt_rx_slot(&conns[0], 0);
+  CHECK(slot != 0);
+  if (!slot) return;
+  slot->body.base = 5000; /* capsule bytes consumed so far */
+  srvrun_grant_conn_credit(&cfg, &conns[0]);
+  CHECK(conns[0].rx_max_data_advertised == 5000 + BODYWIN_CAP);
+}
+
 /* ===================== WT session-close notification ===================== */
 
 static usz               g_wtclose_calls;
@@ -21881,6 +21912,7 @@ void test_srvrun(void) {
   test_srvrun_wt_reset_unrelated_stream_not_delivered();
   test_srvrun_wt_two_resets_one_step_both_delivered();
   test_srvrun_reset_queue_overflow_closes();
+  test_srvrun_capsule_only_conn_regrows_max_data();
   test_srvrun_wt_refuse_overflow_closes();
   test_srvrun_peer_stop_resets_response();
   test_srvrun_peer_reset_leaves_response();

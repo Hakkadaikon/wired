@@ -3322,24 +3322,44 @@ static int srvrun_conn_credit_live(const srvrun_conn* c) {
   return wt_any_slot_in_use(c) || srvrun_req_any_streaming(c);
 }
 
+static wired_srvloop_stream_slot* srvrun_wt_rx_slot(srvrun_conn* c, int sidx);
+
+/* RFC 9000 4.1: one window of slack per active WT session whose CONNECT
+ * stream still reassembles capsules -- that stream's own MAX_STREAM_DATA
+ * opens a window ahead (srvrun_wt_rx_capsules_one), so the connection
+ * ceiling must too. Its consumed bytes (window base) are already in
+ * srvrun_req_rx_ceiling. */
+static u64 srvrun_wt_connect_slack(srvrun_conn* c) {
+  u64 n = 0;
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+    n += srvrun_wt_rx_slot(c, i) ? BODYWIN_CAP : 0;
+  return n;
+}
+
+/* The connection credit moves: capsules flow on a CONNECT stream (slack),
+ * or srvrun_conn_credit_live. */
+static int srvrun_conn_credit_moving(const srvrun_conn* c, u64 slack) {
+  return slack || srvrun_conn_credit_live(c);
+}
+
 /* RFC 9000 4.1/19.9: re-grant this connection's receive credit once its total
  * WT and streamed request-body progress has advanced enough past what was last
  * advertised -- the connection-wide counterpart of srvrun_grant_stream_
  * credit, using the same ceiling shape (delivered + one buffer's worth of
  * slack) so raising every open stream's own window never outruns the shared
  * connection ceiling. A no-op while neither a WT slot nor a streamed request
- * body is live (srvrun_conn_credit_live). The ceiling counts a CONNECT
- * stream's consumed capsule bytes (its window base, srvrun_req_rx_ceiling).
- * ponytail: a connection carrying only capsules (no WT stream, no streamed
- * body) is not live, so its MAX_DATA never re-grows past the initial 10 MB
- * (STP_DEFAULT_MAX_DATA); control/QPACK and buffered request bytes are not
- * counted at all. Count CONNECT slots as live if capsule traffic can
- * approach that. */
+ * body nor a capsule-carrying CONNECT stream is live
+ * (srvrun_conn_credit_moving). The ceiling counts a CONNECT stream's
+ * consumed capsule bytes (its window base, srvrun_req_rx_ceiling) plus its
+ * window (srvrun_wt_connect_slack). ponytail: control/QPACK and buffered
+ * request bytes are not counted; the initial 10 MB (STP_DEFAULT_MAX_DATA)
+ * covers them. */
 static void srvrun_grant_conn_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
+  u64 slack   = srvrun_wt_connect_slack(c);
   u64 ceiling = c->wt_rx_reaped_total + srvrun_wt_rx_delivered_total(c) +
                 (u64)wt_slots_in_use(c) * WIRED_SRVLOOP_WT_BUF_CAP +
-                srvrun_req_rx_ceiling(c);
-  if (!srvrun_conn_credit_live(c)) return;
+                srvrun_req_rx_ceiling(c) + slack;
+  if (!srvrun_conn_credit_moving(c, slack)) return;
   if (!wt_credit_stream_due(ceiling, c->rx_max_data_advertised)) return;
   srvrun_send_max_data(cfg, c, ceiling);
   c->rx_max_data_advertised = ceiling;

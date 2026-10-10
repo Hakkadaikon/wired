@@ -335,9 +335,10 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 - **Datagram drain is a fixed slice, not congestion-controlled** —
   `SRVRUN_DGRING_DRAIN_MAX` 16 / `_MS` 5 / `_BYTES` 3000 (about 4.8 Mbps).
   Source: `srvrun.c:5670`.
-- **A capsule-only connection never re-grows MAX_DATA** — a connection carrying
-  only capsules (no WT stream, no streamed body) keeps the initial 10 MB
-  (`STP_DEFAULT_MAX_DATA`) of connection credit. Source: `srvrun.c:3299`.
+- **MAX_DATA ignores control/QPACK bytes** — the connection ceiling counts WT
+  streams, streamed request bodies and CONNECT-stream capsules; control and
+  QPACK stream bytes ride on the initial 10 MB (`STP_DEFAULT_MAX_DATA`).
+  Source: `srvrun.c` (`srvrun_grant_conn_credit`).
 - **Concurrent WT sessions per connection** — `SRVRUN_MAX_WT_SESSIONS` (2)
   with a global cap `WIRED_CONNTABLE_CAP` and `SRVRUN_MAX_WT_SESSIONS_PER_WINDOW`
   (10). Source: `srvrun.c:181`, `srvrun.c:198`, `srvrun.c:218`.
