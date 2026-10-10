@@ -1,6 +1,4 @@
 #define WIRED_MAIN
-#include "app/moqt/qraw/moqrawio.h"
-#include "app/moqt/run/moqtrun.h"
 #include "wired.h"
 
 /* Room for exactly 4 cached Objects of the 7-byte payloads the client

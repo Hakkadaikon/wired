@@ -1,6 +1,4 @@
 #define WIRED_MAIN
-#include "app/moqt/qraw/moqrawio.h"
-#include "app/moqt/run/moqtrun.h"
 #include "wired.h"
 
 /* draft-ietf-moq-transport-22 15.3 subscriber authorization: this

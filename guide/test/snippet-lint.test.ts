@@ -1,19 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-// Snippets use the public API only: wired.h, plus the handful of headers
-// an application legitimately includes directly (each added here by the
-// first sample that needed it).
-const allowed = new Set([
-  'wired.h',
-  'app/moqt/run/moqtrun.h',
-  'app/moqt/data/moqdata.h',
-  'app/moqt/dgram/moqdg.h',
-  'app/moqt/qraw/moqrawio.h',
-  'crypto/symmetric/hash/hash/sha256.h',
-  'app/media/mp4frag/mp4frag.h',
-  'common/platform/clock/mono.h',
-]);
+// Snippets use the public API only: everything is reachable from wired.h.
+const allowed = new Set(['wired.h']);
 const ids = readdirSync(new URL('../snippets/', import.meta.url));
 
 describe('snippet includes', () => {

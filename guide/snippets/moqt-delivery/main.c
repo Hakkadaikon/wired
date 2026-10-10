@@ -1,7 +1,4 @@
 #define WIRED_MAIN
-#include "app/moqt/data/moqdata.h"
-#include "app/moqt/dgram/moqdg.h"
-#include "app/moqt/qraw/moqrawio.h"
 #include "wired.h"
 
 /* Bigger than MOQDATA_BLOB_CHUNK (16384), so the stream delivery below

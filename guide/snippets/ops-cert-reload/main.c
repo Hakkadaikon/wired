@@ -1,5 +1,4 @@
 #define WIRED_MAIN
-#include "crypto/symmetric/hash/hash/sha256.h"
 #include "wired.h"
 
 /* No HTTP traffic is expected: the client only completes the handshake. */

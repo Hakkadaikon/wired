@@ -1,6 +1,5 @@
 #define WIRED_MAIN
 #include "wired.h"
-#include "crypto/symmetric/hash/hash/sha256.h"
 
 int wired_main(int argc, char** argv) {
   (void)argc;

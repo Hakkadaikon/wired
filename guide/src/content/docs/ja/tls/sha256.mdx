@@ -15,6 +15,5 @@ SHA-256 は、TLS 1.3 の鍵スケジュール（ハンドシェイク中に通�
 ## 仕組み
 
 - `wired_sha256(data, len, out)` は `len` バイトを 1 回の呼び出しでハッシュし、`SHA256_DIGEST`（32）バイトのバッファに書きます。
-- `wired_sha256` は `wired.h` に含まれないので、`crypto/symmetric/hash/hash/sha256.h` を明示的にインクルードします。
 - `wired_dprintf(2, "%02x", byte)` で各バイトを 2 桁の 16 進数として書き出します。
   `wired.h` には libc 不要の printf (`wired_snprintf`, `wired_dprintf`) があります。

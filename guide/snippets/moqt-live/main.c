@@ -1,8 +1,4 @@
 #define WIRED_MAIN
-#include "app/media/mp4frag/mp4frag.h"
-#include "app/moqt/qraw/moqrawio.h"
-#include "app/moqt/run/moqtrun.h"
-#include "common/platform/clock/mono.h"
 #include "wired.h"
 
 /* send_uni2 (moqtrun.h): a live Group's framing (head) plus the fragment

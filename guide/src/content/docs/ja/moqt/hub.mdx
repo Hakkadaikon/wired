@@ -33,4 +33,3 @@ MoQT（Media over QUIC Transport）は、映像や音声などのメディアを
   `examples/moqt_interop` がこの使い方をしています。
 - サーバーの識別情報で `max_datagram_frame_size` を設定すると、QUIC DATAGRAM（再送しないメッセージを運ぶ QUIC の拡張）が有効になります。
   WebTransport のクライアントはこれを必要とします。
-- `moqtrun.h` は `wired.h` に含まれないので、別にインクルードします。

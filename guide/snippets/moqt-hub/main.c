@@ -1,6 +1,4 @@
 #define WIRED_MAIN
-#include "app/moqt/qraw/moqrawio.h"
-#include "app/moqt/run/moqtrun.h"
 #include "wired.h"
 
 static wired_moqt_hub g_hub;

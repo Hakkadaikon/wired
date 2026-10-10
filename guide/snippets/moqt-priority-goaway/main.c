@@ -1,6 +1,4 @@
 #define WIRED_MAIN
-#include "app/moqt/qraw/moqrawio.h"
-#include "app/moqt/run/moqtrun.h"
 #include "wired.h"
 
 /* The hub calls this right after it opens a subscriber stream, with the
