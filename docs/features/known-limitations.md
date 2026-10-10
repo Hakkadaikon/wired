@@ -394,9 +394,6 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   `SRVRUN_DRAIN_TICKS` (25) x 200 ms (about 5 s) before close; a SIGTERM before
   the handler is installed takes the default action (no GOAWAY). Source:
   `srvrun.c:10245`, `srvrun.h:277`.
-- **Worker supervisor wakes every 100 ms** — idle wakeups and up to 100 ms
-  SIGTERM-forward latency (no signalfd); SO_REUSEPORT wiring lives in srvrun's
-  listen path. Source: `srvworkers/srvworkers.c:188`, `srvworkers.h:13`.
 - **Spin backoff is count-based** — no time-based backoff (the only clock is
   millisecond-granular). Source: `srvpoll/srvpoll.c:11`.
 - **Receive batch** — `SRVRUN_RX_BATCH` (16) datagrams per recvmmsg, 32 KB per

@@ -17,5 +17,6 @@
 
 /** Signal numbers used by this SDK (Linux, all architectures). */
 #define SIGTERM 15 /**< termination request */
+#define SIGCHLD 17 /**< a child process changed state */
 
 #endif

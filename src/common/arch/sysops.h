@@ -198,6 +198,14 @@ static inline i64 wired_arch_rt_sigprocmask(
   return syscall4(SYS_rt_sigprocmask, how, set, old, setsize);
 }
 
+/** rt_sigtimedwait(2): wait for a signal in the u64 bitmap @p set (which
+ * must be blocked); @p info/@p ts may be 0 (no siginfo, no timeout).
+ * @return the signal number, or a negative errno. */
+static inline i64 wired_arch_rt_sigtimedwait(
+    const void* set, void* info, const void* ts, i64 setsize) {
+  return syscall4(SYS_rt_sigtimedwait, set, info, ts, setsize);
+}
+
 /** bpf(2): @p attr is a kernel union bpf_attr of @p size bytes. */
 static inline i64 wired_arch_bpf(i64 cmd, void* attr, i64 size) {
   return syscall3(SYS_bpf, cmd, attr, size);

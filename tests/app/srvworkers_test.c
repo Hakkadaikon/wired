@@ -151,6 +151,53 @@ static void test_srvworkers_wait_naps_on_echild(void) {
   CHECK(g_srvworkers_naps == naps + 1);
 }
 
+/* Reap every zombie this test process still has, so a later wait4(-1) sees
+ * only the children a test starts itself. */
+static void sw_drain_zombies(void) {
+  i64 status = 0;
+  while (syscall4(SYS_wait4, -1, &status, 1 /* WNOHANG */, 0) > 0) {
+  }
+}
+
+/* TEST: with a live worker and nothing to reap, the supervisor blocks until
+ * the worker exits (SIGCHLD) -- no periodic nap, no idle wakeups. */
+static void test_srvworkers_wait_blocks_until_child_exits(void) {
+  i64 status = 0, pid, got = -1;
+  u64 naps;
+  sw_drain_zombies();
+  pid = wired_arch_fork();
+  if (pid == 0) {
+    wired_arch_poll(0, 0, 200);
+    wired_arch_exit_group(0);
+  }
+  naps = g_srvworkers_naps;
+  /* a stale SIGCHLD from an earlier test may end one sleep early */
+  for (int i = 0; i < 3 && got != pid; i++) got = srvworkers_wait(&status);
+  CHECK(got == pid);
+  CHECK(g_srvworkers_naps == naps);
+}
+
+/* TEST: a SIGTERM wakes the blocked supervisor at once and latches the
+ * forward flag (it is consumed by the wait, never by a handler). */
+static void test_srvworkers_wait_wakes_on_sigterm(void) {
+  i64 status = 0, pid;
+  sw_drain_zombies();
+  pid = wired_arch_fork();
+  if (pid == 0) {
+    wired_arch_poll(0, 0, 3000);
+    wired_arch_exit_group(0);
+  }
+  wired_sigmask_block_shutdown();
+  wired_arch_kill(wired_arch_getpid(), SIGTERM); /* pending, not delivered */
+  g_srvworkers_term = 0;
+  CHECK(srvworkers_wait(&status) == -1);
+  CHECK(g_srvworkers_term == 1);
+  g_srvworkers_term = 0;
+  wired_sigmask_unblock_shutdown();
+  wired_arch_kill(pid, 9);
+  wired_arch_wait4(pid, &status, 0, 0);
+}
+
 /* Test child body that proves worker_index really reaches the child body
  * (srvworkers_child_start -> g_srvworkers_child_fn): exits with worker_index
  * as its exit status, which
@@ -418,6 +465,8 @@ void test_srvworkers(void) {
   test_srvworkers_resolve_count_clamps_to_max();
   test_srvworkers_resolve_count_passthrough();
   test_srvworkers_wait_naps_on_echild();
+  test_srvworkers_wait_blocks_until_child_exits();
+  test_srvworkers_wait_wakes_on_sigterm();
   test_srvworkers_child_start_passes_worker_index();
   test_srvworkers_fork_all_seeds_child_run_base();
   test_srvworkers_child_opt_layers_worker_fields();

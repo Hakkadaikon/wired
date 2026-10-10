@@ -21,6 +21,10 @@ typedef struct {
  * flight), so a worker forked around the signal is never missed. */
 static volatile int g_srvworkers_term;
 
+/* The signals the supervisor sleeps on: a worker exiting, or shutdown. */
+static const u64 g_srvworkers_wake =
+    (1ull << (SIGCHLD - 1)) | (1ull << (SIGTERM - 1));
+
 static void srvworkers_on_term(int sig) {
   (void)sig;
   g_srvworkers_term = 1;
@@ -109,6 +113,7 @@ static void srvworkers_child_start(
     i64                  parent) {
   wired_sigterm_install(0); /* SIG_DFL */
   wired_sigmask_unblock_shutdown();
+  wired_arch_rt_sigprocmask(1 /* SIG_UNBLOCK */, &g_srvworkers_wake, 0, 8);
   wired_arch_prctl(1 /* PR_SET_PDEATHSIG */, SIGTERM);
   if (wired_arch_getppid() != parent) wired_arch_exit_group(0);
   if (pin_cores) wired_srvpin_bind_self(worker_index);
@@ -181,20 +186,42 @@ static void srvworkers_forward(srvworkers_table* t) {
   srvworkers_kill_all(t);
 }
 
-/* Reap one exited worker without blocking; nap when none has (or wait4
- * failed, e.g. ECHILD, so the supervisor loop never spins), so a SIGTERM
- * whose handler ran outside the wait (no EINTR to wake on) is still
- * forwarded within one nap.
- * ponytail: 100 ms idle wakeups and up to 100 ms forward latency; a
- * signalfd in the wait set if that ever matters.
+/* Block until SIGCHLD or SIGTERM is pending (both blocked by the caller, so
+ * one raised since then is never lost) and consume it; a SIGTERM latches
+ * the forward the handler would have (srvworkers_forward). */
+static void srvworkers_sleep(void) {
+  i64 sig = wired_arch_rt_sigtimedwait(&g_srvworkers_wake, 0, 0, 8);
+  if (sig == SIGTERM) g_srvworkers_term = 1;
+}
+
+/* wait4 failed (e.g. ECHILD): no child will raise SIGCHLD, so nap instead
+ * of blocking, and never spin the supervisor loop. */
+static u64  g_srvworkers_naps; /* naps taken; read by tests */
+static void srvworkers_nap(void) {
+  g_srvworkers_naps++;
+  wired_arch_poll(0, 0, 100);
+}
+
+/* Nothing reaped: sleep until a signal (dead == 0, workers still live) or
+ * nap (dead < 0, a wait4 error). */
+static void srvworkers_idle(i64 dead) {
+  if (dead == 0) srvworkers_sleep();
+  if (dead < 0) srvworkers_nap();
+}
+
+/* Reap one exited worker, else block until one exits or SIGTERM arrives --
+ * no periodic wakeups. SIGCHLD/SIGTERM are blocked BEFORE the wait4 so one
+ * raised between it and the sleep stays pending and ends the sleep.
  * @return the reaped pid, or -1 if none (never 0: a free slot holds 0). */
-static u64 g_srvworkers_naps; /* naps taken; read by tests */
+static void srvworkers_block_wake(void) {
+  wired_arch_rt_sigprocmask(0 /* SIG_BLOCK */, &g_srvworkers_wake, 0, 8);
+}
+
 static i64 srvworkers_wait(i64* status) {
-  i64 dead = wired_arch_wait4(-1, status, 1 /* WNOHANG */, 0);
-  if (dead <= 0) {
-    g_srvworkers_naps++;
-    wired_arch_poll(0, 0, 100);
-  }
+  i64 dead;
+  srvworkers_block_wake();
+  dead = wired_arch_wait4(-1, status, 1 /* WNOHANG */, 0);
+  srvworkers_idle(dead);
   return dead ? dead : -1;
 }
 
@@ -230,7 +257,12 @@ static void srvworkers_supervise_once(
     wired_srvrun_obs            obs,
     const wired_srvworkers_opt* opt) {
   i64 status = 0;
-  int slot   = srvworkers_slot_for_pid(t->pid, t->n, srvworkers_wait(&status));
+  int slot;
+  /* A SIGTERM the handler took while unblocked (around a fork) is forwarded
+   * before sleeping; from the block on, one stays pending for the sleep. */
+  srvworkers_block_wake();
+  srvworkers_forward(t);
+  slot = srvworkers_slot_for_pid(t->pid, t->n, srvworkers_wait(&status));
   if (slot >= 0) srvworkers_reap(t, slot, status, port, id, h, obs, opt);
   srvworkers_forward(t);
 }

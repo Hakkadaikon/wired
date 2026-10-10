@@ -22,6 +22,7 @@
 #define SYS_rt_sigaction 13       /**< rt_sigaction(2) syscall number */
 #define SYS_rt_sigprocmask 14     /**< rt_sigprocmask(2) syscall number */
 #define SYS_rt_sigreturn 15       /**< rt_sigreturn(2) syscall number */
+#define SYS_rt_sigtimedwait 128   /**< rt_sigtimedwait(2) syscall number */
 #define SYS_socket 41             /**< socket(2) syscall number */
 #define SYS_sendmsg 46            /**< sendmsg(2) syscall number */
 #define SYS_sendto 44             /**< sendto(2) syscall number */
