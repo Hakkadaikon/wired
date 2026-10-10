@@ -17,7 +17,8 @@ int  fp521_eq(const p521_fe a, const p521_fe b);
 int  fp521_is_zero(const p521_fe a);
 int  fp521_lt(const p521_fe a, const p521_fe b);
 
-/* r = a + b / a - b mod m, for a, b < m (m = p or n). */
+/* r = a + b / a - b mod m, for a, b < m (m = p or n). add only needs
+ * a + b < 2m, so fp521_add(r, x, 0, m) reduces any x < 2m. */
 void fp521_add(p521_fe r, const p521_fe a, const p521_fe b, const p521_fe m);
 void fp521_sub(p521_fe r, const p521_fe a, const p521_fe b, const p521_fe m);
 

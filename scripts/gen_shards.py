@@ -41,6 +41,7 @@ OVERRIDES = {
     "p256field_n": "crypto/asymmetric/ecc/p256",
     "ecdsa_diff": "crypto/asymmetric/ecc/p256",
     "ecdsa_p384_verify": "crypto/asymmetric/ecc/p384",
+    "ecdsa_p521_verify": "crypto/asymmetric/ecc/p521",
     "bssl_ecdsa": "crypto/asymmetric/ecc/p256",
     "bssl_hmac": "crypto/symmetric/hash/hash",
     "wyc_rsa_pkcs1": "crypto/asymmetric/rsa",
