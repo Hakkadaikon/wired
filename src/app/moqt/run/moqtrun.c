@@ -5610,9 +5610,32 @@ static void moqtrun_relay_note_busy(
   moqtrun_relay_shed_one(hub, wt, sub, relay, i);
 }
 
+/* wire for sub slot i: as is, unless i's stream was late-opened and has
+ * not been sent an Object yet (sub_reframe) -- then its first Object's
+ * Object ID Delta (chained from seq0 on the publisher's stream) becomes
+ * the absolute Object ID, as the first Object of the subscriber's stream
+ * is read (draft-22 11.3.1), built in hub->alias_scratch. */
+static wired_span moqtrun_relay_reframe(
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_relay* relay,
+    usz                        i,
+    wired_span                 wire,
+    moqdata_objseq             seq0) {
+  usz         off = 0, dl = 0;
+  u64         delta;
+  moqdata_obj obj;
+  if (!(relay->sub_reframe >> i & 1)) return wire;
+  if (moqdata_obj_take(wire, &off, &seq0, &obj) != MOQDATA_OK) return wire;
+  moqvi_take(wire, &dl, &delta);
+  usz n = moqvi_encode(hub->alias_scratch, obj.object_id);
+  bytes_memcpy(hub->alias_scratch + n, wire.p + dl, wire.n - dl);
+  return wired_span_of(hub->alias_scratch, n + wire.n - dl);
+}
+
 /* Forwards one round of publisher bytes to sub slot i's already-open relay
  * stream: a bare FIN closes it via stream_fin (moqtrun_is_bare_fin's doc),
- * anything else appends via stream_send with fin passed through. A
+ * anything else appends via stream_send with fin passed through (its first
+ * Object re-framed after a late open, moqtrun_relay_reframe). A
  * stream_send rejection (previous round not yet ACKed -- srvrun.h) drops
  * this one round for this subscriber, counted on the hub: voice is
  * loss-tolerant, and chat's rounds are paced far apart enough that in
@@ -5626,14 +5649,17 @@ static void moqtrun_relay_forward_one(
     wired_moqtrun_relay*     relay,
     usz                      i,
     wired_span               wire,
+    moqdata_objseq           seq0,
     int                      fin) {
   if (moqtrun_is_bare_fin(wire, fin)) {
     hub->io.stream_fin(wt, relay->sub_stream_id[i]);
     return;
   }
+  wire = moqtrun_relay_reframe(hub, relay, i, wire, seq0);
   if (hub->io.stream_send(wt, relay->sub_stream_id[i], wire, fin) == 1) {
     hub->stat_relay_sent++;
     relay->sub_busy_streak[i] = 0;
+    relay->sub_reframe &= ~((u32)1 << i);
     return;
   }
   moqtrun_relay_note_busy(hub, wt, sub, relay, i);
@@ -5659,8 +5685,22 @@ static void moqtrun_relay_open_one(
  * (voice is loss-tolerant; the next round appends normally, and the
  * header-only first chunk is a well-formed stream head for the client's
  * incremental decoder). The stream starts mid-subgroup, so FIRST_OBJECT
- * (0x40) is cleared (draft-22 2.2 / 11.3.1): the Type is < 0x80
- * (moqdata_type_valid), so its low byte is the varint's last byte. */
+ * (0x40) is cleared (draft-22 2.2 / 11.3.1), and a mode-0b01 Subgroup ID
+ * is spelled out (mode 0b10): the stream's first Object is no longer the
+ * Subgroup's. Its first Object is re-framed when sent (sub_reframe). */
+static usz moqtrun_relay_late_hdr(const wired_moqtrun_relay* relay, u8* out) {
+  moqdata_subhdr h;
+  usz            off = 0, n = 0;
+  moqdata_subhdr_take(wired_span_of(relay->hdr, relay->hdr_len), &off, &h);
+  h.type &= ~0x40ULL;
+  if (moqdata_type_sgid_mode(h.type) == 1) {
+    h.type        = (h.type & ~0x06ULL) | 0x04ULL;
+    h.subgroup_id = relay->subgroup_id;
+  }
+  moqdata_subhdr_put(wired_mspan_of(out, WIRED_MOQTRUN_RELAY_HDR_MAX), &n, &h);
+  return n;
+}
+
 static void moqtrun_relay_late_open(
     wired_moqt_hub*      hub,
     wired_moqtrun_sub*   sub,
@@ -5669,13 +5709,9 @@ static void moqtrun_relay_late_open(
     int                  fin) {
   if (moqtrun_late_open_skip(relay, fin)) return;
   u8  hdr[WIRED_MOQTRUN_RELAY_HDR_MAX];
-  usz type_end = 0;
-  u64 type;
-  bytes_memcpy(hdr, relay->hdr, relay->hdr_len);
-  moqvi_take(wired_span_of(hdr, relay->hdr_len), &type_end, &type);
-  hdr[type_end - 1] &= (u8)~0x40;
-  moqtrun_relay_open_one(
-      hub, sub, relay, i, wired_span_of(hdr, relay->hdr_len));
+  usz n = moqtrun_relay_late_hdr(relay, hdr);
+  moqtrun_relay_open_one(hub, sub, relay, i, wired_span_of(hdr, n));
+  relay->sub_reframe |= (u32)(relay->sub_stream_set[i] != 0) << i;
 }
 
 /* Forward to sub slot i's open stream, or -- for a subscriber whose
@@ -5688,9 +5724,10 @@ static void moqtrun_relay_deliver_one(
     wired_moqtrun_relay* relay,
     usz                  i,
     wired_span           wire,
+    moqdata_objseq       seq0,
     int                  fin) {
   if (relay->sub_stream_set[i]) {
-    moqtrun_relay_forward_one(hub, dst->wt, sub, relay, i, wire, fin);
+    moqtrun_relay_forward_one(hub, dst->wt, sub, relay, i, wire, seq0, fin);
     return;
   }
   moqtrun_relay_late_open(hub, sub, relay, i, fin);
@@ -5772,7 +5809,7 @@ static void moqtrun_relay_append_one(
   if (moqtrun_relay_skips(dst, relay, i)) return;
   if (moqtrun_relay_expire(hub, sub, dst, relay, i, born_ms)) return;
   wire = moqtrun_relay_end_cut(relay, i, wire, seq0, sub, &fin);
-  moqtrun_relay_deliver_one(hub, sub, dst, relay, i, wire, fin);
+  moqtrun_relay_deliver_one(hub, sub, dst, relay, i, wire, seq0, fin);
 }
 
 static void moqtrun_relay_append_all(
@@ -6584,15 +6621,37 @@ static void moqtrun_relay_open_all(
  * this is only called for a stream that already classified and decoded as
  * SUBGROUP, so a decode failure here cannot really happen; it just leaves
  * hdr_len 0 (late joiners are then skipped rather than sent garbage). */
+static void moqtrun_relay_save_hdr_raw(
+    wired_moqtrun_relay* relay, wired_span data, usz off) {
+  if (off > WIRED_MOQTRUN_RELAY_HDR_MAX) return;
+  bytes_memcpy(relay->hdr, data.p, off);
+  relay->hdr_len = off;
+}
+
+/* Subgroup ID mode 0b01 names the stream's first Object ID (draft-22
+ * 11.3.1): it is kept from the first Object after the header for a late
+ * open, whose stream starts at a later Object (moqtrun_relay_late_hdr).
+ * 0 when that Object does not decode. ponytail: a first delivery torn
+ * inside it saves no header, so late joiners of that stream are skipped;
+ * resolve it on the next delivery if that matters. */
+static int moqtrun_relay_note_sgid(
+    wired_moqtrun_relay* relay, wired_span data, usz off, u64 type) {
+  moqdata_objseq seq = moqdata_objseq_of(type);
+  moqdata_obj    obj;
+  if (moqdata_type_sgid_mode(type) != 1) return 1;
+  if (moqdata_obj_take(data, &off, &seq, &obj) != MOQDATA_OK) return 0;
+  relay->subgroup_id = obj.object_id;
+  return 1;
+}
+
 static void moqtrun_relay_save_hdr(
     wired_moqtrun_relay* relay, wired_span data) {
   usz            off = 0;
   moqdata_subhdr hdr;
   relay->hdr_len = 0;
   if (moqdata_subhdr_take(data, &off, &hdr) != MOQDATA_OK) return;
-  if (off > WIRED_MOQTRUN_RELAY_HDR_MAX) return;
-  bytes_memcpy(relay->hdr, data.p, off);
-  relay->hdr_len = off;
+  if (!moqtrun_relay_note_sgid(relay, data, off, hdr.type)) return;
+  moqtrun_relay_save_hdr_raw(relay, data, off);
 }
 
 /* Starts relaying a fresh publisher stream that stays open past this call
@@ -6629,6 +6688,7 @@ static void moqtrun_relay_start(
       hub, track, relay, pub_wt, pub_stream_id,
       wired_span_of(wire.p, whole_end));
   relay->sub_expired = 0;
+  relay->sub_reframe = 0;
   moqtrun_relay_save_frag(
       hub, relay, wire.p + whole_end, wire.n - whole_end,
       hub->live.last_now_ms);

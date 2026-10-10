@@ -467,6 +467,13 @@ typedef struct {
   /** Bit i: sub slot i's stream was reset for OBJECT_DELIVERY_TIMEOUT and
    * is not reopened for this Subgroup (draft 8). */
   u32 sub_expired;
+  /** Bit i: sub slot i's stream was late-opened header-only; the first
+   * Object it is sent gets its Object ID Delta rewritten to the absolute
+   * Object ID (the first Object of a stream, draft-22 11.3.1). */
+  u32 sub_reframe;
+  /** Subgroup ID of a mode-0b01 header (its first Object's ID), spelled
+   * out in a late-opened stream's header; unused for other modes. */
+  u64 subgroup_id;
 } wired_moqtrun_relay;
 
 /** Consecutive refused relay rounds (io.stream_send returning busy) after

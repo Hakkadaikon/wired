@@ -3277,6 +3277,58 @@ static void test_moqtrun_late_subscriber_gets_late_opened_stream(void) {
   CHECK(moqtrun_test_count_kind(3) == 1);
   CHECK(moqtrun_test_last_kind(3)->stream_id == late_sid);
   CHECK(moqtrun_test_count_kind(5) == 0);
+  /* Its first Object is the late stream's first: the subscriber reads its
+   * Object ID Delta as the Object ID (11.3.1), so the hub re-framed it to
+   * the absolute ID the publisher's chain reached. */
+  const moqtrun_test_call* app = moqtrun_test_last_kind(3);
+  moqdata_objseq           seq = moqdata_objseq_of(first[0]);
+  moqdata_obj              obj;
+  usz                      off = 0;
+  CHECK(
+      moqdata_obj_take(
+          wired_span_of(app->payload, app->payload_len), &off, &seq, &obj) ==
+      MOQDATA_OK);
+  CHECK(obj.object_id == hub.peers[0].tracks[1].relays[0].seq.prev_id);
+  CHECK(off == app->payload_len);
+}
+
+/* Subgroup ID mode 0b01 (Subgroup ID = the stream's first Object ID,
+ * 11.3.1): a late-opened stream's first Object is a later one, so the hub
+ * spells the Subgroup ID out (mode 0b10) in the late-open header. */
+static void test_moqtrun_late_open_sgid_mode1_explicit(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+  u8             buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz            n = 0;
+  u8             v = 7;
+  moqdata_subhdr h = {0};
+  h.type           = 0x72; /* FIRST_OBJECT, default priority, mode 0b01 */
+  h.track_alias    = 0x02;
+  moqdata_subhdr_put(wired_mspan_of(buf, sizeof buf), &n, &h);
+  moqdata_obj_put(wired_mspan_of(buf, sizeof buf), &n, 5, wired_span_of(&v, 1));
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(buf, n), 0);
+  moqtrun_test_session(&hub, SESS_B);
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  u8  sub_audio[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz sub_audio_n = moqtrun_test_subscribe_audio_msg(sub_audio);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b, wired_span_of(sub_audio, sub_audio_n), 0);
+  n = 0;
+  moqdata_obj_put(wired_mspan_of(buf, sizeof buf), &n, 0, wired_span_of(&v, 1));
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(buf, n), 0);
+  const moqtrun_test_call* opened = moqtrun_test_last_kind(5);
+  moqdata_subhdr           got;
+  usz                      off = 0;
+  CHECK(opened != 0);
+  CHECK(
+      moqdata_subhdr_take(
+          wired_span_of(opened->payload, opened->payload_len), &off, &got) ==
+      MOQDATA_OK);
+  CHECK(!got.subgroup_id_pending && got.subgroup_id == 5);
 }
 
 /* Deliveries slice the publisher's stream at arbitrary byte positions, but
@@ -5849,6 +5901,7 @@ static void mtall_main(void) {
   test_moqtrun_audio_split_data_then_bare_fin_closes();
   test_moqtrun_interleaved_chat_messages_close_independently();
   test_moqtrun_late_subscriber_gets_late_opened_stream();
+  test_moqtrun_late_open_sgid_mode1_explicit();
   test_moqtrun_torn_object_held_until_complete();
   test_moqtrun_normalize_forwards_only_whole_objects();
   test_moqtrun_fresh_delivery_tail_held_back();

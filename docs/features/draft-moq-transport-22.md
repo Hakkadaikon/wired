@@ -937,6 +937,13 @@ Legend:
   in a Subgroup, and the previous Object ID plus the Delta plus 1 for each
   subsequent Object.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_delta_chain`
+  - relay: a stream the hub late-opens mid-Subgroup gets its first Object's
+    Delta rewritten to the absolute Object ID, and a mode-0b01 Subgroup ID
+    spelled out (mode 0b10) in its header.
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_late_subscriber_gets_late_opened_stream`
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_late_open_sgid_mode1_explicit`
 - [x] MQ22-130a If the resulting cumulative Object ID would exceed 2^64-1,
   then the implementation shall close the session with a protocol
   violation.
