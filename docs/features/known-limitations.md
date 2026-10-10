@@ -127,8 +127,7 @@ general relay network.
   relayed unchanged, never interpreted. Source: ledgers, Out of scope.
 - **FILL_TIMEOUT, EXPIRES, NEW_GROUP_REQUEST decoded, not acted on**;
   FILL_TIMEOUT's presence only gates the Timed-Out marker (d22). Source:
-  ledgers, Out of scope. (RENDEZVOUS_TIMEOUT is acted on since L12-1; the
-  ledger text still lists it as decoded-only and is stale on that point.)
+  ledgers, Out of scope. (RENDEZVOUS_TIMEOUT is acted on since L12-1.)
 - **INCLUDE_PROPERTIES (0x35, d22 9.20.21) not decoded** — MQ22-083a is `[ ]`.
   Source: `ledger:draft-moq-transport-22.md`.
 - **Padding Datagrams not sent**. Source: ledgers (SS11.5).
@@ -178,9 +177,6 @@ general relay network.
   `moqtrun.h:615`, L12-1.
 - **Deliberate deviation: unknown PSK identity aborts** — see
   [TLS 1.3](#tls-13) (RFC 8446 4.2.11).
-- **MAX_REQUEST_UPDATES credit gated by version** — a draft-18 peer is never
-  closed for too many REQUEST_UPDATEs (the limit does not exist in d18). Not a
-  gap, recorded for completeness. Source: L12-5.
 - **Late joiner gets the publisher's SUBGROUP_HEADER verbatim** — a
   subscriber that joins a relayed subgroup stream mid-way
   (`moqtrun_relay_late_open` / `moqtrun_rel_late_attach`) is sent the saved
@@ -355,12 +351,6 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 
 ## WebTransport
 
-- **Connection teardown approximates session termination** — srvrun frees a
-  connection's WT sessions on peer CONNECTION_CLOSE, boot failure or idle sweep,
-  while a CONNECT stream's own RESET/FIN is now handled per session (SS4.4,
-  `srvrun.c:3352`). The `ponytail:` at `srvrun.c:5940` predates that trigger;
-  the approximation is the fallback for whole-connection teardown. Source:
-  `srvrun.c:5940`.
 - **One latched reset per step** — only the last WT stream reset seen in one
   server step is delivered to the app and its slot freed; an earlier one in the
   same step is lost. Rapid-reset detection (RFC 9114 10.5) still counts every
@@ -389,9 +379,6 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 - **Concurrent WT sessions per connection** — `SRVRUN_MAX_WT_SESSIONS` (2)
   with a global cap `WIRED_CONNTABLE_CAP` and `SRVRUN_MAX_WT_SESSIONS_PER_WINDOW`
   (10). Source: `srvrun.c:181`, `srvrun.c:198`, `srvrun.c:218`.
-- **Flow-control capsules ignored when WT flow control is off** — intended
-  (draft-16 5.1, L6-8); listed so callers know that enabling it is a SETTINGS
-  decision. Source: L6-8.
 - **Server-initiated stream blocked: caller retries** — the open function
   returns -1 and WT_STREAMS_BLOCKED is sent only for the stream-count cause;
   retry is the caller's. Source: L6-10.
@@ -610,9 +597,6 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 
 ## Platform / I/O
 
-- **IPv6 dual-stack only sockets (fixed)** — UDP sockets fall back from
-  AF_INET6 to AF_INET on EAFNOSUPPORT (L12-24); the previous failure is
-  fixed, noted so IPv6-disabled hosts are understood to work.
 - **Linux x86-64 only** — ISA-specific code lives in `src/common/arch/x8664/`;
   other ISAs are not provided (inferred from the layout; see
   `docs/syscalls.md`).
@@ -621,10 +605,6 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 - **SO_REUSEPORT multi-worker** — workers share one UDP port only if the bind
   path enables `SO_REUSEPORT`; verify before relying on it. Source:
   `srvworkers.h:13`.
-- **Test-only helpers unused in the freestanding build** — `srvrun_test_set_*`
-  and the `srvworkers` child hook need `__attribute__((unused))`. Not a
-  runtime limitation; recorded because `ponytail:` markers mention it. Source:
-  `srvrun.c:4387`, `:5782`, `:5819`, `srvworkers.c:42`.
 - **`printf`-compat deviations** (`wired_snprintf` family) — `%p` NULL prints
   `0x0`; `%f` saturates the integer part at 2^64 and caps precision at 40;
   `wired_dprintf` truncates output past 511 bytes. Source: L14-1,
@@ -710,9 +690,6 @@ Fixed-size tables and buffers (BSS-sized; raise the constant and rebuild).
 - **Ledger counts** — 7 requirements are `[ ]` (untested): MQ18-118a,
   MQ22-070a, MQ22-083a, MQ22-108b, MQ22-137, MQ22-137a, 8446-053. Source:
   `docs/features/README.md`, individual ledgers.
-- **Ledger drift** — the draft-19 ledger cites a renamed test
-  (`test_moqtrun_subscribe_nonzero_timeout_rejected`, now `_accepted`) that
-  `check_features.py` flags. Source: `tasks/moqt-multidraft-ledger.md:261`.
 - **BoringSSL oracle** — no failures; skipped: 179 ECDSA P-224/P-521/secp224k1,
   15 HMAC MD5/SHA1/SHA224/SHA512, 7 AES-GCM non-96-bit nonces, the
   1,000,000-iteration X25519 case. Source: `docs/security/boringssl-vectors.md`.
