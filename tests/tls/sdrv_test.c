@@ -1636,6 +1636,89 @@ static void test_sdrv_psk_valid_ticket_and_binder_accepted(void) {
   CHECK(sdrv_build_server_flight(&s, f.srv_random, &fo));
 }
 
+/* f's ClientHello re-offered with only offer_suite and f's sealed ticket,
+ * its binder computed over psk under binder_suite (Hash.length bytes, RFC
+ * 8446 4.2.11.2). Returns the ClientHello length. */
+static usz sdrv_test_psk_ch_suite(
+    sdrv_psk_fixture* f,
+    u16               offer_suite,
+    u16               binder_suite,
+    const u8*         psk,
+    u8*               ch2,
+    usz               cap) {
+  u8            binder[48] = {0};
+  usz           off        = 0;
+  tlsext_psk_in in         = {
+      wired_span_of(f->sealed, sizeof(f->sealed)), 0,
+      wired_span_of(binder, tls_hash_of(binder_suite)->len)};
+  sdrv_test_set_suite(f->ch, offer_suite);
+  CHECK(sdrv_test_append_psk(ch2, cap, f->ch, f->ch_len, &in, &off) != 0);
+  tls_binder_compute_suite(
+      binder_suite, psk,
+      wired_span_of(ch2, sdrv_test_psk_truncate_len(off, sizeof(f->sealed))),
+      binder);
+  return sdrv_test_append_psk(ch2, cap, f->ch, f->ch_len, &in, &off);
+}
+
+static void sdrv_test_psk_init_srv(sdrv* s, const sdrv_psk_fixture* f) {
+  u8 srv_priv[32], srv_pub[32], cert_priv[32];
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_priv[i] = (u8)(0x80 + i);
+  }
+  wired_x25519_base(srv_pub, srv_priv);
+  sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f->ticket_key};
+  sdrv_init(s, &in);
+}
+
+/* RFC 8446 4.2.11: the server MUST ensure the selected PSK's hash matches
+ * the negotiated suite's. A SHA-256 ticket offered by a client that only
+ * speaks TLS_AES_256_GCM_SHA384 is unusable: the PSK is ignored and a full
+ * handshake proceeds -- no abort, no SHA-384 schedule over a 32-byte PSK. */
+static void test_sdrv_psk_hash_mismatch_falls_back(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               ch2[700];
+  usz              ch2_len;
+  sdrv_psk_fixture_init(&f);
+  ch2_len = sdrv_test_psk_ch_suite(
+      &f, TLS_AES_256_GCM_SHA384, TLS_AES_128_GCM_SHA256, f.psk, ch2,
+      sizeof ch2);
+  sdrv_test_psk_init_srv(&s, &f);
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 1);
+  CHECK(s.cipher_suite == TLS_AES_256_GCM_SHA384);
+  CHECK(s.psk_accepted == 0);
+}
+
+/* A ticket issued under TLS_AES_256_GCM_SHA384 resumes under it: PSK =
+ * HKDF-Expand-Label(resumption_master_secret, "resumption", 0x00, 48) over
+ * SHA-384 (RFC 8446 4.6.1, raw hkdf_expand_label_384 here), its 48-byte
+ * binder verifies, and the PSK flight builds. */
+static void test_sdrv_psk_sha384_ticket_accepted(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               ch2[700], psk[48], sh[256], flight[2048];
+  usz              ch2_len;
+  ticket           t        = {{0}, 0, 7200, 0, 0, 0, TLS_AES_256_GCM_SHA384};
+  static const u8  nonce[1] = {0};
+  hkdf_label       l        = {"resumption", 10, {nonce, 1}};
+  wired_obuf       sh_ob    = obuf_of(sh, sizeof sh);
+  wired_obuf       fl_ob    = obuf_of(flight, sizeof flight);
+  sdrv_flight_out  fo       = {&sh_ob, &fl_ob};
+  sdrv_psk_fixture_init(&f);
+  t.issued_at = wired_clock_epoch_secs();
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++) t.secret[i] = (u8)(0x50 + i);
+  ticket_seal(&t, f.ticket_key, f.sealed);
+  CHECK(hkdf_expand_label_384(t.secret, &l, wired_mspan_of(psk, 48)) == 1);
+  ch2_len = sdrv_test_psk_ch_suite(
+      &f, TLS_AES_256_GCM_SHA384, TLS_AES_256_GCM_SHA384, psk, ch2, sizeof ch2);
+  sdrv_test_psk_init_srv(&s, &f);
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 1);
+  CHECK(s.psk_accepted == 1);
+  CHECK(ct_diffn(s.psk_secret, psk, 48) == 0);
+  CHECK(sdrv_build_server_flight(&s, f.srv_random, &fo));
+}
+
 /* RFC 8446 4.2.9/4.2.11 / 8446-040: pre_shared_key offered WITHOUT a
  * psk_key_exchange_modes extension must be rejected with missing_extension
  * (alert 109) -- append pre_shared_key directly (bypassing
@@ -2372,6 +2455,8 @@ void test_sdrv(void) {
   test_sdrv_retry_advertises_true_odcid_not_key_derivation_dcid();
   test_sdrv_psk_absent_leaves_full_handshake_unchanged();
   test_sdrv_psk_fixture_pinned();
+  test_sdrv_psk_hash_mismatch_falls_back();
+  test_sdrv_psk_sha384_ticket_accepted();
   test_sdrv_psk_valid_ticket_and_binder_accepted();
   test_sdrv_psk_without_modes_rejected();
   test_sdrv_psk_not_last_rejected();

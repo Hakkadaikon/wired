@@ -471,10 +471,13 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 - **Ticket replay guard is a ring** — `TICKETGUARD_CAP` (64) fingerprints; an
   entry evicted by newer tickets could replay past the window. Source:
   `src/tls/keys/ticketguard/ticketguard.h:12`.
-- **Cipher suites: AES-128-GCM-SHA256 and ChaCha20-Poly1305-SHA256 only** —
-  `TLS_AES_256_GCM_SHA384` is rejected by `cipher_supported`. Impact: a peer
-  that offers only AES-256 fails to negotiate. Source:
-  `src/tls/handshake/core/tls/cipher.c:3`, `ledger:fips197.md` Out of scope.
+- **Cipher suites: preference AES-128-GCM, ChaCha20-Poly1305, AES-256-GCM**
+  -- all three TLS 1.3 AEAD suites are negotiated (server order, not the
+  client's). `TLS_AES_256_GCM_SHA384` has no interop run against an
+  independent peer recorded yet, and `tls_exporter` (RFC 8446 7.5) still
+  hashes its context with SHA-256 under it (no production caller). CCM
+  suites are refused. Source: `src/tls/handshake/core/tls/cipher.c`,
+  `ledger:rfc8446.md` 8446-099.
 - **No client authentication or server-side CertificateRequest** — the server
   never requests client certificates (codec exists unwired); no
   post_handshake_auth, no OCSP/SCT, no `certificate_authorities` selection, no
@@ -526,11 +529,10 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   AES-128, 2 in AES-256) are skipped; no GMAC; short tags unsupported. Impact:
   none for QUIC/TLS 1.3. Source: `docs/security/boringssl-vectors.md`,
   `ledger:sp800-38d.md`.
-- **AES-128 is the QUIC primitive; AES-192 not implemented** — AES-256-GCM
-  exists as a primitive (`gcm256.h`, BoringSSL vectors pass) but no TLS cipher
-  suite uses it; no AES-192; no AES decryption primitive (not needed by GCM or
-  header protection). Source: `ledger:fips197.md`,
-  `docs/security/boringssl-vectors.md`.
+- **AES-192 not implemented** — AES-128-GCM and AES-256-GCM (`gcm256.h`,
+  BoringSSL vectors pass) key QUIC packet protection; no AES-192; no AES
+  decryption primitive (not needed by GCM or header protection). Source:
+  `ledger:fips197.md`, `docs/security/boringssl-vectors.md`.
 - **RSA: public exponent e = 65537 only; verify only** — PKCS#1 v1.5 verify
   accepts SHA-256/384/512 DigestInfo; RSA-PSS is SHA-256 with salt length 32
   and MGF1-SHA-256 only (TLS 1.3 `rsa_pss_rsae_sha256`). No RSA signing,

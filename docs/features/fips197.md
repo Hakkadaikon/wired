@@ -144,16 +144,12 @@ below.
 Requirements this server SDK deliberately does not implement, excluded from
 the coverage denominator:
 
-- (Abstract, §1, §5, Table 3, App. A.2, A.3) AES-192 and AES-256
-  (Nk=6/Nk=8, Nr=12/14) — this SDK implements only AES-128
-  (`aes128`/`AES_ROUNDS=10` in
-  `src/crypto/symmetric/aead/aes/aes.h`). The TLS cipher-suite layer
-  actively rejects `TLS_AES_256_GCM_SHA384`
-  (`cipher_supported` in `src/tls/handshake/core/tls/cipher.c` returns
-  0 for it, confirmed by `tests/tls/cipher_test.c` —
-  `test_cipher_supported`); no AES-192 cipher suite exists in TLS 1.3 at
-  all. QUIC packet protection and header protection therefore only ever key
-  AES-128.
+- (Abstract, §1, §5, Table 3, App. A.2) AES-192 (Nk=6, Nr=12) -- no TLS 1.3
+  cipher suite uses it. AES-256 (App. A.3, C.3) is implemented
+  (`aes256_*` in `src/crypto/symmetric/aead/aes/aes.h`) and keys QUIC
+  packet and header protection under `TLS_AES_256_GCM_SHA384`
+  (`tests/crypto/aes_test.c` — `test_aes256_appendix_c3`,
+  `tests/transport/hp_suite_test.c` — `test_hp_suite`).
 - (§5.3 F197-011, §5.3.1 F197-012, §5.3.2 F197-013, §5.3.3 F197-014,
   §5.3.5 F197-015) INVCIPHER(), EQINVCIPHER(), and all of their component
   transformations (INVSHIFTROWS, INVSUBBYTES, INVMIXCOLUMNS,

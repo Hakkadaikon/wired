@@ -189,6 +189,36 @@ static void test_sdrv_hrr_transcript_uses_message_hash(void) {
   for (int i = 0; i < 32; i++) CHECK(expect[i] == got[i]);
 }
 
+/* RFC 8446 4.4.1 under TLS_AES_256_GCM_SHA384: message_hash carries
+ * SHA-384(ClientHello1) (length 48) and the transcript runs over SHA-384 --
+ * recomputed with the raw SHA-384 primitive. */
+static void test_sdrv_hrr_message_hash_sha384(void) {
+  sdrv_hrr_fixture f;
+  u8               ch1[512], hrr[256], mh[4 + 48], expect[48], got[48];
+  usz              ch1_len;
+  sdrv             s;
+  wired_obuf       hob = obuf_of(hrr, sizeof(hrr));
+  sha512_ctx       h;
+  sdrv_hrr_fixture_init(&f);
+  ch1_len = sdrv_hrr_build_ch(ch1, sizeof(ch1), f.cli_pub, f.srv_random);
+  sdrv_hrr_drop_x25519(ch1);
+  sdrv_hrr_set_suite(ch1, TLS_AES_256_GCM_SHA384);
+  sdrv_hrr_init_any(&s);
+  CHECK(sdrv_recv_client_hello(&s, ch1, ch1_len) == 1);
+  CHECK(sdrv_build_hrr(&s, &hob) == 1);
+  mh[0] = 254;
+  mh[1] = 0;
+  mh[2] = 0;
+  mh[3] = 48;
+  sha384(ch1, ch1_len, mh + 4);
+  sha384_init(&h);
+  sha512_update(&h, mh, sizeof mh);
+  sha512_update(&h, hrr, hob.len);
+  sha384_final(&h, expect);
+  transcript_hash_suite(&s.tr, TLS_AES_256_GCM_SHA384, got);
+  CHECK(ct_diffn(expect, got, 48) == 0);
+}
+
 /* (f) RFC 8446 4.1.4: a client MUST NOT be sent a second HelloRetryRequest
  * -- a post-HRR ClientHello2 that still carries no usable key_share is
  * rejected outright (illegal_parameter, alert 47), never re-armed for
@@ -312,6 +342,7 @@ void test_sdrv_hrr(void) {
   test_sdrv_hrr_second_ch_same_cipher_accepted();
   test_sdrv_hrr_second_ch_diff_cipher_rejected();
   test_sdrv_hrr_transcript_uses_message_hash();
+  test_sdrv_hrr_message_hash_sha384();
   test_sdrv_hrr_second_ch_still_no_share_rejected();
   test_sdrv_hrr_picoquic_client_hello_arms_hrr();
   test_sdrv_hrr_echoes_negotiated_cipher();

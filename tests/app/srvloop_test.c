@@ -486,6 +486,189 @@ static void test_srvloop_open_chacha(void) {
   CHECK(f.l.got_request == 1);
 }
 
+/* Same as lp_make_client_hello, but offers only TLS_AES_256_GCM_SHA384
+ * (RFC 8446 B.4) -- a peer that speaks nothing else must still negotiate. */
+static void lp_make_client_hello_aes256(struct lp_fix* f) {
+  lp_make_client_hello(f);
+  f->ch[LP_CH_CIPHER_SUITE_OFF]     = (u8)(TLS_AES_256_GCM_SHA384 >> 8);
+  f->ch[LP_CH_CIPHER_SUITE_OFF + 1] = (u8)TLS_AES_256_GCM_SHA384;
+}
+
+/* RFC 8446 7.1 Derive-Secret over SHA-384 straight from the raw primitives
+ * (hkdf_expand_label_384), independent of the server's suite plumbing. */
+static void lp384_derive(
+    const u8* secret, const char* label, const u8 th[48], u8 out[48]) {
+  hkdf_label l = {label, wired_cstr_len(label), {th, 48}};
+  CHECK(hkdf_expand_label_384(secret, &l, wired_mspan_of(out, 48)) == 1);
+}
+
+/* SHA-384 over up to three concatenated byte runs (the transcript). */
+static void lp384_hash3(wired_span a, wired_span b, wired_span c, u8 out[48]) {
+  sha512_ctx h;
+  sha384_init(&h);
+  sha512_update(&h, a.p, a.n);
+  sha512_update(&h, b.p, b.n);
+  sha512_update(&h, c.p, c.n);
+  sha384_final(&h, out);
+}
+
+/* The genuine client Finished under SHA-384 (RFC 8446 4.4.4 / 7.1), computed
+ * the long way with SHA-384 primitives only: Early = Extract(0, 0^48),
+ * Handshake = Extract(Derive(Early, "derived", ""), ECDHE), c hs traffic
+ * over CH||SH, verify_data = HMAC-SHA384(finished_key, Hash(CH..server
+ * Finished)). A server that kept any SHA-256 step fails to verify it. */
+static void lp_make_client_finished_384(struct lp_fix* f) {
+  serverhello_out sh;
+  u8  zero[48] = {0}, shared[32], early[48], derived[48], hs[48], th[48];
+  u8  cts[48], fk[48];
+  usz off;
+  CHECK(
+      tls_parse_server_hello(wired_span_of(f->sh, f->sh_len), f->sh_pub, &sh));
+  wired_x25519(shared, f->cli_priv, f->sh_pub);
+  hkdf_extract_384(wired_span_of(zero, 48), wired_span_of(zero, 48), early);
+  sha384(zero, 0, th);
+  lp384_derive(early, "derived", th, derived);
+  hkdf_extract_384(wired_span_of(derived, 48), wired_span_of(shared, 32), hs);
+  lp384_hash3(
+      wired_span_of(f->ch, f->ch_len), wired_span_of(f->sh, f->sh_len),
+      wired_span_of(0, 0), th);
+  lp384_derive(hs, "c hs traffic", th, cts);
+  lp384_hash3(
+      wired_span_of(f->ch, f->ch_len), wired_span_of(f->sh, f->sh_len),
+      wired_span_of(f->flight, f->flight_len), th);
+  {
+    hkdf_label fl = {"finished", 8, {0, 0}};
+    CHECK(hkdf_expand_label_384(cts, &fl, wired_mspan_of(fk, 48)) == 1);
+  }
+  off = hs_begin(f->cli_fin, sizeof(f->cli_fin), HS_FINISHED);
+  hmac_sha384(wired_span_of(fk, 48), wired_span_of(th, 48), f->cli_fin + off);
+  f->cli_fin_len = off + 48;
+  hs_finish(f->cli_fin, f->cli_fin_len);
+}
+
+/* Client role, any suite: seal a Handshake CRYPTO flight under CLIENT_HS. */
+static usz lp_seal_hs_suite(
+    struct lp_fix* f, u16 suite, const u8* msg, usz mlen, u8* pkt, usz cap) {
+  const initial_keys* chs;
+  wired_obuf          cob = {pkt, cap, 0};
+  CHECK(keysched_get(&f->s.sched, KS_CLIENT_HS, &chs) == 1);
+  protect_keys    pk = {chs, 0};
+  srvwire_seal_in in = {
+      wired_span_of((const u8*)0, 0),
+      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
+      wired_span_of(g_cli_scid, 6),
+      0,
+      -1,
+      wired_span_of(msg, mlen),
+      0,
+      0,
+      0,
+      0,
+      0};
+  CHECK(srvwire_seal_handshake_suite(suite, &pk, &in, &cob) == 1);
+  return cob.len;
+}
+
+/* Client role, any suite: seal a 1-RTT payload under k with key phase. */
+static usz lp_seal_onertt_suite(
+    struct lp_fix*      f,
+    u16                 suite,
+    const initial_keys* k,
+    u64                 pn,
+    int                 phase,
+    wired_span          pl,
+    u8*                 pkt,
+    usz                 cap) {
+  protect_keys      pk = {k, 0};
+  hspkt_onertt_desc d  = {
+      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), pn, pl, phase};
+  wired_obuf rb = {pkt, cap, 0};
+  CHECK(hspkt_onertt_build_suite(suite, &pk, &d, &rb) == 1);
+  return rb.len;
+}
+
+/* RFC 8446 B.4 / RFC 9001 5: a client offering ONLY TLS_AES_256_GCM_SHA384
+ * negotiates it, the server's Handshake flight opens under AES-256-GCM, the
+ * independently computed SHA-384 client Finished confirms the handshake, a
+ * 1-RTT GET under AES-256 keys is served, and a peer Key Update (RFC 9001
+ * 6.1, "quic ku" over the 48-byte secret) is accepted. */
+static void test_srvloop_aes256_only_roundtrip(void) {
+  struct lp_fix f;
+  u8            hpkt[2048], cpkt[1024], opkt[1024], reqb[512];
+  wired_obuf    hob = {hpkt, sizeof hpkt, 0}, oob = {opkt, sizeof opkt, 0};
+  wired_obuf    rob = {reqb, sizeof reqb, 0};
+  const initial_keys *shs, *cap;
+  wired_span          tls = {0, 0};
+  usz                 clen;
+  lp_make_client_hello_aes256(&f);
+  lp_drive_to_flight(&f);
+  CHECK(f.s.sdrv.cipher_suite == TLS_AES_256_GCM_SHA384);
+  if (f.s.phase != WIRED_SERVER_HS_FLIGHT_SENT) return; /* no keys to use */
+  {
+    wired_srvloop_send_in in = {
+        wired_span_of(g_cli_scid, 6),
+        0,
+        -1,
+        wired_span_of(f.flight, f.flight_len),
+        0,
+        0,
+        0,
+        0};
+    CHECK(wired_srvloop_send_handshake(&f.s, &in, &hob));
+  }
+  CHECK(keysched_get(&f.s.sched, KS_SERVER_HS, &shs) == 1);
+  {
+    protect_keys pk = {shs, 0};
+    CHECK(
+        srvwire_open_handshake_suite(
+            TLS_AES_256_GCM_SHA384, &pk, wired_mspan_of(hpkt, hob.len), &tls) ==
+        1);
+    CHECK(tls.n == f.flight_len);
+  }
+  lp_make_client_finished_384(&f);
+  clen = lp_seal_hs_suite(
+      &f, TLS_AES_256_GCM_SHA384, f.cli_fin, f.cli_fin_len, cpkt, sizeof cpkt);
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen),
+          &oob) == 1);
+  CHECK(wired_server_is_confirmed(&f.s) == 1);
+  {
+    wired_h3reqdrive_send_in in = {
+        wired_span_of((const u8*)"GET", 3), wired_span_of((const u8*)"/", 1),
+        wired_span_of((const u8*)"h", 1), wired_span_of(0, 0)};
+    CHECK(wired_h3reqdrive_send_method(0, &in, &rob));
+  }
+  CHECK(keysched_get(&f.s.sched, KS_CLIENT_AP, &cap) == 1);
+  clen = lp_seal_onertt_suite(
+      &f, TLS_AES_256_GCM_SHA384, cap, 1, 0, wired_span_of(reqb, rob.len), cpkt,
+      sizeof cpkt);
+  oob = (wired_obuf){opkt, sizeof opkt, 0};
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen),
+          &oob) == 1);
+  CHECK(f.l.got_request == 1);
+  /* RFC 9001 6.1: the peer moves to generation 1, derived from the 48-byte
+   * client_application_traffic_secret_0 over SHA-384; hp is unchanged. */
+  {
+    initial_keys next;
+    u8           next_secret[48];
+    kuswitch_next_keys_suite(
+        TLS_AES_256_GCM_SHA384, f.s.ku_secret, &next, next_secret);
+    bytes_memcpy(next.hp, cap->hp, AEAD_KEY_MAX);
+    clen = lp_seal_onertt_suite(
+        &f, TLS_AES_256_GCM_SHA384, &next, 2, 1, wired_span_of(reqb, rob.len),
+        cpkt, sizeof cpkt);
+  }
+  oob = (wired_obuf){opkt, sizeof opkt, 0};
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen),
+          &oob) == 1);
+  CHECK(f.s.ku.generation == 1);
+}
+
 /* DIRECTION SAFETY: a server-sealed Handshake packet (SERVER_HS) opens with the
  * server's own-direction key (the client's peer key) but NOT with CLIENT_HS,
  * the peer-direction key the server itself uses to open inbound packets. */
@@ -4790,6 +4973,7 @@ void test_srvloop(void) {
   test_srvloop_step_zerortt_records_real_pn();
   test_srvloop_seal_chacha_roundtrip();
   test_srvloop_open_chacha();
+  test_srvloop_aes256_only_roundtrip();
   test_srvloop_handler_body_echoed();
   test_srvloop_close_frame_detected();
   test_srvloop_hq09_recv_get_produces_request();
