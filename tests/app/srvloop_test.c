@@ -3065,7 +3065,17 @@ static void test_srvloop_ticket_sent_on_confirm(void) {
   CHECK(np == 2);
   CHECK(client_open_onertt(&f, out + offs[1], lens[1], &pl, &pll) == 1);
   CHECK(find_ticket_crypto(pl, pll, &sealed) == 1);
-  CHECK(ticket_open(sealed, g_ticket_key, &opened) == 1);
+  {
+    /* sealed under this epoch's key (keyring.h); the previous epoch's key
+     * covers a run that straddles a rotation boundary */
+    u8  cur[KEYRING_KEY], prev[KEYRING_KEY];
+    u64 now = wired_clock_epoch_secs();
+    keyring_key(g_ticket_key, now, 0, cur);
+    keyring_key(g_ticket_key, now, 1, prev);
+    CHECK(
+        ticket_open(sealed, cur, &opened) ||
+        ticket_open(sealed, prev, &opened));
+  }
 }
 
 /* NOT BEFORE CONFIRM: a datagram that has not yet driven the handshake to

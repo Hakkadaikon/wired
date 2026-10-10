@@ -7,6 +7,7 @@
 #include "common/bytes/util/bytes.h"
 #include "common/platform/clock/clock.h"
 #include "tls/handshake/core/tls/newsessionticket.h"
+#include "tls/keys/keyring/keyring.h"
 #include "transport/conn/loop/connrunner/level.h"
 #include "transport/packet/build/hspkt/hspkt_build.h"
 #include "transport/packet/frame/frame/ack.h"
@@ -75,11 +76,10 @@ static int build_settings_frame(
   return appdata_stream_frame(&f, out);
 }
 
-/* RFC 8446 4.6.1 / RFC 9001 4: server session tickets are sealed under a
- * fixed key for the process lifetime.
- * ponytail: one fixed key for the process lifetime, no rotation; a real
- * deployment needs periodic key rotation (and multi-key acceptance during
- * overlap) so a leaked key does not compromise every ticket ever issued. */
+/* RFC 8446 4.6.1 / RFC 9001 4: the seed session-ticket keys derive from;
+ * the key rotates every KEYRING_PERIOD_SECS (keyring.h).
+ * ponytail: the seed is a compiled-in constant; a deployment that needs
+ * tickets unforgeable by anyone holding the binary must supply its own. */
 static const u8 g_ticket_key[TICKET_KEY_LEN] = {
     0x77, 0x69, 0x72, 0x65, 0x64, 0x2d, 0x74, 0x6b, 0x74, 0x2d, 0x6b,
     0x65, 0x79, 0x2d, 0x30, 0x30, 0x77, 0x69, 0x72, 0x65, 0x64, 0x2d,
@@ -103,11 +103,13 @@ const u8* wired_srvloop_ticket_key(void) { return g_ticket_key; }
 static usz build_ticket_message(const wired_server* s, u8* msg, usz msg_cap) {
   /* RFC 8446 4.2.10 alpn; ticket_nonce 0: one ticket per connection, so
    * it is unique across this connection's tickets (RFC 8446 4.6.1). */
-  ticket t    = {{0}, 0, 7200, 0, (u8)s->sdrv.alpn, 0};
+  ticket t = {{0}, 0, 7200, 0, (u8)s->sdrv.alpn, 0};
+  u8     key[KEYRING_KEY];
   t.issued_at = wired_clock_epoch_secs();
   if (!wired_server_resumption_secret(s, t.secret)) return 0;
+  keyring_key(g_ticket_key, t.issued_at, 0, key);
   return tls_new_session_ticket_encode(
-      msg, msg_cap, &t, g_ticket_key, WIRED_SRVLOOP_MAX_EARLY_DATA_SIZE);
+      msg, msg_cap, &t, key, WIRED_SRVLOOP_MAX_EARLY_DATA_SIZE);
 }
 
 /* Seal a fresh session ticket and append it as a CRYPTO frame

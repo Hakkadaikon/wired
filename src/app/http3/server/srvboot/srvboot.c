@@ -4,6 +4,8 @@
 #include "app/http3/server/srvwire/wire.h"
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/num.h"
+#include "common/platform/clock/clock.h"
+#include "tls/keys/keyring/keyring.h"
 #include "transport/conn/cid/sreset/sreset.h"
 #include "transport/conn/loop/crecv/collect.h"
 #include "transport/conn/loop/crecv/message.h"
@@ -73,14 +75,34 @@ static void srvboot_set_reset_token(
   wired_server_set_reset_token(conn->s, token);
 }
 
+/* RFC 8446 4.6.1 with key rotation: id->ticket_key is the seed; this
+ * epoch's key and the previous epoch's (keyring.h) both open a ticket.
+ * No seed: resumption stays disabled. */
+static void srvboot_init_server(
+    const wired_srvboot_conn* conn,
+    const wired_srvboot_id*   id,
+    wired_server_init_in*     in) {
+  u8  cur[KEYRING_KEY], prev[KEYRING_KEY];
+  u64 now = wired_clock_epoch_secs();
+  if (!id->ticket_key) {
+    wired_server_init(conn->s, in);
+    return;
+  }
+  keyring_key(id->ticket_key, now, 0, cur);
+  keyring_key(id->ticket_key, now, 1, prev);
+  in->ticket_key = cur;
+  wired_server_init(conn->s, in);
+  sdrv_set_ticket_key_prev(&conn->s->sdrv, prev);
+}
+
 static int srvboot_init(
     const wired_srvboot_conn* conn,
     const wired_srvboot_id*   id,
     const wired_header*       h) {
-  wired_server_init_in in = {id->priv,     id->pub,         id->cert_seed,
-                             id->chain,    id->chain_count, id->san_ipv4,
-                             id->now_secs, id->ticket_key};
-  wired_server_init(conn->s, &in);
+  wired_server_init_in in = {
+      id->priv,        id->pub,      id->cert_seed, id->chain,
+      id->chain_count, id->san_ipv4, id->now_secs,  0};
+  srvboot_init_server(conn, id, &in);
   sdrv_set_raw_alpns(&conn->s->sdrv, id->raw_alpns); /* RFC 7301 3.2 */
   wired_server_set_limits(
       conn->s, id->max_data, wired_srvloop_stream_limit(id->max_streams_bidi),

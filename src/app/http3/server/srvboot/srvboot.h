@@ -60,10 +60,11 @@ typedef struct {
   const u8* retry_odcid;
   /** Bytes at retry_odcid; 0 = no Retry preceded this accept. */
   u8 retry_odcid_len;
-  /** RFC 8446 4.6.1: this server's session-ticket encryption key
-   * (TICKET_KEY_LEN bytes, tls/keys/ticket/ticket.h), or 0 to disable
-   * session resumption -- threaded straight to
-   * wired_server_init_in.ticket_key, see its doc. */
+  /** RFC 8446 4.6.1: this server's session-ticket key seed
+   * (TICKET_KEY_LEN bytes), or 0 to disable session resumption. The
+   * per-epoch ticket keys derive from it (tls/keys/keyring/keyring.h):
+   * the current epoch's key reaches wired_server_init_in.ticket_key and
+   * the previous epoch's sdrv_set_ticket_key_prev. */
   const u8* ticket_key;
   /** RFC 9000 9.6: the preferred_address this server advertises -- both
    * addresses in network byte order, ports in host byte order. pref_v4 == 0

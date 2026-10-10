@@ -401,9 +401,12 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 
 ## QUIC transport
 
-- **Retry token key is fixed** — `g_srvrun_retry_key`: one process-lifetime
-  HMAC key, no rotation (same policy as the ticket key). Source:
-  `srvrun.c:9760`.
+- **Retry token and ticket keys derive from compiled-in seeds** — both keys
+  rotate every `KEYRING_PERIOD_SECS` (2 h) and the previous key still opens,
+  but the seeds (`g_srvrun_retry_key`, respond.c `g_ticket_key`) are
+  constants in the source, so anyone holding the source can derive them.
+  Impact: a deployment that needs unforgeable tokens/tickets must replace
+  the seeds. Source: `src/tls/keys/keyring/keyring.h`.
 - **Preferred-address migration is one-way sticky** — once on the
   preferred-address socket, old-path stragglers cannot flip a connection back;
   there is no general per-path highest-packet-number tracking. Source:
@@ -459,10 +462,6 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 
 ## TLS 1.3
 
-- **Ticket key fixed for the process lifetime** — session tickets are sealed
-  under one fixed key, no rotation, no multi-key acceptance. Impact: a leaked
-  key exposes every ticket ever issued. Source:
-  `src/app/http3/server/srvloop/respond.c:80`.
 - **One ticket per connection** — every NewSessionTicket carries the
   one-byte `ticket_nonce` 0x00, unique only because the server issues a
   single ticket per connection; issuing more needs a per-connection counter.

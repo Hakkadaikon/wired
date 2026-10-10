@@ -31,6 +31,7 @@
 #include "common/bytes/util/num.h"
 #include "common/bytes/varint/varint.h"
 #include "common/diag/error/error.h"
+#include "common/platform/clock/clock.h"
 #include "common/platform/clock/mono.h"
 #include "common/platform/debug/debug.h"
 #include "common/platform/qlog/qlog.h"
@@ -43,6 +44,7 @@
 #include "tls/ext/stp/server_tp.h"
 #include "tls/handshake/core/tls/aead_params.h"
 #include "tls/handshake/core/tls/retry_tag.h"
+#include "tls/keys/keyring/keyring.h"
 #include "tls/keys/keyupdate/aeadintegrity.h"
 #include "tls/keys/kuswitch/twogen.h"
 #include "transport/conn/cid/migrate/migrate.h"
@@ -10010,9 +10012,9 @@ static int srvrun_open_slot(
  * and serve it there. Silently drops a datagram that matches no slot and
  * cannot claim or initialize a new one. */
 /* RFC 9000 8.1.2 forced address validation (the interop retry testcase):
- * a fixed process-lifetime HMAC key for Retry tokens.
- * ponytail: fixed key, no rotation -- same policy as the session-ticket key
- * (respond.c); a real deployment rotates both. */
+ * the seed Retry-token HMAC keys derive from; the key rotates every
+ * KEYRING_PERIOD_SECS and the previous one still verifies (keyring.h).
+ * ponytail: compiled-in seed, same policy as the ticket seed (respond.c). */
 static const u8 g_srvrun_retry_key[RETRYTOKEN_KEY] = {
     0x77, 0x69, 0x72, 0x65, 0x64, 0x2d, 0x72, 0x74, 0x72, 0x79, 0x2d,
     0x6b, 0x65, 0x79, 0x2d, 0x30, 0x77, 0x69, 0x72, 0x65, 0x64, 0x2d,
@@ -10037,9 +10039,11 @@ static void srvrun_retry_prep(
     usz*                   tn) {
   *tn = 0;
   if (!cid_generate(scid, 8)) return;
+  u8 key[KEYRING_KEY];
+  keyring_key(g_srvrun_retry_key, wired_clock_epoch_secs(), 0, key);
   *tn = retrytoken_wire_make(
-      g_srvrun_retry_key,
-      wired_span_of((const u8*)ctx->peer, sizeof(*ctx->peer)), h->dcid, token);
+      key, wired_span_of((const u8*)ctx->peer, sizeof(*ctx->peer)), h->dcid,
+      token);
 }
 
 /* Assemble the Retry with its real integrity tag and send it: pkt already
@@ -10068,13 +10072,28 @@ static void srvrun_send_retry(const srvrun_step_ctx* ctx, const lhdr* h) {
   srvrun_retry_finish(ctx, h, pkt, n);
 }
 
-/* Verify a presented token against the peer address; on success *odcid is
- * the embedded original DCID (a view into dg's token bytes). */
+/* Verify token under the key `back` epochs before now. */
+static int srvrun_retry_token_gen_ok(
+    const srvrun_step_ctx* ctx,
+    wired_span             token,
+    wired_span*            odcid,
+    u64                    now,
+    u64                    back) {
+  u8 key[KEYRING_KEY];
+  keyring_key(g_srvrun_retry_key, now, back, key);
+  return retrytoken_wire_verify(
+      key, wired_span_of((const u8*)ctx->peer, sizeof(*ctx->peer)), token,
+      odcid);
+}
+
+/* Verify a presented token against the peer address under the current or
+ * previous epoch's key; on success *odcid is the embedded original DCID (a
+ * view into dg's token bytes). */
 static int srvrun_retry_token_ok(
     const srvrun_step_ctx* ctx, wired_span token, wired_span* odcid) {
-  return retrytoken_wire_verify(
-      g_srvrun_retry_key,
-      wired_span_of((const u8*)ctx->peer, sizeof(*ctx->peer)), token, odcid);
+  u64 now = wired_clock_epoch_secs();
+  return srvrun_retry_token_gen_ok(ctx, token, odcid, now, 0) ||
+         srvrun_retry_token_gen_ok(ctx, token, odcid, now, 1);
 }
 
 /* h carries a token: consumed either way -- valid recovers *odcid and lets

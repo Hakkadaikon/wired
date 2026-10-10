@@ -212,9 +212,8 @@ static void app_selfcheck(void) {
 static void server_identity(wired_srvboot_id* id, wired_srvboot_demo_keys* k) {
   wired_srvboot_demo(id, k, 0x40, "CLISCI");
   id->max_datagram_frame_size = 65535;
-  /* RFC 8446 4.6.1: the same fixed key append_ticket_frame (respond.c)
-   * already seals NewSessionTickets under -- resumption is symmetric, so
-   * opening a presented ticket needs no separate key. */
+  /* RFC 8446 4.6.1: the seed append_ticket_frame (respond.c) derives its
+   * rotating ticket keys from -- opening derives the same keys. */
   id->ticket_key = wired_srvloop_ticket_key();
 }
 

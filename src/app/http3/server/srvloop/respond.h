@@ -5,12 +5,13 @@
 #include "common/bytes/span/span.h"
 #include "tls/keys/ticket/ticket.h"
 
-/** RFC 8446 4.6.1: this process's fixed session-ticket encryption key (the
- * same key append_ticket_frame seals NewSessionTickets under) -- exposed so
- * the caller can also thread it to wired_srvboot_id.ticket_key for OPENING a
- * presented ticket (RFC 8446 4.2.11 resumption is symmetric: one key seals
- * and opens). TICKET_KEY_LEN bytes, valid for the process lifetime.
- * @return a pointer to the fixed ticket key. */
+/** RFC 8446 4.6.1: the seed this process's session-ticket keys derive
+ * from (append_ticket_frame seals under the current epoch's key,
+ * tls/keys/keyring/keyring.h) -- exposed so the caller can thread it to
+ * wired_srvboot_id.ticket_key for OPENING a presented ticket under the
+ * current or previous epoch's key. TICKET_KEY_LEN bytes, valid for the
+ * process lifetime.
+ * @return a pointer to the fixed ticket key seed. */
 const u8* wired_srvloop_ticket_key(void);
 
 /* RFC 9000 12.2 / 13.2.1 / RFC 9114 6.2.1: pick the outbound datagram for one

@@ -143,7 +143,31 @@ static void test_srvrun_connect_slot_freed_after_close(void) {
   CHECK(slot2 == slot);
 }
 
+/* Retry-token key rotation (keyring.h): a token minted under the current or
+ * previous epoch's key verifies; one two epochs old does not. */
+static int sr_pin_token_gen_ok(u64 back) {
+  sockaddr        peer = {0};
+  srvrun_step_ctx ctx  = {0};
+  u8              key[KEYRING_KEY], odcid[4] = {1, 2, 3, 4};
+  u8              tok[RETRYTOKEN_WIRE_MAX];
+  wired_span      got;
+  usz             n;
+  ctx.peer = &peer;
+  keyring_key(g_srvrun_retry_key, wired_clock_epoch_secs(), back, key);
+  n = retrytoken_wire_make(
+      key, wired_span_of((const u8*)&peer, sizeof peer),
+      wired_span_of(odcid, 4), tok);
+  return srvrun_retry_token_ok(&ctx, wired_span_of(tok, n), &got);
+}
+
+static void test_srvrun_retry_token_rotation(void) {
+  CHECK(sr_pin_token_gen_ok(0) == 1);
+  CHECK(sr_pin_token_gen_ok(1) == 1);
+  CHECK(sr_pin_token_gen_ok(2) == 0);
+}
+
 void test_srvrun_pin(void) {
+  test_srvrun_retry_token_rotation();
   test_srvrun_force_retry_applies_when_on();
   test_srvrun_force_retry_off_never_applies();
   test_srvrun_force_retry_skips_known_slot();

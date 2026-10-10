@@ -16,9 +16,11 @@ key log output.
 ## How it works
 
 - `id.ticket_key = wired_srvloop_ticket_key()` enables session-ticket
-  resumption (RFC 8446 4.6.1, 0-RTT's prerequisite): the SDK's own fixed
-  per-process key both seals the tickets it issues and opens ones
-  presented back, since sealing and opening are symmetric.
+  resumption (RFC 8446 4.6.1, 0-RTT's prerequisite). The ticket key is
+  derived from the SDK's per-process seed and rotates every two hours: the
+  current key seals new tickets, and the current or previous key opens
+  presented ones. A ticket older than that is ignored and the client gets
+  a full handshake.
 - `opt.force_retry = 1` makes every Initial without a valid Retry token
   get a stateless Retry first (RFC 9000 8.1.2) -- the quic-interop-runner's
   retry testcase's server mode. A real client handles this transparently;
