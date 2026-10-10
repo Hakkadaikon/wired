@@ -106,7 +106,7 @@ A commit is allowed only when ALL THREE are green in the SAME working tree:
    out of the per-commit gate. `just lint` is fatal on any warning
    (`--warnings-as-errors='*'`) and CI runs it, so run it before pushing
    when the diff touches `src/**/*.c` or `.h`.)
-3. `lizard src --CCN 3 -w` — exits 0 (every function CCN ≤ 3).
+3. `just ccn` — exits 0 (every function CCN ≤ 3).
 
 Plus the count check (see below). Run them as a single guarded command so a
 red result physically cannot reach `git commit`:
@@ -114,7 +114,7 @@ red result physically cannot reach `git commit`:
 ```sh
 if just test-fast 2>&1 | grep -q "all tests passed" \
    && just ninja >/dev/null 2>&1 \
-   && lizard src --CCN 3 -w; then
+   && just ccn; then
     git commit -m "..."
 fi
 ```
@@ -137,14 +137,24 @@ it is the stronger, slower form of the same leg.
   freestanding build enable different warnings. `!peer_spin & 1` passed the
   test build but `just build` rejected it under `-Wlogical-not-parentheses`.
   A freestanding-only error reached `main` because the gate lacked `just build`.
-- **`lizard` on a subset lies** (#12/#16): gating with `lizard src/<file>.c`
+- **CCN on a subset lies** (#12/#16): gating with `just ccn src/<file>.c`
   (MYFILES-only) marks code "green" that the unity build never even compiled.
-  Always run `lizard src` over the whole tree.
+  The gate is a bare `just ccn` over the whole tree.
 - **Stale `just test`** (#12): when wiring silently fails, `just test` keeps
   reporting the OLD green. 138 tests / 48 sources were committed un-built.
 
 ## Never do this
 
+- Running `lizard`, `ninja`, `clang`, `clang-format` or `clang-tidy`
+  directly on the repo. Every repo build and check goes through a just
+  recipe, which pins the flags, regenerates `build.ninja`, and reroutes
+  through the nix devShell where the tool version matters:
+  `just ccn [files]`, `just ninja [targets]` (e.g. one object
+  `build/src/<path>.o`, `examples/<name>/wired_server`, `guide`),
+  `just fmt` / `just fmt-check`, `just lint`. A bare tool call drifts from
+  what CI runs (other flags, a stale `build.ninja`, a host tool version).
+  A throwaway harness in `$TMPDIR` that is not part of the repo is not a
+  repo build.
 - `just check 2>&1 | tail && git commit` — the pipe's exit is `tail`'s, so a
   CCN-red `just check` still commits (#7, recurred 3×). NEVER pipe a gate into
   `tail`/`head`/`grep` and then `&&` a commit on the pipe's exit. Use `grep -q`
@@ -159,7 +169,7 @@ it is the stronger, slower form of the same leg.
 - Running the whole `just ccn` while parallel coders have half-written files in
   `src/` — lizard walks all of `src/` and a coder's in-progress `retry.c` (CCN 6)
   fails YOUR green diff (#5). During parallel work, measure only your own file
-  with `lizard src/<dir>/<file>.c --CCN 3 -w`; run the full `lizard src` gate
+  with `just ccn src/<dir>/<file>.c`; run the full `just ccn` gate
   only after all coders report done.
 
 ## Count check: objects must equal sources

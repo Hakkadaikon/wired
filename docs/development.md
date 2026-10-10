@@ -9,7 +9,7 @@
 > **(4)** all symbols share one global namespace (the tests build as a
 > single translation unit), so grep before naming.
 > Before committing, all of `just test`, `just ninja`, and
-> `lizard src --CCN 3 -w` must pass. Everything below is the detail behind
+> `just ccn` must pass. Everything below is the detail behind
 > those four rules — only contributors need it.
 
 How to understand, navigate, and extend `wired`: the design philosophy, the
@@ -77,7 +77,7 @@ matches.
 `src/**/*.c` file needs no justfile edit.
 
 Three build modes feed one commit gate: `just ninja` (freestanding
-compile), `just test` (unity-build test run), and `lizard src --CCN 3 -w`
+compile), `just test` (unity-build test run), and `just ccn`
 (complexity) must all pass, plus the object==source count check, before any
 commit.
 
@@ -109,6 +109,11 @@ commit.
   `wired.h`'s transitive includes at run time, and `WARN_AS_ERROR` is on: a
   declaration added to a public header without a doxygen comment fails the run.
 
+Run every build and check through a recipe below, never `lizard`, `ninja`
+or `clang` by hand: the recipe regenerates `build.ninja`, pins the flags,
+and reroutes through the nix devShell where the tool version matters, so a
+local run matches CI.
+
 <details>
 <summary>Every <code>just</code> recipe</summary>
 
@@ -117,12 +122,12 @@ commit.
 | `setup` | One-time bootstrap: install Nix if absent. |
 | `nix <recipe>` | Run any recipe inside the pinned flake devShell. |
 | `build` | `fmt` + `ninja` + `lint` as one pipeline. |
-| `ninja` | Compile every `src/**/*.c` with `-ffreestanding -nostdlib` into `build/<path>.o` — the proof of libc independence. |
+| `ninja [targets]` | Compile every `src/**/*.c` with `-ffreestanding -nostdlib` into `build/<path>.o` — the proof of libc independence. Name targets to build only those: `just ninja examples/word_list/wired_server`, `just ninja guide`, `just ninja build/src/<path>.o`. |
 | `lib` | Archive the SDK objects into `build/libwired.a` (excludes the SDK's own `_start` stub so your app supplies the entry point). |
 | `test` | Format, then build and run `build/quic_test`: `tests/run.c` is a single unity translation unit including every production `.c` and every `*_test.c`, assertions on. |
 | `test-fast` | Same tests as `test`, but the include list of `tests/run.c` is split into shard translation units (`scripts/gen_shards.py`) compiled in parallel — ~4x faster. Cannot see `static`/`typedef`/macro collisions *between* shards; `test` (the single TU, run by CI) remains the authority on those. |
 | `cov` | Line coverage of the hosted unity test via LLVM source-based coverage, built as its own instrumented binary so instrumentation never leaks into the gate build. |
-| `ccn` | `lizard src --CCN 3 -w` — every function must hold cyclomatic complexity ≤ 3. |
+| `ccn [files]` | Every function in `src/` must hold cyclomatic complexity ≤ 3 (lizard). Pass files to measure only those. |
 | `check` | `ccn` + `test`. |
 | `fmt` / `fmt-check` | clang-format in place / verify without writing. |
 | `lint` / `cert` | clang-tidy static analysis (CERT C secure-coding rules + bug finders / CERT C only). |
@@ -148,7 +153,7 @@ A change that breaks any of these is not done.
 - **CCN ≤ 3 for every function.** `lizard` counts `&&`, `||`, `?:`, `if`,
   `for`, `while` as +1 each. Factor compound conditions into named predicate
   helpers and branch clusters into table + function-pointer dispatch. Count
-  branches *before* writing. Verify: `lizard src --CCN 3 -w`.
+  branches *before* writing. Verify: `just ccn`.
 - **MECE: one domain, one `src/<dir>/`.** Don't scatter a concern across dirs
   or merge two concerns into one dir.
 - **Unity build = one global namespace.** Because `tests/run.c` links the whole
@@ -167,7 +172,7 @@ count check. Run them guarded so a red result cannot reach `git commit`:
 ```sh
 if just test-fast 2>&1 | grep -q "all tests passed" \
    && just ninja >/dev/null 2>&1 \
-   && lizard src --CCN 3 -w \
+   && just ccn \
    && [ "$(find src -name '*.c' | wc -l)" = "$(find build/src -name '*.o' | wc -l)" ]; then
     git commit -m "..."
 fi

@@ -45,7 +45,7 @@ parts you reread.
   `static put_be32` / `take_bytes` / `u64_max` in a domain file (see pitfall
   #3).
 - **CCN <= 3.** `lizard` counts every `&&`, `||`, `?:`, `if`, `for`, `while`
-  as one branch. The gate is `lizard src --CCN 3 -w` and it must exit 0. Plan
+  as one branch. The gate is `just ccn` and it must exit 0. Plan
   the branch count before writing; pull compound conditions into a small
   `static int cond(...) { return a && b; }` predicate, and split three
   consecutive `if (!put(...)) return 0;` lines into head/body helpers.
@@ -93,7 +93,7 @@ Before any commit, all three must be green, plus the count check. Copy-paste:
 ```sh
 just test-fast  # sharded parallel build of all *_test.c -> "all tests passed"
 just build      # every src/**/*.c compiled -ffreestanding -Werror -> exit 0
-lizard src --CCN 3 -w                          # CCN gate -> exit 0
+just ccn        # CCN gate -> exit 0
 ```
 
 `test-fast` compiles run.c's include list as parallel shard TUs (~4x faster,
@@ -133,7 +133,7 @@ commit lands (#7, #7b). Gate and commit are separate steps:
 ```sh
 if just test-fast 2>&1 | grep -q "all tests passed" \
    && just build >/dev/null 2>&1 \
-   && lizard src --CCN 3 -w; then
+   && just ccn; then
   git commit ...        # only here
 fi
 ```
@@ -153,7 +153,7 @@ fi
 - **Single-file green is not integrated green (#16).** A coder reporting "all
   tests passed / CCN<=3" from a $TMPDIR driver can still go red in the unity
   build (static/typedef/macro clash, public-name clash, another file's
-  pre-existing CCN>3 exposed by `lizard src`). *Avoid/Detect:* judge only by
+  pre-existing CCN>3 exposed by `just ccn`). *Avoid/Detect:* judge only by
   the section-3 gate after wiring, never by a standalone compile.
 
 - **Basename collision breaks the count (#15).** If objects aren't
@@ -220,7 +220,7 @@ round-trip equality + tamper detection + a hand-computable intermediate value
   edits (none needed normally), and all git commits. This is the only safe
   split because `run.c` and the git index are shared resources (#2, #18, #21).
 - After wiring, run the full section-3 gate (all-TU build + all-freestanding
-  build + `lizard src` + count check) once, then commit.
+  build + `just ccn` + count check) once, then commit.
 
 ## 7. Performance diagnosis (measure before you touch anything)
 

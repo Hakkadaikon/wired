@@ -32,7 +32,7 @@ Start every session by invoking the Skill tool with `ponytail:ponytail` at `full
 
 1. **All tests pass** (full unity TU): `just test`.
 2. **Freestanding body builds** (libc-free, `-Werror`): `just build`. test-green != build-green — host test flags and freestanding flags enable different warnings (e.g. `-Wlogical-not-parentheses` only fires under build).
-3. **CCN <= 3 repo-wide**: `lizard src --CCN 3 -w`. A files-limited lizard would falsely pass code that is not in the build.
+3. **CCN <= 3 repo-wide**: `just ccn`. A files-limited lizard would falsely pass code that is not in the build.
 4. **Count match** (catches silent wiring failures): `find src -name '*.c' | wc -l` must equal the production `#include` count in run.c, and equal the object count `find build/src -name '*.o' | wc -l` after a build (`build/src` only — `build/shards/` holds test-fast shard objects that are not freestanding objects). A mismatch means wiring or compilation silently dropped a file. Counting relies on path-qualified objects (`build/<path>.o`) so identical basenames in different dirs do not collide the count.
 
 When the work wired together two parts (A produces, B consumes), each green in isolation, the gate is not enough: the boundary itself can be wrong, and a pre-existing bug in A or B only surfaces once they actually drive each other (#25). If a test exercises the real round trip across that boundary — send → ack → in-flight decremented, encode → wire → decode — keep it; a pair of isolated unit tests that never meet does not prove the seam.
@@ -42,7 +42,7 @@ When the work wired together two parts (A produces, B consumes), each green in i
 Never pipe a gate into `tail`/`head` before `&&`-ing a commit — the pipe's exit becomes `tail`'s success (0) and the commit runs even on a red gate (this caused multiple red commits to land). Gate and commit must be separated, and the commit must be guarded by the actual exit/grep of the gate. Use:
 
 ```
-if just test 2>&1 | grep -q "all tests passed" && just build >/dev/null 2>&1 && lizard src --CCN 3 -w >/dev/null 2>&1; then git commit ...; fi
+if just test 2>&1 | grep -q "all tests passed" && just build >/dev/null 2>&1 && just ccn >/dev/null 2>&1; then git commit ...; fi
 ```
 
 Invoke the Skill tool with `micro-commit` to split into ~30-50 line conventional-commit units (feat and test as separate commits). Commit only when the caller has asked for commits. Never push.

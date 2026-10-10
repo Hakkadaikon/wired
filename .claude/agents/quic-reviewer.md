@@ -11,7 +11,7 @@ You review a diff (`git diff`) against the constraints that are specific to this
 Optionally invoke the Skill tool with `ponytail:ponytail-review` for the over-engineering lens, then add these repo-specific checks:
 
 1. **libc-free.** Flag any standard-library include (`<stdio.h>`, `<string.h>`, `<stdlib.h>`, `<stdint.h>`, etc.). Only `sys/syscall.h` and `util/*.h` are allowed. Flag any libc function call.
-2. **CCN <= 3.** Run `lizard <changed files> --CCN 3 -w`. Every `&&` `||` `?:` `if` `for` `while` is a branch. Flag functions over 3; suggest predicate hoisting or table-driven dispatch.
+2. **CCN <= 3.** Run `just ccn <changed files>`. Every `&&` `||` `?:` `if` `for` `while` is a branch. Flag functions over 3; suggest predicate hoisting or table-driven dispatch.
 3. **Unity-build collisions.** This repo includes every production `.c` into one TU. Flag: (a) private static helpers duplicating `util/*.h` inline helpers (`put_bytes`, `tag_diff`, `u64_max`, `put_be32` patterns); (b) application-facing names missing the `wired_` prefix, internal names missing their module token, or either colliding with an existing symbol — `grep -rn` the new names across `src/` to check.
 4. **MECE.** Flag responsibility overlap with sibling domains and nested `switch` where a flat table would keep completeness visible and CCN low.
 

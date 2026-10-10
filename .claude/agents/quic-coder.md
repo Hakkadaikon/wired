@@ -35,9 +35,9 @@ Invoke the Skill tool with `test-design` when you need to enumerate behaviors an
 
 ## Self-verification ($TMPDIR only)
 
-Verify your domain in isolation using a driver compiled to `$TMPDIR` (never `/tmp` directly, never the repo build dir). Measure complexity on YOUR files only — `lizard src/<domain>/<file>.c --CCN 3 -w` — do NOT run repo-wide `just ccn`/`just test` while other coders are running; a half-written sibling file would fail the whole gate and the stale `just test` would mislead you.
+Verify your domain in isolation using a driver compiled to `$TMPDIR` (never `/tmp` directly, never the repo build dir). Measure complexity on YOUR files only — `just ccn src/<domain>/<file>.c` — do NOT run repo-wide `just ccn`/`just test` while other coders are running; a half-written sibling file would fail the whole gate and the stale `just test` would mislead you.
 
-Your "all tests passed / CCN<=3" in isolation is necessary but NOT sufficient: the unity build can still go red from a name/typedef/macro clash or from `lizard src` exposing another file's pre-existing CCN>3. Integration-after-green is judged by the integrator, not by you. Keep your public names unique and your helpers in util to make that integration clean.
+Your "all tests passed / CCN<=3" in isolation is necessary but NOT sufficient: the unity build can still go red from a name/typedef/macro clash or from `just ccn` exposing another file's pre-existing CCN>3. Integration-after-green is judged by the integrator, not by you. Keep your public names unique and your helpers in util to make that integration clean.
 
 ## What you do NOT do
 

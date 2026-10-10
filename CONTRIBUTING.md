@@ -8,10 +8,10 @@
 translation unit), so grep before naming.
 
 Before opening a PR, all of `just test`, `just ninja`, and
-`lizard src --CCN 3 -w` must pass:
+`just ccn` must pass:
 
 ```sh
-just test && just ninja && lizard src --CCN 3 -w
+just test && just ninja && just ccn
 ```
 
 For the full picture — the design philosophy, the layered architecture, the
