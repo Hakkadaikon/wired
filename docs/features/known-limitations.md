@@ -366,10 +366,10 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 - **Only one pending outbound datagram per connection** — the WT datagram
   send queue is single-slot, last-writer-wins (`dg_pending_buf[1200]`). Source:
   `srvrun.c:598`, `srvrun.c:4387`.
-- **Pre-establishment datagram buffering is truncated** —
+- **Pre-establishment datagram buffering is bounded** —
   `WIRED_WT_MAX_BUFFERED_DATAGRAMS` (4) datagrams of up to
-  `WIRED_WT_BUFFERED_DATAGRAM_CAP` (256) bytes; longer ones are truncated, not
-  dropped. Source: `src/app/webtransport/session/session/session.h:52`.
+  `WIRED_WT_BUFFERED_DATAGRAM_CAP` (256) bytes; longer ones are dropped whole
+  (never truncated). Source: `src/app/webtransport/session/session/session.h:52`.
 - **Datagram drain is a fixed slice, not congestion-controlled** —
   `SRVRUN_DGRING_DRAIN_MAX` 16 / `_MS` 5 / `_BYTES` 3000 (about 4.8 Mbps).
   Source: `srvrun.c:5670`.
@@ -646,7 +646,7 @@ Fixed-size tables and buffers (BSS-sized; raise the constant and rebuild).
 | `WIRED_MOQTREL_STALL_MS` | 10000 | `moqtrel.h:38` | slow subscriber shed (reset) |
 | `WIRED_MOQTREL_MAX_SUBS` / `_MARKS` | 31 / 8 | `moqtrel.h:53,56` | cursors / early-timeout marks |
 | `MOQCACHE_OBJ_MAX` | 65472 | `moqcache.h:34` | larger Object not cached |
-| `WIRED_WT_MAX_BUFFERED_DATAGRAMS` / `_CAP` | 4 / 256 | `session.h:49,55` | payload truncated |
+| `WIRED_WT_MAX_BUFFERED_DATAGRAMS` / `_CAP` | 4 / 256 | `session.h:49,55` | longer datagram dropped |
 | `SRVRUN_MAX_WT_SESSIONS` | 2 | `srvrun.c:181` | per-connection WT sessions |
 | `WIRED_SRVRUN_RESP_MAX` | 16384 | `srvrun.c:912` | larger body needs bigbuf/streaming |
 | `WIRED_SRVLOOP_BODY_MAX` | 1024 | `respond.c:272` | handler body cap |

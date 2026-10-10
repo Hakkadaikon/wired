@@ -49,8 +49,8 @@ typedef enum {
 #define WIRED_WT_MAX_BUFFERED_DATAGRAMS 4
 
 /** Fixed capacity for one buffered pre-establishment datagram's payload.
- * ponytail: bytes past this are truncated (not dropped) rather than growing
- * the buffer; raise this if a real WT datagram workload needs more before
+ * ponytail: a longer datagram is dropped whole rather than growing the
+ * buffer; raise this if a real WT datagram workload needs more before
  * establishment completes. */
 #define WIRED_WT_BUFFERED_DATAGRAM_CAP 256
 
@@ -153,8 +153,9 @@ int wired_wt_session_offer_stream(wired_wt_session* s, u64 stream_id);
  * WIRED_WT_BUFFERED_DATAGRAM_CAP), or accepts it directly if established or
  * draining. Unlike wired_wt_session_offer_stream, a 0 return here is not an
  * error the caller must act on: it means the datagram was silently dropped
- * per the drop-newest policy (buffer full; existing buffered datagrams are
- * unchanged) -- draft-ietf-webtrans-http3-15 leaves this
+ * per the drop-newest policy (buffer full, or longer than
+ * WIRED_WT_BUFFERED_DATAGRAM_CAP -- never truncated; existing buffered
+ * datagrams are unchanged) -- draft-ietf-webtrans-http3-15 leaves this
  * implementation-defined and this is the chosen policy.
  * @param s the session to offer the datagram to
  * @param data the datagram payload

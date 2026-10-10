@@ -1,7 +1,6 @@
 #include "app/webtransport/session/session/session.h"
 
 #include "common/bytes/util/bytes.h"
-#include "common/bytes/util/num.h"
 
 /* clang-format off */
 /* State transition table, indexed [event][current state]. Not used as a
@@ -91,16 +90,22 @@ static wired_wt_buffered_datagram* datagram_free_slot(wired_wt_session* s) {
 
 static void datagram_slot_fill(
     wired_wt_buffered_datagram* slot, wired_span data) {
-  usz n        = u64_min(data.n, WIRED_WT_BUFFERED_DATAGRAM_CAP);
   slot->in_use = 1;
-  slot->len    = n;
-  bytes_memcpy(slot->data, data.p, n);
+  slot->len    = data.n;
+  bytes_memcpy(slot->data, data.p, data.n);
+}
+
+/* An oversized datagram gets no slot: dropped whole, never truncated. */
+static wired_wt_buffered_datagram* datagram_slot_for(
+    wired_wt_session* s, wired_span data) {
+  if (data.n > WIRED_WT_BUFFERED_DATAGRAM_CAP) return 0;
+  return datagram_free_slot(s);
 }
 
 int wired_wt_session_offer_datagram(wired_wt_session* s, wired_span data) {
   wired_wt_buffered_datagram* slot;
   if (session_associates_directly(s)) return 1;
-  slot = datagram_free_slot(s);
+  slot = datagram_slot_for(s, data);
   if (!slot) return 0;
   datagram_slot_fill(slot, data);
   return 1;

@@ -60,6 +60,22 @@ static void test_datagram_buffer_limit_drops_overflow(void) {
   }
 }
 
+/* A datagram longer than WIRED_WT_BUFFERED_DATAGRAM_CAP is dropped, not
+ * truncated: delivering a corrupted datagram is worse than losing it. A
+ * datagram of exactly the cap is buffered whole. */
+static void test_datagram_oversize_dropped(void) {
+  wired_wt_session s;
+  u8               big[WIRED_WT_BUFFERED_DATAGRAM_CAP + 1] = {0};
+  wired_wt_session_init(&s, 4);
+  CHECK(
+      wired_wt_session_offer_datagram(&s, wired_span_of(big, sizeof big)) == 0);
+  CHECK(s.datagrams[0].in_use == 0);
+  CHECK(
+      wired_wt_session_offer_datagram(
+          &s, wired_span_of(big, WIRED_WT_BUFFERED_DATAGRAM_CAP)) == 1);
+  CHECK(s.datagrams[0].len == WIRED_WT_BUFFERED_DATAGRAM_CAP);
+}
+
 /* close() from established reaches CLOSED. */
 static void test_close_from_established(void) {
   wired_wt_session s;
@@ -287,6 +303,7 @@ void test_wt_session(void) {
   test_datagram_buffered_then_established();
   test_stream_buffer_limit_rejects_overflow();
   test_datagram_buffer_limit_drops_overflow();
+  test_datagram_oversize_dropped();
   test_close_from_established();
   test_close_from_draining();
   test_drain_is_advisory_not_terminal();
