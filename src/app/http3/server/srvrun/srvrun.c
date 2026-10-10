@@ -400,26 +400,19 @@ typedef struct {
   u64 due_ms;
 } srvrun_rst;
 
+/* Per-connection server state. Members are grouped by alignment (8-byte,
+ * then 4-byte, then byte arrays) so the struct carries no padding. */
 typedef struct {
   wired_server  s;
   wired_srvloop l;
-  int           up;
-  sockaddr      peer;
-  u8            scid[WIRED_MAX_CID_LEN];
-  int           goaway_sent; /**< 1 once graceful-shutdown GOAWAY sent */
-  u64           last_ms;     /**< monotonic ms of the last routed datagram */
-  /** RFC 9000 10.2.1: 1 once this server sent a CONNECTION_CLOSE -- the
-   * closing state (srvrun_close_send). No app delivery and no send but the
-   * same close frame again until the slot is reaped at closing_until_ms. */
-  int closing;
-  /** RFC 9000 10.2: three times the PTO after the close went out. */
+  u64           last_ms; /**< monotonic ms of the last routed datagram */
+  /** RFC 9000 10.2: when the closing state (closing) ends -- three times
+   * the PTO after the close went out. */
   u64 closing_until_ms;
   /** Packets received while closing; the close frame is resent on the
    * 1st, 2nd, 4th, 8th, ... one (RFC 9000 10.2.1 rate limit). */
   u64 closing_rx;
-  /** The CONNECTION_CLOSE frame sent, kept to resend it unchanged. 64:
-   * the payload buffer every close seal already builds into. */
-  u8          close_pl[64];
+  /** Bytes used in close_pl. */
   usz         close_pln;
   srvrun_resp resp[SRVRUN_RESP_SLOTS]; /**< in-flight responses, one per
                                            answered request stream */
@@ -501,14 +494,8 @@ typedef struct {
    * routing key -- distinct sessions never share a slot, and closing one slot
    * never touches the other. */
   wired_wt_session wt;
-  int wt_active; /**< 1 once wired_wt_session_init has been called for slot 0 */
   wired_wt_session wt1;
-  int              wt1_active; /**< slot 1's own wt_active */
-  /** Each active slot's own Extended CONNECT :path value, copied rather than
-   * viewed since the decoded request's own storage does not outlive the step
-   * that established the session. Meaningless while the corresponding slot is
-   * inactive. */
-  u8  wt_path[SRVRUN_MAX_WT_SESSIONS][SRVRUN_WT_PATH_CAP];
+  /** Bytes used in each wt_path row. */
   usz wt_path_len[SRVRUN_MAX_WT_SESSIONS];
   /** draft-ietf-webtrans-http3-15 SS4.2/SS4.7 (WTH3-048/WTH3-067): the
    * CONNECT stream's own absolute QUIC stream offset (RFC 9000 19.8) just
@@ -533,25 +520,8 @@ typedef struct {
    * frames that do not yet make a whole capsule. Emptied at establishment
    * (srvrun_start_wt). */
   bodywin_capq wt_capq[SRVRUN_MAX_WT_SESSIONS];
-  /** draft-ietf-webtrans-http3-15 SS4.2/SS4.4/8.2 (WTH3-067): a
-   * wired_server_wt_close_session call for this slot is pending -- latched
-   * rather than sent inline (that entry point runs in an app callback with
-   * no srvrun_cfg in hand to seal wire bytes with, mirroring
-   * closed_stream_seen's own latch-in-a-callback/consume-at-step-time shape,
-   * wired_srvloop.h), drained on the next srvrun_on_step
-   * (srvrun_drain_wt_close_pending): send WT_CLOSE_SESSION (wt_close_code/
-   * wt_close_msg/wt_close_msg_len) with FIN on the CONNECT stream, then reset
-   * every OTHER WT stream this session owns with WT_SESSION_GONE (the
-   * CONNECT stream itself was just cleanly FIN'd, not reset) and close the
-   * session. */
-  int wt_close_pending[SRVRUN_MAX_WT_SESSIONS];
-  u32 wt_close_code[SRVRUN_MAX_WT_SESSIONS];
-  u8  wt_close_msg[SRVRUN_MAX_WT_SESSIONS][WTCAPSULE_CLOSE_MESSAGE_MAX];
+  /** Bytes used in each wt_close_msg row. */
   usz wt_close_msg_len[SRVRUN_MAX_WT_SESSIONS];
-  /** draft-ietf-webtrans-http3-15 4.7: a wired_server_wt_drain_session call
-   * for this slot is pending, latched like wt_close_pending and sent on the
-   * next step (srvrun_flush_wt_drain). */
-  int wt_drain_pending[SRVRUN_MAX_WT_SESSIONS];
   /** draft-ietf-webtrans-http3-15 SS4.4/8.2: wired_server_wt_stream_reset
    * calls pending -- latched (not sent inline) for the same
    * no-srvrun_cfg-in-a-callback reason as wt_close_pending, drained on the
@@ -573,14 +543,8 @@ typedef struct {
    * treats it as an unknown frame and kills the whole connection with
    * FRAME_ENCODING_ERROR. */
   u64 wt_stream_reset_id[SRVRUN_WT_RESET_LATCH];
-  u32 wt_stream_reset_app_code[SRVRUN_WT_RESET_LATCH];
   u64 wt_stream_reset_final[SRVRUN_WT_RESET_LATCH];
-  /** 1 when the entry is a wired_server_wt_stream_stop ask instead: the
-   * drain builds one STOP_SENDING (RFC 9000 19.5) for the PEER-initiated
-   * stream rather than a RESET_STREAM -- a client uni has no server send
-   * part to reset, and a RESET_STREAM for it would be connection-fatal
-   * at the client. */
-  u8  wt_stream_reset_stop[SRVRUN_WT_RESET_LATCH];
+  /** Entries in use in the wt_stream_reset_* latch. */
   usz wt_stream_reset_n;
   /** Client-bidi stream ids whose server send part already ran to its end
    * (reply FIN ACKed and slot reaped, or a reset already sent) -- consulted
@@ -593,29 +557,12 @@ typedef struct {
    * ids in this /4-indexed window, the same reason wt_closed_mark skips
    * them). */
   wired_srvloop_closed wt_send_done;
-  /** One pending outbound QUIC DATAGRAM (RFC 9221 5), queued by
-   * srvrun_wt_send_datagram and drained by srvrun_send_pending_datagram on
-   * the next step. ponytail: single-slot, not a queue — a second send
-   * request before the first drains overwrites dg_pending_buf/dg_pending_len
-   * (last-writer-wins). Acceptable first-cut simplification (DATAGRAM
-   * delivery is unreliable/unordered by design, RFC 9221 1); a real queue can
-   * replace this if an app needs to burst more than one per step. */
-  u8  dg_pending_buf[1200];
+  /** Bytes used in dg_pending_buf. */
   usz dg_pending_len;
-  int dg_pending; /**< 1 while dg_pending_buf holds an undrained datagram */
-  /** RFC 9000 13.3: until the handshake is confirmed, a client Initial
-   * retransmission (same DCID, a fresh datagram because the prior flight was
-   * lost or delayed) must get the identical flight resent, not a fresh boot.
-   * Cached verbatim from the accept flight this slot last sealed; replayed
-   * by srvrun_resend_boot_flight, untouched once wired_server_is_confirmed
-   * is true (srvrun_reinit_ok then stops routing retransmits here at all). */
-  u8  boot_ini[1500];
+  /** Bytes used in boot_ini; 0 until an accept flight is cached. */
   usz boot_ini_len;
-  /** Sized past a real 9-cert amplificationlimit chain's Handshake flight
-   * (EncryptedExtensions + 9 CERTIFICATE entries + CertificateVerify +
-   * Finished) with headroom -- see TLS_CERT_CHAIN_MAX/
-   * WIRED_CERTRELOAD_CHAIN_MAX. */
-  u8  boot_hs[16384];
+  /** Lengths of the cached Handshake datagrams, laid back to back in
+   * boot_hs; boot_dgram_count of them are used. */
   usz boot_dgram_len[WIRED_SRVBOOT_FLIGHT_MAX];
   usz boot_dgram_count;
   /** RFC 9000 8.1: how many of boot_dgram_len[0..boot_dgram_count) have
@@ -640,42 +587,6 @@ typedef struct {
    * slice log) so this one timestamp stands in for it. Meaningless before
    * boot_ini_len is first set. */
   u64 boot_pto_sent_ms;
-  /** Which half of the cached flight a resend offers the antiamp budget
-   * first: 1 = the Handshake datagrams, 0 = the Initial. While the budget
-   * fits only part of the flight, a fixed order starves the other half --
-   * under bursty loss a client holding the ServerHello but not the flight
-   * behind it timed out (Handshake starved), and a client that lost every
-   * ServerHello while the budget burned on the Handshake half died keyless
-   * (Initial starved). A client Initial retransmit sets this from its own
-   * DCID (srvrun_boot_flip_from_dcid: still addressing the ODCID = it has
-   * never processed any server packet, so the ServerHello must go first;
-   * addressing our SCID = it has the ServerHello, RFC 9000 7.2); each
-   * timer-driven replay then alternates from there. */
-  u8 boot_resend_flip;
-  /** 1 once an early 1-RTT datagram was held for this still-unconfirmed
-   * connection (srvrun_boot_early_onertt, RFC 9001 5.7): the client sends
-   * 1-RTT only after finishing its handshake, so a held 1-RTT datagram
-   * proves the client already has the whole flight and only the server's
-   * receipt of its Finished is missing -- flight replays are pure waste
-   * from here (duplicate pns the client discards) and the boot probe
-   * switches to a minimal fresh keepalive instead
-   * (srvrun_send_boot_probe). */
-  u8 peer_at_onertt;
-  /** RFC 9002 6.2: consecutive boot-stage probe count, the boot-flight
-   * counterpart to wired_sendsess.pto_count -- scales srvrun_pto_deadline_ms'
-   * backoff and, at SRVRUN_PTO_MAX, tears the slot down the same way
-   * srvrun_pto_slot's budget exhaustion does. Reset to 0 whenever the boot
-   * flight is (re)sent for a reason other than this timer (a fresh accept or
-   * a client-triggered retransmit both prove the peer is still reachable). */
-  int boot_pto_count;
-  /** RFC 9000 7.3 after a Retry (force_retry mode): the true original DCID
-   * recovered from the client's validated Retry token, advertised as
-   * original_destination_connection_id while the post-Retry Initial's own
-   * header DCID (the Retry's SCID) becomes retry_source_connection_id.
-   * Length 0 on the normal no-Retry path. */
-  u8 retry_odcid[WIRED_MAX_CID_LEN];
-  /** Bytes used in retry_odcid; 0 = no Retry happened on this slot. */
-  u8 retry_odcid_len;
   /** RFC 9000 21.6: monotonic ms this slot was claimed (srvrun_open_slot);
    * a boot still unconfirmed SRVRUN_BOOT_DEADLINE_MS later is reaped by the
    * idle sweep regardless of last_ms (srvrun_boot_overdue). */
@@ -711,15 +622,6 @@ typedef struct {
    * encoder id 7), so the next uni id is 11 + 4 * wt_uni_opened -- ids only
    * ever climb, a freed send slot never reuses one. */
   u64 wt_uni_opened;
-  /** RFC 9204 4.2: 1 once this connection's own QPACK encoder stream (id 7)
-   * has been opened (srvrun_open_qenc_stream) -- opened exactly once, right
-   * after SETTINGS is confirmed sent (c->l.h3.settings_sent), never reaped
-   * for the life of the connection (its wtsend[] slot's append_open stays
-   * set). Guards against re-claiming a second slot on a later step. */
-  int qenc_stream_opened;
-  /** wtsend[] slot index (see srvrun_wtsend_claim) the QPACK encoder stream
-   * lives on once qenc_stream_opened is set; meaningless before then. */
-  int qenc_wtsend_slot;
   /** RFC 9000 2.1: server-initiated bidi streams opened; the next bidi id
    * is 1 + 4 * wt_bidi_opened (nothing else opens server bidi streams). */
   u64 wt_bidi_opened;
@@ -748,7 +650,6 @@ typedef struct {
    * backoff. grant_retry_ms is the next re-announce deadline; meaningful
    * only while grant_retries > 0. */
   u64 grant_retry_ms;
-  u8  grant_retries;
   /** Same as stream_limit_advertised, for the client-initiated UNI limit
    * (RFC 9000 4.6: independent limits per direction). Raised by one every
    * time a WT uni stream's reassembly slot is released (srvrun_reap_wt_uni_
@@ -781,13 +682,6 @@ typedef struct {
    * transport parameter) leaves this server's relay opens failing forever
    * with no hint that the SERVER, not the network, is the reason. */
   u64 uni_blocked_sent_at;
-  /** 1 while a server-initiated uni open was refused by peer_uni_stream_
-   * limit since the last srvrun_pump_sess pass (srvrun_wt_uni_open_ok's own
-   * doc) -- latched here because the refusal happens on the app's own
-   * open_uni_stream call (moqtrun.c), which has no srvrun_cfg to send a
-   * STREAMS_BLOCKED through; srvrun_pump_sess (which does have cfg) checks
-   * and clears this every pass. */
-  int uni_blocked_seen;
   /** RFC 9000 8.2/9: this connection's ONE path-validation state machine
    * (migrate), tracking the naive rebind-follow in srvrun_rebind_peer
    * through detect -> challenge -> validate. One instance, not one per path:
@@ -801,13 +695,6 @@ typedef struct {
    * once the client migrates onto it (srvrun_rebind_peer follows the
    * arrival fd). 0 only on test-fabricated slots, read as "primary". */
   i64 tx_fd;
-  /** RFC 9000 8.2.2: the 8-byte PATH_CHALLENGE data last sent for the path
-   * currently being validated, valid only while migrate.challenged and not
-   * yet migrate.validated. Re-armed (overwritten) on every new rebind
-   * detected before the prior challenge validates -- srvrun_rebind_peer only
-   * ever tracks the single latest path, so an in-flight PATH_RESPONSE for a
-   * since-superseded challenge simply fails to compare equal. */
-  u8 path_challenge_data[PATH_DATA];
   /** RFC 8899 DPLPMTUD: this connection's Packetization Layer PMTU
    * Discovery search state (pmtu), giving pmtu_mps the Maximum
    * Packet Size to fill instead of a fixed guess. Initialized alongside
@@ -854,10 +741,6 @@ typedef struct {
    * SRVRUN_RESET_WINDOW_MS window began; l.peer_reset_count is cleared when
    * a step starts a new one (srvrun_roll_reset_window). */
   u64 reset_window_start_ms;
-  /** draft-ietf-webtrans-http3-15 SS5.2: Extended CONNECT sessions
-   * established in the current window (srvrun_start_wt), cleared with it
-   * (srvrun_roll_reset_window); SRVRUN_MAX_WT_SESSIONS_PER_WINDOW refuses. */
-  u32 wt_sess_window_count;
   /** draft-ietf-webtrans-http3-15 SS3.1: one bit per l.streams[] slot whose
    * Extended CONNECT arrived before the client's SETTINGS -- held without
    * a response, then processed once when the SETTINGS arrive
@@ -866,10 +749,6 @@ typedef struct {
   /** RFC 9114 5.2: the stream id the GOAWAY carried (l.req_next_id when it
    * was sent); meaningful only once goaway_sent. */
   u64 goaway_id;
-  /** draft-ietf-webtrans-http3-15 4.7: 1 once the peer's WT_DRAIN_SESSION
-   * reached the app for this session slot, so a repeated DRAIN does not
-   * call wt_on_session_draining again; cleared when a session starts. */
-  int wt_drain_rcvd[SRVRUN_MAX_WT_SESSIONS];
   /** RFC 9000 4.6: client WT bidi streams ended (FIN reaped, refused, reset,
    * torn down with their session) since the last bidi MAX_STREAMS raise --
    * each gives its stream credit back (srvrun_grant_wt_streams), the WT twin of
@@ -883,6 +762,144 @@ typedef struct {
   /** RFC 9000 13.3: stream aborts sent and not yet ACKed, resent on their
    * probe deadline (srvrun_rst_retry_slot) until acknowledged. */
   srvrun_rst rst[SRVRUN_RST_RETX];
+  int        up;
+  sockaddr   peer;
+  int        goaway_sent; /**< 1 once graceful-shutdown GOAWAY sent */
+  /** RFC 9000 10.2.1: 1 once this server sent a CONNECTION_CLOSE -- the
+   * closing state (srvrun_close_send). No app delivery and no send but the
+   * same close frame again until the slot is reaped at closing_until_ms. */
+  int closing;
+  int wt_active; /**< 1 once wired_wt_session_init has been called for slot 0 */
+  int wt1_active; /**< slot 1's own wt_active */
+  /** draft-ietf-webtrans-http3-15 SS4.2/SS4.4/8.2 (WTH3-067): a
+   * wired_server_wt_close_session call for this slot is pending -- latched
+   * rather than sent inline (that entry point runs in an app callback with
+   * no srvrun_cfg in hand to seal wire bytes with, mirroring
+   * closed_stream_seen's own latch-in-a-callback/consume-at-step-time shape,
+   * wired_srvloop.h), drained on the next srvrun_on_step
+   * (srvrun_drain_wt_close_pending): send WT_CLOSE_SESSION (wt_close_code/
+   * wt_close_msg/wt_close_msg_len) with FIN on the CONNECT stream, then reset
+   * every OTHER WT stream this session owns with WT_SESSION_GONE (the
+   * CONNECT stream itself was just cleanly FIN'd, not reset) and close the
+   * session. */
+  int wt_close_pending[SRVRUN_MAX_WT_SESSIONS];
+  /** WT_CLOSE_SESSION error code for each wt_close_pending slot. */
+  u32 wt_close_code[SRVRUN_MAX_WT_SESSIONS];
+  /** draft-ietf-webtrans-http3-15 4.7: a wired_server_wt_drain_session call
+   * for this slot is pending, latched like wt_close_pending and sent on the
+   * next step (srvrun_flush_wt_drain). */
+  int wt_drain_pending[SRVRUN_MAX_WT_SESSIONS];
+  /** App error code of each wt_stream_reset_id entry (see its doc). */
+  u32 wt_stream_reset_app_code[SRVRUN_WT_RESET_LATCH];
+  int dg_pending; /**< 1 while dg_pending_buf holds an undrained datagram */
+  /** RFC 9002 6.2: consecutive boot-stage probe count, the boot-flight
+   * counterpart to wired_sendsess.pto_count -- scales srvrun_pto_deadline_ms'
+   * backoff and, at SRVRUN_PTO_MAX, tears the slot down the same way
+   * srvrun_pto_slot's budget exhaustion does. Reset to 0 whenever the boot
+   * flight is (re)sent for a reason other than this timer (a fresh accept or
+   * a client-triggered retransmit both prove the peer is still reachable). */
+  int boot_pto_count;
+  /** RFC 9204 4.2: 1 once this connection's own QPACK encoder stream (id 7)
+   * has been opened (srvrun_open_qenc_stream) -- opened exactly once, right
+   * after SETTINGS is confirmed sent (c->l.h3.settings_sent), never reaped
+   * for the life of the connection (its wtsend[] slot's append_open stays
+   * set). Guards against re-claiming a second slot on a later step. */
+  int qenc_stream_opened;
+  /** wtsend[] slot index (see srvrun_wtsend_claim) the QPACK encoder stream
+   * lives on once qenc_stream_opened is set; meaningless before then. */
+  int qenc_wtsend_slot;
+  /** 1 while a server-initiated uni open was refused by peer_uni_stream_
+   * limit since the last srvrun_pump_sess pass (srvrun_wt_uni_open_ok's own
+   * doc) -- latched here because the refusal happens on the app's own
+   * open_uni_stream call (moqtrun.c), which has no srvrun_cfg to send a
+   * STREAMS_BLOCKED through; srvrun_pump_sess (which does have cfg) checks
+   * and clears this every pass. */
+  int uni_blocked_seen;
+  /** draft-ietf-webtrans-http3-15 SS5.2: Extended CONNECT sessions
+   * established in the current window (srvrun_start_wt), cleared with it
+   * (srvrun_roll_reset_window); SRVRUN_MAX_WT_SESSIONS_PER_WINDOW refuses. */
+  u32 wt_sess_window_count;
+  /** draft-ietf-webtrans-http3-15 4.7: 1 once the peer's WT_DRAIN_SESSION
+   * reached the app for this session slot, so a repeated DRAIN does not
+   * call wt_on_session_draining again; cleared when a session starts. */
+  int wt_drain_rcvd[SRVRUN_MAX_WT_SESSIONS];
+  u8  scid[WIRED_MAX_CID_LEN];
+  /** The CONNECTION_CLOSE frame sent, kept to resend it unchanged. 64:
+   * the payload buffer every close seal already builds into. */
+  u8 close_pl[64];
+  /** Each active slot's own Extended CONNECT :path value, copied rather than
+   * viewed since the decoded request's own storage does not outlive the step
+   * that established the session. Meaningless while the corresponding slot is
+   * inactive. */
+  u8 wt_path[SRVRUN_MAX_WT_SESSIONS][SRVRUN_WT_PATH_CAP];
+  /** WT_CLOSE_SESSION reason for each wt_close_pending slot,
+   * wt_close_msg_len bytes. */
+  u8 wt_close_msg[SRVRUN_MAX_WT_SESSIONS][WTCAPSULE_CLOSE_MESSAGE_MAX];
+  /** 1 when the wt_stream_reset_id entry is a wired_server_wt_stream_stop
+   * ask instead: the
+   * drain builds one STOP_SENDING (RFC 9000 19.5) for the PEER-initiated
+   * stream rather than a RESET_STREAM -- a client uni has no server send
+   * part to reset, and a RESET_STREAM for it would be connection-fatal
+   * at the client. */
+  u8 wt_stream_reset_stop[SRVRUN_WT_RESET_LATCH];
+  /** One pending outbound QUIC DATAGRAM (RFC 9221 5), queued by
+   * srvrun_wt_send_datagram and drained by srvrun_send_pending_datagram on
+   * the next step. ponytail: single-slot, not a queue — a second send
+   * request before the first drains overwrites dg_pending_buf/dg_pending_len
+   * (last-writer-wins). Acceptable first-cut simplification (DATAGRAM
+   * delivery is unreliable/unordered by design, RFC 9221 1); a real queue can
+   * replace this if an app needs to burst more than one per step. */
+  u8 dg_pending_buf[1200];
+  /** RFC 9000 13.3: until the handshake is confirmed, a client Initial
+   * retransmission (same DCID, a fresh datagram because the prior flight was
+   * lost or delayed) must get the identical flight resent, not a fresh boot.
+   * Cached verbatim from the accept flight this slot last sealed; replayed
+   * by srvrun_resend_boot_flight, untouched once wired_server_is_confirmed
+   * is true (srvrun_reinit_ok then stops routing retransmits here at all). */
+  u8 boot_ini[1500];
+  /** Sized past a real 9-cert amplificationlimit chain's Handshake flight
+   * (EncryptedExtensions + 9 CERTIFICATE entries + CertificateVerify +
+   * Finished) with headroom -- see TLS_CERT_CHAIN_MAX/
+   * WIRED_CERTRELOAD_CHAIN_MAX. */
+  u8 boot_hs[16384];
+  /** Which half of the cached flight a resend offers the antiamp budget
+   * first: 1 = the Handshake datagrams, 0 = the Initial. While the budget
+   * fits only part of the flight, a fixed order starves the other half --
+   * under bursty loss a client holding the ServerHello but not the flight
+   * behind it timed out (Handshake starved), and a client that lost every
+   * ServerHello while the budget burned on the Handshake half died keyless
+   * (Initial starved). A client Initial retransmit sets this from its own
+   * DCID (srvrun_boot_flip_from_dcid: still addressing the ODCID = it has
+   * never processed any server packet, so the ServerHello must go first;
+   * addressing our SCID = it has the ServerHello, RFC 9000 7.2); each
+   * timer-driven replay then alternates from there. */
+  u8 boot_resend_flip;
+  /** 1 once an early 1-RTT datagram was held for this still-unconfirmed
+   * connection (srvrun_boot_early_onertt, RFC 9001 5.7): the client sends
+   * 1-RTT only after finishing its handshake, so a held 1-RTT datagram
+   * proves the client already has the whole flight and only the server's
+   * receipt of its Finished is missing -- flight replays are pure waste
+   * from here (duplicate pns the client discards) and the boot probe
+   * switches to a minimal fresh keepalive instead
+   * (srvrun_send_boot_probe). */
+  u8 peer_at_onertt;
+  /** RFC 9000 7.3 after a Retry (force_retry mode): the true original DCID
+   * recovered from the client's validated Retry token, advertised as
+   * original_destination_connection_id while the post-Retry Initial's own
+   * header DCID (the Retry's SCID) becomes retry_source_connection_id.
+   * Length 0 on the normal no-Retry path. */
+  u8 retry_odcid[WIRED_MAX_CID_LEN];
+  /** Bytes used in retry_odcid; 0 = no Retry happened on this slot. */
+  u8 retry_odcid_len;
+  /** Bidi MAX_STREAMS re-announces left (see grant_retry_ms). */
+  u8 grant_retries;
+  /** RFC 9000 8.2.2: the 8-byte PATH_CHALLENGE data last sent for the path
+   * currently being validated, valid only while migrate.challenged and not
+   * yet migrate.validated. Re-armed (overwritten) on every new rebind
+   * detected before the prior challenge validates -- srvrun_rebind_peer only
+   * ever tracks the single latest path, so an in-flight PATH_RESPONSE for a
+   * since-superseded challenge simply fails to compare equal. */
+  u8 path_challenge_data[PATH_DATA];
 } srvrun_conn;
 
 /* RFC 7301 3.2 / draft-ietf-moq-transport-19 3.1: 1 iff c negotiated a
