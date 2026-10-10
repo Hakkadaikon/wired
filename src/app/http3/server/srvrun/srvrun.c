@@ -5954,14 +5954,10 @@ static void srvrun_resp_release_bigbuf(wired_srvrun_env* env, srvrun_resp* r);
 /* Free slot i: drop its table entry and clear its connection's up flag (the
  * shutdown drain accounting then counts it as drained).
  *
- * ponytail: connection teardown (peer CONNECTION_CLOSE, boot failure, or
- * idle sweep -- the 3 call sites below) is treated as WebTransport session
- * termination. This is a deliberate approximation, not the spec-accurate
- * trigger: the real rule cares about the CONNECT stream's own FIN/RESET
- * independent of whether the rest of the connection stays alive, and there
- * is no mechanism yet to detect a per-stream RESET_STREAM on just that
- * stream. Revisit once stream-level RESET_STREAM dispatch reaches
- * srvrun/srvloop. */
+ * Connection teardown (peer CONNECTION_CLOSE, boot failure, or idle sweep
+ * -- the 3 call sites below) also ends every WebTransport session the
+ * connection still carries. A CONNECT stream's own FIN/RESET ends just its
+ * session while the connection lives on (srvrun_close_wt_on_stream_close). */
 /* Release every resp[] slot's bigbuf pool row: a streaming response
  * mid-flight when its connection tears down (idle timeout, boot failure,
  * CONNECTION_CLOSE) would otherwise leave its claimed row permanently
