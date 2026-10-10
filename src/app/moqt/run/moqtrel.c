@@ -4,7 +4,7 @@
 #include "common/bytes/util/num.h"
 
 _Static_assert(
-    WIRED_MOQTREL_CAP >= 3 * WIRED_SRVLOOP_WT_BUF_CAP,
+    WIRED_MOQTREL_CAP >= (u64)3 * WIRED_SRVLOOP_WT_BUF_CAP,
     "ring absorbs the held publisher window");
 _Static_assert(
     WIRED_MOQTREL_ROUND_MAX <= WIRED_SRVLOOP_WT_BUF_CAP / 2,
@@ -101,7 +101,7 @@ void moqtrel_reclaim(moqtrel_buf* b) {
 }
 
 int moqtrel_should_hold(const moqtrel_buf* b) {
-  return rel_free(b) < 2 * WIRED_SRVLOOP_WT_BUF_CAP && !b->held;
+  return rel_free(b) < (u64)2 * WIRED_SRVLOOP_WT_BUF_CAP && !b->held;
 }
 
 int moqtrel_should_release(const moqtrel_buf* b) {

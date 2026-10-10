@@ -28,7 +28,7 @@
 /** Ring capacity in bytes. Three publisher receive windows: one the
  * publisher may already have in flight when the hold lands, one advertised
  * on top of it, one of slack so held data never overflows the ring. */
-#define WIRED_MOQTREL_CAP (3 * WIRED_SRVLOOP_WT_BUF_CAP)
+#define WIRED_MOQTREL_CAP ((u64)3 * WIRED_SRVLOOP_WT_BUF_CAP)
 
 /** Longest contiguous slice handed to one stream_send round. */
 #define WIRED_MOQTREL_ROUND_MAX 16384
@@ -97,7 +97,9 @@ typedef struct {
    * mark_end[k-1] reached the hub at mark_ms[k]. Marks wholly reclaimed
    * are dropped (moqtrel_reclaim). */
   u64 mark_end[WIRED_MOQTREL_MARKS];
+  /** Arrival time (ms) of each mark, parallel to mark_end. */
   u64 mark_ms[WIRED_MOQTREL_MARKS];
+  /** Marks in use (mark_end[0..marks), mark_ms[0..marks)). */
   u32 marks;
 } moqtrel_buf;
 

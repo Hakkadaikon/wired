@@ -56,7 +56,8 @@ static unsigned moqraw_pct(wired_span s, usz i) {
 /* Bytes the token at s.p[i] spans under allow: 3 for %HH, 1 for an allowed
  * byte, 0 when malformed. */
 static usz moqraw_tok(wired_span s, usz i, unsigned allow) {
-  if (s.p[i] == '%') return moqraw_pct(s, i) * !!(allow & MOQRAW_C_PCT) * 3;
+  if (s.p[i] == '%')
+    return (usz)moqraw_pct(s, i) * !!(allow & MOQRAW_C_PCT) * 3;
   return (moqraw_cls(s.p[i]) & allow) != 0;
 }
 
