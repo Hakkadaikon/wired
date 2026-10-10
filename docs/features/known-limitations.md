@@ -178,20 +178,17 @@ draft-22 sessions only. None of it is part of draft-22. Source shorthand:
   byte vectors, and the hub behaviour is tested in-process. No moqtail (or
   other third-party) peer has been run against it. Source:
   `ledger:draft-moq-transport-22.md` MQ22-X13.
-- **Backpressure observes once per Group of the pacing set** — moqtail also
-  observes on a 100 ms tick. Here the session's tier machine moves only
-  when its pacing set (the lowest-slot active backpressure set) decides a
-  Group; other backpressure sets take the current tier, clamped to their
-  own ladder, without observing. An upshift therefore needs 5 clear Groups
-  of the pacing set (`MOQSSTS_UPSHIFT_GOP_STREAK`), about 5 GOPs (about
-  10 s with moqt_chat's 2 s keyframes). Depth counts a stream from its open until the
-  hub relays the publisher's FIN, not until the subscriber acknowledges it.
-  The timeout input is the session's hub-side stream resets (busy shed,
-  DELIVERY_TIMEOUT, reliable stall) on any of its streams, chat and audio
-  included, as moqtail counts any stream of the connection. It is counted
-  only while the session has a backpressure set, not moqtail's discard
-  timer. Source:
-  `src/app/moqt/run/moqtssts_run.c` header comment.
+- **Backpressure observes per pacing-set Group and per 100 ms tick** —
+  the tier moves at each Group of the session's pacing set (the
+  lowest-slot active backpressure set) and on `wired_moqt_tick` every
+  100 ms, as moqtail does. The tick only runs as often as the server loop
+  calls `wired_moqt_tick`. Depth counts a stream from its open until the
+  hub relays the publisher's FIN, not until the subscriber acknowledges
+  it. The timeout input is the session's hub-side stream resets (busy
+  shed, DELIVERY_TIMEOUT, reliable stall) on any of its streams, chat and
+  audio included, as moqtail counts any stream of the connection. It is
+  counted only while the session has a backpressure set, not moqtail's
+  discard timer. Source: `src/app/moqt/run/moqtssts_run.c` header comment.
 - **The default algorithm's estimate follows the congestion window** —
   the budget is the stricter of `ssts_cap_kbps` and the subscriber
   connection's delivery-rate estimate (BBR's bottleneck bandwidth, else
@@ -245,12 +242,6 @@ draft-22 sessions only. None of it is part of draft-22. Source shorthand:
   member that delivers a Group older than that gets a fresh decision, so
   such a late Group can come from both members. Source:
   `test_moqtrun_ssts_lag_outside_window`.
-- **An idle pacing set freezes backpressure** — if the pacing set's
-  publisher keeps its track but stops sending Groups (a paused share), no
-  observation happens, so the session's other backpressure sets stay on
-  the current tier. Resets counted in the meantime are consumed at once
-  at the pacer's next Group, which can cause one extra downshift. Source:
-  `src/app/moqt/run/moqtssts_run.c` header comment.
 - **A cross-publisher switch can lose its boundary across a reconnect** —
   if the old track's publisher reconnects while the switched-to track's
   publisher (a different session) stays live, the new subscription is
