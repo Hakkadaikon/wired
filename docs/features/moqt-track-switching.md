@@ -170,7 +170,7 @@ Code: the pure algorithms are in `src/app/moqt/ssts/moqssts.{h,c}` (prefix
 
 | ID | Name | Rule |
 |---|---|---|
-| 0 | default (`moqssts_default_decide`) | Splits the budget by strict Rank first, then by Weight within a Rank. Each set gets its highest member whose threshold fits its share, and a set that needs less than its share gives the rest back. The budget is `ssts_cap_kbps` (unlimited when 0), because the hub has no bandwidth estimator. |
+| 0 | default (`moqssts_default_decide`) | Splits the budget by strict Rank first, then by Weight within a Rank. Each set gets its highest member whose threshold fits its share, and a set that needs less than its share gives the rest back. The budget is the stricter of the subscriber connection's delivery-rate estimate (`io.est_kbps`, `wired_server_wt_est_kbps`: BBR's bottleneck bandwidth, else cwnd / smoothed RTT) and `ssts_cap_kbps`; unlimited when both are 0. |
 | 0xff01 | backpressure (`moqssts_bp_decide`) | Measures depth: the subscriber streams the hub still holds open for one active set's member tracks, taking the deepest set (moqtail sums the sets, which keeps two sharers on the lowest tier). Every subscriber stream of the session that the hub reset since the last decision (busy shed, DELIVERY_TIMEOUT, reliable stall; `moqtss_note_shed`) counts as a timeout and adds to the depth. Resets count only while the session has a backpressure set. One tier is shared by all of the session's sets, and it starts at the lowest. Only the pacing set (the lowest-slot active backpressure set) moves the tier, once per Group; other backpressure sets take the current tier clamped to their ladder. Depth ≤ 1 for 5 decisions in a row moves up one tier. Depth ≥ 2 moves down one tier at once and starts a cooldown. During the cooldown, a timeout or 2 deeper decisions in a row move down again. |
 
 The constants are in `src/app/moqt/ssts/moqssts.h`
@@ -186,7 +186,7 @@ Every field is in `wired_moqt_hub` (`src/app/moqt/run/moqtrun.h`), and
 |---|---|
 | `switch_track` | 1 enables SWITCH_FROM on draft-22 sessions. |
 | `ssts_algs`, `ssts_alg_n` | A caller-owned list of algorithm IDs to advertise (`MOQCTL_SSTS_ALG_DEFAULT` 0, `MOQCTL_SSTS_ALG_BACKPRESSURE` 0xff01). At most `MOQCTL_SSTS_MAX_ALGS` (4) are sent. `ssts_alg_n` 0 disables SSTS. |
-| `ssts_cap_kbps` | The budget for the default algorithm in kbps. 0 means uncapped. |
+| `ssts_cap_kbps` | A cap on the default algorithm's budget in kbps (the estimate is used when it is stricter). 0 means uncapped. |
 
 ```c
 static const u64 algs[] = {MOQCTL_SSTS_ALG_BACKPRESSURE, MOQCTL_SSTS_ALG_DEFAULT};

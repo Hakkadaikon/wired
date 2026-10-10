@@ -192,10 +192,14 @@ draft-22 sessions only. None of it is part of draft-22. Source shorthand:
   only while the session has a backpressure set, not moqtail's discard
   timer. Source:
   `src/app/moqt/run/moqtssts_run.c` header comment.
-- **The default algorithm (0) has a static budget** — there is no
-  bandwidth estimator. The budget is `wired_moqt_hub.ssts_cap_kbps`, and 0
-  means unlimited, which always picks the highest member. Source:
-  `moqtrun.h` (`ssts_cap_kbps`), `moqtssts_run.c`.
+- **The default algorithm's estimate follows the congestion window** —
+  the budget is the stricter of `ssts_cap_kbps` and the subscriber
+  connection's delivery-rate estimate (BBR's bottleneck bandwidth, else
+  cwnd / smoothed RTT). It is not a probe: a subscriber that only receives
+  the lower member keeps the connection app-limited, so the estimate can
+  rise slowly and the split may stay low until the window grows. Before
+  the first RTT sample the estimate is unknown and only the cap applies.
+  Source: `wired_server_wt_est_kbps` (`srvrun.h`), `moqtssts_run.c`.
 - **SWITCHING_SET_ASSIGNMENT in PUBLISH_OK / REQUEST_OK is unsupported** —
   moqtail accepts it there, but this hub accepts it in SUBSCRIBE and
   REQUEST_UPDATE (subscription) only. Elsewhere it is not an allowed
