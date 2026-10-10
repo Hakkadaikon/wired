@@ -17,112 +17,26 @@
  * EncryptedExtensions + Certificate + CertificateVerify + Finished). Pure
  * orchestration over the existing build/sign/key-schedule parts. */
 
-/** Server-side handshake driver state. */
+/** Server-side handshake driver state. Members are grouped by alignment
+ * (8-byte, 4, 2, then byte arrays) to keep the struct free of padding. */
 typedef struct {
-  u8 server_priv[32]; /**< ECDHE private scalar (RFC 7748 x25519 or the
-                       * P-256 SEC1 scalar, per group below); always 32
-                       * bytes for either supported group. */
-  u8 server_pub[65];  /**< ECDHE public key_share: 32-byte RFC 7748 x25519,
-                       * or 65-byte SEC1 uncompressed P-256 (RFC 8446
-                       * 4.2.8.2), per group below. */
-  /** RFC 8446 4.2.7 NamedGroup negotiated for the ECDHE key_share
-   * (GROUP_X25519 or GROUP_SECP256R1); GROUP_X25519 unless
-   * sdrv_set_group selects otherwise. Governs how server_priv/
-   * server_pub/client_pub are interpreted. */
-  u16 group;
-  u8  p256_priv[32]; /**< RFC 5480 ECDSA P-256 signing scalar; also the
-                      * TBS signer for a self-built certificate */
-  u8 cert_buf[512];  /**< self-signed P-256 cert DER (owned) */
-  /** RFC 5280 4.2.1.6: see wired_srvboot_id.san_ipv4's doc. All-zero (the
-   * zero-initialized default) means omit -- 0.0.0.0 is never a real peer, so
-   * this needs no separate "is it set" flag. */
-  u8         san_ipv4[4];
   wired_span certs[TLS_CERT_CHAIN_MAX]; /**< RFC 8446 4.4.2
                                          * certificate_list, leaf first
                                          * (caller-owned views in
                                          * external-chain mode) */
-  usz cert_count;     /**< 0 = nothing to send (flight build fails) */
-  u8  client_pub[65]; /**< RFC 8446 4.2.8 client key_share, group above */
-  u8  client_sid[32]; /**< RFC 8446 4.1.2 legacy_session_id */
-  u8  client_sid_len; /**< 0..32 */
-  /** RFC 8446 4.6.1: this server's session-ticket encryption key, or
-   * has_ticket_key 0 to disable resumption entirely (pre_shared_key is then
-   * never inspected). Set once at sdrv_init from
-   * sdrv_init_in.ticket_key. */
-  u8 ticket_key[TICKET_KEY_LEN];
-  /** 1 when ticket_key above is set; 0 disables resumption. */
-  int has_ticket_key;
-  /** RFC 8446 4.2.11/4.2.11.2: set by sdrv_recv_client_hello when the
-   * ClientHello's pre_shared_key ticket opened under ticket_key and its
-   * binder verified. psk_secret (the opened ticket's resumption secret) is
-   * only meaningful when this is 1. */
-  int psk_accepted;
-  /** The opened ticket's resumption secret; meaningful when psk_accepted. */
-  u8 psk_secret[TICKET_SECRET_LEN];
-  /** RFC 8446 4.2.10 / RFC 9001 4.6.1/9.2: set by
-   * sdrv_recv_client_hello when the ClientHello carries early_data
-   * (0x002a) alongside an accepted pre_shared_key AND the presented ticket
-   * is on its first use (RFC 8446 8.1 single-use enforcement,
-   * zerortt_seen_check). A replayed ticket's early_data is refused
-   * (this stays 0) even though psk_accepted may still be 1 -- 0-RTT alone is
-   * rejected, ordinary PSK/1-RTT resumption still proceeds. */
-  int early_data_accepted;
-  /** RFC 8446 4.2.10 / RFC 9001 4.6.1: the 0-RTT packet-protection keys,
-   * meaningful only when early_data_accepted is 1 and early_keys_dropped
-   * is 0. */
-  initial_keys early_keys;
-  /** RFC 9001 4.9.3: set (with early_keys zeroed) by
-   * sdrv_discard_early_keys once 1-RTT keys are installed; sdrv_early_keys
-   * refuses from then on while early_data_accepted keeps recording that
-   * early data was used. */
-  int early_keys_dropped;
-  u8  hs_secret[HKDF_PRK];    /**< RFC 8446 7.1 Handshake Secret */
-  u8  s_hs_traffic[HKDF_PRK]; /**< RFC 8446 7.1 server hs traffic secret */
-  /** RFC 8446 7.1: the ECDHE shared secret the flight derivation computed
-   * (x25519 output, or the P-256 x-coordinate -- 32 bytes either way), kept
-   * so the connection's packet-protection key schedule reuses it instead of
-   * repeating the scalar multiply. Meaningful once hs_ready is 1. */
-  u8         ecdhe_secret[32];
-  int        hs_ready; /**< hs_secret derived */
-  transcript tr;       /**< RFC 8446 4.4.1 Transcript-Hash */
-  /** RFC 9001 5.2 Initial-key derivation input: the DCID of the Initial
-   * packet actually being processed right now. After a Retry this is the
-   * Retry's own SCID (the client's second Initial is keyed off it), never
-   * the original DCID -- mixing the two here breaks decryption of every
-   * post-Retry Initial. */
-  u8 odcid[20];
-  u8 odcid_len; /**< bytes used in odcid (0..20) */
-  u8 iscid[20]; /**< RFC 9000 7.3 server SCID */
-  u8 iscid_len; /**< bytes used in iscid (0..20) */
-  /** RFC 9000 7.3 original_destination_connection_id transport parameter
-   * value: the true first Initial's DCID. Equal to odcid on the direct
-   * accept path; after a Retry it is the token-recovered original while
-   * odcid above has already moved on to the Retry's SCID. */
-  u8 tp_odcid[20];
-  u8 tp_odcid_len;      /**< bytes used in tp_odcid (0..20) */
-  u8 rscid[20];         /**< RFC 9000 7.3 retry_source_connection_id --
-                         * the Retry packet's SCID, advertised only when
-                         * a Retry preceded this handshake */
-  u8         rscid_len; /**< bytes used in rscid; 0 = no Retry */
-  stp_limits limits;    /**< advertised tunable limits (0 = defaults) */
-  /** stateless_reset_token (RFC 9000 10.3.1/18.2) for iscid, advertised in
-   * the EncryptedExtensions transport parameters when sreset_token_set is 1.
-   * The caller derives it from a restart-stable secret (sreset_key_
-   * derive) -- a per-boot token would be useless, since the reset it
-   * authorizes is exactly the "server lost its state" signal. */
-  u8  sreset_token[16];
-  u8  sreset_token_set; /**< 1 once sreset_token holds a real token */
-  u64 peer_max_datagram_frame_size; /**< peer's max_datagram_frame_size
-                                     * (0x20, RFC 9221 3) from the ClientHello
-                                     * transport parameters; 0 = not
-                                     * advertised (peer does not support
-                                     * DATAGRAM) */
-  u64 peer_initial_max_data;        /**< peer's initial_max_data (0x04, RFC 9000
-                                     * 18.2) from the ClientHello transport
-                                     * parameters -- the connection-level credit
-                                     * this endpoint may send the peer, before any
-                                     * MAX_DATA update; 0 = absent (send nothing,
-                                     * the RFC's safe default) */
+  usz        cert_count; /**< 0 = nothing to send (flight build fails) */
+  transcript tr;         /**< RFC 8446 4.4.1 Transcript-Hash */
+  stp_limits limits;     /**< advertised tunable limits (0 = defaults) */
+  /** peer's max_datagram_frame_size (0x20, RFC 9221 3) from the
+   * ClientHello transport parameters; 0 = not advertised (peer does not
+   * support DATAGRAM) */
+  u64 peer_max_datagram_frame_size;
+  u64 peer_initial_max_data; /**< peer's initial_max_data (0x04, RFC 9000
+                              * 18.2) from the ClientHello transport
+                              * parameters -- the connection-level credit
+                              * this endpoint may send the peer, before any
+                              * MAX_DATA update; 0 = absent (send nothing,
+                              * the RFC's safe default) */
   u64 peer_initial_max_stream_data_bidi_local; /**< peer's
                                                 * initial_max_stream_data_bidi_local
                                                 * (0x05, RFC 9000 18.2): the TP
@@ -145,31 +59,44 @@ typedef struct {
    * raise; 0 = absent (the RFC's default: open none until the peer grants).
    */
   u64 peer_initial_max_streams_uni;
-  /** RFC 7301 3.1/3.2: this server's negotiated ALPN protocol -- the
-   * first entry of the client's list that is h3, hq-interop or one of
-   * raw_alpns (salpn_raw_pick). SALPN_NONE if nothing matched: the flight
-   * is then refused with no_application_protocol (0x178). */
-  salpn_choice alpn;
   /** The raw protocol id when alpn is SALPN_RAW (e.g. "moqt-19"): a view
    * into raw_alpns, so it lives as long as that configuration. Empty
    * otherwise. The server layer reads it to tell raw from h3. */
   wired_span alpn_tok;
   /** Configured raw-QUIC ids (sdrv_set_raw_alpns), or 0 for none. */
   const char* raw_alpns;
-  u16         cipher_suite; /**< RFC 8446 B.4 / RFC 9001 9.3: this server's
-                             * negotiated TLS 1.3 cipher suite (AES_128_GCM_
-                             * SHA256 preferred, CHACHA20_POLY1305_SHA256
-                             * fallback), set by sdrv_recv_client_hello.
-                             * Governs ServerHello.cipher_suite and the
-                             * Handshake/1-RTT key derivation and packet
-                             * protection; Initial packet protection (RFC 9001
-                             * 5.2) is unaffected and stays AES-128-GCM. */
   /** RFC 9001 8.2: the CRYPTO_ERROR (0x0100 | TLS alert) recorded when
    * sdrv_recv_client_hello rejects the ClientHello -- currently only
    * set to missing_extension (RFC 8446 B.2: alert 109 = 0x6d, so 0x016d)
    * when the quic_transport_parameters extension (0x39) is absent. 0 when
    * the last call succeeded. */
   u64 last_error;
+  /** 1 when ticket_key is set; 0 disables resumption. */
+  int has_ticket_key;
+  /** RFC 8446 4.2.11/4.2.11.2: set by sdrv_recv_client_hello when the
+   * ClientHello's pre_shared_key ticket opened under ticket_key and its
+   * binder verified. psk_secret (the opened ticket's resumption secret) is
+   * only meaningful when this is 1. */
+  int psk_accepted;
+  /** RFC 8446 4.2.10 / RFC 9001 4.6.1/9.2: set by
+   * sdrv_recv_client_hello when the ClientHello carries early_data
+   * (0x002a) alongside an accepted pre_shared_key AND the presented ticket
+   * is on its first use (RFC 8446 8.1 single-use enforcement,
+   * zerortt_seen_check). A replayed ticket's early_data is refused
+   * (this stays 0) even though psk_accepted may still be 1 -- 0-RTT alone is
+   * rejected, ordinary PSK/1-RTT resumption still proceeds. */
+  int early_data_accepted;
+  /** RFC 9001 4.9.3: set (with early_keys zeroed) by
+   * sdrv_discard_early_keys once 1-RTT keys are installed; sdrv_early_keys
+   * refuses from then on while early_data_accepted keeps recording that
+   * early data was used. */
+  int early_keys_dropped;
+  int hs_ready; /**< hs_secret derived */
+  /** RFC 7301 3.1/3.2: this server's negotiated ALPN protocol -- the
+   * first entry of the client's list that is h3, hq-interop or one of
+   * raw_alpns (salpn_raw_pick). SALPN_NONE if nothing matched: the flight
+   * is then refused with no_application_protocol (0x178). */
+  salpn_choice alpn;
   /** RFC 8446 4.1.4: set by sdrv_recv_client_hello when the
    * ClientHello carried no x25519 key_share, meaning a HelloRetryRequest
    * must be sent (sdrv_build_hrr) instead of the normal server flight.
@@ -180,13 +107,6 @@ typedef struct {
    * post-HRR second ClientHello and must offer the same cipher_suite (RFC
    * 8446 4.1.2) and gets its transcript message_hash-transformed (4.4.1). */
   int hrr_sent;
-  /** The cipher_suite negotiated from ClientHello1, recorded when hrr_sent
-   * becomes 1 so ClientHello2 can be checked against it. */
-  u16 hrr_cipher_suite;
-  /** RFC 8446 4.4.1: SHA-256(ClientHello1), computed when hrr_needed is set
-   * so sdrv_build_hrr can fold the message_hash synthetic message into
-   * the transcript without keeping ClientHello1's raw bytes around. */
-  u8 ch1_hash[32];
   /** RFC 6066 3: the ClientHello's server_name extension checked against
    * this driver's own certificate (salpn_sni_check), set by
    * sdrv_recv_client_hello. SALPN_SNI_ABSENT when the client sent
@@ -207,6 +127,86 @@ typedef struct {
    * version_information arrived or nothing better was offered -- the
    * flight then stays in client_version (see sdrv_wire_version). */
   u32 negotiated_version;
+  /** RFC 8446 4.2.7 NamedGroup negotiated for the ECDHE key_share
+   * (GROUP_X25519 or GROUP_SECP256R1); GROUP_X25519 unless
+   * sdrv_set_group selects otherwise. Governs how server_priv/
+   * server_pub/client_pub are interpreted. */
+  u16 group;
+  u16 cipher_suite; /**< RFC 8446 B.4 / RFC 9001 9.3: this server's
+                     * negotiated TLS 1.3 cipher suite (AES_128_GCM_
+                     * SHA256 preferred, CHACHA20_POLY1305_SHA256
+                     * fallback), set by sdrv_recv_client_hello.
+                     * Governs ServerHello.cipher_suite and the
+                     * Handshake/1-RTT key derivation and packet
+                     * protection; Initial packet protection (RFC 9001
+                     * 5.2) is unaffected and stays AES-128-GCM. */
+  /** The cipher_suite negotiated from ClientHello1, recorded when hrr_sent
+   * becomes 1 so ClientHello2 can be checked against it. */
+  u16 hrr_cipher_suite;
+  u8  server_priv[32]; /**< ECDHE private scalar (RFC 7748 x25519 or the
+                        * P-256 SEC1 scalar, per group); always 32
+                        * bytes for either supported group. */
+  u8 server_pub[65];   /**< ECDHE public key_share: 32-byte RFC 7748 x25519,
+                        * or 65-byte SEC1 uncompressed P-256 (RFC 8446
+                        * 4.2.8.2), per group. */
+  u8 p256_priv[32];    /**< RFC 5480 ECDSA P-256 signing scalar; also the
+                        * TBS signer for a self-built certificate */
+  u8 cert_buf[512];    /**< self-signed P-256 cert DER (owned) */
+  /** RFC 5280 4.2.1.6: see wired_srvboot_id.san_ipv4's doc. All-zero (the
+   * zero-initialized default) means omit -- 0.0.0.0 is never a real peer, so
+   * this needs no separate "is it set" flag. */
+  u8 san_ipv4[4];
+  u8 client_pub[65]; /**< RFC 8446 4.2.8 client key_share, group above */
+  u8 client_sid[32]; /**< RFC 8446 4.1.2 legacy_session_id */
+  u8 client_sid_len; /**< 0..32 */
+  /** RFC 8446 4.6.1: this server's session-ticket encryption key, or
+   * has_ticket_key 0 to disable resumption entirely (pre_shared_key is then
+   * never inspected). Set once at sdrv_init from
+   * sdrv_init_in.ticket_key. */
+  u8 ticket_key[TICKET_KEY_LEN];
+  /** The opened ticket's resumption secret; meaningful when psk_accepted. */
+  u8 psk_secret[TICKET_SECRET_LEN];
+  /** RFC 8446 4.2.10 / RFC 9001 4.6.1: the 0-RTT packet-protection keys,
+   * meaningful only when early_data_accepted is 1 and early_keys_dropped
+   * is 0. */
+  initial_keys early_keys;
+  u8           hs_secret[HKDF_PRK]; /**< RFC 8446 7.1 Handshake Secret */
+  u8 s_hs_traffic[HKDF_PRK]; /**< RFC 8446 7.1 server hs traffic secret */
+  /** RFC 8446 7.1: the ECDHE shared secret the flight derivation computed
+   * (x25519 output, or the P-256 x-coordinate -- 32 bytes either way), kept
+   * so the connection's packet-protection key schedule reuses it instead of
+   * repeating the scalar multiply. Meaningful once hs_ready is 1. */
+  u8 ecdhe_secret[32];
+  /** RFC 9001 5.2 Initial-key derivation input: the DCID of the Initial
+   * packet actually being processed right now. After a Retry this is the
+   * Retry's own SCID (the client's second Initial is keyed off it), never
+   * the original DCID -- mixing the two here breaks decryption of every
+   * post-Retry Initial. */
+  u8 odcid[20];
+  u8 odcid_len; /**< bytes used in odcid (0..20) */
+  u8 iscid[20]; /**< RFC 9000 7.3 server SCID */
+  u8 iscid_len; /**< bytes used in iscid (0..20) */
+  /** RFC 9000 7.3 original_destination_connection_id transport parameter
+   * value: the true first Initial's DCID. Equal to odcid on the direct
+   * accept path; after a Retry it is the token-recovered original while
+   * odcid above has already moved on to the Retry's SCID. */
+  u8 tp_odcid[20];
+  u8 tp_odcid_len; /**< bytes used in tp_odcid (0..20) */
+  u8 rscid[20];    /**< RFC 9000 7.3 retry_source_connection_id --
+                    * the Retry packet's SCID, advertised only when
+                    * a Retry preceded this handshake */
+  u8 rscid_len;    /**< bytes used in rscid; 0 = no Retry */
+  /** stateless_reset_token (RFC 9000 10.3.1/18.2) for iscid, advertised in
+   * the EncryptedExtensions transport parameters when sreset_token_set is 1.
+   * The caller derives it from a restart-stable secret (sreset_key_
+   * derive) -- a per-boot token would be useless, since the reset it
+   * authorizes is exactly the "server lost its state" signal. */
+  u8 sreset_token[16];
+  u8 sreset_token_set; /**< 1 once sreset_token holds a real token */
+  /** RFC 8446 4.4.1: SHA-256(ClientHello1), computed when hrr_needed is set
+   * so sdrv_build_hrr can fold the message_hash synthetic message into
+   * the transcript without keeping ClientHello1's raw bytes around. */
+  u8 ch1_hash[32];
   /** RFC 9000 9.6/18.2: the preferred_address transport parameter this
    * flight advertises, set via sdrv_set_preferred_address before the
    * flight is built. pref_cid_len 0 (never set) omits the parameter. The
