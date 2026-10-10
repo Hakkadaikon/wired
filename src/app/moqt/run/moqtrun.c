@@ -6705,6 +6705,13 @@ static int moqtrun_fresh_nothing_due(usz whole_objects, int fin) {
   return whole_objects == 0 && fin;
 }
 
+/* A fresh stream with nothing to relay still reached the hub: it counts
+ * against PUBLISH_DONE's Stream Count (10.11). Always 0 (no relay). */
+static wired_moqtrun_track* moqtrun_fresh_count_only(wired_moqtrun_track* t) {
+  if (t) t->up_streams++;
+  return 0;
+}
+
 /* SUBGROUP_HEADER + every following Object, for a stream already
  * confirmed to classify as SUBGROUP -- split out of moqtrun_resolve_fresh_
  * stream_track to keep that function's own branch count at the CCN gate.
@@ -6727,7 +6734,7 @@ static wired_moqtrun_track* moqtrun_decode_fresh_subgroup(
   if (moqtrun_fresh_nothing_due(
           moqtrun_decode_object_loop(hub, data, &off, &seq, hdr.group_id, t),
           fin))
-    return 0;
+    return moqtrun_fresh_count_only(t);
   *whole_end = off;
   return t;
 }

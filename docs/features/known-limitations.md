@@ -51,12 +51,6 @@ general relay network.
   hub before the upstream SUBSCRIBE_OK is dropped, not buffered (unverified;
   from the hand-off brief, no code comment found). Impact: first Objects of a
   publisher that races its own SUBSCRIBE_OK. Source: L12-3 area.
-- **PUBLISH_DONE relay: header-only upstream stream not counted** — an
-  upstream stream that carried only a SUBGROUP header plus FIN is never
-  resolved to a track and is not counted against the publisher's Stream Count;
-  the wait is absorbed by the 2 s cap (`WIRED_MOQTRUN_PUBDONE_WAIT_MS`, then
-  remaining streams are reset). Impact: a delayed PUBLISH_DONE of up to 2 s.
-  Source: L12-2, `moqtrun.h:707`.
 - **Start-Object granularity (4-15)** — Location Filters are Group-granular on
   the start side: Objects of the start Group below the start Object still pass
   on a multi-Object stream. The End side is cut per Object (d22 End Object),

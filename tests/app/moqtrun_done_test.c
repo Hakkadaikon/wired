@@ -124,6 +124,18 @@ static void test_moqtrun_pubdone_waits_late_stream(void) {
   CHECK(count == 1);
 }
 
+/* A counted stream that carried only its SUBGROUP header and FIN still
+ * reached the hub: PUBLISH_DONE goes out without the wait cap. */
+static void test_moqtrun_pubdone_counts_header_only(void) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  u64 count = 0;
+  mtdn_setup();
+  mtdn_done(MOQCTL_DONE_TRACK_ENDED, 1);
+  usz n = mtst_stream(1, 0, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2002, wired_span_of(buf, n), 1);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_TRACK_ENDED);
+}
+
 /* A keep-open stream still being relayed is not cut: PUBLISH_DONE waits
  * for its FIN to be relayed, and nothing is reset. */
 static void test_moqtrun_pubdone_waits_open_stream(void) {
@@ -224,6 +236,7 @@ static void mtall_pubdone(void) {
   test_moqtrun_pubdone_n_groups();
   test_moqtrun_pubdone_datagram_only();
   test_moqtrun_pubdone_waits_late_stream();
+  test_moqtrun_pubdone_counts_header_only();
   test_moqtrun_pubdone_waits_open_stream();
   test_moqtrun_pubdone_wait_bounded();
   test_moqtrun_pubdone_status_passthrough();
