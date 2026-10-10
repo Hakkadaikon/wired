@@ -233,6 +233,14 @@ typedef struct {
  * more data. */
 #define WIRED_MOQTRUN_HOLD_BUF 2048
 
+/** Per-peer buffer for one SUBGROUP stream that reaches the hub before the
+ * publisher's SUBSCRIBE_OK to the hub's upstream SUBSCRIBE (draft-22
+ * 3.1.3.1 MAY: its Track Alias is not known yet), relayed once the OK
+ * claims the track. The race window is ~1 RTT, the same as
+ * WIRED_MOQTRUN_HOLD_BUF's; a stream that outgrows it is dropped as before.
+ * ponytail: one stream per peer; raise if publishers open several. */
+#define WIRED_MOQTRUN_EARLY_BUF 2048
+
 /** Longest New Session URI wired_moqt_goaway sends: the spec maximum
  * (draft-22 9.2, draft-18/19 10.4). */
 #define WIRED_MOQTRUN_GOAWAY_URI_MAX 8192
@@ -974,6 +982,13 @@ typedef struct {
   usz peer_impl_len;
   /** Bytes of hold in use; 0 when no delivery waits for replay. */
   usz hold_len;
+  /** Bytes of early in use; 0 when no stream is kept (WIRED_MOQTRUN_
+   * EARLY_BUF's own doc). */
+  usz early_n;
+  /** The SUBGROUP stream kept in early, valid while early_n is non-zero. */
+  u64 early_sid;
+  /** 1 once early_sid's FIN is kept too. */
+  int early_fin;
   /** A fresh stream whose first delivery ended inside its first varint
    * (RFC 9000 2.2): its bytes so far wait in pre (pre_n of them) until the
    * varint is whole, so the stream is classified once (ledger 12-12).
@@ -1079,6 +1094,8 @@ typedef struct {
   /** Pre-establishment deliveries held for replay (WIRED_MOQTRUN_
    * HOLD_BUF's own doc). */
   u8 hold[WIRED_MOQTRUN_HOLD_BUF];
+  /** The SUBGROUP stream kept before its upstream SUBSCRIBE_OK. */
+  u8 early[WIRED_MOQTRUN_EARLY_BUF];
   /** Encoded Track Namespace of each sub_names entry (same index). */
   u8 sub_ns[WIRED_MOQTRUN_SUB_NAMES][WIRED_MOQTRUN_MAX_NS];
   /** Two send_buf slots, used as an ARMED/PENDING pair rather than a single

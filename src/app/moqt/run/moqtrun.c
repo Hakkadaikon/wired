@@ -278,6 +278,7 @@ static void moqtrun_init_peer(
   p->peer_impl_len      = 0;
   p->peer_has_impl      = 0;
   p->hold_len           = 0;
+  p->early_n            = 0;
   p->pre_n              = 0;
   p->goaway_deadline    = (u64)-1;
   p->goaway_flushed_at  = 0;
@@ -6946,6 +6947,79 @@ static int moqtrun_fresh_fetch_stream(
   return 1;
 }
 
+/* ===== a SUBGROUP stream before the upstream SUBSCRIBE_OK =====
+ * draft-22 3.1.3.1 MAY: the publisher may open a stream under the Track
+ * Alias its SUBSCRIBE_OK has not named yet; one such stream per peer is
+ * kept (WIRED_MOQTRUN_EARLY_BUF) and replayed once an OK claims a track
+ * (moqtrun_early_replay). */
+
+static int moqtrun_up_pending_for(
+    const wired_moqt_hub* hub, const wired_wt_session* s);
+
+/* 1 iff data opens a SUBGROUP stream whose Track Alias names none of p's
+ * tracks. */
+static int moqtrun_early_alias_unknown(wired_moqtrun_peer* p, wired_span data) {
+  usz            at = 0, off = 0;
+  moqdata_subhdr h;
+  if (moqdata_classify(data, &at) != MOQDATA_STREAM_SUBGROUP) return 0;
+  if (moqdata_subhdr_take(data, &off, &h) != MOQDATA_OK) return 0;
+  return moqtrun_track_by_alias(p, h.track_alias) == 0;
+}
+
+static int moqtrun_early_room(const wired_moqtrun_peer* p, usz n) {
+  return p->early_n + n <= WIRED_MOQTRUN_EARLY_BUF;
+}
+
+static int moqtrun_early_free(const wired_moqtrun_peer* p, usz n) {
+  return p->early_n == 0 && moqtrun_early_room(p, n);
+}
+
+/* 1 iff a fresh stream no track claims is kept: none is kept yet, it
+ * fits, p has an unanswered upstream SUBSCRIBE and the alias is unknown. */
+static int moqtrun_early_wanted(
+    const wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span data) {
+  return moqtrun_early_free(p, data.n) && moqtrun_up_pending_for(hub, p->wt) &&
+         moqtrun_early_alias_unknown(p, data);
+}
+
+static void moqtrun_early_put(
+    wired_moqtrun_peer* p, u64 sid, wired_span data, int fin) {
+  bytes_memcpy(p->early + p->early_n, data.p, data.n);
+  p->early_n += data.n;
+  p->early_sid = sid;
+  p->early_fin = fin;
+}
+
+static void moqtrun_early_stash(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 sid,
+    wired_span          data,
+    int                 fin) {
+  if (moqtrun_early_wanted(hub, p, data)) moqtrun_early_put(p, sid, data, fin);
+}
+
+static int moqtrun_early_is(const wired_moqtrun_peer* p, u64 sid) {
+  return p->early_n != 0 && p->early_sid == sid;
+}
+
+/* A later delivery of the kept stream follows it; one that does not fit
+ * drops the stream. 1 when sid is the kept stream. */
+static int moqtrun_early_more(
+    wired_moqtrun_peer* p, u64 sid, wired_span data, int fin) {
+  if (!moqtrun_early_is(p, sid)) return 0;
+  if (moqtrun_early_room(p, data.n))
+    moqtrun_early_put(p, sid, data, fin);
+  else
+    p->early_n = 0;
+  return 1;
+}
+
+/* The kept stream was reset: nothing of it is relayed. */
+static void moqtrun_early_drop(wired_moqtrun_peer* p, u64 sid) {
+  if (moqtrun_early_is(p, sid)) p->early_n = 0;
+}
+
 /* A fresh SUBGROUP stream: either relayed whole as one-shot streams
  * (its FIN arrived with the data -- nothing more will follow, so a torn
  * tail has no continuation either and rides along harmlessly) or a
@@ -6961,7 +7035,10 @@ static void moqtrun_fresh_subgroup_relay(
   usz                  whole_end = 0;
   wired_moqtrun_track* track =
       moqtrun_resolve_fresh_stream_track(hub, p, data, &whole_end, fin);
-  if (!track) return;
+  if (!track) {
+    moqtrun_early_stash(hub, p, stream_id, data, fin);
+    return;
+  }
   track->up_streams++; /* checked against PUBLISH_DONE's Stream Count */
   if (fin) {
     moqtrun_relay_object(hub, track, data);
@@ -6983,6 +7060,17 @@ static void moqtrun_dispatch_fresh_stream(
     int                 fin) {
   if (moqtrun_fresh_fetch_stream(hub, p, stream_id, data)) return;
   moqtrun_fresh_subgroup_relay(hub, p, stream_id, data, fin);
+}
+
+/* An upstream SUBSCRIBE_OK claimed a track of p: the kept stream replays
+ * as fresh -- relayed when its alias is now known, else kept again for a
+ * later OK (moqtrun_early_stash copies it onto itself). */
+static void moqtrun_early_replay(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  usz n = p->early_n;
+  if (!n) return;
+  p->early_n = 0;
+  moqtrun_dispatch_fresh_stream(
+      hub, p, p->early_sid, wired_span_of(p->early, n), p->early_fin);
 }
 
 /* sid is the hub's own, opened control stream (the legacy bidi the
@@ -7193,6 +7281,22 @@ static void moqtrun_dispatch_uni_fresh(
   moqtrun_dispatch_fresh_stream(hub, p, stream_id, data, fin);
 }
 
+/* A later delivery of a stream whose first one is held (pre-SETUP,
+ * moqtrun_hold_push) or kept before its SUBSCRIBE_OK (moqtrun_early_more)
+ * follows it there. 1 when consumed. */
+static int moqtrun_stream_parked(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin) {
+  if (moqtrun_hold_has(p, stream_id)) {
+    moqtrun_hold_push(hub, p, stream_id, data, fin);
+    return 1;
+  }
+  return moqtrun_early_more(p, stream_id, data, fin);
+}
+
 /* draft 3.4/11.4.2: relay a data stream's bytes verbatim to the
  * subscribers of the track its Track Alias names. A stream_id already in
  * the relay map (an earlier call on this same publisher stream) forwards
@@ -7212,10 +7316,7 @@ static void moqtrun_dispatch_data_stream(
     moqtrun_relay_continue(hub, track, relay, data, fin);
     return;
   }
-  if (moqtrun_hold_has(p, stream_id)) {
-    moqtrun_hold_push(hub, p, stream_id, data, fin);
-    return;
-  }
+  if (moqtrun_stream_parked(hub, p, stream_id, data, fin)) return;
   moqtrun_dispatch_uni_fresh(hub, p, stream_id, data, fin);
 }
 
@@ -8193,6 +8294,7 @@ static void moqtrun_reset_dispatch(
     return;
   }
   moqtrun_stream_frag_release(p, stream_id);
+  moqtrun_early_drop(p, stream_id);
   moqtrun_up_on_reset(hub, p, stream_id);
 }
 
@@ -8886,6 +8988,18 @@ static wired_moqtrun_up* moqtrun_up_of_stream(
   return 0;
 }
 
+static int moqtrun_up_unanswered(
+    const wired_moqtrun_up* u, const wired_wt_session* s) {
+  return u->in_use && u->wt == s && !u->track_tag;
+}
+
+static int moqtrun_up_pending_for(
+    const wired_moqt_hub* hub, const wired_wt_session* s) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++)
+    if (moqtrun_up_unanswered(&hub->ups[i], s)) return 1;
+  return 0;
+}
+
 /* t is the live incarnation SUBSCRIBE_OK claimed (tag 0: none yet). */
 static int moqtrun_up_is_track(const wired_moqtrun_track* t, u64 tag) {
   return tag && t->in_use && t->cache_tag == tag;
@@ -9110,6 +9224,7 @@ static void moqtrun_up_claim(
   u->track_tag = t->cache_tag;
   moqtrun_reattach_subs(hub, t, pi, k);
   moqtrun_rdv_resolve(hub, t, k);
+  moqtrun_early_replay(hub, pp);
 }
 
 /* A reply that fails to decode closes the session PROTOCOL_VIOLATION

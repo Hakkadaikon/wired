@@ -44,10 +44,11 @@ general relay network.
 - **Announcements after establishment ignored** — once an upstream SUBSCRIBE
   (hub to publisher, d18/19 9.4, d22 7.4) is Established, a later announce for
   that name is ignored. Source: L12-3 ("known limitations").
-- **SUBGROUP before SUBSCRIBE_OK dropped** — a SUBGROUP stream that reaches the
-  hub before the upstream SUBSCRIBE_OK is dropped, not buffered (unverified;
-  from the hand-off brief, no code comment found). Impact: first Objects of a
-  publisher that races its own SUBSCRIBE_OK. Source: L12-3 area.
+- **One SUBGROUP stream kept before SUBSCRIBE_OK** — a SUBGROUP stream that
+  reaches the hub before the upstream SUBSCRIBE_OK is kept (one per publisher
+  session, up to `WIRED_MOQTRUN_EARLY_BUF` = 2048 bytes) and relayed when the
+  OK arrives; a second such stream, or one that outgrows the buffer, is
+  dropped. Source: `moqtrun_early_stash` in `src/app/moqt/run/moqtrun.c`.
 - **Start-Object granularity (4-15)** — Location Filters are Group-granular on
   the start side: Objects of the start Group below the start Object still pass
   on a multi-Object stream. The End side is cut per Object (d22 End Object),
@@ -569,6 +570,7 @@ Fixed-size tables and buffers (BSS-sized; raise the constant and rebuild).
 | `WIRED_MOQTRUN_MAX_REQ_UPDATES` | 4 | `moqtrun.h:210` | TOO_MANY_REQUEST_UPDATES (d19+) |
 | `WIRED_MOQTRUN_IMPL_MAX` | 64 | `moqtrun.h:215` | MOQT_IMPLEMENTATION truncated |
 | `WIRED_MOQTRUN_HOLD_BUF` | 2048 | `moqtrun.h:225` | pre-SETUP bytes: request reset EXCESSIVE_LOAD, Object dropped |
+| `WIRED_MOQTRUN_EARLY_BUF` | 2048 | `moqtrun.h` | SUBGROUP stream before the upstream SUBSCRIBE_OK: dropped |
 | `WIRED_MOQTRUN_GOAWAY_URI_MAX` | 8192 | `moqtrun.h:230` | `wired_moqt_goaway` returns -1 for a longer URI (the spec maximum) |
 | `WIRED_MOQTRUN_MAX_RELAYS` | 4 | `moqtrun.h:422` | stream not relayed, subscribers miss it |
 | `WIRED_MOQTRUN_MAX_NAME` | 64 | `moqtrun.h:427` | Track Name refused (PUBLISH, hub-owned publish returns 0) |

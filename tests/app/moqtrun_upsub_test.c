@@ -197,6 +197,44 @@ static void test_moqtrun_upsub_objects_relayed(void) {
   CHECK(mups_relayed_alias(SESS_B) == mrdv_alias(SESS_B, MRDV_S1));
 }
 
+/* d22 3.1.3.1 MAY: a SUBGROUP stream that beats the publisher's own
+ * SUBSCRIBE_OK (its Track Alias still unknown) is held and relayed once
+ * the OK claims the track. */
+static void test_moqtrun_upsub_stream_before_ok(void) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n;
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  n = mups_stream(MUPS_ALIAS, buf);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(buf, n), 1);
+  CHECK(mups_relayed_alias(SESS_B) == ~(u64)0);
+  mups_ok((u64)mups_up_sid());
+  CHECK(mups_relayed_alias(SESS_B) == mrdv_alias(SESS_B, MRDV_S1));
+}
+
+/* The same for a keep-open stream: its later deliveries before the OK
+ * follow it into the hold, the ones after go on as a relay. */
+static void test_moqtrun_upsub_open_stream_before_ok(void) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n;
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  n = mups_stream(MUPS_ALIAS, buf);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(buf, n), 0);
+  mups_ok((u64)mups_up_sid());
+  CHECK(mups_relayed_alias(SESS_B) == mrdv_alias(SESS_B, MRDV_S1));
+  const moqtrun_test_call* o = moqtrun_test_last_kind(5);
+  CHECK(o && o->s == SESS_B);
+  u64 relay_sid = o ? o->stream_id : 0;
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(0, 0), 1);
+  const moqtrun_test_call* f = moqtrun_test_last_kind(6);
+  CHECK(f && f->s == SESS_B && f->stream_id == relay_sid);
+}
+
 /* U3 aggregation (9.4 MAY): B and C waiting share one upstream SUBSCRIBE
  * and both get SUBSCRIBE_OK; D arriving once it is Established is
  * answered at once, still with one upstream. */
@@ -375,6 +413,8 @@ static void test_moqtrun_upsub_prefix(void) {
 static void mtall_upsub(void) {
   test_moqtrun_upsub_ok_after_upstream();
   test_moqtrun_upsub_objects_relayed();
+  test_moqtrun_upsub_stream_before_ok();
+  test_moqtrun_upsub_open_stream_before_ok();
   test_moqtrun_upsub_two_share_one();
   test_moqtrun_upsub_error_relayed();
   test_moqtrun_upsub_last_cancel_cancels_upstream();
