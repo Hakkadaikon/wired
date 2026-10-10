@@ -66,7 +66,7 @@ static void fmt_field(fmt_sink* s, const fmt_spec* sp, const fmt_piece* pc) {
 /* ---- sign / prefix ---- */
 
 static char fmt_sign_flag(u32 flags) {
-  return (flags & FMT_PLUS) ? '+' : (flags & FMT_SPACE) ? ' ' : 0;
+  return (char)((flags & FMT_PLUS) ? '+' : (flags & FMT_SPACE) ? ' ' : 0);
 }
 
 static char fmt_sign(const fmt_spec* sp, int neg) {
@@ -100,7 +100,7 @@ static usz fmt_idigits(char* tmp, const fmt_spec* sp, const fmt_int* a) {
   usz               k     = 0;
   u64               v     = a->v;
   do {
-    tmp[k++] = dig[(v % a->base) + 16u * (u32)(a->upper != 0)];
+    tmp[k++] = dig[(v % a->base) + (u64)16u * (u32)(a->upper != 0)];
     v /= a->base;
   } while (v);
   return k - (usz)(a->v == 0 && sp->prec == 0);
@@ -441,7 +441,7 @@ usz wired_obuf_printf(wired_obuf* b, const char* fmt, ...) {
 static i64 fmt_write_all(i64 fd, const char* buf, usz n) {
   usz done = 0;
   while (done < n) {
-    i64 r = wired_arch_write(fd, buf + done, (i64)(n - done));
+    i64 r = wired_arch_write(fd, buf + done, n - done);
     if (r <= 0) return r;
     done += (usz)r;
   }
