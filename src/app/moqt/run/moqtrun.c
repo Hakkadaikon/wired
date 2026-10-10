@@ -5505,6 +5505,7 @@ void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
   moqtrun_rdv_tick(hub, now_ms);
   moqtrun_reqs_tick(hub);
   moqtrun_live_tick(hub, now_ms);
+  moqtss_tick(hub, now_ms);
   moqtrun_fetches_tick(hub, 1); /* a descending fill waits for them */
 }
 

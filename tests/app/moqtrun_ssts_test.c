@@ -977,31 +977,82 @@ static void test_moqtrun_ssts_inactive_set_does_not_pace(void) {
   CHECK(mtss_opens(h, 4) == 1 && mtss_opens(l, 4) == 0);
 }
 
-/* KNOWN LIMITATION (pinned, see moqtssts_run.c): a pacing set that stays
- * live but sends no groups (a paused share) freezes the shared tier --
- * set 8's 10 clear groups never upshift it -- and the session's reset
- * count accumulates across set 8's groups until set 7's next decision
- * consumes it in one observation. */
-static void test_moqtrun_ssts_known_limit_paused_pacer_freezes_tier(void) {
+/* ===== backpressure on the hub tick (every 100 ms) ===== */
+
+static void mtss_tick(u64 now) { wired_moqt_tick(&mtst_hub, now); }
+
+/* The first tick with a pacing set only arms the schedule; later ticks
+ * observe once per 100 ms, and a late tick observes once, not once per
+ * missed period. */
+static void test_moqtrun_ssts_tick_observes_every_100ms(void) {
+  mtss_room();
+  mtss_tick(1000);
+  CHECK(mtss_b()->bp.clear_streak == 0);
+  mtss_tick(1050);
+  CHECK(mtss_b()->bp.clear_streak == 0);
+  mtss_tick(1100);
+  CHECK(mtss_b()->bp.clear_streak == 1);
+  mtss_tick(1500);
+  CHECK(mtss_b()->bp.clear_streak == 2);
+}
+
+/* A paused pacing set (set 7 sends no groups) no longer freezes the
+ * shared tier: 5 clear ticks raise it, and set 8 forwards its top. */
+static void test_moqtrun_ssts_paused_pacer_still_rises(void) {
   u64 h, l;
   mtss_room();
   mtss_second_set(&h, &l);
-  for (u64 g = 0; g < 10; g++) {
-    mtss_push(3, g, 1, 1);
-    mtss_push(4, g, 1, 1);
-    CHECK(mtss_opens(h, g) == 0 && mtss_opens(l, g) == 1);
-  }
-  CHECK(mtss_b()->bp.tier == 0 && mtss_b()->bp.clear_streak == 0);
-  u64 s10                   = mtss_push(4, 10, 1, 0);
+  mtss_tick(1000);
+  for (u64 t = 1100; t <= 1500; t += 100) mtss_tick(t);
+  CHECK(mtss_b()->bp.tier == 1);
+  mtss_push(3, 0, 1, 1);
+  mtss_push(4, 0, 1, 1);
+  CHECK(mtss_opens(h, 0) == 1 && mtss_opens(l, 0) == 0);
+}
+
+/* Two open streams on one set drop the tier at the next tick. */
+static void test_moqtrun_ssts_tick_drops_on_depth(void) {
+  mtss_room();
+  mtss_tier(1);
+  mtss_push(1, 5, 1, 0);
+  mtss_push(1, 6, 1, 0);
+  mtss_tick(1000);
+  CHECK(mtss_b()->bp.tier == 1);
+  mtss_tick(1100);
+  CHECK(mtss_b()->bp.tier == 0);
+}
+
+/* A shed is consumed by exactly one observation: the tick's. */
+static void test_moqtrun_ssts_tick_consumes_shed(void) {
+  mtss_room();
+  mtss_tick(1000);
+  mtss_tier(1);
+  u64 h5                    = mtss_push(1, 5, 1, 0);
   g_stream_send_reject_sess = SESS_B;
-  for (int r = 0; r < WIRED_MOQTRUN_RESET_AFTER_BUSY; r++) mtss_more(s10, 1, 0);
+  for (int r = 0; r < WIRED_MOQTRUN_RESET_AFTER_BUSY; r++) mtss_more(h5, 1, 0);
   g_stream_send_reject_sess = 0;
   CHECK(mtss_b()->timeouts == 1);
-  mtss_push(3, 11, 1, 1);
-  mtss_push(4, 11, 1, 1);
-  CHECK(mtss_b()->timeouts == 1); /* set 8 does not consume it */
-  mtss_push(1, 0, 1, 1);
-  CHECK(mtss_b()->timeouts == 0); /* set 7's decision does */
+  mtss_tick(1100);
+  CHECK(mtss_b()->timeouts == 0);
+  mtss_group_both(6);
+  CHECK(mtss_b()->timeouts == 0);
+}
+
+/* Losing the pacing set disarms the schedule at once: a set that turns
+ * active again between two ticks starts with an arming tick, not an
+ * observation. */
+static void test_moqtrun_ssts_pacer_loss_disarms(void) {
+  moqctl_params ph =
+      mtss_ssa(MTSS_SET, MOQSSTS_ALG_BACKPRESSURE, MTSS_HI_KBPS, 2);
+  mtss_room();
+  mtss_tick(1000);
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, MTSS_SID_HI, 0, 0);
+  mtss_sub(20, mtss_hi(), &ph);
+  CHECK(mtss_set7() && mtss_set7()->n == 2);
+  mtss_tick(1100);
+  CHECK(mtss_b()->bp.clear_streak == 0);
+  mtss_tick(1200);
+  CHECK(mtss_b()->bp.clear_streak == 1);
 }
 
 void test_moqtrun_ssts(void) {
@@ -1037,7 +1088,11 @@ void test_moqtrun_ssts(void) {
   test_moqtrun_ssts_shed_needs_bp_set();
   test_moqtrun_ssts_hold_clamps_to_ladder();
   test_moqtrun_ssts_inactive_set_does_not_pace();
-  test_moqtrun_ssts_known_limit_paused_pacer_freezes_tier();
+  test_moqtrun_ssts_tick_observes_every_100ms();
+  test_moqtrun_ssts_paused_pacer_still_rises();
+  test_moqtrun_ssts_tick_drops_on_depth();
+  test_moqtrun_ssts_tick_consumes_shed();
+  test_moqtrun_ssts_pacer_loss_disarms();
   test_moqtrun_ssts_resubscribe_other_set();
   test_moqtrun_ssts_shed_downshifts();
   test_moqtrun_ssts_shed_no_reopen();

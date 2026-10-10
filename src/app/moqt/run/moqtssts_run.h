@@ -94,6 +94,13 @@ void moqtss_note_shed(wired_moqt_hub* hub, wired_wt_session* wt);
  * subscription's verdict. Call before any forward of g. */
 void moqtss_prime(wired_moqt_hub* hub, wired_moqtrun_track* track, u64 g);
 
+/** Backpressure observation on the hub clock (moqtail's 100 ms decision
+ * tick): for every session with a pacing set, the first tick arms and
+ * each later tick at least 100 ms after the last observation observes
+ * once (depth and the reset count), so the tier moves even while the
+ * pacing set sends no groups. Called from wired_moqt_tick. */
+void moqtss_tick(wired_moqt_hub* hub, u64 now_ms);
+
 /** 1 iff s may receive group g: s is in no set, or g was decided for s's
  * own track. */
 int moqtss_sub_pass(const wired_moqtrun_sub* s, u64 g);

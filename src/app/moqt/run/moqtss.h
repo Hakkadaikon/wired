@@ -91,6 +91,12 @@ typedef struct {
   u64 timeouts;
   /** Backpressure tier state (one tier shared by the session's sets). */
   moqssts_bp bp;
+  /** wired_moqt_tick clock of the next tick observation (valid while
+   * obs_armed). */
+  u64 next_obs_ms;
+  /** 1 once a tick saw the current pacing set; cleared the moment the
+   * session has no pacing set, so a new one starts with an arming tick. */
+  int obs_armed;
   /** Switching-set slots; a slot is live while its in_use is 1. */
   moqtss_set sets[WIRED_MOQTRUN_SSTS_SETS];
 } moqtss_sess;

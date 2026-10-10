@@ -11,20 +11,12 @@
  * synchronous single-threaded hub:
  *
  * - Decisions are made at a group's first arrival (moqtss_prime) instead
- *   of by a controller task woken through a channel; there is no 100 ms
- *   DECISION_INTERVAL tick (moqtail also observes on every tick).
- *   Backpressure observes once per group of the session's pacing set --
- *   its lowest-slot active backpressure set (moqtss_pacer); every other
- *   backpressure set takes the current tier without observing, so two
- *   sharers do not advance the tier twice per group time.
- *   Known limitation: a pacing set that stays live (active, members
- *   subscribed) but sends no groups -- a paused share -- freezes the
- *   shared tier for every other backpressure set of the session, which
- *   only hold it; and the session's reset count keeps accumulating over
- *   their groups, consumed in one observation at the pacing set's next
- *   decision (one burst of timeouts, possibly several downshift steps'
- *   worth of evidence at once). Pinned by
- *   test_moqtrun_ssts_known_limit_paused_pacer_freezes_tier.
+ *   of by a controller task woken through a channel. Backpressure
+ *   observes at each group of the session's pacing set -- its lowest-slot
+ *   active backpressure set (moqtss_pacer) -- and on the hub clock every
+ *   MOQTSS_OBS_MS (moqtss_tick, moqtail's DECISION_INTERVAL), so the tier
+ *   keeps moving while the pacing set is paused; every other backpressure
+ *   set takes the current tier without observing.
  * - Group numbers are per set (each publisher counts its own groups), so
  *   each set keeps its own decision ring, pruned against its own largest
  *   group (moqtail keys one map by group across sets). The algorithm still
@@ -57,6 +49,19 @@
  *   nothing rather than everything. */
 
 #define MOQTSS_WIN 16u /* verdict window per subscription (u16 masks) */
+
+#define MOQTSS_OBS_MS \
+  100u /* tick observation period (moqtail DECISION_INTERVAL) */
+
+static int moqtss_pacer(const moqtss_sess* ss);
+
+/* The tick schedule belongs to one pacing period: it is dropped the moment
+ * the session has no pacing set, so a set that becomes the pacer again
+ * between two ticks starts with an arming tick, not an observation. Called
+ * wherever set membership or properties change. */
+static void moqtss_sync_arm(moqtss_sess* ss) {
+  ss->obs_armed = ss->obs_armed && moqtss_pacer(ss) >= 0;
+}
 
 /* ===== configuration and negotiation ===== */
 
@@ -109,8 +114,10 @@ void moqtss_negotiate(
 }
 
 void moqtss_sess_reset(moqtss_sess* s) {
-  s->algs     = 0;
-  s->timeouts = 0;
+  s->algs        = 0;
+  s->timeouts    = 0;
+  s->next_obs_ms = 0;
+  s->obs_armed   = 0;
   moqssts_bp_init(&s->bp);
   for (usz k = 0; k < WIRED_MOQTRUN_SSTS_SETS; k++) s->sets[k].in_use = 0;
 }
@@ -236,6 +243,7 @@ static void moqtss_leave(moqtss_sess* ss, u64 alias) {
   if (k < 0) return;
   moqtss_unplace(&ss->sets[k], alias);
   moqtss_drop_if_empty(ss, (usz)k);
+  moqtss_sync_arm(ss);
 }
 
 /* Set properties: the most recently received assignment wins. */
@@ -313,6 +321,7 @@ static void moqtss_prune(wired_moqt_hub* hub, usz sidx) {
   moqtss_sess* ss = &hub->peers[sidx].ssts;
   for (usz k = 0; k < WIRED_MOQTRUN_SSTS_SETS; k++)
     if (ss->sets[k].in_use) moqtss_prune_set(hub, ss, sidx, k);
+  moqtss_sync_arm(ss);
 }
 
 /* Open streams over slot k's members (the set's depth, client.rs). */
@@ -386,6 +395,7 @@ static void moqtss_join(
   moqtss_unplace(&ss->sets[k], s->track_alias);
   moqtss_member_insert(&ss->sets[k], s->track_alias, a->threshold_kbps);
   moqtss_set_props(&ss->sets[k], a);
+  moqtss_sync_arm(ss);
   s->ssts_on = 1;
 }
 
@@ -633,6 +643,50 @@ static u64 moqtss_decide(wired_moqt_hub* hub, usz sidx, usz k, u64 g) {
 static u64 moqtss_pick(wired_moqt_hub* hub, usz sidx, usz k, u64 g) {
   const moqtss_dec* e = moqtss_ring_find(&hub->peers[sidx].ssts.sets[k], g);
   return e ? e->pick : moqtss_decide(hub, sidx, k, g);
+}
+
+/* ===== tick observation (controller.rs DECISION_INTERVAL) ===== */
+
+/* One observation over the session's backpressure sets: moqssts_bp_decide
+ * observes depth + resets and clamps the tier; the picks are not recorded
+ * (each group is still decided at its first arrival). */
+static void moqtss_tick_observe(wired_moqt_hub* hub, usz sidx, u64 now_ms) {
+  moqtss_sess* ss = &hub->peers[sidx].ssts;
+  moqtss_view  v;
+  moqtss_view_of(hub, sidx, MOQSSTS_ALG_BACKPRESSURE, &v);
+  moqssts_bp_decide(&ss->bp, v.sets, v.n, v.open, ss->timeouts, v.out);
+  ss->timeouts    = 0;
+  ss->next_obs_ms = now_ms + MOQTSS_OBS_MS;
+}
+
+static void moqtss_tick_arm(moqtss_sess* ss, u64 now_ms) {
+  ss->obs_armed   = 1;
+  ss->next_obs_ms = now_ms + MOQTSS_OBS_MS;
+}
+
+/* Armed: observes when due. Not yet: this tick only arms. */
+static void moqtss_tick_paced(wired_moqt_hub* hub, usz sidx, u64 now_ms) {
+  moqtss_sess* ss = &hub->peers[sidx].ssts;
+  if (!ss->obs_armed) {
+    moqtss_tick_arm(ss, now_ms);
+    return;
+  }
+  if (now_ms >= ss->next_obs_ms) moqtss_tick_observe(hub, sidx, now_ms);
+}
+
+static void moqtss_tick_sess(wired_moqt_hub* hub, usz sidx, u64 now_ms) {
+  moqtss_prune(hub, sidx);
+  if (moqtss_pacer(&hub->peers[sidx].ssts) >= 0)
+    moqtss_tick_paced(hub, sidx, now_ms);
+}
+
+static int moqtss_ticks(const wired_moqtrun_peer* p) {
+  return p->in_use && p->ssts.algs;
+}
+
+void moqtss_tick(wired_moqt_hub* hub, u64 now_ms) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
+    if (moqtss_ticks(&hub->peers[i])) moqtss_tick_sess(hub, i, now_ms);
 }
 
 /* ===== per-subscription verdict window ===== */
