@@ -6726,11 +6726,10 @@ static void test_srvrun_wt_reset_mapped_delivers_app_error_code(void) {
   conns[0].l.wt_streams[0].stream_id       = 8;
   conns[0].l.wt_streams[0].offered         = 1;
   conns[0].l.wt_streams[0].wt_session_slot = 0;
-  conns[0].l.wt_reset_stream_id            = 8;
-  conns[0].l.wt_reset_error_code           = wired_wterrmap_to_http3(0);
-  conns[0].l.wt_reset_is_stop              = 0;
-  conns[0].l.wt_reset_seen                 = 1;
-  g_sr_wt_reset_calls                      = 0;
+  conns[0].l.peer_resets[0] =
+      (wired_srvloop_reset){8, wired_wterrmap_to_http3(0), 0};
+  conns[0].l.peer_reset_n = 1;
+  g_sr_wt_reset_calls     = 0;
   {
     srvrun_cfg cfg = {
         -1,
@@ -6775,7 +6774,6 @@ static void test_srvrun_wt_reset_mapped_delivers_app_error_code(void) {
   CHECK(g_sr_wt_reset_app_code == 0);
   CHECK(g_sr_wt_reset_session == &conns[0].wt);
   CHECK(conns[0].l.wt_streams[0].in_use == 0);      /* stream slot freed */
-  CHECK(conns[0].l.wt_reset_seen == 0);             /* latch consumed */
   CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED); /* session untouched */
 }
 
@@ -6805,11 +6803,10 @@ static void test_srvrun_wt_reset_unmapped_delivers_no_app_error_code(void) {
   conns[0].l.wt_streams[0].stream_id       = 8;
   conns[0].l.wt_streams[0].offered         = 1;
   conns[0].l.wt_streams[0].wt_session_slot = 0;
-  conns[0].l.wt_reset_stream_id            = 8;
-  conns[0].l.wt_reset_error_code = 1; /* outside WT_APPLICATION_ERROR */
-  conns[0].l.wt_reset_is_stop    = 1;
-  conns[0].l.wt_reset_seen       = 1;
-  g_sr_wt_reset_calls            = 0;
+  /* outside WT_APPLICATION_ERROR */
+  conns[0].l.peer_resets[0] = (wired_srvloop_reset){8, 1, 1};
+  conns[0].l.peer_reset_n   = 1;
+  g_sr_wt_reset_calls       = 0;
   {
     srvrun_cfg cfg = {
         -1,
@@ -6874,10 +6871,11 @@ static void test_srvrun_wt_reset_unrelated_stream_not_delivered(void) {
     srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
-  conns[0].l.wt_reset_stream_id  = 999; /* no WT slot has this id */
-  conns[0].l.wt_reset_error_code = wired_wterrmap_to_http3(0);
-  conns[0].l.wt_reset_seen       = 1;
-  g_sr_wt_reset_calls            = 0;
+  /* no WT slot has this id */
+  conns[0].l.peer_resets[0] =
+      (wired_srvloop_reset){999, wired_wterrmap_to_http3(0), 0};
+  conns[0].l.peer_reset_n = 1;
+  g_sr_wt_reset_calls     = 0;
   {
     srvrun_cfg cfg = {
         -1,
@@ -6917,7 +6915,6 @@ static void test_srvrun_wt_reset_unrelated_stream_not_delivered(void) {
     srvrun_deliver_wt_reset_if_owned(&cfg, &conns[0]);
   }
   CHECK(g_sr_wt_reset_calls == 0);
-  CHECK(conns[0].l.wt_reset_seen == 0); /* latch still consumed */
 }
 
 /* REGRESSION: a step with no stream-close latched (closed_stream_seen == 0)
@@ -18375,8 +18372,7 @@ static void test_srvrun_wt_bidi_peer_reset_owes_credit(void) {
   srvrun_conn*    c            = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
   c->l.wt_streams[0].in_use    = 1;
   c->l.wt_streams[0].stream_id = 4;
-  c->l.wt_reset_stream_id      = 4;
-  wt_reset_bidi_session(c);
+  wt_reset_bidi_session(c, 4);
   CHECK(c->l.wt_streams[0].in_use == 0);
   CHECK(c->wt_bidi_credit_owed == 1);
   /* a late signal frame (RESET overtook data) must not reopen it */
@@ -18706,13 +18702,50 @@ static void test_srvrun_wt_uni_peer_reset_returns_credit(void) {
   srvrun_conn*    c                = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
   c->l.wt_uni_streams[0].in_use    = 1;
   c->l.wt_uni_streams[0].stream_id = 2;
-  c->l.wt_reset_stream_id          = 2;
-  wt_reset_uni_session(c);
+  wt_reset_uni_session(c, 2);
   CHECK(wired_srvloop_wt_uni_slot_claim(&c->l, 2) < 0); /* stays closed */
   srvrun_grant_wt_streams(&ctx, c);
   CHECK(c->l.wt_uni_streams[0].in_use == 0);
   CHECK(c->uni_stream_limit_advertised == wired_srvloop_uni_stream_limit() + 1);
   CHECK(c->stream_limit_advertised == 0); /* bidi untouched */
+}
+
+/* Two peer resets on two different WT streams in one step: BOTH are
+ * delivered to the app and both slots freed -- an earlier one in the same
+ * step is never lost to a later one. */
+static void test_srvrun_wt_two_resets_one_step_both_delivered(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c                = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  cfg.wt_on_stream_reset           = sr_wt_on_stream_reset;
+  c->l.wt_streams[0].in_use        = 1;
+  c->l.wt_streams[0].stream_id     = 4;
+  c->l.wt_uni_streams[0].in_use    = 1;
+  c->l.wt_uni_streams[0].stream_id = 2;
+  c->l.peer_resets[0] = (wired_srvloop_reset){4, wired_wterrmap_to_http3(0), 0};
+  c->l.peer_resets[1] = (wired_srvloop_reset){2, wired_wterrmap_to_http3(0), 0};
+  c->l.peer_reset_n   = 2;
+  g_sr_wt_reset_calls = 0;
+  srvrun_deliver_wt_reset_if_owned(&cfg, c);
+  CHECK(g_sr_wt_reset_calls == 2);
+  CHECK(c->l.wt_streams[0].in_use == 0);
+  CHECK(c->l.wt_uni_streams[0].in_use == 0);
+}
+
+/* More resets in one step than the queue holds (two per tracked stream) is
+ * a flood: H3_EXCESSIVE_LOAD, never a silent drop of the overflow. */
+static void test_srvrun_reset_queue_overflow_closes(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  c->l.peer_reset_n = WIRED_SRVLOOP_RESET_Q;
+  CHECK(!srvrun_reset_flooded(&cfg, c));
+  c->l.peer_reset_n = WIRED_SRVLOOP_RESET_Q + 1;
+  CHECK(srvrun_reset_flooded(&cfg, c));
 }
 
 /* ===================== WT session-close notification ===================== */
@@ -21701,6 +21734,8 @@ void test_srvrun(void) {
   test_srvrun_wt_reset_mapped_delivers_app_error_code();
   test_srvrun_wt_reset_unmapped_delivers_no_app_error_code();
   test_srvrun_wt_reset_unrelated_stream_not_delivered();
+  test_srvrun_wt_two_resets_one_step_both_delivered();
+  test_srvrun_reset_queue_overflow_closes();
   test_srvrun_no_stream_close_leaves_wt_session();
   test_srvrun_idle_sweep_closes_wt_session();
   test_srvrun_idle_sweep_without_wt_unaffected();

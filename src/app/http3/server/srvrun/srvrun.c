@@ -3934,7 +3934,7 @@ static void srvrun_drain_wt_stream_reset(
 }
 
 /* 1 if slot is in-use and its stream id is this step's latched
- * wt_reset_stream_id -- the same "is this the reset target" test
+ * reset entry's stream id -- the same "is this the reset target" test
  * wt_reset_bidi_session/wt_reset_uni_session each apply to their own table,
  * pulled into one predicate so neither loop's own `if` carries the `||`
  * (CCN). */
@@ -3949,16 +3949,16 @@ static int wt_reset_uni_matches(
   return slot->in_use && slot->stream_id == reset_stream_id;
 }
 
-/* This step's wt_reset_stream_id/gather_one_wt_reset latch (dispatch.c)
+/* A queued peer reset (gather_one_wt_reset, dispatch.c) on stream_id
  * belongs to session slot sidx's own WT bidi stream: free that ONE stream
  * slot (WTH3-036: a reset ends the stream, not its session) and return the
  * session slot it belonged to, or -1 if it names no in-use bidi slot at all
  * -- split out of wt_reset_session_slot so its own branch count stays at
  * the CCN gate. */
-static int wt_reset_bidi_session(srvrun_conn* c) {
+static int wt_reset_bidi_session(srvrun_conn* c, u64 stream_id) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
     wired_srvloop_wt_stream_slot* slot = &c->l.wt_streams[i];
-    if (!wt_reset_bidi_matches(slot, c->l.wt_reset_stream_id)) continue;
+    if (!wt_reset_bidi_matches(slot, stream_id)) continue;
     srvrun_wt_bidi_slot_free(c, slot);
     return slot->wt_session_slot;
   }
@@ -3966,10 +3966,10 @@ static int wt_reset_bidi_session(srvrun_conn* c) {
 }
 
 /* Same as wt_reset_bidi_session, over the uni table. */
-static int wt_reset_uni_session(srvrun_conn* c) {
+static int wt_reset_uni_session(srvrun_conn* c, u64 stream_id) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
     wired_srvloop_wt_uni_stream_slot* slot = &c->l.wt_uni_streams[i];
-    if (!wt_reset_uni_matches(slot, c->l.wt_reset_stream_id)) continue;
+    if (!wt_reset_uni_matches(slot, stream_id)) continue;
     srvrun_wt_uni_slot_free(c, slot);
     return slot->wt_session_slot;
   }
@@ -3982,10 +3982,10 @@ static int wt_reset_uni_session(srvrun_conn* c) {
  * 9000 2.1, so at most one ever matches), or -1 if the stream id names
  * neither a live WT bidi nor uni slot on this connection at all (e.g. a
  * plain HTTP/3 request stream's own reset, out of WebTransport's scope). */
-static int wt_reset_session_slot(srvrun_conn* c) {
-  int sidx = wt_reset_bidi_session(c);
+static int wt_reset_session_slot(srvrun_conn* c, u64 stream_id) {
+  int sidx = wt_reset_bidi_session(c, stream_id);
   if (sidx >= 0) return sidx;
-  return wt_reset_uni_session(c);
+  return wt_reset_uni_session(c, stream_id);
 }
 
 /* draft-ietf-webtrans-http3-15 4.4 (WTH3-040): "If a RESET_STREAM or
@@ -3998,14 +3998,17 @@ static int wt_reset_session_slot(srvrun_conn* c) {
  * WTH3-040, deciding what to hand the app; wired_wt_on_stream_reset's own
  * doc covers the same split from the app's point of view. */
 static void srvrun_deliver_wt_reset(
-    const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
+    const srvrun_cfg*          cfg,
+    srvrun_conn*               c,
+    int                        sidx,
+    const wired_srvloop_reset* e) {
   u32 app_code = 0;
-  int mapped   = rawq_reset_code_in(
-      srvrun_conn_is_raw(c), c->l.wt_reset_error_code, &app_code);
+  int mapped =
+      rawq_reset_code_in(srvrun_conn_is_raw(c), e->error_code, &app_code);
   if (!cfg->wt_on_stream_reset) return;
   cfg->wt_on_stream_reset(
-      cfg->wt_stream_reset_ctx, srvrun_wt_slot(c, sidx),
-      c->l.wt_reset_stream_id, mapped, app_code);
+      cfg->wt_stream_reset_ctx, srvrun_wt_slot(c, sidx), e->stream_id, mapped,
+      app_code);
 }
 
 /* draft-ietf-webtrans-http3-15 4.4 (WTH3-039/WTH3-040): once a step's
@@ -4015,16 +4018,26 @@ static void srvrun_deliver_wt_reset(
  * stream's slot -- narrower than srvrun_close_wt_session_slot, which tears
  * down a whole SESSION; this tears down only the ONE stream the peer reset,
  * leaving the rest of its session untouched (WTH3-036: a reset is a per-
- * stream event, not a session-ending one). c->l.wt_reset_seen is consumed
- * every step regardless of whether it matched, mirroring closed_stream_
- * seen's own per-step latch-and-clear shape (wt_connect_stream_slot's doc). */
+ * stream event, not a session-ending one). Every queued entry
+ * (c->l.peer_resets) is walked; srvrun_clear_peer_resets empties the queue
+ * at the next step's start (srvrun_on_step_live). */
+static void srvrun_deliver_one_wt_reset(
+    const srvrun_cfg* cfg, srvrun_conn* c, const wired_srvloop_reset* e) {
+  int sidx = wt_reset_session_slot(c, e->stream_id);
+  if (sidx >= 0) srvrun_deliver_wt_reset(cfg, c, sidx, e);
+}
+
+/* Entries actually stored this step (peer_reset_n counts past the queue). */
+static usz srvrun_peer_resets_stored(const srvrun_conn* c) {
+  usz n = c->l.peer_reset_n;
+  return n < WIRED_SRVLOOP_RESET_Q ? n : WIRED_SRVLOOP_RESET_Q;
+}
+
 static void srvrun_deliver_wt_reset_if_owned(
     const srvrun_cfg* cfg, srvrun_conn* c) {
-  int sidx;
-  if (!c->l.wt_reset_seen) return;
-  sidx = wt_reset_session_slot(c);
-  if (sidx >= 0) srvrun_deliver_wt_reset(cfg, c, sidx);
-  c->l.wt_reset_seen = 0;
+  usz n = srvrun_peer_resets_stored(c);
+  for (usz i = 0; i < n; i++)
+    srvrun_deliver_one_wt_reset(cfg, c, &c->l.peer_resets[i]);
 }
 
 /* RFC 9221 3: this step's DATAGRAM gathering (dispatch.c) latched a violation
@@ -4135,9 +4148,16 @@ static u32 srvrun_reset_limit(const srvrun_cfg* cfg) {
  * count passed the limit and the connection was closed over it with the
  * RFC 9114 8.1 H3_EXCESSIVE_LOAD application CONNECTION_CLOSE (the frame
  * sent stays in c->close_pl for a test to decode). */
+/* 1 iff this window's resets passed the limit, or this step carried more
+ * than WIRED_SRVLOOP_RESET_Q (two per tracked stream, its doc). */
+static int srvrun_reset_flooded(const srvrun_cfg* cfg, const srvrun_conn* c) {
+  return c->l.peer_reset_count > srvrun_reset_limit(cfg) ||
+         c->l.peer_reset_n > WIRED_SRVLOOP_RESET_Q;
+}
+
 static int srvrun_close_on_reset_flood(const srvrun_cfg* cfg, srvrun_conn* c) {
   static const u8 reason[] = "stream reset rate exceeded";
-  if (c->l.peer_reset_count <= srvrun_reset_limit(cfg)) return 0;
+  if (!srvrun_reset_flooded(cfg, c)) return 0;
   srvrun_send_app_close(
       cfg, c, H3_EXCESSIVE_LOAD, wired_span_of(reason, sizeof reason - 1));
   return 1;
@@ -4250,10 +4270,11 @@ static void srvrun_on_step_live(
                               * ackpolicy's delayed-ACK timer, not a
                               * second one. */
   srvrun_roll_reset_window(c, ctx->now_ms);
-  c->l.ack_defer = 1; /* RFC 9000 13.2.1: suppress the bare-ACK packet
-                       * this step; the pump piggybacks the pending ACK
-                       * onto a slice, or srvrun_flush_deferred_ack
-                       * sends it at step end. */
+  c->l.peer_reset_n = 0; /* this step's own queue (wired_srvloop doc) */
+  c->l.ack_defer    = 1; /* RFC 9000 13.2.1: suppress the bare-ACK packet
+                          * this step; the pump piggybacks the pending ACK
+                          * onto a slice, or srvrun_flush_deferred_ack
+                          * sends it at step end. */
   produced = wired_srvloop_step(&conn, dg, &ob);
   srvrun_raw_start(ctx->cfg, c);
   if (c->l.h3.settings_sent) srvrun_open_qenc_stream(c);

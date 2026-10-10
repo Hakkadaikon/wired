@@ -851,37 +851,27 @@ static int wt_stop_frame(u64 type, wired_span frame, stop_sending_frame* out) {
   return stop_sending_decode(frame.p, frame.n, out) != 0;
 }
 
-/* draft-ietf-webtrans-http3-15 4.4 (WTH3-040): if the walked frame at
- * `frame` is a RESET_STREAM or STOP_SENDING, latch its (stream_id,
- * error_code) into l->wt_reset_*, mirroring gather_one_stream_close's own
- * latch-only shape but ALSO keeping the wire error code
- * (reset_stream_id/stop_sending_id both discard it, since the CONNECT-
- * stream-close case they serve never needed it). l has no notion of which
- * stream id belongs to a WT session -- the caller (srvrun.c) resolves that
- * and decides whether/how to map the code through wired_wterrmap_from_http3.
- * Only the last one seen this step survives if more than one arrives, same
- * convention as closed_stream_id.
- * ponytail: single latch per step -- an earlier reset in the same step is
- * not delivered to the app and its slot is not freed. peer_reset_count
- * still counts every frame, so rapid-reset detection (RFC 9114 10.5) is
- * unaffected. Upgrade to a small fixed queue if apps need every reset. */
+/* RFC 9000 19.4/19.5: queue one peer RESET_STREAM/STOP_SENDING at the tail
+ * of l->peer_resets (wired_srvloop's own doc). Past the queue's end only
+ * the count grows, so the caller sees the overflow. */
+static void push_peer_reset(wired_srvloop* l, u64 id, u64 code, int is_stop) {
+  if (l->peer_reset_n < WIRED_SRVLOOP_RESET_Q)
+    l->peer_resets[l->peer_reset_n] = (wired_srvloop_reset){id, code, is_stop};
+  l->peer_reset_n++;
+  l->peer_reset_count++;
+}
+
+/* RFC 9000 19.4/19.5: if the walked frame at `frame` is a RESET_STREAM or
+ * STOP_SENDING, queue its (stream_id, error_code, kind) -- every one this
+ * step, unlike gather_one_stream_close's last-one-wins latch. l has no
+ * notion of which stream id it names; the caller (srvrun.c) resolves it. */
 static void gather_one_wt_reset(wired_srvloop* l, u64 type, wired_span frame) {
   reset_stream_frame rs;
   stop_sending_frame ss;
-  if (wt_reset_frame(type, frame, &rs)) {
-    l->wt_reset_stream_id  = rs.stream_id;
-    l->wt_reset_error_code = rs.error_code;
-    l->wt_reset_is_stop    = 0;
-    l->wt_reset_seen       = 1;
-    l->peer_reset_count++;
-    return;
-  }
-  if (!wt_stop_frame(type, frame, &ss)) return;
-  l->wt_reset_stream_id  = ss.stream_id;
-  l->wt_reset_error_code = ss.error_code;
-  l->wt_reset_is_stop    = 1;
-  l->wt_reset_seen       = 1;
-  l->peer_reset_count++;
+  if (wt_reset_frame(type, frame, &rs))
+    push_peer_reset(l, rs.stream_id, rs.error_code, 0);
+  if (wt_stop_frame(type, frame, &ss))
+    push_peer_reset(l, ss.stream_id, ss.error_code, 1);
 }
 
 /* RFC 9000 19.8: 1 if frame is a client bidi STREAM frame with FIN set,

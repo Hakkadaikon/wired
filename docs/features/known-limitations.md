@@ -322,10 +322,6 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 
 ## WebTransport
 
-- **One latched reset per step** — only the last WT stream reset seen in one
-  server step is delivered to the app and its slot freed; an earlier one in the
-  same step is lost. Rapid-reset detection (RFC 9114 10.5) still counts every
-  frame. Accepted (YAGNI). Source: `srvloop/dispatch.c:864`, L6-7.
 - **WT receive buffers drop or truncate overflow** — a write outside the
   granted window of a WT bidi/uni slot is dropped; the `req_buf` / control
   buffer overflow is truncated. Source: `srvloop.h:141`, `srvloop.h:201`,

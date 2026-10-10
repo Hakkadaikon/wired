@@ -2509,30 +2509,31 @@ static void test_srvloop_uni_reset_before_type_no_crash(void) {
   CHECK(f.l.closed_stream_id == 2);
 }
 
-/* Two RESET_STREAMs for different streams in one step: gather_one_wt_reset's
- * single latch keeps only the last, while peer_reset_count counts both (see
- * the ponytail note on gather_one_wt_reset). */
-static void test_srvloop_wt_reset_same_step_keeps_only_last(void) {
+/* Two RESET_STREAMs for different streams in one step: both are queued in
+ * arrival order (an earlier one is never overwritten by a later one), and
+ * peer_reset_count counts both. */
+static void test_srvloop_wt_reset_same_step_keeps_both(void) {
   struct lp_fix      f;
   u8                 payload[64], out[1024], spkt[1024];
   usz                off = 0, slen;
   wired_obuf         ob  = {out, sizeof out, 0};
   reset_stream_frame rs0 = {8, 0x11, 0};
-  reset_stream_frame rs4 = {12, 0x22, 0};
+  stop_sending_frame ss4 = {12, 0x22};
   off += reset_stream_encode(payload + off, sizeof payload - off, &rs0);
-  off += reset_stream_encode(payload + off, sizeof payload - off, &rs4);
+  off += stop_sending_encode(payload + off, sizeof payload - off, &ss4);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  /* both were counted for rate-limiting... */
   CHECK(f.l.peer_reset_count == 2);
-  /* ...but only stream 12's (the LAST one) id/code survive the latch --
-   * stream 8's reset is unrecoverably gone once this step ends. */
-  CHECK(f.l.wt_reset_seen == 1);
-  CHECK(f.l.wt_reset_stream_id == 12);
-  CHECK(f.l.wt_reset_error_code == 0x22);
+  CHECK(f.l.peer_reset_n == 2);
+  CHECK(f.l.peer_resets[0].stream_id == 8);
+  CHECK(f.l.peer_resets[0].error_code == 0x11);
+  CHECK(f.l.peer_resets[0].is_stop == 0);
+  CHECK(f.l.peer_resets[1].stream_id == 12);
+  CHECK(f.l.peer_resets[1].error_code == 0x22);
+  CHECK(f.l.peer_resets[1].is_stop == 1);
 }
 
 /* REGRESSION: a WT uni stream arriving on a connection with no active
@@ -4839,7 +4840,7 @@ void test_srvloop(void) {
   test_srvloop_qpack_encoder_set_capacity_over_limit();
   test_srvloop_uni_unrecognized_type_no_crash();
   test_srvloop_uni_reset_before_type_no_crash();
-  test_srvloop_wt_reset_same_step_keeps_only_last();
+  test_srvloop_wt_reset_same_step_keeps_both();
   test_srvloop_wt_uni_stream_without_session_no_crash();
   test_srvloop_datagram_queued_on_step();
   test_srvloop_datagram_many_coalesced_in_one_packet();

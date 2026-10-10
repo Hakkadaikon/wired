@@ -474,6 +474,22 @@ typedef struct {
   u64 bm[16]; /**< the 1024 indexes from floor up */
 } wired_srvloop_closed;
 
+/** RFC 9000 19.4/19.5: peer RESET_STREAM/STOP_SENDING frames one step can
+ * queue. Every stream slot this loop tracks (request, WT bidi, WT uni) can
+ * draw at most one RESET_STREAM and one STOP_SENDING, so two per slot holds
+ * a peer tearing down everything in one packet; more than that is a flood
+ * (the caller closes with H3_EXCESSIVE_LOAD on overflow). */
+#define WIRED_SRVLOOP_RESET_Q                                      \
+  (2 * (WIRED_SRVLOOP_MAX_STREAMS + WIRED_SRVLOOP_MAX_WT_STREAMS + \
+        WIRED_SRVLOOP_MAX_WT_UNI_STREAMS))
+
+/** One peer RESET_STREAM (is_stop 0) or STOP_SENDING (is_stop 1). */
+typedef struct {
+  u64 stream_id;  /**< stream id the frame named */
+  u64 error_code; /**< its wire application error code */
+  int is_stop;    /**< 1 for STOP_SENDING, 0 for RESET_STREAM */
+} wired_srvloop_reset;
+
 /** Record stream_id's id-space index in w (see srvloop.c's closed-set doc:
  * exact ids over a sliding 1024-index window; an id past the window slides
  * it up, counting every index left behind as recorded). */
@@ -810,22 +826,14 @@ typedef struct {
    * across steps by this loop itself, same convention as max_data_seen_flag
    * (the caller consumes and clears it every step). */
   int wt_signal_mid_stream_violation;
-  /** draft-ietf-webtrans-http3-15 4.4 (WTH3-040): the stream id and wire
-   * error code of a RESET_STREAM/STOP_SENDING this step latched on a client
-   * bidi (request/WT) stream id, valid only when wt_reset_seen is set --
-   * mirrors closed_stream_id's own shape (last one wins if more than one
-   * arrives this step) but ALSO records the error code, which
-   * closed_stream_id's own gather (gather_stream_closes, for the CONNECT-
-   * stream-close case) does not need and therefore does not latch. This
-   * loop has no notion of which stream id is a WT data stream vs. a plain
-   * request stream, nor of the WT_APPLICATION_ERROR mapping -- the caller
-   * (srvrun.c) resolves both. wt_reset_is_stop is 1 for a STOP_SENDING, 0
-   * for a RESET_STREAM (both matter equally here; distinguished only so a
-   * caller that needs it can tell them apart). */
-  u64 wt_reset_stream_id;  /**< stream id the RESET_STREAM/STOP_SENDING named */
-  u64 wt_reset_error_code; /**< its wire error code */
-  int wt_reset_is_stop;    /**< 1 for STOP_SENDING, 0 for RESET_STREAM */
-  int wt_reset_seen; /**< 1 once the three fields above were set this step */
+  /** RFC 9000 19.4/19.5: every RESET_STREAM/STOP_SENDING this step carried,
+   * in arrival order, with its wire error code. This loop has no notion of
+   * which stream id is a WT data stream, a CONNECT stream or a plain request
+   * stream -- the caller (srvrun.c) resolves each entry and clears
+   * peer_reset_n. peer_reset_n keeps counting past WIRED_SRVLOOP_RESET_Q
+   * (entries beyond it are not stored) so the caller sees the overflow. */
+  wired_srvloop_reset peer_resets[WIRED_SRVLOOP_RESET_Q];
+  usz                 peer_reset_n; /**< frames queued this step */
   /** RFC 9000 19.4/19.5, RFC 9114 10.5 (CVE-2023-44487-class rapid reset):
    * how many RESET_STREAM/STOP_SENDING frames the peer has sent since the
    * caller last cleared this -- every one counts, unlike closed_stream_id's
