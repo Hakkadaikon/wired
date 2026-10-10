@@ -1859,12 +1859,14 @@ from the coverage denominator above:
   MAX_REQUEST_UPDATES are advertised, MQ22-199.)
 - (SS11.5) Padding Datagrams — not sent.
 - (SS10, SS10.1--10.x) MOQT Properties (MAX_CACHE_DURATION,
-  DEFAULT_PUBLISHER_PRIORITY, DEFAULT_PUBLISHER_GROUP_ORDER, DYNAMIC_GROUPS,
+  DEFAULT_PUBLISHER_GROUP_ORDER, DYNAMIC_GROUPS,
   Immutable Properties, Prior Group/Object ID Gap, and the renumbered
   provisional properties — TIMESTAMP 0x10, VIDEO_FRAME_MARKING 0x09,
   AUDIO_CONFIG 0x0F, ENCRYPTED_LIST 0x0A, PADDING 0x32) as Track/Object
   Properties — the Properties wire slot is decoded generically and relayed
-  unchanged; no specific Property type is interpreted.
+  unchanged; no specific Property type is interpreted except
+  DEFAULT_PUBLISHER_PRIORITY (the stream urgency of a header omitting its
+  Publisher Priority).
 - (SS16) Security Considerations (subscription amplification,
   communication security, media security, resource exhaustion, timeouts,
   relay security, implementation fingerprinting, mTLS/RFC 9525 certificate

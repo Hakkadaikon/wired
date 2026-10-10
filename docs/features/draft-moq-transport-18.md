@@ -1610,10 +1610,12 @@ from the coverage denominator above:
   refused (MQ18-189).
 - (SS11.5.2) Padding Datagrams — not sent.
 - (SS12, SS12.1--12.9) MOQT Properties (MAX_CACHE_DURATION,
-  DEFAULT_PUBLISHER_PRIORITY, DEFAULT_PUBLISHER_GROUP_ORDER, DYNAMIC_GROUPS,
+  DEFAULT_PUBLISHER_GROUP_ORDER, DYNAMIC_GROUPS,
   Immutable Properties, Prior Group/Object ID Gap) as Track/Object
   Properties — the Properties wire slot is decoded generically and relayed
-  unchanged; no specific Property type is interpreted.
+  unchanged; no specific Property type is interpreted except
+  DEFAULT_PUBLISHER_PRIORITY (the stream urgency of a header omitting its
+  Publisher Priority).
 - (SS13) Security Considerations (subscription amplification,
   communication security, authorization, media security, resource
   exhaustion, timeouts, relay security, implementation fingerprinting) —

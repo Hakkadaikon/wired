@@ -106,8 +106,6 @@ general relay network.
   MAX_AUTH_TOKEN_CACHE_SIZE; Token Aliases are refused. A REGISTER should
   terminate the session with AUTH_TOKEN_CACHE_OVERFLOW (10.2.2) but the hub has
   no session-close io there, so it refuses the request. Source: `moqtrun.c:2081`.
-- **DEFAULT_PUBLISHER_PRIORITY property not read** — an omitted Publisher
-  Priority is always 128 (12.4 Track Property not parsed). Source: `moqtrun.c:5214`.
 - **OBJECT_DELIVERY_TIMEOUT start point is "leading byte of the Object"** —
   d19 ("first payload byte") and d22 ("last header byte") collapse to the same
   moment because Objects decode atomically. Source: `moqtrun.c:5676`, L4-11,

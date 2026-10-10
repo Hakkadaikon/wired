@@ -796,10 +796,11 @@ static void moqtrun_track_claim(
   moqtrun_track_reset_stale_relays(hub, t);
   moqtrun_track_cache_drop(hub, t);
   if (!t->in_use) moqtrun_track_clear_subs(t);
-  t->cache_tag   = ++hub->cache_tag_next;
-  t->in_use      = 1;
-  t->own_alias   = track_alias;
-  t->has_largest = 0; /* a new PUBLISH restarts the Largest */
+  t->cache_tag        = ++hub->cache_tag_next;
+  t->in_use           = 1;
+  t->default_pub_prio = 128; /* hub-owned tracks; moqtrun_track_open reads */
+  t->own_alias        = track_alias;
+  t->has_largest      = 0; /* a new PUBLISH restarts the Largest */
   moqtrun_track_drop_rings(hub, t);
   moqtrun_track_clear_relays(t);
   moqtrun_record_track_key(t, k);
@@ -910,23 +911,28 @@ static wired_moqtrun_track* moqtrun_publish_slot(
 static int moqtrun_publish_refused(
     const wired_moqt_hub* hub, const moqctl_publish* m, u64* code);
 
-static u64 moqtrun_prop_sgt_of(const moqkvp* kv, u64 prior) {
-  return kv->type == MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT && !kv->is_raw
-             ? kv->num
-             : prior;
+static u64 moqtrun_prop_num_of(const moqkvp* kv, u64 type, u64 prior) {
+  return kv->type == type && !kv->is_raw ? kv->num : prior;
 }
 
-/* The SUBGROUP_DELIVERY_TIMEOUT Track Property (12.6, Type 0x06) of a
- * PUBLISH's Track Properties (KVPs to the end of the body, SS1.6); 0
- * when absent, unknown properties skipped, a malformed pair ends the
- * scan with what was read. */
-static u64 moqtrun_track_prop_sgt(wired_span props) {
+/* The varint Track Property type of a PUBLISH's Track Properties (KVPs
+ * to the end of the body, SS1.6); dflt when absent, unknown properties
+ * skipped, a malformed pair ends the scan with what was read. */
+static u64 moqtrun_track_prop(wired_span props, u64 type, u64 dflt) {
   usz    off  = 0;
-  u64    prev = 0, out = 0;
+  u64    prev = 0, out = dflt;
   moqkvp kv;
   while (off < props.n && moqkvp_take(props, &off, &prev, &kv) == MOQKVP_OK)
-    out = moqtrun_prop_sgt_of(&kv, out);
+    out = moqtrun_prop_num_of(&kv, type, out);
   return out;
+}
+
+/* DEFAULT_PUBLISHER_PRIORITY Track Property (draft-22 10.4, draft-19
+ * 12.4): 128 when omitted or past 255 (invalid). */
+#define MOQTRUN_PROP_DEFAULT_PUB_PRIO 0x0EULL
+static u8 moqtrun_track_prop_prio(wired_span props) {
+  u64 v = moqtrun_track_prop(props, MOQTRUN_PROP_DEFAULT_PUB_PRIO, 128);
+  return v > 255 ? 128 : (u8)v;
 }
 
 /* Forward-declared: the rendezvous block below (moqtrun_rdv_resolve's own
@@ -936,7 +942,8 @@ static void moqtrun_rdv_resolve(
 
 /* Opens a track incarnation on slot t for k under the publisher's Track
  * Alias: its Largest seeded from params' LARGEST_OBJECT (10.2.16), its
- * SUBGROUP_DELIVERY_TIMEOUT from props (12.6), rid the request (a
+ * SUBGROUP_DELIVERY_TIMEOUT (12.6) and DEFAULT_PUBLISHER_PRIORITY (12.4)
+ * from props, rid the request (a
  * PUBLISH's, or the hub's own upstream SUBSCRIBE's) that claims it. */
 static void moqtrun_track_open(
     wired_moqt_hub*      hub,
@@ -948,10 +955,12 @@ static void moqtrun_track_open(
     u64                  rid) {
   moqtrun_track_claim(hub, t, k, alias);
   moqtrun_track_seed_largest(t, params);
-  t->request_id          = rid;
-  t->subgroup_timeout_ms = moqtrun_track_prop_sgt(props);
-  t->up_streams          = 0;
-  t->pubdone_pending     = 0;
+  t->request_id = rid;
+  t->subgroup_timeout_ms =
+      moqtrun_track_prop(props, MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 0);
+  t->default_pub_prio = moqtrun_track_prop_prio(props);
+  t->up_streams       = 0;
+  t->pubdone_pending  = 0;
 }
 
 /* A vetted PUBLISH: claim a track into a free (or matching-name) slot
@@ -5360,17 +5369,14 @@ static u8 moqtrun_sub_prio(const wired_moqtrun_sub* s) {
   return s->has_priority ? s->priority : 128;
 }
 
-/* The Publisher Priority of the SUBGROUP_HEADER head starts with: 128
- * (6306: the default) when the DEFAULT_PRIORITY bit omits it, or head does
- * not decode.
- * ponytail: the DEFAULT_PUBLISHER_PRIORITY Track Property (12.4) is not
- * parsed, so an omitted priority is always 128; read it from PUBLISH when
- * a publisher sets one. */
-static u8 moqtrun_pub_prio(wired_span head) {
+/* The Publisher Priority of the SUBGROUP_HEADER head starts with: dflt
+ * (the track's DEFAULT_PUBLISHER_PRIORITY, 12.4) when the DEFAULT_PRIORITY
+ * bit omits it, or head does not decode. */
+static u8 moqtrun_pub_prio(wired_span head, u8 dflt) {
   usz            off = 0;
   moqdata_subhdr h;
-  if (moqdata_subhdr_take(head, &off, &h) != MOQDATA_OK) return 128;
-  return moqdata_type_default_priority(h.type) ? 128 : (u8)h.priority;
+  if (moqdata_subhdr_take(head, &off, &h) != MOQDATA_OK) return dflt;
+  return moqdata_type_default_priority(h.type) ? dflt : (u8)h.priority;
 }
 
 /* Sets the urgency (WIRED_MOQTRUN_URGENCY) of subscriber stream sid just
@@ -5380,18 +5386,20 @@ static void moqtrun_prio_set(
     wired_wt_session*        wt,
     i64                      sid,
     const wired_moqtrun_sub* sub,
-    wired_span               head) {
+    wired_span               head,
+    u8                       dflt) {
   if (!hub->io.stream_priority || sid < 0) return;
   hub->io.stream_priority(
       wt, (u64)sid,
-      WIRED_MOQTRUN_URGENCY(moqtrun_sub_prio(sub), moqtrun_pub_prio(head)));
+      WIRED_MOQTRUN_URGENCY(
+          moqtrun_sub_prio(sub), moqtrun_pub_prio(head, dflt)));
 }
 
 /* One-shot relay of wire to one subscriber: a fresh uni stream, sent and
  * FIN'd in a single io.send_uni call -- the whole-message-in-one-call path
  * (a publisher stream whose data AND fin arrived together). */
 static void moqtrun_relay_to_one(
-    wired_moqt_hub* hub, wired_moqtrun_sub* sub, wired_span wire) {
+    wired_moqt_hub* hub, wired_moqtrun_sub* sub, wired_span wire, u8 dflt) {
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
   if (!dst->in_use) return;
   /* A refused one-shot open loses this subscriber's whole message (chat's
@@ -5401,7 +5409,7 @@ static void moqtrun_relay_to_one(
   i64 sid = hub->io.send_uni(dst->wt, wire);
   hub->stat_open_drop += sid < 0;
   sub->stream_count += sid >= 0;
-  moqtrun_prio_set(hub, dst->wt, sid, sub, wire);
+  moqtrun_prio_set(hub, dst->wt, sid, sub, wire, dflt);
 }
 
 static void moqtrun_subgroup_scan(
@@ -5472,7 +5480,8 @@ static void moqtrun_relay_object(
           hub, &track->subs[i],
           moqtrun_alias_splice(
               hub, moqtrun_hdr_cutoff(&track->subs[i], wire, group),
-              track->subs[i].track_alias));
+              track->subs[i].track_alias),
+          track->default_pub_prio);
 }
 
 /* --- relay map: one entry per in-flight publisher stream (moqtrun.h's
@@ -6523,7 +6532,7 @@ static void moqtrun_relay_open_one(
     hub->stat_open_drop++;
     return;
   }
-  moqtrun_prio_set(hub, dst->wt, sid, sub, out);
+  moqtrun_prio_set(hub, dst->wt, sid, sub, out, relay->default_pub_prio);
   sub->stream_count++;
   relay->sub_stream_id[i]   = (u64)sid;
   relay->sub_stream_set[i]  = 1;
@@ -6579,9 +6588,10 @@ static void moqtrun_relay_start(
     hub->stat_relay_full++; /* whole message lost for every subscriber */
     return;
   }
-  relay->in_use        = 1;
-  relay->pub_stream_id = pub_stream_id;
-  relay->rel_idx       = -1; /* lossy until moqtrun_rel_start binds a ring */
+  relay->in_use           = 1;
+  relay->default_pub_prio = track->default_pub_prio;
+  relay->pub_stream_id    = pub_stream_id;
+  relay->rel_idx          = -1; /* lossy until moqtrun_rel_start binds a ring */
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
     relay->sub_stream_set[i]  = 0;
     relay->sub_busy_streak[i] = 0; /* freestanding memory starts unzeroed */

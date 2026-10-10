@@ -422,6 +422,9 @@ typedef struct {
   u8 hdr[WIRED_MOQTRUN_RELAY_HDR_MAX];
   /** Bytes of hdr in use. */
   usz hdr_len;
+  /** The track's DEFAULT_PUBLISHER_PRIORITY when this relay started:
+   * the Publisher Priority of a header that omits it (12.4). */
+  u8 default_pub_prio;
   /** Index of the hub's frag_pool buffer holding the fragment, -1 when
    * none is held (frag_len 0). */
   i32 frag_idx;
@@ -878,6 +881,9 @@ typedef struct {
    * ms, 0 when absent: min()ed into each subscription's effective
    * timeout (wired_moqtrun_sub.subgroup_timeout). */
   u64 subgroup_timeout_ms;
+  /** The PUBLISH's DEFAULT_PUBLISHER_PRIORITY Track Property (12.4), 128
+   * when absent: the Publisher Priority of a header that omits it. */
+  u8 default_pub_prio;
   /** This incarnation's records in the hub cache (wired_moqt_hub.cache),
    * fresh on every PUBLISH, so a later track in the same slot never
    * reads the old one's Objects. */

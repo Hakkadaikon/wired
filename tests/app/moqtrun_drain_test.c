@@ -73,6 +73,29 @@ static void test_moqtrun_prio_one_shot(void) {
   CHECK(mtdr_urgency(SESS_B) == WIRED_MOQTRUN_URGENCY(128, 5));
 }
 
+/* A header that omits its Publisher Priority (Type 0x30) inherits the
+ * track's DEFAULT_PUBLISHER_PRIORITY Track Property (0x0E, draft-22 10.4
+ * / draft-19 12.4), on keep-open and one-shot relays alike. */
+static void test_moqtrun_prio_track_default(void) {
+  static const u8 props[] = {0x0E, 0x05}; /* Property 0x0E, varint 5 */
+  moqctl_ftn      f       = mtst_ftn("chat", "room1", "alice");
+  u8              buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  mtst_init();
+  u64 ca                      = mtst_join(SESS_A);
+  u64 cb                      = mtst_join(SESS_B);
+  mtst_hub.io.stream_priority = mtdr_prio;
+  mtst_publish_props(SESS_A, ca, &f, 1, wired_span_of(props, sizeof props));
+  mtst_subscribe_p(SESS_B, cb, &f, 2, 0);
+  usz n = mtst_stream(3, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  CHECK(mtdr_urgency(SESS_B) == WIRED_MOQTRUN_URGENCY(128, 5));
+  usz before = moqtrun_test_count_kind(13);
+  n          = mtst_stream(4, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 1);
+  CHECK(moqtrun_test_count_kind(13) == before + 1);
+  CHECK(mtdr_urgency(SESS_B) == WIRED_MOQTRUN_URGENCY(128, 5));
+}
+
 /* REQUEST_UPDATE's SUBSCRIBER_PRIORITY applies to streams opened after it
  * (7.1), including a late open on a stream already being relayed. */
 static void test_moqtrun_prio_update_applies(void) {
@@ -617,6 +640,7 @@ static void mtall_drain(void) {
   test_moqtrun_peer_goaway_uri();
   test_moqtrun_prio_per_subscriber();
   test_moqtrun_prio_one_shot();
+  test_moqtrun_prio_track_default();
   test_moqtrun_prio_update_applies();
   test_moqtrun_prio_op_absent();
 }
