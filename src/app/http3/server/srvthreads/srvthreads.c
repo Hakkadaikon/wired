@@ -125,14 +125,14 @@ static void srvthreads_worker_trampoline(void* argp) {
  * in one shot. Returns 0 on failure (mmap's -errno return in -4095..-1,
  * same test as thread.c's thread_map_stack). */
 static u8* srvthreads_alloc_envs(int n_cores) {
-  i64 sz   = (i64)wired_srvrun_env_size() * n_cores;
+  usz sz   = wired_srvrun_env_size() * (usz)n_cores;
   i64 base = wired_arch_mmap(
       0, sz, SRVTHREADS_PROT_RW, SRVTHREADS_MAP_PRIVATE_ANON, -1, 0);
   return base < 0 ? 0 : (u8*)base;
 }
 
 static void srvthreads_free_envs(u8* base, int n_cores) {
-  wired_arch_munmap((i64)base, wired_srvrun_env_size() * n_cores);
+  wired_arch_munmap((i64)base, wired_srvrun_env_size() * (usz)n_cores);
 }
 
 static wired_srvrun_env* srvthreads_env_at(u8* base, int i) {
@@ -144,7 +144,7 @@ static wired_srvrun_env* srvthreads_env_at(u8* base, int i) {
  * mesh[i][j]. Sized off n_cores like srvthreads_alloc_envs, so it stays
  * proportional instead of a fixed WIRED_SRVTHREADS_MAX*MAX allocation. */
 static wired_srvinbox_ring* srvthreads_alloc_mesh(int n_cores) {
-  i64 sz   = (i64)sizeof(wired_srvinbox_ring) * (i64)n_cores * (i64)n_cores;
+  usz sz   = sizeof(wired_srvinbox_ring) * (usz)n_cores * (usz)n_cores;
   i64 base = wired_arch_mmap(
       0, sz, SRVTHREADS_PROT_RW, SRVTHREADS_MAP_PRIVATE_ANON, -1, 0);
   if (base < 0) return 0;
@@ -155,7 +155,7 @@ static wired_srvinbox_ring* srvthreads_alloc_mesh(int n_cores) {
 
 static void srvthreads_free_mesh(wired_srvinbox_ring* mesh, int n_cores) {
   wired_arch_munmap(
-      (i64)mesh, sizeof(wired_srvinbox_ring) * (i64)n_cores * (i64)n_cores);
+      (i64)mesh, sizeof(wired_srvinbox_ring) * (usz)n_cores * (usz)n_cores);
 }
 
 /* Worker i's receive row is mesh + i*n_cores (n_cores rings). */

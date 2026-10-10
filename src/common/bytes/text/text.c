@@ -52,7 +52,7 @@ usz wired_hex_encode(char* out, usz cap, wired_span s) {
 static void text_write_all(i64 fd, const u8* p, usz n) {
   usz done = 0;
   while (done < n) {
-    i64 r = wired_arch_write(fd, p + done, (i64)(n - done));
+    i64 r = wired_arch_write(fd, p + done, n - done);
     if (r <= 0) return;
     done += (usz)r;
   }

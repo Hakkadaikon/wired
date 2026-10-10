@@ -7,7 +7,8 @@
  * arch instruction sequences where `syscallN(SYS_*)` may appear. Every
  * domain calls kernel functionality through these `wired_arch_*` names;
  * the wrappers stay deliberately thin: kernel argument order, pointers as
- * `void*` (callers keep their own struct definitions), and the kernel's
+ * `void*` (callers keep their own struct definitions), lengths as `usz`
+ * and file offsets as `u64` (cast to the raw i64 here), and the kernel's
  * raw i64 return where negative values are -errno.
  */
 
@@ -23,18 +24,18 @@ static inline i64 wired_arch_openat(
 static inline i64 wired_arch_close(i64 fd) { return syscall1(SYS_close, fd); }
 
 /** read(2). */
-static inline i64 wired_arch_read(i64 fd, void* buf, i64 n) {
-  return syscall3(SYS_read, fd, buf, n);
+static inline i64 wired_arch_read(i64 fd, void* buf, usz n) {
+  return syscall3(SYS_read, fd, buf, (i64)n);
 }
 
 /** write(2). */
-static inline i64 wired_arch_write(i64 fd, const void* buf, i64 n) {
-  return syscall3(SYS_write, fd, buf, n);
+static inline i64 wired_arch_write(i64 fd, const void* buf, usz n) {
+  return syscall3(SYS_write, fd, buf, (i64)n);
 }
 
 /** pread64(2): read at an explicit offset, file position unmoved. */
-static inline i64 wired_arch_pread64(i64 fd, void* buf, i64 n, i64 off) {
-  return syscall4(SYS_pread64, fd, buf, n, off);
+static inline i64 wired_arch_pread64(i64 fd, void* buf, usz n, u64 off) {
+  return syscall4(SYS_pread64, fd, buf, (i64)n, (i64)off);
 }
 
 /** newfstatat(2): stat @p path (kernel struct stat into @p st). */
@@ -72,14 +73,15 @@ static inline i64 wired_arch_getsockopt(
 
 /** sendto(2): @p addr may be 0/len 0 for connected-style sends. */
 static inline i64 wired_arch_sendto(
-    i64 fd, const void* buf, i64 n, i64 flags, const void* addr, i64 alen) {
-  return syscall6(SYS_sendto, fd, (i64)buf, n, flags, (i64)addr, alen);
+    i64 fd, const void* buf, usz n, i64 flags, const void* addr, i64 alen) {
+  return syscall6(SYS_sendto, fd, (i64)buf, (i64)n, flags, (i64)addr, alen);
 }
 
 /** recvfrom(2): @p addr/@p alen may be 0 when the sender is not needed. */
 static inline i64 wired_arch_recvfrom(
-    i64 fd, void* buf, i64 n, i64 flags, void* addr, void* alen) {
-  return syscall6(SYS_recvfrom, fd, (i64)buf, n, flags, (i64)addr, (i64)alen);
+    i64 fd, void* buf, usz n, i64 flags, void* addr, void* alen) {
+  return syscall6(
+      SYS_recvfrom, fd, (i64)buf, (i64)n, flags, (i64)addr, (i64)alen);
 }
 
 /** sendmsg(2): @p msg is a kernel struct msghdr. */
@@ -89,8 +91,8 @@ static inline i64 wired_arch_sendmsg(i64 fd, const void* msg, i64 flags) {
 
 /** recvmmsg(2): @p vec is a kernel struct mmsghdr array of @p n entries. */
 static inline i64 wired_arch_recvmmsg(
-    i64 fd, void* vec, i64 n, i64 flags, void* timeout) {
-  return syscall5(SYS_recvmmsg, fd, vec, n, flags, timeout);
+    i64 fd, void* vec, usz n, i64 flags, void* timeout) {
+  return syscall5(SYS_recvmmsg, fd, vec, (i64)n, flags, timeout);
 }
 
 /** poll(2): @p fds is a kernel struct pollfd array. */
@@ -106,8 +108,8 @@ static inline i64 wired_arch_fcntl(i64 fd, i64 cmd, i64 arg) {
 /** mmap(2): addresses as i64 (x86_64 user addresses are never negative, so
  * `< 0` on the return is the error test). */
 static inline i64 wired_arch_mmap(
-    i64 addr, i64 len, i64 prot, i64 flags, i64 fd, i64 off) {
-  return syscall6(SYS_mmap, addr, len, prot, flags, fd, off);
+    i64 addr, usz len, i64 prot, i64 flags, i64 fd, u64 off) {
+  return syscall6(SYS_mmap, addr, (i64)len, prot, flags, fd, (i64)off);
 }
 
 /** mprotect(2). */
@@ -116,8 +118,8 @@ static inline i64 wired_arch_mprotect(i64 addr, i64 len, i64 prot) {
 }
 
 /** munmap(2). */
-static inline i64 wired_arch_munmap(i64 addr, i64 len) {
-  return syscall2(SYS_munmap, addr, len);
+static inline i64 wired_arch_munmap(i64 addr, usz len) {
+  return syscall2(SYS_munmap, addr, (i64)len);
 }
 
 /** exit(2): ends the calling thread (last thread ends the process). */
@@ -169,8 +171,8 @@ static inline i64 wired_arch_clock_gettime(i64 clkid, void* ts) {
 }
 
 /** getrandom(2). */
-static inline i64 wired_arch_getrandom(void* buf, i64 n, i64 flags) {
-  return syscall3(SYS_getrandom, buf, n, flags);
+static inline i64 wired_arch_getrandom(void* buf, usz n, i64 flags) {
+  return syscall3(SYS_getrandom, buf, (i64)n, flags);
 }
 
 /** sched_getaffinity(2): @p mask is a cpu bitmap of @p len bytes. */
