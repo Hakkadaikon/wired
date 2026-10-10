@@ -4,28 +4,34 @@
 #include "common/bytes/span/span.h"
 #include "crypto/kdf/hkdf/hkdf.h"
 #include "tls/handshake/core/tls/initial.h"
+#include "tls/handshake/core/tls/suitehash.h"
 
 /* RFC 8446 7.1 key schedule (the handshake portion QUIC needs) plus the
  * QUIC packet-protection keys (RFC 9001 5.1) for the handshake level. */
 
 /** Derive-Secret(secret, label, messages) inputs: label is the ASCII label
  * bytes (no "tls13 " prefix, that is added by hkdf), messages the transcript
- * bytes to hash. */
+ * bytes to hash. suite picks Hash (tls_hash_of; 0 = SHA-256). */
 typedef struct {
-  const u8*  secret; /* HKDF_PRK bytes */
+  const u8*  secret; /* Hash.length bytes */
   wired_span label;
   wired_span messages;
+  u16        suite;
 } derive_secret_in;
 
 /* Derive-Secret(secret, label, messages) = HKDF-Expand-Label(secret, label,
- * Hash(messages), Hash.length). Writes a 32-byte secret and returns 1; on
+ * Hash(messages), Hash.length). Writes a Hash.length secret and returns 1; on
  * an expand failure (label too long, see hkdf_expand_label) returns 0 with
  * out zeroed, so a caller that ignores the result never continues on an
  * uninitialized secret. */
-int tls_derive_secret(const derive_secret_in* in, u8 out[HKDF_PRK]);
+int tls_derive_secret(const derive_secret_in* in, u8* out);
 
 /* Handshake Secret = HKDF-Extract(derived-from-early, ECDHE shared secret). */
-void tls_handshake_secret(const u8 ecdhe[32], u8 out[HKDF_PRK]);
+void tls_handshake_secret(const u8 ecdhe[32], u8* out);
+
+/* Same as tls_handshake_secret over suite's hash (RFC 8446 7.1: every
+ * secret is Hash.length bytes, the zero inputs too). */
+void tls_handshake_secret_suite(u16 suite, const u8 ecdhe[32], u8* out);
 
 /* RFC 8446 7.1, PSK (resumption) branch: Early Secret = HKDF-Extract(0, PSK)
  * instead of HKDF-Extract(0, 0), then the same
@@ -33,8 +39,12 @@ void tls_handshake_secret(const u8 ecdhe[32], u8 out[HKDF_PRK]);
  * as tls_handshake_secret. This SDK always has an ECDHE share (no
  * PSK-only / 0-RTT-without-DHE mode), so only the Early Secret input
  * changes. */
-void tls_handshake_secret_psk(
-    const u8 psk[HKDF_PRK], const u8 ecdhe[32], u8 out[HKDF_PRK]);
+void tls_handshake_secret_psk(const u8* psk, const u8 ecdhe[32], u8* out);
+
+/* Same as tls_handshake_secret_psk over suite's hash; psk is Hash.length
+ * bytes. */
+void tls_handshake_secret_psk_suite(
+    u16 suite, const u8* psk, const u8 ecdhe[32], u8* out);
 
 /** tls_handshake_keys inputs: hs_secret is the Handshake Secret,
  * transcript the handshake bytes hashed for the traffic secret, is_server
@@ -43,7 +53,7 @@ void tls_handshake_secret_psk(
  * "quicv2 " for v2, RFC 9369 3.3.1); 0 (every pre-existing initializer)
  * means v1. */
 typedef struct {
-  const u8*  hs_secret; /* HKDF_PRK bytes */
+  const u8*  hs_secret; /* Hash.length bytes */
   wired_span transcript;
   int        is_server;
   u32        version;
@@ -57,7 +67,8 @@ void tls_handshake_keys(const handshake_keys_in* in, initial_keys* out);
 
 /* Same as tls_handshake_keys, but sizes the derived key/hp for the given
  * negotiated TLS 1.3 cipher suite (RFC 8446 B.4; AES_128_GCM_SHA256 key=16/
- * hp=16, CHACHA20_POLY1305_SHA256 key=32/hp=32 -- RFC 9001 5.1/5.4.3). */
+ * hp=16, AES_256_GCM_SHA384 and CHACHA20_POLY1305_SHA256 key=32/hp=32 --
+ * RFC 9001 5.1/5.4.3) and derives over the suite's hash. */
 void tls_handshake_keys_suite(
     const handshake_keys_in* in, u16 suite, initial_keys* out);
 
@@ -65,17 +76,27 @@ void tls_handshake_keys_suite(
  * HKDF-Extract(0, PSK), "c e traffic", ClientHello) -- the secret
  * tls_early_keys expands, exposed for the NSS key log. */
 void tls_early_traffic_secret(
-    const u8  psk[HKDF_PRK],
-    const u8* client_hello,
-    usz       client_hello_len,
-    u8        out[HKDF_PRK]);
+    const u8* psk, const u8* client_hello, usz client_hello_len, u8* out);
+
+/* Same as tls_early_traffic_secret over suite's hash. */
+void tls_early_traffic_secret_suite(
+    u16 suite, const u8* psk, wired_span client_hello, u8* out);
 
 /* RFC 9001 4.6 / RFC 8446 7.1: 0-RTT (early data) packet protection keys.
  * From a pre-shared key, derive client_early_traffic_secret over the
  * ClientHello transcript and expand the QUIC key/iv/hp. Only the client
  * direction exists for 0-RTT. */
 void tls_early_keys(
-    const u8      psk[HKDF_PRK],
+    const u8*     psk,
+    const u8*     client_hello,
+    usz           client_hello_len,
+    initial_keys* out);
+
+/* Same as tls_early_keys for the ticket's suite (RFC 8446 4.2.10: 0-RTT
+ * runs under the suite the PSK was issued with). */
+void tls_early_keys_suite(
+    u16           suite,
+    const u8*     psk,
     const u8*     client_hello,
     usz           client_hello_len,
     initial_keys* out);

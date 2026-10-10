@@ -35,7 +35,7 @@ static void tr_hash(const fullhs* h, u8 out[SHA256_DIGEST]) {
 static void hs_traffic(
     const u8 hs[HKDF_PRK], wired_span sh, int is_server, u8 out[HKDF_PRK]) {
   const char*      label = is_server ? "s hs traffic" : "c hs traffic";
-  derive_secret_in in    = {hs, wired_span_of((const u8*)label, 12), sh};
+  derive_secret_in in    = {hs, wired_span_of((const u8*)label, 12), sh, 0};
   tls_derive_secret(&in, out);
 }
 

@@ -11,7 +11,7 @@
  * for the packet-protection expand ("quic " for v1, "quicv2 " for v2,
  * RFC 9369 3.3.1); 0 (every pre-existing initializer) means v1. */
 typedef struct {
-  const u8*  master; /* HKDF_PRK bytes */
+  const u8*  master; /* Hash.length bytes */
   wired_span transcript;
   int        is_server;
   u32        version;

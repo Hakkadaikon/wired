@@ -478,10 +478,10 @@ static int sdt_rederive_finished_secrets(struct sdt_client* cx) {
   tls_handshake_secret(shared, hs);
   peer_in = (derive_secret_in){
       hs, wired_span_of((const u8*)"s hs traffic", 12),
-      wired_span_of(cx->chsh, cx->chsh_len)};
+      wired_span_of(cx->chsh, cx->chsh_len), 0};
   self_in = (derive_secret_in){
       hs, wired_span_of((const u8*)"c hs traffic", 12),
-      wired_span_of(cx->chsh, cx->chsh_len)};
+      wired_span_of(cx->chsh, cx->chsh_len), 0};
   tls_derive_secret(&peer_in, cx->c.hs.hs_traffic_peer);
   tls_derive_secret(&self_in, cx->c.hs.hs_traffic_self);
   return 1;

@@ -355,6 +355,7 @@
 #include "tls/handshake/core/tls/retry_tag.c"
 #include "tls/handshake/core/tls/retry_tag_v2.c"
 #include "tls/handshake/core/tls/schedule.c"
+#include "tls/handshake/core/tls/suitehash.c"
 #include "tls/handshake/core/tls/tpext.c"
 #include "tls/handshake/core/tls/x25519.c"
 #include "tls/handshake/core/tls/zerortt_params.c"
@@ -617,6 +618,7 @@
 #include "tls/x25519_test.c"
 #include "tls/handshake_test.c"
 #include "tls/schedule_test.c"
+#include "tls/suitehash_test.c"
 #include "transport/endpoint_test.c"
 #include "transport/stream_ctl_test.c"
 #include "transport/connctl_test.c"
@@ -1198,6 +1200,7 @@ int main(void) {
   test_x25519();
   test_handshake();
   test_schedule();
+  test_suitehash();
   test_endpoint();
   test_stream_ctl();
   test_connctl();

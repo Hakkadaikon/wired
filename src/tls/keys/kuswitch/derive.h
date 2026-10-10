@@ -25,14 +25,15 @@ void kuswitch_next_keys_v(
 
 /* Same as kuswitch_next_keys, but derives next_keys->key at the given
  * suite's own AEAD key length (RFC 8446 5.3: 16 for AES-128-GCM, 32 for
- * ChaCha20-Poly1305) instead of the fixed AES-only INITIAL_KEY --
- * without this, a ChaCha20-negotiated connection's Key Update only fills
- * the first 16 of the 32 key bytes it actually needs, leaving the tail
- * stale and every post-update packet fails to open. */
+ * AES-256-GCM and ChaCha20-Poly1305) over the suite's hash (secrets are
+ * Hash.length bytes: 48 for TLS_AES_256_GCM_SHA384) instead of the fixed
+ * AES-only INITIAL_KEY -- without this, a ChaCha20-negotiated connection's Key
+ * Update only fills the first 16 of the 32 key bytes it actually needs, leaving
+ * the tail stale and every post-update packet fails to open. */
 void kuswitch_next_keys_suite(
     u16           suite,
-    const u8      current_secret[HKDF_PRK],
+    const u8*     current_secret,
     initial_keys* next_keys,
-    u8            next_secret[HKDF_PRK]);
+    u8*           next_secret);
 
 #endif

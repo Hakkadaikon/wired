@@ -22,14 +22,13 @@ static usz resolved_hp_len(u16 suite) {
   return n ? n : INITIAL_HP;
 }
 
-int tls_derive_secret(const derive_secret_in* in, u8 out[HKDF_PRK]) {
-  u8 thash[SHA256_DIGEST];
-  wired_sha256(in->messages.p, in->messages.n, thash);
-  hkdf_label l = {
-      (const char*)in->label.p, in->label.n, {thash, sizeof(thash)}};
-  if (hkdf_expand_label(in->secret, &l, wired_mspan_of(out, HKDF_PRK)))
-    return 1;
-  bytes_memset(out, 0, HKDF_PRK); /* fail closed: never an uninitialized key */
+int tls_derive_secret(const derive_secret_in* in, u8* out) {
+  const tls_hash* h = tls_hash_of(in->suite);
+  u8              thash[TLS_HASH_MAX];
+  h->digest(in->messages.p, in->messages.n, thash);
+  hkdf_label l = {(const char*)in->label.p, in->label.n, {thash, h->len}};
+  if (h->expand_label(in->secret, &l, wired_mspan_of(out, h->len))) return 1;
+  bytes_memset(out, 0, h->len); /* fail closed: never an uninitialized key */
   return 0;
 }
 
@@ -41,11 +40,12 @@ typedef struct {
 
 /* Build the derive-secret input for a literal ASCII label. */
 static derive_secret_in derive_in(
-    const u8* secret, ascii_label label, wired_span messages) {
+    u16 suite, const u8* secret, ascii_label label, wired_span messages) {
   derive_secret_in in;
   in.secret   = secret;
   in.label    = wired_span_of((const u8*)label.s, label.len);
   in.messages = messages;
+  in.suite    = suite;
   return in;
 }
 
@@ -55,41 +55,51 @@ static derive_secret_in derive_in(
  * HKDF-Extract(0, PSK)) branches below -- only the Early Secret input
  * differs between them. */
 static void handshake_secret_from_early(
-    const u8 early[HKDF_PRK], const u8 ecdhe[32], u8 out[HKDF_PRK]) {
-  u8 zero[HKDF_PRK] = {0};
-  u8 derived[HKDF_PRK];
+    u16 suite, const u8* early, const u8 ecdhe[32], u8* out) {
+  const tls_hash* h = tls_hash_of(suite);
+  u8              derived[TLS_HASH_MAX];
   /* derived = Derive-Secret(Early, "derived", "") -- empty transcript. */
-  derive_secret_in in =
-      derive_in(early, (ascii_label){"derived", 7}, wired_span_of(zero, 0));
+  derive_secret_in in = derive_in(
+      suite, early, (ascii_label){"derived", 7}, wired_span_of(early, 0));
   tls_derive_secret(&in, derived);
   /* Handshake Secret = HKDF-Extract(derived, ECDHE). */
-  hkdf_extract(wired_span_of(derived, HKDF_PRK), wired_span_of(ecdhe, 32), out);
+  h->extract(wired_span_of(derived, h->len), wired_span_of(ecdhe, 32), out);
 }
 
-void tls_handshake_secret(const u8 ecdhe[32], u8 out[HKDF_PRK]) {
-  u8 zero[HKDF_PRK] = {0};
-  u8 early[HKDF_PRK];
-  /* Early Secret = HKDF-Extract(0, 0). */
-  hkdf_extract(
-      wired_span_of(zero, HKDF_PRK), wired_span_of(zero, HKDF_PRK), early);
-  handshake_secret_from_early(early, ecdhe, out);
+/* RFC 8446 7.1: Early Secret = HKDF-Extract(0, ikm), ikm being the PSK or
+ * Hash.length zero bytes. */
+static void sched_early_secret(u16 suite, const u8* ikm, u8* early) {
+  const tls_hash* h                  = tls_hash_of(suite);
+  u8              zero[TLS_HASH_MAX] = {0};
+  h->extract(
+      wired_span_of(zero, h->len), wired_span_of(ikm ? ikm : zero, h->len),
+      early);
 }
 
-void tls_handshake_secret_psk(
-    const u8 psk[HKDF_PRK], const u8 ecdhe[32], u8 out[HKDF_PRK]) {
-  u8 zero[HKDF_PRK] = {0};
-  u8 early[HKDF_PRK];
-  /* Early Secret = HKDF-Extract(0, PSK). */
-  hkdf_extract(
-      wired_span_of(zero, HKDF_PRK), wired_span_of(psk, HKDF_PRK), early);
-  handshake_secret_from_early(early, ecdhe, out);
+void tls_handshake_secret_psk_suite(
+    u16 suite, const u8* psk, const u8 ecdhe[32], u8* out) {
+  u8 early[TLS_HASH_MAX];
+  sched_early_secret(suite, psk, early);
+  handshake_secret_from_early(suite, early, ecdhe, out);
+}
+
+void tls_handshake_secret_suite(u16 suite, const u8 ecdhe[32], u8* out) {
+  tls_handshake_secret_psk_suite(suite, 0, ecdhe, out);
+}
+
+void tls_handshake_secret(const u8 ecdhe[32], u8* out) {
+  tls_handshake_secret_suite(TLS_AES_128_GCM_SHA256, ecdhe, out);
+}
+
+void tls_handshake_secret_psk(const u8* psk, const u8 ecdhe[32], u8* out) {
+  tls_handshake_secret_psk_suite(TLS_AES_128_GCM_SHA256, psk, ecdhe, out);
 }
 
 /* Expand one packet-protection field (RFC 9001 5.1 labels) from a secret. */
 static void hs_field(
-    const u8 secret[HKDF_PRK], wired_span label, wired_mspan out) {
+    u16 suite, const u8* secret, wired_span label, wired_mspan out) {
   hkdf_label l = {(const char*)label.p, label.n, {0, 0}};
-  hkdf_expand_label(secret, &l, out);
+  tls_hash_of(suite)->expand_label(secret, &l, out);
 }
 
 /* out->key/out->hp are sized AEAD_KEY_MAX to hold either suite (see
@@ -111,30 +121,8 @@ static wired_span sched_quic_label(
   return wired_span_of(buf, version_quic_label(buf, version, sfx, sfx_len));
 }
 
-/* Expand the QUIC key/iv/hp triple from a traffic secret, with `version`'s
- * label prefix (RFC 9369 3.3.1; 0 = v1). */
-static void protection_keys(
-    const u8 ts[HKDF_PRK], u32 version, initial_keys* out) {
-  u8 lb[VERSION_LABEL_MAX];
-  hs_field(
-      ts, sched_quic_label(lb, version, "key", 3),
-      wired_mspan_of(out->key, INITIAL_KEY));
-  hs_field(
-      ts, sched_quic_label(lb, version, "iv", 2),
-      wired_mspan_of(out->iv, INITIAL_IV));
-  hs_field(
-      ts, sched_quic_label(lb, version, "hp", 2),
-      wired_mspan_of(out->hp, INITIAL_HP));
-  protection_keys_zero_tail(out, INITIAL_KEY, INITIAL_HP);
-}
-
 void tls_handshake_keys(const handshake_keys_in* in, initial_keys* out) {
-  const char*      label = in->is_server ? "s hs traffic" : "c hs traffic";
-  u8               ts[HKDF_PRK];
-  derive_secret_in dsi =
-      derive_in(in->hs_secret, (ascii_label){label, 12}, in->transcript);
-  tls_derive_secret(&dsi, ts);
-  protection_keys(ts, in->version, out);
+  tls_handshake_keys_suite(in, TLS_AES_128_GCM_SHA256, out);
 }
 
 /* Expand the QUIC key/iv/hp triple from a traffic secret, sized for suite
@@ -142,17 +130,17 @@ void tls_handshake_keys(const handshake_keys_in* in, initial_keys* out) {
  * key=32/hp=32 -- RFC 9001 5.1/5.4.3), with `version`'s label prefix
  * (RFC 9369 3.3.1; 0 = v1). */
 static void protection_keys_suite(
-    const u8 ts[HKDF_PRK], u16 suite, u32 version, initial_keys* out) {
+    const u8* ts, u16 suite, u32 version, initial_keys* out) {
   usz key_len = resolved_key_len(suite), hp_len = resolved_hp_len(suite);
   u8  lb[VERSION_LABEL_MAX];
   hs_field(
-      ts, sched_quic_label(lb, version, "key", 3),
+      suite, ts, sched_quic_label(lb, version, "key", 3),
       wired_mspan_of(out->key, key_len));
   hs_field(
-      ts, sched_quic_label(lb, version, "iv", 2),
+      suite, ts, sched_quic_label(lb, version, "iv", 2),
       wired_mspan_of(out->iv, INITIAL_IV));
   hs_field(
-      ts, sched_quic_label(lb, version, "hp", 2),
+      suite, ts, sched_quic_label(lb, version, "hp", 2),
       wired_mspan_of(out->hp, hp_len));
   protection_keys_zero_tail(out, key_len, hp_len);
 }
@@ -160,40 +148,49 @@ static void protection_keys_suite(
 void tls_handshake_keys_suite(
     const handshake_keys_in* in, u16 suite, initial_keys* out) {
   const char*      label = in->is_server ? "s hs traffic" : "c hs traffic";
-  u8               ts[HKDF_PRK];
+  u8               ts[TLS_HASH_MAX];
   derive_secret_in dsi =
-      derive_in(in->hs_secret, (ascii_label){label, 12}, in->transcript);
+      derive_in(suite, in->hs_secret, (ascii_label){label, 12}, in->transcript);
   tls_derive_secret(&dsi, ts);
   protection_keys_suite(ts, suite, in->version, out);
 }
 
-void tls_early_traffic_secret(
-    const u8  psk[HKDF_PRK],
-    const u8* client_hello,
-    usz       client_hello_len,
-    u8        out[HKDF_PRK]) {
-  u8 zero[HKDF_PRK] = {0};
-  u8 early[HKDF_PRK];
-  /* Early Secret = HKDF-Extract(0, PSK). */
-  hkdf_extract(
-      wired_span_of(zero, HKDF_PRK), wired_span_of(psk, HKDF_PRK), early);
+void tls_early_traffic_secret_suite(
+    u16 suite, const u8* psk, wired_span client_hello, u8* out) {
+  u8 early[TLS_HASH_MAX];
+  sched_early_secret(suite, psk, early);
   /* client_early_traffic_secret over the ClientHello. */
-  {
-    derive_secret_in in = derive_in(
-        early, (ascii_label){"c e traffic", 11},
-        wired_span_of(client_hello, client_hello_len));
-    tls_derive_secret(&in, out);
-  }
+  derive_secret_in in =
+      derive_in(suite, early, (ascii_label){"c e traffic", 11}, client_hello);
+  tls_derive_secret(&in, out);
 }
 
-void tls_early_keys(
-    const u8      psk[HKDF_PRK],
+void tls_early_traffic_secret(
+    const u8* psk, const u8* client_hello, usz client_hello_len, u8* out) {
+  tls_early_traffic_secret_suite(
+      TLS_AES_128_GCM_SHA256, psk,
+      wired_span_of(client_hello, client_hello_len), out);
+}
+
+void tls_early_keys_suite(
+    u16           suite,
+    const u8*     psk,
     const u8*     client_hello,
     usz           client_hello_len,
     initial_keys* out) {
-  u8 ts[HKDF_PRK];
-  tls_early_traffic_secret(psk, client_hello, client_hello_len, ts);
+  u8 ts[TLS_HASH_MAX];
+  tls_early_traffic_secret_suite(
+      suite, psk, wired_span_of(client_hello, client_hello_len), ts);
   /* RFC 9368 2.3: 0-RTT is only ever sent under the client's original
    * version, before any compatible switch -- always the v1 labels here. */
-  protection_keys(ts, VERSION_1, out);
+  protection_keys_suite(ts, suite, VERSION_1, out);
+}
+
+void tls_early_keys(
+    const u8*     psk,
+    const u8*     client_hello,
+    usz           client_hello_len,
+    initial_keys* out) {
+  tls_early_keys_suite(
+      TLS_AES_128_GCM_SHA256, psk, client_hello, client_hello_len, out);
 }

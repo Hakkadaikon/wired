@@ -16,21 +16,26 @@
  * so the "ext binder" label is not implemented. */
 
 /* binder_key = Derive-Secret(HKDF-Extract(0, psk), "res binder", ""). */
-void tls_binder_key(const u8 psk[HKDF_PRK], u8 out[HKDF_PRK]);
+void tls_binder_key(const u8* psk, u8* out);
 
 /* Compute the PskBinderEntry for `psk` over `truncated_ch` -- the
  * ClientHello bytes up to and including the pre_shared_key identities list,
  * EXCLUDING the binders list itself (RFC 8446 4.2.11.2). The caller is
- * responsible for slicing the ClientHello correctly. */
-void tls_binder_compute(
-    const u8 psk[HKDF_PRK], wired_span truncated_ch, u8 out[HKDF_PRK]);
+ * responsible for slicing the ClientHello correctly. SHA-256 (32 bytes). */
+void tls_binder_compute(const u8* psk, wired_span truncated_ch, u8* out);
 
 /* Verify a presented binder against one recomputed from psk/truncated_ch, in
  * constant time. Returns 1 on a match, 0 otherwise (reject: abort the
- * handshake). received must be HKDF_PRK (32) bytes. */
+ * handshake). received must be 32 bytes (SHA-256). */
 int tls_binder_verify(
-    const u8   psk[HKDF_PRK],
-    wired_span truncated_ch,
-    const u8   received[HKDF_PRK]);
+    const u8* psk, wired_span truncated_ch, const u8* received);
+
+/* Same as tls_binder_compute over suite's hash (psk and out Hash.length). */
+void tls_binder_compute_suite(
+    u16 suite, const u8* psk, wired_span truncated_ch, u8* out);
+
+/* Same as tls_binder_verify over suite's hash. */
+int tls_binder_verify_suite(
+    u16 suite, const u8* psk, wired_span truncated_ch, const u8* received);
 
 #endif

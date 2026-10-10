@@ -15,7 +15,7 @@ static void save_client_ap_secret(
     keysched* st, const u8* transcript, usz transcript_len) {
   derive_secret_in dsi = {
       st->master, wired_span_of((const u8*)"c ap traffic", 12),
-      wired_span_of(transcript, transcript_len)};
+      wired_span_of(transcript, transcript_len), st->suite};
   tls_derive_secret(&dsi, st->client_ap_secret);
 }
 
@@ -25,7 +25,7 @@ static void save_server_ap_secret(
     keysched* st, const u8* transcript, usz transcript_len) {
   derive_secret_in dsi = {
       st->master, wired_span_of((const u8*)"s ap traffic", 12),
-      wired_span_of(transcript, transcript_len)};
+      wired_span_of(transcript, transcript_len), st->suite};
   tls_derive_secret(&dsi, st->server_ap_secret);
 }
 
@@ -49,7 +49,7 @@ static int ecdhe_ok(int stage, usz ecdhe_len) {
  * derive from -- shared by the plain and PSK-resumption entry points below,
  * which differ only in how hs itself was computed. */
 static void install_handshake_secret(
-    keysched* st, const u8 hs[HKDF_PRK], wired_span transcript) {
+    keysched* st, const u8* hs, wired_span transcript) {
   handshake_keys_in in;
   in.hs_secret  = hs;
   in.transcript = transcript;
@@ -58,24 +58,24 @@ static void install_handshake_secret(
   tls_handshake_keys_suite(&in, st->suite, &st->keys[KS_CLIENT_HS]);
   in.is_server = 1;
   tls_handshake_keys_suite(&in, st->suite, &st->keys[KS_SERVER_HS]);
-  tls_master_secret(hs, st->master);
+  tls_master_secret_suite(st->suite, hs, st->master);
   st->stage = 1;
 }
 
 int keysched_advance_handshake(
     keysched* st, wired_span ecdhe, wired_span transcript) {
-  u8 hs[HKDF_PRK];
+  u8 hs[TLS_HASH_MAX];
   if (!ecdhe_ok(st->stage, ecdhe.n)) return 0;
-  tls_handshake_secret(ecdhe.p, hs);
+  tls_handshake_secret_suite(st->suite, ecdhe.p, hs);
   install_handshake_secret(st, hs, transcript);
   return 1;
 }
 
 int keysched_advance_handshake_psk(
     keysched* st, wired_span psk, wired_span ecdhe, wired_span transcript) {
-  u8 hs[HKDF_PRK];
+  u8 hs[TLS_HASH_MAX];
   if (!ecdhe_ok(st->stage, ecdhe.n)) return 0;
-  tls_handshake_secret_psk(psk.p, ecdhe.p, hs);
+  tls_handshake_secret_psk_suite(st->suite, psk.p, ecdhe.p, hs);
   install_handshake_secret(st, hs, transcript);
   return 1;
 }
@@ -93,8 +93,8 @@ int keysched_advance_master(
   in.is_server = 1;
   tls_app_keys_suite(&in, st->suite, &st->keys[KS_SERVER_AP]);
   save_server_ap_secret(st, transcript, transcript_len);
-  tls_exporter_master_secret(
-      st->master, transcript, transcript_len, st->exporter_secret);
+  tls_exporter_master_secret_suite(
+      st->suite, st->master, transcript, transcript_len, st->exporter_secret);
   st->stage = 2;
   return 1;
 }

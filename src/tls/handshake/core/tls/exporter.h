@@ -17,10 +17,16 @@
  * master already hashes for the application traffic secrets. Writes a
  * 32-byte secret. */
 void tls_exporter_master_secret(
-    const u8  master[HKDF_PRK],
+    const u8* master, const u8* transcript, usz transcript_len, u8* out);
+
+/* Same as tls_exporter_master_secret over suite's hash (Hash.length out;
+ * suite 0 = SHA-256). */
+void tls_exporter_master_secret_suite(
+    u16       suite,
+    const u8* master,
     const u8* transcript,
     usz       transcript_len,
-    u8        out[HKDF_PRK]);
+    u8*       out);
 
 /* TLS-Exporter(label, context_value, key_length) (RFC 8446 7.5). Secret
  * must be the exporter_master_secret (tls_exporter_master_secret's

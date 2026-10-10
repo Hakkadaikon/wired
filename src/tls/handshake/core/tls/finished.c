@@ -1,31 +1,38 @@
 #include "tls/handshake/core/tls/finished.h"
 
-#include "crypto/symmetric/hash/hash/hmac.h"
+#include "common/bytes/util/ct.h"
+#include "tls/handshake/core/tls/cipher.h"
+#include "tls/handshake/core/tls/suitehash.h"
 
-void tls_finished_verify_data(
-    const u8 base_key[HKDF_PRK],
-    const u8 transcript_hash[SHA256_DIGEST],
-    u8       out[TLS_VERIFY_DATA]) {
-  u8         finished_key[SHA256_DIGEST];
-  hkdf_label l = {"finished", 8, {0, 0}};
-  hkdf_expand_label(base_key, &l, wired_mspan_of(finished_key, SHA256_DIGEST));
-  hmac_sha256(
-      wired_span_of(finished_key, SHA256_DIGEST),
-      wired_span_of(transcript_hash, SHA256_DIGEST), out);
+void tls_finished_verify_data_suite(
+    u16 suite, const u8* base_key, const u8* transcript_hash, u8* out) {
+  const tls_hash* h = tls_hash_of(suite);
+  u8              finished_key[TLS_HASH_MAX];
+  hkdf_label      l = {"finished", 8, {0, 0}};
+  h->expand_label(base_key, &l, wired_mspan_of(finished_key, h->len));
+  h->mac(
+      wired_span_of(finished_key, h->len),
+      wired_span_of(transcript_hash, h->len), out);
 }
 
-/* Constant-time 32-byte digest comparison: 0 if equal. */
-static u8 digest_diff(const u8 a[32], const u8 b[32]) {
-  u8 d = 0;
-  for (usz i = 0; i < 32; i++) d |= a[i] ^ b[i];
-  return d;
+int tls_finished_check_suite(
+    u16       suite,
+    const u8* base_key,
+    const u8* transcript_hash,
+    const u8* received) {
+  u8 want[TLS_HASH_MAX];
+  tls_finished_verify_data_suite(suite, base_key, transcript_hash, want);
+  return ct_diffn(want, received, tls_hash_of(suite)->len) == 0;
+}
+
+void tls_finished_verify_data(
+    const u8* base_key, const u8* transcript_hash, u8* out) {
+  tls_finished_verify_data_suite(
+      TLS_AES_128_GCM_SHA256, base_key, transcript_hash, out);
 }
 
 int tls_finished_check(
-    const u8 base_key[HKDF_PRK],
-    const u8 transcript_hash[SHA256_DIGEST],
-    const u8 received[TLS_VERIFY_DATA]) {
-  u8 want[TLS_VERIFY_DATA];
-  tls_finished_verify_data(base_key, transcript_hash, want);
-  return digest_diff(want, received) == 0;
+    const u8* base_key, const u8* transcript_hash, const u8* received) {
+  return tls_finished_check_suite(
+      TLS_AES_128_GCM_SHA256, base_key, transcript_hash, received);
 }
