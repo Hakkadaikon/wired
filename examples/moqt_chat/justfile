@@ -1,23 +1,31 @@
 # wired MOQT chat sample. libc-free, x86_64-linux only, single-process
 # (the hub keeps its peer table in one process's memory).
+#
+# Comments: the line right above a recipe is its `just --list` summary;
+# details live inside the body (ignore-comments keeps them out of the echo).
 
-# Connection cap defaults to 4 (one per participant id); raise it with
-# `CONNTABLE_CAP=<n> just build`.
+set ignore-comments
+
+# --- server -----------------------------------------------------------------
+
 # Build the server after the SDK's own fmt+ninja+lint gate.
 build:
+    # Connection cap defaults to 4 (one per participant id); raise it with
+    # `CONNTABLE_CAP=<n> just build`.
     cd ../.. && just build && just ninja examples/moqt_chat/wired_server
 
-# Host networking: QUIC PMTU discovery never completes through Docker's
-# bridge + port mapping. `just up -d` detaches (`docker compose logs -f`).
 # Build the image and run the server (docker compose up).
 up *flags: build
+    # Host networking: QUIC PMTU discovery never completes through Docker's
+    # bridge + port mapping. `just up -d` detaches (`docker compose logs -f`).
     docker compose up --build {{flags}}
 
 # Stop and remove the container.
 down:
     docker compose down
 
-[private]
+# --- frontend ---------------------------------------------------------------
+
 _pnpm script:
     cd frontend && pnpm install --frozen-lockfile && pnpm {{script}}
 
@@ -26,22 +34,6 @@ build-frontend: (_pnpm "build")
 
 # Frontend dev server with hot reload (http://localhost:3000/).
 dev-frontend: (_pnpm "dev")
-
-# TLS because a non-localhost http:// page is not a secure context, and the
-# browser then disables WebTransport.
-# Build the frontend and serve frontend/out/ over TLS (https://<host>:8443/).
-serve-frontend: build-frontend
-    [ -f cert.pem ] || openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
-        -keyout key.pem -out cert.pem -days 365 -nodes -subj "/CN=localhost"
-    python3 -c "\
-    import functools, http.server, ssl; \
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory='frontend/out'); \
-    srv = http.server.HTTPServer(('0.0.0.0', 8443), handler); \
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); \
-    ctx.load_cert_chain('cert.pem', 'key.pem'); \
-    srv.socket = ctx.wrap_socket(srv.socket, server_side=True); \
-    print('https://0.0.0.0:8443/'); \
-    srv.serve_forever()"
 
 # Biome format + lint + import order, no writes; any warning fails.
 check-frontend: (_pnpm "check")
@@ -52,28 +44,47 @@ fix-frontend: (_pnpm "fix")
 # Frontend unit tests (vitest), pinned to testvectors/moqt_golden.json.
 test-frontend: (_pnpm "test")
 
-# Installs node deps, puppeteer's Chrome for Testing, and the shared libraries
-# a minimal container lacks (user-local, cached in e2e/.chrome-libs-profile).
+# Build the frontend and serve frontend/out/ over TLS (https://<host>:8443/).
+serve-frontend: build-frontend
+    #!/usr/bin/env sh
+    # TLS because a non-localhost http:// page is not a secure context, and the
+    # browser then disables WebTransport.
+    set -e
+    [ -f cert.pem ] || openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
+        -keyout key.pem -out cert.pem -days 365 -nodes -subj "/CN=localhost"
+    exec python3 -c '
+    import functools, http.server, ssl
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory="frontend/out")
+    srv = http.server.HTTPServer(("0.0.0.0", 8443), handler)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain("cert.pem", "key.pem")
+    srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+    print("https://0.0.0.0:8443/")
+    srv.serve_forever()'
+
+# --- e2e --------------------------------------------------------------------
+
 # One-time setup for the e2e harness.
 e2e-setup:
-    cd e2e && npm install
-    cd e2e && npx puppeteer browsers install chrome
+    # Node deps, puppeteer's Chrome for Testing, and the shared libraries a
+    # minimal container lacks (user-local, cached in e2e/.chrome-libs-profile).
+    cd e2e && npm install && npx puppeteer browsers install chrome
     ./e2e/fetch-chrome-libs.sh
 
-# Up to 4 headless-Chrome clients graded for message loss and latency; starts
-# its own server and frontend. e.g. `just e2e-load --clients=4 --messages=10`.
 # Multi-client chat load test.
-e2e-load *ARGS: build build-frontend
-    ./e2e/run.sh {{ARGS}}
+e2e-load *args: build build-frontend
+    # Up to 4 headless-Chrome clients graded for message loss and latency;
+    # starts its own server and frontend. e.g. `just e2e-load --clients=4 --messages=10`.
+    ./e2e/run.sh {{args}}
 
-# The runner owns the server so a scenario can kill/restart it. Evidence
-# lands in tasks/voice-stability/<id>/. e.g. `just e2e-stability s1-voice-clean`.
 # Run one stability scenario (e2e/scenarios/<id>.mjs).
-e2e-stability SCENARIO *ARGS: build build-frontend
-    ./e2e/run-stability.sh {{SCENARIO}} {{ARGS}}
+e2e-stability scenario *args: build build-frontend
+    # The runner owns the server so a scenario can kill/restart it. Evidence
+    # lands in tasks/voice-stability/<id>/. e.g. `just e2e-stability s1-voice-clean`.
+    ./e2e/run-stability.sh {{scenario}} {{args}}
 
-# Two participants, one shares a fake screen, the other must decode frames;
-# --load runs 4 simultaneous sharers.
 # Screen-share check (encode -> MOQT -> reassemble -> decode).
-e2e-screen *ARGS: build build-frontend
-    node e2e/run-screenshare-check.mjs {{ARGS}}
+e2e-screen *args: build build-frontend
+    # Two participants, one shares a fake screen, the other must decode frames;
+    # --load runs 4 simultaneous sharers.
+    node e2e/run-screenshare-check.mjs {{args}}
