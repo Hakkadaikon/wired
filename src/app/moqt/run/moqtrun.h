@@ -243,9 +243,13 @@ typedef struct {
   u64 prop_type; /**< 0x28/0x29 only, valid iff has_prop */
   u64 start;     /**< inclusive */
   u64 end;       /**< inclusive, valid iff has_end */
-  u8  set_id;
-  u8  has_prop;
-  u8  has_end;
+  /** The filter's one-byte SetID (10.2.10): rows of one parameter
+   * share it. */
+  u8 set_id;
+  /** 1 when prop_type is present (0x28/0x29 filters). */
+  u8 has_prop;
+  /** 1 when the Range has an End (end valid); 0 = open-ended. */
+  u8 has_end;
 } wired_moqtrun_rngrow;
 
 /** One subscriber recorded against the hub's track: which session, and the
@@ -253,9 +257,12 @@ typedef struct {
  * OBJECT_DATAGRAM relayed to that session carries (draft-22 3.1.3: unique
  * per Track within the session; moqtrun_session_alias). */
 typedef struct {
+  /** Subscriber's index in wired_moqt_hub.peers. */
   usz session_idx;
+  /** Track Alias relayed Objects carry on the subscriber's session. */
   u64 track_alias;
-  int active; /* 1 while the subscription is Established */
+  /** 1 while the subscription is Established; 0 marks the slot free. */
+  int active;
   /** SUBSCRIBE's Request ID (draft-ietf-moq-transport-19 10.6). */
   u64 request_id;
   /** OBJECT_DELIVERY_TIMEOUT (10.2.4) in ms, 0 when absent or none: an
@@ -278,23 +285,30 @@ typedef struct {
   u64 end_object;
   /** SUBSCRIBER_PRIORITY (10.2.7), valid when has_priority. */
   u8 priority;
+  /** 1 when SUBSCRIBER_PRIORITY was present (priority valid). */
   u8 has_priority;
   /** GROUP_ORDER (10.2.8); 0 = absent (the publisher's preference). */
   u8 group_order;
   /** 1 when FORWARD was 0 (10.2.17): no Objects go to this subscription. */
   u8 forward_off;
+  /** 1 when OBJECT_DELIVERY_TIMEOUT was present (delivery_timeout
+   * valid). */
   u8 has_delivery_timeout;
+  /** 1 when the filter names a last Group (end_group valid). */
   u8 has_end_group;
+  /** 1 when the filter names a last Object (end_object valid). */
   u8 has_end_object;
   /** Joining Location (draft-ietf-moq-transport-19 5.1): the Largest
    * Object SUBSCRIBE_OK carried, valid when has_jl -- where a Joining
    * Fetch ends (10.12.2.1). */
   moqctl_loc jl;
-  u8         has_jl;
+  /** 1 when jl holds a Joining Location. */
+  u8 has_jl;
   /** The LOCATION_FILTER as sent (version-neutral), valid when
    * has_filter: what a re-attach re-resolves start/end from. */
   moqctl_rangeloc filter;
-  u8              has_filter;
+  /** 1 when filter holds the subscription's LOCATION_FILTER. */
+  u8 has_filter;
   /** Range Filter rows (10.2.10-10.2.14), one Range per row; capacity
    * is the advertised MAX_FILTER_RANGES. OBJECTID_FILTER rows gate each
    * Object at the per-Object (datagram) gate.
@@ -304,7 +318,8 @@ typedef struct {
    * evaluate them if the hub ever reads subgroup ids or properties at
    * delivery. */
   wired_moqtrun_rngrow rngf[WIRED_MOQTRUN_MAX_FILTER_RANGES];
-  u8                   rngf_n;
+  /** Rows of rngf in use; 0 = no Range Filter. */
+  u8 rngf_n;
   /** Hub blob track only: 1 once the blob went out to this subscription,
    * so a FORWARD 1 -> 0 -> 1 update never sends it twice. */
   u8 blob_sent;
@@ -399,15 +414,23 @@ typedef struct {
  * while rx bytes kept arriving). Forwarding only whole Objects makes every
  * droppable round self-delimiting. */
 typedef struct {
+  /** 1 while this relay follows a publisher stream. */
   int in_use;
+  /** The publisher-side stream this relay follows (its key). */
   u64 pub_stream_id;
-  u8  hdr[WIRED_MOQTRUN_RELAY_HDR_MAX];
+  /** The stream's opening SUBGROUP_HEADER, as received. */
+  u8 hdr[WIRED_MOQTRUN_RELAY_HDR_MAX];
+  /** Bytes of hdr in use. */
   usz hdr_len;
   /** Index of the hub's frag_pool buffer holding the fragment, -1 when
    * none is held (frag_len 0). */
   i32 frag_idx;
+  /** Bytes of the held fragment; 0 when none is held. */
   usz frag_len;
+  /** Per sub slot i of the track's subs[]: the subscriber-side uni stream
+   * this relay forwards on, valid while sub_stream_set[i]. */
   u64 sub_stream_id[WIRED_MOQTRUN_MAX_SUBS];
+  /** Per sub slot i: 1 once sub_stream_id[i] is open. */
   int sub_stream_set[WIRED_MOQTRUN_MAX_SUBS];
   /** Consecutive rounds sub slot i's stream_send was refused (saturates at
    * 255): reaching WIRED_MOQTRUN_RESET_AFTER_BUSY sheds the stream
@@ -422,7 +445,8 @@ typedef struct {
    * the stream's Group ID: lets header-less later deliveries resolve each
    * Object's Location (11.4.2) for the track's Largest Object. */
   moqdata_objseq seq;
-  u64            group_id;
+  /** The stream's Group ID, from its SUBGROUP_HEADER. */
+  u64 group_id;
   /** Clock (wired_moqt_tick) at which the held fragment's first byte
    * arrived: the age of the torn Object it starts (draft 8). */
   u64 frag_ms;
@@ -471,7 +495,7 @@ typedef struct {
  * of every other candidate participant, and the sample room has four
  * candidate ids, so a peer can hold 3 others * 4 tracks = 12 names; 16
  * leaves room without a rejoined publisher's oldest name being evicted. */
-#define WIRED_MOQTRUN_SUB_NAMES (WIRED_MOQTRUN_MAX_TRACKS_PER_PEER * 4)
+#define WIRED_MOQTRUN_SUB_NAMES ((usz)WIRED_MOQTRUN_MAX_TRACKS_PER_PEER * 4)
 
 /** Largest control-message envelope this hub ever sends (SS10
  * Type+Length+Body), except GOAWAY, whose New Session URI may take up to
@@ -491,6 +515,8 @@ typedef struct {
  * the not-yet-complete tail of one stream. skip counts bytes of an
  * over-cap message still to discard. */
 typedef struct {
+  /** The held tail: at most one whole message (header plus the largest
+   * accepted body). */
   u8  buf[WIRED_MOQTRUN_CTL_MSG_MAX + WIRED_MOQTRUN_CTL_HDR_MAX];
   usz n;    /**< bytes held */
   usz at;   /**< next unread byte */
@@ -531,19 +557,26 @@ typedef struct {
  * own reassembly and reply queue (the same ARMED/PENDING pair as
  * wired_moqtrun_peer.send_bufs, at request-stream size). */
 typedef struct {
-  int               in_use;
+  /** 1 while the slot tracks a request stream. */
+  int in_use;
+  /** Session the stream belongs to (owned by the transport). */
   wired_wt_session* wt;
-  u64               stream_id;
+  /** The request stream's id on wt. */
+  u64 stream_id;
   /** Type of the stream's first message; 0 until it arrives. */
   u64 kind;
   /** That message's Request ID: what a reset cancels. */
   u64 request_id;
   /** 1 once stream_reply_open has accepted the first reply round. */
-  int                   opened;
+  int opened;
+  /** Reassembly of the peer's messages on the stream. */
   wired_moqtrun_ctl_asm in;
-  u8                    send_bufs[2][WIRED_MOQTRUN_REQ_SEND_BUF];
-  usz                   send_lens[2];
-  int                   armed_idx;
+  /** ARMED/PENDING reply buffers (wired_moqtrun_peer.send_bufs). */
+  u8 send_bufs[2][WIRED_MOQTRUN_REQ_SEND_BUF];
+  /** Bytes queued in each send_bufs slot (same index). */
+  usz send_lens[2];
+  /** The send_bufs slot (0 or 1) last handed to stream_send. */
+  int armed_idx;
   /** REQUEST_UPDATEs received but not yet answered by a flushed reply
    * (draft-19 10.9/10.4 MAX_REQUEST_UPDATES): one more than the setup
    * limit closes the session. A flush answers every update coalesced
@@ -568,12 +601,15 @@ typedef struct {
    * stream may open after it); done_status / done_count are the message
    * to send once the fill's stream is granted. */
   int done_pending;
+  /** The held PUBLISH_DONE's Status Code. */
   u64 done_status;
+  /** The held PUBLISH_DONE's Stream Count. */
   u64 done_count;
   /** PUBLISH_NAMESPACE: the Track Namespace; SUBSCRIBE_NAMESPACE: the
    * Track Namespace Prefix (draft-ietf-moq-transport-19 10.15/10.18),
    * encoded as on the wire (count + Length-prefixed fields). */
-  u8  ns[WIRED_MOQTRUN_MAX_NS];
+  u8 ns[WIRED_MOQTRUN_MAX_NS];
+  /** Bytes of ns in use. */
   usz ns_len;
   /** SUBSCRIBE_NAMESPACE: bit i is set while a NAMESPACE for reqs[i] has
    * gone out with no NAMESPACE_DONE after it (10.18). reqs[i] is not
@@ -614,13 +650,16 @@ typedef struct {
    * PUBLISH omits it); group_order the raw Parameter value, 0 for absent
    * (publisher's default, PUBLISH omits it too). */
   u8 has_forward;
+  /** FORWARD's value (0 or 1), valid when has_forward. */
   u8 forward;
+  /** GROUP_ORDER as received; 0 = absent. */
   u8 group_order;
   /** SUBSCRIBE_TRACKS and the PUBLISH slots it opens: the object Range
    * Filter rows it carried (draft-22 3.6.1, draft-19 10.19.1), the
    * resulting subscription's initial rows; never in the PUBLISH (22 9.8). */
   wired_moqtrun_rngrow rngf[WIRED_MOQTRUN_MAX_FILTER_RANGES];
-  u8                   rngf_n;
+  /** Rows of rngf in use. */
+  u8 rngf_n;
   /** A hub-opened PUBLISH slot only: 1 once its one REQUEST_OK arrived
    * (18/19 5.1, 22 3.1: a second response closes the session). */
   u8 pub_answered;
@@ -656,7 +695,9 @@ typedef struct {
  * again at resolve/expiry, so a stream already gone simply ends the
  * hold. */
 typedef struct {
-  int               in_use;
+  /** 1 while the slot holds a SUBSCRIBE. */
+  int in_use;
+  /** The subscriber's session (owned by the transport). */
   wired_wt_session* wt;
   /** The SUBSCRIBE's request stream. */
   u64 stream_id;
@@ -664,15 +705,19 @@ typedef struct {
   u64 deadline_ms;
   /** The Full Track Name as the hub keys tracks (WIRED_MOQTRUN_MAX_NS /
    * _MAX_NAME: a longer name is never held -- no PUBLISH can claim it). */
-  u8  ns[WIRED_MOQTRUN_MAX_NS];
+  u8 ns[WIRED_MOQTRUN_MAX_NS];
+  /** Bytes of ns in use. */
   usz ns_len;
-  u8  name[WIRED_MOQTRUN_MAX_NAME];
+  /** The Track Name, copied. */
+  u8 name[WIRED_MOQTRUN_MAX_NAME];
+  /** Bytes of name in use. */
   usz name_len;
   /** The SUBSCRIBE body as received, re-decoded in the session's own
    * draft when the hold resolves (the decoded views dangle after the
    * dispatch). WIRED_MOQTRUN_CTL_MSG_MAX bounds every body this hub
    * accepts, so it always fits. */
-  u8  body[WIRED_MOQTRUN_CTL_MSG_MAX];
+  u8 body[WIRED_MOQTRUN_CTL_MSG_MAX];
+  /** Bytes of body in use. */
   usz body_len;
   /** 1 when the SUBSCRIBE carried no RENDEZVOUS_TIMEOUT and is held only
    * for its upstream SUBSCRIBE to a namespace publisher (draft-18/19 9.5,
@@ -695,6 +740,7 @@ typedef struct {
  * by (wt, stream_id); the track it feeds is found again by track_tag
  * (wired_moqtrun_track.cache_tag), never held as a pointer. */
 typedef struct {
+  /** 1 while the slot tracks an upstream SUBSCRIBE. */
   int in_use;
   /** The publisher's session. */
   wired_wt_session* wt;
@@ -707,10 +753,14 @@ typedef struct {
   /** 1 once the publisher's PUBLISH_DONE arrived: the hub's side ends
    * with a FIN, not a cancel, when the track retires. */
   u8 done;
-  /** The Full Track Name, keyed as the hub keys tracks. */
-  u8  ns[WIRED_MOQTRUN_MAX_NS];
+  /** The Full Track Name's encoded Namespace, keyed as the hub keys
+   * tracks. */
+  u8 ns[WIRED_MOQTRUN_MAX_NS];
+  /** Bytes of ns in use. */
   usz ns_len;
-  u8  name[WIRED_MOQTRUN_MAX_NAME];
+  /** The Full Track Name's Track Name, copied. */
+  u8 name[WIRED_MOQTRUN_MAX_NAME];
+  /** Bytes of name in use. */
   usz name_len;
   /** Reassembly of the publisher's replies on stream_id. */
   wired_moqtrun_ctl_asm in;
@@ -747,17 +797,23 @@ typedef struct {
  * eviction or a publisher leaving in between turns it into an End of
  * Unknown Range instead of reading freed bytes. */
 typedef struct {
-  int               in_use;
+  /** 1 while the slot serves (or, in fetch_waits, holds) a fetch. */
+  int in_use;
+  /** The requesting session (owned by the transport). */
   wired_wt_session* wt;
-  u64               request_id;
-  u64               cache_tag;
+  /** The FETCH's Request ID (a fill: its subscription's). */
+  u64 request_id;
+  /** The track incarnation served (wired_moqtrun_track.cache_tag). */
+  u64 cache_tag;
   /** Next Location to serve. */
   moqctl_loc cursor;
   /** First Location past the range. */
   moqctl_loc end;
   /** 1 once the stream is open (stream_id valid). */
-  int          opened;
-  u64          stream_id;
+  int opened;
+  /** The hub-opened uni stream the response goes out on. */
+  u64 stream_id;
+  /** Fetch-Object encoding state carried between items (11.4.4). */
   moqfetch_seq seq;
   /** 1 when this fetch is a fill of a subscription (draft-22 SS9.20.15):
    * it was opened by the hub, not requested by a FETCH. */
@@ -793,21 +849,29 @@ typedef struct {
  * audio track writes its header only once, on the stream's first call;
  * later calls carry bare Objects that must not be misread as a header). */
 typedef struct {
-  int                 in_use;
-  u8                  name[WIRED_MOQTRUN_MAX_NAME]; /* copied Track Name */
-  usz                 name_len;
-  u64                 own_alias; /* Track Alias this slot's PUBLISH declared */
-  wired_moqtrun_sub   subs[WIRED_MOQTRUN_MAX_SUBS];
+  /** 1 while the slot holds a PUBLISHed track. */
+  int in_use;
+  /** Copied Track Name. */
+  u8 name[WIRED_MOQTRUN_MAX_NAME];
+  /** Bytes of name in use. */
+  usz name_len;
+  /** Track Alias this slot's PUBLISH declared. */
+  u64 own_alias;
+  /** Subscriptions recorded against the track (active marks live). */
+  wired_moqtrun_sub subs[WIRED_MOQTRUN_MAX_SUBS];
+  /** Publisher streams being relayed (wired_moqtrun_relay). */
   wired_moqtrun_relay relays[WIRED_MOQTRUN_MAX_RELAYS];
   /** Encoded Track Namespace this slot's PUBLISH declared: a SUBSCRIBE
    * matches on namespace AND name (draft 1.5 Full Track Name). Empty on
    * the hub's own blob/live tracks, which match by name only. */
-  u8  ns[WIRED_MOQTRUN_MAX_NS];
+  u8 ns[WIRED_MOQTRUN_MAX_NS];
+  /** Bytes of ns in use; 0 for the hub's own tracks. */
   usz ns_len;
   /** Largest Object published on this track (10.2.16), valid when
    * has_largest; restarts with each PUBLISH. */
   moqctl_loc largest;
-  int        has_largest;
+  /** 1 once an Object was published (largest valid). */
+  int has_largest;
   /** Request ID of the PUBLISH that claimed this slot. */
   u64 request_id;
   /** The PUBLISH's SUBGROUP_DELIVERY_TIMEOUT Track Property (12.6) in
@@ -825,20 +889,109 @@ typedef struct {
    * Status Code and Stream Count, and the moqt clock past which it goes
    * out regardless (WIRED_MOQTRUN_PUBDONE_WAIT_MS). */
   u64 pubdone_status;
+  /** The held PUBLISH_DONE's Stream Count. */
   u64 pubdone_streams;
+  /** Clock past which the held PUBLISH_DONE goes out anyway. */
   u64 pubdone_deadline;
-  u8  pubdone_pending;
+  /** 1 while a PUBLISH_DONE is held. */
+  u8 pubdone_pending;
 } wired_moqtrun_track;
 
 /** One connected participant's hub-side state: its WT session, its own
  * control-stream MOQT session machine, and the tracks (chat/audio) it has
- * PUBLISHed. */
+ * PUBLISHed. Members are grouped by alignment, widest first, so the slot
+ * carries no interior padding (each of the hub's peers[] is ~700 KB);
+ * related members that land in different groups name each other. */
 typedef struct {
-  int               in_use;
+  /* --- 8-byte aligned: session, control streams, reassembly --- */
+  /** The participant's WebTransport session, valid while in_use: the key
+   * every hub entry point finds this peer by. Owned by the transport. */
   wired_wt_session* wt;
   /** The HUB's own control stream (the one its SETUP went out on),
    * valid only while ctl_opened. */
   u64 control_stream_id;
+  /** The CLIENT's incoming control stream (draft-19 3.3), valid while
+   * peer_ctl_set: the first of a client uni starting 0x2F00, a
+   * client-opened bidi starting with SETUP, or a SETUP written back on
+   * the hub's legacy bidi. A second one closes the session. */
+  u64 peer_ctl_stream_id;
+  /** Stream id the current control dispatch is reading (transient, the
+   * control-stream twin of req). */
+  u64 rx_sid;
+  /** Reassembly of the stream being read as control bytes: ctl_asm for
+   * the hub's own (legacy bidi) stream, peer_ctl_asm for a distinct
+   * client control stream -- the two can interleave before acceptance. */
+  wired_moqtrun_ctl_asm* rx;
+  /** Client-control-stream bytes carried over to the next delivery (the
+   * peer_ctl_stream_id twin of ctl_asm). */
+  wired_moqtrun_ctl_asm peer_ctl_asm;
+  /** Control-stream bytes carried over to the next delivery. */
+  wired_moqtrun_ctl_asm ctl_asm;
+  /** Bytes of peer_impl in use, at most WIRED_MOQTRUN_IMPL_MAX (a longer
+   * value is kept truncated). */
+  usz peer_impl_len;
+  /** Bytes of hold in use; 0 when no delivery waits for replay. */
+  usz hold_len;
+  /** A fresh stream whose first delivery ended inside its first varint
+   * (RFC 9000 2.2): its bytes so far wait in pre (pre_n of them) until the
+   * varint is whole, so the stream is classified once (ledger 12-12).
+   * Valid while pre_n is non-zero. */
+  u64 pre_sid;
+  /* --- 8-byte aligned: Request IDs and session clocks --- */
+  /** Next Request ID this hub sends on the session: odd, 1-origin, +2
+   * per request (the hub is the server, draft SS10.2). */
+  u64 request_id_next;
+  /** One past the largest Request ID the peer has sent (+2, 0 for none):
+   * a draft-18 GOAWAY's Request ID (SS10.4). */
+  u64 peer_rid_next;
+  /** Registration order (wired_moqt_init-relative, never reused): a
+   * higher value is a newer session. Decides which of two sessions
+   * PUBLISHing the same name owns it (moqtrun_supersede_name). */
+  u64 join_seq;
+  /** The request stream whose message is being handled, 0 for the
+   * control stream: replies go to it. */
+  wired_moqtrun_req* req;
+  /** Clock (wired_moqt_tick) past which a session sent GOAWAY
+   * (sess.goaway_sent) is closed with GOAWAY_TIMEOUT; (u64)-1 for none. */
+  u64 goaway_deadline;
+  /** wired_moqt_tick clock at which PUBLISH_DONE went to every
+   * subscription; 0 before that happens. The close itself waits until
+   * WIRED_MOQTRUN_GOAWAY_GRACE_MS past this, not merely the next tick:
+   * a flush and a close on back-to-back ticks give a loaded peer no real
+   * time to read the flushed bytes before its session is torn down. */
+  u64 goaway_flushed_at;
+  /* --- 8-byte aligned: tracks, remembered subscriptions, replies --- */
+  /** The tracks this peer PUBLISHed; a slot is live while its in_use is
+   * set, and other peers' SUBSCRIBEs are recorded against it. */
+  wired_moqtrun_track tracks[WIRED_MOQTRUN_MAX_TRACKS_PER_PEER];
+  /** Length of each sub_names entry (same index). */
+  usz sub_name_lens[WIRED_MOQTRUN_SUB_NAMES];
+  /** Length of each sub_ns entry (same index). */
+  usz sub_ns_lens[WIRED_MOQTRUN_SUB_NAMES];
+  /** Subscription state of each sub_names entry (same index), restored
+   * when a REPUBLISH re-attaches this peer. */
+  wired_moqtrun_sub sub_state[WIRED_MOQTRUN_SUB_NAMES];
+  /** Bytes queued in each send_bufs slot (same index): the armed slot's
+   * round in flight, the pending slot's replies still to flush. */
+  usz send_lens[2];
+  /* SSTS (moqtssts_run.c) */
+  /** This session's negotiated SSTS algorithms, switching sets and group
+   * decisions (reset with the slot). */
+  moqtss_sess ssts;
+  /* --- 4-byte aligned --- */
+  /** 1 while this slot holds a registered session; 0 marks it free for
+   * the next wired_moqt_on_session. */
+  int in_use;
+  /** Negotiated MOQT draft (MOQVER_*), decided from the WT subprotocol
+   * token in wired_moqt_on_session and fixed for the session's life. */
+  int ver;
+  /** The send_bufs slot (0 or 1) last handed to stream_send -- the ARMED
+   * one, never written while its round may be unACKed (send_bufs). */
+  int armed_idx;
+  /** The session's control-stream MOQT state machine (SETUP exchange,
+   * GOAWAY, control-stream end), stepped by every control message. */
+  moqsess sess;
+  /* --- 1-byte flags and counters --- */
   /** 1 while the control-stream binding is the pre-d17 single bidi: the
    * WT token was empty (a browser cannot negotiate a subprotocol) or
    * unlisted. 0 = draft-19 3.3 uni pair. */
@@ -850,52 +1003,27 @@ typedef struct {
   /** 1 once the hub's control stream opened (SETUP went out with it). A
    * refused open retries on a later tick; nothing else is sent before. */
   u8 ctl_opened;
-  /** The CLIENT's incoming control stream (draft-19 3.3), valid while
-   * peer_ctl_set: the first of a client uni starting 0x2F00, a
-   * client-opened bidi starting with SETUP, or a SETUP written back on
-   * the hub's legacy bidi. A second one closes the session. */
-  u64 peer_ctl_stream_id;
-  u8  peer_ctl_set;
+  /** 1 once peer_ctl_stream_id names the client's control stream. */
+  u8 peer_ctl_set;
   /** 1 once the client's SETUP was accepted (a 2nd SETUP violates). */
   u8 setup_recv;
-  /** Stream id the current control dispatch is reading (transient, the
-   * ctl twin of req below). */
-  u64 rx_sid;
-  /** Reassembly of the stream being read as control bytes: ctl_asm for
-   * the hub's own (legacy bidi) stream, peer_ctl_asm for a distinct
-   * client control stream -- the two can interleave before acceptance. */
-  wired_moqtrun_ctl_asm* rx;
-  /** Client-control-stream bytes carried over to the next delivery (the
-   * peer_ctl_stream_id twin of ctl_asm below). */
-  wired_moqtrun_ctl_asm peer_ctl_asm;
+  /** 1 when the client's SETUP carried MOQT_IMPLEMENTATION (peer_impl
+   * holds it). */
+  u8 peer_has_impl;
+  /** Bytes of stream pre_sid kept in pre; 0 = none pending. */
+  u8 pre_n;
+  u8 sub_names_n;  /**< entries recorded (<= WIRED_MOQTRUN_SUB_NAMES) */
+  u8 sub_names_at; /**< ring write index */
+  /** 1 once the hub asked the transport to close the session: nothing
+   * more is sent on it. */
+  u8 closing;
+  /* --- byte arrays --- */
+  /** The kept head of stream pre_sid: at most one MOQT varint (9 bytes),
+   * pre_n of them valid. */
+  u8 pre[9];
   /** The client SETUP's MOQT_IMPLEMENTATION (10.4), copied -- the
    * decoded view dangles after the dispatch. */
-  u8  peer_impl[WIRED_MOQTRUN_IMPL_MAX];
-  usz peer_impl_len;
-  u8  peer_has_impl;
-  /** Pre-establishment deliveries held for replay (WIRED_MOQTRUN_
-   * HOLD_BUF's own doc). */
-  u8  hold[WIRED_MOQTRUN_HOLD_BUF];
-  usz hold_len;
-  /** A fresh stream's first delivery that ended inside its first varint
-   * (RFC 9000 2.2), kept until the varint is whole so the stream is
-   * classified once (ledger 12-12). pre_n 0 = none pending. */
-  u64 pre_sid;
-  u8  pre[9];
-  u8  pre_n;
-  /** Negotiated MOQT draft (MOQVER_*), decided from the WT subprotocol
-   * token in wired_moqt_on_session and fixed for the session's life. */
-  int     ver;
-  moqsess sess;
-  u64     request_id_next; /* next Request ID this hub sends */
-  /** One past the largest Request ID the peer has sent (+2, 0 for none):
-   * a draft-18 GOAWAY's Request ID (SS10.4). */
-  u64 peer_rid_next;
-  /** Registration order (wired_moqt_init-relative, never reused): a
-   * higher value is a newer session. Decides which of two sessions
-   * PUBLISHing the same name owns it (moqtrun_supersede_name). */
-  u64                 join_seq;
-  wired_moqtrun_track tracks[WIRED_MOQTRUN_MAX_TRACKS_PER_PEER];
+  u8 peer_impl[WIRED_MOQTRUN_IMPL_MAX];
   /** Track Names this peer has successfully SUBSCRIBEd to (ring, newest
    * overwrites oldest past WIRED_MOQTRUN_SUB_NAMES) -- kept on the
    * SUBSCRIBER so the intent outlives the publisher. When a publisher
@@ -905,10 +1033,12 @@ typedef struct {
    * stands and never re-SUBSCRIBE: the rejoined publisher played into
    * silence until the listener reloaded the page. PUBLISH re-attaches
    * every live holder of the name (moqtrun_reattach_subs). */
-  u8  sub_names[WIRED_MOQTRUN_SUB_NAMES][WIRED_MOQTRUN_MAX_NAME];
-  usz sub_name_lens[WIRED_MOQTRUN_SUB_NAMES];
-  u8  sub_names_n;  /**< entries recorded (<= WIRED_MOQTRUN_SUB_NAMES) */
-  u8  sub_names_at; /**< ring write index */
+  u8 sub_names[WIRED_MOQTRUN_SUB_NAMES][WIRED_MOQTRUN_MAX_NAME];
+  /** Pre-establishment deliveries held for replay (WIRED_MOQTRUN_
+   * HOLD_BUF's own doc). */
+  u8 hold[WIRED_MOQTRUN_HOLD_BUF];
+  /** Encoded Track Namespace of each sub_names entry (same index). */
+  u8 sub_ns[WIRED_MOQTRUN_SUB_NAMES][WIRED_MOQTRUN_MAX_NS];
   /** Two send_buf slots, used as an ARMED/PENDING pair rather than a single
    * shared buffer: wired_server_wt_stream_send's payload is a VIEW
    * (srvrun.h -- "the caller must keep it alive and unmoved until every
@@ -926,37 +1056,9 @@ typedef struct {
    * send_bufs[armed_idx ^ 1] (the "pending" slot); a successful flush
    * swaps armed_idx to that slot -- the newly-armed bytes -- and the old
    * armed slot becomes the next pending target (safe to overwrite: nothing
-   * from it was ever handed to stream_send). */
-  u8  send_bufs[2][WIRED_MOQTRUN_CTL_SEND_BUF];
-  usz send_lens[2];
-  int armed_idx;
-  /** Control-stream bytes carried over to the next delivery. */
-  wired_moqtrun_ctl_asm ctl_asm;
-  /** Encoded Track Namespace of each sub_names entry (same index). */
-  u8  sub_ns[WIRED_MOQTRUN_SUB_NAMES][WIRED_MOQTRUN_MAX_NS];
-  usz sub_ns_lens[WIRED_MOQTRUN_SUB_NAMES];
-  /** Subscription state of each sub_names entry (same index), restored
-   * when a REPUBLISH re-attaches this peer. */
-  wired_moqtrun_sub sub_state[WIRED_MOQTRUN_SUB_NAMES];
-  /** The request stream whose message is being handled, 0 for the
-   * control stream: replies go to it. */
-  wired_moqtrun_req* req;
-  /** Clock (wired_moqt_tick) past which a session sent GOAWAY
-   * (sess.goaway_sent) is closed with GOAWAY_TIMEOUT; (u64)-1 for none. */
-  u64 goaway_deadline;
-  /** wired_moqt_tick clock at which PUBLISH_DONE went to every
-   * subscription; 0 before that happens. The close itself waits until
-   * WIRED_MOQTRUN_GOAWAY_GRACE_MS past this, not merely the next tick:
-   * a flush and a close on back-to-back ticks give a loaded peer no real
-   * time to read the flushed bytes before its session is torn down. */
-  u64 goaway_flushed_at;
-  /** 1 once the hub asked the transport to close the session: nothing
-   * more is sent on it. */
-  u8 closing;
-  /* SSTS (moqtssts_run.c) */
-  /** This session's negotiated SSTS algorithms, switching sets and group
-   * decisions (reset with the slot). */
-  moqtss_sess ssts;
+   * from it was ever handed to stream_send). send_lens holds each slot's
+   * length. */
+  u8 send_bufs[2][WIRED_MOQTRUN_CTL_SEND_BUF];
 } wired_moqtrun_peer;
 
 /** The hub's own clock-paced live track (wired_moqt_publish_live): Group
@@ -1001,8 +1103,10 @@ typedef int (*wired_moqt_authorize_ns_fn)(
 /** The hub's whole state: fixed peer table plus the io table it sends
  * through. Zero-initialize with wired_moqt_init before first use. */
 typedef struct {
+  /** One slot per connected session (wired_moqtrun_peer.in_use). */
   wired_moqtrun_peer peers[WIRED_MOQTRUN_MAX_SESSIONS];
-  wired_moqt_io      io;
+  /** Transport callbacks every send goes through (wired_moqt_init). */
+  wired_moqt_io io;
   /** Next wired_moqtrun_peer.join_seq to hand out. */
   u64 join_seq_next;
   /** Subscriber authorizer (SS13.3); 0 (the wired_moqt_init default)
@@ -1060,6 +1164,7 @@ typedef struct {
    * (sent) vs rounds dropped for one subscriber because stream_send refused
    * them (drop -- the previous round was still unACKed). Diagnostic only. */
   u64 stat_relay_sent;
+  /** Relay rounds dropped (stat_relay_sent's doc). */
   u64 stat_relay_drop;
   /** Failed relay-stream OPENS (io.open_uni_stream returned failure --
    * send-slot exhaustion or the peer's stream limit). A failed open loses
@@ -1191,7 +1296,8 @@ typedef struct {
    * With SSTS on, an assignment the session cannot take is refused
    * REQUEST_ERROR UNSUPPORTED_EXTENSION (0x33). */
   const u64* ssts_algs;
-  usz        ssts_alg_n;
+  /** Entries at ssts_algs; 0 turns SSTS off. */
+  usz ssts_alg_n;
   /** Default algorithm (0) budget cap in kbps; 0 = uncapped. The hub has
    * no bandwidth estimate, so this cap is the whole budget
    * (moqssts_budget_kbps(0, cap)). */
