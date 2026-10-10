@@ -388,6 +388,14 @@ typedef struct {
  * (same fixed-slot policy as resp[]). */
 #define SRVRUN_WT_SEND_SLOTS 16
 
+/* Outbound broadcast DATAGRAMs (RFC 9221 5) one connection holds between
+ * steps (dg_pending_buf). Same depth as one wired_srvinbox_ring (4), the
+ * other leg of the broadcast fan-out, so a burst one worker's inbox can hold
+ * also fits each local connection; 4 x 1200 B = 4.8 KB per connection. A
+ * full queue refuses the newest -- DATAGRAMs are unreliable by design
+ * (RFC 9221 1), but one already queued is never overwritten. */
+#define SRVRUN_DG_PENDING_Q 4
+
 /* RFC 9000 13.3: one-shot control packets (stream aborts, GOAWAY) one
  * connection keeps until ACKed. Sized so every stream this connection can
  * track -- request slots, WT bidi/uni receive slots, WT send slots, both
@@ -569,8 +577,10 @@ typedef struct {
    * ids in this /4-indexed window, the same reason wt_closed_mark skips
    * them). */
   wired_srvloop_closed wt_send_done;
-  /** Bytes used in dg_pending_buf. */
-  usz dg_pending_len;
+  /** Bytes used in each dg_pending_buf entry. */
+  usz dg_pending_len[SRVRUN_DG_PENDING_Q];
+  /** Index of the oldest queued dg_pending_buf entry. */
+  usz dg_pending_head;
   /** Bytes used in boot_ini; 0 until an accept flight is cached. */
   usz boot_ini_len;
   /** Lengths of the cached Handshake datagrams, laid back to back in
@@ -803,7 +813,7 @@ typedef struct {
   int wt_drain_pending[SRVRUN_MAX_WT_SESSIONS];
   /** App error code of each wt_stream_reset_id entry (see its doc). */
   u32 wt_stream_reset_app_code[SRVRUN_WT_RESET_LATCH];
-  int dg_pending; /**< 1 while dg_pending_buf holds an undrained datagram */
+  int dg_pending; /**< datagrams queued in dg_pending_buf, undrained */
   /** RFC 9002 6.2: consecutive boot-stage probe count, the boot-flight
    * counterpart to wired_sendsess.pto_count -- scales srvrun_pto_deadline_ms'
    * backoff and, at SRVRUN_PTO_MAX, tears the slot down the same way
@@ -853,14 +863,10 @@ typedef struct {
    * part to reset, and a RESET_STREAM for it would be connection-fatal
    * at the client. */
   u8 wt_stream_reset_stop[SRVRUN_WT_RESET_LATCH];
-  /** One pending outbound QUIC DATAGRAM (RFC 9221 5), queued by
-   * srvrun_wt_send_datagram and drained by srvrun_send_pending_datagram on
-   * the next step. ponytail: single-slot, not a queue — a second send
-   * request before the first drains overwrites dg_pending_buf/dg_pending_len
-   * (last-writer-wins). Acceptable first-cut simplification (DATAGRAM
-   * delivery is unreliable/unordered by design, RFC 9221 1); a real queue can
-   * replace this if an app needs to burst more than one per step. */
-  u8 dg_pending_buf[1200];
+  /** Pending outbound QUIC DATAGRAMs (RFC 9221 5), a FIFO ring of
+   * SRVRUN_DG_PENDING_Q queued by srvrun_queue_datagram and drained by
+   * srvrun_send_pending_datagram on the next step. */
+  u8 dg_pending_buf[SRVRUN_DG_PENDING_Q][1200];
   /** RFC 9000 13.3: until the handshake is confirmed, a client Initial
    * retransmission (same DCID, a fresh datagram because the prior flight was
    * lost or delayed) must get the identical flight resent, not a fresh boot.
@@ -4432,9 +4438,18 @@ static int srvrun_owes_goaway(const srvrun_conn* c) {
   return c->up && c->l.hs_done_sent && srvrun_goaway_applies(c);
 }
 
-/* Queue data as c's one pending outbound QUIC DATAGRAM (RFC 9221), to be sent
- * on the connection's next step (srvrun_send_pending_datagram). Copies data
- * into c->dg_pending_buf, so the caller's span need not outlive this call.
+/* 1 iff data can join c's pending queue: our SETTINGS went out (RFC 9297
+ * 2.1), it fits one entry, and the queue has room. */
+static int srvrun_dg_queueable(const srvrun_conn* c, wired_span data) {
+  if (!c->l.h3.settings_sent) return 0;
+  return data.n <= sizeof c->dg_pending_buf[0] &&
+         c->dg_pending < SRVRUN_DG_PENDING_Q;
+}
+
+/* Queue data at the tail of c's pending outbound QUIC DATAGRAMs (RFC 9221),
+ * to be sent on the connection's next step (srvrun_send_pending_datagram).
+ * Copies data into c->dg_pending_buf, so the caller's span need not outlive
+ * this call.
  *
  * srvrun-internal for now rather than a wired_wt_session API: the
  * pending-datagram slot lives on srvrun_conn (not wired_wt_session), since
@@ -4460,14 +4475,14 @@ static int srvrun_owes_goaway(const srvrun_conn* c) {
  * self-imposed ordering constraint, not a peer-facing fault.
  * ponytail: unused in the freestanding build (only tests/run.c calls this),
  * so it needs the attribute to avoid -Wunused-function under -Werror there.
- * @return 1 if queued, 0 if data.n exceeds dg_pending_buf's capacity or our
- * own SETTINGS have not been sent yet (RFC 9297 2.1) */
+ * @return 1 if queued, 0 if data.n exceeds one entry's capacity, the queue
+ * is full, or our own SETTINGS have not been sent yet (RFC 9297 2.1) */
 static int srvrun_queue_datagram(srvrun_conn* c, wired_span data) {
-  if (!c->l.h3.settings_sent) return 0;
-  if (data.n > sizeof c->dg_pending_buf) return 0;
-  bytes_memcpy(c->dg_pending_buf, data.p, data.n);
-  c->dg_pending_len = data.n;
-  c->dg_pending     = 1;
+  usz i = (c->dg_pending_head + (usz)c->dg_pending) % SRVRUN_DG_PENDING_Q;
+  if (!srvrun_dg_queueable(c, data)) return 0;
+  bytes_memcpy(c->dg_pending_buf[i], data.p, data.n);
+  c->dg_pending_len[i] = data.n;
+  c->dg_pending++;
   return 1;
 }
 
@@ -4526,7 +4541,7 @@ static int srvrun_send_dg_prefixed(
     const wired_wt_session* s,
     wired_span              payload,
     wired_obuf*             out) {
-  u8  buf[8 + sizeof c->dg_pending_buf];
+  u8  buf[8 + sizeof c->dg_pending_buf[0]];
   usz qn = wtwire_qsid_put(buf, sizeof buf, s->connect_stream_id);
   if (!qn) return 0;
   bytes_memcpy(buf + qn, payload.p, payload.n);
@@ -4541,11 +4556,13 @@ static int srvrun_send_dg_prefixed(
 static int srvrun_send_pending_dg_slot(
     const srvrun_cfg* cfg, srvrun_conn* c, int i, wired_obuf* out) {
   wired_wt_session* s;
+  usz               h = c->dg_pending_head;
   if (!srvrun_wt_is_active(c, i)) return 1;
   s = srvrun_wt_slot(c, i);
   if (!wt_session_send_side_open(s)) return 1;
   return srvrun_send_dg_prefixed(
-      cfg, c, s, wired_span_of(c->dg_pending_buf, c->dg_pending_len), out);
+      cfg, c, s, wired_span_of(c->dg_pending_buf[h], c->dg_pending_len[h]),
+      out);
 }
 
 /* Seal c's one pending broadcast DATAGRAM (srvrun_queue_datagram's single
@@ -4553,13 +4570,26 @@ static int srvrun_send_pending_dg_slot(
  * session's qsid prefix; clears c->dg_pending when every eligible session
  * was sent to, keeps it pending on failure so a later step may retry
  * against a raised peer limit. */
-static int srvrun_send_pending_datagram(
+static int srvrun_send_pending_dg_head(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* out) {
   int ok = 1;
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
     ok &= srvrun_send_pending_dg_slot(cfg, c, i, out);
-  if (ok) c->dg_pending = 0;
   return ok;
+}
+
+/* Drain c's pending queue oldest first, each entry once per active WT
+ * session with its own qsid prefix (srvrun_send_pending_dg_head). Stops at
+ * the first entry that fails, keeping it (and the rest) pending so a later
+ * step may retry against a raised peer limit. */
+static int srvrun_send_pending_datagram(
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* out) {
+  while (c->dg_pending) {
+    if (!srvrun_send_pending_dg_head(cfg, c, out)) return 0;
+    c->dg_pending_head = (c->dg_pending_head + 1) % SRVRUN_DG_PENDING_Q;
+    c->dg_pending--;
+  }
+  return 1;
 }
 
 /* 1 if c has any active WT session (any slot), regardless of which one. */
@@ -4686,7 +4716,7 @@ static int srvrun_broadcast_registered(int slot, wired_span data) {
  * every wired_srvinbox_ring slot share the same 1200-byte cap by
  * construction, WIRED_SRVINBOX_SLOT_MAX). */
 static int srvrun_broadcast_fits(wired_span data) {
-  return data.n <= sizeof g_srvrun_state.conns[0].dg_pending_buf;
+  return data.n <= sizeof g_srvrun_state.conns[0].dg_pending_buf[0];
 }
 
 int wired_server_broadcast_datagram(wired_span data) {

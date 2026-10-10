@@ -1222,9 +1222,9 @@ static void test_srvthreads_broadcast_misses_caller_owned_env(void) {
    * the broadcast/queue logic it calls. */
   srvrun_broadcast_to_all(&st, wired_span_of(msg, sizeof msg - 1));
   CHECK(c->dg_pending == 1);
-  CHECK(c->dg_pending_len == sizeof msg - 1);
+  CHECK(c->dg_pending_len[0] == sizeof msg - 1);
   for (usz i = 0; i < sizeof msg - 1; i++)
-    CHECK(c->dg_pending_buf[i] == msg[i]);
+    CHECK(c->dg_pending_buf[0][i] == msg[i]);
   /* THE FIX (verified in tests/app/srvinbox_test.c's
    * test_srvinbox_registry_single_worker_reaches_own_env, not repeated here):
    * once this thread calls wired_srvrun_broadcast_register(0, 1, row, env)

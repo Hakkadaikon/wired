@@ -194,9 +194,9 @@ static void test_srvinbox_registry_single_worker_reaches_own_env(void) {
       wired_server_broadcast_datagram(
           wired_span_of(sib_msg_a, sizeof sib_msg_a)) == 1);
   CHECK(c->dg_pending == 1);
-  CHECK(c->dg_pending_len == sizeof sib_msg_a);
+  CHECK(c->dg_pending_len[0] == sizeof sib_msg_a);
   for (usz i = 0; i < sizeof sib_msg_a; i++)
-    CHECK(c->dg_pending_buf[i] == sib_msg_a[i]);
+    CHECK(c->dg_pending_buf[0][i] == sib_msg_a[i]);
   wired_srvrun_broadcast_unregister();
 }
 
@@ -281,9 +281,9 @@ static void test_srvinbox_registry_two_worker_mesh_delivers(void) {
   /* Worker A's OWN connection got A's broadcast directly (env fan-out, not
    * through any ring). */
   CHECK(conn_a->dg_pending == 1);
-  CHECK(conn_a->dg_pending_len == sizeof sib_msg_b);
+  CHECK(conn_a->dg_pending_len[0] == sizeof sib_msg_b);
   for (usz i = 0; i < sizeof sib_msg_b; i++)
-    CHECK(conn_a->dg_pending_buf[i] == sib_msg_b[i]);
+    CHECK(conn_a->dg_pending_buf[0][i] == sib_msg_b[i]);
   /* Worker B's own row, column 0 (worker A's source column), holds A's
    * broadcast for B's own next-step drain -- delivered through
    * wired_server_broadcast_datagram alone, never by writing B's ring

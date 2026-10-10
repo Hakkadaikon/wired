@@ -326,9 +326,8 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   `WIRED_SRVLOOP_WT_MAX_RANGES` (8) disjoint gaps in one window; more are
   coalesced or dropped (not reachable at targeted sizes). Source:
   `srvloop.c:647`.
-- **Only one pending outbound datagram per connection** — the WT datagram
-  send queue is single-slot, last-writer-wins (`dg_pending_buf[1200]`). Source:
-  `srvrun.c:598`, `srvrun.c:4387`.
+- **Pending broadcast datagrams per connection** — `SRVRUN_DG_PENDING_Q` (4)
+  of up to 1200 bytes; a full queue refuses the newest. Source: `srvrun.c`.
 - **Pre-establishment datagram buffering is bounded** —
   `WIRED_WT_MAX_BUFFERED_DATAGRAMS` (4) datagrams of up to
   `WIRED_WT_BUFFERED_DATAGRAM_CAP` (256) bytes; longer ones are dropped whole

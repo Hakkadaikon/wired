@@ -7102,7 +7102,7 @@ static void test_srvrun_datagram_rejected_over_peer_limit(void) {
 static void test_srvrun_datagram_unused_does_not_affect_stream_response(void) {
   srvrun_conn c = {0};
   CHECK(c.dg_pending == 0);
-  CHECK(c.dg_pending_len == 0);
+  CHECK(c.dg_pending_len[0] == 0);
 }
 
 /* BOUNDARY: a payload larger than dg_pending_buf's capacity is rejected --
@@ -7114,13 +7114,12 @@ static void test_srvrun_datagram_too_large_rejected(void) {
   CHECK(c.dg_pending == 0);
 }
 
-/* SINGLE-SLOT OVERWRITE CONTRACT: queuing a second datagram before the first
- * drains overwrites the pending slot (last-writer-wins), per the documented
- * ponytail simplification on srvrun_conn.dg_pending_buf. */
+/* QUEUE CONTRACT: a second datagram queued before the first drains is kept
+ * behind it (FIFO), never overwriting it; a full queue refuses the newest. */
 static const u8 sr_dg_first[]  = {1, 2, 3};
 static const u8 sr_dg_second[] = {9, 9};
 
-static void test_srvrun_datagram_second_queue_overwrites_first(void) {
+static void test_srvrun_datagram_second_queue_kept_behind_first(void) {
   srvrun_conn c        = {0};
   c.l.h3.settings_sent = 1; /* RFC 9297 2.1: queuing requires SETTINGS sent */
   CHECK(
@@ -7129,10 +7128,48 @@ static void test_srvrun_datagram_second_queue_overwrites_first(void) {
   CHECK(
       srvrun_queue_datagram(
           &c, wired_span_of(sr_dg_second, sizeof sr_dg_second)) == 1);
-  CHECK(c.dg_pending == 1);
-  CHECK(c.dg_pending_len == sizeof sr_dg_second);
-  for (usz i = 0; i < sizeof sr_dg_second; i++)
-    CHECK(c.dg_pending_buf[i] == sr_dg_second[i]);
+  CHECK(c.dg_pending == 2);
+  CHECK(c.dg_pending_len[0] == sizeof sr_dg_first);
+  CHECK(c.dg_pending_len[1] == sizeof sr_dg_second);
+  CHECK(c.dg_pending_buf[0][0] == sr_dg_first[0]);
+  CHECK(c.dg_pending_buf[1][0] == sr_dg_second[0]);
+  for (usz i = 2; i < SRVRUN_DG_PENDING_Q; i++)
+    CHECK(
+        srvrun_queue_datagram(
+            &c, wired_span_of(sr_dg_first, sizeof sr_dg_first)) == 1);
+  CHECK(
+      srvrun_queue_datagram(
+          &c, wired_span_of(sr_dg_second, sizeof sr_dg_second)) == 0);
+  CHECK(c.dg_pending == SRVRUN_DG_PENDING_Q);
+}
+
+/* Draining sends every queued datagram, oldest first, then empties. */
+static void test_srvrun_datagram_queue_drains_all(void) {
+  struct lp_fix  f;
+  srvrun_conn    c;
+  wired_obuf     ob;
+  u8             obuf[1600];
+  const u8*      pl;
+  usz            pll;
+  datagram_frame df;
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  ob             = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.peer_max_datagram_frame_size = 65535;
+  c.wt_active                           = 1;
+  c.wt.state                            = WIRED_WT_ESTABLISHED;
+  c.wt.connect_stream_id                = 4;
+  srvrun_queue_datagram(&c, wired_span_of(sr_dg_first, sizeof sr_dg_first));
+  srvrun_queue_datagram(&c, wired_span_of(sr_dg_second, sizeof sr_dg_second));
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  CHECK(srvrun_send_pending_datagram(&cfg, &c, &ob) == 1);
+  CHECK(c.dg_pending == 0);
+  /* out holds the last one sealed: the second, sent after the first */
+  CHECK(client_open_onertt(&f, ob.p, ob.len, &pl, &pll) == 1);
+  CHECK(datagram_decode(pl, pll, &df) == pll);
+  CHECK(df.data[1] == sr_dg_second[0]);
 }
 
 /* WEBTRANSPORT DATAGRAM RECEIVE: srvrun_drain_rx_datagrams delivers every
@@ -9317,11 +9354,11 @@ static void test_srvrun_broadcast_datagram_queues_active_wt_sessions(void) {
       wired_server_broadcast_datagram(
           wired_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
   CHECK(g_srvrun_state.conns[0].dg_pending == 1);
-  CHECK(g_srvrun_state.conns[0].dg_pending_len == sizeof sr_dg_payload);
+  CHECK(g_srvrun_state.conns[0].dg_pending_len[0] == sizeof sr_dg_payload);
   CHECK(g_srvrun_state.conns[1].dg_pending == 1);
   for (usz i = 0; i < sizeof sr_dg_payload; i++) {
-    CHECK(g_srvrun_state.conns[0].dg_pending_buf[i] == sr_dg_payload[i]);
-    CHECK(g_srvrun_state.conns[1].dg_pending_buf[i] == sr_dg_payload[i]);
+    CHECK(g_srvrun_state.conns[0].dg_pending_buf[0][i] == sr_dg_payload[i]);
+    CHECK(g_srvrun_state.conns[1].dg_pending_buf[0][i] == sr_dg_payload[i]);
   }
 }
 
@@ -17885,8 +17922,7 @@ static void test_srvrun_broadcast_ring_no_silent_loss_on_same_step_double_queue(
   u8 msg_a[] = {1, 2, 3};
   u8 msg_b[] = {9, 9};
 
-  /* Single-slot: second queue overwrites the first -- the bug this task
-   * fixes by moving chat/join-leave off this API. */
+  /* Broadcast queue: the second is kept behind the first, not overwritten. */
   {
     srvrun_conn c        = {0};
     c.l.h3.settings_sent = 1;
@@ -17896,7 +17932,9 @@ static void test_srvrun_broadcast_ring_no_silent_loss_on_same_step_double_queue(
     wired_wt_session_establish(&c.wt);
     CHECK(srvrun_queue_datagram(&c, wired_span_of(msg_a, sizeof msg_a)) == 1);
     CHECK(srvrun_queue_datagram(&c, wired_span_of(msg_b, sizeof msg_b)) == 1);
-    CHECK(c.dg_pending_len == sizeof msg_b); /* msg_a is gone */
+    CHECK(c.dg_pending == 2);
+    CHECK(c.dg_pending_len[0] == sizeof msg_a);
+    CHECK(c.dg_pending_len[1] == sizeof msg_b);
   }
 
   /* Ring: both survive, queued as two separate entries. */
@@ -21856,7 +21894,8 @@ void test_srvrun(void) {
   test_srvrun_datagram_rejected_over_peer_limit();
   test_srvrun_datagram_unused_does_not_affect_stream_response();
   test_srvrun_datagram_too_large_rejected();
-  test_srvrun_datagram_second_queue_overwrites_first();
+  test_srvrun_datagram_second_queue_kept_behind_first();
+  test_srvrun_datagram_queue_drains_all();
   test_srvrun_rx_datagram_delivers_to_callback();
   test_srvrun_rx_datagram_multiple_all_delivered();
   test_srvrun_rx_datagram_no_callback_still_drains();
