@@ -44,9 +44,6 @@ general relay network.
 - **Announcements after establishment ignored** — once an upstream SUBSCRIBE
   (hub to publisher, d18/19 9.4, d22 7.4) is Established, a later announce for
   that name is ignored. Source: L12-3 ("known limitations").
-- **Publisher RESET of the hub's upstream stream not handled** — if the
-  publisher resets the stream the hub opened for its upstream SUBSCRIBE, the
-  hub does nothing until the session ends. Source: `moqtrun.c:8359`, L12-3.
 - **SUBGROUP before SUBSCRIBE_OK dropped** — a SUBGROUP stream that reaches the
   hub before the upstream SUBSCRIBE_OK is dropped, not buffered (unverified;
   from the hand-off brief, no code comment found). Impact: first Objects of a

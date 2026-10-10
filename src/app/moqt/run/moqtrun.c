@@ -8028,9 +8028,14 @@ static void moqtrun_stream_frag_release(wired_moqtrun_peer* p, u64 stream_id) {
   if (r) moqtrun_frag_release_unless_poisoned(r);
 }
 
+/* Upstream SUBSCRIBE's own section: a reset of the hub's stream cancels
+ * that request (draft-22 6.4.2.3). */
+static void moqtrun_up_on_reset(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 stream_id);
+
 /* A reset control stream kills the session (draft-19 3.3); a reset
  * request stream cancels its request; a reset publisher stream frees
- * its held fragment. */
+ * its held fragment, or cancels the hub's upstream SUBSCRIBE on it. */
 static void moqtrun_reset_dispatch(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
@@ -8040,10 +8045,12 @@ static void moqtrun_reset_dispatch(
     moqtrun_ctl_gone(hub, p);
     return;
   }
-  if (q)
+  if (q) {
     moqtrun_req_cancel(hub, p, q);
-  else
-    moqtrun_stream_frag_release(p, stream_id);
+    return;
+  }
+  moqtrun_stream_frag_release(p, stream_id);
+  moqtrun_up_on_reset(hub, p, stream_id);
 }
 
 void wired_moqt_on_stream_reset(
@@ -8957,6 +8964,25 @@ static void moqtrun_up_on_done(
   if (!t) return;
   u->done = 1;
   moqtrun_pubdone_arm(hub, pp, t, body);
+}
+
+/* The publisher reset the hub's SUBSCRIBE stream: the request is
+ * cancelled (draft-22 6.4.2.3). Waiters are refused INTERNAL_ERROR; an
+ * Established track ends for its subscribers (PUBLISH_DONE) and retires.
+ * The hub resets its own still-open direction. */
+static void moqtrun_up_on_reset(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 stream_id) {
+  wired_moqtrun_up*    u = moqtrun_up_of_stream(hub, p->wt, stream_id);
+  wired_moqtrun_track* t;
+  if (!u) return;
+  t = moqtrun_up_track(p, u);
+  moqtrun_up_refuse_waiters(hub, moqtrun_up_key(u), MOQCTL_ERR_INTERNAL_ERROR);
+  if (t) {
+    moqtrun_track_ended(hub, t);
+    moqtrun_track_retire(hub, t);
+  }
+  hub->io.stream_reset(u->wt, u->stream_id, MOQTRUN_RESET_CANCELLED);
+  u->in_use = 0;
 }
 
 typedef void (*moqtrun_up_fn)(

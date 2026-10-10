@@ -299,6 +299,29 @@ static void test_moqtrun_upsub_publisher_close(void) {
   CHECK(mups_used() == 0);
 }
 
+/* d22 6.4.2.3: A resets the hub's upstream SUBSCRIBE stream -- the
+ * request is cancelled. A waiter is refused INTERNAL_ERROR, an
+ * Established subscriber gets its PUBLISH_DONE; the hub resets its own
+ * side and frees the entry. */
+static void test_moqtrun_upsub_publisher_reset(void) {
+  u64 sid;
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  sid = (u64)mups_up_sid();
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_A, sid, 1, 0);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "E0|FIN|"));
+  CHECK(mups_up_is(sid, "RST1|"));
+  CHECK(mups_used() == 0);
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  sid = (u64)mups_up_sid();
+  mups_ok(sid);
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_A, sid, 1, 0);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|Tb|FIN|"));
+  CHECK(mups_up_is(sid, "RST1|"));
+  CHECK(mups_used() == 0);
+}
+
 /* U9 (9.5 "a PUBLISH_NAMESPACE ... MUST send a SUBSCRIBE"; interop
  * subscribe-before-announce): a rendezvous hold made before any
  * announcer goes upstream once A announces, and resolves on its OK. */
@@ -358,6 +381,7 @@ static void mtall_upsub(void) {
   test_moqtrun_upsub_pending_cancel_and_stale_ok();
   test_moqtrun_upsub_publish_done_relayed();
   test_moqtrun_upsub_publisher_close();
+  test_moqtrun_upsub_publisher_reset();
   test_moqtrun_upsub_hold_then_announce();
   test_moqtrun_upsub_open_fails();
   test_moqtrun_upsub_own_namespace();
