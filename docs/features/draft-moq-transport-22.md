@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 197/212 tested, 10 indirect, 5 untested.**
+**Coverage: 198/212 tested, 10 indirect, 4 untested.**
 
 ## SS1.4.1 Variable-Length Integers (SS8.1)
 
@@ -567,11 +567,15 @@ Legend:
     lets the caller (which knows which request it answers) enforce the
     per-variant empty-Track-Properties rule (moqctl.h's own doc); no
     session/run-layer test exercises the enforcement itself.
-- [ ] MQ22-083a Where INCLUDE_PROPERTIES=0 is sent on a request whose OK
+- [x] MQ22-083a Where INCLUDE_PROPERTIES=0 is sent on a request whose OK
   carries Track Properties, the implementation shall emit an empty Track
   Properties tail regardless of the track's actual properties.
-  - gap: INCLUDE_PROPERTIES (0x35) is not yet decoded by the parameter
-    registry; see Out of scope.
+  - test: `tests/app/moqtrun_sub_test.c` —
+    `test_moqtrun_sub_include_properties_0_empty_tail`
+  - test: `tests/app/moqctl_test.c` —
+    `test_moqctl_params_include_properties_range`
+  - evidence: the hub never forwards Track Properties in SUBSCRIBE_OK, so
+    the tail is empty for INCLUDE_PROPERTIES=0 (and also for 1).
 
 ## SS9.4 REQUEST_ERROR
 
@@ -1798,8 +1802,6 @@ them (MQ22-028, MQ22-193 through MQ22-201).
   not trimmed from a Subgroup stream; only the reliable replay honours the
   start Object. MQ22-108b (filter-end does not terminate the subscription)
   has no dedicated draft-22 test.
-- (SS9.20.21) INCLUDE_PROPERTIES (0x35) — not decoded by the parameter
-  registry (MQ22-083a).
 - (SS7.6, SS11.4.1.2) Relay-level FETCH gap/upstream-fetch behavior
   (MQ22-137) — moot until this hub forwards FETCH upstream to another
   relay.

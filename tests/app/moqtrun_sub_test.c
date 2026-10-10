@@ -1491,6 +1491,24 @@ static void test_moqtrun_sub_subgroup_timeout_min(void) {
   CHECK(mtst_sub(SESS_A, SESS_C)->subgroup_timeout == 0); /* none */
 }
 
+/* draft-22 SS9.20.21: a SUBSCRIBE with INCLUDE_PROPERTIES=0 gets a
+ * SUBSCRIBE_OK whose Track Properties tail is empty, even when the
+ * publisher's PUBLISH carried Track Properties. */
+static void test_moqtrun_sub_include_properties_0_empty_tail(void) {
+  static const u8 props[] = {0x06, 0x03};
+  moqctl_params   p       = mtst_params_u8(MOQCTL_PARAM_INCLUDE_PROPERTIES, 0);
+  moqctl_ftn      f       = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish_props(SESS_A, ca, &f, 1, wired_span_of(props, sizeof props));
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &p);
+  const moqctl_subscribe_ok* ok = mtst_last_ok();
+  CHECK(ok != 0);
+  CHECK(ok && ok->track_properties.n == 0);
+}
+
 /* REQUEST_UPDATE carrying SUBGROUP_DELIVERY_TIMEOUT re-mins against the
  * publisher's Track Property (draft-19 10.2.6). */
 static void test_moqtrun_sub_subgroup_timeout_update(void) {
@@ -1540,6 +1558,7 @@ static void mtall_sub(void) {
   test_moqtrun_reserved_ns_rejected();
   test_moqtrun_other_dot_ns_served();
   test_moqtrun_sub_subgroup_timeout_min();
+  test_moqtrun_sub_include_properties_0_empty_tail();
   test_moqtrun_sub_subgroup_timeout_update();
   test_moqtrun_sub_subgroup_timeout_gates_delivery();
   test_moqtrun_sub_ns_max_fields();
