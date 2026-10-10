@@ -45,11 +45,10 @@ case as `<file>:<first>-<last>`.
 | ECDSA P-224, P-521, secp224k1 cases in `ecdsa_verify_tests.txt` | curve not implemented in wired (only P-256 and P-384 verify) |
 | HMAC-MD5, HMAC-SHA1, HMAC-SHA224 in `hmac_tests.txt` | hash not implemented in wired |
 | HKDF | at the pinned commit `crypto/evp/test/evp_tests.txt` no longer carries HKDF vectors (they moved into `crypto/fipsmodule/hkdf/hkdf_test.cc`, C++ source, not a FileTest file); no allowed file has them |
-| SHA-2 (plain digests) | likewise moved out of `evp_tests.txt` into `crypto/digest/digest_test.cc`; SHA-256 and SHA-384 are still exercised through the HMAC vectors (SHA-512 is not: no HMAC-SHA512) |
+| SHA-2 (plain digests) | likewise moved out of `evp_tests.txt` into `crypto/digest/digest_test.cc`; SHA-256, SHA-384 and SHA-512 are still exercised through the HMAC vectors |
 | RSA | none of the allowed files carries RSA vectors (`crypto/evp/test/rsa_tests.txt` is not in the allowed list) |
 | X25519 1,000,000-iteration test | marked `DISABLED_` upstream; the 1,000-iteration case is used |
 | AES-GCM cases whose NONCE is not 12 bytes (5 in `aes_128_gcm_tests.txt`, 2 in `aes_256_gcm_tests.txt`) | valid for BoringSSL, but wired's GCM API takes a 96-bit nonce only, so the case cannot be expressed; counted as skip, not as a pass |
-| HMAC-SHA512 | wired has SHA-512 but no HMAC-SHA512 (only `hmac_sha256`, `hmac_sha384`); note SHA-512 itself therefore has no third-party oracle here |
 
 Impact of the skipped algorithms on QUIC / WebTransport / MoQT: none of them is
 needed by a TLS 1.3 handshake (cipher suites use SHA-256/SHA-384 for HKDF;

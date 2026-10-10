@@ -21,6 +21,9 @@ static void bsl_hm_256(wired_span k, wired_span m, u8* o) {
 static void bsl_hm_384(wired_span k, wired_span m, u8* o) {
   hmac_sha384(k, m, o);
 }
+static void bsl_hm_512(wired_span k, wired_span m, u8* o) {
+  hmac_sha512(k, m, o);
+}
 
 static int bsl_hm_diff(const u8* a, const u8* b, usz n) {
   int d = 0;
@@ -61,15 +64,14 @@ static bsl_hm_alg* bsl_hm_find(bsl_hm_alg* t, const char* name) {
 }
 
 void test_bssl_hmac(void) {
-  /* MD5/SHA1/SHA224: no such hash in src/; SHA512: hash exists, HMAC does
-   * not (hmac.h has only SHA-256/384) -> skipped, counted. */
+  /* MD5/SHA1/SHA224: no such hash in src/ -> skipped, counted. */
   bsl_hm_alg algs[] = {
       {"SHA256", 32, bsl_hm_256, 0, 0, 0, 0},
       {"SHA384", 48, bsl_hm_384, 0, 0, 0, 0},
+      {"SHA512", 64, bsl_hm_512, 0, 0, 0, 0},
       {"MD5", 0, 0, 0, 0, 0, 0},
       {"SHA1", 0, 0, 0, 0, 0, 0},
       {"SHA224", 0, 0, 0, 0, 0, 0},
-      {"SHA512", 0, 0, 0, 0, 0, 0},
       {0, 0, 0, 0, 0, 0, 0}};
   for (u32 i = 0;
        i < sizeof bssl_hmac_tests_cases / sizeof bssl_hmac_tests_cases[0];

@@ -552,10 +552,9 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 ## Cryptography
 
 - **Hash / MAC set** — SHA-256, SHA-384 and SHA-512 shipped; **not** SHA-1,
-  SHA-224, SHA-512/224, SHA-512/256, MD5. HMAC-SHA256 and HMAC-SHA384 only:
-  **no HMAC-SHA512, HMAC-SHA1, HMAC-SHA224, HMAC-MD5**; HKDF is SHA-256 only
-  in the TLS/QUIC profile. SHA-512 therefore has no third-party vector.
-  Impact: none for TLS 1.3 handshakes; certificate chains signed with
+  SHA-224, SHA-512/224, SHA-512/256, MD5. HMAC-SHA256, HMAC-SHA384 and
+  HMAC-SHA512 only: **no HMAC-SHA1, HMAC-SHA224, HMAC-MD5**; HKDF is SHA-256
+  only in the TLS/QUIC profile. Impact: none for TLS 1.3 handshakes; certificate chains signed with
   SHA-512-based or SHA-1 algorithms cannot be verified. Source:
   `docs/security/boringssl-vectors.md`, `tests/vectors/boringssl/README.md`,
   `ledger:fips180-4.md`, `ledger:rfc5869.md`, RESUME.

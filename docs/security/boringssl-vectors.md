@@ -21,9 +21,10 @@ and skip reasons: `tests/vectors/boringssl/README.md`. Tests:
 | ECDSA P-224 / P-521 / secp224k1 | 179 | 0 | 0 | 179 | curve not implemented |
 | HMAC-SHA256 | 5 | 5 | 0 | 0 | also a SHA-256 oracle |
 | HMAC-SHA384 | 3 | 3 | 0 | 0 | also a SHA-384 oracle |
-| HMAC-MD5 / SHA1 / SHA224 / SHA512 | 15 | 0 | 0 | 15 | hash or HMAC variant not implemented |
+| HMAC-SHA512 | 3 | 3 | 0 | 0 | also a SHA-512 oracle (one key longer than the block) |
+| HMAC-MD5 / SHA1 / SHA224 | 12 | 0 | 0 | 12 | hash not implemented |
 | HKDF | 0 | – | – | – | no vectors in the allowed files at the pinned commit (moved to C++ test source) |
-| SHA-2 (plain digest) | 0 | – | – | – | same; SHA-256/384 covered through HMAC |
+| SHA-2 (plain digest) | 0 | – | – | – | same; SHA-256/384/512 covered through HMAC |
 | RSA | 0 | – | – | – | no RSA vectors in the allowed files |
 
 No failure was found, so there is no open defect from this oracle. To make
@@ -35,7 +36,5 @@ were restored.
 
 ## Known gaps
 
-- SHA-512 is implemented but has no third-party vector here (no HMAC-SHA512,
-  no plain-digest vectors in the allowed files).
 - AES-GCM with a non-96-bit nonce is not supported by wired's API; QUIC and
   TLS 1.3 only use 96-bit nonces, so this does not affect the protocol.
