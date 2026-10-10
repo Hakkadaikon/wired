@@ -8,6 +8,7 @@
 #include "tls/ext/stp/server_tp.h"
 #include "tls/handshake/core/tls/cert.h"
 #include "tls/handshake/core/tls/initial.h"
+#include "tls/handshake/core/tls/suitehash.h"
 #include "tls/handshake/core/tls/transcript.h"
 #include "tls/keys/ticket/ticket.h"
 
@@ -134,8 +135,9 @@ typedef struct {
   u16 group;
   u16 cipher_suite; /**< RFC 8446 B.4 / RFC 9001 9.3: this server's
                      * negotiated TLS 1.3 cipher suite (AES_128_GCM_
-                     * SHA256 preferred, CHACHA20_POLY1305_SHA256
-                     * fallback), set by sdrv_recv_client_hello.
+                     * SHA256 preferred, then CHACHA20_POLY1305_SHA256,
+                     * then AES_256_GCM_SHA384), set by
+                     * sdrv_recv_client_hello.
                      * Governs ServerHello.cipher_suite and the
                      * Handshake/1-RTT key derivation and packet
                      * protection; Initial packet protection (RFC 9001
@@ -174,8 +176,10 @@ typedef struct {
    * meaningful only when early_data_accepted is 1 and early_keys_dropped
    * is 0. */
   initial_keys early_keys;
-  u8           hs_secret[HKDF_PRK]; /**< RFC 8446 7.1 Handshake Secret */
-  u8 s_hs_traffic[HKDF_PRK]; /**< RFC 8446 7.1 server hs traffic secret */
+  /** RFC 8446 7.1 Handshake Secret (Hash.length bytes) */
+  u8 hs_secret[TLS_HASH_MAX];
+  /** RFC 8446 7.1 server hs traffic secret (Hash.length bytes) */
+  u8 s_hs_traffic[TLS_HASH_MAX];
   /** RFC 8446 7.1: the ECDHE shared secret the flight derivation computed
    * (x25519 output, or the P-256 x-coordinate -- 32 bytes either way), kept
    * so the connection's packet-protection key schedule reuses it instead of
@@ -207,10 +211,11 @@ typedef struct {
    * authorizes is exactly the "server lost its state" signal. */
   u8 sreset_token[16];
   u8 sreset_token_set; /**< 1 once sreset_token holds a real token */
-  /** RFC 8446 4.4.1: SHA-256(ClientHello1), computed when hrr_needed is set
+  /** RFC 8446 4.4.1: Hash(ClientHello1) under the negotiated suite's hash
+   * (Hash.length bytes), computed when hrr_needed is set
    * so sdrv_build_hrr can fold the message_hash synthetic message into
    * the transcript without keeping ClientHello1's raw bytes around. */
-  u8 ch1_hash[32];
+  u8 ch1_hash[TLS_HASH_MAX];
   /** RFC 9000 9.6/18.2: the preferred_address transport parameter this
    * flight advertises, set via sdrv_set_preferred_address before the
    * flight is built. pref_cid_len 0 (never set) omits the parameter. The

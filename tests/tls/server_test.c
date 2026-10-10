@@ -513,7 +513,7 @@ typedef struct {
 } srvt_psk_fixture;
 
 static void srvt_psk_fixture_init(srvt_psk_fixture* f) {
-  ticket t = {{0}, 0, 7200, 0, 0, 0};
+  ticket t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256};
   for (usz i = 0; i < TICKET_KEY_LEN; i++) f->ticket_key[i] = (u8)(0xd0 + i);
   for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
     f->secret[i] = (u8)(0x60 + i);
@@ -539,7 +539,7 @@ static usz srvt_psk_append(
     usz*                 psk_ext_off) {
   usz        exts_len_off = 45; /* see sdrv_test.c's sdrv_test_append_psk */
   usz        old_exts_len;
-  u8         modes[8], scratch[128];
+  u8         modes[8], scratch[256];
   usz        modes_len;
   wired_obuf eob = obuf_of(scratch, sizeof(scratch));
   if (!tlsext_psk_modes(modes, sizeof(modes), &modes_len)) return 0;

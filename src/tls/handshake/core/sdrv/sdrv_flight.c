@@ -37,10 +37,9 @@ static int emit_msg(sdrv* s, wired_span msg, wired_obuf* flight) {
  * ECDHE either way (RFC 8446 7.1's key schedule diagram: PSK affects only
  * the Early Secret input, never removes the (EC)DHE stage). */
 static void sdrv_derive_handshake_secret(sdrv* s, const u8 ecdhe[32]) {
-  if (s->psk_accepted)
-    tls_handshake_secret_psk(s->psk_secret, ecdhe, s->hs_secret);
-  else
-    tls_handshake_secret(ecdhe, s->hs_secret);
+  tls_handshake_secret_psk_suite(
+      s->cipher_suite, s->psk_accepted ? s->psk_secret : 0, ecdhe,
+      s->hs_secret);
 }
 
 /* RFC 8446 7.4.2: the ECDHE shared secret over the negotiated group
@@ -56,16 +55,16 @@ static int sdrv_ecdhe(const sdrv* s, u8 ecdhe[ECDHE_LEN]) {
  * handshake traffic secret over the transcript through ServerHello (the
  * Finished's finished_key). Called right after ServerHello is folded in. */
 static int derive_secret(sdrv* s) {
-  u8 ecdhe[ECDHE_LEN], th[SHA256_DIGEST];
+  u8              ecdhe[ECDHE_LEN], th[TLS_HASH_MAX];
+  const tls_hash* h = tls_hash_of(s->cipher_suite);
   if (!sdrv_ecdhe(s, ecdhe)) return 0;
   /* keep the secret for the connection's own key schedule (server.c) */
   for (usz i = 0; i < sizeof(s->ecdhe_secret); i++)
     s->ecdhe_secret[i] = ecdhe[i];
   sdrv_derive_handshake_secret(s, ecdhe);
-  transcript_hash(&s->tr, th);
-  hkdf_label l = {"s hs traffic", 12, {th, SHA256_DIGEST}};
-  hkdf_expand_label(
-      s->hs_secret, &l, wired_mspan_of(s->s_hs_traffic, HKDF_PRK));
+  transcript_hash_suite(&s->tr, s->cipher_suite, th);
+  hkdf_label l = {"s hs traffic", 12, {th, h->len}};
+  h->expand_label(s->hs_secret, &l, wired_mspan_of(s->s_hs_traffic, h->len));
   s->hs_ready = 1;
   return 1;
 }
@@ -195,20 +194,24 @@ static int emit_cert(sdrv* s, wired_obuf* flight) {
 /* RFC 8446 4.4.3: ECDSA P-256 CertificateVerify (scheme 0x0403) over the
  * transcript through Certificate. */
 static int emit_certverify(sdrv* s, wired_obuf* flight) {
-  u8  msg[256], th[SHA256_DIGEST];
+  u8  msg[256], th[TLS_HASH_MAX];
   usz n;
-  transcript_hash(&s->tr, th);
-  if (!cvecdsa_build(s->p256_priv, th, msg, sizeof(msg), &n)) return 0;
+  transcript_hash_suite(&s->tr, s->cipher_suite, th);
+  if (!cvecdsa_build(
+          s->p256_priv, wired_span_of(th, tls_hash_of(s->cipher_suite)->len),
+          msg, sizeof(msg), &n))
+    return 0;
   return emit_msg(s, wired_span_of(msg, n), flight);
 }
 
 /* RFC 8446 4.4.4: Finished under the server handshake traffic secret at the
  * transcript hash through CertificateVerify. */
 static int emit_finished(sdrv* s, wired_obuf* flight) {
-  u8         msg[64], th[SHA256_DIGEST];
+  u8         msg[64], th[TLS_HASH_MAX];
   wired_obuf mob = obuf_of(msg, sizeof(msg));
-  transcript_hash(&s->tr, th);
-  if (!sflight_finished(s->s_hs_traffic, th, &mob)) return 0;
+  transcript_hash_suite(&s->tr, s->cipher_suite, th);
+  if (!sflight_finished_suite(s->cipher_suite, s->s_hs_traffic, th, &mob))
+    return 0;
   return emit_msg(s, wired_span_of(msg, mob.len), flight);
 }
 

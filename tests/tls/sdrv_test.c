@@ -1256,9 +1256,9 @@ static void test_sdrv_suite_prefers_aes(void) {
   CHECK(s.cipher_suite == TLS_AES_128_GCM_SHA256);
 }
 
-/* A suite this SDK implements neither AEAD for (AES_256_GCM_SHA384, no
- * SHA-384 key schedule) has no overlap with [AES_128, CHACHA20] -- the
- * handshake must fail rather than fall back to an unconfigured suite (the
+/* A suite this SDK implements no AEAD for (TLS_AES_128_CCM_SHA256, 0x1304)
+ * has no overlap with [AES_128, AES_256, CHACHA20] -- the handshake must
+ * fail rather than fall back to an unconfigured suite (the
  * bug this whole feature fixes: silently keying with a suite the peer never
  * agreed to). */
 static void test_sdrv_suite_no_overlap_fails(void) {
@@ -1276,7 +1276,7 @@ static void test_sdrv_suite_no_overlap_fails(void) {
   wired_x25519_base(srv_pub, srv_priv);
   ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
   CHECK(ch_len != 0);
-  sdrv_test_set_suite(ch, TLS_AES_256_GCM_SHA384);
+  sdrv_test_set_suite(ch, 0x1304);
 
   {
     sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
@@ -1418,7 +1418,7 @@ static usz sdrv_test_append_psk(
    * offset 41) plus the 4-byte handshake header. */
   usz        exts_len_off = 45;
   usz        old_exts_len;
-  u8         modes[8], scratch[128];
+  u8         modes[8], scratch[256];
   usz        modes_len;
   wired_obuf eob = obuf_of(scratch, sizeof(scratch));
   if (!tlsext_psk_modes(modes, sizeof(modes), &modes_len)) return 0;
@@ -1452,7 +1452,7 @@ static usz sdrv_test_append_early_data_then_psk(
   usz        old_exts_len;
   u8         ed[4], modes[8];
   usz        ed_len, modes_len;
-  u8         scratch[128];
+  u8         scratch[256];
   wired_obuf eob  = obuf_of(scratch, sizeof(scratch));
   usz        head = ch_len;
   if (!tlsext_early_data_ch(ed, sizeof(ed), &ed_len)) return 0;
@@ -1509,7 +1509,7 @@ typedef struct {
 
 static void sdrv_psk_fixture_init(sdrv_psk_fixture* f) {
   u8     cli_priv[32];
-  ticket t = {{0}, 0, 7200, 0, 0, 0};
+  ticket t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256};
   /* RFC 8446 4.2.11.1: issued "now" and the PSK offer's ticket_age claims 0ms
    * elapsed (set where the offer is built) -- freshness holds trivially so
    * these fixtures exercise 0-RTT accept/reject on their own axis, not on
@@ -1645,7 +1645,7 @@ static usz sdrv_test_append_psk_no_modes(
     u8* out, usz out_cap, const u8* ch, usz ch_len, const tlsext_psk_in* psk) {
   usz        exts_len_off = SDRV_TEST_EXTS_LEN_OFF;
   usz        old_exts_len;
-  u8         scratch[128];
+  u8         scratch[256];
   wired_obuf eob = obuf_of(scratch, sizeof(scratch));
   if (!tlsext_pre_shared_key(psk, &eob)) return 0;
   if (ch_len + eob.len > out_cap) return 0;
@@ -2227,7 +2227,7 @@ static void sdrv_test_alpn_to_m9(u8* ch, usz ch_len) {
 /* Re-seal f's ticket recording alpn (a salpn_choice) as its issuing
  * connection's ALPN (RFC 8446 4.2.10). */
 static void sdrv_psk_fixture_reseal(sdrv_psk_fixture* f, u8 alpn) {
-  ticket t    = {{0}, 0, 7200, 0, alpn, 0};
+  ticket t    = {{0}, 0, 7200, 0, alpn, 0, TLS_AES_128_GCM_SHA256};
   t.issued_at = wired_clock_epoch_secs();
   for (usz i = 0; i < TICKET_SECRET_LEN; i++) t.secret[i] = f->secret[i];
   ticket_seal(&t, f->ticket_key, f->sealed);

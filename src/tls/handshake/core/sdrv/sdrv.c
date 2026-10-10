@@ -150,7 +150,7 @@ void sdrv_init(sdrv* s, const sdrv_init_in* in) {
   s->client_version      = 0;
   s->negotiated_version  = 0;
   s->pref_cid_len        = 0;
-  for (usz i = 0; i < 32; i++) s->ch1_hash[i] = 0;
+  for (usz i = 0; i < sizeof s->ch1_hash; i++) s->ch1_hash[i] = 0;
   transcript_init(&s->tr);
 }
 
@@ -565,9 +565,16 @@ static int sdrv_psk_open_ticket(
  * master_secret this ticket was sealed with (RFC 8446 7.1's Derive-Secret
  * output), not the PSK itself; t->ticket_nonce is the one-byte nonce sent
  * with it (newsessionticket.h). */
-static void sdrv_psk_from_ticket_secret(const ticket* t, u8 psk_out[32]) {
-  hkdf_label l = {"resumption", 10, {&t->ticket_nonce, 1}};
-  hkdf_expand_label(t->secret, &l, wired_mspan_of(psk_out, 32));
+static void sdrv_psk_from_ticket_secret(const ticket* t, u8* psk_out) {
+  const tls_hash* h = tls_hash_of(t->suite);
+  hkdf_label      l = {"resumption", 10, {&t->ticket_nonce, 1}};
+  h->expand_label(t->secret, &l, wired_mspan_of(psk_out, h->len));
+}
+
+/* RFC 8446 4.2.11.2: a binder is exactly Hash.length bytes -- checked
+ * before the constant-time compare reads that many. */
+static int sdrv_binder_len_ok(const sdrv* s, const tlsext_psk_offer* off) {
+  return off->binder_len == tls_hash_of(s->cipher_suite)->len;
 }
 
 /* The opened ticket's binder verifies against the truncated ClientHello.
@@ -575,14 +582,16 @@ static void sdrv_psk_from_ticket_secret(const ticket* t, u8 psk_out[32]) {
  * fallback -- the caller must propagate 0 all the way out of
  * sdrv_recv_client_hello. */
 static int sdrv_psk_binder_ok(
+    const sdrv*             s,
     const ticket*           t,
     const u8*               ch_msg,
     wired_span              psk_ext,
     const tlsext_psk_offer* off) {
   wired_span truncated = sdrv_psk_truncate(ch_msg, psk_ext, off->id_len);
-  u8         psk[32];
+  u8         psk[TLS_HASH_MAX];
   sdrv_psk_from_ticket_secret(t, psk);
-  return tls_binder_verify(psk, truncated, off->binder);
+  return sdrv_binder_len_ok(s, off) &&
+         tls_binder_verify_suite(s->cipher_suite, psk, truncated, off->binder);
 }
 
 /* RFC 8446 4.2.10: locate the early_data extension (0x002a) TLV, header
@@ -646,7 +655,8 @@ static int sdrv_early_data_wanted(
  * (client_early_traffic_secret) over the accepted PSK and the raw
  * ClientHello bytes -- the same inputs a peer's own 0-RTT sender used. */
 static void sdrv_take_early_keys(sdrv* s, const u8* ch_msg, usz ch_len) {
-  tls_early_keys(s->psk_secret, ch_msg, ch_len, &s->early_keys);
+  tls_early_keys_suite(
+      s->cipher_suite, s->psk_secret, ch_msg, ch_len, &s->early_keys);
   s->early_data_accepted = 1;
 }
 
@@ -660,7 +670,8 @@ static int sdrv_ticket_alpn_matches(const sdrv* s, const ticket* t) {
  * draft-ietf-moq-transport-18 3.3.1 / -22 6.3.1 let a relay refuse it),
  * and only with a ticket issued under the same ALPN (RFC 8446 4.2.10). */
 static int sdrv_early_alpn_ok(const sdrv* s, const ticket* t) {
-  return s->alpn != SALPN_RAW && sdrv_ticket_alpn_matches(s, t);
+  return s->alpn != SALPN_RAW && t->suite == s->cipher_suite &&
+         sdrv_ticket_alpn_matches(s, t);
 }
 
 /* A ticket that opened AND whose binder verified: record psk_accepted/
@@ -682,6 +693,15 @@ static void sdrv_psk_accept_opened(
     sdrv_take_early_keys(s, ch_msg, ch_len);
 }
 
+/* RFC 8446 4.2.11: the ticket opens AND its hash is the negotiated suite's
+ * -- a PSK of another hash is unusable here, so it is ignored like an
+ * unknown identity (full handshake), never keyed under the wrong hash. */
+static int sdrv_psk_open_usable(
+    const sdrv* s, const tlsext_psk_offer* off, ticket* t) {
+  return sdrv_psk_open_ticket(s, off, t) &&
+         tls_hash_of(t->suite)->len == tls_hash_of(s->cipher_suite)->len;
+}
+
 /* A parsed pre_shared_key offer: open its ticket and verify the binder.
  * RFC 8446 4.2.11: an identity that does not open (unknown, forged, or
  * sealed under a retired ticket key) is ignored and the handshake
@@ -694,9 +714,9 @@ static int sdrv_psk_try_offer(
     usz                     ch_len,
     wired_span              psk_ext,
     const tlsext_psk_offer* off) {
-  ticket t      = {{0}, 0, 0, 0, 0, 0};
-  int    opened = sdrv_psk_open_ticket(s, off, &t);
-  int    bound  = sdrv_psk_binder_ok(&t, ch_msg, psk_ext, off);
+  ticket t      = {{0}, 0, 0, 0, 0, 0, 0};
+  int    opened = sdrv_psk_open_usable(s, off, &t);
+  int    bound  = sdrv_psk_binder_ok(s, &t, ch_msg, psk_ext, off);
   if (!opened) return 1;
   if (!bound) {
     s->last_error = err_crypto(51); /* decrypt_error, RFC 8446 4.2.11.2 */
@@ -741,7 +761,7 @@ static int sdrv_ch_take_psk(sdrv* s, const u8* ch_msg, usz ch_len) {
 static void sdrv_ch_arm_hrr(sdrv* s, const u8* ch_msg, usz ch_len) {
   s->hrr_needed       = 1;
   s->hrr_cipher_suite = s->cipher_suite;
-  wired_sha256(ch_msg, ch_len, s->ch1_hash);
+  tls_hash_of(s->cipher_suite)->digest(ch_msg, ch_len, s->ch1_hash);
 }
 
 /* RFC 8446 4.1.2: after a HelloRetryRequest, ClientHello2 MUST renegotiate
@@ -1124,8 +1144,9 @@ int sdrv_hrr_pending(const sdrv* s) { return s->hrr_needed; }
  * reset first since ClientHello1 was never folded in (sdrv_ch_arm_hrr only
  * hashed it, see its doc). */
 static void sdrv_hrr_reset_transcript(sdrv* s, const u8* hrr, usz hrr_len) {
-  u8  mh[4 + 32];
-  usz mh_len = hrr_message_hash(s->ch1_hash, 32, mh, sizeof(mh));
+  u8  mh[4 + TLS_HASH_MAX];
+  usz mh_len = hrr_message_hash(
+      s->ch1_hash, tls_hash_of(s->cipher_suite)->len, mh, sizeof(mh));
   transcript_init(&s->tr);
   transcript_add(&s->tr, mh, mh_len);
   transcript_add(&s->tr, hrr, hrr_len);

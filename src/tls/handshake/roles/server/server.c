@@ -1,5 +1,6 @@
 #include "tls/handshake/roles/server/server.h"
 
+#include "common/bytes/util/bytes.h"
 #include "common/platform/keylog/keylog.h"
 #include "tls/handshake/core/hrr/hrr_build.h"
 #include "tls/handshake/core/tls/finished.h"
@@ -16,6 +17,11 @@
 
 static void srv_copy32(u8* dst, const u8* src) {
   for (usz i = 0; i < 32; i++) dst[i] = src[i];
+}
+
+/* RFC 8446 B.4: the negotiated suite's hash (secrets are Hash.length). */
+static const tls_hash* srv_hash(const wired_server* s) {
+  return tls_hash_of(s->sdrv.cipher_suite);
 }
 
 /* Append msg into the raw transcript buffer (truncates silently at capacity;
@@ -123,7 +129,7 @@ static int srv_hrr_ready(const wired_server* s) {
 }
 
 int wired_server_build_hrr(wired_server* s, wired_obuf* out) {
-  u8  mh[4 + 32];
+  u8  mh[4 + TLS_HASH_MAX];
   usz mh_len;
   if (!srv_hrr_ready(s)) return 0;
   if (!sdrv_build_hrr(&s->sdrv, out)) return 0;
@@ -131,7 +137,7 @@ int wired_server_build_hrr(wired_server* s, wired_obuf* out) {
    * message_hash(Hash(ClientHello1)) || HRR, mirroring the hashed
    * transcript sdrv_build_hrr just reset -- ClientHello1 itself was never
    * folded in (srv_fold_ch skipped it). */
-  mh_len    = hrr_message_hash(s->sdrv.ch1_hash, 32, mh, sizeof mh);
+  mh_len = hrr_message_hash(s->sdrv.ch1_hash, srv_hash(s)->len, mh, sizeof mh);
   s->tr_len = 0;
   srv_tr_add(s, mh, mh_len);
   srv_tr_add(s, out->p, out->len);
@@ -149,8 +155,8 @@ static int srv_advance_handshake(wired_server* s, u8 ecdhe[X25519_LEN]) {
   wired_span tr_span    = wired_span_of(s->tr, s->tr_through_sh);
   if (s->sdrv.psk_accepted)
     return keysched_advance_handshake_psk(
-        &s->sched, wired_span_of(s->sdrv.psk_secret, HKDF_PRK), ecdhe_span,
-        tr_span);
+        &s->sched, wired_span_of(s->sdrv.psk_secret, srv_hash(s)->len),
+        ecdhe_span, tr_span);
   return keysched_advance_handshake(&s->sched, ecdhe_span, tr_span);
 }
 
@@ -205,17 +211,19 @@ int wired_server_build_flight(
  * traffic secret (written to c_traffic for the key log) and the transcript
  * hash through the server Finished. */
 static int srv_verify_finished(
-    wired_server* s, const u8* msg, usz len, u8 c_traffic[HKDF_PRK]) {
+    wired_server* s, const u8* msg, usz len, u8* c_traffic) {
   const u8*        hs;
-  u8               th[SHA256_DIGEST];
+  u8               th[TLS_HASH_MAX];
   derive_secret_in dsi;
   if (!sdrv_handshake_secret(&s->sdrv, &hs)) return 0;
   dsi.secret   = hs;
   dsi.label    = wired_span_of((const u8*)"c hs traffic", 12);
   dsi.messages = wired_span_of(s->tr, s->tr_through_sh);
+  dsi.suite    = s->sdrv.cipher_suite;
   tls_derive_secret(&dsi, c_traffic);
-  wired_sha256(s->tr, s->tr_through_flight, th);
-  return srvfin_verify_client_finished(wired_span_of(msg, len), c_traffic, th);
+  srv_hash(s)->digest(s->tr, s->tr_through_flight, th);
+  return srvfin_verify_client_finished_suite(
+      s->sdrv.cipher_suite, wired_span_of(msg, len), c_traffic, th);
 }
 
 /* NSS Key Log Format (SSLKEYLOGFILE, draft-ietf-tls-keylogfile 3/4): one
@@ -223,7 +231,8 @@ static int srv_verify_finished(
 static void srv_keylog_line(
     const wired_server* s, const char* label, const u8* secret) {
   wired_keylog_append(
-      s->keylog_path, label, s->client_random, wired_span_of(secret, HKDF_PRK));
+      s->keylog_path, label, s->client_random,
+      wired_span_of(secret, srv_hash(s)->len));
 }
 
 /* RFC 8446 4.4.1: with 0-RTT accepted there was no HRR, so the transcript
@@ -235,9 +244,11 @@ static usz srv_ch_len(const wired_server* s) {
 /* RFC 8446 7.1: client_early_traffic_secret, only when 0-RTT was accepted
  * (the PSK and ClientHello it is derived over are both retained). */
 static void srv_keylog_early(const wired_server* s) {
-  u8 secret[HKDF_PRK];
+  u8 secret[TLS_HASH_MAX];
   if (!s->sdrv.early_data_accepted) return;
-  tls_early_traffic_secret(s->sdrv.psk_secret, s->tr, srv_ch_len(s), secret);
+  tls_early_traffic_secret_suite(
+      s->sdrv.cipher_suite, s->sdrv.psk_secret,
+      wired_span_of(s->tr, srv_ch_len(s)), secret);
   srv_keylog_line(s, "CLIENT_EARLY_TRAFFIC_SECRET", secret);
 }
 
@@ -284,7 +295,7 @@ static int srv_seed_kuswitch_recv(wired_server* s) {
   if (!keysched_get(&s->sched, KS_CLIENT_AP, &client_ap)) return 0;
   if (!keysched_client_ap_secret(&s->sched, &secret)) return 0;
   kuswitch_init(&s->ku, client_ap);
-  srv_copy32(s->ku_secret, secret);
+  bytes_memcpy(s->ku_secret, secret, srv_hash(s)->len);
   return 1;
 }
 
@@ -297,7 +308,7 @@ static int srv_seed_kuswitch_send(wired_server* s) {
   if (!keysched_get(&s->sched, KS_SERVER_AP, &server_ap)) return 0;
   if (!keysched_server_ap_secret(&s->sched, &secret)) return 0;
   kuswitch_init(&s->ku_send, server_ap);
-  srv_copy32(s->ku_send_secret, secret);
+  bytes_memcpy(s->ku_send_secret, secret, srv_hash(s)->len);
   return 1;
 }
 
@@ -326,15 +337,15 @@ static int srv_complete(
 /* Process the reassembled client Finished: verify, then complete only on a
  * match. The forged path returns 0 having promoted nothing. */
 static int srv_on_finished(wired_server* s, const u8* msg, usz len) {
-  u8 c_traffic[HKDF_PRK];
+  u8 c_traffic[TLS_HASH_MAX];
   if (s->phase != WIRED_SERVER_HS_FLIGHT_SENT) return 0;
   if (!srv_verify_finished(s, msg, len, c_traffic)) return 0;
   /* RFC 8446 7.1: fold exactly the verified Finished, whose body the
-   * verify above pinned to TLS_VERIFY_DATA bytes -- the reassembled prefix
+   * verify above pinned to Hash.length bytes -- the reassembled prefix
    * may run past it (bytes another packet smeared into the stream), and
    * folding the excess mints a resumption_master_secret no client can
    * match: every ticket from such a connection then fails its binder. */
-  return srv_complete(s, msg, HS_HEADER + TLS_VERIFY_DATA, c_traffic);
+  return srv_complete(s, msg, HS_HEADER + srv_hash(s)->len, c_traffic);
 }
 
 int wired_server_feed(wired_server* s, const u8* crypto_payload, usz len) {
@@ -374,15 +385,16 @@ int wired_server_early_send_keys(wired_server* s) {
  * server only ever issues a ticket post-confirmation
  * (wired_server_is_confirmed), by which point tr_through_client_fin is
  * always set -- see wired_server_resumption_secret. */
-static void srv_resumption_master_secret(const wired_server* s, u8 out[32]) {
+static void srv_resumption_master_secret(const wired_server* s, u8* out) {
   derive_secret_in in;
   in.secret   = s->sched.master;
   in.label    = wired_span_of((const u8*)"res master", 10);
   in.messages = wired_span_of(s->tr, s->tr_through_client_fin);
+  in.suite    = s->sdrv.cipher_suite;
   tls_derive_secret(&in, out);
 }
 
-int wired_server_resumption_secret(const wired_server* s, u8 out[32]) {
+int wired_server_resumption_secret(const wired_server* s, u8* out) {
   if (!wired_server_is_confirmed(s)) return 0;
   srv_resumption_master_secret(s, out);
   return 1;

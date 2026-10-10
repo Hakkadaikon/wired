@@ -15,4 +15,12 @@ int srvfin_verify_client_finished(
     const u8   client_hs_traffic_secret[HKDF_PRK],
     const u8   transcript_hash[SHA256_DIGEST]);
 
+/* Same as srvfin_verify_client_finished under suite's hash: the secret,
+ * the transcript hash and the expected verify_data are Hash.length bytes. */
+int srvfin_verify_client_finished_suite(
+    u16        suite,
+    wired_span client_finished_msg,
+    const u8*  client_hs_traffic_secret,
+    const u8*  transcript_hash);
+
 #endif

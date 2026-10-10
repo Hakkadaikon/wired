@@ -12,4 +12,12 @@
 int sflight_finished(
     const u8* finished_key, const u8* transcript_hash, wired_obuf* out);
 
+/* Same as sflight_finished under suite's hash: finished_key, the transcript
+ * hash and verify_data are Hash.length bytes. */
+int sflight_finished_suite(
+    u16         suite,
+    const u8*   finished_key,
+    const u8*   transcript_hash,
+    wired_obuf* out);
+
 #endif

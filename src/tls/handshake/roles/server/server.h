@@ -66,16 +66,16 @@ typedef struct {
   u8 client_random[32]; /**< ClientHello.random (RFC 8446 4.1.2), recorded by
                          * wired_server_recv_initial for keylog lines */
   const char*    keylog_path; /**< NSS key log file path, or 0 to disable */
-  kuswitch_state ku;      /**< RFC 9001 6: CLIENT_AP (peer-driven, recv-side)
-                           * 1-RTT key generations */
-  u8 ku_secret[HKDF_PRK]; /**< current generation's client_ap secret,
-                           * needed to derive the next generation */
-  kuswitch_state ku_send; /**< RFC 9001 6.2: SERVER_AP (send-side)
-                           * generations, kept in lockstep with ku so a
-                           * confirmed peer update also advances what
-                           * this endpoint seals with */
-  u8 ku_send_secret[HKDF_PRK]; /**< current generation's server_ap
-                                * secret */
+  kuswitch_state ku; /**< RFC 9001 6: CLIENT_AP (peer-driven, recv-side)
+                      * 1-RTT key generations */
+  u8 ku_secret[TLS_HASH_MAX];      /**< current generation's client_ap secret,
+                                    * needed to derive the next generation */
+  kuswitch_state ku_send;          /**< RFC 9001 6.2: SERVER_AP (send-side)
+                                    * generations, kept in lockstep with ku so a
+                                    * confirmed peer update also advances what
+                                    * this endpoint seals with */
+  u8 ku_send_secret[TLS_HASH_MAX]; /**< current generation's server_ap
+                                    * secret */
   int ku_seeded; /**< 1 once ku/ku_send hold real generation-0 keys */
   /** RFC 9001 6.6: 1-RTT packets sealed under ku_send's current generation;
    * reset on every rotation, drives the confidentiality-limit Key Update. */
@@ -247,9 +247,10 @@ int wired_server_early_send_keys(wired_server* s);
  * confirmed (the client Finished must have verified first); returns 0
  * (leaving out untouched) before that.
  * @param s the confirmed orchestrator to derive from
- * @param out receives the 32-byte resumption_master_secret
+ * @param out receives the Hash.length-byte resumption_master_secret (32,
+ *   or 48 under TLS_AES_256_GCM_SHA384); size it TICKET_SECRET_LEN
  * @return 1 on success, 0 if s is not yet confirmed. */
-int wired_server_resumption_secret(const wired_server* s, u8 out[32]);
+int wired_server_resumption_secret(const wired_server* s, u8* out);
 
 /** Open a UDP socket bound to port and wait for the ClientHello.
  * @param s the orchestrator that will own the socket

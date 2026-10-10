@@ -31,7 +31,7 @@ static void cv_th(u8 th[32]) {
 static void test_cvecdsa_signed_content(void) {
   u8 th[32], c[130];
   cv_th(th);
-  cvecdsa_signed_content(th, c);
+  CHECK(cvecdsa_signed_content(wired_span_of(th, 32), c) == 130);
   for (usz i = 0; i < 64; i++) CHECK(c[i] == 0x20);
   CHECK(c[64] == 'T' && c[65] == 'L' && c[66] == 'S');
   CHECK(c[97] == 0x00);
@@ -45,7 +45,7 @@ static void test_cvecdsa_header(void) {
   u8  type = 0;
   cv_hb32(CV_X, priv);
   cv_th(th);
-  CHECK(cvecdsa_build(priv, th, msg, sizeof msg, &n) == 1);
+  CHECK(cvecdsa_build(priv, wired_span_of(th, 32), msg, sizeof msg, &n) == 1);
   CHECK(hs_parse(wired_span_of(msg, n), &type, &body_len) == 4);
   CHECK(type == 0x0f);
   CHECK(4 + body_len == n);
@@ -78,10 +78,28 @@ static void test_cvecdsa_verify_roundtrip(void) {
   cv_hb32(CV_QX, qx);
   cv_hb32(CV_QY, qy);
   cv_th(th);
-  CHECK(cvecdsa_build(priv, th, msg, sizeof msg, &n) == 1);
-  cvecdsa_signed_content(th, c);
+  CHECK(cvecdsa_build(priv, wired_span_of(th, 32), msg, sizeof msg, &n) == 1);
+  cvecdsa_signed_content(wired_span_of(th, 32), c);
   wired_sha256(c, 130, h);
   /* DER at msg+8: SEQ(0x30) len, INT(0x02) rlen r..., INT(0x02) slen s... */
+  cv_der_extract(msg + 8, r, s);
+  CHECK(ecdsa_p256_verify(qx, qy, r, s, h) == 1);
+}
+
+/* TLS_AES_256_GCM_SHA384: the 48-byte transcript hash makes a 146-octet
+ * signed content, still signed as SHA-256 under scheme 0x0403. */
+static void test_cvecdsa_verify_sha384_transcript(void) {
+  u8  priv[32], qx[32], qy[32], th[48], msg[200], c[146], h[32];
+  u8  r[32], s[32];
+  usz n = 0;
+  cv_hb32(CV_X, priv);
+  cv_hb32(CV_QX, qx);
+  cv_hb32(CV_QY, qy);
+  for (usz i = 0; i < 48; i++) th[i] = (u8)(0x90 + i);
+  CHECK(cvecdsa_build(priv, wired_span_of(th, 48), msg, sizeof msg, &n) == 1);
+  CHECK(cvecdsa_signed_content(wired_span_of(th, 48), c) == 146);
+  CHECK(c[97] == 0x00 && c[98] == 0x90 && c[145] == (u8)(0x90 + 47));
+  wired_sha256(c, 146, h);
   cv_der_extract(msg + 8, r, s);
   CHECK(ecdsa_p256_verify(qx, qy, r, s, h) == 1);
 }
@@ -92,12 +110,13 @@ static void test_cvecdsa_no_room(void) {
   usz n = 0;
   cv_hb32(CV_X, priv);
   cv_th(th);
-  CHECK(cvecdsa_build(priv, th, msg, sizeof msg, &n) == 0);
+  CHECK(cvecdsa_build(priv, wired_span_of(th, 32), msg, sizeof msg, &n) == 0);
 }
 
 void test_cvecdsa(void) {
   test_cvecdsa_signed_content();
   test_cvecdsa_header();
+  test_cvecdsa_verify_sha384_transcript();
   test_cvecdsa_verify_roundtrip();
   test_cvecdsa_no_room();
 }

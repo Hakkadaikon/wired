@@ -84,12 +84,12 @@ static int onertt_try(
 
 void srvloop_ku_rotate_send(wired_server* s) {
   initial_keys send_next;
-  u8           send_next_secret[HKDF_PRK];
+  u8           send_next_secret[TLS_HASH_MAX];
   kuswitch_next_keys_suite(
       s->sdrv.cipher_suite, s->ku_send_secret, &send_next, send_next_secret);
   bytes_memcpy(send_next.hp, s->ku_send.cur.hp, AEAD_KEY_MAX);
   kuswitch_rotate(&s->ku_send, &send_next);
-  bytes_memcpy(s->ku_send_secret, send_next_secret, HKDF_PRK);
+  bytes_memcpy(s->ku_send_secret, send_next_secret, TLS_HASH_MAX);
   s->ku_send_count = 0; /* RFC 9001 6.6: the limit is per key */
 }
 
@@ -104,7 +104,7 @@ void srvloop_ku_rotate_send(wired_server* s) {
 static void onertt_rotate_to(
     wired_server* s, const initial_keys* next, const u8* next_secret) {
   kuswitch_rotate(&s->ku, next);
-  bytes_memcpy(s->ku_secret, next_secret, HKDF_PRK);
+  bytes_memcpy(s->ku_secret, next_secret, TLS_HASH_MAX);
   if (s->ku_send.generation < s->ku.generation) srvloop_ku_rotate_send(s);
 }
 
@@ -130,7 +130,7 @@ static int onertt_try_next_gen(
     const u8                     save[RECV_ONERTT_HDR_MAX],
     wired_srvloop_recv_out*      out) {
   initial_keys next;
-  u8           next_secret[HKDF_PRK];
+  u8           next_secret[TLS_HASH_MAX];
   kuswitch_next_keys_suite(
       s->sdrv.cipher_suite, s->ku_secret, &next, next_secret);
   /* RFC 9001 6.1: hp is unchanged across an update. */
