@@ -833,6 +833,7 @@
 #include "crypto/p384_point_test.c"
 #include "crypto/ecdsa_p384_verify_test.c"
 #include "crypto/p384chain_test.c"
+#include "crypto/p521chain_test.c"
 #include "crypto/p521_field_test.c"
 #include "crypto/p521_point_test.c"
 #include "crypto/ecdsa_p521_verify_test.c"
@@ -1412,6 +1413,7 @@ int main(void) {
   test_p384_point();
   test_ecdsa_p384_verify();
   test_p384chain();
+  test_p521chain();
   test_p521_field();
   test_p521_point();
   test_ecdsa_p521_verify();

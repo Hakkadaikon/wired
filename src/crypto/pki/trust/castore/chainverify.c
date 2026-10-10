@@ -4,6 +4,7 @@
 #include "crypto/asymmetric/ecc/ecdsasig/sig_value.h"
 #include "crypto/asymmetric/ecc/p256/ecdsa_verify.h"
 #include "crypto/asymmetric/ecc/p384/ecdsa_verify.h"
+#include "crypto/asymmetric/ecc/p521/ecdsa_verify.h"
 #include "crypto/asymmetric/rsa/rsa_verify.h"
 #include "crypto/pki/cert/tbscert/fields.h"
 #include "crypto/pki/cert/tbscert/sigalg.h"
@@ -114,8 +115,19 @@ static int chv_verify_p384(wired_span key, wired_span sig, wired_span hash) {
   return ecdsa_p384_verify(x, y, r, s, h48);
 }
 
-/* The SPKI BIT STRING length selects the curve: 66 bytes P-256, 98 P-384. */
+/* ecdsa_p521_verify takes the raw digest and keeps its leftmost 521 bits
+ * (FIPS 186-4 6.4), so every allowlisted hash passes through whole. */
+static int chv_verify_p521(wired_span key, wired_span sig, wired_span hash) {
+  u8 x[66], y[66], r[66], s[66];
+  if (!x509_ec_pubkey521(key, x, y)) return 0;
+  if (!ecdsasig_decode(sig, r, s, 66)) return 0;
+  return ecdsa_p521_verify(x, y, r, s, hash.p, hash.n);
+}
+
+/* The SPKI BIT STRING length selects the curve: 66 bytes P-256, 98 P-384,
+ * 134 P-521. */
 static int chv_verify_ecdsa(wired_span key, wired_span sig, wired_span hash) {
+  if (key.n == 134) return chv_verify_p521(key, sig, hash);
   if (key.n == 98) return chv_verify_p384(key, sig, hash);
   return chv_verify_p256(key, sig, hash.p);
 }

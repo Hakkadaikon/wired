@@ -30,9 +30,10 @@ int x509_is_ed448(wired_span alg_oid);
  * or a non-EC key. */
 int x509_ec_curve(wired_span tbs, wired_span* curve_oid);
 
-/* 1 if the namedCurve OID is prime256v1 / secp384r1. */
+/* 1 if the namedCurve OID is prime256v1 / secp384r1 / secp521r1. */
 int x509_is_p256(wired_span oid);
 int x509_is_p384(wired_span oid);
+int x509_is_p521(wired_span oid);
 
 /* RFC 5480 2.1.2. 1 if the SubjectPublicKeyInfo algorithm OID is the
  * restricted id-ecDH (1.3.132.1.12) / id-ecMQV (1.3.132.1.13) key-agreement

@@ -17,4 +17,9 @@ int x509_ec_pubkey(wired_span spki_key, u8 x[32], u8 y[32]);
  * Returns 1 ok, 0 if the BIT STRING is not a valid P-384 point encoding. */
 int x509_ec_pubkey384(wired_span spki_key, u8 x[48], u8 y[48]);
 
+/* SEC1 2.3.3 / RFC 5480 2.2. The P-521 form: 0x00 unused-bits then
+ * 0x04 || X66 || Y66 (134 bytes). The compressed form is not accepted.
+ * Returns 1 ok, 0 otherwise; the curve check is left to the verifier. */
+int x509_ec_pubkey521(wired_span spki_key, u8 x[66], u8 y[66]);
+
 #endif

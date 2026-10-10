@@ -1,5 +1,6 @@
 #include "crypto/pki/encoding/x509/ec_pubkey.h"
 
+#include "common/bytes/util/bytes.h"
 #include "crypto/asymmetric/ecc/p256/p256_field.h"
 #include "crypto/asymmetric/ecc/p384/p384_field.h"
 
@@ -190,4 +191,17 @@ int x509_ec_pubkey384(wired_span spki_key, u8 x[48], u8 y[48]) {
   }
   if (is_compressed384(spki_key)) return decompress_p384(spki_key, x, y);
   return 0;
+}
+
+/* The 134-byte P-521 uncompressed form: 0x00 0x04 || X66 || Y66. */
+static int is_uncompressed521(wired_span key) {
+  if (key.n != 134) return 0;
+  return key.p[0] == 0x00 && key.p[1] == 0x04;
+}
+
+int x509_ec_pubkey521(wired_span spki_key, u8 x[66], u8 y[66]) {
+  if (!is_uncompressed521(spki_key)) return 0;
+  bytes_memcpy(x, spki_key.p + 2, 66);
+  bytes_memcpy(y, spki_key.p + 68, 66);
+  return 1;
 }

@@ -18,6 +18,8 @@ static const u8 oid_rsa[] = {0x2a, 0x86, 0x48, 0x86, 0xf7,
 static const u8 oid_p256[] = {0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07};
 /* secp384r1 = 1.3.132.0.34 */
 static const u8 oid_p384[] = {0x2b, 0x81, 0x04, 0x00, 0x22};
+/* secp521r1 = 1.3.132.0.35 (SEC 2 A.2.1, RFC 5480 2.1.1.1) */
+static const u8 oid_p521[] = {0x2b, 0x81, 0x04, 0x00, 0x23};
 /* RFC 8410 3. id-X25519 = 1.3.101.110. */
 static const u8 oid_x25519[] = {0x2b, 0x65, 0x6e};
 /* RFC 8410 3. id-X448 = 1.3.101.111. */
@@ -63,6 +65,10 @@ int x509_is_p256(wired_span oid) {
 
 int x509_is_p384(wired_span oid) {
   return der_oid_equal(oid, wired_span_of(oid_p384, sizeof(oid_p384)));
+}
+
+int x509_is_p521(wired_span oid) {
+  return der_oid_equal(oid, wired_span_of(oid_p521, sizeof(oid_p521)));
 }
 
 /* RFC 5480 2.1.2. 1 if the SubjectPublicKeyInfo algorithm OID is the
