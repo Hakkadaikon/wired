@@ -81,6 +81,17 @@ i64 wired_udp_bind(i64 fd, const sockaddr* sa);
  * @return bytes sent or a negative errno. */
 i64 wired_udp_send(i64 fd, const sockaddr* sa, wired_span buf);
 
+/** Send buf to sa with the IP TOS / IPv6 traffic-class byte set to tos for
+ * this datagram only (an IP_TOS + IPV6_TCLASS cmsg on sendmsg), overriding
+ * the socket-wide mark wired_udp_ect0_enable set -- RFC 9000 13.4.2.2: a
+ * connection whose ECN validation failed stops marking on a shared socket.
+ * @param fd the socket fd
+ * @param sa the destination address
+ * @param buf the datagram to send
+ * @param tos the TOS byte (ECN codepoint in its low 2 bits)
+ * @return bytes sent or a negative errno. */
+i64 wired_udp_send_tos(i64 fd, const sockaddr* sa, wired_span buf, u8 tos);
+
 /** Receive up to buf.n bytes into buf.p.
  * @param fd the socket fd
  * @param buf destination buffer

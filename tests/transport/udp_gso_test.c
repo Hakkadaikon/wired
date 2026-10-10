@@ -225,6 +225,27 @@ static void test_udp_ect0_enable_sets_tos(void) {
   wired_udp_close(sfd);
 }
 
+/* RFC 9000 13.4.2.2: a per-send TOS cmsg overrides the socket-wide ECT(0)
+ * mark, so one connection can stop marking while the socket keeps it. */
+static void test_udp_send_tos_overrides_socket_ect0(void) {
+  i64      sfd, cfd;
+  sockaddr srv;
+  u8       rx[64];
+  mmsg_buf bufs[1]    = {{wired_mspan_of(rx, sizeof rx), {0}, 0, 0}};
+  const u8 payload[3] = {4, 5, 6};
+  if (!ecn_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  CHECK(wired_udp_ect0_enable(cfd) == 0);
+  CHECK(
+      wired_udp_send_tos(
+          cfd, &srv, wired_span_of(payload, sizeof payload), 0) ==
+      (i64)sizeof payload);
+  CHECK(wired_udp_recvmmsg(sfd, bufs, 1) == 1);
+  CHECK(bufs[0].len == sizeof payload);
+  CHECK(bufs[0].ecn == 0); /* Not-ECT despite the socket's ECT(0) */
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
 /* A sender that never called wired_udp_ect0_enable delivers Not-ECT
  * (0) -- no cmsg is attached for an unmarked packet, and cmsg_read_ip_tos's
  * absent-cmsg fallback must not fabricate a nonzero ECN reading. */
@@ -292,5 +313,6 @@ void test_udp_gso(void) {
   test_udp_ect0_enable_sets_tos();
   test_udp_recvmmsg_no_cmsg_defaults_to_zero_e2e();
   test_udp_recvmmsg_batch_ecn_per_slot();
+  test_udp_send_tos_overrides_socket_ect0();
   test_udp_ect0_enable_propagates_setsockopt_failure();
 }

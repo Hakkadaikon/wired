@@ -18964,6 +18964,34 @@ static void test_srvrun_ctrl_overflow_closes(void) {
   CHECK(is_app == 1);
 }
 
+/* RFC 9000 13.4.2.2: once a connection's ECN validation failed it stops
+ * marking -- its packets leave Not-ECT although the socket marks ECT(0),
+ * while a connection still validating keeps ECT(0). */
+static void test_srvrun_ecn_failed_conn_sends_not_ect(void) {
+  i64                sfd, cfd;
+  sockaddr           srv;
+  u8                 rx[64];
+  mmsg_buf           bufs[1] = {{wired_mspan_of(rx, sizeof rx), {0}, 0, 0}};
+  static const u8    pkt[3]  = {1, 2, 3};
+  static srvrun_conn c;
+  srvrun_cfg         cfg = {.fd = -1, .env = &g_srvrun_env, 0};
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  wired_udp_recvtos_enable(sfd);
+  wired_udp_ect0_enable(cfd);
+  c      = (srvrun_conn){0};
+  cfg.fd = cfd;
+  c.peer = srv;
+  srvrun_send(&cfg, &c, wired_span_of(pkt, sizeof pkt), "t\n");
+  CHECK(wired_udp_recvmmsg(sfd, bufs, 1) == 1);
+  CHECK(bufs[0].ecn == 2); /* ECT(0) */
+  c.ecn.fail_count = 1;    /* validation failed (ecn_track_fail) */
+  srvrun_send(&cfg, &c, wired_span_of(pkt, sizeof pkt), "t\n");
+  CHECK(wired_udp_recvmmsg(sfd, bufs, 1) == 1);
+  CHECK(bufs[0].ecn == 0); /* Not-ECT */
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
 /* ===================== WT session-close notification ===================== */
 
 static usz               g_wtclose_calls;
@@ -21955,6 +21983,7 @@ void test_srvrun(void) {
   test_srvrun_wt_reset_unrelated_stream_not_delivered();
   test_srvrun_wt_two_resets_one_step_both_delivered();
   test_srvrun_reset_queue_overflow_closes();
+  test_srvrun_ecn_failed_conn_sends_not_ect();
   test_srvrun_ctrl_overflow_closes();
   test_srvrun_wt_window_overflow_closes_flow_control();
   test_srvrun_capsule_only_conn_regrows_max_data();

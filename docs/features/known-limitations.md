@@ -410,9 +410,10 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   preferred-address socket, old-path stragglers cannot flip a connection back;
   there is no general per-path highest-packet-number tracking. Source:
   `srvrun.c:9425`.
-- **ECN marking is socket-wide** — ECT(0) is set with a socket-wide `IP_TOS`,
-  so a failed validation only stops consuming reports; it cannot unmark one
-  connection. ECT(1) is never sent. Source: `srvrun.c:8438`, `udp.h:183`.
+- **ECN-failed connections lose GSO** — a connection whose ECN validation
+  failed sends Not-ECT through a per-datagram TOS cmsg, one `sendmsg` per
+  packet (no GSO batching); AF_XDP never marks. ECT(1) is never sent.
+  Source: `srvrun.c` (`srvrun_ecn_unmarked`).
 - **No kernel-fallback paths for socket options** — `IP_TOS`/`IP_RECVTOS`,
   `IP_MTU_DISCOVER`-style PMTU probe options propagate setsockopt errors; there
   is no degraded non-ECN or non-probe path. Source: `src/transport/io/socket/io/udp.h:183`,

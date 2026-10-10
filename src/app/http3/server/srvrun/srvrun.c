@@ -1407,6 +1407,26 @@ static void srvrun_tx(
     wired_udp_send(fd, sa, pkt);
 }
 
+/* RFC 9000 13.4.2.2: c's ECN validation failed (ecn_track_fail counted
+ * it), so c stops marking -- on the UDP socket path, whose ECT(0) is
+ * socket-wide (AF_XDP never marks). */
+static int srvrun_ecn_unmarked(const srvrun_cfg* cfg, const srvrun_conn* c) {
+  return !cfg->xdp && c->ecn.fail_count != 0;
+}
+
+/* srvrun_tx for c's own packet: an unmarked connection's datagram carries a
+ * Not-ECT TOS cmsg overriding the socket's ECT(0) (wired_udp_send_tos). */
+static void srvrun_tx_conn(
+    const srvrun_cfg* cfg, const srvrun_conn* c, wired_span pkt) {
+  i64 fd = srvrun_conn_fd(cfg, c);
+  if (!srvrun_ecn_unmarked(cfg, c)) {
+    srvrun_tx(cfg, fd, &c->peer, pkt);
+    return;
+  }
+  cfg->env->tx_flush_count++;
+  wired_udp_send_tos(fd, &c->peer, pkt, 0);
+}
+
 static void srvrun_send_now(
     const srvrun_cfg*  cfg,
     const srvrun_conn* c,
@@ -1414,7 +1434,7 @@ static void srvrun_send_now(
     const char*        what) {
   (void)what; /* WIRED_LOG compiles out without -DWIRED_DEBUG */
   if (pkt.n) {
-    srvrun_tx(cfg, srvrun_conn_fd(cfg, c), &c->peer, pkt);
+    srvrun_tx_conn(cfg, c, pkt);
     srvrun_qlog_sent(cfg, c, pkt.n);
     WIRED_LOG(what);
     g_srvrun_send_count++;
@@ -1532,10 +1552,17 @@ static void srvrun_stage_put(
  * same pump pass (e.g. DATA_BLOCKED) -- plain datagram reordering, which
  * any QUIC peer already tolerates (RFC 9000 12.3). */
 /* 1 iff pkt skips the GSO stage for srvrun_send: AF_XDP, an empty packet,
- * or a closing connection (srvrun_send's own gate drops it). */
+ * a closing connection (srvrun_send's own gate drops it), or an unmarked
+ * one (srvrun_ecn_unmarked: its per-send TOS cmsg is not staged).
+ * ponytail: an unmarked connection loses GSO batching; carry the TOS in
+ * the stage if ECN-failed paths ever matter for throughput. */
+static int srvrun_conn_unstaged(const srvrun_cfg* cfg, const srvrun_conn* c) {
+  return c->closing || srvrun_ecn_unmarked(cfg, c);
+}
+
 static int srvrun_stage_bypass(
     const srvrun_cfg* cfg, const srvrun_conn* c, wired_span pkt) {
-  return cfg->xdp || pkt.n == 0 || c->closing;
+  return cfg->xdp || pkt.n == 0 || srvrun_conn_unstaged(cfg, c);
 }
 
 static void srvrun_send_staged(
@@ -8594,10 +8621,8 @@ static void srvrun_feed_ack_range(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
  * peer can truthfully report, and the packets the step newly acked
  * (ecn_newly) bound the increase from below. A step whose ACKs carried no
  * ECN counts while marked packets are out fails validation instead
- * (13.4.2.1: the path or peer dropped the marks).
- * ponytail: ECT marking is a socket-wide IP_TOS, so a failed validation
- * only stops consuming reports; per-connection unmarking would need a
- * per-send TOS cmsg if ever required. */
+ * (13.4.2.1: the path or peer dropped the marks). A failed validation
+ * also stops marking this connection's packets (srvrun_ecn_unmarked). */
 static void srvrun_feed_ecn(srvrun_conn* c, u64 largest_before, u64 now_ms) {
   if (c->largest_acked <= largest_before) return;
   if (!c->l.ecn_ack_seen) {

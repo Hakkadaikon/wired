@@ -227,6 +227,36 @@ i64 wired_udp_send_gso(
   return wired_arch_sendmsg(fd, &msg, 0);
 }
 
+/* One int-valued cmsg (CMSG_SPACE(sizeof(int)) = 24 bytes: u64 cmsg_len =
+ * CMSG_LEN(4) = 20, i32 level, i32 type, the int, 4 pad) at out. */
+#define WIRED_INT_CMSG_SPACE 24
+static void udp_int_cmsg(u8* out, i32 level, i32 type, int val) {
+  bytes_memset(out, 0, WIRED_INT_CMSG_SPACE);
+  *(u64*)(out + 0)  = 20;
+  *(i32*)(out + 8)  = level;
+  *(i32*)(out + 12) = type;
+  *(int*)(out + 16) = val;
+}
+
+i64 wired_udp_send_tos(i64 fd, const sockaddr* sa, wired_span buf, u8 tos) {
+  u8       cmsg[2 * WIRED_INT_CMSG_SPACE];
+  iovec    iov = {buf.p, buf.n};
+  msghdr   msg = {0};
+  sockaddr k;
+  /* both: a v4 (or v4-mapped) send reads IP_TOS, a native v6 send
+   * IPV6_TCLASS; each stack skips the other's level. */
+  udp_int_cmsg(cmsg, WIRED_IPPROTO_IP, WIRED_IP_TOS, tos);
+  udp_int_cmsg(
+      cmsg + WIRED_INT_CMSG_SPACE, WIRED_IPPROTO_IPV6, WIRED_IPV6_TCLASS, tos);
+  msg.msg_name       = &k;
+  msg.msg_namelen    = udp_kaddr_out(sa, udp_family, &k);
+  msg.msg_iov        = &iov;
+  msg.msg_iovlen     = 1;
+  msg.msg_control    = cmsg;
+  msg.msg_controllen = sizeof cmsg;
+  return wired_arch_sendmsg(fd, &msg, 0);
+}
+
 /* Length of the next segment starting at off: segsize, or the remainder if
  * shorter (the trailing segment). */
 static usz gso_batch_seglen(usz remaining, u16 segsize) {
