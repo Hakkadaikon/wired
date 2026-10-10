@@ -156,14 +156,19 @@ Legend:
 - [~] MQ22-025 If a subscriber detects a Malformed Track, then the
   implementation shall cancel the corresponding subscription for that Track
   from that publisher.
-  - evidence: The subset's malformed-track surface is limited to what the hub
-    itself can detect from wire framing (unknown Object Status, cumulative
-    Object ID overflow -- see MQ22-071/MQ22-072); the general receiver-side
-    malformed-track catalog (priority mismatch across a Subgroup ID, Object ID
-    exceeding the Subgroup/Group/Track final, differing final Objects across
-    FIN'd streams, duplicate Objects with different payload, Delivery Mode
-    change) is not implemented by this loss-free single-hub subset -- see Out
-    of scope.
+  - evidence: Besides the decode-time violations (unknown Object Status,
+    cumulative Object ID overflow -- see MQ22-071/MQ22-072), the relay
+    detects #4 (an Object past the latest END_OF_GROUP Object of its Group)
+    and #5 (an Object past the END_OF_TRACK Object): every subscription ends
+    PUBLISH_DONE MALFORMED_TRACK, fetch streams of the track reset
+    MALFORMED_TRACK, the publisher's request is cancelled and the triggering
+    Object is not cached. The rest of the catalog is out of scope.
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_malformed_after_end_of_track`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_malformed_after_end_of_group`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_malformed_resets_fetch`
 
 ## SS2.4.3/6.5 Reserved Namespaces / Session-Level Tracks
 
@@ -1823,9 +1828,9 @@ from the coverage denominator above:
   (Publisher Priority mismatch across a Subgroup ID, Object ID exceeding a
   Subgroup/Group/Track final, differing finals across FIN'd streams,
   duplicate Objects with a different payload, Delivery Mode change) —
-  this loss-free single-hub subset does not implement general
-  malformed-track detection beyond the two decode-time violations it does
-  check (unknown Object Status, Object ID overflow).
+  beyond the decode-time violations (unknown Object Status, Object ID
+  overflow), only an Object past END_OF_GROUP / END_OF_TRACK is detected
+  (MQ22-025).
 - (SS6.1, SS6.2) The `moqt` URI scheme, fragment identifiers, MOQT URI
   dereferencing and host resolution via SVCB/HTTPS RR — client-side
   concerns of a server-only hub. Native-QUIC sessions themselves (SS6.2.2:

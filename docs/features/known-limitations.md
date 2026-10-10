@@ -126,11 +126,14 @@ general relay network.
 - **REQUEST_UPDATE of a SUBSCRIBE_TRACKS** — TRACK_NAMESPACE_PREFIX and
   FORWARD apply to PUBLISHes generated afterwards; TRACK_PROPERTY_FILTER is
   accepted but not evaluated (like on the SUBSCRIBE_TRACKS itself).
-- **Malformed-Track detection is minimal** — only unknown Object Status and
-  Object ID overflow are checked at decode; the general receiver-side catalog
-  (priority mismatch across a Subgroup, differing finals, duplicate Objects
-  with different payload, ...) is not implemented. Source: ledgers (SS2.4.2 /
-  SS12.1).
+- **Malformed-Track detection is partial** — besides unknown Object Status and
+  Object ID overflow at decode, the relay detects only an Object past the
+  END_OF_TRACK Object or past its Group's latest END_OF_GROUP Object (by
+  Status, not by an END_OF_GROUP stream's FIN). Priority mismatch, differing
+  finals, duplicate Objects with a different payload (would need a cache
+  lookup per Object) and Delivery Mode change are not checked. The triggering
+  round can still reach subscribers before their PUBLISH_DONE. Source:
+  `moqtrun_track_obj` in `src/app/moqt/run/moqtrun.c` (d22 12.1).
 - **Drained session grace is fixed** — `WIRED_MOQTRUN_GOAWAY_GRACE_MS` (1000 ms)
   between PUBLISH_DONE flush and GOAWAY_TIMEOUT close; not an ack wait. Source:
   `moqtrun.h:697`.

@@ -153,6 +153,9 @@
 #define MOQCTL_DONE_UPDATE_FAILED 0x8ULL
 /** Not in draft-22 (moqctl_publish_done_for). */
 #define MOQCTL_DONE_SUBSCRIPTION_ENDED 0x3ULL
+/** PUBLISH_DONE MALFORMED_TRACK (draft-18/19/22, 0x12 in each): a relay
+ * detected the track violates MOQT (draft-22 12.1). */
+#define MOQCTL_DONE_MALFORMED_TRACK 0x12ULL
 /** draft-22 only, moqtail-compatible: "switched away from" (SWITCH_FROM
  * with Publish Done). Same wire value as draft-18/19 SUBSCRIPTION_ENDED,
  * which moqctl_publish_done_for maps to TRACK_ENDED on draft-22, so the

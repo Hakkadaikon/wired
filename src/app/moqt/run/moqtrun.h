@@ -927,6 +927,16 @@ typedef struct {
   u64 pubdone_deadline;
   /** 1 while a PUBLISH_DONE is held. */
   u8 pubdone_pending;
+  /** The Object with Status END_OF_TRACK, valid while end_flags bit 0. */
+  moqctl_loc track_end;
+  /** The latest Object with Status END_OF_GROUP, valid while end_flags
+   * bit 1. */
+  moqctl_loc group_end;
+  /** Bit 0: track_end set; bit 1: group_end set. */
+  u8 end_flags;
+  /** 1 once an Object past track_end or group_end arrived (draft-22 12.1
+   * Malformed Track); the track then ends MALFORMED_TRACK. */
+  u8 malformed;
 } wired_moqtrun_track;
 
 /** One connected participant's hub-side state: its WT session, its own

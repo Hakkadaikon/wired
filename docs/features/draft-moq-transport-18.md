@@ -1558,9 +1558,9 @@ from the coverage denominator above:
   (Publisher Priority mismatch across a Subgroup ID, Object ID exceeding a
   Subgroup/Group/Track final, differing finals across FIN'd streams,
   duplicate Objects with a different payload, Forwarding Preference change)
-  — this loss-free single-hub subset does not implement general
-  malformed-track detection beyond the two decode-time violations it does
-  check (unknown Object Status, Object ID overflow).
+  — beyond the decode-time violations (unknown Object Status, Object ID
+  overflow), only an Object past END_OF_GROUP / END_OF_TRACK is detected
+  (PUBLISH_DONE MALFORMED_TRACK, as draft-22 MQ22-025).
 - (SS3.1, SS3.1.1-3.1.6) The `moqt` URI scheme, fragment identifiers, and
   MOQT URI dereferencing — client-side concerns of a server-only hub.
   Native-QUIC sessions themselves (SS3.1.4: ALPN `moqt-18`, PATH/AUTHORITY

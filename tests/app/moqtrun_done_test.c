@@ -184,6 +184,74 @@ static void test_moqtrun_pubdone_status_passthrough(void) {
   CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_GOING_AWAY);
 }
 
+/* Group g of A on stream sid, FINed: n Normal Objects (IDs 0..n-1), then
+ * one with status (ID n) when status is not Normal. */
+static void mtdn_status_group(u64 sid, u64 g, usz n, u64 status) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz off = mtst_stream(g, n, 1, buf);
+  if (status != MOQDATA_STATUS_NORMAL)
+    moqdata_obj_put_status(wired_mspan_of(buf, sizeof buf), &off, 0, status);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(buf, off), 1);
+}
+
+/* 1 iff the hub did io op kind (7 reset, 13 stop) on A's stream sid. */
+static int mtdn_op_on(int kind, u64 sid) {
+  for (usz i = 0; i < g_n_calls; i++)
+    if (g_calls[i].kind == kind && g_calls[i].s == SESS_A &&
+        g_calls[i].stream_id == sid)
+      return 1;
+  return 0;
+}
+
+/* d22 12.1 #5: an Object past the track's END_OF_TRACK makes it a
+ * Malformed Track: B's subscription ends PUBLISH_DONE MALFORMED_TRACK at
+ * once, the hub cancels A's PUBLISH (RESET + STOP_SENDING) and the track
+ * is gone. */
+static void test_moqtrun_pubdone_malformed_after_end_of_track(void) {
+  u64 count = 0;
+  mtdn_setup();
+  mtdn_status_group(2002, 1, 1, MOQDATA_STATUS_END_OF_TRACK);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+  mtdn_status_group(2006, 2, 1, MOQDATA_STATUS_NORMAL);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_MALFORMED_TRACK);
+  CHECK(mtdn_op_on(7, MTDN_PUB) && mtdn_op_on(13, MTDN_PUB));
+  CHECK(mtdn_published() == 0);
+}
+
+/* d22 12.1 #4: an Object of a Group past that Group's END_OF_GROUP is a
+ * Malformed Track; the next Group is not. */
+static void test_moqtrun_pubdone_malformed_after_end_of_group(void) {
+  u64 count = 0;
+  mtdn_setup();
+  mtdn_status_group(2002, 1, 1, MOQDATA_STATUS_END_OF_GROUP);
+  mtdn_status_group(2006, 2, 1, MOQDATA_STATUS_NORMAL);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+  mtdn_status_group(2010, 2, 1, MOQDATA_STATUS_END_OF_GROUP);
+  mtdn_status_group(2014, 2, 3, MOQDATA_STATUS_NORMAL);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_MALFORMED_TRACK);
+}
+
+/* d22 12.1: a relay that detects a Malformed Track resets its fetch
+ * streams of the track MALFORMED_TRACK. */
+static void test_moqtrun_pubdone_malformed_resets_fetch(void) {
+  u8             buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz            off = 0;
+  moqdata_subhdr h   = {0};
+  u64            sid = mf_stuck_fetch();
+  h.type             = 0x30;
+  h.track_alias      = MF_ALIAS;
+  h.group_id         = 1;
+  moqdata_subhdr_put(wired_mspan_of(buf, sizeof buf), &off, &h);
+  moqdata_obj_put_status(
+      wired_mspan_of(buf, sizeof buf), &off, 0, MOQDATA_STATUS_END_OF_TRACK);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, 9002, wired_span_of(buf, off), 1);
+  mf_obj(2, 0, 1);
+  CHECK(mfill_reset_code(sid) == MOQTRUN_RESET_MALFORMED_TRACK);
+  CHECK(mf_no_fetch());
+  g_stream_send_ok_n = -1;
+}
+
 /* The publisher's session closes with the PUBLISH_DONE still waiting:
  * it goes out at once with the publisher's status, not TRACK_ENDED. */
 static void test_moqtrun_pubdone_session_close_pending(void) {
@@ -240,6 +308,8 @@ static void mtall_pubdone(void) {
   test_moqtrun_pubdone_waits_open_stream();
   test_moqtrun_pubdone_wait_bounded();
   test_moqtrun_pubdone_status_passthrough();
+  test_moqtrun_pubdone_malformed_after_end_of_track();
+  test_moqtrun_pubdone_malformed_after_end_of_group();
   test_moqtrun_pubdone_session_close_pending();
   test_moqtrun_pubdone_reset_pending();
   test_moqtrun_pubdone_fin_after();
@@ -264,5 +334,9 @@ static void test_moqtrun_pubdone_xver(void) {
 
 void test_moqtrun_done(void) {
   moqtrun_test_allver(mtall_pubdone);
+  /* mf_stuck_fetch parks a draft-18/19-layout FETCH */
+  moqtrun_test_vers(
+      0, MOQVER_CAP_FETCH_BODY_V22,
+      test_moqtrun_pubdone_malformed_resets_fetch);
   test_moqtrun_pubdone_xver();
 }

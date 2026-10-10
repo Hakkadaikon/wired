@@ -29,6 +29,9 @@ static const moqtsw_ops* moqtrun_sw_ops(void);
 #define MOQTRUN_RESET_DELIVERY_TIMEOUT 0x2
 #define MOQTRUN_RESET_GOING_AWAY 0x4
 #define MOQTRUN_RESET_EXCESSIVE_LOAD 0x9
+/* draft-22 12.5 (18/19 3.3.4) MALFORMED_TRACK: a relay detected the track
+ * malformed (12.1). */
+#define MOQTRUN_RESET_MALFORMED_TRACK 0x12
 
 /* REQUEST_ERROR TIMEOUT: 0x2 in draft-18 15.10.2, draft-19 15.11.2 and
  * draft-22 16.11.2 alike (no per-draft mapping row). */
@@ -806,6 +809,8 @@ static void moqtrun_track_claim(
   t->default_pub_prio = 128; /* hub-owned tracks; moqtrun_track_open reads */
   t->own_alias        = track_alias;
   t->has_largest      = 0; /* a new PUBLISH restarts the Largest */
+  t->end_flags        = 0;
+  t->malformed        = 0;
   moqtrun_track_drop_rings(hub, t);
   moqtrun_track_clear_relays(t);
   moqtrun_record_track_key(t, k);
@@ -6734,6 +6739,59 @@ static void moqtrun_cache_obj(
   moqcache_append(&hub->cache, t->cache_tag, group, o->object_id, o->payload);
 }
 
+/* ----- Malformed Track (draft-22 12.1 #4/#5; same list in 18/19) ----- */
+
+static int moqtrun_past_track_end(const wired_moqtrun_track* t, moqctl_loc l) {
+  return (t->end_flags & 1) && moqctl_loc_less(t->track_end, l);
+}
+
+static int moqtrun_past_group_end(const wired_moqtrun_track* t, moqctl_loc l) {
+  return (t->end_flags & 2) && t->group_end.group == l.group &&
+         t->group_end.object < l.object;
+}
+
+/* 1 iff an Object at l on t (0: no track) is past the final Object of
+ * the Track (#5) or of the latest ended Group (#4). */
+static int moqtrun_obj_malformed(const wired_moqtrun_track* t, moqctl_loc l) {
+  return t && (moqtrun_past_track_end(t, l) || moqtrun_past_group_end(t, l));
+}
+
+static void moqtrun_track_note_end_on(
+    wired_moqtrun_track* t, moqctl_loc l, u64 status) {
+  if (status == MOQDATA_STATUS_END_OF_GROUP) {
+    t->group_end = l;
+    t->end_flags |= 2;
+  }
+  if (status == MOQDATA_STATUS_END_OF_TRACK) {
+    t->track_end = l;
+    t->end_flags |= 1;
+  }
+}
+
+static void moqtrun_track_note_end(
+    wired_moqtrun_track* t, moqctl_loc l, u64 status) {
+  if (t) moqtrun_track_note_end_on(t, l, status);
+}
+
+/* One decoded Object of t (0: no track) in group: counted toward the
+ * Largest, cached and its end status noted -- unless it makes the track
+ * malformed, which is only flagged (the Object is not cached, 12.1); the
+ * PUBLISH_DONE sweep ends the track (moqtrun_pubdone_ready). */
+static void moqtrun_track_obj(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* t,
+    u64                  group,
+    const moqdata_obj*   o) {
+  moqctl_loc l = moqctl_loc_of(group, o->object_id);
+  if (moqtrun_obj_malformed(t, l)) {
+    t->malformed = 1;
+    return;
+  }
+  moqtrun_track_note(t, group, o->object_id);
+  moqtrun_cache_obj(hub, t, group, o);
+  moqtrun_track_note_end(t, l, o->status);
+}
+
 static usz moqtrun_decode_object_loop(
     wired_moqt_hub*      hub,
     wired_span           data,
@@ -6745,8 +6803,7 @@ static usz moqtrun_decode_object_loop(
   while (*off < data.n) {
     moqdata_obj obj;
     if (moqdata_obj_take(data, off, seq, &obj) != MOQDATA_OK) break;
-    moqtrun_track_note(t, group, obj.object_id);
-    moqtrun_cache_obj(hub, t, group, &obj);
+    moqtrun_track_obj(hub, t, group, &obj);
     n++;
   }
   return n;
@@ -8355,6 +8412,7 @@ static void moqtrun_peer_tracks_ended(
 /* The status a track's subscribers get when it ends now: the publisher's
  * own PUBLISH_DONE status when one is waiting, else TRACK_ENDED. */
 static u64 moqtrun_pubdone_status(const wired_moqtrun_track* t) {
+  if (t->malformed) return MOQCTL_DONE_MALFORMED_TRACK;
   return t->pubdone_pending ? t->pubdone_status : MOQCTL_DONE_TRACK_ENDED;
 }
 
@@ -8382,11 +8440,22 @@ static int moqtrun_pubdone_armed(const wired_moqtrun_track* t) {
   return t->in_use && t->pubdone_pending;
 }
 
-static int moqtrun_pubdone_ready(
+static int moqtrun_pubdone_due(
     const wired_moqt_hub* hub, const wired_moqtrun_track* t) {
   return moqtrun_pubdone_armed(t) &&
          (moqtrun_pubdone_caught_up(t) ||
           hub->live.last_now_ms >= t->pubdone_deadline);
+}
+
+/* A Malformed Track ends at once (draft-22 12.1 "immediately terminate
+ * downstream subscriptions"). */
+static int moqtrun_track_malformed(const wired_moqtrun_track* t) {
+  return t->in_use && t->malformed;
+}
+
+static int moqtrun_pubdone_ready(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t) {
+  return moqtrun_track_malformed(t) || moqtrun_pubdone_due(hub, t);
 }
 
 static int moqtrun_pubdone_req_is(
@@ -8402,12 +8471,52 @@ static void moqtrun_pubdone_req_end(
     if (moqtrun_pubdone_req_is(&hub->reqs[i], p, rid)) hub->reqs[i].live = 0;
 }
 
+static int moqtrun_fetch_of_tag(const wired_moqtrun_fetch* f, u64 tag) {
+  return f->in_use && f->cache_tag == tag;
+}
+
+static void moqtrun_fetches_tag_stop(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* arr, u64 tag) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+    if (moqtrun_fetch_of_tag(&arr[i], tag))
+      moqtrun_fetch_stop_code(hub, &arr[i], MOQTRUN_RESET_MALFORMED_TRACK);
+}
+
+/* A relay that detects a Malformed Track resets its fetch streams
+ * MALFORMED_TRACK and, as the publisher's subscriber, cancels its request
+ * (draft-22 12.1, 6.4.2.3: RESET_STREAM + STOP_SENDING). An upstream
+ * SUBSCRIBE is cancelled once the track retires (moqtrun_up_end). */
+static void moqtrun_malformed_cancel(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const wired_moqtrun_track* t) {
+  moqtrun_fetches_tag_stop(hub, hub->fetches, t->cache_tag);
+  moqtrun_fetches_tag_stop(hub, hub->fetch_waits, t->cache_tag);
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
+    wired_moqtrun_req* q = &hub->reqs[i];
+    if (!moqtrun_pubdone_req_is(q, p, t->request_id)) continue;
+    hub->io.stream_reset(p->wt, q->stream_id, MOQTRUN_RESET_CANCELLED);
+    moqtrun_stream_stop(hub, p, q->stream_id, MOQTRUN_RESET_CANCELLED);
+    q->live    = 0;
+    q->fin_out = 1;
+  }
+}
+
+/* The hub's side of the request behind t: ended once flushed, or
+ * cancelled for a Malformed Track. */
+static void moqtrun_pubdone_req_close(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const wired_moqtrun_track* t) {
+  if (t->malformed) {
+    moqtrun_malformed_cancel(hub, p, t);
+    return;
+  }
+  moqtrun_pubdone_req_end(hub, p, t->request_id);
+}
+
 /* PUBLISH_DONE to every subscriber of p's track t (streams still open
  * reset first, moqtrun_sub_done), then t is retired. */
 static void moqtrun_pubdone_finish(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t) {
   moqtrun_track_ended(hub, t);
-  moqtrun_pubdone_req_end(hub, p, t->request_id);
+  moqtrun_pubdone_req_close(hub, p, t);
   t->pubdone_pending = 0;
   moqtrun_track_retire(hub, t);
 }
