@@ -102,8 +102,10 @@ A commit is allowed only when ALL THREE are green in the SAME working tree:
 2. `just ninja` — every `src/**/*.c` compiles `-ffreestanding -nostdlib
    -Werror` to a path-qualified `build/<path>.o`. (This is the raw compile
    step. `just build` = `fmt` + `ninja` + `lint`; the gate uses `ninja`
-   directly so formatting/lint side effects and lint's non-fatal findings
-   can't corrupt the pass/fail signal.)
+   directly so formatting side effects and the ~15-minute lint run stay
+   out of the per-commit gate. `just lint` is fatal on any warning
+   (`--warnings-as-errors='*'`) and CI runs it, so run it before pushing
+   when the diff touches `src/**/*.c` or `.h`.)
 3. `lizard src --CCN 3 -w` — exits 0 (every function CCN ≤ 3).
 
 Plus the count check (see below). Run them as a single guarded command so a

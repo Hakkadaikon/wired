@@ -300,7 +300,7 @@ tidyflags := "-target x86_64-unknown-linux-gnu -ffreestanding -nostdlib -fno-bui
 
 # CERT C secure-coding checks only (JPCERT/SEI CERT C via clang-tidy cert-*).
 cert:
-    clang-tidy -checks='-*,cert-*,-cert-dcl37-c,-cert-dcl51-cpp' $(find src -name '*.c') -- {{tidyflags}}
+    clang-tidy -checks='-*,cert-*,-cert-dcl37-c,-cert-dcl51-cpp' --warnings-as-errors='*' --quiet $(find src -name '*.c') -- {{tidyflags}}
 
 # static analysis: CERT C rules (see `cert`) plus bug finders. Includes cert.
 lint:
@@ -309,7 +309,7 @@ lint:
     if [ -z "$IN_NIX_SHELL" ] && command -v nix >/dev/null 2>&1; then
         exec nix develop -c just lint
     fi
-    clang-tidy -checks='{{tidychecks}}' $(find src -name '*.c') -- {{tidyflags}}
+    clang-tidy -checks='{{tidychecks}}' --warnings-as-errors='*' --quiet $(find src -name '*.c') -- {{tidyflags}}
 
 # build the guide's snippets (guide/snippets/<id>/main.c), run each one for
 # real, and compare its normalized output with the committed golden.txt.
