@@ -599,7 +599,7 @@ Fixed-size tables and buffers (BSS-sized; raise the constant and rebuild).
 | `WIRED_MOQTRUN_MAX_REQ_UPDATES` | 4 | `moqtrun.h:210` | TOO_MANY_REQUEST_UPDATES (d19+) |
 | `WIRED_MOQTRUN_IMPL_MAX` | 64 | `moqtrun.h:215` | MOQT_IMPLEMENTATION truncated |
 | `WIRED_MOQTRUN_HOLD_BUF` | 2048 | `moqtrun.h:225` | pre-SETUP bytes: request reset EXCESSIVE_LOAD, Object dropped |
-| `WIRED_MOQTRUN_GOAWAY_URI_MAX` | 512 | `moqtrun.h:230` | `wired_moqt_goaway` returns -1 for a longer URI (spec allows 8192) |
+| `WIRED_MOQTRUN_GOAWAY_URI_MAX` | 8192 | `moqtrun.h:230` | `wired_moqt_goaway` returns -1 for a longer URI (the spec maximum) |
 | `WIRED_MOQTRUN_MAX_RELAYS` | 4 | `moqtrun.h:422` | stream not relayed, subscribers miss it |
 | `WIRED_MOQTRUN_MAX_NAME` | 64 | `moqtrun.h:427` | Track Name refused (PUBLISH, hub-owned publish returns 0) |
 | `WIRED_MOQTRUN_MAX_NS` | 128 | `moqtrun.h:433` | namespace refused on PUBLISH |

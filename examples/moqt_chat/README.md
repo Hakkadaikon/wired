@@ -174,7 +174,7 @@ process's memory, so it is single-process only: do not pass
 | `--cert PATH` / `WIRED_CERT` | unset (self-signed, in memory) | fullchain PEM (leaf first) to serve |
 | `--key PATH` / `WIRED_KEY` | unset | its P-256 private key (PEM); required with a cert |
 | `WIRED_ALLOWED_ORIGINS` | unset (every Origin accepted) | comma-separated exact Origins, e.g. `https://chat.example,https://localhost:8443`; a WebTransport CONNECT from any other Origin is answered 403 (draft-ietf-webtrans-http3-15 3.1) |
-| `--goaway-uri URI` / `WIRED_GOAWAY_URI` | unset (reconnect to the same URI) | New Session URI sent in GOAWAY on shutdown (at most 512 bytes) |
+| `--goaway-uri URI` / `WIRED_GOAWAY_URI` | unset (reconnect to the same URI) | New Session URI sent in GOAWAY on shutdown (at most 8192 bytes) |
 
 - **Certificate reload**: with `--cert`/`--key` set, `kill -HUP <pid>`
   re-reads both files; connections opened afterwards use the new

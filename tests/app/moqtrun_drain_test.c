@@ -320,6 +320,28 @@ static void test_moqtrun_goaway_uri_too_long(void) {
       wired_moqt_goaway(&mtst_hub, wired_span_of(uri, sizeof uri - 1), 1) == 2);
 }
 
+/* 1 iff the last send on sid opens a GOAWAY envelope whose 16-bit
+ * Length exceeds n (the recorder keeps only the head of a long send). */
+static int mtdr_long_goaway(u64 sid, usz n) {
+  for (usz i = g_n_calls; i > 0; i--) {
+    const moqtrun_test_call* c = &g_calls[i - 1];
+    if (c->kind != 3 || c->stream_id != sid) continue;
+    return c->payload[0] == MOQCTL_T_GOAWAY &&
+           ((usz)c->payload[1] << 8 | c->payload[2]) > n;
+  }
+  return 0;
+}
+
+/* The spec's longest New Session URI (8192, -22 9.2 / -18/-19 10.4)
+ * goes out whole on each control stream. */
+static void test_moqtrun_goaway_uri_spec_max(void) {
+  static u8 uri[8192];
+  mtrq_setup();
+  CHECK(wired_moqt_goaway(&mtst_hub, wired_span_of(uri, sizeof uri), 1) == 2);
+  CHECK(mtdr_long_goaway(mtdr_ctl(SESS_A), sizeof uri));
+  CHECK(mtdr_long_goaway(mtdr_ctl(SESS_B), sizeof uri));
+}
+
 /* After GOAWAY on its session a new request is refused GOING_AWAY and
  * creates nothing, on a request stream or the control stream; one already
  * answered stays, and its REQUEST_UPDATE is still served. */
@@ -634,6 +656,7 @@ static void mtall_drain(void) {
   test_moqtrun_done_track_ended();
   test_moqtrun_goaway_once_per_session();
   test_moqtrun_goaway_uri_too_long();
+  test_moqtrun_goaway_uri_spec_max();
   test_moqtrun_goaway_late_rejected();
   test_moqtrun_drain_one_session();
   test_moqtrun_peer_goaway_twice();

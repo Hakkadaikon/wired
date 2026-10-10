@@ -8419,7 +8419,7 @@ static wired_span moqtrun_goaway_uri(
  * sent yet: the hub handles each request as it arrives. */
 static void moqtrun_goaway_one(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, moqctl_goaway g, u64 deadline) {
-  u8 msg[WIRED_MOQTRUN_GOAWAY_URI_MAX + 32];
+  u8 msg[WIRED_MOQTRUN_GOAWAY_MSG_MAX];
   g.request_id      = p->peer_rid_next;
   g.new_session_uri = moqtrun_goaway_uri(p, g.new_session_uri);
   usz n             = moqtrun_envelope_put(

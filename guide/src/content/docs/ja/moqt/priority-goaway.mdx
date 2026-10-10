@@ -29,7 +29,7 @@ import Example from '../../../../components/Example.astro';
 - `wired_moqt_goaway(hub, new_uri, timeout_ms)` は、すべてのセッションの制御ストリームに、New Session URI 付きの GOAWAY（9.2）を送ります。
   このサンプルの `moqt-22` セッションでは、それはサーバーが開いた単方向の制御ストリームです（移行の手順は 6.6.1）。
   このデモはデータグラムの受信を引き金にしていますが、実際のサーバーなら SIGTERM やデプロイ前に呼びます。
-  URI は `WIRED_MOQTRUN_GOAWAY_URI_MAX`（512）バイトまでです。
+  URI は `WIRED_MOQTRUN_GOAWAY_URI_MAX`（8192）バイトまでです。
 - GOAWAY の後、そのセッションの新しいリクエストはすべて REQUEST_ERROR で拒否されます。
   エラーコードは GOING_AWAY（0x6）で、クライアントには次のリクエストを `new_uri` へ送ることが期待されます。
   GOAWAY を受けたクライアントは新しいリクエストを始めるべきではありません（SHOULD NOT、9.2）。このサンプルは GOING_AWAY の応答を見せるため、あえて SUBSCRIBE を 1 つ送ります。

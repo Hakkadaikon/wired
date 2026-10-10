@@ -52,7 +52,7 @@ wired が内部に持つ表（コネクションやストリームの管理表�
 | 受信する制御メッセージの本体 | 1024 バイト | `WIRED_MOQTRUN_CTL_MSG_MAX` |
 | Track Name | 64 バイト | `WIRED_MOQTRUN_MAX_NAME` |
 | エンコード済みの Track Namespace | 128 バイト | `WIRED_MOQTRUN_MAX_NS` |
-| GOAWAY の New Session URI | 512 バイト | `WIRED_MOQTRUN_GOAWAY_URI_MAX` |
+| GOAWAY の New Session URI | 8192 バイト | `WIRED_MOQTRUN_GOAWAY_URI_MAX` |
 | 1 つのリクエストの Range Filter の Range 数（広告する MAX_FILTER_RANGES） | 4 | `WIRED_MOQTRUN_MAX_FILTER_RANGES` |
 | 1 つのリクエストの未応答の REQUEST_UPDATE（広告する MAX_REQUEST_UPDATES） | 4 | `WIRED_MOQTRUN_MAX_REQ_UPDATES` |
 | FETCH 用のキャッシュ | アプリが渡すアリーナの大きさ | `wired_moqt_cache_attach` |

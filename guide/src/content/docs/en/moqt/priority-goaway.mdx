@@ -39,7 +39,7 @@ subscriptions, and closes the session when the grace runs out.
   (6.6.1 describes the migration). This demo
   triggers it with any datagram; a real server calls it on SIGTERM or
   before a deploy. The URI may be up to `WIRED_MOQTRUN_GOAWAY_URI_MAX`
-  (512) bytes.
+  (8192) bytes.
 - After GOAWAY every new request on that session is answered
   REQUEST_ERROR with error code GOING_AWAY (0x6): the client is expected
   to take its next request to `new_uri`. A client SHOULD NOT start new

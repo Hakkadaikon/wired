@@ -378,7 +378,7 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
       wired_envp_get(argc, argv, "WIRED_GOAWAY_URI"));
   if (!g_goaway_uri) g_goaway_uri = "";
   if (wired_cstr_len(g_goaway_uri) > WIRED_MOQTRUN_GOAWAY_URI_MAX)
-    wired_die("WIRED_GOAWAY_URI: longer than 512 bytes\n");
+    wired_die("WIRED_GOAWAY_URI: longer than 8192 bytes\n");
   wired_moqt_io io = wired_moqraw_io();
   io.send_uni2     = moqt_io_send_uni2;
   wired_moqt_init(&g_hub, io);

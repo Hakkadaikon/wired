@@ -225,10 +225,13 @@ typedef struct {
  * more data. */
 #define WIRED_MOQTRUN_HOLD_BUF 2048
 
-/** Longest New Session URI wired_moqt_goaway sends (draft 10.4 allows
- * 8192): a URL, sized so the GOAWAY fits one control-stream reply round
- * (WIRED_MOQTRUN_CTL_SEND_BUF). */
-#define WIRED_MOQTRUN_GOAWAY_URI_MAX 512
+/** Longest New Session URI wired_moqt_goaway sends: the spec maximum
+ * (draft-22 9.2, draft-18/19 10.4). */
+#define WIRED_MOQTRUN_GOAWAY_URI_MAX 8192
+
+/** Largest GOAWAY envelope: the URI plus Type, Length, Request ID and URI
+ * Length varints. */
+#define WIRED_MOQTRUN_GOAWAY_MSG_MAX ((usz)WIRED_MOQTRUN_GOAWAY_URI_MAX + 32)
 
 /** GOAWAY Timeout the hub gives a session whose peer sent
  * WT_DRAIN_SESSION (wired_moqt_on_session_draining): the peer asked to go,
@@ -542,15 +545,23 @@ typedef struct {
  * is reset with EXCESSIVE_LOAD (draft-ietf-moq-transport-19 3.3.4). */
 #define WIRED_MOQTRUN_MAX_REQS_PER_SESSION (WIRED_MOQTRUN_MAX_REQS / 4)
 
-/** Largest total this hub ever needs to buffer for one peer within one
- * wired_moqt_on_stream_data dispatch: the shared control stream can carry
- * several requests per call (moqtrun_dispatch_ctl_stream's own doc), and
- * each can produce one reply -- worst case here is one SUBSCRIBE reply per
- * other connected peer's track, WIRED_MOQTRUN_MAX_SUBS *
- * WIRED_MOQTRUN_MAX_TRACKS_PER_PEER of them. */
-#define WIRED_MOQTRUN_CTL_SEND_BUF                                  \
+/** Replies one control-stream dispatch can queue: the shared control
+ * stream can carry several requests per call (moqtrun_dispatch_ctl_stream's
+ * own doc), and each can produce one reply -- worst case here is one
+ * SUBSCRIBE reply per other connected peer's track,
+ * WIRED_MOQTRUN_MAX_SUBS * WIRED_MOQTRUN_MAX_TRACKS_PER_PEER of them. */
+#define WIRED_MOQTRUN_CTL_REPLIES_MAX                               \
   ((usz)WIRED_MOQTRUN_CTL_REPLY_MAX * (usz)WIRED_MOQTRUN_MAX_SUBS * \
    (usz)WIRED_MOQTRUN_MAX_TRACKS_PER_PEER)
+
+/** Largest total this hub ever needs to buffer for one peer within one
+ * wired_moqt_on_stream_data dispatch: WIRED_MOQTRUN_CTL_REPLIES_MAX, or
+ * one longest GOAWAY (WIRED_MOQTRUN_GOAWAY_MSG_MAX), whichever is larger.
+ */
+#define WIRED_MOQTRUN_CTL_SEND_BUF                              \
+  (WIRED_MOQTRUN_CTL_REPLIES_MAX > WIRED_MOQTRUN_GOAWAY_MSG_MAX \
+       ? WIRED_MOQTRUN_CTL_REPLIES_MAX                          \
+       : WIRED_MOQTRUN_GOAWAY_MSG_MAX)
 
 /** Replies one request-stream delivery can queue: the request's own
  * answer plus a few REQUEST_UPDATE answers arriving with it. */

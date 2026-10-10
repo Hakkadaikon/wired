@@ -56,7 +56,7 @@ round is streamed ([Streaming a large body](../../h3/streaming/)).
 | Received control message body | 1024 bytes | `WIRED_MOQTRUN_CTL_MSG_MAX` |
 | Track Name | 64 bytes | `WIRED_MOQTRUN_MAX_NAME` |
 | Encoded Track Namespace | 128 bytes | `WIRED_MOQTRUN_MAX_NS` |
-| GOAWAY New Session URI | 512 bytes | `WIRED_MOQTRUN_GOAWAY_URI_MAX` |
+| GOAWAY New Session URI | 8192 bytes | `WIRED_MOQTRUN_GOAWAY_URI_MAX` |
 | Range Filter Ranges per request (advertised MAX_FILTER_RANGES) | 4 | `WIRED_MOQTRUN_MAX_FILTER_RANGES` |
 | Unanswered REQUEST_UPDATEs per request (advertised MAX_REQUEST_UPDATES) | 4 | `WIRED_MOQTRUN_MAX_REQ_UPDATES` |
 | FETCH cache | the arena the app passes | `wired_moqt_cache_attach` |
