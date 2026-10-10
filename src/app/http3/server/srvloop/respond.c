@@ -101,7 +101,9 @@ const u8* wired_srvloop_ticket_key(void) { return g_ticket_key; }
 #define WIRED_SRVLOOP_MAX_EARLY_DATA_SIZE 0xffffffff
 
 static usz build_ticket_message(const wired_server* s, u8* msg, usz msg_cap) {
-  ticket t    = {{0}, 0, 7200, 0, (u8)s->sdrv.alpn}; /* RFC 8446 4.2.10 */
+  /* RFC 8446 4.2.10 alpn; ticket_nonce 0: one ticket per connection, so
+   * it is unique across this connection's tickets (RFC 8446 4.6.1). */
+  ticket t    = {{0}, 0, 7200, 0, (u8)s->sdrv.alpn, 0};
   t.issued_at = wired_clock_epoch_secs();
   if (!wired_server_resumption_secret(s, t.secret)) return 0;
   return tls_new_session_ticket_encode(

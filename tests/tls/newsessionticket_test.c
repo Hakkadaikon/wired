@@ -11,6 +11,7 @@ static ticket nst_sample_ticket(void) {
   t.lifetime_secs = 7200;
   t.age_add       = 0; /* overwritten by tls_new_session_ticket_encode */
   t.alpn          = 0;
+  t.ticket_nonce  = 0;
   return t;
 }
 
@@ -62,8 +63,8 @@ static void test_nst_early_data_ext(void) {
   usz body = ((usz)out[1] << 16) | ((usz)out[2] << 8) | out[3];
   CHECK(4 + body == n);
   /* extensions_len(2) + early_data ext(4+4) = 10 trailing bytes, right after
-   * the fixed 11-byte prefix + sealed ticket. */
-  usz ext_off = 4 + 11 + TICKET_SEALED_LEN + 2;
+   * the fixed 12-byte prefix + sealed ticket. */
+  usz ext_off = 4 + 12 + TICKET_SEALED_LEN + 2;
   CHECK(ext_off < n);
   CHECK(tlsext_early_data_nst_parse(out + ext_off, n - ext_off, &got));
   CHECK(got == 0xffffffff);
@@ -78,7 +79,7 @@ static void test_nst_no_early_data_ext(void) {
   usz    n;
   fill_nst_key(key, 0x77);
   n               = tls_new_session_ticket_encode(out, sizeof out, &t, key, 0);
-  usz ext_len_off = 4 + 11 + TICKET_SEALED_LEN;
+  usz ext_len_off = 4 + 12 + TICKET_SEALED_LEN;
   CHECK(n == ext_len_off + 2);
   CHECK(out[ext_len_off] == 0 && out[ext_len_off + 1] == 0);
 }
@@ -178,7 +179,27 @@ static void test_nst_parse_truncated(void) {
   CHECK(tls_new_session_ticket_parse(wired_span_of(out, n - 1), &sealed) == 0);
 }
 
+/* RFC 8446 4.6.1: the ticket carries a one-byte ticket_nonce on the wire
+ * (ticket_nonce_len 1 right after ticket_age_add), and the same value is
+ * sealed inside the ticket so the server derives the PSK from it later. */
+static void test_nst_ticket_nonce(void) {
+  u8         key[TICKET_KEY_LEN];
+  ticket     t = nst_sample_ticket();
+  u8         out[256];
+  usz        n;
+  wired_span sealed;
+  ticket     opened;
+  t.ticket_nonce = 7;
+  fill_nst_key(key, 0xbb);
+  n = tls_new_session_ticket_encode(out, sizeof out, &t, key, 0);
+  CHECK(out[4 + 8] == 1 && out[4 + 9] == 7);
+  CHECK(tls_new_session_ticket_parse(wired_span_of(out, n), &sealed) == 1);
+  CHECK(ticket_open(sealed, key, &opened) == 1);
+  CHECK(opened.ticket_nonce == 7);
+}
+
 void test_newsessionticket(void) {
+  test_nst_ticket_nonce();
   test_nst_header();
   test_nst_no_room();
   test_nst_roundtrip();

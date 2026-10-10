@@ -553,12 +553,11 @@ static int sdrv_psk_open_ticket(
  * HKDF-Expand-Label(resumption_master_secret, "resumption", ticket_nonce,
  * Hash.length)" -- t->secret (ticket's field) holds the resumption_
  * master_secret this ticket was sealed with (RFC 8446 7.1's Derive-Secret
- * output), not the PSK itself; this SDK issues every ticket with an empty
- * ticket_nonce (see newsessionticket.h), so Context is the empty span. */
-static void sdrv_psk_from_ticket_secret(
-    const u8 res_master_secret[TICKET_SECRET_LEN], u8 psk_out[32]) {
-  hkdf_label l = {"resumption", 10, {0, 0}};
-  hkdf_expand_label(res_master_secret, &l, wired_mspan_of(psk_out, 32));
+ * output), not the PSK itself; t->ticket_nonce is the one-byte nonce sent
+ * with it (newsessionticket.h). */
+static void sdrv_psk_from_ticket_secret(const ticket* t, u8 psk_out[32]) {
+  hkdf_label l = {"resumption", 10, {&t->ticket_nonce, 1}};
+  hkdf_expand_label(t->secret, &l, wired_mspan_of(psk_out, 32));
 }
 
 /* The opened ticket's binder verifies against the truncated ClientHello.
@@ -572,7 +571,7 @@ static int sdrv_psk_binder_ok(
     const tlsext_psk_offer* off) {
   wired_span truncated = sdrv_psk_truncate(ch_msg, psk_ext, off->id_len);
   u8         psk[32];
-  sdrv_psk_from_ticket_secret(t->secret, psk);
+  sdrv_psk_from_ticket_secret(t, psk);
   return tls_binder_verify(psk, truncated, off->binder);
 }
 
@@ -667,7 +666,7 @@ static void sdrv_psk_accept_opened(
   /* s->psk_secret feeds RFC 8446 7.1's Early Secret = HKDF-Extract(0, PSK)
    * -- the actual PSK (see sdrv_psk_from_ticket_secret's doc), not the raw
    * ticket-stored resumption_master_secret. */
-  sdrv_psk_from_ticket_secret(t->secret, s->psk_secret);
+  sdrv_psk_from_ticket_secret(t, s->psk_secret);
   if (sdrv_early_alpn_ok(s, t) &&
       sdrv_early_data_wanted(ch_msg, ch_len, t, off))
     sdrv_take_early_keys(s, ch_msg, ch_len);
@@ -689,7 +688,7 @@ static int sdrv_psk_try_offer(
     usz                     ch_len,
     wired_span              psk_ext,
     const tlsext_psk_offer* off) {
-  ticket t  = {{0}, 0, 0, 0, 0};
+  ticket t  = {{0}, 0, 0, 0, 0, 0};
   int    ok = sdrv_psk_open_ticket(s, off, &t);
   ok &= sdrv_psk_binder_ok(&t, ch_msg, psk_ext, off); /* always evaluated */
   if (!ok) {

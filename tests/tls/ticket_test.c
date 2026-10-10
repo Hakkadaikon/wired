@@ -11,6 +11,7 @@ static ticket sample_ticket(void) {
   t.lifetime_secs = 86400;
   t.age_add       = 0x12345678;
   t.alpn          = 3; /* SALPN_RAW */
+  t.ticket_nonce  = 5;
   return t;
 }
 
@@ -29,6 +30,7 @@ static void test_ticket_roundtrip(void) {
   CHECK(out.lifetime_secs == in.lifetime_secs);
   CHECK(out.age_add == in.age_add);
   CHECK(out.alpn == in.alpn); /* RFC 8446 4.2.10: ALPN recorded */
+  CHECK(out.ticket_nonce == in.ticket_nonce); /* RFC 8446 4.6.1 */
   for (usz i = 0; i < TICKET_SECRET_LEN; i++)
     CHECK(out.secret[i] == in.secret[i]);
 }

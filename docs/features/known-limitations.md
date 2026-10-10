@@ -498,9 +498,10 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   under one fixed key, no rotation, no multi-key acceptance. Impact: a leaked
   key exposes every ticket ever issued. Source:
   `src/app/http3/server/srvloop/respond.c:80`.
-- **No `ticket_nonce` in NewSessionTicket** — a real client needs a per-ticket
-  nonce for multi-ticket PSK selection; none is emitted. Source:
-  `src/tls/handshake/core/tls/newsessionticket.h:16`.
+- **One ticket per connection** — every NewSessionTicket carries the
+  one-byte `ticket_nonce` 0x00, unique only because the server issues a
+  single ticket per connection; issuing more needs a per-connection counter.
+  Source: `src/app/http3/server/srvloop/respond.c` (`build_ticket_message`).
 - **Ticket replay guard is a ring** — `TICKETGUARD_CAP` (64) fingerprints; an
   entry evicted by newer tickets could replay past the window. Source:
   `src/tls/keys/ticketguard/ticketguard.h:12`.

@@ -14,7 +14,7 @@
 /* Sealed-ticket framing: nonce || ciphertext || tag. */
 #define TICKET_NONCE_LEN 12
 #define TICKET_TAG_LEN 16
-#define TICKET_PLAIN_LEN (TICKET_SECRET_LEN + 8 + 4 + 4 + 1)
+#define TICKET_PLAIN_LEN (TICKET_SECRET_LEN + 8 + 4 + 4 + 1 + 1)
 #define TICKET_SEALED_LEN (TICKET_NONCE_LEN + TICKET_PLAIN_LEN + TICKET_TAG_LEN)
 
 /** One resumption ticket's plaintext contents (RFC 8446 4.6.1). */
@@ -27,6 +27,9 @@ typedef struct {
    * salpn_choice), so 0-RTT is only accepted under the same protocol;
    * 0 = not recorded. */
   u8 alpn;
+  /** RFC 8446 4.6.1: the ticket_nonce sent with this ticket, kept so the
+   * server derives the same PSK when the ticket comes back. */
+  u8 ticket_nonce;
 } ticket;
 
 /* Seal a ticket under the server's fixed key: out receives

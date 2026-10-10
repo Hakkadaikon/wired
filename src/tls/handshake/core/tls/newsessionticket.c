@@ -5,10 +5,10 @@
 #include "tls/ext/tlsext/earlydata.h"
 #include "tls/handshake/core/tls/handshake.h"
 
-/* fixed prefix: ticket_lifetime(4) ticket_age_add(4) ticket_nonce_len(1)=0
- * ticket_len(2) ticket(sealed) -- extensions_len(2) plus any extensions
- * follow (put_nst_exts below). */
-#define NST_PREFIX_LEN (4 + 4 + 1 + 2 + TICKET_SEALED_LEN)
+/* fixed prefix: ticket_lifetime(4) ticket_age_add(4) ticket_nonce_len(1)=1
+ * ticket_nonce(1) ticket_len(2) ticket(sealed) -- extensions_len(2) plus any
+ * extensions follow (put_nst_exts below). */
+#define NST_PREFIX_LEN (4 + 4 + 1 + 1 + 2 + TICKET_SEALED_LEN)
 
 /* RFC 8446 4.6.1: "Servers MUST NOT use any value greater than 604800
  * seconds (7 days)." Clamp rather than reject -- an over-long caller value
@@ -33,9 +33,10 @@ static void put_nst_prefix(
   usz i;
   be_put_be32(body, t->lifetime_secs);
   be_put_be32(body + 4, age_add);
-  body[8] = 0; /* ticket_nonce_len */
-  be_put_be16(body + 9, TICKET_SEALED_LEN);
-  for (i = 0; i < TICKET_SEALED_LEN; i++) body[11 + i] = sealed[i];
+  body[8] = 1; /* ticket_nonce_len */
+  body[9] = t->ticket_nonce;
+  be_put_be16(body + 10, TICKET_SEALED_LEN);
+  for (i = 0; i < TICKET_SEALED_LEN; i++) body[12 + i] = sealed[i];
 }
 
 /* RFC 8446 4.2.10: extensions_len(2) followed by early_data(4+4) when
@@ -77,23 +78,27 @@ usz tls_new_session_ticket_encode(
 static u16 get_be16(const u8* p) { return (u16)(((u16)p[0] << 8) | p[1]); }
 
 /* Whether type/body_len are a well-formed NewSessionTicket header carrying at
- * least the fixed 11-byte prefix before the ticket bytes. */
+ * least the 11-byte prefix (with an empty ticket_nonce) before the ticket
+ * bytes. */
 static int nst_header_ok(u8 type, usz body_len) {
   return type == HS_NEW_SESSION_TICKET && body_len >= 11;
 }
 
 /* Whether body_len legitimately carries a TICKET_SEALED_LEN ticket
- * starting right after the fixed 11-byte prefix. */
-static int nst_ticket_fits(usz body_len, usz ticket_len) {
-  return ticket_len == TICKET_SEALED_LEN && body_len >= 11 + ticket_len;
+ * starting right after the 11 + nonce_len prefix. */
+static int nst_ticket_fits(usz body_len, usz pre, usz ticket_len) {
+  return ticket_len == TICKET_SEALED_LEN && body_len >= pre + ticket_len;
 }
 
 /* Body-level check + the sealed-ticket view, once the header parsed and
- * passed nst_header_ok. */
+ * passed nst_header_ok. RFC 8446 4.6.1: ticket_nonce is opaque<0..255>, so
+ * the ticket field sits after a variable-length nonce. */
 static int nst_take_ticket(wired_span msg, usz body_len, wired_span* sealed) {
-  usz ticket_len = get_be16(msg.p + 4 + 9);
-  if (!nst_ticket_fits(body_len, ticket_len)) return 0;
-  *sealed = wired_span_of(msg.p + 4 + 11, ticket_len);
+  usz pre = 11 + msg.p[4 + 8];
+  if (body_len < pre) return 0;
+  usz ticket_len = get_be16(msg.p + 4 + pre - 2);
+  if (!nst_ticket_fits(body_len, pre, ticket_len)) return 0;
+  *sealed = wired_span_of(msg.p + 4 + pre, ticket_len);
   return 1;
 }
 

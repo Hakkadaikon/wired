@@ -1483,12 +1483,13 @@ static usz sdrv_test_psk_truncate_len(usz psk_ext_off, usz id_len) {
 /* RFC 8446 4.6.1: the PSK a ticket actually offers is derived from the
  * resumption_master_secret this SDK stores in ticket.secret --
  * HKDF-Expand-Label(res_master_secret, "resumption", ticket_nonce, 32),
- * empty ticket_nonce (see newsessionticket.h/sdrv.c's sdrv_psk_from_ticket_
- * secret). Test-side mirror so fixtures compute a binder over the same PSK
- * sdrv.c will derive when it opens the ticket. */
+ * the fixtures' ticket_nonce being the single byte 0x00 (zero-initialized,
+ * as in RFC 8448 4). Test-side mirror so fixtures compute a binder over the
+ * same PSK sdrv.c will derive when it opens the ticket. */
 static void sdrv_test_psk_from_res_master(
     const u8 res_master_secret[TICKET_SECRET_LEN], u8 psk_out[32]) {
-  hkdf_label l = {"resumption", 10, {0, 0}};
+  static const u8 nonce[1] = {0};
+  hkdf_label      l        = {"resumption", 10, {nonce, 1}};
   hkdf_expand_label(res_master_secret, &l, wired_mspan_of(psk_out, 32));
 }
 
@@ -1508,7 +1509,7 @@ typedef struct {
 
 static void sdrv_psk_fixture_init(sdrv_psk_fixture* f) {
   u8     cli_priv[32];
-  ticket t = {{0}, 0, 7200, 0, 0};
+  ticket t = {{0}, 0, 7200, 0, 0, 0};
   /* RFC 8446 4.2.11.1: issued "now" and the PSK offer's ticket_age claims 0ms
    * elapsed (set where the offer is built) -- freshness holds trivially so
    * these fixtures exercise 0-RTT accept/reject on their own axis, not on
@@ -1559,6 +1560,21 @@ static void test_sdrv_psk_absent_leaves_full_handshake_unchanged(void) {
   fl_ob = obuf_of(flight, sizeof(flight));
   fo    = (sdrv_flight_out){&sh_ob, &fl_ob};
   CHECK(sdrv_build_server_flight(&s, f.srv_random, &fo));
+}
+
+/* RFC 8446 4.6.1 pin: PSK = HKDF-Expand-Label(secret 0x50..0x6f,
+ * "resumption", ticket_nonce 0x00, 32). HkdfLabel info is 00 20 | 10
+ * "tls13 resumption" | 01 00 (the same info RFC 8448 4 shows); the output
+ * was computed independently with Python's hmac/hashlib, so the fixture
+ * mirror above cannot agree with sdrv.c by sharing one mistake. */
+static void test_sdrv_psk_fixture_pinned(void) {
+  static const u8  want[32] = {0xfa, 0x3e, 0xbb, 0xe3, 0x6e, 0x73, 0xee, 0x04,
+                               0x01, 0xac, 0x25, 0xf1, 0x3a, 0x01, 0x88, 0xe1,
+                               0x6f, 0xea, 0x04, 0xd7, 0x06, 0xba, 0xf7, 0x50,
+                               0x6b, 0xca, 0x0d, 0x4b, 0xaf, 0x8a, 0x5f, 0x2d};
+  sdrv_psk_fixture f;
+  sdrv_psk_fixture_init(&f);
+  CHECK(ct_diffn(f.psk, want, 32) == 0);
 }
 
 /* A valid ticket with a correctly computed binder is accepted --
@@ -2187,7 +2203,7 @@ static void sdrv_test_alpn_to_m9(u8* ch, usz ch_len) {
 /* Re-seal f's ticket recording alpn (a salpn_choice) as its issuing
  * connection's ALPN (RFC 8446 4.2.10). */
 static void sdrv_psk_fixture_reseal(sdrv_psk_fixture* f, u8 alpn) {
-  ticket t    = {{0}, 0, 7200, 0, alpn};
+  ticket t    = {{0}, 0, 7200, 0, alpn, 0};
   t.issued_at = wired_clock_epoch_secs();
   for (usz i = 0; i < TICKET_SECRET_LEN; i++) t.secret[i] = f->secret[i];
   ticket_seal(&t, f->ticket_key, f->sealed);
@@ -2331,6 +2347,7 @@ void test_sdrv(void) {
   test_sdrv_suite_vec_overruns_body();
   test_sdrv_retry_advertises_true_odcid_not_key_derivation_dcid();
   test_sdrv_psk_absent_leaves_full_handshake_unchanged();
+  test_sdrv_psk_fixture_pinned();
   test_sdrv_psk_valid_ticket_and_binder_accepted();
   test_sdrv_psk_without_modes_rejected();
   test_sdrv_psk_not_last_rejected();

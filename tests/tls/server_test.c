@@ -497,10 +497,11 @@ static void test_server_keylog_path_writes_line(void) {
  * server was initialized with, with a correctly computed binder. */
 /* RFC 8446 4.6.1: mirrors sdrv.c's sdrv_psk_from_ticket_secret -- the PSK a
  * ticket offers is HKDF-Expand-Label(resumption_master_secret,
- * "resumption", ticket_nonce, 32), empty ticket_nonce. */
+ * "resumption", ticket_nonce, 32), ticket_nonce the single byte 0x00. */
 static void srvt_psk_from_res_master(
     const u8 res_master_secret[TICKET_SECRET_LEN], u8 psk_out[32]) {
-  hkdf_label l = {"resumption", 10, {0, 0}};
+  static const u8 nonce[1] = {0};
+  hkdf_label      l        = {"resumption", 10, {nonce, 1}};
   hkdf_expand_label(res_master_secret, &l, wired_mspan_of(psk_out, 32));
 }
 
@@ -512,7 +513,7 @@ typedef struct {
 } srvt_psk_fixture;
 
 static void srvt_psk_fixture_init(srvt_psk_fixture* f) {
-  ticket t = {{0}, 0, 7200, 0, 0};
+  ticket t = {{0}, 0, 7200, 0, 0, 0};
   for (usz i = 0; i < TICKET_KEY_LEN; i++) f->ticket_key[i] = (u8)(0xd0 + i);
   for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
     f->secret[i] = (u8)(0x60 + i);

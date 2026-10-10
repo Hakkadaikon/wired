@@ -5,17 +5,17 @@
 #include "tls/keys/ticket/ticket.h"
 
 /* RFC 8446 4.6.1: NewSessionTicket handshake message, minimal server-issued
- * form. This SDK does not yet implement client-side resumption, so only the
- * fields this codebase itself round-trips are real:
- *   ticket_lifetime(4) ticket_age_add(4) ticket_nonce_len(1)=0
+ * form:
+ *   ticket_lifetime(4) ticket_age_add(4) ticket_nonce_len(1)=1
+ *   ticket_nonce(1)=t->ticket_nonce
  *   ticket(2-byte length prefixed, the sealed ticket) extensions_len(2)
  * followed by the early_data extension (RFC 8446 4.2.10, 0x002a) when
  * max_early_data_size is nonzero. ticket_age_add is drawn fresh per ticket
  * (RFC 8446 4.6.1) and also sealed inside the ticket itself so the server can
- * recover it later to check 0-RTT freshness (RFC 8446 4.2.11.1).
- * ponytail: no ticket_nonce — a real client needs a per-ticket nonce for
- * multi-ticket PSK selection; add it when client-side resumption is
- * implemented. */
+ * recover it later to check 0-RTT freshness (RFC 8446 4.2.11.1). The
+ * ticket_nonce is sealed inside the ticket too, so the server derives the
+ * same PSK = HKDF-Expand-Label(secret, "resumption", ticket_nonce, 32) the
+ * client does. */
 
 #define HS_NEW_SESSION_TICKET 4
 
