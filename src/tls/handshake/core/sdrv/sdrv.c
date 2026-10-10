@@ -673,25 +673,22 @@ static void sdrv_psk_accept_opened(
 }
 
 /* A parsed pre_shared_key offer: open its ticket and verify the binder.
- * RFC 8446 E.6: an identity that does not open is treated exactly like
- * "valid identity, wrong binder" -- the binder check still runs (over a
- * zero ticket) and both failures abort with the same decrypt_error (51),
- * so handshake outcome and timing shape do not reveal whether the
- * identity was one this server issued. A verified binder over an opened
- * ticket is the only accept path.
- * ponytail: this also aborts a stale ticket (rotated ticket_key) instead of
- * degrading to a full handshake; a client is expected to retry without its
- * ticket. Add a keyed dummy-open + fallback if that trade-off bites. */
+ * RFC 8446 4.2.11: an identity that does not open (unknown, forged, or
+ * sealed under a retired ticket key) is ignored and the handshake
+ * continues as a full handshake. The binder check still runs (over a
+ * zero ticket) so both paths cost the same work. A recognized identity
+ * whose binder fails aborts with decrypt_error (RFC 8446 4.2.11.2). */
 static int sdrv_psk_try_offer(
     sdrv*                   s,
     const u8*               ch_msg,
     usz                     ch_len,
     wired_span              psk_ext,
     const tlsext_psk_offer* off) {
-  ticket t  = {{0}, 0, 0, 0, 0, 0};
-  int    ok = sdrv_psk_open_ticket(s, off, &t);
-  ok &= sdrv_psk_binder_ok(&t, ch_msg, psk_ext, off); /* always evaluated */
-  if (!ok) {
+  ticket t      = {{0}, 0, 0, 0, 0, 0};
+  int    opened = sdrv_psk_open_ticket(s, off, &t);
+  int    bound  = sdrv_psk_binder_ok(&t, ch_msg, psk_ext, off);
+  if (!opened) return 1;
+  if (!bound) {
     s->last_error = err_crypto(51); /* decrypt_error, RFC 8446 4.2.11.2 */
     return 0;
   }

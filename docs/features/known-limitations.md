@@ -158,8 +158,6 @@ general relay network.
   rendezvous wait longer than 1.5 s ends with REQUEST_ERROR TIMEOUT (the draft
   lets a relay use a shorter timeout, 10.2.6). Source: commit `03e69af`,
   `moqtrun.h:615`, L12-1.
-- **Deliberate deviation: unknown PSK identity aborts** — see
-  [TLS 1.3](#tls-13) (RFC 8446 4.2.11).
 - **Range Filters do not exist in draft-18** — the hub closes a d18 session
   that sends one (unknown parameter type). Source: ledger:draft-moq-transport-18.md.
 
@@ -461,13 +459,6 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 
 ## TLS 1.3
 
-- **Unknown PSK identity aborts the handshake** — a PSK identity that cannot be
-  opened (e.g. after the ticket key rotated) aborts with decrypt_error,
-  indistinguishable from a bad binder (E.6), instead of falling back to a full
-  handshake (RFC 8446 4.2.11 SHOULD). Impact: a client must retry without its
-  ticket. Add a keyed dummy-open plus fallback if that bites. Source:
-  `src/tls/handshake/core/sdrv/sdrv.c:683`, `ledger:rfc8446.md` 8446-053
-  (`[ ]`), `tasks/moqt-multidraft-ledger.md:374`.
 - **Ticket key fixed for the process lifetime** — session tickets are sealed
   under one fixed key, no rotation, no multi-key acceptance. Impact: a leaked
   key exposes every ticket ever issued. Source:
