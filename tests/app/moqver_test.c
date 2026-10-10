@@ -34,7 +34,7 @@ static void test_moqver_caps_d18(void) {
       moqver_caps(MOQVER_D18) ==
       (MOQVER_CAP_GOAWAY_REQID | MOQVER_CAP_DUP_SUBSCRIPTION |
        MOQVER_CAP_FIN_CANCEL_NS | MOQVER_CAP_PUBLISH_OK_ALIAS |
-       MOQVER_CAP_SUBSCRIPTION_ENDED));
+       MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_DG_TIMEOUT_PROP_CLOSE));
 }
 
 static void test_moqver_caps_d19(void) {

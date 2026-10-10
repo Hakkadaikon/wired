@@ -29,7 +29,7 @@ static const moqver_row moqver_table[MOQVER_COUNT] = {
     {MOQVER_D18, "moqt-18",
      MOQVER_CAP_GOAWAY_REQID | MOQVER_CAP_DUP_SUBSCRIPTION |
          MOQVER_CAP_FIN_CANCEL_NS | MOQVER_CAP_PUBLISH_OK_ALIAS |
-         MOQVER_CAP_SUBSCRIPTION_ENDED},
+         MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_DG_TIMEOUT_PROP_CLOSE},
 };
 
 static int moqver_tok_eq(wired_span token, const char* tok) {

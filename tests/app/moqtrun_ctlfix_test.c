@@ -128,6 +128,32 @@ static void test_mtcf_d18_subscribe_range_filter(void) {
   mtcf_check_violation();
 }
 
+/* A (alice, alias 1) on draft ver sends an OBJECT_DATAGRAM whose Object
+ * Properties hold one varint Property of type ptype; 1 iff the hub then
+ * closed a session PROTOCOL_VIOLATION. */
+static int mtcf_dg_prop_closes(int ver, u8 ptype) {
+  const u8  props[] = {ptype, 0x05};
+  u8        dg[32];
+  usz       n = 0;
+  moqdg_obj o = {0x09, 1, 0, 5, 0, 0, {props, 2}, {(const u8*)"hi", 2}};
+  mtrq_setup();
+  moqtrun_find_by_wt(&mtst_hub, SESS_A)->ver = ver;
+  CHECK(moqdg_put(wired_mspan_of(dg, sizeof dg), &n, &o) == MOQDATA_OK);
+  wired_moqt_on_datagram(&mtst_hub, SESS_A, wired_span_of(dg, n));
+  return mtrq_closes() == 1;
+}
+
+/* Ruling Q18-05: a draft-18 datagram carrying a delivery-timeout Object
+ * Property (OBJECT 0x02 / SUBGROUP 0x06, Track Properties in 18 12.1/12.2)
+ * is undefined input -> PROTOCOL_VIOLATION; other drafts and other
+ * Properties pass. */
+static void test_mtcf_d18_dg_timeout_prop(void) {
+  CHECK(mtcf_dg_prop_closes(MOQVER_D18, 0x02));
+  CHECK(mtcf_dg_prop_closes(MOQVER_D18, 0x06));
+  CHECK(!mtcf_dg_prop_closes(MOQVER_D18, 0x04));
+  CHECK(!mtcf_dg_prop_closes(MOQVER_D19, 0x02));
+}
+
 static void test_mtcf_d19_publish_include_props(void) {
   moqctl_ftn    f = mtst_ftn("chat", "room1", "bob");
   moqctl_params p = mtcf_param(MOQCTL_PARAM_INCLUDE_PROPERTIES);
@@ -195,6 +221,7 @@ void test_moqtrun_ctlfix(void) {
   moqtrun_test_allver(mtcf_split_all);
   test_mtcf_d19_subscribe_fill();
   test_mtcf_d18_subscribe_range_filter();
+  test_mtcf_d18_dg_timeout_prop();
   test_mtcf_d19_publish_include_props();
   test_mtcf_d19_tstat_fill();
   test_mtcf_d18_subtracks_range_filter();

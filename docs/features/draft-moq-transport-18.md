@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 205/215 tested, 9 indirect, 1 untested.**
+**Coverage: 206/215 tested, 9 indirect, 0 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -874,14 +874,13 @@ Legend:
 - [x] MQ18-118 Object Properties shall be serialized as a Properties Length
   (varint) followed by a Key-Value-Pair list.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_properties`
-- [ ] MQ18-118a If an Object Datagram carries an OBJECT_DELIVERY_TIMEOUT or
+- [x] MQ18-118a If an Object Datagram carries an OBJECT_DELIVERY_TIMEOUT or
   SUBGROUP_DELIVERY_TIMEOUT Object Property, then the implementation shall
   close the session with a protocol violation (the delivery-timeout Object
   Property is undefined for datagram-forwarded Objects).
-  - gap: ruling Q18-05 (treat as undefined input -> PROTOCOL_VIOLATION); no
-    code path or test currently rejects this input specifically — datagram
-    Object Properties are decoded generically (MQ18-118) without a
-    delivery-timeout-specific check.
+  - test: `tests/app/moqtrun_ctlfix_test.c` — `test_mtcf_d18_dg_timeout_prop`
+  - note: ruling Q18-05; gated on `MOQVER_CAP_DG_TIMEOUT_PROP_CLOSE`
+    (draft-18 only).
 
 ## SS11.4.2 Subgroup Header
 
@@ -1547,8 +1546,6 @@ through MQ18-206).
   Filter's start Group (MQ18-206), but a start Object inside that Group is
   not trimmed from a Subgroup stream; only the reliable replay honours the
   start Object.
-- (SS11.2.1.2) The datagram delivery-timeout Object Property rejection
-  (MQ18-118a, ruling Q18-05) has no implemented check or test yet.
 
 ## Out of scope
 

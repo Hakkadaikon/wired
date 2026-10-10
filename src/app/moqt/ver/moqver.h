@@ -54,6 +54,9 @@
 /** A REQUEST_UPDATE outside the updatable requests closes the session
  * (draft-19 10.9, draft-22 9.5; draft-18 10.9 has no such rule). */
 #define MOQVER_CAP_UPDATE_STRAY_CLOSE (1u << 17)
+/** A delivery-timeout Object Property on a datagram closes the session
+ * (draft-18, ruling Q18-05: undefined input). */
+#define MOQVER_CAP_DG_TIMEOUT_PROP_CLOSE (1u << 18)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a

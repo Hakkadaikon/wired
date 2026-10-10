@@ -141,9 +141,6 @@ general relay network.
   (priority mismatch across a Subgroup, differing finals, duplicate Objects
   with different payload, ...) is not implemented. Source: ledgers (SS2.4.2 /
   SS12.1).
-- **Object-Property delivery-timeout on datagrams (d18)** — MQ18-118a (ruling
-  Q18-05, close PROTOCOL_VIOLATION) has no code path or test. Source:
-  `ledger:draft-moq-transport-18.md` MQ18-118a (`[ ]`).
 - **Per-Location-Filter end does not end the subscription** — d22 behaviour is
   intended and implemented for every version, but MQ22-108b / 137a have no
   dedicated test. Source: `ledger:draft-moq-transport-22.md`.

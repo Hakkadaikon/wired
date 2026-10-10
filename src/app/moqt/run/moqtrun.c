@@ -7749,15 +7749,51 @@ static int moqtrun_dg_ready(const wired_moqt_hub* hub, const void* p) {
   return p != 0 && hub->io.send_datagram != 0;
 }
 
+static int moqtrun_kvp_next(wired_span props, usz* off, u64* prev, moqkvp* kv) {
+  return *off < props.n && moqkvp_take(props, off, prev, kv) == MOQKVP_OK;
+}
+
+static int moqtrun_prop_is_timeout(u64 type) {
+  return type == MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT ||
+         type == MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT;
+}
+
+/* 1 iff props hold an OBJECT/SUBGROUP_DELIVERY_TIMEOUT Property (18
+ * 12.1/12.2 types 0x02/0x06). */
+static int moqtrun_props_have_timeout(wired_span props) {
+  usz    off  = 0;
+  u64    prev = 0;
+  moqkvp kv;
+  while (moqtrun_kvp_next(props, &off, &prev, &kv))
+    if (moqtrun_prop_is_timeout(kv.type)) return 1;
+  return 0;
+}
+
+/* draft-18 (ruling Q18-05): a delivery-timeout Object Property on a
+ * datagram is undefined input, closed PROTOCOL_VIOLATION. */
+static int moqtrun_dg_prop_violates(
+    const wired_moqtrun_peer* p, const moqdg_obj* o) {
+  return (moqver_caps(p->ver) & MOQVER_CAP_DG_TIMEOUT_PROP_CLOSE) &&
+         moqtrun_props_have_timeout(o->props);
+}
+
 /* Resolves one received OBJECT_DATAGRAM to the sending peer's track:
  * decode via moqdg_take (11.3.1), then the header's Track Alias via
  * moqtrun_track_by_alias. 0 when the datagram is malformed or the alias
- * matches none of p's tracks -- the caller drops it whole. */
+ * matches none of p's tracks -- the caller drops it whole -- or when it
+ * closed the session (moqtrun_dg_prop_violates). */
 static wired_moqtrun_track* moqtrun_dg_track(
-    wired_moqtrun_peer* p, wired_span data, moqctl_loc* loc) {
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_span          data,
+    moqctl_loc*         loc) {
   usz       off = 0;
   moqdg_obj obj;
   if (moqdg_take(data, &off, &obj) != MOQDATA_OK) return 0;
+  if (moqtrun_dg_prop_violates(p, &obj)) {
+    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    return 0;
+  }
   wired_moqtrun_track* t = moqtrun_track_by_alias(p, obj.track_alias);
   moqtrun_track_note(t, obj.group_id, obj.object_id);
   *loc = moqctl_loc_of(obj.group_id, obj.object_id);
@@ -7807,7 +7843,7 @@ void wired_moqt_on_datagram(
   wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
   if (!moqtrun_dg_ready(hub, p)) return;
   moqctl_loc           loc   = {0, 0};
-  wired_moqtrun_track* track = moqtrun_dg_track(p, data, &loc);
+  wired_moqtrun_track* track = moqtrun_dg_track(hub, p, data, &loc);
   /* Malformed or unknown-alias: dropped whole. Draft 11.3.1 says an
    * invalid Type MUST close the session (PROTOCOL_VIOLATION), but this
    * hub's io table has no close operation -- counting is the closest. */
