@@ -1280,7 +1280,15 @@ Legend:
     `test_moqtrun_poison_survives_reset_and_close`
 - [x] MQ18-186 Subscriber priority shall map to the WebTransport stream
   urgency of that subscriber's relay streams, and a REQUEST_UPDATE changing
-  the priority applies to later streams.
+  the priority applies to later streams and re-classes the subscription's
+  open keep-open and fill streams. With the io stream_sched hook the hub
+  sets each Object stream's full class (urgency 4, Subscriber << 8 |
+  Publisher Priority, per-subscription flow ranked by group order and
+  fill-before-live) and the send pump schedules by it.
+  - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_sched_relay_keys`
+  - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_sched_update_reclasses`
+  - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_sched_fill_shares_flow`
+  - test: `tests/app/srvrun_test.c` — `test_srvrun_wt_sched_fill_before_live`
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_prio_per_subscriber`
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_prio_update_applies`
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_prio_op_absent`
@@ -1586,9 +1594,14 @@ from the coverage denominator above:
   `tests/app/moqtrun_vgate_test.c` — `test_moqtrun_vgate_update_credit`).
 - (SS10.9) Publisher-side REQUEST_UPDATE carrying a Range Filter (Q18-07) —
   moot, since Range Filters do not exist in draft-18.
-- (SS7, SS7.1--7.3) The Priorities scheduling algorithm across
-  subscriptions and Publisher Priority — only Subscriber Priority is
-  applied, as WebTransport stream urgency (MQ18-186).
+- (SS7, SS7.1--7.3) Priorities — the scheduling algorithm runs on the
+  WebTransport send pump
+  (Subscriber, then Publisher Priority, then group order and
+  fill-before-live inside one subscription; MQ18-186). What remains:
+  one-shot streams already queued keep their class across a
+  REQUEST_UPDATE, datagrams bypass the stream classes, a FETCH's own
+  SUBSCRIBER_PRIORITY is not kept (it ranks as 128), and equal classes
+  across subscriptions share each pump pass round-robin.
 - (SS9.3) Multiple Publishers of one Track — several publishers may share a
   namespace (MQ18-195), but each Track still has one publisher;
   aggregation/deduplication across publishers of a Track is not

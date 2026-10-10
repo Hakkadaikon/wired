@@ -168,9 +168,9 @@ typedef struct {
  * 10.2.7). 7.2 orders by subscriber priority, then publisher priority, so
  * the subscriber's half picks the pair and the publisher's half the one
  * within it: 4..7. Control and request streams keep the transport default
- * 3 and so go first (7.2: they SHOULD be prioritized highest). Group
- * Order only ranks one subscription's own streams against each other,
- * which one urgency per stream cannot express; equal urgencies share the
+ * 3 and so go first (7.2: they SHOULD be prioritized highest). The
+ * fallback when wired_moqt_io.stream_sched is 0: Group Order and the
+ * full 8-bit priorities need that hook's class; equal urgencies share the
  * send pass in turn. */
 #define WIRED_MOQTRUN_URGENCY(sub_prio, pub_prio) \
   ((u8)(4 + ((sub_prio) >> 7) * 2 + ((pub_prio) >> 7)))

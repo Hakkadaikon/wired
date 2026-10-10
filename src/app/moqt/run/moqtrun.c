@@ -1358,8 +1358,8 @@ static void moqtrun_sub_filter(
   moqtrun_sub_resolve(s, t);
 }
 
-/* Priority and group order are recorded only; delivery is not reordered
- * by them yet. */
+/* Priority and group order rank the subscription's streams on the send
+ * pump (moqtrun_sub_key). */
 static void moqtrun_sub_scalars(
     wired_moqtrun_sub* s, const moqctl_subscribe* m) {
   const moqctl_param* pr =

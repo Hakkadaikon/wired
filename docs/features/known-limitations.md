@@ -98,10 +98,13 @@ general relay network.
   d19 ("first payload byte") and d22 ("last header byte") collapse to the same
   moment because Objects decode atomically. Source: `moqtrun.c:5676`, L4-11,
   `ledger:draft-moq-transport-22.md` MQ22-070a (`[ ]`).
-- **Priorities scheduling** — only Subscriber Priority is applied (as
-  WebTransport stream urgency); Publisher Priority scheduling, fill-vs-live
-  tie-break and the across-subscriptions algorithm are not implemented. Source:
-  `ledger:draft-moq-transport{,-18,-22}.md` Out of scope (SS7 / SS5).
+- **Priorities scheduling** — the send pump orders Object streams by
+  Subscriber, then Publisher Priority, then group order and fill-before-live
+  inside a subscription. One-shot streams already queued are not
+  re-prioritised by a REQUEST_UPDATE; datagrams bypass the stream classes
+  (sent at once); equal priorities across subscriptions share each pump pass
+  round-robin. Source: `ledger:draft-moq-transport{,-18,-22}.md` Out of scope
+  (SS7 / SS5).
 - **One publisher per Track** — several publishers may share a namespace, but
   each Track still has one; no aggregation/deduplication across publishers
   (d19 9.3, d22 7.4). Source: ledgers, Out of scope.

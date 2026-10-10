@@ -223,7 +223,10 @@ Legend:
     `wired_server_wt_stream_priority`, and the send pump serves lower
     urgency first (`tests/app/srvrun_test.c` —
     `test_srvrun_wt_priority_lower_urgency_first`,
-    `test_srvrun_wt_priority_blocked_urgent_does_not_starve`).
+    `test_srvrun_wt_priority_blocked_urgent_does_not_starve`);
+    `wired_server_wt_stream_schedule` adds a second class key and a
+    per-flow order (`test_srvrun_wt_sched_better_class_first`,
+    `test_srvrun_wt_sched_one_slice_per_pass`).
 
 ## §4 WebTransport Features / Session IDs
 
