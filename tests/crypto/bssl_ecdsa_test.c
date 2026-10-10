@@ -1,5 +1,6 @@
 #include "crypto/asymmetric/ecc/p256/ecdsa_verify.h"
 #include "crypto/asymmetric/ecc/p384/ecdsa_verify.h"
+#include "crypto/asymmetric/ecc/p521/ecdsa_verify.h"
 #include "test.h"
 #include "vectors/boringssl/bssl_vec.h"
 #include "vectors/boringssl/ecdsa_verify_tests.h"
@@ -14,6 +15,8 @@ typedef struct {
   const char* curve;
   usz         size; /* field / group order bytes */
   int (*verify)(const u8*, const u8*, const u8*, const u8*, const u8*);
+  /* P-521 instead takes the raw digest and cuts it to 521 bits itself */
+  int (*verify_raw)(const u8*, const u8*, const u8*, const u8*, const u8*, usz);
   u32 added, pass, fail, skip;
 } bsl_ec_curve;
 
@@ -35,6 +38,7 @@ static int bsl_ec_run(const bsl_ec_curve* k, const bssl_case* c) {
   u8          raw[5][BSL_EC_MAX], f[5][BSL_EC_MAX];
   const char* names[5] = {"X", "Y", "R", "S", "Digest"};
   int         ok       = 1;
+  usz         dlen     = 0;
   for (int i = 0; i < 5; i++) {
     ssz n = bssl_bytes(
         bssl_get(bssl_ecdsa_verify_tests_attrs, c, names[i]), raw[i],
@@ -42,8 +46,10 @@ static int bsl_ec_run(const bsl_ec_curve* k, const bssl_case* c) {
     if (n < 0) return -1;
     /* an over-long value can never be a valid field element: reject */
     ok &= bsl_ec_fit(f[i], k->size, raw[i], (usz)n, i == 4);
+    dlen = (usz)n; /* the Digest's, after the last iteration */
   }
   if (!ok) return 0;
+  if (k->verify_raw) return k->verify_raw(f[0], f[1], f[2], f[3], raw[4], dlen);
   return k->verify(f[0], f[1], f[2], f[3], f[4]);
 }
 
@@ -62,30 +68,34 @@ static void bsl_ec_case(bsl_ec_curve* k, const bssl_case* c) {
   CHECK(got == want);
 }
 
-static int bsl_ec_isolated(const char* curve) {
-  return !bssl_streq(curve, "P-256") && !bssl_streq(curve, "P-384");
+/* The curve's runner, or 0 if wired does not implement the curve. */
+static bsl_ec_curve* bsl_ec_pick(bsl_ec_curve* const ks[3], const char* cv) {
+  for (int i = 0; i < 3; i++)
+    if (bssl_streq(cv, ks[i]->curve)) return ks[i];
+  return 0;
 }
 
 void test_bssl_ecdsa(void) {
-  bsl_ec_curve k256 = {"P-256", 32, ecdsa_p256_verify, 0, 0, 0, 0};
-  bsl_ec_curve k384 = {"P-384", 48, ecdsa_p384_verify, 0, 0, 0, 0};
-  u32          skip = 0;
+  bsl_ec_curve        k256  = {"P-256", 32, ecdsa_p256_verify, 0, 0, 0, 0, 0};
+  bsl_ec_curve        k384  = {"P-384", 48, ecdsa_p384_verify, 0, 0, 0, 0, 0};
+  bsl_ec_curve        k521  = {"P-521", 66, 0, ecdsa_p521_verify, 0, 0, 0, 0};
+  bsl_ec_curve* const ks[3] = {&k256, &k384, &k521};
+  u32                 skip  = 0;
   for (u32 i = 0; i < sizeof bssl_ecdsa_verify_tests_cases /
                           sizeof bssl_ecdsa_verify_tests_cases[0];
        i++) {
     const bssl_case* c  = &bssl_ecdsa_verify_tests_cases[i];
     const char*      cv = bssl_get(bssl_ecdsa_verify_tests_attrs, c, "Curve");
-    if (bsl_ec_isolated(cv))
-      skip++; /* curve not implemented: P-224, P-521, secp224k1 */
+    bsl_ec_curve*    k  = bsl_ec_pick(ks, cv);
+    if (k)
+      bsl_ec_case(k, c);
     else
-      bsl_ec_case(bssl_streq(cv, "P-256") ? &k256 : &k384, c);
+      skip++; /* curve not implemented: P-224, secp224k1 */
   }
-  printf(
-      "bssl ecdsa-P-256: added %u pass %u fail %u skip 0\n", k256.added,
-      k256.pass, k256.fail);
-  printf(
-      "bssl ecdsa-P-384: added %u pass %u fail %u skip 0\n", k384.added,
-      k384.pass, k384.fail);
+  for (int i = 0; i < 3; i++)
+    printf(
+        "bssl ecdsa-%s: added %u pass %u fail %u skip 0\n", ks[i]->curve,
+        ks[i]->added, ks[i]->pass, ks[i]->fail);
   printf(
       "bssl ecdsa-other: added %u pass 0 fail 0 skip %u (curve not "
       "implemented)\n",
