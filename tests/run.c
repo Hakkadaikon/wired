@@ -102,6 +102,7 @@
 #include "crypto/asymmetric/ecc/p384/p384_field.c"
 #include "crypto/asymmetric/ecc/p384/p384_point.c"
 #include "crypto/asymmetric/ecc/p384/ecdsa_verify.c"
+#include "crypto/asymmetric/ecc/p521/p521_field.c"
 #include "crypto/asymmetric/rsa/rsa_verify.c"
 #include "crypto/asymmetric/bignum/modexp.c"
 #include "crypto/asymmetric/bignum/bignum.c"
@@ -830,6 +831,7 @@
 #include "crypto/p384_point_test.c"
 #include "crypto/ecdsa_p384_verify_test.c"
 #include "crypto/p384chain_test.c"
+#include "crypto/p521_field_test.c"
 #include "crypto/p256_point_test.c"
 #include "crypto/ecdsa_verify_test.c"
 #include "crypto/x509_test.c"
@@ -1406,6 +1408,7 @@ int main(void) {
   test_p384_point();
   test_ecdsa_p384_verify();
   test_p384chain();
+  test_p521_field();
   test_p256_point();
   test_p256_ecdhe();
   test_ecdsa_verify();
