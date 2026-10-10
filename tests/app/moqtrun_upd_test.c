@@ -614,8 +614,8 @@ static void test_moqtrun_publish_requires_authorization(void) {
 }
 
 /* The hub holds no token cache (it never advertises
- * MAX_AUTH_TOKEN_CACHE_SIZE), so an Alias-based Token on PUBLISH is
- * refused MALFORMED_AUTH_TOKEN like SUBSCRIBE's, even on an open hub. */
+ * MAX_AUTH_TOKEN_CACHE_SIZE), so a REGISTER on PUBLISH closes the session
+ * AUTH_TOKEN_CACHE_OVERFLOW like SUBSCRIBE's (draft-22 8.9). */
 static void test_moqtrun_publish_alias_token_rejected(void) {
   static const u8 reg[] = {0x01, 0x07, 0x01, 'x'};
   moqctl_ftn      f     = mtst_ftn("chat", "room1", "alice");
@@ -623,7 +623,9 @@ static void test_moqtrun_publish_alias_token_rejected(void) {
   mtst_join(SESS_A);
   moqctl_params p = mtpa_token(reg, sizeof reg);
   mtst_publish_p(SESS_A, MTRQ_S1, &f, 1, &p);
-  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_MALFORMED_AUTH_TOKEN);
+  CHECK(
+      moqtrun_test_close_code() ==
+      WIRED_MOQTRUN_CLOSE_AUTH_TOKEN_CACHE_OVERFLOW);
   CHECK(mtst_hub.peers[0].tracks[0].in_use == 0);
 }
 
@@ -754,21 +756,18 @@ static void test_moqtrun_upd_on_fetch_stream(void) {
   g_stream_send_ok_n = -1;
 }
 
-/* A FETCH update this hub refuses (an alias AUTHORIZATION_TOKEN: the hub
- * has no token cache, SS10.3.1.3) answers REQUEST_ERROR and resets the
- * FETCH's own data stream (10.9.1 "the publisher MUST reset the FETCH
- * data stream"), not the session. */
+/* A FETCH update naming a Token Alias (the hub registers none) closes
+ * the session UNKNOWN_AUTH_TOKEN_ALIAS (draft-22 8.9). */
 static void test_moqtrun_upd_on_fetch_stream_refused(void) {
-  static const u8 alias_tok[] = {0x01, 0x07, 0x01, 'x'};
-  u64             data_sid    = mf_stuck_fetch();
-  u64             fetch_sid   = mf_req_sid;
+  static const u8 alias_tok[] = {0x02, 0x07};
+  mf_stuck_fetch();
+  u64 fetch_sid = mf_req_sid;
   moqtrun_test_reset();
   moqctl_params p = mtpa_token(alias_tok, sizeof alias_tok);
   mtup_update(SESS_B, fetch_sid, &p);
-  CHECK(mtup_err_code(fetch_sid) == MOQCTL_ERR_MALFORMED_AUTH_TOKEN);
-  const moqtrun_test_call* r = moqtrun_test_last_kind(7);
-  CHECK(r && r->stream_id == data_sid);
-  CHECK(mf_no_fetch());
+  CHECK(
+      moqtrun_test_close_code() ==
+      WIRED_MOQTRUN_CLOSE_UNKNOWN_AUTH_TOKEN_ALIAS);
   g_stream_send_ok_n = -1;
 }
 

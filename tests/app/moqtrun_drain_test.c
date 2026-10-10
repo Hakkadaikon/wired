@@ -632,27 +632,6 @@ static void test_moqtrun_upd_failed_ends_subscription(void) {
   CHECK(moqtrun_test_relay_alice_chat(&mtst_hub) == 0);
 }
 
-/* A failed update of a namespace request closes its bidi stream (10.9.1,
- * 3.3.2): the hub FINs after REQUEST_ERROR, and a withdrawn
- * PUBLISH_NAMESPACE is NAMESPACE_DONE to its subscribers. An alias
- * AUTHORIZATION_TOKEN is the failure this hub models on either namespace
- * kind's update (0-byte token cache, SS10.3.1.3). */
-static void test_moqtrun_upd_failed_closes_ns(void) {
-  static const u8 alias_tok[] = {0x01, 0x07, 0x01, 'x'};
-  moqctl_params   bad         = mtpa_token(alias_tok, sizeof alias_tok);
-  mtns_init();
-  mtns_sub(SESS_B, MTRQ_S1, "chat");
-  mtns_pub(SESS_A, MTRQ_S1, "chat/room1");
-  mtup_update(SESS_A, MTRQ_S1, &bad);
-  CHECK(mtns_is(SESS_A, MTRQ_S1, "OK|ERR:04|"));
-  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|DONE:room1|"));
-  mtup_update(SESS_B, MTRQ_S1, &bad);
-  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|DONE:room1|ERR:04|"));
-  CHECK(moqtrun_test_count_kind(6) == 2);
-  mtns_pub(SESS_A, MTRQ_S2, "chat/room2");
-  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|DONE:room1|ERR:04|"));
-}
-
 /* A GOAWAY the control stream refused (previous round unACKed) goes out
  * on the next tick, even if the peer sends nothing more. */
 static void test_moqtrun_goaway_retried_on_tick(void) {
@@ -670,7 +649,6 @@ static void test_moqtrun_goaway_retried_on_tick(void) {
 static void mtall_drain(void) {
   test_moqtrun_done_resets_streams_first();
   test_moqtrun_goaway_retried_on_tick();
-  test_moqtrun_upd_failed_closes_ns();
   test_moqtrun_goaway_timeout_flush_then_close();
   test_moqtrun_goaway_no_timeout();
   test_moqtrun_closed_is_frozen();

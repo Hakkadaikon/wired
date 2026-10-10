@@ -1695,24 +1695,47 @@ static void test_moqtrun_subscribe_requires_authorization(void) {
   CHECK(mtauth_active_subs(&hub.peers[0].tracks[0]) == 1);
 }
 
-/* draft SS10.2.2 / SS10.3.1.3: this hub never advertises
- * MAX_AUTH_TOKEN_CACHE_SIZE, so its token cache is 0 bytes and Alias-based
- * Tokens (REGISTER here) cannot be honoured: the request is refused with
- * MALFORMED_AUTH_TOKEN even on an open hub, and no sub slot is consumed. */
-static void test_moqtrun_subscribe_alias_token_rejected(void) {
-  static const u8 reg[] = {0x01, 0x07, 0x01, 'x'};
-  u8              msg[MOQTRUN_TEST_MAX_PAYLOAD];
+/* Code of the hub's last session close, ~0 when it closed none. */
+static u64 moqtrun_test_close_code(void) {
+  const moqtrun_test_call* c = moqtrun_test_last_kind(11);
+  return c ? c->stream_id : ~(u64)0;
+}
+
+/* SUBSCRIBE carrying token (an Alias type) on B's control stream. */
+static void mtauth_alias_subscribe(const u8* tok, usz tok_len) {
+  u8 msg[MOQTRUN_TEST_MAX_PAYLOAD];
   moqtrun_test_reset();
-  wired_moqt_hub hub;
+  static wired_moqt_hub hub;
   wired_moqt_init(&hub, moqtrun_test_io());
   moqtrun_test_publish_alice(&hub);
   moqtrun_test_session(&hub, SESS_B);
   u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
-
-  usz n = mtauth_subscribe_with_token(msg, reg, sizeof reg);
+  usz n      = mtauth_subscribe_with_token(msg, tok, tok_len);
   wired_moqt_on_stream_data(&hub, SESS_B, ctrl_b, wired_span_of(msg, n), 0);
-  CHECK(mtauth_last_error_code() == MOQCTL_ERR_MALFORMED_AUTH_TOKEN);
   CHECK(mtauth_active_subs(&hub.peers[0].tracks[0]) == 0);
+}
+
+/* draft-22 8.9 (d19 10.2.2): this hub never advertises
+ * MAX_AUTH_TOKEN_CACHE_SIZE, so its token cache is 0 bytes. A REGISTER
+ * would exceed it: the session closes AUTH_TOKEN_CACHE_OVERFLOW. No Alias
+ * is ever registered, so USE_ALIAS and DELETE name an unknown one:
+ * UNKNOWN_AUTH_TOKEN_ALIAS. No sub slot is consumed either way. */
+static void test_moqtrun_subscribe_alias_token_rejected(void) {
+  static const u8 reg[] = {0x01, 0x07, 0x01, 'x'};
+  static const u8 use[] = {0x02, 0x07};
+  static const u8 del[] = {0x00, 0x07};
+  mtauth_alias_subscribe(reg, sizeof reg);
+  CHECK(
+      moqtrun_test_close_code() ==
+      WIRED_MOQTRUN_CLOSE_AUTH_TOKEN_CACHE_OVERFLOW);
+  mtauth_alias_subscribe(use, sizeof use);
+  CHECK(
+      moqtrun_test_close_code() ==
+      WIRED_MOQTRUN_CLOSE_UNKNOWN_AUTH_TOKEN_ALIAS);
+  mtauth_alias_subscribe(del, sizeof del);
+  CHECK(
+      moqtrun_test_close_code() ==
+      WIRED_MOQTRUN_CLOSE_UNKNOWN_AUTH_TOKEN_ALIAS);
 }
 
 /* ===================== 5. unsupported / non-relay traffic

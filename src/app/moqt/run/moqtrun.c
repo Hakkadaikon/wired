@@ -1009,14 +1009,51 @@ static int moqtrun_take_or_close(
   return 0;
 }
 
+/* First AUTHORIZATION TOKEN parameter (draft SS10.2.2) of a message, or
+ * 0 when it carries none. */
+static const moqctl_token* moqtrun_auth_token_of(const moqctl_params* params) {
+  const moqctl_param* t =
+      moqctl_params_find(params, MOQCTL_PARAM_AUTHORIZATION_TOKEN);
+  return t ? &t->token : 0;
+}
+
+/* This hub never advertises MAX_AUTH_TOKEN_CACHE_SIZE, so its token cache
+ * is 0 bytes and no Alias is ever registered (draft-22 8.9): a REGISTER
+ * overflows the cache, DELETE / USE_ALIAS name an unknown Alias. Both
+ * close the session; only USE_VALUE passes. */
+static int moqtrun_token_by_value(const moqctl_token* t) {
+  return !t || t->alias_type == MOQCTL_TOKEN_USE_VALUE;
+}
+
+static u32 moqtrun_token_close_code(const moqctl_token* t) {
+  if (moqtrun_token_by_value(t)) return 0;
+  return t->alias_type == MOQCTL_TOKEN_REGISTER
+             ? WIRED_MOQTRUN_CLOSE_AUTH_TOKEN_CACHE_OVERFLOW
+             : WIRED_MOQTRUN_CLOSE_UNKNOWN_AUTH_TOKEN_ALIAS;
+}
+
+/* moqtrun_take_or_close, then the decoded params' Token Alias check
+ * (moqtrun_token_close_code). 1 when the message may proceed. */
+static int moqtrun_take_tok_or_close(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    int                  r,
+    const moqctl_params* params) {
+  u32 code;
+  if (!moqtrun_take_or_close(hub, p, r)) return 0;
+  code = moqtrun_token_close_code(moqtrun_auth_token_of(params));
+  if (code) moqtrun_close_with(hub, p, code);
+  return code == 0;
+}
+
 /* draft SS10.9 PUBLISH: decode, then authorize and claim
  * (moqtrun_publish_checked). */
 static void moqtrun_handle_publish(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   usz            off = 0;
   moqctl_publish m;
-  if (!moqtrun_take_or_close(
-          hub, p, moqctl_publish_take(p->ver, body, &off, &m)))
+  if (!moqtrun_take_tok_or_close(
+          hub, p, moqctl_publish_take(p->ver, body, &off, &m), &m.params))
     return;
   moqtrun_publish_checked(hub, p, peer_idx, &m);
 }
@@ -2139,23 +2176,6 @@ static void moqtrun_route_subscribe(
   moqtrun_route_peer_subscribe(hub, p, peer_idx, m, body);
 }
 
-/* First AUTHORIZATION TOKEN parameter (draft SS10.2.2) of a message, or
- * 0 when it carries none. */
-static const moqctl_token* moqtrun_auth_token_of(const moqctl_params* params) {
-  const moqctl_param* t =
-      moqctl_params_find(params, MOQCTL_PARAM_AUTHORIZATION_TOKEN);
-  return t ? &t->token : 0;
-}
-
-/* This hub never advertises MAX_AUTH_TOKEN_CACHE_SIZE (SS10.3.1.3), so its
- * token cache is 0 bytes and Token Aliases are prohibited: only USE_VALUE
- * can be honoured. ponytail: a REGISTER should terminate the session with
- * AUTH_TOKEN_CACHE_OVERFLOW (SS10.2.2) -- the hub has no session-close io,
- * so it refuses the request instead; add an io.close when one exists. */
-static int moqtrun_token_uses_alias(const moqctl_token* t) {
-  return t && t->alias_type != MOQCTL_TOKEN_USE_VALUE;
-}
-
 static int moqtrun_ns_field_eq(wired_span f, const char* z, usz n) {
   return f.n == n && !ct_diffn(f.p, (const u8*)z, n);
 }
@@ -2174,13 +2194,13 @@ static int moqtrun_ns_reserved(const moqctl_ns* ns) {
 
 /* draft SS13.3: "Relays will verify the token to ensure that the request
  * is authorized." Every SUBSCRIBE passes here before any track matching
- * (own blob/live tracks and peer tracks alike). 1 + *code when refused. */
+ * (own blob/live tracks and peer tracks alike); a Token Alias already
+ * closed the session at decode (moqtrun_take_tok_or_close). 1 + *code
+ * when refused. */
 static int moqtrun_subscribe_refused(
     const wired_moqt_hub* hub, const moqctl_subscribe* m, u64* code) {
   const moqctl_token* t = moqtrun_auth_token_of(&m->params);
-  *code                 = MOQCTL_ERR_MALFORMED_AUTH_TOKEN;
-  if (moqtrun_token_uses_alias(t)) return 1;
-  *code = MOQCTL_ERR_UNAUTHORIZED;
+  *code                 = MOQCTL_ERR_UNAUTHORIZED;
   if (!hub->authorize_subscribe) return 0;
   return !hub->authorize_subscribe(hub->authorize_ctx, &m->name, t);
 }
@@ -2192,9 +2212,7 @@ static int moqtrun_subscribe_refused(
 static int moqtrun_publish_auth_refused(
     const wired_moqt_hub* hub, const moqctl_publish* m, u64* code) {
   const moqctl_token* t = moqtrun_auth_token_of(&m->params);
-  *code                 = MOQCTL_ERR_MALFORMED_AUTH_TOKEN;
-  if (moqtrun_token_uses_alias(t)) return 1;
-  *code = MOQCTL_ERR_UNAUTHORIZED;
+  *code                 = MOQCTL_ERR_UNAUTHORIZED;
   if (!hub->authorize_publish) return 0;
   return !hub->authorize_publish(hub->authorize_pub_ctx, &m->name, t);
 }
@@ -2364,14 +2382,15 @@ static void moqtrun_handle_subscribe(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   usz              off = 0;
   moqctl_subscribe m;
-  if (!moqtrun_take_or_close(
+  if (!moqtrun_take_tok_or_close(
           hub, p,
           moqtss_take(
               hub,
               moqtsw_take( /* SWITCH_FROM (moqtswitch.c): off = violation */
                   hub, moqctl_subscribe_take(p->ver, body, &off, &m),
                   &m.params),
-              &m.params)))
+              &m.params),
+          &m.params))
     return;
   moqtrun_subscribe_checked(hub, p, peer_idx, &m, body);
 }
@@ -3297,7 +3316,9 @@ static u64 moqtrun_tstat_verdict(
 static void moqtrun_tstat_answer(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body) {
   moqctl_subscribe m;
-  if (!moqtrun_take_or_close(hub, p, moqtstat_take(p->ver, body, &m))) return;
+  if (!moqtrun_take_tok_or_close(
+          hub, p, moqtstat_take(p->ver, body, &m), &m.params))
+    return;
   wired_moqtrun_track* t    = moqtrun_tstat_track(hub, &m.name);
   u64                  code = moqtrun_tstat_verdict(hub, &m, t);
   if (code != MOQTRUN_REQ_ACCEPT) {
@@ -3687,30 +3708,14 @@ static void moqtrun_update_pub(
   moqtrun_queue_request_ok(p, 0);
 }
 
-/* MALFORMED_AUTH_TOKEN iff params carries an AUTHORIZATION_TOKEN using an
- * alias (moqtrun_subscribe_refused's twin): this hub's token cache is 0
- * bytes (SS10.3.1.3), the only admitted FETCH-update parameter with a
- * refusal this hub models. */
-static u64 moqtrun_fetch_upd_refusal(const moqctl_params* params) {
-  return moqtrun_token_uses_alias(moqtrun_auth_token_of(params))
-             ? MOQCTL_ERR_MALFORMED_AUTH_TOKEN
-             : MOQTRUN_REQ_ACCEPT;
-}
-
 /* A REQUEST_UPDATE of a FETCH (10.9, e.g. SUBSCRIBER_PRIORITY 10.2.5):
- * the hub models no other FETCH-serving state the admitted parameters
- * would move, so an acceptable update is REQUEST_OK and nothing else.
- * "When a REQUEST_UPDATE fails for a FETCH, the publisher MUST reset the
- * FETCH data stream" (10.9.1) -- moqtrun_fetches_cancel resets it and
- * frees the hub's own fetch-serving slot. */
+ * the hub models no FETCH-serving state the admitted parameters would
+ * move, and none of them can fail it (a Token Alias already closed the
+ * session at decode), so it is REQUEST_OK and nothing else. */
 static void moqtrun_update_fetch(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_params* params) {
-  u64 code = moqtrun_fetch_upd_refusal(params);
-  if (code != MOQTRUN_REQ_ACCEPT) {
-    moqtrun_send_request_error(p, code);
-    moqtrun_fetches_cancel(hub, p->wt, p->req->request_id);
-    return;
-  }
+  (void)hub;
+  (void)params;
   moqtrun_queue_request_ok(p, 0);
 }
 
@@ -3811,15 +3816,17 @@ static void moqtrun_handle_update(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   moqtstat_update m;
   if (moqtrun_upd_refused(hub, p)) return;
-  if (moqtss_take(
-          hub,
-          moqtsw_take( /* SWITCH_FROM (moqtswitch.c): off = violation */
-              hub, moqtstat_update_take(p->ver, body, moqtrun_upd_ctx(p), &m),
+  if (!moqtrun_take_tok_or_close(
+          hub, p,
+          moqtss_take(
+              hub,
+              moqtsw_take( /* SWITCH_FROM (moqtswitch.c): off = violation */
+                  hub,
+                  moqtstat_update_take(p->ver, body, moqtrun_upd_ctx(p), &m),
+                  &m.params),
               &m.params),
-          &m.params) != MOQCTL_OK) {
-    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+          &m.params))
     return;
-  }
   p->req->pending_updates++;
   moqtrun_update_route(hub, p, peer_idx, &m.params, m.request_id);
 }
@@ -3978,23 +3985,8 @@ static u64 moqtrun_upd_ns_prefix(
   return code;
 }
 
-/* MALFORMED_AUTH_TOKEN iff params carries an AUTHORIZATION_TOKEN using
- * an alias (moqtrun_disc_auth_refused's twin, this hub's token cache
- * being 0 bytes, SS10.3.1.3) -- the one parameter either namespace
- * kind's update scope admits besides TRACK_NAMESPACE_PREFIX (10.2.2). */
-static u64 moqtrun_upd_ns_token_refusal(const moqctl_params* params) {
-  return moqtrun_token_uses_alias(moqtrun_auth_token_of(params))
-             ? MOQCTL_ERR_MALFORMED_AUTH_TOKEN
-             : MOQTRUN_REQ_ACCEPT;
-}
-
 static u64 moqtrun_upd_ns_verdict(
-    wired_moqt_hub*      hub,
-    wired_moqtrun_req*   q,
-    const moqctl_params* params,
-    const moqctl_param*  pfx) {
-  u64 code = moqtrun_upd_ns_token_refusal(params);
-  if (code != MOQTRUN_REQ_ACCEPT) return code;
+    wired_moqt_hub* hub, wired_moqtrun_req* q, const moqctl_param* pfx) {
   return pfx ? moqtrun_upd_ns_prefix(hub, q, pfx) : MOQTRUN_REQ_ACCEPT;
 }
 
@@ -4010,7 +4002,7 @@ static void moqtrun_update_ns(
     const moqctl_params* params) {
   const moqctl_param* pfx =
       moqctl_params_find(params, MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX);
-  u64 code = moqtrun_upd_ns_verdict(hub, q, params, pfx);
+  u64 code = moqtrun_upd_ns_verdict(hub, q, pfx);
   if (code != MOQTRUN_REQ_ACCEPT) {
     moqtrun_send_request_error(p, code);
     moqtrun_upd_close_ns(q);
@@ -4024,9 +4016,7 @@ static void moqtrun_update_ns(
 static int moqtrun_disc_auth_refused(
     const wired_moqt_hub* hub, u64 type, const moqns_req* m, u64* code) {
   const moqctl_token* t = moqtrun_auth_token_of(&m->params);
-  *code                 = MOQCTL_ERR_MALFORMED_AUTH_TOKEN;
-  if (moqtrun_token_uses_alias(t)) return 1;
-  *code = MOQCTL_ERR_UNAUTHORIZED;
+  *code                 = MOQCTL_ERR_UNAUTHORIZED;
   if (!hub->authorize_namespace) return 0;
   return !hub->authorize_namespace(hub->authorize_ns_ctx, type, &m->ns, t);
 }
@@ -4075,7 +4065,8 @@ static void moqtrun_handle_disc(
     moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
     return;
   }
-  if (!moqtrun_take_or_close(hub, p, take(p->ver, body, &m))) return;
+  if (!moqtrun_take_tok_or_close(hub, p, take(p->ver, body, &m), &m.params))
+    return;
   moqtrun_disc_answer(p, moqtrun_disc_verdict(hub, p->req, &m, check));
 }
 
@@ -4338,8 +4329,8 @@ static void moqtrun_dispatch_subscribe_tracks(
     moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
     return;
   }
-  if (!moqtrun_take_or_close(
-          hub, p, moqns_subscribe_tracks_take(p->ver, body, &m)))
+  if (!moqtrun_take_tok_or_close(
+          hub, p, moqns_subscribe_tracks_take(p->ver, body, &m), &m.params))
     return;
   moqtrun_subtracks_admit(hub, p, &m);
 }

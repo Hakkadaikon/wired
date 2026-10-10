@@ -1165,7 +1165,9 @@ Legend:
 - [x] MOQT-188 Where an application installs an authorizer, every SUBSCRIBE,
   TRACK_STATUS, PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE shall be shown to
   it, and a refusal shall be REQUEST_ERROR UNAUTHORIZED; an Alias-based
-  authorization token shall be refused (the hub keeps no token cache).
+  authorization token shall close the session (the hub keeps no token
+  cache, 10.2.2): REGISTER with AUTH_TOKEN_CACHE_OVERFLOW, DELETE and
+  USE_ALIAS with UNKNOWN_AUTH_TOKEN_ALIAS.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_subscribe_requires_authorization`
   - test: `tests/app/moqtrun_test.c` —
@@ -1488,7 +1490,7 @@ from the coverage denominator above:
   (capped at 1.5 s) answers TIMEOUT, see tests/app/moqtrun_rdv_test.c.
 - (SS10.3.1.3, SS10.3.1.4) MAX_AUTH_TOKEN_CACHE_SIZE and AUTHORIZATION
   TOKEN as a Setup Option — not advertised; the hub keeps no token cache,
-  so Alias-based tokens are refused (MOQT-188). (MAX_FILTER_RANGES and
+  so Alias-based tokens close the session (MOQT-188). (MAX_FILTER_RANGES and
   MAX_REQUEST_UPDATES are advertised, MOQT-206.)
 - (SS11.5.2) Padding Datagrams — not sent.
 - (SS12, SS12.1--12.9) MOQT Properties (MAX_CACHE_DURATION,

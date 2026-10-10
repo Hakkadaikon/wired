@@ -196,6 +196,14 @@ typedef struct {
  * REQUEST_UPDATEs received one more. */
 #define WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES 0x1B
 
+/** draft-ietf-moq-transport-22 8.9 / 12.2 AUTH_TOKEN_CACHE_OVERFLOW
+ * session code: a REGISTER Token exceeded the hub's 0-byte token cache. */
+#define WIRED_MOQTRUN_CLOSE_AUTH_TOKEN_CACHE_OVERFLOW 0x13
+
+/** draft-ietf-moq-transport-22 8.9 / 12.2 UNKNOWN_AUTH_TOKEN_ALIAS session
+ * code: a Token referenced an Alias the hub never registered. */
+#define WIRED_MOQTRUN_CLOSE_UNKNOWN_AUTH_TOKEN_ALIAS 0x17
+
 /** MAX_FILTER_RANGES the hub advertises in its SETUP (draft-19 10.4):
  * Ranges accepted concurrently across one subscription's or fetch's Range
  * filter parameters (10.2.10-10.2.14); a request past it is answered

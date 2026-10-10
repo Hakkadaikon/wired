@@ -90,9 +90,11 @@ general relay network.
   never see those fields). OBJECTID_FILTER gates datagrams only. Source:
   `moqtrun.h:300` (ponytail), `ledger:draft-moq-transport-22.md` Out of scope.
 - **No Alias token cache** — the hub does not advertise
-  MAX_AUTH_TOKEN_CACHE_SIZE; Token Aliases are refused. A REGISTER should
-  terminate the session with AUTH_TOKEN_CACHE_OVERFLOW (10.2.2) but the hub has
-  no session-close io there, so it refuses the request. Source: `moqtrun.c:2081`.
+  MAX_AUTH_TOKEN_CACHE_SIZE, so its cache is 0 bytes: a REGISTER closes the
+  session AUTH_TOKEN_CACHE_OVERFLOW and DELETE / USE_ALIAS close it
+  UNKNOWN_AUTH_TOKEN_ALIAS (d22 8.9). A client that pipelines Alias tokens
+  cannot use this hub. FETCH and SETUP tokens are not inspected. Source:
+  `moqtrun_take_tok_or_close` in `src/app/moqt/run/moqtrun.c`.
 - **OBJECT_DELIVERY_TIMEOUT start point is "leading byte of the Object"** —
   d19 ("first payload byte") and d22 ("last header byte") collapse to the same
   moment because Objects decode atomically. Source: `moqtrun.c:5676`, L4-11,

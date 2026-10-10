@@ -297,15 +297,19 @@ static void mtns_req_with_token(
 
 /* 10.15 / 10.18: with an authorizer installed every PUBLISH_NAMESPACE and
  * SUBSCRIBE_NAMESPACE is shown to it (type, namespace, USE_VALUE token):
- * a refusal is REQUEST_ERROR UNAUTHORIZED and records nothing; an Alias
- * token is MALFORMED_AUTH_TOKEN even on an open hub. */
+ * a refusal is REQUEST_ERROR UNAUTHORIZED and records nothing; a REGISTER
+ * token closes the session AUTH_TOKEN_CACHE_OVERFLOW (no token cache,
+ * draft-22 8.9). */
 static void test_moqtrun_ns_authorization(void) {
   static const u8 tok[] = {0x03, 0x01, 'o', 'k'};
   static const u8 reg[] = {0x01, 0x07, 0x01, 'x'};
   mtns_init();
   mtns_req_with_token(
       SESS_A, MTRQ_ID(5), MOQNS_T_PUBLISH_NAMESPACE, reg, sizeof reg);
-  CHECK(mtns_is(SESS_A, MTRQ_ID(5), "ERR:04|"));
+  CHECK(
+      moqtrun_test_close_code() ==
+      WIRED_MOQTRUN_CLOSE_AUTH_TOKEN_CACHE_OVERFLOW);
+  mtns_init();
   mtns_auth_calls              = 0;
   mtst_hub.authorize_namespace = mtns_authorize;
   mtst_hub.authorize_ns_ctx    = &mtns_auth_calls;
