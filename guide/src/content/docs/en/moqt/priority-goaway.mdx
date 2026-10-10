@@ -1,6 +1,6 @@
 ---
 title: Priority and GOAWAY
-description: Map subscription priorities to WebTransport stream urgency, then drain the hub gracefully with GOAWAY.
+description: Turn subscription priorities into WebTransport stream send classes, then drain the hub gracefully with GOAWAY.
 sidebar:
   order: 8
 ---
@@ -9,7 +9,7 @@ import Example from '../../../../components/Example.astro';
 When bandwidth is short, audio should beat video; when a server must go
 down, its sessions should get a new address and time to leave instead of
 a dropped connection. This page shows both: two subscriptions with
-different priorities, whose relay streams get different urgencies, and a
+different priorities, whose relay streams get different send classes, and a
 drain where the hub sends GOAWAY, refuses new requests, ends the granted
 subscriptions, and closes the session when the grace runs out.
 
@@ -21,18 +21,17 @@ subscriptions, and closes the session when the grace runs out.
   more important, 128 when absent — draft-ietf-moq-transport-22 9.20.7,
   5.1.1). The stream itself carries the Publisher Priority in its
   SUBGROUP_HEADER. When the hub opens a subscriber's relay stream it
-  maps the pair to one RFC 9218 urgency (0..7, lower first):
-  `4 + (subscriber >> 7) * 2 + (publisher >> 7)`, so the subscriber's
-  half picks the pair 4/5 or 6/7 and the publisher's half the one within
-  it (5.1.2 orders by subscriber priority, then publisher priority).
-  Control and request streams keep the transport default 3 and so go
-  first, as 5.1.2 recommends.
-- The mapped value reaches the transport through the hub's
-  `stream_priority` io op, here `wired_server_wt_stream_priority`
-  wrapped in a logger: audio (priority 10) gets urgency 5, video
-  (priority 200) gets urgency 7, so under pressure the server sends
-  audio bytes before video bytes. The log shows the mapping; the
-  scheduling itself is the transport's job.
+  gives the stream a send class (`wired_wt_sched`): RFC 9218 urgency 4,
+  then `subscriber << 8 | publisher` as a second key (5.1.2 orders by
+  subscriber priority, then publisher priority), then a place inside the
+  subscription (group order, and a fill stream before the live stream of
+  the same group). Control and request streams keep the transport
+  default urgency 3 and so go first, as 5.1.2 recommends.
+- The class reaches the transport through the hub's `stream_sched` io
+  op, here `wired_server_wt_stream_schedule` wrapped in a logger: audio
+  (priority 10) and video (priority 200) share urgency 4, and the lower
+  second key sends audio bytes before video bytes under pressure. The
+  log shows the class; the scheduling itself is the transport's job.
 - `wired_moqt_goaway(hub, new_uri, timeout_ms)` sends GOAWAY (9.2)
   with the New Session URI on every session's control stream, which in the
   `moqt-22` sessions of this sample is the server's unidirectional one

@@ -1,6 +1,6 @@
 $ ./moqt-priority-goaway --port 4433
-subscriber stream urgency=7
-subscriber stream urgency=5
+subscriber stream urgency=4 subscriber=200 publisher=128
+subscriber stream urgency=4 subscriber=10 publisher=128
 GOAWAY sent
 conn closed by peer (CONNECTION_CLOSE)
 conn closed by peer (CONNECTION_CLOSE)

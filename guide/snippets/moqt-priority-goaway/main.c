@@ -2,13 +2,17 @@
 #include "wired.h"
 
 /* The hub calls this right after it opens a subscriber stream, with the
- * RFC 9218 urgency WIRED_MOQTRUN_URGENCY computed from the subscription's
- * Subscriber Priority and the stream's Publisher Priority. Logging it makes
- * the mapping visible; the scheduling itself is wired_server_wt_stream_
- * priority's job (lower urgency is sent first). */
-static int stream_priority(wired_wt_session* s, u64 stream_id, u8 urgency) {
-  wired_dprintf(2, "subscriber stream urgency=%u\n", urgency);
-  return wired_server_wt_stream_priority(s, stream_id, urgency);
+ * stream's send class: urgency 4 for every Object stream, then the
+ * subscription's Subscriber Priority and the stream's Publisher Priority
+ * packed into fine (lower is sent first), then its place inside the
+ * subscription. Logging it makes the class visible; the scheduling itself
+ * is wired_server_wt_stream_schedule's job. */
+static int stream_sched(
+    wired_wt_session* s, u64 stream_id, const wired_wt_sched* k) {
+  wired_dprintf(
+      2, "subscriber stream urgency=%u subscriber=%u publisher=%u\n",
+      k->urgency, k->fine >> 8, k->fine & 0xff);
+  return wired_server_wt_stream_schedule(s, stream_id, k);
 }
 
 static wired_moqt_hub g_hub;
@@ -40,12 +44,12 @@ int wired_main(int argc, char** argv) {
   wired_srvboot_demo(&id, &keys, 0x50, "guide-pg");
   id.max_datagram_frame_size = 65535;
 
-  /* stream_priority turns the subscription's priority into stream
-   * urgency; stream_reset and close_session are what the drain uses to
+  /* stream_sched turns the subscription's priority into the stream's
+   * send class; stream_reset and close_session are what the drain uses to
    * end subscriptions and sessions once the GOAWAY Timeout passes. GOAWAY
    * itself goes out on the hub's uni control stream ("moqt-22", 9.2). */
-  wired_moqt_io io   = wired_moqraw_io();
-  io.stream_priority = stream_priority;
+  wired_moqt_io io = wired_moqraw_io();
+  io.stream_sched  = stream_sched;
   wired_moqt_init(&g_hub, io);
 
   wired_srvrun_opt opt = {
