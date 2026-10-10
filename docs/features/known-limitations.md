@@ -387,9 +387,10 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   `WIRED_SRVLOOP_CTRL_BUF_CAP` 512. Source: `srvloop.h:141`, `dispatch.c:1340`.
 - **Refusal queue drops silently when full** — a full refusal queue drops the
   refusal; the stream stays open. Source: `srvloop/srvloop.c:553`.
-- **Lost RESET_STREAM/STOP_SENDING may not be retransmitted** — `srvrun_rst_keep`: a full
-  table or oversize payload is sent once but never retransmitted
-  (RFC 9000 13.3). Source: `srvrun.c:1944`.
+- **Abort retransmit table is fixed-size** — `SRVRUN_RST_RETX` keeps one
+  abort per trackable stream (92); more than that unACKed within one RTT
+  would send the excess once without retransmission (RFC 9000 13.3).
+  Source: `srvrun.c` (`srvrun_rst_keep`).
 - **STOP_SENDING before the response starts is not remembered** — a peer
   STOP_SENDING is answered with RESET_STREAM (RFC 9000 3.5) only on a send
   part that already exists (response slot, WT send slot, CONNECT stream); one

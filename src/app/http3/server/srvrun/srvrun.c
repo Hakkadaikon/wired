@@ -389,10 +389,15 @@ typedef struct {
 #define SRVRUN_WT_SEND_SLOTS 16
 
 /* RFC 9000 13.3: one-shot control packets (stream aborts, GOAWAY) one
- * connection keeps until ACKed. Sized for a session teardown resetting
- * every WT slot at once (24 bidi + 6 uni) plus a couple more; a packet that
- * finds the table full still goes out, just once. */
-#define SRVRUN_RST_RETX 32
+ * connection keeps until ACKed. Sized so every stream this connection can
+ * track -- request slots, WT bidi/uni receive slots, WT send slots, both
+ * CONNECT streams -- can be aborted at once, plus the GOAWAY: 92 entries,
+ * about 6.6 KB per connection. An entry lives about one RTT (until ACKed);
+ * one that exhausts SRVRUN_PTO_MAX resends tears the connection down. */
+#define SRVRUN_RST_RETX                                       \
+  (WIRED_SRVLOOP_MAX_STREAMS + WIRED_SRVLOOP_MAX_WT_STREAMS + \
+   WIRED_SRVLOOP_MAX_WT_UNI_STREAMS + SRVRUN_WT_SEND_SLOTS +  \
+   SRVRUN_MAX_WT_SESSIONS + 1)
 
 /* One control packet awaiting its ACK: the exact frames sent (at most 42
  * bytes -- RESET_STREAM + STOP_SENDING is 1 + three 8-byte varints, then
@@ -1898,8 +1903,7 @@ static int srvrun_seal_ctl(
 }
 
 /* Keep pl's pln bytes for resending until the packet about to carry them
- * (pn c->l.tx_pn) is ACKed; a full table or an oversize payload is simply
- * not kept (sent once). */
+ * (pn c->l.tx_pn) is ACKed (SRVRUN_RST_RETX's sizing). */
 static void srvrun_rst_keep(srvrun_conn* c, const u8* pl, usz pln);
 
 /* Seal pl as its own 1-RTT packet into out, kept for resending until ACKed
@@ -1964,9 +1968,10 @@ static int srvrun_rst_fits(usz pln) {
 
 static void srvrun_rst_keep(srvrun_conn* c, const u8* pl, usz pln) {
   srvrun_rst* e = srvrun_rst_free(c);
-  /* ponytail: a full table or an oversize payload is sent once but not kept,
-   * so a lost packet is not retransmitted (RFC 9000 13.3); grow the table or
-   * the payload size if this is ever seen. */
+  /* ponytail: the table holds every trackable stream's abort at once
+   * (SRVRUN_RST_RETX), and every caller's payload fits pl[]; only more than
+   * that many aborts unACKed within one RTT would find it full and go out
+   * once. Raise SRVRUN_RST_RETX if that is ever seen. */
   if (!e || !srvrun_rst_fits(pln)) return;
   bytes_memcpy(e->pl, pl, pln);
   e->pln    = (u8)pln;

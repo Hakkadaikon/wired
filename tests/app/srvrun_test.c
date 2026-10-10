@@ -18379,6 +18379,25 @@ static void test_srvrun_wt_bidi_peer_reset_owes_credit(void) {
   CHECK(wired_srvloop_wt_slot_claim(&c->l, 4) < 0);
 }
 
+/* RFC 9000 13.3: every stream this connection can track aborted at once
+ * (request, WT bidi, WT uni and WT send slots, both CONNECT streams, plus a
+ * GOAWAY) is kept for retransmission -- none is sent once and forgotten. */
+static void test_srvrun_rst_table_holds_every_tracked_stream(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  usz             n = WIRED_SRVLOOP_MAX_STREAMS + WIRED_SRVLOOP_MAX_WT_STREAMS +
+                      WIRED_SRVLOOP_MAX_WT_UNI_STREAMS + SRVRUN_WT_SEND_SLOTS +
+                      SRVRUN_MAX_WT_SESSIONS + 1;
+  usz             kept = 0;
+  for (usz i = 0; i < n; i++)
+    srvrun_send_wt_busy_reset(&cfg, c, 4 * i, H3_REQUEST_REJECTED);
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) kept += c->rst[i].pln != 0;
+  CHECK(kept == n);
+}
+
 /* RFC 9000 13.3: RESET_STREAM / STOP_SENDING are retransmitted until
  * acknowledged (draft-ietf-webtrans-http3-15 5.3 relies on resets arriving
  * to keep both ends' stream counts in step). The refusal goes out once,
@@ -21946,6 +21965,7 @@ void test_srvrun(void) {
   test_srvrun_wt_server_bidi_reap_grants_nothing();
   test_srvrun_wt_bidi_peer_reset_owes_credit();
   test_srvrun_wt_busy_reset_retransmitted_until_acked();
+  test_srvrun_rst_table_holds_every_tracked_stream();
   test_srvrun_control_packets_kept_until_acked();
   test_srvrun_rst_budget_exhausted_tears_down();
   test_srvrun_wt_close_without_send_slot_resets_connect();
