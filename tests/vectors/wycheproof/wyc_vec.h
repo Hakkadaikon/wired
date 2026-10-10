@@ -21,7 +21,7 @@ typedef struct {
 } wyc_case;
 
 /* Value of key in case c, or 0 when absent. */
-static const char* wyc_get(
+static inline const char* wyc_get(
     const bssl_attr* attrs, const wyc_case* c, const char* key) {
   for (u32 i = 0; i < c->n; i++)
     if (bssl_streq(attrs[c->off + i].key, key)) return attrs[c->off + i].val;
@@ -29,7 +29,7 @@ static const char* wyc_get(
 }
 
 /* 1 if flag appears in c's comma-separated flag list. */
-static int wyc_has_flag(const wyc_case* c, const char* flag) {
+static inline int wyc_has_flag(const wyc_case* c, const char* flag) {
   const char* p = c->flags;
   while (*p) {
     const char* q = flag;
