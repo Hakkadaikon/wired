@@ -63,6 +63,10 @@ function fakeEncoder(chunkByteLength: number) {
   return { ctor, configureCalls, encodeCalls, isClosed: () => closed };
 }
 
+// Lets the previous frame's send settle, as the ~100 ms between real
+// captured frames does: frames pushed in one tick pile up as a send backlog.
+const nextFrameTick = () => new Promise((r) => setTimeout(r, 0));
+
 function fakeFrame(size?: { codedWidth: number; codedHeight: number }) {
   return { close: vi.fn(), timestamp: 0, ...size };
 }
@@ -143,6 +147,7 @@ describe("screenSharePipeline", () => {
     expect(encoder.configureCalls.length).toBe(1);
     expect(encoder.encodeCalls[1].opts).toEqual({ keyFrame: false });
 
+    await nextFrameTick();
     pipeline.pushFrame(fakeFrame({ codedWidth: 720, codedHeight: 1280 }));
     await new Promise((r) => setTimeout(r, 0));
     expect(encoder.configureCalls.length).toBe(2);
@@ -319,8 +324,10 @@ describe("screenSharePipeline", () => {
     pipeline.pushFrame(fakeFrame());
     expect(encoder.encodeCalls[1].opts).toEqual({ keyFrame: false });
     pipeline.requestKeyframe();
+    await nextFrameTick();
     pipeline.pushFrame(fakeFrame());
     expect(encoder.encodeCalls[2].opts).toEqual({ keyFrame: true });
+    await nextFrameTick();
     pipeline.pushFrame(fakeFrame());
     expect(encoder.encodeCalls[3].opts).toEqual({ keyFrame: false });
   });
@@ -342,6 +349,30 @@ describe("screenSharePipeline", () => {
     instance.encodeQueueSize = 2;
     pipeline.pushFrame(fakeFrame());
     expect(encoder.encodeCalls.length).toBe(1);
+  });
+
+  it("drops (and closes) a frame while more than 1 encoded frame waits to be sent", async () => {
+    const track = fakeTrack();
+    const encoder = fakeEncoder(10);
+    const resolvers: (() => void)[] = [];
+    const pipeline = await startScreenSharePipeline({
+      getDisplayMedia: fakeGetDisplayMedia(track),
+      VideoEncoderCtor: encoder.ctor as never,
+      sendVideoChunk: () => new Promise<void>((resolve) => resolvers.push(resolve)),
+    });
+    pipeline.pushFrame(fakeFrame()); // sending
+    pipeline.pushFrame(fakeFrame()); // queued behind it
+    const frame = fakeFrame();
+    pipeline.pushFrame(frame);
+    expect(encoder.encodeCalls.length).toBe(2);
+    expect(frame.close).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 2; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+      resolvers.shift()?.();
+    }
+    await new Promise((r) => setTimeout(r, 0));
+    pipeline.pushFrame(fakeFrame());
+    expect(encoder.encodeCalls.length).toBe(3);
   });
 
   it("stops the encoder and sending when the captured track fires 'ended'", async () => {

@@ -47,6 +47,12 @@ const KEYFRAME_INTERVAL_MS = 2000;
 // not keeping up), a new frame is dropped instead of queued -- a queued
 // backlog only adds delay the viewer can never get back.
 const MAX_ENCODE_QUEUE = 2;
+// The same rule for the send side: once more than this many encoded frames
+// wait on the network (the link carries less than the encoder's bitrate --
+// e.g. a full-screen share showing its own viewer turns every frame into
+// full-screen motion), new frames are dropped before encode(), so the
+// backlog, and the delay it adds, stays bounded.
+const MAX_SEND_BACKLOG = 1;
 // Bitrate scales with the pixel rate so 1080p text stays legible instead of
 // being squeezed into 720p's budget: 0.12 bit per pixel per frame is
 // 1.1 Mbps at 720p10 and 2.5 Mbps at 1080p10, clamped to [1, 4] Mbps.
@@ -201,6 +207,8 @@ type Lane = {
   seq: number;
   // Serializes this lane's frames' piece sends (see output's doc below).
   sendChain: Promise<void>;
+  // Encoded frames of this lane not fully sent yet.
+  unsent: number;
   gatedSend: (item: SendItem) => Promise<void>;
   // Variants only: the Group of every frame handed to encode(), in order,
   // until its output arrives; and the last Group a keyframe opened.
@@ -286,6 +294,9 @@ export async function startScreenSharePipeline(
     lastKeyframeAt = -Infinity;
   };
 
+  const backedUp = (lane: Lane) =>
+    (lane.encoder.encodeQueueSize ?? 0) > MAX_ENCODE_QUEUE || lane.unsent > MAX_SEND_BACKLOG;
+
   const lanes: Lane[] = [];
   const pipeline: ScreenSharePipeline = {
     stopped: false,
@@ -302,7 +313,7 @@ export async function startScreenSharePipeline(
       const fed = activeLanes();
       // Latest wins, for every variant at once: a frame one encoder cannot
       // take is dropped for both, so they stay frame-aligned.
-      if (fed.some((lane) => (lane.encoder.encodeQueueSize ?? 0) > MAX_ENCODE_QUEUE)) {
+      if (fed.some(backedUp)) {
         frame.close?.();
         return;
       }
@@ -354,7 +365,11 @@ export async function startScreenSharePipeline(
     // IIFE) so this guarantee also holds ACROSS frames: output() itself can
     // fire again before a prior frame's loop has finished (real encode() is
     // async). .catch keeps one frame's rejection from wedging the chain.
-    lane.sendChain = lane.sendChain.then(() => sendPieces(pieces, lane.gatedSend, group)).catch(() => {});
+    lane.unsent++;
+    lane.sendChain = lane.sendChain
+      .then(() => sendPieces(pieces, lane.gatedSend, group))
+      .catch(() => {})
+      .finally(() => lane.unsent--);
   };
 
   const makeLane = (
@@ -368,6 +383,7 @@ export async function startScreenSharePipeline(
       width,
       height,
       seq: 0,
+      unsent: 0,
       sendChain: Promise.resolve(),
       gatedSend: gateFor(send),
       inFlight: [],
