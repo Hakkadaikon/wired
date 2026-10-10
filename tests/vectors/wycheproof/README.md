@@ -23,6 +23,7 @@ Only the JSON data is vendored; no Wycheproof code.
 | `ecdsa_secp256r1_sha256_test.json` | ECDSA P-256 / SHA-256 |
 | `ecdsa_secp384r1_sha384_test.json` | ECDSA P-384 / SHA-384 |
 | `ecdsa_secp384r1_sha512_test.json` | ECDSA P-384 / SHA-512 |
+| `ecdsa_secp521r1_sha512_test.json` | ECDSA P-521 / SHA-512 (fetched from the same pinned commit, 2026-10-10) |
 | `rsa_signature_{2048,3072,4096}_sha{256,384,512}_test.json` | RSASSA-PKCS1-v1_5 (wired's `rsa_pkcs1_verify`: SHA-256/384/512, e = 65537) |
 | `rsa_pss_{2048,3072,4096}_sha256_mgf1_32_test.json` | RSASSA-PSS (wired's `rsa_pss_verify`: SHA-256, MGF1-SHA-256, salt 32 = TLS `rsa_pss_rsae_sha256`) |
 | `hkdf_sha256_test.json` | HKDF-SHA256 |

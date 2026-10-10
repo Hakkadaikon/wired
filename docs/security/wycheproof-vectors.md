@@ -20,12 +20,13 @@ its outcome is logged (`wyc <file> tcId <n> acceptable: accepted|rejected`).
 | ECDSA P-256 / SHA-256 | `ecdsa_secp256r1_sha256_test.json` | 484 | 174 | 310 | 0 | 0 | 0 |
 | ECDSA P-384 / SHA-384 | `ecdsa_secp384r1_sha384_test.json` | 504 | 194 | 310 | 0 | 0 | 0 |
 | ECDSA P-384 / SHA-512 | `ecdsa_secp384r1_sha512_test.json` | 542 | 231 | 311 | 0 | 0 | 0 |
+| ECDSA P-521 / SHA-512 | `ecdsa_secp521r1_sha512_test.json` (added 2026-10-10) | 542 | 232 | 310 | 0 | 0 | 0 |
 | RSA PKCS#1 v1.5 | `rsa_signature_{2048,3072,4096}_sha{256,384,512}_test.json` (9) | 2330 | 63 | 2253 | 9 (0 / 9) | 0 | 5 |
 | RSA-PSS | `rsa_pss_{2048,3072,4096}_sha256_mgf1_32_test.json` (3) | 324 | 189 | 135 | 0 | 0 | 0 |
 | HMAC-SHA256 | `hmac_sha256_test.json` | 174 | 66 | 108 | 0 | 0 | 0 |
 | HKDF-SHA256 | `hkdf_sha256_test.json` | 86 | 83 | 3 | 0 | 0 | 0 |
 | SHA-2 | (no own file; digest of every ECDSA / RSA / HMAC / HKDF case) | — | — | — | — | — | — |
-| **Total** | 21 files | **5754** | **1687** | **3649** | **263 (223 / 40)** | **0** | **155** |
+| **Total** | 22 files | **6296** | **1919** | **3959** | **263 (223 / 40)** | **0** | **155** |
 
 Failed tcIds and flags: **none**.
 
