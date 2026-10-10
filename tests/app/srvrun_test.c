@@ -15442,6 +15442,35 @@ static void test_srvrun_wt_priority_rejects_bad_args(void) {
   CHECK(wired_server_wt_stream_priority(&c->wt, 11, 7) == 1);
 }
 
+/* ===== delivery-rate estimate for the WT session (kbps) =====
+ * Test list:
+ * - no RTT sample yet: 0 (unknown)
+ * - Reno/Cubic: cwnd / srtt, in kbps (1 B/ms = 8 kbps)
+ * - BBR with a bandwidth sample: btl_bw; without one: the cwnd form
+ * - a session on no live connection: 0 */
+
+static void test_srvrun_wt_est_kbps(void) {
+  struct lp_fix    f;
+  wired_obuf       ob = {0};
+  u8               obuf[1024];
+  srvrun_conn*     c;
+  wired_wt_session stray = {0};
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  c->srtt_ms             = 0;
+  CHECK(wired_server_wt_est_kbps(&c->wt) == 0);
+  c->srtt_ms = 40;
+  c->cc.algo = CC_ALGO_CUBIC;
+  c->cc.cwnd = 50000; /* 1250 B/ms */
+  CHECK(wired_server_wt_est_kbps(&c->wt) == 10000);
+  c->cc.algo       = CC_ALGO_BBR;
+  c->cc.bbr.btl_bw = 0;
+  CHECK(wired_server_wt_est_kbps(&c->wt) == 10000);
+  c->cc.bbr.btl_bw = 250;
+  CHECK(wired_server_wt_est_kbps(&c->wt) == 2000);
+  CHECK(wired_server_wt_est_kbps(&stray) == 0);
+}
+
 /* A payload larger than the receive window (WIRED_SRVLOOP_WT_BUF_CAP,
  * 49152) plus the held relay fragment (WIRED_MOQTRUN_RELAY_FRAG_MAX, 512) --
  * e.g. one screen-share frame delivered in a single window -- must still be
@@ -22037,6 +22066,7 @@ void test_srvrun(void) {
   test_srvrun_wt_priority_equal_keeps_order();
   test_srvrun_wt_priority_blocked_urgent_does_not_starve();
   test_srvrun_wt_priority_rejects_bad_args();
+  test_srvrun_wt_est_kbps();
   test_srvrun_wt_open_uni_stream_appends_then_finishes();
   test_srvrun_wt_stream_send_queue_bound();
   test_srvrun_metrics_due_rate_limited();

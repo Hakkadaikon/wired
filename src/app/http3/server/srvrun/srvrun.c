@@ -5504,6 +5504,22 @@ static srvrun_wtsend* srvrun_wtsend_of(wired_wt_session* s, u64 stream_id) {
   return c ? srvrun_wtsend_find(c, stream_id) : 0;
 }
 
+static int srvrun_bbr_has_bw(const srvrun_conn* c) {
+  return c->cc.algo == CC_ALGO_BBR && c->cc.bbr.btl_bw;
+}
+
+/* Delivery rate in B/ms: BBR's btl_bw once sampled, else cwnd / srtt (0
+ * before the first RTT sample). */
+static u64 srvrun_est_bpms(const srvrun_conn* c) {
+  if (srvrun_bbr_has_bw(c)) return c->cc.bbr.btl_bw;
+  return c->srtt_ms ? c->cc.cwnd / c->srtt_ms : 0;
+}
+
+u64 wired_server_wt_est_kbps(wired_wt_session* s) {
+  srvrun_conn* c = srvrun_session_conn(s);
+  return c ? srvrun_est_bpms(c) * 8 : 0; /* 1 B/ms = 8 kbps */
+}
+
 int wired_server_wt_stream_priority(
     wired_wt_session* s, u64 stream_id, u8 urgency) {
   srvrun_wtsend* w;

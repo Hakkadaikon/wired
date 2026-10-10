@@ -666,6 +666,15 @@ int wired_server_wt_stream_send(
 int wired_server_wt_stream_priority(
     wired_wt_session* s, u64 stream_id, u8 urgency);
 
+/** The connection's current delivery-rate estimate for s, in kbps:
+ * BBR's bottleneck bandwidth once it has a sample, else cwnd / smoothed
+ * RTT. It tracks what the congestion controller allows, so a sender that
+ * stays below its window (app-limited) may see it grow slowly.
+ * @param s the session whose connection is asked
+ * @return kbps, or 0 when unknown (no RTT sample yet, or s resolves to no
+ *   live connection) */
+u64 wired_server_wt_est_kbps(wired_wt_session* s);
+
 /** Ends a stream opened for appending with NO further bytes: a bare FIN on
  * an otherwise-empty final round (RFC 9000 19.8 permits a zero-length
  * STREAM frame carrying only FIN). Use this instead of
