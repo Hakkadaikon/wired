@@ -2217,9 +2217,22 @@ static int moqtrun_rdv_own_up(
   return !r->repath && u && u->wt == r->wt;
 }
 
+/* Fresh hold r met its own session's track: a hold with a deadline keeps
+ * waiting for another path until then; one without (it waits only for an
+ * upstream SUBSCRIBE) has nothing left to wait for, and would otherwise
+ * keep that upstream alive forever. */
+static void moqtrun_rdv_own_refuse(wired_moqt_hub* hub, wired_moqtrun_rdv* r) {
+  if (r->up_only)
+    moqtrun_rdv_answer(
+        hub, r, moqtrun_rdv_do_refuse, 0, MOQCTL_ERR_DOES_NOT_EXIST);
+}
+
 static void moqtrun_rdv_resolve_one(
     wired_moqt_hub* hub, wired_moqtrun_rdv* r, wired_moqtrun_track* t) {
-  if (moqtrun_rdv_own_up(hub, r, t)) return;
+  if (moqtrun_rdv_own_up(hub, r, t)) {
+    moqtrun_rdv_own_refuse(hub, r);
+    return;
+  }
   moqtrun_rdv_answer(
       hub, r, r->repath ? moqtrun_rp_do_relinked : moqtrun_rdv_do_resolve, t,
       0);

@@ -606,6 +606,20 @@ static void test_moqtrun_repath_fresh_own_upstream_rt(void) {
   CHECK(mrdv_is(SESS_B, MRDV_S2, "E2|FIN|"));
 }
 
+/* Another announcer (E) keeps B's own SUBSCRIBE (no RENDEZVOUS_TIMEOUT)
+ * waiting on the hub's SUBSCRIBE to B; when that resolves to B's own track
+ * the hold is answered DOES_NOT_EXIST instead of lingering forever. */
+static void test_moqtrun_repath_fresh_own_upstream_other(void) {
+  mrp_init();
+  mrp_announce(SESS_B);
+  mrp_announce(MRP_E);
+  mrp_end(MRP_GA);
+  mups_sub(SESS_B, MRDV_S2);
+  CHECK(mrdv_is(SESS_B, MRDV_S2, ""));
+  mrp_ok(SESS_B, mrp_up(SESS_B, 0));
+  CHECK(mrdv_is(SESS_B, MRDV_S2, "E10|FIN|"));
+}
+
 /* A's session is being closed by the hub (a malformed GOAWAY) while the
  * hub's SUBSCRIBE to A is pending: a new SUBSCRIBE does not ride it -- it
  * is DOES_NOT_EXIST at once, not held until the close lands. */
@@ -834,6 +848,7 @@ static void mtall_repath(void) {
   test_moqtrun_repath_fresh_rides();
   test_moqtrun_repath_fresh_dne();
   test_moqtrun_repath_fresh_own_upstream();
+  test_moqtrun_repath_fresh_own_upstream_other();
   test_moqtrun_repath_fresh_own_upstream_rt();
   test_moqtrun_repath_fresh_closing_upstream();
   test_moqtrun_repath_no_room();
