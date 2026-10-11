@@ -888,6 +888,68 @@ static void test_moqtrun_ssts_mid_group_join_decides(void) {
   CHECK(mtss_opens(mtss_ah, 0) == 0);
 }
 
+/* A join is no group arrival: deciding the joiner's in-flight group holds
+ * the tier and leaves the session's reset count for the next observation. */
+static void test_moqtrun_ssts_join_does_not_observe(void) {
+  moqctl_params ph =
+      mtss_ssa(MTSS_SET, MOQSSTS_ALG_BACKPRESSURE, MTSS_HI_KBPS, 2);
+  moqctl_params pl =
+      mtss_ssa(MTSS_SET, MOQSSTS_ALG_BACKPRESSURE, MTSS_LO_KBPS, 2);
+  mtss_init(mtss_algs_both, 2);
+  mtss_client_setup(SESS_B, mtss_algs_both, 2);
+  mtss_sub(MTSS_SID_HI, mtss_hi(), &ph);
+  mtss_ah = mtss_ok_alias(MTSS_SID_HI);
+  mtss_push(2, 0, 1, 0);
+  mtss_tier(1);
+  mtss_b()->timeouts = 1;
+  mtss_sub(MTSS_SID_LO, mtss_lo(), &pl);
+  CHECK(mtss_b()->timeouts == 1);
+  CHECK(mtss_b()->bp.tier == 1);
+}
+
+/* A joiner whose track is far behind the set (its group is older than the
+ * decision window) gets no verdict: that group's decision is gone, and a
+ * fresh one would decide it twice. */
+static void test_moqtrun_ssts_join_skips_pruned_group(void) {
+  moqctl_params ph =
+      mtss_ssa(MTSS_SET, MOQSSTS_ALG_BACKPRESSURE, MTSS_HI_KBPS, 2);
+  moqctl_params pl =
+      mtss_ssa(MTSS_SET, MOQSSTS_ALG_BACKPRESSURE, MTSS_LO_KBPS, 2);
+  mtss_init(mtss_algs_both, 2);
+  mtss_client_setup(SESS_B, mtss_algs_both, 2);
+  mtss_sub(MTSS_SID_HI, mtss_hi(), &ph);
+  mtss_ah = mtss_ok_alias(MTSS_SID_HI);
+  for (u64 g = 0; g <= 10; g++) mtss_push(1, g, 1, 1);
+  u64 l = mtss_push(2, 2, 1, 0);
+  mtss_tier(0); /* a decision made now would pick lo */
+  mtss_sub(MTSS_SID_LO, mtss_lo(), &pl);
+  mtss_al = mtss_ok_alias(MTSS_SID_LO);
+  mtss_more(l, 1, 0);
+  CHECK(mtss_opens(mtss_al, 2) == 0);
+}
+
+/* A plain subscription REQUEST_UPDATEd into a set mid-group gets a verdict
+ * for the group it is receiving at once, and keeps it when the set picks
+ * it. */
+static void test_moqtrun_ssts_update_join_keeps_group(void) {
+  moqctl_params ph =
+      mtss_ssa(MTSS_SET, MOQSSTS_ALG_BACKPRESSURE, MTSS_HI_KBPS, 2);
+  moqctl_params pl =
+      mtss_ssa(MTSS_SET, MOQSSTS_ALG_BACKPRESSURE, MTSS_LO_KBPS, 2);
+  mtss_init(mtss_algs_both, 2);
+  mtss_client_setup(SESS_B, mtss_algs_both, 2);
+  mtss_sub(MTSS_SID_HI, mtss_hi(), &ph);
+  mtss_ah = mtss_ok_alias(MTSS_SID_HI);
+  mtss_sub(MTSS_SID_LO, mtss_lo(), 0);
+  mtss_al = mtss_ok_alias(MTSS_SID_LO);
+  mtss_tier(0); /* a decision made now picks lo */
+  u64 l = mtss_push(2, 0, 1, 0);
+  mtup_update(SESS_B, MTSS_SID_LO, &pl);
+  CHECK(mtup_reply(MTSS_SID_LO, &(wired_span){0}) == MOQCTL_T_REQUEST_OK);
+  mtss_more(l, 1, 0);
+  CHECK(mtss_sends(mtss_al, 0) == 1);
+}
+
 /* A re-tune by REQUEST_UPDATE mid-Group keeps the Group's recorded
  * decision (hi): lo's in-flight Group 0 still never reaches B. */
 static void test_moqtrun_ssts_update_keeps_decision(void) {
@@ -1141,6 +1203,9 @@ void test_moqtrun_ssts(void) {
   test_moqtrun_ssts_update_joins();
   test_moqtrun_ssts_mid_group_join_decides();
   test_moqtrun_ssts_update_keeps_decision();
+  test_moqtrun_ssts_join_does_not_observe();
+  test_moqtrun_ssts_join_skips_pruned_group();
+  test_moqtrun_ssts_update_join_keeps_group();
   test_moqtrun_ssts_hub_tracks_refused();
   test_moqtrun_ssts_window_slides();
   test_moqtrun_ssts_window_keeps_newest();

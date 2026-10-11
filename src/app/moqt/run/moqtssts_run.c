@@ -11,7 +11,9 @@
  * synchronous single-threaded hub:
  *
  * - Decisions are made at a group's first arrival (moqtss_prime) instead
- *   of by a controller task woken through a channel. Backpressure
+ *   of by a controller task woken through a channel; a member joining
+ *   mid-group gets that group's verdict at once (moqtss_join_prime: the
+ *   recorded decision, else one made without observing). Backpressure
  *   observes at each group of the session's pacing set -- its lowest-slot
  *   active backpressure set (moqtss_pacer) -- and on the hub clock every
  *   MOQTSS_OBS_MS (moqtss_tick, moqtail's DECISION_INTERVAL), so the tier
@@ -406,7 +408,7 @@ void moqtss_sub_reset(wired_moqtrun_sub* s) {
   s->ssts_fwd   = 0;
 }
 
-static void moqtss_prime_sub(wired_moqt_hub* hub, wired_moqtrun_sub* s, u64 g);
+static void moqtss_join_prime(wired_moqt_hub* hub, wired_moqtrun_sub* s, u64 g);
 
 /* A member joining mid-Group gets that Group's verdict now (its recorded
  * decision, else one made now) instead of waiting for the next Group. */
@@ -416,7 +418,7 @@ static void moqtss_join_at(
     const moqctl_ssa*          a,
     const wired_moqtrun_track* t) {
   moqtss_join(hub, s, a);
-  if (t && t->has_largest) moqtss_prime_sub(hub, s, t->largest.group);
+  if (t && t->has_largest) moqtss_join_prime(hub, s, t->largest.group);
 }
 
 u64 moqtss_on_subscribe(
@@ -645,17 +647,24 @@ static u64 moqtss_view_pick(const moqtss_view* v, usz k) {
 }
 
 /* Decides group g for set slot k now (one algorithm run, joint over the
- * session's sets of k's algorithm) and records it: final for (k, g). */
-static u64 moqtss_decide(wired_moqt_hub* hub, usz sidx, usz k, u64 g) {
+ * session's sets of k's algorithm) and records it: final for (k, g).
+ * Backpressure observes only when pace is set. */
+static u64 moqtss_decide_as(
+    wired_moqt_hub* hub, usz sidx, usz k, u64 g, int pace) {
   moqtss_sess* ss = &hub->peers[sidx].ssts;
   moqtss_view  v;
   moqtss_prune(hub, sidx);
   moqtss_view_of(hub, sidx, ss->sets[k].algorithm_id, &v);
-  moqtss_view_run(
-      hub, sidx, ss->sets[k].algorithm_id, &v, moqtss_pacer(ss) == (int)k);
+  moqtss_view_run(hub, sidx, ss->sets[k].algorithm_id, &v, pace);
   u64 pick = moqtss_view_pick(&v, k);
   moqtss_ring_record(&ss->sets[k], g, pick);
   return pick;
+}
+
+/* A group's first arrival: the pacing set observes. */
+static u64 moqtss_decide(wired_moqt_hub* hub, usz sidx, usz k, u64 g) {
+  return moqtss_decide_as(
+      hub, sidx, k, g, moqtss_pacer(&hub->peers[sidx].ssts) == (int)k);
 }
 
 /* The alias set slot k forwards for group g, deciding g now if needed. */
@@ -782,6 +791,37 @@ static void moqtss_prime_sub(wired_moqt_hub* hub, wired_moqtrun_sub* s, u64 g) {
   u64 pick =
       k < 0 ? MOQTSS_PICK_NONE : moqtss_pick(hub, s->session_idx, (usz)k, g);
   moqtss_stamp(s, g, pick == s->track_alias);
+}
+
+/* Group g is inside set st's decision window, or st decided nothing yet:
+ * an older g's decision is pruned, and deciding it again would break
+ * "one decision per group". */
+static int moqtss_in_window(const moqtss_set* st, u64 g) {
+  return !st->has_largest || g + WIRED_MOQTRUN_SSTS_KEEP >= st->largest;
+}
+
+/* A join is no group arrival: the recorded decision, else one made with
+ * the tier held (backpressure does not observe). */
+static u64 moqtss_pick_held(wired_moqt_hub* hub, usz sidx, usz k, u64 g) {
+  const moqtss_dec* e = moqtss_ring_find(&hub->peers[sidx].ssts.sets[k], g);
+  return e ? e->pick : moqtss_decide_as(hub, sidx, k, g, 0);
+}
+
+static void moqtss_join_prime_k(
+    wired_moqt_hub* hub, wired_moqtrun_sub* s, int k, u64 g) {
+  moqtss_sess* ss = &hub->peers[s->session_idx].ssts;
+  if (k < 0 || !moqtss_in_window(&ss->sets[k], g)) return;
+  u64 pick = moqtss_pick_held(hub, s->session_idx, (usz)k, g);
+  moqtss_stamp(s, g, pick == s->track_alias);
+}
+
+/* s just joined while group g is in flight: s's verdict for g now. */
+static void moqtss_join_prime(
+    wired_moqt_hub* hub, wired_moqtrun_sub* s, u64 g) {
+  if (!moqtss_primes(s)) return;
+  moqtss_join_prime_k(
+      hub, s,
+      moqtss_set_of_alias(&hub->peers[s->session_idx].ssts, s->track_alias), g);
 }
 
 void moqtss_prime(wired_moqt_hub* hub, wired_moqtrun_track* track, u64 g) {
