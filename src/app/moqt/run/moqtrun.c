@@ -10003,8 +10003,19 @@ static void moqtrun_rp_untry(wired_moqt_hub* hub, const wired_moqtrun_req* q) {
       hub->rdv[i].tried &= ~bit;
 }
 
-/* q may be asked: it covers k, its session not skipped nor being closed
- * by the hub (nothing more goes to it, moqtrun_rdv_target). */
+/* No GOAWAY either way on p's control stream: draft-22 9.2, a receiver
+ * SHOULD NOT initiate new requests, a sender SHOULD avoid them. */
+static int moqtrun_up_no_goaway(const wired_moqtrun_peer* p) {
+  return !p->sess.goaway_recv && !p->sess.goaway_sent;
+}
+
+/* p may be sent a new request: connected, not being closed by the hub
+ * (nothing more goes to it, moqtrun_rdv_target), no GOAWAY. */
+static int moqtrun_up_peer_usable(const wired_moqtrun_peer* p) {
+  return moqtrun_rdv_peer_open(p) && moqtrun_up_no_goaway(p);
+}
+
+/* q may be asked: it covers k, its session not skipped and usable. */
 static int moqtrun_up_candidate(
     wired_moqt_hub*          hub,
     const wired_moqtrun_req* q,
@@ -10012,7 +10023,7 @@ static int moqtrun_up_candidate(
     moqtrun_key              k,
     u64                      skip) {
   return moqtrun_up_covers(q, s, k) && !(skip & moqtrun_rp_bit(hub, q->wt)) &&
-         moqtrun_rdv_peer_open(moqtrun_find_by_wt(hub, q->wt));
+         moqtrun_up_peer_usable(moqtrun_find_by_wt(hub, q->wt));
 }
 
 static wired_moqtrun_req* moqtrun_up_announcer_skip(
