@@ -37,9 +37,12 @@ import Example from '../../../../components/Example.astro';
   リクエストストリームで FETCH_OK（9.12）を受け取り、End Location は 2/0（`FETCH_OK end 2/0`）です。
   End Location は draft-22 では範囲に含まれる最後の位置で、draft-19 では最後の Object の 1 つ先でした。
   Object は新しい単方向ストリーム（FETCH_HEADER と、それに続く fetch Object）で受け取ります。
-  追い出されたグループ 0 と 1 は、1/4611686018427387903 までの 1 つの End of Unknown Range（0x10C）として返ります（2^62−1 で、ハブが「グループ 1 の残り全体」を表すのに使う値です。draft-22 の Object ID は 2^64−1 まで取り得ます）。
+  追い出されたグループ 0 と 1 はキャッシュにないので、ハブはトラックのパブリッシャーに自分から FETCH を送って取りに行きます（3.2.3）。
+  このサンプルのパブリッシャーは FETCH に応答しません。
+  そのためハブは待ち時間の上限（`WIRED_MOQTRUN_UPFETCH_BUDGET_MS` の 2 秒。FILL_TIMEOUT のほうが短ければそちら）が過ぎるとこの FETCH を取り消し、グループ 0 と 1 を 1/4611686018427387903 までの 1 つの End of Timed-Out Range（0x20C）として返します（2^62−1 は、ハブが「グループ 1 の残り全体」を表すのに使う値です。draft-22 の Object ID は 2^64−1 まで取り得ます）。
   その後に、キャッシュにあるグループ 2 が続きます。
-  draft-22 には 0x8C と 0x10C のほかに、0x20C（End of Timed-Out Range）もあります。
+  パブリッシャーが応答すれば、ここにはその Object がそのまま届きます。
+  0x20C がない draft-19 の視聴者には、同じ欠けを End of Unknown Range（0x10C）で返します。
 - fetch ストリームと fill ストリームは `open_uni_stream`、`stream_send`、`stream_reset` の io エントリで送られます。
   このストリームは複数ラウンドにわたって開いたままで、トランスポートが拒否したラウンドは、`on_step` から呼ぶ `wired_moqt_tick` が再試行します。
 - 視聴者が参加する前に、パブリッシャーはグループ 5 がハブに取り込まれたことを FETCH で確かめます。

@@ -108,8 +108,9 @@ func main() {
 
 	// (2) A FETCH (Request ID 2) of Groups 0..2: FETCH_OK on the request
 	// stream with its inclusive End Location, the Objects on a uni stream
-	// of their own. The evicted Groups 0 and 1 come back as one End of
-	// Unknown Range.
+	// of their own. The evicted Groups 0 and 1 are asked of the publisher,
+	// which does not answer: after the hub's budget they come back as one
+	// End of Timed-Out Range.
 	_, r = view.Request(ctx, 0x16, moqtclient.Fetch(2, "clock", 0, 2))
 	eg, eo := moqtclient.ReadFetchOk(r)
 	fmt.Printf("standalone fetch (request 2): FETCH_OK end %d/%d\n", eg, eo)

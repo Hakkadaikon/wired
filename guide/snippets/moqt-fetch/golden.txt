@@ -7,7 +7,7 @@ fill (request 0): 3/0 "frame-3"
 fill (request 0): 4/0 "frame-4"
 fill (request 0): 5/0 "frame-5"
 standalone fetch (request 2): FETCH_OK end 2/0
-standalone fetch (request 2): end of unknown range up to 1/4611686018427387903
+standalone fetch (request 2): end of timed-out range up to 1/4611686018427387903
 standalone fetch (request 2): 2/0 "frame-2"
 subscription: 6/0 "frame-6"
 subscription: 7/0 "frame-7"

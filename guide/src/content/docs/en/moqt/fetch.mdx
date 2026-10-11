@@ -51,11 +51,16 @@ its live subscription seamlessly. It also runs a standalone FETCH.
   stream, with End Location 2/0 (`FETCH_OK end 2/0`). The End Location is
   inclusive in draft-22; in draft-19 it was one past the last Object. The
   Objects arrive on a new uni stream (FETCH_HEADER, then fetch Objects).
-  The evicted Groups 0 and 1 come back as one End of Unknown Range (0x10C)
-  up to 1/4611686018427387903 (2^62−1, the hub's stand-in for "the rest
-  of Group 1"; draft-22 Object IDs can go up to 2^64−1), then Group 2
-  from the cache. draft-22 also defines 0x20C, End of Timed-Out Range,
-  besides 0x8C and 0x10C.
+  The cache no longer holds the evicted Groups 0 and 1, so the hub asks
+  the track's publisher for them with a FETCH of its own (3.2.3). This
+  sample's publisher does not answer FETCH: once the hub's budget
+  (`WIRED_MOQTRUN_UPFETCH_BUDGET_MS`, 2 s, or a shorter FILL_TIMEOUT) has
+  passed, the hub cancels that request and reports the two Groups as one
+  End of Timed-Out Range (0x20C) up to 1/4611686018427387903 (2^62−1, the
+  hub's stand-in for "the rest of Group 1"; draft-22 Object IDs can go up
+  to 2^64−1), then Group 2 from the cache. A publisher that answers would
+  have its Objects relayed here instead. A draft-19 viewer, which has no
+  0x20C, gets the same gap as End of Unknown Range (0x10C).
 - The `open_uni_stream`, `stream_send` and `stream_reset` io entries carry
   the fetch and fill streams: they stay open across rounds, and the hub's
   tick (`wired_moqt_tick` from `on_step`) retries a round the transport
