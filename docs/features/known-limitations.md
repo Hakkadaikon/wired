@@ -439,9 +439,6 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 - **`appdata_recv` has no packet-number history** — the one-shot entry passes
   largest_pn 0; full-PN recovery is the srvloop path's job. Source:
   `src/transport/stream/data/appdata/app_recv.c:9`.
-- **HyStart++ CSS phase folded into direct exit** — more conservative; a
-  spurious exit costs earlier congestion avoidance. Source:
-  `src/transport/recovery/congestion/cc/hystart.h:10`.
 - **Key Update limit stalls instead of closing** — a confidentiality limit hit
   while the previous update is unconfirmed stalls sends (idle timeout first
   in practice). Source: `srvloop/send.c:109`.
