@@ -316,6 +316,12 @@ static void test_encrx_window_matches_credit(void) {
   CHECK(QDYN_ENCRX_CAP == STP_DEFAULT_STREAM_DATA_LOCAL);
 }
 
+/* Each connection holds one window: its received-byte marks are a bitmap,
+ * one bit per window byte, not a byte apiece. */
+static void test_encrx_marks_are_bits(void) {
+  CHECK(sizeof(qdyn_encrx) < QDYN_ENCRX_CAP + QDYN_ENCRX_CAP / 8 + 64);
+}
+
 /* RFC 9204 3.2.1 / 4.3.3: at the capacity this server advertises, a peer
  * filling the table with minimum-size (32-byte) entries only ever evicts --
  * the fixed entry ring is never the limit that fails an insert. */
@@ -384,6 +390,7 @@ void test_qpackdyn_enc_stream(void) {
   test_encrx_other_type_released();
   test_encrx_holds_whole_credit();
   test_encrx_window_matches_credit();
+  test_encrx_marks_are_bits();
   test_enc_stream_b2_inserts();
   test_enc_stream_b3_b5();
   test_enc_stream_prefix_incomplete();

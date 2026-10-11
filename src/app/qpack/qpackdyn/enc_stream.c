@@ -177,12 +177,22 @@ static int rx_trim(const qdyn_encrx* rx, u64* off, wired_span* d) {
   return 1;
 }
 
+/* Bit i of the received-byte bitmap. */
+static int rx_has(const qdyn_encrx* rx, usz i) {
+  return (rx->have[i / 8] >> (i % 8)) & 1;
+}
+
+static void rx_mark(qdyn_encrx* rx, usz i, int v) {
+  u8 m            = (u8)(1u << (i % 8));
+  rx->have[i / 8] = (u8)((rx->have[i / 8] & ~m) | (v ? m : 0));
+}
+
 /* Write d at off into the window; 0 if it reaches past the window. */
 static int rx_store(qdyn_encrx* rx, u64 off, wired_span d) {
   u64 at = off - rx->base;
   if (at + d.n > QDYN_ENCRX_CAP) return 0;
   bytes_memcpy(rx->buf + at, d.p, d.n);
-  bytes_memset(rx->have + at, 1, d.n);
+  for (usz i = 0; i < d.n; i++) rx_mark(rx, (usz)at + i, 1);
   rx->hi = (usz)u64_max(rx->hi, at + d.n);
   return 1;
 }
@@ -194,7 +204,7 @@ static int rx_land(qdyn_encrx* rx, u64 off, wired_span d) {
 /* Bytes contiguous from base. */
 static usz qdyn_encrx_ready(const qdyn_encrx* rx) {
   usz n = 0;
-  while (n < rx->hi && rx->have[n]) n++;
+  while (n < rx->hi && rx_has(rx, n)) n++;
   return n;
 }
 
@@ -210,16 +220,22 @@ static usz rx_apply(qdyn_encrx* rx, qpack_dyn* t, u64 max, u16* err) {
 }
 
 /* Slide the consumed prefix (n <= the contiguous bytes) out of the window. */
+/* Shift the received-byte marks down by n, clearing the vacated top. */
+static void rx_shift_marks(qdyn_encrx* rx, usz n) {
+  for (usz i = 0; i < rx->hi; i++)
+    rx_mark(rx, i, i + n < rx->hi && rx_has(rx, i + n));
+}
+
 static void rx_slide(qdyn_encrx* rx, usz n) {
+  if (n == 0) return; /* nothing consumed: moving the window is pure cost */
   bytes_move_down(rx->buf, rx->buf + n, rx->hi - n);
-  bytes_move_down(rx->have, rx->have + n, rx->hi - n);
-  bytes_memset(rx->have + rx->hi - n, 0, n);
+  rx_shift_marks(rx, n);
   rx->hi -= n;
   rx->base += n;
 }
 
 void qdyn_encrx_take(qdyn_encrx* rx, u64 stream_id) {
-  bytes_memset(rx->have, 0, rx->hi);
+  bytes_memset(rx->have, 0, (rx->hi + 7) / 8);
   rx->base      = 0;
   rx->hi        = 0;
   rx->type_len  = 0;
