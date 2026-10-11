@@ -530,11 +530,16 @@ typedef struct {
   u64 tx_pn;     /**< monotone packet number for sealed 1-RTT output */
   u64 hs_tx_pn;  /**< monotone packet number for sealed Handshake output */
   u64 app_rx_pn; /**< last received 1-RTT (application) packet number to ACK */
+  /** Largest 1-RTT packet number received, valid with app_rx_seen: the
+   * baseline for recovering a truncated pn (RFC 9000 A.3). */
+  u64 app_rx_hi;
   int app_rx_seen; /**< 1 once a 1-RTT packet has been received (app_rx_pn
                     * valid) */
   u64 hs_rx_pn;    /**< last received Handshake packet number to ACK (the
                     * client Finished's actual PN, which is not always 0) */
-  int hs_rx_seen;  /**< 1 once a Handshake packet has been received */
+  /** Largest Handshake packet number received, valid with hs_rx_seen. */
+  u64 hs_rx_hi;
+  int hs_rx_seen; /**< 1 once a Handshake packet has been received */
   /** RFC 9000 12.3/13.2.1/13.2.2/19.3: every packet number space's received-pn
    * window (pnspaces_recv, independent per space -- Initial is out of
    * this loop's scope, srvboot's own layer) plus whether/when each space

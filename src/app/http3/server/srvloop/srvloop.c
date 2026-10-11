@@ -109,8 +109,10 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->tx_pn                      = 0;
   l->hs_tx_pn                   = 0;
   l->app_rx_pn                  = 0;
+  l->app_rx_hi                  = 0;
   l->app_rx_seen                = 0;
   l->hs_rx_pn                   = 0;
+  l->hs_rx_hi                   = 0;
   l->hs_rx_seen                 = 0;
   l->hs_done_sent               = 0;
   l->ticket_sent                = 0;
@@ -210,7 +212,7 @@ void wired_srvloop_ecn_note(wired_srvloop* l, u8 ecn) {
 /* The largest 1-RTT packet number received so far (0 before any), the baseline
  * for recovering a truncated PN (RFC 9000 A.3). */
 static u64 app_largest_pn(const wired_srvloop* l) {
-  return l->app_rx_seen ? l->app_rx_pn : 0;
+  return l->app_rx_seen ? l->app_rx_hi : 0;
 }
 
 /* The opened packet's level and its (still-mutable) bytes, as note_app_rx /
@@ -230,6 +232,7 @@ static int app_pkt_is_long(u8 byte0) { return (byte0 & 0x80u) != 0; }
  * seen so far and record it as the number to ACK / the new baseline. */
 static void app_rx_record(wired_srvloop* l, const u8* pn, usz pn_len) {
   l->app_rx_pn   = pnum_decode(pn, pn_len, app_largest_pn(l));
+  l->app_rx_hi   = u64_max(app_largest_pn(l), l->app_rx_pn);
   l->app_rx_seen = 1;
 }
 
@@ -263,7 +266,7 @@ static void note_app_rx(
 /* The largest Handshake packet number received so far (0 before any), the
  * baseline for recovering a truncated PN (RFC 9000 A.3). */
 static u64 hs_largest_pn(const wired_srvloop* l) {
-  return l->hs_rx_seen ? l->hs_rx_pn : 0;
+  return l->hs_rx_seen ? l->hs_rx_hi : 0;
 }
 
 /* RFC 9000 13.2.1: after a Handshake packet is opened (header protection
@@ -277,6 +280,7 @@ static void note_hs_rx(wired_srvloop* l, const srvloop_opened* o) {
   if (!lhdr_parse(wired_span_of(o->pkt.p, o->pkt.n), 0, &h)) return;
   l->hs_rx_pn = pnum_decode(
       o->pkt.p + h.pn_off, lhdr_pn_len(o->pkt.p[0]), hs_largest_pn(l));
+  l->hs_rx_hi   = u64_max(hs_largest_pn(l), l->hs_rx_pn);
   l->hs_rx_seen = 1;
 }
 

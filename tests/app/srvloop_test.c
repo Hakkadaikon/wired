@@ -5004,6 +5004,58 @@ static void test_srvloop_step_zerortt_records_real_pn(void) {
   CHECK(f.l.app_rx_pn == 3);
 }
 
+/* One 0-RTT PING at pn, byte0 picking the truncated pn length, sealed for
+ * the fixture f (early keys set as in test_srvloop_step_zerortt_records_
+ * real_pn) into pkt; returns its length. */
+static usz srvloop_zrtt_ping(struct lp_fix* f, u8 byte0, u64 pn, u8* pkt) {
+  aes128       hp;
+  const u8     payload[1] = {0x01};
+  protect_keys pk         = {&f->s.sdrv.early_keys, &hp};
+  tx_desc      d          = {
+      byte0,
+      wired_span_of(g_cli_scid, 6),
+      wired_span_of(g_cli_scid, 6),
+      0,
+      wired_span_of(0, 0),
+      pn,
+      wired_span_of(payload, sizeof(payload)),
+      0};
+  aes128_init(&hp, f->s.sdrv.early_keys.hp);
+  return tx_packet_suite(
+      f->s.sdrv.cipher_suite, &pk, &d, wired_mspan_of(pkt, 256));
+}
+
+static void srvloop_zrtt_fix(struct lp_fix* f) {
+  u8 psk[32];
+  lp_make_client_hello(f);
+  lp_drive_to_flight(f);
+  for (usz i = 0; i < 32; i++) psk[i] = (u8)(0xc0 + i);
+  tls_early_keys(psk, f->ch, f->ch_len, &f->s.sdrv.early_keys);
+  f->s.sdrv.early_data_accepted = 1;
+}
+
+static void srvloop_zrtt_send(struct lp_fix* f, u8 byte0, u64 pn) {
+  u8         out[1024], pkt[256];
+  wired_obuf ob = {out, sizeof out, 0};
+  usz        n  = srvloop_zrtt_ping(f, byte0, pn, pkt);
+  CHECK(n != 0);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(pkt, n), &ob);
+}
+
+/* RFC 9000 A.3: a truncated pn is recovered against the LARGEST pn received,
+ * not the last one: after 300 then a reordered 100 the baseline stays 300
+ * (against 100, a one-byte 0x90 would decode to 144 instead of 400). */
+static void test_srvloop_pn_baseline_is_largest(void) {
+  struct lp_fix f;
+  srvloop_zrtt_fix(&f);
+  srvloop_zrtt_send(&f, 0xd3, 300);
+  srvloop_zrtt_send(&f, 0xd3, 100);
+  CHECK(f.l.app_rx_pn == 100); /* the number to ACK is still the last */
+  CHECK(app_largest_pn(&f.l) == 300);
+  CHECK(pnum_decode((const u8*)"\x90", 1, app_largest_pn(&f.l)) == 400);
+}
+
 /* A payload frame landing in a slot past 31 must still be marked for
  * completion: the table holds 40 slots, so the touched mask has to be
  * 64-bit (a 32-bit mask shifted by 35 is undefined behavior and, under
@@ -5180,6 +5232,7 @@ void test_srvloop(void) {
   test_srvloop_recv_zerortt_opens_with_early_keys();
   test_srvloop_recv_zerortt_refused_without_early_keys();
   test_srvloop_step_zerortt_records_real_pn();
+  test_srvloop_pn_baseline_is_largest();
   test_srvloop_seal_chacha_roundtrip();
   test_srvloop_open_chacha();
   test_srvloop_aes256_only_roundtrip();
