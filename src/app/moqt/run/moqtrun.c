@@ -9396,6 +9396,22 @@ static void moqtrun_rp_do_done(
       hub, sp, sp->req, sp->req->request_id, r->done_status, r->done_count);
 }
 
+static int moqtrun_rp_of(
+    const wired_moqtrun_rdv* r, const wired_moqtrun_peer* p) {
+  return r->in_use && r->repath && r->wt == p->wt;
+}
+
+/* p's GOAWAY drain ran out (moqtrun_drain_flush): each of its waits for
+ * a new path ends now with PUBLISH_DONE GOING_AWAY, as its Established
+ * subscriptions do. */
+static void moqtrun_rp_flush(wired_moqt_hub* hub, const wired_moqtrun_peer* p) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+    if (moqtrun_rp_of(&hub->rdv[i], p)) {
+      hub->rdv[i].done_status = MOQCTL_DONE_GOING_AWAY;
+      moqtrun_rdv_answer(hub, &hub->rdv[i], moqtrun_rp_do_done, 0, 0);
+    }
+}
+
 /* A new path's SUBSCRIBE_OK: a waiter moqtrun_reattach_subs could not
  * re-attach to t (its own session publishes t, t's subs[] is full, or its
  * remembered state was overwritten) ends with its one PUBLISH_DONE. */
@@ -9795,6 +9811,7 @@ static void moqtrun_drain_flush(
   moqtrun_each_track(
       hub, moqtrun_track_done_peer, (usz)(p - hub->peers),
       MOQCTL_DONE_GOING_AWAY);
+  moqtrun_rp_flush(hub, p);
   moqtrun_flush_replies(&hub->io, p);
   p->goaway_flushed_at = now_ms ? now_ms : 1; /* 0 means "not yet" */
 }

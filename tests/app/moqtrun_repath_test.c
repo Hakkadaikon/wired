@@ -531,6 +531,20 @@ static void test_moqtrun_repath_stream_count(void) {
       moqctl_publish_done_for(g_moqtrun_test_ver, MOQCTL_DONE_TRACK_ENDED), 2));
 }
 
+/* A GOAWAY drain running out while C and D wait ends them with
+ * PUBLISH_DONE GOING_AWAY at the flush (the wait is over: nothing more
+ * at its deadline). */
+static void test_moqtrun_repath_drain_flush(void) {
+  mrp_init();
+  mrp_end(MRP_IE);
+  CHECK(wired_moqt_goaway(&mtst_hub, mtst_z("https://h/b"), 100) > 0);
+  wired_moqt_tick(&mtst_hub, 100);
+  CHECK(mrp_done_once(MOQCTL_DONE_GOING_AWAY));
+  CHECK(mrdv_used() == 0);
+  wired_moqt_tick(&mtst_hub, WIRED_MOQTRUN_RDV_MAX_MS);
+  CHECK(mrp_done_once(MOQCTL_DONE_GOING_AWAY));
+}
+
 /* Ticks long past the deadline send no second PUBLISH_DONE. */
 static void test_moqtrun_repath_done_once(void) {
   mrp_init();
@@ -685,6 +699,7 @@ static void mtall_repath(void) {
   test_moqtrun_repath_ends_again();
   test_moqtrun_repath_done_once();
   test_moqtrun_repath_stream_count();
+  test_moqtrun_repath_drain_flush();
   test_moqtrun_repath_fresh_rides();
   test_moqtrun_repath_fresh_dne();
   test_moqtrun_repath_fresh_own_upstream();
