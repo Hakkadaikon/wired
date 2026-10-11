@@ -10272,8 +10272,13 @@ static void srvrun_path_probe_fresh(
     int                    kept) {
   pathsel_slot* s = pathsel_claim_free(&c->path, a);
   if (!s) return;
-  s->in_use = (u8)srvrun_path_answer(ctx, c, a, n, kept);
-  srvrun_path_arm(ctx->cfg, c, s->in_use ? s : 0, ctx->now_ms);
+  /* bind the path's peer ID (with the 9.5 exception), then challenge before
+   * answering: the first datagram on the new path carries the
+   * PATH_CHALLENGE; a path without a peer ID frees the slot, unanswered */
+  s->in_use = srvrun_path_cid(ctx->cfg, c, a, kept) != 0;
+  if (!s->in_use) return;
+  srvrun_path_arm(ctx->cfg, c, s, ctx->now_ms);
+  (void)srvrun_path_answer(ctx, c, a, n, kept);
 }
 
 static void srvrun_path_probe(

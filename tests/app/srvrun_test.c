@@ -4138,6 +4138,7 @@ static void sr_net_close(sr_net* n) {
 /* What one client socket received since the last drain. */
 typedef struct {
   int n, chal, resp, retire;
+  int first_chal; /* PATH_CHALLENGEs in the first datagram received */
   u8  dcid0;
   u16 port_be;
   usz len;
@@ -4162,8 +4163,9 @@ static sr_rx sr_drain(struct lp_fix* f, i64 fd) {
     r.dcid0   = pkt[1];
     r.port_be = from.port_be;
     r.len     = (usz)n;
-    if (client_open_onertt(f, pkt, (usz)n, &pl, &pll) == 1)
-      sr_rx_note(&r, pl, pll);
+    if (client_open_onertt(f, pkt, (usz)n, &pl, &pll) != 1) continue;
+    sr_rx_note(&r, pl, pll);
+    if (r.n == 1) r.first_chal = r.chal;
   }
   return r;
 }
@@ -4312,6 +4314,30 @@ static void test_srvrun_path_wire_each_challenge_once(void) {
     CHECK(r.resp == 2 && r.len >= 1200);
     sr_serve_at(&f, &st, &a, 5, wired_span_of(two, sizeof two));
     CHECK(sr_drain(&f, n.afd).resp == 0);
+  }
+  sr_net_close(&n);
+}
+
+/* RFC 9000 8.2/9.3: a probe from a new path starts its validation in the
+ * same breath as the answer -- the first datagram the server sends on that
+ * path carries a PATH_CHALLENGE (what an interop peer checks). */
+static void test_srvrun_path_wire_probe_challenged_first(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st     = {table, &c};
+  u8            one[9] = {0x1a, 1, 2, 3, 4, 5, 6, 7, 8};
+  sr_net        n;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival a = {&n.b, n.sfd, 0, 0, 0}; /* a probe from a new address */
+    sr_rx      r;
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(one, sizeof one));
+    r = sr_drain(&f, n.bfd);
+    CHECK(r.resp == 1 && r.chal == 1);
+    CHECK(r.first_chal == 1);
   }
   sr_net_close(&n);
 }
@@ -23853,6 +23879,7 @@ void test_srvrun(void) {
   test_srvrun_path_wire_no_cid_no_response();
   test_srvrun_path_wire_busy_probe_ignored();
   test_srvrun_path_wire_each_challenge_once();
+  test_srvrun_path_wire_probe_challenged_first();
   test_srvrun_path_wire_retire();
   test_srvrun_path_wire_retire_unused();
 
