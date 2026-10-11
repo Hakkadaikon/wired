@@ -364,6 +364,13 @@ typedef struct {
   /** Streams the hub opened for this subscription (relay, blob, live and
    * fetch streams alike): PUBLISH_DONE's Stream Count (draft 10.10). */
   u64 stream_count;
+  /** The newest Group a lossy relay stream was opened in for this
+   * subscription, valid while newest_sid is not 0. */
+  u64 newest_group;
+  /** That stream (0: none yet -- a server-initiated uni stream id is
+   * never 0). A stream opened in a newer Group resets it: the older
+   * Group's unsent backlog is stale for a live subscriber. */
+  u64 newest_sid;
   /* SSTS (moqtssts_run.c) */
   /** Group of verdict bit 0: bit k of ssts_known / ssts_fwd is the
    * recorded verdict for Group ssts_base + k (moqtss_sub_pass). */

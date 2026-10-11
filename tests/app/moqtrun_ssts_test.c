@@ -788,17 +788,18 @@ static void test_moqtrun_ssts_resubscribe_other_set(void) {
   }
 }
 
-/* N2: a congested subscriber on a lossy member: its hi Group 5 stream is
- * shed (8 refused rounds) while Group 6's stays open -- the reset counts
- * as congestion (moqtail StreamTimeout), so Group 7 drops to lo. */
+/* N2: a congested subscriber on a lossy member: its hi Group 6 stream is
+ * shed (8 refused rounds) while Group 5's publisher stream is still open
+ * -- the reset counts as congestion (moqtail StreamTimeout), so Group 7
+ * drops to lo. */
 static void test_moqtrun_ssts_shed_downshifts(void) {
   mtss_room();
   for (u64 g = 0; g < 5; g++) mtss_group_both(g);
   CHECK(mtss_got(4, 0));
-  u64 h5 = mtss_push(1, 5, 1, 0);
-  mtss_push(1, 6, 1, 0);
+  mtss_push(1, 5, 1, 0);
+  u64 h6                    = mtss_push(1, 6, 1, 0);
   g_stream_send_reject_sess = SESS_B;
-  for (int r = 0; r < WIRED_MOQTRUN_RESET_AFTER_BUSY; r++) mtss_more(h5, 1, 0);
+  for (int r = 0; r < WIRED_MOQTRUN_RESET_AFTER_BUSY; r++) mtss_more(h6, 1, 0);
   g_stream_send_reject_sess = 0;
   CHECK(mtst_hub.stat_relay_reset == 1);
   CHECK(mtss_b()->timeouts == 1);

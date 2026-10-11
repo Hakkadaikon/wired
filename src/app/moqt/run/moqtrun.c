@@ -1533,6 +1533,7 @@ static void moqtrun_sub_open(
   s->request_id   = m->request_id;
   s->blob_sent    = 0;
   s->stream_count = 0;
+  s->newest_sid   = 0;
   s->no_props     = moqtrun_sub_no_props(m);
   moqtss_sub_reset(s); /* SSTS (moqtssts_run.c): in no set */
   moqtsw_sub_clear(s); /* SWITCH_FROM (moqtswitch.c): no switch */
@@ -6199,6 +6200,45 @@ static int moqtrun_relay_expire(
   return 1;
 }
 
+/* relay is a lossy stream of a Group older than the newest sub was
+ * opened a stream in (wired_moqtrun_sub.newest_sid). */
+static int moqtrun_relay_stale_for(
+    const wired_moqtrun_sub* sub, const wired_moqtrun_relay* relay) {
+  return relay->rel_idx < 0 && sub->newest_sid &&
+         relay->group_id < sub->newest_group;
+}
+
+/* A newer Group superseded relay for sub slot i: its stream is reset (a
+ * second reset of the newest_sid one is a no-op) and i skipped for the
+ * rest of the Subgroup -- no append, no late re-open. 1 when it was. */
+static int moqtrun_relay_stale_cut(
+    wired_moqt_hub*          hub,
+    const wired_moqtrun_sub* sub,
+    wired_moqtrun_peer*      dst,
+    wired_moqtrun_relay*     relay,
+    usz                      i) {
+  if (!moqtrun_relay_stale_for(sub, relay)) return 0;
+  if (relay->sub_stream_set[i])
+    hub->io.stream_reset(
+        dst->wt, relay->sub_stream_id[i], MOQTRUN_RESET_INTERNAL_ERROR);
+  relay->sub_stream_set[i] = 0;
+  relay->sub_expired |= moqtrun_sub_bit(i);
+  return 1;
+}
+
+/* Sub slot i no longer takes relay's rounds: superseded by a newer
+ * Group, or past its delivery timeout. */
+static int moqtrun_relay_gone(
+    wired_moqt_hub*          hub,
+    const wired_moqtrun_sub* sub,
+    wired_moqtrun_peer*      dst,
+    wired_moqtrun_relay*     relay,
+    usz                      i,
+    u64                      born_ms) {
+  return moqtrun_relay_stale_cut(hub, sub, dst, relay, i) ||
+         moqtrun_relay_expire(hub, sub, dst, relay, i, born_ms);
+}
+
 /* wire cut to sub's End Object for relay's sub slot i (moqtrun_wire_
  * cutoff, decoding from seq0 -- the chaining state right before this
  * round). A cut that drops any bytes marks i expired on relay (10.9.1: no
@@ -6235,7 +6275,7 @@ static void moqtrun_relay_append_one(
     u64                  born_ms) {
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
   if (moqtrun_relay_skips(dst, relay, i)) return;
-  if (moqtrun_relay_expire(hub, sub, dst, relay, i, born_ms)) return;
+  if (moqtrun_relay_gone(hub, sub, dst, relay, i, born_ms)) return;
   usz cut = moqtrun_startobj_cut(sub, wire, 0, &seq0, relay->group_id);
   wire    = wired_span_of(wire.p + cut, wire.n - cut);
   wire    = moqtrun_relay_end_cut(relay, i, wire, seq0, sub, &fin);
@@ -7202,6 +7242,32 @@ static void moqtrun_relay_open_end_hit(
   relay->sub_expired |= moqtrun_sub_bit(i);
 }
 
+/* relay is lossy and its Group past every Group sub was opened a lossy
+ * stream in. */
+static int moqtrun_relay_newer_for(
+    const wired_moqtrun_sub* sub, const wired_moqtrun_relay* relay) {
+  return relay->rel_idx < 0 &&
+         (!sub->newest_sid || relay->group_id > sub->newest_group);
+}
+
+/* Lossy stream sid just opened for sub on relay: in a newer Group it
+ * resets the previous newest stream -- even one the publisher already
+ * FIN'd and the hub stopped tracking -- so its stale backlog does not
+ * hold the newer Group back (draft-22 7.2 sends a subscription's Groups
+ * in order), and becomes the newest. */
+static void moqtrun_sub_note_open(
+    wired_moqt_hub*            hub,
+    wired_wt_session*          wt,
+    wired_moqtrun_sub*         sub,
+    const wired_moqtrun_relay* relay,
+    u64                        sid) {
+  if (!moqtrun_relay_newer_for(sub, relay)) return;
+  if (sub->newest_sid)
+    hub->io.stream_reset(wt, sub->newest_sid, MOQTRUN_RESET_INTERNAL_ERROR);
+  sub->newest_group = relay->group_id;
+  sub->newest_sid   = sid;
+}
+
 /* Opens sub slot i's relay stream carrying wire, cut to sub's End Object
  * (moqtrun_hdr_cutoff) when wire still starts with its SUBGROUP_HEADER --
  * a late-open's wire is header-only (relay->hdr_len, no Objects) and the
@@ -7229,6 +7295,7 @@ static void moqtrun_relay_open_one(
   }
   moqtrun_prio_set(hub, dst->wt, sid, sub, out, relay->default_pub_prio);
   sub->stream_count++;
+  moqtrun_sub_note_open(hub, dst->wt, sub, relay, (u64)sid);
   relay->sub_stream_id[i]   = (u64)sid;
   relay->sub_stream_set[i]  = 1;
   relay->sub_busy_streak[i] = 0;

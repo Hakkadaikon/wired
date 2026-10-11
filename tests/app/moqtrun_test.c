@@ -2973,6 +2973,85 @@ static void test_moqtrun_shed_stream_skips_publisher_fin(void) {
   CHECK(moqtrun_test_count_kind(3) == 0);
 }
 
+/* Opens publisher stream pub_sid on the audio track at Group group and
+ * returns the subscriber-side relay stream it opened. */
+static u64 moqtrun_test_open_audio_group(
+    wired_moqt_hub* hub, u64 pub_sid, u8 group) {
+  u8  head[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n   = moqtrun_test_subgroup_with_alias(0x02, head);
+  head[2] = group;
+  wired_moqt_on_stream_data(hub, SESS_A, pub_sid, wired_span_of(head, n), 0);
+  return moqtrun_test_last_kind(5)->stream_id;
+}
+
+/* A newer Group's stream resets the subscriber's stream of the older one
+ * even after the publisher FIN'd it: its unsent backlog is stale, and
+ * draining it first would hold the newer Group back. */
+static void test_moqtrun_newer_group_resets_finished_older_stream(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_audio_relay(&hub);
+  u64 old_sid = moqtrun_test_open_audio_group(&hub, 999, 0);
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(0, 0), 1);
+
+  moqtrun_test_reset();
+  u64 new_sid = moqtrun_test_open_audio_group(&hub, 1003, 1);
+  CHECK(moqtrun_test_count_kind(7) == 1);
+  CHECK(moqtrun_test_last_kind(7)->stream_id == old_sid);
+  CHECK(moqtrun_test_last_kind(7)->s == SESS_B);
+  CHECK(new_sid != old_sid);
+}
+
+/* An older Group's publisher stream still open when a newer one starts:
+ * its subscriber stream is reset once and its later rounds go nowhere --
+ * no append to the dead stream, no late re-open of the stale Group. */
+static void test_moqtrun_newer_group_cuts_open_older_relay(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_audio_relay(&hub);
+  u64 old_sid = moqtrun_test_open_audio_group(&hub, 999, 0);
+  moqtrun_test_open_audio_group(&hub, 1003, 1);
+
+  moqtrun_test_reset();
+  moqtrun_test_send_audio_round(&hub, 999, 7);
+  moqtrun_test_send_audio_round(&hub, 999, 8);
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(0, 0), 1);
+  CHECK(moqtrun_test_count_kind(3) == 0); /* no append */
+  CHECK(moqtrun_test_count_kind(5) == 0); /* no re-open */
+  CHECK(moqtrun_test_count_kind(6) == 0); /* no FIN on the dead id */
+  CHECK(old_sid != 0);
+}
+
+/* A reliable (ring-backed) track delivers every Group whole: a newer
+ * Group's stream resets nothing. */
+static void test_moqtrun_newer_group_keeps_reliable_stream(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  hub.reliable_alias_limit = 100;
+  moqtrun_test_setup_audio_relay(&hub);
+  moqtrun_test_open_audio_group(&hub, 999, 0);
+  moqtrun_test_reset();
+  moqtrun_test_open_audio_group(&hub, 1003, 1);
+  moqtrun_test_send_audio_round(&hub, 999, 7);
+  CHECK(moqtrun_test_count_kind(5) == 1);
+  CHECK(moqtrun_test_count_kind(7) == 0);
+}
+
+/* A second stream of the same Group leaves the first alone. */
+static void test_moqtrun_same_group_stream_keeps_sibling(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_audio_relay(&hub);
+  moqtrun_test_open_audio_group(&hub, 999, 3);
+  moqtrun_test_reset();
+  moqtrun_test_open_audio_group(&hub, 1003, 3);
+  CHECK(moqtrun_test_count_kind(7) == 0);
+}
+
 /* The streak is per subscriber: starving ONE subscriber's session sheds
  * only that subscriber's stream -- the healthy peer's stream keeps
  * receiving every round untouched. */
@@ -5894,6 +5973,10 @@ static void mtall_main(void) {
   test_moqtrun_send_uni_failure_counts_open_drop();
   test_moqtrun_relay_table_full_counts();
   test_moqtrun_busy_streak_sheds_after_threshold();
+  test_moqtrun_newer_group_resets_finished_older_stream();
+  test_moqtrun_newer_group_cuts_open_older_relay();
+  test_moqtrun_same_group_stream_keeps_sibling();
+  test_moqtrun_newer_group_keeps_reliable_stream();
   test_moqtrun_busy_streak_success_resets();
   test_moqtrun_shed_stream_skips_publisher_fin();
   test_moqtrun_busy_shed_isolated_per_subscriber();
