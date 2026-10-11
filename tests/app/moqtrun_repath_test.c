@@ -606,6 +606,21 @@ static void test_moqtrun_repath_fresh_own_upstream_rt(void) {
   CHECK(mrdv_is(SESS_B, MRDV_S2, "E2|FIN|"));
 }
 
+/* A's session is being closed by the hub (a malformed GOAWAY) while the
+ * hub's SUBSCRIBE to A is pending: a new SUBSCRIBE does not ride it -- it
+ * is DOES_NOT_EXIST at once, not held until the close lands. */
+static void test_moqtrun_repath_fresh_closing_upstream(void) {
+  static const u8 bad[] = {0x05};
+  mups_init();
+  mtst_join(SESS_C);
+  mtst_join(MRP_E);
+  mups_sub(SESS_C, MRDV_S1);
+  CHECK(mups_up_sid() >= 0);
+  mtrq_raw(SESS_A, mtdr_ctl(SESS_A), MOQCTL_T_GOAWAY, bad, sizeof bad);
+  mups_sub(MRP_E, MRDV_S1);
+  CHECK(mrdv_is(MRP_E, MRDV_S1, "E10|FIN|"));
+}
+
 /* A new SUBSCRIBE finding only the publisher that just ended is
  * DOES_NOT_EXIST at once. */
 static void test_moqtrun_repath_fresh_dne(void) {
@@ -767,6 +782,7 @@ static void mtall_repath(void) {
   test_moqtrun_repath_fresh_dne();
   test_moqtrun_repath_fresh_own_upstream();
   test_moqtrun_repath_fresh_own_upstream_rt();
+  test_moqtrun_repath_fresh_closing_upstream();
   test_moqtrun_repath_no_room();
   test_moqtrun_repath_table_full();
   test_moqtrun_repath_update();

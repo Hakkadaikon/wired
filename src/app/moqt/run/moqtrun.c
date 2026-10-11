@@ -1971,12 +1971,20 @@ static wired_moqtrun_req* moqtrun_up_announcer(
 /* Upstream SUBSCRIBE block: the hub's upstream SUBSCRIBE for k, else 0. */
 static wired_moqtrun_up* moqtrun_up_of_key(wired_moqt_hub* hub, moqtrun_key k);
 
+static int moqtrun_rdv_peer_open(const wired_moqtrun_peer* sp);
+
+/* u's publisher session is not being closed by the hub. */
+static int moqtrun_up_pub_open(wired_moqt_hub* hub, const wired_moqtrun_up* u) {
+  return moqtrun_rdv_peer_open(moqtrun_find_by_wt(hub, u->wt));
+}
+
 /* An upstream SUBSCRIBE for k that p's SUBSCRIBE may ride: not one to p's
- * own session (its own announcement never serves it). */
+ * own session (its own announcement never serves it), nor one to a
+ * session the hub is closing (it would wait for that close). */
 static int moqtrun_up_rideable(
     wired_moqt_hub* hub, const wired_moqtrun_peer* p, moqtrun_key k) {
   const wired_moqtrun_up* u = moqtrun_up_of_key(hub, k);
-  return u && u->wt != p->wt;
+  return u && u->wt != p->wt && moqtrun_up_pub_open(hub, u);
 }
 
 /* Worth waiting for: a non-zero timeout (0 MUST get DOES_NOT_EXIST now
@@ -9979,13 +9987,16 @@ static void moqtrun_rp_untry(wired_moqt_hub* hub, const wired_moqtrun_req* q) {
       hub->rdv[i].tried &= ~bit;
 }
 
+/* q may be asked: it covers k, its session not skipped nor being closed
+ * by the hub (nothing more goes to it, moqtrun_rdv_target). */
 static int moqtrun_up_candidate(
     wired_moqt_hub*          hub,
     const wired_moqtrun_req* q,
     const wired_wt_session*  s,
     moqtrun_key              k,
     u64                      skip) {
-  return moqtrun_up_covers(q, s, k) && !(skip & moqtrun_rp_bit(hub, q->wt));
+  return moqtrun_up_covers(q, s, k) && !(skip & moqtrun_rp_bit(hub, q->wt)) &&
+         moqtrun_rdv_peer_open(moqtrun_find_by_wt(hub, q->wt));
 }
 
 static wired_moqtrun_req* moqtrun_up_announcer_skip(
