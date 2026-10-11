@@ -2743,6 +2743,30 @@ static void test_srvloop_qpack_split_inserts_section_ack(void) {
   CHECK(f.l.qpack_stream_violation == 0);
 }
 
+/* RFC 9220 3 / RFC 9204 4.5.2: an Extended CONNECT (no FIN) whose HEADERS
+ * reference B.2's two inserts (:authority relative 1, :path relative 0;
+ * RIC 2, Base 2) is detected as complete and decoded -- the session opens
+ * without waiting for a FIN that never comes. */
+static void test_srvloop_qpack_connect_dynamic_refs(void) {
+  static const u8 hdr[] = {0x01, 0x1e, 0x03, 0x00, 0xcf, 0xd7, 0x81, 0x80,
+                           0x27, 0x02, ':',  'p',  'r',  'o',  't',  'o',
+                           'c',  'o',  'l',  0x0c, 'w',  'e',  'b',  't',
+                           'r',  'a',  'n',  's',  'p',  'o',  'r',  't'};
+  struct lp_fix   f;
+  u8              payload[256], out[1024];
+  usz             off;
+  wired_obuf      ob = {out, sizeof out, 0};
+  stream_frame    sf = {4, 0, sizeof hdr, hdr, 0};
+  lp_confirm(&f, &ob);
+  off = lp_qenc_frame(payload, sizeof payload, 0, lp_b2_enc, sizeof lp_b2_enc);
+  off += frame_put_stream(payload + off, sizeof payload - off, &sf);
+  lp_step_payload(&f, 3, payload, off);
+  CHECK(f.l.h3.qdyn.count == 2);
+  CHECK(f.l.done_n == 1 && f.l.qpack_stream_violation == 0);
+  CHECK(f.l.req.method_len == 7 && f.l.req.protocol_len == 12);
+  CHECK(f.l.req.path_len == 12 && f.l.req.path[0] == '/');
+}
+
 /* RFC 9204 2.1.2: with no blocked streams allowed, a section needing
  * inserts not yet received is QPACK_DECOMPRESSION_FAILED. */
 static void test_srvloop_qpack_blocked_section_fails(void) {
@@ -5163,6 +5187,7 @@ void test_srvloop(void) {
   test_srvloop_qpack_encoder_set_capacity_over_limit();
   test_srvloop_qpack_split_inserts_section_ack();
   test_srvloop_qpack_blocked_section_fails();
+  test_srvloop_qpack_connect_dynamic_refs();
   test_srvloop_qpack_bad_duplicate();
   test_srvloop_uni_unrecognized_type_no_crash();
   test_srvloop_uni_reset_before_type_no_crash();

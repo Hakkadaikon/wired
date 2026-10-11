@@ -192,10 +192,18 @@ static int req_method_is_connect(const wired_h3reqdrive_req* r) {
   return dispatch_bytes_eq7(r->method, want);
 }
 
+/* The connection's dynamic table, none for a test stub with no h3 state. */
+static const qpack_dyn* dispatch_qdyn(const wired_h3srv_state* h3) {
+  return h3 ? &h3->qdyn : 0;
+}
+
 /* Wrap acc's first n bytes as a STREAM frame in in->wrap (the same caller-
  * owned buffer drive_complete reuses right after) and decode the request
- * into *r. Returns 1 on a successful decode. */
+ * into *r against the connection's dynamic table (RFC 9204 2.2: the peer's
+ * encoder may reference it in any section, the CONNECT included). Returns 1
+ * on a successful decode. */
 static int peek_decode_request(
+    const wired_h3srv_state*         h3,
     const wired_srvloop_reqacc*      acc,
     const wired_srvloop_dispatch_in* in,
     usz                              n,
@@ -203,8 +211,8 @@ static int peek_decode_request(
   stream_frame f  = {0, 0, n, acc->buf, 0};
   wired_obuf   ob = obuf_of(in->wrap.p, in->wrap.n);
   if (!appdata_stream_frame(&f, &ob)) return 0;
-  return wired_h3reqdrive_recv_get(
-      wired_span_of(in->wrap.p, ob.len), in->scratch, r);
+  return wired_h3reqdrive_recv_get_dyn(
+      wired_span_of(in->wrap.p, ob.len), in->scratch, dispatch_qdyn(h3), r);
 }
 
 /* RFC 9220 3 / draft-ietf-webtrans-http3 3: an Extended CONNECT's request
@@ -213,11 +221,13 @@ static int peek_decode_request(
  * its HEADERS frame. 1 if acc currently holds one complete HEADERS frame
  * that decodes to a CONNECT request. */
 static int connect_headers_complete(
-    const wired_srvloop_reqacc* acc, const wired_srvloop_dispatch_in* in) {
+    const wired_h3srv_state*         h3,
+    const wired_srvloop_reqacc*      acc,
+    const wired_srvloop_dispatch_in* in) {
   wired_h3reqdrive_req r;
   usz                  n = acc_headers_frame_len(acc);
   if (n == 0) return 0;
-  if (!peek_decode_request(acc, in, n, &r)) return 0;
+  if (!peek_decode_request(h3, acc, in, n, &r)) return 0;
   return req_method_is_connect(&r);
 }
 
@@ -225,10 +235,12 @@ static int connect_headers_complete(
  * complete HEADERS frame (see connect_headers_complete -- waiting for a FIN
  * that never comes starved every browser WebTransport session). */
 static int request_complete(
-    const wired_srvloop_reqacc* acc, const wired_srvloop_dispatch_in* in) {
+    const wired_h3srv_state*         h3,
+    const wired_srvloop_reqacc*      acc,
+    const wired_srvloop_dispatch_in* in) {
   if (*acc->done) return 0;
   if (*acc->fin) return 1;
-  return connect_headers_complete(acc, in);
+  return connect_headers_complete(h3, acc, in);
 }
 
 /* 1 if the walked frame at `frame` is ANY client-bidi-id-shaped STREAM frame
@@ -1495,7 +1507,7 @@ static void route_complete_slot(
       in->payload, wired_mspan_of(slot->req_scratch, sizeof slot->req_scratch),
       wired_mspan_of(slot->req_wrap, sizeof slot->req_wrap), &got, &slot->req};
   if (route_answered_early(ctx, i)) return;
-  if (!request_complete(&acc, &sin)) return;
+  if (!request_complete(ctx->h3, &acc, &sin)) return;
   route_dispatch_complete(ctx, &acc, &sin);
   route_note_result(ctx->l, i, got);
 }
@@ -1526,7 +1538,8 @@ static int reassemble_single(
     const wired_srvloop_dispatch_ctx* ctx,
     const wired_srvloop_dispatch_in*  in) {
   if (!gather_request(ctx->l, in->payload.p, in->payload.n, ctx->acc)) return 0;
-  if (request_complete(ctx->acc, in)) drive_complete(ctx->h3, ctx->acc, in);
+  if (request_complete(ctx->h3, ctx->acc, in))
+    drive_complete(ctx->h3, ctx->acc, in);
   return 1;
 }
 
