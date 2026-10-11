@@ -29,8 +29,17 @@ static void peercid_owe(peercid* p, u64 seq) {
   if (p->retire_n < PEERCID_RETIRE) p->retire[p->retire_n++] = seq;
 }
 
+/* seq's bit in gone, or 0 outside [rpt, rpt + 64). ponytail: an ID retired
+ * further ahead is held again if its frame repeats; widen gone if a peer
+ * issues that far ahead. */
+static u64 peercid_bit(const peercid* p, u64 seq) {
+  u64 d = seq - p->rpt;
+  return d < 64 ? (u64)1 << d : 0;
+}
+
 static void peercid_drop(peercid* p, peercid_entry* e) {
   peercid_owe(p, e->seq);
+  p->gone |= peercid_bit(p, e->seq);
   e->in_use = 0;
 }
 
@@ -68,16 +77,26 @@ static void peercid_drop_below(peercid* p, u64 rpt) {
 
 static void peercid_raise_rpt(peercid* p, u64 rpt) {
   if (rpt <= p->rpt) return;
-  p->rpt = rpt;
+  p->gone = rpt - p->rpt < 64 ? p->gone >> (rpt - p->rpt) : 0;
+  p->rpt  = rpt;
   peercid_drop_below(p, rpt);
+}
+
+/* RFC 9000 5.1.2/19.15: an ID below Retire Prior To is retired at once; a
+ * repeat of one already retired is ignored; any other is stored. */
+static int peercid_take(peercid* p, const ncid_frame* f) {
+  if (f->seq < p->rpt) {
+    peercid_owe(p, f->seq);
+    return 0;
+  }
+  if (p->gone & peercid_bit(p, f->seq)) return 0;
+  return peercid_store(p, f);
 }
 
 int peercid_add(peercid* p, const ncid_frame* f) {
   if (p->empty) return ERR_PROTOCOL_VIOLATION; /* RFC 9000 19.15 */
   peercid_raise_rpt(p, f->retire_prior_to);
-  if (f->seq >= p->rpt) return peercid_store(p, f);
-  peercid_owe(p, f->seq);
-  return 0;
+  return peercid_take(p, f);
 }
 
 static int peercid_live(const peercid_entry* e) {

@@ -46,6 +46,9 @@ typedef struct {
   u64 retire[PEERCID_RETIRE];
   /** The largest Retire Prior To received. */
   u64 rpt;
+  /** Sequence numbers rpt + i the server retired, as bit i (RFC 9000
+   * 19.15: a repeated frame for one is ignored). */
+  u64 gone;
   /** Entries used in retire. */
   u8 retire_n;
   /** 1 when the peer uses a zero-length ID (RFC 9000 5.1). */
@@ -57,7 +60,8 @@ void peercid_init(peercid* p, wired_span cid0);
 
 /* RFC 9000 5.1.2/19.15: a received NEW_CONNECTION_ID. IDs below its Retire
  * Prior To are dropped and queued for retirement; the new ID is held unless
- * already held or already retired. Returns 0, or the transport error to
+ * already held or already retired (below Retire Prior To, or within 64 of
+ * it and retired here). Returns 0, or the transport error to
  * close with: PROTOCOL_VIOLATION when a held sequence number carries another
  * ID or the peer uses a zero-length ID, CONNECTION_ID_LIMIT_ERROR when the pool
  * is full (5.1.1). */

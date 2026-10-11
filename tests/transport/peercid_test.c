@@ -170,7 +170,49 @@ static void test_peercid_empty_rejects_new(void) {
   CHECK(peercid_add(&p, &f1) == ERR_PROTOCOL_VIOLATION);
 }
 
+/* RFC 9000 19.15: a NEW_CONNECTION_ID repeated after its ID was retired is
+ * ignored: not held again, and no limit error with the pool full. */
+static void test_peercid_retired_repeat_ignored(void) {
+  peercid     p;
+  pathsel_key k1 = pc_key(3, 1), k2 = pc_key(3, 2), k3 = pc_key(3, 3);
+  ncid_frame  f1 = pc_ncid(1, 0, 0xb1), f2 = pc_ncid(2, 0, 0xb2);
+  u64         seq;
+  pc_pool(&p);
+  peercid_bind(&p, &k1);
+  peercid_bind(&p, &k2);
+  peercid_sweep(&p, &k1, 1);
+  CHECK(peercid_take_retire(&p, &seq) == 1 && seq == 1);
+  CHECK(peercid_add(&p, &f1) == 0);
+  CHECK(peercid_add(&p, &f2) == 0);
+  CHECK(peercid_add(&p, &f1) == 0);
+  CHECK(peercid_bind(&p, &k3)->seq == 2);
+  CHECK(peercid_take_retire(&p, &seq) == 0);
+}
+
+/* A retired ID stays remembered as Retire Prior To rises past older ones. */
+static void test_peercid_retired_kept_past_rpt(void) {
+  peercid     p;
+  pathsel_key k1 = pc_key(3, 1), k2 = pc_key(3, 2), k3 = pc_key(3, 3);
+  ncid_frame  f2 = pc_ncid(2, 0, 0xb2), f3 = pc_ncid(3, 1, 0xb3);
+  u64         seq;
+  pc_pool(&p);
+  peercid_bind(&p, &k1);
+  peercid_bind(&p, &k2);
+  peercid_sweep(&p, &k1, 1); /* seq 1 */
+  peercid_add(&p, &f2);
+  peercid_bind(&p, &k3);
+  peercid_sweep(&p, &k1, 1); /* seq 2 */
+  peercid_add(&p, &f3);      /* drops seq 0 */
+  while (peercid_take_retire(&p, &seq)) {
+  }
+  CHECK(peercid_add(&p, &f2) == 0);
+  CHECK(peercid_bind(&p, &k2)->seq == 3);
+  CHECK(peercid_bind(&p, &k3) == 0);
+}
+
 void test_peercid(void) {
+  test_peercid_retired_repeat_ignored();
+  test_peercid_retired_kept_past_rpt();
   test_peercid_empty_never_retired();
   test_peercid_empty_rejects_new();
   test_peercid_bind_per_path();
