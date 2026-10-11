@@ -81,7 +81,7 @@ static void test_rawq_uni_and_dgram(void) {
   CHECK(rawq_uni_first_id(1) == RAWQ_UNI_FIRST_RAW);
   CHECK(rawq_uni_first_id(1) == 3);
   CHECK(rawq_uni_first_id(0) == RAWQ_UNI_FIRST_H3);
-  CHECK(rawq_uni_first_id(0) == 11);
+  CHECK(rawq_uni_first_id(0) == 15);
   CHECK(rawq_dgram_prefix_len(1, RAWQ_NO_CONNECT_ID) == 0);
   CHECK(rawq_dgram_prefix_len(1, 4 * 16384) == 0);
   CHECK(rawq_dgram_prefix_len(0, 0) == 1);

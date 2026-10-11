@@ -8,8 +8,11 @@
  * Insert Count Increment (4.4.3) for every insert no acknowledgment already
  * covered. Stream Cancellation (4.4.2) is never sent. */
 
-/** Queued Section Acknowledgment bytes (a few bytes each). */
-#define QDYN_DEC_ACKS_MAX 64
+/** Queued Section Acknowledgment bytes. The queue is handed to the decoder
+ * stream after every step, so it only has to hold one step's acks: at most
+ * one per request stream a step completes (40), each at most 10 bytes (a
+ * 7-bit-prefix stream id below 2^62). */
+#define QDYN_DEC_ACKS_MAX 512
 /** Worst-case pending output: the queued acks plus one increment. */
 #define QDYN_DEC_OUT_MAX (QDYN_DEC_ACKS_MAX + 10)
 
@@ -21,8 +24,10 @@ typedef struct {
 } qdyn_dec;
 
 /* RFC 9204 4.4.1: queue a Section Acknowledgment for stream_id when its
- * section's Required Insert Count ric is non-zero. ponytail: a full queue
- * drops the ack (the encoder only keeps those entries pinned longer). */
+ * section's Required Insert Count ric is non-zero. ponytail: the queue only
+ * fills if the decoder stream's 64 KB send ring stays full for a step -- a
+ * peer granting it no credit; the ack is then dropped (the peer's encoder
+ * only keeps those entries pinned). A larger queue if that ever matters. */
 void qdyn_dec_section_ack(qdyn_dec* d, u64 stream_id, u64 ric);
 
 /* RFC 9204 4.4: write the owed bytes -- queued acks, then an Insert Count

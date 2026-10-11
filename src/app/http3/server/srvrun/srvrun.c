@@ -847,9 +847,9 @@ typedef struct {
   /** wtsend[] slot index (see srvrun_wtsend_claim) the QPACK encoder stream
    * lives on once qenc_stream_opened is set; meaningless before then. */
   int qenc_wtsend_slot;
-  /** RFC 9204 4.2: 1 once this connection's QPACK decoder stream has been
-   * opened -- lazily, on the first instruction it owes (srvrun_flush_qdec),
-   * at the next server uni id; never closed. */
+  /** RFC 9204 4.2: 1 once this connection's QPACK decoder stream (id 11)
+   * has been opened -- with the encoder stream, right after SETTINGS is
+   * sent (srvrun_open_qpack_streams); never closed. */
   int qdec_stream_opened;
   /** wtsend[] slot of the decoder stream once qdec_stream_opened is set. */
   int qdec_wtsend_slot;
@@ -1729,7 +1729,7 @@ static void srvrun_on_step(
 static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot);
 /* Forward-declared for the same reason: srvrun_on_step (above) calls it, but
  * it is defined alongside its own wtsend[] helpers further down. */
-static void srvrun_open_qenc_stream(srvrun_conn* c);
+static void srvrun_open_qpack_streams(srvrun_conn* c);
 static void srvrun_flush_qdec(srvrun_conn* c);
 /* Same: defined beside srvrun_send_wt_drain, which it sends through. */
 static void srvrun_flush_wt_drain(srvrun_conn* c);
@@ -4455,7 +4455,7 @@ static void srvrun_on_step_live(
                           * sends it at step end. */
   produced = wired_srvloop_step(&conn, dg, &ob);
   srvrun_raw_start(ctx->cfg, c);
-  if (c->l.h3.settings_sent) srvrun_open_qenc_stream(c);
+  srvrun_open_qpack_streams(c);
   srvrun_flush_qdec(c);
   srvrun_ku_note_rotation(c, ctx->now_ms);
   srvrun_note_recv(ctx, &mark, c, dg.n);
@@ -4992,9 +4992,10 @@ static srvrun_wtsend* srvrun_wtsend_claim(srvrun_conn* c, u64 credit) {
 /* RFC 9000 2.1: allocate the next server-initiated stream id. Called only
  * after a send slot has been claimed, so a failed open never burns an id. */
 static u64 srvrun_next_uni_id(srvrun_conn* c) {
-  /* HTTP/3: id 3 = H3 control stream, id 7 = QPACK encoder stream
-   * (srvrun_open_qenc_stream, opened once outside this counter) -- WT uni
-   * streams start at 11. Raw QUIC has neither, so they start at 3. */
+  /* HTTP/3: id 3 = H3 control stream, 7 = QPACK encoder stream, 11 = QPACK
+   * decoder stream (srvrun_open_qpack_streams, opened once outside this
+   * counter) -- WT uni streams start at 15. Raw QUIC has none of them, so
+   * they start at 3. */
   return rawq_uni_first_id(srvrun_conn_is_raw(c)) + 4 * c->wt_uni_opened++;
 }
 
@@ -5006,8 +5007,8 @@ static u64 srvrun_next_uni_id(srvrun_conn* c) {
  * streams -- the highest runtime MAX_STREAMS(uni) raise, or the
  * ClientHello's initial_max_streams_uni before any raise. Counts every uni
  * stream this server opened, H3 plumbing included (wt_uni_opened's id
- * arithmetic starts past the control + QPACK encoder streams on HTTP/3:
- * those two always count, srvrun_uni_plumbing). */
+ * arithmetic starts past the control + QPACK streams on HTTP/3:
+ * those three always count, srvrun_uni_plumbing). */
 static u64 srvrun_peer_uni_limit(const srvrun_conn* c) {
   return c->peer_uni_stream_limit ? c->peer_uni_stream_limit
                                   : c->s.sdrv.peer_initial_max_streams_uni;
@@ -5024,16 +5025,17 @@ static void srvrun_apply_uni_limit_update(srvrun_conn* c) {
 }
 
 /* Server uni streams opened outside wt_uni_opened: HTTP/3's control (3) and
- * QPACK encoder (7) -- the ids below the first application id -- and none
- * on raw QUIC (rawq_uni_first_id: 11 vs 3, RFC 9000 2.1 steps of 4). */
+ * QPACK encoder (7) and decoder (11) -- the ids below the first application
+ * id -- and none on raw QUIC (rawq_uni_first_id: 15 vs 3, RFC 9000 2.1 steps
+ * of 4). */
 static u64 srvrun_uni_plumbing(const srvrun_conn* c) {
   return (rawq_uni_first_id(srvrun_conn_is_raw(c)) - RAWQ_UNI_FIRST_RAW) / 4;
 }
 
 /* 1 iff the peer's uni-stream limit admits one more server-initiated open:
  * wt_uni_opened counts opens past the plumbing streams (srvrun_uni_plumbing)
- * -- on HTTP/3 the control stream (id 3) and the QPACK encoder stream (id 7,
- * srvrun_open_qenc_stream), which together consumed the first two grants. */
+ * -- on HTTP/3 the control stream (id 3) and the QPACK encoder (7) and
+ * decoder (11) streams, which together consumed the first three grants. */
 static int srvrun_uni_open_allowed(const srvrun_conn* c) {
   return maxstreams_can_open(
       c->wt_uni_opened + srvrun_uni_plumbing(c), srvrun_peer_uni_limit(c));
@@ -5112,27 +5114,39 @@ static void srvrun_open_qenc_stream(srvrun_conn* c) {
 static int srvrun_wtsend_stage_round(
     const srvrun_conn* c, srvrun_wtsend* w, wired_span payload, int fin);
 
-/* RFC 9204 4.2: open the decoder stream at the next server uni id over its
- * 0x03 type byte plus the first owed bytes p. 0 (nothing changed) when the
- * peer's uni-stream limit is spent or every wtsend slot is busy. */
-static int srvrun_qdec_open(srvrun_conn* c, wired_span p) {
-  u8             b[1 + QDYN_DEC_OUT_MAX];
-  srvrun_wtsend* w;
-  if (!srvrun_uni_open_allowed(c)) return 0;
+/* RFC 9204 4.2: this connection's fixed QPACK decoder stream id -- the
+ * third server-initiated uni stream, after the control and encoder ones. */
+#define SRVRUN_QDEC_STREAM 11
+
+/* RFC 9204 4.2 / RFC 9114 6.2: open the decoder stream once, beside the
+ * encoder stream, over its 0x03 type byte (a busy wtsend table retries next
+ * step). Opened up front so it holds one of the three uni streams RFC 9114
+ * 6.2 makes every peer allow: an application stream opened first can never
+ * take its credit and leave the peer's encoder without acknowledgments. */
+static void srvrun_open_qdec_stream(srvrun_conn* c) {
+  static const u8 type[] = {H3_STREAM_QPACK_DECODER};
+  srvrun_wtsend*  w;
+  if (c->qdec_stream_opened) return;
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_uni);
-  if (!w) return 0;
-  b[0] = H3_STREAM_QPACK_DECODER;
-  bytes_memcpy(b + 1, p.p, p.n);
+  if (!w) return;
   w->append_open = 1;
-  srvrun_wtsend_arm_id(c, w, srvrun_next_uni_id(c), wired_span_of(b, 1 + p.n));
+  srvrun_wtsend_arm_id(c, w, SRVRUN_QDEC_STREAM, wired_span_of(type, 1));
   c->qdec_wtsend_slot   = (int)(w - c->wtsend);
   c->qdec_stream_opened = 1;
-  return 1;
 }
 
-/* Hand p to the decoder stream, opening it first if needed. */
+/* RFC 9114 6.2 / RFC 9204 4.2: open the QPACK encoder and decoder streams
+ * once SETTINGS is sent; raw QUIC never sends it and opens neither. */
+static void srvrun_open_qpack_streams(srvrun_conn* c) {
+  if (!c->l.h3.settings_sent) return;
+  srvrun_open_qenc_stream(c);
+  srvrun_open_qdec_stream(c);
+}
+
+/* Append p to the decoder stream; 0 (still owed) until it is open or while
+ * its send ring is full. */
 static int srvrun_qdec_send(srvrun_conn* c, wired_span p) {
-  if (!c->qdec_stream_opened) return srvrun_qdec_open(c, p);
+  if (!c->qdec_stream_opened) return 0;
   return srvrun_wtsend_stage_round(c, &c->wtsend[c->qdec_wtsend_slot], p, 0);
 }
 

@@ -14681,12 +14681,12 @@ static void test_srvrun_uni_open_respects_peer_limit(void) {
   u8            obuf[1024];
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.s.sdrv.peer_initial_max_streams_uni = 3;
+  c.s.sdrv.peer_initial_max_streams_uni = 4;
   c.wt_uni_opened                       = 0;
-  /* control(1) + qenc(1) + this = 3 <= 3 */
+  /* control(1) + qenc(1) + qdec(1) + this = 4 <= 4 */
   CHECK(srvrun_uni_open_allowed(&c) == 1);
   c.wt_uni_opened = 1;
-  CHECK(srvrun_uni_open_allowed(&c) == 0); /* would be the 4th of 3 */
+  CHECK(srvrun_uni_open_allowed(&c) == 0); /* would be the 5th of 4 */
 }
 
 /* RFC 9000 19.11: a gathered MAX_STREAMS(uni) raise folds into the
@@ -14708,10 +14708,10 @@ static void test_srvrun_uni_peer_limit_update_monotone(void) {
   c.l.max_streams_uni_seen_flag = 1;
   srvrun_apply_uni_limit_update(&c);
   CHECK(c.peer_uni_stream_limit == 50); /* never lowered */
+  c.wt_uni_opened = 46;
+  CHECK(srvrun_uni_open_allowed(&c) == 1); /* 46+3 < 50 */
   c.wt_uni_opened = 47;
-  CHECK(srvrun_uni_open_allowed(&c) == 1); /* 47+2 < 50 */
-  c.wt_uni_opened = 48;
-  CHECK(srvrun_uni_open_allowed(&c) == 0); /* 48+2 == 50: full */
+  CHECK(srvrun_uni_open_allowed(&c) == 0); /* 47+3 == 50: full */
 }
 
 /* Uni STREAMS_BLOCKED before any uni slot release falls back to the
@@ -15386,7 +15386,7 @@ static void sr_wtsend_ack_all_inflight(
 
 /* WIRE: wired_server_wt_open_uni allocates the first free server uni id
  * (RFC 9000 2.1: 3 mod 4; the H3 control stream took 3 and the QPACK
- * encoder stream took 7, so 11) and the pump sends the payload verbatim as
+ * streams 7 and 11, so 15) and the pump sends the payload verbatim as
  * a STREAM frame on that id from offset 0, FIN on the final slice. A second
  * open is 4 apart. */
 static const u8 sr_wtsend_hello[] = {0x54, 0x04, 'h', 'i'};
@@ -15407,7 +15407,7 @@ static void test_srvrun_wt_open_uni_streams_payload_on_wire(void) {
   c->peer = srv;
   id      = wired_server_wt_open_uni(
       &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello));
-  CHECK(id == 11);
+  CHECK(id == 15);
   {
     srvrun_cfg cfg = {
         cfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
@@ -15425,7 +15425,7 @@ static void test_srvrun_wt_open_uni_streams_payload_on_wire(void) {
     CHECK(r > 0);
     CHECK(client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1);
     CHECK(frame_get_stream(pl, pll, &sf) > 0);
-    CHECK(sf.stream_id == 11);
+    CHECK(sf.stream_id == 15);
     CHECK(sf.offset == 0);
     high = sr_collect_stream(pl, pll, asm_buf, sizeof asm_buf, high, &fin);
   }
@@ -15438,7 +15438,7 @@ static void test_srvrun_wt_open_uni_streams_payload_on_wire(void) {
   CHECK(
       wired_server_wt_open_uni(
           &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
-      15);
+      19);
 }
 
 /* RFC 9000 4.6/19.14: a server-initiated uni open refused by the peer's own
@@ -15569,13 +15569,13 @@ static void test_srvrun_wt_open_bidi_allocates_ids_and_holds_view(void) {
 
 static u8 sr_prio_body[4 * SRVRUN_CHUNK];
 
-/* Opens two append-open uni streams (ids 11, 15) of sr_prio_body each, with
+/* Opens two append-open uni streams (ids 15, 19) of sr_prio_body each, with
  * cwnd room for exactly two slices per pump. */
 static srvrun_conn* sr_prio_fixture(struct lp_fix* f, wired_obuf* ob) {
   srvrun_conn* c = sr_wtsend_fixture(f, ob);
   wired_span   b = wired_span_of(sr_prio_body, sizeof sr_prio_body);
-  CHECK(wired_server_wt_open_uni_stream(&c->wt, b) == 11);
   CHECK(wired_server_wt_open_uni_stream(&c->wt, b) == 15);
+  CHECK(wired_server_wt_open_uni_stream(&c->wt, b) == 19);
   c->cc.cwnd = 2 * SRVRUN_CHUNK;
   return c;
 }
@@ -15594,13 +15594,13 @@ static void test_srvrun_wt_priority_lower_urgency_first(void) {
   srvrun_conn*  c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_prio_fixture(&f, &ob);
-  CHECK(wired_server_wt_stream_priority(&c->wt, 11, 5) == 1);
-  CHECK(wired_server_wt_stream_priority(&c->wt, 15, 1) == 1);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 15, 5) == 1);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 19, 1) == 1);
   sr_prio_pump();
   CHECK(wired_sendsess_inflight(&c->wtsend[1].sess) == 2);
   CHECK(wired_sendsess_inflight(&c->wtsend[0].sess) == 0);
   sr_wtsend_ack_all_inflight(c, &c->wtsend[1].sess, 0);
-  sr_prio_pump(); /* the ACK may grow cwnd: 15's tail goes first */
+  sr_prio_pump(); /* the ACK may grow cwnd: 19's tail goes first */
   CHECK(c->wtsend[1].sess.q.cur == sizeof sr_prio_body);
   sr_wtsend_ack_all_inflight(c, &c->wtsend[1].sess, 0);
   sr_prio_pump(); /* urgency-1 drained: urgency 5 proceeds */
@@ -15614,8 +15614,8 @@ static void test_srvrun_wt_priority_equal_keeps_order(void) {
   srvrun_conn*  c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_prio_fixture(&f, &ob);
-  CHECK(wired_server_wt_stream_priority(&c->wt, 15, 3) == 1);
-  sr_prio_pump(); /* 11 is default 3: same class, one slice each */
+  CHECK(wired_server_wt_stream_priority(&c->wt, 19, 3) == 1);
+  sr_prio_pump(); /* 15 is default 3: same class, one slice each */
   CHECK(wired_sendsess_inflight(&c->wtsend[0].sess) == 1);
   CHECK(wired_sendsess_inflight(&c->wtsend[1].sess) == 1);
 }
@@ -15627,8 +15627,8 @@ static void test_srvrun_wt_priority_blocked_urgent_does_not_starve(void) {
   srvrun_conn*  c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_prio_fixture(&f, &ob);
-  CHECK(wired_server_wt_stream_priority(&c->wt, 11, 5) == 1);
-  CHECK(wired_server_wt_stream_priority(&c->wt, 15, 1) == 1);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 15, 5) == 1);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 19, 1) == 1);
   c->wtsend[1].stream_credit = 0; /* RFC 9000 4.1: 15 may not send */
   sr_prio_pump();
   CHECK(wired_sendsess_inflight(&c->wtsend[1].sess) == 0);
@@ -15642,9 +15642,9 @@ static void test_srvrun_wt_priority_rejects_bad_args(void) {
   srvrun_conn*  c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_prio_fixture(&f, &ob);
-  CHECK(wired_server_wt_stream_priority(&c->wt, 11, 8) < 0);
-  CHECK(wired_server_wt_stream_priority(&c->wt, 19, 1) < 0);
-  CHECK(wired_server_wt_stream_priority(&c->wt, 11, 7) == 1);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 15, 8) < 0);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 23, 1) < 0);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 15, 7) == 1);
 }
 
 /* ===== MoQT-shaped send classes on the WT send pump =====
@@ -15684,8 +15684,8 @@ static void test_srvrun_wt_sched_better_class_first(void) {
   srvrun_conn*  c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_prio_fixture(&f, &ob);
-  sr_sched(c, 11, 4, 0x8080, 1, 0, SR_LIVE);
-  sr_sched(c, 15, 4, 0x0a80, 2, 0, SR_LIVE);
+  sr_sched(c, 15, 4, 0x8080, 1, 0, SR_LIVE);
+  sr_sched(c, 19, 4, 0x0a80, 2, 0, SR_LIVE);
   sr_prio_pump();
   CHECK(sr_inflight(c, 1) == 2);
   CHECK(sr_inflight(c, 0) == 0);
@@ -15698,7 +15698,7 @@ static void test_srvrun_wt_sched_control_before_data(void) {
   srvrun_conn*  c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_prio_fixture(&f, &ob);
-  sr_sched(c, 11, 4, 0, 1, 0, 0); /* 15 stays at the default 3 */
+  sr_sched(c, 15, 4, 0, 1, 0, 0); /* 19 stays at the default 3 */
   sr_prio_pump();
   CHECK(sr_inflight(c, 1) == 2);
   CHECK(sr_inflight(c, 0) == 0);
@@ -15711,7 +15711,7 @@ static void test_srvrun_wt_sched_blocked_control_lets_data(void) {
   srvrun_conn*  c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_prio_fixture(&f, &ob);
-  sr_sched(c, 11, 4, 0, 1, 0, 0);
+  sr_sched(c, 15, 4, 0, 1, 0, 0);
   c->wtsend[1].stream_credit = 0;
   sr_prio_pump();
   CHECK(sr_inflight(c, 0) == 2);
@@ -15725,8 +15725,8 @@ static void test_srvrun_wt_sched_fill_before_live(void) {
   srvrun_conn*  c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_prio_fixture(&f, &ob);
-  sr_sched(c, 11, 4, 0x8080, 7, 3, SR_LIVE);
-  sr_sched(c, 15, 4, 0x8080, 7, 3, 0);
+  sr_sched(c, 15, 4, 0x8080, 7, 3, SR_LIVE);
+  sr_sched(c, 19, 4, 0x8080, 7, 3, 0);
   sr_prio_pump();
   CHECK(sr_inflight(c, 1) == 2);
   CHECK(sr_inflight(c, 0) == 0);
@@ -15739,22 +15739,22 @@ static void test_srvrun_wt_sched_group_order(void) {
   srvrun_conn*  c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_prio_fixture(&f, &ob);
-  sr_sched(c, 11, 4, 0x8080, 7, 5, SR_LIVE);
-  sr_sched(c, 15, 4, 0x8080, 7, 4, SR_LIVE);
+  sr_sched(c, 15, 4, 0x8080, 7, 5, SR_LIVE);
+  sr_sched(c, 19, 4, 0x8080, 7, 4, SR_LIVE);
   sr_prio_pump(); /* ascending: group 4 first */
   CHECK(sr_inflight(c, 1) == 2);
   CHECK(sr_inflight(c, 0) == 0);
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_prio_fixture(&f, &ob);
-  sr_sched(c, 11, 4, 0x8080, 7, ~5ULL, SR_LIVE);
-  sr_sched(c, 15, 4, 0x8080, 7, ~4ULL, SR_LIVE);
+  sr_sched(c, 15, 4, 0x8080, 7, ~5ULL, SR_LIVE);
+  sr_sched(c, 19, 4, 0x8080, 7, ~4ULL, SR_LIVE);
   sr_prio_pump(); /* descending: group 5 first */
   CHECK(sr_inflight(c, 0) == 2);
   CHECK(sr_inflight(c, 1) == 0);
 }
 
-/* 15 leads its flow's order but sits in a worse class: it neither sends
- * nor holds back 11, so the pass still sends. */
+/* 19 leads its flow's order but sits in a worse class: it neither sends
+ * nor holds back 15, so the pass still sends. */
 static void test_srvrun_wt_sched_flow_order_inside_class(void) {
   struct lp_fix f;
   wired_obuf    ob = {0};
@@ -15762,8 +15762,8 @@ static void test_srvrun_wt_sched_flow_order_inside_class(void) {
   srvrun_conn*  c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_prio_fixture(&f, &ob);
-  sr_sched(c, 11, 4, 0x0101, 7, 9, SR_LIVE);
-  sr_sched(c, 15, 4, 0x0202, 7, 1, 0);
+  sr_sched(c, 15, 4, 0x0101, 7, 9, SR_LIVE);
+  sr_sched(c, 19, 4, 0x0202, 7, 1, 0);
   sr_prio_pump();
   CHECK(sr_inflight(c, 0) == 2);
   CHECK(sr_inflight(c, 1) == 0);
@@ -15776,8 +15776,8 @@ static void test_srvrun_wt_sched_blocked_fill_lets_live(void) {
   srvrun_conn*  c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_prio_fixture(&f, &ob);
-  sr_sched(c, 11, 4, 0x8080, 7, 3, SR_LIVE);
-  sr_sched(c, 15, 4, 0x8080, 7, 3, 0);
+  sr_sched(c, 15, 4, 0x8080, 7, 3, SR_LIVE);
+  sr_sched(c, 19, 4, 0x8080, 7, 3, 0);
   c->wtsend[1].stream_credit = 0;
   sr_prio_pump();
   CHECK(sr_inflight(c, 0) == 2);
@@ -15791,8 +15791,8 @@ static void test_srvrun_wt_sched_equal_flows_share(void) {
   srvrun_conn*  c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_prio_fixture(&f, &ob);
-  sr_sched(c, 11, 4, 0x8080, 7, 9, SR_LIVE);
-  sr_sched(c, 15, 4, 0x8080, 8, 1, 0);
+  sr_sched(c, 15, 4, 0x8080, 7, 9, SR_LIVE);
+  sr_sched(c, 19, 4, 0x8080, 8, 1, 0);
   sr_prio_pump();
   CHECK(sr_inflight(c, 0) == 1);
   CHECK(sr_inflight(c, 1) == 1);
@@ -15806,15 +15806,15 @@ static void test_srvrun_wt_sched_flow0_bypasses_order(void) {
   srvrun_conn*  c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_prio_fixture(&f, &ob);
-  sr_sched(c, 11, 3, 0, 0, 9, SR_LIVE);
-  sr_sched(c, 15, 3, 0, 0, 1, 0);
+  sr_sched(c, 15, 3, 0, 0, 9, SR_LIVE);
+  sr_sched(c, 19, 3, 0, 0, 1, 0);
   sr_prio_pump();
   CHECK(sr_inflight(c, 0) == 1);
   CHECK(sr_inflight(c, 1) == 1);
 }
 
-/* One pass with room to spare: 15 and 19 send one slice each, 11 waits
- * behind 15 in its flow. */
+/* One pass with room to spare: 19 and 23 send one slice each, 15 waits
+ * behind 19 in its flow. */
 static void test_srvrun_wt_sched_one_slice_per_pass(void) {
   struct lp_fix   f;
   wired_obuf      ob = {0};
@@ -15827,11 +15827,11 @@ static void test_srvrun_wt_sched_one_slice_per_pass(void) {
   c                   = sr_prio_fixture(&f, &ob);
   CHECK(
       wired_server_wt_open_uni_stream(
-          &c->wt, wired_span_of(sr_prio_body, sizeof sr_prio_body)) == 19);
+          &c->wt, wired_span_of(sr_prio_body, sizeof sr_prio_body)) == 23);
   c->cc.cwnd = 1u << 20;
-  sr_sched(c, 11, 4, 0x8080, 7, 2, SR_LIVE);
-  sr_sched(c, 15, 4, 0x8080, 7, 1, SR_LIVE);
-  sr_sched(c, 19, 4, 0x8080, 8, 9, SR_LIVE);
+  sr_sched(c, 15, 4, 0x8080, 7, 2, SR_LIVE);
+  sr_sched(c, 19, 4, 0x8080, 7, 1, SR_LIVE);
+  sr_sched(c, 23, 4, 0x8080, 8, 9, SR_LIVE);
   CHECK(srvrun_pump_wt_round(&ctx, c) == 1);
   CHECK(sr_inflight(c, 0) == 0);
   CHECK(sr_inflight(c, 1) == 1);
@@ -15845,9 +15845,9 @@ static void test_srvrun_wt_sched_reschedule_demotes(void) {
   srvrun_conn*  c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_prio_fixture(&f, &ob);
-  sr_sched(c, 11, 4, 0x0a80, 7, 0, SR_LIVE);
-  sr_sched(c, 15, 4, 0x8080, 8, 0, SR_LIVE);
-  sr_sched(c, 11, 4, 0xc880, 7, 0, SR_LIVE);
+  sr_sched(c, 15, 4, 0x0a80, 7, 0, SR_LIVE);
+  sr_sched(c, 19, 4, 0x8080, 8, 0, SR_LIVE);
+  sr_sched(c, 15, 4, 0xc880, 7, 0, SR_LIVE);
   sr_prio_pump();
   CHECK(sr_inflight(c, 1) == 2);
   CHECK(sr_inflight(c, 0) == 0);
@@ -15862,9 +15862,9 @@ static void test_srvrun_wt_sched_rejects_bad_args(void) {
   wired_wt_sched ok  = {7, 0, 0, 0, 0};
   ob                 = (wired_obuf){obuf, sizeof obuf, 0};
   c                  = sr_prio_fixture(&f, &ob);
-  CHECK(wired_server_wt_stream_schedule(&c->wt, 11, &bad) < 0);
-  CHECK(wired_server_wt_stream_schedule(&c->wt, 19, &ok) < 0);
-  CHECK(wired_server_wt_stream_schedule(&c->wt, 11, &ok) == 1);
+  CHECK(wired_server_wt_stream_schedule(&c->wt, 15, &bad) < 0);
+  CHECK(wired_server_wt_stream_schedule(&c->wt, 23, &ok) < 0);
+  CHECK(wired_server_wt_stream_schedule(&c->wt, 15, &ok) == 1);
 }
 
 /* ===== delivery-rate estimate for the WT session (kbps) =====
@@ -15988,10 +15988,10 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
   CHECK(
       wired_server_wt_open_uni_stream(
           &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
-      11);
+      15);
   CHECK(c->wtsend[0].append_open == 1);
   CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
-  CHECK(sf.stream_id == 11);
+  CHECK(sf.stream_id == 15);
   CHECK(sf.offset == 0);
   CHECK(sf.fin == 0); /* round end, but the stream stays open */
   /* round 1 is NOT yet acknowledged: the next round is still accepted --
@@ -15999,7 +15999,7 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
    * -- and reaches the wire at its own offset with no ACK in between. */
   for (usz i = 0; i < sizeof scratch; i++) scratch[i] = sr_wtsend_more[i];
   CHECK(
-      wired_server_wt_stream_send(&c->wt, 11, wired_span_of(scratch, 3), 0) ==
+      wired_server_wt_stream_send(&c->wt, 15, wired_span_of(scratch, 3), 0) ==
       1);
   for (usz i = 0; i < sizeof scratch; i++) scratch[i] = 0xee;
   CHECK(c->stat_wtsend_busy == 0);
@@ -16011,11 +16011,11 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
   sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 0);
   /* an empty round has no slice for a FIN to ride on -- a misuse
    * rejection, NOT a busy drop, so the busy counter stays put */
-  CHECK(wired_server_wt_stream_send(&c->wt, 11, wired_span_of(0, 0), 1) == -1);
+  CHECK(wired_server_wt_stream_send(&c->wt, 15, wired_span_of(0, 0), 1) == -1);
   CHECK(c->stat_wtsend_busy == 0);
   CHECK(
       wired_server_wt_stream_send(
-          &c->wt, 11, wired_span_of(sr_wtsend_tail, sizeof sr_wtsend_tail),
+          &c->wt, 15, wired_span_of(sr_wtsend_tail, sizeof sr_wtsend_tail),
           1) == 1);
   CHECK(c->wtsend[0].append_open == 0);
   CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
@@ -16047,16 +16047,16 @@ static void test_srvrun_wt_stream_send_queue_bound(void) {
   CHECK(
       wired_server_wt_open_uni_stream(
           &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
-      11);
+      15);
   /* fill the epoch buffer to the brim behind the unacked opening round */
   CHECK(
       wired_server_wt_stream_send(
-          &c->wt, 11,
+          &c->wt, 15,
           wired_span_of(big, SRVRUN_WTSEND_BUF - sizeof sr_wtsend_hello),
           0) == 1);
   /* no room left: one more byte is refused and counted */
   CHECK(
-      wired_server_wt_stream_send(&c->wt, 11, wired_span_of(big, 1), 0) == -1);
+      wired_server_wt_stream_send(&c->wt, 15, wired_span_of(big, 1), 0) == -1);
   CHECK(c->stat_wtsend_busy == 1);
   /* drain + ack the backlog: the buffer recycles and accepts again. The
    * staged total is exactly SRVRUN_WTSEND_BUF bytes = a KNOWN slice count;
@@ -16069,7 +16069,7 @@ static void test_srvrun_wt_stream_send_queue_bound(void) {
       CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
   }
   sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 0);
-  CHECK(wired_server_wt_stream_send(&c->wt, 11, wired_span_of(big, 1), 0) == 1);
+  CHECK(wired_server_wt_stream_send(&c->wt, 15, wired_span_of(big, 1), 0) == 1);
   wired_udp_close(cfd);
   wired_udp_close(sfd);
 }
@@ -16106,11 +16106,11 @@ static void test_srvrun_wt_stream_fin_deferred_until_round_acked(void) {
   CHECK(
       wired_server_wt_open_uni_stream(
           &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
-      11);
+      15);
   /* the open round is still unacknowledged -- stream_fin is accepted
    * (unlike stream_send, which is refused outright in this state) but
    * cannot go out yet. */
-  CHECK(wired_server_wt_stream_fin(&c->wt, 11) == 1);
+  CHECK(wired_server_wt_stream_fin(&c->wt, 15) == 1);
   CHECK(c->wtsend[0].fin_requested == 1);
   CHECK(c->wtsend[0].fin_only_pending == 0);
   /* nothing new on the wire until the open round's own ACK: draining it
@@ -16121,7 +16121,7 @@ static void test_srvrun_wt_stream_fin_deferred_until_round_acked(void) {
   sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 0);
   /* the deferred FIN promotes itself and goes out on the very next pump. */
   CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
-  CHECK(sf.stream_id == 11);
+  CHECK(sf.stream_id == 15);
   CHECK(sf.offset == sizeof sr_wtsend_hello);
   CHECK(sf.length == 0);
   CHECK(sf.fin == 1);
@@ -16152,10 +16152,10 @@ static void test_srvrun_wt_stream_fin_immediate_when_round_already_done(void) {
   CHECK(
       wired_server_wt_open_uni_stream(
           &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
-      11);
+      15);
   CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
   sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 0);
-  CHECK(wired_server_wt_stream_fin(&c->wt, 11) == 1);
+  CHECK(wired_server_wt_stream_fin(&c->wt, 15) == 1);
   CHECK(c->wtsend[0].fin_only_pending == 1);
   CHECK(c->wtsend[0].fin_requested == 0);
   CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
@@ -16191,7 +16191,7 @@ static void test_srvrun_wt_stream_open_variants_mark_append(void) {
   CHECK(
       wired_server_wt_stream_send(
           &c->wt, 99, wired_span_of(pay, sizeof pay), 0) == -1);
-  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
+  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 15);
   CHECK(c->wtsend[2].append_open == 0);
 }
 
@@ -16257,15 +16257,15 @@ static void test_srvrun_wt_stream_reset_sends_reset_and_frees_slot(void) {
   CHECK(
       wired_server_wt_open_uni_stream(
           &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
-      11);
+      15);
   sr_wtsend_mark_sent(c, 0);
-  CHECK(wired_server_wt_stream_reset(&c->wt, 11, 0x42) == 1);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 15, 0x42) == 1);
   CHECK(c->wtsend[0].in_use == 0);
   CHECK(c->wt_stream_reset_n == 1);
   CHECK(
       wired_server_wt_stream_send(
-          &c->wt, 11, wired_span_of(sr_wtsend_hello, 1), 0) == -1);
-  CHECK(wired_server_wt_stream_fin(&c->wt, 11) == -1);
+          &c->wt, 15, wired_span_of(sr_wtsend_hello, 1), 0) == -1);
+  CHECK(wired_server_wt_stream_fin(&c->wt, 15) == -1);
   {
     srvrun_cfg cfg = {
         cfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
@@ -16277,7 +16277,7 @@ static void test_srvrun_wt_stream_reset_sends_reset_and_frees_slot(void) {
     reset_stream_frame rs;
     int                alone = 0;
     CHECK(sr_recv_reset_stream(&f, sfd, &rs, &alone));
-    CHECK(rs.stream_id == 11);
+    CHECK(rs.stream_id == 15);
     CHECK(rs.error_code == wired_wterrmap_to_http3(0x42));
     CHECK(rs.final_size == sizeof sr_wtsend_hello);
     CHECK(alone == 1); /* no STOP_SENDING follows */
@@ -16304,13 +16304,13 @@ static void test_srvrun_wt_stream_reset_two_latched_both_drain(void) {
   CHECK(
       wired_server_wt_open_uni_stream(
           &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
-      11);
+      15);
   id2 = wired_server_wt_open_uni_stream(
       &c->wt, wired_span_of(sr_wtsend_hello, 2));
-  CHECK(id2 > 11);
+  CHECK(id2 > 15);
   sr_wtsend_mark_sent(c, 0);
   sr_wtsend_mark_sent(c, 1);
-  CHECK(wired_server_wt_stream_reset(&c->wt, 11, 0x42) == 1);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 15, 0x42) == 1);
   CHECK(wired_server_wt_stream_reset(&c->wt, (u64)id2, 0x43) == 1);
   CHECK(c->wt_stream_reset_n == 2);
   {
@@ -16324,7 +16324,7 @@ static void test_srvrun_wt_stream_reset_two_latched_both_drain(void) {
     reset_stream_frame rs;
     int                alone = 0;
     CHECK(sr_recv_reset_stream(&f, sfd, &rs, &alone));
-    CHECK(rs.stream_id == 11);
+    CHECK(rs.stream_id == 15);
     CHECK(rs.final_size == sizeof sr_wtsend_hello);
     CHECK(sr_recv_reset_stream(&f, sfd, &rs, &alone));
     CHECK(rs.stream_id == (u64)id2);
@@ -16396,10 +16396,10 @@ static void test_srvrun_wt_stream_reset_latch_full_keeps_slot(void) {
   CHECK(
       wired_server_wt_open_uni_stream(
           &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
-      11);
+      15);
   for (usz i = 0; i < SRVRUN_WT_RESET_LATCH; i++)
     CHECK(wired_server_wt_stream_reset(&c->wt, 1003 + 4 * i, 0x42) == 1);
-  CHECK(wired_server_wt_stream_reset(&c->wt, 11, 0x42) == 0);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 15, 0x42) == 0);
   CHECK(c->wtsend[0].in_use == 1); /* slot NOT released on refusal */
   CHECK(c->wt_stream_reset_n == SRVRUN_WT_RESET_LATCH);
   wired_udp_close(cfd);
@@ -16436,7 +16436,7 @@ static void test_srvrun_wt_open_uni_within_max_streams_succeeds(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_wtsend_fixture(&f, &ob);
   wired_wt_session_set_max_streams(&c->wt, 0, 1); /* uni limit = 1 */
-  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
+  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 15);
   CHECK(c->wt.opened_streams_uni == 1);
 }
 
@@ -16462,7 +16462,7 @@ static void test_srvrun_wt_open_uni_exceeding_max_streams_refused(void) {
   c->l.wt_streams[0].stream_id       = 8;
   c->l.wt_streams[0].offered         = 1;
   c->l.wt_streams[0].wt_session_slot = 0;
-  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
+  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 15);
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == -1);
   CHECK(srvrun_wtsend_find(c, 4) != 0); /* the WT_STREAMS_BLOCKED hint, 6-10 */
   sr_step_once_no_input(c);
@@ -16661,7 +16661,7 @@ static void test_srvrun_wt_rx_max_data_capsule_via_dispatch_unblocks_send(
   srvrun_wt_rx_capsules(&cfg, c);
   CHECK(c->wt.max_data == 1000);
   CHECK(wired_wt_session_data_send_allowed(&c->wt, sizeof pay) == 1);
-  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
+  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 15);
 }
 
 /* SS5.6.2, through dispatch: a WT_MAX_STREAMS(bidi) capsule delivered as a
@@ -16818,10 +16818,10 @@ static void test_srvrun_wt_stream_send_at_max_data_resumes_after_raise(void) {
   c->wt_capsule_rx_at[0] = 0;
   CHECK(
       wired_server_wt_open_uni_stream(&c->wt, wired_span_of(pay, sizeof pay)) ==
-      11);
+      15);
   CHECK(wired_wt_session_set_max_data(&c->wt, sizeof pay) == 1);
   c->wt.flow_control = 1; /* SS5.1: enabled, so the capsule below applies */
-  CHECK(wired_server_wt_stream_send(&c->wt, 11, rspan, 0) == -1);
+  CHECK(wired_server_wt_stream_send(&c->wt, 15, rspan, 0) == -1);
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
   CHECK(wtcapsule_encode_max_data(&capb, 1000) == 1);
   sr_h3data(&capb, 0);
@@ -16833,7 +16833,7 @@ static void test_srvrun_wt_stream_send_at_max_data_resumes_after_raise(void) {
   srvrun_on_step(&ctx, c, wired_mspan_of(spkt, slen));
   CHECK(c->wt.max_data == 1000);
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
-  CHECK(wired_server_wt_stream_send(&c->wt, 11, rspan, 0) == 1);
+  CHECK(wired_server_wt_stream_send(&c->wt, 15, rspan, 0) == 1);
 }
 
 /* V-0503/V-0509 (SS5.1/SS8): a received WT_MAX_DATA capsule enables session
@@ -16872,7 +16872,7 @@ static void test_srvrun_wt_session_sharing_enables_flow_control(void) {
   srvrun_wt_rx_capsules(&cfg, c);
   CHECK(c->wt.max_data == 1000);
   CHECK(wired_wt_session_data_send_allowed(&c->wt, sizeof pay) == 1);
-  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
+  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 15);
 }
 
 /* SS5.6.2 (WTH3-058/060): WT_MAX_STREAMS capsules of both directions apply
@@ -17670,7 +17670,7 @@ static void test_srvrun_wt_open_slot_exhaustion_and_reuse(void) {
   for (int i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
     CHECK(
         wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) ==
-        11 + 4 * (i64)i);
+        15 + 4 * (i64)i);
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) < 0);
   {
     srvrun_cfg cfg = {
@@ -17686,7 +17686,7 @@ static void test_srvrun_wt_open_slot_exhaustion_and_reuse(void) {
     CHECK(c->wtsend[i].in_use == 0);
   CHECK(
       wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) ==
-      11 + 4 * (i64)SRVRUN_WT_SEND_SLOTS);
+      15 + 4 * (i64)SRVRUN_WT_SEND_SLOTS);
 }
 
 /* RFC 9000 4.1/19.10: a peer uni-stream credit below one chunk blocks the
@@ -17702,7 +17702,7 @@ static void test_srvrun_wt_open_uni_respects_stream_credit(void) {
   c  = sr_wtsend_fixture(&f, &ob);
   c->s.sdrv.peer_initial_max_stream_data_uni = SRVRUN_CHUNK / 2;
   CHECK(
-      wired_server_wt_open_uni(&c->wt, wired_span_of(body, sizeof body)) == 11);
+      wired_server_wt_open_uni(&c->wt, wired_span_of(body, sizeof body)) == 15);
   CHECK(c->wtsend[0].stream_credit == SRVRUN_CHUNK / 2);
   {
     srvrun_cfg cfg = {
@@ -17712,7 +17712,7 @@ static void test_srvrun_wt_open_uni_respects_stream_credit(void) {
     srvrun_step_ctx   ctx = {&cfg, 0, &st, 1, 0};
     u8                fr[32], spkt[1024];
     usz               fl, slen;
-    stream_data_frame msd = {11, SRVRUN_CHUNK * 10};
+    stream_data_frame msd = {15, SRVRUN_CHUNK * 10};
     srvrun_pump_sess(&ctx, 0);
     CHECK(c->wtsend[0].sess.q.cur == 0); /* blocked below one chunk */
     fl = max_stream_data_encode(fr, sizeof fr, &msd);
@@ -17749,7 +17749,7 @@ static void test_srvrun_wt_send_conn_credit_shared_with_resp(void) {
   wired_sendsess_arm(&c->resp[0].sess, rbody, sizeof rbody, SRVRUN_CHUNK);
   CHECK(
       wired_server_wt_open_uni(&c->wt, wired_span_of(wbody, sizeof wbody)) ==
-      11);
+      15);
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
@@ -17793,7 +17793,7 @@ static void test_srvrun_wt_open_uni_pto_retransmit_keeps_single_fin_slice(
   CHECK(
       wired_server_wt_open_uni(
           &c->wt, wired_span_of(sr_wtsend_chat19, sizeof sr_wtsend_chat19)) ==
-      11);
+      15);
   cfg = (srvrun_cfg){
       cfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
       0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -17864,7 +17864,7 @@ static void test_srvrun_wt_send_pto_requeues_unacked_slice(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_wtsend_fixture(&f, &ob);
   CHECK(
-      wired_server_wt_open_uni(&c->wt, wired_span_of(body, sizeof body)) == 11);
+      wired_server_wt_open_uni(&c->wt, wired_span_of(body, sizeof body)) == 15);
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
@@ -17892,7 +17892,7 @@ static void test_srvrun_wt_open_two_megabyte_payload_fully_acked(void) {
   c  = sr_wtsend_fixture(&f, &ob);
   CHECK(
       wired_server_wt_open_uni(
-          &c->wt, wired_span_of(sr_wtsend_big, sizeof sr_wtsend_big)) == 11);
+          &c->wt, wired_span_of(sr_wtsend_big, sizeof sr_wtsend_big)) == 15);
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
@@ -17939,7 +17939,7 @@ static void test_srvrun_wt_open_five_parallel_streams_unmixed(void) {
         wired_server_wt_open_uni(
             &c->wt,
             wired_span_of(sr_wtsend_bodies[i], sizeof sr_wtsend_bodies[i])) ==
-        11 + 4 * (i64)i);
+        15 + 4 * (i64)i);
   }
   {
     srvrun_cfg cfg = {
@@ -17963,7 +17963,7 @@ static void test_srvrun_wt_open_five_parallel_streams_unmixed(void) {
   wired_udp_close(sfd);
   for (usz i = 0; i < 5; i++) {
     usz b = 0;
-    while (b < 5 && buckets[b].stream_id != 11 + 4 * i) b++;
+    while (b < 5 && buckets[b].stream_id != 15 + 4 * i) b++;
     CHECK(b < 5);
     CHECK(buckets[b].used == 1);
     CHECK(buckets[b].fin == 1);
@@ -19054,9 +19054,9 @@ static void test_srvrun_wt_stream_reset_after_reap_sends_nothing(void) {
   CHECK(
       wired_server_wt_open_uni(
           &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
-      11);
+      15);
   sr_wtsend_deliver_and_reap(c, 0); /* fully ACKed and reaped */
-  CHECK(wired_server_wt_stream_reset(&c->wt, 11, 0x42) == 1);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 15, 0x42) == 1);
   CHECK(c->wt_stream_reset_n == 0);
 }
 
@@ -19122,14 +19122,14 @@ static void test_srvrun_wt_teardown_resets_owned_server_uni(void) {
   CHECK(
       wired_server_wt_open_uni_stream(
           &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
-      11);
+      15);
   c->wtsend[0].sess.q.chunk = 2;
   CHECK(wired_sendsess_take(&c->wtsend[0].sess, &sl)); /* 2 of 4 sent */
   srvrun_reset_wt_streams_for_session(&cfg, c, 0, H3_NO_ERROR);
   CHECK(c->wtsend[0].in_use == 0);
   CHECK(c->rst[0].pln > 0);
   CHECK(reset_stream_decode(c->rst[0].pl, c->rst[0].pln, &rs) > 0);
-  CHECK(rs.stream_id == 11 && rs.final_size == 2);
+  CHECK(rs.stream_id == 15 && rs.final_size == 2);
 }
 
 /* The CONNECT stream's send slot does not pin an app send slot for the
@@ -19433,25 +19433,28 @@ static void test_srvrun_qpack_violation_closes(void) {
   CHECK(is_app == 1);
 }
 
-/* RFC 9204 4.2 / 4.4: nothing owed opens nothing; the first owed
- * instruction opens the decoder stream at the next server uni id with its
- * 0x03 type byte (B.2's Section Acknowledgment 0x84 behind it), and B.3's
- * Insert Count Increment 0x01 appends to the same stream. */
-static void test_srvrun_qdec_stream_opens_on_first_owed(void) {
+/* RFC 9204 4.2 / RFC 9114 6.2: once SETTINGS is sent, the decoder stream
+ * opens beside the encoder stream at its fixed id 11 with only its 0x03
+ * type byte -- owed or not -- so the first application uni stream is 15.
+ * B.2's Section Acknowledgment 0x84 and B.3's Insert Count Increment 0x01
+ * then append to it. */
+static void test_srvrun_qdec_stream_opens_with_qpack_streams(void) {
   static srvrun_conn c;
   srvrun_wtsend*     w;
-  c                       = (srvrun_conn){0};
-  c.peer_uni_stream_limit = 3; /* control, encoder, and one more */
-  srvrun_flush_qdec(&c);
-  CHECK(c.qdec_stream_opened == 0);
+  c = (srvrun_conn){0};
+  srvrun_open_qpack_streams(&c);
+  CHECK(c.qenc_stream_opened == 0 && c.qdec_stream_opened == 0);
+  c.l.h3.settings_sent = 1;
+  srvrun_open_qpack_streams(&c);
+  CHECK(c.qenc_stream_opened == 1 && c.qdec_stream_opened == 1);
+  w = &c.wtsend[c.qdec_wtsend_slot];
+  CHECK(w->stream_id == 11 && w->append_open == 1);
+  CHECK(w->sess.q.len == 1 && w->roundbuf[0] == H3_STREAM_QPACK_DECODER);
+  CHECK(srvrun_next_uni_id(&c) == 15);
   c.l.h3.qdyn.dropped = 2; /* two inserts received */
   qdyn_dec_section_ack(&c.l.h3.qdec, 4, 2);
   srvrun_flush_qdec(&c);
-  CHECK(c.qdec_stream_opened == 1);
-  w = &c.wtsend[c.qdec_wtsend_slot];
-  CHECK(w->stream_id == 11 && w->append_open == 1);
-  CHECK(w->sess.q.len == 2 && w->roundbuf[0] == H3_STREAM_QPACK_DECODER);
-  CHECK(w->roundbuf[1] == 0x84);
+  CHECK(w->sess.q.len == 2 && w->roundbuf[1] == 0x84);
   CHECK(c.l.h3.qdec.acks_len == 0);
   c.l.h3.qdyn.dropped = 3;
   srvrun_flush_qdec(&c);
@@ -19481,16 +19484,22 @@ static void test_srvrun_qenc_credit_regranted(void) {
   CHECK(srvrun_test_send_count() == 1);
 }
 
-/* RFC 9000 4.6: with the peer's uni-stream limit spent, the owed bytes
- * wait (still pending) instead of opening past the limit. */
-static void test_srvrun_qdec_waits_for_stream_credit(void) {
+/* RFC 9204 4.4: before the decoder stream is open the owed bytes wait
+ * (still pending), and an application uni stream opened first never takes
+ * the decoder stream's credit -- it gets id 15, not 11. */
+static void test_srvrun_qdec_waits_for_stream_open(void) {
   static srvrun_conn c;
-  c                       = (srvrun_conn){0};
-  c.peer_uni_stream_limit = 2;
-  c.l.h3.qdyn.dropped     = 1;
+  c                   = (srvrun_conn){0};
+  c.l.h3.qdyn.dropped = 1;
   srvrun_flush_qdec(&c);
   CHECK(c.qdec_stream_opened == 0);
   CHECK(c.l.h3.qdec.acked == 0);
+  CHECK(srvrun_next_uni_id(&c) == 15);
+  c.l.h3.settings_sent = 1;
+  srvrun_open_qpack_streams(&c);
+  CHECK(c.wtsend[c.qdec_wtsend_slot].stream_id == 11);
+  srvrun_flush_qdec(&c);
+  CHECK(c.l.h3.qdec.acked == 1);
 }
 
 /* RFC 9000 13.4.2.2: once a connection's ECN validation failed it stops
@@ -19846,7 +19855,7 @@ static void test_srvrun_wt_stream_inflight_open_stream_is_one(void) {
   c  = sr_wtsend_fixture(&f, &ob);
   id = wired_server_wt_open_uni(
       &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello));
-  CHECK(id == 11);
+  CHECK(id == 15);
   CHECK(wired_server_wt_stream_inflight(&c->wt, (u64)id) == 1);
 }
 
@@ -21650,7 +21659,7 @@ static void test_srvrun_wt_open_uni_blocked_by_zero_limit_then_opens(void) {
   CHECK(srvrun_wtsend_find(c, 4) != 0); /* the WT_STREAMS_BLOCKED hint, 6-10 */
   CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
   CHECK(wired_wt_session_set_max_streams(&c->wt, 0, 1) == 1);
-  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 11);
+  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) == 15);
 }
 
 /* Decode the WT_STREAMS_BLOCKED capsule DATA-framed on w's CONNECT-stream
@@ -22525,8 +22534,8 @@ void test_srvrun(void) {
   test_srvrun_ecn_failed_conn_sends_not_ect();
   test_srvrun_ctrl_overflow_closes();
   test_srvrun_qpack_violation_closes();
-  test_srvrun_qdec_stream_opens_on_first_owed();
-  test_srvrun_qdec_waits_for_stream_credit();
+  test_srvrun_qdec_stream_opens_with_qpack_streams();
+  test_srvrun_qdec_waits_for_stream_open();
   test_srvrun_qenc_credit_regranted();
   test_srvrun_wt_window_overflow_closes_flow_control();
   test_srvrun_capsule_only_conn_regrows_max_data();

@@ -25,9 +25,9 @@
 #define RAWQ_UNI_FIRST_RAW 3
 
 /** RFC 9114 6.2: first server-initiated uni stream id left for the
- * application on HTTP/3, after the control (3) and QPACK encoder (7)
- * streams. */
-#define RAWQ_UNI_FIRST_H3 11
+ * application on HTTP/3, after the control (3) and QPACK encoder (7) and
+ * decoder (11) streams. */
+#define RAWQ_UNI_FIRST_H3 15
 
 /** Where one client-initiated stream's bytes belong (rawq_route). */
 typedef enum {

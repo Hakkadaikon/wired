@@ -220,14 +220,15 @@ static void test_srvrun_raw_uni_ids_from_3(void) {
   CHECK(wired_server_wt_open_uni_stream(&c->wt, wired_span_of(p, 1)) == 11);
 }
 
-/* T-E2 WT row: an h3 connection's first WT uni stream is still 11. */
-static void test_srvrun_raw_wt_uni_still_11(void) {
+/* T-E2 WT row: an h3 connection's first WT uni stream is 15 (after the
+ * control and QPACK encoder/decoder streams). */
+static void test_srvrun_raw_wt_uni_after_plumbing(void) {
   static const u8 p[] = {0x05};
   struct lp_fix   f;
   u8              obuf[1024];
   wired_obuf      ob = obuf_of(obuf, sizeof obuf);
   srvrun_conn*    c  = sr_wtsend_fixture(&f, &ob);
-  CHECK(wired_server_wt_open_uni_stream(&c->wt, wired_span_of(p, 1)) == 11);
+  CHECK(wired_server_wt_open_uni_stream(&c->wt, wired_span_of(p, 1)) == 15);
 }
 
 /* T-E3: a client uni stream `6f 00 ..` (a MoQT SETUP, -19 3.3) is delivered
@@ -351,7 +352,7 @@ static void test_srvrun_raw_reset_code_verbatim(void) {
  * 0x52e4a40fa8dc (draft-ietf-webtrans-http3-15 4.4: 0x52e4a40fa8db + 1). */
 static void test_srvrun_raw_reset_code_wt_mapped(void) {
   static const u8   p[]    = {0x05};
-  static const u8   want[] = {0x04, 0x0b, 0xc0, 0x00, 0x52, 0xe4,
+  static const u8   want[] = {0x04, 0x0f, 0xc0, 0x00, 0x52, 0xe4,
                               0xa4, 0x0f, 0xa8, 0xdc, 0x00};
   struct lp_fix     f;
   u8                obuf[1024];
@@ -359,8 +360,8 @@ static void test_srvrun_raw_reset_code_wt_mapped(void) {
   srvrun_conn*      c   = sr_wtsend_fixture(&f, &ob);
   srvrun_cfg        cfg = sr_wt_send_cfg();
   const srvrun_rst* k;
-  CHECK(wired_server_wt_open_uni_stream(&c->wt, wired_span_of(p, 1)) == 11);
-  CHECK(wired_server_wt_stream_reset(&c->wt, 11, 1) == 1);
+  CHECK(wired_server_wt_open_uni_stream(&c->wt, wired_span_of(p, 1)) == 15);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 15, 1) == 1);
   srvrun_drain_wt_stream_reset(&cfg, c);
   k = srr_kept(c, 0x04);
   CHECK(k && k->pln == sizeof want && !ct_diffn(k->pl, want, sizeof want));
@@ -655,7 +656,7 @@ void test_srvrun_raw(void) {
   test_srvrun_raw_no_session_off_raw();
   test_srvrun_raw_no_h3_plumbing();
   test_srvrun_raw_uni_ids_from_3();
-  test_srvrun_raw_wt_uni_still_11();
+  test_srvrun_raw_wt_uni_after_plumbing();
   test_srvrun_raw_streams_delivered_whole();
   test_srvrun_raw_datagram_rx_whole();
   test_srvrun_raw_datagram_rx_no_qsid_check();
