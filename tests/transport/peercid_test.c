@@ -146,7 +146,33 @@ static void test_peercid_sweep(void) {
   CHECK(peercid_of(&p, &k5) != 0);
 }
 
+/* RFC 9000 9.5/19.16: a zero-length ID serves every path, is never bound,
+ * so never retired. */
+static void test_peercid_empty_never_retired(void) {
+  peercid     p;
+  pathsel_key k1 = pc_key(3, 1), k2 = pc_key(3, 2);
+  u64         seq;
+  peercid_init(&p, wired_span_of(0, 0));
+  CHECK(peercid_bind(&p, &k1) == &p.e[0]);
+  CHECK(peercid_bind(&p, &k2) == &p.e[0]);
+  peercid_sweep(&p, &k2, 1);
+  peercid_sweep(&p, 0, 0);
+  CHECK(peercid_take_retire(&p, &seq) == 0);
+  CHECK(p.e[0].in_use);
+}
+
+/* RFC 9000 19.15: NEW_CONNECTION_ID from a peer using a zero-length ID is a
+ * PROTOCOL_VIOLATION. */
+static void test_peercid_empty_rejects_new(void) {
+  peercid    p;
+  ncid_frame f1 = pc_ncid(1, 0, 0xb1);
+  peercid_init(&p, wired_span_of(0, 0));
+  CHECK(peercid_add(&p, &f1) == ERR_PROTOCOL_VIOLATION);
+}
+
 void test_peercid(void) {
+  test_peercid_empty_never_retired();
+  test_peercid_empty_rejects_new();
   test_peercid_bind_per_path();
   test_peercid_share_same_socket();
   test_peercid_own_beats_shared();

@@ -11,7 +11,8 @@
  * another, except that a path on the same local socket whose peer kept its
  * DCID may share the current one (9.5's NAT-rebinding exception). IDs the
  * peer retires (Retire Prior To) and IDs no tracked path uses any more are
- * queued for RETIRE_CONNECTION_ID (5.1.2). */
+ * queued for RETIRE_CONNECTION_ID (5.1.2). A peer using a zero-length ID
+ * has that one ID for every path: it is never bound, so never retired. */
 
 /** IDs held at once: RFC 9000 18.2's default active_connection_id_limit,
  * since this server advertises none. */
@@ -47,6 +48,8 @@ typedef struct {
   u64 rpt;
   /** Entries used in retire. */
   u8 retire_n;
+  /** 1 when the peer uses a zero-length ID (RFC 9000 5.1). */
+  u8 empty;
 } peercid;
 
 /* Hold the handshake's ID as sequence 0, unbound. */
@@ -56,14 +59,16 @@ void peercid_init(peercid* p, wired_span cid0);
  * Prior To are dropped and queued for retirement; the new ID is held unless
  * already held or already retired. Returns 0, or the transport error to
  * close with: PROTOCOL_VIOLATION when a held sequence number carries another
- * ID, CONNECTION_ID_LIMIT_ERROR when the pool is full (5.1.1). */
+ * ID or the peer uses a zero-length ID, CONNECTION_ID_LIMIT_ERROR when the pool
+ * is full (5.1.1). */
 int peercid_add(peercid* p, const ncid_frame* f);
 
 /* The ID bound to k, else one shared on k's socket, else 0. */
 const peercid_entry* peercid_of(const peercid* p, const pathsel_key* k);
 
 /* The ID bound to k, else a free one now bound to k, else 0; an ID shared
- * on k's socket is not taken (the caller decides on the exception). */
+ * on k's socket is not taken (the caller decides on the exception). A
+ * zero-length ID is returned unbound. */
 const peercid_entry* peercid_bind(peercid* p, const pathsel_key* k);
 
 /* RFC 9000 9.5: the ID bound to cur becomes usable by every path on

@@ -18,7 +18,8 @@ static int peercid_hold(peercid* p, u64 seq, const u8* cid, u8 len) {
 }
 
 void peercid_init(peercid* p, wired_span cid0) {
-  *p = (peercid){0};
+  *p       = (peercid){0};
+  p->empty = cid0.n == 0;
   (void)peercid_hold(p, 0, cid0.p, (u8)cid0.n);
 }
 
@@ -72,6 +73,7 @@ static void peercid_raise_rpt(peercid* p, u64 rpt) {
 }
 
 int peercid_add(peercid* p, const ncid_frame* f) {
+  if (p->empty) return ERR_PROTOCOL_VIOLATION; /* RFC 9000 19.15 */
   peercid_raise_rpt(p, f->retire_prior_to);
   if (f->seq >= p->rpt) return peercid_store(p, f);
   peercid_owe(p, f->seq);
@@ -132,7 +134,7 @@ static peercid_entry* peercid_oldest_free(peercid* p) {
   return best;
 }
 
-const peercid_entry* peercid_bind(peercid* p, const pathsel_key* k) {
+static const peercid_entry* peercid_claim(peercid* p, const pathsel_key* k) {
   const peercid_entry* cur = peercid_own(p, k);
   peercid_entry*       e;
   if (cur) return cur;
@@ -141,6 +143,10 @@ const peercid_entry* peercid_bind(peercid* p, const pathsel_key* k) {
   e->key   = *k;
   e->bound = 1;
   return e;
+}
+
+const peercid_entry* peercid_bind(peercid* p, const pathsel_key* k) {
+  return p->empty ? &p->e[0] : peercid_claim(p, k);
 }
 
 const peercid_entry* peercid_share(peercid* p, const pathsel_key* cur) {
