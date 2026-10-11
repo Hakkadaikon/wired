@@ -293,20 +293,31 @@ static int mupf_log_is(wired_wt_session* s, u64 sid, const char* want) {
 
 /* ===================== GOAWAY'd peers are not asked ===================== */
 
-/* draft-22 9.2: after a GOAWAY on the control stream, either way, no new
- * request goes to that peer -- not even the hub's upstream SUBSCRIBE. */
+/* draft-22 9.2: a peer that sent the hub a GOAWAY is sent no new request
+ * -- not even the hub's upstream SUBSCRIBE. The hub's own GOAWAY does not
+ * stop it from asking (the sender only SHOULD avoid it). */
 static void mupf_upsub_goaway(int recv) {
   mups_init();
   wired_moqtrun_peer* a = moqtrun_find_by_wt(&mtst_hub, SESS_A);
   a->sess.goaway_recv   = recv;
   a->sess.goaway_sent   = !recv;
   mups_sub(SESS_B, MRDV_S1);
-  CHECK(mups_n_up(SESS_A) == 0);
+  CHECK(mups_n_up(SESS_A) == (usz)!recv);
 }
 
 static void test_moqtrun_upfetch_upsub_skips_goaway(void) {
   mupf_upsub_goaway(1);
   mupf_upsub_goaway(0);
+}
+
+/* After a hub-wide drain, a subscription whose publisher goes away still
+ * moves to another announcer. */
+static void test_moqtrun_upfetch_drain_failover(void) {
+  mrp_init();
+  mrp_announce(SESS_B);
+  CHECK(wired_moqt_goaway(&mtst_hub, mtst_z(""), 500) > 0);
+  mrp_end(MRP_GA);
+  CHECK(mups_n_up(SESS_B) == 1);
 }
 
 /* ===================== held track ===================== */
@@ -509,23 +520,22 @@ static void mupf_tried(wired_wt_session* s) {
   r->tried  = moqtrun_rp_bit(&mtst_hub, s);
 }
 
-/* d22 7.6 / 9.2: an owner that may not be asked -- GOAWAY either way,
- * being closed by the hub, or the requester itself -- leaves the FETCH to
- * a covering announcer (C), never to the excluded one. */
+/* d22 7.6 / 9.2: an owner that may not be asked -- one that sent the hub
+ * a GOAWAY, being closed by the hub, or the requester itself -- leaves
+ * the FETCH to a covering announcer (C), never to the excluded one. */
 static void mupf_owner_excluded(int how) {
   wired_moqtrun_peer* a = moqtrun_find_by_wt(&mtst_hub, SESS_A);
-  wired_wt_session*   s = how == 3 ? SESS_A : SESS_B;
+  wired_wt_session*   s = how == 2 ? SESS_A : SESS_B;
   mupf_init();
   mupf_cache_group(3, 1);
   a->sess.goaway_recv = how == 0;
-  a->sess.goaway_sent = how == 1;
-  a->closing          = how == 2;
+  a->closing          = how == 1;
   mupf_fetch_on(s, mf_track(), mupf_rl(1, 0, 3, 0), 0);
   CHECK(mupf_n_up(SESS_A) == 0 && mupf_n_up(SESS_C) == 1);
 }
 
 static void test_moqtrun_upfetch_owner_excluded(void) {
-  for (int how = 0; how < 4; how++) {
+  for (int how = 0; how < 3; how++) {
     int fails = wired_test_fails;
     mupf_owner_excluded(how);
     if (wired_test_fails != fails) printf("  ^ exclusion %d\n", how);
@@ -1477,6 +1487,7 @@ static void test_moqtrun_upfetch_delta_underflow(void) {
 
 void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_upsub_skips_goaway();
+  test_moqtrun_upfetch_drain_failover();
   test_moqtrun_upfetch_gap_to_owner();
   test_moqtrun_upfetch_fill_gap();
   test_moqtrun_upfetch_cached_no_upstream();

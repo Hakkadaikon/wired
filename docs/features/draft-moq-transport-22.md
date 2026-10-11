@@ -1131,10 +1131,12 @@ Legend:
   starts with Locations its cache cannot vouch for, and FILL_TIMEOUT is not
   0, the hub shall send one FETCH, from the range start to the last such
   Location, in the same Group Order, to the track's publisher, else to a
-  session announcing a covering namespace -- never to one with a GOAWAY
-  either way, one being closed, one a wait for a new path already tried, or
-  the requester (SS3.2.3, SS7.6, SS9.2); the hub's own tracks never go
-  upstream. The same GOAWAY rule applies to the upstream SUBSCRIBE.
+  session announcing a covering namespace -- never to one that sent the
+  hub a GOAWAY, one being closed, one a wait for a new path already tried,
+  or the requester (SS3.2.3, SS7.6, SS9.2); the hub's own tracks never go
+  upstream. The same GOAWAY rule applies to the upstream SUBSCRIBE; the
+  hub's own GOAWAY (a drain) does not stop it, so a drained hub still
+  moves a subscription to another announcer.
   - test: `tests/app/moqtrun_upfetch_test.c` —
     `test_moqtrun_upfetch_gap_to_owner`, `test_moqtrun_upfetch_fill_gap`,
     `test_moqtrun_upfetch_cached_no_upstream`,
@@ -1143,7 +1145,8 @@ Legend:
     `test_moqtrun_upfetch_two_not_shared`,
     `test_moqtrun_upfetch_upstream_draft`,
     `test_moqtrun_upfetch_cache_only`, `test_moqtrun_upfetch_hub_owned`,
-    `test_moqtrun_upfetch_upsub_skips_goaway`
+    `test_moqtrun_upfetch_upsub_skips_goaway`,
+    `test_moqtrun_upfetch_drain_failover`
 - [x] MQ22-214 The hub shall relay each upstream item the moment it
   arrives, re-encoded on the downstream stream with every field kept, only
   when it lies inside the requested span, after the last item relayed in
