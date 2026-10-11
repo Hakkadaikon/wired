@@ -19459,7 +19459,8 @@ static void test_srvrun_qpack_violation_closes(void) {
 static void test_srvrun_qdec_stream_opens_with_qpack_streams(void) {
   static srvrun_conn c;
   srvrun_wtsend*     w;
-  c = (srvrun_conn){0};
+  c                                     = (srvrun_conn){0};
+  c.s.sdrv.peer_initial_max_streams_uni = 3;
   srvrun_open_qpack_streams(&c);
   CHECK(c.qenc_stream_opened == 0 && c.qdec_stream_opened == 0);
   c.l.h3.settings_sent = 1;
@@ -19477,6 +19478,22 @@ static void test_srvrun_qdec_stream_opens_with_qpack_streams(void) {
   c.l.h3.qdyn.dropped = 3;
   srvrun_flush_qdec(&c);
   CHECK(w->sess.q.len == 3 && w->roundbuf[2] == 0x01);
+}
+
+/* RFC 9000 4.6 / 19.11: a peer granting fewer than three uni streams (RFC
+ * 9114 6.2 says it must not) gets no decoder stream it would answer with
+ * STREAM_LIMIT_ERROR; the stream opens once a MAX_STREAMS raise admits it. */
+static void test_srvrun_qdec_stream_waits_for_uni_credit(void) {
+  static srvrun_conn c;
+  c                                     = (srvrun_conn){0};
+  c.l.h3.settings_sent                  = 1;
+  c.s.sdrv.peer_initial_max_streams_uni = 2;
+  srvrun_open_qpack_streams(&c);
+  CHECK(c.qenc_stream_opened == 1 && c.qdec_stream_opened == 0);
+  c.peer_uni_stream_limit = 3;
+  srvrun_open_qpack_streams(&c);
+  CHECK(c.qdec_stream_opened == 1);
+  CHECK(c.wtsend[c.qdec_wtsend_slot].stream_id == 11);
 }
 
 /* RFC 9000 4.1 / 19.10: the peer's encoder stream is re-granted credit to
@@ -19513,7 +19530,8 @@ static void test_srvrun_qdec_waits_for_stream_open(void) {
   CHECK(c.qdec_stream_opened == 0);
   CHECK(c.l.h3.qdec.acked == 0);
   CHECK(srvrun_next_uni_id(&c) == 15);
-  c.l.h3.settings_sent = 1;
+  c.l.h3.settings_sent                  = 1;
+  c.s.sdrv.peer_initial_max_streams_uni = 3;
   srvrun_open_qpack_streams(&c);
   CHECK(c.wtsend[c.qdec_wtsend_slot].stream_id == 11);
   srvrun_flush_qdec(&c);
@@ -22556,6 +22574,7 @@ void test_srvrun(void) {
   test_srvrun_qdec_waits_for_stream_open();
   test_srvrun_qenc_credit_regranted();
   test_srvrun_wt_send_slots_beside_qpack_streams();
+  test_srvrun_qdec_stream_waits_for_uni_credit();
   test_srvrun_wt_window_overflow_closes_flow_control();
   test_srvrun_capsule_only_conn_regrows_max_data();
   test_srvrun_wt_refuse_overflow_closes();
