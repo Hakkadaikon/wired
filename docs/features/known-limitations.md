@@ -480,10 +480,13 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   constants in the source, so anyone holding the source can derive them.
   Impact: a deployment that needs unforgeable tokens/tickets must replace
   the seeds. Source: `src/tls/keys/keyring/keyring.h`.
-- **Preferred-address migration is one-way sticky** — once on the
-  preferred-address socket, old-path stragglers cannot flip a connection back;
-  there is no general per-path highest-packet-number tracking. Source:
-  `srvrun.c:9425`.
+- **Path following has one validation slot** — the send path follows only
+  the highest-numbered non-probing packet, and once on the preferred-address
+  socket, newer packets arriving on the old socket are dropped. The server
+  still switches to the preferred socket before validating that path, does
+  not challenge the previously active path, keeps one PATH_CHALLENGE
+  outstanding at a time, and never reverts on a failed validation. Source:
+  `srvrun_rebind_due` in `srvrun.c`.
 - **ECN-failed connections lose GSO** — a connection whose ECN validation
   failed sends Not-ECT through a per-datagram TOS cmsg, one `sendmsg` per
   packet (no GSO batching); AF_XDP never marks. ECT(1) is never sent.
