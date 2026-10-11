@@ -205,11 +205,11 @@ draft-22 sessions only. None of it is part of draft-22. Source shorthand:
   REQUEST_UPDATE (subscription) only. Elsewhere it is not an allowed
   parameter (a decode violation). Source: PLAN §0, `MOQCTL_PARAM_RULES` in
   `src/app/moqt/ctl/moqctl.c`.
-- **A mid-Group joiner of a set waits for the next Group** — the decision
-  for a Group is made at its first arrival and is final. A member that
-  subscribes after that has no verdict for the current Group, so its first
-  forwarded Group is the next one. Fills and FETCH are not gated by SSTS.
-  Source: `moqtssts_run.h` (gate model), design SS-1.
+- **Fills and FETCH are not gated by SSTS** — a member joining mid-Group
+  (SUBSCRIBE or REQUEST_UPDATE) gets the track's largest Group decided at
+  once (its recorded decision wins), so the reliable ring replays it; but a
+  fill or FETCH serves every Group regardless of the set's decisions.
+  Source: `moqtss_on_subscribe` in `moqtssts_run.h`.
 - **No switch prompt, GOP extension or latency budget** — these come from
   the "Art of the Switch" talk but are not in moqtail's code either, so
   they are out of scope. Source: PLAN §0.

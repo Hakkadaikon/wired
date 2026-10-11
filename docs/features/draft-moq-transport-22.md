@@ -1825,6 +1825,13 @@ their tests pass.
     `test_moqtrun_ssts_one_member_reliable`, `test_moqtrun_ssts_datagram`,
     `test_moqtrun_ssts_inactive_set_forwards_nothing`
   - note: TLA+ `SstsDecision.tla` (not in git).
+- [x] MQ22-206 A member that joins a set mid-Group (SUBSCRIBE or
+  REQUEST_UPDATE) gets the track's largest Group decided at once: an
+  already-recorded decision for that Group wins, else it is decided now and
+  recorded, so the reliable ring replays the Group to the new member.
+  - test: `tests/app/moqtrun_ssts_test.c` —
+    `test_moqtrun_ssts_mid_group_join_decides`,
+    `test_moqtrun_ssts_update_keeps_decision`
 - [~] MQ22-X12 (SSTS algorithms 0 and 0xff01) The default weighted split
   and the backpressure tier machine behave as moqtail's own tests
   describe.
