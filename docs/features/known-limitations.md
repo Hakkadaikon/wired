@@ -490,13 +490,23 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   constants in the source, so anyone holding the source can derive them.
   Impact: a deployment that needs unforgeable tokens/tickets must replace
   the seeds. Source: `src/tls/keys/keyring/keyring.h`.
-- **Path following has one validation slot** — the send path follows only
-  the highest-numbered non-probing packet, and once on the preferred-address
-  socket, newer packets arriving on the old socket are dropped. The server
-  still switches to the preferred socket before validating that path, does
-  not challenge the previously active path, keeps one PATH_CHALLENGE
-  outstanding at a time, and never reverts on a failed validation. Source:
-  `srvrun_rebind_due` in `srvrun.c`.
+- **Path validation limits** — two PATH_CHALLENGEs are tracked at once
+  (the new path and the path left) plus the last validated path; a probe
+  starts a validation only when it carries PATH_CHALLENGE and a slot is
+  free, and only the first two PATH_CHALLENGEs of a packet are answered.
+  An off-path copy of a genuine new packet still moves the send path until
+  that path's validation times out and the server reverts (RFC 9000 9.3.3
+  calls this defence imperfect). The server does not reset congestion
+  control or RTT when the send path changes, and does not apply the
+  anti-amplification limit to an unvalidated path. Source: `srvrun_path_*`
+  in `srvrun.c`, `src/transport/conn/cid/pathsel/`.
+- **Peer connection IDs** — the server keeps at most two of the client's
+  connection IDs (the default active_connection_id_limit; it advertises no
+  higher one), so a probe answered from a new socket and a later migration
+  compete for the one spare. Each RETIRE_CONNECTION_ID is sent once and not
+  retransmitted, and stateless reset tokens from NEW_CONNECTION_ID are not
+  kept. Source: `src/transport/conn/cid/peercid/`.
+
 - **ECN-failed connections lose GSO** — a connection whose ECN validation
   failed sends Not-ECT through a per-datagram TOS cmsg, one `sendmsg` per
   packet (no GSO batching); AF_XDP never marks. ECT(1) is never sent.
