@@ -10088,7 +10088,7 @@ static const peercid_entry* srvrun_path_cid_for(
  * the one empty ID for every path. */
 static const peercid_entry* srvrun_path_cid(
     const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k, int kept) {
-  if (!c->l.cli_scid_len) return &c->pcid.e[0];
+  if (c->pcid.empty) return &c->pcid.e[0];
   return srvrun_path_cid_for(cfg, c, k, kept);
 }
 
@@ -10151,7 +10151,10 @@ static void srvrun_path_challenge(
   srvrun_path_send(cfg, c, &s->key, e, FRAME_PATH_CHALLENGE, s->data, 1);
 }
 
-/* Start a validation in slot s (0 = no slot: nothing to do). */
+/* Start a validation in slot s (0 = no slot: nothing to do).
+ * ponytail: re-arming a path (e.g. as the old path of a second move) starts
+ * a fresh challenge; a late response to the one before is not matched and
+ * the path validates on the next one. */
 static void srvrun_path_arm(
     const srvrun_cfg* cfg, srvrun_conn* c, pathsel_slot* s, u64 now) {
   if (!s) return;
