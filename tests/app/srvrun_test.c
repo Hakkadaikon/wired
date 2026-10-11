@@ -21938,7 +21938,7 @@ typedef struct {
 
 static void sr_hx_decode_lines(wired_span fs, sr_hx_dec* d) {
   qpack_prefix pfx;
-  qdyn_src     dyn  = {0, 0, fs};
+  qdyn_src     dyn  = {0, 0, fs, 0};
   usz          off  = qpack_prefix_decode(fs.p, fs.n, &pfx);
   usz          used = 0;
   while (off && off < fs.n && d->n < 12) {

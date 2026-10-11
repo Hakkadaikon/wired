@@ -3,12 +3,16 @@
 
 #include "app/qpack/qpack/dyntable.h"
 
-/** The context an Indexed Field Line is decoded against: the dynamic table,
- * the section's Base, and the field-section bytes from the current position. */
+/** The context a field line is decoded against: the dynamic table, the
+ * section's Base and Required Insert Count, and the field-section bytes from
+ * the current position. */
 typedef struct {
-  const qpack_dyn* table;
-  u64              base;
-  wired_span       fs;
+  const qpack_dyn* table; /**< the dynamic table (0: none) */
+  u64              base;  /**< the section's Base (RFC 9204 4.5.1.2) */
+  wired_span       fs;    /**< field-section bytes from the current line */
+  /** RFC 9204 2.2.3 / 4.5.1.1: the section's Required Insert Count; a
+   * dynamic reference at or past it is a decoding error. */
+  u64 ric;
 } qdyn_src;
 
 /* RFC 9204 4.5.2 / 4.5.3. Decode one Indexed Field Line, or one Indexed Field

@@ -39,7 +39,7 @@ static void qd_roundtrip(qpack_dyn* t, const char* name, const char* value) {
   CHECK(qpack_dyn_find(t, &f, &m));
   rel = base - m.abs_index - 1;
   CHECK(qdyn_indexed_dynamic(rel, &ob));
-  qdyn_src src = {t, base, wired_span_of(fs, ob.len)};
+  qdyn_src src = {t, base, wired_span_of(fs, ob.len), base};
   CHECK(qdyn_decode_field(&src, &d, &consumed));
   CHECK(consumed == ob.len);
   CHECK(eq(d.name, name, eq_len(name)));
@@ -60,7 +60,7 @@ static void test_dynamic_roundtrip(void) {
     qpack_field d;
     /* abs 0 ("x-a") relative to base 2 is rel = 1. */
     CHECK(qdyn_indexed_dynamic(1, &ob));
-    qdyn_src src = {&t, base, wired_span_of(fs, ob.len)};
+    qdyn_src src = {&t, base, wired_span_of(fs, ob.len), base};
     CHECK(qdyn_decode_field(&src, &d, &consumed));
     CHECK(eq(d.name, "x-a", 3) && eq(d.value, "1", 1));
   }
@@ -74,7 +74,7 @@ static void test_static_reference(void) {
   usz         consumed = 0;
   qpack_field d;
   qpack_dyn_init(&t, 256);
-  qdyn_src src = {&t, 0, wired_span_of(fs, 1)};
+  qdyn_src src = {&t, 0, wired_span_of(fs, 1), 1};
   CHECK(qdyn_decode_field(&src, &d, &consumed));
   CHECK(consumed == 1);
   CHECK(eq(d.name, ":method", 7) && eq(d.value, "GET", 3));
@@ -87,7 +87,7 @@ static void test_non_indexed_reject(void) {
   usz         consumed = 99;
   qpack_field d;
   qpack_dyn_init(&t, 256);
-  qdyn_src src = {&t, 0, wired_span_of(fs, 1)};
+  qdyn_src src = {&t, 0, wired_span_of(fs, 1), 1};
   CHECK(qdyn_decode_field(&src, &d, &consumed) == 0);
 }
 
@@ -103,7 +103,7 @@ static void test_dynamic_miss(void) {
   CHECK(qpack_dyn_insert(&t, &f));
   /* base 1, rel 5 -> abs underflow / absent entry. */
   CHECK(qdyn_indexed_dynamic(5, &ob));
-  qdyn_src src = {&t, 1, wired_span_of(fs, ob.len)};
+  qdyn_src src = {&t, 1, wired_span_of(fs, ob.len), 1};
   CHECK(qdyn_decode_field(&src, &d, &consumed) == 0);
 }
 
@@ -119,7 +119,7 @@ static void test_postbase_field_decode(void) {
   CHECK(qpack_dyn_insert(&t, &f));
   /* Base=0 (as if the section prefix declared Base before this insert),
    * post-Base index 0 -> absolute index 0, the entry just inserted. */
-  qdyn_src src = {&t, 0, wired_span_of(fs, 1)};
+  qdyn_src src = {&t, 0, wired_span_of(fs, 1), 1};
   CHECK(qdyn_decode_field(&src, &d, &consumed));
   CHECK(consumed == 1);
   CHECK(eq(d.name, "x-a", 3) && eq(d.value, "1", 1));
@@ -132,7 +132,7 @@ static void test_postbase_field_miss(void) {
   usz         consumed = 0;
   qpack_field d;
   qpack_dyn_init(&t, 256);
-  qdyn_src src = {&t, 0, wired_span_of(fs, 1)};
+  qdyn_src src = {&t, 0, wired_span_of(fs, 1), 1};
   CHECK(qdyn_decode_field(&src, &d, &consumed) == 0);
 }
 
@@ -145,7 +145,7 @@ static void test_postbase_name_resolve(void) {
   qpack_dyn_init(&t, 256);
   CHECK(qpack_dyn_insert(&t, &f));
   {
-    qdyn_src src = {&t, 0, wired_span_of(0, 0)};
+    qdyn_src src = {&t, 0, wired_span_of(0, 0), 1};
     CHECK(qdyn_resolve_postbase_name(&src, 0, &name));
     CHECK(eq(name, "x-b", 3));
   }
@@ -157,12 +157,39 @@ static void test_postbase_name_miss(void) {
   wired_span name;
   qpack_dyn_init(&t, 256);
   {
-    qdyn_src src = {&t, 0, wired_span_of(0, 0)};
+    qdyn_src src = {&t, 0, wired_span_of(0, 0), 1};
     CHECK(qdyn_resolve_postbase_name(&src, 0, &name) == 0);
   }
 }
 
+/* RFC 9204 2.2.3: a reference to an entry with an absolute index at or past
+ * the section's Required Insert Count is an error even when the entry is
+ * live -- post-Base (4.5.3), relative (4.5.2) and name references alike. */
+static void test_ref_beyond_ric_rejected(void) {
+  qpack_dyn   t;
+  qpack_field f       = fd_field("x-a", "1");
+  u8          post[1] = {0x10}; /* post-Base index 0 */
+  u8          rel[1]  = {0x80}; /* relative index 0 */
+  qpack_field d;
+  wired_span  name;
+  usz         consumed;
+  qpack_dyn_init(&t, 256);
+  CHECK(qpack_dyn_insert(&t, &f) && qpack_dyn_insert(&t, &f));
+  /* Base 1, RIC 1: post-Base 0 and relative-to-Base-2 0 both name abs 1. */
+  qdyn_src p = {&t, 1, wired_span_of(post, 1), 1};
+  qdyn_src r = {&t, 2, wired_span_of(rel, 1), 1};
+  CHECK(qdyn_decode_field(&p, &d, &consumed) == 0);
+  CHECK(qdyn_decode_field(&r, &d, &consumed) == 0);
+  CHECK(qdyn_resolve_postbase_name(&p, 0, &name) == 0);
+  CHECK(qdyn_resolve_name(&r, 0, 0, &name) == 0);
+  /* The same references with RIC 2 resolve. */
+  p.ric = r.ric = 2;
+  CHECK(qdyn_decode_field(&p, &d, &consumed) == 1);
+  CHECK(qdyn_decode_field(&r, &d, &consumed) == 1);
+}
+
 void test_qpackdyn_field_decode(void) {
+  test_ref_beyond_ric_rejected();
   test_dynamic_roundtrip();
   test_static_reference();
   test_non_indexed_reject();

@@ -14,6 +14,7 @@
 #include "app/qpack/qpack/dynget.c"
 #include "app/qpack/qpack/dyntable.c"
 #include "app/qpack/qpack/fieldline.c"
+#include "app/qpack/qpack/insertcount.c"
 #include "app/qpack/qpack/integer.c"
 #include "app/qpack/qpack/prefix.c"
 #include "app/qpack/qpack/relindex.c"
@@ -33,7 +34,7 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   };
   qpack_dyn_insert(&table, &seed);
 
-  qdyn_src src = {&table, /* base */ 1, wired_span_of(buf, n)};
+  qdyn_src src = {&table, /* base */ 1, wired_span_of(buf, n), /* ric */ 1};
 
   qpack_field out;
   usz         consumed;

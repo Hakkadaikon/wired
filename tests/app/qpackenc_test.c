@@ -106,6 +106,7 @@ static void test_qpackenc_roundtrip_decodes(void) {
   src.table = &st.dyn;
   src.base  = base;
   src.fs    = wired_span_of(r.field, r.field_len);
+  src.ric   = ric;
   CHECK(qdyn_decode_field(&src, &out, &consumed) == 1);
   CHECK(consumed == r.field_len);
   CHECK(out.name.n == 7 && out.name.p[0] == ':');

@@ -75,7 +75,7 @@ static usz line_indexed(
   qpack_field f;
   (void)scr;
   usz      consumed;
-  qdyn_src src = {dyn->table, dyn->base, fs};
+  qdyn_src src = {dyn->table, dyn->base, fs, dyn->ric};
   if (!qdyn_decode_field(&src, &f, &consumed)) return 0;
   borrow_dynamic(&f, L);
   return consumed;
@@ -96,7 +96,7 @@ static usz line_namref(
     wired_span fs, wired_mspan scr, const qdyn_src* dyn, rline* L) {
   qpack_nameref r   = {0, 0, 0};
   wired_obuf    vb  = obuf_of(scr.p, scr.n);
-  qdyn_src      src = {dyn->table, dyn->base, fs};
+  qdyn_src      src = {dyn->table, dyn->base, fs, dyn->ric};
   wired_span    name;
   usz           c = qpack_literal_namref_decode(fs, &r, &vb);
   if (!c || !qdyn_resolve_name(&src, r.is_static, r.index, &name)) return 0;
@@ -469,8 +469,9 @@ static int decode_lines(
     wired_mspan           scr,
     const qpack_dyn*      dyn,
     wired_h3reqdrive_req* r) {
-  rd_cursor cur   = {fs, scr, 0, 0, {dyn, 0, fs}};
-  cur.off         = prefix_base(fs, dyn, &cur.dyn.base, &r->qpack_ric);
+  rd_cursor cur   = {fs, scr, 0, 0, {dyn, 0, fs, 0}};
+  cur.off         = prefix_base(fs, dyn, &cur.dyn.base, &cur.dyn.ric);
+  r->qpack_ric    = cur.dyn.ric;
   r->qpack_failed = cur.off == 0;
   if (!cur.off) return 0;
   return scan_lines(&cur, r);
@@ -594,6 +595,7 @@ int wired_h3reqdrive_trailer_ok(wired_span stream_data, wired_mspan scratch) {
   cur.used      = 0;
   cur.dyn.table = 0;
   cur.dyn.base  = 0;
+  cur.dyn.ric   = 0;
   cur.dyn.fs    = trailer_fs;
   return trailer_scan_lines(&cur);
 }

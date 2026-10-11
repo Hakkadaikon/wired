@@ -840,7 +840,7 @@ static void test_reqdrive_dynamic_table(void) {
   CHECK(qpack_dyn_find(&t, &f, &m));
   rel = base - m.abs_index - 1;
   CHECK(qdyn_indexed_dynamic(rel, &ob));
-  qdyn_src src = {&t, base, wired_span_of(fs, ob.len)};
+  qdyn_src src = {&t, base, wired_span_of(fs, ob.len), base};
   CHECK(qdyn_decode_field(&src, &d, &consumed));
   CHECK(rd_eq(d.name.p, d.name.n, ":authority", 10));
   CHECK(rd_eq(d.value.p, d.value.n, "ex.com", 6));

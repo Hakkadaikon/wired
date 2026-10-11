@@ -2,6 +2,7 @@
 
 #include "app/qpack/qpack/dynget.h"
 #include "app/qpack/qpack/fieldline.h"
+#include "app/qpack/qpack/insertcount.h"
 #include "app/qpack/qpack/relindex.h"
 #include "app/qpack/qpack/static_table.h"
 #include "app/qpack/qpackdyn/cstr.h"
@@ -16,18 +17,25 @@ static int resolve_static(u64 index, qpack_field* out) {
   return 1;
 }
 
+/* RFC 9204 2.2.3: "If the decoder encounters a reference in a field line
+ * representation to a dynamic table entry that has already been evicted or
+ * that has an absolute index greater than or equal to the declared Required
+ * Insert Count, it MUST treat this as a connection error of type
+ * QPACK_DECOMPRESSION_FAILED." Returns 1 with the live entry, 0 otherwise. */
+static int qdyn_ref_get(const qdyn_src* s, u64 abs, qpack_field* out) {
+  return qpack_ric_min_ok(s->ric, 1, abs) && qpack_dyn_get(s->table, abs, out);
+}
+
 /* RFC 9204 4.5.2 / 3.2.5. Resolve a dynamic relative index against the Base
  * into a borrowed live entry. Returns 1 ok, 0 if no live entry resolves. */
 static int resolve_dynamic(const qdyn_src* s, u64 rel, qpack_field* out) {
-  u64 abs = qpack_rel_to_abs(s->base, rel);
-  return qpack_dyn_get(s->table, abs, out);
+  return qdyn_ref_get(s, qpack_rel_to_abs(s->base, rel), out);
 }
 
 /* RFC 9204 4.5.3 / 3.2.6. Resolve a dynamic post-Base index against the Base
  * into a borrowed live entry. Returns 1 ok, 0 if no live entry resolves. */
 static int resolve_postbase(const qdyn_src* s, u64 postbase, qpack_field* out) {
-  u64 abs = qpack_postbase_to_abs(s->base, postbase);
-  return qpack_dyn_get(s->table, abs, out);
+  return qdyn_ref_get(s, qpack_postbase_to_abs(s->base, postbase), out);
 }
 
 /* Try an Indexed Field Line (RFC 9204 4.5.2). Returns 1 with *out and
