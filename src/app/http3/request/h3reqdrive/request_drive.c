@@ -390,6 +390,10 @@ static int step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
   usz        c    = decode_line(
       rest, wired_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used),
       &cur->dyn, &L);
+  /* RFC 9204 2.2.3: a line that does not decode (an unresolvable or
+   * evicted reference, a bad string) fails the connection, unlike a
+   * well-encoded line HTTP/3 rejects. */
+  r->qpack_failed = c == 0;
   if (!c || !line_ok(&L)) return 0;
   classify_line(&L, r);
   cur->off += c;

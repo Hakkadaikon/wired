@@ -1370,6 +1370,29 @@ static void test_reqdrive_ric_past_inserts_fails(void) {
   CHECK(r.qpack_failed == 1);
 }
 
+/* RFC 9204 2.2.3: a field line whose reference resolves to no entry (here
+ * a post-Base index past the RIC-2 table, and an evicted relative entry) is
+ * a decompression failure for the connection; a well-encoded but malformed
+ * HTTP line (a "connection" field, RFC 9114 4.2) only rejects the request. */
+static void test_reqdrive_bad_ref_is_qpack_failure(void) {
+  static u8       scratch[WIRED_H3_MAX_FIELD_SECTION];
+  static const u8 pb[]   = {0x03, 0x81, 0xd1, 0xd7, 0x12};
+  static const u8 gone[] = {0x03, 0x00, 0xd1, 0xd7, 0x81};
+  static const u8 conn[] = {0x00, 0x00, 0xd1, 0xd7, 0x27, 0x03, 'c', 'o',  'n',
+                            'n',  'e',  'c',  't',  'i',  'o',  'n', 0x01, 'x'};
+  qpack_dyn       t;
+  wired_h3reqdrive_req r;
+  rd_b2_table(&t);
+  CHECK(!rd_hdr_decode(pb, sizeof pb, scratch, &t, &r));
+  CHECK(r.qpack_failed == 1);
+  qpack_dyn_set_capacity(&t, 0);
+  qpack_dyn_set_capacity(&t, 220); /* both entries evicted */
+  CHECK(!rd_hdr_decode(gone, sizeof gone, scratch, &t, &r));
+  CHECK(r.qpack_failed == 1);
+  CHECK(!rd_hdr_decode(conn, sizeof conn, scratch, &t, &r));
+  CHECK(r.qpack_failed == 0);
+}
+
 /* RFC 9204 4.5.1.1: MaxEntries comes from the advertised maximum capacity,
  * not the capacity the encoder set -- 13 inserts under capacity 220 (6
  * entries) still decode an EncodedInsertCount of 14 (RIC 13 mod 128 + 1). */
@@ -1427,6 +1450,7 @@ void test_h3reqdrive(void) {
   test_reqdrive_trailer_dynamic_ref_rejected();
   test_reqdrive_b2_section_ric();
   test_reqdrive_ric_past_inserts_fails();
+  test_reqdrive_bad_ref_is_qpack_failure();
   test_reqdrive_ric_uses_max_capacity();
   test_h3req_path_view();
   test_reqdrive_req_header_lookup();
