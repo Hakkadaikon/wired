@@ -15,9 +15,14 @@
 #include "app/http3/core/h3/frame.c"
 #include "app/http3/core/h3/settings_check.c"
 #include "app/http3/core/h3/settings_dup.c"
+#include "app/qpack/qpack/dynget.c"
 #include "app/qpack/qpack/dyntable.c"
+#include "app/qpack/qpack/huffman.c"
 #include "app/qpack/qpack/instruction.c"
 #include "app/qpack/qpack/integer.c"
+#include "app/qpack/qpack/relindex.c"
+#include "app/qpack/qpack/static_table.c"
+#include "app/qpack/qpack/string.c"
 #include "app/qpack/qpackdyn/enc_stream.c"
 #include "app/webtransport/capsule/wtcapsule/wtcapsule.c"
 #include "common/bytes/varint/varint.c"
@@ -68,8 +73,8 @@ static void fuzz_h3(wired_span in) {
   }
 }
 
-/* RFC 9204 4.3/4.4: instruction decoders, then Set Dynamic Table Capacity
- * applied against a live dynamic table. */
+/* RFC 9204 4.3/4.4: instruction decoders, then every encoder-stream
+ * instruction in the input applied against a live dynamic table. */
 static void fuzz_qpack(wired_span in) {
   qpack_enc_kind ek;
   qpack_dec_kind dk;
@@ -80,7 +85,11 @@ static void fuzz_qpack(wired_span in) {
   qpack_dyn table;
   qpack_dyn_init(&table, 4096);
   u16 err = 0;
-  qdyn_enc_apply_capacity(in, &table, 4096, &err);
+  usz n;
+  while ((n = qdyn_enc_apply(in, &table, 4096, &err)) != 0) {
+    in.p += n;
+    in.n -= n;
+  }
 }
 
 int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
