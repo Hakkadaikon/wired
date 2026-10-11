@@ -541,8 +541,55 @@ static int decode_lines(
   return ok;
 }
 
+/* 1 if the decoded line is well-formed AND carries no pseudo-header name
+ * (RFC 9114 4.3: a trailer section has none at all -- unlike a leading field
+ * section, where only ORDER after a regular field is the violation). Values
+ * are discarded (a trailer's regular fields are unused by this SDK); only
+ * the name classification and scratch bookkeeping matter here. */
+static int trailer_line_ok(const rline* L) {
+  return line_ok(L) && h3_ph_classify(L->name, L->name_len) == H3_PH_NONE;
+}
+
+static int trailer_step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
+  rline L = {0};
+  usz   c = decode_line(
+      wired_span_of(cur->fs.p + cur->off, cur->fs.n - cur->off),
+      wired_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used), &cur->dyn,
+      &L);
+  r->qpack_failed = L.ref_bad; /* RFC 9204 2.2.3, as in step_line */
+  if (!c) return 0;
+  if (!trailer_line_ok(&L)) return 0;
+  cur->off += c;
+  cur->used += L.scratch_used;
+  return 1;
+}
+
+/* Walk every trailer field line, rejecting the section at the first
+ * pseudo-header or malformed line. */
+static int trailer_scan_lines(rd_cursor* cur, wired_h3reqdrive_req* r) {
+  while (cur->off < cur->fs.n)
+    if (!trailer_step_line(cur, r)) return 0;
+  return 1;
+}
+
+/* RFC 9114 4.3 / RFC 9204 2.2.2.1: decode the trailer section (if any)
+ * against dyn into r's qpack_trailer_ric/qpack_failed, its values only in
+ * scr. 1 if there is none or it is well-formed with no pseudo-header. */
 static int trailer_decode(
-    wired_span, wired_mspan, const qpack_dyn*, wired_h3reqdrive_req*);
+    wired_span            stream_data,
+    wired_mspan           scr,
+    const qpack_dyn*      dyn,
+    wired_h3reqdrive_req* r) {
+  wired_span tfs = wired_span_of(0, 0);
+  rd_cursor  cur;
+  if (!wired_h3reqdrive_request_trailer(stream_data, &tfs)) return 1;
+  cur                  = (rd_cursor){tfs, scr, 0, 0, {dyn, 0, tfs, 0}};
+  cur.off              = prefix_base(tfs, dyn, &cur.dyn.base, &cur.dyn.ric);
+  r->qpack_trailer_ric = cur.dyn.ric;
+  r->qpack_failed      = cur.off == 0;
+  if (!cur.off) return 0;
+  return trailer_scan_lines(&cur, r);
+}
 
 /* The leading field section, then the trailer section (if any) in the
  * scratch the leading one left free. */
@@ -625,69 +672,4 @@ int wired_http_req_header(
   usz d = rd_dedicated_idx(name);
   if (d < RD_DEDICATED_N) return rd_dedicated_found(req, d, out);
   return rd_hdrs_find(req, name, out);
-}
-
-/* 1 if the decoded line is well-formed AND carries no pseudo-header name
- * (RFC 9114 4.3: a trailer section has none at all -- unlike a leading field
- * section, where only ORDER after a regular field is the violation). Values
- * are discarded (a trailer's regular fields are unused by this SDK); only
- * the name classification and scratch bookkeeping matter here. */
-static int trailer_line_ok(const rline* L) {
-  return line_ok(L) && h3_ph_classify(L->name, L->name_len) == H3_PH_NONE;
-}
-
-static int trailer_step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
-  rline L = {0};
-  usz   c = decode_line(
-      wired_span_of(cur->fs.p + cur->off, cur->fs.n - cur->off),
-      wired_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used), &cur->dyn,
-      &L);
-  r->qpack_failed = L.ref_bad; /* RFC 9204 2.2.3, as in step_line */
-  if (!c) return 0;
-  if (!trailer_line_ok(&L)) return 0;
-  cur->off += c;
-  cur->used += L.scratch_used;
-  return 1;
-}
-
-/* Walk every trailer field line, rejecting the section at the first
- * pseudo-header or malformed line. */
-static int trailer_scan_lines(rd_cursor* cur, wired_h3reqdrive_req* r) {
-  while (cur->off < cur->fs.n)
-    if (!trailer_step_line(cur, r)) return 0;
-  return 1;
-}
-
-/* RFC 9114 4.3 / RFC 9204 2.2.2.1: decode the trailer section (if any)
- * against dyn into r's qpack_trailer_ric/qpack_failed, its values only in
- * scr. 1 if there is none or it is well-formed with no pseudo-header. */
-static int trailer_decode(
-    wired_span            stream_data,
-    wired_mspan           scr,
-    const qpack_dyn*      dyn,
-    wired_h3reqdrive_req* r) {
-  wired_span tfs = wired_span_of(0, 0);
-  rd_cursor  cur;
-  if (!wired_h3reqdrive_request_trailer(stream_data, &tfs)) return 1;
-  cur                  = (rd_cursor){tfs, scr, 0, 0, {dyn, 0, tfs, 0}};
-  cur.off              = prefix_base(tfs, dyn, &cur.dyn.base, &cur.dyn.ric);
-  r->qpack_trailer_ric = cur.dyn.ric;
-  r->qpack_failed      = cur.off == 0;
-  if (!cur.off) return 0;
-  return trailer_scan_lines(&cur, r);
-}
-
-/* RFC 9114 4.3: a trailer section (if any) must carry no pseudo-header
- * fields. wired_h3reqdrive_request_trailer reports "no trailer present" as
- * 0, which this treats as vacuously ok -- most requests have no trailer.
- * @param stream_data the STREAM frame payload carrying the request
- * @param scratch caller-supplied scratch backing the trailer's literal
- *   values during the walk (discarded once this call returns)
- * @param dyn the dynamic table the trailer's references resolve against
- * @return 1 if there is no trailer, or the trailer has no pseudo-header and
- *   no malformed line; 0 if the trailer is malformed or carries one. */
-int wired_h3reqdrive_trailer_ok(
-    wired_span stream_data, wired_mspan scratch, const qpack_dyn* dyn) {
-  wired_h3reqdrive_req r;
-  return trailer_decode(stream_data, scratch, dyn, &r);
 }
