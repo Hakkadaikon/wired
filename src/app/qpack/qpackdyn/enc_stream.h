@@ -22,8 +22,8 @@ usz qdyn_enc_apply(wired_span buf, qpack_dyn* t, u64 max, u16* err);
  * its type byte. buf[0] is stream offset base (post-type); have[] marks the
  * bytes received, so data past a gap waits for it. Zero-initialise. */
 typedef struct {
-  u8  buf[QDYN_ENCRX_CAP];
-  u8  have[QDYN_ENCRX_CAP];
+  u8  buf[QDYN_ENCRX_CAP];  /**< received bytes from stream offset base */
+  u8  have[QDYN_ENCRX_CAP]; /**< 1 where buf holds a received byte */
   u64 base;      /**< post-type offset of buf[0]; everything below applied */
   u64 stream_id; /**< the claimed encoder stream (0: none -- never a client
                     uni id) */

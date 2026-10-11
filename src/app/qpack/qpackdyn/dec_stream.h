@@ -16,7 +16,7 @@
 /** RFC 9204 4.4. Zero-initialise. */
 typedef struct {
   u8  acks[QDYN_DEC_ACKS_MAX]; /**< encoded, unsent Section Acks */
-  usz acks_len;
+  usz acks_len;                /**< bytes used in acks */
   u64 acked; /**< Known Received Count once acks and increments land */
 } qdyn_dec;
 
