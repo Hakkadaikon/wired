@@ -10,12 +10,18 @@
 #define NCID_TOKEN 16
 #define NCID_MAX_LEN 20
 
+/** One NEW_CONNECTION_ID frame's fields. */
 typedef struct {
-  u64 seq; /* sequence number */
+  /** Sequence number. */
+  u64 seq;
+  /** Retire Prior To: IDs numbered below it are to be retired. */
   u64 retire_prior_to;
-  u8  cid_len;
-  u8  cid[NCID_MAX_LEN];
-  u8  token[NCID_TOKEN]; /* stateless reset token */
+  /** Bytes used in cid. */
+  u8 cid_len;
+  /** The connection ID. */
+  u8 cid[NCID_MAX_LEN];
+  /** Stateless reset token. */
+  u8 token[NCID_TOKEN];
 } ncid_frame;
 
 /* Encode into buf of cap bytes. Returns bytes written, or 0 on overflow /
