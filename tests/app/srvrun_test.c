@@ -6248,6 +6248,9 @@ static void test_srvrun_reset_mid_request_frees_slot_and_credit(void) {
    * owes no second credit */
   srvrun_free_reset_reqs(&ctx, &conns[0]);
   CHECK(conns[0].stream_limit_advertised == WIRED_SRVLOOP_MAX_STREAMS + 1);
+  conns[0].l.reset_slotless_n = 2; /* slot-less resets owe credit too */
+  srvrun_free_reset_reqs(&ctx, &conns[0]);
+  CHECK(conns[0].stream_limit_advertised == WIRED_SRVLOOP_MAX_STREAMS + 3);
 }
 
 /* conns[0] confirmed and stream 4 holding slot 0, re-armed after its
@@ -20145,7 +20148,8 @@ static void test_srvrun_reset_flood_under_threshold_keeps_connection(void) {
   srvrun_test_reset_send_count();
   sr_reset_burst_step(&f, &c, &ctx, 3, SRVRUN_MAX_RESETS_PER_WINDOW);
   CHECK(c.l.peer_reset_count == SRVRUN_MAX_RESETS_PER_WINDOW);
-  CHECK(srvrun_test_send_count() == 0);
+  CHECK(c.closing == 0);
+  CHECK(srvrun_test_send_count() == 1); /* stream 4's credit (MAX_STREAMS) */
 }
 
 /* One reset past the threshold inside the window closes the connection
@@ -20169,7 +20173,7 @@ static void test_srvrun_reset_flood_over_threshold_closes_excessive_load(void) {
   sr_reset_burst_step(&f, &c, &ctx, 3, SRVRUN_MAX_RESETS_PER_WINDOW);
   sr_reset_burst_step(&f, &c, &ctx, 4, 1);
   CHECK(c.l.peer_reset_count == SRVRUN_MAX_RESETS_PER_WINDOW + 1);
-  CHECK(srvrun_test_send_count() == 1);
+  CHECK(srvrun_test_send_count() == 2); /* stream 4's credit, the close */
   CHECK(c.closing == 1);
   CHECK(
       srvrun_seal_close_pl(&c, wired_span_of(c.close_pl, c.close_pln), &pktb));
@@ -20195,9 +20199,9 @@ static void test_srvrun_reset_flood_threshold_configurable(void) {
   sr_make_confirmed_conn(&c, &f, &ob);
   srvrun_test_reset_send_count();
   sr_reset_burst_step(&f, &c, &ctx, 3, 2);
-  CHECK(srvrun_test_send_count() == 0);
+  CHECK(c.closing == 0);
   sr_reset_burst_step(&f, &c, &ctx, 4, 1);
-  CHECK(srvrun_test_send_count() == 1);
+  CHECK(c.closing == 1);
   g_srvrun_env.max_resets_per_window = 0;
 }
 
@@ -20219,7 +20223,7 @@ static void test_srvrun_reset_flood_window_resets_count(void) {
   sr_reset_burst_step(&f, &c, &ctx, 4, 1);
   CHECK(c.l.peer_reset_count == 1);
   CHECK(c.reset_window_start_ms == SRVRUN_RESET_WINDOW_MS);
-  CHECK(srvrun_test_send_count() == 0);
+  CHECK(c.closing == 0);
 }
 
 /* RFC 9114 10.5.2 (V-0451): SRVRUN_MAX_WT_SESSIONS_GLOBAL bounds the

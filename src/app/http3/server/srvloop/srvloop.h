@@ -657,6 +657,11 @@ typedef struct {
    * its response is in flight. Reset at the start of every
    * wired_srvloop_step. */
   u64 reset_slots;
+  /** RFC 9000 4.6: RESET_STREAMs this step that closed a request stream
+   * which never got a slot (its STREAM frames lost or dropped) -- each
+   * still used one bidi stream credit, owed back once. Reset at the start
+   * of every wired_srvloop_step. */
+  usz reset_slotless_n;
   int resp_external; /**< 1: the caller answers requests, not the loop */
   /** ACK ranges (RFC 9000 19.3) seen in payloads opened this step, reset at
    * the start of every wired_srvloop_step; overflow past the cap is dropped.

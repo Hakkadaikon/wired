@@ -9271,9 +9271,10 @@ static usz srvrun_reset_free(srvrun_conn* c, usz i) {
 }
 
 /* Every slot reset this step (c->l.reset_slots) is freed and its bidi
- * credit returned (RFC 9000 4.6). */
+ * credit returned (RFC 9000 4.6), with that of each slot-less reset
+ * request stream (reset_slotless_n). */
 static void srvrun_free_reset_reqs(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  usz freed = 0;
+  usz freed = c->l.reset_slotless_n;
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
     freed += srvrun_reset_free(c, i);
   srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);

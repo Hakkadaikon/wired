@@ -5507,6 +5507,9 @@ static void test_srvloop_slotless_reset_closes_stream(void) {
   lp_step_reset(&f, 3, 8);
   CHECK(wired_srvloop_closed_has(&f.l.req_closed, 8));
   CHECK(wired_srvloop_slot_for(&f.l, 8) == -2);
+  CHECK(f.l.reset_slotless_n == 1); /* RFC 9000 4.6: its credit is owed */
+  lp_step_reset(&f, 4, 8);
+  CHECK(f.l.reset_slotless_n == 0); /* already closed: owed only once */
 }
 
 /* Step one 1-RTT packet: stream 0's HEADERS for method/path (FIN as given),

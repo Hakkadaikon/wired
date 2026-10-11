@@ -1850,7 +1850,8 @@ static void reset_cancel_slot(wired_srvloop* l, int i) {
 /* RFC 9000 3.2: a RESET_STREAM ends an open request stream's receive side.
  * With a slot, its references are cancelled (reset_cancel_slot); with none
  * yet, the stream is cancelled if anything could be referenced and marked
- * closed either way, so its late data never opens a request. */
+ * closed either way, so its late data never opens a request, and its stream
+ * credit is owed back (4.6) -- once, since a closed stream returns above. */
 static void reset_request_stream(wired_srvloop* l, u64 id) {
   int i;
   if (!qdec_stream_open(l, id)) return;
@@ -1861,6 +1862,7 @@ static void reset_request_stream(wired_srvloop* l, u64 id) {
   }
   qdec_cancel_id(l, id);
   wired_srvloop_slot_release(l, id);
+  l->reset_slotless_n++;
 }
 
 /* Every RESET_STREAM in this payload -- run after request reassembly, so a
