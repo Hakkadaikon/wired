@@ -1387,7 +1387,44 @@ static void test_reqdrive_ric_uses_max_capacity(void) {
   CHECK(r.qpack_ric == 13);
 }
 
+/* RFC 9204 4.5.4 / 4.5.5: a literal whose name references the dynamic table
+ * -- relative to the Base (T=0) or past it -- takes that entry's name, not
+ * the static entry with the same index. Against B.2's table: RIC 2, Base 2,
+ * name = relative 0 (:path); then RIC 2, Base 0, name = post-Base 1. */
+static void test_reqdrive_literal_dynamic_names(void) {
+  static u8            scratch[WIRED_H3_MAX_FIELD_SECTION];
+  static const u8      rel[] = {0x03, 0x00, 0xd1, 0xd7, 0x40, 0x02, '/', 'x'};
+  static const u8      pb[]  = {0x03, 0x81, 0xd1, 0xd7, 0x01, 0x02, '/', 'y'};
+  qpack_dyn            t;
+  wired_h3reqdrive_req r;
+  rd_b2_table(&t);
+  CHECK(rd_hdr_decode(rel, sizeof rel, scratch, &t, &r));
+  CHECK(rd_eq(r.path, r.path_len, "/x", 2) && r.authority == 0);
+  CHECK(rd_hdr_decode(pb, sizeof pb, scratch, &t, &r));
+  CHECK(rd_eq(r.path, r.path_len, "/y", 2));
+}
+
+/* A trailer section is decoded with no dynamic table: a dynamic reference
+ * in it (here an Indexed Field Line, T=0) is rejected, never resolved
+ * through the absent table. */
+static void test_reqdrive_trailer_dynamic_ref_rejected(void) {
+  static const u8 trl[] = {0x00, 0x00, 0x80};
+  u8              fs[64], h3[256], req[256], scratch[128];
+  usz             fs_len = curl_field_section(fs), h3_len, req_len = 0;
+  wired_obuf      hob = {h3, sizeof h3, 0};
+  h3_len = h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  hob    = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
+  h3_len += h3_frame_put(&hob, H3_FRAME_DATA, wired_span_of(trl, 1));
+  hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
+  h3_len += h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(trl, 3));
+  CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof req, &req_len));
+  CHECK(!wired_h3reqdrive_trailer_ok(
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch)));
+}
+
 void test_h3reqdrive(void) {
+  test_reqdrive_literal_dynamic_names();
+  test_reqdrive_trailer_dynamic_ref_rejected();
   test_reqdrive_b2_section_ric();
   test_reqdrive_ric_past_inserts_fails();
   test_reqdrive_ric_uses_max_capacity();

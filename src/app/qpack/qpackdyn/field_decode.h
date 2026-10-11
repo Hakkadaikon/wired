@@ -31,4 +31,11 @@ int qdyn_decode_field(const qdyn_src* src, qpack_field* out, usz* consumed);
 int qdyn_resolve_postbase_name(
     const qdyn_src* src, u64 postbase, wired_span* name);
 
+/* RFC 9204 4.5.4. Resolve a Literal Field Line With Name Reference's name:
+ * a static index (is_static) from the static table, otherwise a relative
+ * index against src->base from src->table. Returns 1 with *name filled, 0 if
+ * nothing resolves. */
+int qdyn_resolve_name(
+    const qdyn_src* src, int is_static, u64 index, wired_span* name);
+
 #endif

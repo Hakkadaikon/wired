@@ -66,3 +66,13 @@ int qdyn_resolve_postbase_name(
   *name = f.name;
   return 1;
 }
+
+int qdyn_resolve_name(
+    const qdyn_src* src, int is_static, u64 index, wired_span* name) {
+  qpack_field f;
+  int         ok =
+      is_static ? resolve_static(index, &f) : resolve_dynamic(src, index, &f);
+  if (!ok) return 0;
+  *name = f.name;
+  return 1;
+}

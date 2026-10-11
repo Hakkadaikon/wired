@@ -70,28 +70,50 @@ static void borrow_dynamic(const qpack_field* f, rline* L) {
  * dyn->table when set; a caller with no dynamic table (dyn->table == 0, e.g.
  * no encoder stream has been seen yet) simply cannot resolve one, matching
  * this decoder's prior static-table-only behavior. */
-static usz line_indexed(wired_span fs, const qdyn_src* dyn, rline* L) {
+static usz line_indexed(
+    wired_span fs, wired_mspan scr, const qdyn_src* dyn, rline* L) {
   qpack_field f;
-  usz         consumed;
-  qdyn_src    src = {dyn->table, dyn->base, fs};
+  (void)scr;
+  usz      consumed;
+  qdyn_src src = {dyn->table, dyn->base, fs};
   if (!qdyn_decode_field(&src, &f, &consumed)) return 0;
   borrow_dynamic(&f, L);
   return consumed;
 }
 
-/* RFC 9204 4.5.4: a Literal With Name Reference -> static name, copied value.
- */
-static usz line_namref(wired_span fs, wired_mspan scr, rline* L) {
-  qpack_nameref r    = {0, 0, 0};
-  wired_obuf    vb   = obuf_of(scr.p, scr.n);
-  const char *  name = 0, *value = 0;
-  usz           c = qpack_literal_namref_decode(fs, &r, &vb);
-  if (!c || !qpack_static_get((usz)r.index, &name, &value)) return 0;
-  L->name         = (const u8*)name;
-  L->name_len     = cstr_len(name);
+/* A literal line: name as resolved, value copied into scr (vlen bytes). */
+static void literal_line(rline* L, wired_span name, wired_mspan scr, usz vlen) {
+  L->name         = name.p;
+  L->name_len     = name.n;
   L->value        = scr.p;
-  L->value_len    = vb.len;
-  L->scratch_used = vb.len;
+  L->value_len    = vlen;
+  L->scratch_used = vlen;
+}
+
+/* RFC 9204 4.5.4: a Literal With Name Reference -> the static (T=1) or
+ * dynamic (T=0, relative to the Base) entry's name, copied value. */
+static usz line_namref(
+    wired_span fs, wired_mspan scr, const qdyn_src* dyn, rline* L) {
+  qpack_nameref r   = {0, 0, 0};
+  wired_obuf    vb  = obuf_of(scr.p, scr.n);
+  qdyn_src      src = {dyn->table, dyn->base, fs};
+  wired_span    name;
+  usz           c = qpack_literal_namref_decode(fs, &r, &vb);
+  if (!c || !qdyn_resolve_name(&src, r.is_static, r.index, &name)) return 0;
+  literal_line(L, name, scr, vb.len);
+  return c;
+}
+
+/* RFC 9204 4.5.5: a Literal With Post-Base Name Reference -> the dynamic
+ * entry's name past the Base, copied value. */
+static usz line_postbase(
+    wired_span fs, wired_mspan scr, const qdyn_src* dyn, rline* L) {
+  qpack_postbaseref r  = {0, 0};
+  wired_obuf        vb = obuf_of(scr.p, scr.n);
+  wired_span        name;
+  usz               c = qpack_literal_postbase_decode(fs, &r, &vb);
+  if (!c || !qdyn_resolve_postbase_name(dyn, r.index, &name)) return 0;
+  literal_line(L, name, scr, vb.len);
   return c;
 }
 
@@ -107,10 +129,12 @@ static usz litname_split(usz scr_n) {
 
 /* RFC 9204 4.5.6: a Literal With Literal Name -> name in the first (capped)
  * scratch share, value in the rest (disjoint, both written in one call). */
-static usz line_litname(wired_span fs, wired_mspan scr, rline* L) {
-  int            never = 0;
-  usz            half  = litname_split(scr.n);
-  qpack_fieldbuf fb    = {
+static usz line_litname(
+    wired_span fs, wired_mspan scr, const qdyn_src* dyn, rline* L) {
+  int never = 0;
+  (void)dyn;
+  usz            half = litname_split(scr.n);
+  qpack_fieldbuf fb   = {
       obuf_of(scr.p, half), obuf_of(scr.p + half, scr.n - half)};
   usz c = qpack_literal_name_decode(fs, &never, &fb);
   if (!c) return 0;
@@ -122,17 +146,17 @@ static usz line_litname(wired_span fs, wired_mspan scr, rline* L) {
   return c;
 }
 
-/* RFC 9204 4.5: decode one field line of any of the four forms this decoder
- * supports (Indexed/Post-Base Indexed via dyn, Literal With Name Reference
- * and Literal With Literal Name are static-table/copied-value only -- see
- * line_namref/line_litname's own docs). */
+/* RFC 9204 4.5: the five field line forms, tried in turn; each rejects a
+ * pattern that is not its own. */
+static usz (*const line_forms[])(
+    wired_span, wired_mspan, const qdyn_src*, rline*) = {
+    line_indexed, line_namref, line_postbase, line_litname};
+
 static usz decode_line(
     wired_span fs, wired_mspan scr, const qdyn_src* dyn, rline* L) {
-  usz c = line_indexed(fs, dyn, L);
-  if (c) return c;
-  c = line_namref(fs, scr, L);
-  if (c) return c;
-  return line_litname(fs, scr, L);
+  usz c = 0;
+  for (usz i = 0; !c && i < 4; i++) c = line_forms[i](fs, scr, dyn, L);
+  return c;
 }
 
 /* A request pseudo-header kind has a (value, len) slot in wired_h3reqdrive_req.
