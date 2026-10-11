@@ -325,6 +325,19 @@ static void test_moqtrun_repath_ender_skipped(void) {
   CHECK(mups_n_up(SESS_A) == 2);
 }
 
+/* B refused: only a PUBLISH_NAMESPACE of B's covering the track makes B
+ * worth asking again in this wait, an unrelated one does not. */
+static void test_moqtrun_repath_untry_covering(void) {
+  mrp_init();
+  mrp_announce(SESS_B);
+  mrp_end(MRP_GA);
+  mtst_pub_err(SESS_B, (u64)mrp_up(SESS_B, 0), MOQCTL_ERR_UNAUTHORIZED);
+  mtns_pub(SESS_B, MRDV_S2, "other/room9");
+  CHECK(mups_n_up(SESS_B) == 1);
+  mtns_pub(SESS_B, MRDV_S2 + 4, "chat");
+  CHECK(mups_n_up(SESS_B) == 2);
+}
+
 /* C leaves during the wait: D is re-attached, C never again. */
 static void test_moqtrun_repath_leave(void) {
   mrp_init();
@@ -576,6 +589,7 @@ static void mtall_repath(void) {
   test_moqtrun_repath_refusal_hidden();
   test_moqtrun_repath_failover();
   test_moqtrun_repath_ender_skipped();
+  test_moqtrun_repath_untry_covering();
   test_moqtrun_repath_leave();
   test_moqtrun_repath_all_leave();
   test_moqtrun_repath_withdraw_keeps();

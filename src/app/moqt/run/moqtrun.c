@@ -4387,7 +4387,7 @@ static void moqtrun_handle_disc(
 }
 
 /* Re-path block (before moqtrun_track_ended). */
-static void moqtrun_rp_untry(wired_moqt_hub* hub, wired_wt_session* s);
+static void moqtrun_rp_untry(wired_moqt_hub* hub, const wired_moqtrun_req* q);
 
 /* An accepted PUBLISH_NAMESPACE makes its session worth asking again by a
  * wait for a new path. */
@@ -4395,7 +4395,7 @@ static void moqtrun_dispatch_publish_ns(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   (void)peer_idx;
   moqtrun_handle_disc(hub, p, body, moqns_publish_take, moqtrun_disc_pub_check);
-  if (p->req && p->req->live) moqtrun_rp_untry(hub, p->wt);
+  if (p->req && p->req->live) moqtrun_rp_untry(hub, p->req);
 }
 
 static void moqtrun_dispatch_subscribe_ns(
@@ -9292,12 +9292,6 @@ static void moqtrun_rp_mark(
     if (moqtrun_rp_matches(&hub->rdv[i], k)) hub->rdv[i].tried |= bit;
 }
 
-/* A session announcing anew is worth asking again. */
-static void moqtrun_rp_untry(wired_moqt_hub* hub, wired_wt_session* s) {
-  u64 bit = moqtrun_rp_bit(hub, s);
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) hub->rdv[i].tried &= ~bit;
-}
-
 static int moqtrun_rp_kind(u64 status) {
   return status == MOQCTL_DONE_GOING_AWAY ||
          status == MOQCTL_DONE_INTERNAL_ERROR;
@@ -9882,6 +9876,15 @@ static int moqtrun_up_covers(
   return moqtrun_disc_is(q, MOQNS_T_PUBLISH_NAMESPACE) && q->wt != s &&
          moqtrun_disc_starts(
              moqtrun_disc_fields(q, &n), moqtrun_disc_fields_of(k.ns, &n));
+}
+
+/* A session announcing anew (q) is worth asking again by every wait for
+ * a track q's namespace covers. */
+static void moqtrun_rp_untry(wired_moqt_hub* hub, const wired_moqtrun_req* q) {
+  u64 bit = moqtrun_rp_bit(hub, q->wt);
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+    if (moqtrun_up_covers(q, 0, moqtrun_up_rdv_key(&hub->rdv[i])))
+      hub->rdv[i].tried &= ~bit;
 }
 
 static int moqtrun_up_candidate(
