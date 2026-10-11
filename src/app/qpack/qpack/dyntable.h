@@ -30,6 +30,10 @@ typedef struct {
   u64             dropped;  /**< absolute index of the oldest live entry */
   usz             size;     /**< sum of entry sizes (RFC 9204 3.2.1) */
   usz             capacity; /**< maximum allowed size in bytes */
+  /** RFC 9204 4.5.1.1: the decoder's advertised maximum capacity, the
+   * MaxEntries base for Required Insert Count decoding (qpack_dyn_init
+   * seeds it with the initial capacity). */
+  u64 max_capacity;
 } qpack_dyn;
 
 /* RFC 9204 3.2. Initialise an empty table with the given byte capacity. */

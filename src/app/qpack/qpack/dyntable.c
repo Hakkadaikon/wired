@@ -6,11 +6,12 @@ static usz entry_size(usz name_len, usz value_len) {
 }
 
 void qpack_dyn_init(qpack_dyn* t, usz capacity) {
-  t->head     = 0;
-  t->count    = 0;
-  t->dropped  = 0;
-  t->size     = 0;
-  t->capacity = capacity;
+  t->head         = 0;
+  t->count        = 0;
+  t->dropped      = 0;
+  t->size         = 0;
+  t->capacity     = capacity;
+  t->max_capacity = capacity;
 }
 
 usz qpack_dyn_size(const qpack_dyn* t) { return t->size; }
