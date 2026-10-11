@@ -1354,8 +1354,8 @@ static void qdec_cancel_slot(wired_srvloop* l, int i) {
 
 /* RFC 9204 2.2.2.1 / 4.4.1: acknowledge slot i's decoded field sections
  * (leading, then trailer) on the decoder stream when their Required Insert
- * Count is non-zero -- also for a request then rejected as malformed; a
- * section that failed to decode is a connection error instead. */
+ * Count is non-zero; a section that failed to decode is a connection error
+ * instead. */
 static void route_qpack_ack(wired_srvloop* l, int i) {
   const wired_h3reqdrive_req* r  = &l->streams[i].req;
   u64                         id = l->streams[i].stream_id;
@@ -1427,21 +1427,13 @@ static void route_note_qpack(wired_srvloop* l, int i) {
     l->qpack_stream_violation = QPACK_DECOMPRESSION_FAILED;
 }
 
-/* RFC 9204 2.2.2: a rejected stream's decoded section (non-zero Required
- * Insert Count) is acknowledged; one whose leading section was never
- * decoded (its framing rejected first) or referenced nothing is cancelled
- * instead -- reading stops either way. */
-static void route_qpack_settle_rejected(wired_srvloop* l, int i) {
-  if (l->streams[i].req.qpack_ric)
-    route_qpack_ack(l, i);
-  else
-    qdec_cancel_slot(l, i);
-}
-
-/* A completed stream that yielded no request: its decoder state is settled,
- * then the stream is aborted. */
+/* A completed stream that yielded no request: reading stops, so a Stream
+ * Cancellation releases every reference its sections hold, a trailer never
+ * decoded included (RFC 9204 2.2.2.2; the Insert Count Increment advances
+ * the Known Received Count an acknowledgment would have), then the stream
+ * is aborted. */
 static void route_note_rejected(wired_srvloop* l, int i) {
-  route_qpack_settle_rejected(l, i);
+  qdec_cancel_slot(l, i);
   route_note_incomplete(l, i);
 }
 

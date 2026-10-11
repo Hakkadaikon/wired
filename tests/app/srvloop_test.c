@@ -2775,10 +2775,12 @@ static void test_srvloop_qpack_split_inserts_section_ack(void) {
   CHECK(f.l.qpack_stream_violation == 0);
 }
 
-/* RFC 9204 2.2.2.1 / 4.4.1: a section with RIC 2 decoded in full and then
- * rejected as a malformed request (a "connection" field, RFC 9114 4.2) is
- * still acknowledged -- the encoder's references must not stay pinned. */
-static void test_srvloop_qpack_rejected_request_still_acked(void) {
+/* RFC 9204 2.2.2.2 / 4.4.2: a section with RIC 2 decoded in full and then
+ * rejected as a malformed request (a "connection" field, RFC 9114 4.2) gets
+ * a Stream Cancellation only -- it releases every reference the stream
+ * holds, a trailer's included, and the Insert Count Increment advances the
+ * Known Received Count an acknowledgment would have. */
+static void test_srvloop_qpack_rejected_request_cancelled(void) {
   static const u8 hdr[] = {0x01, 0x14, 0x03, 0x81, 0xd1, 0xd7, 0x10, 0x11,
                            0x27, 0x03, 'c',  'o',  'n',  'n',  'e',  'c',
                            't',  'i',  'o',  'n',  0x01, 'x'};
@@ -2792,7 +2794,7 @@ static void test_srvloop_qpack_rejected_request_still_acked(void) {
   off += frame_put_stream(payload + off, sizeof payload - off, &sf);
   lp_step_payload(&f, 3, payload, off);
   CHECK(f.l.done_n == 0 && f.l.qpack_stream_violation == 0);
-  CHECK(f.l.h3.qdec.acks_len == 1 && f.l.h3.qdec.acks[0] == 0x84);
+  CHECK(f.l.h3.qdec.acks_len == 1 && f.l.h3.qdec.acks[0] == 0x44);
 }
 
 /* RFC 9204 4.4.2 / 2.2.2.2 / B.4: a reset request stream owes a Stream
@@ -5587,7 +5589,7 @@ void test_srvloop(void) {
   test_srvloop_qpack_connect_dynamic_refs();
   test_srvloop_qpack_type_after_later_bytes();
   test_srvloop_qpack_nonminimal_type();
-  test_srvloop_qpack_rejected_request_still_acked();
+  test_srvloop_qpack_rejected_request_cancelled();
   test_srvloop_qpack_reset_cancels_stream();
   test_srvloop_qpack_trailer_section_acked();
   test_srvloop_qpack_reset_with_section_acks_only();
