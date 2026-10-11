@@ -947,8 +947,6 @@ typedef struct {
   u64 up_req_sid;
   /** The upstream FETCH's Request ID (its FETCH_HEADER names it). */
   u64 up_rid;
-  /** Reassembly of the upstream replies on up_req_sid. */
-  wired_moqtrun_ctl_asm up_in;
   /** 1 once the upstream data stream up_data_sid is bound to this slot;
    * it stays bound (later bytes are discarded) after the leg ends. */
   int up_data_open;
@@ -987,15 +985,23 @@ typedef struct {
   int answered;
   /** no_track: the downstream request stream the answer goes on. */
   u64 req_sid;
-  /** The Full Track Name's encoded Namespace (malformed-track scope). */
-  u8 up_ns[WIRED_MOQTRUN_MAX_NS];
-  /** Bytes of up_ns in use. */
-  usz up_ns_len;
-  /** The Full Track Name's Track Name. */
-  u8 up_name[WIRED_MOQTRUN_MAX_NAME];
-  /** Bytes of up_name in use. */
-  usz up_name_len;
 } wired_moqtrun_fetch;
+
+/** The bulky part of a fetches[] slot's upstream FETCH, kept beside the
+ * slot (wired_moqt_hub.upf_legs, same index) so fetch_waits[] entries,
+ * which never run one, do not carry it. */
+typedef struct {
+  /** Reassembly of the upstream replies on the slot's up_req_sid. */
+  wired_moqtrun_ctl_asm in;
+  /** The Full Track Name's encoded Namespace (malformed-track scope). */
+  u8 ns[WIRED_MOQTRUN_MAX_NS];
+  /** Bytes of ns in use. */
+  usz ns_len;
+  /** The Full Track Name's Track Name. */
+  u8 name[WIRED_MOQTRUN_MAX_NAME];
+  /** Bytes of name in use. */
+  usz name_len;
+} wired_moqtrun_upf_leg;
 
 /** One track a peer PUBLISHes (chat or audio), and the subscribers recorded
  * against it. in_use marks the slot live; own_alias is the Track Alias this
@@ -1452,6 +1458,9 @@ typedef struct {
    * and moves into fetches[] the moment a serving slot frees; its only
    * other exit is the owning subscription's cancel. */
   wired_moqtrun_fetch fetch_waits[WIRED_MOQTRUN_MAX_FETCHES];
+  /** The upstream FETCH state of fetches[i] beyond the slot's own fields
+   * (index i too). */
+  wired_moqtrun_upf_leg upf_legs[WIRED_MOQTRUN_MAX_FETCHES];
   /** The torn tail of one upstream fetch Object (an Object split across
    * stream deliveries), followed by the next delivery while it decodes.
    * ponytail: one buffer hub-wide; a second leg tearing an Object at the

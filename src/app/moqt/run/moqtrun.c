@@ -10833,11 +10833,17 @@ static i64 moqtrun_upf_send(
   return sid;
 }
 
-static void moqtrun_upf_store_key(wired_moqtrun_fetch* f, moqtrun_key k) {
-  f->up_ns_len   = k.ns.n;
-  f->up_name_len = k.name.n;
-  bytes_memcpy(f->up_ns, k.ns.p, k.ns.n);
-  bytes_memcpy(f->up_name, k.name.p, k.name.n);
+/* The leg state of f, a fetches[] slot. */
+static wired_moqtrun_upf_leg* moqtrun_upf_leg_of(
+    wired_moqt_hub* hub, const wired_moqtrun_fetch* f) {
+  return &hub->upf_legs[f - hub->fetches];
+}
+
+static void moqtrun_upf_store_key(wired_moqtrun_upf_leg* l, moqtrun_key k) {
+  l->ns_len   = k.ns.n;
+  l->name_len = k.name.n;
+  bytes_memcpy(l->ns, k.ns.p, k.ns.n);
+  bytes_memcpy(l->name, k.name.p, k.name.n);
 }
 
 /* f's leg starts: the FETCH m went to pp on stream sid. */
@@ -10847,13 +10853,12 @@ static void moqtrun_upf_store(
     wired_moqtrun_peer*  pp,
     i64                  sid,
     const moqfetch_req*  m) {
-  f->up_state     = WIRED_MOQTRUN_UPF_SENT;
-  f->up_wt        = pp->wt;
-  f->up_req_sid   = (u64)sid;
-  f->up_rid       = m->request_id;
-  f->up_in.n      = 0;
-  f->up_in.at     = 0;
-  f->up_in.skip   = 0;
+  f->up_state   = WIRED_MOQTRUN_UPF_SENT;
+  f->up_wt      = pp->wt;
+  f->up_req_sid = (u64)sid;
+  f->up_rid     = m->request_id;
+  bytes_memset(
+      &moqtrun_upf_leg_of(hub, f)->in, 0, sizeof(wired_moqtrun_ctl_asm));
   f->up_data_open = 0;
   f->up_data_end  = 0;
   f->has_up_last  = 0;
@@ -10886,7 +10891,7 @@ static int moqtrun_upf_open(
   i64 sid = moqtrun_upf_send(hub, pp, &m);
   if (sid < 0) return 0;
   moqtrun_upf_store(hub, f, pp, sid, &m);
-  moqtrun_upf_store_key(f, k);
+  moqtrun_upf_store_key(moqtrun_upf_leg_of(hub, f), k);
   return 1;
 }
 
@@ -11364,25 +11369,26 @@ static int moqtrun_upf_other_leg(
 }
 
 static int moqtrun_upf_same_name(
-    const wired_moqtrun_fetch* g, const wired_moqtrun_fetch* f) {
-  return moqtrun_ns_eq(
-             g->up_ns, g->up_ns_len, wired_span_of(f->up_ns, f->up_ns_len)) &&
+    const wired_moqtrun_upf_leg* g, const wired_moqtrun_upf_leg* f) {
+  return moqtrun_ns_eq(g->ns, g->ns_len, wired_span_of(f->ns, f->ns_len)) &&
          moqtrun_ns_eq(
-             g->up_name, g->up_name_len,
-             wired_span_of(f->up_name, f->up_name_len));
+             g->name, g->name_len, wired_span_of(f->name, f->name_len));
 }
 
 /* g fetches f's track from f's publisher too. */
 static int moqtrun_upf_same_track(
-    const wired_moqtrun_fetch* g, const wired_moqtrun_fetch* f) {
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_fetch* g,
+    const wired_moqtrun_fetch* f) {
   return moqtrun_upf_other_leg(g, f) && g->up_wt == f->up_wt &&
-         moqtrun_upf_same_name(g, f);
+         moqtrun_upf_same_name(
+             moqtrun_upf_leg_of(hub, g), moqtrun_upf_leg_of(hub, f));
 }
 
 static void moqtrun_upf_mal_peers(
     wired_moqt_hub* hub, const wired_moqtrun_fetch* f) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (moqtrun_upf_same_track(&hub->fetches[i], f))
+    if (moqtrun_upf_same_track(hub, &hub->fetches[i], f))
       moqtrun_upf_mal_stop(hub, &hub->fetches[i]);
 }
 
@@ -11812,8 +11818,8 @@ static void moqtrun_upf_drain(
   u64        type    = 0;
   wired_span body    = {0, 0};
   int        goaways = 0;
-  while (!pp->closing &&
-         moqtrun_upf_popped(moqtrun_asm_pop(&f->up_in, &type, &body)))
+  while (!pp->closing && moqtrun_upf_popped(moqtrun_asm_pop(
+                             &moqtrun_upf_leg_of(hub, f)->in, &type, &body)))
     goaways += moqtrun_upf_route(hub, pp, f, type, body, goaways);
 }
 
@@ -11835,7 +11841,7 @@ static int moqtrun_upf_rx(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, u64 sid, wired_span data) {
   wired_moqtrun_fetch* f = moqtrun_upf_by_req(hub, pp->wt, sid);
   if (!f) return 0;
-  moqtrun_asm_push(&f->up_in, &data);
+  moqtrun_asm_push(&moqtrun_upf_leg_of(hub, f)->in, &data);
   moqtrun_upf_drain(hub, pp, f);
   moqtrun_reqs_tick(hub);
   return 1;
