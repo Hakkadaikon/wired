@@ -4444,6 +4444,7 @@ static void srvrun_raw_start(const srvrun_cfg* cfg, srvrun_conn* c) {
 
 static void srvrun_answer_peer_stops(
     const srvrun_step_ctx* ctx, srvrun_conn* c);
+static void srvrun_free_reset_reqs(const srvrun_step_ctx* ctx, srvrun_conn* c);
 
 /* RFC 9000 4.6: hand srvloop the stream limits in force this step (the
  * last MAX_STREAMS sent, else the transport-parameter value), so a frame
@@ -4496,6 +4497,7 @@ static void srvrun_on_step_live(
   srvrun_wt_rx_capsules(ctx->cfg, c);
   srvrun_close_wt_on_stream_close(ctx->cfg, c);
   srvrun_answer_peer_stops(ctx, c);
+  srvrun_free_reset_reqs(ctx, c);
   srvrun_deliver_wt_reset_if_owned(ctx->cfg, c);
   srvrun_flush_wt_drain(c);
   srvrun_drain_wt_close_pending(ctx->cfg, c);
@@ -9242,6 +9244,36 @@ static void srvrun_answer_peer_stops(
   for (usz i = 0; i < n; i++)
     if (c->l.peer_resets[i].is_stop)
       freed += srvrun_answer_peer_stop(ctx, c, &c->l.peer_resets[i]);
+  srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
+}
+
+/* 1 if s is stream id's request slot still receiving its request (no
+ * response owns it yet). */
+static int srvrun_req_unfinished(const wired_srvloop_stream_slot* s, u64 id) {
+  return s->in_use && s->stream_id == id && !s->req_done;
+}
+
+/* 1 if stream id has a request slot still receiving its request. */
+static int srvrun_has_unfinished_req(const srvrun_conn* c, u64 id) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    if (srvrun_req_unfinished(&c->l.streams[i], id)) return 1;
+  return 0;
+}
+
+/* RFC 9000 3.2: a RESET_STREAM ends a request still being received -- it
+ * can never complete, so its slot is freed. 1 when one was. */
+static usz srvrun_reset_free(srvrun_conn* c, const wired_srvloop_reset* e) {
+  if (e->is_stop || !srvrun_has_unfinished_req(c, e->stream_id)) return 0;
+  wired_srvloop_slot_release(&c->l, e->stream_id);
+  return 1;
+}
+
+/* Every RESET_STREAM queued this step (c->l.peer_resets) frees its
+ * unfinished request's slot and returns the bidi credit (RFC 9000 4.6). */
+static void srvrun_free_reset_reqs(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  usz n = srvrun_peer_resets_stored(c), freed = 0;
+  for (usz i = 0; i < n; i++)
+    freed += srvrun_reset_free(c, &c->l.peer_resets[i]);
   srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
 }
 

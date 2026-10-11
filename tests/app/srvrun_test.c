@@ -6210,6 +6210,35 @@ static void test_srvrun_incomplete_request_frees_slot_and_credit(void) {
   CHECK(conns[0].stream_limit_advertised == WIRED_SRVLOOP_MAX_STREAMS + 1);
 }
 
+/* RFC 9000 3.2 / 4.6: a peer RESET_STREAM on a request still being received
+ * frees its slot and returns its bidi credit -- the request can never
+ * complete; a completed one (its response owns the slot) is left alone. */
+static void test_srvrun_reset_mid_request_frees_slot_and_credit(void) {
+  struct lp_fix f;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_conn*  conns = sr_test_conns();
+  wired_obuf    ob;
+  u8            obuf[1024];
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_state    st  = {table, conns};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  ob                  = (wired_obuf){obuf, sizeof obuf, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  CHECK(wired_srvloop_slot_for(&conns[0].l, 4) == 0);
+  CHECK(wired_srvloop_slot_for(&conns[0].l, 8) == 1);
+  conns[0].l.streams[1].req_done = 1;
+  conns[0].l.peer_resets[0]      = (wired_srvloop_reset){4, 0x10c, 0};
+  conns[0].l.peer_resets[1]      = (wired_srvloop_reset){8, 0x10c, 0};
+  conns[0].l.peer_reset_n        = 2;
+  srvrun_free_reset_reqs(&ctx, &conns[0]);
+  CHECK(conns[0].l.streams[0].in_use == 0);
+  CHECK(conns[0].l.streams[1].in_use == 1);
+  CHECK(conns[0].stream_limit_advertised == WIRED_SRVLOOP_MAX_STREAMS + 1);
+}
+
 /* Stream id 8 (& 3 == 0) is a client-initiated bidi id, same shape as the
  * existing establishes_session test's id 4 -- confirms the validation does
  * not reject a well-formed id. */
@@ -22845,6 +22874,7 @@ void test_srvrun(void) {
   test_srvrun_wt_uni_peer_reset_returns_credit();
   test_srvrun_incomplete_request_stream_sends_reset();
   test_srvrun_incomplete_request_frees_slot_and_credit();
+  test_srvrun_reset_mid_request_frees_slot_and_credit();
   test_srvrun_qenc_stream_opens_with_type_prefix_only();
   test_srvrun_qenc_stream_open_is_idempotent();
   test_srvrun_qenc_first_use_inserts_and_references_dynamic();
