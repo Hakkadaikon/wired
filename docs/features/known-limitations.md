@@ -439,12 +439,16 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   would send the excess once without retransmission (RFC 9000 13.3).
   Source: `srvrun.c` (`srvrun_rst_keep`).
 - **A request that cannot be decoded is aborted, not answered** — a request
-  stream whose HEADERS frame cannot become a request (malformed, or past
-  this decoder's local limits) is reset with H3_REQUEST_INCOMPLETE plus
-  STOP_SENDING, also without waiting for a FIN; no 4xx status is sent. Its
-  slot and bidi stream credit are returned, as they are for a request stream
-  the peer resets before it completes. Source: `srvloop/dispatch.c`
-  (`connect_headers_complete`), `srvrun.c` (`srvrun_abort_incomplete_reqs`).
+  stream whose whole HEADERS frame cannot become a request is reset with
+  H3_MESSAGE_ERROR plus STOP_SENDING, also without waiting for a FIN; one
+  that ends before its HEADERS frame is whole gets H3_REQUEST_INCOMPLETE. No
+  4xx status is sent, and a HEADERS frame past this decoder's local limits
+  gets H3_MESSAGE_ERROR like a malformed one. Its slot and bidi stream
+  credit are returned, as they are for a request stream the peer resets
+  while it is still being received or before any of its data claimed a
+  slot. Source: `srvloop/dispatch.c` (`connect_headers_complete`,
+  `route_note_incomplete_append`, `reset_request_stream`), `srvrun.c`
+  (`srvrun_abort_incomplete_reqs`, `srvrun_free_reset_reqs`).
 - **STOP_SENDING before the response starts is not remembered** — a peer
   STOP_SENDING is answered with RESET_STREAM (RFC 9000 3.5) only on a send
   part that already exists (response slot, WT send slot, CONNECT stream); one
