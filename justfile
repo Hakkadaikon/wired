@@ -33,8 +33,11 @@ tidychecks := ("-*,cert-*,bugprone-*,clang-analyzer-*"
     + ",-bugprone-easily-swappable-parameters,-bugprone-reserved-identifier"
     + ",-cert-dcl37-c,-cert-dcl51-cpp")
 tidyflags := target + " -ffreestanding -nostdlib -fno-builtin -Isrc"
-# The C sources clang-format owns.
-csrcs := '''$(find src tests examples fuzz guide/snippets -name node_modules -prune -o \( -name '*.c' -o -name '*.h' \) -print)'''
+# The C sources clang-format owns, largest first, NUL-separated; the pipe
+# into clang-format runs 8 files per process, one process per core (a
+# process per file spent most of the time starting clang-format).
+csrcs := '''find src tests examples fuzz guide/snippets -name node_modules -prune -o \( -name '*.c' -o -name '*.h' \)'''
+clangfmt := '''-print0 | xargs -0r ls -S | xargs -r -P "$(nproc)" -n 8 clang-format'''
 # True outside the devShell when nix exists. Recipes that need CI's pinned
 # tools then re-exec themselves as `nix develop -c just <recipe>`.
 no_nix_shell := '[ -z "${IN_NIX_SHELL:-}" ] && command -v nix >/dev/null 2>&1'
@@ -94,7 +97,7 @@ test: fmt gen-ninja
     ulimit -s unlimited 2>/dev/null || ulimit -s 65536
     ninja build/quic_test && build/quic_test
 
-# Same tests as `test`, ~4x faster (parallel shard TUs).
+# Same tests as `test`, ~3x faster (parallel shard TUs).
 test-fast: fmt gen-ninja
     #!/usr/bin/env sh
     # Shards cannot see static/typedef/macro collisions across shards, so
@@ -197,13 +200,22 @@ fmt:
     if [ -z "${IN_NIX_SHELL:-}" ]; then
         echo "warning: no nix; formatting with the host clang-format (may disagree with CI's pin)" >&2
     fi
-    clang-format -i {{csrcs}}
+    # Only files changed since the last run with the same clang-format and
+    # .clang-format (the stamp holds the version); anything else redoes all.
+    set -eu
+    mkdir -p build
+    stamp=build/.fmt-stamp; ver=$(clang-format --version); newer=""
+    if [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$ver" ] \
+        && [ .clang-format -ot "$stamp" ]; then newer="-newer $stamp"; fi
+    printf '%s\n' "$ver" > "$stamp.new"
+    {{csrcs}} $newer {{clangfmt}} -i
+    mv "$stamp.new" "$stamp"
 
 # Verify C formatting without writing (fails on diff).
 fmt-check:
     #!/usr/bin/env sh
     {{no_nix_shell}} && exec nix develop -c just fmt-check
-    clang-format --dry-run --Werror {{csrcs}}
+    {{csrcs}} {{clangfmt}} --dry-run --Werror
 
 # Static analysis (CERT C + bug finders); any warning fails.
 lint:
