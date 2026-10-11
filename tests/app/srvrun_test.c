@@ -19513,10 +19513,29 @@ static void test_srvrun_qenc_credit_regranted(void) {
   CHECK(srvrun_test_send_count() == 0);
   c->l.h3.qenc_rx.base = 100;
   srvrun_grant_wt_credit(&cfg, c);
-  CHECK(srvrun_test_send_count() == 1);
+  /* MAX_STREAM_DATA for the stream, MAX_DATA for the connection */
+  CHECK(srvrun_test_send_count() == 2);
   CHECK(c->qenc_credit_advertised == 100 + QDYN_ENCRX_CAP);
   srvrun_grant_wt_credit(&cfg, c);
-  CHECK(srvrun_test_send_count() == 1);
+  CHECK(srvrun_test_send_count() == 2);
+}
+
+/* RFC 9000 4.1 / 19.9: encoder-stream bytes count against the connection
+ * credit too. A connection with no WT stream or streamed body still raises
+ * MAX_DATA once the encoder stream has consumed bytes, to cover them plus
+ * that stream's whole window. */
+static void test_srvrun_qenc_bytes_raise_conn_credit(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  qdyn_encrx_take(&c->l.h3.qenc_rx, 2);
+  c->l.h3.qenc_rx.type_len  = 1;
+  c->l.h3.qenc_rx.base      = 100;
+  c->rx_max_data_advertised = 0;
+  srvrun_grant_conn_credit(&cfg, c);
+  CHECK(c->rx_max_data_advertised == 100 + QDYN_ENCRX_CAP);
 }
 
 /* RFC 9204 4.4: before the decoder stream is open the owed bytes wait
@@ -22575,6 +22594,7 @@ void test_srvrun(void) {
   test_srvrun_qenc_credit_regranted();
   test_srvrun_wt_send_slots_beside_qpack_streams();
   test_srvrun_qdec_stream_waits_for_uni_credit();
+  test_srvrun_qenc_bytes_raise_conn_credit();
   test_srvrun_wt_window_overflow_closes_flow_control();
   test_srvrun_capsule_only_conn_regrows_max_data();
   test_srvrun_wt_refuse_overflow_closes();

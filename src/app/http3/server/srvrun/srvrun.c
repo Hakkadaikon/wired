@@ -3395,9 +3395,17 @@ static u64 srvrun_wt_connect_slack(srvrun_conn* c) {
 }
 
 /* The connection credit moves: capsules flow on a CONNECT stream (slack),
- * or srvrun_conn_credit_live. */
+ * the peer's encoder stream consumed bytes, or srvrun_conn_credit_live. */
 static int srvrun_conn_credit_moving(const srvrun_conn* c, u64 slack) {
-  return slack || srvrun_conn_credit_live(c);
+  return slack || c->l.h3.qenc_rx.base || srvrun_conn_credit_live(c);
+}
+
+/* RFC 9000 4.1: the claimed encoder stream's consumed bytes plus its
+ * window (qdyn_encrx_credit) -- re-granted without bound, so they must sit
+ * under the connection ceiling too. */
+static u64 srvrun_qenc_rx_ceiling(const srvrun_conn* c) {
+  const qdyn_encrx* rx = &c->l.h3.qenc_rx;
+  return rx->type_len ? qdyn_encrx_credit(rx) : 0;
 }
 
 /* RFC 9000 4.1/19.9: re-grant this connection's receive credit once its total
@@ -3409,14 +3417,15 @@ static int srvrun_conn_credit_moving(const srvrun_conn* c, u64 slack) {
  * body nor a capsule-carrying CONNECT stream is live
  * (srvrun_conn_credit_moving). The ceiling counts a CONNECT stream's
  * consumed capsule bytes (its window base, srvrun_req_rx_ceiling) plus its
- * window (srvrun_wt_connect_slack). ponytail: control/QPACK and buffered
- * request bytes are not counted; the initial 10 MB (STP_DEFAULT_MAX_DATA)
- * covers them. */
+ * window (srvrun_wt_connect_slack), and the peer's encoder stream
+ * (srvrun_qenc_rx_ceiling). ponytail: control-stream and buffered request
+ * bytes are not counted; the initial 10 MB (STP_DEFAULT_MAX_DATA) covers
+ * them. */
 static void srvrun_grant_conn_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
   u64 slack   = srvrun_wt_connect_slack(c);
   u64 ceiling = c->wt_rx_reaped_total + srvrun_wt_rx_delivered_total(c) +
                 (u64)wt_slots_in_use(c) * WIRED_SRVLOOP_WT_BUF_CAP +
-                srvrun_req_rx_ceiling(c) + slack;
+                srvrun_req_rx_ceiling(c) + slack + srvrun_qenc_rx_ceiling(c);
   if (!srvrun_conn_credit_moving(c, slack)) return;
   if (!wt_credit_stream_due(ceiling, c->rx_max_data_advertised)) return;
   srvrun_send_max_data(cfg, c, ceiling);
