@@ -238,14 +238,10 @@ static int moqcache_holds(const moqcache* c, usz off, moqctl_loc cur) {
          !moqctl_loc_less(cur, moqcache_rec_first(moqcache_rec_at(c, off)));
 }
 
-static moqctl_loc moqcache_min(moqctl_loc a, moqctl_loc b) {
-  return moqctl_loc_less(a, b) ? a : b;
-}
-
 /* Where a skipped (nonexistent) stretch ends. */
 static moqctl_loc moqcache_gap_end(const moqcache* c, usz off, moqctl_loc end) {
   if (off == c->used) return end;
-  return moqcache_min(moqcache_rec_first(moqcache_rec_at(c, off)), end);
+  return moqctl_loc_min(moqcache_rec_first(moqcache_rec_at(c, off)), end);
 }
 
 moqctl_loc moqcache_skip(moqcache* c, u64 tag, moqctl_loc cur, moqctl_loc end) {
@@ -271,13 +267,7 @@ static moqctl_loc moqcache_unknown_stop(
         0);
   if (!moqctl_loc_less(cur, stop))
     stop = moqctl_loc_of(cur.group, cur.object + 1);
-  return moqcache_min(stop, end);
-}
-
-/* The Location just before stop (stop > {0, 0}). */
-static moqctl_loc moqcache_prev(moqctl_loc stop) {
-  if (stop.object) return moqctl_loc_of(stop.group, stop.object - 1);
-  return moqctl_loc_of(stop.group - 1, MOQCACHE_OBJ_ID_MAX);
+  return moqctl_loc_min(stop, end);
 }
 
 void moqcache_item_at(
@@ -293,5 +283,5 @@ void moqcache_item_at(
   }
   it->unknown = 1;
   it->next    = moqcache_unknown_stop(c, off, cur, end);
-  it->loc     = moqcache_prev(it->next);
+  it->loc     = moqctl_loc_prev(it->next);
 }

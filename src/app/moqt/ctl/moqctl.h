@@ -3,6 +3,7 @@
 
 #include "app/moqt/ver/moqver.h"
 #include "common/bytes/span/span.h"
+#include "common/bytes/varint/varint.h"
 #include "common/platform/sys/syscall.h"
 
 /** @file
@@ -403,6 +404,23 @@ static inline moqctl_loc moqctl_loc_of(u64 group, u64 object) {
 
 /** Location A < Location B: (A.Group, A.Object) lexicographic. */
 int moqctl_loc_less(moqctl_loc a, moqctl_loc b);
+
+/** The earlier of a and b. */
+static inline moqctl_loc moqctl_loc_min(moqctl_loc a, moqctl_loc b) {
+  return moqctl_loc_less(a, b) ? a : b;
+}
+
+/** The later of a and b. */
+static inline moqctl_loc moqctl_loc_max(moqctl_loc a, moqctl_loc b) {
+  return moqctl_loc_less(a, b) ? b : a;
+}
+
+/** The Location just before excl (excl > {0, 0}): the previous Group's
+ * last possible Object when excl starts a Group. */
+static inline moqctl_loc moqctl_loc_prev(moqctl_loc excl) {
+  return excl.object ? moqctl_loc_of(excl.group, excl.object - 1)
+                     : moqctl_loc_of(excl.group - 1, VARINT_MAX);
+}
 
 /** Decodes a Location at *off. MOQCTL_OK or INSUFFICIENT. */
 int moqctl_loc_take(wired_span buf, usz* off, moqctl_loc* out);

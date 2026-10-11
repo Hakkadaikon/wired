@@ -2747,13 +2747,15 @@ static void moqtrun_fetch_sched(
   moqtrun_sched_apply(hub, f->wt, (i64)f->stream_id, &k);
 }
 
+/* io moqtrun_upf_drop does toward the upstream session. */
+#define MOQTRUN_UPF_IO_NONE 0
+#define MOQTRUN_UPF_IO_CANCEL 1
+#define MOQTRUN_UPF_IO_FIN 2
+
 static void moqtrun_upf_drop(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, int io);
 static void moqtrun_upf_unanswered_refuse(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f);
-
-/* io (moqtrun_upf_drop) cancelling the upstream FETCH. */
-#define MOQTRUN_UPF_IO_CANCEL 1
 
 /* The one place a fetch slot frees: an upstream FETCH still in flight
  * for it is cancelled first (draft-22 3.2.4), so none outlives it, and a
@@ -10729,10 +10731,6 @@ static int moqtrun_up_rx(
  * ponytail: no two FETCHes share an upstream one, and an upstream GOAWAY
  * on the request stream is not followed by a re-issue. */
 
-/* io moqtrun_upf_drop does toward the upstream session. */
-#define MOQTRUN_UPF_IO_NONE 0
-#define MOQTRUN_UPF_IO_FIN 2
-
 /* No parameters: a fill carries no Range Filter of its own. */
 static const moqctl_params MOQTRUN_UPF_NO_PARAMS;
 
@@ -10805,12 +10803,6 @@ static void moqtrun_upf_rl_end(moqctl_rangeloc* rl, moqctl_loc e) {
   rl->end_group  = e.group;
   rl->end_object = e.object;
   rl->ek = e.object >= MOQCACHE_OBJ_ID_MAX ? MOQCTL_REK_GROUP : MOQCTL_REK_OBJ;
-}
-
-/* The Location just before an exclusive end. */
-static moqctl_loc moqtrun_upf_incl(moqctl_loc excl) {
-  return excl.object ? moqctl_loc_of(excl.group, excl.object - 1)
-                     : moqctl_loc_of(excl.group - 1, MOQCACHE_OBJ_ID_MAX);
 }
 
 static int moqtrun_upf_enc22(wired_mspan buf, usz* off, const void* m) {
@@ -10948,7 +10940,7 @@ static void moqtrun_upf_span(
   rl->sk           = MOQCTL_RSK_ABS;
   rl->start_group  = r->start.group;
   rl->start_object = r->start.object;
-  moqtrun_upf_rl_end(rl, moqtrun_upf_incl(f->up_span_end));
+  moqtrun_upf_rl_end(rl, moqctl_loc_prev(f->up_span_end));
 }
 
 /* 1 when f's leg starts for r of track k: the cache lacks part of it,
@@ -11065,14 +11057,10 @@ static void moqtrun_upf_cancel(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
 
 /* ----- the cache side takes over ----- */
 
-static moqctl_loc moqtrun_upf_loc_max(moqctl_loc a, moqctl_loc b) {
-  return moqctl_loc_less(a, b) ? b : a;
-}
-
 /* Just past what a completed leg covered: its End, within the span. */
 static moqctl_loc moqtrun_upf_covered(const wired_moqtrun_fetch* f) {
   moqctl_loc e = moqtrun_end_excl(f->up_end);
-  return moqctl_loc_less(e, f->up_span_end) ? e : f->up_span_end;
+  return moqctl_loc_min(e, f->up_span_end);
 }
 
 /* Ascending: from just past the last relayed item (or the cursor), and
@@ -11080,7 +11068,7 @@ static moqctl_loc moqtrun_upf_covered(const wired_moqtrun_fetch* f) {
 static void moqtrun_upf_from_asc(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, int done) {
   moqctl_loc from = f->has_up_last ? moqtrun_after(f->up_last) : f->cursor;
-  if (done) from = moqtrun_upf_loc_max(from, moqtrun_upf_covered(f));
+  if (done) from = moqctl_loc_max(from, moqtrun_upf_covered(f));
   f->cursor = moqcache_skip(&hub->cache, f->cache_tag, from, f->end);
 }
 
@@ -11088,7 +11076,7 @@ static void moqtrun_upf_from_asc(
 static void moqtrun_upf_window(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   moqctl_loc   top = moqctl_loc_of(f->up_last.group + 1, 0);
   moqtrun_fwin w;
-  f->end = moqctl_loc_less(top, f->up_span_end) ? top : f->up_span_end;
+  f->end = moqctl_loc_min(top, f->up_span_end);
   moqtrun_fetch_after(hub, f, moqtrun_after(f->up_last), &w);
   f->cursor = w.cursor;
   f->end    = w.end;
