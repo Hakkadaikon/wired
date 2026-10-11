@@ -262,6 +262,13 @@ draft-22 sessions only. None of it is part of draft-22. Source shorthand:
   in place. A shed Group of a switching-set member is not re-opened
   mid-way; a track outside any set (voice) still is. Source: `moqtrun_relay_shed_one` in `src/app/moqt/run/moqtrun.c`, W6
   browser run (PLAN §4).
+- **A newer Group cuts only the newest older stream** — the lossy relay
+  remembers one stream per subscription. When a newer Group opens, it resets
+  that stream and any older Group stream whose publisher is still sending.
+  Another Subgroup of an older Group that the publisher already ended still
+  drains. These resets do not feed backpressure: the hub cannot tell
+  whether the stream still had unsent bytes. Source:
+  `moqtrun_sub_note_open` in `src/app/moqt/run/moqtrun.c`.
 - **Variants must share Group numbers** — the boundary rule assumes aligned
   Group IDs across the variant tracks. The hub does not check this.
 - **Soft give-up is fixed** — `WIRED_MOQTSW_SOFT_WAIT_MS` (4000 ms, two

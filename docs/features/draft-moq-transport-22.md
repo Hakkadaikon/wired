@@ -1254,6 +1254,27 @@ draft-18 and draft-19.
   any accumulated busy-streak counters from the prior incarnation.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_republish_clears_busy_streak`
+- [x] MQ22-202 When a lossy relay opens a subscriber stream in a Group newer
+  than any it opened for that subscription, the implementation shall reset the
+  subscription's previous newest stream (even one the publisher already
+  ended), so the older Group's unsent backlog never holds the newer Group
+  back behind the in-order Group scheduling.
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_newer_group_resets_finished_older_stream`
+- [x] MQ22-203 Rounds of an older Group's still-open publisher stream shall
+  then reach that subscriber nowhere: no append, no re-open, no FIN.
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_newer_group_cuts_open_older_relay`
+- [x] MQ22-204 Another stream of the same Group, or any stream of a reliable
+  (ring-backed) track, shall reset nothing.
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_same_group_stream_keeps_sibling`,
+    `test_moqtrun_newer_group_keeps_reliable_stream`
+- [x] MQ22-205 A re-PUBLISH or re-attach shall forget the subscription's
+  newest Group, since the new incarnation's Group numbering restarts.
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_republish_forgets_newest_group`,
+    `test_moqtrun_reattach_forgets_newest_group`
 
 ## Hub relay: session teardown (SS12.2 Termination applied to relay state)
 
