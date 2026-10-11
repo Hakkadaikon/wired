@@ -1329,7 +1329,68 @@ static void test_h3req_path_view(void) {
   CHECK(p.p == r.path && p.n == 6);
 }
 
+/* RFC 9204 B.2's table: (:authority, www.example.com), (:path,
+ * /sample/path), capacity 220. */
+static void rd_b2_table(qpack_dyn* t) {
+  qpack_field a = {
+      wired_span_of((const u8*)":authority", 10),
+      wired_span_of((const u8*)"www.example.com", 15)};
+  qpack_field p = {
+      wired_span_of((const u8*)":path", 5),
+      wired_span_of((const u8*)"/sample/path", 12)};
+  qpack_dyn_init(t, 220);
+  CHECK(qpack_dyn_insert(t, &a) && qpack_dyn_insert(t, &p));
+}
+
+/* RFC 9204 B.2: stream 4's section (Required Insert Count 2, Base 0, two
+ * post-Base references; :method GET and :scheme https added as static
+ * lines) decodes against the table and reports its Required Insert Count
+ * for the Section Acknowledgment. */
+static void test_reqdrive_b2_section_ric(void) {
+  static u8            scratch[WIRED_H3_MAX_FIELD_SECTION];
+  static const u8      fs[] = {0x03, 0x81, 0xd1, 0xd7, 0x10, 0x11};
+  qpack_dyn            t;
+  wired_h3reqdrive_req r;
+  rd_b2_table(&t);
+  CHECK(rd_hdr_decode(fs, sizeof fs, scratch, &t, &r));
+  CHECK(rd_eq(r.authority, r.authority_len, "www.example.com", 15));
+  CHECK(rd_eq(r.path, r.path_len, "/sample/path", 12));
+  CHECK(r.qpack_ric == 2 && r.qpack_failed == 0);
+}
+
+/* RFC 9204 2.1.2 / 4.5.1.1: with no blocked streams allowed, a Required
+ * Insert Count past the inserts received is a decompression failure. */
+static void test_reqdrive_ric_past_inserts_fails(void) {
+  static u8            scratch[WIRED_H3_MAX_FIELD_SECTION];
+  static const u8      fs[] = {0x04, 0x82, 0xd1, 0xd7, 0x10, 0x11};
+  qpack_dyn            t;
+  wired_h3reqdrive_req r;
+  rd_b2_table(&t); /* 2 inserts; the section claims 3 */
+  CHECK(!rd_hdr_decode(fs, sizeof fs, scratch, &t, &r));
+  CHECK(r.qpack_failed == 1);
+}
+
+/* RFC 9204 4.5.1.1: MaxEntries comes from the advertised maximum capacity,
+ * not the capacity the encoder set -- 13 inserts under capacity 220 (6
+ * entries) still decode an EncodedInsertCount of 14 (RIC 13 mod 128 + 1). */
+static void test_reqdrive_ric_uses_max_capacity(void) {
+  static u8       scratch[WIRED_H3_MAX_FIELD_SECTION];
+  static const u8 fs[] = {0x0e, 0x00, 0xd1, 0xd7, 0xc1, 0x80};
+  qpack_field     f    = {
+      wired_span_of((const u8*)"x", 1), wired_span_of((const u8*)"y", 1)};
+  qpack_dyn            t;
+  wired_h3reqdrive_req r;
+  qpack_dyn_init(&t, 4096);
+  qpack_dyn_set_capacity(&t, 220);
+  for (int i = 0; i < 13; i++) CHECK(qpack_dyn_insert(&t, &f));
+  CHECK(rd_hdr_decode(fs, sizeof fs, scratch, &t, &r));
+  CHECK(r.qpack_ric == 13);
+}
+
 void test_h3reqdrive(void) {
+  test_reqdrive_b2_section_ric();
+  test_reqdrive_ric_past_inserts_fails();
+  test_reqdrive_ric_uses_max_capacity();
   test_h3req_path_view();
   test_reqdrive_req_header_lookup();
   test_reqdrive_req_header_cap();

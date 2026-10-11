@@ -394,36 +394,45 @@ static int scan_lines(rd_cursor* cur, wired_h3reqdrive_req* r) {
  * resolves against: dyn's own insertion count, or the empty-table default
  * (0) when dyn is 0 (no encoder stream seen yet). Split out of prefix_base
  * so its own branch count stays at the CCN gate. */
-/* RFC 9204 3.2.2: MaxEntries is the dynamic table's capacity divided by 32. */
+/* RFC 9204 4.5.1.1: MaxEntries is the maximum capacity divided by 32. */
 #define QPACK_DYN_ENTRY_SIZE_OVERHEAD 32
 
 static qpack_ric_ctx dyn_ric_ctx(const qpack_dyn* dyn) {
   qpack_ric_ctx ctx = {0, 0};
   if (!dyn) return ctx;
-  ctx.max_entries   = dyn->capacity / QPACK_DYN_ENTRY_SIZE_OVERHEAD;
+  ctx.max_entries   = dyn->max_capacity / QPACK_DYN_ENTRY_SIZE_OVERHEAD;
   ctx.total_inserts = dyn->dropped + dyn->count;
   return ctx;
 }
 
+/* RFC 9204 4.5.1.2 / 2.1.2: the Base is non-negative, and -- no stream may
+ * block (SETTINGS_QPACK_BLOCKED_STREAMS 0) -- the Required Insert Count is
+ * no more than the inserts already received. */
+static int prefix_ric_ok(
+    const qpack_prefix* p, u64 ric, const qpack_ric_ctx* c) {
+  return qpack_base_valid(ric, p->sign, p->delta_base) &&
+         ric <= c->total_inserts;
+}
+
 /* Resolve p's Required Insert Count and validate the Base it implies. Returns
- * 1 with *base filled, 0 if the EncodedInsertCount is invalid or the Base it
- * yields would be negative. Split out of prefix_base so its own branch count
+ * 1 with *base and *ric filled, 0 if the EncodedInsertCount is invalid or
+ * prefix_ric_ok rejects it. Split out of prefix_base so its own branch count
  * stays at the CCN gate. */
 static int prefix_resolve_base(
-    const qpack_prefix* p, const qpack_dyn* dyn, u64* base) {
+    const qpack_prefix* p, const qpack_dyn* dyn, u64* base, u64* ric) {
   qpack_ric_ctx ctx = dyn_ric_ctx(dyn);
-  u64           ric;
-  if (!qpack_ric_decode(p->required_insert_count, &ctx, &ric)) return 0;
-  if (!qpack_base_valid(ric, p->sign, p->delta_base)) return 0;
-  *base = qpack_base(ric, p->sign, p->delta_base);
+  if (!qpack_ric_decode(p->required_insert_count, &ctx, ric)) return 0;
+  if (!prefix_ric_ok(p, *ric, &ctx)) return 0;
+  *base = qpack_base(*ric, p->sign, p->delta_base);
   return 1;
 }
 
-static usz prefix_base(wired_span fs, const qpack_dyn* dyn, u64* base) {
+static usz prefix_base(
+    wired_span fs, const qpack_dyn* dyn, u64* base, u64* ric) {
   qpack_prefix p;
   usz          off = qpack_prefix_decode(fs.p, fs.n, &p);
   if (!off) return 0;
-  return prefix_resolve_base(&p, dyn, base) ? off : 0;
+  return prefix_resolve_base(&p, dyn, base, ric) ? off : 0;
 }
 
 /* RFC 9114 4.3.1: walk every field line after the section prefix in any order
@@ -436,8 +445,9 @@ static int decode_lines(
     wired_mspan           scr,
     const qpack_dyn*      dyn,
     wired_h3reqdrive_req* r) {
-  rd_cursor cur = {fs, scr, 0, 0, {dyn, 0, fs}};
-  cur.off       = prefix_base(fs, dyn, &cur.dyn.base);
+  rd_cursor cur   = {fs, scr, 0, 0, {dyn, 0, fs}};
+  cur.off         = prefix_base(fs, dyn, &cur.dyn.base, &r->qpack_ric);
+  r->qpack_failed = cur.off == 0;
   if (!cur.off) return 0;
   return scan_lines(&cur, r);
 }

@@ -129,6 +129,14 @@ typedef struct {
   /** the kept headers, in received order (see hdr_base) */
   wired_h3reqdrive_hdr hdrs[WIRED_H3REQDRIVE_MAX_HDRS];
   usz                  hdr_count; /**< entries used in hdrs */
+  /** RFC 9204 4.5.1.1: the field section's Required Insert Count -- non-zero
+   * means the decoder owes a Section Acknowledgment (4.4.1). */
+  u64 qpack_ric;
+  /** RFC 9204 4.5.1 / 2.1.2: 1 if the section prefix could not be decoded
+   * (an invalid Required Insert Count or Base, or one past the inserts
+   * received while no stream may block): a connection error of type
+   * QPACK_DECOMPRESSION_FAILED rather than a malformed request. */
+  int qpack_failed;
 } wired_h3reqdrive_req;
 
 /**
