@@ -178,9 +178,9 @@ golden-check:
 fuzz-smoke: gen-ninja
     #!/usr/bin/env sh
     set -eu
-    for f in fuzz/fuzz_*.c; do t=${f%.c}; ninja "$t"
-        "./$t" -runs=1 -artifact_prefix=fuzz/
-    done
+    # One ninja call builds every harness in parallel.
+    ninja $(for f in fuzz/fuzz_*.c; do echo "${f%.c}"; done)
+    for f in fuzz/fuzz_*.c; do "./${f%.c}" -runs=1 -artifact_prefix=fuzz/; done
 
 # Nightly sweep: every fuzz harness for secs seconds each.
 fuzz-ci secs="120": gen-ninja
