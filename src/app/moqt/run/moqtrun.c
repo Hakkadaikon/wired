@@ -11223,9 +11223,12 @@ static void moqtrun_upf_failed(
   moqtrun_upf_failed_with(hub, f, &e, serve);
 }
 
-/* Ends f's leg (io as moqtrun_upf_drop) as failed with code. */
+/* Ends f's leg (io as moqtrun_upf_drop) as failed with code; nothing
+ * when f's slot is already free (moqtrun_fetch_open frees a range sent
+ * whole -- not expected while a leg runs, guarded all the same). */
 static void moqtrun_upf_fail(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, int io, u64 code) {
+  if (!f->in_use) return;
   moqtrun_upf_drop(hub, f, io);
   moqtrun_upf_failed(hub, f, code, 1);
 }
@@ -11411,10 +11414,10 @@ static int moqtrun_upf_malformed(
 }
 
 /* f reset MALFORMED_TRACK, opened first if need be so its requester
- * learns why. */
+ * learns why -- unless that open sent the range whole and freed f. */
 static void moqtrun_upf_mal_stop(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   moqtrun_fetch_open(hub, f);
-  moqtrun_fetch_stop_code(hub, f, MOQTRUN_RESET_MALFORMED_TRACK);
+  if (f->in_use) moqtrun_fetch_stop_code(hub, f, MOQTRUN_RESET_MALFORMED_TRACK);
 }
 
 static int moqtrun_upf_other_leg(
