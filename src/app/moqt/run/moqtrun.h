@@ -798,6 +798,19 @@ typedef struct {
    * draft-22 7.6): no deadline, and no announcer left answers it
    * REQUEST_ERROR at once. */
   u8 up_only;
+  /** 1 when the slot holds an Established subscription whose upstream
+   * ended on the publisher's side and that waits for another announcer
+   * (draft-22 7.6.1): already answered, so it is re-attached silently or
+   * ends with one PUBLISH_DONE at deadline_ms, never answered again. */
+  u8 repath;
+  /** repath only: the PUBLISH_DONE Status Code owed at deadline_ms. */
+  u64 done_status;
+  /** repath only: that PUBLISH_DONE's Stream Count. */
+  u64 done_count;
+  /** repath only: bit i is set for peer slot i, asked for the track in
+   * this wait or the one that ended it; its next PUBLISH_NAMESPACE clears
+   * it. */
+  u64 tried;
 } wired_moqtrun_rdv;
 
 /** Fixed capacity: upstream SUBSCRIBEs the hub holds toward namespace

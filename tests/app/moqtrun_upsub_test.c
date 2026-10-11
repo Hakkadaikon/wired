@@ -322,7 +322,8 @@ static void test_moqtrun_upsub_publish_done_relayed(void) {
 
 /* U8 NoLeakOnClose: A's session closing frees its entries with no io; a
  * waiter left with no announcer gets DOES_NOT_EXIST, an Established
- * subscriber its PUBLISH_DONE (TRACK_ENDED). */
+ * subscriber waits for another announcer and, with none, gets its
+ * PUBLISH_DONE at the end of that wait (moqtrun_repath_test.c). */
 static void test_moqtrun_upsub_publisher_close(void) {
   mups_init();
   mups_sub(SESS_B, MRDV_S1);
@@ -333,13 +334,16 @@ static void test_moqtrun_upsub_publisher_close(void) {
   mups_sub(SESS_B, MRDV_S1);
   mups_ok((u64)mups_up_sid());
   wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
+  wired_moqt_tick(&mtst_hub, WIRED_MOQTRUN_RDV_MAX_MS);
   CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|Tb|FIN|"));
   CHECK(mups_used() == 0);
 }
 
 /* d22 6.4.2.3: A resets the hub's upstream SUBSCRIBE stream -- the
  * request is cancelled. A waiter is refused INTERNAL_ERROR, an
- * Established subscriber gets its PUBLISH_DONE; the hub resets its own
+ * Established subscriber waits for another announcer and, with none,
+ * gets its PUBLISH_DONE at the end of that wait; the hub resets its own
  * side and frees the entry. */
 static void test_moqtrun_upsub_publisher_reset(void) {
   u64 sid;
@@ -355,6 +359,8 @@ static void test_moqtrun_upsub_publisher_reset(void) {
   sid = (u64)mups_up_sid();
   mups_ok(sid);
   wired_moqt_on_stream_reset(&mtst_hub, SESS_A, sid, 1, 0);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
+  wired_moqt_tick(&mtst_hub, WIRED_MOQTRUN_RDV_MAX_MS);
   CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|Tb|FIN|"));
   CHECK(mups_up_is(sid, "RST1|"));
   CHECK(mups_used() == 0);

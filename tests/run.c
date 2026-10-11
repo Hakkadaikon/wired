@@ -1148,6 +1148,7 @@
 #include "app/moqtrun_rawpeer_test.c"
 #include "app/moqssts_test.c"
 #include "app/moqtrun_upsub_test.c"
+#include "app/moqtrun_repath_test.c"
 #include "app/moqctl_switch_test.c"
 #include "app/moqtrun_switch_test.c"
 #include "app/moqtrun_ssts_test.c"
@@ -1761,6 +1762,7 @@ int main(void) {
   test_moqtrun_fillfix();
   test_moqtrun_rdv();
   test_moqtrun_upsub();
+  test_moqtrun_repath();
   test_moqctl_switch();
   test_moqtrun_switch();
   test_moqtrun_ssts();
