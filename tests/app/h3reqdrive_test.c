@@ -1439,6 +1439,22 @@ static void test_reqdrive_bad_ref_is_qpack_failure(void) {
   CHECK(r.qpack_failed == 0);
 }
 
+/* RFC 9204 7.4: a field this decoder cannot hold (a literal name past its
+ * name cap) only rejects the request; it is not a decompression failure
+ * that would end the whole connection. */
+static void test_reqdrive_local_capacity_not_qpack_failure(void) {
+  static u8   scratch[WIRED_H3_MAX_FIELD_SECTION];
+  u8          name[70], fs[128] = {0x00, 0x00, 0xd1, 0xd7};
+  usz         n = 4;
+  qpack_field f = {wired_span_of(name, sizeof name), wired_span_of(0, 0)};
+  wired_h3reqdrive_req r;
+  for (usz i = 0; i < sizeof name; i++) name[i] = 'a';
+  n += qpack_literal_name_encode(wired_mspan_of(fs + n, sizeof fs - n), 0, &f);
+  CHECK(n > 4 + sizeof name);
+  CHECK(!rd_hdr_decode(fs, n, scratch, 0, &r));
+  CHECK(r.qpack_failed == 0);
+}
+
 /* RFC 9204 4.5.1.1: MaxEntries comes from the advertised maximum capacity,
  * not the capacity the encoder set -- 13 inserts under capacity 220 (6
  * entries) still decode an EncodedInsertCount of 14 (RIC 13 mod 128 + 1). */
@@ -1505,6 +1521,7 @@ void test_h3reqdrive(void) {
   test_reqdrive_b2_section_ric();
   test_reqdrive_ric_past_inserts_fails();
   test_reqdrive_bad_ref_is_qpack_failure();
+  test_reqdrive_local_capacity_not_qpack_failure();
   test_reqdrive_b4_section();
   test_reqdrive_ric_wraps();
   test_reqdrive_ric_uses_max_capacity();

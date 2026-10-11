@@ -46,6 +46,9 @@ typedef struct {
   const u8* value;
   usz       value_len;
   usz scratch_used; /* scratch octets this line occupies (0 if borrowed) */
+  /* RFC 9204 2.2.3 / 3.1: the line failed on a reference to no live entry
+   * (a connection error), not on this decoder's own capacity */
+  int ref_bad;
 } rline;
 
 /* Length of a NUL-terminated static-table string. */
@@ -68,6 +71,12 @@ static void literal_line(rline* L, wired_span name, wired_mspan scr, usz vlen) {
   L->value        = scr.p;
   L->value_len    = vlen;
   L->scratch_used = vlen;
+}
+
+/* RFC 9204 4.5.2 / 4.5.3: an Indexed Field Line ('1') or one with a
+ * Post-Base Index ('0001'). */
+static int line_is_indexed(u8 lead) {
+  return (lead & 0x80) || (lead & 0xf0) == 0x10;
 }
 
 /* Borrow a static-table entry's name/value views into L (RFC 9204 3.1). */
@@ -105,7 +114,10 @@ static usz line_indexed(
   qpack_field f;
   usz         consumed;
   qdyn_src    src = {dyn->table, dyn->base, fs, dyn->ric};
-  if (!qdyn_decode_field(&src, &f, &consumed)) return 0;
+  if (!qdyn_decode_field(&src, &f, &consumed)) {
+    L->ref_bad = line_is_indexed(fs.p[0]);
+    return 0;
+  }
   return indexed_keep(&f, fs.p[0], scr, L) ? consumed : 0;
 }
 
@@ -118,7 +130,9 @@ static usz line_namref(
   qdyn_src      src = {dyn->table, dyn->base, fs, dyn->ric};
   wired_span    name;
   usz           c = qpack_literal_namref_decode(fs, &r, &vb);
-  if (!c || !qdyn_resolve_name(&src, r.is_static, r.index, &name)) return 0;
+  if (!c) return 0;
+  L->ref_bad = !qdyn_resolve_name(&src, r.is_static, r.index, &name);
+  if (L->ref_bad) return 0;
   literal_line(L, name, scr, vb.len);
   return c;
 }
@@ -131,7 +145,9 @@ static usz line_postbase(
   wired_obuf        vb = obuf_of(scr.p, scr.n);
   wired_span        name;
   usz               c = qpack_literal_postbase_decode(fs, &r, &vb);
-  if (!c || !qdyn_resolve_postbase_name(dyn, r.index, &name)) return 0;
+  if (!c) return 0;
+  L->ref_bad = !qdyn_resolve_postbase_name(dyn, r.index, &name);
+  if (L->ref_bad) return 0;
   literal_line(L, name, scr, vb.len);
   return c;
 }
@@ -404,15 +420,16 @@ static void rd_record(rd_cursor* cur, const rline* L, wired_h3reqdrive_req* r) {
 /* Decode one line at cur->off into r, advancing cur. Returns 1 ok, 0 on a
  * malformed line (decode failure or a forbidden CR/LF/NUL octet). */
 static int step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
-  rline      L;
+  rline      L    = {0};
   wired_span rest = wired_span_of(cur->fs.p + cur->off, cur->fs.n - cur->off);
   usz        c    = decode_line(
       rest, wired_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used),
       &cur->dyn, &L);
-  /* RFC 9204 2.2.3: a line that does not decode (an unresolvable or
-   * evicted reference, a bad string) fails the connection, unlike a
-   * well-encoded line HTTP/3 rejects. */
-  r->qpack_failed = c == 0;
+  /* RFC 9204 2.2.3: a reference to no live entry (unresolvable or
+   * evicted) fails the connection. Any other line this decoder cannot
+   * decode -- one too large for its scratch or name cap (RFC 9204 7.4) --
+   * only rejects the request, like a well-encoded line HTTP/3 rejects. */
+  r->qpack_failed = L.ref_bad;
   if (!c || !line_ok(&L)) return 0;
   classify_line(&L, r);
   cur->off += c;
