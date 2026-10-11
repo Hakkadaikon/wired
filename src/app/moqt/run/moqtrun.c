@@ -9477,8 +9477,11 @@ static void moqtrun_rp_flush(wired_moqt_hub* hub, const wired_moqtrun_peer* p) {
 }
 
 /* A new path's SUBSCRIBE_OK: a waiter moqtrun_reattach_subs could not
- * re-attach to t (its own session publishes t, t's subs[] is full, or its
- * remembered state was overwritten) ends with its one PUBLISH_DONE. */
+ * re-attach to t (its own session publishes t, or its remembered state was
+ * overwritten) ends with its one PUBLISH_DONE. t's subs[] is never full
+ * here: t was just claimed (subs cleared), each other session takes at
+ * most one slot, and WIRED_MOQTRUN_MAX_SUBS is one less than the
+ * sessions. */
 static void moqtrun_rp_do_relinked(
     wired_moqt_hub*          hub,
     wired_moqtrun_peer*      sp,
