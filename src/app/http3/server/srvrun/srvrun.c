@@ -5148,11 +5148,6 @@ static int srvrun_wtsend_stage_round(
  * third server-initiated uni stream, after the control and encoder ones. */
 #define SRVRUN_QDEC_STREAM 11
 
-/* RFC 9204 4.2 / RFC 9114 6.2: open the decoder stream once, beside the
- * encoder stream, over its 0x03 type byte (a busy wtsend table retries next
- * step). Opened up front so it holds one of the three uni streams RFC 9114
- * 6.2 makes every peer allow: an application stream opened first can never
- * take its credit and leave the peer's encoder without acknowledgments. */
 /* Not open yet, and the peer's uni limit admits a third server stream (RFC
  * 9000 4.6: one past it is a STREAM_LIMIT_ERROR; a peer granting fewer
  * breaks RFC 9114 6.2, so it waits for a MAX_STREAMS raise). */
@@ -5161,6 +5156,9 @@ static int srvrun_qdec_open_due(const srvrun_conn* c) {
          maxstreams_can_open(2, srvrun_peer_uni_limit(c));
 }
 
+/* RFC 9204 4.2 / RFC 9114 6.2: open the decoder stream once, beside the
+ * encoder stream, over its 0x03 type byte, as soon as srvrun_qdec_open_due
+ * allows (a busy wtsend table retries next step). */
 static void srvrun_open_qdec_stream(srvrun_conn* c) {
   static const u8 type[] = {H3_STREAM_QPACK_DECODER};
   srvrun_wtsend*  w;
