@@ -12674,6 +12674,37 @@ static void test_srvrun_persistent_congestion_needs_two_losses(void) {
   CHECK(sr_pc_run(&c, base, 1, 10) > CC_MIN_WINDOW);
 }
 
+/* Run the persistent congestion check alone on a loss span of pns
+ * base..base+5 sent span_ms apart, after the one 10ms sample sr_pc_setup
+ * takes: smoothed_rtt 10ms, rttvar 5ms, so PTO = 10 + 4*5 + 25 (max_ack_delay)
+ * = 55ms and 3*PTO = 165ms (RFC 9002 7.6.1). The earlier steps acked up to
+ * base-1+before; this step's ACK carries ack_n ranges, all naming base+10
+ * (outside the span). Returns the cwnd afterwards. */
+static u64 sr_pc_check(u64 span_ms, u64 before, usz ack_n) {
+  static u8        body[16 * SRVRUN_CHUNK];
+  struct lp_fix    f;
+  srvrun_conn      c;
+  u64              base = sr_pc_setup(&c, &f, body, sizeof body, 1);
+  srvrun_loss_span s    = {1000 + span_ms, 1000, base, base + 5};
+  for (usz i = 0; i < ack_n; i++) c.l.ack_lo[i] = c.l.ack_hi[i] = base + 10;
+  c.l.ack_n = ack_n;
+  srvrun_persistent_check(&c, &s, base - 1 + before);
+  return c.cc.cwnd;
+}
+
+/* RFC 9002 7.6.2: the span must EXCEED 3*PTO (165ms here). */
+static void test_srvrun_persistent_congestion_threshold(void) {
+  CHECK(sr_pc_check(164, 0, 0) > CC_MIN_WINDOW);
+  CHECK(sr_pc_check(165, 0, 0) > CC_MIN_WINDOW);
+  CHECK(sr_pc_check(166, 0, 0) == CC_MIN_WINDOW);
+}
+
+/* An earlier step's ACK already reached the oldest lost pn: a packet in the
+ * span may have been acknowledged, so the period is not declared. */
+static void test_srvrun_persistent_congestion_prior_ack(void) {
+  CHECK(sr_pc_check(2000, 1, 0) > CC_MIN_WINDOW);
+}
+
 /* --- RFC 9000 13.4.2 ECN validation on the ACK-processing path ---------- */
 
 /* Arm resp[0] with 8 chunks on c, pump them all out (8 ECT(0)-marked 1-RTT
@@ -22145,6 +22176,8 @@ void test_srvrun(void) {
   test_srvrun_persistent_congestion_ack_between();
   test_srvrun_persistent_congestion_needs_prior_sample();
   test_srvrun_persistent_congestion_needs_two_losses();
+  test_srvrun_persistent_congestion_threshold();
+  test_srvrun_persistent_congestion_prior_ack();
   test_srvrun_feed_acks_ecn_ce_shrinks_cwnd();
   test_srvrun_feed_acks_stale_ack_never_fails_ecn();
   test_srvrun_feed_acks_suppressed_ecn_disables();
