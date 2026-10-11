@@ -41,7 +41,7 @@ void qpackenc_init(qpackenc_state* st, u64 capacity);
 typedef struct {
   /** RFC 9204 4.3.3 encoder-stream instruction bytes to send, or unused
    * (insert_len == 0) when no new insert was generated this call. */
-  u8  insert_instr[QPACK_DYN_MAX_NAME + QPACK_DYN_MAX_VALUE + 8];
+  u8  insert_instr[QPACK_DYN_MAX_CAPACITY + 8];
   usz insert_len; /**< bytes at insert_instr; 0 = no instruction generated */
   /** RFC 9204 3.2.5: relative index to reference the entry with in the
    * SAME field section this plan is for (Base == total_inserts after this

@@ -66,25 +66,22 @@ static void test_qpackenc_capacity_too_small_falls_back(void) {
   CHECK(st.total_inserts == 0);
 }
 
-/* Boundary: QPACK_DYN_MAX_ENTRIES distinct values fill the table; the next
- * one cannot be inserted (entry-count limit, RFC 9204 3.2/dyntable.c's own
- * can_insert), so it falls back to the literal path instead of using
- * used_dynamic. Capacity is sized generously so bytes never limit first. */
+/* Boundary: past the table capacity, fresh :status values keep inserting
+ * (the oldest are evicted) and the table never exceeds its byte budget or
+ * QPACK_DYN_MAX_ENTRIES. */
 static void test_qpackenc_max_entries_boundary(void) {
   qpackenc_state         st;
   qpackenc_status_result r;
   usz                    i;
-  qpackenc_init(&st, QPACK_DYN_MAX_ENTRIES * 64);
+  qpackenc_init(&st, QPACK_DYN_MAX_CAPACITY);
   for (i = 0; i < QPACK_DYN_MAX_ENTRIES; i++) {
-    /* 700..763: never a static-table :status value (App. A's set is fixed
+    /* 700..762: never a static-table :status value (App. A's set is fixed
      * and entirely below 600), so every one of these is a fresh insert. */
     CHECK(qpackenc_status_line((u16)(700 + i), &st, &r) == 1);
     CHECK(r.insert_len > 0);
+    CHECK(st.dyn.size <= QPACK_DYN_MAX_CAPACITY);
   }
-  CHECK(st.dyn.count == QPACK_DYN_MAX_ENTRIES);
-  CHECK(qpackenc_status_line(699, &st, &r) == 1);
-  CHECK(r.insert_len == 0);
-  CHECK(r.required_insert_count == 0);
+  CHECK(st.dyn.count < QPACK_DYN_MAX_ENTRIES && st.dyn.dropped > 0);
 }
 
 /* Round-trip: the field line + Prefix this module emits after one insert

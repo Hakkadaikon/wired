@@ -23,7 +23,7 @@ typedef struct {
   u8  field[64];             /**< the :status field line bytes */
   usz field_len;             /**< bytes at field */
   u64 required_insert_count; /**< RFC 9204 4.5.1: this section's Prefix RIC */
-  u8  insert_instr[QPACK_DYN_MAX_NAME + QPACK_DYN_MAX_VALUE + 8];
+  u8  insert_instr[QPACK_DYN_MAX_CAPACITY + 8];
   usz insert_len; /**< bytes at insert_instr, 0 if none generated */
 } qpackenc_status_result;
 

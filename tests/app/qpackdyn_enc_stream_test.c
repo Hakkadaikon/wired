@@ -3,7 +3,9 @@
 #include "app/qpack/qpack/error.h"
 #include "app/qpack/qpack/field.h"
 #include "app/qpack/qpack/instruction.h"
+#include "app/qpack/qpack/string.h"
 #include "app/qpack/qpackdyn/enc_stream.h"
+#include "common/bytes/util/bytes.h"
 #include "common/bytes/util/ct.h"
 #include "test.h"
 
@@ -266,7 +268,31 @@ static void test_enc_stream_advertised_capacity_fits_ring(void) {
   CHECK(err == 0);
 }
 
+/* RFC 9204 4.3.3 / 3.2.2: a legal Insert With Literal Name carrying a
+ * 1500-byte cookie value fits the advertised capacity and is applied. */
+static void test_enc_stream_large_cookie_insert(void) {
+  static u8 v[1500];
+  static u8 ins[1600];
+  qpack_dyn t;
+  u16       err = 0;
+  usz       n   = 7;
+  bytes_memset(v, 'z', sizeof v);
+  bytes_memcpy(
+      ins,
+      "\x46"
+      "cookie",
+      7);
+  n += qpack_string_encode(
+      wired_mspan_of(ins + n, sizeof ins - n), wired_span_of(v, sizeof v));
+  qpack_dyn_init(&t, DEFAULT_QPACK_MAX_TABLE_CAP);
+  CHECK(
+      qdyn_enc_apply(
+          wired_span_of(ins, n), &t, DEFAULT_QPACK_MAX_TABLE_CAP, &err) == n);
+  CHECK(err == 0 && t.count == 1 && t.size == 6 + 1500 + 32);
+}
+
 void test_qpackdyn_enc_stream(void) {
+  test_enc_stream_large_cookie_insert();
   test_enc_stream_advertised_capacity_fits_ring();
   test_encrx_byte_by_byte();
   test_encrx_out_of_order();

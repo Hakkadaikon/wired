@@ -7,22 +7,12 @@ static int df_bytes_eq(wired_span a, wired_span b) {
   return diff == 0;
 }
 
-static int df_name_eq(const qpack_dyn_entry* e, wired_span name) {
-  return df_bytes_eq(wired_span_of(e->name, e->name_len), name);
-}
-
-static int value_eq(const qpack_dyn_entry* e, wired_span value) {
-  return df_bytes_eq(wired_span_of(e->value, e->value_len), value);
-}
-
-/* Classify one entry: 2 = name+value, 1 = name only, 0 = no match. */
-static int classify(const qpack_dyn_entry* e, const qpack_field* f) {
-  if (!df_name_eq(e, f->name)) return 0;
-  return value_eq(e, f->value) ? 2 : 1;
-}
-
-static const qpack_dyn_entry* entry_at(const qpack_dyn* t, usz off) {
-  return &t->ring[(t->head + off) % QPACK_DYN_MAX_ENTRIES];
+/* Classify live entry off: 2 = name+value, 1 = name only, 0 = no match. */
+static int classify(const qpack_dyn* t, usz off, const qpack_field* f) {
+  qpack_field e;
+  qpack_dyn_entry_at(t, off, &e);
+  if (!df_bytes_eq(e.name, f->name)) return 0;
+  return df_bytes_eq(e.value, f->value) ? 2 : 1;
 }
 
 static void record(u64 abs_index, int full, qpack_match* m) {
@@ -42,7 +32,7 @@ typedef struct {
 
 /* Update best-so-far with entry off; returns 1 to stop (full match found). */
 static int scan_one(qdf_scan* s, usz off) {
-  int c = classify(entry_at(s->t, off), s->f);
+  int c = classify(s->t, off, s->f);
   if (c == 2) {
     record(s->t->dropped + off, 1, s->m);
     return 1;

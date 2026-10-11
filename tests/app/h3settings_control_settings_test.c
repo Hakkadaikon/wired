@@ -17,7 +17,7 @@ static void test_h3_settings_defaults_bounded(void) {
   for (usz i = 0; i < out.n; i++)
     if (out.pairs[i].id == H3_SETTINGS_MAX_FIELD_SECTION_SIZE)
       CHECK(out.pairs[i].value == WIRED_H3_MAX_FIELD_SECTION);
-  CHECK(QPACK_DYN_MAX_ENTRIES == 64);
+  CHECK(QPACK_DYN_MAX_ENTRIES == DEFAULT_QPACK_MAX_TABLE_CAP / 32);
 }
 
 /* RFC 9114 6.2.1: control stream opens with type 0x00 then a SETTINGS frame

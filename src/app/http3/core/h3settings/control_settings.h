@@ -2,6 +2,7 @@
 #define H3SETTINGS_CONTROL_SETTINGS_H
 
 #include "app/http3/core/h3settings/settings_build.h"
+#include "app/qpack/qpack/dyntable.h"
 #include "common/platform/sys/syscall.h"
 
 /** RFC 9114 4.2.2 / 7.2.4.1: the field-section limit this server advertises
@@ -17,11 +18,9 @@
 
 /** RFC 9204 5 (SETTINGS_QPACK_MAX_TABLE_CAPACITY): the dynamic table
  * capacity this server advertises to peers, bounding the peer's encoder:
- * 63 entries of the 32-byte minimum entry size (RFC 9204 3.2.1), one below
- * the 64-slot entry ring (QPACK_DYN_MAX_ENTRIES, which an insert must find
- * a free slot in before eviction runs). A larger capacity would let a
- * peer's legal inserts fail on the ring before the byte budget evicts. */
-#define DEFAULT_QPACK_MAX_TABLE_CAP 2016
+ * exactly what the table's byte ring holds, so any entry the capacity
+ * admits can be stored (RFC 9204 3.2.2). */
+#define DEFAULT_QPACK_MAX_TABLE_CAP QPACK_DYN_MAX_CAPACITY
 
 /** Bytes one server control stream's type + SETTINGS frame can take
  * (h3settings_control_stream); every caller sizes its buffer with this.
