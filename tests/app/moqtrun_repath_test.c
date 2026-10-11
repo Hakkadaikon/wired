@@ -77,7 +77,11 @@ static int mrp_relayed(wired_wt_session* s) {
          mups_relayed_alias(SESS_D) == mrdv_alias(SESS_D, MRDV_S1);
 }
 
-/* PUBLISH_DONEs on s's request stream; *st the last one's status. */
+/* The last mrp_dones PUBLISH_DONE's Stream Count. */
+static u64 mrp_count;
+
+/* PUBLISH_DONEs on s's request stream; *st the last one's status,
+ * mrp_count its Stream Count. */
 static usz mrp_dones(wired_wt_session* s, u64* st) {
   usz n = 0;
   u64 count;
@@ -89,21 +93,31 @@ static usz mrp_dones(wired_wt_session* s, u64* st) {
     x = mtdr_done_in(c, &count);
     if (x == ~(u64)0) continue;
     n++;
-    *st = x;
+    *st       = x;
+    mrp_count = count;
   }
   return n;
 }
 
-/* 1 iff C and D each got exactly one PUBLISH_DONE, with status. */
-static int mrp_done_once(u64 status) {
-  u64 sc = ~(u64)0, sd = ~(u64)0;
-  int ok = mrp_dones(SESS_C, &sc) == 1 && mrp_dones(SESS_D, &sd) == 1;
+/* 1 iff C and D each got exactly one PUBLISH_DONE, with status and
+ * Stream Count streams. */
+static int mrp_done_once_n(u64 status, u64 streams) {
+  u64 sc = ~(u64)0, sd = ~(u64)0, nc = ~(u64)0;
+  int ok = mrp_dones(SESS_C, &sc) == 1;
+  nc     = mrp_count;
+  ok     = ok && mrp_dones(SESS_D, &sd) == 1;
+  ok     = ok && nc == streams && mrp_count == streams;
   if (!ok || sc != status || sd != status)
     printf(
-        "  done C %llx D %llx want %llx\n", (unsigned long long)sc,
-        (unsigned long long)sd, (unsigned long long)status);
+        "  done C %llx/%llu D %llx/%llu want %llx/%llu\n",
+        (unsigned long long)sc, (unsigned long long)nc, (unsigned long long)sd,
+        (unsigned long long)mrp_count, (unsigned long long)status,
+        (unsigned long long)streams);
   return ok && sc == status && sd == status;
 }
+
+/* No Group was relayed: Stream Count 0. */
+static int mrp_done_once(u64 status) { return mrp_done_once_n(status, 0); }
 
 static int mrp_no_done(void) {
   u64 st;
@@ -458,6 +472,31 @@ static void test_moqtrun_repath_ends_again(void) {
   CHECK(mrp_done_once(MOQCTL_DONE_INTERNAL_ERROR));
 }
 
+/* Stream Count covers the whole subscription: a Group from A, the wait
+ * (its expiry counts A's stream), and after a re-link a Group from B,
+ * whose TRACK_ENDED then counts both. */
+static void test_moqtrun_repath_stream_count(void) {
+  static moqctl_publish_done d;
+  i64                        sid;
+  mrp_init();
+  mrp_group(SESS_A, MUPS_DATA_SID, 0, MOQDATA_STATUS_NORMAL);
+  mrp_end(MRP_GA);
+  wired_moqt_tick(&mtst_hub, WIRED_MOQTRUN_RDV_MAX_MS);
+  CHECK(mrp_done_once_n(MOQCTL_DONE_GOING_AWAY, 1));
+  mrp_init();
+  mrp_announce(SESS_B);
+  mrp_group(SESS_A, MUPS_DATA_SID, 0, MOQDATA_STATUS_NORMAL);
+  mrp_end(MRP_GA);
+  sid = mrp_up(SESS_B, 0);
+  mrp_ok(SESS_B, sid);
+  mrp_group(SESS_B, MUPS_DATA_SID, 1, MOQDATA_STATUS_NORMAL);
+  d.status_code  = MOQCTL_DONE_TRACK_ENDED;
+  d.stream_count = 1;
+  mtst_send(SESS_B, (u64)sid, MOQCTL_T_PUBLISH_DONE, mups_enc_done, &d);
+  CHECK(mrp_done_once_n(
+      moqctl_publish_done_for(g_moqtrun_test_ver, MOQCTL_DONE_TRACK_ENDED), 2));
+}
+
 /* Ticks long past the deadline send no second PUBLISH_DONE. */
 static void test_moqtrun_repath_done_once(void) {
   mrp_init();
@@ -584,7 +623,7 @@ static void test_moqtrun_repath_malformed(void) {
   mrp_announce(SESS_B);
   mrp_group(SESS_A, MUPS_DATA_SID, 1, MOQDATA_STATUS_END_OF_TRACK);
   mrp_group(SESS_A, MUPS_DATA_SID + 4, 2, MOQDATA_STATUS_NORMAL);
-  CHECK(mrp_done_once(MOQCTL_DONE_MALFORMED_TRACK));
+  CHECK(mrp_done_once_n(MOQCTL_DONE_MALFORMED_TRACK, 2));
   CHECK(mups_n_up(SESS_B) == 0);
 }
 
@@ -610,6 +649,7 @@ static void mtall_repath(void) {
   test_moqtrun_repath_stale_ok();
   test_moqtrun_repath_ends_again();
   test_moqtrun_repath_done_once();
+  test_moqtrun_repath_stream_count();
   test_moqtrun_repath_fresh_rides();
   test_moqtrun_repath_fresh_dne();
   test_moqtrun_repath_fresh_own_upstream();

@@ -9356,6 +9356,16 @@ static void moqtrun_rp_store(
   bytes_memcpy(r->name, u->name, u->name_len);
 }
 
+/* The streams s opened so far go into its remembered state, so the
+ * re-attached copy keeps counting from there (PUBLISH_DONE Stream Count,
+ * draft-22 9.9). */
+static void moqtrun_rp_keep_count(
+    wired_moqt_hub* hub, const wired_moqtrun_sub* s) {
+  wired_moqtrun_sub* kept =
+      moqtrun_sub_state_by_rid(&hub->peers[s->session_idx], s->request_id);
+  if (kept) kept->stream_count = s->stream_count;
+}
+
 /* Sub slot si of t, fed by u, waits for a new path: its streams stop, its
  * name stays known for the re-attach. 0 when it cannot wait: no request
  * stream, or no wait slot left (moqtrun_rdv_admit). */
@@ -9369,6 +9379,7 @@ static int moqtrun_rp_wait(
   wired_moqtrun_rdv* r = q ? moqtrun_rdv_admit(hub, q->wt) : 0;
   if (!r) return 0;
   moqtrun_rp_store(hub, r, q, u, status, t->subs[si].stream_count);
+  moqtrun_rp_keep_count(hub, &t->subs[si]);
   moqtrun_sub_stop(hub, t, &t->subs[si], moqtrun_done_reset_code(status));
   return 1;
 }
