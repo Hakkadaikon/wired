@@ -98,12 +98,12 @@ A commit is allowed only when ALL THREE are green in the SAME working tree:
 1. `just test-fast` — hosted sharded parallel build (run.c's include list
    split into shard TUs by `scripts/gen_shards.py`), all tests pass
    (assertions on). Same tests and same "all tests passed" output as
-   `just test`, ~4x faster.
+   `just test`, ~3x faster.
 2. `just ninja` — every `src/**/*.c` compiles `-ffreestanding -nostdlib
    -Werror` to a path-qualified `build/<path>.o`. (This is the raw compile
    step. `just build` = `fmt` + `ninja` + `lint`; the gate uses `ninja`
-   directly so formatting side effects and the ~15-minute lint run stay
-   out of the per-commit gate. `just lint` is fatal on any warning
+   directly so formatting side effects and the lint run (~2 minutes
+   from clean, parallel and incremental) stay out of the per-commit gate. `just lint` is fatal on any warning
    (`--warnings-as-errors='*'`) and CI runs it, so run it before pushing
    when the diff touches `src/**/*.c` or `.h`.)
 3. `just ccn` — exits 0 (every function CCN ≤ 3).
