@@ -3237,7 +3237,7 @@ static void test_srvrun_path_challenge_rearmed_on_second_rebind(void) {
 
 /* Boot-stage connections never arm a PATH_CHALLENGE even though their
  * source address changed -- the path decision's boot exclusion
- * (srvrun_awaiting_confirm) short-circuits before srvrun_arm_path_challenge
+ * (srvrun_awaiting_confirm) short-circuits before any challenge
  * is ever reached. */
 static void test_srvrun_path_challenge_noop_during_boot(void) {
   conntable    table[WIRED_CONNTABLE_CAP];
