@@ -1162,7 +1162,20 @@ static void test_moqtrun_ssts_pacer_loss_disarms(void) {
  * announced namespace. A ends it GOING_AWAY, B waits (the set drops the
  * inactive member meanwhile) and is re-attached through E: having left
  * its set, the subscription gets E's next Group. */
-static void test_moqtrun_ssts_repath_member(void) {
+/* PUBLISH_DONEs on B's request stream sid. */
+static usz mtss_dones(u64 sid) {
+  usz n = 0;
+  u64 count;
+  for (usz i = 0; i < g_n_calls; i++) {
+    const moqtrun_test_call* c = &g_calls[i];
+    if (c->s != SESS_B || c->stream_id != sid) continue;
+    if (c->kind != 3 && c->kind != 12) continue;
+    n += mtdr_done_in(c, &count) != ~(u64)0;
+  }
+  return n;
+}
+
+static void mtss_repath_run(int rejoin) {
   moqctl_ftn    hi = mtss_hi();
   moqctl_params ph =
       mtss_ssa(MTSS_SET, MOQSSTS_ALG_BACKPRESSURE, MTSS_HI_KBPS, 2);
@@ -1186,14 +1199,32 @@ static void test_moqtrun_ssts_repath_member(void) {
   mtns_pub(MRP_E, MRDV_S1, "chat/room1");
   mups_done((u64)up, MOQCTL_DONE_GOING_AWAY);
   wired_moqt_tick(&mtst_hub, 200);
+  CHECK(mtss_set7() == 0); /* emptied: deleted */
+  if (rejoin) {
+    mtup_update(SESS_B, MTSS_SID_HI, &ph);
+    CHECK(mtrq_err_on(MTSS_SID_HI) == MOQCTL_ERR_UNSUPPORTED_EXTENSION);
+  }
   mrp_ok(MRP_E, mrp_up(MRP_E, 0));
+  CHECK(mtss_set7() == 0);
+  CHECK(mtss_dones(MTSS_SID_HI) == (usz)rejoin);
   moqtrun_test_reset();
   mrp_group(MRP_E, MUPS_DATA_SID, 5, MOQDATA_STATUS_NORMAL);
-  CHECK(mups_relayed_alias(SESS_B) == mtss_ah);
+  CHECK(mups_relayed_alias(SESS_B) == (rejoin ? ~(u64)0 : mtss_ah));
 }
+
+/* B, waiting for a new path, asks to join its set again: refused as any
+ * failed update (its one PUBLISH_DONE, nothing re-attached), since the
+ * re-attach leaves the set anyway -- a REQUEST_OK would promise a join
+ * that is then silently dropped. */
+static void test_moqtrun_ssts_repath_rejoin_refused(void) {
+  mtss_repath_run(1);
+}
+
+static void test_moqtrun_ssts_repath_member(void) { mtss_repath_run(0); }
 
 void test_moqtrun_ssts(void) {
   test_moqtrun_ssts_repath_member();
+  test_moqtrun_ssts_repath_rejoin_refused();
   test_moqtrun_ssts_setup_option();
   test_moqtrun_ssts_setup_malformed_closes();
   test_moqtrun_ssts_negotiation();

@@ -365,7 +365,9 @@ Legend:
   covering the Track makes it eligible again. The first SUBSCRIBE_OK
   re-attaches every waiting subscription under the Track Alias and state it
   already holds, a REQUEST_UPDATE meanwhile included; a switching-set member
-  leaves its set on re-attach.
+  leaves its set on re-attach, so a REQUEST_UPDATE assigning a switching set
+  while it waits is refused (UNSUPPORTED_EXTENSION, then its one
+  PUBLISH_DONE UPDATE_FAILED).
   - test: `tests/app/moqtrun_repath_test.c` —
     `test_moqtrun_repath_takeover`, `test_moqtrun_repath_each_end`,
     `test_moqtrun_repath_hub_closes`,
@@ -374,7 +376,8 @@ Legend:
     `test_moqtrun_repath_untry_covering`, `test_moqtrun_repath_own_announce`,
     `test_moqtrun_repath_ends_again`, `test_moqtrun_repath_update`
   - test: `tests/app/moqtrun_ssts_test.c` —
-    `test_moqtrun_ssts_repath_member`
+    `test_moqtrun_ssts_repath_member`,
+    `test_moqtrun_ssts_repath_rejoin_refused`
   - note: one upstream per Track at a time; SS7.6 says every matching
     publisher MUST be subscribed, and a newly announcing one for each
     matching subscription -- the hub does so only while subscriptions wait

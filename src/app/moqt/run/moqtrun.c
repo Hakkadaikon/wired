@@ -3745,16 +3745,18 @@ static int moqtrun_upd_apply(
   return 0;
 }
 
-/* SSTS (moqtssts_run.c): t is a peer's track, not the hub's blob / live. */
+/* SSTS (moqtssts_run.c): t is a peer's track, not the hub's blob / live;
+ * none (t 0) while the subscription waits for a new path. */
 static int moqtrun_ssts_peer_track(
     const wired_moqt_hub* hub, const wired_moqtrun_track* t) {
-  return t != &hub->blob_track && t != &hub->live.track;
+  return t && t != &hub->blob_track && t != &hub->live.track;
 }
 
 /* SSTS (moqtssts_run.c): a switching set holds subscriptions SUBSCRIBEd
  * to a peer's track -- not the hub's own tracks, nor a subscription the
  * hub PUBLISHed (SUBSCRIBE_TRACKS; moqtail's PUBLISH_OK assignment is not
- * supported). */
+ * supported), nor one waiting for a new path (its re-attach leaves the
+ * set: moqtrun_reattach_one_sub). */
 static int moqtrun_ssts_settable(
     const wired_moqt_hub*      hub,
     const wired_moqtrun_peer*  p,
@@ -9176,6 +9178,8 @@ static void moqtrun_sub_done(
   u64 count = s->stream_count;
   u64 rid   = s->request_id;
   moqtrun_sub_stop(hub, t, s, moqtrun_done_reset_code(status));
+  /* a wait for a new path (t 0: a failed update) owes no second one */
+  moqtrun_rdv_drop_stream(hub, p->wt, q->stream_id);
   moqtrun_done_send(hub, p, q, rid, status, count);
 }
 
