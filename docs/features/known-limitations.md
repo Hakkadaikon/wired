@@ -438,6 +438,13 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   abort per trackable stream (93); more than that unACKed within one RTT
   would send the excess once without retransmission (RFC 9000 13.3).
   Source: `srvrun.c` (`srvrun_rst_keep`).
+- **A request that cannot be decoded is aborted, not answered** — a request
+  stream whose HEADERS frame cannot become a request (malformed, or past
+  this decoder's local limits) is reset with H3_REQUEST_INCOMPLETE plus
+  STOP_SENDING, also without waiting for a FIN; no 4xx status is sent. Its
+  slot and bidi stream credit are returned, as they are for a request stream
+  the peer resets before it completes. Source: `srvloop/dispatch.c`
+  (`connect_headers_complete`), `srvrun.c` (`srvrun_abort_incomplete_reqs`).
 - **STOP_SENDING before the response starts is not remembered** — a peer
   STOP_SENDING is answered with RESET_STREAM (RFC 9000 3.5) only on a send
   part that already exists (response slot, WT send slot, CONNECT stream); one
@@ -692,7 +699,10 @@ Fixed-size tables and buffers (BSS-sized; raise the constant and rebuild).
   (the kernel zero-fills past the given size); 5 reports in `srvworkers_test`
   are timing-dependent under valgrind. Source: RESUME, L13-12.
 - **Flaky test** — `tests/app/srvthreads_datagram_test.c:1095`
-  (`sdt_run_wt_stages` stage CHECKs) fails rarely. Source: RESUME.
+  (`sdt_run_wt_stages` stage CHECKs) fails rarely. Source: RESUME. Its
+  handshake CHECK (`hs_ok`) also fails under load: the 5 s Initial deadline
+  starts before the worker thread has bound its socket, and the server
+  exposes no ready signal to start it from. Source: `sdt_retry_initial`.
 - **Test builds differ** — `just test-fast` shard TUs can hide a static/typedef
   collision that only the single-TU `just test` sees (see
   `.claude/rules/build-and-verify.md`).
