@@ -1154,6 +1154,12 @@ Legend:
   FETCH) and not past the upstream End; anything else, or a write the
   transport refuses, cancels the upstream FETCH and the cache serves the
   rest from the cursor, Unknown where it lacks Objects (SS3.2.1, SS7.8).
+  An Object's head goes out once its fields are in and its payload as each
+  delivery brings it, so no Object is too large to relay; a leg ending in
+  the middle of one resets the downstream stream INTERNAL_ERROR. A cut
+  FETCH_HEADER that cannot be held ends the upstream FETCHes to that peer
+  still waiting for a data stream; a range the cache knows is empty is the
+  header and FIN, sent once.
   - test: `tests/app/moqtrun_upfetch_test.c` —
     `test_moqtrun_upfetch_reencode`, `test_moqtrun_upfetch_descending_order`,
     `test_moqtrun_upfetch_descending_rejects`,
@@ -1162,20 +1168,31 @@ Legend:
     `test_moqtrun_upfetch_fin_then_ok`,
     `test_moqtrun_upfetch_evicted_during_leg`,
     `test_moqtrun_upfetch_marker_relay`, `test_moqtrun_upfetch_torn_header`,
-    `test_moqtrun_upfetch_torn_object`, `test_moqtrun_upfetch_range_filter`
+    `test_moqtrun_upfetch_torn_object`, `test_moqtrun_upfetch_range_filter`,
+    `test_moqtrun_upfetch_large_object`,
+    `test_moqtrun_upfetch_leg_ends_mid_object`,
+    `test_moqtrun_upfetch_torn_header_unheld`,
+    `test_moqtrun_upfetch_empty_range_once`
 - [x] MQ22-215 A FETCH of a track the hub does not hold shall go, whole, to
   a covering announcer, and its FETCH_OK shall wait for the upstream one and
   copy its End Location, End Of Track and Track Properties; with no
   announcer it is refused DOES_NOT_EXIST, with FILL_TIMEOUT 0 TIMEOUT, with
   no request stream EXCESSIVE_LOAD, and an upstream REQUEST_ERROR reaches it
-  with the same code, Retry Interval and Redirect (SS7.6, SS9.4). A reserved
+  with the same code, Retry Interval and Redirect (SS7.6, SS9.4). One that
+  ends unanswered any other way -- its data stream stopped, reset with a
+  sibling's Malformed Track -- gets REQUEST_ERROR INTERNAL_ERROR; one its
+  requester cancels gets none. A FETCH_OK whose End lies before the Start
+  closes the announcer's session PROTOCOL_VIOLATION. A reserved
   namespace or an unauthorized name is refused before any of this (SS7.4).
   - test: `tests/app/moqtrun_upfetch_test.c` —
     `test_moqtrun_upfetch_no_track_waits_ok`,
     `test_moqtrun_upfetch_no_track_refusals`,
     `test_moqtrun_upfetch_error_passthrough`,
     `test_moqtrun_upfetch_empty_answer`,
-    `test_moqtrun_upfetch_refused_before_routing`
+    `test_moqtrun_upfetch_refused_before_routing`,
+    `test_moqtrun_upfetch_unanswered_stop`,
+    `test_moqtrun_upfetch_malformed_unanswered`,
+    `test_moqtrun_upfetch_no_track_bad_end`
 - [x] MQ22-216 The upstream FETCH shall be cancelled once
   min(FILL_TIMEOUT, `WIRED_MOQTRUN_UPFETCH_BUDGET_MS`) has passed, and what
   the cache lacks reported as End of Timed-Out Range toward draft-22 (End of
@@ -1199,10 +1216,12 @@ Legend:
   FETCH_OK named, past a Group's end the track saw, or conflicting with a
   cached copy shall be neither relayed nor cached, and every fetch of that
   track from that publisher reset MALFORMED_TRACK (a held track also ends
-  with PUBLISH_DONE MALFORMED_TRACK); an unknown Mandatory Track Property in
-  FETCH_OK cancels the fetch (UNSUPPORTED_EXTENSION while unanswered, a reset
-  after data); malformed upstream bytes close only the upstream session
-  (SS3.7, SS11.4, SS12.1).
+  with PUBLISH_DONE MALFORMED_TRACK when that publisher owns it; another
+  announcer cannot end the owner's track); a passed-through payload is
+  checked against the cached copy as it arrives; an unknown Mandatory Track
+  Property in FETCH_OK cancels the fetch (UNSUPPORTED_EXTENSION while
+  unanswered, a reset after data); malformed upstream bytes close only the
+  upstream session (SS3.7, SS11.4, SS12.1).
   - test: `tests/app/moqtrun_upfetch_test.c` —
     `test_moqtrun_upfetch_malformed_past_end`,
     `test_moqtrun_upfetch_malformed_conflict`,
@@ -1210,7 +1229,9 @@ Legend:
     `test_moqtrun_upfetch_malformed_siblings`,
     `test_moqtrun_upfetch_repeat_of_relayed`,
     `test_moqtrun_upfetch_mandatory`, `test_moqtrun_upfetch_bad_reply_bytes`,
-    `test_moqtrun_upfetch_delta_underflow`
+    `test_moqtrun_upfetch_delta_underflow`,
+    `test_moqtrun_upfetch_malformed_not_owner`,
+    `test_moqtrun_upfetch_torn_conflict`
 - [x] MQ22-219 When the track owner's session closes during a leg, nothing
   more shall be sent toward it; a fill is reset INTERNAL_ERROR at once,
   whether opened yet or not, so it holds no PUBLISH_DONE back, and a FETCH
