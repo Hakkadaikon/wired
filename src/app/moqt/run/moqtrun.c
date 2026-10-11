@@ -2162,14 +2162,21 @@ static void moqtrun_rdv_do_refuse(
 /* t now claims k: every SUBSCRIBE held for k proceeds (18/19 9.5, 22 7.6).
  * Called before the PUBLISH_OK and before the SUBSCRIBE_TRACKS sync, which
  * then skips a session already subscribed (moqtrun_subtracks_attempt).
- * Reusable by any later resolve point (an upstream SUBSCRIBE_OK). */
+ * Reusable by any later resolve point (an upstream SUBSCRIBE_OK). A wait
+ * for a new path was re-attached already (moqtrun_reattach_subs), or gets
+ * its PUBLISH_DONE (moqtrun_rp_do_relinked). */
+static void moqtrun_rp_do_relinked(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_peer*      sp,
+    const wired_moqtrun_rdv* r,
+    wired_moqtrun_track*     t,
+    u64                      code);
+
 static void moqtrun_rdv_resolve_one(
     wired_moqt_hub* hub, wired_moqtrun_rdv* r, wired_moqtrun_track* t) {
-  if (r->repath) { /* re-attached already (moqtrun_reattach_subs) */
-    r->in_use = 0;
-    return;
-  }
-  moqtrun_rdv_answer(hub, r, moqtrun_rdv_do_resolve, t, 0);
+  moqtrun_rdv_answer(
+      hub, r, r->repath ? moqtrun_rp_do_relinked : moqtrun_rdv_do_resolve, t,
+      0);
 }
 
 static void moqtrun_rdv_resolve(
@@ -9374,6 +9381,20 @@ static void moqtrun_rp_do_done(
   (void)code;
   moqtrun_done_send(
       hub, sp, sp->req, sp->req->request_id, r->done_status, r->done_count);
+}
+
+/* A new path's SUBSCRIBE_OK: a waiter moqtrun_reattach_subs could not
+ * re-attach to t (its own session publishes t, t's subs[] is full, or its
+ * remembered state was overwritten) ends with its one PUBLISH_DONE. */
+static void moqtrun_rp_do_relinked(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_peer*      sp,
+    const wired_moqtrun_rdv* r,
+    wired_moqtrun_track*     t,
+    u64                      code) {
+  usz pi = (usz)(sp - hub->peers);
+  if (!moqtrun_track_sub_by_rid(t, pi, sp->req->request_id))
+    moqtrun_rp_do_done(hub, sp, r, t, code);
 }
 
 /* Sub slot si's end: a wait for a new path, or -- status MOQTRUN_RP_NONE,

@@ -517,7 +517,8 @@ static void test_moqtrun_repath_update(void) {
   CHECK(mups_relayed_alias(SESS_D) == mrdv_alias(SESS_D, MRDV_S1));
 }
 
-/* C's own announcement is no path for C, but is one for D. */
+/* C's own announcement is no path for C, but is one for D: C, which
+ * cannot be re-attached to its own track, gets its PUBLISH_DONE then. */
 static void test_moqtrun_repath_own_announce(void) {
   u64 st;
   mrp_init();
@@ -526,9 +527,30 @@ static void test_moqtrun_repath_own_announce(void) {
   CHECK(mups_n_up(SESS_C) == 1);
   CHECK(mrp_no_done());
   mrp_ok(SESS_C, mrp_up(SESS_C, 0));
+  CHECK(mrp_dones(SESS_C, &st) == 1 && st == MOQCTL_DONE_GOING_AWAY);
   CHECK(mrp_dones(SESS_D, &st) == 0);
   mrp_group(SESS_C, MUPS_DATA_SID, 0, MOQDATA_STATUS_NORMAL);
   CHECK(mups_relayed_alias(SESS_D) == mrdv_alias(SESS_D, MRDV_S1));
+}
+
+/* C's remembered subscriptions wrap while it waits (as many SUBSCRIBEs
+ * to another Track, each cancelled): C can no longer be re-attached, so
+ * B's SUBSCRIBE_OK ends C's wait with its PUBLISH_DONE; D is re-attached. */
+static void test_moqtrun_repath_names_wrapped(void) {
+  moqctl_ftn x = mtst_ftn("chat", "room2", "bob");
+  u64        st;
+  mrp_init();
+  mtst_publish(MRP_E, MTRQ_ID(1), &x, 3);
+  mrp_announce(SESS_B);
+  mrp_end(MRP_GA);
+  for (usz i = 0; i < WIRED_MOQTRUN_SUB_NAMES; i++) {
+    mtst_subscribe_p(SESS_C, MTRQ_ID(10 + i), &x, mtst_rid += 2, 0);
+    wired_moqt_on_stream_reset(&mtst_hub, SESS_C, MTRQ_ID(10 + i), 0, 0);
+  }
+  mrp_ok(SESS_B, mrp_up(SESS_B, 0));
+  CHECK(mrp_dones(SESS_C, &st) == 1 && st == MOQCTL_DONE_GOING_AWAY);
+  CHECK(mrp_dones(SESS_D, &st) == 0);
+  CHECK(mrdv_used() == 0);
 }
 
 /* A Malformed Track ends at once; B is not asked. */
@@ -567,6 +589,7 @@ static void mtall_repath(void) {
   test_moqtrun_repath_no_room();
   test_moqtrun_repath_update();
   test_moqtrun_repath_own_announce();
+  test_moqtrun_repath_names_wrapped();
   test_moqtrun_repath_malformed();
 }
 
