@@ -21879,6 +21879,37 @@ static void test_srvrun_wt_connect_before_client_settings_held(void) {
   CHECK(g_sr_wt_handler_calls == 0);
 }
 
+/* RFC 9204 2.2.2 / 3.2: a CONNECT held for the client's SETTINGS keeps its
+ * request past the step that acknowledged its section, and once the peer
+ * learns of the ack it may evict and overwrite the referenced entries. The
+ * held request must still carry its own :path (RFC 9204 B.2's two inserts,
+ * :authority relative 1 and :path relative 0, RIC 2, Base 2). */
+static void test_srvrun_wt_held_connect_outlives_table(void) {
+  static const u8 enc[] = {0x02, 0x3f, 0xbd, 0x01, 0xc0, 0x0f, 'w', 'w', 'w',
+                           '.',  'e',  'x',  'a',  'm',  'p',  'l', 'e', '.',
+                           'c',  'o',  'm',  0xc1, 0x0c, '/',  's', 'a', 'm',
+                           'p',  'l',  'e',  '/',  'p',  'a',  't', 'h'};
+  static const u8 hdr[] = {0x01, 0x1e, 0x03, 0x00, 0xcf, 0xd7, 0x81, 0x80,
+                           0x27, 0x02, ':',  'p',  'r',  'o',  't',  'o',
+                           'c',  'o',  'l',  0x0c, 'w',  'e',  'b',  't',
+                           'r',  'a',  'n',  's',  'p',  'o',  'r',  't'};
+  srvrun_conn*    c     = sr_sl_fixture_no_settings();
+  u8              pl[256];
+  usz             n;
+  stream_frame    e                = {6, 0, sizeof enc, enc, 0};
+  stream_frame    h                = {4, 0, sizeof hdr, hdr, 0};
+  c->l.h3.qpack_max_table_capacity = 4096;
+  n                                = frame_put_stream(pl, sizeof pl, &e);
+  n += frame_put_stream(pl + n, sizeof pl - n, &h);
+  sr_sl_step(c, pl, n);
+  CHECK(c->l.h3.qdyn.count == 2 && c->wt_held_mask != 0);
+  bytes_memset(c->l.h3.qdyn.bytes, 'Z', sizeof c->l.h3.qdyn.bytes);
+  sr_sl_send_settings(c);
+  CHECK(c->wt_held_mask == 0 && c->wt_active == 1);
+  CHECK(c->wt_path_len[0] == 12);
+  CHECK(ct_diffn(c->wt_path[0], (const u8*)"/sample/path", 12) == 0);
+}
+
 /* Two CONNECTs held before SETTINGS are each processed exactly once (SS5.1:
  * flow control enabled via a nonzero SETTINGS_WT_INITIAL_*, so a second
  * session on this connection is allowed at all). */
@@ -22834,6 +22865,7 @@ void test_srvrun(void) {
   test_srvrun_retransmitted_request_not_redispatched();
   test_srvrun_wt_connect_stream_with_session_not_redispatched();
   test_srvrun_wt_connect_before_client_settings_held();
+  test_srvrun_wt_held_connect_outlives_table();
   test_srvrun_wt_initial_max_streams_from_settings();
   test_srvrun_wt_initial_max_streams_raised_by_capsule();
   test_srvrun_wt_initial_max_data_from_settings();

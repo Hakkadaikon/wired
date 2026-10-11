@@ -55,32 +55,12 @@ static usz cstr_len(const char* s) {
   return i;
 }
 
-/* Borrow a dynamic-table field's name/value view into L (RFC 9204 3.2.4). */
-static void borrow_dynamic(const qpack_field* f, rline* L) {
-  L->name         = f->name.p;
-  L->name_len     = f->name.n;
-  L->value        = f->value.p;
-  L->value_len    = f->value.n;
-  L->scratch_used = 0;
-}
-
 /* RFC 9204 4.5.2 / 4.5.3: an Indexed Field Line or Indexed Field Line with
  * Post-Base Index -> the referenced entry's name and value, dynamic-table
  * (T=0, or the post-Base form, always dynamic) references resolved against
  * dyn->table when set; a caller with no dynamic table (dyn->table == 0, e.g.
  * no encoder stream has been seen yet) simply cannot resolve one, matching
  * this decoder's prior static-table-only behavior. */
-static usz line_indexed(
-    wired_span fs, wired_mspan scr, const qdyn_src* dyn, rline* L) {
-  qpack_field f;
-  (void)scr;
-  usz      consumed;
-  qdyn_src src = {dyn->table, dyn->base, fs, dyn->ric};
-  if (!qdyn_decode_field(&src, &f, &consumed)) return 0;
-  borrow_dynamic(&f, L);
-  return consumed;
-}
-
 /* A literal line: name as resolved, value copied into scr (vlen bytes). */
 static void literal_line(rline* L, wired_span name, wired_mspan scr, usz vlen) {
   L->name         = name.p;
@@ -88,6 +68,45 @@ static void literal_line(rline* L, wired_span name, wired_mspan scr, usz vlen) {
   L->value        = scr.p;
   L->value_len    = vlen;
   L->scratch_used = vlen;
+}
+
+/* Borrow a static-table entry's name/value views into L (RFC 9204 3.1). */
+static int borrow_static(const qpack_field* f, rline* L) {
+  L->name         = f->name.p;
+  L->name_len     = f->name.n;
+  L->value        = f->value.p;
+  L->value_len    = f->value.n;
+  L->scratch_used = 0;
+  return 1;
+}
+
+/* RFC 9204 4.5.2: '1' then T=1 -- an Indexed Field Line naming a static
+ * entry; every other indexed form names a dynamic one. */
+#define LINE_INDEXED_STATIC 0xc0
+
+/* Keep an indexed line's entry: a static one as a view (it never changes),
+ * a dynamic one's value copied into scr, never kept as a view -- a request
+ * can outlive the step that acknowledged its section (a CONNECT held for
+ * the peer's SETTINGS), and the peer may then evict the entry and overwrite
+ * its bytes (RFC 9204 2.2.2 / 3.2). The name is only classified during this
+ * decode. 0 if the value does not fit scr. */
+static int indexed_keep(
+    const qpack_field* f, u8 lead, wired_mspan scr, rline* L) {
+  if ((lead & LINE_INDEXED_STATIC) == LINE_INDEXED_STATIC)
+    return borrow_static(f, L);
+  if (f->value.n > scr.n) return 0;
+  bytes_memcpy(scr.p, f->value.p, f->value.n);
+  literal_line(L, f->name, scr, f->value.n);
+  return 1;
+}
+
+static usz line_indexed(
+    wired_span fs, wired_mspan scr, const qdyn_src* dyn, rline* L) {
+  qpack_field f;
+  usz         consumed;
+  qdyn_src    src = {dyn->table, dyn->base, fs, dyn->ric};
+  if (!qdyn_decode_field(&src, &f, &consumed)) return 0;
+  return indexed_keep(&f, fs.p[0], scr, L) ? consumed : 0;
 }
 
 /* RFC 9204 4.5.4: a Literal With Name Reference -> the static (T=1) or
