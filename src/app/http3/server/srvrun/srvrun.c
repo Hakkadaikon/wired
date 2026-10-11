@@ -4445,6 +4445,19 @@ static void srvrun_raw_start(const srvrun_cfg* cfg, srvrun_conn* c) {
 static void srvrun_answer_peer_stops(
     const srvrun_step_ctx* ctx, srvrun_conn* c);
 
+/* RFC 9000 4.6: hand srvloop the stream limits in force this step (the
+ * last MAX_STREAMS sent, else the transport-parameter value), so a frame
+ * past them ends the connection with STREAM_LIMIT_ERROR. */
+static void srvrun_note_stream_limits(
+    const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  c->l.peer_stream_limit[0] = c->stream_limit_advertised
+                                  ? c->stream_limit_advertised
+                                  : srvrun_stream_limit_base(ctx);
+  c->l.peer_stream_limit[1] = c->uni_stream_limit_advertised
+                                  ? c->uni_stream_limit_advertised
+                                  : wired_srvloop_uni_stream_limit();
+}
+
 /* A later datagram on a live slot: one real-wire step, send any sealed
  * reply — unless this step's own gathering found a connection-ending
  * violation (RFC 9221 3 DATAGRAM, or draft-ietf-webtrans-http3-15 4.3's
@@ -4467,6 +4480,7 @@ static void srvrun_on_step_live(
                           * this step; the pump piggybacks the pending ACK
                           * onto a slice, or srvrun_flush_deferred_ack
                           * sends it at step end. */
+  srvrun_note_stream_limits(ctx, c);
   produced = wired_srvloop_step(&conn, dg, &ob);
   srvrun_raw_start(ctx->cfg, c);
   srvrun_open_qpack_streams(c);

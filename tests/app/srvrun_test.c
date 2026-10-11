@@ -8013,6 +8013,28 @@ static void test_srvrun_oversized_datagram_latches_violation_on_step(void) {
   CHECK(c.l.rx_datagram_n == 0); /* the oversized frame was never queued */
 }
 
+/* RFC 9000 4.6: a RESET_STREAM naming a client bidi stream far past the
+ * advertised limit (the transport-parameter default here) closes the
+ * connection through the real step, promptly. */
+static void test_srvrun_stream_past_limit_closes_on_step(void) {
+  struct lp_fix f;
+  wired_obuf    ob;
+  u8            obuf[1024], payload[64], spkt[1024];
+  usz           plen, slen;
+  srvrun_conn   c = {0};
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_step_ctx    ctx = {&cfg, 0, 0, 0, 0};
+  reset_stream_frame rs  = {0x3FFFFFFFFFFFFFFCull, 0x10c, 0};
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  plen = reset_stream_encode(payload, sizeof payload, &rs);
+  slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
+  srvrun_on_step(&ctx, &c, wired_mspan_of(spkt, slen));
+  CHECK(c.closing == 1);
+}
+
 /* WEBTRANSPORT STREAM DATA RECEIVE (draft-ietf-webtrans-http3-15 4.3, Phase
  * 7b Slice 4): srvrun_offer_wt_streams/srvrun_offer_wt_uni_streams deliver a
  * WT bidi/uni slot's newly-reassembled bytes to the registered app callback
@@ -22656,6 +22678,7 @@ void test_srvrun(void) {
   test_srvrun_rx_datagram_dropped_after_receive_side_closed();
   test_srvrun_seal_transport_close_is_transport_level();
   test_srvrun_oversized_datagram_latches_violation_on_step();
+  test_srvrun_stream_past_limit_closes_on_step();
   test_srvrun_wt_stream_data_delivered_on_offer();
   test_srvrun_wt_stream_data_delivers_delta_only();
   test_srvrun_wt_stream_data_fin_only_delivered();
