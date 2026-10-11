@@ -22077,6 +22077,22 @@ static void test_srvrun_wt_held_connect_outlives_table(void) {
   CHECK(ct_diffn(c->wt_path[0], (const u8*)"/sample/path", 12) == 0);
 }
 
+/* A CONNECT held before SETTINGS and then reset is not started later: its
+ * slot was freed with the reset (RFC 9000 3.2), so nothing of it is left
+ * to answer once SETTINGS arrive. */
+static void test_srvrun_wt_held_connect_reset_dropped(void) {
+  srvrun_conn*       c = sr_sl_fixture_no_settings();
+  u8                 pl[64];
+  reset_stream_frame rs = {0, 0x10c, 0};
+  sr_sl_send_headers(c, 0, "CONNECT", 0);
+  CHECK(c->wt_held_mask != 0);
+  rs.final_size = c->l.streams[0].req_len;
+  sr_sl_step(c, pl, reset_stream_encode(pl, sizeof pl, &rs));
+  CHECK(c->wt_held_mask == 0);
+  sr_sl_send_wt_initial_settings(c, 1, 0, 0);
+  CHECK(c->wt_active == 0);
+}
+
 /* Two CONNECTs held before SETTINGS are each processed exactly once (SS5.1:
  * flow control enabled via a nonzero SETTINGS_WT_INITIAL_*, so a second
  * session on this connection is allowed at all). */
@@ -23052,6 +23068,7 @@ void test_srvrun(void) {
   test_srvrun_wt_open_uni_blocked_by_quic_grant_sends_no_wt_capsule();
   test_srvrun_wt_initial_max_streams_clamped();
   test_srvrun_wt_two_held_connects_each_processed_once();
+  test_srvrun_wt_held_connect_reset_dropped();
   test_srvrun_wt_held_connect_retransmitted_one_session();
   test_srvrun_wt_held_connect_rejected_after_settings();
 }

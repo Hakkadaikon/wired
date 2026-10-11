@@ -4445,6 +4445,7 @@ static void srvrun_raw_start(const srvrun_cfg* cfg, srvrun_conn* c) {
 static void srvrun_answer_peer_stops(
     const srvrun_step_ctx* ctx, srvrun_conn* c);
 static void srvrun_free_reset_reqs(const srvrun_step_ctx* ctx, srvrun_conn* c);
+static void srvrun_drop_held_resets(const srvrun_step_ctx* ctx, srvrun_conn* c);
 
 /* RFC 9000 4.6: hand srvloop the stream limits in force this step (the
  * last MAX_STREAMS sent, else the transport-parameter value), so a frame
@@ -4497,6 +4498,7 @@ static void srvrun_on_step_live(
   srvrun_wt_rx_capsules(ctx->cfg, c);
   srvrun_close_wt_on_stream_close(ctx->cfg, c);
   srvrun_answer_peer_stops(ctx, c);
+  srvrun_drop_held_resets(ctx, c);
   srvrun_free_reset_reqs(ctx, c);
   srvrun_deliver_wt_reset_if_owned(ctx->cfg, c);
   srvrun_flush_wt_drain(c);
@@ -9268,6 +9270,37 @@ static usz srvrun_reset_free(srvrun_conn* c, usz i) {
   if (!srvrun_reset_noted(c, i) || srvrun_resp_find(c, id)) return 0;
   wired_srvloop_slot_release(&c->l, id);
   return 1;
+}
+
+/* 1 iff slot i holds a CONNECT waiting for SETTINGS on stream id. */
+static int srvrun_held_is(const srvrun_conn* c, usz i, u64 id) {
+  return ((c->wt_held_mask >> i) & 1) && c->l.streams[i].stream_id == id;
+}
+
+static int srvrun_held_slot_of(const srvrun_conn* c, u64 id) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    if (srvrun_held_is(c, i, id)) return (int)i;
+  return -1;
+}
+
+/* RFC 9000 3.2: a RESET_STREAM on a CONNECT still held for SETTINGS ends
+ * it -- it must not be started once SETTINGS arrive. Its slot is freed
+ * (1 when freed). */
+static usz srvrun_drop_held(srvrun_conn* c, const wired_srvloop_reset* e) {
+  int i = e->is_stop ? -1 : srvrun_held_slot_of(c, e->stream_id);
+  if (i < 0) return 0;
+  c->wt_held_mask &= ~((u64)1 << i);
+  wired_srvloop_slot_release(&c->l, e->stream_id);
+  return 1;
+}
+
+/* Every held CONNECT reset this step is dropped and its credit returned. */
+static void srvrun_drop_held_resets(
+    const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  usz n = srvrun_peer_resets_stored(c), freed = 0;
+  for (usz i = 0; i < n; i++)
+    freed += srvrun_drop_held(c, &c->l.peer_resets[i]);
+  srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
 }
 
 /* Every slot reset this step (c->l.reset_slots) is freed and its bidi
