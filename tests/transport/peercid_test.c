@@ -88,16 +88,27 @@ static void test_peercid_late_below_rpt(void) {
   CHECK(peercid_bind(&p, &k2) == 0);
 }
 
-/* A full pool ignores a further ID. */
-static void test_peercid_full_ignores(void) {
+/* RFC 9000 5.1.1: one ID past the active limit is a
+ * CONNECTION_ID_LIMIT_ERROR; a repeat of a held one is not. */
+static void test_peercid_over_limit(void) {
   peercid     p;
-  ncid_frame  f2 = pc_ncid(2, 0, 0xb2);
+  ncid_frame  f1 = pc_ncid(1, 0, 0xb1), f2 = pc_ncid(2, 0, 0xb2);
   pathsel_key k1 = pc_key(3, 1), k2 = pc_key(3, 2), k3 = pc_key(3, 3);
   pc_pool(&p);
-  peercid_add(&p, &f2);
+  CHECK(peercid_add(&p, &f1) == 0);
+  CHECK(peercid_add(&p, &f2) == ERR_CONNECTION_ID_LIMIT_ERROR);
   peercid_bind(&p, &k1);
   peercid_bind(&p, &k2);
   CHECK(peercid_bind(&p, &k3) == 0);
+}
+
+/* RFC 9000 19.15: a held sequence number carrying another ID is a
+ * PROTOCOL_VIOLATION. */
+static void test_peercid_seq_reuse(void) {
+  peercid    p;
+  ncid_frame other = pc_ncid(1, 0, 0xc1);
+  pc_pool(&p);
+  CHECK(peercid_add(&p, &other) == ERR_PROTOCOL_VIOLATION);
 }
 
 /* RFC 9000 5.1.2: an ID no tracked path uses is retired and freed; a
@@ -125,6 +136,7 @@ void test_peercid(void) {
   test_peercid_share_same_socket();
   test_peercid_retire_prior_to();
   test_peercid_late_below_rpt();
-  test_peercid_full_ignores();
+  test_peercid_over_limit();
+  test_peercid_seq_reuse();
   test_peercid_sweep();
 }

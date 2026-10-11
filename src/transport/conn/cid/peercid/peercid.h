@@ -54,8 +54,10 @@ void peercid_init(peercid* p, wired_span cid0);
 
 /* RFC 9000 5.1.2/19.15: a received NEW_CONNECTION_ID. IDs below its Retire
  * Prior To are dropped and queued for retirement; the new ID is held unless
- * already known, already retired, or the pool is full. */
-void peercid_add(peercid* p, const ncid_frame* f);
+ * already held or already retired. Returns 0, or the transport error to
+ * close with: PROTOCOL_VIOLATION when a held sequence number carries another
+ * ID, CONNECTION_ID_LIMIT_ERROR when the pool is full (5.1.1). */
+int peercid_add(peercid* p, const ncid_frame* f);
 
 /* The ID bound to k, or 0. */
 const peercid_entry* peercid_of(const peercid* p, const pathsel_key* k);
