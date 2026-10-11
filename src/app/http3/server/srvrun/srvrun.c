@@ -955,6 +955,9 @@ static int srvrun_conn_is_raw(const srvrun_conn* c) {
 
 _Static_assert(
     WIRED_SRVLOOP_MAX_STREAMS <= 64, "wt_held_mask holds one bit per slot");
+_Static_assert(
+    QDYN_ENCRX_CAP == STP_DEFAULT_STREAM_DATA_LOCAL,
+    "the encoder window holds exactly the peer uni stream credit");
 
 /* Response storage, one row per (connection slot, response slot): 512-byte
  * prefix room (HEADERS + DATA header framed in place, h3resp_prefix)
