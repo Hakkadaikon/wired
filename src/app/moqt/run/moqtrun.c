@@ -3667,6 +3667,39 @@ static void moqtrun_fetch_route(
   moqtrun_fetch_joining(hub, p, peer_idx, m);
 }
 
+/* draft-22 7.4: a relay authorizes every request; the hub's SUBSCRIBE
+ * authorizer judges a FETCH's Full Track Name too. */
+static int moqtrun_fetch_auth_refused(
+    const wired_moqt_hub* hub, const moqfetch_req* m) {
+  return hub->authorize_subscribe &&
+         !hub->authorize_subscribe(
+             hub->authorize_ctx, &m->track, moqtrun_auth_token_of(&m->params));
+}
+
+/* A Standalone Fetch's name: a reserved namespace is DOES_NOT_EXIST
+ * (2.4.2/2.4.3), then authorization. */
+static u64 moqtrun_fetch_ftn_verdict(
+    const wired_moqt_hub* hub, const moqfetch_req* m) {
+  if (moqtrun_ns_reserved(&m->track.ns)) return MOQCTL_ERR_DOES_NOT_EXIST;
+  return moqtrun_fetch_auth_refused(hub, m) ? MOQCTL_ERR_UNAUTHORIZED
+                                            : MOQTRUN_REQ_ACCEPT;
+}
+
+/* A Joining Fetch names its subscription, authorized already. */
+static u64 moqtrun_fetch_name_verdict(
+    const wired_moqt_hub* hub, const moqfetch_req* m) {
+  return m->is_joining ? MOQTRUN_REQ_ACCEPT : moqtrun_fetch_ftn_verdict(hub, m);
+}
+
+/* What a FETCH is refused before any routing, else MOQTRUN_REQ_ACCEPT:
+ * Range Filters first (INVALID_FILTER), then its name. */
+static u64 moqtrun_fetch_verdict(
+    const wired_moqt_hub* hub, const moqfetch_req* m) {
+  if (moqtrun_rngf_refusal(&m->params) != MOQTRUN_REQ_ACCEPT)
+    return MOQCTL_ERR_INVALID_FILTER;
+  return moqtrun_fetch_name_verdict(hub, m);
+}
+
 /* draft 10.12 FETCH. A body that fails to decode is a malformed control
  * message: the session closes, like a malformed REQUEST_UPDATE. */
 static void moqtrun_handle_fetch(
@@ -3676,8 +3709,9 @@ static void moqtrun_handle_fetch(
     moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
     return;
   }
-  if (moqtrun_rngf_refusal(&m.params) != MOQTRUN_REQ_ACCEPT) {
-    moqtrun_send_request_error(p, MOQCTL_ERR_INVALID_FILTER);
+  u64 code = moqtrun_fetch_verdict(hub, &m);
+  if (code != MOQTRUN_REQ_ACCEPT) {
+    moqtrun_send_request_error(p, code);
     return;
   }
   moqtrun_fetch_route(hub, p, peer_idx, &m);

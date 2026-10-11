@@ -436,6 +436,195 @@ static void test_moqtrun_upfetch_upstream_draft(void) {
   }
 }
 
+/* ===================== who is asked ===================== */
+
+static moqctl_ftn mupf_bob(void) { return mtst_ftn("chat", "room1", "bob"); }
+
+/* Rounds on B's last request stream opening with a message of type. */
+static usz mupf_n_msgs(u64 type) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    const moqtrun_test_call* c   = &g_calls[i];
+    usz                      off = 0;
+    u64                      t   = 0;
+    wired_span               body;
+    if (c->s != SESS_B || c->stream_id != mf_req_sid) continue;
+    if (c->kind != 12 && c->kind != 3) continue;
+    moqctl_peek_type(
+        wired_span_of(c->payload, c->payload_len), &off, &t, &body);
+    n += t == type;
+  }
+  return n;
+}
+
+/* The request error code B got, as B's draft spells code. */
+static int mupf_refused(u64 code) {
+  moqfetch_ok          ok = {0};
+  moqctl_request_error e  = {0};
+  return mupf_reply(&ok, &e) == MOQCTL_T_REQUEST_ERROR &&
+         e.error_code == moqctl_request_error_for(mtst_ver(SESS_B), code);
+}
+
+/* A wait for a new path for bob that already tried s. */
+static void mupf_tried(wired_wt_session* s) {
+  moqctl_ftn         f = mupf_bob();
+  wired_moqtrun_rdv* r = &mtst_hub.rdv[0];
+  usz                n = 0;
+  CHECK(moqctl_ns_put(wired_mspan_of(r->ns, sizeof r->ns), &n, &f.ns));
+  r->ns_len   = n;
+  r->name_len = f.name.n;
+  for (usz i = 0; i < f.name.n; i++) r->name[i] = f.name.p[i];
+  r->in_use = 1;
+  r->repath = 1;
+  r->wt     = SESS_D;
+  r->tried  = moqtrun_rp_bit(&mtst_hub, s);
+}
+
+/* d22 7.6 / 9.2: an owner that may not be asked -- GOAWAY either way,
+ * being closed by the hub, or the requester itself -- leaves the FETCH to
+ * a covering announcer (C), never to the excluded one. */
+static void mupf_owner_excluded(int how) {
+  wired_moqtrun_peer* a = moqtrun_find_by_wt(&mtst_hub, SESS_A);
+  wired_wt_session*   s = how == 3 ? SESS_A : SESS_B;
+  mupf_init();
+  mupf_cache_group(3, 1);
+  a->sess.goaway_recv = how == 0;
+  a->sess.goaway_sent = how == 1;
+  a->closing          = how == 2;
+  mupf_fetch_on(s, mf_track(), mupf_rl(1, 0, 3, 0), 0);
+  CHECK(mupf_n_up(SESS_A) == 0 && mupf_n_up(SESS_C) == 1);
+}
+
+static void test_moqtrun_upfetch_owner_excluded(void) {
+  for (int how = 0; how < 4; how++) {
+    int fails = wired_test_fails;
+    mupf_owner_excluded(how);
+    if (wired_test_fails != fails) printf("  ^ exclusion %d\n", how);
+  }
+}
+
+/* A track nobody holds goes to an announcer not yet tried by a wait for
+ * a new path; with only a tried one, DOES_NOT_EXIST. */
+static void test_moqtrun_upfetch_tried_announcer_skipped(void) {
+  mupf_init();
+  mtst_join(SESS_D);
+  mupf_tried(SESS_C);
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 1, 0), 0);
+  CHECK(mupf_n_up(SESS_C) == 0);
+  CHECK(mupf_refused(MOQCTL_ERR_DOES_NOT_EXIST));
+}
+
+/* No publisher to ask (both GOAWAY'd), or no request stream toward it:
+ * the cache alone answers, Unknown where it lacks Objects, then FIN. */
+static void mupf_cache_only(int refuse) {
+  mupf_init();
+  mupf_cache_group(2, 1);
+  mupf_cache_group(3, 1);
+  moqtrun_find_by_wt(&mtst_hub, SESS_A)->sess.goaway_recv = !refuse;
+  moqtrun_find_by_wt(&mtst_hub, SESS_C)->sess.goaway_recv = !refuse;
+  g_open_bidi_fail_n                                      = refuse;
+  mupf_fetch(mupf_rl(1, 0, 3, 0), 0);
+  CHECK(mupf_n_msgs(MOQFETCH_T_FETCH_OK) == 1);
+  CHECK(mupf_read(0) && mf_n == 3 && mf_fin);
+  CHECK(mf_is_unknown(0, 1, MOQCACHE_OBJ_ID_MAX));
+  CHECK(mf_is_obj(1, 2, 0, 1) && mf_is_obj(2, 3, 0, 1));
+  CHECK(mupf_used() == 0);
+}
+
+static void test_moqtrun_upfetch_cache_only(void) {
+  mupf_cache_only(0);
+  mupf_cache_only(1);
+}
+
+/* ===================== a track the hub does not hold ===================== */
+
+/* d22 7.6: the whole range goes to the covering announcer; B hears no
+ * FETCH_OK until C's, which it then copies -- End Location, End Of Track
+ * and Track Properties (7.7) -- exactly once; C's Objects before it are
+ * relayed already. */
+static void test_moqtrun_upfetch_no_track_waits_ok(void) {
+  static const u8      props[] = {0x0C, 0x05}; /* one even-type KVP */
+  moqfetch_req         m       = {0};
+  moqfetch_ok          ok      = {0};
+  moqctl_request_error e;
+  mupf_init();
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  i64 sid = mupf_up(SESS_C, 0, &m);
+  CHECK(sid >= 0 && mupf_n_up(SESS_A) == 0);
+  CHECK(m.range.start_group == 0 && m.range.start_object == 0);
+  CHECK(m.range.ek == MOQCTL_REK_OBJ && m.range.end_group == 5);
+  CHECK(mupf_reply(&ok, &e) == 0);
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(0, 0, 1);
+  mupf_send_on(SESS_C, MUPF_DATA_SID, 0);
+  CHECK(mupf_read(0) && mf_n == 1 && mf_is_obj(0, 0, 0, 1));
+  mupf_up_ok_p(SESS_C, sid, mf_loc(2, 3), 1, wired_span_of(props, 2));
+  CHECK(mupf_reply(&ok, &e) == MOQFETCH_T_FETCH_OK);
+  CHECK(mf_loc_eq(ok.end, 2, 3) && ok.end_of_track == 1);
+  CHECK(ok.track_properties.n == 2 && ok.track_properties.p[1] == 0x05);
+  CHECK(mupf_n_msgs(MOQFETCH_T_FETCH_OK) == 1);
+}
+
+/* d22 9.20.5 / 7.6: no covering announcer is DOES_NOT_EXIST, FILL_TIMEOUT
+ * 0 is TIMEOUT, no request stream toward the announcer EXCESSIVE_LOAD --
+ * each leaving no slot behind. */
+static void test_moqtrun_upfetch_no_track_refusals(void) {
+  moqctl_params ft0 = mtst_params_vi(MOQCTL_PARAM_FILL_TIMEOUT, 0);
+  mupf_init();
+  mupf_fetch_on(
+      SESS_B, mtst_ftn("other", "room1", "bob"), mupf_rl(0, 0, 1, 0), 0);
+  CHECK(mupf_refused(MOQCTL_ERR_DOES_NOT_EXIST) && mupf_used() == 0);
+  mupf_init();
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 1, 0), &ft0);
+  CHECK(mupf_refused(MOQTRUN_ERR_TIMEOUT) && mupf_used() == 0);
+  CHECK(mupf_n_up(SESS_C) == 0);
+  mupf_init();
+  g_open_bidi_fail_n = 1;
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 1, 0), 0);
+  CHECK(mupf_refused(MOQCTL_ERR_EXCESSIVE_LOAD) && mupf_used() == 0);
+}
+
+/* The hub's own tracks (blob, live) are never fetched upstream, even
+ * where an announcer covers their name. */
+static void test_moqtrun_upfetch_hub_owned(void) {
+  static const u8 frag[1] = {1};
+  wired_span      fr      = wired_span_of(frag, 1);
+  mupf_init();
+  CHECK(
+      wired_moqt_publish_live(&mtst_hub, mtst_z("bob"), 9, &fr, 1, 1000, 0) ==
+      1);
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 1, 0), 0);
+  CHECK(mupf_n_up(SESS_C) == 0 && mupf_refused(MOQCTL_ERR_DOES_NOT_EXIST));
+  mupf_init();
+  mtst_hub.blob_track.in_use   = 1;
+  mtst_hub.blob_track.name_len = 3;
+  for (usz i = 0; i < 3; i++) mtst_hub.blob_track.name[i] = (u8) "bob"[i];
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 1, 0), 0);
+  CHECK(mupf_n_up(SESS_C) == 0 && mupf_refused(MOQCTL_ERR_DOES_NOT_EXIST));
+}
+
+/* draft-22 7.4: a reserved (.session) namespace is DOES_NOT_EXIST and an
+ * unauthorized FETCH UNAUTHORIZED, both before any routing -- nothing goes
+ * upstream even where an announcer of every namespace exists. */
+static int mupf_deny(void* ctx, const moqctl_ftn* name, const moqctl_token* t) {
+  (void)ctx;
+  (void)name;
+  (void)t;
+  return 0;
+}
+
+static void test_moqtrun_upfetch_refused_before_routing(void) {
+  mupf_init();
+  mtns_pub(SESS_C, MUPF_NS_SID + 4, ""); /* covers every namespace */
+  mupf_fetch_on(SESS_B, mtst_ftn(".session", "x", "y"), mupf_rl(0, 0, 1, 0), 0);
+  CHECK(mupf_n_up(SESS_C) == 0 && mupf_refused(MOQCTL_ERR_DOES_NOT_EXIST));
+  mupf_init();
+  mupf_cache_group(3, 1);
+  mtst_hub.authorize_subscribe = mupf_deny;
+  mupf_fetch(mupf_rl(1, 0, 3, 0), 0);
+  CHECK(mupf_n_up(SESS_A) == 0 && mupf_refused(MOQCTL_ERR_UNAUTHORIZED));
+}
+
 void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_upsub_skips_goaway();
   test_moqtrun_upfetch_gap_to_owner();
@@ -444,4 +633,11 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_reencode();
   test_moqtrun_upfetch_two_not_shared();
   test_moqtrun_upfetch_upstream_draft();
+  test_moqtrun_upfetch_owner_excluded();
+  test_moqtrun_upfetch_tried_announcer_skipped();
+  test_moqtrun_upfetch_cache_only();
+  test_moqtrun_upfetch_no_track_waits_ok();
+  test_moqtrun_upfetch_no_track_refusals();
+  test_moqtrun_upfetch_hub_owned();
+  test_moqtrun_upfetch_refused_before_routing();
 }
