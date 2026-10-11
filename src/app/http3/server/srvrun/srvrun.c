@@ -9017,49 +9017,52 @@ static void srvrun_start_done_resps(const srvrun_step_ctx* ctx, int slot) {
     srvrun_start_done_resp(ctx, slot, c->l.done_slots[i]);
 }
 
+/* RFC 9000 4.6: free aborted request slot i -- reading stopped, so its
+ * slot and the bidi credit it held go back (srvrun_grant_streams). 1 if a
+ * live slot was freed, 0 if it already was. */
+static usz srvrun_abort_release(srvrun_conn* c, u8 i) {
+  if (!c->l.streams[i].in_use) return 0;
+  wired_srvloop_slot_release(&c->l, c->l.streams[i].stream_id);
+  return 1;
+}
+
+/* Abort request slot i with code, freeing it (srvrun_abort_release). */
+static usz srvrun_abort_req(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, u8 i, u64 code) {
+  srvrun_send_wt_busy_reset(ctx->cfg, c, c->l.streams[i].stream_id, code);
+  return srvrun_abort_release(c, i);
+}
+
 /* RFC 9114 4.1.1: "if the request stream ends without enough of the HTTP
  * message to provide a complete response, the server SHOULD abort its
  * response stream with the error code H3_REQUEST_INCOMPLETE" -- srvloop's
- * dispatch (route_note_incomplete) already detected the case and latched the
- * slot index in incomplete_slots this step; abort it here with the same
- * RESET_STREAM + STOP_SENDING pair srvrun_reject_wt_busy uses, just
- * keyed by the stream's own id instead of req_stream_id. */
-static void srvrun_abort_incomplete_req(
-    const srvrun_step_ctx* ctx, int slot, u8 incomplete_i) {
-  srvrun_conn* c  = &ctx->st->conns[slot];
-  u64          id = c->l.streams[incomplete_i].stream_id;
-  srvrun_send_wt_busy_reset(ctx->cfg, c, id, H3_REQUEST_INCOMPLETE);
-}
-
-/* Abort every request stream that ended incomplete this step (RFC 9000 2.2:
- * a datagram may close several streams at once, same fan-out as
- * srvrun_start_done_resps). */
+ * dispatch (route_note_incomplete) already latched each such slot in
+ * incomplete_slots this step; abort every one with the same RESET_STREAM +
+ * STOP_SENDING pair srvrun_reject_wt_busy uses, keyed by the stream's own
+ * id (RFC 9000 2.2: a datagram may close several streams at once). */
 static void srvrun_abort_incomplete_reqs(const srvrun_step_ctx* ctx, int slot) {
-  srvrun_conn* c = &ctx->st->conns[slot];
+  srvrun_conn* c     = &ctx->st->conns[slot];
+  usz          freed = 0;
   for (usz i = 0; i < c->l.incomplete_n; i++)
-    srvrun_abort_incomplete_req(ctx, slot, c->l.incomplete_slots[i]);
+    freed += srvrun_abort_req(
+        ctx, c, c->l.incomplete_slots[i], H3_REQUEST_INCOMPLETE);
+  srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
 }
 
 /* RFC 9114 7.2.5/7.2.8 (9114-067/9114-073): a request stream carried
  * PUSH_PROMISE or an HTTP/2-only reserved frame type -- srvloop's dispatch
  * (route_note_frame_unexpected) already detected it and latched the slot in
  * frame_unexpected_slots this step; abort it with H3_FRAME_UNEXPECTED, same
- * RESET_STREAM + STOP_SENDING pair as srvrun_abort_incomplete_req. */
-static void srvrun_abort_frame_unexpected_req(
-    const srvrun_step_ctx* ctx, int slot, u8 unexpected_i) {
-  srvrun_conn* c  = &ctx->st->conns[slot];
-  u64          id = c->l.streams[unexpected_i].stream_id;
-  srvrun_send_wt_busy_reset(ctx->cfg, c, id, H3_FRAME_UNEXPECTED);
-}
-
-/* Abort every request stream rejected outright this step, same fan-out as
+ * RESET_STREAM + STOP_SENDING pair and slot release as
  * srvrun_abort_incomplete_reqs. */
 static void srvrun_abort_frame_unexpected_reqs(
     const srvrun_step_ctx* ctx, int slot) {
-  srvrun_conn* c = &ctx->st->conns[slot];
+  srvrun_conn* c     = &ctx->st->conns[slot];
+  usz          freed = 0;
   for (usz i = 0; i < c->l.frame_unexpected_n; i++)
-    srvrun_abort_frame_unexpected_req(
-        ctx, slot, c->l.frame_unexpected_slots[i]);
+    freed += srvrun_abort_req(
+        ctx, c, c->l.frame_unexpected_slots[i], H3_FRAME_UNEXPECTED);
+  srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
 }
 
 /* Return r's borrowed wired_srvbigbuf row to the pool, if it holds one.

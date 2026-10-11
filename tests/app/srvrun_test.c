@@ -6183,6 +6183,33 @@ static void test_srvrun_incomplete_request_stream_sends_reset(void) {
   CHECK(conns[0].l.tx_pn != tx_pn_before);
 }
 
+/* RFC 9000 4.6: an aborted incomplete request stream gives back its
+ * reassembly slot and the bidi stream credit it held -- otherwise a stream
+ * that never FINs (a CONNECT) pins both for the connection's life. */
+static void test_srvrun_incomplete_request_frees_slot_and_credit(void) {
+  struct lp_fix f;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_conn*  conns = sr_test_conns();
+  wired_obuf    ob;
+  u8            obuf[1024];
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_state    st  = {table, conns};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  ob                  = (wired_obuf){obuf, sizeof obuf, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  CHECK(wired_srvloop_slot_for(&conns[0].l, 12) == 0);
+  conns[0].l.incomplete_slots[0] = 0;
+  conns[0].l.incomplete_n        = 1;
+  srvrun_abort_incomplete_reqs(&ctx, 0);
+  CHECK(conns[0].l.streams[0].in_use == 0);
+  CHECK(conns[0].stream_limit_advertised == WIRED_SRVLOOP_MAX_STREAMS + 1);
+  srvrun_abort_incomplete_reqs(&ctx, 0); /* the same list again: no credit */
+  CHECK(conns[0].stream_limit_advertised == WIRED_SRVLOOP_MAX_STREAMS + 1);
+}
+
 /* Stream id 8 (& 3 == 0) is a client-initiated bidi id, same shape as the
  * existing establishes_session test's id 4 -- confirms the validation does
  * not reject a well-formed id. */
@@ -21011,7 +21038,7 @@ static void test_srvrun_on_body_frame_unexpected(void) {
   sr_body_send(c, req, n, 1);
   CHECK(g_sr_body.got_n == 10 && g_sr_body.fins == 0);
   CHECK(g_sr_wt_handler_calls == 0);
-  CHECK(c->l.streams[0].body.state == BODYWIN_FRAME_UNEXPECTED);
+  CHECK(c->l.streams[0].in_use == 0); /* aborted, slot freed */
 }
 
 /* The latched frame error closes the connection (and is consumed). */
@@ -22817,6 +22844,7 @@ void test_srvrun(void) {
   test_srvrun_wt_teardown_returns_credit();
   test_srvrun_wt_uni_peer_reset_returns_credit();
   test_srvrun_incomplete_request_stream_sends_reset();
+  test_srvrun_incomplete_request_frees_slot_and_credit();
   test_srvrun_qenc_stream_opens_with_type_prefix_only();
   test_srvrun_qenc_stream_open_is_idempotent();
   test_srvrun_qenc_first_use_inserts_and_references_dynamic();
