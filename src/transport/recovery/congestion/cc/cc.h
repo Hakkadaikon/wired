@@ -47,7 +47,8 @@ void cc_on_ack(cc* c, u64 acked, u64 sent_time, u64 now);
  * the window (never below kMinimumWindow), once per recovery period. */
 void cc_on_loss(cc* c, u64 sent_time, u64 now);
 
-/* Persistent congestion: collapse the window to kMinimumWindow. */
+/* Persistent congestion: collapse the window to kMinimumWindow and end the
+ * recovery period (RFC 9002 B.8). */
 void cc_on_persistent(cc* c);
 
 /* BBR housekeeping, once per step after acks: closes a sample round when at

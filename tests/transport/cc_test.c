@@ -49,6 +49,21 @@ static void test_cc_persistent_collapse(void) {
   CHECK(c.cwnd == CC_MIN_WINDOW);
 }
 
+/* RFC 9002 B.8: persistent congestion also clears the recovery period, so
+ * the very next ACK grows the collapsed window instead of leaving it frozen
+ * at the minimum for another round trip. */
+static void test_cc_persistent_ends_recovery(void) {
+  cc c;
+  cc_init(&c);
+  cc_on_loss(&c, 5, 100); /* recovery began at t=100 */
+  cc_on_persistent(&c);
+  cc_on_ack(&c, 1200, 50, 150); /* packet sent before t=100 */
+  CHECK(c.in_recovery == 0);
+  CHECK(c.cwnd == CC_MIN_WINDOW + 1200); /* slow start below ssthresh */
+  cc_on_loss(&c, 50, 160); /* sent before the old period: a new event */
+  CHECK(c.in_recovery == 1 && c.recovery_start == 160);
+}
+
 /* CUBIC mode (RFC 9438): loss shrinks by beta_cubic 0.7 and re-anchors the
  * cubic epoch; acks lift cwnd onto the curve — back at W_max when K elapses
  * (W_max 10 segments -> K = cbrt(7.5e9) ms = 1957), convex past it. Slow
@@ -198,6 +213,7 @@ void test_cc(void) {
   test_cc_no_grow_in_recovery();
   test_cc_recovery_exit();
   test_cc_persistent_collapse();
+  test_cc_persistent_ends_recovery();
   test_cc_pacing_floors_at_1ms_once_rtt_known();
   test_cc_pacing_zero_srtt_stays_unfloored();
   test_cc_on_ack_grow_bounded_no_overflow();

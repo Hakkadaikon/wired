@@ -91,7 +91,13 @@ void cc_on_loss(cc* c, u64 sent_time, u64 now) {
   c->recovery_start = now;
 }
 
-void cc_on_persistent(cc* c) { c->cwnd = CC_MIN_WINDOW; }
+/* RFC 9002 B.8: collapse to kMinimumWindow and clear the recovery period
+ * (congestion_recovery_start_time = 0). */
+void cc_on_persistent(cc* c) {
+  c->cwnd           = CC_MIN_WINDOW;
+  c->in_recovery    = 0;
+  c->recovery_start = 0;
+}
 
 /* The bandwidth-delay product in bytes (btl_bw B/ms x rtprop ms). */
 static u64 bbr_bdp(const cc* c) { return c->bbr.btl_bw * c->bbr.rtprop_ms; }
