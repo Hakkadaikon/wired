@@ -1367,7 +1367,15 @@ static void route_qpack_ack(wired_srvloop* l, int i) {
 /* Append slot i to this step's completion list and mirror its request into
  * l->req/req_stream_id (the pre-existing single-request API surface; the
  * mirror carries the LAST completion when more than one lands this step). */
+/* RFC 9000 3.2: slot i reached an outcome this step; a RESET_STREAM seen
+ * earlier in the same datagram (another packet) no longer leaves it
+ * marked as reset mid-request, so the server layer handles it once. */
+static void route_unreset(wired_srvloop* l, int i) {
+  l->reset_slots &= ~((u64)1 << i);
+}
+
 static void route_note_done(wired_srvloop* l, int i) {
+  route_unreset(l, i);
   l->req           = l->streams[i].req;
   l->req_stream_id = l->streams[i].stream_id;
   route_qpack_ack(l, i);
@@ -1378,6 +1386,7 @@ static void route_note_done(wired_srvloop* l, int i) {
  * 9114-073) -- split out of route_note_incomplete so its own reject-vs-
  * incomplete branch stays a single extra check there. */
 static void route_note_frame_unexpected(wired_srvloop* l, int i) {
+  route_unreset(l, i);
   if (l->frame_unexpected_n < WIRED_SRVLOOP_MAX_STREAMS)
     l->frame_unexpected_slots[l->frame_unexpected_n++] = (u8)i;
 }
@@ -1394,6 +1403,7 @@ static int route_headers_whole(const wired_srvloop_stream_slot* slot) {
  * out of route_note_incomplete so its own reject-vs-incomplete branch stays a
  * single extra check there. */
 static void route_note_incomplete_append(wired_srvloop* l, int i) {
+  route_unreset(l, i);
   l->streams[i].req_incomplete = 1;
   if (route_headers_whole(&l->streams[i])) l->malformed_slots |= (u64)1 << i;
   if (l->incomplete_n < WIRED_SRVLOOP_MAX_STREAMS)

@@ -5212,22 +5212,28 @@ static void test_srvloop_step_zerortt_records_real_pn(void) {
 /* One 0-RTT PING at pn, byte0 picking the truncated pn length, sealed for
  * the fixture f (early keys set as in test_srvloop_step_zerortt_records_
  * real_pn) into pkt; returns its length. */
-static usz srvloop_zrtt_ping(struct lp_fix* f, u8 byte0, u64 pn, u8* pkt) {
+static usz srvloop_zrtt_seal(
+    struct lp_fix* f, u8 byte0, u64 pn, wired_span payload, wired_mspan pkt) {
   aes128       hp;
-  const u8     payload[1] = {0x01};
-  protect_keys pk         = {&f->s.sdrv.early_keys, &hp};
-  tx_desc      d          = {
+  protect_keys pk = {&f->s.sdrv.early_keys, &hp};
+  tx_desc      d  = {
       byte0,
       wired_span_of(g_cli_scid, 6),
       wired_span_of(g_cli_scid, 6),
       0,
       wired_span_of(0, 0),
       pn,
-      wired_span_of(payload, sizeof(payload)),
+      payload,
       0};
   aes128_init(&hp, f->s.sdrv.early_keys.hp);
-  return tx_packet_suite(
-      f->s.sdrv.cipher_suite, &pk, &d, wired_mspan_of(pkt, 256));
+  return tx_packet_suite(f->s.sdrv.cipher_suite, &pk, &d, pkt);
+}
+
+static usz srvloop_zrtt_ping(struct lp_fix* f, u8 byte0, u64 pn, u8* pkt) {
+  const u8 payload[1] = {0x01};
+  return srvloop_zrtt_seal(
+      f, byte0, pn, wired_span_of(payload, sizeof payload),
+      wired_mspan_of(pkt, 256));
 }
 
 static void srvloop_zrtt_fix(struct lp_fix* f) {
@@ -5272,6 +5278,24 @@ static void test_srvloop_duplicate_packet_dropped(void) {
   CHECK(f.l.app_ack_policy.pending == pending);
   srvloop_zrtt_send(&f, 0xd3, 8);
   CHECK(f.l.app_ack_policy.pending == pending + 1);
+}
+
+/* RFC 9000 3.2/12.2: a request reset mid-receive in one packet can still
+ * be finished by a later packet of the same datagram (its bytes within the
+ * final size): once it is classified done / incomplete / frame-unexpected,
+ * it is no longer marked reset mid-request -- the server layer would
+ * otherwise free the slot it is about to answer or abort. */
+static void test_srvloop_classified_slot_not_reset(void) {
+  static wired_srvloop l;
+  for (int k = 0; k < 3; k++) {
+    l.reset_slots = 1;
+    l.done_n = l.incomplete_n = l.frame_unexpected_n = 0;
+    l.streams[0].req_len                             = 0;
+    if (k == 0) route_note_done(&l, 0);
+    if (k == 1) route_note_incomplete_append(&l, 0);
+    if (k == 2) route_note_frame_unexpected(&l, 0);
+    CHECK(l.reset_slots == 0);
+  }
 }
 
 /* A payload frame landing in a slot past 31 must still be marked for
@@ -5578,6 +5602,7 @@ void test_srvloop(void) {
   test_srvloop_step_zerortt_records_real_pn();
   test_srvloop_pn_baseline_is_largest();
   test_srvloop_duplicate_packet_dropped();
+  test_srvloop_classified_slot_not_reset();
   test_srvloop_seal_chacha_roundtrip();
   test_srvloop_open_chacha();
   test_srvloop_aes256_only_roundtrip();
