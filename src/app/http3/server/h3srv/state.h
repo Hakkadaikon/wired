@@ -2,6 +2,8 @@
 #define WIRED_H3SRV_STATE_H
 
 #include "app/qpack/qpack/dyntable.h"
+#include "app/qpack/qpackdyn/dec_stream.h"
+#include "app/qpack/qpackdyn/enc_stream.h"
 #include "app/qpack/qpackenc/qpackenc.h"
 #include "common/platform/sys/syscall.h"
 
@@ -35,6 +37,11 @@ typedef struct {
    * SETTINGS) means the peer's encoder may not raise the table past 0
    * either. */
   u64 qpack_max_table_capacity;
+  /** RFC 9204 4.2: the peer's encoder stream, reassembled and applied to
+   * qdyn as it arrives. */
+  qdyn_encrx qenc_rx;
+  /** RFC 9204 4.4: what this decoder owes the peer on its decoder stream. */
+  qdyn_dec qdec;
   /** RFC 9204 2.1/3.2: this connection's OWN encoder-side dynamic table --
    * the send-direction counterpart to qdyn above (which holds the peer's
    * instructions applied to this endpoint's decoder). Initialised by

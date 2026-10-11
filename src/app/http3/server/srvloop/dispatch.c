@@ -11,6 +11,7 @@
 #include "app/http3/server/hq09/hq09.h"
 #include "app/http3/server/srvloop/priority_ctrl.h"
 #include "app/http3/server/srvloop/srvloop.h"
+#include "app/qpack/qpack/error.h"
 #include "app/qpack/qpackdyn/enc_stream.h"
 #include "app/rawquic/rawq.h"
 #include "common/bytes/util/bytes.h"
@@ -514,29 +515,34 @@ static void uni_stream_type_note_qpack(wired_srvloop* l, wired_span data) {
     l->qpack_stream_violation = err;
 }
 
-/* RFC 9204 4.3.1 (9204-020/9204-032/9204-033): if data's leading type varint
- * is the QPACK encoder stream, apply a Set Dynamic Table Capacity instruction
- * (if any) at its head to l->h3.qdyn. Other encoder-stream instructions
- * (Insert.../Duplicate) are left unconsumed -- see enc_stream.h's own doc for
- * why -- so this deliberately only tries the one instruction this SDK
- * decodes. A capacity exceeding the server's own advertised limit latches
- * l->qpack_stream_violation, mirroring uni_stream_type_note_qpack's shape. */
-/* Apply a Set Dynamic Table Capacity instruction (if any) at the head of
- * rest to l, latching a rejection. Split out of uni_stream_type_apply_qpack_
- * capacity so its own branch count stays at the CCN gate. */
-static void apply_qpack_capacity_rest(wired_srvloop* l, wired_span rest) {
-  u16 err = 0;
-  qdyn_enc_apply(rest, &l->h3.qdyn, l->h3.qpack_max_table_capacity, &err);
-  if (err) l->qpack_stream_violation = err;
-}
-
-static void uni_stream_type_apply_qpack_capacity(
-    wired_srvloop* l, wired_span data) {
+/* RFC 9204 4.2: claim stream_id as the peer's encoder stream when its leading
+ * type varint (data, the offset-0 bytes) says so. */
+static void qenc_claim(wired_srvloop* l, wired_span data, u64 stream_id) {
   u64 v;
   usz off = 0;
   if (!varint_take(data, &off, &v)) return;
-  if (v != H3_STREAM_QPACK_ENCODER) return;
-  apply_qpack_capacity_rest(l, wired_span_of(data.p + off, data.n - off));
+  if (v == H3_STREAM_QPACK_ENCODER) l->h3.qenc_rx.stream_id = stream_id;
+}
+
+/* The encoder stream's type varint (0x02) is one byte, carried by the
+ * offset-0 frame. An empty offset-0 frame carries nothing to skip (and
+ * nothing to feed, so its wrapped post-type offset is never stored). */
+static usz qenc_type_skip(const stream_frame* sf) {
+  return sf->offset == 0 && sf->length != 0;
+}
+
+/* RFC 9204 4.2 / 4.3: feed sf, if it belongs to the claimed encoder stream,
+ * into the reassembly window, applying every instruction it completes to
+ * l->h3.qdyn; an invalid one latches l->qpack_stream_violation. */
+static void gather_qpack_enc(wired_srvloop* l, const stream_frame* sf) {
+  usz skip = qenc_type_skip(sf);
+  u16 err  = 0;
+  if (sf->stream_id != l->h3.qenc_rx.stream_id) return;
+  if (!qdyn_encrx_feed(
+          &l->h3.qenc_rx, sf->offset + skip - 1,
+          wired_span_of(sf->data + skip, (usz)sf->length - skip), &l->h3.qdyn,
+          l->h3.qpack_max_table_capacity, &err))
+    l->qpack_stream_violation = err;
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: 1 if this uni stream's very first bytes
@@ -662,15 +668,16 @@ static void gather_wt_uni_land(wired_srvloop* l, const stream_frame* sf) {
  * gather_wt_uni_frame's own doc) plus recording a QPACK encoder/decoder type
  * on l->h3.peer_qpack_* (RFC 9204 4.2, 9204-028). Split out of gather_wt_uni_
  * frame so its own branch count stays at the CCN gate. */
-static void gather_wt_uni_classify(wired_srvloop* l, wired_span data) {
+static void gather_wt_uni_classify(wired_srvloop* l, const stream_frame* sf) {
+  wired_span data = wired_span_of(sf->data, (usz)sf->length);
   uni_stream_type_accepted(data);
   uni_stream_type_note_qpack(l, data);
-  uni_stream_type_apply_qpack_capacity(l, data);
+  qenc_claim(l, data, sf->stream_id);
 }
 
 static void gather_wt_uni_frame(wired_srvloop* l, const stream_frame* sf) {
-  wired_span data = wired_span_of(sf->data, (usz)sf->length);
-  if (sf->offset == 0) gather_wt_uni_classify(l, data);
+  if (sf->offset == 0) gather_wt_uni_classify(l, sf);
+  gather_qpack_enc(l, sf);
   if (!wt_uni_frame_relevant(l, sf)) return;
   gather_wt_uni_land(l, sf);
 }
@@ -1241,6 +1248,10 @@ static int route_request_frames(
 static void route_note_done(wired_srvloop* l, int i) {
   l->req           = l->streams[i].req;
   l->req_stream_id = l->streams[i].stream_id;
+  /* RFC 9204 4.4.1: a section with a non-zero Required Insert Count is
+   * acknowledged on the decoder stream. */
+  qdyn_dec_section_ack(
+      &l->h3.qdec, l->streams[i].stream_id, l->streams[i].req.qpack_ric);
   if (l->done_n < WIRED_SRVLOOP_MAX_STREAMS) l->done_slots[l->done_n++] = (u8)i;
 }
 
@@ -1295,7 +1306,15 @@ static void route_dispatch_complete(
 
 /* Record slot i's decode outcome: a request to answer, or an incomplete /
  * rejected stream to abort. */
+/* RFC 9204 4.5.1 / 2.1.2: a section prefix that failed to decode is a
+ * connection error, not just an aborted request. */
+static void route_note_qpack(wired_srvloop* l, int i) {
+  if (l->streams[i].req.qpack_failed)
+    l->qpack_stream_violation = QPACK_DECOMPRESSION_FAILED;
+}
+
 static void route_note_result(wired_srvloop* l, int i, int got) {
+  route_note_qpack(l, i);
   if (got)
     route_note_done(l, i);
   else

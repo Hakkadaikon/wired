@@ -2685,6 +2685,92 @@ static void test_srvloop_qpack_encoder_set_capacity_over_limit(void) {
   CHECK(f.l.qpack_stream_violation == QPACK_ENCODER_STREAM_ERROR);
 }
 
+/* RFC 9204 B.2's encoder-stream bytes (Set Capacity 220, two inserts). */
+static const u8 lp_b2_enc[] = {0x3f, 0xbd, 0x01, 0xc0, 0x0f, 'w', 'w', 'w', '.',
+                               'e',  'x',  'a',  'm',  'p',  'l', 'e', '.', 'c',
+                               'o',  'm',  0xc1, 0x0c, '/',  's', 'a', 'm', 'p',
+                               'l',  'e',  '/',  'p',  'a',  't', 'h'};
+
+/* STREAM frame on the client encoder stream (id 2) at stream offset off:
+ * the 0x02 type byte leads the offset-0 frame. */
+static usz lp_qenc_frame(u8* out, usz cap, u64 off, const u8* p, usz n) {
+  u8           body[64];
+  usz          k = 0;
+  stream_frame sf;
+  if (off == 0) body[k++] = H3_STREAM_QPACK_ENCODER;
+  for (usz i = 0; i < n; i++) body[k++] = p[i];
+  sf = (stream_frame){2, off, k, body, 0};
+  return frame_put_stream(out, cap, &sf);
+}
+
+/* Request stream 4 ending with B.2's section (RIC 2, Base 0, post-Base 0
+ * and 1) plus static :method GET and :scheme https. */
+static usz lp_b2_request(u8* out, usz cap) {
+  static const u8 hdr[] = {0x01, 0x06, 0x03, 0x81, 0xd1, 0xd7, 0x10, 0x11};
+  stream_frame    sf    = {4, 0, sizeof hdr, hdr, 1};
+  return frame_put_stream(out, cap, &sf);
+}
+
+static void lp_step_payload(struct lp_fix* f, u64 pn, const u8* p, usz n) {
+  u8         out[1024], spkt[1024];
+  wired_obuf ob   = {out, sizeof out, 0};
+  usz        slen = client_seal_onertt_pn(f, pn, p, n, spkt, sizeof spkt);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(spkt, slen), &ob);
+}
+
+/* RFC 9204 4.2 / 4.4.1: encoder-stream bytes split over three packets, the
+ * last two arriving in reverse order, still apply; the section referencing
+ * the two inserts then decodes and owes a Section Acknowledgment for
+ * stream 4 (B.2's 0x84). */
+static void test_srvloop_qpack_split_inserts_section_ack(void) {
+  struct lp_fix f;
+  u8            payload[256], out[1024];
+  usz           off;
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  off = lp_qenc_frame(payload, sizeof payload, 0, lp_b2_enc, 10);
+  lp_step_payload(&f, 3, payload, off);
+  off = lp_qenc_frame(payload, sizeof payload, 21, lp_b2_enc + 20, 14);
+  lp_step_payload(&f, 4, payload, off);
+  CHECK(f.l.h3.qdyn.count == 0 && f.l.h3.qdyn.capacity == 220);
+  off = lp_qenc_frame(payload, sizeof payload, 11, lp_b2_enc + 10, 10);
+  off += lp_b2_request(payload + off, sizeof payload - off);
+  lp_step_payload(&f, 5, payload, off);
+  CHECK(f.l.h3.qdyn.count == 2 && f.l.h3.qdyn.size == 106);
+  CHECK(f.l.done_n == 1);
+  CHECK(f.l.h3.qdec.acks_len == 1 && f.l.h3.qdec.acks[0] == 0x84);
+  CHECK(f.l.qpack_stream_violation == 0);
+}
+
+/* RFC 9204 2.1.2: with no blocked streams allowed, a section needing
+ * inserts not yet received is QPACK_DECOMPRESSION_FAILED. */
+static void test_srvloop_qpack_blocked_section_fails(void) {
+  struct lp_fix f;
+  u8            payload[256], out[1024];
+  usz           off;
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  off = lp_b2_request(payload, sizeof payload);
+  lp_step_payload(&f, 3, payload, off);
+  CHECK(f.l.done_n == 0);
+  CHECK(f.l.qpack_stream_violation == QPACK_DECOMPRESSION_FAILED);
+}
+
+/* RFC 9204 4.3.4: a Duplicate of no live entry on the encoder stream is
+ * QPACK_ENCODER_STREAM_ERROR. */
+static void test_srvloop_qpack_bad_duplicate(void) {
+  static const u8 dup0[] = {0x00};
+  struct lp_fix   f;
+  u8              payload[64], out[1024];
+  usz             off;
+  wired_obuf      ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  off = lp_qenc_frame(payload, sizeof payload, 0, dup0, 1);
+  lp_step_payload(&f, 3, payload, off);
+  CHECK(f.l.qpack_stream_violation == QPACK_ENCODER_STREAM_ERROR);
+}
+
 /* An unrecognized uni stream type (neither control/QPACK/WebTransport) does
  * not crash and falls back to accepted-and-ignored, exactly like the known
  * non-WT types above -- no slot claimed, no got_request, no peer_closed. */
@@ -5075,6 +5161,9 @@ void test_srvloop(void) {
   test_srvloop_second_qpack_encoder_stream_violation();
   test_srvloop_qpack_encoder_set_capacity_applied();
   test_srvloop_qpack_encoder_set_capacity_over_limit();
+  test_srvloop_qpack_split_inserts_section_ack();
+  test_srvloop_qpack_blocked_section_fails();
+  test_srvloop_qpack_bad_duplicate();
   test_srvloop_uni_unrecognized_type_no_crash();
   test_srvloop_uni_reset_before_type_no_crash();
   test_srvloop_wt_reset_same_step_keeps_both();
