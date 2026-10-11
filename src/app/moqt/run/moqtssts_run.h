@@ -58,9 +58,14 @@ void moqtss_sub_reset(wired_moqtrun_sub* s);
  * SWITCHING_SET_ASSIGNMENT joins s's set. MOQTSS_ACCEPT, else the
  * REQUEST_ERROR code (nothing joined): UNSUPPORTED_EXTENSION for an
  * algorithm not negotiated, a track in another set, or a subscription
- * that also carries SWITCH_FROM; INTERNAL_ERROR without room. */
+ * that also carries SWITCH_FROM; INTERNAL_ERROR without room. A member
+ * joining while track t (0: none) has a largest Location gets that
+ * Group's verdict at once: its recorded decision, else one made now. */
 u64 moqtss_on_subscribe(
-    wired_moqt_hub* hub, wired_moqtrun_sub* s, const moqctl_params* params);
+    wired_moqt_hub*            hub,
+    wired_moqtrun_sub*         s,
+    const moqctl_params*       params,
+    const wired_moqtrun_track* t);
 
 /** REQUEST_UPDATE on s, before anything is applied: prior when it is
  * already a refusal, else the assignment's verdict, nothing joined
@@ -75,9 +80,13 @@ u64 moqtss_upd_check(
     u64                      prior);
 
 /** The applied REQUEST_UPDATE's assignment joins / re-tunes s (after
- * moqtss_upd_check accepted it). */
+ * moqtss_upd_check accepted it), stamping t's largest Group as
+ * moqtss_on_subscribe does. */
 void moqtss_on_update(
-    wired_moqt_hub* hub, wired_moqtrun_sub* s, const moqctl_params* params);
+    wired_moqt_hub*            hub,
+    wired_moqtrun_sub*         s,
+    const moqctl_params*       params,
+    const wired_moqtrun_track* t);
 
 /** 1 iff s is a member of a switching set: SWITCH_FROM refuses it
  * (moqtswitch.c, INVALID_SWITCH 0x32). */

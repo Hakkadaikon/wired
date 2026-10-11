@@ -865,6 +865,46 @@ static void test_moqtrun_ssts_update_joins(void) {
   CHECK(mtss_set7() && mtss_set7()->n == 1);
 }
 
+/* A member joining mid-Group gets that Group's decision at once: lo
+ * subscribes while its Group 0 is in flight, the reliable ring replays it
+ * to B, and hi's Group 0 arriving later keeps that decision. */
+static void test_moqtrun_ssts_mid_group_join_decides(void) {
+  moqctl_params ph =
+      mtss_ssa(MTSS_SET, MOQSSTS_ALG_BACKPRESSURE, MTSS_HI_KBPS, 2);
+  moqctl_params pl =
+      mtss_ssa(MTSS_SET, MOQSSTS_ALG_BACKPRESSURE, MTSS_LO_KBPS, 2);
+  mtss_init(mtss_algs_both, 2);
+  mtss_client_setup(SESS_B, mtss_algs_both, 2);
+  mtst_hub.reliable_alias_limit = 1000;
+  mtss_sub(MTSS_SID_HI, mtss_hi(), &ph);
+  mtss_ah = mtss_ok_alias(MTSS_SID_HI);
+  u64 l   = mtss_push(2, 0, 1, 0);
+  mtss_sub(MTSS_SID_LO, mtss_lo(), &pl);
+  mtss_al = mtss_ok_alias(MTSS_SID_LO);
+  mtss_more(l, 1, 1);
+  mtss_tier(1); /* a decision made now would pick hi */
+  mtss_push(1, 0, 1, 1);
+  CHECK(mtss_opens(mtss_al, 0) == 1);
+  CHECK(mtss_opens(mtss_ah, 0) == 0);
+}
+
+/* A re-tune by REQUEST_UPDATE mid-Group keeps the Group's recorded
+ * decision (hi): lo's in-flight Group 0 still never reaches B. */
+static void test_moqtrun_ssts_update_keeps_decision(void) {
+  moqctl_params pl =
+      mtss_ssa(MTSS_SET, MOQSSTS_ALG_BACKPRESSURE, MTSS_LO_KBPS, 2);
+  mtss_room();
+  mtst_hub.reliable_alias_limit = 1000;
+  mtss_tier(1);
+  mtss_push(1, 0, 1, 1);
+  u64 l = mtss_push(2, 0, 1, 0);
+  mtss_tier(0);
+  mtup_update(SESS_B, MTSS_SID_LO, &pl);
+  CHECK(mtup_reply(MTSS_SID_LO, &(wired_span){0}) == MOQCTL_T_REQUEST_OK);
+  mtss_more(l, 1, 1);
+  CHECK(mtss_opens(mtss_ah, 0) == 1 && mtss_opens(mtss_al, 0) == 0);
+}
+
 /* Nit: no switching set holds the hub's own tracks (blob) nor a
  * subscription the hub PUBLISHed (SUBSCRIBE_TRACKS): both refused 0x33. */
 static void test_moqtrun_ssts_hub_tracks_refused(void) {
@@ -1099,6 +1139,8 @@ void test_moqtrun_ssts(void) {
   test_moqtrun_ssts_shed_no_reopen();
   test_moqtrun_ssts_switch_party_refused();
   test_moqtrun_ssts_update_joins();
+  test_moqtrun_ssts_mid_group_join_decides();
+  test_moqtrun_ssts_update_keeps_decision();
   test_moqtrun_ssts_hub_tracks_refused();
   test_moqtrun_ssts_window_slides();
   test_moqtrun_ssts_window_keeps_newest();

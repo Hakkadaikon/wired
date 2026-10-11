@@ -1784,7 +1784,7 @@ static u64 moqtrun_accept_code(
     const moqctl_params*       params) {
   if (!moqtrun_fill_room(hub, track, slot, params))
     return MOQCTL_ERR_INTERNAL_ERROR;
-  return moqtss_on_subscribe(hub, slot, params);
+  return moqtss_on_subscribe(hub, slot, params, track);
 }
 
 /* Records slot (peer_idx, its session's alias for track) against track,
@@ -3784,7 +3784,7 @@ static u64 moqtrun_upd_checked(
   if (!moqtrun_upd_apply(hub, p, s, t, params))
     return MOQCTL_ERR_INTERNAL_ERROR;
   moqtrun_upd_resched(hub, p, s, t);
-  moqtss_on_update(hub, s, params); /* SSTS: joins once applied */
+  moqtss_on_update(hub, s, params, t); /* SSTS: joins once applied */
   return MOQTRUN_REQ_ACCEPT;
 }
 

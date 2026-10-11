@@ -406,14 +406,30 @@ void moqtss_sub_reset(wired_moqtrun_sub* s) {
   s->ssts_fwd   = 0;
 }
 
+static void moqtss_prime_sub(wired_moqt_hub* hub, wired_moqtrun_sub* s, u64 g);
+
+/* A member joining mid-Group gets that Group's verdict now (its recorded
+ * decision, else one made now) instead of waiting for the next Group. */
+static void moqtss_join_at(
+    wired_moqt_hub*            hub,
+    wired_moqtrun_sub*         s,
+    const moqctl_ssa*          a,
+    const wired_moqtrun_track* t) {
+  moqtss_join(hub, s, a);
+  if (t && t->has_largest) moqtss_prime_sub(hub, s, t->largest.group);
+}
+
 u64 moqtss_on_subscribe(
-    wired_moqt_hub* hub, wired_moqtrun_sub* s, const moqctl_params* params) {
+    wired_moqt_hub*            hub,
+    wired_moqtrun_sub*         s,
+    const moqctl_params*       params,
+    const wired_moqtrun_track* t) {
   const moqctl_ssa* a = moqtss_ssa_of(params);
   moqtss_sub_reset(s);
   moqtss_leave(&hub->peers[s->session_idx].ssts, s->track_alias);
   if (!a) return MOQTSS_ACCEPT;
   u64 code = moqtss_check(hub, s, params, a);
-  if (code == MOQTSS_ACCEPT) moqtss_join(hub, s, a);
+  if (code == MOQTSS_ACCEPT) moqtss_join_at(hub, s, a, t);
   return code;
 }
 
@@ -439,9 +455,12 @@ u64 moqtss_upd_check(
 }
 
 void moqtss_on_update(
-    wired_moqt_hub* hub, wired_moqtrun_sub* s, const moqctl_params* params) {
+    wired_moqt_hub*            hub,
+    wired_moqtrun_sub*         s,
+    const moqctl_params*       params,
+    const wired_moqtrun_track* t) {
   const moqctl_ssa* a = moqtss_ssa_of(params);
-  if (a) moqtss_join(hub, s, a);
+  if (a) moqtss_join_at(hub, s, a, t);
 }
 
 int moqtss_sub_in_set(const wired_moqtrun_sub* s) { return s->ssts_on; }
