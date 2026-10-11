@@ -100,14 +100,18 @@ general relay network.
   the upstream request stream ends the leg instead of re-issuing it; relayed
   Objects are not cached; the leg's budget is fixed at
   `WIRED_MOQTRUN_UPFETCH_BUDGET_MS` (2000 ms) unless FILL_TIMEOUT is
-  shorter. An Object's payload passes through as it arrives, whatever its
-  size, but one hub-wide buffer holds a torn Object head (its fields up to
-  the Payload Length), so a second leg tearing one at the same time gives
-  its upstream FETCH up; a cut FETCH_HEADER that finds the peer's one early
-  slot taken ends every upstream FETCH to that peer still waiting for its
-  data stream. A leg that ends in the middle of an Object it is passing
-  through resets the downstream fetch stream INTERNAL_ERROR (the cache side
-  cannot resume mid-Object). A d19 Joining
+  shorter. An Object under `WIRED_MOQTRUN_RELAY_FRAG_MAX` (16 KiB) is held
+  whole while torn; a larger one's payload passes through as it arrives,
+  and a write of it the transport refuses is retried on the next tick or
+  delivery. One hub-wide buffer keeps what a leg holds (a torn Object, a
+  torn head, or a refused payload and what followed it), so a second leg
+  needing it at the same time gives its upstream FETCH up; a cut
+  FETCH_HEADER that finds the peer's one early slot taken ends every
+  upstream FETCH to that peer still waiting for its data stream. A leg that
+  ends in the middle of an Object it is passing through -- the upstream
+  cuts it, the budget runs out while a refused payload still waits, or the
+  kept tail does not fit -- resets the downstream fetch stream
+  INTERNAL_ERROR (the cache side cannot resume mid-Object). A d19 Joining
   FETCH is still served from the cache only, and a Descending FETCH of a
   track the hub does not hold is reset when its upstream FETCH fails (the
   hub knows nothing of that range to mark). The cache side applies no Range

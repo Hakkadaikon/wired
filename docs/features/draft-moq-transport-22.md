@@ -1132,8 +1132,9 @@ Legend:
   0, the hub shall send one FETCH, from the range start to the last such
   Location, in the same Group Order, to the track's publisher, else to a
   session announcing a covering namespace -- never to one that sent the
-  hub a GOAWAY, one being closed, one a wait for a new path already tried,
-  or the requester (SS3.2.3, SS7.6, SS9.2); the hub's own tracks never go
+  hub a GOAWAY or drained its WebTransport session, one being closed, one
+  a wait for a new path already tried, or the requester (SS3.2.3, SS7.6,
+  SS9.2); the hub's own tracks never go
   upstream. The same GOAWAY rule applies to the upstream SUBSCRIBE; the
   hub's own GOAWAY (a drain) does not stop it, so a drained hub still
   moves a subscription to another announcer.
@@ -1154,9 +1155,13 @@ Legend:
   FETCH) and not past the upstream End; anything else, or a write the
   transport refuses, cancels the upstream FETCH and the cache serves the
   rest from the cursor, Unknown where it lacks Objects (SS3.2.1, SS7.8).
-  An Object's head goes out once its fields are in and its payload as each
-  delivery brings it, so no Object is too large to relay; a leg ending in
-  the middle of one resets the downstream stream INTERNAL_ERROR. A cut
+  An Object under 16 KiB is held whole while torn and written in one go,
+  so a refused write of it falls back to the cache as above; a larger
+  one's head goes out once its fields are in and its payload as each
+  delivery brings it, so no Object is too large to relay, and a refused
+  payload write is retried on the next tick or delivery. A leg ending in
+  the middle of a passed-through Object (cut upstream, or its budget spent
+  on a refused payload) resets the downstream stream INTERNAL_ERROR. A cut
   FETCH_HEADER that cannot be held ends the upstream FETCHes to that peer
   still waiting for a data stream; a range the cache knows is empty is the
   header and FIN, sent once.
@@ -1171,6 +1176,9 @@ Legend:
     `test_moqtrun_upfetch_torn_object`, `test_moqtrun_upfetch_range_filter`,
     `test_moqtrun_upfetch_large_object`,
     `test_moqtrun_upfetch_leg_ends_mid_object`,
+    `test_moqtrun_upfetch_torn_small_refused`,
+    `test_moqtrun_upfetch_large_refused_retry`,
+    `test_moqtrun_upfetch_cut_at_head`, `test_moqtrun_upfetch_wide_head`,
     `test_moqtrun_upfetch_torn_header_unheld`,
     `test_moqtrun_upfetch_empty_range_once`
 - [x] MQ22-215 A FETCH of a track the hub does not hold shall go, whole, to

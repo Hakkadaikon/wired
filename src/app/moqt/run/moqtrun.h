@@ -1469,11 +1469,13 @@ typedef struct {
   /** The upstream FETCH state of fetches[i] beyond the slot's own fields
    * (index i too). */
   wired_moqtrun_upf_leg upf_legs[WIRED_MOQTRUN_MAX_FETCHES];
-  /** The torn head of one upstream fetch Object (its fields up to the
-   * Payload Length split across stream deliveries; a payload is passed
-   * through as it arrives, never held), followed by the next delivery
-   * while it decodes. ponytail: one buffer hub-wide; a second leg tearing
-   * a head at the same time gives up its upstream FETCH -- a pool if that
+  /** What one upstream fetch leg keeps between deliveries, followed by
+   * the next delivery while it decodes: a torn Object under
+   * WIRED_MOQTRUN_RELAY_FRAG_MAX (held whole), a torn head of a larger
+   * one (whose payload passes through as it arrives), or a passed-through
+   * payload the transport refused and all after it (retried on the next
+   * tick or delivery). ponytail: one buffer hub-wide; a second leg needing
+   * it at the same time gives up its upstream FETCH -- a pool if that
    * happens. */
   u8 upf_buf[WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP];
   /** Bytes of upf_buf held. */
