@@ -968,14 +968,8 @@ static void srvloop_note_ack_owed(
   ackpolicy_on_eliciting(policy, now_ms);
 }
 
-/* Dispatch this opened payload. Request STREAM frames are routed per frame
- * to their own stream's slot inside wired_srvloop_dispatch (ctx->l != 0
- * selects the routed path); a slot whose request completes is appended to
- * l->done_slots and mirrored into l->req/req_stream_id there. The in
- * scratch/wrap/req fields are unused on the routed path (each completion
- * uses its own slot's buffers), passed empty. */
 /* RFC 9000 3.2 / 19: the frame kinds that name a stream (and so open it). */
-static const u8 SRVLOOP_NAMES_STREAM[] = {
+static const u8 SRVLOOP_NAMES_STREAM[FK_RESET_STREAM_AT + 1] = {
     [FK_RESET_STREAM]        = 1,
     [FK_STOP_SENDING]        = 1,
     [FK_STREAM]              = 1,
@@ -1014,6 +1008,12 @@ static int srvloop_past_stream_limit(const wired_srvloop* l, wired_span pl) {
   return 0;
 }
 
+/* Dispatch this opened payload. Request STREAM frames are routed per frame
+ * to their own stream's slot inside wired_srvloop_dispatch (ctx->l != 0
+ * selects the routed path); a slot whose request completes is appended to
+ * l->done_slots and mirrored into l->req/req_stream_id there. The in
+ * scratch/wrap/req fields are unused on the routed path (each completion
+ * uses its own slot's buffers), passed empty. */
 static void step_dispatch(const wired_srvloop_conn* conn, wired_span payload) {
   wired_srvloop*            l   = conn->l;
   int                       got = 0;
