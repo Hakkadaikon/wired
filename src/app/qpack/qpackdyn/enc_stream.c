@@ -8,6 +8,8 @@
 #include "app/qpack/qpack/string.h"
 #include "app/qpack/qpackdyn/cstr.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/util/num.h"
+#include "common/bytes/varint/varint.h"
 
 /* One whole encoder instruction: its bytes, the leading integer's length
  * and value, and which instruction the leading byte selected. */
@@ -164,7 +166,7 @@ usz qdyn_enc_apply(wired_span buf, qpack_dyn* t, u64 max, u16* err) {
   return end;
 }
 
-/* RFC 9000 2.2: drop the part of d below base (already applied). 0 when
+/* RFC 9000 2.2: drop the part of d below base (already consumed). 0 when
  * nothing new remains. */
 static int rx_trim(const qdyn_encrx* rx, u64* off, wired_span* d) {
   u64 drop = *off < rx->base ? rx->base - *off : 0;
@@ -181,6 +183,7 @@ static int rx_store(qdyn_encrx* rx, u64 off, wired_span d) {
   if (at + d.n > QDYN_ENCRX_CAP) return 0;
   bytes_memcpy(rx->buf + at, d.p, d.n);
   bytes_memset(rx->have + at, 1, d.n);
+  rx->hi = (usz)u64_max(rx->hi, at + d.n);
   return 1;
 }
 
@@ -191,7 +194,7 @@ static int rx_land(qdyn_encrx* rx, u64 off, wired_span d) {
 /* Bytes contiguous from base. */
 static usz qdyn_encrx_ready(const qdyn_encrx* rx) {
   usz n = 0;
-  while (n < QDYN_ENCRX_CAP && rx->have[n]) n++;
+  while (n < rx->hi && rx->have[n]) n++;
   return n;
 }
 
@@ -206,21 +209,67 @@ static usz rx_apply(qdyn_encrx* rx, qpack_dyn* t, u64 max, u16* err) {
   return used;
 }
 
-/* Slide the applied prefix out of the window. */
+/* Slide the consumed prefix (n <= the contiguous bytes) out of the window. */
 static void rx_slide(qdyn_encrx* rx, usz n) {
-  bytes_move_down(rx->buf, rx->buf + n, QDYN_ENCRX_CAP - n);
-  bytes_move_down(rx->have, rx->have + n, QDYN_ENCRX_CAP - n);
-  bytes_memset(rx->have + QDYN_ENCRX_CAP - n, 0, n);
+  bytes_move_down(rx->buf, rx->buf + n, rx->hi - n);
+  bytes_move_down(rx->have, rx->have + n, rx->hi - n);
+  bytes_memset(rx->have + rx->hi - n, 0, n);
+  rx->hi -= n;
   rx->base += n;
+}
+
+void qdyn_encrx_take(qdyn_encrx* rx, u64 stream_id) {
+  bytes_memset(rx->have, 0, rx->hi);
+  rx->base      = 0;
+  rx->hi        = 0;
+  rx->type_len  = 0;
+  rx->stream_id = stream_id;
+}
+
+/* RFC 9204 4.2: the encoder stream's type. */
+#define QDYN_ENC_STREAM_TYPE 0x02
+
+/* RFC 9204 4.2 / RFC 9000 16: once the held stream's leading type varint is
+ * whole, claim the stream (consuming the varint) if it is the encoder type,
+ * else let it go -- its bytes belong to some other stream type. */
+static void qdyn_encrx_identify(qdyn_encrx* rx) {
+  u64 v;
+  usz n = 0;
+  if (!varint_take(wired_span_of(rx->buf, qdyn_encrx_ready(rx)), &n, &v))
+    return;
+  if (v != QDYN_ENC_STREAM_TYPE) {
+    qdyn_encrx_take(rx, 0);
+    return;
+  }
+  rx->type_len = n;
+  rx_slide(rx, n);
+}
+
+/* Identify the held stream if still needed, then apply what a claimed one
+ * has contiguous. */
+static void qdyn_encrx_settle(qdyn_encrx* rx, qpack_dyn* t, u64 max, u16* err) {
+  if (!rx->type_len) qdyn_encrx_identify(rx);
+  if (rx->type_len) rx_slide(rx, rx_apply(rx, t, max, err));
+}
+
+/* d reached past the window: an error only on the claimed encoder stream
+ * (a flow-control violation); an unidentified stream's bytes are not ours
+ * to judge. */
+static u16 qdyn_encrx_overflow(const qdyn_encrx* rx) {
+  return rx->type_len ? QPACK_ENCODER_STREAM_ERROR : 0;
 }
 
 int qdyn_encrx_feed(
     qdyn_encrx* rx, u64 off, wired_span d, qpack_dyn* t, u64 max, u16* err) {
   u16 e = 0;
   if (!rx_land(rx, off, d))
-    e = QPACK_ENCODER_STREAM_ERROR;
+    e = qdyn_encrx_overflow(rx);
   else
-    rx_slide(rx, rx_apply(rx, t, max, &e));
+    qdyn_encrx_settle(rx, t, max, &e);
   if (e) *err = e;
   return e == 0;
+}
+
+u64 qdyn_encrx_credit(const qdyn_encrx* rx) {
+  return rx->base + QDYN_ENCRX_CAP;
 }

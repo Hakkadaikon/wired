@@ -2743,6 +2743,44 @@ static void test_srvloop_qpack_split_inserts_section_ack(void) {
   CHECK(f.l.qpack_stream_violation == 0);
 }
 
+/* RFC 9204 4.2 / RFC 9000 2.2: the encoder stream's later bytes arriving
+ * before its offset-0 frame (the one carrying the type byte) are kept, not
+ * dropped -- the transport already acknowledged them -- and apply once the
+ * type arrives. */
+static void test_srvloop_qpack_type_after_later_bytes(void) {
+  struct lp_fix f;
+  u8            payload[256], out[1024];
+  usz           off;
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  off = lp_qenc_frame(payload, sizeof payload, 11, lp_b2_enc + 10, 24);
+  lp_step_payload(&f, 3, payload, off);
+  CHECK(f.l.h3.qdyn.count == 0);
+  off = lp_qenc_frame(payload, sizeof payload, 0, lp_b2_enc, 10);
+  lp_step_payload(&f, 4, payload, off);
+  CHECK(f.l.h3.qdyn.count == 2 && f.l.h3.qdyn.size == 106);
+  CHECK(f.l.qpack_stream_violation == 0);
+}
+
+/* RFC 9000 16: the encoder stream's type sent as a non-minimal two-byte
+ * varint (0x40 0x02) -- both bytes are skipped, not just the first. */
+static void test_srvloop_qpack_nonminimal_type(void) {
+  struct lp_fix f;
+  u8            body[64], payload[256], out[1024];
+  usz           n  = 0, off;
+  wired_obuf    ob = {out, sizeof out, 0};
+  stream_frame  sf;
+  body[n++] = 0x40;
+  body[n++] = 0x02;
+  for (usz i = 0; i < sizeof lp_b2_enc; i++) body[n++] = lp_b2_enc[i];
+  sf = (stream_frame){2, 0, n, body, 0};
+  lp_confirm(&f, &ob);
+  off = frame_put_stream(payload, sizeof payload, &sf);
+  lp_step_payload(&f, 3, payload, off);
+  CHECK(f.l.h3.qdyn.count == 2 && f.l.h3.qdyn.capacity == 220);
+  CHECK(f.l.qpack_stream_violation == 0);
+}
+
 /* RFC 9220 3 / RFC 9204 4.5.2: an Extended CONNECT (no FIN) whose HEADERS
  * reference B.2's two inserts (:authority relative 1, :path relative 0;
  * RIC 2, Base 2) is detected as complete and decoded -- the session opens
@@ -5188,6 +5226,8 @@ void test_srvloop(void) {
   test_srvloop_qpack_split_inserts_section_ack();
   test_srvloop_qpack_blocked_section_fails();
   test_srvloop_qpack_connect_dynamic_refs();
+  test_srvloop_qpack_type_after_later_bytes();
+  test_srvloop_qpack_nonminimal_type();
   test_srvloop_qpack_bad_duplicate();
   test_srvloop_uni_unrecognized_type_no_crash();
   test_srvloop_uni_reset_before_type_no_crash();

@@ -8,6 +8,7 @@
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/util/ct.h"
 #include "test.h"
+#include "tls/ext/stp/server_tp.h"
 
 /* RFC 9204 4.3.1: a Set Dynamic Table Capacity instruction within the
  * server's advertised limit is applied to the table. */
@@ -184,26 +185,29 @@ static void test_enc_stream_errors(void) {
   }
 }
 
-/* B.2..B.5's encoder bytes as one stream (post-type offsets). */
+/* The encoder stream from offset 0: its type byte, then B.2..B.5's
+ * encoder bytes. */
 static usz es_stream(u8* out) {
   const wired_span parts[] = {
       wired_span_of(b2_enc, sizeof b2_enc),
       wired_span_of(b3_enc, sizeof b3_enc),
       wired_span_of(b4_enc, sizeof b4_enc),
       wired_span_of(b5_enc, sizeof b5_enc)};
-  usz n = 0;
+  usz n    = 0;
+  out[n++] = 0x02;
   for (usz i = 0; i < 4; i++)
     for (usz j = 0; j < parts[i].n; j++) out[n++] = parts[i].p[j];
   return n;
 }
 
 static void es_rx_init(qdyn_encrx* rx, qpack_dyn* t) {
-  *rx = (qdyn_encrx){0};
+  bytes_memset(rx, 0, sizeof *rx);
+  qdyn_encrx_take(rx, 2);
   qpack_dyn_init(t, 0);
 }
 
-/* RFC 9204 4.2 / RFC 9000 2.2: instructions split one byte per delivery
- * still reassemble and apply to the B.5 end state. */
+/* RFC 9204 4.2 / RFC 9000 2.2: the type byte and instructions split one byte
+ * per delivery still reassemble and apply to the B.5 end state. */
 static void test_encrx_byte_by_byte(void) {
   static qdyn_encrx rx;
   qpack_dyn         t;
@@ -213,12 +217,12 @@ static void test_encrx_byte_by_byte(void) {
   es_rx_init(&rx, &t);
   for (usz i = 0; i < n; i++)
     CHECK(qdyn_encrx_feed(&rx, i, wired_span_of(s + i, 1), &t, 4096, &err));
-  CHECK(t.count == 4 && t.size == 215 && rx.base == n);
+  CHECK(t.count == 4 && t.size == 215 && rx.base == n && rx.type_len == 1);
   CHECK(es_entry_is(&t, 4, "custom-key", "custom-value2"));
 }
 
-/* RFC 9000 2.2: the later half arriving first waits for the gap; a stale
- * retransmission of consumed bytes is ignored. */
+/* RFC 9000 2.2: the later half -- type byte still missing -- arriving first
+ * waits for the gap; a stale retransmission of consumed bytes is ignored. */
 static void test_encrx_out_of_order(void) {
   static qdyn_encrx rx;
   qpack_dyn         t;
@@ -228,28 +232,88 @@ static void test_encrx_out_of_order(void) {
   u16               err = 0;
   es_rx_init(&rx, &t);
   CHECK(qdyn_encrx_feed(&rx, h, wired_span_of(s + h, n - h), &t, 4096, &err));
-  CHECK(t.count == 0);
+  CHECK(t.count == 0 && rx.type_len == 0);
   CHECK(qdyn_encrx_feed(&rx, 0, wired_span_of(s, h), &t, 4096, &err));
   CHECK(t.count == 4 && t.size == 215);
   CHECK(qdyn_encrx_feed(&rx, 0, wired_span_of(s, n), &t, 4096, &err));
   CHECK(t.dropped + t.count == 5 && err == 0);
 }
 
-/* RFC 9204 4.2 / 6: bytes past the bounded window, or a bad instruction,
- * fail the feed with QPACK_ENCODER_STREAM_ERROR. */
-static void test_encrx_errors(void) {
+/* RFC 9000 16 / RFC 9204 4.2: a non-minimal type varint (0x40 0x02) still
+ * names the encoder stream; its two bytes are consumed before the first
+ * instruction. */
+static void test_encrx_nonminimal_type(void) {
   static qdyn_encrx rx;
-  static const u8   nodu[] = {0x00};
+  static const u8   s[] = {0x40, 0x02, 0x3f, 0xbd, 0x01};
   qpack_dyn         t;
   u16               err = 0;
   es_rx_init(&rx, &t);
+  CHECK(qdyn_encrx_feed(&rx, 0, wired_span_of(s, 1), &t, 4096, &err));
+  CHECK(rx.type_len == 0 && rx.stream_id == 2);
+  CHECK(qdyn_encrx_feed(&rx, 1, wired_span_of(s + 1, 4), &t, 4096, &err));
+  CHECK(rx.type_len == 2 && t.capacity == 220 && rx.base == 5);
+}
+
+/* A held stream whose type turns out not to be the encoder's is let go,
+ * its bytes dropped and nothing applied. */
+static void test_encrx_other_type_released(void) {
+  static qdyn_encrx rx;
+  static const u8   s[] = {0x00, 0x3f, 0xbd, 0x01};
+  qpack_dyn         t;
+  u16               err = 0;
+  es_rx_init(&rx, &t);
+  CHECK(qdyn_encrx_feed(&rx, 0, wired_span_of(s, 4), &t, 4096, &err));
+  CHECK(rx.stream_id == 0 && rx.hi == 0 && t.capacity == 0 && err == 0);
+}
+
+/* RFC 9000 4.1 / 2.2: after a lost packet, everything the stream's credit
+ * allows -- here a Duplicate at the last byte of the window -- is held until
+ * the gap fills; nothing is dropped and nothing fails. The credit is
+ * re-granted only as instructions are consumed. */
+static void test_encrx_holds_whole_credit(void) {
+  static qdyn_encrx rx;
+  static const u8   ins[] = {0x02, 0x40, 0x00}; /* type, insert "" "" */
+  static const u8   dup[] = {0x00};             /* Duplicate rel 0 */
+  static const u8   pad[] = {0x40, 0x00};
+  qpack_dyn         t;
+  u16               err = 0;
+  es_rx_init(&rx, &t);
+  qpack_dyn_set_capacity(&t, 4096);
+  CHECK(qdyn_encrx_credit(&rx) == QDYN_ENCRX_CAP);
+  CHECK(qdyn_encrx_feed(
+      &rx, QDYN_ENCRX_CAP - 1, wired_span_of(dup, 1), &t, 4096, &err));
+  for (u64 o = 3; o + 1 < QDYN_ENCRX_CAP; o += 2)
+    CHECK(qdyn_encrx_feed(&rx, o, wired_span_of(pad, 2), &t, 4096, &err));
+  CHECK(t.dropped + t.count == 0 && err == 0);
+  CHECK(qdyn_encrx_feed(&rx, 0, wired_span_of(ins, 3), &t, 4096, &err));
+  CHECK(err == 0 && rx.base == QDYN_ENCRX_CAP);
+  CHECK(t.dropped + t.count == (QDYN_ENCRX_CAP - 3) / 2 + 2);
+  CHECK(qdyn_encrx_credit(&rx) == 2 * QDYN_ENCRX_CAP);
+}
+
+/* RFC 9204 4.2 / 6: bytes past the window on the claimed encoder stream (a
+ * flow-control violation), or a bad instruction, fail the feed with
+ * QPACK_ENCODER_STREAM_ERROR. */
+static void test_encrx_errors(void) {
+  static qdyn_encrx rx;
+  static const u8   nodu[] = {0x02, 0x00};
+  qpack_dyn         t;
+  u16               err = 0;
+  es_rx_init(&rx, &t);
+  CHECK(qdyn_encrx_feed(&rx, 0, wired_span_of(nodu, 1), &t, 4096, &err));
   CHECK(!qdyn_encrx_feed(
-      &rx, QDYN_ENCRX_CAP, wired_span_of(nodu, 1), &t, 4096, &err));
+      &rx, QDYN_ENCRX_CAP + 1, wired_span_of(nodu + 1, 1), &t, 4096, &err));
   CHECK(err == QPACK_ENCODER_STREAM_ERROR);
   err = 0;
   es_rx_init(&rx, &t);
-  CHECK(!qdyn_encrx_feed(&rx, 0, wired_span_of(nodu, 1), &t, 4096, &err));
+  CHECK(!qdyn_encrx_feed(&rx, 0, wired_span_of(nodu, 2), &t, 4096, &err));
   CHECK(err == QPACK_ENCODER_STREAM_ERROR);
+}
+
+/* The encoder window is exactly the per-stream credit a peer uni stream is
+ * given, so no byte the peer may send can fall outside it. */
+static void test_encrx_window_matches_credit(void) {
+  CHECK(QDYN_ENCRX_CAP == STP_DEFAULT_STREAM_DATA_LOCAL);
 }
 
 /* RFC 9204 3.2.1 / 4.3.3: at the capacity this server advertises, a peer
@@ -297,6 +361,10 @@ void test_qpackdyn_enc_stream(void) {
   test_encrx_byte_by_byte();
   test_encrx_out_of_order();
   test_encrx_errors();
+  test_encrx_nonminimal_type();
+  test_encrx_other_type_released();
+  test_encrx_holds_whole_credit();
+  test_encrx_window_matches_credit();
   test_enc_stream_b2_inserts();
   test_enc_stream_b3_b5();
   test_enc_stream_prefix_incomplete();

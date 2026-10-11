@@ -527,33 +527,75 @@ static void uni_stream_type_note_qpack(wired_srvloop* l, wired_span data) {
     l->qpack_stream_violation = err;
 }
 
-/* RFC 9204 4.2: claim stream_id as the peer's encoder stream when its leading
- * type varint (data, the offset-0 bytes) says so. */
-static void qenc_claim(wired_srvloop* l, wired_span data, u64 stream_id) {
+/* RFC 9204 4.2: 1 if sf is the offset-0 frame of a stream whose leading type
+ * varint names the encoder stream, while none is claimed yet -- such a frame
+ * takes the encoder window over from any merely held candidate. */
+static int qenc_type_is_encoder(const stream_frame* sf) {
   u64 v;
   usz off = 0;
-  if (!varint_take(data, &off, &v)) return;
-  if (v == H3_STREAM_QPACK_ENCODER) l->h3.qenc_rx.stream_id = stream_id;
+  return varint_take(wired_span_of(sf->data, (usz)sf->length), &off, &v) &&
+         v == H3_STREAM_QPACK_ENCODER;
 }
 
-/* The encoder stream's type varint (0x02) is one byte, carried by the
- * offset-0 frame. An empty offset-0 frame carries nothing to skip (and
- * nothing to feed, so its wrapped post-type offset is never stored). */
-static usz qenc_type_skip(const stream_frame* sf) {
-  return sf->offset == 0 && sf->length != 0;
+static int qenc_leads_encoder(const wired_srvloop* l, const stream_frame* sf) {
+  return sf->offset == 0 && !l->h3.qenc_rx.type_len && qenc_type_is_encoder(sf);
 }
 
-/* RFC 9204 4.2 / 4.3: feed sf, if it belongs to the claimed encoder stream,
- * into the reassembly window, applying every instruction it completes to
- * l->h3.qdyn; an invalid one latches l->qpack_stream_violation. */
+/* 1 if sf alone does not say what its stream is: a later chunk, or an
+ * offset-0 frame too short to hold the whole type varint. */
+static int qenc_frame_untyped(const stream_frame* sf) {
+  u64 v;
+  usz off = 0;
+  return sf->offset != 0 ||
+         !varint_take(wired_span_of(sf->data, (usz)sf->length), &off, &v);
+}
+
+/* 1 if sf's stream is already known as the control or a WebTransport uni
+ * stream. */
+static int qenc_stream_known(const wired_srvloop* l, const stream_frame* sf) {
+  return (l->ctrl.open && l->ctrl.stream_id == sf->stream_id) ||
+         wired_srvloop_wt_uni_slot_find(l, sf->stream_id) >= 0;
+}
+
+/* RFC 9000 2.2: 1 if sf may start the encoder window as a candidate -- no
+ * stream is held, no encoder stream has shown its type yet, and sf comes from
+ * a stream whose type is still unknown (its type varint lost or reordered):
+ * its bytes are kept until the type arrives, since the transport has already
+ * acknowledged them. ponytail: one candidate at a time; when two streams'
+ * types are lost at once, the second's early bytes are dropped (an encoder
+ * stream so stalled only leaves the dynamic table unused, since no section
+ * may reference an unacknowledged insert). */
+static int qenc_window_free(const wired_srvloop* l) {
+  return !l->h3.qenc_rx.stream_id && !l->h3.peer_qpack_encoder;
+}
+
+static int qenc_may_hold(const wired_srvloop* l, const stream_frame* sf) {
+  return qenc_window_free(l) && qenc_frame_untyped(sf) &&
+         !qenc_stream_known(l, sf);
+}
+
+static int qenc_takes(const wired_srvloop* l, const stream_frame* sf) {
+  return qenc_leads_encoder(l, sf) || qenc_may_hold(l, sf);
+}
+
+/* 1 if sf belongs in the encoder window, taking the window for its stream
+ * when it leads the encoder stream or may be held as a candidate. */
+static int qenc_owns(wired_srvloop* l, const stream_frame* sf) {
+  if (sf->stream_id == l->h3.qenc_rx.stream_id) return 1;
+  if (!qenc_takes(l, sf)) return 0;
+  qdyn_encrx_take(&l->h3.qenc_rx, sf->stream_id);
+  return 1;
+}
+
+/* RFC 9204 4.2 / 4.3: feed sf, if it belongs to the encoder window, at its
+ * stream offset; every instruction it completes is applied to l->h3.qdyn, an
+ * invalid one latches l->qpack_stream_violation. */
 static void gather_qpack_enc(wired_srvloop* l, const stream_frame* sf) {
-  usz skip = qenc_type_skip(sf);
-  u16 err  = 0;
-  if (sf->stream_id != l->h3.qenc_rx.stream_id) return;
+  u16 err = 0;
+  if (!qenc_owns(l, sf)) return;
   if (!qdyn_encrx_feed(
-          &l->h3.qenc_rx, sf->offset + skip - 1,
-          wired_span_of(sf->data + skip, (usz)sf->length - skip), &l->h3.qdyn,
-          l->h3.qpack_max_table_capacity, &err))
+          &l->h3.qenc_rx, sf->offset, wired_span_of(sf->data, (usz)sf->length),
+          &l->h3.qdyn, l->h3.qpack_max_table_capacity, &err))
     l->qpack_stream_violation = err;
 }
 
@@ -684,7 +726,6 @@ static void gather_wt_uni_classify(wired_srvloop* l, const stream_frame* sf) {
   wired_span data = wired_span_of(sf->data, (usz)sf->length);
   uni_stream_type_accepted(data);
   uni_stream_type_note_qpack(l, data);
-  qenc_claim(l, data, sf->stream_id);
 }
 
 static void gather_wt_uni_frame(wired_srvloop* l, const stream_frame* sf) {
