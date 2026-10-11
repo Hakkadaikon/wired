@@ -994,26 +994,43 @@ static void step_note_ack_owed(
  * STREAM frame sets *got_request; CRYPTO is fed to the handshake. A slice that
  * fails to open (wrong level/key) is silently skipped, as the next slice in the
  * datagram may still be ours (RFC 9000 12.2). */
-static void step_one(const wired_srvloop_conn* conn, wired_mspan pkt) {
-  wired_srvloop*         l = conn->l;
-  wired_server*          s = conn->s;
-  wired_srvloop_recv_out ro;
-  wired_srvloop_recv_in  ri     = {pkt, app_largest_pn(l), hs_largest_pn(l)};
-  int                    opened = wired_srvloop_recv(s, &ri, &ro);
-  srvloop_opened         o;
-  if (!opened) return;
-  o.level = ro.level;
-  o.pkt   = pkt;
-  l->peer_closed |= srvloop_has_close(ro.payload);
+/* RFC 9000 12.3: the just-recorded pn of this level was already received
+ * (an ack-eliciting packet seen before, or one older than the receive
+ * window, which is treated as received). */
+static int step_dup(const wired_srvloop* l, int level) {
+  if (level == LEVEL_ONERTT)
+    return recvpn_seen(&l->ack_recv.r[PNS_APP], l->app_rx_pn);
+  return level == LEVEL_HANDSHAKE &&
+         recvpn_seen(&l->ack_recv.r[PNS_HANDSHAKE], l->hs_rx_pn);
+}
+
+/* An opened packet: its pn recorded, then -- unless it is a duplicate,
+ * which RFC 9000 12.3 says to discard after removing protection -- its
+ * frames processed. */
+static void step_opened(
+    const wired_srvloop_conn*     conn,
+    const wired_srvloop_recv_out* ro,
+    wired_mspan                   pkt) {
+  wired_srvloop* l = conn->l;
+  srvloop_opened o = {ro->level, pkt};
+  note_app_rx(l, conn->s, &o);
+  note_hs_rx(l, &o);
+  if (step_dup(l, ro->level)) return;
+  l->peer_closed |= srvloop_has_close(ro->payload);
   /* Restricted to 1-RTT: the caller's bookkeeping (wired_sendsess) keys
    * entries by pn in the 1-RTT space only, so an ACK opened at the Initial/
    * Handshake level could otherwise hit an unrelated 1-RTT pn by
    * coincidence. */
-  if (ro.level == LEVEL_ONERTT) srvloop_collect_acks(l, ro.payload);
-  note_app_rx(l, s, &o);
-  note_hs_rx(l, &o);
-  step_note_ack_owed(l, ro.payload, ro.level);
-  step_dispatch(conn, ro.payload);
+  if (ro->level == LEVEL_ONERTT) srvloop_collect_acks(l, ro->payload);
+  step_note_ack_owed(l, ro->payload, ro->level);
+  step_dispatch(conn, ro->payload);
+}
+
+static void step_one(const wired_srvloop_conn* conn, wired_mspan pkt) {
+  wired_srvloop*         l = conn->l;
+  wired_srvloop_recv_out ro;
+  wired_srvloop_recv_in  ri = {pkt, app_largest_pn(l), hs_largest_pn(l)};
+  if (wired_srvloop_recv(conn->s, &ri, &ro)) step_opened(conn, &ro, pkt);
 }
 
 /* RFC 9000 2.2: re-arm every slot that answered a request this step, so the

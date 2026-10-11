@@ -106,7 +106,16 @@ static usz lp_client_tp(u8* tp, usz cap) {
   return n1 + n2 + n3;
 }
 
+/* The client's next 1-RTT packet number (client_seal_onertt), restarted
+ * with every fixture: each packet gets its own number, as RFC 9000 12.3
+ * requires (a reused number is a duplicate and discarded). */
+static u64 g_lp_cli_pn;
+/* The same for the client's Handshake packets (client_seal_handshake). */
+static u64 g_lp_cli_hs_pn;
+
 static void lp_make_client_hello(struct lp_fix* f) {
+  g_lp_cli_pn    = 0;
+  g_lp_cli_hs_pn = 0;
   u8  tp[32];
   usz tp_len;
   u8  cli_pub[32];
@@ -211,7 +220,7 @@ static usz client_seal_handshake(
       wired_span_of((const u8*)0, 0),
       wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
       wired_span_of(g_cli_scid, 6),
-      0,
+      g_lp_cli_hs_pn++,
       -1,
       wired_span_of(msg, mlen),
       0,
@@ -261,7 +270,7 @@ static usz client_seal_onertt(
   aes128_init(&hp, k->hp);
   protect_keys      pk = {k, &hp};
   hspkt_onertt_desc d  = {
-      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), 0,
+      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), g_lp_cli_pn++,
       wired_span_of(pl, pln), 0};
   wired_obuf o = obuf_of(pkt, cap);
   CHECK(hspkt_onertt_build(&pk, &d, &o));
@@ -5056,6 +5065,19 @@ static void test_srvloop_pn_baseline_is_largest(void) {
   CHECK(pnum_decode((const u8*)"\x90", 1, app_largest_pn(&f.l)) == 400);
 }
 
+/* RFC 9000 12.3: a packet received twice is processed once -- the second
+ * copy raises no new ACK-owed count (nor reaches dispatch). */
+static void test_srvloop_duplicate_packet_dropped(void) {
+  struct lp_fix f;
+  srvloop_zrtt_fix(&f);
+  srvloop_zrtt_send(&f, 0xd3, 7);
+  u64 pending = f.l.app_ack_policy.pending;
+  srvloop_zrtt_send(&f, 0xd3, 7);
+  CHECK(f.l.app_ack_policy.pending == pending);
+  srvloop_zrtt_send(&f, 0xd3, 8);
+  CHECK(f.l.app_ack_policy.pending == pending + 1);
+}
+
 /* A payload frame landing in a slot past 31 must still be marked for
  * completion: the table holds 40 slots, so the touched mask has to be
  * 64-bit (a 32-bit mask shifted by 35 is undefined behavior and, under
@@ -5233,6 +5255,7 @@ void test_srvloop(void) {
   test_srvloop_recv_zerortt_refused_without_early_keys();
   test_srvloop_step_zerortt_records_real_pn();
   test_srvloop_pn_baseline_is_largest();
+  test_srvloop_duplicate_packet_dropped();
   test_srvloop_seal_chacha_roundtrip();
   test_srvloop_open_chacha();
   test_srvloop_aes256_only_roundtrip();
