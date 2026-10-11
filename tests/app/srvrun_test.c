@@ -6229,13 +6229,88 @@ static void test_srvrun_reset_mid_request_frees_slot_and_credit(void) {
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   CHECK(wired_srvloop_slot_for(&conns[0].l, 4) == 0);
   CHECK(wired_srvloop_slot_for(&conns[0].l, 8) == 1);
-  conns[0].l.streams[1].req_done = 1;
-  conns[0].l.peer_resets[0]      = (wired_srvloop_reset){4, 0x10c, 0};
-  conns[0].l.peer_resets[1]      = (wired_srvloop_reset){8, 0x10c, 0};
-  conns[0].l.peer_reset_n        = 2;
+  conns[0].l.reset_slots = 1; /* only slot 0 was still receiving */
   srvrun_free_reset_reqs(&ctx, &conns[0]);
   CHECK(conns[0].l.streams[0].in_use == 0);
   CHECK(conns[0].l.streams[1].in_use == 1);
+  CHECK(conns[0].stream_limit_advertised == WIRED_SRVLOOP_MAX_STREAMS + 1);
+  /* a slot already freed (a STOP_SENDING answer, or here the call above)
+   * owes no second credit */
+  srvrun_free_reset_reqs(&ctx, &conns[0]);
+  CHECK(conns[0].stream_limit_advertised == WIRED_SRVLOOP_MAX_STREAMS + 1);
+}
+
+/* conns[0] confirmed and stream 4 holding slot 0, re-armed after its
+ * request (req_done back to 0 at step end) -- the state a RESET_STREAM
+ * finds it in. */
+static void sr_reset_after_request(
+    conntable* table, srvrun_conn* conns, struct lp_fix* f) {
+  u8         obuf[1024];
+  wired_obuf ob = {obuf, sizeof obuf, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], f, &ob);
+  CHECK(wired_srvloop_slot_for(&conns[0].l, 4) == 0);
+}
+
+/* RFC 9000 3.1: a RESET_STREAM may arrive while the response is still being
+ * sent -- the response owns the slot and returns its credit when reaped, so
+ * the reset frees nothing (a second grant would over-advertise). */
+static void test_srvrun_reset_during_response_keeps_slot(void) {
+  struct lp_fix f;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_conn*  conns = sr_test_conns();
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_state    st  = {table, conns};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  sr_reset_after_request(table, conns, &f);
+  conns[0].l.reset_slots     = 1; /* re-armed, so srvloop notes it */
+  conns[0].resp[0].in_use    = 1;
+  conns[0].resp[0].stream_id = 4;
+  srvrun_free_reset_reqs(&ctx, &conns[0]);
+  CHECK(conns[0].l.streams[0].in_use == 1);
+  CHECK(conns[0].stream_limit_advertised == 0);
+}
+
+/* RFC 9000 2.2: STREAM(FIN) and RESET_STREAM in one datagram -- the request
+ * completed this step and is answered on its own stream id, so the reset
+ * leaves the slot for the response. */
+static void test_srvrun_reset_with_fin_keeps_done_slot(void) {
+  struct lp_fix f;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_conn*  conns = sr_test_conns();
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_state    st  = {table, conns};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  sr_reset_after_request(table, conns, &f);
+  conns[0].l.done_slots[0] = 0;
+  conns[0].l.done_n        = 1;
+  srvrun_free_reset_reqs(&ctx, &conns[0]);
+  CHECK(conns[0].l.streams[0].in_use == 1);
+  CHECK(conns[0].l.streams[0].stream_id == 4);
+}
+
+/* A FIN-less rejected request and its RESET_STREAM in one datagram: the
+ * abort still names the stream's own id and grants its credit once. */
+static void test_srvrun_reset_with_rejected_aborts_own_stream(void) {
+  struct lp_fix f;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_conn*  conns = sr_test_conns();
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_state    st  = {table, conns};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  sr_reset_after_request(table, conns, &f);
+  conns[0].l.incomplete_slots[0] = 0;
+  conns[0].l.incomplete_n        = 1;
+  srvrun_free_reset_reqs(&ctx, &conns[0]);
+  CHECK(conns[0].l.streams[0].stream_id == 4);
+  srvrun_abort_incomplete_reqs(&ctx, 0);
+  CHECK(conns[0].l.streams[0].in_use == 0);
   CHECK(conns[0].stream_limit_advertised == WIRED_SRVLOOP_MAX_STREAMS + 1);
 }
 
@@ -22875,6 +22950,9 @@ void test_srvrun(void) {
   test_srvrun_incomplete_request_stream_sends_reset();
   test_srvrun_incomplete_request_frees_slot_and_credit();
   test_srvrun_reset_mid_request_frees_slot_and_credit();
+  test_srvrun_reset_during_response_keeps_slot();
+  test_srvrun_reset_with_fin_keeps_done_slot();
+  test_srvrun_reset_with_rejected_aborts_own_stream();
   test_srvrun_qenc_stream_opens_with_type_prefix_only();
   test_srvrun_qenc_stream_open_is_idempotent();
   test_srvrun_qenc_first_use_inserts_and_references_dynamic();

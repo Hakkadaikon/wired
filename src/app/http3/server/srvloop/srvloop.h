@@ -645,7 +645,14 @@ typedef struct {
   usz frame_unexpected_n; /**< entries valid in frame_unexpected_slots this
                               step */
   int peer_closed;        /**< 1 once a peer CONNECTION_CLOSE frame was seen */
-  int resp_external;      /**< 1: the caller answers requests, not the loop */
+  /** RFC 9000 3.2: bit i is set when a RESET_STREAM this step ended slot i's
+   * request while it was still being received -- not one completed or
+   * rejected this step (those lists' owners answer it). A slot answered in
+   * an earlier step is re-armed and so set too; the caller keeps it while
+   * its response is in flight. Reset at the start of every
+   * wired_srvloop_step. */
+  u64 reset_slots;
+  int resp_external; /**< 1: the caller answers requests, not the loop */
   /** ACK ranges (RFC 9000 19.3) seen in payloads opened this step, reset at
    * the start of every wired_srvloop_step; overflow past the cap is dropped.
    * 32 matches ack_decode's own max range count (ack.h), so a single

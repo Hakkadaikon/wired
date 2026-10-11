@@ -5506,9 +5506,50 @@ static void test_srvloop_slotless_reset_closes_stream(void) {
   CHECK(wired_srvloop_slot_for(&f.l, 8) == -2);
 }
 
+/* Step one 1-RTT packet: stream 0's HEADERS for method/path (FIN as given),
+ * then a RESET_STREAM on stream 0 when reset is set. */
+static void lp_headers_then_reset(
+    struct lp_fix* f, wired_span method, wired_span path, int fin, int reset) {
+  u8                 payload[512];
+  reset_stream_frame rs  = {0, 0x10c, 0};
+  h3req_pseudo_in    pin = {
+      method, wired_span_of((const u8*)"https", 5),
+      wired_span_of((const u8*)"h", 1), path, wired_span_of((const u8*)"", 0)};
+  usz off = lp_build_headers_stream(&pin, fin, payload, sizeof payload);
+  if (reset)
+    off += reset_stream_encode(payload + off, sizeof payload - off, &rs);
+  lp_step_payload(f, 3, payload, off);
+}
+
+/* RFC 9000 3.2: a RESET_STREAM on a request still being received notes its
+ * slot for release; one whose request completed (FIN) or was rejected in
+ * the same packet is left to its answer -- the step's end re-arms req_done,
+ * so the caller can no longer tell them apart. */
+static void test_srvloop_reset_notes_only_receiving_slot(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob    = {out, sizeof out, 0};
+  wired_span    get   = wired_span_of((const u8*)"GET", 3);
+  wired_span    conn  = wired_span_of((const u8*)"CONNECT", 7);
+  wired_span    slash = wired_span_of((const u8*)"/", 1);
+  lp_confirm(&f, &ob);
+  lp_headers_then_reset(&f, get, slash, 0, 0);
+  lp_step_reset(&f, 4, 0);
+  CHECK(f.l.reset_slots == 1);
+  lp_confirm(&f, &ob);
+  lp_headers_then_reset(&f, get, slash, 1, 1);
+  CHECK(f.l.done_n == 1);
+  CHECK(f.l.reset_slots == 0);
+  lp_confirm(&f, &ob);
+  lp_headers_then_reset(&f, conn, wired_span_of((const u8*)"", 0), 0, 1);
+  CHECK(f.l.incomplete_n == 1);
+  CHECK(f.l.reset_slots == 0);
+}
+
 void test_srvloop(void) {
   test_srvloop_ticket_early_data_only_off_raw();
   test_srvloop_slotless_reset_closes_stream();
+  test_srvloop_reset_notes_only_receiving_slot();
   test_srvloop_stream_past_limit_latches_violation();
   test_srvloop_note_ecn_keeps_largest_ack();
   test_srvloop_recv_zerortt_opens_with_early_keys();

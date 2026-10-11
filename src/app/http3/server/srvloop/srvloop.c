@@ -1151,6 +1151,7 @@ int wired_srvloop_step(
   conn->l->done_n             = 0;
   conn->l->incomplete_n       = 0;
   conn->l->frame_unexpected_n = 0;
+  conn->l->reset_slots        = 0;
   n = udploop_split(wired_span_of(dgram.p, dgram.n), &plist);
   for (i = 0; i < n; i++)
     step_one(conn, wired_mspan_of(dgram.p + offs[i], lens[i]));
