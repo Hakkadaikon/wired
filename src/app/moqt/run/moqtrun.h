@@ -859,6 +859,21 @@ typedef struct {
  * ponytail: room-sized; raise when clients fetch in parallel. */
 #define WIRED_MOQTRUN_MAX_FETCHES 8
 
+/** Longest an upstream FETCH may run (draft-ietf-moq-transport-22 3.2.3:
+ * a relay fetches what it lacks from upstream; 9.20.5: FILL_TIMEOUT is
+ * the total budget, this the implementation default when it is absent,
+ * and FILL_TIMEOUT shortens it). Past it the request is cancelled and the
+ * rest served from the cache, so no fetch slot waits on a silent peer.
+ * ponytail: fixed; make it a hub setting if rooms need another bound. */
+#define WIRED_MOQTRUN_UPFETCH_BUDGET_MS 2000
+
+/** wired_moqtrun_fetch.up_state: no upstream FETCH in flight. */
+#define WIRED_MOQTRUN_UPF_NONE 0
+/** wired_moqtrun_fetch.up_state: upstream FETCH sent, not yet answered. */
+#define WIRED_MOQTRUN_UPF_SENT 1
+/** wired_moqtrun_fetch.up_state: upstream FETCH_OK received. */
+#define WIRED_MOQTRUN_UPF_OK 2
+
 /** Minimum wall-clock milliseconds (wired_moqt_tick's own clock) between
  * a drained session's PUBLISH_DONE flush and its GOAWAY_TIMEOUT close
  * (3.6/10.11): long enough for a peer under load to read the flushed
@@ -922,6 +937,64 @@ typedef struct {
   /** Clock (wired_moqt_tick) of the last accepted round: a fetch refused
    * for longer than WIRED_MOQTREL_STALL_MS is given up. */
   u64 last_ok_ms;
+  /** WIRED_MOQTRUN_UPF_*: the upstream FETCH filling the front of the
+   * range. While it is in flight the cache side neither serves nor
+   * stall-checks; [cursor, end) waits untouched for it to end. */
+  int up_state;
+  /** The upstream session the FETCH went to. */
+  wired_wt_session* up_wt;
+  /** The hub-opened request stream carrying the upstream FETCH. */
+  u64 up_req_sid;
+  /** The upstream FETCH's Request ID (its FETCH_HEADER names it). */
+  u64 up_rid;
+  /** Reassembly of the upstream replies on up_req_sid. */
+  wired_moqtrun_ctl_asm up_in;
+  /** 1 once the upstream data stream up_data_sid is bound to this slot;
+   * it stays bound (later bytes are discarded) after the leg ends. */
+  int up_data_open;
+  /** The upstream fetch data stream. */
+  u64 up_data_sid;
+  /** 1 once the upstream data stream ended (FIN or reset). */
+  int up_data_end;
+  /** Fetch-Object decoding state of the upstream data stream. */
+  moqfetch_seq up_seq;
+  /** Upstream Locations must lie in [up_lo, up_span_end): the range start
+   * and, ascending, the first Location the cache vouches for again
+   * (descending: the range end). */
+  moqctl_loc up_lo;
+  /** See up_lo. */
+  moqctl_loc up_span_end;
+  /** The last relayed item's Location; valid iff has_up_last. */
+  moqctl_loc up_last;
+  /** 1 once an upstream item was relayed. */
+  int has_up_last;
+  /** The upstream FETCH_OK End Location, inclusive; valid iff
+   * up_state is WIRED_MOQTRUN_UPF_OK. */
+  moqctl_loc up_end;
+  /** The upstream FETCH_OK End Of Track. */
+  int up_eot;
+  /** Clock past which the upstream FETCH is cancelled. */
+  u64 up_deadline_ms;
+  /** The leg's budget: min(FILL_TIMEOUT, WIRED_MOQTRUN_UPFETCH_BUDGET_MS). */
+  u64 up_budget_ms;
+  /** 1 when the cache side reports what it lacks as timed out: the
+   * budget ran out, or FILL_TIMEOUT was 0. */
+  int up_tmo;
+  /** 1 for a FETCH of a track the hub does not hold: its FETCH_OK waits
+   * for the upstream one. */
+  int no_track;
+  /** no_track: 1 once the downstream FETCH was answered. */
+  int answered;
+  /** no_track: the downstream request stream the answer goes on. */
+  u64 req_sid;
+  /** The Full Track Name's encoded Namespace (malformed-track scope). */
+  u8 up_ns[WIRED_MOQTRUN_MAX_NS];
+  /** Bytes of up_ns in use. */
+  usz up_ns_len;
+  /** The Full Track Name's Track Name. */
+  u8 up_name[WIRED_MOQTRUN_MAX_NAME];
+  /** Bytes of up_name in use. */
+  usz up_name_len;
 } wired_moqtrun_fetch;
 
 /** One track a peer PUBLISHes (chat or audio), and the subscribers recorded
@@ -1379,6 +1452,15 @@ typedef struct {
    * and moves into fetches[] the moment a serving slot frees; its only
    * other exit is the owning subscription's cancel. */
   wired_moqtrun_fetch fetch_waits[WIRED_MOQTRUN_MAX_FETCHES];
+  /** The torn tail of one upstream fetch Object (an Object split across
+   * stream deliveries), followed by the next delivery while it decodes.
+   * ponytail: one buffer hub-wide; a second leg tearing an Object at the
+   * same time gives up its upstream FETCH -- a pool if that happens. */
+  u8 upf_buf[WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP];
+  /** Bytes of upf_buf held. */
+  usz upf_len;
+  /** The fetch slot whose tail upf_buf holds, 0 when none. */
+  wired_moqtrun_fetch* upf_owner;
   /** SUBSCRIBEs held for a publisher (RENDEZVOUS_TIMEOUT, draft-19
    * 10.2.6), all sessions. */
   wired_moqtrun_rdv rdv[WIRED_MOQTRUN_MAX_RDV];

@@ -287,10 +287,12 @@ static int mf_read_desc(void) {
  * 3 and 2 are one End of Unknown Range per Group, each ending at {g, max}
  * -- the range runs from the previous item, so it covers that Group
  * whole -- and the last one reaches the last expected Location
- * {Start.Group, max}. */
+ * {Start.Group, max}. (No request stream opens toward the publisher, so
+ * nothing is fetched upstream.) */
 static void test_moqtrun_fetch_descending_unknown_groups(void) {
   mf_init(2 * (MOQCACHE_HDR + 1));
   for (u64 g = 0; g < 4; g++) mf_obj(g, 0, 1);
+  g_open_bidi_fail_n = 1;
   mf_standalone_order(mf_loc(0, 0), mf_loc(3, 0), 0x2);
   CHECK(mf_read_desc());
   CHECK(mf_n == 4);
@@ -438,24 +440,28 @@ static void test_moqtrun_fetch_serves_cached(void) {
   CHECK(mf_fin);
 }
 
-/* No arena: the whole range is one unknown range, then FIN. */
+/* No arena and no way upstream (no request stream opens): the whole
+ * range is one unknown range, then FIN. */
 static void test_moqtrun_fetch_no_cache_unknown(void) {
   mf_init(0);
   mf_obj(0, 0, 1);
+  g_open_bidi_fail_n = 1;
   mf_standalone(mf_loc(0, 0), mf_loc(0, 1));
   CHECK(mf_read());
   CHECK(mf_n == 1 && mf_is_unknown(0, 0, 0));
   CHECK(mf_fin);
 }
 
-/* An evicted group 0 is one unknown range, then group 1's Objects
- * once each, ascending, FIN last. */
+/* An evicted group 0 nobody upstream can be asked for (no request
+ * stream opens) is one unknown range, then group 1's Objects once each,
+ * ascending, FIN last. */
 static void test_moqtrun_fetch_evicted_group_unknown(void) {
   mf_init(2 * (MOQCACHE_HDR + 1));
   mf_obj(0, 0, 1);
   mf_obj(0, 1, 1);
   mf_obj(1, 0, 1);
   mf_obj(1, 1, 1);
+  g_open_bidi_fail_n = 1;
   mf_standalone(mf_loc(0, 0), mf_loc(2, 0));
   CHECK(mf_loc_eq(mf_ok_end(), 1, 2));
   CHECK(mf_read());

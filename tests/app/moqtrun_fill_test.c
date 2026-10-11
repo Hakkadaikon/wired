@@ -255,15 +255,16 @@ static int mfill_is_tmo(usz i, u64 g, u64 o) {
          mf_items[i].group == g && mf_items[i].object == o;
 }
 
-/* A Location the cache cannot serve is reported at once as End of
- * Timed-Out Range (0x20C): the hub keeps no upstream FETCH, so it never
- * waits, whatever FILL_TIMEOUT says (SS9.20.15). */
+/* A Location the cache cannot serve and no publisher can be asked for
+ * (no request stream opens) is reported at once as End of Timed-Out
+ * Range (0x20C); with FILL_TIMEOUT 0 nobody is even asked (SS9.20.15). */
 static void test_moqtrun_fill_miss_is_timed_out_now(void) {
   moqfetch_fill fill = {0};
   fill.has_timeout   = 1;
   fill.timeout_ms    = 5000;
   mf_init(0); /* no cache: the whole range is a miss */
   mf_obj(0, 0, 1);
+  g_open_bidi_fail_n = 1;
   mfill_subscribe(&fill, 0);
   CHECK(mfill_read());
   CHECK(mf_n == 1 && mfill_is_tmo(0, 0, 0));
@@ -277,9 +278,10 @@ static void test_moqtrun_fill_miss_is_timed_out_now(void) {
   CHECK(mf_fin);
 }
 
-/* A run of evicted Locations is one 0x20C naming the run's end, the
- * remaining Objects follow and the fill still FINs only after the whole
- * range (SS11.4.1, SS9.20.15). */
+/* A run of evicted Locations (no publisher to ask: no request stream
+ * opens) is one 0x20C naming the run's end, the remaining Objects follow
+ * and the fill still FINs only after the whole range (SS11.4.1,
+ * SS9.20.15). */
 static void test_moqtrun_fill_evicted_run_collapsed(void) {
   moqfetch_fill fill = {0};
   mf_init(2 * (MOQCACHE_HDR + 1));
@@ -287,6 +289,7 @@ static void test_moqtrun_fill_evicted_run_collapsed(void) {
   mf_obj(0, 1, 1);
   mf_obj(1, 0, 1); /* evicts group 0 */
   mf_obj(1, 1, 1);
+  g_open_bidi_fail_n = 1;
   mfill_subscribe(&fill, 0);
   CHECK(mfill_read());
   CHECK(mf_n == 3);
