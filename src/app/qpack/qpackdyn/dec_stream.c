@@ -9,14 +9,22 @@ static void raise_acked(qdyn_dec* d, u64 ric) {
   if (ric > d->acked) d->acked = ric;
 }
 
-void qdyn_dec_section_ack(qdyn_dec* d, u64 stream_id, u64 ric) {
-  usz n;
-  if (ric == 0) return;
-  n = qpack_dec_instr_encode(
+/* Append one instruction to the queue; its length, 0 if it does not fit. */
+static usz qdyn_dec_queue(qdyn_dec* d, qpack_dec_kind kind, u64 v) {
+  usz n = qpack_dec_instr_encode(
       wired_mspan_of(d->acks + d->acks_len, QDYN_DEC_ACKS_MAX - d->acks_len),
-      QPACK_DEC_SECTION_ACK, stream_id);
+      kind, v);
   d->acks_len += n;
-  if (n) raise_acked(d, ric);
+  return n;
+}
+
+void qdyn_dec_section_ack(qdyn_dec* d, u64 stream_id, u64 ric) {
+  if (ric == 0) return;
+  if (qdyn_dec_queue(d, QPACK_DEC_SECTION_ACK, stream_id)) raise_acked(d, ric);
+}
+
+void qdyn_dec_stream_cancel(qdyn_dec* d, u64 stream_id) {
+  qdyn_dec_queue(d, QPACK_DEC_STREAM_CANCEL, stream_id);
 }
 
 /* RFC 9204 4.4.3: the increment for the inserts nothing acknowledged yet

@@ -45,7 +45,19 @@ static void test_dec_stream_ack_then_increment(void) {
   CHECK(ds_pending_is(&d, 3, want, 2)); /* pending does not consume */
 }
 
+/* RFC 9204 Appendix B.4 / 4.4.2: the decoder that abandons stream 8 emits
+ * the Stream Cancellation byte 0x48, verbatim; it raises no Known Received
+ * Count, so the increment still covers every insert. */
+static void test_dec_stream_cancel_b4(void) {
+  static const u8 b4[] = {0x48}, both[] = {0x48, 0x04};
+  qdyn_dec        d = {0};
+  qdyn_dec_stream_cancel(&d, 8);
+  CHECK(ds_pending_is(&d, 0, b4, 1));
+  CHECK(ds_pending_is(&d, 4, both, 2));
+}
+
 void test_qpackdyn_dec_stream(void) {
+  test_dec_stream_cancel_b4();
   test_dec_stream_appendix_b();
   test_dec_stream_ack_then_increment();
 }

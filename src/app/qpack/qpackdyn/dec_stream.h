@@ -6,7 +6,8 @@
 /* RFC 9204 4.4. What this decoder owes the peer's encoder on its decoder
  * stream: Section Acknowledgments (4.4.1) queued as sections decode, and an
  * Insert Count Increment (4.4.3) for every insert no acknowledgment already
- * covered. Stream Cancellation (4.4.2) is never sent. */
+ * covered, and Stream Cancellations (4.4.2) for streams abandoned before
+ * their sections were processed. */
 
 /** Queued Section Acknowledgment bytes. The queue is handed to the decoder
  * stream after every step, so it only has to hold one step's acks: at most
@@ -18,7 +19,7 @@
 
 /** RFC 9204 4.4. Zero-initialise. */
 typedef struct {
-  u8  acks[QDYN_DEC_ACKS_MAX]; /**< encoded, unsent Section Acks */
+  u8  acks[QDYN_DEC_ACKS_MAX]; /**< encoded, unsent acks/cancellations */
   usz acks_len;                /**< bytes used in acks */
   u64 acked; /**< Known Received Count once acks and increments land */
 } qdyn_dec;
@@ -29,6 +30,11 @@ typedef struct {
  * peer granting it no credit; the ack is then dropped (the peer's encoder
  * only keeps those entries pinned). A larger queue if that ever matters. */
 void qdyn_dec_section_ack(qdyn_dec* d, u64 stream_id, u64 ric);
+
+/* RFC 9204 4.4.2 / 2.2.2.2: queue a Stream Cancellation for stream_id -- a
+ * stream reset or abandoned before its field sections were all processed
+ * (same queue and full-queue ceiling as qdyn_dec_section_ack). */
+void qdyn_dec_stream_cancel(qdyn_dec* d, u64 stream_id);
 
 /* RFC 9204 4.4: write the owed bytes -- queued acks, then an Insert Count
  * Increment up to `inserts` (the table's total insert count) -- into out.
