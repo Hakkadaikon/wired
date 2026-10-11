@@ -70,14 +70,18 @@ general relay network.
   only, and a d22 Joining FETCH is refused. Impact: MQ22-137 has no code path.
   Source: L4-13, L4-6, `ledger:draft-moq-transport-22.md` MQ22-137.
 - **Object cache is arena-scanned** — eviction compacts the arena with one
-  memmove pass and lookups scan linearly (O(arena) per call, also per
-  FETCH_OK); groups are assumed to arrive in ascending order per track, so an
+  memmove pass and lookups scan linearly. A one-entry resume point lets a
+  forward walk over one track continue where its last lookup stopped, so a
+  FETCH or FETCH_OK walk costs O(arena) per walk, not per Object; FETCHes of
+  different tracks served in turn share that one entry and rescan from the
+  start. Groups are assumed to arrive in ascending order per track, so an
   older-group Object is cached as if new. Arena is app-supplied; max cached
-  payload `MOQCACHE_OBJ_MAX` (65472). Source: `src/app/moqt/cache/moqcache.h:23`,
-  `moqtrun.c:2661`.
+  payload `MOQCACHE_OBJ_MAX` (65472). Source: `src/app/moqt/cache/moqcache.h`,
+  `moqtrun_fetch_last` in `moqtrun.c`.
 - **Discovery syncs are quadratic** — SUBSCRIBE_NAMESPACE catch-up is an
   O(reqs^2) scan per event and SUBSCRIBE_TRACKS sync is O(sessions x tracks x
-  reqs); fine at the fixed capacities. Source: `moqtrun.c:4074`, `moqtrun.c:4446`.
+  reqs); fine at the fixed capacities. Source: `moqtrun_disc_sync`,
+  `moqtrun_subtracks_sync_track` in `moqtrun.c`.
 - **Range Filters are stream- or track-granular** — SUBGROUP_FILTER and
   PRIORITY_FILTER gate a whole stream when it opens toward the subscriber
   (its header's Subgroup ID and Publisher Priority); TRACK_PROPERTY_FILTER

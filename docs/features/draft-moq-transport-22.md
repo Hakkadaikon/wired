@@ -1459,6 +1459,12 @@ draft-18 and draft-19.
   - test: `tests/app/moqtrun_fetch_test.c` — `test_moqtrun_fetch_cache_attach`
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_cache_default_off`
+- [x] MQ22-207 A forward walk over one track's cached Objects shall resume
+  each lookup where the last one stopped, returning the same items as a scan
+  from the arena start; eviction (which moves records) drops the resume
+  point.
+  - test: `tests/app/moqcache_test.c` — `test_moqcache_walk_resumes`,
+    `test_moqcache_evict_drops_resume`
 - [x] MQ22-186 A FETCH shall release its slot when the requester cancels,
   the data stream is stopped, the publisher or requester leaves, or the
   delivery stalls.
