@@ -8773,9 +8773,11 @@ static void srvrun_feed_ecn(srvrun_conn* c, u64 largest_before, u64 now_ms) {
 }
 
 /* 1 if this step's ACK frame acknowledges some pn strictly between lo and
- * hi. */
+ * hi -- or may have: a full ack_lo[] array means ranges past it (the lowest
+ * pns, srvloop_push_ack / ack_decode keep only the first 32) were dropped
+ * unseen, so the answer is unknown and counted as a hit. */
 static int srvrun_acked_between(const srvrun_conn* c, u64 lo, u64 hi) {
-  int hit = 0;
+  int hit = c->l.ack_n >= sizeof c->l.ack_lo / sizeof c->l.ack_lo[0];
   for (usz i = 0; i < c->l.ack_n; i++)
     hit |= c->l.ack_lo[i] < hi && c->l.ack_hi[i] > lo;
   return hit;

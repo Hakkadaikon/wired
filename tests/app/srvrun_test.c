@@ -12705,6 +12705,13 @@ static void test_srvrun_persistent_congestion_prior_ack(void) {
   CHECK(sr_pc_check(2000, 1, 0) > CC_MIN_WINDOW);
 }
 
+/* A full ACK range array may have dropped the lowest ranges (an ACK frame
+ * past 32 ranges), which could name a pn inside the span: not declared. */
+static void test_srvrun_persistent_congestion_full_ack(void) {
+  CHECK(sr_pc_check(2000, 0, 31) == CC_MIN_WINDOW);
+  CHECK(sr_pc_check(2000, 0, 32) > CC_MIN_WINDOW);
+}
+
 /* --- RFC 9000 13.4.2 ECN validation on the ACK-processing path ---------- */
 
 /* Arm resp[0] with 8 chunks on c, pump them all out (8 ECT(0)-marked 1-RTT
@@ -22178,6 +22185,7 @@ void test_srvrun(void) {
   test_srvrun_persistent_congestion_needs_two_losses();
   test_srvrun_persistent_congestion_threshold();
   test_srvrun_persistent_congestion_prior_ack();
+  test_srvrun_persistent_congestion_full_ack();
   test_srvrun_feed_acks_ecn_ce_shrinks_cwnd();
   test_srvrun_feed_acks_stale_ack_never_fails_ecn();
   test_srvrun_feed_acks_suppressed_ecn_disables();
