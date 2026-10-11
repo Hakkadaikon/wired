@@ -1480,6 +1480,23 @@ static void test_reqdrive_bad_ref_is_qpack_failure(void) {
   CHECK(r.qpack_failed == 0);
 }
 
+/* RFC 9204 2.2.3 / 3.1: a literal line's name reference is resolved before
+ * its value, so an invalid one is still the connection error when the value
+ * behind it is bad too (here truncated) -- the name-reference form (a
+ * relative index under Base 0) and the post-Base form (index past RIC). */
+static void test_reqdrive_bad_name_ref_before_bad_value(void) {
+  static u8            scratch[WIRED_H3_MAX_FIELD_SECTION];
+  static const u8      nr[] = {0x03, 0x81, 0xd1, 0xd7, 0x40, 0x05, 'x'};
+  static const u8      pb[] = {0x03, 0x81, 0xd1, 0xd7, 0x02, 0x05, 'x'};
+  qpack_dyn            t;
+  wired_h3reqdrive_req r;
+  rd_b2_table(&t);
+  CHECK(!rd_hdr_decode(nr, sizeof nr, scratch, &t, &r));
+  CHECK(r.qpack_failed == 1);
+  CHECK(!rd_hdr_decode(pb, sizeof pb, scratch, &t, &r));
+  CHECK(r.qpack_failed == 1);
+}
+
 /* RFC 9204 7.4: a field this decoder cannot hold (a literal name past its
  * name cap) only rejects the request; it is not a decompression failure
  * that would end the whole connection. */
@@ -1562,6 +1579,7 @@ void test_h3reqdrive(void) {
   test_reqdrive_b2_section_ric();
   test_reqdrive_ric_past_inserts_fails();
   test_reqdrive_bad_ref_is_qpack_failure();
+  test_reqdrive_bad_name_ref_before_bad_value();
   test_reqdrive_local_capacity_not_qpack_failure();
   test_reqdrive_b4_section();
   test_reqdrive_trailer_dynamic_ref();
