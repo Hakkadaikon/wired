@@ -2740,6 +2740,15 @@ static void test_srvrun_serve_slot_notes_ecn(void) {
   CHECK(st.conns[2].l.ecn_ect0 == 1);
 }
 
+/* One sealed 1-RTT PING from f's client at its next packet number -- a
+ * non-probing packet with a new largest number (RFC 9000 9.3). The buffer
+ * is reused by every call. */
+static wired_mspan sr_ping_dg(struct lp_fix* f) {
+  static u8       pkt[256];
+  static const u8 ping[1] = {0x01};
+  return wired_mspan_of(pkt, client_seal_onertt(f, ping, 1, pkt, sizeof pkt));
+}
+
 /* PEER COMPARISON (RFC 9000 9): a rebind is detected on any differing byte
  * of the full 16-byte (v4-mapped or native v6) address, or the port --
  * first, last, and middle byte positions all count, not just the mapped v4
@@ -2768,7 +2777,7 @@ static void test_srvrun_rebind_updates_peer_port(void) {
   struct lp_fix f;
   srvrun_conn   c;
   wired_obuf    ob = {0};
-  u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  u8            obuf[1024];
   conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      old_peer = {0}, new_peer = {0};
   srvrun_state  st = {table, &c};
@@ -2783,7 +2792,7 @@ static void test_srvrun_rebind_updates_peer_port(void) {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0, 0};
-    srvrun_serve_slot(&ctx, 0, wired_mspan_of(sh, sizeof sh));
+    srvrun_serve_slot(&ctx, 0, sr_ping_dg(&f));
   }
   CHECK(c.peer.port_be == new_peer.port_be);
   CHECK(ct_diffn(c.peer.addr, new_peer.addr, 16) == 0);
@@ -2797,7 +2806,7 @@ static void test_srvrun_rebind_updates_peer_addr(void) {
   struct lp_fix f;
   srvrun_conn   c;
   wired_obuf    ob = {0};
-  u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  u8            obuf[1024];
   conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      old_peer = {0}, new_peer = {0};
   srvrun_state  st = {table, &c};
@@ -2812,7 +2821,7 @@ static void test_srvrun_rebind_updates_peer_addr(void) {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0, 0};
-    srvrun_serve_slot(&ctx, 0, wired_mspan_of(sh, sizeof sh));
+    srvrun_serve_slot(&ctx, 0, sr_ping_dg(&f));
   }
   CHECK(c.peer.port_be == new_peer.port_be);
   CHECK(ct_diffn(c.peer.addr, new_peer.addr, 16) == 0);
@@ -2851,7 +2860,7 @@ static void test_srvrun_rebind_port_and_addr_independent(void) {
   struct lp_fix f;
   srvrun_conn   c;
   wired_obuf    ob = {0};
-  u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  u8            obuf[1024];
   conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      base = {0}, port_only = {0};
   srvrun_state  st = {table, &c};
@@ -2866,7 +2875,7 @@ static void test_srvrun_rebind_port_and_addr_independent(void) {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &port_only, &st, 0, 0};
-    srvrun_serve_slot(&ctx, 0, wired_mspan_of(sh, sizeof sh));
+    srvrun_serve_slot(&ctx, 0, sr_ping_dg(&f));
   }
   CHECK(c.peer.port_be == port_only.port_be);       /* moved */
   CHECK(ct_diffn(c.peer.addr, base.addr, 16) == 0); /* untouched */
@@ -2966,7 +2975,7 @@ static void test_srvrun_path_challenge_generated_on_rebind(void) {
   struct lp_fix f;
   srvrun_conn   c;
   wired_obuf    ob = {0};
-  u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  u8            obuf[1024];
   conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      old_peer = {0}, new_peer = {0};
   srvrun_state  st          = {table, &c};
@@ -2982,7 +2991,7 @@ static void test_srvrun_path_challenge_generated_on_rebind(void) {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0, 0};
-    srvrun_serve_slot(&ctx, 0, wired_mspan_of(sh, sizeof sh));
+    srvrun_serve_slot(&ctx, 0, sr_ping_dg(&f));
   }
   CHECK(c.migrate.detected == 1);
   CHECK(c.migrate.challenged == 1);
@@ -3000,7 +3009,7 @@ static void test_srvrun_path_challenge_sent_to_new_peer(void) {
   struct lp_fix f;
   srvrun_conn   c;
   wired_obuf    ob = {0};
-  u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  u8            obuf[1024];
   u8            out[1400];
   conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      old_peer = {0}, new_peer = {0};
@@ -3019,7 +3028,7 @@ static void test_srvrun_path_challenge_sent_to_new_peer(void) {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0, 0};
-    srvrun_serve_slot(&ctx, 0, wired_mspan_of(sh, sizeof sh));
+    srvrun_serve_slot(&ctx, 0, sr_ping_dg(&f));
   }
   CHECK(c.peer.port_be == new_peer.port_be); /* challenge targets new path */
   {
@@ -3059,7 +3068,7 @@ static void sr_confirm_and_rebind(
     srvrun_state*  st,
     sockaddr*      new_peer) {
   wired_obuf ob = {0};
-  u8         obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  u8         obuf[1024];
   sockaddr   old_peer = {0};
   ob                  = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(c, f, &ob);
@@ -3071,7 +3080,7 @@ static void sr_confirm_and_rebind(
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, new_peer, st, 0, 0};
-    srvrun_serve_slot(&ctx, 0, wired_mspan_of(sh, sizeof sh));
+    srvrun_serve_slot(&ctx, 0, sr_ping_dg(f));
   }
 }
 
@@ -3160,7 +3169,7 @@ static void test_srvrun_path_challenge_rearmed_on_second_rebind(void) {
   struct lp_fix f;
   srvrun_conn   c;
   wired_obuf    ob = {0};
-  u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  u8            obuf[1024];
   conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      old_peer = {0}, mid_peer = {0}, final_peer = {0};
   srvrun_state  st = {table, &c};
@@ -3177,13 +3186,13 @@ static void test_srvrun_path_challenge_rearmed_on_second_rebind(void) {
   conntable_init(table, WIRED_CONNTABLE_CAP);
   {
     srvrun_step_ctx ctx = {&cfg, &mid_peer, &st, 0, 0};
-    srvrun_serve_slot(&ctx, 0, wired_mspan_of(sh, sizeof sh)); /* rebind #1 */
+    srvrun_serve_slot(&ctx, 0, sr_ping_dg(&f)); /* rebind #1 */
   }
   for (usz i = 0; i < PATH_DATA; i++)
     first_challenge[i] = c.path_challenge_data[i];
   {
     srvrun_step_ctx ctx = {&cfg, &final_peer, &st, 0, 0};
-    srvrun_serve_slot(&ctx, 0, wired_mspan_of(sh, sizeof sh)); /* rebind #2 */
+    srvrun_serve_slot(&ctx, 0, sr_ping_dg(&f)); /* rebind #2 */
   }
   CHECK(ct_diff8(first_challenge, c.path_challenge_data) != 0);
   sr_send_path_response(&f, &st, &final_peer, first_challenge);
@@ -3225,7 +3234,7 @@ static void test_srvrun_path_challenge_rng_failure_sends_nothing(void) {
   struct lp_fix f;
   srvrun_conn   c;
   wired_obuf    ob = {0};
-  u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  u8            obuf[1024];
   conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      old_peer = {0}, new_peer = {0};
   srvrun_state  st = {table, &c};
@@ -3242,7 +3251,7 @@ static void test_srvrun_path_challenge_rng_failure_sends_nothing(void) {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0, 0};
-    srvrun_serve_slot(&ctx, 0, wired_mspan_of(sh, sizeof sh));
+    srvrun_serve_slot(&ctx, 0, sr_ping_dg(&f));
   }
   srvrun_test_force_challenge_rng_fail(0);
   CHECK(c.migrate.challenged == 0);
@@ -3250,6 +3259,252 @@ static void test_srvrun_path_challenge_rng_failure_sends_nothing(void) {
   CHECK(srvrun_test_send_count() == send_before); /* c->peer still rebinds --
     only the challenge send itself is skipped */
   CHECK(c.peer.port_be == new_peer.port_be);
+}
+
+static const u8 g_sr_ping[1]  = {0x01};
+static const u8 g_sr_probe[9] = {0x1a, 1, 2, 3, 4, 5, 6, 7, 8};
+
+/* A confirmed c on old (127.0.0.1:4433); new is 127.0.0.1:9999. */
+static void sr_path_setup(
+    srvrun_conn*   c,
+    struct lp_fix* f,
+    conntable*     table,
+    sockaddr*      old_peer,
+    sockaddr*      new_peer) {
+  u8         obuf[1024];
+  wired_obuf ob = {obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(c, f, &ob);
+  sr_path_test_peers(old_peer, new_peer);
+  c->peer = *old_peer;
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+}
+
+/* Serve slot 0 of st one sealed 1-RTT packet carrying pl at pn, from peer,
+ * on socket fd (cfg.fd). */
+static void sr_path_serve_fd(
+    struct lp_fix*  f,
+    srvrun_state*   st,
+    const sockaddr* peer,
+    i64             fd,
+    u64             pn,
+    wired_span      pl) {
+  u8         spkt[256];
+  usz        n   = client_seal_onertt_pn(f, pn, pl.p, pl.n, spkt, sizeof spkt);
+  srvrun_cfg cfg = {fd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_step_ctx ctx = {&cfg, peer, st, 0, 0};
+  srvrun_serve_slot(&ctx, 0, wired_mspan_of(spkt, n));
+}
+
+static void sr_path_serve(
+    struct lp_fix*  f,
+    srvrun_state*   st,
+    const sockaddr* peer,
+    u64             pn,
+    wired_span      pl) {
+  sr_path_serve_fd(f, st, peer, -1, pn, pl);
+}
+
+static int sr_peer_is(const srvrun_conn* c, const sockaddr* p) {
+  return c->peer.port_be == p->port_be &&
+         ct_diffn(c->peer.addr, p->addr, 16) == 0;
+}
+
+/* RFC 9000 9.3: a non-probing packet with a new largest number from a new
+ * address moves the send path there and challenges it. */
+static void test_srvrun_path_follows_new_largest_np(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_path_serve(&f, &st, &new_peer, 5, wired_span_of(g_sr_ping, 1));
+  CHECK(sr_peer_is(&c, &new_peer));
+  CHECK(c.migrate.challenged == 1);
+}
+
+/* RFC 9000 12.3/9.3.2: a datagram that does not decrypt never moves the
+ * path nor draws a challenge. */
+static void test_srvrun_path_undecryptable_does_not_move(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st    = {table, &c};
+  u8            sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0, 0};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  srvrun_serve_slot(&ctx, 0, wired_mspan_of(sh, sizeof sh));
+  CHECK(sr_peer_is(&c, &old_peer));
+  CHECK(c.migrate.challenged == 0);
+}
+
+/* RFC 9000 9.1/9.3: a probing packet -- even numbered above everything --
+ * never moves the path. */
+static void test_srvrun_path_probe_does_not_move(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_path_serve(&f, &st, &old_peer, 3, wired_span_of(g_sr_ping, 1));
+  sr_path_serve(
+      &f, &st, &new_peer, 4, wired_span_of(g_sr_probe, sizeof g_sr_probe));
+  CHECK(sr_peer_is(&c, &old_peer));
+  CHECK(c.migrate.challenged == 0);
+}
+
+/* RFC 9000 9.3: a reordered older non-probing packet on the old address
+ * does not move the path back. */
+static void test_srvrun_path_reordered_older_stays(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_path_serve(&f, &st, &new_peer, 6, wired_span_of(g_sr_ping, 1));
+  sr_path_serve(&f, &st, &old_peer, 5, wired_span_of(g_sr_ping, 1));
+  CHECK(sr_peer_is(&c, &new_peer));
+}
+
+/* RFC 9000 9.3: a higher-numbered probe on the old address does not hide a
+ * lower-numbered migration packet. */
+static void test_srvrun_path_probe_does_not_hide_migration(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_path_serve(
+      &f, &st, &old_peer, 2, wired_span_of(g_sr_probe, sizeof g_sr_probe));
+  sr_path_serve(&f, &st, &new_peer, 1, wired_span_of(g_sr_ping, 1));
+  CHECK(sr_peer_is(&c, &new_peer));
+}
+
+/* RFC 9000 9.3.3: a higher non-probing packet on the original address moves
+ * the path back, with a fresh challenge. */
+static void test_srvrun_path_higher_np_moves_back(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  u8            first[PATH_DATA];
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_path_serve(&f, &st, &new_peer, 5, wired_span_of(g_sr_ping, 1));
+  bytes_memcpy(first, c.path_challenge_data, PATH_DATA);
+  sr_path_serve(&f, &st, &old_peer, 6, wired_span_of(g_sr_ping, 1));
+  CHECK(sr_peer_is(&c, &old_peer));
+  CHECK(ct_diff8(first, c.path_challenge_data) != 0);
+}
+
+/* RFC 9000 12.3/9.3.2: a copy of the highest packet arriving from another
+ * address is a duplicate and does not move the path. */
+static void test_srvrun_path_duplicate_elsewhere_stays(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_path_serve(&f, &st, &old_peer, 4, wired_span_of(g_sr_ping, 1));
+  sr_path_serve(&f, &st, &new_peer, 4, wired_span_of(g_sr_ping, 1));
+  CHECK(sr_peer_is(&c, &old_peer));
+  CHECK(c.migrate.challenged == 0);
+}
+
+/* RFC 9000 9.6.2: once replies leave from the preferred-address socket, a
+ * newer packet arriving on the original socket is discarded unprocessed,
+ * while a delayed older one is still processed; neither moves the path. */
+static void test_srvrun_path_pref_drops_newer_on_old_socket(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  c.tx_fd              = 9;
+  g_srvrun_env.pref_fd = 9;
+  g_srvrun_env.rx_fd   = 9;
+  sr_path_serve(&f, &st, &old_peer, 5, wired_span_of(g_sr_ping, 1));
+  g_srvrun_env.rx_fd = 0;
+  sr_path_serve(&f, &st, &old_peer, 6, wired_span_of(g_sr_ping, 1));
+  CHECK(recvpn_seen(&c.l.ack_recv.r[PNS_APP], 6) == 0);
+  CHECK(c.tx_fd == 9);
+  sr_path_serve(&f, &st, &old_peer, 4, wired_span_of(g_sr_ping, 1));
+  CHECK(recvpn_seen(&c.l.ack_recv.r[PNS_APP], 4) == 1);
+  CHECK(c.tx_fd == 9);
+  g_srvrun_env.pref_fd = 0;
+}
+
+/* RFC 9000 9: a held 1-RTT datagram replayed at confirmation is stepped
+ * with the triggering datagram's address, so it never moves the path --
+ * its number still counts as received. */
+static void test_srvrun_path_replay_does_not_move(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  u8            spkt[256];
+  usz           n;
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0, 0};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  n = client_seal_onertt_pn(&f, 3, g_sr_ping, 1, spkt, sizeof spkt);
+  wired_srvboot_acc_hold(&c.boot, wired_mspan_of(spkt, n));
+  srvrun_boot_flush_zerortt(&ctx, &c, 0);
+  CHECK(sr_peer_is(&c, &old_peer));
+  CHECK(recvpn_seen(&c.l.ack_recv.r[PNS_APP], 3) == 1);
+}
+
+/* RFC 9000 9.3: the step that moves the path sends its ACK on the new
+ * path, and nothing goes to the old one. */
+static void test_srvrun_path_ack_goes_to_new_path(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer, srv, from;
+  srvrun_state  st    = {table, &c};
+  i64           sfd   = wired_udp_socket();
+  i64           ofd   = wired_udp_socket();
+  i64           nfd   = wired_udp_socket();
+  int           acked = 0;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  wired_udp_addr(&srv, 4461, (const u8[4]){127, 0, 0, 1});
+  wired_udp_addr(&old_peer, 4462, (const u8[4]){127, 0, 0, 1});
+  wired_udp_addr(&new_peer, 4463, (const u8[4]){127, 0, 0, 1});
+  CHECK(wired_udp_bind(sfd, &srv) >= 0);
+  CHECK(wired_udp_bind(ofd, &old_peer) >= 0);
+  CHECK(wired_udp_bind(nfd, &new_peer) >= 0);
+  c.peer                     = old_peer;
+  c.l.app_ack_policy.pending = 1; /* one ack-eliciting packet unacked */
+  sr_path_serve_fd(&f, &st, &new_peer, sfd, 5, wired_span_of(g_sr_ping, 1));
+  while (poll_wait_readable(nfd, 0) > 0) {
+    u8        pkt[1500];
+    const u8* pl;
+    usz       pll;
+    ack_frame a;
+    i64 r = wired_udp_recvfrom(nfd, wired_mspan_of(pkt, sizeof pkt), &from);
+    if (r > 0 && client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1 &&
+        find_ack_frame(pl, pll, &a) == 1)
+      acked |= a.ranges[0].hi == 5;
+  }
+  CHECK(acked == 1);
+  CHECK(poll_wait_readable(ofd, 0) == 0);
+  wired_udp_close(sfd);
+  wired_udp_close(ofd);
+  wired_udp_close(nfd);
 }
 
 /* Serve one sealed 1-RTT datagram carrying `pl` to a fresh confirmed slot 0,
@@ -14073,7 +14328,7 @@ static void test_srvrun_rebind_on_arrival_fd_change(void) {
   struct lp_fix f;
   srvrun_conn   c;
   wired_obuf    ob = {0};
-  u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  u8            obuf[1024];
   conntable     table[WIRED_CONNTABLE_CAP];
   sockaddr      peer = {0};
   srvrun_state  st   = {table, &c};
@@ -14089,7 +14344,7 @@ static void test_srvrun_rebind_on_arrival_fd_change(void) {
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     g_srvrun_env.rx_fd  = 9; /* arrival on the preferred-address socket */
-    srvrun_serve_slot(&ctx, 0, wired_mspan_of(sh, sizeof sh));
+    srvrun_serve_slot(&ctx, 0, sr_ping_dg(&f));
     g_srvrun_env.rx_fd = 0;
   }
   CHECK(c.tx_fd == 9); /* replies follow the arrival socket */
@@ -22684,6 +22939,16 @@ void test_srvrun(void) {
   test_srvrun_path_challenge_rearmed_on_second_rebind();
   test_srvrun_path_challenge_noop_during_boot();
   test_srvrun_path_challenge_rng_failure_sends_nothing();
+  test_srvrun_path_follows_new_largest_np();
+  test_srvrun_path_undecryptable_does_not_move();
+  test_srvrun_path_probe_does_not_move();
+  test_srvrun_path_reordered_older_stays();
+  test_srvrun_path_probe_does_not_hide_migration();
+  test_srvrun_path_higher_np_moves_back();
+  test_srvrun_path_duplicate_elsewhere_stays();
+  test_srvrun_path_pref_drops_newer_on_old_socket();
+  test_srvrun_path_replay_does_not_move();
+  test_srvrun_path_ack_goes_to_new_path();
   test_srvrun_qlog_records_received();
   test_srvrun_qlog_no_dup_record();
   test_srvrun_qlog_recv_no_path_writes_nothing();

@@ -736,6 +736,10 @@ typedef struct {
    * once the client migrates onto it (srvrun_rebind_peer follows the
    * arrival fd). 0 only on test-fabricated slots, read as "primary". */
   i64 tx_fd;
+  /** 1 while held early datagrams are being replayed
+   * (srvrun_boot_flush_zerortt): they are stepped with the triggering
+   * datagram's address, so they never move the send path. */
+  int replay;
   /** RFC 8899 DPLPMTUD: this connection's Packetization Layer PMTU
    * Discovery search state (pmtu), giving pmtu_mps the Maximum
    * Packet Size to fill instead of a fixed guess. Initialized alongside
@@ -1753,12 +1757,14 @@ static void srvrun_flush_wt_drain(srvrun_conn* c);
  * than stepping a freed slot. */
 static void srvrun_boot_flush_zerortt(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot) {
-  usz n = wired_srvboot_acc_zerortt_count(&c->boot);
+  usz n     = wired_srvboot_acc_zerortt_count(&c->boot);
+  c->replay = 1;
   for (usz i = 0; i < n && !c->l.peer_closed; i++) {
     wired_span dg = wired_srvboot_acc_zerortt_take(&c->boot, i);
     srvrun_on_step(ctx, c, wired_mspan_of((u8*)dg.p, dg.n));
     srvrun_sess_on_step(ctx, slot);
   }
+  c->replay = 0;
   /* spent: the confirmation-time flush (srvrun_flush_held_on_confirm) must
    * not replay what this call already stepped. */
   c->boot.zerortt_n = 0;
@@ -4460,6 +4466,11 @@ static void srvrun_note_stream_limits(
                                   : wired_srvloop_uni_stream_limit();
 }
 
+/* Defined beside the PATH_CHALLENGE helpers further down. */
+static int srvrun_path_reverts(
+    const srvrun_step_ctx* ctx, const srvrun_conn* c);
+static void srvrun_rebind_peer(const srvrun_step_ctx* ctx, srvrun_conn* c);
+
 /* A later datagram on a live slot: one real-wire step, send any sealed
  * reply — unless this step's own gathering found a connection-ending
  * violation (RFC 9221 3 DATAGRAM, or draft-ietf-webtrans-http3-15 4.3's
@@ -4483,7 +4494,11 @@ static void srvrun_on_step_live(
                           * onto a slice, or srvrun_flush_deferred_ack
                           * sends it at step end. */
   srvrun_note_stream_limits(ctx, c);
-  produced = wired_srvloop_step(&conn, dg, &ob);
+  c->l.drop_newer = srvrun_path_reverts(ctx, c);
+  produced        = wired_srvloop_step(&conn, dg, &ob);
+  /* RFC 9000 9.3: decided after decrypt and dedup, before any send of this
+   * step, so the step's ACK and data already go to the new path. */
+  srvrun_rebind_peer(ctx, c);
   srvrun_raw_start(ctx->cfg, c);
   srvrun_open_qpack_streams(c);
   srvrun_flush_qdec(c);
@@ -10023,8 +10038,10 @@ static void srvrun_arm_path_challenge(const srvrun_cfg* cfg, srvrun_conn* c) {
  * once a connection is past the boot/handshake window, follow its source
  * address if a datagram arrives from a different one -- a NAT re-mapping a
  * client's port, or the client switching networks, must not orphan the
- * connection's reply path. c->peer is updated the moment the change is seen
- * (still NOT gated on path validation, see below), and a PATH_CHALLENGE
+ * connection's reply path. c->peer follows only the highest-numbered
+ * non-probing packet (RFC 9000 9.3), decided after the datagram decrypts
+ * and is not a duplicate, before the step sends anything (still NOT gated
+ * on path validation, see below), and a PATH_CHALLENGE
  * (RFC 9000 8.2) is issued to the new path so quic-interop-runner's rebind-
  * port/rebind-addr judge (which checks for a PATH_CHALLENGE on the first
  * server packet sent to the new path) is satisfied.
@@ -10043,8 +10060,9 @@ static void srvrun_arm_path_challenge(const srvrun_cfg* cfg, srvrun_conn* c) {
  * validating (see srvrun_apply_path_response below) -- only its 8-byte data
  * is compared. This does not weaken the pre-existing hole one line up: c->
  * peer is *already* updated (and PATH_CHALLENGE already sent to the forged
- * address) the instant a spoofed source address arrives with a known DCID,
- * before any response round trip occurs at all, because this SDK's receive
+ * address) the instant an off-path copy of a genuine new packet arrives
+ * from a spoofed source, before any response round trip occurs at all,
+ * because this SDK's receive
  * routing is DCID-based, not address-based, by design (srvrun_find_slot).
  * Adding a source-address check on the PATH_RESPONSE side would not close
  * that hole -- an attacker able to forge the rebind in the first place can
@@ -10064,24 +10082,30 @@ static int srvrun_path_changed(
   return srvrun_peer_changed(ctx, c) || srvrun_rx_fd_changed(ctx, c);
 }
 
-/* ponytail: once this connection moved to the preferred-address socket,
- * old-path stragglers (reordered or retransmitted datagrams still arriving
- * on the primary socket while the client probes both paths) must not flip
- * it back -- the client migrated deliberately and the checker (and RFC
- * 9000 9.3's highest-numbered-packet rule) expect the server to stay.
- * Full per-path highest-pn tracking would generalize this; one-way
- * stickiness suffices for the single preferred path this server offers. */
+/* RFC 9000 9.6.2: this connection sends from the preferred-address socket
+ * and the datagram arrived on another one. The server SHOULD drop newer
+ * packets received on the old address (srvloop's drop_newer) and MAY
+ * process delayed ones -- which then never move the path back. */
 static int srvrun_path_reverts(
     const srvrun_step_ctx* ctx, const srvrun_conn* c) {
   i64 pref = ctx->cfg->env->pref_fd;
   return pref && c->tx_fd == pref && srvrun_rx_fd(ctx->cfg) != pref;
 }
 
-/* Rebind is due: confirmed, not a suppressed old-path straggler, and the
- * path actually changed -- split out so the caller keeps one guard. */
-static int srvrun_rebind_due(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
+/* Rebind is allowed: confirmed, not a suppressed old-path straggler, and
+ * the path actually changed -- split out so the caller keeps one guard. */
+static int srvrun_rebind_allowed(
+    const srvrun_step_ctx* ctx, const srvrun_conn* c) {
   if (srvrun_awaiting_confirm(c) || srvrun_path_reverts(ctx, c)) return 0;
   return srvrun_path_changed(ctx, c);
+}
+
+/* RFC 9000 9.3: only a live (not replayed) short-header packet that is
+ * non-probing and numbered above every earlier non-probing one
+ * (srvloop's step_np_new) may move the send path. */
+static int srvrun_rebind_due(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
+  if (!c->l.step_np_new || c->replay) return 0;
+  return srvrun_rebind_allowed(ctx, c);
 }
 
 /* Consume the latched PATH_CHALLENGE: 1 iff one is to be answered -- not on
@@ -10113,8 +10137,9 @@ static void srvrun_answer_path_challenge(
       ctx->cfg, srvrun_rx_fd(ctx->cfg), ctx->peer, wired_span_of(out, ob.len));
 }
 
+/* A step with no arrival address (ctx->peer 0) has nothing to follow. */
 static void srvrun_rebind_peer(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  if (!srvrun_rebind_due(ctx, c)) return;
+  if (!ctx->peer || !srvrun_rebind_due(ctx, c)) return;
   c->peer  = *ctx->peer;
   c->tx_fd = srvrun_rx_fd(ctx->cfg);
   srvrun_arm_path_challenge(ctx->cfg, c);
@@ -10256,7 +10281,6 @@ static void srvrun_serve_slot(
   srvrun_seed_boot_rtt(c, booting, ctx->now_ms);
   if (consumed) return;
   if (c->up) {
-    srvrun_rebind_peer(ctx, c);
     srvrun_reconfirm_on_hs_probe(ctx, c, dg);
     srvrun_step_and_reap(ctx, slot, dg);
     srvrun_answer_path_challenge(ctx, c);
