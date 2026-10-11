@@ -32,6 +32,7 @@
 #include "app/qpack/qpackdyn/field_encode.c"
 #include "app/qpack/qpackdyn/field_decode.c"
 #include "app/qpack/qpackdyn/enc_stream.c"
+#include "app/qpack/qpackdyn/dec_stream.c"
 #include "tls/ext/tlsext/pskmodes.c"
 #include "tls/ext/tlsext/preshared.c"
 #include "tls/ext/tlsext/earlydata.c"
@@ -979,6 +980,7 @@
 #include "app/qpackdyn_field_encode_test.c"
 #include "app/field_decode_test.c"
 #include "app/qpackdyn_enc_stream_test.c"
+#include "app/qpackdyn_dec_stream_test.c"
 #include "app/qpackenc_test.c"
 #include "tls/pskmodes_test.c"
 #include "tls/preshared_test.c"
@@ -1578,6 +1580,7 @@ int main(void) {
   test_qpackdyn_field_encode();
   test_qpackdyn_field_decode();
   test_qpackdyn_enc_stream();
+  test_qpackdyn_dec_stream();
   test_qpackenc();
   test_pskmodes();
   test_preshared();
