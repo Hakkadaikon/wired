@@ -76,7 +76,8 @@ general relay network.
 - **Object cache is arena-scanned** — eviction compacts the arena with one
   memmove pass and lookups scan linearly. A one-entry resume point lets a
   forward walk over one track continue where its last lookup stopped, so a
-  FETCH or FETCH_OK walk costs O(arena) per walk, not per Object; FETCHes of
+  FETCH or FETCH_OK walk costs O(arena) per walk plus O(arena) per gap it
+  crosses (the gap check rescans), not per Object; FETCHes of
   different tracks served in turn share that one entry and rescan from the
   start. Groups are assumed to arrive in ascending order per track, so an
   older-group Object is cached as if new. Arena is app-supplied; max cached

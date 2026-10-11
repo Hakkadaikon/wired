@@ -23,7 +23,8 @@
  * ponytail: eviction compacts the arena (one memmove pass) and lookups
  * scan it linearly; a one-entry resume point lets a forward walk over one
  * tag continue where the last lookup stopped, so a FETCH costs O(arena)
- * per walk, not per item. A ring with an index when arenas grow past a
+ * per walk plus O(arena) per gap it crosses (the gap check rescans), not
+ * per item. A ring with an index when arenas grow past a
  * few MB. Groups are assumed to arrive in ascending order per
  * track (an Object of an older group is cached as if it were new).
  */
