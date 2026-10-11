@@ -34,4 +34,8 @@ int framewalk_next(framewalk* it, framewalk_item* out);
  * ack-eliciting (anything but PADDING, ACK, CONNECTION_CLOSE). */
 int framewalk_ack_eliciting(wired_span pl);
 
+/** RFC 9000 9.1: 1 if any frame in the payload is not a probing frame
+ * (PADDING, NEW_CONNECTION_ID, PATH_CHALLENGE, PATH_RESPONSE). */
+int framewalk_non_probing(wired_span pl);
+
 #endif

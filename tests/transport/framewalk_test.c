@@ -2,6 +2,7 @@
 
 #include "app/datagram/datagram/datagram.h"
 #include "test.h"
+#include "transport/packet/frame/frame/ack.h"
 #include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
@@ -269,6 +270,47 @@ static void test_framewalk_ncid_then_stream(void) {
   CHECK(framewalk_next(&it, &fr) == 0);
 }
 
+/* RFC 9000 9.1: PADDING, NEW_CONNECTION_ID, PATH_CHALLENGE and PATH_RESPONSE
+ * are the probing frames; a payload of only those, in any mix, is probing. */
+static void test_framewalk_probing_only(void) {
+  static const u8 data[PATH_DATA] = {1, 2, 3, 4, 5, 6, 7, 8};
+  u8              buf[128];
+  usz             n;
+  ncid_frame      nf = {.seq = 1, .retire_prior_to = 0, .cid_len = 8};
+  n                  = ncid_encode(buf, sizeof buf, &nf);
+  CHECK(framewalk_non_probing(wired_span_of(buf, n)) == 0);
+  n = path_encode(buf, sizeof buf, FRAME_PATH_CHALLENGE, data);
+  CHECK(framewalk_non_probing(wired_span_of(buf, n)) == 0);
+  n = path_encode(buf, sizeof buf, FRAME_PATH_RESPONSE, data);
+  CHECK(framewalk_non_probing(wired_span_of(buf, n)) == 0);
+  n += ncid_encode(buf + n, sizeof buf - n, &nf);
+  buf[n++] = FRAME_PADDING;
+  CHECK(framewalk_non_probing(wired_span_of(buf, n)) == 0);
+}
+
+/* Any other frame makes the packet non-probing, ACK alone included; one
+ * case per frame type, each after a probing PATH_CHALLENGE. */
+static void test_framewalk_non_probing_each_type(void) {
+  static const u8 data[PATH_DATA] = {1, 2, 3, 4, 5, 6, 7, 8};
+  static const u8 frames[][5]     = {{FRAME_PING},    {FRAME_ACK, 0, 0, 0, 0},
+                                     {0x08, 0, 'x'},  {0x06, 0, 1, 'x'},
+                                     {0x04, 0, 0, 0}, {0x05, 0, 0},
+                                     {0x07, 1, 'x'},  {0x10, 0},
+                                     {0x11, 0, 0},    {0x12, 0},
+                                     {0x14, 0},       {0x15, 0, 0},
+                                     {0x16, 0},       {0x19, 0},
+                                     {0x1c, 0, 0, 0}, {0x1e},
+                                     {0x30}};
+  static const u8 lens[] = {1, 5, 3, 4, 4, 3, 3, 2, 3, 2, 2, 3, 2, 2, 4, 1, 1};
+  for (usz i = 0; i < sizeof lens; i++) {
+    u8  buf[64];
+    usz n = path_encode(buf, sizeof buf, FRAME_PATH_CHALLENGE, data);
+    CHECK(framewalk_non_probing(wired_span_of(frames[i], lens[i])) == 1);
+    bytes_memcpy(buf + n, frames[i], lens[i]);
+    CHECK(framewalk_non_probing(wired_span_of(buf, n + lens[i])) == 1);
+  }
+}
+
 void test_framewalk(void) {
   test_framewalk_sequence();
   test_framewalk_unmeasurable();
@@ -280,4 +322,6 @@ void test_framewalk(void) {
   test_framewalk_flow_frames_then_ping();
   test_framewalk_conn_frames_then_ping();
   test_framewalk_ncid_then_stream();
+  test_framewalk_probing_only();
+  test_framewalk_non_probing_each_type();
 }

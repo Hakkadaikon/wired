@@ -190,3 +190,21 @@ int framewalk_ack_eliciting(wired_span pl) {
     eliciting |= frame_ack_eliciting(frame_classify(fr.type));
   return eliciting;
 }
+
+/* RFC 9000 9.1: the probing frame kinds. */
+static const u8 FRAMEWALK_PROBING[FK_RESET_STREAM_AT + 1] = {
+    [FK_PADDING]           = 1,
+    [FK_NEW_CONNECTION_ID] = 1,
+    [FK_PATH_CHALLENGE]    = 1,
+    [FK_PATH_RESPONSE]     = 1,
+};
+
+int framewalk_non_probing(wired_span pl) {
+  framewalk      it;
+  framewalk_item fr;
+  int            np = 0;
+  framewalk_init(&it, pl.p, pl.n);
+  while (framewalk_next(&it, &fr))
+    np |= !FRAMEWALK_PROBING[frame_classify(fr.type)];
+  return np;
+}
