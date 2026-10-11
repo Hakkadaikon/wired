@@ -1839,11 +1839,12 @@ static int qdec_stream_open(const wired_srvloop* l, u64 id) {
 }
 
 /* RFC 9204 4.4.2 / 2.2.2.2: a reset request stream with a slot owes a
- * Stream Cancellation once the peer inserted anything its sections could
- * reference. Still receiving (RFC 9000 3.2), it is noted in reset_slots --
- * read before the step end re-arms a completed slot's req_done. */
+ * Stream Cancellation (qdec_cancel_slot, sent once the peer inserted
+ * anything its sections could reference). Still receiving (RFC 9000 3.2), it is
+ * noted in reset_slots -- read before the step end re-arms a completed slot's
+ * req_done. */
 static void reset_cancel_slot(wired_srvloop* l, int i) {
-  if (qdec_table_used(l)) qdec_cancel_slot(l, i);
+  qdec_cancel_slot(l, i);
   if (!l->streams[i].req_done) l->reset_slots |= (u64)1 << i;
 }
 
