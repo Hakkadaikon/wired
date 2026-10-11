@@ -150,7 +150,7 @@ static void mupf_up_ok(i64 sid, u64 g, u64 o) {
 }
 
 /* An upstream fetch data stream being built. */
-static u8           mupf_buf[49152];
+static u8           mupf_buf[2 * WIRED_SRVLOOP_WT_BUF_CAP];
 static usz          mupf_n;
 static moqfetch_seq mupf_seq;
 
@@ -1415,9 +1415,12 @@ static void test_moqtrun_upfetch_malformed_unanswered(void) {
 
 /* B's fetch stream items as the hub wrote them, uncut (the recording io
  * keeps only a prefix of each write). */
-static u8  mupf_cap[65536];
+static u8  mupf_cap[2 * WIRED_SRVLOOP_WT_BUF_CAP];
 static usz mupf_cap_n;
 static int (*mupf_cap_next)(wired_wt_session*, u64, wired_span, int);
+/* Where mupf_cap_is reads the captured items next. */
+static usz          mupf_cap_off;
+static moqfetch_seq mupf_cap_seq;
 
 static int mupf_cap_send(wired_wt_session* s, u64 sid, wired_span p, int fin) {
   int r = mupf_cap_next(s, sid, p, fin);
@@ -1434,10 +1437,13 @@ static i64 mupf_big_setup(moqfetch_req* m) {
   mupf_init();
   mupf_cache_group(3, 1);
   mupf_fetch(mupf_rl(1, 0, 3, 0), 0);
-  mupf_cap_n              = 0;
-  mupf_cap_next           = mtst_hub.io.stream_send;
-  mtst_hub.io.stream_send = mupf_cap_send;
-  i64 sid                 = mupf_up(SESS_A, 0, m);
+  mupf_cap_n                 = 0;
+  mupf_cap_off               = 0;
+  mupf_cap_seq               = (moqfetch_seq){0};
+  mupf_cap_seq.eor_timed_out = 1;
+  mupf_cap_next              = mtst_hub.io.stream_send;
+  mtst_hub.io.stream_send    = mupf_cap_send;
+  i64 sid                    = mupf_up(SESS_A, 0, m);
   mupf_hdr(m->request_id, 0);
   return sid;
 }
@@ -1449,6 +1455,88 @@ static void mupf_send_cut(usz cut, int fin) {
   wired_moqt_on_stream_data(
       &mtst_hub, SESS_A, MUPF_DATA_SID,
       wired_span_of(mupf_buf + cut, mupf_n - cut), fin);
+}
+
+/* A delivers built bytes [from, to). */
+static void mupf_deliver(usz from, usz to, int fin) {
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, MUPF_DATA_SID,
+      wired_span_of(mupf_buf + from, to - from), fin);
+}
+
+/* The next Object B got whole is {g, o} of n bytes, its first and last
+ * b. */
+static int mupf_cap_is(u64 g, u64 o, usz n, u8 b) {
+  moqfetch_obj ob;
+  if (moqfetch_obj_take(
+          wired_span_of(mupf_cap, mupf_cap_n), &mupf_cap_off, &mupf_cap_seq,
+          &ob) != MOQCTL_OK)
+    return 0;
+  return ob.group == g && ob.object == o && ob.payload.n == n &&
+         ob.payload.p[0] == b && ob.payload.p[n - 1] == b;
+}
+
+/* A small Object torn mid-payload is held whole until it is in, so a
+ * refused write of it leaves nothing half-sent: the cache side serves
+ * from the cursor and B's stream is not reset. */
+static void test_moqtrun_upfetch_torn_small_refused(void) {
+  moqfetch_req m   = {0};
+  i64          sid = mupf_big_setup(&m);
+  mupf_obj(1, 0, 8);
+  mupf_deliver(0, mupf_n - 3, 0);
+  CHECK(mupf_cap_n == 0);
+  g_stream_send_reject_n = 1;
+  mupf_deliver(mupf_n - 3, mupf_n, 0);
+  CHECK(mupf_log_is(SESS_A, (u64)sid, "RST1|STOP1|"));
+  CHECK(mupf_reset_code() == ~(u64)0);
+  CHECK(mupf_read(0) && mf_n == 2 && mf_fin);
+  CHECK(mf_is_unknown(0, 2, MOQCACHE_OBJ_ID_MAX) && mf_is_obj(1, 3, 0, 1));
+}
+
+/* An Object cut inside its Payload Length (back 1) or right after its
+ * head (back 0) reaches B whole, held (n 100) or passed through (n
+ * 40000). */
+static void mupf_cut_at_head(usz n, usz back) {
+  moqfetch_req m = {0};
+  mupf_big_setup(&m);
+  mupf_obj_b(1, 0, n, 0x5A);
+  mupf_send_cut(mupf_n - n - back, 0);
+  CHECK(mupf_cap_is(1, 0, n, 0x5A) && mupf_cap_off == mupf_cap_n);
+}
+
+static void test_moqtrun_upfetch_cut_at_head(void) {
+  mupf_cut_at_head(100, 0);
+  mupf_cut_at_head(100, 1);
+  mupf_cut_at_head(40000, 0);
+  mupf_cut_at_head(40000, 1);
+}
+
+/* A head held at its limit, then a full delivery: the head goes out
+ * wider than upstream's (every field written), the payload after it
+ * unchanged. */
+static void test_moqtrun_upfetch_wide_head(void) {
+  static u8    props[16378] = {0x0D, 0x40 | (16375 >> 8), 16375 & 0xFF};
+  static u8    pl[50000];
+  moqfetch_req m  = {0};
+  moqfetch_obj ob = {0};
+  mupf_big_setup(&m);
+  mupf_obj(1, 0, 1);
+  usz at = mupf_n;
+  for (usz i = 0; i < sizeof pl; i++) pl[i] = 0x5A;
+  ob.flags     = MOQFETCH_F_PROPS;
+  ob.group     = 1;
+  ob.object    = 1;
+  ob.has_props = 1;
+  ob.props     = wired_span_of(props, sizeof props);
+  ob.payload   = wired_span_of(pl, sizeof pl);
+  mupf_put(&ob);
+  CHECK(mupf_n - at - sizeof pl == WIRED_MOQTRUN_RELAY_FRAG_MAX);
+  at += WIRED_MOQTRUN_RELAY_FRAG_MAX - 1;
+  mupf_deliver(0, at, 0);
+  mupf_deliver(at, at + WIRED_SRVLOOP_WT_BUF_CAP, 0);
+  mupf_deliver(at + WIRED_SRVLOOP_WT_BUF_CAP, mupf_n, 0);
+  CHECK(mupf_cap_is(1, 0, 1, 0x10) && mupf_cap_is(1, 1, sizeof pl, 0x5A));
+  CHECK(mupf_cap_off == mupf_cap_n);
 }
 
 /* d22 7.8: an Object larger than any held tail, torn mid-payload, is
@@ -1736,6 +1824,9 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_large_object();
   test_moqtrun_upfetch_leg_ends_mid_object();
   test_moqtrun_upfetch_torn_conflict();
+  test_moqtrun_upfetch_torn_small_refused();
+  test_moqtrun_upfetch_cut_at_head();
+  test_moqtrun_upfetch_wide_head();
   test_moqtrun_upfetch_mandatory();
   test_moqtrun_upfetch_owner_gone_fill();
   test_moqtrun_upfetch_owner_gone_fetch();
