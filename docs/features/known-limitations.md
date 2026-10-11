@@ -454,9 +454,13 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   option); fixed 1200-byte maximum datagram for the initial window; no
   PLPMTU sharing across flows; no ERROR/DISABLED phases. Source:
   `ledger:rfc8899.md`, `ledger:rfc9000.md`, `ledger:rfc9002.md` Out of scope.
-- **Optional RFC 9002 heuristics not implemented** — min_rtt re-establishment,
-  RTT reuse across connections, loss leniency for pre-key packets, RFC 7661
-  window update, CE-marking probe. Source: `ledger:rfc9002.md` Out of scope.
+- **Optional RFC 9002 heuristics not implemented** — these are MAY items:
+  re-establishing min_rtt at other times (5.2; the SHOULD reset on persistent
+  congestion is done), RTT reuse across connections, loss leniency for pre-key
+  packets, RFC 7661 window update, CE-marking probe. Persistent congestion
+  (7.6.2) is declared, conservatively: a loss period overlapping an ACK from
+  an earlier ACK frame is not declared. Source: `ledger:rfc9002.md` Out of
+  scope.
 - **IPv4/UDP/IP details** — no IP options, fragmentation/reassembly, ToS use,
   TTL fixed 64 on the AF_XDP path; UDP source port 0 case not handled. Source:
   `ledger:rfc791.md`, `ledger:rfc768.md` Out of scope.
