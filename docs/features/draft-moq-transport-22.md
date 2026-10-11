@@ -387,12 +387,14 @@ Legend:
 - [x] MQ22-209 A subscription waiting for a new path shall get no second
   SUBSCRIBE_OK and no REQUEST_ERROR (SS3.1: one response per request), while
   a new SUBSCRIBE for the same Track is still answered from the pending
-  upstream (never one to the subscriber's own session), or DOES_NOT_EXIST at
+  upstream (never one to the subscriber's own session: with
+  RENDEZVOUS_TIMEOUT it waits on to its deadline), or DOES_NOT_EXIST at
   once when only announcers already tried in the wait remain.
   - test: `tests/app/moqtrun_repath_test.c` —
     `test_moqtrun_repath_takeover`, `test_moqtrun_repath_refusal_hidden`,
     `test_moqtrun_repath_fresh_rides`, `test_moqtrun_repath_fresh_dne`,
-    `test_moqtrun_repath_fresh_own_upstream`
+    `test_moqtrun_repath_fresh_own_upstream`,
+    `test_moqtrun_repath_fresh_own_upstream_rt`
 - [x] MQ22-210 If no new path is Established by the deadline, then the
   relay shall send each waiting subscription exactly one PUBLISH_DONE with
   the original end's status (GOING_AWAY or INTERNAL_ERROR; INTERNAL_ERROR

@@ -2182,8 +2182,23 @@ static void moqtrun_rp_do_relinked(
     wired_moqtrun_track*     t,
     u64                      code);
 
+/* Re-path block: the upstream SUBSCRIBE whose SUBSCRIBE_OK claimed t. */
+static wired_moqtrun_up* moqtrun_up_of_track(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t);
+
+/* t came by the hub's upstream SUBSCRIBE to fresh hold r's own session:
+ * never r's answer (its own announcement never serves it), r keeps
+ * waiting. A wait for a new path is answered there anyway
+ * (moqtrun_rp_do_relinked). */
+static int moqtrun_rdv_own_up(
+    wired_moqt_hub* hub, const wired_moqtrun_rdv* r, wired_moqtrun_track* t) {
+  const wired_moqtrun_up* u = moqtrun_up_of_track(hub, t);
+  return !r->repath && u && u->wt == r->wt;
+}
+
 static void moqtrun_rdv_resolve_one(
     wired_moqt_hub* hub, wired_moqtrun_rdv* r, wired_moqtrun_track* t) {
+  if (moqtrun_rdv_own_up(hub, r, t)) return;
   moqtrun_rdv_answer(
       hub, r, r->repath ? moqtrun_rp_do_relinked : moqtrun_rdv_do_resolve, t,
       0);

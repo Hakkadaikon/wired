@@ -591,6 +591,21 @@ static void test_moqtrun_repath_fresh_own_upstream(void) {
   CHECK(mrdv_is(SESS_B, MRDV_S2, "E10|FIN|"));
 }
 
+/* Nor with RENDEZVOUS_TIMEOUT: the hold never resolves to the track the
+ * hub's SUBSCRIBE to B claims, and times out at its deadline. */
+static void test_moqtrun_repath_fresh_own_upstream_rt(void) {
+  mrp_init();
+  mrp_announce(SESS_B);
+  mrp_end(MRP_GA);
+  mrdv_hold(SESS_B, MRDV_S2, 1000);
+  CHECK(mrdv_is(SESS_B, MRDV_S2, ""));
+  mrp_ok(SESS_B, mrp_up(SESS_B, 0));
+  CHECK(mrdv_is(SESS_B, MRDV_S2, ""));
+  CHECK(mrp_relayed(SESS_B));
+  wired_moqt_tick(&mtst_hub, 1000);
+  CHECK(mrdv_is(SESS_B, MRDV_S2, "E2|FIN|"));
+}
+
 /* A new SUBSCRIBE finding only the publisher that just ended is
  * DOES_NOT_EXIST at once. */
 static void test_moqtrun_repath_fresh_dne(void) {
@@ -751,6 +766,7 @@ static void mtall_repath(void) {
   test_moqtrun_repath_fresh_rides();
   test_moqtrun_repath_fresh_dne();
   test_moqtrun_repath_fresh_own_upstream();
+  test_moqtrun_repath_fresh_own_upstream_rt();
   test_moqtrun_repath_no_room();
   test_moqtrun_repath_table_full();
   test_moqtrun_repath_update();
