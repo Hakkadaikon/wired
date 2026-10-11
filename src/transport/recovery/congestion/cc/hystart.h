@@ -29,7 +29,10 @@ void hystart_init(hystart* h);
  * round. RFC 9406 4.2: at least 8 samples in the round and the round min
  * exceeding last round's min by clamp(4ms, last/8, 16ms) enters CSS; in CSS
  * a round min back below the CSS baseline resumes slow start. Returns 1
- * when slow start should end now: CSS_ROUNDS (5) rounds spent in CSS. */
+ * when slow start should end now: CSS_ROUNDS (5) rounds spent in CSS.
+ * RFC 9406 4.2 does not say whether the round CSS was entered in counts;
+ * here it does, so the exit comes after that partial round plus 4 full
+ * ones. */
 int hystart_sample(hystart* h, u64 rtt_ms, u64 acked_pn, u64 next_pn);
 
 /* The bytes slow start should grow cwnd by for acked newly-acked bytes:
