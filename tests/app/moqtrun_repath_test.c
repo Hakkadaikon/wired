@@ -431,7 +431,7 @@ static void test_moqtrun_repath_stale_ok(void) {
 
 /* The new upstream ends again: a fresh wait, and A -- tried in the first
  * one -- is asked. */
-static void test_moqtrun_repath_second_episode(void) {
+static void test_moqtrun_repath_ends_again(void) {
   mrp_init();
   mrp_announce(SESS_B);
   mrp_end(MRP_GA);
@@ -557,7 +557,7 @@ static void mtall_repath(void) {
   test_moqtrun_repath_new_closes();
   test_moqtrun_repath_one_upstream();
   test_moqtrun_repath_stale_ok();
-  test_moqtrun_repath_second_episode();
+  test_moqtrun_repath_ends_again();
   test_moqtrun_repath_done_once();
   test_moqtrun_repath_fresh_rides();
   test_moqtrun_repath_fresh_dne();

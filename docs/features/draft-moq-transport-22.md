@@ -368,7 +368,7 @@ Legend:
     `test_moqtrun_repath_takeover`, `test_moqtrun_repath_each_end`,
     `test_moqtrun_repath_late_announce`, `test_moqtrun_repath_failover`,
     `test_moqtrun_repath_ender_skipped`, `test_moqtrun_repath_own_announce`,
-    `test_moqtrun_repath_second_episode`, `test_moqtrun_repath_update`
+    `test_moqtrun_repath_ends_again`, `test_moqtrun_repath_update`
   - note: one upstream per Track at a time; SS7.6 says every matching
     publisher MUST be subscribed, and a newly announcing one for each
     matching subscription -- the hub does so only while subscriptions wait
