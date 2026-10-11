@@ -1162,19 +1162,6 @@ static void test_moqtrun_ssts_pacer_loss_disarms(void) {
  * announced namespace. A ends it GOING_AWAY, B waits (the set drops the
  * inactive member meanwhile) and is re-attached through E: having left
  * its set, the subscription gets E's next Group. */
-/* PUBLISH_DONEs on B's request stream sid. */
-static usz mtss_dones(u64 sid) {
-  usz n = 0;
-  u64 count;
-  for (usz i = 0; i < g_n_calls; i++) {
-    const moqtrun_test_call* c = &g_calls[i];
-    if (c->s != SESS_B || c->stream_id != sid) continue;
-    if (c->kind != 3 && c->kind != 12) continue;
-    n += mtdr_done_in(c, &count) != ~(u64)0;
-  }
-  return n;
-}
-
 static void mtss_repath_run(int rejoin) {
   moqctl_ftn    hi = mtss_hi();
   moqctl_params ph =
@@ -1206,7 +1193,7 @@ static void mtss_repath_run(int rejoin) {
   }
   mrp_ok(MRP_E, mrp_up(MRP_E, 0));
   CHECK(mtss_set7() == 0);
-  CHECK(mtss_dones(MTSS_SID_HI) == (usz)rejoin);
+  CHECK(mrp_dones_on(SESS_B, MTSS_SID_HI) == (usz)rejoin);
   moqtrun_test_reset();
   mrp_group(MRP_E, MUPS_DATA_SID, 5, MOQDATA_STATUS_NORMAL);
   CHECK(mups_relayed_alias(SESS_B) == (rejoin ? ~(u64)0 : mtss_ah));
