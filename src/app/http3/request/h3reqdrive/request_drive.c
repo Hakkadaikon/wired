@@ -586,20 +586,17 @@ static int trailer_scan_lines(rd_cursor* cur) {
  * @param stream_data the STREAM frame payload carrying the request
  * @param scratch caller-supplied scratch backing the trailer's literal
  *   values during the walk (discarded once this call returns)
+ * @param dyn the dynamic table the trailer's references resolve against
  * @return 1 if there is no trailer, or the trailer has no pseudo-header and
  *   no malformed line; 0 if the trailer is malformed or carries one. */
-int wired_h3reqdrive_trailer_ok(wired_span stream_data, wired_mspan scratch) {
+int wired_h3reqdrive_trailer_ok(
+    wired_span stream_data, wired_mspan scratch, const qpack_dyn* dyn) {
   wired_span trailer_fs = wired_span_of(0, 0);
-  rd_cursor  cur;
+  rd_cursor  cur        = {trailer_fs, scratch, 0, 0, {dyn, 0, trailer_fs, 0}};
   if (!wired_h3reqdrive_request_trailer(stream_data, &trailer_fs)) return 1;
-  cur.off = qpack_prefix_decode(trailer_fs.p, trailer_fs.n, &(qpack_prefix){0});
+  cur.fs     = trailer_fs;
+  cur.dyn.fs = trailer_fs;
+  cur.off    = prefix_base(trailer_fs, dyn, &cur.dyn.base, &cur.dyn.ric);
   if (!cur.off) return 0;
-  cur.fs        = trailer_fs;
-  cur.scr       = scratch;
-  cur.used      = 0;
-  cur.dyn.table = 0;
-  cur.dyn.base  = 0;
-  cur.dyn.ric   = 0;
-  cur.dyn.fs    = trailer_fs;
   return trailer_scan_lines(&cur);
 }

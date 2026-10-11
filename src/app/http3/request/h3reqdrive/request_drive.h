@@ -197,8 +197,11 @@ int wired_h3reqdrive_recv_get_dyn(
  * @param stream_data the STREAM frame payload carrying the request
  * @param scratch caller-supplied scratch backing the trailer's literal
  *   values during the walk (discarded once this call returns)
+ * @param dyn the connection's QPACK dynamic table the trailer's references
+ *   resolve against (RFC 9204 2.2), or 0 when there is none
  * @return 1 if there is no trailer or it is free of pseudo-headers, 0 if the
  *   trailer is malformed or carries a pseudo-header. */
-int wired_h3reqdrive_trailer_ok(wired_span stream_data, wired_mspan scratch);
+int wired_h3reqdrive_trailer_ok(
+    wired_span stream_data, wired_mspan scratch, const qpack_dyn* dyn);
 
 #endif

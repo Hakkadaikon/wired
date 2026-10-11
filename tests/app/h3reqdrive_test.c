@@ -794,7 +794,7 @@ static void test_reqdrive_trailer_pseudoheader_rejected(void) {
   u8  req[256], scratch[128];
   usz req_len = build_request_with_trailer(req, sizeof req, ":status", "200");
   CHECK(!wired_h3reqdrive_trailer_ok(
-      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch)));
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch), 0));
 }
 
 /* A trailer section with only regular fields is accepted. */
@@ -803,7 +803,7 @@ static void test_reqdrive_trailer_regular_ok(void) {
   usz req_len =
       build_request_with_trailer(req, sizeof req, "x-checksum", "abc123");
   CHECK(wired_h3reqdrive_trailer_ok(
-      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch)));
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch), 0));
 }
 
 /* A request with no trailer section at all is vacuously ok. */
@@ -819,7 +819,7 @@ static void test_reqdrive_no_trailer_ok(void) {
       wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
       &r));
   CHECK(wired_h3reqdrive_trailer_ok(
-      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch)));
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch), 0));
 }
 
 static void test_reqdrive_dynamic_table(void) {
@@ -1010,7 +1010,7 @@ static void test_h3reqdrive_trailer_oversized_rejected(void) {
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof req, &req_len));
 
   CHECK(!wired_h3reqdrive_trailer_ok(
-      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch)));
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch), 0));
 }
 
 /* Boundary companions to the two oversized pinning tests above (V-0421/
@@ -1088,7 +1088,7 @@ static int rd_trailer_value_len_accepted(usz value_len) {
   h3_len += h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(tfs, tfs_len));
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof req, &req_len));
   return wired_h3reqdrive_trailer_ok(
-      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch));
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch), 0);
 }
 
 static void test_h3reqdrive_trailer_field_section_at_cap_accepted(void) {
@@ -1427,27 +1427,35 @@ static void test_reqdrive_literal_dynamic_names(void) {
   CHECK(rd_eq(r.path, r.path_len, "/y", 2));
 }
 
-/* A trailer section is decoded with no dynamic table: a dynamic reference
- * in it (here an Indexed Field Line, T=0) is rejected, never resolved
- * through the absent table. */
-static void test_reqdrive_trailer_dynamic_ref_rejected(void) {
-  static const u8 trl[] = {0x00, 0x00, 0x80};
-  u8              fs[64], h3[256], req[256], scratch[128];
-  usz             fs_len = curl_field_section(fs), h3_len, req_len = 0;
-  wired_obuf      hob = {h3, sizeof h3, 0};
+/* RFC 9204 2.2 / RFC 9114 4.1: a trailer section is encoded like any other
+ * field section, so a dynamic reference in it (an Indexed Field Line, T=0,
+ * RIC 1) resolves through the table; with no table it cannot. */
+static void test_reqdrive_trailer_dynamic_ref_resolves(void) {
+  static const u8 trl[] = {0x02, 0x00, 0x80};
+  qpack_field     f     = {
+      wired_span_of((const u8*)"x-t", 3), wired_span_of((const u8*)"v", 1)};
+  qpack_dyn  t;
+  u8         fs[64], h3[256], req[256], scratch[128];
+  usz        fs_len = curl_field_section(fs), h3_len, req_len = 0;
+  wired_obuf hob = {h3, sizeof h3, 0};
   h3_len = h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
   hob    = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
   h3_len += h3_frame_put(&hob, H3_FRAME_DATA, wired_span_of(trl, 1));
   hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
   h3_len += h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(trl, 3));
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof req, &req_len));
+  qpack_dyn_init(&t, 220);
+  CHECK(qpack_dyn_insert(&t, &f));
+  CHECK(wired_h3reqdrive_trailer_ok(
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
+      &t));
   CHECK(!wired_h3reqdrive_trailer_ok(
-      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch)));
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch), 0));
 }
 
 void test_h3reqdrive(void) {
   test_reqdrive_literal_dynamic_names();
-  test_reqdrive_trailer_dynamic_ref_rejected();
+  test_reqdrive_trailer_dynamic_ref_resolves();
   test_reqdrive_b2_section_ric();
   test_reqdrive_ric_past_inserts_fails();
   test_reqdrive_bad_ref_is_qpack_failure();
