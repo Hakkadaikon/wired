@@ -219,13 +219,22 @@ static usz rx_apply(qdyn_encrx* rx, qpack_dyn* t, u64 max, u16* err) {
   return used;
 }
 
-/* Slide the consumed prefix (n <= the contiguous bytes) out of the window. */
-/* Shift the received-byte marks down by n, clearing the vacated top. */
-static void rx_shift_marks(qdyn_encrx* rx, usz n) {
-  for (usz i = 0; i < rx->hi; i++)
-    rx_mark(rx, i, i + n < rx->hi && rx_has(rx, i + n));
+/* Mark byte i of the first `bytes`, 0 past them. */
+static u8 rx_have_byte(const qdyn_encrx* rx, usz i, usz bytes) {
+  return i < bytes ? rx->have[i] : 0;
 }
 
+/* Shift the received-byte marks down by n a whole mark byte at a time,
+ * clearing the vacated top (marks past hi are always clear). */
+static void rx_shift_marks(qdyn_encrx* rx, usz n) {
+  usz bytes = (rx->hi + 7) / 8, q = n / 8, r = n % 8;
+  for (usz i = 0; i < bytes; i++)
+    rx->have[i] = (u8)((rx_have_byte(rx, i + q, bytes) >> r) |
+                       (rx_have_byte(rx, i + q + 1, bytes) << (8 - r)));
+}
+
+/* Slide the consumed prefix (n <= the contiguous bytes) out of the window:
+ * the bytes and their marks move down by n, base up by n. */
 static void rx_slide(qdyn_encrx* rx, usz n) {
   if (n == 0) return; /* nothing consumed: moving the window is pure cost */
   bytes_move_down(rx->buf, rx->buf + n, rx->hi - n);

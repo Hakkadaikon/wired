@@ -310,6 +310,26 @@ static void test_encrx_errors(void) {
   CHECK(err == QPACK_ENCODER_STREAM_ERROR);
 }
 
+/* RFC 9000 2.2: bytes held past a gap keep their received marks when the
+ * window slides by a count that is not a whole mark byte (4 here). */
+static void test_encrx_slide_keeps_marks_past_gap(void) {
+  static qdyn_encrx rx;
+  u8                s[64] = {0x02, 0x3f, 0xbd, 0x01};
+  usz               n     = 4;
+  qpack_dyn         t;
+  u16               err = 0;
+  for (usz i = 0; i < 10; i++) {
+    s[n++] = 0x40; /* insert "" "" */
+    s[n++] = 0x00;
+  }
+  es_rx_init(&rx, &t);
+  CHECK(qdyn_encrx_feed(&rx, 6, wired_span_of(s + 6, n - 6), &t, 4096, &err));
+  CHECK(qdyn_encrx_feed(&rx, 0, wired_span_of(s, 4), &t, 4096, &err));
+  CHECK(rx.base == 4 && t.count == 0);
+  CHECK(qdyn_encrx_feed(&rx, 4, wired_span_of(s + 4, 2), &t, 4096, &err));
+  CHECK(rx.base == n && t.dropped + t.count == 10 && err == 0);
+}
+
 /* The encoder window is exactly the per-stream credit a peer uni stream is
  * given, so no byte the peer may send can fall outside it. */
 static void test_encrx_window_matches_credit(void) {
@@ -389,6 +409,7 @@ void test_qpackdyn_enc_stream(void) {
   test_encrx_nonminimal_type();
   test_encrx_other_type_released();
   test_encrx_holds_whole_credit();
+  test_encrx_slide_keeps_marks_past_gap();
   test_encrx_window_matches_credit();
   test_encrx_marks_are_bits();
   test_enc_stream_b2_inserts();
