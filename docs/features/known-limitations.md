@@ -372,11 +372,19 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   RFC 9220), no server push (PUSH_PROMISE, push-ID priority), no client role
   behaviours. Source: `ledger:rfc9114.md`, `ledger:rfc9218.md`,
   `ledger:rfc9220.md`.
-- **QPACK dynamic table disabled** — the decoder advertises capacity 0 and the
-  encoder emits only Required-Insert-Count-0 sections; the server sends no
-  QPACK instructions. Impact: headers are not compressed across requests.
-  String encoding always H=0 (no Huffman on output). Source: `ledger:rfc9204.md`,
-  `ledger:rfc7541.md` Out of scope.
+- **QPACK dynamic table on the receive side only** — the decoder advertises
+  capacity 2016 and `SETTINGS_QPACK_BLOCKED_STREAMS 0`: it applies the peer's
+  encoder stream and sends Section Acknowledgments and Insert Count
+  Increments, but never blocks a stream (a section needing inserts not yet
+  received is `QPACK_DECOMPRESSION_FAILED`). No Stream Cancellation is sent,
+  and a trailer section cannot reference the dynamic table. The encoder
+  stream's out-of-order bytes are held in a 2048-byte window, and an entry
+  is held only up to a 256-byte name and 1024-byte value; past either the
+  connection closes with `QPACK_ENCODER_STREAM_ERROR`. Encoder stream bytes
+  that arrive before its type byte are dropped (as for the control stream).
+  The server's own encoder table stays at capacity 0, so responses use only
+  Required-Insert-Count-0 sections; string encoding is always H=0 (no Huffman
+  on output). Source: `ledger:rfc9204.md`, `ledger:rfc7541.md` Out of scope.
 - **HTTP semantics are the application's** — no trailers, `Date`, conditional
   or range requests, content negotiation, TRACE; field values are passed
   verbatim. Source: `ledger:rfc9110.md` Out of scope.
