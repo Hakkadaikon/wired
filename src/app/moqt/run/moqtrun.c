@@ -287,6 +287,7 @@ static void moqtrun_init_peer(
   p->goaway_deadline    = (u64)-1;
   p->goaway_flushed_at  = 0;
   p->closing            = 0;
+  p->wt_drained         = 0;
   for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
     p->tracks[t].in_use = 0;
   moqsess_init(&p->sess);
@@ -10216,10 +10217,14 @@ int wired_moqt_goaway(wired_moqt_hub* hub, wired_span new_uri, u64 timeout_ms) {
   return moqtrun_goaway_send(hub, 0, new_uri, timeout_ms);
 }
 
+/* A peer draining its session is answered with the hub's GOAWAY and, as
+ * if it had sent one, is asked nothing new (moqtrun_up_peer_usable). */
 void wired_moqt_on_session_draining(void* app_ctx, wired_wt_session* s) {
+  wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
+  wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
+  if (p) p->wt_drained = 1;
   moqtrun_goaway_send(
-      (wired_moqt_hub*)app_ctx, s, wired_span_of(0, 0),
-      WIRED_MOQTRUN_DRAIN_TIMEOUT_MS);
+      hub, s, wired_span_of(0, 0), WIRED_MOQTRUN_DRAIN_TIMEOUT_MS);
 }
 
 /* ======= upstream SUBSCRIBE (draft-18/19 9.4-9.5, draft-22 7.4/7.6) =======
@@ -10276,10 +10281,11 @@ static void moqtrun_rp_untry(wired_moqt_hub* hub, const wired_moqtrun_req* q) {
 
 /* p may be sent a new request: connected, not being closed by the hub
  * (nothing more goes to it, moqtrun_rdv_target), and p sent no GOAWAY
- * (draft-22 9.2: the receiver SHOULD NOT initiate new requests; the
- * hub's own GOAWAY does not stop it, the re-paths of a drain need it). */
+ * nor drained its session (draft-22 9.2: the receiver SHOULD NOT
+ * initiate new requests; the hub's own GOAWAY does not stop it, the
+ * re-paths of a drain need it). */
 static int moqtrun_up_peer_usable(const wired_moqtrun_peer* p) {
-  return moqtrun_rdv_peer_open(p) && !p->sess.goaway_recv;
+  return moqtrun_rdv_peer_open(p) && !p->sess.goaway_recv && !p->wt_drained;
 }
 
 /* q may be asked: it covers k, its session not skipped and usable. */

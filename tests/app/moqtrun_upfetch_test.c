@@ -521,7 +521,8 @@ static void mupf_tried(wired_wt_session* s) {
 }
 
 /* d22 7.6 / 9.2: an owner that may not be asked -- one that sent the hub
- * a GOAWAY, being closed by the hub, or the requester itself -- leaves
+ * a GOAWAY, being closed by the hub, the requester itself, or one whose
+ * WebTransport session is draining (as good as its GOAWAY) -- leaves
  * the FETCH to a covering announcer (C), never to the excluded one. */
 static void mupf_owner_excluded(int how) {
   wired_moqtrun_peer* a = moqtrun_find_by_wt(&mtst_hub, SESS_A);
@@ -530,12 +531,13 @@ static void mupf_owner_excluded(int how) {
   mupf_cache_group(3, 1);
   a->sess.goaway_recv = how == 0;
   a->closing          = how == 1;
+  if (how == 3) wired_moqt_on_session_draining(&mtst_hub, SESS_A);
   mupf_fetch_on(s, mf_track(), mupf_rl(1, 0, 3, 0), 0);
   CHECK(mupf_n_up(SESS_A) == 0 && mupf_n_up(SESS_C) == 1);
 }
 
 static void test_moqtrun_upfetch_owner_excluded(void) {
-  for (int how = 0; how < 3; how++) {
+  for (int how = 0; how < 4; how++) {
     int fails = wired_test_fails;
     mupf_owner_excluded(how);
     if (wired_test_fails != fails) printf("  ^ exclusion %d\n", how);

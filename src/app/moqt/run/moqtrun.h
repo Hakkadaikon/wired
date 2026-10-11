@@ -1215,6 +1215,9 @@ typedef struct {
   /** 1 once the hub asked the transport to close the session: nothing
    * more is sent on it. */
   u8 closing;
+  /** 1 once the peer drains its WebTransport session (WT_DRAIN_SESSION):
+   * like its GOAWAY, the hub sends it no new request. */
+  u8 wt_drained;
   /* --- byte arrays --- */
   /** The kept head of stream pre_sid: at most one MOQT varint (9 bytes),
    * pre_n of them valid. */
