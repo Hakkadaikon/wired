@@ -23,6 +23,7 @@
 #include "transport/packet/frame/frame/dispatch.h"
 #include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/frame/ncid_check.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
 #include "transport/packet/frame/pipeline/framewalk.h"
 #include "transport/stream/data/appdata/stream_send.h"
@@ -1135,6 +1136,35 @@ static int gather_path_response(wired_srvloop* l, const u8* payload, usz len) {
   return seen;
 }
 
+static int ncid_well_formed(usz n, const ncid_frame* f) {
+  return n && ncid_check(f->seq, f->retire_prior_to, f->cid_len);
+}
+
+/* RFC 9000 19.15: keep one well-formed NEW_CONNECTION_ID frame for the
+ * owner (one past WIRED_SRVLOOP_NCID_RX is skipped); a malformed one latches
+ * ncid_malformed, a FRAME_ENCODING_ERROR. */
+static void gather_one_ncid(wired_srvloop* l, wired_span frame) {
+  ncid_frame f;
+  if (!ncid_well_formed(ncid_decode(frame.p, frame.n, &f), &f)) {
+    l->ncid_malformed = 1;
+    return;
+  }
+  if (l->ncid_rx_n < WIRED_SRVLOOP_NCID_RX) l->ncid_rx[l->ncid_rx_n++] = f;
+}
+
+static int gather_ncid(wired_srvloop* l, const u8* payload, usz len) {
+  framewalk      it;
+  framewalk_item fr;
+  int            seen = 0;
+  framewalk_init(&it, payload, len);
+  while (framewalk_next(&it, &fr)) {
+    if (frame_classify(fr.type) != FK_NEW_CONNECTION_ID) continue;
+    seen = 1;
+    gather_one_ncid(l, wired_span_of(fr.start, fr.remaining));
+  }
+  return seen;
+}
+
 /* RFC 9000 19.9: scan this payload for MAX_DATA frames, mirroring
  * gather_stream_closes' shape for a different frame kind. Returns 1 if any
  * was seen. */
@@ -1773,7 +1803,7 @@ static int dispatch_gather_closes(
 static int dispatch_gather_flowctl(
     const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
   int got_max_data, got_max_stream_data, got_max_streams, got_streams_blocked,
-      got_path_resp, got_path_chal;
+      got_path_resp, got_path_chal, got_ncid;
   if (!ctx->l) return 0;
   got_max_data        = gather_max_data(ctx->l, payload.p, payload.n);
   got_max_stream_data = gather_max_stream_data(ctx->l, payload.p, payload.n);
@@ -1781,8 +1811,9 @@ static int dispatch_gather_flowctl(
   got_streams_blocked = gather_streams_blocked(ctx->l, payload.p, payload.n);
   got_path_resp       = gather_path_response(ctx->l, payload.p, payload.n);
   got_path_chal       = gather_path_challenge(ctx->l, payload.p, payload.n);
+  got_ncid            = gather_ncid(ctx->l, payload.p, payload.n);
   return got_max_data | got_max_stream_data | got_max_streams |
-         got_streams_blocked | got_path_resp | got_path_chal;
+         got_streams_blocked | got_path_resp | got_path_chal | got_ncid;
 }
 
 /* RFC 9218 7.1 / 10: 1 if ctx has a loop to reassemble the peer's control

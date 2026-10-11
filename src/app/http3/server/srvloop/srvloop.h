@@ -12,6 +12,7 @@
 #include "tls/handshake/roles/server/server.h"
 #include "transport/conn/pnspace/pnspaces/recv_spaces.h"
 #include "transport/packet/frame/frame/connctl.h"
+#include "transport/packet/frame/frame/ncid.h"
 #include "transport/recovery/detect/recovery/ackpolicy.h"
 
 /** @file
@@ -28,6 +29,10 @@
  * Matches srvrun.c's own SRVRUN_MAX_ACK_DELAY_US (25000us = 25ms); kept as
  * a separate constant here since srvloop must not depend on srvrun. */
 #define WIRED_SRVLOOP_MAX_ACK_DELAY_MS 25
+
+/** NEW_CONNECTION_ID frames kept per step (wired_srvloop.ncid_rx); more are
+ * dropped -- the peer may issue at most active_connection_id_limit. */
+#define WIRED_SRVLOOP_NCID_RX 4
 
 /** Build (a round of) the response body for a decoded request. Copy from
  * `req` (its body is a view into per-step scratch, not valid past the call)
@@ -814,6 +819,15 @@ typedef struct {
                                 * step; not reset across steps by this loop
                                 * itself, same convention as max_data_seen_
                                 * flag and streams_blocked_seen_flag. */
+  /** RFC 9000 19.15: the well-formed NEW_CONNECTION_ID frames processed
+   * this step, in arrival order; the owner stores them. */
+  ncid_frame ncid_rx[WIRED_SRVLOOP_NCID_RX];
+  /** Entries used in ncid_rx; reset at the start of every step. */
+  usz ncid_rx_n;
+  /** RFC 9000 19.15: 1 once a malformed NEW_CONNECTION_ID arrived (Retire
+   * Prior To above its Sequence Number, or a bad length): the owner closes
+   * with FRAME_ENCODING_ERROR. Never cleared by this loop. */
+  int ncid_malformed;
   /** RFC 9000 13.4 / RFC 9002 19.3.2: this connection's cumulative count of
    * received datagrams marked ECT(0)/ECT(1)/CE (RFC 3168), monotonically
    * increasing across the connection's whole lifetime -- an ACK frame reports

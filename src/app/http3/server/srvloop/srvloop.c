@@ -118,6 +118,8 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->np_seen                    = 0;
   l->step_np_new                = 0;
   l->drop_newer                 = 0;
+  l->ncid_rx_n                  = 0;
+  l->ncid_malformed             = 0;
   l->hs_rx_pn                   = 0;
   l->hs_rx_hi                   = 0;
   l->hs_rx_seen                 = 0;
@@ -1204,6 +1206,7 @@ int wired_srvloop_step(
   conn->l->ack_n              = 0;
   conn->l->ecn_ack_seen       = 0;
   conn->l->step_np_new        = 0;
+  conn->l->ncid_rx_n          = 0;
   conn->l->done_n             = 0;
   conn->l->incomplete_n       = 0;
   conn->l->frame_unexpected_n = 0;

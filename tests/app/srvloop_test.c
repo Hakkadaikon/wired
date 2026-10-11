@@ -5681,6 +5681,42 @@ static void test_srvloop_drop_newer_discards_only_newer(void) {
   CHECK(recvpn_seen(&f.l.ack_recv.r[PNS_APP], 6) == 1);
 }
 
+/* RFC 9000 19.15: every NEW_CONNECTION_ID frame the step processed is kept
+ * for the owner, one per frame; a malformed one is skipped. */
+static void test_srvloop_ncid_latched(void) {
+  struct lp_fix f;
+  u8            out[1024], pl[128];
+  wired_obuf    ob = {out, sizeof out, 0};
+  ncid_frame    a  = {1, 0, 6, {1, 1, 1, 1, 1, 1}, {0}};
+  ncid_frame    b  = {2, 1, 6, {2, 2, 2, 2, 2, 2}, {0}};
+  usz           n  = ncid_encode(pl, sizeof pl, &a);
+  n += ncid_encode(pl + n, sizeof pl - n, &b);
+  lp_confirm(&f, &ob);
+  srvloop_np_step(&f, 5, pl, n);
+  CHECK(f.l.ncid_rx_n == 2);
+  CHECK(f.l.ncid_rx[0].seq == 1 && f.l.ncid_rx[0].cid[0] == 1);
+  CHECK(f.l.ncid_rx[1].seq == 2 && f.l.ncid_rx[1].retire_prior_to == 1);
+  srvloop_np_step(&f, 6, g_np_ping, 1);
+  CHECK(f.l.ncid_rx_n == 0);
+  CHECK(f.l.ncid_malformed == 0);
+}
+
+/* RFC 9000 19.15: Retire Prior To above the Sequence Number is a
+ * FRAME_ENCODING_ERROR; the frame is not kept. */
+static void test_srvloop_ncid_malformed(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob    = {out, sizeof out, 0};
+  u8            pl[9] = {0x18, 1, 2, 6, 1, 1, 1, 1, 1};
+  u8            fr[32];
+  bytes_memcpy(fr, pl, sizeof pl);
+  bytes_memset(fr + 9, 1, 1 + NCID_TOKEN);
+  lp_confirm(&f, &ob);
+  srvloop_np_step(&f, 5, fr, 10 + NCID_TOKEN);
+  CHECK(f.l.ncid_malformed == 1);
+  CHECK(f.l.ncid_rx_n == 0);
+}
+
 void test_srvloop(void) {
   test_srvloop_ticket_early_data_only_off_raw();
   test_srvloop_slotless_reset_closes_stream();
@@ -5850,5 +5886,7 @@ void test_srvloop(void) {
   test_srvloop_np_probe_does_not_raise();
   test_srvloop_np_repeat_not_flagged();
   test_srvloop_np_zerortt_raises_without_flag();
+  test_srvloop_ncid_latched();
+  test_srvloop_ncid_malformed();
   test_srvloop_drop_newer_discards_only_newer();
 }
