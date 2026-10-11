@@ -41,9 +41,21 @@ general relay network.
   a second publisher announcing the same name is not tracked separately (9.5
   says "each publisher"). Impact: federations of publishers for one track.
   Source: `src/app/moqt/run/moqtrun.c:8359` (ponytail), L12-3.
-- **Announcements after establishment ignored** — once an upstream SUBSCRIBE
-  (hub to publisher, d18/19 9.4, d22 7.4) is Established, a later announce for
-  that name is ignored. Source: L12-3 ("known limitations").
+- **One upstream per Track at a time** — when an upstream SUBSCRIBE (hub to
+  publisher, d18/19 9.4, d22 7.4) ends on the publisher's side (PUBLISH_DONE
+  GOING_AWAY or INTERNAL_ERROR, a reset of the hub's stream, the publisher's
+  session closing), its downstream subscriptions wait up to
+  `WIRED_MOQTRUN_RDV_MAX_MS` (1.5 s) while the hub SUBSCRIBEs the other
+  announcers of the namespace one at a time; the first SUBSCRIBE_OK
+  re-attaches them silently under the Track Alias they hold, and with none
+  by the deadline each gets PUBLISH_DONE with the end's status. Any other
+  PUBLISH_DONE status, and a Malformed Track, still ends them at once. The
+  hub never subscribes to several publishers of one Track at once: d22 7.6
+  says a relay MUST SUBSCRIBE to every matching publisher, and to a newly
+  announcing one for each matching subscription, but here a later announce
+  is used only while subscriptions wait for a new path, and is ignored while
+  an upstream is Established. Source: `moqtrun_track_ended` in
+  `src/app/moqt/run/moqtrun.c` (ponytail).
 - **One SUBGROUP stream kept before SUBSCRIBE_OK** — a SUBGROUP stream that
   reaches the hub before the upstream SUBSCRIBE_OK is kept (one per publisher
   session, up to `WIRED_MOQTRUN_EARLY_BUF` = 2048 bytes) and relayed when the
