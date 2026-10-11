@@ -658,9 +658,10 @@ typedef struct {
    * within one connection's lifetime, not across the whole file. */
   u64 qlog_slot;
   /** RFC 9000 2.1: how many server-initiated uni streams this connection
-   * has opened past the two fixed plumbing streams (H3 control id 3, QPACK
-   * encoder id 7), so the next uni id is 11 + 4 * wt_uni_opened -- ids only
-   * ever climb, a freed send slot never reuses one. */
+   * has opened past the three fixed plumbing streams (H3 control id 3,
+   * QPACK encoder id 7 and decoder id 11), so the next uni id is 15 + 4 *
+   * wt_uni_opened -- ids only ever climb, a freed send slot never reuses
+   * one. */
   u64 wt_uni_opened;
   /** RFC 9000 2.1: server-initiated bidi streams opened; the next bidi id
    * is 1 + 4 * wt_bidi_opened (nothing else opens server bidi streams). */

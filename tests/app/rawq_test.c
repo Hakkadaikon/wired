@@ -74,9 +74,9 @@ static void test_rawq_reset_in(void) {
   CHECK(rawq_reset_code_in(0, 0x12, &app) == 0 && app == 7);
 }
 
-/* T-B4: RFC 9000 2.1 uni ids (3 raw, 11 after H3 control+QPACK, RFC 9114
- * 6.2); datagram prefix 0 on raw, else the RFC 9297 2.1 qsid varint length
- * (RFC 9000 16: qsid 0 -> 1, 64 -> 2, 16384 -> 4 bytes). */
+/* T-B4: RFC 9000 2.1 uni ids (3 raw, 15 after H3 control+QPACK encoder
+ * and decoder, RFC 9114 6.2); datagram prefix 0 on raw, else the RFC 9297 2.1
+ * qsid varint length (RFC 9000 16: qsid 0 -> 1, 64 -> 2, 16384 -> 4 bytes). */
 static void test_rawq_uni_and_dgram(void) {
   CHECK(rawq_uni_first_id(1) == RAWQ_UNI_FIRST_RAW);
   CHECK(rawq_uni_first_id(1) == 3);

@@ -733,6 +733,19 @@ static void gather_wt_uni_land(wired_srvloop* l, const stream_frame* sf) {
   dispatch_qlog_stream_received(l, sf);
 }
 
+/* Classify this uni stream's offset-0 leading type varint: a read-only peek
+ * (wired_h3srv_accept_uni, its result unused here on purpose -- see
+ * gather_wt_uni_frame's own doc) plus recording a QPACK encoder/decoder type
+ * on l->h3.peer_qpack_* (RFC 9204 4.2), and marking the stream typed for
+ * the encoder window (uni_type_mark). Split out of gather_wt_uni_frame so
+ * its own branch count stays at the CCN gate. */
+static void gather_wt_uni_classify(wired_srvloop* l, const stream_frame* sf) {
+  wired_span data = wired_span_of(sf->data, (usz)sf->length);
+  uni_stream_type_accepted(data);
+  uni_stream_type_note_qpack(l, data);
+  uni_type_mark(l, sf);
+}
+
 /* draft-ietf-webtrans-http3-15 4.3 / RFC 9114 6.2: classify a client uni
  * stream's leading type and gather it if (and only if) it is 0x54
  * (WebTransport). A recognized-but-not-WT type (control/QPACK,
@@ -741,18 +754,6 @@ static void gather_wt_uni_land(wired_srvloop* l, const stream_frame* sf) {
  * has_stream/feed_or_accept's existing "STREAM frame present -> accepted,
  * content ignored" behavior already covers it unchanged, so this adds
  * classification without altering that path's outcome. */
-/* Classify this uni stream's offset-0 leading type varint: a read-only peek
- * (wired_h3srv_accept_uni, its result unused here on purpose -- see
- * gather_wt_uni_frame's own doc) plus recording a QPACK encoder/decoder type
- * on l->h3.peer_qpack_* (RFC 9204 4.2, 9204-028). Split out of gather_wt_uni_
- * frame so its own branch count stays at the CCN gate. */
-static void gather_wt_uni_classify(wired_srvloop* l, const stream_frame* sf) {
-  wired_span data = wired_span_of(sf->data, (usz)sf->length);
-  uni_stream_type_accepted(data);
-  uni_stream_type_note_qpack(l, data);
-  uni_type_mark(l, sf);
-}
-
 static void gather_wt_uni_frame(wired_srvloop* l, const stream_frame* sf) {
   if (sf->offset == 0) gather_wt_uni_classify(l, sf);
   gather_qpack_enc(l, sf);
