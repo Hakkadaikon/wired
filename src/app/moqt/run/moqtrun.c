@@ -11827,13 +11827,17 @@ static void moqtrun_upf_on_reset(
  * FETCH still unanswered is refused; anything else is handed to the cache
  * side, served from the next tick -- a fill of s's own track is reset
  * INTERNAL_ERROR right after (moqtrun_fills_upstream_gone) instead. */
+static void moqtrun_upf_detach_one(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f, const wired_wt_session* s) {
+  if (f->up_wt == s) f->up_data_open = 0; /* s's stream ids end with it */
+  if (!moqtrun_upf_leg_to(f, s)) return;
+  moqtrun_upf_drop(hub, f, MOQTRUN_UPF_IO_NONE);
+  moqtrun_upf_failed(hub, f, MOQCTL_ERR_INTERNAL_ERROR, 0);
+}
+
 static void moqtrun_upf_detach(wired_moqt_hub* hub, const wired_wt_session* s) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
-    wired_moqtrun_fetch* f = &hub->fetches[i];
-    if (!moqtrun_upf_leg_to(f, s)) continue;
-    moqtrun_upf_drop(hub, f, MOQTRUN_UPF_IO_NONE);
-    moqtrun_upf_failed(hub, f, MOQCTL_ERR_INTERNAL_ERROR, 0);
-  }
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+    moqtrun_upf_detach_one(hub, &hub->fetches[i], s);
 }
 
 /* f's leg past its budget is cancelled and the rest reported timed out

@@ -938,6 +938,27 @@ static void test_moqtrun_upfetch_fin_then_ok(void) {
   CHECK(mf_is_obj(2, 3, 0, 1) && mf_is_obj(3, 4, 0, 1));
 }
 
+/* d22 3.2.3: an upstream End short of the span leaves the rest of the
+ * span to the cache side, which lacks it: Unknown through group 2, then
+ * the cached groups, each once. */
+static void test_moqtrun_upfetch_short_end(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  mupf_cache_group(3, 1);
+  mupf_cache_group(4, 1);
+  mupf_fetch(mupf_rl(1, 0, 4, 0), 0);
+  i64 sid = mupf_up(SESS_A, 0, &m);
+  mupf_up_ok(sid, 1, 2);
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(1, 0, 1);
+  mupf_obj(1, 2, 1);
+  mupf_send(1);
+  CHECK(mupf_read(0) && mf_n == 5 && mf_fin);
+  CHECK(mf_is_obj(0, 1, 0, 1) && mf_is_obj(1, 1, 2, 1));
+  CHECK(mf_is_unknown(2, 2, MOQCACHE_OBJ_ID_MAX));
+  CHECK(mf_is_obj(3, 3, 0, 1) && mf_is_obj(4, 4, 0, 1));
+}
+
 /* d22 3.2.1: a FETCH whose upstream answer is empty and leaves nothing
  * for the cache gets the header alone, then FIN. */
 static void test_moqtrun_upfetch_empty_answer(void) {
@@ -1054,6 +1075,37 @@ static void test_moqtrun_upfetch_requester_gone(void) {
     mupf_requester_gone(how);
     if (wired_test_fails != fails) printf("  ^ requester gone %d\n", how);
   }
+}
+
+/* d22 3.2.4: a data stream A opens for an upstream FETCH the hub already
+ * cancelled is asked to stop (CANCELLED), never bound to it. */
+static void test_moqtrun_upfetch_late_data_stream(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(1, 0, 3, 0), 0);
+  i64 sid = mupf_up(SESS_A, 0, &m);
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, mf_req_sid, 1, 0);
+  CHECK(mupf_log_is(SESS_A, (u64)sid, "RST1|STOP1|"));
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(1, 0, 1);
+  mupf_send(0);
+  CHECK(mupf_log_is(SESS_A, MUPF_DATA_SID, "STOP1|"));
+}
+
+/* A session gone takes its streams' bindings with it: a session that
+ * rejoins under the same handle reuses stream ids from scratch. */
+static void test_moqtrun_upfetch_rejoin_unbinds(void) {
+  moqctl_ftn   f = mf_track();
+  moqfetch_req m = {0};
+  mupf_span_setup(&m);
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  mf_ctrl_a = mtst_join(SESS_A);
+  mtst_publish(SESS_A, mf_ctrl_a, &f, MF_ALIAS);
+  usz used   = mtst_hub.cache.used;
+  mf_pub_sid = MUPF_DATA_SID - 4;
+  mf_obj_on(7, 0, 1, 1); /* on MUPF_DATA_SID again */
+  CHECK(mtst_hub.cache.used > used);
 }
 
 /* A first delivery cut inside the FETCH_HEADER is held until the next
@@ -1449,11 +1501,14 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_leg_ends();
   test_moqtrun_upfetch_two_goaways();
   test_moqtrun_upfetch_fin_then_ok();
+  test_moqtrun_upfetch_short_end();
   test_moqtrun_upfetch_empty_answer();
   test_moqtrun_upfetch_budget();
   test_moqtrun_upfetch_fill_timeout_zero();
   test_moqtrun_upfetch_marker_relay();
   test_moqtrun_upfetch_requester_gone();
+  test_moqtrun_upfetch_late_data_stream();
+  test_moqtrun_upfetch_rejoin_unbinds();
   test_moqtrun_upfetch_torn_header();
   test_moqtrun_upfetch_torn_object();
   test_moqtrun_upfetch_malformed_past_end();
