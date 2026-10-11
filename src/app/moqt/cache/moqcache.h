@@ -48,8 +48,10 @@ typedef struct {
   usz used; /**< bytes of records held, from arena[0] */
   /** Resume point: the last lookup of hint_tag at hint_cur found
    * hint_off; 0 (scan from the start) after any record moved. */
-  usz        hint_off;
-  u64        hint_tag;
+  usz hint_off;
+  /** The tag that lookup was for. */
+  u64 hint_tag;
+  /** The Location that lookup was for. */
   moqctl_loc hint_cur;
 } moqcache;
 
