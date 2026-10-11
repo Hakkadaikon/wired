@@ -114,6 +114,10 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->app_rx_pn                  = 0;
   l->app_rx_hi                  = 0;
   l->app_rx_seen                = 0;
+  l->np_hi                      = 0;
+  l->np_seen                    = 0;
+  l->step_np_new                = 0;
+  l->drop_newer                 = 0;
   l->hs_rx_pn                   = 0;
   l->hs_rx_hi                   = 0;
   l->hs_rx_seen                 = 0;
@@ -1057,18 +1061,69 @@ static int step_dup(const wired_srvloop* l, int level) {
          recvpn_seen(&l->ack_recv.r[PNS_HANDSHAKE], l->hs_rx_pn);
 }
 
-/* An opened packet: its pn recorded, then -- unless it is a duplicate,
- * which RFC 9000 12.3 says to discard after removing protection -- its
- * frames processed. */
+/* A short-header 1-RTT packet (not a long-header 0-RTT one). */
+static int opened_is_short(const srvloop_opened* o) {
+  return o->level == LEVEL_ONERTT && !app_pkt_is_long(o->pkt.p[0]);
+}
+
+/* RFC 9000 A.3: a short-header packet's full pn, decoded against the
+ * largest received so far without recording it. */
+static u64 short_pn(
+    const wired_srvloop* l, const wired_server* s, wired_mspan p) {
+  return pnum_decode(
+      p.p + 1u + s->sdrv.iscid_len, (p.p[0] & 0x03u) + 1u, app_largest_pn(l));
+}
+
+/* RFC 9000 9.6.2: drop_newer is set and o is numbered above everything
+ * received so far. */
+static int step_newer_dropped(
+    const wired_srvloop* l, const wired_server* s, const srvloop_opened* o) {
+  return l->drop_newer && opened_is_short(o) &&
+         short_pn(l, s, o->pkt) > app_largest_pn(l);
+}
+
+/* 1 iff the opened packet is to be processed: its pn recorded unless it is
+ * a discarded newer one, then rejected if a duplicate, which RFC 9000 12.3
+ * says to discard after removing protection. */
+static int step_admit(
+    wired_srvloop* l, wired_server* s, const srvloop_opened* o) {
+  if (step_newer_dropped(l, s, o)) return 0;
+  note_app_rx(l, s, o);
+  note_hs_rx(l, o);
+  return !step_dup(l, o->level);
+}
+
+/* The just-recorded application pn is above every earlier non-probing one
+ * (compared before np_hi is updated). */
+static int np_above(const wired_srvloop* l) {
+  return !l->np_seen || l->app_rx_pn > l->np_hi;
+}
+
+static int step_np_raises(
+    const wired_srvloop* l, const srvloop_opened* o, wired_span pl) {
+  return o->level == LEVEL_ONERTT && framewalk_non_probing(pl) && np_above(l);
+}
+
+/* RFC 9000 9.3: compare against the largest non-probing pn, then raise it.
+ * Only a short-header packet sets step_np_new; a 0-RTT one only raises. */
+static void step_note_np(
+    wired_srvloop* l, const srvloop_opened* o, wired_span pl) {
+  int raised = step_np_raises(l, o, pl);
+  if (opened_is_short(o)) l->step_np_new = raised;
+  if (!raised) return;
+  l->np_hi   = l->app_rx_pn;
+  l->np_seen = 1;
+}
+
+/* An opened packet: admitted (step_admit), then its frames processed. */
 static void step_opened(
     const wired_srvloop_conn*     conn,
     const wired_srvloop_recv_out* ro,
     wired_mspan                   pkt) {
   wired_srvloop* l = conn->l;
   srvloop_opened o = {ro->level, pkt};
-  note_app_rx(l, conn->s, &o);
-  note_hs_rx(l, &o);
-  if (step_dup(l, ro->level)) return;
+  if (!step_admit(l, conn->s, &o)) return;
+  step_note_np(l, &o, ro->payload);
   l->peer_closed |= srvloop_has_close(ro->payload);
   /* Restricted to 1-RTT: the caller's bookkeeping (wired_sendsess) keys
    * entries by pn in the 1-RTT space only, so an ACK opened at the Initial/
@@ -1148,6 +1203,7 @@ int wired_srvloop_step(
   pktlist   plist             = {pkts, offs, lens, WIRED_SRVLOOP_MAXPKTS};
   conn->l->ack_n              = 0;
   conn->l->ecn_ack_seen       = 0;
+  conn->l->step_np_new        = 0;
   conn->l->done_n             = 0;
   conn->l->incomplete_n       = 0;
   conn->l->frame_unexpected_n = 0;

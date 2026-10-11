@@ -539,8 +539,22 @@ typedef struct {
   u64 app_rx_hi;
   int app_rx_seen; /**< 1 once a 1-RTT packet has been received (app_rx_pn
                     * valid) */
-  u64 hs_rx_pn;    /**< last received Handshake packet number to ACK (the
-                    * client Finished's actual PN, which is not always 0) */
+  /** RFC 9000 9.3: largest application packet number (0-RTT or 1-RTT) that
+   * carried a non-probing frame, valid with np_seen. */
+  u64 np_hi;
+  /** 1 once np_hi holds a received packet number. */
+  int np_seen;
+  /** 1 iff this step processed a short-header 1-RTT packet that was
+   * non-probing and numbered above every earlier non-probing one -- the
+   * only packet allowed to move the caller's send path. */
+  int step_np_new;
+  /** RFC 9000 9.6.2, set by the caller before a step: discard a 1-RTT
+   * packet numbered above every number received so far, before its frames
+   * or ACK bookkeeping (the connection moved to its preferred address and
+   * this datagram arrived on the old one). Older packets still process. */
+  int drop_newer;
+  u64 hs_rx_pn; /**< last received Handshake packet number to ACK (the
+                 * client Finished's actual PN, which is not always 0) */
   /** Largest Handshake packet number received, valid with hs_rx_seen. */
   u64 hs_rx_hi;
   int hs_rx_seen; /**< 1 once a Handshake packet has been received */

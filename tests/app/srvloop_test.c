@@ -5590,6 +5590,97 @@ static void test_srvloop_fin_malformed_headers_marks_malformed(void) {
   CHECK(f.l.malformed_slots == 1);
 }
 
+/* Step one sealed 1-RTT packet carrying pl at pn through the confirmed f. */
+static void srvloop_np_step(struct lp_fix* f, u64 pn, const u8* pl, usz pln) {
+  u8         out[1500], pkt[256];
+  wired_obuf ob = {out, sizeof out, 0};
+  usz        n  = client_seal_onertt_pn(f, pn, pl, pln, pkt, sizeof pkt);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(pkt, n), &ob);
+}
+
+static const u8 g_np_ping[1]      = {0x01};
+static const u8 g_np_ack[5]       = {0x02, 0, 0, 0, 0};
+static const u8 g_np_challenge[9] = {0x1a, 1, 2, 3, 4, 5, 6, 7, 8};
+
+/* RFC 9000 9.3: only a non-probing packet numbered above every earlier
+ * non-probing one is flagged; a reordered older one is not, and the
+ * largest stays put. */
+static void test_srvloop_np_new_only_above_largest(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  srvloop_np_step(&f, 5, g_np_ping, 1);
+  CHECK(f.l.step_np_new == 1 && f.l.np_hi == 5);
+  srvloop_np_step(&f, 3, g_np_ping, 1);
+  CHECK(f.l.step_np_new == 0 && f.l.np_hi == 5);
+  srvloop_np_step(&f, 6, g_np_ping, 1);
+  CHECK(f.l.step_np_new == 1 && f.l.np_hi == 6);
+}
+
+/* RFC 9000 9.1/9.3: a higher-numbered probing packet neither flags nor
+ * raises the largest, so a lower non-probing one after it still counts. */
+static void test_srvloop_np_probe_does_not_raise(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  srvloop_np_step(&f, 5, g_np_ping, 1);
+  srvloop_np_step(&f, 9, g_np_challenge, sizeof g_np_challenge);
+  CHECK(f.l.step_np_new == 0 && f.l.np_hi == 5);
+  srvloop_np_step(&f, 7, g_np_ack, sizeof g_np_ack);
+  CHECK(f.l.step_np_new == 1 && f.l.np_hi == 7);
+}
+
+/* RFC 9000 12.3: a repeated number is never flagged -- an ACK-only packet
+ * (not kept in the receive window) included, so the compare is strict. */
+static void test_srvloop_np_repeat_not_flagged(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  srvloop_np_step(&f, 5, g_np_ping, 1);
+  srvloop_np_step(&f, 5, g_np_ping, 1);
+  CHECK(f.l.step_np_new == 0);
+  srvloop_np_step(&f, 6, g_np_ack, sizeof g_np_ack);
+  CHECK(f.l.step_np_new == 1);
+  srvloop_np_step(&f, 6, g_np_ack, sizeof g_np_ack);
+  CHECK(f.l.step_np_new == 0 && f.l.np_hi == 6);
+}
+
+/* A 0-RTT packet never flags (it cannot drive a path change), but its
+ * number still raises the largest non-probing one. */
+static void test_srvloop_np_zerortt_raises_without_flag(void) {
+  struct lp_fix f;
+  srvloop_zrtt_fix(&f);
+  srvloop_zrtt_send(&f, 0xd3, 3);
+  CHECK(f.l.app_rx_pn == 3);
+  CHECK(f.l.step_np_new == 0);
+  CHECK(f.l.np_seen == 1 && f.l.np_hi == 3);
+}
+
+/* RFC 9000 9.6.2: with drop_newer set, a packet above every number received
+ * so far is discarded before its frames or ACK bookkeeping; an older one is
+ * still processed. */
+static void test_srvloop_drop_newer_discards_only_newer(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  srvloop_np_step(&f, 5, g_np_ping, 1);
+  f.l.drop_newer = 1;
+  srvloop_np_step(&f, 6, g_np_ping, 1);
+  CHECK(f.l.app_rx_hi == 5);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[PNS_APP], 6) == 0);
+  CHECK(f.l.step_np_new == 0 && f.l.np_hi == 5);
+  srvloop_np_step(&f, 4, g_np_ping, 1);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[PNS_APP], 4) == 1);
+  f.l.drop_newer = 0;
+  srvloop_np_step(&f, 6, g_np_ping, 1);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[PNS_APP], 6) == 1);
+}
+
 void test_srvloop(void) {
   test_srvloop_ticket_early_data_only_off_raw();
   test_srvloop_slotless_reset_closes_stream();
@@ -5755,4 +5846,9 @@ void test_srvloop(void) {
   test_srvloop_closed_set_jumps_far_marks();
   test_srvloop_reset_stream_count_exposed_per_window();
   test_srvloop_reset_stream_without_stop_sending_latches_close();
+  test_srvloop_np_new_only_above_largest();
+  test_srvloop_np_probe_does_not_raise();
+  test_srvloop_np_repeat_not_flagged();
+  test_srvloop_np_zerortt_raises_without_flag();
+  test_srvloop_drop_newer_discards_only_newer();
 }
