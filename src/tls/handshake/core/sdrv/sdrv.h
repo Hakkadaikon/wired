@@ -426,6 +426,14 @@ u32 sdrv_wire_version(const sdrv* s);
  * @return 1 if a HelloRetryRequest is pending, 0 otherwise. */
 int sdrv_hrr_pending(const sdrv* s);
 
+/** 0-RTT is ever admitted under the negotiated ALPN: never on a raw-QUIC
+ * id (draft-ietf-moq-transport-18 3.3.1 / -22 6.3.1 let a relay refuse
+ * it). A session ticket issued here advertises early data only when this
+ * holds (RFC 8446 4.2.10).
+ * @param s driver state
+ * @return 1 if 0-RTT may be accepted, 0 otherwise. */
+int sdrv_early_allowed(const sdrv* s);
+
 /** RFC 8446 4.1.4 / 4.4.1: build the HelloRetryRequest (requesting x25519,
  * this driver's only supported group) into out, fold it into the
  * transcript, and arm ClientHello2 handling: sdrv_recv_client_hello.

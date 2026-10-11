@@ -97,12 +97,12 @@ const u8* wired_srvloop_ticket_key(void) { return g_ticket_key; }
 /* RFC 9001 4.6.1: a QUIC server that supports 0-RTT always advertises
  * 0xffffffff here -- QUIC bounds 0-RTT via transport parameters, not this
  * TLS field (RFC 8446 4.2.10). A raw-QUIC connection is never admitted in
- * 0-RTT (sdrv_early_alpn_ok), so its ticket omits the extension (0) rather
+ * 0-RTT (sdrv_early_allowed), so its ticket omits the extension (0) rather
  * than invite early data that would only be refused. */
 #define WIRED_SRVLOOP_MAX_EARLY_DATA_SIZE 0xffffffff
 
 static u32 ticket_max_early_data(const wired_server* s) {
-  return s->sdrv.alpn == SALPN_RAW ? 0 : WIRED_SRVLOOP_MAX_EARLY_DATA_SIZE;
+  return sdrv_early_allowed(&s->sdrv) ? WIRED_SRVLOOP_MAX_EARLY_DATA_SIZE : 0;
 }
 
 static usz build_ticket_message(const wired_server* s, u8* msg, usz msg_cap) {

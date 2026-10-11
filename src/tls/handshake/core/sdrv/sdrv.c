@@ -666,11 +666,12 @@ static int sdrv_ticket_alpn_matches(const sdrv* s, const ticket* t) {
   return t->alpn == SALPN_NONE || t->alpn == s->alpn;
 }
 
-/* 0-RTT may be accepted under this ALPN: never on a raw-QUIC id (REQ-H,
- * draft-ietf-moq-transport-18 3.3.1 / -22 6.3.1 let a relay refuse it),
- * and only with a ticket issued under the same ALPN (RFC 8446 4.2.10). */
+int sdrv_early_allowed(const sdrv* s) { return s->alpn != SALPN_RAW; }
+
+/* 0-RTT may be accepted under this ALPN (sdrv_early_allowed), and only
+ * with a ticket issued under the same ALPN (RFC 8446 4.2.10). */
 static int sdrv_early_alpn_ok(const sdrv* s, const ticket* t) {
-  return s->alpn != SALPN_RAW && t->suite == s->cipher_suite &&
+  return sdrv_early_allowed(s) && t->suite == s->cipher_suite &&
          sdrv_ticket_alpn_matches(s, t);
 }
 
