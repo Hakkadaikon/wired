@@ -635,6 +635,11 @@ typedef struct {
    * (incomplete_slots). Reset at the start of every wired_srvloop_step. */
   u8  incomplete_slots[WIRED_SRVLOOP_MAX_STREAMS];
   usz incomplete_n; /**< entries valid in incomplete_slots this step */
+  /** RFC 9114 4.1.2: bit i is set when incomplete_slots holds slot i
+   * because its whole HEADERS was malformed rather than cut short -- aborted
+   * with H3_MESSAGE_ERROR instead of H3_REQUEST_INCOMPLETE. Reset at the
+   * start of every wired_srvloop_step. */
+  u64 malformed_slots;
   /** RFC 9114 7.2.5/7.2.8 (9114-067/9114-073): every slot whose request stream
    * carried a PUSH_PROMISE or HTTP/2-only reserved frame type this step
    * (streams[i].req.frame_unexpected) -- the H3_FRAME_UNEXPECTED counterpart

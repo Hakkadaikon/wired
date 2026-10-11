@@ -6210,6 +6210,16 @@ static void test_srvrun_incomplete_request_frees_slot_and_credit(void) {
   CHECK(conns[0].stream_limit_advertised == WIRED_SRVLOOP_MAX_STREAMS + 1);
 }
 
+/* RFC 9114 4.1.2 vs 4.1.1: a rejected request whose HEADERS was whole is
+ * malformed (H3_MESSAGE_ERROR); one that ended short is incomplete. */
+static void test_srvrun_rejected_request_code(void) {
+  srvrun_conn* c       = sr_test_conns();
+  *c                   = (srvrun_conn){0};
+  c->l.malformed_slots = 2;
+  CHECK(srvrun_incomplete_code(c, 1) == H3_MESSAGE_ERROR);
+  CHECK(srvrun_incomplete_code(c, 0) == H3_REQUEST_INCOMPLETE);
+}
+
 /* RFC 9000 3.2 / 4.6: a peer RESET_STREAM on a request still being received
  * frees its slot and returns its bidi credit -- the request can never
  * complete; a completed one (its response owns the slot) is left alone. */
@@ -22951,6 +22961,7 @@ void test_srvrun(void) {
   test_srvrun_incomplete_request_frees_slot_and_credit();
   test_srvrun_reset_mid_request_frees_slot_and_credit();
   test_srvrun_reset_during_response_keeps_slot();
+  test_srvrun_rejected_request_code();
   test_srvrun_reset_with_fin_keeps_done_slot();
   test_srvrun_reset_with_rejected_aborts_own_stream();
   test_srvrun_qenc_stream_opens_with_type_prefix_only();

@@ -1245,6 +1245,7 @@ static void test_srvloop_undecodable_connect_rejected_without_fin(void) {
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.done_n == 0);
   CHECK(f.l.incomplete_n == 1);
+  CHECK(f.l.malformed_slots == 1); /* a whole HEADERS: malformed */
 }
 
 /* The FIN gate stays for everything that is not a CONNECT: a GET without FIN
@@ -1664,6 +1665,7 @@ static void test_srvloop_fin_no_headers_marks_incomplete(void) {
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.done_n == 0);
   CHECK(f.l.incomplete_n == 1);
+  CHECK(f.l.malformed_slots == 0);
   CHECK(f.l.incomplete_slots[0] == 0);
   CHECK(f.l.streams[0].stream_id == 0);
 }
@@ -1689,6 +1691,7 @@ static void test_srvloop_fin_truncated_headers_marks_incomplete(void) {
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.done_n == 0);
   CHECK(f.l.incomplete_n == 1);
+  CHECK(f.l.malformed_slots == 0);
 }
 
 /* Regression: a normally-completed GET never marks its slot incomplete. */
@@ -5546,10 +5549,25 @@ static void test_srvloop_reset_notes_only_receiving_slot(void) {
   CHECK(f.l.reset_slots == 0);
 }
 
+/* RFC 9114 4.1.2: a whole HEADERS that is no valid request (here an empty
+ * :path) ending at FIN is malformed, not incomplete. */
+static void test_srvloop_fin_malformed_headers_marks_malformed(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  lp_headers_then_reset(
+      &f, wired_span_of((const u8*)"GET", 3), wired_span_of((const u8*)"", 0),
+      1, 0);
+  CHECK(f.l.incomplete_n == 1);
+  CHECK(f.l.malformed_slots == 1);
+}
+
 void test_srvloop(void) {
   test_srvloop_ticket_early_data_only_off_raw();
   test_srvloop_slotless_reset_closes_stream();
   test_srvloop_reset_notes_only_receiving_slot();
+  test_srvloop_fin_malformed_headers_marks_malformed();
   test_srvloop_stream_past_limit_latches_violation();
   test_srvloop_note_ecn_keeps_largest_ack();
   test_srvloop_recv_zerortt_opens_with_early_keys();

@@ -1382,11 +1382,20 @@ static void route_note_frame_unexpected(wired_srvloop* l, int i) {
     l->frame_unexpected_slots[l->frame_unexpected_n++] = (u8)i;
 }
 
+/* RFC 9114 4.1.2: slot holds a whole HEADERS frame -- a rejected request
+ * with one was malformed, not cut short. */
+static int route_headers_whole(const wired_srvloop_stream_slot* slot) {
+  return wired_h3reqdrive_headers_end(
+             wired_span_of(slot->req_buf, slot->req_len)) != 0;
+}
+
 /* Mark slot i incomplete and append it to incomplete_slots -- the actual
- * H3_REQUEST_INCOMPLETE bookkeeping, split out of route_note_incomplete so
- * its own reject-vs-incomplete branch stays a single extra check there. */
+ * H3_REQUEST_INCOMPLETE (or, malformed, H3_MESSAGE_ERROR) bookkeeping, split
+ * out of route_note_incomplete so its own reject-vs-incomplete branch stays a
+ * single extra check there. */
 static void route_note_incomplete_append(wired_srvloop* l, int i) {
   l->streams[i].req_incomplete = 1;
+  if (route_headers_whole(&l->streams[i])) l->malformed_slots |= (u64)1 << i;
   if (l->incomplete_n < WIRED_SRVLOOP_MAX_STREAMS)
     l->incomplete_slots[l->incomplete_n++] = (u8)i;
 }

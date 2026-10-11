@@ -9026,6 +9026,13 @@ static usz srvrun_abort_release(srvrun_conn* c, u8 i) {
   return 1;
 }
 
+/* RFC 9114 4.1.2 / 4.1.1: the code aborting incomplete-list slot i --
+ * H3_MESSAGE_ERROR for a malformed request, else H3_REQUEST_INCOMPLETE. */
+static u64 srvrun_incomplete_code(const srvrun_conn* c, u8 i) {
+  return (c->l.malformed_slots >> i) & 1 ? H3_MESSAGE_ERROR
+                                         : H3_REQUEST_INCOMPLETE;
+}
+
 /* Abort request slot i with code, freeing it (srvrun_abort_release). */
 static usz srvrun_abort_req(
     const srvrun_step_ctx* ctx, srvrun_conn* c, u8 i, u64 code) {
@@ -9045,7 +9052,8 @@ static void srvrun_abort_incomplete_reqs(const srvrun_step_ctx* ctx, int slot) {
   usz          freed = 0;
   for (usz i = 0; i < c->l.incomplete_n; i++)
     freed += srvrun_abort_req(
-        ctx, c, c->l.incomplete_slots[i], H3_REQUEST_INCOMPLETE);
+        ctx, c, c->l.incomplete_slots[i],
+        srvrun_incomplete_code(c, c->l.incomplete_slots[i]));
   srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
 }
 
