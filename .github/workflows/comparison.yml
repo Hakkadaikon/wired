@@ -63,9 +63,14 @@ jobs:
           key: quiche-${{ env.QUICHE_TAG }}-${{ runner.os }}
       - name: Build quiche-server
         run: |
+          # The cache restores quiche-src/target alone, so the directory can
+          # exist without a checkout: fetch into it in place, keeping target.
           if [ ! -d quiche-src/.git ]; then
-            git clone --depth 1 --branch "$QUICHE_TAG" --recursive \
-              https://github.com/cloudflare/quiche quiche-src
+            git init -q quiche-src
+            git -C quiche-src fetch -q --depth 1 \
+              https://github.com/cloudflare/quiche "refs/tags/$QUICHE_TAG"
+            git -C quiche-src checkout -q FETCH_HEAD
+            git -C quiche-src submodule update -q --init --recursive --depth 1
           fi
           (cd quiche-src && cargo build --release --bin quiche-server)
       - name: Generate certificate and docroot
