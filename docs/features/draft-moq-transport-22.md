@@ -415,6 +415,7 @@ Legend:
     `test_moqtrun_repath_deadline_beats_pending`,
     `test_moqtrun_repath_deadline_fixed`, `test_moqtrun_repath_new_closes`,
     `test_moqtrun_repath_no_room`, `test_moqtrun_repath_table_full`,
+    `test_moqtrun_repath_session_share`,
     `test_moqtrun_repath_own_announce`, `test_moqtrun_repath_names_wrapped`
   - test: `tests/app/moqtrun_switch_test.c` —
     `test_moqtrun_switch_old_side_no_wait`,

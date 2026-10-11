@@ -644,6 +644,59 @@ static void test_moqtrun_repath_no_room(void) {
   CHECK(mrp_dones(SESS_D, &st) == 0);
 }
 
+/* PUBLISH_DONEs on s's request stream sid. */
+static usz mrp_dones_on(wired_wt_session* s, u64 sid) {
+  usz n = 0;
+  u64 count;
+  for (usz i = 0; i < g_n_calls; i++) {
+    const moqtrun_test_call* c = &g_calls[i];
+    if (c->s != s || c->stream_id != sid) continue;
+    if (c->kind != 3 && c->kind != 12) continue;
+    n += mtdr_done_in(c, &count) != ~(u64)0;
+  }
+  return n;
+}
+
+/* C SUBSCRIBEs ns/name on request stream sid; the hub's SUBSCRIBE for it
+ * goes to s, which answers it under alias. */
+static void mrp_sub_ok(
+    wired_wt_session* s,
+    const char*       ns2,
+    const char*       name,
+    u64               sid,
+    u64               alias) {
+  static moqctl_subscribe_ok ok;
+  moqctl_ftn                 f = mtst_ftn("chat", ns2, name);
+  usz                        n = mups_n_up(s);
+  mtst_subscribe_p(SESS_C, sid, &f, mtst_rid += 2, 0);
+  ok.track_alias = alias;
+  mtst_send(s, (u64)mrp_up(s, n), MOQCTL_T_SUBSCRIBE_OK, mups_enc_ok, &ok);
+}
+
+/* Re-path waits count against their session's share too: C waits for
+ * WIRED_MOQTRUN_RDV_PER_SESSION Tracks of A's; its subscription to E's
+ * Track, ending next, gets the end's PUBLISH_DONE at once. */
+static void test_moqtrun_repath_session_share(void) {
+  static moqctl_publish_done d;
+  static const char* const   names[] = {"t0", "t1", "t2", "t3"};
+  mups_init();
+  mtst_join(SESS_C);
+  mtst_join(MRP_E);
+  mtns_pub(MRP_E, MRDV_S1, "chat/room2");
+  for (usz i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++)
+    mrp_sub_ok(SESS_A, "room1", names[i], MTRQ_ID(10 + i), 7 + i);
+  mrp_sub_ok(MRP_E, "room2", "x", MTRQ_ID(20), 7);
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  CHECK(mrdv_used() == WIRED_MOQTRUN_RDV_PER_SESSION);
+  d.status_code = MOQCTL_DONE_GOING_AWAY;
+  mtst_send(
+      MRP_E, (u64)mrp_up(MRP_E, 0), MOQCTL_T_PUBLISH_DONE, mups_enc_done, &d);
+  CHECK(mrp_dones_on(SESS_C, MTRQ_ID(20)) == 1);
+  for (usz i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++)
+    CHECK(mrp_dones_on(SESS_C, MTRQ_ID(10 + i)) == 0);
+  CHECK(mrdv_used() == WIRED_MOQTRUN_RDV_PER_SESSION);
+}
+
 /* Waits are per subscription in the hub-wide rendezvous table: with one
  * more subscriber than WIRED_MOQTRUN_MAX_RDV, the last one gets the end's
  * PUBLISH_DONE at once, and a new rendezvous hold is refused
@@ -785,6 +838,7 @@ static void mtall_repath(void) {
   test_moqtrun_repath_fresh_closing_upstream();
   test_moqtrun_repath_no_room();
   test_moqtrun_repath_table_full();
+  test_moqtrun_repath_session_share();
   test_moqtrun_repath_update();
   test_moqtrun_repath_own_announce();
   test_moqtrun_repath_prefers_outsider();
