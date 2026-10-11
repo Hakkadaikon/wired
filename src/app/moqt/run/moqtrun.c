@@ -1700,6 +1700,8 @@ static void moqtrun_reattach_one_sub(
   slot->session_idx = i;
   slot->active      = 1;
   moqtrun_sub_reresolve(slot, track);
+  /* SSTS (moqtssts_run.c): the set dropped it while it had no track */
+  moqtss_sub_leave(hub, slot);
   /* SWITCH_FROM (moqtswitch.c): bounds, a pending end swept again */
   moqtsw_reattached(hub, slot);
 }

@@ -53,6 +53,11 @@ u64 moqtss_sub_refusal(const moqctl_params* params, int unsettable, u64 prior);
 /** A subscription starts outside every set. */
 void moqtss_sub_reset(wired_moqtrun_sub* s);
 
+/** s, re-attached after its upstream changed, leaves whatever set its
+ * alias was in and starts outside every set: it gets every Group until
+ * a REQUEST_UPDATE assigns it again. */
+void moqtss_sub_leave(wired_moqt_hub* hub, wired_moqtrun_sub* s);
+
 /** SUBSCRIBE accepted on s (a fresh subscription): whatever set a dead
  * subscription under s's alias held is left, then a
  * SWITCHING_SET_ASSIGNMENT joins s's set. MOQTSS_ACCEPT, else the

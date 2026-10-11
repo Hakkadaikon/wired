@@ -1158,7 +1158,42 @@ static void test_moqtrun_ssts_pacer_loss_disarms(void) {
   CHECK(mtss_b()->bp.clear_streak == 1);
 }
 
+/* B's set member screen reaches B through the hub's SUBSCRIBE to A's
+ * announced namespace. A ends it GOING_AWAY, B waits (the set drops the
+ * inactive member meanwhile) and is re-attached through E: having left
+ * its set, the subscription gets E's next Group. */
+static void test_moqtrun_ssts_repath_member(void) {
+  moqctl_ftn    hi = mtss_hi();
+  moqctl_params ph =
+      mtss_ssa(MTSS_SET, MOQSSTS_ALG_BACKPRESSURE, MTSS_HI_KBPS, 2);
+  moqctl_subscribe m;
+  i64              up;
+  g_moqtrun_test_ver = MOQVER_D22;
+  mtst_init();
+  mtst_hub.ssts_algs  = mtss_algs_both;
+  mtst_hub.ssts_alg_n = 2;
+  mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_join(MRP_E);
+  mtss_client_setup(SESS_B, mtss_algs_both, 2);
+  mtns_pub(SESS_A, MRDV_S1, "chat/room1");
+  mups_sids();
+  mtst_subscribe_p(SESS_B, MTSS_SID_HI, &hi, mtst_rid += 2, &ph);
+  up = mups_up(SESS_A, 0, &m);
+  mups_ok((u64)up);
+  mtss_ah = mtss_ok_alias(MTSS_SID_HI);
+  CHECK(mtss_ah != ~(u64)0 && mtss_set7() && mtss_set7()->n == 1);
+  mtns_pub(MRP_E, MRDV_S1, "chat/room1");
+  mups_done((u64)up, MOQCTL_DONE_GOING_AWAY);
+  wired_moqt_tick(&mtst_hub, 200);
+  mrp_ok(MRP_E, mrp_up(MRP_E, 0));
+  moqtrun_test_reset();
+  mrp_group(MRP_E, MUPS_DATA_SID, 5, MOQDATA_STATUS_NORMAL);
+  CHECK(mups_relayed_alias(SESS_B) == mtss_ah);
+}
+
 void test_moqtrun_ssts(void) {
+  test_moqtrun_ssts_repath_member();
   test_moqtrun_ssts_setup_option();
   test_moqtrun_ssts_setup_malformed_closes();
   test_moqtrun_ssts_negotiation();

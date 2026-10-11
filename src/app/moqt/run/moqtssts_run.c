@@ -408,6 +408,11 @@ void moqtss_sub_reset(wired_moqtrun_sub* s) {
   s->ssts_fwd   = 0;
 }
 
+void moqtss_sub_leave(wired_moqt_hub* hub, wired_moqtrun_sub* s) {
+  moqtss_sub_reset(s);
+  moqtss_leave(&hub->peers[s->session_idx].ssts, s->track_alias);
+}
+
 static void moqtss_join_prime(wired_moqt_hub* hub, wired_moqtrun_sub* s, u64 g);
 
 /* A member joining mid-Group gets that Group's verdict now (its recorded
@@ -782,9 +787,10 @@ static int moqtss_primes(const wired_moqtrun_sub* s) {
 }
 
 /* s's verdict for g. k < 0 (a member whose set is gone) is unreachable:
- * control-stream subscriptions, the only ones that re-attach, are
- * refused; were it reached, s is stamped "not this group" and stays gated
- * rather than forwarding everything. */
+ * a re-attached subscription (a re-PUBLISH, a new path after its
+ * upstream ended) leaves its set first (moqtss_sub_leave); were it
+ * reached, s is stamped "not this group" and stays gated rather than
+ * forwarding everything. */
 static void moqtss_prime_sub(wired_moqt_hub* hub, wired_moqtrun_sub* s, u64 g) {
   if (!moqtss_primes(s)) return;
   int k = moqtss_set_of_alias(&hub->peers[s->session_idx].ssts, s->track_alias);
