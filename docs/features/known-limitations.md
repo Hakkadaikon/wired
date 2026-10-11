@@ -368,9 +368,10 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 - **Datagram drain is a fixed slice, not congestion-controlled** —
   `SRVRUN_DGRING_DRAIN_MAX` 16 / `_MS` 5 / `_BYTES` 3000 (about 4.8 Mbps).
   Source: `srvrun.c:5670`.
-- **MAX_DATA ignores control/QPACK bytes** — the connection ceiling counts WT
-  streams, streamed request bodies and CONNECT-stream capsules; control and
-  QPACK stream bytes ride on the initial 10 MB (`STP_DEFAULT_MAX_DATA`).
+- **MAX_DATA ignores control-stream bytes** — the connection ceiling counts
+  WT streams, streamed request bodies, CONNECT-stream capsules and the
+  peer's QPACK encoder stream; control-stream and buffered request bytes
+  ride on the initial 10 MB (`STP_DEFAULT_MAX_DATA`).
   Source: `srvrun.c` (`srvrun_grant_conn_credit`).
 - **Concurrent WT sessions per connection** — `SRVRUN_MAX_WT_SESSIONS` (2)
   with a global cap `WIRED_CONNTABLE_CAP` and `SRVRUN_MAX_WT_SESSIONS_PER_WINDOW`
@@ -404,9 +405,14 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   needing inserts not yet received is `QPACK_DECOMPRESSION_FAILED`). The
   encoder stream is reassembled in a 48 KB window equal to its stream
   credit, re-granted as it is consumed. Bytes that arrive before its type
-  byte are held while only one uni stream's type is unknown; when two are
-  lost at once the second one's early bytes are dropped, which only leaves
-  the dynamic table unused. The acknowledgment queue holds one step's worth;
+  byte are held while only one uni stream's type is unknown (a stream whose
+  type is already known is never held); when two are lost at once the
+  second one's early bytes are dropped, and if that is the encoder stream
+  no later insert applies, leaving the peer's encoder with the static table
+  and the entries acknowledged before. A trailer section on a request whose
+  body streams to the application (`on_body`) is skipped unacknowledged,
+  keeping its references pinned for the connection's life. The
+  acknowledgment queue holds one step's worth;
   it is dropped from only if the peer grants the decoder stream no credit.
   The server's own encoder table stays at capacity 0, so responses use only
   Required-Insert-Count-0 sections; string encoding is always H=0 (no Huffman
