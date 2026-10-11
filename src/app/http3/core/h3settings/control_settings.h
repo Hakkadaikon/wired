@@ -16,11 +16,12 @@
 #define WIRED_H3_MAX_FIELD_SECTION 2048
 
 /** RFC 9204 5 (SETTINGS_QPACK_MAX_TABLE_CAPACITY): the dynamic table
- * capacity this server advertises to peers AND initializes its own
- * encoder-side dynamic table (qpackenc_init) with -- the two must match, or
- * the encoder could generate inserts the peer's decoder was never told it
- * may hold. */
-#define DEFAULT_QPACK_MAX_TABLE_CAP 4096
+ * capacity this server advertises to peers, bounding the peer's encoder:
+ * 63 entries of the 32-byte minimum entry size (RFC 9204 3.2.1), one below
+ * the 64-slot entry ring (QPACK_DYN_MAX_ENTRIES, which an insert must find
+ * a free slot in before eviction runs). A larger capacity would let a
+ * peer's legal inserts fail on the ring before the byte budget evicts. */
+#define DEFAULT_QPACK_MAX_TABLE_CAP 2016
 
 /** Bytes one server control stream's type + SETTINGS frame can take
  * (h3settings_control_stream); every caller sizes its buffer with this.

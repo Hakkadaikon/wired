@@ -1,3 +1,4 @@
+#include "app/http3/core/h3settings/control_settings.h"
 #include "app/qpack/qpack/dynget.h"
 #include "app/qpack/qpack/error.h"
 #include "app/qpack/qpack/field.h"
@@ -249,7 +250,24 @@ static void test_encrx_errors(void) {
   CHECK(err == QPACK_ENCODER_STREAM_ERROR);
 }
 
+/* RFC 9204 3.2.1 / 4.3.3: at the capacity this server advertises, a peer
+ * filling the table with minimum-size (32-byte) entries only ever evicts --
+ * the fixed entry ring is never the limit that fails an insert. */
+static void test_enc_stream_advertised_capacity_fits_ring(void) {
+  static const u8 empty[] = {0x40, 0x00}; /* literal name "", value "" */
+  qpack_dyn       t;
+  u16             err = 0;
+  qpack_dyn_init(&t, DEFAULT_QPACK_MAX_TABLE_CAP);
+  for (usz i = 0; i <= DEFAULT_QPACK_MAX_TABLE_CAP / 32; i++)
+    CHECK(
+        qdyn_enc_apply(
+            wired_span_of(empty, 2), &t, DEFAULT_QPACK_MAX_TABLE_CAP, &err) ==
+        2);
+  CHECK(err == 0);
+}
+
 void test_qpackdyn_enc_stream(void) {
+  test_enc_stream_advertised_capacity_fits_ring();
   test_encrx_byte_by_byte();
   test_encrx_out_of_order();
   test_encrx_errors();
