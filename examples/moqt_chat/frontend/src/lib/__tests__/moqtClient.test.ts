@@ -26,6 +26,7 @@ import {
 	concatBytes,
 	decodeNamespace,
 	decodePublish,
+	decodeRequestError,
 	decodeSubgroupHeader,
 	decodeSubgroupObject,
 	decodeSubscribe,
@@ -1433,10 +1434,32 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 		expect(fake.uniStreams[0].closed).toBe(false);
 	});
 
-	it("does not wait for a bidi control stream", async () => {
+	it("takes no hub-opened bidi stream for a control stream", async () => {
+		const { fake, goaways } = await connected22();
+
+		const req = fake.pushHubRequest(goaway("https://next.example/"));
+		await flush();
+		expect(goaways).toEqual([]);
+		expect(req.answer.type).toBe(0x5n);
+	});
+
+	it("answers a request the hub opens (an upstream FETCH) with REQUEST_ERROR NOT_SUPPORTED at once", async () => {
 		const { fake } = await connected22();
 
-		expect(fake.bidiReads).toBe(0);
+		const req = fake.pushHubRequest(
+			encodeControlFrame(MSG_FETCH, new Uint8Array([0x00, 0x01])),
+		);
+		await flush();
+		expect(req.answer.type).toBe(0x5n);
+		const err = decodeRequestError(req.answer.body);
+		expect(err.errorCode).toBe(0x3n);
+		expect(err.retryInterval).toBe(0n);
+		expect(req.closed).toBe(true);
+		const second = fake.pushHubRequest(
+			encodeControlFrame(MSG_SUBSCRIBE, new Uint8Array([0x02])),
+		);
+		await flush();
+		expect(second.answer.type).toBe(0x5n);
 	});
 
 	it("a GOAWAY on the hub's uni control stream reports its New Session URI, once", async () => {
@@ -1756,9 +1779,12 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 		expect(bytesToHex(concatBytes(fake.uniStreams[0].written))).toBe(
 			"af0000060904c0ff0100",
 		);
-		// The losing d19 wait on incomingBidirectionalStreams is cancelled, not
-		// left parked to swallow a later hub-opened bidi stream.
-		expect(fake.bidiCancelled).toBe(true);
+		// The losing d19 wait on incomingBidirectionalStreams takes no later
+		// hub-opened bidi stream for a control stream: it is a request, refused.
+		const req = fake.pushHubRequest(goaway("https://other.example/"));
+		await flush();
+		expect(req.answer.type).toBe(0x5n);
+		expect(goaways).toEqual([]);
 		fake.serverControl.push(goaway("https://next.example/"));
 		await flush();
 		expect(goaways).toEqual(["https://next.example/"]);

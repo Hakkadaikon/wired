@@ -64,6 +64,7 @@ import {
 	encodeLocationFilter22,
 	encodeNamespaceRequest,
 	encodePublish,
+	encodeRequestError,
 	encodeSetup,
 	encodeSstsAlgorithms,
 	encodeSubscribe,
@@ -96,6 +97,9 @@ const MSG_TYPE_REQUEST_ERROR = 0x5n;
 // REQUEST_ERROR code INTERNAL_ERROR (d22 12.3 / 16.11.2): what the hub
 // answers a SUBSCRIBE whose fill it has no room for (moqtrun_fill_room).
 const REQUEST_ERROR_INTERNAL = 0x0n;
+// REQUEST_ERROR code NOT_SUPPORTED (d22 12.3): this client serves no request
+// the hub opens to it.
+const REQUEST_ERROR_NOT_SUPPORTED = 0x3n;
 const MSG_TYPE_REQUEST_OK = 0x7n;
 const MSG_TYPE_FETCH = 0x16n;
 const MSG_TYPE_FETCH_OK = 0x18n;
@@ -451,6 +455,35 @@ function closeQuietly(wt: WebTransport): void {
 	}
 }
 
+/** d22 6.4.2: a request stream the hub opened to this client -- an upstream
+ * FETCH or SUBSCRIBE for a track it PUBLISHed. It serves none: REQUEST_ERROR
+ * NOT_SUPPORTED goes back at once (a publisher must answer a request; Retry
+ * Interval 0, do not retry), so the hub serves what it has instead of
+ * waiting out its own budget. */
+function refuseHubRequest(stream: WebTransportBidirectionalStream): void {
+	const writer = stream.writable.getWriter();
+	const err = encodeRequestError({
+		errorCode: REQUEST_ERROR_NOT_SUPPORTED,
+		retryInterval: 0n,
+		errorReason: new Uint8Array(0),
+	});
+	void writer
+		.write(encodeControlFrame(MSG_TYPE_REQUEST_ERROR, err))
+		.then(() => writer.close())
+		.catch(() => {});
+}
+
+/** Refuses every request stream reader yields until the session ends. */
+async function refuseHubRequests(
+	reader: ReadableStreamDefaultReader<WebTransportBidirectionalStream>,
+): Promise<void> {
+	for (;;) {
+		const { value: stream, done } = await reader.read();
+		if (done || !stream) return;
+		refuseHubRequest(stream);
+	}
+}
+
 /** Whether a REQUEST_ERROR body carries INTERNAL_ERROR. */
 function isInternalError(body: Uint8Array): boolean {
 	try {
@@ -595,9 +628,6 @@ export class MoqtChatClient {
 	// control stream the hub opens (#awaitHubControl): the d22 uni SETUP
 	// resolves it.
 	#onHubSetup22?: () => void;
-	// The d19 wait for the hub's bidi control stream, cancelled when the
-	// hub's uni SETUP (d22) wins #awaitHubControl's race instead.
-	#bidiCtlReader?: ReadableStreamDefaultReader<WebTransportBidirectionalStream>;
 	#callbacks: MoqtChatCallbacks;
 
 	constructor(localId: string, callbacks: MoqtChatCallbacks) {
@@ -655,8 +685,12 @@ export class MoqtChatClient {
 				() => {}, // rejected when the session closes: not a drain
 			);
 			if (protocol === undefined) await this.#awaitHubControl(wt);
-			else if (this.#draft === 22) await this.#openControlStream22(wt);
-			else await this.#openControlStream();
+			else if (this.#draft === 22) {
+				void refuseHubRequests(
+					wt.incomingBidirectionalStreams.getReader(),
+				).catch(() => {});
+				await this.#openControlStream22(wt);
+			} else await this.#openControlStream();
 			await this.publishTrack(
 				utf8ToBytes(this.#localId),
 				this.#localTrackAlias,
@@ -828,11 +862,15 @@ export class MoqtChatClient {
 		const wt = this.#wt;
 		if (!wt) return;
 		const reader = wt.incomingBidirectionalStreams.getReader();
-		this.#bidiCtlReader = reader;
 		const { value: stream, done } = await reader.read();
-		this.#bidiCtlReader = undefined;
-		reader.releaseLock();
 		if (done || !stream) throw new Error("hub did not open a control stream");
+		if (this.#draft === 22) {
+			// d22 won the race meanwhile: a hub-opened bidi stream is a request.
+			refuseHubRequest(stream);
+			await refuseHubRequests(reader);
+			return;
+		}
+		reader.releaseLock();
 		void readControlFrames(
 			stream.readable.getReader(),
 			this.#onControlFrame(wt, false),
@@ -857,9 +895,8 @@ export class MoqtChatClient {
 			this.#hubSsts = undefined; // a stray uni SETUP lost the race: not ours
 			return;
 		}
-		// Stop the losing wait so no later hub-opened bidi stream is taken
-		// for a control stream (its read ends done; bidi's rejection is caught).
-		void this.#bidiCtlReader?.cancel().catch(() => {});
+		// The losing wait stays: once #draft is 22 it refuses whatever bidi
+		// stream the hub opens (a request), never taking it for control.
 		this.#draft = 22;
 		if (deferred) this.#callbacks.onHubSetup?.(this.sstsAlgorithms);
 		await this.#openControlStream22(wt);

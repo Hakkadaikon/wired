@@ -143,6 +143,35 @@ export class FakeRequestStream {
 	}
 }
 
+/** A request stream the hub opened (draft-22 6.4.2): `readable` serves the
+ * hub's request, `written` records the client's answer. */
+export class FakeHubRequest {
+	written: Uint8Array[] = [];
+	closed = false;
+	readonly readable = new FakeControlReplies();
+	readonly writable = {
+		getWriter: () => ({
+			write: async (chunk: Uint8Array) => {
+				this.written.push(chunk);
+			},
+			close: async () => {
+				this.closed = true;
+			},
+			abort: async () => {},
+			releaseLock: () => {},
+		}),
+	};
+
+	constructor(frame: Uint8Array) {
+		this.readable.push(frame);
+	}
+
+	/** The client's answer: Type and body of its first control message. */
+	get answer() {
+		return decodeControlFrame(concatBytes(this.written)).frame;
+	}
+}
+
 /** Fake wt.datagrams: the writable records what was written, the readable
  * serves whatever a test push()es (parking between pushes). */
 export class FakeDatagrams {
@@ -281,16 +310,30 @@ export class FakeWebTransport {
 	 * (a parked read then ends with done). */
 	bidiCancelled = false;
 	#unparkBidi: (() => void) | undefined;
+	/** Request streams the hub opened (draft-22 6.4.2), queued by pushHubRequest. */
+	#hubBidi: FakeHubRequest[] = [];
+
+	/** The hub opens a request stream to the client carrying `frame`. */
+	pushHubRequest(frame: Uint8Array): FakeHubRequest {
+		const s = new FakeHubRequest(frame);
+		this.#hubBidi.push(s);
+		this.#unparkBidi?.();
+		return s;
+	}
 
 	incomingBidirectionalStreams = {
 		getReader: () => ({
 			read: async () => {
 				this.bidiReads += 1;
 				if (!this.bidiControl) {
-					await new Promise<void>((res) => {
-						this.#unparkBidi = res;
-					});
-					return { value: undefined, done: true };
+					while (this.#hubBidi.length === 0 && !this.bidiCancelled)
+						await new Promise<void>((res) => {
+							this.#unparkBidi = res;
+						});
+					const s = this.#hubBidi.shift();
+					return s
+						? { value: s, done: false }
+						: { value: undefined, done: true };
 				}
 				return { value: fakeControlStream(this.controlReplies), done: false };
 			},
