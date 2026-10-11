@@ -10160,6 +10160,7 @@ static void srvrun_path_send(
 static void srvrun_path_challenge(
     const srvrun_cfg* cfg, srvrun_conn* c, pathsel_slot* s, u64 now) {
   const peercid_entry* e = srvrun_path_cid(cfg, c, &s->key, 0);
+  bytes_memcpy(s->prev, s->data, PATH_DATA);
   if (!e || !srvrun_gen_path_challenge(s->data)) {
     s->in_use = 0;
     return;
@@ -10348,16 +10349,21 @@ static void srvrun_path_failed(
     srvrun_path_move(cfg, c, &c->path.last_valid);
 }
 
-/* RFC 9000 8.2.4: three times the larger of the current PTO and the PTO a
- * new path starts with (kInitialRtt). */
-static u64 srvrun_path_abandon_ms(const srvrun_conn* c) {
+/* RFC 9000 8.2.4: the larger of the current PTO and the PTO a new path
+ * starts with (kInitialRtt). */
+static u64 srvrun_path_pto_ms(const srvrun_conn* c) {
   rtt     r;
   pto_rtt init;
   rtt_init(&r);
   init = (pto_rtt){r.smoothed_rtt, r.rttvar};
-  return 3 * u64_max(
-                 srvrun_pto_deadline_ms(c, 0),
-                 pto_duration(init, SRVRUN_MAX_ACK_DELAY_US, 0) / 1000);
+  return u64_max(
+      srvrun_pto_deadline_ms(c, 0),
+      pto_duration(init, SRVRUN_MAX_ACK_DELAY_US, 0) / 1000);
+}
+
+/* RFC 9000 8.2.4: three times srvrun_path_pto_ms. */
+static u64 srvrun_path_abandon_ms(const srvrun_conn* c) {
+  return 3 * srvrun_path_pto_ms(c);
 }
 
 static void srvrun_path_expire(const srvrun_cfg* cfg, srvrun_conn* c, u64 now) {
@@ -10366,11 +10372,11 @@ static void srvrun_path_expire(const srvrun_cfg* cfg, srvrun_conn* c, u64 now) {
     srvrun_path_failed(cfg, c, &k);
 }
 
-/* RFC 9000 9.4: resend an unanswered challenge one PTO after it went out,
- * doubling per try (RFC 9002 6.2.1), in the same slot with fresh data. */
+/* RFC 9000 9.4: resend an unanswered challenge one PTO (floored like the
+ * abandon timer) after it went out, doubling per try (RFC 9002 6.2.1), in
+ * the same slot with fresh data; the previous data still matches. */
 static void srvrun_path_resend(const srvrun_cfg* cfg, srvrun_conn* c, u64 now) {
-  pathsel_slot* s =
-      pathsel_resend_due(&c->path, now, srvrun_pto_deadline_ms(c, 0));
+  pathsel_slot* s = pathsel_resend_due(&c->path, now, srvrun_path_pto_ms(c));
   if (!s) return;
   s->tries++;
   srvrun_path_challenge(cfg, c, s, now);

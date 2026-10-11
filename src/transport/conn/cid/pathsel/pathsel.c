@@ -58,8 +58,14 @@ static int pathsel_release(pathsel_slot* s, pathsel_key* out) {
   return 1;
 }
 
+/* RFC 9000 8.2.3: resp echoes the latest or the previous challenge. */
+static int pathsel_echoes(const pathsel_slot* s, const u8 resp[PATH_DATA]) {
+  return ct_diff8(s->data, resp) == 0 ||
+         (s->tries && ct_diff8(s->prev, resp) == 0);
+}
+
 static int pathsel_answers(const pathsel_slot* s, const u8 resp[PATH_DATA]) {
-  return s->in_use && ct_diff8(s->data, resp) == 0;
+  return s->in_use && pathsel_echoes(s, resp);
 }
 
 int pathsel_match(pathsel* p, const u8 resp[PATH_DATA], pathsel_key* out) {

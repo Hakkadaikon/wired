@@ -3980,6 +3980,42 @@ static void test_srvrun_path_challenge_retransmit(void) {
   CHECK(ct_diff8(d, s->data) != 0 && s->tries == 1);
 }
 
+/* RFC 9000 8.2.3: a response echoing the first challenge, arriving after
+ * the resend, still validates the path. */
+static void test_srvrun_path_response_to_earlier_challenge(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  u8            d[PATH_DATA];
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_np(&f, &st, &new_peer, 5);
+  bytes_memcpy(d, sr_chal(&c, -1, &new_peer)->data, PATH_DATA);
+  sr_tick(&st, srvrun_path_abandon_ms(&c) / 3);
+  CHECK(sr_chal(&c, -1, &new_peer)->tries == 1);
+  sr_resp(&f, &st, &new_peer, 6, d);
+  CHECK(sr_valid(&c, -1, &new_peer));
+}
+
+/* RFC 9000 8.2.4: the resend interval is floored at the PTO a new path
+ * starts with, like the abandon timer. */
+static void test_srvrun_path_resend_floor(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_np(&f, &st, &new_peer, 5);
+  c.rtt.smoothed_rtt = 1000; /* 1 ms: below the initial RTT */
+  c.rtt.rttvar       = 500;
+  sr_tick(&st, srvrun_pto_deadline_ms(&c, 0));
+  CHECK(sr_chal(&c, -1, &new_peer)->tries == 0);
+  sr_tick(&st, srvrun_path_abandon_ms(&c) / 3);
+  CHECK(sr_chal(&c, -1, &new_peer)->tries == 1);
+}
+
 /* RFC 9000 19.15: a client using a zero-length ID that sends
  * NEW_CONNECTION_ID is closed with PROTOCOL_VIOLATION. */
 static void test_srvrun_path_empty_cid_ncid_closes(void) {
@@ -23801,6 +23837,8 @@ void test_srvrun(void) {
   test_srvrun_path_challenge_retransmit();
   test_srvrun_path_ncid_seq_reuse_closes();
   test_srvrun_path_empty_cid_ncid_closes();
+  test_srvrun_path_response_to_earlier_challenge();
+  test_srvrun_path_resend_floor();
   test_srvrun_path_empty_cid_not_retired();
   test_srvrun_path_ncid_over_limit_closes();
   test_srvrun_path_ncid_malformed_closes();

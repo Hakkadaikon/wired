@@ -32,6 +32,8 @@ typedef struct {
   u64 last_ms;
   /** The data of the latest challenge, echoed by a matching response. */
   u8 data[PATH_DATA];
+  /** The data of the challenge before it, valid once tries > 0. */
+  u8 prev[PATH_DATA];
   /** Retransmissions so far, doubling the retransmit interval. */
   u8 tries;
   /** 1 while the slot holds an outstanding challenge. */
@@ -68,8 +70,8 @@ pathsel_slot* pathsel_claim(
 /* A free slot for k, or 0 when both are busy (no eviction). */
 pathsel_slot* pathsel_claim_free(pathsel* p, const pathsel_key* k);
 
-/* RFC 9000 8.2.3: the slot whose data matches resp is freed and its path
- * copied to out. 1 on a match, 0 otherwise. */
+/* RFC 9000 8.2.3: the slot whose latest or previous data matches resp is freed
+ * and its path copied to out. 1 on a match, 0 otherwise. */
 int pathsel_match(pathsel* p, const u8 resp[PATH_DATA], pathsel_key* out);
 
 /* RFC 9000 8.2.4: free one slot outstanding for at least timeout_ms,

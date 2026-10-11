@@ -92,7 +92,23 @@ static void test_pathsel_resend_backoff(void) {
   CHECK(pathsel_resend_due(&p, 400, 100) == s);
 }
 
+/* RFC 9000 8.2.3: after a resend, a response to the earlier challenge
+ * still matches. */
+static void test_pathsel_match_earlier(void) {
+  pathsel       p              = {0};
+  pathsel_key   k1             = ps_key(1), out;
+  u8            d[PATH_DATA]   = {1, 2, 3, 4, 5, 6, 7, 8};
+  u8            bad[PATH_DATA] = {1, 2, 3, 4, 5, 6, 7, 9};
+  pathsel_slot* s              = pathsel_claim(&p, &k1, &k1);
+  bytes_memcpy(s->prev, d, PATH_DATA);
+  bytes_memcpy(s->data, bad, PATH_DATA);
+  s->tries = 1;
+  CHECK(pathsel_match(&p, d, &out) == 1);
+  CHECK(pathsel_key_eq(&out, &k1));
+}
+
 void test_pathsel(void) {
+  test_pathsel_match_earlier();
   test_pathsel_key_eq();
   test_pathsel_claim_order();
   test_pathsel_claim_free();
