@@ -604,6 +604,21 @@ static void test_moqtrun_upfetch_no_track_waits_ok(void) {
   CHECK(mupf_n_msgs(MOQFETCH_T_FETCH_OK) == 1);
 }
 
+/* d22 9.12: a FETCH_OK whose End lies before the requested Start closes
+ * the announcer's session PROTOCOL_VIOLATION, for a track the hub does
+ * not hold too. */
+static void test_moqtrun_upfetch_no_track_bad_end(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(2, 0, 5, 0), 0);
+  i64 sid = mupf_up(SESS_C, 0, &m);
+  mupf_up_ok_p(SESS_C, sid, mf_loc(1, 0), 0, wired_span_of(0, 0));
+  const moqtrun_test_call* c = moqtrun_test_last_kind(11);
+  CHECK(
+      c && c->s == SESS_C &&
+      c->stream_id == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
 /* d22 9.20.5 / 7.6: no covering announcer is DOES_NOT_EXIST, FILL_TIMEOUT
  * 0 is TIMEOUT, no request stream toward the announcer EXCESSIVE_LOAD --
  * each leaving no slot behind. */
@@ -1498,6 +1513,7 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_tried_announcer_skipped();
   test_moqtrun_upfetch_cache_only();
   test_moqtrun_upfetch_no_track_waits_ok();
+  test_moqtrun_upfetch_no_track_bad_end();
   test_moqtrun_upfetch_no_track_refusals();
   test_moqtrun_upfetch_hub_owned();
   test_moqtrun_upfetch_refused_before_routing();

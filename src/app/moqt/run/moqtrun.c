@@ -11895,8 +11895,8 @@ static void moqtrun_upf_nt_init(
   f->descending        = moqtrun_fetch_order_desc(&m->params);
   f->seq.descending    = f->descending;
   f->seq.eor_timed_out = (moqver_caps(p->ver) & MOQVER_CAP_EOR_TIMED_OUT) != 0;
-  f->up_lo             = moqctl_loc_of(0, 0);
-  f->up_span_end       = moqctl_loc_of(~(u64)0, ~(u64)0);
+  f->up_lo       = moqctl_loc_of(m->range.start_group, m->range.start_object);
+  f->up_span_end = moqctl_loc_of(~(u64)0, ~(u64)0);
   moqtrun_upf_budget_of(f, &m->params);
 }
 
