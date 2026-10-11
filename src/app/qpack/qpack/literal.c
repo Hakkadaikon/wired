@@ -61,14 +61,16 @@ static int is_namref(wired_span buf) {
   return buf.n != 0 && (buf.p[0] & 0xc0) == QPACK_NAMREF;
 }
 
-usz qpack_literal_namref_decode(
-    wired_span buf, qpack_nameref* r, wired_obuf* val) {
-  usz off;
+usz qpack_literal_namref_head(wired_span buf, qpack_nameref* r) {
   if (!is_namref(buf)) return 0;
   r->never     = flag(buf.p[0], QPACK_NAMREF_N);
   r->is_static = flag(buf.p[0], QPACK_NAMREF_T);
-  off          = qpack_int_decode(buf, 4, &r->index);
-  return decode_value(buf, off, val);
+  return qpack_int_decode(buf, 4, &r->index);
+}
+
+usz qpack_literal_namref_decode(
+    wired_span buf, qpack_nameref* r, wired_obuf* val) {
+  return decode_value(buf, qpack_literal_namref_head(buf, r), val);
 }
 
 /* Encode the 4.5.6 name: 3-bit prefixed length (H=0) then the name octets. */
@@ -159,11 +161,13 @@ static int is_postbaseref(wired_span buf) {
          (buf.p[0] & QPACK_POSTBASEREF_MASK) == QPACK_POSTBASEREF_PATTERN;
 }
 
-usz qpack_literal_postbase_decode(
-    wired_span buf, qpack_postbaseref* r, wired_obuf* val) {
-  usz off;
+usz qpack_literal_postbase_head(wired_span buf, qpack_postbaseref* r) {
   if (!is_postbaseref(buf)) return 0;
   r->never = flag(buf.p[0], QPACK_POSTBASEREF_N);
-  off      = qpack_int_decode(buf, 3, &r->index);
-  return decode_value(buf, off, val);
+  return qpack_int_decode(buf, 3, &r->index);
+}
+
+usz qpack_literal_postbase_decode(
+    wired_span buf, qpack_postbaseref* r, wired_obuf* val) {
+  return decode_value(buf, qpack_literal_postbase_head(buf, r), val);
 }

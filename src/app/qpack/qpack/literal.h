@@ -28,6 +28,11 @@ usz qpack_literal_namref_encode(
 usz qpack_literal_namref_decode(
     wired_span buf, qpack_nameref* r, wired_obuf* val);
 
+/* Decode only a name-reference line's first byte flags and name index into
+ * *r (RFC 9204 2.2.3: resolve the reference before the value). Returns the
+ * offset of the value, or 0 on a non-matching pattern or truncation. */
+usz qpack_literal_namref_head(wired_span buf, qpack_nameref* r);
+
 /* Encode a literal-name field line: never flag plus the (name, value) pair.
  * Returns bytes written, or 0 if it does not fit. */
 usz qpack_literal_name_encode(wired_mspan buf, int never, const qpack_field* f);
@@ -58,5 +63,8 @@ usz qpack_literal_postbase_encode(
  * pattern, truncation, or value overflow. */
 usz qpack_literal_postbase_decode(
     wired_span buf, qpack_postbaseref* r, wired_obuf* val);
+
+/* qpack_literal_namref_head for the post-Base form. */
+usz qpack_literal_postbase_head(wired_span buf, qpack_postbaseref* r);
 
 #endif
