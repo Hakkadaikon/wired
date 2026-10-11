@@ -4040,6 +4040,39 @@ static void test_srvrun_css_quarter_growth_on_ack(void) {
   c->up = 0;
 }
 
+/* RFC 9406 4.3: HyStart++ governs only the initial slow start. A slow start
+ * after loss and persistent congestion (cwnd at the minimum, ssthresh set)
+ * grows by the full acked bytes even with stale CSS state, and a sample
+ * never moves ssthresh. */
+static void test_srvrun_hystart_after_loss(void) {
+  srvrun_conn* c = &g_srvrun_state.conns[3];
+  *c             = (srvrun_conn){0};
+  cc_init(&c->cc);
+  hystart_init(&c->hs);
+  cc_on_loss(&c->cc, 0, 10);
+  cc_on_persistent(&c->cc);
+  c->hs.css        = 1;
+  c->hs.css_rounds = 5;
+  c->l.tx_pn       = 9;
+  CHECK(srvrun_css_acked(c, 1200) == 1200);
+  srvrun_hystart_ack(c, 8, 20, 60);
+  CHECK(c->cc.ssthresh == CC_INIT_WINDOW / 2);
+}
+
+/* BBR never runs HyStart++: no 1/4 growth divisor, no ssthresh verdict. */
+static void test_srvrun_hystart_skips_bbr(void) {
+  srvrun_conn* c = &g_srvrun_state.conns[3];
+  *c             = (srvrun_conn){0};
+  cc_init_algo(&c->cc, CC_ALGO_BBR);
+  hystart_init(&c->hs);
+  c->hs.css        = 1;
+  c->hs.css_rounds = 5;
+  c->l.tx_pn       = 9;
+  CHECK(srvrun_css_acked(c, 1200) == 1200);
+  srvrun_hystart_ack(c, 8, 20, 60);
+  CHECK(c->cc.ssthresh == ~(u64)0);
+}
+
 /* REGRESSION: HyStart's round boundary is "the next pn to be sent"
  * (srvrun_hystart_ack's own doc), read from the connection-wide c->l.tx_pn --
  * a single counter shared by every round-robin resp[] slot (srvrun_pump_
@@ -22271,6 +22304,8 @@ void test_srvrun(void) {
   test_srvrun_cc_algo_selected();
   test_srvrun_hystart_ends_slow_start();
   test_srvrun_css_quarter_growth_on_ack();
+  test_srvrun_hystart_after_loss();
+  test_srvrun_hystart_skips_bbr();
   test_srvrun_hystart_round_boundary_survives_interleaving();
   test_srvrun_rtt_ewma();
   test_srvrun_rtt_sample_uses_newest_hit_only();

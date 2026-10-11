@@ -8526,15 +8526,12 @@ static void srvrun_pace_next(const srvrun_step_ctx* ctx, srvrun_conn* c) {
       ctx->now_ms + cc_pacing_ms(&c->cc, c->srtt_ms, MAX_DATAGRAM);
 }
 
-/* 1 while the controller is still in slow start (no loss, no exit yet). */
-static int srvrun_in_slow_start(const srvrun_conn* c) {
-  return c->cc.cwnd < c->cc.ssthresh && !c->cc.in_recovery;
-}
-
-/* 1 while HyStart++ governs this connection's growth: Reno/Cubic slow
- * start (BBR's ack bytes feed its own model, never slow-start growth). */
+/* 1 while HyStart++ governs this connection's growth: the INITIAL
+ * Reno/Cubic slow start only (RFC 9406 4.3) -- ssthresh is still its
+ * initial infinity, so no loss and no HyStart++ exit has happened yet. BBR's
+ * ack bytes feed its own model, never slow-start growth. */
 static int srvrun_hystart_paces(const srvrun_conn* c) {
-  return c->cc.algo != CC_ALGO_BBR && srvrun_in_slow_start(c);
+  return c->cc.algo != CC_ALGO_BBR && c->cc.ssthresh == ~(u64)0;
 }
 
 /* The bytes to credit cc_on_ack with: HyStart++'s CSS growth divisor
@@ -8549,7 +8546,7 @@ static u64 srvrun_css_acked(const srvrun_conn* c, u64 bytes) {
  * current window. Round boundary: the next pn to be sent. Does NOT touch
  * the RTT estimator -- see srvrun_hystart_range's comment for why. */
 static void srvrun_hystart_ack(srvrun_conn* c, u64 pn, u64 sent_ms, u64 now) {
-  if (!srvrun_in_slow_start(c)) return;
+  if (!srvrun_hystart_paces(c)) return;
   if (hystart_sample(&c->hs, now - sent_ms, pn, c->l.tx_pn))
     c->cc.ssthresh = c->cc.cwnd;
 }
