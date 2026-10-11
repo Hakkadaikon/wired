@@ -1010,6 +1010,27 @@ static void lp_confirm(struct lp_fix* f, wired_obuf* ob) {
   CHECK(wired_server_is_confirmed(&f->s) == 1);
 }
 
+/* RFC 8446 4.2.10 / RFC 9001 4.6.1: the NewSessionTicket's early_data
+ * extension invites the client to try 0-RTT on resumption. An HTTP/3
+ * connection's ticket carries it (0xffffffff); a raw-QUIC connection, which
+ * is never admitted in 0-RTT, gets a ticket without it, so its client does
+ * not send early data that would only be refused. */
+static void test_srvloop_ticket_early_data_only_off_raw(void) {
+  struct lp_fix f;
+  u8            out[1024], msg[64 + TICKET_SEALED_LEN];
+  wired_obuf    ob  = {out, sizeof out, 0};
+  usz           ext = 4 + 12 + TICKET_SEALED_LEN; /* extensions_len offset */
+  u32           got = 0;
+  lp_confirm(&f, &ob);
+  f.s.sdrv.alpn = SALPN_H3;
+  CHECK(build_ticket_message(&f.s, msg, sizeof msg) == ext + 10);
+  CHECK(tlsext_early_data_nst_parse(msg + ext + 2, 8, &got) == 1);
+  CHECK(got == 0xffffffff);
+  f.s.sdrv.alpn = SALPN_RAW;
+  CHECK(build_ticket_message(&f.s, msg, sizeof msg) == ext + 2);
+  CHECK(msg[ext] == 0 && msg[ext + 1] == 0); /* extensions_len 0 */
+}
+
 /* (C) ACK A 1-RTT GET: a decoded GET yields a 200 whose 1-RTT packet also
  * carries an ACK of the received GET's packet number (RFC 9000 13.2.1), so the
  * client stops retransmitting the GET once the 200 is received. */
@@ -4967,6 +4988,7 @@ static void test_srvloop_reset_stream_without_stop_sending_latches_close(void) {
 }
 
 void test_srvloop(void) {
+  test_srvloop_ticket_early_data_only_off_raw();
   test_srvloop_note_ecn_keeps_largest_ack();
   test_srvloop_recv_zerortt_opens_with_early_keys();
   test_srvloop_recv_zerortt_refused_without_early_keys();
