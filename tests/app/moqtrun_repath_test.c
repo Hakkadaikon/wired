@@ -672,6 +672,27 @@ static void test_moqtrun_repath_own_announce(void) {
   CHECK(mups_relayed_alias(SESS_D) == mrdv_alias(SESS_D, MRDV_S1));
 }
 
+/* C's own announcement (made before B's) is a path for D only, B's for
+ * both: B is asked first, even by D's wait (D subscribed before C, so it
+ * looks first), and its SUBSCRIBE_OK re-attaches C and D. */
+static void test_moqtrun_repath_prefers_outsider(void) {
+  mups_init();
+  mtst_join(SESS_C);
+  mtst_join(SESS_D);
+  mups_sub(SESS_D, MRDV_S1);
+  mups_sub(SESS_C, MRDV_S1);
+  mrp_up_a = (u64)mups_up_sid();
+  mups_ok(mrp_up_a);
+  mtns_pub(SESS_C, MRDV_S2, "chat/room1");
+  mrp_announce(SESS_B);
+  mrp_end(MRP_GA);
+  CHECK(mups_n_up(SESS_C) == 0);
+  CHECK(mups_n_up(SESS_B) == 1);
+  mrp_ok(SESS_B, mrp_up(SESS_B, 0));
+  CHECK(mrp_relayed(SESS_B));
+  CHECK(mrp_no_done());
+}
+
 /* C's remembered subscriptions wrap while it waits (as many SUBSCRIBEs
  * to another Track, each cancelled): C can no longer be re-attached, so
  * B's SUBSCRIBE_OK ends C's wait with its PUBLISH_DONE; D is re-attached. */
@@ -734,6 +755,7 @@ static void mtall_repath(void) {
   test_moqtrun_repath_table_full();
   test_moqtrun_repath_update();
   test_moqtrun_repath_own_announce();
+  test_moqtrun_repath_prefers_outsider();
   test_moqtrun_repath_names_wrapped();
   test_moqtrun_repath_malformed();
 }

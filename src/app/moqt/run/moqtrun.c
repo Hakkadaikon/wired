@@ -9298,6 +9298,15 @@ static u64 moqtrun_rp_skip(wired_moqt_hub* hub, moqtrun_key k) {
   return m;
 }
 
+/* The sessions waiting for a new path for k. */
+static u64 moqtrun_rp_waiters(wired_moqt_hub* hub, moqtrun_key k) {
+  u64 m = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+    if (moqtrun_rp_matches(&hub->rdv[i], k))
+      m |= moqtrun_rp_bit(hub, hub->rdv[i].wt);
+  return m;
+}
+
 /* s was asked for k: every wait for k counts it tried. */
 static void moqtrun_rp_mark(
     wired_moqt_hub* hub, moqtrun_key k, wired_wt_session* s) {
@@ -9949,15 +9958,23 @@ static int moqtrun_up_candidate(
   return moqtrun_up_covers(q, s, k) && !(skip & moqtrun_rp_bit(hub, q->wt));
 }
 
-/* Skips the sessions a wait for a new path must not ask
- * (moqtrun_rp_skip). */
-static wired_moqtrun_req* moqtrun_up_announcer(
-    wired_moqt_hub* hub, const wired_wt_session* s, moqtrun_key k) {
-  u64 skip = moqtrun_rp_skip(hub, k);
+static wired_moqtrun_req* moqtrun_up_announcer_skip(
+    wired_moqt_hub* hub, const wired_wt_session* s, moqtrun_key k, u64 skip) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
     if (moqtrun_up_candidate(hub, &hub->reqs[i], s, k, skip))
       return &hub->reqs[i];
   return 0;
+}
+
+/* Skips the sessions a wait for a new path must not ask
+ * (moqtrun_rp_skip), and prefers one no wait for k belongs to: a waiting
+ * session's own path cannot re-attach that waiter (moqtrun_rp_waiters). */
+static wired_moqtrun_req* moqtrun_up_announcer(
+    wired_moqt_hub* hub, const wired_wt_session* s, moqtrun_key k) {
+  u64                skip = moqtrun_rp_skip(hub, k);
+  wired_moqtrun_req* a =
+      moqtrun_up_announcer_skip(hub, s, k, skip | moqtrun_rp_waiters(hub, k));
+  return a ? a : moqtrun_up_announcer_skip(hub, s, k, skip);
 }
 
 static int moqtrun_up_matches(const wired_moqtrun_up* u, moqtrun_key k) {

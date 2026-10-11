@@ -360,7 +360,8 @@ Legend:
   keep each downstream subscription for up to `WIRED_MOQTRUN_RDV_MAX_MS`
   from the end (never extended) and send a SUBSCRIBE to one matching
   announcer not yet tried in that wait, a waiting subscriber's own session
-  excluded only for that subscriber (SS7.6, SS7.6.1); a refusal or reset of
+  excluded for that subscriber and asked for the others only when no other
+  untried announcer remains (SS7.6, SS7.6.1); a refusal or reset of
   that SUBSCRIBE moves on to the next, and a session's new PUBLISH_NAMESPACE
   covering the Track makes it eligible again. The first SUBSCRIBE_OK
   re-attaches every waiting subscription under the Track Alias and state it
@@ -374,6 +375,7 @@ Legend:
     `test_moqtrun_repath_late_announce`, `test_moqtrun_repath_failover`,
     `test_moqtrun_repath_ender_skipped`,
     `test_moqtrun_repath_untry_covering`, `test_moqtrun_repath_own_announce`,
+    `test_moqtrun_repath_prefers_outsider`,
     `test_moqtrun_repath_ends_again`, `test_moqtrun_repath_update`
   - test: `tests/app/moqtrun_ssts_test.c` —
     `test_moqtrun_ssts_repath_member`,
