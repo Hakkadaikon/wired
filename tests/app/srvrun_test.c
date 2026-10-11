@@ -3073,8 +3073,10 @@ static void test_srvrun_path_challenge_sent_to_new_peer(void) {
      * challenge with a checktag error and never sent PATH_RESPONSE). */
     wired_obuf gob = {out, sizeof out, 0};
     CHECK(
-        srvrun_seal_path_challenge(
-            &c, sr_chal(&c, -1, &new_peer)->data, &gob) == 1);
+        srvrun_seal_path_frames(
+            &c, wired_span_of(c.l.cli_scid, c.l.cli_scid_len),
+            FRAME_PATH_CHALLENGE, sr_chal(&c, -1, &new_peer)->data, 1,
+            &gob) == 1);
     CHECK(gob.len == 1200);
     CHECK(client_open_onertt(&f, out, gob.len, &pl, &pll) == 1);
   }
@@ -15180,9 +15182,9 @@ static void test_srvrun_answers_peer_path_challenge(void) {
   {
     wired_obuf gob = {out, sizeof out, 0};
     CHECK(
-        srvrun_seal_path_frame(
+        srvrun_seal_path_frames(
             &c, wired_span_of(c.l.cli_scid, c.l.cli_scid_len),
-            FRAME_PATH_RESPONSE, data, &gob) == 1);
+            FRAME_PATH_RESPONSE, data, 1, &gob) == 1);
     CHECK(gob.len == 1200); /* expanded, inside the AEAD */
     CHECK(client_open_onertt(&f, out, gob.len, &pl, &pll) == 1);
   }

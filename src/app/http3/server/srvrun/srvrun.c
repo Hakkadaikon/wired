@@ -3079,24 +3079,6 @@ static int srvrun_seal_path_frames(
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
-/* One frame (srvrun_seal_path_frames). */
-__attribute__((unused)) static int srvrun_seal_path_frame(
-    srvrun_conn* c,
-    wired_span   dcid,
-    u8           type,
-    const u8     data[PATH_DATA],
-    wired_obuf*  out) {
-  return srvrun_seal_path_frames(c, dcid, type, data, 1, out);
-}
-
-/* A PATH_CHALLENGE under the connection's current peer ID. */
-__attribute__((unused)) static int srvrun_seal_path_challenge(
-    srvrun_conn* c, const u8 data[PATH_DATA], wired_obuf* out) {
-  return srvrun_seal_path_frame(
-      c, wired_span_of(c->l.cli_scid, c->l.cli_scid_len), FRAME_PATH_CHALLENGE,
-      data, out);
-}
-
 /* Seal one MAX_DATA frame (RFC 9000 19.9) as its own 1-RTT packet and send
  * it, mirroring srvrun_seal_max_stream_data for the connection-wide frame. */
 static int srvrun_seal_max_data(srvrun_conn* c, u64 value, wired_obuf* out) {
