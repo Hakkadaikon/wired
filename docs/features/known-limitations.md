@@ -492,8 +492,9 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   the seeds. Source: `src/tls/keys/keyring/keyring.h`.
 - **Path validation limits** — two PATH_CHALLENGEs are tracked at once
   (the new path and the path left) plus the last validated path; a probe
-  starts a validation only when it carries PATH_CHALLENGE and a slot is
-  free, and only the first two PATH_CHALLENGEs of a packet are answered.
+  from a new path is answered and validated only when a slot is free, and
+  ignored otherwise, and only the first two PATH_CHALLENGEs of a packet are
+  answered.
   An off-path copy of a genuine new packet still moves the send path until
   that path's validation times out and the server reverts (RFC 9000 9.3.3
   calls this defence imperfect). The server does not reset congestion
@@ -505,8 +506,9 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   higher one), so a probe answered from a new socket and a later migration
   compete for the one spare. Each RETIRE_CONNECTION_ID is sent once and not
   retransmitted, and stateless reset tokens from NEW_CONNECTION_ID are not
-  kept. Source: `src/transport/conn/cid/peercid/`.
-
+  kept. A repeated NEW_CONNECTION_ID for an ID the server retired more than
+  64 sequence numbers above Retire Prior To is held again. Source:
+  `src/transport/conn/cid/peercid/`.
 - **ECN-failed connections lose GSO** — a connection whose ECN validation
   failed sends Not-ECT through a per-datagram TOS cmsg, one `sendmsg` per
   packet (no GSO batching); AF_XDP never marks. ECT(1) is never sent.
