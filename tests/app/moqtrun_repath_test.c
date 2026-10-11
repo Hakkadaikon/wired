@@ -614,6 +614,33 @@ static void test_moqtrun_repath_no_room(void) {
   CHECK(mrp_dones(SESS_D, &st) == 0);
 }
 
+/* Waits are per subscription in the hub-wide rendezvous table: with one
+ * more subscriber than WIRED_MOQTRUN_MAX_RDV, the last one gets the end's
+ * PUBLISH_DONE at once, and a new rendezvous hold is refused
+ * EXCESSIVE_LOAD while the others wait. */
+static void test_moqtrun_repath_table_full(void) {
+  moqctl_ftn f     = mtst_ftn("other", "room9", "x");
+  usz        dones = 0;
+  u64        st;
+  mups_init();
+  for (usz i = 0; i <= WIRED_MOQTRUN_MAX_RDV; i++) {
+    mtst_join((wired_wt_session*)(40 + i));
+    mups_sub((wired_wt_session*)(40 + i), MRDV_S1);
+    if (!i) mrp_up_a = (u64)mups_up_sid();
+    if (!i) mups_ok(mrp_up_a);
+  }
+  mrp_end(MRP_GA);
+  for (usz i = 0; i <= WIRED_MOQTRUN_MAX_RDV; i++)
+    if (mrp_dones((wired_wt_session*)(40 + i), &st) == 1 &&
+        st == MOQCTL_DONE_GOING_AWAY)
+      dones++;
+  CHECK(dones == 1);
+  CHECK(mrp_dones((wired_wt_session*)(40 + WIRED_MOQTRUN_MAX_RDV), &st) == 1);
+  CHECK(mrdv_used() == WIRED_MOQTRUN_MAX_RDV);
+  mrdv_hold_f(SESS_B, MRDV_S2, &f, 1000);
+  CHECK(mrdv_is(SESS_B, MRDV_S2, "E9|FIN|"));
+}
+
 /* REQUEST_UPDATE while waiting is applied and answered REQUEST_OK, and
  * the re-attached subscription follows it. */
 static void test_moqtrun_repath_update(void) {
@@ -704,6 +731,7 @@ static void mtall_repath(void) {
   test_moqtrun_repath_fresh_dne();
   test_moqtrun_repath_fresh_own_upstream();
   test_moqtrun_repath_no_room();
+  test_moqtrun_repath_table_full();
   test_moqtrun_repath_update();
   test_moqtrun_repath_own_announce();
   test_moqtrun_repath_names_wrapped();
