@@ -3980,6 +3980,38 @@ static void test_srvrun_path_challenge_retransmit(void) {
   CHECK(ct_diff8(d, s->data) != 0 && s->tries == 1);
 }
 
+/* RFC 9000 19.15: a client using a zero-length ID that sends
+ * NEW_CONNECTION_ID is closed with PROTOCOL_VIOLATION. */
+static void test_srvrun_path_empty_cid_ncid_closes(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  int           is_app;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  c.l.cli_scid_len = 0;
+  sr_ncid(&f, &st, &old_peer, 4, sr_cid(1, 0, 0xc1));
+  CHECK(sr_close_code(&c, &is_app) == ERR_PROTOCOL_VIOLATION);
+}
+
+/* RFC 9000 19.16: a client's zero-length ID is never retired, even once
+ * the path it was first used on is left and abandoned. */
+static void test_srvrun_path_empty_cid_not_retired(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  c.l.cli_scid_len = 0;
+  sr_np(&f, &st, &new_peer, 5);
+  sr_resp(&f, &st, &new_peer, 6, sr_chal(&c, -1, &new_peer)->data);
+  sr_tick(&st, 1000000);
+  CHECK(sr_chal(&c, -1, &old_peer) == 0);
+  CHECK(c.pcid.e[0].in_use && c.pcid.retire_n == 0);
+}
+
 /* RFC 9000 19.15: a held sequence number carrying another ID closes the
  * connection with PROTOCOL_VIOLATION. */
 static void test_srvrun_path_ncid_seq_reuse_closes(void) {
@@ -23768,6 +23800,8 @@ void test_srvrun(void) {
   test_srvrun_path_abandon_timer();
   test_srvrun_path_challenge_retransmit();
   test_srvrun_path_ncid_seq_reuse_closes();
+  test_srvrun_path_empty_cid_ncid_closes();
+  test_srvrun_path_empty_cid_not_retired();
   test_srvrun_path_ncid_over_limit_closes();
   test_srvrun_path_ncid_malformed_closes();
   test_srvrun_path_wire_both_challenged();
