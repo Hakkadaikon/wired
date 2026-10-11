@@ -32,10 +32,8 @@ typedef struct {
   /** RFC 9204 5 (SETTINGS_QPACK_MAX_TABLE_CAPACITY): the maximum dynamic
    * table capacity (in bytes) this server has advertised to the peer --
    * qpack_capacity_within_limit's own limit argument when validating a
-   * received Set Dynamic Table Capacity instruction (9204-032). 0 (this
-   * SDK's current default: it never emits a non-zero value in its own
-   * SETTINGS) means the peer's encoder may not raise the table past 0
-   * either. */
+   * received Set Dynamic Table Capacity instruction (9204-032) --
+   * DEFAULT_QPACK_MAX_TABLE_CAP on a live connection. */
   u64 qpack_max_table_capacity;
   /** RFC 9204 4.2: the peer's encoder stream, reassembled and applied to
    * qdyn as it arrives. */
