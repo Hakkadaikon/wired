@@ -18,6 +18,8 @@ void moqcache_init(moqcache* c, u8* arena, usz cap) {
   c->cap      = cap;
   c->used     = 0;
   c->hint_off = 0;
+  c->hint_tag = 0;
+  c->hint_cur = moqctl_loc_of(0, 0);
 }
 
 static moqcache_rec moqcache_rec_at(const moqcache* c, usz off) {

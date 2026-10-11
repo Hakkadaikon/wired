@@ -243,6 +243,7 @@ static void fuzz_cache(wired_span in) {
     else
       moqcache_append(
           &c, op[0] & 1, op[1] & 7, op[2] & 7, wired_span_of(in.p + i, len));
+    if (op[0] & 0x40) fuzz_cache_read(&c, op[0] & 1); /* lookups interleave */
   }
   fuzz_cache_read(&c, 0);
   fuzz_cache_read(&c, 1);

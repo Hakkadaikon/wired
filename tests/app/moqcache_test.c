@@ -264,6 +264,9 @@ static void test_moqcache_walk_resumes(void) {
     for (moqctl_loc cur = moqcache_skip(&c, MC_TAG, mc_loc(0, 0), end);
          moqctl_loc_less(cur, end);
          cur = moqcache_skip(&c, MC_TAG, it.next, end)) {
+      moqcache_item it2;
+      moqcache_item_at(&c, 2, cur, end, &it2); /* the other tag in between */
+      CHECK(!it2.unknown && it2.payload.p[0] == (u8)(n / 2 * 16 + n % 2));
       moqcache_item_at(&c, MC_TAG, cur, end, &it);
       CHECK(!it.unknown && it.payload.p[0] == (u8)(n / 2 * 16 + n % 2));
       n++;
