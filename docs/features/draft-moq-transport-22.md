@@ -802,6 +802,9 @@ Legend:
   - test: `tests/app/moqtrun_fill_test.c` — `test_moqtrun_fill_counts_in_done`
   - test: `tests/app/moqtrun_fill_test.c` —
     `test_moqtrun_fill_done_waits_for_held`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_count_after_supersede` (the count survives a
+    newer session's re-PUBLISH of the name)
 - [x] MQ22-100 PUBLISH_DONE plus closing the subscription's bidi stream shall
   terminate the subscription; the sender may then destroy subscription state.
   - test: `tests/app/moqsess_test.c` —

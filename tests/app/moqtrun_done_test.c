@@ -88,6 +88,25 @@ static void test_moqtrun_pubdone_two_subs(void) {
   CHECK(cb == 2 && cc == 2);
 }
 
+/* A newer session C PUBLISHes the same name: B is re-attached to C's
+ * track and its Stream Count keeps the stream A's track opened for it. */
+static void test_moqtrun_pubdone_count_after_supersede(void) {
+  moqctl_ftn          f     = mtdn_setup();
+  moqctl_publish_done d     = {0};
+  u64                 count = 0;
+  u8                  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  mtdn_group(2002, 1);
+  mtst_join(SESS_C);
+  mtst_publish(SESS_C, MTDN_PUB, &f, 1);
+  usz n = mtst_stream(2, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_C, 2002, wired_span_of(buf, n), 1);
+  d.status_code  = MOQCTL_DONE_TRACK_ENDED;
+  d.stream_count = 1;
+  mtst_send(SESS_C, MTDN_PUB, MOQCTL_T_PUBLISH_DONE, mtdn_enc_done, &d);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_TRACK_ENDED);
+  CHECK(count == 2);
+}
+
 /* Subgroup-per-group, N groups: Stream Count N. */
 static void test_moqtrun_pubdone_n_groups(void) {
   u64 count = 0;
@@ -301,6 +320,7 @@ static void test_moqtrun_pubdone_ctl_ignored(void) {
 static void mtall_pubdone(void) {
   test_moqtrun_pubdone_one_sub();
   test_moqtrun_pubdone_two_subs();
+  test_moqtrun_pubdone_count_after_supersede();
   test_moqtrun_pubdone_n_groups();
   test_moqtrun_pubdone_datagram_only();
   test_moqtrun_pubdone_waits_late_stream();

@@ -853,6 +853,18 @@ static void moqtrun_track_return_rings(
  * for the track incarnation tag (T-07/T-08), defined there. */
 static void moqtrun_subtracks_track_gone(wired_moqt_hub* hub, u64 tag);
 
+/* Re-path block: s's streams so far go into its remembered state. */
+static void moqtrun_rp_keep_count(
+    wired_moqt_hub* hub, const wired_moqtrun_sub* s);
+
+/* Each still-active subscriber's Stream Count survives into the state a
+ * re-attach starts from (PUBLISH_DONE Stream Count, draft-22 9.9). */
+static void moqtrun_track_keep_counts(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t) {
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
+    if (t->subs[si].active) moqtrun_rp_keep_count(hub, &t->subs[si]);
+}
+
 /* Frees a superseded track: its subscribers' still-open relay streams are
  * reset (moqtrun_track_reset_stale_relays' own doc), its fills reset
  * INTERNAL_ERROR as upstream failures (ruling Q-08, in
@@ -860,6 +872,7 @@ static void moqtrun_subtracks_track_gone(wired_moqt_hub* hub, u64 tag);
  * released), and the slot stops matching any name or Track Alias, so the
  * lingering session's stray Objects are dropped instead of relayed. */
 static void moqtrun_track_retire(wired_moqt_hub* hub, wired_moqtrun_track* t) {
+  moqtrun_track_keep_counts(hub, t);
   moqtrun_track_reset_stale_relays(hub, t);
   moqtrun_track_cache_drop(hub, t);
   moqtrun_track_return_rings(hub, t);
