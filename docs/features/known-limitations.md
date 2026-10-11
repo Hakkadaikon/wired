@@ -56,6 +56,18 @@ general relay network.
   is used only while subscriptions wait for a new path, and is ignored while
   an upstream is Established. Source: `moqtrun_track_ended` in
   `src/app/moqt/run/moqtrun.c` (ponytail).
+- **Waits for a new path share the rendezvous table** — each waiting
+  subscription takes one slot of the hub-wide `WIRED_MOQTRUN_MAX_RDV` (16)
+  table, at most `WIRED_MOQTRUN_RDV_PER_SESSION` (4) per session, with its
+  own copy of the Track's deadline. A Track with more waiting subscribers
+  than free slots fails over only partly: the rest get PUBLISH_DONE with the
+  end's status at once, and while the table is full every new rendezvous
+  hold is refused EXCESSIVE_LOAD, for up to 1.5 s. The old side of a
+  SWITCH_FROM never waits (it ends at once, so a re-attach cannot feed both
+  sides the same Group), and a switching-set member that is re-attached
+  leaves its set and gets every Group until a REQUEST_UPDATE assigns it
+  again. Source: `moqtrun_rp_wait`, `moqtrun_reattach_one_sub` in
+  `src/app/moqt/run/moqtrun.c`.
 - **One SUBGROUP stream kept before SUBSCRIBE_OK** — a SUBGROUP stream that
   reaches the hub before the upstream SUBSCRIBE_OK is kept (one per publisher
   session, up to `WIRED_MOQTRUN_EARLY_BUF` = 2048 bytes) and relayed when the
