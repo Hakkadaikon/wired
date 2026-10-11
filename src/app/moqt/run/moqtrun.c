@@ -11446,11 +11446,11 @@ static void moqtrun_upf_mal_peers(
       moqtrun_upf_mal_stop(hub, &hub->fetches[i]);
 }
 
-/* t is one of p's own tracks. */
+/* t is one of p's own tracks. Compared as addresses: t may be 0 or in
+ * another array, where pointer ordering is undefined. */
 static int moqtrun_peer_owns(
     const wired_moqtrun_peer* p, const wired_moqtrun_track* t) {
-  return p && t >= p->tracks &&
-         t < p->tracks + WIRED_MOQTRUN_MAX_TRACKS_PER_PEER;
+  return p && (usz)t - (usz)p->tracks < sizeof p->tracks;
 }
 
 /* A malformed upstream Object is neither relayed nor cached; the fetch is
