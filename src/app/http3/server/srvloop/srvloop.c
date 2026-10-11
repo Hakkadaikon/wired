@@ -94,6 +94,7 @@ static void wt_uni_streams_reset(wired_srvloop* l) {
     wt_window_reset(&l->wt_uni_streams[i].win);
   }
   bytes_memset(&l->wt_uni_closed, 0, sizeof l->wt_uni_closed);
+  bytes_memset(&l->uni_typed, 0, sizeof l->uni_typed);
 }
 
 /* RFC 9218 10 / 9218-010: mark every buffered PRIORITY_UPDATE slot free. */
@@ -136,7 +137,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->max_data_seen              = 0;
   l->max_data_seen_flag         = 0;
   l->max_stream_data_n          = 0;
-  /* wt_uni_closed is zeroed by wt_uni_streams_reset below. */
+  /* wt_uni_closed/uni_typed are zeroed by wt_uni_streams_reset below. */
   /* max_data_seen_flag/streams_blocked_seen_flag/path_response_seen_flag are
    * "not reset across steps by this loop itself" (see their own doc in
    * srvloop.h) -- but that convention only holds once a step has actually run

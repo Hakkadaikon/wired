@@ -2907,6 +2907,57 @@ static void test_srvloop_qpack_type_after_later_bytes(void) {
   CHECK(f.l.qpack_stream_violation == 0);
 }
 
+/* RFC 9204 4.2 / RFC 9000 2.2: a later chunk of a uni stream whose type is
+ * already known (the peer's decoder stream) is never held as the encoder
+ * candidate -- holding it would block the window for good, and the real
+ * encoder stream's early bytes, arriving before its type, would be lost. */
+static void test_srvloop_qpack_known_uni_not_held(void) {
+  static const u8 dtype[] = {H3_STREAM_QPACK_DECODER};
+  static const u8 dbody[] = {0x01};
+  struct lp_fix   f;
+  u8              payload[256], out[1024];
+  usz             off;
+  wired_obuf      ob = {out, sizeof out, 0};
+  stream_frame    d0 = {10, 0, 1, dtype, 0};
+  stream_frame    d1 = {10, 1, 1, dbody, 0};
+  lp_confirm(&f, &ob);
+  off = frame_put_stream(payload, sizeof payload, &d0);
+  lp_step_payload(&f, 3, payload, off);
+  off = frame_put_stream(payload, sizeof payload, &d1);
+  off += lp_qenc_frame(
+      payload + off, sizeof payload - off, 11, lp_b2_enc + 10, 24);
+  lp_step_payload(&f, 4, payload, off);
+  off = lp_qenc_frame(payload, sizeof payload, 0, lp_b2_enc, 10);
+  lp_step_payload(&f, 5, payload, off);
+  CHECK(f.l.h3.qdyn.count == 2 && f.l.qpack_stream_violation == 0);
+}
+
+/* The same for a stream whose type varint was split (0x40 0x21, a GREASE-
+ * style reserved type): held until the type is whole, then let go -- and
+ * its later chunks are never held again. */
+static void test_srvloop_qpack_released_uni_not_reheld(void) {
+  static const u8 g[] = {0x40, 0x21, 'x'};
+  struct lp_fix   f;
+  u8              payload[256], out[1024];
+  usz             off;
+  wired_obuf      ob = {out, sizeof out, 0};
+  stream_frame    g0 = {14, 0, 1, g, 0};
+  stream_frame    g1 = {14, 1, 1, g + 1, 0};
+  stream_frame    g2 = {14, 2, 1, g + 2, 0};
+  lp_confirm(&f, &ob);
+  off = frame_put_stream(payload, sizeof payload, &g0);
+  off += frame_put_stream(payload + off, sizeof payload - off, &g1);
+  lp_step_payload(&f, 3, payload, off);
+  CHECK(f.l.h3.qenc_rx.stream_id == 0);
+  off = frame_put_stream(payload, sizeof payload, &g2);
+  off += lp_qenc_frame(
+      payload + off, sizeof payload - off, 11, lp_b2_enc + 10, 24);
+  lp_step_payload(&f, 4, payload, off);
+  off = lp_qenc_frame(payload, sizeof payload, 0, lp_b2_enc, 10);
+  lp_step_payload(&f, 5, payload, off);
+  CHECK(f.l.h3.qdyn.count == 2 && f.l.qpack_stream_violation == 0);
+}
+
 /* RFC 9000 16: the encoder stream's type sent as a non-minimal two-byte
  * varint (0x40 0x02) -- both bytes are skipped, not just the first. */
 static void test_srvloop_qpack_nonminimal_type(void) {
@@ -5467,6 +5518,8 @@ void test_srvloop(void) {
   test_srvloop_qpack_reset_before_section_cancels_only();
   test_srvloop_qpack_rejected_framing_cancels();
   test_srvloop_qpack_connect_bad_ref_fails();
+  test_srvloop_qpack_known_uni_not_held();
+  test_srvloop_qpack_released_uni_not_reheld();
   test_srvloop_qpack_reset_mid_section_cancels_only();
   test_srvloop_qpack_bad_duplicate();
   test_srvloop_uni_unrecognized_type_no_crash();

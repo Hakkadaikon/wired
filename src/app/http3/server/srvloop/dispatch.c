@@ -551,11 +551,25 @@ static int qenc_frame_untyped(const stream_frame* sf) {
          !varint_take(wired_span_of(sf->data, (usz)sf->length), &off, &v);
 }
 
-/* 1 if sf's stream is already known as the control or a WebTransport uni
- * stream. */
+/* 1 if sf's stream type is already known: typed at offset 0 or let go by
+ * the encoder window (l->uni_typed), or a claimed WebTransport uni stream. */
+static int qenc_type_known(const wired_srvloop* l, const stream_frame* sf) {
+  return wired_srvloop_closed_has(&l->uni_typed, sf->stream_id) ||
+         wired_srvloop_wt_uni_slot_find(l, sf->stream_id) >= 0;
+}
+
+/* 1 if sf's stream is already known as the control stream or any other
+ * typed uni stream. */
 static int qenc_stream_known(const wired_srvloop* l, const stream_frame* sf) {
   return (l->ctrl.open && l->ctrl.stream_id == sf->stream_id) ||
-         wired_srvloop_wt_uni_slot_find(l, sf->stream_id) >= 0;
+         qenc_type_known(l, sf);
+}
+
+/* Record sf's stream as typed once its leading type varint is whole at
+ * offset 0 (RFC 9114 6.2), so none of its later chunks is ever held. */
+static void uni_type_mark(wired_srvloop* l, const stream_frame* sf) {
+  if (!qenc_frame_untyped(sf))
+    wired_srvloop_closed_mark(&l->uni_typed, sf->stream_id);
 }
 
 /* RFC 9000 2.2: 1 if sf may start the encoder window as a candidate -- no
@@ -563,9 +577,11 @@ static int qenc_stream_known(const wired_srvloop* l, const stream_frame* sf) {
  * a stream whose type is still unknown (its type varint lost or reordered):
  * its bytes are kept until the type arrives, since the transport has already
  * acknowledged them. ponytail: one candidate at a time; when two streams'
- * types are lost at once, the second's early bytes are dropped (an encoder
- * stream so stalled only leaves the dynamic table unused, since no section
- * may reference an unacknowledged insert). */
+ * types are lost at once, the second's early bytes are dropped. If that one
+ * is the encoder stream, its gap never fills: no later insert applies or is
+ * acknowledged, so the peer's encoder is left with the static table and the
+ * entries acknowledged before, and the stream's credit is never re-granted.
+ * Hold one candidate per unknown stream if that is ever seen. */
 static int qenc_window_free(const wired_srvloop* l) {
   return !l->h3.qenc_rx.stream_id && !l->h3.peer_qpack_encoder;
 }
@@ -588,6 +604,12 @@ static int qenc_owns(wired_srvloop* l, const stream_frame* sf) {
   return 1;
 }
 
+/* The window let go of stream id (its type turned out not to be the
+ * encoder's): its type is known from now on. */
+static void qenc_note_released(wired_srvloop* l, u64 id) {
+  if (!l->h3.qenc_rx.stream_id) wired_srvloop_closed_mark(&l->uni_typed, id);
+}
+
 /* RFC 9204 4.2 / 4.3: feed sf, if it belongs to the encoder window, at its
  * stream offset; every instruction it completes is applied to l->h3.qdyn, an
  * invalid one latches l->qpack_stream_violation. */
@@ -598,6 +620,7 @@ static void gather_qpack_enc(wired_srvloop* l, const stream_frame* sf) {
           &l->h3.qenc_rx, sf->offset, wired_span_of(sf->data, (usz)sf->length),
           &l->h3.qdyn, l->h3.qpack_max_table_capacity, &err))
     l->qpack_stream_violation = err;
+  qenc_note_released(l, sf->stream_id);
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: 1 if this uni stream's very first bytes
@@ -727,6 +750,7 @@ static void gather_wt_uni_classify(wired_srvloop* l, const stream_frame* sf) {
   wired_span data = wired_span_of(sf->data, (usz)sf->length);
   uni_stream_type_accepted(data);
   uni_stream_type_note_qpack(l, data);
+  uni_type_mark(l, sf);
 }
 
 static void gather_wt_uni_frame(wired_srvloop* l, const stream_frame* sf) {

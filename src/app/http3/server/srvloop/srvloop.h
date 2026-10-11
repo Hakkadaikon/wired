@@ -739,6 +739,11 @@ typedef struct {
    * many short uni streams pushed an id out of an 8-entry ring, and its
    * late duplicate re-claimed a slot and was delivered twice). */
   wired_srvloop_closed wt_uni_closed;
+  /** RFC 9204 4.2 / RFC 9114 6.2: client uni streams whose leading type is
+   * already known (seen whole at offset 0, or read and let go by the
+   * encoder window) -- their later chunks are never held as the encoder
+   * stream candidate (dispatch.c's qenc_may_hold). */
+  wired_srvloop_closed uni_typed;
   /** RFC 9000 19.14: 1 once a client bidi STREAMS_BLOCKED frame was seen in
    * any 1-RTT payload opened this step (gather_streams_blocked in
    * dispatch.c) -- the peer's own reported limit value is not latched
