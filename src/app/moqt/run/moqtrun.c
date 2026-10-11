@@ -9267,13 +9267,13 @@ static int moqtrun_rp_matches(const wired_moqtrun_rdv* r, moqtrun_key k) {
   return moqtrun_rdv_matches(r, k) && r->repath;
 }
 
-/* Sessions not to ask for k: the ones tried in this wait, and the waiting
- * subscribers' own (none of them is another session's path). */
+/* Sessions not to ask for k: the ones tried in this wait. A waiter's own
+ * session is skipped only for that waiter (moqtrun_up_covers): it is
+ * another waiting session's path. */
 static u64 moqtrun_rp_skip(wired_moqt_hub* hub, moqtrun_key k) {
   u64 m = 0;
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
-    if (moqtrun_rp_matches(&hub->rdv[i], k))
-      m |= hub->rdv[i].tried | moqtrun_rp_bit(hub, hub->rdv[i].wt);
+    if (moqtrun_rp_matches(&hub->rdv[i], k)) m |= hub->rdv[i].tried;
   return m;
 }
 

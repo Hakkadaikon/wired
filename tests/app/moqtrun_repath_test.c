@@ -517,15 +517,18 @@ static void test_moqtrun_repath_update(void) {
   CHECK(mups_relayed_alias(SESS_D) == mrdv_alias(SESS_D, MRDV_S1));
 }
 
-/* C's own announcement is no path, for C or for D. */
+/* C's own announcement is no path for C, but is one for D. */
 static void test_moqtrun_repath_own_announce(void) {
+  u64 st;
   mrp_init();
   mtns_pub(SESS_C, MRDV_S2, "chat/room1");
   mrp_end(MRP_GA);
-  CHECK(mups_n_up(SESS_C) == 0);
+  CHECK(mups_n_up(SESS_C) == 1);
   CHECK(mrp_no_done());
-  wired_moqt_tick(&mtst_hub, WIRED_MOQTRUN_RDV_MAX_MS);
-  CHECK(mrp_done_once(MOQCTL_DONE_GOING_AWAY));
+  mrp_ok(SESS_C, mrp_up(SESS_C, 0));
+  CHECK(mrp_dones(SESS_D, &st) == 0);
+  mrp_group(SESS_C, MUPS_DATA_SID, 0, MOQDATA_STATUS_NORMAL);
+  CHECK(mups_relayed_alias(SESS_D) == mrdv_alias(SESS_D, MRDV_S1));
 }
 
 /* A Malformed Track ends at once; B is not asked. */
