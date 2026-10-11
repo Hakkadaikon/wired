@@ -508,13 +508,33 @@ static int decode_lines(
     wired_span            fs,
     wired_mspan           scr,
     const qpack_dyn*      dyn,
-    wired_h3reqdrive_req* r) {
+    wired_h3reqdrive_req* r,
+    usz*                  used) {
   rd_cursor cur   = {fs, scr, 0, 0, {dyn, 0, fs, 0}};
+  int       ok    = 0;
   cur.off         = prefix_base(fs, dyn, &cur.dyn.base, &cur.dyn.ric);
   r->qpack_ric    = cur.dyn.ric;
   r->qpack_failed = cur.off == 0;
-  if (!cur.off) return 0;
-  return scan_lines(&cur, r);
+  if (cur.off) ok = scan_lines(&cur, r);
+  *used = cur.used;
+  return ok;
+}
+
+static int trailer_decode(
+    wired_span, wired_mspan, const qpack_dyn*, wired_h3reqdrive_req*);
+
+/* The leading field section, then the trailer section (if any) in the
+ * scratch the leading one left free. */
+static int decode_sections(
+    wired_span            stream_data,
+    wired_span            fs,
+    wired_mspan           scr,
+    const qpack_dyn*      dyn,
+    wired_h3reqdrive_req* r) {
+  usz used = 0;
+  if (!decode_lines(fs, scr, dyn, r, &used)) return 0;
+  return trailer_decode(
+      stream_data, wired_mspan_of(scr.p + used, scr.n - used), dyn, r);
 }
 
 /* RFC 9114 4.3.1: a :path pseudo-header that was present (r->path != 0, so
@@ -536,7 +556,7 @@ int wired_h3reqdrive_recv_get_dyn(
   h3_priority_init(&r->priority);
   r->hdr_base = scratch.p;
   if (!wired_h3reqdrive_request_sections(stream_data, &fs, r)) return 0;
-  if (!decode_lines(fs, scratch, dyn, r)) return 0;
+  if (!decode_sections(stream_data, fs, scratch, dyn, r)) return 0;
   return !path_present_and_empty(r);
 }
 
@@ -595,12 +615,13 @@ static int trailer_line_ok(const rline* L) {
   return line_ok(L) && h3_ph_classify(L->name, L->name_len) == H3_PH_NONE;
 }
 
-static int trailer_step_line(rd_cursor* cur) {
-  rline L;
+static int trailer_step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
+  rline L = {0};
   usz   c = decode_line(
       wired_span_of(cur->fs.p + cur->off, cur->fs.n - cur->off),
       wired_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used), &cur->dyn,
       &L);
+  r->qpack_failed = L.ref_bad; /* RFC 9204 2.2.3, as in step_line */
   if (!c) return 0;
   if (!trailer_line_ok(&L)) return 0;
   cur->off += c;
@@ -610,10 +631,29 @@ static int trailer_step_line(rd_cursor* cur) {
 
 /* Walk every trailer field line, rejecting the section at the first
  * pseudo-header or malformed line. */
-static int trailer_scan_lines(rd_cursor* cur) {
+static int trailer_scan_lines(rd_cursor* cur, wired_h3reqdrive_req* r) {
   while (cur->off < cur->fs.n)
-    if (!trailer_step_line(cur)) return 0;
+    if (!trailer_step_line(cur, r)) return 0;
   return 1;
+}
+
+/* RFC 9114 4.3 / RFC 9204 2.2.2.1: decode the trailer section (if any)
+ * against dyn into r's qpack_trailer_ric/qpack_failed, its values only in
+ * scr. 1 if there is none or it is well-formed with no pseudo-header. */
+static int trailer_decode(
+    wired_span            stream_data,
+    wired_mspan           scr,
+    const qpack_dyn*      dyn,
+    wired_h3reqdrive_req* r) {
+  wired_span tfs = wired_span_of(0, 0);
+  rd_cursor  cur;
+  if (!wired_h3reqdrive_request_trailer(stream_data, &tfs)) return 1;
+  cur                  = (rd_cursor){tfs, scr, 0, 0, {dyn, 0, tfs, 0}};
+  cur.off              = prefix_base(tfs, dyn, &cur.dyn.base, &cur.dyn.ric);
+  r->qpack_trailer_ric = cur.dyn.ric;
+  r->qpack_failed      = cur.off == 0;
+  if (!cur.off) return 0;
+  return trailer_scan_lines(&cur, r);
 }
 
 /* RFC 9114 4.3: a trailer section (if any) must carry no pseudo-header
@@ -627,12 +667,6 @@ static int trailer_scan_lines(rd_cursor* cur) {
  *   no malformed line; 0 if the trailer is malformed or carries one. */
 int wired_h3reqdrive_trailer_ok(
     wired_span stream_data, wired_mspan scratch, const qpack_dyn* dyn) {
-  wired_span trailer_fs = wired_span_of(0, 0);
-  rd_cursor  cur        = {trailer_fs, scratch, 0, 0, {dyn, 0, trailer_fs, 0}};
-  if (!wired_h3reqdrive_request_trailer(stream_data, &trailer_fs)) return 1;
-  cur.fs     = trailer_fs;
-  cur.dyn.fs = trailer_fs;
-  cur.off    = prefix_base(trailer_fs, dyn, &cur.dyn.base, &cur.dyn.ric);
-  if (!cur.off) return 0;
-  return trailer_scan_lines(&cur);
+  wired_h3reqdrive_req r;
+  return trailer_decode(stream_data, scratch, dyn, &r);
 }

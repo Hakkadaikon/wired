@@ -2791,6 +2791,28 @@ static void test_srvloop_qpack_reset_cancels_stream(void) {
   CHECK(f.l.h3.qdec.acks_len == 1 && f.l.h3.qdec.acks[0] == 0x48);
 }
 
+/* RFC 9204 2.2.2.1 / 4.4.1: a request's trailer section referencing the
+ * dynamic table owes its own Section Acknowledgment, even when the leading
+ * section used only the static table. */
+static void test_srvloop_qpack_trailer_section_acked(void) {
+  static const u8 enc[] = {0x3f, 0xbd, 0x01, 0x43, 'x', '-', 't', 0x01, 'v'};
+  static const u8 req[] = {0x01, 0x08, 0x00, 0x00, 0xd1, 0xd7, 0xc1,
+                           0x50, 0x01, 'h',  0x00, 0x02, 'h',  'i',
+                           0x01, 0x03, 0x02, 0x00, 0x80};
+  struct lp_fix   f;
+  u8              payload[256], out[1024];
+  usz             off;
+  wired_obuf      ob = {out, sizeof out, 0};
+  stream_frame    sf = {4, 0, sizeof req, req, 1};
+  lp_confirm(&f, &ob);
+  off = lp_qenc_frame(payload, sizeof payload, 0, enc, sizeof enc);
+  off += frame_put_stream(payload + off, sizeof payload - off, &sf);
+  lp_step_payload(&f, 3, payload, off);
+  CHECK(f.l.h3.qdyn.count == 1);
+  CHECK(f.l.done_n == 1 && f.l.qpack_stream_violation == 0);
+  CHECK(f.l.h3.qdec.acks_len == 1 && f.l.h3.qdec.acks[0] == 0x84);
+}
+
 /* RFC 9204 4.2 / RFC 9000 2.2: the encoder stream's later bytes arriving
  * before its offset-0 frame (the one carrying the type byte) are kept, not
  * dropped -- the transport already acknowledged them -- and apply once the
@@ -5345,6 +5367,7 @@ void test_srvloop(void) {
   test_srvloop_qpack_nonminimal_type();
   test_srvloop_qpack_rejected_request_still_acked();
   test_srvloop_qpack_reset_cancels_stream();
+  test_srvloop_qpack_trailer_section_acked();
   test_srvloop_qpack_bad_duplicate();
   test_srvloop_uni_unrecognized_type_no_crash();
   test_srvloop_uni_reset_before_type_no_crash();

@@ -132,6 +132,9 @@ typedef struct {
   /** RFC 9204 4.5.1.1: the field section's Required Insert Count -- non-zero
    * means the decoder owes a Section Acknowledgment (4.4.1). */
   u64 qpack_ric;
+  /** RFC 9204 2.2.2.1: the trailer section's Required Insert Count (0 with
+   * no trailer); a non-zero one owes its own Section Acknowledgment. */
+  u64 qpack_trailer_ric;
   /** RFC 9204 4.5.1 / 2.1.2: 1 if the section prefix could not be decoded
    * (an invalid Required Insert Count or Base, or one past the inserts
    * received while no stream may block): a connection error of type

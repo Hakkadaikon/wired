@@ -1327,6 +1327,8 @@ static void route_qpack_ack(wired_srvloop* l, int i) {
   const wired_h3reqdrive_req* r = &l->streams[i].req;
   if (r->qpack_failed) return;
   qdyn_dec_section_ack(&l->h3.qdec, l->streams[i].stream_id, r->qpack_ric);
+  qdyn_dec_section_ack(
+      &l->h3.qdec, l->streams[i].stream_id, r->qpack_trailer_ric);
 }
 
 static void route_note_done(wired_srvloop* l, int i) {

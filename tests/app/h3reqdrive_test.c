@@ -1395,6 +1395,47 @@ static void test_reqdrive_b4_section(void) {
   CHECK(rd_hdr_is(&r, "custom-key", "custom-value"));
 }
 
+/* A GET (curl_field_section) with a "hi" body and a trailer section of
+ * tfs's n raw bytes, decoded against t. */
+static int rd_trailer_decode(
+    const u8* tfs, usz n, const qpack_dyn* t, wired_h3reqdrive_req* r) {
+  static u8  scratch[WIRED_H3_MAX_FIELD_SECTION];
+  u8         fs[64], h3[256], req[320];
+  usz        fs_len = curl_field_section(fs), h3_len, req_len = 0;
+  const u8   body[] = {'h', 'i'};
+  wired_obuf hob    = {h3, sizeof h3, 0};
+  h3_len = h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  hob    = (wired_obuf){h3 + h3_len, sizeof h3 - h3_len, 0};
+  h3_len += h3_frame_put(&hob, H3_FRAME_DATA, wired_span_of(body, 2));
+  hob = (wired_obuf){h3 + h3_len, sizeof h3 - h3_len, 0};
+  h3_len += h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(tfs, n));
+  CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof req, &req_len));
+  return wired_h3reqdrive_recv_get_dyn(
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch), t,
+      r);
+}
+
+/* RFC 9204 2.2.2.1 / 2.2.3: a trailer section is decoded against the
+ * dynamic table like the leading one -- its Required Insert Count (here 1,
+ * encoded 2 under MaxEntries 6) is reported for its own Section
+ * Acknowledgment, and a reference to no live entry is a decompression
+ * failure. */
+static void test_reqdrive_trailer_dynamic_ref(void) {
+  static const u8 ok[]  = {0x02, 0x00, 0x80};
+  static const u8 bad[] = {0x02, 0x00, 0x81};
+  qpack_field     ck    = {
+      wired_span_of((const u8*)"custom-key", 10),
+      wired_span_of((const u8*)"custom-value", 12)};
+  qpack_dyn            t;
+  wired_h3reqdrive_req r;
+  qpack_dyn_init(&t, 220);
+  CHECK(qpack_dyn_insert(&t, &ck));
+  CHECK(rd_trailer_decode(ok, sizeof ok, &t, &r));
+  CHECK(r.qpack_ric == 0 && r.qpack_trailer_ric == 1 && r.qpack_failed == 0);
+  CHECK(!rd_trailer_decode(bad, sizeof bad, &t, &r));
+  CHECK(r.qpack_failed == 1);
+}
+
 /* RFC 9204 4.5.1.1: the Encoded Required Insert Count wraps modulo
  * 2 * MaxEntries -- 30 inserts under a 220-byte table (MaxEntries 6, so
  * past twice the 12-insert range) encode RIC 30 as 30 % 12 + 1 = 7, and the
@@ -1523,6 +1564,7 @@ void test_h3reqdrive(void) {
   test_reqdrive_bad_ref_is_qpack_failure();
   test_reqdrive_local_capacity_not_qpack_failure();
   test_reqdrive_b4_section();
+  test_reqdrive_trailer_dynamic_ref();
   test_reqdrive_ric_wraps();
   test_reqdrive_ric_uses_max_capacity();
   test_h3req_path_view();
