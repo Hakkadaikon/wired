@@ -92,14 +92,21 @@ general relay network.
 - **Fill / FETCH capacity refusal** — fills beyond `fetches[]` + `fetch_waits[]`
   (8 + 8) are refused REQUEST_ERROR INTERNAL_ERROR before the OK is sent (the
   earlier silent drop was fixed in L12-16). Source: `moqtrun.c:2838`, L12-16.
-- **No upstream FETCH** — the hub never forwards a FETCH to another relay
-  (no FETCH-of-FETCH); fills and d19 Joining FETCH are served from its own
-  cache only. draft-22 removed Joining FETCH; its replacement, a fill
-  requested by SUBSCRIBE FILL_PARAMETERS, is implemented
-  (`moqtrun_fill_open`). A d22 FETCH that still carries the Joining form
-  closes the session with PROTOCOL_VIOLATION (`moqtrun_fetch_route`,
-  MQ22-132). Impact: MQ22-137 has no code path.
-  Source: L4-13, L4-6, `ledger:draft-moq-transport-22.md` MQ22-137.
+- **Upstream FETCH is one leg per request** — a Standalone FETCH or fill
+  whose range starts with Locations the cache cannot vouch for sends one
+  FETCH upstream (the track's publisher, else a covering announcer) and
+  relays its Objects as they arrive (MQ22-213 to MQ22-219). Limits: two
+  FETCHes of one range are not merged into one upstream FETCH; a GOAWAY on
+  the upstream request stream ends the leg instead of re-issuing it; relayed
+  Objects are not cached; the leg's budget is fixed at
+  `WIRED_MOQTRUN_UPFETCH_BUDGET_MS` (2000 ms) unless FILL_TIMEOUT is
+  shorter; one hub-wide buffer holds a torn upstream Object, so a second leg
+  tearing one at the same time gives its upstream FETCH up. A d19 Joining
+  FETCH is still served from the cache only, and a Descending FETCH of a
+  track the hub does not hold is reset when its upstream FETCH fails (the
+  hub knows nothing of that range to mark). The cache side applies no Range
+  Filter, so MQ22-137 stays open. Source: `moqtrun_upf_*` in `moqtrun.c`,
+  `ledger:draft-moq-transport-22.md` MQ22-137.
 - **Object cache is arena-scanned** — eviction compacts the arena with one
   memmove pass and lookups scan linearly. A one-entry resume point lets a
   forward walk over one track continue where its last lookup stopped, so a

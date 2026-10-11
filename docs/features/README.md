@@ -104,7 +104,7 @@ independent implementation) are tracked separately: see
 |---|---|---|---|---|
 | [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 214/215 | 205 | 9 | 1 |
 | [draft-ietf-moq-transport-19](draft-moq-transport.md) | 209/209 | 200 | 9 | 0 |
-| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 207/212 | 197 | 10 | 5 |
+| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 214/219 | 204 | 10 | 5 |
 
 Experimental, not counted above:
 [MoQT track switching](moqt-track-switching.md) is an opt-in,

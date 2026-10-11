@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 205/217 tested, 10 indirect, 2 untested.**
+**Coverage: 212/224 tested, 10 indirect, 2 untested.**
 
 ## SS1.4.1 Variable-Length Integers (SS8.1)
 
@@ -1115,15 +1115,106 @@ Legend:
   gap in the response shall be treated as unknown rather than non-existent,
   and the relay shall issue upstream FETCHes to at least one matching
   publisher rather than pausing delivery until confirmed, as draft-19 does.
-  - gap: this hub does not forward a FETCH upstream to another relay (no
-    FETCH-of-FETCH); the "pause until confirmed" behavior this would
-    replace was never implemented either (ledger 4-13's N/A finding), so
-    there is no code path to exercise this rule against yet.
+  - gap: the upstream FETCH half is done (MQ22-213 to MQ22-219): the
+    FETCH's Range Filters go upstream byte for byte and a gap the publisher
+    leaves unmarked is relayed unmarked
+    (`tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_range_filter`). Open: the cache side applies no
+    Range Filter, so a filtered FETCH's cache-served part neither filters
+    nor reports its unmarked gaps as unknown.
 - [x] MQ22-137a Reaching a Location Filter's end on a FETCH shall not emit
   SUBSCRIPTION_ENDED (see MQ22-108b; duplicate cross-reference kept here
   because this is also a FETCH/relay-section rule in the diff catalog).
   - test: `tests/app/moqtrun_drain_test.c` —
     `test_moqtrun_done_filter_end_keeps_sub`
+- [x] MQ22-213 When a Standalone FETCH or fill of a track the hub holds
+  starts with Locations its cache cannot vouch for, and FILL_TIMEOUT is not
+  0, the hub shall send one FETCH, from the range start to the last such
+  Location, in the same Group Order, to the track's publisher, else to a
+  session announcing a covering namespace -- never to one with a GOAWAY
+  either way, one being closed, one a wait for a new path already tried, or
+  the requester (SS3.2.3, SS7.6, SS9.2); the hub's own tracks never go
+  upstream. The same GOAWAY rule applies to the upstream SUBSCRIBE.
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_gap_to_owner`, `test_moqtrun_upfetch_fill_gap`,
+    `test_moqtrun_upfetch_cached_no_upstream`,
+    `test_moqtrun_upfetch_owner_excluded`,
+    `test_moqtrun_upfetch_tried_announcer_skipped`,
+    `test_moqtrun_upfetch_two_not_shared`,
+    `test_moqtrun_upfetch_upstream_draft`,
+    `test_moqtrun_upfetch_cache_only`, `test_moqtrun_upfetch_hub_owned`,
+    `test_moqtrun_upfetch_upsub_skips_goaway`
+- [x] MQ22-214 The hub shall relay each upstream item the moment it
+  arrives, re-encoded on the downstream stream with every field kept, only
+  when it lies inside the requested span, after the last item relayed in
+  delivery order (Groups descending, Objects ascending, for a Descending
+  FETCH) and not past the upstream End; anything else, or a write the
+  transport refuses, cancels the upstream FETCH and the cache serves the
+  rest from the cursor, Unknown where it lacks Objects (SS3.2.1, SS7.8).
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_reencode`, `test_moqtrun_upfetch_descending_order`,
+    `test_moqtrun_upfetch_descending_rejects`,
+    `test_moqtrun_upfetch_out_of_place`, `test_moqtrun_upfetch_refused_write`,
+    `test_moqtrun_upfetch_tick_leaves_leg`, `test_moqtrun_upfetch_short_end`,
+    `test_moqtrun_upfetch_fin_then_ok`,
+    `test_moqtrun_upfetch_evicted_during_leg`,
+    `test_moqtrun_upfetch_marker_relay`, `test_moqtrun_upfetch_torn_header`,
+    `test_moqtrun_upfetch_torn_object`, `test_moqtrun_upfetch_range_filter`
+- [x] MQ22-215 A FETCH of a track the hub does not hold shall go, whole, to
+  a covering announcer, and its FETCH_OK shall wait for the upstream one and
+  copy its End Location, End Of Track and Track Properties; with no
+  announcer it is refused DOES_NOT_EXIST, with FILL_TIMEOUT 0 TIMEOUT, with
+  no request stream EXCESSIVE_LOAD, and an upstream REQUEST_ERROR reaches it
+  with the same code, Retry Interval and Redirect (SS7.6, SS9.4). A reserved
+  namespace or an unauthorized name is refused before any of this (SS7.4).
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_no_track_waits_ok`,
+    `test_moqtrun_upfetch_no_track_refusals`,
+    `test_moqtrun_upfetch_error_passthrough`,
+    `test_moqtrun_upfetch_empty_answer`,
+    `test_moqtrun_upfetch_refused_before_routing`
+- [x] MQ22-216 The upstream FETCH shall be cancelled once
+  min(FILL_TIMEOUT, `WIRED_MOQTRUN_UPFETCH_BUDGET_MS`) has passed, and what
+  the cache lacks reported as End of Timed-Out Range toward draft-22 (End of
+  Unknown Range toward an earlier draft, which also gets a relayed 0x20C as
+  0x10C); FILL_TIMEOUT 0 asks nothing upstream (SS9.20.5, SS11.4.1).
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_budget`, `test_moqtrun_upfetch_fill_timeout_zero`,
+    `test_moqtrun_upfetch_marker_relay`
+- [x] MQ22-217 When the requester cancels, stops its data stream or closes,
+  the hub shall cancel the upstream FETCH (RESET_STREAM and STOP_SENDING on
+  the request stream, STOP_SENDING on the data stream) before freeing the
+  slot, and stop a data stream that arrives for it later; an upstream reset,
+  GOAWAY on the request stream or close ends the leg, an upstream
+  REQUEST_ERROR on a held track hands over to the cache, and a second GOAWAY
+  on one request stream closes that session (SS3.2.4, SS9.2, SS9.12).
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_requester_gone`, `test_moqtrun_upfetch_leg_ends`,
+    `test_moqtrun_upfetch_two_goaways`, `test_moqtrun_upfetch_error_held`,
+    `test_moqtrun_upfetch_bad_end`
+- [x] MQ22-218 An upstream Object past the End Of Track the upstream
+  FETCH_OK named, past a Group's end the track saw, or conflicting with a
+  cached copy shall be neither relayed nor cached, and every fetch of that
+  track from that publisher reset MALFORMED_TRACK (a held track also ends
+  with PUBLISH_DONE MALFORMED_TRACK); an unknown Mandatory Track Property in
+  FETCH_OK cancels the fetch (UNSUPPORTED_EXTENSION while unanswered, a reset
+  after data); malformed upstream bytes close only the upstream session
+  (SS3.7, SS11.4, SS12.1).
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_malformed_past_end`,
+    `test_moqtrun_upfetch_malformed_conflict`,
+    `test_moqtrun_upfetch_malformed_group_end`,
+    `test_moqtrun_upfetch_malformed_siblings`,
+    `test_moqtrun_upfetch_repeat_of_relayed`,
+    `test_moqtrun_upfetch_mandatory`, `test_moqtrun_upfetch_bad_reply_bytes`,
+    `test_moqtrun_upfetch_delta_underflow`
+- [x] MQ22-219 When the track owner's session closes during a leg, nothing
+  more shall be sent toward it; a fill is reset INTERNAL_ERROR at once,
+  whether opened yet or not, so it holds no PUBLISH_DONE back, and a FETCH
+  reads the released cache as Unknown to its End (SS3.4.1).
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_owner_gone_fill`,
+    `test_moqtrun_upfetch_owner_gone_fetch`
 
 ## Hub relay: fill fetch streams (FILL_PARAMETERS, draft-22 only, new in -20)
 
@@ -1949,9 +2040,9 @@ them (MQ22-028, MQ22-193 through MQ22-201). REQUEST_UPDATE of a
 SUBSCRIBE_TRACKS (prefix with per-type overlap, FORWARD; a failed one
 closes the bidi stream, 9.5.1) followed: `test_moqtrun_vgate_update_kinds`.
 
-- (SS7.6, SS11.4.1.2) Relay-level FETCH gap/upstream-fetch behavior
-  (MQ22-137) — moot until this hub forwards FETCH upstream to another
-  relay.
+- (SS3.3.2, SS7.6) Range Filters on the cache-served part of a FETCH
+  (MQ22-137): the upstream FETCH carries them (MQ22-214), the cache side
+  neither applies them nor reports its unmarked gaps as unknown.
 
 ## Out of scope
 
