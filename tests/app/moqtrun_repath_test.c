@@ -492,6 +492,18 @@ static void test_moqtrun_repath_fresh_rides(void) {
   CHECK(mrdv_used() == 2);
 }
 
+/* B's own new SUBSCRIBE does not ride the hub's pending SUBSCRIBE to B:
+ * with no other announcer it is DOES_NOT_EXIST at once. */
+static void test_moqtrun_repath_fresh_own_upstream(void) {
+  mrp_init();
+  mrp_announce(SESS_B);
+  mrp_end(MRP_GA);
+  mups_sub(SESS_B, MRDV_S2);
+  CHECK(mrdv_is(SESS_B, MRDV_S2, "E10|FIN|"));
+  mrp_ok(SESS_B, mrp_up(SESS_B, 0));
+  CHECK(mrdv_is(SESS_B, MRDV_S2, "E10|FIN|"));
+}
+
 /* A new SUBSCRIBE finding only the publisher that just ended is
  * DOES_NOT_EXIST at once. */
 static void test_moqtrun_repath_fresh_dne(void) {
@@ -600,6 +612,7 @@ static void mtall_repath(void) {
   test_moqtrun_repath_done_once();
   test_moqtrun_repath_fresh_rides();
   test_moqtrun_repath_fresh_dne();
+  test_moqtrun_repath_fresh_own_upstream();
   test_moqtrun_repath_no_room();
   test_moqtrun_repath_update();
   test_moqtrun_repath_own_announce();

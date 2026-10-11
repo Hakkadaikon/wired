@@ -1956,6 +1956,14 @@ static wired_moqtrun_req* moqtrun_up_announcer(
 /* Upstream SUBSCRIBE block: the hub's upstream SUBSCRIBE for k, else 0. */
 static wired_moqtrun_up* moqtrun_up_of_key(wired_moqt_hub* hub, moqtrun_key k);
 
+/* An upstream SUBSCRIBE for k that p's SUBSCRIBE may ride: not one to p's
+ * own session (its own announcement never serves it). */
+static int moqtrun_up_rideable(
+    wired_moqt_hub* hub, const wired_moqtrun_peer* p, moqtrun_key k) {
+  const wired_moqtrun_up* u = moqtrun_up_of_key(hub, k);
+  return u && u->wt != p->wt;
+}
+
 /* Worth waiting for: a non-zero timeout (0 MUST get DOES_NOT_EXIST now
  * unless a publisher announced the namespace -- 18/19 9.5, 22 7.6: the
  * SUBSCRIBE then goes upstream, answered once that one is), or an
@@ -1966,7 +1974,7 @@ static int moqtrun_rdv_wanted(
     const moqctl_subscribe*   m,
     moqtrun_key               k) {
   return moqtrun_rdv_rt(m) || moqtrun_up_announcer(hub, p->wt, k) != 0 ||
-         moqtrun_up_of_key(hub, k) != 0;
+         moqtrun_up_rideable(hub, p, k);
 }
 
 /* 1 iff a SUBSCRIBE with no publisher is held, not refused at once: worth
