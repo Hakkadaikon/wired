@@ -1829,42 +1829,44 @@ static int qdec_stream_open(const wired_srvloop* l, u64 id) {
          !wired_srvloop_closed_has(&l->req_closed, id);
 }
 
-/* RFC 9204 4.4.2 / 2.2.2.2: a reset request stream owes a Stream
- * Cancellation once the peer inserted anything its sections could
- * reference. With no slot yet, the stream is marked closed as well, so its
- * late data never decodes into a section acknowledged after the cancel. */
-static int qdec_cancel_due(const wired_srvloop* l, u64 id) {
-  return qdec_table_used(l) && qdec_stream_open(l, id);
+/* RFC 9204 4.4.2 / 2.2.2.2: a reset request stream with a slot owes a
+ * Stream Cancellation once the peer inserted anything its sections could
+ * reference. */
+static void reset_cancel_slot(wired_srvloop* l, int i) {
+  if (qdec_table_used(l)) qdec_cancel_slot(l, i);
 }
 
-static void qdec_cancel_on_reset(wired_srvloop* l, u64 id) {
+/* RFC 9000 3.2: a RESET_STREAM ends an open request stream's receive side.
+ * With a slot, its references are cancelled (reset_cancel_slot); with none
+ * yet, the stream is cancelled if anything could be referenced and marked
+ * closed either way, so its late data never opens a request. */
+static void reset_request_stream(wired_srvloop* l, u64 id) {
   int i;
-  if (!qdec_cancel_due(l, id)) return;
+  if (!qdec_stream_open(l, id)) return;
   i = qdec_slot_find(l, id);
   if (i >= 0) {
-    qdec_cancel_slot(l, i);
+    reset_cancel_slot(l, i);
     return;
   }
   qdec_cancel_id(l, id);
   wired_srvloop_slot_release(l, id);
 }
 
-/* Cancel for every RESET_STREAM in this payload -- run after request
- * reassembly, so a section completed in the same packet is acknowledged
- * and not cancelled. */
-static void qdec_cancel_resets(wired_srvloop* l, wired_span payload) {
+/* Every RESET_STREAM in this payload -- run after request reassembly, so a
+ * section completed in the same packet is acknowledged and not cancelled. */
+static void reset_request_streams(wired_srvloop* l, wired_span payload) {
   framewalk          it;
   framewalk_item     fr;
   reset_stream_frame rs;
   framewalk_init(&it, payload.p, payload.n);
   while (framewalk_next(&it, &fr))
     if (wt_reset_frame(fr.type, wired_span_of(fr.start, fr.remaining), &rs))
-      qdec_cancel_on_reset(l, rs.stream_id);
+      reset_request_stream(l, rs.stream_id);
 }
 
-static void dispatch_qdec_cancels(
+static void dispatch_request_resets(
     const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
-  if (ctx->l) qdec_cancel_resets(ctx->l, payload);
+  if (ctx->l) reset_request_streams(ctx->l, payload);
 }
 
 /* The HTTP/3 (and hq-interop) payload path: side channels, then request
@@ -1874,7 +1876,7 @@ static int dispatch_h3(
     const wired_srvloop_dispatch_in*  in) {
   int handled_side = dispatch_gather_side_channels(ctx, in->payload);
   int handled_req  = reassemble_and_drive(ctx, in);
-  dispatch_qdec_cancels(ctx, in->payload);
+  dispatch_request_resets(ctx, in->payload);
   if (handled_req || handled_side) return 1;
   return dispatch_non_request(ctx->s, in->payload.p, in->payload.n);
 }

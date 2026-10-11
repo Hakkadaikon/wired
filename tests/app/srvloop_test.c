@@ -5493,8 +5493,22 @@ static void test_srvloop_stream_past_limit_latches_violation(void) {
   CHECK(f.l.peer_reset_count == 3); /* neither reached the close gather */
 }
 
+/* RFC 9000 3.2: a RESET_STREAM on a request stream that never opened a slot
+ * closes it whatever the QPACK state (here no insert yet), so its late data
+ * is discarded instead of opening a request. */
+static void test_srvloop_slotless_reset_closes_stream(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  lp_step_reset(&f, 3, 8);
+  CHECK(wired_srvloop_closed_has(&f.l.req_closed, 8));
+  CHECK(wired_srvloop_slot_for(&f.l, 8) == -2);
+}
+
 void test_srvloop(void) {
   test_srvloop_ticket_early_data_only_off_raw();
+  test_srvloop_slotless_reset_closes_stream();
   test_srvloop_stream_past_limit_latches_violation();
   test_srvloop_note_ecn_keeps_largest_ack();
   test_srvloop_recv_zerortt_opens_with_early_keys();
