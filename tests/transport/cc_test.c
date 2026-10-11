@@ -64,6 +64,14 @@ static void test_cc_persistent_ends_recovery(void) {
   CHECK(c.in_recovery == 1 && c.recovery_start == 160);
 }
 
+/* BBR sizes cwnd from its own model; persistent congestion leaves it. */
+static void test_cc_persistent_skips_bbr(void) {
+  cc c;
+  cc_init_algo(&c, CC_ALGO_BBR);
+  cc_on_persistent(&c);
+  CHECK(c.cwnd == CC_INIT_WINDOW);
+}
+
 /* CUBIC mode (RFC 9438): loss shrinks by beta_cubic 0.7 and re-anchors the
  * cubic epoch; acks lift cwnd onto the curve — back at W_max when K elapses
  * (W_max 10 segments -> K = cbrt(7.5e9) ms = 1957), convex past it. Slow
@@ -214,6 +222,7 @@ void test_cc(void) {
   test_cc_recovery_exit();
   test_cc_persistent_collapse();
   test_cc_persistent_ends_recovery();
+  test_cc_persistent_skips_bbr();
   test_cc_pacing_floors_at_1ms_once_rtt_known();
   test_cc_pacing_zero_srtt_stays_unfloored();
   test_cc_on_ack_grow_bounded_no_overflow();
