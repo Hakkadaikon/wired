@@ -2749,15 +2749,19 @@ static void moqtrun_fetch_sched(
 
 static void moqtrun_upf_drop(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, int io);
+static void moqtrun_upf_unanswered_refuse(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f);
 
 /* io (moqtrun_upf_drop) cancelling the upstream FETCH. */
 #define MOQTRUN_UPF_IO_CANCEL 1
 
 /* The one place a fetch slot frees: an upstream FETCH still in flight
- * for it is cancelled first (draft-22 3.2.4), so none outlives it. */
+ * for it is cancelled first (draft-22 3.2.4), so none outlives it, and a
+ * FETCH still unanswered is refused, so none is left without a reply. */
 static void moqtrun_fetch_free(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   if (f->up_state != WIRED_MOQTRUN_UPF_NONE)
     moqtrun_upf_drop(hub, f, MOQTRUN_UPF_IO_CANCEL);
+  moqtrun_upf_unanswered_refuse(hub, f);
   f->in_use = 0;
 }
 
@@ -2919,8 +2923,9 @@ static void moqtrun_fetch_stop_code(
   moqtrun_fetch_free(hub, f);
 }
 
-/* Cancelled by its requester (3.3.4 CANCELLED). */
+/* Cancelled by its requester (3.3.4 CANCELLED): no answer is owed. */
 static void moqtrun_fetch_stop(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+  f->answered = 1;
   moqtrun_fetch_stop_code(hub, f, MOQTRUN_RESET_CANCELLED);
 }
 
@@ -11157,6 +11162,16 @@ static void moqtrun_upf_answer(
   moqtrun_req_settle(&hub->io, q);
 }
 
+/* A FETCH freed before any answer gets REQUEST_ERROR INTERNAL_ERROR
+ * (9.4), so its request stream does not stay open. */
+static void moqtrun_upf_unanswered_refuse(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+  moqctl_request_error e = {0};
+  e.error_code           = MOQCTL_ERR_INTERNAL_ERROR;
+  if (moqtrun_upf_unanswered(f))
+    moqtrun_upf_answer(hub, f, moqtrun_upf_say_err, &e);
+}
+
 /* REQUEST_ERROR e for f's FETCH (draft-22 3.2.4: Objects may precede it,
  * so a data stream already open is reset); the slot frees. */
 static void moqtrun_upf_refuse(
@@ -11921,6 +11936,7 @@ static void moqtrun_upf_nt_go(
           &m->params))
     return;
   p->req->live = 0;
+  f->answered  = 1; /* below, on p->req */
   moqtrun_fetch_free(hub, f);
   moqtrun_send_request_error(p, MOQCTL_ERR_EXCESSIVE_LOAD);
 }

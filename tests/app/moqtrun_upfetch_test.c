@@ -1114,6 +1114,32 @@ static void test_moqtrun_upfetch_requester_gone(void) {
   }
 }
 
+/* d22 9.4: a FETCH of a track the hub does not hold whose data stream B
+ * stops before any FETCH_OK still gets an answer -- REQUEST_ERROR
+ * INTERNAL_ERROR -- and its slot frees; one B cancels gets none. */
+static void mupf_unanswered_gone(int cancel) {
+  moqfetch_req         m  = {0};
+  moqfetch_ok          ok = {0};
+  moqctl_request_error e;
+  mupf_init();
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  mupf_up(SESS_C, 0, &m);
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(0, 0, 1);
+  mupf_send_on(SESS_C, MUPF_DATA_SID, 0);
+  wired_moqt_on_stream_reset(
+      &mtst_hub, SESS_B, cancel ? mf_req_sid : mupf_fetch_sid(), 1, 0);
+  CHECK(
+      cancel ? mupf_reply(&ok, &e) == 0
+             : mupf_refused(MOQCTL_ERR_INTERNAL_ERROR));
+  CHECK(mupf_used() == 0);
+}
+
+static void test_moqtrun_upfetch_unanswered_stop(void) {
+  mupf_unanswered_gone(0);
+  mupf_unanswered_gone(1);
+}
+
 /* d22 3.2.4: a data stream A opens for an upstream FETCH the hub already
  * cancelled is asked to stop (CANCELLED), never bound to it. */
 static void test_moqtrun_upfetch_late_data_stream(void) {
@@ -1326,6 +1352,22 @@ static void test_moqtrun_upfetch_malformed_siblings(void) {
     n += g_calls[i].kind == 7 && g_calls[i].s == SESS_B &&
          g_calls[i].fin == MOQTRUN_RESET_MALFORMED_TRACK;
   CHECK(n == 2);
+}
+
+/* d22 9.4: a sibling still awaiting its FETCH_OK when another leg turns
+ * Malformed is answered REQUEST_ERROR INTERNAL_ERROR, not left open. */
+static void test_moqtrun_upfetch_malformed_unanswered(void) {
+  moqfetch_req m0 = {0};
+  mupf_init();
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  i64 s0 = mupf_up(SESS_C, 0, &m0);
+  mupf_up_ok_p(SESS_C, s0, mf_loc(1, 0), 1, wired_span_of(0, 0));
+  mupf_hdr(m0.request_id, 0);
+  mupf_obj(2, 0, 1);
+  mupf_send_on(SESS_C, MUPF_DATA_SID, 0);
+  CHECK(mupf_refused(MOQCTL_ERR_INTERNAL_ERROR));
+  CHECK(mupf_used() == 0);
 }
 
 /* ===================== Mandatory Track Properties ===================== */
@@ -1547,6 +1589,7 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_fill_timeout_zero();
   test_moqtrun_upfetch_marker_relay();
   test_moqtrun_upfetch_requester_gone();
+  test_moqtrun_upfetch_unanswered_stop();
   test_moqtrun_upfetch_late_data_stream();
   test_moqtrun_upfetch_rejoin_unbinds();
   test_moqtrun_upfetch_torn_header();
@@ -1556,6 +1599,7 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_repeat_of_relayed();
   test_moqtrun_upfetch_malformed_group_end();
   test_moqtrun_upfetch_malformed_siblings();
+  test_moqtrun_upfetch_malformed_unanswered();
   test_moqtrun_upfetch_mandatory();
   test_moqtrun_upfetch_owner_gone_fill();
   test_moqtrun_upfetch_owner_gone_fetch();
