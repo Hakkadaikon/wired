@@ -426,7 +426,7 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   past the stream credit and closes with FLOW_CONTROL_ERROR. Source:
   `srvloop/dispatch.c` (`route_window_stuck`).
 - **Abort retransmit table is fixed-size** — `SRVRUN_RST_RETX` keeps one
-  abort per trackable stream (92); more than that unACKed within one RTT
+  abort per trackable stream (93); more than that unACKed within one RTT
   would send the excess once without retransmission (RFC 9000 13.3).
   Source: `srvrun.c` (`srvrun_rst_keep`).
 - **STOP_SENDING before the response starts is not remembered** — a peer

@@ -17689,6 +17689,24 @@ static void test_srvrun_wt_open_slot_exhaustion_and_reuse(void) {
       15 + 4 * (i64)SRVRUN_WT_SEND_SLOTS);
 }
 
+/* With both QPACK streams holding their send slots for the connection's
+ * life, a relay room still opens its 3 voice streams plus 4 senders x 3
+ * in-flight chat messages. */
+static void test_srvrun_wt_send_slots_beside_qpack_streams(void) {
+  struct lp_fix   f;
+  u8              obuf[1024];
+  wired_obuf      ob     = {obuf, sizeof obuf, 0};
+  static const u8 pay[4] = {1, 2, 3, 4};
+  srvrun_conn*    c      = sr_wtsend_fixture(&f, &ob);
+  c->l.h3.settings_sent  = 1;
+  srvrun_open_qpack_streams(c);
+  CHECK(c->qenc_stream_opened && c->qdec_stream_opened);
+  for (int i = 0; i < 3 + 4 * 3; i++)
+    CHECK(
+        wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) ==
+        15 + 4 * (i64)i);
+}
+
 /* RFC 9000 4.1/19.10: a peer uni-stream credit below one chunk blocks the
  * pump from byte 0; a MAX_STREAM_DATA naming the new stream (received over
  * the real wire) raises the ceiling and the pump resumes. */
@@ -22537,6 +22555,7 @@ void test_srvrun(void) {
   test_srvrun_qdec_stream_opens_with_qpack_streams();
   test_srvrun_qdec_waits_for_stream_open();
   test_srvrun_qenc_credit_regranted();
+  test_srvrun_wt_send_slots_beside_qpack_streams();
   test_srvrun_wt_window_overflow_closes_flow_control();
   test_srvrun_capsule_only_conn_regrows_max_data();
   test_srvrun_wt_refuse_overflow_closes();

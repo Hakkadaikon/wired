@@ -384,20 +384,21 @@ typedef struct {
   /** The owning WT session's slot index for a stream opened/replied through
    * the wired_server_wt_* API, so that session's teardown can reset what it
    * owns (srvrun_reset_wt_sends_for_session); -1 for connection plumbing
-   * (the QPACK encoder stream, CONNECT-stream capsule sends), which no
-   * session teardown may touch. */
+   * (the QPACK encoder and decoder streams, CONNECT-stream capsule
+   * sends), which no session teardown may touch. */
   int wt_session_slot;
 } srvrun_wtsend;
-/* Concurrent server-initiated WT stream sends per connection. Sized for a
+/* Concurrent server-initiated stream sends per connection. Sized for a
  * 4-participant relay room's worst case, not a handful: 3 long-lived voice
  * relay streams stay claimed for the whole call (append_open never reaps),
  * and each relayed chat message is its OWN short-lived stream whose slot
  * only reaps once fully ACKed -- under loss, a 4-sender chat burst plus
  * ACK-delayed stragglers held more than the 3 remaining slots and the
- * overflow opens failed, silently losing whole messages. 3 persistent +
- * 4 senders x ~3 ACK-delayed messages in flight = 15; 16 with one spare
- * (same fixed-slot policy as resp[]). */
-#define SRVRUN_WT_SEND_SLOTS 16
+ * overflow opens failed, silently losing whole messages. The QPACK encoder
+ * and decoder streams (RFC 9204 4.2) each hold a slot for the connection's
+ * whole life too. 3 voice + 2 QPACK + 4 senders x ~3 ACK-delayed messages
+ * in flight = 17 (same fixed-slot policy as resp[]). */
+#define SRVRUN_WT_SEND_SLOTS 17
 
 /* Outbound broadcast DATAGRAMs (RFC 9221 5) one connection holds between
  * steps (dg_pending_buf). Same depth as one wired_srvinbox_ring (4), the
@@ -410,8 +411,8 @@ typedef struct {
 /* RFC 9000 13.3: one-shot control packets (stream aborts, GOAWAY) one
  * connection keeps until ACKed. Sized so every stream this connection can
  * track -- request slots, WT bidi/uni receive slots, WT send slots, both
- * CONNECT streams -- can be aborted at once, plus the GOAWAY: 92 entries,
- * about 6.6 KB per connection. An entry lives about one RTT (until ACKed);
+ * CONNECT streams -- can be aborted at once, plus the GOAWAY: 93 entries,
+ * about 6.7 KB per connection. An entry lives about one RTT (until ACKed);
  * one that exhausts SRVRUN_PTO_MAX resends tears the connection down. */
 #define SRVRUN_RST_RETX                                       \
   (WIRED_SRVLOOP_MAX_STREAMS + WIRED_SRVLOOP_MAX_WT_STREAMS + \
