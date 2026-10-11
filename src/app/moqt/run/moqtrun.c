@@ -7901,6 +7901,8 @@ static int moqtrun_upf_bind(
     u64                 sid,
     wired_span          data,
     int                 fin);
+static void moqtrun_upf_torn_unheld(
+    wired_moqt_hub* hub, const wired_wt_session* s);
 static int  moqtrun_early_free(const wired_moqtrun_peer* p, usz n);
 static void moqtrun_early_put(
     wired_moqtrun_peer* p, u64 sid, wired_span data, int fin);
@@ -7923,6 +7925,18 @@ static int moqtrun_fetch_hdr_keep(
   return 1;
 }
 
+/* sid is asked to stop with CANCELLED; a cut header ends the upstream
+ * FETCHes it might have answered (moqtrun_upf_torn_unheld). */
+static void moqtrun_fetch_stream_refuse(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 sid,
+    wired_span          data,
+    int                 fin) {
+  moqtrun_stream_stop(hub, p, sid, MOQTRUN_RESET_CANCELLED);
+  if (moqtrun_fetch_hdr_short(data, fin)) moqtrun_upf_torn_unheld(hub, p->wt);
+}
+
 /* A fetch data stream's whole FETCH_HEADER routes it by Request ID: one
  * of the hub's own upstream FETCHes takes it (moqtrun_upf_bind); one
  * naming the PUBLISH behind a track of this peer is accepted against it
@@ -7936,7 +7950,7 @@ static void moqtrun_fetch_stream_route(
     int                 fin) {
   if (moqtrun_upf_bind(hub, p, sid, data, fin)) return;
   if (!moqtrun_inbound_fetch_routed(p, data))
-    moqtrun_stream_stop(hub, p, sid, MOQTRUN_RESET_CANCELLED);
+    moqtrun_fetch_stream_refuse(hub, p, sid, data, fin);
 }
 
 /* A fresh uni classifying as a fetch data stream (FETCH_HEADER, 11.4.4).
@@ -11527,6 +11541,25 @@ static wired_moqtrun_fetch* moqtrun_upf_by_rid(
     if (moqtrun_upf_waits_data(&hub->fetches[i], s, rid))
       return &hub->fetches[i];
   return 0;
+}
+
+static int moqtrun_upf_awaits_stream(
+    const wired_moqtrun_fetch* f, const wired_wt_session* s) {
+  return moqtrun_upf_leg_to(f, s) && !f->up_data_open;
+}
+
+/* A cut FETCH_HEADER from s that could not be held names no Request ID,
+ * so every upstream FETCH to s still waiting for its data stream ends now
+ * (the cache side takes over) rather than waiting out its budget.
+ * ponytail: one early slot per peer; a per-leg header stash if two cut
+ * headers at once become common. */
+static void moqtrun_upf_torn_unheld(
+    wired_moqt_hub* hub, const wired_wt_session* s) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+    if (moqtrun_upf_awaits_stream(&hub->fetches[i], s))
+      moqtrun_upf_fail(
+          hub, &hub->fetches[i], MOQTRUN_UPF_IO_CANCEL,
+          MOQCTL_ERR_INTERNAL_ERROR);
 }
 
 /* A fresh fetch data stream answering one of the hub's upstream FETCHes

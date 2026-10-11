@@ -1190,6 +1190,26 @@ static void test_moqtrun_upfetch_torn_header(void) {
   CHECK(mupf_read(0) && mf_n == 1 && mf_is_obj(0, 1, 0, 1));
 }
 
+/* A cut FETCH_HEADER that cannot be held (another already waits) cannot
+ * be routed: A's upstream FETCH still waiting for its data stream is
+ * cancelled at once and the cache serves the range, instead of the leg
+ * stalling until its budget runs out. */
+static void test_moqtrun_upfetch_torn_header_unheld(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(1, 0, 3, 0), 0);
+  i64 sid = mupf_up(SESS_A, 0, &m);
+  mupf_hdr(m.request_id, 0);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, MUPF_DATA_SID + 4, wired_span_of(mupf_buf, 1), 0);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, MUPF_DATA_SID, wired_span_of(mupf_buf, 1), 0);
+  CHECK(mupf_log_is(SESS_A, (u64)sid, "RST1|STOP1|"));
+  CHECK(mupf_read(0) && mf_fin && mf_n == 2);
+  CHECK(mf_is_unknown(0, 2, MOQCACHE_OBJ_ID_MAX) && mf_is_obj(1, 3, 0, 1));
+}
+
 /* An Object torn across deliveries is relayed whole once complete. */
 static void test_moqtrun_upfetch_torn_object(void) {
   moqfetch_req m = {0};
@@ -1612,6 +1632,7 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_late_data_stream();
   test_moqtrun_upfetch_rejoin_unbinds();
   test_moqtrun_upfetch_torn_header();
+  test_moqtrun_upfetch_torn_header_unheld();
   test_moqtrun_upfetch_torn_object();
   test_moqtrun_upfetch_malformed_past_end();
   test_moqtrun_upfetch_malformed_conflict();
