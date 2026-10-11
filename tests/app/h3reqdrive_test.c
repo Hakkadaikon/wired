@@ -1370,6 +1370,52 @@ static void test_reqdrive_ric_past_inserts_fails(void) {
   CHECK(r.qpack_failed == 1);
 }
 
+/* RFC 9204 B.4: stream 8's section verbatim (05 00 80 c1 81: RIC 4, Base 4,
+ * dynamic 0 = :authority, static :path /, dynamic 1 = custom-key) against
+ * the B.3 + B.4 table (B.4's Duplicate re-inserts :authority), :method GET and
+ * :scheme https added as static lines after the prefix. */
+static void test_reqdrive_b4_section(void) {
+  static u8       scratch[WIRED_H3_MAX_FIELD_SECTION];
+  static const u8 fs[] = {0x05, 0x00, 0xd1, 0xd7, 0x80, 0xc1, 0x81};
+  qpack_field     ck   = {
+      wired_span_of((const u8*)"custom-key", 10),
+      wired_span_of((const u8*)"custom-value", 12)};
+  qpack_field dup = {
+      wired_span_of((const u8*)":authority", 10),
+      wired_span_of((const u8*)"www.example.com", 15)};
+  qpack_dyn            t;
+  wired_h3reqdrive_req r;
+  rd_b2_table(&t);
+  CHECK(qpack_dyn_insert(&t, &ck) && qpack_dyn_insert(&t, &dup));
+  CHECK(t.size == 217);
+  CHECK(rd_hdr_decode(fs, sizeof fs, scratch, &t, &r));
+  CHECK(r.qpack_ric == 4 && r.qpack_failed == 0);
+  CHECK(rd_eq(r.authority, r.authority_len, "www.example.com", 15));
+  CHECK(rd_eq(r.path, r.path_len, "/", 1));
+  CHECK(rd_hdr_is(&r, "custom-key", "custom-value"));
+}
+
+/* RFC 9204 4.5.1.1: the Encoded Required Insert Count wraps modulo
+ * 2 * MaxEntries -- 30 inserts under a 220-byte table (MaxEntries 6, so
+ * past twice the 12-insert range) encode RIC 30 as 30 % 12 + 1 = 7, and the
+ * section still resolves the newest entry. */
+static void test_reqdrive_ric_wraps(void) {
+  static u8       scratch[WIRED_H3_MAX_FIELD_SECTION];
+  static const u8 fs[] = {0x07, 0x00, 0xd1, 0xd7, 0xc1, 0x80};
+  qpack_field     f    = {
+      wired_span_of((const u8*)"x", 1), wired_span_of((const u8*)"y", 1)};
+  qpack_field last = {
+      wired_span_of((const u8*)"x-last", 6), wired_span_of((const u8*)"v", 1)};
+  qpack_dyn            t;
+  wired_h3reqdrive_req r;
+  qpack_dyn_init(&t, 220);
+  for (int i = 0; i < 29; i++) CHECK(qpack_dyn_insert(&t, &f));
+  CHECK(qpack_dyn_insert(&t, &last));
+  CHECK(rd_hdr_decode(fs, sizeof fs, scratch, &t, &r));
+  CHECK(r.qpack_ric == 30);
+  CHECK(rd_hdr_is(&r, "x-last", "v"));
+}
+
 /* RFC 9204 2.2.3: a field line whose reference resolves to no entry (here
  * a post-Base index past the RIC-2 table, and an evicted relative entry) is
  * a decompression failure for the connection; a well-encoded but malformed
@@ -1459,6 +1505,8 @@ void test_h3reqdrive(void) {
   test_reqdrive_b2_section_ric();
   test_reqdrive_ric_past_inserts_fails();
   test_reqdrive_bad_ref_is_qpack_failure();
+  test_reqdrive_b4_section();
+  test_reqdrive_ric_wraps();
   test_reqdrive_ric_uses_max_capacity();
   test_h3req_path_view();
   test_reqdrive_req_header_lookup();

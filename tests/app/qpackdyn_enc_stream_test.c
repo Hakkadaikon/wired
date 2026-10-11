@@ -332,6 +332,24 @@ static void test_enc_stream_advertised_capacity_fits_ring(void) {
   CHECK(err == 0);
 }
 
+/* RFC 9204 4.3.2 / 4.3.3 / 4.1.2: Huffman-coded strings in inserts -- the
+ * value of a static name reference (:authority) and both the name and the
+ * value of a literal-name insert, using RFC 7541 C.4.1 / C.4.3's codes
+ * verbatim. */
+static void test_enc_stream_huffman_inserts(void) {
+  static const u8 ins[] = {0xc0, 0x8c, 0xf1, 0xe3, 0xc2, 0xe5, 0xf2, 0x3a, 0x6b,
+                           0xa0, 0xab, 0x90, 0xf4, 0xff, 0x68, 0x25, 0xa8, 0x49,
+                           0xe9, 0x5b, 0xa9, 0x7d, 0x7f, 0x89, 0x25, 0xa8, 0x49,
+                           0xe9, 0x5b, 0xb8, 0xe8, 0xb4, 0xbf};
+  qpack_dyn       t;
+  u16             err = 0;
+  qpack_dyn_init(&t, 220);
+  CHECK(es_apply_all(wired_span_of(ins, sizeof ins), &t, &err));
+  CHECK(err == 0 && t.count == 2);
+  CHECK(es_entry_is(&t, 0, ":authority", "www.example.com"));
+  CHECK(es_entry_is(&t, 1, "custom-key", "custom-value"));
+}
+
 /* RFC 9204 4.3.3 / 3.2.2: a legal Insert With Literal Name carrying a
  * 1500-byte cookie value fits the advertised capacity and is applied. */
 static void test_enc_stream_large_cookie_insert(void) {
@@ -357,6 +375,7 @@ static void test_enc_stream_large_cookie_insert(void) {
 
 void test_qpackdyn_enc_stream(void) {
   test_enc_stream_large_cookie_insert();
+  test_enc_stream_huffman_inserts();
   test_enc_stream_advertised_capacity_fits_ring();
   test_encrx_byte_by_byte();
   test_encrx_out_of_order();
