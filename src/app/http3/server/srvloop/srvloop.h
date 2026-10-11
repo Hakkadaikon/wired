@@ -34,6 +34,10 @@
  * dropped -- the peer may issue at most active_connection_id_limit. */
 #define WIRED_SRVLOOP_NCID_RX 4
 
+/** PATH_CHALLENGE frames latched until answered
+ * (wired_srvloop.path_challenge_rx_data); more are dropped. */
+#define WIRED_SRVLOOP_PATH_RX 2
+
 /** Build (a round of) the response body for a decoded request. Copy from
  * `req` (its body is a view into per-step scratch, not valid past the call)
  * into body_out, setting body_out->len. May set *content_type to a static
@@ -803,15 +807,15 @@ typedef struct {
                                   * max_data_seen_flag. */
   /** RFC 9000 8.2.2: the peer's own PATH_CHALLENGE data latched by
    * dispatch this step -- the owning runner MUST answer it with a
-   * PATH_RESPONSE on the arrival path (srvrun_answer_path_challenge);
-   * valid only while path_challenge_rx_seen is set. */
-  u8 path_challenge_rx_data[PATH_DATA];
-  /** 1 once path_challenge_rx_data was latched this step. */
-  int path_challenge_rx_seen;
+   * PATH_RESPONSE on the arrival path (srvrun_path_answer);
+   * one entry per PATH_CHALLENGE frame, path_challenge_rx_n of them. */
+  u8 path_challenge_rx_data[WIRED_SRVLOOP_PATH_RX][PATH_DATA];
+  /** Entries latched in path_challenge_rx_data; the owner resets it. */
+  usz path_challenge_rx_n;
   /** RFC 9000 8.2.2/19.18: the 8-byte data of a PATH_RESPONSE frame seen in
    * any 1-RTT payload opened this step (gather_path_response in dispatch.c),
    * valid only when path_response_seen_flag is set. This loop has no notion
-   * of path validation (that lives in srvrun_conn.migrate, srvrun.c) -- it
+   * of path validation (that lives in srvrun_conn.path, srvrun.c) -- it
    * only latches the raw bytes, mirroring max_data_seen's split of
    * responsibility (gather here, interpret in the caller). */
   u8  path_response_data[PATH_DATA];

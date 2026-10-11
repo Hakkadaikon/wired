@@ -47,8 +47,9 @@
 #include "tls/keys/keyring/keyring.h"
 #include "tls/keys/keyupdate/aeadintegrity.h"
 #include "tls/keys/kuswitch/twogen.h"
-#include "transport/conn/cid/migrate/migrate.h"
 #include "transport/conn/cid/path/antiamp.h"
+#include "transport/conn/cid/pathsel/pathsel.h"
+#include "transport/conn/cid/peercid/peercid.h"
 #include "transport/conn/cid/pmtu/pmtu.h"
 #include "transport/conn/cid/retrytoken/retrytoken.h"
 #include "transport/conn/cid/sreset/sreset.h"
@@ -723,18 +724,15 @@ typedef struct {
    * transport parameter) leaves this server's relay opens failing forever
    * with no hint that the SERVER, not the network, is the reason. */
   u64 uni_blocked_sent_at;
-  /** RFC 9000 8.2/9: this connection's ONE path-validation state machine
-   * (migrate), tracking the naive rebind-follow in srvrun_rebind_peer
-   * through detect -> challenge -> validate. One instance, not one per path:
-   * this SDK tracks only the single most-recently-seen path (see
-   * path_challenge_data's doc) -- multiple concurrent paths (RFC 9000 9.3.1)
-   * are out of scope (see srvrun_rebind_peer's own doc for the full
-   * list of what this slice deliberately does not implement). */
-  migrate migrate;
+  /** RFC 9000 8.2/9: path validation -- the last validated path, two
+   * outstanding challenges and a gated preferred target (srvrun_path_*). */
+  pathsel path;
+  /** RFC 9000 5.1/9.5: the client's connection IDs, one bound per path. */
+  peercid pcid;
   /** RFC 9000 9.6.2: the local socket this connection's replies leave
    * through -- the primary listen fd normally, the preferred-address fd
-   * once the client migrates onto it (srvrun_rebind_peer follows the
-   * arrival fd). 0 only on test-fabricated slots, read as "primary". */
+   * once that path validated (srvrun_path_move). 0 only on test-fabricated
+   * slots, read as "primary". */
   i64 tx_fd;
   /** 1 while held early datagrams are being replayed
    * (srvrun_boot_flush_zerortt): they are stepped with the triggering
@@ -942,13 +940,12 @@ typedef struct {
   u8 retry_odcid_len;
   /** Bidi MAX_STREAMS re-announces left (see grant_retry_ms). */
   u8 grant_retries;
-  /** RFC 9000 8.2.2: the 8-byte PATH_CHALLENGE data last sent for the path
-   * currently being validated, valid only while migrate.challenged and not
-   * yet migrate.validated. Re-armed (overwritten) on every new rebind
-   * detected before the prior challenge validates -- srvrun_rebind_peer only
-   * ever tracks the single latest path, so an in-flight PATH_RESPONSE for a
-   * since-superseded challenge simply fails to compare equal. */
-  u8 path_challenge_data[PATH_DATA];
+  /** RFC 9000 9.5: the server connection ID the client's last opened 1-RTT
+   * packet carried; a migration that keeps it may keep the peer's ID. */
+  u8 rx_dcid[WIRED_MAX_CID_LEN];
+  /** RFC 9000 5.1.1/19.15: the transport error a NEW_CONNECTION_ID caused,
+   * closed on at the step's end (srvrun_close_on_cid); 0 = none. */
+  u8 cid_err;
 } srvrun_conn;
 
 /* RFC 7301 3.2 / draft-ietf-moq-transport-19 3.1: 1 iff c negotiated a
@@ -3041,52 +3038,63 @@ static u64 srvrun_wt_rx_delivered_total(const srvrun_conn* c) {
 }
 
 /* RFC 9000 8.2.1: the plaintext length that seals to exactly the 1200-byte
- * minimum datagram -- the short header costs byte0 + DCID + a 4-byte packet
- * number, and the AEAD tag 16 bytes (GCM and Poly1305 alike). */
-static usz srvrun_challenge_plaintext_len(const srvrun_conn* c) {
-  return MIN_INITIAL_DATAGRAM - (5 + (usz)c->l.cli_scid_len) - GCM_TAG;
+ * minimum datagram for a dcid_len-byte DCID -- the short header costs
+ * byte0 + DCID + a 4-byte packet number, and the AEAD tag 16 bytes (GCM
+ * and Poly1305 alike). */
+static usz srvrun_challenge_plaintext_len(usz dcid_len) {
+  return MIN_INITIAL_DATAGRAM - (5 + dcid_len) - GCM_TAG;
 }
 
-/* Seal one PATH_CHALLENGE frame (RFC 9000 8.2.2/19.17) as its own 1-RTT
- * packet, mirroring srvrun_seal_max_data for a different single-frame
- * payload. Sent to c->peer -- the caller (srvrun_rebind_peer) has already
- * updated c->peer to the new path this challenges, RFC 9000 8.2.1.
- * RFC 9000 8.2.1 also demands the datagram be expanded to 1200 bytes: the
- * PADDING goes INSIDE the AEAD, because a short header has no Length field
- * -- bytes appended after the seal join the ciphertext and the peer's tag
- * check fails (observed live: ngtcp2 discarded every challenge with a
- * checktag error, so no PATH_RESPONSE ever came back). */
-static int srvrun_seal_path_frame(
-    srvrun_conn* c, u8 type, const u8 data[PATH_DATA], wired_obuf* out) {
+/* n frames of type, one per 8-byte data[i], into pl; their length. */
+static usz srvrun_path_payload(u8* pl, u8 type, const u8* data, usz n) {
+  usz len = 0;
+  for (usz i = 0; i < n; i++)
+    len += path_encode(
+        pl + len, MIN_INITIAL_DATAGRAM - len, type, data + i * PATH_DATA);
+  return len;
+}
+
+/* Seal n PATH_CHALLENGE or PATH_RESPONSE frames (RFC 9000 19.17/19.18) as
+ * one 1-RTT packet to DCID dcid, mirroring srvrun_seal_max_data. RFC 9000
+ * 8.2.1 demands the datagram be expanded to 1200 bytes: the PADDING goes
+ * INSIDE the AEAD, because a short header has no Length field -- bytes
+ * appended after the seal join the ciphertext and the peer's tag check
+ * fails (observed live: ngtcp2 discarded every challenge with a checktag
+ * error, so no PATH_RESPONSE ever came back). */
+static int srvrun_seal_path_frames(
+    srvrun_conn* c,
+    wired_span   dcid,
+    u8           type,
+    const u8*    data,
+    usz          n,
+    wired_obuf*  out) {
   u8                    pl[MIN_INITIAL_DATAGRAM];
   wired_srvloop_send_in sin;
-  usz                   want = srvrun_challenge_plaintext_len(c);
-  usz                   pln  = path_encode(pl, sizeof pl, type, data);
+  usz                   want = srvrun_challenge_plaintext_len(dcid.n);
+  usz                   pln  = srvrun_path_payload(pl, type, data, n);
   if (!pln) return 0;
   for (; pln < want; pln++) pl[pln] = 0; /* PADDING frames (0x00) */
   sin = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
-      c->l.tx_pn++,
-      -1,
-      wired_span_of(pl, pln),
-      0,
-      0,
-      0,
-      0};
+      dcid, c->l.tx_pn++, -1, wired_span_of(pl, pln), 0, 0, 0, 0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
-static int srvrun_seal_path_challenge(
-    srvrun_conn* c, const u8 data[PATH_DATA], wired_obuf* out) {
-  return srvrun_seal_path_frame(c, FRAME_PATH_CHALLENGE, data, out);
+/* One frame (srvrun_seal_path_frames). */
+__attribute__((unused)) static int srvrun_seal_path_frame(
+    srvrun_conn* c,
+    wired_span   dcid,
+    u8           type,
+    const u8     data[PATH_DATA],
+    wired_obuf*  out) {
+  return srvrun_seal_path_frames(c, dcid, type, data, 1, out);
 }
 
-static void srvrun_send_path_challenge(
-    const srvrun_cfg* cfg, srvrun_conn* c, const u8 data[PATH_DATA]) {
-  u8         out[MIN_INITIAL_DATAGRAM];
-  wired_obuf ob = obuf_of(out, sizeof out);
-  if (!srvrun_seal_path_challenge(c, data, &ob)) return;
-  srvrun_send(cfg, c, wired_span_of(out, ob.len), "PATH_CHALLENGE sent\n");
+/* A PATH_CHALLENGE under the connection's current peer ID. */
+__attribute__((unused)) static int srvrun_seal_path_challenge(
+    srvrun_conn* c, const u8 data[PATH_DATA], wired_obuf* out) {
+  return srvrun_seal_path_frame(
+      c, wired_span_of(c->l.cli_scid, c->l.cli_scid_len), FRAME_PATH_CHALLENGE,
+      data, out);
 }
 
 /* Seal one MAX_DATA frame (RFC 9000 19.9) as its own 1-RTT packet and send
@@ -4294,12 +4302,31 @@ static int srvrun_close_on_aead_reached(const srvrun_cfg* cfg, srvrun_conn* c) {
   return 1;
 }
 
+/* RFC 9000 19.15/5.1.1: a malformed NEW_CONNECTION_ID
+ * (FRAME_ENCODING_ERROR), or one the pool rejected (srvrun_conn.cid_err). */
+static int srvrun_close_on_cid(const srvrun_cfg* cfg, srvrun_conn* c) {
+  static const u8 reason[] = "connection id error";
+  u8 code = c->l.ncid_malformed ? ERR_FRAME_ENCODING_ERROR : c->cid_err;
+  if (!code) return 0;
+  c->l.ncid_malformed = 0;
+  c->cid_err          = 0;
+  srvrun_send_transport_close(
+      cfg, c, code, wired_span_of(reason, sizeof reason - 1));
+  return 1;
+}
+
+/* The AEAD integrity limit, then a connection ID error. */
+static int srvrun_close_on_aead_or_cid(const srvrun_cfg* cfg, srvrun_conn* c) {
+  if (srvrun_close_on_aead_reached(cfg, c)) return 1;
+  return srvrun_close_on_cid(cfg, c);
+}
+
 /* The stream-limit overflow, a flow-control violation, then the AEAD
- * integrity limit. */
+ * integrity limit and connection ID errors. */
 static int srvrun_close_on_limits(const srvrun_cfg* cfg, srvrun_conn* c) {
   if (srvrun_close_on_refused_overflow(cfg, c)) return 1;
   if (srvrun_close_on_flow_violation(cfg, c)) return 1;
-  return srvrun_close_on_aead_reached(cfg, c);
+  return srvrun_close_on_aead_or_cid(cfg, c);
 }
 
 /* The second half of srvrun_close_on_step_violation: the H3_FRAME_ERROR
@@ -4466,10 +4493,15 @@ static void srvrun_note_stream_limits(
                                   : wired_srvloop_uni_stream_limit();
 }
 
-/* Defined beside the PATH_CHALLENGE helpers further down. */
+/* Defined with the path validation helpers further down. */
 static int srvrun_path_reverts(
     const srvrun_step_ctx* ctx, const srvrun_conn* c);
-static void srvrun_rebind_peer(const srvrun_step_ctx* ctx, srvrun_conn* c);
+static void srvrun_path_step(
+    const srvrun_step_ctx* ctx,
+    srvrun_conn*           c,
+    wired_mspan            dg,
+    const srvrun_rxmark*   mark);
+static void srvrun_path_tick(const srvrun_step_ctx* ctx, srvrun_conn* c);
 
 /* A later datagram on a live slot: one real-wire step, send any sealed
  * reply — unless this step's own gathering found a connection-ending
@@ -4498,7 +4530,7 @@ static void srvrun_on_step_live(
   produced        = wired_srvloop_step(&conn, dg, &ob);
   /* RFC 9000 9.3: decided after decrypt and dedup, before any send of this
    * step, so the step's ACK and data already go to the new path. */
-  srvrun_rebind_peer(ctx, c);
+  srvrun_path_step(ctx, c, dg, &mark);
   srvrun_raw_start(ctx->cfg, c);
   srvrun_open_qpack_streams(c);
   srvrun_flush_qdec(c);
@@ -7813,38 +7845,6 @@ static void srvrun_stream_credit_raise(u64* credit, u64 value) {
   if (value > *credit) *credit = value;
 }
 
-/* 1 if this step's gathered PATH_RESPONSE (srvloop's gather_path_response)
- * is worth comparing at all: a connection that never issued a PATH_CHALLENGE
- * (migrate.challenged == 0) cannot have a real one to match against --
- * migrate_validate itself already refuses without challenged, but
- * checking here first avoids running the (cheap, but still pointless)
- * compare and lets srvrun_apply_path_response's own CCN stay at the gate. */
-static int srvrun_path_response_pending(const srvrun_conn* c) {
-  return c->l.path_response_seen_flag && c->migrate.challenged;
-}
-
-/* 1 if this step's gathered PATH_RESPONSE data (ct_diff8
- * constant-time compare) matches the challenge c last sent -- split out so
- * srvrun_apply_path_response's own CCN stays at the gate (the compound
- * pending && diff==0 that would otherwise inline here each cost +1). */
-static int srvrun_path_response_matches(const srvrun_conn* c) {
-  if (!srvrun_path_response_pending(c)) return 0;
-  return ct_diff8(c->l.path_response_data, c->path_challenge_data) == 0;
-}
-
-/* RFC 9000 8.2.2: apply this step's gathered PATH_RESPONSE (if any) against
- * the challenge this connection last sent (c->path_challenge_data). A match
- * validates the path (migrate_validate); a mismatch or an unchallenged
- * connection leaves migrate untouched. Always consumes the step's latch,
- * same convention as srvrun_apply_conn_credit_update. See
- * srvrun_rebind_peer's doc comment for why the response's own source
- * address is deliberately never checked here. */
-static void srvrun_apply_path_response(srvrun_conn* c) {
-  if (!c->l.path_response_seen_flag) return;
-  if (srvrun_path_response_matches(c)) migrate_validate(&c->migrate);
-  c->l.path_response_seen_flag = 0;
-}
-
 /* w is claimed and sending on stream_id. */
 static int srvrun_wtsend_matches(const srvrun_wtsend* w, u64 stream_id) {
   return w->in_use && w->stream_id == stream_id;
@@ -9469,7 +9469,6 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   cc_bbr_tick(&c->cc, c->acct_inflight, ctx->now_ms);
   srvrun_apply_conn_credit_update(c);
   srvrun_apply_stream_credit_update(c);
-  srvrun_apply_path_response(c);
   srvrun_apply_uni_limit_update(c);
   srvrun_reap_resps(ctx, c, slot);
   srvrun_reap_wtsends(c);
@@ -9897,6 +9896,7 @@ static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_rst_retry_slot(ctx, slot);
   srvrun_dg_slot(ctx, slot);
   srvrun_wt_app_pending_slot(ctx, slot);
+  srvrun_path_tick(ctx, &ctx->st->conns[slot]);
 }
 
 /* A poll timeout with responses or broadcast DATAGRAMs in flight: fire the
@@ -9988,15 +9988,6 @@ static void srvrun_boot_release_pending(
     srvrun_boot_send_hs_gated(ctx->cfg, c, 0);
 }
 
-/* 1 if ctx->peer's address differs from c->peer's -- the trigger for the
- * naive rebind-tracking below. Split out so the caller's branch count stays
- * low (the &&/|| that would otherwise inline here each cost lizard +1). */
-static int srvrun_peer_changed(
-    const srvrun_step_ctx* ctx, const srvrun_conn* c) {
-  return ctx->peer->port_be != c->peer.port_be ||
-         ct_diffn(ctx->peer->addr, c->peer.addr, 16) != 0;
-}
-
 /* Test-only override forcing challenge_generate to behave as if
  * the RNG failed, the same override-flag shape as srvrun_test_set_shutdown
  * above -- getrandom(2) failing is not practically triggerable from a test,
@@ -10008,78 +9999,227 @@ __attribute__((unused)) static void srvrun_test_force_challenge_rng_fail(
   g_srvrun_path_challenge_force_fail = v;
 }
 
-/* RFC 9000 8.2.2: generate this rebind's 8-byte PATH_CHALLENGE data. Returns
- * 0 (and writes nothing meaningful to data) on RNG failure, so the caller
- * never arms/sends an unpredictable-in-name-only (actually zero or stale)
- * challenge. */
+/* RFC 9000 8.2.2: generate one 8-byte PATH_CHALLENGE data. Returns 0 (and
+ * writes nothing meaningful to data) on RNG failure, so the caller never
+ * sends an unpredictable-in-name-only (actually zero or stale) challenge. */
 static int srvrun_gen_path_challenge(u8 data[PATH_DATA]) {
   if (g_srvrun_path_challenge_force_fail) return 0;
   return challenge_generate(data);
 }
 
-/* RFC 9000 8.2/9.3: a rebind just detected by srvrun_rebind_peer arms this
- * connection's migrate state machine and sends a PATH_CHALLENGE to the new
- * peer -- c->peer must already be updated to ctx->peer before this runs (the
- * challenge has to reach the path being validated). A generation failure
- * leaves migrate un-challenged and sends nothing: challenged==0 means
- * a later PATH_RESPONSE cannot spuriously validate (migrate_validate's
- * own precondition), matching "no challenge was ever actually issued". */
-static void srvrun_arm_path_challenge(const srvrun_cfg* cfg, srvrun_conn* c) {
-  u8 data[PATH_DATA];
-  if (!srvrun_gen_path_challenge(data)) return;
-  c->migrate.handshake_confirmed = 1; /* only reachable post-confirm */
-  migrate_detect(&c->migrate);
-  migrate_challenge(&c->migrate);
-  bytes_memcpy(c->path_challenge_data, data, PATH_DATA);
-  srvrun_send_path_challenge(cfg, c, data);
+/* --- RFC 9000 8.2/9: path validation and the send path ------------------
+ *
+ * A path is (local socket, peer address) (9.6.2). c->peer/c->tx_fd is the
+ * send path; c->path holds the last validated path, two challenge slots
+ * and a gated preferred-address target; c->pcid binds one peer-issued
+ * connection ID to each path at its first send (9.5).
+ *
+ * Known hole, by design: receive routing is DCID-based (srvrun_find_slot),
+ * so an off-path copy of a genuine new packet from a spoofed source still
+ * moves the send path until its validation fails and the server reverts
+ * (9.3.2); 9.3.3 calls that defence imperfect. A PATH_RESPONSE's arrival
+ * path is never checked (8.2.2 forbids enforcing it). */
+
+/* The path c sends on. */
+static pathsel_key srvrun_send_key(
+    const srvrun_cfg* cfg, const srvrun_conn* c) {
+  return (pathsel_key){srvrun_conn_fd(cfg, c), c->peer};
 }
 
-/* RFC 9000 9 (naive subset, quic-interop-runner's rebind-port/rebind-addr):
- * once a connection is past the boot/handshake window, follow its source
- * address if a datagram arrives from a different one -- a NAT re-mapping a
- * client's port, or the client switching networks, must not orphan the
- * connection's reply path. c->peer follows only the highest-numbered
- * non-probing packet (RFC 9000 9.3), decided after the datagram decrypts
- * and is not a duplicate, before the step sends anything (still NOT gated
- * on path validation, see below), and a PATH_CHALLENGE
- * (RFC 9000 8.2) is issued to the new path so quic-interop-runner's rebind-
- * port/rebind-addr judge (which checks for a PATH_CHALLENGE on the first
- * server packet sent to the new path) is satisfied.
- *
- * Deliberately out of scope for this slice: RFC 9000 9.4's
- * congestion-control/RTT reset on a confirmed migration, 8.2.1's send-volume
- * limit on a not-yet-validated path, actually switching to a new connection
- * ID (migrate_confirm is never called here), and tracking more than one
- * path at once (srvrun_conn holds a single migrate + a single 8-byte
- * challenge, see their own doc comments) are all left undone -- this is
- * still the naive subset, now with a real PATH_CHALLENGE/PATH_RESPONSE round
- * trip layered on top rather than full RFC 9000 9 path validation.
- *
- * Deliberate scope decision, documented rather than fixed: a
- * PATH_RESPONSE's own source address is never checked against the path it is
- * validating (see srvrun_apply_path_response below) -- only its 8-byte data
- * is compared. This does not weaken the pre-existing hole one line up: c->
- * peer is *already* updated (and PATH_CHALLENGE already sent to the forged
- * address) the instant an off-path copy of a genuine new packet arrives
- * from a spoofed source, before any response round trip occurs at all,
- * because this SDK's receive
- * routing is DCID-based, not address-based, by design (srvrun_find_slot).
- * Adding a source-address check on the PATH_RESPONSE side would not close
- * that hole -- an attacker able to forge the rebind in the first place can
- * equally forge (or simply relay) a matching PATH_RESPONSE from the same
- * spoofed address. The real fix is RFC 9000 9.5-style per-path validation
- * gating c->peer's update on success, not a response-side address check;
- * that is a separate task from this one (naive-rebind-plus-challenge). */
-/* RFC 9000 9.6: the arrival socket changed -- the client moved to the
- * preferred address's port. Test-fabricated slots (tx_fd 0) never match. */
-static int srvrun_rx_fd_changed(
-    const srvrun_step_ctx* ctx, const srvrun_conn* c) {
-  return c->tx_fd && srvrun_rx_fd(ctx->cfg) != c->tx_fd;
+/* The path this step's datagram arrived on. */
+static pathsel_key srvrun_arrival_key(const srvrun_step_ctx* ctx) {
+  return (pathsel_key){srvrun_rx_fd(ctx->cfg), *ctx->peer};
 }
 
-static int srvrun_path_changed(
-    const srvrun_step_ctx* ctx, const srvrun_conn* c) {
-  return srvrun_peer_changed(ctx, c) || srvrun_rx_fd_changed(ctx, c);
+/* The path a switch aims at: a gated preferred target, else the send
+ * path. */
+static pathsel_key srvrun_target_key(
+    const srvrun_cfg* cfg, const srvrun_conn* c) {
+  return c->path.gated ? c->path.target : srvrun_send_key(cfg, c);
+}
+
+static int srvrun_path_is_valid(const srvrun_conn* c, const pathsel_key* k) {
+  return pathsel_key_eq(&c->path.last_valid, k);
+}
+
+static int srvrun_path_is_gated_target(
+    const srvrun_conn* c, const pathsel_key* k) {
+  return c->path.gated && pathsel_key_eq(&c->path.target, k);
+}
+
+/* RFC 9000 8.1: the handshake path is validated and the peer's handshake
+ * ID is bound to it -- once, at the first live step. */
+static void srvrun_path_seed(const srvrun_cfg* cfg, srvrun_conn* c) {
+  pathsel_key k = srvrun_send_key(cfg, c);
+  if (c->path.seeded) return;
+  c->path.last_valid = k;
+  c->path.seeded     = 1;
+  peercid_init(&c->pcid, wired_span_of(c->l.cli_scid, c->l.cli_scid_len));
+  (void)peercid_bind(&c->pcid, &k);
+  bytes_memcpy(c->rx_dcid, c->s.sdrv.iscid, c->s.sdrv.iscid_len);
+}
+
+/* k is the send path, the last validated one, or the gated target. */
+static int srvrun_path_current(
+    const srvrun_cfg* cfg, const srvrun_conn* c, const pathsel_key* k) {
+  pathsel_key s = srvrun_send_key(cfg, c);
+  return pathsel_key_eq(k, &s) || srvrun_path_is_valid(c, k) ||
+         srvrun_path_is_gated_target(c, k);
+}
+
+/* k is tracked: current (above) or under validation. */
+static int srvrun_path_tracked(
+    const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k) {
+  return srvrun_path_current(cfg, c, k) || pathsel_find(&c->path, k) != 0;
+}
+
+/* RFC 9000 9.5 exception: the client kept its DCID and k is on the send
+ * path's local socket (a NAT rebinding). */
+static int srvrun_path_may_share(
+    const srvrun_cfg*  cfg,
+    const srvrun_conn* c,
+    const pathsel_key* k,
+    int                kept) {
+  return kept && k->fd == srvrun_conn_fd(cfg, c);
+}
+
+/* The peer ID a tracked k already uses, or 0. */
+static const peercid_entry* srvrun_path_known_cid(
+    const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k) {
+  if (!srvrun_path_tracked(cfg, c, k)) return 0;
+  return peercid_of(&c->pcid, k);
+}
+
+static const peercid_entry* srvrun_path_cid_for(
+    const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k, int kept) {
+  const peercid_entry* e = srvrun_path_known_cid(cfg, c, k);
+  pathsel_key          s = srvrun_send_key(cfg, c);
+  if (e) return e;
+  if (srvrun_path_may_share(cfg, c, k, kept))
+    return peercid_share(&c->pcid, &s);
+  return peercid_bind(&c->pcid, k);
+}
+
+/* RFC 9000 9.5: the peer ID to send to k with -- the one k already uses;
+ * else the send path's when the 9.5 exception holds; else an unused one;
+ * else 0, and nothing may be sent on k. A client using zero-length IDs has
+ * the one empty ID for every path. */
+static const peercid_entry* srvrun_path_cid(
+    const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k, int kept) {
+  if (!c->l.cli_scid_len) return &c->pcid.e[0];
+  return srvrun_path_cid_for(cfg, c, k, kept);
+}
+
+/* The send path becomes k; every later packet carries k's peer ID (RFC
+ * 9000 9.5), the connection's default from now on. */
+static void srvrun_path_move(
+    const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k) {
+  pathsel_key          to = *k;
+  const peercid_entry* e;
+  c->peer  = to.peer;
+  c->tx_fd = to.fd;
+  e        = srvrun_path_cid(cfg, c, &to, 0);
+  /* ponytail: with no ID left the old one stays; the peer must issue more */
+  if (!e) return;
+  bytes_memcpy(c->l.cli_scid, e->cid, e->len);
+  c->l.cli_scid_len = e->len;
+}
+
+/* One sealed path packet to k, outside the send path's GSO stage. */
+static void srvrun_send_to(
+    const srvrun_cfg*  cfg,
+    const srvrun_conn* c,
+    const pathsel_key* k,
+    wired_span         pkt) {
+  if (c->closing) return;
+  srvrun_tx(cfg, k->fd, &k->peer, pkt);
+  srvrun_qlog_sent(cfg, c, pkt.n);
+  g_srvrun_send_count++;
+}
+
+/* n PATH_CHALLENGE or PATH_RESPONSE frames (data[0..n)) to k under its
+ * peer ID e. */
+static void srvrun_path_send(
+    const srvrun_cfg*    cfg,
+    srvrun_conn*         c,
+    const pathsel_key*   k,
+    const peercid_entry* e,
+    u8                   type,
+    const u8*            data,
+    usz                  n) {
+  u8         out[MIN_INITIAL_DATAGRAM];
+  wired_obuf ob   = obuf_of(out, sizeof out);
+  wired_span dcid = wired_span_of(e->cid, e->len);
+  if (!srvrun_seal_path_frames(c, dcid, type, data, n, &ob)) return;
+  srvrun_send_to(cfg, c, k, wired_span_of(out, ob.len));
+}
+
+/* RFC 9000 8.2.1: send slot s's path a PATH_CHALLENGE with fresh data under
+ * its peer ID. Without random data or an ID the slot is freed and nothing
+ * is sent. */
+static void srvrun_path_challenge(
+    const srvrun_cfg* cfg, srvrun_conn* c, pathsel_slot* s, u64 now) {
+  const peercid_entry* e = srvrun_path_cid(cfg, c, &s->key, 0);
+  if (!e || !srvrun_gen_path_challenge(s->data)) {
+    s->in_use = 0;
+    return;
+  }
+  s->last_ms = now;
+  srvrun_path_send(cfg, c, &s->key, e, FRAME_PATH_CHALLENGE, s->data, 1);
+}
+
+/* Start a validation in slot s (0 = no slot: nothing to do). */
+static void srvrun_path_arm(
+    const srvrun_cfg* cfg, srvrun_conn* c, pathsel_slot* s, u64 now) {
+  if (!s) return;
+  s->first_ms = now;
+  s->tries    = 0;
+  srvrun_path_challenge(cfg, c, s, now);
+}
+
+/* RFC 9000 9.3: challenge the new target unless it is validated or already
+ * under validation; the path being left keeps its slot. */
+static void srvrun_path_chal_new(
+    const srvrun_step_ctx* ctx,
+    srvrun_conn*           c,
+    const pathsel_key*     to,
+    const pathsel_key*     from) {
+  if (srvrun_path_is_valid(c, to) || pathsel_find(&c->path, to)) return;
+  srvrun_path_arm(ctx->cfg, c, pathsel_claim(&c->path, to, from), ctx->now_ms);
+}
+
+/* RFC 9000 9.3.3: challenge the path non-probing packets were being sent
+ * on, when it is not the new target. */
+static void srvrun_path_chal_old(
+    const srvrun_step_ctx* ctx,
+    srvrun_conn*           c,
+    const pathsel_key*     from,
+    const pathsel_key*     to) {
+  if (pathsel_key_eq(from, to)) return;
+  srvrun_path_arm(ctx->cfg, c, pathsel_claim(&c->path, from, to), ctx->now_ms);
+}
+
+/* RFC 9000 9.6.2: the preferred-address socket carries non-probing packets
+ * only once its path is validated. */
+static int srvrun_path_gates(
+    const srvrun_cfg* cfg, const srvrun_conn* c, const pathsel_key* k) {
+  i64 pref = cfg->env->pref_fd;
+  return pref && k->fd == pref && !srvrun_path_is_valid(c, k);
+}
+
+/* RFC 9000 9.3: the arrival path becomes the target, the new path and the
+ * path left are challenged, and the send path follows unless the target is
+ * a gated preferred path. With no peer ID for the new path, nothing
+ * happens at all (9.5). */
+static void srvrun_path_switch(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int kept) {
+  pathsel_key to = srvrun_arrival_key(ctx), from = srvrun_send_key(ctx->cfg, c);
+  if (!srvrun_path_cid(ctx->cfg, c, &to, kept)) return;
+  srvrun_path_chal_new(ctx, c, &to, &from);
+  srvrun_path_chal_old(ctx, c, &from, &to);
+  c->path.target = to;
+  c->path.gated  = (u8)srvrun_path_gates(ctx->cfg, c, &to);
+  if (!c->path.gated) srvrun_path_move(ctx->cfg, c, &to);
 }
 
 /* RFC 9000 9.6.2: this connection sends from the preferred-address socket
@@ -10092,57 +10232,256 @@ static int srvrun_path_reverts(
   return pref && c->tx_fd == pref && srvrun_rx_fd(ctx->cfg) != pref;
 }
 
-/* Rebind is allowed: confirmed, not a suppressed old-path straggler, and
- * the path actually changed -- split out so the caller keeps one guard. */
+/* A switch is allowed: confirmed, not a suppressed old-path straggler, and
+ * the arrival path is not already the target. */
 static int srvrun_rebind_allowed(
     const srvrun_step_ctx* ctx, const srvrun_conn* c) {
+  pathsel_key a = srvrun_arrival_key(ctx), t = srvrun_target_key(ctx->cfg, c);
   if (srvrun_awaiting_confirm(c) || srvrun_path_reverts(ctx, c)) return 0;
-  return srvrun_path_changed(ctx, c);
+  return !pathsel_key_eq(&a, &t);
 }
 
 /* RFC 9000 9.3: only a live (not replayed) short-header packet that is
  * non-probing and numbered above every earlier non-probing one
- * (srvloop's step_np_new) may move the send path. */
+ * (srvloop's step_np_new) may move the target. */
 static int srvrun_rebind_due(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
   if (!c->l.step_np_new || c->replay) return 0;
   return srvrun_rebind_allowed(ctx, c);
 }
 
-/* Consume the latched PATH_CHALLENGE: 1 iff one is to be answered -- not on
- * a closing connection, which sends only its CONNECTION_CLOSE (RFC 9000
- * 10.2.1). */
-static int srvrun_path_challenge_take(srvrun_conn* c) {
-  int due                     = c->l.path_challenge_rx_seen && !c->closing;
-  c->l.path_challenge_rx_seen = 0;
-  return due;
+/* The latched PATH_CHALLENGEs to answer, consumed: none on a closing or
+ * peer-closed connection (RFC 9000 10.2). */
+static usz srvrun_path_challenge_take(srvrun_conn* c) {
+  usz n                    = c->l.path_challenge_rx_n;
+  c->l.path_challenge_rx_n = 0;
+  return c->closing || c->l.peer_closed ? 0 : n;
 }
 
-/* RFC 9000 8.2.2: a peer PATH_CHALLENGE latched by dispatch this step MUST
- * be answered with a PATH_RESPONSE sent on the path it arrived on, expanded
- * to 1200 bytes exactly like a challenge (8.2.1) -- a client validating its
- * migration probe (e.g. onto the preferred address) gives up the new path
- * without this and falls back, stranding whatever the server keeps sending
- * there (observed live: ngtcp2 'ignore packet from unknown path' while the
- * missing response tail PTO-looped into the abandoned path). Consumes the
- * latch; a closing connection answers nothing (RFC 9000 10.2.1). */
-static void srvrun_answer_path_challenge(
-    const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  u8         out[MIN_INITIAL_DATAGRAM];
-  wired_obuf ob = obuf_of(out, sizeof out);
-  if (!srvrun_path_challenge_take(c)) return;
-  if (!srvrun_seal_path_frame(
-          c, FRAME_PATH_RESPONSE, c->l.path_challenge_rx_data, &ob))
-    return;
-  srvrun_tx(
-      ctx->cfg, srvrun_rx_fd(ctx->cfg), ctx->peer, wired_span_of(out, ob.len));
+/* RFC 9000 8.2.2: answer this step's n PATH_CHALLENGEs on their arrival
+ * path, one PATH_RESPONSE each, in the receive step and padded like a
+ * challenge (8.2.1) -- under that path's peer ID, and not at all without
+ * one (9.5). 1 if answered. */
+static int srvrun_path_answer(
+    const srvrun_step_ctx* ctx,
+    srvrun_conn*           c,
+    const pathsel_key*     a,
+    usz                    n,
+    int                    kept) {
+  const peercid_entry* e = srvrun_path_cid(ctx->cfg, c, a, kept);
+  if (!e) return 0;
+  srvrun_path_send(
+      ctx->cfg, c, a, e, FRAME_PATH_RESPONSE,
+      &c->l.path_challenge_rx_data[0][0], n);
+  return 1;
 }
 
-/* A step with no arrival address (ctx->peer 0) has nothing to follow. */
-static void srvrun_rebind_peer(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  if (!ctx->peer || !srvrun_rebind_due(ctx, c)) return;
-  c->peer  = *ctx->peer;
-  c->tx_fd = srvrun_rx_fd(ctx->cfg);
-  srvrun_arm_path_challenge(ctx->cfg, c);
+/* RFC 9000 9.6.3: an answered probe from an untracked path starts its
+ * validation if a slot is free (never evicting). */
+static void srvrun_path_probe_validate(
+    const srvrun_step_ctx* ctx,
+    srvrun_conn*           c,
+    const pathsel_key*     a,
+    int                    fresh) {
+  if (!fresh) return;
+  srvrun_path_arm(ctx->cfg, c, pathsel_claim_free(&c->path, a), ctx->now_ms);
+}
+
+static void srvrun_path_probe(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int kept) {
+  pathsel_key a = srvrun_arrival_key(ctx);
+  usz         n = srvrun_path_challenge_take(c);
+  int         fresh;
+  if (!n) return;
+  fresh = !srvrun_path_tracked(ctx->cfg, c, &a);
+  if (srvrun_path_answer(ctx, c, &a, n, kept))
+    srvrun_path_probe_validate(ctx, c, &a, fresh);
+}
+
+/* RFC 9000 8.2.3/9.3: k validated. The target or the send path becomes the
+ * path to revert to, and a gated target becomes the send path (9.6.2). */
+static int srvrun_path_in_use(
+    const srvrun_cfg* cfg, const srvrun_conn* c, const pathsel_key* k) {
+  pathsel_key t = srvrun_target_key(cfg, c), s = srvrun_send_key(cfg, c);
+  return pathsel_key_eq(k, &t) || pathsel_key_eq(k, &s);
+}
+
+static void srvrun_path_valid(
+    const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k) {
+  if (!srvrun_path_in_use(cfg, c, k)) return;
+
+  c->path.last_valid = *k;
+  if (!srvrun_path_is_gated_target(c, k)) return;
+  c->path.gated = 0;
+  srvrun_path_move(cfg, c, k);
+}
+
+/* RFC 9000 8.2.2: a matching PATH_RESPONSE, whatever path it arrived on,
+ * validates its slot's path; mismatching data is ignored. Consumes the
+ * step's latch. */
+static void srvrun_apply_path_response(const srvrun_cfg* cfg, srvrun_conn* c) {
+  pathsel_key k;
+  if (!c->l.path_response_seen_flag) return;
+  c->l.path_response_seen_flag = 0;
+  if (pathsel_match(&c->path, c->l.path_response_data, &k))
+    srvrun_path_valid(cfg, c, &k);
+}
+
+/* A failure of k moves the send path back: k is the gated target or the
+ * send path itself. */
+static int srvrun_path_strands(
+    const srvrun_cfg*  cfg,
+    const srvrun_conn* c,
+    const pathsel_key* k,
+    int                target) {
+  pathsel_key s = srvrun_send_key(cfg, c);
+  return target || pathsel_key_eq(k, &s);
+}
+
+/* RFC 9000 9.3.2: k's validation failed. A gated target reverts, and the
+ * send path returns to the last validated path with its peer ID; any other
+ * path just lost its slot. */
+static void srvrun_path_failed(
+    const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k) {
+  int target = srvrun_path_is_gated_target(c, k);
+  if (target) c->path.gated = 0;
+  if (srvrun_path_strands(cfg, c, k, target))
+    srvrun_path_move(cfg, c, &c->path.last_valid);
+}
+
+/* RFC 9000 8.2.4: three times the larger of the current PTO and the PTO a
+ * new path starts with (kInitialRtt). */
+static u64 srvrun_path_abandon_ms(const srvrun_conn* c) {
+  rtt     r;
+  pto_rtt init;
+  rtt_init(&r);
+  init = (pto_rtt){r.smoothed_rtt, r.rttvar};
+  return 3 * u64_max(
+                 srvrun_pto_deadline_ms(c, 0),
+                 pto_duration(init, SRVRUN_MAX_ACK_DELAY_US, 0) / 1000);
+}
+
+static void srvrun_path_expire(const srvrun_cfg* cfg, srvrun_conn* c, u64 now) {
+  pathsel_key k;
+  while (pathsel_expire(&c->path, now, srvrun_path_abandon_ms(c), &k))
+    srvrun_path_failed(cfg, c, &k);
+}
+
+/* RFC 9000 9.4: resend an unanswered challenge one PTO after it went out,
+ * doubling per try (RFC 9002 6.2.1), in the same slot with fresh data. */
+static void srvrun_path_resend(const srvrun_cfg* cfg, srvrun_conn* c, u64 now) {
+  pathsel_slot* s =
+      pathsel_resend_due(&c->path, now, srvrun_pto_deadline_ms(c, 0));
+  if (!s) return;
+  s->tries++;
+  srvrun_path_challenge(cfg, c, s, now);
+}
+
+/* Seal one RETIRE_CONNECTION_ID frame (RFC 9000 19.16) as its own 1-RTT
+ * packet and send it on the send path. */
+static void srvrun_send_retire(const srvrun_cfg* cfg, srvrun_conn* c, u64 seq) {
+  u8                    pl[16], out[128];
+  wired_obuf            ob  = obuf_of(out, sizeof out);
+  usz                   pln = retire_cid_encode(pl, sizeof pl, seq);
+  wired_srvloop_send_in sin = {
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(pl, pln),
+      0,
+      0,
+      0,
+      0};
+  if (!pln || !wired_srvloop_send_onertt(&c->s, &sin, &ob)) return;
+  srvrun_send(
+      cfg, c, wired_span_of(out, ob.len), "RETIRE_CONNECTION_ID sent\n");
+}
+
+/* The paths whose peer IDs stay: send, last validated, target, slots. */
+static void srvrun_path_keys(
+    const srvrun_cfg* cfg, const srvrun_conn* c, pathsel_key t[5]) {
+  t[0] = srvrun_send_key(cfg, c);
+  t[1] = c->path.last_valid;
+  t[2] = srvrun_target_key(cfg, c);
+  for (usz i = 0; i < PATHSEL_SLOTS; i++)
+    t[3 + i] = c->path.slot[i].in_use ? c->path.slot[i].key : t[0];
+}
+
+/* RFC 9000 5.1.2: retire the peer IDs no tracked path uses and those the
+ * peer asked to retire. ponytail: each RETIRE_CONNECTION_ID goes out once;
+ * a lost one leaves the ID active at the peer. */
+static void srvrun_path_retire(const srvrun_cfg* cfg, srvrun_conn* c) {
+  pathsel_key t[5];
+  u64         seq;
+  srvrun_path_keys(cfg, c, t);
+  peercid_sweep(&c->pcid, t, 5);
+  while (peercid_take_retire(&c->pcid, &seq)) srvrun_send_retire(cfg, c, seq);
+}
+
+static int srvrun_path_live(const srvrun_conn* c) {
+  return c->up && c->path.seeded && !c->closing;
+}
+
+/* The path timers on a tick: abandon (8.2.4), resend (9.4), retire. */
+static void srvrun_path_tick(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  if (!srvrun_path_live(c)) return;
+  srvrun_path_expire(ctx->cfg, c, ctx->now_ms);
+  srvrun_path_resend(ctx->cfg, c, ctx->now_ms);
+  srvrun_path_retire(ctx->cfg, c);
+}
+
+static void srvrun_path_note_err(srvrun_conn* c, int err) {
+  c->cid_err = c->cid_err ? c->cid_err : (u8)err;
+}
+
+/* RFC 9000 5.1/19.15: store this step's NEW_CONNECTION_ID frames (a
+ * violation closes at the step's end, srvrun_close_on_cid); the send path
+ * then takes a fresh ID if its own was retired. */
+static void srvrun_path_take_cids(const srvrun_cfg* cfg, srvrun_conn* c) {
+  pathsel_key s = srvrun_send_key(cfg, c);
+  for (usz i = 0; i < c->l.ncid_rx_n; i++)
+    srvrun_path_note_err(c, peercid_add(&c->pcid, &c->l.ncid_rx[i]));
+  c->l.ncid_rx_n = 0;
+  srvrun_path_move(cfg, c, &s);
+}
+
+/* dg leads with a short header long enough to hold a server ID. */
+static int srvrun_dcid_room(const srvrun_conn* c, wired_mspan dg) {
+  return srvrun_short_header(dg) && dg.n > (usz)c->s.sdrv.iscid_len;
+}
+
+/* RFC 9000 9.5: dg carries the same server ID as the client's last packet. */
+static int srvrun_dcid_kept(const srvrun_conn* c, wired_mspan dg) {
+  if (!srvrun_dcid_room(c, dg)) return 0;
+  return ct_diffn(dg.p + 1, c->rx_dcid, c->s.sdrv.iscid_len) == 0;
+}
+
+/* Remember the server ID of a packet this step actually opened. */
+static void srvrun_note_dcid(
+    srvrun_conn* c, wired_mspan dg, const srvrun_rxmark* mark) {
+  if (!srvrun_rx_app_adv(mark, &c->l) || !srvrun_dcid_room(c, dg)) return;
+  bytes_memcpy(c->rx_dcid, dg.p + 1, c->s.sdrv.iscid_len);
+}
+
+/* RFC 9000 9: this step's path work, after decrypt and dedup and before
+ * any other send of the step, so its ACK and data already use the new
+ * path: peer IDs, path validation, the send-path decision, then answers to
+ * the peer's PATH_CHALLENGEs. A step with no arrival address (ctx->peer 0)
+ * has none. */
+static void srvrun_path_step(
+    const srvrun_step_ctx* ctx,
+    srvrun_conn*           c,
+    wired_mspan            dg,
+    const srvrun_rxmark*   mark) {
+  int kept;
+  if (!ctx->peer) return;
+  srvrun_path_seed(ctx->cfg, c);
+  srvrun_path_take_cids(ctx->cfg, c);
+  srvrun_apply_path_response(ctx->cfg, c);
+  kept = srvrun_dcid_kept(c, dg);
+  if (srvrun_rebind_due(ctx, c)) srvrun_path_switch(ctx, c, kept);
+  srvrun_path_probe(ctx, c, kept);
+  srvrun_note_dcid(c, dg, mark);
+  srvrun_path_retire(ctx->cfg, c);
 }
 
 /* 1 if dg leads with a long-header Handshake packet (first byte 0b1110xxxx,
@@ -10283,7 +10622,6 @@ static void srvrun_serve_slot(
   if (c->up) {
     srvrun_reconfirm_on_hs_probe(ctx, c, dg);
     srvrun_step_and_reap(ctx, slot, dg);
-    srvrun_answer_path_challenge(ctx, c);
   }
   srvrun_resend_flight_on_hs_probe(ctx, c, booting, dg);
   srvrun_flush_held_on_confirm(ctx, slot, booting);
@@ -10963,8 +11301,18 @@ static int srvrun_wt_waiting(const srvrun_conn* c) {
 /* srvrun_rst_pending, srvrun_wt_waiting, or a closing connection waiting
  * for its reap (srvrun_closing_tick): the latch-style waits, grouped so
  * srvrun_slot_waiting's own || count stays flat. */
+/* RFC 9000 8.2.4/9.4: an outstanding PATH_CHALLENGE needs the tick for its
+ * resend and abandon timers. */
+static int srvrun_path_waiting(const srvrun_conn* c) {
+  return c->path.slot[0].in_use || c->path.slot[1].in_use;
+}
+
+static int srvrun_latch_waiting2(const srvrun_conn* c) {
+  return srvrun_wt_waiting(c) || c->closing || srvrun_path_waiting(c);
+}
+
 static int srvrun_latch_waiting(const srvrun_conn* c) {
-  return srvrun_rst_pending(c) || srvrun_wt_waiting(c) || c->closing;
+  return srvrun_rst_pending(c) || srvrun_latch_waiting2(c);
 }
 
 static int srvrun_slot_waiting(const srvrun_conn* c) {

@@ -157,7 +157,18 @@ static int sr_find_path_challenge(const u8* pl, usz pll, u8 data_out[8]) {
   return 0;
 }
 
-/* BASELINE: no shutdown requested -> a fresh Initial is accepted as usual
+/* Number of frames of kind k in an opened payload. */
+static int sr_count_frames(const u8* pl, usz pll, frame_kind k) {
+  framewalk      it;
+  framewalk_item fr;
+  int            n = 0;
+  framewalk_init(&it, pl, pll);
+  while (framewalk_next(&it, &fr)) n += frame_classify(fr.type) == k;
+  return n;
+}
+
+/* BASELINE: no shutdown requested
+ -> a fresh Initial is accepted as usual
  * (srvrun_is_new says yes on a not-yet-up slot). */
 static void test_srvrun_no_shutdown_accepts_new(void) {
   srvrun_conn c       = {0};
@@ -2753,21 +2764,24 @@ static wired_mspan sr_ping_dg(struct lp_fix* f) {
  * of the full 16-byte (v4-mapped or native v6) address, or the port --
  * first, last, and middle byte positions all count, not just the mapped v4
  * tail a u32 compare once covered. */
+static int sr_peer_differs(const sockaddr* a, const sockaddr* b) {
+  pathsel_key ka = {0, *a}, kb = {0, *b};
+  return !pathsel_key_eq(&ka, &kb);
+}
+
 static void test_srvrun_peer_changed_compares_full_v6(void) {
-  srvrun_conn     c   = {0};
-  sockaddr        p   = {0};
-  srvrun_step_ctx ctx = {0, &p, 0, 0, 0};
-  wired_udp_addr(&c.peer, 443, (const u8[4]){10, 0, 0, 1});
-  p = c.peer;
-  CHECK(srvrun_peer_changed(&ctx, &c) == 0);
+  sockaddr c = {0}, p;
+  wired_udp_addr(&c, 443, (const u8[4]){10, 0, 0, 1});
+  p = c;
+  CHECK(sr_peer_differs(&p, &c) == 0);
   p.port_be = (u16)(p.port_be ^ 1);
-  CHECK(srvrun_peer_changed(&ctx, &c) == 1);
-  p = c.peer;
+  CHECK(sr_peer_differs(&p, &c) == 1);
+  p = c;
   p.addr[15] ^= 1; /* last byte: the mapped v4 host part */
-  CHECK(srvrun_peer_changed(&ctx, &c) == 1);
-  p = c.peer;
+  CHECK(sr_peer_differs(&p, &c) == 1);
+  p = c;
   p.addr[0] ^= 1; /* first byte: only a full-width compare sees it */
-  CHECK(srvrun_peer_changed(&ctx, &c) == 1);
+  CHECK(sr_peer_differs(&p, &c) == 1);
 }
 
 /* NAT REBIND -- PORT ONLY (RFC 9000 9, naive subset, no PATH_CHALLENGE): a
@@ -2969,8 +2983,24 @@ static void test_srvrun_rebind_subsequent_send_targets_new_peer(void) {
   CHECK(ct_diffn(st.conns[0].peer.addr, rebound.addr, 16) == 0);
 }
 
-/* A rebind arms this connection's migrate state machine
- * (detect -> challenge) and records a nonzero 8-byte challenge. */
+/* The path (fd, peer) as srvrun tracks it. */
+static pathsel_key sr_pk(i64 fd, const sockaddr* peer) {
+  return (pathsel_key){fd, *peer};
+}
+
+/* The outstanding challenge slot for the path (fd, peer), or 0. */
+static pathsel_slot* sr_chal(srvrun_conn* c, i64 fd, const sockaddr* peer) {
+  pathsel_key k = sr_pk(fd, peer);
+  return pathsel_find(&c->path, &k);
+}
+
+/* 1 if (fd, peer) is c's last validated path. */
+static int sr_valid(const srvrun_conn* c, i64 fd, const sockaddr* peer) {
+  pathsel_key k = sr_pk(fd, peer);
+  return c->path.seeded && pathsel_key_eq(&c->path.last_valid, &k);
+}
+
+/* A rebind challenges the new path with a nonzero 8-byte challenge. */
 static void test_srvrun_path_challenge_generated_on_rebind(void) {
   struct lp_fix f;
   srvrun_conn   c;
@@ -2993,15 +3023,14 @@ static void test_srvrun_path_challenge_generated_on_rebind(void) {
     srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, sr_ping_dg(&f));
   }
-  CHECK(c.migrate.detected == 1);
-  CHECK(c.migrate.challenged == 1);
-  CHECK(c.migrate.validated == 0);
+  CHECK(sr_chal(&c, -1, &new_peer) != 0);
+  CHECK(!sr_valid(&c, -1, &new_peer));
   for (usz i = 0; i < PATH_DATA; i++)
-    if (c.path_challenge_data[i]) any_nonzero = 1;
+    if (sr_chal(&c, -1, &new_peer)->data[i]) any_nonzero = 1;
   CHECK(any_nonzero == 1);
 }
 
-/* The challenge srvrun_rebind_peer armed is exactly the one a
+/* The challenge the path decision armed is exactly the one a
  * PATH_CHALLENGE frame sealed for this connection carries -- proving the
  * stored challenge and the wire frame agree, not just that some state flag
  * flipped. */
@@ -3034,8 +3063,8 @@ static void test_srvrun_path_challenge_sent_to_new_peer(void) {
   {
     /* Re-seal a PATH_CHALLENGE with the connection's own recorded challenge
      * data (a distinct 1-RTT packet, since c.l.tx_pn already advanced past
-     * the one srvrun_rebind_peer itself sent) and confirm it opens under the
-     * client's key with the SAME 8 bytes stored in c.path_challenge_data --
+     * the one the rebind itself sent) and confirm it opens under the
+     * client's key with the SAME 8 bytes held in the new path's slot --
      * this is what a real client would receive as the challenge to answer.
      * RFC 9000 8.2.1: the seal itself must produce the full 1200-byte
      * datagram, padding INSIDE the AEAD -- a short header has no Length
@@ -3043,12 +3072,15 @@ static void test_srvrun_path_challenge_sent_to_new_peer(void) {
      * client's tag check fails (observed live: ngtcp2 discarded every
      * challenge with a checktag error and never sent PATH_RESPONSE). */
     wired_obuf gob = {out, sizeof out, 0};
-    CHECK(srvrun_seal_path_challenge(&c, c.path_challenge_data, &gob) == 1);
+    CHECK(
+        srvrun_seal_path_challenge(
+            &c, sr_chal(&c, -1, &new_peer)->data, &gob) == 1);
     CHECK(gob.len == 1200);
     CHECK(client_open_onertt(&f, out, gob.len, &pl, &pll) == 1);
   }
   CHECK(sr_find_path_challenge(pl, pll, wire_data) == 1);
-  CHECK(ct_diff8(wire_data, c.path_challenge_data) == 0);
+  CHECK(ct_diff8(wire_data, sr_chal(&c, -1, &new_peer)->data) == 0);
+  CHECK(sr_count_frames(pl, pll, FK_PATH_CHALLENGE) == 1);
 }
 
 /* Fixed 127.0.0.1:4433 / 127.0.0.1:9999 pair shared by every path-response
@@ -3059,7 +3091,7 @@ static void sr_path_test_peers(sockaddr* old_peer, sockaddr* new_peer) {
 }
 
 /* Confirm c, then rebind it from old_peer to new_peer via srvrun_serve_slot
- * -- arms migrate and leaves c->path_challenge_data set. st/table
+ * -- the new path holds a challenge slot. st/table
  * must outlive any further srvrun_serve_slot calls the caller makes. */
 static void sr_confirm_and_rebind(
     srvrun_conn*   c,
@@ -3106,7 +3138,7 @@ static void sr_send_path_response(
 }
 
 /* A PATH_RESPONSE matching the outstanding challenge validates the
- * path (migrate_validate succeeds, migrate.validated set). */
+ * path: it becomes the last validated path and its slot frees. */
 static void test_srvrun_path_response_matching_validates(void) {
   struct lp_fix f;
   srvrun_conn   c;
@@ -3114,9 +3146,10 @@ static void test_srvrun_path_response_matching_validates(void) {
   sockaddr      new_peer;
   srvrun_state  st = {table, &c};
   sr_confirm_and_rebind(&c, &f, table, &st, &new_peer);
-  CHECK(c.migrate.validated == 0);
-  sr_send_path_response(&f, &st, &new_peer, c.path_challenge_data);
-  CHECK(c.migrate.validated == 1);
+  CHECK(!sr_valid(&c, -1, &new_peer));
+  sr_send_path_response(&f, &st, &new_peer, sr_chal(&c, -1, &new_peer)->data);
+  CHECK(sr_valid(&c, -1, &new_peer));
+  CHECK(sr_chal(&c, -1, &new_peer) == 0);
 }
 
 /* A PATH_RESPONSE differing in even 1 of the 8 bytes from the
@@ -3131,17 +3164,17 @@ static void test_srvrun_path_response_mismatch_does_not_validate(void) {
   srvrun_state  st = {table, &c};
   sr_confirm_and_rebind(&c, &f, table, &st, &new_peer);
   for (usz i = 0; i < PATH_DATA; i++)
-    wrong[i] = (u8)(c.path_challenge_data[i] ^ 0xff);
+    wrong[i] = (u8)(sr_chal(&c, -1, &new_peer)->data[i] ^ 0xff);
   wrong[0] ^= 0x01; /* differs by at least one bit even if XOR above
                      * happened to reproduce the original by coincidence */
   sr_send_path_response(&f, &st, &new_peer, wrong);
-  CHECK(c.migrate.validated == 0);
+  CHECK(!sr_valid(&c, -1, &new_peer));
+  CHECK(sr_chal(&c, -1, &new_peer) != 0);
 }
 
 /* A connection that never had a PATH_CHALLENGE outstanding
- * (migrate.challenged == 0) ignores any PATH_RESPONSE -- no rebind ever ran,
- * so path_challenge_data is untouched all-zero and migrate stays untouched
- * too. */
+ * ignores any PATH_RESPONSE -- no slot holds data to match, so the
+ * handshake path stays the last validated one. */
 static void test_srvrun_path_response_without_challenge_is_noop(void) {
   struct lp_fix f;
   srvrun_conn   c;
@@ -3156,10 +3189,9 @@ static void test_srvrun_path_response_without_challenge_is_noop(void) {
   wired_udp_addr(&peer, 4433, (const u8[4]){127, 0, 0, 1});
   c.peer = peer;
   conntable_init(table, WIRED_CONNTABLE_CAP);
-  CHECK(c.migrate.challenged == 0);
   sr_send_path_response(&f, &st, &peer, resp_data);
-  CHECK(c.migrate.challenged == 0);
-  CHECK(c.migrate.validated == 0);
+  CHECK(!c.path.slot[0].in_use && !c.path.slot[1].in_use);
+  CHECK(sr_valid(&c, -1, &peer));
 }
 
 /* A second rebind before the first PATH_RESPONSE arrives re-arms the
@@ -3189,20 +3221,22 @@ static void test_srvrun_path_challenge_rearmed_on_second_rebind(void) {
     srvrun_serve_slot(&ctx, 0, sr_ping_dg(&f)); /* rebind #1 */
   }
   for (usz i = 0; i < PATH_DATA; i++)
-    first_challenge[i] = c.path_challenge_data[i];
+    first_challenge[i] = sr_chal(&c, -1, &mid_peer)->data[i];
   {
     srvrun_step_ctx ctx = {&cfg, &final_peer, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, sr_ping_dg(&f)); /* rebind #2 */
   }
-  CHECK(ct_diff8(first_challenge, c.path_challenge_data) != 0);
+  /* the old-path challenge to mid replaced its first data */
+  CHECK(ct_diff8(first_challenge, sr_chal(&c, -1, &mid_peer)->data) != 0);
   sr_send_path_response(&f, &st, &final_peer, first_challenge);
-  CHECK(c.migrate.validated == 0); /* stale challenge does not validate */
-  sr_send_path_response(&f, &st, &final_peer, c.path_challenge_data);
-  CHECK(c.migrate.validated == 1); /* current challenge does */
+  CHECK(!sr_valid(&c, -1, &final_peer)); /* stale challenge does not */
+  sr_send_path_response(
+      &f, &st, &final_peer, sr_chal(&c, -1, &final_peer)->data);
+  CHECK(sr_valid(&c, -1, &final_peer)); /* current challenge does */
 }
 
 /* Boot-stage connections never arm a PATH_CHALLENGE even though their
- * source address changed -- srvrun_rebind_peer's existing boot exclusion
+ * source address changed -- the path decision's boot exclusion
  * (srvrun_awaiting_confirm) short-circuits before srvrun_arm_path_challenge
  * is ever reached. */
 static void test_srvrun_path_challenge_noop_during_boot(void) {
@@ -3223,12 +3257,12 @@ static void test_srvrun_path_challenge_noop_during_boot(void) {
     srvrun_step_ctx ctx = {&cfg, &other_peer, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, wired_mspan_of(sh, sizeof sh));
   }
-  CHECK(st.conns[0].migrate.challenged == 0);
-  CHECK(st.conns[0].migrate.detected == 0);
+  CHECK(!st.conns[0].path.slot[0].in_use);
+  CHECK(!st.conns[0].path.slot[1].in_use);
 }
 
 /* An RNG failure during challenge generation sends no PATH_CHALLENGE
- * and never arms migrate.challenged (srvrun_gen_path_challenge's forced-fail
+ * and holds no challenge slot (srvrun_gen_path_challenge's forced-fail
  * test hook stands in for a real getrandom(2) failure). */
 static void test_srvrun_path_challenge_rng_failure_sends_nothing(void) {
   struct lp_fix f;
@@ -3254,8 +3288,8 @@ static void test_srvrun_path_challenge_rng_failure_sends_nothing(void) {
     srvrun_serve_slot(&ctx, 0, sr_ping_dg(&f));
   }
   srvrun_test_force_challenge_rng_fail(0);
-  CHECK(c.migrate.challenged == 0);
-  CHECK(c.migrate.detected == 0);
+  CHECK(sr_chal(&c, -1, &new_peer) == 0);
+  CHECK(sr_chal(&c, -1, &old_peer) == 0);
   CHECK(srvrun_test_send_count() == send_before); /* c->peer still rebinds --
     only the challenge send itself is skipped */
   CHECK(c.peer.port_be == new_peer.port_be);
@@ -3322,7 +3356,7 @@ static void test_srvrun_path_follows_new_largest_np(void) {
   sr_path_setup(&c, &f, table, &old_peer, &new_peer);
   sr_path_serve(&f, &st, &new_peer, 5, wired_span_of(g_sr_ping, 1));
   CHECK(sr_peer_is(&c, &new_peer));
-  CHECK(c.migrate.challenged == 1);
+  CHECK(sr_chal(&c, -1, &new_peer) != 0);
 }
 
 /* RFC 9000 12.3/9.3.2: a datagram that does not decrypt never moves the
@@ -3341,11 +3375,11 @@ static void test_srvrun_path_undecryptable_does_not_move(void) {
   sr_path_setup(&c, &f, table, &old_peer, &new_peer);
   srvrun_serve_slot(&ctx, 0, wired_mspan_of(sh, sizeof sh));
   CHECK(sr_peer_is(&c, &old_peer));
-  CHECK(c.migrate.challenged == 0);
+  CHECK(sr_chal(&c, -1, &new_peer) == 0);
 }
 
-/* RFC 9000 9.1/9.3: a probing packet -- even numbered above everything --
- * never moves the path. */
+/* RFC 9000 9.1/9.3/9.6.3: a probing packet -- even numbered above
+ * everything -- never moves the path; its new path is validated. */
 static void test_srvrun_path_probe_does_not_move(void) {
   struct lp_fix f;
   srvrun_conn   c;
@@ -3357,7 +3391,7 @@ static void test_srvrun_path_probe_does_not_move(void) {
   sr_path_serve(
       &f, &st, &new_peer, 4, wired_span_of(g_sr_probe, sizeof g_sr_probe));
   CHECK(sr_peer_is(&c, &old_peer));
-  CHECK(c.migrate.challenged == 0);
+  CHECK(sr_chal(&c, -1, &new_peer) != 0);
 }
 
 /* RFC 9000 9.3: a reordered older non-probing packet on the old address
@@ -3400,10 +3434,11 @@ static void test_srvrun_path_higher_np_moves_back(void) {
   u8            first[PATH_DATA];
   sr_path_setup(&c, &f, table, &old_peer, &new_peer);
   sr_path_serve(&f, &st, &new_peer, 5, wired_span_of(g_sr_ping, 1));
-  bytes_memcpy(first, c.path_challenge_data, PATH_DATA);
+  bytes_memcpy(first, sr_chal(&c, -1, &new_peer)->data, PATH_DATA);
   sr_path_serve(&f, &st, &old_peer, 6, wired_span_of(g_sr_ping, 1));
   CHECK(sr_peer_is(&c, &old_peer));
-  CHECK(ct_diff8(first, c.path_challenge_data) != 0);
+  /* the path left is challenged again (RFC 9000 9.3.3) */
+  CHECK(ct_diff8(first, sr_chal(&c, -1, &new_peer)->data) != 0);
 }
 
 /* RFC 9000 12.3/9.3.2: a copy of the highest packet arriving from another
@@ -3418,7 +3453,7 @@ static void test_srvrun_path_duplicate_elsewhere_stays(void) {
   sr_path_serve(&f, &st, &old_peer, 4, wired_span_of(g_sr_ping, 1));
   sr_path_serve(&f, &st, &new_peer, 4, wired_span_of(g_sr_ping, 1));
   CHECK(sr_peer_is(&c, &old_peer));
-  CHECK(c.migrate.challenged == 0);
+  CHECK(sr_chal(&c, -1, &new_peer) == 0);
 }
 
 /* RFC 9000 9.6.2: once replies leave from the preferred-address socket, a
@@ -3469,7 +3504,7 @@ static void test_srvrun_path_replay_does_not_move(void) {
 }
 
 /* RFC 9000 9.3: the step that moves the path sends its ACK on the new
- * path, and nothing goes to the old one. */
+ * path; the old one gets only its PATH_CHALLENGE (9.3.3). */
 static void test_srvrun_path_ack_goes_to_new_path(void) {
   struct lp_fix f;
   srvrun_conn   c;
@@ -3479,7 +3514,7 @@ static void test_srvrun_path_ack_goes_to_new_path(void) {
   i64           sfd   = wired_udp_socket();
   i64           ofd   = wired_udp_socket();
   i64           nfd   = wired_udp_socket();
-  int           acked = 0;
+  int           acked = 0, old_acked = 0;
   sr_path_setup(&c, &f, table, &old_peer, &new_peer);
   wired_udp_addr(&srv, 4461, (const u8[4]){127, 0, 0, 1});
   wired_udp_addr(&old_peer, 4462, (const u8[4]){127, 0, 0, 1});
@@ -3501,10 +3536,771 @@ static void test_srvrun_path_ack_goes_to_new_path(void) {
       acked |= a.ranges[0].hi == 5;
   }
   CHECK(acked == 1);
-  CHECK(poll_wait_readable(ofd, 0) == 0);
+  while (poll_wait_readable(ofd, 0) > 0) {
+    u8        pkt[1500];
+    const u8* pl;
+    usz       pll;
+    ack_frame a;
+    i64 r = wired_udp_recvfrom(ofd, wired_mspan_of(pkt, sizeof pkt), &from);
+    if (r > 0 && client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1)
+      old_acked |= find_ack_frame(pl, pll, &a) == 1;
+  }
+  CHECK(old_acked == 0);
   wired_udp_close(sfd);
   wired_udp_close(ofd);
   wired_udp_close(nfd);
+}
+
+/* The preferred-address socket fd of the state-level tests below. */
+#define SR_PREF_FD 9
+
+static u64 sr_close_code(const srvrun_conn* c, int* is_app);
+
+/* Client role: seal pl at pn with the explicit DCID dcid. */
+static usz sr_seal_dcid(
+    struct lp_fix* f,
+    wired_span     dcid,
+    u64            pn,
+    wired_span     pl,
+    u8*            pkt,
+    usz            cap) {
+  const initial_keys* k;
+  aes128              hp;
+  CHECK(keysched_get(&f->s.sched, KS_CLIENT_AP, &k) == 1);
+  aes128_init(&hp, k->hp);
+  {
+    protect_keys      pk = {k, &hp};
+    hspkt_onertt_desc d  = {dcid, pn, pl, 0};
+    wired_obuf        o  = obuf_of(pkt, cap);
+    CHECK(hspkt_onertt_build(&pk, &d, &o));
+    return o.len;
+  }
+}
+
+/* One received packet's arrival: client address, the arrival socket (0 =
+ * cfg_fd), the DCID the client used (1 = a changed one), and the clock. */
+typedef struct {
+  const sockaddr* peer;
+  i64             cfg_fd;
+  i64             rx_fd;
+  int             new_dcid;
+  u64             now;
+} sr_arrival;
+
+/* Serve slot 0 of st one 1-RTT packet carrying pl at pn as arrival a. */
+static void sr_serve_at(
+    struct lp_fix*    f,
+    srvrun_state*     st,
+    const sr_arrival* a,
+    u64               pn,
+    wired_span        pl) {
+  u8         dcid[WIRED_MAX_CID_LEN], spkt[256];
+  u8         dl = f->s.sdrv.iscid_len;
+  usz        n;
+  srvrun_cfg cfg = {
+      a->cfg_fd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+      0,         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0,         0};
+  srvrun_step_ctx ctx = {&cfg, a->peer, st, a->now, 0};
+  bytes_memcpy(dcid, f->s.sdrv.iscid, dl);
+  dcid[0] ^= (u8)(a->new_dcid ? 0x5a : 0);
+  n = sr_seal_dcid(f, wired_span_of(dcid, dl), pn, pl, spkt, sizeof spkt);
+  g_srvrun_env.rx_fd = a->rx_fd;
+  srvrun_serve_slot(&ctx, 0, wired_mspan_of(spkt, n));
+  g_srvrun_env.rx_fd = 0;
+}
+
+/* A non-probing PING at pn from peer on the primary socket (fd -1). */
+static void sr_np(
+    struct lp_fix* f, srvrun_state* st, const sockaddr* p, u64 pn) {
+  sr_arrival a = {p, -1, 0, 0, 0};
+  sr_serve_at(f, st, &a, pn, wired_span_of(g_sr_ping, 1));
+}
+
+/* The same on the preferred-address socket. */
+static void sr_np_pref(
+    struct lp_fix* f, srvrun_state* st, const sockaddr* p, u64 pn) {
+  sr_arrival a         = {p, -1, SR_PREF_FD, 0, 0};
+  g_srvrun_env.pref_fd = SR_PREF_FD;
+  sr_serve_at(f, st, &a, pn, wired_span_of(g_sr_ping, 1));
+}
+
+/* A PATH_RESPONSE echoing data, at pn from peer on the primary socket. */
+static void sr_resp(
+    struct lp_fix*  f,
+    srvrun_state*   st,
+    const sockaddr* p,
+    u64             pn,
+    const u8        data[PATH_DATA]) {
+  u8         fr[16];
+  usz        fl = path_encode(fr, sizeof fr, FRAME_PATH_RESPONSE, data);
+  sr_arrival a  = {p, -1, 0, 0, 0};
+  sr_serve_at(f, st, &a, pn, wired_span_of(fr, fl));
+}
+
+/* The client issues connection ID seq (6 bytes of b), Retire Prior To rpt,
+ * at pn from peer on the primary socket. */
+static void sr_ncid(
+    struct lp_fix*  f,
+    srvrun_state*   st,
+    const sockaddr* p,
+    u64             pn,
+    ncid_frame      nf) {
+  u8         fr[64];
+  usz        fl = ncid_encode(fr, sizeof fr, &nf);
+  sr_arrival a  = {p, -1, 0, 0, 0};
+  sr_serve_at(f, st, &a, pn, wired_span_of(fr, fl));
+}
+
+static ncid_frame sr_cid(u64 seq, u64 rpt, u8 b) {
+  ncid_frame nf = {seq, rpt, 6, {b, b, b, b, b, b}, {0}};
+  return nf;
+}
+
+/* Run the path timers of slot 0 at now. */
+static void sr_tick(srvrun_state* st, u64 now) {
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_step_ctx ctx = {&cfg, 0, st, now, 0};
+  srvrun_path_tick(&ctx, &st->conns[0]);
+}
+
+static int sr_on_pref(const srvrun_conn* c) { return c->tx_fd == SR_PREF_FD; }
+
+/* RFC 9000 9.3: a straggler on the old path, delivered last, does not
+ * strand the server there. */
+static void test_srvrun_path_final_straggler_stays(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_np(&f, &st, &new_peer, 2);
+  sr_np(&f, &st, &old_peer, 1);
+  CHECK(sr_peer_is(&c, &new_peer));
+}
+
+/* RFC 9000 9.1/9.3: a probe delivered last does not pull the server away
+ * from the path the client stays on. */
+static void test_srvrun_path_late_probe_stays(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_arrival    a  = {&new_peer, -1, 0, 0, 0};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_np(&f, &st, &old_peer, 2);
+  sr_serve_at(&f, &st, &a, 1, wired_span_of(g_sr_probe, sizeof g_sr_probe));
+  CHECK(sr_peer_is(&c, &old_peer));
+}
+
+/* RFC 9000 9.6.2: a non-probing packet on the preferred socket challenges
+ * that path, but non-probing packets still leave the original socket until
+ * it validates; the matching response, on any path, then moves there. */
+static void test_srvrun_path_pref_gated_until_valid(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_ncid(&f, &st, &old_peer, 4, sr_cid(1, 0, 0xc1));
+  sr_np_pref(&f, &st, &old_peer, 5);
+  CHECK(!sr_on_pref(&c) && sr_peer_is(&c, &old_peer));
+  CHECK(sr_chal(&c, SR_PREF_FD, &old_peer) != 0);
+  sr_resp(&f, &st, &old_peer, 6, sr_chal(&c, SR_PREF_FD, &old_peer)->data);
+  CHECK(sr_on_pref(&c) && sr_peer_is(&c, &old_peer));
+  CHECK(sr_valid(&c, SR_PREF_FD, &old_peer));
+  CHECK(c.l.cli_scid[0] == 0xc1); /* the path's own peer ID */
+  g_srvrun_env.pref_fd = 0;
+}
+
+/* RFC 9000 9.3.2: when the new send path's validation times out, the
+ * server reverts to the last validated path. */
+static void test_srvrun_path_failed_validation_reverts(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_np(&f, &st, &new_peer, 5);
+  CHECK(sr_peer_is(&c, &new_peer));
+  sr_tick(&st, srvrun_path_abandon_ms(&c) - 1);
+  CHECK(sr_peer_is(&c, &new_peer));
+  sr_tick(&st, srvrun_path_abandon_ms(&c));
+  CHECK(sr_peer_is(&c, &old_peer));
+}
+
+/* RFC 9000 9.3.2: the revert goes to the last validated path, not the
+ * handshake one. */
+static void test_srvrun_path_revert_to_last_validated(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_ncid(&f, &st, &old_peer, 4, sr_cid(1, 0, 0xc1));
+  sr_np(&f, &st, &new_peer, 5);
+  sr_resp(&f, &st, &new_peer, 6, sr_chal(&c, -1, &new_peer)->data);
+  CHECK(sr_valid(&c, -1, &new_peer));
+  sr_np_pref(&f, &st, &old_peer, 7);
+  CHECK(c.path.gated && sr_peer_is(&c, &new_peer));
+  sr_tick(&st, 1000000);
+  CHECK(sr_peer_is(&c, &new_peer) && !sr_on_pref(&c));
+  CHECK(!c.path.gated);
+  g_srvrun_env.pref_fd = 0;
+}
+
+/* RFC 9000 9.3.3: the response to the old-path challenge only validates
+ * that path; the server keeps sending on the new one, whose challenge stays
+ * outstanding. Both challenges were outstanding at once. */
+static void test_srvrun_path_old_path_response(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_np(&f, &st, &new_peer, 5);
+  CHECK(sr_chal(&c, -1, &new_peer) && sr_chal(&c, -1, &old_peer));
+  sr_resp(&f, &st, &new_peer, 6, sr_chal(&c, -1, &old_peer)->data);
+  CHECK(sr_chal(&c, -1, &old_peer) == 0);
+  CHECK(sr_chal(&c, -1, &new_peer) != 0);
+  CHECK(sr_peer_is(&c, &new_peer));
+  CHECK(sr_valid(&c, -1, &old_peer));
+}
+
+/* RFC 9000 9.3: returning to a validated path sends it no new challenge,
+ * only the path left; a path no longer remembered as validated is
+ * challenged again (9.3 MAY skip). */
+static void test_srvrun_path_validated_not_rechallenged(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer, x_peer;
+  srvrun_state  st = {table, &c};
+  u8            d[PATH_DATA];
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  wired_udp_addr(&x_peer, 5555, (const u8[4]){127, 0, 0, 1});
+  sr_np(&f, &st, &new_peer, 5);
+  sr_resp(&f, &st, &new_peer, 6, sr_chal(&c, -1, &new_peer)->data);
+  sr_np(&f, &st, &x_peer, 7);
+  bytes_memcpy(d, sr_chal(&c, -1, &new_peer)->data, PATH_DATA);
+  sr_np(&f, &st, &new_peer, 8);
+  CHECK(sr_peer_is(&c, &new_peer));
+  CHECK(ct_diff8(d, sr_chal(&c, -1, &new_peer)->data) == 0);
+  CHECK(sr_chal(&c, -1, &x_peer) != 0);
+  sr_np(&f, &st, &old_peer, 9);
+  CHECK(sr_chal(&c, -1, &old_peer) != 0);
+}
+
+/* RFC 9000 9.3.3: the old-path challenge timing out only frees its slot;
+ * that path stays the one to revert to. */
+static void test_srvrun_path_old_path_timeout(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_np(&f, &st, &new_peer, 5);
+  sr_chal(&c, -1, &new_peer)->first_ms = 1000000;
+  sr_tick(&st, srvrun_path_abandon_ms(&c));
+  CHECK(sr_chal(&c, -1, &old_peer) == 0);
+  CHECK(sr_peer_is(&c, &new_peer));
+  CHECK(sr_valid(&c, -1, &old_peer));
+}
+
+/* RFC 9000 9.3.3: leaving for a validated path challenges the path the
+ * server was sending on, not the gated preferred target. The send path
+ * keeps its slot when the preferred path claims one. */
+static void test_srvrun_path_leave_gated_challenges_send_path(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  u8            dn[PATH_DATA], dp[PATH_DATA];
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_ncid(&f, &st, &old_peer, 4, sr_cid(1, 0, 0xc1));
+  sr_np(&f, &st, &new_peer, 5);
+  sr_np_pref(&f, &st, &old_peer, 6);
+  CHECK(sr_peer_is(&c, &new_peer) && c.path.gated);
+  CHECK(sr_chal(&c, -1, &new_peer) && sr_chal(&c, SR_PREF_FD, &old_peer));
+  CHECK(sr_chal(&c, -1, &old_peer) == 0); /* evicted, not the send path */
+  CHECK(sr_valid(&c, -1, &old_peer));
+  bytes_memcpy(dn, sr_chal(&c, -1, &new_peer)->data, PATH_DATA);
+  bytes_memcpy(dp, sr_chal(&c, SR_PREF_FD, &old_peer)->data, PATH_DATA);
+  sr_np(&f, &st, &old_peer, 7);
+  CHECK(sr_peer_is(&c, &old_peer) && !c.path.gated);
+  CHECK(ct_diff8(dn, sr_chal(&c, -1, &new_peer)->data) != 0);
+  CHECK(ct_diff8(dp, sr_chal(&c, SR_PREF_FD, &old_peer)->data) == 0);
+  g_srvrun_env.pref_fd = 0;
+}
+
+/* RFC 9000 9.3.2: with the send path, a gated target and the last
+ * validated path all tracked, the send path's failure reverts to the last
+ * validated path and the target stays gated. */
+static void test_srvrun_path_send_path_failure_keeps_target(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_ncid(&f, &st, &old_peer, 4, sr_cid(1, 0, 0xc1));
+  sr_np(&f, &st, &new_peer, 5);
+  sr_np_pref(&f, &st, &old_peer, 6);
+  sr_chal(&c, SR_PREF_FD, &old_peer)->first_ms = 1000000;
+  sr_tick(&st, srvrun_path_abandon_ms(&c));
+  CHECK(sr_peer_is(&c, &old_peer) && !sr_on_pref(&c));
+  CHECK(c.path.gated);
+  CHECK(sr_chal(&c, SR_PREF_FD, &old_peer) != 0);
+  g_srvrun_env.pref_fd = 0;
+}
+
+/* RFC 9000 9.3.2: validating the send path while the target is gated makes
+ * it the path a later target failure reverts to. */
+static void test_srvrun_path_valid_send_path_is_revert_path(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_ncid(&f, &st, &old_peer, 4, sr_cid(1, 0, 0xc1));
+  sr_np(&f, &st, &new_peer, 5);
+  sr_np_pref(&f, &st, &old_peer, 6);
+  sr_resp(&f, &st, &new_peer, 7, sr_chal(&c, -1, &new_peer)->data);
+  CHECK(sr_valid(&c, -1, &new_peer));
+  sr_tick(&st, 1000000);
+  CHECK(sr_peer_is(&c, &new_peer) && !sr_on_pref(&c));
+  CHECK(!c.path.gated);
+  g_srvrun_env.pref_fd = 0;
+}
+
+/* RFC 9000 9.3: a migration may abandon a probe's validation to challenge
+ * the path left. */
+static void test_srvrun_path_probe_slot_yields(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_arrival    a  = {&old_peer, -1, SR_PREF_FD, 0, 0};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_ncid(&f, &st, &old_peer, 4, sr_cid(1, 0, 0xc1));
+  g_srvrun_env.pref_fd = SR_PREF_FD;
+  sr_serve_at(&f, &st, &a, 5, wired_span_of(g_sr_probe, sizeof g_sr_probe));
+  CHECK(sr_chal(&c, SR_PREF_FD, &old_peer) != 0);
+  sr_np(&f, &st, &new_peer, 6);
+  CHECK(sr_chal(&c, -1, &new_peer) && sr_chal(&c, -1, &old_peer));
+  CHECK(sr_chal(&c, SR_PREF_FD, &old_peer) == 0);
+  g_srvrun_env.pref_fd = 0;
+}
+
+/* RFC 9000 9.5: a NAT rebinding that kept its DCID, on the same socket,
+ * keeps the current peer ID even with a spare one available. */
+static void test_srvrun_path_rebind_keeps_cid(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  pathsel_key   k;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_ncid(&f, &st, &old_peer, 4, sr_cid(1, 0, 0xc1));
+  sr_np(&f, &st, &new_peer, 5);
+  CHECK(sr_peer_is(&c, &new_peer));
+  CHECK(c.l.cli_scid[0] == 'C');
+  k = sr_pk(-1, &new_peer);
+  CHECK(peercid_of(&c.pcid, &k)->seq == 0);
+}
+
+/* RFC 9000 8.2.3: an acknowledgment of the packet carrying a
+ * PATH_CHALLENGE does not validate the path. */
+static void test_srvrun_path_ack_does_not_validate(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st     = {table, &c};
+  u8            ack[5] = {0x02, 0, 0, 0, 0};
+  sr_arrival    a      = {&new_peer, -1, 0, 0, 0};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_np(&f, &st, &new_peer, 5);
+  CHECK(c.l.tx_pn > 0 && c.l.tx_pn < 64);
+  ack[1] = (u8)(c.l.tx_pn - 1);
+  ack[4] = (u8)(c.l.tx_pn - 1);
+  sr_serve_at(&f, &st, &a, 6, wired_span_of(ack, sizeof ack));
+  CHECK(!sr_valid(&c, -1, &new_peer));
+  CHECK(sr_chal(&c, -1, &new_peer) != 0);
+}
+
+/* RFC 9000 8.2.4: the abandon timer is three times the larger of the
+ * current PTO and the PTO with the initial RTT. */
+static void test_srvrun_path_abandon_timer(void) {
+  srvrun_conn c = {0};
+  srvrun_conn init;
+  u64         base;
+  rtt_init(&c.rtt);
+  init               = c;
+  base               = 3 * srvrun_pto_deadline_ms(&init, 0);
+  c.rtt.smoothed_rtt = 1000; /* 1 ms: smaller than the initial RTT */
+  c.rtt.rttvar       = 500;
+  CHECK(srvrun_path_abandon_ms(&c) == base);
+  c.rtt.smoothed_rtt = 5000000; /* 5 s */
+  CHECK(srvrun_path_abandon_ms(&c) == 3 * srvrun_pto_deadline_ms(&c, 0));
+  CHECK(srvrun_path_abandon_ms(&c) > base);
+}
+
+/* RFC 9000 9.4 / RFC 9002 6.2.1: an unanswered challenge is resent one PTO
+ * after it went out, not before, in the same slot with fresh data. */
+static void test_srvrun_path_challenge_retransmit(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  pathsel_slot* s;
+  u8            d[PATH_DATA];
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_np(&f, &st, &new_peer, 5);
+  s = sr_chal(&c, -1, &new_peer);
+  bytes_memcpy(d, s->data, PATH_DATA);
+  sr_tick(&st, srvrun_pto_deadline_ms(&c, 0) - 1);
+  CHECK(ct_diff8(d, s->data) == 0 && s->tries == 0);
+  sr_tick(&st, srvrun_pto_deadline_ms(&c, 0));
+  CHECK(sr_chal(&c, -1, &new_peer) == s);
+  CHECK(ct_diff8(d, s->data) != 0 && s->tries == 1);
+}
+
+/* RFC 9000 19.15: a held sequence number carrying another ID closes the
+ * connection with PROTOCOL_VIOLATION. */
+static void test_srvrun_path_ncid_seq_reuse_closes(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  int           is_app;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_ncid(&f, &st, &old_peer, 4, sr_cid(0, 0, 0xc1));
+  CHECK(sr_close_code(&c, &is_app) == ERR_PROTOCOL_VIOLATION);
+}
+
+/* RFC 9000 5.1.1: an ID past the active limit (2, never advertised
+ * higher) closes the connection with CONNECTION_ID_LIMIT_ERROR. */
+static void test_srvrun_path_ncid_over_limit_closes(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  int           is_app;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_ncid(&f, &st, &old_peer, 4, sr_cid(1, 0, 0xc1));
+  CHECK(!c.closing);
+  sr_ncid(&f, &st, &old_peer, 5, sr_cid(2, 0, 0xc2));
+  CHECK(sr_close_code(&c, &is_app) == ERR_CONNECTION_ID_LIMIT_ERROR);
+}
+
+/* RFC 9000 19.15: Retire Prior To above the Sequence Number closes the
+ * connection with FRAME_ENCODING_ERROR. */
+static void test_srvrun_path_ncid_malformed_closes(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_arrival    a  = {&old_peer, -1, 0, 0, 0};
+  u8            fr[26];
+  int           is_app;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  bytes_memset(fr, 1, sizeof fr);
+  fr[0] = 0x18;
+  fr[1] = 1; /* seq */
+  fr[2] = 2; /* Retire Prior To */
+  fr[3] = 6;
+  sr_serve_at(&f, &st, &a, 4, wired_span_of(fr, sizeof fr));
+  CHECK(sr_close_code(&c, &is_app) == ERR_FRAME_ENCODING_ERROR);
+}
+
+/* Loopback sockets for the wire-level path tests: the server's primary and
+ * preferred-address sockets, and the client's addresses A and B. */
+typedef struct {
+  i64      sfd, pfd, afd, bfd;
+  sockaddr srv, pref, a, b;
+} sr_net;
+
+static void sr_net_open(sr_net* n, srvrun_conn* c) {
+  static const u8 lo[4] = {127, 0, 0, 1};
+  n->sfd                = wired_udp_socket();
+  n->pfd                = wired_udp_socket();
+  n->afd                = wired_udp_socket();
+  n->bfd                = wired_udp_socket();
+  wired_udp_addr(&n->srv, 4481, lo);
+  wired_udp_addr(&n->pref, 4482, lo);
+  wired_udp_addr(&n->a, 4483, lo);
+  wired_udp_addr(&n->b, 4484, lo);
+  CHECK(wired_udp_bind(n->sfd, &n->srv) >= 0);
+  CHECK(wired_udp_bind(n->pfd, &n->pref) >= 0);
+  CHECK(wired_udp_bind(n->afd, &n->a) >= 0);
+  CHECK(wired_udp_bind(n->bfd, &n->b) >= 0);
+  c->peer              = n->a;
+  c->tx_fd             = n->sfd;
+  g_srvrun_env.pref_fd = n->pfd;
+}
+
+static void sr_net_close(sr_net* n) {
+  wired_udp_close(n->sfd);
+  wired_udp_close(n->pfd);
+  wired_udp_close(n->afd);
+  wired_udp_close(n->bfd);
+  g_srvrun_env.pref_fd = 0;
+}
+
+/* What one client socket received since the last drain. */
+typedef struct {
+  int n, chal, resp, retire;
+  u8  dcid0;
+  u16 port_be;
+  usz len;
+} sr_rx;
+
+static void sr_rx_note(sr_rx* r, const u8* pl, usz pll) {
+  r->chal += sr_count_frames(pl, pll, FK_PATH_CHALLENGE);
+  r->resp += sr_count_frames(pl, pll, FK_PATH_RESPONSE);
+  r->retire += sr_count_frames(pl, pll, FK_RETIRE_CONNECTION_ID);
+}
+
+static sr_rx sr_drain(struct lp_fix* f, i64 fd) {
+  sr_rx r = {0};
+  while (poll_wait_readable(fd, 0) > 0) {
+    u8        pkt[1500];
+    const u8* pl;
+    usz       pll;
+    sockaddr  from;
+    i64 n = wired_udp_recvfrom(fd, wired_mspan_of(pkt, sizeof pkt), &from);
+    if (n <= 0) break;
+    r.n++;
+    r.dcid0   = pkt[1];
+    r.port_be = from.port_be;
+    r.len     = (usz)n;
+    if (client_open_onertt(f, pkt, (usz)n, &pl, &pll) == 1)
+      sr_rx_note(&r, pl, pll);
+  }
+  return r;
+}
+
+/* RFC 9000 9.3/9.3.3: a migration challenges the new path and the path
+ * left, each on its own path. */
+static void test_srvrun_path_wire_both_challenged(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  sr_rx         ra, rb;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival a = {&n.b, n.sfd, 0, 0, 0};
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(g_sr_ping, 1));
+  }
+  ra = sr_drain(&f, n.afd);
+  rb = sr_drain(&f, n.bfd);
+  CHECK(ra.chal == 1);
+  CHECK(rb.chal == 1);
+  sr_net_close(&n);
+}
+
+/* RFC 9000 9.5: a client that changed its DCID gets a fresh peer ID on the
+ * new path; the old-path challenge keeps the old path's ID. */
+static void test_srvrun_path_wire_fresh_cid(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  sr_rx         ra, rb;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival a0 = {&n.a, n.sfd, 0, 0, 0};
+    sr_arrival a1 = {&n.b, n.sfd, 0, 1, 0};
+    ncid_frame nf = sr_cid(1, 0, 0xc1);
+    u8         fr[64];
+    usz        fl = ncid_encode(fr, sizeof fr, &nf);
+    sr_serve_at(&f, &st, &a0, 4, wired_span_of(fr, fl));
+    (void)sr_drain(&f, n.afd);
+    sr_serve_at(&f, &st, &a1, 5, wired_span_of(g_sr_ping, 1));
+  }
+  ra = sr_drain(&f, n.afd);
+  rb = sr_drain(&f, n.bfd);
+  CHECK(rb.chal == 1 && rb.dcid0 == 0xc1);
+  CHECK(ra.chal == 1 && ra.dcid0 == 'C');
+  sr_net_close(&n);
+}
+
+/* RFC 9000 9.5: with no spare peer ID, a migration with a changed DCID
+ * stalls: nothing goes to the new path and the send path stays. */
+static void test_srvrun_path_wire_no_cid_stalls(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival a = {&n.b, n.sfd, 0, 1, 0};
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(g_sr_ping, 1));
+  }
+  CHECK(sr_drain(&f, n.bfd).n == 0);
+  CHECK(sr_peer_is(&c, &n.a));
+  sr_net_close(&n);
+}
+
+/* RFC 9000 9.5: with no spare peer ID, a probe on another socket gets no
+ * PATH_RESPONSE. */
+static void test_srvrun_path_wire_no_cid_no_response(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival a = {&n.a, n.sfd, n.pfd, 1, 0};
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(g_sr_probe, sizeof g_sr_probe));
+  }
+  CHECK(sr_drain(&f, n.afd).resp == 0);
+  sr_net_close(&n);
+}
+
+/* RFC 9000 8.2.2/8.2.1: a probe while both challenge slots are busy is
+ * answered on its arrival path, padded to 1200 bytes, but not challenged. */
+static void test_srvrun_path_wire_busy_probe_answered(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  sr_rx         r;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival a0 = {&n.a, n.sfd, 0, 0, 0};
+    sr_arrival a1 = {&n.b, n.sfd, 0, 0, 0};
+    sr_arrival a2 = {&n.a, n.sfd, n.pfd, 1, 0};
+    ncid_frame nf = sr_cid(1, 0, 0xc1);
+    u8         fr[64];
+    usz        fl = ncid_encode(fr, sizeof fr, &nf);
+    sr_serve_at(&f, &st, &a0, 4, wired_span_of(fr, fl));
+    sr_serve_at(&f, &st, &a1, 5, wired_span_of(g_sr_ping, 1));
+    (void)sr_drain(&f, n.afd);
+    sr_serve_at(&f, &st, &a2, 6, wired_span_of(g_sr_probe, sizeof g_sr_probe));
+  }
+  r = sr_drain(&f, n.afd);
+  CHECK(r.resp == 1 && r.chal == 0);
+  CHECK(r.port_be == n.pref.port_be);
+  CHECK(r.len >= 1200);
+  CHECK(sr_chal(&c, n.pfd, &n.a) == 0);
+  sr_net_close(&n);
+}
+
+/* RFC 9000 8.2.2: each PATH_CHALLENGE in a small packet is answered once,
+ * in the receive step; a duplicate packet is not answered again. */
+static void test_srvrun_path_wire_each_challenge_once(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  u8     two[18] = {0x1a, 1, 2, 3, 4, 5, 6, 7, 8, 0x1a, 9, 9, 9, 9, 9, 9, 9, 9};
+  sr_net n;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival a = {&n.a, n.sfd, 0, 0, 0};
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(two, sizeof two));
+    CHECK(sr_drain(&f, n.afd).resp == 2);
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(two, sizeof two));
+    CHECK(sr_drain(&f, n.afd).resp == 0);
+  }
+  sr_net_close(&n);
+}
+
+/* RFC 9000 5.1.2: Retire Prior To covering the send path's ID retires it
+ * with RETIRE_CONNECTION_ID and moves the path to an unretired ID; an ID no
+ * tracked path uses any more is retired too. */
+static void test_srvrun_path_wire_retire(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  sr_rx         r;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival a  = {&n.a, n.sfd, 0, 0, 0};
+    ncid_frame n1 = sr_cid(1, 0, 0xc1), n2 = sr_cid(2, 1, 0xc2);
+    u8         fr[64];
+    usz        fl = ncid_encode(fr, sizeof fr, &n1);
+    sr_serve_at(&f, &st, &a, 4, wired_span_of(fr, fl));
+    fl = ncid_encode(fr, sizeof fr, &n2);
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(fr, fl));
+  }
+  r = sr_drain(&f, n.afd);
+  CHECK(r.retire == 1);
+  CHECK(c.l.cli_scid[0] == 0xc1);
+  sr_net_close(&n);
+}
+
+/* RFC 9000 5.1.2: once the path left is validated elsewhere and its
+ * challenge is answered, nothing uses its peer ID: it is retired. */
+static void test_srvrun_path_wire_retire_unused(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival a0 = {&n.a, n.sfd, 0, 0, 0};
+    sr_arrival a1 = {&n.b, n.sfd, 0, 1, 0};
+    ncid_frame nf = sr_cid(1, 0, 0xc1);
+    u8         fr[64];
+    usz        fl = ncid_encode(fr, sizeof fr, &nf);
+    sr_serve_at(&f, &st, &a0, 4, wired_span_of(fr, fl));
+    sr_serve_at(&f, &st, &a1, 5, wired_span_of(g_sr_ping, 1));
+    fl = path_encode(
+        fr, sizeof fr, FRAME_PATH_RESPONSE, sr_chal(&c, n.sfd, &n.b)->data);
+    sr_serve_at(&f, &st, &a1, 6, wired_span_of(fr, fl));
+    (void)sr_drain(&f, n.bfd);
+    CHECK(sr_valid(&c, n.sfd, &n.b));
+    fl = path_encode(
+        fr, sizeof fr, FRAME_PATH_RESPONSE, sr_chal(&c, n.sfd, &n.a)->data);
+    sr_serve_at(&f, &st, &a1, 7, wired_span_of(fr, fl));
+  }
+  CHECK(sr_drain(&f, n.bfd).retire == 1);
+  sr_net_close(&n);
 }
 
 /* Serve one sealed 1-RTT datagram carrying `pl` to a fresh confirmed slot 0,
@@ -14312,7 +15108,10 @@ static void test_srvrun_answers_peer_path_challenge(void) {
   sr_make_confirmed_conn(&c, &f, &ob);
   {
     wired_obuf gob = {out, sizeof out, 0};
-    CHECK(srvrun_seal_path_frame(&c, FRAME_PATH_RESPONSE, data, &gob) == 1);
+    CHECK(
+        srvrun_seal_path_frame(
+            &c, wired_span_of(c.l.cli_scid, c.l.cli_scid_len),
+            FRAME_PATH_RESPONSE, data, &gob) == 1);
     CHECK(gob.len == 1200); /* expanded, inside the AEAD */
     CHECK(client_open_onertt(&f, out, gob.len, &pl, &pll) == 1);
   }
@@ -14338,6 +15137,9 @@ static void test_srvrun_rebind_on_arrival_fd_change(void) {
   c.peer  = peer;
   c.tx_fd = 7; /* the primary socket this connection lived on */
   conntable_init(table, WIRED_CONNTABLE_CAP);
+  /* RFC 9000 9.5: another local socket needs a peer ID of its own */
+  sr_ncid(&f, &st, &peer, 900, sr_cid(1, 0, 0xc1));
+
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
@@ -14348,7 +15150,7 @@ static void test_srvrun_rebind_on_arrival_fd_change(void) {
     g_srvrun_env.rx_fd = 0;
   }
   CHECK(c.tx_fd == 9); /* replies follow the arrival socket */
-  CHECK(c.migrate.challenged == 1);
+  CHECK(sr_chal(&c, 9, &peer) != 0);
 }
 
 /* A raise arms the retry timer; the frame itself still goes out once. */
@@ -22949,6 +23751,34 @@ void test_srvrun(void) {
   test_srvrun_path_pref_drops_newer_on_old_socket();
   test_srvrun_path_replay_does_not_move();
   test_srvrun_path_ack_goes_to_new_path();
+  test_srvrun_path_final_straggler_stays();
+  test_srvrun_path_late_probe_stays();
+  test_srvrun_path_pref_gated_until_valid();
+  test_srvrun_path_failed_validation_reverts();
+  test_srvrun_path_revert_to_last_validated();
+  test_srvrun_path_old_path_response();
+  test_srvrun_path_validated_not_rechallenged();
+  test_srvrun_path_old_path_timeout();
+  test_srvrun_path_leave_gated_challenges_send_path();
+  test_srvrun_path_send_path_failure_keeps_target();
+  test_srvrun_path_valid_send_path_is_revert_path();
+  test_srvrun_path_probe_slot_yields();
+  test_srvrun_path_rebind_keeps_cid();
+  test_srvrun_path_ack_does_not_validate();
+  test_srvrun_path_abandon_timer();
+  test_srvrun_path_challenge_retransmit();
+  test_srvrun_path_ncid_seq_reuse_closes();
+  test_srvrun_path_ncid_over_limit_closes();
+  test_srvrun_path_ncid_malformed_closes();
+  test_srvrun_path_wire_both_challenged();
+  test_srvrun_path_wire_fresh_cid();
+  test_srvrun_path_wire_no_cid_stalls();
+  test_srvrun_path_wire_no_cid_no_response();
+  test_srvrun_path_wire_busy_probe_answered();
+  test_srvrun_path_wire_each_challenge_once();
+  test_srvrun_path_wire_retire();
+  test_srvrun_path_wire_retire_unused();
+
   test_srvrun_qlog_records_received();
   test_srvrun_qlog_no_dup_record();
   test_srvrun_qlog_recv_no_path_writes_nothing();

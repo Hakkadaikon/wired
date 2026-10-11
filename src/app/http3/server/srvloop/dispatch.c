@@ -1087,13 +1087,13 @@ static int gather_streams_blocked(
  * loop's own CCN at the gate). A malformed/truncated frame is silently
  * skipped, same policy as gather_one_max_data's decode failure. */
 /* RFC 9000 8.2.2/19.17: latch the peer's PATH_CHALLENGE data so the owning
- * runner can answer it -- last-in-step wins, same single-slot convention
- * as gather_one_path_response below. */
+ * runner can answer each one; past WIRED_SRVLOOP_PATH_RX they are dropped. */
 static void gather_one_path_challenge(wired_srvloop* l, wired_span frame) {
-  if (!path_decode(
-          frame.p, frame.n, FRAME_PATH_CHALLENGE, l->path_challenge_rx_data))
-    return;
-  l->path_challenge_rx_seen = 1;
+  usz n = l->path_challenge_rx_n;
+  if (n >= WIRED_SRVLOOP_PATH_RX) return;
+  if (path_decode(
+          frame.p, frame.n, FRAME_PATH_CHALLENGE, l->path_challenge_rx_data[n]))
+    l->path_challenge_rx_n = n + 1;
 }
 
 static int gather_path_challenge(wired_srvloop* l, const u8* payload, usz len) {
@@ -1119,9 +1119,10 @@ static void gather_one_path_response(wired_srvloop* l, wired_span frame) {
 /* RFC 9000 8.2.2/19.18: scan this payload for a PATH_RESPONSE frame,
  * mirroring gather_max_data's shape (latch presence + one fixed-size value,
  * no running-high-water-mark comparison needed). A payload carrying more
- * than one PATH_RESPONSE this step is not expected in practice (this server
- * only ever has one challenge outstanding, srvrun_conn.migrate), so only the
+ * than one PATH_RESPONSE this step is not expected in practice (the peer
+ * answers each challenge in its own packet), so only the
  * last one seen is kept -- exactly gather_one_max_data's own
+
  * last-in-step-among-several convention for a single-slot latch. */
 static int gather_path_response(wired_srvloop* l, const u8* payload, usz len) {
   framewalk      it;
