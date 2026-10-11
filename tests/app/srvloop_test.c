@@ -5309,6 +5309,24 @@ static void test_srvloop_closed_set_tracks_out_of_order_releases(void) {
   CHECK(wired_srvloop_slot_for(&l, 4) >= 0); /* never opened before: new */
 }
 
+/* RFC 9000 3.2: a mark far past the window jumps it in one step (a varint-
+ * maximum id must not walk the window up 64 indexes at a time), while a
+ * mark just past it keeps the closed bits still inside the new window. */
+static void test_srvloop_closed_set_jumps_far_marks(void) {
+  wired_srvloop_closed w   = {0};
+  u64                  top = 0x3FFFFFFFFFFFFFFCull;
+  wired_srvloop_closed_mark(&w, 100 * 4);
+  wired_srvloop_closed_mark(&w, 1030 * 4); /* one word past the window */
+  CHECK(wired_srvloop_closed_has(&w, 100 * 4));
+  CHECK(!wired_srvloop_closed_has(&w, 99 * 4));
+  CHECK(!wired_srvloop_closed_has(&w, 1029 * 4));
+  CHECK(wired_srvloop_closed_has(&w, 1030 * 4));
+  wired_srvloop_closed_mark(&w, top);
+  CHECK(wired_srvloop_closed_has(&w, top));
+  CHECK(!wired_srvloop_closed_has(&w, top - 4));   /* inside the new window */
+  CHECK(wired_srvloop_closed_has(&w, top - 4096)); /* below the new floor */
+}
+
 /* The advertised bidi stream limit must never exceed the reassembly-table
  * capacity: an over-advertised limit lets a loss-delayed release window
  * silently drop accepted streams (the packet is ACKed, the peer never
@@ -5572,6 +5590,7 @@ void test_srvloop(void) {
   test_srvloop_stream_limit_clamps_to_table();
   test_srvloop_released_stream_duplicate_is_ignored();
   test_srvloop_closed_set_tracks_out_of_order_releases();
+  test_srvloop_closed_set_jumps_far_marks();
   test_srvloop_reset_stream_count_exposed_per_window();
   test_srvloop_reset_stream_without_stop_sending_latches_close();
 }

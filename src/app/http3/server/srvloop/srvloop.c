@@ -324,11 +324,11 @@ static void pending_priority_consume(wired_srvloop* l, usz i) {
   l->pending_priority[p].in_use = 0;
 }
 
-/* Shift the closed-stream window down one whole word (64 indexes). */
-static void srvloop_closed_shift64(wired_srvloop_closed* w) {
-  for (usz i = 0; i + 1 < 16; i++) w->bm[i] = w->bm[i + 1];
-  w->bm[15] = 0;
-  w->floor += 64;
+/* Shift the closed-stream window up k whole words (64 indexes each) in one
+ * pass: a k of 16 or more clears it, however far it jumps. */
+static void srvloop_closed_shift64(wired_srvloop_closed* w, u64 k) {
+  for (usz i = 0; i < 16; i++) w->bm[i] = k < 16 - i ? w->bm[i + k] : 0;
+  w->floor += 64 * k;
 }
 
 /* Shift the closed-stream window down one index (one bit, with carry). */
@@ -343,13 +343,14 @@ static void srvloop_closed_shift1(wired_srvloop_closed* w) {
 /* Advance floor over the contiguous closed prefix, keeping the window
  * anchored just past the lowest still-open stream index. */
 static void srvloop_closed_advance(wired_srvloop_closed* w) {
-  while (w->bm[0] == ~(u64)0) srvloop_closed_shift64(w);
+  while (w->bm[0] == ~(u64)0) srvloop_closed_shift64(w, 1);
   while (w->bm[0] & 1) srvloop_closed_shift1(w);
 }
 
 /* Record stream_id as closed (RFC 9000 3.2). An id past the 1024-index
- * window slides the window up (64 indexes at a time) until it fits, so a
- * release is never forgotten: the cost is that every index the window
+ * window slides the window up (whole 64-index words, in one jump however
+ * far) until it fits, so a release is never forgotten: the cost is that
+ * every index the window
  * leaves behind counts as closed, including a long-lived stream that
  * pinned the floor (a MoQT control stream). That stream keeps working --
  * every lookup finds its live slot before consulting this set -- and an
@@ -358,7 +359,8 @@ static void srvloop_closed_advance(wired_srvloop_closed* w) {
 void wired_srvloop_closed_mark(wired_srvloop_closed* w, u64 stream_id) {
   u64 idx = stream_id / 4;
   if (idx < w->floor) return;
-  while (idx - w->floor >= 1024) srvloop_closed_shift64(w);
+  if (idx - w->floor >= 1024)
+    srvloop_closed_shift64(w, (idx - w->floor - 1024) / 64 + 1);
   w->bm[(idx - w->floor) / 64] |= (u64)1 << ((idx - w->floor) % 64);
   srvloop_closed_advance(w);
 }
