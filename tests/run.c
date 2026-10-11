@@ -304,6 +304,7 @@
 #include "transport/packet/header/packet/vneg.c"
 #include "transport/conn/cid/path/antiamp.c"
 #include "transport/conn/cid/path/path.c"
+#include "transport/conn/cid/pathsel/pathsel.c"
 #include "transport/conn/cid/path/prefaddr.c"
 #include "transport/conn/cid/pmtu/pmtu.c"
 #include "transport/packet/protect/protect/protect.c"
@@ -724,6 +725,7 @@
 #include "transport/pacing_test.c"
 #include "transport/pad_test.c"
 #include "transport/path_test.c"
+#include "transport/pathsel_test.c"
 #include "transport/permit_test.c"
 #include "transport/persistent_test.c"
 #include "transport/pmtu_test.c"
@@ -1308,6 +1310,7 @@ int main(void) {
   test_pacing();
   test_pad();
   test_path();
+  test_pathsel();
   test_permit();
   test_persistent();
   test_pmtu();
