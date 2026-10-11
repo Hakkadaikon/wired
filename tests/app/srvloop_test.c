@@ -5434,8 +5434,43 @@ static void test_srvloop_reset_stream_without_stop_sending_latches_close(void) {
   CHECK(f.l.peer_reset_count == 1);
 }
 
+/* Step one 1-RTT packet carrying a RESET_STREAM on stream id. */
+static void lp_step_reset(struct lp_fix* f, u64 pn, u64 id) {
+  u8                 payload[64], out[1024], spkt[1024];
+  wired_obuf         ob  = {out, sizeof out, 0};
+  reset_stream_frame rs  = {id, 0x10c, 0};
+  usz                off = reset_stream_encode(payload, sizeof payload, &rs);
+  usz slen = client_seal_onertt_pn(f, pn, payload, off, spkt, sizeof spkt);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(spkt, slen), &ob);
+}
+
+/* RFC 9000 4.6: a frame naming a client stream past the advertised limit of
+ * its type latches the stream-limit violation and the payload is not
+ * processed; a stream inside the limit, or a server-initiated one, is. */
+static void test_srvloop_stream_past_limit_latches_violation(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  f.l.peer_stream_limit[0] = 10;
+  f.l.peer_stream_limit[1] = 3;
+  lp_step_reset(&f, 3, 9 * 4);     /* bidi index 9 < 10 */
+  lp_step_reset(&f, 4, 2 * 4 + 2); /* uni index 2 < 3 */
+  lp_step_reset(&f, 5, 1);         /* server-initiated */
+  CHECK(f.l.wt_refused_overflow == 0);
+  CHECK(f.l.peer_reset_count == 3);
+  lp_step_reset(&f, 6, 3 * 4 + 2); /* uni index 3 */
+  CHECK(f.l.wt_refused_overflow == 1);
+  f.l.wt_refused_overflow = 0;
+  lp_step_reset(&f, 7, 0x3FFFFFFFFFFFFFFCull);
+  CHECK(f.l.wt_refused_overflow == 1);
+  CHECK(f.l.peer_reset_count == 3); /* neither reached the close gather */
+}
+
 void test_srvloop(void) {
   test_srvloop_ticket_early_data_only_off_raw();
+  test_srvloop_stream_past_limit_latches_violation();
   test_srvloop_note_ecn_keeps_largest_ack();
   test_srvloop_recv_zerortt_opens_with_early_keys();
   test_srvloop_recv_zerortt_refused_without_early_keys();

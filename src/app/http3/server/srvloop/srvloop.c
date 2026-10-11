@@ -6,6 +6,7 @@
 #include "app/http3/server/srvloop/respond.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/util/num.h"
+#include "common/bytes/varint/varint.h"
 #include "transport/conn/loop/connrunner/level.h"
 #include "transport/io/udp/udploop/rxloop.h"
 #include "transport/packet/frame/frame/ack.h"
@@ -165,6 +166,8 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->req_body_released              = 0;
   l->wt_refused_n                   = 0;
   l->wt_refused_overflow            = 0;
+  l->peer_stream_limit[0]           = 0;
+  l->peer_stream_limit[1]           = 0;
   l->flow_control_violation         = 0;
   l->ctrl_overflow                  = 0;
   l->ctrl_settings_len              = 0;
@@ -971,12 +974,56 @@ static void srvloop_note_ack_owed(
  * l->done_slots and mirrored into l->req/req_stream_id there. The in
  * scratch/wrap/req fields are unused on the routed path (each completion
  * uses its own slot's buffers), passed empty. */
+/* RFC 9000 3.2 / 19: the frame kinds that name a stream (and so open it). */
+static const u8 SRVLOOP_NAMES_STREAM[] = {
+    [FK_RESET_STREAM]        = 1,
+    [FK_STOP_SENDING]        = 1,
+    [FK_STREAM]              = 1,
+    [FK_MAX_STREAM_DATA]     = 1,
+    [FK_STREAM_DATA_BLOCKED] = 1,
+    [FK_RESET_STREAM_AT]     = 1,
+};
+
+/* RFC 9000 4.6: 1 if id is a client stream at or past l's advertised limit
+ * for its type (bidi or uni). */
+static int srvloop_id_past_limit(const wired_srvloop* l, u64 id) {
+  u64 lim = l->peer_stream_limit[(id >> 1) & 1];
+  return !(id & 1) && lim && id / 4 >= lim;
+}
+
+/* 1 if the walked frame names a stream past its limit; the stream id is the
+ * varint right after the frame type in every stream-naming frame. */
+static int srvloop_frame_past_limit(
+    const wired_srvloop* l, const framewalk_item* fr) {
+  u64 id;
+  usz t = varint_decode(fr->start, fr->remaining, &id);
+  if (!SRVLOOP_NAMES_STREAM[frame_classify(fr->type)]) return 0;
+  return varint_decode(fr->start + t, fr->remaining - t, &id) &&
+         srvloop_id_past_limit(l, id);
+}
+
+/* RFC 9000 4.6: "An endpoint that receives a frame with a stream ID
+ * exceeding the limit it has sent MUST treat this as a connection error of
+ * type STREAM_LIMIT_ERROR". */
+static int srvloop_past_stream_limit(const wired_srvloop* l, wired_span pl) {
+  framewalk      it;
+  framewalk_item fr;
+  framewalk_init(&it, pl.p, pl.n);
+  while (framewalk_next(&it, &fr))
+    if (srvloop_frame_past_limit(l, &fr)) return 1;
+  return 0;
+}
+
 static void step_dispatch(const wired_srvloop_conn* conn, wired_span payload) {
   wired_srvloop*            l   = conn->l;
   int                       got = 0;
   wired_srvloop_dispatch_in in  = {
       payload, wired_mspan_of(0, 0), wired_mspan_of(0, 0), &got, &l->req};
   wired_srvloop_dispatch_ctx ctx = {conn->s, &l->h3, 0, l};
+  if (srvloop_past_stream_limit(l, payload)) {
+    l->wt_refused_overflow = 1;
+    return;
+  }
   wired_srvloop_dispatch(&ctx, &in);
 }
 
