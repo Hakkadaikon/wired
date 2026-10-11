@@ -661,8 +661,11 @@ static void moqtrun_track_clear_subs(wired_moqtrun_track* t) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) t->subs[i].active = 0;
 }
 
+/* Also forgets each subscription's newest Group: a re-PUBLISH restarts
+ * Group numbering. */
 static void moqtrun_track_clear_relays(wired_moqtrun_track* t) {
   for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) t->relays[r].in_use = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) t->subs[i].newest_sid = 0;
 }
 
 /* 1 iff relay r's subscriber slot si names a stream AND that slot's

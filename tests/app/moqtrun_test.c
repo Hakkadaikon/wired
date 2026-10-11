@@ -3040,6 +3040,22 @@ static void test_moqtrun_newer_group_keeps_reliable_stream(void) {
   CHECK(moqtrun_test_count_kind(7) == 0);
 }
 
+/* A re-PUBLISH restarts Group numbering: the new incarnation's Group 0
+ * is not stale against the old one's Group 5. */
+static void test_moqtrun_republish_forgets_newest_group(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_setup_audio_relay(&hub);
+  moqtrun_test_open_audio_group(&hub, 999, 5);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+  moqtrun_test_reset();
+  moqtrun_test_open_audio_group(&hub, 1003, 0);
+  moqtrun_test_send_audio_round(&hub, 1003, 7);
+  CHECK(moqtrun_test_count_kind(5) == 1);
+  CHECK(moqtrun_test_count_kind(3) == 1);
+}
+
 /* A second stream of the same Group leaves the first alone. */
 static void test_moqtrun_same_group_stream_keeps_sibling(void) {
   moqtrun_test_reset();
@@ -3969,6 +3985,37 @@ static void test_moqtrun_republish_reattaches_subscriber(void) {
 
   CHECK(moqtrun_test_relay_alice_chat(&hub) == 1);
   CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
+}
+
+/* A subscriber re-attached to a rejoined publisher starts over: the new
+ * incarnation's Group 0 is not stale against the old one's Group 5. */
+static void test_moqtrun_reattach_forgets_newest_group(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  u64 ctrl_b = moqtrun_test_join(&hub, SESS_B);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+  u8  head[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n   = moqtrun_test_subgroup_with_alias(0x01, head);
+  head[2] = 5;
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(head, n), 0);
+
+  wired_moqt_on_session_close(&hub, SESS_A);
+  moqtrun_test_publish_alice(&hub); /* rejoin + re-PUBLISH "alice" */
+  moqtrun_test_reset();
+  head[2] = 0;
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(head, n), 0);
+  u8  v   = 7, buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz off = 0;
+  moqdata_obj_put(
+      wired_mspan_of(buf, sizeof buf), &off, 1, wired_span_of(&v, 1));
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(buf, off), 0);
+  CHECK(moqtrun_test_count_kind(5) == 1);
+  CHECK(moqtrun_test_count_kind(3) == 1);
 }
 
 /* Session s joins and PUBLISHes "alice" (alias 1): the same participant
@@ -5976,6 +6023,8 @@ static void mtall_main(void) {
   test_moqtrun_newer_group_resets_finished_older_stream();
   test_moqtrun_newer_group_cuts_open_older_relay();
   test_moqtrun_same_group_stream_keeps_sibling();
+  test_moqtrun_republish_forgets_newest_group();
+  test_moqtrun_reattach_forgets_newest_group();
   test_moqtrun_newer_group_keeps_reliable_stream();
   test_moqtrun_busy_streak_success_resets();
   test_moqtrun_shed_stream_skips_publisher_fin();
