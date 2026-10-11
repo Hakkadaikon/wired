@@ -12073,8 +12073,6 @@ static void moqtrun_upf_detach(wired_moqt_hub* hub, const wired_wt_session* s) {
     moqtrun_upf_detach_one(hub, &hub->fetches[i], s);
 }
 
-/* f's leg past its budget is cancelled and the rest reported timed out
- * (9.20.5). 1 while f had a leg: the tick does nothing else for it. */
 /* What f keeps is fed again: a payload the transport refused goes out
  * once it takes it (a torn head just waits on). */
 static void moqtrun_upf_retry(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
@@ -12084,9 +12082,10 @@ static void moqtrun_upf_retry(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
       f->up_data_end);
 }
 
-/* A leg past its budget fails -- one still waiting on a refused payload
- * resets the downstream stream (moqtrun_upf_no_window); else what it
- * keeps is retried. */
+/* A leg past its budget fails (9.20.5) -- one still waiting on a refused
+ * payload resets the downstream stream (moqtrun_upf_no_window); else what
+ * it keeps is retried. 1 while f had a leg: the tick does nothing else
+ * for it. */
 static int moqtrun_upf_tick(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   if (!moqtrun_upf_live(f)) return 0;
   if (hub->live.last_now_ms >= f->up_deadline_ms) {
