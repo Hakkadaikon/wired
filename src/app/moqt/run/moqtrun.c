@@ -11384,13 +11384,22 @@ static void moqtrun_upf_mal_peers(
       moqtrun_upf_mal_stop(hub, &hub->fetches[i]);
 }
 
+/* t is one of p's own tracks. */
+static int moqtrun_peer_owns(
+    const wired_moqtrun_peer* p, const wired_moqtrun_track* t) {
+  return p && t >= p->tracks &&
+         t < p->tracks + WIRED_MOQTRUN_MAX_TRACKS_PER_PEER;
+}
+
 /* A malformed upstream Object is neither relayed nor cached; the fetch is
  * reset MALFORMED_TRACK and so is every other fetch of the track from
- * that publisher -- a held track's through its PUBLISH_DONE
- * MALFORMED_TRACK (moqtrun_pubdone_sweep, moqtrun_malformed_cancel). */
+ * that publisher -- a held track's, when that publisher owns it, through
+ * its PUBLISH_DONE MALFORMED_TRACK (moqtrun_pubdone_sweep,
+ * moqtrun_malformed_cancel). Another announcer cannot end the owner's
+ * track: only its own legs stop. */
 static void moqtrun_upf_mal(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   wired_moqtrun_track* t = moqtrun_upf_track(hub, f);
-  if (t)
+  if (moqtrun_peer_owns(moqtrun_find_by_wt(hub, f->up_wt), t))
     t->malformed = 1;
   else
     moqtrun_upf_mal_peers(hub, f);

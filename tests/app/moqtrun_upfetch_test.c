@@ -1294,6 +1294,25 @@ static void test_moqtrun_upfetch_malformed_conflict(void) {
   CHECK(mupf_reset_code() == MOQTRUN_RESET_MALFORMED_TRACK);
 }
 
+/* d22 12.1: a conflicting Object from an announcer that does not own the
+ * track (C, the owner A having sent GOAWAY) resets that fetch
+ * MALFORMED_TRACK, but A's track lives on for its subscribers. */
+static void test_moqtrun_upfetch_malformed_not_owner(void) {
+  moqfetch_req        m = {0};
+  wired_moqtrun_peer* a;
+  mupf_init();
+  a = moqtrun_find_by_wt(&mtst_hub, SESS_A);
+  mupf_cache_group(2, 1);
+  a->sess.goaway_recv = 1;
+  mupf_fetch(mupf_rl(1, 0, 2, 0), 0);
+  CHECK(mupf_up(SESS_C, 0, &m) >= 0);
+  mupf_hdr(m.request_id, 0);
+  mupf_obj_b(2, 0, 1, 0x77);
+  mupf_send_on(SESS_C, MUPF_DATA_SID, 0);
+  CHECK(mupf_reset_code() == MOQTRUN_RESET_MALFORMED_TRACK);
+  CHECK(a->tracks[0].in_use && !a->tracks[0].malformed);
+}
+
 /* A relayed Object is not kept, so a conflicting repeat of one is caught
  * as out of place: the leg ends, the cache side goes on, no Malformed. */
 static void test_moqtrun_upfetch_repeat_of_relayed(void) {
@@ -1596,6 +1615,7 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_torn_object();
   test_moqtrun_upfetch_malformed_past_end();
   test_moqtrun_upfetch_malformed_conflict();
+  test_moqtrun_upfetch_malformed_not_owner();
   test_moqtrun_upfetch_repeat_of_relayed();
   test_moqtrun_upfetch_malformed_group_end();
   test_moqtrun_upfetch_malformed_siblings();
