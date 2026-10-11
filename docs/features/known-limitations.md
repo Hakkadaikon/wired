@@ -493,8 +493,12 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
 - **Path validation limits** — two PATH_CHALLENGEs are tracked at once
   (the new path and the path left) plus the last validated path; a probe
   from a new path is answered and validated only when a slot is free, and
-  ignored otherwise, and only the first two PATH_CHALLENGEs of a packet are
-  answered.
+  ignored otherwise (RFC 9000 8.2.2 says every PATH_CHALLENGE MUST be
+  answered; an attacker relaying genuine packets from other addresses can
+  keep both slots busy), and only the first two PATH_CHALLENGEs of a packet
+  are answered. Re-arming a path's validation (as the path left by a second
+  move) starts a fresh challenge, so a late response to the one before is
+  not matched; the path validates on the next.
   An off-path copy of a genuine new packet still moves the send path until
   that path's validation times out and the server reverts (RFC 9000 9.3.3
   calls this defence imperfect). The server does not reset congestion
