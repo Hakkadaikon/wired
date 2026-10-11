@@ -150,7 +150,7 @@ static void mupf_up_ok(i64 sid, u64 g, u64 o) {
 }
 
 /* An upstream fetch data stream being built. */
-static u8           mupf_buf[1024];
+static u8           mupf_buf[49152];
 static usz          mupf_n;
 static moqfetch_seq mupf_seq;
 
@@ -171,7 +171,7 @@ static void mupf_put(const moqfetch_obj* o) {
 
 /* Object {g, o} of n bytes, each first, Subgroup 0, priority 128. */
 static void mupf_obj_b(u64 g, u64 o, usz n, u8 first) {
-  static u8    pl[64];
+  static u8    pl[40000];
   moqfetch_obj ob = {0};
   for (usz i = 0; i < n; i++) pl[i] = first;
   ob.flags = MOQFETCH_F_OBJECT | MOQFETCH_F_PRIORITY |
@@ -1210,7 +1210,7 @@ static void test_moqtrun_upfetch_torn_header_unheld(void) {
   CHECK(mf_is_unknown(0, 2, MOQCACHE_OBJ_ID_MAX) && mf_is_obj(1, 3, 0, 1));
 }
 
-/* An Object torn across deliveries is relayed whole once complete. */
+/* An Object torn across deliveries reaches B whole. */
 static void test_moqtrun_upfetch_torn_object(void) {
   moqfetch_req m = {0};
   mupf_init();
@@ -1407,6 +1407,96 @@ static void test_moqtrun_upfetch_malformed_unanswered(void) {
   mupf_send_on(SESS_C, MUPF_DATA_SID, 0);
   CHECK(mupf_refused(MOQCTL_ERR_INTERNAL_ERROR));
   CHECK(mupf_used() == 0);
+}
+
+/* ===================== Objects torn across deliveries ===================== */
+
+/* B's fetch stream items as the hub wrote them, uncut (the recording io
+ * keeps only a prefix of each write). */
+static u8  mupf_cap[65536];
+static usz mupf_cap_n;
+static int (*mupf_cap_next)(wired_wt_session*, u64, wired_span, int);
+
+static int mupf_cap_send(wired_wt_session* s, u64 sid, wired_span p, int fin) {
+  int r = mupf_cap_next(s, sid, p, fin);
+  if (r <= 0 || s != SESS_B || sid != mupf_fetch_sid()) return r;
+  CHECK(mupf_cap_n + p.n <= sizeof mupf_cap);
+  for (usz i = 0; i < p.n && mupf_cap_n < sizeof mupf_cap; i++)
+    mupf_cap[mupf_cap_n++] = p.p[i];
+  return r;
+}
+
+/* A FETCH of groups 1..3 (3 cached) whose upstream FETCH to A is sid;
+ * B's writes are captured from here on. */
+static i64 mupf_big_setup(moqfetch_req* m) {
+  mupf_init();
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(1, 0, 3, 0), 0);
+  mupf_cap_n              = 0;
+  mupf_cap_next           = mtst_hub.io.stream_send;
+  mtst_hub.io.stream_send = mupf_cap_send;
+  i64 sid                 = mupf_up(SESS_A, 0, m);
+  mupf_hdr(m->request_id, 0);
+  return sid;
+}
+
+/* A sends the built bytes in two deliveries, the first cut at cut. */
+static void mupf_send_cut(usz cut, int fin) {
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, MUPF_DATA_SID, wired_span_of(mupf_buf, cut), 0);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, MUPF_DATA_SID,
+      wired_span_of(mupf_buf + cut, mupf_n - cut), fin);
+}
+
+/* d22 7.8: an Object larger than any held tail, torn mid-payload, is
+ * passed through as it arrives -- B gets it whole, and the leg goes on. */
+static void test_moqtrun_upfetch_large_object(void) {
+  moqfetch_req m   = {0};
+  i64          sid = mupf_big_setup(&m);
+  moqfetch_seq seq = {0};
+  moqfetch_obj o;
+  usz          off = 0;
+  mupf_obj_b(1, 0, 40000, 0x5A);
+  mupf_send_cut(20000, 0);
+  CHECK(mupf_log_is(SESS_A, (u64)sid, ""));
+  seq.eor_timed_out = 1;
+  CHECK(
+      moqfetch_obj_take(wired_span_of(mupf_cap, mupf_cap_n), &off, &seq, &o) ==
+      MOQCTL_OK);
+  CHECK(o.group == 1 && o.object == 0 && o.payload.n == 40000);
+  CHECK(o.payload.n && o.payload.p[0] == 0x5A && o.payload.p[39999] == 0x5A);
+  CHECK(off == mupf_cap_n);
+}
+
+/* A leg that ends inside an Object it was passing through cannot hand
+ * over to the cache mid-Object: B's stream is reset INTERNAL_ERROR. */
+static void test_moqtrun_upfetch_leg_ends_mid_object(void) {
+  moqfetch_req m = {0};
+  mupf_big_setup(&m);
+  mupf_obj_b(1, 0, 40000, 0x5A);
+  mupf_n -= 100;
+  mupf_send_cut(20000, 1);
+  CHECK(mupf_reset_code() == MOQTRUN_RESET_INTERNAL_ERROR);
+  CHECK(mupf_used() == 0);
+}
+
+/* d22 12.1: the tail of a torn Object that differs from the cached copy
+ * is Malformed too. */
+static void test_moqtrun_upfetch_torn_conflict(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  wired_moqt_cache_attach(&mtst_hub, mupf_arena, 3 * MOQCACHE_HDR + 8);
+  mf_obj(2, 0, 4);
+  mf_obj(3, 0, 100); /* too big: group 3 is a tombstone */
+  mf_obj(4, 0, 1);
+  mupf_fetch(mupf_rl(2, 0, 4, 0), 0);
+  CHECK(mupf_up(SESS_A, 0, &m) >= 0);
+  mupf_hdr(m.request_id, 0);
+  mupf_obj_b(2, 0, 4, 0x20);
+  mupf_buf[mupf_n - 1] = 0x77;
+  mupf_send_cut(mupf_n - 2, 0);
+  CHECK(mupf_reset_code() == MOQTRUN_RESET_MALFORMED_TRACK);
 }
 
 /* ===================== Mandatory Track Properties ===================== */
@@ -1641,6 +1731,9 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_malformed_group_end();
   test_moqtrun_upfetch_malformed_siblings();
   test_moqtrun_upfetch_malformed_unanswered();
+  test_moqtrun_upfetch_large_object();
+  test_moqtrun_upfetch_leg_ends_mid_object();
+  test_moqtrun_upfetch_torn_conflict();
   test_moqtrun_upfetch_mandatory();
   test_moqtrun_upfetch_owner_gone_fill();
   test_moqtrun_upfetch_owner_gone_fetch();

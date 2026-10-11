@@ -10862,6 +10862,8 @@ static void moqtrun_upf_store(
   f->up_data_open = 0;
   f->up_data_end  = 0;
   f->has_up_last  = 0;
+  f->up_pl_left   = 0;
+  f->up_pl_at     = 0;
   bytes_memset(&f->up_seq, 0, sizeof f->up_seq);
   f->up_seq.descending = f->descending;
   f->up_seq.eor_timed_out =
@@ -11026,7 +11028,7 @@ typedef void (*moqtrun_upf_io_fn)(
 static const moqtrun_upf_io_fn MOQTRUN_UPF_IO[] = {
     moqtrun_upf_io_none, moqtrun_upf_io_cancel, moqtrun_upf_io_fin};
 
-/* f's held torn Object (if any) is let go. */
+/* f's held torn Object head (if any) is let go. */
 static void moqtrun_upf_unhold(
     wired_moqt_hub* hub, const wired_moqtrun_fetch* f) {
   if (hub->upf_owner != f) return;
@@ -11105,9 +11107,14 @@ static const moqtrun_upf_from_fn MOQTRUN_UPF_FROM[] = {
 
 /* A Descending FETCH of a track the hub does not hold has no cache side
  * to hand a failed leg to (what lies below the cursor is unknown to the
- * hub, start and all): it is reset instead (3.2.2). */
-static int moqtrun_upf_no_window(const wired_moqtrun_fetch* f, int done) {
+ * hub, start and all), and no fetch can go on in the middle of an Object
+ * the leg was passing through: either is reset instead (3.2.2). */
+static int moqtrun_upf_nt_desc_failed(const wired_moqtrun_fetch* f, int done) {
   return f->no_track && f->descending && !done;
+}
+
+static int moqtrun_upf_no_window(const wired_moqtrun_fetch* f, int done) {
+  return f->up_pl_left || moqtrun_upf_nt_desc_failed(f, done);
 }
 
 /* The cache side takes over (3.2.3), stall-checked from now: after a
@@ -11288,29 +11295,58 @@ static int moqtrun_upf_send_item(
              f->wt, f->stream_id, wired_span_of(hub->relay_scratch, n), 0) > 0;
 }
 
-/* o relayed downstream now; 0 when the transport refused it. */
+/* pre appended to the n bytes staged in relay_scratch; 0 if it overflows. */
+static int moqtrun_upf_append(wired_moqt_hub* hub, usz* n, wired_span pre) {
+  if (*n + pre.n > sizeof hub->relay_scratch) return 0;
+  bytes_memcpy(hub->relay_scratch + *n, pre.p, pre.n);
+  *n += pre.n;
+  return 1;
+}
+
+/* d's head, then pre, staged in relay_scratch (*n bytes). */
+static int moqtrun_upf_encode(
+    wired_moqt_hub*     hub,
+    const moqfetch_obj* d,
+    moqfetch_seq*       seq,
+    wired_span          pre,
+    usz*                n) {
+  return moqfetch_obj_put_head(
+             wired_mspan_of(hub->relay_scratch, sizeof hub->relay_scratch), n,
+             seq, d) &&
+         moqtrun_upf_append(hub, n, pre);
+}
+
+/* o's head and pre, the first of its payload, relayed downstream now --
+ * the rest passes through as it arrives (moqtrun_upf_pass), so an Object
+ * of any size is never held whole; 0 when the transport refused it. */
 static int moqtrun_upf_write(
-    wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqfetch_obj* o) {
+    wired_moqt_hub*      hub,
+    wired_moqtrun_fetch* f,
+    const moqfetch_obj*  o,
+    wired_span           pre) {
   moqfetch_obj d;
   moqfetch_seq seq = f->seq;
   usz          n   = 0;
   moqtrun_upf_obj_of(&d, o, &seq);
-  if (!moqfetch_obj_put(
-          wired_mspan_of(hub->relay_scratch, sizeof hub->relay_scratch), &n,
-          &seq, &d) ||
+  if (!moqtrun_upf_encode(hub, &d, &seq, pre, &n) ||
       !moqtrun_upf_send_item(hub, f, n))
     return 0;
   f->seq         = seq;
   f->up_last     = moqtrun_upf_loc(o);
   f->has_up_last = 1;
+  f->up_pl_at    = pre.n;
+  f->up_pl_left  = o->payload.n - pre.n;
   f->last_ok_ms  = hub->live.last_now_ms;
   return 1;
 }
 
 static int moqtrun_upf_relay(
-    wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqfetch_obj* o) {
+    wired_moqt_hub*      hub,
+    wired_moqtrun_fetch* f,
+    const moqfetch_obj*  o,
+    wired_span           pre) {
   return moqtrun_upf_valid(f, moqtrun_upf_loc(o)) &&
-         moqtrun_upf_write(hub, f, o);
+         moqtrun_upf_write(hub, f, o, pre);
 }
 
 /* ----- Malformed Track (draft-22 12.1) ----- */
@@ -11327,33 +11363,45 @@ static int moqtrun_upf_past_end(const wired_moqtrun_fetch* f, moqctl_loc l) {
          moqctl_loc_less(f->up_end, l);
 }
 
-static int moqtrun_upf_same(wired_span a, wired_span b) {
-  return a.n == b.n && moqtrun_bytes_eq(a.p, b.p, a.n);
+/* A cached payload c of len bytes whose bytes from at on are part. */
+static int moqtrun_upf_same_at(wired_span c, u64 len, u64 at, wired_span part) {
+  return c.n == len && moqtrun_bytes_eq(c.p + at, part.p, part.n);
 }
 
-/* #6: the cache holds the same Object with another payload (the cache
- * keeps nothing else of an Object to compare). */
+/* #6: the cache holds the Object at l with another payload than one of
+ * len bytes whose bytes from at on are part (the cache keeps nothing
+ * else of an Object to compare). */
 static int moqtrun_upf_conflicts(
-    wired_moqt_hub* hub, const wired_moqtrun_fetch* f, const moqfetch_obj* o) {
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_fetch* f,
+    moqctl_loc                 l,
+    u64                        len,
+    u64                        at,
+    wired_span                 part) {
   moqcache_item it;
-  moqctl_loc    l = moqtrun_upf_loc(o);
   moqcache_item_at(&hub->cache, f->cache_tag, l, moqtrun_after(l), &it);
-  return !it.unknown && !moqtrun_upf_same(it.payload, o->payload);
+  return !it.unknown && !moqtrun_upf_same_at(it.payload, len, at, part);
 }
 
 /* #4/#5 against what the held track saw, #5 against the upstream
- * FETCH_OK, #6 against the cache. */
+ * FETCH_OK, #6 against the cache (pre: the payload's first bytes). */
 static int moqtrun_upf_mal_at(
-    wired_moqt_hub* hub, const wired_moqtrun_fetch* f, const moqfetch_obj* o) {
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_fetch* f,
+    const moqfetch_obj*        o,
+    wired_span                 pre) {
   moqctl_loc l = moqtrun_upf_loc(o);
   return moqtrun_upf_past_end(f, l) ||
          moqtrun_obj_malformed(moqtrun_upf_track(hub, f), l) ||
-         moqtrun_upf_conflicts(hub, f, o);
+         moqtrun_upf_conflicts(hub, f, l, o->payload.n, 0, pre);
 }
 
 static int moqtrun_upf_malformed(
-    wired_moqt_hub* hub, const wired_moqtrun_fetch* f, const moqfetch_obj* o) {
-  return o->flags < 0x80 && moqtrun_upf_mal_at(hub, f, o);
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_fetch* f,
+    const moqfetch_obj*        o,
+    wired_span                 pre) {
+  return o->flags < 0x80 && moqtrun_upf_mal_at(hub, f, o, pre);
 }
 
 /* f reset MALFORMED_TRACK, opened first if need be so its requester
@@ -11417,13 +11465,43 @@ static void moqtrun_upf_mal(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
 /* One upstream item: Malformed first; else relayed in place, or the leg
  * ends (never buffered or reordered, 7.8). */
 static void moqtrun_upf_item(
-    wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqfetch_obj* o) {
-  if (moqtrun_upf_malformed(hub, f, o)) {
+    wired_moqt_hub*      hub,
+    wired_moqtrun_fetch* f,
+    const moqfetch_obj*  o,
+    wired_span           pre) {
+  if (moqtrun_upf_malformed(hub, f, o, pre)) {
     moqtrun_upf_mal(hub, f);
     return;
   }
-  if (!moqtrun_upf_relay(hub, f, o))
+  if (!moqtrun_upf_relay(hub, f, o, pre))
     moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_CANCEL, MOQCTL_ERR_INTERNAL_ERROR);
+}
+
+/* The next bytes c of the Object being passed through: Malformed when
+ * they differ from the cached copy (12.1), else written out as they are. */
+static void moqtrun_upf_chunk(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f, wired_span c) {
+  if (moqtrun_upf_conflicts(
+          hub, f, f->up_last, f->up_pl_at + f->up_pl_left, f->up_pl_at, c)) {
+    moqtrun_upf_mal(hub, f);
+    return;
+  }
+  if (hub->io.stream_send(f->wt, f->stream_id, c, 0) <= 0) {
+    moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_CANCEL, MOQCTL_ERR_INTERNAL_ERROR);
+    return;
+  }
+  f->up_pl_at += c.n;
+  f->up_pl_left -= c.n;
+  f->last_ok_ms = hub->live.last_now_ms;
+}
+
+/* What data holds of the payload still to pass through; the bytes of
+ * data that took. */
+static usz moqtrun_upf_pass(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f, wired_span data) {
+  usz n = (usz)u64_min(f->up_pl_left, data.n);
+  if (n) moqtrun_upf_chunk(hub, f, wired_span_of(data.p, n));
+  return n;
 }
 
 /* ----- the upstream data stream ----- */
@@ -11445,7 +11523,7 @@ static int moqtrun_upf_holdable(
          n < WIRED_MOQTRUN_RELAY_FRAG_MAX;
 }
 
-/* rest, a torn Object, kept for f's next delivery; 0 when it cannot be. */
+/* rest, a torn Object head, kept for f's next delivery; 0 when it cannot be. */
 static int moqtrun_upf_hold(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, wired_span rest) {
   if (!rest.n) {
@@ -11461,10 +11539,16 @@ static int moqtrun_upf_hold(
 
 static void moqtrun_upf_done_if(wired_moqt_hub* hub, wired_moqtrun_fetch* f);
 
-/* A FIN cut no Object short, and a torn tail could be kept. */
+/* A FIN cutting an Object short: its head (rest) or its payload. */
+static int moqtrun_upf_cut(
+    const wired_moqtrun_fetch* f, wired_span rest, int fin) {
+  return fin && (rest.n || f->up_pl_left);
+}
+
+/* A FIN cut no Object short, and a torn head could be kept. */
 static int moqtrun_upf_tail_ok(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, wired_span rest, int fin) {
-  return !(fin && rest.n) && moqtrun_upf_hold(hub, f, rest);
+  return !moqtrun_upf_cut(f, rest, fin) && moqtrun_upf_hold(hub, f, rest);
 }
 
 static void moqtrun_upf_tail(
@@ -11495,31 +11579,42 @@ static void moqtrun_upf_rest(
   moqtrun_upf_tail(hub, f, rest, fin);
 }
 
-/* Every whole item of b while the leg lives; the decoder's last verdict. */
+/* What b holds of o's payload from *off on, taken. */
+static wired_span moqtrun_upf_pre(
+    wired_span b, usz* off, const moqfetch_obj* o) {
+  wired_span pre =
+      wired_span_of(b.p + *off, (usz)u64_min(o->payload.n, b.n - *off));
+  *off += pre.n;
+  return pre;
+}
+
+/* Every item of b whose head is in, while the leg lives; the decoder's
+ * last verdict. */
 static int moqtrun_upf_items(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, wired_span b, usz* off) {
   moqfetch_obj o;
   int          r = MOQCTL_OK;
   while (moqtrun_upf_live(f) &&
-         (r = moqfetch_obj_take(b, off, &f->up_seq, &o)) == MOQCTL_OK)
-    moqtrun_upf_item(hub, f, &o);
+         (r = moqfetch_obj_take_head(b, off, &f->up_seq, &o)) == MOQCTL_OK)
+    moqtrun_upf_item(hub, f, &o, moqtrun_upf_pre(b, off, &o));
   return r;
 }
 
-/* data of f's upstream data stream: its whole items relayed, a torn tail
- * kept; FIN ends the stream. */
+/* data of f's upstream data stream: the payload of an Object under way
+ * passed through, then each item relayed, a torn head kept; FIN ends the
+ * stream. */
 static void moqtrun_upf_feed(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  pp,
     wired_moqtrun_fetch* f,
     wired_span           data,
     int                  fin) {
-  usz off = 0;
   if (!moqtrun_upf_join(hub, f, &data)) {
     moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_CANCEL, MOQCTL_ERR_INTERNAL_ERROR);
     return;
   }
-  int r = moqtrun_upf_items(hub, f, data, &off);
+  usz off = moqtrun_upf_pass(hub, f, data);
+  int r   = moqtrun_upf_items(hub, f, data, &off);
   moqtrun_upf_rest(
       hub, pp, f, r, wired_span_of(data.p + off, data.n - off), fin);
 }

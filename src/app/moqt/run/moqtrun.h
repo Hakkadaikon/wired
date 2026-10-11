@@ -966,6 +966,11 @@ typedef struct {
   moqctl_loc up_last;
   /** 1 once an upstream item was relayed. */
   int has_up_last;
+  /** Payload bytes of the Object at up_last still to pass through as
+   * they arrive (its head and the bytes before went out already). */
+  u64 up_pl_left;
+  /** Payload bytes of that Object passed through so far. */
+  u64 up_pl_at;
   /** The upstream FETCH_OK End Location, inclusive; valid iff
    * up_state is WIRED_MOQTRUN_UPF_OK. */
   moqctl_loc up_end;
@@ -1461,10 +1466,12 @@ typedef struct {
   /** The upstream FETCH state of fetches[i] beyond the slot's own fields
    * (index i too). */
   wired_moqtrun_upf_leg upf_legs[WIRED_MOQTRUN_MAX_FETCHES];
-  /** The torn tail of one upstream fetch Object (an Object split across
-   * stream deliveries), followed by the next delivery while it decodes.
-   * ponytail: one buffer hub-wide; a second leg tearing an Object at the
-   * same time gives up its upstream FETCH -- a pool if that happens. */
+  /** The torn head of one upstream fetch Object (its fields up to the
+   * Payload Length split across stream deliveries; a payload is passed
+   * through as it arrives, never held), followed by the next delivery
+   * while it decodes. ponytail: one buffer hub-wide; a second leg tearing
+   * a head at the same time gives up its upstream FETCH -- a pool if that
+   * happens. */
   u8 upf_buf[WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP];
   /** Bytes of upf_buf held. */
   usz upf_len;
