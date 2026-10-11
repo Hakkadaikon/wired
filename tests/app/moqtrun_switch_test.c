@@ -1081,6 +1081,37 @@ static void test_moqtrun_switch_old_side_no_wait(void) {
   CHECK(mtsw_lo() && mtsw_lo()->sw_role == MOQTSW_ROLE_NONE);
 }
 
+/* The other way round: lo (B, the new side) reaches B through the hub's
+ * SUBSCRIBE to A's announced namespace; B switches to it from hi (G = 4),
+ * then A ends lo GOING_AWAY and B waits for a new path. hi ends meanwhile
+ * (A's TRACK_ENDED), so once E re-attaches lo, B's start is no longer
+ * bound to G: E's Group 1 reaches B. */
+static void test_moqtrun_switch_waiting_new_released(void) {
+  moqctl_ftn          hi = mtsw_ftn("hi");
+  moqctl_publish_done d  = {0};
+  i64                 up;
+  mups_init();
+  mtst_hub.switch_track = 1;
+  mtst_join(MRP_E);
+  mtst_publish(SESS_A, MTSW_PUB_HI, &hi, MTSW_HI);
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &hi, MTSW_RID_HI, 0);
+  mtsw_group(mtsw_sid(MTSW_HI, 3), MTSW_HI, 3, 1);
+  mtsw_switch(MTSW_HARD, MTSW_DONE);
+  up = mups_up_sid();
+  mups_ok((u64)up);
+  CHECK(mtsw_lo() && mtsw_lo()->sw_role == MOQTSW_ROLE_NEW);
+  mtns_pub(MRP_E, MRDV_S1, "chat/room1");
+  mups_done((u64)up, MOQCTL_DONE_GOING_AWAY);
+  d.status_code  = MOQCTL_DONE_TRACK_ENDED;
+  d.stream_count = 1;
+  mtst_send(SESS_A, MTSW_PUB_HI, MOQCTL_T_PUBLISH_DONE, mtdn_enc_done, &d);
+  wired_moqt_tick(&mtst_hub, 0);
+  mrp_ok(MRP_E, mrp_up(MRP_E, 0));
+  moqtrun_test_reset();
+  mrp_group(MRP_E, MUPS_DATA_SID, 1, MOQDATA_STATUS_NORMAL);
+  CHECK(mups_relayed_alias(SESS_B) != ~(u64)0);
+}
+
 static void test_moqtrun_switch_d22(void) {
   test_moqtrun_switch_boundary_plus_one();
   test_moqtrun_switch_boundary_b_ahead();
@@ -1106,6 +1137,7 @@ static void test_moqtrun_switch_d22(void) {
   test_moqtrun_switch_review1();
   test_moqtrun_switch_old_gone_releases_new();
   test_moqtrun_switch_old_side_no_wait();
+  test_moqtrun_switch_waiting_new_released();
 }
 
 /* draft-18/19: 0x24 is no parameter there -- the SUBSCRIBE closes the

@@ -137,8 +137,10 @@ void moqtsw_begin(
 void moqtsw_rebound(wired_moqtrun_sub* s);
 
 /** moqtsw_rebound for a subscription re-attached to a re-PUBLISHed track;
- * a still pending switch of it is swept again (hub->sw_live). */
-void moqtsw_reattached(wired_moqt_hub* hub, wired_moqtrun_sub* s);
+ * a still pending switch of it is swept again (hub->sw_live), and a new
+ * side whose old side ended while it had no track is released first. */
+void moqtsw_reattached(
+    wired_moqt_hub* hub, const moqtsw_ops* ops, wired_moqtrun_sub* s);
 
 /** Ends every switched-away subscription now due (Soft drained / timed
  * out, Hard cut). Returns how many ended. */

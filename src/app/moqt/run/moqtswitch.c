@@ -201,7 +201,12 @@ static void (*const MOQTSW_BOUND_FNS[])(wired_moqtrun_sub*) = {
 
 void moqtsw_rebound(wired_moqtrun_sub* s) { MOQTSW_BOUND_FNS[s->sw_role](s); }
 
-void moqtsw_reattached(wired_moqt_hub* hub, wired_moqtrun_sub* s) {
+static void moqtsw_orphan(
+    wired_moqt_hub* hub, const moqtsw_ops* ops, wired_moqtrun_sub* b);
+
+void moqtsw_reattached(
+    wired_moqt_hub* hub, const moqtsw_ops* ops, wired_moqtrun_sub* s) {
+  moqtsw_orphan(hub, ops, s); /* A ended while B waited: no sweep saw B */
   moqtsw_rebound(s);
   hub->sw_live += (u32)(s->sw_role == MOQTSW_ROLE_OLD);
 }

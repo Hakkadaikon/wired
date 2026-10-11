@@ -415,7 +415,8 @@ Legend:
     `test_moqtrun_repath_no_room`, `test_moqtrun_repath_table_full`,
     `test_moqtrun_repath_own_announce`, `test_moqtrun_repath_names_wrapped`
   - test: `tests/app/moqtrun_switch_test.c` —
-    `test_moqtrun_switch_old_side_no_wait`
+    `test_moqtrun_switch_old_side_no_wait`,
+    `test_moqtrun_switch_waiting_new_released`
 - [x] MQ22-211 Any other upstream PUBLISH_DONE status, and a Malformed Track
   (SS12.1), shall end the downstream subscriptions at once with that status;
   no other announcer is asked.

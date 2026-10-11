@@ -64,10 +64,12 @@ general relay network.
   end's status at once, and while the table is full every new rendezvous
   hold is refused EXCESSIVE_LOAD, for up to 1.5 s. The old side of a
   SWITCH_FROM never waits (it ends at once, so a re-attach cannot feed both
-  sides the same Group), and a switching-set member that is re-attached
-  leaves its set and gets every Group until a REQUEST_UPDATE assigns it
-  again -- after the re-attach: an assignment while it waits is refused as a
-  failed update, which ends the subscription. Source: `moqtrun_rp_wait`, `moqtrun_reattach_one_sub` in
+  sides the same Group; a waiting new side whose old side ended meanwhile
+  is released from the boundary at its re-attach), and a switching-set
+  member that is re-attached leaves its set and gets every Group until a
+  REQUEST_UPDATE assigns it again -- after the re-attach: an assignment
+  while it waits is refused as a failed update, which ends the
+  subscription. Source: `moqtrun_rp_wait`, `moqtrun_reattach_one_sub` in
   `src/app/moqt/run/moqtrun.c`.
 - **One SUBGROUP stream kept before SUBSCRIBE_OK** — a SUBGROUP stream that
   reaches the hub before the upstream SUBSCRIBE_OK is kept (one per publisher

@@ -1716,7 +1716,7 @@ static void moqtrun_reattach_one_sub(
   /* SSTS (moqtssts_run.c): the set dropped it while it had no track */
   moqtss_sub_leave(hub, slot);
   /* SWITCH_FROM (moqtswitch.c): bounds, a pending end swept again */
-  moqtsw_reattached(hub, slot);
+  moqtsw_reattached(hub, moqtrun_sw_ops(), slot);
 }
 
 /* A (re)PUBLISHed name re-attaches every still-connected peer that had
@@ -9411,8 +9411,10 @@ static void moqtrun_rp_keep_count(
 
 /* The request stream of sub slot si of t if it may wait for a new path:
  * not the old side of a SWITCH_FROM, which ends now as on any other end
- * (moqtsw_orphan then releases the new side's start bound), so a later
- * re-attach can never feed both sides the same Group. */
+ * (moqtsw_orphan then releases the new side's start bound: at the next
+ * sweep, or -- the new side itself waiting -- at its re-attach,
+ * moqtsw_reattached), so a later re-attach can never feed both sides the
+ * same Group. */
 static wired_moqtrun_req* moqtrun_rp_waiter(
     wired_moqt_hub* hub, const wired_moqtrun_track* t, usz si) {
   return t->subs[si].sw_role == MOQTSW_ROLE_OLD
