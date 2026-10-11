@@ -305,6 +305,7 @@
 #include "transport/conn/cid/path/antiamp.c"
 #include "transport/conn/cid/path/path.c"
 #include "transport/conn/cid/pathsel/pathsel.c"
+#include "transport/conn/cid/peercid/peercid.c"
 #include "transport/conn/cid/path/prefaddr.c"
 #include "transport/conn/cid/pmtu/pmtu.c"
 #include "transport/packet/protect/protect/protect.c"
@@ -726,6 +727,7 @@
 #include "transport/pad_test.c"
 #include "transport/path_test.c"
 #include "transport/pathsel_test.c"
+#include "transport/peercid_test.c"
 #include "transport/permit_test.c"
 #include "transport/persistent_test.c"
 #include "transport/pmtu_test.c"
@@ -1311,6 +1313,7 @@ int main(void) {
   test_pad();
   test_path();
   test_pathsel();
+  test_peercid();
   test_permit();
   test_persistent();
   test_pmtu();
