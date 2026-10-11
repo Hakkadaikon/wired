@@ -733,7 +733,7 @@ static void test_srvrun_feed_ack_range_writes_stream_frame_lost(void) {
   }
   /* ack only pn0+4: pns pn0,pn0+1 are 3+ behind, past the packet threshold */
   srvrun_feed_ack_range(&c, pn0 + 4, pn0 + 4, ctx.now_ms);
-  srvrun_reap_losses_all(&cfg, &c, ctx.now_ms, &(u64){0});
+  srvrun_reap_losses_all(&cfg, &c, ctx.now_ms, &SRVRUN_LOSS_SPAN0);
   CHECK(
       sr_qlog_count(
           "\"name\":\"stream_frame_lost\",\"stream_id\":15,\"offset\":0,"
@@ -807,7 +807,7 @@ static void test_srvrun_wt_unacked_round_loss_detected(void) {
    * packet threshold, pn0 must be declared lost despite this session never
    * having been acked itself */
   srvrun_feed_ack_range(&c, pn0 + 4, pn0 + 4, ctx.now_ms);
-  srvrun_reap_losses_all(&cfg, &c, ctx.now_ms, &(u64){0});
+  srvrun_reap_losses_all(&cfg, &c, ctx.now_ms, &SRVRUN_LOSS_SPAN0);
   CHECK(sr_qlog_count("\"name\":\"stream_frame_lost\",\"stream_id\":19,") == 1);
   srvrunt_qlog_unlink();
 }
@@ -885,7 +885,7 @@ static void test_srvrun_wt_lost_bare_fin_redetected_and_resent(void) {
           "\"length\":0,\"fin\":1,") == 1);
   /* later connection ACKs (voice traffic) must declare the FIN lost... */
   srvrun_feed_ack_range(&c, pn_fin + 4, pn_fin + 4, ctx.now_ms);
-  srvrun_reap_losses_all(&cfg, &c, ctx.now_ms, &(u64){0});
+  srvrun_reap_losses_all(&cfg, &c, ctx.now_ms, &SRVRUN_LOSS_SPAN0);
   CHECK(
       sr_qlog_count(
           "\"name\":\"stream_frame_lost\",\"stream_id\":23,\"offset\":19,"
@@ -12508,6 +12508,99 @@ static void test_srvrun_pre_recovery_loss_keeps_cwnd(void) {
   }
 }
 
+/* --- RFC 9002 7.6.2 persistent congestion on the loss path -------------- */
+
+/* Log pn as one in-flight resp[0] slice sent at sent_ms. */
+static void sr_pc_send(srvrun_conn* c, u64 pn, u64 sent_ms) {
+  wired_sendq_slice sl;
+  CHECK(wired_sendsess_take(&c->resp[0].sess, &sl) == 1);
+  CHECK(wired_sendsess_sent(&c->resp[0].sess, &sl, pn, sent_ms) == 1);
+}
+
+/* A confirmed connection with resp[0] armed and a 1MB window; optionally
+ * one 10ms RTT sample taken while c->l.tx_pn == base (before every packet
+ * the scenario then sends). */
+static u64 sr_pc_setup(
+    srvrun_conn* c, struct lp_fix* f, u8* body, usz len, int sampled) {
+  static u8  obuf[1024];
+  wired_obuf ob = {obuf, sizeof obuf, 0};
+  u64        base;
+  sr_make_confirmed_conn(c, f, &ob);
+  c->cc.cwnd           = 1u << 20;
+  c->resp[0].in_use    = 1;
+  c->resp[0].stream_id = 0;
+  wired_sendsess_arm(&c->resp[0].sess, body, len, SRVRUN_CHUNK);
+  base       = c->largest_acked + 10;
+  c->l.tx_pn = base;
+  if (sampled) srvrun_rtt_note(c, 10);
+  return base;
+}
+
+/* pns base..base+n-1 sent 500ms apart from t=1000, then pn base+10 at
+ * t=1000+500n; an ACK frame naming base+10 and base+mid arrives 100ms
+ * later. pn base+mid stands for a packet outside every send log (an
+ * ACK-only one): never logged, so its ACK yields no RTT sample. mid=10
+ * means no such extra ACK. Returns the cwnd after the batch. */
+static u64 sr_pc_run(srvrun_conn* c, u64 base, u64 n, u64 mid) {
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_state    st  = {0, c};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1100 + 500 * n, 0};
+  for (u64 i = 0; i < n; i++)
+    if (i != mid) sr_pc_send(c, base + i, 1000 + 500 * i);
+  sr_pc_send(c, base + 10, 1000 + 500 * n);
+  c->l.tx_pn     = base + 11;
+  c->l.ack_lo[0] = base + 10;
+  c->l.ack_hi[0] = base + 10;
+  c->l.ack_lo[1] = base + mid;
+  c->l.ack_hi[1] = base + mid;
+  c->l.ack_n     = 2;
+  srvrun_feed_acks(&ctx, &cfg, c);
+  return c->cc.cwnd;
+}
+
+/* RFC 9002 7.6.2: two ack-eliciting packets lost, nothing sent between
+ * them acked, spanning more than 3 PTOs, after a prior RTT sample ->
+ * persistent congestion: cwnd collapses to kMinimumWindow, and (RFC 9002
+ * 5.2) min_rtt is reset to the newest sample (the 100ms ACK). */
+static void test_srvrun_persistent_congestion_declared(void) {
+  static u8     body[16 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  u64           base = sr_pc_setup(&c, &f, body, sizeof body, 1);
+  CHECK(sr_pc_run(&c, base, 5, 10) == CC_MIN_WINDOW);
+  CHECK(c.rtt.min_rtt == 100000);
+}
+
+/* A packet sent between the two lost ones was acknowledged: the loss is
+ * not one continuous period, so only the ordinary halving applies. */
+static void test_srvrun_persistent_congestion_ack_between(void) {
+  static u8     body[16 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  u64           base = sr_pc_setup(&c, &f, body, sizeof body, 1);
+  CHECK(sr_pc_run(&c, base, 5, 2) > CC_MIN_WINDOW);
+}
+
+/* No RTT sample existed before the earliest lost packet was sent. */
+static void test_srvrun_persistent_congestion_needs_prior_sample(void) {
+  static u8     body[16 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  u64           base = sr_pc_setup(&c, &f, body, sizeof body, 0);
+  CHECK(sr_pc_run(&c, base, 5, 10) > CC_MIN_WINDOW);
+}
+
+/* Only one ack-eliciting packet lost: there is no period to measure. */
+static void test_srvrun_persistent_congestion_needs_two_losses(void) {
+  static u8     body[16 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  u64           base = sr_pc_setup(&c, &f, body, sizeof body, 1);
+  CHECK(sr_pc_run(&c, base, 1, 10) > CC_MIN_WINDOW);
+}
+
 /* --- RFC 9000 13.4.2 ECN validation on the ACK-processing path ---------- */
 
 /* Arm resp[0] with 8 chunks on c, pump them all out (8 ECT(0)-marked 1-RTT
@@ -12702,7 +12795,7 @@ static void test_srvrun_loss_and_retransmit_across_two_responses(void) {
     srvrun_feed_ack_range(
         &c, pn0_b + WIRED_SENDSESS_LOG - 1, pn0_b + WIRED_SENDSESS_LOG - 1,
         ctx.now_ms);
-    srvrun_reap_losses_all(&cfg, &c, ctx.now_ms, &(u64){0});
+    srvrun_reap_losses_all(&cfg, &c, ctx.now_ms, &SRVRUN_LOSS_SPAN0);
     CHECK(c.resp[1].sess.requeue_n > 0);
     c.srtt_ms      = 0;
     c.next_send_ms = 0;
@@ -21975,6 +22068,10 @@ void test_srvrun(void) {
   test_srvrun_sibling_ack_does_not_lose_other_slot();
   test_srvrun_ack_ranges_batched_before_loss_pass();
   test_srvrun_pre_recovery_loss_keeps_cwnd();
+  test_srvrun_persistent_congestion_declared();
+  test_srvrun_persistent_congestion_ack_between();
+  test_srvrun_persistent_congestion_needs_prior_sample();
+  test_srvrun_persistent_congestion_needs_two_losses();
   test_srvrun_feed_acks_ecn_ce_shrinks_cwnd();
   test_srvrun_feed_acks_stale_ack_never_fails_ecn();
   test_srvrun_feed_acks_suppressed_ecn_disables();

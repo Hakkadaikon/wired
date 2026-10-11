@@ -73,6 +73,7 @@
 #include "transport/recovery/congestion/cc/ecn.h"
 #include "transport/recovery/congestion/cc/hystart.h"
 #include "transport/recovery/congestion/cc/pacing.h"
+#include "transport/recovery/congestion/cc/persistent.h"
 #include "transport/recovery/detect/recovery/pto.h"
 #include "transport/recovery/detect/recovery/rtt.h"
 #include "transport/recovery/stats/stats.h"
@@ -496,6 +497,12 @@ typedef struct {
    * srtt_ms above (ms, EWMA-only, pacing's simpler input) because PTO needs
    * rttvar too. */
   rtt rtt;
+  /** RFC 9002 5.2/7.6.2: the newest RTT sample (ms), which min_rtt is reset
+   * to on persistent congestion, and the next pn to be sent when the first
+   * sample was taken -- a packet below it was sent before any sample, so
+   * cannot start a persistent congestion period. */
+  u64 latest_rtt_ms;
+  u64 rtt_from_pn;
   /** RFC 9001 6.5: monotonic ms this connection's Key Update generation last
    * advanced (s->ku.generation), used to floor how long the retained old
    * 1-RTT keys survive (srvrun_ku_discard_stale, 3x the PTO). Meaningless
@@ -8398,7 +8405,9 @@ static void srvrun_qlog_lost(
  * srvrun_pto_deadline_ms needs for rttvar -- srtt_ms above stays the simpler
  * ms-only EWMA pacing already relies on, unchanged. */
 static void srvrun_rtt_note(srvrun_conn* c, u64 sample_ms) {
-  c->srtt_ms = c->srtt_ms ? (7 * c->srtt_ms + sample_ms) / 8 : sample_ms;
+  if (!c->rtt.have_sample) c->rtt_from_pn = c->l.tx_pn;
+  c->latest_rtt_ms = sample_ms;
+  c->srtt_ms       = c->srtt_ms ? (7 * c->srtt_ms + sample_ms) / 8 : sample_ms;
   rtt_sample(
       &c->rtt, sample_ms * 1000, 0, SRVRUN_MAX_ACK_DELAY_US,
       wired_server_is_confirmed(&c->s));
@@ -8604,27 +8613,43 @@ static void srvrun_cc_range(
   wired_sendsess_ack(sess, lo, hi);
 }
 
+/* One loss batch's extent: the newest lost send time (cc_on_loss's
+ * recovery-period key, RFC 9002 7.3.1) and the oldest/newest lost packet
+ * (RFC 9002 7.6.2's persistent congestion period). pn order is send order,
+ * so lo_pn is the oldest_ms packet and hi_pn the newest_ms one. */
+typedef struct {
+  u64 newest_ms, oldest_ms, lo_pn, hi_pn;
+} srvrun_loss_span;
+
+#define SRVRUN_LOSS_SPAN0 ((srvrun_loss_span){0, ~(u64)0, ~(u64)0, 0})
+
+static void srvrun_loss_span_add(
+    srvrun_loss_span* s, const wired_sendsess_lost_slice* l) {
+  s->newest_ms = u64_max(s->newest_ms, l->sent_ms);
+  s->oldest_ms = u64_min(s->oldest_ms, l->sent_ms);
+  s->lo_pn     = u64_min(s->lo_pn, l->pn);
+  s->hi_pn     = u64_max(s->hi_pn, l->pn);
+}
+
 /* Threshold pass over sess's log: requeue losses, log each lost packet. The
  * congestion-window shrink (cc_on_loss) is applied once per step by
  * the caller (srvrun_feed_acks), not here, so a loss on several concurrent
  * responses in the same step still only shrinks the connection's one
- * window once. newest_lost_ms accumulates the newest SEND time among the
- * declared losses -- the sent_time cc_on_loss's once-per-recovery-period
- * gate keys on (RFC 9002 7.3.1). */
+ * window once. span accumulates the declared losses' extent
+ * (srvrun_loss_span). */
 static usz srvrun_reap_losses(
     const srvrun_cfg*  cfg,
     const srvrun_conn* c,
     wired_sendsess*    sess,
     u64                stream_id,
     u64                now_ms,
-    u64*               newest_lost_ms) {
+    srvrun_loss_span*  span) {
   wired_sendsess_lost_slice lost[WIRED_SENDSESS_LOG];
   usz                       n = wired_sendsess_detect_lost(
       sess, c->largest_acked, now_ms, c->rtt.smoothed_rtt, lost,
       WIRED_SENDSESS_LOG);
   srvrun_qlog_lost(cfg, c, now_ms, stream_id, lost, n);
-  for (usz i = 0; i < n; i++)
-    *newest_lost_ms = u64_max(*newest_lost_ms, lost[i].sent_ms);
+  for (usz i = 0; i < n; i++) srvrun_loss_span_add(span, &lost[i]);
   return n;
 }
 
@@ -8646,34 +8671,32 @@ static void srvrun_ack_range_resps(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
  * ONE largest_acked (RFC 9002 6.1.1); the slot's stream_id is only for the
  * loss records' qlog attribution (RFC 9000 19.8). */
 static usz srvrun_reap_losses_wt(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms, u64* newest_lost_ms) {
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms, srvrun_loss_span* span) {
   usz lost = 0;
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
     if (c->wtsend[i].in_use)
       lost += srvrun_reap_losses(
-          cfg, c, &c->wtsend[i].sess, c->wtsend[i].stream_id, now_ms,
-          newest_lost_ms);
+          cfg, c, &c->wtsend[i].sess, c->wtsend[i].stream_id, now_ms, span);
   return lost;
 }
 
 /* The resp[] half of the loss pass. */
 static usz srvrun_reap_losses_resps(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms, u64* newest_lost_ms) {
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms, srvrun_loss_span* span) {
   usz lost = 0;
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
     if (c->resp[i].in_use)
       lost += srvrun_reap_losses(
-          cfg, c, &c->resp[i].sess, c->resp[i].stream_id, now_ms,
-          newest_lost_ms);
+          cfg, c, &c->resp[i].sess, c->resp[i].stream_id, now_ms, span);
   return lost;
 }
 
 /* The whole-connection loss pass: every in-use send session, wtsend and
  * resp[] alike. Runs once per srvrun_feed_acks batch, never per range. */
 static usz srvrun_reap_losses_all(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms, u64* newest_lost_ms) {
-  return srvrun_reap_losses_wt(cfg, c, now_ms, newest_lost_ms) +
-         srvrun_reap_losses_resps(cfg, c, now_ms, newest_lost_ms);
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms, srvrun_loss_span* span) {
+  return srvrun_reap_losses_wt(cfg, c, now_ms, span) +
+         srvrun_reap_losses_resps(cfg, c, now_ms, span);
 }
 
 /* 1 if [lo,hi] covers c's one outstanding DPLPMTUD probe pn -- the probe
@@ -8740,22 +8763,66 @@ static void srvrun_feed_ecn(srvrun_conn* c, u64 largest_before, u64 now_ms) {
       c->l.ecn_ack_ect1, c->l.tx_pn, c->ecn_newly, c->ecn_sent_ms, now_ms);
 }
 
+/* 1 if this step's ACK frame acknowledges some pn strictly between lo and
+ * hi. */
+static int srvrun_acked_between(const srvrun_conn* c, u64 lo, u64 hi) {
+  int hit = 0;
+  for (usz i = 0; i < c->l.ack_n; i++)
+    hit |= c->l.ack_lo[i] < hi && c->l.ack_hi[i] > lo;
+  return hit;
+}
+
+/* RFC 9002 7.6.2: no packet sent between the batch's oldest and newest
+ * lost ones was acknowledged. Every earlier step's ACK is at most
+ * largest_before, so requiring that below lo_pn leaves only this step's
+ * own ranges to check. ponytail: a period overlapping an earlier step's
+ * ACK is never declared (the SHOULD is missed, never falsely met); keep a
+ * per-pn acked record if that ever matters. */
+static int srvrun_loss_unbroken(
+    const srvrun_conn* c, const srvrun_loss_span* s, u64 largest_before) {
+  return largest_before < s->lo_pn &&
+         !srvrun_acked_between(c, s->lo_pn, s->hi_pn);
+}
+
+/* RFC 9002 7.6.2: the period must start after the first RTT sample and
+ * span (smoothed_rtt + max(4*rttvar, kGranularity) + max_ack_delay) x
+ * kPersistentCongestionThreshold. Two distinct packets are implied: the
+ * PTO is at least kGranularity, so a zero span never qualifies. */
+static int srvrun_loss_long(const srvrun_conn* c, const srvrun_loss_span* s) {
+  return c->rtt.have_sample && s->lo_pn >= c->rtt_from_pn &&
+         cc_persistent(
+             (s->newest_ms - s->oldest_ms) * 1000,
+             rtt_pto(&c->rtt, SRVRUN_MAX_ACK_DELAY_US));
+}
+
+/* RFC 9002 7.6.2/5.2: on persistent congestion collapse cwnd to the
+ * minimum window and reset min_rtt to the newest sample. */
+static void srvrun_persistent_check(
+    srvrun_conn* c, const srvrun_loss_span* s, u64 largest_before) {
+  if (!srvrun_loss_unbroken(c, s, largest_before)) return;
+  if (!srvrun_loss_long(c, s)) return;
+  cc_on_persistent(&c->cc);
+  rtt_on_persistent(&c->rtt, c->latest_rtt_ms * 1000);
+}
+
 static void srvrun_feed_acks(
     const srvrun_step_ctx* ctx, const srvrun_cfg* cfg, srvrun_conn* c) {
-  usz lost;
-  u64 newest_lost_ms = 0;
-  u64 largest_before = c->largest_acked;
-  c->ecn_newly       = 0;
-  c->ecn_sent_ms     = 0;
+  usz              lost;
+  srvrun_loss_span span           = SRVRUN_LOSS_SPAN0;
+  u64              largest_before = c->largest_acked;
+  c->ecn_newly                    = 0;
+  c->ecn_sent_ms                  = 0;
   for (usz i = 0; i < c->l.ack_n; i++)
     srvrun_feed_ack_range(c, c->l.ack_lo[i], c->l.ack_hi[i], ctx->now_ms);
   srvrun_feed_ecn(c, largest_before, ctx->now_ms);
-  lost = srvrun_reap_losses_all(cfg, c, ctx->now_ms, &newest_lost_ms);
+  lost = srvrun_reap_losses_all(cfg, c, ctx->now_ms, &span);
   /* RFC 9002 7.3.1/7.3.2: cwnd shrinks once per recovery period, gated on
    * the lost packet's SEND time -- passing now here instead re-shrank the
    * window on every loss of a packet sent before the current period began,
    * pinning cwnd at CC_MIN_WINDOW under sustained light loss. */
-  if (lost) cc_on_loss(&c->cc, newest_lost_ms, ctx->now_ms);
+  if (!lost) return;
+  cc_on_loss(&c->cc, span.newest_ms, ctx->now_ms);
+  srvrun_persistent_check(c, &span, largest_before);
 }
 
 /* Send c's pending DATAGRAM (if any) using a scratch wired_obuf on the stack,
