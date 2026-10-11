@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 200/212 tested, 10 indirect, 2 untested.**
+**Coverage: 205/217 tested, 10 indirect, 2 untested.**
 
 ## SS1.4.1 Variable-Length Integers (SS8.1)
 
@@ -343,7 +343,9 @@ Legend:
   - note: one upstream SUBSCRIBE per Full Track Name, to the first matching
     announcer (SS7.6 says each matching publisher; the hub keys one track
     per name). An upstream subscription nobody downstream wants any more
-    is cancelled (`test_moqtrun_upsub_last_cancel_cancels_upstream`).
+    is cancelled (`test_moqtrun_upsub_last_cancel_cancels_upstream`). When
+    the upstream ends on the publisher's side, the downstream subscriptions
+    wait for another announcer instead of ending (MQ22-208 to MQ22-212).
 - [~] MQ22-052 A relay may aggregate authorized subscriptions for a given Track
   when multiple subscribers request it, forwarding a single upstream Object to
   every matching downstream subscriber.
@@ -351,6 +353,59 @@ Legend:
     `test_moqtrun_chat_object_relays_to_all_three_subscribers`
   - test: `tests/app/moqtrun_upsub_test.c` —
     `test_moqtrun_upsub_two_share_one`
+- [x] MQ22-208 When the hub's upstream subscription ends on the publisher's
+  side -- PUBLISH_DONE GOING_AWAY or INTERNAL_ERROR, a reset of the hub's
+  SUBSCRIBE stream, or the publisher's session closing -- the relay shall
+  keep each downstream subscription for up to `WIRED_MOQTRUN_RDV_MAX_MS`
+  from the end (never extended) and send a SUBSCRIBE to one matching
+  announcer not yet tried in that wait, its own subscribers' sessions
+  excluded (SS7.6, SS7.6.1); a refusal or reset of that SUBSCRIBE moves on
+  to the next, and a session's new PUBLISH_NAMESPACE makes it eligible
+  again. The first SUBSCRIBE_OK re-attaches every waiting subscription under
+  the Track Alias and state it already holds, a REQUEST_UPDATE meanwhile
+  included.
+  - test: `tests/app/moqtrun_repath_test.c` —
+    `test_moqtrun_repath_takeover`, `test_moqtrun_repath_each_end`,
+    `test_moqtrun_repath_late_announce`, `test_moqtrun_repath_failover`,
+    `test_moqtrun_repath_ender_skipped`, `test_moqtrun_repath_own_announce`,
+    `test_moqtrun_repath_second_episode`, `test_moqtrun_repath_update`
+  - note: one upstream per Track at a time; SS7.6 says every matching
+    publisher MUST be subscribed, and a newly announcing one for each
+    matching subscription -- the hub does so only while subscriptions wait
+    (see known-limitations.md).
+- [x] MQ22-209 A subscription waiting for a new path shall get no second
+  SUBSCRIBE_OK and no REQUEST_ERROR (SS3.1: one response per request), while
+  a new SUBSCRIBE for the same Track is still answered from the pending
+  upstream, or DOES_NOT_EXIST at once when only announcers already tried in
+  the wait remain.
+  - test: `tests/app/moqtrun_repath_test.c` —
+    `test_moqtrun_repath_takeover`, `test_moqtrun_repath_refusal_hidden`,
+    `test_moqtrun_repath_fresh_rides`, `test_moqtrun_repath_fresh_dne`
+- [x] MQ22-210 If no new path is Established by the deadline, then the
+  relay shall send each waiting subscription exactly one PUBLISH_DONE with
+  the original end's status (GOING_AWAY or INTERNAL_ERROR; INTERNAL_ERROR
+  for a reset or a session close), even while a SUBSCRIBE is still pending,
+  which it then cancels; nothing else is sent on the request stream while
+  waiting. With no room to wait, the PUBLISH_DONE goes out at once.
+  - test: `tests/app/moqtrun_repath_test.c` —
+    `test_moqtrun_repath_silent_wait`, `test_moqtrun_repath_expiry`,
+    `test_moqtrun_repath_expiry_status`, `test_moqtrun_repath_done_once`,
+    `test_moqtrun_repath_deadline_beats_pending`,
+    `test_moqtrun_repath_deadline_fixed`, `test_moqtrun_repath_new_closes`,
+    `test_moqtrun_repath_no_room`
+- [x] MQ22-211 Any other upstream PUBLISH_DONE status, and a Malformed Track
+  (SS12.1), shall end the downstream subscriptions at once with that status;
+  no other announcer is asked.
+  - test: `tests/app/moqtrun_repath_test.c` —
+    `test_moqtrun_repath_final_status`, `test_moqtrun_repath_malformed`
+- [x] MQ22-212 A subscription that leaves while waiting shall never be
+  re-attached and gets no PUBLISH_DONE; an upstream SUBSCRIBE nobody waits
+  for any more is cancelled, a reply on a cancelled one is ignored, and an
+  Established new upstream stays when its publisher withdraws the namespace.
+  - test: `tests/app/moqtrun_repath_test.c` —
+    `test_moqtrun_repath_leave`, `test_moqtrun_repath_all_leave`,
+    `test_moqtrun_repath_stale_ok`, `test_moqtrun_repath_one_upstream`,
+    `test_moqtrun_repath_withdraw_keeps`
 
 ## SS9 Control Messages: common envelope
 
