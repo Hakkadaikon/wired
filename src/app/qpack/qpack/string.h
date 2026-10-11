@@ -17,4 +17,8 @@ usz qpack_string_encode(wired_mspan buf, wired_span src);
  * decode error, or dst overflow. */
 usz qpack_string_decode(wired_span buf, wired_obuf* dst);
 
+/* Same, for a length prefix of `bits` bits with H in the bit above it (RFC
+ * 9204 4.3.3's 5-bit literal name). */
+usz qpack_string_decode_pfx(wired_span buf, u8 bits, wired_obuf* dst);
+
 #endif
