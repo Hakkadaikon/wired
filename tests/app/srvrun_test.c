@@ -4257,9 +4257,10 @@ static void test_srvrun_path_wire_no_cid_no_response(void) {
   sr_net_close(&n);
 }
 
-/* RFC 9000 8.2.2/8.2.1: a probe while both challenge slots are busy is
- * answered on its arrival path, padded to 1200 bytes, but not challenged. */
-static void test_srvrun_path_wire_busy_probe_answered(void) {
+/* RFC 9000 9.5: a probe from a new path while both challenge slots are
+ * busy is neither answered nor challenged, so the spare peer ID is not
+ * spent on a path that is dropped at once. */
+static void test_srvrun_path_wire_busy_probe_ignored(void) {
   struct lp_fix f;
   srvrun_conn   c;
   conntable     table[WIRED_CONNTABLE_CAP];
@@ -4282,15 +4283,15 @@ static void test_srvrun_path_wire_busy_probe_answered(void) {
     sr_serve_at(&f, &st, &a2, 6, wired_span_of(g_sr_probe, sizeof g_sr_probe));
   }
   r = sr_drain(&f, n.afd);
-  CHECK(r.resp == 1 && r.chal == 0);
-  CHECK(r.port_be == n.pref.port_be);
-  CHECK(r.len >= 1200);
+  CHECK(r.n == 0);
+  CHECK(sr_drain(&f, n.bfd).retire == 0);
   CHECK(sr_chal(&c, n.pfd, &n.a) == 0);
   sr_net_close(&n);
 }
 
-/* RFC 9000 8.2.2: each PATH_CHALLENGE in a small packet is answered once,
- * in the receive step; a duplicate packet is not answered again. */
+/* RFC 9000 8.2.2/8.2.1: each PATH_CHALLENGE in a small packet is answered
+ * once, in the receive step, padded to 1200 bytes; a duplicate packet is
+ * not answered again. */
 static void test_srvrun_path_wire_each_challenge_once(void) {
   struct lp_fix f;
   srvrun_conn   c;
@@ -4303,8 +4304,10 @@ static void test_srvrun_path_wire_each_challenge_once(void) {
   sr_net_open(&n, &c);
   {
     sr_arrival a = {&n.a, n.sfd, 0, 0, 0};
+    sr_rx      r;
     sr_serve_at(&f, &st, &a, 5, wired_span_of(two, sizeof two));
-    CHECK(sr_drain(&f, n.afd).resp == 2);
+    r = sr_drain(&f, n.afd);
+    CHECK(r.resp == 2 && r.len >= 1200);
     sr_serve_at(&f, &st, &a, 5, wired_span_of(two, sizeof two));
     CHECK(sr_drain(&f, n.afd).resp == 0);
   }
@@ -23846,7 +23849,7 @@ void test_srvrun(void) {
   test_srvrun_path_wire_fresh_cid();
   test_srvrun_path_wire_no_cid_stalls();
   test_srvrun_path_wire_no_cid_no_response();
-  test_srvrun_path_wire_busy_probe_answered();
+  test_srvrun_path_wire_busy_probe_ignored();
   test_srvrun_path_wire_each_challenge_once();
   test_srvrun_path_wire_retire();
   test_srvrun_path_wire_retire_unused();

@@ -10276,26 +10276,31 @@ static int srvrun_path_answer(
   return 1;
 }
 
-/* RFC 9000 9.6.3: an answered probe from an untracked path starts its
- * validation if a slot is free (never evicting). */
-static void srvrun_path_probe_validate(
+/* RFC 9000 9.6.3: a probe from an untracked path is answered and its
+ * validation started only when a slot is free (never evicting); without
+ * one it is ignored, so no peer ID is bound to a path dropped at once. */
+static void srvrun_path_probe_fresh(
     const srvrun_step_ctx* ctx,
     srvrun_conn*           c,
     const pathsel_key*     a,
-    int                    fresh) {
-  if (!fresh) return;
-  srvrun_path_arm(ctx->cfg, c, pathsel_claim_free(&c->path, a), ctx->now_ms);
+    usz                    n,
+    int                    kept) {
+  pathsel_slot* s = pathsel_claim_free(&c->path, a);
+  if (!s) return;
+  s->in_use = (u8)srvrun_path_answer(ctx, c, a, n, kept);
+  srvrun_path_arm(ctx->cfg, c, s->in_use ? s : 0, ctx->now_ms);
 }
 
 static void srvrun_path_probe(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int kept) {
   pathsel_key a = srvrun_arrival_key(ctx);
   usz         n = srvrun_path_challenge_take(c);
-  int         fresh;
   if (!n) return;
-  fresh = !srvrun_path_tracked(ctx->cfg, c, &a);
-  if (srvrun_path_answer(ctx, c, &a, n, kept))
-    srvrun_path_probe_validate(ctx, c, &a, fresh);
+  if (srvrun_path_tracked(ctx->cfg, c, &a)) {
+    (void)srvrun_path_answer(ctx, c, &a, n, kept);
+    return;
+  }
+  srvrun_path_probe_fresh(ctx, c, &a, n, kept);
 }
 
 /* RFC 9000 8.2.3/9.3: k validated. The target or the send path becomes the
