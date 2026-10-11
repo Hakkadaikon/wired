@@ -458,7 +458,8 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   congestion is done), RTT reuse across connections, loss leniency for pre-key
   packets, RFC 7661 window update, CE-marking probe. Persistent congestion
   (7.6.2) is declared, conservatively: a loss period overlapping an ACK from
-  an earlier ACK frame is not declared. Source: `ledger:rfc9002.md` Out of
+  an earlier ACK frame, or checked against a step whose ACK ranges filled
+  the 32-entry list, is not declared; under BBR it leaves cwnd to the model. Source: `ledger:rfc9002.md` Out of
   scope.
 - **IPv4/UDP/IP details** — no IP options, fragmentation/reassembly, ToS use,
   TTL fixed 64 on the AF_XDP path; UDP source port 0 case not handled. Source:
