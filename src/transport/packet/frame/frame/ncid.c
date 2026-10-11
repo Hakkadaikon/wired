@@ -50,9 +50,10 @@ static int take_ncid_head(wired_span in, usz* off, ncid_frame* f) {
   return varint_take(wired_span_of(in.p, in.n), off, &f->retire_prior_to);
 }
 
-/* The CID length byte at *off is present and within the QUIC maximum. */
+/* The CID length byte at *off is present and 1..20 (RFC 9000 19.15: zero
+ * or over 20 is a FRAME_ENCODING_ERROR). */
 static int cid_len_ok(const u8* buf, usz n, usz off) {
-  return off < n && buf[off] <= NCID_MAX_LEN;
+  return off < n && (u8)(buf[off] - 1u) < NCID_MAX_LEN;
 }
 
 /* Read the length byte (bounded), the CID, and the reset token. */

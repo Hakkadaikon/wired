@@ -108,6 +108,21 @@ static void test_ncid_decode_rejects_over_max_len(void) {
   CHECK(ncid_decode(buf, w, &out) == 0);
 }
 
+/* RFC 9000 19.15: a zero-length Connection ID is a FRAME_ENCODING_ERROR --
+ * ncid_decode rejects it. */
+static void test_ncid_decode_rejects_zero_len(void) {
+  u8  buf[64];
+  usz w    = 0;
+  buf[w++] = FRAME_NEW_CID;
+  buf[w++] = 1; /* seq = 1 */
+  buf[w++] = 0; /* retire_prior_to = 0 */
+  buf[w++] = 0; /* cid length byte: zero */
+  for (int i = 0; i < NCID_TOKEN; i++) buf[w++] = 0;
+
+  ncid_frame out;
+  CHECK(ncid_decode(buf, w, &out) == 0);
+}
+
 void test_ncid(void) {
   test_ncid_roundtrip();
   test_ncid_invalid_and_truncated();
@@ -118,4 +133,5 @@ void test_ncid(void) {
   test_ncid_worker_masks_oversize_index();
   test_ncid_worker_encode_decode_roundtrip_bits8_boundary();
   test_ncid_decode_rejects_over_max_len();
+  test_ncid_decode_rejects_zero_len();
 }
