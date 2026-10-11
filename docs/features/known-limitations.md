@@ -303,8 +303,10 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   client a different target. Source: `moqtrun.c:8151`, `moqtrun.h:1176`, L13
   "対象外".
 - **0-RTT refused on a raw ALPN** — a raw-QUIC connection is never admitted in
-  0-RTT (d18 3.3.1 / d22 6.3.1 relay MAY). Re-open condition: a peer that
-  demands 0-RTT. Source: L13-3, L13 "対象外".
+  0-RTT (d18 3.3.1 / d22 6.3.1 relay MAY), and its NewSessionTicket omits the
+  early_data extension so a resuming client does not attempt it. Re-open
+  condition: a peer that demands 0-RTT. Source: L13-3, L13 "対象外",
+  `src/app/http3/server/srvloop/respond.c` (`ticket_max_early_data`).
 - **Close reasons bounded by one minimum-size packet** — the hub's
   application CONNECTION_CLOSE (0x1d) reason phrase is cut (at a UTF-8
   boundary) to `SRVRUN_RAW_CLOSE_REASON_MAX` = 1148, what fits next to the
