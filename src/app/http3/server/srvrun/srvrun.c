@@ -853,6 +853,9 @@ typedef struct {
   int qdec_stream_opened;
   /** wtsend[] slot of the decoder stream once qdec_stream_opened is set. */
   int qdec_wtsend_slot;
+  /** RFC 9000 4.1 / 19.10: the last MAX_STREAM_DATA sent for the peer's
+   * encoder stream (0: none -- the initial credit still stands). */
+  u64 qenc_credit_advertised;
   /** 1 while a server-initiated uni open was refused by peer_uni_stream_
    * limit since the last srvrun_pump_sess pass (srvrun_wt_uni_open_ok's own
    * doc) -- latched here because the refusal happens on the app's own
@@ -3423,11 +3426,30 @@ static void srvrun_grant_conn_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
  * step regardless of whether this step itself delivered anything, so a
  * connection with an idle WT slot still eventually catches up after a burst
  * a few steps earlier. */
+/* RFC 9000 4.1: due once the encoder window's end passed both the initial
+ * credit and the last grant. */
+static int srvrun_qenc_credit_due(const srvrun_conn* c, u64 ceiling) {
+  return ceiling > QDYN_ENCRX_CAP && ceiling > c->qenc_credit_advertised;
+}
+
+/* RFC 9000 4.1 / 19.10, RFC 9204 4.2: re-grant the peer's encoder stream
+ * credit to the end of its reassembly window as instructions are consumed
+ * (qdyn_encrx_credit), so the stream is never capped at its initial credit
+ * and never sends past what the window holds. */
+static void srvrun_grant_qenc_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
+  const qdyn_encrx* rx      = &c->l.h3.qenc_rx;
+  u64               ceiling = qdyn_encrx_credit(rx);
+  if (!rx->type_len || !srvrun_qenc_credit_due(c, ceiling)) return;
+  srvrun_send_max_stream_data(cfg, c, rx->stream_id, ceiling);
+  c->qenc_credit_advertised = ceiling;
+}
+
 static void srvrun_grant_wt_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
     srvrun_grant_wt_slot_credit(cfg, c, &c->l.wt_streams[i]);
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
     srvrun_grant_wt_uni_slot_credit(cfg, c, &c->l.wt_uni_streams[i]);
+  srvrun_grant_qenc_credit(cfg, c);
   srvrun_grant_conn_credit(cfg, c);
 }
 

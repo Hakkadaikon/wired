@@ -19458,6 +19458,29 @@ static void test_srvrun_qdec_stream_opens_on_first_owed(void) {
   CHECK(w->sess.q.len == 3 && w->roundbuf[2] == 0x01);
 }
 
+/* RFC 9000 4.1 / 19.10: the peer's encoder stream is re-granted credit to
+ * the end of its reassembly window once instructions are consumed -- not
+ * before (its initial credit still stands), and not again until the window
+ * moves on. */
+static void test_srvrun_qenc_credit_regranted(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  qdyn_encrx_take(&c->l.h3.qenc_rx, 2);
+  c->l.h3.qenc_rx.type_len = 1;
+  srvrun_test_reset_send_count();
+  srvrun_grant_wt_credit(&cfg, c);
+  CHECK(srvrun_test_send_count() == 0);
+  c->l.h3.qenc_rx.base = 100;
+  srvrun_grant_wt_credit(&cfg, c);
+  CHECK(srvrun_test_send_count() == 1);
+  CHECK(c->qenc_credit_advertised == 100 + QDYN_ENCRX_CAP);
+  srvrun_grant_wt_credit(&cfg, c);
+  CHECK(srvrun_test_send_count() == 1);
+}
+
 /* RFC 9000 4.6: with the peer's uni-stream limit spent, the owed bytes
  * wait (still pending) instead of opening past the limit. */
 static void test_srvrun_qdec_waits_for_stream_credit(void) {
@@ -22504,6 +22527,7 @@ void test_srvrun(void) {
   test_srvrun_qpack_violation_closes();
   test_srvrun_qdec_stream_opens_on_first_owed();
   test_srvrun_qdec_waits_for_stream_credit();
+  test_srvrun_qenc_credit_regranted();
   test_srvrun_wt_window_overflow_closes_flow_control();
   test_srvrun_capsule_only_conn_regrows_max_data();
   test_srvrun_wt_refuse_overflow_closes();
