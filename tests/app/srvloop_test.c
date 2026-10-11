@@ -2743,6 +2743,45 @@ static void test_srvloop_qpack_split_inserts_section_ack(void) {
   CHECK(f.l.qpack_stream_violation == 0);
 }
 
+/* RFC 9204 2.2.2.1 / 4.4.1: a section with RIC 2 decoded in full and then
+ * rejected as a malformed request (a "connection" field, RFC 9114 4.2) is
+ * still acknowledged -- the encoder's references must not stay pinned. */
+static void test_srvloop_qpack_rejected_request_still_acked(void) {
+  static const u8 hdr[] = {0x01, 0x14, 0x03, 0x81, 0xd1, 0xd7, 0x10, 0x11,
+                           0x27, 0x03, 'c',  'o',  'n',  'n',  'e',  'c',
+                           't',  'i',  'o',  'n',  0x01, 'x'};
+  struct lp_fix   f;
+  u8              payload[256], out[1024];
+  usz             off;
+  wired_obuf      ob = {out, sizeof out, 0};
+  stream_frame    sf = {4, 0, sizeof hdr, hdr, 1};
+  lp_confirm(&f, &ob);
+  off = lp_qenc_frame(payload, sizeof payload, 0, lp_b2_enc, sizeof lp_b2_enc);
+  off += frame_put_stream(payload + off, sizeof payload - off, &sf);
+  lp_step_payload(&f, 3, payload, off);
+  CHECK(f.l.done_n == 0 && f.l.qpack_stream_violation == 0);
+  CHECK(f.l.h3.qdec.acks_len == 1 && f.l.h3.qdec.acks[0] == 0x84);
+}
+
+/* RFC 9204 4.4.2 / 2.2.2.2 / B.4: a reset request stream owes a Stream
+ * Cancellation (stream 8: B.4's 0x48) once the peer has inserted anything
+ * its sections could reference; before any insert it owes nothing. */
+static void test_srvloop_qpack_reset_cancels_stream(void) {
+  struct lp_fix      f;
+  u8                 payload[256], out[1024];
+  usz                off;
+  wired_obuf         ob = {out, sizeof out, 0};
+  reset_stream_frame r8 = {8, 0x10c, 0}, r12 = {12, 0x10c, 0};
+  lp_confirm(&f, &ob);
+  off = reset_stream_encode(payload, sizeof payload, &r12);
+  lp_step_payload(&f, 3, payload, off);
+  CHECK(f.l.h3.qdec.acks_len == 0);
+  off = lp_qenc_frame(payload, sizeof payload, 0, lp_b2_enc, sizeof lp_b2_enc);
+  off += reset_stream_encode(payload + off, sizeof payload - off, &r8);
+  lp_step_payload(&f, 4, payload, off);
+  CHECK(f.l.h3.qdec.acks_len == 1 && f.l.h3.qdec.acks[0] == 0x48);
+}
+
 /* RFC 9204 4.2 / RFC 9000 2.2: the encoder stream's later bytes arriving
  * before its offset-0 frame (the one carrying the type byte) are kept, not
  * dropped -- the transport already acknowledged them -- and apply once the
@@ -5228,6 +5267,8 @@ void test_srvloop(void) {
   test_srvloop_qpack_connect_dynamic_refs();
   test_srvloop_qpack_type_after_later_bytes();
   test_srvloop_qpack_nonminimal_type();
+  test_srvloop_qpack_rejected_request_still_acked();
+  test_srvloop_qpack_reset_cancels_stream();
   test_srvloop_qpack_bad_duplicate();
   test_srvloop_uni_unrecognized_type_no_crash();
   test_srvloop_uni_reset_before_type_no_crash();
