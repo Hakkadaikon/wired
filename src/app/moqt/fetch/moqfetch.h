@@ -319,4 +319,18 @@ int moqfetch_obj_take(
 int moqfetch_obj_put(
     wired_mspan buf, usz* off, moqfetch_seq* seq, const moqfetch_obj* o);
 
+/** moqfetch_obj_take for an Object whose payload may not all be in buf
+ * yet: MOQCTL_OK once every field through the Payload Length is, with
+ * *off at the first payload byte and out->payload {that byte, the whole
+ * Payload Length} -- only the bytes buf holds past *off are readable.
+ * An End of Range decodes as with moqfetch_obj_take. */
+int moqfetch_obj_take_head(
+    wired_span buf, usz* off, moqfetch_seq* seq, moqfetch_obj* out);
+
+/** moqfetch_obj_put without the payload bytes: the fields and a Payload
+ * Length of o->payload.n (o->payload.p is not read); the payload follows
+ * on the wire as is. */
+int moqfetch_obj_put_head(
+    wired_mspan buf, usz* off, moqfetch_seq* seq, const moqfetch_obj* o);
+
 #endif

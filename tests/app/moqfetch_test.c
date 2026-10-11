@@ -1096,7 +1096,41 @@ static void test_moqfetch_fill_ctx_scope(void) {
           MOQCTL_PCTX_REQUEST_OK_ANY, &p) != MOQCTL_OK);
 }
 
+/* An Object's fields up to its Payload Length decode before the payload
+ * is all in: the head names the whole length and leaves the offset at the
+ * first payload byte; cut before the length it is INSUFFICIENT. The head
+ * encoder plus the payload bytes is the whole-Object encoding. */
+static void test_moqfetch_obj_head(void) {
+  static const u8 pay[5] = {1, 2, 3, 4, 5};
+  u8              whole[32], head[32];
+  usz             wn = 0, hn = 0, off = 0;
+  moqfetch_seq    es = {0}, hs = {0}, ds = {0};
+  moqfetch_obj    o = {0}, d;
+  o.flags        = MOQFETCH_F_GROUP | MOQFETCH_F_OBJECT | MOQFETCH_F_PRIORITY;
+  o.group        = 7;
+  o.object       = 3;
+  o.has_subgroup = 1;
+  o.priority     = 9;
+  o.payload      = wired_span_of(pay, 5);
+  CHECK(moqfetch_obj_put(wired_mspan_of(whole, sizeof whole), &wn, &es, &o));
+  o.payload = wired_span_of(0, 5);
+  CHECK(moqfetch_obj_put_head(wired_mspan_of(head, sizeof head), &hn, &hs, &o));
+  moqfetch_t_same(head, hn, wired_span_of(whole, wn - 5));
+  CHECK(
+      moqfetch_obj_take_head(wired_span_of(whole, hn + 2), &off, &ds, &d) ==
+      MOQCTL_OK);
+  CHECK(off == hn && d.payload.n == 5 && d.payload.p == whole + hn);
+  CHECK(d.group == 7 && d.object == 3 && ds.group == 7 && ds.object == 3);
+  off = 0;
+  ds  = (moqfetch_seq){0};
+  CHECK(
+      moqfetch_obj_take_head(wired_span_of(whole, hn - 1), &off, &ds, &d) ==
+      MOQCTL_INSUFFICIENT);
+  CHECK(off == 0 && !ds.have_loc);
+}
+
 void test_moqfetch(void) {
+  test_moqfetch_obj_head();
   test_moqfetch_standalone_golden();
   test_moqfetch_joining_golden();
   test_moqfetch_bad_type_and_scope();

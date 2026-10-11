@@ -576,11 +576,27 @@ static int moqfetch_take_eor(
   return moqvi_take(b, at, &o->object) ? MOQCTL_OK : MOQCTL_INSUFFICIENT;
 }
 
+/* The Payload Length alone: the payload starts at *at and may not all be
+ * in b yet (moqfetch_obj_take_head). */
+static int moqfetch_take_payload_len(
+    wired_span b, usz* at, const moqfetch_seq* s, moqfetch_obj* o) {
+  u64 n;
+  (void)s;
+  if (!moqvi_take(b, at, &n)) return MOQCTL_INSUFFICIENT;
+  o->payload = wired_span_of(b.p + *at, (usz)n);
+  return MOQCTL_OK;
+}
+
 /* Wire order of Figure 27. */
 static const moqfetch_step_fn MOQFETCH_OBJ_STEPS[] = {
     moqfetch_first_ok,     moqfetch_take_group,    moqfetch_take_subgroup,
     moqfetch_take_object,  moqfetch_take_priority, moqfetch_take_props,
     moqfetch_take_payload,
+};
+static const moqfetch_step_fn MOQFETCH_HEAD_STEPS[] = {
+    moqfetch_first_ok,         moqfetch_take_group,    moqfetch_take_subgroup,
+    moqfetch_take_object,      moqfetch_take_priority, moqfetch_take_props,
+    moqfetch_take_payload_len,
 };
 static const moqfetch_step_fn MOQFETCH_EOR_STEPS[] = {moqfetch_take_eor};
 
@@ -625,6 +641,10 @@ static const moqfetch_kind_ops MOQFETCH_KIND_OPS[2] = {
     {MOQFETCH_OBJ_STEPS, MOQFETCH_N(MOQFETCH_OBJ_STEPS), moqfetch_note_obj},
     {MOQFETCH_EOR_STEPS, MOQFETCH_N(MOQFETCH_EOR_STEPS), moqfetch_note_eor},
 };
+static const moqfetch_kind_ops MOQFETCH_HEAD_OPS[2] = {
+    {MOQFETCH_HEAD_STEPS, MOQFETCH_N(MOQFETCH_HEAD_STEPS), moqfetch_note_obj},
+    {MOQFETCH_EOR_STEPS, MOQFETCH_N(MOQFETCH_EOR_STEPS), moqfetch_note_eor},
+};
 
 static void moqfetch_obj_clear(moqfetch_obj* o, u64 flags) {
   bytes_memset(o, 0, sizeof *o);
@@ -647,25 +667,43 @@ static int moqfetch_run(
 }
 
 static int moqfetch_obj_take_at(
-    wired_span b, usz* at, moqfetch_seq* s, moqfetch_obj* o) {
+    const moqfetch_kind_ops* ops,
+    wired_span               b,
+    usz*                     at,
+    moqfetch_seq*            s,
+    moqfetch_obj*            o) {
   u64 flags;
   if (!moqvi_take(b, at, &flags)) return MOQCTL_INSUFFICIENT;
   int kind = moqfetch_kind(flags, s);
   if (kind < 0) return MOQCTL_VIOLATION;
   moqfetch_obj_clear(o, flags);
-  return moqfetch_run(&MOQFETCH_KIND_OPS[kind], b, at, s, o);
+  return moqfetch_run(&ops[kind], b, at, s, o);
 }
 
 /* The sequence advances on a copy, so a failed decode leaves it as is. */
-int moqfetch_obj_take(
-    wired_span buf, usz* off, moqfetch_seq* seq, moqfetch_obj* out) {
+static int moqfetch_obj_take_with(
+    const moqfetch_kind_ops* ops,
+    wired_span               buf,
+    usz*                     off,
+    moqfetch_seq*            seq,
+    moqfetch_obj*            out) {
   usz          at   = *off;
   moqfetch_seq next = *seq;
-  int          r    = moqfetch_obj_take_at(buf, &at, &next, out);
+  int          r    = moqfetch_obj_take_at(ops, buf, &at, &next, out);
   if (r != MOQCTL_OK) return r;
   *seq = next;
   *off = at;
   return MOQCTL_OK;
+}
+
+int moqfetch_obj_take(
+    wired_span buf, usz* off, moqfetch_seq* seq, moqfetch_obj* out) {
+  return moqfetch_obj_take_with(MOQFETCH_KIND_OPS, buf, off, seq, out);
+}
+
+int moqfetch_obj_take_head(
+    wired_span buf, usz* off, moqfetch_seq* seq, moqfetch_obj* out) {
+  return moqfetch_obj_take_with(MOQFETCH_HEAD_OPS, buf, off, seq, out);
 }
 
 /* ----- encode: the inverse of each take step ----- */
@@ -731,6 +769,12 @@ static int moqfetch_put_payload(
   return moqctl_name_put(b, at, o->payload);
 }
 
+static int moqfetch_put_payload_len(
+    wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o) {
+  (void)s;
+  return moqvi_put(b, at, o->payload.n);
+}
+
 static int moqfetch_put_eor(
     wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o) {
   (void)s;
@@ -742,6 +786,11 @@ static const moqfetch_put_fn MOQFETCH_PUT_OBJ[] = {
     moqfetch_put_flags,   moqfetch_put_group,    moqfetch_put_subgroup,
     moqfetch_put_object,  moqfetch_put_priority, moqfetch_put_props,
     moqfetch_put_payload,
+};
+static const moqfetch_put_fn MOQFETCH_PUT_HEAD[] = {
+    moqfetch_put_flags,       moqfetch_put_group,    moqfetch_put_subgroup,
+    moqfetch_put_object,      moqfetch_put_priority, moqfetch_put_props,
+    moqfetch_put_payload_len,
 };
 static const moqfetch_put_fn MOQFETCH_PUT_EOR[] = {
     moqfetch_put_flags,
@@ -757,6 +806,10 @@ static const moqfetch_put_ops MOQFETCH_PUT_BY_KIND[2] = {
     {MOQFETCH_PUT_OBJ, MOQFETCH_N(MOQFETCH_PUT_OBJ)},
     {MOQFETCH_PUT_EOR, MOQFETCH_N(MOQFETCH_PUT_EOR)},
 };
+static const moqfetch_put_ops MOQFETCH_PUT_HEAD_BY_KIND[2] = {
+    {MOQFETCH_PUT_HEAD, MOQFETCH_N(MOQFETCH_PUT_HEAD)},
+    {MOQFETCH_PUT_EOR, MOQFETCH_N(MOQFETCH_PUT_EOR)},
+};
 
 static int moqfetch_put_all(
     const moqfetch_put_ops* ops,
@@ -769,12 +822,25 @@ static int moqfetch_put_all(
   return 1;
 }
 
-int moqfetch_obj_put(
-    wired_mspan buf, usz* off, moqfetch_seq* seq, const moqfetch_obj* o) {
+static int moqfetch_obj_put_with(
+    const moqfetch_put_ops* ops,
+    wired_mspan             buf,
+    usz*                    off,
+    moqfetch_seq*           seq,
+    const moqfetch_obj*     o) {
   int kind = moqfetch_kind(o->flags, seq);
   if (kind < 0) return 0;
-  if (!moqfetch_put_all(&MOQFETCH_PUT_BY_KIND[kind], buf, off, seq, o))
-    return 0;
+  if (!moqfetch_put_all(&ops[kind], buf, off, seq, o)) return 0;
   MOQFETCH_KIND_OPS[kind].note(seq, o);
   return 1;
+}
+
+int moqfetch_obj_put(
+    wired_mspan buf, usz* off, moqfetch_seq* seq, const moqfetch_obj* o) {
+  return moqfetch_obj_put_with(MOQFETCH_PUT_BY_KIND, buf, off, seq, o);
+}
+
+int moqfetch_obj_put_head(
+    wired_mspan buf, usz* off, moqfetch_seq* seq, const moqfetch_obj* o) {
+  return moqfetch_obj_put_with(MOQFETCH_PUT_HEAD_BY_KIND, buf, off, seq, o);
 }
