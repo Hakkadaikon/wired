@@ -219,16 +219,17 @@ static int peek_decode_request(
  * stream never carries FIN -- the stream IS the WebTransport session and
  * stays open for its whole lifetime -- so a CONNECT request is complete at
  * its HEADERS frame. 1 if acc currently holds one complete HEADERS frame
- * that decodes to a CONNECT request. */
+ * that decodes to a CONNECT request. The decode lands in in->req, so a
+ * section that failed to decode (req.qpack_failed) is seen by the caller
+ * even though no FIN completes the request. */
 static int connect_headers_complete(
     const wired_h3srv_state*         h3,
     const wired_srvloop_reqacc*      acc,
     const wired_srvloop_dispatch_in* in) {
-  wired_h3reqdrive_req r;
-  usz                  n = acc_headers_frame_len(acc);
+  usz n = acc_headers_frame_len(acc);
   if (n == 0) return 0;
-  if (!peek_decode_request(h3, acc, in, n, &r)) return 0;
-  return req_method_is_connect(&r);
+  if (!peek_decode_request(h3, acc, in, n, in->req)) return 0;
+  return req_method_is_connect(in->req);
 }
 
 /* A request is complete at FIN (RFC 9114 4.1) or, for a CONNECT, at its
@@ -1606,7 +1607,10 @@ static void route_complete_slot(
       in->payload, wired_mspan_of(slot->req_scratch, sizeof slot->req_scratch),
       wired_mspan_of(slot->req_wrap, sizeof slot->req_wrap), &got, &slot->req};
   if (route_answered_early(ctx, i)) return;
-  if (!request_complete(ctx->h3, &acc, &sin)) return;
+  if (!request_complete(ctx->h3, &acc, &sin)) {
+    route_note_qpack(ctx->l, i); /* RFC 9204 2.2.3: no FIN may ever come */
+    return;
+  }
   route_dispatch_complete(ctx, &acc, &sin);
   route_note_result(ctx->l, i, got);
 }

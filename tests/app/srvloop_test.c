@@ -2950,6 +2950,26 @@ static void test_srvloop_qpack_connect_dynamic_refs(void) {
   CHECK(f.l.req.path_len == 12 && f.l.req.path[0] == '/');
 }
 
+/* RFC 9204 2.2.3 / 2.1.2: an Extended CONNECT (no FIN) whose section needs
+ * inserts never received fails the connection -- it must not wait forever
+ * for a FIN that never comes. */
+static void test_srvloop_qpack_connect_bad_ref_fails(void) {
+  static const u8 hdr[] = {0x01, 0x1e, 0x03, 0x00, 0xcf, 0xd7, 0x81, 0x80,
+                           0x27, 0x02, ':',  'p',  'r',  'o',  't',  'o',
+                           'c',  'o',  'l',  0x0c, 'w',  'e',  'b',  't',
+                           'r',  'a',  'n',  's',  'p',  'o',  'r',  't'};
+  struct lp_fix   f;
+  u8              payload[256], out[1024];
+  usz             off;
+  wired_obuf      ob = {out, sizeof out, 0};
+  stream_frame    sf = {4, 0, sizeof hdr, hdr, 0};
+  lp_confirm(&f, &ob);
+  off = frame_put_stream(payload, sizeof payload, &sf);
+  lp_step_payload(&f, 3, payload, off);
+  CHECK(f.l.done_n == 0);
+  CHECK(f.l.qpack_stream_violation == QPACK_DECOMPRESSION_FAILED);
+}
+
 /* RFC 9204 2.1.2: with no blocked streams allowed, a section needing
  * inserts not yet received is QPACK_DECOMPRESSION_FAILED. */
 static void test_srvloop_qpack_blocked_section_fails(void) {
@@ -5446,6 +5466,7 @@ void test_srvloop(void) {
   test_srvloop_qpack_reset_with_section_acks_only();
   test_srvloop_qpack_reset_before_section_cancels_only();
   test_srvloop_qpack_rejected_framing_cancels();
+  test_srvloop_qpack_connect_bad_ref_fails();
   test_srvloop_qpack_reset_mid_section_cancels_only();
   test_srvloop_qpack_bad_duplicate();
   test_srvloop_uni_unrecognized_type_no_crash();
