@@ -2791,6 +2791,81 @@ static void test_srvloop_qpack_reset_cancels_stream(void) {
   CHECK(f.l.h3.qdec.acks_len == 1 && f.l.h3.qdec.acks[0] == 0x48);
 }
 
+/* RFC 9204 4.4.1 / 4.4.2: a stream gets an acknowledgment or a
+ * cancellation, never both -- after a Stream Cancellation the peer's
+ * encoder forgets the stream and treats a later Section Acknowledgment as
+ * QPACK_DECODER_STREAM_ERROR. HEADERS+FIN and RESET_STREAM in one packet:
+ * the section was processed, so only its acknowledgment (0x84) is owed. */
+static void test_srvloop_qpack_reset_with_section_acks_only(void) {
+  struct lp_fix      f;
+  u8                 payload[256], out[1024];
+  usz                off;
+  wired_obuf         ob = {out, sizeof out, 0};
+  reset_stream_frame r4 = {4, 0x10c, 8};
+  lp_confirm(&f, &ob);
+  off = lp_qenc_frame(payload, sizeof payload, 0, lp_b2_enc, sizeof lp_b2_enc);
+  off += lp_b2_request(payload + off, sizeof payload - off);
+  off += reset_stream_encode(payload + off, sizeof payload - off, &r4);
+  lp_step_payload(&f, 3, payload, off);
+  CHECK(f.l.h3.qdec.acks_len == 1 && f.l.h3.qdec.acks[0] == 0x84);
+}
+
+/* The reordered case: RESET_STREAM first, the section later. The stream
+ * was cancelled (0x44), so the late section is never acknowledged. */
+static void test_srvloop_qpack_reset_before_section_cancels_only(void) {
+  struct lp_fix      f;
+  u8                 payload[256], out[1024];
+  usz                off;
+  wired_obuf         ob = {out, sizeof out, 0};
+  reset_stream_frame r4 = {4, 0x10c, 8};
+  lp_confirm(&f, &ob);
+  off = lp_qenc_frame(payload, sizeof payload, 0, lp_b2_enc, sizeof lp_b2_enc);
+  off += reset_stream_encode(payload + off, sizeof payload - off, &r4);
+  lp_step_payload(&f, 3, payload, off);
+  off = lp_b2_request(payload, sizeof payload);
+  lp_step_payload(&f, 4, payload, off);
+  CHECK(f.l.h3.qdec.acks_len == 1 && f.l.h3.qdec.acks[0] == 0x44);
+}
+
+/* The same with the section's first half already landed when the reset
+ * arrives: its rest completing the section later still owes nothing. */
+static void test_srvloop_qpack_reset_mid_section_cancels_only(void) {
+  static const u8    hdr[] = {0x01, 0x06, 0x03, 0x81, 0xd1, 0xd7, 0x10, 0x11};
+  struct lp_fix      f;
+  u8                 payload[256], out[1024];
+  usz                off;
+  wired_obuf         ob = {out, sizeof out, 0};
+  reset_stream_frame r4 = {4, 0x10c, 8};
+  stream_frame       a  = {4, 0, 4, hdr, 0};
+  stream_frame       b  = {4, 4, 4, hdr + 4, 1};
+  lp_confirm(&f, &ob);
+  off = lp_qenc_frame(payload, sizeof payload, 0, lp_b2_enc, sizeof lp_b2_enc);
+  off += frame_put_stream(payload + off, sizeof payload - off, &a);
+  off += reset_stream_encode(payload + off, sizeof payload - off, &r4);
+  lp_step_payload(&f, 3, payload, off);
+  off = frame_put_stream(payload, sizeof payload, &b);
+  lp_step_payload(&f, 4, payload, off);
+  CHECK(f.l.h3.qdec.acks_len == 1 && f.l.h3.qdec.acks[0] == 0x44);
+}
+
+/* RFC 9204 2.2.2.2: a request stream rejected before any section decoded
+ * (a DATA frame ahead of HEADERS, RFC 9114 4.1) stops being read, so its
+ * references are released with a Stream Cancellation (0x44). */
+static void test_srvloop_qpack_rejected_framing_cancels(void) {
+  static const u8 req[] = {0x00, 0x01, 'x', 0x01, 0x03, 0x03, 0x81, 0x10};
+  struct lp_fix   f;
+  u8              payload[256], out[1024];
+  usz             off;
+  wired_obuf      ob = {out, sizeof out, 0};
+  stream_frame    sf = {4, 0, sizeof req, req, 1};
+  lp_confirm(&f, &ob);
+  off = lp_qenc_frame(payload, sizeof payload, 0, lp_b2_enc, sizeof lp_b2_enc);
+  off += frame_put_stream(payload + off, sizeof payload - off, &sf);
+  lp_step_payload(&f, 3, payload, off);
+  CHECK(f.l.done_n == 0 && f.l.qpack_stream_violation == 0);
+  CHECK(f.l.h3.qdec.acks_len == 1 && f.l.h3.qdec.acks[0] == 0x44);
+}
+
 /* RFC 9204 2.2.2.1 / 4.4.1: a request's trailer section referencing the
  * dynamic table owes its own Section Acknowledgment, even when the leading
  * section used only the static table. */
@@ -5368,6 +5443,10 @@ void test_srvloop(void) {
   test_srvloop_qpack_rejected_request_still_acked();
   test_srvloop_qpack_reset_cancels_stream();
   test_srvloop_qpack_trailer_section_acked();
+  test_srvloop_qpack_reset_with_section_acks_only();
+  test_srvloop_qpack_reset_before_section_cancels_only();
+  test_srvloop_qpack_rejected_framing_cancels();
+  test_srvloop_qpack_reset_mid_section_cancels_only();
   test_srvloop_qpack_bad_duplicate();
   test_srvloop_uni_unrecognized_type_no_crash();
   test_srvloop_uni_reset_before_type_no_crash();

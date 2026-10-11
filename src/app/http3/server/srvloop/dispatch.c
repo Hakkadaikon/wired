@@ -910,32 +910,11 @@ static void push_peer_reset(wired_srvloop* l, u64 id, u64 code, int is_stop) {
  * STOP_SENDING, queue its (stream_id, error_code, kind) -- every one this
  * step, unlike gather_one_stream_close's last-one-wins latch. l has no
  * notion of which stream id it names; the caller (srvrun.c) resolves it. */
-/* RFC 9204 4.4.2: references are only possible once the peer inserted. */
-static int qdec_table_used(const wired_srvloop* l) {
-  return l->h3.qdyn.dropped + l->h3.qdyn.count != 0;
-}
-
-/* RFC 9204 4.4.2 / 2.2.2.2: "When a stream is reset or reading is
- * abandoned, the decoder emits a Stream Cancellation instruction" -- for a
- * request stream (a WebTransport stream carries no field sections), once the
- * peer has inserted anything its sections could reference. Releases any
- * references the encoder still holds for that stream. */
-static int qdec_cancel_due(const wired_srvloop* l, u64 id) {
-  return qdec_table_used(l) && is_request_stream(id) &&
-         wired_srvloop_wt_slot_find(l, id) < 0;
-}
-
-static void qdec_cancel_on_reset(wired_srvloop* l, u64 id) {
-  if (qdec_cancel_due(l, id)) qdyn_dec_stream_cancel(&l->h3.qdec, id);
-}
-
 static void gather_one_wt_reset(wired_srvloop* l, u64 type, wired_span frame) {
   reset_stream_frame rs;
   stop_sending_frame ss;
-  if (wt_reset_frame(type, frame, &rs)) {
+  if (wt_reset_frame(type, frame, &rs))
     push_peer_reset(l, rs.stream_id, rs.error_code, 0);
-    qdec_cancel_on_reset(l, rs.stream_id);
-  }
   if (wt_stop_frame(type, frame, &ss))
     push_peer_reset(l, ss.stream_id, ss.error_code, 1);
 }
@@ -1316,21 +1295,49 @@ static int route_request_frames(
   return seen;
 }
 
+/* RFC 9204 4.4.2: references are only possible once the peer inserted. */
+static int qdec_table_used(const wired_srvloop* l) {
+  return l->h3.qdyn.dropped + l->h3.qdyn.count != 0;
+}
+
+/* RFC 9204 4.4.1 / 4.4.2: 1 the first time the decoder speaks for slot i's
+ * stream. It sends an acknowledgment or a cancellation, never both: once
+ * cancelled the peer's encoder forgets the stream and treats a later
+ * acknowledgment as QPACK_DECODER_STREAM_ERROR, and an acknowledged stream
+ * holds no reference left to cancel. */
+static int qdec_settle(wired_srvloop* l, int i) {
+  int first                   = !l->streams[i].qpack_settled;
+  l->streams[i].qpack_settled = 1;
+  return first;
+}
+
+static void qdec_cancel_id(wired_srvloop* l, u64 id) {
+  if (qdec_table_used(l)) qdyn_dec_stream_cancel(&l->h3.qdec, id);
+}
+
+/* RFC 9204 2.2.2.2: "When a stream is reset or reading is abandoned, the
+ * decoder emits a Stream Cancellation instruction" -- releasing the
+ * references the encoder still holds for slot i's stream, unless the stream
+ * was already settled (qdec_settle). */
+static void qdec_cancel_slot(wired_srvloop* l, int i) {
+  if (qdec_settle(l, i)) qdec_cancel_id(l, l->streams[i].stream_id);
+}
+
+/* RFC 9204 2.2.2.1 / 4.4.1: acknowledge slot i's decoded field sections
+ * (leading, then trailer) on the decoder stream when their Required Insert
+ * Count is non-zero -- also for a request then rejected as malformed; a
+ * section that failed to decode is a connection error instead. */
+static void route_qpack_ack(wired_srvloop* l, int i) {
+  const wired_h3reqdrive_req* r  = &l->streams[i].req;
+  u64                         id = l->streams[i].stream_id;
+  if (r->qpack_failed || !qdec_settle(l, i)) return;
+  qdyn_dec_section_ack(&l->h3.qdec, id, r->qpack_ric);
+  qdyn_dec_section_ack(&l->h3.qdec, id, r->qpack_trailer_ric);
+}
+
 /* Append slot i to this step's completion list and mirror its request into
  * l->req/req_stream_id (the pre-existing single-request API surface; the
  * mirror carries the LAST completion when more than one lands this step). */
-/* RFC 9204 2.2.2.1 / 4.4.1: acknowledge slot i's decoded field section on
- * the decoder stream when its Required Insert Count is non-zero -- also for
- * a request then rejected as malformed; a section that failed to decode is a
- * connection error instead. */
-static void route_qpack_ack(wired_srvloop* l, int i) {
-  const wired_h3reqdrive_req* r = &l->streams[i].req;
-  if (r->qpack_failed) return;
-  qdyn_dec_section_ack(&l->h3.qdec, l->streams[i].stream_id, r->qpack_ric);
-  qdyn_dec_section_ack(
-      &l->h3.qdec, l->streams[i].stream_id, r->qpack_trailer_ric);
-}
-
 static void route_note_done(wired_srvloop* l, int i) {
   l->req           = l->streams[i].req;
   l->req_stream_id = l->streams[i].stream_id;
@@ -1387,8 +1394,6 @@ static void route_dispatch_complete(
     drive_complete(ctx->h3, acc, sin);
 }
 
-/* Record slot i's decode outcome: a request to answer, or an incomplete /
- * rejected stream to abort. */
 /* RFC 9204 4.5.1 / 2.1.2: a section prefix that failed to decode is a
  * connection error, not just an aborted request. */
 static void route_note_qpack(wired_srvloop* l, int i) {
@@ -1396,13 +1401,26 @@ static void route_note_qpack(wired_srvloop* l, int i) {
     l->qpack_stream_violation = QPACK_DECOMPRESSION_FAILED;
 }
 
-/* A completed stream that yielded no request: its decoded section is still
- * acknowledged, then the stream is aborted. */
+/* RFC 9204 2.2.2: a rejected stream's decoded section (non-zero Required
+ * Insert Count) is acknowledged; one whose leading section was never
+ * decoded (its framing rejected first) or referenced nothing is cancelled
+ * instead -- reading stops either way. */
+static void route_qpack_settle_rejected(wired_srvloop* l, int i) {
+  if (l->streams[i].req.qpack_ric)
+    route_qpack_ack(l, i);
+  else
+    qdec_cancel_slot(l, i);
+}
+
+/* A completed stream that yielded no request: its decoder state is settled,
+ * then the stream is aborted. */
 static void route_note_rejected(wired_srvloop* l, int i) {
-  route_qpack_ack(l, i);
+  route_qpack_settle_rejected(l, i);
   route_note_incomplete(l, i);
 }
 
+/* Record slot i's decode outcome: a request to answer, or an incomplete /
+ * rejected stream to abort. */
 static void route_note_result(wired_srvloop* l, int i, int got) {
   route_note_qpack(l, i);
   if (got)
@@ -1446,6 +1464,7 @@ static int route_complete_over(const wired_srvloop_dispatch_ctx* ctx, int i) {
   slot->req_done             = 1;
   slot->req                  = (wired_h3reqdrive_req){0};
   slot->req.too_large_status = route_too_large_status(slot);
+  qdec_cancel_slot(ctx->l, i); /* RFC 9204 2.2.2.2: reading abandoned */
   route_note_done(ctx->l, i);
   return 1;
 }
@@ -1530,6 +1549,7 @@ static void route_body_reject(wired_srvloop* l, int i) {
 static void route_body_frame_error(wired_srvloop* l, int i) {
   l->streams[i].req_done = 1;
   l->req_frame_error     = 1;
+  qdec_cancel_slot(l, i); /* RFC 9204 2.2.2.2: reading abandoned */
 }
 
 /* RFC 9114 7.2: a frame a request stream must not carry -- rejected the
@@ -1537,6 +1557,7 @@ static void route_body_frame_error(wired_srvloop* l, int i) {
 static void route_body_frame_unexpected(wired_srvloop* l, int i) {
   l->streams[i].req_done = 1;
   route_note_frame_unexpected(l, i);
+  qdec_cancel_slot(l, i); /* RFC 9204 2.2.2.2: reading abandoned */
 }
 
 /* Parse what the window holds and settle the outcome (once: a finished
@@ -1768,14 +1789,72 @@ static int dispatch_gather_side_channels(
          got_req_pri;
 }
 
+/* 1 if slot is the live request slot of stream id. */
+static int qdec_slot_is(const wired_srvloop_stream_slot* slot, u64 id) {
+  return slot->in_use && slot->stream_id == id;
+}
+
+/* The request slot of stream id, -1 if it has none (never claims one). */
+static int qdec_slot_find(const wired_srvloop* l, u64 id) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    if (qdec_slot_is(&l->streams[i], id)) return (int)i;
+  return -1;
+}
+
+/* A request stream (a WebTransport stream carries no field sections) not
+ * already answered and released -- an answered one was acknowledged. */
+static int qdec_stream_open(const wired_srvloop* l, u64 id) {
+  return is_request_stream(id) && wired_srvloop_wt_slot_find(l, id) < 0 &&
+         !wired_srvloop_closed_has(&l->req_closed, id);
+}
+
+/* RFC 9204 4.4.2 / 2.2.2.2: a reset request stream owes a Stream
+ * Cancellation once the peer inserted anything its sections could
+ * reference. With no slot yet, the stream is marked closed as well, so its
+ * late data never decodes into a section acknowledged after the cancel. */
+static int qdec_cancel_due(const wired_srvloop* l, u64 id) {
+  return qdec_table_used(l) && qdec_stream_open(l, id);
+}
+
+static void qdec_cancel_on_reset(wired_srvloop* l, u64 id) {
+  int i;
+  if (!qdec_cancel_due(l, id)) return;
+  i = qdec_slot_find(l, id);
+  if (i >= 0) {
+    qdec_cancel_slot(l, i);
+    return;
+  }
+  qdec_cancel_id(l, id);
+  wired_srvloop_slot_release(l, id);
+}
+
+/* Cancel for every RESET_STREAM in this payload -- run after request
+ * reassembly, so a section completed in the same packet is acknowledged
+ * and not cancelled. */
+static void qdec_cancel_resets(wired_srvloop* l, wired_span payload) {
+  framewalk          it;
+  framewalk_item     fr;
+  reset_stream_frame rs;
+  framewalk_init(&it, payload.p, payload.n);
+  while (framewalk_next(&it, &fr))
+    if (wt_reset_frame(fr.type, wired_span_of(fr.start, fr.remaining), &rs))
+      qdec_cancel_on_reset(l, rs.stream_id);
+}
+
+static void dispatch_qdec_cancels(
+    const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
+  if (ctx->l) qdec_cancel_resets(ctx->l, payload);
+}
+
 /* The HTTP/3 (and hq-interop) payload path: side channels, then request
  * reassembly, then the handshake-feed fallback. */
 static int dispatch_h3(
     const wired_srvloop_dispatch_ctx* ctx,
     const wired_srvloop_dispatch_in*  in) {
   int handled_side = dispatch_gather_side_channels(ctx, in->payload);
-  if (reassemble_and_drive(ctx, in)) return 1;
-  if (handled_side) return 1;
+  int handled_req  = reassemble_and_drive(ctx, in);
+  dispatch_qdec_cancels(ctx, in->payload);
+  if (handled_req || handled_side) return 1;
   return dispatch_non_request(ctx->s, in->payload.p, in->payload.n);
 }
 

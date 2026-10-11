@@ -163,6 +163,10 @@ typedef struct {
   /** 1 once a STREAM frame reached past req_buf's window: past the stream's
    * credit (RFC 9000 4.1), latched into flow_control_violation. */
   int req_over;
+  /** RFC 9204 4.4.1 / 4.4.2: 1 once this stream's Section Acknowledgment
+   * or Stream Cancellation was queued (or none was owed) -- the decoder
+   * sends at most one of the two per stream. */
+  u8 qpack_settled;
   /** RFC 9000 2.2/4.1: req_buf as a receive window -- which bytes arrived
    * (so only the contiguous prefix is ever read) and, once the request
    * body streams to the app, where req_buf[0] sits in the stream. */
