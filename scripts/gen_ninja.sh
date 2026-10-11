@@ -58,6 +58,10 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "  deps = gcc"
     echo "  description = CC \$out"
     echo
+    echo "rule text_sections"
+    printf '%s\n' "  command = awk '/^#include \".*\\.c\"\$\$/ { print \"#pragma clang section text=\\\".text.u\" n++ \"\\\"\" } { print }' \$in > \$out"
+    echo "  description = GEN \$out"
+    echo
     echo "rule cc_hosted_link"
     echo "  command = \$cc \$testflags \$in -o \$out"
     echo "  description = LINK \$out"
@@ -86,8 +90,13 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo
     echo "# hosted: tests/run.c is a unity build (includes every src/**.c and"
     echo "# *_test.c once), so it compiles straight to a binary -- no per-file"
-    echo "# objects to track here."
-    echo "build build/quic_test: cc_hosted_bin tests/run.c"
+    echo "# objects to track here. It is compiled from a copy that puts each"
+    echo "# included .c in its own .text section (the linker merges them back):"
+    echo "# -mbranches-within-32B-boundaries pads branches in the assembler,"
+    echo "# whose relaxation slows down sharply with section size -- one"
+    echo "# section took ~8 of the build's ~10 minutes."
+    echo "build build/unity/run.c: text_sections tests/run.c"
+    echo "build build/quic_test: cc_hosted_bin build/unity/run.c"
     echo
     echo "# fast dev-loop variant: run.c split into shard TUs (gen_shards.py,"
     echo "# K must match its constant) compiled in parallel, linked into one"

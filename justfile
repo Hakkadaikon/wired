@@ -133,19 +133,22 @@ wire-check: ninja
     echo "wiring OK ($nsrc sources, sys.c excluded from the unity TU by design)"
 
 # Line coverage of the unity test (LLVM source-based).
-cov: fmt
+cov: fmt gen-ninja
     #!/usr/bin/env sh
     # Its own instrumented binary, so instrumentation never leaks into `test`.
+    # Stack raised as in `test`.
     set -eu
-    mkdir -p build
+    ulimit -s unlimited 2>/dev/null || ulimit -s 65536
+    # build/unity/run.c: tests/run.c with a .text section per .c (gen_ninja.sh).
+    ninja build/unity/run.c
     {{cc}} {{testflags}} -fprofile-instr-generate -fcoverage-mapping \
-        tests/run.c -o build/quic_test_cov
+        build/unity/run.c -o build/quic_test_cov
     LLVM_PROFILE_FILE=build/quic_test.profraw ./build/quic_test_cov
     llvm-profdata merge -sparse build/quic_test.profraw -o build/quic_test.profdata
     llvm-cov export build/quic_test_cov -instr-profile=build/quic_test.profdata \
-        -ignore-filename-regex='tests/' -format=lcov > build/lcov.info
+        -ignore-filename-regex='tests/|build/' -format=lcov > build/lcov.info
     llvm-cov report build/quic_test_cov -instr-profile=build/quic_test.profdata \
-        -ignore-filename-regex='tests/'
+        -ignore-filename-regex='tests/|build/'
 
 # Run the unity test binary under valgrind --track-origins.
 valgrind: gen-ninja
