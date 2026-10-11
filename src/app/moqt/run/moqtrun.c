@@ -11488,30 +11488,28 @@ static void moqtrun_upf_item(
 }
 
 /* The next bytes c of the Object being passed through: Malformed when
- * they differ from the cached copy (12.1), else written out as they are. */
-static void moqtrun_upf_chunk(
+ * they differ from the cached copy (12.1), else written out as they are.
+ * 1 when written; a refusal leaves them to retry (moqtrun_upf_retry). */
+static int moqtrun_upf_chunk(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, wired_span c) {
   if (moqtrun_upf_conflicts(
           hub, f, f->up_last, f->up_pl_at + f->up_pl_left, f->up_pl_at, c)) {
     moqtrun_upf_mal(hub, f);
-    return;
+    return 0;
   }
-  if (hub->io.stream_send(f->wt, f->stream_id, c, 0) <= 0) {
-    moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_CANCEL, MOQCTL_ERR_INTERNAL_ERROR);
-    return;
-  }
+  if (hub->io.stream_send(f->wt, f->stream_id, c, 0) <= 0) return 0;
   f->up_pl_at += c.n;
   f->up_pl_left -= c.n;
   f->last_ok_ms = hub->live.last_now_ms;
+  return 1;
 }
 
-/* What data holds of the payload still to pass through; the bytes of
- * data that took. */
+/* What data holds of the payload still to pass through, written out;
+ * the bytes of data that took (none when refused). */
 static usz moqtrun_upf_pass(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, wired_span data) {
   usz n = (usz)u64_min(f->up_pl_left, data.n);
-  if (n) moqtrun_upf_chunk(hub, f, wired_span_of(data.p, n));
-  return n;
+  return n && moqtrun_upf_chunk(hub, f, wired_span_of(data.p, n)) ? n : 0;
 }
 
 /* ----- the upstream data stream ----- */
@@ -11528,19 +11526,19 @@ static int moqtrun_upf_join(
 }
 
 static int moqtrun_upf_holdable(
-    const wired_moqt_hub* hub, const wired_moqtrun_fetch* f, usz n) {
-  return (!hub->upf_owner || hub->upf_owner == f) &&
-         n < WIRED_MOQTRUN_RELAY_FRAG_MAX;
+    const wired_moqt_hub* hub, const wired_moqtrun_fetch* f, usz n, usz cap) {
+  return (!hub->upf_owner || hub->upf_owner == f) && n < cap;
 }
 
-/* rest, a torn Object head, kept for f's next delivery; 0 when it cannot be. */
+/* rest (under cap bytes) kept for f's next delivery; 0 when it cannot
+ * be. */
 static int moqtrun_upf_hold(
-    wired_moqt_hub* hub, wired_moqtrun_fetch* f, wired_span rest) {
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f, wired_span rest, usz cap) {
   if (!rest.n) {
     moqtrun_upf_unhold(hub, f);
     return 1;
   }
-  if (!moqtrun_upf_holdable(hub, f, rest.n)) return 0;
+  if (!moqtrun_upf_holdable(hub, f, rest.n, cap)) return 0;
   bytes_move_down(hub->upf_buf, rest.p, rest.n);
   hub->upf_len   = rest.n;
   hub->upf_owner = f;
@@ -11549,16 +11547,36 @@ static int moqtrun_upf_hold(
 
 static void moqtrun_upf_done_if(wired_moqt_hub* hub, wired_moqtrun_fetch* f);
 
-/* A FIN cutting an Object short: its head (rest) or its payload. */
-static int moqtrun_upf_cut(
-    const wired_moqtrun_fetch* f, wired_span rest, int fin) {
-  return fin && (rest.n || f->up_pl_left);
+/* The transport refused the payload under way: rest starts with it. */
+static int moqtrun_upf_blocked(const wired_moqtrun_fetch* f, wired_span rest) {
+  return rest.n && f->up_pl_left;
 }
 
-/* A FIN cut no Object short, and a torn head could be kept. */
+/* Some Object is not all in: its head (rest) or its payload. */
+static int moqtrun_upf_short(const wired_moqtrun_fetch* f, wired_span rest) {
+  return rest.n || f->up_pl_left;
+}
+
+/* A FIN cutting an Object short -- not a refused payload, which only
+ * waits. */
+static int moqtrun_upf_cut(
+    const wired_moqtrun_fetch* f, wired_span rest, int fin) {
+  return fin && moqtrun_upf_short(f, rest) && !moqtrun_upf_blocked(f, rest);
+}
+
+/* rest kept: what a refusal left (all of it, to retry), else a torn
+ * small Object or head. */
+static int moqtrun_upf_keep(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f, wired_span rest) {
+  if (moqtrun_upf_blocked(f, rest))
+    return moqtrun_upf_hold(hub, f, rest, sizeof hub->upf_buf + 1);
+  return moqtrun_upf_hold(hub, f, rest, WIRED_MOQTRUN_RELAY_FRAG_MAX);
+}
+
+/* A FIN cut no Object short, and rest could be kept. */
 static int moqtrun_upf_tail_ok(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, wired_span rest, int fin) {
-  return !moqtrun_upf_cut(f, rest, fin) && moqtrun_upf_hold(hub, f, rest);
+  return !moqtrun_upf_cut(f, rest, fin) && moqtrun_upf_keep(hub, f, rest);
 }
 
 static void moqtrun_upf_tail(
@@ -11651,8 +11669,8 @@ static int moqtrun_upf_more(const wired_moqtrun_fetch* f) {
   return moqtrun_upf_live(f) && !f->up_pl_left;
 }
 
-/* The items of b while the leg lives and no payload is under way; the
- * decoder's last verdict. */
+/* The items of b while the leg lives and no payload waits on a refusal;
+ * the decoder's last verdict. */
 static int moqtrun_upf_items(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, wired_span b, usz* off) {
   int r = MOQCTL_INSUFFICIENT;
@@ -11664,7 +11682,8 @@ static int moqtrun_upf_items(
 
 /* data of f's upstream data stream: the payload of an Object under way
  * passed through, then each item relayed, a torn small Object or head
- * kept; FIN ends the stream. */
+ * kept, a refused payload and all after it kept to retry; FIN ends the
+ * stream. */
 static void moqtrun_upf_feed(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  pp,
@@ -11830,10 +11849,17 @@ static void moqtrun_upf_answer_ok(
   moqtrun_upf_answer(hub, f, moqtrun_upf_say_ok, &ok);
 }
 
-/* Both the FETCH_OK and the data stream's FIN are in: the request is
- * complete and the cache side takes the rest. */
+/* The FETCH_OK and the data stream's FIN are in, and nothing of it is
+ * kept back for a retry. */
+static int moqtrun_upf_complete(
+    const wired_moqt_hub* hub, const wired_moqtrun_fetch* f) {
+  return f->up_state == WIRED_MOQTRUN_UPF_OK && f->up_data_end &&
+         hub->upf_owner != f;
+}
+
+/* The request is complete: the cache side takes the rest. */
 static void moqtrun_upf_done_if(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
-  if (f->up_state != WIRED_MOQTRUN_UPF_OK || !f->up_data_end) return;
+  if (!moqtrun_upf_complete(hub, f)) return;
   moqtrun_upf_drop(hub, f, MOQTRUN_UPF_IO_FIN);
   moqtrun_upf_resume(hub, f, 1, 1);
 }
@@ -12049,11 +12075,25 @@ static void moqtrun_upf_detach(wired_moqt_hub* hub, const wired_wt_session* s) {
 
 /* f's leg past its budget is cancelled and the rest reported timed out
  * (9.20.5). 1 while f had a leg: the tick does nothing else for it. */
+/* What f keeps is fed again: a payload the transport refused goes out
+ * once it takes it (a torn head just waits on). */
+static void moqtrun_upf_retry(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+  if (hub->upf_owner != f) return;
+  moqtrun_upf_feed(
+      hub, moqtrun_find_by_wt(hub, f->up_wt), f, wired_span_of(hub->upf_buf, 0),
+      f->up_data_end);
+}
+
+/* A leg past its budget fails -- one still waiting on a refused payload
+ * resets the downstream stream (moqtrun_upf_no_window); else what it
+ * keeps is retried. */
 static int moqtrun_upf_tick(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   if (!moqtrun_upf_live(f)) return 0;
   if (hub->live.last_now_ms >= f->up_deadline_ms) {
     f->up_tmo = 1;
     moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_CANCEL, MOQTRUN_ERR_TIMEOUT);
+  } else {
+    moqtrun_upf_retry(hub, f);
   }
   return 1;
 }

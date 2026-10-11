@@ -1493,6 +1493,24 @@ static void test_moqtrun_upfetch_torn_small_refused(void) {
   CHECK(mf_is_unknown(0, 2, MOQCACHE_OBJ_ID_MAX) && mf_is_obj(1, 3, 0, 1));
 }
 
+/* A large Object whose payload the transport refuses mid-way keeps its
+ * place: the next tick writes the rest out, then what followed it, and
+ * the upstream FIN and FETCH_OK that came meanwhile end the leg after. */
+static void test_moqtrun_upfetch_large_refused_retry(void) {
+  moqfetch_req m   = {0};
+  i64          sid = mupf_big_setup(&m);
+  mupf_obj_b(1, 0, 40000, 0x5A);
+  mupf_obj(1, 1, 1);
+  mupf_deliver(0, 20000, 0);
+  g_stream_send_reject_n = 1;
+  mupf_deliver(20000, mupf_n, 1);
+  mupf_up_ok(sid, 1, 1);
+  CHECK(mupf_reset_code() == ~(u64)0 && mupf_used() == 1);
+  wired_moqt_tick(&mtst_hub, mtst_hub.live.last_now_ms + 1);
+  CHECK(mupf_cap_is(1, 0, 40000, 0x5A) && mupf_cap_is(1, 1, 1, 0x11));
+  CHECK(mupf_reset_code() == ~(u64)0 && mupf_used() == 0);
+}
+
 /* An Object cut inside its Payload Length (back 1) or right after its
  * head (back 0) reaches B whole, held (n 100) or passed through (n
  * 40000). */
@@ -1825,6 +1843,7 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_leg_ends_mid_object();
   test_moqtrun_upfetch_torn_conflict();
   test_moqtrun_upfetch_torn_small_refused();
+  test_moqtrun_upfetch_large_refused_retry();
   test_moqtrun_upfetch_cut_at_head();
   test_moqtrun_upfetch_wide_head();
   test_moqtrun_upfetch_mandatory();
