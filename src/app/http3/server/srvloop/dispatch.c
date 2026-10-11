@@ -526,8 +526,7 @@ static void uni_stream_type_note_qpack(wired_srvloop* l, wired_span data) {
  * capacity so its own branch count stays at the CCN gate. */
 static void apply_qpack_capacity_rest(wired_srvloop* l, wired_span rest) {
   u16 err = 0;
-  qdyn_enc_apply_capacity(
-      rest, &l->h3.qdyn, l->h3.qpack_max_table_capacity, &err);
+  qdyn_enc_apply(rest, &l->h3.qdyn, l->h3.qpack_max_table_capacity, &err);
   if (err) l->qpack_stream_violation = err;
 }
 
