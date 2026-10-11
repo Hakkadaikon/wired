@@ -10391,7 +10391,9 @@ static void srvrun_send_retire(const srvrun_cfg* cfg, srvrun_conn* c, u64 seq) {
 
 /* The paths whose peer IDs stay: send, last validated, target, slots. */
 static void srvrun_path_keys(
-    const srvrun_cfg* cfg, const srvrun_conn* c, pathsel_key t[5]) {
+    const srvrun_cfg*  cfg,
+    const srvrun_conn* c,
+    pathsel_key        t[3 + PATHSEL_SLOTS]) {
   t[0] = srvrun_send_key(cfg, c);
   t[1] = c->path.last_valid;
   t[2] = srvrun_target_key(cfg, c);
@@ -10403,10 +10405,10 @@ static void srvrun_path_keys(
  * peer asked to retire. ponytail: each RETIRE_CONNECTION_ID goes out once;
  * a lost one leaves the ID active at the peer. */
 static void srvrun_path_retire(const srvrun_cfg* cfg, srvrun_conn* c) {
-  pathsel_key t[5];
+  pathsel_key t[3 + PATHSEL_SLOTS];
   u64         seq;
   srvrun_path_keys(cfg, c, t);
-  peercid_sweep(&c->pcid, t, 5);
+  peercid_sweep(&c->pcid, t, 3 + PATHSEL_SLOTS);
   while (peercid_take_retire(&c->pcid, &seq)) srvrun_send_retire(cfg, c, seq);
 }
 
@@ -11291,21 +11293,22 @@ static int srvrun_wt_waiting(const srvrun_conn* c) {
   return c->up && srvrun_wt_app_pending(c);
 }
 
-/* srvrun_rst_pending, srvrun_wt_waiting, or a closing connection waiting
- * for its reap (srvrun_closing_tick): the latch-style waits, grouped so
- * srvrun_slot_waiting's own || count stays flat. */
 /* RFC 9000 8.2.4/9.4: an outstanding PATH_CHALLENGE needs the tick for its
  * resend and abandon timers. */
 static int srvrun_path_waiting(const srvrun_conn* c) {
   return c->path.slot[0].in_use || c->path.slot[1].in_use;
 }
 
-static int srvrun_latch_waiting2(const srvrun_conn* c) {
+/* A WT latch, a closing connection waiting for its reap
+ * (srvrun_closing_tick), or an outstanding path challenge. */
+static int srvrun_timer_waiting(const srvrun_conn* c) {
   return srvrun_wt_waiting(c) || c->closing || srvrun_path_waiting(c);
 }
 
+/* srvrun_rst_pending or srvrun_timer_waiting: the latch-style waits,
+ * grouped so srvrun_slot_waiting's own || count stays flat. */
 static int srvrun_latch_waiting(const srvrun_conn* c) {
-  return srvrun_rst_pending(c) || srvrun_latch_waiting2(c);
+  return srvrun_rst_pending(c) || srvrun_timer_waiting(c);
 }
 
 static int srvrun_slot_waiting(const srvrun_conn* c) {

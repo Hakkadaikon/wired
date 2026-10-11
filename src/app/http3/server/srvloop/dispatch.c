@@ -1122,7 +1122,6 @@ static void gather_one_path_response(wired_srvloop* l, wired_span frame) {
  * than one PATH_RESPONSE this step is not expected in practice (the peer
  * answers each challenge in its own packet), so only the
  * last one seen is kept -- exactly gather_one_max_data's own
-
  * last-in-step-among-several convention for a single-slot latch. */
 static int gather_path_response(wired_srvloop* l, const u8* payload, usz len) {
   framewalk      it;
