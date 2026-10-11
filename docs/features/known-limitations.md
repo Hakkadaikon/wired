@@ -66,8 +66,12 @@ general relay network.
   (8 + 8) are refused REQUEST_ERROR INTERNAL_ERROR before the OK is sent (the
   earlier silent drop was fixed in L12-16). Source: `moqtrun.c:2838`, L12-16.
 - **No upstream FETCH** — the hub never forwards a FETCH to another relay
-  (no FETCH-of-FETCH); fills and Joining FETCH are served from its own cache
-  only, and a d22 Joining FETCH is refused. Impact: MQ22-137 has no code path.
+  (no FETCH-of-FETCH); fills and d19 Joining FETCH are served from its own
+  cache only. draft-22 removed Joining FETCH; its replacement, a fill
+  requested by SUBSCRIBE FILL_PARAMETERS, is implemented
+  (`moqtrun_fill_open`). A d22 FETCH that still carries the Joining form
+  closes the session with PROTOCOL_VIOLATION (`moqtrun_fetch_route`,
+  MQ22-132). Impact: MQ22-137 has no code path.
   Source: L4-13, L4-6, `ledger:draft-moq-transport-22.md` MQ22-137.
 - **Object cache is arena-scanned** — eviction compacts the arena with one
   memmove pass and lookups scan linearly. A one-entry resume point lets a
