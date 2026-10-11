@@ -9095,6 +9095,23 @@ static void moqtrun_done_emit(
  * held unopened the message waits -- no stream may open after
  * PUBLISH_DONE -- and goes out when that fill gets its stream
  * (moqtrun_fill_opened); a cancel drops the held fill and the wait. */
+static void moqtrun_done_send(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_moqtrun_req*  q,
+    u64                 rid,
+    u64                 status,
+    u64                 count) {
+  moqtrun_sub_names_forget(p, rid);
+  if (!moqtrun_fill_held_for(hub, p->wt, rid)) {
+    moqtrun_done_emit(p, q, status, count);
+    return;
+  }
+  q->done_pending = 1;
+  q->done_status  = status;
+  q->done_count   = count;
+}
+
 static void moqtrun_sub_done(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  p,
@@ -9105,14 +9122,7 @@ static void moqtrun_sub_done(
   u64 count = s->stream_count;
   u64 rid   = s->request_id;
   moqtrun_sub_stop(hub, t, s, moqtrun_done_reset_code(status));
-  moqtrun_sub_names_forget(p, rid);
-  if (!moqtrun_fill_held_for(hub, p->wt, rid)) {
-    moqtrun_done_emit(p, q, status, count);
-    return;
-  }
-  q->done_pending = 1;
-  q->done_status  = status;
-  q->done_count   = count;
+  moqtrun_done_send(hub, p, q, rid, status, count);
 }
 
 /* 1 iff q owes a deferred PUBLISH_DONE and f was its subscription's
@@ -9144,13 +9154,21 @@ static void moqtrun_fill_opened(
   q->done_pending = 0;
 }
 
+/* The request stream carrying sub slot si of t, else 0. */
+static wired_moqtrun_req* moqtrun_sub_slot_req(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, usz si) {
+  const wired_moqtrun_sub* s = &t->subs[si];
+  wired_moqtrun_peer*      p = &hub->peers[s->session_idx];
+  return s->active ? moqtrun_sub_req(hub, p, s->request_id) : 0;
+}
+
 /* PUBLISH_DONE status to sub slot si of t, when it is held on a request
  * stream. */
 static void moqtrun_sub_done_slot(
     wired_moqt_hub* hub, wired_moqtrun_track* t, usz si, u64 status) {
   wired_moqtrun_sub*  s = &t->subs[si];
   wired_moqtrun_peer* p = &hub->peers[s->session_idx];
-  wired_moqtrun_req* q = s->active ? moqtrun_sub_req(hub, p, s->request_id) : 0;
+  wired_moqtrun_req*  q = moqtrun_sub_slot_req(hub, t, si);
   if (q) moqtrun_sub_done(hub, p, q, t, s, status);
 }
 
