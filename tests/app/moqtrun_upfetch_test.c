@@ -984,6 +984,18 @@ static void test_moqtrun_upfetch_short_end(void) {
   CHECK(mf_is_obj(3, 3, 0, 1) && mf_is_obj(4, 4, 0, 1));
 }
 
+/* d22 10.12.3: a range the cache knows holds no Object is the header
+ * alone, sent once with its FIN -- no second FIN, the slot freed once. */
+static void test_moqtrun_upfetch_empty_range_once(void) {
+  mupf_init();
+  mupf_cache_group(3, 2);
+  mupf_cache_group(4, 2);
+  mupf_fetch(mupf_rl(3, 2, 3, 9), 0);
+  CHECK(moqtrun_test_count_kind(4) == 1);
+  CHECK(!mupf_bare_fin(mupf_fetch_sid()));
+  CHECK(mupf_n_up(SESS_A) == 0 && mupf_used() == 0);
+}
+
 /* d22 3.2.1: a FETCH whose upstream answer is empty and leaves nothing
  * for the cache gets the header alone, then FIN. */
 static void test_moqtrun_upfetch_empty_answer(void) {
@@ -1530,6 +1542,7 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_fin_then_ok();
   test_moqtrun_upfetch_short_end();
   test_moqtrun_upfetch_empty_answer();
+  test_moqtrun_upfetch_empty_range_once();
   test_moqtrun_upfetch_budget();
   test_moqtrun_upfetch_fill_timeout_zero();
   test_moqtrun_upfetch_marker_relay();

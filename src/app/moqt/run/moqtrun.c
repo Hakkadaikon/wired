@@ -2773,7 +2773,9 @@ static void moqtrun_fetch_opened(
   moqtrun_fill_opened(hub, f);
 }
 
-/* 1 once f's stream is open; a refused open retries on the next tick. */
+/* 1 once f's stream is open; a refused open retries on the next tick.
+ * 0 too when an empty range was sent whole and f freed: nothing more
+ * goes on that stream. */
 static int moqtrun_fetch_open(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   u8  hdr[16]; /* Type 0x5 + a Request ID varint */
   usz n = 0;
@@ -2782,7 +2784,7 @@ static int moqtrun_fetch_open(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   i64 sid = moqtrun_fetch_open_io(hub, f, wired_span_of(hdr, n));
   if (sid < 0) return 0;
   moqtrun_fetch_opened(hub, f, sid);
-  return 1;
+  return f->in_use;
 }
 
 static int moqtrun_fetch_new_group(const moqfetch_seq* s, u64 group) {
