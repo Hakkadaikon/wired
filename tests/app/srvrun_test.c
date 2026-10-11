@@ -3988,15 +3988,55 @@ static void test_srvrun_hystart_ends_slow_start(void) {
     c->l.tx_pn = 8; /* production: sending advanced the next pn */
     for (u64 pn = 0; pn < 8; pn++) srvrun_hystart_ack(c, pn, pn, 40);
     CHECK(c->cc.ssthresh == ~(u64)0); /* still slow start */
-    /* round 2: RTT jumped to 60 >= 40 + eta(5): exit on the 8th sample */
+    /* round 2: RTT jumped to 60 >= 40 + eta(5): Conservative Slow Start
+     * (RFC 9406 4.2) on the 8th sample -- growth drops to a quarter */
     for (u64 pn = 8; pn < 16; pn++) {
       CHECK(wired_sendsess_take(&c->resp[0].sess, &sl) == 1);
       CHECK(wired_sendsess_sent(&c->resp[0].sess, &sl, pn, 100) == 1);
     }
     c->l.tx_pn = 16;
     for (u64 pn = 8; pn < 16; pn++) srvrun_hystart_ack(c, pn, pn, 160);
+    CHECK(c->cc.ssthresh == ~(u64)0);
+    CHECK(srvrun_css_acked(c, 1200) == 300);
+    /* rounds 3..6 stay at 160 (above the ~145 baseline: no spurious
+     * resume); the ACK opening round 7 is the 5th CSS
+     * round boundary (round 2's end was the 1st) and ends slow start */
+    for (u64 pn = 16; pn < 49; pn++) {
+      CHECK(wired_sendsess_take(&c->resp[0].sess, &sl) == 1);
+      CHECK(wired_sendsess_sent(&c->resp[0].sess, &sl, pn, 200) == 1);
+    }
+    for (u64 pn = 16; pn < 48; pn += 8) {
+      c->l.tx_pn = pn + 8;
+      for (u64 k = pn; k < pn + 8; k++) srvrun_hystart_ack(c, k, 200, 360);
+    }
+    CHECK(c->cc.ssthresh == ~(u64)0); /* 4 CSS round ends so far */
+    c->l.tx_pn = 49;
+    srvrun_hystart_ack(c, 48, 200, 360);
   }
   CHECK(c->cc.ssthresh == c->cc.cwnd); /* slow start ended */
+  CHECK(srvrun_css_acked(c, 1200) == 1200);
+  c->up = 0;
+}
+
+/* RFC 9406 4.2: an ACK on the real accounting path (srvrun_cc_range) grows
+ * cwnd by only a quarter of the acked bytes while in CSS. */
+static void test_srvrun_css_quarter_growth_on_ack(void) {
+  srvrun_conn* c = &g_srvrun_state.conns[3];
+  *c             = (srvrun_conn){0};
+  cc_init(&c->cc);
+  hystart_init(&c->hs);
+  c->hs.css = 1;
+  c->up     = 1;
+  wired_sendsess_arm(&c->resp[0].sess, g_srvrun_respstore[3][0], 16000, 100);
+  {
+    wired_sendq_slice sl;
+    u64               w0 = c->cc.cwnd;
+    CHECK(wired_sendsess_take(&c->resp[0].sess, &sl) == 1);
+    CHECK(wired_sendsess_sent(&c->resp[0].sess, &sl, 0, 0) == 1);
+    c->l.tx_pn = 1;
+    srvrun_cc_range(c, &c->resp[0].sess, 0, 0, 40);
+    CHECK(c->cc.cwnd == w0 + 25);
+  }
   c->up = 0;
 }
 
@@ -22230,6 +22270,7 @@ void test_srvrun(void) {
   test_srvrun_parallel_responses_three_streams();
   test_srvrun_cc_algo_selected();
   test_srvrun_hystart_ends_slow_start();
+  test_srvrun_css_quarter_growth_on_ack();
   test_srvrun_hystart_round_boundary_survives_interleaving();
   test_srvrun_rtt_ewma();
   test_srvrun_rtt_sample_uses_newest_hit_only();

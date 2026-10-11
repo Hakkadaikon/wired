@@ -8531,6 +8531,18 @@ static int srvrun_in_slow_start(const srvrun_conn* c) {
   return c->cc.cwnd < c->cc.ssthresh && !c->cc.in_recovery;
 }
 
+/* 1 while HyStart++ governs this connection's growth: Reno/Cubic slow
+ * start (BBR's ack bytes feed its own model, never slow-start growth). */
+static int srvrun_hystart_paces(const srvrun_conn* c) {
+  return c->cc.algo != CC_ALGO_BBR && srvrun_in_slow_start(c);
+}
+
+/* The bytes to credit cc_on_ack with: HyStart++'s CSS growth divisor
+ * (hystart_acked) while Reno/Cubic are still in slow start. */
+static u64 srvrun_css_acked(const srvrun_conn* c, u64 bytes) {
+  return srvrun_hystart_paces(c) ? hystart_acked(&c->hs, bytes) : bytes;
+}
+
 /* Feed one acked packet's sample to the slow-start exit detector (RFC 9406,
  * which explicitly samples every ACKed packet in a round, not just the
  * newest); on the verdict, end slow start by dropping ssthresh to the
@@ -8606,7 +8618,7 @@ static void srvrun_cc_range(
   if (bytes) {
     srvrun_rtt_note(c, now_ms - newest);
     srvrun_hystart_range(c, sess, lo, hi, now_ms);
-    cc_on_ack(&c->cc, bytes, newest, now_ms);
+    cc_on_ack(&c->cc, srvrun_css_acked(c, bytes), newest, now_ms);
   } else if (!hits) {
     return;
   }
