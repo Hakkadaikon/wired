@@ -59,10 +59,11 @@ void peercid_init(peercid* p, wired_span cid0);
  * ID, CONNECTION_ID_LIMIT_ERROR when the pool is full (5.1.1). */
 int peercid_add(peercid* p, const ncid_frame* f);
 
-/* The ID bound to k, or 0. */
+/* The ID bound to k, else one shared on k's socket, else 0. */
 const peercid_entry* peercid_of(const peercid* p, const pathsel_key* k);
 
-/* The ID bound to k, else a free one now bound to k, else 0. */
+/* The ID bound to k, else a free one now bound to k, else 0; an ID shared
+ * on k's socket is not taken (the caller decides on the exception). */
 const peercid_entry* peercid_bind(peercid* p, const pathsel_key* k);
 
 /* RFC 9000 9.5: the ID bound to cur becomes usable by every path on

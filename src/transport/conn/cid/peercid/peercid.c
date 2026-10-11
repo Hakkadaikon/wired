@@ -82,15 +82,36 @@ static int peercid_live(const peercid_entry* e) {
   return e->in_use && e->bound;
 }
 
+/* e is bound to exactly k. */
+static int peercid_owns(const peercid_entry* e, const pathsel_key* k) {
+  return peercid_live(e) && pathsel_key_eq(&e->key, k);
+}
+
+/* e is shared on k's socket. */
+static int peercid_shares(const peercid_entry* e, const pathsel_key* k) {
+  return peercid_live(e) && e->shared && e->key.fd == k->fd;
+}
+
 static int peercid_serves(const peercid_entry* e, const pathsel_key* k) {
-  if (!peercid_live(e)) return 0;
-  return e->shared ? e->key.fd == k->fd : pathsel_key_eq(&e->key, k);
+  return peercid_owns(e, k) || peercid_shares(e, k);
+}
+
+static peercid_entry* peercid_own(peercid* p, const pathsel_key* k) {
+  for (usz i = 0; i < PEERCID_CAP; i++)
+    if (peercid_owns(&p->e[i], k)) return &p->e[i];
+  return 0;
+}
+
+static const peercid_entry* peercid_shared(
+    const peercid* p, const pathsel_key* k) {
+  for (usz i = 0; i < PEERCID_CAP; i++)
+    if (peercid_shares(&p->e[i], k)) return &p->e[i];
+  return 0;
 }
 
 const peercid_entry* peercid_of(const peercid* p, const pathsel_key* k) {
-  for (usz i = 0; i < PEERCID_CAP; i++)
-    if (peercid_serves(&p->e[i], k)) return &p->e[i];
-  return 0;
+  const peercid_entry* e = peercid_own((peercid*)p, k);
+  return e ? e : peercid_shared(p, k);
 }
 
 /* e is free to bind and older than best (or best is 0). */
@@ -112,7 +133,7 @@ static peercid_entry* peercid_oldest_free(peercid* p) {
 }
 
 const peercid_entry* peercid_bind(peercid* p, const pathsel_key* k) {
-  const peercid_entry* cur = peercid_of(p, k);
+  const peercid_entry* cur = peercid_own(p, k);
   peercid_entry*       e;
   if (cur) return cur;
   e = peercid_oldest_free(p);

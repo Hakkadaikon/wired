@@ -52,6 +52,21 @@ static void test_peercid_share_same_socket(void) {
   CHECK(peercid_share(&p, &k4) == 0);
 }
 
+/* RFC 9000 9.5: a path on a shared ID's socket whose peer changed its DCID
+ * binds its own ID, and from then on uses that one. */
+static void test_peercid_own_beats_shared(void) {
+  peercid              p;
+  pathsel_key          k1 = pc_key(3, 1), k2 = pc_key(3, 2);
+  const peercid_entry *a, *b;
+  pc_pool(&p);
+  a = peercid_bind(&p, &k1);
+  peercid_share(&p, &k1);
+  b = peercid_bind(&p, &k2);
+  CHECK(b && b != a);
+  CHECK(peercid_of(&p, &k2) == b);
+  CHECK(peercid_of(&p, &k1) == a);
+}
+
 /* RFC 9000 5.1.2: Retire Prior To drops the lower IDs and owes their
  * retirement; a repeated frame is ignored. */
 static void test_peercid_retire_prior_to(void) {
@@ -134,6 +149,7 @@ static void test_peercid_sweep(void) {
 void test_peercid(void) {
   test_peercid_bind_per_path();
   test_peercid_share_same_socket();
+  test_peercid_own_beats_shared();
   test_peercid_retire_prior_to();
   test_peercid_late_below_rpt();
   test_peercid_over_limit();
