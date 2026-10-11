@@ -86,7 +86,7 @@ independent implementation) are tracked separately: see
 |---|---|---|---|---|
 | [RFC 9114 — HTTP/3](rfc9114.md) | 81/81 | 71 | 10 | 0 |
 | [RFC 9110 — HTTP semantics](rfc9110.md) | 28/28 | 24 | 4 | 0 |
-| [RFC 9204 — QPACK](rfc9204.md) | 55/55 | 38 | 17 | 0 |
+| [RFC 9204 — QPACK](rfc9204.md) | 55/55 | 48 | 7 | 0 |
 | [RFC 7541 — HPACK (reused by QPACK)](rfc7541.md) | 16/16 | 15 | 1 | 0 |
 | [RFC 9218 — Extensible priorities](rfc9218.md) | 20/20 | 15 | 5 | 0 |
 

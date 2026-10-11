@@ -386,14 +386,16 @@ xquic/moqtopus bytes; see [Testing](#testing-and-verification-gaps).
   `ledger:rfc9220.md`.
 - **QPACK dynamic table on the receive side only** — the decoder advertises
   capacity 2016 and `SETTINGS_QPACK_BLOCKED_STREAMS 0`: it applies the peer's
-  encoder stream and sends Section Acknowledgments and Insert Count
-  Increments, but never blocks a stream (a section needing inserts not yet
-  received is `QPACK_DECOMPRESSION_FAILED`). No Stream Cancellation is sent,
-  and a trailer section cannot reference the dynamic table. The encoder
-  stream's out-of-order bytes are held in a 2048-byte window, and an entry
-  is held only up to a 256-byte name and 1024-byte value; past either the
-  connection closes with `QPACK_ENCODER_STREAM_ERROR`. Encoder stream bytes
-  that arrive before its type byte are dropped (as for the control stream).
+  encoder stream and sends Section Acknowledgments, Stream Cancellations and
+  Insert Count Increments on a decoder stream opened at id 11 (so the first
+  application uni stream is 15), but never blocks a stream (a section
+  needing inserts not yet received is `QPACK_DECOMPRESSION_FAILED`). The
+  encoder stream is reassembled in a 48 KB window equal to its stream
+  credit, re-granted as it is consumed. Bytes that arrive before its type
+  byte are held while only one uni stream's type is unknown; when two are
+  lost at once the second one's early bytes are dropped, which only leaves
+  the dynamic table unused. The acknowledgment queue holds one step's worth;
+  it is dropped from only if the peer grants the decoder stream no credit.
   The server's own encoder table stays at capacity 0, so responses use only
   Required-Insert-Count-0 sections; string encoding is always H=0 (no Huffman
   on output). Source: `ledger:rfc9204.md`, `ledger:rfc7541.md` Out of scope.
