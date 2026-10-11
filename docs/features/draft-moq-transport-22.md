@@ -355,20 +355,26 @@ Legend:
     `test_moqtrun_upsub_two_share_one`
 - [x] MQ22-208 When the hub's upstream subscription ends on the publisher's
   side -- PUBLISH_DONE GOING_AWAY or INTERNAL_ERROR, a reset of the hub's
-  SUBSCRIBE stream, or the publisher's session closing -- the relay shall
+  SUBSCRIBE stream, or the publisher's session closing, the hub's own close
+  (GOAWAY drain expiry, a protocol violation) included -- the relay shall
   keep each downstream subscription for up to `WIRED_MOQTRUN_RDV_MAX_MS`
   from the end (never extended) and send a SUBSCRIBE to one matching
-  announcer not yet tried in that wait, its own subscribers' sessions
-  excluded (SS7.6, SS7.6.1); a refusal or reset of that SUBSCRIBE moves on
-  to the next, and a session's new PUBLISH_NAMESPACE makes it eligible
-  again. The first SUBSCRIBE_OK re-attaches every waiting subscription under
-  the Track Alias and state it already holds, a REQUEST_UPDATE meanwhile
-  included.
+  announcer not yet tried in that wait, a waiting subscriber's own session
+  excluded only for that subscriber (SS7.6, SS7.6.1); a refusal or reset of
+  that SUBSCRIBE moves on to the next, and a session's new PUBLISH_NAMESPACE
+  covering the Track makes it eligible again. The first SUBSCRIBE_OK
+  re-attaches every waiting subscription under the Track Alias and state it
+  already holds, a REQUEST_UPDATE meanwhile included; a switching-set member
+  leaves its set on re-attach.
   - test: `tests/app/moqtrun_repath_test.c` —
     `test_moqtrun_repath_takeover`, `test_moqtrun_repath_each_end`,
+    `test_moqtrun_repath_hub_closes`,
     `test_moqtrun_repath_late_announce`, `test_moqtrun_repath_failover`,
-    `test_moqtrun_repath_ender_skipped`, `test_moqtrun_repath_own_announce`,
+    `test_moqtrun_repath_ender_skipped`,
+    `test_moqtrun_repath_untry_covering`, `test_moqtrun_repath_own_announce`,
     `test_moqtrun_repath_ends_again`, `test_moqtrun_repath_update`
+  - test: `tests/app/moqtrun_ssts_test.c` —
+    `test_moqtrun_ssts_repath_member`
   - note: one upstream per Track at a time; SS7.6 says every matching
     publisher MUST be subscribed, and a newly announcing one for each
     matching subscription -- the hub does so only while subscriptions wait
@@ -376,23 +382,33 @@ Legend:
 - [x] MQ22-209 A subscription waiting for a new path shall get no second
   SUBSCRIBE_OK and no REQUEST_ERROR (SS3.1: one response per request), while
   a new SUBSCRIBE for the same Track is still answered from the pending
-  upstream, or DOES_NOT_EXIST at once when only announcers already tried in
-  the wait remain.
+  upstream (never one to the subscriber's own session), or DOES_NOT_EXIST at
+  once when only announcers already tried in the wait remain.
   - test: `tests/app/moqtrun_repath_test.c` —
     `test_moqtrun_repath_takeover`, `test_moqtrun_repath_refusal_hidden`,
-    `test_moqtrun_repath_fresh_rides`, `test_moqtrun_repath_fresh_dne`
+    `test_moqtrun_repath_fresh_rides`, `test_moqtrun_repath_fresh_dne`,
+    `test_moqtrun_repath_fresh_own_upstream`
 - [x] MQ22-210 If no new path is Established by the deadline, then the
   relay shall send each waiting subscription exactly one PUBLISH_DONE with
   the original end's status (GOING_AWAY or INTERNAL_ERROR; INTERNAL_ERROR
   for a reset or a session close), even while a SUBSCRIBE is still pending,
   which it then cancels; nothing else is sent on the request stream while
-  waiting. With no room to wait, the PUBLISH_DONE goes out at once.
+  waiting. Its Stream Count covers every stream the hub opened for the
+  subscription, before and after a re-attach. With no room to wait, the
+  PUBLISH_DONE goes out at once, and so it does for the old side of a
+  SWITCH_FROM, for a waiter the new path's SUBSCRIBE_OK cannot re-attach
+  (at that SUBSCRIBE_OK), and with GOING_AWAY when the subscriber's own
+  GOAWAY drain runs out.
   - test: `tests/app/moqtrun_repath_test.c` —
     `test_moqtrun_repath_silent_wait`, `test_moqtrun_repath_expiry`,
     `test_moqtrun_repath_expiry_status`, `test_moqtrun_repath_done_once`,
+    `test_moqtrun_repath_stream_count`, `test_moqtrun_repath_drain_flush`,
     `test_moqtrun_repath_deadline_beats_pending`,
     `test_moqtrun_repath_deadline_fixed`, `test_moqtrun_repath_new_closes`,
-    `test_moqtrun_repath_no_room`
+    `test_moqtrun_repath_no_room`, `test_moqtrun_repath_table_full`,
+    `test_moqtrun_repath_own_announce`, `test_moqtrun_repath_names_wrapped`
+  - test: `tests/app/moqtrun_switch_test.c` —
+    `test_moqtrun_switch_old_side_no_wait`
 - [x] MQ22-211 Any other upstream PUBLISH_DONE status, and a Malformed Track
   (SS12.1), shall end the downstream subscriptions at once with that status;
   no other announcer is asked.
