@@ -2699,7 +2699,7 @@ static u64 moqtrun_fwin_group(const moqtrun_fwin* w) {
 
 /* w moved one group down (11.4.4.1 Descending), clipped to lo. */
 static void moqtrun_fwin_down(
-    const wired_moqt_hub* hub, u64 tag, moqctl_loc lo, moqtrun_fwin* w) {
+    wired_moqt_hub* hub, u64 tag, moqctl_loc lo, moqtrun_fwin* w) {
   u64        g    = moqtrun_fwin_group(w) - 1;
   moqctl_loc from = g == lo.group ? lo : moqctl_loc_of(g, 0);
   w->end          = moqctl_loc_of(g + 1, 0);
@@ -2717,7 +2717,7 @@ static int moqtrun_fwin_more(
  * skipped within the window, a descending fill stepped down past any
  * group with nothing to serve. Drained = the fetch is over (FIN). */
 static void moqtrun_fetch_after(
-    const wired_moqt_hub*      hub,
+    wired_moqt_hub*            hub,
     const wired_moqtrun_fetch* f,
     moqctl_loc                 from,
     moqtrun_fwin*              w) {
@@ -2962,10 +2962,9 @@ static void moqtrun_queue_fetch_ok(wired_moqtrun_peer* p, moqctl_loc end) {
 }
 
 /* The Location of the last item r serves (its End Location when it serves
- * none). ponytail: walks the cache once per FETCH_OK -- O(arena), like
- * every moqcache lookup. */
-static moqctl_loc moqtrun_fetch_last(
-    const moqcache* c, const moqtrun_frange* r) {
+ * none). ponytail: walks the cache once per FETCH_OK -- O(arena) per walk
+ * (moqcache resumes each lookup where the last one stopped). */
+static moqctl_loc moqtrun_fetch_last(moqcache* c, const moqtrun_frange* r) {
   moqctl_loc    last = r->ok_end;
   moqcache_item it;
   for (moqctl_loc cur = moqcache_skip(c, r->tag, r->start, r->end);
@@ -2986,9 +2985,7 @@ static int moqtrun_fetch_end_open22(
 }
 
 static moqctl_loc moqtrun_fetch_ok_end(
-    const wired_moqt_hub*     hub,
-    const wired_moqtrun_peer* p,
-    const moqtrun_frange*     r) {
+    wired_moqt_hub* hub, const wired_moqtrun_peer* p, const moqtrun_frange* r) {
   if (!moqtrun_fetch_end_open22(p, r)) return r->ok_end;
   return moqtrun_fetch_last(&hub->cache, r);
 }

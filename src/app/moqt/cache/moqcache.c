@@ -14,9 +14,10 @@ typedef struct {
 #define MOQCACHE_DEAD (~(u64)0)
 
 void moqcache_init(moqcache* c, u8* arena, usz cap) {
-  c->arena = arena;
-  c->cap   = cap;
-  c->used  = 0;
+  c->arena    = arena;
+  c->cap      = cap;
+  c->used     = 0;
+  c->hint_off = 0;
 }
 
 static moqcache_rec moqcache_rec_at(const moqcache* c, usz off) {
@@ -48,7 +49,8 @@ static void moqcache_drop(moqcache* c, u64 tag, u64 group, int any) {
     }
     off += sz;
   }
-  c->used = w;
+  c->used     = w;
+  c->hint_off = 0; /* records moved */
 }
 
 void moqcache_release(moqcache* c, u64 tag) { moqcache_drop(c, tag, 0, 1); }
@@ -197,21 +199,35 @@ static int moqcache_at_or_after(moqcache_rec r, u64 tag, moqctl_loc cur) {
   return r.tag == tag && !moqctl_loc_less(moqcache_rec_last(r), cur);
 }
 
-/* Offset of tag's first record reaching cur (records of one tag are in
- * ascending order), else c->used. */
-static usz moqcache_find(const moqcache* c, u64 tag, moqctl_loc cur) {
-  usz off = 0;
+/* Offset of tag's first record from off reaching cur, else c->used. */
+static usz moqcache_scan(const moqcache* c, usz off, u64 tag, moqctl_loc cur) {
   while (off < c->used &&
          !moqcache_at_or_after(moqcache_rec_at(c, off), tag, cur))
     off += moqcache_rec_size(moqcache_rec_at(c, off));
   return off;
 }
 
+/* Every record of tag before the resume point ends before hint_cur, so
+ * it ends before any cur not below hint_cur either. */
+static int moqcache_resumes(const moqcache* c, u64 tag, moqctl_loc cur) {
+  return c->hint_tag == tag && !moqctl_loc_less(cur, c->hint_cur);
+}
+
+/* Offset of tag's first record reaching cur, else c->used: scanned from
+ * the resume point when it applies, which then moves here. */
+static usz moqcache_find(moqcache* c, u64 tag, moqctl_loc cur) {
+  usz from    = moqcache_resumes(c, tag, cur) ? c->hint_off : 0;
+  c->hint_off = moqcache_scan(c, from, tag, cur);
+  c->hint_tag = tag;
+  c->hint_cur = cur;
+  return c->hint_off;
+}
+
 /* cur's group is not older than tag's oldest cached group: every
  * Location there is either cached, tombstoned or nonexistent (groups are
  * cached whole and evicted oldest first). */
 static int moqcache_covered(const moqcache* c, u64 tag, moqctl_loc cur) {
-  usz off = moqcache_find(c, tag, moqctl_loc_of(0, 0));
+  usz off = moqcache_scan(c, 0, tag, moqctl_loc_of(0, 0));
   return off < c->used && moqcache_rec_at(c, off).group <= cur.group;
 }
 
@@ -230,8 +246,7 @@ static moqctl_loc moqcache_gap_end(const moqcache* c, usz off, moqctl_loc end) {
   return moqcache_min(moqcache_rec_first(moqcache_rec_at(c, off)), end);
 }
 
-moqctl_loc moqcache_skip(
-    const moqcache* c, u64 tag, moqctl_loc cur, moqctl_loc end) {
+moqctl_loc moqcache_skip(moqcache* c, u64 tag, moqctl_loc cur, moqctl_loc end) {
   usz off = moqcache_find(c, tag, cur);
   if (moqcache_holds(c, off, cur) || !moqcache_covered(c, tag, cur)) return cur;
   return moqcache_gap_end(c, off, end);
@@ -264,11 +279,7 @@ static moqctl_loc moqcache_prev(moqctl_loc stop) {
 }
 
 void moqcache_item_at(
-    const moqcache* c,
-    u64             tag,
-    moqctl_loc      cur,
-    moqctl_loc      end,
-    moqcache_item*  it) {
+    moqcache* c, u64 tag, moqctl_loc cur, moqctl_loc end, moqcache_item* it) {
   usz off = moqcache_find(c, tag, cur);
   bytes_memset(it, 0, sizeof *it);
   if (off < c->used && moqcache_is_obj(moqcache_rec_at(c, off), cur)) {

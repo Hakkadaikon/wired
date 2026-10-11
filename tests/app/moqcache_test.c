@@ -27,7 +27,7 @@ static void mc_put(moqcache* c, u64 tag, u64 g, u64 o, usz n) {
 }
 
 /* 1 iff {g, o} of tag is cached. */
-static int mc_has(const moqcache* c, u64 tag, u64 g, u64 o) {
+static int mc_has(moqcache* c, u64 tag, u64 g, u64 o) {
   moqcache_item it;
   moqcache_item_at(c, tag, mc_loc(g, o), mc_loc(g, o + 1), &it);
   return !it.unknown && mc_loc_eq(it.loc, mc_loc(g, o));
@@ -246,7 +246,53 @@ static void test_moqcache_open_tombstone_kept(void) {
   CHECK(c.used <= c.cap);
 }
 
+/* A forward walk over one tag (interleaved with another) returns every
+ * Object in order, and resumes past the records it already passed; a
+ * walk restarted from the beginning is served the same. */
+static void test_moqcache_walk_resumes(void) {
+  moqcache      c;
+  moqcache_item it;
+  moqctl_loc    end = mc_loc(3, 0);
+  mc_init(&c, sizeof mc_arena);
+  for (u64 g = 0; g < 3; g++)
+    for (u64 o = 0; o < 2; o++) {
+      mc_put(&c, 2, g, o, 1);
+      mc_put(&c, MC_TAG, g, o, 1);
+    }
+  for (int pass = 0; pass < 2; pass++) {
+    u64 n = 0;
+    for (moqctl_loc cur = moqcache_skip(&c, MC_TAG, mc_loc(0, 0), end);
+         moqctl_loc_less(cur, end);
+         cur = moqcache_skip(&c, MC_TAG, it.next, end)) {
+      moqcache_item_at(&c, MC_TAG, cur, end, &it);
+      CHECK(!it.unknown && it.payload.p[0] == (u8)(n / 2 * 16 + n % 2));
+      n++;
+    }
+    CHECK(n == 6);
+    CHECK(c.hint_off > 0);
+  }
+}
+
+/* Eviction slides the records down: a lookup that was resumable before
+ * is served from the moved records, never a stale offset. */
+static void test_moqcache_evict_drops_resume(void) {
+  moqcache      c;
+  moqcache_item it;
+  mc_init(&c, 4 * (MOQCACHE_HDR + 1));
+  mc_put(&c, MC_TAG, 0, 0, 1);
+  mc_put(&c, MC_TAG, 0, 1, 1);
+  mc_put(&c, MC_TAG, 1, 0, 1);
+  mc_put(&c, MC_TAG, 1, 1, 1);
+  moqcache_item_at(&c, MC_TAG, mc_loc(1, 0), mc_loc(2, 0), &it);
+  mc_put(&c, MC_TAG, 2, 0, 1); /* evicts group 0 */
+  moqcache_item_at(&c, MC_TAG, mc_loc(1, 0), mc_loc(2, 0), &it);
+  CHECK(!it.unknown && mc_loc_eq(it.loc, mc_loc(1, 0)));
+  CHECK(!it.unknown && it.payload.p[0] == 0x10);
+}
+
 void test_moqcache(void) {
+  test_moqcache_walk_resumes();
+  test_moqcache_evict_drops_resume();
   test_moqcache_budget_evicts_only_when_needed();
   test_moqcache_evicts_oldest_group();
   test_moqcache_group_over_budget_dropped();

@@ -21,8 +21,10 @@
  * the arriving group is then dropped without one.
  *
  * ponytail: eviction compacts the arena (one memmove pass) and lookups
- * scan it linearly -- O(arena) per call; a ring with an index when arenas
- * grow past a few MB. Groups are assumed to arrive in ascending order per
+ * scan it linearly; a one-entry resume point lets a forward walk over one
+ * tag continue where the last lookup stopped, so a FETCH costs O(arena)
+ * per walk, not per item. A ring with an index when arenas grow past a
+ * few MB. Groups are assumed to arrive in ascending order per
  * track (an Object of an older group is cached as if it were new).
  */
 
@@ -43,6 +45,11 @@ typedef struct {
   u8* arena;
   usz cap;  /**< arena bytes: the budget */
   usz used; /**< bytes of records held, from arena[0] */
+  /** Resume point: the last lookup of hint_tag at hint_cur found
+   * hint_off; 0 (scan from the start) after any record moved. */
+  usz        hint_off;
+  u64        hint_tag;
+  moqctl_loc hint_cur;
 } moqcache;
 
 /** One FETCH response item at a cursor: an Object (unknown 0, payload a
@@ -74,17 +81,12 @@ void moqcache_release(moqcache* c, u64 tag);
 /** cur moved past Locations known not to exist (the rest of a cached
  * group, groups between cached ones), stopping at a cached Object, an
  * unknown range or end. */
-moqctl_loc moqcache_skip(
-    const moqcache* c, u64 tag, moqctl_loc cur, moqctl_loc end);
+moqctl_loc moqcache_skip(moqcache* c, u64 tag, moqctl_loc cur, moqctl_loc end);
 
 /** The item at cur (a moqcache_skip result below end). An unknown range
  * runs to the next cached group (or the end of a tombstoned group),
  * capped at end. */
 void moqcache_item_at(
-    const moqcache* c,
-    u64             tag,
-    moqctl_loc      cur,
-    moqctl_loc      end,
-    moqcache_item*  it);
+    moqcache* c, u64 tag, moqctl_loc cur, moqctl_loc end, moqcache_item* it);
 
 #endif

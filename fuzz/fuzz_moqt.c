@@ -220,7 +220,7 @@ static void fuzz_dgram(wired_span in) {
 /* The FETCH object cache (10.12.3) driven by 4-byte ops {tag|release,
  * group, object, payload len} into a small arena, then every track read
  * back the way a FETCH serves it: each item must advance the cursor. */
-static void fuzz_cache_read(const moqcache* c, u64 tag) {
+static void fuzz_cache_read(moqcache* c, u64 tag) {
   moqctl_loc end = moqctl_loc_of(8, 0);
   moqctl_loc cur = moqcache_skip(c, tag, moqctl_loc_of(0, 0), end);
   for (int i = 0; i < 64 && moqctl_loc_less(cur, end); i++) {
