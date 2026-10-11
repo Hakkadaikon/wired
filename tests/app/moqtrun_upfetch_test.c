@@ -953,6 +953,476 @@ static void test_moqtrun_upfetch_empty_answer(void) {
   CHECK(mupf_used() == 0);
 }
 
+/* ===================== budget and markers ===================== */
+
+static int mupf_eor_is(usz i, u64 flags, u64 g, u64 o) {
+  return i < mf_n && mf_items[i].flags == flags && mf_items[i].group == g &&
+         mf_items[i].object == o;
+}
+
+/* B (draft bv) fetches {1,0}..{3,0} at clock 0, group 3 cached, with
+ * FILL_TIMEOUT ft (has: present) on a silent upstream; the leg lives
+ * until the budget and not a tick longer. */
+static void mupf_budget(int bv, int has, u64 ft, u64 budget, u64 marker) {
+  moqctl_params p = mtst_params_vi(MOQCTL_PARAM_FILL_TIMEOUT, ft);
+  moqfetch_req  m = {0};
+  mupf_init_v(bv);
+  mupf_cache_group(3, 1);
+  wired_moqt_tick(&mtst_hub, 0);
+  mupf_fetch(mupf_rl(1, 0, 3, 0), has ? &p : 0);
+  i64 sid = mupf_up(SESS_A, 0, &m);
+  wired_moqt_tick(&mtst_hub, budget - 1);
+  CHECK(mupf_log_is(SESS_A, (u64)sid, "") && mupf_used() == 1);
+  wired_moqt_tick(&mtst_hub, budget);
+  CHECK(mupf_log_is(SESS_A, (u64)sid, "RST1|STOP1|"));
+  CHECK(mupf_read(0) && mf_n == 2 && mf_fin);
+  CHECK(
+      mupf_eor_is(0, marker, 2, MOQCACHE_OBJ_ID_MAX) && mf_is_obj(1, 3, 0, 1));
+  CHECK(mupf_used() == 0);
+}
+
+/* d22 9.20.5: FILL_TIMEOUT bounds the leg, WIRED_MOQTRUN_UPFETCH_BUDGET_MS
+ * when absent; what the cache lacks is then End of Timed-Out Range toward
+ * draft-22, End of Unknown Range toward a draft without 0x20C. */
+static void test_moqtrun_upfetch_budget(void) {
+  mupf_budget(MOQVER_D22, 1, 200, 200, MOQFETCH_EOR_TIMED_OUT);
+  mupf_budget(
+      MOQVER_D22, 0, 0, WIRED_MOQTRUN_UPFETCH_BUDGET_MS,
+      MOQFETCH_EOR_TIMED_OUT);
+  mupf_budget(
+      MOQVER_D19, 1, 5000, WIRED_MOQTRUN_UPFETCH_BUDGET_MS,
+      MOQFETCH_EOR_UNKNOWN);
+}
+
+/* FILL_TIMEOUT 0: nothing is asked upstream, the gap is Timed-Out. */
+static void test_moqtrun_upfetch_fill_timeout_zero(void) {
+  moqctl_params p = mtst_params_vi(MOQCTL_PARAM_FILL_TIMEOUT, 0);
+  mupf_init();
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(1, 0, 3, 0), &p);
+  CHECK(mupf_n_up(SESS_A) == 0 && mupf_n_up(SESS_C) == 0);
+  CHECK(mupf_read(0) && mf_n == 2 && mf_fin);
+  CHECK(mupf_eor_is(0, MOQFETCH_EOR_TIMED_OUT, 2, MOQCACHE_OBJ_ID_MAX));
+}
+
+/* d22 11.4.1: an upstream 0x20C is relayed as 0x10C to a draft without
+ * it; an End of Range marker then an Object keep their prior-Object
+ * rules downstream (11.4.2). */
+static void test_moqtrun_upfetch_marker_relay(void) {
+  moqfetch_req m = {0};
+  mupf_init_v(MOQVER_D19);
+  mupf_cache_group(3, 1);
+  mupf_vers(MOQVER_D22);
+  mupf_fetch(mupf_rl(1, 0, 3, 0), 0);
+  mupf_up(SESS_A, 0, &m);
+  mupf_hdr(m.request_id, 0);
+  mupf_eor(MOQFETCH_EOR_TIMED_OUT, 1, 3);
+  mupf_obj(1, 5, 1);
+  mupf_eor(MOQFETCH_EOR_UNKNOWN, 2, 7);
+  mupf_obj(2, 9, 1);
+  mupf_send(0);
+  CHECK(mupf_read(0) && mf_n == 4);
+  CHECK(mupf_eor_is(0, MOQFETCH_EOR_UNKNOWN, 1, 3) && mf_is_obj(1, 1, 5, 1));
+  CHECK(mupf_eor_is(2, MOQFETCH_EOR_UNKNOWN, 2, 7) && mf_is_obj(3, 2, 9, 1));
+}
+
+/* ===================== the requester goes away ===================== */
+
+/* d22 3.2.4 / 6.4.2.3: B cancelling its FETCH, stopping its data stream
+ * or closing cancels the upstream FETCH -- RESET_STREAM and STOP_SENDING
+ * (CANCELLED) on the request stream, STOP_SENDING on the data stream --
+ * and frees the slot; a data stream A opens for it later is stopped. */
+static void mupf_requester_gone(int how) {
+  moqfetch_req m   = {0};
+  i64          sid = mupf_span_setup(&m);
+  if (how == 0) wired_moqt_on_stream_reset(&mtst_hub, SESS_B, mf_req_sid, 1, 0);
+  if (how == 1)
+    wired_moqt_on_stream_reset(&mtst_hub, SESS_B, mupf_fetch_sid(), 1, 0);
+  if (how == 2) wired_moqt_on_session_close(&mtst_hub, SESS_B);
+  CHECK(mupf_log_is(SESS_A, (u64)sid, "RST1|STOP1|"));
+  CHECK(mupf_log_is(SESS_A, MUPF_DATA_SID, "STOP1|"));
+  CHECK(mupf_used() == 0);
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(1, 0, 1);
+  mupf_send_on(SESS_A, MUPF_DATA_SID + 4, 0);
+  CHECK(mupf_log_is(SESS_A, MUPF_DATA_SID + 4, "STOP1|"));
+}
+
+static void test_moqtrun_upfetch_requester_gone(void) {
+  for (int how = 0; how < 3; how++) {
+    int fails = wired_test_fails;
+    mupf_requester_gone(how);
+    if (wired_test_fails != fails) printf("  ^ requester gone %d\n", how);
+  }
+}
+
+/* A first delivery cut inside the FETCH_HEADER is held until the next
+ * completes it, then routed to its FETCH like any other. */
+static void test_moqtrun_upfetch_torn_header(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(1, 0, 3, 0), 0);
+  mupf_up(SESS_A, 0, &m);
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(1, 0, 1);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, MUPF_DATA_SID, wired_span_of(mupf_buf, 1), 0);
+  CHECK(mupf_log_is(SESS_A, MUPF_DATA_SID, ""));
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, MUPF_DATA_SID, wired_span_of(mupf_buf + 1, mupf_n - 1),
+      0);
+  CHECK(mupf_read(0) && mf_n == 1 && mf_is_obj(0, 1, 0, 1));
+}
+
+/* An Object torn across deliveries is relayed whole once complete. */
+static void test_moqtrun_upfetch_torn_object(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(1, 0, 3, 0), 0);
+  mupf_up(SESS_A, 0, &m);
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(1, 0, 8);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, MUPF_DATA_SID, wired_span_of(mupf_buf, mupf_n - 3), 0);
+  CHECK(!mf_read());
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, MUPF_DATA_SID, wired_span_of(mupf_buf + mupf_n - 3, 3),
+      0);
+  CHECK(mupf_read(0) && mf_n == 1 && mf_is_obj(0, 1, 0, 8));
+}
+
+/* ===================== Malformed Track ===================== */
+
+/* The reset code the hub gave B's last fetch stream; ~0 if none. */
+static u64 mupf_reset_code(void) {
+  u64 sid = mupf_fetch_sid();
+  for (usz i = 0; i < g_n_calls; i++)
+    if (g_calls[i].kind == 7 && g_calls[i].s == SESS_B &&
+        g_calls[i].stream_id == sid)
+      return (u64)g_calls[i].fin;
+  return ~(u64)0;
+}
+
+/* The status of the PUBLISH_DONE s got on its control stream; ~0 if
+ * none. */
+static u64 mupf_done_in(wired_span all) {
+  usz        off = 0, at = 1;
+  u64        t = 0;
+  wired_span body;
+  while (off < all.n && at != off) {
+    usz                 boff = 0;
+    moqctl_publish_done d;
+    at = off;
+    moqctl_peek_type(all, &off, &t, &body);
+    if (t == MOQCTL_T_PUBLISH_DONE &&
+        moqctl_publish_done_take(body, &boff, &d) == MOQCTL_OK)
+      return d.status_code;
+  }
+  return ~(u64)0;
+}
+
+static u64 mupf_done_status(wired_wt_session* s) {
+  u64 st = ~(u64)0;
+  for (usz i = 0; i < g_n_calls; i++)
+    if (g_calls[i].s == s && (g_calls[i].kind == 3 || g_calls[i].kind == 12) &&
+        st == ~(u64)0)
+      st = mupf_done_in(
+          wired_span_of(g_calls[i].payload, g_calls[i].payload_len));
+  return st;
+}
+
+/* d22 12.1 #5: past the final Object FETCH_OK's End Of Track named --
+ * neither relayed nor cached; B's fetch is reset MALFORMED_TRACK, and the
+ * held track ends for its subscribers with PUBLISH_DONE MALFORMED_TRACK. */
+static void test_moqtrun_upfetch_malformed_past_end(void) {
+  moqctl_ftn   f = mf_track();
+  moqfetch_req m = {0};
+  mupf_init();
+  mtst_join(SESS_D);
+  mtst_subscribe_p(SESS_D, MTRQ_S1, &f, mtst_rid += 2, 0);
+  mupf_cache_group(3, 1);
+  mupf_cache_group(4, 1);
+  mupf_fetch(mupf_rl(1, 0, 4, 0), 0);
+  i64 sid = mupf_up(SESS_A, 0, &m);
+  mupf_up_ok_p(SESS_A, sid, mf_loc(2, 1), 1, wired_span_of(0, 0));
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(1, 0, 1);
+  mupf_obj(2, 2, 1);
+  usz cached = mtst_hub.cache.used;
+  mupf_send(0);
+  CHECK(mupf_read(0) && mf_n == 1 && mf_is_obj(0, 1, 0, 1));
+  CHECK(mupf_reset_code() == MOQTRUN_RESET_MALFORMED_TRACK);
+  CHECK(mtst_hub.cache.used <= cached); /* {2,2} never cached */
+  CHECK(mupf_log_is(SESS_A, (u64)sid, "RST1|STOP1|"));
+  CHECK(mupf_done_status(SESS_D) == MOQCTL_DONE_MALFORMED_TRACK);
+  CHECK(mupf_used() == 0);
+}
+
+/* d22 12.1 #6: the cache holds {2,0} and the upstream sends {2,0} with
+ * another payload: Malformed, never relayed. */
+static void test_moqtrun_upfetch_malformed_conflict(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  wired_moqt_cache_attach(&mtst_hub, mupf_arena, 3 * MOQCACHE_HDR + 4);
+  mf_obj(2, 0, 1);
+  mf_obj(3, 0, 100); /* too big: group 3 is a tombstone */
+  mf_obj(4, 0, 1);
+  mupf_fetch(mupf_rl(1, 0, 4, 0), 0);
+  CHECK(mupf_up(SESS_A, 0, &m) >= 0 && m.range.end_group == 3);
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(1, 0, 1);
+  mupf_obj_b(2, 0, 1, 0x77);
+  mupf_send(0);
+  CHECK(mupf_read(0) && mf_n == 1 && mf_is_obj(0, 1, 0, 1));
+  CHECK(mupf_reset_code() == MOQTRUN_RESET_MALFORMED_TRACK);
+}
+
+/* A relayed Object is not kept, so a conflicting repeat of one is caught
+ * as out of place: the leg ends, the cache side goes on, no Malformed. */
+static void test_moqtrun_upfetch_repeat_of_relayed(void) {
+  moqfetch_req m = {0};
+  mupf_span_setup(&m);
+  mupf_obj_b(2, 0, 1, 0x77);
+  mupf_send(0);
+  CHECK(mupf_resumed_after_20() && mupf_reset_code() == ~(u64)0);
+}
+
+/* d22 12.1 #4: past the final Object of a Group whose END_OF_GROUP the
+ * held track saw is Malformed too. */
+static void test_moqtrun_upfetch_malformed_group_end(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  mupf_cache_group(3, 1);
+  wired_moqtrun_track* t =
+      moqtrun_pubst_track(&mtst_hub, mtst_hub.cache_tag_next);
+  CHECK(t != 0);
+  if (!t) return;
+  t->group_end = mf_loc(2, 0);
+  t->end_flags |= 2;
+  mupf_fetch(mupf_rl(1, 0, 3, 0), 0);
+  mupf_up(SESS_A, 0, &m);
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(2, 0, 1);
+  mupf_obj(2, 1, 1);
+  mupf_send(0);
+  CHECK(mupf_read(0) && mf_n == 1);
+  CHECK(mupf_reset_code() == MOQTRUN_RESET_MALFORMED_TRACK);
+}
+
+/* d22 12.1: Malformed on one leg resets every other fetch of that track
+ * from that publisher MALFORMED_TRACK and cancels its upstream FETCH --
+ * here two FETCHes of a track the hub does not hold, both to C. */
+static void test_moqtrun_upfetch_malformed_siblings(void) {
+  moqfetch_req m0 = {0}, m1 = {0};
+  mupf_init();
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  i64 s0 = mupf_up(SESS_C, 0, &m0);
+  i64 s1 = mupf_up(SESS_C, 1, &m1);
+  mupf_up_ok_p(SESS_C, s0, mf_loc(1, 0), 1, wired_span_of(0, 0));
+  mupf_up_ok_p(SESS_C, s1, mf_loc(1, 0), 1, wired_span_of(0, 0));
+  mupf_hdr(m1.request_id, 0);
+  mupf_obj(0, 0, 1);
+  mupf_send_on(SESS_C, MUPF_DATA_SID + 4, 0);
+  mupf_hdr(m0.request_id, 0);
+  mupf_obj(2, 0, 1);
+  mupf_send_on(SESS_C, MUPF_DATA_SID, 0);
+  CHECK(mupf_log_is(SESS_C, (u64)s0, "RST1|STOP1|"));
+  CHECK(mupf_log_is(SESS_C, (u64)s1, "RST1|STOP1|"));
+  CHECK(mupf_used() == 0);
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++)
+    n += g_calls[i].kind == 7 && g_calls[i].s == SESS_B &&
+         g_calls[i].fin == MOQTRUN_RESET_MALFORMED_TRACK;
+  CHECK(n == 2);
+}
+
+/* ===================== Mandatory Track Properties ===================== */
+
+/* One Track Property of type 0x4000 (Mandatory, d22 3.7). */
+static wired_span mupf_mand(void) {
+  static u8 b[16];
+  usz       n    = 0;
+  u64       prev = 0;
+  moqkvp    kv   = {0};
+  kv.type        = 0x4000;
+  kv.num         = 1;
+  CHECK(moqkvp_put(wired_mspan_of(b, sizeof b), &n, &prev, &kv));
+  return wired_span_of(b, n);
+}
+
+/* d22 3.7: an unknown Mandatory Track Property in FETCH_OK cancels the
+ * upstream FETCH: UNSUPPORTED_EXTENSION while B is unanswered, B's stream
+ * reset once data went out, else the cache side. */
+static void test_moqtrun_upfetch_mandatory(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  i64 sid = mupf_up(SESS_C, 0, &m);
+  mupf_up_ok_p(SESS_C, sid, mf_loc(1, 0), 0, mupf_mand());
+  CHECK(mupf_refused(MOQCTL_ERR_UNSUPPORTED_EXTENSION));
+  CHECK(mupf_log_is(SESS_C, (u64)sid, "RST1|STOP1|") && mupf_used() == 0);
+  sid = mupf_span_setup(&m);
+  mupf_up_ok_p(SESS_A, sid, mf_loc(2, 0), 0, mupf_mand());
+  CHECK(mupf_reset_code() == MOQTRUN_RESET_INTERNAL_ERROR);
+  CHECK(mupf_log_is(SESS_A, (u64)sid, "RST1|STOP1|") && mupf_used() == 0);
+  mupf_init();
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(1, 0, 3, 0), 0);
+  sid = mupf_up(SESS_A, 0, &m);
+  mupf_up_ok_p(SESS_A, sid, mf_loc(2, 0), 0, mupf_mand());
+  CHECK(mupf_read(0) && mf_n == 2 && mf_fin);
+  CHECK(mf_is_unknown(0, 2, MOQCACHE_OBJ_ID_MAX) && mf_is_obj(1, 3, 0, 1));
+}
+
+/* ===================== the track owner leaves ===================== */
+
+/* Calls the hub made toward s from call index from on. */
+static usz mupf_calls_to(wired_wt_session* s, usz from) {
+  usz n = 0;
+  for (usz i = from; i < g_n_calls; i++) n += g_calls[i].s == s;
+  return n;
+}
+
+/* A fill of alice from group 1 (group 3 cached): its upstream FETCH is in
+ * flight to A; returns the fill's Request ID. */
+static u64 mupf_fill_setup(moqfetch_req* m) {
+  moqfetch_fill fill = {0};
+  mupf_init();
+  mupf_cache_group(3, 1);
+  fill.has_filter        = 1;
+  fill.range.sk          = MOQCTL_RSK_ABS;
+  fill.range.start_group = 1;
+  fill.range.ek          = MOQCTL_REK_UNBOUNDED;
+  u64 rid                = mfill_subscribe(&fill, 0);
+  mupf_up(SESS_A, 0, m);
+  return rid;
+}
+
+/* The owner's session closes during the leg (d22 3.4.1): nothing more
+ * goes toward it, and a fill -- relaying already or not opened yet --
+ * is reset INTERNAL_ERROR at once (never a Timed-Out FIN), its upstream
+ * FETCH let go first, so it holds no PUBLISH_DONE back. */
+static void mupf_owner_gone_fill(int relayed) {
+  moqfetch_req m   = {0};
+  u64          rid = mupf_fill_setup(&m);
+  CHECK(!moqtrun_fetch_blocked(&mtst_hub.fetches[0]));
+  if (relayed) {
+    mupf_hdr(m.request_id, 0);
+    mupf_obj(1, 0, 1);
+    mupf_send(0);
+  }
+  usz before = g_n_calls;
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  CHECK(mupf_calls_to(SESS_A, before) == 0);
+  CHECK(mupf_reset_code() == MOQTRUN_RESET_INTERNAL_ERROR);
+  CHECK(!moqtrun_fill_held_for(&mtst_hub, SESS_B, rid));
+  CHECK(mupf_used() == 0);
+}
+
+static void test_moqtrun_upfetch_owner_gone_fill(void) {
+  mupf_owner_gone_fill(1);
+  mupf_owner_gone_fill(0);
+}
+
+/* A FETCH whose leg went to the leaving owner reads the released cache
+ * as Unknown to its End, then FIN; nothing more goes toward the owner. */
+static void test_moqtrun_upfetch_owner_gone_fetch(void) {
+  moqfetch_req m = {0};
+  mupf_span_setup(&m);
+  usz before = g_n_calls;
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mupf_calls_to(SESS_A, before) == 0);
+  CHECK(mupf_read(0) && mf_n == 3 && mf_fin);
+  CHECK(mf_is_obj(1, 2, 0, 1) && mf_is_unknown(2, 4, 0));
+  CHECK(mupf_used() == 0);
+}
+
+/* Live Objects evicting a cached group while the leg runs: the cache side
+ * reports it Unknown, nothing twice. */
+static void test_moqtrun_upfetch_evicted_during_leg(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  wired_moqt_cache_attach(&mtst_hub, mupf_arena, 2 * (MOQCACHE_HDR + 1));
+  mupf_cache_group(3, 1);
+  mupf_cache_group(4, 1);
+  mupf_fetch(mupf_rl(1, 0, 4, 0), 0);
+  i64 sid = mupf_up(SESS_A, 0, &m);
+  mf_obj(5, 0, 1); /* evicts group 3 */
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(1, 0, 1);
+  mupf_obj(2, 0, 1);
+  mupf_send(0);
+  mupf_up_ok(sid, 2, MOQFETCH_OBJ_GROUP_END);
+  mupf_send(1);
+  CHECK(mupf_read(0) && mf_n == 4 && mf_fin);
+  CHECK(mf_is_obj(0, 1, 0, 1) && mf_is_obj(1, 2, 0, 1));
+  CHECK(mf_is_unknown(2, 3, MOQCACHE_OBJ_ID_MAX) && mf_is_obj(3, 4, 0, 1));
+}
+
+/* ===================== Range Filters ===================== */
+
+/* d22 3.3.2: the FETCH's Range Filter goes upstream byte for byte, and a
+ * gap the publisher leaves unmarked is relayed unmarked. */
+static void test_moqtrun_upfetch_range_filter(void) {
+  moqctl_rangefilter  rf = mtst_rngf1(0, 0, 4, 1);
+  moqctl_params       p  = {0};
+  moqfetch_req        m  = {0};
+  const moqctl_param* up;
+  mtst_rngf_param(&p, MOQCTL_PARAM_OBJECTID_FILTER, &rf);
+  mupf_init();
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(1, 0, 3, 0), &p);
+  CHECK(mupf_up(SESS_A, 0, &m) >= 0);
+  up = moqctl_params_find(&m.params, MOQCTL_PARAM_OBJECTID_FILTER);
+  CHECK(up && up->bytes.n == p.items[0].bytes.n);
+  CHECK(up && !ct_diffn(up->bytes.p, p.items[0].bytes.p, up->bytes.n));
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(1, 0, 1);
+  mupf_obj(1, 3, 1);
+  mupf_send(0);
+  CHECK(mupf_read(0) && mf_n == 2);
+  CHECK(mf_is_obj(0, 1, 0, 1) && mf_is_obj(1, 1, 3, 1));
+}
+
+/* ===================== malformed upstream bytes ===================== */
+
+/* A FETCH_OK that does not decode closes A PROTOCOL_VIOLATION (only A);
+ * B gets the cache side. */
+static void test_moqtrun_upfetch_bad_reply_bytes(void) {
+  static const u8 bad[] = {0x18, 0x00, 0x01, 0xFF}; /* FETCH_OK, cut */
+  moqfetch_req    m     = {0};
+  i64             sid   = mupf_span_setup(&m);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, (u64)sid, wired_span_of(bad, sizeof bad), 0);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(11);
+  CHECK(c && c->s == SESS_A && moqtrun_test_count_kind(11) == 1);
+  CHECK(mupf_resumed_after_20());
+}
+
+/* d22 11.4.4: a Group ID Delta below Group 0 on a Descending stream
+ * closes A PROTOCOL_VIOLATION; B gets the cache side. */
+static void test_moqtrun_upfetch_delta_underflow(void) {
+  static const u8 under[] = {0x1C, 0x05, 0x00, 0x80, 0x00};
+  moqctl_params   desc    = mtst_params_u8(MOQCTL_PARAM_GROUP_ORDER, 2);
+  moqfetch_req    m       = {0};
+  mupf_init_nocache();
+  mupf_fetch(mupf_rl(1, 0, 2, 1), &desc);
+  mupf_up(SESS_A, 0, &m);
+  mupf_hdr(m.request_id, 1);
+  mupf_obj(2, 0, 1);
+  for (usz i = 0; i < sizeof under; i++) mupf_buf[mupf_n++] = under[i];
+  mupf_send(0);
+  const moqtrun_test_call* c = moqtrun_test_last_kind(11);
+  CHECK(
+      c && c->s == SESS_A &&
+      c->stream_id == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  CHECK(mupf_read(1) && mf_fin && mf_is_obj(0, 2, 0, 1));
+}
+
 void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_upsub_skips_goaway();
   test_moqtrun_upfetch_gap_to_owner();
@@ -980,4 +1450,22 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_two_goaways();
   test_moqtrun_upfetch_fin_then_ok();
   test_moqtrun_upfetch_empty_answer();
+  test_moqtrun_upfetch_budget();
+  test_moqtrun_upfetch_fill_timeout_zero();
+  test_moqtrun_upfetch_marker_relay();
+  test_moqtrun_upfetch_requester_gone();
+  test_moqtrun_upfetch_torn_header();
+  test_moqtrun_upfetch_torn_object();
+  test_moqtrun_upfetch_malformed_past_end();
+  test_moqtrun_upfetch_malformed_conflict();
+  test_moqtrun_upfetch_repeat_of_relayed();
+  test_moqtrun_upfetch_malformed_group_end();
+  test_moqtrun_upfetch_malformed_siblings();
+  test_moqtrun_upfetch_mandatory();
+  test_moqtrun_upfetch_owner_gone_fill();
+  test_moqtrun_upfetch_owner_gone_fetch();
+  test_moqtrun_upfetch_evicted_during_leg();
+  test_moqtrun_upfetch_range_filter();
+  test_moqtrun_upfetch_bad_reply_bytes();
+  test_moqtrun_upfetch_delta_underflow();
 }
