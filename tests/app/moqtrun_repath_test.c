@@ -182,6 +182,40 @@ static void test_moqtrun_repath_each_end(void) {
   }
 }
 
+/* The hub itself closing A's session waits for a new path as A's own
+ * close does: after a malformed GOAWAY (PROTOCOL_VIOLATION) and after
+ * A's GOAWAY drain runs out. B is asked once the session is gone. */
+static void test_moqtrun_repath_hub_closes(void) {
+  static const u8 bad[] = {0x05};
+  u64             code  = 0;
+  for (int drain = 0; drain < 2; drain++) {
+    int fails = wired_test_fails;
+    mrp_init();
+    mrp_announce(SESS_B);
+    if (drain) {
+      wired_moqt_on_session_draining(&mtst_hub, SESS_A);
+      wired_moqt_tick(&mtst_hub, WIRED_MOQTRUN_DRAIN_TIMEOUT_MS);
+      wired_moqt_tick(
+          &mtst_hub,
+          WIRED_MOQTRUN_DRAIN_TIMEOUT_MS + WIRED_MOQTRUN_GOAWAY_GRACE_MS + 1);
+    } else {
+      mtrq_raw(SESS_A, mtdr_ctl(SESS_A), MOQCTL_T_GOAWAY, bad, sizeof bad);
+    }
+    CHECK(mtdr_closes(SESS_A, &code) == 1);
+    /* the transport reports the close a tick later */
+    wired_moqt_tick(
+        &mtst_hub, drain ? WIRED_MOQTRUN_DRAIN_TIMEOUT_MS +
+                               WIRED_MOQTRUN_GOAWAY_GRACE_MS + 2
+                         : 1);
+    wired_moqt_on_session_close(&mtst_hub, SESS_A);
+    CHECK(mrp_no_done());
+    CHECK(mups_n_up(SESS_B) == 1);
+    mrp_ok(SESS_B, mrp_up(SESS_B, 0));
+    CHECK(mrp_relayed(SESS_B));
+    if (wired_test_fails != fails) printf("  ^ drain %d\n", drain);
+  }
+}
+
 /* Every other PUBLISH_DONE status goes downstream at once, spelled for
  * the subscriber's draft; B is not asked. */
 static void test_moqtrun_repath_final_status(void) {
@@ -630,6 +664,7 @@ static void test_moqtrun_repath_malformed(void) {
 static void mtall_repath(void) {
   test_moqtrun_repath_takeover();
   test_moqtrun_repath_each_end();
+  test_moqtrun_repath_hub_closes();
   test_moqtrun_repath_final_status();
   test_moqtrun_repath_silent_wait();
   test_moqtrun_repath_late_announce();

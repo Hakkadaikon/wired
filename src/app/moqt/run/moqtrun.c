@@ -10154,17 +10154,25 @@ static void moqtrun_up_settle(
   if (!moqtrun_up_wanted(hub, u, t)) moqtrun_up_cancel(hub, pp, u, t);
 }
 
-/* A publisher session gone or closing takes u with it, no io
- * (NoLeakOnClose); its track already ended for every subscriber. */
+/* A publisher session the hub is closing keeps u, untouched, until the
+ * close lands: wired_moqt_on_session_close then ends its track through u
+ * (a wait for a new path, as for the publisher's own close). */
+static void moqtrun_up_settle_open(
+    wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u) {
+  if (!pp->closing) moqtrun_up_settle(hub, pp, u);
+}
+
+/* A publisher session gone takes u with it, no io (NoLeakOnClose); its
+ * track already ended for every subscriber. */
 static void moqtrun_up_sweep_one(wired_moqt_hub* hub, wired_moqtrun_up* u) {
   wired_moqtrun_peer* pp;
   if (!u->in_use) return;
   pp = moqtrun_find_by_wt(hub, u->wt);
-  if (!moqtrun_rdv_peer_open(pp)) {
+  if (!pp) {
     u->in_use = 0;
     return;
   }
-  moqtrun_up_settle(hub, pp, u);
+  moqtrun_up_settle_open(hub, pp, u);
 }
 
 static void moqtrun_up_sync(wired_moqt_hub* hub) {
