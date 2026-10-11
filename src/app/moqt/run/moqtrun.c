@@ -9366,6 +9366,17 @@ static void moqtrun_rp_keep_count(
   if (kept) kept->stream_count = s->stream_count;
 }
 
+/* The request stream of sub slot si of t if it may wait for a new path:
+ * not the old side of a SWITCH_FROM, which ends now as on any other end
+ * (moqtsw_orphan then releases the new side's start bound), so a later
+ * re-attach can never feed both sides the same Group. */
+static wired_moqtrun_req* moqtrun_rp_waiter(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, usz si) {
+  return t->subs[si].sw_role == MOQTSW_ROLE_OLD
+             ? 0
+             : moqtrun_sub_slot_req(hub, t, si);
+}
+
 /* Sub slot si of t, fed by u, waits for a new path: its streams stop, its
  * name stays known for the re-attach. 0 when it cannot wait: no request
  * stream, or no wait slot left (moqtrun_rdv_admit). */
@@ -9375,7 +9386,7 @@ static int moqtrun_rp_wait(
     usz                     si,
     const wired_moqtrun_up* u,
     u64                     status) {
-  wired_moqtrun_req* q = moqtrun_sub_slot_req(hub, t, si);
+  wired_moqtrun_req* q = moqtrun_rp_waiter(hub, t, si);
   wired_moqtrun_rdv* r = q ? moqtrun_rdv_admit(hub, q->wt) : 0;
   if (!r) return 0;
   moqtrun_rp_store(hub, r, q, u, status, t->subs[si].stream_count);
