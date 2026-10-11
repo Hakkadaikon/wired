@@ -1224,6 +1224,29 @@ static void test_srvloop_connect_drives_without_fin(void) {
   CHECK(req.protocol_len == 12);
 }
 
+/* RFC 9114 4.1.2: a CONNECT whose complete HEADERS cannot be turned into a
+ * request (here an empty :path) gets no FIN to wait for, so it is
+ * completed and rejected at once instead of holding its slot forever. */
+static void test_srvloop_undecodable_connect_rejected_without_fin(void) {
+  struct lp_fix   f;
+  u8              out[1024], stream[512], spkt[1024];
+  wired_obuf      ob = {out, sizeof out, 0};
+  usz             n, slen;
+  h3req_pseudo_in pin = {
+      wired_span_of((const u8*)"CONNECT", 7),
+      wired_span_of((const u8*)"https", 5), wired_span_of((const u8*)"h", 1),
+      wired_span_of((const u8*)"", 0),
+      wired_span_of((const u8*)"webtransport", 12)};
+  lp_confirm(&f, &ob);
+  n    = lp_build_headers_stream(&pin, 0, stream, sizeof stream);
+  slen = client_seal_onertt_pn(&f, 3, stream, n, spkt, sizeof spkt);
+  ob   = (wired_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.done_n == 0);
+  CHECK(f.l.incomplete_n == 1);
+}
+
 /* The FIN gate stays for everything that is not a CONNECT: a GET without FIN
  * is not decoded yet (a request body/trailer may still be in flight). */
 static void test_srvloop_get_still_waits_for_fin(void) {
@@ -5604,6 +5627,7 @@ void test_srvloop(void) {
   test_srvloop_handshake_ack_tracks_pn();
   test_srvloop_confirm_and_200_coalesce();
   test_srvloop_connect_drives_without_fin();
+  test_srvloop_undecodable_connect_rejected_without_fin();
   test_srvloop_get_still_waits_for_fin();
   test_srvloop_confirm_emitted_once();
   test_srvloop_ticket_sent_on_confirm();

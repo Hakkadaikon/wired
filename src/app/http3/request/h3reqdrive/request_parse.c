@@ -24,11 +24,15 @@ static int find_headers_frame_ok(const h3_frame* f, int* unexpected) {
 /* One find_headers step: decode the frame at *off into *f and advance *off
  * past it. Returns 1 to keep walking (a skipped frame this endpoint accepts),
  * 0 to stop -- either HEADERS was reached, the stream ran out, or the frame
- * must be rejected (*unexpected set by find_headers_frame_ok). */
+ * must be rejected (*unexpected set by find_headers_frame_ok). A truncated
+ * frame leaves *f untouched: h3_frame_get may already have written its
+ * type, and a truncated HEADERS must not read as found. */
 static int find_headers_step(
     wired_span h3, usz* off, h3_frame* f, int* unexpected) {
-  usz used = h3_frame_get(wired_span_of(h3.p + *off, h3.n - *off), f);
+  h3_frame g    = {0};
+  usz      used = h3_frame_get(wired_span_of(h3.p + *off, h3.n - *off), &g);
   if (!used) return 0;
+  *f = g;
   if (!find_headers_frame_ok(f, unexpected)) return 0;
   *off += used;
   return f->type != H3_FRAME_HEADERS;

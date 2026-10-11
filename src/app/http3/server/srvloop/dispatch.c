@@ -219,16 +219,19 @@ static int peek_decode_request(
  * stream never carries FIN -- the stream IS the WebTransport session and
  * stays open for its whole lifetime -- so a CONNECT request is complete at
  * its HEADERS frame. 1 if acc currently holds one complete HEADERS frame
- * that decodes to a CONNECT request. The decode lands in in->req, so a
- * section that failed to decode (req.qpack_failed) is seen by the caller
- * even though no FIN completes the request. */
+ * that decodes to a CONNECT request, or that cannot decode into a request
+ * at all (no FIN would change that, and one may never come): the caller
+ * then rejects it. The decode lands in in->req, so a section prefix that
+ * failed to decode (req.qpack_failed, a connection error) is left to the
+ * caller instead. */
 static int connect_headers_complete(
     const wired_h3srv_state*         h3,
     const wired_srvloop_reqacc*      acc,
     const wired_srvloop_dispatch_in* in) {
   usz n = acc_headers_frame_len(acc);
   if (n == 0) return 0;
-  if (!peek_decode_request(h3, acc, in, n, in->req)) return 0;
+  if (!peek_decode_request(h3, acc, in, n, in->req))
+    return !in->req->qpack_failed;
   return req_method_is_connect(in->req);
 }
 
@@ -1388,18 +1391,15 @@ static void route_note_incomplete_append(wired_srvloop* l, int i) {
     l->incomplete_slots[l->incomplete_n++] = (u8)i;
 }
 
-/* RFC 9114 4.1: slot i's request stream reached FIN without decoding into a
- * request -- append it to incomplete_slots (the H3_REQUEST_INCOMPLETE
- * counterpart of route_note_done) for whichever layer aborts it, UNLESS the
- * decode failed because the stream carried a frame this endpoint must reject
- * outright (req.frame_unexpected, 9114-067/9114-073), which takes the
- * H3_FRAME_UNEXPECTED list instead. A CONNECT completed by
- * connect_headers_complete rather than FIN is never incomplete (it
- * deliberately never gets a FIN, see request_complete's doc), so this is
- * gated on the stream's own FIN latch, not just "decode failed". */
+/* RFC 9114 4.1: slot i's request stream completed (FIN, or a HEADERS frame
+ * with no FIN to wait for, see connect_headers_complete) without decoding
+ * into a request -- append it to incomplete_slots (the
+ * H3_REQUEST_INCOMPLETE counterpart of route_note_done) for whichever layer
+ * aborts it, UNLESS the decode failed because the stream carried a frame
+ * this endpoint must reject outright (req.frame_unexpected,
+ * 9114-067/9114-073), which takes the H3_FRAME_UNEXPECTED list instead. */
 static void route_note_incomplete(wired_srvloop* l, int i) {
   wired_srvloop_stream_slot* slot = &l->streams[i];
-  if (!slot->req_fin) return;
   if (slot->req.frame_unexpected)
     route_note_frame_unexpected(l, i);
   else
